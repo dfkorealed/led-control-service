@@ -1,6 +1,7 @@
 import { Inject, Injectable, LoggerService } from "@nestjs/common";
 import { RequestContext } from "./request-context.middleware";
 import { OBSERVABILITY_CLOCK } from "./readiness.service";
+import { safeCadImportDiagnosticFields } from "../floor-import/cad-import-diagnostics";
 
 export const STRUCTURED_LOG_WRITER = Symbol("STRUCTURED_LOG_WRITER");
 
@@ -45,7 +46,8 @@ const safeContexts = new Set([
   "RedisProvider",
   "EnergyReportCleanupService",
   "EnergyRetentionService",
-  "EnergyReportWorkerService"
+  "EnergyReportWorkerService",
+  "FloorImportWorkerService"
 ]);
 
 @Injectable()
@@ -109,7 +111,8 @@ function classifyApplicationEvent(message: unknown, level: LogLevel) {
   const error = message instanceof Error ? message : record?.error;
   const requestedClass = error instanceof Error ? error.name : record?.errorClass;
   const errorClass = typeof requestedClass === "string" && errorClasses.has(requestedClass) ? requestedClass : "Error";
-  return { operation, errorClass };
+  return { operation, errorClass,
+    ...(operation === "background_job" ? safeCadImportDiagnosticFields(record) : {}) };
 }
 
 function classifyLegacyOperation(message: string) {

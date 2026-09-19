@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { CAD_IMPORT_MAX_REGIONS } from "@led-control/shared";
 import {
   cadBulgeArc,
   computeCadBounds,
@@ -15,7 +16,7 @@ const DEFAULT_MAX_SPATIAL_BUCKETS = 200_000;
 const MAX_FILLED_BUCKETS_PER_ENTITY = 1_024;
 const MAX_BUCKETS_PER_SEGMENT = 4_096;
 const MAX_SPARSE_PROXIMITY_STEPS = 200_000;
-export const CAD_MAX_DETECTED_REGIONS = 16_384;
+export const CAD_MAX_DETECTED_REGIONS = CAD_IMPORT_MAX_REGIONS;
 
 export interface CadDetectedRegion {
   regionId: string;
@@ -30,6 +31,7 @@ export interface CadRegionDetectionResult {
   regions: CadDetectedRegion[];
   excludedPrimitiveCount: number;
   candidateRegionAssignments: CadCandidateRegionAssignment[];
+  candidatePositions: Map<string, CadPoint>;
 }
 
 export interface CadCandidateRegionAssignment {
@@ -60,17 +62,78 @@ export class CadRegionDetectionError extends Error {
   }
 }
 
-interface GeometryRecord {
-  expanded: ExpandedCadEntity;
-  sourceEntityId: string;
-  associationIds: string[];
-  bounds: CadBounds;
-  text: boolean;
-  singletonPointNoise: boolean;
+const RECORD_CHUNK_SIZE = 8192;
+
+class GeometryRecords {
+  length = 0;
+  private readonly chunks: Array<{ bounds: Float64Array; flags: Uint8Array; ids: Uint32Array }> = [];
+  private readonly identityChunks: Uint16Array[] = [];
+  private identityOffset = 0;
+  readonly associations = new Map<number, string[]>();
+
+  add(item: ExpandedCadEntity, bounds: CadBounds, associations: string[]): void {
+    const offset = this.length % RECORD_CHUNK_SIZE;
+    if (offset === 0) this.chunks.push({
+      bounds: new Float64Array(RECORD_CHUNK_SIZE * 4),
+      flags: new Uint8Array(RECORD_CHUNK_SIZE),
+      ids: new Uint32Array(RECORD_CHUNK_SIZE * 2)
+    });
+    const chunk = this.chunks[Math.floor(this.length / RECORD_CHUNK_SIZE)];
+    chunk.bounds.set([bounds.minX, bounds.minY, bounds.maxX, bounds.maxY], offset * 4);
+    chunk.flags[offset] = item.entity.type === "point" ? 2 : item.entity.type === "text" || item.entity.type === "mtext" ? 1 : 0;
+    // UTF-16 code units preserve the existing JS lexical sort, including
+    // supplementary Unicode identities, without retaining one string per occurrence.
+    const id = item.sourceEntityId.normalize("NFKC");
+    chunk.ids.set([this.identityOffset, id.length], offset * 2);
+    for (let index = 0; index < id.length; index++) {
+      const position = this.identityOffset++;
+      if (position % RECORD_CHUNK_SIZE === 0) this.identityChunks.push(new Uint16Array(RECORD_CHUNK_SIZE));
+      this.identityChunks[Math.floor(position / RECORD_CHUNK_SIZE)][position % RECORD_CHUNK_SIZE] = id.charCodeAt(index);
+    }
+    if (associations.length > 0) this.associations.set(this.length, associations);
+    this.length++;
+  }
+
+  bounds(index: number): CadBounds {
+    const data = this.chunks[Math.floor(index / RECORD_CHUNK_SIZE)].bounds;
+    const offset = index % RECORD_CHUNK_SIZE * 4;
+    return { minX: data[offset], minY: data[offset + 1], maxX: data[offset + 2], maxY: data[offset + 3] };
+  }
+
+  flags(index: number): number {
+    return this.chunks[Math.floor(index / RECORD_CHUNK_SIZE)].flags[index % RECORD_CHUNK_SIZE];
+  }
+
+  private identity(index: number): [number, number] {
+    const ids = this.chunks[Math.floor(index / RECORD_CHUNK_SIZE)].ids;
+    const offset = index % RECORD_CHUNK_SIZE * 2;
+    return [ids[offset], ids[offset + 1]];
+  }
+
+  private codeUnit(position: number): number {
+    return this.identityChunks[Math.floor(position / RECORD_CHUNK_SIZE)][position % RECORD_CHUNK_SIZE];
+  }
+
+  compareIds(left: number, right: number): number {
+    const [a, aLength] = this.identity(left);
+    const [b, bLength] = this.identity(right);
+    for (let i = 0; i < Math.min(aLength, bLength); i++) {
+      const difference = this.codeUnit(a + i) - this.codeUnit(b + i);
+      if (difference !== 0) return difference;
+    }
+    return aLength - bLength;
+  }
+
+  sourceId(index: number): string {
+    const [start, length] = this.identity(index);
+    const codes = new Array<number>(length);
+    for (let i = 0; i < length; i++) codes[i] = this.codeUnit(start + i);
+    return String.fromCharCode(...codes);
+  }
 }
 
 interface RegionAccumulator {
-  sourceEntityIds: string[];
+  sourceEntityIndexes: number[];
   associationIds: Set<string>;
   bounds: CadBounds;
   primitiveCount: number;
@@ -99,12 +162,12 @@ interface SparseArc extends ArcSpanner {
 type AnalyticPrimitive = ArcSpanner | { start: CadPoint; end: CadPoint };
 
 class DisjointSet {
-  private readonly parents: number[];
-  private readonly ranks: number[];
+  private readonly parents: Uint32Array;
+  private readonly ranks: Uint8Array;
 
   constructor(size: number) {
-    this.parents = Array.from({ length: size }, (_, index) => index);
-    this.ranks = new Array(size).fill(0);
+    this.parents = Uint32Array.from({ length: size }, (_, index) => index);
+    this.ranks = new Uint8Array(size);
   }
 
   find(index: number): number {
@@ -142,35 +205,40 @@ export function detectCadRegions(
   }
 
   const sampleSpline = createCadSplineSampler(options.maxSplineSamples ?? CAD_MAX_SPLINE_SAMPLES_PER_DOCUMENT);
-  const records: GeometryRecord[] = [];
-  for (const item of iterateCadDocumentExpansion(document, {
-    maxRenderedEntities: maxExpandedEntities,
-    maxBlockDepth,
-    checkBudget: options.checkBudget
-  })) {
+  const candidateAssociationIds = new Set(
+    (options.lightCandidates ?? []).map(candidate => normalizeAssociationId(candidate.sourceEntityId))
+  );
+  const expansionOptions = { maxRenderedEntities: maxExpandedEntities, maxBlockDepth, checkBudget: options.checkBudget };
+  const records = new GeometryRecords();
+  const candidateGeometryBounds = new Map<string, CadBounds>();
+  const candidatePositions = new Map<string, CadPoint>();
+  const noAssociations: string[] = [];
+  for (const item of iterateCadDocumentExpansion(document, expansionOptions)) {
     if (!item) continue;
     const bounds = computeCadBounds([item], options.checkBudget, undefined, sampleSpline);
-    records.push({
-      expanded: item,
-      sourceEntityId: item.sourceEntityId,
-      associationIds: [
+    const associationIds =
+      // Only candidate identities are queried later. Keeping every INSERT prefix
+      // per occurrence duplicates the document's largest strings and paths.
+      candidateAssociationIds.size === 0 ? noAssociations : [
         item.sourceEntityId,
         ...(item.occurrencePath ?? []).map((_, index, path) => cadExpandedSourceId(path.slice(0, index + 1)))
-      ],
-      bounds,
-      text: item.entity.type === "text" || item.entity.type === "mtext",
-      singletonPointNoise: item.entity.type === "point"
-    });
+      ].filter(id => candidateAssociationIds.has(normalizeAssociationId(id)));
+    records.add(item, bounds, associationIds);
+    for (const id of associationIds) {
+      const key = normalizeAssociationId(id);
+      const existing = candidateGeometryBounds.get(key);
+      if (existing) includeBounds(existing, bounds);
+      else candidateGeometryBounds.set(key, { ...bounds });
+    }
   }
-  if (records.length === 0) return { regions: [], excludedPrimitiveCount: 0, candidateRegionAssignments: [] };
+  if (records.length === 0) return { regions: [], excludedPrimitiveCount: 0, candidateRegionAssignments: [], candidatePositions };
 
-  const positiveExtents = records
-    .map(record => Math.hypot(
-      record.bounds.maxX - record.bounds.minX,
-      record.bounds.maxY - record.bounds.minY
-    ))
+  const positiveExtents = Float64Array.from({ length: records.length }, (_, index) => {
+    const bounds = records.bounds(index);
+    return Math.hypot(bounds.maxX - bounds.minX, bounds.maxY - bounds.minY);
+  })
     .filter(extent => extent > 0)
-    .sort((left, right) => left - right);
+    .sort();
   const documentDiagonal = Math.hypot(
     Math.max(0, document.bounds.maxX - document.bounds.minX),
     Math.max(0, document.bounds.maxY - document.bounds.minY)
@@ -179,66 +247,46 @@ export function detectCadRegions(
     ? positiveExtents[Math.floor(positiveExtents.length / 2)]
     : Math.max(1, documentDiagonal / 100);
   const cellSize = Math.max(1e-9, medianExtent * 4);
-  const buckets = new Map<string, number>();
   const sparseSegments: SparseSegment[] = [];
   const sparseArcs: SparseArc[] = [];
   const sparseGeometry = new Map<number, AnalyticPrimitive[]>();
   const sets = new DisjointSet(records.length);
   const bucketCoordinate = (value: number) => Math.floor(value / cellSize);
-  const addBucket = (x: number, y: number, recordIndex: number) => {
-    const key = `${x},${y}`;
-    const owner = buckets.get(key);
-    if (owner === undefined) {
-      if (buckets.size >= maxSpatialBuckets) throw new Error("CAD region spatial bucket limit exceeded");
-      buckets.set(key, recordIndex);
-    } else {
-      sets.union(owner, recordIndex);
-    }
-  };
-
-  records.forEach((record, recordIndex) => {
-    const minX = bucketCoordinate(record.bounds.minX);
-    const minY = bucketCoordinate(record.bounds.minY);
-    const maxX = bucketCoordinate(record.bounds.maxX);
-    const maxY = bucketCoordinate(record.bounds.maxY);
+  const largeRecords = new Map<number, ExpandedCadEntity>();
+  let expandedIndex = 0;
+  // Re-expand instead of retaining all geometry, matrices and occurrence paths.
+  // Only perimeter-indexed records need geometry during bounded grid replay.
+  for (const item of iterateCadDocumentExpansion(document, expansionOptions)) {
+    if (!item) continue;
+    const recordIndex = expandedIndex++;
+    const bounds = records.bounds(recordIndex);
+    const minX = bucketCoordinate(bounds.minX);
+    const minY = bucketCoordinate(bounds.minY);
+    const maxX = bucketCoordinate(bounds.maxX);
+    const maxY = bucketCoordinate(bounds.maxY);
     const bucketCount = (maxX - minX + 1) * (maxY - minY + 1);
-    if (bucketCount <= MAX_FILLED_BUCKETS_PER_ENTITY) {
-      for (let x = minX; x <= maxX; x++) {
-        for (let y = minY; y <= maxY; y++) addBucket(x, y, recordIndex);
-      }
-      return;
-    }
-
+    if (bucketCount <= MAX_FILLED_BUCKETS_PER_ENTITY) continue;
+    largeRecords.set(recordIndex, item);
     const geometry: AnalyticPrimitive[] = [];
     const sparseCount = sparseSegments.length + sparseArcs.length;
     indexExpandedGeometry(
-      record.expanded,
+      item,
       cellSize,
       sampleSpline,
       options.checkBudget,
-      (x, y) => addBucket(x, y, recordIndex),
+      () => {},
       (start, end) => sparseSegments.push({ recordIndex, start, end }),
       arc => sparseArcs.push({ recordIndex, ...arc }),
       primitive => geometry.push(primitive)
     );
     if (sparseSegments.length + sparseArcs.length > sparseCount) sparseGeometry.set(recordIndex, geometry);
-  });
-
-  for (const [key, owner] of buckets) {
-    const separator = key.indexOf(",");
-    const x = Number(key.slice(0, separator));
-    const y = Number(key.slice(separator + 1));
-    for (let deltaX = -1; deltaX <= 1; deltaX++) {
-      for (let deltaY = -1; deltaY <= 1; deltaY++) {
-        if (deltaX === 0 && deltaY === 0) continue;
-        const neighbor = buckets.get(`${x + deltaX},${y + deltaY}`);
-        if (neighbor !== undefined) sets.union(owner, neighbor);
-      }
-    }
   }
 
+  connectBoundedGrid(records, largeRecords, sets, cellSize, maxSpatialBuckets, sampleSpline, options.checkBudget);
+  largeRecords.clear();
+
   if (sparseSegments.length > 0 || sparseArcs.length > 0) {
-    const boundsIndex = new BoundsRangeIndex(records.map(record => record.bounds));
+    const boundsIndex = new BoundsRangeIndex(Array.from({ length: records.length }, (_, index) => records.bounds(index)));
     let proximitySteps = 0;
     const checkProximityBudget = () => {
       options.checkBudget?.();
@@ -248,7 +296,7 @@ export function detectCadRegions(
     // geometry, all of their actual primitives (including short hatch edges)
     // participate in the narrow phase; neither direction may use box containment.
     for (const [leftIndex, leftGeometry] of sparseGeometry) {
-      for (const rightIndex of boundsIndex.query(expandBounds(records[leftIndex].bounds, cellSize))) {
+      for (const rightIndex of boundsIndex.query(expandBounds(records.bounds(leftIndex), cellSize))) {
         const rightGeometry = sparseGeometry.get(rightIndex);
         if (rightIndex <= leftIndex || !rightGeometry) continue;
         checkProximityBudget();
@@ -263,7 +311,7 @@ export function detectCadRegions(
       const queryBounds = expandBounds(segmentBounds(sparse.start, sparse.end), cellSize);
       for (const recordIndex of boundsIndex.query(queryBounds)) {
         if (recordIndex === sparse.recordIndex || sparseGeometry.has(recordIndex)) continue;
-        if (segmentIntersectsBounds(sparse.start, sparse.end, expandBounds(records[recordIndex].bounds, cellSize))) {
+        if (segmentIntersectsBounds(sparse.start, sparse.end, expandBounds(records.bounds(recordIndex), cellSize))) {
           sets.union(sparse.recordIndex, recordIndex);
         }
       }
@@ -281,7 +329,7 @@ export function detectCadRegions(
       for (const recordIndex of boundsIndex.query(queryBounds)) {
         options.checkBudget?.();
         if (recordIndex === sparse.recordIndex || sparseGeometry.has(recordIndex)) continue;
-        if (arcIntersectsBounds(sparse, expandBounds(records[recordIndex].bounds, cellSize))) {
+        if (arcIntersectsBounds(sparse, expandBounds(records.bounds(recordIndex), cellSize))) {
           sets.union(sparse.recordIndex, recordIndex);
         }
       }
@@ -289,31 +337,31 @@ export function detectCadRegions(
   }
 
   const components = new Map<number, RegionAccumulator>();
-  records.forEach((record, index) => {
+  for (let index = 0; index < records.length; index++) {
+    const bounds = records.bounds(index);
+    const flags = records.flags(index);
+    const associationIds = records.associations.get(index) ?? noAssociations;
     const root = sets.find(index);
     const component = components.get(root);
     if (component) {
-      component.sourceEntityIds.push(record.sourceEntityId);
-      record.associationIds.forEach(associationId => component.associationIds.add(normalizeAssociationId(associationId)));
+      component.sourceEntityIndexes.push(index);
+      associationIds.forEach(associationId => component.associationIds.add(normalizeAssociationId(associationId)));
       component.primitiveCount++;
-      if (record.text) component.textCount++;
+      if (flags === 1) component.textCount++;
       component.singletonPointNoise = false;
-      includeBounds(component.bounds, record.bounds);
+      includeBounds(component.bounds, bounds);
     } else {
       components.set(root, {
-        sourceEntityIds: [record.sourceEntityId],
-        associationIds: new Set(record.associationIds.map(normalizeAssociationId)),
-        bounds: { ...record.bounds },
+        sourceEntityIndexes: [index],
+        associationIds: new Set(associationIds.map(normalizeAssociationId)),
+        bounds,
         primitiveCount: 1,
-        textCount: record.text ? 1 : 0,
-        singletonPointNoise: record.singletonPointNoise
+        textCount: flags === 1 ? 1 : 0,
+        singletonPointNoise: flags === 2
       });
     }
-  });
+  }
 
-  const candidateAssociationIds = new Set(
-    (options.lightCandidates ?? []).map(candidate => normalizeAssociationId(candidate.sourceEntityId))
-  );
   const candidates: RegionAccumulator[] = [];
   const singletonNoise: RegionAccumulator[] = [];
   for (const component of components.values()) {
@@ -338,7 +386,7 @@ export function detectCadRegions(
     const bounds = positiveRegionBounds(component.bounds, minimumExtent);
     return {
       region: {
-        regionId: stableRegionId(component.sourceEntityIds),
+        regionId: stableRegionId(component.sourceEntityIndexes, records),
         bounds,
         primitiveCount: component.primitiveCount,
         textCount: component.textCount,
@@ -375,6 +423,20 @@ export function detectCadRegions(
           ? related.filter(regionIndex => contains(regions[regionIndex].bounds, candidate.position))
           : spatialIndex.query(candidate.position);
       if (matches.length !== 1) throw new CadRegionDetectionError();
+      let position = candidate.position;
+      const geometryBounds = candidateGeometryBounds.get(normalizeAssociationId(candidate.sourceEntityId));
+      // Some blocks draw their entire symbol far from the INSERT origin. When
+      // that occurrence belongs to one region, its own transformed geometry
+      // center is the lighting anchor, not the unrelated block origin. Never
+      // move an ambiguous multi-region wrapper or enlarge/merge floor bounds.
+      if (related.length === 1 && geometryBounds && !contains(geometryBounds, position)) {
+        position = {
+          x: geometryBounds.minX + (geometryBounds.maxX - geometryBounds.minX) / 2,
+          y: geometryBounds.minY + (geometryBounds.maxY - geometryBounds.minY) / 2,
+          z: position.z
+        };
+      }
+      candidatePositions.set(candidate.sourceEntityId, { ...position });
       regions[matches[0]].lightCandidateCount++;
       candidateRegionAssignments.push({
         sourceEntityId: candidate.sourceEntityId,
@@ -382,7 +444,92 @@ export function detectCadRegions(
       });
     }
   }
-  return { regions, excludedPrimitiveCount, candidateRegionAssignments };
+  return { regions, excludedPrimitiveCount, candidateRegionAssignments, candidatePositions };
+}
+
+function connectBoundedGrid(
+  records: GeometryRecords, largeRecords: ReadonlyMap<number, ExpandedCadEntity>,
+  sets: DisjointSet, cellSize: number, maxBuckets: number, sampleSpline: SplineSampler,
+  checkBudget: (() => void) | undefined
+): void {
+  const gridBounds = (bounds: CadBounds): CadBounds => ({
+    minX: Math.floor(bounds.minX / cellSize), minY: Math.floor(bounds.minY / cellSize),
+    maxX: Math.floor(bounds.maxX / cellSize), maxY: Math.floor(bounds.maxY / cellSize)
+  });
+  const whole = gridBounds(records.bounds(0));
+  for (let index = 0; index < records.length; index++) includeBounds(whole, gridBounds(records.bounds(index)));
+  const overflow = Symbol("grid partition full");
+  let work = 0;
+  const charge = () => {
+    if (++work % 1024 === 0) checkBudget?.();
+    if (work > 50_000_000) throw new Error("CAD region spatial indexing work limit exceeded");
+  };
+  const visit = (window: CadBounds, indexes: readonly number[], depth: number): void => {
+    checkBudget?.();
+    const buckets = new Map<string, number>();
+    // Partition the index, not its resolution: a one-cell halo preserves every
+    // original neighboring-cell connection without increasing merge tolerance.
+    const padded = expandBounds(window, 1);
+    const add = (x: number, y: number, index: number) => {
+      charge();
+      if (x < padded.minX || x > padded.maxX || y < padded.minY || y > padded.maxY) return;
+      const key = `${x},${y}`;
+      const owner = buckets.get(key);
+      if (owner !== undefined) sets.union(owner, index);
+      else {
+        if (buckets.size === maxBuckets) throw overflow;
+        buckets.set(key, index);
+      }
+    };
+    try {
+      for (const index of indexes) {
+        charge();
+        const bounds = gridBounds(records.bounds(index));
+        if (!boundsOverlap(bounds, padded)) continue;
+        const expanded = largeRecords.get(index);
+        if (expanded) {
+          indexExpandedGeometry(expanded, cellSize, sampleSpline, checkBudget,
+            (x, y) => add(x, y, index), () => {}, () => {}, () => {});
+        } else {
+          for (let x = Math.max(bounds.minX, padded.minX); x <= Math.min(bounds.maxX, padded.maxX); x++) {
+            for (let y = Math.max(bounds.minY, padded.minY); y <= Math.min(bounds.maxY, padded.maxY); y++) add(x, y, index);
+          }
+        }
+      }
+    } catch (error) {
+      if (error !== overflow) throw error;
+      // Earlier unions are valid even when a partition fills. Clear its map
+      // before recursing so memory never scales with the number of partitions.
+      buckets.clear();
+      if (depth >= 64 || (window.minX === window.maxX && window.minY === window.maxY)) {
+        throw new Error("CAD region spatial bucket limit too small for partition halo");
+      }
+      const axis = window.maxX - window.minX >= window.maxY - window.minY ? "X" : "Y";
+      const middle = Math.floor((window[`min${axis}`] + window[`max${axis}`]) / 2);
+      const left = { ...window, [`max${axis}`]: middle };
+      const right = { ...window, [`min${axis}`]: middle + 1 };
+      for (const child of [left, right]) {
+        const halo = expandBounds(child, 1);
+        const childIndexes = indexes.filter(index => boundsOverlap(gridBounds(records.bounds(index)), halo));
+        if (childIndexes.length > 0) visit(child, childIndexes, depth + 1);
+      }
+      return;
+    }
+    for (const [key, owner] of buckets) {
+      charge();
+      const separator = key.indexOf(",");
+      const x = Number(key.slice(0, separator));
+      const y = Number(key.slice(separator + 1));
+      for (let dx = -1; dx <= 1; dx++) {
+        for (let dy = -1; dy <= 1; dy++) {
+          if (dx === 0 && dy === 0) continue;
+          const neighbor = buckets.get(`${x + dx},${y + dy}`);
+          if (neighbor !== undefined) sets.union(owner, neighbor);
+        }
+      }
+    }
+  };
+  visit(whole, Array.from({ length: records.length }, (_, index) => index), 0);
 }
 
 function includeBounds(target: CadBounds, item: CadBounds): void {
@@ -411,12 +558,10 @@ function positiveRegionBounds(bounds: CadBounds, minimumExtent: number): CadBoun
   return result;
 }
 
-function stableRegionId(sourceEntityIds: readonly string[]): string {
-  const canonicalIds = [...sourceEntityIds]
-    .map(sourceEntityId => sourceEntityId.normalize("NFKC"))
-    .sort(compareText);
+function stableRegionId(indexes: number[], records: GeometryRecords): string {
+  indexes.sort((left, right) => records.compareIds(left, right));
   const hash = createHash("sha256");
-  for (const sourceEntityId of canonicalIds) hash.update(sourceEntityId, "utf8").update("\0", "utf8");
+  for (const index of indexes) hash.update(records.sourceId(index), "utf8").update("\0", "utf8");
   return `region-${hash.digest("hex").slice(0, 24)}`;
 }
 

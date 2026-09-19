@@ -15,7 +15,13 @@ const floorEditorApi = vi.hoisted(() => ({
   uploadFloorAsset: vi.fn()
 }));
 
+const cadRegionApi = vi.hoisted(() => ({
+  listFloorImportRegions: vi.fn(),
+  selectFloorImportRegion: vi.fn()
+}));
+
 vi.mock("../../api/floor-editor", () => floorEditorApi);
+vi.mock("../../api/queries", () => cadRegionApi);
 
 const asset: FloorAsset = {
   id: "00000000-0000-4000-8000-000000000010",
@@ -71,6 +77,54 @@ const candidate = {
   reviewStatus: "pending" as const
 };
 
+const firstRegion = {
+  regionId: "region-1",
+  bounds: { minX: 0, minY: 0, maxX: 2_000, maxY: 1_000 },
+  primitiveCount: 1_200,
+  textCount: 20,
+  lightCandidateCount: 12,
+  area: 2_000_000,
+  preview: {
+    assetId: "00000000-0000-4000-8000-000000000050",
+    width: 640,
+    height: 320,
+    byteSize: 1_024,
+    sha256: "c".repeat(64)
+  }
+};
+
+const secondRegion = {
+  regionId: "region-2",
+  bounds: { minX: 4_000, minY: 0, maxX: 4_500, maxY: 500 },
+  primitiveCount: 120,
+  textCount: 4,
+  lightCandidateCount: 2,
+  area: 250_000,
+  preview: {
+    assetId: "00000000-0000-4000-8000-000000000051",
+    width: 320,
+    height: 320,
+    byteSize: 512,
+    sha256: "d".repeat(64)
+  }
+};
+
+const multipleRegions = {
+  jobId: queuedJob.jobId,
+  selectionStatus: "selection_required" as const,
+  selectedRegionId: null,
+  excludedRegionPrimitiveCount: 7,
+  regions: [firstRegion, secondRegion]
+};
+
+const autoSelectedRegion = {
+  jobId: queuedJob.jobId,
+  selectionStatus: "auto_selected" as const,
+  selectedRegionId: firstRegion.regionId,
+  excludedRegionPrimitiveCount: 3,
+  regions: [firstRegion]
+};
+
 function renderPanel(options: {
   review?: CadImportReviewState | null;
   isDirty?: boolean;
@@ -120,10 +174,11 @@ describe("CadImportPanel", () => {
   beforeEach(() => {
     vi.useRealTimers();
     floorEditorApi.getActiveFloorImportJob.mockResolvedValue({ job: null });
+    cadRegionApi.listFloorImportRegions.mockResolvedValue(autoSelectedRegion);
   });
   afterEach(() => {
     cleanup();
-    vi.clearAllMocks();
+    vi.resetAllMocks();
     vi.useRealTimers();
   });
 
@@ -231,6 +286,458 @@ describe("CadImportPanel", () => {
 
     await act(async () => { await vi.advanceTimersByTimeAsync(10_000); });
     expect(floorEditorApi.getFloorImportJob).toHaveBeenCalledTimes(2);
+  });
+
+  it("requires one of multiple detected regions and loads only one active preview before scene build", async () => {
+    const regionJob = {
+      ...queuedJob,
+      status: "region_selection_required" as const,
+      stage: "region_selection_required",
+      progressPercent: 70,
+      parserVersion: "cad-core/1"
+    };
+    floorEditorApi.getActiveFloorImportJob.mockResolvedValueOnce({ job: regionJob });
+    cadRegionApi.listFloorImportRegions.mockResolvedValueOnce(multipleRegions);
+    cadRegionApi.selectFloorImportRegion.mockResolvedValueOnce({
+      ...multipleRegions,
+      selectionStatus: "selected",
+      selectedRegionId: firstRegion.regionId
+    });
+    renderPanel();
+
+    expect(await screen.findByRole("radiogroup", { name: "가져올 도면 영역" })).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: "도면 영역 1 미리보기" })).toHaveAttribute(
+      "src",
+      `/api/floors/floor-1/assets/${firstRegion.preview.assetId}/content`
+    );
+    expect(screen.queryByRole("img", { name: "도면 영역 2 미리보기" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "선택 영역으로 장면 만들기" })).toBeDisabled();
+
+    fireEvent.click(screen.getByRole("radio", { name: /도면 영역 1/ }));
+
+    expect(screen.getByText("도형 1,200개")).toBeInTheDocument();
+    expect(screen.getByText("조명 후보 12개")).toBeInTheDocument();
+    expect(screen.getByText("제외 요소 7개")).toBeInTheDocument();
+    expect(screen.getByText("새 맵 16,384 × 8,192")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "선택 영역으로 장면 만들기" }));
+
+    await waitFor(() => expect(cadRegionApi.selectFloorImportRegion).toHaveBeenCalledWith(
+      "floor-1",
+      queuedJob.jobId,
+      firstRegion.regionId
+    ));
+    expect(screen.queryByRole("radiogroup", { name: "가져올 도면 영역" })).not.toBeInTheDocument();
+    expect(screen.getByRole("progressbar", { name: "CAD 가져오기 진행률" })).toHaveValue(72);
+    expect(screen.getByText("선택 영역의 CAD 장면을 준비하는 중")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "DWG/DXF 가져오기" })).toHaveFocus();
+  });
+
+  it("pages a large region list without dropping later regions and decodes only one preview", async () => {
+    const regionJob = {
+      ...queuedJob,
+      status: "region_selection_required" as const,
+      stage: "region_selection_required",
+      progressPercent: 70,
+      parserVersion: "cad-core/1"
+    };
+    const manyRegions = Array.from({ length: 1_817 }, (_, index) => ({
+      ...firstRegion,
+      regionId: `region-${index + 1}`,
+      preview: {
+        ...firstRegion.preview,
+        assetId: `00000000-0000-4000-8000-${String(index + 50).padStart(12, "0")}`
+      }
+    }));
+    floorEditorApi.getActiveFloorImportJob.mockResolvedValueOnce({ job: regionJob });
+    cadRegionApi.listFloorImportRegions.mockResolvedValueOnce({
+      ...multipleRegions,
+      regions: manyRegions
+    });
+    renderPanel();
+
+    expect(await screen.findByRole("radiogroup", { name: "가져올 도면 영역" })).toBeInTheDocument();
+    expect(screen.getAllByRole("radio")).toHaveLength(20);
+    expect(screen.getByText("1~20 / 1817건")).toBeInTheDocument();
+    expect(screen.getAllByRole("img", { name: /도면 영역 .* 미리보기/ })).toHaveLength(1);
+    expect(screen.getByRole("img", { name: "도면 영역 1 미리보기" })).toHaveAttribute("loading", "lazy");
+    expect(screen.getByRole("img", { name: "도면 영역 1 미리보기" })).toHaveAttribute("decoding", "async");
+
+    fireEvent.click(screen.getByRole("button", { name: "다음 페이지" }));
+    expect(screen.getByText("21~40 / 1817건")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("radio", { name: /^도면 영역 21 ·/ }));
+
+    expect(screen.getAllByRole("img", { name: /도면 영역 .* 미리보기/ })).toHaveLength(1);
+    expect(screen.getByRole("img", { name: "도면 영역 21 미리보기" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "이전 페이지" }));
+    fireEvent.click(screen.getByRole("button", { name: "다음 페이지" }));
+    expect(screen.getByRole("radio", { name: /^도면 영역 21 ·/ })).toBeChecked();
+  });
+
+  it.each([
+    ["transport loss", new TypeError("Failed to fetch")],
+    ["duplicate conflict", new ApiError("conflict", 409, null)]
+  ])("reconciles a committed region selection after %s", async (_label, postError) => {
+    const regionJob = {
+      ...queuedJob,
+      status: "region_selection_required" as const,
+      stage: "region_selection_required",
+      progressPercent: 70,
+      parserVersion: "cad-core/1"
+    };
+    const selectedRegions = {
+      ...multipleRegions,
+      selectionStatus: "selected" as const,
+      selectedRegionId: firstRegion.regionId
+    };
+    floorEditorApi.getActiveFloorImportJob.mockResolvedValueOnce({ job: regionJob });
+    cadRegionApi.listFloorImportRegions
+      .mockResolvedValueOnce(multipleRegions)
+      .mockResolvedValueOnce(selectedRegions);
+    cadRegionApi.selectFloorImportRegion.mockRejectedValueOnce(postError);
+    floorEditorApi.getFloorImportJob.mockResolvedValueOnce({
+      ...queuedJob,
+      status: "processing",
+      stage: "compiling_scene",
+      progressPercent: 81,
+      parserVersion: "cad-core/1"
+    });
+    renderPanel();
+
+    await screen.findByRole("radiogroup", { name: "가져올 도면 영역" });
+    fireEvent.click(screen.getByRole("radio", { name: /도면 영역 1/ }));
+    fireEvent.click(screen.getByRole("button", { name: "선택 영역으로 장면 만들기" }));
+
+    await waitFor(() => expect(floorEditorApi.getFloorImportJob).toHaveBeenCalledWith("floor-1", queuedJob.jobId));
+    expect(cadRegionApi.listFloorImportRegions).toHaveBeenCalledTimes(2);
+    expect(screen.queryByRole("radiogroup", { name: "가져올 도면 영역" })).not.toBeInTheDocument();
+    expect(screen.getByRole("progressbar", { name: "CAD 가져오기 진행률" })).toHaveValue(81);
+    expect(screen.queryByText("도면 영역을 선택하지 못했습니다. 다시 시도하세요.")).not.toBeInTheDocument();
+  });
+
+  it.each([
+    ["queued", "queued", 0, 72],
+    ["review_required", "review_required", 100, 100]
+  ] as const)("continues from canonical %s after the selection response is lost", async (status, stage, progressPercent, expectedProgress) => {
+    const regionJob = {
+      ...queuedJob,
+      status: "region_selection_required" as const,
+      stage: "region_selection_required",
+      progressPercent: 70,
+      parserVersion: "cad-core/1"
+    };
+    const selectedRegions = {
+      ...multipleRegions,
+      selectionStatus: "selected" as const,
+      selectedRegionId: firstRegion.regionId
+    };
+    floorEditorApi.getActiveFloorImportJob.mockResolvedValueOnce({ job: regionJob });
+    cadRegionApi.listFloorImportRegions
+      .mockResolvedValueOnce(multipleRegions)
+      .mockResolvedValueOnce(selectedRegions);
+    cadRegionApi.selectFloorImportRegion.mockRejectedValueOnce(new TypeError("Failed to fetch"));
+    floorEditorApi.getFloorImportJob.mockResolvedValueOnce({
+      ...queuedJob,
+      status,
+      stage,
+      progressPercent,
+      parserVersion: "cad-core/1"
+    });
+    if (status === "review_required") {
+      floorEditorApi.listFloorImportCandidates.mockReturnValueOnce(new Promise(() => {}));
+    }
+    renderPanel();
+
+    await screen.findByRole("radiogroup", { name: "가져올 도면 영역" });
+    fireEvent.click(screen.getByRole("radio", { name: /도면 영역 1/ }));
+    fireEvent.click(screen.getByRole("button", { name: "선택 영역으로 장면 만들기" }));
+
+    await waitFor(() => expect(screen.getByRole("progressbar", { name: "CAD 가져오기 진행률" })).toHaveValue(expectedProgress));
+    expect(screen.queryByRole("radiogroup", { name: "가져올 도면 영역" })).not.toBeInTheDocument();
+  });
+
+  it.each([
+    ["response loss", new TypeError("Failed to fetch")],
+    ["duplicate conflict", new ApiError("conflict", 409, null)]
+  ])("reconciles a committed cancellation after %s", async (_label, cancelError) => {
+    const regionJob = {
+      ...queuedJob,
+      status: "region_selection_required" as const,
+      stage: "region_selection_required",
+      progressPercent: 70,
+      parserVersion: "cad-core/1"
+    };
+    floorEditorApi.getActiveFloorImportJob.mockResolvedValueOnce({ job: regionJob });
+    cadRegionApi.listFloorImportRegions.mockResolvedValueOnce(multipleRegions);
+    floorEditorApi.cancelFloorImportJob.mockRejectedValueOnce(cancelError);
+    floorEditorApi.getFloorImportJob.mockResolvedValueOnce({
+      ...regionJob,
+      status: "cancelled",
+      stage: "cancelled",
+      cancelledAt: "2026-09-19T00:00:00.000Z"
+    });
+    renderPanel();
+
+    await screen.findByRole("radiogroup", { name: "가져올 도면 영역" });
+    fireEvent.click(screen.getByRole("button", { name: "가져오기 취소" }));
+
+    await waitFor(() => expect(floorEditorApi.getFloorImportJob).toHaveBeenCalledWith("floor-1", queuedJob.jobId));
+    expect(cadRegionApi.listFloorImportRegions).toHaveBeenCalledTimes(1);
+    expect(screen.getByLabelText("CAD 파일")).toBeInTheDocument();
+    expect(screen.queryByText("CAD 가져오기를 취소하지 못했습니다.")).not.toBeInTheDocument();
+  });
+
+  it("uses the canonical cancelled job even when regions are not ready yet", async () => {
+    floorEditorApi.getActiveFloorImportJob.mockResolvedValueOnce({ job: queuedJob });
+    floorEditorApi.cancelFloorImportJob.mockRejectedValueOnce(new TypeError("Failed to fetch"));
+    floorEditorApi.getFloorImportJob.mockResolvedValueOnce({
+      ...queuedJob,
+      status: "cancelled",
+      stage: "cancelled",
+      cancelledAt: "2026-09-19T00:00:00.000Z"
+    });
+    cadRegionApi.listFloorImportRegions.mockReturnValueOnce(new Promise(() => {}));
+    renderPanel();
+
+    expect(await screen.findByText("가져오기 대기 중")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "가져오기 취소" }));
+
+    await waitFor(() => expect(screen.getByLabelText("CAD 파일")).toBeInTheDocument());
+    expect(floorEditorApi.getFloorImportJob).toHaveBeenCalledWith("floor-1", queuedJob.jobId);
+    expect(cadRegionApi.listFloorImportRegions).not.toHaveBeenCalled();
+    expect(screen.getByText("CAD 가져오기가 취소되었습니다.")).toBeInTheDocument();
+    expect(screen.queryByText(/아직 취소되지 않았습니다/)).not.toBeInTheDocument();
+  });
+
+  it("keeps the canonical failed message during cancel recovery without requesting regions", async () => {
+    floorEditorApi.getActiveFloorImportJob.mockResolvedValueOnce({ job: queuedJob });
+    floorEditorApi.cancelFloorImportJob.mockRejectedValueOnce(new TypeError("Failed to fetch"));
+    floorEditorApi.getFloorImportJob.mockResolvedValueOnce({
+      ...queuedJob,
+      status: "failed",
+      stage: "failed",
+      failureCode: "conversion_failed",
+      failedAt: "2026-09-19T00:00:00.000Z"
+    });
+    renderPanel();
+
+    expect(await screen.findByText("가져오기 대기 중")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "가져오기 취소" }));
+
+    expect(await screen.findByText("CAD 가져오기에 실패했습니다.")).toBeInTheDocument();
+    expect(screen.queryByText(/아직 취소되지 않았습니다/)).not.toBeInTheDocument();
+    expect(cadRegionApi.listFloorImportRegions).not.toHaveBeenCalled();
+  });
+
+  it("restores the latest map immediately when cancel recovery finds a completed job", async () => {
+    floorEditorApi.getActiveFloorImportJob.mockResolvedValueOnce({ job: queuedJob });
+    floorEditorApi.cancelFloorImportJob.mockRejectedValueOnce(new TypeError("Failed to fetch"));
+    floorEditorApi.getFloorImportJob.mockResolvedValueOnce({
+      ...queuedJob,
+      status: "completed",
+      stage: "completed",
+      progressPercent: 100,
+      completedAt: "2026-09-19T00:00:00.000Z"
+    });
+    const { onApplied, onReviewChange } = renderPanel();
+
+    expect(await screen.findByText("가져오기 대기 중")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "가져오기 취소" }));
+
+    await waitFor(() => expect(onApplied).toHaveBeenCalledWith(null));
+    expect(onReviewChange).toHaveBeenCalledWith(null);
+    expect(screen.getByLabelText("CAD 파일")).toBeInTheDocument();
+    expect(screen.queryByText(/아직 취소되지 않았습니다/)).not.toBeInTheDocument();
+    expect(cadRegionApi.listFloorImportRegions).not.toHaveBeenCalled();
+  });
+
+  it("shows the canonical selected build state before a bounded region recovery aborts", async () => {
+    vi.useFakeTimers();
+    let resolveRetry!: (value: typeof autoSelectedRegion) => void;
+    const regionJob = {
+      ...queuedJob,
+      status: "region_selection_required" as const,
+      stage: "region_selection_required",
+      progressPercent: 70,
+      parserVersion: "cad-core/1"
+    };
+    const canonicalJob = {
+      ...queuedJob,
+      status: "processing" as const,
+      stage: "compiling_scene",
+      progressPercent: 81,
+      parserVersion: "cad-core/1"
+    };
+    floorEditorApi.getActiveFloorImportJob.mockResolvedValueOnce({ job: regionJob });
+    cadRegionApi.listFloorImportRegions
+      .mockResolvedValueOnce(multipleRegions)
+      .mockImplementationOnce((_floorId: string, _jobId: string, options?: { signal?: AbortSignal }) =>
+        new Promise((_resolve, reject) => {
+          options?.signal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")));
+        }))
+      .mockReturnValueOnce(new Promise((resolve) => {
+        resolveRetry = resolve;
+      }));
+    cadRegionApi.selectFloorImportRegion.mockRejectedValueOnce(new TypeError("Failed to fetch"));
+    floorEditorApi.getFloorImportJob.mockResolvedValueOnce(canonicalJob);
+    renderPanel();
+
+    await act(async () => { await flushPromises(); });
+    fireEvent.click(screen.getByRole("radio", { name: /도면 영역 1/ }));
+    fireEvent.click(screen.getByRole("button", { name: "선택 영역으로 장면 만들기" }));
+    await act(async () => { await flushPromises(); });
+
+    expect(screen.queryByRole("radiogroup", { name: "가져올 도면 영역" })).not.toBeInTheDocument();
+    expect(screen.getByRole("progressbar", { name: "CAD 가져오기 진행률" })).toHaveValue(81);
+    const recoveryCall = cadRegionApi.listFloorImportRegions.mock.calls[1];
+    expect(recoveryCall?.[2]?.signal.aborted).toBe(false);
+
+    await act(async () => { await vi.advanceTimersByTimeAsync(3_000); });
+
+    expect(recoveryCall?.[2]?.signal.aborted).toBe(true);
+    expect(screen.getByText("선택 상태는 확인했지만 도면 영역 정보를 불러오지 못했습니다.")).toBeInTheDocument();
+    const retryButton = screen.getByRole("button", { name: "도면 영역 다시 확인" });
+    expect(retryButton).toBeEnabled();
+
+    fireEvent.click(retryButton);
+
+    expect(screen.getByText("선택 상태는 확인했지만 도면 영역 정보를 불러오지 못했습니다.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "도면 영역 확인 중" })).toBeDisabled();
+
+    resolveRetry(autoSelectedRegion);
+    await act(async () => { await flushPromises(); });
+
+    expect(screen.queryByText("선택 상태는 확인했지만 도면 영역 정보를 불러오지 못했습니다.")).not.toBeInTheDocument();
+    expect(cadRegionApi.listFloorImportRegions).toHaveBeenCalledTimes(3);
+  });
+
+  it("shows an auto-selected single region and its scene review statistics", async () => {
+    const reviewJob = {
+      ...queuedJob,
+      status: "review_required" as const,
+      stage: "review_required",
+      progressPercent: 100,
+      parserVersion: "cad-core/1"
+    };
+    cadRegionApi.listFloorImportRegions.mockResolvedValueOnce(autoSelectedRegion);
+    renderPanel({
+      review: {
+        job: reviewJob,
+        candidates: [candidate],
+        acceptedCandidateIds: [candidate.id]
+      }
+    });
+
+    expect(await screen.findByText("도면 영역 1개를 자동 선택했습니다.")).toBeInTheDocument();
+    expect(screen.getByText("도형 1,200개")).toBeInTheDocument();
+    expect(screen.getByText("조명 후보 12개")).toBeInTheDocument();
+    expect(screen.getByText("제외 요소 3개")).toBeInTheDocument();
+    expect(screen.getByText("새 맵 16,384 × 8,192")).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: "선택한 도면 영역 미리보기" })).toHaveAttribute(
+      "src",
+      `/api/floors/floor-1/assets/${firstRegion.preview.assetId}/content`
+    );
+  });
+
+  it("keeps progress monotonic after region selection and restores the selected build stage after refresh", async () => {
+    vi.useFakeTimers();
+    const selectedRegions = {
+      ...multipleRegions,
+      selectionStatus: "selected" as const,
+      selectedRegionId: firstRegion.regionId
+    };
+    const resumedJob = {
+      ...queuedJob,
+      status: "queued" as const,
+      stage: "queued",
+      progressPercent: 0,
+      parserVersion: "cad-core/1"
+    };
+    floorEditorApi.getActiveFloorImportJob.mockResolvedValueOnce({ job: resumedJob });
+    cadRegionApi.listFloorImportRegions.mockResolvedValueOnce(selectedRegions);
+    floorEditorApi.getFloorImportJob
+      .mockResolvedValueOnce({ ...resumedJob, status: "processing", stage: "converting", progressPercent: 15 })
+      .mockResolvedValueOnce({ ...resumedJob, status: "processing", stage: "compiling_scene", progressPercent: 70 });
+    renderPanel();
+    await flushPromises();
+
+    expect(screen.getByRole("progressbar", { name: "CAD 가져오기 진행률" })).toHaveValue(72);
+    await act(async () => { await vi.advanceTimersByTimeAsync(1_000); });
+    expect(screen.getByRole("progressbar", { name: "CAD 가져오기 진행률" })).toHaveValue(74);
+    await act(async () => { await vi.advanceTimersByTimeAsync(1_000); });
+    expect(screen.getByRole("progressbar", { name: "CAD 가져오기 진행률" })).toHaveValue(80);
+  });
+
+  it("shows persisted post-selection progress while region hydration is still pending", async () => {
+    const resumedJob = {
+      ...queuedJob,
+      status: "queued" as const,
+      stage: "queued",
+      progressPercent: 0,
+      parserVersion: "cad-core/1"
+    };
+    let resolveRegions!: (value: typeof autoSelectedRegion) => void;
+    floorEditorApi.getActiveFloorImportJob.mockResolvedValueOnce({ job: resumedJob });
+    cadRegionApi.listFloorImportRegions.mockReturnValueOnce(new Promise((resolve) => {
+      resolveRegions = resolve;
+    }));
+    renderPanel();
+
+    expect(await screen.findByRole("progressbar", { name: "CAD 가져오기 진행률" })).toHaveValue(72);
+    expect(screen.getByText("선택한 영역을 복원하는 중")).toBeInTheDocument();
+    expect(screen.getByRole("progressbar", { name: "CAD 가져오기 진행률" })).not.toHaveValue(0);
+
+    resolveRegions(autoSelectedRegion);
+    await waitFor(() => expect(screen.getByText("선택 영역의 CAD 장면을 준비하는 중")).toBeInTheDocument());
+    expect(screen.getByRole("progressbar", { name: "CAD 가져오기 진행률" })).toHaveValue(72);
+  });
+
+  it("retries region hydration after a transient failure without losing the active job", async () => {
+    const regionJob = {
+      ...queuedJob,
+      status: "region_selection_required" as const,
+      stage: "region_selection_required",
+      progressPercent: 70,
+      parserVersion: "cad-core/1"
+    };
+    floorEditorApi.getActiveFloorImportJob.mockResolvedValueOnce({ job: regionJob });
+    cadRegionApi.listFloorImportRegions
+      .mockRejectedValueOnce(new TypeError("Failed to fetch"))
+      .mockResolvedValueOnce(multipleRegions);
+    renderPanel();
+
+    expect(await screen.findByText("도면 영역을 불러오지 못했습니다.")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "다시 확인" }));
+
+    expect(await screen.findByRole("radiogroup", { name: "가져올 도면 영역" })).toBeInTheDocument();
+    expect(cadRegionApi.listFloorImportRegions).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps an unsupported extreme region selectable for preview but blocks scene compilation", async () => {
+    const regionJob = {
+      ...queuedJob,
+      status: "region_selection_required" as const,
+      stage: "region_selection_required",
+      progressPercent: 70,
+      parserVersion: "cad-core/1"
+    };
+    const extremeRegion = {
+      ...firstRegion,
+      bounds: { minX: 0, minY: 0, maxX: 100_000, maxY: 1 },
+      area: 100_000
+    };
+    floorEditorApi.getActiveFloorImportJob.mockResolvedValueOnce({ job: regionJob });
+    cadRegionApi.listFloorImportRegions.mockResolvedValueOnce({
+      ...multipleRegions,
+      regions: [extremeRegion, secondRegion]
+    });
+    renderPanel();
+
+    await screen.findByRole("radiogroup", { name: "가져올 도면 영역" });
+    fireEvent.click(screen.getByRole("radio", { name: /도면 영역 1/ }));
+
+    expect(screen.getByText("지원 맵 비율을 초과했습니다.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "선택 영역으로 장면 만들기" })).toBeDisabled();
   });
 
   it("removes candidate loading after failure and restores it only while retrying", async () => {
@@ -480,6 +987,89 @@ describe("CadImportPanel", () => {
     expect(screen.queryByRole("button", { name: "적용 결과 확인" })).not.toBeInTheDocument();
   });
 
+  it.each([
+    ["CAD_IMPORT_SOURCE_INVALID", /원본 CAD 파일을 확인하거나 읽는 단계/, /파일.*다시 선택/],
+    ["CAD_IMPORT_CONVERSION_FAILED", /CAD 파일을 변환하는 단계/, /다시 저장.*가져오세요/],
+    ["CAD_IMPORT_PARSE_FAILED", /CAD 도면 분석 단계/, /파일을 다시 선택해 가져오세요/],
+    ["CAD_IMPORT_DETECTION_FAILED", /도면 영역이나 조명 후보를 찾는 단계/, /다시.*가져오세요/],
+    ["CAD_IMPORT_RENDER_FAILED", /도면 미리보기나 장면을 만드는 단계/, /다시.*가져오세요/],
+    ["CAD_IMPORT_STORAGE_FAILED", /가져오기 결과 파일을 저장하는 단계/, /잠시 후.*가져오세요/],
+    ["CAD_IMPORT_PERSIST_FAILED", /가져오기 결과 정보를 저장하는 단계/, /잠시 후.*가져오세요/],
+    ["CAD_IMPORT_ATTEMPTS_EXHAUSTED", /자동 재시도 횟수를 모두 사용/, /잠시 후.*가져오세요/]
+  ])("explains terminal %s with safe phase and retry guidance", async (failureCode, phase, guidance) => {
+    vi.useFakeTimers();
+    floorEditorApi.getActiveFloorImportJob.mockResolvedValueOnce({ job: queuedJob });
+    floorEditorApi.getFloorImportJob.mockResolvedValueOnce({
+      ...queuedJob, status: "failed", stage: "failed", failureCode,
+      failureMessage: "private /tmp/customer.dxf SQL password=secret <script>unsafe</script>"
+    });
+    renderPanel();
+    await flushPromises();
+    await act(async () => { await vi.advanceTimersByTimeAsync(1_000); });
+
+    const feedback = screen.getByRole("alert");
+    expect(within(feedback).getByText("CAD 가져오기에 실패했습니다.")).toBeInTheDocument();
+    expect(feedback).toHaveTextContent(phase);
+    expect(feedback).toHaveTextContent(guidance);
+    expect(feedback).not.toHaveTextContent(/private|customer\.dxf|password|unsafe|CAD_IMPORT_/);
+    expect(screen.getByLabelText("CAD 파일")).toBeInTheDocument();
+
+    selectCad("retry.dxf");
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it.each([null, "CAD_IMPORT_FUTURE_FAILURE", "__proto__", "constructor", "private /tmp/secret"])(
+    "keeps unknown failure code %s generic without exposing raw diagnostics", async failureCode => {
+      vi.useFakeTimers();
+      floorEditorApi.getActiveFloorImportJob.mockResolvedValueOnce({ job: queuedJob });
+      floorEditorApi.getFloorImportJob.mockResolvedValueOnce({
+        ...queuedJob, status: "failed", stage: "failed", failureCode,
+        failureMessage: "private /tmp/customer.dxf SQL password=secret <script>unsafe</script>"
+      });
+      renderPanel();
+      await flushPromises();
+      await act(async () => { await vi.advanceTimersByTimeAsync(1_000); });
+
+      const feedback = screen.getByRole("alert");
+      expect(within(feedback).getByText("CAD 가져오기에 실패했습니다.")).toBeInTheDocument();
+      expect(feedback).toHaveTextContent("파일을 다시 선택해 가져오세요. 문제가 반복되면 관리자에게 문의하세요.");
+      expect(feedback).not.toHaveTextContent(/private|customer\.dxf|password|unsafe|CAD_IMPORT_|__proto__|constructor/);
+    }
+  );
+
+  it("preserves safe failure guidance when an apply response is reconciled", async () => {
+    const review: CadImportReviewState = {
+      job: { ...queuedJob, status: "review_required", progressPercent: 100 },
+      candidates: [candidate], acceptedCandidateIds: [candidate.id]
+    };
+    floorEditorApi.applyFloorImportJob.mockRejectedValueOnce(new TypeError("Failed to fetch"));
+    floorEditorApi.getFloorImportJob.mockResolvedValueOnce({
+      ...queuedJob, status: "failed", stage: "failed", failureCode: "CAD_IMPORT_PERSIST_FAILED"
+    });
+    renderPanel({ review });
+    openAndConfirmApply();
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(/가져오기 결과 정보를 저장하는 단계/);
+    expect(screen.getByLabelText("CAD 파일")).toBeInTheDocument();
+  });
+
+  it("preserves safe failure guidance when region selection is reconciled", async () => {
+    floorEditorApi.getActiveFloorImportJob.mockResolvedValueOnce({ job: {
+      ...queuedJob, status: "region_selection_required", stage: "region_selection_required", parserVersion: "cad-core/1"
+    } });
+    cadRegionApi.listFloorImportRegions.mockResolvedValueOnce(multipleRegions);
+    cadRegionApi.selectFloorImportRegion.mockRejectedValueOnce(new TypeError("Failed to fetch"));
+    floorEditorApi.getFloorImportJob.mockResolvedValueOnce({
+      ...queuedJob, status: "failed", stage: "failed", failureCode: "CAD_IMPORT_RENDER_FAILED"
+    });
+    renderPanel();
+    fireEvent.click(await screen.findByRole("radio", { name: /도면 영역 1/ }));
+    fireEvent.click(screen.getByRole("button", { name: "선택 영역으로 장면 만들기" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(/도면 미리보기나 장면을 만드는 단계/);
+    expect(screen.getByLabelText("CAD 파일")).toBeInTheDocument();
+  });
+
   it("stops polling after a terminal job status", async () => {
     vi.useFakeTimers();
     floorEditorApi.uploadFloorAsset.mockResolvedValueOnce(asset);
@@ -656,6 +1246,26 @@ describe("CadImportPanel", () => {
     await waitFor(() => expect(onConflict).toHaveBeenCalledOnce());
     expect(floorEditorApi.getFloorImportJob).toHaveBeenCalledWith("floor-1", queuedJob.jobId);
     expect(screen.getByText(/최신 버전을 다시 불러온 뒤/)).toBeInTheDocument();
+  });
+
+  it("requires cancelling and re-importing a legacy review job before destructive apply", async () => {
+    const onConflict = vi.fn();
+    const review: CadImportReviewState = {
+      job: { ...queuedJob, status: "review_required", progressPercent: 100 },
+      candidates: [candidate],
+      acceptedCandidateIds: [candidate.id]
+    };
+    floorEditorApi.applyFloorImportJob.mockRejectedValueOnce(new ApiError("conflict", 409, {
+      message: "CAD region exclusion metadata is unavailable; re-import required"
+    }));
+    renderPanel({ review, onConflict });
+
+    openAndConfirmApply();
+
+    expect(await screen.findByText("기존 CAD 가져오기 정보가 부족합니다. 가져오기를 취소한 뒤 파일을 다시 가져오세요."))
+      .toBeInTheDocument();
+    expect(floorEditorApi.getFloorImportJob).not.toHaveBeenCalled();
+    expect(onConflict).not.toHaveBeenCalled();
   });
 
   it("converges to completed after apply 409 without reopening the stale review", async () => {

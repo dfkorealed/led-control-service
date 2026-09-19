@@ -1,9 +1,12 @@
 import type { FloorMapSnapshot } from "@led-control/shared";
 import { Maximize, Minus, Plus } from "lucide-react";
 import {
+  createContext,
   useCallback,
+  useContext,
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
   type CSSProperties,
@@ -23,6 +26,27 @@ import {
   type MapPoint,
   type MapSelectionRect
 } from "./map-gestures";
+import type { CadSceneCamera } from "../cad-scene/cad-scene-camera";
+
+export interface FloorMapCameraFrame {
+  camera: CadSceneCamera;
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+}
+
+interface FloorMapViewportOverlay {
+  overlayRoot: HTMLDivElement | null;
+  getFrame: () => FloorMapCameraFrame | null;
+  subscribe: (listener: (frame: FloorMapCameraFrame | null) => void) => () => void;
+}
+
+const FloorMapViewportOverlayContext = createContext<FloorMapViewportOverlay | null>(null);
+
+export function useFloorMapViewportOverlay(): FloorMapViewportOverlay | null {
+  return useContext(FloorMapViewportOverlayContext);
+}
 
 interface FloorMapViewportProps {
   snapshot: FloorMapSnapshot;
@@ -73,9 +97,13 @@ export function FloorMapViewport({
   const onZoomChangeRef = useRef(onZoomChange);
   const suppressNextClick = useRef(false);
   const suppressClickTimeout = useRef<number | null>(null);
+  const cameraFrame = useRef<FloorMapCameraFrame | null>(null);
+  const cameraListeners = useRef(new Set<(frame: FloorMapCameraFrame | null) => void>());
+  const cameraAnimationFrame = useRef<number | null>(null);
   const [zoom, setZoom] = useState(1);
   const [viewportSize, setViewportSize] = useState({ width: 0, height: 0 });
   const [selection, setSelection] = useState<MapSelectionRect | null>(null);
+  const [overlayRoot, setOverlayRoot] = useState<HTMLDivElement | null>(null);
   onZoomChangeRef.current = onZoomChange;
   const padding = 24;
   const hasViewportSize = viewportSize.width > 0 && viewportSize.height > 0;
@@ -101,6 +129,68 @@ export function FloorMapViewport({
         height: `${Math.max(viewportSize.height, renderedHeight + padding * 2)}px`
       }
     : undefined;
+
+  const publishCameraFrame = useCallback(() => {
+    cameraAnimationFrame.current = null;
+    const viewport = viewportRef.current;
+    const surface = surfaceRef.current;
+    let frame: FloorMapCameraFrame | null = null;
+    if (viewport && surface) {
+      const viewportBounds = viewport.getBoundingClientRect();
+      const surfaceBounds = surface.getBoundingClientRect();
+      // The surface has a symmetric border, while its overlay, Konva layer,
+      // and fixture percentages all use the inner content box.
+      const contentLeft = surfaceBounds.left + surface.clientLeft;
+      const contentTop = surfaceBounds.top + surface.clientTop;
+      const contentWidth = surfaceBounds.width - 2 * surface.clientLeft;
+      const contentHeight = surfaceBounds.height - 2 * surface.clientTop;
+      const left = Math.max(viewportBounds.left, contentLeft);
+      const top = Math.max(viewportBounds.top, contentTop);
+      const right = Math.min(viewportBounds.right, contentLeft + contentWidth);
+      const bottom = Math.min(viewportBounds.bottom, contentTop + contentHeight);
+      const width = right - left;
+      const height = bottom - top;
+      if (width > 0 && height > 0 && contentWidth > 0 && contentHeight > 0) {
+        const scale = contentWidth / snapshot.width;
+        frame = {
+          left: left - contentLeft,
+          top: top - contentTop,
+          width,
+          height,
+          camera: {
+            centerX: ((left + right) / 2 - contentLeft) / scale,
+            centerY: ((top + bottom) / 2 - contentTop) / scale,
+            zoom: scale,
+            viewportWidth: width,
+            viewportHeight: height
+          }
+        };
+      }
+    }
+    cameraFrame.current = frame;
+    cameraListeners.current.forEach((listener) => listener(frame));
+  }, [snapshot.width, snapshot.height]);
+
+  const scheduleCameraFrame = useCallback(() => {
+    if (cameraAnimationFrame.current !== null) return;
+    if (typeof requestAnimationFrame === "undefined") {
+      publishCameraFrame();
+      return;
+    }
+    cameraAnimationFrame.current = requestAnimationFrame(publishCameraFrame);
+  }, [publishCameraFrame]);
+
+  const subscribeToCamera = useCallback((listener: (frame: FloorMapCameraFrame | null) => void) => {
+    cameraListeners.current.add(listener);
+    listener(cameraFrame.current);
+    return () => cameraListeners.current.delete(listener);
+  }, []);
+
+  const overlayContext = useMemo<FloorMapViewportOverlay>(() => ({
+    overlayRoot,
+    getFrame: () => cameraFrame.current,
+    subscribe: subscribeToCamera
+  }), [overlayRoot, subscribeToCamera]);
 
   const changeZoom = useCallback((nextZoom: number, anchor?: MapPoint) => {
     const viewport = viewportRef.current;
@@ -136,6 +226,20 @@ export function FloorMapViewport({
     const observer = new ResizeObserver(updateSize);
     observer.observe(viewport);
     return () => observer.disconnect();
+  }, []);
+
+  useLayoutEffect(() => {
+    scheduleCameraFrame();
+  }, [scheduleCameraFrame, snapshot.floorId, viewportSize, zoom]);
+
+  useEffect(() => () => {
+    if (cameraAnimationFrame.current !== null && typeof cancelAnimationFrame !== "undefined") {
+      cancelAnimationFrame(cameraAnimationFrame.current);
+    }
+    // StrictMode replays setup after cleanup using the same refs. A cancelled
+    // frame must not keep the next setup from scheduling the initial camera.
+    cameraAnimationFrame.current = null;
+    cameraListeners.current.clear();
   }, []);
 
   useLayoutEffect(() => {
@@ -225,6 +329,7 @@ export function FloorMapViewport({
         fromZoom: input.fromZoom,
         toZoom: input.toZoom
       });
+      scheduleCameraFrame();
     };
     if (typeof requestAnimationFrame === "undefined") applyAnchoredScroll();
     else requestAnimationFrame(applyAnchoredScroll);
@@ -308,6 +413,7 @@ export function FloorMapViewport({
     if (activePan?.pointerId === event.pointerId) {
       event.currentTarget.scrollLeft = activePan.scroll.x - (event.clientX - activePan.point.x);
       event.currentTarget.scrollTop = activePan.scroll.y - (event.clientY - activePan.point.y);
+      scheduleCameraFrame();
       return;
     }
 
@@ -365,6 +471,7 @@ export function FloorMapViewport({
   }
 
   return (
+    <FloorMapViewportOverlayContext.Provider value={overlayContext}>
     <div className="relative h-full min-h-0 min-w-0 overflow-hidden bg-surface-inset">
       <div
         ref={viewportRef}
@@ -379,9 +486,11 @@ export function FloorMapViewport({
         onPointerMove={handlePointerMove}
         onPointerUp={finishPointer}
         onPointerCancel={(event) => finishPointer(event, true)}
+        onScroll={scheduleCameraFrame}
       >
         <div className="grid min-h-full min-w-full place-items-center p-6" style={stageStyle}>
           <div ref={surfaceRef} className="relative h-auto w-full overflow-hidden rounded-panel border border-border-default bg-surface-panel shadow-none" style={surfaceStyle} data-floor-map-surface="">
+            <div ref={setOverlayRoot} className="pointer-events-none absolute inset-0 z-0 overflow-hidden" data-floor-map-webgl-overlay="" aria-hidden="true" />
             {children}
             {selection ? (
               <div
@@ -407,6 +516,7 @@ export function FloorMapViewport({
         </div>
       ) : null}
     </div>
+    </FloorMapViewportOverlayContext.Provider>
   );
 }
 

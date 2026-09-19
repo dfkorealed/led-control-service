@@ -11,7 +11,6 @@ export async function runCadSamplePipeline(options = {}) {
   const environment = options.environment ?? process.env;
   const runCommand = options.runCommand ?? (args => run(args, root, environment));
   const required = [
-    "CAD_SAMPLE_DWG_PATH",
     "CAD_SAMPLE_CONVERTER_PATH",
     "CAD_SAMPLE_CONVERTER_ARGV_JSON"
   ];
@@ -20,20 +19,35 @@ export async function runCadSamplePipeline(options = {}) {
     const detail = missing.length > 0 ? `missing ${missing.join(", ")}` : "RUN_OBJECT_STORAGE_INTEGRATION must be true";
     throw new Error(`CAD sample environment is incomplete: ${detail}`);
   }
+  if (Boolean(environment.CAD_SAMPLE_DWG_PATH) === Boolean(environment.CAD_SAMPLE_DWG_PATHS_JSON)) {
+    throw new Error("Specify exactly one of CAD_SAMPLE_DWG_PATH or CAD_SAMPLE_DWG_PATHS_JSON");
+  }
+  const samples = environment.CAD_SAMPLE_DWG_PATHS_JSON
+    ? JSON.parse(environment.CAD_SAMPLE_DWG_PATHS_JSON)
+    : [environment.CAD_SAMPLE_DWG_PATH];
+  if (!Array.isArray(samples) || samples.length === 0 || samples.some(sample => typeof sample !== "string" || !sample.trim())) {
+    throw new Error("CAD_SAMPLE_DWG_PATHS_JSON must be a non-empty JSON string array");
+  }
 
   const argv = JSON.parse(environment.CAD_SAMPLE_CONVERTER_ARGV_JSON);
   if (!Array.isArray(argv) || argv.length === 0 || argv.some(argument => typeof argument !== "string")) {
     throw new Error("CAD_SAMPLE_CONVERTER_ARGV_JSON must be a non-empty JSON string array");
   }
-  const source = await stat(environment.CAD_SAMPLE_DWG_PATH);
-  if (!source.isFile()) throw new Error("CAD_SAMPLE_DWG_PATH must reference a regular file");
+  for (const sample of samples) {
+    const source = await stat(sample);
+    if (!source.isFile()) throw new Error("CAD sample paths must reference regular files");
+  }
   await access(environment.CAD_SAMPLE_CONVERTER_PATH, constants.X_OK);
 
-  // Rebuild the fork target from this checkout after preparing its workspace dependencies.
-  await rm(resolve(root, "apps/api/dist"), { recursive: true, force: true });
-  await runCommand(["run", "workspace:prepare"]);
-  await runCommand(["--filter", "@led-control/api", "prisma:generate"]);
-  await runCommand(["--filter", "@led-control/api", "build"]);
+  if (environment.CAD_SAMPLE_REUSE_API_DIST === "true") {
+    // Watch builds and other workspace owners must not lose their existing dist.
+    await access(resolve(root, "apps/api/dist/src/floor-import/cad-core-child.js"));
+  } else {
+    await rm(resolve(root, "apps/api/dist"), { recursive: true, force: true });
+    await runCommand(["run", "workspace:prepare"]);
+    await runCommand(["--filter", "@led-control/api", "prisma:generate"]);
+    await runCommand(["--filter", "@led-control/api", "build"]);
+  }
   await runCommand([
     "--filter", "@led-control/api", "exec", "jest",
     "src/floor-import/cad-sample-pipeline.integration.spec.ts", "--runInBand"

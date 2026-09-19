@@ -13,3 +13,20 @@ export const StyleSheet = {
     return styles;
   }
 };
+
+const appStateListeners = new Set<(state: string) => void>();
+
+export const AppState = {
+  currentState: "active",
+  addEventListener(_event: "change", listener: (state: string) => void) {
+    appStateListeners.add(listener);
+    return { remove: () => appStateListeners.delete(listener) };
+  },
+  emit(state: string) {
+    this.currentState = state;
+    appStateListeners.forEach((listener) => listener(state));
+  },
+  setCurrentState(state: string) {
+    this.currentState = state;
+  }
+};

@@ -1,5 +1,7 @@
-import type { CadBounds, CadScenePrimitive, CadSceneTile } from "@led-control/shared";
+import type { CadBounds, CadElementOverride, CadElementTransform, CadScenePrimitive, CadSceneTile } from "@led-control/shared";
 import earcut from "earcut";
+import { CadDisplayStrokeAccumulator } from "./cad-scene-display";
+import { packCadDisplayText } from "./cad-scene-text-layout";
 
 const CAD_SCENE_VERSION = 1;
 const CAD_SCENE_MAX_TILE_BYTE_SIZE = 16 * 1_024 * 1_024;
@@ -74,6 +76,7 @@ export interface CadTextBatch {
   color: string;
   opacity: number;
   entries: CadTextEntry[];
+  fontPixelSize?: number;
 }
 
 export interface CadSpatialIndex {
@@ -87,8 +90,19 @@ export interface DecodedCadSceneTile extends CadGeometryBuildResult {
 }
 
 export interface CadSceneWorkerClient {
-  decode(payload: Uint8Array, descriptor: CadSceneTile): Promise<DecodedCadSceneTile>;
+  decode(payload: Uint8Array, descriptor: CadSceneTile, quality?: CadSceneDisplayQuality): Promise<DecodedCadSceneTile>;
+  decodeSource?(payload: Uint8Array, descriptor: CadSceneTile): Promise<DecodedCadSceneTile>;
   destroy(): void;
+}
+
+export interface CadSceneDisplayQuality {
+  /** Upper edge of a reusable zoom band, in CSS pixels per world unit. */
+  zoomBand: number;
+  maxErrorPixels: number;
+  excludedIds: readonly string[];
+  overrides?: readonly CadElementOverride[];
+  /** Display readability only; never changes the persisted CAD stroke. */
+  minimumStrokePixels?: number;
 }
 
 class BinaryReader {
@@ -392,10 +406,14 @@ function textBoundsPoints(primitive: Extract<CadScenePrimitive, { type: "text" }
   ];
 }
 
-function sampledCurvePoints(primitive: Extract<CadScenePrimitive, { type: "ellipse" | "arc" }>): Point[] {
+function sampledCurvePoints(primitive: Extract<CadScenePrimitive, { type: "ellipse" | "arc" }>, error?: number): Point[] {
+  // Allocate half the display error to chord deviation, leaving room for
+  // coordinate quantization. Exact decoding retains its established sampling.
+  const segments = (radius: number, sweep: number, fallback: number) => error === undefined ? fallback
+    : Math.max(2, Math.ceil(sweep / (2 * Math.acos(Math.max(-1, 1 - Math.min(radius, error / 2) / Math.max(radius, 1e-9))))));
   if (primitive.type === "ellipse") {
     const { center, radiusX, radiusY, rotation } = primitive.geometry;
-    const segmentCount = Math.max(12, Math.min(96, Math.ceil(Math.max(radiusX, radiusY) / 8)));
+    const segmentCount = segments(Math.max(radiusX, radiusY), Math.PI * 2, Math.max(12, Math.min(96, Math.ceil(Math.max(radiusX, radiusY) / 8))));
     return Array.from({ length: segmentCount }, (_, index) => {
       const angle = index / segmentCount * Math.PI * 2;
       return rotatePoint(
@@ -411,7 +429,7 @@ function sampledCurvePoints(primitive: Extract<CadScenePrimitive, { type: "ellip
   const end = normalize(endAngle);
   const positiveSweep = (end - start + 360) % 360 || 360;
   const sweep = counterClockwise ? positiveSweep : -(360 - positiveSweep || 360);
-  const segmentCount = Math.max(4, Math.min(96, Math.ceil(Math.abs(sweep) / 12)));
+  const segmentCount = segments(radius, Math.abs(sweep) * Math.PI / 180, Math.max(4, Math.min(96, Math.ceil(Math.abs(sweep) / 12))));
   return Array.from({ length: segmentCount + 1 }, (_, index) => {
     const radians = (start + sweep * index / segmentCount) * Math.PI / 180;
     return { x: center.x + radius * Math.cos(radians), y: center.y + radius * Math.sin(radians) };
@@ -461,7 +479,8 @@ function addStroke(
   points: readonly Point[],
   closed: boolean,
   strokeWidth: number,
-  primitive: CadScenePrimitive
+  primitive: CadScenePrimitive,
+  display?: CadDisplayStrokeAccumulator
 ): void {
   if (points.length < 2 || strokeWidth <= 0) return;
   const indexStart = batch.indices.length;
@@ -474,6 +493,10 @@ function addStroke(
       : { start: rawStart, end: rawEnd };
     if (!clipped) continue;
     const { start, end } = clipped;
+    if (display) {
+      display.add(start, end);
+      continue;
+    }
     const deltaX = end.x - start.x;
     const deltaY = end.y - start.y;
     const length = Math.hypot(deltaX, deltaY);
@@ -493,53 +516,112 @@ function addStroke(
     );
   }
   const indexCount = batch.indices.length - indexStart;
-  if (indexCount > 0) {
+  if (indexCount > 0 && !display) {
     batch.spans.push({ elementId: primitive.elementId, groupId: primitive.groupId, indexStart, indexCount });
   }
 }
 
-function primitivePoints(primitive: CadScenePrimitive): { points: Point[]; closed: boolean } {
+function primitivePoints(primitive: CadScenePrimitive, error?: number): { points: Point[]; closed: boolean } {
   if (primitive.type === "line") return { points: [primitive.geometry.start, primitive.geometry.end], closed: false };
   if (primitive.type === "polyline") {
     return { points: primitive.geometry.points, closed: primitive.geometry.closed };
   }
   if (primitive.type === "rectangle") return { points: rectanglePoints(primitive), closed: true };
   if (primitive.type === "triangle") return { points: primitive.geometry.points, closed: true };
-  if (primitive.type === "ellipse") return { points: sampledCurvePoints(primitive), closed: true };
-  if (primitive.type === "arc") return { points: sampledCurvePoints(primitive), closed: false };
+  if (primitive.type === "ellipse") return { points: sampledCurvePoints(primitive, error), closed: true };
+  if (primitive.type === "arc") return { points: sampledCurvePoints(primitive, error), closed: false };
   return { points: [], closed: false };
 }
 
-export function buildCadGeometryBatches(primitives: readonly CadScenePrimitive[]): CadGeometryBuildResult {
+function displayOverride(primitive: CadScenePrimitive, override: CadElementOverride, error: number): CadScenePrimitive {
+  const style = {
+    ...primitive.style,
+    strokeColor: override.strokeColor ?? primitive.style.strokeColor,
+    fillColor: override.fillColor ?? primitive.style.fillColor,
+    strokeWidth: override.strokeWidth ?? primitive.style.strokeWidth
+  };
+  const transform = override.transform;
+  const base = { ...primitive, style };
+  if (!transform) return primitive.type === "text"
+    ? { ...primitive, style, geometry: { ...primitive.geometry, text: override.text ?? primitive.geometry.text } }
+    : base;
+  const point = (value: Point) => displayTransformPoint(value, transform);
+  const bounds = (value: CadBounds): CadBounds => {
+    const corners = [{ x: value.minX, y: value.minY }, { x: value.maxX, y: value.minY },
+      { x: value.maxX, y: value.maxY }, { x: value.minX, y: value.maxY }].map(point);
+    return { minX: Math.min(...corners.map(p => p.x)), minY: Math.min(...corners.map(p => p.y)),
+      maxX: Math.max(...corners.map(p => p.x)), maxY: Math.max(...corners.map(p => p.y)) };
+  };
+  const transformed = { ...base, bounds: bounds(primitive.bounds), clipBounds: primitive.clipBounds ? bounds(primitive.clipBounds) : null };
+  if (primitive.type === "text") return {
+    ...transformed, type: "text", geometry: {
+      ...primitive.geometry, text: override.text ?? primitive.geometry.text,
+      position: point(primitive.geometry.position),
+      width: primitive.geometry.width * Math.abs(transform.scaleX),
+      height: primitive.geometry.height * Math.abs(transform.scaleY),
+      fontSize: primitive.geometry.fontSize * Math.max(Math.abs(transform.scaleX), Math.abs(transform.scaleY)),
+      rotation: primitive.geometry.rotation + transform.rotation
+    }
+  };
+  const geometry = primitivePoints(primitive, error / Math.max(Math.abs(transform.scaleX), Math.abs(transform.scaleY)));
+  return { ...transformed, type: "polyline", geometry: { points: geometry.points.map(point), closed: geometry.closed } };
+}
+
+function displayTransformPoint(point: Point, transform: CadElementTransform): Point {
+  const radians = transform.rotation * Math.PI / 180;
+  const x = point.x * transform.scaleX;
+  const y = point.y * transform.scaleY;
+  return { x: transform.translateX + x * Math.cos(radians) - y * Math.sin(radians),
+    y: transform.translateY + x * Math.sin(radians) + y * Math.cos(radians) };
+}
+
+export function buildCadGeometryBatches(primitives: readonly CadScenePrimitive[], quality?: CadSceneDisplayQuality): CadGeometryBuildResult {
+  if (quality && (!(quality.zoomBand > 0) || !Number.isFinite(quality.zoomBand) || !(quality.maxErrorPixels > 0) || !Number.isFinite(quality.maxErrorPixels))) {
+    throw new Error("Invalid CAD display quality");
+  }
+  const error = quality ? quality.maxErrorPixels / quality.zoomBand : undefined;
+  const quantum = error === undefined ? 0 : error / 2;
+  const excluded = new Set(quality?.excludedIds);
+  const overrides = new Map(quality?.overrides?.map(value => [value.elementId, value]));
+  const displaySegments = new Map<string, CadDisplayStrokeAccumulator>();
   const mutableBatches = new Map<string, MutableBatch>();
   const mutableTextBatches = new Map<string, CadTextBatch>();
   const pickEntries: CadPickEntry[] = [];
   const pickPoints: number[] = [];
   primitives.forEach((primitive, zOrder) => {
+    if (excluded.has(primitive.elementId) || (primitive.groupId && excluded.has(primitive.groupId))) return;
+    const override = overrides.get(primitive.elementId);
+    if (override?.hidden) return;
+    if (override && error !== undefined) primitive = displayOverride(primitive, override, error);
     const pickPointStart = pickPoints.length / 2;
-    const pickGeometry = primitive.type === "text"
+    const pickGeometry = quality || primitive.type === "text"
       ? { points: [] as Point[], closed: false }
       : primitivePoints(primitive);
     for (const point of pickGeometry.points) pickPoints.push(point.x, point.y);
     if (primitive.type === "text") {
       const color = primitive.style.strokeColor ?? primitive.style.fillColor;
       if (color !== null) {
+        const fontPixelSize = quality ? Math.max(2, Math.min(32, 2 ** Math.ceil(Math.log2(Math.max(1, primitive.geometry.height * quality.zoomBand * 2))))) : undefined;
         const styleKey = JSON.stringify([
           primitive.layerName,
           "text",
           color,
-          primitive.style.opacity
+          primitive.style.opacity,
+          ...(fontPixelSize === undefined ? [] : [fontPixelSize])
         ]);
         const batch = mutableTextBatches.get(styleKey) ?? {
           styleKey,
           layerName: primitive.layerName,
           color,
           opacity: primitive.style.opacity,
-          entries: []
+          entries: [],
+          ...(fontPixelSize === undefined ? {} : { fontPixelSize })
         };
         batch.entries.push({
-          elementId: primitive.elementId,
-          groupId: primitive.groupId,
+          // Exclusions/overrides already ran before display batching. IDs are
+          // only needed by exact picking, not retained display text quads.
+          elementId: quality ? "" : primitive.elementId,
+          groupId: quality ? null : primitive.groupId,
           text: primitive.geometry.text,
           position: primitive.geometry.position,
           width: primitive.geometry.width,
@@ -552,7 +634,7 @@ export function buildCadGeometryBatches(primitives: readonly CadScenePrimitive[]
         mutableTextBatches.set(styleKey, batch);
       }
     } else {
-      const { points, closed } = primitivePoints(primitive);
+      const { points, closed } = primitivePoints(primitive, error);
       const fillColor = primitive.style.fillColor;
       if (fillColor !== null && closed) {
         addPolygon(
@@ -563,23 +645,22 @@ export function buildCadGeometryBatches(primitives: readonly CadScenePrimitive[]
       }
       const strokeColor = primitive.style.strokeColor;
       if (strokeColor !== null && primitive.style.strokeWidth > 0) {
+        const width = quality ? Math.max((quality.minimumStrokePixels ?? 0.5) / quality.zoomBand,
+          Math.round(primitive.style.strokeWidth / quantum) * quantum) : primitive.style.strokeWidth;
+        const batch = mutableBatch(mutableBatches, primitive.layerName, "stroke", strokeColor, primitive.style.opacity, width);
+        const segments = quality ? displaySegments.get(batch.styleKey) ?? new CadDisplayStrokeAccumulator(quantum, width) : undefined;
+        if (segments) displaySegments.set(batch.styleKey, segments);
         addStroke(
-          mutableBatch(
-            mutableBatches,
-            primitive.layerName,
-            "stroke",
-            strokeColor,
-            primitive.style.opacity,
-            primitive.style.strokeWidth
-          ),
+          batch,
           points,
           closed,
-          primitive.style.strokeWidth,
-          primitive
+          width,
+          primitive,
+          segments
         );
       }
     }
-    pickEntries.push({
+    if (!quality) pickEntries.push({
       elementId: primitive.elementId,
       groupId: primitive.groupId,
       layerName: primitive.layerName,
@@ -593,6 +674,10 @@ export function buildCadGeometryBatches(primitives: readonly CadScenePrimitive[]
     });
   });
 
+  for (const [key, accumulator] of displaySegments) {
+    const batch = mutableBatches.get(key)!;
+    accumulator.emit(batch.positions, batch.indices);
+  }
   const spatialIndex = buildSpatialIndex(pickEntries);
   const batches = Array.from(mutableBatches.values(), batch => ({
     styleKey: batch.styleKey,
@@ -601,7 +686,7 @@ export function buildCadGeometryBatches(primitives: readonly CadScenePrimitive[]
     opacity: batch.opacity,
     positions: Float32Array.from(batch.positions),
     indices: Uint32Array.from(batch.indices),
-    spans: batch.spans
+    spans: quality ? [] : batch.spans
   }));
   const textBatches = [...mutableTextBatches.values()];
   const packedPickPoints = Float32Array.from(pickPoints);
@@ -617,6 +702,44 @@ export function buildCadGeometryBatches(primitives: readonly CadScenePrimitive[]
 
 function stringBytes(value: string | null): number {
   return value === null ? 0 : value.length * 2;
+}
+
+export function extractCadSourceElement(tile: DecodedCadSceneTile, elementId: string): DecodedCadSceneTile {
+  const pickPoints: number[] = [];
+  const pickEntries = tile.pickEntries.filter(entry => entry.elementId === elementId).map(entry => {
+    const pointStart = pickPoints.length / 2;
+    for (let i = 0; i < entry.pointCount * 2; i++) pickPoints.push(tile.pickPoints[entry.pointStart * 2 + i]);
+    return { ...entry, pointStart };
+  });
+  const batches: CadGeometryBatch[] = [];
+  for (const batch of tile.batches) {
+    const spans = batch.spans.filter(span => span.elementId === elementId);
+    if (spans.length === 0) continue;
+    const positions: number[] = [];
+    const indices: number[] = [];
+    const vertices = new Map<number, number>();
+    const nextSpans = spans.map(span => {
+      const indexStart = indices.length;
+      for (let i = span.indexStart; i < span.indexStart + span.indexCount; i++) {
+        const original = batch.indices[i];
+        let vertex = vertices.get(original);
+        if (vertex === undefined) {
+          vertex = positions.length / 2;
+          vertices.set(original, vertex);
+          positions.push(batch.positions[original * 2], batch.positions[original * 2 + 1]);
+        }
+        indices.push(vertex);
+      }
+      return { ...span, indexStart };
+    });
+    batches.push({ ...batch, positions: Float32Array.from(positions), indices: Uint32Array.from(indices), spans: nextSpans });
+  }
+  const textBatches = tile.textBatches.map(batch => ({ ...batch, entries: batch.entries.filter(entry => entry.elementId === elementId) }))
+    .filter(batch => batch.entries.length > 0);
+  const packedPoints = Float32Array.from(pickPoints);
+  const spatialIndex = buildSpatialIndex(pickEntries);
+  return { ...tile, batches, textBatches, pickEntries, pickPoints: packedPoints, spatialIndex,
+    memory: estimateCadSceneMemory(batches, textBatches, pickEntries, packedPoints, spatialIndex) };
 }
 
 function estimateCadSceneMemory(
@@ -638,7 +761,11 @@ function estimateCadSceneMemory(
     }
   }
   let textEntryCount = 0;
+  let textAtlasBytes = 0;
   for (const batch of textBatches) {
+    textAtlasBytes += batch.fontPixelSize === undefined
+      ? batch.entries.length * 2048 * 40 * 4
+      : packCadDisplayText(batch).byteSize;
     cpuBytes += 128 + stringBytes(batch.styleKey) + stringBytes(batch.layerName) + stringBytes(batch.color);
     for (const entry of batch.entries) {
       textEntryCount++;
@@ -652,7 +779,6 @@ function estimateCadSceneMemory(
     cpuBytes += 48 + stringBytes(key) + bucket.byteLength;
   }
   gpuBytes += textEntryCount * 256;
-  const textAtlasBytes = textEntryCount * 2_048 * 40 * 4;
   return {
     cpuBytes: Math.ceil(cpuBytes),
     gpuBytes: Math.ceil(gpuBytes),
@@ -748,9 +874,9 @@ function buildSpatialIndex(entries: readonly CadPickEntry[], cellSize = 64): Cad
 }
 
 class InlineCadSceneWorkerClient implements CadSceneWorkerClient {
-  async decode(payload: Uint8Array, descriptor: CadSceneTile): Promise<DecodedCadSceneTile> {
+  async decode(payload: Uint8Array, descriptor: CadSceneTile, quality?: CadSceneDisplayQuality): Promise<DecodedCadSceneTile> {
     const primitives = await decodeCadSceneTilePayload(payload, descriptor);
-    return { ...buildCadGeometryBatches(primitives), descriptor, byteSize: payload.byteLength };
+    return { ...buildCadGeometryBatches(primitives, quality), descriptor, byteSize: payload.byteLength };
   }
 
   destroy(): void {}
@@ -760,6 +886,7 @@ interface WorkerDecodeRequest {
   id: number;
   payload: Uint8Array;
   descriptor: CadSceneTile;
+  quality?: CadSceneDisplayQuality;
 }
 
 interface WorkerDecodeResponse {
@@ -782,13 +909,13 @@ export class BrowserCadSceneWorkerClient implements CadSceneWorkerClient {
     this.worker.addEventListener("error", this.handleError);
   }
 
-  decode(payload: Uint8Array, descriptor: CadSceneTile): Promise<DecodedCadSceneTile> {
+  decode(payload: Uint8Array, descriptor: CadSceneTile, quality?: CadSceneDisplayQuality): Promise<DecodedCadSceneTile> {
     const id = this.nextId++;
     const transferable = payload.slice();
     const result = new Promise<DecodedCadSceneTile>((resolve, reject) => {
       this.pending.set(id, { resolve, reject });
     });
-    this.worker.postMessage({ id, payload: transferable, descriptor } satisfies WorkerDecodeRequest, [
+    this.worker.postMessage({ id, payload: transferable, descriptor, quality } satisfies WorkerDecodeRequest, [
       transferable.buffer
     ]);
     return result;
@@ -827,10 +954,10 @@ const workerScope = globalThis as typeof globalThis & {
 
 if (typeof workerScope.document === "undefined" && typeof workerScope.postMessage === "function") {
   globalThis.addEventListener("message", (event: MessageEvent<WorkerDecodeRequest>) => {
-    const { id, payload, descriptor } = event.data;
+    const { id, payload, descriptor, quality } = event.data;
     void decodeCadSceneTilePayload(payload, descriptor).then(primitives => {
       const result: DecodedCadSceneTile = {
-        ...buildCadGeometryBatches(primitives),
+        ...buildCadGeometryBatches(primitives, quality),
         descriptor,
         byteSize: payload.byteLength
       };

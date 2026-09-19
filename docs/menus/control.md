@@ -1,9 +1,10 @@
 # 제어 메뉴 기능 현황
 
-기준일: 2026-09-18
+기준일: 2026-09-19
 
 ## 구현 완료
 
+- 2026-09-19 공통 맵 표면은 설정에서 적용한 네이티브 CAD를 읽기 전용 Pixi 타일로 합성하고 수동 도형·조명 선택 오버레이와 카메라를 동기화한다. 최대 32,768 논리 맵에서도 전체 논리 크기의 canvas를 할당하지 않는다. 기존 제어 권한, 대상 선택 및 MQTT/장비 명령 계약은 변경하지 않았으며 이번 CAD 검증은 실장비 제어 HIL을 대신하지 않는다.
 - 2026-09-18 모니터링의 수동 읽기 전용 확인에서 fresh Gateway의 두 번 연속 검증된 조명 실패가 수신되면 `Fixture.lastUnreachableAt`과 운영 `offline/fixture_stale`을 저장해 기본 20분 stale 대기 없이 제어를 차단한다. Gateway/MQTT 자체 실패는 개별 조명의 unreachable 증거로 쓰지 않는다. 확인 작업은 밝기 제어 Command/이력을 만들거나 밝기·전원·BIO mode를 바꾸지 않는다.
 - 수동 unreachable보다 더 최신의 수락 presence/state가 도착하면 `lastUnreachableAt`을 해제하고 freshness 차단을 복구한다. 늦은 이전 실패는 더 최신 성공 관측을 덮지 않는다. 생존 presence만으로 실제 Health fault·`command_failed`·등록 대기를 지우지 않으며 BIO sensor 설정 밝기를 실제 출력으로 추정하지 않는다.
 - BlueZ D-Bus Send timeout은 Gateway 전송 실패이므로 조명 unreachable이나 제어 차단을 만들지 않는다. 요청 보존기간 뒤 요청/batch 모두 삭제된 correlated 결과는 상태 변경 없이 폐기 ACK만 반환하며, 오래된 재전송으로 밝기·전원·에너지나 제어 가능성을 바꾸지 않는다. 이후 정상 비연관 presence/state는 기존 수집·복구 규칙을 따른다.

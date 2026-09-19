@@ -3,6 +3,8 @@ import tailwindcss from "@tailwindcss/vite";
 import { defineConfig } from "vitest/config";
 
 export default defineConfig({
+  // 개발 서버와 병렬 브라우저 검증이 서로의 최적화 파일을 지우지 않도록 격리한다.
+  cacheDir: `node_modules/.vite-${process.env.WEB_PORT ?? "default"}`,
   plugins: [tailwindcss(), react()],
   envDir: "../..",
   server: {

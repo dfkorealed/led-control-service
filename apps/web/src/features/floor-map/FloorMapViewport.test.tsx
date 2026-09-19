@@ -1,7 +1,8 @@
 import type { FloorMapSnapshot } from "@led-control/shared";
+import { StrictMode, useEffect } from "react";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { FloorMapViewport } from "./FloorMapViewport";
+import { FloorMapViewport, useFloorMapViewportOverlay } from "./FloorMapViewport";
 import type { MapInteractionMode, MapSelectionRect } from "./map-gestures";
 
 const snapshot: FloorMapSnapshot = {
@@ -15,6 +16,59 @@ const snapshot: FloorMapSnapshot = {
 
 describe("FloorMapViewport", () => {
   afterEach(() => cleanup());
+
+  it("reschedules a cancelled initial camera frame after StrictMode effect replay", () => {
+    const pending = new Map<number, FrameRequestCallback>();
+    let sequence = 0;
+    const request = vi.spyOn(globalThis, "requestAnimationFrame").mockImplementation(callback => {
+      pending.set(++sequence, callback);
+      return sequence;
+    });
+    const cancel = vi.spyOn(globalThis, "cancelAnimationFrame").mockImplementation(id => { pending.delete(id); });
+    const onFrame = vi.fn();
+    function Observer() {
+      const overlay = useFloorMapViewportOverlay();
+      useEffect(() => overlay?.subscribe(onFrame), [overlay]);
+      return null;
+    }
+    try {
+      render(<StrictMode><FloorMapViewport snapshot={snapshot} ariaLabel="테스트 지도"><Observer /></FloorMapViewport></StrictMode>);
+      const viewport = screen.getByRole("region", { name: "테스트 지도" });
+      const surface = document.querySelector<HTMLElement>("[data-floor-map-surface]")!;
+      vi.spyOn(viewport, "getBoundingClientRect").mockReturnValue(rect(0, 0, 800, 500));
+      vi.spyOn(surface, "getBoundingClientRect").mockReturnValue(rect(24, 24, 600, 400));
+      for (const callback of pending.values()) callback(0);
+      expect(onFrame).toHaveBeenCalledWith(expect.objectContaining({ width: 600, height: 400 }));
+    } finally {
+      cleanup();
+      request.mockRestore();
+      cancel.mockRestore();
+    }
+  });
+
+  it("uses the map content box rather than its border for CAD camera alignment", () => {
+    const pending: FrameRequestCallback[] = [];
+    const request = vi.spyOn(globalThis, "requestAnimationFrame").mockImplementation(callback => pending.push(callback));
+    const onFrame = vi.fn();
+    function Observer() {
+      const overlay = useFloorMapViewportOverlay();
+      useEffect(() => overlay?.subscribe(onFrame), [overlay]);
+      return null;
+    }
+    try {
+      render(<FloorMapViewport snapshot={snapshot} ariaLabel="테스트 지도"><Observer /></FloorMapViewport>);
+      const viewport = screen.getByRole("region", { name: "테스트 지도" });
+      const surface = document.querySelector<HTMLElement>("[data-floor-map-surface]")!;
+      Object.defineProperties(surface, { clientLeft: { value: 1 }, clientTop: { value: 1 } });
+      vi.spyOn(viewport, "getBoundingClientRect").mockReturnValue(rect(0, 0, 800, 500));
+      vi.spyOn(surface, "getBoundingClientRect").mockReturnValue(rect(24, 24, 602, 402));
+      pending.forEach(callback => callback(0));
+      expect(onFrame).toHaveBeenLastCalledWith({
+        left: 0, top: 0, width: 600, height: 400,
+        camera: { centerX: 300, centerY: 200, zoom: 1, viewportWidth: 600, viewportHeight: 400 }
+      });
+    } finally { cleanup(); request.mockRestore(); }
+  });
 
   it("gives two-pointer pinch precedence over area selection and prevents a jump", () => {
     render(<ViewportHarness mode="area" />);
@@ -119,6 +173,24 @@ describe("FloorMapViewport", () => {
 
     expect(viewport.scrollLeft).toBe(70);
     expect(viewport.scrollTop).toBe(55);
+  });
+
+  it("publishes camera changes only inside the web runtime", () => {
+    const postMessage = vi.fn();
+    Object.defineProperty(window, "ReactNativeWebView", {
+      configurable: true,
+      value: { postMessage }
+    });
+    render(<ViewportHarness mode="pan" />);
+    const viewport = screen.getByRole("region", { name: "테스트 지도" });
+
+    dispatchPointer(viewport, "pointerdown", { pointerId: 1, pointerType: "mouse", button: 0, clientX: 100, clientY: 100 });
+    dispatchPointer(viewport, "pointermove", { pointerId: 1, pointerType: "mouse", button: 0, clientX: 70, clientY: 75 });
+    fireEvent.scroll(viewport);
+    fireEvent.click(screen.getByRole("button", { name: "지도 확대" }));
+
+    expect(postMessage).not.toHaveBeenCalled();
+    delete (window as Window & { ReactNativeWebView?: unknown }).ReactNativeWebView;
   });
 
   it("fits the map back to 100 percent", () => {

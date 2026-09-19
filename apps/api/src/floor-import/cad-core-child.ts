@@ -10,6 +10,7 @@ import { encodeCadCoreResponse, type CadCoreRequest, type CadCoreResult } from "
 import { detectCadRegions } from "./cad-region-detector";
 import { buildCadScene } from "./cad-scene-builder";
 import { cadRegionPreviewPersistenceIdentity, cadScenePersistenceIdentity } from "./cad-scene-persistence";
+import { renderCadRegionPreviewFiles } from "./cad-region-preview-renderer";
 
 const MAX_CANDIDATES = 2_000;
 let accepted = false;
@@ -39,19 +40,23 @@ async function execute(request: Omit<CadCoreRequest, "abortSignal">): Promise<Ca
   const document = await parseAsciiDxfStream(createReadStream(request.dxfPath));
   const ruleCandidates = await rules.detect(document);
   const aiCandidates = await new DisabledAiLightingSymbolDetector().detect(document);
-  const candidates = [...ruleCandidates, ...aiCandidates];
-  if (candidates.length > MAX_CANDIDATES) throw new Error("CAD lighting candidate limit exceeded");
-  if (new Set(candidates.map(candidate => candidate.sourceEntityId.normalize("NFKC").toUpperCase())).size !== candidates.length) {
+  const detectedCandidates = [...ruleCandidates, ...aiCandidates];
+  if (detectedCandidates.length > MAX_CANDIDATES) throw new Error("CAD lighting candidate limit exceeded");
+  if (new Set(detectedCandidates.map(candidate => candidate.sourceEntityId.normalize("NFKC").toUpperCase())).size !== detectedCandidates.length) {
     throw new Error("CAD lighting candidate identity collision");
   }
   const regionDetection = detectCadRegions(document, {
     maxExpandedEntities: 1_000_000,
     maxBlockDepth: 32,
-    lightCandidates: candidates.map(candidate => ({
+    lightCandidates: detectedCandidates.map(candidate => ({
       sourceEntityId: candidate.sourceEntityId,
       position: candidate.position
     }))
   });
+  const candidates = detectedCandidates.map(candidate => ({
+    ...candidate,
+    position: regionDetection.candidatePositions.get(candidate.sourceEntityId) ?? candidate.position
+  }));
   const selectedRegion = request.selectedRegionId
     ? regionDetection.regions.find(region => region.regionId === request.selectedRegionId)
     : regionDetection.regions.length === 1 ? regionDetection.regions[0] : undefined;
@@ -83,28 +88,28 @@ async function execute(request: Omit<CadCoreRequest, "abortSignal">): Promise<Ca
       sourcePosition: { x: candidate.position.x, y: candidate.position.y }
     };
   });
-  const renderedDocument = selectedRegion ? documentWithBounds(document, selectedRegion.bounds) : document;
-  const rendered = await renderCadDocumentSvgFile(renderedDocument, request.renderedPath, {
+  // The fallback asset and `candidates` share the full-document viewport. Only
+  // native scene geometry and selectedCandidates use the selected-region frame.
+  const rendered = await renderCadDocumentSvgFile(document, request.renderedPath, {
     maxOutputBytes: CAD_RENDERED_SVG_MAX_BYTES,
     maxRenderedEntities: 1_000_000,
     maxBlockDepth: 32
   });
   const regionPreviews = [];
   if (request.artifactDirectory && request.jobId && !request.selectedRegionId) {
-    for (const region of regionDetection.regions) {
-      const identity = cadRegionPreviewPersistenceIdentity(request.jobId, region.regionId);
+    const identities = new Map(regionDetection.regions.map(region => [
+      region.regionId, cadRegionPreviewPersistenceIdentity(request.jobId!, region.regionId)
+    ]));
+    const batch = await renderCadRegionPreviewFiles(document, regionDetection.regions.map(region => ({
+      regionId: region.regionId,
+      bounds: region.bounds,
+      outputPath: join(request.artifactDirectory!, `${identities.get(region.regionId)!.assetId}.svg`)
+    })), { compactFallback: { path: request.renderedPath, bounds: document.bounds, rendered } });
+    for (const preview of batch.previews) {
+      const identity = identities.get(preview.regionId)!;
       const filename = `${identity.assetId}.svg`;
-      const preview = await renderCadDocumentSvgFile(
-        documentWithBounds(document, region.bounds),
-        join(request.artifactDirectory, filename),
-        {
-          maxOutputBytes: CAD_RENDERED_SVG_MAX_BYTES,
-          maxRenderedEntities: 1_000_000,
-          maxBlockDepth: 32
-        }
-      );
       regionPreviews.push({
-        regionId: region.regionId,
+        regionId: preview.regionId,
         assetId: identity.assetId,
         filename,
         sizeBytes: preview.sizeBytes,
@@ -178,20 +183,6 @@ async function execute(request: Omit<CadCoreRequest, "abortSignal">): Promise<Ca
     regionPreviews,
     scene,
     observedMaxRssBytes: usage.maxRSS * 1024
-  };
-}
-
-function documentWithBounds(
-  document: Awaited<ReturnType<typeof parseAsciiDxfStream>>,
-  bounds: { minX: number; minY: number; maxX: number; maxY: number }
-) {
-  return {
-    ...document,
-    bounds: { ...bounds },
-    primaryBoundsSelection: {
-      excludedEntityCount: 0,
-      totalEntityCount: document.entities.length
-    }
   };
 }
 

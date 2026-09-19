@@ -85,4 +85,21 @@ describe("StructuredLoggerService", () => {
     });
     expect(lines[0]).not.toMatch(/auth-secret|password-secret|url-secret|tenant-secret|cookie-secret|body-secret|query-secret|stack-secret|api-key-secret|raw-device-secret|trace-secret/);
   });
+
+  it("retains only bounded CAD diagnostic fields, never raw CAD text or credentials", () => {
+    const { logger, lines } = harness();
+    logger.error({ operation: "background_job", diagnosticCode: "CAD_CORE_TIMEOUT", phase: "parse",
+      jobId: "a6b6130c-3819-4947-94fe-fa5d9dfad506", attemptCount: 3,
+      error: new Error("/private/source.dxf password=secret CAD-TEXT"), message: "CAD-TEXT" },
+    undefined, "FloorImportWorkerService");
+    expect(JSON.parse(lines[0])).toEqual({ timestamp, level: "error", context: "FloorImportWorkerService",
+      operation: "background_job", errorClass: "Error", diagnosticCode: "CAD_CORE_TIMEOUT",
+      phase: "parse", jobId: "a6b6130c-3819-4947-94fe-fa5d9dfad506", attemptCount: 3 });
+    logger.error({ operation: "background_job", diagnosticCode: "CAD_CORE_TIMEOUT secret",
+      phase: "parse secret", jobId: "/private/secret", attemptCount: 999, message: "secret" },
+    undefined, "FloorImportWorkerService");
+    expect(JSON.parse(lines[1])).toEqual({ timestamp, level: "error", context: "FloorImportWorkerService",
+      operation: "background_job", errorClass: "Error" });
+    expect(lines.join("")).not.toMatch(/secret|CAD-TEXT|private|source\.dxf/);
+  });
 });

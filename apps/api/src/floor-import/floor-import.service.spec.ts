@@ -22,6 +22,59 @@ function job(overrides: Record<string, unknown> = {}) {
 }
 
 describe("FloorImportService", () => {
+  function regionListing(count = 1817) {
+    const floorId = randomUUID(); const jobId = randomUUID();
+    const regions = Array.from({ length: count }, (_, index) => ({
+      regionId: `region-${index}`, minX: 0, minY: 0, maxX: 100, maxY: 100,
+      primitiveCount: 2, textCount: 1, lightCandidateCount: 0,
+      previewWidth: 100, previewHeight: 100, selectedAt: null,
+      previewAsset: {
+        id: randomUUID(), objectKey: "unused", status: "ready", kind: "cad_region_preview",
+        mimeType: "image/svg+xml", contentEncoding: "gzip", sizeBytes: 64n,
+        sha256: "a".repeat(64), cleanupStartedAt: null
+      }
+    }));
+    const prisma: any = {
+      floor: { findUnique: jest.fn().mockResolvedValue({ id: floorId, siteId: "site" }) },
+      $queryRaw: jest.fn(async () => regions.map(region => ({
+        regionId: region.regionId, minX: "0", minY: "0", maxX: "100", maxY: "100"
+      }))),
+      floorImportJob: { findFirst: jest.fn().mockResolvedValue({ id: jobId, excludedRegionPrimitiveCount: 7, regions }) }
+    };
+    const storage: any = { readCadRegionPreviewMetadata: jest.fn() };
+    const service = new FloorImportService(prisma, { assert: jest.fn() } as any, {} as any, storage);
+    return { floorId, jobId, regions, prisma, storage, service };
+  }
+
+  it("lists all 1817 persisted regions without storage and uses a bounded DB query", async () => {
+    const fixture = regionListing();
+    const response = await fixture.service.listRegions(user, fixture.floorId, fixture.jobId);
+    expect(response.regions).toHaveLength(1817);
+    expect(response.regions.at(-1)).toMatchObject({ regionId: "region-1816", textCount: 1, lightCandidateCount: 0 });
+    expect(fixture.storage.readCadRegionPreviewMetadata).not.toHaveBeenCalled();
+    expect(fixture.prisma.floorImportJob.findFirst.mock.calls[0][0].select.regions.take).toBe(16385);
+  });
+
+  it.each(["textCount", "lightCandidateCount", "previewWidth", "previewHeight"])("rejects legacy null %s without storage or invented zeroes", async field => {
+    const fixture = regionListing(2);
+    (fixture.regions[1] as any)[field] = null;
+    await expect(fixture.service.listRegions(user, fixture.floorId, fixture.jobId)).rejects.toBeInstanceOf(ConflictException);
+    expect(fixture.storage.readCadRegionPreviewMetadata).not.toHaveBeenCalled();
+  });
+
+  it("rejects the sentinel row instead of truncating excessive region results", async () => {
+    const fixture = regionListing(16385);
+    await expect(fixture.service.listRegions(user, fixture.floorId, fixture.jobId)).rejects.toBeInstanceOf(ConflictException);
+    expect(fixture.storage.readCadRegionPreviewMetadata).not.toHaveBeenCalled();
+  });
+
+  it("rejects a UTF-8 response above 16 MiB without storage or truncation", async () => {
+    const fixture = regionListing(10000);
+    fixture.regions.forEach((region, index) => { region.regionId = `${"한".repeat(500)}${index}`; });
+    await expect(fixture.service.listRegions(user, fixture.floorId, fixture.jobId)).rejects.toBeInstanceOf(ConflictException);
+    expect(fixture.storage.readCadRegionPreviewMetadata).not.toHaveBeenCalled();
+  });
+
   it("does not create a permanently queued job when the CAD worker is disabled", async () => {
     const prisma: any = { $transaction: jest.fn() };
     const service = new FloorImportService(
@@ -467,6 +520,7 @@ describe("FloorImportService", () => {
           status: floor.status, mapRevision: floor.mapRevision, editorLeaseFence: floor.editorLeaseFence,
           editorLeaseTokenHash: floor.editorLeaseTokenHash, editorLeaseExpiresAt: floor.editorLeaseExpiresAt,
           dbNow: new Date("2026-09-17T00:00:00.000Z"), jobStatus: "review_required",
+          excludedRegionPrimitiveCount: 0,
           sourceAssetId, renderedAssetId, renderedMimeType: "image/svg+xml", renderedContentEncoding: "gzip",
           renderedObjectKey: `floors/${floorId}/${renderedAssetId}.svg`, renderedSizeBytes: 256n,
           renderedSha256: "b".repeat(64)
@@ -568,6 +622,7 @@ describe("FloorImportService", () => {
     const tx: any = { $queryRaw: jest.fn().mockResolvedValue([{ status: "active", mapRevision: 4, editorLeaseFence: 8,
       editorLeaseTokenHash: hashEditorLeaseToken("lease-token"), editorLeaseExpiresAt: new Date("2026-09-17T00:10:00.000Z"),
       dbNow: new Date("2026-09-17T00:00:00.000Z"), jobStatus: "review_required", sourceAssetId: randomUUID(), renderedAssetId,
+      excludedRegionPrimitiveCount: 0,
       renderedMimeType: "image/svg+xml", renderedContentEncoding: "gzip", renderedObjectKey: "floors/f/render.svg",
       renderedSizeBytes: 256n, renderedSha256: "b".repeat(64), ...floorOverride }]) };
     const prisma: any = {
@@ -605,6 +660,7 @@ describe("FloorImportService", () => {
           status: "active", mapRevision: 4, editorLeaseFence: 8,
           editorLeaseTokenHash: hashEditorLeaseToken("lease-token"), editorLeaseExpiresAt: new Date("2026-09-17T00:10:00.000Z"),
           dbNow: new Date("2026-09-17T00:00:00.000Z"), jobStatus: "review_required", sourceAssetId: randomUUID(),
+          excludedRegionPrimitiveCount: 0,
           renderedAssetId, renderedMimeType: "image/svg+xml", renderedContentEncoding: "gzip", renderedObjectKey: `floors/${floorId}/render.svg`,
           renderedSizeBytes: 256n, renderedSha256: "c".repeat(64)
         }])
@@ -621,6 +677,48 @@ describe("FloorImportService", () => {
       expectedRevision: 4, leaseToken: "lease-token", leaseFence: 8,
       confirmMapReset: true, candidateIds: []
     })).rejects.toThrow("rendered floor asset changed concurrently");
+  });
+
+  it("fails closed before candidate or map mutation when a locked legacy job lacks excluded-region metadata", async () => {
+    const floorId = randomUUID(); const jobId = randomUUID(); const renderedAssetId = randomUUID();
+    const findCandidates = jest.fn();
+    const deleteObjects = jest.fn();
+    const tx: any = {
+      $queryRaw: jest.fn().mockResolvedValue([{
+        status: "active", mapRevision: 4, editorLeaseFence: 8,
+        editorLeaseTokenHash: hashEditorLeaseToken("lease-token"), editorLeaseExpiresAt: new Date("2026-09-17T00:10:00.000Z"),
+        dbNow: new Date("2026-09-17T00:00:00.000Z"), jobStatus: "review_required",
+        excludedRegionPrimitiveCount: null, sourceAssetId: randomUUID(), renderedAssetId,
+        renderedMimeType: "image/svg+xml", renderedContentEncoding: "gzip",
+        renderedObjectKey: `floors/${floorId}/render.svg`, renderedSizeBytes: 256n, renderedSha256: "b".repeat(64)
+      }]),
+      floorImportCandidate: { findMany: findCandidates },
+      floorMapObject: { deleteMany: deleteObjects }
+    };
+    const prisma: any = {
+      floor: { findUnique: jest.fn().mockResolvedValue({ id: floorId, siteId: "site-1" }) },
+      floorImportRegion: { findFirst: jest.fn().mockResolvedValue(null) },
+      floorImportJob: { findFirst: jest.fn().mockResolvedValue({ renderedAsset: {
+        id: renderedAssetId, objectKey: `floors/${floorId}/render.svg`, status: "ready",
+        mimeType: "image/svg+xml", contentEncoding: "gzip", sizeBytes: 256n,
+        sha256: "b".repeat(64), cleanupStartedAt: null
+      } }) },
+      $transaction: jest.fn((run: (client: typeof tx) => unknown) => run(tx))
+    };
+    const service = new FloorImportService(
+      prisma,
+      { assert: jest.fn(), assertManageInTransaction: jest.fn().mockResolvedValue({ id: "site-1", organizationId: user.organizationId }) } as any,
+      { record: jest.fn() } as any,
+      { readFloorRenderedMetadata: jest.fn().mockResolvedValue({ width: 640, height: 480 }) } as any
+    );
+
+    await expect(service.apply(user, floorId, jobId, {
+      expectedRevision: 4, leaseToken: "lease-token", leaseFence: 8,
+      confirmMapReset: true, candidateIds: []
+    })).rejects.toThrow(/re-import required/i);
+    expect(tx.$queryRaw.mock.calls[0][0].strings.join(" ")).toContain('job."excludedRegionPrimitiveCount"');
+    expect(findCandidates).not.toHaveBeenCalled();
+    expect(deleteObjects).not.toHaveBeenCalled();
   });
 
   it("does not disclose a floor or job outside the caller's readable site", async () => {

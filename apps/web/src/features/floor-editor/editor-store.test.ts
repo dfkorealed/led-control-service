@@ -21,6 +21,17 @@ describe("floor editor store baseline", () => {
     useFloorEditorStore.getState().initialize(initialState);
   });
 
+  it("fits the largest native CAD map on a narrow viewport below ten percent zoom", () => {
+    const store = useFloorEditorStore.getState();
+    store.setViewport({ width: 320, height: 420 });
+    store.fit(false, { width: 32_768, height: 16_384 });
+    const fitted = useFloorEditorStore.getState();
+    expect(fitted.zoom * 32_768).toBeLessThanOrEqual(272);
+    expect(fitted.pan.x).toBeGreaterThanOrEqual(24);
+    store.setZoom(fitted.zoom / 1.1);
+    expect(useFloorEditorStore.getState().zoom).toBeLessThan(fitted.zoom);
+  });
+
   it("enables grid snapping whenever an editor state is initialized", () => {
     expect(useFloorEditorStore.getState().snap).toBe(true);
 
@@ -28,6 +39,29 @@ describe("floor editor store baseline", () => {
     useFloorEditorStore.getState().initialize(initialState);
 
     expect(useFloorEditorStore.getState().snap).toBe(true);
+  });
+
+  it("keeps CAD and manual selections mutually exclusive", () => {
+    const cadGroup = {
+      mode: "group" as const,
+      targetId: "group-1",
+      elementId: "cad-element-00000000000000000000000000000001",
+      groupId: "group-1",
+      layerName: "WALL"
+    };
+
+    useFloorEditorStore.getState().selectCad(cadGroup);
+    expect(useFloorEditorStore.getState()).toMatchObject({
+      cadSelection: cadGroup,
+      selection: null,
+      selectedFixtureIds: []
+    });
+
+    useFloorEditorStore.getState().selectFixture("fixture-1");
+    expect(useFloorEditorStore.getState()).toMatchObject({
+      cadSelection: null,
+      selection: { kind: "fixture", id: "fixture-1" }
+    });
   });
 
   it("fits an explicit CAD preview viewport instead of the stored floor-plan ratio", () => {

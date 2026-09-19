@@ -1,6 +1,6 @@
 import { cadSceneManifestSchema } from "@led-control/shared";
 import { createHash, randomUUID } from "node:crypto";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { ChildProcessCadCoreExecutor } from "./cad-core-executor";
@@ -11,6 +11,89 @@ const enabled = process.env.CAD_CORE_CHILD_INTEGRATION === "1";
 
 (enabled ? describe : describe.skip)("CAD core child native artifacts", () => {
   jest.setTimeout(60_000);
+
+  it("places offset mirrored block lights at their geometry without losing selected candidates", async () => {
+    const root = await mkdtemp(join(tmpdir(), "cad-core-offset-region-"));
+    const selectedDirectory = await mkdtemp(join(tmpdir(), "cad-core-offset-selected-"));
+    const dxfPath = join(root, "offset.dxf");
+    const groups = [
+      0, "SECTION", 2, "BLOCKS", 0, "BLOCK", 2, "LIGHT", 10, 0, 20, 0,
+      0, "CIRCLE", 5, "B1", 8, "SYMBOL", 10, 1000, 20, 1000, 40, 1,
+      0, "ENDBLK", 0, "ENDSEC", 0, "SECTION", 2, "ENTITIES",
+      0, "LINE", 5, "M1", 8, "MODEL", 10, 0, 20, 0, 11, 200, 21, 0,
+      0, "INSERT", 5, "I1", 8, "LIGHTING", 2, "LIGHT", 10, 100, 20, 0, 41, -1,
+      0, "INSERT", 5, "I2", 8, "LIGHTING", 2, "LIGHT", 10, 105, 20, 0, 41, -1,
+      0, "ENDSEC", 0, "EOF"
+    ];
+    await writeFile(dxfPath, groups.join("\n") + "\n");
+    const executor = new ChildProcessCadCoreExecutor({ entryPath: resolve(process.cwd(), "dist/src/floor-import/cad-core-child.js") });
+    try {
+      const detected = await executor.execute({ dxfPath, renderedPath: join(root, "whole.svg"), profileId: "generic-lighting-v1" });
+      expect(detected.regions).toHaveLength(2);
+      expect(detected.candidates.map(candidate => candidate.sourcePosition)).toEqual([
+        { x: -900, y: 1000 }, { x: -895, y: 1000 }
+      ]);
+      const region = detected.regions.find(item => item.lightCandidateCount === 2)!;
+      const selected = await executor.execute({
+        dxfPath, renderedPath: join(selectedDirectory, "whole.svg"), profileId: "generic-lighting-v1",
+        artifactDirectory: selectedDirectory, jobId: randomUUID(), selectedRegionId: region.regionId,
+        expectedCandidateRegionDigests: computeCandidateRegionDigests(
+          detected.regions.map(item => item.regionId), detected.candidateRegionAssignments ?? [],
+          detected.candidates.map(candidate => candidate.sourceEntityId)
+        )
+      });
+      expect(selected.selectedCandidates?.map(candidate => candidate.sourceEntityId)).toEqual(["I1", "I2"]);
+      expect(selected.scene?.sourceBounds).toEqual(region.bounds);
+      expect(selected.candidates).toEqual(detected.candidates);
+      for (const [index, candidate] of selected.selectedCandidates!.entries()) {
+        const source = detected.candidates[index].sourcePosition!;
+        const transform = selected.scene!.transform;
+        expect(candidate.x).toBeCloseTo(source.x * transform.scaleX + transform.translateX, 9);
+        expect(candidate.y).toBeCloseTo(source.y * transform.scaleY + transform.translateY, 9);
+      }
+    } finally {
+      await rm(root, { recursive: true, force: true });
+      await rm(selectedDirectory, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps whole-document candidate coordinates valid when selecting a narrow region", async () => {
+    const root = await mkdtemp(join(tmpdir(), "cad-core-narrow-region-"));
+    const selectedDirectory = await mkdtemp(join(tmpdir(), "cad-core-narrow-selected-"));
+    const dxfPath = join(root, "narrow.dxf");
+    const groups = [
+      0, "SECTION", 2, "BLOCKS", 0, "BLOCK", 2, "LIGHT", 10, 0, 20, 0,
+      0, "CIRCLE", 5, "B1", 8, "SYMBOL", 10, 0, 20, 0, 40, 1,
+      0, "ENDBLK", 0, "ENDSEC", 0, "SECTION", 2, "ENTITIES",
+      0, "LINE", 5, "M1", 8, "MODEL", 10, 0, 20, 0, 11, 10_000, 21, 0,
+      0, "INSERT", 5, "I1", 8, "LIGHTING", 2, "LIGHT", 10, 20_000, 20, 0,
+      0, "INSERT", 5, "I2", 8, "LIGHTING", 2, "LIGHT", 10, 20_000, 20, 10,
+      0, "ENDSEC", 0, "EOF"
+    ];
+    await writeFile(dxfPath, groups.join("\n") + "\n");
+    const executor = new ChildProcessCadCoreExecutor({ entryPath: resolve(process.cwd(), "dist/src/floor-import/cad-core-child.js") });
+    try {
+      const detected = await executor.execute({ dxfPath, renderedPath: join(root, "whole.svg"), profileId: "generic-lighting-v1" });
+      expect(detected.candidates).toHaveLength(2);
+      const region = detected.regions.find(item => item.lightCandidateCount === 2)!;
+      expect(region).toBeDefined();
+      const selected = await executor.execute({
+        dxfPath, renderedPath: join(selectedDirectory, "whole.svg"), profileId: "generic-lighting-v1",
+        artifactDirectory: selectedDirectory, jobId: randomUUID(), selectedRegionId: region.regionId,
+        expectedCandidateRegionDigests: computeCandidateRegionDigests(
+          detected.regions.map(item => item.regionId), detected.candidateRegionAssignments ?? [],
+          detected.candidates.map(candidate => candidate.sourceEntityId)
+        )
+      });
+      expect(selected.rendered.viewport).toEqual(detected.rendered.viewport);
+      expect(selected.candidates).toEqual(detected.candidates);
+      expect(selected.selectedCandidates).toHaveLength(2);
+      expect(selected.scene?.sourceBounds).toEqual(region.bounds);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+      await rm(selectedDirectory, { recursive: true, force: true });
+    }
+  });
 
   it("writes verified region previews and selected scene artifacts for a sample DXF", async () => {
     const firstDirectory = await mkdtemp(join(tmpdir(), "cad-core-regions-"));

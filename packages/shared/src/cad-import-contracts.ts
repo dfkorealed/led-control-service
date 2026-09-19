@@ -4,10 +4,13 @@ import {
   EDITOR_MAX_URL_LENGTH,
   nonnegativePostgresIntSchema,
   POSTGRES_INT_MAX
-} from "./schemas";
-import { cadRegionSchema } from "./cad-scene-contracts";
+} from "./schemas.js";
+import { cadRegionSchema } from "./cad-scene-contracts.js";
 
 export const CAD_IMPORT_MAX_CANDIDATES = 2_000;
+export const CAD_IMPORT_MAX_REGIONS = 16_384;
+export const CAD_IMPORT_REGION_LIST_MAX_BYTES = 16 * 1_024 * 1_024;
+export const CAD_IMPORT_MAX_EXCLUDED_PRIMITIVES = 1_000_000;
 export const CAD_IMPORT_MIME_TYPES = {
   dwg: [
     "application/acad",
@@ -210,8 +213,16 @@ export const floorImportRegionListResponseSchema = z.object({
   jobId: z.string().uuid(),
   selectionStatus: floorImportRegionSelectionStatusSchema,
   selectedRegionId: z.string().trim().min(1).max(512).nullable(),
-  regions: z.array(cadRegionSchema).min(1).max(100)
+  excludedRegionPrimitiveCount: nonnegativePostgresIntSchema.max(CAD_IMPORT_MAX_EXCLUDED_PRIMITIVES),
+  regions: z.array(cadRegionSchema).min(1).max(CAD_IMPORT_MAX_REGIONS)
 }).strict().superRefine((response, context) => {
+  if (new TextEncoder().encode(JSON.stringify(response)).byteLength > CAD_IMPORT_REGION_LIST_MAX_BYTES) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["regions"],
+      message: "serialized region response exceeds the byte budget"
+    });
+  }
   const regionIds = response.regions.map((region) => region.regionId);
   if (new Set(regionIds).size !== regionIds.length) {
     context.addIssue({

@@ -1,5 +1,7 @@
 import type { NormalizedCadDocument, NormalizedCadEntity } from "./cad-types";
 import { CAD_MAX_DETECTED_REGIONS, detectCadRegions } from "./cad-region-detector";
+import { createHash } from "node:crypto";
+import { spawnSync } from "node:child_process";
 
 const point = (x: number, y: number) => ({ x, y, z: 0 });
 
@@ -48,6 +50,49 @@ function hugeCurve(type: string): NormalizedCadEntity {
 }
 
 describe("detectCadRegions", () => {
+  it("preserves canonical region hashes for packed Unicode occurrence identities", () => {
+    const ids = ["\u{10000}", "\ue000", "e\u0301", "\uff21"];
+    const entities: NormalizedCadEntity[] = ids.map(sourceEntityId => ({
+      type: "circle", sourceEntityId, layer: "0", center: point(0, 0), radius: 1
+    }));
+    const hash = createHash("sha256");
+    for (const id of ids.map(id => id.normalize("NFKC")).sort()) hash.update(id, "utf8").update("\0", "utf8");
+    expect(detectCadRegions(document(entities)).regions[0].regionId).toBe(`region-${hash.digest("hex").slice(0, 24)}`);
+  });
+
+  it("detects 400,000 nested occurrences inside a 384 MiB child heap without dropping geometry", () => {
+    const script = `
+      const { detectCadRegions } = require(${JSON.stringify(require.resolve("./cad-region-detector"))});
+      const point = (x, y) => ({ x, y, z: 0 });
+      const insert = (id, blockName) => ({ type: "insert", sourceEntityId: id, layer: "0", blockName,
+        position: point(0, 0), rotation: 0, scale: { x: 1, y: 1, z: 1 }, attributes: [] });
+      const blocks = [{ name: "SYMBOL", basePoint: point(0, 0), entities: Array.from({ length: 4 }, (_, i) => ({
+        type: "line", sourceEntityId: "edge-" + i, layer: "0", start: point(0, i), end: point(10, i)
+      })) }];
+      for (let i = 0; i < 3; i++) blocks.push({ name: "WRAPPER-" + i, basePoint: point(0, 0),
+        entities: [insert("nested-occurrence-" + i, i === 0 ? "SYMBOL" : "WRAPPER-" + (i - 1))] });
+      const result = detectCadRegions({ version: 1, bounds: { minX: 0, minY: 0, maxX: 10, maxY: 10 }, blocks,
+        entities: Array.from({ length: 100000 }, (_, i) => insert("root-occurrence-" + i, "WRAPPER-2")) });
+      process.stdout.write(JSON.stringify({ counts: result.regions.map(r => r.primitiveCount), excluded: result.excludedPrimitiveCount }));
+    `;
+    const result = spawnSync(process.execPath, ["--max-old-space-size=384", "--require", require.resolve("tsx/cjs"), "-e", script], {
+      encoding: "utf8", timeout: 60_000, maxBuffer: 128 * 1024
+    });
+    expect({ status: result.status, signal: result.signal, stderr: result.stderr }).toEqual({ status: 0, signal: null, stderr: "" });
+    expect(JSON.parse(result.stdout)).toEqual({ counts: [400_000], excluded: 0 });
+  }, 65_000);
+
+  it("partitions a bounded grid without changing disconnected regions or lighting associations", () => {
+    const entities = Array.from({ length: 180 }, (_, index) =>
+      rectangle(`floor-${index}`, (index % 18) * 2_000, Math.floor(index / 18) * 2_000, 100, 100)
+    ).flat();
+    const lightCandidates = [{ sourceEntityId: "floor-179-top", position: point(34_050, 18_100) }];
+    const expected = detectCadRegions(document(entities), { lightCandidates });
+    expect(expected.regions).toHaveLength(180);
+    expect(detectCadRegions(document(entities), { maxSpatialBuckets: 32, lightCandidates })).toEqual(expected);
+    expect(detectCadRegions(document([...entities].reverse()), { maxSpatialBuckets: 32, lightCandidates })).toEqual(expected);
+  });
+
   describe.each([
     { name: "direct", rotation: 0, scaleX: 1, scaleY: 1 },
     { name: "rotated INSERT", rotation: 37, scaleX: 1, scaleY: 1 },
@@ -424,6 +469,7 @@ describe("detectCadRegions", () => {
       sourceEntityId: "light-insert",
       regionId: detected.regions[1].regionId
     }]);
+    expect(detected.candidatePositions.get("light-insert")).toEqual(point(99_050, 99_050));
   });
 
   it("uses occurrence identity for overlapping bounds and rejects an ambiguous spatial fallback", () => {

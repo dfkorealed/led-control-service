@@ -102,3 +102,58 @@ test("CAD sample pipeline propagates each command failure without running later 
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test("CAD sample pipeline reuses existing API output for multiple samples without rebuilding shared", async () => {
+  const root = await mkdtemp(join(tmpdir(), "cad-sample-reuse-"));
+  const samples = [join(root, "first.dwg"), join(root, "second.dwg")];
+  const converterPath = join(root, "dwgread");
+  const childPath = join(root, "apps/api/dist/src/floor-import/cad-core-child.js");
+  const calls = [];
+  try {
+    for (const sample of samples) await writeFile(sample, "sample");
+    await writeFile(converterPath, "#!/bin/sh\nexit 0\n");
+    await chmod(converterPath, 0o700);
+    await mkdir(join(root, "apps/api/dist/src/floor-import"), { recursive: true });
+    await writeFile(childPath, "existing build");
+    await runCadSamplePipeline({
+      root,
+      environment: {
+        CAD_SAMPLE_DWG_PATHS_JSON: JSON.stringify(samples),
+        CAD_SAMPLE_CONVERTER_PATH: converterPath,
+        CAD_SAMPLE_CONVERTER_ARGV_JSON: '["-O","DXF","-o","{output}","{input}"]',
+        CAD_SAMPLE_REUSE_API_DIST: "true",
+        RUN_OBJECT_STORAGE_INTEGRATION: "true"
+      },
+      runCommand: async args => { calls.push(args); await access(childPath); }
+    });
+    assert.deepEqual(calls, [[
+      "--filter", "@led-control/api", "exec", "jest",
+      "src/floor-import/cad-sample-pipeline.integration.spec.ts", "--runInBand"
+    ]]);
+    await access(childPath);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("CAD sample pipeline rejects ambiguous or invalid sample lists before commands", async () => {
+  for (const samples of ["[]", "{}", '["file.dwg", 1]', '[""]']) {
+    await assert.rejects(runCadSamplePipeline({
+      environment: {
+        CAD_SAMPLE_DWG_PATHS_JSON: samples,
+        CAD_SAMPLE_CONVERTER_PATH: "/unused/dwgread",
+        CAD_SAMPLE_CONVERTER_ARGV_JSON: '["{input}","{output}"]',
+        RUN_OBJECT_STORAGE_INTEGRATION: "true"
+      },
+      runCommand: async () => assert.fail("must reject before executing a command")
+    }), /CAD_SAMPLE_DWG_PATHS_JSON/);
+  }
+  await assert.rejects(runCadSamplePipeline({
+    environment: {
+      CAD_SAMPLE_DWG_PATH: "one.dwg", CAD_SAMPLE_DWG_PATHS_JSON: '["two.dwg"]',
+      CAD_SAMPLE_CONVERTER_PATH: "/unused/dwgread",
+      CAD_SAMPLE_CONVERTER_ARGV_JSON: '["{input}","{output}"]',
+      RUN_OBJECT_STORAGE_INTEGRATION: "true"
+    }
+  }), /exactly one/);
+});

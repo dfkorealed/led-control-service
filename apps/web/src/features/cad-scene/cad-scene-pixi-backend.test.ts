@@ -22,7 +22,7 @@ const pixi = vi.hoisted(() => {
   class MockGeometry {
     readonly destroy = vi.fn();
 
-    constructor(_options: unknown) {
+    constructor(readonly options: { uvs: Float32Array }) {
       geometries.push(this);
     }
   }
@@ -42,14 +42,16 @@ const pixi = vi.hoisted(() => {
   }
 
   const texture = { destroy: vi.fn() };
-  return { MockContainer, MockGeometry, MockMesh, MockRenderer, geometries, texture };
+  const textureFrom = vi.fn((_canvas: HTMLCanvasElement) => ({ destroy: vi.fn() }));
+  return { MockContainer, MockGeometry, MockMesh, MockRenderer, geometries, texture, textureFrom };
 });
 
 vi.mock("pixi.js", () => ({
   Container: pixi.MockContainer,
   Mesh: pixi.MockMesh,
   MeshGeometry: pixi.MockGeometry,
-  Texture: { WHITE: pixi.texture, from: vi.fn(() => ({ destroy: vi.fn() })) },
+  Texture: { WHITE: pixi.texture, from: pixi.textureFrom },
+  Color: { shared: { setValue: () => ({ toHex: () => "#ffffff" }) } },
   WebGLRenderer: pixi.MockRenderer
 }));
 
@@ -70,6 +72,41 @@ const tileDescriptor: CadSceneTile = {
 };
 
 describe("PixiCadSceneRenderBackend", () => {
+  it("maps measured text width without shrinking conservative display atlas allocation", async () => {
+    const context = {
+      measureText: () => ({ width: 35 }), clearRect: vi.fn(), save: vi.fn(),
+      translate: vi.fn(), scale: vi.fn(), fillText: vi.fn(), restore: vi.fn()
+    };
+    const getContext = vi.spyOn(HTMLCanvasElement.prototype, "getContext")
+      .mockImplementation((() => context) as unknown as HTMLCanvasElement["getContext"]);
+    const backend = new PixiCadSceneRenderBackend();
+    try {
+      const decoded: DecodedCadSceneTile = {
+        ...buildCadGeometryBatches([{
+          elementId: "label", groupId: null, layerName: "LABELS", sourceType: "TEXT",
+          bounds: { minX: 0, minY: 0, maxX: 80, maxY: 32 }, clipBounds: null,
+          style: { strokeColor: "#ffffff", fillColor: null, strokeWidth: 1, opacity: 1 },
+          type: "text", geometry: { text: "IIII", position: { x: 0, y: 32 },
+            width: 80, height: 32, fontSize: 32, rotation: 0 }
+        }], { zoomBand: 1, maxErrorPixels: 0.5, excludedIds: [] }),
+        descriptor: tileDescriptor, byteSize: 256
+      };
+      await backend.mount(document.createElement("canvas"), { resolution: 1 });
+      backend.replaceTile("text", decoded, new Set());
+      const atlas = pixi.textureFrom.mock.calls.at(-1)?.[0] as unknown as HTMLCanvasElement;
+      expect(atlas.width).toBe(196);
+      expect(atlas.height).toBe(36);
+      expect(decoded.memory.textAtlasBytes).toBe(196 * 36 * 4);
+      const uvs = pixi.geometries.at(-1)!.options.uvs;
+      expect(uvs[2]).toBeCloseTo(39 / 196);
+      expect(uvs[0]).toBe(0);
+    } finally {
+      backend.destroy();
+      getContext.mockRestore();
+      pixi.geometries.length = 0;
+    }
+  });
+
   it("destroys tile geometry buffers immediately when a tile is removed", async () => {
     const backend = new PixiCadSceneRenderBackend();
     const decoded: DecodedCadSceneTile = {

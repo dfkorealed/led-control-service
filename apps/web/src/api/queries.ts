@@ -1,6 +1,10 @@
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
-import type { FixtureGroupMetadata, FloorMapSnapshot } from "@led-control/shared";
-import { apiGet } from "./client";
+import {
+  type FixtureGroupMetadata,
+  type FloorMapSnapshot
+} from "@led-control/shared";
+import { floorImportRegionListResponseSchema } from "@led-control/shared/cad-import-contracts";
+import { apiGet, apiPost } from "./client";
 
 export const MONITORING_REFRESH_INTERVAL_MS = 10 * 60 * 1_000;
 export const MAP_SNAPSHOT_ERROR_RETRY_INTERVAL_MS = 30 * 1_000;
@@ -12,6 +16,26 @@ export const monitoringQueryPolicy = {
   retry: 2,
   retryDelay: 0
 } as const;
+
+export async function listFloorImportRegions(
+  floorId: string,
+  jobId: string,
+  options: { signal?: AbortSignal } = {}
+) {
+  return floorImportRegionListResponseSchema.parse(
+    await apiGet<unknown>(floorImportRegionPath(floorId, jobId), options)
+  );
+}
+
+export async function selectFloorImportRegion(floorId: string, jobId: string, regionId: string) {
+  return floorImportRegionListResponseSchema.parse(
+    await apiPost<unknown>(`${floorImportRegionPath(floorId, jobId)}/select`, { regionId })
+  );
+}
+
+function floorImportRegionPath(floorId: string, jobId: string) {
+  return `/floors/${encodeURIComponent(floorId)}/import-jobs/${encodeURIComponent(jobId)}/regions`;
+}
 
 export interface SiteCapabilities {
   read: boolean;

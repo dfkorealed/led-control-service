@@ -5,7 +5,7 @@ import { open, unlink } from "node:fs/promises";
 import { Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { createGzip } from "node:zlib";
-import { cadBulgeArc, dimensionMatrix, iterateCadDocumentExpansion, multiplyCadMatrices, sampleCadSpline, transformPoint, type CadMatrix, type ExpandedCadEntity } from "./cad-geometry";
+import { cadBulgeArc, createCadSplineSampler, dimensionMatrix, iterateCadDocumentExpansion, multiplyCadMatrices, sampleCadSpline, transformPoint, type CadMatrix, type ExpandedCadEntity } from "./cad-geometry";
 import { CAD_RENDERED_SVG_MAX_BYTES, CAD_RENDERED_SVG_RAW_MAX_BYTES } from "./cad-resource-limits";
 import { CAD_MAX_SPLINE_SAMPLES_PER_DOCUMENT } from "./cad-runtime-contract";
 import { forEachCadTextGlyph, sanitizeCadText } from "./cad-text-layout";
@@ -333,6 +333,109 @@ export interface CadSvgFileResult {
  * INSERT occurrences. This is the production renderer: it never retains the
  * complete SVG string or an expanded entity array in memory.
  */
+export function createCadSvgEntitySerializer(
+  blockByName: ReadonlyMap<string, { block: NormalizedCadDocument["blocks"][number]; id: string }>,
+  defaultPointMarkerRadius: number,
+  maxSplineSamples: number,
+  checkBudget: () => void
+): (entity: NormalizedCadDocument["entities"][number], pointMarkerRadius?: number) => string {
+  const matrix = (entity: Extract<NormalizedCadDocument["entities"][number], { type: "insert" }>, base: CadPoint) => {
+    const radians = entity.rotation * Math.PI / 180;
+    const a = Math.cos(radians) * entity.scale.x;
+    const b = Math.sin(radians) * entity.scale.x;
+    const c = -Math.sin(radians) * entity.scale.y;
+    const d = Math.cos(radians) * entity.scale.y;
+    return `matrix(${number(a)} ${number(b)} ${number(c)} ${number(d)} ${number(entity.position.x - a * base.x - c * base.y)} ${number(entity.position.y - b * base.x - d * base.y)})`;
+  };
+  const pathForVertices = (vertices: readonly (CadPoint & { bulge?: number })[], closed: boolean) => {
+    const first = vertices[0];
+    const commands = [`M${number(first.x)} ${number(first.y)}`];
+    const count = closed ? vertices.length : vertices.length - 1;
+    for (let index = 0; index < count; index++) {
+      const start = vertices[index];
+      const end = vertices[(index + 1) % vertices.length];
+      const arc = cadBulgeArc(start, end, start.bulge ?? 0);
+      commands.push(arc
+        ? `A${number(arc.radius)} ${number(arc.radius)} 0 ${Math.abs(arc.sweepAngle) > 180 ? 1 : 0} ${arc.sweepAngle < 0 ? 1 : 0} ${number(end.x)} ${number(end.y)}`
+        : `L${number(end.x)} ${number(end.y)}`);
+    }
+    if (closed) commands.push("Z");
+    return commands.join(" ");
+  };
+  const pathForHatchLoop = (loop: NormalizedCadHatchLoop) => {
+    if (loop.type === "polyline") return pathForVertices(loop.vertices, loop.closed);
+    const commands: string[] = [];
+    for (const edge of loop.edges) {
+      if (edge.type === "line") {
+        if (commands.length === 0) commands.push(`M${number(edge.start.x)} ${number(edge.start.y)}`);
+        commands.push(`L${number(edge.end.x)} ${number(edge.end.y)}`);
+      } else {
+        const raw = edge.endAngle - edge.startAngle;
+        const ccw = ((raw % 360) + 360) % 360 || 360;
+        const sweep = edge.counterClockwise ? ccw : -(360 - ccw || 360);
+        const start = edge.startAngle * Math.PI / 180;
+        const end = (edge.startAngle + sweep) * Math.PI / 180;
+        if (commands.length === 0) commands.push(`M${number(edge.center.x + edge.radius * Math.cos(start))} ${number(edge.center.y + edge.radius * Math.sin(start))}`);
+        if (Math.abs(sweep) >= 360 - 1e-10) {
+          const middle = (edge.startAngle + sweep / 2) * Math.PI / 180;
+          commands.push(`A${number(edge.radius)} ${number(edge.radius)} 0 0 ${sweep < 0 ? 1 : 0} ${number(edge.center.x + edge.radius * Math.cos(middle))} ${number(edge.center.y + edge.radius * Math.sin(middle))}`);
+          commands.push(`A${number(edge.radius)} ${number(edge.radius)} 0 0 ${sweep < 0 ? 1 : 0} ${number(edge.center.x + edge.radius * Math.cos(end))} ${number(edge.center.y + edge.radius * Math.sin(end))}`);
+        } else {
+          commands.push(`A${number(edge.radius)} ${number(edge.radius)} 0 ${Math.abs(sweep) > 180 ? 1 : 0} ${sweep < 0 ? 1 : 0} ${number(edge.center.x + edge.radius * Math.cos(end))} ${number(edge.center.y + edge.radius * Math.sin(end))}`);
+        }
+      }
+    }
+    if (commands.length === 0) throw new Error("Invalid CAD HATCH boundary");
+    commands.push("Z");
+    return commands.join(" ");
+  };
+  const sampleSpline = createCadSplineSampler(maxSplineSamples);
+  const pathForSpline = (entity: Extract<NormalizedCadDocument["entities"][number], { type: "spline" }>) => {
+    const points = sampleSpline(entity);
+    return pathForVertices(points, entity.closed);
+  };
+
+  return (entity, pointMarkerRadius = defaultPointMarkerRadius) => {
+      checkBudget();
+      if (entity.type === "insert") {
+        const target = blockByName.get(entity.blockName);
+        if (!target) throw new Error(`CAD INSERT references missing block: ${entity.blockName}`);
+        return (`<use href="#${target.id}" transform="${matrix(entity, target.block.basePoint)}"/>`);
+      } else if (entity.type === "line") {
+        return (`<path d="M${number(entity.start.x)} ${number(entity.start.y)}L${number(entity.end.x)} ${number(entity.end.y)}"/>`);
+      } else if (entity.type === "lwpolyline" || entity.type === "polyline") {
+        return (`<path d="${pathForVertices(entity.vertices, entity.closed)}"/>`);
+      } else if (entity.type === "spline") {
+        return (`<path data-cad-entity="spline" d="${pathForSpline(entity)}"/>`);
+      } else if (entity.type === "wipeout") {
+        return (`<path data-cad-entity="wipeout" d="${pathForVertices(entity.vertices, true)}" fill="#fff" stroke="none"/>`);
+      } else if (entity.type === "hatch") {
+        return (`<path data-cad-entity="hatch" d="${entity.loops.map(pathForHatchLoop).join(" ")}" fill="#e5e7eb" fill-rule="evenodd"/>`);
+      } else if (entity.type === "circle") {
+        return (`<circle cx="${number(entity.center.x)}" cy="${number(entity.center.y)}" r="${number(entity.radius)}"/>`);
+      } else if (entity.type === "arc") {
+        const start = entity.startAngle * Math.PI / 180;
+        const end = entity.endAngle * Math.PI / 180;
+        const sweep = arcSweep(entity.startAngle, entity.endAngle);
+        return (`<path d="M${number(entity.center.x + entity.radius * Math.cos(start))} ${number(entity.center.y + entity.radius * Math.sin(start))}A${number(entity.radius)} ${number(entity.radius)} 0 ${sweep > 180 ? 1 : 0} 1 ${number(entity.center.x + entity.radius * Math.cos(end))} ${number(entity.center.y + entity.radius * Math.sin(end))}"/>`);
+      } else if (entity.type === "dimension") {
+        const target = entity.blockName ? blockByName.get(entity.blockName) : undefined;
+        if (target) {
+          const transform = dimensionMatrix(entity, target.block.basePoint);
+          return (`<use data-cad-entity="dimension" href="#${target.id}" transform="matrix(${number(transform.a)} ${number(transform.b)} ${number(transform.c)} ${number(transform.d)} ${number(transform.e)} ${number(transform.f)})"/>`);
+        }
+        else return (`<path data-cad-entity="dimension" d="M${number(entity.extensionStart.x)} ${number(entity.extensionStart.y)}L${number(entity.definitionPoint.x)} ${number(entity.definitionPoint.y)}L${number(entity.extensionEnd.x)} ${number(entity.extensionEnd.y)}"/>`);
+      } else if (entity.type === "point") {
+        return (`<path data-cad-entity="point" d="M${number(entity.position.x - pointMarkerRadius)} ${number(entity.position.y)}h${number(pointMarkerRadius * 2)}M${number(entity.position.x)} ${number(entity.position.y - pointMarkerRadius)}v${number(pointMarkerRadius * 2)}"/>`);
+      } else if (entity.type === "text" || entity.type === "mtext") {
+        const text = xml(entity.text);
+        return (`<text x="0" y="0" font-size="${number(entity.height)}" font-family="Arial, Noto Sans KR, sans-serif" fill="#111827" stroke="none" transform="translate(${number(entity.position.x)} ${number(entity.position.y)}) rotate(${number(entity.rotation)}) scale(1 -1)">${text}</text>`);
+      } else {
+        throw new Error(`Unsupported normalized CAD SVG entity: ${entity.type}`);
+      }
+  };
+}
+
 export async function renderCadDocumentSvgFile(
   document: NormalizedCadDocument,
   outputPath: string,
@@ -405,102 +508,9 @@ export async function renderCadDocumentSvgFile(
     await file.write(bytes);
     rawSizeBytes += bytes.length;
   };
-  const matrix = (entity: Extract<NormalizedCadDocument["entities"][number], { type: "insert" }>, base: CadPoint) => {
-    const radians = entity.rotation * Math.PI / 180;
-    const a = Math.cos(radians) * entity.scale.x;
-    const b = Math.sin(radians) * entity.scale.x;
-    const c = -Math.sin(radians) * entity.scale.y;
-    const d = Math.cos(radians) * entity.scale.y;
-    return `matrix(${number(a)} ${number(b)} ${number(c)} ${number(d)} ${number(entity.position.x - a * base.x - c * base.y)} ${number(entity.position.y - b * base.x - d * base.y)})`;
-  };
-  const pathForVertices = (vertices: readonly (CadPoint & { bulge?: number })[], closed: boolean) => {
-    const first = vertices[0];
-    const commands = [`M${number(first.x)} ${number(first.y)}`];
-    const count = closed ? vertices.length : vertices.length - 1;
-    for (let index = 0; index < count; index++) {
-      const start = vertices[index];
-      const end = vertices[(index + 1) % vertices.length];
-      const arc = cadBulgeArc(start, end, start.bulge ?? 0);
-      commands.push(arc
-        ? `A${number(arc.radius)} ${number(arc.radius)} 0 ${Math.abs(arc.sweepAngle) > 180 ? 1 : 0} ${arc.sweepAngle < 0 ? 1 : 0} ${number(end.x)} ${number(end.y)}`
-        : `L${number(end.x)} ${number(end.y)}`);
-    }
-    if (closed) commands.push("Z");
-    return commands.join(" ");
-  };
-  const pathForHatchLoop = (loop: NormalizedCadHatchLoop) => {
-    if (loop.type === "polyline") return pathForVertices(loop.vertices, loop.closed);
-    const commands: string[] = [];
-    for (const edge of loop.edges) {
-      if (edge.type === "line") {
-        if (commands.length === 0) commands.push(`M${number(edge.start.x)} ${number(edge.start.y)}`);
-        commands.push(`L${number(edge.end.x)} ${number(edge.end.y)}`);
-      } else {
-        const raw = edge.endAngle - edge.startAngle;
-        const ccw = ((raw % 360) + 360) % 360 || 360;
-        const sweep = edge.counterClockwise ? ccw : -(360 - ccw || 360);
-        const start = edge.startAngle * Math.PI / 180;
-        const end = (edge.startAngle + sweep) * Math.PI / 180;
-        if (commands.length === 0) commands.push(`M${number(edge.center.x + edge.radius * Math.cos(start))} ${number(edge.center.y + edge.radius * Math.sin(start))}`);
-        if (Math.abs(sweep) >= 360 - 1e-10) {
-          const middle = (edge.startAngle + sweep / 2) * Math.PI / 180;
-          commands.push(`A${number(edge.radius)} ${number(edge.radius)} 0 0 ${sweep < 0 ? 1 : 0} ${number(edge.center.x + edge.radius * Math.cos(middle))} ${number(edge.center.y + edge.radius * Math.sin(middle))}`);
-          commands.push(`A${number(edge.radius)} ${number(edge.radius)} 0 0 ${sweep < 0 ? 1 : 0} ${number(edge.center.x + edge.radius * Math.cos(end))} ${number(edge.center.y + edge.radius * Math.sin(end))}`);
-        } else {
-          commands.push(`A${number(edge.radius)} ${number(edge.radius)} 0 ${Math.abs(sweep) > 180 ? 1 : 0} ${sweep < 0 ? 1 : 0} ${number(edge.center.x + edge.radius * Math.cos(end))} ${number(edge.center.y + edge.radius * Math.sin(end))}`);
-        }
-      }
-    }
-    if (commands.length === 0) throw new Error("Invalid CAD HATCH boundary");
-    commands.push("Z");
-    return commands.join(" ");
-  };
-  let splineSamples = 0;
-  const pathForSpline = (entity: Extract<NormalizedCadDocument["entities"][number], { type: "spline" }>) => {
-    const points = sampleCadSpline(entity, limits.maxSplineSamples - splineSamples);
-    splineSamples += points.length;
-    return pathForVertices(points, entity.closed);
-  };
+  const serialize = createCadSvgEntitySerializer(blockByName, pointMarkerRadius, limits.maxSplineSamples, checkBudget);
   const renderEntities = async (entities: NormalizedCadDocument["entities"]) => {
-    for (const entity of entities) {
-      checkBudget();
-      if (entity.type === "insert") {
-        const target = blockByName.get(entity.blockName);
-        if (!target) throw new Error(`CAD INSERT references missing block: ${entity.blockName}`);
-        await write(`<use href="#${target.id}" transform="${matrix(entity, target.block.basePoint)}"/>`);
-      } else if (entity.type === "line") {
-        await write(`<path d="M${number(entity.start.x)} ${number(entity.start.y)}L${number(entity.end.x)} ${number(entity.end.y)}"/>`);
-      } else if (entity.type === "lwpolyline" || entity.type === "polyline") {
-        await write(`<path d="${pathForVertices(entity.vertices, entity.closed)}"/>`);
-      } else if (entity.type === "spline") {
-        await write(`<path data-cad-entity="spline" d="${pathForSpline(entity)}"/>`);
-      } else if (entity.type === "wipeout") {
-        await write(`<path data-cad-entity="wipeout" d="${pathForVertices(entity.vertices, true)}" fill="#fff" stroke="none"/>`);
-      } else if (entity.type === "hatch") {
-        await write(`<path data-cad-entity="hatch" d="${entity.loops.map(pathForHatchLoop).join(" ")}" fill="#e5e7eb" fill-rule="evenodd"/>`);
-      } else if (entity.type === "circle") {
-        await write(`<circle cx="${number(entity.center.x)}" cy="${number(entity.center.y)}" r="${number(entity.radius)}"/>`);
-      } else if (entity.type === "arc") {
-        const start = entity.startAngle * Math.PI / 180;
-        const end = entity.endAngle * Math.PI / 180;
-        const sweep = arcSweep(entity.startAngle, entity.endAngle);
-        await write(`<path d="M${number(entity.center.x + entity.radius * Math.cos(start))} ${number(entity.center.y + entity.radius * Math.sin(start))}A${number(entity.radius)} ${number(entity.radius)} 0 ${sweep > 180 ? 1 : 0} 1 ${number(entity.center.x + entity.radius * Math.cos(end))} ${number(entity.center.y + entity.radius * Math.sin(end))}"/>`);
-      } else if (entity.type === "dimension") {
-        const target = entity.blockName ? blockByName.get(entity.blockName) : undefined;
-        if (target) {
-          const transform = dimensionMatrix(entity, target.block.basePoint);
-          await write(`<use data-cad-entity="dimension" href="#${target.id}" transform="matrix(${number(transform.a)} ${number(transform.b)} ${number(transform.c)} ${number(transform.d)} ${number(transform.e)} ${number(transform.f)})"/>`);
-        }
-        else await write(`<path data-cad-entity="dimension" d="M${number(entity.extensionStart.x)} ${number(entity.extensionStart.y)}L${number(entity.definitionPoint.x)} ${number(entity.definitionPoint.y)}L${number(entity.extensionEnd.x)} ${number(entity.extensionEnd.y)}"/>`);
-      } else if (entity.type === "point") {
-        await write(`<path data-cad-entity="point" d="M${number(entity.position.x - pointMarkerRadius)} ${number(entity.position.y)}h${number(pointMarkerRadius * 2)}M${number(entity.position.x)} ${number(entity.position.y - pointMarkerRadius)}v${number(pointMarkerRadius * 2)}"/>`);
-      } else if (entity.type === "text" || entity.type === "mtext") {
-        const text = xml(entity.text);
-        await write(`<text x="0" y="0" font-size="${number(entity.height)}" font-family="Arial, Noto Sans KR, sans-serif" fill="#111827" stroke="none" transform="translate(${number(entity.position.x)} ${number(entity.position.y)}) rotate(${number(entity.rotation)}) scale(1 -1)">${text}</text>`);
-      } else {
-        throw new Error(`Unsupported normalized CAD SVG entity: ${entity.type}`);
-      }
-    }
+    for (const entity of entities) await write(serialize(entity));
   };
 
   try {

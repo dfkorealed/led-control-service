@@ -143,6 +143,8 @@ test("a map object saved in settings is rendered immediately in monitoring", asy
   const text = savedObjects.find((object) => object.type === "text");
   if (!rectangle || !triangle || !line || !text) throw new Error("saved map object payload is incomplete");
   const samples = {
+    mapWidth: Number(await canvas.getAttribute("data-map-width")),
+    mapHeight: Number(await canvas.getAttribute("data-map-height")),
     rectangle: { x: Math.round(rectangle.x + rectangle.width / 2), y: Math.round(rectangle.y + rectangle.height / 2) },
     triangle: { x: Math.round(triangle.x + triangle.width / 2), y: Math.round(triangle.y + triangle.height / 2) },
     line: { x: Math.round(line.x + line.width / 2), y: Math.round(line.y) },
@@ -200,28 +202,34 @@ test("a map object saved in settings is rendered immediately in monitoring", asy
   await expect.poll(async () => monitoringCanvas.evaluate((canvas: HTMLCanvasElement, sampleRegions) => {
     const context = canvas.getContext("2d");
     if (!context) return null;
+    // The canvas is viewport-sized now; saved coordinates remain map units.
+    const scaleX = canvas.width / sampleRegions.mapWidth;
+    const scaleY = canvas.height / sampleRegions.mapHeight;
+    const at = (point: { x: number; y: number }) => Array.from(context.getImageData(
+      Math.round(point.x * scaleX), Math.round(point.y * scaleY), 1, 1
+    ).data.slice(0, 3));
     const textPixels = context.getImageData(
-      sampleRegions.text.x,
-      sampleRegions.text.y,
-      sampleRegions.text.width,
-      sampleRegions.text.height
+      Math.round(sampleRegions.text.x * scaleX),
+      Math.round(sampleRegions.text.y * scaleY),
+      Math.max(1, Math.round(sampleRegions.text.width * scaleX)),
+      Math.max(1, Math.round(sampleRegions.text.height * scaleY))
     ).data;
     let textUsesDefaultBlue = false;
     for (let index = 3; index < textPixels.length; index += 4) {
       if (
-        textPixels[index] === 255
-        && textPixels[index - 3] === 37
-        && textPixels[index - 2] === 99
-        && textPixels[index - 1] === 235
+        textPixels[index] >= 64
+        && Math.abs(textPixels[index - 3] - 37) <= 3
+        && Math.abs(textPixels[index - 2] - 99) <= 3
+        && Math.abs(textPixels[index - 1] - 235) <= 3
       ) {
         textUsesDefaultBlue = true;
         break;
       }
     }
     return [
-      Array.from(context.getImageData(sampleRegions.rectangle.x, sampleRegions.rectangle.y, 1, 1).data.slice(0, 3)),
-      Array.from(context.getImageData(sampleRegions.triangle.x, sampleRegions.triangle.y, 1, 1).data.slice(0, 3)),
-      Array.from(context.getImageData(sampleRegions.line.x, sampleRegions.line.y, 1, 1).data.slice(0, 3)),
+      at(sampleRegions.rectangle),
+      at(sampleRegions.triangle),
+      at(sampleRegions.line),
       textUsesDefaultBlue
     ];
   }, samples)).toEqual([

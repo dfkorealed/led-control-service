@@ -1,7 +1,9 @@
-import { BadRequestException, ConflictException, NotFoundException, type INestApplication } from "@nestjs/common";
+import { BadRequestException, ConflictException, NotFoundException, ServiceUnavailableException, type INestApplication } from "@nestjs/common";
 import { Test } from "@nestjs/testing";
 import { PrismaClient } from "@prisma/client";
+import { CAD_SCENE_MAX_MANIFEST_BYTES, cadSceneManifestSchema } from "@led-control/shared";
 import { createHash, randomUUID } from "node:crypto";
+import { createReadStream } from "node:fs";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -9,6 +11,9 @@ import { AuditService } from "../audit/audit.service";
 import { SiteAccessService } from "../access/site-access.service";
 import { AuthService } from "../auth/auth.service";
 import { FloorAssetCleanupService } from "../floor-editor/floor-asset-cleanup.service";
+import { FloorAssetsService } from "../floor-editor/floor-assets.service";
+import { FloorEditorService } from "../floor-editor/floor-editor.service";
+import { FloorMapService } from "../floor-map/floor-map.service";
 import { FloorEditorModule } from "../floor-editor/floor-editor.module";
 import { hashEditorLeaseToken } from "../floor-editor/editor-lease-token";
 import { disposablePostgres } from "../../test/support/disposable-postgres";
@@ -195,6 +200,191 @@ const EMPTY_CANDIDATE_IDENTITY_DIGEST = createHash("sha256").update(JSON.stringi
       .resolves.toMatchObject({ status: "queued", sourceAssetId: second.id });
   });
 
+  it("persists 1817 fractional regions through selection, native apply and editor/map manifest reads", async () => {
+    const root = await mkdtemp(join(tmpdir(), "floor-import-metadata-"));
+    const source = await sourceAsset();
+    const job = await prisma.floorImportJob.create({ data: {
+      floorId, sourceAssetId: source.id, sourceFormat: "dxf", detectorProfileId: "generic-lighting-v1"
+    } });
+    const regions = Array.from({ length: 1817 }, (_, index) => ({
+      regionId: `region-${String(index).padStart(24, "0")}`,
+      bounds: { minX: 2961649.2519802507 + index * 200, minY: -370361.30238082947,
+        maxX: 2961749.2519802507 + index * 200, maxY: -370261.30238082947 },
+      primitiveCount: 2, textCount: 1, lightCandidateCount: 0, area: 10_000
+    }));
+    const regionPreviews = regions.map(region => {
+      const identity = cadRegionPreviewPersistenceIdentity(job.id, region.regionId);
+      return { regionId: region.regionId, assetId: identity.assetId, filename: `${identity.assetId}.svg`,
+        sizeBytes: 64, sha256: "b".repeat(64), viewport: { width: 100, height: 100 } };
+    });
+    const verified = new Map<string, any>();
+    let manifestPayload: Buffer | undefined;
+    const workerStorage: any = {
+      downloadFloorAssetToFile: jest.fn(async (_key, path) => writeFile(path, "source")),
+      putFloorRenderedObjectFile: jest.fn(async (key, _path, rendered, viewport) => {
+        verified.set(key, { sizeBytes: rendered.sizeBytes, sha256: rendered.sha256,
+          contentType: "image/svg+xml", contentEncoding: "gzip",
+          metadata: { "cad-width": String(viewport.width), "cad-height": String(viewport.height) } });
+      }),
+      verifyFloorRenderedObject: jest.fn(), deleteObject: jest.fn(),
+      putCadSceneObjectFile: jest.fn(),
+      verifyCadSceneObject: jest.fn(async (key, expected) => {
+        // Metadata must not be published while any object is still unverified.
+        if (verified.size === 1816) {
+          expect(await prisma.floorImportRegion.count({ where: { jobId: job.id } })).toBe(0);
+          expect(await prisma.floorAsset.count({ where: { floorId, kind: "cad_region_preview", status: "ready" } })).toBe(0);
+        }
+        verified.set(key, expected);
+      })
+    };
+    const registry = new FixedLightingDetectorRegistry();
+    const profile = registry.get("generic-lighting-v1");
+    const core: any = { execute: jest.fn().mockResolvedValue({
+      profileId: "generic-lighting-v1", profileVersion: profile.profileVersion, profileDigest: profile.profileDigest,
+      regions, regionPreviews, candidates: [], candidateRegionAssignments: [], excludedRegionPrimitiveCount: 7,
+      rendered: { viewport: { width: 100, height: 100 } }
+    }) };
+    const converter: any = { convert: jest.fn(async ({ outputPath }) => writeFile(outputPath, "converted")) };
+    const cleanup = new FloorImportAttemptCleanupService(prisma as never, workerStorage,
+      { tempRoot: root, pollIntervalMs: 1000, enabled: false });
+    const worker = new FloorImportWorkerService(prisma as never, workerStorage, converter, registry, core,
+      { tempRoot: root, pollIntervalMs: 1000, enabled: false }, cleanup);
+    try {
+      expect(await worker.runOnce()).toBe(true);
+      expect(verified.size).toBe(1817);
+      expect(await prisma.floorImportRegion.count({ where: { jobId: job.id } })).toBe(1817);
+      expect(await prisma.floorImportRegion.findFirstOrThrow({ where: { jobId: job.id }, orderBy: { regionId: "desc" } }))
+        .toMatchObject({ textCount: 1, lightCandidateCount: 0, previewWidth: 100, previewHeight: 100 });
+      const send = jest.fn(async (command: any) => {
+        const expected = verified.get(command.input.Key)!;
+        return { ContentLength: expected.sizeBytes, ContentType: expected.contentType,
+          ContentEncoding: expected.contentEncoding, ChecksumSHA256: Buffer.from(expected.sha256, "hex").toString("base64"),
+          Metadata: expected.metadata,
+          ...(expected.contentType === "application/json" ? { Body: (async function* () { yield manifestPayload!; })() } : {}) };
+      });
+      const presignGet = jest.fn().mockResolvedValue("https://private.invalid/preview");
+      const realStorage = new ObjectStorageService({ send } as never, { bucket: "isolated", publicBaseUrl: "", presignGet });
+      const imports = new FloorImportService(prisma as never, access as never, new AuditService(prisma as never), realStorage);
+      const listed = await imports.listRegions(user, floorId, job.id);
+      expect(listed.regions).toHaveLength(1817);
+      expect(listed.excludedRegionPrimitiveCount).toBe(7);
+      expect(listed.regions.at(-1)?.regionId).toBe(regions.at(-1)!.regionId);
+      expect(listed.regions[0].bounds).toEqual(regions[0].bounds);
+      expect(listed.regions.at(-1)!.bounds).toEqual(regions.at(-1)!.bounds);
+      expect(send).not.toHaveBeenCalled();
+      const selected = await imports.selectRegion(user, floorId, job.id, { regionId: regions.at(-1)!.regionId });
+      expect(selected.selectedRegionId).toBe(regions.at(-1)!.regionId);
+      expect(selected.regions).toHaveLength(1817);
+      expect(send).not.toHaveBeenCalled();
+      const assets = new FloorAssetsService(prisma as never, realStorage, access as never);
+      const preview = selected.regions.at(-1)!.preview;
+      await expect(assets.getContentRedirect(user, floorId, preview.assetId)).resolves.toEqual({ url: "https://private.invalid/preview" });
+      expect(send).toHaveBeenCalledTimes(1);
+      const validHead = await send.mock.results[0].value;
+      // Exercise the real storage verifier, not a stubbed integrity decision.
+      for (const change of [
+        { ContentLength: 65 }, { ContentType: "text/plain" }, { ContentEncoding: undefined },
+        { ChecksumSHA256: "invalid" },
+        { Metadata: { ...validHead.Metadata, "cad-region-id": "wrong" } },
+        { Metadata: { ...validHead.Metadata, "cad-max-x": "0" } },
+        { Metadata: { ...validHead.Metadata, "cad-text-count": "0" } },
+        { Metadata: { ...validHead.Metadata, "cad-width": "99" } }
+      ]) {
+        send.mockResolvedValueOnce({ ...validHead, ...change } as any);
+        await expect(assets.getContentRedirect(user, floorId, preview.assetId)).rejects.toBeInstanceOf(ServiceUnavailableException);
+      }
+      expect(send).toHaveBeenCalledTimes(9);
+      expect(presignGet).toHaveBeenCalledTimes(1);
+      const detection = await core.execute.mock.results[0].value;
+      core.execute.mockImplementationOnce(async ({ renderedPath, artifactDirectory }: any) => {
+        await writeFile(renderedPath, "gzip-svg");
+        const artifacts = await writeNativeCoreArtifacts(job.id, artifactDirectory, regions.at(-1)!);
+        manifestPayload = await readFile(join(artifactDirectory, artifacts.scene.manifestFilename));
+        return { ...detection, scene: artifacts.scene, regionPreviews: [], selectedCandidates: [],
+          rendered: { sizeBytes: 8, sha256: "f".repeat(64), contentEncoding: "gzip", viewport: { width: 1200, height: 1200 } } };
+      });
+      expect(await worker.runOnce()).toBe(true);
+      expect(await prisma.floorImportJob.findUniqueOrThrow({ where: { id: job.id } })).toMatchObject({ status: "review_required" });
+      const selectedCore = await core.execute.mock.results[1].value;
+      const scene = selectedCore.scene;
+      const leaseToken = "fractional-native-apply";
+      await prisma.floor.update({ where: { id: floorId }, data: {
+        editorLeaseFence: 1, editorLeaseTokenHash: hashEditorLeaseToken(leaseToken),
+        editorLeaseHolderId: userId, editorLeaseHolderName: user.name,
+        editorLeaseAcquiredAt: new Date(), editorLeaseExpiresAt: new Date(Date.now() + 60_000)
+      } });
+      await expect(imports.apply(user, floorId, job.id, {
+        expectedRevision: 0, leaseToken, leaseFence: 1, candidateIds: [], confirmMapReset: true
+      })).resolves.toMatchObject({ status: "completed", revision: 1 });
+      const persisted = await prisma.$queryRawUnsafe<Array<{
+        minX: string; minY: string; maxX: string; maxY: string; equal: boolean;
+      }>>(`SELECT scene."sourceMinX"::text AS "minX", scene."sourceMinY"::text AS "minY",
+        scene."sourceMaxX"::text AS "maxX", scene."sourceMaxY"::text AS "maxY",
+        (scene."sourceMinX" = region."minX" AND scene."sourceMinY" = region."minY"
+          AND scene."sourceMaxX" = region."maxX" AND scene."sourceMaxY" = region."maxY") AS equal
+        FROM "FloorCadScene" scene JOIN "FloorImportRegion" region ON region.id = scene."sourceRegionId"
+        WHERE scene.id = $1`, scene.sceneId);
+      expect(persisted[0].equal).toBe(true);
+      expect(Object.fromEntries(["minX", "minY", "maxX", "maxY"].map(key =>
+        [key, Number(persisted[0][key as "minX"])]))).toEqual(scene.sourceBounds);
+      const editor = new FloorEditorService(prisma as never, access as never, new AuditService(prisma as never));
+      const maps = new FloorMapService(prisma as never, access as never);
+      const editorState = await editor.getEditorState(floorId, user);
+      const snapshot = await maps.getSnapshot(user, siteId, floorId);
+      const sceneState = await maps.getCadSceneState(user, siteId, floorId);
+      expect(editorState.floor.cadScene).toEqual(snapshot.cadScene);
+      expect(sceneState.scene).toEqual(snapshot.cadScene);
+      expect(snapshot.cadScene).toMatchObject({ id: scene.sceneId, sourceImportJobId: job.id,
+        width: scene.width, height: scene.height,
+        manifestContentPath: `/floors/${floorId}/import-jobs/${job.id}/scene/manifest/content` });
+      const manifestReads = jest.spyOn(realStorage, "readCadSceneManifest");
+      await imports.getSceneManifestContent(user, floorId, job.id);
+      const readManifest = await manifestReads.mock.results[0].value;
+      expect(readManifest.sourceBounds).toEqual(scene.sourceBounds);
+      expect(readManifest.transform).toEqual(scene.transform);
+      const headsBeforeLegacyReads = send.mock.calls.length;
+      await prisma.floorImportRegion.updateMany({ where: { jobId: job.id }, data: {
+        textCount: null, lightCandidateCount: null, previewWidth: null, previewHeight: null
+      } });
+      await expect(imports.listRegions(user, floorId, job.id)).rejects.toBeInstanceOf(ConflictException);
+      await expect(assets.getContentRedirect(user, floorId, preview.assetId)).rejects.toBeInstanceOf(ConflictException);
+      expect(send).toHaveBeenCalledTimes(headsBeforeLegacyReads);
+    } finally {
+      await worker.onModuleDestroy();
+      await cleanup.onModuleDestroy();
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 30_000);
+
+  it("keeps legacy null metadata explicit and rolls back selection; SQL rejects partial or invalid metadata", async () => {
+    const source = await sourceAsset();
+    const previews = [await regionPreviewAsset("c"), await regionPreviewAsset("d")];
+    const job = await prisma.floorImportJob.create({ data: {
+      floorId, sourceAssetId: source.id, sourceFormat: "dxf", status: "region_selection_required",
+      stage: "region_selection_required", progressPercent: 70, attemptCount: 1,
+      startedAt: new Date(), reviewRequiredAt: new Date(), excludedRegionPrimitiveCount: 0, ...terminalProfile
+    } });
+    await prisma.floorImportRegion.createMany({ data: previews.map((preview, index) => ({
+      jobId: job.id, regionId: `region-${index}`, minX: 0, minY: 0, maxX: 100, maxY: 100,
+      primitiveCount: 2, candidateIdentityDigest: EMPTY_CANDIDATE_IDENTITY_DIGEST, previewAssetId: preview.id
+    })) });
+    await expect(service().selectRegion(user, floorId, job.id, { regionId: "region-1" })).rejects.toThrow(/re-import required/);
+    expect(await prisma.floorImportRegion.count({ where: { jobId: job.id, selectedAt: { not: null } } })).toBe(0);
+    expect(await prisma.floorImportJob.findUniqueOrThrow({ where: { id: job.id } })).toMatchObject({ status: "region_selection_required" });
+    for (const data of [
+      { textCount: 0 },
+      { textCount: 3, lightCandidateCount: 0, previewWidth: 100, previewHeight: 100 },
+      { textCount: 0, lightCandidateCount: -1, previewWidth: 100, previewHeight: 100 },
+      { textCount: 0, lightCandidateCount: 0, previewWidth: 2401, previewHeight: 100 },
+      { textCount: 0, lightCandidateCount: 0, previewWidth: 100, previewHeight: 1601 }
+    ]) {
+      await expect(prisma.floorImportRegion.updateMany({ where: { jobId: job.id }, data })).rejects.toThrow();
+    }
+    expect(await prisma.floorImportRegion.findFirstOrThrow({ where: { jobId: job.id } })).toMatchObject({
+      textCount: null, lightCandidateCount: null, previewWidth: null, previewHeight: null
+    });
+  });
+
   it("keeps a multi-region import unapplied until one authorized selection requeues it", async () => {
     const source = await sourceAsset();
     const firstPreview = await regionPreviewAsset("c");
@@ -203,18 +393,21 @@ const EMPTY_CANDIDATE_IDENTITY_DIGEST = createHash("sha256").update(JSON.stringi
       floorId, sourceAssetId: source.id, sourceFormat: "dxf",
       status: "region_selection_required", stage: "region_selection_required",
       progressPercent: 70, attemptCount: 1, startedAt: new Date(), reviewRequiredAt: new Date(),
+      excludedRegionPrimitiveCount: 4,
       ...terminalProfile
     } });
     await prisma.floorImportRegion.createMany({ data: [
       {
         jobId: job.id, regionId: "region-111111111111111111111111",
         minX: 0, minY: 0, maxX: 100, maxY: 80, primitiveCount: 12,
+        textCount: 2, lightCandidateCount: 1, previewWidth: 1_200, previewHeight: 960,
         candidateIdentityDigest: "1".repeat(64),
         previewAssetId: firstPreview.id
       },
       {
         jobId: job.id, regionId: "region-222222222222222222222222",
         minX: 500, minY: 500, maxX: 620, maxY: 590, primitiveCount: 8,
+        textCount: 1, lightCandidateCount: 0, previewWidth: 1_200, previewHeight: 900,
         candidateIdentityDigest: EMPTY_CANDIDATE_IDENTITY_DIGEST,
         previewAssetId: secondPreview.id
       }
@@ -232,6 +425,7 @@ const EMPTY_CANDIDATE_IDENTITY_DIGEST = createHash("sha256").update(JSON.stringi
       jobId: job.id,
       selectionStatus: "selection_required",
       selectedRegionId: null,
+      excludedRegionPrimitiveCount: 4,
       regions: [
         { regionId: "region-111111111111111111111111", textCount: 2, lightCandidateCount: 1 },
         { regionId: "region-222222222222222222222222", textCount: 1, lightCandidateCount: 0 }
@@ -255,6 +449,7 @@ const EMPTY_CANDIDATE_IDENTITY_DIGEST = createHash("sha256").update(JSON.stringi
     await expect(imports.selectRegion(user, floorId, job.id, {
       regionId: "region-111111111111111111111111"
     })).rejects.toBeInstanceOf(ConflictException);
+    expect(storage.readCadRegionPreviewMetadata).not.toHaveBeenCalled();
   });
 
   it("grants a fresh scene-build retry budget when a third-attempt multi-region job is selected", async () => {
@@ -275,18 +470,21 @@ const EMPTY_CANDIDATE_IDENTITY_DIGEST = createHash("sha256").update(JSON.stringi
     const job = await prisma.floorImportJob.create({ data: {
       floorId, sourceAssetId: source.id, sourceFormat: "dxf",
       status: "region_selection_required", stage: "region_selection_required", progressPercent: 70,
-      attemptCount: 3, startedAt: new Date(), reviewRequiredAt: new Date(), ...terminalProfile
+      attemptCount: 3, startedAt: new Date(), reviewRequiredAt: new Date(),
+      excludedRegionPrimitiveCount: 0, ...terminalProfile
     } });
     await prisma.floorImportRegion.createMany({ data: [
       {
         jobId: job.id, regionId: selectedRegion.regionId, ...selectedRegion.bounds,
         primitiveCount: selectedRegion.primitiveCount,
+        textCount: 0, lightCandidateCount: 0, previewWidth: 1_200, previewHeight: 1_200,
         candidateIdentityDigest: EMPTY_CANDIDATE_IDENTITY_DIGEST,
         previewAssetId: selectedPreview.id
       },
       {
         jobId: job.id, regionId: otherRegion.regionId, ...otherRegion.bounds,
         primitiveCount: otherRegion.primitiveCount,
+        textCount: 0, lightCandidateCount: 0, previewWidth: 1_200, previewHeight: 1_200,
         candidateIdentityDigest: EMPTY_CANDIDATE_IDENTITY_DIGEST,
         previewAssetId: otherPreview.id
       }
@@ -491,6 +689,7 @@ const EMPTY_CANDIDATE_IDENTITY_DIGEST = createHash("sha256").update(JSON.stringi
       floorId, sourceAssetId: source.id, sourceFormat: "dxf",
       status: "region_selection_required", stage: "region_selection_required",
       progressPercent: 70, attemptCount: 1, startedAt: new Date(), reviewRequiredAt: new Date(),
+      excludedRegionPrimitiveCount: 0,
       ...terminalProfile
     } });
     const regionIds = ["region-cccccccccccccccccccccccc", "region-dddddddddddddddddddddddd"];
@@ -524,7 +723,8 @@ const EMPTY_CANDIDATE_IDENTITY_DIGEST = createHash("sha256").update(JSON.stringi
     const job = await prisma.floorImportJob.create({ data: {
       floorId, sourceAssetId: source.id, renderedAssetId: rendered.id, sourceFormat: "dxf",
       status: "review_required", stage: "review_required", progressPercent: 100,
-      attemptCount: 1, startedAt: new Date(), reviewRequiredAt: new Date(), ...terminalProfile
+      attemptCount: 1, startedAt: new Date(), reviewRequiredAt: new Date(),
+      excludedRegionPrimitiveCount: 0, ...terminalProfile
     } });
     const region = {
       regionId: "region-333333333333333333333333",
@@ -568,9 +768,7 @@ const EMPTY_CANDIDATE_IDENTITY_DIGEST = createHash("sha256").update(JSON.stringi
     storage.createFloorAssetDownloadUrl = jest.fn(async (objectKey: string) => `https://private.invalid/${objectKey}`);
 
     const imports = service();
-    await expect(imports.getSceneManifestContent(user, floorId, job.id)).resolves.toEqual({
-      url: `https://private.invalid/${identity.manifestObjectKey(floorId)}`
-    });
+    await expect(imports.getSceneManifestContent(user, floorId, job.id)).resolves.toEqual(built.manifest);
     const tile = built.manifest.tiles[0];
     await expect(imports.getSceneTileContent(user, floorId, job.id, {
       tileX: tile.tileX, tileY: tile.tileY, lod: tile.lod, part: tile.part
@@ -620,6 +818,164 @@ const EMPTY_CANDIDATE_IDENTITY_DIGEST = createHash("sha256").update(JSON.stringi
       sourceType: "cad", width: built.manifest.width, height: built.manifest.height,
       gridSize: built.manifest.gridSize
     });
+  });
+
+  it.each([
+    { changedRegion: false, selectedCandidates: 2 },
+    { changedRegion: true, selectedCandidates: 0 },
+    { changedRegion: true, selectedCandidates: 2 }
+  ])("replaces an applied native scene while preserving its manifest format version: %j", async ({ changedRegion, selectedCandidates }) => {
+    const imports = service();
+    const gateway = await prisma.gateway.create({ data: {
+      siteId, name: "Native replacement", serialNumber: randomUUID(), firmwareVersion: "test"
+    } });
+    const node = await prisma.meshNode.create({ data: {
+      gatewayId: gateway.id, meshAddress: "0x0210", serialNumber: randomUUID(), firmwareVersion: "test"
+    } });
+    const fixture = await prisma.fixture.create({ data: {
+      floorId, siteId, name: "Existing native fixture", ratedWatt: 40, x: 0, y: 0,
+      meshNodeId: node.id, gatewayId: gateway.id
+    } });
+    const editor = new FloorEditorService(prisma as never, access as never, new AuditService(prisma as never));
+    const maps = new FloorMapService(prisma as never, access as never);
+    let previousSceneId = "";
+    let previousDimensions: { width: number; height: number } | undefined;
+    // Capture every apply-owned row, including timestamps and historical state,
+    // so a late transaction failure cannot silently leave a partial replacement.
+    const persistedState = () => prisma.$transaction(async tx => ({
+      floor: await tx.floor.findUniqueOrThrow({ where: { id: floorId }, include: {
+        floorPlan: true, cadScene: { include: { tiles: { orderBy: { id: "asc" } },
+          elementOverrides: true, layerStates: true } },
+        lightSlots: { orderBy: { id: "asc" } }, fixtures: { orderBy: { id: "asc" } },
+        mapObjects: { orderBy: { id: "asc" } }, mapRevisions: { orderBy: { revision: "asc" } }
+      } }),
+      jobs: await tx.floorImportJob.findMany({ where: { floorId }, orderBy: { id: "asc" },
+        include: { candidates: { orderBy: { id: "asc" } } } }),
+      audit: await tx.auditLog.findMany({ where: { siteId }, orderBy: { id: "asc" } })
+    }));
+    await prisma.floor.update({ where: { id: floorId }, data: {
+      editorLeaseFence: 4, editorLeaseTokenHash: hashEditorLeaseToken("replacement-lease"),
+      editorLeaseHolderId: userId, editorLeaseHolderName: user.name,
+      editorLeaseAcquiredAt: new Date(), editorLeaseExpiresAt: new Date(Date.now() + 60_000)
+    } });
+    for (let revision = 0; revision < 2; revision++) {
+      const source = await sourceAsset();
+      const rendered = await renderedAsset();
+      const job = await prisma.floorImportJob.create({ data: {
+        floorId, sourceAssetId: source.id, renderedAssetId: rendered.id, sourceFormat: "dxf",
+        status: "review_required", stage: "review_required", progressPercent: 100,
+        attemptCount: 1, startedAt: new Date(), reviewRequiredAt: new Date(),
+        excludedRegionPrimitiveCount: 0, ...terminalProfile
+      } });
+      const bounds = revision === 1 && changedRegion
+        ? { minX: -200, minY: 300, maxX: 1_800, maxY: 800 }
+        : { minX: 0, minY: 0, maxX: 1_000, maxY: 1_000 };
+      const region = {
+        regionId: revision === 1 && changedRegion ? "region-444444444444444444444444" : "region-333333333333333333333333", bounds,
+        primitiveCount: 1, textCount: 0, lightCandidateCount: 2,
+        area: (bounds.maxX - bounds.minX) * (bounds.maxY - bounds.minY)
+      };
+      await prisma.floorImportRegion.create({ data: {
+        jobId: job.id, regionId: region.regionId, ...bounds,
+        primitiveCount: 1, selectedAt: new Date()
+      } });
+      const identity = cadScenePersistenceIdentity(job.id, region.regionId);
+      const built = buildCadScene({ version: 1, bounds, blocks: [], entities: [{
+        type: "line", sourceEntityId: "native-line", layer: "WALL",
+        start: { x: bounds.minX + 10, y: bounds.minY + 10, z: 0 },
+        end: { x: bounds.maxX - 10, y: bounds.maxY - 10, z: 0 }
+      }] }, region, {
+        sceneId: identity.sceneId, manifestAssetId: identity.manifestAssetId, tileAssetId: identity.tileAssetId
+      });
+      await prisma.floorAsset.createMany({ data: [
+        {
+          id: built.manifest.manifestAssetId, floorId, kind: "cad_manifest", status: "ready",
+          objectKey: identity.manifestObjectKey(floorId), mimeType: "application/json",
+          sizeBytes: BigInt(built.manifest.byteSize), sha256: built.manifest.sha256, readyAt: new Date()
+        },
+        ...built.tiles.map(tile => ({
+          id: tile.descriptor.assetId, floorId, kind: "cad_tile" as const, status: "ready" as const,
+          objectKey: identity.tileObjectKey(floorId, tile.descriptor), mimeType: "application/vnd.led-control.cad-tile",
+          sizeBytes: BigInt(tile.descriptor.byteSize), sha256: tile.descriptor.sha256, readyAt: new Date()
+        }))
+      ] });
+      const candidates = [{ id: randomUUID(), x: 100, y: 200 }, { id: randomUUID(), x: 300, y: 400 }];
+      await prisma.floorImportCandidate.createMany({ data: candidates.map((candidate, index) => ({
+        ...candidate, jobId: job.id, sourceEntityId: `native-light-${index}`, layerName: "LIGHT", blockName: "LED",
+        rotation: 0, confidence: 0.95, detectionMethod: "rule_based" as const,
+        profileVersion: "test/1", profileDigest: "b".repeat(64)
+      })) });
+      storage.readCadSceneManifest = jest.fn().mockResolvedValue(built.manifest);
+      const accepted = candidates.slice(0, revision === 0 ? 2 : selectedCandidates);
+      const input = {
+        expectedRevision: revision, leaseToken: "replacement-lease", leaseFence: 4,
+        candidateIds: accepted.map(candidate => candidate.id), confirmMapReset: true
+      };
+      if (revision === 1) {
+        const before = await persistedState();
+        const audit = new AuditService(prisma as never);
+        const record = audit.record.bind(audit);
+        jest.spyOn(audit, "record").mockImplementationOnce(async input => {
+          await record(input);
+          throw new Error("injected failure after native replacement and audit insertion");
+        });
+        const failing = new FloorImportService(prisma as never, access as never, audit, storage);
+        await expect(failing.apply(user, floorId, job.id, input)).rejects.toThrow("injected failure after native replacement");
+        expect(await persistedState()).toEqual(before);
+        if (changedRegion) expect({ width: built.manifest.width, height: built.manifest.height }).not.toEqual(previousDimensions);
+      }
+      await expect(imports.apply(user, floorId, job.id, input)).resolves.toMatchObject({
+        status: "completed", revision: revision + 1, createdSlotCount: accepted.length,
+        deletedSlotCount: revision === 0 ? 0 : 2
+      });
+      await expect(prisma.floorCadScene.findUniqueOrThrow({ where: { floorId } })).resolves.toMatchObject({
+        id: built.manifest.sceneId, version: built.manifest.version, sourceImportJobId: job.id,
+        sourceMinX: bounds.minX, sourceMinY: bounds.minY, sourceMaxX: bounds.maxX, sourceMaxY: bounds.maxY
+      });
+      const editorState = await editor.getEditorState(floorId, user);
+      const snapshot = await maps.getSnapshot(user, siteId, floorId);
+      const sceneState = await maps.getCadSceneState(user, siteId, floorId);
+      expect(editorState.floor.cadScene).toEqual(snapshot.cadScene);
+      expect(sceneState.scene).toEqual(snapshot.cadScene);
+      expect(snapshot.cadScene).toMatchObject({ id: built.manifest.sceneId, version: built.manifest.version,
+        width: built.manifest.width, height: built.manifest.height });
+      expect(snapshot.revision).toBe(revision + 1);
+      expect(editorState.lightSlots).toHaveLength(accepted.length);
+      for (const candidate of accepted) expect(editorState.lightSlots).toEqual(expect.arrayContaining([
+        expect.objectContaining({ x: candidate.x, y: candidate.y, assignedFixtureId: null })
+      ]));
+      const slots = await prisma.floorLightSlot.findMany({ where: { floorId } });
+      expect(slots).toHaveLength(accepted.length);
+      for (const candidate of accepted) expect(slots).toEqual(expect.arrayContaining([expect.objectContaining({
+        sourceCandidateId: candidate.id, sourceImportJobId: job.id, x: candidate.x, y: candidate.y, assignedFixtureId: null
+      })]));
+      expect(await prisma.floorPlan.findUniqueOrThrow({ where: { floorId } })).toMatchObject({
+        version: revision + 1, width: built.manifest.width, height: built.manifest.height
+      });
+      expect(await prisma.fixture.count({ where: { floorId } })).toBe(1);
+      expect(await prisma.meshNode.count({ where: { gatewayId: gateway.id } })).toBe(1);
+      expect(await prisma.fixture.findUniqueOrThrow({ where: { id: fixture.id } })).toMatchObject({
+        meshNodeId: node.id, gatewayId: gateway.id, placementStatus: "unplaced", x: 0, y: 0
+      });
+      if (revision === 0) {
+        await prisma.floorCadElementOverride.create({ data: { sceneId: built.manifest.sceneId, elementId: "line:native-line", hidden: true } });
+        await prisma.floorCadLayerState.create({ data: { sceneId: built.manifest.sceneId, layerName: "WALL", visible: false, locked: true } });
+        await prisma.fixture.update({ where: { id: fixture.id }, data: { placementStatus: "placed", x: 100, y: 200, positionVerifiedAt: new Date() } });
+        await prisma.floorLightSlot.update({ where: { id: slots[0].id }, data: { assignedFixtureId: fixture.id } });
+        await prisma.floorMapObject.create({ data: { floorId, type: "rectangle", x: 1, y: 2, width: 3, height: 4 } });
+      } else {
+        expect(await prisma.floorCadScene.count({ where: { id: previousSceneId } })).toBe(0);
+        expect(await prisma.floorCadTile.count({ where: { sceneId: previousSceneId } })).toBe(0);
+        expect(await prisma.floorCadElementOverride.count({ where: { sceneId: previousSceneId } })).toBe(0);
+        expect(await prisma.floorCadLayerState.count({ where: { sceneId: previousSceneId } })).toBe(0);
+        expect(await prisma.floorMapObject.count({ where: { floorId } })).toBe(0);
+        expect(await prisma.floorMapRevision.count({ where: { floorId } })).toBe(2);
+      }
+      previousSceneId = built.manifest.sceneId;
+      previousDimensions = { width: built.manifest.width, height: built.manifest.height };
+    }
+    await prisma.fixture.update({ where: { id: fixture.id }, data: { meshNodeId: null } });
+    await prisma.gateway.delete({ where: { id: gateway.id } });
   });
 
   it("reauthorizes active lookup after a concurrent PostgreSQL admin revocation", async () => {
@@ -967,9 +1323,7 @@ const EMPTY_CANDIDATE_IDENTITY_DIGEST = createHash("sha256").update(JSON.stringi
       const imports = new FloorImportService(
         prisma as never, access as never, new AuditService(prisma as never), workerStorage as never
       );
-      await expect(imports.getSceneManifestContent(user, floorId, job.id)).resolves.toEqual({
-        url: `https://private.invalid/${identity.manifestObjectKey(floorId)}`
-      });
+      await expect(imports.getSceneManifestContent(user, floorId, job.id)).resolves.toEqual(built.manifest);
       const tile = built.manifest.tiles[0];
       await expect(imports.getSceneTileContent(user, floorId, job.id, {
         tileX: tile.tileX, tileY: tile.tileY, lod: tile.lod, part: tile.part
@@ -1363,7 +1717,7 @@ const EMPTY_CANDIDATE_IDENTITY_DIGEST = createHash("sha256").update(JSON.stringi
       id: jobId, floorId, sourceAssetId: source.id, renderedAssetId: renderedId, sourceFormat: "dxf",
       status: "review_required", stage: "review_required", progressPercent: 100, attemptCount: 1,
       startedAt: new Date(), reviewRequiredAt: new Date(), parserVersion: "ascii-dxf-v1", detectorVersion: "rule-v1",
-      ...terminalProfile
+      excludedRegionPrimitiveCount: 0, ...terminalProfile
     } });
     const candidateIds = Array.from({ length: 2_000 }, () => randomUUID());
     const acceptedIds = candidateIds;
@@ -1598,7 +1952,7 @@ const EMPTY_CANDIDATE_IDENTITY_DIGEST = createHash("sha256").update(JSON.stringi
     const job = await prisma.floorImportJob.create({ data: {
       floorId, sourceAssetId: source.id, renderedAssetId: rendered.id, sourceFormat: "dxf",
       status: "review_required", stage: "review_required", progressPercent: 100, attemptCount: 1,
-      startedAt: new Date(), reviewRequiredAt: new Date(), ...terminalProfile
+      startedAt: new Date(), reviewRequiredAt: new Date(), excludedRegionPrimitiveCount: 0, ...terminalProfile
     } });
     await prisma.floor.update({ where: { id: floorId }, data: {
       mapRevision: 4, editorLeaseFence: 8, editorLeaseTokenHash: hashEditorLeaseToken("lease-token"),
@@ -1742,6 +2096,7 @@ const EMPTY_CANDIDATE_IDENTITY_DIGEST = createHash("sha256").update(JSON.stringi
   });
 
   it("enforces admin, viewer, tenant, session, and transaction-time permission boundaries over real HTTP", async () => {
+    const manifestDirectory = await mkdtemp(join(tmpdir(), "cad-http-manifest-"));
     const viewer = await prisma.user.create({ data: {
       organizationId, loginId: `cad_viewer_${randomUUID()}`, name: "CAD Viewer", passwordHash: "unused", role: "viewer"
     } });
@@ -1795,7 +2150,8 @@ const EMPTY_CANDIDATE_IDENTITY_DIGEST = createHash("sha256").update(JSON.stringi
       const selectionJob = await prisma.floorImportJob.create({ data: {
         floorId: selectionFloor.id, sourceAssetId: selectionSourceId, sourceFormat: "dxf",
         status: "region_selection_required", stage: "region_selection_required", progressPercent: 70,
-        attemptCount: 1, startedAt: new Date(), reviewRequiredAt: new Date(), ...terminalProfile
+        attemptCount: 1, startedAt: new Date(), reviewRequiredAt: new Date(),
+        excludedRegionPrimitiveCount: 0, ...terminalProfile
       } });
       const selectionPreviewIds = [randomUUID(), randomUUID()];
       await prisma.floorAsset.createMany({ data: selectionPreviewIds.map((id, index) => ({
@@ -1808,6 +2164,7 @@ const EMPTY_CANDIDATE_IDENTITY_DIGEST = createHash("sha256").update(JSON.stringi
         jobId: selectionJob.id, regionId,
         minX: index * 200, minY: index * 200, maxX: index * 200 + 100, maxY: index * 200 + 100,
         primitiveCount: 1,
+        textCount: 0, lightCandidateCount: 0, previewWidth: 1_200, previewHeight: 1_200,
         candidateIdentityDigest: EMPTY_CANDIDATE_IDENTITY_DIGEST,
         previewAssetId: selectionPreviewIds[index]
       })) });
@@ -1848,6 +2205,22 @@ const EMPTY_CANDIDATE_IDENTITY_DIGEST = createHash("sha256").update(JSON.stringi
         minX: 0, minY: 0, maxX: 100, maxY: 100, primitiveCount: 1,
         previewAssetId: scenePreviewId, selectedAt: new Date()
       } });
+      const sceneCandidate = await prisma.floorImportCandidate.create({ data: {
+        jobId: sceneJob.id, sourceEntityId: "http-legacy-light", layerName: "LIGHT", blockName: "LED",
+        x: 40, y: 50, rotation: 0, confidence: 0.95, detectionMethod: "rule_based",
+        profileVersion: "test/1", profileDigest: "a".repeat(64)
+      } });
+      const sceneFixture = await prisma.fixture.create({ data: {
+        floorId: sceneFloor.id, siteId, name: "HTTP legacy fixture", ratedWatt: 40,
+        x: 40, y: 50, placementStatus: "placed", positionVerifiedAt: new Date()
+      } });
+      const sceneMapObject = await prisma.floorMapObject.create({ data: {
+        floorId: sceneFloor.id, type: "rectangle", x: 10, y: 20, width: 30, height: 40
+      } });
+      const sceneSlot = await prisma.floorLightSlot.create({ data: {
+        floorId: sceneFloor.id, sourceImportJobId: sceneJob.id, sourceCandidateId: sceneCandidate.id,
+        assignedFixtureId: sceneFixture.id, x: 40, y: 50, rotation: 0
+      } });
       const sceneIdentity = cadScenePersistenceIdentity(sceneJob.id, sceneRegion.regionId);
       const builtScene = buildCadScene({
         version: 1, bounds: sceneRegion.bounds, blocks: [],
@@ -1877,9 +2250,32 @@ const EMPTY_CANDIDATE_IDENTITY_DIGEST = createHash("sha256").update(JSON.stringi
         width: 1_200, height: 1_200, textCount: 0, lightCandidateCount: 0,
         area: (expected.bounds.maxX - expected.bounds.minX) * (expected.bounds.maxY - expected.bounds.minY)
       }));
-      storage.readCadSceneManifest = jest.fn().mockResolvedValue(builtScene.manifest);
+      const rawManifestPath = join(manifestDirectory, "manifest.json");
+      await writeFile(rawManifestPath, builtScene.manifestPayload);
+      const rawManifest = JSON.parse(builtScene.manifestPayload.toString("utf8"));
+      expect(rawManifest).not.toHaveProperty("byteSize");
+      expect(rawManifest).not.toHaveProperty("sha256");
+      expect(cadSceneManifestSchema.safeParse(rawManifest).success).toBe(false);
+      // Use the real storage reader on the builder's raw file, rather than a
+      // pre-enriched manifest mock that hides the HTTP representation mismatch.
+      const manifestObject = {
+        ContentLength: builtScene.manifestPayload.length,
+        ContentType: "application/json",
+        ChecksumSHA256: Buffer.from(builtScene.manifest.sha256, "hex").toString("base64")
+      };
+      const manifestGet = jest.fn(async () => ({ ...manifestObject, Body: createReadStream(rawManifestPath) }));
+      const manifestStorage = new ObjectStorageService({ send: manifestGet } as never, {
+        bucket: "disposable-cad-http", publicBaseUrl: "https://private.invalid"
+      });
+      storage.readCadSceneManifest = manifestStorage.readCadSceneManifest.bind(manifestStorage);
       storage.verifyCadSceneObject = jest.fn().mockResolvedValue(undefined);
       storage.createFloorAssetDownloadUrl = jest.fn(async (objectKey: string) => `https://private.invalid/${objectKey}`);
+      await prisma.floor.update({ where: { id: sceneFloor.id }, data: {
+        mapRevision: 6, editorLeaseFence: 12,
+        editorLeaseTokenHash: hashEditorLeaseToken("http-legacy-lease"),
+        editorLeaseHolderId: userId, editorLeaseHolderName: user.name,
+        editorLeaseAcquiredAt: new Date(), editorLeaseExpiresAt: new Date(Date.now() + 60_000)
+      } });
 
       expect((await send("GET", `${collection}/applied-overlay`)).status).toBe(401);
       const viewerOverlay = await send("GET", `${collection}/applied-overlay`, viewerCookie);
@@ -1915,11 +2311,56 @@ const EMPTY_CANDIDATE_IDENTITY_DIGEST = createHash("sha256").update(JSON.stringi
       for (const contentPath of [manifestContent, tileContent]) {
         expect((await send("GET", contentPath)).status).toBe(401);
         const viewerResponse = await send("GET", contentPath, viewerCookie);
-        expect(viewerResponse.status).toBe(302);
+        expect(viewerResponse.status).toBe(contentPath === manifestContent ? 200 : 302);
         expect(viewerResponse.headers.get("cache-control")).toContain("private");
-        expect((await send("GET", contentPath, adminCookie)).status).toBe(302);
+        expect(viewerResponse.headers.get("cache-control")).toContain("no-store");
+        if (contentPath === manifestContent) {
+          expect(viewerResponse.headers.get("location")).toBeNull();
+          expect(viewerResponse.headers.get("content-type")).toContain("application/json");
+          const body = await viewerResponse.json();
+          expect(cadSceneManifestSchema.parse(body)).toEqual(builtScene.manifest);
+          expect(body.byteSize).toBe(builtScene.manifestPayload.length);
+          expect(body.sha256).toBe(createHash("sha256").update(builtScene.manifestPayload).digest("hex"));
+          expect(Buffer.byteLength(JSON.stringify(body))).toBeLessThanOrEqual(CAD_SCENE_MAX_MANIFEST_BYTES);
+        }
+        expect((await send("GET", contentPath, adminCookie)).status).toBe(contentPath === manifestContent ? 200 : 302);
         expect((await send("GET", contentPath, otherCookie)).status).toBe(404);
       }
+      for (const invalid of [
+        { ContentLength: manifestObject.ContentLength + 1 },
+        { ContentType: "text/plain" },
+        { ChecksumSHA256: Buffer.alloc(32).toString("base64") }
+      ]) {
+        manifestGet.mockResolvedValueOnce({ ...manifestObject, ...invalid, Body: Buffer.alloc(0) as never });
+        expect((await send("GET", manifestContent, viewerCookie)).status).toBe(503);
+      }
+      await writeFile(rawManifestPath, Buffer.alloc(builtScene.manifestPayload.length, 32));
+      expect((await send("GET", manifestContent, viewerCookie)).status).toBe(503);
+      await writeFile(rawManifestPath, builtScene.manifestPayload);
+      // Stored size includes legal whitespace; response size is independently
+      // bounded after enrichment, not raw size plus a guessed envelope budget.
+      const boundaryPayload = Buffer.concat([builtScene.manifestPayload,
+        Buffer.alloc(CAD_SCENE_MAX_MANIFEST_BYTES - builtScene.manifestPayload.length, 32)]);
+      const boundarySha = createHash("sha256").update(boundaryPayload).digest("hex");
+      await writeFile(rawManifestPath, boundaryPayload);
+      manifestObject.ContentLength = boundaryPayload.length;
+      manifestObject.ChecksumSHA256 = Buffer.from(boundarySha, "hex").toString("base64");
+      await prisma.floorAsset.update({ where: { id: builtScene.manifest.manifestAssetId }, data: {
+        sizeBytes: BigInt(boundaryPayload.length), sha256: boundarySha
+      } });
+      const boundaryResponse = await send("GET", manifestContent, viewerCookie);
+      expect(boundaryResponse.status).toBe(200);
+      const boundaryBody = await boundaryResponse.text();
+      expect(Buffer.byteLength(boundaryBody)).toBeLessThanOrEqual(CAD_SCENE_MAX_MANIFEST_BYTES);
+      expect(cadSceneManifestSchema.parse(JSON.parse(boundaryBody))).toEqual({
+        ...builtScene.manifest, byteSize: boundaryPayload.length, sha256: boundarySha
+      });
+      await writeFile(rawManifestPath, builtScene.manifestPayload);
+      manifestObject.ContentLength = builtScene.manifestPayload.length;
+      manifestObject.ChecksumSHA256 = Buffer.from(builtScene.manifest.sha256, "hex").toString("base64");
+      await prisma.floorAsset.update({ where: { id: builtScene.manifest.manifestAssetId }, data: {
+        sizeBytes: BigInt(builtScene.manifest.byteSize), sha256: builtScene.manifest.sha256
+      } });
 
       const genericAssets = `/floors/${sceneFloor.id}/assets`;
       expect((await send("GET", genericAssets)).status).toBe(401);
@@ -1940,6 +2381,42 @@ const EMPTY_CANDIDATE_IDENTITY_DIGEST = createHash("sha256").update(JSON.stringi
         expect((await send("GET", genericContent, adminCookie)).status).toBe(404);
         expect((await send("GET", genericContent, otherCookie)).status).toBe(404);
       }
+
+      const legacyRegions = await send(
+        "GET",
+        `/floors/${sceneFloor.id}/import-jobs/${sceneJob.id}/regions`,
+        adminCookie
+      );
+      expect(legacyRegions.status).toBe(409);
+
+      const legacyApply = await send(
+        "POST",
+        `/floors/${sceneFloor.id}/import-jobs/${sceneJob.id}/apply`,
+        adminCookie,
+        {
+          expectedRevision: 6,
+          leaseToken: "http-legacy-lease",
+          leaseFence: 12,
+          candidateIds: [],
+          confirmMapReset: true
+        }
+      );
+      expect(legacyApply.status).toBe(409);
+      expect(JSON.stringify(await legacyApply.json())).toMatch(/re-import required/i);
+      await expect(prisma.floor.findUniqueOrThrow({ where: { id: sceneFloor.id } }))
+        .resolves.toMatchObject({ mapRevision: 6 });
+      await expect(prisma.floorMapObject.findUnique({ where: { id: sceneMapObject.id } }))
+        .resolves.toMatchObject({ id: sceneMapObject.id });
+      await expect(prisma.fixture.findUnique({ where: { id: sceneFixture.id } }))
+        .resolves.toMatchObject({ id: sceneFixture.id, placementStatus: "placed", x: 40, y: 50 });
+      await expect(prisma.floorLightSlot.findUnique({ where: { id: sceneSlot.id } }))
+        .resolves.toMatchObject({ id: sceneSlot.id, assignedFixtureId: sceneFixture.id });
+      await expect(prisma.floorImportCandidate.findUnique({ where: { id: sceneCandidate.id } }))
+        .resolves.toMatchObject({ id: sceneCandidate.id, reviewStatus: "pending", reviewedAt: null });
+      await expect(prisma.floorImportJob.findUniqueOrThrow({ where: { id: sceneJob.id } }))
+        .resolves.toMatchObject({ status: "review_required", excludedRegionPrimitiveCount: null });
+      await expect(prisma.floorMapRevision.count({ where: { floorId: sceneFloor.id } })).resolves.toBe(0);
+
       storage.verifyCadSceneObject.mockRejectedValueOnce(new Error("corrupt tile"));
       expect((await send("GET", tileContent, viewerCookie)).status).toBe(503);
       expect((await send("GET", `${genericAssets}/${tile.assetId}/content`, viewerCookie)).status).toBe(404);
@@ -1972,7 +2449,7 @@ const EMPTY_CANDIDATE_IDENTITY_DIGEST = createHash("sha256").update(JSON.stringi
       expect((await raced).status).toBe(404);
       expect(await prisma.floorImportJob.count({ where: { floorId: raceFloor.id } })).toBe(0);
       await revoker.$disconnect();
-    } finally { await app.close(); }
+    } finally { await app.close(); await rm(manifestDirectory, { recursive: true, force: true }); }
   }, 30_000);
 });
 

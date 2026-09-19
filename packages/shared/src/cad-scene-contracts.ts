@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { POSTGRES_INT_MAX } from "./postgres-contracts";
+import { POSTGRES_INT_MAX } from "./postgres-contracts.js";
 
 export const CAD_SCENE_VERSION = 1;
 export const CAD_SCENE_TILE_SIZE = 512;
@@ -500,6 +500,13 @@ const cadElementRotationSchema = finiteNumberSchema
     return Object.is(normalized, -0) ? 0 : normalized;
   });
 
+export const cadSceneElementLocatorSchema = z.object({
+  tileX: z.number().int().min(0).max(CAD_SCENE_MAX_TILES_PER_AXIS - 1),
+  tileY: z.number().int().min(0).max(CAD_SCENE_MAX_TILES_PER_AXIS - 1),
+  lod: z.union([z.literal(0), z.literal(1), z.literal(2)]),
+  part: z.number().int().min(0).max(CAD_SCENE_MAX_PARTS_PER_TILE - 1)
+}).strict();
+
 export const cadElementTransformSchema = z.object({
   translateX: cadElementTranslationSchema,
   translateY: cadElementTranslationSchema,
@@ -519,6 +526,9 @@ const cadElementOverrideValueShape = {
 
 export const cadElementOverrideSchema = z.object({
   elementId: z.string().trim().min(1).max(512),
+  // Rows created before locator persistence remain readable, but every new
+  // mutation stores evidence so clients can preload only the source tile.
+  locator: cadSceneElementLocatorSchema.nullable().optional(),
   ...cadElementOverrideValueShape
 }).strict();
 
@@ -553,13 +563,6 @@ export const cadLayerStateSchema = z.object({
   layerName: z.string().trim().min(1).max(512),
   visible: z.boolean(),
   locked: z.boolean()
-}).strict();
-
-export const cadSceneElementLocatorSchema = z.object({
-  tileX: z.number().int().min(0).max(CAD_SCENE_MAX_TILES_PER_AXIS - 1),
-  tileY: z.number().int().min(0).max(CAD_SCENE_MAX_TILES_PER_AXIS - 1),
-  lod: z.union([z.literal(0), z.literal(1), z.literal(2)]),
-  part: z.number().int().min(0).max(CAD_SCENE_MAX_PARTS_PER_TILE - 1)
 }).strict();
 
 const cadElementIdSchema = z.string().regex(/^cad-element-[a-f0-9]{32}$/);

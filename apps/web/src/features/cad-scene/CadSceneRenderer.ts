@@ -1,7 +1,8 @@
-import type { CadSceneManifest, CadSceneTile } from "@led-control/shared";
-import { Container, Mesh, MeshGeometry, Texture, WebGLRenderer } from "pixi.js";
+import type { CadBounds, CadSceneManifest, CadSceneTile } from "@led-control/shared";
+import { Color, Container, Mesh, MeshGeometry, Texture, WebGLRenderer } from "pixi.js";
 import {
   capCadRendererResolution,
+  cadDisplayZoomBand,
   computeVisibleTileCoordinates,
   screenToCadWorld,
   selectCadSceneLods,
@@ -10,8 +11,11 @@ import {
   type CadSceneCamera
 } from "./cad-scene-camera";
 import { CadSceneTileCache } from "./cad-scene-tile-cache";
+import { CadSceneMemoryBudget } from "./cad-scene-memory-budget";
+import { packCadDisplayText } from "./cad-scene-text-layout";
 import {
   createCadSceneWorkerClient,
+  extractCadSourceElement,
   type CadGeometryBatch,
   type CadPickEntry,
   type CadSceneWorkerClient,
@@ -123,8 +127,10 @@ export interface CadSceneRendererOptions {
   maximumGpuBytes?: number;
   maximumTextAtlasBytes?: number;
   maximumConcurrentTileLoads?: number;
+  memoryBudget?: CadSceneMemoryBudget;
   onError?: (error: Error) => void;
   onDegraded?: (result: CadSceneDegradation) => void;
+  displayQuality?: boolean;
 }
 
 export interface CadSceneDegradation {
@@ -137,6 +143,8 @@ export interface CadScenePickResult {
   elementId: string;
   groupId: string | null;
   layerName: string;
+  sourceTile?: DecodedCadSceneTile;
+  releaseSourceTile?: () => void;
 }
 
 export interface CadSceneLayerState {
@@ -230,6 +238,8 @@ export class PixiCadSceneRenderBackend implements CadSceneRenderBackend {
       if (indices.length === 0) continue;
       const geometry = new MeshGeometry({
         positions: batch.positions,
+        // Solid white geometry does not need a second CPU coordinate array.
+        uvs: batch.positions,
         indices,
         shrinkBuffersToFit: true
       });
@@ -297,6 +307,7 @@ export class PixiCadSceneRenderBackend implements CadSceneRenderBackend {
 }
 
 export class CadSceneRenderer {
+  private static ownerSequence = 0;
   private readonly manifest: CadSceneManifest;
   private readonly worker: CadSceneWorkerClient;
   private readonly backendFactory: CadSceneRenderBackendFactory;
@@ -312,6 +323,8 @@ export class CadSceneRenderer {
   private readonly maximumTextAtlasBytes: number;
   private readonly maximumConcurrentTileLoads: number;
   private readonly tileLoadScheduler: CadTileLoadScheduler;
+  private readonly memoryBudget?: CadSceneMemoryBudget;
+  private readonly memoryOwner: string;
   private backend: CadSceneRenderBackend;
   private canvas: HTMLCanvasElement | null = null;
   private currentCamera: CadSceneCamera | null = null;
@@ -327,6 +340,16 @@ export class CadSceneRenderer {
   private resumeBackendAfterContextRestore = false;
   private contextLost = false;
   private destroyed = false;
+  private readonly displayQuality: boolean;
+  private readonly displayBudget: CadSceneMemoryBudget;
+  private readonly displayTiles = new Map<string, { tile: DecodedCadSceneTile; qualityKey: string }>();
+  private displayVersion = 0;
+  private readonly displayTileVersions = new Map<string, number>();
+  private readonly sourceBounds = new Map<string, CadBounds>();
+  private displayRequest: Promise<void> | null = null;
+  private pickSequence = 0;
+  private readonly pickLeases = new Set<() => void>();
+  private displayRenderFrame: number | null = null;
 
   constructor(options: CadSceneRendererOptions) {
     this.manifest = options.manifest;
@@ -351,6 +374,10 @@ export class CadSceneRenderer {
     this.maximumConcurrentTileLoads = options.maximumConcurrentTileLoads ?? (
       this.platform === "mobile" ? 2 : 4
     );
+    this.memoryBudget = options.memoryBudget;
+    this.displayQuality = options.displayQuality ?? false;
+    this.displayBudget = options.memoryBudget ?? new CadSceneMemoryBudget(this.maximumCacheBytes);
+    this.memoryOwner = `renderer-${++CadSceneRenderer.ownerSequence}`;
     for (const [name, value] of [
       ["GPU byte budget", this.maximumGpuBytes],
       ["text atlas byte budget", this.maximumTextAtlasBytes],
@@ -365,6 +392,8 @@ export class CadSceneRenderer {
       maximumBytes: this.maximumCacheBytes,
       onEvict: key => {
         this.activeTileKeys.delete(key);
+        this.memoryBudget?.release(this.memoryOwner, `cpu:${key}`);
+        this.memoryBudget?.release(this.memoryOwner, `active:${key}`);
         if (this.backendMounted) this.backend.removeTile(key);
       }
     });
@@ -399,6 +428,7 @@ export class CadSceneRenderer {
     this.backend.setCamera(nextCamera);
     this.backend.render();
 
+    if (this.displayQuality) return this.setDisplayCamera(nextCamera);
     const descriptors = this.visibleTileDescriptors(nextCamera);
     const loadSignature = descriptors.map(tileKey).join("|");
     const generation = ++this.requestGeneration;
@@ -409,6 +439,14 @@ export class CadSceneRenderer {
       this.tileLoadSignature = loadSignature;
     }
     const loadSignal = this.loadAbortController.signal;
+    const desiredKeys = new Set(descriptors.map(tileKey));
+    for (const key of [...this.activeTileKeys]) {
+      if (desiredKeys.has(key)) continue;
+      this.backend.removeTile(key);
+      this.activeTileKeys.delete(key);
+      this.memoryBudget?.setPinned(this.memoryOwner, `cpu:${key}`, false);
+      this.memoryBudget?.release(this.memoryOwner, `active:${key}`);
+    }
     this.cache.pin(new Set());
     const loaded: Array<[CadSceneTile, DecodedCadSceneTile]> = [];
     const requestedKeys = new Set<string>();
@@ -428,6 +466,13 @@ export class CadSceneRenderer {
               throwIfAborted(loadSignal);
               const decoded = await this.worker.decode(payload, descriptor);
               throwIfAborted(loadSignal);
+              const key = tileKey(descriptor);
+              if (this.memoryBudget && !this.memoryBudget.reserve(
+                this.memoryOwner,
+                `cpu:${key}`,
+                Math.max(1, decoded.memory.cpuBytes),
+                () => this.cache.delete(key)
+              )) throw new CadSceneAggregateMemoryExceededError();
               return { value: decoded, byteSize: decoded.memory.cpuBytes };
             }, loadSignal);
           })
@@ -449,7 +494,23 @@ export class CadSceneRenderer {
           gpuBytes += memory.gpuBytes;
           textAtlasBytes += memory.textAtlasBytes;
           const key = tileKey(descriptor);
+          this.memoryBudget?.setPinned(this.memoryOwner, `cpu:${key}`, true);
+          if (this.memoryBudget && !this.memoryBudget.reserve(
+            this.memoryOwner,
+            `active:${key}`,
+            Math.max(1, memory.gpuBytes + memory.textAtlasBytes),
+            () => {
+              this.activeTileKeys.delete(key);
+              this.memoryBudget?.setPinned(this.memoryOwner, `cpu:${key}`, false);
+              if (this.backendMounted) this.backend.removeTile(key);
+            }
+          )) {
+            this.memoryBudget.setPinned(this.memoryOwner, `cpu:${key}`, false);
+            degraded = true;
+            break;
+          }
           requestedKeys.add(key);
+          this.memoryBudget?.setPinned(this.memoryOwner, `active:${key}`, true);
           this.cache.pin(requestedKeys);
           if (!this.cache.has(key)) {
             await this.cache.getOrLoad(key, async () => ({
@@ -463,15 +524,23 @@ export class CadSceneRenderer {
         if (degraded) break;
       }
     } catch (error: unknown) {
-      if (generation === this.requestGeneration && !this.destroyed && !this.contextLost) {
-        this.onError(error instanceof Error ? error : new Error("CAD scene tile loading failed"));
+      if (error instanceof CadSceneAggregateMemoryExceededError) {
+        degraded = true;
+      } else {
+        if (generation === this.requestGeneration && !this.destroyed && !this.contextLost) {
+          this.onError(error instanceof Error ? error : new Error("CAD scene tile loading failed"));
+        }
+        return;
       }
-      return;
     }
     if (generation !== this.requestGeneration || this.destroyed || this.contextLost || !this.backendMounted) return;
 
     for (const key of this.activeTileKeys) {
-      if (!requestedKeys.has(key)) this.backend.removeTile(key);
+      if (!requestedKeys.has(key)) {
+        this.backend.removeTile(key);
+        this.memoryBudget?.setPinned(this.memoryOwner, `cpu:${key}`, false);
+        this.memoryBudget?.release(this.memoryOwner, `active:${key}`);
+      }
     }
     for (const [descriptor, decoded] of loaded) {
       const key = tileKey(descriptor);
@@ -488,6 +557,171 @@ export class CadSceneRenderer {
         renderedTileCount: requestedKeys.size,
         reason: "memory-budget"
       });
+    }
+  }
+
+  private setDisplayCamera(camera: CadSceneCamera): Promise<void> {
+    const descriptors = this.visibleTileDescriptors(camera);
+    const zoomBand = cadDisplayZoomBand(camera.zoom);
+    const qualityFor = (key: string) => `${zoomBand}:${this.displayTileVersions.get(key) ?? 0}`;
+    const signature = `${zoomBand}:${this.displayVersion}:${descriptors.map(tileKey).join("|")}`;
+    if (signature === this.tileLoadSignature) return this.displayRequest ?? Promise.resolve();
+    this.tileLoadSignature = signature;
+    this.loadAbortController.abort();
+    this.loadAbortController = new AbortController();
+    const signal = this.loadAbortController.signal;
+    const generation = ++this.requestGeneration;
+    const desired = new Set(descriptors.map(tileKey));
+    for (const key of [...this.activeTileKeys]) {
+      if (desired.has(key)) continue;
+      this.activeTileKeys.delete(key);
+      this.backend.removeTile(key);
+      this.displayBudget.setPinned(this.memoryOwner, `display:${key}`, false);
+      const cached = this.displayTiles.get(key);
+      if (cached) this.displayBudget.reserve(this.memoryOwner, `display:${key}`, Math.max(1, cached.tile.memory.cpuBytes), () => this.displayTiles.delete(key));
+    }
+    const maxErrorPixels = this.manifest.tiles.reduce((sum, tile) => sum + tile.primitiveCount, 0) > 20_000 ? 1.5 : 0.5;
+    const quality = { zoomBand, maxErrorPixels, minimumStrokePixels: 0.5, excludedIds: [...this.excludedIds] };
+    const request = (async () => {
+      let degraded = false;
+      let completedParts = 0;
+      const uncached = descriptors.filter(tile => this.displayTiles.get(tileKey(tile))?.qualityKey !== qualityFor(tileKey(tile)));
+      const prefetched = new Map<string, Promise<{ payload: Uint8Array } | { error: unknown }>>();
+      let fetchIndex = 0;
+      const prefetch = () => {
+        while (prefetched.size < 4 && fetchIndex < uncached.length && !signal.aborted) {
+          const descriptor = uncached[fetchIndex++];
+          // Bounded encoded prefetch overlaps RTT with one-at-a-time decoding;
+          // failures are observed when consumed, never unhandled promises.
+          prefetched.set(tileKey(descriptor), this.tileLoadScheduler.run(() => this.loadTile(descriptor, signal), signal)
+            .then(payload => ({ payload }), error => ({ error })));
+        }
+      };
+      prefetch();
+      // Decode only one original part at a time. Exact metadata is transient in
+      // the worker; only compact display geometry is admitted and pinned here.
+      for (const descriptor of descriptors) {
+        if (signal.aborted || generation !== this.requestGeneration || this.destroyed || this.contextLost) return;
+        const key = tileKey(descriptor);
+        const qualityKey = qualityFor(key);
+        const previous = this.displayTiles.get(key);
+        if (previous?.qualityKey === qualityKey && this.activeTileKeys.has(key)) continue;
+        let decoded: DecodedCadSceneTile;
+        if (previous?.qualityKey === qualityKey) decoded = previous.tile;
+        else {
+          const fetched = await prefetched.get(key)!;
+          if ("error" in fetched) throw fetched.error;
+          decoded = await this.worker.decode(fetched.payload, descriptor, quality);
+          prefetched.delete(key);
+          prefetch();
+        }
+        if (signal.aborted || generation !== this.requestGeneration || this.destroyed || this.contextLost) return;
+        const bytes = decoded.memory.cpuBytes + decoded.memory.gpuBytes + decoded.memory.textAtlasBytes;
+        if (!this.displayBudget.reserve(this.memoryOwner, `display:${key}`, Math.max(1, bytes), () => {
+          this.displayTiles.delete(key);
+          if (this.activeTileKeys.delete(key) && this.backendMounted) this.backend.removeTile(key);
+        })) {
+          // Never delete the old overview merely because finer geometry cannot
+          // be admitted. Report incomplete refinement/coverage explicitly.
+          degraded = true;
+          continue;
+        }
+        this.displayTiles.set(key, { tile: decoded, qualityKey });
+        this.displayBudget.setPinned(this.memoryOwner, `display:${key}`, true);
+        // Exclusions were applied before geometry merged; ID-free display
+        // batches must not pass through the exact span-based exclusion filter.
+        this.backend.replaceTile(key, decoded, new Set(), this.hiddenLayerNames);
+        this.activeTileKeys.add(key);
+        // A full-stage draw for each async part is still quadratic during a
+        // large import. Flush progress in bounded windows and once at the end.
+        if (++completedParts % 16 === 0) this.scheduleDisplayRender();
+      }
+      this.flushDisplayRender();
+      if (degraded) this.onDegraded({ requestedTileCount: descriptors.length, renderedTileCount: this.activeTileKeys.size, reason: "memory-budget" });
+    })().catch(error => {
+      if (!signal.aborted && generation === this.requestGeneration && !this.destroyed) {
+        this.tileLoadSignature = "";
+        this.loadAbortController.abort();
+        this.onError(error instanceof Error ? error : new Error("CAD display loading failed"));
+      }
+    });
+    this.displayRequest = request;
+    return request;
+  }
+
+  private scheduleDisplayRender(): void {
+    if (this.displayRenderFrame !== null) return;
+    this.displayRenderFrame = requestAnimationFrame(() => {
+      this.displayRenderFrame = null;
+      if (!this.destroyed && this.backendMounted && !this.contextLost) this.backend.render();
+    });
+  }
+
+  private flushDisplayRender(): void {
+    if (this.displayRenderFrame !== null) cancelAnimationFrame(this.displayRenderFrame);
+    this.displayRenderFrame = null;
+    if (!this.destroyed && this.backendMounted && !this.contextLost) this.backend.render();
+  }
+
+  async pickExact(point: { x: number; y: number }, options: { radiusPixels?: number } = {}): Promise<CadScenePickResult | null> {
+    if (!this.displayQuality) return this.pick(point, options);
+    const camera = this.currentCamera;
+    if (!camera || this.destroyed || this.contextLost) return null;
+    const world = screenToCadWorld(point, camera);
+    const radius = (options.radiusPixels ?? DEFAULT_PICK_RADIUS_PIXELS) / camera.zoom;
+    const signal = this.loadAbortController.signal;
+    const candidates = this.manifest.tiles.filter(tile => world.x + radius >= tile.bounds.minX && world.x - radius <= tile.bounds.maxX &&
+      world.y + radius >= tile.bounds.minY && world.y - radius <= tile.bounds.maxY);
+    let best: { entry: CadPickEntry; distance: number; tile: DecodedCadSceneTile } | null = null;
+    for (const descriptor of candidates) {
+      if (signal.aborted || this.destroyed || this.contextLost) return null;
+      // No quality means exact geometry. The editor wrapper can retain this
+      // single spatial tile in its evictable raw cache, never all overview tiles.
+      const payload = await this.loadTile(descriptor, signal);
+      const tile = await this.worker.decode(payload, descriptor);
+      if (signal.aborted || this.destroyed || this.contextLost) return null;
+      let tileBest: { entry: CadPickEntry; distance: number } | null = null;
+      for (const index of spatialCandidates(tile, world, radius)) {
+        const entry = tile.pickEntries[index];
+        if (!entry || isExcluded(entry, this.excludedIds) || this.hiddenLayerNames.has(entry.layerName)) continue;
+        const distance = distanceToPickEntry(tile, entry, world);
+        if (distance <= radius && (!tileBest || distance < tileBest.distance || (distance === tileBest.distance && entry.zOrder > tileBest.entry.zOrder))) {
+          tileBest = { entry, distance };
+        }
+      }
+      if (tileBest && (!best || tileBest.distance < best.distance || (tileBest.distance === best.distance && tileBest.entry.zOrder > best.entry.zOrder))) {
+        const source = this.worker.decodeSource ? await this.worker.decodeSource(payload, descriptor) : tile;
+        if (signal.aborted || this.destroyed || this.contextLost) return null;
+        best = { ...tileBest, tile: extractCadSourceElement(source, tileBest.entry.elementId) };
+      }
+    }
+    if (!best) return null;
+    for (const entry of best.tile.pickEntries) this.registerSourceBounds(entry.elementId, entry.bounds);
+    const leaseKey = `pick:${++this.pickSequence}`;
+    if (!this.displayBudget.reserve(this.memoryOwner, leaseKey, Math.max(1, best.tile.memory.cpuBytes))) {
+      throw new Error("CAD exact selection exceeds the available memory budget");
+    }
+    this.displayBudget.setPinned(this.memoryOwner, leaseKey, true);
+    const releaseSourceTile = () => {
+      this.displayBudget.release(this.memoryOwner, leaseKey);
+      this.pickLeases.delete(releaseSourceTile);
+    };
+    this.pickLeases.add(releaseSourceTile);
+    return { elementId: best.entry.elementId, groupId: best.entry.groupId, layerName: best.entry.layerName, sourceTile: best.tile, releaseSourceTile };
+  }
+
+  registerSourceBounds(elementId: string, bounds: CadBounds): void {
+    const previous = this.sourceBounds.get(elementId);
+    this.sourceBounds.delete(elementId);
+    this.sourceBounds.set(elementId, previous ? {
+      minX: Math.min(previous.minX, bounds.minX), minY: Math.min(previous.minY, bounds.minY),
+      maxX: Math.max(previous.maxX, bounds.maxX), maxY: Math.max(previous.maxY, bounds.maxY)
+    } : { ...bounds });
+    // Only selected/moved elements register source extents, not every primitive
+    // encountered in a decoded source tile. Bound deselected history as well.
+    for (const id of this.sourceBounds.keys()) {
+      if (this.sourceBounds.size <= 128 + this.excludedIds.size) break;
+      if (!this.excludedIds.has(id)) this.sourceBounds.delete(id);
     }
   }
 
@@ -526,11 +760,25 @@ export class CadSceneRenderer {
 
   setSelectionExclusion(elementOrGroupIds: ReadonlySet<string>): void {
     this.assertAlive();
+    if (setsEqual(this.excludedIds, elementOrGroupIds)) return;
+    const changed = new Set([...this.excludedIds, ...elementOrGroupIds].filter(id => this.excludedIds.has(id) !== elementOrGroupIds.has(id)));
     this.excludedIds = new Set(elementOrGroupIds);
+    if (this.displayQuality) {
+      const bounds = [...changed].map(id => this.sourceBounds.get(id));
+      for (const tile of this.manifest.tiles) {
+        if (!bounds.some(bound => !bound || (bound.maxX >= tile.bounds.minX && bound.minX <= tile.bounds.maxX &&
+          bound.maxY >= tile.bounds.minY && bound.minY <= tile.bounds.maxY))) continue;
+        const key = tileKey(tile);
+        this.displayTileVersions.set(key, (this.displayTileVersions.get(key) ?? 0) + 1);
+      }
+      this.displayVersion++;
+      if (this.currentCamera && this.backendMounted && !this.contextLost) void this.setCamera(this.currentCamera);
+      return;
+    }
     if (!this.backendMounted || this.contextLost) return;
     for (const key of this.activeTileKeys) {
-      const tile = this.cache.get(key);
-      if (tile) this.backend.replaceTile(key, tile, this.excludedIds, this.hiddenLayerNames);
+      const tile = this.displayQuality ? this.displayTiles.get(key)?.tile : this.cache.get(key);
+      if (tile) this.backend.replaceTile(key, tile, this.displayQuality ? new Set() : this.excludedIds, this.hiddenLayerNames);
     }
     this.backend.render();
   }
@@ -545,8 +793,8 @@ export class CadSceneRenderer {
     this.hiddenLayerNames = nextHiddenLayerNames;
     if (!this.backendMounted || this.contextLost) return;
     for (const key of this.activeTileKeys) {
-      const tile = this.cache.get(key);
-      if (tile) this.backend.replaceTile(key, tile, this.excludedIds, this.hiddenLayerNames);
+      const tile = this.displayQuality ? this.displayTiles.get(key)?.tile : this.cache.get(key);
+      if (tile) this.backend.replaceTile(key, tile, this.displayQuality ? new Set() : this.excludedIds, this.hiddenLayerNames);
     }
     this.backend.render();
   }
@@ -554,6 +802,8 @@ export class CadSceneRenderer {
   destroy(): void {
     if (this.destroyed) return;
     this.destroyed = true;
+    if (this.displayRenderFrame !== null) cancelAnimationFrame(this.displayRenderFrame);
+    this.displayRenderFrame = null;
     this.requestGeneration++;
     this.backendGeneration++;
     this.loadAbortController.abort();
@@ -566,12 +816,16 @@ export class CadSceneRenderer {
     this.resumeBackendAfterContextRestore = false;
     this.activeTileKeys.clear();
     this.cache.clear();
+    this.displayTiles.clear();
+    for (const release of this.pickLeases) release();
+    this.displayBudget.releaseOwner(this.memoryOwner);
+    this.memoryBudget?.releaseOwner(this.memoryOwner);
     this.worker.destroy();
   }
 
   private visibleTileDescriptors(camera: CadSceneCamera): CadSceneTile[] {
     const coordinates = computeVisibleTileCoordinates(this.manifest, camera, 1);
-    const lods = selectCadSceneLods(camera.zoom);
+    const lods = selectCadSceneLods(camera.zoom, this.displayQuality ? "display" : "source");
     const descriptors: CadSceneTile[] = [];
     for (const lod of lods) {
       for (const coordinate of coordinates) {
@@ -616,6 +870,19 @@ export class CadSceneRenderer {
     this.cache.cancelPending();
     this.resumeBackendAfterContextRestore = this.backendMounted;
     if (this.resumeBackendAfterContextRestore) this.backend.suspend();
+    for (const key of this.activeTileKeys) {
+      this.memoryBudget?.setPinned(this.memoryOwner, `cpu:${key}`, false);
+      this.memoryBudget?.release(this.memoryOwner, `active:${key}`);
+      const display = this.displayTiles.get(key);
+      if (display) {
+        // suspend removed the GPU resources. Retain only evictable CPU data:
+        // after active keys are cleared, a changed restore camera cannot unpin it.
+        this.displayBudget.setPinned(this.memoryOwner, `display:${key}`, false);
+        this.displayBudget.reserve(this.memoryOwner, `display:${key}`,
+          Math.max(1, display.tile.memory.cpuBytes), () => this.displayTiles.delete(key));
+      }
+    }
+    for (const release of this.pickLeases) release();
     this.backendMounted = false;
     this.activeTileKeys.clear();
   };
@@ -644,6 +911,8 @@ export class CadSceneRenderer {
     if (this.destroyed) throw new Error("CAD scene renderer is destroyed");
   }
 }
+
+class CadSceneAggregateMemoryExceededError extends Error {}
 
 function distanceToBounds(point: { x: number; y: number }, bounds: {
   minX: number;
@@ -768,12 +1037,17 @@ function createTextMeshes(
   const measurementCanvas = document.createElement("canvas");
   const measurementContext = measurementCanvas.getContext("2d");
   if (!measurementContext) return [];
-  measurementContext.font = `${TEXT_ATLAS_FONT_SIZE}px sans-serif`;
+  const fontSize = batch.fontPixelSize ?? TEXT_ATLAS_FONT_SIZE;
+  const rowHeight = batch.fontPixelSize === undefined ? TEXT_ATLAS_ROW_HEIGHT : fontSize + TEXT_ATLAS_PADDING * 2;
+  measurementContext.font = `${fontSize}px sans-serif`;
 
-  const pages: TextPlacement[][] = [[]];
+  const pages: TextPlacement[][] = batch.fontPixelSize === undefined ? [[]]
+    : packCadDisplayText({ ...batch, entries }).pages.map(page => page.map(placement => ({
+      ...placement, measuredWidth: Math.max(1, measurementContext.measureText(placement.entry.text).width)
+    })));
   let x = 0;
   let y = 0;
-  for (const entry of entries) {
+  for (const entry of batch.fontPixelSize === undefined ? entries : []) {
     const measuredWidth = Math.max(1, measurementContext.measureText(entry.text).width);
     const width = Math.min(
       TEXT_ATLAS_MAX_SIZE,
@@ -781,9 +1055,9 @@ function createTextMeshes(
     );
     if (x + width > TEXT_ATLAS_MAX_SIZE) {
       x = 0;
-      y += TEXT_ATLAS_ROW_HEIGHT;
+      y += rowHeight;
     }
-    if (y + TEXT_ATLAS_ROW_HEIGHT > TEXT_ATLAS_MAX_SIZE) {
+    if (y + rowHeight > TEXT_ATLAS_MAX_SIZE) {
       pages.push([]);
       x = 0;
       y = 0;
@@ -795,33 +1069,46 @@ function createTextMeshes(
   return pages.filter(page => page.length > 0).map(page => {
     const canvas = document.createElement("canvas");
     canvas.width = Math.max(...page.map(placement => placement.x + placement.width));
-    canvas.height = Math.max(...page.map(placement => placement.y + TEXT_ATLAS_ROW_HEIGHT));
+    canvas.height = Math.max(...page.map(placement => placement.y + rowHeight));
     const context = canvas.getContext("2d");
     if (!context) throw new Error("CAD scene text atlas canvas is unavailable");
     context.clearRect(0, 0, canvas.width, canvas.height);
-    context.fillStyle = "#ffffff";
-    context.font = `${TEXT_ATLAS_FONT_SIZE}px sans-serif`;
+    // Atlas RGB must be the neutral multiplicative identity: mesh.tint applies
+    // the imported CAD color below, so a theme color here would alter CAD data.
+    context.fillStyle = Color.shared.setValue([1, 1, 1]).toHex();
+    context.font = `${fontSize}px sans-serif`;
     context.textBaseline = "top";
 
     const positions: number[] = [];
     const uvs: number[] = [];
     const indices: number[] = [];
+    const drawnGlyphs = new Set<string>();
     page.forEach(placement => {
       const availableWidth = placement.width - TEXT_ATLAS_PADDING * 2;
       const rasterScaleX = Math.min(1, availableWidth / placement.measuredWidth);
-      context.save();
-      context.translate(placement.x + TEXT_ATLAS_PADDING, placement.y + TEXT_ATLAS_PADDING);
-      context.scale(rasterScaleX, 1);
-      context.fillText(placement.entry.text, 0, 0);
-      context.restore();
+      const glyphKey = `${placement.x}:${placement.y}`;
+      if (!drawnGlyphs.has(glyphKey)) {
+        drawnGlyphs.add(glyphKey);
+        context.save();
+        context.translate(placement.x + TEXT_ATLAS_PADDING, placement.y + TEXT_ATLAS_PADDING);
+        context.scale(rasterScaleX, 1);
+        context.fillText(placement.entry.text, 0, 0);
+        context.restore();
+      }
 
       const vertexOffset = positions.length / 2;
       const quad = clipCadTextQuad(placement.entry);
       quad.forEach(point => positions.push(point.x, point.y));
       const left = placement.x / canvas.width;
-      const right = (placement.x + placement.width) / canvas.width;
+      // Display cells are conservatively sized for worker-side admission, not
+      // glyph layout. Sample the measured run plus padding so narrow text is
+      // not compressed into a fraction of its native world-space quad.
+      const sampledWidth = batch.fontPixelSize === undefined ? placement.width : Math.min(
+        placement.width, Math.ceil(placement.measuredWidth * rasterScaleX) + TEXT_ATLAS_PADDING * 2
+      );
+      const right = (placement.x + sampledWidth) / canvas.width;
       const top = placement.y / canvas.height;
-      const bottom = (placement.y + TEXT_ATLAS_ROW_HEIGHT) / canvas.height;
+      const bottom = (placement.y + rowHeight) / canvas.height;
       quad.forEach(point => uvs.push(
         left + (right - left) * point.u,
         top + (bottom - top) * point.v

@@ -71,11 +71,19 @@ export function computeVisibleTileCoordinates(
   return coordinates;
 }
 
-export function selectCadSceneLods(zoom: number): Array<0 | 1 | 2> {
+export function selectCadSceneLods(zoom: number, representation: "source" | "display" = "source"): Array<0 | 1 | 2> {
   assertPositiveFinite(zoom, "CAD scene camera zoom");
+  // Existing manifests partition by entity type, not geometric importance.
+  // Native overview must read every partition, including structural polylines.
+  if (representation === "display") return [0, 1, 2];
   if (zoom < 0.5) return [0];
   if (zoom < 1.5) return [0, 1];
   return [0, 1, 2];
+}
+
+export function cadDisplayZoomBand(zoom: number): number {
+  assertPositiveFinite(zoom, "CAD scene camera zoom");
+  return 2 ** (Math.ceil(Math.log2(zoom) * 2) / 2);
 }
 
 export function capCadRendererResolution(

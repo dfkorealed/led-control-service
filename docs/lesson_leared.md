@@ -1,5 +1,17 @@
 # 프로젝트 오답 노트 (Lessons Learned)
 
+## 2026-09-19 / CAD 검증은 실제 원본과 실제 GPU 수명주기를 포함한다
+
+- **발생했던 문제**: 단위 테스트 통과 뒤에도 대형 DWG의 region 탐지가 메모리·공간 인덱스 한도에서 실패했고, 브라우저에서는 CAD 저장 API 200 뒤 화면이 멈췄다.
+- **원인**: 작은 합성 도면과 mock renderer는 block 확장량과 Pixi의 context 폐기를 재현하지 못한다. Pixi destroy는 canvas의 WebGL context를 잃게 하므로 같은 DOM canvas에 새 renderer를 초기화하면 shader 검사 반복이 멈추지 않을 수 있다.
+- **예방책**: renderer의 재생성은 새 canvas에서 수행하고 실제 Chromium에서 선택→편집→저장→재선택→새로고침을 검증한다. 네트워크가 완료돼도 UI가 멈추면 CDP call stack으로 원인을 분리한다. 원본 두 개는 기본 메모리 한도의 격리 child와 실제 저장소·DB에서 변환하며, 테스트 통과를 위해 한도를 임의로 늘리거나 실패 원본을 제외하지 않는다.
+- **반복 방지**: canvas identity 교체·실패 재시도, StrictMode camera 취소 후 재예약, 작은 viewport의 32,768 맵 fit, native/SVG 비중첩, 실제 원본 pipeline 회귀를 유지한다. 브라우저 QA 서버는 포트별 Vite cache를 사용한다. `Content-Length`만 믿지 않고 압축 해제 후 stream 누적 크기를 제한한다. Shared의 타입 검사만으로 ESM 실행 호환성을 판정하지 않고 배포 파일의 실제 import를 검증한다.
+- **추가 회귀 기준**: 일부 타일에 픽셀이 있다는 사실은 전체 도면 표시 성공이 아니다. 실제 가시 영역의 요청·표시 coverage와 메모리 예산을 함께 검사한다. 편집용 원본과 표시용 단순화 데이터를 구분하고, 표시용 데이터를 저장하거나 편집 캐시에 승격하지 않는다.
+- **분할 요소 편집**: 하나의 element ID가 여러 tile/segment에 나타날 수 있다. ID별 마지막 fragment 하나로 덮어쓰지 않고 모든 occurrence를 보존한다. 색상 변경과 함께 두께를 제출해도 선분을 잃지 않는지, 기존 fill/stroke가 없던 도형에 새 스타일을 적용해 저장·재표시할 수 있는지 회귀로 확인한다.
+- **좌표 영속화**: 해시·DB 제약이 좌표의 exact equality를 요구할 때 Prisma Float JSON 경로에서 한 ULP 차이가 생길 수 있다. 실제 fractional 좌표로 region 목록뿐 아니라 scene apply와 재조회까지 검증하고, 중간 단계 성공만으로 적용 경로가 안전하다고 판단하지 않는다.
+- **WebView 복원**: context loss에서 active tile ID만 지우면 display cache가 영구 pin되어 다른 camera로 복귀할 때 메모리가 막힐 수 있다. GPU 자원 해제와 함께 CPU-only·퇴출 가능 상태로 낮추고 pick lease도 해제한다. 모바일 정책 테스트는 flag 하나가 아니라 WebShell의 초기 AppState·dataset까지 재현한다.
+
+
 ## 2026-09-15 / 검색 발견과 등록 가능 여부를 같은 상태로 취급하지 않는다
 
 - **발생했던 문제/실수**: 이미 등록된 조명이 BLE 검색 결과에 다시 나타났고, Web은 신규 장치처럼 선택하게 한 뒤 DB unique 제약에서야 등록을 실패시켰다.
@@ -882,3 +894,26 @@
 - **원인**: 작은 원본도 반복 block을 포함하면 변환 DXF와 정규 모델이 크게 확장된다. 해당 파일은 102 MiB DXF와 398,257개 렌더 occurrence를 만들었고, 실제 제품 child가 처리 가능한 범위였지만 보수적 retained-model 회계가 기존 208 MiB 상한을 약간 넘었다. 내부 analyzer도 제품 parser와 달리 정상 model 뒤의 손상된 LibreDWG `OBJECTS` metadata를 끝까지 파싱했다.
 - **해결 및 예방책**: heap/cgroup, source/DXF/SVG, entity/coordinate, 시간 상한은 유지하고 실측으로 통과하는 최소 retained-model 상한 224 MiB만 승인했다. 동일 업로드 객체를 실제 DB·Object Storage·worker로 재처리하고 child RSS, SVG 크기, 후보 저장과 terminal 상태를 확인했다. analyzer의 optional `OBJECTS` 처리도 제품 parser와 같게 맞췄다.
 - **반복 방지 체크**: CAD 호환성은 파일 확장자나 원본 크기만으로 판정하지 않는다. converter 출력, 기본 제한 parser, 격리 child 렌더, 실제 worker 저장까지 순서대로 검증하고 malformed model corpus와 자원 폭탄 회귀를 함께 실행한다.
+
+## 2026-09-19 / 디스크 빌드 성공과 실행 중인 서버 코드 갱신은 다르다
+
+- **발생했던 문제/실수**: 동일 DWG의 별도 pipeline은 성공했지만 실제 웹은 분석 35%에서 세 번 실패했다. 실행 중인 API에는 이전 `regions.length > 100` 검증이 남아 있었고, 새 child가 반환한 정상 1,817개 영역을 거절했다.
+- **원인**: shared/API 산출물을 다시 빌드한 뒤 장기 실행 프로세스의 module cache까지 갱신됐다고 가정했다. 새 프로세스 검증과 브라우저 route fixture 성공만으로 이미 실행 중인 서버의 성공을 판정할 수 없다.
+- **해결 및 예방책**: 업로드 객체의 SHA와 실행 설정을 동일하게 맞춰 재현하고, 실행 중인 함수·공유 상수와 디스크 코드를 비교해 버전 불일치를 확인한다. 외부 명령으로 shared/API를 재빌드한 뒤에는 해당 개발 서버를 다시 시작하고 최신 서버 요청 경로를 확인한다. 단순 새로고침은 서버 module cache를 갱신하지 않는다.
+- **반복 방지 체크**: 검증 보고서에서 실제 기본 provider·DB/저장소 pipeline·브라우저 fixture·실제 로그인 HTTP 흐름을 구분한다. 작업 단계 `parse`는 child 내부 검출/렌더 실패까지 포함할 수 있으므로 단계명만으로 원본 도면 손상이라 판단하지 않는다. 원시 오류나 파일 경로 대신 허용된 진단 분류만 서버 로그에 기록한다.
+
+## 2026-09-19 / CAD 형식 버전과 맵 수정 번호를 혼동하지 않는다
+
+- **미리보기 좌표 검증**: 선택 영역의 native 후보에는 같은 영역 manifest/tile을 사용한다. 전체 원본 SVG를 함께 표시하면 확대만으로 좌표 불일치를 해결할 수 없다. 검토 중 이전 맵 요소를 숨기고 native 실패 시 SVG로 대체하지 않으며, 브라우저에서 후보 클릭·확대·이동과 renderer 해제를 회귀 검사한다.
+
+- **발생했던 문제/실수**: 첫 CAD 적용은 성공했지만 같은 층에 다시 적용하면 `FloorCadScene_dimensions_check` 위반으로 HTTP 500이 발생했다.
+- **원인**: schema/manifest/renderer가 모두 형식 버전 1을 요구하는 `FloorCadScene.version`을 교체 횟수처럼 증가시켰다. 빈 층에 한 번 적용하는 테스트만으로는 기존 scene이 있는 교체 경로를 검증할 수 없었다.
+- **해결 및 예방책**: 검증된 manifest의 형식 버전을 저장하고 교체는 새 scene ID 및 `Floor.mapRevision`으로 구분한다. DB 제약을 완화하거나 기존 scene을 수동 수정하지 않는다.
+- **반복 방지 체크**: 실제 PostgreSQL에서 native→native 반복 적용, 다른 크기/영역, 후보 0개/선택 후보, 기존 슬롯·배정·수동 도형·override·layer state와 실패 rollback을 검증한다. 적용 후 editor-state와 manifest descriptor의 형식 버전도 대조한다.
+
+## 2026-09-19 / 저장 파일과 브라우저 응답 DTO는 같은 표현이라고 가정하지 않는다
+
+- **발생했던 문제/실수**: CAD 적용은 성공했으나 실제 Chrome은 manifest를 읽은 뒤 타일 요청 전에 표시 실패했다. 내부 서버 테스트와 브라우저의 완성 DTO fixture는 각각 통과해 실제 전달 경계의 누락을 놓쳤다.
+- **원인**: 원시 manifest에는 자기 파일의 크기와 SHA256을 넣지 않는다. 서버 reader가 저장 원장으로 `byteSize`/`sha256`을 검증·보완하지만 302 응답이 원시 파일로 이동해 보완을 우회했고, 프론트 strict schema가 두 필드 누락을 거부했다.
+- **해결 및 예방책**: manifest API는 기존 권한·원장·파일 검증을 거친 DTO를 JSON으로 반환한다. 타일의 비공개 다운로드와 무결성 검증은 유지하며 필수 필드를 optional로 바꾸거나 파일에 자기 해시를 억지로 저장하지 않는다.
+- **반복 방지 체크**: 실제 builder의 원시 파일을 storage reader와 HTTP controller에 통과시킨 응답을 소비자 schema로 검사한다. 적용 200, manifest 200, 타일 조회, 화면 표시, 새로고침을 별개 완료 조건으로 기록한다. fixture 성공을 실제 사용자 브라우저 성공으로 확대하지 않는다.

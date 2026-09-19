@@ -1,6 +1,7 @@
 import type {
   CadImportMimeType,
   CadImportSourceFormat,
+  CadSceneDescriptor,
   FloorImportApplyResult as SharedFloorImportApplyResult,
   FloorImportCandidate,
   FloorImportJobStatus,
@@ -20,6 +21,7 @@ export interface FloorEditorState {
     level: number;
     mapRevision: number;
     floorPlan: FloorPlanDraft | null;
+    cadScene?: CadSceneDescriptor | null;
   };
   fixtures: EditorFixture[];
   lightSlots: FloorLightSlotDto[];
@@ -83,6 +85,8 @@ export interface CadImportReviewState {
   job: FloorImportJob;
   candidates: FloorImportCandidate[];
   acceptedCandidateIds: string[];
+  // Missing context is unresolved, never evidence of legacy coordinates.
+  scene?: { kind: "native"; regionId: string } | { kind: "legacy" };
 }
 
 export interface CadMapResetSummary {
@@ -129,3 +133,17 @@ export interface FloorMapObject {
 }
 
 export type FloorMapObjectDraft = Omit<FloorMapObject, "id" | "floorId" | "zIndex"> & { zIndex?: number };
+
+export type CadEditorSelection =
+  | {
+      mode: "group";
+      targetId: string;
+      elementId: string;
+      groupId: string;
+      layerName: string;
+    }
+  | {
+      mode: "element";
+      targetId: string;
+      element: import("./cad-editor-runtime").CadEditableElement | null;
+    };

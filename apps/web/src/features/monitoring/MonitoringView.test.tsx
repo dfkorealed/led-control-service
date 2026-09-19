@@ -281,6 +281,35 @@ describe("MonitoringView refresh", () => {
     expect(screen.getByRole("group", { name: "오프라인" })).toBeVisible();
   });
 
+  it.each([0, 2])("uses %i saved map placements for the empty-placement banner when runtime placement is stale", (placementCount) => {
+    const fixtures = [fixture, { ...fixture, id: "fixture-2", name: "B1-L002" }];
+    queryMocks.useFloorFixtures.mockReturnValue({
+      ...queryMocks.useFloorFixtures(),
+      data: { pages: [{
+        items: fixtures.map((item) => ({ ...item, placementStatus: "unplaced" })),
+        nextCursor: null,
+        generatedAt: new Date().toISOString()
+      }] }
+    });
+    queryMocks.useFloorMapSnapshot.mockReturnValue({
+      ...queryMocks.useFloorMapSnapshot(),
+      data: { ...mapSnapshot, fixtures: fixtures.slice(0, placementCount).map((item, index) => ({
+        id: item.id, name: item.name, x: 200 + index * 100, y: 200, size: 20
+      })) }
+    });
+
+    render(<MemoryRouter><MonitoringView siteId="site-1" /></MemoryRouter>);
+
+    const map = screen.getByRole("region", { name: "층 도면" });
+    expect(within(map).queryAllByRole("button", { name: /B1-L00[12]/ })).toHaveLength(placementCount);
+    if (placementCount > 0) {
+      expect(screen.queryByText("배치된 조명이 없습니다")).not.toBeInTheDocument();
+    } else {
+      expect(screen.getByText("배치된 조명이 없습니다")).toBeVisible();
+      expect(screen.getByRole("link", { name: "설정에서 조명 배치" })).toBeVisible();
+    }
+  });
+
   it("shows only fixture details without exposing incident operations", () => {
     render(<MonitoringView siteId="site-1" userRole="admin" />);
 
