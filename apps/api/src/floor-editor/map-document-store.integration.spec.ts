@@ -246,7 +246,8 @@ postgres("MapDocumentStore isolated PostgreSQL", () => {
       payloadHash: forward.ref.sha256, payloadAssetId: forward.asset.id, inverseAssetId: inverse.asset.id,
       decodedBytes: forward.ref.decodedByteSize, inverseDecodedBytes: inverse.ref.decodedByteSize } });
     const stage = await prisma.floorMapStage.create({ data: { floorId, generationId: ref.generationId, requestId, userId,
-      leaseTokenHash: "b".repeat(64), baseRevision: ref.revision, expiresAt: new Date(0), status: "committed", partCount: 1, decodedBytes: part.ref.decodedByteSize } });
+      leaseTokenHash: "b".repeat(64), leaseFence: 1, requestHash: "d".repeat(64), metadata: {},
+      baseRevision: ref.revision, expiresAt: new Date(0), status: "committed", partCount: 1, decodedBytes: part.ref.decodedByteSize } });
     await prisma.floorMapStagePart.create({ data: { floorId, stageId: stage.id, part: 0, assetId: part.asset.id,
       sha256: part.ref.sha256, decodedBytes: part.ref.decodedByteSize } });
     const revision = await prisma.floorMapRevision.create({ data: { floorId, revision: ref.revision + 1, snapshot: {}, snapshotSha256: "0".repeat(64),
@@ -273,7 +274,7 @@ postgres("MapDocumentStore isolated PostgreSQL", () => {
     await expect(prisma.floorMapGeneration.update({ where: { id: ref.generationId }, data: { manifestDecodedBytes: null } })).rejects.toThrow();
     await expect(prisma.floorMapGeneration.update({ where: { id: ref.generationId }, data: { sourceGenerationId: "source", sourceRevision: null } })).rejects.toThrow();
     const stage = await prisma.floorMapStage.create({ data: { floorId, generationId: ref.generationId, requestId: "stage", userId,
-      leaseTokenHash: "c".repeat(64), baseRevision: 0, expiresAt: new Date() } });
+      leaseTokenHash: "c".repeat(64), leaseFence: 1, requestHash: "d".repeat(64), metadata: {}, baseRevision: 0, expiresAt: new Date() } });
     await expect(prisma.floorMapStagePart.create({ data: { floorId, stageId: stage.id, part: 1024, assetId: payload.asset.id,
       sha256: payload.ref.sha256, decodedBytes: 20 } })).rejects.toThrow();
   });

@@ -183,9 +183,12 @@ enum FloorMapGenerationStatus {
 enum FloorMapStageStatus {
   preparing
   ready
+  queued
+  processing
   committed
   failed
   expired
+  cancelled
 }
 
 enum FloorAssetStatus {
@@ -785,11 +788,20 @@ model FloorMapStage {
   requestId           String
   userId              String
   leaseTokenHash      String
+  leaseFence          Int
+  requestHash         String
+  metadata            Json
   baseRevision        Int
   status              FloorMapStageStatus @default(preparing)
   payloadHash         String?
   decodedBytes        BigInt @default(0)
   partCount           Int @default(0)
+  expectedPartCount   Int?
+  expectedDecodedBytes BigInt?
+  workerToken         String?
+  workerExpiresAt     DateTime?
+  result              Json?
+  errorCode           String?
   expiresAt           DateTime
   generation          FloorMapGeneration @relation(fields: [generationId, floorId], references: [id, floorId], onDelete: Cascade)
   parts               FloorMapStagePart[]
