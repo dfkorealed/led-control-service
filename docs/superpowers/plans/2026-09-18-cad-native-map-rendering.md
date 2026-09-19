@@ -503,11 +503,11 @@ expect(serverFailures).toEqual([]);
 | U11a | 완료·독립 검토 PASS | 46376f4f, 집중103/소유파일 typecheck 통과, View/store/Canvas 미연결 |
 | U4b | 완료·독립 검토 PASS | fa3022a6, 집중240/2제외·PGMinIO8x2/import26/storage31x2/typecheck·검토 probe6 통과, 로컬96 migration 적용 |
 | U5 | 완료·독립 검토 PASS | 29aba89e, 격리PG35/집중86/typecheck/build 통과; 사용자 맵 미변경 |
-| U10a | 구현·독립 검토 중 | 2282786e, 신규83/typecheck/실제 Chromium 픽셀·드래그·리사이즈 통과, View 연결 및 큰 선택 fallback 후속 |
+| U10a | 검토 보완 중 | 2282786e, 신규83/typecheck 통과; 좁은 텍스트 overlay 잘림/0픽셀 P2 재현 후 보완 중, View 연결 및 큰 선택 fallback 후속 |
 | U6a | 구현 중 | 정상 원자 저장·가져오기 활성화, 공유 계약 b5c739a8 독립 검토 PASS; API 구현 검토 별도 |
 | U7 | 구현 중 | 신규 조회 파일만 선행, U6a 변경분 reader 계약과 기존 module 연결은 조율 |
 | U8b | 구현 중 | 고정 공유 계약에 store/diff/drafts/API 연결, View 및 신규 조회 URL 소비는 후속 |
-| U14a | 검증 중 | 실제 제공 DWG 2개에 최신 canonical child 경로만 선행, 최종 브라우저 검증과 구분 |
+| U14a | 실제 원본 실패 보완 중 | 킨다 최대 영역에서 접촉 HATCH 링이 잘못된 polygon hole로 변환됨, U4 담당 보완 후 2개 원본 재검증; quota 초과 아님 |
 | U6b, U9b~U11b, U13~U14 | 대기 | 앞선 계약·보안 검토 완료 후 연결 |
 
 구현 방식은 **역할별 순차 서브에이전트 진행**을 제안한다. 공유 계약과 데이터 보존은 backend가 먼저, 소비 UI는 web_frontend가 이후 담당하고 QA가 작업 단위 결과를 확인한다. 메인은 공유 계약과 통합·문서 상태를 관리한다. 같은 파일을 다루는 병렬 에이전트는 만들지 않는다. 사용자가 더 낮은 토큰 비용을 우선하면 메인 직접 구현 + 최종 독립 리뷰로 변경할 수 있다.
