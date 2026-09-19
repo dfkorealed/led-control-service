@@ -160,7 +160,7 @@ export function useMapEditor({ floorId, authScope, readOnly, lease }: { floorId:
       if (all.locked) throw new Error("잠금을 해제한 뒤 선택을 편집해주세요.");
       if (all.inline) {
         const ops = [...before, ...all.inline.flatMap(mapper), ...after];
-        useFloorEditorStore.getState().applyMapTransaction({ operations: ops, canonicalElements: all.inline, scope, fixtureUpdates });
+        useFloorEditorStore.getState().applyMapTransaction({ operations: ops, canonicalElements: all.inline, scope, fixtureUpdates, preserveFixturePositions: true });
         setError(null); return true;
       }
       setValidating(true);
@@ -175,7 +175,7 @@ export function useMapEditor({ floorId, authScope, readOnly, lease }: { floorId:
         for await (const element of streamMapSelection({ ...input, signal })) { checkScope(); yield* mapper(element); }
         yield* after;
       };
-      const transaction = { scope, operations: factory, fixtureUpdates };
+      const transaction = { scope, operations: factory, fixtureUpdates, preserveFixturePositions: true };
       return await runStage(() => useFloorEditorStore.getState().prepareMapStream(transaction, lease));
     } catch (error) { if (!signal.aborted && useFloorEditorStore.getState().mapScope === scope) reportError(error); return false; }
     finally { if (validation.current === controller) { validation.current = null; setValidating(false); } }
@@ -213,7 +213,12 @@ export function useMapEditor({ floorId, authScope, readOnly, lease }: { floorId:
       validation.current.abort(); validation.current = null; setValidating(false); return;
     }
     if (!lease) return;
-    try { const result = await useFloorEditorStore.getState().cancelMapStage(lease); if (currentContext.current === context && result !== "stale") { setRetryStage(null); setError(null); } }
+    try {
+      const result = await useFloorEditorStore.getState().cancelMapStage(lease);
+      if (currentContext.current !== context) return "stale";
+      if (result !== "stale") { setRetryStage(null); setError(null); }
+      return result;
+    }
     catch (error) { if (currentContext.current === context) reportError(error); }
   }, [lease, context, reportError]);
   const selectQuery = useCallback((filter: MapSelectionInput, additive = false, fixtures: string[] = []) => {
@@ -227,6 +232,16 @@ export function useMapEditor({ floorId, authScope, readOnly, lease }: { floorId:
   const pick = useCallback(async (point: Point, child: boolean, additive: boolean) => {
     const captured = useFloorEditorStore.getState().mapScope;
     const epoch = ++pickEpoch.current;
+    const selectPicked = (element: MapElement) => {
+      const current = useFloorEditorStore.getState(), previous = current.mapSelection;
+      if (!child && element.groupId) current.selectMapGroups([element.groupId], additive);
+      else current.selectMapElements([element.id], additive);
+      const next = useFloorEditorStore.getState().mapSelection;
+      // Only this additive mutation may carry the query forward. Replacement,
+      // external selection changes and scope switches still invalidate it.
+      setRange(range => additive && range?.scope === captured && range.selected === previous
+        ? { ...range, selected: next } : null);
+    };
     try {
       // Promoted originals are deliberately masked out of renderer picking.
       // Resolve child entry against the exact selected canonical geometries.
@@ -236,14 +251,13 @@ export function useMapEditor({ floorId, authScope, readOnly, lease }: { floorId:
         const local = selection.filter(element => promotedIds.includes(element.id) && element.visible)
           .sort((a, b) => (layers.get(b.layerId)?.order ?? 0) - (layers.get(a.layerId)?.order ?? 0) || b.zIndex - a.zIndex)
           .find(element => hitMapElement(element, world, 4 / current.zoom, current.zoom));
-        if (local) { current.selectMapElements([local.id], additive); return; }
+        if (local) { selectPicked(local); return; }
       }
       const result = await handle.current?.pick(point);
       const current = useFloorEditorStore.getState();
       if (!captured || current.mapScope !== captured || epoch !== pickEpoch.current) return;
       if (!result) { if (!additive) current.clearSelection(); return; }
-      if (!child && result.element.groupId) current.selectMapGroups([result.element.groupId], additive);
-      else current.selectMapElements([result.element.id], additive);
+      selectPicked(result.element);
     } catch (error) { reportError(error); }
   }, [reportError, promotedIds, selection, layers]);
   const polygon = selection.length === 1 && selection[0].type === "polygon" ? selection[0] : null;

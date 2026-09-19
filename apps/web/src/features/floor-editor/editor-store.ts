@@ -39,6 +39,9 @@ export interface MapEditorTransaction {
   scope?: MapEditorScope;
   canonicalElements?: MapElement[];
   fixtureUpdates?: Array<FixturePatch & { id: string }>;
+  /** Rigid mixed transforms already snap their shared delta. Preserve validated
+   * fixture targets without snapping each fixture again; other callers default to snap. */
+  preserveFixturePositions?: boolean;
   slotAssignments?: SaveEditorStateInput["slotAssignments"];
   floorPlan?: FloorPlanDraft | null;
 }
@@ -445,7 +448,7 @@ export const useFloorEditorStore = create<EditorStore>((set, get) => {
       groupIds: [...new Set([...(additive ? get().mapSelection.groupIds : []), ...ids])],
       elementIds: additive ? get().mapSelection.elementIds : []
     }, selection: additive ? get().selection : null, cadSelection: null, selectedFixtureIds: additive ? get().selectedFixtureIds : [], activeTool: "select" }),
-    applyMapTransaction: ({ operations, scope, canonicalElements, fixtureUpdates, slotAssignments, floorPlan }) => {
+    applyMapTransaction: ({ operations, scope, canonicalElements, fixtureUpdates, preserveFixturePositions = false, slotAssignments, floorPlan }) => {
       assertEditable();
       const { state, mapScope, layers } = get();
       if (!state || !mapScope) throw new MapEditorError("MAP_DOCUMENT_REQUIRED", "공통 맵을 먼저 불러와주세요.");
@@ -455,7 +458,7 @@ export const useFloorEditorStore = create<EditorStore>((set, get) => {
       const prepared = common.prepare(operations, { canonicalElements, bounds: floorPlan ?? get().pendingMapStage?.preview ?? mapSettings(state) });
       batch = { state, extra: {} };
       try {
-        if (fixtureUpdates) applyFixtures(new Map(fixtureUpdates.map(({ id, ...patch }) => [id, patch])));
+        if (fixtureUpdates) applyFixtures(new Map(fixtureUpdates.map(({ id, ...patch }) => [id, patch])), !preserveFixturePositions);
         let next = batch.state;
         if (slotAssignments?.length) {
           const assignments = new Map(slotAssignments.map((item) => [item.slotId, item.assignedFixtureId]));

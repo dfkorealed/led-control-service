@@ -138,8 +138,8 @@ export function FloorEditorView({
   const rowRegistry = useMemo(createFixturePlacementRowRegistry, []);
   const mutationLock = useRef(false);
   const activeInstance = useRef(true);
-  const activeScope = useRef({ floorId: initialState.floor.id, siteId: initialState.floor.siteId });
-  activeScope.current = { floorId: initialState.floor.id, siteId: initialState.floor.siteId };
+  const activeScope = useRef({ floorId: initialState.floor.id, siteId: initialState.floor.siteId, authScope: draftScope });
+  activeScope.current = { floorId: initialState.floor.id, siteId: initialState.floor.siteId, authScope: draftScope };
   useLayoutEffect(() => { activeInstance.current = true; return () => { activeInstance.current = false; }; }, []);
   const noticeFloorId = useRef(initialState.floor.id);
   const floorId = initialState.floor.id;
@@ -188,8 +188,10 @@ export function FloorEditorView({
   }, [initialState, initialize, adoptBaseline, draftScope]);
 
   useEffect(() => {
-    if (!userId) return;
-    const currentBaseline = initialState;
+    if (!userId || !baseline || baseline.floor.id !== floorId || baseline.floor.siteId !== siteId) return;
+    // Store ACK is authoritative even when a parent callback has not delivered
+    // new query props yet (including a committed cancellation receipt).
+    const currentBaseline = baseline;
     setRecovery(loadEditorDraft(draftScope, currentBaseline));
     setDraftError(false);
     const generation = editorDraftGeneration();
@@ -217,7 +219,7 @@ export function FloorEditorView({
     window.addEventListener("pagehide", persist);
     window.addEventListener("beforeunload", persist);
     return () => { clearTimeout(timer); persist(); unsubscribe(); window.removeEventListener("pagehide", persist); window.removeEventListener("beforeunload", persist); };
-  }, [userId, draftScope, initialState]);
+  }, [userId, draftScope, baseline, floorId, siteId]);
 
   useEffect(() => {
     onDirtyChange?.(isDirty);
@@ -227,36 +229,64 @@ export function FloorEditorView({
     setPanelTab("properties");
   }, [selection?.kind, selection?.id, cadSelection?.targetId, selectedFixtureIds.length]);
 
-  async function handleSave() {
-    if (readOnly || !state || !baseline || state.floor.id !== floorId || baseline.floor.id !== floorId || state.floor.siteId !== siteId || !isDirty || mutationLock.current || !leaseToken || !leaseFence) return;
-    mutationLock.current = true;
-    const principalGeneration = editorDraftGeneration();
-    const stillCurrent = () => activeInstance.current && principalGeneration === editorDraftGeneration()
+  function isCurrentSave(principalGeneration: number) {
+    return activeInstance.current && principalGeneration === editorDraftGeneration()
       && activeScope.current.floorId === floorId && activeScope.current.siteId === siteId
+      && activeScope.current.authScope === draftScope
       && useFloorEditorStore.getState().initialState?.floor.id === floorId;
-    setSaveStatus("saving");
-    setSkippedFixtureCount(0);
-    try {
-      const renderer = map.handle.current;
-      const version = renderer?.getDraftVersion();
-      const generationId = state.floor.mapDocument?.generationId;
-      const wasStagePreview = Boolean(useFloorEditorStore.getState().pendingMapStage);
-      const result = await useFloorEditorStore.getState().saveChanges({ leaseToken, leaseFence });
-      if (result === "stale") return;
+  }
+
+  function captureSaveAcknowledgement(principalGeneration: number) {
+    const renderer = map.handle.current;
+    const version = renderer?.getDraftVersion();
+    const generationId = state?.floor.mapDocument?.generationId;
+    const wasStagePreview = Boolean(useFloorEditorStore.getState().pendingMapStage);
+    return async () => {
+      if (!isCurrentSave(principalGeneration)) return;
       const saved = useFloorEditorStore.getState().initialState!;
+      if (saved.floor.id !== floorId || saved.floor.siteId !== siteId) throw new Error("Editor response scope mismatch");
       if (!wasStagePreview && renderer && version !== undefined && saved.floor.mapDocument?.generationId === generationId) {
         // Renderer refresh failure must not turn an acknowledged store save into an unsaved retry.
         await renderer.acknowledge(saved.floor.mapDocument!, version).catch(map.reportError);
       }
-      if (!stillCurrent()) return;
-      if (saved.floor.id !== floorId || saved.floor.siteId !== siteId) throw new Error("Editor response scope mismatch");
+      if (!isCurrentSave(principalGeneration)) return;
       if (!useFloorEditorStore.getState().isDirty) {
-        if (userId) removeEditorDraft(draftScope, baseline);
+        if (userId && baseline) removeEditorDraft(draftScope, baseline);
         setDraftError(false);
       }
       await invalidateEditorQueries(queryClient, saved);
+      if (isCurrentSave(principalGeneration)) await onSaved(saved);
+    };
+  }
+
+  async function handleCancelStage() {
+    if (readOnly || mutationLock.current) return;
+    mutationLock.current = true;
+    const principalGeneration = editorDraftGeneration();
+    try {
+      const acknowledge = captureSaveAcknowledgement(principalGeneration);
+      const result = await map.cancelStage();
+      if (!isCurrentSave(principalGeneration)) return;
+      if (result === "committed") await acknowledge();
+      if (isCurrentSave(principalGeneration) && (result === "committed" || result === "cancelled")) setSaveStatus("idle");
+    } catch (error) {
+      if (isCurrentSave(principalGeneration)) { map.reportError(error); setSaveStatus("error"); }
+    } finally { mutationLock.current = false; }
+  }
+
+  async function handleSave() {
+    if (readOnly || !state || !baseline || state.floor.id !== floorId || baseline.floor.id !== floorId || state.floor.siteId !== siteId || !isDirty || mutationLock.current || !leaseToken || !leaseFence) return;
+    mutationLock.current = true;
+    const principalGeneration = editorDraftGeneration();
+    const stillCurrent = () => isCurrentSave(principalGeneration);
+    setSaveStatus("saving");
+    setSkippedFixtureCount(0);
+    try {
+      const acknowledge = captureSaveAcknowledgement(principalGeneration);
+      const result = await useFloorEditorStore.getState().saveChanges({ leaseToken, leaseFence });
+      if (result === "stale") return;
+      await acknowledge();
       if (!stillCurrent()) return;
-      await onSaved(saved);
     } catch (error) {
       if (!stillCurrent()) return;
       if (error instanceof Error && "code" in error) map.reportError(error);
@@ -414,7 +444,7 @@ export function FloorEditorView({
         description={stageProgress ? `${stageProgress.partCount}개 조각 · ${(stageProgress.decodedBytes / 1048576).toFixed(1)} MiB` : undefined}
         action={<div className="flex flex-wrap gap-2">
           {!map.preparing && !map.pendingStage && map.retryStage && <Button disabled={readOnly || saveStatus === "saving"} onClick={() => void map.retryStage?.()}>대량 편집 다시 시도</Button>}
-          <Button disabled={readOnly || saveStatus === "saving"} onClick={() => void map.cancelStage()}>대량 편집 취소</Button>
+          <Button disabled={readOnly || saveStatus === "saving"} onClick={() => void handleCancelStage()}>대량 편집 취소</Button>
         </div>} />}
       {draftError && <FeedbackState icon={TriangleAlert} tone="warning" title="이 브라우저에 초안을 보관하지 못했습니다. 서버에 저장하세요." />}
       {map.error && <FeedbackState icon={TriangleAlert} tone="danger" title={map.error} action={<Button variant="secondary" onClick={() => { if (isDirty) setConfirmReload(true); else void onReload(); }}>다시 불러오기</Button>} />}

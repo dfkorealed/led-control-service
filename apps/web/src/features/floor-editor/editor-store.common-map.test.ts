@@ -87,6 +87,29 @@ describe("common map store integration", () => {
     expect(store().state!.fixtures[0].name).toBe("Changed");
   });
 
+  it.each([undefined, true])("keeps transaction snapping opt-in precision=%s and preserves atomic history", preserveFixturePositions => {
+    store().applyMapTransaction({ operations: [{ kind: "update", element: { ...element(), transform: { ...element().transform, x: 80 } } }],
+      fixtureUpdates: [{ id: "fixture", x: 90, y: 100 }], preserveFixturePositions });
+    expect(store().state!.fixtures[0]).toMatchObject(preserveFixturePositions ? { x: 90, y: 100 } : { x: 80, y: 80 });
+    expect(store().past).toHaveLength(1);
+    store().undo();
+    expect(store().state!.fixtures[0]).toMatchObject({ x: 10, y: 20 });
+    expect(store().mapElements.get("shape")!.transform.x).toBe(0);
+    store().redo();
+    expect(store().state!.fixtures[0]).toMatchObject(preserveFixturePositions ? { x: 90, y: 100 } : { x: 80, y: 80 });
+  });
+
+  it("still rejects invalid or locked fixture patches atomically with precision enabled", () => {
+    const apply = (x: number) => store().applyMapTransaction({ preserveFixturePositions: true,
+      operations: [{ kind: "delete", id: "shape" }], fixtureUpdates: [{ id: "fixture", x }] });
+    expect(() => apply(NaN)).toThrow();
+    store().toggleFixtureLock(["fixture"]);
+    expect(() => apply(90)).toThrow();
+    expect(store().mapElements.has("shape")).toBe(true);
+    expect(store().state!.fixtures[0].x).toBe(10);
+    expect(store().past).toHaveLength(0);
+  });
+
   it("preserves mixed additive selections and undoes one mixed gesture atomically", () => {
     store().selectFixture("fixture");
     store().selectMapElements(["shape"], true);

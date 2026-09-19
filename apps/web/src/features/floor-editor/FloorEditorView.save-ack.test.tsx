@@ -8,6 +8,8 @@ import { createMapElementFromDrag } from "./map-element-tools";
 import { saveFloorEditorState } from "../../api/floor-editor";
 import type { FloorEditorState } from "./editor-types";
 import { editorDraftGeneration, editorDraftKey, loadEditorDraft, saveEditorDraft } from "./editor-drafts";
+import { mapStageClient } from "../../api/map-stages";
+import { ApiError } from "../../api/client";
 
 vi.mock("../map-scene/MapSceneCanvas", () => ({ MapSceneCanvas: () => <canvas /> }));
 vi.mock("./CadImportSceneCanvas", () => ({ CadImportSceneCanvas: () => null, useCadImportScene: () => ({ data: undefined, isError: false, refetch: vi.fn() }) }));
@@ -22,14 +24,14 @@ const base: FloorEditorState = { floor: { id: "floor", siteId: "site", name: "F"
     manifest: { assetId: "canonical", sha256: "a".repeat(64), byteSize: 1, decodedByteSize: 1 } } }, fixtures: [], objects: [], lightSlots: [] };
 const store = useFloorEditorStore.getState;
 const clients: QueryClient[] = [];
-function mount(userId?: string, edit = true) {
+function mount(userId?: string, edit = true, initial = base) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } }); clients.push(client);
   if (userId) client.setQueryData(["auth", "me"], { user: { id: userId, role: "admin" } });
   const onSaved = vi.fn();
   const content = (state: FloorEditorState) => <QueryClientProvider client={client}><MemoryRouter>
     <FloorEditorView initialState={state} userRole="admin" leaseToken="lease" leaseFence={1} onSaved={onSaved} onCancel={() => undefined} onReload={() => undefined} />
   </MemoryRouter></QueryClientProvider>;
-  const view = render(content(structuredClone(base)));
+  const view = render(content(structuredClone(initial)));
   if (edit) act(() => {
     store().loadMapStructures(store().mapScope!, { layers: [{ id: "map", name: "Map", order: 0, visible: true, locked: false }], groups: [] });
     const element = createMapElementFromDrag("ellipse", { x: 100, y: 100 }, { x: 200, y: 200 }, "shape")!;
@@ -42,6 +44,44 @@ beforeEach(() => { store().reset(); localStorage.clear(); vi.clearAllMocks(); })
 afterEach(() => { cleanup(); clients.splice(0).forEach(client => client.clear()); vi.restoreAllMocks(); });
 
 describe("normal common save response adoption", () => {
+  it("acknowledges a committed cancel receipt in the host and persists subsequent drafts without resetting history or camera", async () => {
+    const initial: FloorEditorState = { ...base, fixtures: [{ id: "fixture", name: "Light", x: 403, y: 407, ratedWatt: 40, brightness: 100, status: "online" }] };
+    const view = mount("draft-user", false, initial);
+    view.client.setQueryData(["floor-editor", "site", "floor"], initial);
+    const preview = { ...base.floor.mapDocument!, generationId: "preview", revision: 2, elementCount: 1 };
+    const saved = { ...initial, floor: { ...initial.floor, mapRevision: 2, mapDocument: preview }, history: { undo: { revision: 1 }, redo: { revision: 2 } } };
+    const receipt = { id: "stage", status: "ready" as const, generationId: "gen", baseRevision: 1, partCount: 1, decodedBytes: 1,
+      expiresAt: new Date(Date.now() + 60000).toISOString(), errorCode: null, result: null, preview, intent: { leaseToken: "lease", leaseFence: 1 } };
+    vi.spyOn(mapStageClient, "prepare").mockResolvedValue(receipt);
+    vi.spyOn(mapStageClient, "commit").mockRejectedValue(new ApiError("lost response", 503, null));
+    vi.spyOn(mapStageClient, "cancel").mockResolvedValue({ ...receipt, status: "committed", result: saved } as never);
+    const element = createMapElementFromDrag("rectangle", { x: 20, y: 20 }, { x: 40, y: 40 }, "shape")!;
+    await act(async () => { await store().prepareMapStream({ scope: store().mapScope!, operations: async function* () {
+      yield { kind: "add" as const, element };
+    } }, { leaseToken: "lease", leaseFence: 1 }); });
+    act(() => { store().setZoom(0.6); store().setPan({ x: 75, y: -30 }); });
+    const history = store().past;
+    fireEvent.click(screen.getByRole("button", { name: "저장" }));
+    await waitFor(() => expect(mapStageClient.commit).toHaveBeenCalledTimes(1));
+    const cancel = screen.getByRole("button", { name: "대량 편집 취소" });
+    await waitFor(() => expect(cancel).toBeEnabled());
+    fireEvent.click(cancel);
+    await waitFor(() => expect(store().initialState?.floor.mapRevision).toBe(2));
+    await waitFor(() => expect(view.onSaved).toHaveBeenCalledWith(saved));
+    expect(view.client.getQueryData<FloorEditorState>(["floor-editor", "site", "floor"])?.floor.mapRevision).toBe(2);
+    expect(store().past).toEqual(history);
+    expect(store()).toMatchObject({ isDirty: false, zoom: 0.6, pan: { x: 75, y: -30 } });
+    // The callback need not synchronously replace props for the next local edit
+    // to use the acknowledged baseline rather than the old revision.
+    act(() => store().updateFixture("fixture", { name: "After reconciled save" }));
+    act(() => window.dispatchEvent(new Event("pagehide")));
+    expect(loadEditorDraft(`draft-user:${editorDraftGeneration()}:admin`, saved)).not.toBeNull();
+    expect(screen.queryByText("저장하지 못했습니다. 다시 시도해주세요.")).not.toBeInTheDocument();
+    view.rerender(view.client.getQueryData<FloorEditorState>(["floor-editor", "site", "floor"])!);
+    expect(store().past).toHaveLength(history.length + 1);
+    expect(store().zoom).toBe(0.6);
+  });
+
   it("keeps common map size draft values visible before checkpoint Save and restores them on undo", async () => {
     mount("draft-user", false);
     const width = await screen.findByLabelText("맵 너비");

@@ -12,7 +12,7 @@ const store = useFloorEditorStore.getState;
 const ref = { formatVersion: 1 as const, generationId: "gen", revision: 1, width: 1200, height: 800, gridSize: 10, elementCount: 2500,
   manifest: { assetId: "canonical", sha256: "a".repeat(64), byteSize: 1, decodedByteSize: 1 } };
 const base: FloorEditorState = { floor: { id: "floor", siteId: "site", name: "F", level: 1, mapRevision: 1, floorPlan: null, mapDocument: ref },
-  fixtures: [{ id: "fixture", name: "F", x: 400, y: 400, ratedWatt: 40, brightness: 100, status: "online" }], objects: [], lightSlots: [] };
+  fixtures: [{ id: "fixture", name: "F", x: 403, y: 407, ratedWatt: 40, brightness: 100, status: "online" }], objects: [], lightSlots: [] };
 const elements = Array.from({ length: 2500 }, (_, index) => ({ ...createMapElementFromDrag("rectangle", { x: 100, y: 100 }, { x: 120, y: 120 }, `s${index}`)!, groupId: "group" }));
 function mount() {
   return renderHook(() => useMapEditor({ floorId: "floor", authScope: "user", readOnly: false, lease: { leaseToken: "lease", leaseFence: 1 } }));
@@ -54,14 +54,14 @@ describe("streamed map editor controller", () => {
     const before = store().past.length;
     await act(async () => { await view.result.current.move({ x: 10, y: 20 }); });
     expect(store().past).toHaveLength(before + 1);
-    expect(store().state?.fixtures[0]).toMatchObject({ x: 410, y: 420 });
+    expect(store().state?.fixtures[0]).toMatchObject({ x: 413, y: 427 });
     expect(store().mapOperations[0]).toMatchObject({ kind: "update", element: { transform: { x: 10, y: 20 } } });
     act(() => store().undo());
-    expect(store().state?.fixtures[0]).toMatchObject({ x: 400, y: 400 });
+    expect(store().state?.fixtures[0]).toMatchObject({ x: 403, y: 407 });
     expect(store().mapOperations).toHaveLength(0);
-    await waitFor(() => expect(view.result.current.bounds?.maxX).toBe(410));
+    await waitFor(() => expect(view.result.current.bounds?.maxX).toBe(413));
     act(() => { store().setViewport({ width: 800, height: 600 }); view.result.current.fitSelection(); });
-    expect(store().zoom).toBeCloseTo(552 / 310);
+    expect(store().zoom).toBeCloseTo(552 / 317);
   });
 
   it("prepares a mixed stream with the real store then switches only the source to its private preview", async () => {
@@ -69,7 +69,8 @@ describe("streamed map editor controller", () => {
     const view = mount();
     await waitFor(() => expect(view.result.current.selectionCount).toBe(2500));
     let count = 0;
-    const prepare = vi.spyOn(mapStageClient, "prepare").mockImplementation(async (_floor, _body, operations) => {
+    const prepare = vi.spyOn(mapStageClient, "prepare").mockImplementation(async (_floor, body, operations) => {
+      expect(body.fixtureUpdates).toEqual([expect.objectContaining({ id: "fixture", x: 413, y: 427 })]);
       for await (const operation of operations) { expect(operation.kind).toBe("update"); count++; }
       return { id: "stage", status: "ready", generationId: "gen", baseRevision: 1, partCount: 1, decodedBytes: 1,
         expiresAt: new Date(Date.now() + 60000).toISOString(), errorCode: null, result: null,
@@ -77,7 +78,7 @@ describe("streamed map editor controller", () => {
     });
     await act(async () => { await view.result.current.move({ x: 10, y: 20 }); });
     expect(prepare).toHaveBeenCalledTimes(1); expect(count).toBe(2500);
-    expect(store().state?.fixtures[0]).toMatchObject({ x: 410, y: 420 });
+    expect(store().state?.fixtures[0]).toMatchObject({ x: 413, y: 427 });
     expect(store().state?.floor.mapDocument).toEqual(ref);
     expect(view.result.current.document).toMatchObject({ generationId: "preview", revision: 2 });
     expect(createMapDocumentSource).toHaveBeenLastCalledWith({ floorId: "floor", authScope: "user", stageId: "stage" });
@@ -90,7 +91,7 @@ describe("streamed map editor controller", () => {
     const prepare = vi.spyOn(mapStageClient, "prepare");
     await act(async () => { await view.result.current.move({ x: -200, y: 0 }); });
     expect(prepare).not.toHaveBeenCalled();
-    expect(store().state?.fixtures[0].x).toBe(400);
+    expect(store().state?.fixtures[0].x).toBe(403);
     expect(store().isDirty).toBe(false);
     expect(view.result.current.error).toContain("맵 범위");
   });

@@ -20,16 +20,19 @@ export function mountFloorEditorSmoke(initial: FloorEditorState) {
   client.setQueryDefaults(["dashboard"], { staleTime: Infinity });
   client.setQueryData(["auth", "me"], { user: { id: "smoke-user", organizationId: "fixture-org", role: "admin", status: "active" } });
   client.setQueryData(["dashboard", "default"], { site: { id: initial.floor.siteId }, floors: [{ id: initial.floor.id, fixtures: [] }], capabilities: { read: true } });
+  let savedCount = 0;
   function App() {
     const [state, setState] = useState(initial);
     return <QueryClientProvider client={client}><MemoryRouter><FloorEditorView initialState={state} userRole="admin" leaseToken="smoke-lease" leaseFence={1}
-      onCancel={() => undefined} onSaved={setState} onReload={async () => setState(await getFloorEditorState(initial.floor.id))} /></MemoryRouter></QueryClientProvider>;
+      onCancel={() => undefined} onSaved={saved => { savedCount++; setState(saved); }} onReload={async () => setState(await getFloorEditorState(initial.floor.id))} /></MemoryRouter></QueryClientProvider>;
   }
   const root = createRoot(host); root.render(<App />);
   return { dispose: () => { root.unmount(); client.clear(); }, snapshot: () => {
     const store = useFloorEditorStore.getState();
     return { overlayCount: Konva.stages.flatMap(stage => stage.find(".map-element-overlay")).length,
       elements: [...store.mapElements.values()], operations: store.mapOperations, state: store.state, dirty: store.isDirty,
+      savedCount, cachedRevision: client.getQueryData<FloorEditorState>(["floor-editor", initial.floor.siteId, initial.floor.id])?.floor.mapRevision,
+      historyCount: store.past.length,
       zoom: store.zoom, pan: store.pan, viewport: store.viewport, selection: store.mapSelection };
   } };
 }

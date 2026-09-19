@@ -7,7 +7,7 @@ import { getMapElementBounds } from "@led-control/shared/map-document-geometry";
 declare global { interface Window { editorSmoke: ReturnType<typeof import("./floor-editor-smoke")["mountFloorEditorSmoke"]>;
   mountFloorEditorSmoke: typeof import("./floor-editor-smoke")["mountFloorEditorSmoke"] } }
 
-async function fixture(page: Page, size = { width: 1200, height: 800 }, count = 1) {
+async function fixture(page: Page, size = { width: 1200, height: 800 }, count = 1, loseCommitResponse = false) {
   const hash = "a".repeat(64), sceneId = "00000000-0000-4000-8000-000000000001", assetId = "00000000-0000-4000-8000-000000000002";
   const layers: MapLayer[] = [{ id: "map", name: "Map", order: 0, visible: true, locked: false }];
   const groups: MapGroup[] = [];
@@ -69,7 +69,10 @@ async function fixture(page: Page, size = { width: 1200, height: 800 }, count = 
         elements.clear(); stage.elements.forEach((value, id) => elements.set(id, value));
         stage.receipt.status = "committed"; stage.receipt.result = { ...state, history: { undo: { revision: stage.receipt.baseRevision }, redo: { revision: state.floor.mapRevision } } };
         capture();
-      } else if (route.request().method() === "DELETE") stage.receipt.status = "cancelled";
+        // Lose all three idempotent transport attempts; DELETE can still observe
+        // the committed receipt when the user explicitly reconciles it.
+        if (loseCommitResponse) return route.fulfill({ status: 503, json: { message: "Lost commit response" } });
+      } else if (route.request().method() === "DELETE" && stage.receipt.status !== "committed") stage.receipt.status = "cancelled";
       return route.fulfill({ json: stage.receipt });
     }
     const document = stage?.receipt.preview ?? state.floor.mapDocument!;
@@ -139,8 +142,69 @@ async function fixture(page: Page, size = { width: 1200, height: 800 }, count = 
   await expect(page.getByRole("img", { name: "맵 도형" }).locator("canvas")).toBeVisible();
   await expect(page.getByTestId("floor-editor-canvas")).toHaveAttribute("data-map-ready", "true");
   await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
-  return { errors, requests, stageRequests, elements, mount, state: () => state };
+  return { errors, requests, stageRequests, elements, layers, mount, state: () => state };
 }
+
+test("U10c R1: committed cancel updates host ACK and the next fixture draft", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  const h = await fixture(page, { width: 1200, height: 800 }, 129, true), canvas = page.getByTestId("floor-editor-canvas");
+  await page.getByRole("tab", { name: "레이어", exact: true }).click();
+  await page.getByRole("button", { name: "Map", exact: true }).click();
+  await expect(canvas).toHaveAttribute("data-map-selection-count", "129");
+  await page.getByRole("tab", { name: "속성", exact: true }).click();
+  await page.getByRole("button", { name: "도형 삭제", exact: true }).click();
+  await expect(page.getByText("대량 편집 준비 완료 · 저장 대기", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "확대", exact: true }).click();
+  await page.getByRole("button", { name: "저장", exact: true }).click();
+  await expect.poll(() => h.state().floor.mapRevision).toBe(2);
+  const cancel = page.getByRole("button", { name: "대량 편집 취소", exact: true });
+  await expect(cancel).toBeEnabled();
+  const before = await page.evaluate(() => window.editorSmoke.snapshot());
+  await cancel.click();
+  await expect.poll(() => page.evaluate(() => window.editorSmoke.snapshot().savedCount)).toBe(1);
+  const after = await page.evaluate(() => window.editorSmoke.snapshot());
+  expect(after.cachedRevision).toBe(2); expect(after.historyCount).toBe(before.historyCount);
+  expect(after.zoom).toBe(before.zoom); expect(after.pan).toEqual(before.pan); expect(after.dirty).toBe(false);
+  await page.getByTestId("placement-fixture-fixture").dragTo(canvas, { targetPosition: { x: 350, y: 300 } });
+  await expect.poll(() => page.evaluate(() => window.editorSmoke.snapshot().state?.fixtures[0].placementStatus)).toBe("placed");
+  const draft = await page.evaluate(async () => {
+    window.dispatchEvent(new Event("pagehide"));
+    const path = "/src/features/floor-editor/editor-drafts.ts";
+    const { loadEditorDraft, editorDraftGeneration } = await import(/* @vite-ignore */ path);
+    return loadEditorDraft(`smoke-user:${editorDraftGeneration()}:admin`, window.editorSmoke.snapshot().state);
+  });
+  expect(draft?.fixtures[0].placementStatus).toBe("placed");
+  const commits = h.stageRequests.filter(r => r.path.endsWith("/commit"));
+  expect(commits).toHaveLength(3);
+  expect(commits.every(r => JSON.stringify(r) === JSON.stringify(commits[0]))).toBe(true);
+  expect(h.errors).toEqual([]);
+});
+
+test("U10c R2: shift pick retains the full streamed layer for deletion", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  const h = await fixture(page, { width: 1200, height: 800 }, 129), canvas = page.getByTestId("floor-editor-canvas");
+  h.layers.push({ id: "other", name: "Other", order: 1, visible: true, locked: false });
+  h.elements.set("extra", { ...h.elements.get("bulk-0")!, id: "extra", layerId: "other",
+    geometry: { origin: { x: 850, y: 150 }, width: 40, height: 40 } } as MapElement);
+  h.state().floor.mapDocument!.elementCount = 130;
+  await h.mount(); await expect(canvas).toHaveAttribute("data-map-ready", "true");
+  await page.getByRole("tab", { name: "레이어", exact: true }).click();
+  await page.getByRole("button", { name: "Map", exact: true }).click();
+  await expect(canvas).toHaveAttribute("data-map-selection-count", "129");
+  const point = await canvas.evaluate(element => {
+    const rect = element.getBoundingClientRect(), zoom = Number(element.getAttribute("data-zoom"));
+    return { x: rect.x + Number(element.getAttribute("data-pan-x")) + 870 * zoom, y: rect.y + Number(element.getAttribute("data-pan-y")) + 170 * zoom };
+  });
+  await page.keyboard.down("Shift"); await page.mouse.click(point.x, point.y); await page.keyboard.up("Shift");
+  await expect(canvas).toHaveAttribute("data-map-selection-count", "130");
+  expect((await page.evaluate(() => window.editorSmoke.snapshot().selection)).elementIds).toEqual(["extra"]);
+  await page.getByRole("tab", { name: "속성", exact: true }).click();
+  await page.getByRole("button", { name: "도형 삭제", exact: true }).click();
+  await expect(page.getByText("대량 편집 준비 완료 · 저장 대기", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "저장", exact: true }).click();
+  await expect.poll(() => h.elements.size).toBe(0);
+  expect(h.errors).toEqual([]);
+});
 
 test("U10c: large layer delete uses private preview explicit save and external undo", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
@@ -184,7 +248,7 @@ test("U10c: large layer delete uses private preview explicit save and external u
 test("U10c: mobile mixed marquee moves in one undo and selection fit stays bounded", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   const h = await fixture(page, { width: 1200, height: 800 }, 65), canvas = page.getByTestId("floor-editor-canvas");
-  h.state().fixtures[0] = { ...h.state().fixtures[0], placementStatus: "placed", x: 400, y: 200 };
+  h.state().fixtures[0] = { ...h.state().fixtures[0], placementStatus: "placed", x: 403, y: 207 };
   await h.mount(); await expect(canvas).toHaveAttribute("data-map-ready", "true");
   const point = (x: number, y: number) => canvas.evaluate((element, p) => {
     const rect = element.getBoundingClientRect(), zoom = Number(element.getAttribute("data-zoom"));
@@ -196,11 +260,12 @@ test("U10c: mobile mixed marquee moves in one undo and selection fit stays bound
   await page.getByRole("button", { name: "선택 맞춤", exact: true }).click();
   expect(await page.evaluate(() => window.editorSmoke.snapshot().zoom)).toBeGreaterThan(0.4);
   await page.keyboard.press("ArrowRight");
-  await expect.poll(() => page.evaluate(() => window.editorSmoke.snapshot().state?.fixtures[0].x)).toBe(410);
+  await expect.poll(() => page.evaluate(() => window.editorSmoke.snapshot().state?.fixtures[0].x)).toBe(413);
+  expect(await page.evaluate(() => window.editorSmoke.snapshot().state?.fixtures[0].y)).toBe(207);
   expect(await page.evaluate(() => window.editorSmoke.snapshot().operations.filter(op => op.kind === "update").length)).toBe(65);
   await page.getByRole("button", { name: "실행 취소", exact: true }).click();
   await expect.poll(() => page.evaluate(() => window.editorSmoke.snapshot().operations.length)).toBe(0);
-  expect(await page.evaluate(() => window.editorSmoke.snapshot().state?.fixtures[0].x)).toBe(400);
+  expect(await page.evaluate(() => window.editorSmoke.snapshot().state?.fixtures[0].x)).toBe(403);
   expect(await page.evaluate(() => document.documentElement.scrollHeight <= window.innerHeight)).toBe(true);
   expect(h.errors).toEqual([]);
 });
