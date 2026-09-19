@@ -1,7 +1,8 @@
-import { mkdtemp, rm, appendFile, writeFile, symlink, truncate } from "node:fs/promises";
+import { mkdtemp, rm, appendFile, writeFile, readFile, symlink, truncate } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
+import { gzipSync, gunzipSync } from "node:zlib";
 import { buildCanonicalCadScene, readCanonicalElements, readCanonicalMetadata, readVerifiedCadArtifact, remainingCadArtifactBytes } from "./cad-canonical-spool";
 import { decodeMapDisplayTile } from "./cad-scene-codec";
 import type { MapElement } from "@led-control/shared";
@@ -20,6 +21,106 @@ describe("bounded canonical spool", () => {
   let directory: string;
   beforeEach(async () => { directory = await mkdtemp(join(tmpdir(), "u4b-spool-")); });
   afterEach(async () => { await rm(directory, { recursive: true, force: true }); });
+
+  it("writes versioned bounded gzip frames with independent physical and decoded integrity", async () => {
+    const { document, region } = canonicalFixture();
+    document.entities = Array.from({ length: 600 }, (_, i) => ({ ...document.entities[0], sourceEntityId: String(i) }));
+    const { canonical } = await buildCanonicalCadScene(document, region, randomUUID(), directory);
+    expect(canonical.elements).toMatchObject({ codec: "gzip-frames", version: 1 });
+    expect(canonical.elements.filename).toMatch(/\.ndjson\.gzf$/);
+    const physical = await readFile(join(directory, canonical.elements.filename));
+    const decoded: Buffer[] = [];
+    for (let offset = 0; offset < physical.length;) {
+      const compressedSize = physical.readUInt32LE(offset), decodedSize = physical.readUInt32LE(offset + 4);
+      expect(decodedSize).toBeGreaterThan(0);
+      expect(decodedSize).toBeLessThanOrEqual(256 * 1024);
+      const bytes = gunzipSync(physical.subarray(offset + 8, offset + 8 + compressedSize));
+      expect(bytes.length).toBe(decodedSize);
+      decoded.push(bytes); offset += 8 + compressedSize;
+    }
+    expect(decoded.length).toBeGreaterThan(1);
+    const bytes = Buffer.concat(decoded);
+    const hash = (b: Buffer) => createHash("sha256").update(b).digest("hex");
+    expect(canonical.elements).toMatchObject({ byteSize: physical.length, sha256: hash(physical),
+      decodedByteSize: bytes.length, decodedSha256: hash(bytes) });
+    expect(physical.length).toBeLessThan(bytes.length / 2);
+    const elements: MapElement[] = [];
+    for await (const element of readCanonicalElements(directory, canonical)) elements.push(element);
+    expect(elements).toEqual(bytes.toString("utf8").trimEnd().split("\n").map(line => JSON.parse(line)));
+    const corrupted = Buffer.from(physical); corrupted[corrupted.length - 8] ^= 1;
+    await writeFile(join(directory, canonical.elements.filename), corrupted);
+    const iterator = readCanonicalElements(directory, { ...canonical,
+      elements: { ...canonical.elements, sha256: hash(corrupted) } });
+    // A later frame error must not force whole-file decoding before the first item.
+    expect((await iterator.next()).value).toEqual(elements[0]);
+    await expect((async () => { for await (const _ of iterator) { /* exhaust */ } })()).rejects.toThrow();
+  });
+
+  it("charges compressed physical bytes separately without reducing decoded geometry", async () => {
+    const { document, region } = canonicalFixture();
+    const job = randomUUID();
+    const original = await buildCanonicalCadScene(document, region, job, directory);
+    expect(original.canonical.elements.decodedByteSize).toBeGreaterThan(original.canonical.elements.byteSize);
+    const bounded = await buildCanonicalCadScene(document, region, job, directory,
+      { maxBytes: original.canonical.elements.byteSize });
+    expect(bounded.canonical.elements.decodedSha256).toBe(original.canonical.elements.decodedSha256);
+    await expect(buildCanonicalCadScene(document, region, job, directory,
+      { maxBytes: original.canonical.elements.byteSize - 1 })).rejects.toThrow(/physical byte/);
+  });
+
+  it("bounds gzip output and unfinished NDJSON lines, and honors abort between yielded elements", async () => {
+    const { document, region } = canonicalFixture();
+    const { canonical } = await buildCanonicalCadScene(document, region, randomUUID(), directory);
+    const abort = new AbortController();
+    const iterator = readCanonicalElements(directory, canonical, abort.signal);
+    expect((await iterator.next()).done).toBe(false);
+    abort.abort();
+    await expect(iterator.next()).rejects.toThrow(/abort/);
+    const frame = (bytes: Buffer, declared = bytes.length) => {
+      const gzip = gzipSync(bytes, { level: 1 }), header = Buffer.alloc(8);
+      header.writeUInt32LE(gzip.length); header.writeUInt32LE(declared, 4);
+      return Buffer.concat([header, gzip]);
+    };
+    const consume = async (physical: Buffer, decoded: Buffer) => {
+      await writeFile(join(directory, canonical.elements.filename), physical);
+      const hash = (b: Buffer) => createHash("sha256").update(b).digest("hex");
+      const artifact = { ...canonical, elements: { ...canonical.elements, byteSize: physical.length,
+        sha256: hash(physical), decodedByteSize: decoded.length, decodedSha256: hash(decoded) } };
+      for await (const _ of readCanonicalElements(directory, artifact)) { /* exhaust */ }
+    };
+    const bomb = Buffer.alloc(256 * 1024 + 1, 65);
+    await expect(consume(frame(bomb, 256 * 1024), bomb)).rejects.toThrow();
+    const tooLong = Buffer.alloc(8 * 1024 * 1024, 65);
+    const chunks = Array.from({ length: 32 }, (_, i) => frame(tooLong.subarray(i * 256 * 1024, (i + 1) * 256 * 1024)));
+    await expect(consume(Buffer.concat(chunks), tooLong)).rejects.toThrow(/element byte/);
+  });
+
+  it("rejects wrong codec/version, decoded limits/hash/count, truncation and extra gzip members", async () => {
+    const { document, region } = canonicalFixture();
+    const { canonical } = await buildCanonicalCadScene(document, region, randomUUID(), directory);
+    const consume = async (elements: unknown = canonical.elements, count = canonical.elementCount) => {
+      for await (const _ of readCanonicalElements(directory, { ...canonical, elements, elementCount: count } as typeof canonical)) { /* verify to EOF */ }
+    };
+    const physical = await readFile(join(directory, canonical.elements.filename));
+    const replace = async (bytes: Buffer) => {
+      await writeFile(join(directory, canonical.elements.filename), bytes);
+      return { ...canonical.elements, byteSize: bytes.length, sha256: createHash("sha256").update(bytes).digest("hex") };
+    };
+    await expect(consume({ ...canonical.elements, codec: "plain" })).rejects.toThrow(/artifact/);
+    await expect(consume({ ...canonical.elements, version: 2 })).rejects.toThrow(/artifact/);
+    await expect(consume({ ...canonical.elements, decodedByteSize: 512 * 1024 * 1024 + 1 })).rejects.toThrow(/artifact/);
+    await expect(consume({ ...canonical.elements, decodedByteSize: 1 })).rejects.toThrow(/decoded|size/);
+    await expect(consume({ ...canonical.elements, decodedSha256: "0".repeat(64) })).rejects.toThrow(/integrity/);
+    await expect(consume(canonical.elements, 3)).rejects.toThrow(/count/);
+    await expect(consume(canonical.elements, 500001)).rejects.toThrow(/artifact/);
+    await expect(consume(await replace(physical.subarray(0, -1)))).rejects.toThrow(/frame|truncat/);
+    await expect(consume(await replace(Buffer.concat([physical, Buffer.from([0])])))).rejects.toThrow(/frame|truncat/);
+    const extraMember = Buffer.concat([physical, gzipSync(Buffer.alloc(0))]);
+    extraMember.writeUInt32LE(extraMember.length - 8, 0);
+    await expect(consume(await replace(extraMember))).rejects.toThrow(/member|frame/);
+    const crc = Buffer.from(physical); crc[crc.length - 8] ^= 1;
+    await expect(consume(await replace(crc))).rejects.toThrow();
+  });
 
   it("returns stored unclipped elements to binary binding, preserving coincident IDs and explicit metadata", async () => {
     const { document, region } = canonicalFixture();
