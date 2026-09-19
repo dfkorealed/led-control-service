@@ -281,28 +281,6 @@ describe("FloorEditorView", () => {
     expect(stage.find(".map-object-far")).toHaveLength(0);
   });
 
-  it("coalesces drawing pointer moves into one animation frame", () => {
-    let frame: FrameRequestCallback | null = null;
-    const requestFrame = vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
-      frame = callback;
-      return 1;
-    });
-    renderEditor({ ...editorState, objects: [] });
-    fireEvent.click(screen.getByRole("button", { name: "사각형" }));
-    const canvas = screen.getByLabelText("B2 편집 캔버스");
-
-    fireEvent.mouseDown(canvas, { clientX: 100, clientY: 100 });
-    fireEvent.mouseMove(canvas, { clientX: 160, clientY: 160 });
-    fireEvent.mouseMove(canvas, { clientX: 200, clientY: 180 });
-    fireEvent.mouseMove(canvas, { clientX: 240, clientY: 200 });
-
-    expect(requestFrame).toHaveBeenCalledOnce();
-    expect(useFloorEditorStore.getState().state?.objects).toHaveLength(0);
-    act(() => frame?.(16));
-    fireEvent.mouseUp(canvas, { clientX: 240, clientY: 200 });
-    expect(useFloorEditorStore.getState().state?.objects).toHaveLength(1);
-  });
-
   it("cancels pending fixture and object drags when the editor becomes read-only", () => {
     let frame: FrameRequestCallback | null = null;
     vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
@@ -476,7 +454,7 @@ describe("FloorEditorView", () => {
     expect(screen.getByRole("button", { name: "100%" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "저장" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "취소" })).toBeInTheDocument();
-    expect(screen.getByRole("toolbar", { name: "맵 편집 도구" })).toBeInTheDocument();
+    expect(screen.getByRole("group", { name: "맵 편집 도구" })).toBeInTheDocument();
     expect(screen.getByLabelText("B2 편집 캔버스")).toBeInTheDocument();
     expect(screen.getByRole("complementary", { name: "속성 패널" })).toBeInTheDocument();
     const sidePanel = screen.getByRole("complementary", { name: "맵 편집 정보" });
@@ -491,178 +469,12 @@ describe("FloorEditorView", () => {
     expect(screen.getByRole("checkbox", { name: "격자 스냅" }).closest("[data-field]")).toBeInTheDocument();
   });
 
-  it("refreshes the CAD revision after a fixture save, saves an override, and rolls back a conflict", async () => {
-    const descriptor = {
-      id: "00000000-0000-4000-8000-000000000001",
-      version: 1,
-      sourceImportJobId: "00000000-0000-4000-8000-000000000002",
-      width: 16_384,
-      height: 8_192,
-      tileSize: 512 as const,
-      primitiveCount: 10,
-      tileCount: 1,
-      manifestAssetId: "00000000-0000-4000-8000-000000000003",
-      manifestContentPath: "/floors/f/import-jobs/j/scene/manifest/content",
-      tileContentPathTemplate: "/floors/f/import-jobs/j/scene/tiles/{lod}/{tileX}/{tileY}/{part}/content",
-      statePath: "/sites/site-2/floors/floor-b2/cad-scene"
-    };
-    const cadEditorState: FloorEditorState = {
-      ...structuredClone(editorState),
-      floor: {
-        ...structuredClone(editorState.floor),
-        floorPlan: {
-          imageUrl: "",
-          sourceType: "cad",
-          originalFileUrl: null,
-          renderedImageUrl: null,
-          width: descriptor.width,
-          height: descriptor.height,
-          gridSize: 80,
-          version: 1
-        },
-        cadScene: descriptor
-      }
-    };
-    const state = { revision: 7, scene: descriptor, overrides: [], layers: [] };
-    const savedState = {
-      ...state,
-      revision: 9,
-      overrides: [{
-        elementId: "cad-element-00000000000000000000000000000001",
-        hidden: true,
-        transform: null,
-        strokeColor: null,
-        fillColor: null,
-        strokeWidth: null,
-        text: null
-      }]
-    };
-    floorEditorApi.getCadSceneState.mockResolvedValue(state);
-    floorEditorApi.updateCadScene.mockResolvedValue(savedState);
-    floorEditorApi.getFloorEditorState.mockResolvedValue({
-      ...cadEditorState,
-      floor: { ...cadEditorState.floor, mapRevision: 9 }
-    });
-    renderEditor(cadEditorState);
-    await waitFor(() => expect(floorEditorApi.getCadSceneState).toHaveBeenCalled());
-
-    floorEditorApi.getCadSceneState.mockResolvedValue({ ...state, revision: 8 });
-    act(() => useFloorEditorStore.getState().adoptBaseline({
-      ...cadEditorState, floor: { ...cadEditorState.floor, mapRevision: 8 }
-    }));
-    await waitFor(() => expect(floorEditorApi.getCadSceneState).toHaveBeenCalledTimes(2));
-
-    act(() => useFloorEditorStore.getState().selectCad({
-      mode: "element",
-      targetId: "cad-element-00000000000000000000000000000001",
-      element: {
-        elementId: "cad-element-00000000000000000000000000000001",
-        groupId: "group-1",
-        layerName: "WALL",
-        locator: { tileX: 0, tileY: 0, lod: 1, part: 0 },
-        bounds: { minX: 10, minY: 20, maxX: 50, maxY: 60 },
-        points: [{ x: 10, y: 20 }, { x: 50, y: 60 }],
-        fragments: [{ points: [{ x: 10, y: 20 }, { x: 50, y: 60 }], closed: false }],
-        closed: false,
-        text: null,
-        fontSize: null,
-        textGeometry: null,
-        strokeColor: "#111111",
-        fillColor: null,
-        strokeWidth: 2,
-        zOrder: 1,
-        override: null
-      }
-    }));
-    fireEvent.click(screen.getByRole("button", { name: "요소 숨기기" }));
-
-    await waitFor(() => expect(floorEditorApi.updateCadScene).toHaveBeenCalledWith("site-2", "floor-b2", {
-      expectedRevision: 8,
-      leaseToken: "lease-token",
-      leaseFence: 7,
-      overrideMutations: [{
-        operation: "upsert",
-        locator: { tileX: 0, tileY: 0, lod: 1, part: 0 },
-        value: {
-          elementId: "cad-element-00000000000000000000000000000001",
-          hidden: true
-        }
-      }],
-      layerMutations: []
-    }, { signal: expect.any(AbortSignal) }));
-    await waitFor(() => expect(floorEditorApi.getFloorEditorState).toHaveBeenCalledWith("floor-b2", { signal: expect.any(AbortSignal) }));
-    expect(useFloorEditorStore.getState().state?.floor.mapRevision).toBe(9);
-
-    floorEditorApi.updateCadScene.mockRejectedValueOnce(new ApiError("revision conflict", 409, null));
-    fireEvent.click(await screen.findByRole("button", { name: "요소 표시" }));
-
-    expect(await screen.findByText("최신 맵과 변경사항이 충돌했습니다.")).toBeInTheDocument();
-    expect(useFloorEditorStore.getState().cadSelection).toMatchObject({
-      mode: "element",
-      element: { override: { hidden: true } }
-    });
-  });
-
-  it("aborts a CAD override save and ignores its late response after switching floors", async () => {
-    const descriptor = {
-      id: "00000000-0000-4000-8000-000000000001",
-      version: 1,
-      sourceImportJobId: "00000000-0000-4000-8000-000000000002",
-      width: 16_384,
-      height: 8_192,
-      tileSize: 512 as const,
-      primitiveCount: 10,
-      tileCount: 1,
-      manifestAssetId: "00000000-0000-4000-8000-000000000003",
-      manifestContentPath: "/floors/f/import-jobs/j/scene/manifest/content",
-      tileContentPathTemplate: "/floors/f/import-jobs/j/scene/tiles/{lod}/{tileX}/{tileY}/{part}/content",
-      statePath: "/sites/site-2/floors/floor-b2/cad-scene"
-    };
-    const cadEditorState: FloorEditorState = {
-      ...structuredClone(editorState),
-      floor: { ...structuredClone(editorState.floor), cadScene: descriptor }
-    };
-    const scene = { revision: 7, scene: descriptor, overrides: [], layers: [] };
-    const update = deferred<typeof scene>();
-    floorEditorApi.getCadSceneState.mockResolvedValue(scene);
-    floorEditorApi.updateCadScene.mockReturnValueOnce(update.promise);
-    const onSaved = vi.fn();
-    const view = renderEditor(cadEditorState, { onSaved });
-    await waitFor(() => expect(floorEditorApi.getCadSceneState).toHaveBeenCalled());
-    act(() => useFloorEditorStore.getState().selectCad({
-      mode: "element",
-      targetId: "cad-element-00000000000000000000000000000001",
-      element: {
-        elementId: "cad-element-00000000000000000000000000000001",
-        groupId: "group-1",
-        layerName: "WALL",
-        locator: { tileX: 0, tileY: 0, lod: 1, part: 0 },
-        bounds: { minX: 10, minY: 20, maxX: 50, maxY: 60 },
-        points: [{ x: 10, y: 20 }, { x: 50, y: 60 }],
-        fragments: [{ points: [{ x: 10, y: 20 }, { x: 50, y: 60 }], closed: false }],
-        closed: false,
-        text: null,
-        fontSize: null,
-        textGeometry: null,
-        strokeColor: "#111111",
-        fillColor: null,
-        strokeWidth: 2,
-        zOrder: 1,
-        override: null
-      }
-    }));
-    fireEvent.click(screen.getByRole("button", { name: "요소 숨기기" }));
-    await waitFor(() => expect(floorEditorApi.updateCadScene).toHaveBeenCalled());
-    const requestOptions = floorEditorApi.updateCadScene.mock.calls[0][3] as { signal?: AbortSignal };
-
-    const other = { ...structuredClone(editorState), floor: { ...editorState.floor, id: "floor-other" } };
-    view.rerenderEditor(other);
-    expect(requestOptions.signal?.aborted).toBe(true);
-    await act(async () => update.resolve({ ...scene, revision: 8 }));
-
-    expect(floorEditorApi.getFloorEditorState).not.toHaveBeenCalled();
-    expect(useFloorEditorStore.getState().state?.floor.id).toBe("floor-other");
-    expect(onSaved).not.toHaveBeenCalled();
+  it("requires explicit reset for a legacy map and exposes no CAD-only property writer", () => {
+    renderEditor();
+    expect(screen.getByRole("button", { name: "맵 초기화" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "사각형" })).toBeDisabled();
+    expect(floorEditorApi.getCadSceneState).not.toHaveBeenCalled();
+    expect(floorEditorApi.updateCadScene).not.toHaveBeenCalled();
   });
 
   it("offers CAD import without the legacy image upload panel", () => {
@@ -747,13 +559,13 @@ describe("FloorEditorView", () => {
     floorEditorApi.listFloorEditorRevisions.mockResolvedValueOnce({ items: [revision(5)], nextCursor: null });
     renderEditor();
 
-    const toolbar = screen.getByRole("toolbar", { name: "맵 편집 도구" });
+    const toolbar = screen.getByRole("group", { name: "맵 편집 도구" });
     const toolButton = within(toolbar).getByRole("button", { name: "선택" });
     const restoreButton = await screen.findByRole("button", { name: "리비전 5 복구" });
 
-    expect(toolButton).toHaveClass("min-h-12", "min-w-12", "max-compact:min-h-14", "max-compact:min-w-14");
+    expect(toolButton).toHaveClass("size-13");
     expect(restoreButton).toHaveClass("min-h-14", "min-w-14");
-    expect(toolbar).toHaveClass("grid-cols-4", "max-compact:grid-cols-3");
+    expect(toolbar).toHaveClass("flex-wrap");
   });
 
   it("keeps save disabled when a route-owned lease makes the editor read-only", () => {
@@ -796,44 +608,6 @@ describe("FloorEditorView", () => {
     });
     expect(onSaved.mock.calls[0][0].floor.mapRevision).toBe(8);
     expect(useFloorEditorStore.getState()).toMatchObject({ isDirty: false });
-  });
-
-  it("creates a rectangle after selecting the toolbar and dragging on the Konva canvas", async () => {
-    renderEditor({ ...editorState, objects: [] });
-
-    fireEvent.click(screen.getByRole("button", { name: "사각형" }));
-    const canvas = screen.getByLabelText("B2 편집 캔버스");
-    fireEvent.mouseDown(canvas, { clientX: 200, clientY: 160 });
-    fireEvent.mouseMove(canvas, { clientX: 320, clientY: 240 });
-    fireEvent.mouseUp(canvas, { clientX: 320, clientY: 240 });
-
-    const objects = useFloorEditorStore.getState().state?.objects ?? [];
-    expect(objects[0]).toMatchObject({ type: "rectangle", x: 200, y: 160, width: 120, height: 80 });
-
-    fireEvent.click(screen.getByRole("button", { name: "저장" }));
-
-    await waitFor(() => expect(floorEditorApi.saveFloorEditorState).toHaveBeenCalledOnce());
-    expect(floorEditorApi.saveFloorEditorState.mock.calls[0][1].objectCreates).toEqual([
-      expect.objectContaining({ type: "rectangle", x: 200, y: 160, width: 120, height: 80, locked: false, visible: true })
-    ]);
-  });
-
-  it("creates a rectangle by dragging the toolbar tool and dropping it on the canvas", async () => {
-    renderEditor({ ...editorState, objects: [] });
-
-    const dataTransfer = createDataTransfer();
-    const canvas = screen.getByLabelText("B2 편집 캔버스");
-    fireEvent.dragStart(screen.getByRole("button", { name: "사각형" }), { dataTransfer });
-    fireEvent.dragOver(canvas, { dataTransfer });
-    fireEvent(canvas, createDragEventWithPoint(canvas, "drop", dataTransfer, 240, 180));
-
-    expect(screen.getByRole("heading", { name: "네모" })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "저장" }));
-
-    await waitFor(() => expect(floorEditorApi.saveFloorEditorState).toHaveBeenCalledOnce());
-    expect(floorEditorApi.saveFloorEditorState.mock.calls[0][1].objectCreates).toEqual([
-      expect.objectContaining({ type: "rectangle", x: 240, y: 180, width: 160, height: 100 })
-    ]);
   });
 
   it("snaps an unplaced fixture to the exact position of a CAD slot inside the hit radius", () => {
@@ -917,18 +691,6 @@ describe("FloorEditorView", () => {
     fireEvent.mouseUp(canvas, { clientX: 200, clientY: 160 });
 
     expect(screen.queryByText("rectangle")).not.toBeInTheDocument();
-  });
-
-  it("creates a selected tool object when dragging on the Konva canvas", () => {
-    renderEditor({ ...editorState, objects: [] });
-
-    fireEvent.click(screen.getByRole("button", { name: "삼각형" }));
-    const canvas = screen.getByLabelText("B2 편집 캔버스");
-    fireEvent.mouseDown(canvas, { clientX: 240, clientY: 180 });
-    fireEvent.mouseMove(canvas, { clientX: 340, clientY: 260 });
-    fireEvent.mouseUp(canvas, { clientX: 340, clientY: 260 });
-
-    expect(useFloorEditorStore.getState().state?.objects[0]).toMatchObject({ type: "triangle", x: 240, y: 180, width: 100, height: 80 });
   });
 
   it("saves a moved map object from editor state", async () => {
@@ -1463,7 +1225,7 @@ describe("FloorEditorView", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "저장" }));
 
-    expect(await screen.findByRole("alert")).toHaveTextContent("저장하지 못했습니다");
+    expect(await screen.findByText("변경분을 저장하지 못했습니다.")).toBeInTheDocument();
     expect(useFloorEditorStore.getState().state?.fixtures[0].x).toBe(220);
     expect(useFloorEditorStore.getState().isDirty).toBe(true);
   });
@@ -1478,7 +1240,7 @@ describe("FloorEditorView", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "저장" }));
 
-    const feedback = await screen.findByRole("alert");
+    const feedback = (await screen.findByText("최신 맵과 변경사항이 충돌했습니다.")).closest<HTMLElement>("[role=alert]")!;
     expect(feedback).toHaveTextContent("최신 맵과 변경사항이 충돌했습니다.");
     expect(feedback).toHaveTextContent("최신 버전을 다시 불러온 뒤 변경사항을 확인하세요.");
     expect(feedback).toHaveAttribute("data-tone", "danger");
@@ -1674,9 +1436,9 @@ describe("FloorEditorView", () => {
     floorEditorApi.listFloorEditorRevisions.mockReturnValueOnce(firstRequest.promise).mockResolvedValueOnce({ items: [], nextCursor: null });
     renderEditor();
 
-    expect(screen.getByRole("status")).toHaveTextContent("버전 기록을 불러오는 중");
+    expect(screen.getByText("버전 기록을 불러오는 중")).toBeInTheDocument();
     firstRequest.reject(new Error("revision unavailable"));
-    expect(await screen.findByRole("alert")).toHaveTextContent("버전 기록을 불러오지 못했습니다");
+    expect(await screen.findByText("버전 기록을 불러오지 못했습니다.")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "다시 시도" }));
 
@@ -1749,7 +1511,7 @@ describe("FloorEditorView", () => {
 
     fireEvent.click(await screen.findByRole("button", { name: "리비전 5 복구" }));
 
-    expect(await screen.findByRole("status")).toHaveTextContent("현재 존재하지 않는 조명 1개를 건너뛰었습니다");
+    expect(await screen.findByText("현재 존재하지 않는 조명 1개를 건너뛰었습니다.")).toBeInTheDocument();
   });
 
   it("keeps the skipped fixture notice across a same-floor editor refetch", async () => {

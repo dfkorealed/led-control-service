@@ -37,13 +37,21 @@ import { CadSceneCanvas, type CadSceneCanvasHandle } from "./CadSceneCanvas";
 import { CadElementOverlay } from "./CadElementOverlay";
 import { CadImportSceneCanvas } from "./CadImportSceneCanvas";
 import type { CadSceneManifest } from "@led-control/shared";
+import type { MapElement } from "@led-control/shared/map-document-contracts";
+import { MapSceneCanvas } from "../map-scene/MapSceneCanvas";
+import { MapElementOverlay } from "./MapElementOverlay";
+import { MapSelectionBoundsHandle } from "./MapSelectionBoundsHandle";
+import type { MapEditorController } from "./use-map-editor";
+import { isEditorTextTarget } from "./map-editor-selection";
+import { createMapElementFromDrag, createMapPathDraft, appendMapPathPoint, finishMapPathDraft, type MapPathDraft } from "./map-element-tools";
 
 const TOOL_DRAG_TYPE = "application/x-floor-editor-tool";
-const drawingTools = new Set<EditorTool>(["rectangle", "triangle", "line", "text"]);
+const drawingTools = new Set<EditorTool>(["rectangle", "triangle", "line", "text", "ellipse", "arc", "polyline", "polygon"]);
 type Gesture = { kind: "pan" | "marquee" | "draw"; start: Point; screen: Point; pan: Point; additive: boolean; moved: boolean };
 type DragInteraction = { token: number; kind: "fixture" | "object"; id: string; floorId: string };
 
 interface FloorEditorCanvasProps {
+  mapEditor?: MapEditorController;
   readOnly?: boolean;
   rowRegistry: FixturePlacementRowRegistry;
   cadCandidates?: FloorImportCandidate[];
@@ -68,6 +76,7 @@ interface FloorEditorCanvasProps {
 
 export function FloorEditorCanvas({
   readOnly = false,
+  mapEditor,
   rowRegistry,
   cadCandidates = [],
   cadBackgroundUrl,
@@ -104,8 +113,15 @@ export function FloorEditorCanvas({
   const dragToken = useRef(0);
   const dragInteraction = useRef<DragInteraction | null>(null);
   const creationDraft = useRef<FloorMapObjectDraft | null>(null);
+  const mapCreationDraft = useRef<MapElement | null>(null);
+  const [mapCreation, setMapCreation] = useState<MapElement | null>(null);
+  const [pathDraft, setPathDraft] = useState<MapPathDraft | null>(null);
+  useEffect(() => { setPathDraft(null); }, [mapEditor?.holeActive]);
+  const mapEditorRef = useRef(mapEditor); mapEditorRef.current = mapEditor;
+  const [measured, setMeasured] = useState(false);
   const marqueeDraft = useRef<{ x: number; y: number; width: number; height: number } | null>(null);
   const lastAutoFitKey = useRef<string | null>(null);
+  const lastAutoFitCamera = useRef<{ zoom: number; pan: Point } | null>(null);
   const disabled = useRef(readOnly); disabled.current = readOnly;
   const state = useFloorEditorStore((s) => s.state);
   const activeTool = useFloorEditorStore((s) => s.activeTool);
@@ -146,10 +162,10 @@ export function FloorEditorCanvas({
   const [transientPan, setTransientPan] = useState<Point | null>(null);
   const floorPlan = state?.floor.floorPlan;
   // Native CAD owns the base layer; its legacy preview must not cover WebGL.
-  const backgroundUrl = cadSceneDescriptor || cadImportScene ? "" : cadBackgroundUrl
+  const backgroundUrl = mapEditor?.document || cadSceneDescriptor || cadImportScene ? "" : cadBackgroundUrl
     ?? (floorPlan?.sourceType !== "none" ? floorPlan?.renderedImageUrl ?? floorPlan?.imageUrl : "");
   const { image: background, status: backgroundStatus, retry: retryBackground } = useFloorPlanImage(backgroundUrl ?? "");
-  const bounds = cadImportScene?.manifest ?? (cadBackgroundUrl && cadViewport
+  const bounds = cadImportScene?.manifest ?? mapEditor?.document ?? (cadBackgroundUrl && cadViewport
     ? cadViewport
     : { width: floorPlan?.width ?? 1200, height: floorPlan?.height ?? 800 });
   const renderedPan = transientPan ?? pan;
@@ -182,21 +198,23 @@ export function FloorEditorCanvas({
   const showBulkNames = useMemo(() => canShowFixtureNames(visibleFixtures, zoom), [visibleFixtures, zoom]);
 
   useEffect(() => {
-    const target = cadImportScene?.manifest ?? cadSceneDescriptor ?? (cadBackgroundUrl ? cadViewport : null);
-    if (!target) {
-      lastAutoFitKey.current = null;
-      return;
-    }
+    if (!measured) return;
+    const target = cadImportScene?.manifest ?? mapEditor?.document ?? cadSceneDescriptor ?? (cadBackgroundUrl ? cadViewport : null)
+      ?? { width: floorPlan?.width ?? 1200, height: floorPlan?.height ?? 800 };
     const key = cadImportScene?.manifest ? `${cadImportScene.jobId}:${cadImportScene.manifest.sceneId}`
-      : cadSceneDescriptor ? `${cadSceneDescriptor.id}:${cadSceneDescriptor.version}`
-      : `${cadBackgroundUrl}:${target.width}x${target.height}`;
-    if (lastAutoFitKey.current === key) return;
-    const rect = container.current?.getBoundingClientRect();
-    if ((cadSceneDescriptor || cadImportScene) && (!rect?.width || !rect.height)) return;
-    if (rect?.width && rect.height) useFloorEditorStore.getState().setViewport({ width: rect.width, height: rect.height });
+      : mapEditor?.document ? `${state?.floor.id}:${mapEditor.document.generationId}:${target.width}:${target.height}`
+      : `${state?.floor.id}:${cadSceneDescriptor?.id ?? cadBackgroundUrl ?? "empty"}:${target.width}:${target.height}`;
+    const current = useFloorEditorStore.getState();
+    const previous = lastAutoFitCamera.current;
+    // The first layout can precede the route/panel's final height. Follow
+    // measured layout until the user changes the camera, then preserve it.
+    if (lastAutoFitKey.current === key && previous && (current.zoom !== previous.zoom || current.pan.x !== previous.pan.x || current.pan.y !== previous.pan.y)) return;
     lastAutoFitKey.current = key;
-    useFloorEditorStore.getState().fit(false, target);
-  }, [cadImportScene?.jobId, cadImportScene?.manifest, cadBackgroundUrl, cadViewport?.height, cadViewport?.width, cadSceneDescriptor?.id, cadSceneDescriptor?.version, viewport.width, viewport.height]);
+    current.fit(false, target);
+    const fitted = useFloorEditorStore.getState();
+    lastAutoFitCamera.current = { zoom: fitted.zoom, pan: fitted.pan };
+  }, [measured, state?.floor.id, cadImportScene?.jobId, cadImportScene?.manifest, mapEditor?.document, cadBackgroundUrl,
+    cadViewport, cadSceneDescriptor, floorPlan?.width, floorPlan?.height, viewport.width, viewport.height]);
   const editorColors = useMemo(() => ({
     panel: themeColor("surface-panel"),
     border: themeColor("fixture-editor-border"),
@@ -222,7 +240,7 @@ export function FloorEditorCanvas({
   useEffect(() => {
     const element = container.current;
     if (!element) return;
-    const resize = () => { const rect = element.getBoundingClientRect(); if (rect.width && rect.height) useFloorEditorStore.getState().setViewport({ width: rect.width, height: rect.height }); };
+    const resize = () => { const rect = element.getBoundingClientRect(); if (rect.width && rect.height) { useFloorEditorStore.getState().setViewport({ width: rect.width, height: rect.height }); setMeasured(true); } };
     resize();
     if (typeof ResizeObserver === "undefined") return;
     const observer = new ResizeObserver(resize); observer.observe(element);
@@ -387,16 +405,17 @@ export function FloorEditorCanvas({
 
   useEffect(() => {
     const handleKey = (event: KeyboardEvent) => {
-      if (event.target instanceof Element && event.target.closest("input, textarea, select, [contenteditable=true], [role=dialog]")) return;
+      if (isEditorTextTarget(event.target)) return;
       const store = useFloorEditorStore.getState();
       if (event.key === "Escape") {
         cancelPointerMove();
         // Imperative pan is not yet in Zustand. Restore every layer before dropping
         // the gesture, so the next drop uses exactly the transform shown on screen.
         if (gesture.current?.kind === "pan") stage.current?.getLayers().forEach((layer) => layer.position(store.pan));
-        gesture.current = null; setTransientPan(null); setCreation(null); setMarquee(null); setDropPreview(null); setHighlightedSlotId(null); setIsPanning(false); store.setPreview([]); return;
+        gesture.current = null; mapEditorRef.current?.cancelHole(); setMapCreation(null); mapCreationDraft.current = null; setPathDraft(null); setTransientPan(null); setCreation(null); setMarquee(null); setDropPreview(null); setHighlightedSlotId(null); setIsPanning(false); store.setPreview([]); return;
       }
       if (readOnly) return;
+      if (event.key === "Enter" && pathDraft) { event.preventDefault(); finishPath(); return; }
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "z") { event.preventDefault(); event.shiftKey ? store.redo() : store.undo(); return; }
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "y") { event.preventDefault(); store.redo(); return; }
       const delta = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }[event.key];
@@ -405,18 +424,44 @@ export function FloorEditorCanvas({
         const step = store.snap ? store.state?.floor.floorPlan?.gridSize ?? 10 : event.shiftKey ? 10 : 1;
         store.moveFixtures(store.selectedFixtureIds, { x: delta[0] * step, y: delta[1] * step });
       }
+      if ((event.key === "Delete" || event.key === "Backspace") && mapEditorRef.current?.selection.length) { event.preventDefault(); mapEditorRef.current.remove(); return; }
       if ((event.key === "Delete" || event.key === "Backspace") && store.selection?.kind === "object") { event.preventDefault(); store.removeObject(store.selection.id); }
     };
     window.addEventListener("keydown", handleKey);
     return () => window.removeEventListener("keydown", handleKey);
-  }, [cancelPointerMove, readOnly]);
+  }, [cancelPointerMove, readOnly, pathDraft]);
 
+  useEffect(() => { setPathDraft(null); setMapCreation(null); mapCreationDraft.current = null; }, [activeTool, state?.floor.id, readOnly]);
+
+  function finishPath() {
+    if (!pathDraft || !mapEditor || readOnly) return;
+    if (mapEditor.holeActive) { if (mapEditor.finishHole([...pathDraft.points])) setPathDraft(null); return; }
+    const element = finishMapPathDraft(pathDraft, crypto.randomUUID());
+    if (!element) { mapEditor.reportError(new Error("점의 개수나 다각형 경계를 확인해주세요.")); return; }
+    mapEditor.create(element); setPathDraft(null);
+  }
+
+  const creationOptions = () => {
+    const store = useFloorEditorStore.getState();
+    const layer = [...store.mapLayers.values()].find(layer => layer.visible && !layer.locked);
+    return { layerId: layer?.id ?? "map", ...(store.snap ? { gridSize: mapEditor?.document?.gridSize ?? floorPlan?.gridSize ?? 10 } : {}) };
+  };
   if (!state) return null;
   const screenPoint = (event: { clientX: number; clientY: number }) => { const rect = container.current!.getBoundingClientRect(); return { x: event.clientX - rect.left, y: event.clientY - rect.top }; };
   const worldPoint = (event: { clientX: number; clientY: number }) => screenToWorld(screenPoint(event), useFloorEditorStore.getState().pan, useFloorEditorStore.getState().zoom);
 
   function begin(event: MouseEvent<HTMLDivElement>) {
     if ((event.target as Element).closest("button")) return;
+    if (mapEditor?.holeActive && !readOnly) {
+      try { setPathDraft(appendMapPathPoint(pathDraft ?? createMapPathDraft("polygon", creationOptions()), clampPoint(worldPoint(event), bounds))); }
+      catch (error) { mapEditor.reportError(error); }
+      return;
+    }
+    if (mapEditor?.document && !readOnly && (activeTool === "polyline" || activeTool === "polygon")) {
+      try { setPathDraft(appendMapPathPoint(pathDraft ?? createMapPathDraft(activeTool, creationOptions()), clampPoint(worldPoint(event), bounds))); }
+      catch (error) { mapEditor.reportError(error); }
+      return;
+    }
     if (activeTool === "pan") {
       gesture.current = { kind: "pan", screen: screenPoint(event), pan, start: worldPoint(event), additive: false, moved: false };
       setIsPanning(true);
@@ -426,9 +471,10 @@ export function FloorEditorCanvas({
     } else if (!readOnly && activeTool === "select") {
       const hit = stage.current?.getIntersection(screenPoint(event));
       if (hit) return;
-      gesture.current = { kind: "marquee", screen: screenPoint(event), pan, start: worldPoint(event), additive: event.shiftKey, moved: false };
+      gesture.current = { kind: mapEditor?.document && !event.shiftKey ? "pan" : "marquee", screen: screenPoint(event), pan, start: worldPoint(event), additive: event.shiftKey, moved: false };
+      if (gesture.current.kind === "pan") setIsPanning(true);
       marqueeDraft.current = null;
-      if (!event.shiftKey) useFloorEditorStore.getState().clearSelection();
+      if (!event.shiftKey && !mapEditor?.document) useFloorEditorStore.getState().clearSelection();
     }
   }
   function move(event: MouseEvent<HTMLDivElement>) {
@@ -446,6 +492,10 @@ export function FloorEditorCanvas({
     schedulePointerMove(() => {
       if (gesture.current !== action) return;
       if (action.kind === "draw") {
+        if (mapEditor?.document && activeTool !== "select" && activeTool !== "pan") {
+          const next = createMapElementFromDrag(activeTool, action.start, world, "drawing-preview", creationOptions());
+          mapCreationDraft.current = next; setMapCreation(next); return;
+        }
         const next = createObjectFromDrag(activeTool, action.start, world);
         creationDraft.current = next;
         setCreation(next);
@@ -468,13 +518,20 @@ export function FloorEditorCanvas({
     if (!readOnly && action?.moved) {
       const completedCreation = creationDraft.current;
       const completedMarquee = marqueeDraft.current;
-      if (action.kind === "draw" && completedCreation) useFloorEditorStore.getState().addObject(state!.floor.id, completedCreation);
+      if (action.kind === "draw" && mapCreationDraft.current && mapEditor?.document) mapEditor.create({ ...mapCreationDraft.current, id: crypto.randomUUID() });
+      else if (action.kind === "draw" && completedCreation) useFloorEditorStore.getState().addObject(state!.floor.id, completedCreation);
       if (action.kind === "marquee" && completedMarquee && layers.fixtures.visible && !layers.fixtures.locked) useFloorEditorStore.getState().selectFixtures(state!.fixtures.filter((f) => f.placementStatus !== "unplaced" && !lockedSet.has(f.id) && f.x >= completedMarquee.x && f.x <= completedMarquee.x + completedMarquee.width && f.y >= completedMarquee.y && f.y <= completedMarquee.y + completedMarquee.height).map((f) => f.id), action.additive);
+    }
+    if (action && !action.moved && activeTool === "select" && mapEditor?.document) void mapEditor.pick(screenPoint(event), event.detail >= 2, event.shiftKey);
+    if (action?.kind === "marquee" && action.moved && marqueeDraft.current && mapEditor?.document) {
+      const box = marqueeDraft.current;
+      void mapEditor.resolve({ bounds: { minX: box.x, minY: box.y, maxX: box.x + box.width, maxY: box.y + box.height } })
+        .then(elements => useFloorEditorStore.getState().selectMapElements(elements.map(element => element.id), action.additive)).catch(mapEditor.reportError);
     }
     if (action?.kind === "marquee" && !action.moved && cadScene.current) {
       void cadScene.current.pick(screenPoint(event), event.detail >= 2 ? "element" : "group");
     }
-    creationDraft.current = null; marqueeDraft.current = null; setCreation(null); setMarquee(null);
+    mapCreationDraft.current = null; setMapCreation(null); creationDraft.current = null; marqueeDraft.current = null; setCreation(null); setMarquee(null);
   }
   function dragOver(event: DragEvent<HTMLDivElement>) {
     if (readOnly) return;
@@ -513,7 +570,12 @@ export function FloorEditorCanvas({
       current.placeFixtures([{ id, ...point }]); current.selectFixture(id); return;
     }
     const tool = event.dataTransfer.getData(TOOL_DRAG_TYPE) as EditorTool;
-    if (drawingTools.has(tool)) current.addObject(current.state.floor.id, createDefaultObject(tool, point));
+    if (drawingTools.has(tool) && tool !== "select" && tool !== "pan") {
+      if (mapEditor?.document) {
+        const element = createMapElementFromDrag(tool, point, { x: Math.min(bounds.width, point.x + 120), y: Math.min(bounds.height, point.y + 80) }, crypto.randomUUID(), creationOptions());
+        if (element) mapEditor.create(element);
+      } else current.addObject(current.state.floor.id, createDefaultObject(tool, point));
+    }
   }
   const transform = { x: renderedPan.x, y: renderedPan.y, scaleX: zoom, scaleY: zoom };
   const focusedFixture = !cadReviewActive && layers.fixtures.visible && selection?.kind === "fixture" ? placedFixtureCollection.byId.get(selection.id) : undefined;
@@ -524,14 +586,24 @@ export function FloorEditorCanvas({
     : selectedObjectType === "line"
       ? ["middle-left", "middle-right"]
       : ["top-left", "top-center", "top-right", "middle-left", "middle-right", "bottom-left", "bottom-center", "bottom-right"];
-  return <div ref={container} className={`relative h-full min-h-105 w-full overflow-hidden bg-surface-canvas ${backgroundUrl ? "has-plan" : "grid-only"} ${activeTool === "pan" ? isPanning ? "cursor-grabbing" : "cursor-grab" : ""}`}
+  return <div ref={container} className={`relative h-full min-h-0 w-full overflow-hidden bg-surface-canvas ${backgroundUrl ? "has-plan" : "grid-only"} ${activeTool === "pan" ? isPanning ? "cursor-grabbing" : "cursor-grab" : ""}`}
     aria-label={`${state.floor.name} 편집 캔버스`} aria-disabled={readOnly} data-testid="floor-editor-canvas" data-floor-id={state.floor.id} data-zoom={zoom} data-pan-x={pan.x} data-pan-y={pan.y}
+    data-map-ready={mapEditor?.ready ?? false} data-map-selection-count={mapEditor?.selection.length ?? 0} data-promoted-count={mapEditor?.promotedIds.length ?? 0}
     data-snap={snap} data-grid-size={floorPlan?.gridSize ?? 10} data-active-guides=""
     data-background-url={backgroundUrl} data-cad-candidate-count={cadCandidates.length}
     data-map-width={bounds.width} data-map-height={bounds.height}
     data-rendered-fixture-count={visibleFixtures.length} data-rendered-object-count={visibleObjects.length}
+    onDoubleClick={(event) => { if (pathDraft) finishPath(); else if (activeTool === "select" && mapEditor?.document) void mapEditor.pick(screenPoint(event), true, event.shiftKey); }}
     onMouseDown={begin} onMouseMove={move} onMouseUp={finish} onMouseLeave={(e) => { if (gesture.current?.kind === "pan") finish(e); else { cancelPointerMove(); gesture.current = null; creationDraft.current = null; marqueeDraft.current = null; setTransientPan(null); setCreation(null); setMarquee(null); setIsPanning(false); } }}
     onDragOver={dragOver} onDragLeave={() => { cancelPointerMove(); setDropPreview(null); setHighlightedSlotId(null); }} onDrop={drop}>
+    {!cadReviewActive && mapEditor?.document && measured ? <MapSceneCanvas
+      source={mapEditor.source} documentRef={mapEditor.document}
+      camera={{ centerX: (viewport.width / 2 - renderedPan.x) / zoom, centerY: (viewport.height / 2 - renderedPan.y) / zoom,
+        zoom, viewportWidth: viewport.width, viewportHeight: viewport.height }}
+      readOnly={mapEditor.readOnly} platform={viewport.width < 768 ? "mobile" : "desktop"}
+      promotedElementIds={mapEditor.promotedIds} onReady={mapEditor.onReady} onManifest={mapEditor.onManifest}
+      onError={mapEditor.reportError} onDegraded={() => mapEditor.reportError(new Error("맵 표시 자원이 부족합니다. 화면을 좁혀 다시 시도해주세요."))}
+      style={{ position: "absolute", inset: 0 }} /> : null}
     {cadImportScene?.manifest ? <CadImportSceneCanvas floorId={cadImportScene.floorId} jobId={cadImportScene.jobId}
       manifest={cadImportScene.manifest} pan={renderedPan} zoom={zoom} viewport={viewport} /> : null}
     {cadImportScene && !cadImportScene.manifest ? <div className="absolute inset-x-3 top-3 z-20">
@@ -563,7 +635,7 @@ export function FloorEditorCanvas({
       useFloorEditorStore.setState({ zoom: next, pan: { x: point.x - world.x * next, y: point.y - world.y * next } });
     }}>
       <Layer {...transform} name="editor-static-layer" listening={false}>
-        <Rect width={bounds.width} height={bounds.height} fill={cadSceneDescriptor || cadImportScene ? undefined : editorColors.panel} stroke={editorColors.border} strokeWidth={1} />
+        <Rect width={bounds.width} height={bounds.height} fill={mapEditor?.document || cadSceneDescriptor || cadImportScene ? undefined : editorColors.panel} stroke={editorColors.border} strokeWidth={1} />
         {background && layers.background.visible && <KonvaImage image={background} width={bounds.width} height={bounds.height} />}
         {snap ? <MapGrid width={bounds.width} height={bounds.height} gridSize={floorPlan?.gridSize ?? 10} zoom={zoom} color={editorColors.grid} /> : null}
         {!cadReviewActive && !onToggleCadCandidate ? <CadPlacementSlotLayer
@@ -627,6 +699,14 @@ export function FloorEditorCanvas({
       <Layer {...transform} name="editor-overlay-layer" visible={!cadReviewActive} listening={!cadReviewActive}>
         <Line ref={verticalGuide} name="alignment-guide-vertical" visible={false} listening={false} stroke={editorColors.guide} strokeWidth={1 / zoom} dash={[6 / zoom, 4 / zoom]} />
         <Line ref={horizontalGuide} name="alignment-guide-horizontal" visible={false} listening={false} stroke={editorColors.guide} strokeWidth={1 / zoom} dash={[6 / zoom, 4 / zoom]} />
+        {mapEditor?.document && mapEditor.selection.length > 0 && (mapEditor.promotedIds.length
+          ? <MapElementOverlay selection={mapEditor.selection} zoom={zoom} mapBounds={bounds} gridSize={snap ? mapEditor.document.gridSize : undefined}
+              readOnly={readOnly || mapEditor.holeActive || activeTool !== "select"} locked={mapEditor.locked} onChange={mapEditor.commit} onError={mapEditor.reportError} onGuidesChange={renderAlignmentGuides} />
+          : mapEditor.bounds ? <MapSelectionBoundsHandle selectionKey={mapEditor.selectionKey} selection={mapEditor.selection} bounds={mapEditor.bounds}
+              zoom={zoom} mapBounds={bounds} gridSize={snap ? mapEditor.document.gridSize : undefined}
+              locked={readOnly || mapEditor.locked || activeTool !== "select"} onMove={mapEditor.move} onError={mapEditor.reportError} /> : null)}
+        {mapCreation && <MapElementOverlay selection={[mapCreation]} zoom={zoom} mapBounds={bounds} readOnly onChange={() => undefined} onError={mapEditor?.reportError} />}
+        {pathDraft && <Line points={pathDraft.points.flatMap(point => [point.x, point.y])} stroke={editorColors.selected} strokeWidth={2 / zoom} listening={false} />}
         {creation && <FloorMapObjectNode object={{ ...creation, id: "creation", zIndex: 999 }} interactive={false} preview />}
         {marquee && <Rect {...marquee} fill={editorColors.marquee} stroke={editorColors.selected} strokeWidth={1 / zoom} listening={false} />}
         {preview.map((p) => <Circle key={p.id} x={p.x} y={p.y} radius={10} fill={editorColors.preview} opacity={0.65} listening={false} />)}

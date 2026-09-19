@@ -1,0 +1,28 @@
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { useState } from "react";
+import { createRoot } from "react-dom/client";
+import "../../styles.css";
+import { FloorEditorView } from "./FloorEditorView";
+import { useFloorEditorStore } from "./editor-store";
+import type { FloorEditorState } from "./editor-types";
+import { getFloorEditorState } from "../../api/floor-editor";
+
+/** Browser-only fixture mounts the production View, Canvas and HTTP renderer. */
+export function mountFloorEditorSmoke(initial: FloorEditorState) {
+  document.body.style.margin = "0";
+  const host = document.createElement("div"); host.style.cssText = "height:100dvh;width:100%;overflow:hidden;padding:8px;box-sizing:border-box";
+  document.body.replaceChildren(host);
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  client.setQueryData(["auth", "me"], { user: { id: "smoke-user", role: "admin" } });
+  function App() {
+    const [state, setState] = useState(initial);
+    return <QueryClientProvider client={client}><FloorEditorView initialState={state} userRole="admin" leaseToken="smoke-lease" leaseFence={1}
+      onCancel={() => undefined} onSaved={setState} onReload={async () => setState(await getFloorEditorState(initial.floor.id))} /></QueryClientProvider>;
+  }
+  const root = createRoot(host); root.render(<App />);
+  return { dispose: () => { root.unmount(); client.clear(); }, snapshot: () => {
+    const store = useFloorEditorStore.getState();
+    return { elements: [...store.mapElements.values()], operations: store.mapOperations, state: store.state, dirty: store.isDirty,
+      zoom: store.zoom, pan: store.pan, viewport: store.viewport, selection: store.mapSelection };
+  } };
+}

@@ -1,6 +1,6 @@
 import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { CadElementOverridePatch } from "@led-control/shared";
-import { CircleCheck, Hand, Minus, MousePointer2, PanelLeft, PanelRight, RotateCcw, Save, Square, Triangle, TriangleAlert, Type, Undo2, Redo2, ZoomIn, ZoomOut, Maximize, Focus, X } from "lucide-react";
+
+import { CircleCheck, PanelLeft, PanelRight, RotateCcw, Save, TriangleAlert, Undo2, Redo2, ZoomIn, ZoomOut, Maximize, Focus, X } from "lucide-react";
 import { type DragEvent, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import type { AuthUser } from "../../api/auth";
@@ -9,11 +9,8 @@ import { Button, Checkbox, ConfirmDialog, FeedbackState, Heading, IconButton, Ic
 import {
   listFloorEditorRevisions,
   getAppliedFloorImportOverlay,
-  getCadSceneState,
   getFloorEditorState,
   restoreFloorEditorRevision,
-  saveFloorEditorState,
-  updateCadScene,
   type FloorEditorRevision
 } from "../../api/floor-editor";
 import { EditorPropertiesPanel } from "./EditorPropertiesPanel";
@@ -25,11 +22,15 @@ import { CadImportPanel } from "./CadImportPanel";
 import { loadEditorDraft, removeEditorDraft, saveEditorDraft, editorDraftGeneration } from "./editor-drafts";
 import { authMeQueryKey } from "../../api/principal-cache";
 import { FloorEditorCanvas } from "./FloorEditorCanvas";
-import { buildEditorChanges } from "./editor-diff";
+import { EditorToolPalette } from "./EditorToolPalette";
+import { useMapEditor } from "./use-map-editor";
+import { MapElementPropertiesPanel } from "./MapElementPropertiesPanel";
+import { MapDocumentInitialization } from "./MapDocumentInitialization";
+import { MapPolygonControls } from "./MapPolygonControls";
 import { synchronizeMonitoringCaches } from "./editor-monitoring-cache";
 import { useFloorEditorStore } from "./editor-store";
-import type { CadImportReviewState, EditorTool, FloorEditorState, FloorImportApplyResult } from "./editor-types";
-import { CadElementPropertiesPanel } from "./CadElementPropertiesPanel";
+import type { CadImportReviewState, FloorEditorState, FloorImportApplyResult } from "./editor-types";
+
 import { useCadImportScene } from "./CadImportSceneCanvas";
 
 interface FloorEditorViewProps {
@@ -46,14 +47,6 @@ interface FloorEditorViewProps {
   onFloorChange?: (floorId: string) => void;
 }
 
-const tools: Array<{ key: EditorTool; label: string; icon: typeof MousePointer2 }> = [
-  { key: "select", label: "선택", icon: MousePointer2 },
-  { key: "pan", label: "이동", icon: Hand },
-  { key: "rectangle", label: "사각형", icon: Square },
-  { key: "triangle", label: "삼각형", icon: Triangle },
-  { key: "line", label: "선", icon: Minus },
-  { key: "text", label: "텍스트", icon: Type }
-];
 const TOOL_DRAG_DATA_TYPE = "application/x-floor-editor-tool";
 
 export function FloorEditorView({
@@ -132,7 +125,7 @@ export function FloorEditorView({
   const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "error" | "conflict">("idle");
   const [restoringRevision, setRestoringRevision] = useState<number | null>(null);
   const [isCadImportPending, setIsCadImportPending] = useState(false);
-  const [isCadEditPending, setIsCadEditPending] = useState(false);
+  const [isResetPending, setIsResetPending] = useState(false);
   const [importReview, setCadImportReview] = useState<CadImportReviewState | null>(null);
   const cadImportReview = importReview?.job.floorId === initialState.floor.id ? importReview : null;
   const [focusedCadCandidateId, setFocusedCadCandidateId] = useState<string | null>(null);
@@ -140,7 +133,6 @@ export function FloorEditorView({
   const [confirmReload, setConfirmReload] = useState(false);
   const rowRegistry = useMemo(createFixturePlacementRowRegistry, []);
   const mutationLock = useRef(false);
-  const cadEditRequest = useRef<AbortController | null>(null);
   const activeInstance = useRef(true);
   const activeScope = useRef({ floorId: initialState.floor.id, siteId: initialState.floor.siteId });
   activeScope.current = { floorId: initialState.floor.id, siteId: initialState.floor.siteId };
@@ -162,24 +154,7 @@ export function FloorEditorView({
     queryKey: ["floor-import-applied-overlay", siteId, floorId, overlayRevision],
     queryFn: () => getAppliedFloorImportOverlay(floorId)
   });
-  const cadDescriptor = state?.floor.id === floorId ? state.floor.cadScene : initialState.floor.cadScene;
-  const cadSceneQuery = useQuery({
-    queryKey: ["floor-cad-scene", siteId, floorId, cadDescriptor?.id, cadDescriptor?.version, overlayRevision],
-    queryFn: async ({ signal }) => {
-      const result = await getCadSceneState(siteId, floorId, { signal });
-      if (!cadDescriptor || !matchesCadScene(result, cadDescriptor)) {
-        throw new Error("CAD scene response scope mismatch");
-      }
-      return result;
-    },
-    enabled: Boolean(cadDescriptor)
-  });
-
-  useEffect(() => () => {
-    cadEditRequest.current?.abort();
-    cadEditRequest.current = null;
-    mutationLock.current = false;
-  }, [floorId, siteId, cadDescriptor?.id]);
+  const map = useMapEditor({ floorId, authScope: `${userId ?? "session"}:${editorDraftGeneration()}:${userRole}`, readOnly });
 
   useLayoutEffect(() => {
     const current = useFloorEditorStore.getState();
@@ -189,13 +164,13 @@ export function FloorEditorView({
     // Query cache structural sharing can change response identity after a save.
     // Refresh a clean baseline without treating the current floor as newly opened.
     if (sameScope) adoptBaseline(initialState, true);
-    else initialize(initialState);
+    else initialize(initialState, `${userId ?? "session"}:${editorDraftGeneration()}:${userRole}`);
     if (!mutationLock.current) setSaveStatus("idle");
     if (noticeFloorId.current !== initialState.floor.id) {
       noticeFloorId.current = initialState.floor.id;
       setSkippedFixtureCount(0);
     }
-  }, [initialState, initialize, adoptBaseline]);
+  }, [initialState, initialize, adoptBaseline, userId, userRole]);
 
   useEffect(() => {
     if (!userId) return;
@@ -207,11 +182,11 @@ export function FloorEditorView({
       if (generation !== editorDraftGeneration()) return;
       const store = useFloorEditorStore.getState();
       if (store.isDirty && store.state?.floor.id === currentBaseline.floor.id && store.initialState?.floor.mapRevision === currentBaseline.floor.mapRevision) {
-        setDraftError(!saveEditorDraft(userId, currentBaseline, store.state));
+        setDraftError(!saveEditorDraft(userId, currentBaseline, store.state, store.exportMapDraft(), generation));
       }
     };
     const unsubscribe = useFloorEditorStore.subscribe((next, previous) => {
-      if (next.state === previous.state) return;
+      if (next.state === previous.state && next.mapOperations === previous.mapOperations) return;
       clearTimeout(timer);
       if (!next.isDirty && previous.isDirty) removeEditorDraft(userId, currentBaseline);
       else timer = setTimeout(persist, 300);
@@ -229,94 +204,6 @@ export function FloorEditorView({
     setPanelTab("properties");
   }, [selection?.kind, selection?.id, cadSelection?.targetId, selectedFixtureIds.length]);
 
-  const handleCadOverride = useCallback(async (patch: Omit<CadElementOverridePatch, "elementId">) => {
-    const currentSelection = useFloorEditorStore.getState().cadSelection;
-    const element = currentSelection?.mode === "element" ? currentSelection.element : null;
-    const scene = cadSceneQuery.data;
-    if (readOnly || isDirty || mutationLock.current || !element || !scene || !leaseToken || !leaseFence) return;
-    mutationLock.current = true;
-    const controller = new AbortController();
-    cadEditRequest.current = controller;
-    const principalGeneration = editorDraftGeneration();
-    const sceneId = scene.scene.id;
-    const stillCurrent = () => activeInstance.current
-      && !controller.signal.aborted
-      && principalGeneration === editorDraftGeneration()
-      && activeScope.current.floorId === floorId
-      && activeScope.current.siteId === siteId
-      && useFloorEditorStore.getState().initialState?.floor.id === floorId
-      && useFloorEditorStore.getState().initialState?.floor.siteId === siteId;
-    const previousElement = element;
-    useFloorEditorStore.getState().selectCad({
-      mode: "element",
-      targetId: element.elementId,
-      element: {
-        ...element,
-        override: {
-          elementId: element.elementId,
-          hidden: false,
-          transform: null,
-          strokeColor: null,
-          fillColor: null,
-          strokeWidth: null,
-          text: null,
-          ...element.override,
-          ...patch
-        }
-      }
-    });
-    setIsCadEditPending(true);
-    setSaveStatus("idle");
-    try {
-      const savedScene = await updateCadScene(siteId, floorId, {
-        expectedRevision: scene.revision,
-        leaseToken,
-        leaseFence,
-        overrideMutations: [{
-          operation: "upsert",
-          locator: element.locator,
-          value: { elementId: element.elementId, ...patch }
-        }],
-        layerMutations: []
-      }, { signal: controller.signal });
-      if (!stillCurrent()) return;
-      if (!matchesCadScene(savedScene, scene.scene) || savedScene.scene.id !== sceneId) {
-        throw new Error("CAD scene response scope mismatch");
-      }
-      const authoritative = await getFloorEditorState(floorId, { signal: controller.signal });
-      if (!stillCurrent()) return;
-      if (authoritative.floor.id !== floorId || authoritative.floor.siteId !== siteId
-        || !authoritative.floor.cadScene || authoritative.floor.cadScene.id !== sceneId
-        || authoritative.floor.cadScene.statePath !== scene.scene.statePath) {
-        throw new Error("Editor response scope mismatch");
-      }
-      queryClient.setQueryData(["floor-cad-scene", siteId, floorId, cadDescriptor?.id, cadDescriptor?.version, authoritative.floor.mapRevision], savedScene);
-      adoptBaseline(authoritative);
-      const savedOverride = savedScene.overrides.find((override) => override.elementId === element.elementId) ?? null;
-      useFloorEditorStore.getState().selectCad({
-        mode: "element",
-        targetId: element.elementId,
-        element: { ...element, override: savedOverride }
-      });
-      await invalidateEditorQueries(queryClient, authoritative);
-      await onSaved(authoritative);
-    } catch (error) {
-      if (!stillCurrent() || controller.signal.aborted) return;
-      useFloorEditorStore.getState().selectCad({
-        mode: "element",
-        targetId: previousElement.elementId,
-        element: previousElement
-      });
-      setSaveStatus(error instanceof ApiError && error.status === 409 ? "conflict" : "error");
-    } finally {
-      if (cadEditRequest.current === controller) {
-        cadEditRequest.current = null;
-        mutationLock.current = false;
-        if (activeInstance.current) setIsCadEditPending(false);
-      }
-    }
-  }, [adoptBaseline, cadDescriptor?.id, cadDescriptor?.version, cadSceneQuery.data, floorId, isDirty, leaseFence, leaseToken, onSaved, queryClient, readOnly, siteId]);
-
   async function handleSave() {
     if (readOnly || !state || !baseline || state.floor.id !== floorId || baseline.floor.id !== floorId || state.floor.siteId !== siteId || !isDirty || mutationLock.current || !leaseToken || !leaseFence) return;
     mutationLock.current = true;
@@ -327,19 +214,25 @@ export function FloorEditorView({
     setSaveStatus("saving");
     setSkippedFixtureCount(0);
     try {
-      const saved = await saveFloorEditorState(state.floor.id, {
-        ...buildEditorChanges(baseline, state),
-        leaseToken,
-        leaseFence
-      });
+      const renderer = map.handle.current;
+      const version = renderer?.getDraftVersion();
+      const generationId = state.floor.mapDocument?.generationId;
+      const result = await useFloorEditorStore.getState().saveChanges({ leaseToken, leaseFence });
+      if (result === "stale") return;
+      const saved = useFloorEditorStore.getState().initialState!;
+      if (renderer && version !== undefined && saved.floor.mapDocument?.generationId === generationId) {
+        // Renderer refresh failure must not turn an acknowledged store save into an unsaved retry.
+        await renderer.acknowledge(saved.floor.mapDocument!, version).catch(map.reportError);
+      }
       if (!stillCurrent()) return;
       if (saved.floor.id !== floorId || saved.floor.siteId !== siteId) throw new Error("Editor response scope mismatch");
-      if (userId) removeEditorDraft(userId, baseline);
-      adoptBaseline(saved);
+      if (userId && !useFloorEditorStore.getState().isDirty) removeEditorDraft(userId, baseline);
       await invalidateEditorQueries(queryClient, saved);
       if (!stillCurrent()) return;
       await onSaved(saved);
     } catch (error) {
+      if (!stillCurrent()) return;
+      if (error instanceof Error && "code" in error) map.reportError(error);
       setSaveStatus(error instanceof ApiError && error.status === 409 ? "conflict" : "error");
       return;
     } finally {
@@ -376,16 +269,13 @@ export function FloorEditorView({
     }
   }
 
-  function handleToolDragStart(event: DragEvent<HTMLButtonElement>, tool: EditorTool) {
-    if (tool === "select" || tool === "pan") return;
-    setActiveTool(tool);
-    event.dataTransfer.effectAllowed = "copy";
-    event.dataTransfer.setData(TOOL_DRAG_DATA_TYPE, tool);
-  }
-
   const handleCadBusyChange = useCallback((busy: boolean) => {
     mutationLock.current = busy;
     setIsCadImportPending(busy);
+  }, []);
+  const handleResetBusyChange = useCallback((busy: boolean) => {
+    mutationLock.current = busy;
+    setIsResetPending(busy);
   }, []);
 
   const handleCadApplied = useCallback(async (_result: FloorImportApplyResult | null) => {
@@ -433,13 +323,8 @@ export function FloorEditorView({
     objectCount: state?.floor.id === floorId ? state.objects.length : initialState.objects.length,
     slotCount: state?.floor.id === floorId ? state.lightSlots.length : initialState.lightSlots.length
   }), [floorId, initialState.fixtures.length, initialState.lightSlots.length, initialState.objects.length, state]);
-  const isMutationPending = saveStatus === "saving" || restoringRevision !== null || isCadImportPending || isCadEditPending;
+  const isMutationPending = saveStatus === "saving" || restoringRevision !== null || isCadImportPending || isResetPending;
   const isSaveOrRestoreBlocked = readOnly || isMutationPending || state?.floor.id !== floorId;
-  const isSelectedCadLayerLocked = cadSelection
-    ? cadSceneQuery.data?.layers.some((layer) => layer.layerName === (
-      cadSelection.mode === "group" ? cadSelection.layerName : cadSelection.element?.layerName
-    ) && layer.locked) ?? false
-    : false;
 
   return (
     <section className="flex h-full min-h-0 min-w-0 flex-col gap-2 overflow-hidden">
@@ -468,7 +353,9 @@ export function FloorEditorView({
         </div>
       </header>
 
-      {saveStatus === "error" ? (
+      {!map.document && <MapDocumentInitialization state={initialState} readOnly={readOnly || isDirty || saveStatus === "saving" || restoringRevision !== null || isCadImportPending} leaseToken={leaseToken} leaseFence={leaseFence} onBusyChange={handleResetBusyChange}
+        onInitialized={next => { adoptBaseline(next); void invalidateEditorQueries(queryClient, next); void onSaved(next); }} />}
+      {saveStatus === "error" && !map.error ? (
         <FeedbackState tone="danger" icon={TriangleAlert} title="변경분을 저장하지 못했습니다." />
       ) : null}
       {saveStatus === "conflict" ? (
@@ -485,10 +372,7 @@ export function FloorEditorView({
       ) : null}
       {recovery && <FeedbackState icon={TriangleAlert} tone="warning" title="저장하지 않은 로컬 초안이 있습니다." action={<div className="flex flex-wrap justify-end gap-2"><Button disabled={isSaveOrRestoreBlocked} onClick={() => { if (readOnly || mutationLock.current || recovery.floor.id !== activeScope.current.floorId) return; useFloorEditorStore.getState().recoverDraft(recovery); setRecovery(null); }}>초안 복구</Button><Button disabled={isMutationPending} onClick={() => { if (userId) removeEditorDraft(userId, initialState); setRecovery(null); }}>초안 삭제</Button></div>} />}
       {draftError && <FeedbackState icon={TriangleAlert} tone="warning" title="이 브라우저에 초안을 보관하지 못했습니다. 서버에 저장하세요." />}
-      {cadDescriptor && !cadImportReview && cadSceneQuery.isError ? (
-        <FeedbackState icon={TriangleAlert} tone="danger" title="CAD 편집 정보를 불러오지 못했습니다."
-          action={<Button variant="secondary" disabled={cadSceneQuery.isFetching} onClick={() => void cadSceneQuery.refetch()}>CAD 편집 정보 다시 시도</Button>} />
-      ) : null}
+      {map.error && <FeedbackState icon={TriangleAlert} tone="danger" title={map.error} action={<Button variant="secondary" onClick={() => { if (isDirty) setConfirmReload(true); else void onReload(); }}>다시 불러오기</Button>} />}
       {skippedFixtureCount > 0 ? (
         <FeedbackState tone="success" icon={CircleCheck} title={`현재 존재하지 않는 조명 ${skippedFixtureCount}개를 건너뛰었습니다.`} />
       ) : null}
@@ -505,27 +389,9 @@ export function FloorEditorView({
           onDragStart={beginPanelDrag} onDragEnd={finishPanelDrag}
           onKeyDown={(event) => { if (event.key === "Escape") { event.stopPropagation(); if (!panelDragSource.current) closePanel("tools"); } }}
           className={`${toolsVisible ? "flex" : "hidden"} ${isNarrowLayout ? "absolute inset-y-0 left-0 z-10 w-[min(280px,100%)] shadow-panel" : "w-60 shrink-0"} ${isToolPanelDragging ? "pointer-events-none opacity-0" : ""} min-h-0 min-w-0 flex-col overflow-y-auto overscroll-contain border-r border-border-default bg-surface-panel [&>aside]:flex-none [&>aside:first-child]:h-112`}><FixturePlacementList readOnly={readOnly || isMutationPending} rowRegistry={rowRegistry} />
-        <aside className="order-first grid shrink-0 grid-cols-4 content-start gap-2 p-2 max-compact:grid-cols-3" role="toolbar" aria-label="맵 편집 도구">
-          {tools.map((tool) => {
-            const Icon = tool.icon;
-            return (
-              <Button
-                key={tool.key}
-                variant="ghost"
-                className={`h-12 min-h-12 w-12 min-w-12 p-0 max-compact:h-14 max-compact:min-h-14 max-compact:w-14 max-compact:min-w-14 ${activeTool === tool.key ? "border-action-primary bg-action-primary-soft text-action-primary" : ""}`}
-                aria-label={tool.label}
-                title={tool.label}
-                disabled={(readOnly && tool.key !== "pan" && tool.key !== "select")
-                  || (isMutationPending && !(cadImportReview && (tool.key === "pan" || tool.key === "select")))}
-                draggable={!readOnly && !isMutationPending && tool.key !== "select" && tool.key !== "pan"}
-                onClick={() => { setActiveTool(tool.key); if (isNarrowLayout) closePanel("tools"); }}
-                onDragStart={(event) => handleToolDragStart(event, tool.key)}
-              >
-                <Icon size={18} aria-hidden="true" />
-              </Button>
-            );
-          })}
-        </aside><Checkbox className="m-2" label="격자 스냅" isSelected={snap} isDisabled={readOnly} onChange={(selected) => useFloorEditorStore.getState().setSnap(selected)} /></div>
+        <EditorToolPalette className="order-first p-2" activeTool={activeTool} readOnly={readOnly || !map.document} disabled={isMutationPending && !cadImportReview}
+          onToolDragStart={(tool) => { useFloorEditorStore.getState().clearSelection(); setActiveTool(tool); }}
+          onToolChange={(tool) => { useFloorEditorStore.getState().clearSelection(); setActiveTool(tool); if (isNarrowLayout) closePanel("tools"); }} /><Checkbox className="m-2" label="격자 스냅" isSelected={snap} isDisabled={readOnly} onChange={(selected) => useFloorEditorStore.getState().setSnap(selected)} /></div>
         {/* The auxiliary minimap folds with narrow panels instead of remaining
             keyboard-focusable underneath them; closing the panel restores it. */}
         <main className={`grid min-h-0 min-w-0 flex-1 overflow-hidden border border-border-default bg-surface-inset [&>div]:min-h-0 [&_[role=alert]]:max-h-20 [&_[role=alert]]:overflow-y-auto ${isNarrowLayout && openPanel ? "[&_canvas[role=button]]:hidden" : ""}`}>
@@ -544,21 +410,17 @@ export function FloorEditorView({
             focusedCadCandidateId={focusedCadCandidateId}
             onFocusedCadCandidateChange={setFocusedCadCandidateId}
             onToggleCadCandidate={cadImportReview && !readOnly ? toggleCadCandidate : undefined}
-            cadSceneDescriptor={cadImportReview ? null : cadDescriptor}
-            cadSceneState={cadImportReview ? null : cadSceneQuery.data}
-            cadSelection={cadSelection}
-            onCadSelectionChange={(next) => useFloorEditorStore.getState().selectCad(next)}
-            onCadOverrideCommit={(patch) => void handleCadOverride(patch)}
-            cadEditDisabled={readOnly || isDirty || isMutationPending || isSelectedCadLayerLocked}
+            mapEditor={map}
           />
         </main>
         <SidePanel ref={informationPanel} id="editor-information-panel" tabIndex={-1} onKeyDown={(event) => { if (event.key === "Escape") { event.stopPropagation(); closePanel("information"); } }} className={`${informationVisible ? "grid" : "hidden"} ${isNarrowLayout ? "absolute inset-y-0 right-0 z-10 w-[min(320px,100%)] shadow-panel" : "w-72 shrink-0"} min-h-0 min-w-0 content-start gap-3 overflow-y-auto rounded-none border-0 border-l border-border-default p-0`} aria-label="맵 편집 정보">
           <div className="grid grid-cols-3 gap-1 bg-surface-inset p-1" role="tablist" aria-label="편집 패널">{[["properties", "속성"], ["placement", "배치"], ["layers", "레이어"]].map(([value, label]) => <Button size="sm" variant={panelTab === value ? "primary" : "ghost"} role="tab" key={value} aria-selected={panelTab === value} onClick={() => setPanelTab(value)}>{label}</Button>)}</div>
-          {panelTab === "properties" && (cadSelection
-            ? <CadElementPropertiesPanel selection={cadSelection} readOnly={readOnly || isDirty || isSelectedCadLayerLocked} isSaving={isCadEditPending} onChange={(patch) => void handleCadOverride(patch)} />
-            : <EditorPropertiesPanel readOnly={readOnly || isMutationPending} />)}
+          {panelTab === "properties" && (map.selection.length
+            ? <MapElementPropertiesPanel selection={map.selection} mapBounds={map.document ?? undefined} readOnly={readOnly || isMutationPending} locked={map.locked} onChange={map.commit} onDelete={map.remove} onError={map.reportError} />
+            : map.loadingSelection ? <Text role="status">선택을 불러오는 중</Text> : <EditorPropertiesPanel readOnly={readOnly || isMutationPending} />)}
           {panelTab === "placement" && <EditorBatchPlacementPanel readOnly={readOnly || isMutationPending} />}
-          {panelTab === "layers" && <EditorLayersPanel readOnly={readOnly || isMutationPending} />}
+          {panelTab === "properties" && <MapPolygonControls editor={map} readOnly={readOnly || isMutationPending} onBegin={() => { if (isNarrowLayout) closePanel("information"); }} />}
+          {panelTab === "layers" && <EditorLayersPanel readOnly={readOnly || isMutationPending} mapEditor={map} />}
           <CadImportPanel
             floorId={floorId}
             expectedRevision={baseline?.floor.mapRevision ?? initialState.floor.mapRevision}
@@ -696,15 +558,6 @@ function revisionChangeCount(summary: Record<string, unknown>) {
 
 function formatRevisionTime(createdAt: string) {
   return new Intl.DateTimeFormat("ko-KR", { dateStyle: "medium", timeStyle: "short" }).format(new Date(createdAt));
-}
-
-function matchesCadScene(
-  state: { scene: { id: string; version: number; statePath: string } },
-  expected: { id: string; version: number; statePath: string }
-) {
-  return state.scene.id === expected.id
-    && state.scene.version === expected.version
-    && state.scene.statePath === expected.statePath;
 }
 
 async function invalidateEditorQueries(queryClient: ReturnType<typeof useQueryClient>, state: FloorEditorState) {

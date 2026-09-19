@@ -47,18 +47,19 @@ export function EditorPropertiesPanel({ readOnly = false }: { readOnly?: boolean
 
 function MapProperties({ readOnly }: { readOnly: boolean }) {
   const floorPlan = useFloorEditorStore((s) => s.state?.floor.floorPlan);
+  const document = useFloorEditorStore((s) => s.state?.floor.mapDocument);
   const updateMapSettings = useFloorEditorStore((s) => s.updateMapSettings);
-  const [width, setWidth] = useState(floorPlan?.width ?? 1200);
-  const [height, setHeight] = useState(floorPlan?.height ?? 800);
-  const [gridSize, setGridSize] = useState(floorPlan?.gridSize ?? 10);
+  const [width, setWidth] = useState(document?.width ?? floorPlan?.width ?? 1200);
+  const [height, setHeight] = useState(document?.height ?? floorPlan?.height ?? 800);
+  const [gridSize, setGridSize] = useState(floorPlan?.gridSize ?? document?.gridSize ?? 10);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    setWidth(floorPlan?.width ?? 1200);
-    setHeight(floorPlan?.height ?? 800);
-    setGridSize(floorPlan?.gridSize ?? 10);
+    setWidth(document?.width ?? floorPlan?.width ?? 1200);
+    setHeight(document?.height ?? floorPlan?.height ?? 800);
+    setGridSize(floorPlan?.gridSize ?? document?.gridSize ?? 10);
     setError(null);
-  }, [floorPlan?.width, floorPlan?.height, floorPlan?.gridSize]);
+  }, [floorPlan?.width, floorPlan?.height, floorPlan?.gridSize, document]);
 
   return (
     <aside className="grid content-start gap-3 p-3" aria-label="속성 패널">

@@ -21,6 +21,7 @@ const tools: ReadonlyArray<{ type: MapEditorTool; label: string; icon: LucideIco
 export interface EditorToolPaletteProps {
   activeTool: MapEditorTool;
   onToolChange: (tool: MapEditorTool) => void;
+  onToolDragStart?: (tool: MapEditorTool) => void;
   readOnly?: boolean;
   disabled?: boolean;
   className?: string;
@@ -30,7 +31,7 @@ export interface EditorToolPaletteProps {
 
 /** Controlled tools only: the host owns gestures, element creation, permissions and history. */
 export function EditorToolPalette({
-  activeTool, onToolChange, readOnly = false, disabled = false, className,
+  activeTool, onToolChange, onToolDragStart, readOnly = false, disabled = false, className,
   style, onStyleChange
 }: EditorToolPaletteProps) {
   return <div className={cn("grid min-w-0 gap-3", className)}>
@@ -46,7 +47,7 @@ export function EditorToolPalette({
             if (!shape || unavailable) { event.preventDefault(); return; }
             event.dataTransfer.effectAllowed = "copy";
             event.dataTransfer.setData(MAP_EDITOR_TOOL_DRAG_TYPE, type);
-            onToolChange(type);
+            (onToolDragStart ?? onToolChange)(type);
           }} />;
       })}
     </div>

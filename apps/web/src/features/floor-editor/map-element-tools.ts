@@ -1,7 +1,7 @@
 import {
   MAP_ELEMENT_MAX_POINTS, mapElementSchema, mapPointSchema,
   type MapElement, type MapShape, type Point
-} from "@led-control/shared";
+} from "@led-control/shared/map-document-contracts";
 
 export type MapElementType = MapElement["type"];
 export type MapElementOfType<T extends MapElementType> = Extract<MapElement, { type: T }>;
