@@ -51,7 +51,8 @@ function primitiveShape(primitive: CadScenePrimitive): Pick<MapElement, "type" |
     }
     case "text": {
       const { position, width, height, fontSize, text, rotation } = primitive.geometry;
-      return { type: "text", geometry: { position: { x: 0, y: 0 }, width, height, fontSize, text },
+      // Compact text is baseline-anchored; offset its common top-left locally so rotation applies once.
+      return { type: "text", geometry: { position: { x: 0, y: -height }, width, height, fontSize, text },
         transform: { ...transform, x: position.x, y: position.y, rotation: angle(rotation) } };
     }
     case "polyline": return primitive.geometry.closed

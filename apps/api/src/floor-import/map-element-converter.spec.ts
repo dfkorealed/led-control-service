@@ -26,7 +26,108 @@ async function convert(input: NormalizedCadDocument, extra = {}) {
   return { elements, metadata: metadata! };
 }
 
+function canonicalDisplay(input: NormalizedCadDocument) {
+  const adapter = createCadMapElementConverter({ importJobId: "job-1", regionBounds: bounds });
+  const elements: MapElement[] = [];
+  const scene = buildCadScene(input, { regionId: "r", bounds, primitiveCount: 1, textCount: 0, lightCandidateCount: 0, area: 1e6 }, {
+    sceneId, onSemanticEntity: semantic => {
+      const converted = adapter.convertSemanticEntity(semantic);
+      elements.push(...converted);
+      return converted;
+    }
+  });
+  const metadata = adapter.getMetadata();
+  mapDocumentStateSchema.parse({ elements, groups: metadata.groups, layers: metadata.layers });
+  return { elements, metadata, scene, primitives: scene.tiles.flatMap(tile => decodeCadSceneTile(tile.payload, tile.descriptor)) };
+}
+
 describe("canonical CAD map conversion", () => {
+  it.each([
+    { name: "LINE-edge triangle", edge: true, outer: [[10, 10], [110, 10], [10, 110]] },
+    { name: "LINE-edge rectangle", edge: true, outer: [[10, 10], [110, 10], [110, 110], [10, 110]] },
+    { name: "LINE-edge pentagon", edge: true, outer: [[10, 10], [110, 10], [120, 60], [110, 110], [10, 110]] },
+    { name: "explicitly closed polyline", edge: false, outer: [[10, 10], [110, 10], [110, 110], [10, 110]] }
+  ])("normalizes HATCH $name outer/hole rings before strict conversion and binary binding", async ({ edge, outer }) => {
+    const rings = [outer, [[20, 20], [35, 20], [20, 35]]];
+    const paths = rings.flatMap((ring): Array<[number, number]> => edge
+      ? [[92, 0], [93, ring.length], ...ring.flatMap(([x, y], index): Array<[number, number]> => {
+        const [endX, endY] = ring[(index + 1) % ring.length];
+        return [[72, 1], [10, x], [20, y], [11, endX], [21, endY]];
+      })]
+      : [[92, 2], [72, 0], [73, 1], [93, ring.length + 1],
+        ...[...ring, ring[0]].flatMap(([x, y]): Array<[number, number]> => [[10, x], [20, y]])]);
+    const input = parseAsciiDxf(dxf([0, "HATCH"], [5, "H"], [91, rings.length], ...paths));
+    const result = await convert(input);
+    const display = canonicalDisplay(input);
+    expect(display.elements).toEqual(result.elements);
+    expect(result.elements).toHaveLength(1);
+    const polygon = result.elements[0];
+    if (polygon.type !== "polygon") throw new Error("Expected polygon");
+    expect(polygon.geometry.holes).toHaveLength(1);
+    const convertedRings = [polygon.geometry.outer, ...polygon.geometry.holes];
+    convertedRings.forEach((ring, index) => {
+      expect(ring).toHaveLength(rings[index].length);
+      expect(ring[0]).not.toEqual(ring[ring.length - 1]);
+      ring.forEach(p => expect(Object.keys(p).sort()).toEqual(["x", "y"]));
+    });
+    expect(new Set(display.primitives.map(p => p.elementId))).toEqual(new Set([polygon.id]));
+    expect(new Set(display.primitives.map(p => p.groupId))).toEqual(new Set([polygon.groupId]));
+    // Binary rings are clipped into segments; both rings must retain their original vertices.
+    const displayPoints = display.primitives.flatMap(p => p.type === "polyline" ? p.geometry.points : []);
+    for (const p of convertedRings.flat()) expect(displayPoints.some(q => Math.hypot(p.x - q.x, p.y - q.y) < 0.005)).toBe(true);
+  });
+
+  it.each(["TEXT", "MTEXT", "DIMENSION"].flatMap(type => [0, 37].map(rotation => ({ type, rotation }))))(
+    "aligns $type baseline and precise bounds with compact display at $rotation degrees", ({ type, rotation }) => {
+      const geometry: Array<[number, string | number]> = type === "DIMENSION"
+        ? [[10, 100], [20, 100], [11, 100], [21, 100], [13, 100], [23, 100], [14, 200], [24, 100], [53, rotation]]
+        : [[10, 100], [20, 100], [40, 10], [50, rotation]];
+      const input = parseAsciiDxf(dxf([0, type], [5, "T"], [1, "ABC"], ...geometry));
+      const { elements, primitives } = canonicalDisplay(input);
+      const text = elements.find(e => e.type === "text")!;
+      expect(text).toBeDefined();
+      const compact = primitives.find(p => p.type === "text" && p.elementId === text.id)!;
+      if (compact.type !== "text") throw new Error("Expected text");
+      const baseline = transformMapPoint({ x: text.geometry.position.x, y: text.geometry.position.y + text.geometry.height }, text.transform);
+      expect(baseline.x).toBeCloseTo(compact.geometry.position.x, 2);
+      expect(baseline.y).toBeCloseTo(compact.geometry.position.y, 2);
+      const { width, height, position } = compact.geometry;
+      const radians = compact.geometry.rotation * Math.PI / 180;
+      const corners = [[0, -height], [width, -height], [width, 0], [0, 0]].map(([x, y]) => ({
+        x: position.x + x * Math.cos(radians) - y * Math.sin(radians),
+        y: position.y + x * Math.sin(radians) + y * Math.cos(radians)
+      }));
+      const expected = { minX: Math.min(...corners.map(p => p.x)), maxX: Math.max(...corners.map(p => p.x)),
+        minY: Math.min(...corners.map(p => p.y)), maxY: Math.max(...corners.map(p => p.y)) };
+      const actual = getMapElementBounds(text);
+      for (const key of Object.keys(expected) as Array<keyof typeof expected>) expect(actual[key]).toBeCloseTo(expected[key], 2);
+    }
+  );
+
+  it("preserves coincident distinct canonical IDs across display tiles while legacy display still deduplicates", () => {
+    const input = parseAsciiDxf(dxf(...["A", "B"].flatMap((id): Array<[number, string | number]> => [
+      [0, "LINE"], [5, id], [8, "0"], [10, 100], [20, 100], [11, 200], [21, 200]
+    ])));
+    const { elements, metadata, scene } = canonicalDisplay(input);
+    expect(elements).toHaveLength(2);
+    expect(metadata.elementCount).toBe(2);
+    expect(elements.map(e => e.zIndex)).toEqual([0, 1]);
+    const ids = new Set(elements.map(e => e.id));
+    expect(ids.size).toBe(2);
+    // Additive LOD assigns LINE to level 0, not one copy at every level.
+    expect(new Set(scene.tiles.map(tile => tile.descriptor.lod))).toEqual(new Set([0]));
+    expect(scene.tiles.length).toBeGreaterThan(1);
+    for (const tile of scene.tiles) {
+      const primitives = decodeCadSceneTile(tile.payload, tile.descriptor);
+      expect(new Set(primitives.map(p => p.elementId))).toEqual(ids);
+    }
+    for (const onSemanticEntity of [undefined, () => {}]) {
+      const legacy = buildCadScene(input, { regionId: "r", bounds, primitiveCount: 2, textCount: 0, lightCandidateCount: 0, area: 1e6 }, { sceneId, onSemanticEntity });
+      const primitives = legacy.tiles.flatMap(tile => decodeCadSceneTile(tile.payload, tile.descriptor));
+      expect(new Set(primitives.map(p => p.elementId)).size).toBe(1);
+    }
+  });
+
   it("resolves every compact binary pick directly to canonical ID/group, including HATCH hole/island rings", () => {
     const input = document([
       { type: "line", sourceEntityId: "L", layer: "WALL", start: point(-100, 500), end: point(1100, 500) },

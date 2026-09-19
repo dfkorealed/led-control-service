@@ -808,10 +808,13 @@ function convertEntity(item: ExpandedCadEntity, context: ProjectionContext): Cad
         preserveCurvePoints
       );
       if (!primitive) return [];
+      // Classified rings can retain a closing vertex, and LINE edges carry z.
+      // Normalize once so canonical polygons and display identity digests use the same 2D ring.
+      const ring = removeConsecutiveDuplicates(primitive.type === "polyline"
+        ? primitive.geometry.points
+        : projected?.points ?? projectedEdgePoints ?? [], true).map(({ x, y }) => ({ x, y }));
       return [{ ...primitive, type: "polyline" as const, geometry: {
-        points: primitive.type === "polyline"
-          ? primitive.geometry.points
-          : projected?.points ?? projectedEdgePoints ?? [],
+        points: ring,
         closed: true
       }}];
     });
@@ -1562,7 +1565,10 @@ export function buildCadScene(
     for (const sourcePrimitive of displayPrimitives) {
       const converted = options.onSemanticEntity ? displayPrimitive(sourcePrimitive, semantic.source, simplifyTolerance) : sourcePrimitive;
       if (!intersects(converted.bounds, context.contentBounds)) continue;
-      const digest = deduplicationDigest(converted);
+      const geometryDigest = deduplicationDigest(converted);
+      // Coincident canonical occurrences must remain pickable independently. Include geometry
+      // as well as ID because HATCH outer/hole rings intentionally share one canonical ID.
+      const digest = canonicalBound ? `${converted.elementId}:${geometryDigest}` : geometryDigest;
       if (deduplicationDigests.has(digest)) continue;
       deduplicationDigests.add(digest);
       selectedPrimitiveCount++;
