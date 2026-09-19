@@ -78,6 +78,46 @@ describe("prepared import common document", () => {
     expect(fetcher).not.toHaveBeenCalled();
   });
 
+  it.each(["hook-first", "renderer-first"])("isolates manifest epochs during %s overlap", async order => {
+    const fetcher = installFetch(); const { wrapper } = setup();
+    const { result } = renderHook(() => useCadImportScene("floor-1", review), { wrapper });
+    await waitFor(() => expect(result.current.data).toBeDefined());
+    const source = result.current.data!.source;
+    const controller = new AbortController();
+    let release!: (response: Response) => void;
+    let holdNextManifest = true;
+    fetcher.mockImplementation(async input => {
+      if (input.includes("/manifest?")) {
+        if (holdNextManifest) {
+          holdNextManifest = false;
+          return new Promise<Response>(resolve => { release = resolve; });
+        }
+        return json(payload());
+      }
+      return json(ref);
+    });
+    const loadRenderer = () => source.getManifest(ref, controller.signal)
+      .then(value => ({ value, error: null }), error => ({ value: null, error }));
+    let renderer!: ReturnType<typeof loadRenderer>;
+    let refresh!: ReturnType<typeof result.current.refetch>;
+    await act(async () => {
+      if (order === "hook-first") refresh = result.current.refetch();
+      else renderer = loadRenderer();
+    });
+    await waitFor(() => expect(release).toBeDefined());
+    await act(async () => {
+      if (order === "hook-first") { renderer = loadRenderer(); await renderer; }
+      else { refresh = result.current.refetch(); await refresh; }
+      release(json(payload()));
+      await refresh; await renderer;
+    });
+    expect((await refresh).error).toBeNull();
+    expect((await renderer).error).toBeNull();
+    expect(controller.signal.aborted).toBe(false);
+    await waitFor(() => expect(result.current.data?.source).toBe(source));
+    expect(result.current.isError).toBe(false);
+  });
+
   it("discards cached previews when the actual principal disappears", async () => {
     const fetcher = installFetch(); const { wrapper, client } = setup();
     const { result } = renderHook(() => useCadImportScene("floor-1", review), { wrapper });
@@ -145,9 +185,10 @@ describe("prepared import canvas", () => {
   });
   it("hides renderer failures and refetches the job on retry without a legacy image", async () => {
     const { wrapper, client } = setup(); const invalidate = vi.spyOn(client, "invalidateQueries");
-    render(<CadImportSceneCanvas {...props()} />, { wrapper }); await screen.findByTestId("common-preview");
+    render(<div aria-disabled="true"><CadImportSceneCanvas {...props()} /></div>, { wrapper }); await screen.findByTestId("common-preview");
     act(() => canvas.props?.onError?.(new Error("stale reference")));
     expect(screen.getByRole("alert")).toBeInTheDocument(); expect(screen.queryByTestId("common-preview")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "도면 다시 불러오기" })).toHaveAttribute("aria-disabled", "false");
     fireEvent.click(screen.getByRole("button", { name: "도면 다시 불러오기" })); await screen.findByTestId("common-preview");
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ["cad-import-preview", authScope(), "site", "floor-1", "job-1"] });
     expect(screen.queryByRole("img")).not.toBeInTheDocument();

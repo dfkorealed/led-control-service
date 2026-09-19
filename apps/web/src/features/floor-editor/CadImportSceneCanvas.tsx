@@ -26,10 +26,13 @@ export function useCadImportScene(floorId: string, review: CadImportReviewState 
     retry: false,
     staleTime: 0,
     queryFn: async ({ signal }): Promise<MapDocumentRef> => {
-      if (!source || !enabled) throw new Error("Prepared import scope is unavailable");
-      const document = await source.getDocument(signal);
+      if (!authScope || !jobId || !enabled) throw new Error("Prepared import scope is unavailable");
+      // Verification must not supersede the renderer's in-flight manifest or
+      // replace its tile pin. Each query attempt owns a separate provider epoch.
+      const verificationSource = createMapDocumentSource({ floorId, authScope, jobId });
+      const document = await verificationSource.getDocument(signal);
       if (!document) throw new Error("Prepared import document is unavailable");
-      const manifest = await source.getManifest(document, signal);
+      const manifest = await verificationSource.getManifest(document, signal);
       if (manifest.display.regionId !== regionId) throw new Error("Prepared import region mismatch");
       signal.throwIfAborted();
       // The root query is only a mutable reference lookup. Immutable document
@@ -77,7 +80,8 @@ export function CadImportSceneCanvas({ floorId, jobId, manifest, pan, zoom, view
       onError={() => setFailedKey(key)} style={{ position: "absolute", inset: 0 }} /> : null}
     {failed || !authorized ? <div className="absolute inset-x-3 top-3 z-20">
       <FeedbackState tone="danger" icon={TriangleAlert} title="선택한 CAD 도면을 표시하지 못했습니다."
-        action={<Button variant="secondary" onClick={() => {
+        // The host disables editing during review; this read-only retry remains available.
+        action={<Button variant="secondary" aria-disabled={false} onClick={() => {
           if (scope) void queryClient.invalidateQueries({ queryKey: ["cad-import-preview", authScope, scope.siteId, floorId, jobId] });
           setAttempt(value => value + 1);
         }}>도면 다시 불러오기</Button>} />

@@ -395,6 +395,64 @@ for (const width of [1440, 390]) {
   });
 }
 
+for (const order of ["hook-first", "renderer-first"]) {
+  test(`U13 R1 import UI manifest completion ${order} and retry (route fixture)`, async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    const api = await installPreparedReview(page);
+    const pending = new Map<number, () => void>();
+    let manifestRequests = 0;
+    let overlap = true;
+    let failRenderer = false;
+    await page.route(`**/api/floors/floor-1/import-jobs/${jobId}/map-document/manifest?**`, async route => {
+      const index = ++manifestRequests;
+      // First manifest verifies the hook; second mounts the real renderer;
+      // third is the visibility-triggered hook refetch while mount is pending.
+      if (overlap && (index === 2 || index === 3)) {
+        await new Promise<void>(resolve => { pending.set(index, resolve); });
+      }
+      if (failRenderer && index === 2) {
+        failRenderer = false;
+        return json(route, { message: "Fixture renderer manifest failure" }, 503);
+      }
+      return route.fallback();
+    });
+    await page.goto("/settings/floor-plans/floor-1/edit?siteId=site-1");
+    const preview = page.getByRole("img", { name: "맵 도형", exact: true });
+    // Sample a visible rectangle corner, away from the candidate's blue marker.
+    const pixel = () => editorPoint(page, { x: nativePoints[1].x + 140, y: nativePoints[1].y + 140 });
+    await expect(preview).toBeVisible();
+    await expect.poll(() => pending.has(2)).toBe(true);
+    await page.evaluate(() => window.dispatchEvent(new Event("visibilitychange")));
+    await expect.poll(() => pending.has(3)).toBe(true);
+    const first = order === "hook-first" ? 3 : 2;
+    const completed = page.waitForResponse(response => response.url().includes(`/import-jobs/${jobId}/map-document/manifest?`));
+    pending.get(first)!();
+    await (await completed).finished();
+    pending.get(first === 3 ? 2 : 3)!();
+    await page.getByText("격자 스냅", { exact: true }).click();
+    await page.getByRole("button", { name: "맵 맞춤", exact: true }).click();
+    await page.getByTestId("floor-editor-canvas").scrollIntoViewIfNeeded();
+    await expectNativePixel(page, pixel, [225, 29, 72]);
+    await expect(page.getByRole("button", { name: "도면 다시 불러오기" })).toHaveCount(0);
+    await expect(page.getByTestId("cad-scene-canvas")).toHaveCount(0);
+    await expect(page.getByTestId("floor-editor-canvas")).toHaveAttribute("data-background-url", "");
+
+    overlap = false;
+    failRenderer = true;
+    manifestRequests = 0;
+    await page.reload();
+    await page.getByRole("button", { name: "도면 다시 불러오기" }).click();
+    await page.getByText("격자 스냅", { exact: true }).click();
+    await page.getByRole("button", { name: "맵 맞춤", exact: true }).click();
+    await page.getByTestId("floor-editor-canvas").scrollIntoViewIfNeeded();
+    await expectNativePixel(page, pixel, [225, 29, 72]);
+    await expect(page.getByRole("button", { name: "도면 다시 불러오기" })).toHaveCount(0);
+    expect(api.payloads).toEqual([]);
+    expect(api.browserErrors).toEqual([]);
+    expect(api.unhandledRequests).toEqual([]);
+  });
+}
+
 async function installPreparedReview(page: Page) {
   const base = await installCadJourney(page, true);
   let activeJob: FloorImportJob | null = importJob("review_required", 100, true);
