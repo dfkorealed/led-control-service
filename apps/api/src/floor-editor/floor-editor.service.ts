@@ -1,6 +1,7 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException, Optional, ServiceUnavailableException } from "@nestjs/common";
 import {
   FloorEditorSnapshot,
+  MapDocumentRef,
   SaveEditorStateInput,
   buildCadSceneDescriptor,
   editorRevisionListQuerySchema,
@@ -16,7 +17,9 @@ import { AuditService } from "../audit/audit.service";
 import { AuthenticatedUser } from "../auth/auth.types";
 import { PrismaService } from "../prisma/prisma.service";
 import { hashEditorLeaseToken } from "./editor-lease-token";
-import { buildFloorEditorSnapshot, hashFloorEditorSnapshot } from "./floor-editor-snapshot";
+import { buildFloorEditorSnapshot, buildMapDocumentSnapshot, hashFloorEditorSnapshot } from "./floor-editor-snapshot";
+import { MapDocumentMutationService } from "./map-document-mutation.service";
+import { MapDocumentRevisionData } from "./map-document-revision-data";
 import { FixtureEnergyCheckpointService } from "../energy/fixture-state-ingestion.service";
 import { EnergyDimensionHistoryService } from "../energy/energy-dimension-history.service";
 import { EditorPatch, persistEditorPatches } from "./editor-batch-persistence";
@@ -131,7 +134,9 @@ export class FloorEditorService {
     private readonly siteAccess: SiteAccessService,
     private readonly auditService: AuditService,
     private readonly energyCheckpoint: FixtureEnergyCheckpointService = new FixtureEnergyCheckpointService(),
-    @Optional() private readonly energyDimensions?: EnergyDimensionHistoryService
+    @Optional() private readonly energyDimensions?: EnergyDimensionHistoryService,
+    @Optional() private readonly mapMutations?: MapDocumentMutationService,
+    @Optional() private readonly mapData?: MapDocumentRevisionData
   ) {}
 
   async getEditorState(floorId: string, user: AuthenticatedUser) {
@@ -148,7 +153,9 @@ export class FloorEditorService {
     if (!floor) throw new NotFoundException("floor not found");
     await this.siteAccess.assert(user, floor.siteId, "read");
 
-    return this.toEditorState(floor);
+    const document = await this.mapData?.currentRef(floorId) ?? null;
+    if (document && document.revision !== floor.mapRevision) throw new ConflictException("map read revision changed; reload");
+    return this.toEditorState(floor, document);
   }
 
   async saveEditorState(user: AuthenticatedUser, floorId: string, rawInput: unknown) {
@@ -156,6 +163,17 @@ export class FloorEditorService {
     const input = this.parseInput(saveEditorStateSchema, rawInput, "invalid floor editor save payload");
     this.assertUniqueMutationIds(input);
     const prepared = this.prepareSaveInput(floorId, input);
+    if (input.documentChanges) {
+      if (!this.mapMutations) throw new ServiceUnavailableException("common map saves unavailable");
+      return this.mapMutations.commit(floorId, access.siteId, user, input, rawInput, async (tx, changedAt, document) => {
+        await this.assertAtomicSaveTargets(tx, floorId, prepared);
+        await this.applySaveChanges(tx, floorId, prepared, changedAt);
+        const floor = await this.loadSnapshotFloor(tx, floorId);
+        const legacy = this.buildSnapshot(floor);
+        const snapshot = buildMapDocumentSnapshot({ document, fixtures: legacy.fixtures, lightSlots: "lightSlots" in legacy ? legacy.lightSlots ?? [] : [] });
+        return { result: this.toEditorState(floor, document), snapshot };
+      });
+    }
     await this.preflightObjectUpdates(floorId, prepared.objectUpdates);
 
     try {
@@ -164,6 +182,7 @@ export class FloorEditorService {
         const changedAt = await this.assertLockedRevision(
           tx, floorId, prepared.expectedRevision, prepared.leaseToken, prepared.leaseFence
         );
+        if (await this.mapData?.currentRef(floorId, tx)) throw new ConflictException("common map documentChanges required");
         await this.assertAtomicSaveTargets(tx, floorId, prepared);
         await this.incrementLockedRevision(tx, floorId);
         if (prepared.floorPlan) {
@@ -259,6 +278,9 @@ export class FloorEditorService {
     try {
       return await this.prisma.$transaction(async (tx) => {
         const authorizedSite = await this.siteAccess.assertManageInTransaction(tx, user, access.siteId);
+        if (await this.mapData?.currentRef(floorId, tx)) {
+          throw new ConflictException({ code: "map_restore_unavailable", message: "이 맵의 이력 복원을 아직 사용할 수 없습니다." });
+        }
         const source = await tx.floorMapRevision.findUnique({
           where: { floorId_revision: { floorId, revision: parsedRevision } },
           select: { revision: true, snapshot: true }
@@ -329,7 +351,7 @@ export class FloorEditorService {
     mapObjects: any[];
     lightSlots?: any[];
     cadScene?: any;
-  }) {
+  }, document: MapDocumentRef | null = null) {
     return {
       floor: {
         id: floor.id,
@@ -337,6 +359,7 @@ export class FloorEditorService {
         name: floor.name,
         level: floor.level,
         mapRevision: floor.mapRevision ?? 0,
+        mapDocument: document,
         floorPlan: floor.floorPlan
           ? {
               id: floor.floorPlan.id,
@@ -350,7 +373,7 @@ export class FloorEditorService {
               version: floor.floorPlan.version
             }
           : null,
-        cadScene: floor.floorPlan?.sourceType === "cad" && floor.cadScene
+        cadScene: !document && floor.floorPlan?.sourceType === "cad" && floor.cadScene
           ? buildCadSceneDescriptor(floor.siteId, floor.id, floor.cadScene)
           : null
       },
@@ -375,7 +398,7 @@ export class FloorEditorService {
         rotation: slot.rotation,
         assignedFixtureId: slot.assignedFixtureId
       })),
-      objects: [...floor.mapObjects].sort((left, right) => this.compareEditorObjects(left, right)).map((object) => ({
+      objects: (document ? [] : [...floor.mapObjects]).sort((left, right) => this.compareEditorObjects(left, right)).map((object) => ({
         id: object.id,
         floorId: object.floorId,
         type: object.type,
