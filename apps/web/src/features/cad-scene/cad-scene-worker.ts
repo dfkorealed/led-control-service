@@ -575,7 +575,8 @@ function displayTransformPoint(point: Point, transform: CadElementTransform): Po
     y: transform.translateY + x * Math.sin(radians) + y * Math.cos(radians) };
 }
 
-export function buildCadGeometryBatches(primitives: readonly CadScenePrimitive[], quality?: CadSceneDisplayQuality): CadGeometryBuildResult {
+export function buildCadGeometryBatches(primitives: readonly CadScenePrimitive[], quality?: CadSceneDisplayQuality,
+  options: { includePickIndex?: boolean } = {}): CadGeometryBuildResult {
   if (quality && (!(quality.zoomBand > 0) || !Number.isFinite(quality.zoomBand) || !(quality.maxErrorPixels > 0) || !Number.isFinite(quality.maxErrorPixels))) {
     throw new Error("Invalid CAD display quality");
   }
@@ -588,13 +589,14 @@ export function buildCadGeometryBatches(primitives: readonly CadScenePrimitive[]
   const mutableTextBatches = new Map<string, CadTextBatch>();
   const pickEntries: CadPickEntry[] = [];
   const pickPoints: number[] = [];
+  const includePicking = !quality && options.includePickIndex !== false;
   primitives.forEach((primitive, zOrder) => {
     if (excluded.has(primitive.elementId) || (primitive.groupId && excluded.has(primitive.groupId))) return;
     const override = overrides.get(primitive.elementId);
     if (override?.hidden) return;
     if (override && error !== undefined) primitive = displayOverride(primitive, override, error);
     const pickPointStart = pickPoints.length / 2;
-    const pickGeometry = quality || primitive.type === "text"
+    const pickGeometry = !includePicking || primitive.type === "text"
       ? { points: [] as Point[], closed: false }
       : primitivePoints(primitive);
     for (const point of pickGeometry.points) pickPoints.push(point.x, point.y);
@@ -660,7 +662,7 @@ export function buildCadGeometryBatches(primitives: readonly CadScenePrimitive[]
         );
       }
     }
-    if (!quality) pickEntries.push({
+    if (includePicking) pickEntries.push({
       elementId: primitive.elementId,
       groupId: primitive.groupId,
       layerName: primitive.layerName,
