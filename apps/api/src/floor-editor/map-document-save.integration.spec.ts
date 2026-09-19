@@ -175,11 +175,13 @@ const url = process.env.U6A_TEST_DATABASE_URL;
     expect((await prisma.fixture.findUniqueOrThrow({ where: { id: fixtureId } })).placementStatus).toBe("placed");
     expect(await (await http("PUT", body)).json()).toEqual(saved);
   });
-  it("allows empty operations and rejects stale revision, expired lease, legacy writes and dimensions", async () => {
+  it("allows empty operations and dimensions while rejecting stale revision, expired lease and legacy writes", async () => {
     expect((await http("PUT", input())).status).toBe(200);
     expect((await http("PUT", input())).status).toBe(409);
     ref = { ...ref, revision: 2 };
-    expect((await http("PUT", { ...input(), floorPlan: { imageUrl: "", sourceType: "none", originalFileUrl: null, renderedImageUrl: null, width: 2000, height: 800, gridSize: 10 } })).status).toBe(409);
+    expect((await http("PUT", { ...input(), floorPlan: { imageUrl: "", sourceType: "none", originalFileUrl: null, renderedImageUrl: null, width: 2000, height: 800, gridSize: 10 } })).status).toBe(200);
+    ref = (await data.currentRef(floorId))!;
+    expect(ref.width).toBe(2000);
     const { documentChanges: _, ...legacy } = input();
     expect((await http("PUT", legacy)).status).toBe(409);
     await prisma.floor.update({ where: { id: floorId }, data: { editorLeaseExpiresAt: new Date(0) } });
@@ -299,7 +301,7 @@ const url = process.env.U6A_TEST_DATABASE_URL;
     expect((await http("PUT", input([{ kind: "layer.delete", id: layer.id }]))).status).toBe(409);
     await save([{ kind: "group.put", group }]);
     await save([{ kind: "layer.delete", id: layer.id }]);
-    expect(ref.generationId).toBe(generation);
+    expect(ref.generationId).not.toBe(generation);
     expect(await (await data.readRevision(floorId, ref)).getElements(["a"])).toEqual([]);
   });
   it("rejects oversized envelopes, operation overflow, other generation and different concurrent saves", async () => {
@@ -323,11 +325,13 @@ const url = process.env.U6A_TEST_DATABASE_URL;
     await save([{ kind: "add", element: { ...element(), type: "ellipse", geometry: { center: { x: 100, y: 100 }, radiusX: 20, radiusY: 30 } } }]);
     expect(ref.elementCount).toBe(1);
   });
-  it("does not publish a delta that crosses the recorded normal read budget", async () => {
+  it("compacts instead of publishing a delta that crosses the recorded normal read budget", async () => {
     await prisma.floorMapDocument.update({ where: { floorId }, data: { deltaDecodedBytes: 32 * 1024 * 1024 - 10 } });
     const response = await http("PUT", input([{ kind: "add", element: element() }]));
-    expect(response.status).toBe(409);
-    expect(await response.json()).toMatchObject({ code: "map_checkpoint_required" });
-    expect(await data.currentRef(floorId)).toEqual(ref);
+    expect(response.status).toBe(200);
+    const current = (await data.currentRef(floorId))!;
+    expect(current.generationId).not.toBe(ref.generationId);
+    expect(current.elementCount).toBe(1);
+    expect((await data.readRevision(floorId, current)).overlay).toEqual([]);
   });
 });

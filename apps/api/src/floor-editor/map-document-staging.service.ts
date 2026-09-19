@@ -103,6 +103,10 @@ export class MapDocumentStagingService implements OnModuleInit, OnModuleDestroy 
       const scope = await this.scope(tx, floorId, id, user), stage = scope.stage;
       const isHistory = Boolean(this.metadata(stage).historySource);
       const input = isHistory ? this.parse(stageLeaseSchema, raw) : this.parse(stageCommitSchema, raw);
+      // Receipt replay ignores elapsed TTL, not the original request binding.
+      if (hashEditorLeaseToken(input.leaseToken) !== stage.leaseTokenHash || input.leaseFence !== stage.leaseFence) {
+        throw new ConflictException("stage lease binding mismatch");
+      }
       if (!isHistory) {
         const intent = input as z.infer<typeof stageCommitSchema>;
         if (stage.payloadHash && (stage.payloadHash !== intent.sha256 || stage.expectedPartCount !== intent.partCount ||

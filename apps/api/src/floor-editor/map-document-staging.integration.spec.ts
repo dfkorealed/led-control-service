@@ -20,6 +20,8 @@ import { MapDocumentMutationService } from "./map-document-mutation.service";
 import { MapDocumentCheckpointService } from "./map-document-checkpoint.service";
 import { MapDocumentStagingService } from "./map-document-staging.service";
 import { MapDocumentStagingController } from "./map-document-staging.controller";
+import { MapDocumentReader } from "./map-document-reader";
+import { MapDocumentQueryController } from "./map-document-query.controller";
 import { hashEditorLeaseToken } from "./editor-lease-token";
 
 const url = process.env.U6B_TEST_DATABASE_URL;
@@ -51,9 +53,10 @@ const url = process.env.U6B_TEST_DATABASE_URL;
     const target = new URL(url!);
     if (!/^\/led_u6b_test_/.test(target.pathname) || target.hostname !== "127.0.0.1" || target.port === "5432") throw Error("isolated DB required");
     await s3.send(new CreateBucketCommand({ Bucket: (storage as any).options.bucket }));
-    const module = await Test.createTestingModule({ controllers: [FloorEditorController, MapDocumentStagingController], providers: [
+    const module = await Test.createTestingModule({ controllers: [FloorEditorController, MapDocumentStagingController, MapDocumentQueryController], providers: [
       { provide: FloorEditorService, useValue: editor }, { provide: MapDocumentResetService, useValue: reset },
       { provide: EditorLeaseService, useValue: {} }, { provide: MapDocumentStagingService, useValue: staging },
+      { provide: MapDocumentReader, useValue: new MapDocumentReader(prisma as never, access, storage, store, data, staging) },
       { provide: AuthService, useValue: new AuthService(prisma as never, new PasswordService(), audit) }
     ] }).compile();
     app = module.createNestApplication({ bodyParser: false }); configureApiBodyParser(app); await app.listen(0, "127.0.0.1"); base = await app.getUrl();
@@ -100,6 +103,8 @@ const url = process.env.U6B_TEST_DATABASE_URL;
     expect((await prisma.fixture.findUniqueOrThrow({ where: { id: fixtureId } })).x).toBe(50);
     await prisma.floor.update({ where: { id: floorId }, data: { editorLeaseExpiresAt: new Date(0) } });
     await prisma.floorMapStage.update({ where: { id: stage.id }, data: { expiresAt: new Date(0) } });
+    expect((await http("POST", `editor-stages/${stage.id}/commit`, { ...intent, leaseToken: "different" })).status).toBe(409);
+    expect((await http("POST", `editor-stages/${stage.id}/commit`, { ...intent, leaseFence: 2 })).status).toBe(409);
     expect((await http("POST", `editor-stages/${stage.id}/commit`, intent)).status).toBe(202);
     expect((await finish(stage.id)).result).toEqual(status.result);
     expect(await prisma.floorMapRevision.count({ where: { floorId } })).toBe(2);
@@ -138,6 +143,26 @@ const url = process.env.U6B_TEST_DATABASE_URL;
     expect((await finish(next.stage.id)).status).toBe("committed");
   });
 
+  it("rolls staged fixture, document, history and receipt back on audit failure, then retries exactly once", async () => {
+    const request = await upload([{ kind: "add", element: element("atomic") }], {
+      ...input(), fixtureUpdates: [{ id: fixtureId, x: 70, y: 80, placementStatus: "placed" }]
+    });
+    const failure = jest.spyOn(audit, "record").mockRejectedValueOnce(new Error("injected audit failure"));
+    try {
+      expect((await http("POST", `editor-stages/${request.stage.id}/commit`, request.intent)).status).toBe(202);
+      expect((await finish(request.stage.id)).status).toBe("failed");
+    } finally { failure.mockRestore(); }
+    expect(await data.currentRef(floorId)).toEqual(ref);
+    expect(await prisma.fixture.findUniqueOrThrow({ where: { id: fixtureId } })).toMatchObject({ x: 0, y: 0, placementStatus: "unplaced" });
+    expect(await prisma.floorMapRevision.count({ where: { floorId } })).toBe(1);
+    expect((await http("POST", `editor-stages/${request.stage.id}/commit`, request.intent)).status).toBe(202);
+    const status = await finish(request.stage.id); expect(status.status).toBe("committed");
+    expect((await http("POST", `editor-stages/${request.stage.id}/commit`, request.intent)).status).toBe(202);
+    expect((await finish(request.stage.id)).result).toEqual(status.result);
+    expect(await prisma.floorMapRevision.count({ where: { floorId } })).toBe(2);
+    expect(await prisma.auditLog.count({ where: { targetId: floorId, action: "floor_editor.stage_committed" } })).toBe(1);
+  });
+
   it("fences cancelled, expired, stale-lease and disabled-user work while keeping the map unchanged", async () => {
     const first = await upload([{ kind: "add", element: element("cancelled") }]);
     expect((await http("DELETE", `editor-stages/${first.stage.id}`, lease)).status).toBe(200);
@@ -168,11 +193,66 @@ const url = process.env.U6B_TEST_DATABASE_URL;
     expect((await http("POST", `editor-stages/${stage.id}/prepare`, lease)).status).toBe(202);
     const ready = await finish(stage.id); expect(ready.status).toBe("ready"); expect(ready.preview.elementCount).toBe(0);
     expect(await staging.resolvePreview(floorId, stage.id, user)).toEqual(ready.preview);
+    expect(await (await http("GET", `editor-stages/${stage.id}/map-document`)).json()).toEqual(ready.preview);
     expect(await data.currentRef(floorId)).toEqual(ref);
     expect((await http("POST", `editor-stages/${stage.id}/commit`, lease)).status).toBe(202);
     expect((await finish(stage.id)).status).toBe("committed");
     expect((await data.currentRef(floorId))!.elementCount).toBe(0);
     await expect(staging.resolvePreview(floorId, stage.id, user)).rejects.toThrow();
+    expect((await http("GET", `editor-stages/${stage.id}/map-document`)).status).toBe(409);
+  });
+
+  it("reads same-revision checkpoint head while preserving the historical snapshot and pins", async () => {
+    expect((await http("PUT", "editor-state", { ...input(), documentChanges: { ...input().documentChanges,
+      operations: [{ kind: "add", element: element("checkpoint") }] } })).status).toBe(200);
+    ref = (await data.currentRef(floorId))!;
+    const historical = await prisma.floorMapRevision.findUniqueOrThrow({ where: { floorId_revision: { floorId, revision: ref.revision } } });
+    const pins = await prisma.floorMapRevisionAsset.findMany({ where: { revisionId: historical.id }, orderBy: { assetId: "asc" } });
+    const prepared = await store.prepareCheckpoint(floorId, ref, checkpoints.iterate(floorId, ref));
+    await prisma.floorMapDocument.update({ where: { floorId }, data: { changesSinceCheckpoint: 100 } });
+    await prisma.$transaction(tx => store.commitCheckpoint(tx, floorId, ref, prepared));
+    expect(await data.currentRef(floorId)).toEqual(prepared);
+    expect(await (await http("GET", "map-document")).json()).toEqual(prepared);
+    expect(await prisma.floorMapRevision.findUniqueOrThrow({ where: { id: historical.id } })).toEqual(historical);
+    expect(await prisma.floorMapRevisionAsset.findMany({ where: { revisionId: historical.id }, orderBy: { assetId: "asc" } })).toEqual(pins);
+    expect((await (await data.readRevision(floorId, ref)).getElements(["checkpoint"]))[0].id).toBe("checkpoint");
+    await expect(prisma.$transaction(tx => store.commitCheckpoint(tx, floorId, ref, prepared))).rejects.toThrow(/conflict/);
+  });
+
+  it("keeps a >32MiB inverse server-side and serves authenticated bounded history draft preview after upload expiry", async () => {
+    const operations = Array.from({ length: 3500 }, (_, i) => ({ kind: "add", element: {
+      ...element(String(i)), type: "text", geometry: { position: { x: 10, y: 10 }, width: 100, height: 10,
+        fontSize: 10, text: "x".repeat(10000) }
+    } }));
+    expect(Buffer.byteLength(JSON.stringify(operations))).toBeGreaterThan(32 * 1024 * 1024);
+    const initial = await upload(operations);
+    expect((await http("POST", `editor-stages/${initial.stage.id}/commit`, initial.intent)).status).toBe(202);
+    expect((await finish(initial.stage.id)).status).toBe("committed");
+    ref = (await data.currentRef(floorId))!;
+    const deletion = await upload(operations.map(op => ({ kind: "delete", id: op.element.id })));
+    expect((await http("POST", `editor-stages/${deletion.stage.id}/commit`, deletion.intent)).status).toBe(202);
+    const receipt = await finish(deletion.stage.id); expect(receipt.status).toBe("committed");
+    expect(Buffer.byteLength(JSON.stringify(receipt))).toBeLessThan(64 * 1024);
+    expect(receipt.result.history.undo.revision).toBe(ref.revision);
+    await prisma.floorMapStage.updateMany({ where: { floorId }, data: { expiresAt: new Date(Date.now() - 7200000) } });
+    await staging.reapExpired();
+    ref = (await data.currentRef(floorId))!; expect(ref.elementCount).toBe(0);
+    const creation = await http("POST", "editor-stages", { ...input(), historySource: receipt.result.history.undo });
+    const draft = await creation.json() as { id: string };
+    expect(creation.status).toBe(201);
+    expect((await http("POST", `editor-stages/${draft.id}/prepare`, lease)).status).toBe(202);
+    const ready = await finish(draft.id); expect(ready.status).toBe("ready");
+    expect(ready.preview.elementCount).toBe(3500); expect(await data.currentRef(floorId)).toEqual(ref);
+    const prefix = `editor-stages/${draft.id}/map-document`;
+    const query = `generationId=${ready.preview.generationId}&revision=${ready.preview.revision}`;
+    expect((await http("GET", prefix, undefined, "")).status).toBe(401);
+    const manifest = await http("GET", `${prefix}/manifest?${query}`); expect(manifest.status).toBe(200);
+    expect(Buffer.byteLength(await manifest.text())).toBeLessThan(1024 * 1024);
+    const selected = await http("POST", `${prefix}/elements?${query}`, { ids: ["0"] }); expect(selected.status).toBe(200);
+    expect(Buffer.byteLength(await selected.text())).toBeLessThan(64 * 1024);
+    expect((await http("POST", `editor-stages/${draft.id}/commit`, lease)).status).toBe(202);
+    expect((await finish(draft.id)).status).toBe("committed");
+    expect((await data.currentRef(floorId))!.elementCount).toBe(3500);
   });
 
   it("restores v3 history through the existing route, replays the result and permits subsequent edits", async () => {
