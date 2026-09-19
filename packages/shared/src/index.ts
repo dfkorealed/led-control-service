@@ -4,6 +4,7 @@ export * from "./cad-import-contracts";
 export * from "./cad-scene-contracts";
 export * from "./map-document-contracts";
 export * from "./map-document-geometry";
+export * from "./map-display-contracts";
 export * from "./domain";
 export * from "./energy-contracts";
 export * from "./energy-analytics-contracts";

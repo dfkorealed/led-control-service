@@ -273,7 +273,8 @@ export const cadSceneTileSchema = z.object({
   bounds: cadBoundsSchema
 }).strict();
 
-export const cadSceneManifestSchema = z.object({
+/** Shared codec fields; public consumers must use a refined manifest schema. */
+export const cadSceneManifestFieldsSchema = z.object({
   version: z.literal(CAD_SCENE_VERSION),
   sceneId: z.string().uuid(),
   regionId: z.string().trim().min(1).max(512),
@@ -291,7 +292,9 @@ export const cadSceneManifestSchema = z.object({
   sourceBounds: cadBoundsSchema,
   transform: cadSceneTransformSchema,
   tiles: z.array(cadSceneTileSchema).max(CAD_SCENE_MAX_TILE_PART_COUNT)
-}).strict().superRefine((manifest, context) => {
+}).strict();
+
+export const cadSceneManifestSchema = cadSceneManifestFieldsSchema.superRefine((manifest, context) => {
   let normalizedSize: CadMapSize;
   try {
     normalizedSize = normalizeCadMapSize(manifest.sourceBounds);
@@ -346,6 +349,12 @@ export const cadSceneManifestSchema = z.object({
     });
   }
 
+  refineCadSceneManifestTiles(manifest, context);
+});
+
+/** Source normalization and native-map coordinates share the exact same tile
+ * ledger, coverage and resource limits. Keep these checks in one place. */
+export function refineCadSceneManifestTiles(manifest: z.infer<typeof cadSceneManifestFieldsSchema>, context: z.RefinementCtx) {
   if (manifest.tileCount !== manifest.tiles.length) {
     context.addIssue({
       code: z.ZodIssueCode.custom,
@@ -456,7 +465,7 @@ export const cadSceneManifestSchema = z.object({
       });
     }
   }
-});
+}
 
 const cadRegionPreviewSchema = z.object({
   assetId: z.string().uuid(),

@@ -43,6 +43,13 @@
       "import": "./dist/esm/cad-scene-contracts.js",
       "default": "./dist/cad-scene-contracts.js"
     },
+    "./map-display-contracts": {
+      "types": "./dist/esm/map-display-contracts.d.ts",
+      "browser": "./dist/esm/map-display-contracts.js",
+      "require": "./dist/map-display-contracts.js",
+      "import": "./dist/esm/map-display-contracts.js",
+      "default": "./dist/map-display-contracts.js"
+    },
     "./map-document-contracts": {
       "types": "./dist/esm/map-document-contracts.d.ts",
       "browser": "./dist/esm/map-document-contracts.js",

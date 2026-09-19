@@ -6,6 +6,7 @@
     "outDir": "dist/esm"
   },
   "include": [
+    "src/map-display-contracts.ts",
     "src/map-document-contracts.ts",
     "src/map-document-geometry.ts",
     "src/cad-import-contracts.ts",
