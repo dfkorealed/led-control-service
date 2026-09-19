@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import type { MapDocumentRef, MapElement, MapGroup, MapLayer } from "@led-control/shared/map-document-contracts";
 import { createMapElementFromDrag } from "./map-element-tools";
-import { resolveMapSelection, isMapSelectionLocked, planMapLayerRemoval, planMapUngroup } from "./map-editor-selection";
+import { isMapSelectionLocked, planMapLayerRemoval, planMapUngroup } from "./map-editor-selection";
+import { inspectMapSelection } from "./map-editor-selection-stream";
 
 const ref = { generationId: "generation", revision: 1 } as MapDocumentRef;
 const layer: MapLayer = { id: "map", name: "Shapes", order: 0, visible: true, locked: false };
@@ -14,35 +15,35 @@ describe("complete map selection", () => {
     elements[64].visible = false;
     const getSelection = vi.fn(async (_ref, input) => ({ generationId: "generation", revision: 1,
       ids: input.cursor ? [elements[64].id] : elements.slice(0, 64).map(e => e.id), nextCursor: input.cursor ? null : "next" }));
-    const result = await resolveMapSelection({ document: ref, selection: { elementIds: [], groupIds: ["group"] },
+    const result = await inspectMapSelection({ document: ref, selection: { elementIds: [], groupIds: ["group"] },
       source: { getSelection, getElements: async (_ref, ids) => elements.filter(e => ids.includes(e.id)) },
       operations: [], groups: new Map([[group.id, group]]), signal: new AbortController().signal });
-    expect(result).toEqual(elements);
+    expect(result.inline).toEqual(elements);
     expect(getSelection).toHaveBeenCalledTimes(2);
   });
   it("merges draft membership and deletions with canonical pages", async () => {
     const moved = { ...shape(1), groupId: null };
     const added = shape(3);
-    const result = await resolveMapSelection({ document: ref, selection: { elementIds: [], groupIds: ["group"] },
+    const result = await inspectMapSelection({ document: ref, selection: { elementIds: [], groupIds: ["group"] },
       source: { getSelection: async () => ({ ...ref, ids: ["shape-1", "shape-2"], nextCursor: null }), getElements: async () => [shape(1), shape(2)] },
       operations: [{ kind: "update", element: moved }, { kind: "delete", id: "shape-2" }, { kind: "add", element: added }],
       groups: new Map([[group.id, group]]), signal: new AbortController().signal });
-    expect(result).toEqual([added]);
+    expect(result.inline).toEqual([added]);
   });
   it("fails closed for cyclic cursor and abort before returning a prefix", async () => {
     const input = { document: ref, selection: { elementIds: [], groupIds: ["group"] },
       source: { getSelection: async () => ({ ...ref, ids: [], nextCursor: "cycle" }), getElements: async () => [] },
       operations: [], groups: new Map([[group.id, group]]), signal: new AbortController().signal };
-    await expect(resolveMapSelection(input)).rejects.toThrow();
-    await expect(resolveMapSelection({ ...input, signal: AbortSignal.abort() })).rejects.toThrow();
+    await expect(inspectMapSelection(input)).rejects.toThrow();
+    await expect(inspectMapSelection({ ...input, signal: AbortSignal.abort() })).rejects.toThrow();
   });
   it("includes new local shapes in a range selection", async () => {
-    const result = await resolveMapSelection({ document: ref, selection: { elementIds: [], groupIds: [] },
+    const result = await inspectMapSelection({ document: ref, selection: { elementIds: [], groupIds: [] },
       filter: { bounds: { minX: 0, minY: 0, maxX: 50, maxY: 50 } },
       source: { getSelection: async () => ({ ...ref, ids: [], nextCursor: null }), getElements: async () => [] },
       operations: [{ kind: "add", element: shape(1) }, { kind: "add", element: shape(100) }],
       groups: new Map(), signal: new AbortController().signal });
-    expect(result.map(element => element.id)).toEqual(["shape-1"]);
+    expect(result.inline?.map(element => element.id)).toEqual(["shape-1"]);
   });
   it("honors locked ancestors and layers for the whole selection", () => {
     const child = { ...group, id: "child", parentId: "group" };
