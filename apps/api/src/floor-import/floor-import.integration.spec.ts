@@ -820,6 +820,164 @@ const EMPTY_CANDIDATE_IDENTITY_DIGEST = createHash("sha256").update(JSON.stringi
     });
   });
 
+  it.each([
+    { changedRegion: false, selectedCandidates: 2 },
+    { changedRegion: true, selectedCandidates: 0 },
+    { changedRegion: true, selectedCandidates: 2 }
+  ])("replaces an applied native scene while preserving its manifest format version: %j", async ({ changedRegion, selectedCandidates }) => {
+    const imports = service();
+    const gateway = await prisma.gateway.create({ data: {
+      siteId, name: "Native replacement", serialNumber: randomUUID(), firmwareVersion: "test"
+    } });
+    const node = await prisma.meshNode.create({ data: {
+      gatewayId: gateway.id, meshAddress: "0x0210", serialNumber: randomUUID(), firmwareVersion: "test"
+    } });
+    const fixture = await prisma.fixture.create({ data: {
+      floorId, siteId, name: "Existing native fixture", ratedWatt: 40, x: 0, y: 0,
+      meshNodeId: node.id, gatewayId: gateway.id
+    } });
+    const editor = new FloorEditorService(prisma as never, access as never, new AuditService(prisma as never));
+    const maps = new FloorMapService(prisma as never, access as never);
+    let previousSceneId = "";
+    let previousDimensions: { width: number; height: number } | undefined;
+    // Capture every apply-owned row, including timestamps and historical state,
+    // so a late transaction failure cannot silently leave a partial replacement.
+    const persistedState = () => prisma.$transaction(async tx => ({
+      floor: await tx.floor.findUniqueOrThrow({ where: { id: floorId }, include: {
+        floorPlan: true, cadScene: { include: { tiles: { orderBy: { id: "asc" } },
+          elementOverrides: true, layerStates: true } },
+        lightSlots: { orderBy: { id: "asc" } }, fixtures: { orderBy: { id: "asc" } },
+        mapObjects: { orderBy: { id: "asc" } }, mapRevisions: { orderBy: { revision: "asc" } }
+      } }),
+      jobs: await tx.floorImportJob.findMany({ where: { floorId }, orderBy: { id: "asc" },
+        include: { candidates: { orderBy: { id: "asc" } } } }),
+      audit: await tx.auditLog.findMany({ where: { siteId }, orderBy: { id: "asc" } })
+    }));
+    await prisma.floor.update({ where: { id: floorId }, data: {
+      editorLeaseFence: 4, editorLeaseTokenHash: hashEditorLeaseToken("replacement-lease"),
+      editorLeaseHolderId: userId, editorLeaseHolderName: user.name,
+      editorLeaseAcquiredAt: new Date(), editorLeaseExpiresAt: new Date(Date.now() + 60_000)
+    } });
+    for (let revision = 0; revision < 2; revision++) {
+      const source = await sourceAsset();
+      const rendered = await renderedAsset();
+      const job = await prisma.floorImportJob.create({ data: {
+        floorId, sourceAssetId: source.id, renderedAssetId: rendered.id, sourceFormat: "dxf",
+        status: "review_required", stage: "review_required", progressPercent: 100,
+        attemptCount: 1, startedAt: new Date(), reviewRequiredAt: new Date(),
+        excludedRegionPrimitiveCount: 0, ...terminalProfile
+      } });
+      const bounds = revision === 1 && changedRegion
+        ? { minX: -200, minY: 300, maxX: 1_800, maxY: 800 }
+        : { minX: 0, minY: 0, maxX: 1_000, maxY: 1_000 };
+      const region = {
+        regionId: revision === 1 && changedRegion ? "region-444444444444444444444444" : "region-333333333333333333333333", bounds,
+        primitiveCount: 1, textCount: 0, lightCandidateCount: 2,
+        area: (bounds.maxX - bounds.minX) * (bounds.maxY - bounds.minY)
+      };
+      await prisma.floorImportRegion.create({ data: {
+        jobId: job.id, regionId: region.regionId, ...bounds,
+        primitiveCount: 1, selectedAt: new Date()
+      } });
+      const identity = cadScenePersistenceIdentity(job.id, region.regionId);
+      const built = buildCadScene({ version: 1, bounds, blocks: [], entities: [{
+        type: "line", sourceEntityId: "native-line", layer: "WALL",
+        start: { x: bounds.minX + 10, y: bounds.minY + 10, z: 0 },
+        end: { x: bounds.maxX - 10, y: bounds.maxY - 10, z: 0 }
+      }] }, region, {
+        sceneId: identity.sceneId, manifestAssetId: identity.manifestAssetId, tileAssetId: identity.tileAssetId
+      });
+      await prisma.floorAsset.createMany({ data: [
+        {
+          id: built.manifest.manifestAssetId, floorId, kind: "cad_manifest", status: "ready",
+          objectKey: identity.manifestObjectKey(floorId), mimeType: "application/json",
+          sizeBytes: BigInt(built.manifest.byteSize), sha256: built.manifest.sha256, readyAt: new Date()
+        },
+        ...built.tiles.map(tile => ({
+          id: tile.descriptor.assetId, floorId, kind: "cad_tile" as const, status: "ready" as const,
+          objectKey: identity.tileObjectKey(floorId, tile.descriptor), mimeType: "application/vnd.led-control.cad-tile",
+          sizeBytes: BigInt(tile.descriptor.byteSize), sha256: tile.descriptor.sha256, readyAt: new Date()
+        }))
+      ] });
+      const candidates = [{ id: randomUUID(), x: 100, y: 200 }, { id: randomUUID(), x: 300, y: 400 }];
+      await prisma.floorImportCandidate.createMany({ data: candidates.map((candidate, index) => ({
+        ...candidate, jobId: job.id, sourceEntityId: `native-light-${index}`, layerName: "LIGHT", blockName: "LED",
+        rotation: 0, confidence: 0.95, detectionMethod: "rule_based" as const,
+        profileVersion: "test/1", profileDigest: "b".repeat(64)
+      })) });
+      storage.readCadSceneManifest = jest.fn().mockResolvedValue(built.manifest);
+      const accepted = candidates.slice(0, revision === 0 ? 2 : selectedCandidates);
+      const input = {
+        expectedRevision: revision, leaseToken: "replacement-lease", leaseFence: 4,
+        candidateIds: accepted.map(candidate => candidate.id), confirmMapReset: true
+      };
+      if (revision === 1) {
+        const before = await persistedState();
+        const audit = new AuditService(prisma as never);
+        const record = audit.record.bind(audit);
+        jest.spyOn(audit, "record").mockImplementationOnce(async input => {
+          await record(input);
+          throw new Error("injected failure after native replacement and audit insertion");
+        });
+        const failing = new FloorImportService(prisma as never, access as never, audit, storage);
+        await expect(failing.apply(user, floorId, job.id, input)).rejects.toThrow("injected failure after native replacement");
+        expect(await persistedState()).toEqual(before);
+        if (changedRegion) expect({ width: built.manifest.width, height: built.manifest.height }).not.toEqual(previousDimensions);
+      }
+      await expect(imports.apply(user, floorId, job.id, input)).resolves.toMatchObject({
+        status: "completed", revision: revision + 1, createdSlotCount: accepted.length,
+        deletedSlotCount: revision === 0 ? 0 : 2
+      });
+      await expect(prisma.floorCadScene.findUniqueOrThrow({ where: { floorId } })).resolves.toMatchObject({
+        id: built.manifest.sceneId, version: built.manifest.version, sourceImportJobId: job.id,
+        sourceMinX: bounds.minX, sourceMinY: bounds.minY, sourceMaxX: bounds.maxX, sourceMaxY: bounds.maxY
+      });
+      const editorState = await editor.getEditorState(floorId, user);
+      const snapshot = await maps.getSnapshot(user, siteId, floorId);
+      const sceneState = await maps.getCadSceneState(user, siteId, floorId);
+      expect(editorState.floor.cadScene).toEqual(snapshot.cadScene);
+      expect(sceneState.scene).toEqual(snapshot.cadScene);
+      expect(snapshot.cadScene).toMatchObject({ id: built.manifest.sceneId, version: built.manifest.version,
+        width: built.manifest.width, height: built.manifest.height });
+      expect(snapshot.revision).toBe(revision + 1);
+      expect(editorState.lightSlots).toHaveLength(accepted.length);
+      for (const candidate of accepted) expect(editorState.lightSlots).toEqual(expect.arrayContaining([
+        expect.objectContaining({ x: candidate.x, y: candidate.y, assignedFixtureId: null })
+      ]));
+      const slots = await prisma.floorLightSlot.findMany({ where: { floorId } });
+      expect(slots).toHaveLength(accepted.length);
+      for (const candidate of accepted) expect(slots).toEqual(expect.arrayContaining([expect.objectContaining({
+        sourceCandidateId: candidate.id, sourceImportJobId: job.id, x: candidate.x, y: candidate.y, assignedFixtureId: null
+      })]));
+      expect(await prisma.floorPlan.findUniqueOrThrow({ where: { floorId } })).toMatchObject({
+        version: revision + 1, width: built.manifest.width, height: built.manifest.height
+      });
+      expect(await prisma.fixture.count({ where: { floorId } })).toBe(1);
+      expect(await prisma.meshNode.count({ where: { gatewayId: gateway.id } })).toBe(1);
+      expect(await prisma.fixture.findUniqueOrThrow({ where: { id: fixture.id } })).toMatchObject({
+        meshNodeId: node.id, gatewayId: gateway.id, placementStatus: "unplaced", x: 0, y: 0
+      });
+      if (revision === 0) {
+        await prisma.floorCadElementOverride.create({ data: { sceneId: built.manifest.sceneId, elementId: "line:native-line", hidden: true } });
+        await prisma.floorCadLayerState.create({ data: { sceneId: built.manifest.sceneId, layerName: "WALL", visible: false, locked: true } });
+        await prisma.fixture.update({ where: { id: fixture.id }, data: { placementStatus: "placed", x: 100, y: 200, positionVerifiedAt: new Date() } });
+        await prisma.floorLightSlot.update({ where: { id: slots[0].id }, data: { assignedFixtureId: fixture.id } });
+        await prisma.floorMapObject.create({ data: { floorId, type: "rectangle", x: 1, y: 2, width: 3, height: 4 } });
+      } else {
+        expect(await prisma.floorCadScene.count({ where: { id: previousSceneId } })).toBe(0);
+        expect(await prisma.floorCadTile.count({ where: { sceneId: previousSceneId } })).toBe(0);
+        expect(await prisma.floorCadElementOverride.count({ where: { sceneId: previousSceneId } })).toBe(0);
+        expect(await prisma.floorCadLayerState.count({ where: { sceneId: previousSceneId } })).toBe(0);
+        expect(await prisma.floorMapObject.count({ where: { floorId } })).toBe(0);
+        expect(await prisma.floorMapRevision.count({ where: { floorId } })).toBe(2);
+      }
+      previousSceneId = built.manifest.sceneId;
+      previousDimensions = { width: built.manifest.width, height: built.manifest.height };
+    }
+    await prisma.fixture.update({ where: { id: fixture.id }, data: { meshNodeId: null } });
+    await prisma.gateway.delete({ where: { id: gateway.id } });
+  });
+
   it("reauthorizes active lookup after a concurrent PostgreSQL admin revocation", async () => {
     const source = await sourceAsset();
     await prisma.floorImportJob.create({ data: { floorId, sourceAssetId: source.id, sourceFormat: "dxf" } });

@@ -610,12 +610,11 @@ export class FloorImportService {
           create: { floorId, ...plan },
           update: { ...plan, version: { increment: 1 } }
         });
-        const previousScene = await tx.floorCadScene.findUnique({
-          where: { floorId }, select: { version: true }
-        });
         await tx.floorCadScene.deleteMany({ where: { floorId } });
         if (cadDraft) {
           const manifest = cadDraft.manifest;
+          // Scene version describes the manifest format. Replacement identity is
+          // the new scene ID plus floor mapRevision, not an incremented format.
           // Prisma numeric parameters can lose one ULP for CAD coordinates. Insert
           // round-trip decimal strings directly as float8 so the initial row meets
           // the exact selected-region constraint; no repair update is permissible.
@@ -628,7 +627,7 @@ export class FloorImportService {
               "createdAt", "updatedAt"
             ) VALUES (
               ${manifest.sceneId}, ${floorId}, ${jobId}, ${cadDraft.sourceRegionRecordId},
-              ${(previousScene?.version ?? 0) + 1}, 'active',
+              ${manifest.version}, 'active',
               ${manifest.width}, ${manifest.height}, ${manifest.tileSize},
               ${manifest.primitiveCount}, ${manifest.tileCount}, ${manifest.manifestAssetId},
               ${String(manifest.sourceBounds.minX)}::double precision,

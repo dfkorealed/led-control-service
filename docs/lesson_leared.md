@@ -901,3 +901,10 @@
 - **원인**: shared/API 산출물을 다시 빌드한 뒤 장기 실행 프로세스의 module cache까지 갱신됐다고 가정했다. 새 프로세스 검증과 브라우저 route fixture 성공만으로 이미 실행 중인 서버의 성공을 판정할 수 없다.
 - **해결 및 예방책**: 업로드 객체의 SHA와 실행 설정을 동일하게 맞춰 재현하고, 실행 중인 함수·공유 상수와 디스크 코드를 비교해 버전 불일치를 확인한다. 외부 명령으로 shared/API를 재빌드한 뒤에는 해당 개발 서버를 다시 시작하고 최신 서버 요청 경로를 확인한다. 단순 새로고침은 서버 module cache를 갱신하지 않는다.
 - **반복 방지 체크**: 검증 보고서에서 실제 기본 provider·DB/저장소 pipeline·브라우저 fixture·실제 로그인 HTTP 흐름을 구분한다. 작업 단계 `parse`는 child 내부 검출/렌더 실패까지 포함할 수 있으므로 단계명만으로 원본 도면 손상이라 판단하지 않는다. 원시 오류나 파일 경로 대신 허용된 진단 분류만 서버 로그에 기록한다.
+
+## 2026-09-19 / CAD 형식 버전과 맵 수정 번호를 혼동하지 않는다
+
+- **발생했던 문제/실수**: 첫 CAD 적용은 성공했지만 같은 층에 다시 적용하면 `FloorCadScene_dimensions_check` 위반으로 HTTP 500이 발생했다.
+- **원인**: schema/manifest/renderer가 모두 형식 버전 1을 요구하는 `FloorCadScene.version`을 교체 횟수처럼 증가시켰다. 빈 층에 한 번 적용하는 테스트만으로는 기존 scene이 있는 교체 경로를 검증할 수 없었다.
+- **해결 및 예방책**: 검증된 manifest의 형식 버전을 저장하고 교체는 새 scene ID 및 `Floor.mapRevision`으로 구분한다. DB 제약을 완화하거나 기존 scene을 수동 수정하지 않는다.
+- **반복 방지 체크**: 실제 PostgreSQL에서 native→native 반복 적용, 다른 크기/영역, 후보 0개/선택 후보, 기존 슬롯·배정·수동 도형·override·layer state와 실패 rollback을 검증한다. 적용 후 editor-state와 manifest descriptor의 형식 버전도 대조한다.

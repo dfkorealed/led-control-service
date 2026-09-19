@@ -766,7 +766,7 @@ Prisma 일반 Float 쓰기·읽기 JSON 경로에서 실제 CAD fractional bound
 | `floorId` | `String` | 예 | Unique, FK -> `Floor.id`, cascade delete | 현재 scene을 사용하는 층 |
 | `sourceImportJobId` | `String` | 예 | Unique, FK -> `FloorImportJob.id`, cascade delete | scene을 생성한 import job |
 | `sourceRegionId` | `String` | 예 | Unique, FK -> `FloorImportRegion.id`, delete no action | 선택된 source region 행 |
-| `version` | `Int` | 예 | `1` 고정 | scene format/version |
+| `version` | `Int` | 예 | `1` 고정 | 검증된 manifest의 형식 버전. 도면 교체 횟수가 아니므로 재적용 시 증가시키지 않는다. 교체는 새 scene ID와 `Floor.mapRevision`으로 식별 |
 | `status` | `String` | 예 | `active`만 허용 | 현재 적용된 scene 상태 |
 | `width`, `height` | `Int` | 예 | 각각 `512~32768` | 정규화한 논리 맵 크기 |
 | `tileSize` | `Int` | 예 | `512` 고정 | logical tile 한 변 |
