@@ -323,6 +323,8 @@ UI에는 원시 Error가 아니라 해당 공통 오류 코드의 한글 안내�
 
 ### U9. 공통 WebGL 렌더러·카메라·부분 갱신
 
+실행 분할: U9a는 URL에 의존하지 않는 표시/정본 provider와 렌더러 코어를 선행 구현한다. 초기 전체 표시는 compact 파생 LOD 데이터를 사용하고 선택 시에만 정본을 조회한다. U9b는 U7/U8 이후 실제 API/화면에 연결한다.
+
 **담당:** web_frontend. **의존:** U8.
 **파일:** 생성 `apps/web/src/features/map-scene/MapSceneRenderer.ts`, `MapSceneRenderer.test.ts`, `MapSceneCanvas.tsx`, `MapSceneCanvas.test.tsx`; 기존 `features/cad-scene/CadSceneRenderer.ts`, worker/cache/display 모듈에서 범용 구현 추출, 이전 경로는 legacy 어댑터로 유지.
 **인터페이스:** `MapSceneRenderer.setCamera(camera)`, `setDocument(ref: MapDocumentRef)`, `applyChanges(operations: MapOp[], changedBounds: Bounds[])`, `dispose()`. camera는 기존 x/y/zoom/viewport 계약을 재사용한다.
@@ -373,6 +375,8 @@ onChange(operations);
 - [ ] 검증: 우상단 fixture 제거 버튼/팝업 유지, 도형 삭제 후 슬롯 유지. settings.md 후 커밋: `feat(web): unify map selection properties and deletion`.
 
 ### U11. 일반 도구 확장·그룹/레이어 편집
+
+실행 분할: U11a는 공통 요소 생성 함수·그리기 초안·재사용 팔레트의 신규 파일만 선행 구현한다. 기존 View/store/Canvas 연결과 그룹·레이어 화면은 U11b에서 검증한다.
 
 **담당:** web_frontend. **의존:** U10.
 **파일:** 생성 `EditorToolPalette.tsx`, `EditorToolPalette.test.tsx`, `map-element-tools.ts`, `map-element-tools.test.ts`; 수정 editor-types/geometry/Canvas/Properties/Layers.
@@ -487,9 +491,11 @@ expect(serverFailures).toEqual([]);
 | U2 | 완료·독립 검토 PASS | 61ce049e, 집중120/전체336·typecheck/build·ESM/CJS/pack 통과 |
 | U3 | 구현 중 | 신규 청크 저장·인덱스·자산 참조, 사용자 DB 미변경 |
 | U12 | 완료·독립 재검토 PASS | 482cd959/31003434, browser12+기존모바일2/unit109 통과, 드롭 가림·취소 hit 보완; 실제 기기 WebView 미검증 |
-| U4a | 구현 중 | 원본 geometry 변환; U4b persistence는 U3 후 연결 |
+| U4a | 구현·독립 검토 중 | bbd99208/cbe64ccb, 집중221 및 후속65 통과/opt-in1 제외; U4b persistence는 U3 후 연결 |
 | U8a | 완료·독립 검토 PASS | 22131660, 신규38/집중315/웹1718통과2제외, UI 미연결 |
-| U4b~U7, U8b~U11, U13~U14 | 대기 | U5는 맵 보존 대신 초기화로 변경 |
+| U9a | 구현 중 | 독립 렌더러 코어, 기존 화면에는 미연결 |
+| U11a | 구현·독립 검토 중 | 46376f4f, 집중103/소유파일 typecheck 통과, View/store/Canvas 미연결 |
+| U4b~U7, U8b, U9b~U11b, U13~U14 | 대기 | U5는 맵 보존 대신 초기화로 변경 |
 
 구현 방식은 **역할별 순차 서브에이전트 진행**을 제안한다. 공유 계약과 데이터 보존은 backend가 먼저, 소비 UI는 web_frontend가 이후 담당하고 QA가 작업 단위 결과를 확인한다. 메인은 공유 계약과 통합·문서 상태를 관리한다. 같은 파일을 다루는 병렬 에이전트는 만들지 않는다. 사용자가 더 낮은 토큰 비용을 우선하면 메인 직접 구현 + 최종 독립 리뷰로 변경할 수 있다.
 
