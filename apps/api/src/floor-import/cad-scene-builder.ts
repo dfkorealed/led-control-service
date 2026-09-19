@@ -891,7 +891,7 @@ function deduplicationDigest(primitive: CadScenePrimitive): string {
   return createHash("sha256").update(canonical, "utf8").digest("hex");
 }
 
-function splitOversizedPolyline(primitive: CadScenePrimitive): CadScenePrimitive[] {
+export function splitOversizedPolyline(primitive: CadScenePrimitive): CadScenePrimitive[] {
   if (primitive.type !== "polyline" || primitive.geometry.points.length <= CAD_SCENE_MAX_POINTS_PER_PRIMITIVE) {
     return [primitive];
   }
@@ -954,7 +954,7 @@ function tileRange(minimum: number, maximum: number, axisSize: number): [number,
   ];
 }
 
-interface TilePrimitiveAccumulator {
+export interface TilePrimitiveAccumulator {
   tileX: number;
   tileY: number;
   lod: 0 | 1 | 2;
@@ -1183,7 +1183,7 @@ function appendTileOccurrence(
   return 1;
 }
 
-function appendPrimitiveToTiles(
+export function appendPrimitiveToTiles(
   primitive: CadScenePrimitive,
   width: number,
   height: number,
@@ -1271,20 +1271,20 @@ function appendPrimitiveToTiles(
   return appended;
 }
 
-interface TilePartLimits {
+export interface TilePartLimits {
   maximumByteSize: number;
   maximumPartsPerCell: number;
   maximumPartCount: number;
   maximumTotalByteSize: number;
 }
 
-interface TileOutputState {
+export interface TileOutputState {
   totalByteSize: number;
   assetIds: Set<string>;
   manifestAssetId: string;
 }
 
-function encodeTileAccumulator(
+export function encodeTileAccumulator(
   tile: TilePrimitiveAccumulator,
   width: number,
   height: number,
