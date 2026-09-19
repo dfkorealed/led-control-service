@@ -27,6 +27,21 @@ const setup = (jobId?: string) => {
 afterEach(() => vi.unstubAllGlobals());
 
 describe("map document HTTP provider", () => {
+  it("partitions stage preview routes and pins hashes without falling back to live or import documents", async () => {
+    const { fetcher } = setup();
+    const source = createMapDocumentSource({ floorId: "floor 1", authScope: "principal", stageId: "stage /1" });
+    const other = createMapDocumentSource({ floorId: "floor 1", authScope: "principal", stageId: "other" });
+    const live = createMapDocumentSource({ floorId: "floor 1", authScope: "principal" });
+    expect(source.scopeKey).not.toBe(other.scopeKey); expect(source.scopeKey).not.toBe(live.scopeKey);
+    fetcher.mockResolvedValueOnce(json(ref)); await source.getDocument(signal());
+    fetcher.mockResolvedValueOnce(json(manifest)); await source.getManifest(ref, signal());
+    fetcher.mockResolvedValueOnce(new Response(payload)); await source.loadDisplayTile(tile, signal());
+    expect(fetcher.mock.calls.every(([url]) => String(url).startsWith("/api/floors/floor%201/editor-stages/stage%20%2F1/map-document"))).toBe(true);
+    fetcher.mockResolvedValueOnce(new Response(new Uint8Array([1, 2, 4])));
+    await expect(source.loadDisplayTile(tile, signal())).rejects.toThrow("integrity");
+    expect(() => createMapDocumentSource({ floorId: "f", authScope: "a", stageId: "" })).toThrow();
+    expect(() => createMapDocumentSource({ floorId: "f", authScope: "a", stageId: "s", jobId: "j" })).toThrow();
+  });
   it("rejects common v1 manifests instead of accepting missing ordering metadata", async () => {
     const { source, fetcher } = setup();
     fetcher.mockResolvedValueOnce(json({ ...manifest, display: { ...manifest.display, version: 1,

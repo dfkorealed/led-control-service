@@ -16,10 +16,13 @@ export interface MapDocumentSource extends MapSceneSource {
 
 /** Create once per authenticated floor/review scope; authScope must change on
  * principal/session/permission changes. No server authority is cached here. */
-export function createMapDocumentSource(options: { floorId: string; authScope: string; jobId?: string }): MapDocumentSource {
-  const { floorId, authScope, jobId } = options;
-  if (!floorId || !authScope || jobId === "") throw new Error("Map document requires an authenticated scope");
-  const prefix = `/api/floors/${encodeURIComponent(floorId)}${jobId === undefined ? "" : `/import-jobs/${encodeURIComponent(jobId)}`}/map-document`;
+export function createMapDocumentSource(options: { floorId: string; authScope: string; jobId?: string; stageId?: string }): MapDocumentSource {
+  const { floorId, authScope, jobId, stageId } = options;
+  if (!floorId || !authScope || jobId === "" || stageId === "" || jobId !== undefined && stageId !== undefined) throw new Error("Map document requires one authenticated scope");
+  if (stageId !== undefined) validId(stageId);
+  const scopePath = stageId !== undefined ? `/editor-stages/${encodeURIComponent(stageId)}`
+    : jobId !== undefined ? `/import-jobs/${encodeURIComponent(jobId)}` : "";
+  const prefix = `/api/floors/${encodeURIComponent(floorId)}${scopePath}/map-document`;
   let manifestEpoch = 0;
   let pinned: { ref: MapDocumentRef; tiles: Map<string, MapDisplayTile> } | null = null;
   const route = (ref: MapDocumentRef, suffix: string, cursor?: string) => {
@@ -47,7 +50,7 @@ export function createMapDocumentSource(options: { floorId: string; authScope: s
   const jsonRequest = async (url: string, signal: AbortSignal, body?: unknown) => parseJson(await request(url, signal, body));
 
   return Object.freeze({
-    scopeKey: JSON.stringify([authScope, floorId, jobId ?? null]),
+    scopeKey: JSON.stringify([authScope, floorId, jobId ?? null, ...(stageId === undefined ? [] : ["stage", stageId])]),
     async getDocument(signal: AbortSignal) {
       const result = await jsonRequest(prefix, signal);
       return result === null ? null : mapDocumentRefSchema.parse(result);
