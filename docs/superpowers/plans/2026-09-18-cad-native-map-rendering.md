@@ -145,15 +145,15 @@ const p95Ms = ordered.length ? ordered[Math.ceil(ordered.length * 0.95) - 1] : n
 **파일:** 생성 `packages/shared/src/map-document-contracts.ts`, `map-document-contracts.test.ts`, `map-document-geometry.ts`, `map-document-geometry.test.ts`; 수정 같은 패키지 `src/index.ts`, `src/schemas.ts`, `package.json`, `scripts/build.mjs`.
 **인터페이스:** 위 공통 타입 및 `mapElementSchema`, `mapMutationSchema`, `getMapElementBounds(element: MapElement): Bounds`. geometry 함수는 변환 후 bounds를 계산한다.
 
-- [ ] 실패 테스트: 8유형, 음수/0 치수, NaN/Infinity, 중복 ID 명령, 알 수 없는 CAD 전용 type, 잘못된 링·자기 교차, 회전+비균등 확대, 기본 텍스트. 서버가 계산할 bounds를 클라이언트 입력으로 신뢰하지 않는다.
+- [x] 실패 테스트: 8유형, 음수/0 치수, NaN/Infinity, 중복 ID 명령, 알 수 없는 CAD 전용 type, 잘못된 링·자기 교차, 회전+비균등 확대, 기본 텍스트. 서버가 계산할 bounds를 클라이언트 입력으로 신뢰하지 않는다.
 ```ts
 expect(mapElementSchema.safeParse({ type: "cad" }).success).toBe(false);
 expect(mapMutationSchema.safeParse({
   requestId: "r", generationId: "g", baseRevision: -1, leaseToken: "lease", operations: []
 }).success).toBe(false);
 ```
-- [ ] 실패 확인: `pnpm --filter @led-control/shared exec vitest run src/map-document-contracts.test.ts src/map-document-geometry.test.ts`.
-- [ ] 구현: strict discriminated union, 요소 ID 최대 512자, 그룹 순환/없는 참조는 문서 단위 검증. add는 미존재, update/delete는 존재 조건. 일반 저장 최대 2,000개 operation·기존 전체 envelope 1 MiB. 요소 자체는 기존 geometry 예산 내 최대 8 MiB 직렬화, 초과 저장은 U6 staged 경로를 사용한다.
+- [x] 실패 확인: `pnpm --filter @led-control/shared exec vitest run src/map-document-contracts.test.ts src/map-document-geometry.test.ts`.
+- [x] 구현: strict discriminated union, 요소 ID 최대 512자, 그룹 순환/없는 참조는 문서 단위 검증. add는 미존재, update/delete는 존재 조건. 일반 저장 최대 2,000개 operation·기존 전체 envelope 1 MiB. 요소 자체는 기존 geometry 예산 내 최대 8 MiB 직렬화, 초과 저장은 U6 staged 경로를 사용한다.
 geometry 중복 회전을 막기 위한 새 계약은 변환을 한 필드에만 둔다.
 ```ts
 const transformSchema = z.object({
@@ -165,8 +165,8 @@ const transformSchema = z.object({
 ```
 반사된 원본은 점 순서/원본 geometry로 정규화하며 negative scale을 사용자 저장으로 허용하지 않는다.
 
-- [ ] 검증: 위 테스트 + shared build/typecheck. 새 `./map-document-contracts` 브라우저 ESM export를 실제 import한다. 기존 CAD 형식 버전은 변경하지 않는다.
-- [ ] 명령 한도·계약 표를 본 문서와 설계에 일치시킨 뒤 커밋: `feat(shared): define common map element contracts`.
+- [x] 검증: 위 테스트 + shared build/typecheck. 새 `./map-document-contracts` 브라우저 ESM export를 실제 import한다. 기존 CAD 형식 버전은 변경하지 않는다.
+- [x] 명령 한도·계약 표를 본 문서와 설계에 일치시킨 뒤 커밋: `feat(shared): define common map element contracts`.
 
 ### U3. 문서 청크 저장·이력·정리 기반
 
@@ -193,6 +193,8 @@ ON "FloorMapChangeSet" ("floorId", "requestId");
 - [ ] 격리 PostgreSQL 전체 migration→기존 데이터 포함 업그레이드→cleanup 동시성 검증. 사용자 DB는 적용하지 않는다. database-schema.md 갱신 후 커밋: `feat(api): persist versioned common map documents`.
 
 ### U4. CAD를 공통 요소로 변환
+
+실행 분할: U4a는 U2 계약을 소비하는 순수 parser/builder/converter를 별도 파일 소유권으로 먼저 구현한다. U4b는 U3 후 persistence/worker와 연결한다. API 전체 빌드·Prisma generation은 U3 담당과 조율하며 U4a는 집중 테스트만 실행한다.
 
 **담당:** backend. **의존:** U3.
 **파일:** 생성 `apps/api/src/floor-import/map-element-converter.ts`, `map-element-converter.spec.ts`; 수정 `dxf-document-parser.ts`, `cad-types.ts`, `cad-scene-builder.ts`, `cad-scene-persistence.ts`, `floor-import-worker.service.ts`와 대응 spec.
@@ -294,6 +296,8 @@ const cacheKey = JSON.stringify([
 - [ ] baseline 대비 조회 수/바이트를 기록, 커밋: `perf(api): reuse verified map metadata without caching authorization`.
 
 ### U8. 공통 초안·실행 취소·저장 상태
+
+실행 분할: U8a는 네 개 신규 commands/history 파일만 먼저 구현·검증한다(U2 의존). U8b는 U6/U7 이후 store/diff/drafts/API와 외부 큰 inverse 참조를 연결한다. U8a만 완료해 전체 U8 또는 사용자 UI 통합 완료로 표시하지 않는다.
 
 **담당:** web_frontend. **의존:** U6/U7.
 **파일:** 생성 `map-element-commands.ts`, `map-element-commands.test.ts`, `map-element-history.ts`, `map-element-history.test.ts` (floor-editor 디렉터리); 수정 `editor-types.ts`, `editor-store.ts`, `editor-diff.ts`, `editor-drafts.ts`, `apps/web/src/api/floor-editor.ts`.
@@ -480,8 +484,10 @@ expect(serverFailures).toEqual([]);
 | 작업 | 상태 | 커밋/검증 증거 |
 | --- | --- | --- |
 | U1 | 구현 중 | 측정·회귀 도구, 기존 사용자 맵 변경 없음 |
-| U2 | 구현 중 | 공통 계약·geometry, shared 단독 소유 |
-| U3~U14 | 대기 | U5는 맵 보존 대신 초기화로 변경 |
+| U2 | 완료·독립 검토 PASS | 61ce049e, 집중120/전체336·typecheck/build·ESM/CJS/pack 통과 |
+| U3 | 구현 중 | 신규 청크 저장·인덱스·자산 참조, 사용자 DB 미변경 |
+| U12 | 구현 중 | 독립 레이아웃 선행, 새 e2e/map-editor-viewport.spec.ts 사용하여 U1과 파일 분리 |
+| U4~U11, U13~U14 | 대기 | U5는 맵 보존 대신 초기화로 변경 |
 
 구현 방식은 **역할별 순차 서브에이전트 진행**을 제안한다. 공유 계약과 데이터 보존은 backend가 먼저, 소비 UI는 web_frontend가 이후 담당하고 QA가 작업 단위 결과를 확인한다. 메인은 공유 계약과 통합·문서 상태를 관리한다. 같은 파일을 다루는 병렬 에이전트는 만들지 않는다. 사용자가 더 낮은 토큰 비용을 우선하면 메인 직접 구현 + 최종 독립 리뷰로 변경할 수 있다.
 
