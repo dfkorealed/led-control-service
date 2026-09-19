@@ -350,6 +350,8 @@ const visible = decodedElements.filter(element => !draftDeletedIds.has(element.i
 
 ### U10. 선택·수정·삭제 UI 통합
 
+실행 분할: U10a는 승인된 공통 타입을 소비하는 속성 패널/선택 overlay/변환 helper 신규 파일만 선행 구현한다. 기존 View/store/API 연결은 U10b가 담당하며 실제 화면 검증 전 전체 완료로 표시하지 않는다.
+
 **담당:** web_frontend. **의존:** U9.
 **파일:** 생성 `MapElementPropertiesPanel.tsx`, `MapElementPropertiesPanel.test.tsx`, `MapElementOverlay.tsx`, `MapElementOverlay.test.tsx` (floor-editor); 수정 `FloorEditorView.tsx`, `FloorEditorCanvas.tsx`, `EditorPropertiesPanel.tsx`, `EditorLayersPanel.tsx`, `CadElementPropertiesPanel.tsx`.
 **인터페이스:** 패널은 `selection: MapElement[]`, `onChange(ops: MapOp[])`, `onDelete(ids: string[])`를 받으며 HTTP를 직접 호출하지 않는다.
@@ -493,9 +495,10 @@ expect(serverFailures).toEqual([]);
 | U12 | 완료·독립 재검토 PASS | 482cd959/31003434, browser12+기존모바일2/unit109 통과, 드롭 가림·취소 hit 보완; 실제 기기 WebView 미검증 |
 | U4a | 완료·독립 재검토 PASS | 54abb278, 신규11 RED/GREEN 및 집중118통과1제외; U4b 대기 |
 | U8a | 완료·독립 검토 PASS | 22131660, 신규38/집중315/웹1718통과2제외, UI 미연결 |
-| U9a | 검토 지적 3건 보완 중 | 586f22e7, 동시 cache 예산/ID namespace/rAF 선택 좌표 수정; 실제provider/UI 미연결 |
+| U9a | 완료·독립 재검토 PASS | bd21abaf, 집중75/WebGL4/typecheck·리뷰13 통과; 실제provider/UI 미연결 |
 | U11a | 완료·독립 검토 PASS | 46376f4f, 집중103/소유파일 typecheck 통과, View/store/Canvas 미연결 |
 | U4b, U5 | 구현 중 | 가져오기/Prisma와 reset/controller 파일 소유 분리, 사용자 맵 초기화는 미실행 |
+| U10a | 구현 중 | 공통 속성/선택 overlay 신규 컴포넌트만 선행, 기존 View/store는 후속 |
 | U6~U7, U8b, U9b~U11b, U13~U14 | 대기 | 앞선 계약·보안 검토 완료 후 연결 |
 
 구현 방식은 **역할별 순차 서브에이전트 진행**을 제안한다. 공유 계약과 데이터 보존은 backend가 먼저, 소비 UI는 web_frontend가 이후 담당하고 QA가 작업 단위 결과를 확인한다. 메인은 공유 계약과 통합·문서 상태를 관리한다. 같은 파일을 다루는 병렬 에이전트는 만들지 않는다. 사용자가 더 낮은 토큰 비용을 우선하면 메인 직접 구현 + 최종 독립 리뷰로 변경할 수 있다.
