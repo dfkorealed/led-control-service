@@ -51,7 +51,6 @@ export class FloorImportController {
   }
 
   @Get(":jobId/scene/manifest/content")
-  @Redirect(undefined, 302)
   @Header("Cache-Control", "private, no-store")
   sceneManifest(
     @Param("floorId") floorId: string,

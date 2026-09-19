@@ -329,6 +329,16 @@ node /tmp/cad-native-task11-5kXlFW/core-existing.cjs /tmp/cad-native-task11-5kXl
 
 ## 인계 상태
 
+### 2026-09-19 실제 적용 후 표시 실패 수정 (Task 14)
+
+- 실제 사용자 Chrome `http://localhost:5173/settings/floor-plans/0d3a113e-f588-4648-b56e-727f4d6658fc/edit`에서 `CAD 맵을 표시하지 못했습니다`를 재현했다. API 적용과 editor-state/cad-scene은 200이지만 manifest 302 이후 타일 요청이 없었다. 임시 개발 진단으로 05:13:05 UTC의 ZodError `invalid_type` 2건을 확인했으며 진단 코드는 제거했다.
+- 원인: 원시 저장 manifest에는 자신의 `byteSize`/`sha256`이 없고 서버 reader가 저장 원장으로 검증·보완한다. 기존 302는 그 결과를 버리고 원시 파일을 브라우저에 전달했다. API는 검증된 DTO를 200 JSON으로 반환하도록 수정했으며 권한·private/no-store·타일 302·무결성·8 MiB 응답 상한을 유지한다. 스키마 완화나 기존 원본 재작성은 없다.
+- 실제 저장 데이터 읽기 전용 점검: 맵 리비전 17, scene `63b636c8-462f-5813-8bb9-d1bde4a1d91e`, 16,384×13,222, 고유 primitive 29,160개, 타일 875개, 기존 조명 4개/후보 슬롯 2개. Manifest 281,623 bytes의 크기·digest·저장소 checksum 일치, 876개 자산 ready, 타일 875개 전체 HEAD/GET/digest/codec 통과. 분할 타일의 33,721개 fragment는 고유 요소 수와 다르다. 증거 `/tmp/cad-scene-readonly-evidence-20260919.json`.
+- 새 HTTP 회귀는 실제 builder 원시 파일을 실제 storage reader와 controller에 통과시킨다. 수정 전 200 기대/302 수신으로 RED를 확인하고, 수정 후 strict schema/원장 일치/Location 없음/no-store/viewer·admin/401·404/변조 503/타일 302를 검증했다. 집중 **92/92** 통과(격리 PostgreSQL 26개 포함), 타입 검사 통과. `/tmp/cad-manifest-http-focused-20260919.json`.
+- 실제 사용자 Chrome에서 수정 후 다시 시도, 페이지 새로고침, 확대, 이동 도구 드래그, 맵 맞춤, 모니터링 표시, 편집기 복귀까지 직접 확인했다. 실제 주차장 선·텍스트·벽체가 보이며 오류 배너가 사라졌다. 화면 전후는 현재 작업의 브라우저 스크린샷에 기록했다. 이는 인증된 실제 API/저장소 조회이며 route fixture로 대체하지 않았다. 새 업로드/재적용/조명 제어는 하지 않았고 저장 리비전 17을 유지했다.
+- 최종 API 전체 **2,163 통과/527 환경·opt-in 제외/실패 0**(112.32초), 타입 검사와 API 빌드 통과. 독립 리뷰 P1/P2 없음. `/tmp/cad-manifest-http-api-final-20260919.json`. 프론트 제품 코드는 변경하지 않았으며 사용자 브라우저의 실제 읽기 검증을 수행했다. 실장비·원본별 재변환 전체 여정은 이번 좁은 수정의 완료 조건에 포함하지 않는다.
+
+
 ### 2026-09-19 재적용 500 및 후보 검토 보정
 
 - 실제 층의 첫 native 적용은 200, 두 번째 적용은 500이었으며 실패 작업은 `review_required`를 유지했다. 격리 PostgreSQL에서 `FloorCadScene.version=2` 삽입에 대한 SQL23514를 재현했다. 이 값은 교체 횟수가 아닌 manifest 형식 버전이므로 `manifest.version`을 유지하도록 수정했다. 신규 migration과 사용자 데이터 보정은 필요하지 않다.

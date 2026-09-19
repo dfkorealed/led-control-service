@@ -20,6 +20,7 @@ import {
   floorImportRenderedViewportSchema,
   CAD_SCENE_MAX_PARTS_PER_TILE,
   CAD_SCENE_MAX_TILES_PER_AXIS,
+  CAD_SCENE_MAX_MANIFEST_BYTES,
   cadSceneManifestSchema,
   type CadSceneManifest,
   type FloorImportApplyInput
@@ -408,11 +409,12 @@ export class FloorImportService {
     await this.authorizeFloor(user, floorId, "read");
     if (!this.storage) throw new InternalServerErrorException("floor import storage is unavailable");
     const draft = await this.loadCadSceneDraft(floorId, jobId);
-    try {
-      return { url: await this.storage.createFloorAssetDownloadUrl(draft.manifestAsset.objectKey) };
-    } catch {
-      throw new ServiceUnavailableException("CAD scene manifest content is unavailable");
+    // byteSize/sha256 attest to the verified stored asset, not this enriched
+    // HTTP representation. The raw file cannot contain its own SHA-256.
+    if (Buffer.byteLength(JSON.stringify(draft.manifest), "utf8") > CAD_SCENE_MAX_MANIFEST_BYTES) {
+      throw new ServiceUnavailableException("CAD scene manifest response exceeds its byte limit");
     }
+    return draft.manifest;
   }
 
   async getSceneTileContent(

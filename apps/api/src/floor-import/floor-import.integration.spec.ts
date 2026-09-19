@@ -1,7 +1,9 @@
 import { BadRequestException, ConflictException, NotFoundException, ServiceUnavailableException, type INestApplication } from "@nestjs/common";
 import { Test } from "@nestjs/testing";
 import { PrismaClient } from "@prisma/client";
+import { CAD_SCENE_MAX_MANIFEST_BYTES, cadSceneManifestSchema } from "@led-control/shared";
 import { createHash, randomUUID } from "node:crypto";
+import { createReadStream } from "node:fs";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -766,9 +768,7 @@ const EMPTY_CANDIDATE_IDENTITY_DIGEST = createHash("sha256").update(JSON.stringi
     storage.createFloorAssetDownloadUrl = jest.fn(async (objectKey: string) => `https://private.invalid/${objectKey}`);
 
     const imports = service();
-    await expect(imports.getSceneManifestContent(user, floorId, job.id)).resolves.toEqual({
-      url: `https://private.invalid/${identity.manifestObjectKey(floorId)}`
-    });
+    await expect(imports.getSceneManifestContent(user, floorId, job.id)).resolves.toEqual(built.manifest);
     const tile = built.manifest.tiles[0];
     await expect(imports.getSceneTileContent(user, floorId, job.id, {
       tileX: tile.tileX, tileY: tile.tileY, lod: tile.lod, part: tile.part
@@ -1323,9 +1323,7 @@ const EMPTY_CANDIDATE_IDENTITY_DIGEST = createHash("sha256").update(JSON.stringi
       const imports = new FloorImportService(
         prisma as never, access as never, new AuditService(prisma as never), workerStorage as never
       );
-      await expect(imports.getSceneManifestContent(user, floorId, job.id)).resolves.toEqual({
-        url: `https://private.invalid/${identity.manifestObjectKey(floorId)}`
-      });
+      await expect(imports.getSceneManifestContent(user, floorId, job.id)).resolves.toEqual(built.manifest);
       const tile = built.manifest.tiles[0];
       await expect(imports.getSceneTileContent(user, floorId, job.id, {
         tileX: tile.tileX, tileY: tile.tileY, lod: tile.lod, part: tile.part
@@ -2098,6 +2096,7 @@ const EMPTY_CANDIDATE_IDENTITY_DIGEST = createHash("sha256").update(JSON.stringi
   });
 
   it("enforces admin, viewer, tenant, session, and transaction-time permission boundaries over real HTTP", async () => {
+    const manifestDirectory = await mkdtemp(join(tmpdir(), "cad-http-manifest-"));
     const viewer = await prisma.user.create({ data: {
       organizationId, loginId: `cad_viewer_${randomUUID()}`, name: "CAD Viewer", passwordHash: "unused", role: "viewer"
     } });
@@ -2251,7 +2250,24 @@ const EMPTY_CANDIDATE_IDENTITY_DIGEST = createHash("sha256").update(JSON.stringi
         width: 1_200, height: 1_200, textCount: 0, lightCandidateCount: 0,
         area: (expected.bounds.maxX - expected.bounds.minX) * (expected.bounds.maxY - expected.bounds.minY)
       }));
-      storage.readCadSceneManifest = jest.fn().mockResolvedValue(builtScene.manifest);
+      const rawManifestPath = join(manifestDirectory, "manifest.json");
+      await writeFile(rawManifestPath, builtScene.manifestPayload);
+      const rawManifest = JSON.parse(builtScene.manifestPayload.toString("utf8"));
+      expect(rawManifest).not.toHaveProperty("byteSize");
+      expect(rawManifest).not.toHaveProperty("sha256");
+      expect(cadSceneManifestSchema.safeParse(rawManifest).success).toBe(false);
+      // Use the real storage reader on the builder's raw file, rather than a
+      // pre-enriched manifest mock that hides the HTTP representation mismatch.
+      const manifestObject = {
+        ContentLength: builtScene.manifestPayload.length,
+        ContentType: "application/json",
+        ChecksumSHA256: Buffer.from(builtScene.manifest.sha256, "hex").toString("base64")
+      };
+      const manifestGet = jest.fn(async () => ({ ...manifestObject, Body: createReadStream(rawManifestPath) }));
+      const manifestStorage = new ObjectStorageService({ send: manifestGet } as never, {
+        bucket: "disposable-cad-http", publicBaseUrl: "https://private.invalid"
+      });
+      storage.readCadSceneManifest = manifestStorage.readCadSceneManifest.bind(manifestStorage);
       storage.verifyCadSceneObject = jest.fn().mockResolvedValue(undefined);
       storage.createFloorAssetDownloadUrl = jest.fn(async (objectKey: string) => `https://private.invalid/${objectKey}`);
       await prisma.floor.update({ where: { id: sceneFloor.id }, data: {
@@ -2295,11 +2311,56 @@ const EMPTY_CANDIDATE_IDENTITY_DIGEST = createHash("sha256").update(JSON.stringi
       for (const contentPath of [manifestContent, tileContent]) {
         expect((await send("GET", contentPath)).status).toBe(401);
         const viewerResponse = await send("GET", contentPath, viewerCookie);
-        expect(viewerResponse.status).toBe(302);
+        expect(viewerResponse.status).toBe(contentPath === manifestContent ? 200 : 302);
         expect(viewerResponse.headers.get("cache-control")).toContain("private");
-        expect((await send("GET", contentPath, adminCookie)).status).toBe(302);
+        expect(viewerResponse.headers.get("cache-control")).toContain("no-store");
+        if (contentPath === manifestContent) {
+          expect(viewerResponse.headers.get("location")).toBeNull();
+          expect(viewerResponse.headers.get("content-type")).toContain("application/json");
+          const body = await viewerResponse.json();
+          expect(cadSceneManifestSchema.parse(body)).toEqual(builtScene.manifest);
+          expect(body.byteSize).toBe(builtScene.manifestPayload.length);
+          expect(body.sha256).toBe(createHash("sha256").update(builtScene.manifestPayload).digest("hex"));
+          expect(Buffer.byteLength(JSON.stringify(body))).toBeLessThanOrEqual(CAD_SCENE_MAX_MANIFEST_BYTES);
+        }
+        expect((await send("GET", contentPath, adminCookie)).status).toBe(contentPath === manifestContent ? 200 : 302);
         expect((await send("GET", contentPath, otherCookie)).status).toBe(404);
       }
+      for (const invalid of [
+        { ContentLength: manifestObject.ContentLength + 1 },
+        { ContentType: "text/plain" },
+        { ChecksumSHA256: Buffer.alloc(32).toString("base64") }
+      ]) {
+        manifestGet.mockResolvedValueOnce({ ...manifestObject, ...invalid, Body: Buffer.alloc(0) as never });
+        expect((await send("GET", manifestContent, viewerCookie)).status).toBe(503);
+      }
+      await writeFile(rawManifestPath, Buffer.alloc(builtScene.manifestPayload.length, 32));
+      expect((await send("GET", manifestContent, viewerCookie)).status).toBe(503);
+      await writeFile(rawManifestPath, builtScene.manifestPayload);
+      // Stored size includes legal whitespace; response size is independently
+      // bounded after enrichment, not raw size plus a guessed envelope budget.
+      const boundaryPayload = Buffer.concat([builtScene.manifestPayload,
+        Buffer.alloc(CAD_SCENE_MAX_MANIFEST_BYTES - builtScene.manifestPayload.length, 32)]);
+      const boundarySha = createHash("sha256").update(boundaryPayload).digest("hex");
+      await writeFile(rawManifestPath, boundaryPayload);
+      manifestObject.ContentLength = boundaryPayload.length;
+      manifestObject.ChecksumSHA256 = Buffer.from(boundarySha, "hex").toString("base64");
+      await prisma.floorAsset.update({ where: { id: builtScene.manifest.manifestAssetId }, data: {
+        sizeBytes: BigInt(boundaryPayload.length), sha256: boundarySha
+      } });
+      const boundaryResponse = await send("GET", manifestContent, viewerCookie);
+      expect(boundaryResponse.status).toBe(200);
+      const boundaryBody = await boundaryResponse.text();
+      expect(Buffer.byteLength(boundaryBody)).toBeLessThanOrEqual(CAD_SCENE_MAX_MANIFEST_BYTES);
+      expect(cadSceneManifestSchema.parse(JSON.parse(boundaryBody))).toEqual({
+        ...builtScene.manifest, byteSize: boundaryPayload.length, sha256: boundarySha
+      });
+      await writeFile(rawManifestPath, builtScene.manifestPayload);
+      manifestObject.ContentLength = builtScene.manifestPayload.length;
+      manifestObject.ChecksumSHA256 = Buffer.from(builtScene.manifest.sha256, "hex").toString("base64");
+      await prisma.floorAsset.update({ where: { id: builtScene.manifest.manifestAssetId }, data: {
+        sizeBytes: BigInt(builtScene.manifest.byteSize), sha256: builtScene.manifest.sha256
+      } });
 
       const genericAssets = `/floors/${sceneFloor.id}/assets`;
       expect((await send("GET", genericAssets)).status).toBe(401);
@@ -2388,7 +2449,7 @@ const EMPTY_CANDIDATE_IDENTITY_DIGEST = createHash("sha256").update(JSON.stringi
       expect((await raced).status).toBe(404);
       expect(await prisma.floorImportJob.count({ where: { floorId: raceFloor.id } })).toBe(0);
       await revoker.$disconnect();
-    } finally { await app.close(); }
+    } finally { await app.close(); await rm(manifestDirectory, { recursive: true, force: true }); }
   }, 30_000);
 });
 

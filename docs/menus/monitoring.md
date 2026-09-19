@@ -7,6 +7,7 @@
 - 조명 검색 결과에서 여러 장치를 선택한 뒤 일괄 또는 개별 정보를 설정할 수 있게 한다. 일괄 설정 이름은 층별 prefix와 서버가 원자 예약한 순번으로 자동 생성한다.
 - ESP32-H2 firmware device UUID의 자사 namespace를 검증해 자사 제품만 검색 결과와 provisioning session에 반영한다.
 - 설정 에디터의 수동 도형·조명은 기존 오버레이로, 네이티브 CAD는 공통 Pixi WebGL 타일 renderer로 읽기 전용 표시한다. 기존 SVG-only 맵의 읽기 호환은 유지한다.
+- 2026-09-19 manifest HTTP 응답에서 저장 원장의 크기·SHA256 누락을 수정했다. 검증된 JSON을 같은 출처의 API가 반환하고 타일은 기존 비공개 다운로드를 유지한다. 실제 admin Chrome·실제 API/저장소의 B1 리비전 17에서 모니터링 도면 표시와 편집기 왕복을 확인했다. fixture 브라우저 결과와 달리 이번 확인은 현재 저장된 사용자 맵을 읽은 결과이며 조명 제어나 배치 저장은 실행하지 않았다.
 - 도면 배경은 DB에 공개 URL을 저장하지 않고 인증된 `/api/floors/{floorId}/assets/{assetId}/content` 경로로 조회한다. API는 현장 read 권한을 확인한 뒤 300초 signed GET으로 연결하며 pending·타 현장·삭제 자산은 표시하지 않는다.
 - 장비 상태는 BLE Mesh Health Current의 현재 fault만 수집하고 통신 품질 평가는 확장하지 않는다.
 

@@ -186,11 +186,13 @@ if (!Array.isArray(samples) || samples.some(value => typeof value !== "string" |
       expect(finalCore.candidateTransformMatch.maxDeltaPx).toBeLessThanOrEqual(0.01);
       const scene = finalCore.scene!;
       const manifestResponse = await imports.getSceneManifestContent(user, floorId, created.jobId);
-      const rawManifest = await download(manifestResponse.url);
+      const manifest = cadSceneManifestSchema.parse(manifestResponse);
+      const manifestAsset = await prisma.floorAsset.findUniqueOrThrow({ where: { id: scene.manifestAssetId } });
+      const rawManifest = await download(await storage.createFloorAssetDownloadUrl(manifestAsset.objectKey));
       expect(rawManifest.length).toBe(scene.manifestByteSize);
       expect(sha256(rawManifest)).toBe(scene.manifestSha256);
-      const manifest = cadSceneManifestSchema.parse({ ...JSON.parse(rawManifest.toString("utf8")),
-        byteSize: rawManifest.length, sha256: sha256(rawManifest) });
+      expect(manifest.byteSize).toBe(rawManifest.length);
+      expect(manifest.sha256).toBe(sha256(rawManifest));
       const primitiveTypes: Record<string, number> = {};
       const uniqueElements = new Set<string>();
       let tileBytes = 0;
@@ -277,7 +279,7 @@ if (!Array.isArray(samples) || samples.some(value => typeof value !== "string" |
       expect(snapshot.cadScene).toMatchObject({ id: scene.sceneId, sourceImportJobId: created.jobId,
         manifestContentPath: `/floors/${floorId}/import-jobs/${created.jobId}/scene/manifest/content` });
       const appliedManifestResponse = await imports.getSceneManifestContent(user, floorId, created.jobId);
-      const appliedManifest = JSON.parse((await download(appliedManifestResponse.url)).toString("utf8"));
+      const appliedManifest = cadSceneManifestSchema.parse(appliedManifestResponse);
       expect(appliedManifest.sourceBounds).toEqual(manifest.sourceBounds);
       expect(appliedManifest.transform).toEqual(manifest.transform);
       metrics.postApplyEditorMapManifestVerified = true;

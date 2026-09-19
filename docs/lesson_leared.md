@@ -910,3 +910,10 @@
 - **원인**: schema/manifest/renderer가 모두 형식 버전 1을 요구하는 `FloorCadScene.version`을 교체 횟수처럼 증가시켰다. 빈 층에 한 번 적용하는 테스트만으로는 기존 scene이 있는 교체 경로를 검증할 수 없었다.
 - **해결 및 예방책**: 검증된 manifest의 형식 버전을 저장하고 교체는 새 scene ID 및 `Floor.mapRevision`으로 구분한다. DB 제약을 완화하거나 기존 scene을 수동 수정하지 않는다.
 - **반복 방지 체크**: 실제 PostgreSQL에서 native→native 반복 적용, 다른 크기/영역, 후보 0개/선택 후보, 기존 슬롯·배정·수동 도형·override·layer state와 실패 rollback을 검증한다. 적용 후 editor-state와 manifest descriptor의 형식 버전도 대조한다.
+
+## 2026-09-19 / 저장 파일과 브라우저 응답 DTO는 같은 표현이라고 가정하지 않는다
+
+- **발생했던 문제/실수**: CAD 적용은 성공했으나 실제 Chrome은 manifest를 읽은 뒤 타일 요청 전에 표시 실패했다. 내부 서버 테스트와 브라우저의 완성 DTO fixture는 각각 통과해 실제 전달 경계의 누락을 놓쳤다.
+- **원인**: 원시 manifest에는 자기 파일의 크기와 SHA256을 넣지 않는다. 서버 reader가 저장 원장으로 `byteSize`/`sha256`을 검증·보완하지만 302 응답이 원시 파일로 이동해 보완을 우회했고, 프론트 strict schema가 두 필드 누락을 거부했다.
+- **해결 및 예방책**: manifest API는 기존 권한·원장·파일 검증을 거친 DTO를 JSON으로 반환한다. 타일의 비공개 다운로드와 무결성 검증은 유지하며 필수 필드를 optional로 바꾸거나 파일에 자기 해시를 억지로 저장하지 않는다.
+- **반복 방지 체크**: 실제 builder의 원시 파일을 storage reader와 HTTP controller에 통과시킨 응답을 소비자 schema로 검사한다. 적용 200, manifest 200, 타일 조회, 화면 표시, 새로고침을 별개 완료 조건으로 기록한다. fixture 성공을 실제 사용자 브라우저 성공으로 확대하지 않는다.
