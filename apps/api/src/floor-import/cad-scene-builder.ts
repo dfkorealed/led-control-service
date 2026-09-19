@@ -1253,7 +1253,9 @@ export function appendPrimitiveToTiles(
     }
     return appended;
   }
-  if (primitive.type === "polyline") {
+  const filledCommonPath = primitive.type === "polyline" && "zIndex" in primitive &&
+    primitive.geometry.closed && primitive.style.fillColor !== null;
+  if (primitive.type === "polyline" && !filledCommonPath) {
     const segmentCount = primitive.geometry.closed
       ? primitive.geometry.points.length
       : primitive.geometry.points.length - 1;
@@ -1282,7 +1284,7 @@ export function appendPrimitiveToTiles(
   }
   const cells = new Map<string, OccupiedTileCell>();
   let fillPolygon: readonly { x: number; y: number }[] | null = null;
-  if (primitive.type === "rectangle" || primitive.type === "triangle") {
+  if (primitive.type === "rectangle" || primitive.type === "triangle" || (primitive.type === "polyline" && filledCommonPath)) {
     const points = primitive.type === "rectangle" ? rectanglePoints(primitive) : primitive.geometry.points;
     for (let index = 0; index < points.length; index++) {
       addOccupiedSegment(cells, points[index], points[(index + 1) % points.length], width, height);
@@ -1527,6 +1529,13 @@ function bindDisplayIdentities(semantic: CadSemanticEntity, elements: readonly M
         bounds: boundsOfPoints(world(element.geometry.points), true), geometry: { points: world(element.geometry.points), closed: false } }];
       if (element.type !== "polygon") throw new Error("Canonical HATCH must contain polygons or boundary polylines");
       if (ordered) {
+        // A simple ring is already a complete fill path supported by CDTL. Keep
+        // it whole for cell raster clipping, avoiding N triangles plus a stroke.
+        // Holes and codec-oversized rings still need a bounded triangle partition.
+        if (!element.geometry.holes.length && element.geometry.outer.length <= CAD_SCENE_MAX_POINTS_PER_PRIMITIVE) {
+          const points = world(element.geometry.outer);
+          return [{ ...base, type: "polyline", bounds: boundsOfPoints(points, true), geometry: { points, closed: true } }];
+        }
         // Filled rings cannot be fed to the stroke segment clipper. Preserve fill
         // triangles and real boundary paths as separate ordered spans of the same ID.
         const fills: CadScenePrimitive[] = element.style.fillColor === null ? []

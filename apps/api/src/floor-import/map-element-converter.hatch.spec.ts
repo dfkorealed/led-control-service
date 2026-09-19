@@ -245,4 +245,29 @@ describe("HATCH even-odd boundary topology", () => {
     }
     for (const primitive of primitives) expect(primitive.groupId).toBe(elements.find(e => e.id === primitive.elementId)!.groupId);
   });
+
+  it("retains a true hole and separate real boundary strokes in common v2", () => {
+    const bounds = { minX: 0, minY: 0, maxX: 100, maxY: 100 };
+    const input = semantic([square(10, 10, 60), square(20, 20, 20)]).source.entity;
+    const converter = createCadMapElementConverter({ importJobId: "hole", regionBounds: bounds });
+    const elements: ReturnType<typeof converter.convertSemanticEntity> = [];
+    const scene = buildCadScene({ version: 1, bounds, blocks: [], entities: [input] },
+      { regionId: "r", bounds, primitiveCount: 2, textCount: 0, lightCandidateCount: 0, area: 10000 },
+      { sceneId: "00000000-0000-4000-8000-000000000171", displayVersion: 2, onSemanticEntity: value => {
+        const converted = converter.convertSemanticEntity(value); elements.push(...converted); return converted;
+      } });
+    expect(elements).toHaveLength(1);
+    const element = elements[0];
+    if (element.type !== "polygon") throw new Error("expected polygon");
+    expect(element.geometry.holes).toHaveLength(1);
+    const primitives = scene.tiles.flatMap(tile => decodeMapDisplayTile(tile.payload, tile.descriptor));
+    expect(primitives.every(p => p.elementId === element.id && p.groupId === element.groupId && p.zIndex === element.zIndex)).toBe(true);
+    const fills = [...new Map(primitives.filter(p => p.type === "triangle").map(p => [p.fragmentOrder, p])).values()];
+    expect(fills.length).toBeGreaterThan(0);
+    expect(fills.every(p => p.style.strokeColor === null)).toBe(true);
+    const filledArea = fills.reduce((sum, p) => sum + (p.type === "triangle" ? area(p.geometry.points) : 0), 0);
+    const expectedArea = area(element.geometry.outer) - area(element.geometry.holes[0]);
+    expect(filledArea / expectedArea).toBeCloseTo(1, 6);
+    expect(primitives.filter(p => p.type === "polyline").every(p => p.style.fillColor === null)).toBe(true);
+  });
 });

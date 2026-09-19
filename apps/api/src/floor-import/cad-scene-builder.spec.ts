@@ -72,6 +72,33 @@ function unionBounds(primitives: readonly CadScenePrimitive[]) {
 }
 
 describe("CAD scene builder", () => {
+  it("keeps simple canonical HATCH fills as full closed paths within the original primitive cap", () => {
+    const input = document(["A", "B"].map(sourceEntityId => ({ type: "hatch", sourceEntityId, layer: "FILL",
+      loops: [{ type: "polyline", closed: true, vertices: [vertex(200, 200), vertex(800, 200), vertex(800, 800), vertex(200, 800)] }] })));
+    const converter = createCadMapElementConverter({ importJobId: "job", regionBounds: region().bounds });
+    const elements: ReturnType<typeof converter.convertSemanticEntity> = [];
+    const scene = buildCadScene(input, region(), { sceneId, displayVersion: 2, maxSelectedPrimitives: 2,
+      onSemanticEntity: semantic => { const value = converter.convertSemanticEntity(semantic); elements.push(...value); return value; } });
+    expect(scene.manifest.primitiveCount).toBe(2);
+    const inside = scene.tiles.find(tile => tile.descriptor.tileX === 16 && tile.descriptor.tileY === 16)!;
+    expect(inside).toBeDefined();
+    const primitives = decodeMapDisplayTile(inside.payload, inside.descriptor);
+    expect(new Set(primitives.map(p => p.elementId))).toEqual(new Set(elements.map(e => e.id)));
+    for (const p of primitives) {
+      expect(p).toMatchObject({ type: "polyline", geometry: { closed: true }, fragmentOrder: 0 });
+      expect(p.style.fillColor).not.toBeNull();
+      expect(p.style.strokeColor).not.toBeNull();
+      const element = elements.find(e => e.id === p.elementId)!;
+      expect(p.zIndex).toBe(element.zIndex);
+      if (p.type === "polyline" && element.type === "polygon") {
+        expect(p.geometry.points).toHaveLength(element.geometry.outer.length);
+        p.geometry.points.forEach((point, index) => {
+          expect(point.x).toBeCloseTo(element.geometry.outer[index].x, 2);
+          expect(point.y).toBeCloseTo(element.geometry.outer[index].y, 2);
+        });
+      }
+    }
+  });
   it("requires canonical ordering explicitly instead of upgrading a legacy void hook", () => {
     expect(() => buildCadScene(document([]), region(), { sceneId, displayVersion: 2 })).toThrow(/canonical/);
     const input = document([{ type: "line", sourceEntityId: "a", layer: "0", start: point(1, 1), end: point(2, 2) }]);
@@ -124,8 +151,8 @@ describe("CAD scene builder", () => {
       expect(new Set(occurrences.map(value => value.elementId)).size).toBe(elements.size);
       expect(new Set(occurrences.map(value => value.cell[2]))).toEqual(new Set([0, 1, 2]));
       const hatch = occurrences.filter(value => value.sourceType === "HATCH");
-      expect(hatch.some(value => value.type === "triangle" && value.style.fillColor !== null && value.style.strokeColor === null)).toBe(true);
-      expect(hatch.some(value => value.type === "polyline" && value.style.fillColor === null && value.style.strokeColor !== null)).toBe(true);
+      expect(hatch.every(value => value.type === "polyline" && value.geometry.closed &&
+        value.style.fillColor !== null && value.style.strokeColor !== null)).toBe(true);
       return occurrences.sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
     };
     expect(run(1)).toEqual(run(50000));
