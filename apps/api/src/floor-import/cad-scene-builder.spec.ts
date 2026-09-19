@@ -72,6 +72,17 @@ function unionBounds(primitives: readonly CadScenePrimitive[]) {
 }
 
 describe("CAD scene builder", () => {
+  it("gives distinct clipped fragments distinct identities while retaining replicated closed identity", () => {
+    const points = [{ x: 100, y: 100 }, { x: 1400, y: 100 }, { x: 1400, y: 1400 }, { x: 100, y: 1400 }];
+    const p = { type: "polyline" as const, elementId: "ring", groupId: null, layerName: "wall", sourceType: "HATCH",
+      zIndex: 0, fragmentOrder: 0, clipBounds: null, bounds: { minX: 100, minY: 100, maxX: 1400, maxY: 1400 },
+      style: { strokeColor: "#000000", fillColor: null, strokeWidth: 1, opacity: 1 }, geometry: { points, closed: false } };
+    const cells = new Map<string, TilePrimitiveAccumulator>();
+    let nextFragmentOrder = 0;
+    appendPrimitiveToTiles(p, 1536, 1536, cells, undefined, { nextFragmentOrder: () => nextFragmentOrder++ });
+    const fragments = [...cells.values()].flatMap(c => c.primitives) as typeof p[];
+    expect(new Set(fragments.map(f => f.fragmentOrder)).size).toBe(fragments.length);
+  });
   it.each([512, 515, 665])("covers closed stroke width and miter footprint beside grid boundary at x=%i", x => {
     const points = [{ x, y: 100 }, { x: x + 100, y: 100 }, { x: x + 100, y: 300 }, { x, y: 300 }];
     const primitive = { type: "polyline" as const, elementId: "ring", groupId: null, layerName: "wall", sourceType: "HATCH",
@@ -205,6 +216,8 @@ describe("CAD scene builder", () => {
           elements.set(ordered.id, ordered); return ordered;
         }) });
       expect(scene.manifest.version).toBe(2);
+      expect(scene.manifest.orderedPages).toEqual({ version: 1 });
+      expect(scene.tiles.every(tile => tile.descriptor.pages?.length)).toBe(true);
       const occurrences = scene.tiles.flatMap(tile => decodeMapDisplayTile(tile.payload, tile.descriptor).map(primitive => {
         const element = elements.get(primitive.elementId)!;
         expect(primitive.zIndex).toBe(element.zIndex);

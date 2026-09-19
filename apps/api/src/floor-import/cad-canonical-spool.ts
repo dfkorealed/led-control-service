@@ -85,6 +85,7 @@ export async function buildCanonicalCadScene(document: NormalizedCadDocument, re
   let built: StreamedMapDisplayScene;
   try {
     built = buildCadScene(document, region, { displayVersion: 2, sceneId: identity.sceneId, manifestAssetId: identity.manifestAssetId,
+      orderedPageDirectory: directory, onPageSpoolBytes: limits.onPhysicalBytes,
       tileAssetId: identity.tileAssetId, onTile: limits.onTile, onSemanticEntity: semantic => {
         const stored = converter.convertSemanticEntity(semantic);
         for (const element of stored) {

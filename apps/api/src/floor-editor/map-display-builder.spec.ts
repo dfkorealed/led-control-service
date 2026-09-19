@@ -1,5 +1,5 @@
 import { MapElement } from "@led-control/shared";
-import { nativeMapDisplayManifestSchema } from "@led-control/shared";
+import { nativeMapDisplayManifestSchema, validateMapDisplayPageContent } from "@led-control/shared";
 import { buildMapDisplay } from "./map-display-builder";
 import { decodeMapDisplayTile } from "../floor-import/cad-scene-codec";
 
@@ -20,8 +20,19 @@ describe("generic native map compact display", () => {
     expect(manifest.tileCount).toBe(payloads.length);
     expect(payloads.length).toBeGreaterThan(0);
     expect(manifest.version).toBe(2);
+    expect(manifest.orderedPages).toEqual({ version: 1 });
+    for (let i = 0; i < payloads.length; i++) validateMapDisplayPageContent(manifest.tiles[i], decodeMapDisplayTile(payloads[i]), name => name);
     const primitives = payloads.flatMap(payload => decodeMapDisplayTile(payload));
     expect(primitives.every(p => p.zIndex === 0 && Number.isInteger(p.fragmentOrder))).toBe(true);
+  });
+  it("emits ordered checkpoint pages for reverse paint-key input and explicit canonical fill groups", async () => {
+    const payloads: Buffer[] = [];
+    const inputs = [3, 2, 1].map(i => ({ ...element(`e${i}`), zIndex: i, style: { ...element("x").style, fillColor: "#ff0000", opacity: 0.5 } }));
+    const manifest = await buildMapDisplay({ ...ref, elementCount: inputs.length }, (async function* () { yield* inputs; })(),
+      async tile => { payloads.push(tile.payload); });
+    expect(manifest.orderedPages).toEqual({ version: 1 });
+    expect(manifest.tiles.flatMap(t => t.pages ?? []).some(p => p.paintGroup)).toBe(true);
+    for (let i = 0; i < payloads.length; i++) validateMapDisplayPageContent(manifest.tiles[i], decodeMapDisplayTile(payloads[i]), name => name);
   });
   it("supports truly empty maps and propagates failed uploads", async () => {
     const empty = await buildMapDisplay({ ...ref, elementCount: 0 }, (async function* () {})(), async () => {});

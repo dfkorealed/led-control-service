@@ -48,6 +48,7 @@ import {
 } from "./cad-scene-codec";
 import { measureCadText } from "./cad-text-layout";
 import { triangulateCadHatchPolygon } from "./cad-hatch-geometry";
+import { createMapDisplayPageWriter } from "./map-display-page-writer";
 import type {
   CadPoint,
   CadPolylineVertex,
@@ -89,6 +90,9 @@ export interface BuildCadSceneOptions {
   onSemanticEntity?: (entity: CadSemanticEntity) => readonly MapElement[] | void;
   /** Internal common producer sink. Synchronous backpressure; payloads are not retained. */
   onTile?: (tile: BuiltMapDisplayTile) => void;
+  /** Internal ordered-page scratch uses the same CAD physical ledger. */
+  orderedPageDirectory?: string;
+  onPageSpoolBytes?: (bytes: number) => void;
 }
 
 export interface CadSemanticEntity {
@@ -1223,12 +1227,17 @@ function appendTileOccurrence(
   width: number,
   height: number,
   tiles: Map<string, TilePrimitiveAccumulator>,
-  onOccurrencesAdded?: (count: number) => void
+  onOccurrencesAdded?: (count: number) => void,
+  consume?: (primitive: CadScenePrimitive, cell: OccupiedTileCell & { lod: 0 | 1 | 2 }) => void
 ): number {
   const cellBounds = tileCellBounds(cell.tileX, cell.tileY, width, height);
   const bounds = clippedBounds(primitive.bounds, cellBounds);
   if (!bounds) return 0;
   const lod = lodFor(primitive);
+  if (consume) {
+    consume({ ...primitive, bounds, clipBounds: cellBounds }, { ...cell, lod });
+    onOccurrencesAdded?.(1); return 1;
+  }
   const key = `${lod}:${cell.tileY}:${cell.tileX}`;
   const tile = tiles.get(key) ?? { tileX: cell.tileX, tileY: cell.tileY, lod, nextPart: 0, primitives: [] };
   tile.primitives.push({ ...primitive, bounds, clipBounds: cellBounds });
@@ -1242,11 +1251,22 @@ export function appendPrimitiveToTiles(
   width: number,
   height: number,
   tiles: Map<string, TilePrimitiveAccumulator>,
-  onOccurrencesAdded?: (count: number) => void
+  onOccurrencesAdded?: (count: number) => void,
+  ordered?: { nextFragmentOrder?: () => number;
+    consume?: (primitive: CadScenePrimitive, cell: OccupiedTileCell & { lod: 0 | 1 | 2 }) => void }
 ): number {
   let appended = 0;
+  let localFragment = (primitive as OrderedMapDisplayPrimitive).fragmentOrder;
+  const nextFragment = () => {
+    const value = ordered?.nextFragmentOrder?.() ?? localFragment++;
+    if (!Number.isInteger(value) || value < 0 || value > 0xffffffff) throw new Error("display fragment identity budget exceeded");
+    return value;
+  };
   const closedCommonPath = primitive.type === "polyline" && "zIndex" in primitive &&
     primitive.geometry.closed && primitive.geometry.points.length <= CAD_SCENE_MAX_POINTS_PER_PRIMITIVE;
+  if (ordered?.nextFragmentOrder && primitive.type !== "line" && (primitive.type !== "polyline" || closedCommonPath)) {
+    primitive = { ...primitive, fragmentOrder: nextFragment() } as OrderedMapDisplayPrimitive;
+  }
   // Canvas defaults to miterLimit=10: the maximum join reach is five times
   // world-space stroke width. This does not invent a zoom-dependent AA/hairline
   // bound; that unbounded consumer footprint needs a separate renderer policy.
@@ -1265,7 +1285,10 @@ export function appendPrimitiveToTiles(
     const cell = tileCellBounds(tileX, tileY, width, height);
     if (tileX >= 0 && tileY >= 0 && cell.maxX > cell.minX && cell.maxY > cell.minY &&
         primitive.bounds.maxX <= cell.maxX && primitive.bounds.maxY <= cell.maxY) {
-      return appendTileOccurrence(primitive, { tileX, tileY }, width, height, tiles, onOccurrencesAdded);
+      if (ordered?.nextFragmentOrder && (primitive.type === "line" || primitive.type === "polyline" && !closedCommonPath)) {
+        primitive = { ...primitive, fragmentOrder: nextFragment() } as OrderedMapDisplayPrimitive;
+      }
+      return appendTileOccurrence(primitive, { tileX, tileY }, width, height, tiles, onOccurrencesAdded, ordered?.consume);
     }
   }
   if (primitive.type === "line") {
@@ -1276,13 +1299,15 @@ export function appendPrimitiveToTiles(
       const tile = tiles.get(key) ?? {
         tileX: fragment.tileX, tileY: fragment.tileY, lod, nextPart: 0, primitives: []
       };
-      tile.primitives.push({
+      const occurrence: CadScenePrimitive = {
         ...primitive,
+        ...("zIndex" in primitive && ordered?.nextFragmentOrder ? { fragmentOrder: nextFragment() } : {}),
         bounds: segmentBounds(fragment.start, fragment.end),
         clipBounds: cellBounds,
         geometry: { start: fragment.start, end: fragment.end }
-      });
-      tiles.set(key, tile);
+      };
+      if (ordered?.consume) ordered.consume(occurrence, { tileX: fragment.tileX, tileY: fragment.tileY, lod });
+      else { tile.primitives.push(occurrence); tiles.set(key, tile); }
       appended++;
       onOccurrencesAdded?.(1);
     }
@@ -1305,13 +1330,15 @@ export function appendPrimitiveToTiles(
         const tile = tiles.get(key) ?? {
           tileX: fragment.tileX, tileY: fragment.tileY, lod, nextPart: 0, primitives: []
         };
-        tile.primitives.push({
+        const occurrence: CadScenePrimitive = {
           ...primitive,
+          ...("zIndex" in primitive && ordered?.nextFragmentOrder ? { fragmentOrder: nextFragment() } : {}),
           bounds: segmentBounds(fragment.start, fragment.end),
           clipBounds: cellBounds,
           geometry: { points: [fragment.start, fragment.end], closed: false }
-        });
-        tiles.set(key, tile);
+        };
+        if (ordered?.consume) ordered.consume(occurrence, { tileX: fragment.tileX, tileY: fragment.tileY, lod });
+        else { tile.primitives.push(occurrence); tiles.set(key, tile); }
         appended++;
         onOccurrencesAdded?.(1);
       }
@@ -1347,7 +1374,7 @@ export function appendPrimitiveToTiles(
   }
   for (const cell of [...cells.values()].sort((left, right) =>
     left.tileY - right.tileY || left.tileX - right.tileX)) {
-    appended += appendTileOccurrence(primitive, cell, width, height, tiles, onOccurrencesAdded);
+    appended += appendTileOccurrence(primitive, cell, width, height, tiles, onOccurrencesAdded, ordered?.consume);
   }
   return appended;
 }
@@ -1706,6 +1733,12 @@ export function buildCadScene(
     } : undefined
   };
   const deduplicationDigests = new Set<string>();
+  const pageWriter = displayVersion === MAP_DISPLAY_VERSION ? createMapDisplayPageWriter({
+    sceneId: options.sceneId, width: mapSize.width, height: mapSize.height, directory: options.orderedPageDirectory,
+    claimBytes: options.onPageSpoolBytes, checkBudget: options.checkBudget, tileAssetId: options.tileAssetId,
+    maximumByteSize: maximumTileByteSize, maximumPartsPerCell, maximumPartCount: maximumTilePartCount,
+    maximumTotalByteSize: maximumTotalTileBytes
+  }) : undefined;
   let selectedPrimitiveCount = 0;
   let retainedOccurrenceCount = 0;
   const onOccurrencesAdded = (count: number): void => {
@@ -1723,12 +1756,15 @@ export function buildCadScene(
       maximumRetainedTileOccurrences
     );
   };
+  try {
   for (const semantic of projectedEntities(document, context, options)) {
     const result: unknown = options.onSemanticEntity?.(semantic);
     if (result && typeof (result as PromiseLike<unknown>).then === "function") {
       throw new Error("CAD semantic hook must be synchronous; use the async element iterator for backpressure");
     }
     const canonicalBound = Array.isArray(result);
+    const canonicalById = new Map((canonicalBound ? result as MapElement[] : []).map(element => [element.id, element]));
+    const nextFragments = new Map<string, number>();
     if (displayVersion === MAP_DISPLAY_VERSION && !canonicalBound) throw new Error("Common display v2 requires canonical elements");
     const displayPrimitives = canonicalBound ? bindDisplayIdentities(semantic, result, displayVersion === MAP_DISPLAY_VERSION) : semantic.primitives;
     for (const sourcePrimitive of displayPrimitives) {
@@ -1747,6 +1783,20 @@ export function buildCadScene(
         throw new Error("CAD selected primitive limit exceeded");
       }
       for (const primitive of splitOversizedPolyline(converted)) {
+        if (pageWriter) {
+          const element = canonicalById.get(primitive.elementId)!;
+          // A triangle partition of one canonical polygon is one fill operation,
+          // not independent alpha draws. Whole compound rings need no continuation.
+          const paintGroup = element.type === "polygon" && primitive.type === "triangle" &&
+            primitive.style.fillColor !== null && primitive.style.strokeColor === null ? element.id : undefined;
+          appendPrimitiveToTiles(primitive, mapSize.width, mapSize.height, tilePrimitives, undefined, {
+            nextFragmentOrder: () => {
+              const next = nextFragments.get(element.id) ?? 0; nextFragments.set(element.id, next + 1); return next;
+            },
+            consume: (occurrence, cell) => pageWriter.append(cell, occurrence as OrderedMapDisplayPrimitive, element.layerId, paintGroup)
+          });
+          continue;
+        }
         appendPrimitiveToTiles(
           primitive,
           mapSize.width,
@@ -1756,6 +1806,12 @@ export function buildCadScene(
         );
       }
     }
+  }
+
+  if (pageWriter) for (const tile of pageWriter.finish()) {
+    if (tile.descriptor.assetId === manifestAssetId || outputState.assetIds.has(tile.descriptor.assetId)) throw new Error("CAD scene assetId must be unique");
+    outputState.assetIds.add(tile.descriptor.assetId);
+    if (outputState.onTile) outputState.onTile(tile); else tiles.push(tile);
   }
 
   const sortedTileAccumulators = [...tilePrimitives.values()]
@@ -1773,6 +1829,7 @@ export function buildCadScene(
       tiles
     );
   }
+  } finally { pageWriter?.dispose(); }
   tiles.sort((left, right) => left.descriptor.lod - right.descriptor.lod ||
     left.descriptor.tileY - right.descriptor.tileY ||
     left.descriptor.tileX - right.descriptor.tileX ||
@@ -1782,6 +1839,7 @@ export function buildCadScene(
 
   const manifestBody: Omit<CadSceneManifest | MapDisplayManifest, "byteSize" | "sha256"> = {
     version: displayVersion,
+    ...(pageWriter ? { orderedPages: { version: 1 as const } } : {}),
     sceneId: options.sceneId,
     regionId: region.regionId,
     manifestAssetId,
