@@ -5,7 +5,8 @@ import { PrismaModule } from "../prisma/prisma.module";
 import { StorageModule } from "../storage/storage.module";
 import { FloorEditorModule } from "./floor-editor.module";
 import { MapDocumentRevisionData } from "./map-document-revision-data";
-import { MAP_QUERY_REVISION_READER, MapDocumentReader } from "./map-document-reader";
+import { MapDocumentStagingService } from "./map-document-staging.service";
+import { MAP_QUERY_REVISION_READER, MAP_QUERY_STAGE_PREVIEW_READER, MapDocumentReader } from "./map-document-reader";
 import { MapDocumentQueryController } from "./map-document-query.controller";
 
 /** Importing FloorEditorModule here (not vice versa) avoids the editor/import
@@ -13,7 +14,8 @@ import { MapDocumentQueryController } from "./map-document-query.controller";
 @Module({
   imports: [PrismaModule, AuthModule, AccessModule, StorageModule, FloorEditorModule],
   controllers: [MapDocumentQueryController],
-  providers: [MapDocumentReader, { provide: MAP_QUERY_REVISION_READER, useExisting: MapDocumentRevisionData }],
+  providers: [MapDocumentReader, { provide: MAP_QUERY_REVISION_READER, useExisting: MapDocumentRevisionData },
+    { provide: MAP_QUERY_STAGE_PREVIEW_READER, useExisting: MapDocumentStagingService }],
   exports: [MapDocumentReader]
 })
 export class MapDocumentQueryModule {}

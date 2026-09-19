@@ -4,7 +4,7 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
-import { Bounds, CadSceneManifest, MapAssetRef, MapDocumentRef, MapElement, MapElementOp, MapGroup, MapLayer,
+import { Bounds, MapDisplayManifest, MAP_DISPLAY_VERSION, MapAssetRef, MapDocumentRef, MapElement, MapElementOp, MapGroup, MapLayer,
   getMapElementBounds, mapAssetRefSchema, mapBoundsSchema, mapDisplayManifestSchema, mapDocumentRefSchema, MAP_ELEMENT_MAX_ID_LENGTH } from "@led-control/shared";
 import { SiteAccessService } from "../access/site-access.service";
 import { AuthenticatedUser } from "../auth/auth.types";
@@ -17,6 +17,12 @@ import { mapIdHash, parseMapIndex } from "./map-document-index";
 import { MapDisplayAssets, MapDocumentStore, MapGenerationManifest } from "./map-document-store";
 
 export const MAP_QUERY_REVISION_READER = Symbol("MAP_QUERY_REVISION_READER");
+export const MAP_QUERY_STAGE_PREVIEW_READER = Symbol("MAP_QUERY_STAGE_PREVIEW_READER");
+/** A string retains the existing import-job scope; stages are a distinct namespace. */
+export type MapQueryScope = string | { stageId: string };
+export interface MapQueryStagePreviewReader {
+  resolvePreview(floorId: string, stageId: string, user: AuthenticatedUser): Promise<MapDocumentRef>;
+}
 /** U6 supplies this adapter after its commit/gate; no authorization is cached. */
 export interface MapQueryRevisionReader {
   currentRef?(floorId: string): Promise<MapDocumentRef | null>;
@@ -25,7 +31,7 @@ export interface MapQueryRevisionReader {
   }>;
 }
 export interface MapSceneQueryManifest {
-  generationId: string; revision: number; canonical: MapAssetRef; display: CadSceneManifest;
+  generationId: string; revision: number; canonical: MapAssetRef; display: MapDisplayManifest;
   displayLayerBindings: Array<{ layerName: string; layerId: string }>;
   groups: MapGroup[]; layers: MapLayer[];
 }
@@ -79,20 +85,21 @@ export class MapDocumentReader {
   private readonly cache = new MapQueryLedgerCache();
   constructor(private readonly prisma: PrismaService, private readonly access: SiteAccessService,
     private readonly storage: ObjectStorageService, private readonly store: MapDocumentStore,
-    @Optional() @Inject(MAP_QUERY_REVISION_READER) private readonly revisions?: MapQueryRevisionReader) {}
+    @Optional() @Inject(MAP_QUERY_REVISION_READER) private readonly revisions?: MapQueryRevisionReader,
+    @Optional() @Inject(MAP_QUERY_STAGE_PREVIEW_READER) private readonly stages?: MapQueryStagePreviewReader) {}
 
-  async getDocument(user: AuthenticatedUser, floorId: string, jobId?: string): Promise<MapDocumentRef | null> {
-    await this.authorize(user, floorId, jobId);
-    const ref = await this.reference(floorId, jobId);
-    if (ref) { await this.verifyAsset(floorId, ref.manifest, "map_manifest"); await this.fresh(floorId, ref, jobId); }
+  async getDocument(user: AuthenticatedUser, floorId: string, scope?: MapQueryScope): Promise<MapDocumentRef | null> {
+    await this.authorize(user, floorId, scope);
+    const ref = await this.reference(user, floorId, scope);
+    if (ref) { await this.verifyAsset(floorId, ref.manifest, "map_manifest"); await this.fresh(user, floorId, ref, scope); }
     return ref;
   }
 
   async getManifest(user: AuthenticatedUser, floorId: string, expected: Pick<MapDocumentRef, "generationId" | "revision">,
-    jobId?: string): Promise<MapSceneQueryManifest> {
-    const ref = await this.begin(user, floorId, expected, jobId), ledger = await this.ledger(floorId, ref);
+    scope?: MapQueryScope): Promise<MapSceneQueryManifest> {
+    const ref = await this.begin(user, floorId, expected, scope), ledger = await this.ledger(floorId, ref);
     const state = await this.revision(floorId, ref, ledger);
-    let display: CadSceneManifest, bindings: MapSceneQueryManifest["displayLayerBindings"] = [];
+    let display: MapDisplayManifest, bindings: MapSceneQueryManifest["displayLayerBindings"] = [];
     if (ledger.display) {
       const descriptor = ledger.display.manifest;
       const asset = await this.verifyAsset(floorId, descriptor, "map_display_manifest");
@@ -116,26 +123,26 @@ export class MapDocumentReader {
     if (new Set(bindings.map(binding => binding.layerName)).size !== bindings.length || bindings.some(binding => !layerIds.has(binding.layerId))) {
       throw new Error("map display layer binding mismatch");
     }
-    await this.fresh(floorId, ref, jobId);
+    await this.fresh(user, floorId, ref, scope);
     return { generationId: ref.generationId, revision: ref.revision, canonical: ref.manifest, display,
       displayLayerBindings: bindings, groups: state.groups, layers: state.layers };
   }
 
   async getTile(user: AuthenticatedUser, floorId: string, expected: Pick<MapDocumentRef, "generationId" | "revision">,
-    assetId: string, jobId?: string): Promise<Buffer> {
-    const ref = await this.begin(user, floorId, expected, jobId), ledger = await this.ledger(floorId, ref);
+    assetId: string, scope?: MapQueryScope): Promise<Buffer> {
+    const ref = await this.begin(user, floorId, expected, scope), ledger = await this.ledger(floorId, ref);
     const tile = ledger.display?.tiles.find(item => item.asset.assetId === assetId);
     if (!tile) throw new NotFoundException("map tile not referenced");
     const asset = await this.verifyAsset(floorId, tile.asset, "map_display_tile", tile.bounds);
     const result = await this.download(asset, tile.asset, 16 * 1024 * 1024);
-    await this.fresh(floorId, ref, jobId); return result;
+    await this.fresh(user, floorId, ref, scope); return result;
   }
 
   async getElements(user: AuthenticatedUser, floorId: string, expected: Pick<MapDocumentRef, "generationId" | "revision">,
-    input: unknown, jobId?: string): Promise<MapElement[]> {
+    input: unknown, scope?: MapQueryScope): Promise<MapElement[]> {
     const { ids } = parse(idsSchema, input);
     if (new Set(ids).size !== ids.length) throw new BadRequestException("duplicate map IDs");
-    const ref = await this.begin(user, floorId, expected, jobId), ledger = await this.ledger(floorId, ref);
+    const ref = await this.begin(user, floorId, expected, scope), ledger = await this.ledger(floorId, ref);
     const state = await this.revision(floorId, ref, ledger), found = new Map<string, MapElement>();
     const overlay = new Map(state.overlay.map(e => [e.id, e])), deleted = new Set(state.deletedIds);
     const byShard = new Map<string, Set<string>>(), byChunk = new Map<number, Array<[string, number]>>();
@@ -175,14 +182,14 @@ export class MapDocumentReader {
     }
     const result = ids.flatMap(id => found.has(id) ? [found.get(id)!] : []);
     if (Buffer.byteLength(JSON.stringify(result)) > MAP_CHUNK_MAX_BYTES) throw new BadRequestException("map response byte limit exceeded");
-    await this.fresh(floorId, ref, jobId); return result;
+    await this.fresh(user, floorId, ref, scope); return result;
   }
 
   async getChanges(user: AuthenticatedUser, floorId: string, expected: Pick<MapDocumentRef, "generationId" | "revision">,
-    cursor?: string, jobId?: string): Promise<MapChangesPage> {
-    const ref = await this.begin(user, floorId, expected, jobId), ledger = await this.ledger(floorId, ref);
+    cursor?: string, scope?: MapQueryScope): Promise<MapChangesPage> {
+    const ref = await this.begin(user, floorId, expected, scope), ledger = await this.ledger(floorId, ref);
     const state = await this.revision(floorId, ref, ledger), operations: MapElementOp[] = [];
-    const context = JSON.stringify([floorId, jobId ?? null, ref, "changes"]);
+    const context = JSON.stringify([floorId, scope ?? null, ref, "changes"]);
     let size = 256;
     const nextCursor = await this.scan(floorId, ref, ledger, state, context, cursor, !ledger.display, true, op => {
       const bytes = Buffer.byteLength(JSON.stringify(op)) + 1;
@@ -192,14 +199,14 @@ export class MapDocumentReader {
       }
       operations.push(op); size += bytes; return true;
     });
-    await this.fresh(floorId, ref, jobId);
+    await this.fresh(user, floorId, ref, scope);
     return { generationId: ref.generationId, revision: ref.revision, operations, nextCursor };
   }
 
   async select(user: AuthenticatedUser, floorId: string, expected: Pick<MapDocumentRef, "generationId" | "revision">,
-    input: unknown, jobId?: string): Promise<MapSelectionPage> {
+    input: unknown, scope?: MapQueryScope): Promise<MapSelectionPage> {
     const filter = parse(selectionSchema, input);
-    const ref = await this.begin(user, floorId, expected, jobId), ledger = await this.ledger(floorId, ref);
+    const ref = await this.begin(user, floorId, expected, scope), ledger = await this.ledger(floorId, ref);
     const state = await this.revision(floorId, ref, ledger), ids: string[] = [];
     const groupIds = new Set(filter.groupId ? [filter.groupId] : []);
     // Reverse-ordered deep hierarchies must not turn a bounded metadata load
@@ -215,7 +222,7 @@ export class MapDocumentReader {
         groupIds.add(id); pending.push(id);
       }
     }
-    const context = JSON.stringify([floorId, jobId ?? null, ref, "selection", filter.groupId ?? null, filter.layerId ?? null, filter.bounds ?? null, filter.limit]);
+    const context = JSON.stringify([floorId, scope ?? null, ref, "selection", filter.groupId ?? null, filter.layerId ?? null, filter.bounds ?? null, filter.limit]);
     const nextCursor = await this.scan(floorId, ref, ledger, state, context, filter.cursor, true, false, op => {
       if (op.kind === "delete") return true;
       const e = op.element;
@@ -224,7 +231,7 @@ export class MapDocumentReader {
       if (ids.length >= filter.limit) return false;
       ids.push(e.id); return true;
     }, filter.bounds);
-    await this.fresh(floorId, ref, jobId);
+    await this.fresh(user, floorId, ref, scope);
     return { generationId: ref.generationId, revision: ref.revision, ids, nextCursor };
   }
 
@@ -265,12 +272,19 @@ export class MapDocumentReader {
     return null;
   }
 
-  private async authorize(user: AuthenticatedUser, floorId: string, jobId?: string) {
+  private async authorize(user: AuthenticatedUser, floorId: string, scope?: MapQueryScope) {
     const floor = await this.prisma.floor.findUnique({ where: { id: floorId }, select: { id: true, siteId: true, status: true } });
     if (!floor || floor.status !== "active") throw new NotFoundException("floor not found");
-    await this.access.assert(user, floor.siteId, jobId ? "manage" : "read");
+    await this.access.assert(user, floor.siteId, scope ? "manage" : "read");
   }
-  private async reference(floorId: string, jobId?: string): Promise<MapDocumentRef | null> {
+  private async reference(user: AuthenticatedUser, floorId: string, scope?: MapQueryScope): Promise<MapDocumentRef | null> {
+    if (typeof scope === "object") {
+      // Only U6's ready-stage authority can resolve a private preview. Reuse it
+      // after I/O too; neither cached metadata nor a client generation is a pin.
+      if (!this.stages) throw new ServiceUnavailableException("map stage preview reader not connected");
+      return mapDocumentRefSchema.parse(await this.stages.resolvePreview(floorId, scope.stageId, user));
+    }
+    const jobId = scope;
     if (jobId) {
       const job = await this.prisma.floorImportJob.findFirst({ where: { id: jobId, floorId } });
       if (!job || job.floorId !== floorId || job.id !== jobId || job.status !== "review_required" || !job.preparedMapGenerationId) {
@@ -290,15 +304,15 @@ export class MapDocumentReader {
       : await new MapDocumentRevisionData(this.prisma, this.storage, this.store).currentRef(floorId);
     return ref ? mapDocumentRefSchema.parse(ref) : null;
   }
-  private async begin(user: AuthenticatedUser, floorId: string, expected: Pick<MapDocumentRef, "generationId" | "revision">, jobId?: string) {
-    await this.authorize(user, floorId, jobId);
-    const ref = await this.reference(floorId, jobId);
+  private async begin(user: AuthenticatedUser, floorId: string, expected: Pick<MapDocumentRef, "generationId" | "revision">, scope?: MapQueryScope) {
+    await this.authorize(user, floorId, scope);
+    const ref = await this.reference(user, floorId, scope);
     if (!ref) throw new NotFoundException("map document not found");
     if (ref.generationId !== expected.generationId || ref.revision !== expected.revision) throw new ConflictException("map document reference changed");
     return ref;
   }
-  private async fresh(floorId: string, expected: MapDocumentRef, jobId?: string) {
-    const current = await this.reference(floorId, jobId);
+  private async fresh(user: AuthenticatedUser, floorId: string, expected: MapDocumentRef, scope?: MapQueryScope) {
+    const current = await this.reference(user, floorId, scope);
     if (JSON.stringify(current) !== JSON.stringify(expected)) throw new ConflictException("map document reference changed");
   }
   private async ledger(floorId: string, ref: MapDocumentRef): Promise<Ledger> {
@@ -378,10 +392,10 @@ export class MapDocumentReader {
   }
 }
 
-function emptyDisplay(ref: MapDocumentRef): CadSceneManifest {
+function emptyDisplay(ref: MapDocumentRef): MapDisplayManifest {
   // Manual base geometry is paged separately; this valid zero-tile display uses
   // common map coordinates without loosening CAD source normalization rules.
-  return mapDisplayManifestSchema.parse({ version: 1, sceneId: ref.generationId, regionId: "manual-empty", manifestAssetId: ref.manifest.assetId,
+  return mapDisplayManifestSchema.parse({ version: MAP_DISPLAY_VERSION, sceneId: ref.generationId, regionId: "manual-empty", manifestAssetId: ref.manifest.assetId,
     width: ref.width, height: ref.height, gridSize: ref.gridSize, padding: 0, tileSize: 512, lodMode: "additive",
     primitiveCount: 0, tileCount: 0, byteSize: ref.manifest.byteSize, sha256: ref.manifest.sha256,
     sourceBounds: { minX: 0, minY: 0, maxX: ref.width, maxY: ref.height },

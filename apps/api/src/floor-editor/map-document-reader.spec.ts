@@ -1,16 +1,17 @@
 import { randomUUID, createHash } from "node:crypto";
 import { writeFile } from "node:fs/promises";
-import { cadSceneManifestSchema, mapDisplayManifestSchema, MapElement, MapDocumentRef } from "@led-control/shared";
+import { mapDisplayManifestSchema, MapElement, MapDocumentRef } from "@led-control/shared";
 import { SiteAccessService } from "../access/site-access.service";
 import { AuthenticatedUser } from "../auth/auth.types";
 import { PrismaService } from "../prisma/prisma.service";
 import { ObjectStorageService } from "../storage/object-storage.service";
 import { buildCadScene } from "../floor-import/cad-scene-builder";
-import { buildMapDocumentSnapshot } from "./floor-editor-snapshot";
+import { buildMapDocumentSnapshot, hashFloorEditorSnapshot } from "./floor-editor-snapshot";
 import { encodeMapPayload } from "./map-document-codec";
 import { MapDocumentStore } from "./map-document-store";
 import { MapDocumentRevisionData } from "./map-document-revision-data";
-import { MapDocumentReader, MapQueryLedgerCache, MapQueryRevisionReader } from "./map-document-reader";
+import { ConflictException, NotFoundException } from "@nestjs/common";
+import { MapDocumentReader, MapQueryLedgerCache, MapQueryRevisionReader, MapQueryStagePreviewReader } from "./map-document-reader";
 
 const viewer: AuthenticatedUser = { id: "viewer", organizationId: "org", organizationType: "customer",
   role: "viewer", status: "active", loginId: "viewer", name: "Viewer", mustChangePassword: false };
@@ -37,7 +38,8 @@ function fixture(count = 2, withDisplay = true) {
   const scene = buildCadScene({ version: 1, bounds: { minX: 0, minY: 0, maxX: 100, maxY: 100 }, blocks: [],
     entities: [{ type: "line", sourceEntityId: "source", layer: "WALL", start: { x: 0, y: 0, z: 0 }, end: { x: 100, y: 100, z: 0 } }] },
   { regionId: "region", bounds: { minX: 0, minY: 0, maxX: 100, maxY: 100 }, primitiveCount: 1, textCount: 0, lightCandidateCount: 0, area: 10000 },
-  { sceneId: generationId });
+  { sceneId: generationId, displayVersion: 2,
+    onSemanticEntity: ({ primitives }) => primitives.map(primitive => element(primitive.elementId)) });
   const elements = Array.from({ length: count }, (_, i) => element(`e-${i}`));
   const chunkBytes = Buffer.from(JSON.stringify(elements));
   const chunk = asset(encodeMapPayload(chunkBytes), "map_chunk", chunkBytes.length);
@@ -73,7 +75,10 @@ function fixture(count = 2, withDisplay = true) {
     floor: { findUnique: jest.fn(async () => ({ id: floorId, siteId: "site", status: "active" })) },
     site: { findUnique: jest.fn(async () => ({ id: "site", organizationId: "org", adminUserId: "admin", memberships: [{ id: "member", accessLevel: "read" }] })) },
     floorMapDocument: { findUnique: jest.fn(async () => head) },
-    floorMapRevision: { findUniqueOrThrow: jest.fn(async () => ({ snapshot: buildMapDocumentSnapshot({ document: ref, fixtures: [], lightSlots: [] }) })) },
+    floorMapRevision: { findUniqueOrThrow: jest.fn(async () => {
+      const snapshot = buildMapDocumentSnapshot({ document: ref, fixtures: [], lightSlots: [] });
+      return { snapshot, snapshotSha256: hashFloorEditorSnapshot(snapshot) };
+    }) },
     floorMapGeneration: { findFirst: jest.fn(async () => generation) },
     floorImportJob: { findFirst: jest.fn(async () => job) },
     floorAsset: { findUnique: jest.fn(async ({ where }: any) => assets.get(where.id) ?? null) }
@@ -91,12 +96,72 @@ function fixture(count = 2, withDisplay = true) {
   };
   const access = new SiteAccessService(prisma as unknown as PrismaService);
   const auth = jest.spyOn(access, "assert");
-  const create = (revisionReader?: MapQueryRevisionReader) => new MapDocumentReader(prisma as unknown as PrismaService,
-    access, storage as unknown as ObjectStorageService, store as unknown as MapDocumentStore, revisionReader);
+  const create = (revisionReader?: MapQueryRevisionReader, stageReader?: MapQueryStagePreviewReader) => new MapDocumentReader(prisma as unknown as PrismaService,
+    access, storage as unknown as ObjectStorageService, store as unknown as MapDocumentStore, revisionReader, stageReader);
   return { create, floorId, generationId, ref, manifest, prisma, storage, store, auth, assets, bytes, display, tiles, job, head, generation, elements };
 }
 
 describe("MapDocumentReader", () => {
+  it("resolves a ready stage before and after every query without looking up arbitrary prepared generations", async () => {
+    const f = fixture(200, false), scope = { stageId: "stage" };
+    const resolvePreview = jest.fn(async () => f.ref), reader = f.create(undefined, { resolvePreview });
+    expect(await reader.getDocument(admin, f.floorId, scope)).toEqual(f.ref);
+    expect((await reader.getManifest(admin, f.floorId, f.ref, scope)).display.tiles).toEqual([]);
+    expect(await reader.getElements(admin, f.floorId, f.ref, { ids: ["e-0"] }, scope)).toEqual([f.elements[0]]);
+    expect((await reader.select(admin, f.floorId, f.ref, { groupId: "group" }, scope)).ids).toHaveLength(128);
+    expect((await reader.getChanges(admin, f.floorId, f.ref, undefined, scope)).operations).toHaveLength(128);
+    expect(resolvePreview).toHaveBeenCalledTimes(10);
+    for (const call of resolvePreview.mock.calls) expect(call).toEqual([f.floorId, "stage", admin]);
+    expect(f.prisma.floorImportJob.findFirst).not.toHaveBeenCalled();
+    expect(f.prisma.floorMapGeneration.findFirst).not.toHaveBeenCalled();
+    expect(f.prisma.floorMapDocument.findUnique).not.toHaveBeenCalled();
+  });
+
+  it("rechecks stage pins on warm tiles and refuses a late revoked lease", async () => {
+    const f = fixture(), scope = { stageId: "stage" };
+    const resolvePreview = jest.fn(async () => f.ref), reader = f.create(undefined, { resolvePreview });
+    const bytes = await reader.getTile(admin, f.floorId, f.ref, f.tiles[0].assetId, scope);
+    expect(bytes.length).toBe(f.tiles[0].byteSize);
+    resolvePreview.mockResolvedValueOnce(f.ref).mockRejectedValueOnce(new ConflictException("stage lease expired"));
+    await expect(reader.getTile(admin, f.floorId, f.ref, f.tiles[0].assetId, scope)).rejects.toMatchObject({ status: 409 });
+    expect(resolvePreview).toHaveBeenCalledTimes(4);
+    expect(f.store.readManifest).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    ["cross-floor", 404], ["other actor", 404], ["expired lease", 409], ["stale fence", 409],
+    ["expired stage", 409], ["not ready", 409], ["wrong generation pin", 409]
+  ] as const)("does not bypass the stage helper's %s denial", async (_reason, status) => {
+    const f = fixture(), denial = status === 404 ? new NotFoundException() : new ConflictException();
+    const resolvePreview = jest.fn(async () => { throw denial; });
+    await expect(f.create(undefined, { resolvePreview }).getManifest(admin, f.floorId, f.ref, { stageId: "stage" }))
+      .rejects.toMatchObject({ status });
+    expect(resolvePreview).toHaveBeenCalledWith(f.floorId, "stage", admin);
+    expect(f.storage.verifyCadSceneObject).not.toHaveBeenCalled();
+    expect(f.store.readManifest).not.toHaveBeenCalled();
+  });
+
+  it("requires current manage access and refuses an unconnected stage adapter", async () => {
+    const f = fixture(), scope = { stageId: "stage" }, resolvePreview = jest.fn(async () => f.ref);
+    await expect(f.create(undefined, { resolvePreview }).getDocument(viewer, f.floorId, scope)).rejects.toMatchObject({ status: 403 });
+    expect(resolvePreview).not.toHaveBeenCalled();
+    await expect(f.create().getDocument(admin, f.floorId, scope)).rejects.toMatchObject({ status: 503 });
+    expect(f.prisma.floorMapGeneration.findFirst).not.toHaveBeenCalled();
+  });
+
+  it("rejects arbitrary stage generation queries and scope-swapped page cursors", async () => {
+    const f = fixture(200, false), scope = { stageId: "stage" };
+    const reader = f.create(undefined, { resolvePreview: async () => f.ref });
+    await expect(reader.getManifest(admin, f.floorId, { ...f.ref, generationId: randomUUID() }, scope)).rejects.toMatchObject({ status: 409 });
+    expect(f.store.readManifest).not.toHaveBeenCalled();
+    const page = await reader.select(admin, f.floorId, f.ref, { groupId: "group" }, scope);
+    await expect(reader.select(admin, f.floorId, f.ref, { groupId: "group", cursor: page.nextCursor! }, { stageId: "other-stage" }))
+      .rejects.toMatchObject({ status: 400 });
+    const changes = await reader.getChanges(admin, f.floorId, f.ref, undefined, scope);
+    await expect(reader.getChanges(admin, f.floorId, f.ref, changes.nextCursor!, { stageId: "other-stage" })).rejects.toMatchObject({ status: 400 });
+    expect((await reader.getChanges(admin, f.floorId, f.ref, changes.nextCursor!, scope)).operations).toHaveLength(72);
+  });
+
   it("coalesces 20 concurrent ledger decodes but authorizes all 20 tile requests", async () => {
     const f = fixture(), reader = f.create(), tile = f.tiles[0];
     const results = await Promise.all(Array.from({ length: 20 }, (_, i) => reader.getTile({ ...viewer, id: `viewer-${i}` }, f.floorId, f.ref, tile.assetId)));
@@ -109,9 +174,20 @@ describe("MapDocumentReader", () => {
 
   it("returns exact JSON DTO with ledger-filled size/hash from real builder output", async () => {
     const f = fixture(), result = await f.create().getManifest(viewer, f.floorId, f.ref);
-    expect(cadSceneManifestSchema.parse(JSON.parse(JSON.stringify(result)).display)).toMatchObject({
-      manifestAssetId: f.display.assetId, byteSize: f.display.byteSize, sha256: f.display.sha256 });
+    expect(mapDisplayManifestSchema.parse(JSON.parse(JSON.stringify(result)).display)).toMatchObject({
+      version: 2, manifestAssetId: f.display.assetId, byteSize: f.display.byteSize, sha256: f.display.sha256 });
     expect(Object.keys(result).sort()).toEqual(["canonical", "display", "displayLayerBindings", "generationId", "groups", "layers", "revision"].sort());
+  });
+
+  it("rejects a legacy v1 common manifest instead of inferring missing paint order", async () => {
+    const f = fixture(), row = f.assets.get(f.display.assetId);
+    const raw = JSON.parse(f.bytes.get(row.objectKey)!.toString("utf8"));
+    raw.scene.version = 1;
+    for (const tile of raw.scene.tiles) tile.version = 1;
+    const bytes = Buffer.from(JSON.stringify(raw));
+    f.bytes.set(row.objectKey, bytes); row.sha256 = f.display.sha256 = createHash("sha256").update(bytes).digest("hex");
+    row.sizeBytes = BigInt(bytes.length); f.display.byteSize = f.display.decodedByteSize = bytes.length;
+    await expect(f.create().getManifest(viewer, f.floorId, f.ref)).rejects.toThrow();
   });
 
   it("delegates current reference resolution to the committed U6 reader before and after I/O", async () => {
@@ -232,6 +308,7 @@ describe("MapDocumentReader", () => {
   it("serves display-free base elements through bounded change pages", async () => {
     const f = fixture(200, false), reader = f.create();
     const manifest = await reader.getManifest(viewer, f.floorId, f.ref);
+    expect(manifest.display.version).toBe(2);
     expect(manifest.display.tiles).toEqual([]);
     expect(mapDisplayManifestSchema.safeParse(manifest.display).success).toBe(true);
     const first = await reader.getChanges(viewer, f.floorId, f.ref);

@@ -7,14 +7,15 @@ import { MODULE_METADATA } from "@nestjs/common/constants";
 import { PrismaService } from "../prisma/prisma.service";
 import { RedisProvider } from "../redis/redis.provider";
 import { MapDocumentQueryModule } from "./map-document-query.module";
-import { MAP_QUERY_REVISION_READER } from "./map-document-reader";
+import { MAP_QUERY_REVISION_READER, MAP_QUERY_STAGE_PREVIEW_READER } from "./map-document-reader";
+import { MapDocumentStagingService } from "./map-document-staging.service";
 import { CreateBucketCommand, S3Client } from "@aws-sdk/client-s3";
 import { PrismaClient } from "@prisma/client";
 import { createHash, randomUUID } from "node:crypto";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { cadSceneManifestSchema, mapDisplayManifestSchema, MapDocumentRef, MapElement } from "@led-control/shared";
+import { mapDisplayManifestSchema, MapDocumentRef, MapElement } from "@led-control/shared";
 import { SiteAccessService } from "../access/site-access.service";
 import { AuditService } from "../audit/audit.service";
 import { PasswordService } from "../auth/password.service";
@@ -76,6 +77,37 @@ describe("Map document query HTTP contract", () => {
     expect(response.status).toBe(200);
     expect(reader.getManifest).toHaveBeenCalledWith(user, "floor", { generationId: "generation", revision: 2 }, "job");
   });
+  it("exposes the private stage prefix with session authentication and no raw lease credentials", async () => {
+    const prefix = `${base}/floors/floor/editor-stages/stage/map-document`;
+    expect((await fetch(prefix)).status).toBe(401);
+    expect(reader.getDocument).not.toHaveBeenCalled();
+    const response = await fetch(prefix, { headers: auth });
+    expect(response.status).toBe(200);
+    expect(response.headers.get("cache-control")).toContain("no-store");
+    expect(reader.getDocument).toHaveBeenCalledWith(user, "floor", { stageId: "stage" });
+  });
+  it("preserves stage scope through all bounded query endpoints", async () => {
+    const prefix = `${base}/floors/floor/editor-stages/stage/map-document`;
+    const ref = { generationId: "generation", revision: 2 }, scope = { stageId: "stage" };
+    for (const [path, method, body] of [
+      ["manifest", "GET", undefined], ["tiles/tile", "GET", undefined],
+      ["elements", "POST", { ids: ["a"] }], ["selection", "POST", { groupId: "group", cursor: "cursor" }],
+      ["changes", "GET", undefined]
+    ] as const) {
+      const response = await fetch(`${prefix}/${path}?generationId=generation&revision=2${path === "changes" ? "&cursor=cursor" : ""}`,
+        { method, headers: { ...auth, "content-type": "application/json" }, body: body ? JSON.stringify(body) : undefined });
+      expect(response.status).toBe(200);
+      expect(response.headers.get("location")).toBeNull();
+      expect(response.headers.get("cache-control")).toContain("no-store");
+    }
+    expect(reader.getManifest).toHaveBeenCalledWith(user, "floor", ref, scope);
+    expect(reader.getTile).toHaveBeenCalledWith(user, "floor", ref, "tile", scope);
+    expect(reader.getElements).toHaveBeenCalledWith(user, "floor", ref, { ids: ["a"] }, scope);
+    expect(reader.select).toHaveBeenCalledWith(user, "floor", ref, { groupId: "group", cursor: "cursor" }, scope);
+    expect(reader.getChanges).toHaveBeenCalledWith(user, "floor", ref, "cursor", scope);
+    expect((await fetch(`${prefix}/manifest`, { headers: auth })).status).toBe(400);
+    expect((await fetch(`${prefix}/manifest?generationId=generation&revision=2&leaseFence=1`, { headers: auth })).status).toBe(400);
+  });
   it("uses 200 JSON for POST element and selection queries", async () => {
     for (const [path, body] of [["elements", { ids: ["a"] }], ["selection", { groupId: "group" }]] as const) {
       expect((await fetch(url(`/${path}?generationId=generation&revision=2`), { method: "POST",
@@ -101,6 +133,7 @@ it("registers map queries in the application and resolves the committed revision
   try {
     expect(module.get(MapDocumentQueryController)).toBeDefined();
     expect(module.get(MAP_QUERY_REVISION_READER)).toBe(module.get(MapDocumentRevisionData));
+    expect(module.get(MAP_QUERY_STAGE_PREVIEW_READER)).toBe(module.get(MapDocumentStagingService));
   } finally { await module.close(); }
 });
 
@@ -206,7 +239,7 @@ const databaseUrl = process.env.U7_TEST_DATABASE_URL;
         for (const response of responses) expect((await response.arrayBuffer()).byteLength).toBe(tile.asset.byteSize);
         expect(manifestReads).toHaveBeenCalledTimes(1); expect(authorizations).toHaveBeenCalledTimes(20);
         const response = await request("/manifest", adminToken, undefined, prepared, jobId); expect(response.status).toBe(200);
-        const manifest = await response.json(); expect(cadSceneManifestSchema.safeParse(manifest.display).success).toBe(true);
+        const manifest = await response.json(); expect(mapDisplayManifestSchema.safeParse(manifest.display).success).toBe(true);
         expect(manifest.displayLayerBindings).toHaveLength(1);
         expect((await request("/manifest", viewerToken, undefined, prepared, jobId)).status).toBe(403);
         expect((await request("/manifest", adminToken, undefined, prepared)).status).toBe(409);
