@@ -10,6 +10,16 @@
 
 **설계:** [공통 맵 요소 설계](../specs/2026-09-18-cad-native-map-rendering-design.md)
 
+## 2026-09-20 카메라 입력/raster 최적화 실행 기록
+
+- [x] `FloorEditorCanvas` 팬·휠 줌의 imperative transform과 지연 상태 커밋 구현
+- [x] pointer RAF 단위 가상화 갱신과 120ms wheel settle commit 회귀 추가
+- [x] `MapSceneCanvasHandle.setCamera` 및 ordered raster의 settle 후 재-bake 구현
+- [x] renderer destroy/suspend의 timer, cell canvas, staging memory, stale render fence 보완
+- [x] 관련 집중 25개, 웹 전체 2,130개(3 skipped), 타입 검사 및 웹 build 통과
+- [x] 루트 전체 `pnpm test`/`pnpm build` 최종 결과 기록
+- [ ] 50만 요소·실제 RN/Linux cgroup 검증은 기존 보류 범위로 유지
+
 ## 현재 상태와 승인 경계
 
 **최신 사용자 변경**: 50만 요소 테스트는 제외하되 루트 전체 `pnpm test`와 `pnpm build`는 반드시 실행한다. 아래 원래 U9c/U14의 두 번째 DWG(498,838개)·합성500k 완료 조건은 보류 항목으로 유지하며 이번 완료 관문에서 제외한다. 확인된 일반 사용 결함의 회귀, 타입 검사, 실제 백엔드 E2E와 전체 자동 검증을 구분해 기록한다. 기존 실패를 PASS로 재분류하거나 추가 성능 실험으로 범위를 늘리지 않는다.

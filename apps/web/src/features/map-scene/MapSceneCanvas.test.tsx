@@ -45,6 +45,8 @@ describe("common map Canvas lifecycle", () => {
     expect(view.container.querySelector("canvas")).toBe(canvas);
     await waitFor(() => expect(h.backend.setCamera).toHaveBeenLastCalledWith({ ...camera, centerX: 600 }));
     expect(h.props.onError).not.toHaveBeenCalled();
+    ref.current!.setCamera({ ...camera, centerX: 620 });
+    await waitFor(() => expect(h.backend.setCamera).toHaveBeenLastCalledWith({ ...camera, centerX: 620 }));
     view.unmount();
     expect(h.renderers[0].memoryBytes).toBe(0);
     expect(h.props.onReady).toHaveBeenLastCalledWith(null);

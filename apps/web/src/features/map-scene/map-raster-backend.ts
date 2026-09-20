@@ -18,6 +18,7 @@ const intersects = (a: CadBounds, b: CadBounds) => a.minX < b.maxX && a.maxX > b
 const ordinal = (a: string, b: string) => a < b ? -1 : a > b ? 1 : 0;
 const expand = (b: CadBounds, margin: number): CadBounds => ({ minX: b.minX - margin, minY: b.minY - margin,
   maxX: b.maxX + margin, maxY: b.maxY + margin });
+const CAMERA_SETTLE_MS = 120;
 let sequence = 0;
 
 /** One cell is decoded, ordered and baked at a time. Only its raster remains:
@@ -37,7 +38,12 @@ export class MapRasterBackend extends PixiCadSceneRenderBackend {
   private revision = 0;
   private queued = false;
   private stopped = false;
+  private disposed = false;
   private paintFrame: number | null = null;
+  private settleTimer: ReturnType<typeof setTimeout> | null = null;
+  private pendingCameraRequest: Request | null = null;
+  private renderedRevision = -1;
+  private renderedSceneKey: string | null = null;
 
   constructor(private readonly budget: CadSceneMemoryBudget,
     private readonly layerId: (name: string) => string | undefined = name => name) { super(); }
@@ -74,6 +80,7 @@ export class MapRasterBackend extends PixiCadSceneRenderBackend {
 
   invalidateDisplay(bounds?: readonly (CadBounds | undefined)[]): void {
     this.revision++;
+    this.cancelSettledCamera();
     this.request?.controller.abort();
     for (const [key, cell] of this.cells) {
       const margin = this.lastRequest
@@ -87,8 +94,32 @@ export class MapRasterBackend extends PixiCadSceneRenderBackend {
   }
 
   renderDisplay(request: Request): Promise<void> {
+    if (this.disposed) return Promise.resolve();
+    const sceneKey = displaySceneKey(request.manifest);
+    const sameContent = this.renderedRevision === this.revision && this.renderedSceneKey === sceneKey;
+    const current = this.request;
+    if (current && this.lastRequest === request && !current.controller.signal.aborted) return current.promise;
+    this.lastRequest = request;
+    if (sameContent) {
+      this.pendingCameraRequest = request;
+      if (this.settleTimer !== null) clearTimeout(this.settleTimer);
+      this.settleTimer = setTimeout(() => {
+        this.settleTimer = null;
+        const pending = this.pendingCameraRequest;
+        this.pendingCameraRequest = null;
+        if (pending) void this.renderDisplayNow(pending);
+      }, CAMERA_SETTLE_MS);
+      return Promise.resolve();
+    }
+    return this.renderDisplayNow(request);
+  }
+
+  private renderDisplayNow(request: Request): Promise<void> {
+    if (this.disposed) return Promise.resolve();
     this.stopped = false;
     this.lastRequest = request;
+    this.renderedRevision = this.revision;
+    this.renderedSceneKey = displaySceneKey(request.manifest);
     if (request.signal.aborted) return Promise.resolve();
     const { camera, manifest } = request;
     if (manifest.version !== 2) return Promise.reject(new Error("Ordered map painter requires v2"));
@@ -270,23 +301,36 @@ export class MapRasterBackend extends PixiCadSceneRenderBackend {
   override render(): void { this.cancelPaint(); super.render(); this.queueRefresh(); }
 
   override suspend(): void {
-    this.stopped = true; this.request?.controller.abort(); this.request = null; this.lastRequest = null;
+    this.stopped = true; this.cancelSettledCamera(); this.request?.controller.abort(); this.request = null; this.lastRequest = null;
     this.cancelPaint();
     for (const key of this.cells.keys()) this.drop(key);
     for (const owner of this.stagingOwners) this.budget.releaseOwner(owner);
     super.suspend();
   }
 
-  override destroy(): void { super.destroy(); this.versions.clear(); this.drafts = []; this.draftBounds = []; this.transient = null; }
+  override destroy(): void {
+    // The base Pixi backend only owns GPU resources. Ordered cells also hold
+    // canvas memory in the shared budget, so release them before disposal.
+    this.disposed = true;
+    this.suspend();
+    super.destroy();
+    this.versions.clear(); this.drafts = []; this.draftBounds = []; this.transient = null;
+  }
+
+  private cancelSettledCamera(): void {
+    if (this.settleTimer !== null) clearTimeout(this.settleTimer);
+    this.settleTimer = null;
+    this.pendingCameraRequest = null;
+  }
 
   private queueRefresh(): void {
-    if (this.queued || this.stopped || !this.lastRequest) return;
+    if (this.queued || this.stopped || this.disposed || !this.lastRequest) return;
     this.queued = true;
-    queueMicrotask(() => { this.queued = false; if (!this.stopped && this.lastRequest) void this.renderDisplay(this.lastRequest); });
+    queueMicrotask(() => { this.queued = false; if (!this.stopped && !this.disposed && this.lastRequest) void this.renderDisplay(this.lastRequest); });
   }
 
   private schedulePaint(): void {
-    if (this.paintFrame !== null || this.stopped) return;
+    if (this.paintFrame !== null || this.stopped || this.disposed) return;
     this.paintFrame = requestAnimationFrame(() => {
       this.paintFrame = null;
       if (!this.stopped) super.render();
@@ -319,6 +363,10 @@ export class MapRasterBackend extends PixiCadSceneRenderBackend {
     this.cells.delete(key); this.budget.release(this.owner, key);
     if (cell?.canvas) { cell.canvas.width = 0; cell.canvas.height = 0; }
   }
+}
+
+function displaySceneKey(manifest: Pick<MapDisplayManifest, "sceneId" | "manifestAssetId" | "sha256" | "width" | "height" | "tileCount">): string {
+  return `${manifest.sceneId}:${manifest.manifestAssetId}:${manifest.sha256}:${manifest.width}:${manifest.height}:${manifest.tileCount}`;
 }
 
 class RasterBudgetError extends Error {}

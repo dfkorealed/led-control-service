@@ -158,7 +158,11 @@ export function FloorEditorCanvas({
   const [dropPreview, setDropPreview] = useState<Point | null>(null);
   const [highlightedSlotId, setHighlightedSlotId] = useState<string | null>(null);
   const [isPanning, setIsPanning] = useState(false);
-  const [transientPan, setTransientPan] = useState<Point | null>(null);
+  // Camera gestures stay outside React until they settle. Updating Zustand on
+  // every pointer/wheel event reconciles every Konva child unnecessarily.
+  const cameraOverride = useRef<{ pan: Point; zoom: number } | null>(null);
+  const wheelCommitTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [cameraRenderVersion, setCameraRenderVersion] = useState(0);
   const floorPlan = state?.floor.floorPlan;
   // Native CAD owns the base layer; its legacy preview must not cover WebGL.
   const backgroundUrl = mapEditor?.document || cadSceneDescriptor || cadImportScene ? "" : cadBackgroundUrl
@@ -167,16 +171,50 @@ export function FloorEditorCanvas({
   const bounds = cadImportScene?.manifest ?? mapEditor?.mapBounds ?? (cadBackgroundUrl && cadViewport
     ? cadViewport
     : { width: floorPlan?.width ?? 1200, height: floorPlan?.height ?? 800 });
-  const renderedPan = transientPan ?? pan;
+  // Sample the virtualized overlay at the existing pointer RAF cadence. The
+  // map transform remains imperative for every input frame; only newly
+  // visible overlays need a React render before the gesture is committed.
+  const renderedCamera = cameraOverride.current;
+  const renderedPan = renderedCamera?.pan ?? pan;
+  const renderedZoom = renderedCamera?.zoom ?? zoom;
   const viewportBounds = {
-    x: -renderedPan.x / zoom,
-    y: -renderedPan.y / zoom,
-    width: viewport.width / zoom,
-    height: viewport.height / zoom
+    x: -renderedPan.x / renderedZoom,
+    y: -renderedPan.y / renderedZoom,
+    width: viewport.width / renderedZoom,
+    height: viewport.height / renderedZoom
   };
+  const applyImperativeCamera = useCallback((nextPan: Point, nextZoom: number, refreshVirtualizedView = false) => {
+    cameraOverride.current = { pan: nextPan, zoom: nextZoom };
+    const transform = { x: nextPan.x, y: nextPan.y, scaleX: nextZoom, scaleY: nextZoom };
+    stage.current?.getLayers().forEach((layer) => layer.setAttrs(transform));
+    const currentMap = mapEditorRef.current;
+    currentMap?.handle.current?.setCamera({
+      centerX: (viewport.width / 2 - nextPan.x) / nextZoom,
+      centerY: (viewport.height / 2 - nextPan.y) / nextZoom,
+      zoom: nextZoom,
+      viewportWidth: viewport.width,
+      viewportHeight: viewport.height
+    });
+    if (refreshVirtualizedView) setCameraRenderVersion((version) => version + 1);
+  }, [viewport.height, viewport.width]);
+  const commitCamera = useCallback(() => {
+    if (wheelCommitTimer.current !== null) clearTimeout(wheelCommitTimer.current);
+    wheelCommitTimer.current = null;
+    const current = cameraOverride.current;
+    if (!current) return;
+    useFloorEditorStore.setState({ pan: current.pan, zoom: current.zoom });
+    cameraOverride.current = null;
+  }, []);
+  const scheduleWheelCommit = useCallback(() => {
+    if (wheelCommitTimer.current !== null) clearTimeout(wheelCommitTimer.current);
+    wheelCommitTimer.current = setTimeout(() => {
+      wheelCommitTimer.current = null;
+      commitCamera();
+    }, 120);
+  }, [commitCamera]);
   const visibleFixtures = useMemo(() => {
     if (cadReviewActive) return [];
-    const visibleIds = new Set(queryEditorSpatialIndex(placedFixtureCollection.spatialIndex, viewportBounds, 160 / zoom).map((item) => item.id));
+    const visibleIds = new Set(queryEditorSpatialIndex(placedFixtureCollection.spatialIndex, viewportBounds, 160 / renderedZoom).map((item) => item.id));
     selectedIds.forEach((id) => {
       if (placedFixtureCollection.byId.has(id)) visibleIds.add(id);
     });
@@ -184,17 +222,17 @@ export function FloorEditorCanvas({
       .map((id) => placedFixtureCollection.byId.get(id))
       .filter((fixture): fixture is EditorFixture => fixture !== undefined)
       .sort((a, b) => placedFixtureCollection.orderById.get(a.id)! - placedFixtureCollection.orderById.get(b.id)!);
-  }, [cadReviewActive, placedFixtureCollection, selectedIds, viewportBounds.height, viewportBounds.width, viewportBounds.x, viewportBounds.y, zoom]);
+  }, [cadReviewActive, placedFixtureCollection, selectedIds, viewportBounds.height, viewportBounds.width, viewportBounds.x, viewportBounds.y, renderedZoom]);
   const visibleObjects = useMemo(() => {
     if (cadReviewActive) return [];
-    const visibleIds = new Set(queryEditorSpatialIndex(objectCollection.spatialIndex, viewportBounds, 160 / zoom).map((item) => item.id));
+    const visibleIds = new Set(queryEditorSpatialIndex(objectCollection.spatialIndex, viewportBounds, 160 / renderedZoom).map((item) => item.id));
     if (selection?.kind === "object" && objectCollection.byId.has(selection.id)) visibleIds.add(selection.id);
     return [...visibleIds]
       .map((id) => objectCollection.byId.get(id))
       .filter((object): object is FloorMapObject => object !== undefined)
       .sort((a, b) => a.zIndex - b.zIndex);
-  }, [cadReviewActive, objectCollection, selection, viewportBounds.height, viewportBounds.width, viewportBounds.x, viewportBounds.y, zoom]);
-  const showBulkNames = useMemo(() => canShowFixtureNames(visibleFixtures, zoom), [visibleFixtures, zoom]);
+  }, [cadReviewActive, objectCollection, selection, viewportBounds.height, viewportBounds.width, viewportBounds.x, viewportBounds.y, renderedZoom]);
+  const showBulkNames = useMemo(() => canShowFixtureNames(visibleFixtures, renderedZoom), [visibleFixtures, renderedZoom]);
 
   useEffect(() => {
     if (!measured) return;
@@ -293,7 +331,8 @@ export function FloorEditorCanvas({
   useEffect(() => () => {
     cancelPointerMove();
     cancelDragMove();
-  }, [cancelDragMove, cancelPointerMove]);
+    commitCamera();
+  }, [cancelDragMove, cancelPointerMove, commitCamera]);
 
   const register = useCallback((id: string, node: Konva.Node | null) => { if (node) nodes.current.set(id, node); else nodes.current.delete(id); }, []);
   const onSelect = useCallback((id: string, additive: boolean) => useFloorEditorStore.getState().selectFixture(id, additive), []);
@@ -412,8 +451,12 @@ export function FloorEditorCanvas({
         cancelPointerMove();
         // Imperative pan is not yet in Zustand. Restore every layer before dropping
         // the gesture, so the next drop uses exactly the transform shown on screen.
-        if (gesture.current?.kind === "pan") stage.current?.getLayers().forEach((layer) => layer.position(store.pan));
-        gesture.current = null; mapEditorRef.current?.cancelHole(); setMapCreation(null); mapCreationDraft.current = null; setPathDraft(null); setTransientPan(null); setCreation(null); setMarquee(null); setDropPreview(null); setHighlightedSlotId(null); setIsPanning(false); store.setPreview([]); return;
+        if (gesture.current?.kind === "pan") stage.current?.getLayers().forEach((layer) => layer.setAttrs({ x: store.pan.x, y: store.pan.y, scaleX: store.zoom, scaleY: store.zoom }));
+        if (wheelCommitTimer.current !== null) clearTimeout(wheelCommitTimer.current);
+        wheelCommitTimer.current = null; cameraOverride.current = null;
+        mapEditorRef.current?.handle.current?.setCamera({ centerX: (viewport.width / 2 - store.pan.x) / store.zoom,
+          centerY: (viewport.height / 2 - store.pan.y) / store.zoom, zoom: store.zoom, viewportWidth: viewport.width, viewportHeight: viewport.height });
+        gesture.current = null; mapEditorRef.current?.cancelHole(); setMapCreation(null); mapCreationDraft.current = null; setPathDraft(null); setCreation(null); setMarquee(null); setDropPreview(null); setHighlightedSlotId(null); setIsPanning(false); store.setPreview([]); return;
       }
       if (readOnly) return;
       if (event.key === "Enter" && pathDraft) { event.preventDefault(); finishPath(); return; }
@@ -452,7 +495,10 @@ export function FloorEditorCanvas({
   };
   if (!state) return null;
   const screenPoint = (event: { clientX: number; clientY: number }) => { const rect = container.current!.getBoundingClientRect(); return { x: event.clientX - rect.left, y: event.clientY - rect.top }; };
-  const worldPoint = (event: { clientX: number; clientY: number }) => screenToWorld(screenPoint(event), useFloorEditorStore.getState().pan, useFloorEditorStore.getState().zoom);
+  const worldPoint = (event: { clientX: number; clientY: number }) => {
+    const current = cameraOverride.current ?? useFloorEditorStore.getState();
+    return screenToWorld(screenPoint(event), current.pan, current.zoom);
+  };
 
   function begin(event: MouseEvent<HTMLDivElement>) {
     if ((event.target as Element).closest("button")) return;
@@ -467,7 +513,9 @@ export function FloorEditorCanvas({
       return;
     }
     if (activeTool === "pan") {
-      gesture.current = { kind: "pan", screen: screenPoint(event), pan, start: worldPoint(event), additive: false, moved: false };
+      commitCamera();
+      const current = useFloorEditorStore.getState();
+      gesture.current = { kind: "pan", screen: screenPoint(event), pan: current.pan, start: worldPoint(event), additive: false, moved: false };
       setIsPanning(true);
     } else if (!readOnly && drawingTools.has(activeTool) && !layers.objects.locked) {
       gesture.current = { kind: "draw", screen: screenPoint(event), pan, start: clampPoint(worldPoint(event), bounds), additive: false, moved: false };
@@ -475,7 +523,9 @@ export function FloorEditorCanvas({
     } else if (!readOnly && activeTool === "select") {
       const hit = stage.current?.getIntersection(screenPoint(event));
       if (hit) return;
-      gesture.current = { kind: mapEditor?.document && !event.shiftKey ? "pan" : "marquee", screen: screenPoint(event), pan, start: worldPoint(event), additive: event.shiftKey, moved: false };
+      commitCamera();
+      const current = useFloorEditorStore.getState();
+      gesture.current = { kind: mapEditor?.document && !event.shiftKey ? "pan" : "marquee", screen: screenPoint(event), pan: current.pan, start: worldPoint(event), additive: event.shiftKey, moved: false };
       if (gesture.current.kind === "pan") setIsPanning(true);
       marqueeDraft.current = null;
       if (!event.shiftKey && !mapEditor?.document) useFloorEditorStore.getState().clearSelection();
@@ -489,7 +539,7 @@ export function FloorEditorCanvas({
       if (gesture.current !== action) return;
       const nextPan = { x: action.pan.x + point.x - action.screen.x, y: action.pan.y + point.y - action.screen.y };
       stage.current?.getLayers().forEach((layer) => layer.position(nextPan));
-      setTransientPan(nextPan);
+      applyImperativeCamera(nextPan, cameraOverride.current?.zoom ?? zoom, true);
     });
     if (readOnly) return;
     const world = clampPoint(worldPoint(event), bounds);
@@ -515,8 +565,9 @@ export function FloorEditorCanvas({
     const action = gesture.current; gesture.current = null;
     if (action?.kind === "pan") {
       const point = screenPoint(event);
-      useFloorEditorStore.getState().setPan({ x: action.pan.x + point.x - action.screen.x, y: action.pan.y + point.y - action.screen.y });
-      setTransientPan(null);
+      const nextPan = { x: action.pan.x + point.x - action.screen.x, y: action.pan.y + point.y - action.screen.y };
+      applyImperativeCamera(nextPan, cameraOverride.current?.zoom ?? zoom, true);
+      commitCamera();
       setIsPanning(false);
     }
     if (!readOnly && action?.moved) {
@@ -580,9 +631,19 @@ export function FloorEditorCanvas({
       } else current.addObject(current.state.floor.id, createDefaultObject(tool, point));
     }
   }
-  const transform = { x: renderedPan.x, y: renderedPan.y, scaleX: zoom, scaleY: zoom };
+  function handleWheel(event: { evt: WheelEvent }) {
+    event.evt.preventDefault();
+    const current = cameraOverride.current ?? useFloorEditorStore.getState();
+    const point = stage.current?.getPointerPosition();
+    if (!point) return;
+    const world = screenToWorld(point, current.pan, current.zoom);
+    const nextZoom = clampEditorZoom(current.zoom * (event.evt.deltaY > 0 ? 1 / 1.1 : 1.1));
+    applyImperativeCamera({ x: point.x - world.x * nextZoom, y: point.y - world.y * nextZoom }, nextZoom);
+    scheduleWheelCommit();
+  }
+  const transform = { x: renderedPan.x, y: renderedPan.y, scaleX: renderedZoom, scaleY: renderedZoom };
   const focusedFixture = !cadReviewActive && layers.fixtures.visible && selection?.kind === "fixture" ? placedFixtureCollection.byId.get(selection.id) : undefined;
-  const focusedLabel = focusedFixture ? selectedFixtureLabelLayout(focusedFixture, pan, zoom, viewport) : undefined;
+  const focusedLabel = focusedFixture ? selectedFixtureLabelLayout(focusedFixture, renderedPan, renderedZoom, viewport) : undefined;
   const selectedObjectType = selection?.kind === "object" ? objectCollection.byId.get(selection.id)?.type : undefined;
   const transformerAnchors = selection?.kind === "fixture"
     ? ["top-left", "top-right", "bottom-left", "bottom-right"]
@@ -590,25 +651,25 @@ export function FloorEditorCanvas({
       ? ["middle-left", "middle-right"]
       : ["top-left", "top-center", "top-right", "middle-left", "middle-right", "bottom-left", "bottom-center", "bottom-right"];
   return <div ref={container} className={`relative h-full min-h-0 w-full overflow-hidden bg-surface-canvas ${backgroundUrl ? "has-plan" : "grid-only"} ${activeTool === "pan" ? isPanning ? "cursor-grabbing" : "cursor-grab" : ""}`}
-    aria-label={`${state.floor.name} 편집 캔버스`} aria-disabled={readOnly} data-testid="floor-editor-canvas" data-floor-id={state.floor.id} data-zoom={zoom} data-pan-x={pan.x} data-pan-y={pan.y}
+    aria-label={`${state.floor.name} 편집 캔버스`} aria-disabled={readOnly} data-testid="floor-editor-canvas" data-floor-id={state.floor.id} data-camera-render-version={cameraRenderVersion} data-zoom={renderedZoom} data-pan-x={renderedPan.x} data-pan-y={renderedPan.y}
     data-map-ready={mapEditor?.ready ?? false} data-map-selection-count={mapEditor?.selectionCount ?? 0} data-promoted-count={mapEditor?.promotedIds.length ?? 0}
     data-snap={snap} data-grid-size={floorPlan?.gridSize ?? 10} data-active-guides=""
     data-background-url={backgroundUrl} data-cad-candidate-count={cadCandidates.length}
     data-map-width={bounds.width} data-map-height={bounds.height}
     data-rendered-fixture-count={visibleFixtures.length} data-rendered-object-count={visibleObjects.length}
     onDoubleClick={(event) => { if (pathDraft) finishPath(); else if (activeTool === "select" && mapEditor?.document) void mapEditor.pick(screenPoint(event), true, event.shiftKey); }}
-    onMouseDown={begin} onMouseMove={move} onMouseUp={finish} onMouseLeave={(e) => { if (gesture.current?.kind === "pan") finish(e); else { cancelPointerMove(); gesture.current = null; creationDraft.current = null; mapCreationDraft.current = null; marqueeDraft.current = null; setTransientPan(null); setCreation(null); setMapCreation(null); setMarquee(null); setIsPanning(false); } }}
+    onMouseDown={begin} onMouseMove={move} onMouseUp={finish} onMouseLeave={(e) => { if (gesture.current?.kind === "pan") finish(e); else { cancelPointerMove(); gesture.current = null; creationDraft.current = null; mapCreationDraft.current = null; marqueeDraft.current = null; setCreation(null); setMapCreation(null); setMarquee(null); setIsPanning(false); } }}
     onDragOver={dragOver} onDragLeave={() => { cancelPointerMove(); setDropPreview(null); setHighlightedSlotId(null); }} onDrop={drop}>
     {!cadReviewActive && mapEditor?.document && measured ? <MapSceneCanvas
       source={mapEditor.source} documentRef={mapEditor.document}
-      camera={{ centerX: (viewport.width / 2 - renderedPan.x) / zoom, centerY: (viewport.height / 2 - renderedPan.y) / zoom,
-        zoom, viewportWidth: viewport.width, viewportHeight: viewport.height }}
+      camera={{ centerX: (viewport.width / 2 - renderedPan.x) / renderedZoom, centerY: (viewport.height / 2 - renderedPan.y) / renderedZoom,
+        zoom: renderedZoom, viewportWidth: viewport.width, viewportHeight: viewport.height }}
       readOnly={mapEditor.readOnly} platform={viewport.width < 768 ? "mobile" : "desktop"}
       promotedElementIds={mapEditor.promotedIds} onReady={mapEditor.onReady} onManifest={mapEditor.onManifest}
       onError={mapEditor.reportError} onDegraded={() => mapEditor.reportError(new Error("맵 표시 자원이 부족합니다. 화면을 좁혀 다시 시도해주세요."))}
       style={{ position: "absolute", inset: 0 }} /> : null}
     {cadImportScene?.manifest ? <CadImportSceneCanvas floorId={cadImportScene.floorId} jobId={cadImportScene.jobId}
-      manifest={cadImportScene.manifest} pan={renderedPan} zoom={zoom} viewport={viewport} /> : null}
+      manifest={cadImportScene.manifest} pan={renderedPan} zoom={renderedZoom} viewport={viewport} /> : null}
     {cadImportScene && !cadImportScene.manifest ? <div className="absolute inset-x-3 top-3 z-20">
       {cadImportScene.isError ? <FeedbackState tone="danger" icon={TriangleAlert}
         title="선택한 CAD 도면을 불러오지 못했습니다."
@@ -621,7 +682,7 @@ export function FloorEditorCanvas({
         descriptor={cadSceneDescriptor}
         sceneState={cadSceneState}
         pan={renderedPan}
-        zoom={zoom}
+        zoom={renderedZoom}
         viewport={viewport}
         selection={cadSelection ?? null}
         onSelectionChange={(next) => {
@@ -630,20 +691,14 @@ export function FloorEditorCanvas({
         }}
       />
     ) : null}
-    <Stage ref={stage} className="relative z-1" width={viewport.width} height={viewport.height} onWheel={(event) => {
-      event.evt.preventDefault(); const store = useFloorEditorStore.getState();
-      const point = stage.current?.getPointerPosition(); if (!point) return;
-      const world = screenToWorld(point, store.pan, store.zoom);
-      const next = clampEditorZoom(store.zoom * (event.evt.deltaY > 0 ? 1 / 1.1 : 1.1));
-      useFloorEditorStore.setState({ zoom: next, pan: { x: point.x - world.x * next, y: point.y - world.y * next } });
-    }}>
+    <Stage ref={stage} className="relative z-1" width={viewport.width} height={viewport.height} onWheel={handleWheel}>
       <Layer {...transform} name="editor-static-layer" listening={false}>
         <Rect width={bounds.width} height={bounds.height} fill={mapEditor?.document || cadSceneDescriptor || cadImportScene ? undefined : editorColors.panel} stroke={editorColors.border} strokeWidth={1} />
         {background && layers.background.visible && <KonvaImage image={background} width={bounds.width} height={bounds.height} />}
-        {snap ? <MapGrid width={bounds.width} height={bounds.height} gridSize={floorPlan?.gridSize ?? 10} zoom={zoom} color={editorColors.grid} /> : null}
+        {snap ? <MapGrid width={bounds.width} height={bounds.height} gridSize={floorPlan?.gridSize ?? 10} zoom={renderedZoom} color={editorColors.grid} /> : null}
         {!cadReviewActive && !onToggleCadCandidate ? <CadPlacementSlotLayer
           slotIndex={availableSlotIndex}
-          zoom={zoom}
+          zoom={renderedZoom}
           viewportBounds={viewportBounds}
           highlightedSlotId={highlightedSlotId}
         /> : null}
@@ -652,7 +707,7 @@ export function FloorEditorCanvas({
         candidates={cadCandidates}
         acceptedCandidateIds={acceptedCadCandidateIds}
         transform={transform}
-        zoom={zoom}
+        zoom={renderedZoom}
         viewportBounds={viewportBounds}
         disabled={!onFocusedCadCandidateChange && !onToggleCadCandidate}
         focusedCandidateId={focusedCadCandidateId}
@@ -697,28 +752,28 @@ export function FloorEditorCanvas({
         })}
       </Layer>
       <Layer {...transform} name="editor-fixture-layer" visible={layers.fixtures.visible} listening={activeTool === "select"}>
-        {visibleFixtures.map((fixture) => <EditorFixtureNode key={fixture.id} fixture={fixture} selected={selectedSet.has(fixture.id)} interactive={!readOnly && activeTool === "select" && !layers.fixtures.locked && !lockedSet.has(fixture.id)} showName={showBulkNames && !selectedSet.has(fixture.id)} zoom={zoom} colors={fixtureColors} register={register} onSelect={onSelect} onDragStart={onDragStart} onDragMove={onDragMove} onDragEnd={onDragEnd} onTransform={onTransform} />)}
+        {visibleFixtures.map((fixture) => <EditorFixtureNode key={fixture.id} fixture={fixture} selected={selectedSet.has(fixture.id)} interactive={!readOnly && activeTool === "select" && !layers.fixtures.locked && !lockedSet.has(fixture.id)} showName={showBulkNames && !selectedSet.has(fixture.id)} zoom={renderedZoom} colors={fixtureColors} register={register} onSelect={onSelect} onDragStart={onDragStart} onDragMove={onDragMove} onDragEnd={onDragEnd} onTransform={onTransform} />)}
       </Layer>
       <Layer {...transform} name="editor-overlay-layer" visible={!cadReviewActive} listening={!cadReviewActive}>
-        <Line ref={verticalGuide} name="alignment-guide-vertical" visible={false} listening={false} stroke={editorColors.guide} strokeWidth={1 / zoom} dash={[6 / zoom, 4 / zoom]} />
-        <Line ref={horizontalGuide} name="alignment-guide-horizontal" visible={false} listening={false} stroke={editorColors.guide} strokeWidth={1 / zoom} dash={[6 / zoom, 4 / zoom]} />
+        <Line ref={verticalGuide} name="alignment-guide-vertical" visible={false} listening={false} stroke={editorColors.guide} strokeWidth={1 / renderedZoom} dash={[6 / renderedZoom, 4 / renderedZoom]} />
+        <Line ref={horizontalGuide} name="alignment-guide-horizontal" visible={false} listening={false} stroke={editorColors.guide} strokeWidth={1 / renderedZoom} dash={[6 / renderedZoom, 4 / renderedZoom]} />
         {mapEditor?.document && mapEditor.selectionCount > 0 && (mapEditor.promotedIds.length
-          ? <MapElementOverlay selection={mapEditor.selection} zoom={zoom} mapBounds={bounds} gridSize={snap ? mapEditor.document.gridSize : undefined}
+          ? <MapElementOverlay selection={mapEditor.selection} zoom={renderedZoom} mapBounds={bounds} gridSize={snap ? mapEditor.document.gridSize : undefined}
               readOnly={readOnly || mapEditor.holeActive || activeTool !== "select"} locked={mapEditor.locked} onChange={mapEditor.commit} onError={mapEditor.reportError} onGuidesChange={renderAlignmentGuides} />
           : mapEditor.bounds ? <MapSelectionBoundsHandle selectionKey={mapEditor.selectionKey} bounds={mapEditor.bounds}
-              zoom={zoom} gridSize={snap ? mapEditor.document.gridSize : undefined} translateOnly={mapEditor.mixed}
+              zoom={renderedZoom} gridSize={snap ? mapEditor.document.gridSize : undefined} translateOnly={mapEditor.mixed}
               locked={readOnly || mapEditor.locked || activeTool !== "select"} onMove={mapEditor.move} onTransform={mapEditor.transform} onError={mapEditor.reportError} /> : null)}
-        {mapCreation && <MapElementOverlay selection={[mapCreation]} zoom={zoom} mapBounds={bounds} readOnly onChange={() => undefined} onError={mapEditor?.reportError} />}
-        {pathDraft && <Line points={pathDraft.points.flatMap(point => [point.x, point.y])} stroke={editorColors.selected} strokeWidth={2 / zoom} listening={false} />}
+        {mapCreation && <MapElementOverlay selection={[mapCreation]} zoom={renderedZoom} mapBounds={bounds} readOnly onChange={() => undefined} onError={mapEditor?.reportError} />}
+        {pathDraft && <Line points={pathDraft.points.flatMap(point => [point.x, point.y])} stroke={editorColors.selected} strokeWidth={2 / renderedZoom} listening={false} />}
         {creation && <FloorMapObjectNode object={{ ...creation, id: "creation", zIndex: 999 }} interactive={false} preview />}
-        {marquee && <Rect {...marquee} fill={editorColors.marquee} stroke={editorColors.selected} strokeWidth={1 / zoom} listening={false} />}
+        {marquee && <Rect {...marquee} fill={editorColors.marquee} stroke={editorColors.selected} strokeWidth={1 / renderedZoom} listening={false} />}
         {preview.map((p) => <Circle key={p.id} x={p.x} y={p.y} radius={10} fill={editorColors.preview} opacity={0.65} listening={false} />)}
         {dropPreview && <Circle x={dropPreview.x} y={dropPreview.y} radius={10} stroke={editorColors.selected} fill={editorColors.fixtureFill} listening={false} />}
         {cadSelection?.mode === "element" && cadSelection.element && onCadOverrideCommit ? (
           <CadElementOverlay
             element={cadSelection.element}
             readOnly={readOnly || cadEditDisabled}
-            zoom={zoom}
+            zoom={renderedZoom}
             onCommit={onCadOverrideCommit}
           />
         ) : null}

@@ -765,17 +765,23 @@ describe("FloorEditorView", () => {
     expect(useFloorEditorStore.getState().pan).toEqual({ x: 30, y: 30 });
   });
 
-  it("zooms with wheel input regardless of pointer device", () => {
-    renderEditor();
-    const stage = document.querySelector<HTMLElement>(".konvajs-content");
-    expect(stage).not.toBeNull();
+  it("zooms with wheel input regardless of pointer device and commits after the gesture settles", () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      renderEditor();
+      const stage = document.querySelector<HTMLElement>(".konvajs-content");
+      expect(stage).not.toBeNull();
 
-    fireEvent.wheel(stage!, { deltaY: 120 });
-    expect(useFloorEditorStore.getState().zoom).toBeLessThan(1);
+      fireEvent.wheel(stage!, { deltaY: 120 });
+      expect(useFloorEditorStore.getState().zoom).toBe(1);
+      act(() => vi.advanceTimersByTime(120));
+      expect(useFloorEditorStore.getState().zoom).toBeLessThan(1);
 
-    act(() => useFloorEditorStore.setState({ zoom: 1, pan: { x: 0, y: 0 } }));
-    fireEvent.wheel(stage!, { deltaY: -8 });
-    expect(useFloorEditorStore.getState()).toMatchObject({ zoom: 1.1, pan: { x: 0, y: 0 } });
+      act(() => useFloorEditorStore.setState({ zoom: 1, pan: { x: 0, y: 0 } }));
+      fireEvent.wheel(stage!, { deltaY: -8 });
+      act(() => vi.advanceTimersByTime(120));
+      expect(useFloorEditorStore.getState()).toMatchObject({ zoom: 1.1, pan: { x: 0, y: 0 } });
+    } finally { vi.clearAllTimers(); vi.useRealTimers(); }
   });
 
   it("does not submit an unchanged state", async () => {

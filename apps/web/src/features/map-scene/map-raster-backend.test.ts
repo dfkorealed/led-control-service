@@ -106,6 +106,34 @@ describe("bounded ordered raster lifecycle", () => {
     backend.destroy(); expect(cancel).toHaveBeenCalledWith(99);
   });
 
+  it("keeps the baked cells during camera motion and only rebakes after the camera settles", async () => {
+    const { backend, request, budget } = setup();
+    const primitive = { type: "line" as const, elementId: "base", zIndex: 0, fragmentOrder: 0,
+      layerName: "layer", groupId: null, sourceType: "line", clipBounds: null,
+      bounds: { minX: 20, minY: 20, maxX: 40, maxY: 40 }, style: line.style,
+      geometry: { start: { x: 20, y: 20 }, end: { x: 40, y: 40 } } };
+    const bytes = encodeMapDisplayTile([primitive]);
+    const key = { elementId: "base", zIndex: 0, fragmentOrder: 0 };
+    const tile = { ...descriptor, byteSize: bytes.length, sha256: createHash("sha256").update(bytes).digest("hex"),
+      pages: [{ layerId: "layer", sequence: 0, primitiveStart: 0, primitiveCount: 1, firstKey: key, lastKey: key }] };
+    request.manifest = { ...request.manifest, orderedPages: { version: 1 }, tiles: [tile] } as typeof request.manifest;
+    request.loadTile = vi.fn(async () => bytes);
+    try {
+      await backend.renderDisplay(request);
+      calls.bake.mockClear();
+      await backend.renderDisplay({ ...request, camera: { ...request.camera, centerX: 520 } });
+      await backend.renderDisplay({ ...request, camera: { ...request.camera, centerX: 540.5 } });
+      expect(calls.bake).not.toHaveBeenCalled();
+      await new Promise(resolve => setTimeout(resolve, 150));
+      for (let i = 0; i < 10; i++) await Promise.resolve();
+      expect(calls.bake).toHaveBeenCalled();
+    } finally {
+      backend.destroy();
+      for (let i = 0; i < 10; i++) await Promise.resolve();
+      expect(budget.totalBytes).toBe(0); vi.unstubAllGlobals();
+    }
+  });
+
   it("paints a boundary stroke in both cells and invalidates its old extents", async () => {
     const { backend, request, budget } = setup();
     backend.replaceTile("transient", { descriptor, byteSize: 100, ...buildMapGeometryBatches([line], 1, true) });

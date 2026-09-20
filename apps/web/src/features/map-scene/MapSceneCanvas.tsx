@@ -6,6 +6,8 @@ import { MapSceneRenderer, type MapScenePickResult, type MapSceneRendererOptions
 import type { MapSceneManifest, MapSceneSource } from "./map-scene-source";
 
 export interface MapSceneCanvasHandle {
+  /** Applies a transient camera transform without waiting for React props. */
+  setCamera(camera: CadSceneCamera): void;
   pick(point: Point): Promise<MapScenePickResult | null>;
   getElements(ids: readonly string[]): Promise<readonly MapElement[]>;
   setPromotedElementIds(ids: readonly string[]): void;
@@ -47,6 +49,7 @@ export const MapSceneCanvas = forwardRef<MapSceneCanvasHandle, MapSceneCanvasPro
       return session.current.renderer;
     };
     return {
+      setCamera: camera => requireRenderer().setCamera(camera),
       pick: point => session.current?.active ? session.current.renderer.pick(point) : Promise.resolve(null),
       getElements: ids => session.current?.active ? session.current.renderer.getElements(ids) : Promise.resolve([]),
       setPromotedElementIds: ids => requireRenderer().setPromotedElementIds(ids),

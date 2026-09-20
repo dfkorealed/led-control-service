@@ -28,6 +28,20 @@ describe("actual common editor Canvas", () => {
     act(() => store().setViewport({ width: 800, height: 500 }));
     expect(store().pan).toEqual({ x: 40, y: 50 });
   });
+  it("commits wheel zoom once after the gesture instead of updating Zustand per wheel event", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      render(<Canvas />);
+      act(() => store().resetZoom());
+      const canvas = screen.getByTestId("floor-editor-canvas").querySelector(".konvajs-content")!;
+      const before = store().zoom;
+      fireEvent.wheel(canvas, { clientX: 450, clientY: 300, deltaY: -100 });
+      fireEvent.wheel(canvas, { clientX: 450, clientY: 300, deltaY: -100 });
+      expect(store().zoom).toBe(before);
+      await act(async () => { await vi.advanceTimersByTimeAsync(120); });
+      expect(store().zoom).toBeGreaterThan(before);
+    } finally { vi.clearAllTimers(); vi.useRealTimers(); }
+  });
   it("corrects a transient small initial viewport to the actual 1886x753 measurement", () => {
     render(<Canvas />);
     act(() => store().setViewport({ width: 1886, height: 180 }));

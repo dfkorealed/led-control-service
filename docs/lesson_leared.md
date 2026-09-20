@@ -1,5 +1,12 @@
 # 프로젝트 오답 노트 (Lessons Learned)
 
+## 2026-09-20 / 카메라 이동과 raster 정밀 렌더를 분리한다
+
+- **발생한 문제**: 팬/휠 이벤트마다 React/Zustand 상태와 CAD raster 요청을 갱신해 모든 Konva 자식과 표시 셀이 반복 계산됐다. 종료 시 debounced render가 살아나면 셀 메모리가 다시 예약될 여지도 있었다.
+- **원인**: 화면에 즉시 필요한 카메라 transform과 저장·가상화·정밀 raster에 필요한 안정 카메라를 같은 상태 경로로 처리했다. backend 종료도 GPU 자원 해제만으로 간주했다.
+- **해결 및 예방**: 팬/휠 중에는 imperative transform을 사용하고, 팬의 가상화 목록은 pointer RAF 단위, Zustand는 팬 종료 또는 wheel 120ms settle 후 한 번만 갱신한다. ordered raster는 baked cell을 유지하다가 settle 후 재생성하며, `disposed` fence와 suspend/destroy cleanup으로 timer·cell·staging memory를 함께 해제한다.
+- **회귀 체크**: camera handle 전달, wheel 지연 커밋, live pan 신규 가시 노드, settle 후 단일 re-bake, destroy 후 budget 0을 검증한다. workspace 전체 테스트에서는 전역 fake timer에 의존하지 않도록 실제 settle window를 기다려 패키지 병렬 실행 간 간섭을 막는다.
+
 ## 2026-09-19 / 집중 검증 후에도 전체 테스트·빌드를 생략하지 않는다
 
 - **발생한 문제**: 맵 관련 집중 검증과 실제 E2E는 통과했지만 전체 웹 테스트에서는 인증/제어 테스트의 API mock에 새 `apiRequest` export가 없어 모듈 수집이 실패했다. `.local`의 과거 일회성 검토 파일도 정식 테스트로 수집되어 이전 계약으로 실패했다.

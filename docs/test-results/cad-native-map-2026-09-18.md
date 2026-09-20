@@ -1,5 +1,12 @@
 # CAD 네이티브 맵 실제 DWG 검증
 
+## 2026-09-20 카메라/raster 회귀 검증
+
+- `FloorEditorCanvas` 팬/휠 입력과 `MapSceneCanvas` imperative camera 경로를 검증했다. 이벤트마다 Zustand를 갱신하지 않고 팬은 pointer RAF, 휠은 120ms settle 후 한 번 커밋한다.
+- ordered raster는 카메라 이동 중 기존 baked cell을 유지하고 settle 후 fractional phase/zoom이 달라질 때만 재-bake한다. destroy 시 pending render가 셀 메모리를 남기거나 되살리지 않는다.
+- 집중 결과: 3개 파일 25 tests PASS. 웹 전체 결과: 152 files, 2,130 tests PASS, 3 skipped. 웹 typecheck와 build PASS.
+- 이 결과는 일반적인 성능/수명주기 회귀 근거이며 50만 요소, 실제 모바일 GPU, Raspberry Pi 양산 cgroup의 완료 근거가 아니다.
+
 ## 공통 맵 전환 검증 현황 (2026-09-19)
 
 ### 최신 마무리 결과

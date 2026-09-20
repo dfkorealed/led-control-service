@@ -2,6 +2,12 @@
 
 기준일: 2026-09-19
 
+## 2026-09-20 맵 카메라/raster 최적화 작업
+
+- `FloorEditorCanvas`의 팬·휠 줌 입력은 React/Zustand를 이벤트마다 갱신하지 않고 Konva/Pixi transform을 직접 반영한다. 팬 중 필요한 가상화 목록만 pointer RAF 단위로 갱신하고, 휠 줌은 120ms 정지 후 한 번 커밋한다.
+- `MapSceneCanvas`에 imperative `setCamera`를 추가하고 `MapRasterBackend`는 카메라 이동 중 baked cell을 유지한 뒤 settle 후에만 정밀 raster를 재생성한다. destroy 이후 pending render가 셀과 메모리를 부활시키지 않도록 disposed fence를 적용했다.
+- 관련 집중 테스트 25개, 웹 전체 2,130개 통과(3 skipped), 웹 타입 검사와 production build 통과. 루트 전체 `pnpm test`와 `pnpm build`도 종료 코드 0으로 통과했다. 50만 요소·실제 RN/Linux cgroup 검증은 기존 보류 범위다.
+
 ## 현재 마일스톤
 
 **최신 범위 조정(2026-09-19)**: 사용자 요청으로 50만 요소 테스트를 이번 완료 범위에서 제외했다. 약498,838개 요소의 두 번째 DWG와 합성500k 재시험·추가 성능 실험은 보류한다. 기존 시간 초과/성능 미달 증거를 성공으로 바꾸지 않으며, 현재 발견한 일반 편집 결함의 회귀와 실제 백엔드 E2E 1회를 우선해 마무리한다. 새 최적화 범위는 추가하지 않는다.
