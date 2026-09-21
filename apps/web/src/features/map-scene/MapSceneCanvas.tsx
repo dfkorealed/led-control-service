@@ -41,6 +41,20 @@ interface Session { renderer: MapSceneRenderer; mounted: Promise<void>; active: 
 export const MapSceneCanvas = forwardRef<MapSceneCanvasHandle, MapSceneCanvasProps>(function MapSceneCanvas(props, ref) {
   const host = useRef<HTMLDivElement>(null);
   const latest = useRef(props); latest.current = props;
+  // Data providers are regularly recreated by React Query consumers. Keep the
+  // renderer bound to one authenticated scope and delegate each request to the
+  // current provider instead of treating a callback refresh as a new WebGL map.
+  const sourceFacade = useRef<MapSceneSource | null>(null);
+  if (!sourceFacade.current) {
+    sourceFacade.current = {
+      get scopeKey() { return latest.current.source.scopeKey; },
+      getManifest: (document, signal) => latest.current.source.getManifest(document, signal),
+      getChanges: (document, cursor, signal) => latest.current.source.getChanges(document, cursor, signal),
+      loadDisplayTile: (tile, signal) => latest.current.source.loadDisplayTile(tile, signal),
+      getElements: (document, ids, signal) => latest.current.source.getElements(document, ids, signal),
+      get decodeDisplayTile() { return latest.current.source.decodeDisplayTile; }
+    };
+  }
   const session = useRef<Session | null>(null);
   const handle = useMemo<MapSceneCanvasHandle>(() => {
     const requireRenderer = (write = false) => {
@@ -61,7 +75,8 @@ export const MapSceneCanvas = forwardRef<MapSceneCanvasHandle, MapSceneCanvasPro
   }, []);
   useImperativeHandle(ref, () => handle, [handle]);
 
-  const { source, readOnly = false, platform = "desktop" } = props;
+  const { readOnly = false, platform = "desktop" } = props;
+  const scopeKey = props.source.scopeKey;
   useEffect(() => {
     const parent = host.current;
     if (!parent) return;
@@ -73,7 +88,7 @@ export const MapSceneCanvas = forwardRef<MapSceneCanvasHandle, MapSceneCanvasPro
     parent.appendChild(canvas);
     let current: Session | undefined;
     const alive = () => current?.active && session.current === current;
-    const renderer = (latest.current.createRenderer ?? (options => new MapSceneRenderer(options)))({ source, platform,
+    const renderer = (latest.current.createRenderer ?? (options => new MapSceneRenderer(options)))({ source: sourceFacade.current!, platform,
       onError: error => { if (alive()) latest.current.onError?.(error); },
       onDegraded: result => { if (alive()) latest.current.onDegraded?.(result); },
       onManifest: manifest => { if (alive()) latest.current.onManifest?.(manifest); }
@@ -89,7 +104,7 @@ export const MapSceneCanvas = forwardRef<MapSceneCanvasHandle, MapSceneCanvasPro
       if (session.current === current) session.current = null;
       latest.current.onReady?.(null);
     };
-  }, [source, source.scopeKey, readOnly, platform]);
+  }, [scopeKey, platform]);
 
   const documentKey = JSON.stringify(props.documentRef);
   useEffect(() => {
@@ -108,19 +123,19 @@ export const MapSceneCanvas = forwardRef<MapSceneCanvasHandle, MapSceneCanvasPro
       } catch (error) { if (alive()) latest.current.onError?.(asError(error)); }
     }, () => undefined);
     return () => { current.documentEpoch++; };
-  }, [documentKey, source, source.scopeKey, readOnly, platform, handle]);
+  }, [documentKey, scopeKey, handle]);
 
   useEffect(() => {
     const current = session.current;
     if (!current) return;
     try { current.renderer.setCamera(props.camera); }
     catch (error) { latest.current.onError?.(asError(error)); }
-  }, [props.camera, source, source.scopeKey, readOnly, platform]);
+  }, [props.camera, scopeKey]);
 
   useEffect(() => {
     try { session.current?.renderer.setPromotedElementIds(props.promotedElementIds ?? []); }
     catch (error) { latest.current.onError?.(asError(error)); }
-  }, [props.promotedElementIds, source, source.scopeKey, readOnly, platform]);
+  }, [props.promotedElementIds, scopeKey]);
 
   return <div ref={host} className={props.className} role="img" aria-label="맵 도형"
     style={{ width: "100%", height: "100%", minWidth: 0, minHeight: 0, ...props.style }} />;

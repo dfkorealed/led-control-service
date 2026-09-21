@@ -52,7 +52,7 @@ describe("common map Canvas lifecycle", () => {
     expect(h.props.onReady).toHaveBeenLastCalledWith(null);
   });
 
-  it("uses fresh canvas nodes in StrictMode and when permission/source changes, without stale callbacks", async () => {
+  it("uses fresh canvas nodes in StrictMode and when source scope changes, without stale callbacks", async () => {
     const h = harness();
     const view = render(<StrictMode><MapSceneCanvas {...h.props} /></StrictMode>);
     await waitFor(() => expect(h.props.onManifest).toHaveBeenCalledTimes(1));
@@ -60,10 +60,27 @@ describe("common map Canvas lifecycle", () => {
     expect(h.canvases[0]).not.toBe(h.canvases[1]);
     expect(h.renderers[0].memoryBytes).toBe(0);
     const before = view.container.querySelector("canvas");
-    view.rerender(<StrictMode><MapSceneCanvas {...h.props} readOnly /></StrictMode>);
+    view.rerender(<StrictMode><MapSceneCanvas {...h.props} source={{ ...h.source, scopeKey: "principal:other-floor" }} /></StrictMode>);
     await waitFor(() => expect(h.props.onManifest).toHaveBeenCalledTimes(2));
     expect(view.container.querySelector("canvas")).not.toBe(before);
     expect(h.props.onError).not.toHaveBeenCalled();
+  });
+
+  it("keeps one map surface when a same-scope source and permission refresh", async () => {
+    const h = harness();
+    const freshSource: MapSceneSource = { ...h.source, getManifest: vi.fn(h.source.getManifest) };
+    const ref = createRef<MapSceneCanvasHandle>();
+    const view = render(<MapSceneCanvas {...h.props} ref={ref} />);
+    await waitFor(() => expect(h.props.onManifest).toHaveBeenCalledTimes(1));
+    const canvas = view.container.querySelector("canvas");
+
+    view.rerender(<MapSceneCanvas {...h.props} ref={ref} source={freshSource} readOnly
+      documentRef={{ ...documentRef, revision: 1 }} onManifest={vi.fn()} />);
+
+    await waitFor(() => expect(freshSource.getManifest).toHaveBeenCalledWith(expect.objectContaining({ revision: 1 }), expect.any(AbortSignal)));
+    expect(h.renderers).toHaveLength(1);
+    expect(view.container.querySelector("canvas")).toBe(canvas);
+    expect(() => ref.current!.applyChanges([{ kind: "delete", id: "x" }], [])).toThrow("read-only");
   });
 
   it("blocks mutating handles in read-only mode while fetching persisted state and permitting selection lookup", async () => {
