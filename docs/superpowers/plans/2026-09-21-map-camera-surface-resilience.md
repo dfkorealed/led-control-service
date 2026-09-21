@@ -90,7 +90,7 @@
 - [x] Confirm by source audit that the prior rebake invoked `drop` before canvas creation/decode completed.
 - [x] Stage final canvas allocation under a generation owner, atomically swap cells in one frame, defer stale-cell eviction until after publish, and retain visible coverage when budget admission fails.
 - [x] Run raster/backend and common-map lifecycle tests; destroy releases staged and active allocations (8 raster + 5 canvas tests PASS).
-- [ ] Commit `perf(web): atomically swap settled map raster coverage`.
+- [x] Commit `perf(web): atomically swap settled map raster coverage` (`4d27734a`).
 
 ### Task 4: Integrate and Verify Shared Surfaces
 
