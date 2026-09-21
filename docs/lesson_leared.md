@@ -1,5 +1,11 @@
 # 프로젝트 오답 노트 (Lessons Learned)
 
+## 2026-09-21 / 화면 변화와 raster 완료 상태를 혼동하지 않는다
+
+- **발생한 문제**: 같은 인증 범위의 읽기 전용 전환, 문서 ACK, 확대·이동 중에도 renderer를 다시 만들거나 아직 진행 중인 raster 요청을 완료된 coverage로 취급해 불필요한 bake와 화면 깜빡임이 발생할 수 있었다. 새 초안 도형도 원본 도형처럼 넓게 mask해 인접 cell까지 다시 만들었다.
+- **해결 및 예방**: renderer identity와 검증된 tile cache는 source scope가 같으면 유지하고, raster의 settled 상태는 모든 decode/paint job이 끝난 뒤에만 갱신한다. 새 `add` 초안은 계산된 bounds만 무효화하며 기존 원본을 가리는 `update`/`delete`만 base mask 영향 범위를 유지한다. 저배율 반투명 사각형은 `fillRect`로 통일해 Canvas와 WebGL의 픽셀 합성 차이도 회귀 검사한다.
+- **반복 방지 체크**: 동일 scope read-only 전환에서 canvas 재생성·중복 tile fetch가 없어야 하며, 30만/50만 desktop 및 50만 mobile Chromium 시나리오와 전체 Web typecheck·Vitest·build를 모두 실행한다. 실제 iOS/Android WebView GPU 계측은 별도 증거 없이는 완료로 표시하지 않는다.
+
 ## 2026-09-20 / 카메라 이동과 raster 정밀 렌더를 분리한다
 
 - **발생한 문제**: 팬/휠 이벤트마다 React/Zustand 상태와 CAD raster 요청을 갱신해 모든 Konva 자식과 표시 셀이 반복 계산됐다. 종료 시 debounced render가 살아나면 셀 메모리가 다시 예약될 여지도 있었다.

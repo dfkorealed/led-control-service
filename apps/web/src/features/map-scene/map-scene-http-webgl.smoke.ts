@@ -61,7 +61,7 @@ for (const width of [1024, 320]) test(`HTTP provider and stable React Canvas sav
     await wait(() => h.pixel(30, 25)[3] === 0 && h.pixel(6, 7)[3] > 0);
     const memory = h.renderers[0].memoryBytes;
     h.render(saved, true);
-    await wait(() => h.renderers.length === 2 && h.pixel(30, 25)[3] === 0 && h.pixel(6, 7)[3] > 0 && h.versions.length >= 3);
+    await wait(() => h.renderers.length === 1 && h.pixel(30, 25)[3] === 0 && h.pixel(6, 7)[3] > 0 && h.versions.length >= 2);
     const readOnlyCanvasRenewed = h.canvas() !== canvas;
     let readOnlyRejected = false;
     try { h.handle.current!.applyChanges([{ kind: "delete", id: "x" }], []); } catch { readOnlyRejected = true; }
@@ -70,10 +70,12 @@ for (const width of [1024, 320]) test(`HTTP provider and stable React Canvas sav
     return { stableCanvas, stableRenderer, readOnlyCanvasRenewed, readOnlyRejected, memory, beforeDispose,
       afterDispose: h.renderers.map((renderer: { memoryBytes: number }) => renderer.memoryBytes), errors: h.errors };
   }, { ref, width });
-  expect(evidence).toMatchObject({ stableCanvas: true, stableRenderer: true, readOnlyCanvasRenewed: true, readOnlyRejected: true, afterDispose: [0, 0], errors: [] });
+  expect(evidence).toMatchObject({ stableCanvas: true, stableRenderer: true, readOnlyCanvasRenewed: false, readOnlyRejected: true, afterDispose: [0], errors: [] });
   expect(evidence.memory).toBeLessThanOrEqual((width === 320 ? 32 : 128) * 1024 * 1024);
   expect(requests.filter(url => url.includes("/elements"))).toHaveLength(0);
-  expect(requests.filter(url => url.includes("/tiles/"))).toHaveLength(2);
+  // The same surface keeps its verified source tile cache across an ACK and a
+  // read-only host update. A second request would be a real raster regression.
+  expect(requests.filter(url => url.includes("/tiles/"))).toHaveLength(1);
   expect(errors).toEqual([]);
   await testInfo.attach("http-canvas-evidence", { body: JSON.stringify({ ...evidence, requests }, null, 2), contentType: "application/json" });
 });

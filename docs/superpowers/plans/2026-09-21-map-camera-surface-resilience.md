@@ -112,3 +112,11 @@
 - The plan covers all partial or missing traceability rows without changing map-display schema, DB, API, or hardware contracts.
 - Existing context recovery, abort, and memory-cap mechanisms are regression-tested rather than duplicated.
 - 500k-element, actual RN WebView GPU, and production Linux cgroup checks remain unclaimed until separately executed.
+
+## Regression Follow-up (2026-09-21)
+
+- [x] Correct the HTTP surface smoke contract: same-scope `readOnly` now keeps one canvas/renderer and one verified tile request; it no longer asserts the superseded remount behavior.
+- [x] Separate raster completion from request admission so an incomplete or aborted request cannot schedule a second settled bake.
+- [x] Keep fresh `add` drafts out of base masking and use their calculated bounds without base influence expansion; update/delete and persisted hairline invalidation retain the wider influence envelope.
+- [x] Use `fillRect` for unrotated translucent display rectangles so low-zoom mobile raster pixels match direct Canvas compositing; preserve vector rendering for rotated or stroked rectangles.
+- [x] Re-run all 17 map Chromium scenarios, including 300k desktop, 500k desktop, and 500k mobile coverage. Actual native WebView GPU and production Linux cgroup verification remain deferred.

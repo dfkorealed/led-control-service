@@ -33,3 +33,19 @@ it.each([1, 2])("paints %i compound holes without zero-winding connector edges",
   expect(context.fill).toHaveBeenCalledWith("nonzero");
   expect(context.stroke).not.toHaveBeenCalled();
 });
+
+it("uses Canvas's direct fillRect coverage for an unrotated translucent rectangle", () => {
+  const context = { save: vi.fn(), restore: vi.fn(), beginPath: vi.fn(), translate: vi.fn(), rotate: vi.fn(),
+    rect: vi.fn(), fill: vi.fn(), fillRect: vi.fn(), stroke: vi.fn() };
+  const rectangle: OrderedMapDisplayPrimitive = { type: "rectangle", elementId: "rectangle", layerName: "layer", groupId: null,
+    sourceType: "RECTANGLE", zIndex: 0, fragmentOrder: 0, clipBounds: null,
+    bounds: { minX: 0, minY: 0, maxX: 20, maxY: 10 },
+    geometry: { origin: { x: 0, y: 0 }, width: 20, height: 10, rotation: 0 },
+    style: { fillColor: "#ff0000", strokeColor: null, strokeWidth: 0, opacity: 0.5 } };
+
+  paintDisplayPrimitive(context as unknown as CanvasRenderingContext2D, rectangle, 1);
+
+  expect(context.fillRect).toHaveBeenCalledWith(0, 0, 20, 10);
+  expect(context.fill).not.toHaveBeenCalled();
+  expect(context.stroke).not.toHaveBeenCalled();
+});

@@ -42,8 +42,11 @@ export class MapRasterBackend extends PixiCadSceneRenderBackend {
   private paintFrame: number | null = null;
   private settleTimer: ReturnType<typeof setTimeout> | null = null;
   private pendingCameraRequest: Request | null = null;
-  private renderedRevision = -1;
-  private renderedSceneKey: string | null = null;
+  // A request can be cancelled after it has started painting. Keep completion
+  // separate from request admission so an in-flight revision is never treated
+  // as settled camera coverage and scheduled for an unnecessary second bake.
+  private completedRevision = -1;
+  private completedSceneKey: string | null = null;
 
   constructor(private readonly budget: CadSceneMemoryBudget,
     private readonly layerId: (name: string) => string | undefined = name => name) { super(); }
@@ -59,14 +62,18 @@ export class MapRasterBackend extends PixiCadSceneRenderBackend {
     // of ten. Canonical geometry bounds alone exclude boundary-line coverage.
     this.draftBounds = this.drafts.map(element => expand(getMapElementBounds(element),
       element.style.strokeColor ? element.style.strokeWidth * 5 : 0));
-    this.invalidateDisplay([...previous, ...this.invalidationBounds()]);
+    // Draft bounds already include the native stroke/miter envelope. Unlike a
+    // masked persisted primitive, a new draft has no unknown clipped copies in
+    // neighbouring cells, so it must not inherit the broader base influence
+    // margin and turn one local edit into a four-cell repaint.
+    this.invalidateDisplay([...previous, ...this.invalidationBounds()], false);
   }
 
   override removeTile(key: string): void {
     if (key === "transient") {
       const previous = this.invalidationBounds();
       this.transient = null; this.drafts = []; this.draftBounds = [];
-      this.invalidateDisplay(previous); return;
+      this.invalidateDisplay(previous, false); return;
     }
     super.removeTile(key);
   }
@@ -78,12 +85,12 @@ export class MapRasterBackend extends PixiCadSceneRenderBackend {
     this.layers = new Map(states); this.invalidateDisplay();
   }
 
-  invalidateDisplay(bounds?: readonly (CadBounds | undefined)[]): void {
+  invalidateDisplay(bounds?: readonly (CadBounds | undefined)[], includeBaseInfluence = true): void {
     this.revision++;
     this.cancelSettledCamera();
     this.request?.controller.abort();
     for (const [key, cell] of this.cells) {
-      const margin = this.lastRequest
+      const margin = includeBaseInfluence && this.lastRequest
         ? mapRasterInfluenceMargin(this.lastRequest.camera.zoom, this.lastRequest.resolution) : 0;
       if (bounds?.length && !bounds.some(bound => !bound || intersects(cell.bounds, expand(bound, margin)))) continue;
       this.versions.set(key, (this.versions.get(key) ?? 0) + 1);
@@ -97,7 +104,7 @@ export class MapRasterBackend extends PixiCadSceneRenderBackend {
   renderDisplay(request: Request): Promise<void> {
     if (this.disposed) return Promise.resolve();
     const sceneKey = displaySceneKey(request.manifest);
-    const sameContent = this.renderedRevision === this.revision && this.renderedSceneKey === sceneKey;
+    const sameContent = this.completedRevision === this.revision && this.completedSceneKey === sceneKey;
     const current = this.request;
     if (current && this.lastRequest === request && !current.controller.signal.aborted) return current.promise;
     this.lastRequest = request;
@@ -119,8 +126,6 @@ export class MapRasterBackend extends PixiCadSceneRenderBackend {
     if (this.disposed) return Promise.resolve();
     this.stopped = false;
     this.lastRequest = request;
-    this.renderedRevision = this.revision;
-    this.renderedSceneKey = displaySceneKey(request.manifest);
     if (request.signal.aborted) return Promise.resolve();
     const { camera, manifest } = request;
     if (manifest.version !== 2) return Promise.reject(new Error("Ordered map painter requires v2"));
@@ -301,6 +306,8 @@ export class MapRasterBackend extends PixiCadSceneRenderBackend {
       }
       if (!controller.signal.aborted && !this.stopped && this.request === current) {
         for (const key of this.cells.keys()) if (!wanted.has(key)) this.drop(key);
+        this.completedRevision = this.revision;
+        this.completedSceneKey = displaySceneKey(request.manifest);
       }
       } finally { window?.close(); }
     })().catch(error => {

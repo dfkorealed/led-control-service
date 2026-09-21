@@ -4,6 +4,14 @@
 
 기준일: 2026-09-19
 
+## 2026-09-21 맵 raster 회귀 보완
+
+- 같은 인증 범위에서 읽기 전용 전환, 문서 ACK, source callback 갱신이 일어나도 기존 Canvas/Pixi renderer와 검증된 타일 cache를 유지한다. 이 전환은 새 WebGL surface나 중복 타일 HTTP 요청을 만들지 않는다.
+- 초안 `add`는 새 canonical ID라는 문서 계약에 따라 원본 도형 마스크와 분리한다. 따라서 새 도형 하나를 추가할 때 인접 셀까지 다시 bake하지 않으며, `update`와 `delete`는 기존 원본을 숨기기 위해 계속 마스크한다.
+- 기존 원본 요소의 마스크/선 영향 영역은 넓게 무효화하고, 초안의 계산된 stroke/miter bounds는 정확한 셀만 무효화한다. 새 raster가 완성될 때까지 이전 셀을 유지하는 원자 교체 계약은 유지한다.
+- 저배율 모바일에서는 회전 없는 반투명 사각형을 Canvas `fillRect`로 그려 직접 Canvas와 raster의 sub-pixel 합성 결과를 일치시킨다. 회전 사각형과 stroke 경로는 기존 벡터 painter를 유지한다.
+- Chromium 맵 회귀 17개(30만/50만 desktop·50만 mobile 포함)와 실제 HTTP provider 1024/320px를 통과했다. 실제 iOS/Android WebView GPU 계측과 현장 장비 검증은 여전히 별도다.
+
 ## 2026-09-21 맵 카메라 입력 보강
 
 - 맵 편집기는 Pointer Event 기반 두 손가락 pinch를 지원한다. pinch와 wheel 동안 Konva/Pixi transform만 즉시 바꾸고, 종료 또는 120ms 정지 뒤에만 Zustand camera를 저장하므로 요소 트리를 매 입력마다 다시 만들지 않는다.

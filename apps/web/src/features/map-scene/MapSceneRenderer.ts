@@ -53,6 +53,10 @@ export class MapSceneRenderer {
   private picking = false;
   private readingElements = false;
   private drafts = new Map<string, MapElement | null>();
+  // Only updates/deletes can conceal a persisted base element. A newly added
+  // element has a fresh canonical ID, so masking it would unnecessarily widen
+  // raster invalidation around a shape that does not exist in the base scene.
+  private draftMaskIds = new Set<string>();
   private persisted = new Map<string, MapElement | null>();
   private persistedBytes = 0;
   private promoted = new Set<string>();
@@ -164,7 +168,7 @@ export class MapSceneRenderer {
     this.requestedDocument = structuredClone(ref);
     if (this.document?.generationId !== ref.generationId) {
       this.originals.clear();
-      this.drafts.clear(); this.groups.clear(); this.layers.clear();
+      this.drafts.clear(); this.draftMaskIds.clear(); this.groups.clear(); this.layers.clear();
       this.persisted.clear(); this.persistedBytes = 0; this.promoted.clear(); this.draftVersions.clear();
       this.budget.release(this.owner, "drafts");
       this.budget.release(this.owner, "persisted");
@@ -303,6 +307,7 @@ export class MapSceneRenderer {
     if (!this.document) throw new Error("Map document is not set");
     if (operations.length > MAX_DRAFT_IDS) throw new RangeError("Map draft operation limit exceeded");
     const drafts = replace ? new Map<string, MapElement | null>() : new Map(this.drafts);
+    const draftMaskIds = replace ? new Set<string>() : new Set(this.draftMaskIds);
     const groups = replace ? new Map<string, MapGroup | null>() : new Map(this.groups);
     const layers = replace ? new Map<string, MapLayer | null>() : new Map(this.layers);
     const dirty = [...changedBounds];
@@ -313,6 +318,10 @@ export class MapSceneRenderer {
         if (before) dirty.push(getMapElementBounds(before));
         const after = operation.kind === "delete" ? null : mapElementSchema.parse(operation.element);
         drafts.set(id, after);
+        // `add` is validated as a new canonical ID by the document API. It has
+        // no source primitive to suppress; update/delete do and stay masked.
+        if (operation.kind === "add") draftMaskIds.delete(id);
+        else draftMaskIds.add(id);
         if (after) dirty.push(getMapElementBounds(after));
       } else if (operation.kind === "group.put") groups.set(operation.group.id, structuredClone(operation.group));
       else if (operation.kind === "group.delete") groups.set(operation.id, null);
@@ -332,7 +341,7 @@ export class MapSceneRenderer {
       else this.budget.release(this.owner, "drafts");
       throw error;
     }
-    this.drafts = drafts; this.groups = groups; this.layers = layers;
+    this.drafts = drafts; this.draftMaskIds = draftMaskIds; this.groups = groups; this.layers = layers;
     this.draftVersion++;
     if (replace) this.draftVersions.clear();
     for (const operation of operations) this.draftVersions.set(operationKey(operation), this.draftVersion);
@@ -410,7 +419,7 @@ export class MapSceneRenderer {
     this.scene.destroy();
     this.originals.clear();
     this.budget.releaseOwner(this.owner);
-    this.drafts.clear(); this.groups.clear(); this.layers.clear();
+    this.drafts.clear(); this.draftMaskIds.clear(); this.groups.clear(); this.layers.clear();
     this.persisted.clear(); this.persistedBytes = 0; this.promoted.clear(); this.draftVersions.clear();
     this.document = null; this.manifest = null;
     this.renderedCamera = null;
@@ -458,7 +467,7 @@ export class MapSceneRenderer {
   }
 
   private applyVisibility(dirty?: Bounds[]): void {
-    const masks = new Set([...this.persisted.keys(), ...this.drafts.keys(), ...this.promoted]);
+    const masks = new Set([...this.persisted.keys(), ...this.draftMaskIds, ...this.promoted]);
     const groupMasks = new Set<string>();
     const groups = new Map(this.manifest?.groups.map(group => [group.id, group]));
     for (const [id, group] of this.groups) { if (group) groups.set(id, group); else groups.delete(id); }

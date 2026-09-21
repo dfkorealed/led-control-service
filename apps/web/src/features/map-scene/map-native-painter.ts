@@ -100,8 +100,18 @@ export function paintDisplayPrimitive(ctx: Context, p: OrderedMapDisplayPrimitiv
     case "triangle": ring(ctx, p.geometry.points, true); break;
     case "rectangle": {
       const g = p.geometry; ctx.translate(g.origin.x, g.origin.y); ctx.rotate(g.rotation * Math.PI / 180);
-      // Use the same vector-path coverage as canonical polygon/triangle fills;
-      // fillRect's fast path has different fractional-edge antialiasing.
+      // At very low mobile zoom `rect()+fill()` and `fillRect()` round the
+      // same translucent edge differently. Use the direct Canvas rectangle
+      // path when possible, preserving the vector path for rotation.
+      if (g.rotation === 0 && p.style.fillColor) {
+        ctx.globalAlpha = p.style.opacity; ctx.fillStyle = p.style.fillColor;
+        ctx.fillRect(0, 0, g.width, g.height);
+        if (p.style.strokeColor && p.style.strokeWidth > 0) {
+          ctx.beginPath(); ctx.rect(0, 0, g.width, g.height);
+          ctx.strokeStyle = p.style.strokeColor; ctx.lineWidth = Math.max(p.style.strokeWidth, 0.5 / zoom); ctx.stroke();
+        }
+        ctx.restore(); return;
+      }
       ctx.rect(0, 0, g.width, g.height); paint(ctx, p.style, true, zoom);
       ctx.restore(); return;
     }
