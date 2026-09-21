@@ -8,6 +8,7 @@
 
 - 맵 편집기는 Pointer Event 기반 두 손가락 pinch를 지원한다. pinch와 wheel 동안 Konva/Pixi transform만 즉시 바꾸고, 종료 또는 120ms 정지 뒤에만 Zustand camera를 저장하므로 요소 트리를 매 입력마다 다시 만들지 않는다.
 - pinch 취소·Escape는 마지막 저장 camera와 MapScene camera를 함께 복구한다. 기존 조명/도형 선택, drag·resize, undo, 저장 동작은 유지한다.
+- CAD raster는 새 셀이 decode/paint된 뒤 같은 animation frame에서만 교체한다. 새 bitmap의 한시적 staging 메모리를 확보하지 못하면 마지막 완성 셀을 유지하며 degraded 상태로 처리한다.
 - 실기기 iOS/Android WebView GPU 프레임·메모리 계측은 아직 별도 검증 대상이다.
 
 ## 2026-09-20 맵 편집 렌더링 최적화 반영

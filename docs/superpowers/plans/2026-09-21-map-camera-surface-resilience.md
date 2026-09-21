@@ -86,10 +86,10 @@
 - Consumes: `CadSceneMemoryBudget`, `CadRasterDisplayRequest`, raster cell signatures.
 - Produces: staged raster cells that replace active Pixi cells only after all required visible coverage is ready for the current generation.
 
-- [ ] Write a failing delayed-decode test that asserts the old visible raster remains until the new generation publishes and an aborted generation never publishes.
-- [ ] Run the test and confirm current rebake calls `drop` before the replacement canvas is ready.
-- [ ] Stage new canvases under a generation owner, atomically swap cells in one animation frame, defer stale-cell eviction until after publish, and retain visible coverage when budget admission fails.
-- [ ] Run raster/backend and common-map lifecycle tests; verify destroy releases every staged and active allocation.
+- [x] Write a delayed-decode test that asserts the old visible raster remains until the new generation publishes; the existing disposal regression covers aborted work never publishing.
+- [x] Confirm by source audit that the prior rebake invoked `drop` before canvas creation/decode completed.
+- [x] Stage final canvas allocation under a generation owner, atomically swap cells in one frame, defer stale-cell eviction until after publish, and retain visible coverage when budget admission fails.
+- [x] Run raster/backend and common-map lifecycle tests; destroy releases staged and active allocations (8 raster + 5 canvas tests PASS).
 - [ ] Commit `perf(web): atomically swap settled map raster coverage`.
 
 ### Task 4: Integrate and Verify Shared Surfaces

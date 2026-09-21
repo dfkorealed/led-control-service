@@ -87,8 +87,9 @@ export class MapRasterBackend extends PixiCadSceneRenderBackend {
         ? mapRasterInfluenceMargin(this.lastRequest.camera.zoom, this.lastRequest.resolution) : 0;
       if (bounds?.length && !bounds.some(bound => !bound || intersects(cell.bounds, expand(bound, margin)))) continue;
       this.versions.set(key, (this.versions.get(key) ?? 0) + 1);
-      // Never leave a masked old element visible while the replacement loads.
-      this.drop(key);
+      // Keep the last complete cell visible until its successor has been
+      // decoded and painted. A failed/aborted replacement must never create
+      // an empty hole in the map merely because its content changed.
     }
     this.queueRefresh();
   }
@@ -160,7 +161,10 @@ export class MapRasterBackend extends PixiCadSceneRenderBackend {
     const controller = new AbortController();
     const cancel = () => controller.abort(); request.signal.addEventListener("abort", cancel, { once: true });
     const wanted = new Set(jobs.map(job => job.key));
-    for (const key of this.cells.keys()) if (!wanted.has(key)) this.drop(key);
+    // Off-screen cells can be reclaimed by the shared LRU while the active
+    // coverage remains pinned. Their PIXI/canvas resources are released by
+    // the allocation eviction callback installed in reserve().
+    for (const key of this.cells.keys()) if (!wanted.has(key)) this.budget.setPinned(this.owner, key, false);
     const current = { signature, controller, promise: Promise.resolve() };
     this.request = current;
     current.promise = (async () => {
@@ -185,9 +189,12 @@ export class MapRasterBackend extends PixiCadSceneRenderBackend {
             const raster = rasterGrid!.jobs.find(value => value.key === job.key)!;
             const drafts = this.drafts.filter((element, index) => this.layers.get(element.layerId)?.visible !== false &&
               intersects(job.bounds, expand(this.draftBounds[index], this.minimumStrokeMargin(element, band) + 1 / band)));
-            this.drop(job.key);
             const hasInput = job.tiles.length > 0 || drafts.length > 0;
-            this.reserve(this.owner, job.key, hasInput ? raster.width * raster.height * 8 + 1024 : 256);
+            const rasterBytes = hasInput ? raster.width * raster.height * 8 + 1024 : 256;
+            // Reserve the final canvas alongside its currently displayed cell.
+            // If this does not fit, retain the old coverage and surface a
+            // bounded degraded state instead of blanking a visible map region.
+            this.reserve(stagingOwner, "raster", rasterBytes);
             let canvas: HTMLCanvasElement | null = null;
             if (hasInput) {
               canvas = document.createElement("canvas"); pendingCanvas = canvas;
@@ -199,8 +206,13 @@ export class MapRasterBackend extends PixiCadSceneRenderBackend {
                 signal: controller.signal, excludedIds: request.excludedIds, excludedGroupIds: request.excludedGroupIds,
                 reserve: (key, bytes) => { if (bytes) this.reserve(stagingOwner, key, bytes); else this.budget.release(stagingOwner, key); } });
               controller.signal.throwIfAborted();
-              this.replaceRaster(`raster:${job.key}`, canvas, raster.rasterBounds);
             }
+            // No browser frame can render between drop and replaceRaster;
+            // the old cell remains on screen for all async paint/decode work.
+            this.budget.release(stagingOwner, "raster");
+            this.drop(job.key);
+            this.reserve(this.owner, job.key, rasterBytes, key => this.drop(key));
+            if (canvas) this.replaceRaster(`raster:${job.key}`, canvas, raster.rasterBounds);
             this.cells.set(job.key, { signature: job.signature, bounds: job.bounds, canvas }); pendingCanvas = null;
             this.schedulePaint();
             if (performance.now() - yieldedAt >= 8) { await new Promise<void>(resolve => setTimeout(resolve, 0)); yieldedAt = performance.now(); }
@@ -249,8 +261,7 @@ export class MapRasterBackend extends PixiCadSceneRenderBackend {
             maxX: (left + width - offsetX) / scale, maxY: (top + height - offsetY) / scale };
           // Canvas pixels + GPU texture + small per-cell scene/descriptor state.
           const rasterBytes = count ? width * height * 8 + 1024 : 256;
-          this.drop(job.key);
-          this.reserve(this.owner, job.key, rasterBytes);
+          this.reserve(stagingOwner, "raster", rasterBytes);
           let canvas: HTMLCanvasElement | null = null;
           if (count) {
             canvas = document.createElement("canvas"); pendingCanvas = canvas; canvas.width = width; canvas.height = height;
@@ -267,8 +278,11 @@ export class MapRasterBackend extends PixiCadSceneRenderBackend {
               else paintDisplayPrimitive(context, primitives[index], band);
               cursor = end - 1;
             }
-            this.replaceRaster(`raster:${job.key}`, canvas, rasterBounds);
           }
+          this.budget.release(stagingOwner, "raster");
+          this.drop(job.key);
+          this.reserve(this.owner, job.key, rasterBytes, key => this.drop(key));
+          if (canvas) this.replaceRaster(`raster:${job.key}`, canvas, rasterBounds);
           this.cells.set(job.key, { signature: job.signature, bounds: job.bounds, canvas });
           pendingCanvas = null;
           // Yield between cells so camera and cancellation never wait for the
@@ -279,12 +293,14 @@ export class MapRasterBackend extends PixiCadSceneRenderBackend {
             yieldedAt = performance.now();
           }
         } catch (error) {
-          this.drop(job.key);
           if (pendingCanvas) { pendingCanvas.width = 0; pendingCanvas.height = 0; }
           throw error;
         } finally {
           release(); controller.signal.removeEventListener("abort", release); this.stagingOwners.delete(stagingOwner);
         }
+      }
+      if (!controller.signal.aborted && !this.stopped && this.request === current) {
+        for (const key of this.cells.keys()) if (!wanted.has(key)) this.drop(key);
       }
       } finally { window?.close(); }
     })().catch(error => {
@@ -342,8 +358,8 @@ export class MapRasterBackend extends PixiCadSceneRenderBackend {
     this.paintFrame = null;
   }
 
-  private reserve(owner: string, key: string, bytes: number): void {
-    if (!this.budget.reserve(owner, key, Math.max(1, Math.ceil(bytes)))) throw new RasterBudgetError("Ordered map cell exceeds aggregate memory budget");
+  private reserve(owner: string, key: string, bytes: number, onEvict?: (key: string) => void): void {
+    if (!this.budget.reserve(owner, key, Math.max(1, Math.ceil(bytes)), onEvict)) throw new RasterBudgetError("Ordered map cell exceeds aggregate memory budget");
     this.budget.setPinned(owner, key, true);
   }
 

@@ -174,4 +174,36 @@ describe("bounded ordered raster lifecycle", () => {
     expect(calls.bake).not.toHaveBeenCalled();
     expect(request.onError).not.toHaveBeenCalled();
   });
+
+  it("keeps a visible raster until its delayed replacement is completely decoded", async () => {
+    const { backend, request, budget } = setup();
+    request.manifest.tiles = [descriptor];
+    const primitive = { type: "line" as const, elementId: "base", groupId: null, layerName: "layer", sourceType: "line",
+      zIndex: 0, fragmentOrder: 0, clipBounds: null, bounds: { minX: 20, minY: 20, maxX: 40, maxY: 40 },
+      geometry: { start: { x: 20, y: 20 }, end: { x: 40, y: 40 } }, style: line.style };
+    request.worker.decode = vi.fn(async (_bytes, tile) => ({ descriptor: tile, byteSize: 100,
+      ...buildMapGeometryBatches([], 1, true), nativePrimitives: [primitive] }));
+    try {
+      await backend.renderDisplay(request);
+      calls.remove.mockClear(); calls.bake.mockClear();
+      let resolveReplacement!: (bytes: Uint8Array) => void;
+      request.loadTile = vi.fn(() => new Promise<Uint8Array>(resolve => { resolveReplacement = resolve; }));
+
+      backend.invalidateDisplay();
+      const replacement = backend.renderDisplay(request);
+      await vi.waitFor(() => expect(request.loadTile).toHaveBeenCalledOnce());
+      // The old canvas is still the active PIXI cell while the new one waits
+      // for decode/paint. This was previously removed before loadTile settled.
+      expect(calls.remove).not.toHaveBeenCalled();
+      expect(calls.bake).not.toHaveBeenCalled();
+
+      resolveReplacement(new Uint8Array());
+      await replacement;
+      expect(calls.remove).toHaveBeenCalledWith("raster:512:0:0");
+      expect(calls.bake).toHaveBeenCalledWith("raster:512:0:0", expect.any(HTMLCanvasElement), expect.any(Object));
+    } finally {
+      backend.destroy();
+      expect(budget.totalBytes).toBe(0);
+    }
+  });
 });

@@ -978,3 +978,9 @@
 - **문제**: 새 공통 맵 적용은 HTTP200으로 성공했지만 웹의 legacy 전용 strict schema는 `mapDocument`와 none 배경을 거부했다. 이후 완료 job 조회로 복구하는 UI 경로가 있어 화면 여정만 보면 원래 ACK 파싱 실패를 놓칠 수 있었다.
 - **해결**: 실제 service HTTP 응답을 웹이 import하는 정확한 shared subpath와 production API 함수에 통과시키는 RED/GREEN 회귀를 추가했다. 공통 맵은 required mapDocument로 구분하는 strict 분기를 사용하고, 크기·격자·수정 번호의 정합성을 검사하며 내부 감사 요약 키를 응답에 섞지 않는다.
 - **예방**: HTTP200·최종 화면 도착·정확한 성공 응답 파싱을 각각 검사한다. 기존 필드를 전부 optional로 바꾸거나 가짜 경로를 넣지 않는다. DTO가 nullable을 표현하더라도 현재 DB lifecycle 제약이 해당 상태를 허용한다는 뜻은 아니다.
+
+## 2026-09-21 / 화면용 raster 교체는 decode 완료 전 기존 coverage를 제거하지 않는다
+
+- **발생했던 문제/실수**: 카메라 이동이나 요소 변경 뒤 새 cell을 만들기 전에 기존 Pixi raster를 제거했다. 네트워크 decode·Canvas paint·worker 취소가 이어지면 지도에 일시적인 빈 영역과 깜빡임이 생길 수 있었다.
+- **해결 및 예방책**: 새 bitmap은 generation staging owner에서 decode·paint와 최종 메모리 예약을 끝낸 뒤에만 active cell과 동기 교체한다. admission이 실패하면 기존 cell을 남기고 degraded 상태를 보고하며, off-screen stale cell만 LRU eviction 대상으로 연다.
+- **반복 방지 체크**: 지연 `loadTile` 중 `removeTile`이 호출되지 않는 회귀, destroy 뒤 staging/active budget 0, abort된 generation이 raster를 재발행하지 않는 회귀를 함께 유지한다.
