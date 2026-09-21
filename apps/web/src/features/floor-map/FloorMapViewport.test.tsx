@@ -93,6 +93,25 @@ describe("FloorMapViewport", () => {
     expect(screen.getByRole("region", { name: "테스트 지도" })).toHaveAttribute("data-zoom", "2");
   });
 
+  it("coalesces pinch state publication until the gesture finishes", () => {
+    const onZoomChange = vi.fn();
+    render(<ViewportHarness mode="pan" onZoomChange={onZoomChange} />);
+    const viewport = screen.getByRole("region", { name: "테스트 지도" });
+    onZoomChange.mockClear();
+
+    dispatchPointer(viewport, "pointerdown", { pointerId: 1, pointerType: "touch", clientX: 100, clientY: 100 });
+    dispatchPointer(viewport, "pointerdown", { pointerId: 2, pointerType: "touch", clientX: 200, clientY: 100 });
+    dispatchPointer(viewport, "pointermove", { pointerId: 2, pointerType: "touch", clientX: 300, clientY: 100 });
+    dispatchPointer(viewport, "pointermove", { pointerId: 2, pointerType: "touch", clientX: 400, clientY: 100 });
+
+    expect(viewport).toHaveAttribute("data-zoom", "3");
+    expect(onZoomChange).not.toHaveBeenCalled();
+
+    dispatchPointer(viewport, "pointerup", { pointerId: 2, pointerType: "touch", clientX: 400, clientY: 100 });
+    expect(onZoomChange).toHaveBeenCalledTimes(1);
+    expect(onZoomChange).toHaveBeenLastCalledWith(3);
+  });
+
   it("clamps wheel and button zoom to 0.1 through 4", () => {
     render(<ViewportHarness mode="pan" />);
     const viewport = screen.getByRole("region", { name: "테스트 지도" });
@@ -226,14 +245,16 @@ describe("FloorMapViewport", () => {
 function ViewportHarness({
   mode,
   onAreaSelect,
-  onMarkerClick
+  onMarkerClick,
+  onZoomChange
 }: {
   mode: MapInteractionMode;
   onAreaSelect?: (rect: MapSelectionRect) => void;
   onMarkerClick?: () => void;
+  onZoomChange?: (zoom: number) => void;
 }) {
   return (
-    <FloorMapViewport snapshot={snapshot} ariaLabel="테스트 지도" mode={mode} onAreaSelect={onAreaSelect}>
+    <FloorMapViewport snapshot={snapshot} ariaLabel="테스트 지도" mode={mode} onAreaSelect={onAreaSelect} onZoomChange={onZoomChange}>
       <button type="button" aria-label="테스트 조명" onClick={onMarkerClick}>테스트 조명</button>
     </FloorMapViewport>
   );

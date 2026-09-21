@@ -4,6 +4,7 @@
 
 ## 구현 완료
 
+- 2026-09-21 제어 대상 지도는 모니터링과 같은 공통 `FloorMapViewport`의 coalesced pointer camera를 사용한다. 핀치 중 React parent를 매 프레임 갱신하지 않으며 종료 시 한 번만 zoom을 동기화한다. 실제 모바일 WebView 성능 계측은 보류다.
 - 2026-09-19 공통 맵 표면은 설정에서 적용한 네이티브 CAD를 읽기 전용 Pixi 타일로 합성하고 수동 도형·조명 선택 오버레이와 카메라를 동기화한다. 최대 32,768 논리 맵에서도 전체 논리 크기의 canvas를 할당하지 않는다. 기존 제어 권한, 대상 선택 및 MQTT/장비 명령 계약은 변경하지 않았으며 이번 CAD 검증은 실장비 제어 HIL을 대신하지 않는다.
 - 2026-09-18 모니터링의 수동 읽기 전용 확인에서 fresh Gateway의 두 번 연속 검증된 조명 실패가 수신되면 `Fixture.lastUnreachableAt`과 운영 `offline/fixture_stale`을 저장해 기본 20분 stale 대기 없이 제어를 차단한다. Gateway/MQTT 자체 실패는 개별 조명의 unreachable 증거로 쓰지 않는다. 확인 작업은 밝기 제어 Command/이력을 만들거나 밝기·전원·BIO mode를 바꾸지 않는다.
 - 수동 unreachable보다 더 최신의 수락 presence/state가 도착하면 `lastUnreachableAt`을 해제하고 freshness 차단을 복구한다. 늦은 이전 실패는 더 최신 성공 관측을 덮지 않는다. 생존 presence만으로 실제 Health fault·`command_failed`·등록 대기를 지우지 않으며 BIO sensor 설정 밝기를 실제 출력으로 추정하지 않는다.

@@ -4,6 +4,12 @@
 
 기준일: 2026-09-19
 
+## 2026-09-21 맵 카메라 입력 보강
+
+- 맵 편집기는 Pointer Event 기반 두 손가락 pinch를 지원한다. pinch와 wheel 동안 Konva/Pixi transform만 즉시 바꾸고, 종료 또는 120ms 정지 뒤에만 Zustand camera를 저장하므로 요소 트리를 매 입력마다 다시 만들지 않는다.
+- pinch 취소·Escape는 마지막 저장 camera와 MapScene camera를 함께 복구한다. 기존 조명/도형 선택, drag·resize, undo, 저장 동작은 유지한다.
+- 실기기 iOS/Android WebView GPU 프레임·메모리 계측은 아직 별도 검증 대상이다.
+
 ## 2026-09-20 맵 편집 렌더링 최적화 반영
 
 - 맵 이동 중에는 Konva 레이어와 Pixi 맵 카메라 transform만 즉시 갱신하고, Zustand 카메라 상태는 포인터를 놓을 때 한 번만 반영한다.

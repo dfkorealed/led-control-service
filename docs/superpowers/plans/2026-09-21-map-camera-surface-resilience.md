@@ -52,16 +52,15 @@
 - Consumes: `MapSceneSource.scopeKey`, `MapSceneCanvasHandle`, `MapSceneRenderer`.
 - Produces: a renderer whose data source delegates to the latest same-scope source without recreating the canvas.
 
-- [ ] Write a failing lifecycle test for a same-scope source object plus read-only/viewport callback changes, asserting one canvas and renderer.
-- [ ] Run the focused test and confirm it fails because the mount effect depends on object/read-only identity.
-- [ ] Build a ref-backed source facade, key mount only by source scope and stable platform, and preserve the latest callbacks through `latest.current`.
-- [ ] Run `pnpm --filter @led-control/web test -- src/features/map-scene/MapSceneCanvas.test.tsx` and confirm it passes.
-- [ ] Commit `perf(web): keep common map surface stable across host updates`.
+- [x] Write a failing lifecycle test for a same-scope source object plus read-only/viewport callback changes, asserting one canvas and renderer.
+- [x] Run the focused test and confirm it fails because the mount effect depends on object/read-only identity.
+- [x] Build a ref-backed source facade, key mount only by source scope and stable platform, and preserve the latest callbacks through `latest.current`.
+- [x] Run `pnpm --filter @led-control/web test -- src/features/map-scene/MapSceneCanvas.test.tsx` and confirm it passes.
+- [x] Commit `perf(web): keep common map surface stable across host updates` (`2768c30f`).
 
 ### Task 2: Coalesce Viewport Gestures Without React Tree Reconciliation
 
 **Files:**
-- Create: `apps/web/src/features/floor-map/map-camera-controller.ts`
 - Modify: `apps/web/src/features/floor-map/FloorMapViewport.tsx`
 - Modify: `apps/web/src/features/floor-map/FloorMapViewport.test.tsx`
 - Modify: `apps/web/src/features/floor-editor/FloorEditorCanvas.tsx`
@@ -69,13 +68,13 @@
 
 **Interfaces:**
 - Consumes: `CadSceneCamera`, `FloorMapViewportOverlay.subscribe`, `screenToWorld`.
-- Produces: `MapCameraController` with `setCamera`, `flush`, and `dispose`; Pointer Events update once per animation frame and emit a settled camera exactly once.
+- Produces: an imperative camera path on the shared viewport and editor; Pointer Events update once per animation frame and emit a settled camera exactly once.
 
-- [ ] Write failing tests proving pinch/wheel uses one settled React commit while frame listeners receive the live camera, and editor touch pan/pinch preserves map-space coordinates.
-- [ ] Run focused tests and confirm current viewport writes zoom state on every pointer move and editor lacks touch handling.
-- [ ] Implement the controller with pointer capture, RAF coalescing, pointer cancel, visibility/resize flush, and no `deltaMode` branches.
-- [ ] Apply it to monitoring/control `FloorMapViewport`; migrate editor camera input to Pointer Events while preserving selection, drag, resize, undo, and save paths.
-- [ ] Run focused viewport/editor tests and commit `perf(web): coalesce shared map camera gestures`.
+- [x] Write failing tests proving pinch/wheel uses one settled React commit while frame listeners receive the live camera, and editor touch pan/pinch preserves map-space coordinates.
+- [x] Run focused tests and confirm current viewport writes zoom state on every pointer move and editor lacks touch handling.
+- [x] Implement pointer capture, RAF coalescing, pointer cancel recovery, and 120ms settled commits without `deltaMode` branches.
+- [x] Apply it to monitoring/control `FloorMapViewport`; migrate editor camera input to Pointer Events while preserving selection, drag, resize, undo, and save paths.
+- [x] Run focused viewport/editor tests (85 PASS) and commit `perf(web): coalesce shared map camera gestures`.
 
 ### Task 3: Publish Raster Coverage Atomically
 

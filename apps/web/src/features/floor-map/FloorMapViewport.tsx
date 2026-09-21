@@ -88,6 +88,7 @@ export function FloorMapViewport({
   viewportTestId
 }: FloorMapViewportProps) {
   const viewportRef = useRef<HTMLDivElement>(null);
+  const stageRef = useRef<HTMLDivElement>(null);
   const surfaceRef = useRef<HTMLDivElement>(null);
   const activePointers = useRef(new Map<number, MapPoint>());
   const pan = useRef<PanGesture | null>(null);
@@ -100,6 +101,8 @@ export function FloorMapViewport({
   const cameraFrame = useRef<FloorMapCameraFrame | null>(null);
   const cameraListeners = useRef(new Set<(frame: FloorMapCameraFrame | null) => void>());
   const cameraAnimationFrame = useRef<number | null>(null);
+  const zoomCommitTimer = useRef<number | null>(null);
+  const pendingZoom = useRef<number | null>(null);
   const [zoom, setZoom] = useState(1);
   const [viewportSize, setViewportSize] = useState({ width: 0, height: 0 });
   const [selection, setSelection] = useState<MapSelectionRect | null>(null);
@@ -115,8 +118,8 @@ export function FloorMapViewport({
     : 1;
   const mapMetrics = useRef({ width: snapshot.width, height: snapshot.height, fitScale });
   mapMetrics.current = { width: snapshot.width, height: snapshot.height, fitScale };
-  const renderedWidth = snapshot.width * fitScale * zoom;
-  const renderedHeight = snapshot.height * fitScale * zoom;
+  const renderedWidth = snapshot.width * fitScale * zoomRef.current;
+  const renderedHeight = snapshot.height * fitScale * zoomRef.current;
   // The saved canvas ratio and measured viewport dimensions are runtime geometry.
   const surfaceStyle = {
     aspectRatio: `${snapshot.width} / ${snapshot.height}`,
@@ -192,7 +195,45 @@ export function FloorMapViewport({
     subscribe: subscribeToCamera
   }), [overlayRoot, subscribeToCamera]);
 
-  const changeZoom = useCallback((nextZoom: number, anchor?: MapPoint) => {
+  const commitZoom = useCallback(() => {
+    if (zoomCommitTimer.current !== null) {
+      window.clearTimeout(zoomCommitTimer.current);
+      zoomCommitTimer.current = null;
+    }
+    const nextZoom = pendingZoom.current;
+    pendingZoom.current = null;
+    if (nextZoom === null) return;
+    setZoom(current => current === nextZoom ? current : nextZoom);
+    onZoomChangeRef.current?.(nextZoom);
+  }, []);
+
+  const scheduleZoomCommit = useCallback(() => {
+    if (zoomCommitTimer.current !== null) window.clearTimeout(zoomCommitTimer.current);
+    zoomCommitTimer.current = window.setTimeout(() => {
+      zoomCommitTimer.current = null;
+      commitZoom();
+    }, 120);
+  }, [commitZoom]);
+
+  const applySurfaceZoom = useCallback((nextZoom: number) => {
+    const metrics = mapMetrics.current;
+    const width = metrics.width * metrics.fitScale * nextZoom;
+    const height = metrics.height * metrics.fitScale * nextZoom;
+    const viewport = viewportRef.current;
+    const surface = surfaceRef.current;
+    const stage = stageRef.current;
+    if (surface) {
+      surface.style.width = `${width}px`;
+      surface.style.height = `${height}px`;
+    }
+    if (stage && viewport) {
+      stage.style.width = `${Math.max(viewport.clientWidth, width + padding * 2)}px`;
+      stage.style.height = `${Math.max(viewport.clientHeight, height + padding * 2)}px`;
+    }
+    if (viewport) viewport.dataset.zoom = String(nextZoom);
+  }, []);
+
+  const changeZoom = useCallback((nextZoom: number, anchor?: MapPoint, settle = false) => {
     const viewport = viewportRef.current;
     const fromZoom = zoomRef.current;
     const toZoom = clampMapZoom(nextZoom);
@@ -209,10 +250,11 @@ export function FloorMapViewport({
     });
     const startScroll = { x: viewport?.scrollLeft ?? 0, y: viewport?.scrollTop ?? 0 };
     zoomRef.current = toZoom;
-    setZoom(toZoom);
-    onZoomChangeRef.current?.(toZoom);
+    pendingZoom.current = toZoom;
+    applySurfaceZoom(toZoom);
     scheduleMapAnchor({ viewport, mapAnchor, anchor: viewportAnchor, startScroll, fromZoom, toZoom });
-  }, []);
+    if (settle) commitZoom(); else scheduleZoomCommit();
+  }, [applySurfaceZoom, commitZoom, scheduleZoomCommit]);
 
   useLayoutEffect(() => {
     const viewport = viewportRef.current;
@@ -239,11 +281,15 @@ export function FloorMapViewport({
     // StrictMode replays setup after cleanup using the same refs. A cancelled
     // frame must not keep the next setup from scheduling the initial camera.
     cameraAnimationFrame.current = null;
+    if (zoomCommitTimer.current !== null) window.clearTimeout(zoomCommitTimer.current);
+    zoomCommitTimer.current = null;
+    pendingZoom.current = null;
     cameraListeners.current.clear();
   }, []);
 
   useLayoutEffect(() => {
     zoomRef.current = 1;
+    pendingZoom.current = null;
     setZoom(1);
     onZoomChangeRef.current?.(1);
     if (!viewportRef.current) return;
@@ -315,6 +361,7 @@ export function FloorMapViewport({
         });
         viewport.scrollLeft += adjustment.x;
         viewport.scrollTop += adjustment.y;
+        scheduleCameraFrame();
         return;
       }
       viewport.scrollLeft = anchoredScrollPosition({
@@ -395,8 +442,8 @@ export function FloorMapViewport({
       const midpoint = pointerMidpoint(left, right);
       const bounds = viewport.getBoundingClientRect();
       zoomRef.current = toZoom;
-      setZoom(toZoom);
-      onZoomChangeRef.current?.(toZoom);
+      pendingZoom.current = toZoom;
+      applySurfaceZoom(toZoom);
       scheduleMapAnchor({
         viewport,
         mapAnchor: activePinch.mapAnchor,
@@ -432,6 +479,7 @@ export function FloorMapViewport({
     setSelection(null);
     if (pinch.current) {
       pinch.current = null;
+      commitZoom();
       suppressNextClick.current = true;
       if (suppressClickTimeout.current !== null) window.clearTimeout(suppressClickTimeout.current);
       suppressClickTimeout.current = window.setTimeout(() => {
@@ -479,7 +527,7 @@ export function FloorMapViewport({
         data-testid={viewportTestId}
         role="region"
         aria-label={ariaLabel}
-        data-zoom={zoom}
+        data-zoom={zoomRef.current}
         tabIndex={0}
         onClickCapture={handleClickCapture}
         onPointerDown={handlePointerDown}
@@ -488,7 +536,7 @@ export function FloorMapViewport({
         onPointerCancel={(event) => finishPointer(event, true)}
         onScroll={scheduleCameraFrame}
       >
-        <div className="grid min-h-full min-w-full place-items-center p-6" style={stageStyle}>
+        <div ref={stageRef} className="grid min-h-full min-w-full place-items-center p-6" style={stageStyle}>
           <div ref={surfaceRef} className="relative h-auto w-full overflow-hidden rounded-panel border border-border-default bg-surface-panel shadow-none" style={surfaceStyle} data-floor-map-surface="">
             <div ref={setOverlayRoot} className="pointer-events-none absolute inset-0 z-0 overflow-hidden" data-floor-map-webgl-overlay="" aria-hidden="true" />
             {children}
@@ -509,10 +557,10 @@ export function FloorMapViewport({
       </div>
       {showControls ? (
         <div className="absolute right-3 bottom-3 z-6 flex items-center gap-1 rounded-control border border-border-default bg-surface-panel p-1 shadow-popover max-compact:right-2 max-compact:bottom-2" role="group" aria-label="지도 확대 축소">
-          <IconButton type="button" variant="ghost" size="sm" className="max-compact:size-13" aria-label="지도 축소" disabled={zoom <= 0.1} onClick={() => changeZoom(zoomRef.current - 0.1)}><Minus size={16} aria-hidden="true" /></IconButton>
-          <Button type="button" variant="ghost" size="sm" className="min-w-14 px-2 max-compact:min-h-13" aria-label={`지도 배율 ${Math.round(zoom * 100)}%`} onClick={() => changeZoom(1)}>{Math.round(zoom * 100)}%</Button>
-          <IconButton type="button" variant="ghost" size="sm" className="max-compact:size-13" aria-label="지도 확대" disabled={zoom >= 4} onClick={() => changeZoom(zoomRef.current + 0.1)}><Plus size={16} aria-hidden="true" /></IconButton>
-          <IconButton type="button" variant="ghost" size="sm" className="max-compact:size-13" aria-label="지도 화면 맞춤" onClick={() => changeZoom(1)}><Maximize size={16} aria-hidden="true" /></IconButton>
+          <IconButton type="button" variant="ghost" size="sm" className="max-compact:size-13" aria-label="지도 축소" disabled={zoom <= 0.1} onClick={() => changeZoom(zoomRef.current - 0.1, undefined, true)}><Minus size={16} aria-hidden="true" /></IconButton>
+          <Button type="button" variant="ghost" size="sm" className="min-w-14 px-2 max-compact:min-h-13" aria-label={`지도 배율 ${Math.round(zoom * 100)}%`} onClick={() => changeZoom(1, undefined, true)}>{Math.round(zoom * 100)}%</Button>
+          <IconButton type="button" variant="ghost" size="sm" className="max-compact:size-13" aria-label="지도 확대" disabled={zoom >= 4} onClick={() => changeZoom(zoomRef.current + 0.1, undefined, true)}><Plus size={16} aria-hidden="true" /></IconButton>
+          <IconButton type="button" variant="ghost" size="sm" className="max-compact:size-13" aria-label="지도 화면 맞춤" onClick={() => changeZoom(1, undefined, true)}><Maximize size={16} aria-hidden="true" /></IconButton>
         </div>
       ) : null}
     </div>

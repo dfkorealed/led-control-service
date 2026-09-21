@@ -1,6 +1,6 @@
 import Konva from "konva";
 import type { CadElementOverridePatch, CadSceneDescriptor, CadSceneState, FloorImportCandidate, FloorImportRenderedViewport } from "@led-control/shared";
-import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent, type MouseEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent, type MouseEvent, type PointerEvent } from "react";
 import { Circle, Image as KonvaImage, Label, Layer, Line, Rect, Shape, Stage, Tag, Text, Transformer } from "react-konva";
 import { Button, FeedbackState, Text as UiText, themeColor } from "../../components/ui";
 import { TriangleAlert } from "lucide-react";
@@ -48,6 +48,7 @@ const TOOL_DRAG_TYPE = "application/x-floor-editor-tool";
 const drawingTools = new Set<EditorTool>(["rectangle", "triangle", "line", "text", "ellipse", "arc", "polyline", "polygon"]);
 type Gesture = { kind: "pan" | "marquee" | "draw"; start: Point; screen: Point; pan: Point; additive: boolean; moved: boolean };
 type DragInteraction = { token: number; kind: "fixture" | "object"; id: string; floorId: string };
+type EditorPinch = { distance: number; zoom: number; world: Point };
 
 interface FloorEditorCanvasProps {
   mapEditor?: MapEditorController;
@@ -107,6 +108,8 @@ export function FloorEditorCanvas({
   const horizontalGuide = useRef<Konva.Line>(null);
   const pointerFrame = useRef<number | null>(null);
   const pendingPointerMove = useRef<(() => void) | null>(null);
+  const touchPointers = useRef(new Map<number, Point>());
+  const pinch = useRef<EditorPinch | null>(null);
   const dragFrame = useRef<number | null>(null);
   const pendingDragMove = useRef<(() => void) | null>(null);
   const dragToken = useRef(0);
@@ -212,6 +215,24 @@ export function FloorEditorCanvas({
       commitCamera();
     }, 120);
   }, [commitCamera]);
+  const restoreCommittedCamera = useCallback(() => {
+    if (wheelCommitTimer.current !== null) clearTimeout(wheelCommitTimer.current);
+    wheelCommitTimer.current = null;
+    const current = useFloorEditorStore.getState();
+    cameraOverride.current = null;
+    const transform = { x: current.pan.x, y: current.pan.y, scaleX: current.zoom, scaleY: current.zoom };
+    stage.current?.getLayers().forEach((layer) => layer.setAttrs(transform));
+    container.current?.setAttribute("data-zoom", String(current.zoom));
+    container.current?.setAttribute("data-pan-x", String(current.pan.x));
+    container.current?.setAttribute("data-pan-y", String(current.pan.y));
+    mapEditorRef.current?.handle.current?.setCamera({
+      centerX: (viewport.width / 2 - current.pan.x) / current.zoom,
+      centerY: (viewport.height / 2 - current.pan.y) / current.zoom,
+      zoom: current.zoom,
+      viewportWidth: viewport.width,
+      viewportHeight: viewport.height
+    });
+  }, [viewport.height, viewport.width]);
   const visibleFixtures = useMemo(() => {
     if (cadReviewActive) return [];
     const visibleIds = new Set(queryEditorSpatialIndex(placedFixtureCollection.spatialIndex, viewportBounds, 160 / renderedZoom).map((item) => item.id));
@@ -451,11 +472,7 @@ export function FloorEditorCanvas({
         cancelPointerMove();
         // Imperative pan is not yet in Zustand. Restore every layer before dropping
         // the gesture, so the next drop uses exactly the transform shown on screen.
-        if (gesture.current?.kind === "pan") stage.current?.getLayers().forEach((layer) => layer.setAttrs({ x: store.pan.x, y: store.pan.y, scaleX: store.zoom, scaleY: store.zoom }));
-        if (wheelCommitTimer.current !== null) clearTimeout(wheelCommitTimer.current);
-        wheelCommitTimer.current = null; cameraOverride.current = null;
-        mapEditorRef.current?.handle.current?.setCamera({ centerX: (viewport.width / 2 - store.pan.x) / store.zoom,
-          centerY: (viewport.height / 2 - store.pan.y) / store.zoom, zoom: store.zoom, viewportWidth: viewport.width, viewportHeight: viewport.height });
+        restoreCommittedCamera();
         gesture.current = null; mapEditorRef.current?.cancelHole(); setMapCreation(null); mapCreationDraft.current = null; setPathDraft(null); setCreation(null); setMarquee(null); setDropPreview(null); setHighlightedSlotId(null); setIsPanning(false); store.setPreview([]); return;
       }
       if (readOnly) return;
@@ -476,7 +493,7 @@ export function FloorEditorCanvas({
     };
     window.addEventListener("keydown", handleKey);
     return () => window.removeEventListener("keydown", handleKey);
-  }, [cancelPointerMove, readOnly, pathDraft]);
+  }, [cancelPointerMove, readOnly, pathDraft, restoreCommittedCamera]);
 
   useEffect(() => { setPathDraft(null); setMapCreation(null); mapCreationDraft.current = null; }, [activeTool, state?.floor.id, readOnly]);
 
@@ -499,6 +516,95 @@ export function FloorEditorCanvas({
     const current = cameraOverride.current ?? useFloorEditorStore.getState();
     return screenToWorld(screenPoint(event), current.pan, current.zoom);
   };
+
+  function captureTouch(event: PointerEvent<HTMLDivElement>) {
+    try { event.currentTarget.setPointerCapture(event.pointerId); }
+    catch { /* Synthetic test pointers are not registered with native capture. */ }
+  }
+
+  function releaseTouch(event: PointerEvent<HTMLDivElement>) {
+    try { event.currentTarget.releasePointerCapture(event.pointerId); }
+    catch { /* Mirrors the synthetic pointer capture fallback above. */ }
+  }
+
+  function beginTouch(event: PointerEvent<HTMLDivElement>) {
+    if (event.pointerType !== "touch" || event.button > 0) return;
+    event.preventDefault();
+    touchPointers.current.set(event.pointerId, screenPoint(event));
+    captureTouch(event);
+    if (touchPointers.current.size === 1) {
+      begin(event as unknown as MouseEvent<HTMLDivElement>);
+      return;
+    }
+    if (touchPointers.current.size !== 2) return;
+    const [first, second] = [...touchPointers.current.values()];
+    const distance = Math.hypot(second.x - first.x, second.y - first.y);
+    if (distance <= 0) return;
+    commitCamera();
+    const current = useFloorEditorStore.getState();
+    pinch.current = {
+      distance,
+      zoom: current.zoom,
+      world: screenToWorld({ x: (first.x + second.x) / 2, y: (first.y + second.y) / 2 }, current.pan, current.zoom)
+    };
+    gesture.current = null;
+    setIsPanning(true);
+  }
+
+  function moveTouch(event: PointerEvent<HTMLDivElement>) {
+    if (event.pointerType !== "touch" || !touchPointers.current.has(event.pointerId)) return;
+    event.preventDefault();
+    touchPointers.current.set(event.pointerId, screenPoint(event));
+    const activePinch = pinch.current;
+    if (activePinch && touchPointers.current.size >= 2) {
+      schedulePointerMove(() => {
+        const [first, second] = [...touchPointers.current.values()];
+        if (!first || !second || !pinch.current) return;
+        const midpoint = { x: (first.x + second.x) / 2, y: (first.y + second.y) / 2 };
+        const nextZoom = clampEditorZoom(pinch.current.zoom * Math.hypot(second.x - first.x, second.y - first.y) / pinch.current.distance);
+        const nextPan = { x: midpoint.x - pinch.current.world.x * nextZoom, y: midpoint.y - pinch.current.world.y * nextZoom };
+        applyImperativeCamera(nextPan, nextZoom);
+        container.current?.setAttribute("data-zoom", String(nextZoom));
+        container.current?.setAttribute("data-pan-x", String(nextPan.x));
+        container.current?.setAttribute("data-pan-y", String(nextPan.y));
+      });
+      return;
+    }
+    move(event as unknown as MouseEvent<HTMLDivElement>);
+  }
+
+  function finishTouch(event: PointerEvent<HTMLDivElement>, cancelled = false) {
+    if (event.pointerType !== "touch" || !touchPointers.current.has(event.pointerId)) return;
+    event.preventDefault();
+    const wasPinching = pinch.current !== null;
+    touchPointers.current.delete(event.pointerId);
+    releaseTouch(event);
+    if (wasPinching) {
+      if (touchPointers.current.size < 2) {
+        flushPointerMove();
+        pinch.current = null;
+        gesture.current = null;
+        if (!cancelled) commitCamera();
+        else restoreCommittedCamera();
+        setIsPanning(false);
+      }
+      return;
+    }
+    if (cancelled) {
+      cancelPointerMove();
+      restoreCommittedCamera();
+      gesture.current = null;
+      creationDraft.current = null;
+      mapCreationDraft.current = null;
+      marqueeDraft.current = null;
+      setCreation(null);
+      setMapCreation(null);
+      setMarquee(null);
+      setIsPanning(false);
+      return;
+    }
+    finish(event as unknown as MouseEvent<HTMLDivElement>);
+  }
 
   function begin(event: MouseEvent<HTMLDivElement>) {
     if ((event.target as Element).closest("button")) return;
@@ -659,6 +765,7 @@ export function FloorEditorCanvas({
     data-rendered-fixture-count={visibleFixtures.length} data-rendered-object-count={visibleObjects.length}
     onDoubleClick={(event) => { if (pathDraft) finishPath(); else if (activeTool === "select" && mapEditor?.document) void mapEditor.pick(screenPoint(event), true, event.shiftKey); }}
     onMouseDown={begin} onMouseMove={move} onMouseUp={finish} onMouseLeave={(e) => { if (gesture.current?.kind === "pan") finish(e); else { cancelPointerMove(); gesture.current = null; creationDraft.current = null; mapCreationDraft.current = null; marqueeDraft.current = null; setCreation(null); setMapCreation(null); setMarquee(null); setIsPanning(false); } }}
+    onPointerDown={beginTouch} onPointerMove={moveTouch} onPointerUp={finishTouch} onPointerCancel={(event) => finishTouch(event, true)}
     onDragOver={dragOver} onDragLeave={() => { cancelPointerMove(); setDropPreview(null); setHighlightedSlotId(null); }} onDrop={drop}>
     {!cadReviewActive && mapEditor?.document && measured ? <MapSceneCanvas
       source={mapEditor.source} documentRef={mapEditor.document}

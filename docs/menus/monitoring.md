@@ -4,6 +4,7 @@
 
 ## 2026-09-20 맵 표시 성능 반영
 
+- 2026-09-21 후속: readOnly/source 객체가 갱신되어도 같은 인증 map scope에서는 Canvas/Pixi renderer를 유지한다. 공통 지도 pinch는 live DOM camera로 반영하고 pointer 종료에 한 번만 외부 zoom 상태를 전달한다.
 - 모니터링에서 사용하는 공통 맵 renderer의 카메라 이동 경로를 최적화했다. 이동/줌 중에는 기존 ordered raster 셀을 재사용하고 정지 후에만 화면 phase에 맞춰 다시 렌더링한다.
 - 설정 맵과 모니터링 읽기 전용 맵의 MapSceneCanvas imperative camera 계약을 유지하므로, CAD 요소와 일반 요소의 표시 데이터는 변경하지 않는다.
 - 셀 메모리와 debounced 요청은 renderer 종료 시 정리되며 stale 렌더가 종료 후 셀을 되살리지 않는다. 모니터링 기능 범위와 읽기 전용 권한은 변경하지 않았다.

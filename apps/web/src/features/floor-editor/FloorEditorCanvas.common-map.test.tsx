@@ -42,6 +42,56 @@ describe("actual common editor Canvas", () => {
       expect(store().zoom).toBeGreaterThan(before);
     } finally { vi.clearAllTimers(); vi.useRealTimers(); }
   });
+
+  it("uses Pointer Events to apply a two-finger editor zoom before its settled store commit", async () => {
+    render(<Canvas />);
+    act(() => { store().resetZoom(); store().setActiveTool("pan"); });
+    const canvas = screen.getByTestId("floor-editor-canvas");
+    const before = store().zoom;
+
+    // JSDOM's PointerEvent shim drops pointerType passed to fireEvent. Keep the
+    // production touch branch under test by defining it on the native event.
+    const touch = (type: "pointerDown" | "pointerMove" | "pointerUp", pointerId: number, clientX: number, clientY: number) => {
+      const event = createEvent[type](canvas);
+      Object.defineProperty(event, "pointerType", { value: "touch" });
+      Object.defineProperties(event, {
+        pointerId: { value: pointerId },
+        clientX: { value: clientX },
+        clientY: { value: clientY },
+        button: { value: 0 }
+      });
+      fireEvent(canvas, event);
+    };
+    touch("pointerDown", 1, 120, 120);
+    touch("pointerDown", 2, 220, 120);
+    touch("pointerMove", 2, 320, 120);
+
+    await waitFor(() => expect(Number(canvas.dataset.zoom)).toBeGreaterThan(before));
+    expect(store().zoom).toBe(before);
+
+    touch("pointerUp", 2, 320, 120);
+    await waitFor(() => expect(store().zoom).toBeGreaterThan(before));
+  });
+
+  it("restores the committed camera when a touch pinch is cancelled", async () => {
+    render(<Canvas />);
+    act(() => { store().resetZoom(); store().setActiveTool("pan"); });
+    const canvas = screen.getByTestId("floor-editor-canvas");
+    const before = store().zoom;
+    const touch = (type: "pointerDown" | "pointerMove" | "pointerCancel", pointerId: number, clientX: number, clientY: number) => {
+      const event = createEvent[type](canvas);
+      Object.defineProperties(event, { pointerType: { value: "touch" }, pointerId: { value: pointerId }, clientX: { value: clientX }, clientY: { value: clientY }, button: { value: 0 } });
+      fireEvent(canvas, event);
+    };
+    touch("pointerDown", 1, 120, 120);
+    touch("pointerDown", 2, 220, 120);
+    touch("pointerMove", 2, 320, 120);
+    await waitFor(() => expect(Number(canvas.dataset.zoom)).toBeGreaterThan(before));
+
+    touch("pointerCancel", 2, 320, 120);
+    await waitFor(() => expect(Number(canvas.dataset.zoom)).toBe(before));
+    expect(store().zoom).toBe(before);
+  });
   it("corrects a transient small initial viewport to the actual 1886x753 measurement", () => {
     render(<Canvas />);
     act(() => store().setViewport({ width: 1886, height: 180 }));
