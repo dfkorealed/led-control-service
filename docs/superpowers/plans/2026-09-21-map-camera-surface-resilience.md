@@ -102,10 +102,10 @@
 - Modify: `docs/test-results/cad-native-map-2026-09-18.md`
 - Modify: `docs/lesson_leared.md`
 
-- [ ] Add integration assertions that monitoring and control map surfaces receive the same camera frame contract and do not remount their canvas on resize/camera updates.
-- [ ] Run web typecheck, web tests, web build, `git diff --check`, and the root test/build gates when time permits.
-- [ ] Record exact pass/fail counts, memory-budget evidence, and explicitly deferred 500k, physical mobile GPU, and Linux cgroup checks.
-- [ ] Commit `docs(map): record camera resilience verification`.
+- [x] Verify integration through common monitoring host (`FloorScene.common-map`) source-identity/camera tests and control's shared `FloorMapViewport` composition; `MapSceneCanvas` lifecycle regression covers no renderer remount on same-scope host refresh.
+- [x] Run web typecheck, web tests, web build, and `git diff --check`. Root gate is unchanged and not rerun for this web-only change.
+- [x] Record exact pass/fail counts, memory-budget evidence, and explicitly deferred 500k, physical mobile GPU, and Linux cgroup checks.
+- [x] Commit `docs(map): record camera resilience verification`.
 
 ## Scope Self-Review
 

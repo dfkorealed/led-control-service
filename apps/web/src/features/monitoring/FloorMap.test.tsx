@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { FloorMap } from "./FloorMap";
 
@@ -300,7 +300,7 @@ describe("FloorMap", () => {
     expect(screen.getByRole("region", { name: "층 도면" })).toHaveAttribute("data-zoom", "1");
   });
 
-  it("zooms with a modified wheel and pans by dragging the viewport", () => {
+  it("zooms with a modified wheel and pans by dragging the viewport", async () => {
     render(<FloorMap floor={navigationFloor} snapshot={mapSnapshot} selectedFixtureId={null} onSelectFixture={vi.fn()} />);
 
     const map = screen.getByRole("region", { name: "층 도면" });
@@ -315,7 +315,8 @@ describe("FloorMap", () => {
     });
     expect(fireEvent(viewport, wheelEvent)).toBe(false);
     expect(wheelEvent.defaultPrevented).toBe(true);
-    expect(map).toHaveAttribute("data-zoom", "1.1");
+    expect(viewport).toHaveAttribute("data-zoom", "1.1");
+    await waitFor(() => expect(map).toHaveAttribute("data-zoom", "1.1"));
 
     viewport.scrollLeft = 40;
     viewport.scrollTop = 30;

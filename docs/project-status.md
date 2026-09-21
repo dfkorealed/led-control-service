@@ -6,6 +6,7 @@
 
 - 2026-09-21 후속: 같은 인증 source scope의 source 객체·readOnly 갱신은 Canvas/Pixi renderer를 재생성하지 않고 최신 fetch 함수를 참조한다. 설정 에디터 및 모니터링/제어 공통 지도는 wheel/pinch 중 DOM·Konva/Pixi camera를 직접 갱신하고 120ms 정지 또는 Pointer Event 종료에 한 번만 React/Zustand 상태를 반영한다. touch pinch 취소는 마지막 커밋 camera를 즉시 복구한다. 집중 85개 회귀는 통과했으며 raster 원자 교체와 전체 검증은 진행 중이다.
 - 2026-09-21 raster 후속: 새 raster는 decode/paint와 최종 bitmap 메모리 예약이 끝날 때까지 이전 Pixi cell을 유지하고, 동기적 publish 구간에서만 교체한다. 가시 셀과 새 canvas를 함께 수용할 수 없으면 이전 coverage를 유지하며 degraded 상태를 알린다. 지연 decode 회귀와 기존 raster/canvas 수명주기 13개가 통과했고 전체 Web gate는 다음 작업에서 실행한다.
+- 2026-09-21 최종 software 검증: Web typecheck, 전체 Vitest `152 files / 2,135 passed / 3 skipped`, production build, `git diff --check`를 통과했다. build는 기존의 500kB chunk 경고만 출력했다. 로컬 in-app browser는 API 연결 실패 화면이라 실제 로그인 맵의 수동 GPU/gesture QA는 실행하지 못했다. 50만 요소, 실제 RN WebView GPU, Linux cgroup은 계획대로 보류다.
 - `FloorEditorCanvas`의 팬·휠 줌 입력은 React/Zustand를 이벤트마다 갱신하지 않고 Konva/Pixi transform을 직접 반영한다. 팬 중 필요한 가상화 목록만 pointer RAF 단위로 갱신하고, 휠 줌은 120ms 정지 후 한 번 커밋한다.
 - `MapSceneCanvas`에 imperative `setCamera`를 추가하고 `MapRasterBackend`는 카메라 이동 중 baked cell을 유지한 뒤 settle 후에만 정밀 raster를 재생성한다. destroy 이후 pending render가 셀과 메모리를 부활시키지 않도록 disposed fence를 적용했다.
 - 관련 집중 테스트 25개, 웹 전체 2,130개 통과(3 skipped), 웹 타입 검사와 production build 통과. 루트 전체 `pnpm test`와 `pnpm build`도 종료 코드 0으로 통과했다. 50만 요소·실제 RN/Linux cgroup 검증은 기존 보류 범위다.

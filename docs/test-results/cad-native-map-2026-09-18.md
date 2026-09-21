@@ -7,6 +7,14 @@
 - 집중 결과: 3개 파일 25 tests PASS. 웹 전체 결과: 152 files, 2,130 tests PASS, 3 skipped. 웹 typecheck와 build PASS.
 - 이 결과는 일반적인 성능/수명주기 회귀 근거이며 50만 요소, 실제 모바일 GPU, Raspberry Pi 양산 cgroup의 완료 근거가 아니다.
 
+## 2026-09-21 Surface 안정성·원자 raster 교체 검증
+
+- `MapSceneCanvas`는 동일 인증 scope에서 source/readOnly callback이 바뀌어도 Canvas/Pixi renderer를 다시 만들지 않고 ref-backed 최신 source를 사용한다. scope 변경만 이전 renderer를 dispose한다.
+- 설정 에디터는 pointer RAF 기반 touch pinch, cancel camera 복구와 settled commit을 사용하고, 모니터링·제어의 공통 `FloorMapViewport`는 wheel/pinch 중 live DOM camera를 유지한 뒤 120ms 정지 또는 pointer 종료에 한 번만 parent zoom을 동기화한다.
+- `MapRasterBackend`의 지연 `loadTile` 회귀는 새 cell decode가 멈춘 동안 `removeTile`이 호출되지 않으며 decode/paint/최종 allocation 뒤 한 동기 publish 구간에서만 old/new cell을 바꾸는 것을 확인한다. `destroy`의 staging·active memory 반환은 기존 수명주기 회귀로 함께 검사했다.
+- 실행 결과: typecheck PASS, 집중 5 files/98 tests PASS, 전체 Web Vitest 152 files/2,135 passed/3 skipped, production build PASS, `git diff --check` PASS. build는 500kB 초과 chunk 경고만 출력했다.
+- in-app localhost는 API 연결 실패 상태여서 실제 로그인 데이터 기반의 수동 GPU/gesture QA는 이 실행에서 하지 못했다. 500k element, 실제 RN WebView GPU와 Linux cgroup은 보류다.
+
 ## 공통 맵 전환 검증 현황 (2026-09-19)
 
 ### 최신 마무리 결과
