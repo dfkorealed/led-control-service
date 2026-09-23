@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { resolve, join } from "node:path";
 import test from "node:test";
 const root=resolve(import.meta.dirname,"../..");
-const env={...process.env,GATEWAY_BIO_DEPLOYMENT_ID:"12345678901234567890123456789012",GATEWAY_BIO_IMAGE:"led-control-gateway:verified",GATEWAY_BIO_DATA_ROOT:"/opt/led-control/gateway/data-admin4",GATEWAY_BIO_USB_DEVICE:"/dev/bus/usb/002/007",GATEWAY_BIO_USB_GID:"812",GATEWAY_SERIAL:"GW-NEW-01",GATEWAY_BOOTSTRAP_URL:"https://192.168.45.148:4000/gateway-bootstrap"};
+const env={...process.env,GATEWAY_BIO_DEPLOYMENT_ID:"12345678901234567890123456789012",GATEWAY_BIO_IMAGE:"led-control-gateway:verified",GATEWAY_BIO_DATA_ROOT:"/opt/led-control/gateway/data-admin4",GATEWAY_BIO_USB_DEVICE:"/dev/bus/usb/002/007",GATEWAY_BIO_USB_GID:"812",GATEWAY_SERIAL:"GW-NEW-01",GATEWAY_BOOTSTRAP_URL:"https://192.168.45.148:4000/gateway-bootstrap",GATEWAY_BIO_SENSOR_SHADOW_CAPTURE_NAME:""};
 function rendered(file){return JSON.parse(execFileSync("docker",["compose","--env-file","/dev/null","-f",file,"config","--format","json"],{env,encoding:"utf8"})).services;}
 function isolated(s){
  assert.equal(s.user,"999:999");assert.deepEqual(s.cap_drop,["ALL"]);assert.deepEqual(s.cap_add??[],[]);
@@ -44,6 +44,18 @@ test("standalone BIO runtime exposes only the host timesync directory as read-on
   read_only:true,
   bind:{create_host_path:false}
  }]);
+});
+test("shadow capture name is an optional environment value without new hardware or mounts",()=>{
+ const file=join(root,"gateway/compose.bio-runtime.yml");
+ const disabled=rendered(file)["gateway-bio"];
+ assert.equal(disabled.environment.GATEWAY_BIO_SENSOR_SHADOW_CAPTURE_NAME,"");
+ const enabled=JSON.parse(execFileSync("docker",["compose","--env-file","/dev/null","-f",file,"config","--format","json"],{env:{...env,GATEWAY_BIO_SENSOR_SHADOW_CAPTURE_NAME:"bio-sensor-shadow-20260923T010203Z.jsonl"},encoding:"utf8"})).services["gateway-bio"];
+ assert.equal(enabled.environment.GATEWAY_BIO_SENSOR_SHADOW_CAPTURE_NAME,"bio-sensor-shadow-20260923T010203Z.jsonl");
+ isolated(enabled);
+ assert.deepEqual(enabled.devices,disabled.devices);
+ assert.deepEqual(enabled.volumes,disabled.volumes);
+ assert.deepEqual(enabled.cap_add,disabled.cap_add);
+ assert.deepEqual(enabled.ports,disabled.ports);
 });
 test("legacy BIO deployment fails before attempting remote work",()=>{
  const r=spawnSync(join(root,"../scripts/gateway-appliance-deploy.sh"),["--adapter","bio-usb","forbidden@example.test","not-an-archive"],{encoding:"utf8"});

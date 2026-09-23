@@ -18,6 +18,7 @@ import { BioDongleClient, type BioDongleClientOptions } from "../bio/bio-dongle-
 import { BioDeviceMappingStore } from "../bio/bio-device-mapping-store";
 import { BioDirectUsbConnection } from "../bio/bio-direct-usb-connection";
 import type { BioByteConnection } from "../bio/bio-byte-connection";
+import { BioSensorShadowCapture } from "../bio/bio-sensor-shadow-capture";
 
 export type GatewayAdapterKind = "bluez" | "bio-usb";
 
@@ -43,6 +44,7 @@ interface AdapterFactoryDependencies {
   createBioMappingStore?: (path: string) => BioDeviceMappingStore;
   createBioAdapter?: (client: BioDongleClient, mappings: BioDeviceMappingStore) => BioUsbDongleAdapter;
   createBioVehicleSensors?: () => VehicleSensorMeshPort;
+  createBioSensorShadowCapture?: typeof BioSensorShadowCapture.create;
 }
 
 export async function createProductionAdapters(
@@ -92,6 +94,8 @@ async function createBioUsbAdapters(
   const mappingPath = env.GATEWAY_BIO_MAPPING_PATH ?? "/var/lib/led-control/bio-device-mappings.json";
   const mappings = (dependencies.createBioMappingStore ?? ((path) => new BioDeviceMappingStore(path)))(mappingPath);
 
+  let capture: BioSensorShadowCapture | undefined;
+  let unsubscribe: (() => void) | undefined;
   try {
     // [확인됨] BIO 시작은 exact direct-USB descriptor/claim/Android-equivalent probe와
     // durable mapping parse를 모두 통과해야 한다. [추정] 이 boolean readiness가 실제 RF
@@ -101,7 +105,38 @@ async function createBioUsbAdapters(
     // 이전 ACK로 연결 복구를 추정하지 않으며, 실제 반복 탈착 수렴은 Task 8에서 [미확인]이다.
     await client.probe();
     await mappings.validate();
+    const captureName = env.GATEWAY_BIO_SENSOR_SHADOW_CAPTURE_NAME ?? "";
+    if (captureName !== "") {
+      // [확인됨] launcher를 우회한 직접 실행도 경로를 바꿀 수 없다. 이름은 파일명 한 개만
+      // 허용하고 evidence root는 코드 상수로 고정한다. 잘못된 값은 USB 소유자를 닫고 시작을 중단한다.
+      if (!/^bio-sensor-shadow-[0-9]{8}T[0-9]{6}Z\.jsonl$/.test(captureName)) {
+        throw new Error("BIO_SENSOR_SHADOW_CAPTURE_NAME_INVALID");
+      }
+      const confirmed = await mappings.listConfirmed();
+      // [확인됨] reserved는 장치 적용 증거가 아니다. confirmed가 정확히 하나가 아니면
+      // 다른 램프의 관측을 섞을 수 있으므로 캡처 자체를 시작하지 않는다.
+      if (confirmed.length !== 1) throw new Error("BIO_SENSOR_SHADOW_SINGLE_MAPPING_REQUIRED");
+      const source = confirmed[0]!;
+      capture = await (dependencies.createBioSensorShadowCapture ?? BioSensorShadowCapture.create)({
+        evidenceRoot: "/var/lib/led-control/evidence",
+        captureName,
+        source: {
+          nativeUuid: source.nativeUuid,
+          logicalAddress: source.logicalAddress,
+          firmware: source.firmware,
+          protocol: source.protocol
+        },
+        // [확인됨] 로그에는 고정 phase/cycle과 결과 토큰만 남긴다. 오류 객체, payload,
+        // UUID, 경로를 절대 출력하지 않으며 runtime 쓰기 실패는 조명 제어에 영향을 주지 않는다.
+        onPhase: (phase) => console.info(`BIO_SENSOR_SHADOW_PHASE phase=${phase.kind} cycle=${phase.cycle}`),
+        onComplete: () => console.info("BIO_SENSOR_SHADOW_COMPLETE"),
+        onFailure: () => console.error("BIO_SENSOR_SHADOW_CAPTURE_FAILED")
+      });
+      unsubscribe = client.onEvent((event) => capture?.record(event));
+    }
   } catch (error) {
+    unsubscribe?.();
+    await capture?.close().catch(() => undefined);
     await client.close().catch(() => undefined);
     throw error;
   }
@@ -127,7 +162,13 @@ async function createBioUsbAdapters(
     vehicleSensors,
     vehicleSensorCloudSupported: false,
     healthProbes,
-    stop: () => client.close()
+    stop: async () => {
+      unsubscribe?.();
+      let captureFailure: unknown;
+      try { await capture?.close(); } catch (error) { captureFailure = error; }
+      await client.close();
+      if (captureFailure !== undefined) throw captureFailure;
+    }
   };
 }
 

@@ -18,6 +18,30 @@ test("host launcher refuses unknown commands/arguments without a root fallback",
   const r=spawnSync("bash",[script,...args],{encoding:"utf8"});assert.equal(r.status,2);assert.equal(r.stdout,"");
  }
 });
+test("shadow filename rejects traversal, whitespace, metacharacters and malformed names before Docker",()=>{
+ for(const name of ["../bio-sensor-shadow-20260923T010203Z.jsonl","a/b","..","name with space","$(id)","bio-sensor-shadow-20260923T010203Z.jsonl;id","other-20260923T010203Z.jsonl","bio-sensor-shadow-20260923T010203Z.txt","bio-sensor-shadow-20260923T010203Z.jsonl".repeat(3)]){
+  withHostFixture(f=>{
+   const result=f.run("",{GATEWAY_BIO_SENSOR_SHADOW_CAPTURE_NAME:name});
+   assert.equal(result.status,2,name);assert.match(result.stderr,/BIO_RUNTIME_INPUT_INVALID/);assert.equal(result.stdout,"");
+   assert(!f.calls().includes("lock-acquired"));assert(!f.calls().includes("name-gate"));
+  });
+ }
+});
+test("empty and exact shadow filename pass through the clean Compose environment",()=>{
+ for(const name of ["","bio-sensor-shadow-20260923T010203Z.jsonl"]){withHostFixture(f=>{
+  const result=f.run("",{GATEWAY_BIO_SENSOR_SHADOW_CAPTURE_NAME:name});assert.equal(result.status,0,result.stderr);
+  assert(f.calls().includes(`capture-name:${name}`));
+  assert(f.calls().includes("evidence-created"));
+  assert(f.calls().includes("evidence-owned-999"));
+  const evidence=result.stdout.match(/evidence=(\S+)/)?.[1];if(evidence)rmSync(evidence,{recursive:true,force:true});
+ });}
+});
+test("existing invalid shadow evidence directory fails without changing it or stopping old Gateway",()=>{
+ for(const mode of ["evidence-symlink","evidence-owner","evidence-wide-mode","evidence-file"]){withHostFixture(f=>{
+  const result=f.run(mode);assert.notEqual(result.status,0,mode);assert(!f.calls().includes("old-stop"));
+  assert(!f.calls().includes("evidence-created"));assert(!f.calls().includes("evidence-owned-999"));
+ });}
+});
 
 test("host start validates identities and fresh USB before stopping only the expected old container",()=>{
  withHostFixture((fixture)=>{
@@ -118,8 +142,8 @@ function withHostFixture(callback){
  const lock=resolve(dir,'lock'),state=resolve(dir,'candidate'),mesh=resolve(dir,'mesh');
  const helper=`#!/usr/bin/env node\nconst fs=require('fs');const a=process.argv.slice(2);const log=${JSON.stringify(log)};const failure=fs.readFileSync(${JSON.stringify(failure)},'utf8');const add=x=>fs.appendFileSync(log,x+'\\n');const lock=${JSON.stringify(lock)},state=${JSON.stringify(state)},mesh=${JSON.stringify(mesh)};`;
  writeFileSync(resolve(dir,"bin/sudo"),helper+`
- if(a[1]==='mkdir'){try{if(a.at(-1).endsWith('/mesh')){fs.mkdirSync(mesh);add('mesh-created');}else{fs.mkdirSync(lock);add('lock-acquired');}}catch{process.exit(1);}}
- else if(a[1]==='chown'){if(a[2]!=='999:999'||!a.at(-1).endsWith('/mesh'))process.exit(1);add('mesh-owned-999');}
+ if(a[1]==='mkdir'){try{if(a.at(-1).endsWith('/mesh')){fs.mkdirSync(mesh);add('mesh-created');}else if(a.at(-1).endsWith('/evidence'))add('evidence-created');else{fs.mkdirSync(lock);add('lock-acquired');}}catch{process.exit(1);}}
+ else if(a[1]==='chown'){if(a[2]!=='999:999')process.exit(1);if(a.at(-1).endsWith('/mesh'))add('mesh-owned-999');else if(a.at(-1).endsWith('/evidence'))add('evidence-owned-999');else process.exit(1);}
  else if(a[1]==='find'){
   const target=a[2],nested='/opt/led-control/gateway/data-admin4/gateway/identity';
   if(target===nested&&a.includes('-mindepth')){
@@ -130,11 +154,14 @@ function withHostFixture(callback){
  else if(a[1]==='rmdir'){if(failure==='lock-release-failure')process.exit(1);fs.rmdirSync(lock);add('lock-released');}
  else if(a[1]==='realpath'){
   const p=a.at(-1),nested='/opt/led-control/gateway/data-admin4/gateway/identity';
-  console.log(p===nested&&failure==='docker-identity-mountpoint-symlink'?'/different':p==='/opt/led-control/gateway'&&failure==='ancestor-symlink'?'/different':p);
+  console.log(p.endsWith('/evidence')&&failure==='evidence-symlink'?'/different':p===nested&&failure==='docker-identity-mountpoint-symlink'?'/different':p==='/opt/led-control/gateway'&&failure==='ancestor-symlink'?'/different':p);
  }
  else if(a[1]==='test'){
   const p=a.at(-1),nested='/opt/led-control/gateway/data-admin4/gateway/identity';
-  if(p===nested){
+  if(p.endsWith('/evidence')){
+   if(!fs.readFileSync(log,'utf8').includes('evidence-created')&&!failure.startsWith('evidence-'))process.exit(1);
+   if(a.includes('-L')&&failure!=='evidence-symlink')process.exit(1);
+  }else if(p===nested){
    if(!failure.startsWith('docker-identity-mountpoint'))process.exit(1);
    if(a.includes('-L')&&failure!=='docker-identity-mountpoint-symlink')process.exit(1);
   }else if(p.endsWith('/mesh')&&failure==='missing-mesh'&&!fs.existsSync(mesh))process.exit(1);
@@ -142,7 +169,7 @@ function withHostFixture(callback){
  }
  else if(a[1]==='stat'){
   if(a.includes('%d:%i'))console.log('1:1234');else{
-   const p=a.at(-1),nested=p==='/opt/led-control/gateway/data-admin4/gateway/identity',leaf=!nested&&['/identity','/gateway','/mesh'].some(suffix=>p.endsWith(suffix))&&p.includes('data-admin4/'),mapping=p.endsWith('.json');
+   const p=a.at(-1),nested=p==='/opt/led-control/gateway/data-admin4/gateway/identity',evidence=p.endsWith('/evidence'),leaf=!nested&&['/identity','/gateway','/mesh'].some(suffix=>p.endsWith(suffix))&&p.includes('data-admin4/'),mapping=p.endsWith('.json');
    let owner=leaf?999:p==='/opt/led-control/gateway'?1000:0,mode=leaf?(p.endsWith('/identity')?'750':'700'):'755';
    if(p==='/opt/led-control/gateway'){
     mode=failure==='ancestor-writable'?'770':'750';
@@ -152,8 +179,9 @@ function withHostFixture(callback){
    if(leaf){if(failure==='leaf-deployment-owner'||failure==='leaf-owner-change'&&fs.readFileSync(log,'utf8').includes('identity-check'))owner=1000;if(failure==='leaf-root-owner')owner=0;if(failure==='leaf-wide-mode')mode='755';}
    if(nested){if(failure==='docker-identity-mountpoint-wide-mode')mode='777';if(failure==='docker-identity-mountpoint-wrong-owner')owner=999;}
    if(mapping){owner=1000;mode='600';}
-   const kind=mapping||nested&&failure==='docker-identity-mountpoint-file'?'regular file':'directory',metadata=kind+'|'+mode+'|'+owner;
-   console.log(a.some(x=>x.includes('%g'))?metadata+'|'+(leaf?999:0)+'|1:42':metadata);
+   if(evidence){owner=failure==='evidence-owner'?1000:999;mode=failure==='evidence-wide-mode'?'755':'700';}
+   const kind=mapping||nested&&failure==='docker-identity-mountpoint-file'||evidence&&failure==='evidence-file'?'regular file':'directory',metadata=kind+'|'+mode+'|'+owner;
+   console.log(a.some(x=>x.includes('%g'))?metadata+'|'+(leaf||evidence?999:0)+'|1:42':metadata);
   }
  }else if(a[1]==='install')add('prepare');
  `,{mode:0o755});
@@ -182,6 +210,7 @@ function withHostFixture(callback){
   if(failure==='partial-start')process.exit(1);if(failure==='pause-start')setTimeout(()=>{},2000);
  }
  else if(a[0]==='compose'){
+  add('capture-name:'+(process.env.GATEWAY_BIO_SENSOR_SHADOW_CAPTURE_NAME??'<absent>'));
   if(a.includes('config'))console.log('{}');else {
    if(!a.includes('--pull')||!a.includes('never')||a.filter(x=>x==='-f').length!==1)process.exit(91);
    add('create');fs.writeFileSync(state,JSON.stringify({running:false,token:process.env.GATEWAY_BIO_DEPLOYMENT_ID}));

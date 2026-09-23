@@ -45,6 +45,8 @@ services:
       GATEWAY_ASSIGNMENT_PATH: /var/lib/led-control/assignment.json
       GATEWAY_HEALTH_PATH: /var/lib/led-control/health.json
       GATEWAY_BIO_MAPPING_PATH: /data/mesh/bio-device-mappings.json
+      # launcher가 파일명만 검증하며 실제 evidence root는 Gateway 코드에서 고정한다.
+      GATEWAY_BIO_SENSOR_SHADOW_CAPTURE_NAME: "${GATEWAY_BIO_SENSOR_SHADOW_CAPTURE_NAME:-}"
     volumes:
       - type: bind
         source: "${GATEWAY_BIO_DATA_ROOT:?explicit separate data root is required}/gateway"

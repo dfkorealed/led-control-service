@@ -100,8 +100,9 @@ COPY scripts/gateway-bio-usb-preflight.sh /usr/local/bin/gateway-bio-usb-preflig
 RUN chmod 0755 /usr/local/bin/gateway-entrypoint /usr/local/bin/gateway-healthcheck \
     && chmod 0755 /usr/local/bin/gateway-bio-usb-preflight \
     && chmod 0755 /usr/local/bin/btmgmt /usr/local/bin/manufacturing-enroll.mjs \
-    && mkdir -p /var/lib/led-control/identity /var/lib/bluetooth/mesh /run/dbus \
-    && chown -R gateway:gateway /var/lib/led-control
+    && mkdir -p /var/lib/led-control/identity /var/lib/led-control/evidence /var/lib/bluetooth/mesh /run/dbus \
+    && chown -R gateway:gateway /var/lib/led-control \
+    && chmod 0700 /var/lib/led-control/evidence
 
 # The build/CI wrapper sets full-commit OCI version/revision/source and exact
 # firmware/BlueZ policy labels, then verifies them against this image's config.

@@ -10,6 +10,10 @@ fail_gate() { echo BIO_RUNTIME_PREFLIGHT_FAILED >&2; exit 1; }
 [[ $# = 1 && ( $1 = check || $1 = start ) ]] || fail_input
 [[ -z ${COMPOSE_FILE:-} && -z ${COMPOSE_PROFILES:-} && -z ${COMPOSE_PROJECT_NAME:-} && -z ${GATEWAY_DATA_DIR:-} ]] || fail_input
 [[ ${GATEWAY_BIO_DATA_ROOT:-} =~ ^/opt/led-control/gateway/data-[a-z0-9][a-z0-9-]*$ ]] || fail_input
+capture_name=${GATEWAY_BIO_SENSOR_SHADOW_CAPTURE_NAME:-}
+# [확인됨] 단일 UTC 형식 파일명 이외에는 Docker 호출 전에 거부한다. host 경로를
+# 환경값으로 받지 않아 증거 root를 다른 bind mount나 임의 경로로 돌릴 수 없다.
+[[ -z $capture_name || $capture_name =~ ^bio-sensor-shadow-[0-9]{8}T[0-9]{6}Z\.jsonl$ ]] || fail_input
 [[ ${GATEWAY_BIO_IMAGE:-} =~ ^[a-zA-Z0-9./:_-]+$ && ${GATEWAY_BIO_IMAGE_ID:-} =~ ^sha256:[a-f0-9]{64}$ ]] || fail_input
 [[ ${GATEWAY_BIO_OLD_CONTAINER_ID:-} =~ ^[a-f0-9]{64}$ ]] || fail_input
 # 로그인한 배포 계정의 UID를 호출자가 명시하고 현재 id -u와 다시 대조한다.
@@ -84,6 +88,19 @@ runtime_roots_snapshot() {
   nested_identity_mountpoint="$GATEWAY_BIO_DATA_ROOT/gateway/identity"
   nested_identity_state=$(docker_nested_identity_mountpoint_snapshot) || return 1
   printf 'docker-identity-mountpoint|%s\n' "$nested_identity_state"
+  local shadow_path shadow_metadata shadow_kind shadow_mode shadow_owner shadow_group shadow_inode
+  shadow_path="$GATEWAY_BIO_DATA_ROOT/gateway/evidence"
+  if sudo -n test -e "$shadow_path" || sudo -n test -L "$shadow_path"; then
+    shadow_metadata=$(plain_metadata "$shadow_path") || return 1
+    IFS='|' read -r shadow_kind shadow_mode shadow_owner shadow_group shadow_inode <<< "$shadow_metadata"
+    # [확인됨] image 내부 0700은 bind mount에서 보이지 않는다. host의 기존 경로를
+    # chmod/chown으로 보정하면 symlink 또는 교체된 증거 경로를 정상으로 오인하므로
+    # realpath/종류/소유자/모드가 모두 맞지 않으면 중단하고 운영 검토에 맡긴다.
+    [[ $shadow_kind = directory && $shadow_owner = 999 && $shadow_group = 999 && $shadow_mode = 700 ]] || return 1
+    printf 'shadow-evidence|%s\n' "$shadow_metadata"
+  else
+    printf 'shadow-evidence|absent\n'
+  fi
   for leaf in identity gateway mesh; do
     directory="$GATEWAY_BIO_DATA_ROOT/$leaf"
     if sudo -n test -e "$directory" || sudo -n test -L "$directory"; then
@@ -224,6 +241,12 @@ if ! sudo -n test -e "$GATEWAY_BIO_DATA_ROOT/mesh"; then
   sudo -n mkdir -m 0700 "$GATEWAY_BIO_DATA_ROOT/mesh" || fail_gate
   sudo -n chown 999:999 "$GATEWAY_BIO_DATA_ROOT/mesh" || fail_gate
 fi
+# [확인됨] 없는 evidence leaf만 생성한다. 기존 invalid leaf는 위 snapshot에서
+# 실패했고, mkdir/chown 이후 다시 같은 path와 owner/mode를 검증한다.
+if ! sudo -n test -e "$GATEWAY_BIO_DATA_ROOT/gateway/evidence" && ! sudo -n test -L "$GATEWAY_BIO_DATA_ROOT/gateway/evidence"; then
+  sudo -n mkdir -m 0700 "$GATEWAY_BIO_DATA_ROOT/gateway/evidence" || fail_gate
+  sudo -n chown 999:999 "$GATEWAY_BIO_DATA_ROOT/gateway/evidence" || fail_gate
+fi
 roots_prepared=$(runtime_roots_snapshot) || fail_gate
 evidence=$(mktemp -d /tmp/gateway-bio-deploy.XXXXXX)
 # 현 image/env/mount/lifecycle은 rollback 판단용 protected evidence다. private key
@@ -240,6 +263,7 @@ docker_local run --rm --network none --read-only --user 999:999 --cap-drop ALL -
 compose() {
   env -i PATH="$PATH" GATEWAY_BIO_IMAGE="$GATEWAY_BIO_IMAGE" GATEWAY_BIO_DATA_ROOT="$GATEWAY_BIO_DATA_ROOT" \
     GATEWAY_BIO_DEPLOYMENT_ID="$deployment_id" \
+    GATEWAY_BIO_SENSOR_SHADOW_CAPTURE_NAME="$capture_name" \
     GATEWAY_BIO_USB_DEVICE="$GATEWAY_BIO_USB_DEVICE" GATEWAY_BIO_USB_GID="$GATEWAY_BIO_USB_GID" \
     GATEWAY_SERIAL="$GATEWAY_SERIAL" GATEWAY_BOOTSTRAP_URL="$GATEWAY_BOOTSTRAP_URL" \
     docker compose --env-file /dev/null -p "led-control-bio-$deployment_id" -f "$COMPOSE_PATH" "$@"
