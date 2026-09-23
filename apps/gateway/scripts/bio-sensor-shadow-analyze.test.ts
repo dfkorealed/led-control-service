@@ -113,6 +113,22 @@ describe("BIO shadow evidence gate", () => {
     expect(report.reasons.length).toBeGreaterThan(0);
   });
 
+  it("counts a duplicate 0 after 255 as a wrap and advances sequence state without granting coverage", () => {
+    const entries = capture();
+    const shifted = entries.map((entry) => {
+      if (entry.type !== "observation") return entry;
+      const original = entry.sequence as number;
+      return { ...entry, sequence: original === 1 ? 0 : original === 2 ? 255 : original - 2 };
+    });
+    const repeatedZero = { ...shifted[2]!, timestamp: shifted[4]!.timestamp };
+    const report = analyze([...shifted.slice(0, 5), repeatedZero, ...shifted.slice(5)]);
+    expect(report.sequence).toEqual({ observed: 22, duplicates: 1, wraps: 1 });
+    expect(report.phaseSequenceValid).toBe(true);
+    expect(report.readyForProtocolReview).toBe(true);
+    expect(report.reasons).toEqual([]);
+    expect(report.sensorVariants.find((variant) => variant.bodyHex === "bb")?.stimulusCycles).toEqual([]);
+  });
+
   it("counts liveness without treating its body as a sensor variant", () => {
     const entries = capture();
     const alive = { ...entries[4]!, classification: "liveness", innerOpcode: 12, innerBodyHex: "cc", sequence: 100 };
@@ -126,6 +142,28 @@ describe("BIO shadow analyzer CLI", () => {
   async function run(args: string[]) {
     return execFileAsync("pnpm", ["exec", "tsx", join(import.meta.dirname, "bio-sensor-shadow-analyze.ts"), ...args], { cwd: join(import.meta.dirname, "..") });
   }
+
+  async function runPackageScript(args: string[]) {
+    return execFileAsync("pnpm", ["--filter", "@led-control/gateway", "bio:sensor-shadow:analyze", "--", ...args], { cwd: join(import.meta.dirname, "../../..") });
+  }
+
+  it("accepts the documented package script with exactly one leading separator", async () => {
+    const root = await mkdtemp(join(tmpdir(), "bio-analyze-")); roots.push(root);
+    const input = join(root, "capture.jsonl"); const output = join(root, "analysis.json");
+    await writeFile(input, jsonl(capture()));
+    await runPackageScript(["--input", input, "--output", output]);
+    expect(JSON.parse(await readFile(output, "utf8"))).toMatchObject({ readyForProtocolReview: true, productionActivationAllowed: false });
+    expect((await stat(output)).mode & 0o777).toBe(0o600);
+  });
+
+  it("rejects separators outside the single leading position", async () => {
+    const root = await mkdtemp(join(tmpdir(), "bio-analyze-")); roots.push(root);
+    const input = join(root, "capture.jsonl"); const output = join(root, "analysis.json");
+    await writeFile(input, jsonl(capture()));
+    await expect(run(["--", "--", "--input", input, "--output", output])).rejects.toThrow();
+    await expect(run(["--input", input, "--", "--output", output])).rejects.toThrow();
+    await expect(run(["--", "--input", input, "--output", output, "--"])).rejects.toThrow();
+  });
 
   it("writes a private analysis file and does not echo evidence", async () => {
     const root = await mkdtemp(join(tmpdir(), "bio-analyze-")); roots.push(root);

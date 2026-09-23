@@ -162,14 +162,15 @@ export function analyzeBioSensorShadowJsonl(input: string): BioSensorShadowAnaly
     observed++;
     if (classification === "liveness") alivePackets++;
     const packetKey = `${sequence}:${opcode}:${bodyHex}`;
-    // 같은 시퀀스·opcode·본문이 재전송되면 관측 건수에만 남긴다. 주기별 센서 출현 근거로 중복 계산하지 않는다.
-    if (seenPackets.has(packetKey)) { duplicates++; continue; }
-    seenPackets.add(packetKey);
+    // 중복 패킷도 시퀀스 흐름에는 속한다. 255→0 재전송을 먼저 건너뛰면 wrap을 놓치고 다음 패킷을 역행으로 오판한다.
     if (previousSequence !== undefined && sequence < previousSequence) {
       if (previousSequence === 255 && sequence === 0) wraps++;
       else backwardsSequence = true;
     }
     previousSequence = sequence;
+    // 같은 시퀀스·opcode·본문은 주기별 센서 출현 근거로 중복 계산하지 않는다.
+    if (seenPackets.has(packetKey)) { duplicates++; continue; }
+    seenPackets.add(packetKey);
     if (classification === "liveness") continue;
     const variant = variants.get(bodyHex) ?? { baselineCount: 0, stimulusCycles: new Set<number>(), recoveryCycles: new Set<number>() };
     if (currentPhase.kind === "baseline") variant.baselineCount++;
@@ -242,17 +243,19 @@ async function readBounded(path: string): Promise<string> {
 }
 
 async function main(args: string[]): Promise<void> {
+  // pnpm 9의 package-script 경로는 문서의 `--`를 그대로 전달한다. 맨 앞 하나만 인자 구분자로 소비한다.
+  const cliArgs = args[0] === "--" ? args.slice(1) : args;
   let input: string | undefined;
   let output: string | undefined;
-  for (let index = 0; index < args.length; index += 2) {
-    const flag = args[index];
-    const value = args[index + 1];
+  for (let index = 0; index < cliArgs.length; index += 2) {
+    const flag = cliArgs[index];
+    const value = cliArgs[index + 1];
     if (!value || !isAbsolute(value)) throw new Error("Invalid BIO shadow CLI arguments");
     if (flag === "--input" && input === undefined) input = value;
     else if (flag === "--output" && output === undefined) output = value;
     else throw new Error("Invalid BIO shadow CLI arguments");
   }
-  if (args.length !== 4 || !input || !output || resolve(input) === resolve(output)) throw new Error("Invalid BIO shadow CLI arguments");
+  if (cliArgs.length !== 4 || !input || !output || resolve(input) === resolve(output)) throw new Error("Invalid BIO shadow CLI arguments");
   try { await lstat(output); throw new Error("BIO shadow output already exists"); }
   catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
   const analysis = analyzeBioSensorShadowJsonl(await readBounded(input));
