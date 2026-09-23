@@ -53,13 +53,26 @@ SIGKILL/전원 손실로 남은 lock은 자동 복구 대상이 아니다. 승�
 
 이 절차는 BIO 센서 후보 패킷을 관측하는 360초(기준 60초 + 자극/회복 10회) HIL용이다. shadow 캡처는 실행 중인 Gateway의 단일 `BioDongleClient`/USB 소유자를 재사용하며 두 번째 USB 프로세스를 시작하지 않는다. 현재는 캡처·오프라인 분석 소프트웨어만 구현됐다. 센서 상태의 boolean 의미, production event 실행 및 실제 10회 물리 HIL은 검증되지 않았다.
 
-1. 현장 승인과 기존 BIO 배포 절차의 identity·USB·image 검증을 마친 뒤, shadow 코드가 포함된 **새로 빌드해 검증한 Gateway image**로 교체한다. 이전 image를 재사용하지 않는다. 매 캡처마다 실제 UTC 시각의 새 파일명 `bio-sensor-shadow-YYYYMMDDTHHMMSSZ.jsonl` 하나를 정하고, 기존 파일명은 재사용하지 않는다. `GATEWAY_BIO_SENSOR_SHADOW_CAPTURE_NAME`에 그 파일명만 설정한 뒤 위 `gateway-bio-runtime.sh check`와 `start` 절차를 따른다. 확정된 BIO mapping이 정확히 하나여야 시작한다. 예시 검사 명령의 `20260915T000000Z`는 파일명 형식 예시이며 실제 실행에서는 세 명령과 환경변수 모두 같은 **사용 전 새 UTC 파일명**으로 바꾼다. 별도 `bio:probe`나 두 번째 Gateway를 실행하지 않는다.
+1. 먼저 기존 컨테이너와 보호된 설정·evidence를 읽기 전용으로 점검한다. 위 `gateway-bio-runtime.sh check`/`start`는 **기존 `led-control-gateway`의 exact ID가 있고 `led-control-gateway-bio`가 실행·정지 상태 모두 존재하지 않는 최초 전환**에만 적용된다. launcher는 기존 BIO 컨테이너가 하나라도 있으면 실패하므로 이미 BIO runtime이 배포된 현장에서 shadow 시작·재캡처·설정 제거를 위해 그대로 다시 실행할 수 없다. 이 경우 기존 컨테이너·설정·evidence를 보존하고, 정확한 소유 컨테이너/identity와 사전 점검·교체·롤백을 검토한 별도 승인 절차가 마련될 때까지 전환을 보류한다. 컨테이너를 이름만 보고 삭제하거나 설정·증거를 덮어쓰지 않는다.
+
+```bash
+docker inspect led-control-gateway --format '{{.Id}} {{.State.Status}}'
+docker container ls -a --no-trunc --filter 'name=^/led-control-gateway-bio$' --format '{{.Names}} {{.Status}}'
+```
+
+첫 명령의 ID는 보호된 `GATEWAY_BIO_OLD_CONTAINER_ID`와 정확히 대조하고 외부에 공유하지 않는다. 최초 전환 조건을 충족하면 현장 승인과 기존 BIO 배포 절차의 identity·USB·image 검증을 마친 뒤 shadow 코드가 포함된 **새로 빌드해 검증한 Gateway image**를 사용한다. 이전 image를 재사용하지 않는다. 매 캡처마다 실제 UTC 시각의 새 파일명 `bio-sensor-shadow-YYYYMMDDTHHMMSSZ.jsonl` 하나를 정하고 기존 파일명은 재사용하지 않는다. `GATEWAY_BIO_SENSOR_SHADOW_CAPTURE_NAME`에 그 파일명만 설정한 뒤 위 launcher의 `check`와 `start`를 실행한다. 확정된 BIO mapping이 정확히 하나여야 시작한다. 예시 검사 명령의 `20260915T000000Z`는 파일명 형식 예시이며 실제 실행에서는 세 명령과 환경변수 모두 같은 **사용 전 새 UTC 파일명**으로 바꾼다. 별도 `bio:probe`나 두 번째 Gateway를 실행하지 않는다.
 2. 시작 뒤 아래 상태를 확인한다. 컨테이너 경로 `/var/lib/led-control/evidence`는 host data-root 이름과 무관하게 고정이다. 로그에서는 고정 `BIO_SENSOR_SHADOW_PHASE` 토큰만 확인하고 오류 객체, UUID, packet 본문, 인증정보를 출력하지 않는다.
 
 ```bash
 docker inspect led-control-gateway-bio --format '{{.State.Status}} {{.State.Health.Status}} {{.RestartCount}}'
 docker logs --since 10m led-control-gateway-bio 2>&1 | grep '^BIO_SENSOR_SHADOW_PHASE'
 docker exec led-control-gateway-bio stat -c '%F %a %u:%g %s %n' /var/lib/led-control/evidence/bio-sensor-shadow-20260915T000000Z.jsonl
+```
+
+위 `--since 10m` 명령은 과거 로그 snapshot이다. 8초 `stimulus` 전환을 실시간으로 보려면 컨테이너 시작 직후, 자극을 놓기 전에 아래 follow를 열고 고정 phase marker만 출력되는지 확인한다. 캡처가 끝나면 `Ctrl-C`로 follow를 종료한다.
+
+```bash
+docker logs --follow --since 10m led-control-gateway-bio 2>&1 | grep -E --line-buffered '^BIO_SENSOR_SHADOW_PHASE phase=(baseline|stimulus|recovery) cycle=(0|[1-9]|10)$'
 ```
 
 3. phase 로그에 맞춰 `baseline`에서는 아무것도 하지 않고, `stimulus`에서는 BIO 센서에 자극을 놓고, `recovery`에서는 자극을 제거한다. 이 순서를 cycle 1부터 10까지 반복한다. Gateway의 정상 통신은 계속될 수 있지만 360초 evidence 구간에는 수동·스케줄·그룹·이벤트 제어 명령을 내리지 않는다. 출력 명령이 모듈 자체의 센서 보고를 바꿀 수 있기 때문이다. phase 로그와 파일 metadata만 운영 로그로 확인하며 JSONL 본문을 로그·채팅에 노출하지 않는다.
@@ -72,7 +85,7 @@ pnpm --filter @led-control/gateway bio:sensor-shadow:analyze -- \
   --output /tmp/bio-sensor-shadow-20260915T000000Z-analysis.json
 ```
 
-분석 결과의 `readyForProtocolReview=true`는 packet 의미를 검토할 증거가 모였다는 뜻일 뿐 production 활성화 승인이 아니다. `productionActivationAllowed`는 `false`로 유지한다. 캡처·분석 파일은 HIL 검토 담당자가 보존 기간과 삭제 시점을 정할 때까지 접근 제한 상태로 유지하고, 원본/백업의 보존 의무를 확인하기 전에는 삭제하지 않는다. 특히 재시작 시 같은 배타 파일명으로 캡처를 재시도하지 않도록 **다음 정상 배포에서** `GATEWAY_BIO_SENSOR_SHADOW_CAPTURE_NAME`을 제거한다. 물리 10-cycle HIL과 protocol 검토를 마친 뒤에만 별도의 production 통합 계획을 작성한다.
+분석 결과의 `readyForProtocolReview=true`는 packet 의미를 검토할 증거가 모였다는 뜻일 뿐 production 활성화 승인이 아니다. `productionActivationAllowed`는 `false`로 유지한다. 캡처·분석 파일은 HIL 검토 담당자가 보존 기간과 삭제 시점을 정할 때까지 접근 제한 상태로 유지하고, 원본/백업의 보존 의무를 확인하기 전에는 삭제하지 않는다. 재시작 시 같은 배타 파일명으로 캡처를 재시도하지 않도록 **다음 정상 배포에서** `GATEWAY_BIO_SENSOR_SHADOW_CAPTURE_NAME`을 제거해야 한다. 기존 BIO 컨테이너의 설정 변경 배포도 위 launcher의 지원 범위가 아니므로, 기존 컨테이너·설정·evidence를 보존하는 검토된 교체/롤백 절차가 준비되기 전에는 이 제거를 실행할 수 있다고 가정하지 않는다. 물리 10-cycle HIL과 protocol 검토를 마친 뒤에만 별도의 production 통합 계획을 작성한다.
 
 이 문서는 Raspberry Pi 4/CM5에서 Docker 기반 게이트웨이를 설치하고 ESP32-H2 조명을 검색·등록·제어하는 절차다. Pi에는 전체 모노레포를 복사하지 않는다. 다음 파일만 배포한다.
 
