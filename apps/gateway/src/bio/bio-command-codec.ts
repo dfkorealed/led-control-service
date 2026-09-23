@@ -175,9 +175,10 @@ export function decodeBioResponse(frame: BioFrame): BioResponse {
     networkId: p.readUInt16BE(13), destination: p.readUInt16BE(11), rssiDbm: p.readInt8(0),
     sequence: p[8], ttl: p[7] & 0x7f, control: (p[7] & 0x80) !== 0
   };
-  // APK evidence confirms the names of inner opcodes 0x09 and 0x0c, but does not establish
-  // the meaning of their bodies. Preserve a copy of those bytes for shadow evidence only;
-  // these classifications intentionally expose no active/detected boolean or sensor state.
+  // APK 정적 분석은 inner opcode 0x09/0x0c의 이름만 확인하며, 0x09 body의 의미나
+  // 센서 상태 판정 규칙은 증명하지 않는다. 따라서 0x09는 shadow evidence용 원본 바이트만
+  // 보존하고 active/detected 같은 boolean 상태를 만들지 않는다. 0x0c는 liveness 신호로만
+  // 취급하며 자동화 입력으로 절대 사용해서는 안 된다.
   if (opcode === 0x09) {
     return { kind: "sensor-status-candidate", ...header, innerOpcode: 0x09, innerBody: Buffer.from(p.subarray(16)) };
   }
