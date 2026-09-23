@@ -11,6 +11,7 @@ import {
   isHciRfkillUnblocked
 } from "./adapter-factory";
 import { TEST_BLUETOOTH_COMPANY_ID } from "../test-fixtures/vehicle-sensor-protocol";
+import { createGatewayShutdownHandler, startGatewayRuntime } from "../index";
 
 describe("createProductionAdapters", () => {
   it("fails closed when the production adapter is missing or unknown", async () => {
@@ -227,6 +228,7 @@ describe("createProductionAdapters", () => {
     const mappings = { validate: vi.fn(async () => { order.push("validate"); }), listConfirmed: vi.fn(async () => [mapping]) };
     const capture = { record: vi.fn(), close: vi.fn(async () => { order.push("capture-close"); }) };
     const logs: unknown[][] = [];
+    let failCapture: ((error: unknown) => void) | undefined;
     const log = vi.spyOn(console, "info").mockImplementation((...args) => { logs.push(args); });
     const errorLog = vi.spyOn(console, "error").mockImplementation((...args) => { logs.push(args); });
     const createBioSensorShadowCapture = vi.fn(async (options: { onPhase: (phase: { kind: string; cycle: number }) => void; onComplete: () => void; onFailure: (error: unknown) => void }) => {
@@ -235,7 +237,7 @@ describe("createProductionAdapters", () => {
       options.onPhase({ kind: "stimulus", cycle: 1 });
       options.onPhase({ kind: "recovery", cycle: 1 });
       options.onComplete();
-      options.onFailure(new Error("SECRET_PAYLOAD"));
+      failCapture = options.onFailure;
       return capture;
     });
     try {
@@ -252,6 +254,7 @@ describe("createProductionAdapters", () => {
         source: { nativeUuid: "001122334455", logicalAddress: 0x1234, firmware: "1.2.3", protocol: "crc16" }
       }));
       listener?.(event);
+      failCapture?.(new Error("SECRET_PAYLOAD"));
       expect(capture.record).toHaveBeenCalledWith(event);
       expect(result.vehicleSensorCloudSupported).toBe(false);
       expect(client.setBrightness).not.toHaveBeenCalled();
@@ -280,21 +283,71 @@ describe("createProductionAdapters", () => {
     expect(client.onEvent).not.toHaveBeenCalled();
   });
 
-  it("closes USB when capture startup fails and closes USB after a capture close failure", async () => {
+  it("sanitizes a secret-bearing recorder startup error before it reaches Gateway startup logging", async () => {
+    const secret = "SITE_SECRET";
+    const path = "/var/lib/led-control/evidence/bio-sensor-shadow-20260923T010203Z.jsonl";
     const client = { probe: vi.fn(async () => undefined), close: vi.fn(async () => undefined), onEvent: vi.fn(() => vi.fn()), transportSnapshot: vi.fn(() => ({ transportConnected: true, protocolReady: true })) };
     const mapping = { nativeUuid: "001122334455", logicalAddress: 1, firmware: "1", protocol: "crc16" };
     const common = { createBioClient: vi.fn(() => client) as never, createBioMappingStore: vi.fn(() => ({ validate: vi.fn(async () => undefined), listConfirmed: vi.fn(async () => [mapping]) })) as never, createBioAdapter: vi.fn(() => ({})) as never, createBioVehicleSensors: vi.fn(() => ({})) as never };
     const env = { GATEWAY_ADAPTER: "bio-usb", GATEWAY_BIO_SENSOR_SHADOW_CAPTURE_NAME: "bio-sensor-shadow-20260923T010203Z.jsonl" };
-    await expect(createProductionAdapters(env, { ...common, createBioSensorShadowCapture: vi.fn(async () => { throw new Error("startup"); }) as never })).rejects.toThrow("startup");
+    const failure = await startGatewayRuntime({
+      env,
+      resolveAssignment: vi.fn(async () => ({})) as never,
+      ensureMqttIdentity: vi.fn(async () => undefined),
+      createAdapters: ((runtimeEnv: NodeJS.ProcessEnv) => createProductionAdapters(runtimeEnv, {
+        ...common,
+        createBioSensorShadowCapture: vi.fn(async () => { throw new Error(`EEXIST ${path} ${secret}`); }) as never
+      })) as never
+    }).catch((error: unknown) => error);
+    expect(failure).toBeInstanceOf(Error);
+    expect((failure as Error).message).toBe("BIO_SENSOR_SHADOW_CAPTURE_FAILED");
+    expect((failure as Error & { cause?: unknown }).cause).toBeUndefined();
+    expect(String((failure as Error).stack)).not.toContain(secret);
+    expect(String((failure as Error).stack)).not.toContain(path);
+    // index.ts의 startup 최종 처리기는 Error.message를 console.error로 전달한다.
+    const startupLog = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    try {
+      console.error(failure instanceof Error ? failure.message : failure);
+      expect(startupLog).toHaveBeenCalledWith("BIO_SENSOR_SHADOW_CAPTURE_FAILED");
+      expect(JSON.stringify(startupLog.mock.calls)).not.toContain(secret);
+      expect(JSON.stringify(startupLog.mock.calls)).not.toContain(path);
+    } finally { startupLog.mockRestore(); }
     expect(client.close).toHaveBeenCalledOnce();
-    client.close.mockClear();
-    const unsubscribe = vi.fn();
-    client.onEvent.mockReturnValue(unsubscribe);
-    const capture = { record: vi.fn(), close: vi.fn(async () => { throw new Error("runtime"); }) };
-    const result = await createProductionAdapters(env, { ...common, createBioSensorShadowCapture: vi.fn(async () => capture) as never });
-    await expect(result.stop()).rejects.toThrow("runtime");
+    expect(client.onEvent).not.toHaveBeenCalled();
+  });
+
+  it("sanitizes a secret-bearing recorder close error before Gateway shutdown logging and still closes USB", async () => {
+    const secret = "SITE_SECRET";
+    const path = "/var/lib/led-control/evidence/bio-sensor-shadow-20260923T010203Z.jsonl";
+    const order: string[] = [];
+    const unsubscribe = vi.fn(() => { order.push("unsubscribe"); });
+    const client = { probe: vi.fn(async () => undefined), close: vi.fn(async () => { order.push("usb-close"); }), onEvent: vi.fn(() => unsubscribe), transportSnapshot: vi.fn(() => ({ transportConnected: true, protocolReady: true })) };
+    const mapping = { nativeUuid: "001122334455", logicalAddress: 1, firmware: "1", protocol: "crc16" };
+    const capture = { record: vi.fn(), close: vi.fn(async () => { order.push("capture-close"); throw new Error(`EIO ${path} ${secret}`); }) };
+    const result = await createProductionAdapters({ GATEWAY_ADAPTER: "bio-usb", GATEWAY_BIO_SENSOR_SHADOW_CAPTURE_NAME: "bio-sensor-shadow-20260923T010203Z.jsonl" }, {
+      createBioClient: vi.fn(() => client) as never,
+      createBioMappingStore: vi.fn(() => ({ validate: vi.fn(async () => undefined), listConfirmed: vi.fn(async () => [mapping]) })) as never,
+      createBioAdapter: vi.fn(() => ({})) as never,
+      createBioVehicleSensors: vi.fn(() => ({})) as never,
+      createBioSensorShadowCapture: vi.fn(async () => capture) as never
+    });
+    const exit = vi.fn();
+    const shutdownLog = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    try {
+      await createGatewayShutdownHandler(result, exit)();
+      expect(exit).toHaveBeenCalledWith(1);
+      expect(shutdownLog).toHaveBeenCalledOnce();
+      const [prefix, loggedError] = shutdownLog.mock.calls[0]!;
+      expect(prefix).toBe("Gateway shutdown failed");
+      expect(loggedError).toBeInstanceOf(Error);
+      expect((loggedError as Error).message).toBe("BIO_SENSOR_SHADOW_CAPTURE_FAILED");
+      expect((loggedError as Error & { cause?: unknown }).cause).toBeUndefined();
+      expect(String((loggedError as Error).stack)).not.toContain(secret);
+      expect(String((loggedError as Error).stack)).not.toContain(path);
+    } finally { shutdownLog.mockRestore(); }
     expect(unsubscribe).toHaveBeenCalledOnce();
     expect(client.close).toHaveBeenCalledOnce();
+    expect(order).toEqual(["unsubscribe", "capture-close", "usb-close"]);
     expect(result.vehicleSensorCloudSupported).toBe(false);
   });
 

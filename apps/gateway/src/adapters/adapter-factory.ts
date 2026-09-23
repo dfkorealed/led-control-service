@@ -117,21 +117,28 @@ async function createBioUsbAdapters(
       // 다른 램프의 관측을 섞을 수 있으므로 캡처 자체를 시작하지 않는다.
       if (confirmed.length !== 1) throw new Error("BIO_SENSOR_SHADOW_SINGLE_MAPPING_REQUIRED");
       const source = confirmed[0]!;
-      capture = await (dependencies.createBioSensorShadowCapture ?? BioSensorShadowCapture.create)({
-        evidenceRoot: "/var/lib/led-control/evidence",
-        captureName,
-        source: {
-          nativeUuid: source.nativeUuid,
-          logicalAddress: source.logicalAddress,
-          firmware: source.firmware,
-          protocol: source.protocol
-        },
-        // [확인됨] 로그에는 고정 phase/cycle과 결과 토큰만 남긴다. 오류 객체, payload,
-        // UUID, 경로를 절대 출력하지 않으며 runtime 쓰기 실패는 조명 제어에 영향을 주지 않는다.
-        onPhase: (phase) => console.info(`BIO_SENSOR_SHADOW_PHASE phase=${phase.kind} cycle=${phase.cycle}`),
-        onComplete: () => console.info("BIO_SENSOR_SHADOW_COMPLETE"),
-        onFailure: () => console.error("BIO_SENSOR_SHADOW_CAPTURE_FAILED")
-      });
+      try {
+        capture = await (dependencies.createBioSensorShadowCapture ?? BioSensorShadowCapture.create)({
+          evidenceRoot: "/var/lib/led-control/evidence",
+          captureName,
+          source: {
+            nativeUuid: source.nativeUuid,
+            logicalAddress: source.logicalAddress,
+            firmware: source.firmware,
+            protocol: source.protocol
+          },
+          // [확인됨] 로그에는 고정 phase/cycle과 결과 토큰만 남긴다. 오류 객체, payload,
+          // UUID, 경로를 절대 출력하지 않으며 runtime 쓰기 실패는 조명 제어에 영향을 주지 않는다.
+          onPhase: (phase) => console.info(`BIO_SENSOR_SHADOW_PHASE phase=${phase.kind} cycle=${phase.cycle}`),
+          onComplete: () => console.info("BIO_SENSOR_SHADOW_COMPLETE"),
+          onFailure: () => console.error("BIO_SENSOR_SHADOW_CAPTURE_FAILED")
+        });
+      } catch {
+        // [확인됨] EEXIST/EIO 같은 recorder 오류에는 evidence 파일 경로와 현장 정보가
+        // 포함될 수 있다. 상위 startup handler가 Error.message를 출력하므로 원래 오류,
+        // cause, stack을 전파하지 않고 이 경계에서 새 고정 토큰만 만든다.
+        throw new Error("BIO_SENSOR_SHADOW_CAPTURE_FAILED");
+      }
       unsubscribe = client.onEvent((event) => capture?.record(event));
     }
   } catch (error) {
@@ -165,7 +172,11 @@ async function createBioUsbAdapters(
     stop: async () => {
       unsubscribe?.();
       let captureFailure: unknown;
-      try { await capture?.close(); } catch (error) { captureFailure = error; }
+      try { await capture?.close(); } catch {
+        // shutdown handler는 Error 객체 전체를 출력한다. 비동기 쓰기 실패에서 온
+        // 원래 오류를 보관하지 않고 안전한 새 오류로 바꾸되 USB close는 계속 수행한다.
+        captureFailure = new Error("BIO_SENSOR_SHADOW_CAPTURE_FAILED");
+      }
       await client.close();
       if (captureFailure !== undefined) throw captureFailure;
     }
