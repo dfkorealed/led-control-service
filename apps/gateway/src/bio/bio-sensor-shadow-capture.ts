@@ -92,8 +92,8 @@ export class BioSensorShadowCapture {
   private failure: unknown;
   private closePromise?: Promise<void>;
 
-  private constructor(private readonly handle: FileHandle, options: CaptureOptions, fingerprint: string) {
-    this.source = { ...options.source };
+  private constructor(private readonly handle: FileHandle, options: CaptureOptions, source: BioSensorShadowSource, fingerprint: string) {
+    this.source = source;
     this.sourceFingerprint = fingerprint;
     this.now = options.now ?? (() => new Date());
     this.scheduler = options.scheduler ?? { setTimeout, clearTimeout };
@@ -104,10 +104,17 @@ export class BioSensorShadowCapture {
 
   static async create(options: CaptureOptions): Promise<BioSensorShadowCapture> {
     if (!/^bio-sensor-shadow-[0-9]{8}T[0-9]{6}Z\.jsonl$/.test(options.captureName)) throw new RangeError("Invalid BIO shadow capture name");
-    if (!/^[0-9a-f]{12}$/.test(options.source.nativeUuid)) throw new RangeError("Invalid BIO native UUID");
-    requireInteger(options.source.logicalAddress, 1, 0x7fff);
-    requireToken(options.source.firmware);
-    requireToken(options.source.protocol);
+    // 호출자 객체는 비동기 파일 검사 중 바뀔 수 있다. 검증한 값만 즉시 복사하고 이후에는 원본을 다시 읽지 않는다.
+    const source: BioSensorShadowSource = {
+      nativeUuid: options.source.nativeUuid,
+      logicalAddress: options.source.logicalAddress,
+      firmware: options.source.firmware,
+      protocol: options.source.protocol
+    };
+    if (!/^[0-9a-f]{12}$/.test(source.nativeUuid)) throw new RangeError("Invalid BIO native UUID");
+    requireInteger(source.logicalAddress, 1, 0x7fff);
+    requireToken(source.firmware);
+    requireToken(source.protocol);
     const root = await lstat(options.evidenceRoot);
     if (!root.isDirectory() || root.isSymbolicLink() || root.uid !== process.geteuid?.() || (root.mode & 0o7777) !== 0o700) {
       throw new Error("BIO shadow evidence root must be a private, owned, real directory");
@@ -115,17 +122,17 @@ export class BioSensorShadowCapture {
     const key = (options.randomBytes ?? nodeRandomBytes)(32);
     if (!Buffer.isBuffer(key) || key.length !== 32) throw new RangeError("Invalid BIO shadow HMAC key");
     // 이 키는 파일에 쓰지 않는다. UUID의 HMAC은 같은 캡처 안에서만 안정적이며 캡처 간 장치 식별자로 사용할 수 없다.
-    const fingerprint = createHmac("sha256", key).update(options.source.nativeUuid).digest("hex");
+    const fingerprint = createHmac("sha256", key).update(source.nativeUuid).digest("hex");
     const handle = await open(join(options.evidenceRoot, options.captureName), "wx", 0o600);
     try {
       await handle.chmod(0o600);
-      const capture = new BioSensorShadowCapture(handle, options, fingerprint);
+      const capture = new BioSensorShadowCapture(handle, options, source, fingerprint);
       capture.enqueue({
         type: "capture-start",
         schemaVersion: BIO_SENSOR_SHADOW_SCHEMA_VERSION,
         apkSha256: BIO_SENSOR_SHADOW_APK_SHA256,
         timestamp: requireTimestamp(capture.now),
-        source: { fingerprint, logicalAddress: options.source.logicalAddress, firmware: options.source.firmware, protocol: options.source.protocol }
+        source: { fingerprint, logicalAddress: source.logicalAddress, firmware: source.firmware, protocol: source.protocol }
       }, true);
       capture.enterPhase(0);
       await capture.pending;
@@ -180,7 +187,7 @@ export class BioSensorShadowCapture {
     if (this.stopped || this.closePromise || this.failure !== undefined) return;
     if (event.kind !== "alive-status" && event.kind !== "sensor-status-candidate") return;
     // UUID와 현재 논리 주소를 모두 맞춰야 다른 장치의 관측을 섞지 않는다. 재할당/재연결을 고려한 운영 이벤트 식별자로는 아직 충분하지 않다.
-    if (event.deviceUuid !== this.source.nativeUuid || event.logicalAddress !== this.source.logicalAddress) return;
+    if (event.deviceUuid !== `bio:${this.source.nativeUuid}` || event.logicalAddress !== this.source.logicalAddress) return;
     if (!Buffer.isBuffer(event.innerBody)) return;
     // 파서가 분리한 inner body만 허용한다. 전체 55aa 프레임과 UUID는 장치·현장 추적 정보를 담으므로 저장하지 않는다.
     const innerBodyHex = event.innerBody.toString("hex");

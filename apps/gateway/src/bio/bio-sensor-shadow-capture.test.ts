@@ -25,7 +25,7 @@ async function lines(root: string, name = captureName): Promise<Record<string, u
 function notification(kind: "alive-status" | "sensor-status-candidate", sequence: number, overrides: Partial<Extract<BioClientEvent, { kind: "alive-status" }>> = {}): BioClientEvent {
   return {
     kind,
-    deviceUuid: source.nativeUuid,
+    deviceUuid: `bio:${source.nativeUuid}`,
     logicalAddress: source.logicalAddress,
     networkId: 7,
     destination: 0x01fe,
@@ -105,7 +105,7 @@ describe("BIO sensor shadow capture", () => {
     const capture = await BioSensorShadowCapture.create({ evidenceRoot: root, captureName, source, now: () => fixedDate, randomBytes: () => keyA });
     capture.record(notification("alive-status", 1));
     capture.record(notification("sensor-status-candidate", 2));
-    capture.record(notification("alive-status", 3, { deviceUuid: "aabbccddeeff" }));
+    capture.record(notification("alive-status", 3, { deviceUuid: "bio:aabbccddeeff" }));
     capture.record(notification("alive-status", 4, { logicalAddress: 0x1235 }));
     capture.record({ kind: "invalid-notification" });
     await capture.close();
@@ -130,6 +130,45 @@ describe("BIO sensor shadow capture", () => {
     await second.close();
     expect((await lines(root, secondName))[0]!.source).toMatchObject({ fingerprint: createHmac("sha256", keyB).update(source.nativeUuid).digest("hex") });
     expect((await lines(root, secondName))[0]!.source).not.toEqual(entries[0]!.source);
+  });
+
+  it("records the decoder's exact bio-prefixed device UUID for the raw mapped source", async () => {
+    const root = await evidenceRoot();
+    const capture = await BioSensorShadowCapture.create({ evidenceRoot: root, captureName, source });
+    capture.record(notification("alive-status", 1, { deviceUuid: `bio:${source.nativeUuid}` }));
+    capture.record(notification("sensor-status-candidate", 2, { deviceUuid: `bio:${source.nativeUuid}` }));
+    capture.record(notification("alive-status", 3, { deviceUuid: source.nativeUuid }));
+    capture.record(notification("alive-status", 4, { deviceUuid: `other:${source.nativeUuid}` }));
+    capture.record(notification("alive-status", 5, { deviceUuid: `bio:${source.nativeUuid}`, logicalAddress: source.logicalAddress + 1 }));
+    await capture.close();
+    expect((await lines(root)).filter((entry) => entry.type === "observation").map((entry) => [entry.sequence, entry.classification])).toEqual([
+      [1, "liveness"], [2, "candidate"]
+    ]);
+  });
+
+  it("uses the source values validated before the first asynchronous boundary", async () => {
+    const root = await evidenceRoot();
+    const mutableSource = { ...source };
+    const key = Buffer.alloc(32, 0x33);
+    const creating = BioSensorShadowCapture.create({ evidenceRoot: root, captureName, source: mutableSource, randomBytes: () => key });
+    queueMicrotask(() => {
+      mutableSource.nativeUuid = "aabbccddeeff";
+      mutableSource.logicalAddress = 0x4321;
+      mutableSource.firmware = "gateway-secret";
+      mutableSource.protocol = "site-secret";
+    });
+    const capture = await creating;
+    await capture.close();
+    expect(mutableSource.nativeUuid).toBe("aabbccddeeff");
+    const raw = await readFile(join(root, captureName), "utf8");
+    expect(raw).not.toContain("gateway-secret");
+    expect(raw).not.toContain("site-secret");
+    expect((await lines(root))[0]!.source).toEqual({
+      fingerprint: createHmac("sha256", key).update(source.nativeUuid).digest("hex"),
+      logicalAddress: source.logicalAddress,
+      firmware: source.firmware,
+      protocol: source.protocol
+    });
   });
 
   it("uses the exact deterministic phase sequence and ignores records after completion", async () => {
