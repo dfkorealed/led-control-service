@@ -193,11 +193,39 @@ describe("BIO installed 1.2.0 traced command codec", () => {
       .toThrowError(expect.objectContaining({ code: "MALFORMED_FRAME" }));
   });
 
-  it.each([6, 11, 12, 27, 35])("keeps unsolicited sensor/alive sequence %i opaque", (sequence) => {
+  it.each([11, 12, 27])("classifies sensor candidate sequence %i without assigning active state", (sequence) => {
     const parsed = decodeBioResponse(response(`lamp-notification-seq-${sequence}`));
-    expect(parsed).toMatchObject({ kind: "unsupported-notification", outerCommand: 0x12 });
-    expect(parsed).not.toHaveProperty("brightness");
-    expect(parsed).not.toHaveProperty("payload");
+    expect(parsed).toMatchObject({
+      kind: "sensor-status-candidate",
+      innerOpcode: 0x09,
+      innerBody: Buffer.from("0101000000000000", "hex")
+    });
+    expect(parsed).not.toHaveProperty("active");
+    expect(parsed).not.toHaveProperty("detected");
+  });
+
+  it.each([6, 35])("classifies alive sequence %i as non-event liveness", (sequence) => {
+    const parsed = decodeBioResponse(response(`lamp-notification-seq-${sequence}`));
+    expect(parsed).toMatchObject({ kind: "alive-status", innerOpcode: 0x0c });
+    expect(parsed).not.toHaveProperty("active");
+  });
+
+  it("copies candidate body bytes instead of retaining a mutable frame view", () => {
+    const payload = Buffer.from("d30011223344558396123401fe0000090101000000000000", "hex");
+    const parsed = decodeBioResponse({ protocol: "crc16", command: 0x12, payload });
+    if (parsed.kind !== "sensor-status-candidate") throw new Error("expected sensor candidate");
+    payload.fill(0, 16);
+    expect(parsed.innerBody.toString("hex")).toBe("0101000000000000");
+  });
+
+  it("keeps an unapproved inner opcode opaque and body-free", () => {
+    const parsed = decodeBioResponse({
+      protocol: "crc16",
+      command: 0x12,
+      payload: Buffer.from("d30011223344558396123401fe000008deadbeef", "hex")
+    });
+    expect(parsed).toEqual({ kind: "unsupported-notification", outerCommand: 0x12, payloadBytes: 20 });
+    expect(parsed).not.toHaveProperty("innerBody");
   });
 
   it("classifies unsolicited dongle info without treating it as a matching request ACK", () => {

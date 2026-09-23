@@ -27,12 +27,24 @@ export interface BioLampObservation {
   ttl: number;
   control: boolean;
 }
+export type BioSensorStatusCandidate = BioLampObservation & {
+  kind: "sensor-status-candidate";
+  innerOpcode: 0x09;
+  innerBody: Buffer;
+};
+export type BioAliveStatus = BioLampObservation & {
+  kind: "alive-status";
+  innerOpcode: 0x0c;
+  innerBody: Buffer;
+};
 export type BioResponse =
   | { kind: "probe"; protocol: "crc16"; responseCommand: 0x0b; payloadBytes: 13 }
   | { kind: "outer-ack"; accepted: boolean; status: number; deviceApplied: false }
   | (BioLampObservation & { kind: "discovery"; deviceType: number; firmware: { major: number; minor: number; revision: number; build: number }; sensorType: number; infraredType: number; ambientLightType: number; hardwareType: number })
   | (BioLampObservation & { kind: "high-brightness-report"; rawHighBrightness: number; brightnessPercent: number | null })
   | (BioLampObservation & { kind: "control-mode-report"; mode: BioControlMode })
+  | BioSensorStatusCandidate
+  | BioAliveStatus
   | { kind: "unsupported-notification"; outerCommand: number; payloadBytes: number };
 
 /**
@@ -158,13 +170,22 @@ export function decodeBioResponse(frame: BioFrame): BioResponse {
   if (frame.command === 0x03) return unsupported;
   if (frame.command !== 0x12 || p.length < 16) return invalid();
   const opcode = p[15];
-  // Other observed sensor/alive packets are intentionally opaque until their own contract is traced.
-  if (opcode !== 0x0a && !(opcode === 0x4f && (p[16] === 0x12 || p[16] === 0x13))) return unsupported;
   const header: BioLampObservation = {
     deviceUuid: `bio:${p.subarray(1, 7).toString("hex")}`, logicalAddress: p.readUInt16BE(9),
     networkId: p.readUInt16BE(13), destination: p.readUInt16BE(11), rssiDbm: p.readInt8(0),
     sequence: p[8], ttl: p[7] & 0x7f, control: (p[7] & 0x80) !== 0
   };
+  // APK evidence confirms the names of inner opcodes 0x09 and 0x0c, but does not establish
+  // the meaning of their bodies. Preserve a copy of those bytes for shadow evidence only;
+  // these classifications intentionally expose no active/detected boolean or sensor state.
+  if (opcode === 0x09) {
+    return { kind: "sensor-status-candidate", ...header, innerOpcode: 0x09, innerBody: Buffer.from(p.subarray(16)) };
+  }
+  if (opcode === 0x0c) {
+    return { kind: "alive-status", ...header, innerOpcode: 0x0c, innerBody: Buffer.from(p.subarray(16)) };
+  }
+  // Other observed notifications stay opaque until their own contract is traced.
+  if (opcode !== 0x0a && !(opcode === 0x4f && (p[16] === 0x12 || p[16] === 0x13))) return unsupported;
   if (opcode === 0x0a) {
     if (p.length !== 28) return invalid();
     return { kind: "discovery", ...header, deviceType: p[16],
