@@ -1,5 +1,5 @@
 import { createHmac } from "node:crypto";
-import { lstat, mkdtemp, open, readFile, rm, symlink, writeFile, chmod } from "node:fs/promises";
+import { lstat, mkdir, mkdtemp, open, readFile, rm, symlink, writeFile, chmod } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -96,6 +96,28 @@ describe("BIO sensor shadow capture", () => {
     await symlink(join(root, captureName), join(root, linkName));
     await expect(BioSensorShadowCapture.create({ evidenceRoot: root, captureName: linkName, source })).rejects.toThrow();
     expect(await readFile(join(root, captureName), "utf8")).toBe(original);
+  });
+
+  it("uses the validated root and capture name despite caller mutation during lstat", async () => {
+    const root = await evidenceRoot();
+    const alternate = join(root, "alternate");
+    await mkdir(alternate, { mode: 0o755 });
+    await chmod(alternate, 0o755);
+    const options = { evidenceRoot: root, captureName, source };
+    const creating = BioSensorShadowCapture.create(options);
+    queueMicrotask(() => {
+      options.evidenceRoot = alternate;
+      options.captureName = "not-validated.jsonl";
+    });
+    const capture = await creating;
+    await capture.close();
+    expect(options.evidenceRoot).toBe(alternate);
+    expect(options.captureName).toBe("not-validated.jsonl");
+    expect((await lstat(join(root, captureName))).mode & 0o777).toBe(0o600);
+    expect((await lines(root))[0]).toMatchObject({ type: "capture-start" });
+    await expect(lstat(join(alternate, "not-validated.jsonl"))).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(lstat(join(alternate, captureName))).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(lstat(join(root, "not-validated.jsonl"))).rejects.toMatchObject({ code: "ENOENT" });
   });
 
   it("redacts identity with a per-capture HMAC and records only exact sensor observations", async () => {

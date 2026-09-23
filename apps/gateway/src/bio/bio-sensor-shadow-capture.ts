@@ -103,8 +103,9 @@ export class BioSensorShadowCapture {
   }
 
   static async create(options: CaptureOptions): Promise<BioSensorShadowCapture> {
-    if (!/^bio-sensor-shadow-[0-9]{8}T[0-9]{6}Z\.jsonl$/.test(options.captureName)) throw new RangeError("Invalid BIO shadow capture name");
-    // 호출자 객체는 비동기 파일 검사 중 바뀔 수 있다. 검증한 값만 즉시 복사하고 이후에는 원본을 다시 읽지 않는다.
+    // 경로·이름·source는 첫 await 전에 고정한다. 검사한 options를 다시 읽으면 비동기 중 변경된 파일에 쓸 수 있다.
+    const { evidenceRoot, captureName } = options;
+    if (!/^bio-sensor-shadow-[0-9]{8}T[0-9]{6}Z\.jsonl$/.test(captureName)) throw new RangeError("Invalid BIO shadow capture name");
     const source: BioSensorShadowSource = {
       nativeUuid: options.source.nativeUuid,
       logicalAddress: options.source.logicalAddress,
@@ -115,7 +116,7 @@ export class BioSensorShadowCapture {
     requireInteger(source.logicalAddress, 1, 0x7fff);
     requireToken(source.firmware);
     requireToken(source.protocol);
-    const root = await lstat(options.evidenceRoot);
+    const root = await lstat(evidenceRoot);
     if (!root.isDirectory() || root.isSymbolicLink() || root.uid !== process.geteuid?.() || (root.mode & 0o7777) !== 0o700) {
       throw new Error("BIO shadow evidence root must be a private, owned, real directory");
     }
@@ -123,7 +124,7 @@ export class BioSensorShadowCapture {
     if (!Buffer.isBuffer(key) || key.length !== 32) throw new RangeError("Invalid BIO shadow HMAC key");
     // 이 키는 파일에 쓰지 않는다. UUID의 HMAC은 같은 캡처 안에서만 안정적이며 캡처 간 장치 식별자로 사용할 수 없다.
     const fingerprint = createHmac("sha256", key).update(source.nativeUuid).digest("hex");
-    const handle = await open(join(options.evidenceRoot, options.captureName), "wx", 0o600);
+    const handle = await open(join(evidenceRoot, captureName), "wx", 0o600);
     try {
       await handle.chmod(0o600);
       const capture = new BioSensorShadowCapture(handle, options, source, fingerprint);
