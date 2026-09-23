@@ -4,6 +4,8 @@
 
 ## 구현 완료
 
+- 2026-09-15 BIO 센서 shadow 캡처와 오프라인 분석은 opt-in 소프트웨어 경로로 구현했다. 기존 Gateway USB 소유자에서 허용된 비동기 패킷만 JSONL evidence로 기록하고 분석 결과도 production 활성화를 허용하지 않는다. 물리 센서 10회 HIL과 이벤트 제어 검증은 아직 실행하지 않았다. 운영 순서는 [BIO 센서 shadow 캡처 runbook](../runbooks/raspberry-pi-gateway-appliance.md#bio-센서-shadow-캡처)을 따른다.
+
 - 2026-09-21 제어 대상 지도는 모니터링과 같은 공통 `FloorMapViewport`의 coalesced pointer camera를 사용한다. 핀치 중 React parent를 매 프레임 갱신하지 않으며 종료 시 한 번만 zoom을 동기화한다. 실제 모바일 WebView 성능 계측은 보류다.
 - 제어 대상 CAD 지도도 새 raster가 준비되기 전 마지막 완성 raster를 유지하므로, 느린 타일 decode 또는 취소로 선택 대상 지도가 빈 상태가 되지 않는다.
 - 2026-09-19 공통 맵 표면은 설정에서 적용한 네이티브 CAD를 읽기 전용 Pixi 타일로 합성하고 수동 도형·조명 선택 오버레이와 카메라를 동기화한다. 최대 32,768 논리 맵에서도 전체 논리 크기의 canvas를 할당하지 않는다. 기존 제어 권한, 대상 선택 및 MQTT/장비 명령 계약은 변경하지 않았으며 이번 CAD 검증은 실장비 제어 HIL을 대신하지 않는다.
@@ -266,6 +268,8 @@
 
 ## 미구현
 
+- BIO 센서 `0x09`의 detected/cleared boolean mapping, source capability `supported` 승격 및 production event 실행은 미구현이다. `0x0c`는 생존 관측이며 이벤트 입력이 아니다.
+
 - 수동 제어의 현재 선택을 그대로 넘기는 `이 선택을 구역으로 저장` 단축 동작은 미구현이다. 현재는 `구역 관리 → 새 구역`에서 지도·목록으로 멤버를 선택해야 한다. 후속 구현에서는 다층/100개 초과 선택 처리, 생성 권한·명령 잠금, 열린 dialog의 초안 초기화와 focus 복귀, 저장 후 기존 수동 선택 보존을 함께 검증해야 하므로 최종 오류 수정 범위에서는 보류했다.
 
 - 인체 감지, 외부 이벤트, 장면과 복합 조건 rule builder
@@ -279,6 +283,8 @@
 - 실제 마이크로웨이브 센서의 전기 출력과 LED converter를 함께 연결한 전압·타이밍 HIL. 2026-09-04 시험은 ESP32-H2 GPIO4의 내부 pull만 전환해 firmware·BLE Mesh·Gateway·API·Web 전체 논리 경로를 검증했으며 센서/컨버터 전기 적합성 증거는 아니다.
 
 ## 부족하거나 개선이 필요한 기능
+
+- BIO 센서 자극/회복 10-cycle 물리 HIL과 packet 의미 검토를 완료한 뒤, 별도의 production 통합 계획을 작성해야 한다. 현재 shadow evidence의 `readyForProtocolReview=true`는 protocol 검토 가능 여부일 뿐 `productionActivationAllowed=false`를 바꾸지 않는다.
 
 - 수동 확인에 따른 즉시 제어 차단·새 presence/state 복구는 소프트웨어 검증 범위다. 물리 USB 동글과 조명 2대의 전원 차단/복구 HIL은 이번 작업에서 미수행이며, 실제 장비에서 모니터링 숫자·마커와 제어 가능 여부가 함께 바뀌는지 확인해야 한다.
 
@@ -319,6 +325,13 @@
 - Task 20 Fix Round 4에서 temp directory는 fixed lock의 owner/coordination 상태가 아닌 publish 후보로 유지하되, cleanup은 원본 temp를 같은 parent의 unique quarantine path로 먼저 atomic rename해 소유권을 확보한 뒤 quarantine 내부만 정리한다. quarantine 내부가 empty directory이거나 exact regular `.owner.<token>` marker 하나만 가진 경우에만 삭제하고, publisher가 먼저 temp를 fixed lock으로 rename하면 cleaner는 원본 temp `ENOENT`로 중단한다. cleaner가 먼저 quarantine하면 publisher는 `ENOENT` 후 같은 token으로 새 temp를 만들어 retry한다. fixed lock directory 자체는 quarantine하지 않는다. temp/quarantine symlink·non-directory·marker symlink·multi-entry·외부 sentinel은 따라가거나 삭제하지 않고 fixed lock 획득을 막지 않는다. fixed lock은 계속 token/PID/`ps` process-start identity를 exact marker로 확인해 active owner wait, stale/PID reuse takeover, unknown identity fail-closed, exact release, successor ABA 보호와 same-output 직렬화를 유지한다. production `scripts/esp32-h2-build.sh`는 Bluetooth SIG 자사 Company ID와 signed manufacturing approval이 없는 현재 `unprovisioned` policy에서 의도적으로 fail-closed한다. 이는 HIL 실패나 HIL 완료 증거가 아니다.
 
 ## 관련 파일
+
+- `apps/gateway/src/bio/bio-command-codec.ts`
+- `apps/gateway/src/bio/bio-sensor-shadow-capture.ts`
+- `apps/gateway/scripts/bio-sensor-shadow-analyze.ts`
+- `apps/gateway/src/adapters/adapter-factory.ts`
+- `apps/gateway/compose.bio-runtime.yml`
+- `docs/runbooks/raspberry-pi-gateway-appliance.md`
 
 - `apps/api/src/monitoring-refresh/monitoring-refresh-ingestion.service.ts`
 - `apps/api/src/fixtures/fixture-presence-ingestion.service.ts`

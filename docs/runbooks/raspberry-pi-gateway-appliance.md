@@ -49,6 +49,31 @@ SIGKILL/전원 손실로 남은 lock은 자동 복구 대상이 아니다. 승�
 
 실제 baseline은 별도 승인 후 startup handshake/network query만 허용하고 scan/identify/address/brightness/sensor/reset은 보내지 않는다. BIO health의 transportConnected/protocolReady/mappingValid/MQTT/heartbeatFresh와 실제 새 Gateway DB heartbeat가 서로 다른 3회 증가하는지 확인한다. handshake 실패 시 새 container를 stop하고 추가 장비 명령 없이 보고한다. 이 소프트웨어 변경만으로 baseline/조명 HIL 완료를 기록하지 않는다.
 
+### BIO 센서 shadow 캡처
+
+이 절차는 BIO 센서 후보 패킷을 관측하는 360초(기준 60초 + 자극/회복 10회) HIL용이다. shadow 캡처는 실행 중인 Gateway의 단일 `BioDongleClient`/USB 소유자를 재사용하며 두 번째 USB 프로세스를 시작하지 않는다. 현재는 캡처·오프라인 분석 소프트웨어만 구현됐다. 센서 상태의 boolean 의미, production event 실행 및 실제 10회 물리 HIL은 검증되지 않았다.
+
+1. 현장 승인과 기존 BIO 배포 절차의 identity·USB·image 검증을 마친 뒤, shadow 코드가 포함된 **새로 빌드해 검증한 Gateway image**로 교체한다. 이전 image를 재사용하지 않는다. 매 캡처마다 실제 UTC 시각의 새 파일명 `bio-sensor-shadow-YYYYMMDDTHHMMSSZ.jsonl` 하나를 정하고, 기존 파일명은 재사용하지 않는다. `GATEWAY_BIO_SENSOR_SHADOW_CAPTURE_NAME`에 그 파일명만 설정한 뒤 위 `gateway-bio-runtime.sh check`와 `start` 절차를 따른다. 확정된 BIO mapping이 정확히 하나여야 시작한다. 예시 검사 명령의 `20260915T000000Z`는 파일명 형식 예시이며 실제 실행에서는 세 명령과 환경변수 모두 같은 **사용 전 새 UTC 파일명**으로 바꾼다. 별도 `bio:probe`나 두 번째 Gateway를 실행하지 않는다.
+2. 시작 뒤 아래 상태를 확인한다. 컨테이너 경로 `/var/lib/led-control/evidence`는 host data-root 이름과 무관하게 고정이다. 로그에서는 고정 `BIO_SENSOR_SHADOW_PHASE` 토큰만 확인하고 오류 객체, UUID, packet 본문, 인증정보를 출력하지 않는다.
+
+```bash
+docker inspect led-control-gateway-bio --format '{{.State.Status}} {{.State.Health.Status}} {{.RestartCount}}'
+docker logs --since 10m led-control-gateway-bio 2>&1 | grep '^BIO_SENSOR_SHADOW_PHASE'
+docker exec led-control-gateway-bio stat -c '%F %a %u:%g %s %n' /var/lib/led-control/evidence/bio-sensor-shadow-20260915T000000Z.jsonl
+```
+
+3. phase 로그에 맞춰 `baseline`에서는 아무것도 하지 않고, `stimulus`에서는 BIO 센서에 자극을 놓고, `recovery`에서는 자극을 제거한다. 이 순서를 cycle 1부터 10까지 반복한다. Gateway의 정상 통신은 계속될 수 있지만 360초 evidence 구간에는 수동·스케줄·그룹·이벤트 제어 명령을 내리지 않는다. 출력 명령이 모듈 자체의 센서 보고를 바꿀 수 있기 때문이다. phase 로그와 파일 metadata만 운영 로그로 확인하며 JSONL 본문을 로그·채팅에 노출하지 않는다.
+4. 파일의 마지막 record가 `capture-complete`가 아니면 불완전한 캡처로 취급한다. `BIO_SENSOR_SHADOW_COMPLETE` 로그만으로 파일 완결을 대신하지 않는다. evidence 디렉터리는 0700, JSONL 파일은 새 이름으로 배타 생성(`wx`)되고 0600이며 해당 캡처 중에는 append-only로 기록한다. 기존 파일에 이어 쓰거나 덮어쓰지 않는다. recorder는 확인된 단일 mapping의 허용 목록인 `0x09` 센서 후보와 `0x0c` 생존 패킷만 기록한다. 임시 HMAC fingerprint·비밀이 아닌 lamp header·inner opcode/body만 남기고 원본 UUID, 현장/게이트웨이 ID, 자격 증명, USB descriptor, 전체 wire frame은 남기지 않는다.
+5. 기존 인증된 유지보수 채널로 JSONL 파일을 보호된 오프라인 저장소에 복사하고 그곳에서 아래 Task 4 분석 명령을 실행한다. 두 절대 경로는 실제 보호된 경로와 새 파일명으로 바꾸며, 출력 JSON도 아직 존재하지 않는 이름이어야 한다. JSONL 본문을 채팅에 붙여 넣거나 Git에 추가하지 않는다. 입력 JSONL과 분석 JSON을 모두 Git 밖에서 보존한다.
+
+```bash
+pnpm --filter @led-control/gateway bio:sensor-shadow:analyze -- \
+  --input /tmp/bio-sensor-shadow-20260915T000000Z.jsonl \
+  --output /tmp/bio-sensor-shadow-20260915T000000Z-analysis.json
+```
+
+분석 결과의 `readyForProtocolReview=true`는 packet 의미를 검토할 증거가 모였다는 뜻일 뿐 production 활성화 승인이 아니다. `productionActivationAllowed`는 `false`로 유지한다. 캡처·분석 파일은 HIL 검토 담당자가 보존 기간과 삭제 시점을 정할 때까지 접근 제한 상태로 유지하고, 원본/백업의 보존 의무를 확인하기 전에는 삭제하지 않는다. 특히 재시작 시 같은 배타 파일명으로 캡처를 재시도하지 않도록 **다음 정상 배포에서** `GATEWAY_BIO_SENSOR_SHADOW_CAPTURE_NAME`을 제거한다. 물리 10-cycle HIL과 protocol 검토를 마친 뒤에만 별도의 production 통합 계획을 작성한다.
+
 이 문서는 Raspberry Pi 4/CM5에서 Docker 기반 게이트웨이를 설치하고 ESP32-H2 조명을 검색·등록·제어하는 절차다. Pi에는 전체 모노레포를 복사하지 않는다. 다음 파일만 배포한다.
 
 - 검증된 immutable ARM64 bundle directory(7개 파일)
