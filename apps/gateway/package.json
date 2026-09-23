@@ -8,6 +8,7 @@
     "dev": "pnpm --filter @led-control/shared build && pnpm --filter @led-control/automation-engine build && tsx src/index.ts",
     "bluez:probe": "tsx scripts/bluez-capability-probe.ts",
     "bio:probe": "tsx scripts/bio-dongle-probe.ts",
+    "bio:sensor-shadow:analyze": "tsx scripts/bio-sensor-shadow-analyze.ts",
     "test": "vitest run --maxWorkers=1 --minWorkers=1",
     "test:contracts": "node --test docker/*.test.mjs",
     "test:mqtt-integration": "node --test docker/mqtt-persistence.integration.mjs",
