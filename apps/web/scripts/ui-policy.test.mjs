@@ -277,6 +277,23 @@ test("still rejects actual unapproved responsive prefixes inside class strings a
   for (const [source, expected] of samples) assert.deepEqual(inspectUiSource("src/New.tsx", source).filter(v => v.rule === "unapproved-breakpoint").map(v => v.match), expected);
 });
 
+test("rejects arbitrary breakpoints even when an equivalent named phone-wide token exists", () => {
+  const source = 'const classes = "min-[360px]:grid-cols-4 max-[359px]:order-1";';
+  assert.deepEqual(
+    inspectUiSource("src/New.tsx", source).filter(v => v.rule === "unapproved-breakpoint").map(v => v.match),
+    ["min-[360px]:", "max-[359px]:"]
+  );
+});
+
+test("accepts only the reviewed 360px phone-wide token and named utilities", async () => {
+  const path = "src/styles/theme.css";
+  const theme = await readFile(new URL("../src/styles/theme.css", import.meta.url), "utf8");
+  assert.deepEqual(inspectUiSource(path, theme), []);
+  assert.deepEqual(inspectUiSource("src/New.tsx", 'const classes = "phone-wide:grid-cols-4 max-phone-wide:order-1";'), []);
+  assert.ok(inspectUiSource(path, theme.replace(/--breakpoint-phone-wide:[^;]+;/, "")).some(v => v.rule === "missing-theme-token"));
+  assert.ok(inspectUiSource(path, theme.replace(/--breakpoint-phone-wide:[^;]+;/, "--breakpoint-phone-wide: 22rem;")).some(v => v.rule === "unapproved-theme-value"));
+});
+
 test("inventories unapproved CSS files, selectors and raw form styling", () => {
   const violations = inspectUiSource("src/page.css", '.new-panel { display: grid; } input { appearance: none; }');
   assert.ok(violations.some(v => v.rule === "css-file"));
@@ -615,7 +632,7 @@ test("baseline must preserve the approved Git anchor and an empty violation map"
   }
 });
 
-test("real Vite build emits semantic, spacing, typography and max-compact CSS without fixture pollution", async () => {
+test("real Vite build emits semantic and reviewed responsive CSS without fixture pollution", async () => {
   const { build } = await import("vite");
   const result = await build({
     root: fileURLToPath(new URL("../", import.meta.url)),
@@ -625,7 +642,7 @@ test("real Vite build emits semantic, spacing, typography and max-compact CSS wi
       name: "ui-policy-compile-proof",
       enforce: "pre",
       async load(id) {
-        if (id.endsWith("/src/styles.css")) return await readFile(id, "utf8") + '\n@source inline("p-0.5 p-16 bg-surface-panel text-content-primary text-body max-compact:p-4");';
+        if (id.endsWith("/src/styles.css")) return await readFile(id, "utf8") + '\n@source inline("p-0.5 p-16 bg-surface-panel text-content-primary text-body max-compact:p-4 phone-wide:grid-cols-4 max-phone-wide:order-1");';
       }
     }]
   });
@@ -639,5 +656,7 @@ test("real Vite build emits semantic, spacing, typography and max-compact CSS wi
   ]) assert.ok(css.includes(declaration), declaration);
   const compactMedia = css.match(/@media not all and \(min-width:47\.5rem\)\{(?:[^{}]*\{[^{}]*\})+\}/)?.[0];
   assert.ok(compactMedia?.includes('.max-compact\\:p-4{padding:calc(var(--spacing) * 4)}'));
+  assert.ok(css.includes('.phone-wide\\:grid-cols-4{'), "phone-wide min-width CSS");
+  assert.ok(css.includes('.max-phone-wide\\:order-1{'), "phone-wide max-width CSS");
   assert.ok(!css.includes('.p-9{') && !css.includes('.max-compact\\:px-0\\.75{'));
 });

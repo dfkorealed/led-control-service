@@ -26,6 +26,7 @@ const fixtureBrightnessShadowValues = [
   "0 0 14px 5px color-mix(in srgb, var(--color-fixture-on) 42%, transparent), inset 0 0 0 1px color-mix(in srgb, var(--color-content-inverse) 24%, transparent)"
 ];
 const reviewedThemeTokenAdditions = new Map([
+  ["--breakpoint-phone-wide", "22.5rem"],
   ["--radius-fixture-marker", "3px"],
   ...fixtureBrightnessShadowValues.map((value, index) => [`--shadow-fixture-brightness-${index + 1}`, normalizeThemeValue(value)])
 ]);
@@ -355,7 +356,7 @@ export function inspectUiSource(path, source) {
   // A CVA size map's sm:/md:/lg: keys (or TypeScript property signatures) are
   // syntax, not utilities. CSS @apply candidates still use the CSS source.
   const responsiveRanges = path.endsWith(".css") ? null : scriptLiteralRanges(text, path);
-  scan(/(?<![\w-])(?:(?:max-|min-)\[[^\]\n]+\]|(?:max-|min-)?(?:sm|md|lg|xl|2xl|compact|tablet)):/g, m => {
+  scan(/(?<![\w-])(?:(?:max-|min-)\[[^\]\n]+\]|(?:max-|min-)?(?:sm|md|lg|xl|2xl|phone-wide|compact|tablet)):/g, m => {
     if (responsiveRanges && !responsiveRanges.some(([start, end]) => m.index >= start && m.index + m[0].length <= end)) return;
     const name = m[0].replace(/^(?:max-|min-)/, "").slice(0, -1);
     if (!themeTokens.has(`--breakpoint-${name}`)) add("unapproved-breakpoint", m[0], m.index);

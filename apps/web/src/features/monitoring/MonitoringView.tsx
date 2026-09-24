@@ -6,10 +6,13 @@ import { waitForMonitoringRefresh, type MonitoringRefreshResult } from "../../ap
 import { Button, FeedbackState, Heading, MetricCard, SelectBox, SidePanel, StatusBadge, Text } from "../../components/ui";
 import { InstallationPending } from "../setup/SetupWizard";
 import { FloorMap } from "./FloorMap";
+import { MonitoringFixtureFinder } from "./MonitoringFixtureFinder";
+import { presentFixtureBrightness } from "./fixture-brightness-presentation";
 import { presentFixtureStatus } from "./fixture-status-presentation";
 
 const STALE_SNAPSHOT_AFTER_MS = 60_000;
 const MAX_BROWSER_TIMEOUT_MS = 2_147_483_647;
+const METRIC_CARD_CLASS_NAME = "min-h-18 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1 px-4 py-3 max-compact:min-h-16 max-compact:grid-cols-1 max-compact:gap-0 max-compact:px-2 max-compact:py-2 max-compact:[&>p]:hidden max-compact:[&_[data-metric-label]]:text-label max-compact:[&>strong>span]:text-card-title";
 
 interface MapRefreshFailure {
   floorId: string;
@@ -69,12 +72,14 @@ function MonitoringDashboard({ data, userRole, siteId, dashboardError, refreshDa
   const hasFixtureData = fixtureQuery.data !== undefined;
   const fixtures = fixtureQuery.data?.pages.flatMap((page) => page.items) ?? [];
   const mapSnapshot = mapQuery.data;
+  const placedFixtureIds = useMemo(() => new Set(mapSnapshot?.fixtures?.map((item) => item.id) ?? []), [mapSnapshot?.fixtures]);
   // Saved layout can refresh before runtime placement DTOs. Match FloorScene's
   // snapshot placements plus its legacy/runtime-only placement fallback.
   const hasPlacedFixtures = Boolean(mapSnapshot?.fixtures?.length) || fixtures.some((fixture) => fixture.placementStatus !== "unplaced");
   const mapRefreshFailed = Boolean(floor && mapRefreshFailure && mapRefreshFailure.floorId === floor.id);
   const selectedFixture = fixtures.find((fixture) => fixture.id === selectedFixtureId) ?? fixtures[0];
   const selectedFixturePresentation = selectedFixture ? presentFixtureStatus(selectedFixture) : null;
+  const selectedBrightness = selectedFixture ? presentFixtureBrightness(selectedFixture) : null;
   const snapshotFreshness = useMemo(
     // A newly arrived server response must be compared with this render's wall clock, not a
     // periodic timer value captured before the response arrived.
@@ -290,11 +295,11 @@ function MonitoringDashboard({ data, userRole, siteId, dashboardError, refreshDa
 
       {hasFixtureData && data.summary.totalFixtures > 0 ? (
         <>
-          <div className="grid grid-cols-[repeat(auto-fit,minmax(9.375rem,1fr))] gap-3" data-monitoring-summary="">
-            <MetricCard className="min-h-18 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1 px-4 py-3" label="전체 조명" value={floorSummary.totalFixtures} helper="선택 층 기준" tone="primary" />
-            <MetricCard className="min-h-18 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1 px-4 py-3" label="정상" value={floorSummary.onlineFixtures} helper="최근 수신 정상" tone="success" />
-            <MetricCard className="min-h-18 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1 px-4 py-3" label="점검 필요" value={floorSummary.faultFixtures} helper="우선 점검 대상" tone="danger" />
-            <MetricCard className="min-h-18 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1 px-4 py-3" label="오프라인" value={floorSummary.offlineFixtures} helper="상태 확인 대기 포함" />
+          <div className="grid grid-cols-2 phone-wide:grid-cols-4 gap-2 tablet:gap-3" data-monitoring-summary="">
+            <MetricCard className={METRIC_CARD_CLASS_NAME} label="전체 조명" value={floorSummary.totalFixtures} helper="선택 층 기준" tone="primary" />
+            <MetricCard className={METRIC_CARD_CLASS_NAME} label="정상" value={floorSummary.onlineFixtures} helper="최근 수신 정상" tone="success" />
+            <MetricCard className={METRIC_CARD_CLASS_NAME} label="점검 필요" value={floorSummary.faultFixtures} helper="우선 점검 대상" tone="danger" />
+            <MetricCard className={METRIC_CARD_CLASS_NAME} label="오프라인" value={floorSummary.offlineFixtures} helper="상태 확인 대기 포함" />
           </div>
 
           <div className="hidden max-compact:block" data-monitoring-fixture-selector="">
@@ -309,8 +314,8 @@ function MonitoringDashboard({ data, userRole, siteId, dashboardError, refreshDa
         </>
       ) : null}
 
-      <div className="grid min-h-0 min-w-0 flex-1 grid-cols-1 items-stretch gap-4 tablet:grid-cols-[minmax(0,1fr)_clamp(17.5rem,26vw,21.25rem)] tablet:overflow-hidden" data-monitoring-layout="">
-        <div className="min-h-0 min-w-0 overflow-hidden" data-monitoring-map-panel="">
+      <div className="grid min-h-0 min-w-0 flex-1 grid-cols-1 items-stretch gap-4 tablet:grid-cols-[minmax(0,1fr)_clamp(17.5rem,26vw,21.25rem)] tablet:grid-rows-[auto_minmax(0,1fr)] tablet:overflow-hidden" data-monitoring-layout="">
+        <div className="order-1 min-h-0 min-w-0 overflow-hidden max-phone-wide:order-2 tablet:col-start-1 tablet:row-span-2" data-monitoring-map-panel="">
           {data.summary.totalFixtures === 0 ? (
             <EmptyFixtureGuidance userRole={userRole} siteId={data.site.id} />
           ) : !hasFixtureData ? null : floor && mapSnapshot ? (
@@ -339,7 +344,22 @@ function MonitoringDashboard({ data, userRole, siteId, dashboardError, refreshDa
             <FeedbackState icon={Clock3} title="등록된 층이 없습니다." />
           )}
         </div>
-            <SidePanel className="grid min-w-0 grid-cols-1 content-start gap-4 border-border-default bg-surface-panel p-4.5 shadow-none max-tablet:grid-cols-2 max-compact:grid-cols-1" aria-label="선택 조명 상세" data-monitoring-detail-panel="">
+        {floor && hasFixtureData ? <div className="order-2 min-w-0 max-phone-wide:order-1 tablet:col-start-2 tablet:row-start-1">
+          <MonitoringFixtureFinder
+            key={floor.id}
+            fixtures={fixtures}
+            selectedFixtureId={selectedFixture?.id ?? null}
+            onSelectFixture={setSelectedFixtureId}
+            hasNextPage={Boolean(fixtureQuery.hasNextPage)}
+            isFetchingNextPage={fixtureQuery.isFetchingNextPage}
+            onLoadMore={() => void fixtureQuery.fetchNextPage()}
+            userRole={userRole}
+            siteId={data.site.id}
+            floorId={floor.id}
+            placedFixtureIds={placedFixtureIds}
+          />
+        </div> : null}
+            <SidePanel className="order-3 grid min-w-0 grid-cols-1 content-start gap-4 border-border-default bg-surface-panel p-4.5 shadow-none max-tablet:grid-cols-2 max-compact:grid-cols-1 tablet:col-start-2 tablet:row-start-2" aria-label="선택 조명 상세" data-monitoring-detail-panel="">
               <div className="flex min-w-0 items-start justify-between gap-3 max-tablet:col-span-full">
                 <div className="min-w-0">
                   <Text as="span" variant="overline" tone="secondary">상세 패널</Text>
@@ -351,12 +371,15 @@ function MonitoringDashboard({ data, userRole, siteId, dashboardError, refreshDa
               {selectedFixture ? (
                 <section className="grid min-w-0 gap-3.5 max-tablet:col-span-full max-tablet:grid-cols-2 max-compact:grid-cols-1" aria-label="선택 조명 정보">
                   <div className="grid gap-2 rounded-panel bg-action-primary p-4 text-content-inverse">
-                    <Text as="span" variant="body-sm" tone="inverse" weight="bold">현재 밝기</Text>
-                    <Text as="strong" variant="display" tone="inverse">{selectedFixture.brightness}%</Text>
-                    <div className="h-2 overflow-hidden rounded-control bg-action-primary-soft">
-                      {/* Brightness is runtime device data, so only this measured percentage remains inline. */}
+                    <Text as="span" variant="body-sm" tone="inverse" weight="bold">{selectedBrightness?.label}</Text>
+                    <Text as="strong" variant="display" tone="inverse">{selectedBrightness?.value}</Text>
+                    {selectedBrightness?.observedAt ? (
+                      <Text as="small" variant="caption" tone="inverse">마지막 확인: <time dateTime={selectedBrightness.observedAt}>{formatAbsoluteTimestamp(selectedBrightness.observedAt, data.site.timeZone)}</time></Text>
+                    ) : null}
+                    {selectedBrightness?.value !== "확인 전" ? <div className="h-2 overflow-hidden rounded-control bg-action-primary-soft">
+                      {/* Brightness is a device read-back, never the BIO configured brightness. */}
                       <span className="block h-full rounded-control bg-surface-panel" style={{ width: `${selectedFixture.brightness}%` }} />
-                    </div>
+                    </div> : null}
                   </div>
                   <dl className="m-0 grid gap-2">
                     <div className="grid grid-cols-[minmax(5rem,0.8fr)_minmax(0,1.2fr)] items-center gap-3 rounded-control border border-border-default bg-surface-elevated p-3">
@@ -473,6 +496,12 @@ function formatLastSeen(value: string | null) {
   if (diffMs < 3_600_000) return `${Math.floor(diffMs / 60_000)}분 전`;
   if (diffMs < 86_400_000) return `${Math.floor(diffMs / 3_600_000)}시간 전`;
   return `${Math.floor(diffMs / 86_400_000)}일 전`;
+}
+
+function formatAbsoluteTimestamp(value: string, timeZone: string) {
+  return new Intl.DateTimeFormat("ko-KR", {
+    timeZone, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false
+  }).format(new Date(value));
 }
 
 function formatHealthStatus(health: Dashboard["floors"][number]["fixtures"][number]["health"]) {

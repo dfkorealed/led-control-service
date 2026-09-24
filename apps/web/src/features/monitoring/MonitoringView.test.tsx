@@ -449,6 +449,34 @@ describe("MonitoringView refresh", () => {
     expect(selector).toHaveTextContent("B1-L002 · 장애");
   });
 
+  it("opens an unplaced fixture from search without creating a map marker", () => {
+    const unplaced = { ...fixture, id: "fixture-2", name: "B1-L002", placementStatus: "unplaced" as const, health: null };
+    queryMocks.useFloorFixtures().data.pages[0].items = [{ ...fixture, health: null }, unplaced];
+    queryMocks.useFloorMapSnapshot().data = { ...mapSnapshot, fixtures: [] };
+    render(<MemoryRouter><MonitoringView siteId="site-1" userRole="viewer" /></MemoryRouter>);
+
+    fireEvent.change(screen.getByRole("searchbox", { name: "조명 이름 또는 번호 검색" }), { target: { value: "002" } });
+    fireEvent.click(within(screen.getByRole("list", { name: "조명 목록" })).getByRole("button", { name: /B1-L002/ }));
+
+    expect(within(screen.getByRole("complementary", { name: "선택 조명 상세" })).getByRole("heading", { name: "B1-L002" })).toBeVisible();
+    expect(within(screen.getByRole("region", { name: "층 도면" })).queryByRole("button", { name: /B1-L002/ })).not.toBeInTheDocument();
+  });
+
+  it("clears a prior floor search when the selected map changes", async () => {
+    queryMocks.useDashboard.mockReturnValue({
+      ...queryMocks.useDashboard(),
+      data: { ...dashboard, floors: [...dashboard.floors, { ...dashboard.floors[0], id: "floor-2", name: "B2" }] }
+    });
+    render(<MemoryRouter><MonitoringView siteId="site-1" /></MemoryRouter>);
+    const search = screen.getByRole("searchbox", { name: "조명 이름 또는 번호 검색" });
+    fireEvent.change(search, { target: { value: "001" } });
+    expect(search).toHaveValue("001");
+
+    await chooseSelect("맵 선택", "B2");
+    expect(screen.getByRole("searchbox", { name: "조명 이름 또는 번호 검색" })).toHaveValue("");
+    expect(screen.getByRole("button", { name: "조명 목록 보기" })).toHaveAttribute("aria-expanded", "false");
+  });
+
   it("locks the refresh action until both requests settle", async () => {
     const dashboardRequest = deferred<unknown>();
     const fixtureRequest = deferred<unknown>();
@@ -595,6 +623,27 @@ describe("MonitoringView refresh", () => {
     expect(screen.getByText("장비 Health")).toBeInTheDocument();
     expect(screen.getByText("장애 (0x04)")).toBeInTheDocument();
     expect(screen.getByText("Health 수신")).toBeInTheDocument();
+  });
+
+  it("shows an offline brightness as the last confirmed reading with its timestamp", () => {
+    queryMocks.useFloorFixtures().data.pages[0].items = [{ ...fixture, status: "offline", statusReason: "gateway_offline", health: null, brightness: 42 }];
+    render(<MonitoringView siteId="site-1" />);
+
+    const detail = screen.getByRole("complementary", { name: "선택 조명 상세" });
+    expect(within(detail).getByText("최근 확인 밝기")).toBeVisible();
+    expect(within(detail).getByText("42%")).toBeVisible();
+    expect(within(detail).getByText(/마지막 확인:/)).toBeVisible();
+    expect(within(detail).queryByText("현재 밝기")).not.toBeInTheDocument();
+  });
+
+  it("shows no brightness value before the fixture's first confirmed report", () => {
+    queryMocks.useFloorFixtures().data.pages[0].items = [{ ...fixture, status: "offline", statusReason: "provisioning_waiting_state", health: null, brightness: 0, lastSeenAt: null }];
+    render(<MonitoringView siteId="site-1" />);
+
+    const detail = screen.getByRole("complementary", { name: "선택 조명 상세" });
+    expect(within(detail).getByText("최근 확인 밝기")).toBeVisible();
+    expect(within(detail).getByText("확인 전")).toBeVisible();
+    expect(within(detail).queryByText("0%")).not.toBeInTheDocument();
   });
 
   it("등록된 조명이 있어도 모니터링에는 조명 등록 진입점을 표시하지 않는다", () => {

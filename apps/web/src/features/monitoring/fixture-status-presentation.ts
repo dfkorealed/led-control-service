@@ -42,7 +42,7 @@ export function presentFixtureStatus({
     return presentation("명령 처리 실패", "마지막 조명 명령이 정상적으로 처리되지 않았습니다.", "명령 이력 및 조명 연결 확인", "danger", "command_failed");
   }
   if (status === "fault" || (health?.faultCodes.length ?? 0) > 0) {
-    return presentation("장애", "조명 또는 Health Current가 장애를 보고했습니다.", "Health fault 확인", "danger", "fault");
+    return presentation("장애", "조명에서 점검이 필요한 상태를 보고했습니다.", "조명 상태와 연결 확인", "danger", "fault");
   }
   if (status === "online") {
     return presentation("정상", "조명이 최신 상태를 정상적으로 보고했습니다.", "조치 불필요", "success", "online");

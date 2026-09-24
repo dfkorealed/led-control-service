@@ -40,6 +40,8 @@
 
 ## 구현 완료
 
+- 2026-09-24 모니터링 상세의 오프라인·상태 수신 지연 조명은 현재 밝기처럼 표시하지 않고 `최근 확인 밝기`와 현장 시간대 기준 마지막 확인 시각을 함께 표시한다. 최초 상태 수신 전에는 밝기를 `확인 전`으로 표시하며 BIO 센서 설정 밝기를 실제 출력값으로 대체하지 않는다. Health 장애의 원인·권장 조치는 고객 언어로 안내하고 숫자 fault code는 기존 장비 정보에만 남긴다. 선택 층의 KPI는 320px 2×2, 390px 1×4를 목표로 압축하고, 공통 검색 필드와 상태별 목록에서 이름/번호 조각 검색·미배치 조명 선택을 지원한다. 미배치는 지도 마커로 만들지 않으며 관리자만 설정 배치 링크를 본다. 기존 층 fixture 페이지를 연속 조회하므로 다음 페이지가 남아 있으면 검색 0건을 최종 결과로 단정하지 않는다. 관련 focused Vitest는 통과했으며 4개 폭 Chromium과 실제 WebView/HIL은 총괄의 별도 직렬 검증을 기다린다.
+
 - 네이티브 CAD는 원본을 보존한 표시용 벡터 batch로 전체 영역을 렌더링한다. 실제 두 도면의 모든 803/875개 tile을 PC·390px에서 확인했고 WebView foreground 정책의 32 MiB 예산에서도 누락 없이 표시했다. Context loss 복귀 시 이전 화면 캐시를 퇴출 가능 상태로 전환하며, 원거리 편집 요소와 저장 revision을 다시 반영한다. 실서버 pipeline 검증과 브라우저 API fixture 검증의 범위는 CAD 검증 보고서에 구분한다.
 
 - 2026-09-19 네이티브 CAD는 viewport 크기 canvas와 카메라 좌표를 공유하고, 이동한 요소는 저장된 원본 타일 locator로 복원한다. 상태/manifest/tile을 strict 검증하며 응답 stream과 renderer의 합산 메모리 예산을 제한한다. 최초 camera 전달, SVG 중복 배경, WebView background/resume 및 revision 재시작 때 폐기된 context 재사용을 보정했다. 오류는 재시도 가능한 안내로 표시한다. 실제 모바일 기기 성능은 별도 검증 대상이다.
@@ -241,7 +243,7 @@
 - legacy null hash는 원본 payload와 같다는 증거가 없으므로 첫 인증 replay가 hash를 확정한다는 한계가 있다. 이후에는 exact hash만 허용하며, 새 future rejection에는 처음부터 hash가 있다. migration과 replay 보완은 과거 `Fixture.lastSeenAt`/`Gateway.lastHeartbeatAt` 및 energy 값을 재작성하지 않는다. 새 정상 event 수락 시 freshness가 서버 수신 시각으로 바뀌며, 과거 energy 오염의 소급 정정은 별도 범위다.
 - `lastSeenAt` 상대 시간은 클라이언트 현재 시간 기준이므로 서버 기준 freshness와 완전히 일치하지 않을 수 있다.
 - RSSI, hop count, 명령 성공률은 표시만 하며, 품질 등급이나 설치 가이드로 연결되지 않는다.
-- 1,000개 marker 조회/렌더링 기준은 자동 검증하지만, 더 큰 현장에는 공간 클러스터링과 검색이 추가로 필요하다.
+- 1,000개 marker 조회/렌더링 기준은 자동 검증한다. 현재 이름/번호 검색은 브라우저가 이어 받아온 현재 층 fixture 페이지에 적용되며 서버 전체 검색 API는 없다. 더 큰 현장에는 공간 클러스터링과 서버 검색이 추가로 필요하다.
 - 자사 UUID 검색, batch 등록, 실제 Health Current 수집을 포함한 Raspberry Pi/ESP32-H2 실장비 HIL은 아직 실행하지 않았다. 자동 route fixture 통과를 검색·등록·상태 수집의 실기 완료로 간주하지 않는다.
 - Sensor server-send breaker는 actual patched source allocator fault harness와 fullclean target compile로 검증했다. 실제 device heap pressure, BTC queue saturation과 Sensor Status RF 전달은 HIL에서 확인해야 하며 software allocation test를 실장비 완료로 간주하지 않는다.
 - 현재 선택 로직은 첫 장애 조명 또는 첫 조명을 자동 선택하므로, 사용자가 이전에 보던 조명을 유지하는 정책을 더 정교하게 만들 수 있다.
@@ -261,6 +263,9 @@
 
 - `apps/web/src/features/monitoring/MonitoringView.tsx`
 - `apps/web/src/features/monitoring/MonitoringView.test.tsx`
+- `apps/web/src/features/monitoring/MonitoringFixtureFinder.tsx`, `apps/web/src/features/monitoring/MonitoringFixtureFinder.test.tsx`
+- `apps/web/src/features/monitoring/fixture-brightness-presentation.ts`, `apps/web/src/features/monitoring/fixture-brightness-presentation.test.ts`
+- `apps/web/src/features/monitoring/fixture-status-presentation.ts`, `apps/web/src/features/monitoring/fixture-status-presentation.test.ts`
 - `apps/web/src/App.test.tsx`
 - `apps/web/e2e/calm-operations-monitoring.spec.ts`
 - `apps/web/src/features/shells/CustomerShell.monitoring.test.tsx`

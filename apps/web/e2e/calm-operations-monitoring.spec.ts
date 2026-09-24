@@ -34,8 +34,8 @@ const fixtures: SettingsFixture[] = [
 const viewports = [
   { width: 1440, height: 900, columns: 4, rows: 1 },
   { width: 1024, height: 768, columns: 4, rows: 1 },
-  { width: 390, height: 844, columns: 2, rows: 2 },
-  { width: 320, height: 740, columns: 1, rows: 4 }
+  { width: 390, height: 844, columns: 4, rows: 1 },
+  { width: 320, height: 740, columns: 2, rows: 2 }
 ] as const;
 
 const monitoringSnapshotAt = "2026-09-12T00:00:00.000Z";
@@ -65,8 +65,8 @@ const statusPresentationCases = [
     kind: "fixture_fault",
     fixture: fixture("P1-Fixture-Fault", "fault", "reported", 500, 340, 42),
     label: "장애",
-    description: "조명 또는 Health Current가 장애를 보고했습니다.",
-    recommendedAction: "Health fault 확인"
+    description: "조명에서 점검이 필요한 상태를 보고했습니다.",
+    recommendedAction: "조명 상태와 연결 확인"
   },
   {
     kind: "command_failed",
@@ -258,13 +258,18 @@ for (const viewport of viewports) {
     }
 
     const mapBox = await page.locator("[data-monitoring-map-panel]").boundingBox();
+    const finderBox = await page.locator("[data-monitoring-fixture-finder]").boundingBox();
     const detailBox = await page.locator("[data-monitoring-detail-panel]").boundingBox();
     expect(mapBox).not.toBeNull();
+    expect(finderBox).not.toBeNull();
     expect(detailBox).not.toBeNull();
     if (viewport.width >= 1024) {
-      expect(Math.abs((mapBox?.y ?? 0) - (detailBox?.y ?? 0))).toBeLessThan(2);
+      expect(Math.abs((mapBox?.y ?? 0) - (finderBox?.y ?? 0))).toBeLessThan(2);
+      expect((detailBox?.y ?? 0)).toBeGreaterThan((finderBox?.y ?? 0) + (finderBox?.height ?? 0));
     } else {
       expect((detailBox?.y ?? 0)).toBeGreaterThan((mapBox?.y ?? 0) + (mapBox?.height ?? 0));
+      if (viewport.width === 320) expect((finderBox?.y ?? 0) + (finderBox?.height ?? 0)).toBeLessThanOrEqual((mapBox?.y ?? 0));
+      if (viewport.width === 390) expect((finderBox?.y ?? 0)).toBeGreaterThan((mapBox?.y ?? 0) + (mapBox?.height ?? 0));
     }
 
     if (viewport.width <= 760) {
@@ -274,6 +279,21 @@ for (const viewport of viewports) {
     }
   });
 }
+
+test("미배치 조명을 번호로 찾아 상세를 열고 지도에는 마커를 만들지 않는다", async ({ page }) => {
+  const unplaced = { ...fixture("B2-L099", "offline", "gateway_offline", 840, 460, 35), placementStatus: "unplaced" as const };
+  await installMonitoringFixture(page, { fixtureRows: [fixtures[0]!, unplaced] });
+  await page.goto(`/monitoring?siteId=${ids.site}`);
+
+  await page.getByRole("searchbox", { name: "조명 이름 또는 번호 검색" }).fill("099");
+  const list = page.getByRole("list", { name: "조명 목록" });
+  await expect(list.getByRole("button", { name: /B2-L099/ })).toBeVisible();
+  await list.getByRole("button", { name: /B2-L099/ }).click();
+  const detail = page.getByRole("complementary", { name: "선택 조명 상세" });
+  await expect(detail.getByRole("heading", { name: "B2-L099" })).toBeVisible();
+  await expect(detail).toContainText("최근 확인 밝기");
+  await expect(page.getByRole("region", { name: "층 도면" }).getByRole("button", { name: /B2-L099/ })).toHaveCount(0);
+});
 
 test("데스크톱 지도는 내부에서 확대·스크롤되고 상세 정보는 패널 폭 안에 유지된다", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
