@@ -1,6 +1,16 @@
 # 메뉴 완성 작업 상태판
 
-기준일: 2026-09-19
+기준일: 2026-09-24
+
+## 2026-09-24 고객 UI/UX 전면 적용
+
+- [x] 승인된 11개 화면 시안과 기존 Tailwind/React Aria 디자인 시스템의 적용 계약을 문서화했다 (`4b28e946`). PNG의 수치와 상태는 가상 예시이며 제품 구현 완료 증거가 아니다.
+- [x] 공통 UI·셸·인증: 인가 현장 전역 선택, Gateway 집계, 세션 상태 센터·toast, 인증 오류 분류와 유한 대기를 반영했다 (`6d37f905`, `b726a724`, `d790a0a4`, `6f0cafcc`). 셸·인증 Chromium 10/10과 날짜·필드·오버레이 29/29가 통과했다. 전체 승인 흐름과 실제 모바일 WebView는 별도 검증 대상이다.
+- [x] 설정·설치: 층수/층 배열 저장 검증, 설치 다음 단계 CTA, 단일 층/온라인 Gateway 안전 기본 선택과 모바일 맵 탭 배치·정보 위계를 반영했다 (`daf893e6`, `60628e10`, `46b8c101`, `c0b2b5f3`, `7eb66c15`). 준비된 공통 맵 계약으로 구형 브라우저 fixture를 보완했고, 설정 맵 편집 통합 Chromium 56/56과 외부 카메라 명령 뒤 가시 조명 재계산 단위 회귀를 통과했다. 실제 모바일 WebView 및 대형 실제 CAD·하드웨어 성능은 별도 검증 대상이다.
+- [x] 모니터링: 최근 확인 밝기·검색/미배치 접근·320/390px KPI 위계와 상태 센터 연계를 반영했다 (`f6d0a689`, `6d83e80c`, `166418ce`). Chromium 33/33이 통과했다.
+- [x] 제어: 일정 적용 기간, 수동·이벤트·모바일 정보 위계와 자동화/수동 상태 센터 연계를 반영했다 (`8e53dc6b`, `69de3016`, `919f2708`). 제어 Chromium 27/27, 집중 단위 205/205, 독립 코드 검토를 통과했다.
+- [x] 통계·보고서: 보고서 기본 3개/상세 2개 필터, 개요·분석 정보 위계, 자료 범위와 생성 시점 의미를 반영했다 (`219268ab`, `41b84cf5`, `0b2eee42`). Chromium 27/27이 통과했다.
+- [x] 총괄 QA(소프트웨어 범위): Web 전체 단위 테스트 159 files·2,325 passed·3 skipped, typecheck, UI 정책 0건, UI primitive Chromium 29/29, 설정 맵 편집 통합 Chromium 56/56, 실제 백엔드 설치 여정 2/2가 통과했다. 독립 코드 검토에서 지적한 휠→외부 카메라 명령의 가시 요소 불일치를 수정·재검토했다. production build와 날짜·오버레이 번들 검사도 통과했다. 오버레이 번들 검사는 상태 센터에서 실제 사용하는 `Popover`를 미사용으로 취급하던 구형 기대를 현재 계약으로 갱신했다. 메인 진입 청크는 756.35 kB/gzip 232.51 kB로 기존 500 kB 권고 경고가 남는다. 실제 iOS/Android WebView와 Gateway/조명 HIL, 대형 실제 CAD 도면 성능은 이번 검증 범위 밖이다.
 
 ## 2026-09-20 맵 카메라/raster 최적화 작업
 
@@ -125,8 +135,6 @@
 | 실제 HIL | 미실행 | 실제 다중 fixture, 층 전체, 저장 구역, Mesh Group, Raspberry Pi/ESP32-H2 전원 차단, MQTT broker 단절, Gateway 프로세스 강제 종료를 조합한 상태 조회·중복 전달·복구 시험은 실행하지 않았다. 기존 단일 노드 정상 제어 HIL을 이 항목의 완료 증거로 확대하지 않는다. |
 
 ## 작업 상태
-
-**Kinda Shell·인증·세션 상태 1차 구현 진행 중(계획 확정):** 승인된 11개 목업과 UI/UX 설계를 기준으로 전역 현장 선택, 선택 현장 Gateway 집계, query 기반 세션 상태 센터와 중복 제거 toast, `/auth/me`·로그인 요청 제한시간/오류 분류를 기존 Web API 위에서 구현한다. 서버·공유 DTO·DB 변경 없이 `GET /sites`와 `GET /sites/:siteId/dashboard`만 사용하며 보호 route의 fail-closed와 floor editor dirty 확인을 유지한다. 현재는 공통 public contract와 TDD/320·390·1024·1440px 검증 계획을 확정한 단계이고 기능 완료나 HIL 증거로 간주하지 않는다. [실행 계획](superpowers/plans/2026-09-24-kinda-shell-auth-session-status.md)
 
 **Tailwind 디자인 시스템 Task 12 완료(소프트웨어):** 공통 React Aria/Tailwind primitive와 모니터링·제어·통계·설정·shell/auth/operator 화면의 이전을 통합하고 legacy 전역 selector와 `components/ConfirmDialog.tsx` adapter를 제거했다. `styles.css`는 Tailwind·theme·base·exceptions import와 Tailwind source 제외 설정만 소유하고, 정책 baseline violation map은 `{}`이며 production 정책 부채와 production DOM query는 각각 **0건**이다. 후속 QA에서 production→test/e2e import, HTML/public CSS 진입, canonical CSS import 누락·중복, rogue `@utility`, computed DOM query, native form spread/`createElement`, runtime exception 위치 변경과 package metadata가 CSS를 노출하는 extensionless bare import 우회를 차단했다. Fresh 검증은 루트 `pnpm test` exit 0, Web Vitest **83 files·1,224/1,224**, UI policy **53/53**, `ui:check` **0/0**, canonical CI workflow **41/41**, 접근성 focused Chromium **31/31**, 요청된 floor/1,000개 monitoring/control focused Chromium **38/38**, 최종 전체 Chromium 직렬 실행 **257 passed·5 environment-gated skipped·실패 0**이다. UI foundation 묶음 **37/37**, auth/operator+statistics **25/25**, disposable automation RealBackendLab **1/1**, monitoring-1000 **1/1**도 같은 전체 실행에서 통과했다. Web typecheck/build와 1440×900·1024×768·390×844·320×740 layout·overflow·touch assertions를 통과했으며 main bundle은 **656.57 kB/gzip 200.95 kB**로 기존 500 kB chunk 경고가 남는다. 병렬 전체 진단에서는 공유 build/Vite fixture 경합 중 monitoring-control-flow 1건이 일시 실패해 **256 passed·5 skipped·1 failed**였지만, 해당 spec은 focused **38/38**, 2-spec 병행 재현 **2/2**, 최종 직렬 전체 실행에서 모두 통과했고 skip·timeout은 추가하지 않았다. 5개 skip은 기본 전체 실행에서 비활성인 opt-in real-backend 환경 항목이다. 구식 native selector를 현재 React Aria Checkbox/SelectBox/ConfirmDialog 계약으로 갱신한 뒤 별도 RealBackendLab에서 설치 전체 여정 **2/2**와 층 배치·제어·통계 **1/1**을 모두 통과했다. 실제 iOS/Android WebView·수동 in-app 시각 QA·운영 backend/object storage·MQTT/Gateway/Raspberry Pi/BlueZ/ESP32-H2 HIL과 사용자 DB 적용은 실행하지 않았다.
 

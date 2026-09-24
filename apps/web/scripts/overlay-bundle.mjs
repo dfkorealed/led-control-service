@@ -31,19 +31,21 @@ async function appBundle(mode) {
   return metrics(entryOf(await build({ logLevel: "silent", build: { write: false }, plugins: [{
     name: "overlay-bundle-control", enforce: "pre",
     load(id) {
-      if (mode === "without-overlay" && id.endsWith("/src/components/ui/index.ts")) {
-        return readFileSync(id, "utf8").split("\n").filter(line => !/from "\.\/overlays\/(DropdownMenu|Popover)"/.test(line)).join("\n");
+      if (mode === "without-dropdown" && id.endsWith("/src/components/ui/index.ts")) {
+        // SessionStatusCenter consumes Popover, so only DropdownMenu is unused.
+        return readFileSync(id, "utf8").split("\n").filter(line => !/from "\.\/overlays\/DropdownMenu"/.test(line)).join("\n");
       }
       if (mode === "impure-overlay" && unusedOverlay.test(id)) return readFileSync(id, "utf8").replaceAll("/* @__PURE__ */", "");
     }
   }] })));
 }
 
-test("unused public overlay exports cost zero while explicit consumers retain and render both controls", { timeout: 90_000 }, async context => {
+test("unused DropdownMenu export costs zero while used Popover and explicit consumers remain", { timeout: 90_000 }, async context => {
   const normal = await appBundle("normal");
-  const control = await appBundle("without-overlay");
-  assert.deepEqual(normal, control, "Unused Dropdown/Popover must preserve the exact app entry, gzip and module count");
-  assert.deepEqual(normal.overlayModules, []);
+  const control = await appBundle("without-dropdown");
+  assert.deepEqual(normal, control, "Unused DropdownMenu must preserve the exact app entry, gzip and module count");
+  assert.ok(!normal.overlayModules.some(id => id.endsWith("/DropdownMenu.tsx")));
+  assert.ok(normal.overlayModules.some(id => id.endsWith("/Popover.tsx")), "SessionStatusCenter must retain its Popover dependency");
   context.diagnostic(`Normal/control: ${normal.characters} chars, gzip ${normal.gzip} bytes, ${normal.modules} modules, sha256 ${normal.digest}; delta 0/0/0`);
   const impure = await appBundle("impure-overlay");
   assert.ok(impure.overlayModules.length === 2 && impure.gzip > normal.gzip && impure.modules > normal.modules,
