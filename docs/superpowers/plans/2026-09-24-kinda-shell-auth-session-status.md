@@ -90,6 +90,7 @@ export function useSessionToast(): {
 - [x] `/auth/me`, `/auth/login`, `/auth/login/mfa`, 복구 logout에 명시적 제한시간을 적용한다. 일반 장기 요청에는 전역 기본 timeout을 강제하지 않는다.
 - [x] `/auth/me`의 React Query signal을 fetch에 전달하고 auth 요청 deadline은 8초, 복구 logout은 기존 5초로 고정한다. 각 timer와 abort listener는 성공·실패·취소 모두에서 정리한다.
 - [x] login/MFA POST timeout·transport 실패는 같은 POST를 자동 재시도하지 않고 제한시간이 있는 `/auth/me`를 먼저 조회한다. 인증된 principal이 확인되면 정상 완료하고, 401이면 명시적 재시도 안내로 돌아가며 다시 transient면 연결/시간 초과 복구 문구를 유지한다.
+- [x] 일반 logout POST에도 8초 제한시간을 적용하고 timeout/transport처럼 결과가 불명확하면 POST를 재시도하지 않은 채 bounded `/auth/me`를 한 번 조회한다. 401이면 종료 성공으로 수렴하고 principal이 남아 있거나 재조회가 실패하면 command session block을 해제해 재시도 가능 상태로 복귀한다.
 - [x] 로그인/MFA 화면이 401 자격 증명, 403 접근 거절, 429 제한, 5xx 서비스 장애, transport 연결 실패, timeout 응답 지연을 서로 다른 한국어 복구 문구로 표시하게 한다.
 - [x] `App`의 401 로그인 수렴, transient recovery, 비일시 오류의 fail-closed 권한 복구와 principal/cache 세대 격리를 회귀 테스트한다.
 - [x] Run: `pnpm --filter @led-control/web test -- src/api/client.test.ts src/api/client.recovery.test.ts src/api/auth.test.ts src/features/auth/AuthView.test.tsx src/App.test.tsx src/App.recovery.test.tsx` — 6 files, 122 tests passed.
@@ -105,6 +106,7 @@ export function useSessionToast(): {
 - Modify: `apps/web/scripts/overlay-bundle.mjs`
 
 - [x] provider가 source별 item을 등록·unregister하고 동일 `id + fingerprint`를 한 번만 toast로 전환하는 RED 테스트를 작성한다.
+- [x] polling이 동일 `id + fingerprint`의 새 items 배열을 만들어도 source를 unregister하지 않고 상태만 갱신해 해제한 toast를 다시 발행하지 않는 회귀 테스트를 추가한다.
 - [x] item이 원 query 성공으로 사라지면 센터와 연관 toast가 해제되고, 새 fingerprint는 다시 한 번 알리는 RED 테스트를 작성한다.
 - [x] success/info/warning/danger toast의 기본 표시 시간, 수동 닫기, 같은 `dedupeKey` 갱신, 최대 표시 개수와 timer 정리를 RED로 고정한다.
 - [x] `SessionStatusProvider`, `useSessionStatus`, `useSessionToast`, `SessionStatusCenter`, `ToastRegion`을 Tailwind token과 공통 Button/Popover만 사용해 구현한다.

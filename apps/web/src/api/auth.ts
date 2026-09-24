@@ -1,8 +1,9 @@
 import { useQuery } from "@tanstack/react-query";
-import { apiDelete, apiGet, apiPost, isTransientApiError, type ApiRequestOptions } from "./client";
+import { apiDelete, apiGet, apiPost, isApiStatus, isTransientApiError, type ApiRequestOptions } from "./client";
 import { authMeQueryKey } from "./principal-cache";
 
 export const AUTH_REQUEST_TIMEOUT_MS = 8_000;
+export const AUTH_LOGOUT_TIMEOUT_MS = 8_000;
 const AUTH_RECOVERY_LOGOUT_TIMEOUT_MS = 5_000;
 
 export interface AuthUser {
@@ -78,8 +79,23 @@ export function signup(input: { token: string; loginId: string; email: string; n
   return apiPost<{ user: AuthUser }>("/auth/signup", input);
 }
 
-export function logout() {
-  return apiPost<{ ok: boolean }>("/auth/logout", {});
+export async function logout() {
+  try {
+    return await apiPost<{ ok: boolean }>("/auth/logout", {}, { timeoutMs: AUTH_LOGOUT_TIMEOUT_MS });
+  } catch (error) {
+    if (!isTransientApiError(error)) throw error;
+    // The server may have revoked the session before the POST response was
+    // lost. Reconcile once with a separately bounded read; never retry logout.
+    try {
+      await getCurrentUser();
+    } catch (reconciliationError) {
+      if (isApiStatus(reconciliationError, 401)) return { ok: true };
+      throw error;
+    }
+    // The principal still exists, so keep the local session and let the shell
+    // unblock commands and present an explicit retry path.
+    throw error;
+  }
 }
 
 export async function logoutAfterRecovery() {

@@ -94,7 +94,7 @@ describe("operator shell route boundary", () => {
 
     await waitFor(() => expect(client.getQueryData(authMeQueryKey)).toBeNull());
     expect(client.getQueryData(["tenant", "private"])).toBeUndefined();
-    expect(apiPost).toHaveBeenCalledWith("/auth/logout", {});
+    expect(apiPost).toHaveBeenCalledWith("/auth/logout", {}, { timeoutMs: 8_000 });
   });
 
   it("keeps authentication and enables retry after logout fails", async () => {

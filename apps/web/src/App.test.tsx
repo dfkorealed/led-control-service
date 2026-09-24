@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ApiError, apiGet, apiPost } from "./api/client";
+import { ApiError, ApiTimeoutError, apiGet, apiPost } from "./api/client";
 import type { InitialSiteSetupRequest } from "./api/setup";
 import { dirtyEditorSentinelKey } from "./features/floor-editor/dirty-editor-history";
 import { useFloorEditorStore } from "./features/floor-editor/editor-store";
@@ -1322,7 +1322,7 @@ describe("App", () => {
     const dialog = await screen.findByRole("alertdialog", { name: "로그아웃 확인" });
     fireEvent.click(within(dialog).getByRole("button", { name: "로그아웃" }));
 
-    expect(apiPost).toHaveBeenCalledWith("/auth/logout", {});
+    expect(apiPost).toHaveBeenCalledWith("/auth/logout", {}, { timeoutMs: 8_000 });
     expect(await screen.findByRole("heading", { name: "킨다 로그인" })).toBeInTheDocument();
     expect(useFloorEditorStore.getState().isDirty).toBe(false);
   });
@@ -1506,11 +1506,12 @@ describe("App", () => {
     expect(await screen.findByRole("button", { name: "동일 요청 확인(새 제어 아님)" })).toBeDisabled();
 
     await act(async () => {
-      rejectLogout(new Error("logout unavailable"));
+      rejectLogout(new ApiTimeoutError());
       await Promise.resolve();
     });
 
     expect(await screen.findByRole("alert")).toHaveTextContent("로그아웃에 실패했습니다");
+    expect(apiGet).toHaveBeenCalledWith("/auth/me", { timeoutMs: 8_000 });
     const retryButton = screen.getByRole("button", { name: "동일 요청 확인(새 제어 아님)" });
     expect(retryButton).toBeEnabled();
     fireEvent.click(retryButton);

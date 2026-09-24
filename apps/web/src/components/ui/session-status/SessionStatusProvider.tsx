@@ -97,10 +97,15 @@ export function SessionStatusProvider({ children }: { children: ReactNode }) {
 
 export function useSessionStatus(sourceId: string, items: readonly SessionStatusItem[]) {
   const { register, unregister } = useSessionStatusContext();
+  // Polling commonly creates a new array for a sustained status. Updating the
+  // same source must preserve the previous fingerprint so it is not announced
+  // again; unregister is reserved for source changes and unmount.
   useEffect(() => {
     register(sourceId, items);
+  }, [items, register, sourceId]);
+  useEffect(() => {
     return () => unregister(sourceId);
-  }, [items, register, sourceId, unregister]);
+  }, [sourceId, unregister]);
 }
 
 export function useSessionToast() {

@@ -16,7 +16,7 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-function QueryStatusHarness({ fingerprint }: { fingerprint: string | null }) {
+function QueryStatusHarness({ fingerprint, revision = 0 }: { fingerprint: string | null; revision?: number }) {
   const items = useMemo<SessionStatusItem[]>(() => fingerprint ? [{
     id: "query:dashboard:site-1",
     fingerprint,
@@ -24,7 +24,7 @@ function QueryStatusHarness({ fingerprint }: { fingerprint: string | null }) {
     tone: "warning",
     title: "현장 정보를 갱신하지 못했습니다.",
     description: `revision ${fingerprint}`
-  }] : [], [fingerprint]);
+  }] : [], [fingerprint, revision]);
   useSessionStatus("dashboard:site-1", items);
   return <><SessionStatusCenter /><ToastRegion /></>;
 }
@@ -71,6 +71,19 @@ describe("session status feedback", () => {
 
     rerender(<SessionStatusProvider><QueryStatusHarness fingerprint="2" /></SessionStatusProvider>);
     expect(await within(region).findByRole("status")).toHaveTextContent("revision 2");
+  });
+
+  it("does not announce a sustained id and fingerprint again when polling creates a new items array", async () => {
+    const { rerender } = render(<SessionStatusProvider><QueryStatusHarness fingerprint="1" revision={1} /></SessionStatusProvider>);
+    const region = await screen.findByRole("region", { name: "알림" });
+    const toast = within(region).getByRole("status");
+    fireEvent.click(within(toast).getByRole("button", { name: "알림 닫기" }));
+    expect(within(region).queryByRole("status")).not.toBeInTheDocument();
+
+    rerender(<SessionStatusProvider><QueryStatusHarness fingerprint="1" revision={2} /></SessionStatusProvider>);
+
+    expect(screen.getByRole("button", { name: "상태 센터, 미해결 1건" })).toBeVisible();
+    expect(within(region).queryByRole("status")).not.toBeInTheDocument();
   });
 
   it("updates a dedupe key, caps visible toasts, and removes them after five seconds", async () => {
