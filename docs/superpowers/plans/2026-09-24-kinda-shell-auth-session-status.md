@@ -139,6 +139,7 @@ export function useSessionToast(): {
 - [x] Settings 내부 현장 선택 행 제거 후 editor 전용 SettingsShell grid를 `navigation auto + outlet minmax(0,1fr)` 2행으로 맞춰 빈 1fr 행이 모바일 캔버스 높이를 가져가지 않게 한다.
 - [x] Shell이 `SessionStatusProvider`와 `ToastRegion`을 소유하고 site/dashboard query의 retry action을 상태 센터 item으로 선언한다.
 - [x] Gateway 상태 배지를 44px 상호작용 대상으로 만들고 ref 기반으로 상태 센터의 해당 Gateway item에 초점을 이동하며 Escape 닫기 후 배지로 복귀시킨다. 로그아웃 실패는 topbar 행을 늘리지 않고 danger toast와 상태 센터 item으로 제공한다.
+- [x] pill 모서리 hit-test 뒤에도 연속 44×44 영역을 확보하도록 Gateway 상태 버튼 높이를 디자인 토큰 `min-h-13`(52px)으로 고정한다.
 - [x] Run: `pnpm --filter @led-control/web test -- src/features/sites/SiteSwitcher.test.tsx src/features/sites/useGuardedSiteSelection.test.tsx src/features/shells/gateway-status.test.ts src/features/shells/CustomerShell.test.tsx src/features/settings/SettingsShell.test.tsx` — 5 files, 42 tests passed.
 
 ### Task 4: 반응형 Chromium, 정책, 전체 Web과 문서 검증
@@ -152,6 +153,7 @@ export function useSessionToast(): {
 - [ ] Chromium fixture에 복수 인가 현장, Gateway 전체/부분/없음, site/dashboard 실패와 인증 timeout을 추가한다.
 - [ ] 320/390/1024/1440px에서 전역 현장 전환, Gateway aggregate, 상태 센터 open/Escape/focus return, toast dedupe/resolution, touch/overflow를 검증한다.
   - 2026-09-24: Shell의 390/320px touch/overflow 계약 재검증 2건 통과. 전체 viewport·기능 조합은 총괄 통합 gate에 유지한다.
+  - 2026-09-24: Floor editor 390/320px에서 Gateway 상태 버튼을 포함한 touch/layout 계약 2건 통과.
 - [ ] 로그인 401/403/429/5xx/transport/timeout 및 `/auth/me` fail-closed 복구를 관련 Chromium spec으로 검증한다.
 - [ ] Run: `pnpm --filter @led-control/web exec playwright test e2e/calm-operations-shell.spec.ts e2e/calm-operations-auth-operator.spec.ts --project=chromium --workers=1`
 - [x] focused unit 결과와 전역 selector/Gateway/status center/인증 복구의 메뉴 문서 반영 필요 사항을 총괄에게 전달한다. 후속 접근성 보완 포함 인증·상태 센터·Shell/Settings 14 files, 251 tests, Web typecheck, UI policy(0 existing/0 new)가 통과했다. Chromium 및 전체 Web test/build와 정본 문서 갱신은 총괄 통합 단계에서 직렬 실행한다.

@@ -288,7 +288,7 @@ export function CustomerShell({ user }: { user: AuthUser }) {
               type="button"
               variant="ghost"
               aria-label={`${gatewayAggregate.label} 상태 센터 열기`}
-              className="min-h-11 max-w-40 shrink-0 rounded-pill border-transparent p-0"
+              className="min-h-13 max-w-40 shrink-0 rounded-pill border-transparent p-0"
               title={gatewayAggregate.label}
               onClick={() => sessionStatusCenterRef.current?.open(
                 gatewayStatusButtonRef.current,
