@@ -1,6 +1,6 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
 import type { FloorEditorState } from "../src/features/floor-editor/editor-types";
-import { expectMinimumTouchTargets } from "./support/layout-assertions";
+import { expectMinimumTouchTargets, expectMinimumTouchTargetsAfterScrolling } from "./support/layout-assertions";
 
 const viewports = [
   { width: 1440, height: 900 }, { width: 1024, height: 768 },
@@ -9,7 +9,9 @@ const viewports = [
 const editorPath = "/settings/floor-plans/floor-b2/edit?siteId=site-2";
 const state: FloorEditorState = {
   floor: { id: "floor-b2", siteId: "site-2", name: "B2", level: -2, mapRevision: 7,
-    floorPlan: { imageUrl: "", sourceType: "image", originalFileUrl: "", renderedImageUrl: "", width: 1200, height: 800, version: 1 } },
+    floorPlan: { imageUrl: "", sourceType: "none", width: 1200, height: 800, gridSize: 10, version: 1 },
+    mapDocument: { formatVersion: 1, generationId: "viewport-map", revision: 7, width: 1200, height: 800, gridSize: 10, elementCount: 0,
+      manifest: { assetId: "00000000-0000-4000-8000-000000000002", sha256: "a".repeat(64), byteSize: 1, decodedByteSize: 1 } } },
   fixtures: Array.from({ length: 100 }, (_, index) => ({
     id: `fixture-${index}`, name: `B2-L${index}`, x: 0, y: 0, size: 20, ratedWatt: 40,
     brightness: 70, status: "online", placementStatus: "unplaced"
@@ -35,6 +37,26 @@ test.beforeEach(async ({ page }) => {
     } });
     if (path === "/floors/floor-b2/editor-state") return route.fulfill({ json: state });
     if (path === "/floors/floor-b2/editor-lease") return route.fulfill({ json: { editable: true, token: "viewport-lease", fence: 1 } });
+    if (path === "/floors/floor-b2/map-document") return route.fulfill({ json: state.floor.mapDocument });
+    if (path === "/floors/floor-b2/map-document/manifest") {
+      const document = state.floor.mapDocument!;
+      return route.fulfill({ json: { generationId: document.generationId, revision: document.revision, canonical: document.manifest,
+        groups: [], layers: [{ id: "map", name: "Map", order: 0, visible: true, locked: false }], displayLayerBindings: [],
+        display: { version: 2, sceneId: "00000000-0000-4000-8000-000000000001", regionId: "manual", manifestAssetId: document.manifest.assetId,
+          width: document.width, height: document.height, padding: 0, gridSize: document.gridSize, tileSize: 512,
+          lodMode: "additive", primitiveCount: 0, tileCount: 0, byteSize: 1, sha256: "a".repeat(64),
+          sourceBounds: { minX: 0, minY: 0, maxX: document.width, maxY: document.height },
+          transform: { scaleX: 1, scaleY: 1, translateX: 0, translateY: 0 }, tiles: [] } } });
+    }
+    if (path === "/floors/floor-b2/map-document/changes") return route.fulfill({ json: {
+      generationId: state.floor.mapDocument!.generationId, revision: state.floor.mapDocument!.revision,
+      operations: [], nextCursor: null
+    } });
+    if (path === "/floors/floor-b2/map-document/elements") return route.fulfill({ json: [] });
+    if (path === "/floors/floor-b2/map-document/selection") return route.fulfill({ json: {
+      generationId: state.floor.mapDocument!.generationId, revision: state.floor.mapDocument!.revision,
+      ids: [], nextCursor: null
+    } });
     if (path === "/floors/floor-b2/editor-revisions") return route.fulfill({ json: {
       items: Array.from({ length: 30 }, (_, index) => ({ revision: 30 - index, snapshotSha256: `hash-${index}`,
         changeSummary: { floorPlanChanged: true }, restoredFromRevision: null, createdAt: "2026-08-06T03:00:00.000Z", actor: { displayName: "관리자" } })), nextCursor: null
@@ -62,7 +84,7 @@ for (const viewport of viewports) {
     await page.setViewportSize(viewport);
     await page.goto(editorPath);
     const canvas = page.getByTestId("floor-editor-canvas");
-    await expect(canvas).toBeVisible();
+    await expect(canvas).toHaveAttribute("data-map-ready", "true");
     await expectBoundedPage(page);
     const narrow = viewport.width < 1280;
     if (narrow) await page.getByRole("button", { name: "도구 및 조명 패널" }).click();
@@ -79,6 +101,7 @@ for (const viewport of viewports) {
     await information.getByLabel("맵 너비").focus();
     await expectBoundedPage(page);
     await page.screenshot({ path: testInfo.outputPath(`information-${viewport.width}.png`), fullPage: true });
+    await information.getByRole("tab", { name: "자료" }).click();
     await information.evaluate((node) => { node.scrollTop = node.scrollHeight; });
     await expect(page.getByRole("button", { name: "리비전 1 복구", exact: true })).toBeInViewport();
     if (narrow) {
@@ -114,7 +137,7 @@ test("compact text focus and panel toggles preserve unsaved edits and the leave 
   await page.setViewportSize(viewports[3]);
   await page.goto(editorPath);
   const canvas = page.getByTestId("floor-editor-canvas");
-  await expect(canvas).toBeVisible();
+  await expect(canvas).toHaveAttribute("data-map-ready", "true");
   await page.getByRole("button", { name: "도구 및 조명 패널" }).click();
   await page.getByRole("button", { name: "텍스트", exact: true }).click();
   const box = (await canvas.boundingBox())!;
@@ -123,7 +146,7 @@ test("compact text focus and panel toggles preserve unsaved edits and the leave 
   await page.mouse.move(box.x + 150, box.y + 90);
   await page.mouse.up();
   await page.getByRole("button", { name: "편집 정보 패널" }).click();
-  const text = page.getByRole("textbox", { name: "텍스트 내용" });
+  const text = page.getByRole("textbox", { name: "텍스트" });
   await text.fill("Viewport draft");
   await expectBoundedPage(page);
   await page.keyboard.press("Escape");
@@ -153,7 +176,7 @@ for (const viewport of viewports.slice(2)) {
   test(`mobile ${viewport.width} toolbar has continuous reachable touch targets`, async ({ page }, testInfo) => {
     await page.setViewportSize(viewport);
     await page.route("**/api/floors/floor-b2/editor-state", (route) => route.fulfill({ json: {
-      ...state, floor: { ...state.floor, floorPlan: { ...state.floor.floorPlan!,
+      ...state, floor: { ...state.floor, mapDocument: null, floorPlan: { ...state.floor.floorPlan!, sourceType: "image",
         imageUrl: "/viewport-missing.svg", renderedImageUrl: "/viewport-missing.svg" } }
     } }));
     await page.route("**/viewport-missing.svg", (route) => route.fulfill({ status: 404, body: "" }));
@@ -170,7 +193,7 @@ for (const viewport of viewports.slice(2)) {
         cornerReachable: hits(rect.x + 0.5, rect.y + 0.5) };
     });
     await testInfo.attach("cancel-hit-geometry.json", { body: JSON.stringify(cancelGeometry), contentType: "application/json" });
-    await expectMinimumTouchTargets(page, '[data-testid="editor-toolbar"]');
+    await expectMinimumTouchTargetsAfterScrolling(page, '[data-testid="editor-toolbar"]');
     await expectMinimumTouchTargets(page, '[data-testid="floor-editor-canvas"] [role="alert"]');
     await expectMinimumTouchTargets(page, '[aria-label="편집 패널"]');
     await expect(page.getByRole("button", { name: "미니맵" })).toBeHidden();
@@ -190,7 +213,7 @@ for (const viewport of viewports.slice(2)) {
       await page.setViewportSize(viewport);
       await page.goto(editorPath);
       const canvas = page.getByTestId("floor-editor-canvas");
-      await expect(canvas).toBeVisible();
+      await expect(canvas).toHaveAttribute("data-map-ready", "true");
       const toggle = page.getByRole("button", { name: "도구 및 조명 패널" });
       await toggle.click();
       const panel = page.locator("#editor-tools-panel");
@@ -199,7 +222,7 @@ for (const viewport of viewports.slice(2)) {
       const center = await dragToCanvasCenter(page, source);
       await page.screenshot({ path: testInfo.outputPath(`drag-${kind}-${viewport.width}.png`) });
       await page.mouse.up();
-      const countAttribute = kind === "fixture" ? "data-rendered-fixture-count" : "data-rendered-object-count";
+      const countAttribute = kind === "fixture" ? "data-rendered-fixture-count" : "data-map-selection-count";
       await expect(canvas).toHaveAttribute(countAttribute, "1", { timeout: 5000 });
       await expect(panel).toHaveCSS("opacity", "1");
       await expect(panel).toHaveCSS("pointer-events", "auto");
@@ -223,12 +246,19 @@ for (const viewport of viewports.slice(2)) {
       await expect(panel).toHaveCSS("pointer-events", "auto");
       await expect(toggle).toHaveAttribute("aria-expanded", "true");
       await expect(cancelledSource).toBeFocused();
-      await expect(canvas).toHaveAttribute(countAttribute, "1");
+      if (kind === "fixture") await expect(canvas).toHaveAttribute(countAttribute, "1");
+      else {
+        // Starting another tool drag clears selection, not the first saved-in-draft shape.
+        await expect(page.getByRole("button", { name: "저장", exact: true })).toBeEnabled();
+        await page.getByRole("button", { name: "실행 취소" }).click();
+        await expect(page.getByRole("button", { name: "저장", exact: true })).toBeDisabled();
+      }
       await expectBoundedPage(page);
+      await panel.focus();
       await page.keyboard.press("Escape");
       await expect(panel).toBeHidden();
       await expect(toggle).toBeFocused();
-      await expectMinimumTouchTargets(page, '[data-testid="editor-toolbar"]');
+      await expectMinimumTouchTargetsAfterScrolling(page, '[data-testid="editor-toolbar"]');
     });
   }
 }

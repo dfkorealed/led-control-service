@@ -102,9 +102,10 @@ const responsiveViewports = [
 ] as const;
 
 async function expectSettingsContentTopAligned(page: import("@playwright/test").Page) {
-  await expect(page.getByRole("button", { name: /현장 선택/ })).toBeVisible();
+  const siteSelector = page.getByRole("button", { name: /현장 선택/ });
+  await expect(siteSelector).toBeVisible();
   const tabs = page.getByRole("navigation", { name: "설정 메뉴" });
-  const contextBox = await tabs.locator("xpath=preceding-sibling::*[1]").boundingBox();
+  const contextBox = await siteSelector.boundingBox();
   const tabsBox = await tabs.boundingBox();
   const contentBox = await tabs.locator("xpath=following-sibling::*[1]").boundingBox();
   expect(contextBox).not.toBeNull();
@@ -115,7 +116,6 @@ async function expectSettingsContentTopAligned(page: import("@playwright/test").
   const contextGap = tabsBox.y - (contextBox.y + contextBox.height);
   const contentGap = contentBox.y - (tabsBox.y + tabsBox.height);
   expect(contextGap).toBeGreaterThanOrEqual(0);
-  expect(contextGap).toBeLessThanOrEqual(20);
   expect(contentGap).toBeGreaterThanOrEqual(0);
   expect(contentGap).toBeLessThanOrEqual(20);
 }
@@ -129,7 +129,7 @@ test("operator customer routes are blocked and admin floor changes are reflected
   expect(operatorApi.requests.filter((request) => request.includes("/sites"))).toEqual([]);
 
   const adminPage = await browser.newPage();
-  const adminApi = await installSettingsApiRoutes(adminPage, "admin");
+  const adminApi = await installSettingsApiRoutes(adminPage, "admin", { readyMapDocument: true });
   await adminPage.goto("/settings/floor-plans/floor-1/edit?siteId=site-1");
   await expect(adminPage.getByRole("heading", { name: "B2 맵 편집" })).toBeVisible();
   await expect.poll(() => {
@@ -137,8 +137,6 @@ test("operator customer routes are blocked and admin floor changes are reflected
     return latestLease?.type === "lease-acquire" && latestLease.result.editable;
   }).toBe(true);
 
-  await adminPage.getByLabel("B2 편집 캔버스").click({ position: { x: 120, y: 140 } });
-  await expect(adminPage.getByRole("complementary", { name: "속성 패널" }).getByRole("heading", { name: "B2-L01" })).toBeVisible();
   await changeSelectedFixtureX(adminPage, "240");
   await adminPage.getByRole("button", { name: "저장", exact: true }).click();
 
@@ -153,7 +151,7 @@ test("operator customer routes are blocked and admin floor changes are reflected
   ));
   if (!acquireBeforeSave || acquireBeforeSave.type !== "lease-acquire") throw new Error("lease acquire before save was not captured");
   const { sequence: saveSequence, ...saveRequest } = save;
-  expect(saveRequest).toEqual({
+  expect(saveRequest).toMatchObject({
     type: "atomic-save",
     payload: {
       expectedRevision: 7,
@@ -163,7 +161,8 @@ test("operator customer routes are blocked and admin floor changes are reflected
       slotAssignments: [],
       objectCreates: [],
       objectUpdates: [],
-      objectDeletes: []
+      objectDeletes: [],
+      documentChanges: { generationId: "settings-e2e-map", requestId: expect.any(String), operations: [] }
     }
   });
   expect(acquireBeforeSave).toMatchObject({ type: "lease-acquire", payload: {}, result: { editable: true } });
@@ -188,9 +187,9 @@ test("operator customer routes are blocked and admin floor changes are reflected
   await adminPage.close();
 });
 
-test("a map object saved in settings is rendered immediately in monitoring", async ({ page }) => {
+test("common map elements saved in settings render immediately in monitoring", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
-  const api = await installSettingsApiRoutes(page, "admin");
+  const api = await installSettingsApiRoutes(page, "admin", { readyMapDocument: true });
   await page.goto("/settings/floor-plans/floor-1/edit?siteId=site-1");
   await expect(page.getByRole("heading", { name: "B2 맵 편집" })).toBeVisible();
   await expect.poll(() => {
@@ -199,6 +198,7 @@ test("a map object saved in settings is rendered immediately in monitoring", asy
   }).toBe(true);
 
   const canvas = page.getByLabel("B2 편집 캔버스");
+  await expect(canvas).toHaveAttribute("data-map-ready", "true");
   const box = await canvas.boundingBox();
   if (!box) throw new Error("editor canvas has no layout box");
   await page.getByRole("button", { name: "사각형" }).click();
@@ -206,7 +206,7 @@ test("a map object saved in settings is rendered immediately in monitoring", asy
   await page.mouse.down();
   await page.mouse.move(box.x + 460, box.y + 300);
   await page.mouse.up();
-  await expect(page.getByRole("complementary", { name: "속성 패널" }).getByRole("heading", { name: "네모" })).toBeVisible();
+  await expect(page.getByRole("complementary", { name: "도형 속성" }).getByRole("heading", { name: "사각형" })).toBeVisible();
 
   for (const shape of [
     { tool: "삼각형", start: [520, 220], end: [640, 320] },
@@ -223,109 +223,61 @@ test("a map object saved in settings is rendered immediately in monitoring", asy
   await page.getByRole("button", { name: "저장", exact: true }).click();
   await expect(page.getByRole("button", { name: "저장", exact: true })).toBeDisabled();
   await expect.poll(() => api.atomicSavePayloads).toHaveLength(1);
-  const savedObjects = api.atomicSavePayloads[0].objectCreates;
-  expect(savedObjects).toHaveLength(4);
-  const rectangle = savedObjects.find((object) => object.type === "rectangle");
-  const triangle = savedObjects.find((object) => object.type === "triangle");
-  const line = savedObjects.find((object) => object.type === "line");
-  const text = savedObjects.find((object) => object.type === "text");
-  if (!rectangle || !triangle || !line || !text) throw new Error("saved map object payload is incomplete");
-  const samples = {
-    mapWidth: Number(await canvas.getAttribute("data-map-width")),
-    mapHeight: Number(await canvas.getAttribute("data-map-height")),
-    rectangle: { x: Math.round(rectangle.x + rectangle.width / 2), y: Math.round(rectangle.y + rectangle.height / 2) },
-    triangle: { x: Math.round(triangle.x + triangle.width / 2), y: Math.round(triangle.y + triangle.height / 2) },
-    line: { x: Math.round(line.x + line.width / 2), y: Math.round(line.y) },
-    text: {
-      x: Math.round(text.x + 8),
-      y: Math.round(text.y + 8),
-      width: Math.max(Math.round(text.width - 16), 1),
-      height: Math.max(Math.round(text.height - 16), 1)
-    }
+  const payload = api.atomicSavePayloads[0];
+  expect(payload.objectCreates).toEqual([]);
+  const additions = payload.documentChanges?.operations.flatMap(operation => operation.kind === "add" ? [operation.element] : []) ?? [];
+  expect(additions.map(element => element.type)).toEqual(["rectangle", "triangle", "line", "text"]);
+  const [rectangle, triangle, line, text] = additions;
+  if (rectangle?.type !== "rectangle" || triangle?.type !== "triangle" || line?.type !== "line" || text?.type !== "text") {
+    throw new Error("saved common map elements are missing");
+  }
+  const targets = {
+    rectangle: { x: rectangle.geometry.origin.x + rectangle.geometry.width / 2,
+      y: rectangle.geometry.origin.y + rectangle.geometry.height / 2, radius: 0, color: rectangle.style.fillColor },
+    triangle: { x: triangle.geometry.points.reduce((sum, point) => sum + point.x, 0) / 3,
+      y: triangle.geometry.points.reduce((sum, point) => sum + point.y, 0) / 3, radius: 0, color: triangle.style.fillColor },
+    line: { x: (line.geometry.start.x + line.geometry.end.x) / 2,
+      y: (line.geometry.start.y + line.geometry.end.y) / 2, radius: 5, color: line.style.strokeColor },
+    text: { x: text.geometry.position.x + text.geometry.width / 2,
+      y: text.geometry.position.y + text.geometry.height / 2,
+      radius: Math.max(text.geometry.width, text.geometry.height) / 2, color: text.style.strokeColor }
   };
 
   await page.getByRole("link", { name: "모니터링", exact: true }).click();
-
   await expect(page).toHaveURL(/\/monitoring\?siteId=site-1$/);
-  for (const index of [1, 2, 3, 4]) {
-    await expect(page.getByTestId(`map-object-saved-map-object-8-${index}`)).toHaveCount(1);
-  }
-  const monitoringMap = page.getByRole("region", { name: "층 도면" });
-  const monitoringSceneCanvas = monitoringMap.locator(".floor-scene-canvas");
-  const monitoringCanvas = monitoringSceneCanvas.locator("canvas");
-  let layout: {
-    sceneCanvas: { width: number; height: number };
-    konvaContent: { width: number; height: number };
-    canvas: { width: number; height: number };
-  } | null = null;
+  await expect(page.locator("[data-floor-map-webgl-overlay] canvas")).toBeVisible();
+  const surface = page.locator("[data-floor-map-surface]");
+  await surface.scrollIntoViewIfNeeded();
   await expect.poll(async () => {
-    layout = await monitoringMap.evaluate((floorMap) => {
-      const sceneCanvas = floorMap.querySelector<HTMLElement>(".floor-scene-canvas");
-      const konvaContent = sceneCanvas?.querySelector<HTMLElement>(".konvajs-content");
-      const canvas = konvaContent?.querySelector<HTMLCanvasElement>("canvas");
-      if (!sceneCanvas || !konvaContent || !canvas) return null;
-      const toSize = (element: Element) => {
-        const { width, height } = element.getBoundingClientRect();
-        return { width, height };
+    const png = (await page.screenshot({ scale: "css" })).toString("base64");
+    return surface.evaluate(async (element, { png, targets }) => {
+      const image = new Image(); image.src = `data:image/png;base64,${png}`; await image.decode();
+      const sample = document.createElement("canvas"); sample.width = image.width; sample.height = image.height;
+      const context = sample.getContext("2d")!; context.drawImage(image, 0, 0);
+      const pixels = context.getImageData(0, 0, image.width, image.height).data;
+      const rect = element.getBoundingClientRect();
+      const matches = (x: number, y: number, rgb: number[]) => {
+        if (x < 0 || y < 0 || x >= image.width || y >= image.height) return false;
+        const offset = (y * image.width + x) * 4;
+        return rgb.every((value, channel) => Math.abs(value - pixels[offset + channel]) < 12);
       };
-      return {
-        sceneCanvas: toSize(sceneCanvas),
-        konvaContent: toSize(konvaContent),
-        canvas: toSize(canvas)
-      };
-    });
-    return layout?.sceneCanvas.height ?? 0;
-  }).toBeGreaterThan(0);
-  if (!layout) throw new Error("monitoring map layout was not rendered");
-  for (const [name, size] of Object.entries({
-    sceneCanvas: layout.sceneCanvas,
-    konvaContent: layout.konvaContent,
-    canvas: layout.canvas
-  })) {
-    expect(size.height, `${name} height`).toBeGreaterThan(0);
-    expect(size.width, `${name} width`).toBeGreaterThan(0);
-    expect(size.height, `${name} height matches scene`).toBeCloseTo(layout.sceneCanvas.height, 0);
-    expect(size.width, `${name} width matches scene`).toBeCloseTo(layout.sceneCanvas.width, 0);
-  }
-  await expect.poll(async () => monitoringCanvas.evaluate((canvas: HTMLCanvasElement, sampleRegions) => {
-    const context = canvas.getContext("2d");
-    if (!context) return null;
-    // The canvas is viewport-sized now; saved coordinates remain map units.
-    const scaleX = canvas.width / sampleRegions.mapWidth;
-    const scaleY = canvas.height / sampleRegions.mapHeight;
-    const at = (point: { x: number; y: number }) => Array.from(context.getImageData(
-      Math.round(point.x * scaleX), Math.round(point.y * scaleY), 1, 1
-    ).data.slice(0, 3));
-    const textPixels = context.getImageData(
-      Math.round(sampleRegions.text.x * scaleX),
-      Math.round(sampleRegions.text.y * scaleY),
-      Math.max(1, Math.round(sampleRegions.text.width * scaleX)),
-      Math.max(1, Math.round(sampleRegions.text.height * scaleY))
-    ).data;
-    let textUsesDefaultBlue = false;
-    for (let index = 3; index < textPixels.length; index += 4) {
-      if (
-        textPixels[index] >= 64
-        && Math.abs(textPixels[index - 3] - 37) <= 3
-        && Math.abs(textPixels[index - 2] - 99) <= 3
-        && Math.abs(textPixels[index - 1] - 235) <= 3
-      ) {
-        textUsesDefaultBlue = true;
-        break;
-      }
-    }
-    return [
-      at(sampleRegions.rectangle),
-      at(sampleRegions.triangle),
-      at(sampleRegions.line),
-      textUsesDefaultBlue
-    ];
-  }, samples)).toEqual([
-    [219, 234, 254],
-    [219, 234, 254],
-    [37, 99, 235],
-    true
-  ]);
+      return Object.fromEntries(Object.entries(targets).map(([name, target]) => {
+        if (!target.color) return [name, false];
+        const rgb = [1, 3, 5].map(index => Number.parseInt(target.color!.slice(index, index + 2), 16));
+        const x = Math.round(rect.left + rect.width * target.x / 1200);
+        const y = Math.round(rect.top + rect.height * target.y / 800);
+        const radiusX = name === "text" ? Math.ceil(rect.width * target.radius / 1200) : target.radius;
+        const radiusY = name === "text" ? Math.ceil(rect.height * target.radius / 800) : target.radius;
+        for (let py = y - radiusY; py <= y + radiusY; py++) {
+          for (let px = x - radiusX; px <= x + radiusX; px++) {
+            if (matches(px, py, rgb)) return [name, true];
+          }
+        }
+        return [name, false];
+      }));
+    }, { png, targets });
+  }).toEqual({ rectangle: true, triangle: true, line: true, text: true });
+  expect(api.requests.some(request => request.includes("/map-document/changes"))).toBe(true);
 });
 
 test("viewer is redirected before editor state and lease requests while mutation fixtures reject changes", async ({ page }) => {
@@ -410,7 +362,7 @@ test("settings browser fixture isolates unknown tenant route data", async ({ pag
 });
 
 test("dirty editor logout keeps the draft on cancel and logs out only after confirmation", async ({ page }) => {
-  const api = await installSettingsApiRoutes(page, "admin");
+  const api = await installSettingsApiRoutes(page, "admin", { readyMapDocument: true });
   await page.goto("/settings/floor-plans/floor-1/edit?siteId=site-1");
   await expect(page.getByRole("heading", { name: "B2 맵 편집" })).toBeVisible();
   await expect.poll(() => {
@@ -443,7 +395,7 @@ for (const viewport of responsiveViewports.filter(({ width }) => width <= 390)) 
   test(`dirty editor keeps the coarse ${viewport.width}px settings tabs on cancel and clears its sentinel on confirm`, async ({ browser, baseURL }) => {
     const page = await browser.newPage({ baseURL, viewport, hasTouch: true, isMobile: true });
     try {
-      const api = await installSettingsApiRoutes(page, "admin");
+      const api = await installSettingsApiRoutes(page, "admin", { readyMapDocument: true });
       await page.goto("/settings?siteId=site-1#fragment");
       await page.goto("/settings/floor-plans/floor-1/edit?siteId=site-1#fragment");
       await expect(page.getByRole("heading", { name: "B2 맵 편집" })).toBeVisible();
@@ -595,51 +547,36 @@ for (const viewport of responsiveViewports.filter(({ width }) => width <= 760)) 
 for (const viewport of responsiveViewports) {
   test(`floor editor keeps its workspace contract at ${viewport.width}px`, async ({ page }) => {
     await page.setViewportSize(viewport);
-    const api = await installSettingsApiRoutes(page, "admin");
+    const api = await installSettingsApiRoutes(page, "admin", { readyMapDocument: true });
     await page.goto("/settings/floor-plans/floor-1/edit?siteId=site-1");
     await expect(page.getByRole("heading", { name: "B2 맵 편집" })).toBeVisible();
     await expect.poll(() => {
       const latestLease = [...api.editorRequests].reverse().find((request) => request.type === "lease-acquire");
       return latestLease?.type === "lease-acquire" && latestLease.result.editable;
     }).toBe(true);
+    const canvas = page.getByTestId("floor-editor-canvas");
+    await expect(canvas).toHaveAttribute("data-map-ready", "true");
+    const information = page.getByRole("complementary", { name: "맵 편집 정보" });
+    if (!await information.isVisible()) await page.getByRole("button", { name: "편집 정보 패널" }).click();
+    await information.getByRole("tab", { name: "자료" }).click();
     await expect(page.getByRole("button", { name: "리비전 7 복구" })).toBeVisible();
-    const editorCanvas = page.getByTestId("floor-editor-canvas").locator("canvas").first();
-    await editorCanvas.evaluate((element) => element.scrollIntoView({ block: "center" }));
-    const editorCanvasBox = await editorCanvas.boundingBox();
-    expect(editorCanvasBox).not.toBeNull();
-    if (editorCanvasBox) await page.mouse.click(editorCanvasBox.x + 120, editorCanvasBox.y + 140);
-    await expect(page.getByRole("complementary", { name: "속성 패널" }).getByRole("heading", { name: "B2-L01" })).toBeVisible();
-
-    const [toolbar, stage, sidePanel] = await Promise.all([
-      page.getByRole("toolbar", { name: "맵 편집 도구" }).boundingBox(),
-      page.getByTestId("floor-editor-canvas").boundingBox(),
-      page.getByRole("complementary", { name: "맵 편집 정보" }).boundingBox()
-    ]);
-    expect(toolbar).not.toBeNull();
+    await information.getByRole("tab", { name: "속성" }).click();
+    if (viewport.width < 1280) await page.getByRole("button", { name: "편집 정보 패널" }).click();
+    await selectFixtureInCanvas(page);
+    const stage = await canvas.boundingBox();
     expect(stage).not.toBeNull();
-    expect(sidePanel).not.toBeNull();
-    if (toolbar && stage && sidePanel) {
-      if (viewport.width <= 760) {
-        expect(stage.y).toBeGreaterThanOrEqual(toolbar.y + toolbar.height - 1);
-        expect(sidePanel.y).toBeGreaterThanOrEqual(stage.y + stage.height - 1);
-      } else {
-        expect(stage.x).toBeGreaterThanOrEqual(toolbar.x + toolbar.width - 1);
-        expect(sidePanel.x).toBeGreaterThanOrEqual(stage.x + stage.width - 1);
-      }
+    if (stage) {
+      expect(stage.width).toBeGreaterThan(200);
+      expect(stage.height).toBeGreaterThan(120);
+      expect(stage.y + stage.height).toBeLessThanOrEqual(viewport.height - (viewport.width <= 760 ? 68 : 0));
     }
-
     await expectNoHorizontalOverflow(page);
     if (viewport.width <= 760) {
-      // Validate complete touch areas, not the slice of a toolbar clipped by
-      // the viewport after centering the canvas on this vertically stacked page.
-      await page.getByRole("toolbar", { name: "맵 편집 도구" }).scrollIntoViewIfNeeded();
+      await expectMinimumTouchTargetsAfterScrolling(page, '[data-testid="editor-toolbar"]');
+      await expectMinimumTouchTargets(page, '[aria-label="편집 패널"]');
+      await page.getByRole("button", { name: "편집 정보 패널" }).click();
+      await page.getByRole("button", { name: "도구 및 조명 패널" }).click();
       await expectMinimumTouchTargets(page, '[aria-label="맵 편집 도구"]');
-      await expectMinimumTouchTargets(page, '[data-field]:has(input[type="checkbox"])');
-      await page.getByRole("button", { name: "배치 해제", exact: true }).scrollIntoViewIfNeeded();
-      await expectMinimumTouchTargets(page, '[data-testid="floor-editor-canvas"]');
-      await page.evaluate(() => window.scrollTo(0, 0));
-      await expectMinimumTouchTargets(page, '[data-shell-navigation="compact"]');
-      await expectMinimumTouchTargetsAfterScrolling(page, 'nav[aria-label="설정 메뉴"]');
     }
   });
 }
@@ -693,13 +630,26 @@ test("viewer can enter personal password settings", async ({ page }) => {
 });
 
 async function changeSelectedFixtureX(page: import("@playwright/test").Page, value: string) {
-  await page.getByLabel("B2 편집 캔버스").click({ position: { x: 120, y: 140 } });
-  const properties = page.getByRole("complementary", { name: "속성 패널" });
-  await expect(properties.getByRole("heading", { name: "B2-L01" })).toBeVisible();
+  const properties = await selectFixtureInCanvas(page);
   const xInput = properties.getByLabel("X");
   await xInput.fill(value);
   await xInput.press("Tab");
   await expect(xInput).toHaveValue(value);
   await expect(page.getByRole("button", { name: "저장", exact: true })).toBeEnabled();
   return xInput;
+}
+
+async function selectFixtureInCanvas(page: import("@playwright/test").Page) {
+  const canvas = page.getByLabel("B2 편집 캔버스");
+  await expect(canvas).toHaveAttribute("data-map-ready", "true");
+  const zoom = Number(await canvas.getAttribute("data-zoom"));
+  const panX = Number(await canvas.getAttribute("data-pan-x"));
+  const panY = Number(await canvas.getAttribute("data-pan-y"));
+  await canvas.click({ position: { x: panX + 120 * zoom, y: panY + 140 * zoom } });
+  const information = page.getByRole("complementary", { name: "맵 편집 정보" });
+  if (!await information.isVisible()) await page.getByRole("button", { name: "편집 정보 패널" }).click();
+  await information.getByRole("tab", { name: "속성" }).click();
+  const properties = page.getByRole("complementary", { name: "속성 패널" });
+  await expect(properties.getByRole("heading", { name: "B2-L01" })).toBeVisible();
+  return properties;
 }

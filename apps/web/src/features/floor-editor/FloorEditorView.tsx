@@ -544,7 +544,7 @@ export function FloorEditorView({
             onConfirm={confirmPlacement} /> : null}
         </main>
         <SidePanel ref={informationPanel} id="editor-information-panel" tabIndex={-1} onKeyDown={(event) => { if (event.key === "Escape") { event.stopPropagation(); closePanel("information"); } }} className={`${informationVisible ? "grid" : "hidden"} ${isNarrowLayout ? "absolute inset-y-0 right-0 z-10 w-[min(320px,100%)] shadow-panel" : "w-72 shrink-0"} min-h-0 min-w-0 content-start gap-3 overflow-y-auto rounded-none border-0 border-l border-border-default p-0`} aria-label="맵 편집 정보">
-          <div className="grid grid-cols-4 gap-1 bg-surface-inset p-1" role="tablist" aria-label="편집 패널">{[["properties", "속성"], ["placement", "배치"], ["layers", "레이어"], ["details", "자료"]].map(([value, label]) => <Button size="sm" variant={panelTab === value ? "primary" : "ghost"} role="tab" key={value} aria-selected={panelTab === value} onClick={() => setPanelTab(value)}>{label}</Button>)}</div>
+          <div className="grid grid-cols-4 gap-1 bg-surface-inset p-1" role="tablist" aria-label="편집 패널">{[["properties", "속성"], ["placement", "배치"], ["layers", "레이어"], ["details", "자료"]].map(([value, label]) => <Button size="sm" className="h-13 min-h-13" variant={panelTab === value ? "primary" : "ghost"} role="tab" key={value} aria-selected={panelTab === value} onClick={() => setPanelTab(value)}>{label}</Button>)}</div>
           {panelTab === "properties" && (map.selectionCount && (!map.selection.length || map.mixed)
             ? <MapSelectionProperties key={JSON.stringify([map.selectionKey, map.bounds])} editor={map} readOnly={readOnly || isMutationPending} />
             : map.selection.length

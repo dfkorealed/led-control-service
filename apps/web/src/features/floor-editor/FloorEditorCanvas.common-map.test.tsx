@@ -38,9 +38,55 @@ describe("actual common editor Canvas", () => {
       fireEvent.wheel(canvas, { clientX: 450, clientY: 300, deltaY: -100 });
       fireEvent.wheel(canvas, { clientX: 450, clientY: 300, deltaY: -100 });
       expect(store().zoom).toBe(before);
+      expect(Number(screen.getByTestId("floor-editor-canvas").dataset.zoom)).toBeGreaterThan(before);
       await act(async () => { await vi.advanceTimersByTimeAsync(120); });
       expect(store().zoom).toBeGreaterThan(before);
     } finally { vi.clearAllTimers(); vi.useRealTimers(); }
+  });
+
+  it("keeps an external 100% reset when a wheel gesture is still pending", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      render(<Canvas />);
+      act(() => store().resetZoom());
+      const canvas = screen.getByTestId("floor-editor-canvas");
+      fireEvent.wheel(canvas.querySelector(".konvajs-content")!, { clientX: 450, clientY: 300, deltaY: -100 });
+      act(() => store().resetZoom());
+      await act(async () => { await vi.advanceTimersByTimeAsync(120); });
+      expect(store().zoom).toBe(1);
+      expect(Number(canvas.dataset.zoom)).toBe(1);
+    } finally { vi.clearAllTimers(); vi.useRealTimers(); }
+  });
+
+  it("recomputes visible fixtures after an external reset supersedes wheel culling", () => {
+    const fixture = (id: string, x: number) => ({ id, name: id, x, y: 100, size: 20, ratedWatt: 40,
+      brightness: 70, status: "online" as const, placementStatus: "placed" as const, positionVerifiedAt: null });
+    store().initialize({ ...base, fixtures: [fixture("near", 100), fixture("far", 1200)] }, "user");
+    render(<Canvas />);
+    act(() => store().resetZoom());
+    const canvas = screen.getByTestId("floor-editor-canvas");
+    const konva = canvas.querySelector(".konvajs-content")!;
+    expect(canvas.dataset.renderedFixtureCount).toBe("1");
+    for (let step = 0; step < 6; step++) fireEvent.wheel(konva, { clientX: 450, clientY: 300, deltaY: 100 });
+    act(() => store().setSnap(false));
+    expect(canvas.dataset.renderedFixtureCount).toBe("2");
+
+    act(() => store().resetZoom());
+    expect(canvas.dataset.zoom).toBe("1");
+    expect(canvas.dataset.renderedFixtureCount).toBe("1");
+  });
+
+  it("continues panning after an in-flight wheel camera is committed", async () => {
+    render(<Canvas />);
+    act(() => { store().resetZoom(); store().setActiveTool("pan"); });
+    const canvas = screen.getByTestId("floor-editor-canvas");
+    fireEvent.wheel(canvas.querySelector(".konvajs-content")!, { clientX: 450, clientY: 300, deltaY: -100 });
+    const wheelPanX = Number(canvas.dataset.panX);
+    fireEvent.mouseDown(canvas, { clientX: 120, clientY: 120 });
+    fireEvent.mouseMove(canvas, { clientX: 200, clientY: 120 });
+    await waitFor(() => expect(Number(canvas.dataset.panX)).toBeGreaterThan(wheelPanX + 40));
+    fireEvent.mouseUp(canvas, { clientX: 200, clientY: 120 });
+    expect(store().pan.x).toBeGreaterThan(wheelPanX + 40);
   });
 
   it("uses Pointer Events to apply a two-finger editor zoom before its settled store commit", async () => {
@@ -91,6 +137,34 @@ describe("actual common editor Canvas", () => {
     touch("pointerCancel", 2, 320, 120);
     await waitFor(() => expect(Number(canvas.dataset.zoom)).toBe(before));
     expect(store().zoom).toBe(before);
+  });
+  it("keeps an external 100% reset after an active pinch moves or ends", async () => {
+    render(<Canvas />);
+    act(() => { store().resetZoom(); store().setActiveTool("pan"); });
+    const canvas = screen.getByTestId("floor-editor-canvas");
+    const touch = (type: "pointerDown" | "pointerMove" | "pointerUp", pointerId: number, clientX: number, clientY: number) => {
+      const event = createEvent[type](canvas);
+      Object.defineProperties(event, { pointerType: { value: "touch" }, pointerId: { value: pointerId },
+        clientX: { value: clientX }, clientY: { value: clientY }, button: { value: 0 } });
+      fireEvent(canvas, event);
+    };
+    touch("pointerDown", 1, 120, 120);
+    touch("pointerDown", 2, 220, 120);
+    touch("pointerMove", 2, 320, 120);
+    await waitFor(() => expect(Number(canvas.dataset.zoom)).toBeGreaterThan(1));
+
+    touch("pointerMove", 2, 340, 120);
+    act(() => store().resetZoom());
+    expect(Number(canvas.dataset.zoom)).toBe(1);
+    await act(async () => { await new Promise<void>(resolve => requestAnimationFrame(() => resolve())); });
+    expect(Number(canvas.dataset.zoom)).toBe(1);
+    touch("pointerMove", 2, 360, 120);
+    await act(async () => { await new Promise<void>(resolve => requestAnimationFrame(() => resolve())); });
+    expect(Number(canvas.dataset.zoom)).toBe(1);
+    touch("pointerUp", 2, 360, 120);
+    expect(Number(canvas.dataset.zoom)).toBe(1);
+    expect(store().zoom).toBe(1);
+    expect(store().pan).toEqual({ x: 0, y: 0 });
   });
   it("corrects a transient small initial viewport to the actual 1886x753 measurement", () => {
     render(<Canvas />);

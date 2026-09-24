@@ -58,6 +58,9 @@ export async function runEditorCameraPath(page: Page) {
   await canvas.evaluate(element => element.scrollIntoView({ block: "center" }));
   const box = await canvas.boundingBox();
   if (!box) throw new Error("Camera path requires a visible editor canvas");
+  const baseline = await canvas.evaluate(element => ({
+    zoom: Number(element.dataset.zoom), panX: Number(element.dataset.panX), panY: Number(element.dataset.panY)
+  }));
   const x = box.x + box.width / 2, y = box.y + box.height / 2;
   await page.mouse.move(x, y);
   const startedAt = await page.evaluate(() => {
@@ -104,7 +107,7 @@ export async function runEditorCameraPath(page: Page) {
   }), startedAt);
   const frames = summarizeFrameTimes(observation.samples);
   expect(frames.count, "movement must contain at least 120 measured rAF intervals").toBeGreaterThanOrEqual(120);
-  return { pathVersion: 1, ...observation, frames, checkpoints };
+  return { pathVersion: 1, baseline, ...observation, frames, checkpoints };
 }
 
 export function observeHttpRequests(page: Page) {

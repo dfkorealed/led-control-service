@@ -1,4 +1,6 @@
 import type { Page } from "@playwright/test";
+import type { MapElement, MapOp } from "@led-control/shared/map-document-contracts";
+import { getMapElementBounds } from "@led-control/shared/map-document-geometry";
 import {
   createDimmingCommandSchema,
   floorMapSnapshotSchema,
@@ -36,6 +38,7 @@ export interface SettingsFixture {
 }
 
 interface InstallSettingsApiOptions {
+  readyMapDocument?: boolean;
   fixtures?: SettingsFixture[];
   mapDimensions?: { width: number; height: number };
   installationStatus?: "pending" | "installed";
@@ -79,6 +82,7 @@ interface SavePayload {
   objectCreates: Array<Omit<SettingsMapObject, "id">>;
   objectUpdates: Array<{ id: string; patch: Partial<Omit<SettingsMapObject, "id">> }>;
   objectDeletes: string[];
+  documentChanges?: { requestId: string; generationId: string; operations: MapOp[] };
 }
 
 type EditorRequest =
@@ -165,6 +169,7 @@ export async function installSettingsApiRoutes(
   page: Page,
   role: SettingsRole,
   {
+    readyMapDocument = false,
     fixtures = defaultFixtures,
     mapDimensions,
     installationStatus = "installed",
@@ -191,6 +196,7 @@ export async function installSettingsApiRoutes(
   };
   const fixtureState = structuredClone(fixtures);
   const mapObjectState = structuredClone(mapObjects);
+  const mapElementState: MapElement[] = [];
   let commandStage: FixtureCommandStage = "accepted";
   let commandResults: FixtureCommandResult[] = [];
   let commandCreated = false;
@@ -251,6 +257,11 @@ export async function installSettingsApiRoutes(
     }
   };
   let mapRevision = floor.mapRevision;
+  const mapDocument = () => ({
+    formatVersion: 1 as const, generationId: "settings-e2e-map", revision: mapRevision,
+    width: runtimeFloor.floorPlan.width, height: runtimeFloor.floorPlan.height, gridSize: 10, elementCount: mapElementState.length,
+    manifest: { assetId: "00000000-0000-4000-8000-000000000002", sha256: "a".repeat(64), byteSize: 1, decodedByteSize: 1 }
+  });
   let remainingMapSnapshotFailures = mapSnapshotFailuresBeforeSuccess;
   let activeLeaseToken: string | null = null;
   let activeLeaseFence = 0;
@@ -351,7 +362,9 @@ export async function installSettingsApiRoutes(
         remainingMapSnapshotFailures -= 1;
         return route.fulfill({ status: 503, json: { message: "map snapshot unavailable" } });
       }
-      const snapshot = mapSnapshot(runtimeFloor, mapRevision, mapObjectState);
+      const snapshot = readyMapDocument
+        ? { ...mapSnapshot(runtimeFloor, mapRevision, []), floorPlan: null, mapDocument: mapDocument() }
+        : mapSnapshot(runtimeFloor, mapRevision, mapObjectState);
       // Legacy settings specs retain short IDs; UUID-based contract specs use the same strict parser as the API.
       const response = idOverrides ? floorMapSnapshotSchema.parse(snapshot) : snapshot;
       return route.fulfill({ json: response });
@@ -401,7 +414,10 @@ export async function installSettingsApiRoutes(
       return route.fulfill({ json: commandStatus(commandId, commandStage, commandResults, ids.gatewayId) });
     }
     if (path === `/floors/${ids.floorId}/editor-state`) {
-      if (request.method() === "GET") return route.fulfill({ json: editorState(runtimeFloor, fixtureState, mapObjectState, mapRevision) });
+      if (request.method() === "GET") return route.fulfill({ json: {
+        ...editorState(runtimeFloor, fixtureState, mapObjectState, mapRevision),
+        ...(readyMapDocument ? { floor: { ...runtimeFloor, mapRevision, mapDocument: mapDocument() }, objects: [] } : {})
+      } });
       if (request.method() === "PUT") {
         if (role === "viewer") return route.fulfill({ status: 403, json: { message: "insufficient role" } });
         const payload = request.postDataJSON() as SavePayload;
@@ -416,9 +432,53 @@ export async function installSettingsApiRoutes(
         state.fixtureUpdates.push(...payload.fixtureUpdates);
         applyFixtureUpdates(fixtureState, payload.fixtureUpdates);
         applyMapObjectUpdates(mapObjectState, payload);
+        if (readyMapDocument) for (const operation of payload.documentChanges?.operations ?? []) {
+          if (operation.kind === "add" || operation.kind === "update") {
+            const index = mapElementState.findIndex(element => element.id === operation.element.id);
+            if (index < 0) mapElementState.push(operation.element);
+            else mapElementState[index] = operation.element;
+          } else if (operation.kind === "delete") {
+            const index = mapElementState.findIndex(element => element.id === operation.id);
+            if (index >= 0) mapElementState.splice(index, 1);
+          }
+        }
         mapRevision += 1;
-        return route.fulfill({ json: editorState(runtimeFloor, fixtureState, mapObjectState, mapRevision) });
+        return route.fulfill({ json: {
+          ...editorState(runtimeFloor, fixtureState, mapObjectState, mapRevision),
+          ...(readyMapDocument ? { floor: { ...runtimeFloor, mapRevision, mapDocument: mapDocument() }, objects: [] } : {})
+        } });
       }
+    }
+    if (readyMapDocument && path === `/floors/${ids.floorId}/map-document`) return route.fulfill({ json: mapDocument() });
+    if (readyMapDocument && path === `/floors/${ids.floorId}/map-document/manifest`) {
+      const document = mapDocument();
+      return route.fulfill({ json: {
+        generationId: document.generationId, revision: document.revision, canonical: document.manifest,
+        groups: [], layers: [{ id: "map", name: "Map", order: 0, visible: true, locked: false }], displayLayerBindings: [],
+        display: { version: 2, sceneId: "00000000-0000-4000-8000-000000000001", regionId: "manual",
+          manifestAssetId: document.manifest.assetId, width: document.width, height: document.height, padding: 0,
+          gridSize: document.gridSize, tileSize: 512, lodMode: "additive", primitiveCount: 0, tileCount: 0,
+          byteSize: 1, sha256: "a".repeat(64), sourceBounds: { minX: 0, minY: 0, maxX: document.width, maxY: document.height },
+          transform: { scaleX: 1, scaleY: 1, translateX: 0, translateY: 0 }, tiles: [] }
+      } });
+    }
+    if (readyMapDocument && path === `/floors/${ids.floorId}/map-document/changes`) return route.fulfill({ json: {
+      generationId: mapDocument().generationId, revision: mapRevision,
+      operations: mapElementState.map(element => ({ kind: "add", element })), nextCursor: null
+    } });
+    if (readyMapDocument && path === `/floors/${ids.floorId}/map-document/elements`) {
+      const ids = (request.postDataJSON() as { ids: string[] }).ids;
+      return route.fulfill({ json: mapElementState.filter(element => ids.includes(element.id)) });
+    }
+    if (readyMapDocument && path === `/floors/${ids.floorId}/map-document/selection`) {
+      const bounds = (request.postDataJSON() as { bounds?: { minX: number; minY: number; maxX: number; maxY: number } }).bounds;
+      const ids = mapElementState.filter(element => {
+        if (!bounds) return true;
+        const elementBounds = getMapElementBounds(element);
+        return elementBounds.minX <= bounds.maxX && elementBounds.maxX >= bounds.minX
+          && elementBounds.minY <= bounds.maxY && elementBounds.maxY >= bounds.minY;
+      }).map(element => element.id);
+      return route.fulfill({ json: { generationId: mapDocument().generationId, revision: mapRevision, ids, nextCursor: null } });
     }
     if (path === `/floors/${ids.floorId}/editor-lease`) {
       if (role === "viewer") return route.fulfill({ status: 403, json: { message: "insufficient role" } });

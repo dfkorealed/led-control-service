@@ -169,6 +169,7 @@ export function FloorEditorCanvas({
   // Camera gestures stay outside React until they settle. Updating Zustand on
   // every pointer/wheel event reconciles every Konva child unnecessarily.
   const cameraOverride = useRef<{ pan: Point; zoom: number } | null>(null);
+  const internalCameraCommit = useRef<{ pan: Point; zoom: number } | null>(null);
   const wheelCommitTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [cameraRenderVersion, setCameraRenderVersion] = useState(0);
   const floorPlan = state?.floor.floorPlan;
@@ -193,6 +194,9 @@ export function FloorEditorCanvas({
   };
   const applyImperativeCamera = useCallback((nextPan: Point, nextZoom: number, refreshVirtualizedView = false) => {
     cameraOverride.current = { pan: nextPan, zoom: nextZoom };
+    container.current?.setAttribute("data-zoom", String(nextZoom));
+    container.current?.setAttribute("data-pan-x", String(nextPan.x));
+    container.current?.setAttribute("data-pan-y", String(nextPan.y));
     const transform = { x: nextPan.x, y: nextPan.y, scaleX: nextZoom, scaleY: nextZoom };
     stage.current?.getLayers().forEach((layer) => layer.setAttrs(transform));
     const currentMap = mapEditorRef.current;
@@ -210,6 +214,7 @@ export function FloorEditorCanvas({
     wheelCommitTimer.current = null;
     const current = cameraOverride.current;
     if (!current) return;
+    internalCameraCommit.current = current;
     useFloorEditorStore.setState({ pan: current.pan, zoom: current.zoom });
     cameraOverride.current = null;
   }, []);
@@ -332,6 +337,27 @@ export function FloorEditorCanvas({
     pointerFrame.current = null;
     pendingPointerMove.current = null;
   }, []);
+  useEffect(() => {
+    const internal = internalCameraCommit.current;
+    internalCameraCommit.current = null;
+    if (internal && zoom === internal.zoom && pan.x === internal.pan.x && pan.y === internal.pan.y) return;
+    // External camera commands must also retire active gestures; otherwise a
+    // queued pointer frame can reapply the old pinch/pan after the command.
+    if (!cameraOverride.current && !pinch.current && gesture.current?.kind !== "pan") return;
+    cancelPointerMove();
+    for (const pointerId of touchPointers.current.keys()) {
+      try { container.current?.releasePointerCapture(pointerId); }
+      catch { /* Capture may already have ended outside the canvas. */ }
+    }
+    touchPointers.current.clear();
+    pinch.current = null;
+    gesture.current = null;
+    setIsPanning(false);
+    restoreCommittedCamera();
+    // The render triggered by the external store update may have sampled the
+    // old imperative camera before this effect cleared it. Refresh culling too.
+    setCameraRenderVersion((version) => version + 1);
+  }, [zoom, pan, cancelPointerMove, restoreCommittedCamera]);
   const scheduleDragMove = useCallback((update: () => void) => {
     pendingDragMove.current = update;
     if (dragFrame.current !== null) return;
@@ -569,9 +595,6 @@ export function FloorEditorCanvas({
         const nextZoom = clampEditorZoom(pinch.current.zoom * Math.hypot(second.x - first.x, second.y - first.y) / pinch.current.distance);
         const nextPan = { x: midpoint.x - pinch.current.world.x * nextZoom, y: midpoint.y - pinch.current.world.y * nextZoom };
         applyImperativeCamera(nextPan, nextZoom);
-        container.current?.setAttribute("data-zoom", String(nextZoom));
-        container.current?.setAttribute("data-pan-x", String(nextPan.x));
-        container.current?.setAttribute("data-pan-y", String(nextPan.y));
       });
       return;
     }
