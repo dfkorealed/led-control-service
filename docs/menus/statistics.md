@@ -120,7 +120,7 @@
 
 ## 부족하거나 개선이 필요한 기능
 
-- 이번 P1 기간·출처·히트맵 축·보고서 만료 메타 변경의 실제 320/390/1024/1440px Chromium 배치·축 눈금 글자·터치/overflow와 전체 Web typecheck/build/Playwright는 총괄 직렬 통합 게이트에서 확인해야 한다. 320px KPI 기간·비용 helper의 카드 높이·가로 넘침·가시성을 확인하는 browser assertion을 추가했으나 해당 직렬 게이트 실행 전이므로 통과로 간주하지 않는다. Recharts는 JSDOM에서 Y축 tick 그룹만 만들고 숫자 글자는 그리지 않아 focused Vitest만으로 브라우저 눈금 표시를 입증하지 못한다. 실제 WebView·실계량기·Gateway·조명 HIL도 미실행이다.
+- 이번 P1 기간·출처·히트맵 축·보고서 만료 메타 변경은 mock API 기반 Chromium `statistics-flow.spec.ts` 27/27을 1440/1024/390/320px 시나리오로 통과했다. 보고서 이력 반응형 테스트는 숨긴 SelectBox와 보이는 활성 조건 chip을 정확한 이름·상세 필터 DOM 범위로 구분하도록 locator를 보정했고 네 viewport 모두 재검증했다. 320px KPI 기간·비용 helper는 최대 3줄·카드 높이 230px 이내·카드/문서 넘침 없음과 별도 차트 경고 블록 부재를 확인했다. 전체 Web typecheck/build/Playwright, Recharts Y축 숫자 눈금의 별도 브라우저 확인, 실제 WebView·실계량기·Gateway·조명 HIL은 이 검증으로 완료됐다고 보지 않는다.
 - 이번 보고서 필터 위계 변경의 320/390/1024/1440px Playwright 회귀와 전체 Web typecheck/build/UI-policy는 병렬 작업의 공유 Vite·dist 충돌을 피하기 위해 직렬 통합 게이트에서 실행해야 한다. focused Vitest와 정적 검증만으로 실제 WebView 표시·터치 동작이나 실장비 수집을 보증하지 않는다.
 - 디자인 시스템 pilot의 시각 증거는 자동 Chromium 스크린샷과 계산 스타일 검사다. 실제 iOS/Android WebView, 브라우저별 날짜 입력 보조기기, 수동 in-app 시각 QA는 수행하지 않았다.
 - production build의 main chunk는 655.68 kB(gzip 200.97 kB)로 기존 500 kB 경고가 남는다. 통계 route는 별도 lazy chunk를 유지하며, 이 작업은 공통 chunk 전략을 변경하지 않았다.

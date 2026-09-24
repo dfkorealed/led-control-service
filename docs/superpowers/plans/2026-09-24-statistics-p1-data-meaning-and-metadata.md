@@ -94,8 +94,14 @@
 
 - [x] **RED:** 차트 헤더에 결측·수집 공백을 표시하고 차트 아래 별도 경고 블록이 없어야 한다는 테스트가 기존 구현에서 1개 실패했다.
 - [x] **GREEN:** 공통 `StatusBadge`를 차트 헤더의 제목 옆에 두고 상태별 짧은 라벨과 접근성/hover 설명을 제공한다. 기존 차트 툴팁·스크린리더 기간별 목록은 유지하며 하단 경고 블록을 제거했다. 같은 UX 기준에 따라 별도 수직 블록이던 KPI 수집 공백 안내도 페이지 헤더 배지로 이동했다. 두 변경은 각각 RED를 확인한 뒤 `StatisticsOverviewPage.test.tsx` 20/20 통과했다.
-- [x] **브라우저 게이트 추가:** 320px에서 세 KPI helper의 최대 3줄·카드 높이 230px 이내·카드와 문서 가로 넘침 부재·하단 경고 블록 부재를 확인하는 `statistics-flow.spec.ts` 검사를 추가했다. 공유 checkout 직렬 게이트 전이라 아직 실행하지 않았다.
-- [x] 통계 전체 focused Vitest 11 files·113/113, 해당 화면 scoped UI policy `[]`, 소유 변경 파일 `git diff --check` exit 0을 확인했다. 총괄에게 브라우저 테스트 미실행 상태를 별도 보고한다.
+- [x] **브라우저 게이트 추가:** 320px에서 세 KPI helper의 최대 3줄·카드 높이 230px 이내·카드와 문서 가로 넘침 부재·하단 경고 블록 부재를 확인하는 `statistics-flow.spec.ts` 검사를 추가했다. 이후 기존 Vite 5173에 연결한 Chromium 전체 27/27에서 해당 검사도 통과했다.
+- [x] 통계 전체 focused Vitest 11 files·113/113, 해당 화면 scoped UI policy `[]`, 소유 변경 파일 `git diff --check` exit 0을 확인했다. 총괄에게 초기 브라우저 테스트 미실행 상태를 별도 보고했다.
+
+### 브라우저 게이트 후속: 보고서 상세 필터 locator
+
+- [x] **RED/원인:** `statistics-flow.spec.ts`의 보고서 이력 반응형 네 viewport가 `filters.getByRole("button", { name: "범위" })`에서 모두 실패했다. 실제 locator는 숨겨진 범위 SelectBox가 아닌 보이는 `범위: 현장 조건 제거` chip에 해석됐다.
+- [x] **GREEN:** 상세 필터 DOM 그룹 안에서 `exact: true`와 `includeHidden: true`로 형식·범위 SelectBox를 특정하고, 동일 locator를 숨김 검증과 펼친 뒤 터치 대상 검사에 재사용한다. 공통 `chooseOption`도 정확한 버튼 이름만 선택한다. 네 viewport focused Chromium 4/4, 같은 파일 전체 Chromium 27/27 통과했다.
+- [x] 총괄에게 변경 내용과 브라우저 재실행 결과를 보고했다. stage/commit/merge는 하지 않았다.
 
 ## Self-review
 

@@ -402,11 +402,14 @@ for (const viewport of [
     const filters = page.getByRole("search", { name: "보고서 이력 필터" });
     const pagination = page.getByRole("navigation", { name: "페이지 이동" });
     const dateRange = filters.getByRole("group", { name: "요청 기간" });
+    const advancedPanel = filters.locator('[role="group"][aria-label="상세 필터 항목"]');
+    const formatSelect = advancedPanel.getByRole("button", { name: "파일 형식", exact: true, includeHidden: true });
+    const scopeSelect = advancedPanel.getByRole("button", { name: "범위", exact: true, includeHidden: true });
     const advancedFilters = filters.getByRole("button", { name: /상세 필터/ });
     await expect(advancedFilters).toHaveAttribute("aria-expanded", "false");
     await expect(advancedFilters).toContainText("2개 적용");
-    await expect(filters.getByRole("button", { name: "파일 형식" })).toBeHidden();
-    await expect(filters.getByRole("button", { name: "범위" })).toBeHidden();
+    await expect(formatSelect).toBeHidden();
+    await expect(scopeSelect).toBeHidden();
     await expect(filters.getByRole("button", { name: "형식: PDF 조건 제거" })).toBeVisible();
     await expect(filters.getByRole("button", { name: "범위: 현장 조건 제거" })).toBeVisible();
     const beforeToggleUrl = page.url();
@@ -423,8 +426,8 @@ for (const viewport of [
       filters.getByRole("searchbox", { name: "보고서 검색" }),
       filters.getByRole("button", { name: "상태" }),
       advancedFilters,
-      filters.getByRole("button", { name: "파일 형식" }),
-      filters.getByRole("button", { name: "범위" }),
+      formatSelect,
+      scopeSelect,
       pagination.getByRole("button", { name: "페이지당 항목 수" }),
       visibleHistory.getByRole("button", { name: /보고서 다운로드$/ }).first(),
       visibleHistory.getByRole("button", { name: /보고서 다시 생성$/ }).first(),
@@ -1282,7 +1285,7 @@ async function gridColumnCount(page: Page) {
 }
 
 async function chooseOption(page: Page, container: Locator, label: string, option: string) {
-  await container.getByRole("button", { name: label }).click();
+  await container.getByRole("button", { name: label, exact: true }).click();
   await page.getByRole("option", { name: option, exact: true }).click();
 }
 
