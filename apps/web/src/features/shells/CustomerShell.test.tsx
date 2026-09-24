@@ -140,6 +140,9 @@ describe("customer shell site context", () => {
 
     const gatewayControl = screen.getByRole("button", { name: "게이트웨이 1/2대 연결 · 확인 필요 상태 센터 열기" });
     expect(gatewayControl).toHaveClass("min-h-13");
+    expect(gatewayControl).toHaveClass("rounded-control");
+    expect(gatewayControl).not.toHaveClass("rounded-pill");
+    expect(screen.getByTestId("gateway-status-badge")).toHaveClass("rounded-pill");
     fireEvent.click(gatewayControl);
 
     const dialog = await screen.findByRole("dialog", { name: "현재 세션 상태" });
