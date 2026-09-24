@@ -19,7 +19,7 @@ export function ReportJobTable({
       <DataTableShell caption="보고서 생성 이력" isBusy={isBusy}>
         <thead className="bg-surface-inset text-left text-content-secondary">
           <tr>
-            {['대상', '기간', '형식', '상태', '요청 시각', '만료 시각', '작업'].map((label) => (
+            {['대상', '기간', '형식', '상태', '요청 시각', '파일 만료 시각', '작업'].map((label) => (
               <th key={label} scope="col" className="px-3 py-2 font-bold">{label}</th>
             ))}
           </tr>

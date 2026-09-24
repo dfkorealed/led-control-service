@@ -833,6 +833,43 @@ test("packs the statistics report from the top in a tall viewport", async ({ pag
   ).toBeGreaterThan(viewport.height * 0.1);
 });
 
+test("keeps KPI helper ranges readable without oversized cards at 320px", async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 740 });
+  await page.goto("/statistics");
+
+  const cards = page.getByRole("group", { name: "에너지 요약" }).locator("[data-metric-card]");
+  await expect(cards).toHaveCount(3);
+  for (const card of await cards.all()) {
+    const layout = await card.evaluate((element) => {
+      const helper = element.querySelector("p");
+      if (!helper) throw new Error("KPI helper is missing");
+      const cardBounds = element.getBoundingClientRect();
+      const helperBounds = helper.getBoundingClientRect();
+      const lineHeight = Number.parseFloat(getComputedStyle(helper).lineHeight);
+      return {
+        cardHeight: cardBounds.height,
+        cardWidth: element.clientWidth,
+        contentWidth: element.scrollWidth,
+        helperRight: helperBounds.right,
+        cardRight: cardBounds.right,
+        helperBottom: helperBounds.bottom,
+        cardBottom: cardBounds.bottom,
+        helperLines: helperBounds.height / lineHeight
+      };
+    });
+    expect(layout.contentWidth).toBeLessThanOrEqual(layout.cardWidth + 1);
+    expect(layout.helperRight).toBeLessThanOrEqual(layout.cardRight + 1);
+    expect(layout.helperBottom).toBeLessThanOrEqual(layout.cardBottom + 1);
+    expect(layout.helperLines).toBeLessThanOrEqual(3.1);
+    expect(layout.cardHeight).toBeLessThanOrEqual(230);
+  }
+
+  const chart = page.getByRole("region", { name: "상태 기반 추정 사용량" });
+  await expect(chart.getByText("결측·수집 공백")).toBeVisible();
+  await expect(chart.getByText("선이 끊긴 기간은 수집 데이터가 없으며, 수집 공백이 있는 기간은 추정값이 불완전할 수 있습니다.")).toHaveCount(0);
+  await expectNoHorizontalOverflow(page);
+});
+
 for (const viewport of [
   { width: 1440, height: 900 },
   { width: 1024, height: 768 },

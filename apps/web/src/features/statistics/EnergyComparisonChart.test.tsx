@@ -25,6 +25,14 @@ describe("EnergyComparisonChart", () => {
     expect(screen.getByText("24시간 100% · 현재 등록 조명 기준")).toBeInTheDocument();
   });
 
+  it("labels observed periods as state-based estimates, not measured electricity", () => {
+    render(<EnergyComparisonChart comparison={makeEnergyComparison()} />);
+
+    expect(screen.getByText("완료 기간 추정 사용량")).toBeInTheDocument();
+    expect(screen.queryByText("실제 사용량")).not.toBeInTheDocument();
+    expect(screen.getByText(/2026년 9월 1일: 기준 100 kWh, 완료 기간 추정 60 kWh/)).toBeInTheDocument();
+  });
+
   it("provides baseline, estimate, difference and coverage to screen readers", () => {
     render(<EnergyComparisonChart comparison={makeEnergyComparison()} />);
 

@@ -643,13 +643,41 @@ describe("StatisticsReportsPage", () => {
     const table = screen.getByRole("table", { name: "보고서 생성 이력", hidden: true });
     expect(table.closest("div.hidden")).toHaveClass("desktop:block");
     expect(within(table).getAllByRole("columnheader", { hidden: true }).map((header) => header.textContent)).toEqual([
-      "대상", "기간", "형식", "상태", "요청 시각", "만료 시각", "작업"
+      "대상", "기간", "형식", "상태", "요청 시각", "파일 만료 시각", "작업"
     ]);
 
     const list = screen.getByRole("list", { name: "모바일 보고서 생성 이력" });
     expect(list).toHaveClass("desktop:hidden");
     expect(within(list).getAllByRole("heading")).toHaveLength(reports.length);
     expect(within(list).getAllByRole("term").length).toBeGreaterThan(0);
+  });
+
+  it("exposes a completed file expiry as labeled and machine-readable table and card metadata", () => {
+    renderPage();
+    const table = screen.getByRole("table", { name: "보고서 생성 이력", hidden: true });
+    const completedRow = within(table).getAllByRole("row", { hidden: true })
+      .find((row) => row.textContent?.includes("대상 completed"));
+    expect(completedRow).toBeDefined();
+    expect(within(completedRow!).getByTitle("2026-09-17T00:00:04.000Z")).toHaveAttribute("datetime", "2026-09-17T00:00:04.000Z");
+
+    const cards = screen.getByRole("list", { name: "모바일 보고서 생성 이력" });
+    const completedCard = within(cards).getByRole("listitem", { name: "대상 completed 보고서" });
+    const expiryTerm = within(completedCard).getByText("파일 만료 시각");
+    expect(expiryTerm.nextElementSibling?.querySelector("time")).toHaveAttribute("datetime", "2026-09-17T00:00:04.000Z");
+    for (const status of ["queued", "failed"] as const) {
+      const card = within(cards).getByRole("listitem", { name: `대상 ${status} 보고서` });
+      expect(within(card).queryByText("파일 만료 시각")).not.toBeInTheDocument();
+    }
+  });
+
+  it("identifies the site's timezone for report request and expiry metadata", () => {
+    targetState.data = { ...targets, timeZone: "America/Los_Angeles" };
+    renderPage();
+
+    const list = screen.getByRole("list", { name: "모바일 보고서 생성 이력" });
+    const completed = within(list).getByRole("listitem", { name: "대상 completed 보고서" });
+    expect(screen.getByText("시각: 현장 시간대 America/Los_Angeles")).toBeInTheDocument();
+    expect(within(completed).getByTitle("2026-09-17T00:00:04.000Z")).toHaveTextContent("2026. 9. 16.");
   });
 
   it("shares processing progress semantics and current busy state across table and mobile surfaces", () => {

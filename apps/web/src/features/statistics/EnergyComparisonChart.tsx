@@ -43,7 +43,7 @@ export function EnergyComparisonChart({ comparison }: { comparison: EnergyCompar
     <>
       <div className="flex flex-wrap gap-3 text-caption font-bold text-content-secondary" aria-hidden="true">
         <span className="flex items-center gap-1.5 before:h-2 before:w-2 before:rounded-control before:bg-chart-baseline">기준 사용량</span>
-        <span className="flex items-center gap-1.5 before:h-2 before:w-2 before:rounded-control before:bg-chart-usage">실제 사용량</span>
+        <span className="flex items-center gap-1.5 before:h-2 before:w-2 before:rounded-control before:bg-chart-usage">완료 기간 추정 사용량</span>
         <span className="flex items-center gap-1.5 before:h-2 before:w-2 before:rounded-control before:bg-chart-forecast">예상 사용량</span>
       </div>
       <div className="h-80 min-w-0 max-compact:h-64" role="img" aria-label="기준 대비 에너지 사용량 비교 차트">
@@ -64,7 +64,7 @@ export function EnergyComparisonChart({ comparison }: { comparison: EnergyCompar
             <Line
               type="monotone"
               dataKey="observedKwh"
-              name="실제 사용량"
+              name="완료 기간 추정 사용량"
               stroke={themeColor("chart-usage")}
               strokeWidth={3}
               dot={{ r: 4, fill: themeColor("chart-point"), strokeWidth: 2 }}
@@ -105,7 +105,7 @@ function ComparisonTooltip({ active, point }: { active?: boolean; point?: Compar
     <div className="grid gap-1 rounded-control border border-border-default bg-surface-elevated p-3 text-body-sm text-content-primary shadow-popover">
       <strong>{formatComparisonPeriod(point.period)}</strong>
       <span>기준 {formatKwh(point.baselineKwh)}</span>
-      <span>{point.phase === "forecast" ? "예상" : "실제"} {point.estimatedKwh === null ? "산정 불가" : formatKwh(point.estimatedKwh)}</span>
+      <span>{point.phase === "forecast" ? "예상" : "완료 기간 추정"} {point.estimatedKwh === null ? "산정 불가" : formatKwh(point.estimatedKwh)}</span>
       {difference === null ? null : <span>{formatDifference(difference)}</span>}
       {difference === null ? null : <span>{formatDifferenceRate(point.baselineKwh, difference)}</span>}
       <span>수집률 {formatCoverage(point.coverageRate)}</span>
@@ -118,7 +118,7 @@ function describeComparisonPoint(point: ComparisonChartPoint) {
   if (point.estimatedKwh === null) {
     return `${period}: 기준 ${formatKwh(point.baselineKwh)}, 사용량 산정 불가, 수집률 ${formatCoverage(point.coverageRate)}`;
   }
-  const measurement = point.phase === "forecast" ? "예상" : "실제";
+  const measurement = point.phase === "forecast" ? "예상" : "완료 기간 추정";
   const difference = point.baselineKwh - point.estimatedKwh;
   return `${period}: 기준 ${formatKwh(point.baselineKwh)}, ${measurement} ${formatKwh(point.estimatedKwh)}, ${formatDifference(difference)}, ${formatDifferenceRate(point.baselineKwh, difference)}, 수집률 ${formatCoverage(point.coverageRate)}`;
 }

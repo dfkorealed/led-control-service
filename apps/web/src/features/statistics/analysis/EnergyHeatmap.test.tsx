@@ -16,6 +16,25 @@ describe("EnergyHeatmap", () => {
     expect(screen.getByRole("button", { name: /일요일 01시.*수집 데이터 없음/ })).toBeInTheDocument();
   });
 
+  it("shows site-local weekday and hour axes with separate zero and missing legends", () => {
+    render(<EnergyHeatmap data={heatmapResponse} metric="energy" onMetricChange={vi.fn()} />);
+
+    const panel = screen.getByRole("region", { name: "시간대별 사용량" });
+    expect(panel).toHaveTextContent("완료된 28일 2026-08-14 ~ 2026-09-10");
+    expect(panel).toHaveTextContent("현장 시간대 Asia/Seoul");
+    expect(panel).toHaveTextContent("가로축 시간 (00~23시)");
+    expect(panel).toHaveTextContent("세로축 요일 (일~토)");
+    expect(screen.getByText("00", { selector: "span" })).toBeInTheDocument();
+    expect(screen.getByText("일", { selector: "span" })).toBeInTheDocument();
+    const legend = screen.getByLabelText("히트맵 범례");
+    expect(legend).toHaveTextContent("0 kWh");
+    expect(legend).toHaveTextContent("1~5단계");
+    expect(legend).toHaveTextContent("수집 데이터 없음");
+    expect(screen.getByRole("button", { name: /일요일 00시, 0 kWh/ })).not.toHaveAttribute("data-missing");
+    expect(screen.getByRole("button", { name: /일요일 01시, 수집 데이터 없음/ })).toHaveAttribute("data-missing", "true");
+    expect(screen.getByRole("button", { name: /월요일 02시, 1.25 kWh/ })).toHaveAttribute("data-level", "5");
+  });
+
   it("moves one roving focus through the 7 by 24 grid with clamped arrow, Home and End keys", () => {
     render(<EnergyHeatmap data={heatmapResponse} metric="energy" onMetricChange={vi.fn()} />);
     const sunday00 = screen.getByRole("button", { name: /일요일 00시/ });
@@ -76,6 +95,7 @@ describe("EnergyHeatmap", () => {
     expect(screen.getByRole("button", { name: /월요일 02시.*1.25%/ })).toHaveAttribute("tabindex", "0");
     expect(screen.getByRole("status")).toHaveTextContent("월요일 02시");
     expect(screen.getByRole("status")).toHaveTextContent("1.25%");
+    expect(screen.getByLabelText("히트맵 범례")).toHaveTextContent("0%");
   });
 
   it("uses shared feedback states while loading, unavailable, and retryable error", () => {

@@ -20,6 +20,15 @@ describe("reportJobViewModel", () => {
     expect(view.failure).toBeUndefined();
   });
 
+  it("formats request and expiry instants in the selected site's timezone", () => {
+    const view = reportJobViewModel(reportJob("completed"), "America/Los_Angeles");
+
+    expect(view.requestedAt.iso).toBe("2026-09-10T00:00:00.000Z");
+    expect(view.requestedAt.label).toContain("2026. 9. 9.");
+    expect(view.expiresAt?.iso).toBe("2026-09-17T00:00:04.000Z");
+    expect(view.expiresAt?.label).toContain("2026. 9. 16.");
+  });
+
   it("exposes only the public failure message and recovery action", () => {
     const view = reportJobViewModel(reportJob("failed"));
 
@@ -29,6 +38,7 @@ describe("reportJobViewModel", () => {
       message: "보고서를 생성하지 못했습니다.",
       action: "잠시 후 다시 생성해 주세요."
     });
+    expect(view.expiresAt).toBeUndefined();
     expect(JSON.stringify(view)).not.toContain("REPORT_GENERATION_FAILED");
   });
 });

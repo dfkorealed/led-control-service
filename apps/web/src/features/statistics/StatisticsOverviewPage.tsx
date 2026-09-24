@@ -85,10 +85,20 @@ export function StatisticsOverviewPage() {
   }
 
   const summary = summaryQuery.data;
+  const siteDate = formatSiteDate(summary.generatedAt, summary.timeZone);
+  const todayRangeLabel = formatTodayRangeLabel(summary, siteDate);
   const hasNoKnownData = summary.today.knownSeconds + summary.monthToDate.knownSeconds + summary.yearToDate.knownSeconds === 0;
   const hasPartialData = [summary.today, summary.monthToDate, summary.yearToDate]
     .some((period) => period.dataStatus === "partial");
   const activeSeries = granularity === "day" ? dayQuery : monthQuery;
+  const seriesHasMissing = activeSeries.data?.points.some((point) => point.dataStatus === "no_data") ?? false;
+  const seriesHasPartial = activeSeries.data?.points.some((point) => point.dataStatus === "partial") ?? false;
+  const seriesGapLabel = seriesHasMissing && seriesHasPartial ? "결측·수집 공백"
+    : seriesHasMissing ? "결측 포함" : seriesHasPartial ? "수집 공백" : null;
+  const seriesGapExplanation = seriesHasMissing && seriesHasPartial
+    ? "선이 끊긴 기간은 수집 데이터가 없으며, 수집 공백이 있는 기간은 추정값이 불완전할 수 있습니다."
+    : seriesHasMissing ? "선이 끊긴 기간은 수집 데이터가 없습니다."
+      : "수집 공백이 있는 기간은 추정값이 불완전할 수 있습니다.";
   const retrySeriesButton = (
     <Button variant="secondary" onClick={() => activeSeries.refetch()}>
       사용량 추이 다시 시도
@@ -107,7 +117,7 @@ export function StatisticsOverviewPage() {
         action={retrySeriesButton}
       />
     </div>
-  ) : !activeSeries.data.points.some((point) => point.estimatedKwh !== null) ? (
+  ) : !activeSeries.data.points.some((point) => point.dataStatus !== "no_data" && point.estimatedKwh !== null) ? (
     <div className="grid min-h-64 place-items-center">
       <FeedbackState
         icon={CircleOff}
@@ -154,10 +164,17 @@ export function StatisticsOverviewPage() {
         title="에너지 리포트"
         description={(
           <Text variant="body-sm" tone="secondary">
-            {summary.timeZone} · 마지막 집계 {formatTimestamp(summary.lastAggregatedAt ?? summary.generatedAt, summary.timeZone)}
+            {summary.timeZone} · {summary.lastAggregatedAt
+              ? `마지막 집계 ${formatTimestamp(summary.lastAggregatedAt, summary.timeZone)}`
+              : `마지막 집계 확인 불가 · 조회 ${formatTimestamp(summary.generatedAt, summary.timeZone)}`}
           </Text>
         )}
-        status={<StatusBadge tone="info" icon={Activity}>상태 기반 추정</StatusBadge>}
+        status={<>
+          <StatusBadge tone="info" icon={Activity}>상태 기반 추정</StatusBadge>
+          {hasPartialData ? <StatusBadge tone="warning" icon={TriangleAlert}
+            title="수집 공백이 있어 일부 기간은 추정값이 불완전할 수 있습니다."
+            aria-label="KPI 수집 공백: 일부 기간의 추정값이 불완전할 수 있습니다.">KPI 수집 공백</StatusBadge> : null}
+        </>}
       />
 
       <ComparisonSection
@@ -174,16 +191,10 @@ export function StatisticsOverviewPage() {
         />
       ) : (
         <>
-          {hasPartialData ? (
-            <Text variant="body-sm" tone="warning" role="status" className="rounded-control border border-status-warning-border bg-status-warning-background p-3">
-              수집 공백이 있어 일부 기간은 추정값이 불완전할 수 있습니다.
-            </Text>
-          ) : null}
-
           <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,9rem),1fr))] gap-4" role="group" aria-label="에너지 요약">
-            <EnergyMetric label="오늘" period={summary.today} />
-            <EnergyMetric label="이번 달 누적" period={summary.monthToDate} />
-            <EnergyMetric label="올해 누적" period={summary.yearToDate} />
+            <EnergyMetric label="오늘" period={summary.today} periodLabel={todayRangeLabel} />
+            <EnergyMetric label="이번 달 누적" period={summary.monthToDate} periodLabel={`${siteDate.slice(0, 7)}-01 ~ ${siteDate}`} />
+            <EnergyMetric label="올해 누적" period={summary.yearToDate} periodLabel={`${siteDate.slice(0, 4)}-01-01 ~ ${siteDate}`} />
           </div>
           <Text variant="body-sm" tone="muted">누적·일별·월별 비용은 당시 적용 단가의 저장 비용입니다.</Text>
 
@@ -192,7 +203,17 @@ export function StatisticsOverviewPage() {
               <div className="flex items-start justify-between gap-4 max-compact:flex-col max-compact:items-stretch">
                 <div className="grid gap-1">
                   <Text variant="overline" tone="muted">사용량 추이</Text>
-                  <Heading as="h3" variant="card-title">상태 기반 추정 사용량</Heading>
+                  <div className="flex min-w-0 flex-wrap items-center gap-2">
+                    <Heading as="h3" variant="card-title">상태 기반 추정 사용량</Heading>
+                    {seriesGapLabel && !activeSeries.isLoading && !activeSeries.isError ? (
+                      <StatusBadge tone="warning" icon={TriangleAlert} title={seriesGapExplanation} aria-label={`${seriesGapLabel}: ${seriesGapExplanation}`}>
+                        {seriesGapLabel}
+                      </StatusBadge>
+                    ) : null}
+                  </div>
+                  <Text variant="caption" tone="secondary">
+                    추이 기간 {activeSeries.data?.from ?? ranges?.[granularity].from} ~ {activeSeries.data?.to ?? ranges?.[granularity].to} · {summary.timeZone} · KPI와 별개
+                  </Text>
                 </div>
                 <div className="flex gap-2" aria-label="사용량 조회 단위">
                   {(["day", "month"] as const).map((value) => (
@@ -329,7 +350,7 @@ function ComparisonSection({
           <Card className="grid min-w-0 gap-4 p-4 compact:p-6" aria-label="기준 대비 사용량 비교">
             <div className="grid gap-1">
               <Text variant="overline" tone="muted">기준 대비 추세</Text>
-              <Heading as="h3" variant="card-title">실제·예상 사용량 비교</Heading>
+              <Heading as="h3" variant="card-title">완료 기간 추정·예상 사용량 비교</Heading>
             </div>
             <EnergyComparisonChart comparison={query.data} />
           </Card>
@@ -345,6 +366,9 @@ function ComparisonSection({
         <div className="grid gap-1">
           <Text variant="overline" tone="muted">핵심 절감 분석</Text>
           <Heading as="h3" variant="section-title" id="statistics-comparison-title">기준 대비 에너지 절감</Heading>
+          {query.data ? <Text variant="caption" tone="secondary">
+            비교 기간 {query.data.range.from} ~ {query.data.range.to} · 완료 실적 {query.data.range.completedThrough}까지 · {query.data.timeZone} · 24시간 100% 비교 기준
+          </Text> : null}
         </div>
         <div className="flex flex-wrap gap-2" aria-label="절감 비교 기간">
           {comparisonPresetOptions.map((option) => (
@@ -367,16 +391,16 @@ function ComparisonSection({
   );
 }
 
-function EnergyMetric({ label, period }: { label: string; period: EnergySummary["today"] }) {
+function EnergyMetric({ label, period, periodLabel }: { label: string; period: EnergySummary["today"]; periodLabel: string }) {
   const presentation = statusPresentation[period.dataStatus];
 
   return (
     <div className="min-w-0">
       <MetricCard
         label={`${label} 전력 사용량`}
-        value={formatKwhValue(period.estimatedKwh)}
-        unit="kWh"
-        helper={`${formatWon(period.estimatedCost)} · 상태 기반 추정`}
+        value={period.dataStatus === "no_data" ? "—" : formatKwhValue(period.estimatedKwh)}
+        unit={period.dataStatus === "no_data" ? undefined : "kWh"}
+        helper={period.dataStatus === "no_data" ? periodLabel : `${formatWon(period.estimatedCost)} · 상태 기반 추정 · ${periodLabel}`}
         tone={period.dataStatus === "available" ? "primary" : "neutral"}
         status={(
           <StatusBadge tone={presentation.tone} icon={presentation.icon}>
@@ -395,6 +419,10 @@ function EnergyChart({
   granularity: Granularity;
   points: EnergySeriesPoint[];
 }) {
+  // A no-data status must never draw a zero-valued point, even if a payload includes numeric zero.
+  const chartPoints = points.map((point) => point.dataStatus === "no_data"
+    ? { ...point, estimatedKwh: null, estimatedCost: null }
+    : point);
   return (
     <>
       <div
@@ -403,7 +431,7 @@ function EnergyChart({
         aria-label={`${granularity === "day" ? "일별" : "월별"} 상태 기반 추정 전력 사용량 꺾은선 차트`}
       >
         <ResponsiveContainer width="100%" height="100%" minWidth={0} initialDimension={{ width: 760, height: 300 }}>
-          <LineChart data={points} margin={{ top: 12, right: 12, left: 0, bottom: 8 }} accessibilityLayer>
+          <LineChart data={chartPoints} margin={{ top: 12, right: 12, left: 0, bottom: 8 }} accessibilityLayer>
             <CartesianGrid stroke={themeColor("chart-grid")} strokeDasharray="4 4" vertical={false} />
             <XAxis dataKey="period" tickFormatter={(value: string) => formatAxisPeriod(value, granularity)} tickLine={false} />
             <YAxis unit=" kWh" width={74} tickLine={false} axisLine={false} />
@@ -430,13 +458,8 @@ function EnergyChart({
         </ResponsiveContainer>
       </div>
       <ul className="sr-only" aria-label="차트 데이터 및 수집 상태">
-        {points.map((point) => <li key={point.period}>{describePoint(point, granularity)}</li>)}
+        {chartPoints.map((point) => <li key={point.period}>{describePoint(point, granularity)}</li>)}
       </ul>
-      {points.some((point) => point.dataStatus !== "available") ? (
-        <Text variant="body-sm" tone="warning" className="rounded-control border border-status-warning-border bg-status-warning-background p-3">
-          선이 끊긴 기간은 수집 데이터가 없으며, 수집 공백이 있는 기간은 추정값이 불완전할 수 있습니다.
-        </Text>
-      ) : null}
     </>
   );
 }
@@ -464,9 +487,9 @@ function EnergyTooltip({
 
 function describePoint(point: EnergySeriesPoint, granularity: Granularity) {
   const period = formatPeriod(point.period, granularity);
-  if (point.estimatedKwh === null) return `${period}: 수집 데이터 없음`;
+  if (point.dataStatus === "no_data" || point.estimatedKwh === null) return `${period}: 수집 데이터 없음`;
   const gap = point.unknownSeconds > 0 ? `, 수집 공백 ${formatDuration(point.unknownSeconds)}` : "";
-  return `${period}: ${formatKwh(point.estimatedKwh)}, ${formatWon(point.estimatedCost ?? 0)}${gap}`;
+  return `${period}: ${formatKwh(point.estimatedKwh)}, ${point.estimatedCost === null ? "비용 데이터 없음" : formatWon(point.estimatedCost)}${gap}`;
 }
 
 function formatPeriod(period: string, granularity: Granularity) {
@@ -488,6 +511,28 @@ function formatTimestamp(timestamp: string, timeZone: string) {
     hour: "2-digit",
     minute: "2-digit"
   }).format(new Date(timestamp));
+}
+
+function formatSiteDate(timestamp: string, timeZone: string) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone, year: "numeric", month: "2-digit", day: "2-digit"
+  }).formatToParts(new Date(timestamp));
+  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return `${values.year}-${values.month}-${values.day}`;
+}
+
+function formatSiteClock(timestamp: string, timeZone: string) {
+  return new Intl.DateTimeFormat("ko-KR", {
+    timeZone, hour: "2-digit", minute: "2-digit", hourCycle: "h23"
+  }).format(new Date(timestamp));
+}
+
+function formatTodayRangeLabel(summary: EnergySummary, siteDate: string) {
+  if (!summary.lastAggregatedAt) return "오늘 00:00~집계 시각 확인 불가 · 진행 중";
+  if (formatSiteDate(summary.lastAggregatedAt, summary.timeZone) !== siteDate) {
+    return "오늘 00:00~오늘 집계 시각 확인 불가 · 진행 중";
+  }
+  return `오늘 00:00~${formatSiteClock(summary.lastAggregatedAt, summary.timeZone)} · 진행 중`;
 }
 
 function formatDuration(seconds: number) {

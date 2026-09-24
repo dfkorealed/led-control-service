@@ -27,6 +27,16 @@ describe("StatisticsAnalysisPage", () => {
     expect(screen.getByRole("img", { name: "B1 주차장 일별 사용량 차트" })).toBeInTheDocument();
   });
 
+  it("labels the ranking selection as a site-local range separate from the completed heatmap window", () => {
+    renderPage();
+
+    expect(screen.getByText(/분석 선택 기간 2026-09-01 ~ 2026-09-10 · America\/Los_Angeles/)).toBeInTheDocument();
+    expect(screen.getByText(/순위·상세에 적용/)).toBeInTheDocument();
+    expect(screen.getByText(/히트맵은 별도 완료 기간/)).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "시간대별 사용량" })).toHaveTextContent("2026-08-14 ~ 2026-09-10");
+    expect(screen.getByRole("complementary", { name: "B1 주차장 상세" })).toHaveTextContent("세로축 kWh");
+  });
+
   it("changes dimension and metric through accessible controls", async () => {
     renderPage();
 

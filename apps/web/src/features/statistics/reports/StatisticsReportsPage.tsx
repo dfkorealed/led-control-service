@@ -158,7 +158,7 @@ export function StatisticsReportsPage() {
       actions={<Button variant="primary" onClick={() => setIsDialogOpen(true)}><FileText size={16} />보고서 만들기</Button>} />
     <Text variant="body-sm" tone="muted">보고서와 CSV 비용은 당시 적용 단가의 저장 비용입니다.</Text>
     <ReportHistoryFilters value={filters} onChange={resetToFirstPage} />
-    <ReportJobList reports={displayedPage?.data.reports}
+    <ReportJobList reports={displayedPage?.data.reports} timeZone={targets.data?.timeZone}
       isLoading={(reports.isLoading || reports.isPlaceholderData || !siteId) && !displayedPage}
       isError={Boolean(reports.isError && !displayedPage)} hasRefreshError={hasRefreshError}
       isBusy={reports.isFetching}

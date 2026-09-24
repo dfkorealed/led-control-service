@@ -25,13 +25,14 @@ export function EnergyRankingDetailPanel({ item }: { item: EnergyRankingItem | n
         <ChangeIcon size={16} aria-hidden="true" />
         이전 동일 기간 대비 {change === null ? "비교 불가" : `${change > 0 ? "+" : ""}${change.toFixed(1)}%`}
       </Text>
+      <Text variant="caption" tone="secondary">일별 사용량 · 세로축 kWh</Text>
       <div className="h-64 min-w-0">
         <span className="sr-only" role="img" aria-label={`${item.name} 일별 사용량 차트`} />
         <ResponsiveContainer width="100%" height="100%">
           <LineChart data={item.dailyPoints} margin={{ top: 8, right: 10, bottom: 0, left: -18 }}>
             <CartesianGrid stroke={themeColor("chart-grid")} strokeDasharray="3 3" vertical={false} />
             <XAxis dataKey="period" tickFormatter={(value) => value.slice(5)} />
-            <YAxis width={48} />
+            <YAxis unit=" kWh" width={74} />
             <Tooltip formatter={(value) => [`${Number(value).toLocaleString("ko-KR")} kWh`, "사용량"]} />
             <Line type="monotone" dataKey="estimatedKwh" stroke={themeColor("chart-ranking")} strokeWidth={2.5} connectNulls={false} dot={false} />
           </LineChart>

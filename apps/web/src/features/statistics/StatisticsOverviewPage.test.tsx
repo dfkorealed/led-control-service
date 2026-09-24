@@ -117,7 +117,97 @@ describe("StatisticsOverviewPage", () => {
     expect(screen.getByRole("group", { name: "올해 누적 전력 사용량" })).toHaveTextContent("900 kWh");
     expect(screen.getByText("수집 완료")).toBeInTheDocument();
     expect(screen.getAllByText("수집 공백 있음")).toHaveLength(2);
-    expect(screen.getByText("수집 공백이 있어 일부 기간은 추정값이 불완전할 수 있습니다.")).toBeInTheDocument();
+    const header = screen.getByRole("heading", { name: "에너지 리포트" }).closest("header");
+    expect(within(header!).getByText("KPI 수집 공백")).toBeInTheDocument();
+    expect(screen.queryByText("수집 공백이 있어 일부 기간은 추정값이 불완전할 수 있습니다.")).not.toBeInTheDocument();
+  });
+
+  it("separates fixed site-local KPI periods from the selected trend and comparison ranges", () => {
+    renderView();
+
+    expect(screen.getByRole("group", { name: "오늘 전력 사용량" })).toHaveTextContent("오늘 00:00~09:00 · 진행 중");
+    expect(screen.getByRole("group", { name: "이번 달 누적 전력 사용량" })).toHaveTextContent("2026-08-01 ~ 2026-08-26");
+    expect(screen.getByRole("group", { name: "올해 누적 전력 사용량" })).toHaveTextContent("2026-01-01 ~ 2026-08-26");
+    expect(screen.getByRole("region", { name: "상태 기반 추정 사용량" })).toHaveTextContent("추이 기간 2026-08-01 ~ 2026-08-31");
+    expect(screen.getByRole("region", { name: "상태 기반 추정 사용량" })).toHaveTextContent("Asia/Seoul");
+    expect(screen.getByRole("heading", { name: "기준 대비 에너지 절감" }).closest("section")).toHaveTextContent("비교 기간 2026-09-01 ~ 2026-09-30");
+    expect(screen.getByRole("heading", { name: "기준 대비 에너지 절감" }).closest("section")).toHaveTextContent("완료 실적 2026-09-09까지");
+
+    fireEvent.click(screen.getByRole("button", { name: "월별" }));
+    expect(screen.getByRole("region", { name: "상태 기반 추정 사용량" })).toHaveTextContent("추이 기간 2026-01-01 ~ 2026-12-01");
+    expect(screen.getByRole("group", { name: "오늘 전력 사용량" })).toHaveTextContent("오늘 00:00~09:00 · 진행 중");
+  });
+
+  it("does not describe the summary generation time as the last aggregation when no aggregation timestamp exists", () => {
+    mocks.summary = queryResult({ ...summary, lastAggregatedAt: null });
+    renderView();
+
+    expect(screen.getByText(/마지막 집계 확인 불가/)).toBeInTheDocument();
+    expect(screen.getByRole("group", { name: "오늘 전력 사용량" })).toHaveTextContent("오늘 00:00~집계 시각 확인 불가 · 진행 중");
+    expect(screen.queryByText(/마지막 집계 2026/)).not.toBeInTheDocument();
+  });
+
+  it("does not carry yesterday's aggregation into today's site-local window", () => {
+    mocks.summary = queryResult({
+      ...summary,
+      generatedAt: "2026-08-25T15:15:00.000Z",
+      lastAggregatedAt: "2026-08-25T14:55:00.000Z"
+    });
+    renderView();
+
+    expect(screen.getByRole("group", { name: "오늘 전력 사용량" })).toHaveTextContent("오늘 00:00~오늘 집계 시각 확인 불가 · 진행 중");
+    expect(screen.getByRole("group", { name: "이번 달 누적 전력 사용량" })).toHaveTextContent("2026-08-01 ~ 2026-08-26");
+  });
+
+  it("keeps a collected zero distinct from a no-data KPI whose numeric payload is zero", () => {
+    mocks.summary = queryResult({ ...summary, today: { ...summary.today, estimatedKwh: 0, estimatedCost: 0 } });
+    const first = renderView();
+    expect(screen.getByRole("group", { name: "오늘 전력 사용량" })).toHaveTextContent("0 kWh");
+    expect(screen.getByRole("group", { name: "오늘 전력 사용량" })).toHaveTextContent("0원");
+    first.unmount();
+
+    mocks.summary = queryResult({ ...summary, today: { estimatedKwh: 0, estimatedCost: 0, knownSeconds: 0, unknownSeconds: 86_400, dataStatus: "no_data" } });
+    renderView();
+    const today = screen.getByRole("group", { name: "오늘 전력 사용량" });
+    expect(today).toHaveTextContent("수집 데이터 없음");
+    expect(today).toHaveTextContent("—");
+    expect(today).not.toHaveTextContent("0 kWh");
+    expect(today).not.toHaveTextContent("0원");
+  });
+
+  it("does not turn a missing series cost into a displayed zero", () => {
+    mocks.day = queryResult({
+      ...daySeries,
+      points: [{ ...daySeries.points[0], estimatedKwh: 0, estimatedCost: null }]
+    });
+    renderView();
+
+    expect(screen.getByText("2026년 8월 25일: 0 kWh, 비용 데이터 없음")).toBeInTheDocument();
+    expect(screen.queryByText("2026년 8월 25일: 0 kWh, 0원")).not.toBeInTheDocument();
+  });
+
+  it("does not plot a no-data series point as zero even if its payload contains zero", () => {
+    mocks.day = queryResult({
+      ...daySeries,
+      points: [
+        daySeries.points[0],
+        { ...daySeries.points[1], estimatedKwh: 0, estimatedCost: 0, knownSeconds: 0, dataStatus: "no_data" as const }
+      ]
+    });
+    renderView();
+
+    expect(screen.getByText("2026년 8월 26일: 수집 데이터 없음")).toBeInTheDocument();
+    expect(screen.queryByText(/2026년 8월 26일: 0 kWh/)).not.toBeInTheDocument();
+  });
+
+  it("keeps the series gap warning in the chart header without a separate block below the chart", () => {
+    renderView();
+
+    const chartCard = screen.getByRole("region", { name: "상태 기반 추정 사용량" });
+    const heading = within(chartCard).getByRole("heading", { name: "상태 기반 추정 사용량" });
+    expect(heading.parentElement).toHaveTextContent("결측·수집 공백");
+    expect(within(chartCard).getByLabelText("차트 데이터 및 수집 상태")).toHaveTextContent("수집 데이터 없음");
+    expect(within(chartCard).queryByText("선이 끊긴 기간은 수집 데이터가 없으며, 수집 공백이 있는 기간은 추정값이 불완전할 수 있습니다.")).not.toBeInTheDocument();
   });
 
   it("shows savings KPIs and changes the comparison preset accessibly", () => {
@@ -173,9 +263,9 @@ describe("StatisticsOverviewPage", () => {
     expect(todayMetric.compareDocumentPosition(chart)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
     expect(chart.compareDocumentPosition(costs)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
     expect(screen.getByRole("group", { name: "오늘 전력 사용량" }))
-      .toHaveTextContent("오늘 전력 사용량4.25 kWh680원 · 상태 기반 추정수집 완료");
+      .toHaveTextContent("4.25 kWh680원 · 상태 기반 추정 · 오늘 00:00~09:00 · 진행 중수집 완료");
     expect(screen.getByRole("group", { name: "이번 달 누적 전력 사용량" }))
-      .toHaveTextContent("이번 달 누적 전력 사용량120.5 kWh19,280원 · 상태 기반 추정수집 공백 있음");
+      .toHaveTextContent("120.5 kWh19,280원 · 상태 기반 추정 · 2026-08-01 ~ 2026-08-26수집 공백 있음");
     expect(screen.getByText("상태 기반 추정")).toBeVisible();
     expect(within(chart).getByRole("img", { name: /상태 기반 추정 전력 사용량 꺾은선 차트/ })).toBeInTheDocument();
   });

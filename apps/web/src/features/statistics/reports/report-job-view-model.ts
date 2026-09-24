@@ -24,7 +24,7 @@ export interface ReportJobRenderItem {
   view: ReportJobViewModel;
 }
 
-export function reportJobViewModel(job: EnergyReportJob): ReportJobViewModel {
+export function reportJobViewModel(job: EnergyReportJob, timeZone?: string): ReportJobViewModel {
   return {
     id: job.reportId,
     targetLabel: job.target.label,
@@ -32,8 +32,8 @@ export function reportJobViewModel(job: EnergyReportJob): ReportJobViewModel {
     rangeLabel: `${job.request.from} ~ ${job.request.to}`,
     formatLabel: job.request.format === "pdf" ? "PDF" : "XLSX",
     status: reportStatus(job),
-    requestedAt: formatInstant(job.requestedAt),
-    ...(job.expiresAt ? { expiresAt: formatInstant(job.expiresAt) } : {}),
+    requestedAt: formatInstant(job.requestedAt, timeZone),
+    ...(job.expiresAt ? { expiresAt: formatInstant(job.expiresAt, timeZone) } : {}),
     action: job.status === "completed"
       ? "download"
       : job.status === "failed" || job.status === "expired" ? "regenerate" : "none",
@@ -57,9 +57,9 @@ function scopeLabel(scope: EnergyReportJob["request"]["scope"]) {
   return ({ site: "현장", fixture: "조명", floor: "층", group: "그룹" })[scope];
 }
 
-function formatInstant(iso: string): FormattedInstant {
+function formatInstant(iso: string, timeZone?: string): FormattedInstant {
   return {
     iso,
-    label: new Intl.DateTimeFormat("ko-KR", { dateStyle: "medium", timeStyle: "short" }).format(new Date(iso))
+    label: new Intl.DateTimeFormat("ko-KR", { dateStyle: "medium", timeStyle: "short", timeZone }).format(new Date(iso))
   };
 }

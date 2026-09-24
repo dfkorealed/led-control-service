@@ -65,7 +65,9 @@ export function StatisticsAnalysisPage() {
     <section className="grid min-w-0 gap-6" aria-label="사용량 분석 결과">
       <PageHeader
         title="사용량 분석"
-        description="조명·층·그룹별 에너지 사용량을 비교하고 변화 원인을 확인합니다."
+        description={<Text variant="body-sm" tone="secondary">
+          분석 선택 기간 {query.data.range.from} ~ {query.data.range.to} · {query.data.timeZone} · 순위·상세에 적용. 히트맵은 별도 완료 기간입니다.
+        </Text>}
         status={<StatusBadge tone="info" icon={BarChart3}>상태 기반 추정</StatusBadge>}
       />
       <Card className="flex min-w-0 flex-wrap items-end gap-3 p-4 max-compact:items-stretch" aria-label="사용량 분석 조건">

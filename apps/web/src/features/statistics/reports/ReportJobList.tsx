@@ -8,6 +8,7 @@ import { reportJobViewModel, type ReportJobRenderItem } from "./report-job-view-
 
 export function ReportJobList({
   reports,
+  timeZone,
   isLoading,
   isError,
   isBusy = false,
@@ -18,6 +19,7 @@ export function ReportJobList({
   onDownload
 }: {
   reports?: EnergyReportJob[];
+  timeZone?: string;
   isLoading: boolean;
   isError: boolean;
   isBusy?: boolean;
@@ -28,7 +30,7 @@ export function ReportJobList({
   onDownload: (job: EnergyReportJob) => void;
 }) {
   const [expandedFailures, setExpandedFailures] = useState<Record<string, boolean>>({});
-  const items: ReportJobRenderItem[] = reports?.map((job) => ({ job, view: reportJobViewModel(job) })) ?? [];
+  const items: ReportJobRenderItem[] = reports?.map((job) => ({ job, view: reportJobViewModel(job, timeZone) })) ?? [];
   const renderAction = (item: ReportJobRenderItem) => {
     const jobLabel = `${item.view.targetLabel} 보고서`;
     if (item.view.action === "download") {
@@ -75,6 +77,7 @@ export function ReportJobList({
     /> : null}
     {!isLoading && !isError && !items.length ? <FeedbackState icon={FileWarning} title="요청한 보고서가 없습니다." description="기간과 범위를 선택해 표준 에너지 사용량 보고서를 요청하세요." /> : null}
     {items.length ? <>
+      <Text variant="caption" tone="secondary">시각: {timeZone ? "현장" : "기기"} 시간대 {timeZone ?? Intl.DateTimeFormat().resolvedOptions().timeZone}</Text>
       <ReportJobTable items={items} isBusy={isBusy} renderAction={renderAction} renderFailure={renderFailure} />
       <ReportJobCards items={items} isBusy={isBusy} renderAction={renderAction} renderFailure={renderFailure} />
     </> : null}

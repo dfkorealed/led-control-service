@@ -4,6 +4,9 @@
 
 ## 구현 완료
 
+- 통계 P1 표기에서는 전역 현장 선택을 유지하고, 개요 KPI의 오늘·이번 달·올해를 현장 현지 날짜의 고정 기간으로 명시한다. 오늘은 `00:00~마지막 집계 · 진행 중`이며 마지막 집계가 없거나 현장 현지 전날에 머문 경우 오늘의 집계로 오표기하지 않는다. 추이의 일별/월별 조회 범위와 절감 비교 응답의 자체 기간·완료 실적일은 각각 해당 차트/비교 제목 아래에만 표시한다. 수치 출처는 실계측이 아닌 `상태 기반 추정`, 24시간·100%는 `비교 기준`으로 구분하고 완료 기간 비교선도 `실제 측정`이라고 부르지 않는다. `no_data` KPI와 null 비용을 `0`으로 표시하지 않으며 수집된 0은 그대로 0을 표시한다. KPI 수집 공백과 추이의 결측·수집 공백은 각각 페이지/차트 헤더 상태 배지로 안내해 별도 경고 블록을 없애고, 기간별 상태는 기존 툴팁·스크린리더 목록에 유지한다. 기존 개요·비교 차트 Y축의 kWh 단위 설정을 유지하고 순위 상세 차트에도 kWh 단위와 축 안내를 추가했다.
+- 분석 선택일은 현장 시간대의 순위·상세에 적용되고, 히트맵은 별도 완료 28일 범위임을 구분한다. 히트맵은 시간 00~23시 가로축, 일~토 세로축, 현장 시간대, 0과 결측을 분리한 1~5단계 범례를 제공한다. 최고값이 실제 5단계 색상에 대응하도록 수정하면서 168개 셀·로빙 포커스·키보드 이동을 보존했다.
+- 완료 보고서 파일 만료 시각은 desktop 표의 `파일 만료 시각` 열과 mobile 카드의 동일한 메타 라벨에서 원본 ISO `dateTime`을 가진 `<time>`으로 제공한다. 요청·만료 표시는 이미 조회하는 대상 정보의 현장 시간대를 사용하고, 대상 정보를 얻지 못하면 기기 시간대임을 명시한다. 대기·실패 건에는 가짜 만료 시각을 만들지 않으며 7일 만료·다운로드·재생성 정책은 변경하지 않았다. 이번 P1 통계 feature focused Vitest는 11 files·113/113 통과했고 제품 파일 9개의 UI 정책 검사와 새 히트맵 CSS 후보 생성은 통과했다.
 - 보고서 이력 필터는 검색·상태·요청 기간을 기본 줄에 두고, 형식·범위는 `상세 필터`를 펼쳤을 때 표시한다. 상세 필터가 접혀 있어도 적용된 형식·범위의 개수와 개별 제거 chip을 계속 표시한다. 펼침 상태는 화면 로컬 상태로만 관리하므로 열고 닫는 동작 자체는 검색 조건, URL, 조회 요청, 현재 cursor 페이지를 바꾸지 않는다. 760px 이상은 `compact` 2열, 1024px 이상은 `tablet` 4열을 사용하며 실제 Tailwind CSS 생성 회귀를 포함한다. 목록의 `요청 기간`은 보고서를 요청한 날짜이고, 생성 대화상자의 `보고서 대상 기간`은 문서에 집계할 날짜임을 별도로 안내한다. 서버 필터 조합, 요청 기간 최대 90일, 파일 7일 만료 및 PDF/XLSX 동일 불변 문서·CSV 계약은 변경하지 않았다. 보고서 폴더 focused Vitest 67/67 통과했고, 변경된 반응형 브라우저 회귀는 공유 환경의 직렬 통합 검증 대상으로 남겼다.
 - 보고서 이력은 최신 일부가 아니라 현장의 전체 보관 이력을 `(createdAt desc, id desc)` keyset cursor로 조회한다. 페이지 크기는 10·20·50·100, 기본값은 20이며 대상명·상태·형식·범위·현장 현지 요청일을 서버에서 단독 또는 조합 검색한다. `totalCount`와 현재 페이지는 같은 repeatable-read 조회에 묶고 cursor는 정규화된 filter fingerprint와 결합한다. URL에는 정규화된 필터·페이지 크기와 shell `siteId`만 유지하고, 현재 cursor·이전 cursor stack·page는 site와 filter fingerprint를 포함한 namespaced browser history state에 저장한다. 새로고침·뒤로 가기·앞으로 가기는 유효하고 동일한 scope의 state만 복원하며 누락·불일치·legacy/broken state는 page 1로 정규화한다. page는 safe integer여야 하고 page N의 stack은 길이 N-1, 첫 항목만 first-page sentinel, 나머지와 현재 cursor는 비어 있지 않고 서로 달라야 한다. 임의 1000페이지 상한 없이 page 1000→1001과 더 깊은 유효 state를 복원하면서도 cursor가 URL에 누적되지 않는다. 검색 조건·페이지 크기·현장 변경·새 보고서 생성 시 첫 페이지로 돌아간다.
 - 보고서 이력 UI는 1024px 이상에서 실제 table semantics와 compact 행을, 1024px 미만에서 공통 view model 기반 `ul/li`·`dl` 카드를 사용한다. 활성 조건 chip은 개별 제거할 수 있고 공통 `전체 초기화` 버튼은 페이지 크기만 유지한 채 검색·상태·형식·범위·요청일·cursor를 한 번에 지워 page 1·URL·form controls를 동기화한다. 0건, 목록 재시도, 실패 상세 disclosure, 처리 progress, 다운로드·재생성 동작을 분리한다. 처리 상태는 table/mobile이 공통 status/progress 컴포넌트를 사용하고 목록 section·table scroll container·mobile list는 fetch 중 `aria-busy`를 제공한다. 다음 페이지 또는 background refetch가 실패하면 동일한 현장·필터 scope의 마지막 성공 rows와 범위를 유지하면서 정제된 inline 오류와 재시도를 표시하고, 다른 현장·필터의 행은 재사용하지 않는다. 101건 browser fixture에서 각 조건마다 하나만 어긋나는 near-match, 기본 20건, 서로 다른 행을 반환하는 next/previous cursor, 50/100건, `서울 + 완료 + PDF + 현장 + 요청일` 조합, history-state 새로고침·뒤로/앞으로 복원, bounded URL, 생성 후 첫 페이지를 검증했다. 1440×900·1024×768·390×844·320×740에서 문서 overflow 0, 보이는 날짜 segment·달력 trigger·action·disclosure·filter chip의 44×44px 이상 target, keyboard focus 표시와 polite live announcement를 확인했다.
@@ -64,7 +67,7 @@
 - `GET /energy/sites/:siteId/comparisons?preset=last_7_days|current_month|current_year`를 추가했다. 최근 7일은 완료된 7개 현장 날짜, 이번 달은 월초부터 완료된 전일까지의 실적과 월말 예상, 올해는 월별 실적을 반환한다. 기간 계산은 현장 IANA timezone과 윤년·월말을 반영한다.
 - 비교 응답은 24시간·100% 운전 기준 사용량, 실제 또는 예상 사용량, 절감 kWh·비용·절감률과 `saving`, `overuse`, `unavailable` 결과를 strict shared 계약으로 제공한다. 초과 사용은 음수 절감값을 0으로 보정하지 않으며, 비교 불가는 절감값을 `null`로 유지한다.
 - `개요` 상단에 `최근 7일`, `이번 달`, `올해` preset과 절감률·예상 사용량·절감 전력·절감 비용 KPI를 추가했다. 비교 불가 시 기준 KPI와 산정 조건 설명만 유지하고 0 절감으로 표시하지 않는다.
-- 기준 사용량은 막대, 완료된 실제 사용량은 실선, 이번 달 예상 사용량은 점선으로 표시한다. 사용량 미산정 point는 `null`을 유지해 선을 연결하지 않고 기준 막대만 남긴다. tooltip과 스크린리더 목록은 기간별 기준·실제/예상·차이 kWh·차이율·수집률을 함께 제공하고 `현재 등록 조명 기준`을 명시한다.
+- 기준 사용량은 막대, 완료 기간의 상태 기반 추정 사용량은 실선, 이번 달 예상 사용량은 점선으로 표시한다. 사용량 미산정 point는 `null`을 유지해 선을 연결하지 않고 기준 막대만 남긴다. tooltip과 스크린리더 목록은 기간별 기준·완료 기간 추정/예상·차이 kWh·차이율·수집률을 함께 제공하고 `현재 등록 조명 기준`을 명시한다.
 - 직전 동기간과 전년 동기간의 사용량 변화 및 양쪽 수집률을 별도 패널로 제공한다. 비교 자료가 없으면 해당 행만 `비교 불가` 상태로 두며, 과거 조명 구성이 보정되지 않았음을 `조명 구성 변화 미보정` 문구로 상시 알린다.
 - comparison 로딩·오류·미산정 상태를 기존 summary와 series에서 분리했다. 비교 API가 실패해도 오늘·이번 달·올해 KPI와 기존 추이·비용 영역은 유지되고, 비교 영역만 다시 시도할 수 있다.
 - comparison 런타임 Zod 계약은 `@led-control/shared/energy-contracts` ESM/CommonJS 서브패스로 배포한다. packed package 소비 테스트로 브라우저 ESM과 서버 CommonJS 양쪽에서 schema를 직접 불러올 수 있음을 검증한다.
@@ -117,6 +120,7 @@
 
 ## 부족하거나 개선이 필요한 기능
 
+- 이번 P1 기간·출처·히트맵 축·보고서 만료 메타 변경의 실제 320/390/1024/1440px Chromium 배치·축 눈금 글자·터치/overflow와 전체 Web typecheck/build/Playwright는 총괄 직렬 통합 게이트에서 확인해야 한다. 320px KPI 기간·비용 helper의 카드 높이·가로 넘침·가시성을 확인하는 browser assertion을 추가했으나 해당 직렬 게이트 실행 전이므로 통과로 간주하지 않는다. Recharts는 JSDOM에서 Y축 tick 그룹만 만들고 숫자 글자는 그리지 않아 focused Vitest만으로 브라우저 눈금 표시를 입증하지 못한다. 실제 WebView·실계량기·Gateway·조명 HIL도 미실행이다.
 - 이번 보고서 필터 위계 변경의 320/390/1024/1440px Playwright 회귀와 전체 Web typecheck/build/UI-policy는 병렬 작업의 공유 Vite·dist 충돌을 피하기 위해 직렬 통합 게이트에서 실행해야 한다. focused Vitest와 정적 검증만으로 실제 WebView 표시·터치 동작이나 실장비 수집을 보증하지 않는다.
 - 디자인 시스템 pilot의 시각 증거는 자동 Chromium 스크린샷과 계산 스타일 검사다. 실제 iOS/Android WebView, 브라우저별 날짜 입력 보조기기, 수동 in-app 시각 QA는 수행하지 않았다.
 - production build의 main chunk는 655.68 kB(gzip 200.97 kB)로 기존 500 kB 경고가 남는다. 통계 route는 별도 lazy chunk를 유지하며, 이 작업은 공통 chunk 전략을 변경하지 않았다.
@@ -214,12 +218,15 @@
 - `apps/web/src/features/statistics/reports/ReportJobStatus.tsx`
 - `apps/web/src/features/statistics/reports/ReportCreateDialog.tsx`
 - `apps/web/src/features/statistics/reports/ReportJobList.tsx`
+- `apps/web/src/features/statistics/reports/report-job-view-model.ts`
+- `apps/web/src/features/statistics/reports/report-job-view-model.test.ts`
 - `apps/web/src/components/ui/PaginationBar.tsx`
 - `apps/web/src/features/statistics/analysis/EnergyHeatmap.tsx`
 - `apps/web/src/features/statistics/analysis/EnergyHeatmap.test.tsx`
 - `apps/web/src/features/statistics/analysis/EnergyRankingList.tsx`
 - `apps/web/src/features/statistics/analysis/EnergyRankingDetailPanel.tsx`
 - `apps/web/src/features/statistics/EnergyComparisonChart.tsx`
+- `apps/web/src/features/statistics/EnergyComparisonChart.test.tsx`
 - `apps/web/src/features/statistics/PeriodComparisonPanel.tsx`
 - `apps/web/src/features/statistics/statistics-comparison.ts`
 - `apps/web/src/features/statistics/statistics-periods.ts`
