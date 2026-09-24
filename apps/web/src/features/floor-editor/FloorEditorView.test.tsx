@@ -108,6 +108,16 @@ const editorState: FloorEditorState = {
   ]
 };
 
+function readyMobileMap(state: FloorEditorState) {
+  state.objects = [];
+  state.floor.mapDocument = {
+    formatVersion: 1, generationId: "mobile-map", revision: state.floor.mapRevision,
+    width: 1200, height: 800, gridSize: 10, elementCount: 0,
+    manifest: { assetId: "00000000-0000-4000-8000-000000000002", sha256: "a".repeat(64), byteSize: 1, decodedByteSize: 1 }
+  };
+  return state;
+}
+
 function renderEditor(state: FloorEditorState = editorState, props?: Partial<Parameters<typeof FloorEditorView>[0]>, userId?: string) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
   queryClient.setQueryData(["auth", "me"], userId ? { user: { id: userId, organizationId: "org", role: "admin", status: "active" } } : null);
@@ -483,7 +493,7 @@ describe("FloorEditorView", () => {
 
   it("모바일에서 미배치 조명을 선택하고 맵을 다시 탭해 위치를 확인한 뒤 저장 대기로 둔다", () => {
     vi.stubGlobal("matchMedia", () => ({ matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn() }));
-    const state = structuredClone(editorState);
+    const state = readyMobileMap(structuredClone(editorState));
     state.fixtures[0].placementStatus = "unplaced";
     state.fixtures[0].x = 0;
     state.fixtures[0].y = 0;
@@ -493,6 +503,7 @@ describe("FloorEditorView", () => {
     fireEvent.click(screen.getByRole("button", { name: "도구 및 조명 패널" }));
     fireEvent.click(screen.getByTestId("placement-fixture-fixture-1"));
     expect(screen.getByRole("region", { name: "조명 배치" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "미니맵" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "이 위치에 배치" })).toBeDisabled();
     expect(useFloorEditorStore.getState().state?.fixtures[0].placementStatus).toBe("unplaced");
 
@@ -503,14 +514,31 @@ describe("FloorEditorView", () => {
     fireEvent.mouseUp(canvas, { clientX: 240, clientY: 260 });
     expect(useFloorEditorStore.getState().state?.fixtures[0].placementStatus).toBe("unplaced");
     fireEvent.click(screen.getByRole("button", { name: "이 위치에 배치" }));
+    expect(screen.getByRole("button", { name: "미니맵" })).toBeInTheDocument();
     expect(useFloorEditorStore.getState().state?.fixtures[0]).toEqual(expect.objectContaining({ placementStatus: "placed", x: 240, y: 260 }));
     expect(useFloorEditorStore.getState().isDirty).toBe(true);
     expect(screen.getByRole("button", { name: "저장" })).toBeEnabled();
   });
 
-  it("모바일 배치 취소와 층 전환은 확인 전 임시 위치를 버린다", () => {
+  it("맵 문서가 준비되지 않은 층에서는 모바일 조명 배치를 시작하지 않는다", () => {
     vi.stubGlobal("matchMedia", () => ({ matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn() }));
     const state = structuredClone(editorState);
+    state.fixtures[0].placementStatus = "unplaced";
+    state.lightSlots = [];
+    renderEditor(state);
+
+    fireEvent.click(screen.getByRole("button", { name: "도구 및 조명 패널" }));
+    const row = screen.getByTestId("placement-fixture-fixture-1");
+    expect(row).toHaveAttribute("draggable", "false");
+    fireEvent.click(row);
+    expect(screen.getByText("편집할 맵을 준비해주세요.")).toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "조명 배치" })).not.toBeInTheDocument();
+    expect(useFloorEditorStore.getState().isDirty).toBe(false);
+  });
+
+  it("모바일 배치 취소와 층 전환은 확인 전 임시 위치를 버린다", () => {
+    vi.stubGlobal("matchMedia", () => ({ matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn() }));
+    const state = readyMobileMap(structuredClone(editorState));
     state.fixtures[0].placementStatus = "unplaced";
     state.lightSlots = [];
     const view = renderEditor(state);
@@ -531,7 +559,7 @@ describe("FloorEditorView", () => {
 
   it("다른 도구로 바꾸면 모바일 배치 대기를 종료한다", () => {
     vi.stubGlobal("matchMedia", () => ({ matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn() }));
-    const state = structuredClone(editorState);
+    const state = readyMobileMap(structuredClone(editorState));
     state.fixtures[0].placementStatus = "unplaced";
     state.lightSlots = [];
     renderEditor(state);
@@ -544,7 +572,7 @@ describe("FloorEditorView", () => {
 
   it("터치 탭만 모바일 배치 후보를 만들고 이동·핀치·취소는 후보를 만들지 않는다", () => {
     vi.stubGlobal("matchMedia", () => ({ matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn() }));
-    const state = structuredClone(editorState);
+    const state = readyMobileMap(structuredClone(editorState));
     state.fixtures[0].placementStatus = "unplaced";
     state.lightSlots = [];
     renderEditor(state);
@@ -577,7 +605,7 @@ describe("FloorEditorView", () => {
 
   it("lease가 사라지면 모바일 배치 초안을 취소하고 저장으로 흘리지 않는다", () => {
     vi.stubGlobal("matchMedia", () => ({ matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn() }));
-    const state = structuredClone(editorState);
+    const state = readyMobileMap(structuredClone(editorState));
     state.fixtures[0].placementStatus = "unplaced";
     state.lightSlots = [];
     const view = renderEditor(state);
@@ -594,7 +622,7 @@ describe("FloorEditorView", () => {
 
   it("모바일 배치 확인 후 lease가 사라지면 저장을 비활성화한다", () => {
     vi.stubGlobal("matchMedia", () => ({ matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn() }));
-    const state = structuredClone(editorState);
+    const state = readyMobileMap(structuredClone(editorState));
     state.fixtures[0].placementStatus = "unplaced";
     state.lightSlots = [];
     const view = renderEditor(state);
@@ -612,7 +640,7 @@ describe("FloorEditorView", () => {
 
   it("모바일 배치 확인 후 409 충돌은 로컬 배치를 보존한다", async () => {
     vi.stubGlobal("matchMedia", () => ({ matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn() }));
-    const state = structuredClone(editorState);
+    const state = readyMobileMap(structuredClone(editorState));
     state.fixtures[0].placementStatus = "unplaced";
     state.lightSlots = [];
     floorEditorApi.saveFloorEditorState.mockRejectedValueOnce(new ApiError("revision conflict", 409, null));
@@ -631,7 +659,7 @@ describe("FloorEditorView", () => {
 
   it("배치 대기 중 탭은 기존 Konva 객체·조명 선택 레이어로 전달하지 않는다", () => {
     vi.stubGlobal("matchMedia", () => ({ matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn() }));
-    const state = structuredClone(editorState);
+    const state = readyMobileMap(structuredClone(editorState));
     state.fixtures[0].placementStatus = "unplaced";
     state.lightSlots = [];
     renderEditor(state);
@@ -647,7 +675,7 @@ describe("FloorEditorView", () => {
 
   it("맵 밖 탭은 후보를 만들지 않고 조명 레이어 잠금은 배치 대기를 취소한다", () => {
     vi.stubGlobal("matchMedia", () => ({ matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn() }));
-    const state = structuredClone(editorState);
+    const state = readyMobileMap(structuredClone(editorState));
     state.fixtures[0].placementStatus = "unplaced";
     state.lightSlots = [];
     renderEditor(state);
@@ -663,7 +691,7 @@ describe("FloorEditorView", () => {
 
   it("모바일에서 키보드 좌표로 배치하고 읽기 전용에서는 배치를 시작하지 않는다", async () => {
     vi.stubGlobal("matchMedia", () => ({ matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn() }));
-    const state = structuredClone(editorState);
+    const state = readyMobileMap(structuredClone(editorState));
     state.fixtures[0].placementStatus = "unplaced";
     state.lightSlots = [];
     const view = renderEditor(state);
@@ -685,7 +713,7 @@ describe("FloorEditorView", () => {
 
   it("맵 탭 뒤 한쪽 좌표를 지워도 반대쪽 입력값은 유지한다", () => {
     vi.stubGlobal("matchMedia", () => ({ matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn() }));
-    const state = structuredClone(editorState);
+    const state = readyMobileMap(structuredClone(editorState));
     state.fixtures[0].placementStatus = "unplaced";
     state.lightSlots = [];
     renderEditor(state);

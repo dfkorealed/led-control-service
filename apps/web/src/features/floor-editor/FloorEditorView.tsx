@@ -387,7 +387,7 @@ export function FloorEditorView({
   }), [floorId, initialState.fixtures.length, initialState.lightSlots.length, initialState.objects.length, state]);
   const isMutationPending = saveStatus === "saving" || restoringRevision !== null || isCadImportPending || isResetPending || map.preparing;
   const isSaveOrRestoreBlocked = readOnly || isMutationPending || state?.floor.id !== floorId;
-  const placementFixture = placementDraft && isNarrowLayout && !readOnly && !isMutationPending && !cadImportReview
+  const placementFixture = placementDraft && isNarrowLayout && Boolean(map.document) && !readOnly && !isMutationPending && !cadImportReview
     && Boolean(leaseToken && leaseFence)
     && activeTool === "select" && !map.holeActive
     && state?.floor.id === floorId && state.floor.siteId === siteId
@@ -437,7 +437,7 @@ export function FloorEditorView({
             <IconTooltipButton className="bg-action-primary text-content-inverse hover:bg-action-primary-hover" icon={Save} label="저장" disabled={!isDirty || isSaveOrRestoreBlocked} isLoading={saveStatus === "saving"} loadingLabel="저장 중" onClick={handleSave} />
           </div>
         </div>
-        <div className="flex flex-wrap items-center gap-1 border-b border-border-default py-1" role="toolbar" aria-label="맵 보기 도구">
+        <div className="flex flex-nowrap items-center gap-1 overflow-x-auto overscroll-x-contain border-b border-border-default py-1" role="toolbar" aria-label="맵 보기 도구">
           <IconTooltipButton ref={toolsToggle} icon={PanelLeft} label="도구 및 조명 패널" aria-expanded={toolsVisible} aria-controls="editor-tools-panel" onClick={() => togglePanel("tools")} />
           <IconTooltipButton icon={Undo2} label="실행 취소" disabled={isSaveOrRestoreBlocked || !past.length} onClick={() => void map.history("undo")} />
           <IconTooltipButton icon={Redo2} label="다시 실행" disabled={isSaveOrRestoreBlocked || !future.length} onClick={() => void map.history("redo")} />
@@ -503,10 +503,10 @@ export function FloorEditorView({
         <div ref={toolsPanel} id="editor-tools-panel" tabIndex={-1} aria-label="도구 및 조명"
           onDragStart={beginPanelDrag} onDragEnd={finishPanelDrag}
           onKeyDown={(event) => { if (event.key === "Escape") { event.stopPropagation(); if (!panelDragSource.current) closePanel("tools"); } }}
-          className={`${toolsVisible ? "flex" : "hidden"} ${isNarrowLayout ? "absolute inset-y-0 left-0 z-10 w-[min(280px,100%)] shadow-panel" : "w-60 shrink-0"} ${isToolPanelDragging ? "pointer-events-none opacity-0" : ""} min-h-0 min-w-0 flex-col overflow-y-auto overscroll-contain border-r border-border-default bg-surface-panel [&>aside]:flex-none [&>aside:first-child]:h-112`}><FixturePlacementList readOnly={readOnly || isMutationPending} rowRegistry={rowRegistry} onPlacementRequest={isNarrowLayout ? (fixtureId) => {
+          className={`${toolsVisible ? "flex" : "hidden"} ${isNarrowLayout ? "absolute inset-y-0 left-0 z-10 w-[min(280px,100%)] shadow-panel" : "w-60 shrink-0"} ${isToolPanelDragging ? "pointer-events-none opacity-0" : ""} min-h-0 min-w-0 flex-col overflow-y-auto overscroll-contain border-r border-border-default bg-surface-panel [&>aside]:flex-none [&>aside:first-child]:h-112`}><FixturePlacementList readOnly={readOnly || isMutationPending || (isNarrowLayout && !map.document)} rowRegistry={rowRegistry} onPlacementRequest={isNarrowLayout ? (fixtureId) => {
             const current = useFloorEditorStore.getState();
             const fixture = current.state?.fixtures.find((item) => item.id === fixtureId);
-            if (!fixture || fixture.placementStatus !== "unplaced" || !leaseToken || !leaseFence
+            if (!fixture || fixture.placementStatus !== "unplaced" || !map.document || !leaseToken || !leaseFence
               || current.state?.floor.id !== floorId || current.state.floor.siteId !== siteId
               || !current.layers.fixtures.visible || current.layers.fixtures.locked || current.lockedFixtureIds.includes(fixtureId)) return;
             setActiveTool("select");

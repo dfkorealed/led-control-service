@@ -12,9 +12,9 @@
 
 - [x] 미배치 조명 선택, 도구 패널 닫기, 맵 탭/재탭, 취소, 확인, 저장 전 dirty 상태의 실패 테스트를 작성·실행했다.
 - [x] 목록 callback과 상위 편집기 배치 초안, 캔버스 좌표 callback/마커를 구현했다.
-- [x] 읽기 전용·잠금·층 변경·도구 변경·범위 밖 탭·핀치/드래그/pointercancel·lease 소실 회귀를 추가했다.
+- [x] 맵 미준비·읽기 전용·잠금·층 변경·도구 변경·범위 밖 탭·핀치/드래그/pointercancel·lease 소실 회귀를 추가했다.
 - [x] 키보드 좌표 입력·초점 이동·확인 버튼 접근성 회귀를 추가했다.
-- [ ] 320/390 폭 Playwright 시나리오를 추가했으나 실행 환경의 포트 바인딩 `EPERM`으로 실제 브라우저 결과는 총괄 직렬 검증에서 확인한다.
+- [x] 준비된 수동 맵 320/390 폭 배치와 맵 미준비 320px 차단 Chromium 시나리오 3개가 통과했다. 셸 2행 수정으로 180px 이상 캔버스를 확보하고 배치 중에는 중앙을 덮던 미니맵을 숨긴다.
 
 ## Task 2: 편집 정보 위계
 
@@ -24,7 +24,7 @@
 
 ## 완료 기준
 
-- [x] 관련 집중 Vitest 105개가 통과했다.
+- [x] 관련 집중 Vitest 106개가 통과했다.
 - [x] Web 타입 검사가 통과했다.
 - [x] `docs/menus/settings.md`에 구현/한계/검증을 반영했다.
-- [x] 전체 build/Playwright, 실제 iOS/Android WebView는 총괄 직렬 검증으로 넘긴다. 이번 focused Playwright는 `--list` 2건을 확인했으나 개발 서버가 `EPERM`으로 포트를 열지 못했다.
+- [x] focused Chromium 3건을 실브라우저에서 검증했다. 전체 build/Playwright와 실제 iOS/Android WebView 검증은 총괄 직렬 게이트로 넘긴다.

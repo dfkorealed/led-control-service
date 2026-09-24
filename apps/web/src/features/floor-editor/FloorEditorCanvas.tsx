@@ -917,7 +917,7 @@ export function FloorEditorCanvas({
       <Button size="sm" variant="secondary" onClick={retryBackground}>도면 다시 시도</Button>
     </div> : null}
     {!cadReviewActive ? <FixturePlacementAction readOnly={readOnly} rowRegistry={rowRegistry} /> : null}
-    {!cadReviewActive ? <EditorMinimap /> : null}
+    {!cadReviewActive && !onPlacementPointChange ? <EditorMinimap /> : null}
   </div>;
 }
 

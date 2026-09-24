@@ -5,12 +5,16 @@ import type Konva from "konva";
 import type { FloorEditorState } from "../src/features/floor-editor/editor-types";
 import { expectNoHorizontalOverflow } from "./support/layout-assertions";
 
-async function editorFixture(page: Page, count = 24, alreadyPlaced = false, cadViewport?: { width: number; height: number }, slotCount = 0, objectCount = 0) {
+async function editorFixture(page: Page, count = 24, alreadyPlaced = false, cadViewport?: { width: number; height: number }, slotCount = 0, objectCount = 0, manualMap = false) {
   page.on("pageerror", (error) => console.error("Editor browser error", error.message));
   const states: Record<string, FloorEditorState> = Object.fromEntries([1, 2].map((floor) => [`floor-${floor}`, {
     floor: {
       id: `floor-${floor}`, siteId: "site-1", name: `B${floor}`, level: -floor, mapRevision: 1,
-      floorPlan: cadViewport && floor === 1 ? {
+      mapDocument: manualMap && floor === 1 ? {
+        formatVersion: 1, generationId: "manual-map-1", revision: 1, width: 1200, height: 800, gridSize: 10, elementCount: 0,
+        manifest: { assetId: "00000000-0000-4000-8000-000000000002", sha256: "a".repeat(64), byteSize: 1, decodedByteSize: 1 }
+      } : null,
+      floorPlan: manualMap && floor === 1 ? { sourceType: "none", imageUrl: "", width: 1200, height: 800, gridSize: 10, version: 1 } : cadViewport && floor === 1 ? {
         sourceType: "image", imageUrl: "/api/floors/floor-1/assets/cad/content", originalFileUrl: "/api/floors/floor-1/assets/source/content",
         renderedImageUrl: "/api/floors/floor-1/assets/cad/content", ...cadViewport, gridSize: 10, version: 1
       } : null
@@ -60,6 +64,23 @@ async function editorFixture(page: Page, count = 24, alreadyPlaced = false, cadV
       body: `<svg xmlns="http://www.w3.org/2000/svg" width="${cadViewport?.width ?? 1}" height="${cadViewport?.height ?? 1}"><rect width="100%" height="100%" fill="#fff"/><path d="M40 400H2360" stroke="#111827"/></svg>`
     });
     if (floorId && path.endsWith("/editor-lease")) return route.fulfill({ json: { editable: true, token: `lease-${floorId}`, fence: 1 } });
+    if (manualMap && floorId === "floor-1" && path.endsWith("/map-document")) {
+      return route.fulfill({ json: states[floorId].floor.mapDocument });
+    }
+    if (manualMap && floorId === "floor-1" && path.endsWith("/map-document/manifest")) {
+      const document = states[floorId].floor.mapDocument!;
+      return route.fulfill({ json: { generationId: document.generationId, revision: document.revision, canonical: document.manifest,
+        groups: [], layers: [{ id: "map", name: "Map", order: 0, visible: true, locked: false }], displayLayerBindings: [],
+        display: { version: 2, sceneId: "00000000-0000-4000-8000-000000000001", regionId: "manual", manifestAssetId: document.manifest.assetId,
+          width: document.width, height: document.height, padding: 0, gridSize: document.gridSize, tileSize: 512,
+          lodMode: "additive", primitiveCount: 0, tileCount: 0, byteSize: 1, sha256: "a".repeat(64),
+          sourceBounds: { minX: 0, minY: 0, maxX: document.width, maxY: document.height },
+          transform: { scaleX: 1, scaleY: 1, translateX: 0, translateY: 0 }, tiles: [] } } });
+    }
+    if (manualMap && floorId === "floor-1" && path.endsWith("/map-document/changes")) {
+      const document = states[floorId].floor.mapDocument!;
+      return route.fulfill({ json: { generationId: document.generationId, revision: document.revision, operations: [], nextCursor: null } });
+    }
     if (floorId && path.endsWith("/editor-revisions")) return route.fulfill({ json: { items: [], nextCursor: null } });
     if (floorId && path.endsWith("/editor-state")) {
       if (route.request().method() === "PUT") {
@@ -69,6 +90,7 @@ async function editorFixture(page: Page, count = 24, alreadyPlaced = false, cadV
         saves.push(body);
         states[floorId].fixtures = states[floorId].fixtures.map((f) => ({ ...f, ...body.fixtureUpdates.find((p: { id: string }) => p.id === f.id) }));
         states[floorId].floor.mapRevision++;
+        if (states[floorId].floor.mapDocument) states[floorId].floor.mapDocument.revision = states[floorId].floor.mapRevision;
       }
       return route.fulfill({ json: states[floorId] });
     }
@@ -79,16 +101,30 @@ async function editorFixture(page: Page, count = 24, alreadyPlaced = false, cadV
   return { states, saves };
 }
 
+test("mobile placement waits until the map document is ready", async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 740 });
+  const { saves } = await editorFixture(page, 1);
+  await page.getByRole("button", { name: "도구 및 조명 패널" }).click();
+  const row = page.getByTestId("placement-fixture-f1-1");
+  await expect(row).toHaveAttribute("draggable", "false");
+  await row.click();
+  await expect(page.getByText("편집할 맵을 준비해주세요.")).toBeVisible();
+  await expect(page.getByRole("region", { name: "조명 배치" })).toHaveCount(0);
+  expect(saves).toHaveLength(0);
+});
+
 for (const width of [320, 390]) {
   test(`mobile tap placement stays within ${width}px and saves only after confirmation`, async ({ page }) => {
     await page.setViewportSize({ width, height: width === 320 ? 740 : 844 });
-    const { saves } = await editorFixture(page, 1);
+    const { saves } = await editorFixture(page, 1, false, undefined, 0, 0, true);
+    await expect(page.getByTestId("floor-editor-canvas")).toHaveAttribute("data-map-ready", "true");
     await page.getByRole("button", { name: "도구 및 조명 패널" }).click();
     await page.getByTestId("placement-fixture-f1-1").click();
 
     const bar = page.getByRole("region", { name: "조명 배치" });
     const canvas = page.getByTestId("floor-editor-canvas");
     await expect(bar).toBeVisible();
+    await expect(page.getByRole("button", { name: "미니맵" })).toHaveCount(0);
     await expect(page.getByRole("button", { name: "이 위치에 배치" })).toBeDisabled();
     const canvasBox = (await canvas.boundingBox())!;
     const barBox = (await bar.boundingBox())!;
@@ -98,9 +134,11 @@ for (const width of [320, 390]) {
     await expectNoHorizontalOverflow(page);
 
     await canvas.click({ position: { x: canvasBox.width / 2, y: canvasBox.height / 2 } });
-    await expect(page.getByRole("button", { name: "이 위치에 배치" })).toBeEnabled();
+    const confirm = page.getByRole("button", { name: "이 위치에 배치" });
+    await expect(confirm).toBeEnabled();
     expect(saves).toHaveLength(0);
     await page.getByRole("button", { name: "이 위치에 배치" }).click();
+    await expect(page.getByRole("button", { name: "미니맵" })).toBeVisible();
     await page.getByRole("button", { name: "저장" }).click();
     await expect.poll(() => saves.length).toBe(1);
     expect((saves[0] as { fixtureUpdates: Array<{ id: string; placementStatus: string }> }).fixtureUpdates)
