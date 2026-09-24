@@ -50,6 +50,12 @@ export function StatisticsReportsPage() {
   const [retryError, setRetryError] = useState("");
   const [retryingReportId, setRetryingReportId] = useState<string>();
   const retainedPageRef = useRef<RetainedReportPage>();
+  const refreshErrorScopeRef = useRef<string>();
+  const reportListRef = useRef<HTMLElement>(null);
+  const retryFocusKeyRef = useRef<string>();
+  const retryFocusOriginRef = useRef<HTMLButtonElement>();
+  const retryObservedFetchingRef = useRef(false);
+  const retryRequestKeyRef = useRef<string>();
   const siteIdRef = useRef(siteId);
   siteIdRef.current = siteId;
   const scopeKey = reportScopeKey(siteId, filters);
@@ -72,7 +78,64 @@ export function StatisticsReportsPage() {
   if (currentPage) retainedPageRef.current = currentPage;
   const retainedPageForScope = retainedPageRef.current?.scopeKey === scopeKey ? retainedPageRef.current : undefined;
   const displayedPage = currentPage ?? retainedPageForScope;
-  const hasRefreshError = Boolean(reports.isError && retainedPageForScope);
+  if (currentPage || refreshErrorScopeRef.current !== scopeKey) refreshErrorScopeRef.current = undefined;
+  if (reports.isError && retainedPageForScope) refreshErrorScopeRef.current = scopeKey;
+  // Keep the recovery control mounted while its retry is pending, so focus can
+  // return to the same trigger even when the retry fails again.
+  const hasRefreshError = Boolean(retainedPageForScope && refreshErrorScopeRef.current === scopeKey);
+  const requestKey = JSON.stringify([scopeKey, activePageState.currentCursor ?? null]);
+
+  useEffect(() => {
+    if (!retryFocusKeyRef.current) return;
+    if (retryFocusKeyRef.current !== requestKey) {
+      retryFocusKeyRef.current = undefined;
+      retryFocusOriginRef.current = undefined;
+      retryObservedFetchingRef.current = false;
+      return;
+    }
+    if (reports.isFetching) {
+      retryObservedFetchingRef.current = true;
+      return;
+    }
+    if (hasRefreshError) {
+      if (reports.isError && retryObservedFetchingRef.current) {
+        retryFocusKeyRef.current = undefined;
+        retryFocusOriginRef.current = undefined;
+      }
+      retryObservedFetchingRef.current = false;
+      return;
+    }
+    const origin = retryFocusOriginRef.current;
+    const active = document.activeElement;
+    // Recover focus only if the retry's own trigger still owns it, or if
+    // removing that trigger left the browser focus on the document body.
+    const shouldRestoreFocus = Boolean(origin && (active === origin || (active === document.body && !origin.isConnected)));
+    retryFocusKeyRef.current = undefined;
+    retryFocusOriginRef.current = undefined;
+    retryObservedFetchingRef.current = false;
+    if (currentPage && shouldRestoreFocus) reportListRef.current?.focus();
+  }, [currentPage, hasRefreshError, reports.isError, reports.isFetching, requestKey]);
+
+  function retryList(trigger: HTMLButtonElement | null) {
+    if (reports.isFetching || retryRequestKeyRef.current === requestKey) return;
+    retryRequestKeyRef.current = requestKey;
+    retryFocusKeyRef.current = requestKey;
+    retryFocusOriginRef.current = trigger ?? undefined;
+    retryObservedFetchingRef.current = false;
+    Promise.resolve(reports.refetch()).then((result) => {
+      if (result?.isError && retryFocusKeyRef.current === requestKey) {
+        retryFocusKeyRef.current = undefined;
+        retryFocusOriginRef.current = undefined;
+      }
+      if (retryRequestKeyRef.current === requestKey) retryRequestKeyRef.current = undefined;
+    }, () => {
+      if (retryFocusKeyRef.current === requestKey) {
+        retryFocusKeyRef.current = undefined;
+        retryFocusOriginRef.current = undefined;
+      }
+      if (retryRequestKeyRef.current === requestKey) retryRequestKeyRef.current = undefined;
+    });
+  }
 
   function syncLocation(nextFilters: ReportHistoryFilterState, nextPageState: ReportCursorPageState, replace = false) {
     setSearchParams(writeReportLocation(nextFilters, siteId), {
@@ -158,11 +221,11 @@ export function StatisticsReportsPage() {
       actions={<Button variant="primary" onClick={() => setIsDialogOpen(true)}><FileText size={16} />보고서 만들기</Button>} />
     <Text variant="body-sm" tone="muted">보고서와 CSV 비용은 당시 적용 단가의 저장 비용입니다.</Text>
     <ReportHistoryFilters value={filters} onChange={resetToFirstPage} />
-    <ReportJobList reports={displayedPage?.data.reports} timeZone={targets.data?.timeZone}
+    <ReportJobList reports={displayedPage?.data.reports} timeZone={targets.data?.timeZone} focusTargetRef={reportListRef}
       isLoading={(reports.isLoading || reports.isPlaceholderData || !siteId) && !displayedPage}
       isError={Boolean(reports.isError && !displayedPage)} hasRefreshError={hasRefreshError}
       isBusy={reports.isFetching}
-      retryingReportId={retryingReportId} onRetry={() => void reports.refetch()} onRegenerate={(job) => void regenerate(job)} onDownload={(job) => void download(job)} />
+      retryingReportId={retryingReportId} onRetry={retryList} onRegenerate={(job) => void regenerate(job)} onDownload={(job) => void download(job)} />
     <PaginationBar
       page={displayedPage?.pageState.page ?? activePageState.page}
       pageSize={filters.limit}

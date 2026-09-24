@@ -5,7 +5,7 @@ import { Activity, ArrowDownAZ, ArrowUpAZ, BarChart3, TriangleAlert } from "luci
 import { useEffect, useMemo, useState } from "react";
 import { useOutletContext } from "react-router-dom";
 import { useEnergyHeatmap, useEnergyRankings } from "../../../api/energy";
-import { Button, Card, DatePicker, FeedbackState, formatIsoDate, MetricCard, PageHeader, SelectBox, StatusBadge, Text } from "../../../components/ui";
+import { Button, Card, DatePicker, FeedbackState, formatIsoDate, MetricCard, PageHeader, SelectBox, StatusBadge, StatusDetailButton, Text } from "../../../components/ui";
 import type { StatisticsOutletContext } from "../StatisticsShell";
 import { EnergyRankingDetailPanel } from "./EnergyRankingDetailPanel";
 import { EnergyHeatmap } from "./EnergyHeatmap";
@@ -68,7 +68,11 @@ export function StatisticsAnalysisPage() {
         description={<Text variant="body-sm" tone="secondary">
           분석 선택 기간 {query.data.range.from} ~ {query.data.range.to} · {query.data.timeZone} · 순위·상세에 적용. 히트맵은 별도 완료 기간입니다.
         </Text>}
-        status={<StatusBadge tone="info" icon={BarChart3}>상태 기반 추정</StatusBadge>}
+        status={<>
+          <StatusBadge tone="info" icon={BarChart3}>상태 기반 추정</StatusBadge>
+          {query.data.overlappingMemberships ? <StatusDetailButton label="그룹 중복" description="그룹 중복 소속 조명은 각 그룹에 포함됩니다. 그룹 합계는 현장 총계와 다를 수 있습니다." /> : null}
+          {query.data.legacyExcludedBefore ? <StatusDetailButton label="과거 이력 제외" description={`${query.data.legacyExcludedBefore} 이전 구조 이력은 순위에서 제외하고 현장 총계에만 포함했습니다.`} /> : null}
+        </>}
       />
       <Card className="flex min-w-0 flex-wrap items-end gap-3 p-4 max-compact:items-stretch" aria-label="사용량 분석 조건">
         <div className="flex flex-wrap gap-2 max-compact:w-full" aria-label="분석 단위">
@@ -85,8 +89,6 @@ export function StatisticsAnalysisPage() {
           {sort === "desc" ? <ArrowDownAZ size={16} /> : <ArrowUpAZ size={16} />}{sort === "desc" ? "높은 순" : "낮은 순"}
         </Button>
       </Card>
-      {query.data.overlappingMemberships ? <Text role="status" variant="body-sm" tone="warning" className="rounded-control border border-status-warning-border bg-status-warning-background p-3">그룹 중복 소속 조명은 각 그룹에 포함됩니다. 그룹 합계는 현장 총계와 다를 수 있습니다.</Text> : null}
-      {query.data.legacyExcludedBefore ? <Text role="status" variant="body-sm" tone="warning" className="rounded-control border border-status-warning-border bg-status-warning-background p-3">{query.data.legacyExcludedBefore} 이전 구조 이력은 순위에서 제외하고 현장 총계에만 포함했습니다.</Text> : null}
       <div className="grid grid-cols-3 gap-3 max-compact:grid-cols-1">
         <MetricCard label="현장 사용량" value={query.data.siteTotalKwh.toLocaleString("ko-KR")} unit="kWh" tone="primary" />
         <MetricCard label="저장 비용" value={Math.round(query.data.siteTotalCost).toLocaleString("ko-KR")} unit="원" />

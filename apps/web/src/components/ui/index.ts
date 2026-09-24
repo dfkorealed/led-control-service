@@ -76,5 +76,7 @@ export type { SessionStatusCenterHandle } from "./session-status/SessionStatusCe
 export { ToastRegion } from "./session-status/ToastRegion";
 export { StatusBadge } from "./StatusBadge";
 export type { StatusTone, StatusBadgeProps } from "./StatusBadge";
+export { StatusDetailButton } from "./StatusDetailButton";
+export type { StatusDetailButtonProps } from "./StatusDetailButton";
 export { UnderlineNavigation, UnderlineNavigationLabel } from "./UnderlineNavigation";
 export type { UnderlineNavigationProps, UnderlineNavigationLabelProps } from "./UnderlineNavigation";

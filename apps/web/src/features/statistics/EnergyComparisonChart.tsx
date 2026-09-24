@@ -9,7 +9,7 @@ import {
   XAxis,
   YAxis
 } from "recharts";
-import { Text, themeColor } from "../../components/ui";
+import { StatusDetailButton, Text, themeColor } from "../../components/ui";
 import {
   formatComparisonPeriod,
   formatCoverage,
@@ -38,6 +38,7 @@ export function comparisonChartData(points: EnergyComparisonPoint[]): Comparison
 
 export function EnergyComparisonChart({ comparison }: { comparison: EnergyComparisonResponse }) {
   const data = comparisonChartData(comparison.points);
+  const hasUnavailablePeriod = data.some((point) => point.phase === "unavailable");
 
   return (
     <>
@@ -84,15 +85,13 @@ export function EnergyComparisonChart({ comparison }: { comparison: EnergyCompar
           </ComposedChart>
         </ResponsiveContainer>
       </div>
-      <Text variant="caption" tone="muted">24시간 100% · 현재 등록 조명 기준</Text>
+      <div className="flex min-w-0 flex-wrap items-center gap-2">
+        <Text variant="caption" tone="muted">24시간 100% · 현재 등록 조명 기준</Text>
+        {hasUnavailablePeriod ? <StatusDetailButton label="산정 불가 기간" description="선이 없는 기간은 사용량을 산정할 수 없으며 기준 사용량만 표시합니다." /> : null}
+      </div>
       <ul className="sr-only" aria-label="기준 대비 에너지 비교 데이터">
         {data.map((point) => <li key={point.period}>{describeComparisonPoint(point)}</li>)}
       </ul>
-      {data.some((point) => point.phase === "unavailable") ? (
-        <Text variant="body-sm" tone="warning" className="rounded-control border border-status-warning-border bg-status-warning-background p-3">
-          선이 없는 기간은 사용량을 산정할 수 없으며 기준 사용량만 표시합니다.
-        </Text>
-      ) : null}
     </>
   );
 }

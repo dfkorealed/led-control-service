@@ -67,15 +67,21 @@ describe("StatisticsAnalysisPage", () => {
     );
   });
 
-  it("explains overlapping group totals and excluded legacy history", () => {
+  it("keeps overlapping group and excluded legacy explanations in contextual warnings", async () => {
     mocks.hook.mockReturnValue({
       data: { ...response, dimension: "group", overlappingMemberships: true, legacyExcludedBefore: "2026-09-01" },
       isLoading: false, isError: false, refetch: vi.fn()
     });
     renderPage();
 
-    expect(screen.getByText(/그룹 중복 소속/)).toBeInTheDocument();
-    expect(screen.getByText(/2026-09-01 이전 구조 이력/)).toBeInTheDocument();
+    expect(screen.queryByText(/그룹 중복 소속 조명은 각 그룹에 포함됩니다/)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "그룹 중복 안내" }));
+    const overlapDetails = await screen.findByRole("dialog", { name: "그룹 중복 안내" });
+    expect(overlapDetails).toHaveTextContent("그룹 합계는 현장 총계와 다를 수 있습니다.");
+    fireEvent.keyDown(overlapDetails, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "그룹 중복 안내" })).not.toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "과거 이력 제외 안내" }));
+    expect(await screen.findByRole("dialog", { name: "과거 이력 제외 안내" })).toHaveTextContent("2026-09-01 이전 구조 이력은 순위에서 제외하고 현장 총계에만 포함했습니다.");
   });
 
   it("only enables the first heatmap request after resolving its site-local 28 completed-day window", async () => {

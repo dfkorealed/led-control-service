@@ -623,8 +623,87 @@ test("navigates to usage analysis and drills into fixture, floor, and group rank
   const groupRequest = page.waitForRequest((request) => request.url().includes("dimension=group"));
   await page.getByRole("button", { name: "그룹" }).click();
   await groupRequest;
-  await expect(page.getByText(/그룹 중복 소속/)).toBeVisible();
+  await page.getByRole("button", { name: "그룹 중복 안내" }).click();
+  await expect(page.getByRole("dialog", { name: "그룹 중복 안내" })).toContainText("그룹 합계는 현장 총계와 다를 수 있습니다.");
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("dialog", { name: "그룹 중복 안내" })).not.toBeVisible();
+  await expect(page.getByRole("button", { name: "그룹 중복 안내" })).toBeFocused();
   await expectNoHorizontalOverflow(page);
+});
+
+test("returns focus to a retained report warning after its retry action", async ({ page }) => {
+  let retryRequests = 0;
+  let finishRetry: () => void = () => undefined;
+  const pendingRetry = new Promise<void>((resolve) => { finishRetry = resolve; });
+  await page.route("**/energy/sites/*/reports*", async (route) => {
+    if (new URL(route.request().url()).searchParams.has("cursor")) {
+      retryRequests++;
+      if (retryRequests === 3) await pendingRetry;
+      return route.fulfill({ status: 500, json: { message: "failed" } });
+    }
+    return route.fulfill({ json: { reports: [browserReport("completed")], nextCursor: "next-page", totalCount: 2 } });
+  });
+
+  await page.goto(`/statistics/reports?siteId=${reportSiteId}`);
+  await expect(page.getByRole("navigation", { name: "페이지 이동" }).getByRole("button", { name: "다음 페이지" })).toBeEnabled();
+  await page.getByRole("navigation", { name: "페이지 이동" }).getByRole("button", { name: "다음 페이지" }).click();
+  const warning = page.getByRole("button", { name: "목록 갱신 실패 안내" });
+  await warning.click();
+  await page.getByRole("dialog", { name: "목록 갱신 실패 안내" }).getByRole("button", { name: "다시 시도" }).click();
+  await expect.poll(() => retryRequests).toBeGreaterThanOrEqual(3);
+  await warning.click();
+  const busyDetails = page.getByRole("dialog", { name: "목록 갱신 실패 안내" });
+  await expect(busyDetails.getByRole("status")).toHaveText("확인 중");
+  await expect(busyDetails.getByRole("button", { name: "다시 시도" })).toHaveCount(0);
+  expect(retryRequests).toBe(3);
+  await page.keyboard.press("Escape");
+  finishRetry();
+  await expect(warning).toBeFocused();
+});
+
+test("moves focus to the report list after a successful warning retry", async ({ page }) => {
+  let cursorRequests = 0;
+  await page.route("**/energy/sites/*/reports*", (route) => {
+    if (new URL(route.request().url()).searchParams.has("cursor")) {
+      cursorRequests++;
+      if (cursorRequests <= 2) return route.fulfill({ status: 500, json: { message: "failed" } });
+      return route.fulfill({ json: { reports: [browserReport("completed")], nextCursor: null, totalCount: 2 } });
+    }
+    return route.fulfill({ json: { reports: [browserReport("completed")], nextCursor: "next-page", totalCount: 2 } });
+  });
+
+  await page.goto(`/statistics/reports?siteId=${reportSiteId}`);
+  await page.getByRole("navigation", { name: "페이지 이동" }).getByRole("button", { name: "다음 페이지" }).click();
+  await page.getByRole("button", { name: "목록 갱신 실패 안내" }).click();
+  await page.getByRole("dialog", { name: "목록 갱신 실패 안내" }).getByRole("button", { name: "다시 시도" }).click();
+  await expect(page.getByRole("button", { name: "목록 갱신 실패 안내" })).toHaveCount(0);
+  await expect(page.getByRole("region", { name: "요청한 보고서" })).toBeFocused();
+});
+
+test("keeps search focus when a pending warning retry later succeeds", async ({ page }) => {
+  let cursorRequests = 0;
+  let finishRetry: () => void = () => undefined;
+  const pendingRetry = new Promise<void>((resolve) => { finishRetry = resolve; });
+  await page.route("**/energy/sites/*/reports*", async (route) => {
+    if (new URL(route.request().url()).searchParams.has("cursor")) {
+      cursorRequests++;
+      if (cursorRequests <= 2) return route.fulfill({ status: 500, json: { message: "failed" } });
+      await pendingRetry;
+      return route.fulfill({ json: { reports: [browserReport("completed")], nextCursor: null, totalCount: 2 } });
+    }
+    return route.fulfill({ json: { reports: [browserReport("completed")], nextCursor: "next-page", totalCount: 2 } });
+  });
+
+  await page.goto(`/statistics/reports?siteId=${reportSiteId}`);
+  await page.getByRole("navigation", { name: "페이지 이동" }).getByRole("button", { name: "다음 페이지" }).click();
+  await page.getByRole("button", { name: "목록 갱신 실패 안내" }).click();
+  await page.getByRole("dialog", { name: "목록 갱신 실패 안내" }).getByRole("button", { name: "다시 시도" }).click();
+  await expect.poll(() => cursorRequests).toBeGreaterThanOrEqual(3);
+  const search = page.getByRole("searchbox", { name: "보고서 검색" });
+  await search.focus();
+  finishRetry();
+  await expect(page.getByRole("button", { name: "목록 갱신 실패 안내" })).toHaveCount(0);
+  await expect(search).toBeFocused();
 });
 
 test("shows energy cards, daily and monthly lines, partial coverage and savings", async ({ page }) => {
@@ -769,6 +848,7 @@ test("retries comparison failures without hiding existing usage cards", async ({
 });
 
 test("shows the no-data state without zero usage cards", async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 740 });
   await page.route("**/energy/sites/site-empty/summary", (route) => route.fulfill({
     contentType: "application/json",
     body: JSON.stringify(noDataSummary("site-empty"))
@@ -778,6 +858,10 @@ test("shows the no-data state without zero usage cards", async ({ page }) => {
   await expect(page.getByText("아직 상태 기반 사용량을 표시할 수 없습니다.")).toBeVisible();
   await expect(page.getByText("조명 상태가 수집되면 통계가 표시됩니다.")).toBeVisible();
   await expect(page.getByLabel("오늘 전력 사용량")).toHaveCount(0);
+  await expectMinimumTouchTargetsAfterScrolling(page, '[aria-label="기준 대비 사용량 비교"]');
+  await page.getByRole("button", { name: "산정 불가 기간 안내" }).click();
+  await expect(page.getByRole("dialog", { name: "산정 불가 기간 안내" })).toContainText("기준 사용량만 표시합니다.");
+  await expectNoHorizontalOverflow(page);
 });
 
 test("retries a summary failure and keeps cards during a series failure", async ({ page }) => {

@@ -1,4 +1,4 @@
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import { EnergyComparisonChart, comparisonChartData, forecastLineStyle } from "./EnergyComparisonChart";
 import { makeEnergyComparison } from "./statistics-test-fixtures";
@@ -40,5 +40,14 @@ describe("EnergyComparisonChart", () => {
       .toBeInTheDocument();
     expect(screen.getByText("2026년 9월 4일: 기준 100 kWh, 사용량 산정 불가, 수집률 산정 불가"))
       .toBeInTheDocument();
+  });
+
+  it("explains unavailable periods from a compact chart context instead of a separate warning row", async () => {
+    render(<EnergyComparisonChart comparison={makeEnergyComparison()} />);
+
+    expect(screen.queryByText("선이 없는 기간은 사용량을 산정할 수 없으며 기준 사용량만 표시합니다.")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "산정 불가 기간 안내" }));
+    expect(await screen.findByRole("dialog", { name: "산정 불가 기간 안내" })).toHaveTextContent("기준 사용량만 표시합니다.");
+    expect(screen.getByText("2026년 9월 4일: 기준 100 kWh, 사용량 산정 불가, 수집률 산정 불가")).toBeInTheDocument();
   });
 });

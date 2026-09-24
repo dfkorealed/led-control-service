@@ -225,12 +225,17 @@ describe("StatisticsReportsPage", () => {
     secondPageState = "failed";
     view.rerender(pageTree(siteId, queryClient));
 
-    expect(await screen.findByRole("alert")).toHaveTextContent("보고서 목록을 새로 불러오지 못했습니다. 기존 결과를 표시합니다.");
+    const refreshNotice = await screen.findByRole("button", { name: "목록 갱신 실패 안내" });
+    expect(refreshNotice).toHaveClass("border-status-danger-border");
+    expect(screen.queryByText("보고서 목록을 새로 불러오지 못했습니다. 기존 결과를 표시합니다.")).not.toBeInTheDocument();
     expect(screen.getAllByText("대상 1")).toHaveLength(2);
     expect(screen.getByText("1~20 / 101건")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "이전 페이지" })).toBeEnabled();
     expect(document.body).not.toHaveTextContent("raw-next-page-secret");
-    fireEvent.click(within(screen.getByRole("alert")).getByRole("button", { name: "다시 시도" }));
+    fireEvent.click(refreshNotice);
+    const refreshDetails = await screen.findByRole("dialog", { name: "목록 갱신 실패 안내" });
+    expect(refreshDetails).toHaveTextContent("보고서 목록을 새로 불러오지 못했습니다. 기존 결과를 표시합니다.");
+    fireEvent.click(within(refreshDetails).getByRole("button", { name: "다시 시도" }));
     expect(retry).toHaveBeenCalledOnce();
   });
 
@@ -255,12 +260,79 @@ describe("StatisticsReportsPage", () => {
     backgroundFailed = true;
     view.rerender(pageTree(siteId, queryClient));
 
-    expect(await screen.findByRole("alert")).toHaveTextContent("보고서 목록을 새로 불러오지 못했습니다. 기존 결과를 표시합니다.");
+    const refreshNotice = await screen.findByRole("button", { name: "목록 갱신 실패 안내" });
+    expect(screen.queryByText("보고서 목록을 새로 불러오지 못했습니다. 기존 결과를 표시합니다.")).not.toBeInTheDocument();
     expect(screen.getAllByText("대상 1")).toHaveLength(2);
     expect(screen.getByText("1~20 / 101건")).toBeInTheDocument();
     expect(document.body).not.toHaveTextContent("raw-background-secret");
-    fireEvent.click(within(screen.getByRole("alert")).getByRole("button", { name: "다시 시도" }));
+    fireEvent.click(refreshNotice);
+    const refreshDetails = await screen.findByRole("dialog", { name: "목록 갱신 실패 안내" });
+    expect(refreshDetails).toHaveTextContent("보고서 목록을 새로 불러오지 못했습니다. 기존 결과를 표시합니다.");
+    fireEvent.click(within(refreshDetails).getByRole("button", { name: "다시 시도" }));
     expect(retry).toHaveBeenCalledOnce();
+  });
+
+  it("does not steal focus after retry when the user switches cursor pages", async () => {
+    const retry = vi.fn(() => new Promise(() => undefined));
+    reportsApi.reports.mockImplementation((_activeSiteId: string, query: { cursor?: string }) => query.cursor
+      ? {
+          data: undefined,
+          isLoading: false,
+          isError: true,
+          isFetching: false,
+          isPlaceholderData: false,
+          refetch: retry
+        }
+      : reportQueryResult(pageJobs(1, 20), { nextCursor: "cursor-20", totalCount: 40 }));
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "다음 페이지" }));
+    const warning = await screen.findByRole("button", { name: "목록 갱신 실패 안내" });
+    fireEvent.click(warning);
+    fireEvent.click(within(await screen.findByRole("dialog", { name: "목록 갱신 실패 안내" }))
+      .getByRole("button", { name: "다시 시도" }));
+    expect(retry).toHaveBeenCalledOnce();
+
+    const previous = screen.getByRole("button", { name: "이전 페이지" });
+    previous.focus();
+    fireEvent.click(previous);
+    await waitFor(() => expect(screen.getByText("1~20 / 40건")).toBeInTheDocument());
+    expect(screen.queryByRole("button", { name: "목록 갱신 실패 안내" })).not.toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "요청한 보고서" })).not.toHaveFocus();
+  });
+
+  it("does not focus the list on an unrelated refresh after a failed retry", async () => {
+    const retry = vi.fn(() => new Promise(() => undefined));
+    let cursorState: "failed" | "pending" | "recovered" = "failed";
+    reportsApi.reports.mockImplementation((_activeSiteId: string, query: { cursor?: string }) => {
+      if (!query.cursor) return reportQueryResult(pageJobs(1, 20), { nextCursor: "cursor-20", totalCount: 40 });
+      if (cursorState === "recovered") return reportQueryResult(pageJobs(21, 20), { nextCursor: null, totalCount: 40 });
+      return {
+        data: undefined,
+        isLoading: false,
+        isError: cursorState === "failed",
+        isFetching: cursorState === "pending",
+        isPlaceholderData: false,
+        refetch: retry
+      };
+    });
+    const queryClient = new QueryClient();
+    const view = render(pageTree(siteId, queryClient));
+    fireEvent.click(screen.getByRole("button", { name: "다음 페이지" }));
+    fireEvent.click(await screen.findByRole("button", { name: "목록 갱신 실패 안내" }));
+    fireEvent.click(within(await screen.findByRole("dialog", { name: "목록 갱신 실패 안내" }))
+      .getByRole("button", { name: "다시 시도" }));
+    cursorState = "pending";
+    view.rerender(pageTree(siteId, queryClient));
+    expect(screen.getByRole("region", { name: "요청한 보고서" })).toHaveAttribute("aria-busy", "true");
+    cursorState = "failed";
+    view.rerender(pageTree(siteId, queryClient));
+    const search = screen.getByRole("searchbox", { name: "보고서 검색" });
+    search.focus();
+
+    cursorState = "recovered";
+    view.rerender(pageTree(siteId, queryClient));
+    expect(search).toHaveFocus();
+    expect(screen.getByRole("region", { name: "요청한 보고서" })).not.toHaveFocus();
   });
 
   it.each(["site", "filter"] as const)("never reuses retained rows for a different %s scope", async (scope) => {
