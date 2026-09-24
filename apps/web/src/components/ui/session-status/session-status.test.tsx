@@ -121,6 +121,7 @@ describe("session status feedback", () => {
   it("opens the status center as a named dialog and returns focus after Escape", async () => {
     render(<SessionStatusProvider><QueryStatusHarness fingerprint="1" /></SessionStatusProvider>);
     const trigger = screen.getByRole("button", { name: "상태 센터, 미해결 1건" });
+    expect(trigger).toHaveClass("min-h-13", "min-w-13");
     fireEvent.click(trigger);
 
     const dialog = await screen.findByRole("dialog", { name: "현재 세션 상태" });

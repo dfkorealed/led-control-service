@@ -111,6 +111,7 @@ export function useSessionToast(): {
 - [x] success/info/warning/danger toast의 기본 표시 시간, 수동 닫기, 같은 `dedupeKey` 갱신, 최대 표시 개수와 timer 정리를 RED로 고정한다.
 - [x] `SessionStatusProvider`, `useSessionStatus`, `useSessionToast`, `SessionStatusCenter`, `ToastRegion`을 Tailwind token과 공통 Button/Popover만 사용해 구현한다.
 - [x] 상태 센터 trigger의 `aria-expanded`/`aria-controls`, dialog label, Escape 닫기, trigger focus 복귀, toast의 `role=status|alert`를 테스트한다. 바깥 클릭은 공통 `Popover`의 기존 overlay 회귀로 유지한다.
+- [x] 둥근 모서리 hit-test에서도 연속 44×44 영역이 확보되도록 상태 센터 trigger를 디자인 토큰 `min-h-13 min-w-13`(52px)로 고정한다.
 - [x] `components/ui/index.ts`에 위 public contract를 export하고 overlay bundle gate에 실제 consumer를 추가한다.
 - [x] Run: `pnpm --filter @led-control/web test -- src/components/ui/session-status/session-status.test.tsx src/components/ui/overlays/overlays.test.tsx src/components/ui/ui-primitives.test.tsx` — 3 files, 85 tests passed.
 - [ ] Run: `pnpm --filter @led-control/web test:overlay-bundle` — 총괄의 병렬 build 금지 지시에 따라 최종 직렬 통합 gate로 이관.
@@ -150,6 +151,7 @@ export function useSessionToast(): {
 
 - [ ] Chromium fixture에 복수 인가 현장, Gateway 전체/부분/없음, site/dashboard 실패와 인증 timeout을 추가한다.
 - [ ] 320/390/1024/1440px에서 전역 현장 전환, Gateway aggregate, 상태 센터 open/Escape/focus return, toast dedupe/resolution, touch/overflow를 검증한다.
+  - 2026-09-24: Shell의 390/320px touch/overflow 계약 재검증 2건 통과. 전체 viewport·기능 조합은 총괄 통합 gate에 유지한다.
 - [ ] 로그인 401/403/429/5xx/transport/timeout 및 `/auth/me` fail-closed 복구를 관련 Chromium spec으로 검증한다.
 - [ ] Run: `pnpm --filter @led-control/web exec playwright test e2e/calm-operations-shell.spec.ts e2e/calm-operations-auth-operator.spec.ts --project=chromium --workers=1`
 - [x] focused unit 결과와 전역 selector/Gateway/status center/인증 복구의 메뉴 문서 반영 필요 사항을 총괄에게 전달한다. 후속 접근성 보완 포함 인증·상태 센터·Shell/Settings 14 files, 251 tests, Web typecheck, UI policy(0 existing/0 new)가 통과했다. Chromium 및 전체 Web test/build와 정본 문서 갱신은 총괄 통합 단계에서 직렬 실행한다.
