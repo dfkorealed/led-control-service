@@ -79,6 +79,35 @@ async function editorFixture(page: Page, count = 24, alreadyPlaced = false, cadV
   return { states, saves };
 }
 
+for (const width of [320, 390]) {
+  test(`mobile tap placement stays within ${width}px and saves only after confirmation`, async ({ page }) => {
+    await page.setViewportSize({ width, height: width === 320 ? 740 : 844 });
+    const { saves } = await editorFixture(page, 1);
+    await page.getByRole("button", { name: "도구 및 조명 패널" }).click();
+    await page.getByTestId("placement-fixture-f1-1").click();
+
+    const bar = page.getByRole("region", { name: "조명 배치" });
+    const canvas = page.getByTestId("floor-editor-canvas");
+    await expect(bar).toBeVisible();
+    await expect(page.getByRole("button", { name: "이 위치에 배치" })).toBeDisabled();
+    const canvasBox = (await canvas.boundingBox())!;
+    const barBox = (await bar.boundingBox())!;
+    expect(canvasBox.height).toBeGreaterThanOrEqual(180);
+    expect(barBox.y).toBeGreaterThanOrEqual(canvasBox.y + canvasBox.height - 1);
+    expect(barBox.x + barBox.width).toBeLessThanOrEqual(width);
+    await expectNoHorizontalOverflow(page);
+
+    await canvas.click({ position: { x: canvasBox.width / 2, y: canvasBox.height / 2 } });
+    await expect(page.getByRole("button", { name: "이 위치에 배치" })).toBeEnabled();
+    expect(saves).toHaveLength(0);
+    await page.getByRole("button", { name: "이 위치에 배치" }).click();
+    await page.getByRole("button", { name: "저장" }).click();
+    await expect.poll(() => saves.length).toBe(1);
+    expect((saves[0] as { fixtureUpdates: Array<{ id: string; placementStatus: string }> }).fixtureUpdates)
+      .toEqual([expect.objectContaining({ id: "f1-1", placementStatus: "placed" })]);
+  });
+}
+
 test("a normalized CAD map fits once and preserves subsequent user zoom", async ({ page }) => {
   await page.setViewportSize({ width: 1_440, height: 900 });
   await editorFixture(page, 24, false, { width: 2_400, height: 800 });

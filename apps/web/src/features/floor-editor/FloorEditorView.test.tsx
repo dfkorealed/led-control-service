@@ -481,6 +481,231 @@ describe("FloorEditorView", () => {
     expect(screen.getByRole("checkbox", { name: "격자 스냅" }).closest("[data-field]")).toBeInTheDocument();
   });
 
+  it("모바일에서 미배치 조명을 선택하고 맵을 다시 탭해 위치를 확인한 뒤 저장 대기로 둔다", () => {
+    vi.stubGlobal("matchMedia", () => ({ matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn() }));
+    const state = structuredClone(editorState);
+    state.fixtures[0].placementStatus = "unplaced";
+    state.fixtures[0].x = 0;
+    state.fixtures[0].y = 0;
+    state.lightSlots = [];
+    renderEditor(state);
+
+    fireEvent.click(screen.getByRole("button", { name: "도구 및 조명 패널" }));
+    fireEvent.click(screen.getByTestId("placement-fixture-fixture-1"));
+    expect(screen.getByRole("region", { name: "조명 배치" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "이 위치에 배치" })).toBeDisabled();
+    expect(useFloorEditorStore.getState().state?.fixtures[0].placementStatus).toBe("unplaced");
+
+    const canvas = screen.getByTestId("floor-editor-canvas");
+    fireEvent.mouseDown(canvas, { clientX: 110, clientY: 130 });
+    fireEvent.mouseUp(canvas, { clientX: 110, clientY: 130 });
+    fireEvent.mouseDown(canvas, { clientX: 240, clientY: 260 });
+    fireEvent.mouseUp(canvas, { clientX: 240, clientY: 260 });
+    expect(useFloorEditorStore.getState().state?.fixtures[0].placementStatus).toBe("unplaced");
+    fireEvent.click(screen.getByRole("button", { name: "이 위치에 배치" }));
+    expect(useFloorEditorStore.getState().state?.fixtures[0]).toEqual(expect.objectContaining({ placementStatus: "placed", x: 240, y: 260 }));
+    expect(useFloorEditorStore.getState().isDirty).toBe(true);
+    expect(screen.getByRole("button", { name: "저장" })).toBeEnabled();
+  });
+
+  it("모바일 배치 취소와 층 전환은 확인 전 임시 위치를 버린다", () => {
+    vi.stubGlobal("matchMedia", () => ({ matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn() }));
+    const state = structuredClone(editorState);
+    state.fixtures[0].placementStatus = "unplaced";
+    state.lightSlots = [];
+    const view = renderEditor(state);
+    fireEvent.click(screen.getByRole("button", { name: "도구 및 조명 패널" }));
+    fireEvent.click(screen.getByTestId("placement-fixture-fixture-1"));
+    fireEvent.click(screen.getByRole("button", { name: "배치 취소" }));
+    expect(screen.queryByRole("region", { name: "조명 배치" })).not.toBeInTheDocument();
+    expect(useFloorEditorStore.getState().isDirty).toBe(false);
+
+    fireEvent.click(screen.getByTestId("placement-fixture-fixture-1"));
+    const other = structuredClone(state);
+    other.floor.id = "floor-b1";
+    view.rerenderEditor(other);
+    expect(screen.queryByRole("region", { name: "조명 배치" })).not.toBeInTheDocument();
+    expect(useFloorEditorStore.getState().state?.floor.id).toBe("floor-b1");
+    expect(useFloorEditorStore.getState().isDirty).toBe(false);
+  });
+
+  it("다른 도구로 바꾸면 모바일 배치 대기를 종료한다", () => {
+    vi.stubGlobal("matchMedia", () => ({ matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn() }));
+    const state = structuredClone(editorState);
+    state.fixtures[0].placementStatus = "unplaced";
+    state.lightSlots = [];
+    renderEditor(state);
+    fireEvent.click(screen.getByRole("button", { name: "도구 및 조명 패널" }));
+    fireEvent.click(screen.getByTestId("placement-fixture-fixture-1"));
+    act(() => useFloorEditorStore.getState().setActiveTool("rectangle"));
+    expect(screen.queryByRole("region", { name: "조명 배치" })).not.toBeInTheDocument();
+    expect(useFloorEditorStore.getState().isDirty).toBe(false);
+  });
+
+  it("터치 탭만 모바일 배치 후보를 만들고 이동·핀치·취소는 후보를 만들지 않는다", () => {
+    vi.stubGlobal("matchMedia", () => ({ matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn() }));
+    const state = structuredClone(editorState);
+    state.fixtures[0].placementStatus = "unplaced";
+    state.lightSlots = [];
+    renderEditor(state);
+    fireEvent.click(screen.getByRole("button", { name: "도구 및 조명 패널" }));
+    fireEvent.click(screen.getByTestId("placement-fixture-fixture-1"));
+    const canvas = screen.getByTestId("floor-editor-canvas");
+    const touch = (type: "pointerDown" | "pointerMove" | "pointerUp" | "pointerCancel", pointerId: number, clientX: number, clientY: number) => {
+      const event = createEvent[type](canvas);
+      Object.defineProperties(event, { pointerType: { value: "touch" }, pointerId: { value: pointerId }, clientX: { value: clientX }, clientY: { value: clientY }, button: { value: 0 } });
+      fireEvent(canvas, event);
+    };
+    touch("pointerDown", 1, 110, 120);
+    touch("pointerMove", 1, 150, 160);
+    touch("pointerUp", 1, 150, 160);
+    expect(screen.getByRole("button", { name: "이 위치에 배치" })).toBeDisabled();
+    touch("pointerDown", 2, 110, 120);
+    touch("pointerCancel", 2, 110, 120);
+    expect(screen.getByRole("button", { name: "이 위치에 배치" })).toBeDisabled();
+    touch("pointerDown", 3, 110, 120);
+    touch("pointerDown", 4, 180, 120);
+    touch("pointerMove", 4, 240, 120);
+    touch("pointerUp", 4, 240, 120);
+    touch("pointerUp", 3, 110, 120);
+    expect(screen.getByRole("button", { name: "이 위치에 배치" })).toBeDisabled();
+    touch("pointerDown", 5, 110, 120);
+    touch("pointerUp", 5, 110, 120);
+    expect(within(screen.getByRole("region", { name: "조명 배치" })).getByRole("status")).toHaveTextContent("임시 위치");
+    expect(useFloorEditorStore.getState().state?.fixtures[0].placementStatus).toBe("unplaced");
+  });
+
+  it("lease가 사라지면 모바일 배치 초안을 취소하고 저장으로 흘리지 않는다", () => {
+    vi.stubGlobal("matchMedia", () => ({ matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn() }));
+    const state = structuredClone(editorState);
+    state.fixtures[0].placementStatus = "unplaced";
+    state.lightSlots = [];
+    const view = renderEditor(state);
+    fireEvent.click(screen.getByRole("button", { name: "도구 및 조명 패널" }));
+    fireEvent.click(screen.getByTestId("placement-fixture-fixture-1"));
+    const canvas = screen.getByTestId("floor-editor-canvas");
+    fireEvent.mouseDown(canvas, { clientX: 110, clientY: 120 });
+    fireEvent.mouseUp(canvas, { clientX: 110, clientY: 120 });
+    expect(screen.getByRole("button", { name: "이 위치에 배치" })).toBeEnabled();
+    view.rerenderWithProps({ leaseToken: undefined });
+    expect(screen.queryByRole("region", { name: "조명 배치" })).not.toBeInTheDocument();
+    expect(useFloorEditorStore.getState().isDirty).toBe(false);
+  });
+
+  it("모바일 배치 확인 후 lease가 사라지면 저장을 비활성화한다", () => {
+    vi.stubGlobal("matchMedia", () => ({ matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn() }));
+    const state = structuredClone(editorState);
+    state.fixtures[0].placementStatus = "unplaced";
+    state.lightSlots = [];
+    const view = renderEditor(state);
+    fireEvent.click(screen.getByRole("button", { name: "도구 및 조명 패널" }));
+    fireEvent.click(screen.getByTestId("placement-fixture-fixture-1"));
+    const canvas = screen.getByTestId("floor-editor-canvas");
+    fireEvent.mouseDown(canvas, { clientX: 110, clientY: 120 });
+    fireEvent.mouseUp(canvas, { clientX: 110, clientY: 120 });
+    fireEvent.click(screen.getByRole("button", { name: "이 위치에 배치" }));
+    expect(screen.getByRole("button", { name: "저장" })).toBeEnabled();
+    view.rerenderWithProps({ leaseToken: undefined });
+    expect(screen.getByRole("button", { name: "저장" })).toBeDisabled();
+    expect(useFloorEditorStore.getState().isDirty).toBe(true);
+  });
+
+  it("모바일 배치 확인 후 409 충돌은 로컬 배치를 보존한다", async () => {
+    vi.stubGlobal("matchMedia", () => ({ matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn() }));
+    const state = structuredClone(editorState);
+    state.fixtures[0].placementStatus = "unplaced";
+    state.lightSlots = [];
+    floorEditorApi.saveFloorEditorState.mockRejectedValueOnce(new ApiError("revision conflict", 409, null));
+    renderEditor(state);
+    fireEvent.click(screen.getByRole("button", { name: "도구 및 조명 패널" }));
+    fireEvent.click(screen.getByTestId("placement-fixture-fixture-1"));
+    const canvas = screen.getByTestId("floor-editor-canvas");
+    fireEvent.mouseDown(canvas, { clientX: 110, clientY: 120 });
+    fireEvent.mouseUp(canvas, { clientX: 110, clientY: 120 });
+    fireEvent.click(screen.getByRole("button", { name: "이 위치에 배치" }));
+    fireEvent.click(screen.getByRole("button", { name: "저장" }));
+    expect(await screen.findByText("최신 맵과 변경사항이 충돌했습니다.")).toBeInTheDocument();
+    expect(useFloorEditorStore.getState().state?.fixtures[0].placementStatus).toBe("placed");
+    expect(useFloorEditorStore.getState().isDirty).toBe(true);
+  });
+
+  it("배치 대기 중 탭은 기존 Konva 객체·조명 선택 레이어로 전달하지 않는다", () => {
+    vi.stubGlobal("matchMedia", () => ({ matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn() }));
+    const state = structuredClone(editorState);
+    state.fixtures[0].placementStatus = "unplaced";
+    state.lightSlots = [];
+    renderEditor(state);
+    fireEvent.click(screen.getByRole("button", { name: "도구 및 조명 패널" }));
+    fireEvent.click(screen.getByTestId("placement-fixture-fixture-1"));
+    const stage = (window as unknown as { Konva: { stages: import("konva").default.Stage[] } }).Konva.stages.at(-1)!;
+    expect(stage.findOne<import("konva").default.Layer>(".editor-object-layer")?.listening()).toBe(false);
+    expect(stage.findOne<import("konva").default.Layer>(".editor-fixture-layer")?.listening()).toBe(false);
+    expect(stage.findOne<import("konva").default.Layer>(".editor-overlay-layer")?.listening()).toBe(false);
+    fireEvent.click(screen.getByRole("button", { name: "배치 취소" }));
+    expect(stage.findOne<import("konva").default.Layer>(".editor-object-layer")?.listening()).toBe(true);
+  });
+
+  it("맵 밖 탭은 후보를 만들지 않고 조명 레이어 잠금은 배치 대기를 취소한다", () => {
+    vi.stubGlobal("matchMedia", () => ({ matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn() }));
+    const state = structuredClone(editorState);
+    state.fixtures[0].placementStatus = "unplaced";
+    state.lightSlots = [];
+    renderEditor(state);
+    fireEvent.click(screen.getByRole("button", { name: "도구 및 조명 패널" }));
+    fireEvent.click(screen.getByTestId("placement-fixture-fixture-1"));
+    const canvas = screen.getByTestId("floor-editor-canvas");
+    fireEvent.mouseDown(canvas, { clientX: 1500, clientY: 900 });
+    fireEvent.mouseUp(canvas, { clientX: 1500, clientY: 900 });
+    expect(screen.getByRole("button", { name: "이 위치에 배치" })).toBeDisabled();
+    act(() => useFloorEditorStore.getState().setLayer("fixtures", { locked: true }));
+    expect(screen.queryByRole("region", { name: "조명 배치" })).not.toBeInTheDocument();
+  });
+
+  it("모바일에서 키보드 좌표로 배치하고 읽기 전용에서는 배치를 시작하지 않는다", async () => {
+    vi.stubGlobal("matchMedia", () => ({ matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn() }));
+    const state = structuredClone(editorState);
+    state.fixtures[0].placementStatus = "unplaced";
+    state.lightSlots = [];
+    const view = renderEditor(state);
+    fireEvent.click(screen.getByRole("button", { name: "도구 및 조명 패널" }));
+    fireEvent.click(screen.getByTestId("placement-fixture-fixture-1"));
+    await waitFor(() => expect(screen.getByRole("region", { name: "조명 배치" })).toHaveFocus());
+    fireEvent.click(screen.getByRole("button", { name: "좌표 입력" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "배치 X 좌표" }), { target: { value: "123" } });
+    fireEvent.blur(screen.getByRole("textbox", { name: "배치 X 좌표" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "배치 Y 좌표" }), { target: { value: "187" } });
+    fireEvent.blur(screen.getByRole("textbox", { name: "배치 Y 좌표" }));
+    expect(within(screen.getByRole("region", { name: "조명 배치" })).getByRole("status")).toHaveTextContent("임시 위치 X 120, Y 190");
+    fireEvent.click(screen.getByRole("button", { name: "이 위치에 배치" }));
+    expect(useFloorEditorStore.getState().state?.fixtures[0]).toEqual(expect.objectContaining({ x: 120, y: 190, placementStatus: "placed" }));
+
+    view.rerenderWithProps({ readOnly: true });
+    expect(screen.queryByRole("region", { name: "조명 배치" })).not.toBeInTheDocument();
+  });
+
+  it("맵 탭 뒤 한쪽 좌표를 지워도 반대쪽 입력값은 유지한다", () => {
+    vi.stubGlobal("matchMedia", () => ({ matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn() }));
+    const state = structuredClone(editorState);
+    state.fixtures[0].placementStatus = "unplaced";
+    state.lightSlots = [];
+    renderEditor(state);
+    fireEvent.click(screen.getByRole("button", { name: "도구 및 조명 패널" }));
+    fireEvent.click(screen.getByTestId("placement-fixture-fixture-1"));
+    const canvas = screen.getByTestId("floor-editor-canvas");
+    fireEvent.mouseDown(canvas, { clientX: 110, clientY: 120 });
+    fireEvent.mouseUp(canvas, { clientX: 110, clientY: 120 });
+    fireEvent.click(screen.getByRole("button", { name: "좌표 입력" }));
+    const x = screen.getByRole("textbox", { name: "배치 X 좌표" });
+    const y = screen.getByRole("textbox", { name: "배치 Y 좌표" });
+    fireEvent.change(x, { target: { value: "" } });
+    fireEvent.blur(x);
+    expect(y).toHaveValue("120");
+    expect(screen.getByRole("button", { name: "이 위치에 배치" })).toBeDisabled();
+    fireEvent.change(x, { target: { value: "130" } });
+    fireEvent.blur(x);
+    expect(screen.getByRole("button", { name: "이 위치에 배치" })).toBeEnabled();
+  });
+
   it("requires explicit reset for a legacy map and exposes no CAD-only property writer", () => {
     renderEditor();
     expect(screen.getByRole("button", { name: "맵 초기화" })).toBeEnabled();
@@ -493,7 +718,17 @@ describe("FloorEditorView", () => {
     renderEditor(editorState);
 
     expect(screen.queryByRole("region", { name: "도면 자산" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "CAD 가져오기" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("tab", { name: "자료" }));
     expect(screen.getByRole("region", { name: "CAD 가져오기" })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "맵 버전" })).toBeInTheDocument();
+  });
+
+  it("자료 탭에서 다른 조명을 고르더라도 식별 도구는 계속 열린다", () => {
+    renderEditor();
+    fireEvent.click(screen.getByRole("tab", { name: "자료" }));
+    act(() => useFloorEditorStore.getState().selectFixture("fixture-1"));
+    expect(screen.getByRole("region", { name: "조명 위치 확인" })).toBeInTheDocument();
   });
 
   it("shows only controls that belong to the selected element type", () => {
@@ -558,6 +793,7 @@ describe("FloorEditorView", () => {
     const restore = deferred<FloorEditorState & { skippedFixtureIds: string[] }>();
     floorEditorApi.restoreFloorEditorRevision.mockReturnValueOnce(restore.promise);
     const view = renderEditor();
+    fireEvent.click(screen.getByRole("tab", { name: "자료" }));
     fireEvent.click(await screen.findByRole("button", { name: "리비전 5 복구" }));
     const other = { ...editorState, floor: { ...editorState.floor, id: "other" } };
     view.rerenderEditor(other);
@@ -573,6 +809,7 @@ describe("FloorEditorView", () => {
 
     const toolbar = screen.getByRole("group", { name: "맵 편집 도구" });
     const toolButton = within(toolbar).getByRole("button", { name: "선택" });
+    fireEvent.click(screen.getByRole("tab", { name: "자료" }));
     const restoreButton = await screen.findByRole("button", { name: "리비전 5 복구" });
 
     expect(toolButton).toHaveClass("size-13");
@@ -824,6 +1061,7 @@ describe("FloorEditorView", () => {
     const restore = deferred<FloorEditorState & { skippedFixtureIds: string[] }>();
     floorEditorApi.restoreFloorEditorRevision.mockReturnValueOnce(restore.promise);
     renderEditor();
+    fireEvent.click(screen.getByRole("tab", { name: "자료" }));
     const restoreButton = await screen.findByRole("button", { name: "리비전 5 복구" });
 
     fireEvent.click(restoreButton);
@@ -848,6 +1086,7 @@ describe("FloorEditorView", () => {
     const save = deferred<FloorEditorState>();
     floorEditorApi.saveFloorEditorState.mockReturnValueOnce(save.promise);
     renderEditor();
+    fireEvent.click(screen.getByRole("tab", { name: "자료" }));
     const restoreButton = await screen.findByRole("button", { name: "리비전 5 복구" });
     act(() => useFloorEditorStore.getState().updateFixture("fixture-1", { x: 333 }));
     fireEvent.click(screen.getByRole("button", { name: "저장" }));
@@ -1009,6 +1248,7 @@ describe("FloorEditorView", () => {
     }));
     renderEditor(editorState, { onReload, onSaved }, "preview-user");
     expect(screen.getByText("편집할 맵을 준비해주세요.")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("tab", { name: "자료" }));
 
     fireEvent.change(screen.getByLabelText("CAD 파일"), {
       target: { files: [new File(["dxf"], "parking.dxf", { type: "application/dxf" })] }
@@ -1117,6 +1357,7 @@ describe("FloorEditorView", () => {
     expect(screen.getByRole("button", { name: "선택" })).toBeEnabled();
 
     act(() => useFloorEditorStore.getState().selectFixture("fixture-1"));
+    fireEvent.click(screen.getByRole("tab", { name: "자료" }));
     expect(screen.getByRole("button", { name: "확인 시작" })).toBeEnabled();
     expect(useFloorEditorStore.getState().state?.fixtures).toHaveLength(1);
   });
@@ -1247,6 +1488,7 @@ describe("FloorEditorView", () => {
     renderEditor();
 
     await screen.findByText("조명 위치 후보 1개를 찾았습니다.");
+    fireEvent.click(screen.getByRole("tab", { name: "자료" }));
     fireEvent.click(screen.getByRole("button", { name: "선택한 후보와 배경 적용" }));
     fireEvent.click(within(screen.getByRole("dialog", { name: "새 CAD 도면으로 맵을 교체할까요?" }))
       .getByRole("button", { name: "교체 후 적용" }));
@@ -1447,6 +1689,7 @@ describe("FloorEditorView", () => {
         nextCursor: null
       });
     renderEditor();
+    fireEvent.click(screen.getByRole("tab", { name: "자료" }));
 
     expect(await screen.findByText("김관리")).toBeInTheDocument();
     expect(screen.getByText("변경 3건")).toBeInTheDocument();
@@ -1464,6 +1707,7 @@ describe("FloorEditorView", () => {
     });
 
     renderEditor();
+    fireEvent.click(screen.getByRole("tab", { name: "자료" }));
 
     expect(await screen.findByText("변경 2건")).toBeInTheDocument();
   });
@@ -1472,6 +1716,7 @@ describe("FloorEditorView", () => {
     const firstRequest = deferred<{ items: never[]; nextCursor: null }>();
     floorEditorApi.listFloorEditorRevisions.mockReturnValueOnce(firstRequest.promise).mockResolvedValueOnce({ items: [], nextCursor: null });
     renderEditor();
+    fireEvent.click(screen.getByRole("tab", { name: "자료" }));
 
     expect(screen.getByText("버전 기록을 불러오는 중")).toBeInTheDocument();
     firstRequest.reject(new Error("revision unavailable"));
@@ -1503,6 +1748,7 @@ describe("FloorEditorView", () => {
     };
     floorEditorApi.restoreFloorEditorRevision.mockResolvedValueOnce(restored);
     const { queryClient } = renderEditor();
+    fireEvent.click(screen.getByRole("tab", { name: "자료" }));
     queryClient.setQueryData(["floor-map", "site-2", "floor-b2"], {
       floorId: "floor-b2",
       revision: 7,
@@ -1545,6 +1791,7 @@ describe("FloorEditorView", () => {
       skippedFixtureIds: ["fixture-removed"]
     });
     renderEditor();
+    fireEvent.click(screen.getByRole("tab", { name: "자료" }));
 
     fireEvent.click(await screen.findByRole("button", { name: "리비전 5 복구" }));
 
@@ -1559,6 +1806,7 @@ describe("FloorEditorView", () => {
       skippedFixtureIds: ["fixture-removed"]
     });
     const { rerenderEditor } = renderEditor();
+    fireEvent.click(screen.getByRole("tab", { name: "자료" }));
     fireEvent.click(await screen.findByRole("button", { name: "리비전 5 복구" }));
     expect(await screen.findByText(/현재 존재하지 않는 조명 1개/)).toBeInTheDocument();
 
@@ -1584,6 +1832,7 @@ describe("FloorEditorView", () => {
     });
 
     renderEditor(editorState, { userRole: "viewer" });
+    fireEvent.click(screen.getByRole("tab", { name: "자료" }));
 
     expect(await screen.findByText("김관리")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /복구/ })).not.toBeInTheDocument();

@@ -10,6 +10,7 @@ import {
   clampEditorZoom,
   clampObjectToMap,
   clampPoint,
+  snapPointToGridWithinBounds,
   createDefaultObject,
   createObjectFromDrag,
   screenToWorld,
@@ -72,6 +73,8 @@ interface FloorEditorCanvasProps {
     floorId: string; jobId: string; manifest: PreparedImportScene | null;
     isError: boolean; onRetry: () => void;
   } | null;
+  placementDraftPoint?: Point | null;
+  onPlacementPointChange?: (point: Point) => void;
 }
 
 export function FloorEditorCanvas({
@@ -92,7 +95,9 @@ export function FloorEditorCanvas({
   onCadOverrideCommit,
   cadEditDisabled = false,
   cadReviewActive = false,
-  cadImportScene = null
+  cadImportScene = null,
+  placementDraftPoint = null,
+  onPlacementPointChange
 }: FloorEditorCanvasProps) {
   const container = useRef<HTMLDivElement>(null);
   const stage = useRef<Konva.Stage>(null);
@@ -608,6 +613,13 @@ export function FloorEditorCanvas({
 
   function begin(event: MouseEvent<HTMLDivElement>) {
     if ((event.target as Element).closest("button")) return;
+    if (onPlacementPointChange && !readOnly && !cadReviewActive) {
+      commitCamera();
+      const current = useFloorEditorStore.getState();
+      gesture.current = { kind: "pan", screen: screenPoint(event), pan: current.pan, start: worldPoint(event), additive: false, moved: false };
+      setIsPanning(true);
+      return;
+    }
     if (mapEditor?.holeActive && !readOnly) {
       try { setPathDraft(appendMapPathPoint(pathDraft ?? createMapPathDraft("polygon", creationOptions()), clampPoint(worldPoint(event), bounds))); }
       catch (error) { mapEditor.reportError(error); }
@@ -675,6 +687,14 @@ export function FloorEditorCanvas({
       applyImperativeCamera(nextPan, cameraOverride.current?.zoom ?? zoom, true);
       commitCamera();
       setIsPanning(false);
+      if (onPlacementPointChange && !action.moved && !readOnly && !cadReviewActive) {
+        const point = worldPoint(event);
+        if (point.x >= 0 && point.y >= 0 && point.x <= bounds.width && point.y <= bounds.height) {
+          const gridSize = mapEditor?.document?.gridSize ?? floorPlan?.gridSize ?? 10;
+          onPlacementPointChange(snap ? snapPointToGridWithinBounds(point, gridSize, bounds) : point);
+        }
+      }
+      if (onPlacementPointChange) return;
     }
     if (!readOnly && action?.moved) {
       const completedCreation = creationDraft.current;
@@ -816,12 +836,12 @@ export function FloorEditorCanvas({
         transform={transform}
         zoom={renderedZoom}
         viewportBounds={viewportBounds}
-        disabled={!onFocusedCadCandidateChange && !onToggleCadCandidate}
+        disabled={Boolean(onPlacementPointChange) || (!onFocusedCadCandidateChange && !onToggleCadCandidate)}
         focusedCandidateId={focusedCadCandidateId}
         onFocusedCandidateChange={onFocusedCadCandidateChange}
         onToggle={onToggleCadCandidate}
       />
-      <Layer {...transform} name="editor-object-layer" visible={layers.objects.visible} listening={!readOnly && !layers.objects.locked && activeTool === "select"}>
+      <Layer {...transform} name="editor-object-layer" visible={layers.objects.visible} listening={!onPlacementPointChange && !readOnly && !layers.objects.locked && activeTool === "select"}>
         {visibleObjects.map((object) => {
           let ref = objectRefCallbacks.current.get(object.id);
           if (!ref) { ref = (node) => { if (node) objectNodes.current.set(object.id, node); else objectNodes.current.delete(object.id); }; objectRefCallbacks.current.set(object.id, ref); }
@@ -858,10 +878,10 @@ export function FloorEditorCanvas({
             }} />;
         })}
       </Layer>
-      <Layer {...transform} name="editor-fixture-layer" visible={layers.fixtures.visible} listening={activeTool === "select"}>
+      <Layer {...transform} name="editor-fixture-layer" visible={layers.fixtures.visible} listening={!onPlacementPointChange && activeTool === "select"}>
         {visibleFixtures.map((fixture) => <EditorFixtureNode key={fixture.id} fixture={fixture} selected={selectedSet.has(fixture.id)} interactive={!readOnly && activeTool === "select" && !layers.fixtures.locked && !lockedSet.has(fixture.id)} showName={showBulkNames && !selectedSet.has(fixture.id)} zoom={renderedZoom} colors={fixtureColors} register={register} onSelect={onSelect} onDragStart={onDragStart} onDragMove={onDragMove} onDragEnd={onDragEnd} onTransform={onTransform} />)}
       </Layer>
-      <Layer {...transform} name="editor-overlay-layer" visible={!cadReviewActive} listening={!cadReviewActive}>
+      <Layer {...transform} name="editor-overlay-layer" visible={!cadReviewActive} listening={!cadReviewActive && !onPlacementPointChange}>
         <Line ref={verticalGuide} name="alignment-guide-vertical" visible={false} listening={false} stroke={editorColors.guide} strokeWidth={1 / renderedZoom} dash={[6 / renderedZoom, 4 / renderedZoom]} />
         <Line ref={horizontalGuide} name="alignment-guide-horizontal" visible={false} listening={false} stroke={editorColors.guide} strokeWidth={1 / renderedZoom} dash={[6 / renderedZoom, 4 / renderedZoom]} />
         {mapEditor?.document && mapEditor.selectionCount > 0 && (mapEditor.promotedIds.length
@@ -876,6 +896,7 @@ export function FloorEditorCanvas({
         {marquee && <Rect {...marquee} fill={editorColors.marquee} stroke={editorColors.selected} strokeWidth={1 / renderedZoom} listening={false} />}
         {preview.map((p) => <Circle key={p.id} x={p.x} y={p.y} radius={10} fill={editorColors.preview} opacity={0.65} listening={false} />)}
         {dropPreview && <Circle x={dropPreview.x} y={dropPreview.y} radius={10} stroke={editorColors.selected} fill={editorColors.fixtureFill} listening={false} />}
+        {placementDraftPoint && <Circle name="mobile-placement-preview" x={placementDraftPoint.x} y={placementDraftPoint.y} radius={12 / renderedZoom} stroke={editorColors.selected} strokeWidth={2 / renderedZoom} fill={editorColors.fixtureFill} opacity={0.8} listening={false} />}
         {cadSelection?.mode === "element" && cadSelection.element && onCadOverrideCommit ? (
           <CadElementOverlay
             element={cadSelection.element}

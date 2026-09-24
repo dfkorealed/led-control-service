@@ -14,6 +14,7 @@ import {
   type FloorEditorRevision
 } from "../../api/floor-editor";
 import { EditorPropertiesPanel } from "./EditorPropertiesPanel";
+import { MobileFixturePlacementBar } from "./MobileFixturePlacementBar";
 import { createFixturePlacementRowRegistry, FIXTURE_DRAG_TYPE, FixturePlacementList } from "./FixturePlacementList";
 import { EditorBatchPlacementPanel } from "./EditorBatchPlacementPanel";
 import { EditorLayersPanel } from "./EditorLayersPanel";
@@ -31,6 +32,7 @@ import { MapPolygonControls } from "./MapPolygonControls";
 import { synchronizeMonitoringCaches } from "./editor-monitoring-cache";
 import { useFloorEditorStore } from "./editor-store";
 import type { CadImportReviewState, FloorEditorState, FloorImportApplyResult } from "./editor-types";
+import { snapPointToGridWithinBounds, type Point } from "./geometry";
 
 import { useCadImportScene } from "./CadImportSceneCanvas";
 
@@ -63,12 +65,13 @@ export function FloorEditorView({
   floors,
   onFloorChange
 }: FloorEditorViewProps) {
-  readOnly ||= userRole !== "admin";
+  readOnly ||= userRole !== "admin" || !leaseToken || !leaseFence;
   const queryClient = useQueryClient();
   const { initialState: baseline, state, isDirty, activeTool, zoom, initialize, adoptBaseline, setActiveTool, setZoom, resetZoom, past, future, snap, selection, cadSelection, selectedFixtureIds } = useFloorEditorStore(useShallow((s) => ({ initialState: s.initialState, state: s.state, isDirty: s.isDirty, activeTool: s.activeTool, zoom: s.zoom, initialize: s.initialize, adoptBaseline: s.adoptBaseline, setActiveTool: s.setActiveTool, setZoom: s.setZoom, resetZoom: s.resetZoom, past: s.past, future: s.future, snap: s.snap, selection: s.selection, cadSelection: s.cadSelection, selectedFixtureIds: s.selectedFixtureIds })));
   const [panelTab, setPanelTab] = useState("properties");
   const [isNarrowLayout, setIsNarrowLayout] = useState(() => window.matchMedia?.("(max-width: 1279px)").matches ?? false);
   const [openPanel, setOpenPanel] = useState<"tools" | "information" | null>(null);
+  const [placementDraft, setPlacementDraft] = useState<{ floorId: string; siteId: string; fixtureId: string; point: Point | null } | null>(null);
   const [isToolPanelDragging, setIsToolPanelDragging] = useState(false);
   const panelDragSource = useRef<HTMLElement | null>(null);
   const [collapsedPanels, setCollapsedPanels] = useState({ tools: false, information: false });
@@ -161,6 +164,8 @@ export function FloorEditorView({
   const lease = useMemo(() => leaseToken && leaseFence ? { leaseToken, leaseFence } : undefined, [leaseToken, leaseFence]);
   const map = useMapEditor({ floorId, authScope: draftScope, readOnly, lease });
   const stageProgress = useFloorEditorStore(s => s.stageProgress);
+  const fixtureLayer = useFloorEditorStore(s => s.layers.fixtures);
+  const lockedFixtureIds = useFloorEditorStore(s => s.lockedFixtureIds);
 
   useLayoutEffect(() => {
     const current = useFloorEditorStore.getState();
@@ -226,7 +231,7 @@ export function FloorEditorView({
   }, [isDirty, onDirtyChange]);
 
   useEffect(() => {
-    setPanelTab("properties");
+    setPanelTab((current) => current === "details" ? current : "properties");
   }, [selection?.kind, selection?.id, cadSelection?.targetId, selectedFixtureIds.length]);
 
   function isCurrentSave(principalGeneration: number) {
@@ -382,6 +387,41 @@ export function FloorEditorView({
   }), [floorId, initialState.fixtures.length, initialState.lightSlots.length, initialState.objects.length, state]);
   const isMutationPending = saveStatus === "saving" || restoringRevision !== null || isCadImportPending || isResetPending || map.preparing;
   const isSaveOrRestoreBlocked = readOnly || isMutationPending || state?.floor.id !== floorId;
+  const placementFixture = placementDraft && isNarrowLayout && !readOnly && !isMutationPending && !cadImportReview
+    && Boolean(leaseToken && leaseFence)
+    && activeTool === "select" && !map.holeActive
+    && state?.floor.id === floorId && state.floor.siteId === siteId
+    && placementDraft.floorId === floorId && placementDraft.siteId === siteId
+    && fixtureLayer.visible && !fixtureLayer.locked && !lockedFixtureIds.includes(placementDraft.fixtureId)
+    ? state.fixtures.find((fixture) => fixture.id === placementDraft.fixtureId && fixture.placementStatus === "unplaced") : null;
+  const placementBounds = map.mapBounds ?? {
+    width: state?.floor.floorPlan?.width ?? state?.floor.mapDocument?.width ?? 1200,
+    height: state?.floor.floorPlan?.height ?? state?.floor.mapDocument?.height ?? 800
+  };
+  useEffect(() => {
+    if (placementDraft && !placementFixture) setPlacementDraft(null);
+  }, [placementDraft, placementFixture]);
+
+  function updatePlacementPoint(fixtureId: string, point: Point | null) {
+    const gridSize = state?.floor.mapDocument?.gridSize ?? state?.floor.floorPlan?.gridSize ?? 10;
+    const next = point && snap ? snapPointToGridWithinBounds(point, gridSize, placementBounds) : point;
+    setPlacementDraft((current) => current && current.fixtureId === fixtureId && current.floorId === floorId && current.siteId === siteId
+      ? { ...current, point: next } : current);
+  }
+
+  function confirmPlacement() {
+    if (!placementDraft?.point || !placementFixture || !leaseToken || !leaseFence) return;
+    const current = useFloorEditorStore.getState();
+    const fixture = current.state?.fixtures.find((item) => item.id === placementDraft.fixtureId);
+    if (current.state?.floor.id !== floorId || current.state.floor.siteId !== siteId || fixture?.placementStatus !== "unplaced"
+      || !current.layers.fixtures.visible || current.layers.fixtures.locked || current.lockedFixtureIds.includes(placementDraft.fixtureId)) return;
+    const { x, y } = placementDraft.point;
+    if (x < 0 || y < 0 || x > placementBounds.width || y > placementBounds.height) return;
+    current.placeFixtures([{ id: placementDraft.fixtureId, x, y }]);
+    current.selectFixture(placementDraft.fixtureId);
+    setPlacementDraft(null);
+    toolsToggle.current?.focus();
+  }
 
   return (
     <section className="flex h-full min-h-0 min-w-0 flex-col gap-2 overflow-hidden">
@@ -463,13 +503,22 @@ export function FloorEditorView({
         <div ref={toolsPanel} id="editor-tools-panel" tabIndex={-1} aria-label="도구 및 조명"
           onDragStart={beginPanelDrag} onDragEnd={finishPanelDrag}
           onKeyDown={(event) => { if (event.key === "Escape") { event.stopPropagation(); if (!panelDragSource.current) closePanel("tools"); } }}
-          className={`${toolsVisible ? "flex" : "hidden"} ${isNarrowLayout ? "absolute inset-y-0 left-0 z-10 w-[min(280px,100%)] shadow-panel" : "w-60 shrink-0"} ${isToolPanelDragging ? "pointer-events-none opacity-0" : ""} min-h-0 min-w-0 flex-col overflow-y-auto overscroll-contain border-r border-border-default bg-surface-panel [&>aside]:flex-none [&>aside:first-child]:h-112`}><FixturePlacementList readOnly={readOnly || isMutationPending} rowRegistry={rowRegistry} />
+          className={`${toolsVisible ? "flex" : "hidden"} ${isNarrowLayout ? "absolute inset-y-0 left-0 z-10 w-[min(280px,100%)] shadow-panel" : "w-60 shrink-0"} ${isToolPanelDragging ? "pointer-events-none opacity-0" : ""} min-h-0 min-w-0 flex-col overflow-y-auto overscroll-contain border-r border-border-default bg-surface-panel [&>aside]:flex-none [&>aside:first-child]:h-112`}><FixturePlacementList readOnly={readOnly || isMutationPending} rowRegistry={rowRegistry} onPlacementRequest={isNarrowLayout ? (fixtureId) => {
+            const current = useFloorEditorStore.getState();
+            const fixture = current.state?.fixtures.find((item) => item.id === fixtureId);
+            if (!fixture || fixture.placementStatus !== "unplaced" || !leaseToken || !leaseFence
+              || current.state?.floor.id !== floorId || current.state.floor.siteId !== siteId
+              || !current.layers.fixtures.visible || current.layers.fixtures.locked || current.lockedFixtureIds.includes(fixtureId)) return;
+            setActiveTool("select");
+            setPlacementDraft({ floorId, siteId, fixtureId, point: null });
+            setOpenPanel(null);
+          } : undefined} />
         <EditorToolPalette className="order-first p-2" activeTool={activeTool} readOnly={readOnly || !map.document} disabled={isMutationPending && !cadImportReview}
           onToolDragStart={(tool) => { useFloorEditorStore.getState().clearSelection(); setActiveTool(tool); }}
           onToolChange={(tool) => { useFloorEditorStore.getState().clearSelection(); setActiveTool(tool); if (isNarrowLayout) closePanel("tools"); }} /><Checkbox className="m-2" label="격자 스냅" isSelected={snap} isDisabled={readOnly} onChange={(selected) => useFloorEditorStore.getState().setSnap(selected)} /></div>
         {/* The auxiliary minimap folds with narrow panels instead of remaining
             keyboard-focusable underneath them; closing the panel restores it. */}
-        <main className={`grid min-h-0 min-w-0 flex-1 overflow-hidden border border-border-default bg-surface-inset [&>div]:min-h-0 [&_[role=alert]]:max-h-20 [&_[role=alert]]:overflow-y-auto ${isNarrowLayout && openPanel ? "[&_canvas[role=button]]:hidden" : ""}`}>
+        <main className={`grid min-h-0 min-w-0 flex-1 overflow-hidden border border-border-default bg-surface-inset [&>div]:min-h-0 [&_[role=alert]]:max-h-20 [&_[role=alert]]:overflow-y-auto ${placementFixture ? "grid-rows-[minmax(0,1fr)_auto]" : ""} ${isNarrowLayout && openPanel ? "[&_canvas[role=button]]:hidden" : ""}`}>
           <FloorEditorCanvas
             readOnly={readOnly || isMutationPending}
             rowRegistry={rowRegistry}
@@ -486,10 +535,16 @@ export function FloorEditorView({
             onFocusedCadCandidateChange={setFocusedCadCandidateId}
             onToggleCadCandidate={cadImportReview && !readOnly ? toggleCadCandidate : undefined}
             mapEditor={map}
+            placementDraftPoint={placementFixture ? placementDraft?.point : null}
+            onPlacementPointChange={placementFixture ? (point) => updatePlacementPoint(placementFixture.id, point) : undefined}
           />
+          {placementFixture ? <MobileFixturePlacementBar key={placementFixture.id} fixtureName={placementFixture.name} point={placementDraft?.point ?? null} bounds={placementBounds}
+            onPointChange={(point) => updatePlacementPoint(placementFixture.id, point)}
+            onCancel={() => { setPlacementDraft(null); setOpenPanel("tools"); requestAnimationFrame(() => rowRegistry.focus(placementFixture.id)); }}
+            onConfirm={confirmPlacement} /> : null}
         </main>
         <SidePanel ref={informationPanel} id="editor-information-panel" tabIndex={-1} onKeyDown={(event) => { if (event.key === "Escape") { event.stopPropagation(); closePanel("information"); } }} className={`${informationVisible ? "grid" : "hidden"} ${isNarrowLayout ? "absolute inset-y-0 right-0 z-10 w-[min(320px,100%)] shadow-panel" : "w-72 shrink-0"} min-h-0 min-w-0 content-start gap-3 overflow-y-auto rounded-none border-0 border-l border-border-default p-0`} aria-label="맵 편집 정보">
-          <div className="grid grid-cols-3 gap-1 bg-surface-inset p-1" role="tablist" aria-label="편집 패널">{[["properties", "속성"], ["placement", "배치"], ["layers", "레이어"]].map(([value, label]) => <Button size="sm" variant={panelTab === value ? "primary" : "ghost"} role="tab" key={value} aria-selected={panelTab === value} onClick={() => setPanelTab(value)}>{label}</Button>)}</div>
+          <div className="grid grid-cols-4 gap-1 bg-surface-inset p-1" role="tablist" aria-label="편집 패널">{[["properties", "속성"], ["placement", "배치"], ["layers", "레이어"], ["details", "자료"]].map(([value, label]) => <Button size="sm" variant={panelTab === value ? "primary" : "ghost"} role="tab" key={value} aria-selected={panelTab === value} onClick={() => setPanelTab(value)}>{label}</Button>)}</div>
           {panelTab === "properties" && (map.selectionCount && (!map.selection.length || map.mixed)
             ? <MapSelectionProperties key={JSON.stringify([map.selectionKey, map.bounds])} editor={map} readOnly={readOnly || isMutationPending} />
             : map.selection.length
@@ -498,6 +553,7 @@ export function FloorEditorView({
           {panelTab === "placement" && <EditorBatchPlacementPanel readOnly={readOnly || isMutationPending} />}
           {panelTab === "properties" && <MapPolygonControls editor={map} readOnly={readOnly || isMutationPending} onBegin={() => { if (isNarrowLayout) closePanel("information"); }} />}
           {panelTab === "layers" && <EditorLayersPanel readOnly={readOnly || isMutationPending} mapEditor={map} />}
+          <div className={panelTab === "details" ? "grid gap-3" : "hidden"} aria-hidden={panelTab !== "details"}>
           <CadImportPanel
             floorId={floorId}
             expectedRevision={baseline?.floor.mapRevision ?? initialState.floor.mapRevision}
@@ -532,6 +588,7 @@ export function FloorEditorView({
             onRetry={() => void revisionsQuery.refetch()}
             onRestore={(revision) => void handleRestore(revision)}
           />
+          </div>
         </SidePanel>
       </div>
       {confirmReload ? <ConfirmDialog

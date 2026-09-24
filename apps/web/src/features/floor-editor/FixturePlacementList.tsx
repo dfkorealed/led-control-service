@@ -34,7 +34,7 @@ export function placementLabel(fixture: EditorFixture) {
   return fixture.placementStatus === "unplaced" ? "미배치" : fixture.positionVerifiedAt || fixture.positionVerified ? "배치됨 · 위치 확인" : "배치됨 · 위치 미확인";
 }
 
-export function FixturePlacementList({ readOnly, rowRegistry }: { readOnly: boolean; rowRegistry: FixturePlacementRowRegistry }) {
+export function FixturePlacementList({ readOnly, rowRegistry, onPlacementRequest }: { readOnly: boolean; rowRegistry: FixturePlacementRowRegistry; onPlacementRequest?: (fixtureId: string) => void }) {
   const fixtures = useFloorEditorStore((s) => s.state?.fixtures);
   const floorId = useFloorEditorStore((s) => s.state?.floor.id);
   const selectedIds = useFloorEditorStore((s) => s.selectedFixtureIds);
@@ -114,6 +114,7 @@ export function FixturePlacementList({ readOnly, rowRegistry }: { readOnly: bool
             const store = useFloorEditorStore.getState();
             setActiveFixtureId(fixture.id);
             store.selectFixture(fixture.id, event.shiftKey);
+            if (!event.shiftKey && !readOnly && !locked && fixture.placementStatus === "unplaced") onPlacementRequest?.(fixture.id);
             if (!event.shiftKey && fixture.placementStatus !== "unplaced") store.fit(true);
           }}
           onKeyDown={(event) => {
