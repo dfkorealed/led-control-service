@@ -701,9 +701,14 @@ test("dashboard/map과 fixture의 부분 갱신 실패에도 cached 화면과 �
   await expectMonitoringSelectionToRemain(page);
 
   await page.getByRole("button", { name: /상태 센터, 미해결/ }).click();
-  await page.getByRole("dialog", { name: "현재 세션 상태" }).getByRole("button", { name: "지도 다시 시도" }).click();
+  const statusDialog = page.getByRole("dialog", { name: "현재 세션 상태" });
+  await statusDialog.getByRole("button", { name: "지도 다시 시도" }).click();
   await expect(page.getByText("저장된 지도를 유지하고 있습니다. 지도 갱신에 실패했습니다.")).toHaveCount(0);
-  await page.getByRole("button", { name: /상태 센터, 미해결/ }).click();
+  await page.keyboard.press("Escape");
+  await expect(statusDialog).toHaveCount(0);
+  const statusTrigger = page.getByRole("button", { name: /상태 센터, 미해결/ });
+  await expect(statusTrigger).toHaveAttribute("aria-expanded", "false");
+  await expect(statusTrigger).toBeFocused();
   failures.failNextFixtureRequests(3);
   await page.getByRole("button", { name: "새로고침" }).click();
 
