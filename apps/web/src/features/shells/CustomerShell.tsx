@@ -321,9 +321,9 @@ export function CustomerShell({ user }: { user: AuthUser }) {
             />
           </div>
         </header>
-        {/* Only the editor bounds SettingsShell's three rows (site, navigation,
-            outlet). Keeping this scoped avoids changing normal settings scroll. */}
-        <div className={`m-0! min-w-0 flex-1 ${isEditorRoute ? "min-h-0 overflow-hidden p-2 compact:p-3 [&>section]:h-full [&>section]:min-h-0 [&>section]:grid-rows-[auto_auto_minmax(0,1fr)] [&>section]:gap-2 [&>section>div]:min-h-0" : "p-6 max-compact:p-3.5"}`}>
+        {/* Only the editor bounds SettingsShell's navigation and outlet rows.
+            Keeping this scoped avoids changing normal settings scroll. */}
+        <div className={`m-0! min-w-0 flex-1 ${isEditorRoute ? "min-h-0 overflow-hidden p-2 compact:p-3 [&>section]:h-full [&>section]:min-h-0 [&>section]:grid-rows-[auto_minmax(0,1fr)] [&>section]:gap-2 [&>section>div]:min-h-0" : "p-6 max-compact:p-3.5"}`}>
           <Suspense fallback={<RouteLoadingState />}>
             <Routes>
             <Route path="/monitoring" element={<MonitoringView userRole={user.role} siteId={siteId} />} />

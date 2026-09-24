@@ -135,6 +135,7 @@ export function useSessionToast(): {
 - [x] `gateway-status.ts`가 미등록, 전체 연결, 일부/전체 오프라인, dashboard unavailable, cached data + background error의 `갱신 지연`을 구분하는 RED 테스트를 작성한다.
 - [x] Shell이 Gateway aggregate를 상태 센터의 Gateway item과 연결하고 `확인 불가`를 offline으로 오인하지 않게 구현한다.
 - [x] 모바일 topbar를 제목·상태 action 행과 현장 문맥 행으로 재배치해 editor 포함 320/390px에서도 logout·selector·status trigger가 44px 이상이고 overflow가 없게 한다. 실제 viewport overflow 확인은 Task 4 Chromium 통합 gate로 이관한다.
+- [x] Settings 내부 현장 선택 행 제거 후 editor 전용 SettingsShell grid를 `navigation auto + outlet minmax(0,1fr)` 2행으로 맞춰 빈 1fr 행이 모바일 캔버스 높이를 가져가지 않게 한다.
 - [x] Shell이 `SessionStatusProvider`와 `ToastRegion`을 소유하고 site/dashboard query의 retry action을 상태 센터 item으로 선언한다.
 - [x] Gateway 상태 배지를 44px 상호작용 대상으로 만들고 ref 기반으로 상태 센터의 해당 Gateway item에 초점을 이동하며 Escape 닫기 후 배지로 복귀시킨다. 로그아웃 실패는 topbar 행을 늘리지 않고 danger toast와 상태 센터 item으로 제공한다.
 - [x] Run: `pnpm --filter @led-control/web test -- src/features/sites/SiteSwitcher.test.tsx src/features/sites/useGuardedSiteSelection.test.tsx src/features/shells/gateway-status.test.ts src/features/shells/CustomerShell.test.tsx src/features/settings/SettingsShell.test.tsx` — 5 files, 42 tests passed.

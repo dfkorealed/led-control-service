@@ -177,6 +177,15 @@ describe("customer shell site context", () => {
     expect(screen.queryByTestId("active-floor-badge")).not.toBeInTheDocument();
   });
 
+  it("gives the editor outlet the remaining height after the settings navigation row", async () => {
+    renderShell("/settings/floor-plans/floor-b2/edit?siteId=site");
+
+    const settingsShell = (await screen.findByRole("navigation", { name: "설정 메뉴" })).closest("section");
+    expect(settingsShell).not.toBeNull();
+    expect(settingsShell?.parentElement).toHaveClass("[&>section]:grid-rows-[auto_minmax(0,1fr)]");
+    expect(settingsShell?.parentElement).not.toHaveClass("[&>section]:grid-rows-[auto_auto_minmax(0,1fr)]");
+  });
+
   it("links the primary statistics item to overview and keeps it active on statistics child routes", async () => {
     renderShell("/statistics/overview?siteId=site");
 
