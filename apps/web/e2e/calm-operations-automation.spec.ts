@@ -50,6 +50,10 @@ for (const viewport of viewports) {
     await page.getByRole("button", { name: "스케줄 추가" }).click();
     const scheduleDialog = page.getByRole("dialog", { name: "스케줄 추가" });
     await expect(scheduleDialog.getByRole("group", { name: "언제 켤까요?" })).toBeVisible();
+    await expect(scheduleDialog.getByRole("group", { name: "적용 시작일" })).toBeVisible();
+    await expect(scheduleDialog.getByRole("group", { name: "적용 종료일" })).toBeVisible();
+    await expect(scheduleDialog.getByText(/오늘만 적용/)).toBeVisible();
+    await expect(scheduleDialog.getByRole("status")).toContainText("하루만 적용");
     await expect(scheduleDialog.getByRole("group", { name: "제어 대상", exact: true })).toBeVisible();
     await expect(scheduleDialog.getByRole("status")).toContainText("매일 18:00–23:00");
     await expect(scheduleDialog.getByRole("group", { name: "조명 목록" })).toHaveCount(0);

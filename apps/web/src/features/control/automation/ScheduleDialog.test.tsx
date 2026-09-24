@@ -78,6 +78,27 @@ describe("ScheduleDialog spatial targets", () => {
 
   afterEach(cleanup);
 
+  it("shows the default one-day date range and its limit before advanced settings are opened", () => {
+    renderScheduleDialog();
+    const dialog = screen.getByRole("dialog", { name: "스케줄 추가" });
+
+    expect(within(dialog).getByRole("group", { name: "적용 시작일" })).toBeVisible();
+    expect(within(dialog).getByRole("group", { name: "적용 종료일" })).toBeVisible();
+    expect(within(dialog).getByText(/오늘만 적용/)).toBeVisible();
+    expect(within(dialog).getByRole("status")).toHaveTextContent("하루만 적용");
+    expect(within(dialog).queryByRole("region", { name: "세부 일정 설정" })).not.toBeInTheDocument();
+  });
+
+  it("shows a saved multi-day range without calling it today-only", () => {
+    renderScheduleDialog({ schedule: persistedSchedule });
+    const dialog = screen.getByRole("dialog", { name: "스케줄 수정" });
+
+    expect(within(dialog).getByRole("group", { name: "적용 시작일" })).toBeVisible();
+    expect(within(dialog).getByRole("group", { name: "적용 종료일" })).toBeVisible();
+    expect(within(dialog).queryByText(/오늘만 적용/)).not.toBeInTheDocument();
+    expect(within(dialog).getByRole("status")).toHaveTextContent("2026-09-01–2026-09-30");
+  });
+
   it("returns from an empty picker without discarding the form draft and restores its trigger focus", async () => {
     renderScheduleDialog();
     fireEvent.click(screen.getByRole("button", { name: "30%" }));

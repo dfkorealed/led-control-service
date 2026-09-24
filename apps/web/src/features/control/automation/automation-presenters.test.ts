@@ -157,7 +157,9 @@ describe("automation quick setup presenters", () => {
     };
 
     expect(scheduleSummary(scheduleValues, dashboard))
-      .toBe("매일 18:00–23:00 · 2026-08-31 하루 · B1-L001 · 밝기 70%");
+      .toBe("매일 18:00–23:00 · 2026-08-31 하루만 적용 · B1-L001 · 밝기 70%");
+    expect(scheduleSummary({ ...scheduleValues, activeUntilDate: "2026-09-30" }, dashboard))
+      .toBe("매일 18:00–23:00 · 2026-08-31–2026-09-30 · B1-L001 · 밝기 70%");
     expect(vehicleEventSummary(eventValues, dashboard))
       .toBe("B1-SENSOR 감지 → B1-L001 · 밝기 70% · 1분 유지");
   });

@@ -132,6 +132,8 @@ export function ScheduleDialog({
   const targetFixtureIds = values.target.mode === "fixtures" ? values.target.fixtureIds : [];
   const targetSummary = scheduleTargetSnapshotSummary(targetSource, targetFixtureIds, dashboard);
   const selectedPreset = schedulePreset(values);
+  const siteToday = createEmptyScheduleForm(timeZone).activeFromDate;
+  const singleDay = Boolean(values.activeFromDate) && values.activeFromDate === values.activeUntilDate;
 
   function change(patch: Partial<ScheduleFormValues>) {
     setValues((current) => ({ ...current, ...patch }));
@@ -239,6 +241,17 @@ export function ScheduleDialog({
                 }}
               />
               {selectedPreset === "custom" ? <Text variant="caption" tone="secondary">고급 설정에서 사용자 지정 반복을 사용 중입니다.</Text> : null}
+              <div className="grid grid-cols-2 gap-3 max-compact:grid-cols-1">
+                <DatePicker ref={activeFromDateInputRef} label="적용 시작일" isInvalid={Boolean(errors.activeFromDate)} errorMessage={errors.activeFromDate} value={values.activeFromDate || null} onChange={(value) => change({ activeFromDate: value ?? "" })} />
+                <DatePicker ref={activeUntilDateInputRef} label="적용 종료일" isInvalid={Boolean(errors.activeUntilDate)} errorMessage={errors.activeUntilDate} value={values.activeUntilDate || null} onChange={(value) => change({ activeUntilDate: value ?? "" })} />
+              </div>
+              <Text className="rounded-control bg-surface-inset p-3" variant="body-sm" tone="secondary">
+                {singleDay
+                  ? values.activeFromDate === siteToday
+                    ? "오늘만 적용됩니다. 매일 반복을 계속하려면 적용 종료일을 변경하세요."
+                    : "선택한 날짜 하루만 적용됩니다. 반복을 계속하려면 적용 종료일을 변경하세요."
+                  : `적용 기간은 ${timeZone} 현장 기준입니다. 종료일 이후에는 반복 실행되지 않습니다.`}
+              </Text>
               <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-end gap-3 max-compact:grid-cols-1">
                 <TimePicker
                   ref={localStartTimeInputRef}
@@ -306,11 +319,6 @@ export function ScheduleDialog({
 
             <AutomationAdvancedSection label="세부 일정 설정" open={advancedOpen} disabled={isPending} onOpenChange={setAdvancedOpen}>
               <TextField ref={nameInputRef} label="스케줄 이름" isInvalid={Boolean(errors.name)} errorMessage={errors.name} value={values.name} isDisabled={isPending} onChange={(value) => change({ name: value })} />
-              <div className="grid grid-cols-2 gap-3 max-compact:grid-cols-1">
-                <DatePicker ref={activeFromDateInputRef} label="적용 시작일" isInvalid={Boolean(errors.activeFromDate)} errorMessage={errors.activeFromDate} value={values.activeFromDate || null} onChange={(value) => change({ activeFromDate: value ?? "" })} />
-                <DatePicker ref={activeUntilDateInputRef} label="적용 종료일" isInvalid={Boolean(errors.activeUntilDate)} errorMessage={errors.activeUntilDate} value={values.activeUntilDate || null} onChange={(value) => change({ activeUntilDate: value ?? "" })} />
-              </div>
-              <Text variant="caption" tone="secondary">날짜는 {timeZone} 현장 기준입니다.</Text>
               <SelectBox label="반복" items={recurrenceItems} selectedKey={values.recurrenceKind} onSelectionChange={(key) => key && change({ recurrenceKind: key })} />
               {values.recurrenceKind === "weekly" ? (
                 <div className="flex flex-wrap gap-3" role="group" aria-label="반복 요일" {...errorAttributes(errors.weeklyDays, scheduleErrorIds.weeklyDays)}>
@@ -385,8 +393,6 @@ export function ScheduleDialog({
 
 const advancedErrorKeys: readonly (keyof ScheduleFormErrors)[] = [
   "name",
-  "activeFromDate",
-  "activeUntilDate",
   "weeklyDays",
   "monthlyDay",
   "yearlyMonth",
