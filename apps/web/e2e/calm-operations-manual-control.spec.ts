@@ -74,6 +74,16 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
       return route.fallback();
     });
     await page.goto(`/control?siteId=${ids.site}`);
+    if (viewport.width > 1120) {
+      const target = page.getByRole("heading", { name: "01 / 제어 대상" });
+      const brightness = page.getByRole("heading", { name: "02 / 밝기 실행" });
+      const result = page.getByRole("heading", { name: "03 / 최근 결과" });
+      const executionPanel = page.getByRole("complementary", { name: "밝기 실행" });
+      await expect(target).toBeVisible();
+      await expect(brightness).toBeVisible();
+      await expect(result).toBeVisible();
+      await expect(executionPanel.getByRole("button", { name: "밝기 적용" })).toHaveCount(1);
+    }
     const history = page.getByRole("region", { name: "최근 명령 이력" });
     if (viewport.width <= 1120) {
       const openHistory = history.getByRole("button", { name: "명령 이력 열기" });

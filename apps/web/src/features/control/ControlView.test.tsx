@@ -193,6 +193,21 @@ describe("ControlView 대상 선택", () => {
     expect(screen.getByRole("complementary", { name: "밝기 실행" })).toBeInTheDocument();
   });
 
+  it("presents target, brightness, and recent result in decision order with one desktop apply action", () => {
+    renderControl();
+
+    const target = screen.getByRole("heading", { name: "01 / 제어 대상" });
+    const brightness = screen.getByRole("heading", { name: "02 / 밝기 실행" });
+    const result = screen.getByRole("heading", { name: "03 / 최근 결과" });
+    const execution = screen.getByRole("complementary", { name: "밝기 실행" });
+    const apply = within(execution).getByRole("button", { name: "밝기 적용" });
+
+    expect(target.compareDocumentPosition(brightness) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(brightness.compareDocumentPosition(result) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(within(execution).getAllByRole("button", { name: "밝기 적용" })).toHaveLength(1);
+    expect(within(execution).queryByText(/전송 방식|BLE Mesh/)).not.toBeInTheDocument();
+  });
+
   it("announces the selection count once across the map and execution panel", () => {
     renderControl();
     selectFixture("B2-L001");
@@ -205,6 +220,7 @@ describe("ControlView 대상 선택", () => {
 
     const summary = screen.getByRole("complementary", { name: "선택 대상 요약" });
     const compactExecution = within(summary).getByTestId("compact-summary-execution");
+    expect(within(compactExecution).getByText("02 / 밝기 실행")).toBeInTheDocument();
     expect(within(compactExecution).getByRole("button", { name: "밝기 적용" })).toBeInTheDocument();
     expect(within(compactExecution).getByRole("textbox", { name: "밝기 수치" })).toBeInTheDocument();
     fireEvent.click(within(summary).getByRole("button", { name: "선택 대상 펼치기" }));
@@ -212,6 +228,7 @@ describe("ControlView 대상 선택", () => {
 
     expect(compactExecution).toContainElement(within(compactExecution).getByRole("slider", { name: "밝기" }));
     expect(compactExecution).toContainElement(within(compactExecution).getByRole("button", { name: "밝기 적용" }));
+    expect(within(compactExecution).getByRole("heading", { name: "03 / 최근 결과" })).toBeInTheDocument();
     expect(compactExecution.compareDocumentPosition(historyDisclosure) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(screen.getByRole("complementary", { name: "밝기 실행" })).toHaveClass("hidden", "compact:flex");
 
@@ -643,7 +660,7 @@ describe("ControlView 대상 선택", () => {
     const { rerender } = renderControl();
 
     chooseFloor("B1");
-    expect(screen.getByText("BLE Mesh 그룹 전송")).toBeInTheDocument();
+    expect(screen.queryByText(/전송 방식|BLE Mesh 그룹 전송/)).not.toBeInTheDocument();
     fireEvent.click(applyButton());
     await waitFor(() => expect(mocks.apiPost).toHaveBeenLastCalledWith("/commands/dimming", expect.objectContaining({
       siteId: dashboard.site.id,

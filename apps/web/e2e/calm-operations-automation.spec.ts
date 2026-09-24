@@ -33,12 +33,27 @@ for (const viewport of viewports) {
     await installAutomationFixture(page);
 
     await page.goto(`/control?siteId=${ids.site}&mode=schedule`);
-    await expect(page.getByRole("table", { name: "스케줄 목록" })).toBeVisible();
+    if (viewport.width <= 760) {
+      const cards = page.getByRole("list", { name: "스케줄 카드 목록" });
+      await expect(cards).toBeVisible();
+      await expect(page.getByRole("table", { name: "스케줄 목록" })).toHaveCount(0);
+      const card = cards.getByRole("listitem").filter({ hasText: "적용 스케줄" });
+      for (const field of ["적용 기간", "다음 실행", "반복 · 시간", "밝기", "대상", "Gateway 동기화", "최근 결과", "매일 · 18:00~23:00", "70%", "1개", "모두 성공 · 성공 1개"]) {
+        await expect(card).toContainText(field);
+      }
+      await expect(card.getByRole("button", { name: "적용 스케줄 비활성화" })).toBeVisible();
+      await expect(card.getByRole("button", { name: "적용 스케줄 수정" })).toBeVisible();
+      await card.getByRole("button", { name: "적용 스케줄 삭제" }).scrollIntoViewIfNeeded();
+      await expect(card.getByRole("button", { name: "적용 스케줄 삭제" })).toBeInViewport();
+      await expectNoCardHorizontalOverflow(cards);
+    } else {
+      await expect(page.getByRole("table", { name: "스케줄 목록" })).toBeVisible();
+      await expectReachableColumns(page, "[data-automation-table-wrap]");
+    }
     await expect(page.getByText("적용됨")).toBeVisible();
     await expect(page.getByText("적용 대기")).toBeVisible();
     await expect(page.getByText("적용 실패")).toBeVisible();
     await expect(page.getByText("모두 성공 · 성공 1개").first()).toBeVisible();
-    await expectReachableColumns(page, "[data-automation-table-wrap]");
     await expectNoHorizontalOverflow(page);
 
     await page.getByRole("button", { name: "적용 스케줄 삭제" }).click();
@@ -78,10 +93,25 @@ for (const viewport of viewports) {
     await scheduleDialog.getByRole("button", { name: "스케줄 추가 닫기" }).click();
 
     await page.getByRole("tab", { name: "이벤트 제어" }).click();
-    await expect(page.getByRole("table", { name: "차량 이벤트 목록" })).toBeVisible();
+    if (viewport.width <= 760) {
+      const cards = page.getByRole("list", { name: "차량 이벤트 카드 목록" });
+      await expect(cards).toBeVisible();
+      await expect(page.getByRole("table", { name: "차량 이벤트 목록" })).toHaveCount(0);
+      const card = cards.getByRole("listitem").filter({ hasText: "입구 차량 감지" });
+      for (const field of ["감지 센서", "제어 조명", "밝기", "유지", "Gateway 동기화", "최근 감지", "80%", "60초", "최근 감지 없음"]) {
+        await expect(card).toContainText(field);
+      }
+      await expect(card.getByRole("button", { name: "입구 차량 감지 비활성화" })).toBeVisible();
+      await expect(card.getByRole("button", { name: "입구 차량 감지 수정" })).toBeVisible();
+      await card.getByRole("button", { name: "입구 차량 감지 삭제" }).scrollIntoViewIfNeeded();
+      await expect(card.getByRole("button", { name: "입구 차량 감지 삭제" })).toBeInViewport();
+      await expectNoCardHorizontalOverflow(cards);
+    } else {
+      await expect(page.getByRole("table", { name: "차량 이벤트 목록" })).toBeVisible();
+      await expectReachableColumns(page, "[data-automation-table-wrap]");
+    }
     await expect(page.getByText("최근 감지 없음").first()).toBeVisible();
     await expect(page.getByText("비활성")).toBeVisible();
-    await expectReachableColumns(page, "[data-automation-table-wrap]");
     await expectNoHorizontalOverflow(page);
 
     await page.getByRole("button", { name: "이벤트 추가" }).click();
@@ -315,6 +345,11 @@ async function expectReachableColumns(page: Page, selector: string) {
     expect(candidate.top).toBeGreaterThanOrEqual(bounds.wrapper.top - 1);
     expect(candidate.bottom).toBeLessThanOrEqual(bounds.wrapper.bottom + 1);
   }
+}
+
+async function expectNoCardHorizontalOverflow(cards: ReturnType<Page["getByRole"]>) {
+  const dimensions = await cards.evaluate((element) => ({ scrollWidth: element.scrollWidth, clientWidth: element.clientWidth }));
+  expect(dimensions.scrollWidth).toBeLessThanOrEqual(dimensions.clientWidth + 1);
 }
 
 async function expectNoDocumentVerticalOverflow(page: Page) {

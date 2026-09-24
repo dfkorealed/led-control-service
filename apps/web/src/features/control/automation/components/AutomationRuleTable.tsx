@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 
 export const automationTableHeadingClassName = "border-b border-border-default bg-action-primary-soft p-3 text-left align-middle text-overline font-black whitespace-nowrap text-content-muted";
 
@@ -16,4 +16,21 @@ export function AutomationRuleTable({ label, children }: { label: string; childr
       </table>
     </div>
   );
+}
+
+const compactAutomationQuery = "(max-width: 47.5rem)";
+
+export function useCompactAutomationList() {
+  const [isCompact, setIsCompact] = useState(() => window.matchMedia?.(compactAutomationQuery).matches ?? false);
+
+  useEffect(() => {
+    const media = window.matchMedia?.(compactAutomationQuery);
+    if (!media) return;
+    const update = () => setIsCompact(media.matches);
+    media.addEventListener("change", update);
+    update();
+    return () => media.removeEventListener("change", update);
+  }, []);
+
+  return isCompact;
 }

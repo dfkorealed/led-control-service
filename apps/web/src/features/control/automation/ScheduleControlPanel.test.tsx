@@ -103,7 +103,43 @@ describe("ScheduleControlPanel", () => {
     mocks.deleteSchedule.mockResolvedValue({ id: schedule().id, deleted: true });
   });
 
-  afterEach(cleanup);
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+  });
+
+  it("shows every schedule operation field and working management actions in the compact card", async () => {
+    vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn() })));
+    mocks.listSchedules.mockResolvedValue(page([schedule({
+      lastExecution: actionResultExecution(schedule().id, ["succeeded"])
+    })]));
+    renderPanel("admin");
+
+    const list = await screen.findByRole("list", { name: "스케줄 카드 목록" });
+    const card = within(list).getByRole("listitem");
+    expect(screen.queryByRole("table", { name: "스케줄 목록" })).not.toBeInTheDocument();
+    for (const label of ["야간 운영", "활성", "적용 기간", "다음 실행", "반복 · 시간", "밝기", "대상", "Gateway 동기화", "최근 결과"]) {
+      expect(card).toHaveTextContent(label);
+    }
+    expect(card).toHaveTextContent("매일 · 18:00~23:00");
+    expect(card).toHaveTextContent("70%");
+    expect(card).toHaveTextContent("1개");
+    expect(card).toHaveTextContent("적용 대기");
+    expect(card).toHaveTextContent("모두 성공 · 성공 1개");
+    expect(within(card).getByText(/2026.*09.*01/)).toBeInTheDocument();
+    expect(within(card).getByText(/2026.*09.*30/)).toBeInTheDocument();
+    fireEvent.click(within(card).getByRole("button", { name: "야간 운영 비활성화" }));
+    await waitFor(() => expect(mocks.updateSchedule).toHaveBeenCalledWith(siteId, schedule().id, { status: "disabled" }));
+    fireEvent.click(within(card).getByRole("button", { name: "야간 운영 수정" }));
+    expect(screen.getByRole("dialog", { name: "스케줄 수정" })).toBeInTheDocument();
+  });
+
+  it("keeps compact schedule cards read-only for viewers", async () => {
+    vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn() })));
+    renderPanel("viewer");
+    const card = within(await screen.findByRole("list", { name: "스케줄 카드 목록" })).getByRole("listitem");
+    expect(within(card).queryAllByRole("button")).toHaveLength(0);
+  });
 
   it("shows loading, error with retry, and empty list states", async () => {
     mocks.listSchedules.mockImplementationOnce(() => new Promise(() => undefined));

@@ -460,6 +460,10 @@ export function ControlView({
 
       <div className="grid min-h-0 min-w-0 flex-1 grid-cols-1 gap-4 overflow-y-auto overscroll-contain tablet:grid-cols-[minmax(0,1fr)_22rem] tablet:grid-rows-[minmax(0,1fr)_10rem] tablet:overflow-hidden" data-control-layout="">
         <Card className="flex min-h-0 min-w-0 flex-col overflow-hidden p-4" aria-label="제어 대상 지도" data-control-target-card="">
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border-default pb-3">
+            <Heading as="h4" variant="card-title">01 / 제어 대상</Heading>
+            <Text variant="caption" tone="secondary" className="max-compact:hidden">지도·목록·구역에서 적용할 조명을 선택하세요.</Text>
+          </div>
           <SpatialTargetSelector
             key={data.site.id}
             siteId={data.site.id}
@@ -468,7 +472,10 @@ export function ControlView({
             disabled={controlsLocked}
             onCompactSheetHeightChange={updateCompactSheetHeight}
             compactSummary={<>
-              <ManualControlBadge readOnly={readOnly} canSubmit={canSubmit} blocked={Boolean(blockMessage)} />
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <Text as="strong" variant="label">02 / 밝기 실행</Text>
+                <ManualControlBadge readOnly={readOnly} canSubmit={canSubmit} blocked={Boolean(blockMessage)} />
+              </div>
               <div className="flex items-end justify-between gap-3">
                 <NumberField className="min-w-0 flex-1" label="밝기 수치" size="lg" minValue={0} maxValue={100} step={1} value={brightness} isDisabled={controlsLocked}
                   onChange={(value) => { if (value !== null && value >= 0 && value <= 100) setBrightness(value); }} />
@@ -480,7 +487,6 @@ export function ControlView({
             </>}
             compactDetails={<><DimmingExecutionControls compact brightness={brightness} controlsLocked={controlsLocked} canSubmit={canSubmit}
               applyLabel={manualApplyLabel(commandSessionBlocked, controlsLocked, readOnly, selectedFixtures.length)}
-              selectedFixtureCount={selectedFixtures.length} blockedFixtureCount={resolvedSelection?.blockedFixtureIds.length ?? 0} delivery={deliveryLabel(selection, selectedFixtures.length)}
               onBrightnessChange={setBrightness} onSubmit={submitCommand} />
               <ManualControlFeedback compact scopedActiveRequest={scopedActiveRequest} scopedCommandId={scopedCommandId}
                 isSubmitting={isSubmitting} commandSessionBlocked={commandSessionBlocked} message={message} verificationError={verificationError}
@@ -507,13 +513,13 @@ export function ControlView({
             <div className="grid min-w-0 gap-1">
               <Text as="span" variant="overline" tone="muted">선택 대상</Text>
               <Heading as="h3" variant="card-title" className="truncate">{selectedName}</Heading>
+              <Text variant="caption" tone="secondary">{selectedFixtures.length}개 선택 · 제어 불가 {resolvedSelection?.blockedFixtureIds.length ?? 0}개</Text>
             </div>
             <ManualControlBadge readOnly={readOnly} canSubmit={canSubmit} blocked={Boolean(blockMessage)} />
           </div>
 
           <DimmingExecutionControls brightness={brightness} controlsLocked={controlsLocked} canSubmit={canSubmit}
             applyLabel={manualApplyLabel(commandSessionBlocked, controlsLocked, readOnly, selectedFixtures.length)}
-            selectedFixtureCount={selectedFixtures.length} blockedFixtureCount={resolvedSelection?.blockedFixtureIds.length ?? 0} delivery={deliveryLabel(selection, selectedFixtures.length)}
             onBrightnessChange={setBrightness} onSubmit={submitCommand} />
           <ManualControlFeedback scopedActiveRequest={scopedActiveRequest} scopedCommandId={scopedCommandId}
             isSubmitting={isSubmitting} commandSessionBlocked={commandSessionBlocked} message={message} verificationError={verificationError}
@@ -541,23 +547,17 @@ export function ControlView({
   );
 }
 
-function DimmingExecutionControls({ compact = false, brightness, controlsLocked, canSubmit, applyLabel, selectedFixtureCount, blockedFixtureCount, delivery, onBrightnessChange, onSubmit }: {
+function DimmingExecutionControls({ compact = false, brightness, controlsLocked, canSubmit, applyLabel, onBrightnessChange, onSubmit }: {
   compact?: boolean;
   brightness: number;
   controlsLocked: boolean;
   canSubmit: boolean;
   applyLabel: string;
-  selectedFixtureCount: number;
-  blockedFixtureCount: number;
-  delivery: string;
   onBrightnessChange: (value: number) => void;
   onSubmit: () => void;
 }) {
   return <div className="grid min-h-0 flex-1 content-start gap-4 overflow-y-auto overscroll-contain" data-control-panel-body="">
-    {!compact ? <div className="grid gap-1 rounded-control bg-surface-inset p-3">
-      <Text as="strong" weight="semibold">{selectedFixtureCount}개 선택 · 제어 불가 {blockedFixtureCount}개</Text>
-      <Text as="span" variant="caption" tone="secondary">{delivery}</Text>
-    </div> : null}
+    {!compact ? <Heading as="h4" variant="card-title">02 / 밝기 실행</Heading> : null}
     <div className="grid gap-3 rounded-panel border border-border-default bg-surface-panel p-4" data-control-brightness-card="">
       <div className="flex items-baseline justify-between gap-3">
         <Text as="span" variant="label">밝기</Text>
@@ -624,6 +624,7 @@ function ManualControlFeedback({ compact = false, scopedActiveRequest, scopedCom
   onRefreshStatus: () => void;
 }) {
   return <div className={compact ? "grid gap-3" : "grid min-h-0 max-h-28 flex-none content-start gap-3 overflow-y-auto overscroll-contain"} data-control-panel-feedback="">
+    <Heading as="h4" variant={compact ? "label" : "card-title"}>03 / 최근 결과</Heading>
     <div className="grid min-h-px gap-3 empty:min-h-0" role="status" aria-label="명령 진행 상태" aria-live="polite" data-command-status-region="">
       {scopedActiveRequest && !scopedCommandId ? <Button variant="secondary" type="button" onClick={onRetryPending} disabled={isSubmitting || commandSessionBlocked}>
         동일 요청 확인(새 제어 아님)
@@ -672,13 +673,6 @@ function selectionName(
     : fixtureCount > 1 ? `${fixtureCount}개 조명` : "대상 선택";
   if (selection.mode === "floor") return data.floors.find((floor) => floor.id === selection.floorId)?.name ?? "층 선택";
   return data.groups.find((group) => group.id === selection.groupId)?.name ?? "구역 선택";
-}
-
-function deliveryLabel(selection: ControlSelection, fixtureCount: number) {
-  if (selection.mode === "floor" || selection.mode === "group") return "BLE Mesh 그룹 전송";
-  if (fixtureCount === 1) return "BLE Mesh 개별 전송";
-  if (fixtureCount > 1) return "BLE Mesh 다중 대상 전송";
-  return "대상을 선택하세요";
 }
 
 function isControlPageMode(value: string | null): value is ControlPageMode {

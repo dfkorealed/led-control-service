@@ -62,7 +62,51 @@ describe("VehicleEventControlPanel", () => {
     mocks.deleteVehicleEventRule.mockResolvedValue({ id: rule().id, deleted: true });
   });
 
-  afterEach(cleanup);
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+  });
+
+  it("shows every event operation field and working management actions in the compact card", async () => {
+    vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn() })));
+    mocks.listVehicleEventRules.mockResolvedValue({
+      items: [rule({ lastDetection: {
+        id: "detection-1",
+        eventId: "event-1",
+        sequence: "1",
+        revision: 2,
+        occurrenceKey: null,
+        kind: "vehicle_detected",
+        occurredAt: "2026-09-01T10:00:00.000Z",
+        payload: {}
+      } })],
+      total: 1,
+      nextCursor: null
+    });
+    renderPanel("admin");
+
+    const list = await screen.findByRole("list", { name: "차량 이벤트 카드 목록" });
+    const card = within(list).getByRole("listitem");
+    expect(screen.queryByRole("table", { name: "차량 이벤트 목록" })).not.toBeInTheDocument();
+    for (const label of ["입구 차량 감지", "활성", "감지 센서", "제어 조명", "밝기", "유지", "Gateway 동기화", "최근 감지"]) {
+      expect(card).toHaveTextContent(label);
+    }
+    expect(card).toHaveTextContent("80%");
+    expect(card).toHaveTextContent("60초");
+    expect(card).toHaveTextContent("적용 대기");
+    expect(card).toHaveTextContent("26. 9. 1.");
+    fireEvent.click(within(card).getByRole("button", { name: "입구 차량 감지 비활성화" }));
+    await waitFor(() => expect(mocks.updateVehicleEventRule).toHaveBeenCalledWith(siteId, rule().id, { status: "disabled" }));
+    fireEvent.click(within(card).getByRole("button", { name: "입구 차량 감지 삭제" }));
+    expect(screen.getByRole("dialog", { name: "이벤트 규칙 삭제" })).toBeInTheDocument();
+  });
+
+  it("keeps compact event cards read-only for viewers", async () => {
+    vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn() })));
+    renderPanel("viewer");
+    const card = within(await screen.findByRole("list", { name: "차량 이벤트 카드 목록" })).getByRole("listitem");
+    expect(within(card).queryAllByRole("button")).toHaveLength(0);
+  });
 
   it("shows event state and keeps mutation commands read-only for viewers", async () => {
     renderPanel("viewer");

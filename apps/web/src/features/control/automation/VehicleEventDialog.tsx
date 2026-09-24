@@ -240,7 +240,8 @@ export function VehicleEventDialog({
         {pickerView ?? (
           <form className="grid gap-4" onSubmit={submit} noValidate>
             <section className="grid gap-3 rounded-panel border border-border-default p-4" aria-labelledby="event-flow-heading">
-              <Heading as="h3" id="event-flow-heading" variant="card-title">무엇을 감지해서 실행할까요?</Heading>
+              <Text id="event-flow-heading" tone="secondary">센서가 차량을 감지하면 선택한 조명에 동작을 적용합니다.</Text>
+              <Heading as="h3" variant="card-title">01 감지 센서</Heading>
               <AutomationSelectionCard
                 fieldRef={sourceCardRef}
                 triggerRef={sourceTriggerRef}
@@ -255,6 +256,7 @@ export function VehicleEventDialog({
                 onOpen={() => setView("source")}
               />
               <ArrowDown className="justify-self-center text-content-secondary" size={20} aria-hidden="true" />
+              <Heading as="h3" variant="card-title">02 실행 조명</Heading>
               <AutomationSelectionCard
                 fieldRef={targetCardRef}
                 triggerRef={targetTriggerRef}
@@ -271,48 +273,56 @@ export function VehicleEventDialog({
               />
             </section>
 
-            <fieldset className="m-0 grid gap-3 rounded-panel border border-border-default p-4" disabled={isPending}>
-              <legend>밝기</legend>
-              <AutomationPresetGroup
-                label="밝기 프리셋"
-                value={values.brightnessPercent}
-                options={brightnessPresets.map((value) => ({ value, label: `${value}%` }))}
-                disabled={isPending || !values.dimmingEnabled}
-                onChange={(brightnessPercent) => change({ brightnessPercent })}
-              />
-              <div className="grid grid-cols-[minmax(0,1fr)_8rem] items-end gap-3 max-compact:grid-cols-1">
-                <Slider label="밝기 조절" minValue={0} maxValue={100} value={Number(values.dimmingEnabled ? values.brightnessPercent : "100") || 0} isDisabled={!values.dimmingEnabled} onChange={(value) => change({ brightnessPercent: String(value) })} />
-                <TextField ref={brightnessInputRef} label="밝기" inputMode="numeric" isDisabled={!values.dimmingEnabled} isInvalid={Boolean(errors.brightnessPercent)} errorMessage={errors.brightnessPercent} value={values.dimmingEnabled ? values.brightnessPercent : "100"} onChange={(value) => change({ brightnessPercent: value })} />
-              </div>
-            </fieldset>
+            <ArrowDown className="justify-self-center text-content-secondary" size={20} aria-hidden="true" />
+            <section className="grid gap-3 rounded-panel border border-border-default p-4" aria-labelledby="event-action-heading">
+              <Heading as="h3" id="event-action-heading" variant="card-title">03 동작 설정</Heading>
+              <Text tone="secondary">차량 감지 시 실행 조명에 적용할 밝기와 유지 시간을 정하세요.</Text>
+              <fieldset className="m-0 grid gap-3 border-0 p-0" disabled={isPending}>
+                <legend>밝기</legend>
+                <AutomationPresetGroup
+                  label="밝기 프리셋"
+                  value={values.brightnessPercent}
+                  options={brightnessPresets.map((value) => ({ value, label: `${value}%` }))}
+                  disabled={isPending || !values.dimmingEnabled}
+                  onChange={(brightnessPercent) => change({ brightnessPercent })}
+                />
+                <div className="grid grid-cols-[minmax(0,1fr)_8rem] items-end gap-3 max-compact:grid-cols-1">
+                  <Slider label="밝기 조절" minValue={0} maxValue={100} value={Number(values.dimmingEnabled ? values.brightnessPercent : "100") || 0} isDisabled={!values.dimmingEnabled} onChange={(value) => change({ brightnessPercent: String(value) })} />
+                  <TextField ref={brightnessInputRef} label="밝기" inputMode="numeric" isDisabled={!values.dimmingEnabled} isInvalid={Boolean(errors.brightnessPercent)} errorMessage={errors.brightnessPercent} value={values.dimmingEnabled ? values.brightnessPercent : "100"} onChange={(value) => change({ brightnessPercent: value })} />
+                </div>
+              </fieldset>
 
-            <fieldset className="m-0 grid gap-3 rounded-panel border border-border-default p-4" disabled={isPending}>
-              <legend>유지 시간</legend>
-              <AutomationPresetGroup
-                label="유지 시간 프리셋"
-                value={selectedHoldPreset}
-                options={holdPresets}
-                disabled={isPending}
-                onChange={(preset) => {
-                  if (preset === "custom") {
-                    setCustomHoldOpen(true);
-                    return;
-                  }
-                  setCustomHoldOpen(false);
-                  change({ holdSeconds: preset });
-                }}
-              />
-              {customHoldOpen ? (
-                <TextField ref={holdSecondsInputRef} label="유지 시간" description="초 단위로 입력하세요." inputMode="numeric" isInvalid={Boolean(errors.holdSeconds)} errorMessage={errors.holdSeconds} value={values.holdSeconds} onChange={(value) => change({ holdSeconds: value })} />
-              ) : null}
-            </fieldset>
+              <fieldset className="m-0 grid gap-3 border-0 p-0" disabled={isPending}>
+                <legend>유지 시간</legend>
+                <AutomationPresetGroup
+                  label="유지 시간 프리셋"
+                  value={selectedHoldPreset}
+                  options={holdPresets}
+                  disabled={isPending}
+                  onChange={(preset) => {
+                    if (preset === "custom") {
+                      setCustomHoldOpen(true);
+                      return;
+                    }
+                    setCustomHoldOpen(false);
+                    change({ holdSeconds: preset });
+                  }}
+                />
+                {customHoldOpen ? (
+                  <TextField ref={holdSecondsInputRef} label="유지 시간" description="초 단위로 입력하세요." inputMode="numeric" isInvalid={Boolean(errors.holdSeconds)} errorMessage={errors.holdSeconds} value={values.holdSeconds} onChange={(value) => change({ holdSeconds: value })} />
+                ) : null}
+              </fieldset>
+            </section>
 
             <AutomationAdvancedSection label="고급 설정" open={advancedOpen} disabled={isPending} onOpenChange={setAdvancedOpen}>
               <TextField ref={nameInputRef} label="규칙 이름" isInvalid={Boolean(errors.name)} errorMessage={errors.name} value={values.name} onChange={(value) => change({ name: value })} />
               <Checkbox label={`밝기 직접 지정 ${values.dimmingEnabled ? "ON" : "OFF"}`} aria-label="디밍 사용" isSelected={values.dimmingEnabled} onChange={(selected) => change({ dimmingEnabled: selected })} />
             </AutomationAdvancedSection>
 
-            <AutomationSummaryBar>{vehicleEventSummary(values, dashboard)}</AutomationSummaryBar>
+            <div className="grid gap-2">
+              <Text as="strong" weight="semibold">실행 요약</Text>
+              <AutomationSummaryBar>{vehicleEventSummary(values, dashboard)}</AutomationSummaryBar>
+            </div>
             {serverError ? <Text tone="danger" role="alert">{serverError}</Text> : null}
             <footer className="flex justify-end gap-2">
               <Button variant="secondary" type="button" onClick={onClose} disabled={isPending}>취소</Button>

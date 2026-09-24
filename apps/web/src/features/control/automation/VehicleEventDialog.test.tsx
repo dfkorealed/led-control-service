@@ -60,6 +60,25 @@ describe("VehicleEventDialog spatial source and targets", () => {
 
   afterEach(cleanup);
 
+  it("reads as sensor, execution lights, then brightness and hold action", () => {
+    renderVehicleEventDialog();
+
+    const sensorStep = screen.getByRole("heading", { name: "01 감지 센서" });
+    const targetStep = screen.getByRole("heading", { name: "02 실행 조명" });
+    const actionStep = screen.getByRole("heading", { name: "03 동작 설정" });
+    expect(sensorStep.compareDocumentPosition(targetStep) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(targetStep.compareDocumentPosition(actionStep) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+    const action = screen.getByRole("region", { name: "03 동작 설정" });
+    expect(within(action).getByRole("group", { name: "밝기" })).toBeVisible();
+    expect(within(action).getByRole("group", { name: "유지 시간" })).toBeVisible();
+    expect(screen.getByRole("status")).toHaveTextContent("감지 센서 선택 필요 감지 → 실행 조명 선택 필요 · 밝기 70% · 1분 유지");
+
+    fireEvent.click(within(action).getByRole("button", { name: "80%" }));
+    fireEvent.click(within(action).getByRole("button", { name: "5분" }));
+    expect(screen.getByRole("status")).toHaveTextContent("밝기 80% · 5분 유지");
+  });
+
   it("returns from an empty source picker to the preserved form and trigger", async () => {
     renderVehicleEventDialog();
     fireEvent.click(screen.getByRole("button", { name: "50%" }));

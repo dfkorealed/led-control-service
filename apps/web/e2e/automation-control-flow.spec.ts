@@ -252,12 +252,19 @@ async function createVehicleEvent(
 ) {
   await page.getByRole("button", { name: "이벤트 추가" }).click();
   const dialog = page.getByRole("dialog", { name: "이벤트 추가" });
+  expect(await dialog.getByRole("heading", { name: /^0[123] / }).allTextContents()).toEqual([
+    "01 감지 센서",
+    "02 실행 조명",
+    "03 동작 설정",
+  ]);
+  await expect(dialog.getByRole("region", { name: "03 동작 설정" }).getByRole("group", { name: "유지 시간" })).toBeVisible();
   await dialog.getByRole("button", { name: "감지 센서 선택" }).click();
   await selectFixtureFromList(page, dialog, input.source);
   await dialog.getByRole("button", { name: "1개 조명 선택 완료", exact: true }).click();
   await dialog.getByRole("button", { name: "실행할 조명 선택" }).click();
   await selectFixtureFromList(page, dialog, input.target);
   await dialog.getByRole("button", { name: "1개 조명 선택 완료", exact: true }).click();
+  await expect(dialog.getByRole("status")).toContainText(`${input.source} 감지 → ${input.target} · 밝기 70% · 1분 유지`);
   await dialog.getByRole("button", { name: "고급 설정" }).click();
   await dialog.getByLabel("규칙 이름").fill("Task 19 차량 이벤트");
   await dialog.getByLabel("밝기", { exact: true }).fill(String(input.brightness));

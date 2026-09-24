@@ -19,10 +19,12 @@ import { authMeQueryKey } from "../../../api/principal-cache";
 import type { Dashboard } from "../../../api/queries";
 import { Button, ConfirmDialog, FeedbackState, PageHeader, StatusBadge, Text } from "../../../components/ui";
 import { ScheduleDialog } from "./ScheduleDialog";
+import { AutomationRuleCard } from "./components/AutomationRuleCard";
 import {
   AutomationRuleTable,
   automationTableCellClassName,
-  automationTableHeadingClassName
+  automationTableHeadingClassName,
+  useCompactAutomationList
 } from "./components/AutomationRuleTable";
 
 export function ScheduleControlPanel({
@@ -52,6 +54,7 @@ export function ScheduleControlPanel({
   const [message, setMessage] = useState("");
   const [mutationError, setMutationError] = useState("");
   const canManage = role === "admin";
+  const isCompactList = useCompactAutomationList();
   const schedulesQuery = useInfiniteQuery({
     queryKey: scheduleQueryKey(siteId),
     queryFn: ({ pageParam }) => listSchedules(siteId, {
@@ -210,6 +213,26 @@ export function ScheduleControlPanel({
     });
   }
 
+  function renderActions(schedule: ScheduleResponse) {
+    if (!canManage) return null;
+    return <div className="grid grid-cols-3 gap-1.5" data-schedule-row-actions="">
+      <Button variant="ghost" className="w-11 p-0" type="button" aria-label={`${schedule.name} ${schedule.status === "enabled" ? "비활성화" : "활성화"}`} title={schedule.status === "enabled" ? "비활성화" : "활성화"} disabled={isMutating} onClick={() => toggle(schedule)}>
+        {schedule.status === "enabled" ? <PowerOff size={16} aria-hidden="true" /> : <Power size={16} aria-hidden="true" />}
+      </Button>
+      <Button variant="ghost" className="w-11 p-0" type="button" aria-label={`${schedule.name} 수정`} title="수정" disabled={isMutating || !dashboard} onClick={(event) => beginEdit(schedule, event.currentTarget)}>
+        <Pencil size={16} aria-hidden="true" />
+      </Button>
+      <Button variant="danger" className="w-11 p-0" type="button" aria-label={`${schedule.name} 삭제`} title="삭제" disabled={isMutating} onClick={(event) => {
+        deleteReturnFocusRef.current = event.currentTarget;
+        setDeleteCandidate(schedule);
+        setMutationError("");
+        setMessage("");
+      }}>
+        <Trash2 size={16} aria-hidden="true" />
+      </Button>
+    </div>;
+  }
+
   return (
     <div
       id="control-mode-panel-schedule"
@@ -254,7 +277,23 @@ export function ScheduleControlPanel({
       ) : null}
 
       {!schedulesQuery.isLoading && !schedulesQuery.isLoadingError ? (
-        schedules.length > 0 ? <AutomationRuleTable label="스케줄 목록">
+        schedules.length > 0 ? isCompactList ? <div role="list" aria-label="스케줄 카드 목록" className="grid min-w-0 gap-3">
+          {schedules.map((schedule) => <AutomationRuleCard
+            key={schedule.id}
+            name={schedule.name}
+            status={<EnabledBadge enabled={schedule.status === "enabled"} />}
+            fields={[
+              { label: "적용 기간", value: formatActivePeriod(schedule, dashboard?.site.timeZone ?? "UTC") },
+              { label: "다음 실행", value: formatNextOccurrence(schedule, dashboard?.site.timeZone ?? "UTC") },
+              { label: "반복 · 시간", value: formatRecurrence(schedule) },
+              { label: "밝기", value: schedule.action.dimmingEnabled ? `${schedule.action.brightnessPercent}%` : "디밍 OFF · 100%" },
+              { label: "대상", value: `${schedule.targetCount}개` },
+              { label: "Gateway 동기화", value: <SyncBadge status={schedule.syncStatus} /> },
+              { label: "최근 결과", value: <LastExecutionBadge schedule={schedule} timeZone={dashboard?.site.timeZone ?? "UTC"} wrap /> }
+            ]}
+            actions={renderActions(schedule)}
+          />)}
+        </div> : <AutomationRuleTable label="스케줄 목록">
             <thead>
               <tr>
                 <th className={automationTableHeadingClassName}>이름</th>
@@ -286,48 +325,7 @@ export function ScheduleControlPanel({
                   <td className={automationTableCellClassName(isLastRow)}><LastExecutionBadge schedule={schedule} timeZone={dashboard?.site.timeZone ?? "UTC"} /></td>
                   {canManage ? (
                     <td className={automationTableCellClassName(isLastRow)}>
-                      <div className="grid grid-cols-3 gap-1.5" data-schedule-row-actions="">
-                        <Button
-                          variant="ghost"
-                          className="w-11 p-0"
-                          type="button"
-                          aria-label={`${schedule.name} ${schedule.status === "enabled" ? "비활성화" : "활성화"}`}
-                          title={schedule.status === "enabled" ? "비활성화" : "활성화"}
-                          disabled={isMutating}
-                          onClick={() => toggle(schedule)}
-                        >
-                          {schedule.status === "enabled"
-                            ? <PowerOff size={16} aria-hidden="true" />
-                            : <Power size={16} aria-hidden="true" />}
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          className="w-11 p-0"
-                          type="button"
-                          aria-label={`${schedule.name} 수정`}
-                          title="수정"
-                          disabled={isMutating || !dashboard}
-                          onClick={(event) => beginEdit(schedule, event.currentTarget)}
-                        >
-                          <Pencil size={16} aria-hidden="true" />
-                        </Button>
-                        <Button
-                          variant="danger"
-                          className="w-11 p-0"
-                          type="button"
-                          aria-label={`${schedule.name} 삭제`}
-                          title="삭제"
-                          disabled={isMutating}
-                          onClick={(event) => {
-                            deleteReturnFocusRef.current = event.currentTarget;
-                            setDeleteCandidate(schedule);
-                            setMutationError("");
-                            setMessage("");
-                          }}
-                        >
-                          <Trash2 size={16} aria-hidden="true" />
-                        </Button>
-                      </div>
+                      {renderActions(schedule)}
                     </td>
                   ) : null}
                 </tr>
@@ -410,11 +408,11 @@ function EnabledBadge({ enabled }: { enabled: boolean }) {
     : <StatusBadge tone="neutral" icon={PowerOff}>비활성</StatusBadge>;
 }
 
-function LastExecutionBadge({ schedule, timeZone }: { schedule: ScheduleResponse; timeZone: string }) {
+function LastExecutionBadge({ schedule, timeZone, wrap = false }: { schedule: ScheduleResponse; timeZone: string; wrap?: boolean }) {
   const failed = schedule.lastExecution?.kind === "action_result"
     && !formatActionResult(schedule.lastExecution.payload).startsWith("모두 성공");
   return (
-    <StatusBadge tone={failed ? "danger" : schedule.lastExecution ? "info" : "neutral"} icon={failed ? TriangleAlert : Clock3}>
+    <StatusBadge tone={failed ? "danger" : schedule.lastExecution ? "info" : "neutral"} icon={failed ? TriangleAlert : Clock3} className={wrap ? "max-w-full whitespace-normal break-words" : undefined}>
       {formatLastExecution(schedule, timeZone)}
     </StatusBadge>
   );
