@@ -1,5 +1,81 @@
 # Tailwind 디자인 토큰 및 공통 UI 시스템 전환 설계
 
+> **2026-09-23 적용 기준:** 아래 `0장`은 [승인된 킨다 관제 UX 시안](../../assets/ux-refresh-2026-09-23/design-review.md)의 제품 적용을 위한 최신 디자인 시스템 계약이다. 이 문서의 기존 1~14장은 2026-09-15 Tailwind 전환 당시의 설계·구현 순서 기록이며, 특히 2장의 “Tailwind 미사용”과 10장의 세션 배정은 **현재 구현 상태가 아니다**. 실제 완료·미완료 판정은 [프로젝트 현황](../../project-status.md)과 메뉴별 현황이 우선한다. 시안의 화면 방향·여정은 `design-review.md`, 토큰/공통 컴포넌트 구현 계약은 이 문서 0장, 제품 기능 계약은 기존 메뉴·API 문서가 정본이다.
+
+## 0. 2026-09-23 승인 UX 적용 명세
+
+### 0.1 범위와 변경 원칙
+
+11개 PNG의 **지도 중심 작업대, 전역 현장 맥락, 재진입 가능한 상태 표현**을 유지한다. 이 장은 새 기능 완료 선언이 아니라 페이지 구현자가 사용할 변경 명세다. 제품 코드·API·DB·펌웨어는 이 문서 작업에서 변경하지 않는다. UI 변경은 기존 route, 역할별 capability, `siteId` URL, 조회·명령·보고서 payload, 맵 저장/lease/dirty/409 계약을 보존해야 한다. 사용자에게 보이는 수치는 mock 시안 데이터와 분리하고, 실측·상태 기반 추정·가상 비교 기준을 혼동하지 않는다.
+
+현재 제품의 토큰은 `apps/web/src/styles/theme.css`의 Tailwind v4 `@theme static`가 단일 원천이다. 공통 UI는 `apps/web/src/components/ui`의 공개 API를 이용한다. 각 페이지가 PNG의 색/간격을 literal로 옮기거나 `scenes.css`를 제품에 import하지 않는다. 새 primitive가 필요한 상태 센터·toast·현장 선택은 **공통 UI/셸 담당이 먼저 API·접근성·테스트를 확정**하고 메뉴 담당은 공개 API를 사용한다. 현장 선택 가능 범위와 URL 동기화는 현재 서버의 권한/현장 조회 계약을 확인한 뒤 결정하며, 보이지 않는 타 현장 접근 권한을 UI로 만들어내지 않는다.
+
+### 0.2 토큰과 화면 밀도
+
+| 화면 역할 | 제품 토큰/규칙 | 시안 적용 경계 |
+| --- | --- | --- |
+| 브랜드 | `brand-navy #15324a`, `brand-blue #256fa1`, `brand-coral #ff7a5c`, `brand-paper #f4f8fa` | Navy 제목/역색 면, Blue 주요 행동, Paper 캔버스. Coral은 로고·제한적 장식만; 오류·경고·주요 CTA 아님 |
+| 표면·문자 | `surface-canvas/panel/elevated/inset/inverse`, `content-primary/secondary/muted/inverse/disabled` | 카드·패널은 흰 면과 `border-default`; muted만으로 필수 정보나 오류를 전달하지 않음 |
+| 행동·상태 | `action-primary/*`, `action-danger-*`, `status-neutral/info/success/warning/danger-*` | 상태는 의미 토큰 + 텍스트/아이콘. 연결 상태, 조명 점검, freshness, 제어 가능 여부를 하나의 배지로 합치지 않음 |
+| 지도·차트 | `fixture-*`, `chart-*` 및 공통 theme color adapter | 마커 색은 현재 제품 의미를 보존하고 선택·오프라인을 형태/라벨로도 구분. 결측은 0 색상으로 칠하지 않음 |
+| 간격 | 기존 5.1의 2/4/6/8/10/12/14/16/18/20/24/28/32/40/48/64px scale | 기본 카드 내부 16px 모바일·24px 데스크톱, 섹션 간 24~32px, 조밀한 상태 행 8~12px. 44px hit target은 간격이 아닌 조작 제약 |
+| 글자 | `page-title 28/36`, `section-title 24/32`, `card-title 20/28`, `body 14/22`, `body-sm 13/20`, `label/caption 12/18`, `metric 28/34` | 표·보조 상태를 11px 이하로 축소하지 않음. 모바일 입력은 확대 방지를 위해 16px 이상을 유지; 숫자·시각은 tabular number |
+| 형태 | `radius-control/panel/popover/pill`, `shadow-panel/popover/focus` | 둥근 카드·조작·오버레이의 역할별 사용. focus ring은 hover/selected와 별개로 유지 |
+
+`content-muted`와 상태 전경의 실제 조합, 차트 선·마커·작은 텍스트는 사용 맥락마다 AA 명암비를 확인한다. 본문 4.5:1, 큰 글자·의미 있는 경계/아이콘 3:1을 목표로 하며 미달 조합을 시안의 임의 hex로 고치지 말고 UI 기반 담당에게 의미 토큰 조정을 요청한다. 기본 본문은 `Inter` 기반 현재 제품 typography를 유지하고 한글 줄바꿈·200% 확대에서 레이아웃을 검증한다. 새 dark theme나 별도 Figma/정적 시안 토큰 원천은 만들지 않는다.
+
+### 0.3 공통 컴포넌트와 상태 계약
+
+| 요소 | 현재 재사용 출발점 | 승인 UX 적용 시 필요한 variant·상태/행동 |
+| --- | --- | --- |
+| Button/IconButton | `Button`의 `primary/secondary/ghost/danger/link`, `sm/md/lg`, `isLoading`; `IconButton`, `IconTooltipButton` | 기본 높이 최소 44px, 필수 실행은 primary 1개/맥락, 보조는 secondary/ghost, 파괴 동작만 danger. pending은 중복 실행 차단·텍스트 유지, disabled는 비활성 이유를 근처에 제공. 로딩·실패가 성공처럼 보이지 않음 |
+| 입력·검색 | `FormField`, `TextField`, `SearchField`, `NumberField`의 `outline/filled/ghost`, `sm/md/lg` | label/description/errorMessage 연결, 필수·읽기 전용·invalid·disabled 구분. 검색의 빈 결과·조회 실패·미배치 대상은 서로 다른 상태. 320px에서 검색이 지도를 밀어내지 않도록 지도 앞의 짧은 행 사용 |
+| 선택·기간 | `SelectBox`의 `outline/filled`, `selectedKey`, `items`, `onSelectionChange`; 공통 날짜·시간 계열 | 현장/층은 권한·데이터 준비 전 임의 기본값 금지. 하나뿐인 층/게이트웨이 자동 선택은 해당 등록 단계에서만 검증 후 사용. 기간은 현장 timezone·24시간제·date-only 변환을 유지하고 KPI/차트/보고서 각각의 범위를 라벨에 명시 |
+| 카드·상태 | `Card`의 `default/selected/danger`, `MetricCard`, `StatusBadge`의 `neutral/info/success/warning/danger`, `FeedbackState` | 선택 카드와 위험 카드 시각 분리. `StatusBadge`는 icon+문구가 필수이며 단일 “정상”으로 freshness/명령 가능 여부를 뭉치지 않음. 로딩/빈값/미수집/0/부분 실패/오프라인은 독립 표기 |
+| 도움말·overlay | `IconTooltipButton`, `Popover`, `ModalDialog`, `ConfirmDialog`, `SidePanel` | tooltip은 보조 설명만; 중요한 실패·행동은 본문/상태 센터에 남김. popover·drawer는 Escape/외부 클릭/trigger focus 복귀, dialog는 focus containment. 지도 상세는 `SidePanel`을 시작점으로 하되 desktop 인접 패널·compact bounded sheet/drawer의 레이아웃 변형을 공통 소유자가 정의 |
+| toast·상태 센터 | 현재 공통 `Toast`/`StatusCenter` 없음; 새 셸 UI 제안 | 완료는 4~6초 비차단 toast와 관련 이력 링크, 부분 실패·stale는 toast + 상단 점/건수 + 재진입 popover/drawer. 해결 전 상태는 현 로그인 세션의 기존 쿼리/인시던트에서 재구성; 새 알림 DB, push, escalation, 장기 보관을 뜻하지 않음. `role=status`/`alert`는 긴급도에 맞게 중복 낭독 없이 사용 |
+| 지도 마커·패널 | `FloorMapViewport`, `FloorScene`, `SpatialTargetSelector`, `SidePanel` | 시각 dot과 독립된 최소 44px hit target, 밀집 시 확대/목록 경로. 선택/제어 가능/오프라인/최근 확인 밝기 및 마지막 수신 시각을 분리. 모니터링은 읽기 전용, 제어는 기존 대상·잠금·ACK 계약, 편집은 draft/저장 결과 분리 |
+
+새 API를 페이지 로컬 버튼·toast·상태 배열로 먼저 복제하지 않는다. 공통 소유자는 `variant`, `size`, `className`, forwarded ref, 키보드/스크린리더 이름과 focus 테스트를 한 번에 제공한다. 메뉴 소유자는 도메인 상태를 위 공통 표현에 매핑하고, 요청 성공/실패 판정은 기존 데이터 계층에서만 받는다.
+
+### 0.4 반응형 배치 기준
+
+| 검증 폭 | 셸·콘텐츠 | 지도·상태·조작 |
+| --- | --- | --- |
+| 1440×900 | 데스크톱 좌측 주 메뉴, 상단 현장 맥락, 2열 작업대 | 지도 우선 + 독립 상세 패널; toast/popover는 본문 높이 미변경. 차트 축·단위와 보고서 메타를 표시 |
+| 1024×768 | 메뉴/상단은 유지하되 카드·필터 줄바꿈 | 지도와 패널 최소 너비를 보장; 필요하면 패널을 아래로 배치. 고정 폭 때문에 수평 body overflow를 만들지 않음 |
+| 390×844 | 하단 4메뉴·safe area, 페이지 본문 스크롤 | 모니터링 KPI 한 줄 가능할 때만 사용; 지도→우선 확인/검색. 제어 실행은 하단 메뉴 위 기존 compact sheet에 대상·밝기·적용을 보존 |
+| 320×740 | 하단 메뉴·safe area 보존, 줄바꿈/축약을 검증 | KPI 2×2, 검색을 지도 앞에 둠. 지도·목록·확대·미배치 접근을 유지하고 내부 패널만 필요한 경우 스크롤 |
+
+기준 breakpoint는 `compact 47.5rem(760px)`, `tablet 64rem(1024px)`이며 1024px 정확 경계에서 레이아웃을 실제 확인한다. 390px/320px의 숫자 배치는 사용 가능한 문구 길이와 접근성 확대에 따라 2×2로 내려갈 수 있다. 모바일 마커가 44px 영역끼리 겹치면 전부 강제로 표시하지 말고 확대/집계/검색 목록으로 전환한다. 고정 하단 요소는 `safe-area`와 실제 시트 높이만큼 본문 여백을 확보한다.
+
+### 0.5 화면 연결과 파일 소유 핸드오프
+
+2026-09-23 코드/QA 대조 결과를 구현 티켓의 **시작 상태**로 사용한다. 아래 `유지` 항목은 새 기능으로 다시 만들거나 완료 판정을 중복 집계하지 않는다.
+
+| 화면 | 실제 갭: 이번 UX 적용 대상 | 이미 있는 계약: 유지·회귀만 |
+| --- | --- | --- |
+| 최초 설치 | `SetupWizard`의 층수↔`floors` 개수 불일치 저장 차단과 완료 후 다음 단계 CTA 없음 | pending 설치 진입·역할 제한 및 기존 저장/등록 API |
+| 셸·상태 | `CustomerShell`은 현장 읽기 전용 배지이며 전역 현장 선택, 게이트웨이 집계, 상태 센터 없음 | 권한이 확인되기 전 보호 route 차단, 역할별 nav와 dirty logout guard |
+| 모니터링 | stale 경고가 본문을 밀고, offline 밝기를 현재값처럼 표기하며, 320px KPI가 1열 | 읽기 전용 지도, 실제 상태/인시던트 데이터와 부분 실패·재조회 계약 |
+| 수동·자동 제어 | 승인 시안의 간결한 정보 위계와 일정 적용 기간 가시성 조정 | 실행 결과 패널, 명령 재시도/복구·잠금/ACK 계약, 공통 지도 대상 선택은 이미 존재 |
+| 통계·보고서 | 보고서 필터 5개가 기본 노출되어 3개 기본 + 2개 상세로 위계 조정 필요 | 현장 timezone, 추정 표기·히트맵 범례, 보고서 만료 시각·문서 형식 계약은 이미 존재 |
+| 도면 모바일 | 위치 지정이 HTML drag/drop에 의존해 선택→지도 탭→확인 대안 필요 | 도면 저장·revision, lease/dirty/409와 등록 조명 ID |
+| 인증 | 로그인 제출에서 500/transport를 비밀번호 오류로 오분류하고 무응답 deadline 없음 | `/auth/me`의 401/403/일시 오류 복구와 보호 route fail-closed는 이미 존재 |
+
+상태 센터의 `미해결`은 durable 알림 원장이 아니라 **현재 세션에서 기존 API/쿼리로 확인되는 문제**의 재진입 상태다. 새로고침·현장 전환 시 과거 메시지 보존을 약속하지 않으며, 동일 문제의 toast 반복 방지·해제 조건은 공통 셸 담당이 현재 쿼리 식별자로 정의한다. 외부 notification/escalation, 장기 보관, 새 장애 수집 API는 이 인수 범위에 없다.
+
+| 순서/담당 | 기존 route·진입점 | 페이지 변경과 완료 증거 |
+| --- | --- | --- |
+| 1 공통 UI·셸 | `components/ui`, `styles/theme.css`, `features/shells/CustomerShell.tsx`, 인증 복구 | 현장 선택 가능성·권한 확인, 상단 상태 아이콘/세션 상태 센터/toast primitive, compact nav와 overlay focus. 현재 현장 읽기 전용 배지를 선택기로 오인하지 않음. 인증 `/auth/me` 401/403/5xx/전송 실패 분류와 fail-closed route, dirty editor 로그아웃 guard 유지 |
+| 2 설치·설정 | `/settings`, `/settings/registration`, `/settings/floor-plans/:floorId/edit` | 현장·층→gateway→조명 등록→도면 배치→운영 진입을 단계로 연결. 층수/배열 검증, 완료 후 다음 단계 CTA, 모바일 선택→탭→확인 경로는 기존 lease/dirty/409·권한/등록 계약 안에서 구현. 실제 조명 등록/배치 결과와 mock 시안의 예시값 구분 |
+| 3 모니터링 | `/monitoring`, `features/monitoring`, 공통 읽기 전용 지도 | 현장·층 KPI→지도→조명 상세/최근 수신/조치→제어 이동. 미배치·밀집 마커의 목록 경로와 부분 실패 재진입. 지도 상태를 정상값으로 보간하지 않음 |
+| 4 제어 | `/control?mode=manual|schedule|event`, `features/control` | 같은 지도/목록 선택→실행 가능한 대상→밝기→명령 접수/terminal·부분 실패→이력. 기존 단일 Gateway/개수·lock/idempotency/ACK/복구 유지. schedule 시작·종료일과 event 센서→조명→동작을 항상 요약; BIO `0x09` production 미구현은 숨기지 않음 |
+| 5 통계·보고서 | `/statistics/overview|analysis|reports`, `features/statistics` | 현장 timezone, 고정 KPI 기간 vs 추이/분석 기간 vs 보고서 기간 구분. 상태 기반 추정/비교 기준/결측/0·차트 축/범례, 보고서 기본 3필터와 상세 형식/범위, PDF/XLSX/CSV 계약 및 7일 만료 메타 유지 |
+| 6 QA·운영 | `docs/menus/*`, 기존 집중 테스트·Chromium 여정 | 4개 폭, keyboard/screen reader/focus, 권한/URL/back, 부분 실패/재시도, 저장/명령/보고서 실제 응답을 회귀. 변경한 모든 메뉴 현황을 같은 구현 작업에서 갱신하고 mock·소프트웨어·실장비 HIL 증거를 분리 |
+
+공통 API가 없거나 서버 데이터가 없는 항목은 페이지가 임의 mock으로 “완료” 처리하지 않는다. 구현 순서와 파일 잠금/체크리스트는 총괄의 활성 `writing-plans` 계획이 소유하며, 이 표는 디자인 인수 조건이다. 실제 iOS/Android WebView 수동 시각·제스처 검증, 다중 조명·Gateway HIL 및 production 알림/센서 실행은 별도 검증·승인 대상이다.
+
 ## 1. 결정 요약
 
 Web UI를 **Tailwind CSS v4의 CSS-first 테마 변수**와 **React Aria Components 기반의 headless 공통 컴포넌트**로 전환한다. 현재 화면의 시각적 인상과 정보 밀도를 최대한 유지하면서 간격, 색상, 타이포그래피와 폼 상호작용을 하나의 규칙으로 통합한다.
