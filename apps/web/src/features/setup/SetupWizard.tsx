@@ -2,7 +2,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { CheckCircle2, Clock3, Wand2 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { createInitialSiteSetup, type InitialFloorInput } from "../../api/setup";
-import { Button, Card, FeedbackState, NumberField, ProgressSteps, SelectBox, StatusBadge, TextField } from "../../components/ui";
+import { Button, Card, ConfirmDialog, FeedbackState, NumberField, ProgressSteps, SelectBox, StatusBadge, TextField } from "../../components/ui";
 
 interface SetupWizardProps {
   siteId: string;
@@ -22,6 +22,8 @@ export function SetupWizard({ siteId, customerName, siteName, onComplete }: Setu
   const [basementCount, setBasementCount] = useState("2");
   const [groundCount, setGroundCount] = useState("0");
   const [floors, setFloors] = useState<InitialFloorInput[]>(buildFloors(2, 0));
+  const [lastGeneratedFloors, setLastGeneratedFloors] = useState<InitialFloorInput[]>(buildFloors(2, 0));
+  const [pendingGeneratedFloors, setPendingGeneratedFloors] = useState<InitialFloorInput[] | null>(null);
   const [successMessage, setSuccessMessage] = useState("");
 
   const validationMessage = useMemo(() => {
@@ -40,6 +42,11 @@ export function SetupWizard({ siteId, customerName, siteName, onComplete }: Setu
       return `층수는 지하와 지상 각각 ${MAX_FLOOR_COUNT}층 이하의 숫자여야 합니다.`;
     }
     if (floors.length === 0) return "층을 1개 이상 생성하세요.";
+    if (floors.filter((floor) => floor.level < 0).length !== basement
+      || floors.filter((floor) => floor.level > 0).length !== ground
+      || floors.length !== basement + ground) {
+      return "층수와 층 목록이 일치하지 않습니다. 층을 다시 생성하세요.";
+    }
     if (floors.some((floor) => !floor.name.trim())) return "층 이름을 입력하세요.";
     if (floors.some((floor) => !Number.isInteger(floor.level) || floor.level === 0)) {
       return "층 level은 0이 아닌 정수여야 합니다.";
@@ -68,6 +75,12 @@ export function SetupWizard({ siteId, customerName, siteName, onComplete }: Setu
   });
 
   const canSubmit = !validationMessage && !setupMutation.isPending;
+
+  function applyGeneratedFloors(next: InitialFloorInput[]) {
+    setFloors(next);
+    setLastGeneratedFloors(next);
+    setPendingGeneratedFloors(null);
+  }
 
   return (
     <section className="grid min-w-0 gap-4 rounded-panel border border-border-default bg-surface-panel p-4.5 shadow-panel" data-testid="site-setup-flow" aria-labelledby="setup-wizard-title">
@@ -129,7 +142,10 @@ export function SetupWizard({ siteId, customerName, siteName, onComplete }: Setu
               const basement = parseCount(basementCount);
               const ground = parseCount(groundCount);
               if (!isValidFloorCount(basement) || !isValidFloorCount(ground)) return;
-              setFloors(buildFloors(basement, ground));
+              const next = buildFloors(basement, ground);
+              const customized = !sameFloorList(floors, lastGeneratedFloors);
+              if (customized && !sameFloorList(next, floors)) setPendingGeneratedFloors(next);
+              else applyGeneratedFloors(next);
             }}
           >
             <Wand2 size={16} />
@@ -177,6 +193,16 @@ export function SetupWizard({ siteId, customerName, siteName, onComplete }: Setu
         <CheckCircle2 size={16} />
         초기 설정 완료
       </Button>
+      <ConfirmDialog
+        isOpen={pendingGeneratedFloors !== null}
+        role="alertdialog"
+        title="층 목록 다시 생성"
+        confirmLabel="다시 생성"
+        onCancel={() => setPendingGeneratedFloors(null)}
+        onConfirm={() => { if (pendingGeneratedFloors) applyGeneratedFloors(pendingGeneratedFloors); }}
+      >
+        직접 수정한 층 이름과 층 번호가 새 목록으로 바뀝니다. 계속할까요?
+      </ConfirmDialog>
     </section>
   );
 }
@@ -191,7 +217,7 @@ export function InstallationPending() {
         </div>
         <StatusBadge tone="neutral" icon={Clock3}>대기</StatusBadge>
       </div>
-      <FeedbackState tone="neutral" icon={Clock3} title="Viewer 설치 대기" description="설치 담당자가 현장 정보와 Gateway 연결을 완료하면 조명 등록을 시작할 수 있습니다." />
+      <FeedbackState tone="neutral" icon={Clock3} title="Viewer 설치 대기" description="현장 관리자가 설치와 조명 등록을 완료하면 조회할 수 있습니다." />
     </section>
   );
 }
@@ -208,10 +234,16 @@ function buildFloors(basementCount: number, groundCount: number): InitialFloorIn
   return [...basementFloors, ...groundFloors];
 }
 
+function sameFloorList(left: InitialFloorInput[], right: InitialFloorInput[]) {
+  return left.length === right.length && left.every((floor, index) =>
+    floor.name === right[index].name && floor.level === right[index].level
+  );
+}
+
 function parseCount(value: string) {
+  if (!value.trim()) return Number.NaN;
   const count = Number(value);
-  if (!Number.isFinite(count)) return Number.NaN;
-  return Math.max(0, Math.floor(count));
+  return Number.isInteger(count) ? count : Number.NaN;
 }
 
 function isValidFloorCount(value: number) {

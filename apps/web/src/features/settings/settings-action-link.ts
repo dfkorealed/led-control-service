@@ -1,0 +1,1 @@
+export const settingsActionLinkClass = "mt-auto inline-flex min-h-11 items-center justify-center gap-2 justify-self-start rounded-control border border-border-default bg-action-secondary px-4 py-0 text-body font-bold text-action-primary no-underline outline-none focus-visible:shadow-focus";

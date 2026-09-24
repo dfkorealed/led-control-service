@@ -1,6 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { Dashboard } from "../../api/queries";
 import {
   type DiscoveredRegistrationNode,
   type RegistrationEligibility,
@@ -65,6 +66,68 @@ describe("RegistrationPanel", () => {
   afterEach(() => {
     cleanup();
     vi.useRealTimers();
+  });
+
+  it("유일한 층과 온라인 게이트웨이는 활성 세션 조회 후 기본 선택한다", async () => {
+    const dashboard = structuredClone(mockDashboard);
+    dashboard.floors = dashboard.floors.slice(0, 1);
+    renderPanel(dashboard);
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "등록 층" })).toHaveTextContent(dashboard.floors[0].name));
+    expect(screen.getByRole("button", { name: "등록 게이트웨이" })).toHaveTextContent(dashboard.gateways[0].name);
+    expect(screen.getByRole("button", { name: "조명 검색 시작" })).toBeEnabled();
+  });
+
+  it("층이나 게이트웨이가 여럿이면 임의로 기본 선택하지 않는다", async () => {
+    const dashboard = structuredClone(mockDashboard);
+    dashboard.gateways.push({ ...dashboard.gateways[0], id: "gateway-second", name: "두 번째 Gateway" });
+    renderPanel(dashboard);
+
+    await waitFor(() => expect(activeSessionsMock).toHaveBeenCalled());
+    expect(screen.getByRole("button", { name: "등록 층" })).toHaveTextContent("층 선택");
+    expect(screen.getByRole("button", { name: "등록 게이트웨이" })).toHaveTextContent("게이트웨이 선택");
+    expect(screen.getByRole("button", { name: "조명 검색 시작" })).toBeDisabled();
+  });
+
+  it("유일한 게이트웨이가 오프라인이면 검색 시작을 막는다", async () => {
+    const dashboard = structuredClone(mockDashboard);
+    dashboard.floors = dashboard.floors.slice(0, 1);
+    dashboard.gateways[0].connectionStatus = "offline";
+    renderPanel(dashboard);
+
+    await waitFor(() => expect(activeSessionsMock).toHaveBeenCalled());
+    expect(screen.getByRole("button", { name: "등록 게이트웨이" })).toHaveTextContent("게이트웨이 선택");
+    expect(screen.getByText("온라인 게이트웨이가 있어야 조명 검색을 시작할 수 있습니다.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "조명 검색 시작" })).toBeDisabled();
+  });
+
+  it("오프라인 상태 재확인은 게이트웨이 선택 영역 안에서 제공한다", () => {
+    const dashboard = structuredClone(mockDashboard);
+    dashboard.gateways[0].connectionStatus = "offline";
+    const onRefreshGatewayStatus = vi.fn();
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+    render(<QueryClientProvider client={queryClient}>
+      <RegistrationPanel dashboard={dashboard} onRefreshGatewayStatus={onRefreshGatewayStatus} />
+    </QueryClientProvider>);
+
+    fireEvent.click(within(screen.getByTestId("registration-selectors")).getByRole("button", { name: "게이트웨이 상태 다시 확인" }));
+    expect(onRefreshGatewayStatus).toHaveBeenCalledOnce();
+  });
+
+  it("현장이 바뀌면 이전 현장의 선택을 새 현장에 이어 쓰지 않는다", async () => {
+    const first = structuredClone(mockDashboard);
+    first.floors = first.floors.slice(0, 1);
+    const second = structuredClone(first);
+    second.site.id = "site-second";
+    second.floors = [{ ...first.floors[0], id: "floor-second", name: "B3" }];
+    second.gateways = [{ ...first.gateways[0], id: "gateway-second", name: "Gateway B3" }];
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+    const rendered = render(<QueryClientProvider client={queryClient}><RegistrationPanel dashboard={first} /></QueryClientProvider>);
+    await waitFor(() => expect(screen.getByRole("button", { name: "등록 층" })).toHaveTextContent("B2"));
+
+    rendered.rerender(<QueryClientProvider client={queryClient}><RegistrationPanel dashboard={second} /></QueryClientProvider>);
+    await waitFor(() => expect(screen.getByRole("button", { name: "등록 층" })).toHaveTextContent("B3"));
+    expect(screen.getByRole("button", { name: "등록 게이트웨이" })).toHaveTextContent("Gateway B3");
   });
 
   it("새로고침 뒤 현장의 최근 active 등록 세션을 자동 복구한다", async () => {
@@ -1131,13 +1194,13 @@ async function renderStartedPanelWithoutWaiting() {
   return queryClient;
 }
 
-function renderPanel() {
+function renderPanel(dashboard: Dashboard = mockDashboard) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } }
   });
   render(
     <QueryClientProvider client={queryClient}>
-      <RegistrationPanel dashboard={mockDashboard} />
+      <RegistrationPanel dashboard={dashboard} />
     </QueryClientProvider>
   );
   return queryClient;

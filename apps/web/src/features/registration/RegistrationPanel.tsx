@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CircleAlert, CircleCheck, Clock3, Radar } from "lucide-react";
+import { CircleAlert, CircleCheck, Clock3, Radar, RefreshCw } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { Dashboard } from "../../api/queries";
 import {
@@ -21,6 +21,7 @@ import {
   Card,
   Checkbox,
   FeedbackState,
+  IconTooltipButton,
   ProgressSteps,
   RadioGroup,
   SelectBox,
@@ -40,6 +41,8 @@ interface RegistrationPanelProps {
   dashboard: Dashboard | undefined;
   dashboardQuerySiteId?: string;
   headingLevel?: 2 | 3;
+  onRefreshGatewayStatus?: () => void;
+  isRefreshingGatewayStatus?: boolean;
 }
 
 const statusLabels = {
@@ -76,7 +79,7 @@ const initialIndividualDefaults: FixtureIndividualDefaults = {
   digits: "3"
 };
 
-export function RegistrationPanel({ dashboard, dashboardQuerySiteId, headingLevel = 3 }: RegistrationPanelProps) {
+export function RegistrationPanel({ dashboard, dashboardQuerySiteId, headingLevel = 3, onRefreshGatewayStatus, isRefreshingGatewayStatus = false }: RegistrationPanelProps) {
   const queryClient = useQueryClient();
   const [session, setSession] = useState<RegistrationSession | null>(null);
   const [localNodes, setLocalNodes] = useState<DiscoveredRegistrationNode[]>([]);
@@ -93,6 +96,8 @@ export function RegistrationPanel({ dashboard, dashboardQuerySiteId, headingLeve
   const [isRestartingScan, setIsRestartingScan] = useState(false);
   const invalidatedProvisionedNodes = useRef(new Set<string>());
   const invalidatedSessionId = useRef<string | null>(null);
+  const selectedSiteId = useRef(dashboard?.site.id);
+  const manuallySelected = useRef({ floor: false, gateway: false });
   const floor = dashboard?.floors.find((item) => item.id === selectedFloorId);
   const gateway = dashboard?.gateways.find((item) => item.id === selectedGatewayId);
   const hasFixtures = (dashboard?.summary.totalFixtures ?? 0) > 0;
@@ -106,10 +111,37 @@ export function RegistrationPanel({ dashboard, dashboardQuerySiteId, headingLeve
   const sessionQuery = useQuery<RegistrationSession, Error, RegistrationSession, readonly ["registration-session", string | undefined]>({
     queryKey: ["registration-session", session?.id],
     queryFn: () => getRegistrationSession(session!.id),
-    enabled: Boolean(session?.id),
+    enabled: Boolean(session?.id && session.siteId === dashboard?.site.id),
     refetchInterval: (query) => shouldPollRegistrationSession(query.state.data ?? session, localNodes) ? 1500 : false
   });
-  const sessionSnapshot = sessionQuery.data ?? session;
+  const sessionSnapshot = session?.siteId === dashboard?.site.id ? sessionQuery.data ?? session : null;
+
+  useEffect(() => {
+    if (selectedSiteId.current === dashboard?.site.id) return;
+    selectedSiteId.current = dashboard?.site.id;
+    manuallySelected.current = { floor: false, gateway: false };
+    setSession(null);
+    setLocalNodes([]);
+    setSelectedFloorId("");
+    setSelectedGatewayId("");
+    setSelectedNodeIds([]);
+    setSubmittedNodeIds([]);
+    setIndividualDrafts({});
+    setNodeErrors({});
+    setReconcileConfirmations([]);
+  }, [dashboard?.site.id]);
+
+  useEffect(() => {
+    if (!dashboard || selectedSiteId.current !== dashboard.site.id || !activeSessionsQuery.isSuccess
+      || activeSessionsQuery.data.length > 0 || sessionSnapshot?.status === "active") return;
+    if (!manuallySelected.current.floor && !selectedFloorId && dashboard.floors.length === 1) {
+      setSelectedFloorId(dashboard.floors[0].id);
+    }
+    if (!manuallySelected.current.gateway && !selectedGatewayId && dashboard.gateways.length === 1
+      && dashboard.gateways[0].connectionStatus === "online") {
+      setSelectedGatewayId(dashboard.gateways[0].id);
+    }
+  }, [activeSessionsQuery.data, activeSessionsQuery.isSuccess, dashboard, selectedFloorId, selectedGatewayId, sessionSnapshot?.status]);
 
   useEffect(() => {
     if (!sessionQuery.data || sessionQuery.data.scanStatus !== "completed") return;
@@ -118,9 +150,9 @@ export function RegistrationPanel({ dashboard, dashboardQuerySiteId, headingLeve
   }, [sessionQuery.data]);
 
   useEffect(() => {
-    if (session?.status === "active" || !activeSessionsQuery.data?.[0]) return;
+    if (sessionSnapshot?.status === "active" || !activeSessionsQuery.data?.[0]) return;
     restoreSession(activeSessionsQuery.data[0]);
-  }, [activeSessionsQuery.data, session]);
+  }, [activeSessionsQuery.data, sessionSnapshot?.status]);
 
   const nodes = useMemo(() => {
     if (isRestartingScan || !sessionSnapshot) return [];
@@ -311,7 +343,7 @@ export function RegistrationPanel({ dashboard, dashboardQuerySiteId, headingLeve
   });
 
   const hasActiveSession = sessionSnapshot?.status === "active";
-  const canStart = Boolean(dashboard?.site.id && floor?.id && gateway?.id)
+  const canStart = Boolean(dashboard?.site.id && floor?.id && gateway?.id && gateway.connectionStatus === "online")
     && !activeSessionsQuery.isPending
     && !activeSessionsQuery.isError
     && !hasActiveSession
@@ -473,7 +505,9 @@ export function RegistrationPanel({ dashboard, dashboardQuerySiteId, headingLeve
         <div className="grid gap-1">
           <strong>{floor?.name ?? "등록 대상 선택"}</strong>
           <span className="text-body-sm text-content-secondary">{hasFixtures ? "추가 조명을 검색해 등록합니다." : "등록된 조명이 없어 먼저 검색을 시작합니다."}</span>
-          {!floor || !gateway ? <small className="text-caption text-content-secondary">층과 게이트웨이를 선택해야 조명 검색을 시작할 수 있습니다.</small> : null}
+          {gateway?.connectionStatus === "offline" || dashboard?.gateways.every((item) => item.connectionStatus === "offline")
+            ? <small className="text-caption text-content-secondary">온라인 게이트웨이가 있어야 조명 검색을 시작할 수 있습니다.</small>
+            : !floor || !gateway ? <small className="text-caption text-content-secondary">층과 게이트웨이를 선택해야 조명 검색을 시작할 수 있습니다.</small> : null}
         </div>
         <div className="grid gap-2 compact:grid-cols-2" data-testid="registration-selectors">
           {(activeSessionsQuery.data?.length ?? 0) > 1 ? (
@@ -490,19 +524,31 @@ export function RegistrationPanel({ dashboard, dashboardQuerySiteId, headingLeve
             items={(dashboard?.floors ?? []).map((item) => ({ id: item.id, label: item.name }))}
             selectedKey={selectedFloorId || null}
             isDisabled={hasActiveSession}
-            onSelectionChange={(key) => setSelectedFloorId(key ?? "")}
+            onSelectionChange={(key) => { manuallySelected.current.floor = true; setSelectedFloorId(key ?? ""); }}
           />
-          <SelectBox
-            label="등록 게이트웨이"
-            placeholder="게이트웨이 선택"
-            items={(dashboard?.gateways ?? []).map((item) => ({
-              id: item.id,
-              label: `${item.name}${item.connectionStatus === "online" ? "" : " (오프라인)"}`
-            }))}
-            selectedKey={selectedGatewayId || null}
-            isDisabled={hasActiveSession}
-            onSelectionChange={(key) => setSelectedGatewayId(key ?? "")}
-          />
+          <div className="flex min-w-0 items-end gap-1">
+            <SelectBox
+              className="min-w-0 flex-1"
+              label="등록 게이트웨이"
+              placeholder="게이트웨이 선택"
+              items={(dashboard?.gateways ?? []).map((item) => ({
+                id: item.id,
+                label: `${item.name}${item.connectionStatus === "online" ? "" : " (오프라인)"}`
+              }))}
+              selectedKey={selectedGatewayId || null}
+              isDisabled={hasActiveSession}
+              onSelectionChange={(key) => { manuallySelected.current.gateway = true; setSelectedGatewayId(key ?? ""); }}
+            />
+            {dashboard?.gateways.some((item) => item.connectionStatus === "offline") && onRefreshGatewayStatus ? (
+              <IconTooltipButton
+                icon={RefreshCw}
+                label="게이트웨이 상태 다시 확인"
+                isLoading={isRefreshingGatewayStatus}
+                loadingLabel="상태 확인 중"
+                onClick={onRefreshGatewayStatus}
+              />
+            ) : null}
+          </div>
         </div>
         <Button className="justify-self-start tablet:justify-self-end" variant="primary" disabled={!canStart} isLoading={startMutation.isPending} loadingLabel="조명 검색 시작 중" onClick={() => startMutation.mutate()}>
           <Radar size={16} />

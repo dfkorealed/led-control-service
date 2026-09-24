@@ -53,6 +53,7 @@ describe("SetupWizard", () => {
 
     expect(screen.getByRole("region", { name: "Viewer 설치 대기" })).toHaveTextContent("설치 담당자가 현장을 준비 중입니다");
     expect(screen.getByText("설치 담당자가 현장을 준비 중입니다")).toBeInTheDocument();
+    expect(screen.getByText("현장 관리자가 설치와 조명 등록을 완료하면 조회할 수 있습니다.")).toBeInTheDocument();
     expect(screen.queryByLabelText("고객사명")).not.toBeInTheDocument();
   });
 
@@ -111,5 +112,40 @@ describe("SetupWizard", () => {
     fireEvent.change(screen.getByLabelText("kWh 단가"), { target: { value: "160" } });
     fireEvent.change(screen.getByLabelText("지하 층수"), { target: { value: "21" } });
     expect(screen.getByText("층수는 지하와 지상 각각 20층 이하의 숫자여야 합니다.")).toBeInTheDocument();
+  });
+
+  it("층수와 실제 층 목록이 다르면 설치 저장을 막는다", () => {
+    renderWizard();
+    fireEvent.change(screen.getByLabelText("주소"), { target: { value: "서울" } });
+    fireEvent.change(screen.getByLabelText("지상 층수"), { target: { value: "1" } });
+
+    expect(screen.getByRole("button", { name: "초기 설정 완료" })).toBeDisabled();
+    expect(screen.getByText("층수와 층 목록이 일치하지 않습니다. 층을 다시 생성하세요.")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "초기 설정 완료" }));
+    expect(createInitialSiteSetupMock).not.toHaveBeenCalled();
+  });
+
+  it.each(["-1", "1.5", "", "21"])("유효하지 않은 층수 %s를 거부한다", (value) => {
+    renderWizard();
+    fireEvent.change(screen.getByLabelText("주소"), { target: { value: "서울" } });
+    fireEvent.change(screen.getByLabelText("지하 층수"), { target: { value } });
+
+    expect(screen.getByRole("button", { name: "초기 설정 완료" })).toBeDisabled();
+  });
+
+  it("수정한 층 이름은 재생성 확인을 취소하면 유지한다", () => {
+    renderWizard();
+    fireEvent.change(screen.getByLabelText("층 이름 1"), { target: { value: "지하 주차 2층" } });
+    fireEvent.change(screen.getByLabelText("지상 층수"), { target: { value: "1" } });
+    fireEvent.click(screen.getByRole("button", { name: "층 자동 생성" }));
+
+    expect(screen.getByRole("alertdialog", { name: "층 목록 다시 생성" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "취소" }));
+    expect(screen.getByLabelText("층 이름 1")).toHaveValue("지하 주차 2층");
+    expect(screen.queryByDisplayValue("1F")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "층 자동 생성" }));
+    fireEvent.click(screen.getByRole("button", { name: "다시 생성" }));
+    expect(screen.getByDisplayValue("1F")).toBeInTheDocument();
   });
 });

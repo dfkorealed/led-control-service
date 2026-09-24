@@ -4,8 +4,7 @@ import { useDashboard } from "../../api/queries";
 import { Card, PageHeader, StatusBadge } from "../../components/ui";
 import { InstallationPending, SetupWizard } from "../setup/SetupWizard";
 import { TestDataToolsPanel } from "./TestDataToolsPanel";
-
-const settingsActionLinkClass = "mt-auto inline-flex min-h-11 items-center justify-center gap-2 justify-self-start rounded-control border border-border-default bg-action-secondary px-4 py-0 text-body font-bold text-action-primary no-underline outline-none focus-visible:shadow-focus";
+import { settingsActionLinkClass } from "./settings-action-link";
 
 export function SettingsView({ userRole, siteId }: { userRole: "operator" | "admin" | "viewer"; siteId?: string }) {
   const { data } = useDashboard(siteId);
@@ -31,6 +30,13 @@ export function SettingsView({ userRole, siteId }: { userRole: "operator" | "adm
 
   const gateway = data.gateways[0];
   const registeredPlanCount = data.floors.filter((floor) => floor.floorPlan !== null).length;
+  const nextStepSearch = new URLSearchParams(location.search);
+  nextStepSearch.set("siteId", data.site.id);
+  const nextStep = data.gateways.length === 0
+    ? { title: "게이트웨이 연결", description: "조명을 검색하기 전에 현장의 게이트웨이를 등록합니다.", label: "게이트웨이 연결하기", path: "/settings/registration" }
+    : data.summary.totalFixtures === 0
+      ? { title: "조명 등록", description: "연결된 게이트웨이에서 조명을 검색하고 등록합니다.", label: "조명 등록하기", path: "/settings/registration" }
+      : { title: "조명 위치 배치", description: "등록한 조명의 위치를 층별 맵에서 확인하고 배치합니다.", label: "조명 위치 배치하기", path: "/settings/floor-plans" };
 
   return (
     <section className="grid gap-5">
@@ -38,6 +44,19 @@ export function SettingsView({ userRole, siteId }: { userRole: "operator" | "adm
         title="설정 개요"
         description="현재 현장 구성과 게이트웨이 연결 상태를 확인합니다."
       />
+
+      {userRole === "admin" ? (
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border-default pb-5">
+          <div className="grid gap-1">
+            <span className="text-overline font-bold text-content-secondary">설치 이어가기</span>
+            <strong className="text-card-title text-content-primary">{nextStep.title}</strong>
+            <p className="m-0 text-body-sm text-content-secondary">{nextStep.description}</p>
+          </div>
+          <Link className={settingsActionLinkClass} to={{ pathname: nextStep.path, search: nextStepSearch.toString() }}>
+            {nextStep.label}
+          </Link>
+        </div>
+      ) : null}
 
       <div className="grid gap-4 compact:grid-cols-2">
         <Card className="grid min-h-48 gap-4 p-5" role="group" aria-label="현장 정보">
