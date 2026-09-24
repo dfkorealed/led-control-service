@@ -121,7 +121,7 @@ test("operator가 발급한 admin이 설치부터 운영하고 viewer는 읽기 
 
   await admin.getByRole("link", { name: "제어" }).click();
   await expect(admin.getByRole("heading", { name: "조명 밝기 제어" })).toBeVisible();
-  await expect(admin.getByText("조건에 맞는 조명이 없습니다.")).toBeVisible();
+  await expect(admin.locator("[data-control-panel]").getByText("제어 대상을 하나 이상 선택해 주세요.")).toBeVisible();
   await expect(admin.getByText("0개 선택 · 제어 불가 0개")).toBeVisible();
   await expect(admin.getByRole("button", { name: "밝기 적용" })).toBeDisabled();
 
@@ -166,24 +166,30 @@ test("operator가 발급한 admin이 설치부터 운영하고 viewer는 읽기 
   await expect(admin.getByRole("heading", { name: "조명 밝기 제어" })).toBeVisible();
   let expectedDimmingCount = lab.dimmingCommandCount();
 
-  const firstFixtureCheckbox = admin.getByRole("checkbox", { name: `${fixtureNames[0]} 선택` });
+  await admin.getByRole("button", { name: "조명 목록 열기" }).click();
+  const fixtureList = admin.getByRole("dialog", { name: "조명 목록" });
+  const firstFixtureCheckbox = fixtureList.getByRole("checkbox", { name: `${fixtureNames[0]} 선택` });
   await firstFixtureCheckbox.locator("xpath=ancestor::label").click();
   await expect(firstFixtureCheckbox).toBeChecked();
+  await fixtureList.getByRole("button", { name: "선택 완료" }).click();
   await admin.getByRole("button", { name: "30%", exact: true }).click();
   await admin.getByRole("button", { name: "밝기 적용" }).click();
   await lab.waitForDimmingCommandCount(++expectedDimmingCount);
   await expect(admin.getByRole("status", { name: "명령 진행 상태" }).getByText("조명 적용 완료")).toBeVisible();
 
-  const secondFixtureCheckbox = admin.getByRole("checkbox", { name: `${fixtureNames[1]} 선택` });
+  await admin.getByRole("button", { name: "조명 목록 열기" }).click();
+  const secondFixtureCheckbox = fixtureList.getByRole("checkbox", { name: `${fixtureNames[1]} 선택` });
   await secondFixtureCheckbox.locator("xpath=ancestor::label").click();
   await expect(secondFixtureCheckbox).toBeChecked();
+  await fixtureList.getByRole("button", { name: "선택 완료" }).click();
   await admin.getByRole("button", { name: "70%", exact: true }).click();
   await admin.getByRole("button", { name: "밝기 적용" }).click();
   await lab.waitForDimmingCommandCount(++expectedDimmingCount);
   await expect(admin.getByRole("status", { name: "명령 진행 상태" }).getByText("조명 적용 완료")).toBeVisible();
 
-  await admin.getByRole("button", { name: "층", exact: true }).click();
-  await admin.getByRole("button", { name: "B1", exact: true }).click();
+  await admin.getByRole("group", { name: "대상 선택 방식" }).getByRole("button", { name: "층 전체" }).click();
+  await admin.getByRole("alertdialog", { name: "선택 방식 변경" }).getByRole("button", { name: "변경" }).click();
+  await expect(admin.getByRole("group", { name: "층 목록" }).getByRole("button", { name: "B1", exact: true })).toHaveAttribute("aria-current", "true");
   await admin.getByRole("button", { name: "100%", exact: true }).click();
   await admin.getByRole("button", { name: "밝기 적용" }).click();
   await lab.waitForDimmingCommandCount(++expectedDimmingCount);
@@ -197,18 +203,21 @@ test("operator가 발급한 admin이 설치부터 운영하고 viewer는 읽기 
   await admin.getByRole("option", { name: "B1", exact: true }).click();
   await admin.getByRole("button", { name: "게이트웨이", exact: true }).click();
   await admin.getByRole("option", { name: "Task 9 Gateway", exact: true }).click();
-  const firstGroupFixtureCheckbox = admin.getByLabel(`${fixtureNames[0]} 포함`);
-  const secondGroupFixtureCheckbox = admin.getByLabel(`${fixtureNames[1]} 포함`);
+  await groupDialog.getByRole("button", { name: "조명 목록 열기" }).click();
+  const groupFixtureList = admin.getByRole("dialog", { name: "조명 목록" });
+  const firstGroupFixtureCheckbox = groupFixtureList.getByRole("checkbox", { name: `${fixtureNames[0]} 선택` });
+  const secondGroupFixtureCheckbox = groupFixtureList.getByRole("checkbox", { name: `${fixtureNames[1]} 선택` });
   await firstGroupFixtureCheckbox.locator("xpath=ancestor::label").click();
   await secondGroupFixtureCheckbox.locator("xpath=ancestor::label").click();
   await expect(firstGroupFixtureCheckbox).toBeChecked();
   await expect(secondGroupFixtureCheckbox).toBeChecked();
+  await groupFixtureList.getByRole("button", { name: "선택 완료" }).click();
   await admin.getByRole("button", { name: "구역 만들기" }).click();
   await expect(admin.getByText("제어 준비 완료")).toBeVisible({ timeout: 20_000 });
   await admin.getByRole("button", { name: "구역 관리 닫기" }).click();
   await admin.reload();
-  await admin.getByRole("button", { name: "구역", exact: true }).click();
-  await admin.getByRole("button", { name: "Task 9 구역 선택" }).click();
+  await admin.getByRole("group", { name: "대상 선택 방식" }).getByRole("button", { name: "저장된 구역" }).click();
+  await admin.getByRole("group", { name: "저장된 구역 목록" }).getByRole("button", { name: "Task 9 구역" }).click();
   await admin.getByRole("button", { name: "0%", exact: true }).click();
   await admin.getByRole("button", { name: "밝기 적용" }).click();
   await lab.waitForDimmingCommandCount(++expectedDimmingCount);
@@ -226,6 +235,8 @@ test("operator가 발급한 admin이 설치부터 운영하고 viewer는 읽기 
   await admin.getByRole("link", { name: "B1 맵 설정" }).click();
   const canvas = admin.getByLabel("B1 편집 캔버스");
   await expect(admin.getByRole("button", { name: "선택", exact: true })).toBeEnabled();
+  // A newly created floor acquires an editor lease and initializes its empty map before placement.
+  await expect(canvas).toHaveAttribute("data-map-ready", "true", { timeout: 30_000 });
   await expect(canvas).toHaveAttribute("aria-disabled", "false");
   const unplacedList = admin.getByRole("complementary", { name: "조명 목록" });
   await unplacedList.getByRole("button", { name: new RegExp(mapFixtureName) }).dragTo(canvas, { targetPosition: { x: 160, y: 200 } });
@@ -274,7 +285,9 @@ test("operator가 발급한 admin이 설치부터 운영하고 viewer는 읽기 
   await expect(viewerSettingsNavigation.getByRole("link", { name: "유저 관리", exact: true })).toHaveCount(0);
   await expect(viewerSettingsNavigation.getByRole("link", { name: "조명 등록", exact: true })).toHaveCount(0);
   await viewerSettingsNavigation.getByRole("link", { name: "맵 관리", exact: true }).click();
-  await expect(viewer.getByText("맵 미설정")).toBeVisible();
+  const viewerMapRow = viewer.getByTestId("floor-plan-item").filter({ hasText: "B1" });
+  await expect(viewerMapRow.getByText("맵 설정됨")).toBeVisible();
+  await expect(viewerMapRow.getByText("읽기 전용")).toBeVisible();
   await expect(viewer.getByRole("link", { name: /B1 도면 (등록|편집)/ })).toHaveCount(0);
   await lab.screenshot(viewer, testInfo, "03-viewer-read-only");
 

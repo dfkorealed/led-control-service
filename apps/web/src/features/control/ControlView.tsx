@@ -4,7 +4,7 @@ import type { CreateDimmingCommandInput } from "@led-control/shared";
 import { useQueryClient } from "@tanstack/react-query";
 import { useLocation, useNavigate } from "react-router-dom";
 import type { AuthUser } from "../../api/auth";
-import { Button, Card, Heading, NumberField, PageHeader, ProgressSteps, SidePanel, Slider, StatusBadge, Text, type ProgressStep, type ProgressStepState } from "../../components/ui";
+import { Button, Card, Heading, NumberField, PageHeader, ProgressSteps, SidePanel, Slider, StatusBadge, Text, useSessionStatus, type ProgressStep, type ProgressStepState, type SessionStatusItem } from "../../components/ui";
 import {
   canonicalizeDimmingCommandInput,
   createDimmingCommand,
@@ -143,6 +143,45 @@ export function ControlView({
   );
   const controlsLocked = readOnly || commandSessionBlocked || isSubmitting || restorePending || commandInProgress;
   const canSubmit = Boolean(data && target && resolvedSelection?.fixtureIds.length && !blockMessage && !controlsLocked);
+  const statusItems = useMemo<SessionStatusItem[]>(() => {
+    // Dashboard data can lag behind a site switch. Never register a previous
+    // site's command under the newly selected site's session status source.
+    if (!activeSiteId || (siteId && siteId !== activeSiteId) || !commandScopeMatches) return [];
+    const status = displayedStatus?.siteId && displayedStatus.siteId !== activeSiteId ? null : displayedStatus;
+    const pendingRequest = !scopedCommandId ? scopedActiveRequest : null;
+    const needsReview = status && [
+      "partial_failed", "failed", "timed_out", "verification_required", "verified_not_applied", "verified_partial"
+    ].includes(status.stage);
+    if (!pendingRequest && !scopedCommandId && !needsReview) return [];
+
+    const identity = pendingRequest?.clientRequestId ?? status?.id ?? scopedCommandId;
+    const stage = status?.stage;
+    const checking = Boolean(verificationRequest);
+    const statusMismatch = hasMismatchedCommandStatus && !missingCommand;
+    const statusLookupFailed = Boolean(scopedCommandId && commandQuery.error && !missingCommand
+      && !matchingCommandIsTerminal && !statusMismatch);
+    const tone = statusMismatch || statusLookupFailed || needsReview || checking || (pendingRequest && !isSubmitting) ? "warning" : "info";
+    const title = statusMismatch ? "명령 상태 응답 확인 필요"
+      : statusLookupFailed ? "명령 상태 조회 실패"
+      : checking ? "실제 상태 확인 중" : pendingRequest
+      ? isSubmitting ? "명령 전송 중" : "명령 응답을 확인하지 못했습니다"
+      : stage ? commandStageLabel(stage) : "명령 상태 확인 중";
+    const issueKind = statusMismatch ? "identity-mismatch" : statusLookupFailed ? "lookup-failure" : "status";
+    return [{
+      id: `control:manual:${userId}:${activeSiteId}:command:${identity}:${issueKind}`,
+      fingerprint: statusMismatch ? `identity-mismatch:${commandQuery.data?.id}` : statusLookupFailed ? "lookup-failure"
+        : `${stage ?? "pending"}:${checking ? "checking" : "idle"}:${pendingRequest ? isSubmitting ? "sending" : "response-unknown" : "known"}`,
+      source: "command",
+      tone,
+      title,
+      description: "수동 제어의 최근 결과에서 상태를 확인하세요.",
+      announce: tone !== "info",
+      action: { label: "수동 제어로 이동", onAction: () => selectMode("manual") }
+    }];
+  }, [activeSiteId, commandQuery.data?.id, commandQuery.error, commandScopeMatches, displayedStatus, hasMismatchedCommandStatus,
+    isSubmitting, location.pathname, location.search, matchingCommandIsTerminal, missingCommand, scopedActiveRequest,
+    scopedCommandId, siteId, userId, verificationRequest]);
+  useSessionStatus(`control:manual:${userId}:${activeSiteId ?? siteId ?? "none"}`, statusItems);
 
   useEffect(() => {
     if (!capabilities) return;
@@ -439,6 +478,7 @@ export function ControlView({
         title="조명 밝기 제어"
         headingLevel={3}
         description="제어 대상을 선택한 뒤 밝기를 적용합니다."
+        status={readOnly ? <StatusBadge tone="neutral" icon={Eye}>조회 전용</StatusBadge> : undefined}
         actions={(
           <Button
             ref={groupDialogOpenerRef}
@@ -451,12 +491,6 @@ export function ControlView({
           </Button>
         )}
       />
-
-      {readOnly ? (
-        <Text tone="danger" role="alert">
-          조회 전용 계정입니다. 조명 제어는 제어 권한이 있는 계정만 사용할 수 있습니다.
-        </Text>
-      ) : null}
 
       <div className="grid min-h-0 min-w-0 flex-1 grid-cols-1 gap-4 overflow-y-auto overscroll-contain tablet:grid-cols-[minmax(0,1fr)_22rem] tablet:grid-rows-[minmax(0,1fr)_10rem] tablet:overflow-hidden" data-control-layout="">
         <Card className="flex min-h-0 min-w-0 flex-col overflow-hidden p-4" aria-label="제어 대상 지도" data-control-target-card="">

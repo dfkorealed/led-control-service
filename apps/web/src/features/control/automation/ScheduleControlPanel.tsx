@@ -1,7 +1,7 @@
 import { useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { automationExecutionActionResultPayloadV1Schema } from "@led-control/shared/automation-contracts";
-import { CalendarPlus, CircleCheck, Clock3, Pencil, Power, PowerOff, Trash2, TriangleAlert } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { CalendarPlus, CircleCheck, Clock3, Eye, Pencil, Power, PowerOff, Trash2, TriangleAlert } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   createSchedule,
   deleteSchedule,
@@ -15,9 +15,9 @@ import {
   type ScheduleResponse
 } from "../../../api/automation";
 import type { AuthUser } from "../../../api/auth";
-import { authMeQueryKey } from "../../../api/principal-cache";
+import { authMeQueryKey, principalKey } from "../../../api/principal-cache";
 import type { Dashboard } from "../../../api/queries";
-import { Button, ConfirmDialog, FeedbackState, PageHeader, StatusBadge, Text } from "../../../components/ui";
+import { Button, ConfirmDialog, FeedbackState, PageHeader, StatusBadge, Text, useSessionStatus, useSessionToast, type SessionStatusItem } from "../../../components/ui";
 import { ScheduleDialog } from "./ScheduleDialog";
 import { AutomationRuleCard } from "./components/AutomationRuleCard";
 import {
@@ -39,20 +39,29 @@ export function ScheduleControlPanel({
   scopeKey?: string;
 }) {
   const queryClient = useQueryClient();
+  const toast = useSessionToast();
   const addButtonRef = useRef<HTMLButtonElement>(null);
-  const currentScope = useRef({ key: scopeKey, generation: 0 });
-  if (currentScope.current.key !== scopeKey) {
-    currentScope.current = { key: scopeKey, generation: currentScope.current.generation + 1 };
+  const authRetryRef = useRef<HTMLButtonElement>(null);
+  const operationScopeKey = `${scopeKey}:${siteId}`;
+  const currentScope = useRef({ key: operationScopeKey, generation: 0 });
+  if (currentScope.current.key !== operationScopeKey) {
+    currentScope.current = { key: operationScopeKey, generation: currentScope.current.generation + 1 };
   }
   const currentScopeGeneration = currentScope.current.generation;
+  const mounted = useRef(true);
+  const publishedToastIds = useRef(new Set<string>());
   const expiredPrincipalGeneration = useRef<number | null>(null);
   const [editingSchedule, setEditingSchedule] = useState<ScheduleResponse | null>(null);
   const [scheduleDialogOpen, setScheduleDialogOpen] = useState(false);
   const dialogReturnFocusRef = useRef<HTMLElement | null>(null);
   const [deleteCandidate, setDeleteCandidate] = useState<ScheduleResponse | null>(null);
   const deleteReturnFocusRef = useRef<HTMLElement | null>(null);
-  const [message, setMessage] = useState("");
   const [mutationError, setMutationError] = useState("");
+  // Dialog errors follow their form; toggle failures survive unrelated operations.
+  const [toggleErrors, setToggleErrors] = useState<Record<string, { scope: string; name: string; message: string }>>({});
+  const [failedNextPage, setFailedNextPage] = useState<{ scope: string; cursor: string } | null>(null);
+  const [failedRefreshScope, setFailedRefreshScope] = useState<string | null>(null);
+  const [lastRefreshSuccess, setLastRefreshSuccess] = useState<{ scope: string; at: number } | null>(null);
   const canManage = role === "admin";
   const isCompactList = useCompactAutomationList();
   const schedulesQuery = useInfiniteQuery({
@@ -66,19 +75,24 @@ export function ScheduleControlPanel({
     refetchInterval: 3000
   });
   const schedules = schedulesQuery.data?.pages.flatMap((page) => page.items) ?? [];
+  // A successful refresh can remove or replace the failed cursor; that page is no longer retryable.
+  const missingCursor = failedNextPage?.scope === operationScopeKey
+    && schedulesQuery.data?.pages.at(-1)?.nextCursor === failedNextPage.cursor ? failedNextPage.cursor : null;
   const queryFailure = schedulesQuery.isLoadingError
     ? {
         message: scheduleQueryErrorMessage(schedulesQuery.error),
         retryLabel: "다시 시도",
         retry: () => schedulesQuery.refetch()
       }
+    : missingCursor && !isScheduleUnauthorized(schedulesQuery.error)
+      ? { message: "다음 스케줄을 불러오지 못했습니다.", retryLabel: "다음 페이지 다시 시도", retry: loadNextPage }
     : schedulesQuery.isFetchNextPageError
       ? {
           message: isScheduleUnauthorized(schedulesQuery.error)
             ? scheduleQueryErrorMessage(schedulesQuery.error)
             : "다음 스케줄을 불러오지 못했습니다.",
           retryLabel: "다음 페이지 다시 시도",
-          retry: () => schedulesQuery.fetchNextPage()
+          retry: loadNextPage
         }
       : schedulesQuery.isRefetchError
         ? {
@@ -89,33 +103,122 @@ export function ScheduleControlPanel({
             retry: () => schedulesQuery.refetch()
           }
         : null;
+  const isNonBlockingQueryFailure = Boolean(schedulesQuery.data && queryFailure && !isScheduleUnauthorized(schedulesQuery.error));
+  const isAuthBlocked = Boolean(queryFailure && isScheduleUnauthorized(schedulesQuery.error));
+  const authBlockedRef = useRef(isAuthBlocked);
+  authBlockedRef.current = isAuthBlocked;
+  const queryUnauthorized = isScheduleUnauthorized(schedulesQuery.error);
+  const refreshFailure = failedRefreshScope === operationScopeKey || schedulesQuery.isRefetchError;
+  const statusItems = useMemo<SessionStatusItem[]>(() => {
+    const items: SessionStatusItem[] = [];
+    const lastSuccess = lastRefreshSuccess?.scope === operationScopeKey
+      ? `마지막 성공: ${new Intl.DateTimeFormat("ko-KR", { dateStyle: "short", timeStyle: "short", timeZone: dashboard?.site.timeZone ?? "UTC" }).format(lastRefreshSuccess.at)}`
+      : undefined;
+    if (schedulesQuery.data && !queryUnauthorized && (missingCursor || schedulesQuery.isFetchNextPageError)) items.push({
+      id: `control:schedule:${scopeKey}:${siteId}:query:next`,
+      fingerprint: "next-page-failure",
+      source: "query",
+      tone: "warning",
+      title: "다음 스케줄을 불러오지 못했습니다.",
+      description: lastSuccess,
+      action: { label: "다음 페이지 다시 시도", onAction: () => void loadNextPage() }
+    });
+    if (schedulesQuery.data && !queryUnauthorized && refreshFailure) items.push({
+      id: `control:schedule:${scopeKey}:${siteId}:query:refresh`,
+      fingerprint: "refresh-failure",
+      source: "query",
+      tone: "warning",
+      title: "Gateway 적용 상태를 새로고침하지 못했습니다. 표시된 상태가 최신이 아닐 수 있습니다.",
+      description: lastSuccess,
+      action: { label: "상태 다시 조회", onAction: () => void schedulesQuery.refetch() }
+    });
+    if (!queryUnauthorized) for (const [scheduleId, error] of Object.entries(toggleErrors)) {
+      if (error.scope !== operationScopeKey) continue;
+      items.push({
+        id: `control:schedule:${scopeKey}:${siteId}:mutation:toggle:${scheduleId}`,
+        fingerprint: error.message,
+        source: "command",
+        tone: "danger",
+        title: error.message,
+        description: `스케줄: ${error.name}`
+      });
+    }
+    return items;
+  }, [dashboard?.site.timeZone, lastRefreshSuccess, missingCursor, operationScopeKey, queryUnauthorized, refreshFailure, schedulesQuery.data, schedulesQuery.fetchNextPage, schedulesQuery.isFetchNextPageError, schedulesQuery.refetch, scopeKey, siteId, toggleErrors]);
+  useSessionStatus(`control:schedule:${scopeKey}:${siteId}`, statusItems);
 
   const saveMutation = useMutation({
-    mutationFn: ({ scheduleId, input }: { scheduleId: string | null; input: CreateScheduleInput }) => scheduleId
-      ? updateSchedule(siteId, scheduleId, input)
-      : createSchedule(siteId, input)
+    mutationFn: ({ operationSiteId, scheduleId, input }: { operationSiteId: string; operationScope: string; operationGeneration: number; operationPrincipal: string | null; scheduleId: string | null; input: CreateScheduleInput }) => scheduleId
+      ? updateSchedule(operationSiteId, scheduleId, input)
+      : createSchedule(operationSiteId, input),
+    onSuccess: (_result, variables) => invalidate(variables.operationSiteId),
+    onError: (error, variables) => expireMutationPrincipal(error, variables)
   });
   const toggleMutation = useMutation({
-    mutationFn: ({ scheduleId, status }: { scheduleId: string; status: "enabled" | "disabled" }) =>
-      updateSchedule(siteId, scheduleId, { status })
+    mutationFn: ({ operationSiteId, scheduleId, status }: { operationSiteId: string; operationScope: string; operationGeneration: number; operationPrincipal: string | null; scheduleId: string; status: "enabled" | "disabled" }) =>
+      updateSchedule(operationSiteId, scheduleId, { status }),
+    onSuccess: (_result, variables) => invalidate(variables.operationSiteId),
+    onError: (error, variables) => expireMutationPrincipal(error, variables)
   });
   const removeMutation = useMutation({
-    mutationFn: (scheduleId: string) => deleteSchedule(siteId, scheduleId)
+    mutationFn: ({ operationSiteId, scheduleId }: { operationSiteId: string; operationScope: string; operationGeneration: number; operationPrincipal: string | null; scheduleId: string }) => deleteSchedule(operationSiteId, scheduleId),
+    onSuccess: (_result, variables) => invalidate(variables.operationSiteId),
+    onError: (error, variables) => expireMutationPrincipal(error, variables)
   });
   const isMutating = saveMutation.isPending || toggleMutation.isPending || removeMutation.isPending;
 
   useEffect(() => {
+    mounted.current = true;
+    return () => { mounted.current = false; };
+  }, []);
+
+  useEffect(() => () => {
+    for (const id of publishedToastIds.current) toast.dismiss(id);
+    publishedToastIds.current.clear();
+  }, [operationScopeKey, toast]);
+
+  useEffect(() => {
     expiredPrincipalGeneration.current = null;
+    setFailedNextPage(null);
+    setFailedRefreshScope(null);
+    setLastRefreshSuccess(null);
     setScheduleDialogOpen(false);
     setEditingSchedule(null);
     setDeleteCandidate(null);
-    setMessage("");
     setMutationError("");
-  }, [scopeKey]);
+    setToggleErrors({});
+  }, [scopeKey, siteId]);
+
+  useEffect(() => queryClient.getQueryCache().subscribe((event) => {
+    if (event.type !== "updated" || event.query.queryKey[0] !== "automation-schedules" || event.query.queryKey[1] !== siteId) return;
+    // Infinite queries share one error state. Cache events keep a loaded-page refresh
+    // failure until that operation succeeds; fetching the next page cannot resolve it.
+    if (event.query.state.fetchMeta?.fetchMore?.direction) return;
+    if (event.action.type === "error" && event.query.state.data && !isScheduleUnauthorized(event.action.error)) {
+      setFailedRefreshScope(operationScopeKey);
+    } else if (event.action.type === "success" && !event.action.manual) {
+      setFailedRefreshScope((current) => current === operationScopeKey ? null : current);
+      // dataUpdatedAt also advances for next-page fetches and manual cache writes.
+      // Only a completed whole-list fetch establishes freshness in this scope.
+      setLastRefreshSuccess({ scope: operationScopeKey, at: event.query.state.dataUpdatedAt });
+    }
+  }), [operationScopeKey, queryClient, siteId]);
 
   useEffect(() => {
-    expirePrincipal(schedulesQuery.error, scopeKey, currentScopeGeneration);
-  }, [currentScopeGeneration, schedulesQuery.error, schedulesQuery.errorUpdatedAt, scopeKey]);
+    expirePrincipal(schedulesQuery.error, operationScopeKey, currentScopeGeneration);
+  }, [currentScopeGeneration, operationScopeKey, schedulesQuery.error, schedulesQuery.errorUpdatedAt]);
+
+  useEffect(() => {
+    if (!isAuthBlocked) return;
+    setLastRefreshSuccess(null);
+    setToggleErrors({});
+    setScheduleDialogOpen(false);
+    setEditingSchedule(null);
+    setDeleteCandidate(null);
+    // The row opener disappears with the blocked list; move focus to recovery instead.
+    const frame = window.requestAnimationFrame(() => authRetryRef.current?.focus());
+    return () => window.cancelAnimationFrame(frame);
+  }, [isAuthBlocked]);
 
   function isCurrentOperation(operationScope: string, operationGeneration: number) {
     return currentScope.current.key === operationScope
@@ -129,16 +232,44 @@ export function ScheduleControlPanel({
     void queryClient.invalidateQueries({ queryKey: authMeQueryKey });
   }
 
-  function invalidate() {
-    void queryClient.invalidateQueries({ queryKey: scheduleQueryKey(siteId) });
+  function currentPrincipal() {
+    const auth = queryClient.getQueryData<{ user?: AuthUser } | null>(authMeQueryKey);
+    return auth?.user ? principalKey(auth.user) : null;
+  }
+
+  function expireMutationPrincipal(error: unknown, variables: { operationScope: string; operationGeneration: number; operationPrincipal: string | null }) {
+    if (!isScheduleUnauthorized(error) || currentPrincipal() !== variables.operationPrincipal) return;
+    if (mounted.current && !isCurrentOperation(variables.operationScope, variables.operationGeneration)) return;
+    if (expiredPrincipalGeneration.current === variables.operationGeneration) return;
+    expiredPrincipalGeneration.current = variables.operationGeneration;
+    void queryClient.invalidateQueries({ queryKey: authMeQueryKey });
+  }
+
+  function invalidate(operationSiteId: string) {
+    void queryClient.invalidateQueries({ queryKey: scheduleQueryKey(operationSiteId) });
     void queryClient.invalidateQueries({ queryKey: ["dashboard"] });
+  }
+
+  function publishSuccess(dedupeKey: string, title: string) {
+    publishedToastIds.current.add(toast.publish({ dedupeKey, tone: "success", title }));
+  }
+
+  async function loadNextPage() {
+    const cursor = schedulesQuery.data?.pages.at(-1)?.nextCursor;
+    const previousPageCount = schedulesQuery.data?.pages.length ?? 0;
+    if (!cursor) return;
+    const result = await schedulesQuery.fetchNextPage();
+    if (result.isFetchNextPageError && !isScheduleUnauthorized(result.error)) {
+      setFailedNextPage({ scope: operationScopeKey, cursor });
+    } else if (result.isSuccess && (result.data?.pages.length ?? 0) > previousPageCount) {
+      setFailedNextPage((current) => current?.scope === operationScopeKey && current.cursor === cursor ? null : current);
+    }
   }
 
   function beginAdd() {
     setEditingSchedule(null);
     dialogReturnFocusRef.current = addButtonRef.current;
     setMutationError("");
-    setMessage("");
     setScheduleDialogOpen(true);
   }
 
@@ -146,68 +277,75 @@ export function ScheduleControlPanel({
     setEditingSchedule(schedule);
     dialogReturnFocusRef.current = opener;
     setMutationError("");
-    setMessage("");
     setScheduleDialogOpen(true);
   }
 
   function save(input: CreateScheduleInput) {
-    const operationScope = scopeKey;
+    if (authBlockedRef.current) return;
+    const operationScope = operationScopeKey;
     const operationGeneration = currentScopeGeneration;
+    const operationSiteId = siteId;
     const scheduleId = editingSchedule?.id ?? null;
     setMutationError("");
-    saveMutation.mutate({ scheduleId, input }, {
+    saveMutation.mutate({ operationSiteId, operationScope, operationGeneration, operationPrincipal: currentPrincipal(), scheduleId, input }, {
       onSuccess: () => {
-        invalidate();
-        if (!isCurrentOperation(operationScope, operationGeneration)) return;
+        if (!isCurrentOperation(operationScope, operationGeneration) || authBlockedRef.current) return;
         setScheduleDialogOpen(false);
         setEditingSchedule(null);
-        setMessage(scheduleId ? "스케줄을 수정했습니다." : "스케줄을 만들었습니다. Gateway 적용 상태를 확인해 주세요.");
+        publishSuccess(`control:schedule:${operationScope}:${operationSiteId}:save:${scheduleId ?? "new"}`, scheduleId ? "스케줄을 수정했습니다." : "스케줄을 만들었습니다. Gateway 적용 상태를 확인해 주세요.");
       },
       onError: (error) => {
-        if (!isCurrentOperation(operationScope, operationGeneration)) return;
-        expirePrincipal(error, operationScope, operationGeneration);
+        if (!isCurrentOperation(operationScope, operationGeneration) || authBlockedRef.current) return;
         setMutationError(scheduleMutationErrorMessage(error));
       }
     });
   }
 
   function toggle(schedule: ScheduleResponse) {
-    const operationScope = scopeKey;
+    if (authBlockedRef.current) return;
+    const operationScope = operationScopeKey;
     const operationGeneration = currentScopeGeneration;
+    const operationSiteId = siteId;
     const status = schedule.status === "enabled" ? "disabled" : "enabled";
-    setMutationError("");
-    setMessage("");
-    toggleMutation.mutate({ scheduleId: schedule.id, status }, {
+    toggleMutation.mutate({ operationSiteId, operationScope, operationGeneration, operationPrincipal: currentPrincipal(), scheduleId: schedule.id, status }, {
       onSuccess: () => {
-        invalidate();
-        if (isCurrentOperation(operationScope, operationGeneration)) {
-          setMessage(status === "enabled" ? "스케줄을 활성화했습니다." : "스케줄을 비활성화했습니다.");
+        if (isCurrentOperation(operationScope, operationGeneration) && !authBlockedRef.current) {
+          setToggleErrors((current) => {
+            const next = { ...current };
+            delete next[schedule.id];
+            return next;
+          });
+          publishSuccess(`control:schedule:${operationScope}:${operationSiteId}:toggle:${schedule.id}`, status === "enabled" ? "스케줄을 활성화했습니다." : "스케줄을 비활성화했습니다.");
         }
       },
       onError: (error) => {
-        if (!isCurrentOperation(operationScope, operationGeneration)) return;
-        expirePrincipal(error, operationScope, operationGeneration);
-        setMutationError(scheduleMutationErrorMessage(error));
+        if (!isCurrentOperation(operationScope, operationGeneration) || authBlockedRef.current) return;
+        setToggleErrors((current) => ({ ...current, [schedule.id]: { scope: operationScope, name: schedule.name, message: scheduleMutationErrorMessage(error) } }));
       }
     });
   }
 
   function remove() {
+    if (authBlockedRef.current) return;
     if (!deleteCandidate) return;
-    const operationScope = scopeKey;
+    const operationScope = operationScopeKey;
     const operationGeneration = currentScopeGeneration;
+    const operationSiteId = siteId;
     const scheduleId = deleteCandidate.id;
     setMutationError("");
-    removeMutation.mutate(scheduleId, {
+    removeMutation.mutate({ operationSiteId, operationScope, operationGeneration, operationPrincipal: currentPrincipal(), scheduleId }, {
       onSuccess: () => {
-        invalidate();
-        if (!isCurrentOperation(operationScope, operationGeneration)) return;
+        if (!isCurrentOperation(operationScope, operationGeneration) || authBlockedRef.current) return;
+        setToggleErrors((current) => {
+          const next = { ...current };
+          delete next[scheduleId];
+          return next;
+        });
         setDeleteCandidate(null);
-        setMessage("스케줄을 삭제했습니다.");
+        publishSuccess(`control:schedule:${operationScope}:${operationSiteId}:delete:${scheduleId}`, "스케줄을 삭제했습니다.");
       },
       onError: (error) => {
-        if (!isCurrentOperation(operationScope, operationGeneration)) return;
-        expirePrincipal(error, operationScope, operationGeneration);
+        if (!isCurrentOperation(operationScope, operationGeneration) || authBlockedRef.current) return;
         setMutationError(scheduleMutationErrorMessage(error));
       }
     });
@@ -226,7 +364,6 @@ export function ScheduleControlPanel({
         deleteReturnFocusRef.current = event.currentTarget;
         setDeleteCandidate(schedule);
         setMutationError("");
-        setMessage("");
       }}>
         <Trash2 size={16} aria-hidden="true" />
       </Button>
@@ -245,7 +382,8 @@ export function ScheduleControlPanel({
         title="스케줄 제어"
         headingLevel={3}
         description="Gateway가 현장 시간대에 맞춰 반복 밝기 규칙을 실행합니다."
-        actions={canManage ? (
+        status={!canManage ? <StatusBadge tone="neutral" icon={Eye}>조회 전용</StatusBadge> : undefined}
+        actions={canManage && !isAuthBlocked ? (
           <Button
             ref={addButtonRef}
             variant="primary"
@@ -259,24 +397,18 @@ export function ScheduleControlPanel({
         ) : undefined}
       />
 
-      {!canManage ? (
-        <p className="m-0 border-l-4 border-status-warning-border bg-status-warning-background px-3 py-2.5 text-body-sm font-bold text-status-warning-foreground" role="status" data-control-readonly-notice="">
-          조회 전용 계정입니다. 스케줄 목록과 Gateway 적용 상태만 확인할 수 있습니다.
-        </p>
-      ) : null}
-
       {schedulesQuery.isLoading ? <FeedbackState icon={Clock3} title="스케줄을 불러오는 중입니다." /> : null}
-      {queryFailure ? (
+      {queryFailure && !isNonBlockingQueryFailure ? (
         <FeedbackState
           tone={schedulesQuery.isRefetchError && !isScheduleUnauthorized(schedulesQuery.error) ? "warning" : "danger"}
           liveRole="alert"
           icon={TriangleAlert}
           title={queryFailure.message}
-          action={<Button variant="secondary" type="button" onClick={() => void queryFailure.retry()}>{queryFailure.retryLabel}</Button>}
+          action={<Button ref={authRetryRef} variant="secondary" type="button" onClick={() => void queryFailure.retry()}>{queryFailure.retryLabel}</Button>}
         />
       ) : null}
 
-      {!schedulesQuery.isLoading && !schedulesQuery.isLoadingError ? (
+      {!schedulesQuery.isLoading && !schedulesQuery.isLoadingError && !isAuthBlocked ? (
         schedules.length > 0 ? isCompactList ? <div role="list" aria-label="스케줄 카드 목록" className="grid min-w-0 gap-3">
           {schedules.map((schedule) => <AutomationRuleCard
             key={schedule.id}
@@ -339,25 +471,21 @@ export function ScheduleControlPanel({
         />
       ) : null}
 
-      {schedulesQuery.hasNextPage && !schedulesQuery.isFetchNextPageError ? (
+      {schedulesQuery.hasNextPage && !schedulesQuery.isFetchNextPageError && !isAuthBlocked ? (
         <Button
           variant="secondary"
           className="justify-self-center"
           type="button"
           disabled={schedulesQuery.isFetchingNextPage}
-          onClick={() => void schedulesQuery.fetchNextPage()}
+          onClick={() => void loadNextPage()}
         >
           {schedulesQuery.isFetchingNextPage ? "불러오는 중" : "스케줄 더 보기"}
         </Button>
       ) : null}
-      {message ? <Text tone="success" role="status">{message}</Text> : null}
-      {mutationError && !scheduleDialogOpen && !deleteCandidate
-        ? <Text tone="danger" role="alert">{mutationError}</Text>
-        : null}
 
       {dashboard ? (
         <ScheduleDialog
-          open={scheduleDialogOpen}
+          open={scheduleDialogOpen && !isAuthBlocked}
           schedule={editingSchedule}
           dashboard={dashboard}
           isPending={saveMutation.isPending}
@@ -374,7 +502,7 @@ export function ScheduleControlPanel({
       ) : null}
 
       <ConfirmDialog
-        isOpen={Boolean(deleteCandidate)}
+        isOpen={Boolean(deleteCandidate) && !isAuthBlocked}
         title="스케줄 삭제"
         description={deleteCandidate ? `${deleteCandidate.name} 스케줄을 삭제하시겠습니까?` : undefined}
         confirmLabel="삭제"

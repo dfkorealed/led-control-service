@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { FloorMapSnapshot } from "@led-control/shared";
 import type { CommandStage } from "../../api/commands";
 import type { Dashboard } from "../../api/queries";
+import { SessionStatusCenter, SessionStatusProvider, ToastRegion } from "../../components/ui";
 import { ControlView } from "./ControlView";
 import { activeCommandStorageKey } from "./active-command-store";
 
@@ -435,7 +436,7 @@ describe("ControlView 대상 선택", () => {
     mocks.apiGet.mockImplementation((path: string) => path.startsWith("/commands?")
       ? Promise.resolve({ items: [cached], nextCursor: null })
       : new Promise((resolve) => { resolveDetail = resolve; }));
-    render(<QueryClientProvider client={client}><MemoryRouter><ControlView siteId={dashboard.site.id} userId={USER_A} userRole="admin" /></MemoryRouter></QueryClientProvider>);
+    render(<QueryClientProvider client={client}><SessionStatusProvider><MemoryRouter><ControlView siteId={dashboard.site.id} userId={USER_A} userRole="admin" /></MemoryRouter></SessionStatusProvider></QueryClientProvider>);
     fireEvent.click(await screen.findByRole("button", { name: new RegExp(commandIds.terminal) }));
     expect(screen.queryByRole("button", { name: "안전하게 다시 적용" })).not.toBeInTheDocument();
     resolveDetail({ ...cached, stage: "verified_applied" });
@@ -454,7 +455,7 @@ describe("ControlView 대상 선택", () => {
     mocks.apiGet.mockImplementation((path: string) => path.startsWith("/commands?")
       ? Promise.resolve({ items: [], nextCursor: null })
       : new Promise((resolve) => { resolveDetail = resolve; }));
-    render(<QueryClientProvider client={client}><MemoryRouter><ControlView siteId={dashboard.site.id} userId={USER_A} userRole="admin" /></MemoryRouter></QueryClientProvider>);
+    render(<QueryClientProvider client={client}><SessionStatusProvider><MemoryRouter><ControlView siteId={dashboard.site.id} userId={USER_A} userRole="admin" /></MemoryRouter></SessionStatusProvider></QueryClientProvider>);
     expect(screen.getByRole("slider", { name: "밝기" })).toBeDisabled();
     expect(sessionStorage.getItem(activeCommandStorageKey(USER_A, dashboard.site.id))).toContain(unknown.id);
     await act(async () => resolveDetail({ ...unknown, dispatches: [{ ...unknown.dispatches[0], kind: "status_check", verificationAttempt: 1, status: "accepted" }] }));
@@ -474,7 +475,7 @@ describe("ControlView 대상 선택", () => {
       : serverCommitted ? { ...unknown, verificationAttemptCount: 1, dispatches: [{ ...unknown.dispatches[0], kind: "status_check", verificationAttempt: 1, status: "accepted" }] } : unknown));
     mocks.apiPost.mockImplementationOnce(() => new Promise((_resolve, reject) => { rejectPost = reject; }));
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    render(<QueryClientProvider client={client}><MemoryRouter><ControlView siteId={dashboard.site.id} userId={USER_A} userRole="admin" /></MemoryRouter></QueryClientProvider>);
+    render(<QueryClientProvider client={client}><SessionStatusProvider><MemoryRouter><ControlView siteId={dashboard.site.id} userId={USER_A} userRole="admin" /></MemoryRouter></SessionStatusProvider></QueryClientProvider>);
     fireEvent.click(await screen.findByRole("button", { name: "실제 상태 확인" }));
     await waitFor(() => expect(mocks.apiGet.mock.calls.filter(([path]) => path === `/commands/${unknown.id}`).length).toBeGreaterThanOrEqual(2));
     await act(async () => rejectPost(new Error("lost response")));
@@ -839,8 +840,8 @@ describe("ControlView 대상 선택", () => {
     });
     renderControl("viewer");
 
-    expect(screen.getByText(/조회 전용 계정/)).toBeInTheDocument();
-    expect(screen.getByText(/제어 권한이 있는 계정만 사용할 수 있습니다/)).toBeInTheDocument();
+    expect(screen.getAllByText("조회 전용", { selector: "span" }).length).toBeGreaterThan(0);
+    expect(screen.queryByText(/조회 전용 계정입니다/)).not.toBeInTheDocument();
     expect(fixtureMarker("B2-L001")).toBeDisabled();
     expect(applyButton()).toBeDisabled();
     expect(mocks.apiPost).not.toHaveBeenCalled();
@@ -917,6 +918,85 @@ describe("ControlView 대상 선택", () => {
     expect(within(screen.getByRole("status", { name: "명령 진행 상태" })).getByText("일부 조명 적용 실패")).toBeInTheDocument();
     expect(screen.getByText("2 / 2 처리")).toBeInTheDocument();
     expect(screen.getByText("B2-L002: 장비 응답 오류")).toBeInTheDocument();
+  });
+
+  it.each(["partial_failed", "failed", "timed_out", "verification_required", "verified_not_applied", "verified_partial"] as const)(
+    "offers manual reentry for %s without sending a command from the status center",
+    async (stage) => {
+      sessionStorage.setItem(activeCommandStorageKey(USER_A, dashboard.site.id), JSON.stringify({ commandId: commandIds.default }));
+      mocks.useCommandStatus.mockReturnValue({ data: createCommandStatus(commandIds.default, stage), error: null, isFetching: false, refetch: vi.fn() });
+      renderControl();
+
+      await waitFor(() => expect(screen.getByRole("button", { name: "상태 센터, 미해결 1건" })).toBeInTheDocument());
+      expect(within(screen.getByRole("status", { name: "명령 진행 상태" })).getAllByText(stage === "verification_required" ? "실제 상태 확인 필요" : stage === "verified_not_applied" ? "미적용 확인" : stage === "verified_partial" ? "일부 적용 확인" : stage === "partial_failed" ? "일부 조명 적용 실패" : stage === "failed" ? "명령 처리 실패" : "명령 응답 시간 초과").length).toBeGreaterThan(0);
+      fireEvent.click(screen.getByRole("tab", { name: "스케줄 제어" }));
+      await waitFor(() => expect(screen.getByRole("tab", { name: "스케줄 제어" })).toHaveAttribute("aria-selected", "true"));
+      fireEvent.click(screen.getByRole("button", { name: "상태 센터, 미해결 1건" }));
+      const center = screen.getByRole("dialog", { name: "현재 세션 상태" });
+      fireEvent.click(within(center).getByRole("button", { name: "수동 제어로 이동" }));
+
+      await waitFor(() => expect(screen.getByTestId("control-location")).toHaveTextContent("mode=manual"));
+      expect(mocks.apiPost).not.toHaveBeenCalled();
+    }
+  );
+
+  it("shows an unresolved command in the status center and resolves it after a successful result", async () => {
+    sessionStorage.setItem(activeCommandStorageKey(USER_A, dashboard.site.id), JSON.stringify({ commandId: commandIds.default }));
+    mocks.useCommandStatus.mockReturnValue({ data: createCommandStatus(commandIds.default, "accepted"), error: null, isFetching: false, refetch: vi.fn() });
+    const { rerender } = renderControl();
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "상태 센터, 미해결 1건" })).toBeInTheDocument());
+    expect(within(screen.getByRole("status", { name: "명령 진행 상태" })).getByText("게이트웨이 수신 완료")).toBeInTheDocument();
+    mocks.useCommandStatus.mockReturnValue({ data: createCommandStatus(commandIds.default, "completed"), error: null, isFetching: false, refetch: vi.fn() });
+    rerender(controlElement(dashboard.site.id));
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "상태 센터, 미해결 0건" })).toBeInTheDocument());
+    expect(within(screen.getByRole("status", { name: "명령 진행 상태" })).getByText("조명 적용 완료 · 기본 밝기로 저장됨")).toBeInTheDocument();
+  });
+
+  it("describes an in-flight manual command as sending rather than a lost response", async () => {
+    let resolveCommand: (value: unknown) => void = () => undefined;
+    mocks.apiPost.mockImplementationOnce(() => new Promise((resolve) => { resolveCommand = resolve; }));
+    renderControl();
+    selectFixture("B2-L001");
+    fireEvent.click(applyButton());
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "상태 센터, 미해결 1건" })).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "상태 센터, 미해결 1건" }));
+    const center = screen.getByRole("dialog", { name: "현재 세션 상태" });
+    expect(within(center).getByText("명령 전송 중")).toBeInTheDocument();
+    expect(within(center).queryByText("명령 응답을 확인하지 못했습니다")).not.toBeInTheDocument();
+    await act(async () => resolveCommand({ id: commandIds.default }));
+  });
+
+  it("resolves command status after closing its detail", async () => {
+    sessionStorage.setItem(activeCommandStorageKey(USER_A, dashboard.site.id), JSON.stringify({ commandId: commandIds.default }));
+    mocks.useCommandStatus.mockReturnValue({ data: createCommandStatus(commandIds.default, "verification_required"), error: null, isFetching: false, refetch: vi.fn() });
+    renderControl();
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "상태 센터, 미해결 1건" })).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "명령 상세 닫기" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "상태 센터, 미해결 0건" })).toBeInTheDocument());
+  });
+
+  it.each(["site", "user"])('resolves an open command status when the %s scope changes', async (scope) => {
+    sessionStorage.setItem(activeCommandStorageKey(USER_A, dashboard.site.id), JSON.stringify({ commandId: commandIds.default }));
+    mocks.useCommandStatus.mockReturnValue({ data: createCommandStatus(commandIds.default, "verification_required"), error: null, isFetching: false, refetch: vi.fn() });
+    const { rerender } = renderControl();
+    await waitFor(() => expect(screen.getByRole("button", { name: "상태 센터, 미해결 1건" })).toBeInTheDocument());
+
+    if (scope === "site") {
+      const nextSiteId = "00000000-0000-4000-8000-000000000099";
+      rerender(controlElement(nextSiteId));
+      await waitFor(() => expect(screen.getByRole("button", { name: "상태 센터, 미해결 0건" })).toBeInTheDocument());
+      mocks.useControlDashboard.mockReturnValue({ data: { ...dashboard, site: { ...dashboard.site, id: nextSiteId } }, isLoading: false, error: null });
+      rerender(controlElement(nextSiteId));
+    } else {
+      rerender(controlElement(dashboard.site.id, "admin", USER_B));
+    }
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "상태 센터, 미해결 0건" })).toBeInTheDocument());
+    expect(within(screen.getByRole("region", { name: "알림" })).queryByText("실제 상태 확인 필요")).not.toBeInTheDocument();
   });
 
   it("keeps cached controls visible when a background refresh fails", () => {
@@ -1258,6 +1338,49 @@ describe("ControlView 대상 선택", () => {
     expect(refetch).toHaveBeenCalledTimes(1);
   });
 
+  it.each([
+    { label: "without cached data", data: undefined, error: new Error("network"), title: "명령 상태 조회 실패" },
+    { label: "with a cached nonterminal status", data: createCommandStatus(commandIds.retry, "accepted"), error: new Error("network"), title: "명령 상태 조회 실패" },
+    { label: "with a mismatched response", data: createCommandStatus(commandIds.different, "completed"), error: null, title: "명령 상태 응답 확인 필요" }
+  ])("keeps a $label command status failure discoverable from automation without sending a command", async ({ data: commandData, error: commandError, title }) => {
+    sessionStorage.setItem(activeCommandStorageKey(USER_A, dashboard.site.id), JSON.stringify({ commandId: commandIds.retry }));
+    mocks.useCommandStatus.mockReturnValue({ data: commandData, error: commandError, isFetching: false, refetch: vi.fn() });
+    renderControl();
+
+    expect(screen.getByRole("button", { name: "명령 상태 다시 조회" })).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole("button", { name: "상태 센터, 미해결 1건" })).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("tab", { name: "스케줄 제어" }));
+    fireEvent.click(screen.getByRole("button", { name: "상태 센터, 미해결 1건" }));
+    const center = screen.getByRole("dialog", { name: "현재 세션 상태" });
+    expect(within(center).getByText(title)).toBeInTheDocument();
+    expect(within(center).getByText("확인 필요")).toBeInTheDocument();
+    fireEvent.click(within(center).getByRole("button", { name: "수동 제어로 이동" }));
+
+    await waitFor(() => expect(screen.getByTestId("control-location")).toHaveTextContent("mode=manual"));
+    expect(mocks.apiPost).not.toHaveBeenCalled();
+  });
+
+  it("deduplicates repeated command lookup failures and clears their toast when polling recovers", async () => {
+    const accepted = createCommandStatus(commandIds.retry, "accepted");
+    sessionStorage.setItem(activeCommandStorageKey(USER_A, dashboard.site.id), JSON.stringify({ commandId: commandIds.retry }));
+    mocks.useCommandStatus.mockReturnValue({ data: accepted, error: new Error("network"), isFetching: false, refetch: vi.fn() });
+    const { rerender } = renderControl();
+    const region = screen.getByRole("region", { name: "알림" });
+    await waitFor(() => expect(within(region).getByRole("status")).toHaveTextContent("명령 상태 조회 실패"));
+
+    mocks.useCommandStatus.mockReturnValue({ data: accepted, error: new Error("network"), isFetching: false, refetch: vi.fn() });
+    rerender(controlElement(dashboard.site.id));
+    expect(within(region).getAllByRole("status")).toHaveLength(1);
+
+    mocks.useCommandStatus.mockReturnValue({ data: accepted, error: null, isFetching: false, refetch: vi.fn() });
+    rerender(controlElement(dashboard.site.id));
+    await waitFor(() => expect(within(region).queryByRole("status")).not.toBeInTheDocument());
+
+    mocks.useCommandStatus.mockReturnValue({ data: accepted, error: new Error("network"), isFetching: false, refetch: vi.fn() });
+    rerender(controlElement(dashboard.site.id));
+    await waitFor(() => expect(within(region).getByRole("status")).toHaveTextContent("명령 상태 조회 실패"));
+  });
+
   it("isolates restored command state and results when the loaded site changes", async () => {
     const nextSiteId = "00000000-0000-4000-8000-000000000099";
     sessionStorage.setItem(activeCommandStorageKey(USER_A, dashboard.site.id), JSON.stringify({ commandId: commandIds.siteA }));
@@ -1449,10 +1572,14 @@ function controlElement(
 ) {
   return (
     <QueryClientProvider client={new QueryClient()}>
-      <MemoryRouter initialEntries={[initialEntry]}>
-        <ControlView siteId={siteId} userId={userId} userRole={role} />
-        <ControlLocation />
-      </MemoryRouter>
+      <SessionStatusProvider>
+        <MemoryRouter initialEntries={[initialEntry]}>
+          <SessionStatusCenter />
+          <ToastRegion />
+          <ControlView siteId={siteId} userId={userId} userRole={role} />
+          <ControlLocation />
+        </MemoryRouter>
+      </SessionStatusProvider>
     </QueryClientProvider>
   );
 }

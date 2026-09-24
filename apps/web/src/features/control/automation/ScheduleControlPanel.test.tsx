@@ -2,9 +2,11 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "../../../api/client";
+import type { AuthUser } from "../../../api/auth";
 import { scheduleQueryKey, type ScheduleListResponse, type ScheduleResponse } from "../../../api/automation";
 import { authMeQueryKey } from "../../../api/principal-cache";
 import type { Dashboard } from "../../../api/queries";
+import { SessionStatusCenter, SessionStatusProvider, ToastRegion } from "../../../components/ui";
 import { ScheduleControlPanel } from "./ScheduleControlPanel";
 
 const mocks = vi.hoisted(() => ({
@@ -105,7 +107,9 @@ describe("ScheduleControlPanel", () => {
 
   afterEach(() => {
     cleanup();
+    vi.restoreAllMocks();
     vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
   });
 
   it("shows every schedule operation field and working management actions in the compact card", async () => {
@@ -584,14 +588,73 @@ describe("ScheduleControlPanel", () => {
     await screen.findByText("야간 운영");
 
     fireEvent.click(screen.getByRole("button", { name: "스케줄 더 보기" }));
-    expect(await screen.findByRole("alert")).toHaveTextContent("다음 스케줄을 불러오지 못했습니다.");
+    expect(await screen.findByRole("button", { name: "상태 센터, 미해결 1건" })).toBeInTheDocument();
     expect(screen.getByText("야간 운영")).toBeInTheDocument();
-
+    expect(within(screen.getByRole("tabpanel")).queryByText("다음 스케줄을 불러오지 못했습니다.")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "상태 센터, 미해결 1건" }));
+    expect(screen.getByRole("dialog", { name: "현재 세션 상태" })).toHaveTextContent("다음 스케줄을 불러오지 못했습니다.");
     fireEvent.click(screen.getByRole("button", { name: "다음 페이지 다시 시도" }));
     expect(await screen.findByText("두 번째 페이지")).toBeInTheDocument();
     expect(screen.getAllByText("두 번째 페이지")).toHaveLength(1);
     expect(mocks.listSchedules).toHaveBeenNthCalledWith(2, siteId, { limit: 100, cursor: "cursor-2" });
     expect(mocks.listSchedules).toHaveBeenNthCalledWith(3, siteId, { limit: 100, cursor: "cursor-2" });
+  });
+
+  it("keeps a missing next page in status after the loaded page polls successfully", async () => {
+    mocks.listSchedules.mockResolvedValueOnce({ items: [schedule()], total: 2, nextCursor: "cursor-2" }).mockRejectedValueOnce(new Error("next page failed"));
+    const { queryClient } = renderPanel("admin");
+    await screen.findByText("야간 운영");
+    fireEvent.click(screen.getByRole("button", { name: "스케줄 더 보기" }));
+    await screen.findByRole("button", { name: "상태 센터, 미해결 1건" });
+    mocks.listSchedules.mockResolvedValueOnce({ items: [schedule()], total: 2, nextCursor: "cursor-2" });
+    await act(async () => { await queryClient.refetchQueries({ queryKey: scheduleQueryKey(siteId) }); await new Promise((resolve) => setTimeout(resolve, 0)); });
+    expect(screen.getByRole("button", { name: "상태 센터, 미해결 1건" })).toBeInTheDocument();
+    expect(screen.getByText("야간 운영")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "상태 센터, 미해결 1건" }));
+    mocks.listSchedules.mockResolvedValueOnce(page([schedule({ id: "next-1", name: "누락된 페이지" })]));
+    fireEvent.click(screen.getByRole("button", { name: "다음 페이지 다시 시도" }));
+    expect(await screen.findByText("누락된 페이지")).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole("dialog", { name: "현재 세션 상태" })).toHaveTextContent("현재 확인할 상태가 없습니다."));
+  });
+
+  it("resolves a failed next-page action when refresh removes its cursor", async () => {
+    mocks.listSchedules.mockResolvedValueOnce({ items: [schedule()], total: 2, nextCursor: "cursor-2" }).mockRejectedValueOnce(new Error("next page failed"));
+    const { queryClient } = renderPanel("admin");
+    await screen.findByText("야간 운영");
+    fireEvent.click(screen.getByRole("button", { name: "스케줄 더 보기" }));
+    await screen.findByRole("button", { name: "상태 센터, 미해결 1건" });
+    mocks.listSchedules.mockResolvedValueOnce(page([schedule()]));
+    await act(async () => { await queryClient.refetchQueries({ queryKey: scheduleQueryKey(siteId) }); await new Promise((resolve) => setTimeout(resolve, 0)); });
+    expect(screen.getByRole("button", { name: "상태 센터, 미해결 0건" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "스케줄 더 보기" })).not.toBeInTheDocument();
+  });
+
+  it("keeps next-page and refresh failures as separate recoverable statuses", async () => {
+    mocks.listSchedules.mockResolvedValueOnce({ items: [schedule()], total: 2, nextCursor: "cursor-2" }).mockRejectedValueOnce(new Error("next page failed"));
+    const { queryClient } = renderPanel("admin");
+    await screen.findByText("야간 운영");
+    fireEvent.click(screen.getByRole("button", { name: "스케줄 더 보기" }));
+    await screen.findByRole("button", { name: "상태 센터, 미해결 1건" });
+    fireEvent.click(within(screen.getByRole("region", { name: "알림" })).getByRole("button", { name: "알림 닫기" }));
+    mocks.listSchedules.mockRejectedValueOnce(new Error("refresh failed"));
+    await act(async () => { await queryClient.refetchQueries({ queryKey: scheduleQueryKey(siteId) }); await new Promise((resolve) => setTimeout(resolve, 0)); });
+    expect(screen.getByRole("button", { name: "상태 센터, 미해결 2건" })).toBeInTheDocument();
+    const alerts = within(screen.getByRole("region", { name: "알림" })).getAllByRole("status");
+    expect(alerts).toHaveLength(1);
+    expect(alerts[0]).toHaveTextContent("Gateway 적용 상태를 새로고침하지 못했습니다.");
+    fireEvent.click(screen.getByRole("button", { name: "상태 센터, 미해결 2건" }));
+    const center = screen.getByRole("dialog", { name: "현재 세션 상태" });
+    expect(within(center).getByRole("button", { name: "다음 페이지 다시 시도" })).toBeInTheDocument();
+    expect(within(center).getByRole("button", { name: "상태 다시 조회" })).toBeInTheDocument();
+    mocks.listSchedules.mockResolvedValueOnce({ items: [schedule({ id: "next-1", name: "두 번째 페이지" })], total: 2, nextCursor: null });
+    fireEvent.click(within(center).getByRole("button", { name: "다음 페이지 다시 시도" }));
+    expect(await screen.findByText("두 번째 페이지")).toBeInTheDocument();
+    await waitFor(() => expect(within(center).queryByRole("button", { name: "다음 페이지 다시 시도" })).not.toBeInTheDocument());
+    expect(within(center).getByRole("button", { name: "상태 다시 조회" })).toBeInTheDocument();
+    expect(within(screen.getByRole("region", { name: "알림", hidden: true })).getAllByRole("status", { hidden: true })).toHaveLength(1);
+    mocks.listSchedules.mockResolvedValueOnce({ items: [schedule()], total: 2, nextCursor: "cursor-2" }).mockResolvedValueOnce({ items: [schedule({ id: "next-1", name: "두 번째 페이지" })], total: 2, nextCursor: null });
+    fireEvent.click(within(center).getByRole("button", { name: "상태 다시 조회" }));
+    await waitFor(() => expect(center).toHaveTextContent("현재 확인할 상태가 없습니다."));
   });
 
   it("keeps applied rows visible and warns when a background status refresh is stale", async () => {
@@ -604,15 +667,324 @@ describe("ScheduleControlPanel", () => {
       await queryClient.refetchQueries({ queryKey: scheduleQueryKey(siteId) });
     });
 
-    expect(await screen.findByRole("alert")).toHaveTextContent(
-      "Gateway 적용 상태를 새로고침하지 못했습니다. 표시된 상태가 최신이 아닐 수 있습니다."
-    );
+    expect(await screen.findByRole("button", { name: "상태 센터, 미해결 1건" })).toBeInTheDocument();
     expect(screen.getByText("적용됨")).toBeInTheDocument();
-
+    fireEvent.click(screen.getByRole("button", { name: "상태 센터, 미해결 1건" }));
+    expect(screen.getByRole("dialog", { name: "현재 세션 상태" })).toHaveTextContent("Gateway 적용 상태를 새로고침하지 못했습니다.");
     mocks.listSchedules.mockResolvedValueOnce(page([schedule({ syncStatus: "PENDING" })]));
     fireEvent.click(screen.getByRole("button", { name: "상태 다시 조회" }));
     expect(await screen.findByText("적용 대기")).toBeInTheDocument();
-    await waitFor(() => expect(screen.queryByRole("alert")).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("dialog", { name: "현재 세션 상태" })).toHaveTextContent("현재 확인할 상태가 없습니다."));
+  });
+
+  it("shows last successful refresh in the selected site's time zone", async () => {
+    vi.stubEnv("TZ", "UTC");
+    vi.spyOn(Date, "now").mockReturnValue(Date.parse("2026-09-23T23:00:00Z"));
+    const { queryClient } = renderPanel("admin");
+    await screen.findByText("야간 운영");
+    mocks.listSchedules.mockRejectedValueOnce(new Error("poll failed"));
+    await act(async () => { await queryClient.refetchQueries({ queryKey: scheduleQueryKey(siteId) }); });
+    fireEvent.click(await screen.findByRole("button", { name: "상태 센터, 미해결 1건" }));
+    expect(screen.getByRole("dialog", { name: "현재 세션 상태" })).toHaveTextContent("마지막 성공: 26. 9. 24. 오전 8:00");
+  });
+
+  it("keeps the last whole-list success time until a real refresh succeeds", async () => {
+    const clock = vi.spyOn(Date, "now").mockReturnValue(Date.parse("2026-09-23T23:00:00Z"));
+    mocks.listSchedules.mockResolvedValueOnce({ items: [schedule()], total: 2, nextCursor: "cursor-2" });
+    const { queryClient } = renderPanel("admin");
+    await screen.findByText("야간 운영");
+    const loadMore = screen.getByRole("button", { name: "스케줄 더 보기" });
+    mocks.listSchedules.mockRejectedValueOnce(new Error("refresh failed"));
+    await act(async () => { await queryClient.refetchQueries({ queryKey: scheduleQueryKey(siteId) }); });
+    fireEvent.click(await screen.findByRole("button", { name: "상태 센터, 미해결 1건" }));
+    const center = screen.getByRole("dialog", { name: "현재 세션 상태" });
+    expect(center).toHaveTextContent("마지막 성공: 26. 9. 24. 오전 8:00");
+
+    clock.mockReturnValue(Date.parse("2026-09-24T01:00:00Z"));
+    mocks.listSchedules.mockResolvedValueOnce(page([schedule({ id: "next-1", name: "두 번째 페이지" })]));
+    fireEvent.click(loadMore);
+    await screen.findByText("두 번째 페이지");
+    expect(center).toHaveTextContent("마지막 성공: 26. 9. 24. 오전 8:00");
+    await act(async () => {
+      queryClient.setQueryData(scheduleQueryKey(siteId), queryClient.getQueryData(scheduleQueryKey(siteId)), { updatedAt: Date.parse("2026-09-24T02:00:00Z") });
+    });
+    expect(center).toHaveTextContent("마지막 성공: 26. 9. 24. 오전 8:00");
+
+    clock.mockReturnValue(Date.parse("2026-09-24T03:00:00Z"));
+    await act(async () => { await queryClient.refetchQueries({ queryKey: scheduleQueryKey(siteId) }); });
+    await waitFor(() => expect(center).toHaveTextContent("현재 확인할 상태가 없습니다."));
+    mocks.listSchedules.mockRejectedValueOnce(new Error("refresh failed again"));
+    await act(async () => { await queryClient.refetchQueries({ queryKey: scheduleQueryKey(siteId) }); });
+    await waitFor(() => expect(center).toHaveTextContent("마지막 성공: 26. 9. 24. 오후 12:00"));
+  });
+
+  it.each(["user scope", "401"])("forgets the last whole-list success time after %s ends its scope", async (boundary) => {
+    vi.spyOn(Date, "now").mockReturnValue(Date.parse("2026-09-23T23:00:00Z"));
+    const rendered = renderPanel("admin");
+    await screen.findByText("야간 운영");
+    if (boundary === "user scope") {
+      rendered.rerender(panelElement("admin", rendered.queryClient, siteId, "another-user"));
+    } else {
+      mocks.listSchedules.mockRejectedValueOnce(new ApiError("expired", 401, null));
+      await act(async () => { await rendered.queryClient.refetchQueries({ queryKey: scheduleQueryKey(siteId) }); });
+      await screen.findByText("로그인 세션이 만료되었습니다.");
+    }
+    mocks.listSchedules.mockRejectedValueOnce(new Error("refresh failed"));
+    await act(async () => { await rendered.queryClient.refetchQueries({ queryKey: scheduleQueryKey(siteId) }); });
+    fireEvent.click(await screen.findByRole("button", { name: "상태 센터, 미해결 1건" }));
+    expect(screen.getByRole("dialog", { name: "현재 세션 상태" })).not.toHaveTextContent("마지막 성공:");
+  });
+
+  it("keeps one status and toast for repeated stale polling, then resolves both after success", async () => {
+    const { queryClient } = renderPanel("admin");
+    await screen.findByText("야간 운영");
+    mocks.listSchedules.mockRejectedValue(new Error("poll failed"));
+    await act(async () => { await queryClient.refetchQueries({ queryKey: scheduleQueryKey(siteId) }); });
+    expect(await screen.findByRole("button", { name: "상태 센터, 미해결 1건" })).toBeInTheDocument();
+    expect(within(screen.getByRole("region", { name: "알림" })).getAllByRole("status")).toHaveLength(1);
+    await act(async () => { await queryClient.refetchQueries({ queryKey: scheduleQueryKey(siteId) }); });
+    expect(within(screen.getByRole("region", { name: "알림" })).getAllByRole("status")).toHaveLength(1);
+    mocks.listSchedules.mockResolvedValue(page([schedule()]));
+    await act(async () => { await queryClient.refetchQueries({ queryKey: scheduleQueryKey(siteId) }); });
+    await waitFor(() => expect(screen.getByRole("button", { name: "상태 센터, 미해결 0건" })).toBeInTheDocument());
+    expect(within(screen.getByRole("region", { name: "알림" })).queryByRole("status")).not.toBeInTheDocument();
+  });
+
+  it("shows a neutral viewer badge without a full-width readonly notice", async () => {
+    renderPanel("viewer");
+    await screen.findByText("야간 운영");
+    expect(screen.getByText("조회 전용").closest("[data-tone]")).toHaveAttribute("data-tone", "neutral");
+    expect(screen.queryByText(/조회 전용 계정입니다/)).not.toBeInTheDocument();
+  });
+
+  it("keeps a toggle failure discoverable outside dialogs and confirms a later success by toast", async () => {
+    mocks.updateSchedule.mockRejectedValueOnce(new Error("toggle failed"));
+    renderPanel("admin");
+    await screen.findByText("야간 운영");
+    fireEvent.click(screen.getByRole("button", { name: "야간 운영 비활성화" }));
+    expect(await screen.findByRole("button", { name: "상태 센터, 미해결 1건" })).toBeInTheDocument();
+    expect(within(screen.getByRole("tabpanel")).queryByRole("alert")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "야간 운영 비활성화" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "상태 센터, 미해결 0건" })).toBeInTheDocument());
+    expect(within(screen.getByRole("region", { name: "알림" })).getByText("스케줄을 비활성화했습니다.")).toBeInTheDocument();
+  });
+
+  it("retains a toggle failure during retry and does not reannounce the same failure", async () => {
+    const retry = deferred<ScheduleResponse>();
+    mocks.updateSchedule.mockRejectedValueOnce(new Error("toggle failed")).mockReturnValueOnce(retry.promise);
+    renderPanel("admin");
+    await screen.findByText("야간 운영");
+    fireEvent.click(screen.getByRole("button", { name: "야간 운영 비활성화" }));
+    await screen.findByRole("button", { name: "상태 센터, 미해결 1건" });
+    fireEvent.click(within(screen.getByRole("region", { name: "알림" })).getByRole("button", { name: "알림 닫기" }));
+    fireEvent.click(screen.getByRole("button", { name: "야간 운영 비활성화" }));
+    expect(screen.getByRole("button", { name: "상태 센터, 미해결 1건" })).toBeInTheDocument();
+    await act(async () => { retry.reject(new Error("toggle failed")); await retry.promise.catch(() => undefined); });
+    expect(screen.getByRole("button", { name: "상태 센터, 미해결 1건" })).toBeInTheDocument();
+    expect(within(screen.getByRole("region", { name: "알림" })).queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it.each(["add", "edit"])("retains a rule's toggle failure while an unrelated %s dialog opens", async (operation) => {
+    mocks.listSchedules.mockResolvedValue(page([schedule(), schedule({ id: "rule-b", name: "주간 운영" })]));
+    mocks.updateSchedule.mockRejectedValueOnce(new Error("toggle failed"));
+    renderPanel("admin");
+    fireEvent.click(await screen.findByRole("button", { name: "야간 운영 비활성화" }));
+    const statusButton = await screen.findByRole("button", { name: "상태 센터, 미해결 1건" });
+    fireEvent.click(screen.getByRole("button", { name: operation === "add" ? "스케줄 추가" : "주간 운영 수정" }));
+    const dialog = screen.getByRole("dialog", { name: operation === "add" ? "스케줄 추가" : "스케줄 수정" });
+    expect(statusButton).toHaveAttribute("aria-label", "상태 센터, 미해결 1건");
+    expect(within(dialog).queryByRole("alert")).not.toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole("button", { name: "취소" }));
+    fireEvent.click(screen.getByRole("button", { name: "상태 센터, 미해결 1건" }));
+    expect(screen.getByRole("dialog", { name: "현재 세션 상태" })).toHaveTextContent("야간 운영");
+  });
+
+  it("retains rule A's toggle failure after rule B succeeds", async () => {
+    mocks.listSchedules.mockResolvedValue(page([schedule(), schedule({ id: "rule-b", name: "주간 운영" })]));
+    mocks.updateSchedule.mockRejectedValueOnce(new Error("toggle failed"));
+    renderPanel("admin");
+    fireEvent.click(await screen.findByRole("button", { name: "야간 운영 비활성화" }));
+    await screen.findByRole("button", { name: "상태 센터, 미해결 1건" });
+    fireEvent.click(screen.getByRole("button", { name: "주간 운영 비활성화" }));
+    await within(screen.getByRole("region", { name: "알림" })).findByText("스케줄을 비활성화했습니다.");
+    expect(screen.getByRole("button", { name: "상태 센터, 미해결 1건" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "야간 운영 비활성화" }));
+    await screen.findByRole("button", { name: "상태 센터, 미해결 0건" });
+  });
+
+  it("keeps identical toggle failures independently identifiable by rule", async () => {
+    mocks.listSchedules.mockResolvedValue(page([schedule(), schedule({ id: "rule-b", name: "주간 운영" })]));
+    mocks.updateSchedule.mockRejectedValueOnce(new Error("toggle failed")).mockRejectedValueOnce(new Error("toggle failed"));
+    renderPanel("admin");
+    fireEvent.click(await screen.findByRole("button", { name: "야간 운영 비활성화" }));
+    await screen.findByRole("button", { name: "상태 센터, 미해결 1건" });
+    fireEvent.click(screen.getByRole("button", { name: "주간 운영 비활성화" }));
+    fireEvent.click(await screen.findByRole("button", { name: "상태 센터, 미해결 2건" }));
+    const center = screen.getByRole("dialog", { name: "현재 세션 상태" });
+    const statuses = within(center).getAllByRole("listitem");
+    expect(statuses).toHaveLength(2);
+    expect(statuses[0]).toHaveTextContent("야간 운영");
+    expect(statuses[1]).toHaveTextContent("주간 운영");
+    for (const status of statuses) expect(status).toHaveTextContent("스케줄 변경을 완료하지 못했습니다.");
+    fireEvent.keyDown(center, { key: "Escape" });
+    fireEvent.click(screen.getByRole("button", { name: "주간 운영 비활성화" }));
+    fireEvent.click(await screen.findByRole("button", { name: "상태 센터, 미해결 1건" }));
+    const remaining = within(screen.getByRole("dialog", { name: "현재 세션 상태" })).getByRole("listitem");
+    expect(remaining).toHaveTextContent("야간 운영");
+    expect(remaining).not.toHaveTextContent("주간 운영");
+  });
+
+  it("clears only the deleted schedule's toggle failure after deletion succeeds", async () => {
+    mocks.listSchedules.mockResolvedValue(page([schedule(), schedule({ id: "rule-b", name: "주간 운영" })]));
+    mocks.updateSchedule.mockRejectedValueOnce(new Error("toggle failed")).mockRejectedValueOnce(new Error("toggle failed"));
+    renderPanel("admin");
+    fireEvent.click(await screen.findByRole("button", { name: "야간 운영 비활성화" }));
+    await screen.findByRole("button", { name: "상태 센터, 미해결 1건" });
+    fireEvent.click(screen.getByRole("button", { name: "주간 운영 비활성화" }));
+    await screen.findByRole("button", { name: "상태 센터, 미해결 2건" });
+
+    fireEvent.click(screen.getByRole("button", { name: "야간 운영 삭제" }));
+    fireEvent.click(within(screen.getByRole("dialog", { name: "스케줄 삭제" })).getByRole("button", { name: "삭제" }));
+    await waitFor(() => expect(mocks.deleteSchedule).toHaveBeenCalledWith(siteId, schedule().id));
+    fireEvent.click(await screen.findByRole("button", { name: "상태 센터, 미해결 1건" }));
+    const remaining = within(screen.getByRole("dialog", { name: "현재 세션 상태" })).getByRole("listitem");
+    expect(remaining).toHaveTextContent("주간 운영");
+    expect(remaining).not.toHaveTextContent("야간 운영");
+  });
+
+  it("keeps schedule A's toggle failure through another deletion and its own failed deletion", async () => {
+    mocks.listSchedules.mockResolvedValue(page([schedule(), schedule({ id: "rule-b", name: "주간 운영" })]));
+    mocks.updateSchedule.mockRejectedValueOnce(new Error("toggle failed"));
+    mocks.deleteSchedule.mockResolvedValueOnce({ id: "rule-b", deleted: true })
+      .mockRejectedValueOnce(new Error("delete failed"))
+      .mockResolvedValueOnce({ id: schedule().id, deleted: true });
+    renderPanel("admin");
+    fireEvent.click(await screen.findByRole("button", { name: "야간 운영 비활성화" }));
+    await screen.findByRole("button", { name: "상태 센터, 미해결 1건" });
+
+    fireEvent.click(screen.getByRole("button", { name: "주간 운영 수정" }));
+    fireEvent.click(within(screen.getByRole("dialog", { name: "스케줄 수정" })).getByRole("button", { name: "변경 저장" }));
+    await waitFor(() => expect(mocks.updateSchedule).toHaveBeenCalledWith(siteId, "rule-b", expect.objectContaining({ name: "주간 운영" })));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "스케줄 수정" })).not.toBeInTheDocument());
+    expect(screen.getByRole("button", { name: "상태 센터, 미해결 1건" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "주간 운영 삭제" }));
+    fireEvent.click(within(screen.getByRole("dialog", { name: "스케줄 삭제" })).getByRole("button", { name: "삭제" }));
+    await waitFor(() => expect(mocks.deleteSchedule).toHaveBeenCalledWith(siteId, "rule-b"));
+    expect(screen.getByRole("button", { name: "상태 센터, 미해결 1건" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "야간 운영 삭제" }));
+    const dialog = screen.getByRole("dialog", { name: "스케줄 삭제" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "삭제" }));
+    expect(await within(dialog).findByRole("alert")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "상태 센터, 미해결 1건", hidden: true })).toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole("button", { name: "삭제" }));
+    await screen.findByRole("button", { name: "상태 센터, 미해결 0건" });
+  });
+
+  it.each(["user scope", "401"])("clears rule toggle failures when %s ends their scope", async (boundary) => {
+    mocks.updateSchedule.mockRejectedValueOnce(new Error("toggle failed"));
+    const rendered = renderPanel("admin");
+    fireEvent.click(await screen.findByRole("button", { name: "야간 운영 비활성화" }));
+    await screen.findByRole("button", { name: "상태 센터, 미해결 1건" });
+    if (boundary === "user scope") {
+      rendered.rerender(panelElement("admin", rendered.queryClient, siteId, "another-user"));
+    } else {
+      mocks.listSchedules.mockRejectedValueOnce(new ApiError("expired", 401, null));
+      await act(async () => { await rendered.queryClient.refetchQueries({ queryKey: scheduleQueryKey(siteId) }); });
+      await screen.findByText("로그인 세션이 만료되었습니다.");
+    }
+    await screen.findByRole("button", { name: "상태 센터, 미해결 0건" });
+  });
+
+  it("does not carry an old mutation failure into another site", async () => {
+    mocks.updateSchedule.mockRejectedValueOnce(new Error("toggle failed"));
+    const queryClient = testQueryClient();
+    const rendered = renderPanel("admin", { queryClient });
+    await screen.findByText("야간 운영");
+    fireEvent.click(screen.getByRole("button", { name: "야간 운영 비활성화" }));
+    await screen.findByRole("button", { name: "상태 센터, 미해결 1건" });
+    const nextSiteId = "00000000-0000-4000-8000-000000000099";
+    rendered.rerender(panelElement("admin", queryClient, nextSiteId, `user-2:${nextSiteId}`));
+    await waitFor(() => expect(screen.getByRole("button", { name: "상태 센터, 미해결 0건" })).toBeInTheDocument());
+    expect(within(screen.getByRole("region", { name: "알림" })).queryByText(/toggle failed/)).not.toBeInTheDocument();
+  });
+
+  it("does not publish a stale toggle success when the site changes under one user scope", async () => {
+    const pending = deferred<ScheduleResponse>();
+    mocks.updateSchedule.mockReturnValueOnce(pending.promise);
+    const queryClient = testQueryClient();
+    const rendered = renderPanel("admin", { queryClient, scopeKey: "user-1" });
+    await screen.findByText("야간 운영");
+    fireEvent.click(screen.getByRole("button", { name: "야간 운영 비활성화" }));
+    const nextSiteId = "00000000-0000-4000-8000-000000000099";
+    rendered.rerender(panelElement("admin", queryClient, nextSiteId, "user-1"));
+    await act(async () => { pending.resolve(schedule()); await pending.promise; });
+    expect(within(screen.getByRole("region", { name: "알림" })).queryByText("스케줄을 비활성화했습니다.")).not.toBeInTheDocument();
+  });
+
+  it("dismisses a published success toast when site scope changes", async () => {
+    const queryClient = testQueryClient();
+    const rendered = renderPanel("admin", { queryClient });
+    await screen.findByText("야간 운영");
+    fireEvent.click(screen.getByRole("button", { name: "야간 운영 비활성화" }));
+    expect(await within(screen.getByRole("region", { name: "알림" })).findByText("스케줄을 비활성화했습니다.")).toBeInTheDocument();
+    const nextSiteId = "00000000-0000-4000-8000-000000000099";
+    rendered.rerender(panelElement("admin", queryClient, nextSiteId, `user-1:${nextSiteId}`));
+    await waitFor(() => expect(within(screen.getByRole("region", { name: "알림" })).queryByText("스케줄을 비활성화했습니다.")).not.toBeInTheDocument());
+  });
+
+  it("dismisses a published success toast when the panel unmounts", async () => {
+    const queryClient = testQueryClient();
+    const rendered = renderPanel("admin", { queryClient });
+    await screen.findByText("야간 운영");
+    fireEvent.click(screen.getByRole("button", { name: "야간 운영 비활성화" }));
+    expect(await within(screen.getByRole("region", { name: "알림" })).findByText("스케줄을 비활성화했습니다.")).toBeInTheDocument();
+    rendered.rerender(<QueryClientProvider client={queryClient}><SessionStatusProvider><SessionStatusCenter /><ToastRegion /></SessionStatusProvider></QueryClientProvider>);
+    await waitFor(() => expect(within(screen.getByRole("region", { name: "알림" })).queryByText("스케줄을 비활성화했습니다.")).not.toBeInTheDocument());
+  });
+
+  it("invalidates the original site after a mutation succeeds across a keyed remount", async () => {
+    const pending = deferred<ScheduleResponse>();
+    mocks.updateSchedule.mockReturnValueOnce(pending.promise);
+    const queryClient = testQueryClient();
+    const invalidate = vi.spyOn(queryClient, "invalidateQueries");
+    const rendered = renderPanel("admin", { queryClient });
+    await screen.findByText("야간 운영");
+    fireEvent.click(screen.getByRole("button", { name: "야간 운영 비활성화" }));
+    const nextSiteId = "00000000-0000-4000-8000-000000000099";
+    rendered.rerender(panelElement("admin", queryClient, nextSiteId, `user-1:${nextSiteId}`, "next-site"));
+    await act(async () => { pending.resolve(schedule()); await pending.promise; });
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: scheduleQueryKey(siteId) });
+  });
+
+  it("invalidates auth for a 401 after same-principal keyed unmount", async () => {
+    const pending = deferred<ScheduleResponse>();
+    mocks.updateSchedule.mockReturnValueOnce(pending.promise);
+    const queryClient = testQueryClient();
+    queryClient.setQueryData(authMeQueryKey, { user: authUser("user-1") });
+    const invalidate = vi.spyOn(queryClient, "invalidateQueries");
+    const rendered = renderPanel("admin", { queryClient });
+    await screen.findByText("야간 운영");
+    fireEvent.click(screen.getByRole("button", { name: "야간 운영 비활성화" }));
+    rendered.rerender(<QueryClientProvider client={queryClient}><SessionStatusProvider><SessionStatusCenter /><ToastRegion /></SessionStatusProvider></QueryClientProvider>);
+    await act(async () => { pending.reject(new ApiError("unauthorized", 401, null)); await pending.promise.catch(() => undefined); });
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: authMeQueryKey });
+  });
+
+  it("does not invalidate new principal auth for an old keyed panel's 401", async () => {
+    const pending = deferred<ScheduleResponse>();
+    mocks.updateSchedule.mockReturnValueOnce(pending.promise);
+    const queryClient = testQueryClient();
+    queryClient.setQueryData(authMeQueryKey, { user: authUser("user-1") });
+    const invalidate = vi.spyOn(queryClient, "invalidateQueries");
+    const rendered = renderPanel("admin", { queryClient });
+    await screen.findByText("야간 운영");
+    fireEvent.click(screen.getByRole("button", { name: "야간 운영 비활성화" }));
+    queryClient.setQueryData(authMeQueryKey, { user: authUser("user-2") });
+    rendered.rerender(panelElement("admin", queryClient, siteId, "user-2", "new-principal"));
+    await act(async () => { pending.reject(new ApiError("unauthorized", 401, null)); await pending.promise.catch(() => undefined); });
+    expect(invalidate).not.toHaveBeenCalledWith({ queryKey: authMeQueryKey });
   });
 
   it("expires the principal once when initial and repeated polling requests return 401", async () => {
@@ -635,6 +1007,37 @@ describe("ScheduleControlPanel", () => {
 
     expect(await screen.findByRole("alert")).toHaveTextContent("로그인 세션이 만료되었습니다.");
     expect(invalidate).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText("야간 운영")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "야간 운영 비활성화" })).not.toBeInTheDocument();
+  });
+
+  it("closes an open schedule editor on cached-list 401 and focuses recovery", async () => {
+    const { queryClient } = renderPanel("admin");
+    await screen.findByText("야간 운영");
+    fireEvent.click(screen.getByRole("button", { name: "야간 운영 수정" }));
+    expect(screen.getByRole("dialog", { name: "스케줄 수정" })).toBeInTheDocument();
+    mocks.listSchedules.mockRejectedValueOnce(new ApiError("unauthorized", 401, null));
+    await act(async () => { await queryClient.refetchQueries({ queryKey: scheduleQueryKey(siteId) }); });
+    await waitFor(() => expect(queryClient.getQueryState(scheduleQueryKey(siteId))?.error).toBeInstanceOf(ApiError));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "스케줄 수정" })).not.toBeInTheDocument());
+    expect(screen.getByRole("alert")).toHaveTextContent("로그인 세션이 만료되었습니다.");
+    await waitFor(() => expect(screen.getByRole("button", { name: "상태 다시 조회" })).toHaveFocus());
+    expect(mocks.updateSchedule).not.toHaveBeenCalled();
+  });
+
+  it("closes an open schedule deletion on cached-list 401 without deleting", async () => {
+    const { queryClient } = renderPanel("admin");
+    await screen.findByText("야간 운영");
+    fireEvent.click(screen.getByRole("button", { name: "야간 운영 삭제" }));
+    const confirm = within(screen.getByRole("dialog", { name: "스케줄 삭제" })).getByRole("button", { name: "삭제" });
+    mocks.listSchedules.mockRejectedValueOnce(new ApiError("unauthorized", 401, null));
+    await act(async () => { await queryClient.refetchQueries({ queryKey: scheduleQueryKey(siteId) }); });
+    await waitFor(() => expect(queryClient.getQueryState(scheduleQueryKey(siteId))?.error).toBeInstanceOf(ApiError));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "스케줄 삭제" })).not.toBeInTheDocument());
+    expect(screen.getByRole("alert")).toHaveTextContent("로그인 세션이 만료되었습니다.");
+    fireEvent.click(confirm);
+    expect(mocks.deleteSchedule).not.toHaveBeenCalled();
+    await waitFor(() => expect(screen.getByRole("button", { name: "상태 다시 조회" })).toHaveFocus());
   });
 
   it("expires the current principal for a 401 mutation", async () => {
@@ -722,18 +1125,24 @@ function panelElement(
   role: "admin" | "viewer",
   queryClient: QueryClient,
   panelSiteId = siteId,
-  scopeKey = panelSiteId
+  scopeKey = panelSiteId,
+  panelKey?: string
 ) {
   return (
     <QueryClientProvider client={queryClient}>
-      <ScheduleControlPanel
+      <SessionStatusProvider><SessionStatusCenter /><ToastRegion /><ScheduleControlPanel
+        key={panelKey}
         siteId={panelSiteId}
         role={role}
         dashboard={dashboard}
         scopeKey={scopeKey}
-      />
+      /></SessionStatusProvider>
     </QueryClientProvider>
   );
+}
+
+function authUser(id: string): AuthUser {
+  return { id, organizationId: "org-1", organizationType: "customer", loginId: id, name: id, role: "admin", status: "active", mustChangePassword: false };
 }
 
 function openScheduleAdvanced(dialog: HTMLElement) {
