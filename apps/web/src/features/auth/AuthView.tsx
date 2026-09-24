@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { ArrowLeft, CircleAlert, KeyRound, LockKeyhole } from "lucide-react";
-import { completeMfaLogin, login, type AuthUser, type MfaLoginChallenge } from "../../api/auth";
+import { completeMfaLogin, getCurrentUser, login, type AuthUser, type MfaLoginChallenge } from "../../api/auth";
+import { classifyApiFailure, isTransientApiError } from "../../api/client";
 import { KindaLogo } from "../../components/brand/KindaLogo";
 import {
   Button,
@@ -50,6 +51,10 @@ export function AuthView({ onAuthenticated }: AuthViewProps) {
       }
       await onAuthenticated(auth);
     } catch (error) {
+      if (isTransientApiError(error) && await recoverAuthenticatedSession(onAuthenticated)) {
+        setPassword("");
+        return;
+      }
       setErrorMessage(loginErrorMessage(error));
     } finally {
       requestInFlight.current = false;
@@ -74,8 +79,14 @@ export function AuthView({ onAuthenticated }: AuthViewProps) {
       await onAuthenticated({ user: auth.user });
     } catch (error) {
       setVerificationValue("");
-      if (errorStatus(error) === 401) setChallenge(null);
-      setErrorMessage(mfaErrorMessage(error));
+      if (isTransientApiError(error)) {
+        if (await recoverAuthenticatedSession(onAuthenticated)) return;
+        setChallenge(null);
+        setErrorMessage(mfaErrorMessage(error, true));
+      } else {
+        if (errorStatus(error) === 401) setChallenge(null);
+        setErrorMessage(mfaErrorMessage(error, false));
+      }
     } finally {
       requestInFlight.current = false;
       setIsPending(false);
@@ -173,26 +184,51 @@ export function AuthView({ onAuthenticated }: AuthViewProps) {
 }
 
 function loginErrorMessage(error: unknown) {
-  if (errorStatus(error) === 429) {
-    return "로그인 시도가 너무 많습니다. 잠시 후 다시 시도해 주세요.";
+  switch (classifyApiFailure(error)) {
+    case "unauthorized":
+      return "아이디 또는 비밀번호를 확인해 주세요.";
+    case "forbidden":
+      return "이 계정으로 로그인할 수 없습니다. 관리자에게 문의해 주세요.";
+    case "rate_limited":
+      return "로그인 시도가 너무 많습니다. 잠시 후 다시 시도해 주세요.";
+    case "server":
+      return "인증 서비스에 문제가 발생했습니다. 잠시 후 다시 시도해 주세요.";
+    case "transport":
+      return "서버에 연결하지 못했습니다. 네트워크를 확인한 뒤 다시 시도해 주세요.";
+    case "timeout":
+      return "로그인 응답이 지연되고 있습니다. 잠시 후 다시 시도해 주세요.";
+    default:
+      return "로그인 요청을 처리하지 못했습니다. 입력 내용을 확인해 주세요.";
   }
-  if (errorStatus(error) === 503) {
-    return "인증 서비스를 사용할 수 없습니다. 잠시 후 다시 시도해 주세요.";
-  }
-  return "아이디 또는 비밀번호를 확인해 주세요.";
 }
 
-function mfaErrorMessage(error: unknown) {
-  if (errorStatus(error) === 429) {
-    return "인증 시도가 너무 많습니다. 잠시 후 다시 로그인해 주세요.";
+function mfaErrorMessage(error: unknown, requiresNewCredentials: boolean) {
+  const suffix = requiresNewCredentials ? " 아이디와 비밀번호부터 다시 입력해 주세요." : "";
+  switch (classifyApiFailure(error)) {
+    case "unauthorized":
+      return "인증 코드가 올바르지 않거나 만료되었습니다. 아이디와 비밀번호부터 다시 입력해 주세요.";
+    case "forbidden":
+      return "이 계정으로 인증을 완료할 수 없습니다. 관리자에게 문의해 주세요.";
+    case "rate_limited":
+      return "인증 시도가 너무 많습니다. 잠시 후 다시 로그인해 주세요.";
+    case "server":
+      return `인증 서비스에 문제가 발생했습니다.${suffix || " 잠시 후 다시 시도해 주세요."}`;
+    case "transport":
+      return `서버에 연결하지 못했습니다.${suffix || " 네트워크를 확인한 뒤 다시 시도해 주세요."}`;
+    case "timeout":
+      return `인증 응답이 지연되고 있습니다.${suffix || " 잠시 후 다시 시도해 주세요."}`;
+    default:
+      return "2단계 인증 요청을 처리하지 못했습니다. 다시 시도해 주세요.";
   }
-  if (errorStatus(error) === 503) {
-    return "인증 서비스를 사용할 수 없습니다. 잠시 후 다시 시도해 주세요.";
+}
+
+async function recoverAuthenticatedSession(onAuthenticated: AuthViewProps["onAuthenticated"]) {
+  try {
+    await onAuthenticated(await getCurrentUser());
+    return true;
+  } catch {
+    return false;
   }
-  if (errorStatus(error) === 401) {
-    return "인증 코드가 올바르지 않거나 만료되었습니다. 아이디와 비밀번호부터 다시 입력해 주세요.";
-  }
-  return "2단계 인증을 완료하지 못했습니다. 다시 시도해 주세요.";
 }
 
 function errorStatus(error: unknown) {

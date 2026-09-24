@@ -1,55 +1,38 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { cleanup, render, screen, within } from "@testing-library/react";
 import { readFileSync } from "node:fs";
-import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
+import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { mockDashboard } from "../../test/fixtures";
-import { useFloorEditorStore } from "../floor-editor/editor-store";
 import { SettingsShell } from "./SettingsShell";
 import { SettingsView } from "./SettingsView";
 
 const manageCapabilities = { read: true, control: true, manage: true, commission: true };
 
 vi.mock("../../api/queries", () => ({
-  useSites: () => ({ data: [
-    { id: "site-1", name: "본사 주차장" },
-    { id: "site-2", name: "지사 주차장" }
-  ] }),
   useDashboard: () => ({ data: mockDashboard })
 }));
 vi.mock("../registration/RegistrationPanel", () => ({ RegistrationPanel: () => <section aria-label="조명 등록 패널">조명 등록 패널</section> }));
 vi.mock("../setup/GatewayClaimPanel", () => ({ GatewayClaimPanel: () => null }));
 
-function LocationProbe() {
-  const location = useLocation();
-  return <output data-testid="location">{`${location.pathname}${location.search}`}</output>;
-}
-
-function RoutedSettingsShell() {
-  const location = useLocation();
-  const selectedSiteId = new URLSearchParams(location.search).get("siteId") ?? undefined;
-  return <SettingsShell capabilities={manageCapabilities} selectedSiteId={selectedSiteId} />;
-}
-
 describe("SettingsShell", () => {
   afterEach(() => {
     cleanup();
     vi.restoreAllMocks();
-    useFloorEditorStore.setState({ isDirty: false });
   });
 
   it("renders settings sections as top tabs with the routed content", () => {
     render(
       <MemoryRouter initialEntries={["/settings/floor-plans?siteId=site-1#map"]}>
         <Routes>
-          <Route path="/settings" element={<SettingsShell capabilities={manageCapabilities} selectedSiteId="site-1" />}>
+          <Route path="/settings" element={<SettingsShell capabilities={manageCapabilities} />}>
             <Route path="floor-plans" element={<h2>맵 관리</h2>} />
           </Route>
         </Routes>
       </MemoryRouter>
     );
 
-    expect(screen.getByRole("button", { name: /현장 선택/ })).toHaveTextContent("본사 주차장");
+    expect(screen.queryByRole("button", { name: /현장 선택/ })).not.toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "맵 관리" })).toBeInTheDocument();
     const tabs = screen.getByRole("navigation", { name: "설정 메뉴" });
     expect(within(tabs).getByRole("link", { name: "설정 개요" })).toHaveAttribute(
@@ -64,7 +47,7 @@ describe("SettingsShell", () => {
     render(
       <MemoryRouter initialEntries={["/settings?siteId=site-1"]}>
         <Routes>
-          <Route path="/settings" element={<SettingsShell capabilities={readCapabilities} selectedSiteId="site-1" />}>
+          <Route path="/settings" element={<SettingsShell capabilities={readCapabilities} />}>
             <Route index element={<h2>설정 개요</h2>} />
           </Route>
         </Routes>
@@ -85,7 +68,7 @@ describe("SettingsShell", () => {
       <QueryClientProvider client={queryClient}>
         <MemoryRouter initialEntries={["/settings?siteId=site-1#fragment"]}>
           <Routes>
-            <Route path="/settings" element={<SettingsShell capabilities={manageCapabilities} selectedSiteId="site-1" />}>
+            <Route path="/settings" element={<SettingsShell capabilities={manageCapabilities} />}>
               <Route index element={<SettingsView siteId="site-1" userRole="admin" />} />
             </Route>
           </Routes>
@@ -114,71 +97,6 @@ describe("SettingsShell", () => {
       "/settings/security?siteId=site-1#fragment"
     );
     expect(screen.queryByRole("region", { name: "조명 등록 패널" })).not.toBeInTheDocument();
-  });
-
-  it("asks before switching sites while the floor editor is dirty", () => {
-    const draft = {
-      floor: { id: "floor-1", siteId: "site-1", name: "작성 중", level: -1, mapRevision: 3, floorPlan: null },
-      fixtures: [],
-      lightSlots: [],
-      objects: []
-    };
-    useFloorEditorStore.setState({ state: draft, isDirty: true });
-    render(
-      <MemoryRouter initialEntries={["/settings/floor-plans?siteId=site-1"]}>
-        <Routes>
-          <Route path="/settings" element={<SettingsShell capabilities={manageCapabilities} selectedSiteId="site-1" />}>
-            <Route path="floor-plans" element={<LocationProbe />} />
-          </Route>
-        </Routes>
-      </MemoryRouter>
-    );
-
-    fireEvent.click(screen.getByRole("button", { name: /현장 선택/ }));
-    fireEvent.click(screen.getByRole("option", { name: "지사 주차장" }));
-
-    expect(screen.getByRole("alertdialog", { name: "현장 변경" })).toBeInTheDocument();
-    expect(screen.getByTestId("location")).toHaveTextContent("/settings/floor-plans?siteId=site-1");
-    expect(useFloorEditorStore.getState()).toMatchObject({ state: draft, isDirty: true });
-
-    fireEvent.click(screen.getByRole("button", { name: "취소" }));
-    expect(screen.queryByRole("alertdialog", { name: "현장 변경" })).not.toBeInTheDocument();
-    expect(screen.getByTestId("location")).toHaveTextContent("/settings/floor-plans?siteId=site-1");
-  });
-
-  it("discards the editor draft once after an approved site switch", () => {
-    const baseline = {
-      floor: { id: "floor-1", siteId: "site-1", name: "B1", level: -1, mapRevision: 3, floorPlan: null },
-      fixtures: [{
-        id: "fixture-1", name: "L1", x: 10, y: 20, size: 20, ratedWatt: 40,
-        brightness: 70, status: "online" as const
-      }],
-      lightSlots: [],
-      objects: []
-    };
-    useFloorEditorStore.getState().initialize(baseline);
-    useFloorEditorStore.getState().updateFixture("fixture-1", { x: 99 });
-    render(
-      <MemoryRouter initialEntries={["/settings/floor-plans/floor-1/edit?siteId=site-1"]}>
-        <Routes>
-          <Route path="/settings" element={<RoutedSettingsShell />}>
-            <Route path="floor-plans" element={<LocationProbe />} />
-            <Route path="floor-plans/:floorId/edit" element={<LocationProbe />} />
-          </Route>
-        </Routes>
-      </MemoryRouter>
-    );
-
-    fireEvent.click(screen.getByRole("button", { name: /현장 선택/ }));
-    fireEvent.click(screen.getByRole("option", { name: "지사 주차장" }));
-    fireEvent.click(screen.getByRole("button", { name: "변경" }));
-
-    expect(screen.getByTestId("location")).toHaveTextContent("/settings/floor-plans?siteId=site-2");
-    expect(useFloorEditorStore.getState()).toMatchObject({ state: baseline, initialState: baseline, isDirty: false });
-
-    fireEvent.click(screen.getByRole("button", { name: /현장 선택/ }));
-    fireEvent.click(screen.getByRole("option", { name: "본사 주차장" }));
-    expect(screen.getByTestId("location")).toHaveTextContent("/settings/floor-plans?siteId=site-1");
   });
 
   it("uses explicit refs for active-tab scrolling", () => {

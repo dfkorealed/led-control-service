@@ -1,6 +1,9 @@
 import { useQuery } from "@tanstack/react-query";
-import { apiDelete, apiGet, apiPost, isTransientApiError } from "./client";
+import { apiDelete, apiGet, apiPost, isTransientApiError, type ApiRequestOptions } from "./client";
 import { authMeQueryKey } from "./principal-cache";
+
+export const AUTH_REQUEST_TIMEOUT_MS = 8_000;
+const AUTH_RECOVERY_LOGOUT_TIMEOUT_MS = 5_000;
 
 export interface AuthUser {
   id: string;
@@ -16,12 +19,16 @@ export interface AuthUser {
 export function useCurrentUser() {
   return useQuery({
     queryKey: authMeQueryKey,
-    queryFn: () => apiGet<{ user: AuthUser }>("/auth/me"),
+    queryFn: ({ signal }) => getCurrentUser({ signal }),
     retry: (failureCount, error) => failureCount < 2 && isTransientApiError(error),
     // 세션 세대 교체 시 전달한 auth 결과를 즉시 재요청하지 않는다. 수동 retry/online resume는 유지한다.
     refetchOnMount: false,
     retryOnMount: false
   });
+}
+
+export function getCurrentUser(options: Pick<ApiRequestOptions, "signal"> = {}) {
+  return apiGet<{ user: AuthUser }>("/auth/me", { ...options, timeoutMs: AUTH_REQUEST_TIMEOUT_MS });
 }
 
 export interface MfaLoginChallenge {
@@ -56,7 +63,7 @@ export interface AuthSession {
 }
 
 export function login(input: { loginId: string; password: string; rememberMe: boolean }) {
-  return apiPost<LoginResponse>("/auth/login", input);
+  return apiPost<LoginResponse>("/auth/login", input, { timeoutMs: AUTH_REQUEST_TIMEOUT_MS });
 }
 
 export function completeMfaLogin(input: {
@@ -64,7 +71,7 @@ export function completeMfaLogin(input: {
   code?: string;
   recoveryCode?: string;
 }) {
-  return apiPost<{ user: AuthUser; recoveryCodeUsed: boolean }>("/auth/login/mfa", input);
+  return apiPost<{ user: AuthUser; recoveryCodeUsed: boolean }>("/auth/login/mfa", input, { timeoutMs: AUTH_REQUEST_TIMEOUT_MS });
 }
 
 export function signup(input: { token: string; loginId: string; email: string; name: string; password: string }) {
@@ -76,15 +83,11 @@ export function logout() {
 }
 
 export async function logoutAfterRecovery() {
-  const controller = new AbortController();
   // 장애 중인 logout도 로그인 화면을 영구히 막지 않도록 제한한다. 이 동안 새 로그인은 시작하지 않는다.
-  const timeout = window.setTimeout(() => controller.abort(), 5_000);
   try {
-    await apiPost("/auth/logout", {}, { signal: controller.signal });
+    await apiPost("/auth/logout", {}, { timeoutMs: AUTH_RECOVERY_LOGOUT_TIMEOUT_MS });
   } catch {
     // 서버 세션 종료 실패와 무관하게 로컬 principal은 폐기하고 기존 로그인 화면으로 수렴한다.
-  } finally {
-    window.clearTimeout(timeout);
   }
 }
 

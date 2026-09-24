@@ -20,8 +20,7 @@
 - toast는 상태의 유일한 저장소가 아니다. 상태 센터 item은 원 query가 해결될 때까지 남고, toast는 안정 키와 fingerprint로 한 번만 알린 뒤 자동 또는 수동 해제한다.
 - 모든 상호작용은 ref와 React state를 사용한다. production `querySelector`를 추가하지 않는다.
 - 320/390/1024/1440px에서 가로 overflow가 없고 모바일 interactive target은 연속 44×44px 이상이어야 한다.
-- 페이지·메뉴 기능 영향은 `docs/menus/monitoring.md`, `control.md`, `statistics.md`, `settings.md`에 함께 기록한다.
-- 실행 결과를 이 체크리스트와 `docs/project-status.md`에 같은 근거로 갱신한다.
+- 메뉴별 기능 현황과 `docs/project-status.md`는 병렬 페이지 담당/총괄이 소유한다. 이 세션은 반영 필요 사항과 자동 검증 근거를 완료 보고에 항목별로 전달한다.
 
 ## Public Contracts
 
@@ -80,19 +79,20 @@ export function useSessionToast(): {
 - Modify: `apps/web/src/api/client.test.ts`
 - Modify: `apps/web/src/api/client.recovery.test.ts`
 - Modify: `apps/web/src/api/auth.ts`
+- Create: `apps/web/src/api/auth.test.ts`
 - Modify: `apps/web/src/features/auth/AuthView.tsx`
 - Modify: `apps/web/src/features/auth/AuthView.test.tsx`
 - Modify: `apps/web/src/App.test.tsx`
 
-- [ ] `apiGet`/`apiPost`의 `ApiRequestOptions.timeoutMs`가 caller signal과 독립적으로 합성되고 timer/listener를 항상 정리하는 RED 테스트를 작성한다.
-- [ ] timeout은 `ApiTimeoutError`, 네트워크 fetch 실패는 `ApiTransportError`, 호출자 취소는 원래 abort로 남는 분류 테스트를 RED로 확인한다.
-- [ ] `classifyApiFailure`와 `isTransientApiError`가 401/403/429/5xx/transport/timeout/other를 정확히 구분하도록 최소 구현한다.
-- [ ] `/auth/me`, `/auth/login`, `/auth/login/mfa`, 복구 logout에 명시적 제한시간을 적용한다. 일반 장기 요청에는 전역 기본 timeout을 강제하지 않는다.
-- [ ] `/auth/me`의 React Query signal을 fetch에 전달하고 auth 요청 deadline은 8초, 복구 logout은 기존 5초로 고정한다. 각 timer와 abort listener는 성공·실패·취소 모두에서 정리한다.
-- [ ] login/MFA POST timeout·transport 실패는 같은 POST를 자동 재시도하지 않고 제한시간이 있는 `/auth/me`를 먼저 조회한다. 인증된 principal이 확인되면 정상 완료하고, 401이면 명시적 재시도 안내로 돌아가며 다시 transient면 연결/시간 초과 복구 문구를 유지한다.
-- [ ] 로그인/MFA 화면이 401 자격 증명, 403 접근 거절, 429 제한, 5xx 서비스 장애, transport 연결 실패, timeout 응답 지연을 서로 다른 한국어 복구 문구로 표시하게 한다.
-- [ ] `App`의 401 로그인 수렴, transient recovery, 비일시 오류의 fail-closed 권한 복구와 principal/cache 세대 격리를 회귀 테스트한다.
-- [ ] Run: `pnpm --filter @led-control/web test -- src/api/client.test.ts src/api/client.recovery.test.ts src/features/auth/AuthView.test.tsx src/App.test.tsx`
+- [x] `apiGet`/`apiPost`의 `ApiRequestOptions.timeoutMs`가 caller signal과 독립적으로 합성되고 timer/listener를 항상 정리하는 RED 테스트를 작성한다.
+- [x] timeout은 `ApiTimeoutError`, 네트워크 fetch 실패는 `ApiTransportError`, 호출자 취소는 원래 abort로 남는 분류 테스트를 RED로 확인한다.
+- [x] `classifyApiFailure`와 `isTransientApiError`가 401/403/429/5xx/transport/timeout/other를 정확히 구분하도록 최소 구현한다.
+- [x] `/auth/me`, `/auth/login`, `/auth/login/mfa`, 복구 logout에 명시적 제한시간을 적용한다. 일반 장기 요청에는 전역 기본 timeout을 강제하지 않는다.
+- [x] `/auth/me`의 React Query signal을 fetch에 전달하고 auth 요청 deadline은 8초, 복구 logout은 기존 5초로 고정한다. 각 timer와 abort listener는 성공·실패·취소 모두에서 정리한다.
+- [x] login/MFA POST timeout·transport 실패는 같은 POST를 자동 재시도하지 않고 제한시간이 있는 `/auth/me`를 먼저 조회한다. 인증된 principal이 확인되면 정상 완료하고, 401이면 명시적 재시도 안내로 돌아가며 다시 transient면 연결/시간 초과 복구 문구를 유지한다.
+- [x] 로그인/MFA 화면이 401 자격 증명, 403 접근 거절, 429 제한, 5xx 서비스 장애, transport 연결 실패, timeout 응답 지연을 서로 다른 한국어 복구 문구로 표시하게 한다.
+- [x] `App`의 401 로그인 수렴, transient recovery, 비일시 오류의 fail-closed 권한 복구와 principal/cache 세대 격리를 회귀 테스트한다.
+- [x] Run: `pnpm --filter @led-control/web test -- src/api/client.test.ts src/api/client.recovery.test.ts src/api/auth.test.ts src/features/auth/AuthView.test.tsx src/App.test.tsx src/App.recovery.test.tsx` — 6 files, 122 tests passed.
 
 ### Task 2: 선언형 세션 상태 센터와 비차단 toast 공통 API
 
@@ -104,13 +104,14 @@ export function useSessionToast(): {
 - Modify: `apps/web/src/components/ui/index.ts`
 - Modify: `apps/web/scripts/overlay-bundle.mjs`
 
-- [ ] provider가 source별 item을 등록·unregister하고 동일 `id + fingerprint`를 한 번만 toast로 전환하는 RED 테스트를 작성한다.
-- [ ] item이 원 query 성공으로 사라지면 센터와 연관 toast가 해제되고, 새 fingerprint는 다시 한 번 알리는 RED 테스트를 작성한다.
-- [ ] success/info/warning/danger toast의 기본 표시 시간, 수동 닫기, 같은 `dedupeKey` 갱신, 최대 표시 개수와 timer 정리를 RED로 고정한다.
-- [ ] `SessionStatusProvider`, `useSessionStatus`, `useSessionToast`, `SessionStatusCenter`, `ToastRegion`을 Tailwind token과 공통 Button/Popover만 사용해 구현한다.
-- [ ] 상태 센터 trigger의 `aria-expanded`/`aria-controls`, dialog label, Escape·바깥 클릭 닫기, trigger focus 복귀, toast의 `role=status|alert`를 테스트한다.
-- [ ] `components/ui/index.ts`에 위 public contract를 export하고 overlay bundle gate에 실제 consumer를 추가한다.
-- [ ] Run: `pnpm --filter @led-control/web test -- src/components/ui/session-status/session-status.test.tsx && pnpm --filter @led-control/web test:overlay-bundle`
+- [x] provider가 source별 item을 등록·unregister하고 동일 `id + fingerprint`를 한 번만 toast로 전환하는 RED 테스트를 작성한다.
+- [x] item이 원 query 성공으로 사라지면 센터와 연관 toast가 해제되고, 새 fingerprint는 다시 한 번 알리는 RED 테스트를 작성한다.
+- [x] success/info/warning/danger toast의 기본 표시 시간, 수동 닫기, 같은 `dedupeKey` 갱신, 최대 표시 개수와 timer 정리를 RED로 고정한다.
+- [x] `SessionStatusProvider`, `useSessionStatus`, `useSessionToast`, `SessionStatusCenter`, `ToastRegion`을 Tailwind token과 공통 Button/Popover만 사용해 구현한다.
+- [x] 상태 센터 trigger의 `aria-expanded`/`aria-controls`, dialog label, Escape 닫기, trigger focus 복귀, toast의 `role=status|alert`를 테스트한다. 바깥 클릭은 공통 `Popover`의 기존 overlay 회귀로 유지한다.
+- [x] `components/ui/index.ts`에 위 public contract를 export하고 overlay bundle gate에 실제 consumer를 추가한다.
+- [x] Run: `pnpm --filter @led-control/web test -- src/components/ui/session-status/session-status.test.tsx src/components/ui/overlays/overlays.test.tsx src/components/ui/ui-primitives.test.tsx` — 3 files, 85 tests passed.
+- [ ] Run: `pnpm --filter @led-control/web test:overlay-bundle` — 총괄의 병렬 build 금지 지시에 따라 최종 직렬 통합 gate로 이관.
 
 ### Task 3: 전역 현장 선택과 선택 현장 Gateway 상태를 Shell에 연결
 
@@ -126,14 +127,15 @@ export function useSessionToast(): {
 - Modify: `apps/web/src/features/settings/SettingsShell.tsx`
 - Modify: `apps/web/src/features/settings/SettingsShell.test.tsx`
 
-- [ ] Shell이 `useSites`의 loading/error/data와 URL `siteId`를 사용해 전역 selector를 렌더링하는 RED 테스트를 작성한다. 목록 밖 `siteId`는 선택 가능한 것처럼 표시하지 않는다.
-- [ ] dirty floor editor에서 현장 변경 취소/승인, route·query·hash 보존, 승인 시 draft 1회 폐기와 editor 목록 route 이탈을 RED로 고정한다.
-- [ ] `useGuardedSiteSelection`에 기존 Settings 소유 확인 로직을 옮기고 `SettingsShell`의 중복 selector/dialog를 제거한다.
-- [ ] `gateway-status.ts`가 미등록, 전체 연결, 일부/전체 오프라인, dashboard unavailable, cached data + background error의 `갱신 지연`을 구분하는 RED 테스트를 작성한다.
-- [ ] Shell이 Gateway aggregate를 상태 센터의 Gateway item과 연결하고 `확인 불가`를 offline으로 오인하지 않게 구현한다.
-- [ ] 모바일 topbar를 제목·상태 action 행과 현장 문맥 행으로 재배치해 editor 포함 320/390px에서도 logout·selector·status trigger가 44px 이상이고 overflow가 없게 한다.
-- [ ] Shell이 `SessionStatusProvider`와 `ToastRegion`을 소유하고 site/dashboard query의 retry action을 상태 센터 item으로 선언한다.
-- [ ] Run: `pnpm --filter @led-control/web test -- src/features/sites/SiteSwitcher.test.tsx src/features/sites/useGuardedSiteSelection.test.tsx src/features/shells/gateway-status.test.ts src/features/shells/CustomerShell.test.tsx src/features/settings/SettingsShell.test.tsx`
+- [x] Shell이 `useSites`의 loading/error/data와 URL `siteId`를 사용해 전역 selector를 렌더링하는 RED 테스트를 작성한다. 목록 밖 `siteId`는 선택 가능한 것처럼 표시하지 않는다.
+- [x] dirty floor editor에서 현장 변경 취소/승인, route·query·hash 보존, 승인 시 draft 1회 폐기와 editor 목록 route 이탈을 RED로 고정한다.
+- [x] `useGuardedSiteSelection`에 기존 Settings 소유 확인 로직을 옮기고 `SettingsShell`의 중복 selector/dialog를 제거한다.
+- [x] `gateway-status.ts`가 미등록, 전체 연결, 일부/전체 오프라인, dashboard unavailable, cached data + background error의 `갱신 지연`을 구분하는 RED 테스트를 작성한다.
+- [x] Shell이 Gateway aggregate를 상태 센터의 Gateway item과 연결하고 `확인 불가`를 offline으로 오인하지 않게 구현한다.
+- [x] 모바일 topbar를 제목·상태 action 행과 현장 문맥 행으로 재배치해 editor 포함 320/390px에서도 logout·selector·status trigger가 44px 이상이고 overflow가 없게 한다. 실제 viewport overflow 확인은 Task 4 Chromium 통합 gate로 이관한다.
+- [x] Shell이 `SessionStatusProvider`와 `ToastRegion`을 소유하고 site/dashboard query의 retry action을 상태 센터 item으로 선언한다.
+- [x] Gateway 상태 배지를 44px 상호작용 대상으로 만들고 ref 기반으로 상태 센터의 해당 Gateway item에 초점을 이동하며 Escape 닫기 후 배지로 복귀시킨다. 로그아웃 실패는 topbar 행을 늘리지 않고 danger toast와 상태 센터 item으로 제공한다.
+- [x] Run: `pnpm --filter @led-control/web test -- src/features/sites/SiteSwitcher.test.tsx src/features/sites/useGuardedSiteSelection.test.tsx src/features/shells/gateway-status.test.ts src/features/shells/CustomerShell.test.tsx src/features/settings/SettingsShell.test.tsx` — 5 files, 42 tests passed.
 
 ### Task 4: 반응형 Chromium, 정책, 전체 Web과 문서 검증
 
@@ -141,22 +143,12 @@ export function useSessionToast(): {
 - Modify: `apps/web/e2e/support/settings-api.ts`
 - Modify: `apps/web/e2e/calm-operations-shell.spec.ts`
 - Modify: `apps/web/e2e/calm-operations-auth-operator.spec.ts`
-- Modify: `docs/menus/monitoring.md`
-- Modify: `docs/menus/control.md`
-- Modify: `docs/menus/statistics.md`
-- Modify: `docs/menus/settings.md`
-- Modify: `docs/project-status.md`
 - Modify: `docs/superpowers/plans/2026-09-24-kinda-shell-auth-session-status.md`
 
 - [ ] Chromium fixture에 복수 인가 현장, Gateway 전체/부분/없음, site/dashboard 실패와 인증 timeout을 추가한다.
 - [ ] 320/390/1024/1440px에서 전역 현장 전환, Gateway aggregate, 상태 센터 open/Escape/focus return, toast dedupe/resolution, touch/overflow를 검증한다.
 - [ ] 로그인 401/403/429/5xx/transport/timeout 및 `/auth/me` fail-closed 복구를 관련 Chromium spec으로 검증한다.
-- [ ] Run: `pnpm --filter @led-control/web lint`
-- [ ] Run: `pnpm --filter @led-control/web typecheck`
-- [ ] Run: `pnpm --filter @led-control/web test`
-- [ ] Run: `pnpm --filter @led-control/web ui:check`
-- [ ] Run: `pnpm --filter @led-control/web build`
 - [ ] Run: `pnpm --filter @led-control/web exec playwright test e2e/calm-operations-shell.spec.ts e2e/calm-operations-auth-operator.spec.ts --project=chromium --workers=1`
-- [ ] 네 메뉴 문서에 전역 selector/Gateway/status center의 구현 범위와 세션 한계, 인증 복구 경계를 기록한다.
-- [ ] 자동 Chromium과 실제 Gateway/MQTT/HIL·수동 in-app 시각 QA를 구분해 `docs/project-status.md`와 이 체크리스트에 최종 증거를 동기화한다.
-- [ ] `git diff --check`와 `git status --short`로 own-files-only를 확인한 뒤 경로를 명시해 stage/commit한다.
+- [x] focused unit 결과와 전역 selector/Gateway/status center/인증 복구의 메뉴 문서 반영 필요 사항을 총괄에게 전달한다. 후속 접근성 보완 포함 인증·상태 센터·Shell/Settings 14 files, 251 tests, Web typecheck, UI policy(0 existing/0 new)가 통과했다. Chromium 및 전체 Web test/build와 정본 문서 갱신은 총괄 통합 단계에서 직렬 실행한다.
+- [ ] 자동 Chromium과 실제 Gateway/MQTT/HIL·수동 in-app 시각 QA를 구분해 이 체크리스트와 완료 보고의 증거를 동기화한다.
+- [x] `git diff --check`와 `git status --short`로 own-files-only를 확인하고 변경 목록을 총괄에게 전달한다. 이 세션은 추가 commit을 만들지 않는다.

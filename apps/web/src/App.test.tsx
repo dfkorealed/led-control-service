@@ -426,7 +426,7 @@ describe("App", () => {
         loginId: " ADMIN_01 ",
         password: "correct horse battery staple",
         rememberMe: true
-      });
+      }, { timeoutMs: 8_000 });
     });
     await waitFor(() => expect(activeClient.getQueryData(["auth", "me"])).toMatchObject({
       user: { loginId: "admin_01", organizationId: "organization-ADMIN_01" }
@@ -439,7 +439,7 @@ describe("App", () => {
 
   it("keeps failed login plaintext out of React Query caches and exposes an alert", async () => {
     authState.user = null;
-    vi.mocked(apiPost).mockRejectedValueOnce(new Error("unauthorized"));
+    vi.mocked(apiPost).mockRejectedValueOnce(new ApiError("unauthorized", 401, null));
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
     render(<QueryClientProvider client={queryClient}><App /></QueryClientProvider>);
 
@@ -942,7 +942,7 @@ describe("App", () => {
     expect(manualApplyAction()).toBeDisabled();
   });
 
-  it("keeps gateway absence details in settings while omitting them from the shell header", async () => {
+  it("keeps gateway absence visible in both the global shell context and settings details", async () => {
     apiState.dashboard = {
       ...mockDashboard,
       gateways: []
@@ -956,7 +956,7 @@ describe("App", () => {
 
     const topbar = (await screen.findByRole("heading", { name: "모니터링" })).closest<HTMLElement>("header");
     expect(topbar).not.toBeNull();
-    expect(within(topbar!).queryByText("게이트웨이 미등록")).not.toBeInTheDocument();
+    expect(within(topbar!).getByTestId("gateway-status-badge")).toHaveAccessibleName("게이트웨이 미등록");
 
     fireEvent.click(screen.getByRole("link", { name: "설정" }));
     expect(await screen.findByRole("group", { name: "Gateway 상태" })).toHaveTextContent("미등록");
@@ -1346,6 +1346,9 @@ describe("App", () => {
     fireEvent.click(within(dialog).getByRole("button", { name: "로그아웃" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent("로그아웃에 실패했습니다");
+    const topbar = screen.getByRole("heading", { name: "설정" }).closest<HTMLElement>("header");
+    expect(topbar).not.toBeNull();
+    expect(within(topbar!).queryByText("로그아웃에 실패했습니다", { exact: false })).not.toBeInTheDocument();
     expect(trigger).toBeEnabled();
     expect(trigger).toHaveFocus();
   });

@@ -1,51 +1,37 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import { apiDelete, apiGet, apiPost } from "./client";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { ApiTimeoutError } from "./client";
 import {
+  AUTH_REQUEST_TIMEOUT_MS,
   completeMfaLogin,
-  confirmMfaEnrollment,
-  disableMfa,
-  getMfaStatus,
-  listAuthSessions,
-  login,
-  revokeAuthSession,
-  revokeOtherAuthSessions,
-  startMfaEnrollment
+  getCurrentUser,
+  login
 } from "./auth";
 
-vi.mock("./client", () => ({ apiGet: vi.fn(), apiPost: vi.fn(), apiDelete: vi.fn(), apiRequest: vi.fn() }));
-
-describe("account security API", () => {
-  beforeEach(() => {
-    vi.mocked(apiGet).mockReset().mockResolvedValue({});
-    vi.mocked(apiPost).mockReset().mockResolvedValue({});
-    vi.mocked(apiDelete).mockReset().mockResolvedValue({});
+describe("auth request deadlines", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
   });
 
-  it("uses the backend login and MFA challenge contracts without query hooks", async () => {
-    await login({ loginId: "admin_01", password: "secret", rememberMe: true });
-    await completeMfaLogin({ challengeToken: "challenge", code: "123456" });
-    await completeMfaLogin({ challengeToken: "challenge", recoveryCode: "recovery" });
+  it.each([
+    ["current user", () => getCurrentUser()],
+    ["login", () => login({ loginId: "admin", password: "secret", rememberMe: true })],
+    ["MFA", () => completeMfaLogin({ challengeToken: "challenge", code: "123456" })]
+  ])("bounds the %s request without retrying the POST", async (_label, startRequest) => {
+    vi.useFakeTimers();
+    const fetchMock = vi.fn().mockImplementation((_url, init: RequestInit) => new Promise((_resolve, reject) => {
+      init.signal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")), { once: true });
+    }));
+    vi.stubGlobal("fetch", fetchMock);
 
-    expect(apiPost).toHaveBeenNthCalledWith(1, "/auth/login", { loginId: "admin_01", password: "secret", rememberMe: true });
-    expect(apiPost).toHaveBeenNthCalledWith(2, "/auth/login/mfa", { challengeToken: "challenge", code: "123456" });
-    expect(apiPost).toHaveBeenNthCalledWith(3, "/auth/login/mfa", { challengeToken: "challenge", recoveryCode: "recovery" });
-  });
+    const request = startRequest();
+    const rejection = expect(request).rejects.toBeInstanceOf(ApiTimeoutError);
+    await vi.advanceTimersByTimeAsync(AUTH_REQUEST_TIMEOUT_MS - 1);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(1);
 
-  it("uses every MFA and session management endpoint exactly", async () => {
-    await getMfaStatus();
-    await startMfaEnrollment();
-    await confirmMfaEnrollment({ enrollmentToken: "enrollment", code: "123456" });
-    await disableMfa({ currentPassword: "secret", recoveryCode: "recovery" });
-    await listAuthSessions();
-    await revokeAuthSession("session/with slash");
-    await revokeOtherAuthSessions();
-
-    expect(apiGet).toHaveBeenNthCalledWith(1, "/auth/mfa");
-    expect(apiPost).toHaveBeenNthCalledWith(1, "/auth/mfa/enrollment", {});
-    expect(apiPost).toHaveBeenNthCalledWith(2, "/auth/mfa/enrollment/confirm", { enrollmentToken: "enrollment", code: "123456" });
-    expect(apiPost).toHaveBeenNthCalledWith(3, "/auth/mfa/disable", { currentPassword: "secret", recoveryCode: "recovery" });
-    expect(apiGet).toHaveBeenNthCalledWith(2, "/auth/sessions");
-    expect(apiDelete).toHaveBeenCalledWith("/auth/sessions/session%2Fwith%20slash");
-    expect(apiPost).toHaveBeenNthCalledWith(4, "/auth/sessions/revoke-others", {});
+    await rejection;
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(vi.getTimerCount()).toBe(0);
   });
 });

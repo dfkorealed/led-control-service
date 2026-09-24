@@ -1,12 +1,15 @@
+import { forwardRef } from "react";
 import { useLocation, useNavigate, type Location, type To } from "react-router-dom";
 import type { SiteSummary } from "../../api/queries";
-import { SelectBox } from "../../components/ui";
+import { cn, SelectBox } from "../../components/ui";
 import { hasDirtyEditorSentinel } from "../floor-editor/dirty-editor-history";
 
 interface SiteSwitcherProps {
   sites: SiteSummary[];
   selectedSiteId?: string;
   onSelectionChange?: (siteId: string) => void;
+  className?: string;
+  isDisabled?: boolean;
 }
 
 export function siteSelectionTarget(location: Pick<Location, "pathname" | "search" | "hash">, siteId: string): To {
@@ -18,7 +21,7 @@ export function siteSelectionTarget(location: Pick<Location, "pathname" | "searc
   return { pathname, search: search.toString(), hash: location.hash };
 }
 
-export function SiteSwitcher({ sites, selectedSiteId, onSelectionChange }: SiteSwitcherProps) {
+export const SiteSwitcher = forwardRef<HTMLButtonElement, SiteSwitcherProps>(function SiteSwitcher({ sites, selectedSiteId, onSelectionChange, className, isDisabled }, ref) {
   const location = useLocation();
   const navigate = useNavigate();
 
@@ -35,8 +38,11 @@ export function SiteSwitcher({ sites, selectedSiteId, onSelectionChange }: SiteS
 
   return (
     <SelectBox
+      ref={ref}
       aria-label="현장 선택"
-      className="min-w-56"
+      placeholder="현장 선택"
+      className={cn("min-w-0 w-full [&_button]:min-w-0 [&_button]:w-full [&_button]:overflow-hidden", className)}
+      isDisabled={isDisabled}
       items={sites.map((site) => ({
         id: site.id,
         label: site.customerName ? `${site.customerName} · ${site.name}` : site.name
@@ -45,4 +51,4 @@ export function SiteSwitcher({ sites, selectedSiteId, onSelectionChange }: SiteS
       onSelectionChange={(siteId) => { if (siteId) selectSite(siteId); }}
     />
   );
-}
+});

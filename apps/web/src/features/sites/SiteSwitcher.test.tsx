@@ -114,4 +114,16 @@ describe("SiteSwitcher", () => {
     expect(onSelectionChange).toHaveBeenCalledWith("site-2");
     expect(screen.getByText("/settings?siteId=site-1")).toBeInTheDocument();
   });
+
+  it("supports a compact caller class and a disabled loading state", () => {
+    render(
+      <MemoryRouter>
+        <SiteSwitcher sites={sites} selectedSiteId="site-1" className="flex-1" isDisabled />
+      </MemoryRouter>
+    );
+
+    const selector = screen.getByRole("button", { name: /현장 선택/ });
+    expect(selector).toBeDisabled();
+    expect(selector.closest("[data-field]")).toHaveClass("flex-1");
+  });
 });

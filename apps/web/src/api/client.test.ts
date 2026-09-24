@@ -25,6 +25,18 @@ describe("API client", () => {
     );
   });
 
+  it("keeps client-only timeout options out of fetch init", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200, json: () => Promise.resolve({ ok: true }) });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await apiGet("/auth/me", { timeoutMs: 8_000 });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/auth/me",
+      expect.not.objectContaining({ timeoutMs: expect.anything() })
+    );
+  });
+
   it("sends JSON PUT requests", async () => {
     const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve({ ok: true }) });
     vi.stubGlobal("fetch", fetchMock);

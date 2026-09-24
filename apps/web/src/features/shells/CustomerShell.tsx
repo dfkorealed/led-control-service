@@ -1,12 +1,26 @@
-import { lazy, Suspense, useEffect, useRef, useState } from "react";
-import { Activity, BarChart3, CircleAlert, LoaderCircle, LogOut, MapPin, SlidersHorizontal } from "lucide-react";
+import { forwardRef, lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { Activity, BarChart3, CircleAlert, LoaderCircle, LogOut, RadioTower, SlidersHorizontal } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { matchPath, Navigate, NavLink, Route, Routes, useLocation } from "react-router-dom";
 import { logout, type AuthUser } from "../../api/auth";
 import { authMeQueryKey, clearTenantCache } from "../../api/principal-cache";
-import { useDashboard, type SiteCapabilities } from "../../api/queries";
+import { useDashboard, useSites, type SiteCapabilities } from "../../api/queries";
 import { KindaLogo } from "../../components/brand/KindaLogo";
-import { Button, ConfirmDialog, FeedbackState, Heading, IconTooltipButton, Text } from "../../components/ui";
+import {
+  Button,
+  ConfirmDialog,
+  FeedbackState,
+  Heading,
+  IconTooltipButton,
+  SessionStatusCenter,
+  SessionStatusProvider,
+  StatusBadge,
+  Text,
+  ToastRegion,
+  useSessionStatus,
+  type SessionStatusCenterHandle,
+  type SessionStatusItem
+} from "../../components/ui";
 import { RouteLoadingState } from "../../components/ui/RouteLoadingState";
 import {
   blockActiveCommandSession,
@@ -15,6 +29,9 @@ import {
 import { clearActiveCommandsForUser } from "../control/active-command-store";
 import { hasDirtyEditorSentinel } from "../floor-editor/dirty-editor-history";
 import { useFloorEditorStore } from "../floor-editor/editor-store";
+import { SiteSwitcher } from "../sites/SiteSwitcher";
+import { useGuardedSiteSelection } from "../sites/useGuardedSiteSelection";
+import { deriveGatewayAggregate } from "./gateway-status";
 import { primaryNavigationClass, SettingsNavigationItem } from "./SettingsNavigationItem";
 
 const MonitoringView = lazy(() => import("../monitoring/MonitoringView").then((module) => ({ default: module.MonitoringView })));
@@ -75,14 +92,70 @@ export function CustomerShell({ user }: { user: AuthUser }) {
   const [isLogoutConfirmationOpen, setIsLogoutConfirmationOpen] = useState(false);
   const [logoutError, setLogoutError] = useState("");
   const logoutButtonRef = useRef<HTMLButtonElement>(null);
+  const siteSwitcherRef = useRef<HTMLButtonElement>(null);
+  const gatewayStatusButtonRef = useRef<HTMLButtonElement>(null);
+  const sessionStatusCenterRef = useRef<SessionStatusCenterHandle>(null);
   const restoreLogoutFocusAfterFailureRef = useRef(false);
   const siteId = new URLSearchParams(location.search).get("siteId") ?? undefined;
+  const sitesQuery = useSites();
   const {
     data: dashboard,
     isLoading: isDashboardLoading,
+    error: dashboardError,
     refetch: refetchDashboard
   } = useDashboard(siteId);
   const selectedSiteId = siteId ?? dashboard?.site.id;
+  const authorizedSelectedSiteId = sitesQuery.data?.some((site) => site.id === selectedSiteId)
+    ? selectedSiteId
+    : undefined;
+  const siteSelection = useGuardedSiteSelection(authorizedSelectedSiteId);
+  const gatewayAggregate = deriveGatewayAggregate({ gateways: dashboard?.gateways, error: dashboardError });
+  const shellStatusItems = useMemo<SessionStatusItem[]>(() => {
+    const statuses: SessionStatusItem[] = [];
+    if (sitesQuery.error) {
+      statuses.push({
+        id: "query:sites",
+        fingerprint: "site-list-unavailable",
+        source: "query",
+        tone: "danger",
+        title: "현장 목록을 확인하지 못했습니다.",
+        description: "연결 상태를 확인한 뒤 다시 시도하세요.",
+        action: { label: "다시 시도", onAction: () => void sitesQuery.refetch() }
+      });
+    }
+    if (logoutError) {
+      statuses.push({
+        id: "command:logout",
+        fingerprint: "logout-failed",
+        source: "command",
+        tone: "danger",
+        title: logoutError,
+        description: "로그아웃 버튼을 눌러 다시 시도할 수 있습니다."
+      });
+    }
+    if (dashboard && dashboardError) {
+      statuses.push({
+        id: `query:dashboard:${selectedSiteId ?? "default"}`,
+        fingerprint: "dashboard-refresh-delayed",
+        source: "query",
+        tone: "warning",
+        title: "현장 상태 갱신이 지연되고 있습니다.",
+        description: "마지막으로 확인한 값을 표시하고 있습니다.",
+        action: { label: "다시 시도", onAction: () => void refetchDashboard() }
+      });
+    } else if (gatewayAggregate.kind === "attention") {
+      statuses.push({
+        id: `gateway:${selectedSiteId ?? "default"}`,
+        fingerprint: `gateway-attention:${gatewayAggregate.online}/${gatewayAggregate.total}`,
+        source: "gateway",
+        tone: "warning",
+        title: "확인이 필요한 게이트웨이가 있습니다.",
+        description: gatewayAggregate.label,
+        action: { label: "상태 새로고침", onAction: () => void refetchDashboard() }
+      });
+    }
+    return statuses;
+  }, [dashboard, dashboardError, gatewayAggregate.kind, gatewayAggregate.label, gatewayAggregate.online, gatewayAggregate.total, logoutError, refetchDashboard, selectedSiteId, sitesQuery.error, sitesQuery.refetch]);
 
   useEffect(() => {
     unblockActiveCommandSession(user.id);
@@ -181,7 +254,9 @@ export function CustomerShell({ user }: { user: AuthUser }) {
   }
 
   return (
-    <div className={`bg-surface-canvas ${isEditorRoute ? "flex h-dvh min-h-0 overflow-hidden" : "min-h-screen"} ${isCompactNavigation ? "pb-shell-navigation-safe" : "flex"}`} data-app-shell>
+    <SessionStatusProvider>
+      <ShellStatusRegistration items={shellStatusItems} />
+      <div className={`bg-surface-canvas ${isEditorRoute ? "flex h-dvh min-h-0 overflow-hidden" : "min-h-screen"} ${isCompactNavigation ? "pb-shell-navigation-safe" : "flex"}`} data-app-shell>
       {isCompactNavigation ? (
         <nav className="fixed inset-x-0 bottom-0 z-20 grid h-shell-navigation-safe grid-cols-4 gap-1 border-t border-border-default bg-surface-panel px-1.5 pt-1 pb-safe-area-bottom" aria-label="모바일 주 메뉴" data-shell-navigation="compact">
           <PrimaryNavigation capabilities={capabilities} search={location.search} />
@@ -195,15 +270,46 @@ export function CustomerShell({ user }: { user: AuthUser }) {
         </aside>
       )}
       <main className={`flex min-w-0 flex-1 flex-col ${isEditorRoute ? "min-h-0 overflow-hidden" : ""}`}>
-        <header className={`flex min-h-16 min-w-0 shrink-0 items-center justify-between gap-4 border-b border-border-default bg-surface-panel px-7 max-compact:px-3.5 ${isEditorRoute ? "max-compact:gap-2" : "max-compact:flex-col max-compact:items-start max-compact:py-3"}`} data-shell-topbar>
-          <div className="min-w-0">
+        <header className="grid min-h-16 min-w-0 shrink-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-2 gap-y-2 border-b border-border-default bg-surface-panel px-3.5 py-2 compact:grid-cols-[minmax(0,1fr)_minmax(0,auto)_auto] compact:gap-x-4 compact:px-7" data-shell-topbar>
+          <div className="col-start-1 row-start-1 min-w-0">
             <Heading as="h1" variant="page-title" className="truncate">{titleForPath(location.pathname)}</Heading>
           </div>
-          <div className={`flex items-center justify-end gap-2 ${isEditorRoute ? "min-w-0" : "flex-wrap max-compact:w-full max-compact:justify-start"}`} aria-label="현장 정보" data-shell-actions>
-            <Text as="span" variant="body-sm" weight="bold" className="inline-flex min-h-10 max-w-full items-center gap-1.5 truncate rounded-pill border border-border-default bg-surface-panel px-3" data-testid="active-site-badge">
-              <MapPin size={16} aria-hidden="true" />
-              {dashboard?.site.name || "현장 미등록"}
-            </Text>
+          <div className="col-span-2 row-start-2 flex min-w-0 items-center gap-2 compact:col-span-1 compact:col-start-2 compact:row-start-1" aria-label="현장 정보" data-shell-context>
+            <SiteContextControl
+              ref={siteSwitcherRef}
+              sites={sitesQuery.data}
+              selectedSiteId={authorizedSelectedSiteId}
+              isLoading={sitesQuery.isLoading}
+              hasError={Boolean(sitesQuery.error)}
+              onSelectionChange={siteSelection.requestSiteChange}
+            />
+            <Button
+              ref={gatewayStatusButtonRef}
+              type="button"
+              variant="ghost"
+              aria-label={`${gatewayAggregate.label} 상태 센터 열기`}
+              className="min-h-11 max-w-40 shrink-0 rounded-pill border-transparent p-0"
+              title={gatewayAggregate.label}
+              onClick={() => sessionStatusCenterRef.current?.open(
+                gatewayStatusButtonRef.current,
+                gatewayAggregate.kind === "attention" ? `gateway:${selectedSiteId ?? "default"}` : undefined
+              )}
+            >
+              <StatusBadge
+                aria-label={gatewayAggregate.label}
+                className="pointer-events-none max-w-full overflow-hidden"
+                data-testid="gateway-status-badge"
+                icon={RadioTower}
+                tone={gatewayAggregate.tone}
+              >
+                <span className="hidden truncate compact:inline">{gatewayAggregate.label}</span>
+                <span className="truncate compact:hidden">{gatewayAggregate.compactLabel}</span>
+              </StatusBadge>
+            </Button>
+            <span className="sr-only" data-testid="active-site-badge">{dashboard?.site.name || "현장 미등록"}</span>
+          </div>
+          <div className="col-start-2 row-start-1 flex min-w-0 items-center justify-end gap-2 compact:col-start-3" data-shell-actions>
+            <SessionStatusCenter ref={sessionStatusCenterRef} />
             <IconTooltipButton
               ref={logoutButtonRef}
               className="size-13"
@@ -213,7 +319,6 @@ export function CustomerShell({ user }: { user: AuthUser }) {
               isLoading={isLoggingOut}
               onClick={handleLogout}
             />
-            {logoutError ? <Text as="span" variant="body-sm" tone="danger" weight="bold" role="alert">{logoutError}</Text> : null}
           </div>
         </header>
         {/* Only the editor bounds SettingsShell's three rows (site, navigation,
@@ -240,7 +345,7 @@ export function CustomerShell({ user }: { user: AuthUser }) {
               <Route path="reports" element={<StatisticsReportsPage />} />
               <Route path="*" element={<StatisticsIndexRedirect />} />
             </Route>
-            <Route path="/settings" element={<SettingsShell capabilities={capabilities} selectedSiteId={siteId ?? dashboard?.site.id} />}>
+            <Route path="/settings" element={<SettingsShell capabilities={capabilities} />}>
               <Route index element={<SettingsView userRole={user.role} siteId={siteId} />} />
               <Route
                 path="site"
@@ -277,6 +382,16 @@ export function CustomerShell({ user }: { user: AuthUser }) {
         </div>
       </main>
       <ConfirmDialog
+        isOpen={siteSelection.pendingSiteId !== null}
+        title="현장 변경"
+        confirmLabel="변경"
+        returnFocusRef={siteSwitcherRef}
+        onCancel={siteSelection.cancelSiteChange}
+        onConfirm={siteSelection.confirmSiteChange}
+      >
+        저장하지 않은 변경사항을 버리고 다른 현장으로 이동하시겠습니까?
+      </ConfirmDialog>
+      <ConfirmDialog
         isOpen={isLogoutConfirmationOpen}
         role="alertdialog"
         title="로그아웃 확인"
@@ -293,9 +408,48 @@ export function CustomerShell({ user }: { user: AuthUser }) {
       >
         저장하지 않은 변경사항이 있습니다. 로그아웃하시겠습니까?
       </ConfirmDialog>
-    </div>
+      <ToastRegion />
+      </div>
+    </SessionStatusProvider>
   );
 }
+
+function ShellStatusRegistration({ items }: { items: readonly SessionStatusItem[] }) {
+  useSessionStatus("customer-shell", items);
+  return null;
+}
+
+interface SiteContextControlProps {
+  sites: ReturnType<typeof useSites>["data"];
+  selectedSiteId?: string;
+  isLoading: boolean;
+  hasError: boolean;
+  onSelectionChange(siteId: string): void;
+}
+
+const SiteContextControl = forwardRef<HTMLButtonElement, SiteContextControlProps>(function SiteContextControl(
+  { sites, selectedSiteId, isLoading, hasError, onSelectionChange },
+  ref
+) {
+  if (isLoading) {
+    return <Button ref={ref} type="button" className="min-w-0 flex-1 overflow-hidden compact:w-64 compact:flex-none" isDisabled>현장 목록 확인 중</Button>;
+  }
+  if (hasError) {
+    return <Button ref={ref} type="button" className="min-w-0 flex-1 overflow-hidden compact:w-64 compact:flex-none" isDisabled>현장 목록 확인 불가</Button>;
+  }
+  if (!sites?.length) {
+    return <Button ref={ref} type="button" className="min-w-0 flex-1 overflow-hidden compact:w-64 compact:flex-none" isDisabled>접근 가능한 현장 없음</Button>;
+  }
+  return (
+    <SiteSwitcher
+      ref={ref}
+      sites={sites}
+      selectedSiteId={selectedSiteId}
+      onSelectionChange={onSelectionChange}
+      className="min-w-0 flex-1 compact:w-64 compact:flex-none"
+    />
+  );
+});
 
 function titleForPath(pathname: string) {
   if (pathname.startsWith("/control")) return "제어";

@@ -56,14 +56,16 @@ test("unused public overlay exports cost zero while explicit consumers retain an
     import React,{useRef} from "react";
     import {createRoot} from "react-dom/client";
     import {flushSync} from "react-dom";
-    import {DropdownMenu,Popover} from "/src/components/ui/index.ts";
+    import {DropdownMenu,Popover,SessionStatusCenter,SessionStatusProvider,ToastRegion} from "/src/components/ui/index.ts";
     const el=React.createElement;
     function App(){
       const trigger=useRef(null);
-      return el(React.Fragment,null,
-        el(DropdownMenu,{label:"dropdown-consumer",items:[{id:0,label:"action"}],onAction:()=>{}}),
-        el("button",{ref:trigger},"anchor"),
-        el(Popover,{isOpen:true,triggerRef:trigger,label:"popover-consumer"},el("button",null,"popover-body")));
+      return el(SessionStatusProvider,null,
+        el(React.Fragment,null,
+          el(DropdownMenu,{label:"dropdown-consumer",items:[{id:0,label:"action"}],onAction:()=>{}}),
+          el("button",{ref:trigger},"anchor"),
+          el(Popover,{isOpen:true,triggerRef:trigger,label:"popover-consumer"},el("button",null,"popover-body")),
+          el(SessionStatusCenter),el(ToastRegion)));
     }
     const container=document.createElement("div");document.body.append(container);
     const root=createRoot(container);flushSync(()=>root.render(el(App)));
@@ -75,6 +77,7 @@ test("unused public overlay exports cost zero while explicit consumers retain an
     load(id) { if (id === "\0" + virtual) return source; }
   }] }));
   for (const name of ["DropdownMenu", "Popover"]) assert.ok(Object.keys(consumer.modules).some(id => id.endsWith(`/components/ui/overlays/${name}.tsx`)), `${name} must remain when used`);
+  for (const name of ["SessionStatusProvider", "SessionStatusCenter", "ToastRegion"]) assert.ok(Object.keys(consumer.modules).some(id => id.endsWith(`/components/ui/session-status/${name}.tsx`)), `${name} must remain when used`);
 
   // A browserless DOM executes the actual production chunk, including an open
   // portal. Geometry/keyboard/accessibility are separately proven in Chromium.
@@ -101,7 +104,8 @@ test("unused public overlay exports cost zero while explicit consumers retain an
     await new Promise(resolve => setTimeout(resolve, 50));
     assert.ok(dom.window.document.body.textContent.includes("dropdown-consumer"), "Dropdown trigger must render");
     assert.ok(dom.window.document.body.textContent.includes("popover-body"), "Open Popover must render its portal content");
-    context.diagnostic("Explicit consumer: DropdownMenu and Popover retained; production trigger and open portal rendered in browserless DOM");
+    assert.ok(dom.window.document.body.textContent.includes("상태"), "Session status trigger must render");
+    context.diagnostic("Explicit consumer: DropdownMenu, Popover and session status feedback retained; production triggers and open portal rendered in browserless DOM");
   } finally {
     globalThis[marker]?.();
     delete globalThis[marker];
