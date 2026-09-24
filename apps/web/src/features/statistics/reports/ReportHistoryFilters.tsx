@@ -4,7 +4,7 @@ import {
   type EnergyReportStatus,
   type EnergyScope
 } from "@led-control/shared/energy-p2-contracts";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { Button, DateRangePicker, SelectBox, Text, TextField, cn, type DateRangeValue } from "../../../components/ui";
 import type { ReportHistoryFilterState } from "./report-history-filters";
 
@@ -39,6 +39,9 @@ export function ReportHistoryFilters({ value, onChange, className }: ReportHisto
   const [searchInput, setSearchInput] = useState(value.query ?? "");
   const [dateDraft, setDateDraft] = useState<DateRangeValue | null>(() => reportDateRange(value));
   const [dateError, setDateError] = useState<string | null>(null);
+  const [isAdvancedOpen, setIsAdvancedOpen] = useState(false);
+  const advancedPanelId = useId();
+  const activeAdvancedCount = Number(Boolean(value.format)) + Number(Boolean(value.scope));
   const valueRef = useRef(value);
   const onChangeRef = useRef(onChange);
   valueRef.current = value;
@@ -72,7 +75,7 @@ export function ReportHistoryFilters({ value, onChange, className }: ReportHisto
 
   return (
     <section role="search" aria-label="보고서 이력 필터" className={cn("grid min-w-0 gap-3", className)}>
-      <div className="grid min-w-0 grid-cols-1 gap-3 tablet:grid-cols-2 desktop:grid-cols-3">
+      <div className="grid min-w-0 grid-cols-1 items-end gap-3 compact:grid-cols-2 tablet:grid-cols-[minmax(0,2fr)_minmax(0,1fr)_minmax(0,2fr)_auto]">
         <TextField
           type="search"
           label="보고서 검색"
@@ -91,26 +94,9 @@ export function ReportHistoryFilters({ value, onChange, className }: ReportHisto
             : removeFilters(value, "status"))}
           className="min-w-0"
         />
-        <SelectBox
-          label="파일 형식"
-          items={formatItems}
-          selectedKey={value.format ?? ""}
-          onSelectionChange={(format) => onChange(format
-            ? updateFilterState(value, { format })
-            : removeFilters(value, "format"))}
-          className="min-w-0"
-        />
-        <SelectBox
-          label="범위"
-          items={scopeItems}
-          selectedKey={value.scope ?? ""}
-          onSelectionChange={(scope) => onChange(scope
-            ? updateFilterState(value, { scope })
-            : removeFilters(value, "scope"))}
-          className="min-w-0"
-        />
         <DateRangePicker
           label="요청 기간"
+          description="보고서를 요청한 날짜로 검색합니다. 보고서 본문 대상 기간과 다릅니다."
           value={dateDraft}
           validationBehavior="aria"
           isInvalid={dateError !== null}
@@ -134,7 +120,43 @@ export function ReportHistoryFilters({ value, onChange, className }: ReportHisto
             setDateError(null);
             onChange(result.data);
           }}
-          className="min-w-0 tablet:col-span-2"
+          className="min-w-0 compact:col-span-2 tablet:col-span-1"
+        />
+        <Button
+          type="button"
+          variant="secondary"
+          aria-expanded={isAdvancedOpen}
+          aria-controls={advancedPanelId}
+          className="min-h-11 w-full tablet:w-auto"
+          onClick={() => setIsAdvancedOpen((open) => !open)}
+        >
+          상세 필터{activeAdvancedCount ? ` · ${activeAdvancedCount}개 적용` : ""}
+        </Button>
+      </div>
+      <div
+        id={advancedPanelId}
+        role="group"
+        aria-label="상세 필터 항목"
+        hidden={!isAdvancedOpen}
+        className={isAdvancedOpen ? "grid min-w-0 grid-cols-1 gap-3 tablet:grid-cols-2" : "hidden"}
+      >
+        <SelectBox
+          label="파일 형식"
+          items={formatItems}
+          selectedKey={value.format ?? ""}
+          onSelectionChange={(format) => onChange(format
+            ? updateFilterState(value, { format })
+            : removeFilters(value, "format"))}
+          className="min-w-0"
+        />
+        <SelectBox
+          label="범위"
+          items={scopeItems}
+          selectedKey={value.scope ?? ""}
+          onSelectionChange={(scope) => onChange(scope
+            ? updateFilterState(value, { scope })
+            : removeFilters(value, "scope"))}
+          className="min-w-0"
         />
       </div>
       {chips.length ? (

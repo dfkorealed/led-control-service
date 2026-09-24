@@ -80,6 +80,7 @@ export function ReportCreateDialog({
       actions={<><Button variant="secondary" disabled={!canSubmit} onClick={() => void perform("csv", () => onExportCsv(({ from, to, scope, identityId })))} isLoading={isPending} loadingLabel="내보내는 중">CSV 내보내기</Button><Button variant="primary" disabled={!canSubmit} onClick={() => void perform("create", () => onCreate({ from, to, scope, identityId, format }))} isLoading={isPending} loadingLabel="요청 중">보고서 요청</Button></>}
     >
       <div className="grid min-w-0 grid-cols-2 gap-3 max-compact:grid-cols-1">
+        <Text variant="body-sm" tone="secondary" className="col-span-full">보고서 대상 기간은 현장 시간대의 마지막 완료일까지 선택할 수 있습니다.</Text>
         <DatePicker className={reportDatePickerClass} label="기간 시작" value={from || null} maxValue={to && to < completedDate ? to : completedDate || undefined}
           onChange={setFrom} />
         <DatePicker className={reportDatePickerClass} label="기간 종료" value={to || null} minValue={from || undefined} maxValue={completedDate || undefined}

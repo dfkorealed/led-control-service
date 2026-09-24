@@ -273,6 +273,9 @@ test("searches and paginates 101 server records, restores filters, and returns t
   fixture.expectNextListQuery({ limit: "100", query: "서울", status: "completed" });
   await chooseOption(page, filters, "상태", "완료");
   await expect(pagination.getByRole("status")).toContainText("1~7 / 7건");
+  const advancedFilters = filters.getByRole("button", { name: /상세 필터/ });
+  await expect(advancedFilters).toHaveAttribute("aria-expanded", "false");
+  await advancedFilters.click();
   fixture.expectNextListQuery({ limit: "100", query: "서울", status: "completed", format: "pdf" });
   await chooseOption(page, filters, "파일 형식", "PDF");
   await expect(pagination.getByRole("status")).toContainText("1~6 / 6건");
@@ -306,8 +309,16 @@ test("searches and paginates 101 server records, restores filters, and returns t
   await page.reload();
   await expect(filters.getByRole("searchbox", { name: "보고서 검색" })).toHaveValue("서울");
   await expect(filters.getByRole("button", { name: "상태", exact: true })).toContainText("완료");
+  await expect(advancedFilters).toHaveAttribute("aria-expanded", "false");
+  await expect(advancedFilters).toContainText("2개 적용");
+  await expect(filters.getByRole("button", { name: "형식: PDF 조건 제거" })).toBeVisible();
+  await expect(filters.getByRole("button", { name: "범위: 현장 조건 제거" })).toBeVisible();
+  const restoredUrl = page.url();
+  await advancedFilters.click();
   await expect(filters.getByRole("button", { name: "파일 형식", exact: true })).toContainText("PDF");
   await expect(filters.getByRole("button", { name: "범위", exact: true })).toContainText("현장");
+  await advancedFilters.click();
+  await expect(page).toHaveURL(restoredUrl);
   await expect(pagination.getByRole("status")).toContainText("1~3 / 3건");
 
   fixture.expectNextListQuery({
@@ -341,6 +352,7 @@ test("searches and paginates 101 server records, restores filters, and returns t
   await expect(filters.getByLabel("활성 조건")).toHaveCount(0);
   await expect(filters.getByRole("searchbox", { name: "보고서 검색" })).toHaveValue("");
   await expect(filters.getByRole("button", { name: "상태", exact: true })).toContainText("전체 상태");
+  await advancedFilters.click();
   await expect(filters.getByRole("button", { name: "파일 형식", exact: true })).toContainText("전체 형식");
   await expect(filters.getByRole("button", { name: "범위", exact: true })).toContainText("전체 범위");
   for (const segment of await filters.getByRole("group", { name: "요청 기간" }).getByRole("spinbutton").all()) {
@@ -376,7 +388,7 @@ for (const viewport of [
   test(`report history uses the accessible responsive surface at ${viewport.width}x${viewport.height}`, async ({ page }) => {
     await page.setViewportSize(viewport);
     await installReportHistoryFixture(page);
-    await page.goto(`/statistics/reports?siteId=${reportSiteId}&query=%EC%84%9C%EC%9A%B8&requestedFrom=2026-09-07&requestedTo=2026-09-11`);
+    await page.goto(`/statistics/reports?siteId=${reportSiteId}&query=%EC%84%9C%EC%9A%B8&format=pdf&scope=site&requestedFrom=2026-09-07&requestedTo=2026-09-11`);
 
     if (viewport.width >= 1024) {
       await expect(page.getByRole("table", { name: "보고서 생성 이력" })).toBeVisible();
@@ -390,12 +402,27 @@ for (const viewport of [
     const filters = page.getByRole("search", { name: "보고서 이력 필터" });
     const pagination = page.getByRole("navigation", { name: "페이지 이동" });
     const dateRange = filters.getByRole("group", { name: "요청 기간" });
+    const advancedFilters = filters.getByRole("button", { name: /상세 필터/ });
+    await expect(advancedFilters).toHaveAttribute("aria-expanded", "false");
+    await expect(advancedFilters).toContainText("2개 적용");
+    await expect(filters.getByRole("button", { name: "파일 형식" })).toBeHidden();
+    await expect(filters.getByRole("button", { name: "범위" })).toBeHidden();
+    await expect(filters.getByRole("button", { name: "형식: PDF 조건 제거" })).toBeVisible();
+    await expect(filters.getByRole("button", { name: "범위: 현장 조건 제거" })).toBeVisible();
+    const beforeToggleUrl = page.url();
+    const beforeToggleRange = await pagination.getByRole("status").textContent();
+    await advancedFilters.focus();
+    await page.keyboard.press("Enter");
+    await expect(advancedFilters).toHaveAttribute("aria-expanded", "true");
+    await expect(page).toHaveURL(beforeToggleUrl);
+    await expect(pagination.getByRole("status")).toHaveText(beforeToggleRange ?? "");
     const visibleHistory = viewport.width >= 1024
       ? page.getByRole("table", { name: "보고서 생성 이력" })
       : page.getByRole("list", { name: "모바일 보고서 생성 이력" });
     const touchTargets = [
       filters.getByRole("searchbox", { name: "보고서 검색" }),
       filters.getByRole("button", { name: "상태" }),
+      advancedFilters,
       filters.getByRole("button", { name: "파일 형식" }),
       filters.getByRole("button", { name: "범위" }),
       pagination.getByRole("button", { name: "페이지당 항목 수" }),
@@ -410,6 +437,10 @@ for (const viewport of [
     for (const target of touchTargets) {
       await expectLocatorTouchTarget(target, `${viewport.width}px visible interactive target`);
     }
+    await advancedFilters.click();
+    await expect(advancedFilters).toHaveAttribute("aria-expanded", "false");
+    await expect(page).toHaveURL(beforeToggleUrl);
+    await expect(pagination.getByRole("status")).toHaveText(beforeToggleRange ?? "");
 
     const reset = filters.getByRole("button", { name: "전체 초기화" });
     await reset.focus();

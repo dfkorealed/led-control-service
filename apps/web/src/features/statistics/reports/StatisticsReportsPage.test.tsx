@@ -87,6 +87,42 @@ describe("StatisticsReportsPage", () => {
     expectDateSegments("기간 시작", ["2026", "8", "13"]);
   });
 
+  it("labels the creation dates as the report document period rather than request dates", () => {
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "보고서 만들기" }));
+
+    expect(screen.getByText("보고서 대상 기간은 현장 시간대의 마지막 완료일까지 선택할 수 있습니다.")).toBeVisible();
+    expect(screen.getByRole("group", { name: "기간 시작" })).toBeInTheDocument();
+    expect(screen.getByRole("group", { name: "기간 종료" })).toBeInTheDocument();
+  });
+
+  it("keeps a restored cursor page and URL unchanged when advanced filters are only opened or closed", async () => {
+    reportsApi.reports.mockReturnValue(reportQueryResult(pageJobs(21, 20), { nextCursor: null, totalCount: 40 }));
+    const fingerprint = "limit=20&format=pdf&scope=floor";
+    renderPage({ initialEntry: {
+      pathname: "/statistics/reports",
+      search: `?${fingerprint}&siteId=${siteId}`,
+      state: reportLocationState(2, "cursor-20", { filterFingerprint: fingerprint })
+    } });
+
+    await waitFor(() => expect(reportsApi.reports).toHaveBeenLastCalledWith(siteId, {
+      limit: 20, format: "pdf", scope: "floor", cursor: "cursor-20"
+    }));
+    const search = screen.getByTestId("location-search").textContent;
+    const calls = reportsApi.reports.mock.calls.length;
+    const disclosure = screen.getByRole("button", { name: /상세 필터/ });
+    expect(disclosure).toHaveTextContent("2개 적용");
+    fireEvent.click(disclosure);
+    expect(screen.getByRole("button", { name: "파일 형식" })).toHaveTextContent("PDF");
+    expect(screen.getByRole("button", { name: "범위" })).toHaveTextContent("층");
+    fireEvent.click(disclosure);
+
+    expect(screen.getByText("2페이지")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "이전 페이지" })).toBeEnabled();
+    expect(screen.getByTestId("location-search")).toHaveTextContent(search ?? "");
+    expect(reportsApi.reports).toHaveBeenCalledTimes(calls);
+  });
+
   it("renders deterministic API pages and navigates forward and backward with a cursor stack", async () => {
     reportsApi.reports.mockImplementation((_activeSiteId: string, query: { limit: number; cursor?: string } = { limit: 20 }) => {
       const secondPage = query.cursor === "cursor-20";
