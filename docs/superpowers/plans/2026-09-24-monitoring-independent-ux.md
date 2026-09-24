@@ -90,3 +90,18 @@
 - [x] 정책 parser에 `phone-wide`를 정확히 인식시키고 정책 테스트를 다시 통과시킨다.
 - [x] 새 토큰의 정확한 값·변경/누락 거부 테스트를 먼저 실패시킨 뒤 theme와 `reviewedThemeTokenAdditions`에 추가한다.
 - [x] 화면 클래스를 `phone-wide:`/`max-phone-wide:`로 교체하고 `ui:check`, 정책 테스트, 모니터링 Vitest 85개, `git diff --check`를 재실행한다. UI policy 0건, 정책 58/58(실제 Vite CSS 생성 포함), 모니터링 85/85; stage/commit과 병렬 Playwright는 하지 않았다.
+
+### Task 5: 모니터링 세션 상태 센터 연계
+
+**Files:**
+- Modify: `apps/web/src/features/monitoring/MonitoringView.tsx`
+- Modify: `apps/web/src/features/monitoring/MonitoringView.test.tsx`
+- Modify: `apps/web/e2e/calm-operations-monitoring.spec.ts`
+- Modify: `docs/menus/monitoring.md`
+
+**Interfaces:** CustomerShell이 소유한 `SessionStatusProvider`에 `useSessionStatus(sourceId, items)`로 선택 현장·층의 조명, 지도, 수동 확인 상태를 각각 등록한다. 현황 metadata의 cached query 실패는 CustomerShell 소유 status와 중복하지 않는다.
+
+- [x] RED: 캐시된 조명 실패에서 상태 센터 1건과 overlay 토스트를 기대하고, 본문 경고가 없어야 한다는 회귀 테스트가 기존 구현에서 실패함을 확인한다.
+- [x] GREEN: cached 실패와 snapshot 경고를 상태 센터/토스트로 옮기고 최초 데이터 부재의 blocking 오류·재시도는 유지한다. 상태별 `useMemo` 배열과 최신 callback ref로 무관한 재렌더에서 재등록을 막는다.
+- [x] focused 모니터링 Vitest의 변경된 표시 계약을 갱신하고 동일 fingerprint 재렌더에서 토스트 재발행 금지 및 성공 시 해제를 확인한다.
+- [x] 모니터링 focused Vitest 87/87, `git diff --check` 통과. 최초 현황 오류 재시도는 별도 RED→GREEN 1/1로 확인했고 menu 문서와 deterministic Chromium assertion을 갱신했다. 공용 Playwright/build는 총괄 직렬 게이트에 남긴다. Web `tsc --noEmit`은 현재 다른 담당이 편집 중인 `ScheduleControlPanel.tsx`와 `VehicleEventControlPanel.tsx`의 `StatusBadge` 필수 icon 누락으로 실패한다.

@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { useDashboard, useFloorFixtures, useFloorMapSnapshot, type Dashboard } from "../../api/queries";
 import { waitForMonitoringRefresh, type MonitoringRefreshResult } from "../../api/monitoring-refresh";
-import { Button, FeedbackState, Heading, MetricCard, SelectBox, SidePanel, StatusBadge, Text } from "../../components/ui";
+import { Button, FeedbackState, Heading, MetricCard, SelectBox, SidePanel, StatusBadge, Text, useSessionStatus, type SessionStatusItem } from "../../components/ui";
 import { InstallationPending } from "../setup/SetupWizard";
 import { FloorMap } from "./FloorMap";
 import { MonitoringFixtureFinder } from "./MonitoringFixtureFinder";
@@ -32,10 +32,10 @@ function copyForTerminal(result: MonitoringRefreshResult | null): string | null 
 
 export function MonitoringView({ userRole = "admin", siteId }: { userRole?: "operator" | "admin" | "viewer"; siteId?: string }) {
   const dashboardQuery = useDashboard(siteId);
-  const { data, isLoading, error } = dashboardQuery;
+  const { data, isLoading } = dashboardQuery;
 
   if (isLoading && !data) return <FeedbackState icon={Clock3} title="모니터링 현황을 불러오는 중" />;
-  if (!data) return <FeedbackState tone="danger" icon={TriangleAlert} title="현황 데이터를 불러오지 못했습니다." />;
+  if (!data) return <FeedbackState tone="danger" icon={TriangleAlert} title="현황 데이터를 불러오지 못했습니다." action={<Button variant="secondary" onClick={() => void dashboardQuery.refetch()}>다시 시도</Button>} />;
 
   return (
     <MonitoringDashboard
@@ -43,7 +43,6 @@ export function MonitoringView({ userRole = "admin", siteId }: { userRole?: "ope
       data={data}
       userRole={userRole}
       siteId={siteId}
-      dashboardError={error}
       refreshDashboard={() => dashboardQuery.refetch({ throwOnError: true })}
     />
   );
@@ -53,11 +52,10 @@ interface MonitoringDashboardProps {
   data: Dashboard;
   userRole: "operator" | "admin" | "viewer";
   siteId?: string;
-  dashboardError: unknown;
   refreshDashboard: () => Promise<unknown>;
 }
 
-function MonitoringDashboard({ data, userRole, siteId, dashboardError, refreshDashboard }: MonitoringDashboardProps) {
+function MonitoringDashboard({ data, userRole, siteId, refreshDashboard }: MonitoringDashboardProps) {
   const [selectedFloorId, setSelectedFloorId] = useState<string | null>(null);
   const [selectedFixtureId, setSelectedFixtureId] = useState<string | null>(null);
   const [isManualRefreshing, setIsManualRefreshing] = useState(false);
@@ -86,12 +84,6 @@ function MonitoringDashboard({ data, userRole, siteId, dashboardError, refreshDa
     () => getSnapshotFreshness(floor ? fixtureQuery.data?.pages.map((page) => page.generatedAt) : undefined, Date.now()),
     [floor, fixtureQuery.data?.pages, freshnessRevision]
   );
-  const staleSources = [
-    dashboardError ? "현황" : null,
-    floor && fixtureQuery.error ? "조명 상태" : null,
-    floor && (mapQuery.error || mapRefreshFailed) ? "지도" : null
-  ].filter((source): source is string => Boolean(source));
-  const isStale = staleSources.length > 0 || Boolean(floor && (snapshotFreshness.freshness === "stale" || snapshotFreshness.metadata !== "valid"));
   const manualRefreshFailureCount = manualRefreshFailureSources.length + (mapRefreshFailed ? 1 : 0);
   const refreshError = manualRefreshFailureCount === 3
     ? "현황 데이터를 새로고침하지 못했습니다."
@@ -238,6 +230,19 @@ function MonitoringDashboard({ data, userRole, siteId, dashboardError, refreshDa
 
   return (
     <section className="grid min-w-0 gap-4 tablet:flex tablet:h-[calc(100dvh-7.25rem)] tablet:min-h-0 tablet:overflow-hidden tablet:flex-col" data-monitoring-screen="">
+      <MonitoringSessionStatuses
+        siteId={siteId ?? data.site.id}
+        floorId={floor?.id}
+        hasFixtureData={hasFixtureData}
+        fixtureError={Boolean(fixtureQuery.error)}
+        hasMapSnapshot={Boolean(mapSnapshot)}
+        mapError={Boolean(mapQuery.error || mapRefreshFailed)}
+        snapshotFreshness={snapshotFreshness}
+        refreshError={refreshError}
+        hardwareRefreshFailure={hardwareRefreshFailure}
+        onRefresh={() => void handleRefresh()}
+        onMapRetry={() => void handleMapRetry()}
+      />
       <div className="flex items-center justify-between gap-4 max-compact:flex-col max-compact:items-stretch" role="group" aria-label="모니터링 도구">
         <SelectBox
           label="맵 선택"
@@ -249,8 +254,6 @@ function MonitoringDashboard({ data, userRole, siteId, dashboardError, refreshDa
         />
         <div className="ml-auto flex flex-wrap items-center justify-end gap-2 text-content-secondary max-compact:ml-0 max-compact:w-full">
           <Text as="small" variant="caption" tone="secondary" className="whitespace-nowrap">{formatSnapshotUpdatedAt(snapshotFreshness)}</Text>
-          {refreshError ? <Text as="span" variant="label" tone="danger" role="status">{refreshError}</Text> : null}
-          {hardwareRefreshFailure ? <Text as="span" variant="label" tone="danger" role="status">{hardwareRefreshFailure}</Text> : null}
           <Button
             variant="secondary"
             disabled={isManualRefreshing}
@@ -268,30 +271,8 @@ function MonitoringDashboard({ data, userRole, siteId, dashboardError, refreshDa
         floorName={floor?.name}
         hasData={hasFixtureData}
         error={fixtureQuery.error}
+        onRetry={() => void fixtureQuery.refetch()}
       />
-
-      {isStale ? (
-        <FeedbackState
-          tone="danger"
-          icon={TriangleAlert}
-          title={snapshotFreshness.metadata === "invalid"
-            ? "서버 snapshot 시각을 확인할 수 없습니다."
-            : fixtureQuery.error && !hasFixtureData
-              ? "조명 상태를 불러오지 못했습니다."
-              : fixtureQuery.error
-                ? "저장된 조명 상태를 유지하고 있습니다. 조명 상태 갱신에 실패했습니다."
-            : dashboardError && staleSources.length === 1
-              ? "저장된 현황을 유지하고 있습니다. 현황 갱신에 실패했습니다."
-              : "현황 갱신이 지연되고 있습니다."}
-          description={[
-            staleSources.length > 0 ? `${staleSources.join(", ")} 갱신 실패` : null,
-            snapshotFreshness.metadata === "future" ? `시간 차이 확인: ${snapshotFreshness.anomalousGeneratedAt}` : null,
-            snapshotFreshness.freshness === "stale" ? "가장 오래된 선택 층 snapshot이 60초를 초과했습니다." : null,
-            snapshotFreshness.metadata === "invalid" ? "서버가 유효한 generatedAt ISO 시각을 반환하지 않았습니다." : null
-          ].filter(Boolean).join(" · ")}
-          action={<Button variant="secondary" isLoading={isManualRefreshing} onClick={() => void handleRefresh()}>{fixtureQuery.error ? "조명 상태 다시 시도" : "다시 시도"}</Button>}
-        />
-      ) : null}
 
       {hasFixtureData && data.summary.totalFixtures > 0 ? (
         <>
@@ -322,14 +303,6 @@ function MonitoringDashboard({ data, userRole, siteId, dashboardError, refreshDa
             <>
               <FloorMap floor={{ ...floor, fixtures }} snapshot={mapSnapshot} selectedFixtureId={selectedFixture?.id ?? null} onSelectFixture={setSelectedFixtureId} />
               {fixtures.length > 0 && !hasPlacedFixtures && <FeedbackState icon={Clock3} title="배치된 조명이 없습니다" description={`등록된 조명 ${fixtures.length}개는 목록에서 조회하고 제어할 수 있습니다.`} action={userRole === "admin" ? <Link to={`/settings/floor-plans/${encodeURIComponent(floor.id)}/edit?siteId=${encodeURIComponent(data.site.id)}`}>설정에서 조명 배치</Link> : undefined} />}
-              {mapQuery.error || mapRefreshFailed ? (
-                <FeedbackState
-                  tone="danger"
-                  icon={TriangleAlert}
-                  title="저장된 지도를 유지하고 있습니다. 지도 갱신에 실패했습니다."
-                  action={<Button variant="secondary" onClick={() => void handleMapRetry()}>지도 다시 시도</Button>}
-                />
-              ) : null}
             </>
           ) : floor && (mapQuery.error || mapRefreshFailed) ? (
             <FeedbackState
@@ -460,15 +433,81 @@ function FixtureQueryFeedback({
   enabled,
   floorName,
   hasData,
-  error
+  error,
+  onRetry
 }: {
   enabled: boolean;
   floorName: string | undefined;
   hasData: boolean;
   error: unknown;
+  onRetry: () => void;
 }) {
-  if (!enabled || error || hasData) return null;
+  if (!enabled || hasData) return null;
+  if (error) return <FeedbackState tone="danger" icon={TriangleAlert} title="조명 상태를 불러오지 못했습니다." action={<Button variant="secondary" onClick={onRetry}>조명 상태 다시 시도</Button>} />;
   return <FeedbackState icon={Clock3} title={`${floorName ? `${floorName} ` : ""}조명 상태를 불러오는 중`} />;
+}
+
+type SnapshotFreshness = ReturnType<typeof getSnapshotFreshness>;
+
+function MonitoringSessionStatuses({
+  siteId, floorId, hasFixtureData, fixtureError, hasMapSnapshot, mapError,
+  snapshotFreshness, refreshError, hardwareRefreshFailure, onRefresh, onMapRetry
+}: {
+  siteId: string;
+  floorId: string | undefined;
+  hasFixtureData: boolean;
+  fixtureError: boolean;
+  hasMapSnapshot: boolean;
+  mapError: boolean;
+  snapshotFreshness: SnapshotFreshness;
+  refreshError: string | null;
+  hardwareRefreshFailure: string | null;
+  onRefresh: () => void;
+  onMapRetry: () => void;
+}) {
+  const actions = useRef({ onRefresh, onMapRetry });
+  actions.current = { onRefresh, onMapRetry };
+  const scope = `${siteId}:${floorId ?? "none"}`;
+  const anomalousGeneratedAt = snapshotFreshness.metadata === "future" ? snapshotFreshness.anomalousGeneratedAt : undefined;
+  const fixtureItems = useMemo<SessionStatusItem[]>(() => {
+    if (!floorId || !hasFixtureData || (!fixtureError && snapshotFreshness.metadata === "valid" && snapshotFreshness.freshness !== "stale")) return [];
+    const title = snapshotFreshness.metadata === "invalid"
+      ? "서버 snapshot 시각을 확인할 수 없습니다."
+      : fixtureError ? "저장된 조명 상태를 유지하고 있습니다. 조명 상태 갱신에 실패했습니다."
+        : "현황 갱신이 지연되고 있습니다.";
+    const description = [
+      fixtureError ? "조명 상태 갱신 실패" : null,
+      snapshotFreshness.metadata === "future" ? `시간 차이 확인: ${anomalousGeneratedAt}` : null,
+      snapshotFreshness.freshness === "stale" ? "가장 오래된 선택 층 snapshot이 60초를 초과했습니다." : null,
+      snapshotFreshness.metadata === "invalid" ? "서버가 유효한 generatedAt ISO 시각을 반환하지 않았습니다." : null
+    ].filter(Boolean).join(" · ");
+    return [{
+      id: `query:monitoring:${scope}:fixtures`,
+      fingerprint: `fixtures:${fixtureError}:${snapshotFreshness.metadata}:${snapshotFreshness.freshness}:${anomalousGeneratedAt ?? ""}`,
+      source: "query", tone: "warning", title, description,
+      action: { label: fixtureError ? "조명 상태 다시 시도" : "다시 시도", onAction: () => actions.current.onRefresh() }
+    }];
+  }, [anomalousGeneratedAt, fixtureError, floorId, hasFixtureData, scope, snapshotFreshness.freshness, snapshotFreshness.metadata]);
+  const mapItems = useMemo<SessionStatusItem[]>(() => floorId && hasMapSnapshot && mapError ? [{
+    id: `query:monitoring:${scope}:map`, fingerprint: "map-refresh-failed", source: "query", tone: "warning",
+    title: "저장된 지도를 유지하고 있습니다. 지도 갱신에 실패했습니다.",
+    action: { label: "지도 다시 시도", onAction: () => actions.current.onMapRetry() }
+  }] : [], [floorId, hasMapSnapshot, mapError, scope]);
+  const refreshItems = useMemo<SessionStatusItem[]>(() => {
+    if (!refreshError && !hardwareRefreshFailure) return [];
+    return [{
+      id: `command:monitoring:${scope}:refresh`,
+      fingerprint: `refresh:${refreshError ?? ""}:${hardwareRefreshFailure ?? ""}`,
+      source: "command", tone: "warning",
+      title: hardwareRefreshFailure ?? refreshError ?? "",
+      description: hardwareRefreshFailure ? refreshError ?? undefined : undefined,
+      action: { label: "다시 시도", onAction: () => actions.current.onRefresh() }
+    }];
+  }, [hardwareRefreshFailure, refreshError, scope]);
+  useSessionStatus(`monitoring:${scope}:fixtures`, fixtureItems);
+  useSessionStatus(`monitoring:${scope}:map`, mapItems);
+  useSessionStatus(`monitoring:${scope}:refresh`, refreshItems);
+  return null;
 }
 
 function formatRssi(value: number | null) {

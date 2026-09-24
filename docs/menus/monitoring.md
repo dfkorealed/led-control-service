@@ -1,6 +1,6 @@
 # 모니터링 메뉴 기능 현황
 
-기준일: 2026-09-19
+기준일: 2026-09-24
 
 ## 2026-09-20 맵 표시 성능 반영
 
@@ -12,6 +12,8 @@
 - 웹 전체 회귀 2,130개(3 skipped), 타입 검사, production build를 통과했다. 루트 전체 테스트·빌드도 종료 코드 0으로 통과했다. 50만 요소·실제 RN 성능은 기존 보류 범위다.
 
 ## 현재 전환 상태
+
+- 2026-09-24 상태 안내 전환: 아래 P1 Task 3의 `persistent stale banner`/toolbar 오류 표시는 현재 구현에서 공통 세션 상태 센터와 화면을 밀지 않는 토스트로 대체한다. 캐시된 조명·지도 실패, 선택 층 snapshot의 60초 초과·미래·잘못된 시각, 수동 장치 확인 실패와 부분 갱신 실패를 현장·층별 상태로 등록하고 재시도를 제공한다. 같은 상태의 단순 재렌더는 토스트를 재발행하지 않으며 성공하거나 층/현장을 바꾸면 해당 상태를 해제한다. 최초 dashboard/조명/지도 데이터가 없어 운영 화면을 만들 수 없는 오류에는 본문 `FeedbackState`와 재시도를 유지한다. 현황 metadata의 캐시 갱신 실패는 중복 등록하지 않고 CustomerShell 상태 소스를 사용한다. 실제 장치 HIL은 별도 사용자 검증 대상이다.
 
 - 2026-09-19 후속 root 전체 자동 테스트6,547개 및 빌드 통과, 실패0·기존 opt-in636개 제외. 모니터링의 실제 표시 E2E는 아래 `6325ef16` 증거와 구분하며, 이번 검증을 새로운 실장비/50만 요소 성능 검증으로 취급하지 않는다.
 
@@ -263,6 +265,7 @@
 
 - `apps/web/src/features/monitoring/MonitoringView.tsx`
 - `apps/web/src/features/monitoring/MonitoringView.test.tsx`
+- `apps/web/src/components/ui/session-status/SessionStatusProvider.tsx`, `apps/web/src/components/ui/session-status/SessionStatusCenter.tsx`, `apps/web/src/components/ui/session-status/ToastRegion.tsx`
 - `apps/web/src/features/monitoring/MonitoringFixtureFinder.tsx`, `apps/web/src/features/monitoring/MonitoringFixtureFinder.test.tsx`
 - `apps/web/src/features/monitoring/fixture-brightness-presentation.ts`, `apps/web/src/features/monitoring/fixture-brightness-presentation.test.ts`
 - `apps/web/src/features/monitoring/fixture-status-presentation.ts`, `apps/web/src/features/monitoring/fixture-status-presentation.test.ts`

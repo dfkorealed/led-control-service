@@ -1,7 +1,15 @@
-import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render as testingRender, screen, waitFor, within } from "@testing-library/react";
+import type { ReactElement } from "react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { SessionStatusCenter, SessionStatusProvider, ToastRegion } from "../../components/ui";
 import { MonitoringView } from "./MonitoringView";
+
+function render(ui: ReactElement) {
+  return testingRender(ui, {
+    wrapper: ({ children }) => <SessionStatusProvider>{children}<SessionStatusCenter /><ToastRegion /></SessionStatusProvider>
+  });
+}
 
 const queryMocks = vi.hoisted(() => ({
   useDashboard: vi.fn(),
@@ -88,6 +96,15 @@ describe("MonitoringView refresh", () => {
   afterEach(() => {
     cleanup();
     vi.useRealTimers();
+  });
+
+  it("최초 현황 조회 실패는 본문 오류에서 다시 시도할 수 있다", () => {
+    queryMocks.useDashboard.mockReturnValue({ ...queryMocks.useDashboard(), data: undefined, error: new Error("dashboard unavailable") });
+    render(<MonitoringView siteId="site-1" />);
+
+    expect(screen.getByRole("alert")).toHaveTextContent("현황 데이터를 불러오지 못했습니다.");
+    fireEvent.click(screen.getByRole("button", { name: "다시 시도" }));
+    expect(refetchDashboard).toHaveBeenCalledTimes(1);
   });
 
   it("refreshes dashboard, current-floor fixtures, and the saved map together", async () => {
@@ -222,7 +239,7 @@ describe("MonitoringView refresh", () => {
     fireEvent.click(screen.getByRole("button", { name: "새로고침" }));
     await waitFor(() => expect(screen.getByRole("button", { name: "새로고침" })).toBeEnabled());
     expect(screen.getByText(copy)).toBeVisible();
-    expect(screen.getByText("일부 현황 데이터를 새로고침하지 못했습니다.")).toBeVisible();
+    expect(screen.getByRole("button", { name: "상태 센터, 미해결 2건" })).toBeInTheDocument();
     expect(screen.getByText("저장된 지도를 유지하고 있습니다. 지도 갱신에 실패했습니다.")).toBeVisible();
     expect(screen.queryByText(/secret/)).not.toBeInTheDocument();
     expect(refetchDashboard).toHaveBeenCalledTimes(1);
@@ -518,7 +535,8 @@ describe("MonitoringView refresh", () => {
 
     expect(screen.getByRole("region", { name: "층 도면" })).toBeInTheDocument();
     expect(screen.getByRole("complementary", { name: "선택 조명 상세" })).toHaveTextContent("B1-L001");
-    expect(screen.getByRole("alert")).toHaveTextContent("저장된 현황을 유지하고 있습니다.");
+    // Cached dashboard query failures are owned by CustomerShell's status source.
+    expect(within(document.querySelector("[data-monitoring-screen]") as HTMLElement).queryByText(/저장된 현황을 유지하고 있습니다/)).not.toBeInTheDocument();
   });
 
   it("shows a persistent stale warning after the oldest fixture page snapshot exceeds 60 seconds", () => {
@@ -538,7 +556,8 @@ describe("MonitoringView refresh", () => {
 
     render(<MonitoringView siteId="site-1" />);
 
-    expect(screen.getByRole("alert")).toHaveTextContent("현황 갱신이 지연되고 있습니다.");
+    expect(screen.getByRole("button", { name: "상태 센터, 미해결 1건" })).toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent("현황 갱신이 지연되고 있습니다.");
     expect(screen.getByText(/마지막 갱신:/)).toHaveTextContent(snapshotAt);
   });
 
@@ -560,7 +579,7 @@ describe("MonitoringView refresh", () => {
     render(<MonitoringView siteId="site-1" />);
 
     expect(screen.getByText(/마지막 갱신:/)).toHaveTextContent(`시간 차이 확인 (${snapshotAt})`);
-    expect(screen.getByRole("alert")).toHaveTextContent(`시간 차이 확인: ${snapshotAt}`);
+    expect(screen.getByRole("status")).toHaveTextContent(`시간 차이 확인: ${snapshotAt}`);
   });
 
   it("evaluates a newly arrived current snapshot against Date.now instead of the prior timer tick", () => {
@@ -593,7 +612,7 @@ describe("MonitoringView refresh", () => {
     act(() => vi.advanceTimersByTime(60_000));
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     act(() => vi.advanceTimersByTime(1));
-    expect(screen.getByRole("alert")).toHaveTextContent("현황 갱신이 지연되고 있습니다.");
+    expect(screen.getByRole("status")).toHaveTextContent("현황 갱신이 지연되고 있습니다.");
   });
 
   it.each([
@@ -614,7 +633,7 @@ describe("MonitoringView refresh", () => {
 
     render(<MonitoringView siteId="site-1" />);
 
-    expect(screen.getByRole("alert")).toHaveTextContent(warning);
+    expect(screen.getByRole("status")).toHaveTextContent(warning);
   });
 
   it("shows the latest Health Current fault snapshot", () => {
@@ -913,9 +932,31 @@ describe("MonitoringView refresh", () => {
 
     expect(screen.getByRole("group", { name: "전체 조명" })).toHaveTextContent("1");
     expect(screen.getByRole("region", { name: "층 도면" })).toBeInTheDocument();
-    expect(screen.getByRole("alert")).toHaveTextContent("저장된 조명 상태를 유지하고 있습니다. 조명 상태 갱신에 실패했습니다.");
-    fireEvent.click(screen.getByRole("button", { name: "조명 상태 다시 시도" }));
+    expect(screen.getByRole("button", { name: "상태 센터, 미해결 1건" })).toBeInTheDocument();
+    expect(within(screen.getByRole("region", { name: "알림" })).getByRole("status")).toHaveTextContent("저장된 조명 상태를 유지하고 있습니다. 조명 상태 갱신에 실패했습니다.");
+    expect(within(document.querySelector("[data-monitoring-screen]") as HTMLElement).queryByText("저장된 조명 상태를 유지하고 있습니다. 조명 상태 갱신에 실패했습니다.")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "상태 센터, 미해결 1건" }));
+    fireEvent.click(within(screen.getByRole("dialog", { name: "현재 세션 상태" })).getByRole("button", { name: "조명 상태 다시 시도" }));
     await waitFor(() => expect(refetchFixtures).toHaveBeenCalledTimes(1));
+  });
+
+  it("같은 cached 실패는 재렌더에서 토스트를 다시 띄우지 않고 성공 시 상태를 해제한다", () => {
+    let fixtureState = {
+      ...queryMocks.useFloorFixtures(),
+      error: new Error("fixtures unavailable") as Error | null
+    };
+    queryMocks.useFloorFixtures.mockImplementation(() => fixtureState);
+    const view = render(<MonitoringView siteId="site-1" />);
+
+    expect(screen.getByRole("button", { name: "상태 센터, 미해결 1건" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "알림 닫기" }));
+    view.rerender(<MonitoringView siteId="site-1" userRole="viewer" />);
+    expect(within(screen.getByRole("region", { name: "알림" })).queryByRole("status")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "상태 센터, 미해결 1건" })).toBeInTheDocument();
+
+    fixtureState = { ...fixtureState, error: null };
+    view.rerender(<MonitoringView siteId="site-1" userRole="viewer" />);
+    expect(screen.getByRole("button", { name: "상태 센터, 미해결 0건" })).toBeInTheDocument();
   });
 
   it("지도 최초 조회 중에는 등록된 층이 없다고 표시하지 않는다", () => {
@@ -975,7 +1016,8 @@ describe("MonitoringView refresh", () => {
     expect(await screen.findByText("저장된 지도를 유지하고 있습니다. 지도 갱신에 실패했습니다.")).toBeInTheDocument();
     expect(screen.getByRole("region", { name: "층 도면" })).toBeInTheDocument();
     expect(screen.getByRole("complementary", { name: "선택 조명 상세" })).toHaveTextContent("현재 밝기");
-    fireEvent.click(screen.getByRole("button", { name: "지도 다시 시도" }));
+    fireEvent.click(screen.getByRole("button", { name: "상태 센터, 미해결 2건" }));
+    fireEvent.click(within(screen.getByRole("dialog", { name: "현재 세션 상태" })).getByRole("button", { name: "지도 다시 시도" }));
     expect(refetchMap).toHaveBeenCalledTimes(2);
   });
 

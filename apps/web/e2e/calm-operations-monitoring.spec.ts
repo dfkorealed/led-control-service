@@ -696,11 +696,14 @@ test("dashboard/map과 fixture의 부분 갱신 실패에도 cached 화면과 �
 
   await expect(page.getByText("일부 현황 데이터를 새로고침하지 못했습니다.")).toBeVisible();
   await expect(page.getByText("저장된 지도를 유지하고 있습니다. 지도 갱신에 실패했습니다.")).toBeVisible();
+  await expect(page.locator("[data-monitoring-screen]").getByText("저장된 지도를 유지하고 있습니다. 지도 갱신에 실패했습니다.")).toHaveCount(0);
   expect(failures.failedDashboardRequests()).toBe(3);
   await expectMonitoringSelectionToRemain(page);
 
-  await page.getByRole("button", { name: "지도 다시 시도" }).click();
+  await page.getByRole("button", { name: /상태 센터, 미해결/ }).click();
+  await page.getByRole("dialog", { name: "현재 세션 상태" }).getByRole("button", { name: "지도 다시 시도" }).click();
   await expect(page.getByText("저장된 지도를 유지하고 있습니다. 지도 갱신에 실패했습니다.")).toHaveCount(0);
+  await page.getByRole("button", { name: /상태 센터, 미해결/ }).click();
   failures.failNextFixtureRequests(3);
   await page.getByRole("button", { name: "새로고침" }).click();
 
@@ -728,6 +731,8 @@ test("서버 snapshot 시각이 60초를 초과하면 stale 경고를 표시한�
   await page.clock.fastForward(1);
   await expect(page.getByText("현황 갱신이 지연되고 있습니다.")).toBeVisible();
   await expect(page.getByText(/가장 오래된 선택 층 snapshot이 60초를 초과했습니다/)).toBeVisible();
+  await expect(page.locator("[data-monitoring-screen]").getByText("현황 갱신이 지연되고 있습니다.")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /상태 센터, 미해결 1건/ })).toBeVisible();
 });
 
 test("네 monitoring 장애 원인은 selector·marker·badge·상세 설명에서 같은 presenter를 사용한다", async ({ page }) => {
