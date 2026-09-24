@@ -1,5 +1,5 @@
 import { ChevronLeft, ChevronRight, CircleCheck, FileCog, RotateCw, TriangleAlert, X } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import {
   type CadImportMimeType,
   type CadImportSourceFormat,
@@ -19,7 +19,7 @@ import {
 } from "../../api/floor-editor";
 import { listFloorImportRegions, selectFloorImportRegion } from "../../api/queries";
 import { ApiError } from "../../api/client";
-import { Button, Checkbox, ConfirmDialog, FeedbackState, FileField, Heading, IconButton, PaginationBar, Text, type PaginationPageSize } from "../../components/ui";
+import { Button, Checkbox, ConfirmDialog, FeedbackState, FileField, Heading, IconButton, PaginationBar, Popover, Text, type PaginationPageSize } from "../../components/ui";
 import type {
   CadImportReviewState,
   CadMapResetSummary,
@@ -30,6 +30,7 @@ import type {
 const MAX_CAD_BYTES = 50 * 1024 * 1024;
 const POLL_INTERVAL_MS = 1_000;
 const REGION_RECOVERY_TIMEOUT_MS = 3_000;
+const ACTIVE_LOOKUP_ERROR = "진행 중인 CAD 가져오기를 확인하지 못했습니다.";
 // Keep these values aligned with cadImportFileTypeSchema.
 const CAD_MIME_TYPES = {
   dwg: [
@@ -89,7 +90,8 @@ export function CadImportPanel({
   const [file, setFile] = useState<File | null>(null);
   const [job, setJob] = useState<FloorImportJob | null>(null);
   const [action, setAction] = useState<"idle" | "starting" | "selecting" | "applying" | "cancelling" | "checking">("idle");
-  const [error, setErrorState] = useState<{ title: string; description?: string } | null>(null);
+  const [error, setErrorState] = useState<{ title: string; description?: string; kind: "field" | "status" | "blocking" } | null>(null);
+  const [noticeOpen, setNoticeOpen] = useState(false);
   const [regionRecoveryError, setRegionRecoveryError] = useState<string | null>(null);
   const [reviewCursor, setReviewCursor] = useState(0);
   const [suppressedReviewJobId, setSuppressedReviewJobId] = useState<string | null>(null);
@@ -106,6 +108,8 @@ export function CadImportPanel({
   const progressJobId = useRef<string | null>(null);
   const applyFocusFallback = useRef<HTMLElement>(null);
   const importHeadingRef = useRef<HTMLHeadingElement>(null);
+  const noticeTrigger = useRef<HTMLButtonElement>(null);
+  const noticeId = useId();
   const focusProgressAfterRegionSelection = useRef(false);
   const requestLock = useRef(false);
   const busy = useRef(false);
@@ -141,9 +145,42 @@ export function CadImportPanel({
   const effectiveProgress = activeJob
     ? Math.max(progressHighWater, stageProgress(activeJob, selectedRegionPhase))
     : action === "starting" ? 5 : action === "applying" ? 100 : 0;
+  const needsRegionSelection = activeJob?.status === "region_selection_required" && regions?.selectionStatus === "selection_required";
+  const notices = [
+    ...(error && error.kind !== "blocking" ? [{ title: error.title, description: error.description }] : []),
+    ...(regionRecoveryError ? [{ title: regionRecoveryError }] : []),
+    ...(isDirty ? [{ title: "저장하지 않은 맵 변경사항이 있습니다.", description: "CAD 가져오기 또는 적용 전에 먼저 저장하거나 취소해 변경사항을 폐기하세요." }] : []),
+    ...(needsRegionSelection ? [{ title: `${regions.regions.length.toLocaleString("ko-KR")}개의 도면 영역을 찾았습니다.`,
+      description: "한 층으로 사용할 영역을 선택하세요. 선택하지 않은 영역은 새 맵에서 제외됩니다." }] : [])
+  ];
+  const noticeLabel = notices.map(notice => [notice.title, notice.description].filter(Boolean).join(" ")).join(" ");
+  const statusNotice = error?.kind === "status" || Boolean(regionRecoveryError);
+  const noticeShortLabel = error?.kind === "status" ? "확인 실패" : regionRecoveryError ? "영역 실패" : error?.kind === "field" ? "파일 오류" : "안내";
 
-  function setError(title: string | null, description?: string) {
-    setErrorState(title === null ? null : { title, description });
+  function retryStatusNotice() {
+    if (error?.kind === "status") {
+      if (activeJob) setError(null);
+      else void retryActiveLookup();
+    } else if (regionRecoveryError) {
+      void handleRegionRecovery();
+    }
+  }
+
+  function setError(title: string | null, description?: string, kind: "field" | "status" | "blocking" = "blocking") {
+    setErrorState(title === null ? null : { title, description, kind });
+  }
+
+  async function retryActiveLookup() {
+    setAction("checking");
+    try {
+      const { job: durableJob } = await getActiveFloorImportJob(floorId);
+      if (durableJob?.status === "applying") setError("이전 CAD 적용 상태를 서버에서 정리하고 있습니다. 잠시 후 다시 시도하세요.");
+      else { setJob(durableJob); setError(null); }
+    } catch {
+      setError(ACTIVE_LOOKUP_ERROR, undefined, "status");
+    } finally {
+      setAction("idle");
+    }
   }
 
   function setTerminalError(terminalJob: FloorImportJob) {
@@ -193,7 +230,7 @@ export function CadImportPanel({
       }
       setJob(durableJob);
     }).catch(() => {
-      if (active) setError("진행 중인 CAD 가져오기를 확인하지 못했습니다.");
+      if (active) setError(ACTIVE_LOOKUP_ERROR, undefined, "status");
     });
     return () => { active = false; };
   }, [floorId]);
@@ -222,7 +259,7 @@ export function CadImportPanel({
     }).catch(() => {
       if (!active) return;
       loadedRegionJobId.current = null;
-      setError("도면 영역을 불러오지 못했습니다.");
+      setError("도면 영역을 불러오지 못했습니다.", undefined, "status");
     });
     return () => { active = false; };
   }, [activeJob?.jobId, activeJob?.status, activeJob?.parserVersion, error, floorId]);
@@ -254,7 +291,7 @@ export function CadImportPanel({
           setJob(next);
         }
       } catch {
-        if (active) setError("가져오기 진행 상태를 확인하지 못했습니다.");
+        if (active) setError("가져오기 진행 상태를 확인하지 못했습니다.", undefined, "status");
       } finally {
         polling = false;
       }
@@ -284,7 +321,7 @@ export function CadImportPanel({
     }).catch(() => {
       if (!active) return;
       loadedReviewJobId.current = null;
-      setError("조명 위치 후보를 불러오지 못했습니다.");
+      setError("조명 위치 후보를 불러오지 못했습니다.", undefined, "status");
     });
     return () => { active = false; };
   }, [activeJob?.jobId, activeJob?.status, error, floorId, review?.job.jobId]);
@@ -607,10 +644,49 @@ export function CadImportPanel({
     : null;
   return (
     <section ref={applyFocusFallback} tabIndex={-1} className="grid gap-3 border-t border-border-subtle p-3" aria-label="CAD 가져오기">
-      <div className="grid gap-1">
-        <Text variant="overline" tone="secondary">CAD</Text>
-        <Heading ref={importHeadingRef} tabIndex={-1} as="h3" variant="card-title">DWG/DXF 가져오기</Heading>
+      <div className="flex min-w-0 items-start justify-between gap-2">
+        <div className="grid min-w-0 gap-1">
+          <Text variant="overline" tone="secondary">CAD</Text>
+          <Heading ref={importHeadingRef} tabIndex={-1} as="h3" variant="card-title">DWG/DXF 가져오기</Heading>
+        </div>
+        {notices.length > 0 ? <div className="flex shrink-0 items-center gap-1">
+          <Button ref={noticeTrigger} type="button" size="sm" variant="ghost"
+            className={`min-h-13 min-w-13 px-1 ${error || regionRecoveryError ? "text-status-danger-foreground" : "text-status-warning-foreground"}`}
+            aria-label={noticeLabel} title={noticeLabel} aria-haspopup="dialog" aria-controls={noticeId} aria-expanded={noticeOpen} onClick={() => setNoticeOpen(true)}>
+            <TriangleAlert size={18} aria-hidden="true" /><span className="text-caption">{noticeShortLabel}</span>
+          </Button>
+          {statusNotice ? <IconButton type="button" size="sm" variant="ghost" className="min-h-13 min-w-13 text-status-danger-foreground"
+            aria-label={regionRecoveryError && error?.kind !== "status" ? "도면 영역 다시 확인" : activeJob ? "가져오기 다시 확인" : "진행 상태 다시 확인"}
+            title={regionRecoveryError && error?.kind !== "status" ? "도면 영역 다시 확인" : activeJob ? "가져오기 다시 확인" : "진행 상태 다시 확인"}
+            disabled={action === "checking"} onClick={retryStatusNotice}><RotateCw size={18} aria-hidden="true" /></IconButton> : null}
+          <Popover id={noticeId} triggerRef={noticeTrigger} isOpen={noticeOpen} onOpenChange={setNoticeOpen}
+            placement="bottom end" label="CAD 가져오기 안내" className="w-72 max-w-[calc(100vw-24px)]">
+            <div className="grid gap-3 wrap-anywhere">
+              {notices.map((notice, index) => <div key={`${notice.title}-${index}`} className="grid gap-1">
+                <Text weight="semibold" tone={error && index === 0 ? "danger" : "warning"}>{notice.title}</Text>
+                {notice.description ? <Text variant="body-sm" tone="secondary">{notice.description}</Text> : null}
+              </div>)}
+              {error?.title === ACTIVE_LOOKUP_ERROR && !activeJob ? <Button size="sm" variant="secondary"
+                isLoading={action === "checking"} loadingLabel="진행 상태 확인 중"
+                onClick={() => { setNoticeOpen(false); void retryActiveLookup(); }}>
+                <RotateCw size={16} aria-hidden="true" />진행 상태 다시 확인
+              </Button> : null}
+              {error && activeJob && (POLLING_STATUSES.has(activeJob.status) || activeJob.status === "region_selection_required" || activeJob.status === "review_required")
+                ? <Button size="sm" variant="secondary" onClick={() => { setError(null); setNoticeOpen(false); }}>
+                  <RotateCw size={16} aria-hidden="true" />다시 확인
+                </Button> : null}
+              {regionRecoveryError ? <Button size="sm" variant="secondary" isLoading={action === "checking"}
+                loadingLabel="도면 영역 확인 중" onClick={() => { setNoticeOpen(false); void handleRegionRecovery(); }}>
+                <RotateCw size={16} aria-hidden="true" />도면 영역 다시 확인
+              </Button> : null}
+            </div>
+          </Popover>
+        </div> : null}
       </div>
+      {error?.kind === "status" ? <div role="alert" className="sr-only"><span>{error.title}</span>{error.description ? <span>{error.description}</span> : null}</div> : null}
+      {regionRecoveryError ? <div role="status" className="sr-only">{regionRecoveryError}</div> : null}
+      {isDirty ? <div className="sr-only">CAD 가져오기 또는 적용 전에 먼저 저장하거나 취소해 변경사항을 폐기하세요.</div> : null}
+      {needsRegionSelection ? <div className="sr-only">한 층으로 사용할 영역을 선택하세요. 선택하지 않은 영역은 새 맵에서 제외됩니다.</div> : null}
 
       {!activeJob && !refreshRecoveryJob ? <>
         <FileField
@@ -618,12 +694,13 @@ export function CadImportPanel({
           description="DWG 또는 DXF · 최대 50 MB"
           accept={CAD_FILE_ACCEPT}
           isDisabled={disabled || action !== "idle"}
-          isInvalid={Boolean(error)}
+          isInvalid={error?.kind === "field"}
+          errorMessage={error?.kind === "field" ? error.title : undefined}
           onChange={(files) => {
             const selected = files?.[0] ?? null;
             const validationError = selected ? validateCadFile(selected) : null;
             setFile(validationError ? null : selected);
-            setError(validationError);
+            setError(validationError, undefined, "field");
           }}
         />
         {file ? <Text variant="body-sm" tone="secondary">{file.name}</Text> : null}
@@ -639,12 +716,6 @@ export function CadImportPanel({
         </Button>
       </> : null}
 
-      {isDirty ? <FeedbackState
-        tone="warning"
-        icon={TriangleAlert}
-        title="저장하지 않은 맵 변경사항이 있습니다."
-        description="CAD 가져오기 또는 적용 전에 먼저 저장하거나 취소해 변경사항을 폐기하세요."
-      /> : null}
 
       {(activeJob && (activeJob.status !== "review_required" || isReviewLoading)) || action === "starting" || action === "applying"
         ? <div
@@ -662,13 +733,7 @@ export function CadImportPanel({
         <progress className="h-2 w-full" max={100} value={effectiveProgress} aria-label="CAD 가져오기 진행률" />
       </div> : null}
 
-      {activeJob?.status === "region_selection_required" && regions?.selectionStatus === "selection_required" ? <>
-        <FeedbackState
-          tone="warning"
-          icon={TriangleAlert}
-          title={`${regions.regions.length.toLocaleString("ko-KR")}개의 도면 영역을 찾았습니다.`}
-          description="한 층으로 사용할 영역을 선택하세요. 선택하지 않은 영역은 새 맵에서 제외됩니다."
-        />
+      {needsRegionSelection ? <>
         <div className="grid max-h-[28rem] gap-2 overflow-y-auto pr-1" role="radiogroup" aria-label="가져올 도면 영역">
           {pageRegions.map((region, pageIndex) => {
             const index = regionOffset + pageIndex;
@@ -825,26 +890,12 @@ export function CadImportPanel({
         가져오기 취소
       </Button> : null}
 
-      {error ? <FeedbackState
-        tone="danger"
-        icon={TriangleAlert}
-        title={error.title}
-        description={error.description}
+      {error?.kind === "blocking" ? <FeedbackState tone="danger" icon={TriangleAlert}
+        title={error.title} description={error.description}
         action={activeJob && (POLLING_STATUSES.has(activeJob.status) || activeJob.status === "region_selection_required" || activeJob.status === "review_required")
           ? <Button variant="secondary" onClick={() => setError(null)}><RotateCw size={16} aria-hidden="true" />다시 확인</Button>
-          : undefined}
-      /> : null}
-      {regionRecoveryError ? <FeedbackState
-        tone="warning"
-        icon={TriangleAlert}
-        title={regionRecoveryError}
-        action={<Button
-          variant="secondary"
-          isLoading={action === "checking"}
-          loadingLabel="도면 영역 확인 중"
-          onClick={() => void handleRegionRecovery()}
-        ><RotateCw size={16} aria-hidden="true" />도면 영역 다시 확인</Button>}
-      /> : null}
+          : undefined} /> : null}
+
       {confirmApply && activeReview ? <ConfirmDialog
         title="새 CAD 도면으로 맵을 교체할까요?"
         confirmLabel="교체 후 적용"

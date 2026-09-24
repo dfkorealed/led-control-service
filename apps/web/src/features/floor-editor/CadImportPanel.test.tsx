@@ -182,6 +182,25 @@ describe("CadImportPanel", () => {
     vi.useRealTimers();
   });
 
+  it("keeps active CAD lookup errors out of the panel layout and offers a retry", async () => {
+    floorEditorApi.getActiveFloorImportJob.mockRejectedValueOnce(new Error("offline"))
+      .mockResolvedValueOnce({ job: null });
+    renderPanel();
+    const notice = await screen.findByRole("button", { name: /진행 중인 CAD 가져오기를 확인하지 못했습니다/ });
+    expect(notice).toHaveClass("min-h-13", "min-w-13");
+    expect(notice).toHaveAttribute("aria-haspopup", "dialog");
+    expect(notice).toHaveAttribute("aria-controls");
+    expect(notice).toHaveTextContent("확인 실패");
+    expect(screen.getByRole("button", { name: "진행 상태 다시 확인" })).toBeVisible();
+    expect(screen.getByRole("alert")).toHaveClass("sr-only");
+    fireEvent.click(notice);
+    const detail = screen.getByRole("dialog", { name: "CAD 가져오기 안내" });
+    expect(within(detail).getByText("진행 중인 CAD 가져오기를 확인하지 못했습니다.")).toBeVisible();
+    fireEvent.click(within(detail).getByRole("button", { name: "진행 상태 다시 확인" }));
+    await waitFor(() => expect(floorEditorApi.getActiveFloorImportJob).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(screen.queryByRole("button", { name: /진행 중인 CAD 가져오기를 확인하지 못했습니다/ })).not.toBeInTheDocument());
+  });
+
   it.each([
     ["parking.dwg", "application/dwg"],
     ["parking.dwg", "application/x-dwg"],
@@ -223,7 +242,13 @@ describe("CadImportPanel", () => {
   it("still rejects a known non-empty MIME that disagrees with the extension", () => {
     renderPanel();
     selectCad("parking.dwg", "application/dxf");
-    expect(screen.getByRole("alert")).toHaveTextContent("파일 형식과 확장자가 일치하지 않습니다.");
+    const fileInput = screen.getByLabelText("CAD 파일");
+    const fieldError = screen.getByRole("alert");
+    expect(fieldError).toHaveTextContent("파일 형식과 확장자가 일치하지 않습니다.");
+    expect(fieldError).toBeVisible();
+    expect(fileInput).toHaveAttribute("aria-invalid", "true");
+    expect(fileInput.getAttribute("aria-describedby")?.split(" ")).toContain(fieldError.id);
+    expect(screen.getByRole("button", { name: /파일 형식과 확장자가 일치하지 않습니다/ })).toHaveTextContent("파일 오류");
     expect(screen.getByRole("button", { name: "CAD 가져오기" })).toBeDisabled();
   });
 
@@ -596,13 +621,15 @@ describe("CadImportPanel", () => {
 
     expect(recoveryCall?.[2]?.signal.aborted).toBe(true);
     expect(screen.getByText("선택 상태는 확인했지만 도면 영역 정보를 불러오지 못했습니다.")).toBeInTheDocument();
-    const retryButton = screen.getByRole("button", { name: "도면 영역 다시 확인" });
+    fireEvent.click(screen.getByRole("button", { name: /선택 상태는 확인했지만 도면 영역 정보를 불러오지 못했습니다/ }));
+    const retryButton = within(screen.getByRole("dialog", { name: "CAD 가져오기 안내" })).getByRole("button", { name: "도면 영역 다시 확인" });
     expect(retryButton).toBeEnabled();
 
     fireEvent.click(retryButton);
 
     expect(screen.getByText("선택 상태는 확인했지만 도면 영역 정보를 불러오지 못했습니다.")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "도면 영역 확인 중" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: /선택 상태는 확인했지만 도면 영역 정보를 불러오지 못했습니다/ }));
+    expect(within(screen.getByRole("dialog", { name: "CAD 가져오기 안내" })).getByRole("button", { name: "도면 영역 확인 중" })).toBeDisabled();
 
     resolveRetry(autoSelectedRegion);
     await act(async () => { await flushPromises(); });
@@ -707,7 +734,8 @@ describe("CadImportPanel", () => {
     renderPanel();
 
     expect(await screen.findByText("도면 영역을 불러오지 못했습니다.")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "다시 확인" }));
+    fireEvent.click(screen.getByRole("button", { name: "도면 영역을 불러오지 못했습니다." }));
+    fireEvent.click(within(screen.getByRole("dialog", { name: "CAD 가져오기 안내" })).getByRole("button", { name: "다시 확인" }));
 
     expect(await screen.findByRole("radiogroup", { name: "가져올 도면 영역" })).toBeInTheDocument();
     expect(cadRegionApi.listFloorImportRegions).toHaveBeenCalledTimes(2);
@@ -763,7 +791,8 @@ describe("CadImportPanel", () => {
     expect(screen.queryByRole("progressbar", { name: "CAD 가져오기 진행률" })).not.toBeInTheDocument();
     expect(screen.queryByText("분석 완료 · 조명 위치 후보를 불러오는 중")).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "다시 확인" }));
+    fireEvent.click(screen.getByRole("button", { name: "조명 위치 후보를 불러오지 못했습니다." }));
+    fireEvent.click(within(screen.getByRole("dialog", { name: "CAD 가져오기 안내" })).getByRole("button", { name: "다시 확인" }));
     await waitFor(() => expect(floorEditorApi.listFloorImportCandidates).toHaveBeenCalledTimes(2));
     expect(screen.getByRole("progressbar", { name: "CAD 가져오기 진행률" })).toHaveValue(100);
     expect(screen.getByText("분석 완료 · 조명 위치 후보를 불러오는 중")).toBeInTheDocument();
@@ -808,9 +837,11 @@ describe("CadImportPanel", () => {
 
     await act(async () => { await vi.advanceTimersByTimeAsync(1_000); });
     expect(screen.getByRole("progressbar", { name: "CAD 가져오기 진행률" })).toHaveValue(35);
-    expect(screen.getByRole("button", { name: "다시 확인" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "가져오기 진행 상태를 확인하지 못했습니다." }));
+    const retryButton = within(screen.getByRole("dialog", { name: "CAD 가져오기 안내" })).getByRole("button", { name: "다시 확인" });
+    expect(retryButton).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "다시 확인" }));
+    fireEvent.click(retryButton);
     await act(async () => { await vi.advanceTimersByTimeAsync(1_000); });
 
     expect(floorEditorApi.getFloorImportJob).toHaveBeenCalledTimes(2);
@@ -1008,6 +1039,7 @@ describe("CadImportPanel", () => {
     await act(async () => { await vi.advanceTimersByTimeAsync(1_000); });
 
     const feedback = screen.getByRole("alert");
+    expect(feedback).not.toHaveClass("sr-only");
     expect(within(feedback).getByText("CAD 가져오기에 실패했습니다.")).toBeInTheDocument();
     expect(feedback).toHaveTextContent(phase);
     expect(feedback).toHaveTextContent(guidance);

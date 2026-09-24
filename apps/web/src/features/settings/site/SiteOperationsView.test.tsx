@@ -142,6 +142,35 @@ describe("SiteOperationsView", () => {
     expect(await screen.findByRole("heading", { name: "현장 정보" })).toBeVisible();
   });
 
+  it("keeps cached site settings visible and exposes refresh failure from a compact header status", async () => {
+    const queryClient = renderView();
+    expect(await screen.findByDisplayValue("본사 주차장")).toBeVisible();
+    siteApi.getSiteSettings.mockRejectedValueOnce(new Error("network"));
+    await queryClient.invalidateQueries({ queryKey: siteSettingsQueryKey("site-1") });
+
+    const status = await screen.findByRole("button", { name: "운영 정보 갱신 실패 안내" });
+    expect(screen.getByDisplayValue("본사 주차장")).toBeVisible();
+    expect(screen.queryByRole("alert", { name: /최신 운영 정보를/ })).not.toBeInTheDocument();
+    fireEvent.click(status);
+    fireEvent.click(within(screen.getByRole("dialog", { name: "운영 정보 갱신 실패 안내" })).getByRole("button", { name: "다시 시도" }));
+    await waitFor(() => expect(siteApi.getSiteSettings).toHaveBeenCalledTimes(3));
+  });
+
+  it("keeps loaded fixtures and groups visible after a background refresh failure", async () => {
+    const queryClient = renderView();
+    expect(await screen.findByText("B2-L01")).toBeVisible();
+    expect(await screen.findByText("B2 입구")).toBeVisible();
+    siteApi.getFloorFixtureSettings.mockRejectedValueOnce(new Error("network"));
+    groupApi.listFixtureGroups.mockRejectedValueOnce(new Error("network"));
+    await queryClient.invalidateQueries({ queryKey: floorFixtureSettingsQueryKey("site-1", "floor-1") });
+    await queryClient.invalidateQueries({ queryKey: fixtureGroupQueryKey("site-1") });
+
+    expect(screen.getByText("B2-L01")).toBeVisible();
+    expect(screen.getByText("B2 입구")).toBeVisible();
+    expect(await screen.findByRole("button", { name: "조명 목록 갱신 실패 안내" })).toBeVisible();
+    expect(await screen.findByRole("button", { name: "구역 목록 갱신 실패 안내" })).toBeVisible();
+  });
+
   it("renders editable operations without exposing fixture placement controls", async () => {
     renderView();
 

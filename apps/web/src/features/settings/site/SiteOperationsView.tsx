@@ -20,7 +20,7 @@ import {
   type SiteSettings,
   type SiteSettingsFloor
 } from "../../../api/site-settings";
-import { Button, Card, FeedbackState, ModalDialog, PageHeader, SelectBox, StatusBadge, TextField } from "../../../components/ui";
+import { Button, Card, FeedbackState, ModalDialog, PageHeader, SelectBox, StatusBadge, StatusDetailButton, TextField } from "../../../components/ui";
 
 interface RetryableError {
   title: string;
@@ -108,16 +108,16 @@ export function SiteOperationsView({ siteId }: { siteId?: string }) {
 
   return (
     <section className="grid min-w-0 content-start gap-6" aria-label="현장 관리">
-      <PageHeader title="현장 관리" description="설치 후 운영에 필요한 현장, 층, 조명, 구역 정보를 관리합니다." />
+      <PageHeader title="현장 관리" description="설치 후 운영에 필요한 현장, 층, 조명, 구역 정보를 관리합니다."
+        actions={settingsQuery.error && settingsQuery.data ? <StatusDetailButton label="운영 정보 갱신 실패"
+          description="최신 운영 정보를 불러오지 못했습니다. 기존 정보를 표시합니다."
+          action={{ label: "다시 시도", onClick: () => { void settingsQuery.refetch(); } }} /> : null} />
 
       {settingsQuery.isPending && !settingsQuery.data
         ? <FeedbackState tone="neutral" icon={Clock3} title="현장 운영 정보를 불러오는 중입니다." />
         : null}
       {settingsQuery.error && !settingsQuery.data ? (
         <FeedbackState tone="danger" icon={CircleAlert} title="현장 운영 정보를 불러오지 못했습니다." action={<Button type="button" onClick={() => void settingsQuery.refetch()}>다시 시도</Button>} />
-      ) : null}
-      {settingsQuery.error && settingsQuery.data ? (
-        <FeedbackState tone="danger" icon={CircleAlert} title="최신 운영 정보를 불러오지 못했습니다. 기존 정보를 표시합니다." action={<Button type="button" onClick={() => void settingsQuery.refetch()}>다시 시도</Button>} />
       ) : null}
 
       {settingsQuery.data ? <>
@@ -405,14 +405,16 @@ function FixtureSection({ siteId, floors, selectedFloorId, onSelectedFloorIdChan
         title="조명 관리"
         headingLevel={3}
         description="이름과 정격전력만 수정합니다. 위치와 크기는 맵 관리에서 조정합니다."
-        actions={floors.length > 0 ? (
-          <SelectBox aria-label="조명 층 선택" label="층 선택" className="min-w-48" items={floors.map((floor) => ({ id: floor.id, label: floor.name }))} selectedKey={selectedFloorId || null} onSelectionChange={(floorId) => { if (floorId) onSelectedFloorIdChange(floorId); }} />
-        ) : null}
+        actions={<div className="flex flex-wrap items-end gap-2">
+          {fixturesQuery.error && fixtures.length > 0 ? <StatusDetailButton label="조명 목록 갱신 실패"
+            description="다음 조명 목록을 불러오지 못했습니다. 기존 목록을 표시합니다."
+            action={{ label: "다음 목록 다시 시도", onClick: () => { void fixturesQuery.fetchNextPage(); } }} /> : null}
+          {floors.length > 0 ? <SelectBox aria-label="조명 층 선택" label="층 선택" className="min-w-48" items={floors.map((floor) => ({ id: floor.id, label: floor.name }))} selectedKey={selectedFloorId || null} onSelectionChange={(floorId) => { if (floorId) onSelectedFloorIdChange(floorId); }} /> : null}
+        </div>}
       />
       {floors.length === 0 ? <FeedbackState tone="neutral" icon={Lightbulb} title="조명을 조회할 운영 중인 층이 없습니다." /> : null}
       {fixturesQuery.isPending && selectedFloorId ? <FeedbackState tone="neutral" icon={Clock3} title="조명 목록을 불러오는 중입니다." /> : null}
       {fixturesQuery.error && fixtures.length === 0 ? <FeedbackState tone="danger" icon={CircleAlert} title="조명 목록을 불러오지 못했습니다." action={<Button type="button" onClick={() => void fixturesQuery.refetch()}>조명 목록 다시 시도</Button>} /> : null}
-      {fixturesQuery.error && fixtures.length > 0 ? <FeedbackState tone="danger" icon={CircleAlert} title="다음 조명 목록을 불러오지 못했습니다. 기존 목록을 표시합니다." action={<Button type="button" onClick={() => void fixturesQuery.fetchNextPage()}>다음 목록 다시 시도</Button>} /> : null}
       {!fixturesQuery.isPending && !fixturesQuery.error && selectedFloorId && fixtures.length === 0 ? <FeedbackState tone="neutral" icon={Lightbulb} title="이 층에 등록된 조명이 없습니다." /> : null}
       {fixtures.length > 0 ? <div className="grid gap-3" aria-label="조명 목록">
         {fixtures.map((fixture) => <FixtureRow key={fixture.id} siteId={siteId} floorId={selectedFloorId} fixture={fixture} />)}
@@ -541,11 +543,13 @@ function FixtureGroupSection({ siteId, floors }: { siteId: string; floors: SiteS
 
   return (
     <section className="grid gap-4 border-t border-border-default pt-6" aria-label="구역 관리">
-      <PageHeader title="구역 관리" headingLevel={3} description="구역 구성은 맵 관리에서, 실제 조명 제어는 제어 화면에서 수행합니다. 여기서는 목록을 확인하고 보관을 시작할 수 있습니다." />
+      <PageHeader title="구역 관리" headingLevel={3} description="구역 구성은 맵 관리에서, 실제 조명 제어는 제어 화면에서 수행합니다. 여기서는 목록을 확인하고 보관을 시작할 수 있습니다."
+        actions={groupsQuery.error && groupsQuery.data ? <StatusDetailButton label="구역 목록 갱신 실패"
+          description="최신 구역 목록을 불러오지 못했습니다. 기존 목록을 표시합니다."
+          action={{ label: "구역 목록 다시 시도", onClick: () => { void groupsQuery.refetch(); } }} /> : null} />
       {actionError ? <FeedbackState tone="danger" icon={CircleAlert} title={actionError.title} action={<Button type="button" onClick={actionError.retry}>{actionError.retryLabel}</Button>} /> : null}
       {groupsQuery.isPending ? <FeedbackState tone="neutral" icon={Clock3} title="구역 목록을 불러오는 중입니다." /> : null}
       {groupsQuery.error && !groupsQuery.data ? <FeedbackState tone="danger" icon={CircleAlert} title="구역 목록을 불러오지 못했습니다." action={<Button type="button" onClick={() => void groupsQuery.refetch()}>구역 목록 다시 시도</Button>} /> : null}
-      {groupsQuery.error && groupsQuery.data ? <FeedbackState tone="danger" icon={CircleAlert} title="최신 구역 목록을 불러오지 못했습니다. 기존 목록을 표시합니다." action={<Button type="button" onClick={() => void groupsQuery.refetch()}>구역 목록 다시 시도</Button>} /> : null}
       {groupsQuery.data?.length === 0 ? <FeedbackState tone="neutral" icon={Network} title="등록된 구역이 없습니다." /> : null}
       {groupsQuery.data?.length ? <div className="grid gap-3" aria-label="구역 목록">
         {groupsQuery.data.map((group) => (

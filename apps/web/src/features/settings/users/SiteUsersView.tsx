@@ -4,7 +4,7 @@ import { useNavigate } from "react-router-dom";
 import { CircleAlert, CircleCheck, Clock3, KeyRound, Pencil, Plus, Search, Trash2, UserCheck, UserX } from "lucide-react";
 import { ApiError } from "../../../api/client";
 import { siteUsersQueryKey, updateSiteUser, useSiteUsers, type SiteUserAccessLevel, type SiteUserStatus, type SiteUserSummary, type SiteUsersResponse } from "../../../api/site-users";
-import { Button, Card, FeedbackState, PageHeader, SearchField, SelectBox, StatusBadge } from "../../../components/ui";
+import { Button, Card, FeedbackState, PageHeader, SearchField, SelectBox, StatusBadge, StatusDetailButton } from "../../../components/ui";
 import { DeleteSiteUserDialog } from "./DeleteSiteUserDialog";
 import { ResetSiteUserPasswordDialog } from "./ResetSiteUserPasswordDialog";
 import { SiteUserFormDialog } from "./SiteUserFormDialog";
@@ -152,17 +152,23 @@ export function SiteUsersView({ siteId }: { siteId?: string }) {
     <PageHeader
       title="유저 관리"
       description="현장을 조회하거나 조명을 제어할 사용자를 관리합니다."
-      actions={<Button ref={addButtonRef} type="button" variant="primary" disabled={atLimit} onClick={(event) => openDialog({ type: "create" }, event.currentTarget)}><Plus size={16} aria-hidden="true" /> 사용자 추가</Button>}
+      actions={<div className="flex flex-wrap items-center gap-2">
+        {atLimit ? <StatusDetailButton label="사용자 등록 한도" description="현장 사용자는 최대 100명까지 등록할 수 있습니다." /> : null}
+        {refreshError && data ? <StatusDetailButton label="사용자 목록 갱신 실패" description={refreshError}
+          action={{ label: "목록 다시 시도", onClick: () => { setRefreshError(""); void usersQuery.refetch(); } }} /> : null}
+        {usersQuery.error && data ? <StatusDetailButton label="사용자 목록 재조회 실패"
+          description="최신 사용자 목록을 불러오지 못했습니다. 기존 목록을 표시합니다."
+          action={{ label: "목록 다시 시도", onClick: () => { void usersQuery.refetch(); } }} /> : null}
+        <Button ref={addButtonRef} type="button" variant="primary" disabled={atLimit} onClick={(event) => openDialog({ type: "create" }, event.currentTarget)}><Plus size={16} aria-hidden="true" /> 사용자 추가</Button>
+      </div>}
     />
 
     {notice ? <FeedbackState tone="success" icon={CircleCheck} title={notice} /> : null}
     {actionError ? <FeedbackState tone="danger" icon={CircleAlert} title={actionError} /> : null}
-    {refreshError ? <FeedbackState tone="danger" icon={CircleAlert} title={refreshError} action={<Button type="button" onClick={() => { setRefreshError(""); void usersQuery.refetch(); }}>목록 다시 시도</Button>} /> : null}
-    {atLimit ? <FeedbackState tone="warning" icon={CircleAlert} title="현장 사용자는 최대 100명까지 등록할 수 있습니다." /> : null}
+    {refreshError && !data ? <FeedbackState tone="danger" icon={CircleAlert} title={refreshError} action={<Button type="button" onClick={() => { setRefreshError(""); void usersQuery.refetch(); }}>목록 다시 시도</Button>} /> : null}
 
     {usersQuery.isLoading && !data ? <FeedbackState tone="neutral" icon={Clock3} title="사용자 목록을 불러오는 중입니다." /> : null}
     {usersQuery.error && !data ? <FeedbackState tone="danger" icon={CircleAlert} title="사용자 목록을 불러오지 못했습니다." action={<Button type="button" onClick={() => void usersQuery.refetch()}>목록 다시 시도</Button>} /> : null}
-    {usersQuery.error && data ? <FeedbackState tone="danger" icon={CircleAlert} title="최신 사용자 목록을 불러오지 못했습니다. 기존 목록을 표시합니다." action={<Button type="button" onClick={() => void usersQuery.refetch()}>목록 다시 시도</Button>} /> : null}
 
     {data ? <>
       <div className="grid items-end gap-3 compact:grid-cols-2 tablet:grid-cols-[minmax(220px,1fr)_150px_150px_auto]">

@@ -81,8 +81,10 @@ describe("SiteUsersView", () => {
     renderView();
 
     expect(screen.getByText("hyunsu.kim")).toBeVisible();
-    expect(screen.getByRole("alert")).toHaveTextContent("최신 사용자 목록을 불러오지 못했습니다");
-    fireEvent.click(screen.getByRole("button", { name: "목록 다시 시도" }));
+    fireEvent.click(screen.getByRole("button", { name: "사용자 목록 재조회 실패 안내" }));
+    const detail = screen.getByRole("dialog", { name: "사용자 목록 재조회 실패 안내" });
+    expect(detail).toHaveTextContent("최신 사용자 목록을 불러오지 못했습니다");
+    fireEvent.click(within(detail).getByRole("button", { name: "목록 다시 시도" }));
     expect(refetch).toHaveBeenCalled();
   });
 
@@ -232,7 +234,10 @@ describe("SiteUsersView", () => {
     setQuery({ users, count: 100, limit: 100 });
     renderView();
     expect(screen.getByRole("button", { name: "사용자 추가" })).toBeDisabled();
-    expect(screen.getByText("현장 사용자는 최대 100명까지 등록할 수 있습니다.")).toBeVisible();
+    const limitNotice = screen.getByRole("button", { name: "사용자 등록 한도 안내" });
+    expect(limitNotice).toBeVisible();
+    fireEvent.click(limitNotice);
+    expect(within(screen.getByRole("dialog", { name: "사용자 등록 한도 안내" })).getByText("현장 사용자는 최대 100명까지 등록할 수 있습니다.")).toBeVisible();
 
     api.createSiteUser.mockRejectedValueOnce(new ApiError("conflict", 409, { code: "LOGIN_ID_ALREADY_EXISTS" }));
     cleanup();
@@ -290,7 +295,10 @@ describe("SiteUsersView", () => {
     expect(cached).toMatchObject({ count: 99 });
     expect(JSON.stringify(cached)).not.toContain("night.viewer");
     expect(JSON.stringify(cached)).not.toContain("야간 당직");
-    expect(await screen.findByRole("alert")).toHaveTextContent("최신 사용자 목록을 불러오지 못했습니다");
+    fireEvent.click(await screen.findByRole("button", { name: "사용자 목록 갱신 실패 안내" }));
+    const refreshDetail = screen.getByRole("dialog", { name: "사용자 목록 갱신 실패 안내" });
+    expect(refreshDetail).toHaveTextContent("최신 사용자 목록을 불러오지 못했습니다");
+    fireEvent.keyDown(refreshDetail, { key: "Escape" });
     expect(screen.getByRole("button", { name: "사용자 추가" })).toBeEnabled();
 
     state.data = { users: [users[0]], count: 99, limit: 100 };
@@ -376,7 +384,8 @@ describe("SiteUsersView", () => {
     pending.resolve(users[0]);
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     expect(api.createSiteUser).toHaveBeenCalledTimes(1);
-    expect(await screen.findByRole("alert")).toHaveTextContent("최신 사용자 목록을 불러오지 못했습니다");
+    fireEvent.click(await screen.findByRole("button", { name: "사용자 목록 갱신 실패 안내" }));
+    expect(screen.getByRole("dialog", { name: "사용자 목록 갱신 실패 안내" })).toHaveTextContent("최신 사용자 목록을 불러오지 못했습니다");
   });
 
   it("rejects whitespace-only and overlong reset passwords without an API call", async () => {
