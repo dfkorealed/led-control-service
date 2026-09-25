@@ -2077,7 +2077,7 @@ node별 `provision-device` command의 durable transactional outbox다. 등록 AP
 
 ### LandingInquiry (공개 상담 문의)
 
-Migration: `20260925120000_landing_inquiry`. 고객 테넌트와 FK 없이 분리한 공개 문의 원본과 메일 발송 대기 상태다. 접수 시각부터 **90일** 뒤인 `expiresAt`을 기록한다. 실제 주기적 삭제와 메일 발송은 후속 작업에서 구현한다. NAVER WORKS 연결 설정과 복호화 가능한 자격 증명이 준비되지 않으면 새 접수를 503으로 거부한다. 마이그레이션은 격리 PostgreSQL에 적용해 검증했으며 사용자/운영 DB에는 적용하지 않았다.
+Migration: `20260925120000_landing_inquiry`. 고객 테넌트와 FK 없이 분리한 공개 문의 원본과 메일 발송 대기 상태다. 접수 시각부터 **90일** 뒤인 `expiresAt`을 기록한다. 메일 worker는 시작 시와 30초마다 실행하며, 한 실행당 최대 10건 발송·100건 만료 삭제를 수행한다. NAVER WORKS 연결 설정과 복호화 가능한 자격 증명이 준비되지 않으면 새 접수를 503으로 거부한다. 마이그레이션은 격리 PostgreSQL에 적용해 검증했으며 사용자/운영 DB에는 적용하지 않았다.
 
 | 필드 | 타입 | 의미 |
 | --- | --- | --- |
@@ -2091,11 +2091,17 @@ Migration: `20260925120000_landing_inquiry`. 고객 테넌트와 FK 없이 분�
 | `consentVersion`, `consentAt` | `String`, `DateTime` | 수집 동의 버전과 접수 시 동의 시각. 동의하지 않은 요청은 저장하지 않음 |
 | `createdAt`, `updatedAt`, `expiresAt` | `DateTime` | 접수·갱신·원본 만료 시각 |
 | `deliveryStatus` | enum | `queued`, `retry_wait`, `provider_accepted`, `delivery_uncertain`, `failed` |
-| `attemptCount`, `lastAttemptAt`, `nextAttemptAt` | `Int`, `DateTime?`, `DateTime?` | 후속 worker의 발송 시도 수와 최근/다음 시도 시각 |
-| `leaseOwner`, `leaseExpiresAt` | `String?`, `DateTime?` | 후속 worker의 발송 점유 소유자와 만료 시각. 둘 다 null이거나 둘 다 값이 있어야 함 |
+| `attemptCount`, `lastAttemptAt`, `nextAttemptAt` | `Int`, `DateTime?`, `DateTime?` | worker의 발송 시도 수와 최근/다음 시도 시각 |
+| `leaseOwner`, `leaseExpiresAt` | `String?`, `DateTime?` | worker의 발송 점유 소유자와 만료 시각. 둘 다 null이거나 둘 다 값이 있어야 함 |
 | `providerAcceptedAt`, `lastErrorCode` | `DateTime?`, `String?` | 제공자 202 수락 시각과 정제된 실패 코드 |
 
 `deliveryStatus, nextAttemptAt`은 발송 대상 선택, `expiresAt`은 90일 정리, `createdAt`은 운영자 조회를 지원한다. 수신자와 발신자 주소는 문의 행이나 요청 본문에 저장하지 않는다. `provider_accepted`는 제공자가 전송 요청을 수락했다는 뜻으로 실제 받은편지함 도착을 뜻하지 않는다.
+
+발송 claim은 `FOR UPDATE SKIP LOCKED`를 사용하는 원자적 UPDATE로 한 행씩 획득하며, 120초 lease와 소유자 일치 조건으로 여러 인스턴스의 중복 전송을 방지한다. `401`은 한 번 토큰 갱신 후 재전송하고, 호출 전 OAuth 실패·확정된 `429` 거부만 1·2·4·8분 간격으로 최대 총 5회 시도한다. `202`만 `provider_accepted`, 다른 `4xx`는 `failed`, 타임아웃·네트워크 단절·`5xx`·기타 예상 밖 응답은 `delivery_uncertain`이다. 중단된 worker의 만료 lease도 이미 전송되었을 가능성이 있으므로 `MAIL_LEASE_EXPIRED`와 `delivery_uncertain`으로 닫고 자동 재시도하지 않는다. 결과 저장 실패 시 lease를 유지하여 같은 원칙으로 복구한다. 모든 오류는 정해진 안전한 코드만 저장하고 제공자 응답 원문을 저장하지 않는다.
+
+`expiresAt <= 현재 시각`인 행은 상태에 관계없이 원본·발송 메타데이터를 함께 삭제한다. 삭제 로그는 건수만 기록한다. 백로그가 있으면 후속 실행에서 계속 삭제하며, 만료 원본은 삭제 전에도 발송·운영자 조회에서 제외한다. 메일 사본은 NAVER WORKS 보유 정책을 따른다. 테스트 환경에서는 타이머가 실행되지 않고, 서버 종료 시 진행 중 작업을 기다린다.
+
+`GET /operator/landing-inquiries`는 기존 운영자 세션·역할 가드를 요구하며, 기본 20건·최대 50건의 커서 페이지를 제공한다. 최근 접수 순서(`createdAt`, `id` 내림차순)로 연락처·본문·접수번호·상태·안전한 오류 코드만 반환하고 멱등 키·payload hash·lease 내부 정보·메일 자격 증명은 반환하지 않는다. 응답은 `Cache-Control: no-store`다. 운영자는 `delivery_uncertain`과 `failed` 문의의 회신 필요 여부를 확인해야 하며 자동/수동 재발송 API는 제공하지 않는다.
 
 ### LandingMailCredential / LandingMailOAuthState (독립 NAVER WORKS 연결)
 
