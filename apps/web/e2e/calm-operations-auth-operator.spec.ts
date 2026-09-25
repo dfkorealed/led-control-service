@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { expectMinimumTouchTargets, expectNoHorizontalOverflow } from "./support/layout-assertions";
+import { expectMinimumTouchTargets, expectMinimumTouchTargetsAfterScrolling, expectNoHorizontalOverflow } from "./support/layout-assertions";
 
 const viewports = [
   { width: 1440, height: 900 },
@@ -95,13 +95,29 @@ for (const viewport of viewports) {
     expect(mainBox).not.toBeNull();
     expect(mainBox!.width).toBeLessThanOrEqual(Math.min(viewport.width, 1160));
     await expectMinimumTouchTargets(page, "header");
-    await expect(page.getByLabel("현장 관리자 계정 표")).toBeVisible();
+    if (viewport.width >= 760) {
+      await expect(page.getByLabel("현장 관리자 계정 표")).toBeVisible();
+      await expect(page.getByLabel("현장 관리자 계정 카드 목록")).toHaveCount(0);
+    } else {
+      await expect(page.getByLabel("현장 관리자 계정 표")).toHaveCount(0);
+      await expect(page.getByLabel("현장 관리자 계정 카드 목록")).toBeVisible();
+      await expectMinimumTouchTargetsAfterScrolling(page, '[aria-label="현장 관리자 계정 카드 목록"]');
+      const metrics = page.locator('[data-testid="operator-summary-strip"] [data-metric-card]');
+      const first = await metrics.nth(0).boundingBox();
+      const second = await metrics.nth(1).boundingBox();
+      const third = await metrics.nth(2).boundingBox();
+      expect(first).not.toBeNull();
+      expect(second).not.toBeNull();
+      expect(third).not.toBeNull();
+      expect(Math.abs(first!.y - second!.y)).toBeLessThanOrEqual(1);
+      expect(third!.y).toBeGreaterThan(first!.y + first!.height);
+    }
     await expect(page.getByRole("group", { name: "운영 현장" })).toContainText("4");
     await expect(page.getByRole("group", { name: "설치 완료" })).toContainText("2");
     await expectNoHorizontalOverflow(page);
 
     if (viewport.width <= 760) {
-      await expectMinimumTouchTargets(page, "[data-operator-admin-header]");
+      await expectMinimumTouchTargetsAfterScrolling(page, "[data-operator-admin-header]");
     }
 
     await page.getByRole("button", { name: "현장 및 관리자 생성" }).click();
@@ -111,13 +127,18 @@ for (const viewport of viewports) {
 
     if (viewport.width <= 760) {
       await expectMobileDialogControls(createDialog);
-      await createDialog.getByRole("button", { name: "현장 및 관리자 생성 닫기" }).click();
+    }
+    await createDialog.getByRole("button", { name: "현장 및 관리자 생성 닫기" }).click();
 
-      await page.getByRole("button", { name: "김관리 수정" }).click();
-      const editDialog = page.getByRole("dialog", { name: "김관리 수정" });
+    await page.getByRole("button", { name: "김관리 수정" }).click();
+    const editDialog = page.getByRole("dialog", { name: "김관리 수정" });
+    await expect(editDialog).toBeVisible();
+    if (viewport.width <= 760) {
       await expectMobileDialogControls(editDialog);
-      await editDialog.getByRole("button", { name: "김관리 수정 닫기" }).click();
+    }
+    await editDialog.getByRole("button", { name: "김관리 수정 닫기" }).click();
 
+    if (viewport.width <= 760) {
       await page.getByRole("button", { name: "김관리 비밀번호 재설정" }).click();
       const resetDialog = page.getByRole("dialog", { name: "김관리 비밀번호 재설정" });
       await expectMobileDialogControls(resetDialog);
