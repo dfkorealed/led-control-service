@@ -107,6 +107,6 @@ expect(posted.consentVersion).toBe("landing-2026-09-v1-90d");
 
 **Files:** `docs/menus/landing.md`, `docs/menus/operator.md`, `docs/project-status.md`, `AGENTS.md`, plan checkboxes.
 
-- [ ] **Step 1: Update menu documents with the required five headings and add their paths to `AGENTS.md`.** Distinguish software/mock/browser checks from real NAVER WORKS OAuth/send confirmation. Record the public route, form, operator status and remaining mail setup.
-- [ ] **Step 2: Run `pnpm --filter @led-control/web typecheck`, `pnpm --filter @led-control/web test`, `pnpm --filter @led-control/web build`, UI policy and focused Playwright; inspect the page at 1440 and 390px.** Correct issues before claiming completion.
+- [x] **Step 1: Update menu documents with the required five headings and add their paths to `AGENTS.md`.** Distinguish software/mock/browser checks from real NAVER WORKS OAuth/send confirmation. Record the public route, form, operator status and remaining mail setup.
+- [x] **Step 2: Run `pnpm --filter @led-control/web typecheck`, `pnpm --filter @led-control/web test`, `pnpm --filter @led-control/web build`, UI policy and focused Playwright; inspect the page at 1440 and 390px.** Correct issues before claiming completion.
 - [ ] **Step 3: Update `docs/project-status.md` and both plan checklists from actual evidence, run `git diff --check`, then commit.**
