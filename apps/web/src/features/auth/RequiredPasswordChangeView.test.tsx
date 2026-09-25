@@ -53,6 +53,21 @@ describe("RequiredPasswordChangeView", () => {
     vi.clearAllMocks();
   });
 
+  it("exposes ready, changing and failed states without unlocking the app", async () => {
+    let rejectRequest: ((reason?: unknown) => void) | undefined;
+    changePasswordMock.mockImplementation(() => new Promise((_, reject) => { rejectRequest = reject; }));
+    const { onCompleted } = renderView();
+
+    expect(screen.getByTestId("required-password-card")).toHaveAttribute("data-password-stage", "ready");
+    fillPasswords();
+    fireEvent.click(screen.getByRole("button", { name: "비밀번호 변경" }));
+    expect(screen.getByTestId("required-password-card")).toHaveAttribute("data-password-stage", "changing");
+    await act(async () => rejectRequest?.(new Error("offline")));
+    expect(screen.getByTestId("required-password-card")).toHaveAttribute("data-password-stage", "failed");
+    expect(screen.getByLabelText("현재 임시 비밀번호")).toHaveFocus();
+    expect(onCompleted).not.toHaveBeenCalled();
+  });
+
   it.each([
     ["현재 비밀번호 누락", "", "new-password", "현재 임시 비밀번호를 입력하세요."],
     ["8자 미만", "temporary-password", "short", "새 비밀번호는 8자 이상 1024자 이하이며 공백만 사용할 수 없습니다."],
