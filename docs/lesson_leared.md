@@ -1000,3 +1000,10 @@
 - **발생했던 문제/실수**: 카메라 이동이나 요소 변경 뒤 새 cell을 만들기 전에 기존 Pixi raster를 제거했다. 네트워크 decode·Canvas paint·worker 취소가 이어지면 지도에 일시적인 빈 영역과 깜빡임이 생길 수 있었다.
 - **해결 및 예방책**: 새 bitmap은 generation staging owner에서 decode·paint와 최종 메모리 예약을 끝낸 뒤에만 active cell과 동기 교체한다. admission이 실패하면 기존 cell을 남기고 degraded 상태를 보고하며, off-screen stale cell만 LRU eviction 대상으로 연다.
 - **반복 방지 체크**: 지연 `loadTile` 중 `removeTile`이 호출되지 않는 회귀, destroy 뒤 staging/active budget 0, abort된 generation이 raster를 재발행하지 않는 회귀를 함께 유지한다.
+
+
+## 2026-09-25 공개 상담 ingress와 OAuth 인가 세대
+
+- **발생했던 문제/실수**: API host port가 없다는 사실만으로 Web의 단일 proxy hop을 신뢰하면, 같은 API로 연결되는 공개 9443 raw TLS 경로에서 위조 전달 헤더를 받아들일 수 있었다. OAuth의 같은 state 재사용 차단만으로는 서로 다른 오래된 인가 URL의 credential 덮어쓰기를 막지 못했다.
+- **해결 및 예방책**: 전체 ingress 경로와 TLS 종료 위치를 함께 검토한다. 공개 문의는 nginx가 덮어쓴 방문자 IP와 독립 서버 비밀을 검증하고 전역 proxy trust를 켜지 않는다. 실제 nginx HTTP/TCP 경로의 서로 다른 방문자·위조 입력을 테스트한다. 인가 시작·단회 소비·최신 세대 재검증·refresh를 같은 DB credential 잠금으로 조율하고, 서로 다른 state 및 claim 뒤 새 인가가 시작하는 순서를 별도 DB 연결로 검증한다.
+- **관측 확인**: 문자열 Logger 호출의 숫자가 production JSON logger에서 제거될 수 있으므로 실제 logger 경로로 `landing_inquiry_prune`·숫자 `deletedCount` 보존과 PII 배제를 검증한다.

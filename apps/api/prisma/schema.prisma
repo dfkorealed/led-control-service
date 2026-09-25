@@ -21,6 +21,7 @@ model LandingMailCredential {
 
 model LandingMailOAuthState {
   stateHash      String   @id
+  consumedAt     DateTime?
   operatorId     String
   connectionKey  String
   expiresAt      DateTime

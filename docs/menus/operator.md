@@ -5,10 +5,10 @@
 ## 구현 완료
 
 - 운영자 전용 `/operator/landing-inquiries` 메뉴에서 최근 상담 문의와 메일 상태를 조회한다. 기존 운영자 기본 경로 `/operator/site-admins`를 유지하며, 익명 요청은 401, 고객 admin/viewer 요청은 403으로 차단한다. 화면도 operator 이외 역할을 고객 모니터링으로 돌린다.
-- 문의 목록은 접수번호·접수일·회사/담당자·회신 정보·내용·발송 상태를 최근순으로 보여주고 불투명 커서로 20건씩 이전/다음 페이지를 이동한다. 만료된 문의는 조회에서 제외한다. 응답은 `Cache-Control: no-store`이며 토큰, 내부 문의 ID와 제공자 응답 원문은 노출하지 않는다.
-- `GET /operator/landing-mail/status`로 로컬 연결 상태를 확인하고, 연결되지 않았을 때 `POST /operator/landing-mail/authorize`로 독립 NAVER WORKS 구성원 OAuth를 시작한다. `mail` 범위의 인가 URL만 브라우저 이동을 허용한다. 단회 10분 state callback은 토큰을 암호화 저장하고 운영자 문의 화면으로 돌려보낸다.
-- 메일 worker는 시작 시와 30초마다 대기 문의를 처리한다. NAVER WORKS HTTP 202만 `provider_accepted`로 기록하고 `queued`, `retry_wait`, `delivery_uncertain`, `failed`를 구분한다. 호출 전 OAuth 오류 또는 확정 429 거부만 제한적으로 재시도하며 수락 여부가 불확실하면 중복 전송을 막기 위해 닫는다.
-- 접수 후 90일이 지난 문의 원본과 발송 메타데이터를 한 번에 최대 100건씩 삭제한다. 종료 후에도 만료된 문의는 목록과 발송 대상에서 제외한다.
+- 문의 목록은 접수번호·접수일·회사/담당자·회신 정보·내용·발송 상태를 최근순으로 보여주고 불투명 커서로 20건씩 이전/다음 페이지를 이동하며, 이후 페이지 조회 실패 중에도 이전 페이지로 돌아갈 수 있다. 만료된 문의는 조회에서 제외한다. 응답은 `Cache-Control: no-store`이며 토큰, 내부 문의 ID와 제공자 응답 원문은 노출하지 않는다.
+- `GET /operator/landing-mail/status`로 로컬 연결 상태를 확인하고, 미연결 또는 기존 연결을 교체할 때 `POST /operator/landing-mail/authorize`로 독립 NAVER WORKS 구성원 OAuth를 시작한다. `mail` 범위의 인가 URL만 브라우저 이동을 허용한다. 연결된 상태에도 `NAVER WORKS 다시 연결`을 제공한다. 새 인가 시작은 이전 URL을 무효화하며, 단회 10분 state와 PostgreSQL 잠금으로 오래된 callback의 덮어쓰기를 거부한다. 공개 Web origin의 `/api/landing-mail/oauth/callback`은 토큰을 암호화 저장하고 같은 origin의 운영자 문의 화면으로 돌려보낸다. 명시적으로 거부된 refresh 자격 증명은 미연결과 새 문의 503으로 전환하며 일시 장애는 연결을 유지한다.
+- 메일 worker는 시작 시와 30초마다 대기 문의를 처리한다. NAVER WORKS HTTP 202만 `provider_accepted`와 응답 후 수락 시각으로 기록하고 `queued`, `retry_wait`, `delivery_uncertain`, `failed`를 구분한다. 호출 전 OAuth 오류 또는 확정 429 거부만 제한적으로 재시도하며 수락 여부가 불확실하면 중복 전송을 막기 위해 닫는다.
+- 접수 후 90일이 지난 문의 원본과 발송 메타데이터를 한 번에 최대 100건씩 삭제한다. `landing_inquiry_prune` JSON 이벤트의 숫자 `deletedCount`로 실제 삭제 건수(0 포함)를 관측한다. 삭제 대기 중에도 만료된 문의는 목록과 발송 대상에서 제외한다.
 - 소프트웨어 검증은 API의 권한·OAuth·PostgreSQL worker 통합 테스트와 Web 운영자 화면·Chromium 경로 검사를 통과했다.
 
 ## 미구현

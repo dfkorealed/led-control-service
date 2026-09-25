@@ -3,9 +3,10 @@ import { LandingMailOAuthService } from "./landing-mail-oauth.service";
 
 const key = Buffer.alloc(32, 17).toString("base64");
 const configuration = {
+  WEB_PUBLIC_URL: "https://kinda.example",
   LANDING_NAVER_WORKS_CLIENT_ID: "test-client",
   LANDING_NAVER_WORKS_CLIENT_SECRET: "test-secret",
-  LANDING_NAVER_WORKS_REDIRECT_URI: "https://kinda.example/landing-mail/oauth/callback",
+  LANDING_NAVER_WORKS_REDIRECT_URI: "https://kinda.example/api/landing-mail/oauth/callback",
   LANDING_NAVER_WORKS_SENDER: "sender@example.com",
   LANDING_MAIL_TOKEN_KEY: key
 };
@@ -14,10 +15,16 @@ function setup() {
   let credential: any = null;
   const db: any = {
     landingMailOAuthState: {
-      create: jest.fn(async ({ data }) => { states.set(data.stateHash, data); return data; }),
-      deleteMany: jest.fn(async ({ where }) => {
-        if (!where.stateHash) {
-          for (const [hash, row] of states) if (row.expiresAt <= where.expiresAt.lte) states.delete(hash);
+      create: jest.fn(async ({ data }) => { const row = { ...data, consumedAt: null }; states.set(data.stateHash, row); return row; }),
+      findUnique: jest.fn(async ({ where }) => states.get(where.stateHash) ?? null),
+      updateMany: jest.fn(async ({ where, data }) => {
+        const row = states.get(where.stateHash);
+        if (!row || row.consumedAt || row.connectionKey !== where.connectionKey || row.expiresAt <= where.expiresAt.gt) return { count: 0 };
+        Object.assign(row, data); return { count: 1 };
+      }),
+      deleteMany: jest.fn(async ({ where } = {}) => {
+        if (!where || !where.stateHash) {
+          for (const [hash, row] of states) if (!where || row.expiresAt <= where.expiresAt.lte) states.delete(hash);
           return { count: 0 };
         }
         const row = states.get(where.stateHash);
@@ -28,6 +35,7 @@ function setup() {
     },
     landingMailCredential: {
       findUnique: jest.fn(async () => credential),
+      deleteMany: jest.fn(async () => { credential = null; return { count: 1 }; }),
       upsert: jest.fn(async ({ create, update }) => { credential = { ...(credential ? update : create) }; return credential; })
     },
     $queryRaw: jest.fn(async () => []),
@@ -94,6 +102,57 @@ describe("LandingMailOAuthService", () => {
     expect(options.body.get("redirect_uri")).toBe(configuration.LANDING_NAVER_WORKS_REDIRECT_URI);
   });
 
+  it("rejects an older outstanding authorization after a newer one connects", async () => {
+    const ctx = setup();
+    const first = await authorize(ctx);
+    const second = await authorize(ctx);
+    expect(first).not.toBe(second);
+    await ctx.service.completeAuthorization("new-code", second);
+    const before = { ...ctx.credential() };
+    await expect(ctx.service.completeAuthorization("old-code", first)).rejects.toMatchObject({ status: 400 });
+    expect(ctx.credential()).toEqual(before);
+    expect(ctx.fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(["invalid_grant", "invalid_client", "unauthorized_client", "invalid_scope"])("disconnects definitively rejected refresh credentials (%s)", async (error) => {
+    const ctx = setup();
+    await ctx.service.completeAuthorization("code", await authorize(ctx));
+    ctx.fetchMock.mockResolvedValueOnce({ ok: false, status: 400, json: async () => ({ error }) });
+    await expect(ctx.service.getAccessToken(true)).rejects.toMatchObject({ status: 503 });
+    expect(await ctx.service.getConnectionStatus()).toEqual({ connected: false });
+    await expect(ctx.service.getAccessToken()).rejects.toMatchObject({ status: 503 });
+    expect(ctx.fetchMock).toHaveBeenCalledTimes(2);
+    await ctx.service.completeAuthorization("reconnect-code", await authorize(ctx));
+    expect(await ctx.service.getConnectionStatus()).toEqual({ connected: true });
+  });
+
+  it("disconnects when refreshed tokens explicitly omit the required mail scope", async () => {
+    const ctx = setup();
+    await ctx.service.completeAuthorization("code", await authorize(ctx));
+    ctx.fetchMock.mockResolvedValueOnce({ ok: true, json: async () => ({ access_token: "access-two", expires_in: 3600, scope: "mail.read", token_type: "Bearer" }) });
+    await expect(ctx.service.getAccessToken(true)).rejects.toMatchObject({ status: 503 });
+    expect(await ctx.service.getConnectionStatus()).toEqual({ connected: false });
+  });
+
+  it("keeps credentials after network failure and unrecognized provider response", async () => {
+    const ctx = setup();
+    await ctx.service.completeAuthorization("code", await authorize(ctx));
+    ctx.fetchMock.mockRejectedValueOnce(new Error("upstream connection failed"));
+    await expect(ctx.service.getAccessToken(true)).rejects.toMatchObject({ status: 503 });
+    expect(await ctx.service.getConnectionStatus()).toEqual({ connected: true });
+    ctx.fetchMock.mockResolvedValueOnce({ ok: false, status: 400, json: async () => ({ error: "temporarily_unavailable" }) });
+    await expect(ctx.service.getAccessToken(true)).rejects.toMatchObject({ status: 503 });
+    expect(await ctx.service.getConnectionStatus()).toEqual({ connected: true });
+  });
+
+  it.each([429, 500, 503])("keeps credentials after temporary provider failure %s", async (status) => {
+    const ctx = setup();
+    await ctx.service.completeAuthorization("code", await authorize(ctx));
+    ctx.fetchMock.mockResolvedValueOnce({ ok: false, status, json: async () => ({ error: "invalid_grant" }) });
+    await expect(ctx.service.getAccessToken(true)).rejects.toMatchObject({ status: 503 });
+    expect(await ctx.service.getConnectionStatus()).toEqual({ connected: true });
+  });
+
   it("rejects missing, modified and expired states before contacting the provider", async () => {
     jest.useFakeTimers().setSystemTime(new Date("2026-09-25T00:00:00Z"));
     const ctx = setup();
@@ -139,7 +198,11 @@ describe("LandingMailOAuthService", () => {
     ["LANDING_MAIL_TOKEN_KEY", Buffer.alloc(31).toString("base64")],
     ["LANDING_NAVER_WORKS_CLIENT_SECRET", ""], ["LANDING_NAVER_WORKS_SENDER", ""],
     ["LANDING_NAVER_WORKS_REDIRECT_URI", "http://kinda.example/landing-mail/oauth/callback"],
-    ["LANDING_NAVER_WORKS_REDIRECT_URI", "https://kinda.example/wrong"]
+    ["LANDING_NAVER_WORKS_REDIRECT_URI", "https://kinda.example/wrong"],
+    ["LANDING_NAVER_WORKS_REDIRECT_URI", "https://kinda.example/landing-mail/oauth/callback"],
+    ["LANDING_NAVER_WORKS_REDIRECT_URI", "https://api.example/api/landing-mail/oauth/callback"],
+    ["LANDING_NAVER_WORKS_REDIRECT_URI", "https://kinda.example/api/landing-mail/oauth/callback?x=1"],
+    ["WEB_PUBLIC_URL", "https://kinda.example/somewhere"]
   ])("fails disconnected without crashing for bad %s", async (name, value) => {
     process.env[name] = value;
     const ctx = setup();

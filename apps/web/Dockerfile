@@ -17,8 +17,8 @@ RUN pnpm --filter @led-control/web build
 
 FROM nginx:1.27.5-alpine
 
-# Render only the HTTPS origin. nginx variables must survive envsubst unchanged.
-ENV NGINX_ENVSUBST_FILTER=WEB_HTTPS_ORIGIN
+# Render only these server settings; nginx request variables survive unchanged.
+ENV NGINX_ENVSUBST_FILTER="^(WEB_HTTPS_ORIGIN|LANDING_INGRESS_SECRET)$"
 RUN sed -i 's@^pid .*;@pid /tmp/nginx.pid;@; /user  nginx;/d' /etc/nginx/nginx.conf
 RUN printf '\ninclude /etc/nginx/stream.conf;\n' >> /etc/nginx/nginx.conf
 

@@ -47,7 +47,7 @@ export function LandingInquiriesView() {
           {mail.isPending ? <p className="text-content-secondary">연결 상태를 확인하는 중입니다.</p> : null}
           {mail.isSuccess ? <p className="text-content-secondary">{mail.data.connected ? "연결됨" : "연결되지 않음"}</p> : null}
         </div>
-        {mail.isSuccess && !mail.data.connected ? <Button type="button" variant="primary" isLoading={isConnecting} loadingLabel="연결 시작 중" onClick={() => void connectMail()}>NAVER WORKS 연결</Button> : null}
+        {mail.isSuccess ? <Button type="button" variant="primary" isLoading={isConnecting} loadingLabel="연결 시작 중" onClick={() => void connectMail()}>{mail.data.connected ? "NAVER WORKS 다시 연결" : "NAVER WORKS 연결"}</Button> : null}
       </div>
       {mail.isError ? <FeedbackState tone="danger" icon={CircleAlert} title="메일 연결 상태를 확인하지 못했습니다." description="잠시 후 다시 확인하세요." action={<Button type="button" onClick={() => void mail.refetch()}>다시 확인</Button>} /> : null}
       {connectionError ? <FeedbackState tone="danger" icon={CircleAlert} title="연결을 시작하지 못했습니다." description="서버 설정과 연결 상태를 확인한 뒤 다시 시도하세요." /> : null}
@@ -59,19 +59,17 @@ export function LandingInquiriesView() {
       <h2 className="text-card-title font-bold text-content-primary">최근 상담 문의</h2>
       {inquiries.isPending ? <FeedbackState tone="neutral" icon={Clock3} title="문의 목록을 불러오는 중입니다." /> : null}
       {inquiries.isError ? <FeedbackState tone="danger" icon={CircleAlert} title="문의 목록을 불러오지 못했습니다." description="연결을 확인한 뒤 다시 시도하세요." action={<Button type="button" onClick={() => void inquiries.refetch()}>다시 시도</Button>} /> : null}
-      {inquiries.isSuccess ? <>
-        <DataTableShell caption="최근 상담 문의 표">
-          <thead><tr>{["접수번호", "접수일", "회사 / 담당자", "회신 정보", "문의 내용", "메일 상태"].map((label) => <th key={label} scope="col" className={headerClass}>{label}</th>)}</tr></thead>
-          <tbody>
-            {inquiries.data.items.map((item) => <InquiryRow key={item.reference} item={item} />)}
-            {inquiries.data.items.length === 0 ? <tr><td colSpan={6} className={`${cellClass} py-10 text-center text-content-secondary`}>접수된 상담 문의가 없습니다.</td></tr> : null}
-          </tbody>
-        </DataTableShell>
-        <div className="flex justify-end gap-2">
-          {cursorHistory.length > 0 ? <Button type="button" onClick={() => setCursorHistory((history) => history.slice(0, -1))}>이전 문의</Button> : null}
-          {inquiries.data.nextCursor ? <Button type="button" onClick={() => setCursorHistory((history) => [...history, inquiries.data.nextCursor!])}>다음 문의</Button> : null}
-        </div>
-      </> : null}
+      {inquiries.isSuccess ? <DataTableShell caption="최근 상담 문의 표">
+        <thead><tr>{["접수번호", "접수일", "회사 / 담당자", "회신 정보", "문의 내용", "메일 상태"].map((label) => <th key={label} scope="col" className={headerClass}>{label}</th>)}</tr></thead>
+        <tbody>
+          {inquiries.data.items.map((item) => <InquiryRow key={item.reference} item={item} />)}
+          {inquiries.data.items.length === 0 ? <tr><td colSpan={6} className={`${cellClass} py-10 text-center text-content-secondary`}>접수된 상담 문의가 없습니다.</td></tr> : null}
+        </tbody>
+      </DataTableShell> : null}
+      <div className="flex justify-end gap-2">
+        {cursorHistory.length > 0 ? <Button type="button" onClick={() => setCursorHistory((history) => history.slice(0, -1))}>이전 문의</Button> : null}
+        {inquiries.isSuccess && inquiries.data.nextCursor ? <Button type="button" onClick={() => setCursorHistory((history) => [...history, inquiries.data.nextCursor!])}>다음 문의</Button> : null}
+      </div>
     </div>
   </section>;
 }

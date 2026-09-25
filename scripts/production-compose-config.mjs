@@ -49,6 +49,11 @@ export function validateProductionConfig(config, {smokeProject}={}) {
     if(!['api-migrate','object-storage-init','crl-init'].includes(name)) requireRule(service.healthcheck?.test?.length && !service.healthcheck.disable && !/(?:^|\s)true(?:$|\s)|\|\||exit 0/.test(service.healthcheck.test.join(' ')), 'required failing healthcheck');
   }
   for(const name of ['api','api-migrate','cad-converter','web']) requireRule(/^(1000|2000|101)(:\d+)?$/.test(s[name].user),'non-root application runtime');
+  const ingressSecret = s.api.environment.LANDING_INGRESS_SECRET;
+  requireRule(typeof ingressSecret === 'string' && /^[a-f0-9]{64}$/.test(ingressSecret) &&
+    s.web.environment.LANDING_INGRESS_SECRET === ingressSecret, 'landing ingress shared secret');
+  requireRule(!s.api.environment.API_TRUST_PROXY, 'landing ingress excludes global proxy trust');
+  requireRule(s.api.environment.WEB_PUBLIC_URL === s.web.environment.WEB_HTTPS_ORIGIN, 'landing ingress canonical Web origin');
   requireRule(s.api.image===s['api-migrate'].image,'identical migration and API image');
   requireRule(s.api.depends_on?.['api-migrate']?.condition==='service_completed_successfully','migration before API');
   requireRule(s.api.depends_on?.['cad-converter']?.condition==='service_healthy','ready converter sidecar before API');

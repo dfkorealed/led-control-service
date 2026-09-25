@@ -119,6 +119,7 @@ const env={PRODUCTION_COMPOSE_PROJECT:project,API_IMAGE:`${project}-api:sha-${id
  WEB_PUBLIC_URL:'https://localhost',WEB_HTTPS_ORIGIN:'https://localhost',WEB_HTTP_PORT:'127.0.0.1::8080',WEB_HTTPS_PORT:'127.0.0.1::8443'};
 // Production uses fixed target ports in its short syntax; zero asks Docker for
 // private loopback ephemeral host ports, avoiding every existing stack's ports.
+env.LANDING_INGRESS_SECRET=randomBytes(32).toString('hex');
 env.WEB_HTTP_PORT='127.0.0.1:0'; env.WEB_HTTPS_PORT='127.0.0.1:0'; env.DEVICE_API_HTTPS_PORT='127.0.0.1:0';
 write('smoke.env',Object.entries(env).map(([k,v])=>`${k}=${v}`).join('\n'));
 // Docker internal networks do not publish host ports. Keep dependencies/Vault
@@ -146,7 +147,7 @@ async function stream(file,args,filename) {
   write(filename,Buffer.concat(chunks));
   if(code!==0) {
     let safe=Buffer.concat(chunks).toString();
-    for(const value of [token,password,redisPassword,env.OBJECT_STORAGE_ACCESS_KEY,env.OBJECT_STORAGE_SECRET_KEY]) safe=safe.replaceAll(value,'[REDACTED]');
+    for(const value of [token,password,redisPassword,env.OBJECT_STORAGE_ACCESS_KEY,env.OBJECT_STORAGE_SECRET_KEY,env.LANDING_INGRESS_SECRET]) safe=safe.replaceAll(value,'[REDACTED]');
     log(safe.slice(-2000));
     throw new Error(`${filename} failed`);
   }
@@ -363,7 +364,7 @@ try {
 } catch(error) {
   let diagnostic=compose('logs','--no-color','api-migrate','cad-converter','api','web');
   write('containers.log',diagnostic);
-  for(const value of [token,password,redisPassword,env.OBJECT_STORAGE_ACCESS_KEY,env.OBJECT_STORAGE_SECRET_KEY]) diagnostic=diagnostic.replaceAll(value,'[REDACTED]');
+  for(const value of [token,password,redisPassword,env.OBJECT_STORAGE_ACCESS_KEY,env.OBJECT_STORAGE_SECRET_KEY,env.LANDING_INGRESS_SECRET]) diagnostic=diagnostic.replaceAll(value,'[REDACTED]');
   log(diagnostic.slice(-5000));
   throw error;
 }

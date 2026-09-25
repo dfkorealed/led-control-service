@@ -1,4 +1,5 @@
 import { Body, Controller, HttpCode, Post, Req } from "@nestjs/common";
+import { landingInquiryClientIp } from "./landing-inquiry-client-ip";
 import type { LandingInquiryInput } from "./landing-inquiry.dto";
 import { LandingInquiriesService } from "./landing-inquiries.service";
 
@@ -8,7 +9,7 @@ export class LandingInquiriesController {
 
   @Post("/")
   @HttpCode(201)
-  submit(@Body() input: LandingInquiryInput, @Req() request: { ip?: string }) {
-    return this.inquiries.submit(input, request.ip || "unknown");
+  submit(@Body() input: LandingInquiryInput, @Req() request: Parameters<typeof landingInquiryClientIp>[0]) {
+    return this.inquiries.submit(input, landingInquiryClientIp(request));
   }
 }

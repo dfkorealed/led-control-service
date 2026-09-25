@@ -23,6 +23,11 @@ function submit() {
 }
 
 describe("InquiryForm", () => {
+  it("shows a Korean audience placeholder", () => {
+    render(<InquiryForm />);
+    expect(screen.getByRole("button", { name: /고객 유형/ })).toHaveTextContent("선택해 주세요");
+  });
+
   it("blocks missing required fields, malformed email, and absent consent", async () => {
     render(<InquiryForm />);
     submit();

@@ -12,9 +12,9 @@ const root = path.resolve(import.meta.dirname, "..");
 const source = readFileSync(path.join(root, "docker-compose.production.yml"), "utf8");
 const runbook = readFileSync(path.join(root, "docs/runbooks/production-api-web-deployment.md"), "utf8");
 const required = ["API_IMAGE", "WEB_IMAGE", "POSTGRES_USER", "POSTGRES_PASSWORD", "POSTGRES_DB", "DATABASE_URL", "REDIS_PASSWORD", "REDIS_URL", "MQTT_URL", "MQTT_PUBLIC_URL", "MQTT_API_INSTANCE_ID", "MQTT_TLS_CERT_DIR", "API_TLS_CERT_DIR", "WEB_TLS_CERT_DIR", "VAULT_ADDR", "VAULT_TOKEN_FILE", "VAULT_CA_CERT_PATH", "VAULT_PKI_DEVICE_MOUNT", "VAULT_PKI_DEVICE_ROLE", "VAULT_PKI_MQTT_MOUNT", "VAULT_PKI_MQTT_ROLE", "OBJECT_STORAGE_ACCESS_KEY", "OBJECT_STORAGE_SECRET_KEY", "OBJECT_STORAGE_BUCKET", "OBJECT_STORAGE_REPORT_BUCKET", "OBJECT_STORAGE_ENDPOINT", "OBJECT_STORAGE_PUBLIC_URL", "OBJECT_STORAGE_REGION", "WEB_PUBLIC_URL", "WEB_HTTPS_ORIGIN", "WEB_HTTP_PORT", "WEB_HTTPS_PORT", "CAD_IMPORT_CONVERTER_BUNDLE_PATH", "CAD_IMPORT_CONVERTER_ARGV_JSON", "CAD_IMPORT_CONVERTER_SHA256"];
-required.push("PRODUCTION_COMPOSE_PROJECT", "DEVICE_API_HTTPS_PORT");
+required.push("PRODUCTION_COMPOSE_PROJECT", "DEVICE_API_HTTPS_PORT", "LANDING_INGRESS_SECRET");
 // Config output is never logged; fixtures cannot inherit shell credentials or .env.
-function render(omit, project = "led-production-contract") {
+function render(omit, project = "led-production-contract", optionalEnv = {}) {
   const dir = mkdtempSync(path.join(tmpdir(), "led-production-contract-"));
   const env = Object.fromEntries(required.map(key => [key, `fixture-${randomBytes(16).toString("hex")}`]));
   Object.assign(env, { API_IMAGE: `led-api@sha256:${'a'.repeat(64)}`, WEB_IMAGE: `led-web@sha256:${'b'.repeat(64)}`, WEB_HTTP_PORT: "18080", WEB_HTTPS_PORT: "18443" });
@@ -26,6 +26,7 @@ function render(omit, project = "led-production-contract") {
   writeFileSync(path.join(dir, "bin/converter"), "approved-converter");
   chmodSync(path.join(dir, "bin/converter"), 0o555);
   env.CAD_IMPORT_CONVERTER_SHA256 = createHash("sha256").update("approved-converter").digest("hex");
+  Object.assign(env, { LANDING_INGRESS_SECRET: "a".repeat(64) }, optionalEnv);
   if (omit) delete env[omit];
   const envPath = path.join(dir, "fixture.env");
   writeFileSync(envPath, Object.entries(env).map(([k, v]) => `${k}=${v}`).join("\n"), { mode: 0o600 });
@@ -73,6 +74,38 @@ test("standalone config renders all services and migration → API → Web gates
     read_only: true,
     bind: { create_host_path: false }
   });
+});
+
+test("landing mail settings reach only API while authenticated ingress shares a required key", () => {
+  const optional = { LANDING_NAVER_WORKS_CLIENT_ID: "fixture-client", LANDING_NAVER_WORKS_CLIENT_SECRET: "fixture-secret",
+    LANDING_NAVER_WORKS_REDIRECT_URI: "https://web.invalid/api/landing-mail/oauth/callback",
+    LANDING_NAVER_WORKS_SENDER: "fixture@example.com", LANDING_MAIL_TOKEN_KEY: Buffer.alloc(32, 17).toString("base64") };
+  const result = render(undefined, "led-production-contract", optional);
+  assert.equal(result.status, 0);
+  for (const [key, value] of Object.entries(optional)) {
+    assert.equal(result.config.services.api.environment[key], value);
+    for (const [name, service] of Object.entries(result.config.services)) if (name !== "api") assert.equal(service.environment?.[key], undefined);
+  }
+  const blank = render().config;
+  for (const key of Object.keys(optional)) assert.equal(blank.services.api.environment[key], "");
+  assert.equal(result.config.services.api.environment.LANDING_INGRESS_SECRET, "a".repeat(64));
+  assert.equal(result.config.services.web.environment.LANDING_INGRESS_SECRET, "a".repeat(64));
+  assert.equal(result.config.services.api.environment.API_TRUST_PROXY, undefined);
+  for (const key of ["bad", "b".repeat(64) + "\n", "x".repeat(64)]) {
+    const unsafe = structuredClone(result.config);
+    unsafe.services.api.environment.LANDING_INGRESS_SECRET = key;
+    unsafe.services.web.environment.LANDING_INGRESS_SECRET = key;
+    assert.throws(() => validateProductionConfig(unsafe), /landing ingress/);
+  }
+  for (const change of [
+    config => { config.services.web.environment.LANDING_INGRESS_SECRET = "b".repeat(64); },
+    config => { config.services.api.environment.API_TRUST_PROXY = "1"; },
+    config => { config.services.web.environment.WEB_HTTPS_ORIGIN = "https://other.invalid"; }
+  ]) {
+    const unsafe = structuredClone(result.config);
+    change(unsafe);
+    assert.throws(() => validateProductionConfig(unsafe), /landing ingress/);
+  }
 });
 
 test("every credential, URL, PKI path and image fails render when omitted", () => {

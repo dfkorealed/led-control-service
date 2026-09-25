@@ -49,7 +49,7 @@ API는 migration과 runtime에 같은 image를 사용한다. 로컬 image ID와 
 
 ## 3. 필수 환경·PKI 경로 확인 — 읽기 전용
 
-필수 입력 37개는 다음과 같다. 내부 URL의 PostgreSQL·Redis credential은 각각 서비스 설정과 일치하고 URL 인코딩해야 한다. 브라우저 origin 두 값은 동일한 승인 HTTPS origin을 사용한다. 도면·보고서 bucket은 모두 `anonymous none`으로 초기화하고 서로 다른 이름을 사용한다. 도면 업로드용 presigned PUT의 CORS origin은 `WEB_PUBLIC_URL` 하나로 제한하며, 조회는 인증된 API content endpoint가 발급하는 300초 signed GET만 사용한다.
+필수 입력은 다음과 같다. 내부 URL의 PostgreSQL·Redis credential은 각각 서비스 설정과 일치하고 URL 인코딩해야 한다. 브라우저 origin 두 값은 동일한 승인 HTTPS origin을 사용한다. 도면·보고서 bucket은 모두 `anonymous none`으로 초기화하고 서로 다른 이름을 사용한다. 도면 업로드용 presigned PUT의 CORS origin은 `WEB_PUBLIC_URL` 하나로 제한하며, 조회는 인증된 API content endpoint가 발급하는 300초 signed GET만 사용한다.
 
 | 구분 | 필수 env key |
 | --- | --- |
@@ -59,7 +59,10 @@ API는 migration과 runtime에 같은 image를 사용한다. 로컬 image ID와 
 | Vault | `VAULT_ADDR`, `VAULT_TOKEN_FILE`, `VAULT_CA_CERT_PATH`, `VAULT_PKI_DEVICE_MOUNT`, `VAULT_PKI_DEVICE_ROLE`, `VAULT_PKI_MQTT_MOUNT`, `VAULT_PKI_MQTT_ROLE` |
 | Object Storage | `OBJECT_STORAGE_ENDPOINT`, `OBJECT_STORAGE_PUBLIC_URL`, `OBJECT_STORAGE_ACCESS_KEY`, `OBJECT_STORAGE_SECRET_KEY`, `OBJECT_STORAGE_BUCKET`, `OBJECT_STORAGE_REPORT_BUCKET`, `OBJECT_STORAGE_REGION` |
 | CAD converter | `CAD_IMPORT_CONVERTER_BUNDLE_PATH`, `CAD_IMPORT_CONVERTER_ARGV_JSON`, `CAD_IMPORT_CONVERTER_SHA256` |
+| 공개 문의 ingress | `LANDING_INGRESS_SECRET` — 독립 32바이트 난수의 64자리 소문자 hex, API/Web에 동일 주입 |
 | API·Web TLS·port | `API_TLS_CERT_DIR`, `WEB_TLS_CERT_DIR`, `WEB_PUBLIC_URL`, `WEB_HTTPS_ORIGIN`, `WEB_HTTP_PORT`, `WEB_HTTPS_PORT`, `DEVICE_API_HTTPS_PORT` |
+
+공개 문의 ingress는 nginx가 덮어쓴 방문자 IP와 별도 비밀을 검증한다. 장비용 9443 raw TLS 우회를 막기 위해 `API_TRUST_PROXY`는 설정하지 않는다. 선택적인 메일 설정 5개는 API에만 전달하며 등록 callback은 Web origin의 `/api/landing-mail/oauth/callback`이다. 누락·교체·재연결 절차는 [메일 연결 운영 절차](landing-mail-setup.md)를 따른다.
 
 `PRODUCTION_COMPOSE_PROJECT`는 `led-production-` prefix, 소문자 영숫자와 단일 하이픈, 최대 63자다. checkout 기본 project와 `led-production-default/dev/development`는 거부한다. 신규 배포는 해당 이름의 기존 자원 부재를 확인하고, 업데이트는 정확한 기존 운영 project와 백업 대상 volume을 승인 기록에 대조한다. 모든 named volume은 project prefix를 가져야 하며 external/shared volume은 금지한다.
 

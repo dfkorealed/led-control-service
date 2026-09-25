@@ -38,6 +38,9 @@ server {
     proxy_ssl_trusted_certificate /run/api-tls/api-ca.crt;
     proxy_http_version 1.1;
     proxy_set_header Host $host;
+    # Overwrite both fields; public device TCP ingress must not forge a visitor.
+    proxy_set_header X-Landing-Ingress-Secret "${LANDING_INGRESS_SECRET}";
+    proxy_set_header X-Landing-Client-IP $remote_addr;
     proxy_set_header X-Real-IP $remote_addr;
     proxy_set_header X-Forwarded-For $remote_addr;
     proxy_set_header X-Forwarded-Proto $scheme;

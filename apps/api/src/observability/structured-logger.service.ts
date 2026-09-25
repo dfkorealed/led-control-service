@@ -15,7 +15,8 @@ const applicationOperations = new Set([
   "request",
   "background_job",
   "message_processing",
-  "persistence"
+  "persistence",
+  "landing_inquiry_prune"
 ]);
 const errorClasses = new Set([
   "Error",
@@ -47,7 +48,8 @@ const safeContexts = new Set([
   "EnergyReportCleanupService",
   "EnergyRetentionService",
   "EnergyReportWorkerService",
-  "FloorImportWorkerService"
+  "FloorImportWorkerService",
+  "LandingMailWorker"
 ]);
 
 @Injectable()
@@ -106,7 +108,13 @@ function classifyApplicationEvent(message: unknown, level: LogLevel) {
   const operation = typeof requestedOperation === "string" && applicationOperations.has(requestedOperation)
     ? requestedOperation
     : classifyLegacyOperation(typeof message === "string" ? message : "");
-  if (level !== "error" && level !== "fatal") return { operation };
+  if (level !== "error" && level !== "fatal") {
+    // Retention emits counts only. The bounded worker batch is at most 100 rows;
+    // arbitrary messages, identifiers and provider bodies stay excluded.
+    const deletedCount = record?.deletedCount;
+    return { operation, ...(operation === "landing_inquiry_prune" && typeof deletedCount === "number" &&
+      Number.isInteger(deletedCount) && deletedCount >= 0 && deletedCount <= 100 ? { deletedCount } : {}) };
+  }
 
   const error = message instanceof Error ? message : record?.error;
   const requestedClass = error instanceof Error ? error.name : record?.errorClass;

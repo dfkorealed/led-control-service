@@ -86,6 +86,17 @@ describe("StructuredLoggerService", () => {
     expect(lines[0]).not.toMatch(/auth-secret|password-secret|url-secret|tenant-secret|cookie-secret|body-secret|query-secret|stack-secret|api-key-secret|raw-device-secret|trace-secret/);
   });
 
+  it("keeps only a bounded numeric landing prune count and never arbitrary payloads", () => {
+    const { logger, lines } = harness();
+    logger.log({ operation: "landing_inquiry_prune", deletedCount: 0, email: "private@example.com" }, "LandingMailWorker");
+    expect(JSON.parse(lines[0])).toEqual({ timestamp, level: "info", context: "LandingMailWorker", operation: "landing_inquiry_prune", deletedCount: 0 });
+    for (const deletedCount of [-1, 101, 1.5, "secret", Infinity]) {
+      logger.log({ operation: "landing_inquiry_prune", deletedCount, message: "private" }, "LandingMailWorker");
+      expect(JSON.parse(lines.at(-1)!)).not.toHaveProperty("deletedCount");
+    }
+    expect(lines.join("")).not.toMatch(/private|secret/);
+  });
+
   it("retains only bounded CAD diagnostic fields, never raw CAD text or credentials", () => {
     const { logger, lines } = harness();
     logger.error({ operation: "background_job", diagnosticCode: "CAD_CORE_TIMEOUT", phase: "parse",

@@ -11,6 +11,10 @@
 - [x] 공개 `/` 랜딩·상담 양식과 `/operator/landing-inquiries` 목록·메일 연결 화면을 구현했다. Web 전체 2,360 tests, 타입 검사·빌드·UI 정책 검사, 랜딩 Chromium 12/12가 통과했다. 공개 진입의 인증 API 비호출, 320/390/1024/1440px 반응형·접근성, 접수 오류/응답 유실 재시도와 운영자 권한 경계를 자동 검증했다. 브라우저의 API 응답은 테스트 대역이다.
 - [ ] 운영 문서·메뉴 현황·체크리스트를 최종 통합 검토 결과와 일치시키고 독립 검토한다. 배포 환경에 독립 자격 증명을 설정한 뒤 NAVER WORKS OAuth 승인, 실제 메일 발송 및 받은편지함 수신을 별도로 확인해야 한다. 현재 자동 테스트의 `provider_accepted`는 NAVER WORKS의 HTTP 202 수락 의미일 뿐 수신 확인이 아니다.
 
+최종 검토 보정(2026-09-25): 공개 callback을 Web origin의 `/api/landing-mail/oauth/callback`으로 고정하고 optional 메일 환경 변수 5개를 production API container에 전달한다. 필수 `LANDING_INGRESS_SECRET`은 API/Web에 같은 독립 64자리 hex로 설정한다. Web이 덮어쓴 IP·비밀을 검증하므로 공개 9443 raw TLS 경로에서 전달 헤더를 위조해 문의 제한을 우회할 수 없고, 전역 proxy trust는 사용하지 않는다. `consumedAt` migration과 DB 잠금으로 최신 인가 세대만 저장하며, 명시적 refresh 자격 증명 거부는 미연결·새 접수 503으로 전환한다. 연결 상태의 재연결 버튼, 조회 실패 중 이전 페이지, 한국어 선택 안내와 202 응답 후 시각, 숫자 삭제 건수 JSON 로그도 보완했다.
+
+이 보정의 검증은 API 전체 221 suites·2,650 tests 통과/631 opt-in 제외, 격리 PostgreSQL 101개 migration, 실제 nginx HTTP/TCP ingress 3/3, 구성·container 계약 24/24, Web 집중 19/19, Chromium 13/13, API/Web 타입 검사·빌드 및 UI 정책 58/58·위반 0이다. Web 전체 병렬 실행은 2,362개 통과·3개 제외·기존 `StatusDetailButton` 포커스 검사 1개 실패였고, 해당 파일 단독 재실행은 변경 없이 4/4를 통과했다. 전체 Web을 성공으로 기록하지 않으며 총괄이 순차 최종 확인한다. 실제 OAuth 승인·메일 발송·받은편지함 확인, 운영 배포 및 사용자/운영 DB migration은 여전히 미실행이다. 자세한 배포 계약은 [메일 운영 절차](runbooks/landing-mail-setup.md)를 따른다.
+
 ## 2026-09-24 고객 UI/UX 전면 적용
 
 - [x] 승인된 11개 화면 시안과 기존 Tailwind/React Aria 디자인 시스템의 적용 계약을 문서화했다 (`4b28e946`). PNG의 수치와 상태는 가상 예시이며 제품 구현 완료 증거가 아니다.

@@ -128,7 +128,7 @@ export function InquiryForm() {
         <TextField ref={emailRef} label="회신 이메일" type="email" value={fields.email} onChange={(value) => update("email", value)} isRequired isInvalid={!!errors.email} errorMessage={errors.email} isDisabled={pending} />
         <TextField ref={phoneRef} label="전화번호" type="tel" value={fields.phone} onChange={(value) => update("phone", value)} isInvalid={!!errors.phone} errorMessage={errors.phone} isDisabled={pending} />
       </div>
-      <SelectBox label="고객 유형" items={audienceItems} selectedKey={fields.audience} onSelectionChange={(value) => update("audience", value)} isDisabled={pending} />
+      <SelectBox label="고객 유형" placeholder="선택해 주세요" items={audienceItems} selectedKey={fields.audience} onSelectionChange={(value) => update("audience", value)} isDisabled={pending} />
       <TextArea ref={messageRef} label="문의 내용" rows={5} value={fields.message} onChange={(value) => update("message", value)} isRequired isInvalid={!!errors.message} errorMessage={errors.message} isDisabled={pending} />
       <HoneypotField value={fields.website} onChange={(value) => update("website", value)} />
       <div className="rounded-control bg-brand-paper p-4 text-body-sm text-content-primary">

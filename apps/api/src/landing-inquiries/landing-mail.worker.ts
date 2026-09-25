@@ -44,7 +44,7 @@ export class LandingMailWorker implements OnModuleInit, OnModuleDestroy {
           SELECT "id" FROM "LandingInquiry" WHERE "expiresAt" <= ${now.toISOString()}::timestamp
           ORDER BY "expiresAt", "id" LIMIT ${maintenanceBatchSize} FOR UPDATE SKIP LOCKED
         )`;
-      if (count) this.logger.log(`Pruned expired landing inquiries: ${count}`);
+      this.logger.log({ operation: "landing_inquiry_prune", deletedCount: count });
       return count;
     });
   }
@@ -113,7 +113,7 @@ export class LandingMailWorker implements OnModuleInit, OnModuleDestroy {
       await this.prisma.landingInquiry.updateMany({ where: { id: inquiry.id, leaseOwner: owner,
         deliveryStatus: { in: ["queued", "retry_wait"] } }, data: {
         deliveryStatus, lastErrorCode, nextAttemptAt, leaseOwner: null, leaseExpiresAt: null,
-        providerAcceptedAt: deliveryStatus === "provider_accepted" ? now : null
+        providerAcceptedAt: deliveryStatus === "provider_accepted" ? new Date() : null
       } });
     }
     return processed;

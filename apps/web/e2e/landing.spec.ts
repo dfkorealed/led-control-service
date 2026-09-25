@@ -74,6 +74,7 @@ test("keyboard navigation reaches content, product and contact with reduced moti
 
 async function fillInquiry(page: import("@playwright/test").Page) {
   await page.goto("/#contact");
+  await expect(page.getByRole("button", { name: /고객 유형/ })).toContainText("선택해 주세요");
   await page.getByRole("textbox", { name: "회사명" }).fill("  킨다 시설  ");
   await page.getByRole("textbox", { name: "담당자 이름" }).fill("홍길동");
   await page.getByRole("textbox", { name: "회신 이메일" }).fill("owner@example.com");
@@ -179,6 +180,38 @@ test("authenticated operator can inspect inquiry delivery without starting OAuth
   await expect(page.getByRole("alert")).toContainText("연결을 시작하지 못했습니다");
   await expect(page).toHaveURL(/\/operator\/landing-inquiries$/);
   expect(calls).toContain("POST /api/operator/landing-mail/authorize");
+});
+
+test("connected operator can reconnect and return after a later inquiry page fails", async ({ page }) => {
+  let authorizations = 0;
+  await page.route("**/api/**", async route => {
+    const url = new URL(route.request().url());
+    if (!url.pathname.startsWith("/api/")) return route.continue();
+    if (url.pathname === "/api/auth/me") return route.fulfill({ json: { user: {
+      id: "operator-1", organizationId: "provider-1", organizationType: "service_provider",
+      loginId: "operator", name: "운영자", role: "operator", status: "active", mustChangePassword: false
+    } } });
+    if (url.pathname === "/api/operator/landing-mail/status") return route.fulfill({ json: { connected: true } });
+    if (url.pathname === "/api/operator/landing-inquiries") return url.searchParams.has("cursor")
+      ? route.fulfill({ status: 503, json: {} }) : route.fulfill({ json: { items: [], nextCursor: "unavailable-page" } });
+    if (url.pathname === "/api/operator/landing-mail/authorize") {
+      authorizations += 1;
+      return route.fulfill({ status: 503, json: {} });
+    }
+    return route.fulfill({ status: 404, json: {} });
+  });
+  await page.goto("/operator/landing-inquiries");
+  await expect(page.getByText("연결됨", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "NAVER WORKS 다시 연결" })).toBeEnabled();
+  expect(authorizations).toBe(0);
+  await page.getByRole("button", { name: "NAVER WORKS 다시 연결" }).click();
+  await expect(page.getByText("연결을 시작하지 못했습니다.")).toBeVisible();
+  expect(authorizations).toBe(1);
+  await page.getByRole("button", { name: "다음 문의" }).click();
+  // React Query exhausts its normal 1s/2s/4s retry backoff before showing failure.
+  await expect(page.getByText("문의 목록을 불러오지 못했습니다.")).toBeVisible({ timeout: 12_000 });
+  await page.getByRole("button", { name: "이전 문의" }).click();
+  await expect(page.getByRole("button", { name: "다음 문의" })).toBeVisible();
 });
 
 for (const role of ["admin", "viewer"] as const) {

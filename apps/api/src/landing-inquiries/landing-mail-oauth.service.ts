@@ -23,11 +23,17 @@ function readConfiguration() {
   if (!clientId || !clientSecret || !redirectUri || !sender || !cipher || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(sender)) return null;
   try {
     const uri = new URL(redirectUri);
+    const web = new URL(process.env.WEB_PUBLIC_URL ?? "");
+    if (web.protocol !== "https:" || web.username || web.password || web.hash || web.search || web.pathname !== "/" || uri.origin !== web.origin) return null;
     if (uri.protocol !== "https:" || uri.username || uri.password || uri.hash || uri.search ||
-      uri.pathname !== "/landing-mail/oauth/callback" || uri.href !== redirectUri) return null;
+      uri.pathname !== "/api/landing-mail/oauth/callback" || uri.href !== redirectUri) return null;
   } catch { return null; }
   return { clientId, clientSecret, redirectUri, cipher, connectionKey: hash(JSON.stringify([clientId, redirectUri, sender])) };
 }
+// Only explicit OAuth credential rejection invalidates local readiness. Never retain
+// provider bodies or error descriptions, which may contain credentials or PII.
+class RejectedMailCredential extends Error {}
+const rejectedCredentialCodes = new Set(["invalid_grant", "invalid_client", "unauthorized_client", "invalid_scope"]);
 type Configuration = NonNullable<ReturnType<typeof readConfiguration>>;
 
 @Injectable()
@@ -47,11 +53,15 @@ export class LandingMailOAuthService implements LandingMailConnection {
     const config = this.requireConfiguration();
     const state = randomBytes(32).toString("base64url");
     const now = new Date();
-    await this.prisma.landingMailOAuthState.deleteMany({ where: { expiresAt: { lte: now } } });
-    await this.prisma.landingMailOAuthState.create({ data: {
-      stateHash: hash(state), operatorId, connectionKey: config.connectionKey,
-      expiresAt: new Date(now.getTime() + 10 * 60 * 1000)
-    } });
+    await this.withCredentialLock(async (tx) => {
+      // One connection has one current authorization generation across operators.
+      // Issuing a new URL invalidates every older outstanding URL, even if claimed.
+      await tx.landingMailOAuthState.deleteMany();
+      await tx.landingMailOAuthState.create({ data: {
+        stateHash: hash(state), operatorId, connectionKey: config.connectionKey,
+        expiresAt: new Date(now.getTime() + 10 * 60 * 1000)
+      } });
+    });
     const url = new URL(authorizeEndpoint);
     url.search = new URLSearchParams({ client_id: config.clientId, redirect_uri: config.redirectUri,
       scope: "mail", response_type: "code", state }).toString();
@@ -61,13 +71,16 @@ export class LandingMailOAuthService implements LandingMailConnection {
   async completeAuthorization(code: string, state: string): Promise<void> {
     if (typeof code !== "string" || !code || code.length > 4096 || typeof state !== "string" || !/^[A-Za-z0-9_-]{43}$/.test(state)) throw stateError();
     const config = this.requireConfiguration();
-    // Commit the claim before the external exchange: a timeout must not make this
-    // state replayable. Atomic conditional deletion also excludes parallel callbacks.
-    const claimed = await this.prisma.$transaction((tx) => tx.landingMailOAuthState.deleteMany({ where: {
-      stateHash: hash(state), connectionKey: config.connectionKey, expiresAt: { gt: new Date() }
-    } }));
+    // Commit the claim before external I/O so failures cannot make it replayable.
+    // Retain the consumed row as a generation marker until the next begin replaces it.
+    const stateHash = hash(state);
+    const claimed = await this.withCredentialLock((tx) => tx.landingMailOAuthState.updateMany({ where: {
+      stateHash, connectionKey: config.connectionKey, consumedAt: null, expiresAt: { gt: new Date() }
+    }, data: { consumedAt: new Date() } }));
     if (claimed.count !== 1) throw stateError();
     await this.withCredentialLock(async (tx) => {
+      const current = await tx.landingMailOAuthState.findUnique({ where: { stateHash } });
+      if (!current || current.connectionKey !== config.connectionKey || !current.consumedAt || current.expiresAt <= new Date()) throw stateError();
       const token = await this.exchange(config, { grant_type: "authorization_code", code, redirect_uri: config.redirectUri });
       await this.storeTokens(tx, config, token, undefined);
     });
@@ -75,15 +88,24 @@ export class LandingMailOAuthService implements LandingMailConnection {
 
   async getAccessToken(forceRefresh = false): Promise<string> {
     const config = this.requireConfiguration();
-    return this.withCredentialLock(async (tx) => {
+    const result = await this.withCredentialLock(async (tx) => {
       const record = await tx.landingMailCredential.findUnique({ where: { id: credentialId } });
       if (!record || record.connectionKey !== config.connectionKey || record.refreshTokenExpiresAt <= new Date()) throw unavailable();
       let tokens;
       try { tokens = config.cipher.decrypt(record); } catch { throw unavailable(); }
       if (!forceRefresh && record.accessTokenExpiresAt.getTime() > Date.now() + 30_000) return tokens.accessToken;
-      const token = await this.exchange(config, { grant_type: "refresh_token", refresh_token: tokens.refreshToken });
-      return this.storeTokens(tx, config, token, { refreshToken: tokens.refreshToken, expiresAt: record.refreshTokenExpiresAt });
+      try {
+        const token = await this.exchange(config, { grant_type: "refresh_token", refresh_token: tokens.refreshToken });
+        return await this.storeTokens(tx, config, token, { refreshToken: tokens.refreshToken, expiresAt: record.refreshTokenExpiresAt });
+      } catch (error) {
+        if (!(error instanceof RejectedMailCredential)) throw error;
+        await tx.landingMailCredential.deleteMany({ where: { id: credentialId } });
+        // Throw only after commit: throwing here would roll back the invalidation.
+        return null;
+      }
     });
+    if (result === null) throw unavailable();
+    return result;
   }
 
   private requireConfiguration(): Configuration {
@@ -108,11 +130,20 @@ export class LandingMailOAuthService implements LandingMailConnection {
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
         body: new URLSearchParams({ ...parameters, client_id: config.clientId, client_secret: config.clientSecret })
       });
-      if (!response.ok) throw unavailable();
+      if (!response.ok) {
+        if (parameters.grant_type === "refresh_token" && [400, 401].includes(response.status)) {
+          const body = await response.json().catch(() => null);
+          if (body && typeof body.error === "string" && rejectedCredentialCodes.has(body.error)) throw new RejectedMailCredential();
+        }
+        throw unavailable();
+      }
       const body: unknown = await response.json();
       if (!body || typeof body !== "object" || Array.isArray(body)) throw unavailable();
       return body as Record<string, unknown>;
-    } catch { throw unavailable(); }
+    } catch (error) {
+      if (error instanceof RejectedMailCredential) throw error;
+      throw unavailable();
+    }
   }
 
   private async storeTokens(tx: Prisma.TransactionClient, config: Configuration, response: Record<string, unknown>, previous?: { refreshToken: string; expiresAt: Date }): Promise<string> {
@@ -120,6 +151,7 @@ export class LandingMailOAuthService implements LandingMailConnection {
     const refreshToken = response.refresh_token ?? previous?.refreshToken;
     const seconds = Number(response.expires_in);
     const scope = typeof response.scope === "string" ? response.scope.split(/[ ,]+/) : [];
+    if (previous && typeof response.scope === "string" && !scope.includes("mail")) throw new RejectedMailCredential();
     if (typeof accessToken !== "string" || !accessToken || typeof refreshToken !== "string" || !refreshToken ||
       !Number.isInteger(seconds) || seconds < 1 || seconds > 86400 || !scope.includes("mail") || response.token_type !== "Bearer") throw unavailable();
     const record = { connectionKey: config.connectionKey, ...config.cipher.encrypt({ accessToken, refreshToken }),

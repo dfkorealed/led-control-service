@@ -107,6 +107,32 @@ describe("operator landing inquiries route", () => {
     expect(navigate).toHaveBeenCalledTimes(1);
   });
 
+  it("offers explicit reconnection for a locally connected account", async () => {
+    vi.mocked(apiGet).mockResolvedValue({ connected: true, items: [], nextCursor: null });
+    renderRoute();
+    const reconnect = await screen.findByRole("button", { name: "NAVER WORKS 다시 연결" });
+    expect(screen.getByText("연결됨")).toBeVisible();
+    expect(apiPost).not.toHaveBeenCalled();
+    vi.mocked(apiPost).mockResolvedValue({ authorizationUrl: "https://evil.example/authorize" });
+    fireEvent.click(reconnect);
+    expect(await screen.findByRole("alert")).toHaveTextContent("연결을 시작하지 못했습니다");
+    expect(apiPost).toHaveBeenCalledWith("/operator/landing-mail/authorize", {});
+  });
+
+  it("allows returning to the previous page when a later page fails", async () => {
+    vi.mocked(apiGet).mockImplementation((path: string) => {
+      if (path === "/operator/landing-mail/status") return Promise.resolve({ connected: true });
+      if (path === "/operator/landing-inquiries?limit=20") return Promise.resolve({ items: [inquiry("queued", "K-FIRST")], nextCursor: "unavailable-page" });
+      return Promise.reject(new Error("temporary outage"));
+    });
+    renderRoute();
+    expect(await screen.findByText("K-FIRST")).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "다음 문의" }));
+    expect(await screen.findByText("문의 목록을 불러오지 못했습니다.")).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "이전 문의" }));
+    expect(await screen.findByText("K-FIRST")).toBeVisible();
+  });
+
   it("uses the server cursor to page through at most 20 recent inquiries", async () => {
     vi.mocked(apiGet).mockImplementation((path: string) => {
       if (path === "/operator/landing-mail/status") return Promise.resolve({ connected: true });

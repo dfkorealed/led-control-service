@@ -43,7 +43,7 @@ describeDatabase("landing worker PostgreSQL outcomes and exclusive claims", () =
     await Promise.all([worker.deliverDue(now), other.deliverDue(now)]);
     expect(send).toHaveBeenCalledTimes(1);
     expect(await db.landingInquiry.findUnique({ where: { id: row.id } })).toMatchObject({
-      deliveryStatus: "provider_accepted", attemptCount: 1, leaseOwner: null, nextAttemptAt: null, providerAcceptedAt: now
+      deliveryStatus: "provider_accepted", attemptCount: 1, leaseOwner: null, nextAttemptAt: null, providerAcceptedAt: expect.any(Date)
     });
   });
   it("backs off confirmed rejection finitely and stops after five attempts", async () => {
