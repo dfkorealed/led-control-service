@@ -63,7 +63,7 @@ expect(await service.submit(valid, "127.0.0.1")).toEqual({ reference: expect.str
 
 **Interfaces:** `getConnectionStatus(): Promise<{connected: boolean}>`, `beginAuthorization(operatorId: string): Promise<{authorizationUrl: string}>`, `completeAuthorization(code: string, state: string): Promise<void>`, `getAccessToken(forceRefresh?: boolean): Promise<string>`.
 
-- [ ] **Step 1: Write failing tests.** Operator auth is required for begin/status/list; only an exact fresh single-use state may finish callback; token records are AES-256-GCM encrypted; expired access token refreshes; a second callback cannot overwrite it; absent/malformed secret config is disconnected rather than a process-wide crash.
+- [x] **Step 1: Write failing tests.** Operator auth is required for begin/status/list; only an exact fresh single-use state may finish callback; token records are AES-256-GCM encrypted; expired access token refreshes; a second callback cannot overwrite it; absent/malformed secret config is disconnected rather than a process-wide crash.
 
 ```ts
 const first = await oauth.beginAuthorization("operator-1");
@@ -71,10 +71,10 @@ await oauth.completeAuthorization("code-1", new URL(first.authorizationUrl).sear
 await expect(oauth.completeAuthorization("code-2", new URL(first.authorizationUrl).searchParams.get("state")!)).rejects.toMatchObject({ status: 400 });
 ```
 
-- [ ] **Step 2: Run focused Jest and confirm expected RED.** Run `pnpm --filter @led-control/api exec jest src/landing-inquiries --runInBand`.
-- [ ] **Step 3: Add OAuth credential/state persistence and token cipher.** Store only ciphertext, IV/tag, expiry and state hash. State expires after 10 minutes and is consumed transactionally. Require HTTPS official NAVER WORKS hosts, `mail` scope and exact configured redirect URI. Implement authorization-code and refresh-token exchanges with short timeouts and no token/body logging.
-- [ ] **Step 4: Add guarded operator routes and public callback.** Use `SessionAuthGuard`, `RolesGuard`, `@Roles("operator")` for operator routes. The callback accepts only valid state/code, stores encrypted tokens and redirects to `/operator/landing-inquiries?mail=connected`; reject invalid state without redirecting secrets.
-- [ ] **Step 5: Run focused tests, Prisma validate/generate and API typecheck; commit Task 2.** Never place real credentials in tests or source.
+- [x] **Step 2: Run focused Jest and confirm expected RED.** Run `pnpm --filter @led-control/api exec jest src/landing-inquiries --runInBand`.
+- [x] **Step 3: Add OAuth credential/state persistence and token cipher.** Store only ciphertext, IV/tag, expiry and state hash. State expires after 10 minutes and is consumed transactionally. Require HTTPS official NAVER WORKS hosts, `mail` scope and exact configured redirect URI. Implement authorization-code and refresh-token exchanges with short timeouts and no token/body logging.
+- [x] **Step 4: Add guarded operator routes and public callback.** Use `SessionAuthGuard`, `RolesGuard`, `@Roles("operator")` for operator routes. The callback accepts only valid state/code, stores encrypted tokens and redirects to `/operator/landing-inquiries?mail=connected`; reject invalid state without redirecting secrets.
+- [x] **Step 5: Run focused tests, Prisma validate/generate and API typecheck; commit Task 2.** Never place real credentials in tests or source.
 
 ### Task 3: Mail transport, bounded worker and 90-day deletion
 
