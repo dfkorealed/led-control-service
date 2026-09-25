@@ -80,7 +80,7 @@ expect(screen.getByRole("heading", { name: /시공·유통/ })).toBeInTheDocumen
 
 **Interfaces:** `submitLandingInquiry(input: LandingInquiryInput, signal?: AbortSignal): Promise<{reference: string; status: "received"}>` sends the backend plan's exact request body. `InquiryForm` owns its generated UUID until payload change or confirmed success.
 
-- [ ] **Step 1: Write failing form tests.** Required fields and consent block submit; valid submit sends normalized values and stable UUID; timeout/transport/5xx keeps inputs and key; edit after failure creates a new key; 429 and 503 show distinct Korean messages; 503 offers `mailto:kymkjh2002@dfkorealed.com`; success displays the server reference and leaves no misleading claim about email delivery.
+- [x] **Step 1: Write failing form tests.** Required fields and consent block submit; valid submit sends normalized values and stable UUID; timeout/transport/5xx keeps inputs and key; edit after failure creates a new key; 429 and 503 show distinct Korean messages; 503 offers `mailto:kymkjh2002@dfkorealed.com`; success displays the server reference and leaves no misleading claim about email delivery.
 
 ```tsx
 await user.click(screen.getByRole("button", { name: "상담 문의 보내기" }));
@@ -88,9 +88,9 @@ expect(posted.idempotencyKey).toMatch(/^[0-9a-f-]{36}$/i);
 expect(posted.consentVersion).toBe("landing-2026-09-v1-90d");
 ```
 
-- [ ] **Step 2: Run focused Vitest and verify RED.** Run `pnpm --filter @led-control/web exec vitest run src/features/landing/InquiryForm.test.tsx`.
-- [ ] **Step 3: Implement form, inline 90-day disclosure and outcome states.** Fields: company, contact, email, optional phone, facility/partner, message, consent; include visually hidden `website` honeypot. Use existing field/Button/FeedbackState components where contracts fit. Keep validation readable and focus the error heading or first invalid field. Never put recipient in submitted JSON.
-- [ ] **Step 4: Run focused Vitest and Playwright submission scenarios.** Mock API accepted, 429, 503, timeout and delayed response; assert stable key and preserved inputs. Commit Task 3.
+- [x] **Step 2: Run focused Vitest and verify RED.** Run `pnpm --filter @led-control/web exec vitest run src/features/landing/InquiryForm.test.tsx`.
+- [x] **Step 3: Implement form, inline 90-day disclosure and outcome states.** Fields: company, contact, email, optional phone, facility/partner, message, consent; include visually hidden `website` honeypot. Use existing field/Button/FeedbackState components where contracts fit. Keep validation readable and focus the error heading or first invalid field. Never put recipient in submitted JSON.
+- [x] **Step 4: Run focused Vitest and Playwright submission scenarios.** Mock API accepted, 429, 503, timeout and delayed response; assert stable key and preserved inputs. Commit Task 3.
 
 ### Task 4: Protected operator inquiry and mail connection screen
 
