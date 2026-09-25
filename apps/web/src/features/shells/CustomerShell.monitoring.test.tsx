@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AuthUser } from "../../api/auth";
@@ -20,12 +20,15 @@ beforeEach(() => {
   vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() })));
   fetchMock = vi.fn(async (path: string) => {
     if (path === "/api/sites/site-1/dashboard") {
+      const fixtureCounts = refreshed
+        ? { totalFixtures: 1, onlineFixtures: 0, faultFixtures: 0, offlineFixtures: 1 }
+        : { totalFixtures: 1, onlineFixtures: 1, faultFixtures: 0, offlineFixtures: 0 };
       const dashboard: Dashboard = {
         generatedAt: new Date().toISOString(), monitoringPolicy: { gatewayOfflineAfterSeconds: 90, fixtureStaleAfterSeconds: 180 },
         site: { id: "site-1", name: "현장", customerName: "고객", installationStatus: "installed", address: null, tariffKwhRate: null, timeZone: "Asia/Seoul" },
         capabilities: { read: true, control: canManage, manage: canManage, commission: canManage },
-        summary: { totalFixtures: 1, onlineFixtures: 1, faultFixtures: 0, averageBrightness: 70 },
-        floors: [{ id: "floor-1", name: "B1", level: -1, floorPlan: null, meshControlGroups: [], fixtures: [] }], groups: [], gateways: []
+        summary: { ...fixtureCounts, averageBrightness: 70 },
+        floors: [{ id: "floor-1", name: "B1", level: -1, summary: fixtureCounts, floorPlan: null, meshControlGroups: [], fixtures: [] }], groups: [], gateways: []
       };
       return Response.json(dashboard);
     }
@@ -36,6 +39,7 @@ beforeEach(() => {
     }
     if (path === "/api/sites/site-1/floors/floor-1/fixtures?limit=200") return Response.json({ items: [{ ...fixture, ...(refreshed ? { status: "offline", statusReason: "fixture_stale" } : {}) }], generatedAt: new Date().toISOString(), nextCursor: null });
     if (path === "/api/sites/site-1/floors/floor-1/map-snapshot") return Response.json({ floorId: "floor-1", revision: 1, width: 1200, height: 800, floorPlan: null, objects: [] });
+    if (path === "/api/sites/site-1/floors/floor-1/monitoring-activity?limit=5") return Response.json({ generatedAt: new Date().toISOString(), retainedFrom: "2026-06-25T00:00:00.000Z", items: [], nextCursor: null });
     throw new Error(`Unexpected monitoring request: ${path}`);
   });
   vi.stubGlobal("fetch", fetchMock);
@@ -69,7 +73,7 @@ describe("customer shell monitoring details", () => {
     expect(screen.getByRole("button", { name: "장치 상태 확인 중" })).toBeDisabled();
     blocked = false;
     release();
-    await waitFor(() => expect(screen.getByRole("group", { name: "오프라인" })).toHaveTextContent("1"));
+    await waitFor(() => expect(within(screen.getByRole("region", { name: "선택 층 조명 현황" })).getByRole("group", { name: "오프라인" })).toHaveTextContent("1"));
     expect(fetchMock.mock.calls.filter(([path]) => path === "/api/sites/site-1/floors/floor-1/monitoring-refreshes")).toHaveLength(1);
     expect(screen.getByRole("complementary", { name: "선택 조명 상세" })).toHaveTextContent("상태 수신 지연");
     expect(screen.getByRole("button", { name: "새로고침" })).toBeEnabled();
@@ -81,7 +85,7 @@ describe("customer shell monitoring details", () => {
     mount();
     await screen.findByRole("region", { name: "선택 조명 정보" });
     fireEvent.click(screen.getByRole("button", { name: "새로고침" }));
-    await waitFor(() => expect(screen.getByRole("group", { name: "오프라인" })).toHaveTextContent("1"));
+    await waitFor(() => expect(within(screen.getByRole("region", { name: "선택 층 조명 현황" })).getByRole("group", { name: "오프라인" })).toHaveTextContent("1"));
     expect(screen.getByRole("complementary", { name: "선택 조명 상세" })).toHaveTextContent("상태 수신 지연");
     expect(screen.getByRole("button", { name: "새로고침" })).toBeEnabled();
     expect(fetchMock.mock.calls.filter(([path]) => path === "/api/sites/site-1/floors/floor-1/monitoring-refreshes")).toHaveLength(1);
