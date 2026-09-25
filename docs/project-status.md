@@ -4,16 +4,12 @@
 
 ## 2026-09-25 킨다 공개 랜딩 및 상담 문의
 
-- [x] 시설 운영 담당자와 시공·유통 파트너를 같은 비중으로 다루고, 차분한 대시보드 중심 화면으로 상담 문의를 유도하는 요구사항을 확정했다. 공개 랜딩은 `led-control-service/apps/web`에 추가한다.
-- [x] 문의 수신 주소는 `kymkjh2002@dfkorealed.com`, 접수 원본 보관기간은 90일이다. 회사 홈페이지의 NAVER WORKS OAuth/HTTPS 메일 전송 방식을 참고하되 관제 서비스에 독립 연결한다.
-- [x] [설계](superpowers/specs/2026-09-25-kinda-public-landing-design.md), [문의 API 계획](superpowers/plans/2026-09-25-kinda-landing-inquiry-api.md), [웹 계획](superpowers/plans/2026-09-25-kinda-landing-web.md)을 작성했다. 별도 `codex/kinda-landing` worktree에서 구현한다.
-- [x] 공개 문의 API의 검증·멱등 접수·IP 제한, 독립 NAVER WORKS OAuth 연결, 제한된 발송 worker와 90일 만료 삭제를 구현했다. API 전체 219 suites·2,625 tests, 타입 검사·빌드, 격리 PostgreSQL의 전체 100개 migration 적용 및 관련 통합 테스트가 통과했다. 제공자 응답은 테스트 대역으로 확인했으며 사용자/운영 DB에는 migration을 적용하지 않았다.
-- [x] 공개 `/` 랜딩·상담 양식과 `/operator/landing-inquiries` 목록·메일 연결 화면을 구현했다. Web 전체 2,360 tests, 타입 검사·빌드·UI 정책 검사, 랜딩 Chromium 12/12가 통과했다. 공개 진입의 인증 API 비호출, 320/390/1024/1440px 반응형·접근성, 접수 오류/응답 유실 재시도와 운영자 권한 경계를 자동 검증했다. 브라우저의 API 응답은 테스트 대역이다.
-- [ ] 운영 문서·메뉴 현황·체크리스트를 최종 통합 검토 결과와 일치시키고 독립 검토한다. 배포 환경에 독립 자격 증명을 설정한 뒤 NAVER WORKS OAuth 승인, 실제 메일 발송 및 받은편지함 수신을 별도로 확인해야 한다. 현재 자동 테스트의 `provider_accepted`는 NAVER WORKS의 HTTP 202 수락 의미일 뿐 수신 확인이 아니다.
-
-최종 검토 보정(2026-09-25): 공개 callback을 Web origin의 `/api/landing-mail/oauth/callback`으로 고정하고 optional 메일 환경 변수 5개를 production API container에 전달한다. 필수 `LANDING_INGRESS_SECRET`은 API/Web에 같은 독립 64자리 hex로 설정한다. Web이 덮어쓴 IP·비밀을 검증하므로 공개 9443 raw TLS 경로에서 전달 헤더를 위조해 문의 제한을 우회할 수 없고, 전역 proxy trust는 사용하지 않는다. `consumedAt` migration과 DB 잠금으로 최신 인가 세대만 저장하며, 명시적 refresh 자격 증명 거부는 미연결·새 접수 503으로 전환한다. 연결 상태의 재연결 버튼, 조회 실패 중 이전 페이지, 한국어 선택 안내와 202 응답 후 시각, 숫자 삭제 건수 JSON 로그도 보완했다.
-
-이 보정의 검증은 API 전체 221 suites·2,650 tests 통과/631 opt-in 제외, 격리 PostgreSQL 101개 migration, 실제 nginx HTTP/TCP ingress 3/3, 구성·container 계약 24/24, Web 집중 19/19, Chromium 13/13, API/Web 타입 검사·빌드 및 UI 정책 58/58·위반 0이다. Web 전체 병렬 실행은 2,362개 통과·3개 제외·기존 `StatusDetailButton` 포커스 검사 1개 실패였고, 해당 파일 단독 재실행은 변경 없이 4/4를 통과했다. 전체 Web을 성공으로 기록하지 않으며 총괄이 순차 최종 확인한다. 실제 OAuth 승인·메일 발송·받은편지함 확인, 운영 배포 및 사용자/운영 DB migration은 여전히 미실행이다. 자세한 배포 계약은 [메일 운영 절차](runbooks/landing-mail-setup.md)를 따른다.
+- [x] 시설 운영 담당자와 시공·유통 파트너를 같은 비중으로 소개하는 차분한 대시보드 중심 공개 랜딩을 `apps/web`의 `/`에 구현했다. 제품 화면은 정적 예시임을 표시하며 실제 운영 수치를 주장하지 않는다.
+- [x] 페이지 안 상담 양식과 공개 접수 API를 연결했다. 서버는 검증·멱등 접수·방문자별 제한 후 원본을 저장하고, NAVER WORKS 전용 OAuth·메일 작업자가 연결 완료 후 고정 수신 주소 `kymkjh2002@dfkorealed.com`으로 발송하도록 구현했다. 운영자는 접수·메일 상태를 확인할 수 있고, 원본은 접수 후 90일이 지나면 제한된 배치로 삭제된다.
+- [x] 프로덕션 Web `/api` 프록시와 OAuth 콜백, API/Web 환경 변수 전달, 9443 직접 요청 차단, 최신 OAuth 인가 세대·재연결, 삭제 건수 구조화 로그를 통합 검토에서 보완했다. 필수 `LANDING_INGRESS_SECRET`과 선택적인 메일 설정 5개의 적용 절차는 [메일 운영 절차](runbooks/landing-mail-setup.md)에 있다. 전역 proxy trust는 사용하지 않는다.
+- [x] API 전체 221 suites·2,650 tests, 격리 PostgreSQL 101개 migration, 실제 nginx HTTP/TCP ingress 3/3, 배포·container 계약 24/24가 통과했다. Web 전체는 파일 순차 실행에서 165 files·2,363 tests 통과/3 제외였고, 랜딩 Chromium 13/13, API/Web 타입 검사·빌드, UI 정책 58/58·위반 0을 확인했다. 병렬 전체 Web에서는 기존 `StatusDetailButton` 포커스 단언이 간헐적으로 실패했으나 단독 4/4 및 순차 전체 실행에서 통과했다.
+- [x] [설계](superpowers/specs/2026-09-25-kinda-public-landing-design.md), [문의 API 계획](superpowers/plans/2026-09-25-kinda-landing-inquiry-api.md), [웹 계획](superpowers/plans/2026-09-25-kinda-landing-web.md), [랜딩 기능 현황](menus/landing.md), [운영자 기능 현황](menus/operator.md)을 실제 구현과 맞췄고 단계별·전체 독립 코드 검토 및 수정 재검토를 마쳤다. 작업 브랜치는 `codex/kinda-landing` 별도 worktree다.
+- [ ] 운영 환경에 자격 증명을 설정한 뒤 NAVER WORKS OAuth 승인·실제 메일 전송·받은편지함 수신을 확인한다. 자동 테스트의 `provider_accepted`는 NAVER WORKS HTTP 202 수락을 뜻하며 수신 확인이 아니다. 사용자/운영 DB에는 신규 migration을 적용하지 않았고 실제 배포도 수행하지 않았다.
 
 ## 2026-09-24 고객 UI/UX 전면 적용
 
