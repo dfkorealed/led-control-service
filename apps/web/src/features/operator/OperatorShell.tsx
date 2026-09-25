@@ -12,6 +12,7 @@ import { Text } from "../../components/ui/Typography";
 import { UnderlineNavigation, UnderlineNavigationLabel } from "../../components/ui/UnderlineNavigation";
 
 const SiteAdminManagementView = lazy(() => import("./site-admins/SiteAdminManagementView").then((module) => ({ default: module.SiteAdminManagementView })));
+const LandingInquiriesView = lazy(() => import("./LandingInquiriesView").then((module) => ({ default: module.LandingInquiriesView })));
 const AccountSecurityView = lazy(() => import("../settings/security/AccountSecurityView").then((module) => ({ default: module.AccountSecurityView })));
 const operatorNavigationItemClass = (isActive: boolean) => `inline-flex min-h-11 shrink-0 items-center border-b-2 px-3 text-body-sm font-bold whitespace-nowrap no-underline outline-none focus-visible:shadow-focus ${isActive
   ? "border-action-primary text-action-primary"
@@ -36,6 +37,8 @@ export function OperatorShell({ user }: { user: AuthUser }) {
       setLogoutError("로그아웃에 실패했습니다. 연결을 확인한 뒤 다시 시도하세요.");
     }
   }
+
+  if (user.role !== "operator") return <Navigate to="/monitoring" replace />;
 
   return (
     <div className="min-h-screen bg-surface-canvas">
@@ -63,6 +66,12 @@ export function OperatorShell({ user }: { user: AuthUser }) {
             <UnderlineNavigationLabel>현장 관리자</UnderlineNavigationLabel>
           </NavLink>
           <NavLink
+            to="/operator/landing-inquiries"
+            className={({ isActive }) => operatorNavigationItemClass(isActive)}
+          >
+            <UnderlineNavigationLabel>상담 문의</UnderlineNavigationLabel>
+          </NavLink>
+          <NavLink
             to={{ pathname: "/operator/security", search: location.search, hash: location.hash }}
             className={({ isActive }) => operatorNavigationItemClass(isActive)}
           >
@@ -72,6 +81,7 @@ export function OperatorShell({ user }: { user: AuthUser }) {
         <Suspense fallback={<RouteLoadingState />}>
           <Routes>
             <Route path="/operator/site-admins" element={<SiteAdminManagementView />} />
+            <Route path="/operator/landing-inquiries" element={<LandingInquiriesView />} />
             <Route path="/operator/security" element={<AccountSecurityView user={user} />} />
             <Route path="*" element={<Navigate to="/operator/site-admins" replace />} />
           </Routes>

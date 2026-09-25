@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { installSettingsApiRoutes } from "./support/settings-api";
 import { mkdir } from "node:fs/promises";
 import { resolve } from "node:path";
 import { createRequire } from "node:module";
@@ -145,3 +146,52 @@ test("consultation timeout retains key for retry and changes it after an edit", 
   await expect(page.getByText(/접수번호: KI-NEW/)).toBeVisible();
   expect(posted[2].idempotencyKey).not.toBe(posted[0].idempotencyKey);
 });
+
+test("authenticated operator can inspect inquiry delivery without starting OAuth or resending", async ({ page }) => {
+  const calls: string[] = [];
+  await page.route("**/api/**", async (route) => {
+    const request = route.request();
+    const url = new URL(request.url());
+    if (!url.pathname.startsWith("/api/")) return route.continue();
+    calls.push(`${request.method()} ${url.pathname}`);
+    if (url.pathname === "/api/auth/me") return route.fulfill({ json: { user: {
+      id: "operator-1", organizationId: "provider-1", organizationType: "service_provider",
+      loginId: "operator", name: "운영자", role: "operator", status: "active", mustChangePassword: false
+    } } });
+    if (url.pathname === "/api/operator/landing-mail/status") return route.fulfill({ json: { connected: false } });
+    if (url.pathname === "/api/operator/landing-inquiries") return route.fulfill({ json: { items: [{
+      reference: "K-E2E-1", companyName: "예시 시설", contactName: "담당자", email: "reply@example.com",
+      phone: "", audience: "facility", message: "상담 내용", createdAt: "2026-09-25T00:00:00.000Z",
+      expiresAt: "2026-12-24T00:00:00.000Z", deliveryStatus: "delivery_uncertain", attemptCount: 1,
+      lastErrorCode: "MAIL_ACCEPTANCE_UNKNOWN", providerAcceptedAt: null
+    }], nextCursor: null } });
+    if (url.pathname === "/api/operator/landing-mail/authorize") return route.fulfill({ json: { authorizationUrl: "https://evil.example/authorize" } });
+    return route.fulfill({ status: 404, json: {} });
+  });
+  await page.goto("/operator/landing-inquiries");
+  await expect(page.getByRole("heading", { name: "상담 문의 관리" })).toBeVisible();
+  await expect(page.getByText("K-E2E-1")).toBeVisible();
+  await expect(page.getByText("수락 여부 불확실", { exact: true })).toBeVisible();
+  await expect(page.getByText(/받은편지함 도착을 뜻하지 않습니다/)).toBeVisible();
+  await expect(page.getByRole("button", { name: /재발송/ })).toHaveCount(0);
+  expect(calls).not.toContain("POST /api/operator/landing-mail/authorize");
+  await page.getByRole("button", { name: "NAVER WORKS 연결" }).click();
+  await expect(page.getByRole("alert")).toContainText("연결을 시작하지 못했습니다");
+  await expect(page).toHaveURL(/\/operator\/landing-inquiries$/);
+  expect(calls).toContain("POST /api/operator/landing-mail/authorize");
+});
+
+for (const role of ["admin", "viewer"] as const) {
+  test(`${role} deep link never mounts the operator inquiry route`, async ({ page }) => {
+    const operatorRequests: string[] = [];
+    page.on("request", (request) => {
+      const pathname = new URL(request.url()).pathname;
+      if (pathname.startsWith("/api/operator/landing-")) operatorRequests.push(pathname);
+    });
+    await installSettingsApiRoutes(page, role);
+    await page.goto("/operator/landing-inquiries");
+    await expect(page).toHaveURL(/\/monitoring$/);
+    await expect(page.getByRole("heading", { name: "상담 문의 관리" })).toHaveCount(0);
+    expect(operatorRequests).toEqual([]);
+  });
+}
