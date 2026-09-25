@@ -83,6 +83,32 @@ describe("overlay migration contracts", () => {
     await waitFor(() => expect(screen.getByRole("button", { name: "상태 열기" })).toHaveFocus());
   });
 
+  it("dismisses a drawer from its backdrop and returns focus to the opener", async () => {
+    render(<DrawerReturnFocus />);
+    const opener = screen.getByRole("button", { name: "상태 열기" });
+    fireEvent.click(opener);
+
+    fireEvent.mouseDown(screen.getByTestId("modal-backdrop"));
+
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "상태 센터" })).not.toBeInTheDocument());
+    expect(opener).toHaveFocus();
+  });
+
+  it("locks every drawer dismissal route while pending", () => {
+    const close = vi.fn();
+    render(<UI.DrawerDialog title="처리 중 상태" closeLabel="상태 닫기" isPending onClose={close}>본문</UI.DrawerDialog>);
+    const drawer = screen.getByRole("dialog", { name: "처리 중 상태" });
+    const closeButton = screen.getByRole("button", { name: "상태 닫기" });
+
+    expect(closeButton).toBeDisabled();
+    fireEvent.keyDown(drawer, { key: "Escape" });
+    fireEvent.mouseDown(screen.getByTestId("modal-backdrop"));
+    fireEvent.click(closeButton);
+
+    expect(close).not.toHaveBeenCalled();
+    expect(drawer).toBeVisible();
+  });
+
   it("defaults confirmation focus to safe cancel and prefers onCancel over the legacy callback", async () => {
     const onCancel = vi.fn(); const onClose = vi.fn(); const onConfirm = vi.fn();
     render(<ConfirmDialog title="확인" description="되돌릴 수 없음" confirmLabel="실행" onCancel={onCancel} onClose={onClose} onConfirm={onConfirm} />);

@@ -28,7 +28,12 @@ export function AccountSecurityView({ user }: { user: AuthUser }) {
 
   return (
     <section className="grid gap-5">
-      <PageHeader title="계정 보안" description="비밀번호, 2단계 인증과 로그인된 기기를 관리합니다." />
+      <PageHeader
+        title="계정 보안"
+        description={canManageMfa
+          ? "비밀번호, 2단계 인증과 로그인된 기기를 관리합니다."
+          : "비밀번호와 로그인된 기기를 관리합니다."}
+      />
       <div key={principal} data-testid="account-security-layout" className="grid gap-3 compact:grid-cols-2">
         <div data-testid="password-security-cell" className="min-w-0 compact:col-span-2">
           <PasswordChangeCard />

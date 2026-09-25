@@ -159,7 +159,7 @@ describe("AccountSecurityView", () => {
     renderView(viewer);
 
     expect(await screen.findByRole("list", { name: "활성 세션" })).toBeInTheDocument();
-    expect(screen.queryByRole("heading", { name: "2단계 인증" })).not.toBeInTheDocument();
+    expect(screen.queryByText(/2단계 인증/)).not.toBeInTheDocument();
     expect(screen.getByTestId("sessions-security-cell")).toHaveClass("compact:col-span-2");
     expect(getMfaStatus).not.toHaveBeenCalled();
     expect(listAuthSessions).toHaveBeenCalledOnce();
