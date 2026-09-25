@@ -45,17 +45,17 @@
 
 **Interfaces:** `submit(input: LandingInquiryInput, ip: string): Promise<{reference: string; status: "received"}>`; `POST /landing/inquiries`; `getConnectionStatus(): Promise<{connected: boolean}>` from Task 2 gates new submissions. Define the latter behind an injected interface that Task 1 tests can fake.
 
-- [ ] **Step 1: Write failing intake tests.** Use valid payload below; assert 201/reference, same key same result, changed payload 409, malformed/oversize/consent/honeypot 400 or 422, IP limit 429, Redis outage 503, unconnected mail 503. Assert no query/mutation occurs on rejection.
+- [x] **Step 1: Write failing intake tests.** Use valid payload below; assert 201/reference, same key same result, changed payload 409, malformed/oversize/consent/honeypot 400 or 422, IP limit 429, Redis outage 503, unconnected mail 503. Assert no query/mutation occurs on rejection.
 
 ```ts
 const valid = { idempotencyKey: crypto.randomUUID(), companyName: "테스트 시설", contactName: "홍길동", email: "owner@example.com", phone: "", audience: "facility", message: "B2 주차장 도입 상담", consent: true, consentVersion: "landing-2026-09-v1-90d", website: "" };
 expect(await service.submit(valid, "127.0.0.1")).toEqual({ reference: expect.stringMatching(/^K-\d{8}-/), status: "received" });
 ```
 
-- [ ] **Step 2: Run the focused Jest tests and verify they fail because the service/route is missing.** Run `pnpm --filter @led-control/api exec jest src/landing-inquiries --runInBand`.
-- [ ] **Step 3: Add `LandingInquiry` schema and forward migration.** Include unique `idempotencyKey`, payload hash, reference, contact fields, consent, `createdAt`, `expiresAt`, `deliveryStatus`, attempt/lease fields and timestamps. Generate Prisma Client; document each field and 90-day retention in `docs/database-schema.md`. Do not change existing migration files.
-- [ ] **Step 4: Implement schema validation, Redis IP bucket and transactional intake.** Canonicalize trimmed fields before hashing; hash JSON in fixed key order; check idempotency before rate-limit consumption for exact retries. If a matching key exists, compare payload hash. For a new key, check mail readiness, consume the rate bucket and insert once. Return a random reference. The recipient is absent from request and DB input.
-- [ ] **Step 5: Run focused tests, Prisma validate/generate, API typecheck; commit Task 1.** Run `pnpm --filter @led-control/api exec prisma validate`, `pnpm --filter @led-control/api prisma:generate`, `pnpm --filter @led-control/api typecheck`, focused Jest, `git diff --check`.
+- [x] **Step 2: Run the focused Jest tests and verify they fail because the service/route is missing.** Run `pnpm --filter @led-control/api exec jest src/landing-inquiries --runInBand`.
+- [x] **Step 3: Add `LandingInquiry` schema and forward migration.** Include unique `idempotencyKey`, payload hash, reference, contact fields, consent, `createdAt`, `expiresAt`, `deliveryStatus`, attempt/lease fields and timestamps. Generate Prisma Client; document each field and 90-day retention in `docs/database-schema.md`. Do not change existing migration files.
+- [x] **Step 4: Implement schema validation, Redis IP bucket and transactional intake.** Canonicalize trimmed fields before hashing; hash JSON in fixed key order; check idempotency before rate-limit consumption for exact retries. If a matching key exists, compare payload hash. For a new key, check mail readiness, consume the rate bucket and insert once. Return a random reference. The recipient is absent from request and DB input.
+- [x] **Step 5: Run focused tests, Prisma validate/generate, API typecheck; commit Task 1.** Run `pnpm --filter @led-control/api exec prisma validate`, `pnpm --filter @led-control/api prisma:generate`, `pnpm --filter @led-control/api typecheck`, focused Jest, `git diff --check`.
 
 ### Task 2: Independent NAVER WORKS OAuth connection
 
@@ -97,10 +97,10 @@ expect(await prisma.landingInquiry.findUnique({ where: { id: inquiry.id } })).to
 
 ### Task 4: Operational documentation and status
 
-**Files:** `docs/menus/landing.md`, `docs/menus/operator.md`, `docs/project-status.md`, `docs/database-schema.md`, `docs/runbooks/landing-mail-setup.md`.
+**Files:** `docs/menus/landing.md`, `docs/menus/operator.md`, `docs/project-status.md`, `docs/database-schema.md`, `docs/runbooks/landing-mail-setup.md`, `AGENTS.md`.
 
 **Interfaces:** The Web plan consumes the exact Task 1 public contract and Task 2/3 operator routes.
 
 - [ ] **Step 1: Document required NAVER WORKS `mail` scope, sender user ID, client ID/secret, callback URL and encryption key without values.** Explain initial operator connection, status, 202 meaning, failure/uncertain triage and 90-day deletion. Do not copy the other project's actual secrets.
-- [ ] **Step 2: Maintain the required menu headings: `구현 완료`, `미구현`, `부족하거나 개선이 필요한 기능`, `관련 파일`, `갱신 규칙`.** Record that live OAuth/email receipt is unverified without production credentials.
+- [ ] **Step 2: Maintain the required menu headings: `구현 완료`, `미구현`, `부족하거나 개선이 필요한 기능`, `관련 파일`, `갱신 규칙`.** Add landing/operator menu document paths to the list in `AGENTS.md`. Record that live OAuth/email receipt is unverified without production credentials.
 - [ ] **Step 3: Align `docs/project-status.md` with the implementation checklist and commit documentation.**
