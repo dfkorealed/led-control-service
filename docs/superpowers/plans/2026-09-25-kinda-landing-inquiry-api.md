@@ -82,18 +82,18 @@ await expect(oauth.completeAuthorization("code-2", new URL(first.authorizationUr
 
 **Interfaces:** `send(message: {subject: string; html: string; text: string}): Promise<"provider_accepted">`; `deliverDue(now?: Date): Promise<number>`; `pruneExpired(now?: Date): Promise<number>`; `GET /operator/landing-inquiries` returns recent references, contact details and delivery status with bounded pagination.
 
-- [ ] **Step 1: Write failing renderer/transport/worker tests.** Escape untrusted company/name/message in HTML and strip CR/LF from subject. Simulate 202, 401 then refresh, 429, 4xx, 5xx, network timeout; assert only 202 is accepted, only confirmed pre-send failures retry, and unknown acceptance is terminal. Assert two workers cannot claim the same row and 90-day prune deletes expired inquiries but leaves unexpired ones.
+- [x] **Step 1: Write failing renderer/transport/worker tests.** Escape untrusted company/name/message in HTML and strip CR/LF from subject. Simulate 202, 401 then refresh, 429, 4xx, 5xx, network timeout; assert only 202 is accepted, only confirmed pre-send failures retry, and unknown acceptance is terminal. Assert two workers cannot claim the same row and 90-day prune deletes expired inquiries but leaves unexpired ones.
 
 ```ts
 await worker.deliverDue(new Date("2026-09-25T00:00:00Z"));
 expect(await prisma.landingInquiry.findUnique({ where: { id: inquiry.id } })).toMatchObject({ deliveryStatus: "provider_accepted" });
 ```
 
-- [ ] **Step 2: Run focused Jest and confirm expected RED.** Run `pnpm --filter @led-control/api exec jest src/landing-inquiries --runInBand`.
-- [ ] **Step 3: Implement safe mail rendering and fixed recipient transport.** Follow the local `dfkorea-homepage/dfkorea-backend/src/tenders/mail/naver-works-mail.transport.ts` outcome rules, adapting them into this repository rather than importing across projects. Use only server-side sender configuration. Do not include client supplied HTML in a template without escaping.
-- [ ] **Step 4: Implement worker claims, outcome persistence, and prune.** A bounded `FOR UPDATE SKIP LOCKED` claim or equivalent atomic transaction prevents multi-instance duplicates. Pre-send OAuth/429 failures get a finite backoff; unknown acceptance is terminal. Timers are disabled in `NODE_ENV=test`, unref'd in production and drained on module destroy. Prune deletes at most a bounded batch per run and logs counts only, never PII.
-- [ ] **Step 5: Add operator-only bounded list/status API and test authorization.** Return no secrets and no unlimited full-table scans. Include delivery errors by safe code, not provider response bodies.
-- [ ] **Step 6: Run API focused and full tests, typecheck/build and migration rehearsal; commit Task 3.** Run `pnpm --filter @led-control/api test`, `pnpm --filter @led-control/api typecheck`, `pnpm --filter @led-control/api build`, `git diff --check`. Use a disposable PostgreSQL for migration verification; do not migrate a user or production DB.
+- [x] **Step 2: Run focused Jest and confirm expected RED.** Run `pnpm --filter @led-control/api exec jest src/landing-inquiries --runInBand`.
+- [x] **Step 3: Implement safe mail rendering and fixed recipient transport.** Follow the local `dfkorea-homepage/dfkorea-backend/src/tenders/mail/naver-works-mail.transport.ts` outcome rules, adapting them into this repository rather than importing across projects. Use only server-side sender configuration. Do not include client supplied HTML in a template without escaping.
+- [x] **Step 4: Implement worker claims, outcome persistence, and prune.** A bounded `FOR UPDATE SKIP LOCKED` claim or equivalent atomic transaction prevents multi-instance duplicates. Pre-send OAuth/429 failures get a finite backoff; unknown acceptance is terminal. Timers are disabled in `NODE_ENV=test`, unref'd in production and drained on module destroy. Prune deletes at most a bounded batch per run and logs counts only, never PII.
+- [x] **Step 5: Add operator-only bounded list/status API and test authorization.** Return no secrets and no unlimited full-table scans. Include delivery errors by safe code, not provider response bodies.
+- [x] **Step 6: Run API focused and full tests, typecheck/build and migration rehearsal; commit Task 3.** Run `pnpm --filter @led-control/api test`, `pnpm --filter @led-control/api typecheck`, `pnpm --filter @led-control/api build`, `git diff --check`. Use a disposable PostgreSQL for migration verification; do not migrate a user or production DB.
 
 ### Task 4: Operational documentation and status
 
