@@ -44,7 +44,8 @@ for (const viewport of viewports) {
   test(`calm operations auth and operator surfaces remain responsive at ${viewport.width}px`, async ({ page }) => {
     await page.setViewportSize(viewport);
     let authenticated = false;
-    await installAuthOperatorRoutes(page, () => authenticated);
+    const operatorLoginId = viewport.width === 320 ? `operator_${"a".repeat(91)}` : "operator";
+    await installAuthOperatorRoutes(page, () => authenticated, operatorLoginId);
 
     await page.goto("/");
     await expect(page.getByRole("heading", { name: /빛을 더 안정적으로/ })).toBeVisible();
@@ -89,6 +90,7 @@ for (const viewport of viewports) {
     authenticated = true;
     await page.goto("/operator/site-admins");
     await expect(page.getByRole("img", { name: "킨다 서비스 운영" })).toBeVisible();
+    await expect(page.getByText(operatorLoginId, { exact: true })).toBeVisible();
     await expect(page.getByRole("heading", { name: "현장 관리자 계정" })).toBeVisible();
     const operatorMain = page.getByRole("main");
     const mainBox = await operatorMain.boundingBox();
@@ -168,7 +170,7 @@ async function expectMobileDialogControls(dialog: ReturnType<Page["getByRole"]>)
   }
 }
 
-async function installAuthOperatorRoutes(page: Page, isAuthenticated: () => boolean) {
+async function installAuthOperatorRoutes(page: Page, isAuthenticated: () => boolean, loginId: string) {
   await page.route("**/api/**", async (route) => {
     const request = route.request();
     const pathname = new URL(request.url()).pathname;
@@ -177,7 +179,7 @@ async function installAuthOperatorRoutes(page: Page, isAuthenticated: () => bool
 
     if (path === "/auth/me") {
       return route.fulfill(isAuthenticated()
-        ? { json: { user: { id: "operator-1", organizationId: "provider-1", organizationType: "service_provider", loginId: "operator", name: "운영자", role: "operator", status: "active" } } }
+        ? { json: { user: { id: "operator-1", organizationId: "provider-1", organizationType: "service_provider", loginId, name: "운영자", role: "operator", status: "active" } } }
         : { status: 401, json: { message: "unauthorized" } });
     }
     if (path === "/operator/site-admins" && request.method() === "GET") {

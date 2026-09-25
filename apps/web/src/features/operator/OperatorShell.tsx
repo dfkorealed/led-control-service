@@ -40,12 +40,15 @@ export function OperatorShell({ user }: { user: AuthUser }) {
   return (
     <div className="min-h-screen bg-surface-canvas">
       <header className="border-b border-border-default bg-surface-panel">
-        <div className="mx-auto flex min-h-16 w-full max-w-operator items-center justify-between gap-4 px-6 py-3 max-compact:px-3.5">
+        <div
+          data-testid="operator-header-inner"
+          className="mx-auto flex min-h-16 w-full max-w-operator items-center justify-between gap-4 px-6 py-3 max-compact:flex-col max-compact:items-stretch max-compact:px-3.5"
+        >
           <KindaLogo context="서비스 운영" />
-          <div className="flex items-center gap-3">
-            <Text as="span" variant="body-sm" tone="secondary" weight="bold">{user.loginId}</Text>
+          <div className="flex min-w-0 items-center gap-3 max-compact:w-full">
+            <Text className="min-w-0 truncate" as="span" variant="body-sm" tone="secondary" weight="bold">{user.loginId}</Text>
             <IconTooltipButton
-              className="size-13"
+              className="ml-auto size-13 shrink-0"
               icon={LogOut}
               label="로그아웃"
               loadingLabel="로그아웃 중"
