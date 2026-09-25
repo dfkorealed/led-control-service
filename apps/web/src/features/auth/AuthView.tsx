@@ -100,14 +100,22 @@ export function AuthView({ onAuthenticated }: AuthViewProps) {
     setErrorMessage("");
   }
 
+  const authStage = challenge ? verificationMode : "credentials";
+  const authStatus = isPending ? "pending" : errorMessage ? "error" : "ready";
+
   return (
-    <main className="mx-auto grid min-h-screen w-full max-w-6xl grid-cols-2 items-center gap-16 bg-surface-canvas p-6 max-compact:grid-cols-1 max-compact:content-center max-compact:gap-8 max-compact:px-4">
+    <main className="mx-auto grid min-h-screen w-full max-w-auth grid-cols-2 items-center gap-12 bg-surface-canvas px-6 py-10 max-compact:grid-cols-1 max-compact:content-center max-compact:gap-7 max-compact:px-4 max-compact:py-8">
       <section className="max-w-xl" aria-label="킨다 소개">
         <KindaLogo className="mb-7" />
         <Heading as="h1" variant="display">빛을 더 안정적으로,<br />현장을 더 선명하게.</Heading>
         <Text className="mt-5 max-w-lg" variant="body-lg" tone="secondary">주차장 LED 조명의 상태, 제어, 에너지 사용량을 하나의 차분한 운영 화면에서 확인하세요.</Text>
       </section>
-      <Card className="grid w-full max-w-lg gap-5 p-6 shadow-panel">
+      <Card
+        data-testid="auth-stage-card"
+        data-auth-stage={authStage}
+        data-auth-status={authStatus}
+        className="grid w-full max-w-lg gap-5 p-6 shadow-panel"
+      >
         {challenge ? (
           <>
             <div className="grid gap-1.5">
@@ -178,6 +186,7 @@ export function AuthView({ onAuthenticated }: AuthViewProps) {
         )}
 
         {errorMessage ? <FeedbackState className="mt-3.5" tone="danger" icon={CircleAlert} title={errorMessage} /> : null}
+        <Text variant="caption" tone="secondary">로그인에 문제가 계속되면 서비스 운영 담당자에게 문의하세요.</Text>
       </Card>
     </main>
   );

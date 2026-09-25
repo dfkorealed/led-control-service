@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ApiError, ApiTimeoutError, ApiTransportError } from "../../api/client";
 import { completeMfaLogin, getCurrentUser, login, type AuthUser } from "../../api/auth";
@@ -55,6 +55,41 @@ describe("AuthView MFA login", () => {
     expect(within(introduction).getByRole("img", { name: "킨다" })).toBeVisible();
     expect(screen.getByRole("heading", { name: "킨다 로그인" })).toBeVisible();
     expect(screen.queryByText(/LED\s+Control/)).not.toBeInTheDocument();
+  });
+
+  it("uses the approved credentials stage without atlas review controls", () => {
+    renderView();
+
+    expect(screen.getByRole("main")).toHaveClass("max-w-auth");
+    expect(screen.getByTestId("auth-stage-card")).toHaveAttribute("data-auth-stage", "credentials");
+    expect(screen.getByTestId("auth-stage-card")).toHaveAttribute("data-auth-status", "ready");
+    expect(screen.queryByText(/role|state picker|review/i)).not.toBeInTheDocument();
+  });
+
+  it("marks TOTP and recovery as distinct visual stages", async () => {
+    loginMock.mockResolvedValue({
+      mfaRequired: true,
+      challengeToken: "challenge-token",
+      expiresAt: "2026-09-25T12:05:00.000Z"
+    });
+    renderView();
+
+    submitCredentials();
+    expect(await screen.findByTestId("auth-stage-card")).toHaveAttribute("data-auth-stage", "totp");
+    fireEvent.click(screen.getByRole("button", { name: "복구 코드 사용" }));
+    expect(screen.getByTestId("auth-stage-card")).toHaveAttribute("data-auth-stage", "recovery");
+  });
+
+  it("exposes pending and error presentation without changing the login flow", async () => {
+    let rejectLogin: ((reason?: unknown) => void) | undefined;
+    loginMock.mockImplementation(() => new Promise((_, reject) => { rejectLogin = reject; }));
+    renderView();
+
+    submitCredentials();
+    expect(screen.getByTestId("auth-stage-card")).toHaveAttribute("data-auth-status", "pending");
+    await act(async () => rejectLogin?.(new ApiError("failed", 401, {})));
+    expect(await screen.findByRole("alert")).toHaveTextContent("아이디 또는 비밀번호를 확인해 주세요.");
+    expect(screen.getByTestId("auth-stage-card")).toHaveAttribute("data-auth-status", "error");
   });
 
   it("일반 로그인 응답은 기존 인증 완료 흐름을 유지한다", async () => {

@@ -3,9 +3,10 @@ import { expectMinimumTouchTargets, expectNoHorizontalOverflow } from "./support
 
 const viewports = [
   { width: 1440, height: 900 },
+  { width: 1378, height: 1237 },
   { width: 1024, height: 768 },
   { width: 390, height: 844 },
-  { width: 320, height: 740 }
+  { width: 320, height: 720 }
 ] as const;
 
 const siteAdmins = [
@@ -50,6 +51,11 @@ for (const viewport of viewports) {
     await expect(page).toHaveTitle("킨다 | 스마트 조명 운영");
     await expect(page.getByRole("img", { name: "킨다", exact: true })).toBeVisible();
     await expect(page.getByRole("heading", { name: "킨다 로그인" })).toBeVisible();
+    const authMain = page.getByRole("main");
+    const authBox = await authMain.boundingBox();
+    expect(authBox).not.toBeNull();
+    expect(authBox!.width).toBeLessThanOrEqual(Math.min(viewport.width, 960));
+    await expect(page.getByTestId("auth-stage-card")).toHaveAttribute("data-auth-stage", "credentials");
     const loginButton = page.getByRole("button", { name: "로그인", exact: true });
     await expect(loginButton).toHaveCSS("background-color", "rgb(37, 111, 161)");
     await loginButton.hover();
@@ -76,7 +82,7 @@ for (const viewport of viewports) {
     await expect(page.getByText(/^(Gateway|게이트웨이)$/i)).toHaveCount(0);
     await expectNoHorizontalOverflow(page);
 
-    if (viewport.width <= 760) {
+    if (viewport.width < 760) {
       await expectMinimumTouchTargets(page, "[data-auth-submit]");
     }
 
