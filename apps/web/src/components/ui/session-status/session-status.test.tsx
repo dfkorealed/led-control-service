@@ -161,7 +161,7 @@ describe("session status feedback", () => {
 
     fireEvent.click(trigger);
     const reopened = await screen.findByRole("dialog", { name: "현재 세션 상태" });
-    fireEvent.click(within(reopened).getByRole("button", { name: "닫기", exact: true }));
+    fireEvent.click(within(reopened).getByRole("button", { name: "닫기" }));
     await waitFor(() => expect(trigger).toHaveFocus());
     expect(trigger).toHaveAttribute("aria-expanded", "false");
   });

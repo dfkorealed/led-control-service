@@ -2,7 +2,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter, useLocation } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { AuthUser } from "../../api/auth";
+import { logout, type AuthUser } from "../../api/auth";
 import { apiGet } from "../../api/client";
 import type { Dashboard } from "../../api/queries";
 import { CustomerShell } from "./CustomerShell";
@@ -15,6 +15,10 @@ vi.mock("../statistics/reports/StatisticsReportsPage", () => ({ StatisticsReport
 vi.mock("../../api/client", async (original) => ({
   ...await original<typeof import("../../api/client")>(),
   apiGet: vi.fn()
+}));
+vi.mock("../../api/auth", async (original) => ({
+  ...await original<typeof import("../../api/auth")>(),
+  logout: vi.fn().mockResolvedValue({ ok: true })
 }));
 const dashboardState = vi.hoisted(() => ({
   current: {
@@ -83,12 +87,13 @@ function renderShell(path: string, user: AuthUser = adminUser) {
 
 describe("customer shell site context", () => {
   beforeEach(() => {
+    vi.mocked(logout).mockReset().mockResolvedValue({ ok: true });
     vi.mocked(apiGet).mockReset().mockResolvedValue({ users: [], count: 0, limit: 100 });
     dashboardState.current = { data: dashboardFor({ read: true, control: true, manage: true, commission: true }), isLoading: false, error: null, refetch: vi.fn() };
     sitesState.current = { data: [{ id: "site", name: "현장", customerName: "고객사" }], isLoading: false, error: null, refetch: vi.fn() };
     vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() })));
   });
-  afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
+  afterEach(() => { cleanup(); vi.clearAllMocks(); vi.unstubAllGlobals(); });
 
   it("데스크톱 셸에 킨다 관제 센터 브랜드를 표시한다", () => {
     renderShell("/monitoring?siteId=site");
@@ -107,6 +112,7 @@ describe("customer shell site context", () => {
     fireEvent.click(screen.getByRole("button", { name: /현장 선택/ }));
     fireEvent.click(screen.getByRole("option", { name: "고객사 B · 물류센터" }));
 
+    expect(screen.queryByRole("dialog", { name: "현장 변경" })).not.toBeInTheDocument();
     await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent("/statistics/overview?siteId=site-2&source=summary#energy"));
   });
 
@@ -128,7 +134,7 @@ describe("customer shell site context", () => {
     expect(await screen.findByRole("dialog", { name: "현재 세션 상태" })).toHaveTextContent("현장 목록을 확인하지 못했습니다.");
   });
 
-  it("opens the selected-site gateway issue in the status center from a 44px status control", async () => {
+  it("keeps the gateway aggregate inside the status drawer without a second topbar control", async () => {
     dashboardState.current.data = dashboardFor(
       { read: true, control: true, manage: true, commission: true },
       [
@@ -138,19 +144,40 @@ describe("customer shell site context", () => {
     );
     renderShell("/monitoring?siteId=site");
 
-    const gatewayControl = screen.getByRole("button", { name: "게이트웨이 1/2대 연결 · 확인 필요 상태 센터 열기" });
-    expect(gatewayControl).toHaveClass("min-h-13");
-    expect(gatewayControl).toHaveClass("rounded-control");
-    expect(gatewayControl).not.toHaveClass("rounded-pill");
-    expect(screen.getByTestId("gateway-status-badge")).toHaveClass("rounded-pill");
-    fireEvent.click(gatewayControl);
+    expect(screen.queryByRole("button", { name: /게이트웨이 .*상태 센터 열기/ })).not.toBeInTheDocument();
+    const statusTrigger = screen.getByRole("button", { name: "상태 센터, 미해결 1건" });
+    fireEvent.click(statusTrigger);
 
     const dialog = await screen.findByRole("dialog", { name: "현재 세션 상태" });
-    const gatewayItem = within(dialog).getByText("확인이 필요한 게이트웨이가 있습니다.").closest("li");
-    expect(gatewayItem).not.toBeNull();
-    await waitFor(() => expect(gatewayItem).toHaveFocus());
+    expect(dialog).toHaveTextContent("게이트웨이 1/2대 연결");
+    expect(dialog).toHaveTextContent("확인이 필요한 게이트웨이가 있습니다.");
     fireEvent.keyDown(dialog, { key: "Escape" });
-    await waitFor(() => expect(gatewayControl).toHaveFocus());
+    await waitFor(() => expect(statusTrigger).toHaveFocus());
+  });
+
+  it("logs out immediately when there is no dirty editor state", async () => {
+    renderShell("/monitoring?siteId=site");
+    fireEvent.click(screen.getByRole("button", { name: "로그아웃" }));
+    expect(screen.queryByRole("alertdialog", { name: "로그아웃 확인" })).not.toBeInTheDocument();
+    await waitFor(() => expect(logout).toHaveBeenCalledOnce());
+  });
+
+  it.each([
+    ["/monitoring?siteId=site", "모니터링"],
+    ["/control?siteId=site", "제어"],
+    ["/statistics/overview?siteId=site", "통계"],
+    ["/settings?siteId=site", "설정"]
+  ])("shows the current menu title for %s", async (path, title) => {
+    renderShell(path);
+    expect(await screen.findByTestId("shell-current-menu")).toHaveTextContent(title);
+    expect(screen.queryByText("현장 관제")).not.toBeInTheDocument();
+  });
+
+  it("updates the current menu title after a capability redirect", async () => {
+    dashboardState.current.data = dashboardFor({ read: true, control: false, manage: false, commission: false });
+    renderShell("/control?siteId=site", { ...adminUser, id: "viewer", loginId: "viewer", role: "viewer" });
+    await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent("/monitoring?siteId=site"));
+    expect(screen.getByTestId("shell-current-menu")).toHaveTextContent("모니터링");
   });
 
   it("keeps navigation and logout available while password settings loads, then preserves its URL", async () => {

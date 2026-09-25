@@ -956,7 +956,14 @@ describe("App", () => {
 
     const topbar = (await screen.findByRole("heading", { name: "모니터링" })).closest<HTMLElement>("header");
     expect(topbar).not.toBeNull();
-    expect(within(topbar!).getByTestId("gateway-status-badge")).toHaveAccessibleName("게이트웨이 미등록");
+    expect(within(topbar!).queryByTestId("gateway-status-badge")).not.toBeInTheDocument();
+    const statusTrigger = within(topbar!).getByRole("button", { name: "상태 센터, 미해결 0건" });
+    fireEvent.click(statusTrigger);
+    const statusDrawer = await screen.findByRole("dialog", { name: "현재 세션 상태" });
+    expect(statusDrawer).toHaveTextContent("Gateway 연결");
+    expect(statusDrawer).toHaveTextContent("게이트웨이 미등록");
+    fireEvent.keyDown(statusDrawer, { key: "Escape" });
+    await waitFor(() => expect(statusTrigger).toHaveFocus());
 
     fireEvent.click(screen.getByRole("link", { name: "설정" }));
     expect(await screen.findByRole("group", { name: "Gateway 상태" })).toHaveTextContent("미등록");
@@ -1109,10 +1116,10 @@ describe("App", () => {
     );
 
     fireEvent.click(await screen.findByRole("link", { name: "제어" }));
-    expect(await screen.findByRole("heading", { name: "조명 밝기 제어" })).toBeInTheDocument();
+    expect(await screen.findByRole("region", { name: "제어 대상 지도" })).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("link", { name: "통계" }));
-    expect(await screen.findByText("에너지 리포트")).toBeInTheDocument();
+    expect(await screen.findByRole("region", { name: "에너지 통계" })).toBeInTheDocument();
     expect(screen.queryByText("18%")).not.toBeInTheDocument();
     expect(screen.queryByText("18:00-22:00")).not.toBeInTheDocument();
 

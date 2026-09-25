@@ -31,7 +31,7 @@ const fixture = [
   'el(Button,{size:"lg",className:"px-3","data-testid":"override"},"override"),',
   'el(IconTooltipButton,{icon:LogOut,label:"기본 도움말","data-testid":"tooltip-default"}),',
   'el(IconTooltipButton,{icon:LogOut,label:"크기 도움말",className:"p-2 w-16 h-16 min-w-16 min-h-16","data-testid":"tooltip-override"}),',
-  'el("aside",{className:"w-24 px-2.5 py-4","data-testid":"desktop-navigation"},"navigation"),',
+  'el("aside",{className:"w-shell-rail px-2 py-4","data-testid":"desktop-navigation"},"navigation"),',
   'el("div",{className:"flex items-center justify-end gap-2"},el(IconTooltipButton,{icon:LogOut,label:"상단 도움말"})),',
   'el(Button,{type:"button","data-testid":"keyboard",onPress:event=>window.uiPressCoordinates.push({x:event.x,y:event.y,key:event.key})},"키보드")));'
 ].join("\n");
@@ -45,7 +45,7 @@ const result = await build({
     async load(id){
       // Tests are excluded from production candidate scanning; register only
       // this fixture's caller utilities in the real production CSS build.
-      if(id.endsWith("/src/styles.css"))return await readFile(id,"utf8")+'\n@source inline("p-2 px-3 w-16 h-16 min-w-16 min-h-16");';
+      if(id.endsWith("/src/styles.css"))return await readFile(id,"utf8")+'\n@source inline("p-2 px-2 px-3 py-4 w-16 h-16 min-w-16 min-h-16 w-shell-rail");';
       if(id==="\0"+entry)return fixture;
     }
   }]
@@ -122,7 +122,7 @@ test.describe("production primitive CSS cascade", () => {
 
   test("preserves the default tooltip touch area and final shell utility layout", () => {
     expect(observed.controls["tooltip-default"]).toMatchObject({ width: "52px", height: "52px" });
-    expect(observed.desktopNavigation).toEqual({ width: "96px", padding: "16px 10px" });
+    expect(observed.desktopNavigation).toEqual({ width: "88px", padding: "16px 8px" });
     expect(observed.tooltipCenterOffset).toBeCloseTo(0);
   });
 
