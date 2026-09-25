@@ -68,6 +68,16 @@ describe("operator shell route boundary", () => {
     expect(await screen.findByRole("heading", { name: "현장 관리자 계정" })).toBeVisible();
   });
 
+  it("uses the operator atlas frame without mounting the customer shell", async () => {
+    renderShell();
+
+    const main = screen.getByRole("main");
+    expect(main).toHaveClass("max-w-operator");
+    expect(screen.getByRole("navigation", { name: "운영자 메뉴" })).toBeVisible();
+    expect(screen.queryByRole("navigation", { name: "주 메뉴" })).not.toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "현장 관리자 계정" })).toBeVisible();
+  });
+
   it("redirects an unknown direct URL to site admin management", async () => {
     renderShell("/monitoring?siteId=site-1#floor");
 

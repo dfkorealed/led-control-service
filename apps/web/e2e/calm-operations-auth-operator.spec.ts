@@ -90,6 +90,11 @@ for (const viewport of viewports) {
     await page.goto("/operator/site-admins");
     await expect(page.getByRole("img", { name: "킨다 서비스 운영" })).toBeVisible();
     await expect(page.getByRole("heading", { name: "현장 관리자 계정" })).toBeVisible();
+    const operatorMain = page.getByRole("main");
+    const mainBox = await operatorMain.boundingBox();
+    expect(mainBox).not.toBeNull();
+    expect(mainBox!.width).toBeLessThanOrEqual(Math.min(viewport.width, 1160));
+    await expectMinimumTouchTargets(page, "header");
     await expect(page.getByLabel("현장 관리자 계정 표")).toBeVisible();
     await expect(page.getByRole("group", { name: "운영 현장" })).toContainText("4");
     await expect(page.getByRole("group", { name: "설치 완료" })).toContainText("2");
