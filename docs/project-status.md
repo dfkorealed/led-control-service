@@ -1,6 +1,15 @@
 # 메뉴 완성 작업 상태판
 
-기준일: 2026-09-24
+기준일: 2026-09-25
+
+## 2026-09-25 킨다 공개 랜딩 및 상담 문의
+
+- [x] 시설 운영 담당자와 시공·유통 파트너를 같은 비중으로 다루고, 차분한 대시보드 중심 화면으로 상담 문의를 유도하는 요구사항을 확정했다. 공개 랜딩은 `led-control-service/apps/web`에 추가한다.
+- [x] 문의 수신 주소는 `kymkjh2002@dfkorealed.com`, 접수 원본 보관기간은 90일이다. 회사 홈페이지의 NAVER WORKS OAuth/HTTPS 메일 전송 방식을 참고하되 관제 서비스에 독립 연결한다.
+- [x] [설계](superpowers/specs/2026-09-25-kinda-public-landing-design.md), [문의 API 계획](superpowers/plans/2026-09-25-kinda-landing-inquiry-api.md), [웹 계획](superpowers/plans/2026-09-25-kinda-landing-web.md)을 작성했다. 별도 `codex/kinda-landing` worktree에서 구현한다.
+- [ ] 공개 문의 API·NAVER WORKS 연결·90일 삭제를 구현하고 테스트한다.
+- [ ] 공개 랜딩·문의 양식·운영자 상태 화면을 구현하고 반응형·접근성·기존 인증 회귀를 확인한다.
+- [ ] 문서와 체크리스트를 실제 검증 결과에 맞춰 갱신하고 독립 검토한다. 실제 NAVER WORKS OAuth 승인·메일 발송은 운영 자격 증명과 배포 환경에서 별도 확인한다.
 
 ## 2026-09-24 고객 UI/UX 전면 적용
 

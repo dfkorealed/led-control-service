@@ -33,11 +33,14 @@
 ## 서버 접수, 메일 발송, 보관
 
 - `POST /landing/inquiries`는 인증 없는 공개 API다. 멱등 키와 정규화된 payload hash를 저장하고 같은 키/같은 내용은 기존 접수를 반환한다. 같은 키/다른 내용은 충돌로 거부한다.
+- 요청 본문은 `idempotencyKey`(UUID), `companyName`, `contactName`, `email`, 선택적 `phone`, `audience`(`facility` 또는 `partner`), `message`, `consent`(`true`), `consentVersion`(`landing-2026-09-v1-90d`), 비워 두어야 하는 `website` 필드다. 성공 응답은 `{ reference, status: "received" }`다. 서버는 접수번호를 발급하며 클라이언트가 지정할 수 없다.
+- NAVER WORKS 발신 구성이나 OAuth 연결이 준비되지 않은 경우 새 문의를 저장하지 않고 `503`과 사용자에게 읽을 수 있는 복구 메시지를 반환한다. 회사 메일을 직접 여는 `mailto:` 링크를 양식 오류 상태의 대안으로 제공한다. 이미 저장된 문의는 메일 장애와 별개로 접수번호를 유지한다.
 - 새 Prisma 모델은 문의 원본, 동의 버전·시각, 90일 만료일, 발송 상태와 재시도 메타데이터를 저장한다. DB 트랜잭션으로 원본과 발송 대기 상태를 함께 확정한다. 90일이 지난 원본·발송 기록을 주기적으로 삭제하고 실제 삭제 결과를 관측한다.
 - 메일 발송은 `회사 홈페이지`의 NAVER WORKS OAuth/HTTPS 전송 패턴을 참고해 **관제 서비스 내부에 독립 구현**한다. 메일 API는 구성원 OAuth `mail` 범위가 필요하며, 액세스·리프레시 토큰은 암호화해 저장한다. 운영자만 연결 상태를 확인하고 OAuth 연결을 시작할 수 있다. 비밀값은 서버 환경 변수/secret store에서만 읽는다.
 - 발신자와 수신자는 서버 설정으로 고정한다. 전송 요청에 신청자가 입력한 주소를 `from`으로 쓰지 않고, 회신 정보는 본문에 포함한다. NAVER WORKS가 `202 Accepted`를 반환한 경우만 `provider_accepted`로 기록한다. 이는 실제 받은편지함 도착과 다르다.
 - 제공자 호출 **전**의 확정된 일시 실패만 제한적으로 재시도한다. 호출 중 타임아웃·네트워크 단절·5xx처럼 수락 여부를 알 수 없는 결과는 `delivery_uncertain`으로 닫아 자동 중복 발송을 피한다. 운영자 화면에서 접수번호와 상태를 확인하고 필요한 경우 수동 처리할 수 있다.
 - 문의 원본과 메일 연결 상태는 고객 테넌트 데이터와 분리한다. 운영자 전용 조회에는 필요한 회신 정보만 표시하고, 조회·연결 동작은 기존 운영자 인증을 요구한다.
+- 운영자 경로는 `GET /operator/landing-inquiries`(최근 접수와 상태), `GET /operator/landing-mail/status`, `POST /operator/landing-mail/authorize`(인가 URL 발급)다. `GET /landing-mail/oauth/callback`은 짧게 유효한 단회 state를 검증한 뒤 코드 교환과 암호화 저장을 수행하고 운영자 화면으로 돌아간다. 운영자 화면은 수동 재발송 버튼을 제공하지 않는다.
 
 ## 품질과 검증
 
