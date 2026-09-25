@@ -74,7 +74,7 @@ export type { SidePanelProps } from "./SidePanel";
 export { SessionStatusProvider, useSessionStatus, useSessionToast } from "./session-status/SessionStatusProvider";
 export type { SessionNoticeAction, SessionStatusItem, SessionStatusTone, SessionToastInput, SessionToastTone } from "./session-status/SessionStatusProvider";
 export { SessionStatusCenter } from "./session-status/SessionStatusCenter";
-export type { SessionStatusCenterHandle } from "./session-status/SessionStatusCenter";
+export type { SessionStatusCenterHandle, SessionStatusCenterProps, SessionStatusContextItem } from "./session-status/SessionStatusCenter";
 export { ToastRegion } from "./session-status/ToastRegion";
 export { StatusBadge } from "./StatusBadge";
 export type { StatusTone, StatusBadgeProps } from "./StatusBadge";
