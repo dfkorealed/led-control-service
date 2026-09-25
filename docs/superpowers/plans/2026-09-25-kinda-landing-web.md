@@ -44,16 +44,16 @@
 
 **Interfaces:** `LandingPage` is a standalone React component; `/` maps to it before `AppRoot` is mounted; `/login` still mounts the existing authenticated app.
 
-- [ ] **Step 1: Write failing public-route tests.** Render the entry with path `/` and assert the main heading, inquiry anchor and zero `/api/auth/me` calls; render `/login` and assert existing auth behavior. Preserve existing App recovery tests.
+- [x] **Step 1: Write failing public-route tests.** Render the entry with path `/` and assert the main heading, inquiry anchor and zero `/api/auth/me` calls; render `/login` and assert existing auth behavior. Preserve existing App recovery tests.
 
 ```tsx
 expect(screen.getByRole("heading", { name: /조명 운영을 간단하게/ })).toBeInTheDocument();
 expect(fetchMock.mock.calls.some(([url]) => String(url).includes("/auth/me"))).toBe(false);
 ```
 
-- [ ] **Step 2: Run the focused Vitest and verify RED due to missing public entry.** Run `pnpm --filter @led-control/web exec vitest run src/features/landing/LandingPage.test.tsx`.
-- [ ] **Step 3: Route `/` to `LandingPage` and all other paths to `AppRoot`.** Use normal anchors for public-to-auth navigation so pathname changes cause a full, predictable entry switch. Do not nest a second BrowserRouter. Add Korean title/description and social metadata in `index.html` without claiming an unverified benefit.
-- [ ] **Step 4: Run focused tests and existing `App.recovery.test.tsx`; commit Task 1.**
+- [x] **Step 2: Run the focused Vitest and verify RED due to missing public entry.** Run `pnpm --filter @led-control/web exec vitest run src/features/landing/LandingPage.test.tsx`.
+- [x] **Step 3: Route `/` to `LandingPage` and all other paths to `AppRoot`.** Use normal anchors for public-to-auth navigation so pathname changes cause a full, predictable entry switch. Do not nest a second BrowserRouter. Add Korean title/description and social metadata in `index.html` without claiming an unverified benefit.
+- [x] **Step 4: Run focused tests and existing `App.recovery.test.tsx`; commit Task 1.**
 
 ### Task 2: Dashboard-led landing narrative
 
