@@ -101,6 +101,6 @@ expect(await prisma.landingInquiry.findUnique({ where: { id: inquiry.id } })).to
 
 **Interfaces:** The Web plan consumes the exact Task 1 public contract and Task 2/3 operator routes.
 
-- [ ] **Step 1: Document required NAVER WORKS `mail` scope, sender user ID, client ID/secret, callback URL and encryption key without values.** Explain initial operator connection, status, 202 meaning, failure/uncertain triage and 90-day deletion. Do not copy the other project's actual secrets.
-- [ ] **Step 2: Maintain the required menu headings: `구현 완료`, `미구현`, `부족하거나 개선이 필요한 기능`, `관련 파일`, `갱신 규칙`.** Add landing/operator menu document paths to the list in `AGENTS.md`. Record that live OAuth/email receipt is unverified without production credentials.
-- [ ] **Step 3: Align `docs/project-status.md` with the implementation checklist and commit documentation.**
+- [x] **Step 1: Document required NAVER WORKS `mail` scope, sender user ID, client ID/secret, callback URL and encryption key without values.** Explain initial operator connection, status, 202 meaning, failure/uncertain triage and 90-day deletion. Do not copy the other project's actual secrets.
+- [x] **Step 2: Maintain the required menu headings: `구현 완료`, `미구현`, `부족하거나 개선이 필요한 기능`, `관련 파일`, `갱신 규칙`.** Add landing/operator menu document paths to the list in `AGENTS.md`. Record that live OAuth/email receipt is unverified without production credentials.
+- [x] **Step 3: Align `docs/project-status.md` with the implementation checklist and commit documentation.**
