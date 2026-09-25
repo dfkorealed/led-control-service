@@ -27,6 +27,7 @@ import { SiteUsersModule } from "./site-users/site-users.module";
 import { SiteSettingsModule } from "./site-settings/site-settings.module";
 import { TestDataModule } from "./test-data/test-data.module";
 import { ObservabilityModule } from "./observability/observability.module";
+import { LandingInquiriesModule } from "./landing-inquiries/landing-inquiries.module";
 
 @Module({
   imports: [
@@ -57,6 +58,7 @@ import { ObservabilityModule } from "./observability/observability.module";
     FixturesModule,
     FixtureGroupsModule,
     OperatorSiteAdminsModule,
+    LandingInquiriesModule,
     TestDataModule
   ]
 })

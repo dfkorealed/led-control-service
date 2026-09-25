@@ -7,6 +7,44 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+enum LandingInquiryDeliveryStatus {
+  queued
+  retry_wait
+  provider_accepted
+  delivery_uncertain
+  failed
+}
+
+model LandingInquiry {
+  id                 String                       @id @default(uuid())
+  idempotencyKey     String                       @unique
+  payloadHash        String
+  reference          String                       @unique
+  companyName        String
+  contactName        String
+  email              String
+  phone              String
+  audience           String?
+  message            String
+  consentVersion     String
+  consentAt          DateTime
+  createdAt          DateTime                     @default(now())
+  updatedAt          DateTime                     @updatedAt
+  expiresAt          DateTime
+  deliveryStatus     LandingInquiryDeliveryStatus @default(queued)
+  attemptCount       Int                          @default(0)
+  leaseOwner         String?
+  leaseExpiresAt     DateTime?
+  nextAttemptAt      DateTime?
+  lastAttemptAt      DateTime?
+  providerAcceptedAt DateTime?
+  lastErrorCode      String?
+
+  @@index([deliveryStatus, nextAttemptAt])
+  @@index([expiresAt])
+  @@index([createdAt])
+}
+
 enum FixturePlacementStatus {
   unplaced
   placed

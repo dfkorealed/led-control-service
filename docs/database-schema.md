@@ -2075,6 +2075,28 @@ node별 `provision-device` command의 durable transactional outbox다. 등록 AP
 
 `ProcessedGatewayEvent.fixtureId`는 상태 이벤트의 조명 원장 연결을 보존한다. API는 이벤트 원장, 이 cursor, `FixtureEnergyDailyAggregate`, `FixtureEnergyHourlyAggregate`, Fixture 최신 상태를 하나의 transaction으로 갱신한다.
 
+### LandingInquiry (공개 상담 문의)
+
+Migration: `20260925120000_landing_inquiry`. 고객 테넌트와 FK 없이 분리한 공개 문의 원본과 메일 발송 대기 상태다. 접수 시각부터 **90일** 뒤인 `expiresAt`을 기록한다. 실제 주기적 삭제와 메일 발송은 후속 작업에서 구현한다. 현재 메일 연결 구현 전에는 새 접수를 503으로 거부하며, 마이그레이션은 사용자/운영 DB에 적용하지 않았다.
+
+| 필드 | 타입 | 의미 |
+| --- | --- | --- |
+| `id` | `String` | 내부 UUID 기본키 |
+| `idempotencyKey` | `String` unique | 클라이언트의 요청 UUID. 같은 키와 같은 정규화 본문은 원래 접수번호를 반환 |
+| `payloadHash` | `String` | 정해진 키 순서의 정규화 문의 JSON에 대한 SHA-256 |
+| `reference` | `String` unique | 서버가 발급한 `K-YYYYMMDD-*` 접수번호 |
+| `companyName`, `contactName`, `email`, `phone` | `String` | 회신에 필요한 정규화 연락처. 전화번호는 선택 사항이며 빈 문자열로 저장 |
+| `audience` | `String?` | 선택한 고객 유형 `facility`/`partner` 또는 null |
+| `message` | `String` | 문의 본문 |
+| `consentVersion`, `consentAt` | `String`, `DateTime` | 수집 동의 버전과 접수 시 동의 시각. 동의하지 않은 요청은 저장하지 않음 |
+| `createdAt`, `updatedAt`, `expiresAt` | `DateTime` | 접수·갱신·원본 만료 시각 |
+| `deliveryStatus` | enum | `queued`, `retry_wait`, `provider_accepted`, `delivery_uncertain`, `failed` |
+| `attemptCount`, `lastAttemptAt`, `nextAttemptAt` | `Int`, `DateTime?`, `DateTime?` | 후속 worker의 발송 시도 수와 최근/다음 시도 시각 |
+| `leaseOwner`, `leaseExpiresAt` | `String?`, `DateTime?` | 후속 worker의 발송 점유 소유자와 만료 시각. 둘 다 null이거나 둘 다 값이 있어야 함 |
+| `providerAcceptedAt`, `lastErrorCode` | `DateTime?`, `String?` | 제공자 202 수락 시각과 정제된 실패 코드 |
+
+`deliveryStatus, nextAttemptAt`은 발송 대상 선택, `expiresAt`은 90일 정리, `createdAt`은 운영자 조회를 지원한다. 수신자와 발신자 주소는 문의 행이나 요청 본문에 저장하지 않는다. `provider_accepted`는 제공자가 전송 요청을 수락했다는 뜻으로 실제 받은편지함 도착을 뜻하지 않는다.
+
 ## 4. 주요 제약 조건 요약
 
 | 테이블 | 제약 | 설명 |
