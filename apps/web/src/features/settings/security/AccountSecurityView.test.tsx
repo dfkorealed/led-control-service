@@ -32,6 +32,7 @@ const admin: AuthUser = {
   id: "admin-1", organizationId: "customer-1", organizationType: "customer",
   loginId: "admin_01", name: "관리자", role: "admin", status: "active", mustChangePassword: false
 };
+const operator: AuthUser = { ...admin, id: "operator-1", loginId: "operator_01", role: "operator" };
 const viewer: AuthUser = { ...admin, id: "viewer-1", loginId: "viewer_01", role: "viewer" };
 const otherAdmin: AuthUser = { ...admin, id: "admin-2", organizationId: "customer-2", loginId: "admin_02" };
 const sessions = [
@@ -159,7 +160,22 @@ describe("AccountSecurityView", () => {
 
     expect(await screen.findByRole("list", { name: "활성 세션" })).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "2단계 인증" })).not.toBeInTheDocument();
+    expect(screen.getByTestId("sessions-security-cell")).toHaveClass("compact:col-span-2");
     expect(getMfaStatus).not.toHaveBeenCalled();
+    expect(listAuthSessions).toHaveBeenCalledOnce();
+  });
+
+  it.each([
+    ["admin", admin],
+    ["operator", operator]
+  ])("%s의 보안 카드를 데스크톱 2열로 배치한다", async (_role, user) => {
+    renderView(user);
+
+    const layout = screen.getByTestId("account-security-layout");
+    expect(layout).toHaveClass("gap-3", "compact:grid-cols-2");
+    expect(screen.getByTestId("password-security-cell")).toHaveClass("compact:col-span-2");
+    expect(await screen.findByText("2단계 인증이 꺼져 있습니다.")).toBeVisible();
+    expect(screen.getByRole("heading", { name: "활성 세션" })).toBeVisible();
   });
 
   it("상태 조회 실패는 재시도 가능한 접근성 오류로 표시한다", async () => {
