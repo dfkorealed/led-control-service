@@ -58,6 +58,17 @@
 - 차트·비용 패널은 데스크톱 24px, 760px 이하 16px padding을 사용한다.
 - 760px 이하의 KPI는 라벨·값·보조 설명·badge를 순서대로 쌓아 라벨이 한 글자씩 줄바꿈되는 것을 막는다. 차트 제목과 기간 탭도 세로로 배치해 제목을 말줄임하지 않는다.
 
+## Shell layout 크기 토큰
+
+| token | 값 | 용도 |
+| --- | ---: | --- |
+| `--spacing-shell-rail` | 88px | 고객 desktop navigation rail |
+| `--container-auth` | 960px | 로그인 2열 composition 최대 폭 |
+| `--container-operator` | 1160px | 운영자 shell content 최대 폭 |
+| `--container-status-drawer` | 440px | 상태센터 우측 drawer 최대 폭 |
+
+이 값들은 padding, margin, gap scale을 확장하지 않는 layout geometry다. 760px 미만 navigation과 safe-area 높이는 기존 utility 계약을 유지한다.
+
 ## 검증 규칙
 
 ```bash

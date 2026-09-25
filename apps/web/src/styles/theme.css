@@ -147,6 +147,10 @@
   --shadow-fixture-brightness-8: 0 0 11px 3.5px color-mix(in srgb, var(--color-fixture-on) 28%, transparent), inset 0 0 0 1px color-mix(in srgb, var(--color-content-inverse) 24%, transparent);
   --shadow-fixture-brightness-9: 0 0 12.5px 4.25px color-mix(in srgb, var(--color-fixture-on) 34%, transparent), inset 0 0 0 1px color-mix(in srgb, var(--color-content-inverse) 24%, transparent);
   --shadow-fixture-brightness-10: 0 0 14px 5px color-mix(in srgb, var(--color-fixture-on) 42%, transparent), inset 0 0 0 1px color-mix(in srgb, var(--color-content-inverse) 24%, transparent);
+  --spacing-shell-rail: 5.5rem;
+  --container-auth: 60rem;
+  --container-operator: 72.5rem;
+  --container-status-drawer: 27.5rem;
   --breakpoint-phone-wide: 22.5rem;
   --breakpoint-compact: 47.5rem;
   --breakpoint-tablet: 64rem;

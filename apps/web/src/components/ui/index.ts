@@ -53,6 +53,8 @@ export { MetricCard } from "./MetricCard";
 export type { MetricTone, MetricCardProps } from "./MetricCard";
 export { ModalDialog } from "./ModalDialog";
 export type { ModalDialogProps } from "./ModalDialog";
+export { DrawerDialog } from "./DrawerDialog";
+export type { DrawerDialogProps } from "./DrawerDialog";
 export { ConfirmDialog } from "./ConfirmDialog";
 export type { ConfirmDialogProps } from "./ConfirmDialog";
 export { DropdownMenu } from "./overlays/DropdownMenu";
