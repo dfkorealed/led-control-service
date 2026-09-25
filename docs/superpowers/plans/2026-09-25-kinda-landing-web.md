@@ -61,7 +61,7 @@ expect(fetchMock.mock.calls.some(([url]) => String(url).includes("/auth/me"))).t
 
 **Interfaces:** Sections have stable `id="product"`, `id="benefits"`, `id="contact"` anchors. `DashboardPreview` has an accessible `제품 화면 예시` description.
 
-- [ ] **Step 1: Write failing content/semantic tests.** Assert Kinda logo, visible example label, operator and partner value headings, valid anchor targets, unique h1, meaningful CTA and absence of fabricated savings/availability numbers.
+- [x] **Step 1: Write failing content/semantic tests.** Assert Kinda logo, visible example label, operator and partner value headings, valid anchor targets, unique h1, meaningful CTA and absence of fabricated savings/availability numbers.
 
 ```tsx
 expect(screen.getByRole("img", { name: "킨다" })).toBeInTheDocument();
@@ -70,9 +70,9 @@ expect(screen.getByRole("heading", { name: /시설 운영/ })).toBeInTheDocument
 expect(screen.getByRole("heading", { name: /시공·유통/ })).toBeInTheDocument();
 ```
 
-- [ ] **Step 2: Run focused Vitest and verify expected RED.**
-- [ ] **Step 3: Implement the visual hierarchy.** Put the dashboard preview in the hero, with site/floor/map/status/feature relationships but no invented operational metrics. Use existing `KindaLogo` and common UI primitives; keep decorative blocks hidden from assistive technology. Use brand Navy/Paper as broad surfaces, Blue for CTAs, Coral for limited accent, responsive spacing and `prefers-reduced-motion`.
-- [ ] **Step 4: Add Playwright checks for 1440/1024/390/320px.** Assert navigation and CTA reach their anchors, no horizontal overflow, visible hero/dashboard, and usable touch targets. Run the focused Chromium scenario; commit Task 2.
+- [x] **Step 2: Run focused Vitest and verify expected RED.**
+- [x] **Step 3: Implement the visual hierarchy.** Put the dashboard preview in the hero, with site/floor/map/status/feature relationships but no invented operational metrics. Use existing `KindaLogo` and common UI primitives; keep decorative blocks hidden from assistive technology. Use brand Navy/Paper as broad surfaces, Blue for CTAs, Coral for limited accent, responsive spacing and `prefers-reduced-motion`.
+- [x] **Step 4: Add Playwright checks for 1440/1024/390/320px.** Assert navigation and CTA reach their anchors, no horizontal overflow, visible hero/dashboard, and usable touch targets. Run the focused Chromium scenario; commit Task 2.
 
 ### Task 3: Consultation form and API handling
 
