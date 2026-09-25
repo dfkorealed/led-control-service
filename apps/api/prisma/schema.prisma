@@ -7,6 +7,28 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// This connection is independent from customer tenants and other projects.
+model LandingMailCredential {
+  id                    String   @id
+  connectionKey         String
+  tokenCiphertext       String
+  tokenIv               String
+  tokenTag              String
+  accessTokenExpiresAt  DateTime
+  refreshTokenExpiresAt DateTime
+  updatedAt             DateTime @updatedAt
+}
+
+model LandingMailOAuthState {
+  stateHash      String   @id
+  operatorId     String
+  connectionKey  String
+  expiresAt      DateTime
+  createdAt      DateTime @default(now())
+
+  @@index([expiresAt])
+}
+
 enum LandingInquiryDeliveryStatus {
   queued
   retry_wait

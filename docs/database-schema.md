@@ -2077,7 +2077,7 @@ node별 `provision-device` command의 durable transactional outbox다. 등록 AP
 
 ### LandingInquiry (공개 상담 문의)
 
-Migration: `20260925120000_landing_inquiry`. 고객 테넌트와 FK 없이 분리한 공개 문의 원본과 메일 발송 대기 상태다. 접수 시각부터 **90일** 뒤인 `expiresAt`을 기록한다. 실제 주기적 삭제와 메일 발송은 후속 작업에서 구현한다. 현재 메일 연결 구현 전에는 새 접수를 503으로 거부하며, 마이그레이션은 사용자/운영 DB에 적용하지 않았다.
+Migration: `20260925120000_landing_inquiry`. 고객 테넌트와 FK 없이 분리한 공개 문의 원본과 메일 발송 대기 상태다. 접수 시각부터 **90일** 뒤인 `expiresAt`을 기록한다. 실제 주기적 삭제와 메일 발송은 후속 작업에서 구현한다. NAVER WORKS 연결 설정과 복호화 가능한 자격 증명이 준비되지 않으면 새 접수를 503으로 거부한다. 마이그레이션은 격리 PostgreSQL에 적용해 검증했으며 사용자/운영 DB에는 적용하지 않았다.
 
 | 필드 | 타입 | 의미 |
 | --- | --- | --- |
@@ -2096,6 +2096,27 @@ Migration: `20260925120000_landing_inquiry`. 고객 테넌트와 FK 없이 분�
 | `providerAcceptedAt`, `lastErrorCode` | `DateTime?`, `String?` | 제공자 202 수락 시각과 정제된 실패 코드 |
 
 `deliveryStatus, nextAttemptAt`은 발송 대상 선택, `expiresAt`은 90일 정리, `createdAt`은 운영자 조회를 지원한다. 수신자와 발신자 주소는 문의 행이나 요청 본문에 저장하지 않는다. `provider_accepted`는 제공자가 전송 요청을 수락했다는 뜻으로 실제 받은편지함 도착을 뜻하지 않는다.
+
+### LandingMailCredential / LandingMailOAuthState (독립 NAVER WORKS 연결)
+
+Migration: `20260925130000_landing_mail_oauth`. 회사 홈페이지 및 고객 테넌트와 분리된 관제 서비스 전용 연결이다. 운영자만 연결 상태 조회와 인가 시작을 할 수 있다. 문의 원본 90일 보관과 별개로, 자격 증명은 활성 연결 유지에 사용한다.
+
+| 테이블 / 필드 | 타입 | 의미 |
+| --- | --- | --- |
+| `LandingMailCredential.id` | `String` PK | SQL CHECK로 `naver-works` 단일 연결만 허용 |
+| `connectionKey` | `String` | client ID·정확한 redirect URI·고정 발신자 조합의 SHA-256. 설정이 바뀌면 기존 연결 사용을 거부 |
+| `tokenCiphertext`, `tokenIv`, `tokenTag` | `String` | access/refresh token JSON을 AES-256-GCM 암호화한 base64 암호문, 12-byte IV, 16-byte 인증 태그. 원문 토큰은 DB에 저장하지 않음 |
+| `accessTokenExpiresAt`, `refreshTokenExpiresAt` | `DateTime` | 제공자 응답의 access 만료 및 신규 refresh 발급 후 90일 만료. Rotation off이면 기존 refresh 만료를 연장하지 않음 |
+| `updatedAt` | `DateTime` | 자격 증명 갱신 시각 |
+| `LandingMailOAuthState.stateHash` | `String` PK | 32-byte 난수 state의 SHA-256만 보관 |
+| `operatorId`, `connectionKey` | `String` | 인가를 시작한 운영자 식별자와 해당 설정 지문. 테넌트 FK 없음 |
+| `expiresAt`, `createdAt` | `DateTime` | 10분 유효기간과 생성 시각. 만료 인덱스 지원 |
+
+콜백은 유효기간·설정 지문·정확한 state hash를 조건으로 행을 transaction 안에서 삭제한다. 삭제 확정 뒤 코드 교환을 시도하므로 제공자 오류·타임아웃에도 state를 재사용할 수 없다. 새 인가 시작 시 만료 state를 정리한다. PostgreSQL transaction advisory lock `(1718360139, 1)`이 모든 API 인스턴스의 재연결 저장과 refresh 교환을 직렬화한다.
+
+서버 환경 변수는 `LANDING_NAVER_WORKS_CLIENT_ID`, `LANDING_NAVER_WORKS_CLIENT_SECRET`, `LANDING_NAVER_WORKS_REDIRECT_URI`(HTTPS `/landing-mail/oauth/callback`), `LANDING_NAVER_WORKS_SENDER`, `LANDING_MAIL_TOKEN_KEY`(32-byte key의 표준 base64)다. 암호화 키·client secret 원문을 DB에 저장하지 않는다. 누락·잘못된 키는 프로세스를 종료시키지 않고 미연결 상태가 된다. OAuth endpoints는 공식 HTTPS `auth.worksmobile.com`으로 고정하며 `mail` scope만 요청한다.
+
+`getConnectionStatus()`는 설정·저장 자격 증명의 복호화·refresh 만료 여부만 확인한다. 원격 계정의 권한 취소 여부와 실제 발송 가능 여부는 다음 제공자 호출에서 확인되며 live OAuth/메일 발송은 이번 자동 검증 범위 밖이다.
 
 ## 4. 주요 제약 조건 요약
 
