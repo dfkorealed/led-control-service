@@ -107,6 +107,9 @@
   --color-fixture-editor-marquee: #2563eb20;
   --color-fixture-editor-preview: #e9b949;
   --color-fixture-editor-minimap: #6c7580;
+  /* Public landing hero: desktop only; compact views retain the display scale. */
+  --text-landing-hero: 4rem;
+  --text-landing-hero--line-height: 4.5rem;
   --text-display: 2rem;
   --text-display--line-height: 2.5rem;
   --text-page-title: 1.75rem;

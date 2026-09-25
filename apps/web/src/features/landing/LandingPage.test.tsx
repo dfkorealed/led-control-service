@@ -30,7 +30,7 @@ describe("browser entry route", () => {
 
     render(entry.element);
     expect(screen.getByRole("heading", { name: /조명 운영을 간단하게/ })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /상담/ })).toHaveAttribute("href", "#inquiry");
+    expect(screen.getAllByRole("link", { name: /상담/ }).every((link) => link.getAttribute("href") === "#contact")).toBe(true);
     expect(screen.getByRole("img", { name: "킨다" })).toBeInTheDocument();
     await act(async () => undefined);
     expect(fetchMock.mock.calls.some(([url]) => String(url).includes("/auth/me"))).toBe(false);

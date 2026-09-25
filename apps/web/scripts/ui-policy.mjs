@@ -26,6 +26,8 @@ const fixtureBrightnessShadowValues = [
   "0 0 14px 5px color-mix(in srgb, var(--color-fixture-on) 42%, transparent), inset 0 0 0 1px color-mix(in srgb, var(--color-content-inverse) 24%, transparent)"
 ];
 const reviewedThemeTokenAdditions = new Map([
+  ["--text-landing-hero", "4rem"],
+  ["--text-landing-hero--line-height", "4.5rem"],
   ["--breakpoint-phone-wide", "22.5rem"],
   ["--radius-fixture-marker", "3px"],
   ...fixtureBrightnessShadowValues.map((value, index) => [`--shadow-fixture-brightness-${index + 1}`, normalizeThemeValue(value)])
