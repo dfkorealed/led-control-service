@@ -32,7 +32,7 @@
 - `apps/web/src/features/landing/LandingPage.tsx`: public page sections, anchors, metadata and footer.
 - `apps/web/src/features/landing/DashboardPreview.tsx`: semantic illustrative product panel.
 - `apps/web/src/features/landing/InquiryForm.tsx`: consent, validation, submission and outcome UI.
-- `apps/web/src/features/landing/landing.css`: isolated page styles and responsive rules.
+- Existing Tailwind/semantic theme utilities in the landing TSX files: isolated responsive page styling; the repository UI policy forbids a new CSS file.
 - `apps/web/src/api/landing-inquiries.ts`: typed request/response and safe error classification.
 - `apps/web/src/features/operator/LandingInquiriesView.tsx`: operator-only mail status and inquiry list.
 - `apps/web/src/main.tsx`, `apps/web/src/features/operator/OperatorShell.tsx`: route integration.
@@ -57,7 +57,7 @@ expect(fetchMock.mock.calls.some(([url]) => String(url).includes("/auth/me"))).t
 
 ### Task 2: Dashboard-led landing narrative
 
-**Files:** `apps/web/src/features/landing/LandingPage.tsx`, `DashboardPreview.tsx`, `landing.css`, focused tests, `apps/web/e2e/landing.spec.ts`.
+**Files:** `apps/web/src/features/landing/LandingPage.tsx`, `DashboardPreview.tsx`, focused tests, `apps/web/e2e/landing.spec.ts`.
 
 **Interfaces:** Sections have stable `id="product"`, `id="benefits"`, `id="contact"` anchors. `DashboardPreview` has an accessible `제품 화면 예시` description.
 
@@ -76,7 +76,7 @@ expect(screen.getByRole("heading", { name: /시공·유통/ })).toBeInTheDocumen
 
 ### Task 3: Consultation form and API handling
 
-**Files:** `apps/web/src/api/landing-inquiries.ts`, `apps/web/src/features/landing/InquiryForm.tsx`, `InquiryForm.test.tsx`, `landing.css`, `apps/web/e2e/landing.spec.ts`.
+**Files:** `apps/web/src/api/landing-inquiries.ts`, `apps/web/src/features/landing/InquiryForm.tsx`, `InquiryForm.test.tsx`, `apps/web/e2e/landing.spec.ts`.
 
 **Interfaces:** `submitLandingInquiry(input: LandingInquiryInput, signal?: AbortSignal): Promise<{reference: string; status: "received"}>` sends the backend plan's exact request body. `InquiryForm` owns its generated UUID until payload change or confirmed success.
 
