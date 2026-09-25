@@ -98,10 +98,10 @@ expect(posted.consentVersion).toBe("landing-2026-09-v1-90d");
 
 **Interfaces:** Reads `GET /operator/landing-inquiries` and `GET /operator/landing-mail/status`; starts OAuth with `POST /operator/landing-mail/authorize`. The operator route is `/operator/landing-inquiries`.
 
-- [ ] **Step 1: Write failing route tests.** Operator can navigate to inquiry/status screen; customer/viewer cannot mount the route; mail connect button navigates only to a server-returned official NAVER WORKS authorization URL; list shows safe status labels and recent references without tokens.
-- [ ] **Step 2: Run focused Vitest and verify RED.** Run `pnpm --filter @led-control/web exec vitest run src/features/operator/LandingInquiriesView.test.tsx`.
-- [ ] **Step 3: Add route and minimal operator nav link.** Keep existing default operator route and auth guards; show connection state, bounded recent inquiry list, safe failure guidance, and no automatic resend control. Use common Button/Card rather than new copies.
-- [ ] **Step 4: Run focused Vitest, authenticated route Playwright and Web typecheck; commit Task 4.**
+- [x] **Step 1: Write failing route tests.** Operator can navigate to inquiry/status screen; customer/viewer cannot mount the route; mail connect button navigates only to a server-returned official NAVER WORKS authorization URL; list shows safe status labels and recent references without tokens.
+- [x] **Step 2: Run focused Vitest and verify RED.** Run `pnpm --filter @led-control/web exec vitest run src/features/operator/LandingInquiriesView.test.tsx`.
+- [x] **Step 3: Add route and minimal operator nav link.** Keep existing default operator route and auth guards; show connection state, bounded recent inquiry list, safe failure guidance, and no automatic resend control. Use common Button/Card rather than new copies.
+- [x] **Step 4: Run focused Vitest, authenticated route Playwright and Web typecheck; commit Task 4.**
 
 ### Task 5: Final integration and documentation
 
