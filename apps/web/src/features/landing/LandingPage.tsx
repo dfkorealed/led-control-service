@@ -3,6 +3,7 @@ import { KindaLogo } from "../../components/brand/KindaLogo";
 import { Card } from "../../components/ui/Card";
 import { LinkButton } from "../../components/ui/LinkButton";
 import { DashboardPreview } from "./DashboardPreview";
+import { InquiryForm } from "./InquiryForm";
 
 const capabilities = [
   { icon: Map, title: "위치를 알고", description: "현장과 층, 도면을 기준으로 조명의 위치와 최근 상태를 살펴봅니다." },
@@ -90,8 +91,7 @@ export function LandingPage() {
       <section id="contact" aria-labelledby="contact-heading" tabIndex={-1} className="scroll-mt-6 bg-brand-navy text-content-inverse">
         <div className="mx-auto grid max-w-6xl gap-8 px-4 py-12 compact:grid-cols-2 compact:items-center compact:px-8 compact:py-16">
           <div><p className="mb-4 text-body-sm font-medium">킨다 도입 상담</p><h2 id="contact-heading" className="text-display font-bold">우리 현장에 맞는 시작,<br />함께 살펴보겠습니다.</h2></div>
-          {/* Task 3 replaces this contact content with InquiryForm, preserving the contact anchor and heading. */}
-          <div className="grid gap-4 text-body-lg"><p>운영 중인 시설과 새로 준비하는 현장,<br />시공·유통 파트너의 도입 문의를 기다립니다.</p><p className="text-body">현장 규모와 필요한 운영 방식을 알려주세요.</p></div>
+          <InquiryForm />
         </div>
       </section>
     </main>
