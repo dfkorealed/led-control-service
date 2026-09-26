@@ -6,6 +6,8 @@ import { FixtureIdentifyRuntime } from "./runtime/fixture-identify-runtime";
 import { publishFixtureIdentifyResult } from "./runtime/fixture-identify-publisher";
 import {
   GATEWAY_COMMAND_ACCEPTANCE_DEADLINE_MS,
+  commandClockResponseSchema,
+  type CommandClockRequest,
   type AcceptanceAckV2,
   type AutomationConfigAppliedReceiptV1,
   type AutomationExecutionFixtureResultV1,
@@ -54,6 +56,8 @@ export {
 import { createAssignmentStore, resolveGatewayAssignment } from "./config/resolve-assignment";
 import { createMqttClient } from "./mqtt/create-mqtt-client";
 import { CommandJournal } from "./commands/command-journal";
+import { DbClockProof } from "./commands/db-clock-proof";
+import { LinuxBootClock, type BootClockSample } from "./commands/linux-boot-clock";
 import { handleFixturePresenceCheck, MonitoringRefreshEventPublisher } from "./commands/fixture-presence-check-handler";
 import { MonitoringRefreshJournal } from "./state/monitoring-refresh-journal";
 import { handleGatewayStatusCheck, type GatewayStatusCheckOptions } from "./commands/gateway-status-check-handler";
@@ -157,6 +161,73 @@ import {
 } from "./automation/software-automation-simulator";
 
 const STATE_EVENT_RESERVATION_BYTES = 2_048;
+
+export function createGatewayCommandClockRuntime(options: {
+  scope: { siteId: string; gatewayId: string };
+  clock?: Pick<LinuxBootClock, "sample">;
+}) {
+  const clock = options.clock ?? new LinuxBootClock();
+  const proof = new DbClockProof(options.scope);
+  let activeClient: GatewayMqttClient | undefined;
+  let timer: ReturnType<typeof setInterval> | undefined;
+  let pending: { request: CommandClockRequest; start: BootClockSample } | undefined;
+
+  function invalidate() {
+    pending = undefined;
+    proof.invalidate();
+  }
+
+  function requestTime() {
+    const client = activeClient;
+    if (!client?.connected) { invalidate(); return; }
+    try {
+      const request = { ...options.scope, nonce: randomUUID() };
+      const start = clock.sample();
+      if (!proof.begin(request, start)) { invalidate(); return; }
+      pending = { request, start };
+      // Clock probes are disposable: QoS0 avoids storing offline requests, and a
+      // missing reply simply lets the existing bounded proof expire.
+      client.publish(mqttTopicsV2.commandClockRequest(request.siteId, request.gatewayId), JSON.stringify(request),
+        { qos: 0, retain: false }, (error) => {
+          if (error && pending?.request.nonce === request.nonce) invalidate();
+        });
+    } catch { invalidate(); }
+  }
+
+  function disconnect() {
+    clearInterval(timer);
+    timer = undefined;
+    activeClient = undefined;
+    invalidate();
+  }
+
+  return {
+    connect(client: GatewayMqttClient) {
+      disconnect();
+      activeClient = client;
+      requestTime();
+      timer = setInterval(requestTime, 5000);
+      timer.unref?.();
+    },
+    disconnect,
+    handle(payload: Buffer, source: GatewayMqttClient, packet?: IPublishPacket) {
+      if (source !== activeClient || !source.connected || packet?.retain || !pending) return;
+      try {
+        const end = clock.sample();
+        const response = commandClockResponseSchema.safeParse(JSON.parse(payload.toString()));
+        if (!response.success || response.data.siteId !== options.scope.siteId ||
+            response.data.gatewayId !== options.scope.gatewayId || response.data.nonce !== pending.request.nonce) return;
+        proof.observe(pending.request, response.data, pending.start, end);
+        pending = undefined;
+      } catch { invalidate(); }
+    },
+    allows(publishEpoch: number, expiresAt: string): boolean {
+      if (!activeClient?.connected) { invalidate(); return false; }
+      try { return proof.allows(publishEpoch, expiresAt, clock.sample()); }
+      catch { invalidate(); return false; }
+    }
+  };
+}
 
 export { createMeshGroupResyncRequest, MeshGroupResyncPublisher, MeshGroupResyncStore } from "./mesh/group-resync-store";
 
@@ -1174,6 +1245,7 @@ async function main() {
     await groupResyncPublisher.publishPending((topic, payload) => publish(mqttRuntime.client, topic, payload));
   }
 
+  const commandClock = createGatewayCommandClockRuntime({ scope: { siteId, gatewayId } });
   const mqttRuntime: GatewayMqttRuntime = new GatewayMqttRuntime({
     client: runtime.client,
     heartbeatMs,
@@ -1183,6 +1255,7 @@ async function main() {
     publishHeartbeat,
     commandTopics: gatewayCommandTopics(siteId, gatewayId),
     topicHandlers: {
+      [mqttTopicsV2.commandClockResponse(siteId, gatewayId)]: commandClock.handle,
       [fixtureIdentifyTopics.command(siteId, gatewayId)]: async (payload, source) => {
         const result = await fixtureIdentify.handle(JSON.parse(payload.toString()));
         await publishFixtureIdentifyResult(source, result, identifyResultAbort.signal);
@@ -1239,38 +1312,42 @@ async function main() {
     },
     deferredPubackTopics: gatewayDeferredPubackTopics(siteId, gatewayId),
     onMessageError: (error, topic) => reportGatewayError(error, `mqtt_message:${topic}`),
-    onConnect: () => connectGatewayServices({
-      connectAutomationAcks: () => Promise.all([
-        automationAckPublisher.connect(
-          (topic, acknowledgement) => publish(mqttRuntime.client, topic, acknowledgement)
-        ),
-        automationConfigRequester.connect(
-          (topic, request) => publish(mqttRuntime.client, topic, request)
-        ),
-        automationTelemetryPublisher.connect(mqttRuntime.client),
-        ...(vehicleSensorController ? [vehicleSensorController.reconnect(
-          (topic, report) => publish(mqttRuntime.client, topic, report)
-        )] : [])
-      ]),
-      connectOperationalServices: async () => {
-        await health.mqttConnected();
-        await provisioningScanRecovery.connect(
-          (topic, event) => publish(mqttRuntime.client, topic, event),
-          (error) => reportGatewayError(error, "provisioning_scan_terminal_retry")
-        );
-        await provisioningDeviceReplay.connect(
-          (topic, event) => publish(mqttRuntime.client, topic, event),
-          (error) => reportGatewayError(error, "provisioning_device_terminal_retry")
-        );
-        await stateEventPublisher.connect((topic, state) => publish(mqttRuntime.client, topic, state));
-        await monitoringRefreshPublisher.connect((topic, event) => publish(mqttRuntime.client, topic, event));
-        await groupResyncPublisher.publishPending((topic, payload) => publish(mqttRuntime.client, topic, payload));
-        await initialVehicleSensorCapabilityRefresh;
-        meshResyncWorker.schedule();
-      },
-      onAutomationAckError: (error) => reportGatewayError(error, "automation_config_ack_connect")
-    }),
+    onConnect: () => {
+      commandClock.connect(mqttRuntime.client);
+      return connectGatewayServices({
+        connectAutomationAcks: () => Promise.all([
+          automationAckPublisher.connect(
+            (topic, acknowledgement) => publish(mqttRuntime.client, topic, acknowledgement)
+          ),
+          automationConfigRequester.connect(
+            (topic, request) => publish(mqttRuntime.client, topic, request)
+          ),
+          automationTelemetryPublisher.connect(mqttRuntime.client),
+          ...(vehicleSensorController ? [vehicleSensorController.reconnect(
+            (topic, report) => publish(mqttRuntime.client, topic, report)
+          )] : [])
+        ]),
+        connectOperationalServices: async () => {
+          await health.mqttConnected();
+          await provisioningScanRecovery.connect(
+            (topic, event) => publish(mqttRuntime.client, topic, event),
+            (error) => reportGatewayError(error, "provisioning_scan_terminal_retry")
+          );
+          await provisioningDeviceReplay.connect(
+            (topic, event) => publish(mqttRuntime.client, topic, event),
+            (error) => reportGatewayError(error, "provisioning_device_terminal_retry")
+          );
+          await stateEventPublisher.connect((topic, state) => publish(mqttRuntime.client, topic, state));
+          await monitoringRefreshPublisher.connect((topic, event) => publish(mqttRuntime.client, topic, event));
+          await groupResyncPublisher.publishPending((topic, payload) => publish(mqttRuntime.client, topic, payload));
+          await initialVehicleSensorCapabilityRefresh;
+          meshResyncWorker.schedule();
+        },
+        onAutomationAckError: (error) => reportGatewayError(error, "automation_config_ack_connect")
+      });
+    },
     onClose: () => {
+      commandClock.disconnect();
       provisioningScanRecovery.disconnect();
       provisioningDeviceReplay.disconnect();
       stateEventPublisher.disconnect();
@@ -1282,6 +1359,7 @@ async function main() {
       return health.unhealthy("mqtt_disconnected");
     },
     onBeforeStop: async () => {
+      commandClock.disconnect();
       identifyResultAbort.abort();
       await statusChecks.stopAndDrain();
       await monitoringRefresh.stopAndDrain();
@@ -1748,6 +1826,7 @@ export function gatewayCommandTopics(siteId: string, gatewayId: string) {
 
 function gatewayAcknowledgementTopics(siteId: string, gatewayId: string) {
   return [
+    mqttTopicsV2.commandClockResponse(siteId, gatewayId),
     mqttTopicsV2.meshGroupResyncAck(siteId, gatewayId),
     mqttTopicsV2.provisioningScanTerminalIngestedAck(siteId, gatewayId),
     mqttTopicsV2.provisioningDeviceTerminalIngestedAck(siteId, gatewayId),

@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   createGatewayAutomationServices,
+  createGatewayCommandClockRuntime,
   createGatewayStatusCheckRuntime,
   createFixturePresenceCheckRuntime,
   initializeAutomationBeforeManualRecovery,
@@ -68,6 +69,97 @@ import { BioUsbDongleAdapter } from "./adapters/bio-usb-dongle-adapter";
 const scopedSiteId = "00000000-0000-4000-8000-000000000003";
 const scopedGatewayId = "00000000-0000-4000-8000-000000000004";
 const scopedFixtureId = "00000000-0000-4000-8000-000000000005";
+
+describe("Gateway command clock MQTT runtime", () => {
+  function setup() {
+    let milliseconds = 1000;
+    let unavailable = false;
+    const sent: { topic: string; payload: any; options: any }[] = [];
+    const client = { connected: true, publish(topic: string, payload: string, options: unknown, callback: (error?: Error) => void) {
+      sent.push({ topic, payload: JSON.parse(payload), options });
+      callback();
+    } };
+    const runtime = createGatewayCommandClockRuntime({
+      scope: { siteId: scopedSiteId, gatewayId: scopedGatewayId },
+      clock: { sample: () => {
+        if (unavailable) throw new Error("proc unavailable");
+        return { bootId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", milliseconds };
+      } }
+    });
+    const reply = (request = sent.at(-1)!.payload, source = client, retained = false) => {
+      milliseconds += 100;
+      runtime.handle(Buffer.from(JSON.stringify({ ...request, dbNow: "2026-09-26T00:00:00.000Z", publishEpoch: 7 })), source as never, { retain: retained } as never);
+    };
+    return { runtime, client, sent, reply, failClock: () => { unavailable = true; } };
+  }
+  const expiry = "2026-09-26T00:00:10.000Z";
+
+  it("requests its own scope without retention and admits only a nonce-correlated fresh response", () => {
+    const { runtime, client, sent, reply } = setup();
+    try {
+      runtime.connect(client as never);
+      expect(sent[0]).toEqual({
+        topic: mqttTopicsV2.commandClockRequest(scopedSiteId, scopedGatewayId),
+        payload: { siteId: scopedSiteId, gatewayId: scopedGatewayId, nonce: expect.any(String) },
+        options: { qos: 0, retain: false }
+      });
+      expect(runtime.allows(7, expiry)).toBe(false);
+      reply({ ...sent[0]!.payload, nonce: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb" });
+      reply({ ...sent[0]!.payload, gatewayId: scopedFixtureId });
+      expect(runtime.allows(7, expiry)).toBe(false);
+      reply();
+      expect(runtime.allows(7, expiry)).toBe(true);
+    } finally { runtime.disconnect(); }
+  });
+
+  it("invalidates cache and pending nonce on disconnect and reconnect", () => {
+    const { runtime, client, sent, reply } = setup();
+    try {
+      runtime.connect(client as never);
+      const old = sent[0]!.payload;
+      reply();
+      expect(runtime.allows(7, expiry)).toBe(true);
+      runtime.disconnect();
+      expect(runtime.allows(7, expiry)).toBe(false);
+      runtime.connect(client as never);
+      expect(sent[1]!.payload.nonce).not.toBe(old.nonce);
+      reply(old);
+      expect(runtime.allows(7, expiry)).toBe(false);
+      reply();
+      expect(runtime.allows(7, expiry)).toBe(true);
+      runtime.connect(client as never);
+      expect(runtime.allows(7, expiry)).toBe(false);
+    } finally { runtime.disconnect(); }
+  });
+
+  it("rejects retained and replaced-client responses and fails closed on clock I/O failure", () => {
+    const { runtime, client, sent, reply, failClock } = setup();
+    try {
+      runtime.connect(client as never);
+      reply(sent[0]!.payload, client, true);
+      reply(sent[0]!.payload, { ...client });
+      expect(runtime.allows(7, expiry)).toBe(false);
+      reply();
+      expect(runtime.allows(7, expiry)).toBe(true);
+      failClock();
+      expect(runtime.allows(7, expiry)).toBe(false);
+    } finally { runtime.disconnect(); }
+  });
+
+  it("refreshes every five seconds and stops requesting after disconnect", () => {
+    vi.useFakeTimers();
+    const { runtime, client, sent } = setup();
+    try {
+      runtime.connect(client as never);
+      vi.advanceTimersByTime(5000);
+      expect(sent).toHaveLength(2);
+      expect(sent[0]!.payload.nonce).not.toBe(sent[1]!.payload.nonce);
+      runtime.disconnect();
+      vi.advanceTimersByTime(10000);
+      expect(sent).toHaveLength(2);
+    } finally { runtime.disconnect(); vi.useRealTimers(); }
+  });
+});
 
 it("defers QoS1 PUBACK for commands whose durable journal must commit first", () => {
   expect(gatewayDeferredPubackTopics(scopedSiteId, scopedGatewayId)).toEqual([
@@ -1967,6 +2059,7 @@ describe("startGatewayRuntime", () => {
         "sites/site-27/gateways/gateway-27/commands/provisioning/provision-device",
         "sites/site-27/gateways/gateway-27/commands/automation/config-sync",
         "sites/site-27/gateways/gateway-27/commands/mesh-group/subscription-sync",
+        "sites/site-27/gateways/gateway-27/events/clock/response",
         "sites/site-27/gateways/gateway-27/commands/mesh-group/resync-ack",
         "sites/site-27/gateways/gateway-27/acks/provisioning/scan-terminal-ingested",
         "sites/site-27/gateways/gateway-27/acks/provisioning/device-terminal-ingested",
@@ -1989,6 +2082,7 @@ describe("startGatewayRuntime", () => {
 
     expect(subscribe).toHaveBeenCalledWith(
       [
+        "sites/site-27/gateways/gateway-27/events/clock/response",
         "sites/site-27/gateways/gateway-27/commands/mesh-group/resync-ack",
         "sites/site-27/gateways/gateway-27/acks/provisioning/scan-terminal-ingested",
         "sites/site-27/gateways/gateway-27/acks/provisioning/device-terminal-ingested",
