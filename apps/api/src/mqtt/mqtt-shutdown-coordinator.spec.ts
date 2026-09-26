@@ -10,12 +10,14 @@ import { MqttModule } from "./mqtt.module";
 import { MqttService } from "./mqtt.service";
 import { MqttShutdownCoordinator } from "./mqtt-shutdown-coordinator.service";
 import { OutboxPublisherService } from "./outbox-publisher.service";
+import { LegacyStatusCheckPublisherService } from "./legacy-status-check-publisher.service";
 import { ProvisioningDeviceOutboxPublisherService } from "./provisioning-device-outbox-publisher.service";
 import { ProvisioningScanOutboxPublisherService } from "./provisioning-scan-outbox-publisher.service";
 
 describe("MqttShutdownCoordinator", () => {
-  it("drains command, scan, device, and automation outbox publishes before closing MQTT during Nest module close", async () => {
+  it("drains Set, legacy Get, scan, device, and automation publishes before closing MQTT during Nest module close", async () => {
     const commandPublish = deferred<void>();
+    const legacyGetPublish = deferred<void>();
     const scanPublish = deferred<void>();
     const devicePublish = deferred<void>();
     const automationPublish = deferred<void>();
@@ -47,6 +49,18 @@ describe("MqttShutdownCoordinator", () => {
       })
       .mockResolvedValue(undefined);
 
+    const legacyGetWorker = new LegacyStatusCheckPublisherService({} as never, mqtt, {
+      workerId: "legacy-get-worker", pollMs: 60_000
+    });
+    jest.spyOn(legacyGetWorker, "claimBatch").mockResolvedValue([
+      commandRecord("legacy-get-outbox-1"), commandRecord("legacy-get-outbox-2")
+    ] as never);
+    const legacyGetPublishClaimed = jest.spyOn(legacyGetWorker, "publishClaimed")
+      .mockImplementationOnce(async () => {
+        await legacyGetPublish.promise;
+        order.push("legacy-get-drained");
+      }).mockResolvedValue(undefined);
+
     const scanWorker = new ProvisioningScanOutboxPublisherService({} as never, mqtt, {
       workerId: "scan-worker", pollMs: 60_000
     });
@@ -66,6 +80,7 @@ describe("MqttShutdownCoordinator", () => {
         MqttShutdownCoordinator,
         { provide: MqttService, useValue: mqtt },
         { provide: OutboxPublisherService, useValue: commandWorker },
+        { provide: LegacyStatusCheckPublisherService, useValue: legacyGetWorker },
         { provide: ProvisioningScanOutboxPublisherService, useValue: scanWorker },
         {
           provide: ProvisioningDeviceOutboxPublisherService,
@@ -81,6 +96,7 @@ describe("MqttShutdownCoordinator", () => {
     await moduleRef.init();
     await waitForTurn();
     expect(commandPublishClaimed).toHaveBeenCalledTimes(1);
+    expect(legacyGetPublishClaimed).toHaveBeenCalledTimes(1);
     expect(scanPublishClaimed).toHaveBeenCalledTimes(1);
 
     let closing: Promise<void> | undefined;
@@ -90,6 +106,10 @@ describe("MqttShutdownCoordinator", () => {
       expect(client.end).not.toHaveBeenCalled();
 
       commandPublish.resolve();
+      await waitForTurn();
+      expect(client.end).not.toHaveBeenCalled();
+
+      legacyGetPublish.resolve();
       await waitForTurn();
       expect(client.end).not.toHaveBeenCalled();
 
@@ -104,11 +124,13 @@ describe("MqttShutdownCoordinator", () => {
       automationPublish.resolve();
       await closing;
 
-      expect(order).toEqual(["command-drained", "scan-drained", "client-end"]);
+      expect(order).toEqual(["command-drained", "legacy-get-drained", "scan-drained", "client-end"]);
       expect(commandPublishClaimed).toHaveBeenCalledTimes(1);
+      expect(legacyGetPublishClaimed).toHaveBeenCalledTimes(1);
       expect(scanPublishClaimed).toHaveBeenCalledTimes(1);
     } finally {
       commandPublish.resolve();
+      legacyGetPublish.resolve();
       scanPublish.resolve();
       devicePublish.resolve();
       automationPublish.resolve();
@@ -197,12 +219,14 @@ describe("MqttShutdownCoordinator", () => {
     const mqtt = moduleRef.get(MqttService);
     const meshWorker = moduleRef.get(MeshGroupSyncWorker);
     const commandWorker = moduleRef.get(OutboxPublisherService);
+    const legacyGetWorker = moduleRef.get(LegacyStatusCheckPublisherService);
     const scanWorker = moduleRef.get(ProvisioningScanOutboxPublisherService);
     const deviceWorker = moduleRef.get(ProvisioningDeviceOutboxPublisherService);
     const automationWorker = moduleRef.get(AutomationOutboxPublisherService);
     const commandTimeout = moduleRef.get(CommandTimeoutService);
     (mqtt as any).client = client;
     jest.spyOn(commandWorker, "claimBatch").mockResolvedValue([]);
+    jest.spyOn(legacyGetWorker, "claimBatch").mockResolvedValue([]);
     jest.spyOn(scanWorker, "claimBatch").mockResolvedValue([]);
     jest.spyOn(deviceWorker, "claimBatch").mockResolvedValue([]);
     jest.spyOn(automationWorker, "claimConfigBatch").mockResolvedValue([]);

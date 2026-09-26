@@ -8,6 +8,7 @@ import { MqttService } from "./mqtt.service";
 import { FixtureFreshnessService } from "../fixtures/fixture-freshness.service";
 import { CommandTimeoutService } from "../commands/command-timeout.service";
 import { OutboxPublisherService } from "./outbox-publisher.service";
+import { LegacyStatusCheckPublisherService } from "./legacy-status-check-publisher.service";
 import { ProvisioningScanOutboxPublisherService } from "./provisioning-scan-outbox-publisher.service";
 import { ProvisioningDeviceOutboxPublisherService } from "./provisioning-device-outbox-publisher.service";
 import { MqttShutdownCoordinator } from "./mqtt-shutdown-coordinator.service";
@@ -30,6 +31,7 @@ import { CommandDbClockHealth } from "./command-db-clock-health.service";
     EnergyDimensionHistoryService,
     FixtureFreshnessService,
     OutboxPublisherService,
+    LegacyStatusCheckPublisherService,
     AutomationOutboxPublisherService,
     ProvisioningScanOutboxPublisherService,
     ProvisioningDeviceOutboxPublisherService,

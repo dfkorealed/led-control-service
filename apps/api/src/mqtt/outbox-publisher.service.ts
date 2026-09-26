@@ -35,7 +35,7 @@ type PublisherOptions = {
 
 @Injectable()
 export class OutboxPublisherService implements OnModuleInit {
-  private readonly logger = new Logger(OutboxPublisherService.name);
+  private readonly logger = new Logger(this.constructor.name);
   private readonly workerId: string;
   private readonly random: () => number;
   private readonly pollMs: number;
@@ -45,6 +45,8 @@ export class OutboxPublisherService implements OnModuleInit {
   private activeBatch: Promise<void> | null = null;
   private stopPromise: Promise<void> | null = null;
   private stopped = false;
+
+  protected get dispatchKind(): CommandDispatchKind { return "dimming"; }
 
   constructor(
     private readonly prisma: PrismaService,
@@ -99,6 +101,7 @@ export class OutboxPublisherService implements OnModuleInit {
   }
 
   async claimBatch(now = this.clock()) {
+    if (this.stopped) return [];
     return this.prisma.$transaction(async (tx) => {
       await this.automationSnapshot.lockMutation(tx);
       const rows = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
@@ -107,8 +110,15 @@ export class OutboxPublisherService implements OnModuleInit {
         WHERE "publishedAt" IS NULL
           AND "deadLetteredAt" IS NULL
           AND "dispatchId" IS NOT NULL
-          AND "nextAttemptAt" <= ${now}
-          AND ("leaseExpiresAt" IS NULL OR "leaseExpiresAt" <= ${now})
+          AND EXISTS (
+            SELECT 1 FROM "CommandDispatch" AS dispatch
+            WHERE dispatch."id" = "MqttOutbox"."dispatchId"
+              AND dispatch."kind" = ${this.dispatchKind}::"CommandDispatchKind"
+          )
+          -- Prisma DateTime columns are UTC-naive TIMESTAMP; compare them to a
+          -- UTC timestamp so a non-UTC PostgreSQL session cannot reclaim a live lease.
+          AND "nextAttemptAt" <= (${now}::timestamptz AT TIME ZONE 'UTC')
+          AND ("leaseExpiresAt" IS NULL OR "leaseExpiresAt" <= (${now}::timestamptz AT TIME ZONE 'UTC'))
         ORDER BY "createdAt" ASC
         FOR UPDATE SKIP LOCKED
         LIMIT 50
@@ -117,11 +127,12 @@ export class OutboxPublisherService implements OnModuleInit {
       if (ids.length === 0) return [];
 
       await tx.mqttOutbox.updateMany({
-        where: { id: { in: ids }, OR: [{ leaseExpiresAt: null }, { leaseExpiresAt: { lte: now } }] },
+        where: { id: { in: ids }, dispatch: { kind: this.dispatchKind },
+          OR: [{ leaseExpiresAt: null }, { leaseExpiresAt: { lte: now } }] },
         data: { lockedBy: this.workerId, lockedAt: now, leaseExpiresAt: new Date(now.getTime() + LEASE_MS) }
       });
       const records = await tx.mqttOutbox.findMany({
-        where: { id: { in: ids }, dispatchId: { not: null }, lockedBy: this.workerId },
+        where: { id: { in: ids }, dispatchId: { not: null }, dispatch: { kind: this.dispatchKind }, lockedBy: this.workerId },
         include: {
           dispatch: {
             select: {
@@ -176,8 +187,11 @@ export class OutboxPublisherService implements OnModuleInit {
       };
     }
   ) {
+    if (this.stopped) return;
+    if ((record.dispatch.kind ?? "dimming") !== this.dispatchKind) return;
     try {
       const stored = parseStoredCommand(record.payload, record.dispatch.kind);
+      if (record.topic !== `sites/${stored.draft.siteId}/gateways/${stored.draft.gatewayId}/commands/${this.dispatchKind === "dimming" ? "dimming" : "status-check"}`) return;
       const prepared = await this.prisma.$transaction(async (tx) => {
         await this.automationSnapshot.lockMutation(tx);
         if (stored.kind === "dimming") await this.assertMeshGroupSnapshot(tx, record, stored.draft);
@@ -189,6 +203,7 @@ export class OutboxPublisherService implements OnModuleInit {
         const updated = await tx.mqttOutbox.updateMany({
           where: {
             id: record.id,
+            dispatch: { kind: this.dispatchKind },
             lockedBy: this.workerId,
             publishedAt: null,
             deadLetteredAt: null,
@@ -208,6 +223,7 @@ export class OutboxPublisherService implements OnModuleInit {
       const publishable = await this.prisma.mqttOutbox.count({
         where: {
           id: record.id,
+          dispatch: { kind: this.dispatchKind },
           lockedBy: this.workerId,
           publishedAt: null,
           deadLetteredAt: null
@@ -227,7 +243,7 @@ export class OutboxPublisherService implements OnModuleInit {
         // accepted the Set. A crash after this commit but before the call deliberately
         // remains unknown. Keep the first attempt across reclaims of this generation.
         return tx.mqttOutbox.updateMany({
-          where: { id: record.id, lockedBy: this.workerId, publishedAt: null, deadLetteredAt: null,
+          where: { id: record.id, dispatch: { kind: this.dispatchKind }, lockedBy: this.workerId, publishedAt: null, deadLetteredAt: null,
             leaseExpiresAt: { gt: new Date(attemptedAt.getTime() + MQTT_PUBLISH_TIMEOUT_MS) } },
           data: { deliveryAttemptedAt: record.deliveryAttemptedAt ?? attemptedAt }
         });
@@ -243,7 +259,7 @@ export class OutboxPublisherService implements OnModuleInit {
       await this.prisma.$transaction(async (tx) => {
         await this.automationSnapshot.lockMutation(tx);
         const released = await tx.mqttOutbox.updateMany({
-          where: { id: record.id, lockedBy: this.workerId, publishedAt: null, deadLetteredAt: null },
+          where: { id: record.id, dispatch: { kind: this.dispatchKind }, lockedBy: this.workerId, publishedAt: null, deadLetteredAt: null },
           data: {
             payload: prepared.payload,
             publishedAt,
@@ -282,7 +298,7 @@ export class OutboxPublisherService implements OnModuleInit {
       await this.prisma.$transaction(async (tx) => {
         await this.automationSnapshot.lockMutation(tx);
         await tx.mqttOutbox.updateMany({
-          where: { id: record.id, lockedBy: this.workerId, publishedAt: null, deadLetteredAt: null },
+          where: { id: record.id, dispatch: { kind: this.dispatchKind }, lockedBy: this.workerId, publishedAt: null, deadLetteredAt: null },
           data: {
             attempts,
             nextAttemptAt: new Date(failedAt.getTime() + delay + jitter),
@@ -357,7 +373,7 @@ export class OutboxPublisherService implements OnModuleInit {
       // before outbox/dispatch/command rows, including terminal delivery failures.
       await this.automationSnapshot.lockMutation(tx);
       const released = await tx.mqttOutbox.updateMany({
-        where: { id: record.id, lockedBy: this.workerId, publishedAt: null, deadLetteredAt: null },
+        where: { id: record.id, dispatch: { kind: this.dispatchKind }, lockedBy: this.workerId, publishedAt: null, deadLetteredAt: null },
         data: {
           attempts,
           deadLetteredAt: now,

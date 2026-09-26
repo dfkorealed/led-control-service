@@ -3,6 +3,7 @@ import { MeshGroupSyncWorker } from "../mesh-control-groups/mesh-group-sync.work
 import { AutomationOutboxPublisherService } from "../automation/automation-outbox-publisher.service";
 import { MqttService } from "./mqtt.service";
 import { OutboxPublisherService } from "./outbox-publisher.service";
+import { LegacyStatusCheckPublisherService } from "./legacy-status-check-publisher.service";
 import { ProvisioningScanOutboxPublisherService } from "./provisioning-scan-outbox-publisher.service";
 import { ProvisioningDeviceOutboxPublisherService } from "./provisioning-device-outbox-publisher.service";
 
@@ -12,6 +13,7 @@ export class MqttShutdownCoordinator implements OnModuleDestroy {
 
   constructor(
     private readonly commandOutbox: OutboxPublisherService,
+    private readonly legacyStatusCheckOutbox: LegacyStatusCheckPublisherService,
     private readonly scanOutbox: ProvisioningScanOutboxPublisherService,
     private readonly provisioningDeviceOutbox: ProvisioningDeviceOutboxPublisherService,
     private readonly automationOutbox: AutomationOutboxPublisherService,
@@ -22,6 +24,7 @@ export class MqttShutdownCoordinator implements OnModuleDestroy {
   onModuleDestroy() {
     if (!this.shutdownPromise) {
       const commandDrain = this.commandOutbox.stopAndDrain();
+      const legacyStatusCheckDrain = this.legacyStatusCheckOutbox.stopAndDrain();
       const scanDrain = this.scanOutbox.stopAndDrain();
       const provisioningDeviceDrain = this.provisioningDeviceOutbox.stopAndDrain();
       const automationDrain = this.automationOutbox.stopAndDrain();
@@ -29,6 +32,7 @@ export class MqttShutdownCoordinator implements OnModuleDestroy {
       const inboundDrain = this.mqtt.stopInboundAndDrain();
       this.shutdownPromise = Promise.all([
         commandDrain,
+        legacyStatusCheckDrain,
         scanDrain,
         provisioningDeviceDrain,
         automationDrain,

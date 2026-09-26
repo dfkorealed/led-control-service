@@ -1,5 +1,6 @@
 import { Logger } from "@nestjs/common";
 import { OutboxPublisherService } from "./outbox-publisher.service";
+import { LegacyStatusCheckPublisherService } from "./legacy-status-check-publisher.service";
 import { CommandTimeoutService } from "../commands/command-timeout.service";
 import { AutomationSnapshotService } from "../automation/automation-snapshot.service";
 import { AutomationClock } from "../automation/automation-clock";
@@ -62,6 +63,56 @@ function meshRecord(overrides: Record<string, unknown> = {}) {
 }
 
 describe("OutboxPublisherService", () => {
+  it("claims only dimming dispatches, leaving legacy Get rows for their own lease", async () => {
+    const tx: any = {
+      $queryRaw: jest.fn().mockResolvedValue([]),
+      mqttOutbox: { updateMany: jest.fn() }
+    };
+    const prisma: any = { $transaction: jest.fn((work: (client: any) => Promise<unknown>) => work(tx)) };
+    const snapshot = { lockMutation: jest.fn().mockResolvedValue(undefined) };
+    const publisher = new OutboxPublisherService(prisma, {} as never, { workerId: "set-worker" }, snapshot as never);
+
+    await expect(publisher.claimBatch(new Date("2026-07-11T00:01:00.000Z"))).resolves.toEqual([]);
+
+    const query = tx.$queryRaw.mock.calls[0][0];
+    expect(query.strings.join(" ")).toContain('dispatch."kind" =');
+    expect(query.values).toContain("dimming");
+    expect(tx.mqttOutbox.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("never prepares a status-check row handed to the Set publisher", async () => {
+    const prisma: any = { $transaction: jest.fn(), mqttOutbox: { count: jest.fn() } };
+    const mqtt = { publishTopic: jest.fn() };
+    const publisher = new OutboxPublisherService(prisma, mqtt as never, { workerId: "set-worker" });
+    await publisher.publishClaimed({ ...meshRecord(), dispatch: { ...meshDispatch, kind: "status_check" } } as never);
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+    expect(mqtt.publishTopic).not.toHaveBeenCalled();
+  });
+
+  it("never prepares a Set row whose topic points to Get or another site", async () => {
+    const prisma: any = { $transaction: jest.fn(), mqttOutbox: { count: jest.fn() } };
+    const mqtt = { publishTopic: jest.fn() };
+    const publisher = new OutboxPublisherService(prisma, mqtt as never, { workerId: "set-worker" });
+    await publisher.publishClaimed({ ...meshRecord(), topic:
+      `sites/${dimmingPayload.siteId}/gateways/${dimmingPayload.gatewayId}/commands/status-check` } as never);
+    await publisher.publishClaimed({ ...meshRecord(), topic:
+      `sites/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa/gateways/${dimmingPayload.gatewayId}/commands/dimming` } as never);
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+    expect(mqtt.publishTopic).not.toHaveBeenCalled();
+  });
+
+  it("does not prepare Set after its own worker is stopped", async () => {
+    const prisma: any = { $transaction: jest.fn(), mqttOutbox: { count: jest.fn() } };
+    const mqtt = { publishTopic: jest.fn() };
+    const set = new OutboxPublisherService(prisma, mqtt as never, { workerId: "set-worker" });
+    await set.stopAndDrain();
+
+    await set.publishClaimed(meshRecord() as never);
+
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+    expect(mqtt.publishTopic).not.toHaveBeenCalled();
+  });
+
   it.each([
     { restartAt: "2026-07-11T00:01:03.200Z", remainingTtl: 6 },
     { restartAt: "2026-07-11T00:01:10.000Z", remainingTtl: 0 }
@@ -103,7 +154,7 @@ describe("OutboxPublisherService", () => {
       workerId: "restarted-worker", clock: () => new Date(restartAt), deliveryGeneration: newGeneration
     });
     await restarted.publishClaimed({
-      id: "outbox-1", dispatchId: "dispatch-1", topic: "sites/s/gateways/g/commands/dimming",
+      id: "outbox-1", dispatchId: "dispatch-1", topic: `sites/${dimmingPayload.siteId}/gateways/${dimmingPayload.gatewayId}/commands/dimming`,
       payload: durablePayload, attempts: 1, createdAt: new Date("2026-07-11T00:00:00.000Z"),
       dispatch: { commandId: "command-1" }
     } as never);
@@ -156,7 +207,7 @@ describe("OutboxPublisherService", () => {
       expect(stored.payload).toEqual(payload);
       throw new Error("simulated PUBACK loss");
     }).mockResolvedValue(undefined) };
-    const service = new OutboxPublisherService(prisma, mqtt as never, {
+    const service = new LegacyStatusCheckPublisherService(prisma, mqtt as never, {
       workerId: "worker-1", random: () => 0, clock: () => now, deliveryGeneration: () => deliveryGeneration
     });
     const record = {
@@ -342,7 +393,7 @@ describe("OutboxPublisherService", () => {
     const baseRecord = {
       id: "outbox-1",
       dispatchId: "dispatch-1",
-      topic: "sites/s/gateways/g/commands/dimming",
+      topic: `sites/${dimmingPayload.siteId}/gateways/${dimmingPayload.gatewayId}/commands/dimming`,
       attempts: 0,
       createdAt: new Date("2026-07-11T00:00:00.000Z"),
       dispatch: { commandId: "command-1" }
@@ -397,7 +448,7 @@ describe("OutboxPublisherService", () => {
     await service.publishClaimed({
       id: "outbox-1",
       dispatchId: "dispatch-1",
-      topic: "sites/s/gateways/g/commands/dimming",
+      topic: `sites/${dimmingPayload.siteId}/gateways/${dimmingPayload.gatewayId}/commands/dimming`,
       payload: { ...dimmingPayload, overrideUntil: "2026-07-11T00:01:00.000Z" },
       attempts: 0,
       createdAt: new Date("2026-07-11T00:00:00.000Z"),
@@ -442,7 +493,7 @@ describe("OutboxPublisherService", () => {
     await service.publishClaimed({
       id: "outbox-1",
       dispatchId: "dispatch-1",
-      topic: "sites/s/gateways/g/commands/dimming",
+      topic: `sites/${dimmingPayload.siteId}/gateways/${dimmingPayload.gatewayId}/commands/dimming`,
       payload: {
         ...dimmingPayload,
         overrideUntil: "2026-07-11T00:01:03.500Z",
@@ -491,7 +542,7 @@ describe("OutboxPublisherService", () => {
     const record = {
       id: "outbox-1",
       dispatchId: "dispatch-1",
-      topic: "sites/s/gateways/g/commands/dimming",
+      topic: `sites/${dimmingPayload.siteId}/gateways/${dimmingPayload.gatewayId}/commands/dimming`,
       payload: { ...dimmingPayload, overrideUntil: "2026-07-11T00:01:05.000Z" },
       attempts: 0,
       createdAt: new Date("2026-07-11T00:00:00.000Z"),
@@ -523,7 +574,7 @@ describe("OutboxPublisherService", () => {
     await service.publishClaimed({
       id: "outbox-1",
       dispatchId: "dispatch-1",
-      topic: "sites/s/gateways/g/commands/dimming",
+      topic: `sites/${dimmingPayload.siteId}/gateways/${dimmingPayload.gatewayId}/commands/dimming`,
       payload: {
         ...dimmingPayload,
         expiresAt: "2026-07-11T00:01:10.000Z",
@@ -601,7 +652,7 @@ describe("OutboxPublisherService", () => {
     await service.publishClaimed({
       id: "outbox-1",
       dispatchId: "dispatch-1",
-      topic: "sites/s/gateways/g/commands/dimming",
+      topic: `sites/${dimmingPayload.siteId}/gateways/${dimmingPayload.gatewayId}/commands/dimming`,
       payload: dimmingPayload,
       attempts: 0,
       createdAt: new Date("2026-07-11T00:00:00.000Z"),
@@ -611,6 +662,7 @@ describe("OutboxPublisherService", () => {
     expect(prisma.mqttOutbox.count).toHaveBeenCalledWith({
       where: {
         id: "outbox-1",
+        dispatch: { kind: "dimming" },
         lockedBy: "worker-1",
         publishedAt: null,
         deadLetteredAt: null
@@ -647,7 +699,7 @@ describe("OutboxPublisherService", () => {
     await service.publishClaimed({
       id: "outbox-1",
       dispatchId: "dispatch-1",
-      topic: "sites/s/gateways/g/commands/dimming",
+      topic: `sites/${dimmingPayload.siteId}/gateways/${dimmingPayload.gatewayId}/commands/dimming`,
       payload: dimmingPayload,
       attempts: 0,
       createdAt: new Date("2026-07-11T00:00:00.000Z"),
@@ -675,7 +727,7 @@ describe("OutboxPublisherService", () => {
     await expect(service.claimBatch(now)).resolves.toEqual([{ id: "outbox-1", lockedBy: "worker-1" }]);
     expect(tx.$queryRaw.mock.calls[0][0].strings.join(" ")).toContain('"dispatchId" IS NOT NULL');
     expect(tx.mqttOutbox.updateMany).toHaveBeenCalledWith({
-      where: { id: { in: ["outbox-1"] }, OR: [{ leaseExpiresAt: null }, { leaseExpiresAt: { lte: now } }] },
+      where: { id: { in: ["outbox-1"] }, dispatch: { kind: "dimming" }, OR: [{ leaseExpiresAt: null }, { leaseExpiresAt: { lte: now } }] },
       data: { lockedBy: "worker-1", lockedAt: now, leaseExpiresAt: new Date("2026-07-11T00:00:30.000Z") }
     });
     expect(tx.mqttOutbox.findMany).toHaveBeenCalledWith(expect.objectContaining({
@@ -721,7 +773,7 @@ describe("OutboxPublisherService", () => {
     const record = {
       id: "outbox-1",
       dispatchId: "dispatch-1",
-      topic: "sites/s/gateways/g/commands/dimming",
+      topic: `sites/${dimmingPayload.siteId}/gateways/${dimmingPayload.gatewayId}/commands/dimming`,
       payload: dimmingPayload,
       attempts: 9,
       createdAt: new Date("2026-07-11T00:00:00.000Z"),
@@ -731,7 +783,7 @@ describe("OutboxPublisherService", () => {
     await service.publishClaimed(record as never);
 
     expect(prisma.mqttOutbox.updateMany).toHaveBeenCalledWith({
-      where: { id: "outbox-1", lockedBy: "worker-1", publishedAt: null, deadLetteredAt: null },
+      where: { id: "outbox-1", dispatch: { kind: "dimming" }, lockedBy: "worker-1", publishedAt: null, deadLetteredAt: null },
       data: expect.objectContaining({ attempts: 10, deadLetteredAt: new Date("2026-07-11T00:01:00.000Z"), lockedBy: null })
     });
     expect(prisma.commandDispatch.updateMany).toHaveBeenCalledWith({
@@ -789,6 +841,7 @@ describe("OutboxPublisherService", () => {
     expect(prisma.mqttOutbox.updateMany).toHaveBeenNthCalledWith(1, {
       where: {
         id: "outbox-1",
+        dispatch: { kind: "dimming" },
         lockedBy: "worker-1",
         publishedAt: null,
         deadLetteredAt: null,
@@ -801,7 +854,7 @@ describe("OutboxPublisherService", () => {
       timeoutMs: 20_000
     });
     expect(prisma.mqttOutbox.updateMany).toHaveBeenLastCalledWith({
-      where: { id: "outbox-1", lockedBy: "worker-1", publishedAt: null, deadLetteredAt: null },
+      where: { id: "outbox-1", dispatch: { kind: "dimming" }, lockedBy: "worker-1", publishedAt: null, deadLetteredAt: null },
       data: {
         payload: expectedPayload,
         publishedAt,
@@ -825,7 +878,7 @@ describe("OutboxPublisherService", () => {
     const record = {
       id: "outbox-1",
       dispatchId: "dispatch-1",
-      topic: "sites/s/gateways/g/commands/dimming",
+      topic: `sites/${dimmingPayload.siteId}/gateways/${dimmingPayload.gatewayId}/commands/dimming`,
       payload: dimmingPayload,
       attempts: 0,
       createdAt: new Date("2026-07-11T00:00:00.000Z"),
@@ -883,7 +936,7 @@ describe("OutboxPublisherService", () => {
     const record = {
       id: "outbox-1",
       dispatchId: dimmingPayload.dispatchId,
-      topic: "sites/s/gateways/g/commands/dimming",
+      topic: `sites/${dimmingPayload.siteId}/gateways/${dimmingPayload.gatewayId}/commands/dimming`,
       payload: dimmingPayload,
       attempts: 0,
       createdAt: new Date("2026-07-11T00:00:00.000Z"),
@@ -961,7 +1014,7 @@ describe("OutboxPublisherService", () => {
 
     expect(mqtt.publishTopic).not.toHaveBeenCalled();
     expect(prisma.mqttOutbox.updateMany).toHaveBeenCalledWith({
-      where: { id: "outbox-1", lockedBy: "worker-1", publishedAt: null, deadLetteredAt: null },
+      where: { id: "outbox-1", dispatch: { kind: "dimming" }, lockedBy: "worker-1", publishedAt: null, deadLetteredAt: null },
       data: expect.objectContaining({
         attempts: 1,
         nextAttemptAt: new Date("2026-07-11T00:01:01.000Z"),
@@ -1022,7 +1075,7 @@ describe("OutboxPublisherService", () => {
       })
     });
     expect(prisma.mqttOutbox.updateMany).toHaveBeenCalledWith({
-      where: { id: "outbox-1", lockedBy: "worker-1", publishedAt: null, deadLetteredAt: null },
+      where: { id: "outbox-1", dispatch: { kind: "dimming" }, lockedBy: "worker-1", publishedAt: null, deadLetteredAt: null },
       data: expect.objectContaining({ attempts: 1, deadLetteredAt: now })
     });
   });

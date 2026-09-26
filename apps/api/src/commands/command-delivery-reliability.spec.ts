@@ -4,6 +4,7 @@ import { AutomationSnapshotService } from "../automation/automation-snapshot.ser
 import { AuthenticatedUser } from "../auth/auth.types";
 import { MqttService } from "../mqtt/mqtt.service";
 import { OutboxPublisherService } from "../mqtt/outbox-publisher.service";
+import { LegacyStatusCheckPublisherService } from "../mqtt/legacy-status-check-publisher.service";
 import { CommandDispatchService } from "./command-dispatch.service";
 import { CommandTimeoutService } from "./command-timeout.service";
 import { CommandVerificationService } from "./command-verification.service";
@@ -232,13 +233,13 @@ function harness(options: { statusCheck?: boolean; loseAttemptFence?: boolean } 
     const mutation = (name: string) => { if (!context.locked) unlockedMutations.push(name); };
     const table = (name: string, rows: any[]) => ({
       findUnique: async ({ where }: any) => rows.find((row) => matches(row, where)) ?? null,
-      findMany: async ({ where = {} }: any = {}) => rows.filter((row) => matches(row, where)),
-      count: async ({ where }: any) => rows.filter((row) => matches(row, where)).length,
+      findMany: async ({ where = {} }: any = {}) => rows.filter((row) => matches(name === "outbox" ? { ...row, dispatch } : row, where)),
+      count: async ({ where }: any) => rows.filter((row) => matches(name === "outbox" ? { ...row, dispatch } : row, where)).length,
       updateMany: async ({ where, data }: any) => {
         mutation(name);
         if (name === "results" || name === "command") writeCalls[name] += 1;
         if (options.loseAttemptFence && name === "outbox" && data.deliveryAttemptedAt) return { count: 0 };
-        const selected = rows.filter((row) => matches(row, where));
+        const selected = rows.filter((row) => matches(name === "outbox" ? { ...row, dispatch } : row, where));
         selected.forEach((row) => Object.assign(row, structuredClone(data)));
         if (name === "results") resultWrites += selected.length;
         return { count: selected.length };
@@ -254,6 +255,7 @@ function harness(options: { statusCheck?: boolean; loseAttemptFence?: boolean } 
         if (sql.includes('FROM "MqttOutbox"')) {
           mutation("claim-row-lock");
           return outboxes.filter((row) => row.publishedAt === null && row.deadLetteredAt === null && row.dispatchId !== null
+            && (!sql.includes('dispatch."kind"') || values.includes(dispatch.kind))
             && row.nextAttemptAt <= now && (row.leaseExpiresAt === null || row.leaseExpiresAt <= now)).map(({ id }) => ({ id }));
         }
         if (sql.includes('INSERT INTO "ProcessedGatewayEvent"')) {
@@ -278,7 +280,7 @@ function harness(options: { statusCheck?: boolean; loseAttemptFence?: boolean } 
     tx.command.findUnique = async ({ where }: any) => where.id === ids.command ? { ...command, dispatches } : null;
     tx.commandDispatch.findMany = async ({ where = {} }: any = {}) => dispatches.filter((row) => matches(row, where))
       .map((row) => ({ ...row, command, fixtureResults: results.filter((result) => result.dispatchId === row.id) }));
-    tx.mqttOutbox.findMany = async ({ where }: any) => outboxes.filter((row) => matches(row, where))
+    tx.mqttOutbox.findMany = async ({ where }: any) => outboxes.filter((row) => matches({ ...row, dispatch }, where))
       .map((row) => ({ ...structuredClone(row), dispatch: { ...dispatch } }));
     return tx;
   };
@@ -302,7 +304,9 @@ function harness(options: { statusCheck?: boolean; loseAttemptFence?: boolean } 
     writeCalls: () => ({ ...writeCalls }), activeTransactions: () => activeTransactions,
     ack: (status?: string, items?: any[]) => ingest(payload(status, items)),
     now: () => now, advance: (ms: number) => { now = new Date(now.getTime() + ms); }, resultWrites: () => resultWrites,
-    publisher: () => new OutboxPublisherService(prisma, mqtt as never, { workerId: randomUUID(), random: () => 0, clock: () => now }),
+    publisher: () => options.statusCheck
+      ? new LegacyStatusCheckPublisherService(prisma, mqtt as never, { workerId: randomUUID(), random: () => 0, clock: () => now })
+      : new OutboxPublisherService(prisma, mqtt as never, { workerId: randomUUID(), random: () => 0, clock: () => now }),
     timeout: new CommandTimeoutService(prisma, snapshot),
     verification: new CommandVerificationService(prisma, access as never, snapshot, clock),
     commands: new CommandsService(prisma, new CommandDispatchService(), access as never, {} as never, snapshot, clock) };
