@@ -19,7 +19,7 @@ const commandStageItems = [
 
 const clockRefusalExplanation = "게이트웨이 시각을 확인할 수 없어 조명에 전송하기 전 거부했습니다. 자동 재실행되지 않습니다.";
 
-function isClockRefusal(item: Omit<CommandStatusResponse, "dispatches">): boolean {
+export function isClockRefusal(item: Omit<CommandStatusResponse, "dispatches">): boolean {
   // History has no dispatch details. The API emits this top-level code only for
   // one exact all-target failed dimming dispatch before RF; require its terminal
   // not-applied outcome as well so unknown/partial results keep verification UI.

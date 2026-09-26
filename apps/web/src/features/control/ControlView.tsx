@@ -39,7 +39,7 @@ import { controlSelectionToDimmingTarget, resolveControlSelection, type ControlS
 import { humanizeDeviceResponseMessage } from "./control-copy";
 import { FixtureGroupDialog } from "./FixtureGroupDialog";
 import { ControlModeTabs, type ControlPageMode } from "./automation/ControlModeTabs";
-import { CommandHistoryPanel, COMMAND_STAGE_LABELS } from "./CommandHistoryPanel";
+import { CommandHistoryPanel, COMMAND_STAGE_LABELS, isClockRefusal } from "./CommandHistoryPanel";
 import { CommandVerificationCases } from "./CommandVerificationCases";
 import { CommandOutcomeActions } from "./CommandOutcomeActions";
 import {
@@ -801,7 +801,7 @@ function CommandProgress({ status }: { status: NonNullable<ReturnType<typeof use
       <Text as="span" variant="overline" tone="muted">최근 명령 상태</Text>
       <Text as="strong" weight="semibold">{status.stage === "completed" ? "조명 적용 완료 · 기본 밝기로 저장됨" : commandStageLabel(status.stage)}</Text>
       <Text variant="caption">{status.completedFixtureCount} / {status.totalFixtureCount} 처리</Text>
-      <ProgressSteps label="명령 진행" steps={commandSteps(status.stage)} />
+      <ProgressSteps label="명령 진행" steps={commandSteps(status)} />
       {failedResults.map((result) => (
         <Text variant="caption" tone={isFailure ? "danger" : "primary"} key={`${result.dispatchId}:${result.fixtureId}`}>
           {result.fixtureName}: {humanizeDeviceResponseMessage(result.errorMessage ?? (result.status === "timed_out" ? "응답 시간 초과" : "적용 실패"))}
@@ -811,11 +811,13 @@ function CommandProgress({ status }: { status: NonNullable<ReturnType<typeof use
   );
 }
 
-function commandSteps(stage: CommandStage): ProgressStep[] {
+function commandSteps(status: CommandStatusResponse): ProgressStep[] {
+  const stage = status.stage;
   return [
     { id: "queued", label: "명령 접수", state: stepState(stage, "queued") },
     { id: "published", label: "Gateway 전송", state: stepState(stage, "published") },
-    { id: "accepted", label: "장비 응답", state: stepState(stage, "accepted") },
+    // The gateway clock refusal happened before RF, so no device response was reached.
+    { id: "accepted", label: "장비 응답", state: isClockRefusal(status) ? "pending" : stepState(stage, "accepted") },
     { id: "completed", label: "조명 적용", state: terminalStepState(stage) }
   ];
 }

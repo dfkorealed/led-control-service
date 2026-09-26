@@ -123,6 +123,48 @@ describe("CommandVerificationCases", () => {
     expect(screen.queryByRole("dialog", { name: "확인 불가 명령 위험 승인" })).not.toBeInTheDocument();
   });
 
+  it.each([404, 500])("blocks cached case actions and closes a pending risk form during background detail %s", async (status) => {
+    let detailReads = 0;
+    let finishRefetch: (response: unknown) => void = () => undefined;
+    const fetch = vi.fn().mockImplementation(async (url: string) => {
+      if (url.endsWith("/case-1")) {
+        detailReads += 1;
+        if (detailReads === 2) return new Promise((resolve) => { finishRefetch = resolve; });
+        return { ok: true, json: async () => ({ ...caseRecord, targetFixtureIds: ["fixture-1"] }) };
+      }
+      return { ok: true, json: async () => ({ items: [caseRecord], nextCursor: null, generatedAt: "2026-09-25T00:00:00.000Z" }) };
+    });
+    vi.stubGlobal("fetch", fetch);
+    const client = renderCases(true, true);
+    const drawer = screen.getByRole("dialog", { name: "확인 필요한 명령" });
+    fireEvent.click(await within(drawer).findByRole("button", { name: /old-1/ }));
+    fireEvent.click(await within(drawer).findByRole("button", { name: "위험 승인" }));
+    fireEvent.click(screen.getByRole("radio", { name: "물리 상태 확인 완료" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "승인 사유" }), { target: { value: "현장 확인" } });
+    fireEvent.click(screen.getByRole("checkbox", { name: /위험을 이해하고 승인/ }));
+    const staleSubmit = screen.getByRole("button", { name: "위험 승인 및 차단 해제" });
+
+    const refetch = client.invalidateQueries({ queryKey: ["command-verification-case", "user-1", "site-1", "case-1"] });
+    await waitFor(() => expect(detailReads).toBe(2));
+    fireEvent.click(staleSubmit); // A form click racing the refetch must not POST from cached detail.
+    expect(fetch.mock.calls.some(([url]) => String(url).endsWith("/reconcile"))).toBe(false);
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "확인 불가 명령 위험 승인" })).not.toBeInTheDocument());
+    expect(within(drawer).queryByRole("button", { name: "실제 상태 확인 요청" })).not.toBeInTheDocument();
+    expect(within(drawer).queryByRole("button", { name: "위험 승인" })).not.toBeInTheDocument();
+    finishRefetch({ ok: false, status, headers: { get: () => "application/json" }, json: async () => ({ code: "detail_unavailable" }) });
+    await refetch;
+    expect(await within(drawer).findByRole("alert")).toHaveTextContent("잠금은 유지됩니다");
+    expect(within(drawer).queryByRole("button", { name: "실제 상태 확인 요청" })).not.toBeInTheDocument();
+    expect(within(drawer).queryByRole("button", { name: "위험 승인" })).not.toBeInTheDocument();
+    expect(fetch.mock.calls.some(([url]) => String(url).endsWith("/status-checks") || String(url).endsWith("/reconcile"))).toBe(false);
+
+    fireEvent.click(within(drawer).getByRole("button", { name: "상세 다시 조회" }));
+    expect(await within(drawer).findByRole("button", { name: "위험 승인" })).toBeInTheDocument();
+    expect(within(drawer).getByRole("button", { name: "실제 상태 확인 요청" })).toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: "확인 불가 명령 위험 승인" })).not.toBeInTheDocument();
+    expect(fetch.mock.calls.some(([url]) => String(url).endsWith("/status-checks") || String(url).endsWith("/reconcile"))).toBe(false);
+  });
+
   it("hides cached case rows after a background list 401", async () => {
     let listReads = 0;
     const fetch = vi.fn().mockImplementation(async (url: string) => {

@@ -59,8 +59,9 @@ export function CommandVerificationCases({ open, siteId, userId, canControl, can
 
   const cases = useCommandVerificationCases(userId, { siteId, ...(originalCommandId ? { originalCommandId } : {}), limit: 4 }, open);
   const listUnauthorized = cases.error instanceof ApiError && [401, 403].includes(cases.error.status);
+  const detailQueryKey = ["command-verification-case", userId, siteId, selectedCaseId] as const;
   const detail = useQuery({
-    queryKey: ["command-verification-case", userId, siteId, selectedCaseId],
+    queryKey: detailQueryKey,
     queryFn: () => getCommandVerificationCase(selectedCaseId!),
     enabled: open && Boolean(selectedCaseId),
     retry: false,
@@ -71,9 +72,15 @@ export function CommandVerificationCases({ open, siteId, userId, canControl, can
   const detailUnauthorized = detail.error instanceof ApiError && [401, 403].includes(detail.error.status);
   const permissionLost = listUnauthorized || detailUnauthorized || authorizationLost;
   const page = permissionLost ? undefined : cases.data?.pages[pageIndex];
-  const scopedDetail = !permissionLost && detail.data?.siteId === siteId && detail.data.caseId === selectedCaseId ? detail.data : null;
+  // React Query retains a successful detail across background refetch failure.
+  // Cached data is display history, never fresh authority for Get or approval.
+  const scopedDetail = !permissionLost && !detail.isFetching && !detail.error
+    && detail.data?.siteId === siteId && detail.data.caseId === selectedCaseId ? detail.data : null;
   const selectedCase = scopedDetail && isActiveCommandVerificationCase(scopedDetail) ? scopedDetail : null;
   const resolvedCase = scopedDetail && isResolvedCommandVerificationCase(scopedDetail) ? scopedDetail : null;
+  useEffect(() => {
+    if (riskOpen && (!open || !selectedCase)) setRiskOpen(false);
+  }, [open, riskOpen, selectedCase]);
   useEffect(() => {
     if (resolvedCase) saveRecentResolvedCaseId(userId, siteId, resolvedCase.caseId);
   }, [resolvedCase, siteId, userId]);
@@ -111,6 +118,9 @@ export function CommandVerificationCases({ open, siteId, userId, canControl, can
 
   async function requestStatusCheck() {
     if (!selectedCase || !canControl || checking || !canCheck && !retryCheck?.responseLost) return;
+    const query = queryClient.getQueryState(detailQueryKey);
+    if (!open || scopeRef.current !== `${userId}:${siteId}` || query?.fetchStatus !== "idle"
+      || query.error || query.data !== selectedCase) return;
     const request = retryCheck?.caseId === selectedCase.caseId ? retryCheck
       : { caseId: selectedCase.caseId, clientRequestId: crypto.randomUUID(), responseLost: false };
     const scope = scopeRef.current;
@@ -153,6 +163,9 @@ export function CommandVerificationCases({ open, siteId, userId, canControl, can
 
   async function reconcile(input: CommandCaseReconcileInput) {
     if (!canManage || !selectedCase) throw new Error("Not authorized");
+    const query = queryClient.getQueryState(detailQueryKey);
+    if (!open || !riskOpen || scopeRef.current !== `${userId}:${siteId}` || query?.fetchStatus !== "idle"
+      || query.error || query.data !== selectedCase) throw new Error("Case detail must be refreshed");
     const scope = scopeRef.current;
     const caseId = selectedCase.caseId;
     const controller = new AbortController();

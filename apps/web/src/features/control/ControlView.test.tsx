@@ -559,6 +559,39 @@ describe("ControlView 대상 선택", () => {
     expect(screen.getByRole("list", { name: "명령 진행" })).toHaveTextContent("장비 응답");
   });
 
+  it("history detail marks device response not reached for an exact pre-RF clock refusal only", async () => {
+    const refused = { ...createCommandStatus(commandIds.default, "failed"), outcome: "not_applied" as const, errorCode: "GATEWAY_CLOCK_UNTRUSTED" as const };
+    const generic = { ...createCommandStatus(commandIds.different, "failed"), outcome: "not_applied" as const };
+    const expired = { ...createCommandStatus(commandIds.terminal, "failed"), outcome: "not_applied" as const, errorCode: "COMMAND_EXPIRED" };
+    const records = [refused, generic, expired];
+    mocks.apiGet.mockImplementation(async (url: string) => ({
+      items: url.includes("/commands?") ? url.includes("limit=1") ? [refused] : records : [],
+      nextCursor: null,
+      retainedFrom: "2026-06-25T00:00:00.000Z"
+    }));
+    mocks.useCommandStatus.mockImplementation((id: string | null) => ({
+      data: records.find((record) => record.id === id), error: null, isFetching: false, refetch: vi.fn()
+    }));
+    renderControl();
+
+    const history = await screen.findByRole("region", { name: "최근 명령 이력" });
+    fireEvent.click(await within(history).findByRole("button", { name: new RegExp(`최근 명령 상세: ${commandIds.default}`) }));
+    const progress = screen.getByRole("list", { name: "명령 진행" });
+    expect(within(progress).getByText("명령 접수").closest("li")).toHaveAttribute("data-state", "complete");
+    expect(within(progress).getByText("Gateway 전송").closest("li")).toHaveAttribute("data-state", "complete");
+    expect(within(progress).getByText("장비 응답").closest("li")).toHaveAttribute("data-state", "pending");
+    expect(within(progress).getByText("조명 적용").closest("li")).toHaveAttribute("data-state", "error");
+
+    fireEvent.click(within(history).getByRole("button", { name: "명령 이력 열기" }));
+    const drawer = screen.getByRole("dialog", { name: "명령 이력" });
+    for (const command of [generic, expired]) {
+      fireEvent.click((await within(drawer).findByText(command.id)).closest("button")!);
+      expect(within(screen.getByRole("list", { name: "명령 진행" })).getByText("장비 응답").closest("li")).toHaveAttribute("data-state", "complete");
+      expect(within(screen.getByRole("list", { name: "명령 진행" })).getByText("조명 적용").closest("li")).toHaveAttribute("data-state", "error");
+    }
+    expect(mocks.apiPost).not.toHaveBeenCalled();
+  });
+
   it("서버의 ACK 문구는 사용자 화면에서 장비 응답으로 표시한다", () => {
     sessionStorage.setItem(activeCommandStorageKey(USER_A, dashboard.site.id), JSON.stringify({ commandId: commandIds.default }));
     const commandStatus = createCommandStatus(commandIds.default, "partial_failed");
