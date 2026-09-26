@@ -10,6 +10,7 @@ import { FixtureFreshnessService } from "../fixtures/fixture-freshness.service";
 import { CommandTimeoutService } from "../commands/command-timeout.service";
 import { OutboxPublisherService } from "./outbox-publisher.service";
 import { LegacyStatusCheckPublisherService } from "./legacy-status-check-publisher.service";
+import { RecoveryOutboxPublisherService } from "./recovery-outbox-publisher.service";
 import { ProvisioningScanOutboxPublisherService } from "./provisioning-scan-outbox-publisher.service";
 import { ProvisioningDeviceOutboxPublisherService } from "./provisioning-device-outbox-publisher.service";
 import { MqttShutdownCoordinator } from "./mqtt-shutdown-coordinator.service";
@@ -36,6 +37,7 @@ import { CommandPublishQuiesceService } from "./command-publish-quiesce.service"
     FixtureFreshnessService,
     OutboxPublisherService,
     LegacyStatusCheckPublisherService,
+    RecoveryOutboxPublisherService,
     AutomationOutboxPublisherService,
     ProvisioningScanOutboxPublisherService,
     ProvisioningDeviceOutboxPublisherService,

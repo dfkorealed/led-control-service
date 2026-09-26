@@ -1,9 +1,10 @@
-import { Injectable, OnModuleDestroy } from "@nestjs/common";
+import { Injectable, OnModuleDestroy, Optional } from "@nestjs/common";
 import { MeshGroupSyncWorker } from "../mesh-control-groups/mesh-group-sync.worker";
 import { AutomationOutboxPublisherService } from "../automation/automation-outbox-publisher.service";
 import { MqttService } from "./mqtt.service";
 import { OutboxPublisherService } from "./outbox-publisher.service";
 import { LegacyStatusCheckPublisherService } from "./legacy-status-check-publisher.service";
+import { RecoveryOutboxPublisherService } from "./recovery-outbox-publisher.service";
 import { ProvisioningScanOutboxPublisherService } from "./provisioning-scan-outbox-publisher.service";
 import { ProvisioningDeviceOutboxPublisherService } from "./provisioning-device-outbox-publisher.service";
 
@@ -18,7 +19,8 @@ export class MqttShutdownCoordinator implements OnModuleDestroy {
     private readonly provisioningDeviceOutbox: ProvisioningDeviceOutboxPublisherService,
     private readonly automationOutbox: AutomationOutboxPublisherService,
     private readonly meshGroupSync: MeshGroupSyncWorker,
-    private readonly mqtt: MqttService
+    private readonly mqtt: MqttService,
+    @Optional() private readonly recoveryOutbox?: RecoveryOutboxPublisherService
   ) {}
 
   onModuleDestroy() {
@@ -33,6 +35,7 @@ export class MqttShutdownCoordinator implements OnModuleDestroy {
       this.shutdownPromise = Promise.all([
         commandDrain,
         legacyStatusCheckDrain,
+        this.recoveryOutbox?.stopAndDrain(),
         scanDrain,
         provisioningDeviceDrain,
         automationDrain,

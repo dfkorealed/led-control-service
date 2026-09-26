@@ -11,10 +11,23 @@ import { MqttService } from "./mqtt.service";
 import { MqttShutdownCoordinator } from "./mqtt-shutdown-coordinator.service";
 import { OutboxPublisherService } from "./outbox-publisher.service";
 import { LegacyStatusCheckPublisherService } from "./legacy-status-check-publisher.service";
+import { RecoveryOutboxPublisherService } from "./recovery-outbox-publisher.service";
 import { ProvisioningDeviceOutboxPublisherService } from "./provisioning-device-outbox-publisher.service";
 import { ProvisioningScanOutboxPublisherService } from "./provisioning-scan-outbox-publisher.service";
 
 describe("MqttShutdownCoordinator", () => {
+  it("waits for parent-free recovery Get before closing the shared connection", async () => {
+    const recovery = deferred<void>();
+    let closed = false;
+    const drain = { stopAndDrain: async () => {} };
+    const coordinator = new (MqttShutdownCoordinator as any)(drain, drain, drain, drain, drain, drain,
+      { stopInboundAndDrain: async () => {}, close: async () => { closed = true; } },
+      { stopAndDrain: () => recovery.promise });
+    const closing = coordinator.onModuleDestroy();
+    await waitForTurn();
+    try { expect(closed).toBe(false); } finally { recovery.resolve(); await closing; }
+    expect(closed).toBe(true);
+  });
   it("drains Set, legacy Get, scan, device, and automation publishes before closing MQTT during Nest module close", async () => {
     const commandPublish = deferred<void>();
     const legacyGetPublish = deferred<void>();

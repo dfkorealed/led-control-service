@@ -608,7 +608,7 @@ function configAppliedReceiptKey(gatewayId: string, acknowledgementId: string) {
   return `automation-config-applied:${gatewayId}:${acknowledgementId}`;
 }
 
-function canonicalExecutionPayloadHash(event: AutomationExecutionEventV1) {
+export function canonicalExecutionPayloadHash(event: AutomationExecutionEventV1) {
   if (event.kind !== "action_result") return canonicalPayloadHash(event);
   const payload = automationExecutionActionResultPayloadV1Schema.parse(event.payload);
   return canonicalPayloadHash({

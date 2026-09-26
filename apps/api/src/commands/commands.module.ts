@@ -10,10 +10,11 @@ import { CommandsService } from "./commands.service";
 import { CommandDispatchService } from "./command-dispatch.service";
 import { CommandStatusService } from "./command-status.service";
 import { CommandVerificationService } from "./command-verification.service";
+import { CommandRecoveryRolloutGuard } from "./command-recovery-rollout.guard";
 
 @Module({
   imports: [PrismaModule, MqttModule, AuthModule, AccessModule, MeshControlGroupModule, AutomationRuntimeModule],
   controllers: [CommandsController],
-  providers: [CommandsService, CommandDispatchService, CommandStatusService, CommandVerificationService]
+  providers: [CommandsService, CommandDispatchService, CommandStatusService, CommandVerificationService, CommandRecoveryRolloutGuard]
 })
 export class CommandsModule {}

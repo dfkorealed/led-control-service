@@ -9,6 +9,7 @@ export * from "./domain";
 export * from "./energy-contracts";
 export * from "./energy-analytics-contracts";
 export * from "./energy-p2-contracts";
+export * from "./monitoring-activity-contracts";
 export * from "./freshness";
 // Gateway contracts include the monitoring refresh wire schemas and topic builders.
 export * from "./gateway-contracts";

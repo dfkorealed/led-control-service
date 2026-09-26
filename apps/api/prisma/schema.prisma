@@ -26,6 +26,16 @@ enum MonitoringRefreshStatus {
   expired
 }
 
+enum MonitoringActivityKind {
+  fixture_status_changed
+  fixture_brightness_changed
+  fixture_health_changed
+  fixture_offline
+  fixture_online
+  monitoring_refresh_result
+  command_result
+}
+
 enum MonitoringRefreshBatchStatus {
   pending
   published
@@ -353,6 +363,12 @@ model Site {
   gateways                   Gateway[]
   groups                     FixtureGroup[]
   commands                   Command[]
+  commandReplayFences        CommandReplayFence[]
+  manualExecutionReceipts    ManualExecutionReplayReceipt[]
+  unresolvedCommandHolds     UnresolvedCommandHold[]
+  resolvedCommandRecoveries  ResolvedCommandRecovery[]
+  lateSetTerminalFences      LateSetTerminalFence[]
+  legacyStatusCheckDispatchFences LegacyStatusCheckDispatchFence[]
   invitations                Invitation[]
   provisioningSessions       ProvisioningSession[]
   gatewayClaimAudits         GatewayClaimAudit[]
@@ -368,6 +384,7 @@ model Site {
   monitoringIncidents        MonitoringIncident[]
   monitoringRefreshes        MonitoringRefresh[]
   monitoringRefreshRequests  MonitoringRefreshRequest[]
+  monitoringActivities       MonitoringActivity[]
   createdAt                  DateTime                         @default(now())
   updatedAt                  DateTime                         @updatedAt
 
@@ -542,6 +559,37 @@ model MonitoringRefresh {
   @@unique([id, siteId, floorId])
   @@index([siteId, floorId, status])
   @@index([createdAt])
+}
+
+/// Customer-safe immutable projection, not the raw MQTT or private audit ledger.
+/// floorId and fixtureId are snapshots so device/floor deletion does not erase history.
+model MonitoringActivity {
+  id                String                  @id @default(uuid())
+  siteId            String
+  floorId           String
+  sourceType        String
+  sourceKey         String
+  kind              MonitoringActivityKind
+  recordedAt        DateTime                @default(now())
+  observedAt        DateTime?
+  fixtureId         String?
+  displayName       String?
+  status            FixtureStatus?
+  brightnessPercent Int?
+  commandOutcome    CommandOutcome?
+  refreshStatus     MonitoringRefreshStatus?
+  site              Site                    @relation(fields: [siteId], references: [id], onDelete: Cascade)
+
+  @@unique([siteId, sourceType, sourceKey, floorId])
+  @@index([siteId, floorId, recordedAt(sort: Desc), id(sort: Desc)])
+  @@index([recordedAt, id])
+}
+
+// A separate, default-OFF DB barrier stops old API binaries from recreating
+// raw Command UUID activity keys after a guarded, all-writers-drained cutover.
+model MonitoringCommandSourcePolicy {
+  id            Int     @id
+  keyedRequired Boolean @default(false)
 }
 
 model MonitoringRefreshRequest {
@@ -1517,11 +1565,25 @@ model Command {
   user               User?             @relation(fields: [requestedBy], references: [id], onDelete: SetNull)
   dispatches         CommandDispatch[]
   manualOverride     ManualOverride?
+  retentionAttempt   CommandRetentionAttempt?
   createdAt          DateTime          @default(now())
   updatedAt          DateTime          @updatedAt
 
   @@unique([siteId, requestedBy, clientRequestId])
   @@index([siteId, createdAt])
+}
+
+// A failed protected sweep must not starve later eligible Commands. This row
+// exists only while its original Command still exists and cascades with it.
+model CommandRetentionAttempt {
+  commandId     String   @id
+  reasonCode    String
+  attemptCount  Int      @default(1)
+  lastTriedAt   DateTime
+  retryAfterAt  DateTime
+  command       Command  @relation(fields: [commandId], references: [id], onDelete: Cascade)
+
+  @@index([retryAfterAt])
 }
 
 model CommandDispatch {
@@ -1575,6 +1637,194 @@ model CommandFixtureResult {
 
   @@id([dispatchId, fixtureId])
   @@index([fixtureId, status])
+}
+
+// Minimal derived safety state survives physical Command deletion. User is a
+// snapshot identity, not a FK: deleting a user must not allow old key replay.
+model CommandReplayFence {
+  id                String   @id @default(uuid())
+  siteId            String
+  principalSnapshot String
+  domain            String
+  keyDigest         String
+  keyVersion        Int
+  createdAt         DateTime @default(now())
+  site              Site     @relation(fields: [siteId], references: [id], onDelete: Cascade)
+
+  @@unique([siteId, principalSnapshot, domain, keyDigest])
+  @@index([siteId, createdAt])
+}
+
+// Minimal keyed replay evidence for a manual Gateway action_result after its
+// AutomationExecution and children are physically removed. No Command/source
+// UUID, fixture/result data, raw event, or unkeyed report hash is retained.
+model ManualExecutionReplayReceipt {
+  id            String   @id @default(uuid())
+  siteId        String
+  gatewayId     String
+  eventId       String
+  sequence      BigInt
+  eventDigest   String
+  keyVersion    Int
+  ackIngestedAt DateTime
+  /// Still immutable/null after additive migration; guarded B deletion alone may set this.
+  sourceRetiredAt DateTime?
+  createdAt     DateTime @default(now())
+  site          Site     @relation(fields: [siteId], references: [id], onDelete: Cascade)
+
+  @@unique([gatewayId, eventId, sequence])
+  @@index([siteId, createdAt])
+}
+
+// An active hold is a recovery obligation, never a customer command history row.
+// Gateway/Fixture IDs intentionally have no cascade FK: a reset must resolve
+// safety explicitly rather than silently deleting a still-uncertain Set.
+model UnresolvedCommandHold {
+  id                       String                          @id @default(uuid())
+  siteId                   String
+  gatewayId                String
+  originalCommandId        String                          @unique
+  originalCreatedAt        DateTime
+  reasonCode               String
+  verificationAttemptCount Int                             @default(0)
+  lastCheckedAt            DateTime?
+  site                     Site                            @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  targets                  UnresolvedCommandHoldTarget[]
+  recoveryDispatches       RecoveryDispatch[]
+  lateSetReceipts          LateSetReceipt[]
+  createdAt                DateTime                        @default(now())
+  updatedAt                DateTime                        @updatedAt
+
+  @@index([siteId, createdAt, id])
+  @@index([siteId, gatewayId])
+}
+
+model UnresolvedCommandHoldTarget {
+  holdId             String
+  fixtureId          String
+  expectedBrightness Int
+  hold               UnresolvedCommandHold @relation(fields: [holdId], references: [id], onDelete: Cascade)
+
+  @@id([holdId, fixtureId])
+  @@index([fixtureId, holdId])
+}
+
+// A minimal, bounded customer-visible result after the active hold and its
+// detailed Get receipts are removed. It contains no original Command UUID.
+model ResolvedCommandRecovery {
+  id             String   @id
+  siteId         String
+  classification String
+  targetCount    Int
+  resolvedAt     DateTime @default(now())
+  site           Site     @relation(fields: [siteId], references: [id], onDelete: Cascade)
+
+  @@index([resolvedAt, id])
+}
+
+// Post-purge Get delivery is independent of CommandDispatch.commandId.
+model RecoveryDispatch {
+  id                  String                         @id @default(uuid())
+  holdId              String
+  gatewayId           String
+  sequence            BigInt
+  idempotencyKey      String                         @unique
+  verificationAttempt Int
+  chunkIndex          Int
+  principalSnapshot   String?
+  clientRequestDigest String?
+  requestKeyVersion   Int?
+  status              String                         @default("pending")
+  publishedAt         DateTime?
+  acceptedAt          DateTime?
+  acceptedReceivedAt  DateTime?
+  completedAt         DateTime?
+  errorCode           String?
+  hold                UnresolvedCommandHold          @relation(fields: [holdId], references: [id], onDelete: Cascade)
+  targets             RecoveryDispatchTarget[]
+  outbox              RecoveryOutbox?
+  createdAt           DateTime                       @default(now())
+  updatedAt           DateTime                       @updatedAt
+
+  @@unique([gatewayId, sequence])
+  @@unique([holdId, principalSnapshot, clientRequestDigest])
+  @@unique([holdId, verificationAttempt, chunkIndex])
+  @@index([holdId, status])
+}
+
+model RecoveryDispatchTarget {
+  dispatchId String
+  fixtureId  String
+  status     String   @default("pending")
+  brightness Int?
+  observedAt DateTime?
+  dispatch   RecoveryDispatch @relation(fields: [dispatchId], references: [id], onDelete: Cascade)
+
+  @@id([dispatchId, fixtureId])
+}
+
+model RecoveryOutbox {
+  id                  String           @id @default(uuid())
+  dispatchId          String           @unique
+  topic               String
+  payload             Json
+  attempts            Int              @default(0)
+  nextAttemptAt       DateTime         @default(now())
+  publishedAt         DateTime?
+  deliveryAttemptedAt DateTime?
+  lockedBy            String?
+  lockedAt            DateTime?
+  leaseExpiresAt      DateTime?
+  deadLetteredAt      DateTime?
+  lastError           String?
+  dispatch            RecoveryDispatch @relation(fields: [dispatchId], references: [id], onDelete: Cascade)
+  createdAt           DateTime         @default(now())
+  updatedAt           DateTime         @updatedAt
+
+  @@index([publishedAt, deadLetteredAt, nextAttemptAt, leaseExpiresAt])
+}
+
+// Late original Set ACKs are authenticated by a domain-separated HMAC of the
+// full old wire identity; raw old key/sequence/payload are not retained.
+model LateSetReceipt {
+  id                 String                @id @default(uuid())
+  holdId             String
+  originalDispatchId String                @unique
+  keyVersion         Int
+  wireDigest         String
+  targetFixtureIds   Json
+  hold               UnresolvedCommandHold @relation(fields: [holdId], references: [id], onDelete: Cascade)
+  createdAt          DateTime              @default(now())
+
+  @@index([holdId])
+}
+
+// A resolved hold must still own delayed duplicate Set ACKs after its raw
+// correlation receipt is deleted. This site-scoped, keyed dispatch marker has
+// no original Command/dispatch UUID, target, brightness, or wire payload.
+model LateSetTerminalFence {
+  id             String   @id @default(uuid())
+  siteId         String
+  dispatchDigest String   @unique
+  keyVersion     Int
+  createdAt      DateTime @default(now())
+  site           Site     @relation(fields: [siteId], references: [id], onDelete: Cascade)
+
+  @@index([siteId, createdAt])
+}
+
+// A purged legacy CommandDispatch may still receive a delayed Get ACK. This
+// marker owns the packet for PUBACK/drain only; it cannot reconstruct or
+// apply a status observation, original Command ID, or target list.
+model LegacyStatusCheckDispatchFence {
+  id             String   @id @default(uuid())
+  siteId         String
+  dispatchDigest String   @unique
+  keyVersion     Int
+  createdAt      DateTime @default(now())
+  site           Site     @relation(fields: [siteId], references: [id], onDelete: Cascade)
+
+  @@index([siteId, createdAt])
 }
 
 model MqttOutbox {
@@ -1738,7 +1988,12 @@ model ManualOverride {
   id                String                  @id @default(uuid())
   siteId            String
   gatewayId         String
-  commandId         String                  @unique
+  /// Nullable only after the explicit guarded detach cutover; default migrations
+  /// still require a live Command source and never detach it automatically.
+  commandId         String?                 @unique
+  /// DB-only keyed source proof; null until the guarded cutover provisions a key and backfills.
+  sourceDigest      String?
+  sourceKeyVersion  Int?
   requestedById     String?
   brightnessPercent Int
   startedAt         DateTime
@@ -1747,7 +2002,7 @@ model ManualOverride {
   targetCount       Int                     @default(0)
   site              Site                    @relation(fields: [siteId], references: [id], onDelete: Cascade, onUpdate: Restrict)
   gateway           Gateway                 @relation(fields: [gatewayId, siteId], references: [id, siteId], onDelete: Cascade, onUpdate: Restrict)
-  command           Command                 @relation(fields: [commandId], references: [id], onDelete: Cascade, onUpdate: Restrict)
+  command           Command?                @relation(fields: [commandId], references: [id], onDelete: Restrict, onUpdate: Restrict)
   requestedBy       User?                   @relation("ManualOverrideRequestedBy", fields: [requestedById], references: [id], onDelete: SetNull, onUpdate: Restrict)
   fixtures          ManualOverrideFixture[]
   executions        AutomationExecution[]   @relation("ManualOverrideExecutions")
