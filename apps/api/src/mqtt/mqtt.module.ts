@@ -17,6 +17,8 @@ import { MonitoringIncidentsModule } from "../monitoring-incidents/monitoring-in
 import { ProvisioningDeviceTerminalService } from "./provisioning-device-terminal.service";
 import { FixturePresenceIngestionService } from "../fixtures/fixture-presence-ingestion.service";
 import { MonitoringRefreshIngestionService } from "../monitoring-refresh/monitoring-refresh-ingestion.service";
+import { CommandClockResponderService } from "./command-clock-responder.service";
+import { CommandDbClockHealth } from "./command-db-clock-health.service";
 
 @Module({
   imports: [PrismaModule, MeshControlGroupModule, AutomationRuntimeModule, MonitoringIncidentsModule],
@@ -34,6 +36,8 @@ import { MonitoringRefreshIngestionService } from "../monitoring-refresh/monitor
     ProvisioningDeviceTerminalService,
     MqttShutdownCoordinator,
     CommandTimeoutService,
+    CommandDbClockHealth,
+    CommandClockResponderService,
     MeshGroupSyncWorker
   ],
   exports: [MqttService]

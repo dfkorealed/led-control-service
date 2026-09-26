@@ -1,6 +1,7 @@
 import { Injectable, Logger, OnModuleInit, Optional } from "@nestjs/common";
 import {
   acceptanceAckV2Schema,
+  commandClockRequestSchema,
   applicationStateIngestedAckV2Schema,
   applicationProvisioningScanTerminalIngestedAckV2Schema,
   deriveDeviceStatusAckStatus,
@@ -52,6 +53,7 @@ import { compareAndAdvanceGatewayEvent } from "../retention/gateway-event-waterm
 import { parseGatewayTopic } from "./topic-scope";
 import { gatewayEventIsTooFarInFuture, gatewayEventMaxFutureSkewMs } from "./gateway-event-time";
 import { ProvisioningDeviceTerminalService } from "./provisioning-device-terminal.service";
+import { CommandClockResponderService } from "./command-clock-responder.service";
 
 const MQTT_BACKGROUND_PUBLISH_TIMEOUT_MS = 10_000;
 const MQTT_CLOSE_TIMEOUT_MS = 5_000;
@@ -145,7 +147,8 @@ export class MqttService implements OnModuleInit {
     @Optional() private readonly automationSnapshot: AutomationSnapshotService = new AutomationSnapshotService(new AutomationClock()),
     @Optional() provisioningDeviceTerminal?: ProvisioningDeviceTerminalService,
     fixturePresenceIngestion?: FixturePresenceIngestionService,
-    @Optional() monitoringRefreshIngestion?: MonitoringRefreshIngestionService
+    @Optional() monitoringRefreshIngestion?: MonitoringRefreshIngestionService,
+    @Optional() private readonly commandClockResponder?: CommandClockResponderService
   ) {
     this.fixtureStateIngestion = fixtureStateIngestion ?? new FixtureStateIngestionService(prisma);
     this.fixturePresenceIngestion = fixturePresenceIngestion ?? new FixturePresenceIngestionService(prisma);
@@ -169,7 +172,8 @@ export class MqttService implements OnModuleInit {
           "sites/+/gateways/+/events/provisioning-completed",
           "sites/+/gateways/+/events/provisioning-failed",
           "sites/+/gateways/+/events/mesh-group/resync-request",
-          "sites/+/gateways/+/events/mesh-group/subscription-result"
+          "sites/+/gateways/+/events/mesh-group/subscription-result",
+          mqttTopicsV2.commandClockRequest("+", "+")
         ],
         { qos: 1 }
       );
@@ -220,7 +224,7 @@ export class MqttService implements OnModuleInit {
   async publishTopic(
     topic: string,
     payload: unknown,
-    options: { messageExpiryInterval?: number | null; timeoutMs?: number } = {}
+    options: { messageExpiryInterval?: number | null; timeoutMs?: number; retain?: false } = {}
   ) {
     await new Promise<void>((resolve, reject) => {
       const client = this.getClient();
@@ -238,9 +242,10 @@ export class MqttService implements OnModuleInit {
       };
 
       const publishOptions = options.messageExpiryInterval === null
-        ? { qos: 1 as const }
+        ? { qos: 1 as const, ...(options.retain === false ? { retain: false as const } : {}) }
         : {
             qos: 1 as const,
+            ...(options.retain === false ? { retain: false as const } : {}),
             properties: {
               messageExpiryInterval: options.messageExpiryInterval ?? GATEWAY_COMMAND_ACCEPTANCE_DEADLINE_MS / 1000
             }
@@ -506,6 +511,12 @@ export class MqttService implements OnModuleInit {
   }
 
   private async handleMessageBeforeAck(topic: string, payload: Buffer, receivedAt: Date): Promise<(() => Promise<void>) | undefined> {
+    if (parseGatewayTopic(topic)?.channel === "commands/clock/request") {
+      const response = await this.prepareCommandClockResponse(topic, payload);
+      // Publish after inbound PUBACK: MQTT.js cannot receive the outgoing
+      // PUBACK while customHandleAcks still holds its inbound parser.
+      return response ? () => this.publishCommandClockResponse(response) : undefined;
+    }
     if (topic.endsWith("/events/fixture-presence-check-completed")) {
       const { ack } = await this.monitoringRefreshIngestion.completeBatch(topic, JSON.parse(payload.toString()), receivedAt);
       if (!ack) return;
@@ -526,6 +537,25 @@ export class MqttService implements OnModuleInit {
     // broker PUBACK. Keep the publish in the tracked handler, but start it only
     // after the inbound database transaction has been acknowledged.
     return () => this.publishMeshGroupResyncAcknowledgement(acknowledgement);
+  }
+
+  private async prepareCommandClockResponse(topic: string, payload: Buffer) {
+    const scope = parseGatewayTopic(topic);
+    if (!scope || scope.channel !== "commands/clock/request" || !this.commandClockResponder) return null;
+    let body: unknown;
+    try {
+      body = JSON.parse(payload.toString());
+    } catch {
+      return null;
+    }
+    const request = commandClockRequestSchema.safeParse(body);
+    if (!request.success) return null;
+    return this.commandClockResponder.respond(scope, request.data);
+  }
+
+  private publishCommandClockResponse(response: { siteId: string; gatewayId: string; nonce: string; dbNow: string; publishEpoch: number }) {
+    return this.publishTopic(mqttTopicsV2.commandClockResponse(response.siteId, response.gatewayId), response,
+      { retain: false, timeoutMs: MQTT_BACKGROUND_PUBLISH_TIMEOUT_MS });
   }
 
   private hasActiveMessageListener() {
@@ -688,6 +718,11 @@ export class MqttService implements OnModuleInit {
 
   async handleMessage(topic: string, payload: Buffer, receivedAt = new Date()) {
     const frozenReceivedAt = new Date(receivedAt.getTime());
+    if (parseGatewayTopic(topic)?.channel === "commands/clock/request") {
+      const response = await this.prepareCommandClockResponse(topic, payload);
+      if (response) await this.publishCommandClockResponse(response);
+      return;
+    }
     if (topic.endsWith("/events/fixture-presence-check-completed")) {
       const publish = await this.handleMessageBeforeAck(topic, payload, frozenReceivedAt);
       await publish?.();
