@@ -29,7 +29,7 @@ describe("browser entry route", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     render(entry.element);
-    expect(screen.getByRole("heading", { name: /조명 운영을 간단하게/ })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 1, name: /위치.*제어.*결과/ })).toBeInTheDocument();
     expect(screen.getAllByRole("link", { name: /상담/ }).every((link) => link.getAttribute("href") === "#contact")).toBe(true);
     expect(screen.getByRole("img", { name: "킨다" })).toBeInTheDocument();
     await act(async () => undefined);
