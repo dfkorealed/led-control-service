@@ -17,6 +17,15 @@ const commandStageItems = [
   ...Object.entries(COMMAND_STAGE_LABELS).map(([id, label]) => ({ id, label }))
 ];
 
+const clockRefusalExplanation = "게이트웨이 시각을 확인할 수 없어 조명에 전송하기 전 거부했습니다. 자동 재실행되지 않습니다.";
+
+function isClockRefusal(item: Omit<CommandStatusResponse, "dispatches">): boolean {
+  // History has no dispatch details. The API emits this top-level code only for
+  // one exact all-target failed dimming dispatch before RF; require its terminal
+  // not-applied outcome as well so unknown/partial results keep verification UI.
+  return item.errorCode === "GATEWAY_CLOCK_UNTRUSTED" && item.stage === "failed" && item.outcome === "not_applied";
+}
+
 export interface CommandHistoryPanelProps {
   userId: string;
   siteId: string;
@@ -135,8 +144,11 @@ export function CommandHistoryPanel({ userId, siteId, onSelect, disabled = false
 
 function CompactCommandSummary({ item, selected, disabled, timeZone, onSelect }: { item: Omit<CommandStatusResponse, "dispatches">; selected: boolean; disabled: boolean; timeZone: string; onSelect: (id: string) => void }) {
   const time = item.createdAt ? new Intl.DateTimeFormat("ko-KR", { timeZone, hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(new Date(item.createdAt)) : "시각 미확인";
-  const summary = `${time} · ${item.totalFixtureCount}개 · ${item.brightness ?? "—"}% · ${COMMAND_STAGE_LABELS[item.stage]}`;
-  return <Button variant="ghost" type="button" className="min-h-11! w-full min-w-0 justify-start! overflow-hidden border-0! bg-transparent! px-0! text-left! text-caption! font-normal!" disabled={disabled} aria-pressed={selected} aria-label={`최근 명령 상세: ${item.id} · ${time} · ${item.totalFixtureCount}개 조명 · 밝기 ${item.brightness ?? "—"}% · ${COMMAND_STAGE_LABELS[item.stage]}`} onClick={() => onSelect(item.id)}>
+  const refusal = isClockRefusal(item);
+  const summary = refusal
+    ? `시각 확인 실패 · 조명 전송 전 거부 · ${time} · ${item.totalFixtureCount}개 · ${item.brightness ?? "—"}%`
+    : `${time} · ${item.totalFixtureCount}개 · ${item.brightness ?? "—"}% · ${COMMAND_STAGE_LABELS[item.stage]}`;
+  return <Button variant="ghost" type="button" className="min-h-11! w-full min-w-0 justify-start! overflow-hidden border-0! bg-transparent! px-0! text-left! text-caption! font-normal!" disabled={disabled} aria-pressed={selected} aria-label={`최근 명령 상세: ${item.id} · ${time} · ${item.totalFixtureCount}개 조명 · 밝기 ${item.brightness ?? "—"}% · ${refusal ? clockRefusalExplanation : COMMAND_STAGE_LABELS[item.stage]}`} onClick={() => onSelect(item.id)}>
     <span className="block min-w-0 truncate max-compact:line-clamp-2 max-compact:whitespace-normal">{summary}</span>
   </Button>;
 }
@@ -146,5 +158,6 @@ function CommandRow({ item, selected, disabled, timeZone, onSelect }: { item: Om
     <span className="min-w-0 max-w-full truncate font-semibold">{item.id}</span>
     <span>{item.brightness ?? "—"}% · {item.totalFixtureCount}개 조명{item.createdAt ? ` · ${formatControlTimestamp(item.createdAt, timeZone)}` : ""}</span>
     <StatusBadge tone={item.stage === "verification_required" ? "warning" : "neutral"} icon={item.stage === "verification_required" ? TriangleAlert : Clock3}>{COMMAND_STAGE_LABELS[item.stage]}</StatusBadge>
+    {isClockRefusal(item) ? <Text as="span" variant="caption" tone="danger" className="col-span-2 text-left">{clockRefusalExplanation}</Text> : null}
   </Button>;
 }

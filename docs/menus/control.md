@@ -297,6 +297,8 @@
 
 - 2026-09-27 API clock 거부 ACK 귀속: `GATEWAY_CLOCK_UNTRUSTED`는 site/Gateway/Command/dispatch/key/sequence가 일치한 새 Set의 terminal 사전 RF 거부로만 반영한다. `accepted`와 동시에 온 clock 오류, Get/status-check에 온 Set 전용 clock 거부, 이미 `unknown`인 명령의 늦은 clock 거부는 명령·조명 상태를 확정하지 않는다. `COMMAND_EXPIRED`의 기존 terminal 처리는 유지한다. 최근 이력 요약은 원본 Set의 전체 대상이 실패하고 outcome이 `not_applied`인 정확한 clock 거부에만 선택적 `errorCode`를 제공하며, 상세 조회는 기존 dispatch 오류 코드를 보존한다. 원본 삭제 뒤 늦은 RF 불확정 Set ACK와 Get-only 복구 실패는 hold/status-check 경로에 남고 자동 Set 재발행이나 성공 fixture 관측을 만들지 않는다. 해당 terminal clock ACK는 미발행 Set outbox도 같은 DB transaction에서 닫고, 기본/세대별 Set publisher는 native enqueue 직전 live dispatch를 잠가 재확인한다. 임시 PostgreSQL 두 연결의 ACK↔발행 경쟁과 PUBACK 유실 재획득 0건을 검증했지만 실제 Gateway RF/HIL 완료나 운영 purge/cutover 승인은 아니다.
 
+- 2026-09-27 제어 이력의 시각 불신 거부 설명: 서버 이력의 선택적 `GATEWAY_CLOCK_UNTRUSTED` 코드가 `failed`·`not_applied`와 함께 온 경우에만 최근 이력과 이력 drawer에 조명 RF 전 거부 및 자동 재실행 없음 안내를 표시한다. `unknown`·부분 적용은 기존 확인 필요 진입과 상태 확인 경로를 유지하며, `COMMAND_EXPIRED` 표시는 바꾸지 않았다. 이력 범위는 계속 서버가 정의한 UTC rolling 3 calendar months이고 1년 보관 선택은 제공하지 않는다. Web 단위 테스트는 UI 표시와 GET 전용 경로를 확인한 소프트웨어 증거이며 실제 Gateway/조명 RF 검증은 아니다.
+
 ## 미구현
 
 - BIO 센서 `0x09`의 detected/cleared boolean mapping, source capability `supported` 승격 및 production event 실행은 미구현이다. `0x0c`는 생존 관측이며 이벤트 입력이 아니다.

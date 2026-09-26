@@ -32,6 +32,7 @@ export interface CommandStatusResponse {
   completedFixtureCount: number;
   totalFixtureCount: number;
   errorMessage: string | null;
+  errorCode?: "GATEWAY_CLOCK_UNTRUSTED" | null;
   dispatches: Array<{
     id: string;
     kind?: "dimming" | "status_check";

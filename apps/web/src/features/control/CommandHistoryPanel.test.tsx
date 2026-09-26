@@ -16,6 +16,52 @@ function command(id: string) {
 }
 
 describe("CommandHistoryPanel", () => {
+  it("explains an exact pre-RF clock refusal in the latest history without offering automatic execution", async () => {
+    const refused = { ...command("clock-refused"), stage: "failed", outcome: "not_applied", errorCode: "GATEWAY_CLOCK_UNTRUSTED" };
+    const fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ items: [refused], nextCursor: null }) });
+    vi.stubGlobal("fetch", fetch);
+    renderHistory();
+
+    const recent = await screen.findByRole("region", { name: "최근 명령 이력" });
+    const row = await within(recent).findByRole("button", { name: /clock-refused/ });
+    expect(row).toHaveTextContent("게이트웨이 시각을 확인할 수 없어 조명에 전송하기 전 거부했습니다. 자동 재실행되지 않습니다.");
+    expect(within(recent).queryByRole("button", { name: "다시 적용" })).not.toBeInTheDocument();
+    expect(fetch.mock.calls.every(([url, init]) => String(url).includes("/api/commands?") && (init?.method ?? "GET") === "GET")).toBe(true);
+  });
+
+  it("keeps unknown and partial outcomes on the verification path and preserves expired-command presentation", async () => {
+    const unknown = { ...command("unknown-command"), errorCode: "GATEWAY_CLOCK_UNTRUSTED" };
+    const partial = { ...command("partial-command"), stage: "partial_failed", outcome: "partially_applied", errorCode: "GATEWAY_CLOCK_UNTRUSTED" };
+    const expired = { ...command("expired-command"), stage: "failed", outcome: "not_applied", errorCode: "COMMAND_EXPIRED" };
+    vi.stubGlobal("fetch", vi.fn().mockImplementation(async (url: string) => ({ ok: true, json: async () => ({
+      items: url.includes("limit=1") ? [unknown] : [unknown, partial, expired], nextCursor: null
+    }) })));
+    const onOpenVerificationCases = vi.fn();
+    renderHistory(vi.fn(), false, onOpenVerificationCases);
+
+    const recent = await screen.findByRole("region", { name: "최근 명령 이력" });
+    expect(await within(recent).findByRole("button", { name: /unknown-command/ })).toHaveTextContent("실제 상태 확인 필요");
+    fireEvent.click(within(recent).getByRole("button", { name: "확인 필요한 명령" }));
+    expect(onOpenVerificationCases).toHaveBeenCalledOnce();
+    fireEvent.click(within(recent).getByRole("button", { name: "명령 이력 열기" }));
+    const drawer = screen.getByRole("dialog", { name: "명령 이력" });
+    expect(await within(drawer).findByRole("button", { name: /partial-command/ })).toHaveTextContent("일부 조명 적용 실패");
+    expect(within(drawer).getByRole("button", { name: /expired-command/ })).toHaveTextContent("명령 처리 실패");
+    expect(within(drawer).queryByText(/게이트웨이 시각을 확인할 수 없어/)).not.toBeInTheDocument();
+  });
+
+  it("shows the clock refusal in compact history while keeping the command detail entry", async () => {
+    const refused = { ...command("clock-refused"), stage: "failed", outcome: "not_applied", errorCode: "GATEWAY_CLOCK_UNTRUSTED" };
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: async () => ({ items: [refused], nextCursor: null }) }));
+    const { onSelect } = renderHistory(vi.fn(), true);
+
+    const recent = await screen.findByRole("region", { name: "최근 명령 이력" });
+    const detail = await within(recent).findByRole("button", { name: /최근 명령 상세: clock-refused/ });
+    expect(detail).toHaveTextContent("시각 확인 실패");
+    fireEvent.click(detail);
+    expect(onSelect).toHaveBeenCalledWith("clock-refused");
+  });
+
   it("keeps the compact latest-history bar concise while retaining detail, drawer and verification entry", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: async () => ({
       items: [command("newest-command")], nextCursor: null, retainedFrom: "2026-06-25T01:00:00.000Z"
