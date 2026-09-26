@@ -9,6 +9,8 @@
 
 사용자가 승인한 정책은 다음과 같다. **중앙 DB Command에서 발행한 MQTT dimming Set**은 Gateway가 중앙 DB 기준 시각의 보수적 상한을 확인하지 못하면 RF 실행을 금지한다. Gateway 로컬 일정·센서/이벤트 자동화는 별도의 기존 시계·안전 정책을 유지한다. Get/status-check, 모니터링 수집, 장치 heartbeat도 이 Set 차단 정책의 대상이 아니다. Gateway 로컬 journal·telemetry outbox·automation state의 기존 보관/삭제 정책은 변경하지 않는다.
 
+이번 구현은 모든 현장에 동일한 **최근 3 calendar months** 보존만 적용한다. 1년 로그 요금제, 요금제별 보존 설정·청구·전환 API는 후속 설계 범위다. 현재 정책에 따라 물리 삭제된 과거 원본은 향후 1년 요금제를 추가해도 복구할 수 없으며, 미래 요금제의 소급 보존을 약속하지 않는다.
+
 ## 현재 반례와 불변 조건
 
 현재 API의 PostgreSQL shared advisory transaction lock은 MQTT publish callback까지 유지되지만 DB 세션이 끊기면 lock이 먼저 해제된다. 이미 MQTT.js에 넘긴 QoS1 packet은 그 뒤 브로커에 처음 수락될 수 있다. 브로커의 `messageExpiryInterval`은 그 첫 수락 시점부터 계산되므로 원본 purge 이전에 만든 10초 Set이라는 사실만으로 안전하지 않다. 반대로 브로커가 미리 받은 packet도 Gateway persistent session의 지연 전달/DUP이 가능하다. Gateway의 현 `clockTrust.isTrusted(now) && isGatewayCommandExpired(...)`는 시계가 불신뢰일 때 절대 만료 검사를 생략한다. 기존 systemd marker와 5분 rollback 감지는 API/DB 시각과 Gateway의 ±2초 상한을 보증하지 않는다.
