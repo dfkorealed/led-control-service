@@ -7,6 +7,7 @@ import { join } from "node:path";
 import {
   createGatewayAutomationServices,
   createGatewayCommandClockRuntime,
+  createGatewaySetPermit,
   createGatewayStatusCheckRuntime,
   createFixturePresenceCheckRuntime,
   initializeAutomationBeforeManualRecovery,
@@ -65,6 +66,7 @@ import {
 import { ProvisioningDeviceJournal } from "./state/provisioning-device-journal";
 import { GroupStateStore } from "./mesh/group-state-store";
 import { BioUsbDongleAdapter } from "./adapters/bio-usb-dongle-adapter";
+import { StubBleMeshAdapter } from "../test/stub-adapters";
 
 const scopedSiteId = "00000000-0000-4000-8000-000000000003";
 const scopedGatewayId = "00000000-0000-4000-8000-000000000004";
@@ -93,6 +95,39 @@ describe("Gateway command clock MQTT runtime", () => {
     return { runtime, client, sent, reply, failClock: () => { unavailable = true; } };
   }
   const expiry = "2026-09-26T00:00:10.000Z";
+
+  it.each([
+    ["legacy before cutover", "", {}, false, "accepted", undefined],
+    ["missing epoch", "1", {}, true, "rejected", "GATEWAY_CLOCK_UNTRUSTED"],
+    ["cross-site", "1", { publishEpoch: 7, siteId: scopedFixtureId }, true, "rejected", "GATEWAY_CLOCK_UNTRUSTED"],
+    ["cross-gateway", "1", { publishEpoch: 7, gatewayId: scopedFixtureId }, true, "rejected", "GATEWAY_CLOCK_UNTRUSTED"],
+    ["no proof", "1", { publishEpoch: 7 }, false, "rejected", "GATEWAY_CLOCK_UNTRUSTED"],
+    ["wrong epoch", "1", { publishEpoch: 8 }, true, "rejected", "GATEWAY_CLOCK_UNTRUSTED"],
+    ["proven expiry", "1", { publishEpoch: 7, expiresAt: "2026-09-26T00:00:02.200Z" }, true, "rejected", "COMMAND_EXPIRED"],
+    ["valid proof", "1", { publishEpoch: 7 }, true, "accepted", undefined]
+  ])("enforces the Set cutover for %s with durable replay and no refusal fixture state", async (_name, cutover, change, withProof, status, errorCode) => {
+    const { runtime, client, reply } = setup();
+    const directory = await mkdtemp(join(tmpdir(), "gateway-set-cutover-"));
+    try {
+      runtime.connect(client as never);
+      if (withProof) reply();
+      const setPermit = createGatewaySetPermit({ scope: { siteId: scopedSiteId, gatewayId: scopedGatewayId }, clock: runtime, cutover });
+      const command = { ...baselineGatewayCommand(), expiresAt: expiry, ...change };
+      const adapter = new StubBleMeshAdapter();
+      const journal = new CommandJournal(join(directory, "journal.json"));
+      const options = { ...(setPermit ? { setPermit } : {}), isCommandExpired: () => false };
+      const result = await handleGatewayDimmingCommand(adapter, journal, command, undefined, options);
+      expect(result.acceptance.status).toBe(status);
+      expect(result.acceptance.errorCode).toBe(errorCode);
+      expect(result.acceptance).toMatchObject({ siteId: command.siteId, gatewayId: command.gatewayId, dispatchId: command.dispatchId });
+      expect(result.fixtureStateObserved).toBe(status === "accepted");
+      expect(await handleGatewayDimmingCommand(adapter, new CommandJournal(join(directory, "journal.json")), command, undefined, options)).toEqual(result);
+      expect(adapter.commands).toHaveLength(status === "accepted" ? 1 : 0);
+    } finally {
+      runtime.disconnect();
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
 
   it("requests its own scope without retention and admits only a nonce-correlated fresh response", () => {
     const { runtime, client, sent, reply } = setup();
@@ -244,7 +279,9 @@ describe("status check MQTT runtime", () => {
     ]), { qos: 1 }, expect.any(Function));
   });
 
-  it("publishes durable receipt, acceptance, Get, then device status and replays a failed terminal publish", async () => {
+  it.each(["", "1"])("publishes durable Get and replays terminal publish even without DB proof (Set cutover=%s)", async (cutover) => {
+    const previousCutover = process.env.GATEWAY_COMMAND_EPOCH_CUTOVER;
+    process.env.GATEWAY_COMMAND_EPOCH_CUTOVER = cutover;
     const ctx = await setup();
     try {
       ctx.publish.mockImplementationOnce(async (_source, topic, payload) => {
@@ -259,7 +296,11 @@ describe("status check MQTT runtime", () => {
       expect(ctx.published.at(-1)?.payload).toEqual((stored?.result as any).deviceStatus);
       expect(ctx.published.at(-1)?.topic).toBe(`sites/${scopedSiteId}/gateways/${scopedGatewayId}/acks/device-status`);
       expect(ctx.published.at(-2)?.topic).toBe(`sites/${scopedSiteId}/gateways/${scopedGatewayId}/acks/acceptance`);
-    } finally { await ctx.runtime.stopAndDrain(); await rm(ctx.directory, { recursive: true, force: true }); }
+    } finally {
+      if (previousCutover === undefined) delete process.env.GATEWAY_COMMAND_EPOCH_CUTOVER;
+      else process.env.GATEWAY_COMMAND_EPOCH_CUTOVER = previousCutover;
+      await ctx.runtime.stopAndDrain(); await rm(ctx.directory, { recursive: true, force: true });
+    }
   });
 
   it("fails closed on a mismatched scope and drains an aborted in-flight Get before stop resolves", async () => {

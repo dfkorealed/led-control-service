@@ -78,15 +78,19 @@ export class CommandJournal {
     return Object.values((await this.readData()).fixtureSnapshots).sort((left, right) => left.fixtureId.localeCompare(right.fixtureId));
   }
 
-  async accept(idempotencyKey: string, command: unknown) {
+  async accept(idempotencyKey: string, command: unknown, options: { terminalResult?: unknown } = {}) {
     return this.enqueue(async () => {
       const data = await this.readData();
       this.prune(data);
       if (data.records[idempotencyKey]) return false;
-      if (isManualCommandWrapper(command)) this.assertAutomationCapacity(data);
+      const terminal = options.terminalResult !== undefined;
+      if (!terminal && isManualCommandWrapper(command)) this.assertAutomationCapacity(data);
+      // Refusals have never acquired RF ownership. Persist their full result in
+      // the first fsync so a restart cannot turn them into accepted/unknown work.
       data.records[idempotencyKey] = {
-        state: "accepted",
+        state: terminal ? "completed" : "accepted",
         command,
+        ...(terminal ? { result: options.terminalResult } : {}),
         automationHandoff: "not_required",
         updatedAt: this.now().toISOString()
       };

@@ -274,6 +274,8 @@
 - ESP32-H2는 group Light Lightness Set Unacknowledged를 PWM에 즉시 반영하고 primary unicast 기반 `64~5,179ms` 결정적 지터 뒤 실제 Lightness Status를 publication한다. `(source, destination, TID)` 6초 cache가 중복 적용과 publication 재예약을 막는다.
 - 펌웨어의 모델별 group subscription 상한은 16개이며, 서비스 계약은 조명 한 대당 층 group 1개와 사용자 fixture group 최대 15개다. API도 provisioning member 연결 시 같은 사용자 group 상한을 검증한다.
 
+- 2026-09-26 Gateway Set 수신 경계: `GATEWAY_COMMAND_EPOCH_CUTOVER=1`에서 현장/Gateway scope, publish epoch 및 DB 시각 증거를 수신·group queue dequeue·journal 수락 직전·fsync/accepted ACK 이후에 재검사한다. 유효한 동일 epoch 증거로 확인한 만료와 상대 receipt TTL 소진은 `COMMAND_EXPIRED`, scope/epoch/증거 거부는 `GATEWAY_CLOCK_UNTRUSTED`로 기록한다. 최초 거부를 journal의 첫 원자 저장부터 terminal로 보존하고 DUP에 같은 ACK를 재생한다. 24시간 journal 정리 뒤 DUP도 다시 검증해 RF를 차단하며 로컬 journal의 기존 보관기간은 바꾸지 않는다. `prepare` 전 거부는 RF·자동화 handoff·fixture-state 성공을 만들지 않고 accepted-only 재시작은 기존 불확정 결과를 보존한다. cutover 전 legacy Set, Get/status-check, 로컬 자동화는 기존 정책을 유지한다. 소프트웨어 테스트 범위의 구현이며 `prepare` 후 durable abort(Task 5), 실제 어댑터 RF 직전 차단/배수(Task 6), 운영 DB-host attestor 및 Pi/BlueZ/BIO HIL은 아직 출시 관문이다. 따라서 cutover·운영 purge·복구 POST는 OFF를 유지하며, 중앙 보존 정책은 모든 현장에 최근 3 calendar months만 적용한다. 관련 구현은 `apps/gateway/src/index.ts`, `commands/gateway-command-handler.ts`, `commands/command-journal.ts`, `commands/db-clock-proof.ts`다.
+
 ## 미구현
 
 - BIO 센서 `0x09`의 detected/cleared boolean mapping, source capability `supported` 승격 및 production event 실행은 미구현이다. `0x0c`는 생존 관측이며 이벤트 입력이 아니다.

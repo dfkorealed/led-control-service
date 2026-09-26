@@ -56,7 +56,7 @@ export {
 import { createAssignmentStore, resolveGatewayAssignment } from "./config/resolve-assignment";
 import { createMqttClient } from "./mqtt/create-mqtt-client";
 import { CommandJournal } from "./commands/command-journal";
-import { DbClockProof } from "./commands/db-clock-proof";
+import { DbClockProof, type CommandClockDecision } from "./commands/db-clock-proof";
 import { LinuxBootClock, type BootClockSample } from "./commands/linux-boot-clock";
 import { handleFixturePresenceCheck, MonitoringRefreshEventPublisher } from "./commands/fixture-presence-check-handler";
 import { MonitoringRefreshJournal } from "./state/monitoring-refresh-journal";
@@ -67,6 +67,7 @@ import {
   parseCommandTimeout,
   recoverPendingManualAutomationHandoffs,
   type GatewayCommandReceipt,
+  type GatewayCommandOptions,
   type GatewayCommandResult,
   type GatewayFixtureObservation,
   type ManualControlCoordinator
@@ -201,6 +202,12 @@ export function createGatewayCommandClockRuntime(options: {
     invalidate();
   }
 
+  function evaluate(publishEpoch: number, expiresAt: string): CommandClockDecision {
+    if (!activeClient?.connected) { invalidate(); return "clock_untrusted"; }
+    try { return proof.evaluate(publishEpoch, expiresAt, clock.sample()); }
+    catch { invalidate(); return "clock_untrusted"; }
+  }
+
   return {
     connect(client: GatewayMqttClient) {
       disconnect();
@@ -221,11 +228,24 @@ export function createGatewayCommandClockRuntime(options: {
         pending = undefined;
       } catch { invalidate(); }
     },
-    allows(publishEpoch: number, expiresAt: string): boolean {
-      if (!activeClient?.connected) { invalidate(); return false; }
-      try { return proof.allows(publishEpoch, expiresAt, clock.sample()); }
-      catch { invalidate(); return false; }
-    }
+    evaluate,
+    allows: (publishEpoch: number, expiresAt: string) => evaluate(publishEpoch, expiresAt) === "allowed"
+  };
+}
+
+export function createGatewaySetPermit(options: {
+  scope: { siteId: string; gatewayId: string };
+  clock: Pick<ReturnType<typeof createGatewayCommandClockRuntime>, "evaluate">;
+  cutover?: string;
+}): GatewayCommandOptions["setPermit"] {
+  // This per-installation switch stays opt-in until the deployment/HIL gates
+  // are satisfied; legacy intake and local automation keep their prior clocks.
+  if ((options.cutover ?? process.env.GATEWAY_COMMAND_EPOCH_CUTOVER) !== "1") return undefined;
+  return (command) => {
+    if (command.siteId !== options.scope.siteId || command.gatewayId !== options.scope.gatewayId ||
+        !("publishEpoch" in command) || command.publishEpoch === undefined) return "GATEWAY_CLOCK_UNTRUSTED";
+    const decision = options.clock.evaluate(command.publishEpoch, command.expiresAt);
+    return decision === "allowed" ? undefined : decision === "expired" ? "COMMAND_EXPIRED" : "GATEWAY_CLOCK_UNTRUSTED";
   };
 }
 
@@ -932,6 +952,9 @@ async function main() {
     }
   });
 
+  const commandClock = createGatewayCommandClockRuntime({ scope: { siteId, gatewayId } });
+  const setPermit = createGatewaySetPermit({ scope: { siteId, gatewayId }, clock: commandClock });
+
   async function handleDimmingPayloadV2(
     payload: Buffer,
     source: GatewayMqttClient,
@@ -967,6 +990,7 @@ async function main() {
           timeoutMs: commandTimeoutMs,
           groupStateStore,
           groupQueue,
+          ...(setPermit ? { setPermit } : {}),
           beforeExecution: async () => {
             try {
               stateReservation = await stateEventCapacity.reserve(command.targetFixtureIds);
@@ -1245,7 +1269,6 @@ async function main() {
     await groupResyncPublisher.publishPending((topic, payload) => publish(mqttRuntime.client, topic, payload));
   }
 
-  const commandClock = createGatewayCommandClockRuntime({ scope: { siteId, gatewayId } });
   const mqttRuntime: GatewayMqttRuntime = new GatewayMqttRuntime({
     client: runtime.client,
     heartbeatMs,

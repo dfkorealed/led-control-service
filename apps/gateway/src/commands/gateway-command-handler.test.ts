@@ -7,6 +7,10 @@ import {
   recoverPendingManualAutomationHandoffs
 } from "./gateway-command-handler";
 import { KeyedSerialTaskQueue } from "../runtime/keyed-serial-task-queue";
+import { CommandJournal } from "./command-journal";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 const command = {
   commandId: "11111111-1111-4111-8111-111111111111",
@@ -25,6 +29,119 @@ const command = {
 };
 
 describe("handleGatewayDimmingCommand", () => {
+  it.each([
+    ["receive", "GATEWAY_CLOCK_UNTRUSTED"], ["reservation", "GATEWAY_CLOCK_UNTRUSTED"],
+    ["fsync", "GATEWAY_CLOCK_UNTRUSTED"], ["accepted ACK", "GATEWAY_CLOCK_UNTRUSTED"],
+    ["reservation", "COMMAND_EXPIRED"], ["fsync", "COMMAND_EXPIRED"], ["accepted ACK", "COMMAND_EXPIRED"]
+  ] as const)("durably refuses at %s with %s without RF or automation handoff", async (boundary, reason) => {
+    const records = new Map<string, any>();
+    const journal = memoryJournal(records);
+    const accept = journal.accept;
+    let valid = boundary !== "receive";
+    journal.accept = async (key, value) => {
+      const reserved = await accept(key, value);
+      if (boundary === "fsync") valid = false;
+      return reserved;
+    };
+    const adapter = new StubBleMeshAdapter();
+    const automation = { prepare: vi.fn(), handoff: vi.fn() };
+    let durable = false;
+    let acceptedAckSent = false;
+    const options = {
+      setPermit: () => valid ? undefined : reason,
+      isCommandExpired: () => false,
+      beforeExecution: async () => { if (boundary === "reservation") valid = false; },
+      automation,
+      onDurableReceipt: () => { durable = true; }
+    };
+    const result = await handleGatewayDimmingCommand(adapter, journal, command,
+      async () => { acceptedAckSent = true; if (boundary === "accepted ACK") valid = false; }, options);
+    expect(result.acceptance).toMatchObject({ status: "rejected", errorCode: reason });
+    expect(result.fixtureStateObserved).toBe(false);
+    expect(records.get(command.idempotencyKey)).toMatchObject({ state: "completed", result });
+    expect(durable).toBe(true);
+    expect(acceptedAckSent).toBe(boundary === "accepted ACK");
+    expect(automation.prepare).not.toHaveBeenCalled();
+    expect(automation.handoff).not.toHaveBeenCalled();
+    valid = true;
+    expect(await handleGatewayDimmingCommand(adapter, journal, command, undefined, options)).toEqual(result);
+    expect(adapter.commands).toHaveLength(0);
+  });
+
+  it("does not revive a receive-time refusal when proof arrives before dequeue", async () => {
+    const queue = new KeyedSerialTaskQueue();
+    const queued = meshCommand();
+    let release!: () => void;
+    const held = queue.run(queued.meshControlGroupId, () => new Promise<void>((resolve) => { release = resolve; }));
+    await Promise.resolve();
+    let valid = false;
+    const adapter = new StubBleMeshAdapter();
+    const applyMeshGroup = async (_address: number, fixtureIds: string[], brightness: number) => adapter.setBrightness(fixtureIds, brightness);
+    const pending = handleGatewayDimmingCommand(Object.assign(adapter, { applyMeshGroup }), memoryJournal(new Map()), queued, undefined, {
+      groupQueue: queue, groupStateStore: { assertReady: async () => undefined },
+      setPermit: () => valid ? undefined : "GATEWAY_CLOCK_UNTRUSTED"
+    });
+    valid = true;
+    release();
+    await held;
+    expect((await pending).acceptance.errorCode).toBe("GATEWAY_CLOCK_UNTRUSTED");
+    expect(adapter.commands).toHaveLength(0);
+  });
+
+  it.each(["GATEWAY_CLOCK_UNTRUSTED", "COMMAND_EXPIRED"] as const)("rechecks proof for %s when a Set leaves the group queue", async (reason) => {
+    const queue = new KeyedSerialTaskQueue();
+    const queued = meshCommand();
+    let release!: () => void;
+    const held = queue.run(queued.meshControlGroupId, () => new Promise<void>((resolve) => { release = resolve; }));
+    await Promise.resolve();
+    let valid = true;
+    const adapter = new StubBleMeshAdapter();
+    const applyMeshGroup = async (_address: number, fixtureIds: string[], brightness: number) => adapter.setBrightness(fixtureIds, brightness);
+    const pending = handleGatewayDimmingCommand(Object.assign(adapter, { applyMeshGroup }), memoryJournal(new Map()), queued, undefined, {
+      groupQueue: queue,
+      groupStateStore: { assertReady: async () => undefined },
+      setPermit: () => valid ? undefined : reason
+    });
+    valid = false;
+    release();
+    await held;
+    expect((await pending).acceptance.errorCode).toBe(reason);
+    expect(adapter.commands).toHaveLength(0);
+  });
+
+  it("refuses a DUP after the 24h journal prune and replays that terminal refusal after restart", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "gateway-pruned-dup-"));
+    try {
+      let now = new Date("2026-09-26T00:00:00.000Z");
+      const path = join(directory, "journal.json");
+      const journal = new CommandJournal(path, { now: () => now });
+      const adapter = new StubBleMeshAdapter();
+      await journal.accept(command.idempotencyKey, { command });
+      await journal.complete(command.idempotencyKey, { acceptance: { status: "accepted" }, fixtureStateObserved: false });
+      now = new Date("2026-09-27T00:00:00.001Z");
+      await journal.accept("trigger-prune", {});
+      expect(await journal.get(command.idempotencyKey)).toBeNull();
+      const options = { setPermit: () => "GATEWAY_CLOCK_UNTRUSTED" as const, isCommandExpired: () => false };
+      const result = await handleGatewayDimmingCommand(adapter, journal, command, undefined, options);
+      expect(result.acceptance.errorCode).toBe("GATEWAY_CLOCK_UNTRUSTED");
+      expect(await handleGatewayDimmingCommand(adapter, new CommandJournal(path, { now: () => now }), command, undefined, options)).toEqual(result);
+      expect(adapter.commands).toHaveLength(0);
+      expect(await journal.latestFixtureSnapshots()).toEqual([]);
+    } finally { await rm(directory, { recursive: true, force: true }); }
+  });
+
+  it("keeps an accepted-only restart indeterminate even if the Set permit is now refused", async () => {
+    const records = new Map<string, any>();
+    const journal = memoryJournal(records);
+    await journal.accept(command.idempotencyKey, { command });
+    const adapter = new StubBleMeshAdapter();
+    const result = await handleGatewayDimmingCommand(adapter, journal, command, undefined, {
+      setPermit: () => "GATEWAY_CLOCK_UNTRUSTED"
+    });
+    expect(result.acceptance.status).toBe("accepted");
+    expect(result.deviceStatus.status).toBe("timed_out");
+    expect(adapter.commands).toHaveLength(0);
+  });
   it.each(["unknown key", "bad fixture", "duplicate identity", "capacity", "wrong source", "wrong terminal", "missing success"])(
     "rejects malformed terminal suppression context during replay: %s", async (fault) => {
       const terminal = "2026-08-30T00:50:00.000Z";

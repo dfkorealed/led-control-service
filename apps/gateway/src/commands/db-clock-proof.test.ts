@@ -16,6 +16,13 @@ function proven(rtt = 100) {
 }
 
 describe("DbClockProof", () => {
+  it("distinguishes proven expiry from unavailable or mismatched epoch evidence", () => {
+    expect(proven().evaluate(7, "2026-09-26T00:00:02.200Z", sample(1100))).toBe("expired");
+    expect(proven().evaluate(7, "2026-09-26T00:00:02.201Z", sample(1100))).toBe("allowed");
+    expect(proven().evaluate(8, "2026-09-26T00:00:00.000Z", sample(1100))).toBe("clock_untrusted");
+    expect(new DbClockProof(scope).evaluate(7, expiry, sample(1100))).toBe("clock_untrusted");
+    expect(proven().evaluate(7, expiry, sample(11_001))).toBe("clock_untrusted");
+  });
   it.each([[900, true], [901, false], [1000, false], [1001, false]])("bounds RTT including its 100ms error budget for observed %ims", (rtt, expected) => {
     expect(proven(rtt).allows(7, expiry, sample(1000 + rtt))).toBe(expected);
   });

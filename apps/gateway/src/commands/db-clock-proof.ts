@@ -9,6 +9,7 @@ import type { BootClockSample } from "./linux-boot-clock";
 const MAX_RTT_MS = 1000;
 const MAX_SAMPLE_AGE_MS = 10_000;
 const MONOTONIC_ERROR_BUDGET_MS = 100;
+export type CommandClockDecision = "allowed" | "expired" | "clock_untrusted";
 
 export class DbClockProof {
   private pending?: { request: CommandClockRequest; start: BootClockSample };
@@ -59,20 +60,25 @@ export class DbClockProof {
   }
 
   allows(publishEpoch: number, expiresAt: string, now: BootClockSample): boolean {
-    if (!this.continuous(now)) return false;
+    return this.evaluate(publishEpoch, expiresAt, now) === "allowed";
+  }
+
+  evaluate(publishEpoch: number, expiresAt: string, now: BootClockSample): CommandClockDecision {
+    if (!this.continuous(now)) return "clock_untrusted";
     const cached = this.cached;
-    if (!cached) return false;
+    if (!cached) return "clock_untrusted";
     const age = now.milliseconds - cached.end.milliseconds;
     const ageUpper = age + MONOTONIC_ERROR_BUDGET_MS;
     if (cached.publishEpoch !== publishEpoch || now.bootId !== cached.end.bootId || age < 0 ||
         ageUpper > MAX_SAMPLE_AGE_MS || cached.uncertainty >= GATEWAY_COMMAND_EXPIRY_CLOCK_SKEW_GUARD_MS) {
       this.invalidate();
-      return false;
+      return "clock_untrusted";
     }
     const expires = Date.parse(expiresAt);
     // Receipt upper already includes the full-interval 100ms budget. Raw RTT
     // plus raw age telescopes to now-start; adding ageUpper would count it twice.
-    return Number.isFinite(expires) && cached.dbUpperAtReceipt + age < expires - GATEWAY_COMMAND_EXPIRY_CLOCK_SKEW_GUARD_MS;
+    if (!Number.isFinite(expires)) return "clock_untrusted";
+    return cached.dbUpperAtReceipt + age < expires - GATEWAY_COMMAND_EXPIRY_CLOCK_SKEW_GUARD_MS ? "allowed" : "expired";
   }
 
   invalidate(): void {

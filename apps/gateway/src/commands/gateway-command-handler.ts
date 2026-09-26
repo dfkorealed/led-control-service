@@ -23,7 +23,7 @@ interface JournalLike {
     result?: unknown;
     automationHandoff?: "pending" | "completed";
   } | null>;
-  accept(key: string, command: unknown): Promise<boolean>;
+  accept(key: string, command: unknown, options?: { terminalResult?: unknown }): Promise<boolean>;
   complete(
     key: string,
     result: unknown,
@@ -80,12 +80,15 @@ export interface GatewayCommandOptions {
   groupQueue?: Pick<KeyedSerialTaskQueue, "run">;
   beforeExecution?: () => Promise<void>;
   isCommandExpired?: (expiresAt: string) => Promise<boolean> | boolean;
+  setPermit?: (command: GatewayDimmingCommandV2Compatible) => GatewaySetRefusal | undefined;
   automation?: ManualControlCoordinator;
   onAutomationError?: (error: unknown) => void;
   receipt?: GatewayCommandReceipt;
   monotonicClock?: () => number;
   onDurableReceipt?: () => void;
 }
+
+export type GatewaySetRefusal = "COMMAND_EXPIRED" | "GATEWAY_CLOCK_UNTRUSTED";
 
 interface AutomationDimmingAction {
   fixtureId: string;
@@ -107,6 +110,12 @@ export function handleGatewayDimmingCommand(
   onAccepted?: (acceptance: AcceptanceAckV2) => Promise<void>,
   options: GatewayCommandOptions = {}
 ): Promise<GatewayCommandResult> {
+  // Latch receive-time refusal: evidence arriving while a packet waits must not
+  // revive that packet. Existing journal results still take precedence on DUP.
+  const receivedRefusal = options.setPermit?.(command);
+  if (receivedRefusal) {
+    return executeGatewayDimmingCommand(adapter, journal, command, onAccepted, options, receivedRefusal);
+  }
   if (command.deliveryMode !== "mesh_group") {
     return executeGatewayDimmingCommand(adapter, journal, command, onAccepted, options);
   }
@@ -140,7 +149,8 @@ async function executeGatewayDimmingCommand(
   journal: JournalLike,
   command: GatewayDimmingCommandV2Compatible,
   onAccepted: ((acceptance: AcceptanceAckV2) => Promise<void>) | undefined,
-  options: GatewayCommandOptions
+  options: GatewayCommandOptions,
+  receivedRefusal?: GatewaySetRefusal
 ): Promise<GatewayCommandResult> {
   const existing = await journal.get(command.idempotencyKey);
   if (existing?.state === "completed") {
@@ -159,9 +169,9 @@ async function executeGatewayDimmingCommand(
     return result;
   }
 
-  // Broker expiry is primary; this verifies the API's publish-relative deadline before BLE execution.
-  if (await commandExpired(command.expiresAt, options)) {
-    return rejectExpiredCommand(journal, command);
+  const intakeRefusal = receivedRefusal ?? await commandRefusal(command, options);
+  if (intakeRefusal) {
+    return rejectSetCommand(journal, command, intakeRefusal, options);
   }
 
   if (command.deliveryMode === "mesh_group") {
@@ -188,6 +198,11 @@ async function executeGatewayDimmingCommand(
     );
   }
 
+  // Group readiness and state-outbox reservations can await disk I/O. Recheck
+  // directly before journal admission, independently of the receive/dequeue gate.
+  const admissionRefusal = await commandRefusal(command, options);
+  if (admissionRefusal) return rejectSetCommand(journal, command, admissionRefusal, options);
+
   const identity = {
     commandId: command.commandId,
     dispatchId: command.dispatchId,
@@ -210,11 +225,14 @@ async function executeGatewayDimmingCommand(
     throw new Error("duplicate command has an indeterminate accepted result");
   }
   options.onDurableReceipt?.();
+  const persistedRefusal = await commandRefusal(command, options);
+  if (persistedRefusal) return rejectSetCommand(journal, command, persistedRefusal, options, true);
   await onAccepted?.(acceptance);
 
   // Journal fsync and the acceptance PUBACK can consume the remaining delivery window.
-  if (await commandExpired(command.expiresAt, options)) {
-    return rejectExpiredCommand(journal, command, true, options);
+  const acknowledgedRefusal = await commandRefusal(command, options);
+  if (acknowledgedRefusal) {
+    return rejectSetCommand(journal, command, acknowledgedRefusal, options, true);
   }
 
   let deviceStatus: DeviceStatusAckV2;
@@ -225,8 +243,9 @@ async function executeGatewayDimmingCommand(
     if (options.receipt) await options.automation?.prepare(command, options.receipt);
     else await options.automation?.prepare(command);
     // Automation persistence can consume the last part of the broker delivery window.
-    if (await commandExpired(command.expiresAt, options)) {
-      return rejectExpiredCommand(journal, command, true, options);
+    const preparedRefusal = await commandRefusal(command, options);
+    if (preparedRefusal) {
+      return rejectSetCommand(journal, command, preparedRefusal, options, true, true);
     }
     const configuredTimeoutMs = validateTimeout(options.timeoutMs ?? 8000);
     const timeoutMs = Math.min(configuredTimeoutMs, Math.max(1, receiptRemainingMs(options)));
@@ -301,11 +320,15 @@ async function executeGatewayDimmingCommand(
   return result;
 }
 
-async function commandExpired(expiresAt: string, options: GatewayCommandOptions) {
-  if (receiptRemainingMs(options) <= 0) return true;
-  return options.isCommandExpired
-    ? options.isCommandExpired(expiresAt)
-    : isGatewayCommandExpired(expiresAt);
+async function commandRefusal(command: GatewayDimmingCommandV2Compatible, options: GatewayCommandOptions): Promise<GatewaySetRefusal | undefined> {
+  if (receiptRemainingMs(options) <= 0) return "COMMAND_EXPIRED";
+  // After cutover only the DB proof may authorize absolute expiry. An OS trust
+  // marker cannot substitute for the bounded same-epoch DB time sample.
+  if (options.setPermit) return options.setPermit(command);
+  const expired = options.isCommandExpired
+    ? await options.isCommandExpired(command.expiresAt)
+    : isGatewayCommandExpired(command.expiresAt);
+  return expired ? "COMMAND_EXPIRED" : undefined;
 }
 
 function receiptRemainingMs(options: GatewayCommandOptions) {
@@ -594,11 +617,13 @@ function createIndeterminateResult(command: GatewayDimmingCommandV2Compatible, a
   return { acceptance: accepted, deviceStatus, fixtureStateObserved: false };
 }
 
-async function rejectExpiredCommand(
+async function rejectSetCommand(
   journal: JournalLike,
   command: GatewayDimmingCommandV2Compatible,
+  code: GatewaySetRefusal,
+  options: GatewayCommandOptions,
   alreadyAccepted = false,
-  options?: GatewayCommandOptions
+  prepared = false
 ): Promise<GatewayCommandResult> {
   const identity = {
     commandId: command.commandId,
@@ -614,8 +639,8 @@ async function rejectExpiredCommand(
       eventId: randomUUID(),
       status: "rejected",
       acceptedAt: new Date().toISOString(),
-      errorCode: "COMMAND_EXPIRED",
-      errorMessage: "gateway command expired before execution"
+      errorCode: code,
+      errorMessage: refusalMessage(code)
     }),
     deviceStatus: deviceStatusAckV2Schema.parse({
       ...identity,
@@ -625,24 +650,34 @@ async function rejectExpiredCommand(
       results: command.targetFixtureIds.map((fixtureId) => ({
         fixtureId,
         status: "failed" as const,
-        errorMessage: "gateway command expired before execution"
+        errorMessage: refusalMessage(code)
       }))
     }),
     fixtureStateObserved: false
   };
   if (alreadyAccepted) {
-    if (options) await completeWithAutomationHandoff(journal, command, result, options);
+    // Only prepare can create pending manual ownership. The durable abort path
+    // is added by the next rollout gate; until then retain its failed handoff.
+    if (prepared) await completeWithAutomationHandoff(journal, command, result, options);
     else await journal.complete(command.idempotencyKey, result);
     return result;
   }
-  const reserved = await journal.accept(command.idempotencyKey, { command, acceptance: result.acceptance });
+  const reserved = await journal.accept(command.idempotencyKey, { command, acceptance: result.acceptance }, { terminalResult: result });
   if (!reserved) {
     const raced = await journal.get(command.idempotencyKey);
-    if (raced?.state === "completed") return raced.result as GatewayCommandResult;
+    if (raced?.state === "completed") {
+      options.onDurableReceipt?.();
+      return raced.result as GatewayCommandResult;
+    }
     throw new Error("duplicate command has an indeterminate accepted result");
   }
   await journal.complete(command.idempotencyKey, result);
+  options.onDurableReceipt?.();
   return result;
+}
+
+function refusalMessage(code: GatewaySetRefusal) {
+  return code === "COMMAND_EXPIRED" ? "gateway command expired before execution" : "gateway command clock or epoch proof is unavailable";
 }
 
 async function rejectBeforeExecution(
