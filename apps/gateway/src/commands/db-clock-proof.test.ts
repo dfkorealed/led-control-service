@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { DbClockProof } from "./db-clock-proof";
+import { LinuxBootClock } from "./linux-boot-clock";
 
 const scope = { siteId: "11111111-1111-4111-8111-111111111111", gatewayId: "22222222-2222-4222-8222-222222222222" };
 const request = { ...scope, nonce: "33333333-3333-4333-8333-333333333333" };
@@ -15,11 +16,41 @@ function proven(rtt = 100) {
 }
 
 describe("DbClockProof", () => {
-  it.each([[1000, true], [1001, false]])("bounds full RTT at %ims", (rtt, expected) => {
+  it.each([[900, true], [901, false], [1000, false], [1001, false]])("bounds RTT including its 100ms error budget for observed %ims", (rtt, expected) => {
     expect(proven(rtt).allows(7, expiry, sample(1000 + rtt))).toBe(expected);
   });
-  it.each([[10000, true], [10001, false]])("bounds sample age at %ims including suspension", (age, expected) => {
+  it.each([[9900, true], [9901, false], [10000, false], [10001, false]])("bounds sample age including its 100ms error budget for observed %ims", (age, expected) => {
     expect(proven().allows(7, expiry, sample(1100 + age))).toBe(expected);
+  });
+  it.each([
+    ["1.00 0.00", "1.90 0.00", true],
+    ["1.00 0.00", "1.91 0.00", false],
+    ["1.00 0.00", "2.00 0.00", false]
+  ])("bounds quantized Linux RTT from %s to %s", (startUptime, endUptime, expected) => {
+    // An actual request at 1000ms and response at 2009ms appear as 1.00 and
+    // 2.00 in proc. The observed 1000ms must not admit that >1000ms RTT.
+    let uptime = startUptime;
+    const clock = new LinuxBootClock({ platform: "linux", read: (path) => path.endsWith("boot_id") ? bootId : uptime });
+    const proof = new DbClockProof(scope);
+    const start = clock.sample();
+    proof.begin(request, start);
+    uptime = endUptime;
+    const end = clock.sample();
+    expect(proof.observe(request, response, start, end)).toBe(expected);
+    expect(proof.allows(7, expiry, end)).toBe(expected);
+  });
+  it.each([["11.00 0.00", true], ["11.01 0.00", false], ["11.10 0.00", false]])("bounds quantized Linux sample age at %s", (nowUptime, expected) => {
+    // An actual receipt at 1100ms and check at 11109ms appear as 1.10 and
+    // 11.10: the observed 10000ms cannot prove age <=10000ms.
+    let uptime = "1.00 0.00";
+    const clock = new LinuxBootClock({ platform: "linux", read: (path) => path.endsWith("boot_id") ? bootId : uptime });
+    const proof = new DbClockProof(scope);
+    const start = clock.sample();
+    proof.begin(request, start);
+    uptime = "1.10 0.00";
+    expect(proof.observe(request, response, start, clock.sample())).toBe(true);
+    uptime = nowUptime;
+    expect(proof.allows(7, expiry, clock.sample())).toBe(expected);
   });
   it.each([["2026-09-26T00:00:02.200Z", false], ["2026-09-26T00:00:02.201Z", true], ["2026-09-26T00:00:02.199Z", false]])("adds full RTT and 100ms budget before strict 2s cutoff %s", (expiresAt, expected) => {
     expect(proven().allows(7, expiresAt, sample(1100))).toBe(expected);

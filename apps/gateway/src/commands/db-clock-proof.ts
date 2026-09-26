@@ -38,8 +38,12 @@ export class DbClockProof {
     if (!parsed.success || !this.matchesScope(parsed.data) || parsed.data.nonce !== request.nonce) return false;
     this.pending = undefined;
     const rtt = end.milliseconds - start.milliseconds;
-    const uncertainty = rtt + MONOTONIC_ERROR_BUDGET_MS;
-    if (start.bootId !== end.bootId || rtt < 0 || rtt > MAX_RTT_MS ||
+    // /proc/uptime truncates to centiseconds. Raw differences can undercount;
+    // the same fixed budget must bound admission durations, not just DB expiry.
+    // This intentionally rejects even exact synthetic RTTs above 900ms.
+    const rttUpper = rtt + MONOTONIC_ERROR_BUDGET_MS;
+    const uncertainty = rttUpper;
+    if (start.bootId !== end.bootId || rtt < 0 || rttUpper > MAX_RTT_MS ||
         uncertainty >= GATEWAY_COMMAND_EXPIRY_CLOCK_SKEW_GUARD_MS || parsed.data.publishEpoch < this.highestEpoch) {
       this.invalidate();
       return false;
@@ -59,12 +63,15 @@ export class DbClockProof {
     const cached = this.cached;
     if (!cached) return false;
     const age = now.milliseconds - cached.end.milliseconds;
+    const ageUpper = age + MONOTONIC_ERROR_BUDGET_MS;
     if (cached.publishEpoch !== publishEpoch || now.bootId !== cached.end.bootId || age < 0 ||
-        age > MAX_SAMPLE_AGE_MS || cached.uncertainty >= GATEWAY_COMMAND_EXPIRY_CLOCK_SKEW_GUARD_MS) {
+        ageUpper > MAX_SAMPLE_AGE_MS || cached.uncertainty >= GATEWAY_COMMAND_EXPIRY_CLOCK_SKEW_GUARD_MS) {
       this.invalidate();
       return false;
     }
     const expires = Date.parse(expiresAt);
+    // Receipt upper already includes the full-interval 100ms budget. Raw RTT
+    // plus raw age telescopes to now-start; adding ageUpper would count it twice.
     return Number.isFinite(expires) && cached.dbUpperAtReceipt + age < expires - GATEWAY_COMMAND_EXPIRY_CLOCK_SKEW_GUARD_MS;
   }
 
