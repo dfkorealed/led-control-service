@@ -1,10 +1,12 @@
 import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
+import { threeCalendarMonthsBefore } from "./calendar-month-window";
 
 const DAY_MS = 86_400_000;
 const SWEEP_DELETE_BUDGET = 21_000;
-type DeletedCounts = { gatewayEvents: number; sessions: number; floorMapRevisions: number; monitoringRefreshes: number };
+type DeletedCounts = { gatewayEvents: number; sessions: number; floorMapRevisions: number;
+  monitoringRefreshes: number; monitoringActivities: number };
 
 @Injectable()
 export class DataRetentionService implements OnModuleInit, OnModuleDestroy {
@@ -37,7 +39,8 @@ export class DataRetentionService implements OnModuleInit, OnModuleDestroy {
 
   private async sweep(now: Date): Promise<DeletedCounts> {
     const started = Date.now();
-    const deleted: DeletedCounts = { gatewayEvents: 0, sessions: 0, floorMapRevisions: 0, monitoringRefreshes: 0 };
+    const deleted: DeletedCounts = { gatewayEvents: 0, sessions: 0, floorMapRevisions: 0,
+      monitoringRefreshes: 0, monitoringActivities: 0 };
     let stage: keyof DeletedCounts = "gatewayEvents";
     // Prisma binds JS Date as timestamptz; these schema columns store naive UTC.
     // An implicit comparison would shift the cutoff by the DB session timezone.
@@ -163,6 +166,18 @@ export class DataRetentionService implements OnModuleInit, OnModuleDestroy {
             AND refresh."completedAt" < ${cutoff(7)}
         `);
       }
+      stage = "monitoringActivities";
+      // Use the exact same backward UTC calendar cutoff as the read API. A
+      // per-row forward +3 months expiry would delete Feb 28 too early in May.
+      const retainedFrom = threeCalendarMonthsBefore(now);
+      deleted.monitoringActivities = await this.prisma.$executeRaw(Prisma.sql`
+        WITH candidates AS (
+          SELECT "id" FROM "MonitoringActivity"
+          WHERE "recordedAt" < (${retainedFrom}::timestamptz AT TIME ZONE 'UTC')
+          ORDER BY "recordedAt", "id" LIMIT 1000 FOR UPDATE SKIP LOCKED
+        )
+        DELETE FROM "MonitoringActivity" activity USING candidates WHERE activity."id" = candidates."id"
+      `);
       this.logger.log({ event: "data_retention_sweep", status: "completed", asOf: now.toISOString(),
         durationMs: Date.now() - started, deleted });
       return deleted;

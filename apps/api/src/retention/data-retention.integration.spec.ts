@@ -1,4 +1,5 @@
 import { Logger } from "@nestjs/common";
+import { threeCalendarMonthsBefore } from "./calendar-month-window";
 import { Test } from "@nestjs/testing";
 import { Prisma, PrismaClient } from "@prisma/client";
 import { randomUUID } from "node:crypto";
@@ -261,6 +262,52 @@ const policies = [
     expect(await service.prune(now)).toMatchObject({ monitoringRefreshes: 1 });
   });
 
+  it.each(["2026-01-31T12:00:00.000Z", "2026-02-28T12:00:00.000Z", "2026-05-31T12:00:00.000Z"])(
+    "physically removes only activity strictly before the shared 3-calendar-month cutoff at %s", async iso => {
+      const asOf = new Date(iso);
+      const cutoff = threeCalendarMonthsBefore(asOf);
+      await db.monitoringActivity.createMany({ data: [-1, 0, 1].map(offset => ({
+        siteId: ids.site, floorId: ids.floor, sourceType: "fixture_state", sourceKey: `boundary:${offset}`,
+        kind: "fixture_online" as const, recordedAt: new Date(cutoff.getTime() + offset)
+      })) });
+      expect(await service.prune(asOf)).toMatchObject({ monitoringActivities: 1 });
+      expect((await db.monitoringActivity.findMany({ orderBy: { recordedAt: "asc" }, select: { sourceKey: true } }))
+        .map(row => row.sourceKey)).toEqual(["boundary:0", "boundary:1"]);
+    }
+  );
+
+  it("uses the same exclusive UTC boundary in a UTC database session", async () => {
+    await db.$executeRawUnsafe("SET TIME ZONE 'UTC'");
+    try {
+      const cutoff = threeCalendarMonthsBefore(now);
+      await db.monitoringActivity.createMany({ data: [-1, 0, 1].map(offset => ({
+        siteId: ids.site, floorId: ids.floor, sourceType: "fixture_state", sourceKey: `utc:${offset}`,
+        kind: "fixture_online" as const, recordedAt: new Date(cutoff.getTime() + offset)
+      })) });
+      expect(await service.prune(now)).toMatchObject({ monitoringActivities: 1 });
+      expect((await db.monitoringActivity.findMany({ orderBy: { recordedAt: "asc" }, select: { sourceKey: true } }))
+        .map(row => row.sourceKey)).toEqual(["utc:0", "utc:1"]);
+    } finally {
+      await db.$executeRawUnsafe("SET TIME ZONE 'Asia/Seoul'");
+    }
+  });
+
+  it("bounds activity deletion at 1,000 rows without changing Command or recent activity", async () => {
+    const cutoff = threeCalendarMonthsBefore(now);
+    await db.monitoringActivity.createMany({ data: Array.from({ length: 1001 }, (_, index) => ({
+      siteId: ids.site, floorId: ids.floor, sourceType: "fixture_state", sourceKey: `old:${index}`,
+      kind: "fixture_online" as const, recordedAt: new Date(cutoff.getTime() - 1)
+    })) });
+    await db.monitoringActivity.create({ data: { siteId: ids.site, floorId: ids.floor,
+      sourceType: "fixture_state", sourceKey: "new", kind: "fixture_online", recordedAt: now } });
+    const beforeCommands = await db.command.count();
+    expect(await service.prune(now)).toMatchObject({ monitoringActivities: 1000 });
+    expect(await db.monitoringActivity.count()).toBe(2);
+    expect(await db.command.count()).toBe(beforeCommands);
+    expect(await service.prune(now)).toMatchObject({ monitoringActivities: 1 });
+    expect(await db.monitoringActivity.findMany({ select: { sourceKey: true } })).toEqual([{ sourceKey: "new" }]);
+  });
+
   it("keeps the latest 100 revisions per floor or the last 365 days, whichever is wider", async () => {
     await revisions(ids.floor, 105);
     await db.floorMapRevision.updateMany({ where: { floorId: ids.floor, revision: 2 }, data: { createdAt: new Date(now.getTime() - 365 * day) } });
@@ -287,13 +334,16 @@ const policies = [
     `);
     await revisions(ids.floor, 1101);
     const retainedRefresh = await refresh("completed", old);
-    expect(await service.prune(now)).toEqual({ gatewayEvents: 10000, sessions: 10000, floorMapRevisions: 1000, monitoringRefreshes: 0 });
+    expect(await service.prune(now)).toEqual({ gatewayEvents: 10000, sessions: 10000, floorMapRevisions: 1000,
+      monitoringRefreshes: 0, monitoringActivities: 0 });
     expect(await db.monitoringRefresh.findUnique({ where: { id: retainedRefresh.id } })).not.toBeNull();
     expect((await db.processedGatewayEvent.findMany()).map(row => row.eventId)).toEqual(["bounded-event-10001"]);
     expect((await db.session.findMany()).map(row => row.id)).toEqual(["bounded-session-10001"]);
     expect((await db.floorMapRevision.findMany({ orderBy: { revision: "asc" }, take: 1 }))[0].revision).toBe(1001);
-    expect(await service.prune(now)).toEqual({ gatewayEvents: 1, sessions: 1, floorMapRevisions: 1, monitoringRefreshes: 1 });
-    expect(await service.prune(now)).toEqual({ gatewayEvents: 0, sessions: 0, floorMapRevisions: 0, monitoringRefreshes: 0 });
+    expect(await service.prune(now)).toEqual({ gatewayEvents: 1, sessions: 1, floorMapRevisions: 1,
+      monitoringRefreshes: 1, monitoringActivities: 0 });
+    expect(await service.prune(now)).toEqual({ gatewayEvents: 0, sessions: 0, floorMapRevisions: 0,
+      monitoringRefreshes: 0, monitoringActivities: 0 });
   });
 
   it("skips rows locked by another connection and converges on the next sweep", async () => {
@@ -303,6 +353,11 @@ const policies = [
     await revisions(ids.floor, 102);
     const lockedRefresh = await refresh("completed", old);
     await refresh("completed", old);
+    const activityTime = new Date(threeCalendarMonthsBefore(now).getTime() - 1);
+    const lockedActivity = await db.monitoringActivity.create({ data: { siteId: ids.site, floorId: ids.floor,
+      sourceType: "fixture_state", sourceKey: "locked-activity", kind: "fixture_online", recordedAt: activityTime } });
+    await db.monitoringActivity.create({ data: { siteId: ids.site, floorId: ids.floor,
+      sourceType: "fixture_state", sourceKey: "free-activity", kind: "fixture_online", recordedAt: activityTime } });
     let release!: () => void;
     let acquired!: () => void;
     const gate = new Promise<void>(resolve => { release = resolve; });
@@ -312,19 +367,24 @@ const policies = [
       await tx.$queryRaw`SELECT "id" FROM "Session" WHERE "id" = 'locked' FOR UPDATE`;
       await tx.$queryRaw`SELECT "id" FROM "FloorMapRevision" WHERE "floorId" = ${ids.floor} AND "revision" = 1 FOR UPDATE`;
       await tx.$queryRaw`SELECT "id" FROM "MonitoringRefresh" WHERE "id" = ${lockedRefresh.id} FOR UPDATE`;
+      await tx.$queryRaw`SELECT "id" FROM "MonitoringActivity" WHERE "id" = ${lockedActivity.id} FOR UPDATE`;
       acquired();
       await gate;
     }, { timeout: 10_000 });
     try {
       await Promise.race([ready, lock.then(() => { throw new Error("lock transaction ended before acquiring rows"); })]);
-      expect(await service.prune(now)).toEqual({ gatewayEvents: 1, sessions: 1, floorMapRevisions: 1, monitoringRefreshes: 1 });
+      expect(await service.prune(now)).toEqual({ gatewayEvents: 1, sessions: 1, floorMapRevisions: 1,
+        monitoringRefreshes: 1, monitoringActivities: 1 });
       expect(await db.monitoringRefresh.findUnique({ where: { id: lockedRefresh.id } })).not.toBeNull();
       expect(await db.processedGatewayEvent.findUnique({ where: { eventId: locked.eventId } })).not.toBeNull();
       expect(await db.session.findUnique({ where: { id: "locked" } })).not.toBeNull();
       expect(await db.floorMapRevision.count()).toBe(101);
+      expect(await db.monitoringActivity.findUnique({ where: { id: lockedActivity.id } })).not.toBeNull();
     } finally { release(); await lock; }
-    expect(await service.prune(now)).toEqual({ gatewayEvents: 1, sessions: 1, floorMapRevisions: 1, monitoringRefreshes: 1 });
+    expect(await service.prune(now)).toEqual({ gatewayEvents: 1, sessions: 1, floorMapRevisions: 1,
+      monitoringRefreshes: 1, monitoringActivities: 1 });
     expect(await db.floorMapRevision.count()).toBe(100);
+    expect(await db.monitoringActivity.count()).toBe(0);
   }, 15_000);
 
   it("drains retention before final Prisma disconnect when the real Nest application closes", async () => {
@@ -384,10 +444,12 @@ const policies = [
       await draining;
       const atDrain = [...order];
       release();
-      expect(await sweep).toEqual({ gatewayEvents: 1, sessions: 1, floorMapRevisions: 1, monitoringRefreshes: 0 });
+      expect(await sweep).toEqual({ gatewayEvents: 1, sessions: 1, floorMapRevisions: 1,
+        monitoringRefreshes: 0, monitoringActivities: 0 });
       await closing;
       expect({ atDrain, completed: order, connections: await connectionCount() }).toEqual({
-        atDrain: ["query-1"], completed: ["query-1", "query-2", "query-3", "query-4", "disconnect"], connections: baselineConnections
+        atDrain: ["query-1"], completed: ["query-1", "query-2", "query-3", "query-4", "query-5", "disconnect"],
+        connections: baselineConnections
       });
       expect(await db.session.count()).toBe(0);
       expect(await db.floorMapRevision.count()).toBe(100);

@@ -1,11 +1,14 @@
 import { Prisma } from "@prisma/client";
 import { fixtureStateV2Schema } from "@led-control/shared";
 import { canonicalPayloadHash } from "../automation/automation-payload-hash";
+import { recordMonitoringActivities } from "../monitoring-activity/monitoring-activity.projection";
 import {
   closeFixtureEnergyForRatedWattChange,
   closeSiteEnergyForSettingsChange,
   FixtureStateIngestionService
 } from "./fixture-state-ingestion.service";
+
+jest.mock("../monitoring-activity/monitoring-activity.projection", () => ({ recordMonitoringActivities: jest.fn() }));
 
 const scope = {
   siteId: "22222222-2222-4222-8222-222222222222",
@@ -15,6 +18,25 @@ const scope = {
 };
 
 describe("FixtureStateIngestionService", () => {
+  it("projects only accepted visible state, brightness and health changes in the source transaction", async () => {
+    const prisma = fixturePrisma();
+    await new FixtureStateIngestionService(prisma as never).ingest(scope.gatewayId, fixtureEvent(9));
+    expect(recordMonitoringActivities).toHaveBeenCalledWith(prisma, expect.arrayContaining([
+      expect.objectContaining({ kind: "fixture_status_changed", status: "fault", floorId: prisma.__row.floorId }),
+      expect.objectContaining({ kind: "fixture_brightness_changed", brightnessPercent: 70 }),
+      expect.objectContaining({ kind: "fixture_health_changed", status: "fault" })
+    ]));
+    expect((recordMonitoringActivities as jest.Mock).mock.calls[0][1]).toHaveLength(3);
+    expect(JSON.stringify((recordMonitoringActivities as jest.Mock).mock.calls[0][1])).not.toMatch(/faultCodes|rssi|hopCount|payload|ipAddress/);
+  });
+
+  it("does not project an accepted read-back with unchanged visible values", async () => {
+    const prisma = fixturePrisma();
+    Object.assign(prisma.__row, { status: "fault", brightness: 70, healthFaultCodes: [1, 4] });
+    (recordMonitoringActivities as jest.Mock).mockClear();
+    await new FixtureStateIngestionService(prisma as never).ingest(scope.gatewayId, fixtureEvent(9));
+    expect(recordMonitoringActivities).not.toHaveBeenCalled();
+  });
   it("rejects altered watermark identity on a retired correlated state", async () => {
     const prisma = fixturePrisma(); const query = prisma.$queryRaw.getMockImplementation();
     prisma.$queryRaw.mockImplementation(async (q: any) => {
@@ -487,6 +509,8 @@ function fixturePrisma(options: {
     siteId: scope.siteId,
     gatewayId: scope.gatewayId,
     ratedWatt: new Prisma.Decimal("40.00"),
+    status: "offline",
+    healthFaultCodes: null,
     brightness: 0,
     powerOn: null,
     energyTrackingStartedAt: new Date("2026-08-26T00:00:00.000Z"),

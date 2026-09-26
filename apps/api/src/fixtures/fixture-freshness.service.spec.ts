@@ -1,4 +1,7 @@
 import { FixtureFreshnessService } from "./fixture-freshness.service";
+import { recordMonitoringActivities } from "../monitoring-activity/monitoring-activity.projection";
+
+jest.mock("../monitoring-activity/monitoring-activity.projection", () => ({ recordMonitoringActivities: jest.fn() }));
 
 describe("FixtureFreshnessService", () => {
   const now = new Date("2026-09-12T00:10:00.000Z");
@@ -10,7 +13,9 @@ describe("FixtureFreshnessService", () => {
     const tx = {
       $queryRaw: jest.fn().mockResolvedValue([{ id: "locked" }]),
       site: { findUnique: jest.fn(({ where }) => Promise.resolve(sites.find((site) => site.id === where.id))) },
-      fixture: { fields: { lastSeenAt: { name: "lastSeenAt" } }, updateMany: jest.fn().mockResolvedValue({ count: 1 }) }
+      fixture: { fields: { lastSeenAt: { name: "lastSeenAt" } },
+        findMany: jest.fn().mockResolvedValue([{ id: "66666666-6666-4666-8666-666666666666", floorId: "33333333-3333-4333-8333-333333333333", name: "B1-L01", status: "online" }]),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }) }
     };
     const prisma = { ...tx, site: { findMany: jest.fn().mockResolvedValue(sites) },
       $transaction: jest.fn((work) => work(tx)) };
@@ -18,6 +23,20 @@ describe("FixtureFreshnessService", () => {
     const reconciler = { reconcile: jest.fn().mockResolvedValue(undefined) };
     return { prisma, tx, reconciler, service: new (FixtureFreshnessService as any)(prisma, reconciler) as FixtureFreshnessService };
   }
+
+  it("projects only bounded newly offline candidates, not repeated already-offline ticks", async () => {
+    const { service, tx } = setup();
+    (recordMonitoringActivities as jest.Mock).mockClear();
+    await service.markStaleFixtures(now);
+    expect(tx.fixture.findMany).toHaveBeenCalledWith(expect.objectContaining({ take: 500 }));
+    expect(recordMonitoringActivities).toHaveBeenCalledWith(tx, expect.arrayContaining([
+      expect.objectContaining({ kind: "fixture_offline", status: "offline" })
+    ]));
+    tx.fixture.findMany.mockResolvedValue([]);
+    (recordMonitoringActivities as jest.Mock).mockClear();
+    await expect(service.markStaleFixtures(now)).resolves.toEqual({ gatewayOffline: 0, fixtureStale: 0 });
+    expect(recordMonitoringActivities).not.toHaveBeenCalled();
+  });
 
   it("keeps fixed control freshness across Site policies and reconciles monitoring afterward", async () => {
     const { service, tx, reconciler } = setup();

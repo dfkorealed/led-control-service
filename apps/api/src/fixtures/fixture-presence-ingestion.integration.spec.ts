@@ -1,4 +1,6 @@
 import { PrismaService } from "../prisma/prisma.service";
+import { MonitoringActivityService } from "../monitoring-activity/monitoring-activity.service";
+import { DataRetentionService } from "../retention/data-retention.service";
 import { disposablePostgres } from "../../test/support/disposable-postgres";
 import { FixturePresenceIngestionService } from "./fixture-presence-ingestion.service";
 
@@ -41,6 +43,7 @@ describeWithDatabase("fixture-presence PostgreSQL ingestion", () => {
   });
 
   beforeEach(async () => {
+    await prisma.monitoringActivity.deleteMany({ where: { siteId: ids.siteId } });
     await prisma.processedGatewayEvent.deleteMany({ where: { gatewayId: ids.gatewayId } });
     await prisma.gatewayEventWatermark.deleteMany({ where: { gatewayId: ids.gatewayId } });
     await prisma.fixtureEnergyDailyAggregate.deleteMany({ where: { fixtureId: ids.fixtureId } });
@@ -86,6 +89,28 @@ describeWithDatabase("fixture-presence PostgreSQL ingestion", () => {
     expect(await prisma.fixtureEnergyDailyAggregate.count({ where: { fixtureId: ids.fixtureId } })).toBe(0);
     expect(await prisma.fixtureEnergyHourlyAggregate.count({ where: { energyFixtureId: ids.energyFixtureId } })).toBe(0);
     expect(await prisma.fixtureEnergyStateCursor.count({ where: { fixtureId: ids.fixtureId } })).toBe(0);
+    expect(await prisma.monitoringActivity.findMany({ where: { siteId: ids.siteId }, select: { kind: true, status: true } }))
+      .toEqual([{ kind: "fixture_online", status: "online" }]);
+  });
+
+  it("serves a verified presence transition and physically removes it after the rolling window", async () => {
+    await service.ingest(ids.gatewayId, presence());
+    const activity = await prisma.monitoringActivity.findFirstOrThrow({
+      where: { siteId: ids.siteId }, select: { id: true, recordedAt: true }
+    });
+    const user = { id: "31000000-0000-4000-8000-000000000009" } as never;
+    const access = { assert: async () => ({ id: ids.siteId }) } as never;
+    const list = new MonitoringActivityService(prisma, access);
+    const visible = await list.list(user, ids.siteId, ids.floorId, { limit: 5 }, activity.recordedAt);
+    expect(visible.items).toEqual([expect.objectContaining({ id: activity.id, kind: "fixture_online", status: "online" })]);
+
+    const expiredAt = new Date(activity.recordedAt.getTime() + 124 * 86_400_000);
+    const delayedSweep = await list.list(user, ids.siteId, ids.floorId, { limit: 5 }, expiredAt);
+    expect(delayedSweep.items).toEqual([]);
+    expect(await prisma.monitoringActivity.count({ where: { siteId: ids.siteId } })).toBe(1);
+
+    expect(await new DataRetentionService(prisma).prune(expiredAt)).toMatchObject({ monitoringActivities: 1 });
+    expect(await prisma.monitoringActivity.count({ where: { siteId: ids.siteId } })).toBe(0);
   });
 
   it.each(["command_failed", "fixture_fault", "provisioning_waiting_state"])("does not clear non-freshness blocker %s", async (statusReason) => {

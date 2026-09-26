@@ -6,6 +6,7 @@ const ids = {
   fixtureId: "33333333-3333-4333-8333-333333333333", refreshId: "44444444-4444-4444-8444-444444444444",
   batchId: "55555555-5555-4555-8555-555555555555"
 };
+const floorId = "88888888-8888-4888-8888-888888888888";
 const at = (seconds: number) => new Date(Date.UTC(2026, 8, 15, 8, 0, seconds));
 const event = () => fixtureUnreachableV1Schema.parse({ ...ids,
   eventId: "66666666-6666-4666-8666-666666666666", sequence: 9, occurredAt: at(5).toISOString(), reason: "not_found" });
@@ -53,8 +54,14 @@ describe("MonitoringRefreshIngestionService", () => {
     expect(db.fixtureRow).toMatchObject({ lastUnreachableAt: at(6), status: "offline", brightness: 70, reportedStatus: "online" });
     expect(db.child).toMatchObject({ status: "offline", errorCode: "not_found" });
     expect(db.fixture.update.mock.calls[0][0].data).toEqual({ lastUnreachableAt: at(6), status: "offline", statusReason: "fixture_stale" });
+    expect(db.monitoringActivity.createMany).toHaveBeenCalledWith({ data: [{
+      siteId: ids.siteId, floorId, fixtureId: ids.fixtureId, displayName: "light",
+      sourceType: "monitoring_refresh", sourceKey: `${event().eventId}:fixture_offline`,
+      kind: "fixture_offline", status: "offline"
+    }], skipDuplicates: true });
     expect(await service.ingestUnreachable(topic, event(), at(7))).toMatchObject({ status: "duplicate" });
     expect(db.fixture.update).toHaveBeenCalledTimes(1);
+    expect(db.monitoringActivity.createMany).toHaveBeenCalledTimes(1);
     await expect(service.ingestUnreachable(topic, { ...event(), reason: "read_failed" }, at(7))).rejects.toThrow("conflict");
   });
 
@@ -76,6 +83,7 @@ describe("MonitoringRefreshIngestionService", () => {
     if (reason === "older-refresh") db.fixtureRow.lastUnreachableAt = at(7);
     await new MonitoringRefreshIngestionService(db as never).ingestUnreachable(topic, event(), reason === "deadline" ? at(30) : at(6));
     expect(db.fixture.update).not.toHaveBeenCalled(); expect(db.child.status).toBe("unverified");
+    expect(db.monitoringActivity.createMany).not.toHaveBeenCalled();
   });
 
   it.each(["site", "gateway", "batch", "snapshot", "child"])("rejects wrong %s ownership", async (kind) => {
@@ -136,6 +144,10 @@ describe("MonitoringRefreshIngestionService", () => {
     expect(await service.completeBatch(completionTopic, completed, at(8))).toEqual({ ack: {
       siteId: ids.siteId, gatewayId: ids.gatewayId, refreshId: ids.refreshId, batchId: ids.batchId } });
     expect(db.refresh).toMatchObject({ status: "completed", onlineFixtures: 0, offlineFixtures: 1, unverifiedFixtures: 0 });
+    expect(db.monitoringActivity.createMany).toHaveBeenNthCalledWith(2, { data: [{
+      siteId: ids.siteId, floorId, sourceType: "monitoring_refresh", sourceKey: `${ids.refreshId}:completed`,
+      kind: "monitoring_refresh_result", refreshStatus: "completed"
+    }], skipDuplicates: true });
     expect(db.batch.status).toBe("completed"); expect(db.mqttOutbox.deleteMany).toHaveBeenCalledTimes(1);
     await service.completeBatch(completionTopic, completed, at(9));
     expect(db.monitoringRefresh.updateMany).toHaveBeenCalledTimes(1);
@@ -185,10 +197,10 @@ describe("MonitoringRefreshIngestionService", () => {
 
 function database(): any {
   const db: any = {
-    fixtureRow: { id: ids.fixtureId, floorId: "floor", lastSeenAt: at(-1), lastUnreachableAt: null, status: "online", brightness: 70, reportedStatus: "online" },
+    fixtureRow: { id: ids.fixtureId, floorId, name: "light", lastSeenAt: at(-1), lastUnreachableAt: null, status: "online", brightness: 70, reportedStatus: "online" },
     site: { id: ids.siteId, gatewayOfflineAfterSeconds: 90, fixtureStaleAfterSeconds: 1200 },
     gateway: { id: ids.gatewayId, lastHeartbeatAt: at(0) },
-    refresh: { id: ids.refreshId, siteId: ids.siteId, floorId: "floor", status: "pending", totalFixtures: 1, createdAt: at(0), deadlineAt: at(30) },
+    refresh: { id: ids.refreshId, siteId: ids.siteId, floorId, status: "pending", totalFixtures: 1, createdAt: at(0), deadlineAt: at(30) },
     batch: { id: ids.batchId, siteId: ids.siteId, refreshId: ids.refreshId, gatewayId: ids.gatewayId, status: "published", publishedAt: at(1), completedAt: null, targetFixtureIds: [ids.fixtureId] },
     child: { ...ids, status: "pending", errorCode: null, observedAt: null }, ledger: new Map(), watermark: null,
     $executeRaw: jest.fn().mockResolvedValue(1)
@@ -204,12 +216,15 @@ function database(): any {
   db.gatewayEventWatermark = { findFirst: jest.fn().mockResolvedValue(null), findUnique: jest.fn(async () => db.watermark),
     upsert: jest.fn(async ({ update }: any) => { db.watermark = update; }) };
   db.fixture = { update: jest.fn(async ({ data }: any) => Object.assign(db.fixtureRow, data)) };
+  db.floor = { findMany: jest.fn(async () => [{ id: floorId }]) };
+  db.monitoringActivity = { createMany: jest.fn().mockResolvedValue({ count: 1 }) };
   db.monitoringRefreshFixture = { update: jest.fn(async ({ data }: any) => Object.assign(db.child, data)),
     findMany: jest.fn(async () => [db.child]), count: jest.fn(async () => db.child.status === "pending" ? 1 : 0),
     groupBy: jest.fn(async () => [{ status: db.child.status, _count: { _all: 1 } }]) };
   db.monitoringRefreshBatch = { update: jest.fn(async ({ data }: any) => Object.assign(db.batch, data)),
     count: jest.fn(async () => ["pending", "published"].includes(db.batch.status) ? 1 : 0) };
-  db.monitoringRefresh = { updateMany: jest.fn(async ({ data }: any) => { Object.assign(db.refresh, data); return { count: 1 }; }) };
+  db.monitoringRefresh = { findUnique: jest.fn(async () => db.refresh),
+    updateMany: jest.fn(async ({ data }: any) => { Object.assign(db.refresh, data); return { count: 1 }; }) };
   db.mqttOutbox = { deleteMany: jest.fn().mockResolvedValue({ count: 1 }) };
   return db;
 }

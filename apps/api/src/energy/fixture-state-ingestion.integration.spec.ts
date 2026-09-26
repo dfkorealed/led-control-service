@@ -5,13 +5,15 @@ import { MqttService } from "../mqtt/mqtt.service";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { SiteSettingsService } from "../site-settings/site-settings.service";
+import { disposablePostgres } from "../../test/support/disposable-postgres";
 import {
   FixtureEnergyCheckpointService,
   FixtureStateIngestionService
 } from "./fixture-state-ingestion.service";
 
-const databaseUrl = process.env.FIXTURE_STATE_TEST_DATABASE_URL;
-const describeWithDatabase = databaseUrl ? describe : describe.skip;
+let databaseUrl = process.env.FIXTURE_STATE_TEST_DATABASE_URL;
+const selfOwnedDatabase = process.env.FIXTURE_STATE_DISPOSABLE_POSTGRES === "1";
+const describeWithDatabase = databaseUrl || selfOwnedDatabase ? describe : describe.skip;
 
 describeWithDatabase("fixture-state PostgreSQL atomic ingestion", () => {
   const ids = {
@@ -28,8 +30,17 @@ describeWithDatabase("fixture-state PostgreSQL atomic ingestion", () => {
   };
   let prisma: PrismaService;
   let service: FixtureStateIngestionService;
+  let cluster: Awaited<ReturnType<typeof disposablePostgres>> | undefined;
+  const originalDatabaseUrl = process.env.DATABASE_URL;
 
   beforeAll(async () => {
+    if (selfOwnedDatabase) {
+      cluster = await disposablePostgres();
+      databaseUrl = cluster.database();
+      const deployed = cluster.deploy(databaseUrl);
+      expect(deployed.status).toBe(0);
+      expect(deployed.stderr).not.toContain("Error");
+    }
     process.env.DATABASE_URL = databaseUrl;
     prisma = new PrismaService();
     await prisma.$connect();
@@ -81,6 +92,7 @@ describeWithDatabase("fixture-state PostgreSQL atomic ingestion", () => {
   });
 
   beforeEach(async () => {
+    await prisma.monitoringActivity.deleteMany({ where: { siteId: ids.siteId } });
     await prisma.site.update({
       where: { id: ids.siteId },
       data: { tariffKwhRate: "100.00", timeZone: "Asia/Seoul" }
@@ -127,7 +139,12 @@ describeWithDatabase("fixture-state PostgreSQL atomic ingestion", () => {
     });
   });
 
-  afterAll(async () => prisma.$disconnect());
+  afterAll(async () => {
+    await prisma?.$disconnect();
+    cluster?.stop();
+    if (originalDatabaseUrl === undefined) delete process.env.DATABASE_URL;
+    else process.env.DATABASE_URL = originalDatabaseUrl;
+  });
 
   it("backfills legacy ledger receipt time while leaving null hashes and historical freshness untouched", async () => {
     const migration = readFileSync(join(__dirname,
@@ -179,6 +196,11 @@ describeWithDatabase("fixture-state PostgreSQL atomic ingestion", () => {
     expect(hourly[0]).toMatchObject({ knownSeconds: 0, unknownSeconds: 9 });
     expect(cursor.aggregatedThrough).toEqual(new Date("2026-08-26T00:00:09.000Z"));
     expect(ledgerCount).toBe(1);
+    const activities = await prisma.monitoringActivity.findMany({ where: { siteId: ids.siteId }, orderBy: { kind: "asc" } });
+    expect(activities.map(activity => activity.kind).sort()).toEqual([
+      "fixture_brightness_changed", "fixture_status_changed"
+    ]);
+    expect(activities.every(activity => activity.sourceKey.startsWith(event.eventId))).toBe(true);
   });
 
   it("returns a terminal result for concurrent exact accepted replays", async () => {

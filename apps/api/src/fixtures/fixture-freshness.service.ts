@@ -1,8 +1,12 @@
 import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
+import { randomUUID } from "node:crypto";
 import { FIXTURE_OPERATIONAL_FRESHNESS_MS, gatewayHeartbeatFreshSince } from "@led-control/shared";
 import { MonitoringIncidentReconcilerService } from "../monitoring-incidents/monitoring-incident-reconciler.service";
 import { PrismaService } from "../prisma/prisma.service";
+import { recordMonitoringActivities } from "../monitoring-activity/monitoring-activity.projection";
+
+const ACTIVITY_BATCH_SIZE = 500;
 
 @Injectable()
 export class FixtureFreshnessService implements OnModuleInit, OnModuleDestroy {
@@ -61,13 +65,11 @@ export class FixtureFreshnessService implements OnModuleInit, OnModuleDestroy {
         const observedFixture = { OR: [
           { reportedStatusReason: { not: "provisioning_waiting_state" } }, { reportedStatusReason: null }
         ] };
-        const gatewayOffline = await tx.fixture.updateMany({
-          where: { siteId, ...observedFixture,
-            meshNode: { gateway: { OR: [{ lastHeartbeatAt: { lt: gatewayCutoff } }, { lastHeartbeatAt: null }] } } },
-          data: { status: "offline", statusReason: "gateway_offline" }
-        });
-        const fixtureStale = await tx.fixture.updateMany({
-          where: { siteId,
+        const gatewayOfflineWhere: Prisma.FixtureWhereInput = { siteId, ...observedFixture,
+            NOT: { status: "offline", statusReason: "gateway_offline" },
+            meshNode: { gateway: { OR: [{ lastHeartbeatAt: { lt: gatewayCutoff } }, { lastHeartbeatAt: null }] } } };
+        const fixtureStaleWhere: Prisma.FixtureWhereInput = { siteId,
+            NOT: { status: "offline", statusReason: "fixture_stale" },
             // A recovered gateway can leave an already-offline fixture stale.
             // Require an online gateway instead of excluding offline fixtures.
             meshNode: { gateway: { lastHeartbeatAt: { gte: gatewayCutoff } } },
@@ -77,11 +79,36 @@ export class FixtureFreshnessService implements OnModuleInit, OnModuleDestroy {
               // verification remains offline until a later accepted observation.
               { lastUnreachableAt: { gt: tx.fixture.fields.lastSeenAt } }
             ] }]
-          },
-          data: { status: "offline", statusReason: "fixture_stale" }
-        });
+          };
+        const applyOffline = async (where: Prisma.FixtureWhereInput, statusReason: "gateway_offline" | "fixture_stale") => {
+          let changed = 0;
+          // Drain every matching fixture in bounded writes inside the same transaction.
+          // A fixed total cap would delay the existing operational safety transition.
+          while (true) {
+            const candidates = await tx.fixture.findMany({ where, orderBy: { id: "asc" },
+              take: ACTIVITY_BATCH_SIZE, select: { id: true, floorId: true, name: true, status: true } });
+            if (!candidates.length) return changed;
+            const updated = await tx.fixture.updateMany({
+              where: { ...where, id: { in: candidates.map(fixture => fixture.id) } },
+              data: { status: "offline", statusReason }
+            });
+            if (updated.count !== candidates.length) throw new Error("fixture freshness transition count changed");
+            // The persisted status predicate and Site→Gateway→Fixture locks are the
+            // durable deduplication guard for these worker-generated source keys.
+            const visibleTransitions = candidates.filter(fixture => fixture.status !== "offline");
+            if (visibleTransitions.length) await recordMonitoringActivities(tx, visibleTransitions.map(fixture => ({
+              siteId, floorId: fixture.floorId, fixtureId: fixture.id, displayName: fixture.name,
+              sourceType: "gateway_freshness" as const, sourceKey: randomUUID(),
+              kind: "fixture_offline" as const, status: "offline" as const
+            })));
+            changed += updated.count;
+            if (candidates.length < ACTIVITY_BATCH_SIZE) return changed;
+          }
+        };
+        const gatewayOffline = await applyOffline(gatewayOfflineWhere, "gateway_offline");
+        const fixtureStale = await applyOffline(fixtureStaleWhere, "fixture_stale");
         await this.reconciler.reconcile(tx, site, now);
-        return { gatewayOffline: gatewayOffline.count, fixtureStale: fixtureStale.count };
+        return { gatewayOffline, fixtureStale };
       }, { maxWait: 2000, timeout: 5000 }).catch((error) => {
         // One unavailable Site must not starve later Sites. The transaction
         // rolls back, and the next scheduled sweep retries the same Site.

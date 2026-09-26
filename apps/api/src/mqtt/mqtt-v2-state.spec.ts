@@ -121,6 +121,7 @@ describe("MqttService v2 ordered state", () => {
     ]);
     expect(legacy.payloadHash).toBe(canonicalPayloadHash(event));
     expect(prisma.fixture.update).toHaveBeenCalledTimes(1);
+    expect(prisma.monitoringActivity.createMany).toHaveBeenCalledTimes(1);
     expect(client.stream.destroy).not.toHaveBeenCalled();
   });
 
@@ -1126,6 +1127,7 @@ function fixtureReceiptPrisma(trackingStartedAt: Date, fixtureId: string) {
     ...gatewayEventWatermarkMock(),
     $queryRaw: jest.fn().mockResolvedValue([{
       ...scope, id: fixtureId, energyFixtureId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+      floorId: "33333333-3333-4333-8333-333333333333", name: "B1-L01", status: "offline", healthFaultCodes: null,
       ratedWatt: new Prisma.Decimal("40.00"), brightness: 0, powerOn: null,
       energyTrackingStartedAt: trackingStartedAt, firstStateOccurredAt: null,
       lastStateEventId: null, lastStateSequence: null, lastStateOccurredAt: null,
@@ -1139,6 +1141,8 @@ function fixtureReceiptPrisma(trackingStartedAt: Date, fixtureId: string) {
     fixtureEnergyStateCursor: { findUnique: jest.fn().mockResolvedValue(null), upsert: jest.fn().mockResolvedValue(undefined) },
     fixtureEnergyDailyAggregate: { upsert: jest.fn().mockResolvedValue(undefined) },
     fixtureEnergyHourlyAggregate: { upsert: jest.fn().mockResolvedValue(undefined) },
+    floor: { findMany: jest.fn().mockResolvedValue([{ id: "33333333-3333-4333-8333-333333333333" }]) },
+    monitoringActivity: { createMany: jest.fn().mockResolvedValue({ count: 2 }) },
     fixture: { update: jest.fn().mockResolvedValue(undefined) }
   };
   return { ...tx, $transaction: jest.fn(async (operation) => operation(tx)) };

@@ -27,7 +27,7 @@
 - 공통 맵 정본/파생 표시: `FloorMapDocument`, `FloorMapGeneration`, `FloorMapChunk`, `FloorMapIndexShard`, `FloorMapDisplayAsset`, `FloorMapChangeSet`, `FloorMapRevisionAsset`, `FloorMapStage`, `FloorMapStagePart`
 - 조명/그룹/게이트웨이/메시 노드: `Fixture`, `FixtureGroup`, `GroupFixture`, `Gateway`, `GatewayInventory`, `MeshNode`, `MeshControlGroup`, `MeshControlGroupMember`, `MeshControlGroupExpectedOperation`, `MeshControlGroupAppliedMember`
 - 게이트웨이 PKI: `GatewayEnrollment`, `GatewayCertificate`, `CertificateRevocationReconciliation`
-- 제어/모니터링: `Command`, `CommandDispatch`, `CommandFixtureResult`, `MqttOutbox`, `ProcessedGatewayEvent`, `GatewayEventWatermark`, `MonitoringIncident`, `EnergyUsage`
+- 제어/모니터링: `Command`, `CommandDispatch`, `CommandFixtureResult`, `MqttOutbox`, `ProcessedGatewayEvent`, `GatewayEventWatermark`, `MonitoringIncident`, `MonitoringActivity`, `EnergyUsage`
 - 자동 제어: `GatewayAutomationConfiguration`, `LightingSchedule`, `LightingScheduleFixture`, `VehicleEventRule`, `VehicleEventSource`, `VehicleEventTarget`, `ManualOverride`, `ManualOverrideFixture`, `AutomationExecution`, `AutomationExecutionFixtureResult`
 - 감사/삭제 정리: `GatewayClaimAudit`, `AuditLog`, `SiteDeletionCleanup`
 - 조명 검색/등록: `ProvisioningSession`, `ProvisioningScanOutbox`, `ProvisioningDeviceOutbox`, `DiscoveredMeshNode`
@@ -487,6 +487,14 @@ Task 5는 schema를 변경하지 않았다. 빈 disposable PostgreSQL에 전체 
 Reconciler도 Site → Gateway → Fixture → Incident 순서로 잠그며 현장 전체 대상은 ID 순으로 잠근다. Gateway offline은 대상당 하나이며, fixture stale은 online Gateway에 매핑되고 첫 상태 대기 중이 아닌 조명에만 발생한다. Health fault와 command failure는 각각 Health snapshot과 `reportedStatusReason`에서 판정한다. 따라서 command failure는 운영 freshness가 사유를 덮어써도 유지되며 다음 실제 수락 보고에서 사유가 바뀌어야 해소된다. 관측 지속은 SQL로 `lastObservedAt`만 전진시켜 Prisma `@updatedAt`과 사용자 확인·담당 변경 revision을 보존한다. 조건 해소 시 `activeKey=NULL`, `resolutionKind=automatic_recovery`로 전환하고 `updatedAt`을 최소 1ms 증가시킨다. 확인·담당 이력은 보존하며 새 장애는 별도 행을 만든다.
 
 수집 commit과 incident 반영 사이에는 다음 sweep까지 지연이 있다. 각 Site 내부 고정 운영 상태 변경·reconcile은 원자적이며, 다른 Site는 별도 transaction이다. transaction 획득 대기 2초/실행 5초로 제한하고 실패 현장만 rollback한 뒤 다음 현장을 처리한다. 첫 sweep 이전 과거 장애는 backfill하지 않는다.
+
+### MonitoringActivity
+
+`recordedAt`의 DB 기본값은 `CURRENT_TIMESTAMP AT TIME ZONE 'UTC'`로 명시해 세션 timezone과 무관한 UTC naive timestamp를 저장한다.
+
+`20260925120000_monitoring_activity`는 고객에게 안전하게 표시할 운영 활동 projection을 원시 MQTT 이벤트, 내부 `MonitoringIncident`, IP/user-agent 등이 있는 감사 원장과 분리한다. `MonitoringActivity`는 `id`, `siteId`, 삭제된 층도 식별하는 snapshot `floorId`, `sourceType/sourceKey`, 제한된 `kind`, DB 서버 기본값 `recordedAt`, 선택적 장치 관측 `observedAt`, `fixtureId/displayName` snapshot과 `status/brightnessPercent/commandOutcome/refreshStatus`만 저장한다. 원시 payload, 인증 정보, serial, IP, 내부 fault code, incident 조치 데이터는 컬럼과 고객 응답에 없다. producer는 검증된 원본 상태 전이와 같은 transaction에서 `recordMonitoringActivity`를 호출한다. helper는 같은 transaction에서 현재 Floor의 site 소속을 확인하고, producer의 `recordedAt` 지정은 금지한다. 여러 행은 batch helper로 층 검사를 묶는다. `(siteId, sourceType, sourceKey, floorId)` unique와 `skipDuplicates`로 재전달을 멱등 처리한다. 기존 원시 원장에서 과거 고객 문구를 추측해 backfill하지 않는다.
+
+`(siteId, floorId, recordedAt DESC, id DESC)`는 site/floor 최신순 읽기, `(recordedAt, id)`는 bounded 보존 sweep의 후보 순서용이다. 고객 조회와 물리 정리는 각각의 단일 UTC 요청/sweep 시각에서 같은 `threeCalendarMonthsBefore(now)`를 계산한다. 조회는 `recordedAt >= cutoff`, sweep은 `< cutoff`만 삭제하므로 정확한 경계 행은 남긴다. sweep은 60초마다 `(recordedAt,id)` 순 최대 1,000행을 `FOR UPDATE SKIP LOCKED`로 잠그며, 장애·backlog에서는 다음 sweep으로 미룬다. `recordedAt + 3개월` 저장 만료일은 월말 clamp 역산과 불일치하므로 사용하지 않는다. `Site` FK만 `ON DELETE CASCADE`이며 명시적 현장 삭제는 projection을 즉시 삭제한다. `Floor`/`Gateway`/`Fixture` FK를 두지 않아 층·조명 삭제 또는 현장을 유지하는 Gateway 재설치/재위촉은 미만료 활동 snapshot을 삭제하지 않는다. 읽기는 현재 site `read` 인가와 floor-site 일치를 확인하며, 보관 중인 archived Floor도 조회할 수 있다. cursor는 기존 API와 같은 정규화된 base64 페이지 상태로 principal/site/floor/anchor를 검사하지만 암호학적 무결성 보증이나 인가 토큰은 아니다; 매 요청마다 site 인가와 현재 floor 소속을 재검사한다.
 
 ### MonitoringRefresh / MonitoringRefreshBatch / MonitoringRefreshFixture
 
@@ -1774,8 +1782,9 @@ null은 원래 payload 동등성의 증거가 아니며 첫 인증 replay가 과
 | `Session` | 만료 또는 폐기 후 30일 | 활성 session 보존; 최대 10,000행 |
 | `FloorMapRevision` | floor별 최신 100개 또는 최근 365일 중 넓은 범위 | revision 번호 내림차순으로 최신 100개 보호; 나머지 최대 1,000행 |
 | `MonitoringRefresh` | terminal 완료 후 7일 초과 | `completed/partial/failed/expired`와 `completedAt < cutoff`를 후보 선택·삭제에서 재검사; pending 제외. 앞 세 단계 삭제 수를 뺀 기존 총 21,000 부모 행 budget의 잔여와 1,000 중 작은 값 |
+| `MonitoringActivity` | UTC rolling 3 calendar months | 조회와 동일한 역산 cutoff보다 엄격히 오래된 `recordedAt`만 삭제; `(recordedAt,id)` 순 독립 최대 1,000행 budget. 정확한 경계 보존 |
 
-refresh 삭제는 batch·fixture 결과·요청 alias·연결 outbox를 FK cascade로 정리한다. 위 budget과 로그의 `monitoringRefreshes`는 직접 삭제한 부모 행 수이며 cascade 하위 행 수를 의미하지 않는다. budget 소진 시 다음 sweep으로 미루며, 7일은 최소 보존 기간이지 물리 삭제 완료 기한이 아니다.
+refresh 삭제는 batch·fixture 결과·요청 alias·연결 outbox를 FK cascade로 정리한다. 위 budget과 로그의 `monitoringRefreshes`는 직접 삭제한 부모 행 수이며 cascade 하위 행 수를 의미하지 않는다. `MonitoringActivity`는 기존 21,000행 budget과 별도로 sweep마다 최대 1,000행을 삭제한다. budget 소진 시 다음 sweep으로 미루며, 7일 및 rolling 3개월은 최소 보존 기간이지 물리 삭제 완료 기한이 아니다. 이 활동 sweep은 Command 원본·dispatch·결과를 삭제하지 않는다.
 
 이벤트 네 유형은 합산 최대 10,000행이다. 모든 이벤트 후보는 완전한 scope/hash와 최신 watermark가 필요하며 같은 sequence이면 ID/hash/발생 시각도 일치해야 한다. 알 수 없는 유형, legacy 불완전 원장, 삭제된 fixture·cursor 누락처럼 안전 조건을 충족하지 못하는 행은 무기한 남을 수 있다. 배치 상한은 인스턴스의 sweep당 값이며 여러 인스턴스는 서로 잠근 행을 건너뛴다. `data_retention_sweep`는 기준 시각·소요 시간·대상별 삭제 수와 성공/실패를 기록하고 실패 시 `failedStage`와 앞 단계에서 이미 완료된 삭제 수를 남긴다.
 

@@ -15,6 +15,7 @@ import { FixtureGroupsModule } from "./fixture-groups/fixture-groups.module";
 import { GatewayOnboardingModule } from "./gateway-onboarding/gateway-onboarding.module";
 import { MeshControlGroupModule } from "./mesh-control-groups/mesh-control-group.module";
 import { MonitoringIncidentsModule } from "./monitoring-incidents/monitoring-incidents.module";
+import { MonitoringActivityModule } from "./monitoring-activity/monitoring-activity.module";
 import { MonitoringRefreshModule } from "./monitoring-refresh/monitoring-refresh.module";
 import { OperatorSiteAdminsModule } from "./operator-site-admins/operator-site-admins.module";
 import { PkiModule } from "./pki/pki.module";
@@ -39,6 +40,7 @@ import { ObservabilityModule } from "./observability/observability.module";
     AutomationModule,
     SitesModule,
     MonitoringIncidentsModule,
+    MonitoringActivityModule,
     MonitoringRefreshModule,
     SiteSettingsModule,
     SiteUsersModule,

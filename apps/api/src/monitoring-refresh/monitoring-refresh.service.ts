@@ -13,6 +13,7 @@ import { randomUUID } from "node:crypto";
 import { SiteAccessService } from "../access/site-access.service";
 import { AuthenticatedUser } from "../auth/auth.types";
 import { PrismaService } from "../prisma/prisma.service";
+import { recordMonitoringActivity } from "../monitoring-activity/monitoring-activity.projection";
 import { MonitoringRefreshInput } from "./monitoring-refresh.dto";
 
 const REFRESH_DEADLINE_MS = 30_000;
@@ -161,7 +162,13 @@ export class MonitoringRefreshService {
           }
         });
         await createRequestAlias(tx, user.id, input.clientRequestId, refresh);
-        if (noTargets) return createProjection(refresh);
+        if (noTargets) {
+          await recordMonitoringActivity(tx, {
+            siteId, floorId, sourceType: "monitoring_refresh", sourceKey: `${refreshId}:completed`,
+            kind: "monitoring_refresh_result", refreshStatus: "completed"
+          });
+          return createProjection(refresh);
+        }
 
         await this.createSnapshot(tx, refreshId, siteId, now, deadlineAt, selectedFixtures as FixtureTarget[]);
         return createProjection(refresh);

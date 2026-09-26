@@ -17,12 +17,13 @@ describe("operational retention lifecycle", () => {
     const result = await new DataRetentionService({ $executeRaw: execute } as never)
       .prune(new Date("2026-09-15T08:00:00.000Z"));
     expect(result).toMatchObject({ monitoringRefreshes: remaining });
-    expect(execute).toHaveBeenCalledTimes(remaining === 0 ? 3 : 4);
+    expect(execute).toHaveBeenCalledTimes(remaining === 0 ? 4 : 5);
     if (remaining > 0) {
       const query = execute.mock.calls[3][0];
       expect(query.values).toContainEqual(new Date("2026-09-08T08:00:00.000Z"));
       expect(query.values).toContain(remaining);
     }
+    expect(execute.mock.calls.at(-1)?.[0].values).toContainEqual(new Date("2026-06-15T08:00:00.000Z"));
   });
 
   it("uses an unreferenced timer, skips overlapping ticks and stops on destruction", async () => {
@@ -44,13 +45,13 @@ describe("operational retention lifecycle", () => {
     release();
     await jest.advanceTimersByTimeAsync(0);
     expect(log).toHaveBeenCalledWith(expect.objectContaining({
-      event: "data_retention_sweep", status: "completed", deleted: { gatewayEvents: 2, sessions: 0, floorMapRevisions: 0, monitoringRefreshes: 0 }
+      event: "data_retention_sweep", status: "completed", deleted: { gatewayEvents: 2, sessions: 0, floorMapRevisions: 0, monitoringRefreshes: 0, monitoringActivities: 0 }
     }));
     await jest.advanceTimersByTimeAsync(60_000);
-    expect(db.$executeRaw).toHaveBeenCalledTimes(8);
+    expect(db.$executeRaw).toHaveBeenCalledTimes(10);
     await service.onModuleDestroy();
     await jest.advanceTimersByTimeAsync(60_000);
-    expect(db.$executeRaw).toHaveBeenCalledTimes(8);
+    expect(db.$executeRaw).toHaveBeenCalledTimes(10);
   });
 
   it("logs partial counts without raw errors and retries after a failed tick", async () => {
@@ -64,11 +65,11 @@ describe("operational retention lifecycle", () => {
     await jest.advanceTimersByTimeAsync(60_000);
     expect(warn).toHaveBeenCalledWith(expect.objectContaining({
       event: "data_retention_sweep", status: "failed", failedStage: "sessions",
-      deleted: { gatewayEvents: 3, sessions: 0, floorMapRevisions: 0, monitoringRefreshes: 0 }
+      deleted: { gatewayEvents: 3, sessions: 0, floorMapRevisions: 0, monitoringRefreshes: 0, monitoringActivities: 0 }
     }));
     expect(JSON.stringify(warn.mock.calls)).not.toContain("sensitive database error");
     await jest.advanceTimersByTimeAsync(60_000);
-    expect(db.$executeRaw).toHaveBeenCalledTimes(6);
+    expect(db.$executeRaw).toHaveBeenCalledTimes(7);
     await service.onModuleDestroy();
   });
 
