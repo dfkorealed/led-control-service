@@ -751,6 +751,44 @@ describe("BIO evidence-gated dongle client", () => {
     await h.client.close();
   });
 
+  it("vetoes force-on after brightness submission when the cached proof expires", async () => {
+    const h = harness(); await ready(h);
+    let allowed = true;
+    let started = 0;
+    const setting = h.client.setOutput(verifiedTarget, 60, {
+      mayStartWrite: () => allowed, onWriteStarted: () => { started++; }
+    }).catch((error) => error);
+    await flush();
+    expect(commandBodies(h.device)).toEqual(["cd13c6"]);
+    allowed = false;
+    h.device.receive("55aa1101002055"); await flush();
+    expect(commandBodies(h.device)).toEqual(["cd13c6"]);
+    expect(await setting).toMatchObject({ code: "COMMAND_WRITE_VETOED" });
+    expect(started).toBe(1);
+    await h.client.close();
+  });
+
+  it("continues read-only verification after the last Set loses its DB proof", async () => {
+    const h = harness(75, { observationTimeoutMs: 100 }); await ready(h);
+    let allowed = true;
+    let started = 0;
+    const setting = h.client.setOutput(verifiedTarget, 60, {
+      mayStartWrite: () => allowed, onWriteStarted: () => { started++; }
+    });
+    void setting.catch(() => {});
+    await flush(); h.device.receive("55aa1101002055"); await flush();
+    allowed = false;
+    h.device.receive("55aa1101002055"); await flush();
+    expect(commandBodies(h.device)).toEqual(["cd13c6", "cc1203", "4e13"]);
+    h.device.receive("55aa1101002055");
+    h.device.receive(brightnessReportHex("001122334455", 0x1234, 198)); await flush();
+    h.device.receive("55aa1101002055");
+    h.device.receive(modeReportHex("001122334455", 0x1234, 3));
+    await expect(setting).resolves.toMatchObject({ brightnessPercent: 60, mode: "force-on" });
+    expect(started).toBe(2);
+    await h.client.close();
+  });
+
   it("sets 60% using raw 198 and returns applied only after brightness and mode read-back match", async () => {
     const h = harness(75, { observationTimeoutMs: 100 }); await ready(h);
     const setting = h.client.setOutput(verifiedTarget, 60);

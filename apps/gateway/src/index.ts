@@ -7,6 +7,8 @@ import { publishFixtureIdentifyResult } from "./runtime/fixture-identify-publish
 import {
   GATEWAY_COMMAND_ACCEPTANCE_DEADLINE_MS,
   commandClockResponseSchema,
+  commandDrainRequestSchema,
+  commandDrainResponseSchema,
   type CommandClockRequest,
   type AcceptanceAckV2,
   type AutomationConfigAppliedReceiptV1,
@@ -57,6 +59,7 @@ import { createAssignmentStore, resolveGatewayAssignment } from "./config/resolv
 import { createMqttClient } from "./mqtt/create-mqtt-client";
 import { CommandJournal } from "./commands/command-journal";
 import { DbClockProof, type CommandClockDecision } from "./commands/db-clock-proof";
+import { CommandRfDrain } from "./commands/command-rf-drain";
 import { LinuxBootClock, type BootClockSample } from "./commands/linux-boot-clock";
 import { handleFixturePresenceCheck, MonitoringRefreshEventPublisher } from "./commands/fixture-presence-check-handler";
 import { MonitoringRefreshJournal } from "./state/monitoring-refresh-journal";
@@ -162,6 +165,32 @@ import {
 } from "./automation/software-automation-simulator";
 
 const STATE_EVENT_RESERVATION_BYTES = 2_048;
+
+export function createGatewayCommandDrainHandler(options: {
+  scope: { siteId: string; gatewayId: string };
+  drain: CommandRfDrain;
+  gatewayVersion: string;
+  clock?: Pick<LinuxBootClock, "sample">;
+}) {
+  const clock = options.clock ?? new LinuxBootClock();
+  const requestTopic = mqttTopicsV2.commandDrainRequest(options.scope.siteId, options.scope.gatewayId);
+  return (payload: Buffer, source: GatewayMqttClient, packet?: IPublishPacket) => {
+    if (!source.connected || packet?.retain || (packet?.topic && packet.topic !== requestTopic)) return;
+    try {
+      const request = commandDrainRequestSchema.safeParse(JSON.parse(payload.toString()));
+      if (!request.success || request.data.siteId !== options.scope.siteId || request.data.gatewayId !== options.scope.gatewayId) return;
+      const { queuedCount, submittedCount, unconfirmedCount } = options.drain.snapshot(request.data.publishEpoch);
+      const response = commandDrainResponseSchema.parse({
+        ...request.data, gatewayVersion: options.gatewayVersion, bootId: clock.sample().bootId,
+        queuedCount, submittedCount, unconfirmedCount
+      });
+      // Disposable evidence: never retain/offline-queue a stale snapshot. Wire
+      // counts have no physical-completion certification field; HIL is required.
+      source.publish(mqttTopicsV2.commandDrainResponse(options.scope.siteId, options.scope.gatewayId),
+        JSON.stringify(response), { qos: 0, retain: false }, () => {});
+    } catch { /* Malformed payload or unavailable boot identity is no drain evidence. */ }
+  };
+}
 
 export function createGatewayCommandClockRuntime(options: {
   scope: { siteId: string; gatewayId: string };
@@ -955,6 +984,10 @@ async function main() {
 
   const commandClock = createGatewayCommandClockRuntime({ scope: { siteId, gatewayId } });
   const setPermit = createGatewaySetPermit({ scope: { siteId, gatewayId }, clock: commandClock });
+  const commandRfDrain = new CommandRfDrain();
+  const handleCommandDrain = createGatewayCommandDrainHandler({
+    scope: { siteId, gatewayId }, drain: commandRfDrain, gatewayVersion: gatewayFirmwareVersion
+  });
 
   async function handleDimmingPayloadV2(
     payload: Buffer,
@@ -992,6 +1025,7 @@ async function main() {
           groupStateStore,
           groupQueue,
           ...(setPermit ? { setPermit } : {}),
+          rfDrain: commandRfDrain,
           beforeExecution: async () => {
             try {
               stateReservation = await stateEventCapacity.reserve(command.targetFixtureIds);
@@ -1280,6 +1314,7 @@ async function main() {
     commandTopics: gatewayCommandTopics(siteId, gatewayId),
     topicHandlers: {
       [mqttTopicsV2.commandClockResponse(siteId, gatewayId)]: commandClock.handle,
+      [mqttTopicsV2.commandDrainRequest(siteId, gatewayId)]: handleCommandDrain,
       [fixtureIdentifyTopics.command(siteId, gatewayId)]: async (payload, source) => {
         const result = await fixtureIdentify.handle(JSON.parse(payload.toString()));
         await publishFixtureIdentifyResult(source, result, identifyResultAbort.signal);
@@ -1851,6 +1886,7 @@ export function gatewayCommandTopics(siteId: string, gatewayId: string) {
 function gatewayAcknowledgementTopics(siteId: string, gatewayId: string) {
   return [
     mqttTopicsV2.commandClockResponse(siteId, gatewayId),
+    mqttTopicsV2.commandDrainRequest(siteId, gatewayId),
     mqttTopicsV2.meshGroupResyncAck(siteId, gatewayId),
     mqttTopicsV2.provisioningScanTerminalIngestedAck(siteId, gatewayId),
     mqttTopicsV2.provisioningDeviceTerminalIngestedAck(siteId, gatewayId),

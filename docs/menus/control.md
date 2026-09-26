@@ -4,6 +4,7 @@
 
 ## 구현 완료
 
+- 2026-09-27 Gateway 중앙 Set 물리 전송 경계(Task 6): 명령별 cached permit을 실제 BlueZ D-Bus `Send`와 BIO native write 직전에 동기 재검사한다. 주소/queue/D-Bus interface 조회 지연 및 BIO brightness→force-on 사이의 proof 손실은 후속 Set을 차단한다. 현재 프로세스에서 write 0이 확인된 경우만 내구적 refusal/수동 pending abort로 끝내며, 첫 전송 이후 veto·USB/D-Bus 오류는 unknown/partial을 보존한다. 기존 로컬 일정·센서 자동화 및 Get(이미 보낸 Set의 read-back 포함)은 DB proof veto 대상이 아니다. scoped nonce/epoch drain 요청은 boot ID·Gateway 버전과 queued/submitted/unconfirmed 수를 응답하지만 제출 콜백·관측 성공을 물리 RF 종료로 인증하지 않는다.
 - 2026-09-24 제어 세션 상태는 사용자·현장 범위의 공통 상태 센터에 모인다. 스케줄·차량 이벤트 목록의 기존 페이지를 유지한 백그라운드 재조회 실패와 다음 페이지 실패는 본문을 막지 않는 별도 항목으로 표시하고, 각각 `상태 다시 조회`와 `다음 페이지 다시 시도`를 제공한다. 다음 페이지가 성공해도 이전 페이지의 재조회 실패는 실제 재조회 성공 전까지 남으며, 실패한 cursor가 갱신으로 사라지면 동작할 수 없는 재시도 항목도 해제한다. `마지막 성공`은 현재 사용자·현장 범위에서 실제 최초/전체 목록 조회가 성공한 시각을 현장 시간대로 표시한다. 다음 페이지 성공이나 수동 캐시 쓰기로 갱신하지 않으며, 사용자·현장 전환 또는 401 차단 뒤에는 새 전체 목록 조회가 성공하기 전까지 이전 시각을 표시하지 않는다.
 - 활성화/비활성화 실패는 규칙별 독립 항목으로 이름과 함께 표시한다. 새 규칙 추가·다른 규칙 편집을 열거나 다른 규칙의 저장·토글·삭제가 성공해도 기존 실패는 남는다. 해당 규칙의 토글 또는 삭제가 현재 사용자·현장 범위에서 성공했을 때만 그 규칙의 실패를 해제하며, 삭제 실패 중에는 유지한다. 사용자·현장 범위 종료·401 차단에서도 해제한다. 같은 규칙의 같은 실패 toast는 재시도 중에도 반복 발행하지 않으며, 서로 다른 규칙의 같은 오류는 각각 유지한다. 성공은 짧은 toast로 알리고, 추가/수정·삭제 오류는 해당 dialog 문맥에 남긴다. viewer는 읽기 전용의 중립 badge만 보고 관리 동작은 사용할 수 없다. 최초 목록 조회 실패·인증 차단은 기존 본문 복구 표시를 유지하며, 캐시 목록에서 401이 나면 행과 열린 편집·삭제 dialog도 닫아 조작을 차단한다.
 - 수동 명령의 전송·진행·상태 조회 실패, 응답 ID 불일치, `unknown`, 일부 적용 등 확인이 필요한 결과도 같은 상태 센터에 표시한다. 센터의 동작은 수동 제어 탭으로만 안전하게 돌아가며 명령 전송, 상태 확인 또는 재적용을 대신 실행하지 않는다. 실제 조회 재시도, 조명별 결과 확인 및 미적용 확인 후 재적용은 기존 `03 / 최근 결과` 패널에서 수행한다. 현장·사용자 전환 뒤 이전 요청의 상태와 늦은 응답·toast는 새 범위에 넘어가지 않는다. 이 연계는 focused Vitest·Web typecheck의 소프트웨어 검증 범위이며 브라우저 E2E나 실제 Gateway/조명 HIL 통과로 간주하지 않는다.
@@ -300,6 +301,7 @@
 
 ## 부족하거나 개선이 필요한 기능
 
+- Task 6 drain 카운터는 프로세스 메모리의 보수적 작업 현황이다. API/retention worker는 0건 응답이나 프로세스 재시작으로 초기화된 카운터를 물리 RF 종료 증거로 추론하면 안 된다. 응답 계약에는 물리 완료 인증 필드가 없고, 실장비 submit→RF 상한 측정·boot 세대/전체 subscriber 확인·broker fence가 필수다. Raspberry Pi/BlueZ/BIO HIL 미실행 상태이므로 cutover·운영 purge·복구 POST는 계속 OFF다.
 - 제어 세션 상태 센터 연계는 focused Vitest와 Web typecheck로 확인했으며 브라우저 E2E·실제 모바일 WebView 시각/조작 검증은 아직 완료 증거가 없다. 소프트웨어의 상태·재시도 표시와 실제 Gateway/Mesh 명령 적용·장애 복구 HIL을 구분해 검증해야 한다.
 
 - BIO 센서 자극/회복 10-cycle 물리 HIL과 packet 의미 검토를 완료한 뒤, 별도의 production 통합 계획을 작성해야 한다. 현재 shadow evidence의 `readyForProtocolReview=true`는 protocol 검토 가능 여부일 뿐 `productionActivationAllowed=false`를 바꾸지 않는다.
@@ -344,6 +346,7 @@
 
 ## 관련 파일
 
+- `apps/gateway/src/commands/command-rf-drain.ts`, `apps/gateway/src/commands/gateway-command-handler.ts`, `apps/gateway/src/mesh/bluez-transport.ts`, `apps/gateway/src/mesh/bluez-mesh-adapter.ts`, `apps/gateway/src/bio/bio-usb-transport.ts`, `apps/gateway/src/bio/bio-dongle-client.ts`, `apps/gateway/src/adapters/bio-usb-dongle-adapter.ts`, `apps/gateway/src/index.ts`
 - `apps/gateway/src/bio/bio-command-codec.ts`
 - `apps/gateway/src/bio/bio-sensor-shadow-capture.ts`
 - `apps/gateway/scripts/bio-sensor-shadow-analyze.ts`

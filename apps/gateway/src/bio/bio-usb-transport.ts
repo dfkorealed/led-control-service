@@ -1,6 +1,7 @@
 import type { BioByteConnection } from "./bio-byte-connection";
 import { BioFrameCodec, encodeCrcFrame, encodeGsFrame, type BioFrame, type BioProtocol } from "./bio-frame-codec";
 import { BioUsbError, type BioUsbErrorCode } from "./bio-usb-error";
+import { assertCommandWriteAllowed, type CommandWriteControl } from "../commands/command-rf-drain";
 
 export interface BioTransportSnapshot {
   state: "stopped" | "connecting" | "probing" | "validating" | "ready" | "reconnecting" | "closing" | "close-failed";
@@ -27,7 +28,7 @@ export interface BioUsbRequest {
   command: number;
   payload: Uint8Array;
 }
-export interface BioUsbOperationControl {
+export interface BioUsbOperationControl extends Partial<CommandWriteControl> {
   signal?: AbortSignal;
   deadlineAt?: number;
   /** [확인됨] callback은 queue 진입이 아니라 native connection.write 호출 직전에 한 번 실행된다. */
@@ -242,6 +243,13 @@ export class BioUsbTransport {
       return;
     }
     const generation = this.status.generation;
+    try {
+      assertCommandWriteAllowed(request.control);
+    } catch (error) {
+      this.rejectRequest(request, error);
+      this.pump();
+      return;
+    }
     this.active = request;
     this.writing = true;
     this.armResponseTimeout();

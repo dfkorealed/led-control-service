@@ -19,25 +19,28 @@ import {
 } from "@led-control/shared";
 import { ProvisioningScanJournal, type ProvisioningScanTerminalEvent } from "./state/provisioning-scan-journal";
 import { AutomationRuntimeError, type AutomationRuntime } from "./automation/automation-runtime";
+import type { CommandWriteControl } from "./commands/command-rf-drain";
 
 export interface BleMeshAdapter {
   probeFixturePresence?(fixtureIds: string[], signal?: AbortSignal): Promise<BleMeshFixtureProbeResult[]>;
   setAttention?(fixtureId: string, expiresAt: number, action: "start" | "stop", signal?: AbortSignal): Promise<number>;
-  setBrightness(fixtureIds: string[], brightness: number): Promise<BleMeshCommandReport[]>;
-  applyUnicast?(fixtureId: string, brightness: number, signal?: AbortSignal, deadlineAt?: number): Promise<BleMeshCommandReport>;
+  setBrightness(fixtureIds: string[], brightness: number, writeControl?: CommandWriteControl): Promise<BleMeshCommandReport[]>;
+  applyUnicast?(fixtureId: string, brightness: number, signal?: AbortSignal, deadlineAt?: number, writeControl?: CommandWriteControl): Promise<BleMeshCommandReport>;
   applyParallelUnicast?(
     fixtureIds: string[],
     brightness: number,
     concurrency?: number,
     signal?: AbortSignal,
-    deadlineAt?: number
+    deadlineAt?: number,
+    writeControl?: CommandWriteControl
   ): Promise<BleMeshCommandReport[]>;
   applyMeshGroup?(
     groupAddress: number,
     fixtureIds: string[],
     brightness: number,
     signal?: AbortSignal,
-    deadlineAt?: number
+    deadlineAt?: number,
+    writeControl?: CommandWriteControl
   ): Promise<BleMeshCommandReport[]>;
   onFixtureStatus(listener: (status: BleMeshFixtureStatus) => void): () => void;
   onLightingObservation(listener: (observation: BleMeshLightingObservation) => void): () => void;

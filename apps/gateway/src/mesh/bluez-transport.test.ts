@@ -52,6 +52,22 @@ class CallbackErrorBus implements DbusBus {
 }
 
 describe("BluezTransport", () => {
+  it("vetoes Send after asynchronous interface lookup loses the cached permit", async () => {
+    let allowed = true;
+    let writes = 0;
+    let started = 0;
+    const transport = new BluezTransport(() => ({ getInterface: async () => {
+      allowed = false;
+      return { Send: (callback: (error: null) => void) => { writes++; callback(null); } };
+    } }));
+    const result = await transport.call("org.bluez.mesh", "/node", "Node1", "Send", [], {
+      mayStartWrite: () => allowed, onWriteStarted: () => { started++; }
+    }).catch((error) => error);
+    expect(writes).toBe(0);
+    expect(started).toBe(0);
+    expect(result).toMatchObject({ code: "COMMAND_WRITE_VETOED" });
+  });
+
   it("flattens the two-value RequestProvData reply for dbus-native", () => {
     expect(normalizeDbusMethodReturn({ type: 2, signature: "qq", body: [[0, 0x0100]] })).toEqual({
       type: 2,

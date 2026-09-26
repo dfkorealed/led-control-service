@@ -7,6 +7,7 @@ import { join } from "node:path";
 import {
   createGatewayAutomationServices,
   createGatewayCommandClockRuntime,
+  createGatewayCommandDrainHandler,
   createGatewaySetPermit,
   createGatewayStatusCheckRuntime,
   createFixturePresenceCheckRuntime,
@@ -71,6 +72,34 @@ import { StubBleMeshAdapter } from "../test/stub-adapters";
 const scopedSiteId = "00000000-0000-4000-8000-000000000003";
 const scopedGatewayId = "00000000-0000-4000-8000-000000000004";
 const scopedFixtureId = "00000000-0000-4000-8000-000000000005";
+
+describe("Gateway command drain MQTT routing", () => {
+  it("echoes only a valid scoped nonce/epoch with conservative submission counts", async () => {
+    const { CommandRfDrain } = await import("./commands/command-rf-drain");
+    const drain = new CommandRfDrain();
+    const work = drain.begin(7); work.onWriteStarted(); work.finish();
+    const sent: any[] = [];
+    const client = { connected: true, publish: (topic: string, payload: string, options: unknown) => { sent.push({ topic, payload: JSON.parse(payload), options }); } };
+    const scope = { siteId: scopedSiteId, gatewayId: scopedGatewayId };
+    const handle = createGatewayCommandDrainHandler({ scope, drain, gatewayVersion: "0.1.0-test", clock: {
+      sample: () => ({ bootId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", milliseconds: 1000 })
+    } });
+    const request = { ...scope, nonce: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", publishEpoch: 7 };
+    for (const change of [{ siteId: "99999999-9999-4999-8999-999999999999" }, { gatewayId: "99999999-9999-4999-8999-999999999999" }, { nonce: "wrong-nonce" }, { publishEpoch: 0 }]) {
+      handle(Buffer.from(JSON.stringify({ ...request, ...change })), client as never);
+    }
+    handle(Buffer.from(JSON.stringify(request)), client as never, { retain: true } as never);
+    handle(Buffer.from(JSON.stringify(request)), client as never, { topic: "wrong/scope" } as never);
+    expect(sent).toEqual([]);
+    handle(Buffer.from(JSON.stringify(request)), client as never);
+    expect(sent).toEqual([{ topic: mqttTopicsV2.commandDrainResponse(scope.siteId, scope.gatewayId), options: { qos: 0, retain: false }, payload: {
+      ...request, gatewayVersion: "0.1.0-test", bootId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", queuedCount: 0, submittedCount: 1, unconfirmedCount: 1
+    } }]);
+    client.connected = false;
+    handle(Buffer.from(JSON.stringify(request)), client as never);
+    expect(sent).toHaveLength(1);
+  });
+});
 
 describe("Gateway command clock MQTT runtime", () => {
   function setup() {
@@ -2103,6 +2132,7 @@ describe("startGatewayRuntime", () => {
         "sites/site-27/gateways/gateway-27/commands/automation/config-sync",
         "sites/site-27/gateways/gateway-27/commands/mesh-group/subscription-sync",
         "sites/site-27/gateways/gateway-27/events/clock/response",
+        "sites/site-27/gateways/gateway-27/commands/drain/request",
         "sites/site-27/gateways/gateway-27/commands/mesh-group/resync-ack",
         "sites/site-27/gateways/gateway-27/acks/provisioning/scan-terminal-ingested",
         "sites/site-27/gateways/gateway-27/acks/provisioning/device-terminal-ingested",
@@ -2126,6 +2156,7 @@ describe("startGatewayRuntime", () => {
     expect(subscribe).toHaveBeenCalledWith(
       [
         "sites/site-27/gateways/gateway-27/events/clock/response",
+        "sites/site-27/gateways/gateway-27/commands/drain/request",
         "sites/site-27/gateways/gateway-27/commands/mesh-group/resync-ack",
         "sites/site-27/gateways/gateway-27/acks/provisioning/scan-terminal-ingested",
         "sites/site-27/gateways/gateway-27/acks/provisioning/device-terminal-ingested",

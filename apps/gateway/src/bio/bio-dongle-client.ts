@@ -13,6 +13,7 @@ import {
 } from "./bio-command-codec";
 import { formatBioDeviceUuid, parseBioDeviceUuid } from "./bio-device-identity";
 import { BioDeviceReadTimeoutError, BioUsbError } from "./bio-usb-error";
+import type { CommandWriteControl } from "../commands/command-rf-drain";
 
 export type BioClientEvent = Exclude<BioResponse, { kind: "probe" | "outer-ack" }> | { kind: "invalid-notification" };
 export type BioDongleClientOptions = Pick<BioTransportOptions, "timeoutMs" | "retirementTimeoutMs"> & {
@@ -22,7 +23,7 @@ export type BioDongleClientOptions = Pick<BioTransportOptions, "timeoutMs" | "re
   observationTimeoutMs?: number;
   reconnectReadyTimeoutMs?: number;
 };
-export interface BioOperationControl {
+export interface BioOperationControl extends Partial<CommandWriteControl> {
   signal?: AbortSignal;
   deadlineAt?: number;
   onWriteStarted?: () => void;
@@ -722,7 +723,14 @@ export class BioDongleClient {
     throwIfOperationStopped(control);
     const request = encodeBioCommand(operation, this.sequence);
     this.sequence = (this.sequence + 1) & 0xff;
-    const response = decodeBioResponse(await this.transport.request(request, control));
+    // Get remains usable after Set proof loss, including the read-back of a
+    // Set that already ran. It neither consumes the Set permit nor increments
+    // Set drain counts. Other callers' write callbacks retain their old meaning.
+    const transportControl = control.mayStartWrite &&
+      (operation.kind === "readHighBrightness" || operation.kind === "readControlMode")
+      ? { signal: control.signal, deadlineAt: control.deadlineAt }
+      : control;
+    const response = decodeBioResponse(await this.transport.request(request, transportControl));
     if (response.kind !== "outer-ack") throw new BioUsbError("MALFORMED_FRAME", "BIO outer ACK was not validated");
     if (!response.accepted) throw Object.assign(new Error("BIO dongle rejected the command"), { code: "BIO_DONGLE_REJECTED" });
     // [확인됨] accepted ownership은 ACK decode 직후 post-ACK abort 검사보다 먼저 기록한다.
