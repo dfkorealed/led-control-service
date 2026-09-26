@@ -123,7 +123,8 @@ export function SiteOperationsView({ siteId }: { siteId?: string }) {
       {settingsQuery.data ? <>
         <SiteInformationForm siteId={siteId} site={settingsQuery.data.site} />
 
-        <section className="grid gap-4 border-t border-border-default pt-6" aria-label="층 관리">
+        <section className="grid min-w-0 items-start gap-5 tablet:grid-cols-2" aria-label="층·구역 관리">
+        <section className="grid min-w-0 gap-4 border-t border-border-default pt-6" aria-label="층 관리">
           <PageHeader title="층 관리" headingLevel={3} description="층의 운영 표시 정보와 보관 상태를 관리합니다." />
           {floorActionError ? (
             <FeedbackState tone="danger" icon={CircleAlert} title={floorActionError.title} action={<Button type="button" onClick={floorActionError.retry}>{floorActionError.retryLabel}</Button>} />
@@ -149,13 +150,15 @@ export function SiteOperationsView({ siteId }: { siteId?: string }) {
           </div>
         </section>
 
+        <FixtureGroupSection siteId={siteId} floors={settingsQuery.data.floors} />
+        </section>
+
         <FixtureSection
           siteId={siteId}
           floors={activeFloors}
           selectedFloorId={selectedFloorId}
           onSelectedFloorIdChange={setSelectedFloorId}
         />
-        <FixtureGroupSection siteId={siteId} floors={settingsQuery.data.floors} />
       </> : null}
 
       {floorToArchive ? (

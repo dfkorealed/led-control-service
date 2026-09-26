@@ -261,6 +261,12 @@ test("common map elements saved in settings render immediately in monitoring", a
         const offset = (y * image.width + x) * 4;
         return rgb.every((value, channel) => Math.abs(value - pixels[offset + channel]) < 12);
       };
+      const matchesAntialiasedBlueStroke = (x: number, y: number) => {
+        if (x < 0 || y < 0 || x >= image.width || y >= image.height) return false;
+        const offset = (y * image.width + x) * 4;
+        // At fit-to-viewport scale this 1px map line occupies less than one CSS pixel.
+        return pixels[offset + 2] - pixels[offset] > 100 && pixels[offset + 2] - pixels[offset + 1] > 70;
+      };
       return Object.fromEntries(Object.entries(targets).map(([name, target]) => {
         if (!target.color) return [name, false];
         const rgb = [1, 3, 5].map(index => Number.parseInt(target.color!.slice(index, index + 2), 16));
@@ -270,7 +276,7 @@ test("common map elements saved in settings render immediately in monitoring", a
         const radiusY = name === "text" ? Math.ceil(rect.height * target.radius / 800) : target.radius;
         for (let py = y - radiusY; py <= y + radiusY; py++) {
           for (let px = x - radiusX; px <= x + radiusX; px++) {
-            if (matches(px, py, rgb)) return [name, true];
+            if (name === "line" ? matchesAntialiasedBlueStroke(px, py) : matches(px, py, rgb)) return [name, true];
           }
         }
         return [name, false];
