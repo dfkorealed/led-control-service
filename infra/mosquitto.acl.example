@@ -6,6 +6,11 @@
 # removes both legacy Set writes, replaces patterns with explicit Gateway users,
 # and gives command-set-N only dimming write. Stock ACL rollback is not prevented.
 # Production cutover, purge and recovery POST remain OFF.
+# This file is rollbackable configuration, not BrokerGenerationFence evidence.
+# Revoking its publisher ACL does not erase subscriber persistent sessions/queues.
+# Restoring old ACL + CRL can revive an old credential after broker restart.
+# Every node needs an external immutable minimum-generation admission and CA
+# revocation ledger before production retirement can ever be certified.
 user api-service
 topic write sites/health/production-probe
 topic read sites/+/gateways/+/acks/acceptance

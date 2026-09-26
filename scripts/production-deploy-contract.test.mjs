@@ -50,6 +50,20 @@ test("Set egress cutover defaults OFF and production rejects premature activatio
   assert.match(premature.preflight.stderr, /Set egress cutover remains disabled/);
 });
 
+test("stock broker cannot authorize purge using a supplied disposable evidence claim", () => {
+  const baseline = render();
+  assert.equal(baseline.status, 0);
+  const config = baseline.config;
+  config.services.api.environment.DATABASE_URL = "postgresql://runtime:test-only@postgres:5432/led_control";
+  config.services["api-migrate"].environment.DATABASE_URL = "postgresql://migrator:test-only@postgres:5432/led_control";
+  config.services.api.environment.COMMAND_RETENTION_PURGE_ENABLED = "1";
+  // Even a falsely labeled environment claim is not an immutable admission
+  // adapter. The base stock deployment must reject this configuration outright.
+  config.services.api.environment.BROKER_FENCE_EVIDENCE = JSON.stringify({ status: "verified", scope: "disposable", productionPurgeAllowed: false });
+  assert.throws(() => validateProductionConfig(config), /retention purge remains disabled/);
+});
+
+
 test("standalone config renders all services and migration → API → Web gates", () => {
   const result = render();
   assert.equal(result.status, 0, "standalone config must render without development Compose");
