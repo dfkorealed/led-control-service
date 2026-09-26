@@ -160,6 +160,39 @@ describe("EnergyAnalyticsQueryService custom completed comparisons", () => {
       .rejects.toBeInstanceOf(NotFoundException);
     expect(prisma.site.findUniqueOrThrow).not.toHaveBeenCalled();
   });
+
+  it("visits dense fixture-day values once for a 400-point custom comparison", async () => {
+    jest.useFakeTimers().setSystemTime(new Date("2026-11-10T06:00:00.000Z"));
+    const fixtures = Array.from({ length: 10 }, (_, index) => ({
+      ...fixture({ startedAt: "2025-01-01T00:00:00.000Z" }), id: `fixture-${index}`
+    }));
+    const { service } = createService({ fixtures });
+    const values = new Map<string, Map<string, any>>();
+    const dailyValue = { estimatedKwh: new Prisma.Decimal(1), estimatedCost: new Prisma.Decimal(160),
+      knownSeconds: 86_400, unknownSeconds: 0, hasData: true };
+    let visits = 0;
+    const firstDay = Date.parse("2025-10-06T00:00:00.000Z");
+    for (const fixtureRow of fixtures) {
+      const daily = new Map<string, any>();
+      for (let index = 0; index < 400; index++) {
+        daily.set(new Date(firstDay + index * 86_400_000).toISOString().slice(0, 10), dailyValue);
+      }
+      const iterate = daily[Symbol.iterator].bind(daily);
+      Object.defineProperty(daily, Symbol.iterator, { value: function* () {
+        for (const entry of iterate()) { visits++; yield entry; }
+      } });
+      values.set(fixtureRow.id, daily);
+    }
+    jest.spyOn(service as any, "buildFixtureValues").mockReturnValue(values);
+
+    const result = await service.getCustomComparison(user, SITE_ID, { from: "2025-10-06", to: "2026-11-09" });
+
+    expect(result.points).toHaveLength(400);
+    expect(result.points[0]).toMatchObject({ estimatedKwh: 10, phase: "observed" });
+    expect(result.points[399]).toMatchObject({ estimatedKwh: 10, phase: "observed" });
+    expect(result.summary.estimatedKwh).toBe(4_000);
+    expect(visits).toBeLessThanOrEqual(8_000);
+  });
 });
 
 const user: AuthenticatedUser = {

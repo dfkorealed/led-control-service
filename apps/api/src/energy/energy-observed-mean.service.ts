@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, Injectable, NotFoundException, UnprocessableEntityException } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import {
   energyObservedMeanQuerySchema,
@@ -9,7 +9,7 @@ import {
 import { SiteAccessService } from "../access/site-access.service";
 import type { AuthenticatedUser } from "../auth/auth.types";
 import { PrismaService } from "../prisma/prisma.service";
-import { addCalendarDays, formatCalendarDate, localDateAt, parseCalendarDate, startOfLocalDate } from "./energy-periods";
+import { addCalendarDays, formatCalendarDate, listDaysInclusive, localDateAt, parseCalendarDate, startOfLocalDate } from "./energy-periods";
 
 interface ObservedMeanRow {
   weekday: number;
@@ -53,8 +53,18 @@ export class EnergyObservedMeanService {
     }
     await this.assertScopeExists(siteId, query.scope, query.identityId);
 
-    const start = startOfLocalDate(parseCalendarDate(query.from), site.timeZone);
-    const end = startOfLocalDate(addCalendarDays(parseCalendarDate(query.to), 1), site.timeZone);
+    const days = listDaysInclusive(parseCalendarDate(query.from), parseCalendarDate(query.to), 400);
+    const boundaries = [...days, addCalendarDays(days[days.length - 1], 1)]
+      .map((day) => startOfLocalDate(day, site.timeZone));
+    // Stored hourly facts cannot be split at a local midnight falling inside a
+    // UTC hour. Until sub-hour provenance exists, reject the whole range rather
+    // than report misleading completion or assign energy to the wrong date.
+    if (boundaries.some((boundary) => boundary.getTime() % 3_600_000 !== 0)) {
+      throw new UnprocessableEntityException({ code: "energy_observed_mean_unavailable",
+        message: "observed mean is unavailable for this site time range" });
+    }
+    const start = boundaries[0];
+    const end = boundaries[boundaries.length - 1];
     const firstBucket = new Date(Math.floor(start.getTime() / 3_600_000) * 3_600_000);
     const lastBucket = new Date(Math.floor((end.getTime() - 1) / 3_600_000) * 3_600_000);
     const rows = await this.prisma.$queryRaw<ObservedMeanRow[]>(buildObservedMeanQuery({

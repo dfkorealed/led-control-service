@@ -290,7 +290,9 @@ export class EnergyAnalyticsQueryService {
       site.timeZone,
       site.tariffKwhRate
     );
-    const completed = summarizeRange(values, ranges.display);
+    const dailyTotals = aggregateSiteDailyValues(values);
+    const siteValues = new Map([[siteId, dailyTotals]]);
+    const completed = summarizeRange(siteValues, ranges.display);
     const baselineKwh = baselineForRange(fixtures, ranges.display, site.timeZone);
     const tariff = new Prisma.Decimal(site.tariffKwhRate);
     const days = listDaysInclusive(parseCalendarDate(ranges.display.from), parseCalendarDate(ranges.display.to), 400);
@@ -303,10 +305,10 @@ export class EnergyAnalyticsQueryService {
       selection: { kind: "custom", ...ranges.display },
       range: { ...ranges.display, completedThrough: ranges.completedThrough },
       summary: comparisonSummary(baselineKwh, decimalEnergyOrNull(completed), tariff, "not_applicable"),
-      priorComparisons: buildCustomPriorComparisons(values, fixtures, ranges, site.timeZone),
+      priorComparisons: buildCustomPriorComparisons(siteValues, fixtures, ranges, site.timeZone),
       points: days.map((day) => {
         const key = formatCalendarDate(day);
-        return observedPoint(key, baselineForCalendarDates(fixtures, day, day, site.timeZone), summarizeRange(values, { from: key, to: key }));
+        return observedPoint(key, baselineForCalendarDates(fixtures, day, day, site.timeZone), dailyTotals.get(key) ?? emptyDaily());
       })
     });
   }
@@ -727,6 +729,22 @@ function mergeDaily(
 function summarizeRange(values: Map<string, Map<string, DailyValue>>, range: ComparisonDateRange | null) {
   if (!range) return emptyDaily();
   return summarizeValues(values, (key) => key >= range.from && key <= range.to);
+}
+
+function aggregateSiteDailyValues(values: Map<string, Map<string, DailyValue>>) {
+  const totals = new Map<string, DailyValue>();
+  for (const daily of values.values()) {
+    for (const [key, value] of daily) {
+      const total = totals.get(key) ?? emptyDaily();
+      total.estimatedKwh = total.estimatedKwh.add(value.estimatedKwh);
+      total.estimatedCost = total.estimatedCost.add(value.estimatedCost);
+      total.knownSeconds += value.knownSeconds;
+      total.unknownSeconds += value.unknownSeconds;
+      total.hasData ||= value.hasData;
+      totals.set(key, total);
+    }
+  }
+  return totals;
 }
 
 function summarizeValues(values: Map<string, Map<string, DailyValue>>, includes: (key: string) => boolean) {

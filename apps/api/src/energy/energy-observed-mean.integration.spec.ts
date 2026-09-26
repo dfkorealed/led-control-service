@@ -62,6 +62,31 @@ const enabled = process.env.ENERGY_OBSERVED_MEAN_TEST === "1";
     expect(spring.cells[2]).toMatchObject({ value: null, expectedSeconds: 0, eligibleLocalDays: 0 });
   }, 20_000);
 
+  it.each([
+    ["Asia/Kolkata", "2026-09-01T19:00:00.000Z", 330],
+    ["Asia/Kathmandu", "2026-09-01T19:00:00.000Z", 345]
+  ])("fails closed at a non-hour local midnight in %s instead of trusting an unsplittable UTC bucket", async (timeZone, bucket, offset) => {
+    await db.site.update({ where: { id: siteId }, data: { timeZone } });
+    await db.fixtureEnergyHourlyAggregate.create({ data: row(bucket, "2026-09-02", 0, offset, "1", 50) });
+
+    const error = await service().getObservedMean(user, siteId, {
+      scope: "fixture", identityId: fixtureIdentityId, metric: "energy", from: "2026-09-02", to: "2026-09-02"
+    }).catch((caught: unknown) => caught);
+
+    expect(error).toMatchObject({ status: 422, response: { code: "energy_observed_mean_unavailable" } });
+  }, 20_000);
+
+  it("keeps an hourly aligned Asia/Seoul midnight available", async () => {
+    await db.site.update({ where: { id: siteId }, data: { timeZone: "Asia/Seoul" } });
+    await db.fixtureEnergyHourlyAggregate.create({ data: row("2026-09-01T15:00:00.000Z", "2026-09-02", 0, 540, "1", 50) });
+
+    const result = await service().getObservedMean(user, siteId, {
+      scope: "fixture", identityId: fixtureIdentityId, metric: "energy", from: "2026-09-02", to: "2026-09-02"
+    });
+
+    expect(result.cells[72]).toMatchObject({ value: 1, knownSeconds: 3_600, expectedSeconds: 3_600 });
+  }, 20_000);
+
   it("counts an entirely missing hourly row as expected, then distinguishes a fully observed zero", async () => {
     const query = { scope: "site", identityId: siteId, metric: "energy", from: "2026-11-03", to: "2026-11-03" };
     const missing = await service().getObservedMean(user, siteId, query);

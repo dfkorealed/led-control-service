@@ -125,6 +125,7 @@
 
 ## 부족하거나 개선이 필요한 기능
 
+- 평균 히트맵(`/heatmap/observed-mean`)은 선택 기간의 현지 날짜 경계가 UTC 정시와 맞지 않는 시간대(예: `Asia/Kolkata`, `Asia/Kathmandu`)에서 UTC 시간별 집계를 정확히 나눌 수 없어 정제된 `422 energy_observed_mean_unavailable`을 반환한다. 다른 기간의 수치로 대체하지 않으며, 분 단위 원천 이력이 마련되면 지원을 재검토해야 한다. 맞춤 비교(`/comparisons/range`)의 최대 400개 날짜 점은 현지 날짜별 합계를 한 번 계산해 조회하며 기존 프리셋·비용·관측 0·결측 의미를 유지한다.
 - 통계 Chromium 36/36은 경로별 mock 응답과 독립 포트의 소프트웨어 회귀이며 실제 운영 DB·Gateway·조명 동작이나 native WebView 증거는 아니다. 새 서버 route의 운영 배포와 사용자 데이터 검증은 별도 단계다.
 - Final Atlas API 연동은 상태 이벤트 기반 추정이며 실계량기·Gateway·조명 HIL 증거가 아니다. 새 기간/평균 히트맵과 이번 레이아웃은 mock API 기반 Chromium 통계 흐름 35/35를 1440/1024/390/320px에서 통과했고, 1440px 캡처 및 실제 좌표로 다섯 필터 정렬·상세 카드 높이·큰 Y축 숫자·히트맵 00~23시 노출을 점검했다. 전체 Web 단위 테스트 2473개 통과·3개 skip, Web typecheck/build, UI policy 신규 위반 0을 확인했다. 수동 in-app 시각 점검·실제 iOS/Android WebView·실계량기·Gateway·조명 HIL은 여전히 필요하다. 400일·다수 조명 평균 히트맵은 서버에서 수 초 걸릴 수 있으므로 요청 중 로딩을 표시한다.
 - 앞선 P1 기간·출처·히트맵 축·보고서 만료 메타 검증은 당시 mock API 기반 Chromium `statistics-flow.spec.ts` 27/27과 네 viewport 회귀였다. 그 이후 Final Atlas QA에서는 큰 사용량 값의 Recharts Y축 선행 숫자 잘림을 별도 RED→GREEN 브라우저 사례로 확인했다. 이 자동 검증은 실제 WebView·실장비 수집을 대신하지 않는다.
