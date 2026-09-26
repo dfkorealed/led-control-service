@@ -9,6 +9,7 @@ import { EnergyDimensionHistoryService } from "./energy-dimension-history.servic
 import { EnergyRankingsService } from "./energy-rankings.service";
 import { EnergyRetentionService } from "./energy-retention.service";
 import { EnergyHeatmapService } from "./energy-heatmap.service";
+import { EnergyObservedMeanService } from "./energy-observed-mean.service";
 import { StorageModule } from "../storage/storage.module";
 import { EnergyCsvExportService } from "./reports/energy-csv-export.service";
 import { EnergyReportDocumentBuilder } from "./reports/energy-report-document.builder";
@@ -35,6 +36,7 @@ import { EnergyReportTargetsService } from "./reports/energy-report-targets.serv
     PdfEnergyReportRenderer,
     EnergyAnalyticsQueryService,
     EnergyHeatmapService,
+    EnergyObservedMeanService,
     EnergyRankingsService,
     EnergyRetentionService,
     EnergyService,

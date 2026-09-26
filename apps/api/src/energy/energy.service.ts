@@ -78,6 +78,10 @@ export class EnergyService {
     return this.analytics.getComparison(user, siteId, preset);
   }
 
+  getSiteCustomComparison(user: AuthenticatedUser, siteId: string, query: unknown) {
+    return this.analytics.getCustomComparison(user, siteId, query);
+  }
+
   getSiteRankings(user: AuthenticatedUser, siteId: string, query: unknown) {
     if (!this.rankings) throw new Error("energy rankings service is unavailable");
     return this.rankings.getRankings(user, siteId, query);
