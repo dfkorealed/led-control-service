@@ -13,6 +13,7 @@ import {
   fixturePresenceCheckCompletedAckV1Schema,
   gatewayDimmingCommandDraftV2CompatibilitySchema,
   gatewayDimmingCommandDraftV2Schema,
+  gatewayDimmingCommandEpochPublishedV2Schema,
   gatewayDimmingCommandV2CompatibilitySchema,
   gatewayDimmingCommandPublishedV2Schema,
   gatewayDimmingCommandV2Schema,
@@ -442,6 +443,39 @@ describe("gateway-scoped MQTT v2 contracts", () => {
       deliveryWindowMs: 11_000,
       expiresAt: "2026-07-11T00:00:11.000Z"
     })).toThrow("less than or equal to 10000");
+  });
+
+  it("requires a positive safe publish epoch for the post-cutover Set wire", () => {
+    const epochPublished = {
+      commandId, dispatchId, siteId, gatewayId,
+      idempotencyKey: `${commandId}:${gatewayId}`, sequence: 7,
+      targetType: "fixture" as const, targetId: fixtureId, targetFixtureIds: [fixtureId],
+      deliveryMode: "unicast" as const, brightness: 70,
+      requestedAt: "2026-07-11T00:00:00.000Z",
+      deliveryGeneration: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      deliveryGeneratedAt: "2026-07-11T00:00:00.000Z", deliveryWindowMs: 10_000,
+      expiresAt: "2026-07-11T00:00:10.000Z", publishEpoch: 1
+    };
+
+    expect(gatewayDimmingCommandEpochPublishedV2Schema.parse(epochPublished)).toEqual(epochPublished);
+    expect(gatewayDimmingCommandV2CompatibilitySchema.parse(epochPublished)).toEqual(epochPublished);
+    expect(gatewayDimmingCommandPublishedV2Schema.safeParse(epochPublished).success).toBe(false);
+    for (const publishEpoch of [undefined, 0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1]) {
+      expect(gatewayDimmingCommandEpochPublishedV2Schema.safeParse({ ...epochPublished, publishEpoch }).success).toBe(false);
+    }
+    expect(gatewayDimmingCommandEpochPublishedV2Schema.safeParse({
+      ...epochPublished, expiresAt: "2026-07-11T00:00:09.000Z"
+    }).success).toBe(false);
+    expect(gatewayDimmingCommandEpochPublishedV2Schema.safeParse({
+      ...epochPublished, deliveryWindowMs: 11_000, expiresAt: "2026-07-11T00:00:11.000Z"
+    }).success).toBe(false);
+    expect(gatewayDimmingCommandEpochPublishedV2Schema.safeParse({
+      ...epochPublished, requestedBy: eventId
+    }).success).toBe(false);
+
+    const { publishEpoch: _publishEpoch, ...preCutover } = epochPublished;
+    expect(gatewayDimmingCommandPublishedV2Schema.parse(preCutover)).toEqual(preCutover);
+    expect(gatewayDimmingCommandV2CompatibilitySchema.parse(preCutover)).toEqual(preCutover);
   });
 
   it("requires a destination address only for mesh group delivery", () => {

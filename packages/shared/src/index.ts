@@ -12,6 +12,7 @@ export * from "./energy-p2-contracts";
 export * from "./freshness";
 // Gateway contracts include the monitoring refresh wire schemas and topic builders.
 export * from "./gateway-contracts";
+export * from "./command-clock-contracts";
 export * from "./mqtt";
 export * from "./product-identity";
 export * from "./schemas";

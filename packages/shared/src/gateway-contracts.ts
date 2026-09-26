@@ -11,6 +11,14 @@ export type GatewayCommandKind =
 export const mqttTopicsV2 = {
   gatewayCommand: (siteId: string, gatewayId: string, kind: GatewayCommandKind) =>
     `sites/${siteId}/gateways/${gatewayId}/commands/${kind}`,
+  commandClockRequest: (siteId: string, gatewayId: string) =>
+    `sites/${siteId}/gateways/${gatewayId}/commands/clock/request`,
+  commandClockResponse: (siteId: string, gatewayId: string) =>
+    `sites/${siteId}/gateways/${gatewayId}/events/clock/response`,
+  commandDrainRequest: (siteId: string, gatewayId: string) =>
+    `sites/${siteId}/gateways/${gatewayId}/commands/drain/request`,
+  commandDrainResponse: (siteId: string, gatewayId: string) =>
+    `sites/${siteId}/gateways/${gatewayId}/events/drain/response`,
   acceptanceAck: (siteId: string, gatewayId: string) => `sites/${siteId}/gateways/${gatewayId}/acks/acceptance`,
   deviceStatusAck: (siteId: string, gatewayId: string) => `sites/${siteId}/gateways/${gatewayId}/acks/device-status`,
   stateIngestedAck: (siteId: string, gatewayId: string) =>
@@ -259,11 +267,21 @@ export const gatewayDimmingCommandV2Schema = gatewayDimmingCommandDraftV2BaseSch
   expiresAt: z.string().datetime()
 }).strict().superRefine(validateDimmingExpiry);
 
-export const gatewayDimmingCommandPublishedV2Schema = gatewayDimmingCommandDraftV2BaseSchema.extend({
+const publishedDimmingCommandFields = {
   expiresAt: z.string().datetime(),
   deliveryGeneration: z.string().uuid(),
   deliveryGeneratedAt: z.string().datetime(),
   deliveryWindowMs: z.number().int().positive().max(10_000)
+};
+
+export const gatewayDimmingCommandPublishedV2Schema = gatewayDimmingCommandDraftV2BaseSchema.extend(
+  publishedDimmingCommandFields
+).strict().superRefine(validatePublishedDimmingCommand);
+
+// New Set publishers must include this generation; retain the pre-cutover producer schema separately.
+export const gatewayDimmingCommandEpochPublishedV2Schema = gatewayDimmingCommandDraftV2BaseSchema.extend({
+  ...publishedDimmingCommandFields,
+  publishEpoch: z.number().positive().refine(Number.isSafeInteger, "publishEpoch must be a safe integer")
 }).strict().superRefine(validatePublishedDimmingCommand);
 
 const legacyTimedGatewayDimmingCommandDraftV2BaseSchema = commandIdentitySchema.extend({
@@ -310,8 +328,9 @@ const historicalGatewayDimmingCommandPublishedV2Schema = historicalGatewayDimmin
 }).strict().superRefine(validateLegacyPublishedDimmingCommand);
 
 // Persisted journals and rolling deployments can still contain the pre-invariant wire shape.
-// Keep this parser at compatibility boundaries only; new producers must use gatewayDimmingCommandPublishedV2Schema.
+// Keep this parser at compatibility boundaries only; post-cutover publishers use the strict epoch schema.
 export const gatewayDimmingCommandV2CompatibilitySchema = z.union([
+  gatewayDimmingCommandEpochPublishedV2Schema,
   gatewayDimmingCommandPublishedV2Schema,
   gatewayDimmingCommandV2Schema,
   gatewayDimmingCommandLegacyV2Schema,
@@ -490,6 +509,7 @@ export const meshGroupResyncAckV2Schema = gatewayScopeSchema.extend({
 
 export type GatewayDimmingCommandV2 = z.infer<typeof gatewayDimmingCommandV2Schema>;
 export type GatewayDimmingCommandPublishedV2 = z.infer<typeof gatewayDimmingCommandPublishedV2Schema>;
+export type GatewayDimmingCommandEpochPublishedV2 = z.infer<typeof gatewayDimmingCommandEpochPublishedV2Schema>;
 export type GatewayDimmingCommandV2Compatible = z.infer<typeof gatewayDimmingCommandV2CompatibilitySchema>;
 export type GatewayDimmingCommandDraftV2 = z.infer<typeof gatewayDimmingCommandDraftV2Schema>;
 export type GatewayStatusCheckCommandDraftV2 = z.infer<typeof gatewayStatusCheckCommandDraftV2Schema>;
