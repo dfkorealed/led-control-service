@@ -36,6 +36,21 @@ afterEach(async () => {
 });
 
 describe("ScheduleRuntime", () => {
+  it.each([0, 40])("preserves the independent observation fence for unverified %s%% during manual abort", async (brightness) => {
+    const test = await runtimeFixture("2026-08-30T01:00:00.000Z");
+    await test.runtime.recordFixtureState(fixtureId, 20);
+    await test.runtime.prepareManualControl(manualControl(60));
+    await test.store.updateDurable((state) => {
+      state.unverifiedDesiredByFixture[fixtureId] = brightness;
+      return state;
+    });
+    const restarted = new ScheduleRuntime({ store: new FileAutomationStateStore(test.path), clockTrust: test.trust, wallClock: test.wall.now, execute: test.execute });
+    await restarted.initialize();
+    await restarted.abortManualControl(manualControl(60).sourceId, [fixtureId]);
+    expect(restarted.state().pendingManualControls).toEqual({});
+    expect(restarted.state().unverifiedDesiredByFixture[fixtureId]).toBe(brightness);
+    expect(restarted.pendingObservationFixtureIds()).toContain(fixtureId);
+  });
   it.each(["schedule", "vehicle"])("resumes %s after exact durable manual abort without recording a manual result", async (source) => {
     const test = await runtimeFixture("2026-08-30T00:59:00.000Z");
     await test.runtime.recordFixtureState(fixtureId, 20);

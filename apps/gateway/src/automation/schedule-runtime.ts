@@ -376,7 +376,10 @@ export class ScheduleRuntime {
     return this.runExternal(async () => {
       await this.ensureInitialized();
       const cleared: string[] = [];
-      await this.options.store.updateControlState((state) => {
+      // The command journal may acknowledge abort only after this mutation is
+      // durable. The normal control path's ENOSPC memory-only fallback would
+      // resurrect pending ownership on restart after its replay intent is gone.
+      await this.options.store.updateDurable((state) => {
         for (const fixtureId of fixtureIds) {
           // Only the journal owner can release its prepare. A delayed replay must
           // not remove a newer command or an unrelated local automation transition.
@@ -391,7 +394,7 @@ export class ScheduleRuntime {
         return state;
       });
       for (const fixtureId of cleared) {
-        if (!this.state().unverifiedDesiredByFixture[fixtureId]) this.pendingObservationFixtures.delete(fixtureId);
+        if (this.state().unverifiedDesiredByFixture[fixtureId] === undefined) this.pendingObservationFixtures.delete(fixtureId);
       }
     });
   }

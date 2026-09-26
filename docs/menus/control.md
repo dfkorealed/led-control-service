@@ -280,6 +280,8 @@
 
 - 2026-09-26 Gateway Set DUP 순서 보완: 수신 시 시각/epoch 거부가 결정되어도 동일 그룹 queue를 통과한다. 원본 RF가 진행 중이면 기존 accepted 기록을 재시작 잔여 명령으로 오인해 `timed_out`이나 자동화 handoff를 먼저 만들지 않고, 원본 완료 뒤 같은 terminal 결과를 재생한다. RF 재실행은 없으며 수신 시 거부 판정도 queue 대기 중 새 증거로 해제하지 않는다. 2026-09-27에는 journal instance·idempotencyKey별 진행 중 Promise를 첫 비동기 저장 전에 등록해 unicast를 포함한 모든 delivery mode에 이 순서를 적용했다. 원본 prepare가 진행 중인 DUP는 완료를 기다린 뒤 durable 결과를 읽으며 다른 key 또는 다른 journal의 명령은 병렬 실행한다.
 
+- 2026-09-27 수동 prepare 취소의 저장 실패 보완: abort는 일반 로컬 제어의 ENOSPC 메모리 대체 저장을 사용하지 않고 영속 저장을 요구한다. 저장 실패 시 journal abort intent를 유지하고 terminal ACK를 반환하지 않아 재시작 후 정확한 취소를 다시 수행한다. 별도로 관측되지 않은 desired 밝기가 0%여도 기존 observation fence를 유지한다. 실제 gap journal·headroom 설정의 ENOSPC 주입과 새 runtime/journal 복구로 검증했으며 운영 cutover·purge는 계속 OFF다.
+
 ## 미구현
 
 - BIO 센서 `0x09`의 detected/cleared boolean mapping, source capability `supported` 승격 및 production event 실행은 미구현이다. `0x0c`는 생존 관측이며 이벤트 입력이 아니다.

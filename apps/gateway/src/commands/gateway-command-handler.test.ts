@@ -14,6 +14,9 @@ import { join } from "node:path";
 import { FileAutomationStateStore } from "../automation/automation-state-store";
 import { ScheduleRuntime } from "../automation/schedule-runtime";
 import { createManualControlCoordinator } from "../index";
+import { AutomationTelemetryGapJournal } from "../automation/automation-telemetry-gap-journal";
+import { StorageHeadroomManager } from "../storage/storage-headroom-manager";
+import { writeJsonAtomic } from "../mesh/mesh-store-file";
 
 const command = {
   commandId: "11111111-1111-4111-8111-111111111111",
@@ -32,6 +35,49 @@ const command = {
 };
 
 describe("handleGatewayDimmingCommand", () => {
+  it("retains durable abort intent when production gap-journal fallback cannot persist an ENOSPC abort", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "abort-enospc-restart-"));
+    try {
+      const journalPath = join(directory, "journal.json");
+      const statePath = join(directory, "state.json");
+      const gapJournal = new AutomationTelemetryGapJournal(join(directory, "telemetry.gap"));
+      const headroom = new StorageHeadroomManager(join(directory, "telemetry.reserve"), 4096);
+      await gapJournal.initialize();
+      await headroom.initialize();
+      let abortDiskFull = false;
+      const store = new FileAutomationStateStore(statePath, async (path, value) => {
+        if (abortDiskFull) throw Object.assign(new Error("state volume is full"), { code: "ENOSPC" });
+        await writeJsonAtomic(path, value);
+      }, undefined, { gapJournal, headroom });
+      const runtime = new ScheduleRuntime({ store, clockTrust: { isTrusted: async () => true }, execute: async () => [], allowManualStateInitialization: true });
+      await runtime.initialize();
+      const automation = createManualControlCoordinator(runtime);
+      const prepare = automation.prepare;
+      automation.prepare = async (...args) => { await prepare(...args); abortDiskFull = true; };
+      const adapter = new StubBleMeshAdapter();
+      const outcomes = await Promise.allSettled([handleGatewayDimmingCommand(adapter, new CommandJournal(journalPath), command, undefined, {
+        automation, setPermit: () => abortDiskFull ? "GATEWAY_CLOCK_UNTRUSTED" : undefined
+      })]);
+      // Journal storage remains healthy: only the automation-state write fails,
+      // including the real production headroom retry and gap-journal fallback.
+      const journal = new CommandJournal(journalPath);
+      expect(await journal.get(command.idempotencyKey)).toMatchObject({ automationAbort: "pending" });
+      expect(outcomes[0]?.status).toBe("rejected");
+      abortDiskFull = false;
+      const restartedStore = new FileAutomationStateStore(statePath, undefined, undefined, { gapJournal: new AutomationTelemetryGapJournal(join(directory, "telemetry.gap")) });
+      const restarted = new ScheduleRuntime({ store: restartedStore, clockTrust: { isTrusted: async () => true }, execute: async () => [], allowManualStateInitialization: true });
+      await restarted.initialize();
+      expect(restarted.state().pendingManualControls[command.targetId]?.sourceId).toBe(command.commandId);
+      await recoverPendingManualAutomationHandoffs(journal, createManualControlCoordinator(restarted));
+      expect(restarted.state().pendingManualControls).toEqual({});
+      expect(await journal.pendingAutomationRecoveries()).toEqual([]);
+      expect(await journal.get(command.idempotencyKey)).toMatchObject({ automationAbort: "completed" });
+      const finalStore = new FileAutomationStateStore(statePath);
+      await finalStore.initialize();
+      expect(finalStore.read().pendingManualControls).toEqual({});
+      expect(adapter.commands).toHaveLength(0);
+    } finally { await rm(directory, { recursive: true, force: true }); }
+  });
   it("waits for a live unicast prepare before recovering its DUP, leaving no orphaned pending control", async () => {
     const directory = await mkdtemp(join(tmpdir(), "live-prepare-duplicate-"));
     try {
