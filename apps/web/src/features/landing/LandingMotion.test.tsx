@@ -1,4 +1,5 @@
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { createRef } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { LandingMotion } from "./LandingMotion";
 
@@ -6,10 +7,12 @@ let intersect: (element: Element) => void;
 let preference: EventTarget & { matches: boolean };
 
 function renderLanding() {
-  return render(<main className="landing-page" data-testid="landing">
-    <LandingMotion />
+  const rootRef = createRef<HTMLElement>();
+  const contactRef = createRef<HTMLElement>();
+  return render(<main ref={rootRef} className="landing-page" data-testid="landing">
+    <LandingMotion rootRef={rootRef} sectionRefs={{ contact: contactRef }} />
     <h1 className="landing-hero-heading">위치부터 결과까지</h1>
-    <section data-landing-reveal id="contact" aria-label="상담">
+    <section ref={contactRef} data-landing-reveal id="contact" aria-label="상담">
       <button type="button">상담 시작</button>
     </section>
   </main>);

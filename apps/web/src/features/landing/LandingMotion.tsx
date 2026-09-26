@@ -1,14 +1,19 @@
-import { useEffect } from "react";
+import { useEffect, type RefObject } from "react";
+
+interface LandingMotionProps {
+  rootRef: RefObject<HTMLElement>;
+  sectionRefs: Readonly<Record<string, RefObject<HTMLElement>>>;
+}
 
 /** Optional effects for the single public landing root; content never depends on them. */
-export function LandingMotion() {
+export function LandingMotion({ rootRef, sectionRefs }: LandingMotionProps) {
   useEffect(() => {
-    const root = document.querySelector<HTMLElement>(".landing-page");
+    const root = rootRef.current;
     if (!root || typeof window.matchMedia !== "function") return;
     const preference = window.matchMedia("(prefers-reduced-motion: reduce)");
     if (preference.matches) return;
 
-    const sections = [...root.querySelectorAll<HTMLElement>("[data-landing-reveal]")];
+    const sections = Object.values(sectionRefs).flatMap((ref) => ref.current ? [ref.current] : []);
     const seen = new Set<Element>();
     let observer: IntersectionObserver | undefined;
     let entrancesStopped = false;
@@ -65,6 +70,6 @@ export function LandingMotion() {
       window.removeEventListener("hashchange", stopEntrances);
       preference.removeEventListener?.("change", stopForPreference);
     };
-  }, []);
+  }, [rootRef, sectionRefs]);
   return null;
 }

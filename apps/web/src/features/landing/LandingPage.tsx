@@ -12,11 +12,13 @@ import {
   Search,
   SlidersHorizontal
 } from "lucide-react";
+import { createRef, useMemo, useRef } from "react";
 import { KindaLogo } from "../../components/brand/KindaLogo";
 import { Card } from "../../components/ui/Card";
 import { LinkButton } from "../../components/ui/LinkButton";
 import { DashboardPreview } from "./DashboardPreview";
 import { InquiryForm } from "./InquiryForm";
+import { LandingMotion } from "./LandingMotion";
 
 const audiences = [
   {
@@ -103,7 +105,19 @@ function VerificationIllustration() {
 }
 
 export function LandingPage() {
-  return <div className="landing-page min-h-screen break-keep bg-brand-paper text-brand-navy">
+  const rootRef = useRef<HTMLDivElement>(null);
+  const sectionRefs = useMemo(() => ({
+    introduction: createRef<HTMLDivElement>(),
+    location: createRef<HTMLElement>(),
+    control: createRef<HTMLElement>(),
+    verification: createRef<HTMLElement>(),
+    consultation: createRef<HTMLDivElement>(),
+    benefits: createRef<HTMLElement>(),
+    preparation: createRef<HTMLElement>(),
+    contact: createRef<HTMLElement>()
+  }), []);
+  return <div ref={rootRef} className="landing-page min-h-screen break-keep bg-brand-paper text-brand-navy">
+    <LandingMotion rootRef={rootRef} sectionRefs={sectionRefs} />
     <a href="#main-content" className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50 focus:rounded-control focus:bg-surface-panel focus:p-4 focus:text-action-primary">본문으로 이동</a>
     <header className="border-b border-border-subtle bg-surface-panel">
       <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-x-4 px-4 py-3 compact:px-8">
@@ -131,7 +145,7 @@ export function LandingPage() {
       </section>
 
       <section id="product" aria-labelledby="product-heading" tabIndex={-1} className="scroll-mt-6 bg-surface-panel">
-        <div className="mx-auto max-w-6xl px-4 pb-10 pt-16 compact:px-8 compact:pb-16" data-landing-reveal>
+        <div ref={sectionRefs.introduction} className="mx-auto max-w-6xl px-4 pb-10 pt-16 compact:px-8 compact:pb-16" data-landing-reveal>
           <p className="mb-4 text-body-sm font-bold text-action-primary">현장에서 이어지는 세 가지 질문</p>
           <div className="grid gap-6 compact:grid-cols-[minmax(0,1.15fr)_minmax(0,0.85fr)] compact:items-end">
             <h2 id="product-heading" className="max-w-2xl text-display font-bold">찾아야 할 때, 바꿔야 할 때, 확인해야 할 때.</h2>
@@ -139,7 +153,7 @@ export function LandingPage() {
           </div>
         </div>
 
-        <article data-landing-story="location" data-landing-reveal aria-labelledby="location-heading" className="border-t border-border-subtle">
+        <article ref={sectionRefs.location} data-landing-story="location" data-landing-reveal aria-labelledby="location-heading" className="border-t border-border-subtle">
           <div className="mx-auto grid max-w-6xl gap-10 px-4 py-16 compact:px-8 tablet:grid-cols-2 tablet:items-center tablet:gap-16">
             <div>
               <p className="mb-4 text-body-sm font-bold text-action-primary">01 / 위치와 상태</p>
@@ -151,7 +165,7 @@ export function LandingPage() {
           </div>
         </article>
 
-        <article data-landing-story="control" data-landing-reveal aria-labelledby="control-story-heading" className="bg-brand-navy text-content-inverse">
+        <article ref={sectionRefs.control} data-landing-story="control" data-landing-reveal aria-labelledby="control-story-heading" className="bg-brand-navy text-content-inverse">
           <div className="mx-auto grid max-w-6xl gap-10 px-4 py-16 compact:px-8 tablet:grid-cols-2 tablet:items-center tablet:gap-16">
             <div className="tablet:order-2">
               <p className="mb-4 text-body-sm font-bold text-brand-coral">02 / 제어와 일정</p>
@@ -163,7 +177,7 @@ export function LandingPage() {
           </div>
         </article>
 
-        <article data-landing-story="verification" data-landing-reveal aria-labelledby="verification-heading" className="border-b border-border-subtle bg-brand-paper">
+        <article ref={sectionRefs.verification} data-landing-story="verification" data-landing-reveal aria-labelledby="verification-heading" className="border-b border-border-subtle bg-brand-paper">
           <div className="mx-auto grid max-w-6xl gap-10 px-4 py-16 compact:px-8 tablet:grid-cols-2 tablet:items-center tablet:gap-16">
             <div>
               <p className="mb-4 text-body-sm font-bold text-action-primary">03 / 기록과 판단</p>
@@ -176,14 +190,14 @@ export function LandingPage() {
         </article>
       </section>
 
-      <div className="bg-action-primary-soft" data-landing-reveal>
+      <div ref={sectionRefs.consultation} className="bg-action-primary-soft" data-landing-reveal>
         <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-5 px-4 py-8 compact:px-8">
           <p className="max-w-2xl text-body-lg font-bold">우리 현장의 조명 배치와 운영 방식에 맞춰, 어떤 흐름이 필요한지 함께 살펴보세요.</p>
           <LinkButton href="#contact" variant="secondary">우리 현장 상담하기 <ArrowRight size={17} aria-hidden="true" /></LinkButton>
         </div>
       </div>
 
-      <section id="benefits" aria-labelledby="benefits-heading" tabIndex={-1} className="mx-auto max-w-6xl scroll-mt-6 px-4 py-16 compact:px-8" data-landing-reveal>
+      <section ref={sectionRefs.benefits} id="benefits" aria-labelledby="benefits-heading" tabIndex={-1} className="mx-auto max-w-6xl scroll-mt-6 px-4 py-16 compact:px-8" data-landing-reveal>
         <div className="mb-10 grid gap-5 compact:grid-cols-2 compact:items-end">
           <div><p className="mb-4 text-body-sm font-bold text-action-primary">같은 현장, 다른 업무</p><h2 id="benefits-heading" className="text-display font-bold">운영하는 사람도,<br /> 설치하는 사람도.</h2></div>
           <p className="max-w-md text-body-lg text-brand-navy/80">업무의 시작점은 달라도, 위치와 상태를 함께 보는 기준은 이어집니다.</p>
@@ -200,7 +214,7 @@ export function LandingPage() {
         </div>
       </section>
 
-      <section aria-labelledby="prepare-eyebrow prepare-heading" className="border-y border-border-subtle bg-surface-panel" data-landing-reveal>
+      <section ref={sectionRefs.preparation} aria-labelledby="prepare-eyebrow prepare-heading" className="border-y border-border-subtle bg-surface-panel" data-landing-reveal>
         <div className="mx-auto grid max-w-6xl gap-8 px-4 py-12 compact:px-8 compact:py-16 tablet:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)] tablet:gap-12">
           <div><p id="prepare-eyebrow" className="mb-4 text-body-sm font-bold text-action-primary">상담 전 확인할 것</p><h2 id="prepare-heading" className="text-display font-bold">현장 이야기를<br />조금만 들려주세요.</h2><p className="mt-5 text-body-lg text-brand-navy/80">정확한 구성은 상담에서 함께 확인합니다. 아래 항목을 알고 계신 범위에서 알려주시면 됩니다.</p></div>
           <div>
@@ -214,7 +228,7 @@ export function LandingPage() {
         </div>
       </section>
 
-      <section id="contact" aria-labelledby="contact-heading" tabIndex={-1} className="scroll-mt-6 bg-brand-navy text-content-inverse" data-landing-reveal>
+      <section ref={sectionRefs.contact} id="contact" aria-labelledby="contact-heading" tabIndex={-1} className="scroll-mt-6 bg-brand-navy text-content-inverse" data-landing-reveal>
         <div className="mx-auto grid max-w-6xl gap-8 px-4 py-16 compact:grid-cols-2 compact:items-start compact:px-8">
           <div><p className="mb-4 text-body-sm font-bold text-brand-coral">킨다 도입 상담</p><h2 id="contact-heading" className="text-display font-bold">우리 현장에 맞는 시작,<br />함께 살펴보겠습니다.</h2><p className="mt-5 max-w-md text-body-lg text-content-inverse/80">현장 규모와 운영 방식, 설치 상황을 알려주세요. 필요한 등록·배치·운영 흐름을 함께 확인하겠습니다.</p></div>
           <InquiryForm />
