@@ -2,9 +2,9 @@
 
 ## 2026-09-27 층별 설정 대시보드 계약
 
-- 구현 완료: 기존 dashboard 응답에 활성 층의 `summary.totalFixtures`, `mapRevision`, `mapConfigured`가 추가돼 설정 개요와 맵 목록이 실제 등록 수 및 맵 구성 상태를 사용할 수 있다. 조명 상세를 생략하는 기본 조회에서도 이 필드는 유지된다.
+- 구현 완료: 기존 dashboard 응답에 활성 층의 `summary.totalFixtures`, `mapRevision`, `mapConfigured`가 추가돼 설정 개요와 맵 목록이 실제 등록 수 및 맵 구성 상태를 사용할 수 있다. 공통 맵은 현재 revision snapshot의 요소 수만 한 번에 읽으며 조명 상세를 생략하는 기본 조회에서도 이 필드는 유지된다.
 - 미구현: `mapConfigured`의 표시 요소별 가시성 판정과 실제 장비·고객 DB 운영 검증은 이번 경량 API 변경에 포함되지 않는다.
-- 부족하거나 개선이 필요한 기능: 공통 맵 generation의 `elementCount > 0`은 모두 숨김인 맵도 구성된 것으로 분류할 수 있다. 리비전 증가나 `sourceType=none`인 빈 배경은 구성 완료로 보지 않으며, 등록 조명 수를 배치된 핀 수로 해석하지 않는다.
+- 부족하거나 개선이 필요한 기능: 현재 공통 맵 revision snapshot이 누락되거나 불일치하면 dashboard 조회를 실패시킨다. 해당 snapshot의 `elementCount > 0`은 모두 숨김인 맵도 구성된 것으로 분류할 수 있다. 리비전 증가나 `sourceType=none`인 빈 배경은 구성 완료로 보지 않으며, 등록 조명 수를 배치된 핀 수로 해석하지 않는다.
 - 관련 파일: `apps/api/src/sites/sites.service.ts`, `apps/api/src/sites/sites.service.spec.ts`, `apps/api/src/sites/sites-dashboard.integration.spec.ts`, `apps/web/src/api/queries.ts`.
 - 갱신 규칙: 층별 지도 콘텐츠 또는 등록 수 판정 계약을 바꾸면 설정 개요·맵 목록의 소비 방식과 실제 DB 테스트 결과를 함께 갱신한다.
 

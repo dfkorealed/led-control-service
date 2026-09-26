@@ -7,6 +7,7 @@ import { SitesService } from "./sites.service";
 
 describe("SitesService", () => {
   const prisma = {
+    $queryRaw: jest.fn(),
     site: {
       findFirst: jest.fn()
     },
@@ -29,6 +30,7 @@ describe("SitesService", () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    prisma.$queryRaw.mockResolvedValue([]);
     siteAccess.capabilities.mockResolvedValue({ read: true, control: true, manage: true, commission: true });
     siteAccess.listAccessibleSiteIds.mockResolvedValue(["site-1"]);
   });
@@ -238,11 +240,15 @@ describe("SitesService", () => {
       gateways: [], groups: [],
       floors: [
         { id: "f1", name: "B1", level: -1, mapRevision: 9, floorPlan: { sourceType: "none" },
-          mapDocument: { activeGeneration: { elementCount: 0 } }, cadScene: null, mapObjects: [] },
+          mapDocument: { revision: 9 }, cadScene: null, mapObjects: [] },
         { id: "f2", name: "1F", level: 1, mapRevision: 2, floorPlan: null,
-          mapDocument: { activeGeneration: { elementCount: 3 } }, cadScene: null, mapObjects: [] }
+          mapDocument: { revision: 2 }, cadScene: null, mapObjects: [] }
       ]
     });
+    prisma.$queryRaw.mockResolvedValue([
+      { floorId: "f1", mapRevision: 9, revision: 9, snapshotRevision: 9, snapshotVersion: "3", elementCount: 0 },
+      { floorId: "f2", mapRevision: 2, revision: 2, snapshotRevision: 2, snapshotVersion: "3", elementCount: 3 }
+    ]);
     prisma.fixture.findMany.mockResolvedValue([
       { floorId: "f1", brightness: 20, reportedStatus: "online", reportedStatusReason: "reported",
         lastSeenAt: null, lastUnreachableAt: null, healthFaultCodes: [], healthLastSeenAt: null, meshNode: null },
@@ -265,6 +271,7 @@ describe("SitesService", () => {
     expect(prisma.fixture.findMany).toHaveBeenCalledWith(expect.objectContaining({
       select: expect.objectContaining({ floorId: true, reportedStatus: true, brightness: true })
     }));
+    expect(prisma.$queryRaw).toHaveBeenCalledTimes(1);
   });
 
   it("recognizes legacy plan, CAD and visible legacy object without counting an empty map revision", async () => {
@@ -283,15 +290,18 @@ describe("SitesService", () => {
     expect(result.floors.map((floor) => floor.mapConfigured)).toEqual([false, true, true, true]);
   });
 
-  it("treats a document without an active generation as an unconfigured map", async () => {
+  it("treats zero elements at the exact current revision as an unconfigured map", async () => {
     prisma.site.findFirst.mockResolvedValue({
       id: "site-1", name: "Site", organization: { name: "Customer" }, address: null,
       tariffKwhRate: null, timeZone: "Asia/Seoul", gateways: [], groups: [],
       floors: [{
         id: "reset", name: "Reset", level: 0, mapRevision: 4, floorPlan: null,
-        mapDocument: { activeGeneration: null }, cadScene: null, mapObjects: []
+        mapDocument: { revision: 4 }, cadScene: null, mapObjects: []
       }]
     });
+    prisma.$queryRaw.mockResolvedValue([
+      { floorId: "reset", mapRevision: 4, revision: 4, snapshotRevision: 4, snapshotVersion: "3", elementCount: 0 }
+    ]);
     prisma.fixture.findMany.mockResolvedValue([]);
 
     const result = await new SitesService(prisma as never, siteAccess as never).getDashboardById("site-1", false);

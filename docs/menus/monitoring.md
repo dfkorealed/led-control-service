@@ -2,9 +2,9 @@
 
 ## 2026-09-27 현장·층 대시보드 집계 계약
 
-- 구현 완료: `GET /sites/:siteId/dashboard`는 활성 층의 전체 등록 조명을 동일 현장 정책·응답 시각으로 한 번씩 분류해 현장 `offlineFixtures`와 층별 `summary`를 반환한다. `includeFixtures=false`여도 집계는 유지하고 조명 상세는 제외한다. 층의 `mapRevision`과 경량 `mapConfigured`도 함께 반환한다.
+- 구현 완료: `GET /sites/:siteId/dashboard`는 활성 층의 전체 등록 조명을 동일 현장 정책·응답 시각으로 한 번씩 분류해 현장 `offlineFixtures`와 층별 `summary`를 반환한다. `includeFixtures=false`여도 집계는 유지하고 조명 상세는 제외한다. 층의 `mapRevision`과 `mapConfigured`는 현재 공통 맵 revision의 작은 집계값을 현장당 한 번 조회해 반환하며 전체 변경 snapshot이나 맵 blob을 응답에 싣지 않는다.
 - 미구현: 이 API 계약 변경만으로 실제 장비 상태 수신, 고객 DB 적용, 운영 배포가 검증되지는 않는다.
-- 부족하거나 개선이 필요한 기능: `mapConfigured`의 공통 문서 판정은 활성 generation의 `elementCount`를 사용하므로 모든 요소가 숨김이어도 true일 수 있다. 표시 가능한 요소만 구분하려면 별도 메타데이터 계약이 필요하다. 층별 등록 수는 지도에 배치된 핀 수와 다르다.
+- 부족하거나 개선이 필요한 기능: 현재 revision snapshot이 없거나 revision 값과 불일치하면 맵 상태를 거짓으로 표시하지 않고 dashboard 조회를 실패시킨다. 공통 문서의 `elementCount`에는 표시 여부가 없어 모든 요소가 숨김이어도 true일 수 있다. 표시 가능한 요소만 구분하려면 별도 메타데이터 계약이 필요하다. 층별 등록 수는 지도에 배치된 핀 수와 다르다.
 - 관련 파일: `apps/api/src/sites/sites.service.ts`, `apps/api/src/sites/sites.service.spec.ts`, `apps/api/src/sites/sites-dashboard.integration.spec.ts`, `apps/web/src/api/queries.ts`.
 - 갱신 규칙: 대시보드 상태 분류나 맵 판정 조건을 바꾸면 활성 층 합계, 상세 제외 경로, 실제 DB 회귀와 Web 소비 계약을 함께 갱신한다.
 

@@ -47,7 +47,7 @@ export class SitesService {
           orderBy: { level: "asc" },
           include: {
             floorPlan: true,
-            mapDocument: { select: { activeGeneration: { select: { elementCount: true } } } },
+            mapDocument: { select: { revision: true } },
             cadScene: { select: { status: true, primitiveCount: true } },
             mapObjects: { where: { visible: true }, take: 1, select: { id: true } }
           }
@@ -76,6 +76,40 @@ export class SitesService {
     });
 
     if (!site) throw new NotFoundException("site not found");
+
+    // Generation.elementCount is only the checkpoint base; ordinary saves update
+    // the exact revision snapshot while leaving that base count unchanged.
+    // Extract one scalar per active floor in the database so dashboard reads
+    // never transfer full revision snapshots or issue a query per floor.
+    const currentMapRows = site.floors.some((floor) => floor.mapDocument)
+      ? await this.prisma.$queryRaw<Array<{
+          floorId: string; mapRevision: number; revision: number; snapshotRevision: number | null;
+          snapshotVersion: string | null; elementCount: number | null;
+        }>>`
+          SELECT document."floorId" AS "floorId", floor."mapRevision" AS "mapRevision",
+            document."revision" AS "revision",
+            (history."snapshot" #>> '{document,revision}')::integer AS "snapshotRevision",
+            history."snapshot" ->> 'version' AS "snapshotVersion",
+            (history."snapshot" #>> '{document,elementCount}')::integer AS "elementCount"
+          FROM "FloorMapDocument" AS document
+          JOIN "Floor" AS floor ON floor."id" = document."floorId"
+          LEFT JOIN "FloorMapRevision" AS history ON history."floorId" = document."floorId"
+            AND history."revision" = document."revision"
+          WHERE floor."siteId" = ${site.id} AND floor."status" = 'active'
+        `
+      : [];
+    const currentMapByFloor = new Map(currentMapRows.map((row) => [row.floorId, row]));
+    const currentMapCounts = new Map<string, number>();
+    for (const floor of site.floors) {
+      if (!floor.mapDocument) continue;
+      const row = currentMapByFloor.get(floor.id);
+      if (!row || row.revision !== row.mapRevision ||
+        row.snapshotRevision !== row.revision || row.snapshotVersion !== "3" ||
+        row.elementCount === null || !Number.isSafeInteger(row.elementCount) || row.elementCount < 0) {
+        throw new Error("map dashboard revision metadata mismatch");
+      }
+      currentMapCounts.set(floor.id, row.elementCount);
+    }
 
     const fixtures = includeFixtures
       ? await this.prisma.fixture.findMany({
@@ -135,11 +169,11 @@ export class SitesService {
         name: floor.name,
         level: floor.level,
         summary: floorSummaries.get(floor.id) ?? emptyFixtureCounts(),
-        mapRevision: floor.mapRevision,
+        mapRevision: currentMapByFloor.get(floor.id)?.mapRevision ?? floor.mapRevision,
         // A revision alone may represent an initialized or reset empty document.
-        // Generation elementCount has no visibility breakdown, so an all-hidden document
+        // Snapshot elementCount has no visibility breakdown, so an all-hidden document
         // remains configured until a separate visible-count contract is available.
-        mapConfigured: (floor.mapDocument?.activeGeneration?.elementCount ?? 0) > 0
+        mapConfigured: (currentMapCounts.get(floor.id) ?? 0) > 0
           || (floor.floorPlan != null && floor.floorPlan.sourceType !== "none")
           || (floor.cadScene?.status === "active" && floor.cadScene.primitiveCount > 0)
           || (floor.mapObjects?.length ?? 0) > 0,
