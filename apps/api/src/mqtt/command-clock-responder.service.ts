@@ -22,14 +22,16 @@ export class CommandClockResponderService {
     }
     try {
       return await this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
-        await this.health.assertHealthy(tx);
-        const [clock] = await tx.$queryRaw<Array<{ dbNow: Date }>>`SELECT clock_timestamp() AS "dbNow"`;
         const epochs = await tx.$queryRaw<Array<{ generation: number }>>`
           SELECT "generation" FROM "CommandPublishEpoch" WHERE "status" = 'active' FOR SHARE`;
-        if (!(clock?.dbNow instanceof Date) || !Number.isFinite(clock.dbNow.getTime()) || epochs.length !== 1) return null;
+        if (epochs.length !== 1) return null;
+        // Hold the epoch lock before sampling: lock waits must not consume the
+        // evidence freshness window or separate the validated time from reply.
+        const dbNow = await this.health.assertHealthy(tx);
+        if (!(dbNow instanceof Date) || !Number.isFinite(dbNow.getTime())) return null;
         const response = commandClockResponseSchema.safeParse({
           ...parsed.data,
-          dbNow: clock.dbNow.toISOString(),
+          dbNow: dbNow.toISOString(),
           publishEpoch: epochs[0].generation
         });
         return response.success ? response.data : null;

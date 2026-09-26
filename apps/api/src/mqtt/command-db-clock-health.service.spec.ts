@@ -55,6 +55,6 @@ describe("CommandDbClockHealth", () => {
 
   it("accepts attested current primary evidence at the 100ms offset boundary", async () => {
     await expect(new CommandDbClockHealth({ read: async () => ({ ...healthy, offsetMs: -100 }) })
-      .assertHealthy(transaction())).resolves.toBeUndefined();
+      .assertHealthy(transaction())).resolves.toEqual(dbNow);
   });
 });

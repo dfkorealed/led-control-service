@@ -41,7 +41,7 @@ export class CommandDbClockHealth {
     private readonly evidenceSource?: CommandDbClockEvidenceSource
   ) {}
 
-  async assertHealthy(tx: Prisma.TransactionClient): Promise<void> {
+  async assertHealthy(tx: Prisma.TransactionClient): Promise<Date> {
     // No production provider is registered until the central DB host has a
     // trusted sync/step/failover attestor. Missing evidence always denies Set time.
     if (!this.evidenceSource) throw new Error("DB clock attestation unavailable");
@@ -63,6 +63,7 @@ export class CommandDbClockHealth {
       evidence.primary.address !== observed.serverAddress || evidence.primary.port !== observed.serverPort) {
       throw new Error("DB clock attestation not current for primary");
     }
+    return observed.dbNow;
   }
 }
 
