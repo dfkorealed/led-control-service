@@ -51,6 +51,9 @@ export function validateProductionConfig(config, {smokeProject}={}) {
   for(const name of ['api','api-migrate','cad-converter','web']) requireRule(/^(1000|2000|101)(:\d+)?$/.test(s[name].user),'non-root application runtime');
   requireRule(s.api.image===s['api-migrate'].image,'identical migration and API image');
   requireRule(s.api.depends_on?.['api-migrate']?.condition==='service_completed_successfully','migration before API');
+  // The base deployment has no reviewed generation-specific mounts or all-node
+  // admission/census proof. Variables are preparation, never activation evidence.
+  requireRule(s.api.environment.COMMAND_SET_EGRESS_ENABLED==='0','Set egress cutover remains disabled');
   requireRule(s.api.depends_on?.['cad-converter']?.condition==='service_healthy','ready converter sidecar before API');
   requireRule(s.web.depends_on?.api?.condition==='service_healthy','ready API before Web');
   requireRule((s.web.ports ?? []).map(port => port.target).sort().join(',') === '8080,8443,9443', 'Web browser and raw device TLS listeners');

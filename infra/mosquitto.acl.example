@@ -1,9 +1,64 @@
-# API client certificate CN
+# OFF compatibility template used by production Compose.
+# Gateway CN must equal Gateway.id; existing onboarding keeps its scoped patterns.
+# NEVER add command-set identities to this OFF template: global patterns would
+# give them non-Set rights. Explicit cutover must REPLACE this file with
+# renderMosquittoAcl(fullGatewayCensus, { setGeneration: N }); that renderer
+# removes both legacy Set writes, replaces patterns with explicit Gateway users,
+# and gives command-set-N only dimming write. Stock ACL rollback is not prevented.
+# Production cutover, purge and recovery POST remain OFF.
 user api-service
-topic readwrite sites/#
+topic write sites/health/production-probe
+topic read sites/+/gateways/+/acks/acceptance
+topic read sites/+/gateways/+/acks/device-status
+topic read sites/+/gateways/+/state/fixtures
+topic read sites/+/gateways/+/state/fixture-presence
+topic read sites/+/gateways/+/state/heartbeat
+topic read sites/+/gateways/+/events/provisioning/scan-found
+topic read sites/+/gateways/+/events/provisioning/scan-completed
+topic read sites/+/gateways/+/events/provisioning/scan-failed
+topic read sites/+/gateways/+/events/provisioning/device-terminal
+topic read sites/+/gateways/+/events/provisioning-completed
+topic read sites/+/gateways/+/events/provisioning-failed
+topic read sites/+/gateways/+/events/identify-result
+topic read sites/+/gateways/+/events/fixture-presence-check-completed
+topic read sites/+/gateways/+/events/fixture-unreachable
+topic read sites/+/gateways/+/events/mesh-group/resync-request
+topic read sites/+/gateways/+/events/mesh-group/subscription-result
+topic read sites/+/gateways/+/events/mesh-node-metrics
+topic read sites/+/gateways/+/events/provisioning-progress
+topic read sites/+/gateways/+/events/automation/config-applied
+topic read sites/+/gateways/+/events/automation/current-config-request
+topic read sites/+/gateways/+/events/automation/execution
+topic read sites/+/gateways/+/events/automation/vehicle-sensor-capability
+topic read sites/+/gateways/+/commands/clock/request
+topic read sites/+/gateways/+/events/drain/response
+topic write sites/+/gateways/+/commands/status-check
+topic write sites/+/gateways/+/commands/identify
+topic write sites/+/gateways/+/commands/fixture-presence-check
+topic write sites/+/gateways/+/commands/provisioning/scan-start
+topic write sites/+/gateways/+/commands/provisioning/scan-stop
+topic write sites/+/gateways/+/commands/provisioning/identify-device
+topic write sites/+/gateways/+/commands/provisioning/provision-device
+topic write sites/+/gateways/+/commands/mesh-group/subscription-sync
+topic write sites/+/gateways/+/commands/mesh-group/resync-ack
+topic write sites/+/gateways/+/commands/automation/config-sync
+topic write sites/+/gateways/+/events/clock/response
+topic write sites/+/gateways/+/commands/drain/request
+topic write sites/+/gateways/+/acks/state-ingested
+topic write sites/+/gateways/+/acks/fixture-presence-check-completed
+topic write sites/+/gateways/+/acks/provisioning/scan-terminal-ingested
+topic write sites/+/gateways/+/acks/provisioning/device-terminal-ingested
+topic write sites/+/gateways/+/acks/automation/config-applied-ingested
+topic write sites/+/gateways/+/acks/automation/execution-ingested
+topic write sites/+/gateways/+/acks/automation/vehicle-sensor-capability-ingested
+# Transitional legacy Set: remove both writes only during coordinated cutover.
+topic write sites/+/gateways/+/commands/dimming
+topic write sites/+/commands/dimming
 
-# Gateway client certificate CN must equal Gateway.id.
+# OFF-only Gateway scoped compatibility grants.
 pattern read sites/+/gateways/%u/commands/#
+pattern read sites/+/gateways/%u/events/clock/response
+pattern write sites/+/gateways/%u/commands/clock/request
 pattern read sites/+/gateways/%u/acks/state-ingested
 pattern read sites/+/gateways/%u/acks/fixture-presence-check-completed
 pattern read sites/+/gateways/%u/acks/provisioning/scan-terminal-ingested

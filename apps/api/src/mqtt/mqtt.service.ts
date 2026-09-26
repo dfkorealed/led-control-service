@@ -226,6 +226,9 @@ export class MqttService implements OnModuleInit {
     payload: unknown,
     options: { messageExpiryInterval?: number | null; timeoutMs?: number; retain?: false } = {}
   ) {
+    if (process.env.COMMAND_SET_EGRESS_ENABLED === "1" && /\/commands\/dimming(?:\/|$)/.test(topic)) {
+      throw new Error("Set must use generation-scoped MQTT egress");
+    }
     await new Promise<void>((resolve, reject) => {
       const client = this.getClient();
       let settled = false;

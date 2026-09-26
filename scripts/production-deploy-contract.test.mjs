@@ -37,6 +37,17 @@ function render(omit, project = "led-production-contract") {
   } finally { rmSync(dir, { recursive: true, force: true }); }
 }
 
+test("Set egress cutover defaults OFF and production rejects premature activation", () => {
+  const baseline = render();
+  assert.equal(baseline.status, 0);
+  assert.equal(baseline.config.services.api.environment.COMMAND_SET_EGRESS_ENABLED, '0');
+  assert.equal(baseline.preflight.status, 0);
+  const premature = render(undefined, 'led-production-contract', { COMMAND_SET_EGRESS_ENABLED: '1', MQTT_SET_GENERATION: '7' });
+  assert.equal(premature.status, 0);
+  assert.notEqual(premature.preflight.status, 0);
+  assert.match(premature.preflight.stderr, /Set egress cutover remains disabled/);
+});
+
 test("standalone config renders all services and migration → API → Web gates", () => {
   const result = render();
   assert.equal(result.status, 0, "standalone config must render without development Compose");

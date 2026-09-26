@@ -301,6 +301,8 @@
 
 ## 부족하거나 개선이 필요한 기능
 
+- Set 전용 세대 mTLS egress는 준비 구현이며 `COMMAND_SET_EGRESS_ENABLED=0` 기본값에서 기존 Set/Get 발행을 유지한다. 전환 모드는 active DB member, wire `publishEpoch`, 일치하는 세대 인증서와 broker ACL이 없으면 Set을 거부하며 구 `api-service`로 우회하지 않는다. 원본 만료 전 Get과 recovery Get은 공유 연결을 계속 사용한다. 실제 epoch/attempt producer 통합, 전체 broker 반롤백·Gateway RF drain 증거는 후속 검증 사항이며 운영 cutover·purge·recovery POST는 OFF다. 관련 파일: `apps/api/src/mqtt/command-set-mqtt.service.ts`, `apps/api/src/mqtt/outbox-publisher.service.ts`, `scripts/dev-runtime.mjs`, `docs/runbooks/production-api-web-deployment.md`.
+
 - Task 6 drain 카운터는 프로세스 메모리의 보수적 작업 현황이다. API/retention worker는 0건 응답이나 프로세스 재시작으로 초기화된 카운터를 물리 RF 종료 증거로 추론하면 안 된다. 응답 계약에는 물리 완료 인증 필드가 없고, 실장비 submit→RF 상한 측정·boot 세대/전체 subscriber 확인·broker fence가 필수다. Raspberry Pi/BlueZ/BIO HIL 미실행 상태이므로 cutover·운영 purge·복구 POST는 계속 OFF다.
 - 제어 세션 상태 센터 연계는 focused Vitest와 Web typecheck로 확인했으며 브라우저 E2E·실제 모바일 WebView 시각/조작 검증은 아직 완료 증거가 없다. 소프트웨어의 상태·재시도 표시와 실제 Gateway/Mesh 명령 적용·장애 복구 HIL을 구분해 검증해야 한다.
 

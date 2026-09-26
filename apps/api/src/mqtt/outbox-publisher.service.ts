@@ -19,6 +19,7 @@ import { PrismaService } from "../prisma/prisma.service";
 import { AutomationClock } from "../automation/automation-clock";
 import { AutomationSnapshotService } from "../automation/automation-snapshot.service";
 import { MqttService } from "./mqtt.service";
+import { CommandSetMqttService } from "./command-set-mqtt.service";
 
 const LEASE_MS = 30_000;
 const MQTT_PUBLISH_TIMEOUT_MS = 20_000;
@@ -52,7 +53,8 @@ export class OutboxPublisherService implements OnModuleInit {
     private readonly prisma: PrismaService,
     private readonly mqtt: MqttService,
     @Optional() options: PublisherOptions = {},
-    @Optional() private readonly automationSnapshot: AutomationSnapshotService = new AutomationSnapshotService(new AutomationClock())
+    @Optional() private readonly automationSnapshot: AutomationSnapshotService = new AutomationSnapshotService(new AutomationClock()),
+    @Optional() private readonly commandSetMqtt?: CommandSetMqttService
   ) {
     this.workerId = options.workerId ?? randomUUID();
     this.random = options.random ?? Math.random;
@@ -251,10 +253,7 @@ export class OutboxPublisherService implements OnModuleInit {
       if (attempted.count !== 1) return;
       const messageExpiryInterval = currentMessageExpiry(prepared.payload, this.clock());
 
-      await this.mqtt.publishTopic(record.topic, prepared.payload, {
-        messageExpiryInterval,
-        timeoutMs: MQTT_PUBLISH_TIMEOUT_MS
-      });
+      await this.publishWire(record.topic, prepared.payload, messageExpiryInterval);
       const publishedAt = this.clock();
       await this.prisma.$transaction(async (tx) => {
         await this.automationSnapshot.lockMutation(tx);
@@ -310,6 +309,18 @@ export class OutboxPublisherService implements OnModuleInit {
         });
       });
     }
+  }
+
+  private async publishWire(topic: string, payload: unknown, expirySeconds: number) {
+    if (this.dispatchKind === "dimming" && process.env.COMMAND_SET_EGRESS_ENABLED === "1") {
+      const generation = (payload as { publishEpoch?: number }).publishEpoch;
+      // Task 4 owns the durable epoch/attempt envelope. Enabling cutover before
+      // that producer exists must fail closed, never upgrade an old packet here.
+      if (!generation || !this.commandSetMqtt) throw new Error("command Set epoch egress unavailable");
+      await this.commandSetMqtt.publish(generation, topic, payload, expirySeconds);
+      return;
+    }
+    await this.mqtt.publishTopic(topic, payload, { messageExpiryInterval: expirySeconds, timeoutMs: MQTT_PUBLISH_TIMEOUT_MS });
   }
 
   private async assertMeshGroupSnapshot(

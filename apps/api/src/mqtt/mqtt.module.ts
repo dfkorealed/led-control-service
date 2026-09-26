@@ -5,6 +5,7 @@ import { MeshControlGroupModule } from "../mesh-control-groups/mesh-control-grou
 import { MeshGroupSyncWorker } from "../mesh-control-groups/mesh-group-sync.worker";
 import { PrismaModule } from "../prisma/prisma.module";
 import { MqttService } from "./mqtt.service";
+import { CommandSetMqttService } from "./command-set-mqtt.service";
 import { FixtureFreshnessService } from "../fixtures/fixture-freshness.service";
 import { CommandTimeoutService } from "../commands/command-timeout.service";
 import { OutboxPublisherService } from "./outbox-publisher.service";
@@ -25,6 +26,7 @@ import { CommandDbClockHealth } from "./command-db-clock-health.service";
   imports: [PrismaModule, MeshControlGroupModule, AutomationRuntimeModule, MonitoringIncidentsModule],
   providers: [
     MqttService,
+    CommandSetMqttService,
     FixtureStateIngestionService,
     FixturePresenceIngestionService,
     MonitoringRefreshIngestionService,

@@ -4,6 +4,29 @@
 
 ## 적용 범위와 사전 조건
 
+### Command Set 세대 egress 준비 — 운영 전환 OFF
+
+`COMMAND_SET_EGRESS_ENABLED=0`이 기본이다. 기존 API identity의 Set/Get과 수집은 계속 동작한다. ACL은 `sites/#` 대신 아래 명시적 권한으로 좁히되 OFF에서는 `sites/+/gateways/+/commands/dimming`과 구형 `sites/+/commands/dimming` write를 유지한다. `infra/mosquitto.acl.example`은 production Compose가 mount하는 OFF 예시이며 기존 Gateway onboarding의 `%u` scoped pattern도 유지한다. 전환 시에는 이 파일을 전체 Gateway 목록의 renderer 결과로 교체해야 한다. 전역 `pattern`은 새 Set principal에도 다른 권한을 주므로 ON에서는 남기지 않는다.
+
+ACL 수정 전 확인한 공용 identity 토픽 목록은 모두 `sites/+/gateways/+/` 접두사를 사용한다.
+
+| 방향 | 필요한 suffix |
+| --- | --- |
+| write: Get 및 제어 보조 | `commands/status-check` (legacy/recovery 공용), `commands/identify`, `commands/fixture-presence-check`, `commands/provisioning/{scan-start,scan-stop,identify-device,provision-device}`, `commands/mesh-group/{subscription-sync,resync-ack}`, `commands/automation/config-sync` |
+| write: 수신 확인·시각 | `acks/state-ingested`, `acks/fixture-presence-check-completed`, `acks/provisioning/{scan-terminal-ingested,device-terminal-ingested}`, `acks/automation/{config-applied-ingested,execution-ingested,vehicle-sensor-capability-ingested}`, `events/clock/response`, `commands/drain/request` |
+| read: ACK·상태 | `acks/{acceptance,device-status}`, `state/{fixtures,fixture-presence,heartbeat}` |
+| read: 이벤트·시각 | `events/provisioning/{scan-found,scan-completed,scan-failed,device-terminal}`, `events/{provisioning-completed,provisioning-failed,provisioning-progress,identify-result,fixture-presence-check-completed,fixture-unreachable,mesh-node-metrics}`, `events/mesh-group/{resync-request,subscription-result}`, `events/automation/{config-applied,current-config-request,execution,vehicle-sensor-capability}`, `commands/clock/request`, `events/drain/response` |
+
+위 목록은 19개 gateway-scoped write와 24개 read다. 추가로 production broker healthcheck의 정확한 `sites/health/production-probe` write를 유지한다. clock/drain, telemetry 호환 권한도 포함한다. Gateway에는 자기 clock request write/response read를 명시한다. 전환 후에도 이 목록을 그대로 유지한다.
+
+명시적 개발/일회용 전환은 `COMMAND_SET_EGRESS_ENABLED=1`, 양의 `MQTT_SET_GENERATION=N`, 고유한 `MQTT_API_INSTANCE_ID`, 별도 `MQTT_SET_CLIENT_CERT_PATH`·`MQTT_SET_CLIENT_KEY_PATH`를 요구한다. 전용 인증서 CN은 정확히 `command-set-N`이며 key와 일치해야 한다. 서비스는 시작 시 active epoch의 `(generation, workerId, brokerIdentity)` DB member를 등록하고 publish마다 active·미ACK member를 재확인한다. 권한이 없는 DB 계정, 등록 실패, 잘못된 cert, epoch 없는 구 wire는 Set 거부로 남으며 shared API client로 fallback하지 않는다. clean MQTT v5/session expiry 0/자동 reconnect 없음은 로컬 lifecycle 특성일 뿐 broker drain 증거가 아니다. timeout 후 client를 닫고 해당 instance에서 추가 Set을 거부한다.
+
+개발 prepare는 ON인 경우에만 `renderMosquittoAcl(ids, { setGeneration: N })`으로 두 legacy Set write를 제거하고 `command-set-N`에 dimming write 하나만 부여한다. 인증서 발급, DB migration/epoch 생성, 운영 broker reload는 자동 실행하지 않는다. 기본 production Compose는 credential mount·wire epoch producer·모든 노드 admission 검증이 준비되지 않았으므로 preflight에서 ON을 무조건 거부한다. 빈 Set credential 환경 입력은 준비 인터페이스일 뿐 사용 가능한 mount가 아니다.
+
+후속 운영 전환에는 별도로 승인한 cert/key RO mount, DB publisher role, epoch/attempt producer, 전체 API·Gateway census를 준비하고 유지보수 절차에서 기존 발행 중지 → 모든 broker 구 principal 거부/세션·queue 폐기 → 새 epoch/credential/ACL/wire 일치 확인 → 신규 발행 재개를 검증해야 한다. 이 순서는 runbook 요구이며 Compose·ACL 파일 게시가 여러 프로세스의 원자적 전환을 제공한다는 뜻이 아니다. ACL/CRL 롤백 또는 broker 재시작은 stock Mosquitto에서 구세대를 되살릴 수 있다. 독립적인 단조 admission 최소 세대·폐기 원장·모든 broker 노드 증거와 Gateway RF drain/HIL 없이는 purge·recovery POST 및 운영 cutover를 계속 OFF로 둔다.
+
+Task 3 시점에서 original-Command cutoff/permit과 recovery publisher 일부는 기존 미커밋 작업에만 있다. 이 egress 준비 커밋만으로 Get 복구·3개월 보관 안전성의 전체 커밋 연속성을 주장하지 않는다. 후속 Task 4/6에서 반드시 통합·검증한다.
+
 이 절차는 단일 호스트의 standalone `docker-compose.production.yml`에 적용한다. 운영 배포 권한, 유지보수 시간, DB·Object Storage·CRL 백업과 복원 책임자, 승인된 API/Web release digest, Docker daemon/Compose, 저장소 Node 22·pnpm 9.15.0 환경이 필요하다. DNS·방화벽·외부 Vault와 MQTT/Object Storage 진입점은 별도로 준비한다. 이 작업은 `docker:up:production`, 운영 migration, 실장비 HIL, 실제 자격 증명 작업을 실행하지 않았다.
 
 아래 명령은 저장소 루트에서 Bash로 실행한다. `/secure/path/.env.production`과 `led-production-sitea`는 자리표시자이므로 승인된 절대 경로와 운영 project로 바꾼다. 값이 든 env 파일을 shell에서 `source`하거나 출력하지 않는다. `set -x`, 전체 `docker inspect`, raw Compose config 출력은 secret을 노출할 수 있다.

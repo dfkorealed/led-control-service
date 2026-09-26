@@ -20,6 +20,8 @@ import { basename, dirname, isAbsolute, join, relative, resolve } from "node:pat
 import { fileURLToPath } from "node:url";
 import {
   parseEnvFile,
+  commandSetAclOptions,
+  renderMosquittoAcl,
   publishMosquittoAcl,
   renderDockerMosquittoConfig,
   renderMosquittoConfig,
@@ -33,7 +35,10 @@ export function prepareDevelopmentRuntime(
   { run = defaultRun, findExecutable = defaultFindExecutable } = {}
 ) {
   const env = resolveDevelopmentCadEnvironment(resolveDevEnvironment(root, sourceEnv), { findExecutable });
+  const setAclOptions = commandSetAclOptions(env);
   const gatewayIds = env.DEV_GATEWAY_IDS ? env.DEV_GATEWAY_IDS.split(",") : [];
+  // Validate cutover/census before PKI helpers or runtime filesystem writes.
+  renderMosquittoAcl(gatewayIds, setAclOptions);
   const localDirectory = join(root, ".local");
   const mqttRuntimeDirectory = join(localDirectory, "mosquitto-runtime");
   const aclPath = join(mqttRuntimeDirectory, "mosquitto.acl");
@@ -51,7 +56,7 @@ export function prepareDevelopmentRuntime(
   // Claims update product state only. Both supported dev launch paths call this
   // before broker startup so the file-backed ACL is never a stale wildcard or
   // a previous Gateway allowlist, including when the new list is empty.
-  publishMosquittoAcl(aclPath, gatewayIds);
+  publishMosquittoAcl(aclPath, gatewayIds, setAclOptions);
   publishPrivateConfig(root, nativeConfigPath, renderMosquittoConfig(root, env));
   publishPrivateConfig(root, dockerConfigPath, renderDockerMosquittoConfig(env));
   return {
