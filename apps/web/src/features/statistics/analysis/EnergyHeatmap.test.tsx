@@ -12,15 +12,15 @@ describe("EnergyHeatmap", () => {
     expect(cells).toHaveLength(168);
     expect(cells.filter((cell) => cell.tabIndex === 0)).toEqual([cells[0]]);
     expect(cells.slice(1).every((cell) => cell.tabIndex === -1)).toBe(true);
-    expect(screen.getByRole("button", { name: /일요일 00시.*0 kWh/ })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /일요일 01시.*수집 데이터 없음/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /일요일 00시.*평균 0 kWh.*수집률 100%/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /일요일 01시.*평균 산정 불가.*수집률 50%/ })).toBeInTheDocument();
   });
 
   it("shows site-local weekday and hour axes with separate zero and missing legends", () => {
     render(<EnergyHeatmap data={heatmapResponse} metric="energy" onMetricChange={vi.fn()} />);
 
     const panel = screen.getByRole("region", { name: "시간대별 사용량" });
-    expect(panel).toHaveTextContent("완료된 28일 2026-08-14 ~ 2026-09-10");
+    expect(panel).toHaveTextContent("선택한 완료 기간 2026-08-14 ~ 2026-09-10");
     expect(panel).toHaveTextContent("현장 시간대 Asia/Seoul");
     expect(panel).toHaveTextContent("가로축 시간 (00~23시)");
     expect(panel).toHaveTextContent("세로축 요일 (일~토)");
@@ -29,10 +29,10 @@ describe("EnergyHeatmap", () => {
     const legend = screen.getByLabelText("히트맵 범례");
     expect(legend).toHaveTextContent("0 kWh");
     expect(legend).toHaveTextContent("1~5단계");
-    expect(legend).toHaveTextContent("수집 데이터 없음");
-    expect(screen.getByRole("button", { name: /일요일 00시, 0 kWh/ })).not.toHaveAttribute("data-missing");
-    expect(screen.getByRole("button", { name: /일요일 01시, 수집 데이터 없음/ })).toHaveAttribute("data-missing", "true");
-    expect(screen.getByRole("button", { name: /월요일 02시, 1.25 kWh/ })).toHaveAttribute("data-level", "5");
+    expect(legend).toHaveTextContent("평균 산정 불가·수집 공백");
+    expect(screen.getByRole("button", { name: /일요일 00시, 평균 0 kWh/ })).not.toHaveAttribute("data-missing");
+    expect(screen.getByRole("button", { name: /일요일 01시, 평균 산정 불가/ })).toHaveAttribute("data-missing", "true");
+    expect(screen.getByRole("button", { name: /월요일 02시, 평균 1.25 kWh/ })).toHaveAttribute("data-level", "5");
   });
 
   it("moves one roving focus through the 7 by 24 grid with clamped arrow, Home and End keys", () => {
@@ -81,7 +81,7 @@ describe("EnergyHeatmap", () => {
     fireEvent.keyDown(sunday02, { key: " " });
     expect(sunday02).toHaveAttribute("aria-pressed", "true");
 
-    const monday02 = screen.getByRole("button", { name: /월요일 02시.*1.25 kWh/ });
+    const monday02 = screen.getByRole("button", { name: /월요일 02시.*평균 1.25 kWh/ });
     monday02.focus();
     fireEvent.keyDown(monday02, { key: "Enter" });
     expect(monday02).toHaveAttribute("aria-pressed", "true");
@@ -103,7 +103,7 @@ describe("EnergyHeatmap", () => {
     const { rerender } = render(<EnergyHeatmap isLoading metric="energy" onMetricChange={vi.fn()} />);
     expect(screen.getByText("시간대별 사용량을 계산하는 중")).toBeInTheDocument();
 
-    rerender(<EnergyHeatmap data={{ ...heatmapResponse, cells: heatmapResponse.cells.map((cell) => ({ ...cell, value: null })) }} metric="energy" onMetricChange={vi.fn()} />);
+    rerender(<EnergyHeatmap data={{ ...heatmapResponse, cells: heatmapResponse.cells.map((cell) => ({ ...cell, value: null, knownSeconds: 0, coverageRate: 0 })) }} metric="energy" onMetricChange={vi.fn()} />);
     expect(screen.getByText("표시할 수집 데이터가 없습니다.")).toBeInTheDocument();
 
     rerender(<EnergyHeatmap isError metric="energy" onMetricChange={vi.fn()} onRetry={onRetry} />);
@@ -122,6 +122,8 @@ const heatmapResponse = {
   range: { from: "2026-08-14", to: "2026-09-10" },
   cells: Array.from({ length: 168 }, (_, index) => ({
     weekday: Math.floor(index / 24), hour: index % 24,
-    value: index === 0 ? 0 : index === 1 ? null : index === 26 ? 1.25 : 1
+    value: index === 0 ? 0 : index === 1 ? null : index === 26 ? 1.25 : 1,
+    knownSeconds: index === 1 ? 1800 : 3600, expectedSeconds: 3600,
+    observedLocalDays: 1, eligibleLocalDays: 1, coverageRate: index === 1 ? 0.5 : 1
   }))
 };

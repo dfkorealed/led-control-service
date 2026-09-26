@@ -70,6 +70,38 @@ describe("StatisticsReportsPage", () => {
   });
   afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 
+  it("keeps the page header concise and omits the static result preview", () => {
+    renderPage();
+
+    const heading = screen.getByRole("heading", { name: "보고서" });
+    expect(heading.closest("header")).not.toHaveTextContent("현장 에너지 사용량을 기간과 범위에 맞춰 내보냅니다.");
+    expect(screen.queryByText(/PDF\s*·\s*XLSX 결과 미리보기/)).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "보고서 만들기" })).toBeEnabled();
+  });
+
+  it("frames the five always-visible filters as one panel", () => {
+    renderPage();
+
+    const filters = screen.getByRole("search", { name: "보고서 이력 필터" });
+    expect(filters.closest('[data-variant="default"]')).toBeInTheDocument();
+    expect(within(filters).getByRole("searchbox", { name: "보고서 검색" })).toBeVisible();
+    expect(within(filters).getByRole("button", { name: "파일 형식" })).toBeVisible();
+    expect(within(filters).getByRole("button", { name: "범위" })).toBeVisible();
+  });
+
+  it("keeps the job list and paging in one history card with cost context in the request dialog", () => {
+    renderPage();
+
+    const history = screen.getByRole("region", { name: "보고서 이력" });
+    expect(within(history).getByRole("region", { name: "요청한 보고서" })).toBeInTheDocument();
+    expect(within(history).getByRole("navigation", { name: "페이지 이동" })).toBeInTheDocument();
+    expect(screen.queryByText("보고서와 CSV 비용은 당시 적용 단가의 저장 비용입니다.")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "보고서 만들기" }));
+    expect(within(screen.getByRole("dialog", { name: "에너지 사용량 보고서 만들기" }))
+      .getByText(/당시 적용 단가의 저장 비용/)).toBeInTheDocument();
+  });
+
   it("uses analytics targets even when the operational dashboard contains no fixture details", async () => {
     dashboardState.data = { ...dashboard, floors: [{ ...dashboard.floors[0], fixtures: [] }] };
     renderPage();
@@ -96,7 +128,7 @@ describe("StatisticsReportsPage", () => {
     expect(screen.getByRole("group", { name: "기간 종료" })).toBeInTheDocument();
   });
 
-  it("keeps a restored cursor page and URL unchanged when advanced filters are only opened or closed", async () => {
+  it("keeps a restored cursor page and URL unchanged while all five filters are visible", async () => {
     reportsApi.reports.mockReturnValue(reportQueryResult(pageJobs(21, 20), { nextCursor: null, totalCount: 40 }));
     const fingerprint = "limit=20&format=pdf&scope=floor";
     renderPage({ initialEntry: {
@@ -110,12 +142,9 @@ describe("StatisticsReportsPage", () => {
     }));
     const search = screen.getByTestId("location-search").textContent;
     const calls = reportsApi.reports.mock.calls.length;
-    const disclosure = screen.getByRole("button", { name: /상세 필터/ });
-    expect(disclosure).toHaveTextContent("2개 적용");
-    fireEvent.click(disclosure);
     expect(screen.getByRole("button", { name: "파일 형식" })).toHaveTextContent("PDF");
     expect(screen.getByRole("button", { name: "범위" })).toHaveTextContent("층");
-    fireEvent.click(disclosure);
+    expect(screen.queryByRole("button", { name: /상세 필터/ })).not.toBeInTheDocument();
 
     expect(screen.getByText("2페이지")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "이전 페이지" })).toBeEnabled();
@@ -932,7 +961,6 @@ describe("StatisticsReportsPage", () => {
     expect(within(list).getAllByText("요청 시각")).toHaveLength(5);
     expect(within(list).getAllByText("파일 만료 시각")).toHaveLength(2);
     expect(within(list).getByRole("button", { name: "대상 failed 실패 상세 보기" })).toHaveAttribute("aria-expanded", "false");
-    expect(screen.getByText("보고서와 CSV 비용은 당시 적용 단가의 저장 비용입니다.")).toBeInTheDocument();
     const requestedAt = within(list).getAllByTitle("2026-09-10T00:00:00.000Z")[0];
     expect(requestedAt).toHaveAttribute("datetime", "2026-09-10T00:00:00.000Z");
     fireEvent.click(within(list).getByRole("button", { name: "대상 completed 보고서 다운로드" }));

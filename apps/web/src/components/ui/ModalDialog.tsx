@@ -11,7 +11,8 @@ export interface ModalDialogProps {
   actions?: ReactNode;
   onClose: () => void;
   isPending?: boolean;
-  initialFocusRef?: RefObject<HTMLElement | null>;
+  /** Also accepts a field handle whose focus method targets its editable segment. */
+  initialFocusRef?: RefObject<{ focus(): void } | null>;
   returnFocusRef?: RefObject<HTMLElement | null>;
   fallbackFocusRef?: RefObject<HTMLElement | null>;
   returnFocusElement?: HTMLElement | null;

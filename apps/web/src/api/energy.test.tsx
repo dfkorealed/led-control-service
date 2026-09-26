@@ -8,7 +8,9 @@ import {
   downloadEnergyCsv,
   energyReportRequestErrorMessage,
   useEnergyComparison,
+  useEnergyRangeComparison,
   useEnergyHeatmap,
+  useEnergyObservedMeanHeatmap,
   useEnergyRankings,
   useEnergyReports,
   useEnergyReportTargets,
@@ -250,6 +252,29 @@ describe("energy queries", () => {
     })).toBeDefined();
   });
 
+  it("loads a strict custom completed comparison in a separate range cache", async () => {
+    const { preset: _preset, ...comparisonWithoutPreset } = comparisonResponse;
+    apiGet.mockResolvedValue({ ...comparisonWithoutPreset,
+      selection: { kind: "custom", from: "2026-09-01", to: "2026-09-09" },
+      range: { from: "2026-09-01", to: "2026-09-09", completedThrough: "2026-09-09" },
+      summary: { ...comparisonResponse.summary, forecastReason: "not_applicable" } });
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const { result } = renderHook(() => useEnergyRangeComparison("site/2", "2026-09-01", "2026-09-09"),
+      { wrapper: wrapperFor(client) });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(apiGet).toHaveBeenCalledWith("/energy/sites/site%2F2/comparisons/range?from=2026-09-01&to=2026-09-09");
+    expect(client.getQueryData(["energy-comparison-range", "site/2", "2026-09-01", "2026-09-09"])).toBeDefined();
+  });
+
+  it("does not request an invalid or unavailable custom comparison range", async () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    renderHook(() => useEnergyRangeComparison("site-2", "2026-09-10", "2026-09-01"), { wrapper: wrapperFor(client) });
+    renderHook(() => useEnergyRangeComparison(undefined, "2026-09-01", "2026-09-09"), { wrapper: wrapperFor(client) });
+    renderHook(() => useEnergyRangeComparison("site-2", "2026-09-01", "2026-09-09", false), { wrapper: wrapperFor(client) });
+    await Promise.resolve();
+    expect(apiGet).not.toHaveBeenCalled();
+  });
+
   it("surfaces malformed comparison responses as query errors", async () => {
     apiGet.mockResolvedValue({ ...comparisonResponse, unexpected: true });
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -302,6 +327,32 @@ describe("energy queries", () => {
     }), { wrapper: wrapperFor(client) });
 
     await waitFor(() => expect(result.current.isError).toBe(true), { timeout: 3_000 });
+  });
+
+  it("loads a strict 168-cell observed mean with the selected range in its cache key", async () => {
+    apiGet.mockResolvedValue(observedMeanResponse);
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const { result } = renderHook(() => useEnergyObservedMeanHeatmap({
+      siteId: observedMeanResponse.siteId, scope: "floor", identityId: observedMeanResponse.identityId,
+      metric: "energy", from: "2026-09-01", to: "2026-09-09"
+    }), { wrapper: wrapperFor(client) });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(apiGet).toHaveBeenCalledWith(
+      `/energy/sites/${observedMeanResponse.siteId}/heatmap/observed-mean?scope=floor&identityId=${observedMeanResponse.identityId}&metric=energy&from=2026-09-01&to=2026-09-09`
+    );
+    expect(client.getQueryData(["energy-heatmap-observed-mean", observedMeanResponse.siteId,
+      "floor", observedMeanResponse.identityId, "energy", "2026-09-01", "2026-09-09"])).toBeDefined();
+  });
+
+  it("keeps ranking and observed mean requests disabled for invalid ranges", async () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    renderHook(() => useEnergyRankings({ siteId: rankingResponse.siteId, dimension: "floor", metric: "usage",
+      sort: "desc", from: "2026-09-10", to: "2026-09-01" }), { wrapper: wrapperFor(client) });
+    renderHook(() => useEnergyObservedMeanHeatmap({ siteId: observedMeanResponse.siteId, scope: "site",
+      identityId: observedMeanResponse.siteId, metric: "energy", from: "2026-09-10", to: "2026-09-01" }),
+    { wrapper: wrapperFor(client) });
+    await Promise.resolve();
+    expect(apiGet).not.toHaveBeenCalled();
   });
 });
 
@@ -361,6 +412,16 @@ const heatmapResponse = {
   range: { from: "2026-08-14", to: "2026-09-10" },
   cells: Array.from({ length: 168 }, (_, index) => ({
     weekday: Math.floor(index / 24), hour: index % 24, value: index === 0 ? 0 : 1
+  }))
+};
+
+const observedMeanResponse = {
+  ...heatmapResponse,
+  scope: "floor", identityId: "30000000-0000-4000-8000-000000000020",
+  range: { from: "2026-09-01", to: "2026-09-09" },
+  cells: Array.from({ length: 168 }, (_, index) => ({
+    weekday: Math.floor(index / 24), hour: index % 24, value: 0,
+    knownSeconds: 3600, expectedSeconds: 3600, observedLocalDays: 1, eligibleLocalDays: 1, coverageRate: 1
   }))
 };
 

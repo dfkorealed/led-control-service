@@ -1,4 +1,5 @@
-import type { EnergyHeatmapMetric, EnergyHeatmapResponse } from "@led-control/shared/energy-p2-contracts";
+import type { EnergyHeatmapMetric } from "@led-control/shared/energy-p2-contracts";
+import type { EnergyObservedMeanResponse } from "@led-control/shared/energy-observed-mean-contracts";
 import { Activity, Grid3X3, TriangleAlert } from "lucide-react";
 import { Fragment, useRef, useState } from "react";
 import { Button, Card, FeedbackState, Heading, Text } from "../../../components/ui";
@@ -13,7 +14,7 @@ export function EnergyHeatmap({
   isError = false,
   onRetry
 }: {
-  data?: EnergyHeatmapResponse;
+  data?: EnergyObservedMeanResponse;
   metric: EnergyHeatmapMetric;
   onMetricChange: (metric: EnergyHeatmapMetric) => void;
   isLoading?: boolean;
@@ -31,7 +32,8 @@ export function EnergyHeatmap({
       action={onRetry ? <Button variant="secondary" onClick={onRetry}>다시 시도</Button> : undefined} /></Card>;
   }
   if (data.cells.every((cell) => cell.value === null)) {
-    return <Card className="p-4"><FeedbackState icon={Grid3X3} title="표시할 수집 데이터가 없습니다." /></Card>;
+    return <Card className="p-4"><FeedbackState icon={Grid3X3} title="표시할 수집 데이터가 없습니다."
+      description={`${data.range.from} ~ ${data.range.to}의 완전히 관측된 시간대가 없어 평균을 산정할 수 없습니다. 부분 수집은 0으로 간주하지 않습니다.`} /></Card>;
   }
 
   const selected = data.cells[selectedIndex] ?? data.cells[0];
@@ -39,10 +41,10 @@ export function EnergyHeatmap({
   return (
     <Card className="grid min-w-0 max-w-full gap-4 overflow-hidden p-4 compact:p-6" aria-label="시간대별 사용량">
       <header className="flex items-start justify-between gap-4 max-compact:flex-col max-compact:items-stretch">
-        <div className="grid gap-1"><Text variant="overline" tone="muted">시간대 패턴</Text><Heading as="h3" variant="card-title">선택 항목 시간대별 사용량</Heading><Text variant="body-sm" tone="secondary">완료된 28일 {data.range.from} ~ {data.range.to} · 현장 시간대 {data.timeZone}</Text></div>
+        <div className="grid gap-1"><Text variant="overline" tone="muted">시간대 패턴</Text><Heading as="h3" variant="card-title">선택 항목 시간대별 평균</Heading><Text variant="body-sm" tone="secondary">선택한 완료 기간 {data.range.from} ~ {data.range.to} · 현장 시간대 {data.timeZone}</Text></div>
         <div className="flex gap-2" aria-label="히트맵 지표">
-          <Button size="sm" variant={metric === "energy" ? "primary" : "secondary"} aria-pressed={metric === "energy"} className="h-14 min-h-14 min-w-14 max-compact:flex-1" onClick={() => onMetricChange("energy")}>에너지</Button>
-          <Button size="sm" variant={metric === "brightness" ? "primary" : "secondary"} aria-pressed={metric === "brightness"} className="h-14 min-h-14 min-w-14 max-compact:flex-1" onClick={() => onMetricChange("brightness")}>밝기</Button>
+          <Button size="sm" variant={metric === "energy" ? "primary" : "secondary"} aria-pressed={metric === "energy"} className="h-13 min-h-13 min-w-13 max-compact:flex-1" onClick={() => onMetricChange("energy")}>에너지</Button>
+          <Button size="sm" variant={metric === "brightness" ? "primary" : "secondary"} aria-pressed={metric === "brightness"} className="h-13 min-h-13 min-w-13 max-compact:flex-1" onClick={() => onMetricChange("brightness")}>밝기</Button>
         </div>
       </header>
       <div className="flex flex-wrap items-center gap-2 text-caption font-bold text-content-muted" aria-label="히트맵 범례">
@@ -51,11 +53,11 @@ export function EnergyHeatmap({
           <i className="h-3 w-5 rounded-control bg-chart-heatmap-1" /><i className="h-3 w-5 rounded-control bg-chart-heatmap-2" />
           <i className="h-3 w-5 rounded-control bg-chart-heatmap-3" /><i className="h-3 w-5 rounded-control bg-chart-heatmap-4" />
           <i className="h-3 w-5 rounded-control bg-chart-heatmap-5" />
-        </span><span>높음 · 1~5단계</span><span className="ml-2 rounded-control border border-dashed border-border-default px-2 py-1">수집 데이터 없음</span>
+        </span><span>높음 · 1~5단계</span><span className="ml-2 rounded-control border border-dashed border-border-default px-2 py-1">평균 산정 불가·수집 공백</span>
       </div>
       <Text variant="caption" tone="secondary">가로축 시간 (00~23시) · 세로축 요일 (일~토)</Text>
       <div className="min-w-0 max-w-full overflow-x-auto rounded-panel border border-border-default outline-none focus-visible:shadow-focus" tabIndex={0} aria-label="시간대별 사용량 표를 가로로 스크롤">
-        <div className="grid w-max grid-cols-[3.5rem_repeat(24,3.5rem)] gap-1 p-2" role="group" aria-label={`시간대별 ${metric === "energy" ? "에너지 사용량" : "밝기"}`}>
+        <div className="grid w-max grid-cols-[2rem_repeat(24,2.75rem)] gap-0.5 p-2 tablet:w-full tablet:grid-cols-[2rem_repeat(24,minmax(2.75rem,1fr))]" role="group" aria-label={`시간대별 ${metric === "energy" ? "에너지 사용량" : "밝기"}`}>
           <span aria-hidden="true" />
           {Array.from({ length: 24 }, (_, hour) => <span key={hour} aria-hidden="true" className="text-center text-caption font-bold text-content-muted">{String(hour).padStart(2, "0")}</span>)}
           {data.cells.map((cell, index) => {
@@ -65,7 +67,7 @@ export function EnergyHeatmap({
               {index % 24 === 0 ? <span aria-hidden="true" className="flex items-center justify-center text-caption font-bold text-content-muted">{weekdays[cell.weekday].slice(0, 1)}</span> : null}
               <Button type="button" variant="ghost" size="sm" aria-label={label}
               ref={(element) => { cellRefs.current[index] = element; }}
-              className={`relative h-14 min-h-14 w-14 min-w-14 rounded-control p-0 ${heatmapLevelClass[level]} ${index === selectedIndex ? "outline-2 outline-offset-2 outline-chart-heatmap-5" : ""}`}
+              className={`relative h-11 min-h-11 w-full min-w-11 rounded-none p-0 ${heatmapLevelClass[level]} ${index === selectedIndex ? "outline-2 outline-offset-2 outline-chart-heatmap-5" : ""}`}
               aria-pressed={index === selectedIndex} tabIndex={index === selectedIndex ? 0 : -1}
               data-level={level} data-missing={cell.value === null ? true : undefined}
               onClick={() => setSelectedIndex(index)} onKeyDown={(event) => {
@@ -105,13 +107,14 @@ function keyboardCellIndex(index: number, key: string, cellCount: number) {
   }
 }
 
-function cellLabel(cell: EnergyHeatmapResponse["cells"][number], metric: EnergyHeatmapMetric) {
+function cellLabel(cell: EnergyObservedMeanResponse["cells"][number], metric: EnergyHeatmapMetric) {
   const time = `${weekdays[cell.weekday]} ${String(cell.hour).padStart(2, "0")}시`;
-  if (cell.value === null) return `${time}, 수집 데이터 없음`;
+  const quality = `수집률 ${cell.coverageRate === null ? "—" : `${Math.round(cell.coverageRate * 100)}%`}, 관측 ${cell.observedLocalDays}/${cell.eligibleLocalDays}일`;
+  if (cell.value === null) return `${time}, 평균 산정 불가, ${quality}`;
   const value = metric === "energy"
     ? `${cell.value.toLocaleString("ko-KR", { maximumFractionDigits: 4 })} kWh`
     : `${cell.value.toLocaleString("ko-KR", { maximumFractionDigits: 2 })}%`;
-  return `${time}, ${value}`;
+  return `${time}, 평균 ${value}, ${quality}`;
 }
 
 function levelFor(value: number | null, maximum: number) {
