@@ -78,7 +78,7 @@ function ControlView() {
             <span className="min-w-0 flex-1 truncate text-body-sm font-bold">{name}</span><span className="shrink-0 text-label text-brand-navy/80">켜짐</span>
           </div>)}
         </div>
-        <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-border-subtle pt-4 text-label"><span className="rounded-control bg-action-primary-soft px-2.5 py-1.5 font-bold text-action-primary">입구 그룹</span><span className="text-brand-navy/80">4개 조명 대상</span></div>
+        <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-border-subtle pt-4 text-label"><span className="rounded-control bg-action-primary-soft px-2.5 py-1.5 font-bold text-action-primary">입구 그룹</span><span className="text-brand-navy/80">3개 조명 대상</span></div>
       </div>
       <div className="grid gap-3 compact:grid-cols-3 tablet:grid-cols-1">
         <div className="rounded-control border border-border-default bg-surface-panel p-4"><p className="flex items-center gap-2 text-label font-bold text-action-primary"><Lightbulb size={16} aria-hidden="true" />개별 제어</p><p className="mt-3 text-body font-bold">출입구 조명 01</p><p className="mt-1 text-label text-brand-navy/80">점등 · 밝기 70%</p><div className="mt-3 h-1.5 rounded-pill bg-action-primary-soft"><span className="block h-full w-[70%] rounded-pill bg-action-primary" /></div></div>
