@@ -179,7 +179,7 @@ describe("SchedulesService", () => {
     const createdAt = new Date("2026-08-30T01:02:03.456Z");
     const tx = {
       lightingSchedule: {
-        count: jest.fn().mockResolvedValue(37),
+        count: jest.fn().mockResolvedValueOnce(37).mockResolvedValueOnce(10).mockResolvedValueOnce(20).mockResolvedValueOnce(7),
         findMany: jest.fn().mockResolvedValue([])
       }
     };
@@ -201,7 +201,8 @@ describe("SchedulesService", () => {
     await expect(service.list(SITE_ID, admin, {
       cursor,
       limit: "25"
-    })).resolves.toEqual({ items: [], total: 37, nextCursor: null });
+    })).resolves.toEqual({ items: [], total: 37, filteredTotal: 37,
+      siteSummary: { ruleCount: 37, syncRuleCounts: { APPLIED: 10, PENDING: 20, REJECTED: 7 } }, nextCursor: null });
     expect(siteAccess.assertReadInTransaction).toHaveBeenCalledWith(tx, admin, SITE_ID);
     expect(tx.lightingSchedule.count).toHaveBeenCalledWith({ where: { siteId: SITE_ID } });
     expect(tx.lightingSchedule.findMany).toHaveBeenCalledWith(expect.objectContaining({
@@ -216,6 +217,26 @@ describe("SchedulesService", () => {
       orderBy: [{ createdAt: "desc" }, { id: "asc" }]
     }));
     expect(prisma.$transaction).toHaveBeenCalledWith(expect.any(Function), { isolationLevel: "RepeatableRead" });
+  });
+
+  it("applies literal name, status, and Gateway sync filters to both page and filtered count", async () => {
+    const tx = { lightingSchedule: { count: jest.fn()
+      .mockResolvedValueOnce(5).mockResolvedValueOnce(1).mockResolvedValueOnce(2)
+      .mockResolvedValueOnce(2).mockResolvedValueOnce(1), findMany: jest.fn().mockResolvedValue([]) } };
+    const service = new SchedulesService(
+      { $transaction: jest.fn(callback => callback(tx)) } as never,
+      { assertReadInTransaction: jest.fn().mockResolvedValue({ id: SITE_ID, timeZone: "Asia/Seoul" }) } as never,
+      {} as never, { now: jest.fn().mockReturnValue(new Date()) } as never, {} as never
+    );
+    await expect(service.list(SITE_ID, admin, { query: "  한글%_  ", status: "enabled", syncStatus: "PENDING" }))
+      .resolves.toMatchObject({ total: 5, filteredTotal: 1,
+        siteSummary: { ruleCount: 5, syncRuleCounts: { APPLIED: 2, PENDING: 2, REJECTED: 1 } } });
+    expect(tx.lightingSchedule.count.mock.calls[1][0].where).toMatchObject({
+      siteId: SITE_ID, name: { contains: "한글\\%\\_", mode: "insensitive" }, status: "enabled"
+    });
+    expect(tx.lightingSchedule.findMany.mock.calls[0][0].where).toMatchObject({
+      siteId: SITE_ID, name: { contains: "한글\\%\\_", mode: "insensitive" }, status: "enabled"
+    });
   });
 
   it("rejects an enabled exact overlap with the stable schedule_overlap code", async () => {
