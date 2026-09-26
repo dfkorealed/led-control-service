@@ -1,19 +1,25 @@
 import { CircleCheck, CircleX, Clock3, RefreshCw, TriangleAlert } from "lucide-react";
+import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { useDashboard, useFloorFixtures, useFloorMapSnapshot, type Dashboard } from "../../api/queries";
+import { useCurrentUser } from "../../api/auth";
+import { principalKey } from "../../api/principal-cache";
 import { waitForMonitoringRefresh, type MonitoringRefreshResult } from "../../api/monitoring-refresh";
-import { Button, FeedbackState, Heading, MetricCard, SelectBox, SidePanel, StatusBadge, Text, useSessionStatus, type SessionStatusItem } from "../../components/ui";
+import { Button, DrawerDialog, FeedbackState, Heading, SelectBox, SidePanel, StatusBadge, Text, useSessionStatus, type SessionStatusItem } from "../../components/ui";
 import { InstallationPending } from "../setup/SetupWizard";
 import { FloorMap } from "./FloorMap";
 import { MonitoringFixtureFinder } from "./MonitoringFixtureFinder";
+import { MonitoringSummary } from "./MonitoringSummary";
+import { MonitoringLogDrawer } from "./MonitoringLogDrawer";
+import { MonitoringLogTicker } from "./MonitoringLogTicker";
+import { monitoringActivityScopeKey, useMonitoringActivity } from "./useMonitoringActivity";
 import { presentFixtureBrightness } from "./fixture-brightness-presentation";
 import { presentFixtureStatus } from "./fixture-status-presentation";
+import { formatMonitoringTimestamp } from "./monitoring-time";
 
 const STALE_SNAPSHOT_AFTER_MS = 60_000;
 const MAX_BROWSER_TIMEOUT_MS = 2_147_483_647;
-const METRIC_CARD_CLASS_NAME = "min-h-18 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1 px-4 py-3 max-compact:min-h-16 max-compact:grid-cols-1 max-compact:gap-0 max-compact:px-2 max-compact:py-2 max-compact:[&>p]:hidden max-compact:[&_[data-metric-label]]:text-label max-compact:[&>strong>span]:text-card-title";
-
 interface MapRefreshFailure {
   floorId: string;
   dataUpdatedAt: number;
@@ -56,6 +62,9 @@ interface MonitoringDashboardProps {
 }
 
 function MonitoringDashboard({ data, userRole, siteId, refreshDashboard }: MonitoringDashboardProps) {
+  const queryClient = useQueryClient();
+  const currentUser = useCurrentUser();
+  const principal = currentUser.data?.user ? principalKey(currentUser.data.user) : null;
   const [selectedFloorId, setSelectedFloorId] = useState<string | null>(null);
   const [selectedFixtureId, setSelectedFixtureId] = useState<string | null>(null);
   const [isManualRefreshing, setIsManualRefreshing] = useState(false);
@@ -64,7 +73,13 @@ function MonitoringDashboard({ data, userRole, siteId, refreshDashboard }: Monit
   const [manualRefreshFailureSources, setManualRefreshFailureSources] = useState<ManualRefreshFailureSource[]>([]);
   const [mapRefreshFailure, setMapRefreshFailure] = useState<MapRefreshFailure | null>(null);
   const [freshnessRevision, setFreshnessRevision] = useState(0);
+  const [isLogDrawerOpen, setIsLogDrawerOpen] = useState(false);
+  const [isInspectorOpen, setIsInspectorOpen] = useState(false);
+  const logTriggerRef = useRef<HTMLButtonElement>(null);
+  const inspectorTriggerRef = useRef<HTMLButtonElement>(null);
+  const refreshButtonRef = useRef<HTMLButtonElement>(null);
   const floor = data.floors.find((item) => item.id === selectedFloorId) ?? data.floors[0];
+  const activityQuery = useMonitoringActivity({ principal, siteId: siteId ?? data.site.id, floorId: floor?.id });
   const fixtureQuery = useFloorFixtures(floor?.id, siteId ?? data.site.id);
   const mapQuery = useFloorMapSnapshot(floor?.id, siteId ?? data.site.id);
   const hasFixtureData = fixtureQuery.data !== undefined;
@@ -75,7 +90,9 @@ function MonitoringDashboard({ data, userRole, siteId, refreshDashboard }: Monit
   // snapshot placements plus its legacy/runtime-only placement fallback.
   const hasPlacedFixtures = Boolean(mapSnapshot?.fixtures?.length) || fixtures.some((fixture) => fixture.placementStatus !== "unplaced");
   const mapRefreshFailed = Boolean(floor && mapRefreshFailure && mapRefreshFailure.floorId === floor.id);
-  const selectedFixture = fixtures.find((fixture) => fixture.id === selectedFixtureId) ?? fixtures[0];
+  const selectedFixture = selectedFixtureId === null
+    ? fixtures[0]
+    : fixtures.find((fixture) => fixture.id === selectedFixtureId);
   const selectedFixturePresentation = selectedFixture ? presentFixtureStatus(selectedFixture) : null;
   const selectedBrightness = selectedFixture ? presentFixtureBrightness(selectedFixture) : null;
   const snapshotFreshness = useMemo(
@@ -88,15 +105,6 @@ function MonitoringDashboard({ data, userRole, siteId, refreshDashboard }: Monit
   const refreshError = manualRefreshFailureCount === 3
     ? "현황 데이터를 새로고침하지 못했습니다."
     : manualRefreshFailureCount > 0 ? "일부 현황 데이터를 새로고침하지 못했습니다." : null;
-  const floorSummary = useMemo(
-    () => ({
-      totalFixtures: fixtures.length,
-      onlineFixtures: fixtures.filter((fixture) => fixture.status === "online").length,
-      faultFixtures: fixtures.filter((fixture) => fixture.status === "fault").length,
-      offlineFixtures: fixtures.filter((fixture) => fixture.status === "offline").length
-    }),
-    [fixtures]
-  );
   useEffect(() => {
     // Also covers a floor removed by a dashboard update, without a selector event.
     setIsManualRefreshing(false);
@@ -106,6 +114,7 @@ function MonitoringDashboard({ data, userRole, siteId, refreshDashboard }: Monit
       refreshAbortRef.current = null;
     };
   }, [floor?.id, siteId]);
+  useEffect(() => { setIsLogDrawerOpen(false); setIsInspectorOpen(false); }, [floor?.id, principal]);
 
   useEffect(() => {
     if (floor && fixtureQuery.hasNextPage && !fixtureQuery.isFetchingNextPage) void fixtureQuery.fetchNextPage();
@@ -125,10 +134,12 @@ function MonitoringDashboard({ data, userRole, siteId, refreshDashboard }: Monit
     if (!floor) return;
     setSelectedFloorId((current) => current ?? floor.id);
     setSelectedFixtureId((current) => {
-      if (current && fixtures.some((fixture) => fixture.id === current)) return current;
+      // Saved pins can arrive before their paged runtime row. Keep that explicit
+      // selection without presenting another fixture's telemetry as its detail.
+      if (current && (fixtures.some((fixture) => fixture.id === current) || mapSnapshot?.fixtures?.some((fixture) => fixture.id === current))) return current;
       return fixtures.find((fixture) => fixture.status === "fault")?.id ?? fixtures[0]?.id ?? null;
     });
-  }, [floor?.id, fixtures]);
+  }, [floor?.id, fixtures, mapSnapshot?.fixtures]);
 
   useEffect(() => {
     if (!mapRefreshFailure || mapRefreshFailure.floorId !== floor?.id) return;
@@ -204,7 +215,10 @@ function MonitoringDashboard({ data, userRole, siteId, refreshDashboard }: Monit
         clientRequestId: crypto.randomUUID(),
         signal: controller.signal
       }) : null;
-      if (!controller.signal.aborted) setHardwareRefreshFailure(copyForTerminal(terminal));
+      if (!controller.signal.aborted) {
+        setHardwareRefreshFailure(copyForTerminal(terminal));
+        if (terminal && principal && floor) void queryClient.invalidateQueries({ queryKey: monitoringActivityScopeKey(principal, siteId ?? data.site.id, floor.id) });
+      }
     } catch (error) {
       if (!controller.signal.aborted && !initialFixtureRequest) {
         setHardwareRefreshFailure(error instanceof DOMException && error.name === "TimeoutError"
@@ -243,6 +257,13 @@ function MonitoringDashboard({ data, userRole, siteId, refreshDashboard }: Monit
         onRefresh={() => void handleRefresh()}
         onMapRetry={() => void handleMapRetry()}
       />
+      <MonitoringSummary
+        scope="site"
+        total={data.summary.totalFixtures}
+        online={data.summary.onlineFixtures}
+        fault={data.summary.faultFixtures}
+        offline={data.summary.offlineFixtures ?? null}
+      />
       <div className="flex items-center justify-between gap-4 max-compact:flex-col max-compact:items-stretch" role="group" aria-label="모니터링 도구">
         <SelectBox
           label="맵 선택"
@@ -253,8 +274,10 @@ function MonitoringDashboard({ data, userRole, siteId, refreshDashboard }: Monit
           className="grid w-full max-w-56 grid-cols-[auto_minmax(0,1fr)] items-center gap-2 max-compact:max-w-none"
         />
         <div className="ml-auto flex flex-wrap items-center justify-end gap-2 text-content-secondary max-compact:ml-0 max-compact:w-full">
+          <Button ref={inspectorTriggerRef} variant="secondary" onClick={() => setIsInspectorOpen(true)}>조명 검색·상세</Button>
           <Text as="small" variant="caption" tone="secondary" className="whitespace-nowrap">{formatSnapshotUpdatedAt(snapshotFreshness)}</Text>
           <Button
+            ref={refreshButtonRef}
             variant="secondary"
             disabled={isManualRefreshing}
             aria-busy={isManualRefreshing}
@@ -274,34 +297,22 @@ function MonitoringDashboard({ data, userRole, siteId, refreshDashboard }: Monit
         onRetry={() => void fixtureQuery.refetch()}
       />
 
-      {hasFixtureData && data.summary.totalFixtures > 0 ? (
-        <>
-          <div className="grid grid-cols-2 phone-wide:grid-cols-4 gap-2 tablet:gap-3" data-monitoring-summary="">
-            <MetricCard className={METRIC_CARD_CLASS_NAME} label="전체 조명" value={floorSummary.totalFixtures} helper="선택 층 기준" tone="primary" />
-            <MetricCard className={METRIC_CARD_CLASS_NAME} label="정상" value={floorSummary.onlineFixtures} helper="최근 수신 정상" tone="success" />
-            <MetricCard className={METRIC_CARD_CLASS_NAME} label="점검 필요" value={floorSummary.faultFixtures} helper="우선 점검 대상" tone="danger" />
-            <MetricCard className={METRIC_CARD_CLASS_NAME} label="오프라인" value={floorSummary.offlineFixtures} helper="상태 확인 대기 포함" />
-          </div>
+      {floor ? <MonitoringSummary
+        scope="floor"
+        total={floor.summary?.totalFixtures ?? null}
+        online={floor.summary?.onlineFixtures ?? null}
+        fault={floor.summary?.faultFixtures ?? null}
+        offline={floor.summary?.offlineFixtures ?? null}
+      /> : null}
 
-          <div className="hidden max-compact:block" data-monitoring-fixture-selector="">
-            <SelectBox
-              label="상세 조명 선택"
-              items={fixtures.map((fixture) => ({ id: fixture.id, label: `${fixture.name} · ${presentFixtureStatus(fixture).label}` }))}
-              selectedKey={selectedFixture?.id ?? null}
-              onSelectionChange={(fixtureId) => setSelectedFixtureId(fixtureId)}
-              className="w-full"
-            />
-          </div>
-        </>
-      ) : null}
-
-      <div className="grid min-h-0 min-w-0 flex-1 grid-cols-1 items-stretch gap-4 tablet:grid-cols-[minmax(0,1fr)_clamp(17.5rem,26vw,21.25rem)] tablet:grid-rows-[auto_minmax(0,1fr)] tablet:overflow-hidden" data-monitoring-layout="">
-        <div className="order-1 min-h-0 min-w-0 overflow-hidden max-phone-wide:order-2 tablet:col-start-1 tablet:row-span-2" data-monitoring-map-panel="">
+      <div className="min-h-0 min-w-0 flex-1" data-monitoring-layout="">
+        <div className="flex h-full min-h-0 min-w-0 flex-col gap-5 overflow-hidden" data-monitoring-map-panel="">
+          <div className="min-h-0 flex-1">
           {data.summary.totalFixtures === 0 ? (
             <EmptyFixtureGuidance userRole={userRole} siteId={data.site.id} />
           ) : !hasFixtureData ? null : floor && mapSnapshot ? (
             <>
-              <FloorMap floor={{ ...floor, fixtures }} snapshot={mapSnapshot} selectedFixtureId={selectedFixture?.id ?? null} onSelectFixture={setSelectedFixtureId} />
+              <FloorMap floor={{ ...floor, fixtures }} snapshot={mapSnapshot} selectedFixtureId={selectedFixtureId ?? selectedFixture?.id ?? null} onSelectFixture={setSelectedFixtureId} timeZone={data.site.timeZone} />
               {fixtures.length > 0 && !hasPlacedFixtures && <FeedbackState icon={Clock3} title="배치된 조명이 없습니다" description={`등록된 조명 ${fixtures.length}개는 목록에서 조회하고 제어할 수 있습니다.`} action={userRole === "admin" ? <Link to={`/settings/floor-plans/${encodeURIComponent(floor.id)}/edit?siteId=${encodeURIComponent(data.site.id)}`}>설정에서 조명 배치</Link> : undefined} />}
             </>
           ) : floor && (mapQuery.error || mapRefreshFailed) ? (
@@ -316,8 +327,40 @@ function MonitoringDashboard({ data, userRole, siteId, refreshDashboard }: Monit
           ) : (
             <FeedbackState icon={Clock3} title="등록된 층이 없습니다." />
           )}
+          </div>
+          {floor ? <MonitoringLogTicker
+            items={activityQuery.data?.items ?? []}
+            generatedAt={activityQuery.data?.generatedAt ?? null}
+            retainedFrom={activityQuery.data?.retainedFrom ?? null}
+            isPending={activityQuery.isPending}
+            error={activityQuery.error}
+            isRefetchError={activityQuery.isRefetchError}
+            timeZone={data.site.timeZone}
+            onOpen={() => setIsLogDrawerOpen(true)}
+            onRetry={() => void activityQuery.refetch()}
+            triggerRef={logTriggerRef}
+          /> : null}
         </div>
-        {floor && hasFixtureData ? <div className="order-2 min-w-0 max-phone-wide:order-1 tablet:col-start-2 tablet:row-start-1">
+      </div>
+      <DrawerDialog
+        isOpen={isInspectorOpen}
+        onClose={() => setIsInspectorOpen(false)}
+        returnFocusRef={inspectorTriggerRef}
+        fallbackFocusRef={refreshButtonRef}
+        title="조명 검색·상세"
+        closeLabel="조명 검색·상세 닫기"
+        bodyClassName="grid min-w-0 gap-4"
+      >
+        {hasFixtureData && data.summary.totalFixtures > 0 ? <div data-monitoring-fixture-selector="">
+          <SelectBox
+            label="상세 조명 선택"
+            items={fixtures.map((fixture) => ({ id: fixture.id, label: `${fixture.name} · ${presentFixtureStatus(fixture).label}` }))}
+            selectedKey={selectedFixture?.id ?? null}
+            onSelectionChange={(fixtureId) => setSelectedFixtureId(fixtureId)}
+            className="w-full"
+          />
+        </div> : null}
+        {floor && hasFixtureData ? <div className="min-w-0">
           <MonitoringFixtureFinder
             key={floor.id}
             fixtures={fixtures}
@@ -332,7 +375,7 @@ function MonitoringDashboard({ data, userRole, siteId, refreshDashboard }: Monit
             placedFixtureIds={placedFixtureIds}
           />
         </div> : null}
-            <SidePanel className="order-3 grid min-w-0 grid-cols-1 content-start gap-4 border-border-default bg-surface-panel p-4.5 shadow-none max-tablet:grid-cols-2 max-compact:grid-cols-1 tablet:col-start-2 tablet:row-start-2" aria-label="선택 조명 상세" data-monitoring-detail-panel="">
+            <SidePanel className="grid min-w-0 grid-cols-1 content-start gap-4 border-border-default bg-surface-panel p-4.5 shadow-none" aria-label="선택 조명 상세" data-monitoring-detail-panel="">
               <div className="flex min-w-0 items-start justify-between gap-3 max-tablet:col-span-full">
                 <div className="min-w-0">
                   <Text as="span" variant="overline" tone="secondary">상세 패널</Text>
@@ -347,7 +390,7 @@ function MonitoringDashboard({ data, userRole, siteId, refreshDashboard }: Monit
                     <Text as="span" variant="body-sm" tone="inverse" weight="bold">{selectedBrightness?.label}</Text>
                     <Text as="strong" variant="display" tone="inverse">{selectedBrightness?.value}</Text>
                     {selectedBrightness?.observedAt ? (
-                      <Text as="small" variant="caption" tone="inverse">마지막 확인: <time dateTime={selectedBrightness.observedAt}>{formatAbsoluteTimestamp(selectedBrightness.observedAt, data.site.timeZone)}</time></Text>
+                      <Text as="small" variant="caption" tone="inverse">마지막 확인: <time dateTime={selectedBrightness.observedAt}>{formatMonitoringTimestamp(selectedBrightness.observedAt, data.site.timeZone)}</time></Text>
                     ) : null}
                     {selectedBrightness?.value !== "확인 전" ? <div className="h-2 overflow-hidden rounded-control bg-action-primary-soft">
                       {/* Brightness is a device read-back, never the BIO configured brightness. */}
@@ -405,7 +448,17 @@ function MonitoringDashboard({ data, userRole, siteId, refreshDashboard }: Monit
                 <Text tone="secondary">지도에서 조명을 선택하면 상태와 제어 정보를 확인할 수 있습니다.</Text>
               )}
             </SidePanel>
-      </div>
+      </DrawerDialog>
+      <MonitoringLogDrawer
+        isOpen={isLogDrawerOpen}
+        onClose={() => setIsLogDrawerOpen(false)}
+        returnFocusRef={logTriggerRef}
+        fallbackFocusRef={refreshButtonRef}
+        principal={principal}
+        siteId={siteId ?? data.site.id}
+        floorId={floor?.id ?? null}
+        timeZone={data.site.timeZone}
+      />
 
     </section>
   );
@@ -535,12 +588,6 @@ function formatLastSeen(value: string | null) {
   if (diffMs < 3_600_000) return `${Math.floor(diffMs / 60_000)}분 전`;
   if (diffMs < 86_400_000) return `${Math.floor(diffMs / 3_600_000)}시간 전`;
   return `${Math.floor(diffMs / 86_400_000)}일 전`;
-}
-
-function formatAbsoluteTimestamp(value: string, timeZone: string) {
-  return new Intl.DateTimeFormat("ko-KR", {
-    timeZone, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false
-  }).format(new Date(value));
 }
 
 function formatHealthStatus(health: Dashboard["floors"][number]["fixtures"][number]["health"]) {

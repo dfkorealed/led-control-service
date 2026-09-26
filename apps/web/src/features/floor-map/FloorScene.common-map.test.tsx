@@ -59,8 +59,9 @@ describe("common monitoring host", () => {
   it("keeps fixture status and selection separate from saved geometry", async () => {
     const { ui, press } = setup(); render(ui({ ...snapshot, fixtures: [{ id: "stale", name: "L1", x: 800, y: 450, size: 20 }] }));
     await screen.findByTestId("common-canvas");
-    fireEvent.click(screen.getByRole("button", { name: "L1 정상 70%" }));
-    expect(press).toHaveBeenCalledWith("stale");
+    const marker = screen.getByRole("button", { name: "L1 정상 70%" });
+    fireEvent.click(marker);
+    expect(press).toHaveBeenCalledWith("stale", marker);
   });
 
   it("preserves source identity across revisions but replaces it on floor or permission changes", async () => {

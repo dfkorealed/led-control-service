@@ -324,6 +324,11 @@ async function chooseSelect(label: string, option: string) {
   fireEvent.keyUp(document.activeElement!, { key: "Enter" });
 }
 
+async function openMonitoringInspector() {
+  fireEvent.click(await screen.findByRole("button", { name: "조명 검색·상세" }));
+  return screen.findByRole("dialog", { name: "조명 검색·상세" });
+}
+
 async function selectMapFixture(name: string) {
   const targetMap = await screen.findByRole("region", { name: "제어 대상 지도" });
   fireEvent.click(await within(targetMap).findByRole("button", { name: new RegExp(`^${name} `) }));
@@ -863,7 +868,8 @@ describe("App", () => {
 
     expect(await screen.findByRole("button", { name: "맵 선택" })).toBeInTheDocument();
     expect(screen.getByRole("group", { name: "전체 조명" })).toBeInTheDocument();
-    expect(screen.getByRole("complementary", { name: "선택 조명 상세" })).toBeInTheDocument();
+    const inspector = await openMonitoringInspector();
+    expect(within(inspector).getByRole("complementary", { name: "선택 조명 상세" })).toBeInTheDocument();
     expect(screen.getAllByText("관제 센터").length).toBeGreaterThan(0);
   });
 
@@ -886,7 +892,8 @@ describe("App", () => {
       </QueryClientProvider>
     );
 
-    expect(await screen.findByText("조명 전용 게이트웨이 A (정상)")).toBeInTheDocument();
+    const inspector = await openMonitoringInspector();
+    expect(await within(inspector).findByText("조명 전용 게이트웨이 A (정상)")).toBeInTheDocument();
   });
 
   it("disables control and explains the server-provided block reason", async () => {
@@ -1028,9 +1035,10 @@ describe("App", () => {
     expect(await screen.findByRole("button", { name: "B1-L01 정상 50%" })).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "B1-L02 정상 55%" }));
-    expect(await screen.findByRole("heading", { name: "B1-L02" })).toBeInTheDocument();
-    expect(screen.getByRole("complementary", { name: "선택 조명 상세" })).toHaveTextContent("-56 dBm");
-    expect(screen.getByRole("complementary", { name: "선택 조명 상세" })).toHaveTextContent("99%");
+    const inspector = await openMonitoringInspector();
+    expect(await within(inspector).findByRole("heading", { name: "B1-L02" })).toBeInTheDocument();
+    expect(within(inspector).getByRole("complementary", { name: "선택 조명 상세" })).toHaveTextContent("-56 dBm");
+    expect(within(inspector).getByRole("complementary", { name: "선택 조명 상세" })).toHaveTextContent("99%");
   });
 
   it("keeps the monitoring floor map read only", async () => {
@@ -1077,7 +1085,7 @@ describe("App", () => {
     );
 
     expect(screen.queryByRole("heading", { name: "점검 큐" })).not.toBeInTheDocument();
-    await screen.findByRole("button", { name: "상세 조명 선택" });
+    await openMonitoringInspector();
     await chooseSelect("상세 조명 선택", "B2-L-OFFLINE · 오프라인");
 
     expect(await screen.findByRole("heading", { name: "B2-L-OFFLINE" })).toBeInTheDocument();
@@ -1103,7 +1111,8 @@ describe("App", () => {
 
     expect(await screen.findByRole("button", { name: "맵 선택" })).toBeInTheDocument();
     expect(screen.getByRole("region", { name: "층 도면" })).toBeInTheDocument();
-    expect(screen.getByRole("complementary", { name: "선택 조명 상세" })).toBeInTheDocument();
+    const inspector = await openMonitoringInspector();
+    expect(within(inspector).getByRole("complementary", { name: "선택 조명 상세" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "맵 편집" })).not.toBeInTheDocument();
   });
 

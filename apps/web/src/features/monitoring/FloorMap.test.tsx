@@ -67,6 +67,98 @@ const navigationFloor = {
 describe("FloorMap", () => {
   afterEach(() => cleanup());
 
+  it("counts saved map placements without mixing loaded, hidden or missing data", () => {
+    const { rerender } = render(<FloorMap floor={{ ...navigationFloor, fixtures: [
+      { ...navigationFloor.fixtures[0]!, placementStatus: "unplaced" },
+      { ...navigationFloor.fixtures[0]!, id: "runtime-unplaced", name: "미배치 목록 조명", placementStatus: "unplaced" }
+    ] }} snapshot={{ ...mapSnapshot, objects: [{ ...mapSnapshot.objects[0]!, visible: false }], fixtures: [
+      { id: "saved-only", name: "지도에 저장된 조명", x: 200, y: 300, size: 20 }
+    ] }} selectedFixtureId={null} onSelectFixture={vi.fn()} />);
+    expect(screen.getByText("지도 표시 1대")).toBeVisible();
+    rerender(<FloorMap floor={navigationFloor} snapshot={{ ...mapSnapshot, fixtures: [
+      { id: "saved-only", name: "지도에 저장된 조명", x: 200, y: 300, size: 20 }
+    ] }} selectedFixtureId={null} onSelectFixture={vi.fn()} />);
+    expect(screen.getByText("지도 배치 정보 확인 불가")).toBeVisible();
+    rerender(<FloorMap floor={{ ...navigationFloor, fixtures: [] }} snapshot={{ ...mapSnapshot, fixtures: [] }} selectedFixtureId={null} onSelectFixture={vi.fn()} />);
+    expect(screen.getByText("지도 표시 0대")).toBeVisible();
+    rerender(<FloorMap floor={navigationFloor} snapshot={mapSnapshot} selectedFixtureId={null} onSelectFixture={vi.fn()} />);
+    expect(screen.getByText("지도 배치 정보 확인 불가")).toBeVisible();
+  });
+
+  it("opens a read-only popover with saved coordinates and real brightness, then restores marker focus", async () => {
+    const onSelectFixture = vi.fn();
+    render(<FloorMap floor={navigationFloor} snapshot={{ ...mapSnapshot, fixtures: [{
+      id: "fixture-1", name: "B1-L001", x: 120, y: 80, size: 20
+    }] }} selectedFixtureId={null} onSelectFixture={onSelectFixture} timeZone="Asia/Seoul" />);
+
+    const marker = screen.getByRole("button", { name: "B1-L001 정상 70%" });
+    fireEvent.click(marker);
+    const info = await screen.findByRole("dialog", { name: "B1-L001 조명 정보" });
+    expect(info).toHaveTextContent("현재 밝기");
+    expect(info).toHaveTextContent("70%");
+    expect(info).toHaveTextContent("지도 좌표");
+    expect(info).toHaveTextContent("120, 80");
+    expect(info).not.toHaveTextContent("주차면 앞");
+    expect(info.querySelector("button")).toBeNull();
+    expect(onSelectFixture).toHaveBeenCalledWith("fixture-1");
+
+    fireEvent.keyDown(info, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "B1-L001 조명 정보" })).not.toBeInTheDocument());
+    expect(marker).toHaveFocus();
+  });
+
+  it("moves only the focused map viewport with arrow keys", () => {
+    render(<FloorMap floor={navigationFloor} snapshot={mapSnapshot} selectedFixtureId={null} onSelectFixture={vi.fn()} />);
+    const viewport = screen.getByTestId("monitoring-map-viewport");
+    const scrollBy = vi.fn();
+    viewport.scrollBy = scrollBy;
+    viewport.focus();
+
+    const right = fireEvent.keyDown(viewport, { key: "ArrowRight", cancelable: true });
+    expect(right).toBe(false);
+    expect(scrollBy).toHaveBeenCalledWith({ left: 80, top: 0, behavior: "smooth" });
+    const documentEvent = fireEvent.keyDown(document.body, { key: "ArrowDown", cancelable: true });
+    expect(documentEvent).toBe(true);
+    expect(scrollBy).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not present an unobserved offline brightness as current output", async () => {
+    render(<FloorMap floor={{ ...navigationFloor, fixtures: [{
+      ...navigationFloor.fixtures[0]!, status: "offline", statusReason: "fixture_stale", lastSeenAt: null
+    }] }} snapshot={mapSnapshot} selectedFixtureId={null} onSelectFixture={vi.fn()} />);
+    fireEvent.click(screen.getByRole("button", { name: "B1-L001 상태 수신 지연 70%" }));
+    const info = await screen.findByRole("dialog", { name: "B1-L001 조명 정보" });
+    expect(info).toHaveTextContent("최근 확인 밝기");
+    expect(info).toHaveTextContent("확인 전");
+    expect(info).not.toHaveTextContent("70%");
+  });
+
+  it("shows saved-only coordinates without inventing live brightness and runtime-only pins without invented coordinates", async () => {
+    const { rerender } = render(<FloorMap floor={{ ...navigationFloor, fixtures: [] }} snapshot={{
+      ...mapSnapshot, fixtures: [{ id: "saved-only", name: "저장된 조명", x: 1120, y: 740, size: 20 }]
+    }} selectedFixtureId={null} onSelectFixture={vi.fn()} />);
+    fireEvent.click(screen.getByRole("button", { name: /저장된 조명/ }));
+    const saved = await screen.findByRole("dialog", { name: "저장된 조명 조명 정보" });
+    expect(saved).toHaveTextContent("상태 확인 전");
+    expect(saved).not.toHaveTextContent("0%");
+    expect(saved).toHaveTextContent("1120, 740");
+
+    rerender(<FloorMap floor={navigationFloor} snapshot={{ ...mapSnapshot, fixtures: [] }} selectedFixtureId={null} onSelectFixture={vi.fn()} />);
+    fireEvent.click(screen.getByRole("button", { name: "B1-L001 정상 70%" }));
+    const runtime = await screen.findByRole("dialog", { name: "B1-L001 조명 정보" });
+    expect(runtime).toHaveTextContent("저장된 위치 정보 없음");
+    expect(runtime).toHaveTextContent("70%");
+  });
+
+  it("closes a pin popover when the saved map revision changes", async () => {
+    const props = { floor: navigationFloor, selectedFixtureId: null, onSelectFixture: vi.fn() };
+    const { rerender } = render(<FloorMap {...props} snapshot={mapSnapshot} />);
+    fireEvent.click(screen.getByRole("button", { name: "B1-L001 정상 70%" }));
+    expect(await screen.findByRole("dialog", { name: "B1-L001 조명 정보" })).toBeInTheDocument();
+    rerender(<FloorMap {...props} snapshot={{ ...mapSnapshot, revision: 3 }} />);
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "B1-L001 조명 정보" })).not.toBeInTheDocument());
+  });
+
   it("keeps marker copy accessible without rendering visible brightness labels", () => {
     const onSelectFixture = vi.fn();
     render(

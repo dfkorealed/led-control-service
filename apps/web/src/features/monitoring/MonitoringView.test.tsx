@@ -1,4 +1,5 @@
 import { act, cleanup, fireEvent, render as testingRender, screen, waitFor, within } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactElement } from "react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -6,9 +7,19 @@ import { SessionStatusCenter, SessionStatusProvider, ToastRegion } from "../../c
 import { MonitoringView } from "./MonitoringView";
 
 function render(ui: ReactElement) {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return testingRender(ui, {
-    wrapper: ({ children }) => <SessionStatusProvider>{children}<SessionStatusCenter /><ToastRegion /></SessionStatusProvider>
+    wrapper: ({ children }) => <QueryClientProvider client={client}><SessionStatusProvider>{children}<SessionStatusCenter /><ToastRegion /></SessionStatusProvider></QueryClientProvider>
   });
+}
+
+function openInspector() {
+  fireEvent.click(screen.getByRole("button", { name: "조명 검색·상세" }));
+  return screen.getByRole("dialog", { name: "조명 검색·상세" });
+}
+
+function closeInspector() {
+  fireEvent.click(screen.getByRole("button", { name: "조명 검색·상세 닫기" }));
 }
 
 const queryMocks = vi.hoisted(() => ({
@@ -17,7 +28,14 @@ const queryMocks = vi.hoisted(() => ({
   useFloorMapSnapshot: vi.fn()
 }));
 const refreshApi = vi.hoisted(() => ({ waitForMonitoringRefresh: vi.fn() }));
+const activityApi = vi.hoisted(() => ({ useMonitoringActivity: vi.fn() }));
+const authApi = vi.hoisted(() => ({ useCurrentUser: vi.fn() }));
 vi.mock("../../api/monitoring-refresh", () => refreshApi);
+vi.mock("./useMonitoringActivity", () => ({
+  ...activityApi,
+  monitoringActivityScopeKey: (principal: string, siteId: string, floorId: string) => ["monitoring-activity", principal, siteId, floorId]
+}));
+vi.mock("../../api/auth", () => authApi);
 
 vi.mock("../../api/queries", () => queryMocks);
 vi.mock("../registration/RegistrationPanel", () => ({
@@ -26,8 +44,8 @@ vi.mock("../registration/RegistrationPanel", () => ({
 
 const dashboard = {
   site: { id: "site-1", name: "테스트 현장" },
-  summary: { totalFixtures: 1, onlineFixtures: 1, faultFixtures: 0, averageBrightness: 70 },
-  floors: [{ id: "floor-1", name: "B1", level: -1, floorPlan: null, fixtures: [] }],
+  summary: { totalFixtures: 1, onlineFixtures: 1, faultFixtures: 0, offlineFixtures: 0, averageBrightness: 70 },
+  floors: [{ id: "floor-1", name: "B1", level: -1, floorPlan: null, summary: { totalFixtures: 1, onlineFixtures: 1, faultFixtures: 0, offlineFixtures: 0 }, fixtures: [] }],
   groups: [],
   gateways: [{ id: "gateway-1", name: "GW-1", connectionStatus: "online" }]
 };
@@ -58,6 +76,8 @@ describe("MonitoringView refresh", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    authApi.useCurrentUser.mockReturnValue({ data: { user: { id: "user-1", organizationId: "org-1" } } });
+    activityApi.useMonitoringActivity.mockReturnValue({ data: { generatedAt: new Date().toISOString(), retainedFrom: "2026-06-25T00:00:00.000Z", items: [], nextCursor: null }, error: null, isPending: false, isRefetchError: false, refetch: vi.fn() });
     refreshApi.waitForMonitoringRefresh.mockReset().mockResolvedValue({ status: "completed" });
     const currentGeneratedAt = new Date().toISOString();
     refetchDashboard.mockResolvedValue({ data: dashboard });
@@ -98,6 +118,48 @@ describe("MonitoringView refresh", () => {
     vi.useRealTimers();
   });
 
+  it("keeps site and floor registered counts independent of a partial fixture page and map pins", () => {
+    queryMocks.useDashboard.mockReturnValue({ ...queryMocks.useDashboard(), data: {
+      ...dashboard,
+      summary: { ...dashboard.summary, totalFixtures: 248, onlineFixtures: 237, faultFixtures: 7, offlineFixtures: 4 },
+      floors: [{ ...dashboard.floors[0], summary: { totalFixtures: 62, onlineFixtures: 57, faultFixtures: 3, offlineFixtures: 2 } }]
+    } });
+    queryMocks.useFloorFixtures.mockReturnValue({
+      ...queryMocks.useFloorFixtures(),
+      data: { pages: [{ items: [fixture], nextCursor: "more", generatedAt: new Date().toISOString() }] },
+      hasNextPage: true
+    });
+    queryMocks.useFloorMapSnapshot.mockReturnValue({ ...queryMocks.useFloorMapSnapshot(), data: {
+      ...mapSnapshot,
+      fixtures: [{ id: fixture.id, name: fixture.name, x: 100, y: 100, size: 20 }]
+    } });
+    render(<MonitoringView siteId="site-1" />);
+
+    expect(within(screen.getByRole("region", { name: "현장 전체 조명 현황" })).getByRole("group", { name: "현장 조명" })).toHaveTextContent("248");
+    expect(within(screen.getByRole("region", { name: "선택 층 조명 현황" })).getByRole("group", { name: "전체 조명" })).toHaveTextContent("62");
+    expect(screen.getByRole("button", { name: /B1-L001/ })).toBeInTheDocument();
+  });
+
+  it("opens actual activity with zero registered fixtures without a device command", async () => {
+    queryMocks.useDashboard.mockReturnValue({ ...queryMocks.useDashboard(), data: {
+      ...dashboard,
+      summary: { ...dashboard.summary, totalFixtures: 0, onlineFixtures: 0, faultFixtures: 0, offlineFixtures: 0 },
+      floors: [{ ...dashboard.floors[0], summary: { totalFixtures: 0, onlineFixtures: 0, faultFixtures: 0, offlineFixtures: 0 } }]
+    } });
+    queryMocks.useFloorFixtures.mockReturnValue({ ...queryMocks.useFloorFixtures(), data: { pages: [{ items: [], nextCursor: null, generatedAt: new Date().toISOString() }] } });
+    activityApi.useMonitoringActivity.mockReturnValue({ data: {
+      generatedAt: "2026-09-25T00:00:00.000Z", retainedFrom: "2026-06-25T00:00:00.000Z",
+      items: [{ id: "00000000-0000-4000-8000-000000000010", kind: "monitoring_refresh_result", recordedAt: "2026-09-25T00:00:00.000Z", refreshStatus: "completed" }],
+      nextCursor: null
+    }, error: null, isPending: false, isRefetchError: false, refetch: vi.fn() });
+    render(<MemoryRouter><MonitoringView siteId="site-1" userRole="admin" /></MemoryRouter>);
+
+    expect(screen.getByRole("heading", { name: "등록된 조명이 없습니다" })).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "전체 보기" }));
+    expect(await screen.findByRole("dialog", { name: "전체 로그" })).toHaveTextContent("장치 상태 확인 · 완료");
+    expect(refreshApi.waitForMonitoringRefresh).not.toHaveBeenCalled();
+  });
+
   it("최초 현황 조회 실패는 본문 오류에서 다시 시도할 수 있다", () => {
     queryMocks.useDashboard.mockReturnValue({ ...queryMocks.useDashboard(), data: undefined, error: new Error("dashboard unavailable") });
     render(<MonitoringView siteId="site-1" />);
@@ -120,7 +182,7 @@ describe("MonitoringView refresh", () => {
     expect(screen.getByText(/마지막 갱신:/)).toBeInTheDocument();
   });
 
-  it("keeps one hardware request active and updates summary, marker and selected detail together", async () => {
+  it("keeps one hardware request active and refreshes marker/detail without deriving counts from fixture pages", async () => {
     const hardware = deferred<{ status: string }>();
     refreshApi.waitForMonitoringRefresh.mockReturnValueOnce(hardware.promise);
     const online = { ...fixture, health: null };
@@ -130,7 +192,7 @@ describe("MonitoringView refresh", () => {
     refetchFixtures.mockImplementationOnce(async () => { query.data.pages[0].items = [online, { ...second, status: "offline", statusReason: "fixture_stale" }]; });
     render(<MonitoringView siteId="site-1" userRole="viewer" />);
     fireEvent.click(screen.getByRole("button", { name: "B1-L002 정상 70%" }));
-    expect(screen.getByRole("group", { name: "정상" })).toHaveTextContent("2");
+    expect(screen.getByRole("group", { name: "정상" })).toHaveTextContent("1");
     fireEvent.click(screen.getByRole("button", { name: "새로고침" }));
     const loading = screen.getByRole("button", { name: "장치 상태 확인 중" });
     expect(loading).toBeDisabled();
@@ -139,10 +201,11 @@ describe("MonitoringView refresh", () => {
     expect(refreshApi.waitForMonitoringRefresh).toHaveBeenCalledWith(expect.objectContaining({ siteId: "site-1", floorId: "floor-1", clientRequestId: expect.any(String), signal: expect.any(AbortSignal) }));
     expect(refetchFixtures).not.toHaveBeenCalled();
     await act(async () => hardware.resolve({ status: "completed" }));
-    expect(screen.getByRole("group", { name: "전체 조명" })).toHaveTextContent("2");
+    expect(screen.getByRole("group", { name: "전체 조명" })).toHaveTextContent("1");
     expect(screen.getByRole("group", { name: "정상" })).toHaveTextContent("1");
-    expect(screen.getByRole("group", { name: "오프라인" })).toHaveTextContent("1");
+    expect(screen.getByRole("group", { name: "오프라인" })).toHaveTextContent("0");
     expect(screen.getByRole("button", { name: "B1-L002 상태 수신 지연 70%" })).toBeVisible();
+    openInspector();
     expect(screen.getByRole("complementary", { name: "선택 조명 상세" })).toHaveTextContent("B1-L002");
     expect(screen.getByRole("complementary", { name: "선택 조명 상세" })).toHaveTextContent("상태 수신 지연");
     expect(screen.queryByRole("status")).not.toBeInTheDocument();
@@ -238,7 +301,7 @@ describe("MonitoringView refresh", () => {
     render(<MonitoringView siteId="site-1" />);
     fireEvent.click(screen.getByRole("button", { name: "새로고침" }));
     await waitFor(() => expect(screen.getByRole("button", { name: "새로고침" })).toBeEnabled());
-    expect(screen.getByText(copy)).toBeVisible();
+    expect(await screen.findByText(copy)).toBeVisible();
     expect(screen.getByRole("button", { name: "상태 센터, 미해결 2건" })).toBeInTheDocument();
     expect(screen.getByText("저장된 지도를 유지하고 있습니다. 지도 갱신에 실패했습니다.")).toBeVisible();
     expect(screen.queryByText(/secret/)).not.toBeInTheDocument();
@@ -327,8 +390,25 @@ describe("MonitoringView refresh", () => {
     }
   });
 
+  it("does not show another fixture's detail when a saved pin has no loaded runtime row", () => {
+    queryMocks.useFloorMapSnapshot.mockReturnValue({
+      ...queryMocks.useFloorMapSnapshot(),
+      data: { ...mapSnapshot, fixtures: [{ id: "fixture-snapshot-only", name: "B1-L099", x: 1100, y: 700, size: 20 }] }
+    });
+    render(<MonitoringView siteId="site-1" />);
+
+    const savedPin = screen.getByRole("button", { name: "B1-L099 오프라인 0%" });
+    fireEvent.click(savedPin);
+    expect(screen.getByRole("button", { name: "B1-L099 오프라인 0%" })).toHaveAttribute("aria-current", "true");
+    const inspector = openInspector();
+    expect(within(inspector).getByRole("heading", { name: "조명 선택" })).toBeVisible();
+    expect(within(inspector).queryByText("B1-L001")).not.toBeInTheDocument();
+    expect(within(inspector).queryByText("GW-1 (정상)")).not.toBeInTheDocument();
+  });
+
   it("shows only fixture details without exposing incident operations", () => {
     render(<MonitoringView siteId="site-1" userRole="admin" />);
+    openInspector();
 
     const detailPanel = screen.getByRole("complementary", { name: "선택 조명 상세" });
     expect(within(detailPanel).getByRole("region", { name: "선택 조명 정보" })).toBeVisible();
@@ -340,17 +420,26 @@ describe("MonitoringView refresh", () => {
   it("preserves selection and map during dashboard background failure", async () => {
     queryMocks.useFloorFixtures.mockReturnValue({ ...queryMocks.useFloorFixtures(), data: { pages: [{ items: [fixture, { ...fixture, id: "fixture-2", name: "B1-L002" }], nextCursor: null, generatedAt: new Date().toISOString() }] } });
     const view = render(<MonitoringView siteId="site-1" userRole="admin" />);
+    openInspector();
     await chooseSelect("상세 조명 선택", "B1-L002 · 장애");
+    closeInspector();
     fireEvent.click(screen.getByRole("button", { name: "지도 확대" }));
     queryMocks.useDashboard.mockReturnValue({ data: dashboard, isLoading: false, error: new Error("offline"), refetch: refetchDashboard });
     view.rerender(<MonitoringView siteId="site-1" userRole="admin" />);
+    openInspector();
     expect(screen.getByRole("region", { name: "선택 조명 정보" })).toBeVisible();
-    expect(screen.getByRole("button", { name: "맵 선택" })).toHaveTextContent("B1");
     expect(screen.getByRole("button", { name: "상세 조명 선택" })).toHaveTextContent("B1-L002 · 장애");
+    closeInspector();
+    expect(screen.getByRole("button", { name: "맵 선택" })).toHaveTextContent("B1");
     expect(screen.getByRole("region", { name: "층 도면" })).toHaveAttribute("data-zoom", "1.1");
   });
 
   it("presents offline fixtures immediately after the inspection metric", () => {
+    queryMocks.useDashboard.mockReturnValue({ ...queryMocks.useDashboard(), data: {
+      ...dashboard,
+      summary: { ...dashboard.summary, totalFixtures: 3, faultFixtures: 1, offlineFixtures: 1 },
+      floors: [{ ...dashboard.floors[0], summary: { totalFixtures: 3, onlineFixtures: 1, faultFixtures: 1, offlineFixtures: 1 } }]
+    } });
     const faultFixture = {
       ...fixture,
       id: "fixture-2",
@@ -397,6 +486,7 @@ describe("MonitoringView refresh", () => {
     expect(screen.queryByRole("group", { name: "평균 밝기" })).not.toBeInTheDocument();
     expect(screen.queryByRole("region", { name: "빠른 상태" })).not.toBeInTheDocument();
     expect(screen.getByRole("region", { name: "층 도면" })).toBeInTheDocument();
+    openInspector();
     expect(screen.getByRole("complementary", { name: "선택 조명 상세" })).toHaveTextContent("72%");
     const selectedFixtureDetail = screen.getByRole("region", { name: "선택 조명 정보" });
     expect(within(selectedFixtureDetail).queryByRole("heading", { name: "점검 큐" })).not.toBeInTheDocument();
@@ -406,7 +496,7 @@ describe("MonitoringView refresh", () => {
     )).toBeVisible();
   });
 
-  it("모니터링은 핵심 KPI 다음에 층 도면과 선택 조명 상세를 배치한다", () => {
+  it("모니터링은 핵심 KPI 다음에 전폭 지도와 접근 가능한 상세 드로어를 배치한다", () => {
     const faultFixture = {
       ...fixture,
       id: "fixture-2",
@@ -426,10 +516,9 @@ describe("MonitoringView refresh", () => {
 
     const summary = screen.getByRole("group", { name: "점검 필요" }).parentElement!;
     const map = screen.getByRole("region", { name: "층 도면" });
-    const detail = screen.getByRole("complementary", { name: "선택 조명 상세" });
-    expect(detail).toHaveTextContent("현재 밝기");
     expect(summary.compareDocumentPosition(map) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(map.compareDocumentPosition(detail) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    const drawer = openInspector();
+    expect(within(drawer).getByRole("complementary", { name: "선택 조명 상세" })).toHaveTextContent("현재 밝기");
   });
 
   it("keeps the mobile fixture selector and map marker selection in sync", async () => {
@@ -455,6 +544,8 @@ describe("MonitoringView refresh", () => {
 
     render(<MonitoringView siteId="site-1" />);
 
+    openInspector();
+
     const selector = await screen.findByRole("button", { name: "상세 조명 선택" });
     expect(selector).toHaveTextContent("B1-L002 · 장애");
     expect(within(screen.getByRole("complementary", { name: "선택 조명 상세" })).getByRole("heading", { name: "B1-L002" })).toBeVisible();
@@ -462,8 +553,10 @@ describe("MonitoringView refresh", () => {
     await chooseSelect("상세 조명 선택", "B1-L001 · 장애");
     expect(within(screen.getByRole("complementary", { name: "선택 조명 상세" })).getByRole("heading", { name: "B1-L001" })).toBeVisible();
 
+    closeInspector();
     fireEvent.click(screen.getByRole("button", { name: "B1-L002 장애 42%" }));
-    expect(selector).toHaveTextContent("B1-L002 · 장애");
+    openInspector();
+    expect(screen.getByRole("button", { name: "상세 조명 선택" })).toHaveTextContent("B1-L002 · 장애");
   });
 
   it("opens an unplaced fixture from search without creating a map marker", () => {
@@ -472,10 +565,13 @@ describe("MonitoringView refresh", () => {
     queryMocks.useFloorMapSnapshot().data = { ...mapSnapshot, fixtures: [] };
     render(<MemoryRouter><MonitoringView siteId="site-1" userRole="viewer" /></MemoryRouter>);
 
+    openInspector();
+
     fireEvent.change(screen.getByRole("searchbox", { name: "조명 이름 또는 번호 검색" }), { target: { value: "002" } });
     fireEvent.click(within(screen.getByRole("list", { name: "조명 목록" })).getByRole("button", { name: /B1-L002/ }));
 
     expect(within(screen.getByRole("complementary", { name: "선택 조명 상세" })).getByRole("heading", { name: "B1-L002" })).toBeVisible();
+    closeInspector();
     expect(within(screen.getByRole("region", { name: "층 도면" })).queryByRole("button", { name: /B1-L002/ })).not.toBeInTheDocument();
   });
 
@@ -485,11 +581,14 @@ describe("MonitoringView refresh", () => {
       data: { ...dashboard, floors: [...dashboard.floors, { ...dashboard.floors[0], id: "floor-2", name: "B2" }] }
     });
     render(<MemoryRouter><MonitoringView siteId="site-1" /></MemoryRouter>);
+    openInspector();
     const search = screen.getByRole("searchbox", { name: "조명 이름 또는 번호 검색" });
     fireEvent.change(search, { target: { value: "001" } });
     expect(search).toHaveValue("001");
 
+    closeInspector();
     await chooseSelect("맵 선택", "B2");
+    openInspector();
     expect(screen.getByRole("searchbox", { name: "조명 이름 또는 번호 검색" })).toHaveValue("");
     expect(screen.getByRole("button", { name: "조명 목록 보기" })).toHaveAttribute("aria-expanded", "false");
   });
@@ -519,7 +618,7 @@ describe("MonitoringView refresh", () => {
     fireEvent.click(screen.getByRole("button", { name: "새로고침" }));
 
     expect(await screen.findByRole("status")).toHaveTextContent("일부 현황 데이터를 새로고침하지 못했습니다.");
-    expect(screen.getAllByText("B1-L001")).not.toHaveLength(0);
+    expect(screen.getByRole("button", { name: /B1-L001/ })).toBeInTheDocument();
   });
 
   it("keeps cached dashboard, map, and selected fixture visible when a dashboard refetch fails", () => {
@@ -534,6 +633,7 @@ describe("MonitoringView refresh", () => {
     render(<MonitoringView siteId="site-1" />);
 
     expect(screen.getByRole("region", { name: "층 도면" })).toBeInTheDocument();
+    openInspector();
     expect(screen.getByRole("complementary", { name: "선택 조명 상세" })).toHaveTextContent("B1-L001");
     // Cached dashboard query failures are owned by CustomerShell's status source.
     expect(within(document.querySelector("[data-monitoring-screen]") as HTMLElement).queryByText(/저장된 현황을 유지하고 있습니다/)).not.toBeInTheDocument();
@@ -638,6 +738,7 @@ describe("MonitoringView refresh", () => {
 
   it("shows the latest Health Current fault snapshot", () => {
     render(<MonitoringView siteId="site-1" />);
+    openInspector();
 
     expect(screen.getByText("장비 Health")).toBeInTheDocument();
     expect(screen.getByText("장애 (0x04)")).toBeInTheDocument();
@@ -647,6 +748,7 @@ describe("MonitoringView refresh", () => {
   it("shows an offline brightness as the last confirmed reading with its timestamp", () => {
     queryMocks.useFloorFixtures().data.pages[0].items = [{ ...fixture, status: "offline", statusReason: "gateway_offline", health: null, brightness: 42 }];
     render(<MonitoringView siteId="site-1" />);
+    openInspector();
 
     const detail = screen.getByRole("complementary", { name: "선택 조명 상세" });
     expect(within(detail).getByText("최근 확인 밝기")).toBeVisible();
@@ -658,6 +760,7 @@ describe("MonitoringView refresh", () => {
   it("shows no brightness value before the fixture's first confirmed report", () => {
     queryMocks.useFloorFixtures().data.pages[0].items = [{ ...fixture, status: "offline", statusReason: "provisioning_waiting_state", health: null, brightness: 0, lastSeenAt: null }];
     render(<MonitoringView siteId="site-1" />);
+    openInspector();
 
     const detail = screen.getByRole("complementary", { name: "선택 조명 상세" });
     expect(within(detail).getByText("최근 확인 밝기")).toBeVisible();
@@ -830,7 +933,7 @@ describe("MonitoringView refresh", () => {
 
     expect(screen.getByRole("status")).toHaveTextContent("조명 상태를 불러오는 중");
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
-    expect(screen.queryByRole("group", { name: "전체 조명" })).not.toBeInTheDocument();
+    expect(screen.getByRole("group", { name: "전체 조명" })).toHaveTextContent("1");
     expect(screen.queryByText("등록된 층이 없습니다.")).not.toBeInTheDocument();
     expect(screen.queryByRole("region", { name: "층 도면" })).not.toBeInTheDocument();
   });
@@ -840,7 +943,7 @@ describe("MonitoringView refresh", () => {
       ...dashboard,
       floors: [
         dashboard.floors[0],
-        { ...dashboard.floors[0], id: "floor-2", name: "B2", level: -2 }
+        { ...dashboard.floors[0], id: "floor-2", name: "B2", level: -2, summary: { totalFixtures: 2, onlineFixtures: 1, faultFixtures: 0, offlineFixtures: 1 } }
       ]
     };
     queryMocks.useDashboard.mockReturnValue({
@@ -888,7 +991,7 @@ describe("MonitoringView refresh", () => {
 
     expect(screen.getByRole("status")).toHaveTextContent("B2 조명 상태를 불러오는 중");
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
-    expect(screen.queryByRole("group", { name: "전체 조명" })).not.toBeInTheDocument();
+    expect(screen.getByRole("group", { name: "전체 조명" })).toHaveTextContent("2");
     expect(screen.queryByRole("region", { name: "층 도면" })).not.toBeInTheDocument();
   });
 
@@ -908,7 +1011,7 @@ describe("MonitoringView refresh", () => {
     render(<MonitoringView siteId="site-1" />);
 
     expect(screen.getByRole("alert")).toHaveTextContent("조명 상태를 불러오지 못했습니다.");
-    expect(screen.queryByRole("group", { name: "전체 조명" })).not.toBeInTheDocument();
+    expect(screen.getByRole("group", { name: "전체 조명" })).toHaveTextContent("1");
     fireEvent.click(screen.getByRole("button", { name: "조명 상태 다시 시도" }));
     expect(refetchFixtures).toHaveBeenCalledTimes(1);
     expect(screen.queryByText(/인시던트/)).not.toBeInTheDocument();
@@ -1015,7 +1118,9 @@ describe("MonitoringView refresh", () => {
 
     expect(await screen.findByText("저장된 지도를 유지하고 있습니다. 지도 갱신에 실패했습니다.")).toBeInTheDocument();
     expect(screen.getByRole("region", { name: "층 도면" })).toBeInTheDocument();
+    openInspector();
     expect(screen.getByRole("complementary", { name: "선택 조명 상세" })).toHaveTextContent("현재 밝기");
+    closeInspector();
     fireEvent.click(screen.getByRole("button", { name: "상태 센터, 미해결 2건" }));
     fireEvent.click(within(screen.getByRole("dialog", { name: "현재 세션 상태" })).getByRole("button", { name: "지도 다시 시도" }));
     expect(refetchMap).toHaveBeenCalledTimes(2);
@@ -1057,6 +1162,7 @@ describe("MonitoringView refresh", () => {
     await waitFor(() => expect(screen.queryByText("저장된 지도를 유지하고 있습니다. 지도 갱신에 실패했습니다.")).not.toBeInTheDocument());
     expect(screen.queryByText("일부 현황 데이터를 새로고침하지 못했습니다.")).not.toBeInTheDocument();
     expect(screen.getByRole("region", { name: "층 도면" })).toHaveAttribute("data-zoom", "1.1");
+    openInspector();
     expect(screen.getByRole("button", { name: "상세 조명 선택" })).toHaveTextContent("B1-L001 · 장애");
   });
 
@@ -1096,9 +1202,8 @@ describe("MonitoringView refresh", () => {
 
     const summary = screen.getByRole("group", { name: "점검 필요" }).parentElement!;
     const map = screen.getByRole("region", { name: "층 도면" });
-    const detail = screen.getByRole("complementary", { name: "선택 조명 상세" });
     expect(summary.compareDocumentPosition(map) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(map.compareDocumentPosition(detail) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(openInspector()).toContainElement(screen.getByRole("complementary", { name: "선택 조명 상세" }));
   });
 
   it("한 층의 지도 갱신 실패를 다른 층의 성공한 지도에 표시하지 않는다", async () => {

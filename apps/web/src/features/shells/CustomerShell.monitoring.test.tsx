@@ -50,6 +50,11 @@ function mount() {
   render(<QueryClientProvider client={client}><MemoryRouter initialEntries={["/monitoring?siteId=site-1"]}><CustomerShell user={admin} /></MemoryRouter></QueryClientProvider>);
 }
 
+async function openFixtureInspector() {
+  fireEvent.click(await screen.findByRole("button", { name: "조명 검색·상세" }));
+  return screen.findByRole("dialog", { name: "조명 검색·상세" });
+}
+
 describe("customer shell monitoring details", () => {
   it.each(["loading", "error"])("sends exactly one hardware POST after the initial fixture GET recovers from %s", async (initialState) => {
     const normalFetch = fetchMock.getMockImplementation()!;
@@ -75,24 +80,27 @@ describe("customer shell monitoring details", () => {
     release();
     await waitFor(() => expect(within(screen.getByRole("region", { name: "선택 층 조명 현황" })).getByRole("group", { name: "오프라인" })).toHaveTextContent("1"));
     expect(fetchMock.mock.calls.filter(([path]) => path === "/api/sites/site-1/floors/floor-1/monitoring-refreshes")).toHaveLength(1);
-    expect(screen.getByRole("complementary", { name: "선택 조명 상세" })).toHaveTextContent("상태 수신 지연");
-    expect(screen.getByRole("button", { name: "새로고침" })).toBeEnabled();
+    const inspector = await openFixtureInspector();
+    expect(within(inspector).getByRole("complementary", { name: "선택 조명 상세" })).toHaveTextContent("상태 수신 지연");
+    expect(refresh).toBeEnabled();
     expect(screen.queryByText(/private upstream/)).not.toBeInTheDocument();
   });
 
   it("lets a read-only member refresh physical status and updates the selected detail through real queries", async () => {
     canManage = false;
     mount();
-    await screen.findByRole("region", { name: "선택 조명 정보" });
-    fireEvent.click(screen.getByRole("button", { name: "새로고침" }));
+    const refresh = await screen.findByRole("button", { name: "새로고침" });
+    fireEvent.click(refresh);
     await waitFor(() => expect(within(screen.getByRole("region", { name: "선택 층 조명 현황" })).getByRole("group", { name: "오프라인" })).toHaveTextContent("1"));
-    expect(screen.getByRole("complementary", { name: "선택 조명 상세" })).toHaveTextContent("상태 수신 지연");
-    expect(screen.getByRole("button", { name: "새로고침" })).toBeEnabled();
+    const inspector = await openFixtureInspector();
+    expect(within(inspector).getByRole("complementary", { name: "선택 조명 상세" })).toHaveTextContent("상태 수신 지연");
+    expect(refresh).toBeEnabled();
     expect(fetchMock.mock.calls.filter(([path]) => path === "/api/sites/site-1/floors/floor-1/monitoring-refreshes")).toHaveLength(1);
   });
   it("shows fixture details without requesting or exposing incident operations", async () => {
     mount();
-    expect(await screen.findByRole("region", { name: "선택 조명 정보" })).toBeVisible();
+    const inspector = await openFixtureInspector();
+    expect(await within(inspector).findByRole("region", { name: "선택 조명 정보" })).toBeVisible();
     expect(screen.queryByText(/인시던트/)).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "판정 기준" })).not.toBeInTheDocument();
     await waitFor(() => expect(fetchMock.mock.calls.some(([path]) => String(path).includes("monitoring-incidents"))).toBe(false));

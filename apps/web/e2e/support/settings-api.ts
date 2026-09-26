@@ -346,7 +346,9 @@ export async function installSettingsApiRoutes(
           includeGateway,
           gatewayHeartbeatAt,
           snapshotGeneratedAt ?? new Date().toISOString(),
-          includeFloor
+          includeFloor,
+          mapRevision,
+          mapElementState.length > 0 || runtimeFloor.floorPlan !== null
         )
       });
     }
@@ -577,8 +579,13 @@ function dashboard(
   includeGateway = true,
   gatewayHeartbeatAt = new Date().toISOString(),
   generatedAt = new Date().toISOString(),
-  includeFloor = true
+  includeFloor = true,
+  mapRevision = 0,
+  mapConfigured = false
 ) {
+  const onlineFixtures = fixtures.filter((fixture) => fixture.status === "online").length;
+  const faultFixtures = fixtures.filter((fixture) => fixture.status === "fault").length;
+  const offlineFixtures = fixtures.length - onlineFixtures - faultFixtures;
   return {
     generatedAt,
     monitoringPolicy: {
@@ -601,8 +608,9 @@ function dashboard(
     },
     summary: {
       totalFixtures: fixtures.length,
-      onlineFixtures: fixtures.filter((fixture) => fixture.status === "online").length,
-      faultFixtures: fixtures.filter((fixture) => fixture.status === "fault").length,
+      onlineFixtures,
+      faultFixtures,
+      offlineFixtures,
       averageBrightness: fixtures.length
         ? Math.round(fixtures.reduce((total, fixture) => total + fixture.brightness, 0) / fixtures.length)
         : 0
@@ -611,6 +619,9 @@ function dashboard(
       id: runtimeFloor.id,
       name: runtimeFloor.name,
       level: runtimeFloor.level,
+      summary: { totalFixtures: fixtures.length, onlineFixtures, faultFixtures, offlineFixtures },
+      mapRevision,
+      mapConfigured,
       floorPlan: runtimeFloor.floorPlan,
       meshControlGroups: [],
       fixtures: includeFixtures ? fixtures : []

@@ -24,7 +24,19 @@
 - 관련 파일: `apps/api/src/monitoring-activity/command-outcome-activity.ts`, `monitoring-activity.projection.ts`, `packages/shared/src/monitoring-activity-contracts.ts`, `apps/api/src/commands/command-retention-worker.ts`.
 - 갱신 규칙: 활동 조회/UI 구현 상태와 원본 삭제 안전 검증을 구분하고 실제 운영 반영 여부를 함께 기록한다.
 
-기준일: 2026-09-24
+기준일: 2026-09-27
+
+## 2026-09-25 Final Atlas 적용 진행 상태
+
+- 현장 전체와 선택 층의 조명 KPI를 별도 영역으로 분리했다. 등록 수와 상태별 수치는 dashboard의 현장·층 집계만 사용하며 조명 페이지 일부나 지도 핀 수로 역산하지 않는다. 오래된 로컬 테스트 DTO처럼 새 집계 필드가 없는 경우 `집계 준비 중`으로 표시하고 `0`으로 꾸미지 않는다. 실제 API는 `offlineFixtures`, 층별 `summary`, `mapRevision`, `mapConfigured`를 반환한다. `지도 표시 N대`는 선택 층 저장 map snapshot의 배치 수만 사용하고 숨김 도형·미배치 조명은 세지 않는다. 옛 지도에서 runtime-only 핀이 함께 보이거나 배치 필드가 누락되면 정확한 총수를 증명할 수 없으므로 비수치 `지도 배치 정보 확인 불가`로 표시한다.
+- 현장·층 KPI를 각각 하나의 가로 strip으로 묶고, 데스크톱에서 검색·상세 상시 보조열을 `조명 검색·상세` 읽기 전용 드로어로 옮겨 지도가 본문 가용 폭의 95% 이상을 차지하도록 했다. 모바일에서도 같은 44px 이상 진입 버튼으로 검색·미배치 선택·상세를 열 수 있고 390/320px 지도 높이 340/300px, 문서 가로 overflow 0을 유지한다. 저장된 지도 카메라, pan/zoom, 실제 새로고침, 핀 팝오버와 권한별 설정 링크는 그대로 둔다. 드로어는 닫기/Escape로 닫히고 진입 버튼에 초점이 복귀한다.
+- 지도 핀은 이름만 native 툴팁에 표시하고 접근성 이름에는 기존 상태·밝기를 유지한다. 클릭하면 공통 읽기 전용 팝오버에서 실제 마지막 관측 밝기와 저장 map snapshot 좌표를 보여 준다. 미관측 밝기·없는 저장 좌표를 만들어내지 않으며, 저장 핀의 runtime 행이 아직 로드되지 않았을 때 다른 조명의 게이트웨이·RSSI를 상세에 표시하지 않는다. Escape 닫기·핀 초점 복귀와 지도 포커스 방향키 이동을 제공한다. 320px Chromium 핀 가장자리·가로 overflow 테스트와 focused Vitest/타입/UI 정책 검사를 통과했다.
+- 웹은 선택 현장·층의 실제 `GET /sites/:siteId/floors/:floorId/monitoring-activity` 응답을 사용자별 query cache로 조회한다. 최근 활동 띠는 서버에서 받은 항목만 3초 간격으로 회전하고 긴 문구에도 `전체 보기`를 우측 끝에 둔다. 등록 조명 0대라도 실제 기록이 있으면 서랍을 열 수 있으며, 범례와 로그는 최소 18px 띄운다. 서랍은 서버 cursor로 5건씩 이동하고 `410` 만료에는 이전 행을 재사용하지 않고 명시적인 `최신 기록 보기`를 제공한다. 실제 0건, 최초 조회 실패, 마지막 성공 뒤 갱신 실패를 서로 다르게 표시한다.
+- 운영 활동 범위는 서버 `retainedFrom`을 정본으로 하는 최근 UTC 3 calendar months다. 브라우저가 90일로 환산하거나 아틀라스 가상 로그를 생성하지 않는다. 명령 원본이 3개월 뒤 물리 삭제되어도 표시 가능한 안전한 활동 snapshot만 사용하고, 만료된 명령 상세 링크·재전송 UI를 제공하지 않는다. API 조회·조명/refresh 생산자·활동 보존 sweep은 코드에 통합됐으며, 고객 DB migration·과거 기록 backfill·실장비 HIL은 아직 수행하지 않았다.
+
+## 2026-09-24 공통 맵 타일 요청 보완
+
+- 읽기 전용 모니터링 지도가 설정 편집기와 공유하는 ordered raster renderer에서 검증된 원본 tile의 인증 scope별 제한 LRU를 사용한다. 팬·줌·셀 교체 때 같은 tile의 HTTP 재요청을 줄이며 기존 셀의 완료 전 교체 금지, 캐시 32/128MiB 통합 메모리 제한과 권한 범위를 유지한다. 공유 renderer의 독립 Chromium fixture는 4개 tile의 50→4건, 30초 유휴 추가 0건 및 픽셀/context 복원을 통과했다. 실제 현장 모니터링의 HTTP 전후 수치와 모바일 WebView 체감은 별도 검증 대상이다.
 
 ## 2026-09-20 맵 표시 성능 반영
 
@@ -240,6 +252,8 @@
 
 ## 부족하거나 개선이 필요한 기능
 
+- 실제 Dashboard API 응답과 계약 테스트에는 현장 `offlineFixtures`, 층별 `summary`, `mapRevision`, `mapConfigured`가 필수다. 다만 Web의 `Dashboard` TypeScript 타입은 제어·셸·설치 화면 등의 기존 typed 테스트 fixture가 이 필드를 아직 빠뜨려 일시적으로 optional이다. 런타임 응답에서 층별 집계나 현장 오프라인 집계가 누락되면 모니터링은 `0`을 만들지 않고 `집계 준비 중`으로 표시한다. 해당 fixture를 전수 이관한 뒤 Web 타입도 required로 승격해야 한다.
+- Final Atlas 모니터링 웹은 shared response schema, API cursor/`retainedFrom`, 조회 오류와 `410`을 소비한다. 모니터링·공통 지도·App/셸 focused Vitest 232개와 Chromium route fixture 42개(1440·1378·1024·390·320px 포함)는 통과했지만, 브라우저 fixture 기록을 실제 현장에 이미 보존된 활동이라고 해석하지 않는다. 고객 DB에 신규 migration을 적용한 뒤 생산자·3개월 물리 삭제 sweep·권한·현장 시간대 표시를 운영 환경에서 통합 점검해야 한다. 과거 3개월 기록의 소급 backfill은 제공하지 않는다.
 - 수동 장치 확인의 물리 BIO USB 동글·조명 2대 연결 증거가 없어 이번 작업의 HIL은 미수행이다. 후속 현장 절차는 두 대 online → 한 대 실제 전원 차단 → 새로고침 → `정상 1 / 오프라인 1` → 전원 복구 → 새로고침 → `정상 2 / 오프라인 0`이며 Gateway 버전/API revision·가린 장비 identity·시각·결과를 기록해야 한다. 자동 unit/Chromium route fixture와 lab 발행 terminal은 실제 two-pass RF/USB 검증을 증명하지 않는다.
 - 실제 API/PostgreSQL/Redis/MQTT transport 회귀는 `E2E_REAL_BACKEND_LAB=1 pnpm --filter @led-control/web exec playwright test e2e/real-backend-lab-support.spec.ts --project=chromium`으로 opt-in한다. PostgreSQL 도구·Redis·Mosquitto·OpenSSL과 API/Web build가 필요하며 미설정 시 해당 transport 시나리오는 명시적으로 skip한다. 환경이 준비돼 실행한 실패는 skip 또는 HIL 성공으로 바꾸지 않는다.
 - 2026-09-18 Task 7 검증: retention 단위 6개·disposable PostgreSQL 42개, 기존 조회 fixture 보정 33개, monitoring Chromium 32개, lab 지원 17개(transport opt-in 1개 제외; ACK payload 계약·식별자 음성 회귀 포함), 실제 Docker Mosquitto persistence/운영·개발 ACL 3개가 통과했다. 정식 lint/typecheck/build와 opt-in lab 기동은 기존 CAD `confirmMapReset` 누락에 막히며 root test는 기존 CI cgroup 기대값 불일치로 실패한다. 이를 우회하지 않는 정식 명령은 실패 상태로 남긴다. 별도 일회성 진단에서 Web 타입 검사만 Vite build로 대체한 lab transport 1개는 실제 API POST/GET·MQTT application ACK·`정상 1 / 오프라인 1`·동일 결과 재전송 멱등성·새 presence의 `정상 2 / 오프라인 0` 복구를 통과했다. 진단 우회 코드는 제거했고, 이 결과를 정식 build 통과나 물리 장비 HIL로 확대하지 않는다.
@@ -278,7 +292,20 @@
 
 ## 관련 파일
 
+- `apps/web/src/features/monitoring/MonitoringSummary.tsx`
+- `apps/web/src/features/monitoring/FloorMap.tsx`
+- `apps/web/src/features/monitoring/FixturePinPopover.tsx`
+- `apps/web/src/features/monitoring/monitoring-time.ts`
+- `apps/web/src/features/monitoring/useMonitoringActivity.ts`
+- `apps/web/src/features/monitoring/monitoring-activity-presentation.ts`
+- `apps/web/src/features/monitoring/MonitoringLogTicker.tsx`
+- `apps/web/src/features/monitoring/MonitoringLogDrawer.tsx`
+- `apps/web/src/features/monitoring/MonitoringView.tsx`
+- `apps/web/src/features/floor-map/FloorScene.tsx`
+- `apps/web/src/features/floor-map/FloorMapViewport.tsx`
+- `apps/web/src/api/queries.ts`
 - `apps/api/src/monitoring-refresh/`
+- `apps/api/src/monitoring-activity/`
 - `apps/api/src/retention/data-retention.service.ts`
 - `apps/api/prisma/migrations/20260918100000_monitoring_manual_refresh/migration.sql`
 - `apps/gateway/src/commands/fixture-presence-check-handler.ts`
