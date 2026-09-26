@@ -2243,3 +2243,24 @@ DB 구조가 변경될 때는 다음 순서로 함께 갱신한다.
 2. `apps/api/prisma/migrations/*/migration.sql`
 3. 이 문서 `docs/database-schema.md`
 4. 필요한 경우 API 테스트, 웹 테스트, `docs/lesson_leared.md`
+
+## 8. Command Set 발행 epoch 및 보호된 attempt envelope
+
+`20260926100000_command_publish_epoch`는 운영 활성화 없이 추가하는 안전 기반이다. 모든 현장의 원본 보존 정책은 최근 **3 calendar months**이며 1년 요금제·청구·보존 등급을 추가하지 않는다. migration은 active epoch나 로그인 credential을 만들지 않으며 production purge와 recovery POST는 계속 OFF다.
+
+| 모델 | 핵심 필드와 제약 |
+| --- | --- |
+| `CommandPublishEpoch` | 양수 `generation` PK, `active → quiescing → fenced → retired`, `createdAt/quiescingAt/fencedAt/retiredAt`. DB advisory lock과 trigger가 세대 재사용·역행·단계 생략·이력 삭제를 거부한다. retired 전에는 다음 active 세대를 만들 수 없다. |
+| `CommandPublishMember` | `(generation, workerId)` PK, 세대별 `brokerIdentity`, DB 소유 `registeredAt/quiesceAckAt`. active 때 등록하고 quiescing 때 한 번 ACK한다. 누락 ACK를 시간 초과로 만료시키지 않는다. |
+| `CommandPublishAttempt` | `id`, `generation`, `workerId`, `dispatchId`, 절대 `expiresAt`, DB 소유 `attemptedAt`. 등록된 member와 active epoch, 실제 dimming dispatch만 허용한다. 동일 dispatch는 세대를 넘길 수 없으며 행 수정과 Set→Get 종류 변경을 거부한다. `(generation, expiresAt)`와 `dispatchId` 인덱스를 둔다. |
+| `CommandPurgeBarrierEvidence` | `generation`, `workerId`, broker/Gateway/clock의 SHA-256 digest, HMAC signature와 `keyVersion`, DB 소유 `createdAt`. fenced 세대의 보호 worker만 추가하며 수정·삭제를 거부한다. signature 형식 검증은 실제 서명 검증이나 현장 안전 증명과 다르다. |
+
+새 안전 시각 컬럼은 모두 `TIMESTAMPTZ(3)`이다. `TIMESTAMP(3)`에 raw Date 파라미터를 넣으면 Asia/Seoul DB 세션에서 `12:00Z`가 `21:00Z`로 읽히는 반례가 확인되었다. 통합 테스트는 Asia/Seoul에서 저장한 절대 만료가 UTC 세션으로 바뀌어도 동일한 `12:00:20Z`인지 검사한다. 기존 테이블 시각 컬럼은 이 migration에서 바꾸지 않는다.
+
+`CommandPublishEpochService.currentForSet(tx)`는 active generation 하나만 반환한다. 호출자는 기존 shared publish permit을 실제 Set handoff까지 유지해야 한다. `maxUnsettledExpiry(tx, generation)`는 보호된 envelope의 최대 만료를 반환하며 PUBACK/terminal ACK가 있어도 최대값에서 제외하지 않는다. 전역 dimming dispatch에서 발행·수락·완료·실패/시도 흔적이 있는데 envelope가 없으면 legacy/unknown expiry로 실패한다. mutable outbox payload의 `expiresAt`을 대신 신뢰하지 않는다. Get/status-check는 이 검사에 포함하지 않는다. 값이 없으면 `null`이며, 존재하지 않거나 유효하지 않은 세대는 오류다. 보호 worker는 exclusive permit 아래에서 이 조회와 barrier 재검증을 수행해야 한다.
+
+`CommandPublishAttempt.dispatchId`는 `CommandDispatch`에 **ON DELETE RESTRICT**로 연결된다. 따라서 기존 Command cascade purge도 envelope가 남으면 차단된다. 후속 보호 worker(Task 6)는 서명·broker/Gateway drain·DB clock 증명을 검증한 뒤 **같은 보호 transaction 안에서 attempt와 원본 Command를 명시 정리**해야 한다. 단순 fenced 상태나 API ACK만으로 삭제를 허용하는 작업을 등록하지 않는다. Task 4 발행기는 각 실제 Set handoff 전에 envelope와 outbox 시도 표식을 같은 transaction에 기록해야 한다. 이 단계는 기존 publisher를 연결하거나 legacy 기록을 추정 backfill하지 않는다.
+
+권한은 NOLOGIN 그룹 `command_set_publisher`와 `command_publish_retention`으로 분리한다. publisher는 epoch/member/attempt 조회, member·attempt 추가, quiesce ACK만 가능하고 epoch 전이·evidence 쓰기·attempt DELETE/TRUNCATE는 불가하다. retention 그룹만 epoch 추가·status 전이, evidence 추가, fenced/retired attempt 삭제 권한을 가진다. row lock용 컬럼 UPDATE 권한은 trigger의 불변 검사를 우회하지 못한다. migration 실행자는 역할 생성 권한이 필요하며 실제 비소유자 로그인 역할의 그룹 연결은 별도 운영 절차다. migration owner/superuser로 runtime을 실행하면 이 권한 경계가 성립하지 않는다.
+
+epoch/member/evidence에는 Command payload나 원문 idempotency key를 복사하지 않는다. 검증은 disposable PostgreSQL에만 migration을 적용했고 운영 DB migration·reset·배포·credential 발급·flag 활성화는 수행하지 않는다. broker 반롤백, 실제 Gateway census, DB-host clock, HIL 및 서명 검증과 단조 drain 대기는 후속 작업이며 이 스키마만으로 운영 purge를 인증하지 않는다.

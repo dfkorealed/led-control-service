@@ -1547,6 +1547,7 @@ model CommandDispatch {
   gateway                 Gateway                @relation(fields: [gatewayId], references: [id], onDelete: Cascade)
   meshControlGroup        MeshControlGroup?      @relation(fields: [meshControlGroupId, gatewayId], references: [id, gatewayId], onDelete: Restrict)
   fixtureResults          CommandFixtureResult[]
+  publishAttempts         CommandPublishAttempt[]
   outbox                  MqttOutbox?
   createdAt               DateTime               @default(now())
   updatedAt               DateTime               @updatedAt
@@ -2228,4 +2229,73 @@ model FixtureEnergyStateCursor {
   fixture                 Fixture   @relation(fields: [fixtureId], references: [id], onDelete: Cascade)
   createdAt               DateTime  @default(now())
   updatedAt               DateTime  @updatedAt
+}
+
+enum CommandPublishEpochStatus {
+  active
+  quiescing
+  fenced
+  retired
+}
+
+// Database triggers enforce a positive, monotonic generation and forward-only
+// transitions. No initial active generation is provisioned by the migration.
+model CommandPublishEpoch {
+  generation  Int                       @id
+  status      CommandPublishEpochStatus @default(active)
+  createdAt   DateTime                  @default(now()) @db.Timestamptz(3)
+  quiescingAt DateTime?                 @db.Timestamptz(3)
+  fencedAt    DateTime?                 @db.Timestamptz(3)
+  retiredAt   DateTime?                 @db.Timestamptz(3)
+  members     CommandPublishMember[]
+  attempts    CommandPublishAttempt[]
+  evidence    CommandPurgeBarrierEvidence[]
+}
+
+model CommandPublishMember {
+  generation     Int
+  workerId       String
+  brokerIdentity String
+  registeredAt   DateTime            @default(now()) @db.Timestamptz(3)
+  quiesceAckAt   DateTime?            @db.Timestamptz(3)
+  epoch          CommandPublishEpoch @relation(fields: [generation], references: [generation], onDelete: Restrict, onUpdate: Restrict)
+  attempts       CommandPublishAttempt[]
+
+  @@id([generation, workerId])
+  @@unique([generation, brokerIdentity, workerId])
+}
+
+// One immutable envelope per actual Set handoff. ACKs never shorten this bound.
+// RESTRICT deliberately blocks raw Command purge until the protected barrier
+// worker explicitly cleans these rows in the same authorized transaction.
+model CommandPublishAttempt {
+  id          String               @id @default(uuid())
+  generation  Int
+  workerId    String
+  dispatchId  String
+  expiresAt   DateTime             @db.Timestamptz(3)
+  attemptedAt DateTime             @default(now()) @db.Timestamptz(3)
+  epoch       CommandPublishEpoch  @relation(fields: [generation], references: [generation], onDelete: Restrict, onUpdate: Restrict)
+  member      CommandPublishMember @relation(fields: [generation, workerId], references: [generation, workerId], onDelete: Restrict, onUpdate: Restrict)
+  dispatch    CommandDispatch      @relation(fields: [dispatchId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@index([generation, expiresAt])
+  @@index([dispatchId])
+}
+
+// Protected worker signatures cover digests only, never raw command payload or
+// idempotency keys. Signature validation and barrier admission are later gates.
+model CommandPurgeBarrierEvidence {
+  id            String              @id @default(uuid())
+  generation    Int
+  workerId      String
+  brokerDigest  String
+  gatewayDigest String
+  clockDigest   String
+  signature     String
+  keyVersion    Int
+  createdAt     DateTime            @default(now()) @db.Timestamptz(3)
+  epoch         CommandPublishEpoch @relation(fields: [generation], references: [generation], onDelete: Restrict, onUpdate: Restrict)
+
+  @@index([generation, createdAt])
 }
