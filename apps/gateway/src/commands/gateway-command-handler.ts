@@ -113,17 +113,18 @@ export function handleGatewayDimmingCommand(
   // Latch receive-time refusal: evidence arriving while a packet waits must not
   // revive that packet. Existing journal results still take precedence on DUP.
   const receivedRefusal = options.setPermit?.(command);
-  if (receivedRefusal) {
-    return executeGatewayDimmingCommand(adapter, journal, command, onAccepted, options, receivedRefusal);
-  }
+  const execute = () => executeGatewayDimmingCommand(adapter, journal, command, onAccepted, options, receivedRefusal);
   if (command.deliveryMode !== "mesh_group") {
-    return executeGatewayDimmingCommand(adapter, journal, command, onAccepted, options);
+    return execute();
   }
   const groupId = command.meshControlGroupId;
   if (!groupId || !options.groupQueue) {
-    return executeGatewayDimmingCommand(adapter, journal, command, onAccepted, options);
+    return execute();
   }
-  return options.groupQueue.run(groupId, () => executeGatewayDimmingCommand(adapter, journal, command, onAccepted, options));
+  // A refused DUP must wait for live group work too. Reading its accepted
+  // record early would misclassify ongoing RF as a restart and release manual
+  // ownership before that RF finishes. Replay only after its queued owner exits.
+  return options.groupQueue.run(groupId, execute);
 }
 
 export async function recoverPendingManualAutomationHandoffs(

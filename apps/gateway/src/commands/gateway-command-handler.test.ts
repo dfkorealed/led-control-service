@@ -88,6 +88,64 @@ describe("handleGatewayDimmingCommand", () => {
     expect(adapter.commands).toHaveLength(0);
   });
 
+  it.each(["GATEWAY_CLOCK_UNTRUSTED", "COMMAND_EXPIRED"] as const)("waits for live group RF before replaying a DUP whose permit now returns %s", async (reason) => {
+    const records = new Map<string, any>();
+    const journal = memoryJournal(records);
+    const groupCommand = meshCommand();
+    const groupQueue = new KeyedSerialTaskQueue();
+    const adapter = new StubBleMeshAdapter();
+    let releaseRf!: () => void;
+    let notifyRfStarted!: () => void;
+    const rfGate = new Promise<void>((resolve) => { releaseRf = resolve; });
+    const rfStarted = new Promise<void>((resolve) => { notifyRfStarted = resolve; });
+    let rfCalls = 0;
+    let manualPending = false;
+    let valid = true;
+    const handoffs: string[] = [];
+    const automation = {
+      prepare: async () => { manualPending = true; },
+      handoff: async (_command: unknown, terminal: { status: string }) => {
+        handoffs.push(terminal.status);
+        manualPending = false;
+      }
+    };
+    const applyMeshGroup = async (_address: number, fixtureIds: string[], brightness: number) => {
+      rfCalls += 1;
+      notifyRfStarted();
+      await rfGate;
+      return adapter.setBrightness(fixtureIds, brightness);
+    };
+    const groupAdapter = Object.assign(adapter, { applyMeshGroup });
+    const options = {
+      groupQueue, automation, groupStateStore: { assertReady: async () => undefined },
+      setPermit: () => valid ? undefined : reason
+    };
+    const original = handleGatewayDimmingCommand(groupAdapter, journal, groupCommand, undefined, options);
+    await rfStarted;
+    valid = false;
+    let duplicateSettled = false;
+    const duplicate = handleGatewayDimmingCommand(groupAdapter, journal, groupCommand, undefined, options)
+      .then((result) => { duplicateSettled = true; return result; });
+    try {
+      // Let all immediate journal/recovery work settle while RF remains held.
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      expect(await journal.get(groupCommand.idempotencyKey)).toMatchObject({ state: "accepted" });
+      expect(duplicateSettled).toBe(false);
+      expect(manualPending).toBe(true);
+      expect(handoffs).toEqual([]);
+      expect(rfCalls).toBe(1);
+    } finally {
+      releaseRf();
+      await Promise.all([original, duplicate]);
+    }
+    const result = await original;
+    expect(result.deviceStatus.status).toBe("succeeded");
+    expect(await duplicate).toEqual(result);
+    expect(handoffs).toEqual(["succeeded"]);
+    expect(manualPending).toBe(false);
+    expect(rfCalls).toBe(1);
+  });
+
   it.each(["GATEWAY_CLOCK_UNTRUSTED", "COMMAND_EXPIRED"] as const)("rechecks proof for %s when a Set leaves the group queue", async (reason) => {
     const queue = new KeyedSerialTaskQueue();
     const queued = meshCommand();
