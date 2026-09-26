@@ -1,5 +1,13 @@
 # 모니터링 메뉴 기능 현황
 
+## 2026-09-27 Command 보관 선행 구조 통합
+
+- 구현 완료: 보호된 일회용 Command purge는 활동의 raw Command source key를 site/outcome HMAC으로 재키잉하고 기존 층·기록시각을 보존한다. `MonitoringActivity` 모델·shared 계약·projection helper가 제한 worker의 선행 의존으로 포함된다.
+- 미구현: 이번 통합은 운영 purge·활동 메뉴의 새 API route·producer 등록·보존 scheduler를 활성화하지 않는다. 실제 DB migration/cutover는 별도 운영 작업이다.
+- 부족하거나 개선이 필요한 기능: raw 활동·수동 원본 복사본을 검증하지 못하면 Command 삭제를 미루며 Gateway zero counter는 실제 조명 상태 관측이나 RF 완료 증거가 아니다.
+- 관련 파일: `apps/api/src/monitoring-activity/command-outcome-activity.ts`, `monitoring-activity.projection.ts`, `packages/shared/src/monitoring-activity-contracts.ts`, `apps/api/src/commands/command-retention-worker.ts`.
+- 갱신 규칙: 활동 조회/UI 구현 상태와 원본 삭제 안전 검증을 구분하고 실제 운영 반영 여부를 함께 기록한다.
+
 기준일: 2026-09-24
 
 ## 2026-09-20 맵 표시 성능 반영

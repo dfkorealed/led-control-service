@@ -2549,6 +2549,9 @@ model CommandPurgeBarrierEvidence {
   clockDigest   String
   signature     String
   keyVersion    Int
+  // Exact signed disposable worker/boot, primary continuity, cutoff and drain bounds.
+  // Legacy placeholder rows without proof can never authorize deletion.
+  proof         Json?
   createdAt     DateTime            @default(now()) @db.Timestamptz(3)
   epoch         CommandPublishEpoch @relation(fields: [generation], references: [generation], onDelete: Restrict, onUpdate: Restrict)
 

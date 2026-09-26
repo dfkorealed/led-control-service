@@ -1,5 +1,15 @@
 # 데이터베이스 테이블 구조
 
+## 2026-09-27 제한 worker의 Command 삭제 장벽
+
+`20260925120000`~`20260925153000`의 13개 선행 migration은 활동 snapshot, replay HMAC, 미확정 hold와 대상, 원본 없는 Get dispatch/outbox, 늦은 Set/Get ACK 표식, 수동 실행 receipt·출처 보호와 재시도 backlog를 추가한다. `ManualOverride.commandId`의 nullable Prisma 관계는 별도 `manual-override-guarded-detach.sql` cutover 뒤 상태를 표현하며 additive migration만으로 원본을 분리하거나 지우지 않는다. 활성 suppression·미확정 hold는 원본 삭제 뒤에도 보존하고 수동 child/ACK 복사본·raw 활동 key·미확정 재위촉 snapshot이 있으면 삭제를 차단한다. 활동은 site/Command/outcome HMAC으로 재키잉하며 raw payload를 새 장벽 증명에 복제하지 않는다.
+
+`20260927100000_command_purge_barrier`는 `CommandPurgeBarrierEvidence.proof` JSON과 비공개 `purge_barrier_verify_key`, `purge_clock_attestation`을 추가한다. proof의 HMAC은 evidence ID·worker DB identity·keyVersion·generation·worker boot·primary/continuity·member/broker/Gateway/clock digest·fence 시각·최대 absolute expiry·UTC 3 calendar months cutoff·시각 표본·500ms 이하 유효기간·실제 단조 대기/최소 대기를 함께 묶는다. 기존 proof 없는 행은 삭제에 쓸 수 없다. clock attestation은 실제 primary postmaster 시작 identity와 일치하고 1초 이내여야 한다. primary/continuity 변경·건강 손실 뒤 복구·시각 역행은 같은 기록을 되살릴 수 없으며 새 epoch가 필요하다. migration은 키·시각 attestor·worker credential을 provision하지 않는다.
+
+보호 SQL은 automation mutation → exclusive publish permit 순서로 잠그고 같은 transaction에서 서명·세대·전체 member ACK·시각 연속성·모든 시도 envelope를 다시 확인한다. 현재 broker 증명에 worker identity→인증서 소유 매핑이 없어 누락 ACK의 broker 대체 경로는 허용하지 않는다. 제한 worker에는 Command 직접 DELETE/TRUNCATE·생성시각/대상 변경·private key SELECT·SQL 서명 함수를 주지 않는다. nonlogin definer만 최종 Command/해당 attempt를 삭제하며 row lock을 위해 `Command.updatedAt`, `CommandPublishEpoch.generation`에만 열 단위 UPDATE 권한을 받는다. proof의 cutoff보다 엄격히 오래된 `createdAt`만 삭제하고 정확 경계·hold/Get을 보존한다. 차단은 allowlist 사유·overdue 건수로 보고한다.
+
+이 경로는 `watermark_N` 일회용 PostgreSQL과 test capability에서만 성공할 수 있다. Gateway의 zero counters/재시작은 물리 RF 완료가 아니며 별도 HIL certificate와 submit→RF 측정 상한이 필요하다. 전체 Gateway census·offline 세션 폐기, stock broker 반롤백, DB-host 시각 attestor와 실장비 HIL은 운영 증거가 없으므로 production purge와 recovery POST는 hard OFF다. 기존 미커밋 메뉴/API sweep 변경이나 운영 migration·배포를 이 검증에 포함하지 않는다.
+
 작성일: 2026-09-19
 
 수동 모니터링 확인 갱신일: 2026-09-18
