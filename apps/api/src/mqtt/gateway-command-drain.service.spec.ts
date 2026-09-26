@@ -1,6 +1,6 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { mqttTopicsV2 } from "@led-control/shared";
-import { GatewayCommandDrainService } from "./gateway-command-drain.service";
+import { GatewayCommandDrainService, type GatewayDrainOptions } from "./gateway-command-drain.service";
 
 function fixture() {
   let now = 100;
@@ -11,19 +11,25 @@ function fixture() {
     certificateId: "HIL-model-only", submitToRfUpperBoundMs: 500,
     gateways: [{ siteId: gateway.siteId, gatewayId: gateway.gatewayId,
       gatewayVersion: gateway.gatewayVersion, bootId: gateway.bootId, physicalRfComplete: true }] };
+  const registry = { scope: "disposable" as const, revision: "certification-1", releases: [{
+    gatewayVersion: "certified-1", certificateId: "release-model-only", dbClockProofVersion: 1,
+    perSubmitExpiryRecheck: true, conservativeRfDrainVersion: 1 }] };
   let mutate = (_response: any) => {};
-  const service = () => new GatewayCommandDrainService({
+  const replies: unknown[] = [];
+  const service = (overrides: Partial<GatewayDrainOptions> = {}) => new GatewayCommandDrainService({
     activeScopes: async () => [{ siteId: gateway.siteId, gatewayId: gateway.gatewayId }],
     inventory: async () => structuredClone(inventory),
     physicalCertificate: async () => structuredClone(certificate),
+    safetyReleases: async () => structuredClone(registry),
     request: async (_topic, request) => {
       const response = { ...request, gatewayVersion: gateway.gatewayVersion, bootId: gateway.bootId,
         queuedCount: 0, submittedCount: 0, unconfirmedCount: 0 };
       mutate(response);
+      replies.push(structuredClone(response));
       return { topic: mqttTopicsV2.commandDrainResponse(gateway.siteId, gateway.gatewayId), payload: response };
-    }, monotonicNow: () => now
+    }, monotonicNow: () => now, ...overrides
   });
-  return { service, inventory, gateway, certificate, setMutate: (fn: typeof mutate) => { mutate = fn; },
+  return { service, inventory, gateway, certificate, registry, replies, setMutate: (fn: typeof mutate) => { mutate = fn; },
     setNow: (value: number) => { now = value; } };
 }
 
@@ -33,6 +39,47 @@ describe("Gateway purge census and independent RF certificate", () => {
     expect(await f.service().verify(7)).toMatchObject({ status: "verified", productionPurgeAllowed: false,
       submitToRfUpperBoundMs: 500 });
     expect(await new GatewayCommandDrainService().verify(7)).toMatchObject({ status: "unavailable" });
+  });
+
+  it("rejects a matching legacy version across inventory, HIL and response", async () => {
+    const f = fixture();
+    f.gateway.gatewayVersion = "legacy-unsupported";
+    f.certificate.gateways[0].gatewayVersion = "legacy-unsupported";
+    expect(await f.service().verify(7)).toMatchObject({ status: "unavailable",
+      reason: "gateway_safety_version_unsupported" });
+    f.gateway.online = false;
+    f.gateway.physicallyIsolated = true;
+    expect(await f.service().verify(7)).toMatchObject({ status: "unavailable",
+      reason: "gateway_safety_version_unsupported" });
+  });
+
+  it("requires independent release certification even when HIL and counters agree", async () => {
+    const f = fixture();
+    expect(await f.service({ safetyReleases: undefined }).verify(7)).toMatchObject({ status: "unavailable",
+      reason: "gateway_safety_certification_unavailable" });
+    f.registry.releases = [];
+    expect(await f.service().verify(7)).toMatchObject({ status: "unavailable" });
+  });
+
+  it.each(["certificateId", "dbClockProofVersion", "perSubmitExpiryRecheck", "conservativeRfDrainVersion"] as const)(
+    "rejects a matching release missing certified %s", async capability => {
+      const f = fixture();
+      Object.assign(f.registry.releases[0], { [capability]: capability === "certificateId" ? ""
+        : capability === "perSubmitExpiryRecheck" ? false : 0 });
+      expect(await f.service().verify(7)).toMatchObject({ status: "unavailable",
+        reason: "gateway_safety_version_unsupported" });
+    });
+
+  it("binds stable independent certification into the evidence digest", async () => {
+    const f = fixture();
+    f.setMutate(() => { f.registry.revision = "certification-2"; });
+    expect(await f.service().verify(7)).toMatchObject({ status: "unavailable",
+      reason: "gateway_safety_certification_changed" });
+    const original = fixture();
+    const evidence = await original.service().verify(7);
+    expect(evidence).toMatchObject({ status: "verified", digest: createHash("sha256")
+      .update(JSON.stringify({ census: original.inventory, registry: original.registry,
+        hil: original.certificate, replies: original.replies })).digest("hex") });
   });
 
   it.each(["nonce", "siteId", "gatewayId", "bootId", "gatewayVersion", "publishEpoch",

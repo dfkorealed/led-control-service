@@ -4,7 +4,7 @@
 
 - 구현 완료: 일회용 PostgreSQL의 제한 worker는 전체 member ACK, 시도별 absolute expiry, 같은 primary의 내구적 시각 연속성, 전체 broker/Gateway 증명과 독립 단조 대기를 통과해야 서명된 정확 cutoff로 원본을 삭제한다. 증명 누락·위조·다른 boot/세대는 삭제 0이다. Set quiesce와 독립인 원본 없는 Get publisher를 등록하고 MQTT 종료 전에 해당 Get도 drain한다.
 - 미구현: 운영 물리 purge와 recovery POST 활성화, 운영 DB-host attestor, 되돌릴 수 없는 broker admission/인증서 원장, 전체 현장 Gateway census 및 Raspberry Pi/BlueZ/BIO 물리 RF HIL 인증.
-- 부족하거나 개선이 필요한 기능: 소프트웨어 queue/submitted/unconfirmed 0과 재시작만으로 RF 완료를 인정하지 않는다. broker digest에 worker identity→인증서 소유 증명이 없어 member ACK 하나라도 없으면 backlog로 남긴다. CLI는 별도 장벽 입력이 없는 경우 삭제 0이며 운영 스케줄러가 아니다.
+- 부족하거나 개선이 필요한 기능: 소프트웨어 queue/submitted/unconfirmed 0과 재시작만으로 RF 완료를 인정하지 않는다. Gateway 버전 문자열 일치만으로도 허용하지 않으며 독립 release 인증의 clock proof·매 submit 만료 재검사·보수적 RF 계수 capability와 별도 물리 HIL이 모두 필요하다. 기본 인증 목록과 운영 adapter는 없다. broker digest에 worker identity→인증서 소유 증명이 없어 member ACK 하나라도 없으면 backlog로 남긴다. CLI는 별도 장벽 입력이 없는 경우 삭제 0이며 운영 스케줄러가 아니다. 제한 worker의 SQL 직접 호출도 정확한 hold 대상·밝기·Gateway와 late Set wire HMAC을 재검증하며 TS 사전 검사만으로 삭제를 허용하지 않는다.
 - 관련 파일: `apps/api/src/commands/command-purge-barrier.service.ts`, `command-retention-worker.ts`, `apps/api/src/mqtt/gateway-command-drain.service.ts`, `recovery-outbox-publisher.service.ts`, `apps/api/prisma/cutovers/command-retention-protected-delete.sql`.
 - 갱신 규칙: 운영 gate는 disposable 테스트와 별도로 기록하고 실제 broker/clock/HIL 증거 없이 완료 또는 purge ON으로 바꾸지 않는다. 기존 unknown/partial hold·늦은 ACK·Get 전용 복구와 자동 Set 재시도 금지 경계를 유지한다.
 

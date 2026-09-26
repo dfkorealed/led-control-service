@@ -130,6 +130,13 @@ SET search_path = pg_catalog, pg_temp
 AS $$
 DECLARE
   command_row public."Command"%ROWTYPE;
+  set_dispatch public."CommandDispatch"%ROWTYPE;
+  hold_row public."UnresolvedCommandHold"%ROWTYPE;
+  receipt_row public."LateSetReceipt"%ROWTYPE;
+  expected_targets TEXT[];
+  dispatch_targets TEXT[];
+  hold_targets TEXT[];
+  receipt_targets TEXT[];
   cutoff TIMESTAMP(3);
   dimming_count INTEGER;
   set_gateway_id TEXT;
@@ -155,6 +162,8 @@ BEGIN
   FROM public."CommandDispatch"
   WHERE "commandId" = p_command_id AND "kind" = 'dimming';
   IF dimming_count <> 1 THEN RETURN FALSE; END IF;
+  SELECT * INTO set_dispatch FROM public."CommandDispatch"
+    WHERE "commandId" = p_command_id AND "kind" = 'dimming';
   IF EXISTS (SELECT 1 FROM public."CommandDispatch" AS dispatch
     WHERE dispatch."commandId" = p_command_id
       AND (NOT EXISTS (SELECT 1 FROM public."CommandFixtureResult" AS result
@@ -201,15 +210,52 @@ BEGIN
       OR count(*) FILTER (WHERE dispatch."clientRequestId" IS NOT NULL) <> 1)
     THEN RETURN FALSE; END IF;
   IF command_row."outcome" IS NULL OR command_row."outcome" = 'pending' THEN RETURN FALSE; END IF;
-  IF command_row."outcome" = 'unknown' AND NOT EXISTS (
-    SELECT 1 FROM public."UnresolvedCommandHold" AS hold
-    WHERE hold."originalCommandId" = p_command_id
-      AND hold."siteId" = command_row."siteId"
-      AND hold."originalCreatedAt" = command_row."createdAt"
-      AND EXISTS (SELECT 1 FROM public."UnresolvedCommandHoldTarget" AS target
-        WHERE target."holdId" = hold."id")
-      AND EXISTS (SELECT 1 FROM public."LateSetReceipt" AS receipt
-        WHERE receipt."holdId" = hold."id")) THEN RETURN FALSE; END IF;
+  SELECT * INTO hold_row FROM public."UnresolvedCommandHold"
+    WHERE "originalCommandId" = p_command_id;
+  IF command_row."outcome" = 'unknown' THEN
+    -- The restricted worker may call this definer without the TS preflight.
+    -- A hold/receipt's existence is insufficient: preserve exactly the old
+    -- Set's scope, complete targets, brightness and authenticated wire tuple.
+    IF hold_row."id" IS NULL OR hold_row."siteId" <> command_row."siteId"
+      OR hold_row."gatewayId" <> set_dispatch."gatewayId"
+      OR hold_row."originalCreatedAt" <> command_row."createdAt"
+      OR jsonb_typeof(command_row."targetFixtureIds") IS DISTINCT FROM 'array'
+      THEN RETURN FALSE; END IF;
+    IF EXISTS (SELECT 1 FROM jsonb_array_elements(command_row."targetFixtureIds") AS item
+      WHERE jsonb_typeof(item) <> 'string') THEN RETURN FALSE; END IF;
+    SELECT array_agg(id ORDER BY id) INTO expected_targets
+      FROM jsonb_array_elements_text(command_row."targetFixtureIds") AS value(id);
+    IF COALESCE(cardinality(expected_targets), 0) = 0
+      OR cardinality(expected_targets) <> (SELECT count(DISTINCT id) FROM unnest(expected_targets) AS value(id))
+      THEN RETURN FALSE; END IF;
+    SELECT array_agg("fixtureId" ORDER BY "fixtureId") INTO dispatch_targets
+      FROM public."CommandFixtureResult" WHERE "dispatchId" = set_dispatch."id";
+    SELECT array_agg("fixtureId" ORDER BY "fixtureId") INTO hold_targets
+      FROM public."UnresolvedCommandHoldTarget" WHERE "holdId" = hold_row."id";
+    IF dispatch_targets IS DISTINCT FROM expected_targets OR hold_targets IS DISTINCT FROM expected_targets
+      OR EXISTS (SELECT 1 FROM public."UnresolvedCommandHoldTarget"
+        WHERE "holdId" = hold_row."id" AND "expectedBrightness" <> command_row."brightness")
+      OR hold_row."verificationAttemptCount" < COALESCE((SELECT max("verificationAttempt")
+        FROM public."CommandDispatch" WHERE "commandId" = p_command_id AND "kind" = 'status_check'), 0)
+      OR (SELECT count(*) FROM public."LateSetReceipt" WHERE "holdId" = hold_row."id") <> 1
+      THEN RETURN FALSE; END IF;
+    SELECT * INTO receipt_row FROM public."LateSetReceipt" WHERE "holdId" = hold_row."id";
+    IF receipt_row."originalDispatchId" <> set_dispatch."id"
+      OR NOT command_protected.matches_exact_command_digest('late-set-wire',
+        ARRAY[command_row."siteId", set_dispatch."gatewayId", command_row."id",
+          set_dispatch."id", set_dispatch."idempotencyKey", set_dispatch."sequence"::text],
+        receipt_row."wireDigest", receipt_row."keyVersion")
+      OR jsonb_typeof(receipt_row."targetFixtureIds") IS DISTINCT FROM 'array'
+      THEN RETURN FALSE; END IF;
+    IF EXISTS (SELECT 1 FROM jsonb_array_elements(receipt_row."targetFixtureIds") AS item
+      WHERE jsonb_typeof(item) <> 'string') THEN RETURN FALSE; END IF;
+    SELECT array_agg(id ORDER BY id) INTO receipt_targets
+      FROM jsonb_array_elements_text(receipt_row."targetFixtureIds") AS value(id);
+    IF receipt_targets IS DISTINCT FROM expected_targets THEN RETURN FALSE; END IF;
+  ELSIF hold_row."id" IS NOT NULL THEN
+    -- A terminal original must not leave an active unresolved alias behind.
+    RETURN FALSE;
+  END IF;
 
   -- The caller's nullable Override ID is not evidence. Detach leaves the
   -- original Command FK NULL, so independently recover its alias from the

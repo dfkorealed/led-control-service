@@ -8,7 +8,9 @@
 
 보호 SQL은 automation mutation → exclusive publish permit 순서로 잠그고 같은 transaction에서 서명·세대·전체 member ACK·시각 연속성·모든 시도 envelope를 다시 확인한다. 현재 broker 증명에 worker identity→인증서 소유 매핑이 없어 누락 ACK의 broker 대체 경로는 허용하지 않는다. 제한 worker에는 Command 직접 DELETE/TRUNCATE·생성시각/대상 변경·private key SELECT·SQL 서명 함수를 주지 않는다. nonlogin definer만 최종 Command/해당 attempt를 삭제하며 row lock을 위해 `Command.updatedAt`, `CommandPublishEpoch.generation`에만 열 단위 UPDATE 권한을 받는다. proof의 cutoff보다 엄격히 오래된 `createdAt`만 삭제하고 정확 경계·hold/Get을 보존한다. 차단은 allowlist 사유·overdue 건수로 보고한다.
 
-이 경로는 `watermark_N` 일회용 PostgreSQL과 test capability에서만 성공할 수 있다. Gateway의 zero counters/재시작은 물리 RF 완료가 아니며 별도 HIL certificate와 submit→RF 측정 상한이 필요하다. 전체 Gateway census·offline 세션 폐기, stock broker 반롤백, DB-host 시각 attestor와 실장비 HIL은 운영 증거가 없으므로 production purge와 recovery POST는 hard OFF다. 기존 미커밋 메뉴/API sweep 변경이나 운영 migration·배포를 이 검증에 포함하지 않는다.
+제한 worker가 TS preflight 없이 보호 SQL을 직접 호출해도 unknown 원본의 hold Gateway·원본 생성시각·Command/Set/hold/receipt의 완전한 대상 집합·기대 밝기·기존 Get 시도 수를 다시 비교한다. late Set receipt는 정확히 한 건이어야 하고 원래 dispatch·idempotency key·sequence까지 DB 비공개 `command_safety_verify_key`의 `late-set-wire` HMAC으로 검증한다. 잘못된 scope·대상·밝기·receipt·키는 삭제 0이며 키 읽기나 범용 서명 권한을 worker에 추가하지 않는다.
+
+이 경로는 `watermark_N` 일회용 PostgreSQL과 test capability에서만 성공할 수 있다. Gateway의 zero counters/재시작은 물리 RF 완료가 아니며 별도 HIL certificate와 submit→RF 측정 상한이 필요하다. inventory/HIL/응답의 버전 문자열 일치도 capability 증거가 아니다. 별도 release 인증 목록에서 불변 Gateway 버전의 DB clock proof v1·매 물리 submit 만료 재검사·보수적 RF 계수 v1을 확인하고 해당 인증 revision을 증명 digest에 묶는다. 기본 인증 목록·운영 adapter는 없으며 offline Gateway도 미지원 버전이면 차단한다. 전체 Gateway census·offline 세션 폐기, stock broker 반롤백, DB-host 시각 attestor와 실장비 HIL은 운영 증거가 없으므로 production purge와 recovery POST는 hard OFF다. 기존 미커밋 메뉴/API sweep 변경이나 운영 migration·배포를 이 검증에 포함하지 않는다.
 
 작성일: 2026-09-19
 

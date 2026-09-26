@@ -10,6 +10,9 @@ export type GatewayDrainInventory = { generation: number; revision: string; comp
 export type GatewayPhysicalCertificate = { scope: "disposable"; generation: number;
   inventoryRevision: string; certificateId: string; submitToRfUpperBoundMs: number;
   gateways: (GatewayScope & { gatewayVersion: string; bootId: string; physicalRfComplete: boolean })[] };
+export type GatewaySafetyReleaseRegistry = { scope: "disposable"; revision: string;
+  releases: { gatewayVersion: string; certificateId: string; dbClockProofVersion: number;
+    perSubmitExpiryRecheck: boolean; conservativeRfDrainVersion: number }[] };
 export type GatewayDrainEvidence = { status: "unavailable"; reason: string; productionPurgeAllowed: false }
   | { status: "verified"; generation: number; digest: string; inventoryRevision: string;
     submitToRfUpperBoundMs: number; verifiedAtMonotonicMs: number; expiresAtMonotonicMs: number;
@@ -19,6 +22,10 @@ export interface GatewayDrainOptions {
   activeScopes?: () => Promise<GatewayScope[]>;
   inventory?: (generation: number) => Promise<GatewayDrainInventory>;
   physicalCertificate?: (generation: number) => Promise<GatewayPhysicalCertificate>;
+  /** Independent release authority, never inferred from inventory/HIL/wire
+   * agreement. Versions identify immutable certified builds. There is no
+   * production registry adapter or default certified version. */
+  safetyReleases?: () => Promise<GatewaySafetyReleaseRegistry>;
   request?: (topic: string, payload: CommandDrainRequest) => Promise<{ topic: string; payload: unknown }>;
   monotonicNow?: () => number;
 }
@@ -28,9 +35,10 @@ export class GatewayCommandDrainService {
   async verify(generation: number): Promise<GatewayDrainEvidence> {
     const unavailable = (reason: string): GatewayDrainEvidence => ({ status: "unavailable", reason,
       productionPurgeAllowed: false });
-    const { activeScopes, inventory, physicalCertificate, request } = this.options;
+    const { activeScopes, inventory, physicalCertificate, safetyReleases, request } = this.options;
     if (!Number.isSafeInteger(generation) || generation <= 0 || !activeScopes || !inventory || !request
       || !physicalCertificate) return unavailable("gateway_census_unavailable");
+    if (!safetyReleases) return unavailable("gateway_safety_certification_unavailable");
     const now = this.options.monotonicNow ?? (() => performance.now());
     const started = now();
     let timer: NodeJS.Timeout | undefined;
@@ -43,6 +51,19 @@ export class GatewayCommandDrainService {
           || scopeKey(scopes) !== scopeKey(census.gateways)
           || new Set(census.gateways.map(scopeId)).size !== census.gateways.length) {
           return unavailable("gateway_census_unavailable");
+        }
+        const registry = structuredClone(await safetyReleases());
+        // Matching version strings authenticate no capability. The independent
+        // authority must certify clock proof, every physical-submit expiry
+        // recheck, and conservative RF bookkeeping for every online/offline
+        // release. This still does not prove physical completion (separate HIL).
+        if (registry.scope !== "disposable" || !registry.revision || !registry.releases?.length
+          || new Set(registry.releases.map(release => release.gatewayVersion)).size !== registry.releases.length
+          || !census.gateways.every(gateway => registry.releases.some(release =>
+            release.gatewayVersion === gateway.gatewayVersion && !!release.certificateId
+            && release.dbClockProofVersion === 1 && release.perSubmitExpiryRecheck === true
+            && release.conservativeRfDrainVersion === 1))) {
+          return unavailable("gateway_safety_version_unsupported");
         }
         const hil = structuredClone(await physicalCertificate(generation));
         // This provider is a disposable model only. There is deliberately no
@@ -79,11 +100,14 @@ export class GatewayCommandDrainService {
         }
         if (JSON.stringify(await inventory(generation)) !== JSON.stringify(census)
           || scopeKey(await activeScopes()) !== scopeKey(scopes)) return unavailable("gateway_census_changed");
+        if (JSON.stringify(await safetyReleases()) !== JSON.stringify(registry)) {
+          return unavailable("gateway_safety_certification_changed");
+        }
         const finished = now();
         if (!Number.isFinite(finished) || finished < started || finished - started >= 1000) {
           return unavailable("gateway_evidence_stale");
         }
-        const digest = createHash("sha256").update(JSON.stringify({ census, hil, replies })).digest("hex");
+        const digest = createHash("sha256").update(JSON.stringify({ census, registry, hil, replies })).digest("hex");
         return Object.freeze({ status: "verified", generation, digest, inventoryRevision: census.revision,
           submitToRfUpperBoundMs: hil.submitToRfUpperBoundMs, verifiedAtMonotonicMs: finished,
           expiresAtMonotonicMs: started + 1000, productionPurgeAllowed: false });

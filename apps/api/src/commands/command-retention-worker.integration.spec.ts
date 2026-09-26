@@ -192,6 +192,55 @@ jest.setTimeout(60000);
       });
       // Keep this boundary fixture outside later transactions' moving cutoff.
       await owner.command.update({ where: { id: boundaryId }, data: { createdAt: new Date() } });
+      // Exercise the definer directly as the restricted worker: neither the
+      // TypeScript preflight nor staging helper is an authorization boundary.
+      // Roll back even the valid control so the normal batch below still owns
+      // this candidate and its original publish attempt.
+      for (const defect of ["gateway", "target", "brightness", "extra_target", "dispatch",
+        "wire_digest", "wire_tuple", "key_version", "receipt_targets", "receipt_duplicate",
+        "extra_receipt", "original_targets", "valid"] as const) {
+        await owner.command.update({ where: { id: eligible.command.id }, data: {
+          targetFixtureIds: defect === "original_targets" ? [fixture.id, randomUUID()] : [fixture.id] } });
+        await barrier.refresh(1);
+        const rollback = new Error("rollback direct boundary fixture");
+        await expect(worker.$transaction(async tx => {
+          const replay = digest.sign("set-replay", [site.id, user.id, eligible.command.clientRequestId]);
+          await tx.commandReplayFence.create({ data: { siteId: site.id, principalSnapshot: user.id,
+            domain: "set-replay", keyDigest: replay.value, keyVersion: replay.keyVersion } });
+          const stagedHold = await tx.unresolvedCommandHold.create({ data: {
+            siteId: site.id, gatewayId: defect === "gateway" ? randomUUID() : gateway.id,
+            originalCommandId: eligible.command.id, originalCreatedAt: eligible.command.createdAt,
+            reasonCode: "outcome_unknown", targets: { create: [
+              { fixtureId: defect === "target" ? randomUUID() : fixture.id,
+                expectedBrightness: defect === "brightness" ? 71 : 70 },
+              ...(defect === "extra_target" ? [{ fixtureId: randomUUID(), expectedBrightness: 70 }] : [])
+            ] } } });
+          const wire = digest.sign("late-set-wire", [site.id, gateway.id, eligible.command.id,
+            eligible.dispatch.id, eligible.dispatch.idempotencyKey,
+            String(eligible.dispatch.sequence + (defect === "wire_tuple" ? 1n : 0n))]);
+          await tx.lateSetReceipt.create({ data: { holdId: stagedHold.id,
+            originalDispatchId: defect === "dispatch" ? randomUUID() : eligible.dispatch.id,
+            keyVersion: defect === "key_version" ? 2 : wire.keyVersion,
+            wireDigest: defect === "wire_digest" ? `hmac-sha256:${"0".repeat(64)}` : wire.value,
+            targetFixtureIds: defect === "receipt_targets" ? [randomUUID()]
+              : defect === "receipt_duplicate" ? [fixture.id, fixture.id] : [fixture.id] } });
+          if (defect === "extra_receipt") await tx.lateSetReceipt.create({ data: {
+            holdId: stagedHold.id, originalDispatchId: randomUUID(), keyVersion: wire.keyVersion,
+            wireDigest: wire.value, targetFixtureIds: [fixture.id] } });
+          const ready = await barrier.assertReady(tx, 1);
+          expect(ready.ready).toBe(true);
+          if (!ready.ready) throw new Error("direct boundary fixture unavailable");
+          const evidenceId = await storeDisposableBarrierEvidence(tx, ready.evidence.proof, signer);
+          await tx.$queryRaw`SELECT set_config('command.purge_evidence', ${evidenceId}, true),
+            set_config('command.purge_generation', '1', true),
+            set_config('command.purge_boot', ${barrier.workerBootId}, true)`;
+          const direct = await tx.$queryRaw`SELECT command_protected.delete_expired_command_candidate(
+            ${eligible.command.id}, NULL) AS deleted`;
+          expect({ defect, direct }).toEqual({ defect, direct: [{ deleted: defect === "valid" }] });
+          expect(await tx.command.count({ where: { id: eligible.command.id } })).toBe(defect === "valid" ? 0 : 1);
+          throw rollback;
+        })).rejects.toBe(rollback);
+      }
       const result = await runDisposableProtectedCommandRetentionBatch(worker, digest,
         { maxCandidates: 2, disposableToken: token, barrier: barrierOptions });
       expect(result.blockedByReason).toEqual({ command_outbox_not_settled: 1 });
