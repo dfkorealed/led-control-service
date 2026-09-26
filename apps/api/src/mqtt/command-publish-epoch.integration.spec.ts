@@ -1,4 +1,4 @@
-import { PrismaClient } from "@prisma/client";
+import { PrismaClient, type Prisma } from "@prisma/client";
 import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -10,12 +10,14 @@ const enabled = process.env.COMMAND_RETENTION_TEST === "1";
 (enabled ? describe : describe.skip)("Command publish epoch on disposable PostgreSQL", () => {
   let cluster: Awaited<ReturnType<typeof disposablePostgres>>;
   let db: PrismaClient;
+  let databaseUrl: string;
   const service = new CommandPublishEpochService();
   let generation = 9;
 
   beforeAll(async () => {
     cluster = await disposablePostgres();
     const url = cluster.database();
+    databaseUrl = url;
     const deployed = cluster.deploy(url);
     expect(deployed.stderr + deployed.stdout).not.toMatch(/Error:|P30\d\d/);
     expect(deployed.status).toBe(0);
@@ -49,14 +51,14 @@ const enabled = process.env.COMMAND_RETENTION_TEST === "1";
       outbox: { create: { topic: `sites/${site.id}/gateways/${gateway.id}/commands/${kind === "dimming" ? "dimming" : "status-check"}`,
         payload: {}, deliveryAttemptedAt: attempted ? new Date() : null } } } });
   }
-  async function attempt(value: number, dispatchId: string, expiry = "2026-09-26T12:00:10.000Z") {
+  async function attempt(value: number, dispatchId: string, expiry = "2026-09-26T12:00:10.000Z", tx: Prisma.TransactionClient = db) {
     const id = randomUUID();
-    await db.$executeRaw`INSERT INTO "CommandPublishAttempt" ("id", "generation", "workerId", "dispatchId", "expiresAt")
+    await tx.$executeRaw`INSERT INTO "CommandPublishAttempt" ("id", "generation", "workerId", "dispatchId", "expiresAt")
       VALUES (${id}, ${value}, 'worker-a', ${dispatchId}, ${new Date(expiry)})`;
     return id;
   }
 
-  it("rejects concurrent active generations, skipped transitions, rollback and reused retired generations", async () => {
+  it("rejects duplicate active generations, skipped transitions, rollback and reused retired generations", async () => {
     const value = await activeEpoch();
     await expect(service.currentForSet(db)).resolves.toBe(value);
     await expect(db.$executeRaw`INSERT INTO "CommandPublishEpoch" ("generation") VALUES (${value + 1})`).rejects.toThrow();
@@ -96,9 +98,12 @@ const enabled = process.env.COMMAND_RETENTION_TEST === "1";
   it("includes every attempted Set expiry despite missing PUBACK or a terminal dispatch result", async () => {
     await db.$executeRawUnsafe("SET TIME ZONE 'Asia/Seoul'");
     const value = await activeEpoch();
-    const first = await dispatch("dimming", true);
-    const second = await dispatch("dimming", true);
-    await attempt(value, first.id, "2026-09-26T12:00:10.000Z");
+    const first = await dispatch();
+    const second = await dispatch();
+    await db.$transaction(async tx => {
+      await attempt(value, first.id, "2026-09-26T12:00:10.000Z", tx);
+      await tx.mqttOutbox.update({ where: { dispatchId: first.id }, data: { deliveryAttemptedAt: new Date() } });
+    });
     await attempt(value, first.id, "2026-09-26T12:00:12.000Z");
     await attempt(value, second.id, "2026-09-26T12:00:20.000Z");
     await db.commandDispatch.update({ where: { id: second.id }, data: { status: "completed", completedAt: new Date() } });
@@ -184,8 +189,93 @@ const enabled = process.env.COMMAND_RETENTION_TEST === "1";
     const url = cluster.database();
     const deployed = cluster.deploy(url, "20260925115999");
     expect(deployed.status).toBe(0);
-    const migration = readFileSync(join(__dirname, "../../prisma/migrations/20260926100000_command_publish_epoch/migration.sql"), "utf8");
-    cluster.sql(url, migration);
+    for (const name of ["20260926100000_command_publish_epoch", "20260926101000_command_publish_epoch_guards"]) {
+      cluster.sql(url, readFileSync(join(__dirname, "../../prisma/migrations", name, "migration.sql"), "utf8"));
+    }
     expect(cluster.sql(url, 'SELECT count(*) FROM "CommandPublishEpoch"')).toBe("0");
   }, 30_000);
+
+  const legacyEvidence: Array<{ label: string; dispatch?: Prisma.CommandDispatchUpdateInput; outbox?: Prisma.MqttOutboxUpdateInput }> = [
+    { label: "outbox deliveryAttemptedAt", outbox: { deliveryAttemptedAt: new Date("2026-09-26T11:00:00Z") } },
+    { label: "outbox publishedAt", outbox: { publishedAt: new Date("2026-09-26T11:00:00Z") } },
+    { label: "outbox attempts", outbox: { attempts: 1 } },
+    { label: "dispatch publishedAt", dispatch: { publishedAt: new Date("2026-09-26T11:00:00Z") } },
+    { label: "dispatch acceptedAt", dispatch: { acceptedAt: new Date("2026-09-26T11:00:00Z") } },
+    { label: "dispatch completedAt", dispatch: { completedAt: new Date("2026-09-26T11:00:00Z") } },
+    { label: "dispatch non-pending status", dispatch: { status: "failed" } }
+  ];
+  it.each(legacyEvidence)("cannot hide legacy unknown expiry with a first envelope after $label", async evidence => {
+    const value = await activeEpoch();
+    const legacy = await dispatch();
+    if (evidence.dispatch) await db.commandDispatch.update({ where: { id: legacy.id }, data: evidence.dispatch });
+    if (evidence.outbox) await db.mqttOutbox.update({ where: { dispatchId: legacy.id }, data: evidence.outbox });
+    try {
+      try {
+        await attempt(value, legacy.id);
+      } catch (error) {
+        expect((error as Error).message).toMatch(/legacy.*envelope/);
+      }
+      await expect(service.maxUnsettledExpiry(db, value)).rejects.toThrow(/envelope/);
+    } finally {
+      await retire(value);
+      // This cleanup is limited to this disposable regression fixture, including
+      // its deliberately accepted envelope when running the pre-fix RED version.
+      await db.$executeRaw`DELETE FROM "CommandPublishAttempt" WHERE "dispatchId" = ${legacy.id}`;
+      await db.command.delete({ where: { id: legacy.commandId } });
+    }
+  });
+
+  it("rejects an older REPEATABLE READ snapshot inserting below a concurrently retired higher generation", async () => {
+    const peer = new PrismaClient({ datasourceUrl: `${databaseUrl}?connection_limit=1` });
+    const lower = generation + 1;
+    const higher = generation + 2;
+    try {
+      await expect(db.$transaction(async tx => {
+        // Establish the old snapshot before the independent connection advances
+        // and retires the high watermark. An advisory lock cannot refresh it.
+        await tx.$queryRaw`SELECT MAX("generation") FROM "CommandPublishEpoch"`;
+        await peer.$executeRaw`INSERT INTO "CommandPublishEpoch" ("generation") VALUES (${higher})`;
+        for (const status of ["quiescing", "fenced", "retired"]) {
+          await peer.$executeRaw`UPDATE "CommandPublishEpoch" SET "status" = ${status}::"CommandPublishEpochStatus"
+            WHERE "generation" = ${higher}`;
+        }
+        await tx.$executeRaw`INSERT INTO "CommandPublishEpoch" ("generation") VALUES (${lower})`;
+      }, { isolationLevel: "RepeatableRead" })).rejects.toThrow(/read committed/);
+      expect(await db.$queryRaw`SELECT "generation" FROM "CommandPublishEpoch" WHERE "generation" = ${lower}`).toEqual([]);
+    } finally {
+      // The old implementation commits the regressing generation during RED.
+      const live = await db.$queryRaw<Array<{ generation: number }>>`SELECT "generation" FROM "CommandPublishEpoch" WHERE "status" = 'active'`;
+      for (const row of live) await retire(row.generation);
+      generation = higher;
+      await peer.$disconnect();
+    }
+  });
+
+  it("admits only one of two active-generation inserts started together on distinct connections", async () => {
+    const peer = new PrismaClient({ datasourceUrl: `${databaseUrl}?connection_limit=1` });
+    const lower = generation + 1;
+    const higher = generation + 2;
+    let arrivals = 0;
+    let release!: () => void;
+    const ready = new Promise<void>(resolve => { release = resolve; });
+    const backendIds = new Set<number>();
+    const insert = (client: PrismaClient, value: number) => client.$transaction(async tx => {
+      const rows = await tx.$queryRaw<Array<{ pid: number }>>`SELECT pg_backend_pid() AS pid`;
+      backendIds.add(rows[0].pid);
+      if (++arrivals === 2) release();
+      await ready;
+      await tx.$executeRaw`INSERT INTO "CommandPublishEpoch" ("generation") VALUES (${value})`;
+    });
+    try {
+      const results = await Promise.allSettled([insert(db, lower), insert(peer, higher)]);
+      expect(backendIds.size).toBe(2);
+      expect(results.filter(result => result.status === "fulfilled")).toHaveLength(1);
+      expect(results.filter(result => result.status === "rejected")).toHaveLength(1);
+    } finally {
+      const live = await db.$queryRaw<Array<{ generation: number }>>`SELECT "generation" FROM "CommandPublishEpoch" WHERE "status" = 'active'`;
+      for (const row of live) await retire(row.generation);
+      generation = higher;
+      await peer.$disconnect();
+    }
+  });
 });
