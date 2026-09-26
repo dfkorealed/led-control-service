@@ -2782,7 +2782,9 @@ function deviceStatusAckPayload() {
 // to the following aggregate read and duplicate delivery, without a broker or database.
 function reconciliationPrisma(count: number, overrides: Record<string, unknown> = {}, outcome: string | null = "pending") {
   const payload = deviceStatusAckPayload();
-  const command = { id: payload.commandId, outcome, brightness: 70, status: outcome === "pending" ? "pending" : "failed" };
+  const command = { id: payload.commandId, siteId: "22222222-2222-4222-8222-222222222222",
+    targetFixtureIds: [payload.results[0].fixtureId], outcome, brightness: 70,
+    status: outcome === "pending" ? "pending" : "failed" };
   const results = Array.from({ length: count }, (_, index) => ({
     fixtureId: index === 0 ? payload.results[0].fixtureId : "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", status: "pending", brightness: null
   }));
@@ -2824,7 +2826,11 @@ function reconciliationPrisma(count: number, overrides: Record<string, unknown> 
         .filter((result: any) => !where.fixtureId || result.fixtureId === where.fixtureId);
       matches.forEach((result: any) => Object.assign(result, data)); return { count: matches.length };
     }) },
-    command: { updateMany: jest.fn(async ({ data }: any) => { Object.assign(command, data); return { count: 1 }; }) }
+    command: { findUnique: jest.fn().mockResolvedValue(command),
+      updateMany: jest.fn(async ({ data }: any) => { Object.assign(command, data); return { count: 1 }; }) },
+    fixture: { findMany: jest.fn().mockResolvedValue([{ floorId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb" }]) },
+    floor: { findMany: jest.fn().mockResolvedValue([{ id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb" }]) },
+    monitoringActivity: { createMany: jest.fn().mockResolvedValue({ count: 1 }) }
   };
   prisma.$transaction = jest.fn(async (callback: (tx: any) => Promise<unknown>) => callback(prisma));
   return { prisma, command, dispatch, dispatches, results, order, service: new MqttService(prisma, createMeshGroupsMock() as never) };
@@ -2877,7 +2883,11 @@ function deviceAckPrisma(expectedFixtureIds: string[]) {
       findMany: jest.fn().mockResolvedValue(expectedFixtureIds.map((fixtureId) => ({ fixtureId }))),
       updateMany: jest.fn().mockResolvedValue({ count: 1 })
     },
-    command: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) }
+    command: { findUnique: jest.fn().mockResolvedValue({ siteId: "22222222-2222-4222-8222-222222222222",
+      targetFixtureIds: expectedFixtureIds }), updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+    fixture: { findMany: jest.fn().mockResolvedValue([{ floorId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb" }]) },
+    floor: { findMany: jest.fn().mockResolvedValue([{ id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb" }]) },
+    monitoringActivity: { createMany: jest.fn().mockResolvedValue({ count: 1 }) }
   };
   prisma.$queryRaw = jest.fn(async (query: TemplateStringsArray) => {
     const sql = query.join("");

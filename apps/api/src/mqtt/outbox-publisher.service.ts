@@ -27,6 +27,7 @@ import { MqttService } from "./mqtt.service";
 import { CommandSetMqttService } from "./command-set-mqtt.service";
 import { CommandPublishEpochService } from "./command-publish-epoch.service";
 import { CommandDbClockHealth } from "./command-db-clock-health.service";
+import { recordCommandOutcomeActivity } from "../monitoring-activity/command-outcome-activity";
 import { threeCalendarMonthsBefore } from "../retention/calendar-month-window";
 
 const LEASE_MS = 30_000;
@@ -655,11 +656,14 @@ export class OutboxPublisherService implements OnModuleInit {
       if (record.dispatch.kind === "status_check") return;
       const command = await tx.command.findUnique({ where: { id: record.dispatch.commandId }, select: { outcome: true } });
       const legacy = command?.outcome === null;
-      await tx.command.updateMany({
+      const updated = await tx.command.updateMany({
         where: { id: record.dispatch.commandId, status: "pending", outcome: legacy ? null : "pending" },
         data: { status: "failed", errorMessage: message,
           ...(legacy ? {} : { outcome: uncertain ? "unknown" : "not_applied" }) }
       });
+      if (updated.count === 1 && !legacy) {
+        await recordCommandOutcomeActivity(tx, record.dispatch.commandId, "pending", uncertain ? "unknown" : "not_applied");
+      }
     });
   }
 }

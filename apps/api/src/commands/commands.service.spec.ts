@@ -173,12 +173,16 @@ describe("CommandsService", () => {
       }),
       commandDispatch: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
       commandFixtureResult: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
-      command: { updateMany: jest.fn(async ({ data }: any) => {
+      command: { findUnique: jest.fn().mockResolvedValue({ siteId: ids.site, targetFixtureIds: [ids.fixture1] }),
+        updateMany: jest.fn(async ({ data }: any) => {
         outcome = data.outcome;
         events.push(`timeout:${outcome}`);
         timeoutMutated.resolve("mutated");
         return { count: 1 };
-      }) }
+      }) },
+      fixture: { findMany: jest.fn().mockResolvedValue([{ floorId: ids.floor }]) },
+      floor: { findMany: jest.fn().mockResolvedValue([{ id: ids.floor }]) },
+      monitoringActivity: { createMany: jest.fn().mockResolvedValue({ count: 1 }) }
     };
     const timeoutPrisma: any = {
       commandDispatch: { findMany: jest.fn().mockResolvedValue([
@@ -206,6 +210,7 @@ describe("CommandsService", () => {
     await expect(creating).resolves.toMatchObject({ id: ids.command });
     await expect(timingOut).resolves.toEqual({ timedOut: 1 });
     expect(events).toEqual(["dimming-created:pending", "timeout:unknown"]);
+    expect(timeoutTx.monitoringActivity.createMany).toHaveBeenCalledTimes(1);
   });
   it("recovers the same dimming request before checking unknown overlaps and counts only dimming dispatches", async () => {
     const { service, tx } = createHarness({ fixtures: [fixture(ids.fixture1)] });

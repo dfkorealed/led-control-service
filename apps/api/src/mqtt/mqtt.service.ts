@@ -53,6 +53,7 @@ import { compareAndAdvanceGatewayEvent } from "../retention/gateway-event-waterm
 import { parseGatewayTopic } from "./topic-scope";
 import { gatewayEventIsTooFarInFuture, gatewayEventMaxFutureSkewMs } from "./gateway-event-time";
 import { ProvisioningDeviceTerminalService } from "./provisioning-device-terminal.service";
+import { recordCommandOutcomeActivity } from "../monitoring-activity/command-outcome-activity";
 import { CommandRecoveryAckService } from "../commands/command-recovery-ack.service";
 import { CommandLateSetAckService } from "../commands/command-late-set-ack.service";
 import { CommandLegacyGetAckService } from "../commands/command-legacy-get-ack.service";
@@ -1477,7 +1478,7 @@ export class MqttService implements OnModuleInit {
     const outcome = verification
       ? this.verificationOutcome(results, dispatch.brightness)
       : this.dimmingOutcome(dispatches, results);
-    await tx.command.updateMany({
+    const updated = await tx.command.updateMany({
       where: { id: dispatch.commandId, ...(verification ? { outcome: "unknown" } : { outcome: dispatch.outcome }) },
       data: {
         status: outcome === "applied" ? "acknowledged" : "failed",
@@ -1485,6 +1486,9 @@ export class MqttService implements OnModuleInit {
         errorMessage: outcome === "applied" ? null : "one or more gateway dispatches failed"
       }
     });
+    if (updated.count === 1 && dispatch.outcome !== null) {
+      await recordCommandOutcomeActivity(tx, dispatch.commandId, dispatch.outcome, outcome);
+    }
   }
 
   private verificationOutcome(results: Array<{ status: string; brightness: number | null }>, expectedBrightness: number) {

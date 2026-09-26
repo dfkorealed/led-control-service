@@ -10,16 +10,16 @@
 
 ## 2026-09-27 운영 활동 3개월 보존 코드 통합
 
-- 구현 완료: 인증된 현장·층 활동 조회 API는 `read` 권한을 확인하고 서버 UTC 시각에서 3 calendar months를 역산한 `retainedFrom` 이후의 기록만 반환한다. 5건 기본 cursor 페이지는 사용자·현장·층에 묶이고, 만료된 cursor는 정제된 `410`으로 응답한다. 검증된 조명 상태·밝기·Health 전이, 실제 오프라인·복구 전이, 수동 상태 확인의 종료 결과를 원본 전이와 같은 transaction에 기록한다. 보존 worker는 `recordedAt < retainedFrom`인 활동만 sweep당 최대 1,000행 물리 삭제하며 정확한 경계 행은 보존한다.
-- 미구현: Command outcome을 발생 경로에서 활동 projection에 연결하는 MQTT·timeout·outbox 변경은 별도 Command 작업과 겹쳐 이번 선택 통합에 포함하지 않았다. 기존 기록의 소급 backfill과 고객 DB migration·운영 배포도 수행하지 않았다.
+- 구현 완료: 인증된 현장·층 활동 조회 API는 `read` 권한을 확인하고 서버 UTC 시각에서 3 calendar months를 역산한 `retainedFrom` 이후의 기록만 반환한다. 5건 기본 cursor 페이지는 사용자·현장·층에 묶이고, 만료된 cursor는 정제된 `410`으로 응답한다. 검증된 조명 상태·밝기·Health 전이, 실제 오프라인·복구 전이, 수동 상태 확인의 종료 결과를 원본 전이와 같은 transaction에 기록한다. 명령의 MQTT ACK·timeout·outbox terminal 경로도 실제 outcome CAS가 승리한 경우에만 영향 층마다 결과 활동을 같은 transaction에 기록한다. `unknown`과 이후 상태 확인으로 확정된 `applied`는 별도 행이며 pending·전송 자체는 활동으로 기록하지 않는다. 보존 worker는 `recordedAt < retainedFrom`인 활동만 sweep당 최대 1,000행 물리 삭제하며 정확한 경계 행은 보존한다.
+- 미구현: 기존 기록의 소급 backfill과 고객 DB migration·운영 배포는 수행하지 않았다. Command 원본 purge·복구 POST는 별도 안전 게이트 전까지 활성화하지 않는다.
 - 부족하거나 개선이 필요한 기능: sweep이 밀리면 만료 행이 DB에 잠시 남을 수 있으나 조회 API는 즉시 숨긴다. 시간당 처리량은 현재 단일 worker 기준 최대 60,000행이며 여러 인스턴스의 `SKIP LOCKED` 경쟁과 실제 유입량을 고려해 backlog를 관찰해야 한다. 조명 freshness의 운영 상태 갱신과 활동 기록은 현장 단위 잠금·원자성을 유지하는 집합 처리로 6,001대 격리 PostgreSQL 회귀를 통과했지만, 이는 실제 현장의 지속 처리량이나 대규모 장애 incident 조정 시간을 보증하지 않는다. Command 원본 물리 삭제는 보호 cutover·복구 검증 전까지 계속 OFF다.
-- 관련 파일: `apps/api/src/monitoring-activity/monitoring-activity.service.ts`, `monitoring-activity.controller.ts`, `apps/api/src/{energy,fixtures,monitoring-refresh}/`, `apps/api/src/retention/data-retention.service.ts`.
+- 관련 파일: `apps/api/src/monitoring-activity/monitoring-activity.service.ts`, `monitoring-activity.controller.ts`, `command-outcome-activity.ts`, `apps/api/src/{energy,fixtures,monitoring-refresh}/`, `apps/api/src/{mqtt,commands}/`, `apps/api/src/retention/data-retention.service.ts`.
 - 갱신 규칙: 신규 producer나 보존 조건을 바꿀 때 실제 고객 응답·물리 삭제 테스트와 운영 적용 여부를 함께 기록한다.
 
 ## 2026-09-27 Command 보관 선행 구조 통합
 
 - 구현 완료: 보호된 일회용 Command purge는 활동의 raw Command source key를 site/outcome HMAC으로 재키잉하고 기존 층·기록시각을 보존한다. `MonitoringActivity` 모델·shared 계약·projection helper가 제한 worker의 선행 의존으로 포함된다.
-- 미구현: 이 Command 선행 구조만으로 운영 purge나 Command outcome 활동 생산자는 활성화되지 않는다. 실제 DB migration/cutover는 별도 운영 작업이다.
+- 미구현: Command outcome 활동 생산자와 무관하게 운영 purge·복구 POST는 비활성이다. 실제 DB migration/cutover는 별도 운영 작업이다.
 - 부족하거나 개선이 필요한 기능: raw 활동·수동 원본 복사본을 검증하지 못하면 Command 삭제를 미루며 Gateway zero counter는 실제 조명 상태 관측이나 RF 완료 증거가 아니다.
 - 관련 파일: `apps/api/src/monitoring-activity/command-outcome-activity.ts`, `monitoring-activity.projection.ts`, `packages/shared/src/monitoring-activity-contracts.ts`, `apps/api/src/commands/command-retention-worker.ts`.
 - 갱신 규칙: 활동 조회/UI 구현 상태와 원본 삭제 안전 검증을 구분하고 실제 운영 반영 여부를 함께 기록한다.
@@ -32,7 +32,7 @@
 - 현장·층 KPI를 각각 하나의 가로 strip으로 묶고, 데스크톱에서 검색·상세 상시 보조열을 `조명 검색·상세` 읽기 전용 드로어로 옮겨 지도가 본문 가용 폭의 95% 이상을 차지하도록 했다. 모바일에서도 같은 44px 이상 진입 버튼으로 검색·미배치 선택·상세를 열 수 있고 390/320px 지도 높이 340/300px, 문서 가로 overflow 0을 유지한다. 저장된 지도 카메라, pan/zoom, 실제 새로고침, 핀 팝오버와 권한별 설정 링크는 그대로 둔다. 드로어는 닫기/Escape로 닫히고 진입 버튼에 초점이 복귀한다.
 - 지도 핀은 이름만 native 툴팁에 표시하고 접근성 이름에는 기존 상태·밝기를 유지한다. 클릭하면 공통 읽기 전용 팝오버에서 실제 마지막 관측 밝기와 저장 map snapshot 좌표를 보여 준다. 미관측 밝기·없는 저장 좌표를 만들어내지 않으며, 저장 핀의 runtime 행이 아직 로드되지 않았을 때 다른 조명의 게이트웨이·RSSI를 상세에 표시하지 않는다. Escape 닫기·핀 초점 복귀와 지도 포커스 방향키 이동을 제공한다. 320px Chromium 핀 가장자리·가로 overflow 테스트와 focused Vitest/타입/UI 정책 검사를 통과했다.
 - 웹은 선택 현장·층의 실제 `GET /sites/:siteId/floors/:floorId/monitoring-activity` 응답을 사용자별 query cache로 조회한다. 최근 활동 띠는 서버에서 받은 항목만 3초 간격으로 회전하고 긴 문구에도 `전체 보기`를 우측 끝에 둔다. 등록 조명 0대라도 실제 기록이 있으면 서랍을 열 수 있으며, 범례와 로그는 최소 18px 띄운다. 서랍은 서버 cursor로 5건씩 이동하고 `410` 만료에는 이전 행을 재사용하지 않고 명시적인 `최신 기록 보기`를 제공한다. 실제 0건, 최초 조회 실패, 마지막 성공 뒤 갱신 실패를 서로 다르게 표시한다.
-- 운영 활동 범위는 서버 `retainedFrom`을 정본으로 하는 최근 UTC 3 calendar months다. 브라우저가 90일로 환산하거나 아틀라스 가상 로그를 생성하지 않는다. 명령 원본이 3개월 뒤 물리 삭제되어도 표시 가능한 안전한 활동 snapshot만 사용하고, 만료된 명령 상세 링크·재전송 UI를 제공하지 않는다. API 조회·조명/refresh 생산자·활동 보존 sweep은 코드에 통합됐으며, 고객 DB migration·과거 기록 backfill·실장비 HIL은 아직 수행하지 않았다.
+- 운영 활동 범위는 서버 `retainedFrom`을 정본으로 하는 최근 UTC 3 calendar months다. 브라우저가 90일로 환산하거나 아틀라스 가상 로그를 생성하지 않는다. 명령 원본이 3개월 뒤 물리 삭제되어도 표시 가능한 안전한 활동 snapshot만 사용하고, 만료된 명령 상세 링크·재전송 UI를 제공하지 않는다. API 조회·조명/refresh/확정된 Command 결과 생산자·활동 보존 sweep은 코드에 통합됐으며, 고객 DB migration·과거 기록 backfill·실장비 HIL은 아직 수행하지 않았다.
 
 ## 2026-09-24 공통 맵 타일 요청 보완
 

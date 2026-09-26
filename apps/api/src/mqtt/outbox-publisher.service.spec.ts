@@ -48,6 +48,9 @@ const meshDispatch = {
   meshControlGroupId,
   meshControlGroupVersion: 3
 };
+// These publisher-only mocks intentionally have no resolvable fixture scope;
+// command activity projection is covered separately with real target floors.
+const pendingCommand = { outcome: "pending", siteId: dimmingPayload.siteId, targetFixtureIds: [] };
 
 function meshRecord(overrides: Record<string, unknown> = {}) {
   return {
@@ -277,7 +280,7 @@ describe("OutboxPublisherService", () => {
 
   it("never creates a fresh delivery generation for a >3-month Set draft after restart", async () => {
     process.env.COMMAND_RETENTION_PUBLISH_CUTOFF = "1";
-    const oldCommand = { outcome: null, createdAt: new Date("2026-02-28T11:59:59.999Z") };
+    const oldCommand = { ...pendingCommand, outcome: null, createdAt: new Date("2026-02-28T11:59:59.999Z") };
     const prisma: any = {
       $executeRaw: jest.fn().mockResolvedValue(1),
       command: { findUnique: jest.fn().mockResolvedValue(oldCommand), updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
@@ -303,7 +306,7 @@ describe("OutboxPublisherService", () => {
   it("blocks Set after attempt commit crosses the UTC cutoff before the first MQTT send", async () => {
     process.env.COMMAND_RETENTION_PUBLISH_CUTOFF = "1";
     let now = new Date("2026-05-31T11:59:59.999Z");
-    const boundaryCommand = { outcome: null, createdAt: new Date("2026-02-28T12:00:00.000Z") };
+    const boundaryCommand = { ...pendingCommand, outcome: null, createdAt: new Date("2026-02-28T12:00:00.000Z") };
     const prisma: any = {
       $executeRaw: jest.fn().mockResolvedValue(1),
       command: { findUnique: jest.fn().mockResolvedValue(boundaryCommand), updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
@@ -356,7 +359,7 @@ describe("OutboxPublisherService", () => {
       },
       commandDispatch: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
       commandFixtureResult: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
-      command: { findUnique: jest.fn().mockResolvedValue({ outcome: "pending" }), updateMany: jest.fn().mockResolvedValue({ count: 1 }) }
+      command: { findUnique: jest.fn().mockResolvedValue(pendingCommand), updateMany: jest.fn().mockResolvedValue({ count: 1 }) }
     };
     prisma.$transaction = jest.fn(async (callback) => callback(prisma));
     mockLiveDimmingDispatch(prisma);
@@ -416,7 +419,7 @@ describe("OutboxPublisherService", () => {
       meshControlGroup: { findUnique: jest.fn().mockRejectedValue(new Error("must not load a dimming snapshot")) },
       commandDispatch: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
       commandFixtureResult: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
-      command: { findUnique: jest.fn().mockResolvedValue({ outcome: "pending" }), updateMany: jest.fn().mockResolvedValue({ count: 1 }) }
+      command: { findUnique: jest.fn().mockResolvedValue(pendingCommand), updateMany: jest.fn().mockResolvedValue({ count: 1 }) }
     };
     prisma.$transaction = jest.fn(async (callback: (tx: any) => Promise<unknown>) => callback(prisma));
     const mqtt = { publishTopic: jest.fn().mockImplementationOnce(async (_topic, payload) => {
@@ -651,7 +654,7 @@ describe("OutboxPublisherService", () => {
       commandDispatch: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
       commandFixtureResult: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
       command: {
-        findUnique: jest.fn().mockResolvedValue({ outcome: "pending" }),
+        findUnique: jest.fn().mockResolvedValue(pendingCommand),
         updateMany: jest.fn().mockResolvedValue({ count: 1 })
       }
     };
@@ -749,7 +752,7 @@ describe("OutboxPublisherService", () => {
       },
       commandDispatch: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
       commandFixtureResult: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
-      command: { findUnique: jest.fn().mockResolvedValue({ outcome: "pending" }), updateMany: jest.fn().mockResolvedValue({ count: 1 }) }
+      command: { findUnique: jest.fn().mockResolvedValue(pendingCommand), updateMany: jest.fn().mockResolvedValue({ count: 1 }) }
     };
     prisma.$transaction = jest.fn(async (callback: (tx: any) => Promise<unknown>) => callback(prisma));
     mockLiveDimmingDispatch(prisma);
@@ -983,7 +986,7 @@ describe("OutboxPublisherService", () => {
       },
       commandDispatch: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
       commandFixtureResult: { updateMany: jest.fn().mockResolvedValue({ count: 2 }) },
-      command: { findUnique: jest.fn().mockResolvedValue({ outcome: "pending" }), updateMany: jest.fn().mockResolvedValue({ count: 1 }) }
+      command: { findUnique: jest.fn().mockResolvedValue(pendingCommand), updateMany: jest.fn().mockResolvedValue({ count: 1 }) }
     };
     prisma.$transaction = jest.fn(async (callback: (tx: any) => Promise<unknown>) => callback(prisma));
     mockLiveDimmingDispatch(prisma);
@@ -1144,7 +1147,7 @@ describe("OutboxPublisherService", () => {
         updateMany: jest.fn().mockResolvedValue({ count: 1 })
       },
       commandFixtureResult: { updateMany: jest.fn() },
-      command: { findUnique: jest.fn().mockResolvedValue({ outcome: "pending" }), updateMany: jest.fn() }
+      command: { findUnique: jest.fn().mockResolvedValue(pendingCommand), updateMany: jest.fn() }
     };
     prisma.$transaction = jest.fn(async (callback: (tx: any) => Promise<unknown>) => callback(prisma));
     mockLiveDimmingDispatch(prisma);
@@ -1282,7 +1285,7 @@ describe("OutboxPublisherService", () => {
       mqttOutbox: { findUnique: jest.fn().mockResolvedValue({ deliveryAttemptedAt: null }), updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
       commandDispatch: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
       commandFixtureResult: { updateMany: jest.fn().mockResolvedValue({ count: 2 }) },
-      command: { findUnique: jest.fn().mockResolvedValue({ outcome: "pending" }), updateMany: jest.fn().mockResolvedValue({ count: 1 }) }
+      command: { findUnique: jest.fn().mockResolvedValue(pendingCommand), updateMany: jest.fn().mockResolvedValue({ count: 1 }) }
     };
     prisma.$transaction = jest.fn(async (callback: (tx: any) => Promise<unknown>) => callback(prisma));
     const mqtt = { publishTopic: jest.fn() };
@@ -1313,7 +1316,7 @@ describe("OutboxPublisherService", () => {
       mqttOutbox: { findUnique: jest.fn().mockResolvedValue({ deliveryAttemptedAt: null }), updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
       commandDispatch: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
       commandFixtureResult: { updateMany: jest.fn().mockResolvedValue({ count: 2 }) },
-      command: { findUnique: jest.fn().mockResolvedValue({ outcome: "pending" }), updateMany: jest.fn().mockResolvedValue({ count: 1 }) }
+      command: { findUnique: jest.fn().mockResolvedValue(pendingCommand), updateMany: jest.fn().mockResolvedValue({ count: 1 }) }
     };
     prisma.$transaction = jest.fn(async (callback: (tx: any) => Promise<unknown>) => callback(prisma));
     const mqtt = { publishTopic: jest.fn() };
