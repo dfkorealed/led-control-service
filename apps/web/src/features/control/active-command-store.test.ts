@@ -4,10 +4,23 @@ import {
   clearActiveCommandRequest,
   clearActiveCommandsForUser,
   clearActiveCommandId,
+  clearObservedVerificationCase,
   loadActiveCommandRequest,
   loadActiveCommandId,
+  loadObservedVerificationCase,
+  loadPendingCaseStatusCheck,
+  savePendingCaseStatusCheck,
+  clearPendingCaseStatusCheck,
+  isActiveCommandReplayRejected,
+  markActiveCommandReplayRejected,
+  loadActiveCommandReplayRejectedCaseId,
+  loadReconciledOriginalCommandId,
+  markActiveCommandCaseReconciled,
+  loadRecentResolvedCaseId,
+  saveRecentResolvedCaseId,
   saveActiveCommandRequest,
-  saveActiveCommandId
+  saveActiveCommandId,
+  saveObservedVerificationCase
 } from "./active-command-store";
 
 const COMMAND_ID = "00000000-0000-4000-8000-000000000001";
@@ -51,6 +64,36 @@ describe("active command store", () => {
       ...REQUEST,
       target: { type: "fixtures", fixtureIds: [...REQUEST.target.fixtureIds].sort() }
     });
+  });
+
+  it("persists a safety rejection so the same dimming request cannot be replayed after reload", () => {
+    saveActiveCommandRequest(USER_A, REQUEST.siteId, REQUEST);
+    markActiveCommandReplayRejected(USER_A, REQUEST.siteId, CLIENT_REQUEST_ID, "case-1");
+    expect(isActiveCommandReplayRejected(USER_A, REQUEST.siteId, CLIENT_REQUEST_ID)).toBe(true);
+    expect(loadActiveCommandReplayRejectedCaseId(USER_A, REQUEST.siteId, CLIENT_REQUEST_ID)).toBe("case-1");
+    expect(markActiveCommandCaseReconciled(USER_A, REQUEST.siteId, CLIENT_REQUEST_ID, "wrong-case", COMMAND_ID)).toBe(false);
+    expect(markActiveCommandCaseReconciled(USER_A, REQUEST.siteId, CLIENT_REQUEST_ID, "case-1", COMMAND_ID)).toBe(true);
+    expect(loadReconciledOriginalCommandId(USER_A, REQUEST.siteId, CLIENT_REQUEST_ID)).toBe(COMMAND_ID);
+    expect(isActiveCommandReplayRejected(USER_B, REQUEST.siteId, CLIENT_REQUEST_ID)).toBe(false);
+  });
+
+  it("persists a case status-check key only inside its user, site and case scope", () => {
+    savePendingCaseStatusCheck(USER_A, "site-a", "case-a", CLIENT_REQUEST_ID);
+    expect(loadPendingCaseStatusCheck(USER_A, "site-a", "case-a")).toBe(CLIENT_REQUEST_ID);
+    expect(loadPendingCaseStatusCheck(USER_A, "site-b", "case-a")).toBeNull();
+    expect(loadPendingCaseStatusCheck(USER_B, "site-a", "case-a")).toBeNull();
+    expect(clearPendingCaseStatusCheck(USER_A, "site-a", "case-a", OTHER_COMMAND_ID)).toBe(false);
+    expect(clearPendingCaseStatusCheck(USER_A, "site-a", "case-a", CLIENT_REQUEST_ID)).toBe(true);
+    expect(loadPendingCaseStatusCheck(USER_A, "site-a", "case-a")).toBeNull();
+  });
+
+  it("keeps only the recent resolved case identity in the user/site session", () => {
+    saveRecentResolvedCaseId(USER_A, "site-a", "case-1");
+    expect(loadRecentResolvedCaseId(USER_A, "site-a")).toBe("case-1");
+    expect(loadRecentResolvedCaseId(USER_B, "site-a")).toBeNull();
+    expect(loadRecentResolvedCaseId(USER_A, "site-b")).toBeNull();
+    clearActiveCommandsForUser(USER_A);
+    expect(loadRecentResolvedCaseId(USER_A, "site-a")).toBeNull();
   });
 
   it("normalizes a legacy stored expiry away before response-loss recovery", () => {
@@ -113,6 +156,20 @@ describe("active command store", () => {
     expect(loadActiveCommandId(USER_A, "site-a")).toBeNull();
     expect(loadActiveCommandId(USER_A, "site-b")).toBeNull();
     expect(loadActiveCommandId(USER_B, "site-a")).toBe(OTHER_COMMAND_ID);
+  });
+
+  it("persists an observed safety case across remounts but scopes and clears it with logout", () => {
+    saveObservedVerificationCase(USER_A, "site-a", COMMAND_ID, "case-1");
+    expect(loadObservedVerificationCase(USER_A, "site-a", COMMAND_ID)).toBe("case-1");
+    expect(loadObservedVerificationCase(USER_A, "site-b", COMMAND_ID)).toBeNull();
+    expect(loadObservedVerificationCase(USER_B, "site-a", COMMAND_ID)).toBeNull();
+    expect(loadObservedVerificationCase(USER_A, "site-a", OTHER_COMMAND_ID)).toBeNull();
+    expect(clearObservedVerificationCase(USER_A, "site-a", COMMAND_ID, "wrong-case")).toBe(false);
+    expect(clearObservedVerificationCase(USER_A, "site-a", COMMAND_ID, "case-1")).toBe(true);
+    expect(loadObservedVerificationCase(USER_A, "site-a", COMMAND_ID)).toBeNull();
+    saveObservedVerificationCase(USER_A, "site-a", COMMAND_ID, "case-1");
+    clearActiveCommandsForUser(USER_A);
+    expect(loadObservedVerificationCase(USER_A, "site-a", COMMAND_ID)).toBeNull();
   });
 
   it.each([

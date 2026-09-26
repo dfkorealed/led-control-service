@@ -99,6 +99,8 @@ export interface CommandHistoryInput {
 export interface CommandHistoryResponse {
   items: Array<Omit<CommandStatusResponse, "dispatches">>;
   nextCursor: string | null;
+  generatedAt: string;
+  retainedFrom: string;
 }
 
 export function listCommands(input: CommandHistoryInput) {
@@ -110,14 +112,117 @@ export function listCommands(input: CommandHistoryInput) {
   return apiGet<CommandHistoryResponse>(`/commands?${params}`);
 }
 
-export function useCommandHistory(userId: string, input: Omit<CommandHistoryInput, "cursor">) {
+export function useCommandHistory(userId: string, input: Omit<CommandHistoryInput, "cursor">, enabled = true) {
   return useInfiniteQuery({
     queryKey: ["command-history", userId, input],
     initialPageParam: undefined as string | undefined,
     queryFn: ({ pageParam }) => listCommands({ ...input, cursor: pageParam }),
     getNextPageParam: (page) => page.nextCursor ?? undefined,
-    enabled: Boolean(input.siteId)
+    enabled: enabled && Boolean(input.siteId)
   });
+}
+
+export type CommandVerificationReason = "outcome_unknown" | "attempts_exhausted" | "gateway_unavailable";
+
+export interface CommandVerificationCase {
+  caseId: string;
+  originalCommandId: string;
+  siteId: string;
+  targetCount: number;
+  verificationAttemptCount: number;
+  status: "verification_required" | "verification_in_progress";
+  canRequestStatusCheck: boolean;
+  lastCheckedAt: string | null;
+  reasonCode: CommandVerificationReason;
+}
+
+export interface ActiveCommandVerificationCaseDetail extends CommandVerificationCase {
+  targetFixtureIds: string[];
+}
+
+export interface ResolvedCommandVerificationCaseDetail {
+  caseId: string;
+  siteId: string;
+  status: "verified_applied" | "verified_not_applied" | "verified_partial";
+  targetCount: number;
+  resolvedAt: string;
+}
+
+export type CommandVerificationCaseDetail = ActiveCommandVerificationCaseDetail | ResolvedCommandVerificationCaseDetail;
+
+export function isActiveCommandVerificationCase(detail: CommandVerificationCaseDetail): detail is ActiveCommandVerificationCaseDetail {
+  return detail.status === "verification_required" || detail.status === "verification_in_progress";
+}
+
+export function isResolvedCommandVerificationCase(detail: CommandVerificationCaseDetail): detail is ResolvedCommandVerificationCaseDetail {
+  return detail.status === "verified_applied" || detail.status === "verified_not_applied" || detail.status === "verified_partial";
+}
+
+export interface CommandVerificationCasesInput {
+  siteId: string;
+  originalCommandId?: string;
+  cursor?: string;
+  limit?: number;
+}
+
+export interface CommandVerificationCasesResponse {
+  items: CommandVerificationCase[];
+  nextCursor: string | null;
+  generatedAt: string;
+}
+
+export function listCommandVerificationCases(input: CommandVerificationCasesInput) {
+  const params = new URLSearchParams({ siteId: input.siteId });
+  if (input.originalCommandId) params.set("originalCommandId", input.originalCommandId);
+  if (input.cursor) params.set("cursor", input.cursor);
+  params.set("limit", String(input.limit ?? 4));
+  return apiGet<CommandVerificationCasesResponse>(`/commands/requiring-verification?${params}`);
+}
+
+export function useCommandVerificationCases(userId: string, input: Omit<CommandVerificationCasesInput, "cursor">, enabled = true) {
+  return useInfiniteQuery({
+    queryKey: ["command-verification-cases", userId, input],
+    initialPageParam: undefined as string | undefined,
+    queryFn: ({ pageParam }) => listCommandVerificationCases({ ...input, cursor: pageParam }),
+    getNextPageParam: (page) => page.nextCursor ?? undefined,
+    enabled: enabled && Boolean(input.siteId)
+  });
+}
+
+function commandCasePath(caseId: string) {
+  return `/commands/requiring-verification/${encodeURIComponent(caseId)}`;
+}
+
+export function getCommandVerificationCase(caseId: string) {
+  return apiGet<CommandVerificationCaseDetail>(commandCasePath(caseId));
+}
+
+export interface CommandCaseStatusCheckResponse {
+  caseId: string;
+  dispatchId: string;
+  dispatchIds: string[];
+  verificationAttempt: number;
+  terminalStatusUrl: string;
+}
+
+export function createCaseStatusCheck(caseId: string, clientRequestId: string, signal?: AbortSignal) {
+  return apiPost<CommandCaseStatusCheckResponse>(`${commandCasePath(caseId)}/status-checks`, { clientRequestId }, { signal });
+}
+
+export interface CommandCaseReconcileInput {
+  acknowledgeRisk: true;
+  verificationMethod: "verified_physical_state" | "unable_to_verify";
+  reason: string;
+}
+
+export interface CommandCaseReconcileResponse {
+  caseId: string;
+  reconciled: true;
+  reconciledAt: string;
+}
+
+export function reconcileCommandCase(caseId: string, input: CommandCaseReconcileInput, signal?: AbortSignal) {
+  return apiPost<CommandCaseReconcileResponse>(`${commandCasePath(caseId)}/reconcile`, input, { signal });
 }
 
 export interface CommandStatusCheckResponse {

@@ -8,7 +8,8 @@ import type { CommandStage } from "../../api/commands";
 import type { Dashboard } from "../../api/queries";
 import { SessionStatusCenter, SessionStatusProvider, ToastRegion } from "../../components/ui";
 import { ControlView } from "./ControlView";
-import { activeCommandStorageKey } from "./active-command-store";
+import { activeCommandStorageKey, loadObservedVerificationCase, saveObservedVerificationCase,
+  saveActiveCommandRequest, markActiveCommandReplayRejected, markActiveCommandCaseReconciled } from "./active-command-store";
 
 const mocks = vi.hoisted(() => ({
   apiPost: vi.fn(),
@@ -18,7 +19,12 @@ const mocks = vi.hoisted(() => ({
   useCommandStatus: vi.fn()
 }));
 
-vi.mock("../../api/client", () => ({ apiPost: mocks.apiPost, apiGet: mocks.apiGet, apiRequest: vi.fn() }));
+vi.mock("../../api/client", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../api/client")>()),
+  apiPost: mocks.apiPost,
+  apiGet: mocks.apiGet,
+  apiRequest: vi.fn()
+}));
 vi.mock("../../api/queries", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../api/queries")>()),
   useControlDashboard: mocks.useControlDashboard,
@@ -171,11 +177,52 @@ describe("ControlView 대상 선택", () => {
     sessionStorage.clear();
   });
 
+  it("atlas execution keeps one natural-flow map and execution surface with no numbered duplicate headings", () => {
+    renderControl();
+    const toolbar = document.querySelector<HTMLElement>("[data-target-selection-toolbar]");
+    const execution = screen.getByRole("complementary", { name: "밝기 실행" });
+    expect(toolbar).toContainElement(screen.getByRole("button", { name: "구역 관리" }));
+    expect(screen.queryByRole("heading", { name: "조명 밝기 제어" })).not.toBeInTheDocument();
+    expect(screen.queryByText("01 / 제어 대상")).not.toBeInTheDocument();
+    expect(screen.queryByText("02 / 밝기 실행")).not.toBeInTheDocument();
+    expect(screen.queryByRole("complementary", { name: "선택 대상 요약" })).not.toBeInTheDocument();
+    expect(execution).not.toHaveClass("hidden");
+    expect(screen.getByRole("region", { name: "제어 대상 지도" })).toHaveClass("max-compact:overflow-visible");
+    expect(screen.getByRole("region", { name: "공간 대상 선택" })).toHaveClass("max-compact:overflow-visible");
+    expect(within(execution).getByText("0개 선택")).toBeInTheDocument();
+    expect(within(execution).getByRole("button", { name: "밝기 적용" })).toBeDisabled();
+  });
+
+  it("atlas execution keeps a refreshed blocked selection intact but sends no partial command", () => {
+    const { rerender } = renderControl();
+    selectFixture("B2-L001");
+    const blockedDashboard: Dashboard = {
+      ...dashboard,
+      floors: dashboard.floors.map((floor) => ({
+        ...floor,
+        fixtures: floor.fixtures.map((fixture) => fixture.id === fixtureIds.b2First
+          ? { ...fixture, controllable: false, status: "offline", controlBlockReason: "gateway_offline" }
+          : fixture)
+      }))
+    };
+    mocks.useControlDashboard.mockReturnValue({ data: blockedDashboard, isLoading: false, error: null });
+    rerender(controlElement(dashboard.site.id));
+    const execution = screen.getByRole("complementary", { name: "밝기 실행" });
+    const count = within(execution).getByText("1개 선택");
+    const warning = within(execution).getByRole("alert");
+    expect(count.compareDocumentPosition(warning) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(warning).toHaveTextContent(/제어할 수 없|오프라인/);
+    const apply = within(execution).getByRole("button", { name: "1개 조명에 밝기 적용" });
+    expect(apply).toBeDisabled();
+    fireEvent.click(apply);
+    expect(mocks.apiPost).not.toHaveBeenCalled();
+  });
+
   it("exposes the calm operations hierarchy for manual control", () => {
     renderControl();
 
     expect(screen.queryByRole("heading", { name: "조명 제어", level: 2 })).not.toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "조명 밝기 제어", level: 3 })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "조명 밝기 제어", level: 3 })).not.toBeInTheDocument();
     expect(screen.getByRole("tablist", { name: "제어 방식" })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "수동 제어" })).toHaveAttribute("aria-selected", "true");
     expect(screen.getByRole("tabpanel", { name: "수동 제어" })).toHaveAttribute("data-control-manual-panel");
@@ -197,9 +244,9 @@ describe("ControlView 대상 선택", () => {
   it("presents target, brightness, and recent result in decision order with one desktop apply action", () => {
     renderControl();
 
-    const target = screen.getByRole("heading", { name: "01 / 제어 대상" });
-    const brightness = screen.getByRole("heading", { name: "02 / 밝기 실행" });
-    const result = screen.getByRole("heading", { name: "03 / 최근 결과" });
+    const target = screen.getByRole("region", { name: "제어 대상 지도" });
+    const brightness = screen.getByRole("heading", { name: "밝기" });
+    const result = screen.getByRole("heading", { name: "최근 결과" });
     const execution = screen.getByRole("complementary", { name: "밝기 실행" });
     const apply = within(execution).getByRole("button", { name: "밝기 적용" });
 
@@ -216,26 +263,16 @@ describe("ControlView 대상 선택", () => {
     expect(countAnnouncements).toHaveLength(1);
   });
 
-  it("keeps compact brightness and apply visible while expansion only reveals details", () => {
+  it("keeps brightness, apply, and recent result in natural mobile reading order", () => {
     renderControl();
-
-    const summary = screen.getByRole("complementary", { name: "선택 대상 요약" });
-    const compactExecution = within(summary).getByTestId("compact-summary-execution");
-    expect(within(compactExecution).getByText("02 / 밝기 실행")).toBeInTheDocument();
-    expect(within(compactExecution).getByRole("button", { name: "밝기 적용" })).toBeInTheDocument();
-    expect(within(compactExecution).getByRole("textbox", { name: "밝기 수치" })).toBeInTheDocument();
-    fireEvent.click(within(summary).getByRole("button", { name: "선택 대상 펼치기" }));
+    const execution = screen.getByRole("complementary", { name: "밝기 실행" });
     const historyDisclosure = screen.getByRole("button", { name: "명령 이력 열기" });
-
-    expect(compactExecution).toContainElement(within(compactExecution).getByRole("slider", { name: "밝기" }));
-    expect(compactExecution).toContainElement(within(compactExecution).getByRole("button", { name: "밝기 적용" }));
-    expect(within(compactExecution).getByRole("heading", { name: "03 / 최근 결과" })).toBeInTheDocument();
-    expect(compactExecution.compareDocumentPosition(historyDisclosure) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(screen.getByRole("complementary", { name: "밝기 실행" })).toHaveClass("hidden", "compact:flex");
-
-    fireEvent.click(within(summary).getByRole("button", { name: "선택 대상 접기" }));
-    expect(within(compactExecution).queryByRole("slider", { name: "밝기" })).not.toBeInTheDocument();
-    expect(within(compactExecution).getByRole("button", { name: "밝기 적용" })).toBeInTheDocument();
+    expect(execution).toContainElement(within(execution).getByRole("slider", { name: "밝기" }));
+    expect(execution).toContainElement(within(execution).getByRole("textbox", { name: "밝기 수치" }));
+    expect(execution).toContainElement(within(execution).getByRole("button", { name: "밝기 적용" }));
+    expect(within(execution).getByRole("heading", { name: "최근 결과" })).toBeInTheDocument();
+    expect(execution.compareDocumentPosition(historyDisclosure) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "선택 대상 펼치기" })).not.toBeInTheDocument();
   });
 
   it("keeps submitted command progress and outcome actions inside the expanded compact summary", async () => {
@@ -243,14 +280,14 @@ describe("ControlView 대상 선택", () => {
     mocks.useCommandStatus.mockReturnValue({ data: undefined, error: null, isFetching: false, refetch: vi.fn() });
     const { rerender } = renderControl();
     selectFixture("B2-L001");
-    const compactExecution = expandCompactExecution();
-    fireEvent.click(within(compactExecution).getByRole("button", { name: "1개 조명에 밝기 적용" }));
+    const execution = screen.getByRole("complementary", { name: "밝기 실행" });
+    fireEvent.click(within(execution).getByRole("button", { name: "1개 조명에 밝기 적용" }));
 
     await waitFor(() => expect(mocks.apiPost).toHaveBeenCalledWith("/commands/dimming", expect.anything(), expect.anything()));
     mocks.useCommandStatus.mockReturnValue({ data: verificationRequired, error: null, isFetching: false, refetch: vi.fn() });
     rerender(controlElement(dashboard.site.id));
 
-    const outcomeSurface = expandCompactExecution();
+    const outcomeSurface = screen.getByRole("complementary", { name: "밝기 실행" });
     expect(within(outcomeSurface).getByRole("status", { name: "명령 진행 상태" })).toBeInTheDocument();
     expect(within(outcomeSurface).getAllByText("실제 상태 확인 필요").length).toBeGreaterThan(0);
     expect(within(outcomeSurface).getByRole("button", { name: "실제 상태 확인" })).toBeEnabled();
@@ -260,10 +297,10 @@ describe("ControlView 대상 선택", () => {
     mocks.apiPost.mockRejectedValueOnce(new Error("response lost")).mockResolvedValueOnce({ id: commandIds.retry, dispatchCount: 1 });
     renderControl();
     selectFixture("B2-L001");
-    const compactExecution = expandCompactExecution();
-    fireEvent.click(within(compactExecution).getByRole("button", { name: "1개 조명에 밝기 적용" }));
+    const execution = screen.getByRole("complementary", { name: "밝기 실행" });
+    fireEvent.click(within(execution).getByRole("button", { name: "1개 조명에 밝기 적용" }));
 
-    const retry = await within(compactExecution).findByRole("button", { name: "동일 요청 확인(새 제어 아님)" });
+    const retry = await within(execution).findByRole("button", { name: "동일 요청 확인(새 제어 아님)" });
     expect(retry).toBeEnabled();
     fireEvent.click(retry);
     await waitFor(() => expect(mocks.apiPost).toHaveBeenCalledTimes(2));
@@ -280,20 +317,20 @@ describe("ControlView 대상 선택", () => {
     });
     renderControl();
 
-    const compactExecution = expandCompactExecution();
-    const refresh = within(compactExecution).getByRole("button", { name: "명령 상태 다시 조회" });
+    const execution = screen.getByRole("complementary", { name: "밝기 실행" });
+    const refresh = within(execution).getByRole("button", { name: "명령 상태 다시 조회" });
     fireEvent.click(refresh);
     expect(refetch).toHaveBeenCalledTimes(1);
   });
 
-  it("places the compact apply sheet before the collapsible history disclosure", () => {
+  it("places the compact apply sheet before the history drawer opener", () => {
     renderControl();
 
     const applySheet = screen.getByRole("complementary", { name: "밝기 실행" });
-    const historyDisclosure = screen.getByRole("button", { name: "명령 이력 열기" });
+    const historyOpener = screen.getByRole("button", { name: "명령 이력 열기" });
 
-    expect(applySheet.compareDocumentPosition(historyDisclosure) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(historyDisclosure).toHaveAttribute("aria-expanded", "false");
+    expect(applySheet.compareDocumentPosition(historyOpener) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(historyOpener).toHaveAttribute("aria-haspopup", "dialog");
     expect(within(applySheet).getByRole("button", { name: "밝기 적용" })).toBeInTheDocument();
   });
 
@@ -576,8 +613,8 @@ describe("ControlView 대상 선택", () => {
 
     chooseFloor("B2");
     const executionPanel = screen.getByRole("complementary", { name: "밝기 실행" });
-    expect(within(executionPanel).getByRole("heading", { name: "B2" })).toBeInTheDocument();
-    expect(within(executionPanel).getByText("3개 선택 · 제어 불가 1개")).toBeInTheDocument();
+    expect(within(executionPanel).getByText("3개 선택")).toBeInTheDocument();
+    expect(within(executionPanel).getByRole("alert")).toHaveTextContent(/제어할 수 없|제어 불가|오프라인/);
   });
 
   it("sends one selected light as a fixture target", async () => {
@@ -654,7 +691,7 @@ describe("ControlView 대상 선택", () => {
       target: { type: "fixtures", fixtureIds: [fixtureIds.b2First, fixtureIds.b2Second] },
       brightness: 30
     }), { signal: expect.any(AbortSignal) }));
-    expect(screen.getByText("2개 선택 · 제어 불가 0개")).toBeInTheDocument();
+    expect(screen.getByText("2개 선택")).toBeInTheDocument();
   });
 
   it("sends floor and zone selections through their mesh group targets", async () => {
@@ -803,7 +840,7 @@ describe("ControlView 대상 선택", () => {
     selectFixture("B2-L001");
     expect(fixtureMarker("B2-L003")).toBeDisabled();
 
-    expect(screen.getByText("1개 선택 · 제어 불가 0개")).toBeInTheDocument();
+    expect(screen.getByText("1개 선택")).toBeInTheDocument();
     expect(applyButton()).toBeEnabled();
   });
 
@@ -817,7 +854,7 @@ describe("ControlView 대상 선택", () => {
     const otherGatewayFixture = fixtureMarker("B2-L002");
     expect(otherGatewayFixture).toBeDisabled();
     expect(otherGatewayFixture).toHaveAttribute("aria-pressed", "false");
-    expect(screen.getByText("1개 선택 · 제어 불가 0개")).toBeInTheDocument();
+    expect(screen.getByText("1개 선택")).toBeInTheDocument();
   });
 
   it("keeps drawer selection on the first selected gateway", () => {
@@ -829,7 +866,7 @@ describe("ControlView 대상 선택", () => {
     openFixtureList();
 
     expect(screen.getByRole("checkbox", { name: "B2-L002 선택" })).toBeDisabled();
-    expect(screen.getByText("1개 선택 · 제어 불가 0개")).toBeInTheDocument();
+    expect(screen.getByText("1개 선택")).toBeInTheDocument();
   });
 
   it("keeps every control disabled for viewer accounts", () => {
@@ -1008,7 +1045,7 @@ describe("ControlView 대상 선택", () => {
 
     renderControl();
 
-    expect(screen.getByRole("heading", { name: "조명 밝기 제어" })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "제어 대상 지도" })).toBeInTheDocument();
     expect(fixtureMarker("B2-L001")).toBeInTheDocument();
     expect(screen.queryByText("제어 대상을 불러오지 못했습니다.")).not.toBeInTheDocument();
   });
@@ -1132,6 +1169,157 @@ describe("ControlView 대상 선택", () => {
     expect(sessionStorage.getItem(activeCommandStorageKey(USER_A, dashboard.site.id))).toBeNull();
   });
 
+  it("does not hold or replay a new Set rejected while gateway recommission is in progress", async () => {
+    mocks.apiPost.mockRejectedValueOnce(Object.assign(new Error("gateway resetting"), {
+      status: 409, body: { code: "gateway_recommission_in_progress" }
+    })).mockResolvedValueOnce({ id: commandIds.default, dispatchCount: 1 });
+    renderControl();
+    selectFixture("B2-L001");
+    fireEvent.click(applyButton());
+
+    expect(await screen.findByText(/게이트웨이 재등록이 진행 중입니다/)).toBeInTheDocument();
+    expect(applyButton()).toBeEnabled();
+    expect(fixtureMarker("B2-L001")).toBeEnabled();
+    expect(screen.queryByRole("button", { name: "동일 요청 확인(새 제어 아님)" })).not.toBeInTheDocument();
+    expect(sessionStorage.getItem(activeCommandStorageKey(USER_A, dashboard.site.id))).toBeNull();
+    expect(mocks.apiPost).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(applyButton());
+    await waitFor(() => expect(mocks.apiPost).toHaveBeenCalledTimes(2));
+    expect(mocks.apiPost.mock.calls[1][1].clientRequestId).not.toBe(mocks.apiPost.mock.calls[0][1].clientRequestId);
+  });
+
+  it.each([
+    [409, { code: "command_request_expired" }],
+    [409, { code: "command_requires_verification", caseId: "case-1", blockingCaseCount: 1 }],
+    [410, { code: "command_expired" }],
+    [409, { code: "unexpected_future_safety_code" }]
+  ])("keeps the manual hold after a safety-sensitive %s response %#", async (status, body) => {
+    mocks.apiPost.mockRejectedValueOnce(Object.assign(new Error("unsafe to retry"), { status, body }));
+    renderControl();
+    selectFixture("B2-L001");
+    fireEvent.click(applyButton());
+
+    expect(await screen.findByText(/실제 상태를 확인하기 전까지 제어 잠금을 유지합니다/)).toBeInTheDocument();
+    expect(applyButton()).toBeDisabled();
+    expect(fixtureMarker("B2-L001")).toBeDisabled();
+    expect(screen.queryByText(/새 제어 요청을 실행하세요/)).not.toBeInTheDocument();
+    expect(sessionStorage.getItem(activeCommandStorageKey(USER_A, dashboard.site.id))).toContain("request");
+    expect(screen.queryByRole("button", { name: "동일 요청 확인(새 제어 아님)" })).not.toBeInTheDocument();
+    expect(mocks.apiPost).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not replay a safety-rejected dimming request after remount", async () => {
+    mocks.apiPost.mockRejectedValueOnce(Object.assign(new Error("blocked"), {
+      status: 409, body: { code: "command_requires_verification", caseId: "case-1", blockingCaseCount: 1 }
+    }));
+    const { unmount } = renderControl();
+    selectFixture("B2-L001");
+    fireEvent.click(applyButton());
+    expect(await screen.findByText(/실제 상태를 확인하기 전까지 제어 잠금을 유지합니다/)).toBeInTheDocument();
+    unmount();
+    renderControl();
+    expect(await screen.findByText(/안전을 위해 재전송할 수 없습니다/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "동일 요청 확인(새 제어 아님)" })).not.toBeInTheDocument();
+    expect(applyButton()).toBeDisabled();
+    expect(mocks.apiPost).toHaveBeenCalledTimes(1);
+  });
+
+  it("requires a fresh Apply and UUID after the exact blocking case is reconciled", async () => {
+    const caseRecord = { caseId: "case-1", originalCommandId: commandIds.missing, siteId: dashboard.site.id,
+      targetCount: 1, verificationAttemptCount: 3, status: "verification_required", canRequestStatusCheck: false,
+      lastCheckedAt: null, reasonCode: "attempts_exhausted" };
+    let caseExists = true;
+    let finishExactRead: (value: unknown) => void = () => undefined;
+    let dimmingCalls = 0;
+    mocks.apiGet.mockImplementation((path: string) => {
+      if (path.endsWith("/case-1")) return Promise.resolve({ ...caseRecord, targetFixtureIds: [fixtureIds.b2First] });
+      if (path.includes(`originalCommandId=${commandIds.missing}`) && !caseExists) {
+        return new Promise((resolve) => { finishExactRead = resolve; });
+      }
+      if (path.startsWith("/commands/requiring-verification?")) return Promise.resolve({ items: caseExists ? [caseRecord] : [], nextCursor: null, generatedAt: "2026-09-25T00:00:00.000Z" });
+      return Promise.resolve({ items: [], nextCursor: null });
+    });
+    mocks.apiPost.mockImplementation(async (path: string) => {
+      if (path === "/commands/dimming") {
+        dimmingCalls += 1;
+        if (dimmingCalls === 1) throw Object.assign(new Error("blocked"), {
+          status: 409, body: { code: "command_requires_verification", caseId: "case-1", blockingCaseCount: 1 }
+        });
+        return { id: commandIds.default, dispatchCount: 1 };
+      }
+      if (path.endsWith("/reconcile")) {
+        caseExists = false;
+        return { caseId: "case-1", reconciled: true, reconciledAt: "2026-09-25T00:00:00.000Z" };
+      }
+      throw new Error("unexpected POST");
+    });
+    renderControl();
+    selectFixture("B2-L001");
+    fireEvent.click(applyButton());
+    expect(await screen.findByText(/이 요청은 재전송할 수 없습니다/)).toBeInTheDocument();
+    const oldId = mocks.apiPost.mock.calls.find(([path]) => path === "/commands/dimming")![1].clientRequestId;
+    fireEvent.click(screen.getByRole("button", { name: "확인 필요한 명령" }));
+    const drawer = await screen.findByRole("dialog", { name: "확인 필요한 명령" });
+    fireEvent.click(await within(drawer).findByRole("button", { name: new RegExp(commandIds.missing) }));
+    fireEvent.click(await within(drawer).findByRole("button", { name: "위험 승인" }));
+    fireEvent.click(screen.getByRole("radio", { name: "물리 상태 확인 완료" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "승인 사유" }), { target: { value: "현장에서 실제 조명 상태 확인" } });
+    fireEvent.click(screen.getByRole("checkbox", { name: /위험을 이해하고 승인/ }));
+    fireEvent.click(screen.getByRole("button", { name: "위험 승인 및 차단 해제" }));
+    await waitFor(() => expect(mocks.apiGet.mock.calls.some(([path]) => String(path).includes(`originalCommandId=${commandIds.missing}`))).toBe(true));
+    expect(applyButton()).toBeDisabled();
+    expect(dimmingCalls).toBe(1);
+    finishExactRead({ items: [], nextCursor: null, generatedAt: "2026-09-25T00:00:00.000Z" });
+    await waitFor(() => expect(applyButton()).toBeEnabled());
+    expect(dimmingCalls).toBe(1);
+    fireEvent.click(within(drawer).getByRole("button", { name: "확인 필요한 명령 닫기" }));
+    fireEvent.click(applyButton());
+    await waitFor(() => expect(dimmingCalls).toBe(2));
+    const dimmingPayloads = mocks.apiPost.mock.calls.filter(([path]) => path === "/commands/dimming").map(([, payload]) => payload);
+    expect(dimmingPayloads[1].clientRequestId).not.toBe(oldId);
+  });
+
+  it("keeps a reconciled safety hold on reload until a fresh exact case read succeeds", async () => {
+    const request = { siteId: dashboard.site.id, clientRequestId: "00000000-0000-4000-8000-000000009099",
+      target: { type: "fixture" as const, fixtureId: fixtureIds.b2First }, brightness: 30 };
+    saveActiveCommandRequest(USER_A, dashboard.site.id, request);
+    markActiveCommandReplayRejected(USER_A, dashboard.site.id, request.clientRequestId, "case-1");
+    markActiveCommandCaseReconciled(USER_A, dashboard.site.id, request.clientRequestId, "case-1", commandIds.missing);
+    let finishExactRead: (value: unknown) => void = () => undefined;
+    mocks.apiGet.mockImplementation((path: string) => path.includes(`originalCommandId=${commandIds.missing}`)
+      ? new Promise((resolve) => { finishExactRead = resolve; })
+      : Promise.resolve({ items: [], nextCursor: null }));
+    renderControl();
+    await waitFor(() => expect(mocks.apiGet).toHaveBeenCalledWith(expect.stringContaining(`originalCommandId=${commandIds.missing}`)));
+    expect(applyButton()).toBeDisabled();
+    expect(screen.queryByRole("button", { name: "동일 요청 확인(새 제어 아님)" })).not.toBeInTheDocument();
+    expect(mocks.apiPost).not.toHaveBeenCalled();
+    finishExactRead({ items: [], nextCursor: null, generatedAt: "2026-09-25T00:00:00.000Z" });
+    await waitFor(() => expect(applyButton()).toBeDisabled());
+    // The selected fixtures are reset on remount; storage may clear, but no Set
+    // runs until the operator explicitly selects and applies a target again.
+    await waitFor(() => expect(sessionStorage.getItem(activeCommandStorageKey(USER_A, dashboard.site.id))).toBeNull());
+    expect(mocks.apiPost).not.toHaveBeenCalled();
+  });
+
+  it.each([401, 500])("keeps the reconciled safety hold when its fresh exact read fails with %s", async (status) => {
+    const request = { siteId: dashboard.site.id, clientRequestId: "00000000-0000-4000-8000-000000009099",
+      target: { type: "fixture" as const, fixtureId: fixtureIds.b2First }, brightness: 30 };
+    saveActiveCommandRequest(USER_A, dashboard.site.id, request);
+    markActiveCommandReplayRejected(USER_A, dashboard.site.id, request.clientRequestId, "case-1");
+    markActiveCommandCaseReconciled(USER_A, dashboard.site.id, request.clientRequestId, "case-1", commandIds.missing);
+    mocks.apiGet.mockImplementation(async (path: string) => {
+      if (path.includes(`originalCommandId=${commandIds.missing}`)) throw Object.assign(new Error("read failed"), { status });
+      return { items: [], nextCursor: null };
+    });
+    renderControl();
+    await waitFor(() => expect(mocks.apiGet).toHaveBeenCalledWith(expect.stringContaining(`originalCommandId=${commandIds.missing}`)));
+    expect(applyButton()).toBeDisabled();
+    expect(sessionStorage.getItem(activeCommandStorageKey(USER_A, dashboard.site.id))).toContain("reconciledOriginalCommandId");
+    expect(mocks.apiPost).not.toHaveBeenCalled();
+  });
+
   it("does not restore another user's pending request for the same site", async () => {
     sessionStorage.setItem(activeCommandStorageKey(USER_A, dashboard.site.id), JSON.stringify({
       request: {
@@ -1234,24 +1422,100 @@ describe("ControlView 대상 선택", () => {
     expect(sessionStorage.getItem(activeCommandStorageKey(USER_A, dashboard.site.id))).toContain(commandIds.expected);
   });
 
-  it("releases only a missing active command when status lookup returns 404", async () => {
+  it.each([404, 410])("retains the command hold when an active command detail returns %s", async (status) => {
     sessionStorage.setItem(activeCommandStorageKey(USER_A, dashboard.site.id), JSON.stringify({ commandId: commandIds.missing }));
     mocks.useCommandStatus.mockReturnValue({
       data: undefined,
-      error: Object.assign(new Error("not found"), { status: 404 }),
+      error: Object.assign(new Error("not found"), { status }),
       isFetching: false,
       refetch: vi.fn()
     });
 
     renderControl();
 
-    expect(await screen.findByText("진행 중 명령을 찾을 수 없어 제어 잠금을 해제했습니다")).toBeInTheDocument();
-    expect(fixtureMarker("B2-L001")).toBeEnabled();
-    expect(screen.queryByRole("button", { name: "명령 상태 다시 조회" })).not.toBeInTheDocument();
-    expect(sessionStorage.getItem(activeCommandStorageKey(USER_A, dashboard.site.id))).toBeNull();
+    expect(await screen.findByText("명령 원본을 찾을 수 없습니다. 실제 상태 확인 전까지 제어 잠금을 유지합니다.")).toBeInTheDocument();
+    expect(fixtureMarker("B2-L001")).toBeDisabled();
+    expect(applyButton()).toBeDisabled();
+    expect(sessionStorage.getItem(activeCommandStorageKey(USER_A, dashboard.site.id))).toContain(commandIds.missing);
   });
 
-  it("releases a missing active command when a matching nonterminal status is cached", async () => {
+  it("reads the exact original-command case after 410 and opens its separate safe surface", async () => {
+    sessionStorage.setItem(activeCommandStorageKey(USER_A, dashboard.site.id), JSON.stringify({ commandId: commandIds.missing }));
+    mocks.useCommandStatus.mockReturnValue({ data: undefined, error: { status: 410, body: { code: "command_expired" } }, isFetching: false, refetch: vi.fn() });
+    mocks.apiGet.mockImplementation(async (path: string) => path.startsWith("/commands/requiring-verification?")
+      ? { items: [{ caseId: "case-1", originalCommandId: commandIds.missing, siteId: dashboard.site.id, targetCount: 2, verificationAttemptCount: 1, status: "verification_required", canRequestStatusCheck: true, lastCheckedAt: null, reasonCode: "outcome_unknown" }], nextCursor: null, generatedAt: "2026-09-25T00:00:00.000Z" }
+      : { items: [], nextCursor: null });
+    renderControl();
+    await waitFor(() => expect(mocks.apiGet).toHaveBeenCalledWith(expect.stringContaining(`originalCommandId=${commandIds.missing}`)));
+    fireEvent.click(screen.getByRole("button", { name: "확인 필요한 명령" }));
+    expect(await screen.findByRole("dialog", { name: "확인 필요한 명령" })).toBeInTheDocument();
+    expect(applyButton()).toBeDisabled();
+    expect(mocks.apiPost).not.toHaveBeenCalled();
+  });
+
+  it("does not release an expired command hold when an authorized exact case lookup is empty", async () => {
+    sessionStorage.setItem(activeCommandStorageKey(USER_A, dashboard.site.id), JSON.stringify({ commandId: commandIds.missing }));
+    mocks.useCommandStatus.mockReturnValue({ data: undefined, error: { status: 410, body: { code: "command_expired" } }, isFetching: false, refetch: vi.fn() });
+    mocks.apiGet.mockResolvedValue({ items: [], nextCursor: null, generatedAt: "2026-09-25T00:00:00.000Z" });
+    renderControl();
+    await waitFor(() => expect(mocks.apiGet).toHaveBeenCalledWith(expect.stringContaining(`originalCommandId=${commandIds.missing}`)));
+    expect(applyButton()).toBeDisabled();
+    expect(sessionStorage.getItem(activeCommandStorageKey(USER_A, dashboard.site.id))).toContain(commandIds.missing);
+  });
+
+  it("releases a known expired hold only after risk approval and a fresh exact-filter empty read", async () => {
+    const caseRecord = { caseId: "case-1", originalCommandId: commandIds.missing, siteId: dashboard.site.id, targetCount: 2,
+      verificationAttemptCount: 3, status: "verification_required", canRequestStatusCheck: false, lastCheckedAt: null, reasonCode: "attempts_exhausted" };
+    let caseExists = true;
+    sessionStorage.setItem(activeCommandStorageKey(USER_A, dashboard.site.id), JSON.stringify({ commandId: commandIds.missing }));
+    mocks.useCommandStatus.mockReturnValue({ data: undefined, error: { status: 410, body: { code: "command_expired" } }, isFetching: false, refetch: vi.fn() });
+    mocks.apiGet.mockImplementation(async (path: string) => path.endsWith("/case-1")
+      ? { ...caseRecord, targetFixtureIds: [fixtureIds.b2First, fixtureIds.b2Second] }
+      : path.startsWith("/commands/requiring-verification?")
+        ? { items: caseExists ? [caseRecord] : [], nextCursor: null, generatedAt: "2026-09-25T00:00:00.000Z" }
+        : { items: [], nextCursor: null });
+    mocks.apiPost.mockImplementation(async (path: string) => {
+      if (path.endsWith("/reconcile")) { caseExists = false; return { caseId: "case-1", reconciled: true, reconciledAt: "2026-09-25T00:00:00.000Z" }; }
+      throw new Error("unexpected command POST");
+    });
+    renderControl();
+    await waitFor(() => expect(mocks.apiGet).toHaveBeenCalledWith(expect.stringContaining(`originalCommandId=${commandIds.missing}`)));
+    expect(applyButton()).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "확인 필요한 명령" }));
+    const drawer = await screen.findByRole("dialog", { name: "확인 필요한 명령" });
+    fireEvent.click(await within(drawer).findByRole("button", { name: new RegExp(commandIds.missing) }));
+    fireEvent.click(await within(drawer).findByRole("button", { name: "위험 승인" }));
+    fireEvent.click(screen.getByRole("radio", { name: "물리 상태 확인 완료" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "승인 사유" }), { target: { value: "현장에서 두 조명 상태를 확인함" } });
+    fireEvent.click(screen.getByRole("checkbox", { name: /위험을 이해하고 승인/ }));
+    fireEvent.click(screen.getByRole("button", { name: "위험 승인 및 차단 해제" }));
+    await waitFor(() => expect(mocks.apiPost).toHaveBeenCalledWith("/commands/requiring-verification/case-1/reconcile", expect.objectContaining({ acknowledgeRisk: true }), expect.any(Object)));
+    await waitFor(() => expect(mocks.apiGet.mock.calls.filter(([path]) => String(path).includes(`originalCommandId=${commandIds.missing}`)).length).toBeGreaterThan(1));
+    await waitFor(() => expect(sessionStorage.getItem(activeCommandStorageKey(USER_A, dashboard.site.id))).toBeNull());
+    fireEvent.click(within(drawer).getByRole("button", { name: "확인 필요한 명령 닫기" }));
+    expect(fixtureMarker("B2-L001")).toBeEnabled();
+    selectFixture("B2-L001");
+    expect(applyButton()).toBeEnabled();
+  });
+
+  it("recovers an observed case marker after remount and waits for a fresh authorized exact empty read", async () => {
+    let finishExactRead: (value: unknown) => void = () => undefined;
+    sessionStorage.setItem(activeCommandStorageKey(USER_A, dashboard.site.id), JSON.stringify({ commandId: commandIds.missing }));
+    saveObservedVerificationCase(USER_A, dashboard.site.id, commandIds.missing, "case-1");
+    mocks.useCommandStatus.mockReturnValue({ data: undefined, error: { status: 410, body: { code: "command_expired" } }, isFetching: false, refetch: vi.fn() });
+    mocks.apiGet.mockImplementation((path: string) => path.includes(`originalCommandId=${commandIds.missing}`)
+      ? new Promise((resolve) => { finishExactRead = resolve; })
+      : Promise.resolve({ items: [], nextCursor: null }));
+    renderControl();
+    await waitFor(() => expect(mocks.apiGet).toHaveBeenCalledWith(expect.stringContaining(`originalCommandId=${commandIds.missing}`)));
+    expect(applyButton()).toBeDisabled();
+    expect(sessionStorage.getItem(activeCommandStorageKey(USER_A, dashboard.site.id))).toContain(commandIds.missing);
+    finishExactRead({ items: [], nextCursor: null, generatedAt: "2026-09-25T00:00:00.000Z" });
+    await waitFor(() => expect(sessionStorage.getItem(activeCommandStorageKey(USER_A, dashboard.site.id))).toBeNull());
+    expect(loadObservedVerificationCase(USER_A, dashboard.site.id, commandIds.missing)).toBeNull();
+  });
+
+  it("retains the hold when a cached nonterminal command detail returns 404", async () => {
     sessionStorage.setItem(activeCommandStorageKey(USER_A, dashboard.site.id), JSON.stringify({ commandId: commandIds.cached404 }));
     mocks.useCommandStatus.mockReturnValue({
       data: createCommandStatus(commandIds.cached404, "accepted"),
@@ -1262,10 +1526,10 @@ describe("ControlView 대상 선택", () => {
 
     renderControl();
 
-    expect(await screen.findByText("진행 중 명령을 찾을 수 없어 제어 잠금을 해제했습니다")).toBeInTheDocument();
-    expect(fixtureMarker("B2-L001")).toBeEnabled();
-    expect(screen.queryByRole("button", { name: "명령 상태 다시 조회" })).not.toBeInTheDocument();
-    expect(sessionStorage.getItem(activeCommandStorageKey(USER_A, dashboard.site.id))).toBeNull();
+    expect(await screen.findByText("명령 원본을 찾을 수 없습니다. 실제 상태 확인 전까지 제어 잠금을 유지합니다.")).toBeInTheDocument();
+    expect(fixtureMarker("B2-L001")).toBeDisabled();
+    expect(applyButton()).toBeDisabled();
+    expect(sessionStorage.getItem(activeCommandStorageKey(USER_A, dashboard.site.id))).toContain(commandIds.cached404);
   });
 
   it("hides a stale status error when matching terminal results arrive", async () => {
@@ -1404,7 +1668,7 @@ describe("ControlView 대상 선택", () => {
 
     fireEvent.click(screen.getByRole("tab", { name: "수동 제어" }));
     await waitFor(() => expect(screen.getByTestId("control-location")).toHaveTextContent("mode=manual"));
-    expect(screen.getByRole("heading", { name: "조명 밝기 제어" })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "제어 대상 지도" })).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("tab", { name: "이벤트 제어" }));
     await waitFor(() => expect(screen.getByTestId("control-location")).toHaveTextContent("mode=event"));
@@ -1480,7 +1744,7 @@ describe("ControlView 대상 선택", () => {
   it("normalizes an invalid mode to manual while preserving the selected site", async () => {
     renderControl("admin", dashboard.site.id, USER_A, `/control?siteId=${dashboard.site.id}&mode=unknown`);
 
-    expect(screen.getByRole("heading", { name: "조명 밝기 제어" })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "제어 대상 지도" })).toBeInTheDocument();
     await waitFor(() => expect(screen.getByTestId("control-location")).toHaveTextContent(
       `?siteId=${dashboard.site.id}&mode=manual`
     ));
@@ -1533,13 +1797,6 @@ function selectFixture(name: string) {
 function openFixtureList() {
   fireEvent.click(screen.getByRole("button", { name: "조명 목록 열기" }));
   return screen.getByRole("dialog", { name: "조명 목록" });
-}
-
-function expandCompactExecution() {
-  const summary = screen.getByRole("complementary", { name: "선택 대상 요약" });
-  const expand = within(summary).queryByRole("button", { name: "선택 대상 펼치기" });
-  if (expand) fireEvent.click(expand);
-  return within(summary).getByTestId("compact-summary-execution");
 }
 
 function chooseTargetMode(name: "층 전체" | "저장된 구역") {

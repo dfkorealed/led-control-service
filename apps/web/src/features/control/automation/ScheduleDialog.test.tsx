@@ -219,7 +219,8 @@ describe("ScheduleDialog spatial targets", () => {
     openTargetView();
 
     const list = screen.getByRole("dialog", { name: "조명 목록" });
-    expect(list).toHaveClass("max-compact:h-full!", "overflow-hidden!");
+    expect(list).toHaveAttribute("data-dialog-variant", "drawer");
+    expect(list).toHaveClass("h-dvh!", "overflow-hidden!");
     expect(screen.getByText("등록된 도면이 없어 목록으로 선택합니다.")).toBeInTheDocument();
   });
 

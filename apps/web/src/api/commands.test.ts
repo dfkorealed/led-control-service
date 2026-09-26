@@ -3,6 +3,10 @@ import {
   canonicalizeDimmingCommandInput,
   getCommandStatusRefetchInterval,
   listCommands,
+  listCommandVerificationCases,
+  getCommandVerificationCase,
+  createCaseStatusCheck,
+  reconcileCommandCase,
   createCommandStatusCheck,
   type CommandStatusResponse
 } from "./commands";
@@ -54,10 +58,33 @@ describe("getCommandStatusRefetchInterval", () => {
 describe("command recovery API", () => {
   afterEach(() => vi.unstubAllGlobals());
   it("encodes history search, stage and opaque cursor without losing their scope", async () => {
-    const fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ items: [], nextCursor: null }) });
+    const fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ items: [], nextCursor: null, generatedAt: "2026-09-25T00:00:00.000Z", retainedFrom: "2026-06-25T00:00:00.000Z" }) });
     vi.stubGlobal("fetch", fetch);
-    await listCommands({ siteId: "site", query: "B2 조명&", stage: "verification_required", cursor: "a+b/=", limit: 20 });
+    const response = await listCommands({ siteId: "site", query: "B2 조명&", stage: "verification_required", cursor: "a+b/=", limit: 20 });
+    expect(response.retainedFrom).toBe("2026-06-25T00:00:00.000Z");
     expect(fetch.mock.calls[0][0]).toBe("/api/commands?siteId=site&query=B2+%EC%A1%B0%EB%AA%85%26&stage=verification_required&cursor=a%2Bb%2F%3D&limit=20");
+  });
+  it("reads requiring verification cases through the static route without issuing control", async () => {
+    const fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ items: [], nextCursor: null, generatedAt: "2026-09-25T00:00:00.000Z" }) });
+    vi.stubGlobal("fetch", fetch);
+    await listCommandVerificationCases({ siteId: "site", originalCommandId: "old-id", cursor: "a+b/=", limit: 4 });
+    await getCommandVerificationCase("case/id");
+    expect(fetch.mock.calls.map(([url, init]) => [url, init.method ?? "GET"])).toEqual([
+      ["/api/commands/requiring-verification?siteId=site&originalCommandId=old-id&cursor=a%2Bb%2F%3D&limit=4", "GET"],
+      ["/api/commands/requiring-verification/case%2Fid", "GET"]
+    ]);
+  });
+  it("uses dedicated Get-only and explicit-risk case actions", async () => {
+    const fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ caseId: "case" }) });
+    vi.stubGlobal("fetch", fetch);
+    await createCaseStatusCheck("case/id", "same-key");
+    await createCaseStatusCheck("case/id", "same-key");
+    await reconcileCommandCase("case/id", { acknowledgeRisk: true, verificationMethod: "unable_to_verify", reason: "현장 확인 불가" });
+    expect(fetch.mock.calls.map(([url, init]) => [url, JSON.parse(init.body)])).toEqual([
+      ["/api/commands/requiring-verification/case%2Fid/status-checks", { clientRequestId: "same-key" }],
+      ["/api/commands/requiring-verification/case%2Fid/status-checks", { clientRequestId: "same-key" }],
+      ["/api/commands/requiring-verification/case%2Fid/reconcile", { acknowledgeRisk: true, verificationMethod: "unable_to_verify", reason: "현장 확인 불가" }]
+    ]);
   });
   it("replays a status-check HTTP request with the caller's same idempotency key", async () => {
     const fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ dispatchId: "check", dispatchIds: ["check"], verificationAttempt: 1, terminalStatusUrl: "/commands/id" }) });
