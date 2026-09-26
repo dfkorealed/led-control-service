@@ -184,20 +184,21 @@ async function executeGatewayDimmingCommand(
   const existing = await journal.get(command.idempotencyKey);
   if (existing?.state === "completed") {
     options.onDurableReceipt?.();
-    return replayCompletedCommand(journal, existing, command, options);
+    return replayCompletedCommand(journal, existing, options);
   }
   if (existing?.state === "accepted") {
     options.onDurableReceipt?.();
+    // A DUP supplies no authority to change the owner/targets already fsynced,
+    // including when RF may have started and recovery must remain unknown.
+    const stored = existing.command as { command?: unknown; acceptance?: AcceptanceAckV2 };
+    const storedCommand = gatewayDimmingCommandV2CompatibilitySchema.parse(stored.command);
     if (existing.executionPhase === "pre_rf") {
-      // A DUP supplies no authority to change the owner/targets already fsynced.
-      const storedCommand = gatewayDimmingCommandV2CompatibilitySchema.parse((existing.command as { command?: unknown }).command);
       const result = createSetRefusalResult(storedCommand, "GATEWAY_CLOCK_UNTRUSTED");
       await completeWithAutomationAbort(journal, storedCommand, result, options.automation);
       return result;
     }
-    const stored = existing.command as { acceptance?: AcceptanceAckV2 };
-    const result = createIndeterminateResult(command, stored.acceptance);
-    await completeWithAutomationHandoff(journal, command, result, options, "recovery");
+    const result = createIndeterminateResult(storedCommand, stored.acceptance);
+    await completeWithAutomationHandoff(journal, storedCommand, result, options, "recovery");
     return result;
   }
 
@@ -209,13 +210,13 @@ async function executeGatewayDimmingCommand(
   if (command.deliveryMode === "mesh_group") {
     const identity = meshGroupIdentity(command);
     if (!options.groupStateStore || !options.groupQueue || !adapter.applyMeshGroup) {
-      return rejectBeforeExecution(journal, command, "MESH_GROUP_UNAVAILABLE", "mesh group control is unavailable");
+      return rejectBeforeExecution(journal, command, "MESH_GROUP_UNAVAILABLE", "mesh group control is unavailable", options);
     }
     try {
       await options.groupStateStore.assertReady(identity);
     } catch (error) {
       const code = errorCode(error, "MESH_GROUP_NOT_READY");
-      return rejectBeforeExecution(journal, command, code, error instanceof Error ? error.message : "mesh group is not ready");
+      return rejectBeforeExecution(journal, command, code, error instanceof Error ? error.message : "mesh group is not ready", options);
     }
   }
 
@@ -226,7 +227,8 @@ async function executeGatewayDimmingCommand(
       journal,
       command,
       "STATE_OUTBOX_CAPACITY",
-      "durable fixture state capacity is unavailable"
+      "durable fixture state capacity is unavailable",
+      options
     );
   }
 
@@ -253,7 +255,7 @@ async function executeGatewayDimmingCommand(
   if (!reserved) {
     const raced = await journal.get(command.idempotencyKey);
     if (raced) options.onDurableReceipt?.();
-    if (raced?.state === "completed") return replayCompletedCommand(journal, raced, command, options);
+    if (raced?.state === "completed") return replayCompletedCommand(journal, raced, options);
     throw new Error("duplicate command has an indeterminate accepted result");
   }
   options.onDurableReceipt?.();
@@ -749,17 +751,16 @@ async function replayAutomationAbort(
 async function replayCompletedCommand(
   journal: JournalLike,
   record: NonNullable<Awaited<ReturnType<JournalLike["get"]>>>,
-  command: GatewayDimmingCommandV2Compatible,
   options: GatewayCommandOptions
 ) {
   const result = record.result as GatewayCommandResult;
-  // All duplicate paths, including a lost accept race, must finish the abort
-  // before returning the terminal ACK. Incoming DUP targets cannot change it.
-  if (record.automationAbort === "pending") {
+  // Every replay, including a lost accept race, uses the durable owner for
+  // pending abort/handoff and terminal context. Incoming DUP identity is inert.
+  if (record.automationAbort === "pending" || record.automationHandoff === "pending") {
     const storedCommand = gatewayDimmingCommandV2CompatibilitySchema.parse((record.command as { command?: unknown }).command);
-    await replayAutomationAbort(journal, storedCommand, options.automation);
+    if (record.automationAbort === "pending") await replayAutomationAbort(journal, storedCommand, options.automation);
+    if (record.automationHandoff === "pending") await replayAutomationHandoff(journal, storedCommand, result, options, "recovery");
   }
-  if (record.automationHandoff === "pending") await replayAutomationHandoff(journal, command, result, options, "recovery");
   return result;
 }
 
@@ -782,7 +783,7 @@ async function rejectSetCommand(
     const raced = await journal.get(command.idempotencyKey);
     if (raced?.state === "completed") {
       options.onDurableReceipt?.();
-      return replayCompletedCommand(journal, raced, command, options);
+      return replayCompletedCommand(journal, raced, options);
     }
     throw new Error("duplicate command has an indeterminate accepted result");
   }
@@ -799,7 +800,8 @@ async function rejectBeforeExecution(
   journal: JournalLike,
   command: GatewayDimmingCommandV2Compatible,
   code: string,
-  message: string
+  message: string,
+  options: GatewayCommandOptions
 ): Promise<GatewayCommandResult> {
   const identity = {
     commandId: command.commandId,
@@ -830,7 +832,10 @@ async function rejectBeforeExecution(
   const reserved = await journal.accept(command.idempotencyKey, { command, acceptance: result.acceptance });
   if (!reserved) {
     const raced = await journal.get(command.idempotencyKey);
-    if (raced?.state === "completed") return raced.result as GatewayCommandResult;
+    if (raced?.state === "completed") {
+      options.onDurableReceipt?.();
+      return replayCompletedCommand(journal, raced, options);
+    }
     throw new Error("duplicate command has an indeterminate rejected result");
   }
   await journal.complete(command.idempotencyKey, result);

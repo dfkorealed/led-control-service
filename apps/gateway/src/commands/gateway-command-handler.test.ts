@@ -198,6 +198,117 @@ describe("handleGatewayDimmingCommand", () => {
       expect(result.fixtureStateObserved).toBe(false);
     } finally { await rm(directory, { recursive: true, force: true }); }
   });
+  it.each([
+    ["may_have_written", "direct"],
+    ["legacy_accepted", "direct"],
+    ["completed_unknown", "direct"],
+    ["completed_unknown", "admission_race"],
+    ["completed_unknown", "refusal_race"],
+    ["completed_unknown", "preflight_race"],
+    ["completed_success", "direct"]
+  ] as const)("recovers the durable original from an altered DUP after %s via %s", async (phase, replay) => {
+    const directory = await mkdtemp(join(tmpdir(), "handoff-duplicate-original-"));
+    try {
+      const journalPath = join(directory, "journal.json");
+      const statePath = join(directory, "state.json");
+      const createRuntime = () => new ScheduleRuntime({
+        store: new FileAutomationStateStore(statePath),
+        clockTrust: { isTrusted: async () => true },
+        execute: async () => [],
+        allowManualStateInitialization: true
+      });
+      const original = { ...command, requestedAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 60_000).toISOString() };
+      const otherId = "77777777-7777-4777-8777-777777777777";
+      const altered = {
+        ...original, commandId: otherId, dispatchId: otherId, sequence: 42,
+        siteId: "88888888-8888-4888-8888-888888888888",
+        gatewayId: "99999999-9999-4999-8999-999999999999",
+        targetId: otherId, targetFixtureIds: [otherId], brightness: 10
+      };
+      const runtime = createRuntime();
+      await runtime.initialize();
+      await runtime.recordFixtureState(original.targetId, 20);
+      await runtime.prepareManualControl({ sourceId: otherId, fixtureIds: [otherId], brightnessPercent: 30, requestedAt: original.requestedAt });
+      const otherPending = runtime.state().pendingManualControls[otherId];
+      const journal = new CommandJournal(journalPath);
+      const complete = journal.complete.bind(journal);
+      const coordinator = createManualControlCoordinator(runtime);
+      const adapter = new StubBleMeshAdapter();
+      const interruptedHandoff = { ...coordinator, handoff: async () => { throw new Error("handoff interrupted"); } };
+      const initialOptions = {
+        automation: interruptedHandoff,
+        ...(phase === "legacy_accepted" ? {} : { setPermit: () => undefined })
+      };
+      if (phase === "completed_success") {
+        await handleGatewayDimmingCommand(adapter, journal, original, undefined, initialOptions);
+      } else {
+        // RF has run, but its terminal result did not reach durable storage.
+        // Recovery must retain uncertainty and settle the original manual owner.
+        journal.complete = async () => { throw new Error("terminal fsync failed"); };
+        await expect(handleGatewayDimmingCommand(adapter, journal, original, undefined, initialOptions)).rejects.toThrow("terminal fsync failed");
+        journal.complete = complete;
+        expect(await journal.get(original.idempotencyKey)).toMatchObject({
+          state: "accepted",
+          ...(phase === "legacy_accepted" ? {} : { executionPhase: "may_have_written" })
+        });
+        if (phase === "completed_unknown") {
+          await handleGatewayDimmingCommand(adapter, journal, original, undefined, { automation: interruptedHandoff });
+        }
+      }
+      expect(adapter.commands).toHaveLength(1);
+      if (phase.startsWith("completed")) {
+        expect(await journal.get(original.idempotencyKey)).toMatchObject({ state: "completed", automationHandoff: "pending" });
+      }
+      const restarted = createRuntime();
+      await restarted.initialize();
+      expect(restarted.state().pendingManualControls[original.targetId]?.sourceId).toBe(original.commandId);
+      const recoveryJournal = new CommandJournal(journalPath);
+      if (replay.endsWith("race")) {
+        // Another receiver has committed between lookup and admission. Keep
+        // the durable journal real; only inject that first stale observation.
+        const get = recoveryJournal.get.bind(recoveryJournal);
+        let first = true;
+        recoveryJournal.get = async (key) => { if (first) { first = false; return null; } return get(key); };
+      }
+      const recoveryAdapter = new StubBleMeshAdapter();
+      const result = await handleGatewayDimmingCommand(recoveryAdapter, recoveryJournal, altered, undefined, {
+        automation: createManualControlCoordinator(restarted),
+        setPermit: () => replay === "admission_race" || replay === "preflight_race" ? undefined : "GATEWAY_CLOCK_UNTRUSTED",
+        ...(replay === "preflight_race" ? { beforeExecution: async () => { throw new Error("outbox capacity unavailable"); } } : {})
+      });
+      const originalIdentity = {
+        commandId: "11111111-1111-4111-8111-111111111111",
+        dispatchId: "22222222-2222-4222-8222-222222222222",
+        idempotencyKey: "33333333-3333-4333-8333-333333333333",
+        sequence: 1,
+        siteId: "44444444-4444-4444-8444-444444444444",
+        gatewayId: "55555555-5555-4555-8555-555555555555"
+      };
+      expect.soft(result.acceptance).toMatchObject({ ...originalIdentity, status: "accepted" });
+      expect.soft(result.deviceStatus).toMatchObject({
+        ...originalIdentity,
+        status: phase === "completed_success" ? "succeeded" : "timed_out",
+        results: [{ fixtureId: "66666666-6666-4666-8666-666666666666", status: phase === "completed_success" ? "succeeded" : "timed_out" }]
+      });
+      expect.soft(result.fixtureStateObserved).toBe(phase === "completed_success");
+      expect.soft(restarted.state().pendingManualControls).toEqual({ [otherId]: otherPending });
+      expect.soft(restarted.state().transitionsByFixture[original.targetId]).toMatchObject({
+        phase: "terminal", sourceId: original.commandId, status: phase === "completed_success" ? "succeeded" : "timed_out"
+      });
+      expect.soft(restarted.state().currentByFixture[original.targetId]).toBe(phase === "completed_success" ? 65 : 20);
+      expect.soft(await recoveryJournal.get(original.idempotencyKey)).toMatchObject({ state: "completed", automationHandoff: "completed" });
+      expect.soft((await recoveryJournal.get(original.idempotencyKey))?.automationAbort).toBeUndefined();
+      expect.soft(await recoveryJournal.pendingAutomationRecoveries()).toEqual([]);
+      expect.soft(recoveryAdapter.commands).toHaveLength(0);
+      const persisted = createRuntime();
+      await persisted.initialize();
+      expect.soft(persisted.state().pendingManualControls).toEqual({ [otherId]: otherPending });
+      expect(await handleGatewayDimmingCommand(recoveryAdapter, recoveryJournal, altered, undefined, {
+        automation: createManualControlCoordinator(persisted)
+      })).toEqual(result);
+      expect(recoveryAdapter.commands).toHaveLength(0);
+    } finally { await rm(directory, { recursive: true, force: true }); }
+  });
   it.each(["prepare", "terminal-before", "terminal-after", "abort-before", "abort-after", "abort-ack-before", "abort-ack-after"])("recovers an exact pre-RF abort after crash at %s without handoff or RF", async (boundary) => {
     const directory = await mkdtemp(join(tmpdir(), "manual-abort-restart-"));
     try {
