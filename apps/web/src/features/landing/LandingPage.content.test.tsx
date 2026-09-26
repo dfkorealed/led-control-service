@@ -46,6 +46,14 @@ describe("public landing narrative", () => {
     expect(screen.getByText(/검토.*CAD.*배치|CAD.*검토.*배치/)).toBeVisible();
   });
 
+  it("assigns customer site actions to the customer admin while the partner guides handoff", () => {
+    render(<LandingPage />);
+    const partner = within(screen.getByRole("region", { name: "시공·유통 파트너" }));
+    expect(partner.getByText(/고객사 관리자가.*초기 설정.*등록/)).toBeVisible();
+    expect(partner.getByText(/고객사 관리자가.*CAD.*검토.*배치/)).toBeVisible();
+    expect(partner.getByText(/고객사 관리자가.*연결 상태.*명령 처리 이력.*확인/)).toBeVisible();
+  });
+
   it("sets concrete consultation expectations and repeats the contact path", () => {
     render(<LandingPage />);
     const checklist = screen.getByRole("region", { name: /상담 전/ });
