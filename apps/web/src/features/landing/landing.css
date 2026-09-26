@@ -1,0 +1,54 @@
+/* Content starts visible. Effects only decorate a mounted public landing page. */
+@media (prefers-reduced-motion: no-preference) {
+  .landing-page[data-landing-hero-ready] :is(
+    .landing-hero-kicker,
+    .landing-hero-heading,
+    .landing-hero-description,
+    .landing-hero-actions,
+    .landing-hero-preview
+  ) {
+    animation: landing-enter 560ms cubic-bezier(0.22, 1, 0.36, 1) both;
+    animation-delay: var(--landing-enter-delay, 0ms);
+  }
+
+  .landing-page .landing-hero-heading { --landing-enter-delay: 60ms; }
+  .landing-page .landing-hero-description { --landing-enter-delay: 120ms; }
+  .landing-page .landing-hero-actions { --landing-enter-delay: 180ms; }
+  .landing-page .landing-hero-preview { --landing-enter-delay: 240ms; }
+
+  .landing-page[data-landing-motion] [data-landing-revealed] {
+    animation: landing-enter 520ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+
+  /* The preview panel remounts only when the visitor chooses a different mode. */
+  .landing-page[data-landing-motion] [data-preview-panel] {
+    animation: landing-preview-enter 220ms ease-out both;
+  }
+
+  .landing-page[data-landing-motion] :is([data-landing-reveal], [data-preview-panel]):focus-within,
+  .landing-page[data-landing-motion] [data-landing-reveal]:target {
+    animation: none;
+  }
+}
+
+@keyframes landing-enter {
+  /* Partial opacity keeps text readable even if execution stops mid-effect. */
+  from { opacity: 0.72; transform: translateY(14px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes landing-preview-enter {
+  from { opacity: 0.8; transform: translateY(5px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .landing-page,
+  .landing-page *,
+  .landing-page *::before,
+  .landing-page *::after {
+    animation: none !important;
+    transition: none !important;
+    scroll-behavior: auto !important;
+  }
+}

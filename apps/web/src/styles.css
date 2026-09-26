@@ -2,6 +2,7 @@
 @import "./styles/theme.css";
 @import "./styles/base.css";
 @import "./styles/exceptions.css";
+@import "./features/landing/landing.css";
 
 /* 검사 fixture의 미승인 예제 클래스가 production CSS로 생성되지 않게 한다. */
 @source not "../scripts";
