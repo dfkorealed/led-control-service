@@ -265,6 +265,10 @@ test("allows the landing motion stylesheet only through the canonical CSS entry"
 test("allows reviewed landing motion selectors without opening other CSS files", () => {
   const source = '.landing-page[data-landing-motion] [data-landing-revealed] { animation: landing-enter 520ms both; }';
   assert.deepEqual(inspectUiSource("src/features/landing/landing.css", source), []);
+  const hero = '.landing-page[data-landing-hero-ready] :is( .landing-hero-heading, .landing-hero-description, .landing-hero-actions, .landing-hero-preview ) { animation: landing-enter 560ms both; }';
+  assert.deepEqual(inspectUiSource("src/features/landing/landing.css", hero), []);
+  const removedKicker = '.landing-page[data-landing-hero-ready] :is( .landing-hero-kicker, .landing-hero-heading, .landing-hero-description, .landing-hero-actions, .landing-hero-preview ) { animation: landing-enter 560ms both; }';
+  assert.ok(inspectUiSource("src/features/landing/landing.css", removedKicker).some(v => v.rule === "css-selector"));
   const elsewhere = inspectUiSource("src/features/landing/other.css", source);
   assert.ok(elsewhere.some(v => v.rule === "css-file"));
   assert.ok(elsewhere.some(v => v.rule === "css-selector"));

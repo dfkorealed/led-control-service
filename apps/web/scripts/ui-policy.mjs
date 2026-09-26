@@ -76,8 +76,7 @@ const entryImports = new Set(["tailwindcss", "./styles/theme.css", "./styles/bas
 // The public landing owns these motion selectors only. An exact list prevents
 // comma branches or sibling combinators from leaking styles into authenticated UI.
 const reviewedLandingMotionSelectors = new Set([
-  ".landing-page[data-landing-hero-ready] :is( .landing-hero-kicker, .landing-hero-heading, .landing-hero-description, .landing-hero-actions, .landing-hero-preview )",
-  ".landing-page .landing-hero-heading",
+  ".landing-page[data-landing-hero-ready] :is( .landing-hero-heading, .landing-hero-description, .landing-hero-actions, .landing-hero-preview )",
   ".landing-page .landing-hero-description",
   ".landing-page .landing-hero-actions",
   ".landing-page .landing-hero-preview",

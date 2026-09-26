@@ -1,7 +1,6 @@
 /* Content starts visible. Effects only decorate a mounted public landing page. */
 @media (prefers-reduced-motion: no-preference) {
   .landing-page[data-landing-hero-ready] :is(
-    .landing-hero-kicker,
     .landing-hero-heading,
     .landing-hero-description,
     .landing-hero-actions,
@@ -11,9 +10,8 @@
     animation-delay: var(--landing-enter-delay, 0ms);
   }
 
-  .landing-page .landing-hero-heading { --landing-enter-delay: 60ms; }
-  .landing-page .landing-hero-description { --landing-enter-delay: 120ms; }
-  .landing-page .landing-hero-actions { --landing-enter-delay: 180ms; }
+  .landing-page .landing-hero-description { --landing-enter-delay: 80ms; }
+  .landing-page .landing-hero-actions { --landing-enter-delay: 160ms; }
   .landing-page .landing-hero-preview { --landing-enter-delay: 240ms; }
 
   .landing-page[data-landing-motion] [data-landing-revealed] {

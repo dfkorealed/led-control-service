@@ -1,11 +1,8 @@
 import {
-  ArrowDown,
   ArrowRight,
   BarChart3,
-  Building2,
   CalendarDays,
   Check,
-  ClipboardCheck,
   History,
   Layers,
   MapPin,
@@ -14,40 +11,10 @@ import {
 } from "lucide-react";
 import { createRef, useMemo, useRef } from "react";
 import { KindaLogo } from "../../components/brand/KindaLogo";
-import { Card } from "../../components/ui/Card";
 import { LinkButton } from "../../components/ui/LinkButton";
 import { DashboardPreview } from "./DashboardPreview";
 import { InquiryForm } from "./InquiryForm";
 import { LandingMotion } from "./LandingMotion";
-
-const audiences = [
-  {
-    id: "facility",
-    icon: Building2,
-    label: "시설 운영 담당자",
-    title: "흩어진 조명을, 현장 기준으로 살펴보세요.",
-    description: "점검부터 제어, 운영 검토까지 같은 현장 정보를 따라 움직입니다.",
-    steps: [
-      { title: "어디서 시작할지 찾기", detail: "현장과 층을 고르고 조명을 검색해 도면의 위치, 연결 상태, 최근 확인 상태를 살핍니다." },
-      { title: "필요한 곳만 조정하기", detail: "개별 조명이나 그룹의 점등과 밝기를 바꾸고, 반복 운영은 일정으로 관리합니다." },
-      { title: "처리 결과로 다음 일 정하기", detail: "명령 처리 이력을 확인하고 기간별 상태 기반 추정 전력을 운영 판단에 참고합니다." }
-    ],
-    cta: "시설 도입 상담"
-  },
-  {
-    id: "partner",
-    icon: ClipboardCheck,
-    label: "시공·유통 파트너",
-    title: "설치 정보를, 고객사 운영으로 이어주세요.",
-    description: "시공·유통 파트너는 설치 정보를 고객사 관리자에게 전달하고 운영 준비와 인수인계를 안내합니다.",
-    steps: [
-      { title: "설치 정보 전달하기", detail: "현장·층·Gateway·조명 정보를 정리해 전달합니다. 고객사 관리자가 초기 설정과 Gateway·조명 등록을 진행하도록 안내합니다." },
-      { title: "도면과 운영 기준 설명하기", detail: "고객사 관리자가 CAD 도면의 조명 후보를 검토해 배치에 적용하도록 안내하고, 그룹·일정 운영 기준을 함께 정리합니다." },
-      { title: "확인 경로 인계하기", detail: "고객사 관리자가 연결 상태와 명령 처리 이력을 확인하는 방법을 안내해 현장 점검 기준을 남깁니다." }
-    ],
-    cta: "파트너 도입 상담"
-  }
-];
 
 function LocationIllustration() {
   return <div aria-hidden="true" className="overflow-hidden rounded-panel border border-border-default bg-surface-panel shadow-panel">
@@ -111,9 +78,6 @@ export function LandingPage() {
     location: createRef<HTMLElement>(),
     control: createRef<HTMLElement>(),
     verification: createRef<HTMLElement>(),
-    consultation: createRef<HTMLDivElement>(),
-    benefits: createRef<HTMLElement>(),
-    preparation: createRef<HTMLElement>(),
     contact: createRef<HTMLElement>()
   }), []);
   return <div ref={rootRef} className="landing-page min-h-screen break-keep bg-brand-paper text-brand-navy">
@@ -125,7 +89,6 @@ export function LandingPage() {
         <a href="/login" className="inline-flex min-h-12 items-center gap-2 px-3 text-body font-bold text-action-primary compact:order-3">로그인 <ArrowRight size={16} aria-hidden="true" /></a>
         <nav aria-label="주요 메뉴" className="flex w-full items-center justify-between gap-2 border-t border-border-subtle compact:w-auto compact:gap-6 compact:border-0">
           <a href="#product" className="inline-flex min-h-12 items-center px-2 text-body font-medium hover:text-action-primary">제품 소개</a>
-          <a href="#benefits" className="inline-flex min-h-12 items-center px-2 text-body font-medium hover:text-action-primary">활용 안내</a>
           <a href="#contact" className="inline-flex min-h-12 items-center px-2 text-body font-bold text-action-primary">상담 문의</a>
         </nav>
       </div>
@@ -133,12 +96,10 @@ export function LandingPage() {
     <main id="main-content" tabIndex={-1}>
       <section aria-labelledby="hero-heading" className="mx-auto max-w-6xl px-4 pb-16 pt-16 compact:px-8">
         <div className="mx-auto mb-12 max-w-5xl text-center compact:mb-16">
-          <p className="landing-hero-kicker mb-5 flex flex-wrap items-center justify-center gap-2 text-body-sm font-bold text-action-primary"><span className="h-px w-7 bg-brand-coral" aria-hidden="true" />주차장·시설 조명 운영 플랫폼<span className="h-px w-7 bg-brand-coral" aria-hidden="true" /></p>
           <h1 id="hero-heading" className="landing-hero-heading mx-auto max-w-4xl text-balance text-display font-bold tablet:text-landing-hero">조명 위치를 찾고, 제어하고,<br className="hidden compact:block" /> 결과를 확인하세요.</h1>
-          <p className="landing-hero-description mx-auto mt-6 max-w-2xl text-pretty text-body-lg text-brand-navy/80">도면에서 대상을 찾는 순간부터 필요한 조명을 바꾸고 처리 이력을 살펴보는 순간까지. 킨다는 현장 운영의 흐름을 한곳에 모읍니다.</p>
+          <p className="landing-hero-description mx-auto mt-6 max-w-3xl text-pretty text-body-lg text-brand-navy/80">도면에서 조명을 찾고, 제어와 기록까지 한곳에서 관리하세요.</p>
           <div className="landing-hero-actions mt-8 flex flex-wrap justify-center gap-3">
             <LinkButton href="#contact">도입 상담하기 <ArrowRight size={17} aria-hidden="true" /></LinkButton>
-            <LinkButton href="#product" variant="secondary">제품 살펴보기 <ArrowDown size={17} aria-hidden="true" /></LinkButton>
           </div>
         </div>
         <div className="landing-hero-preview"><DashboardPreview /></div>
@@ -190,44 +151,6 @@ export function LandingPage() {
         </article>
       </section>
 
-      <div ref={sectionRefs.consultation} className="bg-action-primary-soft" data-landing-reveal>
-        <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-5 px-4 py-8 compact:px-8">
-          <p className="max-w-2xl text-body-lg font-bold">우리 현장의 조명 배치와 운영 방식에 맞춰, 어떤 흐름이 필요한지 함께 살펴보세요.</p>
-          <LinkButton href="#contact" variant="secondary">우리 현장 상담하기 <ArrowRight size={17} aria-hidden="true" /></LinkButton>
-        </div>
-      </div>
-
-      <section ref={sectionRefs.benefits} id="benefits" aria-labelledby="benefits-heading" tabIndex={-1} className="mx-auto max-w-6xl scroll-mt-6 px-4 py-16 compact:px-8" data-landing-reveal>
-        <div className="mb-10 grid gap-5 compact:grid-cols-2 compact:items-end">
-          <div><p className="mb-4 text-body-sm font-bold text-action-primary">같은 현장, 다른 업무</p><h2 id="benefits-heading" className="text-display font-bold">운영하는 사람도,<br /> 설치하는 사람도.</h2></div>
-          <p className="max-w-md text-body-lg text-brand-navy/80">업무의 시작점은 달라도, 위치와 상태를 함께 보는 기준은 이어집니다.</p>
-        </div>
-        <div className="grid gap-6 compact:grid-cols-2">
-          {audiences.map(({ id, icon: Icon, label, title, description, steps, cta }) => <Card key={id} aria-labelledby={`${id}-heading`} className="flex flex-col border-t-4 border-t-action-primary p-6 tablet:p-8">
-            <div className="mb-7 flex items-center gap-3"><span className="flex size-11 items-center justify-center rounded-control bg-action-primary-soft text-action-primary"><Icon size={22} aria-hidden="true" /></span><h3 id={`${id}-heading`} className="text-body-lg font-bold">{label}</h3></div>
-            <p className="text-section-title font-bold">{title}</p><p className="mt-3 text-body text-brand-navy/80">{description}</p>
-            <ol className="my-8 grid gap-6 border-t border-border-subtle pt-7">
-              {steps.map(({ title: step, detail }, index) => <li key={step} className="flex gap-3"><span aria-hidden="true" className="mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-pill bg-action-primary-soft text-label font-bold text-action-primary">{index + 1}</span><div><h4 className="text-body font-bold">{step}</h4><p className="mt-1 text-body text-brand-navy/80">{detail}</p></div></li>)}
-            </ol>
-            <LinkButton href="#contact" variant="secondary" className="mt-auto justify-between">{cta}<ArrowRight size={17} aria-hidden="true" /></LinkButton>
-          </Card>)}
-        </div>
-      </section>
-
-      <section ref={sectionRefs.preparation} aria-labelledby="prepare-eyebrow prepare-heading" className="border-y border-border-subtle bg-surface-panel" data-landing-reveal>
-        <div className="mx-auto grid max-w-6xl gap-8 px-4 py-12 compact:px-8 compact:py-16 tablet:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)] tablet:gap-12">
-          <div><p id="prepare-eyebrow" className="mb-4 text-body-sm font-bold text-action-primary">상담 전 확인할 것</p><h2 id="prepare-heading" className="text-display font-bold">현장 이야기를<br />조금만 들려주세요.</h2><p className="mt-5 text-body-lg text-brand-navy/80">정확한 구성은 상담에서 함께 확인합니다. 아래 항목을 알고 계신 범위에서 알려주시면 됩니다.</p></div>
-          <div>
-            <ol className="grid gap-0 divide-y divide-border-subtle border-y border-border-subtle">
-              <li className="flex gap-4 py-4"><span className="text-body-sm font-bold text-action-primary">01</span><span className="text-body-lg font-medium">현장과 층의 대략적인 규모</span></li>
-              <li className="flex gap-4 py-4"><span className="text-body-sm font-bold text-action-primary">02</span><span className="text-body-lg font-medium">도면 보유 여부와 도면 형태</span></li>
-              <li className="flex gap-4 py-4"><span className="text-body-sm font-bold text-action-primary">03</span><span className="text-body-lg font-medium">설치와 운영을 맡는 역할</span></li>
-            </ol>
-            <LinkButton href="#contact" className="mt-6">상담 내용 남기기 <ArrowRight size={17} aria-hidden="true" /></LinkButton>
-          </div>
-        </div>
-      </section>
-
       <section ref={sectionRefs.contact} id="contact" aria-labelledby="contact-heading" tabIndex={-1} className="scroll-mt-6 bg-brand-navy text-content-inverse" data-landing-reveal>
         <div className="mx-auto grid max-w-6xl gap-8 px-4 py-16 compact:grid-cols-2 compact:items-start compact:px-8">
           <div><p className="mb-4 text-body-sm font-bold text-brand-coral">킨다 도입 상담</p><h2 id="contact-heading" className="text-display font-bold">우리 현장에 맞는 시작,<br />함께 살펴보겠습니다.</h2><p className="mt-5 max-w-md text-body-lg text-content-inverse/80">현장 규모와 운영 방식, 설치 상황을 알려주세요. 필요한 등록·배치·운영 흐름을 함께 확인하겠습니다.</p></div>
@@ -235,9 +158,8 @@ export function LandingPage() {
         </div>
       </section>
     </main>
-    <footer className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-4 px-4 py-8 compact:px-8">
+    <footer className="mx-auto flex max-w-6xl items-center px-4 py-8 compact:px-8">
       <div className="flex items-center gap-3"><Layers size={18} aria-hidden="true" className="text-action-primary" /><p className="text-body font-bold">킨다 <span className="ml-2 font-normal text-brand-navy/80">찾고, 제어하고, 확인합니다.</span></p></div>
-      <a href="/login" className="inline-flex min-h-11 items-center gap-2 text-body text-action-primary">관제 서비스 로그인 <ArrowRight size={15} aria-hidden="true" /></a>
     </footer>
   </div>;
 }

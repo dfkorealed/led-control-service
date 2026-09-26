@@ -10,7 +10,10 @@ describe("public landing narrative", () => {
     expect(screen.getByRole("img", { name: "킨다" })).toBeVisible();
     expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent(/위치.*제어.*결과/);
+    expect(screen.getByText("도면에서 조명을 찾고, 제어와 기록까지 한곳에서 관리하세요.")).toBeVisible();
     expect(screen.getByRole("link", { name: /도입 상담하기/ })).toHaveAttribute("href", "#contact");
+    expect(screen.queryByText("주차장·시설 조명 운영 플랫폼")).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "제품 살펴보기" })).not.toBeInTheDocument();
   });
 
   it("tells each product story through a buyer question, supported capability, and operational use", () => {
@@ -34,33 +37,13 @@ describe("public landing narrative", () => {
     expect(verification).toHaveTextContent(/판단|검토/);
   });
 
-  it("offers equally detailed workflows for facility operators and installation partners", () => {
+  it("moves directly from the product story to the contact form", () => {
     render(<LandingPage />);
-    for (const name of [/시설 운영 담당자/, /시공·유통 파트너/]) {
-      const heading = screen.getByRole("heading", { name });
-      const section = heading.closest("section")!;
-      expect(within(section).getAllByRole("listitem")).toHaveLength(3);
-      expect(within(section).getByRole("link", { name: /상담/ })).toHaveAttribute("href", "#contact");
-      expect(section).toHaveTextContent(/시작|현장/);
-    }
-    expect(screen.getByText(/검토.*CAD.*배치|CAD.*검토.*배치/)).toBeVisible();
-  });
-
-  it("assigns customer site actions to the customer admin while the partner guides handoff", () => {
-    render(<LandingPage />);
-    const partner = within(screen.getByRole("region", { name: "시공·유통 파트너" }));
-    expect(partner.getByText(/고객사 관리자가.*초기 설정.*등록/)).toBeVisible();
-    expect(partner.getByText(/고객사 관리자가.*CAD.*검토.*배치/)).toBeVisible();
-    expect(partner.getByText(/고객사 관리자가.*연결 상태.*명령 처리 이력.*확인/)).toBeVisible();
-  });
-
-  it("sets concrete consultation expectations and repeats the contact path", () => {
-    render(<LandingPage />);
-    const checklist = screen.getByRole("region", { name: /상담 전/ });
-    expect(checklist).toHaveTextContent(/현장.*층.*규모/);
-    expect(checklist).toHaveTextContent(/도면.*보유/);
-    expect(checklist).toHaveTextContent(/설치.*운영.*역할/);
-    expect(screen.getAllByRole("link").filter((link) => link.getAttribute("href") === "#contact").length).toBeGreaterThanOrEqual(4);
+    expect(screen.queryByRole("heading", { name: /운영하는 사람도/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: /상담 전/ })).not.toBeInTheDocument();
+    expect(screen.queryByText(/우리 현장의 조명 배치와 운영 방식에 맞춰/)).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /우리 현장에 맞는 시작/ })).toBeVisible();
+    expect(screen.getAllByRole("link").filter((link) => link.getAttribute("href") === "#contact")).toHaveLength(2);
   });
 
   it("keeps the example clearly illustrative without unsupported promises", () => {
@@ -74,11 +57,14 @@ describe("public landing narrative", () => {
   it("provides discoverable navigation, login, and working anchor destinations", () => {
     render(<LandingPage />);
     const navigation = screen.getByRole("navigation", { name: "주요 메뉴" });
-    for (const [name, id] of [["제품 소개", "product"], ["활용 안내", "benefits"], ["상담 문의", "contact"]]) {
+    for (const [name, id] of [["제품 소개", "product"], ["상담 문의", "contact"]]) {
       expect(within(navigation).getByRole("link", { name })).toHaveAttribute("href", `#${id}`);
       expect(document.getElementById(id)).toBeInTheDocument();
     }
-    expect(screen.getAllByRole("link", { name: /로그인/ }).every((link) => link.getAttribute("href") === "/login")).toBe(true);
+    expect(within(navigation).queryByRole("link", { name: "활용 안내" })).not.toBeInTheDocument();
+    expect(screen.getAllByRole("link", { name: /로그인/ })).toHaveLength(1);
+    expect(screen.getByRole("link", { name: "로그인" })).toHaveAttribute("href", "/login");
+    expect(screen.queryByRole("link", { name: "관제 서비스 로그인" })).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: "본문으로 이동" })).toHaveAttribute("href", "#main-content");
     expect(document.getElementById("main-content")).toBeInTheDocument();
   });

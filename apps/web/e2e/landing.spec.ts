@@ -18,6 +18,20 @@ for (const width of [1440, 1024, 390, 320]) {
     });
     await page.goto("/");
     await expect(page.getByRole("heading", { level: 1 })).toHaveText(/조명 위치를 찾고, 제어하고,\s*결과를 확인하세요\./);
+    await expect(page.getByText("도면에서 조명을 찾고, 제어와 기록까지 한곳에서 관리하세요.")).toBeVisible();
+    if (width === 1440) {
+      const descriptionLines = await page.locator(".landing-hero-description").evaluate((element) => {
+        const textRange = document.createRange();
+        textRange.selectNodeContents(element);
+        return textRange.getClientRects().length;
+      });
+      expect(descriptionLines).toBe(1);
+    }
+    await expect(page.getByText("주차장·시설 조명 운영 플랫폼")).toHaveCount(0);
+    await expect(page.getByRole("link", { name: "제품 살펴보기" })).toHaveCount(0);
+    await expect(page.locator("#benefits")).toHaveCount(0);
+    await expect(page.getByRole("region", { name: /상담 전/ })).toHaveCount(0);
+    await expect(page.getByRole("link", { name: "관제 서비스 로그인" })).toHaveCount(0);
     const preview = page.getByRole("figure", { name: "킨다 관제 구성 예시" });
     await expect(preview).toBeVisible();
     await expect(preview).toHaveAttribute("aria-describedby", /preview-description/);
@@ -45,7 +59,7 @@ for (const width of [1440, 1024, 390, 320]) {
     expect(apiRequests).toEqual([]);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 
-    for (const [name, anchor] of [["제품 소개", "product"], ["활용 안내", "benefits"], ["상담 문의", "contact"]]) {
+    for (const [name, anchor] of [["제품 소개", "product"], ["상담 문의", "contact"]]) {
       await page.getByRole("navigation", { name: "주요 메뉴" }).getByRole("link", { name }).click();
       await expect(page).toHaveURL(new RegExp(`#${anchor}$`));
       await expect(page.locator(`#${anchor}`)).toBeInViewport();
