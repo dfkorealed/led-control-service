@@ -86,6 +86,14 @@ export class CommandSetMqttService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
+  get memberIdentity() { return this.registration ? { ...this.registration } : null; }
+
+  assertPublisherIdentity(workerId: string, generation: number) {
+    if (this.closed || this.registration?.workerId !== workerId || this.registration.generation !== generation) {
+      throw new Error("command Set publisher identity mismatch or closed");
+    }
+  }
+
   private async assertRegistered() {
     const registration = this.registration!;
     const member = await this.prisma.commandPublishMember.findFirst({ where: {

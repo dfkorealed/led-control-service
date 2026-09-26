@@ -63,6 +63,12 @@ function meshRecord(overrides: Record<string, unknown> = {}) {
 }
 
 describe("OutboxPublisherService", () => {
+  afterEach(() => {
+    delete process.env.COMMAND_RETENTION_PUBLISH_CUTOFF;
+    delete process.env.COMMAND_RETENTION_PUBLISH_FENCE;
+    delete process.env.COMMAND_SET_EGRESS_ENABLED;
+  });
+
   it("claims only dimming dispatches, leaving legacy Get rows for their own lease", async () => {
     const tx: any = {
       $queryRaw: jest.fn().mockResolvedValue([]),
@@ -111,6 +117,200 @@ describe("OutboxPublisherService", () => {
 
     expect(prisma.$transaction).not.toHaveBeenCalled();
     expect(mqtt.publishTopic).not.toHaveBeenCalled();
+  });
+
+  it("holds the shared DB permit through MQTT completion and releases it before terminal state writes", async () => {
+    process.env.COMMAND_RETENTION_PUBLISH_CUTOFF = "1";
+    process.env.COMMAND_RETENTION_PUBLISH_FENCE = "1";
+    process.env.COMMAND_SET_EGRESS_ENABLED = "1";
+    const now = new Date("2026-07-11T00:01:00.000Z");
+    const inFlight = deferred<void>();
+    let permitHeld = false;
+    let publishStarted = false;
+    const order: string[] = [];
+    const prisma: any = {
+      $executeRaw: jest.fn().mockImplementation(async (sql: { strings?: string[] }) => {
+        if (sql.strings?.join("").includes("pg_advisory_xact_lock_shared")) {
+          permitHeld = true;
+          order.push("permit");
+        }
+        return 1;
+      }),
+      $queryRaw: jest.fn().mockResolvedValue([{ now }]),
+      command: { findUnique: jest.fn().mockResolvedValue({ createdAt: new Date("2026-07-10T00:00:00.000Z") }) },
+      mqttOutbox: {
+        count: jest.fn().mockResolvedValue(1),
+        findUnique: jest.fn().mockResolvedValue({
+          id: "outbox-1", dispatchId: meshDimmingPayload.dispatchId,
+          lockedBy: "fenced-worker", publishedAt: null, deadLetteredAt: null,
+          deliveryAttemptedAt: now,
+          leaseExpiresAt: new Date("2026-07-11T00:01:30.000Z"), payload: { ...dimmingPayload,
+            deliveryGeneration, deliveryGeneratedAt: now.toISOString(), deliveryWindowMs: 10_000,
+            expiresAt: "2026-07-11T00:01:10.000Z", publishEpoch: 7 }
+        }),
+        updateMany: jest.fn().mockImplementation(async ({ data }: any) => {
+          if (data.publishedAt) order.push("published-state");
+          return { count: 1 };
+        })
+      },
+      gatewayRecommissionJob: { count: jest.fn().mockResolvedValue(0) },
+      commandDispatch: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) }
+    };
+    prisma.$transaction = jest.fn(async (callback: (tx: any) => Promise<unknown>) => {
+      try { return await callback(prisma); }
+      finally { permitHeld = false; order.push("transaction-end"); }
+    });
+    const mqtt = { publishTopic: jest.fn(async () => {
+      publishStarted = true;
+      expect(permitHeld).toBe(true);
+      order.push("mqtt");
+      await inFlight.promise;
+    }) };
+    const epoch = epochDependencies(prisma, now);
+    const egress = { assertPublisherIdentity: jest.fn(), publish: jest.fn(async () => mqtt.publishTopic()) };
+    const publisher = new OutboxPublisherService(prisma, mqtt as never, {
+      workerId: "fenced-worker", clock: () => now, deliveryGeneration: () => deliveryGeneration
+    }, undefined, egress as never, epoch.epochs as never, epoch.health as never);
+    const publishing = publisher.publishClaimed({ ...meshRecord(), payload: dimmingPayload,
+      dispatch: { ...meshDispatch, kind: "dimming" } } as never);
+    try {
+      for (let i = 0; i < 100 && !publishStarted; i++) await Promise.resolve();
+      expect(publishStarted).toBe(true);
+      expect(permitHeld).toBe(true);
+    } finally {
+      inFlight.resolve();
+      await publishing;
+    }
+    expect(order.indexOf("permit")).toBeLessThan(order.indexOf("mqtt"));
+    expect(order.indexOf("mqtt")).toBeLessThan(order.indexOf("transaction-end", order.indexOf("mqtt")));
+    expect(order.indexOf("transaction-end", order.indexOf("mqtt"))).toBeLessThan(order.indexOf("published-state"));
+    expect(egress.publish).toHaveBeenCalledWith(7, expect.any(String), expect.objectContaining({ publishEpoch: 7 }), 8);
+  });
+
+  it("uses DB time inside the permit to block a Set that crossed the UTC cutoff after attempt commit", async () => {
+    process.env.COMMAND_RETENTION_PUBLISH_CUTOFF = "1";
+    process.env.COMMAND_RETENTION_PUBLISH_FENCE = "1";
+    process.env.COMMAND_SET_EGRESS_ENABLED = "1";
+    const appNow = new Date("2026-05-31T11:59:59.999Z");
+    const dbNow = new Date("2026-05-31T12:00:00.001Z");
+    const command = { createdAt: new Date("2026-02-28T12:00:00.000Z"), outcome: null };
+    const prisma: any = {
+      $executeRaw: jest.fn().mockResolvedValue(1),
+      $queryRaw: jest.fn().mockResolvedValue([{ now: dbNow }]),
+      command: { findUnique: jest.fn().mockResolvedValue(command), updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+      mqttOutbox: { count: jest.fn().mockResolvedValue(1),
+        findUnique: jest.fn().mockResolvedValue({ deliveryAttemptedAt: appNow }),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+      commandDispatch: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+      commandFixtureResult: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+      gatewayRecommissionJob: { count: jest.fn().mockResolvedValue(0) }
+    };
+    prisma.$transaction = jest.fn(async (callback: (tx: any) => Promise<unknown>) => callback(prisma));
+    const mqtt = { publishTopic: jest.fn() };
+    const epoch = epochDependencies(prisma, dbNow);
+    epoch.health.assertHealthy.mockResolvedValueOnce(appNow).mockResolvedValueOnce(appNow).mockResolvedValueOnce(appNow);
+    const publisher = new OutboxPublisherService(prisma, mqtt as never, {
+      workerId: "fenced-worker", clock: () => appNow, deliveryGeneration: () => deliveryGeneration
+    }, undefined, { assertPublisherIdentity: jest.fn(), publish: jest.fn() } as never, epoch.epochs as never, epoch.health as never);
+    await publisher.publishClaimed({ ...meshRecord(), payload: dimmingPayload,
+      dispatch: { ...meshDispatch, kind: "dimming" } } as never);
+    expect(mqtt.publishTopic).not.toHaveBeenCalled();
+    expect(prisma.commandDispatch.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ errorCode: "COMMAND_DELIVERY_EXPIRED" })
+    }));
+  });
+
+  it.each(["reclaimed", "recommissioning"])("does not report a %s outbox as published", async (reason) => {
+    process.env.COMMAND_RETENTION_PUBLISH_CUTOFF = "1";
+    process.env.COMMAND_RETENTION_PUBLISH_FENCE = "1";
+    process.env.COMMAND_SET_EGRESS_ENABLED = "1";
+    const now = new Date("2026-07-11T00:01:00.000Z");
+    const prisma: any = {
+      $executeRaw: jest.fn().mockResolvedValue(1),
+      $queryRaw: jest.fn().mockResolvedValue([{ now }]),
+      command: { findUnique: jest.fn().mockResolvedValue({ createdAt: new Date("2026-07-10T00:00:00.000Z") }) },
+      mqttOutbox: {
+        count: jest.fn().mockResolvedValue(1),
+        findUnique: jest.fn().mockResolvedValue({
+          dispatchId: meshDimmingPayload.dispatchId,
+          lockedBy: reason === "reclaimed" ? "other-worker" : "fenced-worker",
+          publishedAt: null, deadLetteredAt: null, deliveryAttemptedAt: now,
+          leaseExpiresAt: new Date("2026-07-11T00:01:30.000Z"),
+          payload: { ...dimmingPayload, deliveryGeneration, deliveryGeneratedAt: now.toISOString(),
+            deliveryWindowMs: 10_000, expiresAt: "2026-07-11T00:01:10.000Z", publishEpoch: 7 }
+        }),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 })
+      },
+      gatewayRecommissionJob: { count: jest.fn().mockResolvedValue(reason === "recommissioning" ? 1 : 0) },
+      commandDispatch: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) }
+    };
+    prisma.$transaction = jest.fn(async (callback: (tx: any) => Promise<unknown>) => callback(prisma));
+    const mqtt = { publishTopic: jest.fn() };
+    const epoch = epochDependencies(prisma, now);
+    const egress = { assertPublisherIdentity: jest.fn(), publish: jest.fn() };
+    const publisher = new OutboxPublisherService(prisma, mqtt as never, {
+      workerId: "fenced-worker", clock: () => now, deliveryGeneration: () => deliveryGeneration
+    }, undefined, egress as never, epoch.epochs as never, epoch.health as never);
+    await publisher.publishClaimed({ ...meshRecord(), payload: dimmingPayload,
+      dispatch: { ...meshDispatch, kind: "dimming" } } as never);
+    expect(mqtt.publishTopic).not.toHaveBeenCalled();
+    expect(egress.publish).not.toHaveBeenCalled();
+    expect(prisma.mqttOutbox.updateMany).not.toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ publishedAt: expect.any(Date) })
+    }));
+  });
+
+  it("never creates a fresh delivery generation for a >3-month Set draft after restart", async () => {
+    process.env.COMMAND_RETENTION_PUBLISH_CUTOFF = "1";
+    const oldCommand = { outcome: null, createdAt: new Date("2026-02-28T11:59:59.999Z") };
+    const prisma: any = {
+      $executeRaw: jest.fn().mockResolvedValue(1),
+      command: { findUnique: jest.fn().mockResolvedValue(oldCommand), updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+      mqttOutbox: { findUnique: jest.fn().mockResolvedValue({ deliveryAttemptedAt: null }),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+      commandDispatch: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+      commandFixtureResult: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) }
+    };
+    prisma.$transaction = jest.fn(async (callback: (tx: any) => Promise<unknown>) => callback(prisma));
+    const mqtt = { publishTopic: jest.fn() };
+    const generate = jest.fn(() => deliveryGeneration);
+    const publisher = new OutboxPublisherService(prisma, mqtt as never, {
+      workerId: "retention-worker", clock: () => new Date("2026-05-31T12:00:00.000Z"), deliveryGeneration: generate
+    });
+    await publisher.publishClaimed({ ...meshRecord(), dispatch: { ...meshDispatch, kind: "dimming" }, payload: dimmingPayload } as never);
+    expect(generate).not.toHaveBeenCalled();
+    expect(mqtt.publishTopic).not.toHaveBeenCalled();
+    expect(prisma.commandDispatch.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ errorCode: "COMMAND_DELIVERY_EXPIRED", status: "failed" })
+    }));
+  });
+
+  it("blocks Set after attempt commit crosses the UTC cutoff before the first MQTT send", async () => {
+    process.env.COMMAND_RETENTION_PUBLISH_CUTOFF = "1";
+    let now = new Date("2026-05-31T11:59:59.999Z");
+    const boundaryCommand = { outcome: null, createdAt: new Date("2026-02-28T12:00:00.000Z") };
+    const prisma: any = {
+      $executeRaw: jest.fn().mockResolvedValue(1),
+      command: { findUnique: jest.fn().mockResolvedValue(boundaryCommand), updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+      mqttOutbox: { findUnique: jest.fn().mockResolvedValue({ deliveryAttemptedAt: now }),
+        count: jest.fn().mockResolvedValue(1),
+        updateMany: jest.fn(async ({ data }: any) => {
+          if (data.deliveryAttemptedAt) now = new Date("2026-05-31T12:00:00.001Z");
+          return { count: 1 };
+        }) },
+      commandDispatch: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+      commandFixtureResult: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) }
+    };
+    prisma.$transaction = jest.fn(async (callback: (tx: any) => Promise<unknown>) => callback(prisma));
+    const mqtt = { publishTopic: jest.fn() };
+    const publisher = new OutboxPublisherService(prisma, mqtt as never, {
+      workerId: "cutoff-worker", clock: () => now, deliveryGeneration: () => deliveryGeneration
+    });
+    await publisher.publishClaimed({ ...meshRecord(), dispatch: { ...meshDispatch, kind: "dimming" }, payload: dimmingPayload } as never);
+    expect(mqtt.publishTopic).not.toHaveBeenCalled();
+    expect(prisma.commandDispatch.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ errorCode: "COMMAND_DELIVERY_EXPIRED" })
+    }));
   });
 
   it.each([
@@ -1117,4 +1317,19 @@ function deferred<T>() {
 function sequenceClock(...values: Date[]) {
   let index = 0;
   return () => values[Math.min(index++, values.length - 1)];
+}
+
+function epochDependencies(prisma: any, now: Date) {
+  prisma.commandPublishMember = { findFirst: jest.fn().mockResolvedValue({ generation: 7, workerId: "fenced-worker" }) };
+  prisma.commandPublishAttempt = { create: jest.fn().mockResolvedValue({}), findFirst: jest.fn().mockResolvedValue({ generation: 7 }) };
+  prisma.mqttOutbox.findFirst = jest.fn(async () => ({ payload: { ...dimmingPayload, publishEpoch: 7,
+    deliveryGeneration, deliveryGeneratedAt: "2026-07-11T00:01:00.000Z", deliveryWindowMs: 10_000,
+    expiresAt: "2026-07-11T00:01:10.000Z" } }));
+  // Match the durable prepare write, independently of later DB-clock observations.
+  const originalUpdate = prisma.mqttOutbox.updateMany.getMockImplementation();
+  prisma.mqttOutbox.updateMany.mockImplementation(async (args: any) => {
+    if (args.data.payload) prisma.mqttOutbox.findFirst.mockResolvedValue({ payload: args.data.payload });
+    return originalUpdate ? originalUpdate(args) : { count: 1 };
+  });
+  return { epochs: { currentForSet: jest.fn().mockResolvedValue(7) }, health: { assertHealthy: jest.fn().mockResolvedValue(now) } };
 }

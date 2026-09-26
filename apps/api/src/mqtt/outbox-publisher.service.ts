@@ -2,8 +2,12 @@ import { Injectable, Logger, OnModuleInit, Optional } from "@nestjs/common";
 import { CommandDispatchKind, Prisma } from "@prisma/client";
 import {
   createGatewayCommandExpiry,
+  GATEWAY_COMMAND_ACCEPTANCE_DEADLINE_MS,
+  GATEWAY_COMMAND_EXPIRY_CLOCK_SKEW_GUARD_MS,
   GatewayDimmingCommandDraftV2,
   GatewayDimmingCommandPublishedV2,
+  GatewayDimmingCommandEpochPublishedV2,
+  gatewayDimmingCommandEpochPublishedV2Schema,
   gatewayDimmingCommandDraftV2CompatibilitySchema,
   gatewayDimmingCommandDraftV2Schema,
   gatewayDimmingCommandPublishedV2Schema,
@@ -15,16 +19,25 @@ import {
   remainingGatewayCommandMessageExpiry
 } from "@led-control/shared";
 import { randomUUID } from "node:crypto";
+import { isDeepStrictEqual } from "node:util";
 import { PrismaService } from "../prisma/prisma.service";
 import { AutomationClock } from "../automation/automation-clock";
 import { AutomationSnapshotService } from "../automation/automation-snapshot.service";
 import { MqttService } from "./mqtt.service";
 import { CommandSetMqttService } from "./command-set-mqtt.service";
+import { CommandPublishEpochService } from "./command-publish-epoch.service";
+import { CommandDbClockHealth } from "./command-db-clock-health.service";
+import { threeCalendarMonthsBefore } from "../retention/calendar-month-window";
 
 const LEASE_MS = 30_000;
 const MQTT_PUBLISH_TIMEOUT_MS = 20_000;
 const MAX_ATTEMPTS = 10;
 const MAX_AGE_MS = 15 * 60_000;
+// The future purge worker must take the exclusive variant of this same global
+// permit before quiescing a generation. It must release its automation lock
+// before waiting for the permit, preserving automation -> permit ordering.
+export const COMMAND_PUBLISH_PERMIT_KEY = 8052026092501n;
+const PUBLISH_PERMIT_TRANSACTION_TIMEOUT_MS = MQTT_PUBLISH_TIMEOUT_MS + 5_000;
 
 type PublisherOptions = {
   workerId?: string;
@@ -49,14 +62,23 @@ export class OutboxPublisherService implements OnModuleInit {
 
   protected get dispatchKind(): CommandDispatchKind { return "dimming"; }
 
+  get publishWorkerId() { return this.workerId; }
+
+  private get epochEnabled() {
+    return this.dispatchKind === "dimming" && (process.env.COMMAND_RETENTION_PUBLISH_FENCE === "1" ||
+      process.env.COMMAND_SET_EGRESS_ENABLED === "1");
+  }
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly mqtt: MqttService,
     @Optional() options: PublisherOptions = {},
     @Optional() private readonly automationSnapshot: AutomationSnapshotService = new AutomationSnapshotService(new AutomationClock()),
-    @Optional() private readonly commandSetMqtt?: CommandSetMqttService
+    @Optional() private readonly commandSetMqtt?: CommandSetMqttService,
+    @Optional() private readonly epochs: CommandPublishEpochService = new CommandPublishEpochService(),
+    @Optional() private readonly dbClockHealth: CommandDbClockHealth = new CommandDbClockHealth()
   ) {
-    this.workerId = options.workerId ?? randomUUID();
+    this.workerId = options.workerId ?? (this.dispatchKind === "dimming" ? process.env.MQTT_API_INSTANCE_ID?.trim() : undefined) ?? randomUUID();
     this.random = options.random ?? Math.random;
     this.pollMs = options.pollMs ?? Number(process.env.MQTT_OUTBOX_POLL_MS ?? 1000);
     this.clock = options.clock ?? (() => new Date());
@@ -106,6 +128,10 @@ export class OutboxPublisherService implements OnModuleInit {
     if (this.stopped) return [];
     return this.prisma.$transaction(async (tx) => {
       await this.automationSnapshot.lockMutation(tx);
+      if (this.epochEnabled) {
+        try { now = (await this.admitSet(tx)).now; }
+        catch (error) { if (error instanceof SetAdmissionError) return []; throw error; }
+      }
       const rows = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
         SELECT "id"
         FROM "MqttOutbox"
@@ -121,6 +147,14 @@ export class OutboxPublisherService implements OnModuleInit {
           -- UTC timestamp so a non-UTC PostgreSQL session cannot reclaim a live lease.
           AND "nextAttemptAt" <= (${now}::timestamptz AT TIME ZONE 'UTC')
           AND ("leaseExpiresAt" IS NULL OR "leaseExpiresAt" <= (${now}::timestamptz AT TIME ZONE 'UTC'))
+          AND NOT EXISTS (
+            SELECT 1 FROM "CommandDispatch" AS dispatch
+            JOIN "Command" AS command ON command."id" = dispatch."commandId"
+            JOIN "GatewayRecommissionJob" AS job
+              ON job."siteId" = command."siteId" AND job."gatewayId" = dispatch."gatewayId"
+            WHERE dispatch."id" = "MqttOutbox"."dispatchId"
+              AND job."status" IN ('mqtt_revocation_pending', 'mqtt_revoked')
+          )
         ORDER BY "createdAt" ASC
         FOR UPDATE SKIP LOCKED
         LIMIT 50
@@ -150,6 +184,13 @@ export class OutboxPublisherService implements OnModuleInit {
         },
         orderBy: { createdAt: "asc" }
       });
+      if (process.env.COMMAND_RETENTION_PUBLISH_CUTOFF === "1") {
+        // Claim old rows for terminal convergence, never for a renewed Set/Get
+        // delivery generation. Missing parent identity is an integrity failure.
+        const commandIds = records.map((record) => record.dispatch?.commandId).filter((id): id is string => !!id);
+        const commands = await tx.command.findMany({ where: { id: { in: commandIds } }, select: { id: true, createdAt: true } });
+        if (commands.length !== new Set(commandIds).size) throw new Error("command outbox parent missing at claim");
+      }
       return records.map((record) => {
         // The command publisher owns only the dispatch-backed MqttOutbox variant; keep the lease update transactional if DB integrity is broken.
         if (record.dispatchId === null || record.dispatch === null) {
@@ -192,16 +233,22 @@ export class OutboxPublisherService implements OnModuleInit {
     if (this.stopped) return;
     if ((record.dispatch.kind ?? "dimming") !== this.dispatchKind) return;
     try {
+      if (!this.epochEnabled) await this.assertRetainedCommand(this.prisma, record.dispatch.commandId, this.clock());
       const stored = parseStoredCommand(record.payload, record.dispatch.kind);
       if (record.topic !== `sites/${stored.draft.siteId}/gateways/${stored.draft.gatewayId}/commands/${this.dispatchKind === "dimming" ? "dimming" : "status-check"}`) return;
       const prepared = await this.prisma.$transaction(async (tx) => {
         await this.automationSnapshot.lockMutation(tx);
+        const admission = this.epochEnabled ? await this.admitSet(tx) : null;
+        await this.assertRetainedCommand(tx, record.dispatch.commandId, admission?.now ?? this.clock());
         if (stored.kind === "dimming") await this.assertMeshGroupSnapshot(tx, record, stored.draft);
-        const preparedAt = this.clock();
+        // Snapshot validation can wait on another transaction; sample again so
+        // it cannot refresh an expired lease using a pre-wait timestamp.
+        const preparedAt = admission ? (await this.admitSet(tx)).now : this.clock();
         const leaseExpiresAt = new Date(preparedAt.getTime() + LEASE_MS);
         const payload = stored.payload ?? (stored.kind === "status_check"
           ? createPublishedStatusCheckCommand(stored.draft, preparedAt, this.deliveryGeneration())
-          : createPublishedDimmingCommand(stored.draft, preparedAt, this.deliveryGeneration()));
+          : createPublishedDimmingCommand(stored.draft, preparedAt, this.deliveryGeneration(), admission?.generation));
+        if (admission) this.assertPayloadEpoch(payload, admission.generation);
         const updated = await tx.mqttOutbox.updateMany({
           where: {
             id: record.id,
@@ -233,14 +280,30 @@ export class OutboxPublisherService implements OnModuleInit {
       });
       if (publishable !== 1) return;
 
-      const publishAt = this.clock();
-      if (prepared.leaseExpiresAt.getTime() <= publishAt.getTime() + MQTT_PUBLISH_TIMEOUT_MS) return;
-      currentMessageExpiry(prepared.payload, publishAt);
+      if (!this.epochEnabled) {
+        const publishAt = this.clock();
+        if (prepared.leaseExpiresAt.getTime() <= publishAt.getTime() + MQTT_PUBLISH_TIMEOUT_MS) return;
+        currentMessageExpiry(prepared.payload, publishAt);
+      }
 
       const attempted = await this.prisma.$transaction(async (tx) => {
         await this.automationSnapshot.lockMutation(tx);
-        const attemptedAt = this.clock();
+        const admission = this.epochEnabled ? await this.admitSet(tx) : null;
+        const attemptedAt = admission?.now ?? this.clock();
+        await this.assertRetainedCommand(tx, record.dispatch.commandId, attemptedAt);
         currentMessageExpiry(prepared.payload, attemptedAt);
+        if (admission) {
+          this.assertPayloadEpoch(prepared.payload, admission.generation);
+          const eligible = await tx.mqttOutbox.findFirst({ where: {
+            id: record.id, dispatch: { kind: "dimming" }, lockedBy: this.workerId, publishedAt: null, deadLetteredAt: null,
+            leaseExpiresAt: { gt: new Date(attemptedAt.getTime() + MQTT_PUBLISH_TIMEOUT_MS) }
+          } });
+          if (!eligible || !isDeepStrictEqual(eligible.payload, prepared.payload)) return { count: 0 };
+          // The immutable envelope must be inserted BEFORE the old attempt marker:
+          // the DB guard refuses retrofitting unknown legacy Set attempts.
+          await tx.commandPublishAttempt.create({ data: { id: randomUUID(), generation: admission.generation,
+            workerId: this.workerId, dispatchId: record.dispatchId, expiresAt: new Date(prepared.payload.expiresAt) } });
+        }
         // Persist before calling MQTT: a lost PUBACK cannot tell whether the broker
         // accepted the Set. A crash after this commit but before the call deliberately
         // remains unknown. Keep the first attempt across reclaims of this generation.
@@ -251,9 +314,15 @@ export class OutboxPublisherService implements OnModuleInit {
         });
       });
       if (attempted.count !== 1) return;
-      const messageExpiryInterval = currentMessageExpiry(prepared.payload, this.clock());
-
-      await this.publishWire(record.topic, prepared.payload, messageExpiryInterval);
+      if (this.epochEnabled) {
+        if (!await this.publishUnderRetentionPermit(record, prepared.payload)) return;
+      } else {
+        const messageExpiryInterval = currentMessageExpiry(prepared.payload, this.clock());
+        // The legacy path remains available while all app instances transition.
+        // Physical purge must stay OFF until every publisher uses the DB permit.
+        await this.assertRetainedCommand(this.prisma, record.dispatch.commandId, this.clock());
+        await this.publishWire(record.topic, prepared.payload, messageExpiryInterval);
+      }
       const publishedAt = this.clock();
       await this.prisma.$transaction(async (tx) => {
         await this.automationSnapshot.lockMutation(tx);
@@ -278,11 +347,28 @@ export class OutboxPublisherService implements OnModuleInit {
       const failedAt = this.clock();
       const message = error instanceof Error ? error.message : "unknown MQTT publish error";
       const attempts = record.attempts + 1;
+      if (error instanceof SetAdmissionError) {
+        // Refusal is not an MQTT attempt and must not manufacture legacy attempt
+        // evidence or a fresh delivery window. Quiesce/clock loss leaves the row
+        // for explicit epoch recovery; already persisted attempt markers survive.
+        await this.prisma.mqttOutbox.updateMany({ where: { id: record.id, dispatch: { kind: this.dispatchKind },
+          lockedBy: this.workerId, publishedAt: null, deadLetteredAt: null }, data: {
+          lockedBy: null, lockedAt: null, leaseExpiresAt: null, lastError: error.message
+        } });
+        return;
+      }
       if (error instanceof StaleMeshGroupError) {
         await this.moveToTerminalFailure(record, attempts, message, failedAt, "MESH_GROUP_STALE");
         return;
       }
       if (error instanceof CommandDeliveryExpiredError) {
+        await this.moveToTerminalFailure(record, attempts, message, failedAt, "COMMAND_DELIVERY_EXPIRED");
+        return;
+      }
+      try {
+        await this.assertRetainedCommand(this.prisma, record.dispatch.commandId, failedAt);
+      } catch (cutoffError) {
+        if (!(cutoffError instanceof CommandDeliveryExpiredError)) throw cutoffError;
         await this.moveToTerminalFailure(record, attempts, message, failedAt, "COMMAND_DELIVERY_EXPIRED");
         return;
       }
@@ -311,16 +397,108 @@ export class OutboxPublisherService implements OnModuleInit {
     }
   }
 
+  private async assertRetainedCommand(db: Pick<Prisma.TransactionClient, "command">, commandId: string, now: Date) {
+    if (process.env.COMMAND_RETENTION_PUBLISH_CUTOFF !== "1") return;
+    const command = await db.command.findUnique({ where: { id: commandId }, select: { createdAt: true } });
+    if (!command || command.createdAt < threeCalendarMonthsBefore(now)) {
+      throw new CommandDeliveryExpiredError("command retention cutoff reached");
+    }
+  }
+
   private async publishWire(topic: string, payload: unknown, expirySeconds: number) {
     if (this.dispatchKind === "dimming" && process.env.COMMAND_SET_EGRESS_ENABLED === "1") {
       const generation = (payload as { publishEpoch?: number }).publishEpoch;
-      // Task 4 owns the durable epoch/attempt envelope. Enabling cutover before
-      // that producer exists must fail closed, never upgrade an old packet here.
       if (!generation || !this.commandSetMqtt) throw new Error("command Set epoch egress unavailable");
+      this.commandSetMqtt.assertPublisherIdentity(this.workerId, generation);
       await this.commandSetMqtt.publish(generation, topic, payload, expirySeconds);
       return;
     }
     await this.mqtt.publishTopic(topic, payload, { messageExpiryInterval: expirySeconds, timeoutMs: MQTT_PUBLISH_TIMEOUT_MS });
+  }
+
+  private async publishUnderRetentionPermit(
+    record: { id: string; dispatchId: string; topic: string; dispatch: { commandId: string; gatewayId: string } },
+    payload: GatewayDimmingCommandPublishedV2 | GatewayDimmingCommandEpochPublishedV2 | GatewayStatusCheckCommandPublishedV2
+  ) {
+    // A flag mismatch cannot publish an unchecked Set during a staged rollout.
+    if (process.env.COMMAND_RETENTION_PUBLISH_CUTOFF !== "1") {
+      throw new Error("command retention publisher cutoff is not enabled");
+    }
+    return this.prisma.$transaction(async (tx) => {
+      const admission = await this.admitSet(tx);
+      this.assertPayloadEpoch(payload, admission.generation);
+      // Ordinary SELECTs hold no row locks while MQTT waits for PUBACK, so an
+      // ACK writer can still resolve the dispatch. The permit closes the normal
+      // cross-instance read-to-publish gap; purge also needs durable generation
+      // quiescence and a DB-disconnect/wire-expiry guard before activation.
+      const now = admission.now;
+      await this.assertRetainedCommand(tx, record.dispatch.commandId, now);
+      const outbox = await tx.mqttOutbox.findUnique({
+        where: { id: record.id },
+        select: {
+          dispatchId: true, lockedBy: true, leaseExpiresAt: true, publishedAt: true,
+          deadLetteredAt: true, deliveryAttemptedAt: true, payload: true
+        }
+      });
+      if (
+        !outbox || outbox.dispatchId !== record.dispatchId || outbox.lockedBy !== this.workerId ||
+        outbox.publishedAt || outbox.deadLetteredAt || !outbox.deliveryAttemptedAt ||
+        !outbox.leaseExpiresAt || outbox.leaseExpiresAt.getTime() <= now.getTime() + MQTT_PUBLISH_TIMEOUT_MS ||
+        !isDeepStrictEqual(outbox.payload, payload)
+      ) return;
+      if (!await tx.commandPublishAttempt.findFirst({ where: { dispatchId: record.dispatchId,
+        generation: admission.generation, workerId: this.workerId, expiresAt: new Date(payload.expiresAt) } })) {
+        throw new SetAdmissionError("command publish attempt envelope unavailable");
+      }
+      if (await tx.gatewayRecommissionJob.count({
+        where: {
+          siteId: payload.siteId,
+          gatewayId: record.dispatch.gatewayId,
+          status: { in: ["mqtt_revocation_pending", "mqtt_revoked"] }
+        }
+      }) !== 0) return;
+
+      // Recheck against DB time immediately before enqueue. A skewed app clock
+      // cannot extend the ten-second wire generation into a later purge window.
+      const publishAt = (await this.admitSet(tx)).now;
+      await this.assertRetainedCommand(tx, record.dispatch.commandId, publishAt);
+      if (Date.parse(payload.deliveryGeneratedAt) > publishAt.getTime() + GATEWAY_COMMAND_EXPIRY_CLOCK_SKEW_GUARD_MS ||
+        Date.parse(payload.expiresAt) > publishAt.getTime() + GATEWAY_COMMAND_ACCEPTANCE_DEADLINE_MS + GATEWAY_COMMAND_EXPIRY_CLOCK_SKEW_GUARD_MS) {
+        throw new CommandDeliveryExpiredError("publisher clock is ahead of database clock");
+      }
+      if (outbox.leaseExpiresAt.getTime() <= publishAt.getTime() + MQTT_PUBLISH_TIMEOUT_MS) return;
+      const messageExpiryInterval = currentMessageExpiry(
+        payload, new Date(publishAt.getTime() + GATEWAY_COMMAND_EXPIRY_CLOCK_SKEW_GUARD_MS)
+      );
+      await this.publishWire(record.topic, payload, messageExpiryInterval);
+      return true;
+    }, { maxWait: 2_000, timeout: PUBLISH_PERMIT_TRANSACTION_TIMEOUT_MS });
+  }
+
+  private async admitSet(tx: Prisma.TransactionClient) {
+    try {
+      if (process.env.COMMAND_RETENTION_PUBLISH_CUTOFF !== "1" || process.env.COMMAND_SET_EGRESS_ENABLED !== "1") {
+        throw new Error("command Set epoch cutoff/egress configuration unavailable");
+      }
+      await tx.$executeRaw(Prisma.sql`SELECT pg_advisory_xact_lock_shared(${COMMAND_PUBLISH_PERMIT_KEY})`);
+      const generation = await this.epochs.currentForSet(tx);
+      if (!this.commandSetMqtt) throw new Error("command Set epoch egress unavailable");
+      this.commandSetMqtt.assertPublisherIdentity(this.workerId, generation);
+      const member = await tx.commandPublishMember.findFirst({ where: { generation, workerId: this.workerId,
+        brokerIdentity: `command-set-${generation}`, quiesceAckAt: null } });
+      if (!member) throw new Error("command Set epoch member unavailable");
+      const now = await this.dbClockHealth.assertHealthy(tx, generation);
+      return { generation, now };
+    } catch (error) {
+      throw new SetAdmissionError(error instanceof Error ? error.message : "command Set epoch admission unavailable");
+    }
+  }
+
+  private assertPayloadEpoch(payload: unknown, generation: number) {
+    const wire = gatewayDimmingCommandEpochPublishedV2Schema.safeParse(payload);
+    if (!wire.success || wire.data.publishEpoch !== generation) {
+      throw new SetAdmissionError("command Set epoch payload unavailable or stale");
+    }
   }
 
   private async assertMeshGroupSnapshot(
@@ -453,8 +631,10 @@ function createPublishedStatusCheckCommand(
 
 function parseStoredDimmingCommand(payload: Prisma.JsonValue): {
   draft: GatewayDimmingCommandDraftV2;
-  payload?: GatewayDimmingCommandPublishedV2;
+  payload?: GatewayDimmingCommandPublishedV2 | GatewayDimmingCommandEpochPublishedV2;
 } {
+  const epochPublished = gatewayDimmingCommandEpochPublishedV2Schema.safeParse(payload);
+  if (epochPublished.success) return { draft: toDimmingDraft(epochPublished.data), payload: epochPublished.data };
   const published = gatewayDimmingCommandPublishedV2Schema.safeParse(payload);
   if (published.success) return { draft: toDimmingDraft(published.data), payload: published.data };
 
@@ -484,6 +664,7 @@ function toDimmingDraft(payload: Record<string, unknown>): GatewayDimmingCommand
   delete draft.deliveryGeneration;
   delete draft.deliveryGeneratedAt;
   delete draft.deliveryWindowMs;
+  delete draft.publishEpoch;
   delete draft.overrideUntil;
   delete draft.overrideRemainingMs;
   // Historical rows can contain requester PII. Compatibility parsing accepts
@@ -495,11 +676,13 @@ function toDimmingDraft(payload: Record<string, unknown>): GatewayDimmingCommand
 function createPublishedDimmingCommand(
   draft: GatewayDimmingCommandDraftV2,
   generatedAt: Date,
-  deliveryGeneration: string
+  deliveryGeneration: string,
+  publishEpoch?: number
 ) {
   const { messageExpiryInterval: _messageExpiryInterval, ...delivery } =
     createGatewayCommandExpiry(generatedAt, deliveryGeneration);
-  return gatewayDimmingCommandPublishedV2Schema.parse({ ...draft, ...delivery });
+  return publishEpoch === undefined ? gatewayDimmingCommandPublishedV2Schema.parse({ ...draft, ...delivery })
+    : gatewayDimmingCommandEpochPublishedV2Schema.parse({ ...draft, ...delivery, publishEpoch });
 }
 
 function currentMessageExpiry(payload: { expiresAt: string }, now: Date) {
@@ -509,6 +692,8 @@ function currentMessageExpiry(payload: { expiresAt: string }, now: Date) {
     throw new CommandDeliveryExpiredError(error);
   }
 }
+
+class SetAdmissionError extends Error {}
 
 class MeshGroupConfiguringError extends Error {
   constructor() {

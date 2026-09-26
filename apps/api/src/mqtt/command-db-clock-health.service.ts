@@ -24,6 +24,16 @@ export interface CommandDbClockEvidence {
 
 export interface CommandDbClockEvidenceSource {
   read(): Promise<CommandDbClockEvidence | null>;
+  /** Immutable epoch baseline from an independently durable trusted attestor.
+   * It must not synthesize a baseline from the process's current clock sample. */
+  readEpochContinuity?(generation: number): Promise<CommandDbClockEpochContinuity | null>;
+}
+
+export interface CommandDbClockEpochContinuity {
+  generation: number;
+  primary: CommandDbPrimaryIdentity;
+  stepGeneration: number;
+  failoverGeneration: number;
 }
 
 interface PrimaryObservation {
@@ -36,12 +46,44 @@ interface PrimaryObservation {
 
 @Injectable()
 export class CommandDbClockHealth {
+  private readonly epochContinuity = new Map<number, string | null>();
   constructor(
     @Optional() @Inject(COMMAND_DB_CLOCK_EVIDENCE_SOURCE)
     private readonly evidenceSource?: CommandDbClockEvidenceSource
   ) {}
 
-  async assertHealthy(tx: Prisma.TransactionClient): Promise<Date> {
+  async assertHealthy(tx: Prisma.TransactionClient, generation?: number): Promise<Date> {
+    if (generation !== undefined && (!Number.isSafeInteger(generation) || generation <= 0)) {
+      throw new Error("invalid command clock epoch");
+    }
+    try {
+      let baseline: string | undefined;
+      if (generation !== undefined && !this.epochContinuity.has(generation)) {
+        const durable = await this.evidenceSource?.readEpochContinuity?.(generation);
+        if (!durable || durable.generation !== generation || !validDate(durable.primary?.startedAt) ||
+          !validGeneration(durable.stepGeneration) || !validGeneration(durable.failoverGeneration)) {
+          throw new Error("DB clock durable epoch continuity unavailable");
+        }
+        baseline = continuityKey(durable.primary, durable.stepGeneration, durable.failoverGeneration);
+      }
+      const { now, continuity } = await this.observeHealthy(tx);
+      if (generation !== undefined) {
+        const previous = this.epochContinuity.get(generation) ?? baseline;
+        if (this.epochContinuity.get(generation) === null) throw new Error("DB clock epoch continuity lost");
+        if (previous !== undefined && previous !== continuity) throw new Error("DB clock epoch continuity lost");
+        this.epochContinuity.set(generation, continuity);
+      }
+      return now;
+    } catch (error) {
+      // Recovery of an attestor never revives this process's old Set epoch.
+      // This local latch is NOT durable barrier evidence across process restart;
+      // the protected worker separately requires signed clock/primary continuity.
+      if (generation !== undefined) this.epochContinuity.set(generation, null);
+      throw error;
+    }
+  }
+
+  private async observeHealthy(tx: Prisma.TransactionClient): Promise<{ now: Date; continuity: string }> {
     // No production provider is registered until the central DB host has a
     // trusted sync/step/failover attestor. Missing evidence always denies Set time.
     if (!this.evidenceSource) throw new Error("DB clock attestation unavailable");
@@ -63,7 +105,8 @@ export class CommandDbClockHealth {
       evidence.primary.address !== observed.serverAddress || evidence.primary.port !== observed.serverPort) {
       throw new Error("DB clock attestation not current for primary");
     }
-    return observed.dbNow;
+    return { now: observed.dbNow, continuity: continuityKey({ startedAt: observed.primaryStartedAt,
+      address: observed.serverAddress, port: observed.serverPort }, evidence.stepGeneration, evidence.failoverGeneration) };
   }
 }
 
@@ -73,4 +116,8 @@ function validDate(value: unknown): value is Date {
 
 function validGeneration(value: unknown): value is number {
   return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
+}
+
+function continuityKey(primary: CommandDbPrimaryIdentity, stepGeneration: number, failoverGeneration: number) {
+  return JSON.stringify([primary.startedAt.toISOString(), primary.address, primary.port, stepGeneration, failoverGeneration]);
 }

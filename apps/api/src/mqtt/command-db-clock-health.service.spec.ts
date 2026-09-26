@@ -19,6 +19,38 @@ function transaction(row = { dbNow, isReplica: false, primaryStartedAt, serverAd
 }
 
 describe("CommandDbClockHealth", () => {
+  it("refuses a fresh process joining an existing epoch without durable continuity evidence", async () => {
+    const restarted = new CommandDbClockHealth({ read: async () => healthy });
+    await expect(restarted.assertHealthy(transaction(), 7)).rejects.toThrow(/durable|continuity/);
+  });
+
+  it.each(["step", "failover", "primary"])("refuses the same epoch after a cleared %s discontinuity", async kind => {
+    let evidence = { ...healthy, primary: { ...healthy.primary } };
+    const service = new CommandDbClockHealth({ read: async () => evidence,
+      readEpochContinuity: async generation => ({ generation, ...(generation === 7 ? healthy : evidence) }) });
+    const check = (tx = transaction(), generation = 7) => (service.assertHealthy as any)(tx, generation);
+    await expect(check()).resolves.toEqual(dbNow);
+    if (kind === "step") evidence = { ...evidence, stepGeneration: 3, clearedStepGeneration: 3 };
+    if (kind === "failover") evidence = { ...evidence, failoverGeneration: 4, clearedFailoverGeneration: 4 };
+    if (kind === "primary") evidence.primary.startedAt = new Date("2026-09-25T02:00:00Z");
+    const tx = transaction({ dbNow, isReplica: false, primaryStartedAt: evidence.primary.startedAt,
+      serverAddress: "127.0.0.1", serverPort: 5432 });
+    await expect(check(tx)).rejects.toThrow(/continuity|epoch/);
+    await expect(check(tx, 8)).resolves.toEqual(dbNow);
+  });
+
+  it("latches an unhealthy observation even if that same epoch's attestor later recovers", async () => {
+    let evidence = healthy;
+    const service = new CommandDbClockHealth({ read: async () => evidence,
+      readEpochContinuity: async generation => ({ generation, ...healthy }) });
+    const check = () => (service.assertHealthy as any)(transaction(), 7);
+    await check();
+    evidence = { ...healthy, offsetMs: 101 };
+    await expect(check()).rejects.toThrow();
+    evidence = healthy;
+    await expect(check()).rejects.toThrow(/continuity|epoch/);
+  });
+
   it("denies without an attestation source in the production default", async () => {
     await expect(new CommandDbClockHealth().assertHealthy(transaction())).rejects.toThrow();
   });

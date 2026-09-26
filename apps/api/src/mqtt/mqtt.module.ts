@@ -21,6 +21,8 @@ import { FixturePresenceIngestionService } from "../fixtures/fixture-presence-in
 import { MonitoringRefreshIngestionService } from "../monitoring-refresh/monitoring-refresh-ingestion.service";
 import { CommandClockResponderService } from "./command-clock-responder.service";
 import { CommandDbClockHealth } from "./command-db-clock-health.service";
+import { CommandPublishEpochService } from "./command-publish-epoch.service";
+import { CommandPublishQuiesceService } from "./command-publish-quiesce.service";
 
 @Module({
   imports: [PrismaModule, MeshControlGroupModule, AutomationRuntimeModule, MonitoringIncidentsModule],
@@ -41,6 +43,8 @@ import { CommandDbClockHealth } from "./command-db-clock-health.service";
     MqttShutdownCoordinator,
     CommandTimeoutService,
     CommandDbClockHealth,
+    CommandPublishEpochService,
+    CommandPublishQuiesceService,
     CommandClockResponderService,
     MeshGroupSyncWorker
   ],

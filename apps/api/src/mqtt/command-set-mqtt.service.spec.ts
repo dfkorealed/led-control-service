@@ -67,6 +67,13 @@ describe("generation-scoped Set egress", () => {
     await expect(service.publish(7, topic, payload, 8)).rejects.toThrow(/registration/);
     expect(connect).not.toHaveBeenCalled();
   });
+  it("binds an outbox publisher to the same registered worker and epoch", async () => {
+    const { service } = fixture();
+    await service.onModuleInit();
+    expect(() => (service as any).assertPublisherIdentity("api-1", 7)).not.toThrow();
+    expect(() => (service as any).assertPublisherIdentity("other-worker", 7)).toThrow(/identity/);
+    expect(() => (service as any).assertPublisherIdentity("api-1", 8)).toThrow(/identity/);
+  });
   it("retirement or DB loss stops a previously active client's next handoff", async () => {
     const { service, prisma, client } = fixture();
     await service.onModuleInit();
