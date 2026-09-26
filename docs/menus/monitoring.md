@@ -4,7 +4,7 @@
 
 - 구현 완료: 인증된 현장·층 활동 조회 API는 `read` 권한을 확인하고 서버 UTC 시각에서 3 calendar months를 역산한 `retainedFrom` 이후의 기록만 반환한다. 5건 기본 cursor 페이지는 사용자·현장·층에 묶이고, 만료된 cursor는 정제된 `410`으로 응답한다. 검증된 조명 상태·밝기·Health 전이, 실제 오프라인·복구 전이, 수동 상태 확인의 종료 결과를 원본 전이와 같은 transaction에 기록한다. 보존 worker는 `recordedAt < retainedFrom`인 활동만 sweep당 최대 1,000행 물리 삭제하며 정확한 경계 행은 보존한다.
 - 미구현: Command outcome을 발생 경로에서 활동 projection에 연결하는 MQTT·timeout·outbox 변경은 별도 Command 작업과 겹쳐 이번 선택 통합에 포함하지 않았다. 기존 기록의 소급 backfill과 고객 DB migration·운영 배포도 수행하지 않았다.
-- 부족하거나 개선이 필요한 기능: sweep이 밀리면 만료 행이 DB에 잠시 남을 수 있으나 조회 API는 즉시 숨긴다. 시간당 처리량은 현재 단일 worker 기준 최대 60,000행이며 여러 인스턴스의 `SKIP LOCKED` 경쟁과 실제 유입량을 고려해 backlog를 관찰해야 한다. Command 원본 물리 삭제는 보호 cutover·복구 검증 전까지 계속 OFF다.
+- 부족하거나 개선이 필요한 기능: sweep이 밀리면 만료 행이 DB에 잠시 남을 수 있으나 조회 API는 즉시 숨긴다. 시간당 처리량은 현재 단일 worker 기준 최대 60,000행이며 여러 인스턴스의 `SKIP LOCKED` 경쟁과 실제 유입량을 고려해 backlog를 관찰해야 한다. 조명 freshness의 운영 상태 갱신과 활동 기록은 현장 단위 잠금·원자성을 유지하는 집합 처리로 6,001대 격리 PostgreSQL 회귀를 통과했지만, 이는 실제 현장의 지속 처리량이나 대규모 장애 incident 조정 시간을 보증하지 않는다. Command 원본 물리 삭제는 보호 cutover·복구 검증 전까지 계속 OFF다.
 - 관련 파일: `apps/api/src/monitoring-activity/monitoring-activity.service.ts`, `monitoring-activity.controller.ts`, `apps/api/src/{energy,fixtures,monitoring-refresh}/`, `apps/api/src/retention/data-retention.service.ts`.
 - 갱신 규칙: 신규 producer나 보존 조건을 바꿀 때 실제 고객 응답·물리 삭제 테스트와 운영 적용 여부를 함께 기록한다.
 

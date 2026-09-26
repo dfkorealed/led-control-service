@@ -1,7 +1,5 @@
+import { Prisma } from "@prisma/client";
 import { FixtureFreshnessService } from "./fixture-freshness.service";
-import { recordMonitoringActivities } from "../monitoring-activity/monitoring-activity.projection";
-
-jest.mock("../monitoring-activity/monitoring-activity.projection", () => ({ recordMonitoringActivities: jest.fn() }));
 
 describe("FixtureFreshnessService", () => {
   const now = new Date("2026-09-12T00:10:00.000Z");
@@ -11,11 +9,8 @@ describe("FixtureFreshnessService", () => {
       { id: "lenient", gatewayOfflineAfterSeconds: 120, fixtureStaleAfterSeconds: 240 }
     ];
     const tx = {
-      $queryRaw: jest.fn().mockResolvedValue([{ id: "locked" }]),
-      site: { findUnique: jest.fn(({ where }) => Promise.resolve(sites.find((site) => site.id === where.id))) },
-      fixture: { fields: { lastSeenAt: { name: "lastSeenAt" } },
-        findMany: jest.fn().mockResolvedValue([{ id: "66666666-6666-4666-8666-666666666666", floorId: "33333333-3333-4333-8333-333333333333", name: "B1-L01", status: "online" }]),
-        updateMany: jest.fn().mockResolvedValue({ count: 1 }) }
+      $queryRaw: jest.fn(async (query: Prisma.Sql) => query.sql.includes("WITH candidates") ? [{ changed: 1n }] : [{ id: "locked" }]),
+      site: { findUnique: jest.fn(({ where }) => Promise.resolve(sites.find((site) => site.id === where.id))) }
     };
     const prisma = { ...tx, site: { findMany: jest.fn().mockResolvedValue(sites) },
       $transaction: jest.fn((work) => work(tx)) };
@@ -24,35 +19,31 @@ describe("FixtureFreshnessService", () => {
     return { prisma, tx, reconciler, service: new (FixtureFreshnessService as any)(prisma, reconciler) as FixtureFreshnessService };
   }
 
-  it("projects only bounded newly offline candidates, not repeated already-offline ticks", async () => {
+  const transitions = (tx: ReturnType<typeof setup>["tx"]) => tx.$queryRaw.mock.calls
+    .map(([query]) => query).filter((query) => query.sql.includes("WITH candidates"));
+
+  it("projects old visible status in the same set-based transaction as each transition", async () => {
     const { service, tx } = setup();
-    (recordMonitoringActivities as jest.Mock).mockClear();
     await service.markStaleFixtures(now);
-    expect(tx.fixture.findMany).toHaveBeenCalledWith(expect.objectContaining({ take: 500 }));
-    expect(recordMonitoringActivities).toHaveBeenCalledWith(tx, expect.arrayContaining([
-      expect.objectContaining({ kind: "fixture_offline", status: "offline" })
-    ]));
-    tx.fixture.findMany.mockResolvedValue([]);
-    (recordMonitoringActivities as jest.Mock).mockClear();
-    await expect(service.markStaleFixtures(now)).resolves.toEqual({ gatewayOffline: 0, fixtureStale: 0 });
-    expect(recordMonitoringActivities).not.toHaveBeenCalled();
+    expect(transitions(tx)).toHaveLength(4);
+    for (const query of transitions(tx)) {
+      expect(query.sql).toContain("WITH candidates AS MATERIALIZED");
+      expect(query.sql).toContain('UPDATE "Fixture" f');
+      expect(query.sql).toContain('INSERT INTO "MonitoringActivity"');
+      expect(query.sql).toContain('FROM updated u WHERE u."status" <> \'offline\'::"FixtureStatus"');
+      expect(query.sql).toContain('f."reportedStatusReason" IS DISTINCT FROM \'provisioning_waiting_state\'');
+    }
   });
 
   it("keeps fixed control freshness across Site policies and reconciles monitoring afterward", async () => {
     const { service, tx, reconciler } = setup();
     await expect(service.markStaleFixtures(now)).resolves.toEqual({ gatewayOffline: 2, fixtureStale: 2 });
-    expect(tx.fixture.updateMany).toHaveBeenNthCalledWith(1, expect.objectContaining({
-      where: expect.objectContaining({ siteId: "strict", meshNode: { gateway: {
-        OR: [{ lastHeartbeatAt: { lt: new Date("2026-09-12T00:08:30.000Z") } }, { lastHeartbeatAt: null }]
-      } } })
-    }));
-    expect(tx.fixture.updateMany).toHaveBeenNthCalledWith(3, expect.objectContaining({
-      where: expect.objectContaining({ siteId: "lenient", meshNode: { gateway: {
-        OR: [{ lastHeartbeatAt: { lt: new Date("2026-09-12T00:08:30.000Z") } }, { lastHeartbeatAt: null }]
-      } } })
-    }));
+    expect(transitions(tx)[0].values).toContain("strict");
+    expect(transitions(tx)[0].values).toContainEqual(new Date("2026-09-12T00:08:30.000Z"));
+    expect(transitions(tx)[2].values).toContain("lenient");
+    expect(transitions(tx)[2].values).toContainEqual(new Date("2026-09-12T00:08:30.000Z"));
     expect(reconciler.reconcile).toHaveBeenCalledTimes(2);
-    expect(tx.fixture.updateMany.mock.invocationCallOrder[1]).toBeLessThan(reconciler.reconcile.mock.invocationCallOrder[0]);
+    expect(tx.$queryRaw.mock.invocationCallOrder[4]).toBeLessThan(reconciler.reconcile.mock.invocationCallOrder[0]);
   });
 
   it.each([
@@ -62,8 +53,8 @@ describe("FixtureFreshnessService", () => {
     const { service, tx } = setup();
     await service.markStaleFixtures(now);
 
-    const fixtureStaleUpdate = tx.fixture.updateMany.mock.calls[1][0];
-    const cutoff = fixtureStaleUpdate.where.AND[1].OR[0].lastSeenAt.lt as Date;
+    const cutoff = transitions(tx)[1].values.find((value) => value instanceof Date &&
+      value.getTime() === now.getTime() - 1_200_000) as Date;
     expect(cutoff).toEqual(new Date(now.getTime() - 1_200_000));
     expect(new Date(now.getTime() - age).getTime() < cutoff.getTime()).toBe(stale);
   });
@@ -71,9 +62,7 @@ describe("FixtureFreshnessService", () => {
   it("persists a verified manual failure even before the twenty-minute cutoff", async () => {
     const { service, tx } = setup();
     await service.markStaleFixtures(now);
-    expect(tx.fixture.updateMany.mock.calls[1][0].where.AND[1].OR).toContainEqual({
-      lastUnreachableAt: { gt: tx.fixture.fields.lastSeenAt }
-    });
+    expect(transitions(tx)[1].sql).toContain('f."lastUnreachableAt" > f."lastSeenAt"');
   });
 
   it("bounds each transaction, continues after first-Site failure, and retries it next tick without logging tenant data", async () => {
