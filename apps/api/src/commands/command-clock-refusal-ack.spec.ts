@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { CommandLateSetAckService } from "./command-late-set-ack.service";
 import { CommandRecoveryAckService } from "./command-recovery-ack.service";
 import { CommandSafetyDigest } from "./command-safety-digest";
+import { MqttService } from "../mqtt/mqtt.service";
 
 const ids = { site: randomUUID(), gateway: randomUUID(), command: randomUUID(), setDispatch: randomUUID(),
   getDispatch: randomUUID(), hold: randomUUID(), fixture: randomUUID(), setKey: randomUUID(), getKey: randomUUID() };
@@ -25,6 +26,7 @@ describe("clock refusal ACK attribution after original Command deletion", () => 
       resolvedCommandRecovery: { create: jest.fn() }
     };
     const prisma: any = { lateSetReceipt: { findUnique: jest.fn().mockResolvedValue(receipt) },
+      commandDispatch: { updateMany: jest.fn() },
       $transaction: jest.fn(async (work: (client: any) => Promise<unknown>) => work(tx)) };
     const service = new CommandLateSetAckService(prisma, { lockMutation: jest.fn() } as never, digest);
     const ack = { siteId: ids.site, gatewayId: ids.gateway, commandId: ids.command,
@@ -32,7 +34,14 @@ describe("clock refusal ACK attribution after original Command deletion", () => 
       status: "failed" as const, occurredAt: "2026-09-25T12:00:00.000Z",
       results: [{ fixtureId: ids.fixture, status: "failed" as const, errorMessage: clockMessage }] };
 
-    await expect(service.tryStoreDeviceStatusAck(ack)).resolves.toBe(true);
+    const mqtt = new (MqttService as any)(prisma, {} as never, undefined, undefined, undefined,
+      undefined, undefined, undefined, undefined, undefined, service);
+    await expect(mqtt.handleMessage(`sites/${ids.site}/gateways/${ids.gateway}/acks/device-status`,
+      Buffer.from(JSON.stringify(ack)))).resolves.toBeUndefined();
+    expect(prisma.lateSetReceipt.findUnique).toHaveBeenCalledWith({
+      where: { originalDispatchId: ids.setDispatch }, select: { id: true }
+    });
+    expect(prisma.commandDispatch.updateMany).not.toHaveBeenCalled();
     expect(tx.unresolvedCommandHold.updateMany).toHaveBeenCalledWith({
       where: { id: ids.hold }, data: { lastCheckedAt: expect.any(Date) }
     });
@@ -56,6 +65,7 @@ describe("clock refusal ACK attribution after original Command deletion", () => 
       mqttOutbox: { create: jest.fn() }
     };
     const prisma: any = { recoveryDispatch: { findUnique: jest.fn().mockResolvedValue({ id: ids.getDispatch }) },
+      commandDispatch: { updateMany: jest.fn() },
       $transaction: jest.fn(async (work: (client: any) => Promise<unknown>) => work(tx)) };
     const service = new CommandRecoveryAckService(prisma, { lockMutation: jest.fn() } as never, digest);
     const ack = { siteId: ids.site, gatewayId: ids.gateway, commandId: ids.command,
@@ -63,7 +73,14 @@ describe("clock refusal ACK attribution after original Command deletion", () => 
       eventId: randomUUID(), status: "rejected" as const, acceptedAt: "2026-09-25T12:00:00.000Z",
       errorCode: "GATEWAY_CLOCK_UNTRUSTED" };
 
-    await expect(service.tryStoreAcceptanceAck(ack)).resolves.toBe(true);
+    const mqtt = new (MqttService as any)(prisma, {} as never, undefined, undefined, undefined,
+      undefined, undefined, undefined, undefined, service);
+    await expect(mqtt.handleMessage(`sites/${ids.site}/gateways/${ids.gateway}/acks/acceptance`,
+      Buffer.from(JSON.stringify(ack)))).resolves.toBeUndefined();
+    expect(prisma.recoveryDispatch.findUnique).toHaveBeenCalledWith({
+      where: { id: ids.getDispatch }, select: { id: true }
+    });
+    expect(prisma.commandDispatch.updateMany).not.toHaveBeenCalled();
     expect(dispatch).toMatchObject({ status: "failed", errorCode: "GATEWAY_CLOCK_UNTRUSTED" });
     expect(tx.unresolvedCommandHold.updateMany).toHaveBeenCalledWith({
       where: { id: ids.hold }, data: { lastCheckedAt: expect.any(Date) }

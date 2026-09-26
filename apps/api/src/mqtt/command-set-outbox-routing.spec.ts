@@ -53,6 +53,12 @@ describe("Set egress outbox cutover routing", () => {
       topic: `sites/${id}/gateways/${id}/commands/${kind === "dimming" ? "dimming" : "status-check"}`,
       dispatch: { commandId: id, kind, gatewayId: id, deliveryMode: "unicast", destinationAddress: null,
         meshControlGroupId: null, meshControlGroupVersion: null } };
+    prisma.$queryRaw = jest.fn((query: { text: string; values: string[] }) => {
+      expect(query.text).toContain("FOR UPDATE OF d");
+      expect(query.values).toEqual([record.dispatchId, record.dispatch.commandId,
+        record.dispatch.gatewayId, record.payload.siteId]);
+      return [{ id: record.dispatchId }];
+    });
     return { publisher, mqtt, set, record, prisma };
   }
 });

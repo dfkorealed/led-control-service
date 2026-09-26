@@ -142,6 +142,7 @@ export class OutboxPublisherService implements OnModuleInit {
             SELECT 1 FROM "CommandDispatch" AS dispatch
             WHERE dispatch."id" = "MqttOutbox"."dispatchId"
               AND dispatch."kind" = ${this.dispatchKind}::"CommandDispatchKind"
+              AND dispatch."status" IN ('pending', 'published', 'accepted')
           )
           -- Prisma DateTime columns are UTC-naive TIMESTAMP; compare them to a
           -- UTC timestamp so a non-UTC PostgreSQL session cannot reclaim a live lease.
@@ -163,12 +164,14 @@ export class OutboxPublisherService implements OnModuleInit {
       if (ids.length === 0) return [];
 
       await tx.mqttOutbox.updateMany({
-        where: { id: { in: ids }, dispatch: { kind: this.dispatchKind },
+        where: { id: { in: ids }, dispatch: { kind: this.dispatchKind,
+          status: { in: ["pending", "published", "accepted"] } },
           OR: [{ leaseExpiresAt: null }, { leaseExpiresAt: { lte: now } }] },
         data: { lockedBy: this.workerId, lockedAt: now, leaseExpiresAt: new Date(now.getTime() + LEASE_MS) }
       });
       const records = await tx.mqttOutbox.findMany({
-        where: { id: { in: ids }, dispatchId: { not: null }, dispatch: { kind: this.dispatchKind }, lockedBy: this.workerId },
+        where: { id: { in: ids }, dispatchId: { not: null }, dispatch: { kind: this.dispatchKind,
+          status: { in: ["pending", "published", "accepted"] } }, lockedBy: this.workerId },
         include: {
           dispatch: {
             select: {
@@ -252,7 +255,7 @@ export class OutboxPublisherService implements OnModuleInit {
         const updated = await tx.mqttOutbox.updateMany({
           where: {
             id: record.id,
-            dispatch: { kind: this.dispatchKind },
+            dispatch: { kind: this.dispatchKind, status: { in: ["pending", "published", "accepted"] } },
             lockedBy: this.workerId,
             publishedAt: null,
             deadLetteredAt: null,
@@ -272,7 +275,7 @@ export class OutboxPublisherService implements OnModuleInit {
       const publishable = await this.prisma.mqttOutbox.count({
         where: {
           id: record.id,
-          dispatch: { kind: this.dispatchKind },
+          dispatch: { kind: this.dispatchKind, status: { in: ["pending", "published", "accepted"] } },
           lockedBy: this.workerId,
           publishedAt: null,
           deadLetteredAt: null
@@ -295,7 +298,8 @@ export class OutboxPublisherService implements OnModuleInit {
         if (admission) {
           this.assertPayloadEpoch(prepared.payload, admission.generation);
           const eligible = await tx.mqttOutbox.findFirst({ where: {
-            id: record.id, dispatch: { kind: "dimming" }, lockedBy: this.workerId, publishedAt: null, deadLetteredAt: null,
+            id: record.id, dispatch: { kind: "dimming", status: { in: ["pending", "published", "accepted"] } },
+            lockedBy: this.workerId, publishedAt: null, deadLetteredAt: null,
             leaseExpiresAt: { gt: new Date(attemptedAt.getTime() + MQTT_PUBLISH_TIMEOUT_MS) }
           } });
           if (!eligible || !isDeepStrictEqual(eligible.payload, prepared.payload)) return { count: 0 };
@@ -308,7 +312,9 @@ export class OutboxPublisherService implements OnModuleInit {
         // accepted the Set. A crash after this commit but before the call deliberately
         // remains unknown. Keep the first attempt across reclaims of this generation.
         return tx.mqttOutbox.updateMany({
-          where: { id: record.id, dispatch: { kind: this.dispatchKind }, lockedBy: this.workerId, publishedAt: null, deadLetteredAt: null,
+          where: { id: record.id, dispatch: { kind: this.dispatchKind,
+            status: { in: ["pending", "published", "accepted"] } },
+            lockedBy: this.workerId, publishedAt: null, deadLetteredAt: null,
             leaseExpiresAt: { gt: new Date(attemptedAt.getTime() + MQTT_PUBLISH_TIMEOUT_MS) } },
           data: { deliveryAttemptedAt: record.deliveryAttemptedAt ?? attemptedAt }
         });
@@ -316,10 +322,11 @@ export class OutboxPublisherService implements OnModuleInit {
       if (attempted.count !== 1) return;
       if (this.epochEnabled) {
         if (!await this.publishUnderRetentionPermit(record, prepared.payload)) return;
+      } else if (this.dispatchKind === "dimming") {
+        if (!await this.publishLegacySetWithTerminalFence(record, prepared.payload)) return;
       } else {
         const messageExpiryInterval = currentMessageExpiry(prepared.payload, this.clock());
-        // The legacy path remains available while all app instances transition.
-        // Physical purge must stay OFF until every publisher uses the DB permit.
+        // Legacy Get remains independent of the Set epoch and its clock proof.
         await this.assertRetainedCommand(this.prisma, record.dispatch.commandId, this.clock());
         await this.publishWire(record.topic, prepared.payload, messageExpiryInterval);
       }
@@ -412,6 +419,47 @@ export class OutboxPublisherService implements OnModuleInit {
     await this.mqtt.publishTopic(topic, payload, { messageExpiryInterval: expirySeconds, timeoutMs: MQTT_PUBLISH_TIMEOUT_MS });
   }
 
+  private async publishLegacySetWithTerminalFence(
+    record: { id: string; dispatchId: string; topic: string; dispatch: { commandId: string; gatewayId: string } },
+    payload: GatewayDimmingCommandPublishedV2 | GatewayDimmingCommandEpochPublishedV2 | GatewayStatusCheckCommandPublishedV2
+  ) {
+    // The non-cutover Set path still needs an exact final dispatch lock. The ACK
+    // writer takes this row first, then closes the outbox; holding it through
+    // PUBACK prevents a clock refusal from committing before native enqueue.
+    return this.prisma.$transaction(async (tx) => {
+      if (!await this.lockLiveDimmingDispatch(tx, record, payload.siteId)) return false;
+      const now = this.clock();
+      const owned = await tx.mqttOutbox.count({ where: {
+        id: record.id, dispatchId: record.dispatchId, lockedBy: this.workerId,
+        publishedAt: null, deadLetteredAt: null,
+        leaseExpiresAt: { gt: new Date(now.getTime() + MQTT_PUBLISH_TIMEOUT_MS) },
+        payload: { equals: payload }
+      } });
+      if (owned !== 1) return false;
+      await this.assertRetainedCommand(tx, record.dispatch.commandId, now);
+      const messageExpiryInterval = currentMessageExpiry(payload, this.clock());
+      await this.publishWire(record.topic, payload, messageExpiryInterval);
+      return true;
+    }, { maxWait: 2_000, timeout: PUBLISH_PERMIT_TRANSACTION_TIMEOUT_MS });
+  }
+
+  private async lockLiveDimmingDispatch(
+    tx: Prisma.TransactionClient,
+    record: { dispatchId: string; dispatch: { commandId: string; gatewayId: string } },
+    siteId: string
+  ) {
+    const [live] = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+      SELECT d."id" FROM "CommandDispatch" AS d
+      INNER JOIN "Command" AS c ON c."id" = d."commandId"
+      WHERE d."id" = ${record.dispatchId} AND d."commandId" = ${record.dispatch.commandId}
+        AND d."gatewayId" = ${record.dispatch.gatewayId} AND c."siteId" = ${siteId}
+        AND d."kind" = 'dimming'
+        AND d."status" IN ('pending', 'published', 'accepted')
+      FOR UPDATE OF d
+    `);
+    return !!live;
+  }
+
   private async publishUnderRetentionPermit(
     record: { id: string; dispatchId: string; topic: string; dispatch: { commandId: string; gatewayId: string } },
     payload: GatewayDimmingCommandPublishedV2 | GatewayDimmingCommandEpochPublishedV2 | GatewayStatusCheckCommandPublishedV2
@@ -461,6 +509,11 @@ export class OutboxPublisherService implements OnModuleInit {
             status: { in: ["mqtt_revocation_pending", "mqtt_revoked"] }
           }
         }) !== 0) return false;
+
+        // ACK locks dispatch before closing its outbox. Hold that same row
+        // through the native enqueue/PUBACK boundary so a terminal refusal
+        // cannot commit between this check and the Set hand-off.
+        if (!await this.lockLiveDimmingDispatch(tx, record, payload.siteId)) return false;
 
         // This must be the LAST awaited authorization operation. admitSet checks
         // epoch/member and ends with same-primary DB clock continuity on this tx.

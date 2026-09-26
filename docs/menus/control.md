@@ -291,7 +291,7 @@
 
 - 2026-09-27 수동 prepare 취소의 저장 실패 보완: abort는 일반 로컬 제어의 ENOSPC 메모리 대체 저장을 사용하지 않고 영속 저장을 요구한다. 저장 실패 시 journal abort intent를 유지하고 terminal ACK를 반환하지 않아 재시작 후 정확한 취소를 다시 수행한다. 별도로 관측되지 않은 desired 밝기가 0%여도 기존 observation fence를 유지한다. 실제 gap journal·headroom 설정의 ENOSPC 주입과 새 runtime/journal 복구로 검증했으며 운영 cutover·purge는 계속 OFF다.
 
-- 2026-09-27 API clock 거부 ACK 귀속: `GATEWAY_CLOCK_UNTRUSTED`는 site/Gateway/Command/dispatch/key/sequence가 일치한 새 Set의 terminal 사전 RF 거부로만 반영한다. `accepted`와 동시에 온 clock 오류, Get/status-check에 온 Set 전용 clock 거부, 이미 `unknown`인 명령의 늦은 clock 거부는 명령·조명 상태를 확정하지 않는다. `COMMAND_EXPIRED`의 기존 terminal 처리는 유지한다. 최근 이력 요약은 원본 Set의 전체 대상이 실패하고 outcome이 `not_applied`인 정확한 clock 거부에만 선택적 `errorCode`를 제공하며, 상세 조회는 기존 dispatch 오류 코드를 보존한다. 원본 삭제 뒤 늦은 RF 불확정 Set ACK와 Get-only 복구 실패는 hold/status-check 경로에 남고 자동 Set 재발행이나 성공 fixture 관측을 만들지 않는다.
+- 2026-09-27 API clock 거부 ACK 귀속: `GATEWAY_CLOCK_UNTRUSTED`는 site/Gateway/Command/dispatch/key/sequence가 일치한 새 Set의 terminal 사전 RF 거부로만 반영한다. `accepted`와 동시에 온 clock 오류, Get/status-check에 온 Set 전용 clock 거부, 이미 `unknown`인 명령의 늦은 clock 거부는 명령·조명 상태를 확정하지 않는다. `COMMAND_EXPIRED`의 기존 terminal 처리는 유지한다. 최근 이력 요약은 원본 Set의 전체 대상이 실패하고 outcome이 `not_applied`인 정확한 clock 거부에만 선택적 `errorCode`를 제공하며, 상세 조회는 기존 dispatch 오류 코드를 보존한다. 원본 삭제 뒤 늦은 RF 불확정 Set ACK와 Get-only 복구 실패는 hold/status-check 경로에 남고 자동 Set 재발행이나 성공 fixture 관측을 만들지 않는다. 해당 terminal clock ACK는 미발행 Set outbox도 같은 DB transaction에서 닫고, 기본/세대별 Set publisher는 native enqueue 직전 live dispatch를 잠가 재확인한다. 임시 PostgreSQL 두 연결의 ACK↔발행 경쟁과 PUBACK 유실 재획득 0건을 검증했지만 실제 Gateway RF/HIL 완료나 운영 purge/cutover 승인은 아니다.
 
 ## 미구현
 
@@ -372,7 +372,7 @@
 - `apps/api/src/monitoring-refresh/monitoring-refresh-ingestion.service.ts`
 - `apps/api/src/fixtures/fixture-presence-ingestion.service.ts`
 - `apps/api/src/energy/fixture-state-ingestion.service.ts`
-- `apps/api/src/mqtt/mqtt.service.ts`, `apps/api/src/commands/command-status.service.ts`, `apps/api/src/commands/command-late-set-ack.service.ts`, `apps/api/src/commands/command-recovery-ack.service.ts`
+- `apps/api/src/mqtt/mqtt.service.ts`, `apps/api/src/mqtt/outbox-publisher.service.ts`, `apps/api/src/commands/command-status.service.ts`, `apps/api/src/commands/command-late-set-ack.service.ts`, `apps/api/src/commands/command-recovery-ack.service.ts`, `apps/api/src/commands/command-legacy-get-ack.service.ts`
 - `apps/api/src/monitoring-incidents/monitoring-conditions.ts`
 - `infra/mosquitto.acl.example`
 - `scripts/dev-runtime.mjs`

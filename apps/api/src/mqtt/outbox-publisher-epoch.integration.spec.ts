@@ -9,6 +9,7 @@ import { CommandDbClockHealth, type CommandDbClockEvidence } from "./command-db-
 import { CommandPublishEpochService } from "./command-publish-epoch.service";
 import { CommandPublishQuiesceService } from "./command-publish-quiesce.service";
 import { CommandSetMqttService } from "./command-set-mqtt.service";
+import { MqttService } from "./mqtt.service";
 
 (process.env.COMMAND_RETENTION_TEST === "1" ? describe : describe.skip)("Set publisher PostgreSQL epoch permit", () => {
   let cluster: Awaited<ReturnType<typeof disposablePostgres>>;
@@ -82,6 +83,120 @@ import { CommandSetMqttService } from "./command-set-mqtt.service";
       } } } });
     return db.mqttOutbox.findUniqueOrThrow({ where: { dispatchId }, include: { dispatch: true } }) as Promise<any>;
   }
+
+  async function clockAckReady(row: any) {
+    const fixtureId = row.payload.targetFixtureIds[0] as string;
+    const floor = await db.floor.create({ data: { siteId: row.payload.siteId, name: "Clock ACK floor", level: 1 } });
+    await db.fixture.create({ data: { id: fixtureId, siteId: row.payload.siteId,
+      floorId: floor.id, name: "Clock ACK fixture",
+      ratedWatt: 10, x: 0, y: 0 } });
+    await db.command.update({ where: { id: row.dispatch.commandId }, data: {
+      outcome: "pending", targetFixtureIds: [fixtureId]
+    } });
+    await db.commandDispatch.update({ where: { id: row.dispatchId }, data: {
+      idempotencyKey: row.payload.idempotencyKey, sequence: BigInt(row.payload.sequence)
+    } });
+    await db.commandFixtureResult.create({ data: { dispatchId: row.dispatchId, fixtureId } });
+    const mqtt = new MqttService(peer as never, {} as never);
+    const ack = { commandId: row.dispatch.commandId, dispatchId: row.dispatchId,
+      idempotencyKey: row.payload.idempotencyKey, sequence: row.payload.sequence,
+      siteId: row.payload.siteId, gatewayId: row.payload.gatewayId, eventId: randomUUID(),
+      status: "rejected", acceptedAt: new Date().toISOString(), errorCode: "GATEWAY_CLOCK_UNTRUSTED" };
+    return () => mqtt.handleMessage(`sites/${ack.siteId}/gateways/${ack.gatewayId}/acks/acceptance`,
+      Buffer.from(JSON.stringify(ack)));
+  }
+
+  it("closes a lost-PUBACK Set outbox with the exact clock refusal and never reclaims it", async () => {
+    const row = await record();
+    const sendClockAck = await clockAckReady(row);
+    await db.mqttOutbox.update({ where: { id: row.id }, data: {
+      lockedBy: null, lockedAt: null, leaseExpiresAt: null, deliveryAttemptedAt: new Date()
+    } });
+    await sendClockAck();
+    const closed = await db.mqttOutbox.findUniqueOrThrow({ where: { id: row.id } });
+    expect(closed.deadLetteredAt).not.toBeNull();
+    expect(closed.lastError).toBe("GATEWAY_CLOCK_UNTRUSTED");
+    const { service, egress } = publisher();
+    expect(await service.claimBatch()).toEqual([]);
+    await service.publishClaimed({ ...row, lockedBy: "worker-a" });
+    expect(egress.publish).not.toHaveBeenCalled();
+  });
+
+  it("blocks native enqueue when a clock refusal wins before final Set authorization", async () => {
+    const row = await record();
+    const sendClockAck = await clockAckReady(row);
+    const authorizing = deferred(), resume = deferred();
+    const nativeEnqueue = jest.fn(async () => {});
+    const egress = { publish: jest.fn(async (_generation: number, _topic: string, _payload: unknown,
+      authorize: (enqueue: (expiry: number) => Promise<void>) => Promise<boolean>) => {
+      authorizing.resolve();
+      await resume.promise;
+      return authorize(nativeEnqueue);
+    }), assertPublisherIdentity: jest.fn() };
+    const service = new OutboxPublisherService(db as never, { publishTopic: jest.fn() } as never,
+      { workerId: "worker-a" }, undefined, egress as never, new CommandPublishEpochService(), health);
+    const publishing = service.publishClaimed(row);
+    await authorizing.promise;
+    await sendClockAck();
+    resume.resolve();
+    await publishing;
+    expect(nativeEnqueue).not.toHaveBeenCalled();
+    expect((await db.mqttOutbox.findUniqueOrThrow({ where: { id: row.id } })).deadLetteredAt).not.toBeNull();
+  });
+
+  it("blocks the legacy Set path after a clock refusal commits during its pre-enqueue gap", async () => {
+    process.env.COMMAND_SET_EGRESS_ENABLED = "0";
+    process.env.COMMAND_RETENTION_PUBLISH_FENCE = "0";
+    process.env.COMMAND_RETENTION_PUBLISH_CUTOFF = "0";
+    const row = await record();
+    const sendClockAck = await clockAckReady(row);
+    const attempted = deferred(), resume = deferred();
+    let transactions = 0;
+    const tracked = new Proxy(db, { get(target, key) {
+      if (key === "$transaction") return async (...args: Parameters<typeof target.$transaction>) => {
+        const result = await (target.$transaction as any)(...args);
+        if (++transactions === 2) { attempted.resolve(); await resume.promise; }
+        return result;
+      };
+      const value = Reflect.get(target, key);
+      return typeof value === "function" ? value.bind(target) : value;
+    } });
+    const mqtt = { publishTopic: jest.fn(async () => {}) };
+    const service = new OutboxPublisherService(tracked as never, mqtt as never, { workerId: "worker-a" });
+    const publishing = service.publishClaimed(row);
+    await attempted.promise;
+    await sendClockAck();
+    resume.resolve();
+    await publishing;
+    expect(mqtt.publishTopic).not.toHaveBeenCalled();
+    expect((await db.mqttOutbox.findUniqueOrThrow({ where: { id: row.id } })).deadLetteredAt).not.toBeNull();
+  }, 15_000);
+
+  it("serializes a clock refusal behind an already authorized enqueue and prevents a second Set", async () => {
+    const row = await record();
+    const sendClockAck = await clockAckReady(row);
+    const enqueued = deferred(), puback = deferred();
+    const nativeEnqueue = jest.fn(async () => { enqueued.resolve(); await puback.promise; });
+    const egress = { publish: jest.fn(async (_generation: number, _topic: string, _payload: unknown,
+      authorize: (enqueue: (expiry: number) => Promise<void>) => Promise<boolean>) => authorize(nativeEnqueue)),
+      assertPublisherIdentity: jest.fn() };
+    const service = new OutboxPublisherService(db as never, { publishTopic: jest.fn() } as never,
+      { workerId: "worker-a" }, undefined, egress as never, new CommandPublishEpochService(), health);
+    const publishing = service.publishClaimed(row);
+    await enqueued.promise;
+    let ackCommitted = false;
+    const acknowledging = sendClockAck().then(() => { ackCommitted = true; });
+    try {
+      await new Promise(resolve => setTimeout(resolve, 20));
+      expect(ackCommitted).toBe(false);
+    } finally {
+      puback.resolve();
+      await Promise.all([publishing, acknowledging]);
+    }
+    await service.publishClaimed(row);
+    expect(nativeEnqueue).toHaveBeenCalledTimes(1);
+    expect((await db.commandDispatch.findUniqueOrThrow({ where: { id: row.dispatchId } })).status).toBe("failed");
+  }, 15_000);
 
   it("commits the exact strict epoch envelope before MQTT and keeps the shared permit until PUBACK", async () => {
     const row = await record();

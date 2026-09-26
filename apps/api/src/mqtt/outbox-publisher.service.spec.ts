@@ -62,6 +62,18 @@ function meshRecord(overrides: Record<string, unknown> = {}) {
   };
 }
 
+function mockLiveDimmingDispatch(prisma: any) {
+  prisma.$queryRaw = jest.fn((query: { strings: string[]; values: unknown[] }) => {
+    const sql = query.strings.join(" ");
+    expect(sql).toContain("FOR UPDATE OF d");
+    expect(sql).toContain('INNER JOIN "Command" AS c');
+    expect(sql).toContain('c."siteId"');
+    expect(sql).toContain("'pending', 'published', 'accepted'");
+    expect(query.values).toHaveLength(4);
+    return [{ id: "live-dispatch" }];
+  });
+}
+
 describe("OutboxPublisherService", () => {
   afterEach(() => {
     delete process.env.COMMAND_RETENTION_PUBLISH_CUTOFF;
@@ -347,6 +359,7 @@ describe("OutboxPublisherService", () => {
       command: { findUnique: jest.fn().mockResolvedValue({ outcome: "pending" }), updateMany: jest.fn().mockResolvedValue({ count: 1 }) }
     };
     prisma.$transaction = jest.fn(async (callback) => callback(prisma));
+    mockLiveDimmingDispatch(prisma);
     const expectedPayload = { ...dimmingPayload, ...originalDelivery };
     const mqtt = { publishTopic: jest.fn(async (_topic, payload) => {
       expect(durablePayload).toEqual(expectedPayload);
@@ -579,6 +592,7 @@ describe("OutboxPublisherService", () => {
       commandDispatch: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) }
     };
     prisma.$transaction = jest.fn(async (callback: (tx: any) => Promise<unknown>) => callback(prisma));
+    mockLiveDimmingDispatch(prisma);
     const mqtt = {
       publishTopic: jest.fn()
         .mockImplementationOnce(async (_topic, payload) => {
@@ -642,6 +656,7 @@ describe("OutboxPublisherService", () => {
       }
     };
     prisma.$transaction = jest.fn(async (callback: (tx: any) => Promise<unknown>) => callback(prisma));
+    mockLiveDimmingDispatch(prisma);
     const mqtt = { publishTopic: jest.fn() };
     const service = new OutboxPublisherService(prisma, mqtt as never, {
       workerId: "worker-1",
@@ -677,6 +692,7 @@ describe("OutboxPublisherService", () => {
       commandDispatch: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) }
     };
     prisma.$transaction = jest.fn(async (callback: (tx: any) => Promise<unknown>) => callback(prisma));
+    mockLiveDimmingDispatch(prisma);
     let durablePayload: unknown;
     const mqtt = {
       publishTopic: jest.fn().mockImplementation(async (_topic, payload) => {
@@ -736,6 +752,7 @@ describe("OutboxPublisherService", () => {
       command: { findUnique: jest.fn().mockResolvedValue({ outcome: "pending" }), updateMany: jest.fn().mockResolvedValue({ count: 1 }) }
     };
     prisma.$transaction = jest.fn(async (callback: (tx: any) => Promise<unknown>) => callback(prisma));
+    mockLiveDimmingDispatch(prisma);
     const mqtt = { publishTopic: jest.fn().mockRejectedValue(new Error("PUBACK unavailable")) };
     const service = new OutboxPublisherService(prisma, mqtt as never, {
       workerId: "worker-1",
@@ -865,7 +882,7 @@ describe("OutboxPublisherService", () => {
     expect(prisma.mqttOutbox.count).toHaveBeenCalledWith({
       where: {
         id: "outbox-1",
-        dispatch: { kind: "dimming" },
+        dispatch: { kind: "dimming", status: { in: ["pending", "published", "accepted"] } },
         lockedBy: "worker-1",
         publishedAt: null,
         deadLetteredAt: null
@@ -930,7 +947,9 @@ describe("OutboxPublisherService", () => {
     await expect(service.claimBatch(now)).resolves.toEqual([{ id: "outbox-1", lockedBy: "worker-1" }]);
     expect(tx.$queryRaw.mock.calls[0][0].strings.join(" ")).toContain('"dispatchId" IS NOT NULL');
     expect(tx.mqttOutbox.updateMany).toHaveBeenCalledWith({
-      where: { id: { in: ["outbox-1"] }, dispatch: { kind: "dimming" }, OR: [{ leaseExpiresAt: null }, { leaseExpiresAt: { lte: now } }] },
+      where: { id: { in: ["outbox-1"] }, dispatch: { kind: "dimming",
+        status: { in: ["pending", "published", "accepted"] } },
+        OR: [{ leaseExpiresAt: null }, { leaseExpiresAt: { lte: now } }] },
       data: { lockedBy: "worker-1", lockedAt: now, leaseExpiresAt: new Date("2026-07-11T00:00:30.000Z") }
     });
     expect(tx.mqttOutbox.findMany).toHaveBeenCalledWith(expect.objectContaining({
@@ -967,6 +986,7 @@ describe("OutboxPublisherService", () => {
       command: { findUnique: jest.fn().mockResolvedValue({ outcome: "pending" }), updateMany: jest.fn().mockResolvedValue({ count: 1 }) }
     };
     prisma.$transaction = jest.fn(async (callback: (tx: any) => Promise<unknown>) => callback(prisma));
+    mockLiveDimmingDispatch(prisma);
     const mqtt = { publishTopic: jest.fn().mockRejectedValue(new Error("broker unavailable")) };
     const service = new OutboxPublisherService(prisma, mqtt as never, {
       workerId: "worker-1",
@@ -1013,6 +1033,7 @@ describe("OutboxPublisherService", () => {
       commandDispatch: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) }
     };
     prisma.$transaction = jest.fn(async (callback: (tx: any) => Promise<unknown>) => callback(prisma));
+    mockLiveDimmingDispatch(prisma);
     const mqtt = {
       publishTopic: jest.fn().mockImplementation(async () => {
         current = publishedAt;
@@ -1044,7 +1065,7 @@ describe("OutboxPublisherService", () => {
     expect(prisma.mqttOutbox.updateMany).toHaveBeenNthCalledWith(1, {
       where: {
         id: "outbox-1",
-        dispatch: { kind: "dimming" },
+        dispatch: { kind: "dimming", status: { in: ["pending", "published", "accepted"] } },
         lockedBy: "worker-1",
         publishedAt: null,
         deadLetteredAt: null,
@@ -1126,6 +1147,7 @@ describe("OutboxPublisherService", () => {
       command: { findUnique: jest.fn().mockResolvedValue({ outcome: "pending" }), updateMany: jest.fn() }
     };
     prisma.$transaction = jest.fn(async (callback: (tx: any) => Promise<unknown>) => callback(prisma));
+    mockLiveDimmingDispatch(prisma);
     const mqtt = {
       publishTopic: jest.fn().mockImplementation(async () => {
         publishStarted.resolve();
@@ -1176,6 +1198,7 @@ describe("OutboxPublisherService", () => {
       commandDispatch: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) }
     };
     prisma.$transaction = jest.fn(async (callback: (tx: any) => Promise<unknown>) => callback(prisma));
+    mockLiveDimmingDispatch(prisma);
     const mqtt = { publishTopic: jest.fn().mockResolvedValue(undefined) };
     const service = new OutboxPublisherService(prisma, mqtt as never, {
       workerId: "worker-1",

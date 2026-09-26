@@ -53,6 +53,9 @@ import { compareAndAdvanceGatewayEvent } from "../retention/gateway-event-waterm
 import { parseGatewayTopic } from "./topic-scope";
 import { gatewayEventIsTooFarInFuture, gatewayEventMaxFutureSkewMs } from "./gateway-event-time";
 import { ProvisioningDeviceTerminalService } from "./provisioning-device-terminal.service";
+import { CommandRecoveryAckService } from "../commands/command-recovery-ack.service";
+import { CommandLateSetAckService } from "../commands/command-late-set-ack.service";
+import { CommandLegacyGetAckService } from "../commands/command-legacy-get-ack.service";
 import { CommandClockResponderService } from "./command-clock-responder.service";
 
 const MQTT_BACKGROUND_PUBLISH_TIMEOUT_MS = 10_000;
@@ -149,6 +152,9 @@ export class MqttService implements OnModuleInit {
     @Optional() provisioningDeviceTerminal?: ProvisioningDeviceTerminalService,
     fixturePresenceIngestion?: FixturePresenceIngestionService,
     @Optional() monitoringRefreshIngestion?: MonitoringRefreshIngestionService,
+    @Optional() private readonly recoveryAcks?: CommandRecoveryAckService,
+    @Optional() private readonly lateSetAcks?: CommandLateSetAckService,
+    @Optional() private readonly legacyGetAcks?: CommandLegacyGetAckService,
     @Optional() private readonly commandClockResponder?: CommandClockResponderService
   ) {
     this.fixtureStateIngestion = fixtureStateIngestion ?? new FixtureStateIngestionService(prisma);
@@ -777,6 +783,8 @@ export class MqttService implements OnModuleInit {
       const scope = parseGatewayScopedTopic(topic);
       const ack = acceptanceAckV2Schema.parse(JSON.parse(payload.toString()));
       if (!scope || scope.siteId !== ack.siteId || scope.gatewayId !== ack.gatewayId) return;
+      if (this.recoveryAcks && await this.recoveryAcks.tryStoreAcceptanceAck(ack)) return;
+      if (this.legacyGetAcks && await this.legacyGetAcks.tryStoreAcceptanceAck(ack)) return;
       await this.storeAcceptanceAck(ack);
       return;
     }
@@ -785,6 +793,9 @@ export class MqttService implements OnModuleInit {
       const scope = parseGatewayScopedTopic(topic);
       const ack = deviceStatusAckV2Schema.parse(JSON.parse(payload.toString()));
       if (!scope || scope.siteId !== ack.siteId || scope.gatewayId !== ack.gatewayId) return;
+      if (this.recoveryAcks && await this.recoveryAcks.tryStoreDeviceStatusAck(ack)) return;
+      if (this.legacyGetAcks && await this.legacyGetAcks.tryStoreDeviceStatusAck(ack)) return;
+      if (this.lateSetAcks && await this.lateSetAcks.tryStoreDeviceStatusAck(ack)) return;
       await this.storeDeviceStatusAck(ack);
       return;
     }
@@ -1213,6 +1224,15 @@ export class MqttService implements OnModuleInit {
       }
       const failed = await tx.commandDispatch.updateMany({ where, data });
       if (failed.count !== 1) return;
+      if (ack.errorCode === "GATEWAY_CLOCK_UNTRUSTED") {
+        // A pre-RF refusal closes the undelivered Set envelope in the same
+        // transaction as its dispatch. Lost MQTT PUBACK must not reclaim it.
+        await tx.mqttOutbox.updateMany({
+          where: { dispatchId: dispatch.id, publishedAt: null, deadLetteredAt: null },
+          data: { deadLetteredAt: new Date(), lastError: "GATEWAY_CLOCK_UNTRUSTED",
+            lockedBy: null, lockedAt: null, leaseExpiresAt: null }
+        });
+      }
       const errorMessage = ack.errorMessage ?? "gateway rejected command";
       await tx.commandFixtureResult.updateMany({
         where: { dispatchId: ack.dispatchId, status: "pending" },

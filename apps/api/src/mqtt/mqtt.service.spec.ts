@@ -906,6 +906,7 @@ describe("MqttService", () => {
       expect(state.prisma.commandDispatch.updateMany).not.toHaveBeenCalled();
       expect(state.prisma.commandFixtureResult.updateMany).not.toHaveBeenCalled();
       expect(state.prisma.command.updateMany).not.toHaveBeenCalled();
+      expect(state.prisma.mqttOutbox.updateMany).not.toHaveBeenCalled();
     }
   );
 
@@ -940,6 +941,11 @@ describe("MqttService", () => {
     expect(state.command).toMatchObject({ status: "failed", outcome: "not_applied" });
     expect(state.results[0]).toMatchObject({ status: "failed", brightness: null });
     expect(state.prisma.commandDispatch.updateMany).toHaveBeenCalledTimes(1);
+    expect(state.prisma.mqttOutbox.updateMany).toHaveBeenCalledWith({
+      where: { dispatchId: state.dispatch.id, publishedAt: null, deadLetteredAt: null },
+      data: { deadLetteredAt: expect.any(Date), lastError: "GATEWAY_CLOCK_UNTRUSTED",
+        lockedBy: null, lockedAt: null, leaseExpiresAt: null }
+    });
     await state.service.handleMessage(deviceStatusTopic(), Buffer.from(JSON.stringify(deviceStatusAckPayload())));
     expect(state.command.outcome).toBe("not_applied");
     expect(state.results[0]).toMatchObject({ status: "failed", brightness: null });
@@ -2839,7 +2845,7 @@ function clockAckState(targetFixtureIds = [deviceStatusAckPayload().results[0].f
     return sql.includes('FROM "CommandDispatch"')
       ? rows.map((row: Record<string, unknown>) => ({ ...row, targetFixtureIds })) : rows;
   });
-  state.prisma.mqttOutbox = { create: jest.fn() };
+  state.prisma.mqttOutbox = { create: jest.fn(), updateMany: jest.fn().mockResolvedValue({ count: 1 }) };
   return state;
 }
 

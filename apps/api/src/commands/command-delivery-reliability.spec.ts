@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { isDeepStrictEqual } from "node:util";
 import { AutomationClock } from "../automation/automation-clock";
 import { AutomationSnapshotService } from "../automation/automation-snapshot.service";
 import { AuthenticatedUser } from "../auth/auth.types";
@@ -8,6 +9,7 @@ import { LegacyStatusCheckPublisherService } from "../mqtt/legacy-status-check-p
 import { CommandDispatchService } from "./command-dispatch.service";
 import { CommandTimeoutService } from "./command-timeout.service";
 import { CommandVerificationService } from "./command-verification.service";
+import { CommandSafetyDigest } from "./command-safety-digest";
 import { CommandsService } from "./commands.service";
 
 const ids = {
@@ -15,6 +17,7 @@ const ids = {
   key: "33333333-3333-4333-8333-333333333333", site: "44444444-4444-4444-8444-444444444444",
   gateway: "55555555-5555-4555-8555-555555555555", fixture: "66666666-6666-4666-8666-666666666666"
 };
+const floorId = "77777777-7777-4777-8777-777777777777";
 const user = { id: "operator", role: "operator" } as AuthenticatedUser;
 const startedAt = new Date("2026-09-12T00:00:00.000Z");
 const identity = { commandId: ids.command, dispatchId: ids.dispatch, idempotencyKey: ids.key,
@@ -96,17 +99,20 @@ describe("command delivery uncertainty across publisher, ACK ingestion and recov
     expect(h.resultWrites()).toBe(writes);
   });
 
-  it("preserves the conclusive ACK that wins before publisher terminal failure", async () => {
+  it("preserves a conclusive late ACK after publisher terminal failure", async () => {
     const h = harness();
     h.outbox.attempts = 9;
-    h.mqtt.publishTopic.mockImplementationOnce(async () => { await h.ack(); throw new Error("PUBACK lost"); });
     await h.publisher().processBatch();
+    expect(h.mqtt.publishTopic).toHaveBeenCalledTimes(1);
     expect(h.outbox.deadLetteredAt).toEqual(startedAt);
+    const beforeAckWrites = h.writeCalls();
+    const beforeAckResults = h.resultWrites();
+    await h.ack();
     expect(h.dispatch.status).toBe("completed");
     expect(h.command.outcome).toBe("applied");
     expect(h.results[0]).toMatchObject({ status: "succeeded", brightness: 65 });
-    expect(h.resultWrites()).toBe(1);
-    expect(h.writeCalls()).toEqual({ results: 1, command: 1 });
+    expect(h.resultWrites()).toBe(beforeAckResults + 1);
+    expect(h.writeCalls()).toEqual({ results: beforeAckWrites.results + 1, command: beforeAckWrites.command + 1 });
     expect(h.unlockedMutations).toEqual([]);
   });
 
@@ -141,10 +147,13 @@ describe("command delivery uncertainty across publisher, ACK ingestion and recov
     const h = harness();
     const marks: unknown[] = [];
     h.mqtt.publishTopic.mockImplementationOnce(async () => {
-      expect(h.activeTransactions()).toBe(0);
+      // The final legacy Set transaction keeps its dispatch row locked through
+      // native enqueue/PUBACK so terminal ACK cannot commit ahead of the wire.
+      expect(h.activeTransactions()).toBe(1);
       marks.push(h.outbox.deliveryAttemptedAt);
     });
     await h.publisher().processBatch();
+    expect(h.activeTransactions()).toBe(0);
     expect(marks).toEqual([startedAt]);
     expect(h.unlockedMutations).toEqual([]);
     const lost = harness({ loseAttemptFence: true });
@@ -265,6 +274,12 @@ function harness(options: { statusCheck?: boolean; loseAttemptFence?: boolean } 
           events.set(eventId, { eventId, gatewayId, eventType, payloadHash }); return [{ eventId }];
         }
         if (sql.includes('FROM "CommandFixtureResult"')) return results.filter((row) => row.dispatchId === values[0]);
+        if (sql.includes('FROM "CommandDispatch" AS d') && sql.includes('FOR UPDATE OF d')) {
+          return dispatches.filter((row) => row.id === values[0] && row.commandId === values[1]
+            && row.gatewayId === values[2] && command.siteId === values[3]
+            && row.kind === "dimming" && ["pending", "published", "accepted"].includes(row.status))
+            .map((row) => ({ id: row.id }));
+        }
         if (sql.includes('FROM "CommandDispatch"')) return dispatches.filter((row) => row.id === values[0] || row.commandId === values[0])
           .map((row) => ({ ...row, outcome: command.outcome, brightness: command.brightness }));
         if (sql.includes('FROM "Command"')) return [command];
@@ -273,9 +288,12 @@ function harness(options: { statusCheck?: boolean; loseAttemptFence?: boolean } 
       command: table("command", [command]), commandDispatch: table("dispatch", dispatches),
       commandFixtureResult: table("results", results), mqttOutbox: table("outbox", outboxes),
       processedGatewayEvent: { findUnique: async ({ where }: any) => events.get(where.eventId) },
+      gatewayRecommissionJob: { findFirst: async () => null },
       gateway: { update: async () => ({ id: ids.gateway, siteId: ids.site, nextCommandSequence: 2n }) },
-      fixture: { findMany: async () => [{ id: ids.fixture, floorId: "floor", name: "Light", status: "online",
-        meshNode: { gatewayId: ids.gateway, gateway: { lastHeartbeatAt: new Date() } } }] }
+      fixture: { findMany: async () => [{ id: ids.fixture, floorId, name: "Light", status: "online",
+        meshNode: { gatewayId: ids.gateway, gateway: { lastHeartbeatAt: new Date() } } }] },
+      floor: { findMany: async () => [{ id: floorId }] },
+      monitoringActivity: { createMany: async () => ({ count: 1 }) }
     };
     tx.command.findUnique = async ({ where }: any) => where.id === ids.command ? { ...command, dispatches } : null;
     tx.commandDispatch.findMany = async ({ where = {} }: any = {}) => dispatches.filter((row) => matches(row, where))
@@ -309,7 +327,10 @@ function harness(options: { statusCheck?: boolean; loseAttemptFence?: boolean } 
       : new OutboxPublisherService(prisma, mqtt as never, { workerId: randomUUID(), random: () => 0, clock: () => now }),
     timeout: new CommandTimeoutService(prisma, snapshot),
     verification: new CommandVerificationService(prisma, access as never, snapshot, clock),
-    commands: new CommandsService(prisma, new CommandDispatchService(), access as never, {} as never, snapshot, clock) };
+    // The optional digest is supplied by the in-flight activity projection; the
+    // committed service version ignores this extra test-harness dependency.
+    commands: new (CommandsService as unknown as new (...args: any[]) => CommandsService)(
+      prisma, new CommandDispatchService(), access as never, {} as never, snapshot, clock, new CommandSafetyDigest()) };
 }
 
 function matches(row: any, where: any): boolean {
@@ -320,6 +341,9 @@ function matches(row: any, where: any): boolean {
     if (value && typeof value === "object" && !(value instanceof Date)) {
       return Object.entries(value).every(([operator, expected]: [string, any]) => {
         if (operator === "in") return expected.includes(actual);
+        if (operator === "equals") return isDeepStrictEqual(
+          JSON.parse(JSON.stringify(actual)), JSON.parse(JSON.stringify(expected))
+        );
         if (operator === "not") return actual !== expected;
         if (operator === "gt") return actual != null && actual > expected;
         if (operator === "gte") return actual != null && actual >= expected;

@@ -20,6 +20,10 @@ import { MonitoringIncidentsModule } from "../monitoring-incidents/monitoring-in
 import { ProvisioningDeviceTerminalService } from "./provisioning-device-terminal.service";
 import { FixturePresenceIngestionService } from "../fixtures/fixture-presence-ingestion.service";
 import { MonitoringRefreshIngestionService } from "../monitoring-refresh/monitoring-refresh-ingestion.service";
+import { CommandRecoveryAckService } from "../commands/command-recovery-ack.service";
+import { CommandLateSetAckService } from "../commands/command-late-set-ack.service";
+import { CommandLegacyGetAckService } from "../commands/command-legacy-get-ack.service";
+import { CommandSafetyDigest } from "../commands/command-safety-digest";
 import { CommandClockResponderService } from "./command-clock-responder.service";
 import { CommandDbClockHealth } from "./command-db-clock-health.service";
 import { CommandPublishEpochService } from "./command-publish-epoch.service";
@@ -44,6 +48,10 @@ import { CommandPublishQuiesceService } from "./command-publish-quiesce.service"
     ProvisioningDeviceTerminalService,
     MqttShutdownCoordinator,
     CommandTimeoutService,
+    CommandRecoveryAckService,
+    CommandLateSetAckService,
+    CommandLegacyGetAckService,
+    CommandSafetyDigest,
     CommandDbClockHealth,
     CommandPublishEpochService,
     CommandPublishQuiesceService,

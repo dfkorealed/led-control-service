@@ -95,7 +95,8 @@ describe("LegacyStatusCheckPublisherService", () => {
     await get.publishClaimed(record as never);
 
     expect(tx.mqttOutbox.updateMany).toHaveBeenCalledWith(expect.objectContaining({
-      where: expect.objectContaining({ dispatch: { kind: "status_check" } }),
+      where: expect.objectContaining({ dispatch: { kind: "status_check",
+        status: { in: ["pending", "published", "accepted"] } } }),
       data: expect.objectContaining({ payload: expect.objectContaining({ originalCommandId: commandId }) })
     }));
     expect(mqtt.publishTopic).not.toHaveBeenCalled();
