@@ -44,6 +44,13 @@ export interface SiteCapabilities {
   commission: boolean;
 }
 
+export interface DashboardFixtureCounts {
+  totalFixtures: number;
+  onlineFixtures: number;
+  faultFixtures: number;
+  offlineFixtures: number;
+}
+
 export interface Dashboard {
   generatedAt: string;
   monitoringPolicy: {
@@ -60,16 +67,19 @@ export interface Dashboard {
     tariffKwhRate: number | null;
     timeZone: string;
   };
-  summary: {
-    totalFixtures: number;
-    onlineFixtures: number;
-    faultFixtures: number;
+  summary: Omit<DashboardFixtureCounts, "offlineFixtures"> & {
+    // Optional while legacy local Dashboard fixtures are migrated; the API always returns this.
+    offlineFixtures?: number;
     averageBrightness: number;
   };
   floors: Array<{
     id: string;
     name: string;
     level: number;
+    // Optional only for legacy local fixtures. Live monitoring must not infer these from a paged fixture list.
+    summary?: DashboardFixtureCounts;
+    mapRevision?: number;
+    mapConfigured?: boolean;
     floorPlan: { imageUrl: string; width: number; height: number; version: number } | null;
     meshControlGroups: Array<{
       gatewayId: string;

@@ -46,7 +46,10 @@ export class SitesService {
           where: { status: "active" },
           orderBy: { level: "asc" },
           include: {
-            floorPlan: true
+            floorPlan: true,
+            mapDocument: { select: { activeGeneration: { select: { elementCount: true } } } },
+            cadScene: { select: { status: true, primitiveCount: true } },
+            mapObjects: { where: { visible: true }, take: 1, select: { id: true } }
           }
         },
         organization: { select: { name: true } },
@@ -87,18 +90,32 @@ export class SitesService {
       gatewayOfflineAfterSeconds: site.gatewayOfflineAfterSeconds,
       fixtureStaleAfterSeconds: site.fixtureStaleAfterSeconds
     };
-    const resolvedFixtureStatuses = fixtures.map((fixture) =>
-      monitoringFixtureState(fixture, fixture.meshNode?.gateway, monitoringPolicy, now).status);
-    const summary = includeFixtures
-      ? {
-          totalFixtures: fixtures.length,
-          onlineFixtures: resolvedFixtureStatuses.filter((status) => status === "online").length,
-          faultFixtures: resolvedFixtureStatuses.filter((status) => status === "fault").length,
-          averageBrightness: fixtures.length
-            ? Math.round(fixtures.reduce((sum, fixture) => sum + fixture.brightness, 0) / fixtures.length)
-            : 0
-        }
-      : await this.getFixtureSummary(site.id, monitoringPolicy, now);
+    const summaryFixtures = includeFixtures ? fixtures : await this.prisma.fixture.findMany({
+      where: { floor: { siteId: site.id, status: "active" } },
+      select: {
+        floorId: true, brightness: true, reportedStatus: true, reportedStatusReason: true,
+        lastSeenAt: true, lastUnreachableAt: true, healthFaultCodes: true, healthLastSeenAt: true,
+        meshNode: { select: { gateway: { select: { lastHeartbeatAt: true } } } }
+      }
+    });
+    const floorSummaries = new Map(site.floors.map((floor) => [floor.id, emptyFixtureCounts()]));
+    let totalBrightness = 0;
+    for (const fixture of summaryFixtures) {
+      const floorSummary = floorSummaries.get(fixture.floorId);
+      if (!floorSummary) continue;
+      const status = monitoringFixtureState(fixture, fixture.meshNode?.gateway, monitoringPolicy, now).status;
+      floorSummary.totalFixtures += 1;
+      floorSummary[`${status}Fixtures`] += 1;
+      totalBrightness += fixture.brightness;
+    }
+    const summary = [...floorSummaries.values()].reduce((sum, floor) => ({
+      totalFixtures: sum.totalFixtures + floor.totalFixtures,
+      onlineFixtures: sum.onlineFixtures + floor.onlineFixtures,
+      faultFixtures: sum.faultFixtures + floor.faultFixtures,
+      offlineFixtures: sum.offlineFixtures + floor.offlineFixtures
+    }), emptyFixtureCounts());
+    const siteSummary = { ...summary, averageBrightness: summary.totalFixtures
+      ? Math.round(totalBrightness / summary.totalFixtures) : 0 };
 
     return {
       generatedAt: now.toISOString(),
@@ -112,11 +129,20 @@ export class SitesService {
         tariffKwhRate: site.tariffKwhRate === null ? null : Number(site.tariffKwhRate),
         timeZone: site.timeZone
       },
-      summary,
+      summary: siteSummary,
       floors: site.floors.map((floor) => ({
         id: floor.id,
         name: floor.name,
         level: floor.level,
+        summary: floorSummaries.get(floor.id) ?? emptyFixtureCounts(),
+        mapRevision: floor.mapRevision,
+        // A revision alone may represent an initialized or reset empty document.
+        // Generation elementCount has no visibility breakdown, so an all-hidden document
+        // remains configured until a separate visible-count contract is available.
+        mapConfigured: (floor.mapDocument?.activeGeneration?.elementCount ?? 0) > 0
+          || (floor.floorPlan != null && floor.floorPlan.sourceType !== "none")
+          || (floor.cadScene?.status === "active" && floor.cadScene.primitiveCount > 0)
+          || (floor.mapObjects?.length ?? 0) > 0,
         floorPlan: floor.floorPlan
           ? {
               imageUrl: floor.floorPlan.imageUrl,
@@ -226,30 +252,10 @@ export class SitesService {
     };
   }
 
-  private async getFixtureSummary(siteId: string, policy: MonitoringPolicy, now: Date) {
-    const fixtures = await this.prisma.fixture.findMany({
-      where: { floor: { siteId, status: "active" } },
-      select: {
-        reportedStatus: true,
-        reportedStatusReason: true,
-        lastSeenAt: true,
-        lastUnreachableAt: true,
-        meshNode: { select: { gateway: { select: { lastHeartbeatAt: true } } } },
-        brightness: true,
-        healthFaultCodes: true,
-        healthLastSeenAt: true
-      }
-    });
-    const statuses = fixtures.map((fixture) => monitoringFixtureState(fixture, fixture.meshNode?.gateway, policy, now).status);
-    return {
-      totalFixtures: fixtures.length,
-      onlineFixtures: statuses.filter((status) => status === "online").length,
-      faultFixtures: statuses.filter((status) => status === "fault").length,
-      averageBrightness: fixtures.length
-        ? Math.round(fixtures.reduce((sum, fixture) => sum + fixture.brightness, 0) / fixtures.length)
-        : 0
-    };
-  }
+}
+
+function emptyFixtureCounts() {
+  return { totalFixtures: 0, onlineFixtures: 0, faultFixtures: 0, offlineFixtures: 0 };
 }
 
 function emptyDashboard() {
@@ -270,6 +276,7 @@ function emptyDashboard() {
       totalFixtures: 0,
       onlineFixtures: 0,
       faultFixtures: 0,
+      offlineFixtures: 0,
       averageBrightness: 0
     },
     capabilities: { read: false, control: false, manage: false, commission: false },

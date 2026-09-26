@@ -230,6 +230,74 @@ describe("SitesService", () => {
     }]);
   });
 
+  it("counts every active floor from registered fixtures even when fixture details are omitted", async () => {
+    prisma.site.findFirst.mockResolvedValue({
+      id: "site-1", name: "Site", organization: { name: "Customer" },
+      address: null, tariffKwhRate: null, timeZone: "Asia/Seoul",
+      gatewayOfflineAfterSeconds: 90, fixtureStaleAfterSeconds: 1200,
+      gateways: [], groups: [],
+      floors: [
+        { id: "f1", name: "B1", level: -1, mapRevision: 9, floorPlan: { sourceType: "none" },
+          mapDocument: { activeGeneration: { elementCount: 0 } }, cadScene: null, mapObjects: [] },
+        { id: "f2", name: "1F", level: 1, mapRevision: 2, floorPlan: null,
+          mapDocument: { activeGeneration: { elementCount: 3 } }, cadScene: null, mapObjects: [] }
+      ]
+    });
+    prisma.fixture.findMany.mockResolvedValue([
+      { floorId: "f1", brightness: 20, reportedStatus: "online", reportedStatusReason: "reported",
+        lastSeenAt: null, lastUnreachableAt: null, healthFaultCodes: [], healthLastSeenAt: null, meshNode: null },
+      { floorId: "f1", brightness: 40, reportedStatus: "fault", reportedStatusReason: "reported",
+        lastSeenAt: null, lastUnreachableAt: null, healthFaultCodes: [], healthLastSeenAt: null, meshNode: null },
+      { floorId: "f2", brightness: 60, reportedStatus: "offline", reportedStatusReason: "reported",
+        lastSeenAt: null, lastUnreachableAt: null, healthFaultCodes: [], healthLastSeenAt: null, meshNode: null }
+    ]);
+
+    const dashboard = await new SitesService(prisma as never, siteAccess as never).getDashboardById("site-1", false);
+    expect(dashboard.summary).toEqual({ totalFixtures: 3, onlineFixtures: 1, faultFixtures: 1, offlineFixtures: 1, averageBrightness: 40 });
+    expect(dashboard.floors.map((floor) => ({ id: floor.id, summary: floor.summary, mapRevision: floor.mapRevision,
+      mapConfigured: floor.mapConfigured, fixtureCount: floor.fixtures.length }))).toEqual([
+      { id: "f1", summary: { totalFixtures: 2, onlineFixtures: 1, faultFixtures: 1, offlineFixtures: 0 },
+        mapRevision: 9, mapConfigured: false, fixtureCount: 0 },
+      { id: "f2", summary: { totalFixtures: 1, onlineFixtures: 0, faultFixtures: 0, offlineFixtures: 1 },
+        mapRevision: 2, mapConfigured: true, fixtureCount: 0 }
+    ]);
+    expect(prisma.fixture.findMany).toHaveBeenCalledTimes(1);
+    expect(prisma.fixture.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      select: expect.objectContaining({ floorId: true, reportedStatus: true, brightness: true })
+    }));
+  });
+
+  it("recognizes legacy plan, CAD and visible legacy object without counting an empty map revision", async () => {
+    prisma.site.findFirst.mockResolvedValue({
+      id: "site-1", name: "Site", organization: { name: "Customer" }, address: null,
+      tariffKwhRate: null, timeZone: "Asia/Seoul", gateways: [], groups: [],
+      floors: [
+        { id: "empty", name: "empty", level: 0, mapRevision: 4, floorPlan: { sourceType: "none" }, mapDocument: null, cadScene: null, mapObjects: [] },
+        { id: "plan", name: "plan", level: 1, mapRevision: 1, floorPlan: { sourceType: "image" }, mapDocument: null, cadScene: null, mapObjects: [] },
+        { id: "cad", name: "cad", level: 2, mapRevision: 1, floorPlan: null, mapDocument: null, cadScene: { status: "active", primitiveCount: 5 }, mapObjects: [] },
+        { id: "object", name: "object", level: 3, mapRevision: 1, floorPlan: null, mapDocument: null, cadScene: null, mapObjects: [{ id: "visible" }] }
+      ]
+    });
+    prisma.fixture.findMany.mockResolvedValue([]);
+    const result = await new SitesService(prisma as never, siteAccess as never).getDashboardById("site-1", false);
+    expect(result.floors.map((floor) => floor.mapConfigured)).toEqual([false, true, true, true]);
+  });
+
+  it("treats a document without an active generation as an unconfigured map", async () => {
+    prisma.site.findFirst.mockResolvedValue({
+      id: "site-1", name: "Site", organization: { name: "Customer" }, address: null,
+      tariffKwhRate: null, timeZone: "Asia/Seoul", gateways: [], groups: [],
+      floors: [{
+        id: "reset", name: "Reset", level: 0, mapRevision: 4, floorPlan: null,
+        mapDocument: { activeGeneration: null }, cadScene: null, mapObjects: []
+      }]
+    });
+    prisma.fixture.findMany.mockResolvedValue([]);
+
+    const result = await new SitesService(prisma as never, siteAccess as never).getDashboardById("site-1", false);
+    expect(result.floors[0]).toMatchObject({ mapRevision: 4, mapConfigured: false });
+  });
+
   it("returns the existing empty dashboard shape when the default route has no accessible sites", async () => {
     siteAccess.listAccessibleSiteIds.mockResolvedValue([]);
 
@@ -262,6 +330,7 @@ describe("SitesService", () => {
         totalFixtures: 0,
         onlineFixtures: 0,
         faultFixtures: 0,
+        offlineFixtures: 0,
         averageBrightness: 0
       },
       capabilities: { read: false, control: false, manage: false, commission: false },
