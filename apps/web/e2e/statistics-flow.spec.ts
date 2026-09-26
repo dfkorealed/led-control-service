@@ -92,7 +92,8 @@ test.beforeEach(async ({ page }) => {
   });
   await page.route("**/energy/sites/*/comparisons/range?**", (route) => {
     const url = new URL(route.request().url());
-    return route.fulfill({ json: customComparison(url.searchParams.get("from") ?? "", url.searchParams.get("to") ?? "") });
+    return route.fulfill({ json: customComparison(url.searchParams.get("from") ?? "", url.searchParams.get("to") ?? "",
+      url.pathname.split("/")[4]) });
   });
   // Large daily ticks reproduce the clipped leading digits found in visual QA.
   await page.route("**/energy/sites/*/rankings?**", (route) => {
@@ -906,6 +907,64 @@ test("changing the analysis period clears old results while the new request is p
   }
 });
 
+test("hides a cached analysis after same-period refetch fails and restores it on retry", async ({ page }) => {
+  let floorRequests = 0;
+  await page.route("**/energy/sites/*/rankings?**", (route) => {
+    const url = new URL(route.request().url());
+    const dimension = url.searchParams.get("dimension") ?? "floor";
+    if (dimension === "floor") {
+      floorRequests += 1;
+      if (floorRequests === 2 || floorRequests === 3) {
+        return route.fulfill({ status: 503, json: { message: "temporarily unavailable" } });
+      }
+    }
+    return route.fulfill({ json: ranking(dimension, url.searchParams.get("metric") ?? "usage",
+      url.searchParams.get("sort") ?? "desc", url.searchParams.get("from") ?? "",
+      url.searchParams.get("to") ?? "", url.pathname.split("/")[4]) });
+  });
+
+  await page.goto(`/statistics/analysis?siteId=${reportSiteId}`);
+  const analysis = page.getByRole("region", { name: "사용량 분석 결과" });
+  await expect(analysis.getByRole("group", { name: "현장 사용량" })).toContainText("20 kWh");
+  await analysis.getByRole("button", { name: "조명", exact: true }).click();
+  await expect(analysis.getByRole("region", { name: "사용량 순위" })).toContainText("B1-L01");
+  await analysis.getByRole("button", { name: "층", exact: true }).click();
+  await expect(analysis.getByText("사용량 분석을 불러오지 못했습니다.")).toBeVisible();
+  expect(floorRequests).toBe(3);
+  await expect(analysis.getByRole("group", { name: "현장 사용량" })).not.toBeVisible();
+  await expect(analysis.getByRole("region", { name: "사용량 순위" })).not.toBeVisible();
+  await expect(analysis.getByRole("complementary", { name: "B1 주차장 상세" })).not.toBeVisible();
+  await expect(analysis.getByRole("region", { name: "시간대별 사용량" })).not.toBeVisible();
+
+  await analysis.getByRole("button", { name: "다시 시도" }).click();
+  await expect(analysis.getByRole("group", { name: "현장 사용량" })).toContainText("20 kWh");
+  await expect(analysis.getByRole("region", { name: "시간대별 사용량" })).toBeVisible();
+});
+
+for (const mismatch of ["site", "range"] as const) {
+  test(`rejects a custom comparison response for another ${mismatch}`, async ({ page }) => {
+    await page.route("**/energy/sites/*/comparisons/range?**", (route) => {
+      const url = new URL(route.request().url());
+      const from = url.searchParams.get("from") ?? "";
+      const to = url.searchParams.get("to") ?? "";
+      const response = mismatch === "site"
+        ? customComparison(from, to, "30000000-0000-4000-8000-000000000099")
+        : customComparison("2026-08-01", "2026-08-07", reportSiteId);
+      return route.fulfill({ json: response });
+    });
+    await page.goto(`/statistics/overview?siteId=${reportSiteId}`);
+    await page.getByRole("button", { name: /완료 기간 날짜 범위 선택, 현재/ }).click();
+    const dialog = page.getByRole("dialog", { name: "완료일 비교 기간 선택" });
+    await dialog.getByRole("group", { name: "빠른 기간 선택" }).getByRole("button", { name: "최근 7일" }).click();
+    await dialog.getByRole("button", { name: "선택 기간 적용" }).click();
+
+    const comparison = page.locator('section[aria-labelledby="statistics-comparison-title"]');
+    await expect(comparison.getByText("절감 비교를 불러오지 못했습니다.")).toBeVisible();
+    await expect(comparison.getByRole("group", { name: "기준 및 동기간 비교" })).not.toBeVisible();
+    await expect(page.getByRole("group", { name: "오늘 전력 사용량" })).toContainText("4.25 kWh");
+  });
+}
+
 for (const viewport of [
   { width: 390, height: 844 },
   { width: 320, height: 740 },
@@ -1488,9 +1547,9 @@ function comparison(preset: ComparisonPreset, outcome: ComparisonOutcome) {
   };
 }
 
-function customComparison(from: string, to: string) {
+function customComparison(from: string, to: string, siteId = reportSiteId) {
   const { preset: _preset, ...base } = comparison("last_7_days", "saving");
-  return { ...base, selection: { kind: "custom", from, to },
+  return { ...base, siteId, selection: { kind: "custom", from, to },
     range: { from, to, completedThrough: to },
     summary: { ...base.summary, forecastReason: "not_applicable" },
     points: base.points.map((point) => ({ ...point, period: from, phase: "observed" })) };

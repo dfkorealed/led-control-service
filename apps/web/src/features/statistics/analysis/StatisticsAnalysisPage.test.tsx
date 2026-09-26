@@ -70,6 +70,24 @@ describe("StatisticsAnalysisPage", () => {
     expect(screen.getByText("시간대별 사용량을 불러오지 못했습니다.")).toBeInTheDocument();
   });
 
+  it("hides same-period cached results after a background refresh fails", () => {
+    const view = renderPage();
+    expect(screen.getByRole("group", { name: "현장 사용량" })).toHaveTextContent("20 kWh");
+    expect(screen.getByRole("region", { name: "시간대별 사용량" })).toBeInTheDocument();
+
+    const refetch = vi.fn();
+    mocks.hook.mockReturnValue({ data: response, isLoading: false, isError: true, refetch });
+    view.rerender(analysisPage());
+
+    expect(screen.getByText("사용량 분석을 불러오지 못했습니다.")).toBeInTheDocument();
+    expect(screen.queryByRole("group", { name: "현장 사용량" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "사용량 순위" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("complementary", { name: "B1 주차장 상세" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "시간대별 사용량" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "다시 시도" }));
+    expect(refetch).toHaveBeenCalledOnce();
+  });
+
   it("changes dimension and metric through accessible controls", async () => {
     renderPage();
 
@@ -132,7 +150,11 @@ describe("StatisticsAnalysisPage", () => {
 });
 
 function renderPage() {
-  return render(
+  return render(analysisPage());
+}
+
+function analysisPage() {
+  return (
     <MemoryRouter initialEntries={["/statistics/analysis"]}>
       <Routes>
         <Route path="/statistics" element={<Outlet context={{ siteId: response.siteId }} />}>

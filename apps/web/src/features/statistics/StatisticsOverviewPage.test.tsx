@@ -250,6 +250,25 @@ describe("StatisticsOverviewPage", () => {
     expect(screen.getByRole("heading", { name: "이번 달 비용 비교" })).toBeInTheDocument();
   });
 
+  it("does not present a cached custom comparison period as current after its refetch fails", () => {
+    mocks.customHook.mockImplementation((from: string, to: string) => ({
+      ...queryResult({ ...makeEnergyComparison(), selection: { kind: "custom", from, to },
+        range: { from, to, completedThrough: to } }),
+      isError: true,
+      error: new Error("unavailable")
+    }));
+    renderView();
+    fireEvent.click(screen.getByRole("button", { name: /완료 기간 날짜 범위 선택, 현재/ }));
+    const picker = screen.getByRole("dialog", { name: "완료일 비교 기간 선택" });
+    fireEvent.click(within(within(picker).getByRole("group", { name: "빠른 기간 선택" })).getByRole("button", { name: "최근 7일" }));
+    fireEvent.click(within(picker).getByRole("button", { name: "선택 기간 적용" }));
+
+    expect(screen.getByText("절감 비교를 불러오지 못했습니다.")).toBeInTheDocument();
+    expect(screen.queryByText(/비교 기간 2026-08-19 ~ 2026-08-25 · 완료 실적/)).not.toBeInTheDocument();
+    expect(screen.queryByRole("group", { name: "기준 및 동기간 비교" })).not.toBeInTheDocument();
+    expect(screen.getByRole("group", { name: "오늘 전력 사용량" })).toHaveTextContent("4.25 kWh");
+  });
+
   it("prevents applying a range that includes the site-local in-progress day and returns focus on cancel", async () => {
     renderView();
     const opener = screen.getByRole("button", { name: /완료 기간 날짜 범위 선택, 현재/ });

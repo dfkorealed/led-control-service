@@ -259,11 +259,35 @@ describe("energy queries", () => {
       range: { from: "2026-09-01", to: "2026-09-09", completedThrough: "2026-09-09" },
       summary: { ...comparisonResponse.summary, forecastReason: "not_applicable" } });
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    const { result } = renderHook(() => useEnergyRangeComparison("site/2", "2026-09-01", "2026-09-09"),
+    const { result } = renderHook(() => useEnergyRangeComparison(comparisonResponse.siteId, "2026-09-01", "2026-09-09"),
       { wrapper: wrapperFor(client) });
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
-    expect(apiGet).toHaveBeenCalledWith("/energy/sites/site%2F2/comparisons/range?from=2026-09-01&to=2026-09-09");
-    expect(client.getQueryData(["energy-comparison-range", "site/2", "2026-09-01", "2026-09-09"])).toBeDefined();
+    expect(apiGet).toHaveBeenCalledWith(`/energy/sites/${comparisonResponse.siteId}/comparisons/range?from=2026-09-01&to=2026-09-09`);
+    expect(client.getQueryData(["energy-comparison-range", comparisonResponse.siteId, "2026-09-01", "2026-09-09"])).toBeDefined();
+  });
+
+  it.each([
+    ["another site", { siteId: "00000000-0000-4000-8000-000000000004" }],
+    ["another completed range", {
+      selection: { kind: "custom", from: "2026-08-01", to: "2026-08-09" },
+      range: { from: "2026-08-01", to: "2026-08-09", completedThrough: "2026-08-09" }
+    }]
+  ])("rejects a schema-valid custom comparison for %s", async (_case, responseOverride) => {
+    const { preset: _preset, ...comparisonWithoutPreset } = comparisonResponse;
+    apiGet.mockResolvedValue({
+      ...comparisonWithoutPreset,
+      selection: { kind: "custom", from: "2026-09-01", to: "2026-09-09" },
+      range: { from: "2026-09-01", to: "2026-09-09", completedThrough: "2026-09-09" },
+      summary: { ...comparisonResponse.summary, forecastReason: "not_applicable" },
+      ...responseOverride
+    });
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const { result } = renderHook(() => useEnergyRangeComparison(comparisonResponse.siteId, "2026-09-01", "2026-09-09"),
+      { wrapper: wrapperFor(client) });
+
+    await waitFor(() => expect(result.current.isError).toBe(true), { timeout: 3_000 });
+    expect(result.current.data).toBeUndefined();
+    expect(client.getQueryData(["energy-comparison-range", comparisonResponse.siteId, "2026-09-01", "2026-09-09"])).toBeUndefined();
   });
 
   it("does not request an invalid or unavailable custom comparison range", async () => {
@@ -299,6 +323,23 @@ describe("energy queries", () => {
     expect(apiGet).toHaveBeenCalledWith(
       "/energy/sites/site%2F2/rankings?dimension=floor&metric=usage&sort=desc&from=2026-09-01&to=2026-09-10&limit=5"
     );
+  });
+
+  it("retains the same-key ranking cache when an invalidated background request fails", async () => {
+    apiGet.mockResolvedValueOnce(rankingResponse).mockRejectedValue(new ApiError("unavailable", 503, null));
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const request = { siteId: rankingResponse.siteId, dimension: "floor" as const, metric: "usage" as const,
+      sort: "desc" as const, from: "2026-09-01", to: "2026-09-10", limit: 5 };
+    const { result } = renderHook(() => useEnergyRankings(request), { wrapper: wrapperFor(client) });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    await act(async () => {
+      await client.invalidateQueries({ queryKey: ["energy-rankings", request.siteId, request.dimension,
+        request.metric, request.sort, request.from, request.to, request.limit] });
+    });
+    await waitFor(() => expect(result.current.isError).toBe(true), { timeout: 3_000 });
+    // React Query intentionally keeps the successful data; the page must suppress it while isError is true.
+    expect(result.current.data).toEqual(rankingResponse);
   });
 
   it("loads a strict, selected-scope heatmap and keeps the metric in its cache key", async () => {

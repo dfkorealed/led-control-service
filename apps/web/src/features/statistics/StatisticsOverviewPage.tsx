@@ -433,7 +433,7 @@ function ComparisonSection({
         <div className="grid gap-1">
           <Text variant="overline" tone="muted">핵심 절감 분석</Text>
           <Heading as="h3" variant="section-title" id="statistics-comparison-title">기준 대비 에너지 절감</Heading>
-          {query.data ? <Text variant="caption" tone="secondary">
+          {query.data && !query.isError ? <Text variant="caption" tone="secondary">
             비교 기간 {query.data.range.from} ~ {query.data.range.to} · 완료 실적 {query.data.range.completedThrough}까지 · {query.data.timeZone} · 24시간 100% 비교 기준
           </Text> : null}
         </div>

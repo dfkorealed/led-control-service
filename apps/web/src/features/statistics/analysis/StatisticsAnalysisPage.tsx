@@ -37,10 +37,10 @@ export function StatisticsAnalysisPage() {
   const [heatmapMetric, setHeatmapMetric] = useState<EnergyHeatmapMetric>("energy");
   const query = useEnergyRankings({ siteId, dimension, metric, sort, from, to, limit: 20, enabled: validRange });
   const rankingResponse = query.data;
-  const ranking = validRange && rankingResponse && rankingResponse.siteId === siteId && rankingResponse.range.from === from &&
+  const ranking = validRange && !query.isError && rankingResponse && rankingResponse.siteId === siteId && rankingResponse.range.from === from &&
     rankingResponse.range.to === to && rankingResponse.dimension === dimension && rankingResponse.metric === metric &&
     rankingResponse.sort === sort ? rankingResponse : null;
-  const rankingMismatch = Boolean(validRange && query.data && !ranking);
+  const rankingMismatch = Boolean(validRange && !query.isError && query.data && !ranking);
   const selected = ranking?.ranked.find((item) => item.identityId === selectedId) ?? ranking?.ranked[0] ?? null;
   const heatmap = useEnergyObservedMeanHeatmap({
     siteId,

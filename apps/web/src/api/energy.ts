@@ -78,9 +78,16 @@ export function useEnergyRangeComparison(siteId: string | undefined, from: strin
   const validRange = energyRangeComparisonQuerySchema.safeParse({ from, to }).success;
   return useQuery({
     queryKey: ["energy-comparison-range", siteId, from, to],
-    queryFn: async () => energyRangeComparisonResponseSchema.parse(await apiGet<unknown>(
-      `/energy/sites/${encodeURIComponent(siteId!)}/comparisons/range?${new URLSearchParams({ from, to })}`
-    )),
+    queryFn: async () => {
+      const response = energyRangeComparisonResponseSchema.parse(await apiGet<unknown>(
+        `/energy/sites/${encodeURIComponent(siteId!)}/comparisons/range?${new URLSearchParams({ from, to })}`
+      ));
+      // A schema-valid response can still belong to another request. Never cache it under this site's range key.
+      if (response.siteId !== siteId || response.selection.from !== from || response.selection.to !== to) {
+        throw new Error("Custom energy comparison response does not match the requested site and range");
+      }
+      return response;
+    },
     enabled: enabled && Boolean(siteId) && validRange,
     retry: 1
   });
