@@ -14,12 +14,13 @@ const runbook = readFileSync(path.join(root, "docs/runbooks/production-api-web-d
 const required = ["API_IMAGE", "WEB_IMAGE", "POSTGRES_USER", "POSTGRES_PASSWORD", "POSTGRES_DB", "DATABASE_URL", "REDIS_PASSWORD", "REDIS_URL", "MQTT_URL", "MQTT_PUBLIC_URL", "MQTT_API_INSTANCE_ID", "MQTT_TLS_CERT_DIR", "API_TLS_CERT_DIR", "WEB_TLS_CERT_DIR", "VAULT_ADDR", "VAULT_TOKEN_FILE", "VAULT_CA_CERT_PATH", "VAULT_PKI_DEVICE_MOUNT", "VAULT_PKI_DEVICE_ROLE", "VAULT_PKI_MQTT_MOUNT", "VAULT_PKI_MQTT_ROLE", "OBJECT_STORAGE_ACCESS_KEY", "OBJECT_STORAGE_SECRET_KEY", "OBJECT_STORAGE_BUCKET", "OBJECT_STORAGE_REPORT_BUCKET", "OBJECT_STORAGE_ENDPOINT", "OBJECT_STORAGE_PUBLIC_URL", "OBJECT_STORAGE_REGION", "WEB_PUBLIC_URL", "WEB_HTTPS_ORIGIN", "WEB_HTTP_PORT", "WEB_HTTPS_PORT", "CAD_IMPORT_CONVERTER_BUNDLE_PATH", "CAD_IMPORT_CONVERTER_ARGV_JSON", "CAD_IMPORT_CONVERTER_SHA256"];
 required.push("PRODUCTION_COMPOSE_PROJECT", "DEVICE_API_HTTPS_PORT");
 // Config output is never logged; fixtures cannot inherit shell credentials or .env.
-function render(omit, project = "led-production-contract") {
+function render(omit, project = "led-production-contract", overrides = {}) {
   const dir = mkdtempSync(path.join(tmpdir(), "led-production-contract-"));
   const env = Object.fromEntries(required.map(key => [key, `fixture-${randomBytes(16).toString("hex")}`]));
   Object.assign(env, { API_IMAGE: `led-api@sha256:${'a'.repeat(64)}`, WEB_IMAGE: `led-web@sha256:${'b'.repeat(64)}`, WEB_HTTP_PORT: "18080", WEB_HTTPS_PORT: "18443" });
   Object.assign(env, { PRODUCTION_COMPOSE_PROJECT: project, DEVICE_API_HTTPS_PORT: "19443" });
   Object.assign(env, {VAULT_ADDR:'https://vault.invalid',WEB_PUBLIC_URL:'https://web.invalid',WEB_HTTPS_ORIGIN:'https://web.invalid',MQTT_URL:'mqtts://mqtt-tls:8883'});
+  Object.assign(env, overrides);
   env.CAD_IMPORT_CONVERTER_ARGV_JSON = '["--input","{input}","--output","{output}"]';
   for (const key of required.filter(key => /_DIR$|_FILE$|_PATH$/.test(key))) env[key] = dir;
   mkdirSync(path.join(dir, "bin"));
@@ -44,6 +45,7 @@ test("Set egress cutover defaults OFF and production rejects premature activatio
   assert.equal(baseline.preflight.status, 0);
   const premature = render(undefined, 'led-production-contract', { COMMAND_SET_EGRESS_ENABLED: '1', MQTT_SET_GENERATION: '7' });
   assert.equal(premature.status, 0);
+  assert.equal(premature.config.services.api.environment.COMMAND_SET_EGRESS_ENABLED, '1');
   assert.notEqual(premature.preflight.status, 0);
   assert.match(premature.preflight.stderr, /Set egress cutover remains disabled/);
 });
