@@ -10,12 +10,39 @@ for (const width of [1440, 1024, 390, 320]) {
   test(`public landing remains usable at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 900 });
     const authRequests: string[] = [];
-    page.on("request", (request) => { if (request.url().includes("/auth/me")) authRequests.push(request.url()); });
+    const apiRequests: string[] = [];
+    page.on("request", (request) => {
+      const pathname = new URL(request.url()).pathname;
+      if (pathname === "/api/auth/me") authRequests.push(pathname);
+      if (pathname.startsWith("/api/")) apiRequests.push(pathname);
+    });
     await page.goto("/");
-    await expect(page.getByRole("heading", { level: 1 })).toHaveText("조명 운영을 간단하게.");
-    await expect(page.getByRole("figure", { name: "제품 화면 예시" })).toBeVisible();
-    await expect(page.getByText("제품 화면 예시", { exact: true })).toBeInViewport();
+    await expect(page.getByRole("heading", { level: 1 })).toHaveText(/조명 위치를 찾고, 제어하고,\s*결과를 확인하세요\./);
+    const preview = page.getByRole("figure", { name: "킨다 관제 구성 예시" });
+    await expect(preview).toBeVisible();
+    await expect(preview).toHaveAttribute("aria-describedby", /preview-description/);
+    await expect(preview.getByText(/실제 운영 데이터가 아닙니다/)).toBeVisible();
+    await expect(page.getByText("제품 화면 예시", { exact: true })).toHaveCount(0);
+    await expect(page.getByText("현장 · 도면 · 조명을 한 화면에서", { exact: true })).toHaveCount(0);
+
+    const monitoring = preview.getByRole("button", { name: "모니터링" });
+    const control = preview.getByRole("button", { name: "제어" });
+    const records = preview.getByRole("button", { name: "기록" });
+    await expect(monitoring).toHaveAttribute("aria-pressed", "true");
+    await expect(preview.getByRole("heading", { name: "도면에서 위치와 상태 확인" })).toBeVisible();
+    await control.click();
+    await expect(control).toHaveAttribute("aria-pressed", "true");
+    await expect(preview.getByRole("heading", { name: "대상을 고르고 조명 제어" })).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    await records.click();
+    await expect(records).toHaveAttribute("aria-pressed", "true");
+    await expect(preview.getByRole("heading", { name: "명령 이력과 추정 전력 확인" })).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    await monitoring.click();
+    await expect(monitoring).toHaveAttribute("aria-pressed", "true");
+    await expect(preview.getByRole("heading", { name: "도면에서 위치와 상태 확인" })).toBeVisible();
     expect(authRequests).toEqual([]);
+    expect(apiRequests).toEqual([]);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 
     for (const [name, anchor] of [["제품 소개", "product"], ["활용 안내", "benefits"], ["상담 문의", "contact"]]) {
@@ -28,8 +55,8 @@ for (const width of [1440, 1024, 390, 320]) {
     await expect(page).toHaveURL(/#contact$/);
     await expect(page.getByRole("heading", { name: /우리 현장에 맞는 시작/ })).toBeInViewport();
 
-    // All real navigation controls provide a full, reachable 44px touch target.
-    for (const link of await page.getByRole("link").all()) {
+    // All real navigation and preview controls provide a full, reachable 44px touch target.
+    for (const link of [...(await page.getByRole("link").all()), monitoring, control, records]) {
       if (await link.textContent() === "본문으로 이동") continue;
       await link.scrollIntoViewIfNeeded();
       const hitTarget = await link.evaluate((element) => {
@@ -42,10 +69,16 @@ for (const width of [1440, 1024, 390, 320]) {
       expect(hitTarget.reachable).toBe(true);
     }
     await page.goto("/");
+    // Axe must inspect the settled colors, not the hero's temporary entrance opacity.
+    await page.locator(".landing-page").evaluate(async (root) => {
+      await Promise.all(root.getAnimations({ subtree: true }).map((animation) => animation.finished.catch(() => undefined)));
+    });
     await page.addScriptTag({ path: require.resolve("axe-core/axe.min.js") });
     const accessibilityViolations = await page.evaluate(async () => {
-      const axe = (window as unknown as { axe: { run(): Promise<{ violations: { id: string; impact: string }[] }> } }).axe;
-      return (await axe.run()).violations.filter(({ impact }) => impact === "serious" || impact === "critical");
+      const axe = (window as unknown as { axe: { run(): Promise<{ violations: { id: string; impact: string; nodes: { target: string[] }[] }[] }> } }).axe;
+      return (await axe.run()).violations
+        .filter(({ impact }) => impact === "serious" || impact === "critical")
+        .map(({ id, nodes }) => ({ id, targets: nodes.map(({ target }) => target) }));
     });
     expect(accessibilityViolations).toEqual([]);
     const screenshotDir = resolve(".local/landing-visuals");
@@ -65,7 +98,10 @@ test("keyboard navigation reaches content, product and contact with reduced moti
   await expect(page.getByRole("link", { name: "도입 상담하기" })).toBeFocused();
   await page.keyboard.press("Enter");
   await expect(page.locator("#contact")).toBeFocused();
-  const animatedElements = await page.locator("a").evaluateAll((elements) => elements.filter((element) => {
+  await page.getByRole("figure", { name: "킨다 관제 구성 예시" }).getByRole("button", { name: "제어" }).click();
+  await expect(page.getByRole("heading", { name: "대상을 고르고 조명 제어" })).toBeVisible();
+  await expect(page.locator(".landing-page")).not.toHaveAttribute("data-landing-motion", "ready");
+  const animatedElements = await page.locator(".landing-hero-heading, [data-landing-reveal], [data-preview-panel]").evaluateAll((elements) => elements.filter((element) => {
     const style = getComputedStyle(element);
     return style.transitionDuration !== "0s" || style.animationName !== "none";
   }).length);
