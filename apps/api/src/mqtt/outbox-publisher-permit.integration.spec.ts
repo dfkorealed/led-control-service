@@ -166,8 +166,9 @@ function deferred<T>() {
 }
 
 function egress(mqtt: { publishTopic: (...args: any[]) => Promise<void> }) {
-  return { assertPublisherIdentity: () => {}, publish: (_generation: number, topic: string, payload: unknown, expiry: number) =>
-    mqtt.publishTopic(topic, payload, { messageExpiryInterval: expiry, timeoutMs: 20_000 }) };
+  return { assertPublisherIdentity: () => {}, publish: (_generation: number, topic: string, payload: unknown,
+    authorize: (enqueue: (expiry: number) => Promise<void>) => Promise<boolean>) =>
+    authorize(expiry => mqtt.publishTopic(topic, payload, { messageExpiryInterval: expiry, timeoutMs: 20_000 })) };
 }
 
 function wireScope(commandId: string, dispatchId: string, gatewayId: string, now: Date) {

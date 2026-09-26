@@ -167,7 +167,8 @@ describe("OutboxPublisherService", () => {
       await inFlight.promise;
     }) };
     const epoch = epochDependencies(prisma, now);
-    const egress = { assertPublisherIdentity: jest.fn(), publish: jest.fn(async () => mqtt.publishTopic()) };
+    const egress = { assertPublisherIdentity: jest.fn(), publish: jest.fn((_generation, _topic, _payload, authorize) =>
+      authorize((expiry: number) => { expect(expiry).toBe(8); return mqtt.publishTopic(); })) };
     const publisher = new OutboxPublisherService(prisma, mqtt as never, {
       workerId: "fenced-worker", clock: () => now, deliveryGeneration: () => deliveryGeneration
     }, undefined, egress as never, epoch.epochs as never, epoch.health as never);
@@ -184,7 +185,7 @@ describe("OutboxPublisherService", () => {
     expect(order.indexOf("permit")).toBeLessThan(order.indexOf("mqtt"));
     expect(order.indexOf("mqtt")).toBeLessThan(order.indexOf("transaction-end", order.indexOf("mqtt")));
     expect(order.indexOf("transaction-end", order.indexOf("mqtt"))).toBeLessThan(order.indexOf("published-state"));
-    expect(egress.publish).toHaveBeenCalledWith(7, expect.any(String), expect.objectContaining({ publishEpoch: 7 }), 8);
+    expect(egress.publish).toHaveBeenCalledWith(7, expect.any(String), expect.objectContaining({ publishEpoch: 7 }), expect.any(Function));
   });
 
   it("uses DB time inside the permit to block a Set that crossed the UTC cutoff after attempt commit", async () => {
@@ -211,7 +212,8 @@ describe("OutboxPublisherService", () => {
     epoch.health.assertHealthy.mockResolvedValueOnce(appNow).mockResolvedValueOnce(appNow).mockResolvedValueOnce(appNow);
     const publisher = new OutboxPublisherService(prisma, mqtt as never, {
       workerId: "fenced-worker", clock: () => appNow, deliveryGeneration: () => deliveryGeneration
-    }, undefined, { assertPublisherIdentity: jest.fn(), publish: jest.fn() } as never, epoch.epochs as never, epoch.health as never);
+    }, undefined, { assertPublisherIdentity: jest.fn(), publish: jest.fn((_generation, _topic, _payload, authorize) =>
+      authorize(mqtt.publishTopic)) } as never, epoch.epochs as never, epoch.health as never);
     await publisher.publishClaimed({ ...meshRecord(), payload: dimmingPayload,
       dispatch: { ...meshDispatch, kind: "dimming" } } as never);
     expect(mqtt.publishTopic).not.toHaveBeenCalled();
@@ -247,14 +249,15 @@ describe("OutboxPublisherService", () => {
     prisma.$transaction = jest.fn(async (callback: (tx: any) => Promise<unknown>) => callback(prisma));
     const mqtt = { publishTopic: jest.fn() };
     const epoch = epochDependencies(prisma, now);
-    const egress = { assertPublisherIdentity: jest.fn(), publish: jest.fn() };
+    const egress = { assertPublisherIdentity: jest.fn(), publish: jest.fn((_generation, _topic, _payload, authorize) =>
+      authorize(mqtt.publishTopic)) };
     const publisher = new OutboxPublisherService(prisma, mqtt as never, {
       workerId: "fenced-worker", clock: () => now, deliveryGeneration: () => deliveryGeneration
     }, undefined, egress as never, epoch.epochs as never, epoch.health as never);
     await publisher.publishClaimed({ ...meshRecord(), payload: dimmingPayload,
       dispatch: { ...meshDispatch, kind: "dimming" } } as never);
     expect(mqtt.publishTopic).not.toHaveBeenCalled();
-    expect(egress.publish).not.toHaveBeenCalled();
+    expect(egress.publish).toHaveBeenCalledTimes(1);
     expect(prisma.mqttOutbox.updateMany).not.toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ publishedAt: expect.any(Date) })
     }));

@@ -407,11 +407,7 @@ export class OutboxPublisherService implements OnModuleInit {
 
   private async publishWire(topic: string, payload: unknown, expirySeconds: number) {
     if (this.dispatchKind === "dimming" && process.env.COMMAND_SET_EGRESS_ENABLED === "1") {
-      const generation = (payload as { publishEpoch?: number }).publishEpoch;
-      if (!generation || !this.commandSetMqtt) throw new Error("command Set epoch egress unavailable");
-      this.commandSetMqtt.assertPublisherIdentity(this.workerId, generation);
-      await this.commandSetMqtt.publish(generation, topic, payload, expirySeconds);
-      return;
+      throw new SetAdmissionError("command Set requires live permit authorization");
     }
     await this.mqtt.publishTopic(topic, payload, { messageExpiryInterval: expirySeconds, timeoutMs: MQTT_PUBLISH_TIMEOUT_MS });
   }
@@ -427,51 +423,66 @@ export class OutboxPublisherService implements OnModuleInit {
     return this.prisma.$transaction(async (tx) => {
       const admission = await this.admitSet(tx);
       this.assertPayloadEpoch(payload, admission.generation);
-      // Ordinary SELECTs hold no row locks while MQTT waits for PUBACK, so an
-      // ACK writer can still resolve the dispatch. The permit closes the normal
-      // cross-instance read-to-publish gap; purge also needs durable generation
-      // quiescence and a DB-disconnect/wire-expiry guard before activation.
-      const now = admission.now;
-      await this.assertRetainedCommand(tx, record.dispatch.commandId, now);
-      const outbox = await tx.mqttOutbox.findUnique({
-        where: { id: record.id },
-        select: {
-          dispatchId: true, lockedBy: true, leaseExpiresAt: true, publishedAt: true,
-          deadLetteredAt: true, deliveryAttemptedAt: true, payload: true
+      return this.commandSetMqtt!.publish(admission.generation, record.topic, payload, async (enqueue) => {
+        // Connect first, but retain the original permit transaction throughout.
+        // A dead backend must not be replaced with a new authorization session.
+        const connectedAdmission = await this.admitSet(tx);
+        this.assertPayloadEpoch(payload, connectedAdmission.generation);
+        // Ordinary SELECTs hold no row locks while MQTT waits for PUBACK, so an
+        // ACK writer can still resolve the dispatch. The permit closes the normal
+        // cross-instance read-to-publish gap; purge also needs durable generation
+        // quiescence and a DB-disconnect/wire-expiry guard before activation.
+        const now = connectedAdmission.now;
+        const command = await tx.command.findUnique({ where: { id: record.dispatch.commandId }, select: { createdAt: true } });
+        if (!command || command.createdAt < threeCalendarMonthsBefore(now)) {
+          throw new CommandDeliveryExpiredError("command retention cutoff reached");
         }
-      });
-      if (
-        !outbox || outbox.dispatchId !== record.dispatchId || outbox.lockedBy !== this.workerId ||
-        outbox.publishedAt || outbox.deadLetteredAt || !outbox.deliveryAttemptedAt ||
-        !outbox.leaseExpiresAt || outbox.leaseExpiresAt.getTime() <= now.getTime() + MQTT_PUBLISH_TIMEOUT_MS ||
-        !isDeepStrictEqual(outbox.payload, payload)
-      ) return;
-      if (!await tx.commandPublishAttempt.findFirst({ where: { dispatchId: record.dispatchId,
-        generation: admission.generation, workerId: this.workerId, expiresAt: new Date(payload.expiresAt) } })) {
-        throw new SetAdmissionError("command publish attempt envelope unavailable");
-      }
-      if (await tx.gatewayRecommissionJob.count({
-        where: {
-          siteId: payload.siteId,
-          gatewayId: record.dispatch.gatewayId,
-          status: { in: ["mqtt_revocation_pending", "mqtt_revoked"] }
+        const outbox = await tx.mqttOutbox.findUnique({
+          where: { id: record.id },
+          select: {
+            dispatchId: true, lockedBy: true, leaseExpiresAt: true, publishedAt: true,
+            deadLetteredAt: true, deliveryAttemptedAt: true, payload: true
+          }
+        });
+        if (
+          !outbox || outbox.dispatchId !== record.dispatchId || outbox.lockedBy !== this.workerId ||
+          outbox.publishedAt || outbox.deadLetteredAt || !outbox.deliveryAttemptedAt ||
+          !outbox.leaseExpiresAt || outbox.leaseExpiresAt.getTime() <= now.getTime() + MQTT_PUBLISH_TIMEOUT_MS ||
+          !isDeepStrictEqual(outbox.payload, payload)
+        ) return false;
+        if (!await tx.commandPublishAttempt.findFirst({ where: { dispatchId: record.dispatchId,
+          generation: admission.generation, workerId: this.workerId, expiresAt: new Date(payload.expiresAt) } })) {
+          throw new SetAdmissionError("command publish attempt envelope unavailable");
         }
-      }) !== 0) return;
+        if (await tx.gatewayRecommissionJob.count({
+          where: {
+            siteId: payload.siteId,
+            gatewayId: record.dispatch.gatewayId,
+            status: { in: ["mqtt_revocation_pending", "mqtt_revoked"] }
+          }
+        }) !== 0) return false;
 
-      // Recheck against DB time immediately before enqueue. A skewed app clock
-      // cannot extend the ten-second wire generation into a later purge window.
-      const publishAt = (await this.admitSet(tx)).now;
-      await this.assertRetainedCommand(tx, record.dispatch.commandId, publishAt);
-      if (Date.parse(payload.deliveryGeneratedAt) > publishAt.getTime() + GATEWAY_COMMAND_EXPIRY_CLOCK_SKEW_GUARD_MS ||
-        Date.parse(payload.expiresAt) > publishAt.getTime() + GATEWAY_COMMAND_ACCEPTANCE_DEADLINE_MS + GATEWAY_COMMAND_EXPIRY_CLOCK_SKEW_GUARD_MS) {
-        throw new CommandDeliveryExpiredError("publisher clock is ahead of database clock");
-      }
-      if (outbox.leaseExpiresAt.getTime() <= publishAt.getTime() + MQTT_PUBLISH_TIMEOUT_MS) return;
-      const messageExpiryInterval = currentMessageExpiry(
-        payload, new Date(publishAt.getTime() + GATEWAY_COMMAND_EXPIRY_CLOCK_SKEW_GUARD_MS)
-      );
-      await this.publishWire(record.topic, payload, messageExpiryInterval);
-      return true;
+        // This must be the LAST awaited authorization operation. admitSet checks
+        // epoch/member and ends with same-primary DB clock continuity on this tx.
+        // Only synchronous validation and native enqueue follow; PUBACK is awaited
+        // after enqueue. Broker retirement still guards loss AFTER hand-off.
+        const finalAdmission = await this.admitSet(tx);
+        this.assertPayloadEpoch(payload, finalAdmission.generation);
+        const publishAt = finalAdmission.now;
+        if (!command || command.createdAt < threeCalendarMonthsBefore(publishAt)) {
+          throw new CommandDeliveryExpiredError("command retention cutoff reached");
+        }
+        if (Date.parse(payload.deliveryGeneratedAt) > publishAt.getTime() + GATEWAY_COMMAND_EXPIRY_CLOCK_SKEW_GUARD_MS ||
+          Date.parse(payload.expiresAt) > publishAt.getTime() + GATEWAY_COMMAND_ACCEPTANCE_DEADLINE_MS + GATEWAY_COMMAND_EXPIRY_CLOCK_SKEW_GUARD_MS) {
+          throw new CommandDeliveryExpiredError("publisher clock is ahead of database clock");
+        }
+        if (outbox.leaseExpiresAt.getTime() <= publishAt.getTime() + MQTT_PUBLISH_TIMEOUT_MS) return false;
+        const messageExpiryInterval = currentMessageExpiry(
+          payload, new Date(publishAt.getTime() + GATEWAY_COMMAND_EXPIRY_CLOCK_SKEW_GUARD_MS)
+        );
+        await enqueue(messageExpiryInterval);
+        return true;
+      });
     }, { maxWait: 2_000, timeout: PUBLISH_PERMIT_TRANSACTION_TIMEOUT_MS });
   }
 

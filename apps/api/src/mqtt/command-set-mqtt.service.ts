@@ -5,6 +5,8 @@ import { connect, IClientOptions, MqttClient } from "mqtt";
 import { PrismaService } from "../prisma/prisma.service";
 
 type Options = { env?: NodeJS.ProcessEnv; timeoutMs?: number };
+export type CommandSetEnqueue = (expirySeconds: number) => Promise<void>;
+export type CommandSetAuthorization = (enqueue: CommandSetEnqueue) => Promise<boolean>;
 
 /** Local closure is deliberately not a broker drain or antirollback attestation. */
 @Injectable()
@@ -38,16 +40,16 @@ export class CommandSetMqttService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  async publish(generation: number, topic: string, payload: unknown, expirySeconds: number): Promise<void> {
+  async publish(generation: number, topic: string, payload: unknown, authorize: CommandSetAuthorization): Promise<boolean> {
     if (this.closed) throw new Error("command Set egress closed");
     if (!this.registration || !this.connection) throw new Error("command Set registration unavailable");
     const body = payload as { siteId?: unknown; gatewayId?: unknown; publishEpoch?: unknown } | null;
     if (generation !== this.registration.generation || !body || body.publishEpoch !== generation ||
       !/^sites\/[^/+#\u0000]+\/gateways\/[^/+#\u0000]+\/commands\/dimming$/.test(topic) ||
-      topic !== `sites/${body.siteId}/gateways/${body.gatewayId}/commands/dimming` ||
-      !Number.isInteger(expirySeconds) || expirySeconds <= 0 || expirySeconds > 10) {
-      throw new Error("command Set generation, topic scope or expiry rejected");
+      topic !== `sites/${body.siteId}/gateways/${body.gatewayId}/commands/dimming` || typeof authorize !== "function") {
+      throw new Error("command Set generation, topic scope or authorization rejected");
     }
+    const wire = JSON.stringify(payload);
     await this.assertRegistered();
     if (this.closed) throw new Error("command Set egress closed");
     const client = this.client ??= connect(this.connection.url, this.connection.options);
@@ -56,8 +58,10 @@ export class CommandSetMqttService implements OnModuleInit, OnModuleDestroy {
     const onError = () => {};
     client.on("error", onError);
     let timer: NodeJS.Timeout | undefined;
+    let authorizing = true;
+    let enqueued = false;
     try {
-      await Promise.race([
+      return await Promise.race([
         (async () => {
           if (!client.connected) await new Promise<void>((resolve, reject) => {
             const cleanup = () => { client.removeListener("connect", ready); client.removeListener("error", failed); client.removeListener("close", disconnected); };
@@ -66,11 +70,22 @@ export class CommandSetMqttService implements OnModuleInit, OnModuleDestroy {
             const disconnected = () => failed(new Error("command Set connection closed"));
             client.once("connect", ready); client.once("error", failed); client.once("close", disconnected);
           });
-          await this.assertRegistered();
-          if (this.closed) throw new Error("command Set egress closed");
-          await new Promise<void>((resolve, reject) => client.publish(topic, JSON.stringify(payload), {
-            qos: 1, retain: false, properties: { messageExpiryInterval: expirySeconds }
-          }, (error) => error ? reject(error) : resolve()));
+          // Connection and all root-client DB work precede authorization. The
+          // caller rechecks its ORIGINAL live permit transaction, then calls
+          // enqueue synchronously after its final DB-clock sample. No await,
+          // reconnect or DB query may be inserted in this admission boundary.
+          return authorize((expirySeconds) => {
+            if (!authorizing || enqueued || this.closed || !client.connected) {
+              throw new Error("command Set enqueue unavailable");
+            }
+            if (!Number.isInteger(expirySeconds) || expirySeconds <= 0 || expirySeconds > 10) {
+              throw new Error("command Set expiry rejected");
+            }
+            enqueued = true;
+            return new Promise<void>((resolve, reject) => client.publish(topic, wire, {
+              qos: 1, retain: false, properties: { messageExpiryInterval: expirySeconds }
+            }, (error) => error ? reject(error) : resolve()));
+          });
         })(),
         new Promise<never>((_, reject) => { timer = setTimeout(() => {
           // Deferred QoS1 can survive an application timeout. Close locally and
@@ -80,6 +95,7 @@ export class CommandSetMqttService implements OnModuleInit, OnModuleDestroy {
         }, this.timeoutMs); })
       ]);
     } finally {
+      authorizing = false;
       if (timer) clearTimeout(timer);
       // Keep one listener while the owned client closes asynchronously.
       if (client.listenerCount("error") > 1) client.removeListener("error", onError);

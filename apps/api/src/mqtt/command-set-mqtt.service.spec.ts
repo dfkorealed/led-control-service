@@ -4,9 +4,11 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { connect } from "mqtt";
-import { CommandSetMqttService } from "./command-set-mqtt.service";
+import { CommandSetAuthorization, CommandSetMqttService } from "./command-set-mqtt.service";
 import { MqttService } from "./mqtt.service";
 import { Logger } from "@nestjs/common";
+
+const authorize = (expiry: number): CommandSetAuthorization => async enqueue => { await enqueue(expiry); return true; };
 
 jest.mock("mqtt", () => ({ connect: jest.fn() }));
 
@@ -42,7 +44,7 @@ describe("generation-scoped Set egress", () => {
   it("registers the certificate identity and uses a clean, zero-expiry Set-only client", async () => {
     const { service, prisma, client } = fixture();
     await service.onModuleInit();
-    await service.publish(7, topic, payload, 8);
+    await service.publish(7, topic, payload, authorize(8));
     expect(prisma.commandPublishMember.createMany).toHaveBeenCalledWith({ data: {
       generation: 7, workerId: "api-1", brokerIdentity: "command-set-7"
     }, skipDuplicates: true });
@@ -61,11 +63,51 @@ describe("generation-scoped Set egress", () => {
   });
   it("never connects without DB registration, even when credentials are valid", async () => {
     const { service, prisma } = fixture();
-    await expect(service.publish(7, topic, payload, 8)).rejects.toThrow(/registration/);
+    await expect(service.publish(7, topic, payload, authorize(8))).rejects.toThrow(/registration/);
     prisma.commandPublishMember.findFirst.mockResolvedValue(null);
     await service.onModuleInit();
-    await expect(service.publish(7, topic, payload, 8)).rejects.toThrow(/registration/);
+    await expect(service.publish(7, topic, payload, authorize(8))).rejects.toThrow(/registration/);
     expect(connect).not.toHaveBeenCalled();
+  });
+  it("connects before authorization and enqueues synchronously with no further registration read", async () => {
+    const { service, prisma, client } = fixture();
+    client.connected = false;
+    await service.onModuleInit();
+    const authorized = jest.fn(async (enqueue) => {
+      expect(client.connected).toBe(true);
+      prisma.commandPublishMember.findFirst.mockImplementation(() => { throw new Error("late DB query"); });
+      const ack = enqueue(3);
+      // This assertion runs before any microtask or await can run.
+      expect(client.publish).toHaveBeenCalledTimes(1);
+      await ack;
+      return true;
+    });
+    const publishing = service.publish(7, topic, payload, authorized);
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(authorized).not.toHaveBeenCalled();
+    client.connected = true;
+    client.emit("connect");
+    await expect(publishing).resolves.toBe(true);
+    expect(client.publish).toHaveBeenCalledWith(topic, JSON.stringify(payload), expect.objectContaining({
+      properties: { messageExpiryInterval: 3 }
+    }), expect.any(Function));
+    await service.close();
+  });
+  it("refuses a disconnected enqueue and any deferred call after authorization returns", async () => {
+    const { service, client } = fixture();
+    await service.onModuleInit();
+    let deferredEnqueue!: (expiry: number) => Promise<void>;
+    await expect(service.publish(7, topic, payload, async enqueue => {
+      deferredEnqueue = enqueue;
+      client.connected = false;
+      expect(() => enqueue(8)).toThrow(/unavailable/);
+      return false;
+    })).resolves.toBe(false);
+    client.connected = true;
+    expect(() => deferredEnqueue(8)).toThrow(/unavailable/);
+    expect(client.publish).not.toHaveBeenCalled();
+    await service.close();
   });
   it("binds an outbox publisher to the same registered worker and epoch", async () => {
     const { service } = fixture();
@@ -77,11 +119,11 @@ describe("generation-scoped Set egress", () => {
   it("retirement or DB loss stops a previously active client's next handoff", async () => {
     const { service, prisma, client } = fixture();
     await service.onModuleInit();
-    await service.publish(7, topic, payload, 8);
+    await service.publish(7, topic, payload, authorize(8));
     prisma.commandPublishMember.findFirst.mockResolvedValueOnce(null);
-    await expect(service.publish(7, topic, payload, 8)).rejects.toThrow(/registration/);
+    await expect(service.publish(7, topic, payload, authorize(8))).rejects.toThrow(/registration/);
     prisma.commandPublishMember.findFirst.mockRejectedValueOnce(new Error("DB lost"));
-    await expect(service.publish(7, topic, payload, 8)).rejects.toThrow("DB lost");
+    await expect(service.publish(7, topic, payload, authorize(8))).rejects.toThrow("DB lost");
     expect(client.publish).toHaveBeenCalledTimes(1);
     await service.close();
   });
@@ -92,7 +134,7 @@ describe("generation-scoped Set egress", () => {
   ])("rejects wrong generation, scope, kind or expiry before MQTT (%s %s)", async (generation, target, body, expiry) => {
     const { service, client } = fixture();
     await service.onModuleInit();
-    await expect(service.publish(generation as number, target as string, body, expiry as number)).rejects.toThrow();
+    await expect(service.publish(generation as number, target as string, body, authorize(expiry as number))).rejects.toThrow();
     expect(client.publish).not.toHaveBeenCalled();
   });
   it("does not fallback to the API credential when the Set credential is missing or has wrong CN", async () => {
@@ -100,21 +142,21 @@ describe("generation-scoped Set egress", () => {
     const { service } = fixture();
     delete env.MQTT_SET_CLIENT_CERT_PATH;
     await service.onModuleInit();
-    await expect(service.publish(7, topic, payload, 8)).rejects.toThrow();
+    await expect(service.publish(7, topic, payload, authorize(8))).rejects.toThrow();
     expect(connect).not.toHaveBeenCalled();
     env.MQTT_SET_CLIENT_CERT_PATH = join(directory, "cert"); env.MQTT_SET_GENERATION = "8";
     const other = new CommandSetMqttService({} as never, { env });
     await other.onModuleInit();
-    await expect(other.publish(8, topic, { ...payload, publishEpoch: 8 }, 8)).rejects.toThrow();
+    await expect(other.publish(8, topic, { ...payload, publishEpoch: 8 }, authorize(8))).rejects.toThrow();
     expect(connect).not.toHaveBeenCalled();
   });
   it("closes and latches local refusal after timeout without treating close as broker proof", async () => {
     const { service, client } = fixture();
     client.publish.mockImplementation(() => undefined);
     await service.onModuleInit();
-    await expect(service.publish(7, topic, payload, 8)).rejects.toThrow(/timed out/);
+    await expect(service.publish(7, topic, payload, authorize(8))).rejects.toThrow(/timed out/);
     expect(client.end).toHaveBeenCalledWith(true, { properties: { sessionExpiryInterval: 0 } }, expect.any(Function));
-    await expect(service.publish(7, topic, payload, 8)).rejects.toThrow(/closed/);
+    await expect(service.publish(7, topic, payload, authorize(8))).rejects.toThrow(/closed/);
   });
   it("keeps the default OFF path available while ON rejects old API dimming but preserves Get", async () => {
     const previous = process.env.COMMAND_SET_EGRESS_ENABLED;

@@ -8,6 +8,7 @@ import { LegacyStatusCheckPublisherService } from "./legacy-status-check-publish
 import { CommandDbClockHealth, type CommandDbClockEvidence } from "./command-db-clock-health.service";
 import { CommandPublishEpochService } from "./command-publish-epoch.service";
 import { CommandPublishQuiesceService } from "./command-publish-quiesce.service";
+import { CommandSetMqttService } from "./command-set-mqtt.service";
 
 (process.env.COMMAND_RETENTION_TEST === "1" ? describe : describe.skip)("Set publisher PostgreSQL epoch permit", () => {
   let cluster: Awaited<ReturnType<typeof disposablePostgres>>;
@@ -54,7 +55,9 @@ import { CommandPublishQuiesceService } from "./command-publish-quiesce.service"
   afterAll(async () => { await Promise.all([db?.$disconnect(), peer?.$disconnect()]); cluster?.stop(); });
 
   function publisher(workerId = "worker-a", send: (...args: any[]) => Promise<void> = async () => {}, client = db) {
-    const egress = { publish: jest.fn(send), assertPublisherIdentity: jest.fn(), close: jest.fn(async () => {}) };
+    const egress = { publish: jest.fn((_generation, topic, payload, authorize) =>
+      authorize((expiry: number) => send(_generation, topic, payload, expiry))),
+      assertPublisherIdentity: jest.fn(), close: jest.fn(async () => {}) };
     const shared = { publishTopic: jest.fn(async () => {}) };
     const service = new (OutboxPublisherService as any)(client, shared, { workerId }, undefined,
       egress, new CommandPublishEpochService(), health) as OutboxPublisherService;
@@ -268,6 +271,109 @@ import { CommandPublishQuiesceService } from "./command-publish-quiesce.service"
     expect((await db.command.findUniqueOrThrow({ where: { id: row.dispatch.commandId } })).outcome).toBe("unknown");
   });
 
+  it.each(["expiry", "clock-step", "permit-backend-kill"])(
+    "real Set egress rejects %s incurred while waiting for MQTT connection before native enqueue", async fault => {
+      const broker = await disposableSetBroker(epoch);
+      const row = await record();
+      const client = broker.client(`command-set-${epoch}`, true);
+      const initialConnectListeners = client.listenerCount("connect");
+      const nativePublish = jest.spyOn(client, "publish");
+      let backendPid = 0;
+      const tracked = new Proxy(db, { get(target, key) {
+        if (key === "$transaction") return (work: (tx: any) => Promise<unknown>, options: any) => target.$transaction(async tx => {
+          const [backend] = await tx.$queryRaw<Array<{ pid: number }>>`SELECT pg_backend_pid() AS pid`;
+          backendPid = backend.pid;
+          return work(tx);
+        }, options);
+        const value = Reflect.get(target, key);
+        return typeof value === "function" ? value.bind(target) : value;
+      } });
+      // Only credential construction is bypassed for this localhost ACL fixture.
+      // The production egress class, Prisma transactions and MQTT.js client run.
+      const egress = new CommandSetMqttService(db as never);
+      Object.assign(egress, { registration: { generation: epoch, workerId: "worker-a", brokerIdentity: `command-set-${epoch}` },
+        connection: { url: "fixture-owned-client", options: {} }, client });
+      const service = new OutboxPublisherService(tracked as never, { publishTopic: jest.fn() } as never,
+        { workerId: "worker-a" }, undefined, egress, new CommandPublishEpochService(), health);
+      let publishing: Promise<void> | undefined;
+      try {
+        publishing = service.publishClaimed(row);
+        await until(() => client.listenerCount("connect") > initialConnectListeners);
+        if (fault === "expiry") {
+          // Keep lease headroom: expiry rejection must not accidentally pass
+          // only because the 30s lease has less than 20s remaining.
+          await peer.mqttOutbox.update({ where: { id: row.id }, data: { leaseExpiresAt: new Date(Date.now() + 60_000) } });
+          await new Promise(resolve => setTimeout(resolve, 10_100));
+        }
+        if (fault === "clock-step") evidence.stepGeneration = 1;
+        if (fault === "permit-backend-kill") {
+          const [killed] = await peer.$queryRaw<Array<{ killed: boolean }>>`
+            SELECT pg_terminate_backend(${backendPid}::integer) AS killed`;
+          expect(killed.killed).toBe(true);
+          const [permit] = await peer.$transaction(tx => tx.$queryRaw<Array<{ acquired: boolean }>>`
+            SELECT pg_try_advisory_xact_lock(${8052026092501n}) AS acquired`);
+          expect(permit.acquired).toBe(true);
+        }
+        client.connect();
+        await publishing;
+        expect(nativePublish).not.toHaveBeenCalled();
+        const rejected = await db.mqttOutbox.findUniqueOrThrow({ where: { id: row.id } });
+        expect(rejected.publishedAt).toBeNull();
+        if (fault === "expiry") expect(rejected.deadLetteredAt).not.toBeNull();
+        expect(await db.commandPublishAttempt.count({ where: { dispatchId: row.dispatchId } })).toBe(1);
+      } finally {
+        if (!(client as any).stream) client.connect();
+        await egress.close();
+        await publishing;
+        await broker.stop();
+      }
+    }, 25_000);
+
+  it("real Set egress preserves unknown if the permit backend dies after native enqueue before PUBACK resolution", async () => {
+    const broker = await disposableSetBroker(epoch);
+    const row = await record();
+    await db.command.update({ where: { id: row.dispatch.commandId }, data: { outcome: "pending" } });
+    const client = broker.client(`command-set-${epoch}`);
+    await broker.connected(client);
+    const ack = deferred(), release = deferred();
+    const nativePublish = client.publish.bind(client);
+    jest.spyOn(client, "publish").mockImplementation(((topic: string, payload: string, options: any, callback: any) =>
+      nativePublish(topic, payload, options, (error: Error | undefined) => {
+        ack.resolve();
+        void release.promise.then(() => callback(error));
+      })) as any);
+    let backendPid = 0;
+    const tracked = new Proxy(db, { get(target, key) {
+      if (key === "$transaction") return (work: (tx: any) => Promise<unknown>, options: any) => target.$transaction(async tx => {
+        const [backend] = await tx.$queryRaw<Array<{ pid: number }>>`SELECT pg_backend_pid() AS pid`;
+        backendPid = backend.pid;
+        return work(tx);
+      }, options);
+      const value = Reflect.get(target, key);
+      return typeof value === "function" ? value.bind(target) : value;
+    } });
+    const egress = new CommandSetMqttService(db as never);
+    Object.assign(egress, { registration: { generation: epoch, workerId: "worker-a", brokerIdentity: `command-set-${epoch}` },
+      connection: { url: "fixture-owned-client", options: {} }, client });
+    const service = new OutboxPublisherService(tracked as never, { publishTopic: jest.fn() } as never,
+      { workerId: "worker-a" }, undefined, egress, new CommandPublishEpochService(), health);
+    const publishing = service.publishClaimed({ ...row, attempts: 9 });
+    try {
+      await ack.promise;
+      await peer.$queryRaw`SELECT pg_terminate_backend(${backendPid}::integer)`;
+      release.resolve();
+      await publishing;
+      expect(client.publish).toHaveBeenCalledTimes(1);
+      expect((await db.command.findUniqueOrThrow({ where: { id: row.dispatch.commandId } })).outcome).toBe("unknown");
+      expect(await db.commandPublishAttempt.count({ where: { dispatchId: row.dispatchId } })).toBe(1);
+    } finally {
+      release.resolve();
+      await publishing;
+      await egress.close();
+      await broker.stop();
+    }
+  }, 15_000);
+
   it("keeps legacy Get available while Set epoch is quiescing and clock evidence is absent", async () => {
     const row = await record("status_check");
     await db.commandPublishEpoch.update({ where: { generation: epoch }, data: { status: "quiescing" } });
@@ -291,4 +397,12 @@ function deferred() {
   let resolve!: () => void;
   const promise = new Promise<void>(done => { resolve = done; });
   return { promise, resolve };
+}
+
+async function until(predicate: () => boolean) {
+  for (let i = 0; i < 200; i++) {
+    if (predicate()) return;
+    await new Promise(resolve => setTimeout(resolve, 5));
+  }
+  throw new Error("egress did not reach its connection wait");
 }
