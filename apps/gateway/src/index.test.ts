@@ -935,6 +935,7 @@ describe("startGatewayRuntime", () => {
 
   it("passes only manual intent to runtime while mapping terminal results", async () => {
     const scheduleRuntime = {
+      abortManualControl: vi.fn().mockResolvedValue(undefined),
       captureManualTerminalContext: vi.fn().mockReturnValue({ suppressions: {} }),
       prepareManualControl: vi.fn().mockResolvedValue(undefined),
       handoffManualTerminal: vi.fn().mockResolvedValue(undefined)
@@ -984,6 +985,7 @@ describe("startGatewayRuntime", () => {
 
   it("passes legacy wire intent without expiry metadata to runtime", async () => {
     const scheduleRuntime = {
+      abortManualControl: vi.fn().mockResolvedValue(undefined),
       captureManualTerminalContext: vi.fn().mockReturnValue({ suppressions: {} }),
       prepareManualControl: vi.fn().mockResolvedValue(undefined),
       handoffManualTerminal: vi.fn().mockResolvedValue(undefined)

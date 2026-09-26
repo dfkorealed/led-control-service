@@ -6,6 +6,8 @@ interface JournalRecord {
   command: unknown;
   result?: unknown;
   automationHandoff: "not_required" | "pending" | "completed";
+  automationAbort?: "pending" | "completed";
+  executionPhase?: "pre_rf" | "may_have_written";
   updatedAt: string;
 }
 
@@ -70,6 +72,8 @@ export class CommandJournal {
       state: record.state,
       command: record.command,
       ...(record.result === undefined ? {} : { result: record.result }),
+      ...(record.executionPhase ? { executionPhase: record.executionPhase } : {}),
+      ...(record.automationAbort ? { automationAbort: record.automationAbort } : {}),
       ...(record.automationHandoff === "not_required" ? {} : { automationHandoff: record.automationHandoff })
     };
   }
@@ -78,7 +82,7 @@ export class CommandJournal {
     return Object.values((await this.readData()).fixtureSnapshots).sort((left, right) => left.fixtureId.localeCompare(right.fixtureId));
   }
 
-  async accept(idempotencyKey: string, command: unknown, options: { terminalResult?: unknown } = {}) {
+  async accept(idempotencyKey: string, command: unknown, options: { terminalResult?: unknown; executionPhase?: "pre_rf" } = {}) {
     return this.enqueue(async () => {
       const data = await this.readData();
       this.prune(data);
@@ -91,6 +95,7 @@ export class CommandJournal {
         state: terminal ? "completed" : "accepted",
         command,
         ...(terminal ? { result: options.terminalResult } : {}),
+        ...(!terminal && options.executionPhase ? { executionPhase: options.executionPhase } : {}),
         automationHandoff: "not_required",
         updatedAt: this.now().toISOString()
       };
@@ -103,13 +108,14 @@ export class CommandJournal {
   async complete(
     idempotencyKey: string,
     result: unknown,
-    options: { automationHandoffPending?: boolean } = {}
+    options: { automationHandoffPending?: boolean; automationAbortPending?: boolean } = {}
   ) {
     await this.enqueue(async () => {
       const data = await this.readData();
       const existing = data.records[idempotencyKey];
       if (!existing) throw new Error("command must be accepted before completion");
-      if (options.automationHandoffPending && !isPendingAutomationRecovery(existing)) {
+      if (options.automationHandoffPending && options.automationAbortPending) throw new Error("abort and handoff are mutually exclusive");
+      if ((options.automationHandoffPending || options.automationAbortPending) && !isPendingAutomationRecovery(existing)) {
         this.assertAutomationCapacity(data);
       }
       data.records[idempotencyKey] = {
@@ -117,6 +123,7 @@ export class CommandJournal {
         state: "completed",
         result,
         automationHandoff: options.automationHandoffPending ? "pending" : "not_required",
+        ...(options.automationAbortPending ? { automationAbort: "pending" as const } : {}),
         updatedAt: this.now().toISOString()
       };
       this.updateSnapshots(data, result);
@@ -145,6 +152,8 @@ export class CommandJournal {
       .map(([idempotencyKey, record]) => ({
         idempotencyKey,
         state: record.state,
+        ...(record.executionPhase ? { executionPhase: record.executionPhase } : {}),
+        ...(record.automationAbort ? { automationAbort: record.automationAbort } : {}),
         command: record.command,
         ...(record.result === undefined ? {} : { result: record.result })
       }));
@@ -159,6 +168,31 @@ export class CommandJournal {
       if (existing.automationHandoff !== "pending") throw new Error("automation handoff is not pending");
       existing.automationHandoff = "completed";
       existing.updatedAt = this.now().toISOString();
+      await this.writeData(data);
+    });
+  }
+
+  async markExecutionMayHaveStarted(idempotencyKey: string) {
+    await this.enqueue(async () => {
+      const data = await this.readData();
+      const record = data.records[idempotencyKey];
+      if (!record || record.state !== "accepted" || !record.executionPhase) throw new Error("command must have a durable pre-RF phase");
+      // Commit before handing control to the adapter. A crash from here onward
+      // cannot prove the absence of a physical write, even if submission failed.
+      record.executionPhase = "may_have_written";
+      record.updatedAt = this.now().toISOString();
+      await this.writeData(data);
+    });
+  }
+
+  async markAutomationAbortComplete(idempotencyKey: string) {
+    await this.enqueue(async () => {
+      const data = await this.readData();
+      const record = data.records[idempotencyKey];
+      if (!record || record.state !== "completed" || !record.automationAbort) throw new Error("automation abort is not pending");
+      if (record.automationAbort === "completed") return;
+      record.automationAbort = "completed";
+      record.updatedAt = this.now().toISOString();
       await this.writeData(data);
     });
   }
@@ -286,8 +320,8 @@ function isManualCommandWrapper(value: unknown) {
     (Array.isArray(command?.targetFixtureIds) && typeof command?.brightness === "number");
 }
 
-function isPendingAutomationRecovery(record: Pick<JournalRecord, "state" | "command" | "automationHandoff">) {
-  return (record.state === "completed" && record.automationHandoff === "pending") ||
+function isPendingAutomationRecovery(record: Pick<JournalRecord, "state" | "command" | "automationHandoff" | "automationAbort">) {
+  return record.automationAbort === "pending" || (record.state === "completed" && record.automationHandoff === "pending") ||
     (record.state === "accepted" && isManualCommandWrapper(record.command));
 }
 

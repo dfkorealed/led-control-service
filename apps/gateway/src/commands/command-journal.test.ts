@@ -5,6 +5,23 @@ import { describe, expect, it } from "vitest";
 import { CommandJournal, CommandJournalAutomationCapacityError } from "./command-journal";
 
 describe("CommandJournal", () => {
+  it("retains abort intent across TTL/capacity pruning until exact durable acknowledgement", async () => {
+    const path = join(await mkdtemp(join(tmpdir(), "command-abort-")), "journal.json");
+    let now = new Date("2026-09-26T00:00:00Z");
+    const options = { now: () => now, ttlMs: 100, maxRecords: 1 };
+    const journal = new CommandJournal(path, options);
+    await journal.accept("abort", { command: { targetFixtureIds: ["fixture-1"], brightness: 60 } }, { executionPhase: "pre_rf" });
+    await journal.complete("abort", { fixtureStateObserved: false }, { automationAbortPending: true });
+    now = new Date("2026-09-27T00:00:00Z");
+    await journal.accept("other", {});
+    const restarted = new CommandJournal(path, options);
+    expect(await restarted.pendingAutomationRecoveries()).toEqual([expect.objectContaining({ idempotencyKey: "abort", automationAbort: "pending" })]);
+    expect(await restarted.get("abort")).toMatchObject({ automationAbort: "pending" });
+    await restarted.markAutomationAbortComplete("abort");
+    await restarted.markAutomationAbortComplete("abort");
+    expect(await restarted.pendingAutomationRecoveries()).toEqual([]);
+    expect(await restarted.latestFixtureSnapshots()).toEqual([]);
+  });
   it("atomically persists terminal refusal without an accepted-only restart or automation recovery", async () => {
     const path = join(await mkdtemp(join(tmpdir(), "command-refusal-")), "journal.json");
     const journal = new CommandJournal(path);

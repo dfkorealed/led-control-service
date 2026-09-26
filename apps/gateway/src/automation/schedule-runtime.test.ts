@@ -36,6 +36,31 @@ afterEach(async () => {
 });
 
 describe("ScheduleRuntime", () => {
+  it.each(["schedule", "vehicle"])("resumes %s after exact durable manual abort without recording a manual result", async (source) => {
+    const test = await runtimeFixture("2026-08-30T00:59:00.000Z");
+    await test.runtime.recordFixtureState(fixtureId, 20);
+    await test.runtime.recordFixtureState(sourceFixtureId, 30);
+    await activate(test.runtime, snapshot(source === "schedule" ? { schedules: [dailySchedule()] } : { vehicleEventRules: [vehicleRule(80, 5)] }));
+    await test.runtime.prepareManualControl(manualControl(60));
+    await test.runtime.prepareManualControl({ ...manualControl(70), sourceId: scheduleId, fixtureIds: [sourceFixtureId] });
+    const restarted = new ScheduleRuntime({ store: new FileAutomationStateStore(test.path), clockTrust: test.trust, wallClock: test.wall.now, execute: test.execute });
+    await restarted.initialize();
+    const other = restarted.state().pendingManualControls[sourceFixtureId];
+    await restarted.abortManualControl(manualControl(60).sourceId, [fixtureId, sourceFixtureId]);
+    await restarted.abortManualControl(manualControl(60).sourceId, [fixtureId, sourceFixtureId]);
+    expect(restarted.state().pendingManualControls).toEqual({ [sourceFixtureId]: other });
+    expect(restarted.state().transitionsByFixture[fixtureId]).toBeUndefined();
+    expect(restarted.pendingObservationFixtureIds()).not.toContain(fixtureId);
+    expect(restarted.state().currentByFixture[fixtureId]).toBe(20);
+    expect(restarted.state().baseBrightnessByFixture[fixtureId]).not.toBe(60);
+    expect(restarted.state().manualAutomationSuppressions).toEqual({});
+    test.wall.set("2026-08-30T01:00:00.000Z");
+    await activate(restarted, snapshot(source === "schedule" ? { schedules: [dailySchedule()] } : { vehicleEventRules: [vehicleRule(80, 5)] }));
+    if (source === "vehicle") await restarted.recordVehicleSensorState(sourceFixtureId, true);
+    await restarted.tick();
+    expect(restarted.state().currentByFixture[fixtureId]).toBe(source === "schedule" ? 40 : 80);
+    expect(restarted.state().pendingManualControls[sourceFixtureId]).toEqual(other);
+  });
   it.each(["vehicle", "schedule"])("suppresses the existing %s after live manual success on an untrusted rolled-back clock", async (source) => {
     const test = await runtimeFixture("2026-08-30T01:00:00.000Z");
     await test.runtime.recordFixtureState(fixtureId, 20);
