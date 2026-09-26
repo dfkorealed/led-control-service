@@ -896,6 +896,83 @@ describe("MqttService", () => {
     expect(prisma.command.updateMany).toHaveBeenCalledTimes(1);
   });
 
+  it.each(["siteId", "gatewayId", "dispatchId"] as const)(
+    "ignores a clock refusal attributed to another %s without changing the command", async (field) => {
+      const state = clockAckState();
+      const ack = { ...acceptanceAckPayload(), status: "rejected", errorCode: "GATEWAY_CLOCK_UNTRUSTED",
+        [field]: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" };
+      await state.service.handleMessage(deviceStatusTopic().replace("device-status", "acceptance"),
+        Buffer.from(JSON.stringify(ack)));
+      expect(state.prisma.commandDispatch.updateMany).not.toHaveBeenCalled();
+      expect(state.prisma.commandFixtureResult.updateMany).not.toHaveBeenCalled();
+      expect(state.prisma.command.updateMany).not.toHaveBeenCalled();
+    }
+  );
+
+  it("does not close a clock refusal whose dispatch targets differ from the command target snapshot", async () => {
+    const state = clockAckState(["aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"]);
+    await state.service.handleMessage(deviceStatusTopic().replace("device-status", "acceptance"),
+      Buffer.from(JSON.stringify({ ...acceptanceAckPayload(), status: "rejected",
+        errorCode: "GATEWAY_CLOCK_UNTRUSTED" })));
+    expect(state.command.outcome).toBe("pending");
+    expect(state.dispatch.status).toBe("accepted");
+    expect(state.prisma.commandFixtureResult.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("does not erase an already observed fixture when a clock refusal arrives", async () => {
+    const state = clockAckState();
+    state.results[0].status = "succeeded";
+    (state.results[0] as { brightness: number | null }).brightness = 70;
+    await state.service.handleMessage(deviceStatusTopic().replace("device-status", "acceptance"),
+      Buffer.from(JSON.stringify({ ...acceptanceAckPayload(), status: "rejected",
+        errorCode: "GATEWAY_CLOCK_UNTRUSTED" })));
+    expect(state.dispatch.status).toBe("accepted");
+    expect(state.results[0]).toMatchObject({ status: "succeeded", brightness: 70 });
+    expect(state.command.outcome).toBe("pending");
+  });
+
+  it("makes an exact clock refusal terminal without a fixture observation or a Set retry", async () => {
+    const state = clockAckState();
+    await state.service.handleMessage(deviceStatusTopic().replace("device-status", "acceptance"),
+      Buffer.from(JSON.stringify({ ...acceptanceAckPayload(), status: "rejected",
+        errorCode: "GATEWAY_CLOCK_UNTRUSTED", errorMessage: "gateway command clock or epoch proof is unavailable" })));
+    expect(state.dispatch).toMatchObject({ status: "failed", errorCode: "GATEWAY_CLOCK_UNTRUSTED" });
+    expect(state.command).toMatchObject({ status: "failed", outcome: "not_applied" });
+    expect(state.results[0]).toMatchObject({ status: "failed", brightness: null });
+    expect(state.prisma.commandDispatch.updateMany).toHaveBeenCalledTimes(1);
+    await state.service.handleMessage(deviceStatusTopic(), Buffer.from(JSON.stringify(deviceStatusAckPayload())));
+    expect(state.command.outcome).toBe("not_applied");
+    expect(state.results[0]).toMatchObject({ status: "failed", brightness: null });
+    expect(state.prisma.mqttOutbox.create).not.toHaveBeenCalled();
+  });
+
+  it("does not accept a contradictory accepted clock-refusal ACK as proof of delivery", async () => {
+    const state = clockAckState(undefined, { status: "published" });
+    await state.service.handleMessage(deviceStatusTopic().replace("device-status", "acceptance"),
+      Buffer.from(JSON.stringify({ ...acceptanceAckPayload(), errorCode: "GATEWAY_CLOCK_UNTRUSTED" })));
+    expect(state.dispatch.status).toBe("published");
+    expect(state.command.outcome).toBe("pending");
+  });
+
+  it("does not apply a Set-only clock refusal to a status-check dispatch", async () => {
+    const state = clockAckState(undefined, { kind: "status_check", verificationAttempt: 1 }, "unknown");
+    await state.service.handleMessage(deviceStatusTopic().replace("device-status", "acceptance"),
+      Buffer.from(JSON.stringify({ ...acceptanceAckPayload(), status: "rejected",
+        errorCode: "GATEWAY_CLOCK_UNTRUSTED" })));
+    expect(state.dispatch.status).toBe("accepted");
+    expect(state.command.outcome).toBe("unknown");
+    expect(state.prisma.commandFixtureResult.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("leaves an already unknown Set in verification even if a clock refusal arrives late", async () => {
+    const state = clockAckState(undefined, { status: "accepted" }, "unknown");
+    await state.service.handleMessage(deviceStatusTopic().replace("device-status", "acceptance"),
+      Buffer.from(JSON.stringify({ ...acceptanceAckPayload(), status: "rejected",
+        errorCode: "GATEWAY_CLOCK_UNTRUSTED" })));
+    expect(state.command.outcome).toBe("unknown");
+    expect(state.prisma.commandFixtureResult.updateMany).not.toHaveBeenCalled();
+  });
+
   it("does not process a device-status ACK for an already terminal dispatch", async () => {
     const prisma: any = {
       $executeRaw: jest.fn(),
@@ -2745,6 +2822,25 @@ function reconciliationPrisma(count: number, overrides: Record<string, unknown> 
   };
   prisma.$transaction = jest.fn(async (callback: (tx: any) => Promise<unknown>) => callback(prisma));
   return { prisma, command, dispatch, dispatches, results, order, service: new MqttService(prisma, createMeshGroupsMock() as never) };
+}
+
+function clockAckState(targetFixtureIds = [deviceStatusAckPayload().results[0].fixtureId],
+  overrides: Record<string, unknown> = {}, outcome: string | null = "pending") {
+  const state = reconciliationPrisma(1, overrides, outcome);
+  const read = state.prisma.$queryRaw;
+  state.prisma.$queryRaw = jest.fn(async (query: TemplateStringsArray, ...values: unknown[]) => {
+    const sql = query.join("");
+    if (sql.includes('FROM "CommandDispatch"')) {
+      const owner = acceptanceAckPayload();
+      if (values[0] !== owner.dispatchId || values[1] !== owner.commandId || values[2] !== owner.gatewayId
+        || values[3] !== owner.idempotencyKey || values[4] !== BigInt(owner.sequence) || values[5] !== owner.siteId) return [];
+    }
+    const rows = await read(query, ...values);
+    return sql.includes('FROM "CommandDispatch"')
+      ? rows.map((row: Record<string, unknown>) => ({ ...row, targetFixtureIds })) : rows;
+  });
+  state.prisma.mqttOutbox = { create: jest.fn() };
+  return state;
 }
 
 function deviceStatusTopic() {

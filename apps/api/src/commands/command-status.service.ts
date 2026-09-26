@@ -19,7 +19,8 @@ export const commandHistoryQuerySchema = z.object({
 type HistoryInput = { siteId: string; query?: string; stage?: typeof commandStages[number]; cursor?: string; limit?: number };
 
 const historyInclude = {
-  dispatches: { select: { kind: true, verificationAttempt: true, status: true, fixtureResults: { select: { status: true } } } }
+  dispatches: { select: { kind: true, verificationAttempt: true, status: true, errorCode: true,
+    fixtureResults: { select: { fixtureId: true, status: true } } } }
 } satisfies Prisma.CommandInclude;
 type SummaryCommand = Prisma.CommandGetPayload<{ include: typeof historyInclude }>;
 
@@ -142,10 +143,20 @@ function summarizeCommand(command: SummaryCommand) {
     : outcome === "not_applied" ? (verified ? "verified_not_applied" : "failed")
     : outcome === "partially_applied" ? (verified ? "verified_partial" : "partial_failed")
     : deriveCommandStage(command.status, dimming.map((dispatch) => dispatch.status), statuses);
+  const targetIds = Array.isArray(command.targetFixtureIds) ? command.targetFixtureIds : [];
+  const clockRefusal = outcome === "not_applied" && dimming.length === 1
+    && dimming[0].status === "failed" && dimming[0].errorCode === "GATEWAY_CLOCK_UNTRUSTED"
+    && targetIds.length > 0 && targetIds.every((id) => typeof id === "string")
+    && new Set(targetIds).size === targetIds.length
+    && dimming[0].fixtureResults.length === targetIds.length
+    && dimming[0].fixtureResults.every((result) => result.status === "failed"
+      && targetIds.includes(result.fixtureId))
+    && new Set(dimming[0].fixtureResults.map((result) => result.fixtureId)).size === targetIds.length;
   return {
     id: command.id, siteId: command.siteId, targetType: command.targetType, targetId: command.targetId,
     targetFixtureIds: command.targetFixtureIds, brightness: command.brightness, status: command.status,
-    outcome, stage, verificationAttemptCount, errorMessage: command.errorMessage, dispatchCount: command.dispatches.length,
+    outcome, stage, ...(clockRefusal ? { errorCode: "GATEWAY_CLOCK_UNTRUSTED" as const } : {}),
+    verificationAttemptCount, errorMessage: command.errorMessage, dispatchCount: command.dispatches.length,
     completedFixtureCount: statuses.filter((status) => status !== "pending").length, totalFixtureCount: statuses.length,
     createdAt: command.createdAt.toISOString(), updatedAt: command.updatedAt.toISOString()
   };

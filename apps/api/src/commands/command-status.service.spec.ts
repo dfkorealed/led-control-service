@@ -90,6 +90,36 @@ describe("CommandStatusService", () => {
         ...(attempt ? [expect.objectContaining({ kind: "status_check", verificationAttempt: attempt }), expect.objectContaining({ verificationAttempt: attempt })] : [])] });
   });
 
+  it("exposes only an exact terminal clock refusal in command history and detail", async () => {
+    const clock = historyCommand("command-clock", "not_applied");
+    clock.dispatches[0].status = "failed";
+    clock.dispatches[0].errorCode = "GATEWAY_CLOCK_UNTRUSTED";
+    clock.dispatches[0].fixtureResults[0].status = "failed";
+    const uncertain = historyCommand("command-unknown", "unknown");
+    uncertain.dispatches[0].errorCode = "GATEWAY_CLOCK_UNTRUSTED";
+    const partial = historyCommand("command-partial", "partially_applied");
+    partial.dispatches[0].errorCode = "GATEWAY_CLOCK_UNTRUSTED";
+    partial.dispatches[0].fixtureResults[0].status = "succeeded";
+    const expired = historyCommand("command-expired", "not_applied");
+    expired.dispatches[0].status = "failed";
+    expired.dispatches[0].errorCode = "COMMAND_EXPIRED";
+    expired.dispatches[0].fixtureResults[0].status = "failed";
+    const prisma = { command: { findMany: jest.fn().mockResolvedValue([clock, uncertain, partial, expired]),
+      findUnique: jest.fn().mockResolvedValue(clock) } };
+    const service = new (CommandStatusService as any)(prisma, { assert: jest.fn() });
+    const list = await service.listCommands(user, { siteId: "site-1" });
+    expect(list.items.map((item: any) => item.errorCode)).toEqual([
+      "GATEWAY_CLOCK_UNTRUSTED", undefined, undefined, undefined
+    ]);
+    await expect(service.getCommand(user, clock.id)).resolves.toMatchObject({
+      errorCode: "GATEWAY_CLOCK_UNTRUSTED", stage: "failed",
+      dispatches: [expect.objectContaining({ errorCode: "GATEWAY_CLOCK_UNTRUSTED" })]
+    });
+    clock.dispatches[0].fixtureResults[0].fixtureId = "outside-target";
+    const wrongTarget = await service.listCommands(user, { siteId: "site-1" });
+    expect(wrongTarget.items[0].errorCode).toBeUndefined();
+  });
+
   it("lists summaries with stable descending timestamp/id pagination and an exclusive cursor", async () => {
     const rows = [historyCommand("cccccccc-cccc-4ccc-8ccc-cccccccccccc"), historyCommand("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb")];
     const prisma = { command: { findMany: jest.fn().mockResolvedValue(rows) } };

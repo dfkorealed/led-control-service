@@ -75,6 +75,7 @@ interface LockedCommandDispatch {
   errorCode: string | null;
   outcome: "pending" | "applied" | "not_applied" | "partially_applied" | "unknown" | null;
   brightness: number;
+  targetFixtureIds: Prisma.JsonValue;
 }
 
 const ACTIVE_DISPATCH_STATUSES = ["pending", "published", "accepted"];
@@ -1162,6 +1163,8 @@ export class MqttService implements OnModuleInit {
   }
 
   private async storeAcceptanceAck(ack: ReturnType<typeof acceptanceAckV2Schema.parse>) {
+    // The clock code is a terminal pre-RF Set refusal, never an acceptance.
+    if (ack.status === "accepted" && ack.errorCode === "GATEWAY_CLOCK_UNTRUSTED") return;
     const where: Prisma.CommandDispatchWhereInput = {
       id: ack.dispatchId,
       commandId: ack.commandId,
@@ -1189,6 +1192,25 @@ export class MqttService implements OnModuleInit {
       await this.automationSnapshot.lockMutation(tx);
       const dispatch = await this.lockCommandDispatch(tx, ack);
       if (!dispatch || !ACTIVE_DISPATCH_STATUSES.includes(dispatch.status)) return;
+      if (ack.errorCode === "GATEWAY_CLOCK_UNTRUSTED"
+        && (dispatch.kind !== "dimming" || ![null, "pending"].includes(dispatch.outcome))) {
+        // Once RF may have started, a late refusal cannot clear an unknown hold.
+        return;
+      }
+      if (ack.errorCode === "GATEWAY_CLOCK_UNTRUSTED") {
+        const rows = await tx.$queryRaw<Array<{ fixtureId: string; status: string }>>`
+          SELECT r."fixtureId", r."status" FROM "CommandFixtureResult" r
+          WHERE r."dispatchId" = ${dispatch.id} ORDER BY r."fixtureId" FOR UPDATE OF r
+        `;
+        const targets = dispatch.targetFixtureIds;
+        // The acceptance wire has no target list. Its locked dispatch snapshot
+        // must account for every target before a pre-RF refusal can close it.
+        if (!Array.isArray(targets) || targets.length === 0 || targets.length !== rows.length
+          || targets.some((id) => typeof id !== "string")
+          || new Set(targets).size !== targets.length
+          || rows.some((row) => row.status !== "pending" || !targets.includes(row.fixtureId))
+          || new Set(rows.map((row) => row.fixtureId)).size !== targets.length) return;
+      }
       const failed = await tx.commandDispatch.updateMany({ where, data });
       if (failed.count !== 1) return;
       const errorMessage = ack.errorMessage ?? "gateway rejected command";
@@ -1410,7 +1432,7 @@ export class MqttService implements OnModuleInit {
     ack: { dispatchId: string; commandId: string; gatewayId: string; idempotencyKey: string; sequence: number; siteId: string }
   ) {
     const rows = await tx.$queryRaw<LockedCommandDispatch[]>`
-      SELECT d."id", d."commandId", d."kind", d."verificationAttempt", d."status", d."errorCode", c."outcome", c."brightness"
+      SELECT d."id", d."commandId", d."kind", d."verificationAttempt", d."status", d."errorCode", c."outcome", c."brightness", c."targetFixtureIds"
       FROM "CommandDispatch" d INNER JOIN "Command" c ON c."id" = d."commandId"
       WHERE d."id" = ${ack.dispatchId} AND d."commandId" = ${ack.commandId}
         AND d."gatewayId" = ${ack.gatewayId} AND d."idempotencyKey" = ${ack.idempotencyKey}
