@@ -5,11 +5,16 @@ const siteId = "20000000-0000-4000-8000-000000000001";
 const fixtureId = "30000000-0000-4000-8000-000000000001";
 
 export function makePdfSemanticFixture(days = 62, incomplete = false, longName = false, allCurrentMissing = false, hugeCost = false,
-  options: { scope?: "site" | "floor" | "group" | "fixture"; partialDay?: "partial" | "unknown"; sameNameTarget?: boolean } = {}) {
+  options: { scope?: "site" | "floor" | "group" | "fixture"; partialDay?: "partial" | "unknown";
+    incompleteDays?: Record<number, "partial" | "unknown">; sameNameTarget?: boolean } = {}) {
   const from = new Date("2026-07-01T00:00:00.000Z");
   const dates = Array.from({ length: days }, (_, index) => new Date(from.getTime() + index * 86400000).toISOString().slice(0, 10));
   const previous = Array.from({ length: days }, (_, index) => new Date(from.getTime() - (days - index) * 86400000).toISOString().slice(0, 10));
   const all = [...previous, ...dates];
+  const durationFor = (date: string) => {
+    const status = options.incompleteDays?.[dates.indexOf(date)] ?? (date === dates[7] ? options.partialDay : undefined);
+    return status === "partial" ? 3600 : status === "unknown" ? 90000 : 86400;
+  };
   const data: EnergyReportDataSnapshot = {
     schemaVersion: 2, capturedAt: "2026-09-01T00:00:00.000Z",
     site: { id: siteId, name: longName ? "서울 생산동 긴 현장 이름 ".repeat(20) : "서울 현장", timeZone: "UTC", tariffKwhRate: "160" },
@@ -18,8 +23,7 @@ export function makePdfSemanticFixture(days = 62, incomplete = false, longName =
     fixtures: [{ id: fixtureId, from: "2026-01-01T00:00:00.000Z", to: null,
       dimensions: [{ name: longName ? "아주 긴 한글 조명 이름 ".repeat(18) : "조명 가", floorId: "floor-1", floorName: "1층", ratedWatt: "30", from: "2026-01-01T00:00:00.000Z", to: null }], groups: [],
       daily: all.filter(date => previous.includes(date) || (!allCurrentMissing && (!incomplete || date !== dates[7]))).map(date => ({ localDate: date, energyKwh: "1.125",
-        cost: hugeCost ? "9007199254740993.25" : "180", durationSeconds: date === dates[7] && options.partialDay
-          ? options.partialDay === "partial" ? 3600 : 90000 : 86400 })),
+        cost: hugeCost ? "9007199254740993.25" : "180", durationSeconds: durationFor(date) })),
       hourly: dates.filter(date => !allCurrentMissing && (!incomplete || date !== dates[7])).flatMap(date => Array.from({ length: 24 }, (_, hour) => ({
         localDate: date, localHour: hour, bucketStartUtc: `${date}T${String(hour).padStart(2, "0")}:00:00.000Z`,
         energyKwh: hour === 0 ? "1.125" : "0", durationSeconds: 3600, brightnessWeightedSeconds: "0" }))) }]

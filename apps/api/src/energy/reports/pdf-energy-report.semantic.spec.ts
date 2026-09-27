@@ -212,4 +212,20 @@ describe("semantic PDF energy report", () => {
     expect(output.manifest).toContainEqual({ path: "trend.note",
       value: "선은 완전 기록일만 연결하며 나머지 날짜는 제외" });
   }, 60000);
+
+  it("shows an isolated complete day and both gap boundaries without dotting every day", async () => {
+    const document = makeDocument(62, false, false, false, false,
+      { incompleteDays: { 6: "partial", 8: "unknown" } });
+    const model = buildPdfReportPresentation(document);
+    expect(model.daily.slice(6, 9).map(day => day.completeness)).toEqual(["partial", "complete", "unknown"]);
+    const output = await new PdfEnergyReportRenderer().render(document);
+    const chart = pageContent(await PDFDocument.load(output.bytes), 1);
+    const pointXs = [...chart.matchAll(/0 w\s+\[\] 0 d\s+q\s+([\d.]+) [\d.]+ m\s+[\d.]+ [\d.]+ [\d.]+ [\d.]+ [\d.]+ [\d.]+ c/g)]
+      .map(match => Number(match[1]) + 1.7);
+    for (const boundaryX of [126.836, 140.770, 154.705])
+      expect(pointXs.some(x => Math.abs(x - boundaryX) < 0.01)).toBe(true);
+    for (const incompleteX of [133.803, 147.738])
+      expect(pointXs.some(x => Math.abs(x - incompleteX) < 0.01)).toBe(false);
+    expect(pointXs.length).toBeLessThan(20);
+  }, 60000);
 });

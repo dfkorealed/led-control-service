@@ -164,7 +164,10 @@ export class PdfEnergyReportRenderer implements EnergyReportRenderer {
       if (value === null) { previousPoint = null; return; }
       const point = { x: plot.x + index * plot.w / Math.max(1, values.length - 1), y: plot.y + value / maxDaily * plot.h };
       if (previousPoint) page.drawLine({ start: previousPoint, end: point, thickness: 1.3, color: color.blue });
-      if (index === 0 || index === values.length - 1 || index % Math.max(1, Math.ceil(values.length / 12)) === 0)
+      // Preserve endpoints beside missing/uncertain spans even when the normal
+      // 12-point decimation would hide an isolated complete day entirely.
+      const gapBoundary = values[index - 1] === null || values[index + 1] === null;
+      if (index === 0 || index === values.length - 1 || gapBoundary || index % Math.max(1, Math.ceil(values.length / 12)) === 0)
         page.drawCircle({ x: point.x, y: point.y, size: 1.7, color: color.blue });
       previousPoint = point;
     });
