@@ -28,14 +28,16 @@ function localCaptureTime(iso: string, timeZone: string): string {
 export function pdfDisplayFacts(p: PdfReportPresentation): ReportManifest {
   const facts: ReportManifest = [];
   const add = (path: string, value: string) => facts.push({ path, value });
-  add("site", p.site);
-  if (p.target !== p.site) add("target", p.target);
+  add("site", `현장: ${p.site}`);
+  add("scope", p.scope === "현장" ? "보고 범위: 현장 전체" : `보고 범위: ${p.scope} · ${p.target}`);
   add("period", `${p.period.from} ~ ${p.period.to}`);
   add("quality.current", `${p.quality.current.completeDays}/${p.quality.current.totalDays}일`);
   add("summary.current", p.summary.current.text);
   add("summary.previous", p.summary.comparisonAvailable ? p.summary.previous.text : "비교 불가");
   add("summary.difference", p.summary.comparisonAvailable ? p.summary.difference.text : "비교 불가");
   add("summary.storedCost", p.summary.storedCost.text);
+  if (p.daily.some(row => row.completeness !== "complete"))
+    add("trend.note", "선은 완전 기록일만 연결하며 나머지 날짜는 제외");
   if (p.peakDay) { add("peakDay.date", p.peakDay.date); add("peakDay.energy", p.peakDay.energy.text); }
   p.monthly.forEach((month, index) => {
     add(`monthly.${index}.month`, month.month);

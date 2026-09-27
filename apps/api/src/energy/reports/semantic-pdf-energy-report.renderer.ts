@@ -110,7 +110,7 @@ export class PdfEnergyReportRenderer implements EnergyReportRenderer {
 
     newPage("조명 에너지 사용 보고서");
     let introY = fact("site", P.margin, 710, 10, 500);
-    if (model.target !== model.site) introY = fact("target", P.margin, introY - 1, 9, 500, false, color.muted);
+    introY = fact("scope", P.margin, introY - 1, 9, 500, false, color.muted);
     introY = fact("period", P.margin, introY - 1, 9, 500, false, color.muted);
     const qualityY = Math.min(655, introY - 52);
     box(P.margin, qualityY, 507, 51, color.pale, color.pale);
@@ -147,8 +147,12 @@ export class PdfEnergyReportRenderer implements EnergyReportRenderer {
     box(P.margin, 308, 507, 404);
     write("일별 사용량", P.margin + 15, 687, 11, 430, true);
     write("단위 kWh", 490, 687, 8, 58, false, color.muted);
+    if (model.daily.some(row => row.completeness !== "complete"))
+      fact("trend.note", 92, 650, 8, 425, false, color.muted);
     const plot = { x: 92, y: 365, w: 425, h: 268 };
-    const values = model.daily.map(row => row.energy.raw === null ? null : Number(row.energy.raw));
+    // A persisted amount from a partial or uncertain day is not a full-day
+    // measurement. Keep it in the detail table, but never connect it as a trend point.
+    const values = model.daily.map(row => row.completeness !== "complete" || row.energy.raw === null ? null : Number(row.energy.raw));
     const maxDaily = Math.max(1, ...values.filter((value): value is number => value !== null));
     for (let tick = 0; tick <= 3; tick++) {
       const ty = plot.y + tick * plot.h / 3;
@@ -164,7 +168,8 @@ export class PdfEnergyReportRenderer implements EnergyReportRenderer {
         page.drawCircle({ x: point.x, y: point.y, size: 1.7, color: color.blue });
       previousPoint = point;
     });
-    if (!values.some(value => value !== null)) write("데이터 없음", 278, 495, 12, 110, true, color.muted);
+    if (!values.some(value => value !== null)) write(model.daily.some(row => row.energy.raw !== null)
+      ? "완전한 기록 없음" : "데이터 없음", 278, 495, 12, 130, true, color.muted);
     write(model.period.from.slice(5), plot.x, 339, 8, 80, false, color.muted);
     write(model.period.to.slice(5), 476, 339, 8, 65, false, color.muted);
     if (model.peakDay) {
@@ -191,33 +196,51 @@ export class PdfEnergyReportRenderer implements EnergyReportRenderer {
 
     if (model.floors.rows.length || model.fixtures.topFive.length || hasPdfAmount(model.floors.unassigned) || hasPdfAmount(model.fixtures.unassigned)) {
       newPage("어디에서 사용했나");
-      const floorTop = 712;
       const floorRowHeights = model.floors.rows.map(row => Math.max(35,
         wrap(row.name, 9, 105, true).length * 14 + 8,
         wrap(row.energy.text, 9, 100, true).length * 14 + 8));
-      const floorHeight = 57 + floorRowHeights.reduce((sum, height) => sum + height, 0) +
-        (hasPdfAmount(model.floors.unassigned) ? 25 : 0) + 10;
-      if (floorTop - floorHeight < 85) throw new Error("Floor ranking exceeds PDF page capacity");
-      box(P.margin, floorTop - floorHeight, 507, floorHeight);
-      write("층별 사용량", P.margin + 15, floorTop - 26, 11, 470, true);
       const floorMax = Math.max(1, ...model.floors.rows.map(row => Number(row.energy.raw ?? 0)));
-      let floorY = floorTop - 64;
-      model.floors.rows.forEach((row, index) => {
-        fact(`floors.${index}.name`, P.margin + 16, floorY, 9, 105, true);
-        bar(P.margin + 150, floorY - 2, 230, 13, Number(row.energy.raw ?? 0) / floorMax);
-        fact(`floors.${index}.energy`, P.margin + 390, floorY, 9, 100, true);
-        floorY -= floorRowHeights[index];
-      });
-      if (hasPdfAmount(model.floors.unassigned)) {
-        write("귀속 불가", P.margin + 16, floorY, 9, 120);
-        fact("floors.unassigned", P.margin + 390, floorY, 9, 100, true);
-      }
+      let floorIndex = 0, floorTop = 712, floorBottom = floorTop;
+      do {
+        const start = floorIndex;
+        let rowsHeight = 0;
+        // Reserve the unassigned row only on the final floor page. Every
+        // continuation repeats the heading; the source fact order stays intact.
+        while (floorIndex < floorRowHeights.length) {
+          const next = floorIndex + 1;
+          const tailHeight = next === floorRowHeights.length && hasPdfAmount(model.floors.unassigned) ? 25 : 0;
+          if (floorTop - (67 + rowsHeight + floorRowHeights[floorIndex] + tailHeight) < 85) break;
+          rowsHeight += floorRowHeights[floorIndex++];
+        }
+        if (floorIndex === start && floorIndex < floorRowHeights.length)
+          throw new Error("Single floor ranking row exceeds PDF page capacity");
+        const lastFloorPage = floorIndex === floorRowHeights.length;
+        const floorHeight = 67 + rowsHeight + (lastFloorPage && hasPdfAmount(model.floors.unassigned) ? 25 : 0);
+        floorBottom = floorTop - floorHeight;
+        box(P.margin, floorBottom, 507, floorHeight);
+        page.pushOperators(beginMarkedContent("FloorHeading"));
+        write(start ? "층별 사용량 (계속)" : "층별 사용량", P.margin + 15, floorTop - 26, 11, 470, true);
+        page.pushOperators(endMarkedContent());
+        let floorY = floorTop - 64;
+        for (let index = start; index < floorIndex; index++) {
+          const row = model.floors.rows[index];
+          fact(`floors.${index}.name`, P.margin + 16, floorY, 9, 105, true);
+          bar(P.margin + 150, floorY - 2, 230, 13, Number(row.energy.raw ?? 0) / floorMax);
+          fact(`floors.${index}.energy`, P.margin + 390, floorY, 9, 100, true);
+          floorY -= floorRowHeights[index];
+        }
+        if (lastFloorPage && hasPdfAmount(model.floors.unassigned)) {
+          write("귀속 불가", P.margin + 16, floorY, 9, 120);
+          fact("floors.unassigned", P.margin + 390, floorY, 9, 100, true);
+        }
+        if (!lastFloorPage) { newPage("어디에서 사용했나 (계속)"); floorTop = 712; }
+      } while (floorIndex < floorRowHeights.length);
       const fixtureRowHeights = model.fixtures.topFive.map(row => Math.max(35,
         wrap(row.name, 8, 180).length * 11 + 8,
         wrap(row.energy.text, 8, 100).length * 13 + 8));
       const fixtureHeight = 55 + fixtureRowHeights.reduce((sum, height) => sum + height, 0) +
         (hasPdfAmount(model.fixtures.other) ? 23 : 0) + (hasPdfAmount(model.fixtures.unassigned) ? 23 : 0) + 10;
-      let fixtureTop = floorTop - floorHeight - 16;
+      let fixtureTop = floorBottom - 16;
       if (fixtureTop - fixtureHeight < 85) { newPage("조명 사용량"); fixtureTop = 712; }
       if (fixtureTop - fixtureHeight < 85) throw new Error("Fixture ranking exceeds PDF page capacity");
       box(P.margin, fixtureTop - fixtureHeight, 507, fixtureHeight);

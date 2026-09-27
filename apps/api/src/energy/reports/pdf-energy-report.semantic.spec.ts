@@ -4,7 +4,13 @@ import { PdfEnergyReportRenderer, expectedPdfReportManifest, verifyPdfReportMani
 import { extractPdfReportManifest } from "./pdf-report-manifest";
 import { pdfDisplayFacts } from "./report-pdf-layout";
 import { Prisma } from "@prisma/client";
-import { makePdfRichFixture, makePdfSemanticFixture as makeDocument } from "../../../test/support/pdf-semantic-fixture";
+import { makePdfManyFloorsFixture, makePdfRichFixture, makePdfSemanticFixture as makeDocument } from "../../../test/support/pdf-semantic-fixture";
+
+function pageContent(pdf: PDFDocument, pageIndex: number): string {
+  const streams = pdf.getPage(pageIndex).node.Contents() as PDFArray;
+  return Array.from({ length: streams.size() }, (_, index) =>
+    Buffer.from(decodePDFRawStream(streams.lookup(index, PDFRawStream)).decode()).toString()).join("\n");
+}
 
 describe("semantic PDF energy report", () => {
   it("uses six A4 pages for a complete 62-day report and extracts displayed daily facts", async () => {
@@ -170,5 +176,40 @@ describe("semantic PDF energy report", () => {
     const output = await new PdfEnergyReportRenderer().render(document);
     expect(output.manifest.find(token => token.path === "summary.storedCost")?.value).toBe(buildPdfReportPresentation(document).summary.storedCost.text);
     expect(output.manifest.filter(token => /^daily\.\d+\.cost$/.test(token.path))).toHaveLength(31);
+  }, 60000);
+
+  it.each([17, 20])("paginates %i ordinary floors with a heading on every floor page", async floorCount => {
+    const document = makePdfManyFloorsFixture(floorCount);
+    const output = await new PdfEnergyReportRenderer().render(document);
+    const pdf = await PDFDocument.load(output.bytes);
+    const pathsOnPage = (index: number) => [...pageContent(pdf, index).matchAll(/\/D(\d+)S\d+ BMC/g)]
+      .map(match => output.manifest[Number(match[1])].path);
+    expect(pdf.getPageCount()).toBe(6);
+    expect(pathsOnPage(2).filter(path => /^floors\.\d+\.name$/.test(path)).length).toBeGreaterThan(0);
+    expect(pathsOnPage(3).filter(path => /^floors\.\d+\.name$/.test(path)).length).toBeGreaterThan(0);
+    expect([2, 3].flatMap(pathsOnPage).filter(path => /^floors\.\d+\.name$/.test(path))).toHaveLength(floorCount);
+    expect(pageContent(pdf, 2)).toContain("/FloorHeading BMC");
+    expect(pageContent(pdf, 3)).toContain("/FloorHeading BMC");
+    expect(pathsOnPage(3).some(path => path.startsWith("fixtures."))).toBe(true);
+  }, 120000);
+
+  it.each(["site", "floor", "group", "fixture"] as const)("distinguishes the site and %s report target even when names match", async scope => {
+    const document = makeDocument(10, false, false, false, false, { scope, sameNameTarget: true });
+    const output = await new PdfEnergyReportRenderer().render(document);
+    expect(output.manifest).toContainEqual({ path: "site", value: "현장: 서울 현장" });
+    expect(output.manifest).toContainEqual({ path: "scope", value: scope === "site"
+      ? "보고 범위: 현장 전체" : `보고 범위: ${{ floor: "층", group: "그룹", fixture: "조명" }[scope]} · 서울 현장` });
+    expect(output.manifest.filter(entry => entry.path === "scope")).toHaveLength(1);
+  }, 60000);
+
+  it.each(["partial", "unknown"] as const)("breaks the daily trend across a %s day that has a recorded amount", async status => {
+    const document = makeDocument(10, false, false, false, false, { partialDay: status });
+    const model = buildPdfReportPresentation(document);
+    expect(model.daily[7]).toMatchObject({ completeness: status, energy: { raw: "1.125" } });
+    const output = await new PdfEnergyReportRenderer().render(document);
+    const chart = pageContent(await PDFDocument.load(output.bytes), 1);
+    expect([...chart.matchAll(/1\.3 w[\s\S]*?[-\d.]+ [-\d.]+ m\s+[-\d.]+ [-\d.]+ l/g)]).toHaveLength(7);
+    expect(output.manifest).toContainEqual({ path: "trend.note",
+      value: "선은 완전 기록일만 연결하며 나머지 날짜는 제외" });
   }, 60000);
 });
