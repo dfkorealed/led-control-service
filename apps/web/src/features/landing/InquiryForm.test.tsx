@@ -65,6 +65,25 @@ describe("InquiryForm", () => {
     expect(screen.queryByText(/이메일.*발송|메일.*전달/)).not.toBeInTheDocument();
   });
 
+  it("keeps selected pricing context in the payload after the customer rewrites the message", async () => {
+    submitLandingInquiry.mockResolvedValue({ reference: "KI-PLAN", status: "received" });
+    render(<InquiryForm selectedPlan="Plus" initialMessage="Plus 요금제 도입 상담을 받고 싶습니다." />);
+    fillValidForm();
+    expect(screen.getByRole("textbox", { name: "문의 내용" })).toHaveValue("  B2 조명 상담  ");
+    submit();
+    await waitFor(() => expect(submitLandingInquiry).toHaveBeenCalledTimes(1));
+    expect(submitLandingInquiry.mock.calls[0][0].message).toBe("선택한 요금제: Plus\nB2 조명 상담");
+  });
+
+  it("validates message length including selected pricing context", () => {
+    render(<InquiryForm selectedPlan="Basic" />);
+    fillValidForm();
+    fireEvent.change(screen.getByRole("textbox", { name: "문의 내용" }), { target: { value: "가".repeat(1990) } });
+    submit();
+    expect(submitLandingInquiry).not.toHaveBeenCalled();
+    expect(screen.getByText("문의 내용은 2,000자 이하로 입력해 주세요.")).toBeInTheDocument();
+  });
+
   it("rejects phone beyond the server limit and oversized UTF-8 messages before posting", () => {
     render(<InquiryForm />);
     fillValidForm();
@@ -132,7 +151,7 @@ describe("InquiryForm", () => {
     render(<InquiryForm />);
     fillValidForm();
     submit();
-    expect(screen.getByRole("button", { name: "접수 중" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "접수 중" })).toHaveAttribute("aria-disabled", "true");
     fireEvent.click(screen.getByRole("button", { name: "접수 중" }));
     expect(submitLandingInquiry).toHaveBeenCalledTimes(1);
     finish({ reference: "KI-987", status: "received" });

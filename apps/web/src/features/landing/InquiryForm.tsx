@@ -1,4 +1,4 @@
-import { useRef, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { AlertCircle, CheckCircle2 } from "lucide-react";
 import { ApiError, classifyApiFailure } from "../../api/client";
 import { submitLandingInquiry, type LandingInquiryInput } from "../../api/landing-inquiries";
@@ -9,6 +9,7 @@ import { HoneypotField } from "../../components/ui/HoneypotField";
 import { Checkbox } from "../../components/ui/fields/Checkbox";
 import { SelectBox } from "../../components/ui/fields/SelectBox";
 import { TextArea, TextField } from "../../components/ui/fields/TextField";
+import type { LandingPlan } from "./field-day/PricingSection";
 
 type Fields = {
   companyName: string;
@@ -30,7 +31,7 @@ const audienceItems = [
   { id: "partner", label: "시공·유통 파트너" }
 ] as const;
 
-function validate(fields: Fields): FieldErrors {
+function validate(fields: Fields, submittedMessage: string): FieldErrors {
   const errors: FieldErrors = {};
   if (!fields.companyName.trim()) errors.companyName = "회사명을 입력해 주세요.";
   else if (fields.companyName.trim().length > 120) errors.companyName = "회사명은 120자 이하로 입력해 주세요.";
@@ -39,7 +40,7 @@ function validate(fields: Fields): FieldErrors {
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(fields.email.trim()) || fields.email.trim().length > 254) errors.email = "올바른 이메일 주소를 입력해 주세요.";
   if (fields.phone.trim().length > 30) errors.phone = "전화번호는 30자 이하로 입력해 주세요.";
   if (!fields.message.trim()) errors.message = "문의 내용을 입력해 주세요.";
-  else if (fields.message.trim().length > 2000) errors.message = "문의 내용은 2,000자 이하로 입력해 주세요.";
+  else if (submittedMessage.length > 2000) errors.message = "문의 내용은 2,000자 이하로 입력해 주세요.";
   if (!fields.consent) errors.consent = "개인정보 수집·이용에 동의해 주세요.";
   return errors;
 }
@@ -60,8 +61,8 @@ function errorOutcome(error: unknown): Extract<Outcome, { kind: "error" }> {
   return { kind: "error", title: "문의 내용을 확인해 주세요.", description: "입력 내용은 남아 있습니다. 확인 후 다시 시도해 주세요." };
 }
 
-export function InquiryForm() {
-  const [fields, setFields] = useState<Fields>(initialFields);
+export function InquiryForm({ onPendingChange, presentation = "card", initialMessage = "", selectedPlan = null }: { onPendingChange?: (pending: boolean) => void; presentation?: "card" | "dialog"; initialMessage?: string; selectedPlan?: LandingPlan | null } = {}) {
+  const [fields, setFields] = useState<Fields>(() => ({ ...initialFields, message: initialMessage }));
   const [errors, setErrors] = useState<FieldErrors>({});
   const [outcome, setOutcome] = useState<Outcome>({ kind: "idle" });
   const [pending, setPending] = useState(false);
@@ -73,6 +74,8 @@ export function InquiryForm() {
   const messageRef = useRef<HTMLTextAreaElement>(null);
   const consentRef = useRef<HTMLInputElement>(null);
 
+  useEffect(() => { onPendingChange?.(pending); }, [onPendingChange, pending]);
+
   function update<K extends keyof Fields>(name: K, value: Fields[K]) {
     setFields((current) => ({ ...current, [name]: value }));
     setErrors((current) => ({ ...current, [name]: undefined }));
@@ -81,8 +84,10 @@ export function InquiryForm() {
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (pending) return;
-    const nextErrors = validate(fields);
+    if (pending || outcome.kind === "success") return;
+    // Keep the selected plan outside editable copy so rewriting the inquiry cannot remove its context.
+    const submittedMessage = `${selectedPlan ? `선택한 요금제: ${selectedPlan}\n` : ""}${fields.message.trim()}`;
+    const nextErrors = validate(fields, submittedMessage);
     setErrors(nextErrors);
     const firstError = (Object.keys(nextErrors) as FieldName[])[0];
     if (firstError) {
@@ -92,7 +97,7 @@ export function InquiryForm() {
     if (fields.website) return;
     const payload = {
       companyName: fields.companyName.trim(), contactName: fields.contactName.trim(), email: fields.email.trim(),
-      phone: fields.phone.trim(), audience: fields.audience, message: fields.message.trim(),
+      phone: fields.phone.trim(), audience: fields.audience, message: submittedMessage,
       consent: true as const, consentVersion: "landing-2026-09-v1-90d" as const, website: "" as const
     };
     // The public endpoint caps the whole UTF-8 JSON body at 4 KB, including its UUID field.
@@ -119,9 +124,8 @@ export function InquiryForm() {
     }
   }
 
-  return <Card className="p-5 text-content-primary compact:p-7">
-    <form noValidate onSubmit={handleSubmit} className="grid gap-5">
-      <p className="text-body font-bold">상담 내용을 남겨주세요</p>
+  const form = <form noValidate onSubmit={handleSubmit} className="grid gap-5 text-content-primary">
+      {presentation === "card" && <p className="text-body font-bold">상담 내용을 남겨주세요</p>}
       <div className="grid gap-4 tablet:grid-cols-2">
         <TextField ref={companyRef} label="회사명" value={fields.companyName} onChange={(value) => update("companyName", value)} isRequired isInvalid={!!errors.companyName} errorMessage={errors.companyName} isDisabled={pending} />
         <TextField ref={contactRef} label="담당자 이름" value={fields.contactName} onChange={(value) => update("contactName", value)} isRequired isInvalid={!!errors.contactName} errorMessage={errors.contactName} isDisabled={pending} />
@@ -138,7 +142,9 @@ export function InquiryForm() {
       <Checkbox ref={consentRef} label="개인정보 수집·이용에 동의합니다" isSelected={fields.consent} onChange={(value) => update("consent", value)} isRequired isInvalid={!!errors.consent} errorMessage={errors.consent} isDisabled={pending} />
       {outcome.kind === "error" && <FeedbackState tone="danger" icon={AlertCircle} title={outcome.title} description={outcome.description} action={outcome.mailFallback ? <a className="text-action-primary underline underline-offset-4" href="mailto:kymkjh2002@dfkorealed.com">이메일로 직접 문의하기</a> : undefined} />}
       {outcome.kind === "success" && <FeedbackState tone="success" icon={CheckCircle2} title="상담 문의가 접수되었습니다." description={`접수번호: ${outcome.reference}`} />}
-      <Button type="submit" variant="primary" size="lg" disabled={outcome.kind === "success"} isLoading={pending} loadingLabel="접수 중">상담 문의 보내기</Button>
-    </form>
-  </Card>;
+      <p className="sr-only" role="status" aria-live="polite">{pending ? "상담 문의를 접수하고 있습니다. 잠시만 기다려 주세요." : ""}</p>
+      {/* Keep one tab stop inside the modal while its fields and close control are unavailable. */}
+      <Button type="submit" variant="primary" size="lg" aria-busy={pending} aria-disabled={pending || outcome.kind === "success"}>{pending ? "접수 중" : "상담 문의 보내기"}</Button>
+    </form>;
+  return presentation === "dialog" ? form : <Card className="p-5 text-content-primary compact:p-7">{form}</Card>;
 }

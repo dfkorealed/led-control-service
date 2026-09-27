@@ -10,120 +10,66 @@ for (const width of [1440, 1024, 390, 320]) {
   test(`public landing remains usable at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 900 });
     const authRequests: string[] = [];
-    const apiRequests: string[] = [];
-    page.on("request", (request) => {
+    page.on("request", request => {
       const pathname = new URL(request.url()).pathname;
       if (pathname === "/api/auth/me") authRequests.push(pathname);
-      if (pathname.startsWith("/api/")) apiRequests.push(pathname);
     });
     await page.goto("/");
-    await expect(page.getByRole("heading", { level: 1 })).toHaveText(/조명 위치를 찾고, 제어하고,\s*결과를 확인하세요\./);
-    await expect(page.getByText("도면에서 조명을 찾고, 제어와 기록까지 한곳에서 관리하세요.")).toBeVisible();
-    if (width === 1440) {
-      const descriptionLines = await page.locator(".landing-hero-description").evaluate((element) => {
-        const textRange = document.createRange();
-        textRange.selectNodeContents(element);
-        return textRange.getClientRects().length;
-      });
-      expect(descriptionLines).toBe(1);
+    await expect(page.getByRole("heading", { level: 1, name: /현장의 하루.*한눈에 이어지다/ })).toBeVisible();
+    await expect(page.locator(".scene")).toHaveCount(5);
+    await expect(page.getByRole("link", { name: /로그인/ })).toHaveAttribute("href", "/login");
+    for (const id of ["monitoring", "control", "statistics", "report", "map-editor"]) {
+      await expect(page.locator(`#${id}`)).toBeVisible();
     }
-    await expect(page.getByText("주차장·시설 조명 운영 플랫폼")).toHaveCount(0);
-    await expect(page.getByRole("link", { name: "제품 살펴보기" })).toHaveCount(0);
-    await expect(page.locator("#benefits")).toHaveCount(0);
-    await expect(page.getByRole("region", { name: /상담 전/ })).toHaveCount(0);
-    await expect(page.getByRole("link", { name: "관제 서비스 로그인" })).toHaveCount(0);
-    const preview = page.getByRole("figure", { name: "킨다 관제 구성 예시" });
-    await expect(preview).toBeVisible();
-    await expect(preview).toHaveAttribute("aria-describedby", /preview-description/);
-    await expect(preview.getByText(/실제 운영 데이터가 아닙니다/)).toBeVisible();
-    await expect(page.getByText("제품 화면 예시", { exact: true })).toHaveCount(0);
-    await expect(page.getByText("현장 · 도면 · 조명을 한 화면에서", { exact: true })).toHaveCount(0);
-
-    const monitoring = preview.getByRole("button", { name: "모니터링" });
-    const control = preview.getByRole("button", { name: "제어" });
-    const records = preview.getByRole("button", { name: "기록" });
-    await expect(monitoring).toHaveAttribute("aria-pressed", "true");
-    await expect(preview.getByRole("heading", { name: "도면에서 위치와 상태 확인" })).toBeVisible();
-    await control.click();
-    await expect(control).toHaveAttribute("aria-pressed", "true");
-    await expect(preview.getByRole("heading", { name: "대상을 고르고 조명 제어" })).toBeVisible();
-    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
-    await records.click();
-    await expect(records).toHaveAttribute("aria-pressed", "true");
-    await expect(preview.getByRole("heading", { name: "명령 이력과 추정 전력 확인" })).toBeVisible();
-    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
-    await monitoring.click();
-    await expect(monitoring).toHaveAttribute("aria-pressed", "true");
-    await expect(preview.getByRole("heading", { name: "도면에서 위치와 상태 확인" })).toBeVisible();
     expect(authRequests).toEqual([]);
-    expect(apiRequests).toEqual([]);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 
-    for (const [name, anchor] of [["제품 소개", "product"], ["상담 문의", "contact"]]) {
-      await page.getByRole("navigation", { name: "주요 메뉴" }).getByRole("link", { name }).click();
-      await expect(page).toHaveURL(new RegExp(`#${anchor}$`));
-      await expect(page.locator(`#${anchor}`)).toBeInViewport();
-    }
-    await page.goto("/");
-    await page.getByRole("link", { name: "도입 상담하기" }).click();
-    await expect(page).toHaveURL(/#contact$/);
-    await expect(page.getByRole("heading", { name: /우리 현장에 맞는 시작/ })).toBeInViewport();
+    await page.getByRole("button", { name: "도입 상담", exact: true }).first().click();
+    const dialog = page.getByRole("dialog", { name: "도입 상담" });
+    await expect(dialog).toBeVisible();
+    await expect(dialog.getByText(/90일간 보관/)).toBeVisible();
+    const viewport = page.viewportSize()!;
+    const box = await dialog.boundingBox();
+    expect(box).not.toBeNull();
+    expect(box!.width).toBeLessThanOrEqual(viewport.width);
+    expect(box!.height).toBeLessThanOrEqual(viewport.height);
+    await dialog.getByRole("button", { name: "상담 팝업 닫기" }).click();
 
-    // All real navigation and preview controls provide a full, reachable 44px touch target.
-    for (const link of [...(await page.getByRole("link").all()), monitoring, control, records]) {
-      if (await link.textContent() === "본문으로 이동") continue;
-      await link.scrollIntoViewIfNeeded();
-      const hitTarget = await link.evaluate((element) => {
-        const bounds = element.getBoundingClientRect();
-        const hit = document.elementFromPoint(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2);
-        return { width: bounds.width, height: bounds.height, reachable: hit !== null && element.contains(hit) };
-      });
-      expect(hitTarget.width).toBeGreaterThanOrEqual(44);
-      expect(hitTarget.height).toBeGreaterThanOrEqual(44);
-      expect(hitTarget.reachable).toBe(true);
-    }
-    await page.goto("/");
-    // Axe must inspect the settled colors, not the hero's temporary entrance opacity.
-    await page.locator(".landing-page").evaluate(async (root) => {
-      await Promise.all(root.getAnimations({ subtree: true }).map((animation) => animation.finished.catch(() => undefined)));
-    });
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await page.reload();
     await page.addScriptTag({ path: require.resolve("axe-core/axe.min.js") });
-    const accessibilityViolations = await page.evaluate(async () => {
+    const violations = await page.evaluate(async () => {
       const axe = (window as unknown as { axe: { run(): Promise<{ violations: { id: string; impact: string; nodes: { target: string[] }[] }[] }> } }).axe;
-      return (await axe.run()).violations
-        .filter(({ impact }) => impact === "serious" || impact === "critical")
+      return (await axe.run()).violations.filter(({ impact }) => impact === "serious" || impact === "critical")
         .map(({ id, nodes }) => ({ id, targets: nodes.map(({ target }) => target) }));
     });
-    expect(accessibilityViolations).toEqual([]);
+    expect(violations).toEqual([]);
     const screenshotDir = resolve(".local/landing-visuals");
     await mkdir(screenshotDir, { recursive: true });
     await page.screenshot({ path: resolve(screenshotDir, `landing-${width}.png`), fullPage: true });
   });
 }
 
-test("keyboard navigation reaches content, product and contact with reduced motion", async ({ page }) => {
+test("reduced motion keeps examples complete and keyboard can open the inquiry", async ({ page }) => {
   await page.emulateMedia({ reducedMotion: "reduce" });
   await page.goto("/");
   await page.keyboard.press("Tab");
   await expect(page.getByRole("link", { name: "본문으로 이동" })).toBeFocused();
   await page.keyboard.press("Enter");
   await expect(page.getByRole("main")).toBeFocused();
-  await page.keyboard.press("Tab");
-  await expect(page.getByRole("link", { name: "도입 상담하기" })).toBeFocused();
+  await page.getByRole("button", { name: "도입 상담", exact: true }).first().focus();
   await page.keyboard.press("Enter");
-  await expect(page.locator("#contact")).toBeFocused();
-  await page.getByRole("figure", { name: "킨다 관제 구성 예시" }).getByRole("button", { name: "제어" }).click();
-  await expect(page.getByRole("heading", { name: "대상을 고르고 조명 제어" })).toBeVisible();
-  await expect(page.locator(".landing-page")).not.toHaveAttribute("data-landing-motion", "ready");
-  const animatedElements = await page.locator(".landing-hero-heading, [data-landing-reveal], [data-preview-panel]").evaluateAll((elements) => elements.filter((element) => {
-    const style = getComputedStyle(element);
-    return style.transitionDuration !== "0s" || style.animationName !== "none";
-  }).length);
-  expect(animatedElements).toBe(0);
+  await expect(page.getByRole("dialog", { name: "도입 상담" })).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("dialog", { name: "도입 상담" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "도입 상담", exact: true }).first()).toBeFocused();
+  await expect(page.locator("#statistics .chart-line")).toHaveCSS("stroke-dashoffset", "0px");
 });
 
 async function fillInquiry(page: import("@playwright/test").Page) {
-  await page.goto("/#contact");
+  await page.goto("/");
+  await page.getByRole("button", { name: "도입 상담", exact: true }).first().click();
+  await expect(page.getByRole("dialog", { name: "도입 상담" })).toBeVisible();
   await expect(page.getByRole("button", { name: /고객 유형/ })).toContainText("선택해 주세요");
   await page.getByRole("textbox", { name: "회사명" }).fill("  킨다 시설  ");
   await page.getByRole("textbox", { name: "담당자 이름" }).fill("홍길동");
@@ -147,7 +93,7 @@ test("consultation submits exact public payload and shows server reference", asy
     email: "owner@example.com", phone: "", audience: null, message: "B2 주차장 조명 상담",
     consent: true, consentVersion: "landing-2026-09-v1-90d", website: ""
   });
-  await expect(page.getByRole("button", { name: "상담 문의 보내기" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "상담 문의 보내기" })).toHaveAttribute("aria-disabled", "true");
 });
 
 for (const [status, heading, offersMail] of [
@@ -186,7 +132,7 @@ test("consultation timeout retains key for retry and changes it after an edit", 
   });
   await fillInquiry(page);
   await page.getByRole("button", { name: "상담 문의 보내기" }).click();
-  await expect(page.getByRole("button", { name: "접수 중" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "접수 중" })).toHaveAttribute("aria-disabled", "true");
   await expect(page.getByRole("alert")).toContainText("접수 결과를 확인하지 못했습니다.", { timeout: 20_000 });
   await expect(page.getByRole("textbox", { name: "문의 내용" })).toHaveValue("B2 주차장 조명 상담");
   await page.getByRole("button", { name: "상담 문의 보내기" }).click();

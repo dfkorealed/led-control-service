@@ -23,14 +23,14 @@ afterEach(() => {
 });
 
 describe("browser entry route", () => {
-  it("shows the public landing with a contact anchor without requesting auth", async () => {
+  it("shows the public field-day landing without requesting auth", async () => {
     window.history.replaceState({}, "", "/");
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
 
     render(entry.element);
-    expect(screen.getByRole("heading", { level: 1, name: /위치.*제어.*결과/ })).toBeInTheDocument();
-    expect(screen.getAllByRole("link", { name: /상담/ }).every((link) => link.getAttribute("href") === "#contact")).toBe(true);
+    expect(screen.getByRole("heading", { level: 1, name: /현장의 하루.*한눈에 이어지다/ })).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: /도입 상담/ })).toHaveLength(3);
     expect(screen.getByRole("img", { name: "킨다" })).toBeInTheDocument();
     await act(async () => undefined);
     expect(fetchMock.mock.calls.some(([url]) => String(url).includes("/auth/me"))).toBe(false);
@@ -48,4 +48,16 @@ describe("browser entry route", () => {
     expect(await screen.findByRole("heading", { name: "킨다 로그인" })).toBeInTheDocument();
     expect(fetchMock.mock.calls.some(([url]) => String(url).includes("/auth/me"))).toBe(true);
   });
+
+  for (const [path, heading] of [["/features", "현장 운영에 필요한 네 가지 흐름"], ["/pricing", "현장에 맞는 운영 방식을 선택하세요."]] as const) {
+    it(`renders ${path} publicly without an auth request`, async () => {
+      window.history.replaceState({}, "", path);
+      const fetchMock = vi.fn();
+      vi.stubGlobal("fetch", fetchMock);
+      render(entry.element);
+      expect(screen.getByRole("heading", { level: 1, name: heading })).toBeVisible();
+      await act(async () => undefined);
+      expect(fetchMock.mock.calls.some(([url]) => String(url).includes("/auth/me"))).toBe(false);
+    });
+  }
 });

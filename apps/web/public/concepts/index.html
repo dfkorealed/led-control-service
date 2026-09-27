@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#f4f2eb" />
+    <meta name="description" content="킨다 조명 관제 랜딩의 기존 검토 시안과 세 가지 대안 시안을 비교합니다." />
+    <title>킨다 랜딩 시안 비교</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --paper: #f4f2eb;
+        --ink: #183448;
+        --muted: #5e737d;
+        --line: #cad0cd;
+        --blue: #286f9d;
+        --orange: #ed785a;
+      }
+      *, *::before, *::after { box-sizing: border-box; }
+      body { min-width: 320px; margin: 0; color: var(--ink); background: var(--paper); font-family: "Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans KR", sans-serif; word-break: keep-all; }
+      a { color: inherit; text-decoration: none; }
+      a:focus-visible { outline: 3px solid var(--orange); outline-offset: 4px; }
+      img, svg { display: block; max-width: 100%; }
+      .wrap { width: min(1512px, calc(100% - 72px)); margin-inline: auto; }
+      .skip-link { position: absolute; left: 14px; top: -80px; z-index: 10; padding: 12px 15px; background: #fff; }
+      .skip-link:focus { top: 14px; }
+      .topbar { border-bottom: 1px solid var(--line); }
+      .topbar-inner { min-height: 76px; display: flex; align-items: center; justify-content: space-between; gap: 20px; }
+      .brand { display: inline-flex; align-items: center; gap: 10px; font-size: 22px; font-weight: 800; letter-spacing: -.07em; }
+      .brand img { width: 30px; height: 30px; }
+      .topbar-right { display: flex; align-items: center; gap: clamp(16px, 3.4vw, 52px); font-size: 12px; font-weight: 800; }
+      .topbar-right .edition { color: var(--muted); letter-spacing: .13em; }
+      .topbar-right a { border-bottom: 1px solid currentColor; padding-bottom: 3px; }
+
+      .intro { display: grid; grid-template-columns: minmax(0, 1fr) minmax(260px, 400px); gap: 36px; padding-top: clamp(48px, 7.4vh, 104px); padding-bottom: 58px; }
+      .eyebrow, .serial { font-size: 11px; font-weight: 800; letter-spacing: .15em; }
+      .eyebrow { color: var(--blue); }
+      h1 { margin: 23px 0 0; font-size: clamp(53px, 6.65vw, 106px); line-height: 1.14; letter-spacing: -.082em; }
+      h1 em { color: var(--blue); font-style: normal; }
+      .intro-aside { display: flex; flex-direction: column; justify-content: end; gap: 21px; padding-bottom: 10px; }
+      .intro-aside p { max-width: 360px; margin: 0; font-size: clamp(15px, 1.25vw, 18px); line-height: 1.65; }
+      .intro-aside small { display: block; padding-top: 16px; border-top: 1px solid var(--line); color: var(--muted); font-size: 12px; line-height: 1.55; }
+
+      .gallery-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; margin-bottom: 18px; padding-top: 15px; border-top: 1px solid var(--ink); }
+      .gallery-heading h2 { margin: 0; font-size: 15px; font-weight: 800; }
+      .gallery-heading span { color: var(--muted); font-size: 12px; }
+      .gallery { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+      .concept { min-width: 0; display: flex; flex-direction: column; border: 1px solid var(--line); background: #fffefa; transition: transform .24s ease, border-color .24s ease, box-shadow .24s ease; }
+      .concept:hover { transform: translateY(-5px); border-color: #8aa9b8; box-shadow: 0 15px 30px #23465815; }
+      .concept-copy { flex: 1; padding: 24px 22px 18px; }
+      .concept-top { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
+      .serial { color: var(--blue); }
+      .concept-type { color: var(--muted); font-size: 10px; font-weight: 800; letter-spacing: .09em; text-align: right; }
+      .concept h3 { min-height: 60px; margin: 32px 0 8px; font-size: clamp(26px, 2.15vw, 37px); line-height: 1.16; letter-spacing: -.065em; }
+      .concept-one-line { min-height: 50px; margin: 0 0 18px; color: var(--muted); font-size: 13px; line-height: 1.53; }
+      .concept dl { margin: 0; border-top: 1px solid #e0e5e3; }
+      .concept dl div { display: grid; grid-template-columns: 34px minmax(0, 1fr); gap: 10px; padding-top: 11px; }
+      .concept dt { color: #7b898d; font-size: 11px; font-weight: 800; }
+      .concept dd { margin: 0; font-size: 12px; line-height: 1.5; font-weight: 700; }
+      .concept-visual { height: 168px; margin: 0 12px; overflow: hidden; position: relative; }
+      .concept-action { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin: 0 12px; padding: 14px 10px 16px; border-top: 1px solid #e2e6e4; font-size: 12px; font-weight: 800; }
+      .concept-action span:last-child { font-size: 18px; line-height: 1; transition: transform .2s ease; }
+      .concept:hover .concept-action span:last-child { transform: translate(3px, -3px); }
+
+      /* 미리보기는 각 HTML의 구조를 압축한 장식이다. 실제 제품 화면이나 조작 요소가 아니다. */
+      .visual-existing { display: grid; grid-template-columns: 1fr 1fr; padding: 22px; background: #eaf3f8; }
+      .visual-existing .visual-copy { align-self: center; color: #286f9d; font-size: 18px; line-height: 1.3; font-weight: 800; letter-spacing: -.06em; }
+      .visual-existing .visual-copy i { display: block; width: 42px; height: 5px; margin-top: 16px; background: var(--orange); }
+      .visual-existing .window { align-self: end; height: 106px; border: 1px solid #aac8d7; border-radius: 7px 7px 0 0; background: #fff; box-shadow: 0 14px 20px #496f812b; }
+      .visual-existing .window::before { content: ""; display: block; height: 15px; border-bottom: 1px solid #e2ebee; }
+      .visual-existing .window::after { content: ""; display: block; height: 62px; margin: 12px; background: linear-gradient(90deg, #dcecf3 24%, transparent 24% 28%, #f0f6f8 28%); }
+      .visual-control { background: #102536; color: #f1f7f8; }
+      .visual-control::before { content: ""; position: absolute; inset: 25px 22px 22px; border: 1px solid #54738a; background: repeating-linear-gradient(90deg, transparent 0 38px, #36536566 39px 40px), repeating-linear-gradient(0deg, transparent 0 36px, #36536566 37px 38px); }
+      .visual-control::after { content: ""; position: absolute; width: 7px; height: 7px; left: 31%; top: 46%; border-radius: 50%; background: #80cde1; box-shadow: 64px 19px #80cde1, 130px -12px #e97958, 180px 34px #80cde1; }
+      .visual-control strong { position: absolute; z-index: 1; left: 27px; top: 28px; font-size: 15px; letter-spacing: -.04em; }
+      .visual-editorial { display: flex; align-items: center; padding: 20px; background: #f4f0e6; }
+      .visual-editorial::before { content: "02 / EDITORIAL"; position: absolute; top: 16px; left: 20px; color: #286f9d; font-size: 9px; font-weight: 800; letter-spacing: .14em; }
+      .visual-editorial::after { content: ""; position: absolute; right: 20px; bottom: 19px; left: 20px; height: 1px; background: #abb7b6; }
+      .visual-editorial strong { margin-top: 14px; font-size: clamp(26px, 2.5vw, 39px); line-height: 1.12; letter-spacing: -.08em; }
+      .visual-editorial strong em { color: #286f9d; font-style: normal; }
+      .visual-day { padding: 19px 25px; background: #15324a; color: #ffffff; }
+      .visual-day::before { content: ""; position: absolute; top: 27px; bottom: 25px; left: 37px; width: 1px; background: #dbe7f5; }
+      .visual-day span { position: relative; display: flex; align-items: center; gap: 18px; height: 43px; font-size: 12px; font-weight: 800; }
+      .visual-day span::before { content: ""; flex: none; width: 11px; height: 11px; border: 2px solid #e8f2f8; border-radius: 50%; background: #15324a; }
+      .visual-day span:last-child::before { border-color: #ff7a5c; background: #ff7a5c; }
+
+      .guide { display: grid; grid-template-columns: 1fr auto; gap: 24px; align-items: end; margin-top: 75px; padding: 34px 0 42px; border-top: 1px solid var(--ink); }
+      .guide h2 { max-width: 710px; margin: 14px 0 10px; font-size: clamp(28px, 3.2vw, 47px); line-height: 1.26; letter-spacing: -.06em; }
+      .guide p { max-width: 680px; margin: 0; color: var(--muted); font-size: 14px; line-height: 1.65; }
+      .guide a { display: inline-flex; gap: 22px; align-items: center; padding-bottom: 8px; border-bottom: 2px solid var(--ink); font-size: 14px; font-weight: 800; white-space: nowrap; }
+      .guide a span { font-size: 19px; }
+      footer { border-top: 1px solid var(--line); }
+      .footer-inner { display: flex; justify-content: space-between; gap: 20px; padding-block: 24px 32px; color: var(--muted); font-size: 11px; line-height: 1.55; }
+      .footer-inner strong { color: var(--ink); }
+
+      @media (max-width: 1200px) {
+        .gallery { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        .concept h3, .concept-one-line { min-height: 0; }
+        .concept h3 { font-size: 35px; }
+        .visual-editorial strong { font-size: 39px; }
+      }
+      @media (max-width: 700px) {
+        .wrap { width: calc(100% - 36px); }
+        .topbar-inner { min-height: 66px; }
+        .topbar-right .edition { display: none; }
+        .intro { display: block; padding-top: 57px; padding-bottom: 48px; }
+        h1 { font-size: clamp(48px, 9.5vw, 72px); }
+        .intro-aside { margin-top: 27px; gap: 15px; }
+        .intro-aside small { max-width: 480px; }
+        .gallery { gap: 10px; }
+        .guide { display: block; margin-top: 55px; }
+        .guide a { margin-top: 27px; }
+      }
+      @media (max-width: 560px) {
+        .gallery { grid-template-columns: 1fr; }
+        .concept-copy { padding: 22px 20px 19px; }
+        .concept h3 { margin-top: 24px; font-size: 33px; }
+        .concept-visual { height: 150px; }
+        .visual-editorial strong { font-size: 37px; }
+        .gallery-heading span { text-align: right; }
+        .footer-inner { display: block; }
+        .footer-inner span { display: block; margin-top: 6px; }
+      }
+      @media (max-width: 380px) {
+        .wrap { width: calc(100% - 28px); }
+        h1 { font-size: 46px; }
+        .intro-aside p { font-size: 15px; }
+        .gallery-heading span { font-size: 10px; }
+        .visual-control::after { box-shadow: 48px 19px #80cde1, 98px -12px #e97958, 140px 34px #80cde1; }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .concept, .concept-action span:last-child { transition: none; }
+        .concept:hover, .concept:hover .concept-action span:last-child { transform: none; }
+      }
+    </style>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">본문으로 이동</a>
+    <header class="topbar"><div class="wrap topbar-inner"><a class="brand" href="/" aria-label="킨다 현재 랜딩 보기"><img src="/brand/kinda-mark.svg" alt="" />킨다</a><div class="topbar-right"><span class="edition">LANDING CONCEPTS / 2026</span><a href="/">현재 랜딩 보기 ↗</a></div></div></header>
+    <main id="main">
+      <section class="intro wrap" aria-labelledby="page-title"><div><span class="eyebrow">KINDA / DESIGN STUDY</span><h1 id="page-title">킨다를 설명하는<br /><em>네 가지 첫 화면.</em></h1></div><div class="intro-aside"><p>같은 조명 관제 이야기를 서로 다른 리듬으로 풀었습니다. 현장에 전할 첫인상과 설명 순서를 비교해 보세요.</p><small>아래 네 페이지는 디자인 검토용 독립 정적 시안입니다. 예시 데이터만 사용하며 실제 관제·상담 API와 연결되지 않습니다.</small></div></section>
+      <section class="wrap" aria-labelledby="gallery-title"><div class="gallery-heading"><h2 id="gallery-title">시안 비교 / 04</h2><span>구조와 추천 용도를 먼저 확인하세요</span></div>
+        <div class="gallery">
+          <a class="concept" href="toss-inspired-landing.html"><div class="concept-copy"><div class="concept-top"><span class="serial">00 / EXISTING</span><span class="concept-type">기존 검토 시안</span></div><h3>밝은 분할형</h3><p class="concept-one-line">제품 화면을 곁에 두고 차근차근 설명하는 구성</p><dl><div><dt>구조</dt><dd>분할 첫 화면 · 교대형 기능 섹션</dd></div><div><dt>추천</dt><dd>익숙한 제품 소개 흐름을 비교할 때</dd></div></dl></div><div class="concept-visual visual-existing" aria-hidden="true"><div class="visual-copy">조명 운영을<br />한눈에.<i></i></div><div class="window"></div></div><div class="concept-action"><span>시안 열기</span><span aria-hidden="true">↗</span></div></a>
+          <a class="concept" href="control-room.html"><div class="concept-copy"><div class="concept-top"><span class="serial">01 / CONTROL ROOM</span><span class="concept-type">대안 시안</span></div><h3>관제실</h3><p class="concept-one-line">큰 도면으로 현장 관제의 안정감을 전하는 구성</p><dl><div><dt>구조</dt><dd>어두운 첫 화면 · 도면 · 수평 흐름</dd></div><div><dt>추천</dt><dd>운영 신뢰와 현장성을 앞세울 때</dd></div></dl></div><div class="concept-visual visual-control" aria-hidden="true"><strong>현장을 한 화면에.</strong></div><div class="concept-action"><span>시안 열기</span><span aria-hidden="true">↗</span></div></a>
+          <a class="concept" href="editorial.html"><div class="concept-copy"><div class="concept-top"><span class="serial">02 / EDITORIAL</span><span class="concept-type">대안 시안</span></div><h3>에디토리얼</h3><p class="concept-one-line">문장과 여백으로 브랜드 인상을 남기는 구성</p><dl><div><dt>구조</dt><dd>큰 문장 · 전체 폭 화면 · 번호 행</dd></div><div><dt>추천</dt><dd>간결한 메시지를 선명하게 전할 때</dd></div></dl></div><div class="concept-visual visual-editorial" aria-hidden="true"><strong>조명 운영을<br /><em>읽기 쉽게.</em></strong></div><div class="concept-action"><span>시안 열기</span><span aria-hidden="true">↗</span></div></a>
+          <a class="concept" href="field-day.html"><div class="concept-copy"><div class="concept-top"><span class="serial">03 / FIELD DAY</span><span class="concept-type">인터랙티브 시안</span></div><h3>현장의 하루</h3><p class="concept-one-line">디자인 시스템 색상으로 다시 구성한 다섯 장면의 관제 흐름</p><dl><div><dt>구조</dt><dd>모니터링 → 제어 → 통계 → 보고서 → 맵 편집</dd></div><div><dt>추천</dt><dd>기능을 직접 살펴보며 도입을 검토할 때</dd></div></dl></div><div class="concept-visual visual-day" aria-hidden="true"><span>08:30 &nbsp; 위치 점검</span><span>14:00 &nbsp; 밝기 조정</span><span>18:00 &nbsp; 보고서 확인</span></div><div class="concept-action"><span>시안 열기</span><span aria-hidden="true">↗</span></div></a>
+        </div>
+      </section>
+      <section class="guide wrap" aria-labelledby="guide-title"><div><span class="eyebrow">AFTER THE REVIEW</span><h2 id="guide-title">현장에 맞는 이야기를 함께 고릅니다.</h2><p>각 시안의 화면과 문구는 검토용입니다. 실제 도입 문의는 현재 랜딩의 상담 양식에서 남길 수 있습니다.</p></div><a href="/#contact">도입 상담하기 <span aria-hidden="true">↗</span></a></section>
+    </main>
+    <footer><div class="wrap footer-inner"><strong>KINDA / LANDING CONCEPTS</strong><span>정적 시안 비교 페이지 · 실제 고객 현장이나 제품 상태를 표시하지 않습니다.</span></div></footer>
+  </body>
+</html>

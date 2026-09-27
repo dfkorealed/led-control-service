@@ -1,0 +1,382 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#15324a" />
+    <meta name="description" content="현장의 하루를 따라 살펴보는 킨다 조명 관제 인터랙티브 시안입니다." />
+    <title>현장의 하루 · 킨다 랜딩 시안</title>
+    <link rel="stylesheet" href="/concepts/field-day.css?v=20260927-contact-a11y" />
+    <script src="/concepts/field-day.js?v=20260927-contact-a11y" defer></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">본문으로 이동</a>
+    <header class="site-header">
+      <div class="container header-inner">
+        <a class="brand" href="#top" aria-label="킨다 시안 맨 위로"><img src="/brand/kinda-mark.svg" alt="" /><span>킨다</span></a>
+        <nav class="header-nav" aria-label="주요 메뉴">
+          <button class="header-contact" type="button" data-open-inquiry>도입 상담</button>
+          <a class="button button--header" href="/login">로그인 <span aria-hidden="true">↗</span></a>
+        </nav>
+      </div>
+    </header>
+
+    <main id="main">
+      <section class="hero" id="top" aria-labelledby="hero-title">
+        <div class="hero-orbit hero-orbit--one" aria-hidden="true"></div>
+        <div class="hero-orbit hero-orbit--two" aria-hidden="true"></div>
+        <div class="container hero-inner">
+          <div class="hero-copy">
+            <p class="eyebrow eyebrow--light">KINDA / A DAY IN THE FIELD</p>
+            <h1 id="hero-title">현장의 하루,<br /><span>한눈에 이어지다.</span></h1>
+            <p>조명의 위치를 찾는 아침부터 운영을 기록하는 저녁까지. 다섯 장면으로 킨다의 관제 흐름을 살펴보세요.</p>
+            <div class="hero-actions"><a class="button button--coral" href="#monitoring">하루 따라가기 <span aria-hidden="true">↓</span></a><button class="hero-contact" type="button" data-open-inquiry>도입 상담 <span aria-hidden="true">↗</span></button></div>
+          </div>
+          <div class="hero-art" aria-hidden="true">
+            <div class="hero-art__ring"></div>
+            <div class="hero-art__panel hero-art__panel--back"><span>MONITORING</span><i></i><i></i><i></i></div>
+            <div class="hero-art__panel hero-art__panel--front"><span>하나의 현장</span><strong>위치 · 제어 · 기록</strong><div><b></b><b></b><b></b><b></b><b></b><b></b></div></div>
+            <div class="hero-art__pulse"></div>
+            <div class="hero-art__pointer"></div>
+          </div>
+        </div>
+        <div class="container hero-footer"><span>SCROLL TO EXPLORE</span><span>01 — 05</span></div>
+      </section>
+
+      <div class="timeline" role="group" aria-label="현장의 하루: 모니터링, 제어, 통계 그래프, 보고서, 맵 편집의 다섯 장면">
+        <section class="scene scene--monitoring" id="monitoring" data-demo="monitoring" aria-labelledby="monitoring-title">
+          <div class="container scene-layout">
+            <div class="scene-copy">
+              <p class="scene-number"><span>01 / 05</span><span>08:30 · MONITORING</span></p>
+              <p class="eyebrow">아침, 현장을 살펴볼 때</p>
+              <h2 id="monitoring-title">찾는 조명은<br /><em>도면 위에.</em></h2>
+              <p class="scene-description">층과 구역을 열고 도면에서 조명 위치를 확인하세요. 선택한 조명의 연결 상태와 최근 확인 상태를 같은 화면에서 살펴볼 수 있습니다.</p>
+              <p class="scene-benefit">위치와 상태를 오가며 찾는 시간을 줄입니다.</p>
+            </div>
+            <div class="demo-wrap">
+              <div class="demo-card monitoring-demo" aria-label="조명 선택 인터랙티브 예시">
+                <div class="demo-toolbar"><div class="demo-title"><span class="demo-title__dot"></span><strong>현장 모니터링</strong><small>본관 · 지하 1층</small></div><button class="replay-button" type="button" data-replay="monitoring" aria-label="모니터링 예시 다시 보기">↺ <span>다시 보기</span></button></div>
+                <div class="monitoring-content">
+                  <div class="floorplan" aria-label="예시 주차장 도면에서 조명을 선택할 수 있습니다">
+                    <div class="floorplan__top"><span>B1 · 주차장</span><span>출입구 구역</span></div>
+                    <div class="floorplan__drawing">
+                      <div class="parking-spaces parking-spaces--top" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>
+                      <div class="parking-spaces parking-spaces--bottom" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>
+                      <div class="floorplan__lane" aria-hidden="true"></div>
+                      <span class="floorplan__entry">출입구</span>
+                      <button class="fixture fixture--a" type="button" data-fixture="01" aria-label="출입구 조명 01 선택" aria-pressed="false"><span></span></button>
+                      <button class="fixture fixture--b" type="button" data-fixture="02" aria-label="통로 조명 02 선택" aria-pressed="false"><span></span></button>
+                      <button class="fixture fixture--c" type="button" data-fixture="03" aria-label="통로 조명 03 선택" aria-pressed="false"><span></span></button>
+                      <button class="fixture fixture--d" type="button" data-fixture="04" aria-label="주차 구역 조명 04 선택" aria-pressed="false"><span></span></button>
+                      <div class="demo-cursor" aria-hidden="true"></div>
+                    </div>
+                    <div class="floorplan__legend"><span><i></i>조명 위치</span><span><i></i>선택한 조명</span></div>
+                  </div>
+                  <div class="inspector card"><span class="inspector__label">선택한 조명</span><strong id="selected-fixture">조명을 선택하세요</strong><span class="status-pill" id="selected-fixture-status" hidden><i></i>연결됨</span><dl id="selected-fixture-details" hidden><div><dt>최근 확인 상태</dt><dd>켜짐</dd></div><div><dt>위치</dt><dd id="selected-location">—</dd></div></dl><p id="monitoring-status" class="demo-status" role="status" aria-live="polite">도면에서 조명을 선택해 보세요.</p></div>
+                </div>
+                <p class="demo-disclaimer">설명을 위한 예시 도면과 상태입니다. 실제 현장 데이터가 아닙니다.</p>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="scene scene--control" id="control" data-demo="control" aria-labelledby="control-title">
+          <div class="container scene-layout">
+            <div class="scene-copy"><p class="scene-number"><span>02 / 05</span><span>14:00 · CONTROL</span></p><p class="eyebrow">오후, 운영을 조정할 때</p><h2 id="control-title">필요한 만큼<br /><em>밝기를 맞추다.</em></h2><p class="scene-description">개별 조명이나 그룹을 선택해 점등과 밝기를 조정하세요. 자주 반복되는 운영은 일정으로 정리할 수 있습니다.</p><p class="scene-benefit">대상과 시간에 맞는 운영 기준을 세웁니다.</p></div>
+            <div class="demo-wrap"><div class="demo-card control-demo" aria-label="밝기 조정 인터랙티브 예시">
+              <div class="demo-toolbar"><div class="demo-title"><span class="demo-title__dot"></span><strong>조명 제어</strong><small>출입구 그룹</small></div><button class="replay-button" type="button" data-replay="control" aria-label="밝기 조정 예시 다시 보기">↺ <span>다시 보기</span></button></div>
+              <div class="control-content">
+                <div class="control-visual" aria-hidden="true">
+                  <div class="control-visual__glow">
+                  </div>
+                  <div class="control-visual__lamp">
+                    <span>
+                    </span>
+                  </div>
+                  <div class="control-visual__beam">
+                  </div>
+                  <div class="control-visual__floor">
+                  </div>
+                  <span class="control-visual__caption">출입구 그룹 · 조명 4개</span>
+                </div>
+                <div class="control-panel card">
+                  <div class="control-panel__heading">
+                    <span>밝기 조정</span>
+                    <strong id="brightness-value">15%</strong>
+                  </div>
+                  <label class="sr-only" for="brightness-range">출입구 그룹 밝기</label>
+                  <input id="brightness-range" type="range" min="0" max="100" step="1" value="15" aria-describedby="brightness-hint" />
+                  <div class="range-ends">
+                    <span>0%</span>
+                    <span>100%</span>
+                  </div>
+                  <p id="brightness-hint" class="control-hint">슬라이더를 움직여 예시 밝기를 바꿔보세요.</p>
+                  <button id="apply-brightness" class="button button--primary" type="button">밝기 적용 <span aria-hidden="true">→</span>
+                  </button>
+                  <p id="control-status" class="demo-status" role="status" aria-live="polite">예시 밝기를 조정하고 있습니다.</p>
+                </div>
+              </div>
+              <p class="demo-disclaimer">이 화면의 조작은 미리보기에서만 반영됩니다. 실제 장비에 명령을 보내지 않습니다.</p>
+            </div></div>
+          </div>
+        </section>
+
+        <section class="scene scene--statistics" id="statistics" data-demo="statistics" aria-labelledby="statistics-title">
+          <div class="container scene-layout">
+            <div class="scene-copy">
+              <p class="scene-number">
+                <span>03 / 05</span>
+                <span>17:00 · STATISTICS</span>
+              </p>
+              <p class="eyebrow">변화를 살펴볼 때</p>
+              <h2 id="statistics-title">운영의 흐름을<br />
+                <em>그래프로 보다.</em>
+              </h2>
+              <p class="scene-description">기간별 상태 기반 추정 전력을 그래프로 살펴보세요. 달라진 흐름을 비교하며 다음 운영 계획을 세우는 데 참고할 수 있습니다.</p>
+              <p class="scene-benefit">숫자의 흐름을 더 쉽게 읽습니다.</p>
+            </div>
+            <div class="demo-wrap">
+              <div class="demo-card chart-demo" aria-label="추정 전력 그래프 애니메이션 예시">
+                <div class="demo-toolbar">
+                  <div class="demo-title">
+                    <span class="demo-title__dot">
+                    </span>
+                    <strong>통계</strong>
+                    <small>기간별 추정 전력</small>
+                  </div>
+                  <button class="replay-button" type="button" data-replay="statistics" aria-label="그래프 예시 다시 보기">↺ <span>다시 보기</span>
+                  </button>
+                </div>
+                <div class="chart-content">
+                  <div class="chart-heading">
+                    <div>
+                      <span>예시 현장 · 이번 주</span>
+                      <strong>상태 기반 추정 전력</strong>
+                    </div>
+                    <span class="chart-unit">단위: kWh · 추정치</span>
+                  </div>
+                  <div class="chart-frame">
+                    <div class="chart-y" aria-hidden="true">
+                      <span>80</span>
+                      <span>60</span>
+                      <span>40</span>
+                      <span>20</span>
+                      <span>0</span>
+                    </div>
+                    <svg class="chart-svg" viewBox="0 0 620 240" preserveAspectRatio="none" role="img" aria-label="월요일부터 일요일까지 추정 전력이 오르내리는 설명용 선 그래프">
+                      <g class="chart-grid" aria-hidden="true">
+                        <path d="M0 20H620M0 70H620M0 120H620M0 170H620M0 220H620" />
+                      </g>
+                      <path class="chart-area" d="M0 161 C42 145 60 158 103 131 S162 112 207 123 S264 163 310 140 S370 85 413 91 S471 121 517 105 S576 65 620 78 V220 H0Z" />
+                      <path class="chart-line" d="M0 161 C42 145 60 158 103 131 S162 112 207 123 S264 163 310 140 S370 85 413 91 S471 121 517 105 S576 65 620 78" pathLength="100" />
+                      <g class="chart-points" aria-hidden="true">
+                        <circle cx="0" cy="161" r="5"/>
+                        <circle cx="103" cy="131" r="5"/>
+                        <circle cx="207" cy="123" r="5"/>
+                        <circle cx="310" cy="140" r="5"/>
+                        <circle cx="413" cy="91" r="5"/>
+                        <circle cx="517" cy="105" r="5"/>
+                        <circle cx="620" cy="78" r="5"/>
+                      </g>
+                    </svg>
+                    <div class="chart-x" aria-hidden="true">
+                      <span>월</span>
+                      <span>화</span>
+                      <span>수</span>
+                      <span>목</span>
+                      <span>금</span>
+                      <span>토</span>
+                      <span>일</span>
+                    </div>
+                  </div>
+                  <div class="chart-foot">
+                    <span>
+                      <i>
+                      </i>추정 전력</span>
+                    <span>상태와 설정값을 바탕으로 계산한 예시</span>
+                  </div>
+                  <p id="statistics-status" class="sr-only" role="status" aria-live="polite">설명용 그래프입니다.</p>
+                </div>
+                <p class="demo-disclaimer">이 그래프는 가상 값으로 만든 상태 기반 추정치입니다. 실측 전력이 아닙니다.</p>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="scene scene--report" id="report" data-demo="report" aria-labelledby="report-title">
+          <div class="container scene-layout">
+            <div class="scene-copy">
+              <p class="scene-number">
+                <span>04 / 05</span>
+                <span>18:00 · REPORT</span>
+              </p>
+              <p class="eyebrow">공유할 자료가 필요할 때</p>
+              <h2 id="report-title">정리한 기록을<br />
+                <em>보고서로.</em>
+              </h2>
+              <p class="scene-description">운영 데이터를 기간에 맞춰 정리하고 보고서로 내보낼 수 있습니다. 생성 이력을 다시 확인하고 필요한 파일을 내려받는 흐름까지 이어집니다.</p>
+              <p class="scene-benefit">반복되는 보고 준비를 한곳에서 처리합니다.</p>
+            </div>
+            <div class="demo-wrap">
+              <div class="demo-card report-demo" aria-label="보고서 생성 흐름 미리보기">
+                <div class="demo-toolbar">
+                  <div class="demo-title">
+                    <span class="demo-title__dot">
+                    </span>
+                    <strong>보고서</strong>
+                    <small>생성 미리보기</small>
+                  </div>
+                  <button class="replay-button" type="button" data-replay="report" aria-label="보고서 예시 다시 보기">↺ <span>다시 보기</span>
+                  </button>
+                </div>
+                <div class="report-content">
+                  <div class="report-controls">
+                    <span>예시 현장 / 이번 주</span>
+                    <div role="group" aria-label="보고서 파일 형식 미리보기">
+                      <button class="format-button is-selected" type="button" data-format="PDF" aria-pressed="true">PDF</button>
+                      <button class="format-button" type="button" data-format="XLSX" aria-pressed="false">XLSX</button>
+                      <button class="format-button" type="button" data-format="CSV" aria-pressed="false">CSV</button>
+                    </div>
+                  </div>
+                  <div class="report-sheet card">
+                    <div class="report-sheet__top">
+                      <span>KINDA / REPORT</span>
+                      <small>예시 · 다운로드 불가</small>
+                    </div>
+                    <h3>주간 조명 운영 보고서</h3>
+                    <p>예시 현장 · 9월 둘째 주</p>
+                    <div class="report-rule">
+                    </div>
+                    <div class="report-row">
+                      <span>01</span>
+                      <strong>운영 현황</strong>
+                      <i>
+                      </i>
+                    </div>
+                    <div class="report-row">
+                      <span>02</span>
+                      <strong>조명 상태 요약</strong>
+                      <i>
+                      </i>
+                    </div>
+                    <div class="report-row">
+                      <span>03</span>
+                      <strong>추정 전력 추이</strong>
+                      <i>
+                      </i>
+                    </div>
+                    <div class="report-row">
+                      <span>04</span>
+                      <strong>명령 처리 내역</strong>
+                      <i>
+                      </i>
+                    </div>
+                    <div class="report-sheet__footer">
+                      <span>작성 완료 예시</span>
+                      <span id="selected-format">PDF 형식</span>
+                    </div>
+                  </div>
+                  <div class="report-history">
+                    <span>생성 이력 예시</span>
+                    <strong>주간 조명 운영 보고서 · <span id="history-format">PDF</span>
+                    </strong>
+                    <span>확인 · 다운로드</span>
+                  </div>
+                  <p id="report-status" class="demo-status" role="status" aria-live="polite">보고서 미리보기를 준비합니다.</p>
+                </div>
+                <p class="demo-disclaimer">설명용 보고서입니다. 형식 선택은 미리보기만 바꾸며 파일을 만들거나 내려받지 않습니다.</p>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="scene scene--map" id="map-editor" data-demo="map" aria-labelledby="map-title">
+          <div class="container scene-layout">
+            <div class="scene-copy">
+              <p class="scene-number">
+                <span>05 / 05</span>
+                <span>MAP EDITOR</span>
+              </p>
+              <p class="eyebrow">새 구역을 준비할 때</p>
+              <h2 id="map-title">도면도 조명도<br />
+                <em>직접, 쉽게 배치.</em>
+              </h2>
+              <p class="scene-description">CAD 도면을 검토하고 도형과 조명 위치를 화면에서 조정하세요. 운영자가 배치를 확인한 뒤 저장하는 흐름으로 새 현장을 준비합니다.</p>
+              <p class="scene-benefit">현장 배치를 보면서 설정할 수 있습니다.</p>
+            </div>
+            <div class="demo-wrap">
+              <div class="demo-card map-demo" aria-label="도면 위 조명 배치 인터랙티브 예시">
+                <div class="demo-toolbar">
+                  <div class="demo-title">
+                    <span class="demo-title__dot">
+                    </span>
+                    <strong>맵 편집</strong>
+                    <small>지하 1층 · 예시</small>
+                  </div>
+                  <button class="replay-button" type="button" data-replay="map" aria-label="맵 편집 예시 다시 보기">↺ <span>다시 보기</span>
+                  </button>
+                </div>
+                <div class="map-content">
+                  <div class="map-tools">
+                    <span>배치 도구</span>
+                    <button id="place-light" class="button button--tool" type="button">
+                      <i aria-hidden="true">
+                      </i> 조명 배치</button>
+                    <button id="remove-light" class="button button--quiet" type="button">배치 취소</button>
+                  </div>
+                  <span class="map-drag-ghost" aria-hidden="true"></span>
+                  <div class="map-canvas" aria-label="조명 위치를 배치해 보는 예시 도면">
+                    <div class="map-canvas__grid" aria-hidden="true">
+                    </div>
+                    <div class="map-canvas__room map-canvas__room--a">주차 구역 A</div>
+                    <div class="map-canvas__room map-canvas__room--b">출입구</div>
+                    <div class="map-canvas__wall" aria-hidden="true">
+                    </div>
+                    <span class="map-light map-light--one" aria-hidden="true">
+                    </span>
+                    <span class="map-light map-light--two" aria-hidden="true">
+                    </span>
+                    <span class="map-light map-light--placed" aria-hidden="true">
+                    </span>
+                    <span class="map-canvas__hint">조명 위치를 직접 배치하는 예시</span>
+                  </div>
+                  <div class="map-bottom">
+                    <span id="map-count">배치된 조명 2개</span>
+                    <span class="map-save">배치 검토 → 저장</span>
+                  </div>
+                  <p id="map-status" class="demo-status" role="status" aria-live="polite">조명 배치 버튼으로 위치를 추가해 보세요.</p>
+                </div>
+                <p class="demo-disclaimer">운영자가 도면과 위치를 직접 편집하는 예시입니다. 자동 등록이나 실제 저장은 수행하지 않습니다.</p>
+              </div>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <section class="closing" aria-labelledby="closing-title"><div class="container closing-inner"><p class="eyebrow eyebrow--light">YOUR FIELD, YOUR DAY</p><h2 id="closing-title">우리 현장에는<br />어떤 흐름이 필요할까요?</h2><p>현장 규모와 조명 배치, 운영 방식을 알려주세요. 필요한 관제 구성을 함께 살펴보겠습니다.</p><button class="button button--coral" type="button" data-open-inquiry>도입 상담하기 <span aria-hidden="true">↗</span></button></div></section>
+    </main>
+    <dialog class="inquiry-dialog" id="inquiry-dialog" aria-labelledby="inquiry-title" aria-describedby="inquiry-description">
+      <div class="inquiry-dialog__head">
+        <div><p class="inquiry-dialog__eyebrow">KINDA / CONTACT</p><h2 id="inquiry-title" tabindex="-1">도입 상담</h2><p id="inquiry-description">현장에 필요한 관제 구성을 함께 살펴보겠습니다.</p></div>
+        <button class="inquiry-dialog__close" type="button" data-close-inquiry aria-label="상담 팝업 닫기">✕</button>
+      </div>
+      <form id="inquiry-form" novalidate>
+        <div class="inquiry-fields">
+          <div class="inquiry-field"><label for="inquiry-company">회사명 <span aria-hidden="true">*</span></label><input id="inquiry-company" name="companyName" autocomplete="organization" required maxlength="120" aria-describedby="inquiry-company-error" /><p class="inquiry-error" id="inquiry-company-error" hidden></p></div>
+          <div class="inquiry-field"><label for="inquiry-contact">담당자 이름 <span aria-hidden="true">*</span></label><input id="inquiry-contact" name="contactName" autocomplete="name" required maxlength="80" aria-describedby="inquiry-contact-error" /><p class="inquiry-error" id="inquiry-contact-error" hidden></p></div>
+          <div class="inquiry-field"><label for="inquiry-email">회신 이메일 <span aria-hidden="true">*</span></label><input id="inquiry-email" name="email" type="email" autocomplete="email" required maxlength="254" aria-describedby="inquiry-email-error" /><p class="inquiry-error" id="inquiry-email-error" hidden></p></div>
+          <div class="inquiry-field"><label for="inquiry-phone">전화번호 <span class="inquiry-optional">선택</span></label><input id="inquiry-phone" name="phone" type="tel" autocomplete="tel" maxlength="30" aria-describedby="inquiry-phone-error" /><p class="inquiry-error" id="inquiry-phone-error" hidden></p></div>
+          <div class="inquiry-field inquiry-field--full"><label for="inquiry-audience">고객 유형 <span class="inquiry-optional">선택</span></label><select id="inquiry-audience" name="audience"><option value="">선택해 주세요</option><option value="facility">시설 운영 담당자</option><option value="partner">시공·유통 파트너</option></select></div>
+          <div class="inquiry-field inquiry-field--full"><label for="inquiry-message">문의 내용 <span aria-hidden="true">*</span></label><textarea id="inquiry-message" name="message" rows="5" required maxlength="2000" aria-describedby="inquiry-message-error"></textarea><p class="inquiry-error" id="inquiry-message-error" hidden></p></div>
+        </div>
+        <div class="inquiry-honeypot" aria-hidden="true"><label for="inquiry-website">웹사이트</label><input id="inquiry-website" name="website" tabindex="-1" autocomplete="off" /></div>
+        <div class="inquiry-privacy"><strong>개인정보 수집·이용 안내</strong><p>상담 접수와 회신을 위해 회사명, 담당자 이름, 회신 이메일, 문의 내용을 수집합니다. 전화번호와 고객 유형은 선택 항목입니다. 문의 내용은 접수 후 90일간 보관합니다. 메일 사본은 NAVER WORKS의 보유 정책을 따릅니다. 동의를 거부할 수 있으나 온라인 문의 접수가 제한됩니다.</p></div>
+        <div class="inquiry-field inquiry-field--full inquiry-consent"><label for="inquiry-consent"><input id="inquiry-consent" name="consent" type="checkbox" required aria-describedby="inquiry-consent-error" /><span>개인정보 수집·이용에 동의합니다 <span aria-hidden="true">*</span></span></label><p class="inquiry-error" id="inquiry-consent-error" hidden></p></div>
+        <div class="inquiry-feedback" id="inquiry-feedback" role="alert" hidden><strong id="inquiry-feedback-title"></strong><p id="inquiry-feedback-description"></p><a id="inquiry-mail-fallback" href="mailto:kymkjh2002@dfkorealed.com" hidden>이메일로 직접 문의하기</a></div>
+        <p class="sr-only" id="inquiry-progress" role="status" aria-live="polite"></p>
+        <button class="button button--primary inquiry-submit" type="submit">상담 문의 보내기</button>
+      </form>
+    </dialog>
+    <footer class="footer"><div class="container footer-inner"><strong>킨다 · 현장의 하루</strong><span>이 페이지는 디자인 방향을 검토하기 위한 시안입니다.</span></div></footer>
+  </body>
+</html>

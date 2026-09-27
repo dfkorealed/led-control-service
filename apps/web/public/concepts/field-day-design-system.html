@@ -1,0 +1,418 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#15324a" />
+  <meta name="description" content="시설 담당자의 하루를 따라 살펴보는 킨다 조명 관제 랜딩 시안입니다." />
+  <title>현장의 하루 · 킨다 디자인 시스템 팔레트</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --forest: #15324a;
+      --forest-deep: #172033;
+      --ink: #15324a;
+      --muted: #64748b;
+      --line: #e2e8f0;
+      --paper: #f4f8fa;
+      --morning: #f4f8fa;
+      --afternoon: #e8f2f8;
+      --night: #172033;
+      --lime: #ff7a5c;
+      --apricot: #ff7a5c;
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      color: var(--ink);
+      background: var(--paper);
+      font-family: "Pretendard", "Noto Sans KR", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      word-break: keep-all;
+      -webkit-font-smoothing: antialiased;
+    }
+    a { color: inherit; text-decoration: none; }
+    a:focus-visible { outline: 3px solid var(--apricot); outline-offset: 5px; }
+    svg { display: block; max-width: 100%; }
+    .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+    .skip-link { position: absolute; left: 16px; top: -80px; z-index: 50; padding: 12px 16px; background: white; color: var(--ink); border-radius: 8px; }
+    .skip-link:focus { top: 12px; }
+    .container { width: min(1120px, calc(100% - 64px)); margin-inline: auto; }
+
+    .masthead { position: absolute; inset: 0 0 auto; z-index: 10; color: white; }
+    .masthead-inner { height: 88px; display: flex; justify-content: space-between; align-items: center; gap: 24px; }
+    .brand { display: inline-flex; align-items: center; gap: 11px; font-size: 23px; font-weight: 850; letter-spacing: -.075em; }
+    .brand-mark { display: grid; place-items: center; width: 36px; height: 36px; border-radius: 9px; background: #fff; }
+    .brand-mark img { width: 29px; height: 29px; }
+    .top-nav { display: flex; align-items: center; gap: 28px; font-size: 13px; font-weight: 700; }
+    .top-nav a { transition: color .2s ease; }
+    .top-nav a:hover { color: var(--lime); }
+    .top-nav .nav-contact { padding: 11px 15px; border: 1px solid #ffffff79; border-radius: 100px; }
+
+    .hero {
+      position: relative;
+      isolation: isolate;
+      overflow: hidden;
+      min-height: min(880px, 100svh);
+      min-height: max(720px, min(880px, 100svh));
+      display: flex;
+      align-items: center;
+      color: #fff;
+      background: radial-gradient(ellipse at 50% 102%, #315978 0, #1d4566 35%, var(--forest) 74%);
+    }
+    .hero::before {
+      content: "";
+      position: absolute;
+      z-index: -1;
+      left: 50%;
+      bottom: -310px;
+      width: min(920px, 110vw);
+      aspect-ratio: 1;
+      transform: translateX(-50%);
+      border-radius: 50%;
+      background: radial-gradient(circle at 50% 37%, #e8f2f8 0, #aacfe4 39%, #256fa1 60%, transparent 61%);
+      opacity: .86;
+      filter: blur(.2px);
+    }
+    .hero::after {
+      content: "";
+      position: absolute;
+      z-index: -1;
+      width: 1500px;
+      max-width: 150vw;
+      height: 1500px;
+      left: 50%;
+      top: 43%;
+      transform: translateX(-50%);
+      border-radius: 50%;
+      border: 1px solid #ffffff24;
+      box-shadow: 0 0 0 100px #ffffff08, 0 0 0 200px #ffffff06, 0 0 0 300px #ffffff04;
+      pointer-events: none;
+    }
+    .hero-inner { position: relative; z-index: 1; width: 100%; padding-top: 145px; padding-bottom: 128px; text-align: center; }
+    .hero-kicker { margin: 0 0 28px; color: var(--lime); font-size: 12px; font-weight: 800; letter-spacing: .24em; text-transform: uppercase; }
+    .hero h1 { max-width: 1050px; margin: 0 auto; font-size: clamp(52px, 8.5vw, 116px); line-height: 1.12; letter-spacing: -.084em; font-weight: 850; }
+    .hero h1 span { color: #15324a; }
+    .hero-lead { max-width: 570px; margin: 32px auto 0; color: #f4f8fa; font-size: clamp(16px, 1.7vw, 21px); line-height: 1.75; }
+    .hero-link { display: inline-flex; align-items: center; gap: 12px; min-height: 49px; margin-top: 34px; padding: 0 19px; border: 1px solid #ffffff9b; border-radius: 100px; font-size: 14px; font-weight: 750; transition: background .2s, color .2s; }
+    .hero-link:hover { color: var(--forest); background: white; }
+    .hero-link span { font-size: 19px; line-height: 1; }
+    .hero-bottom { position: absolute; left: 0; right: 0; bottom: 34px; display: flex; justify-content: space-between; gap: 20px; color: #dbe7f5; font-size: 11px; font-weight: 700; letter-spacing: .08em; }
+    .hero-bottom .day-hours { display: flex; gap: 27px; }
+    .hero-bottom .day-hours span + span::before { content: "·"; margin-right: 27px; color: var(--lime); }
+
+    .intro { background: var(--paper); }
+    .intro-inner { display: grid; grid-template-columns: 170px 1fr; gap: 35px; padding-top: 103px; padding-bottom: 106px; border-bottom: 1px solid var(--line); }
+    .section-index { color: #15324a; font-size: 12px; font-weight: 850; letter-spacing: .17em; text-transform: uppercase; }
+    .intro p { max-width: 845px; margin: -10px 0 0; font-size: clamp(28px, 3.35vw, 45px); line-height: 1.46; letter-spacing: -.055em; font-weight: 740; }
+    .intro em { font-style: normal; color: #256fa1; }
+
+    .timeline { overflow: clip; }
+    .scene { position: relative; overflow: hidden; }
+    .scene--morning { background: var(--morning); }
+    .scene--afternoon { background: var(--afternoon); }
+    .scene--night { color: #ffffff; background: var(--night); }
+    .scene::after { content: attr(data-scene); position: absolute; right: max(12px, calc((100vw - 1120px) / 2)); top: 78px; color: currentColor; opacity: .055; font-size: clamp(180px, 32vw, 480px); font-weight: 800; letter-spacing: -.13em; line-height: 1; pointer-events: none; }
+    .scene-inner { position: relative; display: grid; grid-template-columns: 170px minmax(0, 1fr); gap: 35px; min-height: 890px; padding-top: 132px; padding-bottom: 152px; }
+    .scene-inner::before { content: ""; position: absolute; left: 8px; top: 0; bottom: 0; width: 1px; background: currentColor; opacity: .22; }
+    .scene-marker { position: relative; display: flex; align-items: flex-start; gap: 18px; align-self: stretch; }
+    .scene-marker::before { content: ""; position: absolute; left: 0; top: 10px; width: 17px; height: 17px; border: 4px solid currentColor; border-radius: 50%; background: var(--morning); box-shadow: 0 0 0 7px var(--morning); }
+    .scene--afternoon .scene-marker::before { background: var(--afternoon); box-shadow: 0 0 0 7px var(--afternoon); }
+    .scene--night .scene-marker::before { background: var(--night); box-shadow: 0 0 0 7px var(--night); }
+    .scene-clock { position: sticky; top: 30px; margin: 0 0 0 35px; font-size: clamp(24px, 3.3vw, 40px); line-height: 1; letter-spacing: -.065em; font-weight: 850; white-space: nowrap; }
+    .scene-body { position: relative; z-index: 1; min-width: 0; }
+    .chapter { display: flex; align-items: center; gap: 15px; margin: 0 0 33px; font-size: 12px; font-weight: 850; letter-spacing: .19em; text-transform: uppercase; }
+    .chapter::after { content: ""; width: 63px; height: 1px; background: currentColor; opacity: .45; }
+    .scene-question { max-width: 790px; margin: 0; font-size: clamp(44px, 6.45vw, 88px); line-height: 1.2; letter-spacing: -.079em; font-weight: 840; }
+    .scene-answer { max-width: 540px; margin: 28px 0 0; font-size: clamp(17px, 1.65vw, 21px); line-height: 1.7; font-weight: 570; }
+    .scene--morning .scene-answer, .scene--afternoon .scene-answer { color: #15324a; }
+    .scene--night .scene-answer { color: #dbe7f5; }
+    .benefit { display: inline-flex; align-items: baseline; gap: 9px; margin-top: 19px; font-size: 13px; font-weight: 800; }
+    .benefit::before { content: "↳"; font-size: 18px; line-height: 1; }
+    .scene--night .benefit { color: var(--lime); }
+
+    .preview {
+      width: min(100%, 645px);
+      margin-top: 66px;
+      overflow: hidden;
+      border: 1px solid #15324a;
+      border-radius: 18px;
+      background: #fff;
+      color: var(--ink);
+      box-shadow: 0 24px 60px #256fa121;
+    }
+    .scene--morning .preview, .scene--night .preview { margin-left: auto; }
+    .scene--night .preview { border-color: #15324a; box-shadow: 0 28px 60px #dbe7f563; }
+    .preview-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; min-height: 54px; padding: 0 22px; border-bottom: 1px solid #15324a; font-size: 12px; font-weight: 800; }
+    .preview-head span:last-child { color: #15324a; font-size: 10px; font-weight: 700; }
+    .preview-label { display: flex; align-items: center; gap: 7px; }
+    .preview-label::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: #256fa1; }
+    .preview-body { padding: 22px; }
+    .preview-note { padding: 12px 22px; border-top: 1px solid #15324a; background: #256fa1; color: #15324a; font-size: 11px; line-height: 1.5; }
+
+    .location-heading { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; margin-bottom: 17px; }
+    .location-heading strong { font-size: 19px; letter-spacing: -.04em; }
+    .location-heading small { color: #15324a; font-size: 11px; white-space: nowrap; }
+    .location-grid { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(155px, .65fr); gap: 13px; }
+    .plan-box { overflow: hidden; border: 1px solid #15324a; border-radius: 10px; background: #256fa1; }
+    .plan-box svg { width: 100%; height: auto; }
+    .plan-caption { padding: 8px 11px; border-top: 1px solid #15324a; color: #15324a; font-size: 10px; font-weight: 700; }
+    .status-box { display: grid; align-content: center; gap: 11px; padding: 17px; border-radius: 10px; background: #e8f2f8; }
+    .status-box small { color: #15324a; font-size: 11px; font-weight: 700; }
+    .status-box strong { font-size: 18px; letter-spacing: -.045em; }
+    .status-badge { width: fit-content; padding: 6px 9px; border-radius: 100px; background: #ecfdf3; color: #15803d; font-size: 10px; font-weight: 800; }
+    .status-box p { margin: 0; border-top: 1px solid #256fa1; padding-top: 10px; color: #15324a; font-size: 11px; line-height: 1.5; }
+
+    .operation-title { margin: 1px 0 17px; font-size: 19px; letter-spacing: -.04em; }
+    .operation-summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1px; overflow: hidden; border-radius: 10px; background: #15324a; }
+    .operation-summary div { min-height: 107px; padding: 17px 19px; background: #256fa1; }
+    .operation-summary dt { margin-bottom: 13px; color: #15324a; font-size: 11px; font-weight: 750; }
+    .operation-summary dd { margin: 0; font-size: 19px; font-weight: 800; letter-spacing: -.05em; }
+    .schedule-row { display: flex; justify-content: space-between; align-items: center; gap: 14px; margin-top: 14px; padding: 18px 19px; border: 1px solid #15324a; border-radius: 10px; }
+    .schedule-row span { display: block; margin-bottom: 6px; color: #15324a; font-size: 11px; font-weight: 750; }
+    .schedule-row strong { font-size: 15px; }
+    .schedule-row em { color: #256fa1; font-size: 13px; font-style: normal; font-weight: 850; text-align: right; }
+
+    .history-title { margin: 1px 0 11px; font-size: 19px; letter-spacing: -.04em; }
+    .history-row { display: grid; grid-template-columns: 46px minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 14px 0; border-bottom: 1px solid #15324a; }
+    .history-row time { color: #15324a; font-size: 11px; font-weight: 750; }
+    .history-row strong { display: block; font-size: 13px; }
+    .history-row small { display: block; margin-top: 4px; color: #15324a; font-size: 11px; }
+    .history-row em { padding: 5px 8px; border-radius: 100px; background: #ecfdf3; color: #15803d; font-size: 10px; font-style: normal; font-weight: 800; }
+    .estimate { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-top: 20px; padding: 16px 18px; border-radius: 10px; background: #15324a; }
+    .estimate strong { display: block; font-size: 13px; }
+    .estimate p { max-width: 330px; margin: 5px 0 0; color: #15324a; font-size: 11px; line-height: 1.5; }
+    .estimate svg { flex: none; width: 92px; height: 40px; }
+
+    .closing { padding: 142px 0 135px; color: #256fa1; background: var(--forest-deep); text-align: center; }
+    .closing-label { margin: 0 0 22px; color: var(--lime); font-size: 12px; font-weight: 850; letter-spacing: .23em; text-transform: uppercase; }
+    .closing h2 { margin: 0; font-size: clamp(43px, 6.7vw, 83px); line-height: 1.22; letter-spacing: -.075em; }
+    .closing p:not(.closing-label) { max-width: 530px; margin: 28px auto 33px; color: #15324a; font-size: 18px; line-height: 1.7; }
+    .contact-button { display: inline-flex; align-items: center; justify-content: center; gap: 15px; min-height: 58px; padding: 0 26px; border-radius: 100px; background: var(--lime); color: #15324a; font-size: 16px; font-weight: 850; transition: transform .2s, background .2s; }
+    .contact-button:hover { transform: translateY(-3px); background: #ff987e; }
+    .contact-button span { font-size: 21px; line-height: 1; }
+    .footer { padding: 27px 0 34px; border-top: 1px solid #256fa1; background: var(--forest-deep); color: #15324a; font-size: 12px; }
+    .footer-inner { display: flex; justify-content: space-between; gap: 20px; }
+    .footer strong { color: #256fa1; }
+
+    @media (prefers-reduced-motion: no-preference) {
+      .hero-kicker, .hero h1, .hero-lead, .hero-link { animation: rise-in .8s both; }
+      .hero h1 { animation-delay: .09s; }
+      .hero-lead { animation-delay: .18s; }
+      .hero-link { animation-delay: .27s; }
+      @keyframes rise-in { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      html { scroll-behavior: auto; }
+      *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
+    }
+    @media (max-width: 760px) {
+      .container { width: min(100% - 38px, 620px); }
+      .masthead-inner { height: 73px; }
+      .top-nav { gap: 12px; }
+      .top-nav a:first-child { display: none; }
+      .hero { min-height: 720px; }
+      .hero-inner { padding-top: 130px; padding-bottom: 130px; }
+      .hero::before { bottom: -160px; width: 100vw; }
+      .hero-bottom { bottom: 24px; display: block; text-align: center; }
+      .hero-bottom > span:first-child { display: none; }
+      .hero-bottom .day-hours { justify-content: center; gap: 14px; }
+      .hero-bottom .day-hours span + span::before { margin-right: 14px; }
+      .intro-inner { grid-template-columns: 1fr; gap: 27px; padding-top: 76px; padding-bottom: 80px; }
+      .intro p { margin: 0; }
+      .scene-inner { grid-template-columns: 1fr; gap: 38px; min-height: 0; padding-top: 89px; padding-bottom: 94px; }
+      .scene-inner::before { left: 8px; }
+      .scene-marker { min-height: 44px; }
+      .scene-clock { position: static; margin-left: 39px; font-size: 30px; }
+      .scene-body { padding-left: 39px; }
+      .scene::after { top: 25px; right: 8px; font-size: clamp(170px, 42vw, 290px); }
+      .chapter { margin-bottom: 22px; }
+      .preview { margin-top: 43px; }
+      .closing { padding: 105px 0 110px; }
+      .footer-inner { display: block; }
+      .footer-inner span { display: block; margin-top: 8px; }
+    }
+    @media (max-width: 480px) {
+      .container { width: calc(100% - 30px); }
+      .brand { font-size: 21px; }
+      .brand-mark { width: 32px; height: 32px; }
+      .brand-mark img { width: 26px; height: 26px; }
+      .top-nav .nav-contact { padding: 9px 12px; font-size: 12px; }
+      .hero { min-height: 690px; }
+      .hero h1 { font-size: clamp(48px, 13vw, 66px); }
+      .hero h1 span { color: #fff; }
+      .hero-lead { max-width: 330px; margin-top: 27px; padding: 10px 14px; border-radius: 12px; background: #172033e8; font-size: 16px; }
+      .hero::before { bottom: -125px; width: 115vw; }
+      .scene-inner { padding-top: 78px; padding-bottom: 88px; }
+      .scene-body { padding-left: 34px; }
+      .scene-clock { margin-left: 34px; }
+      .scene-question { font-size: clamp(41px, 11.7vw, 58px); }
+      .scene-answer { margin-top: 23px; font-size: 16px; }
+      .benefit { font-size: 12px; }
+      .preview { border-radius: 13px; }
+      .preview-head { min-height: 47px; padding-inline: 14px; }
+      .preview-body { padding: 14px; }
+      .preview-note { padding: 11px 14px; }
+      .location-heading { display: block; }
+      .location-heading small { display: block; margin-top: 4px; }
+      .location-grid { grid-template-columns: 1fr; }
+      .status-box { grid-template-columns: 1fr auto; align-items: center; gap: 5px 9px; padding: 13px; }
+      .status-box small, .status-box strong { grid-column: 1; }
+      .status-badge { grid-column: 2; grid-row: 1 / 3; }
+      .status-box p { grid-column: 1 / -1; margin-top: 4px; }
+      .operation-summary { grid-template-columns: 1fr; }
+      .operation-summary div { display: flex; align-items: center; justify-content: space-between; min-height: 58px; padding: 12px 14px; gap: 8px; }
+      .operation-summary dt { margin: 0; }
+      .operation-summary dd { font-size: 16px; }
+      .schedule-row { align-items: flex-start; padding: 14px; }
+      .schedule-row strong { font-size: 13px; }
+      .schedule-row em { font-size: 12px; }
+      .history-row { grid-template-columns: 38px minmax(0, 1fr); gap: 7px; }
+      .history-row em { grid-column: 2; justify-self: start; margin-top: -4px; }
+      .estimate svg { width: 65px; }
+      .closing p:not(.closing-label) { font-size: 16px; }
+    }
+
+    /* Figma colorway: semantic product tokens from apps/web/src/styles/theme.css. */
+    @media (min-width: 481px) {
+      .hero-kicker, .hero h1, .hero h1 span, .hero-lead { color: #15324a; }
+      .hero-link { color: #ffffff; background: #256fa1; border-color: #256fa1; }
+      .hero-link:hover { color: #ffffff; background: #1d5c86; }
+    }
+    @media (max-width: 480px) {
+      .hero h1, .hero h1 span, .hero-lead { color: #ffffff; }
+      .hero-kicker { color: #ff7a5c; }
+    }
+  </style>
+  <script src="https://mcp.figma.com/mcp/html-to-design/capture.js" async></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">본문으로 이동</a>
+  <header class="masthead">
+    <div class="container masthead-inner">
+      <a class="brand" href="#top" aria-label="킨다 시안 맨 위로"><span class="brand-mark"><img src="/brand/kinda-mark.svg" alt="" /></span>킨다</a>
+      <nav class="top-nav" aria-label="시안 둘러보기"><a href="#day">하루의 흐름</a><a class="nav-contact" href="/#contact">도입 상담 ↗</a></nav>
+    </div>
+  </header>
+  <main id="main">
+    <section class="hero" id="top" aria-labelledby="hero-title">
+      <div class="container hero-inner">
+        <p class="hero-kicker">Kinda · A day in the field</p>
+        <h1 id="hero-title">조명과 함께<br /><span>흘러가는 하루.</span></h1>
+        <p class="hero-lead">아침의 점검부터 저녁의 확인까지.<br />시설 담당자의 일과를 따라 킨다의 관제 흐름을 살펴보세요.</p>
+        <a class="hero-link" href="#day">하루 따라가기 <span aria-hidden="true">↓</span></a>
+      </div>
+      <div class="container hero-bottom" aria-hidden="true"><span>SCROLL THE DAY</span><div class="day-hours"><span>08:30</span><span>14:00</span><span>18:30</span></div></div>
+    </section>
+
+    <section class="intro" id="day" aria-label="시안 소개">
+      <div class="container intro-inner">
+        <div class="section-index">The day / 03 scenes</div>
+        <p>오늘도 현장에는 질문이 생깁니다. <em>어디에 있지?</em> <em>어떻게 조정하지?</em> <em>무엇이 처리됐지?</em> 하루의 순서대로 답을 찾아봅니다.</p>
+      </div>
+    </section>
+
+    <div class="timeline" role="group" aria-label="점검 시작, 운영 조정, 결과 확인의 세 장면">
+      <section class="scene scene--morning" data-scene="01" aria-labelledby="morning-title">
+        <div class="container scene-inner">
+          <div class="scene-marker"><p class="scene-clock">08:30</p></div>
+          <div class="scene-body">
+            <p class="chapter">01 / 점검 시작</p>
+            <h2 class="scene-question" id="morning-title">“그 조명,<br />어디에 있지?”</h2>
+            <p class="scene-answer">현장과 층을 열고 도면에서 위치를 확인합니다. 최근 확인된 상태를 함께 보며 점검할 대상을 좁힙니다.</p>
+            <div class="benefit">위치와 최근 상태를 한 맥락에서 확인</div>
+            <div class="preview" role="group" aria-label="도면과 조명 상태를 보여주는 읽기 전용 화면 예시">
+              <div class="preview-head"><span class="preview-label">현장 모니터링</span><span>화면 예시 · 조작 불가</span></div>
+              <div class="preview-body">
+                <div class="location-heading"><strong>본관 · 지하 1층</strong><small>주차장 / 출입구 구역</small></div>
+                <div class="location-grid">
+                  <div class="plan-box">
+                    <svg viewBox="0 0 350 196" role="img" aria-label="지하 1층 출입구 구역 조명 위치를 나타낸 예시 도면">
+                      <rect x="16" y="15" width="318" height="160" rx="7" fill="#256fa1" stroke="#15324a" stroke-width="2" />
+                      <path d="M16 64H334M16 126H334M111 15V64M249 126V175" fill="none" stroke="#15324a" stroke-width="2" />
+                      <path d="M36 96H314" fill="none" stroke="#15324a" stroke-width="2" stroke-dasharray="6 7" />
+                      <rect x="124" y="22" width="91" height="34" rx="4" fill="#15324a" />
+                      <text x="169.5" y="43" fill="#15324a" font-size="11" text-anchor="middle">승강기</text>
+                      <rect x="138" y="136" width="74" height="28" rx="4" fill="#256fa1" stroke="#256fa1" />
+                      <text x="175" y="154" fill="#15324a" font-size="10" text-anchor="middle">출입구</text>
+                      <g fill="#15324a"><circle cx="58" cy="62" r="6"/><circle cx="104" cy="62" r="6"/><circle cx="246" cy="62" r="6"/><circle cx="293" cy="62" r="6"/><circle cx="58" cy="127" r="6"/><circle cx="104" cy="127" r="6"/><circle cx="246" cy="127" r="6"/><circle cx="293" cy="127" r="6"/></g>
+                      <circle cx="175" cy="126" r="10" fill="#256fa1" stroke="#256fa1" stroke-width="5" />
+                      <text x="16" y="191" fill="#15324a" font-size="9">● 조명 위치　 ● 확인 대상</text>
+                    </svg>
+                    <div class="plan-caption">도면 위 조명 위치 예시</div>
+                  </div>
+                  <div class="status-box">
+                    <small>최근 확인 상태</small>
+                    <strong>출입구 조명 01</strong>
+                    <span class="status-badge">켜짐</span>
+                    <p>선택한 위치의 상태를 목록과 함께 살펴봅니다.</p>
+                  </div>
+                </div>
+              </div>
+              <div class="preview-note">가상의 현장·조명 이름을 사용한 검토용 화면입니다.</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="scene scene--afternoon" data-scene="02" aria-labelledby="afternoon-title">
+        <div class="container scene-inner">
+          <div class="scene-marker"><p class="scene-clock">14:00</p></div>
+          <div class="scene-body">
+            <p class="chapter">02 / 운영 조정</p>
+            <h2 class="scene-question" id="afternoon-title">“오늘 운영은<br />어떻게 맞추지?”</h2>
+            <p class="scene-answer">필요한 조명 하나 또는 그룹을 골라 점등과 밝기를 정합니다. 반복되는 운영은 일정으로 정리할 수 있습니다.</p>
+            <div class="benefit">대상과 시간에 맞춰 운영 기준을 정리</div>
+            <div class="preview" role="group" aria-label="그룹 제어와 일정 설정을 보여주는 읽기 전용 화면 예시">
+              <div class="preview-head"><span class="preview-label">운영 설정</span><span>화면 예시 · 조작 불가</span></div>
+              <div class="preview-body">
+                <h3 class="operation-title">출입구 그룹 운영 예시</h3>
+                <dl class="operation-summary">
+                  <div><dt>대상</dt><dd>출입구 그룹</dd></div>
+                  <div><dt>점등</dt><dd>켜짐</dd></div>
+                  <div><dt>밝기</dt><dd>70%</dd></div>
+                </dl>
+                <div class="schedule-row"><div><span>반복 일정 예시</span><strong>평일 · 출입구 그룹</strong></div><em>18:00 점등</em></div>
+              </div>
+              <div class="preview-note">값과 일정은 설명을 위한 예시이며, 이 페이지에서는 변경할 수 없습니다.</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="scene scene--night" data-scene="03" aria-labelledby="night-title">
+        <div class="container scene-inner">
+          <div class="scene-marker"><p class="scene-clock">18:30</p></div>
+          <div class="scene-body">
+            <p class="chapter">03 / 결과 확인</p>
+            <h2 class="scene-question" id="night-title">“보낸 명령은<br />어떻게 됐지?”</h2>
+            <p class="scene-answer">어떤 대상에 어떤 명령을 보냈고 어떻게 처리됐는지 이력에서 확인합니다. 전력 정보는 조명 상태를 바탕으로 추정해 봅니다.</p>
+            <div class="benefit">조치 기록을 다음 운영 판단의 근거로</div>
+            <div class="preview" role="group" aria-label="명령 처리 이력과 추정 전력 안내를 보여주는 읽기 전용 화면 예시">
+              <div class="preview-head"><span class="preview-label">운영 결과</span><span>화면 예시 · 조작 불가</span></div>
+              <div class="preview-body">
+                <h3 class="history-title">명령 처리 이력 예시</h3>
+                <div class="history-row"><time datetime="18:00">18:00</time><div><strong>출입구 그룹 점등</strong><small>출입구 그룹 · 일정</small></div><em>완료</em></div>
+                <div class="history-row"><time datetime="14:05">14:05</time><div><strong>출입구 조명 01 밝기 변경</strong><small>개별 조명 · 밝기 70%</small></div><em>완료</em></div>
+                <div class="estimate"><div><strong>상태 기반 추정 전력</strong><p>조명 상태로 계산한 기간별 추정 정보입니다. 계측값은 아닙니다.</p></div><svg viewBox="0 0 92 40" aria-hidden="true"><path d="M1 29L16 24L29 27L44 14L59 19L76 9L91 15" fill="none" stroke="#15324a" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/><path d="M1 29L16 24L29 27L44 14L59 19L76 9L91 15V39H1Z" fill="#256fa1" opacity=".7"/></svg></div>
+              </div>
+              <div class="preview-note">가상의 명령 기록과 설명용 그래프입니다. 실제 고객 데이터나 실측 전력이 아닙니다.</div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <section class="closing" aria-labelledby="closing-title">
+      <div class="container">
+        <p class="closing-label">Your next day, made clear</p>
+        <h2 id="closing-title">우리 현장의 하루는<br />어떻게 달라질까요?</h2>
+        <p>현장 규모와 조명 배치, 운영 방식을 알려주세요. 필요한 관제 구성을 함께 살펴보겠습니다.</p>
+        <a class="contact-button" href="/#contact">도입 상담하기 <span aria-hidden="true">↗</span></a>
+      </div>
+    </section>
+  </main>
+  <footer class="footer"><div class="container footer-inner"><strong>킨다 · 현장의 하루</strong><span>이 페이지는 디자인 방향을 검토하기 위한 정적 시안입니다.</span></div></footer>
+</body>
+</html>
