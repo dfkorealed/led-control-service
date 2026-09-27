@@ -1,5 +1,13 @@
 # 제어 메뉴 기능 현황
 
+## 2026-09-27 종료 명령 상세 정리 helper
+
+- 구현 완료: 종료 outcome과 terminal dispatch/result, hold 없음, 종료 override, settled outbox를 확인한 뒤 원본과 파생 상세를 같은 거래에서 제거하는 내부 helper 및 DB tombstone 제약을 추가했다. Command/dispatch/수동 parent ID·FK·alias는 보존하며 exact 수동 replay는 keyed 증명으로 검증해 DB 상세/ACK hash 재생성 없이 응답한다. 실패하면 전체 거래를 rollback한다.
+- 미구현: 기본 OFF의 bounded worker 연결과 운영 중앙 DB migration/활성화. 물리 Command purge, 보호 cutover, 복구 POST와 새 자동 Set/Get은 이번 변경으로 켜지지 않는다.
+- 부족하거나 개선이 필요한 기능: 연결할 수 없는 과거 ACK hash·고아 수동 실행·미완료 재위촉·증명/키 부족은 이유와 함께 보류된다. 일회성 ACK 발행 실패는 Gateway의 기존 보고 재전송에 의존하며 실제 broker/Gateway/RF HIL은 별도다.
+- 관련 파일: `apps/api/src/retention/command-detail-redaction.ts`, `apps/api/src/automation/redacted-manual-execution-replay.ts`, `apps/api/src/mqtt/mqtt.service.ts`, `apps/api/prisma/migrations/20260927160000_command_derived_content_redaction/migration.sql`.
+- 갱신 규칙: software DB/transport 회귀와 실제 운영·하드웨어 검증을 구분하고, 사본 검증 실패를 정리 성공으로 기록하지 않는다.
+
 ## 2026-09-27 발행 세대와 보관 worker 안전 통합
 
 - 구현 완료: 일회용 PostgreSQL의 제한 worker는 전체 member ACK, 시도별 absolute expiry, 같은 primary의 내구적 시각 연속성, 전체 broker/Gateway 증명과 독립 단조 대기를 통과해야 서명된 정확 cutoff로 원본을 삭제한다. 증명 누락·위조·다른 boot/세대는 삭제 0이다. Set quiesce와 독립인 원본 없는 Get publisher를 등록하고 MQTT 종료 전에 해당 Get도 drain한다.

@@ -17,6 +17,7 @@ import { PrismaService } from "../prisma/prisma.service";
 import { parseGatewayTopic, type GatewayTopicScope } from "../mqtt/topic-scope";
 import { AutomationClock } from "./automation-clock";
 import { canonicalPayloadHash } from "./automation-payload-hash";
+import { acknowledgeRedactedManualReplay } from "./redacted-manual-execution-replay";
 import { VehicleSensorCapabilityService } from "./vehicle-sensor-capability.service";
 
 const CONFIG_APPLIED_CHANNEL = "events/automation/config-applied";
@@ -43,6 +44,10 @@ type ExecutionSource = {
 };
 
 type StoredAutomationSnapshot = ReturnType<typeof automationSnapshotV1Schema.parse>;
+type ExecutionAcknowledgement = ReturnType<typeof automationExecutionIngestedAckV1Schema.parse>;
+type ExecutionIngestResult = ExecutionAcknowledgement & {
+  publishAfterAck?: { topic: string; payload: ExecutionAcknowledgement };
+};
 
 @Injectable()
 export class AutomationMqttConsumerService {
@@ -80,7 +85,7 @@ export class AutomationMqttConsumerService {
       return;
     }
     if (scope.channel === EXECUTION_CHANNEL) {
-      await this.onExecution(scope, this.parseJson(payload));
+      return this.onExecution(scope, this.parseJson(payload));
     }
   }
 
@@ -278,7 +283,7 @@ export class AutomationMqttConsumerService {
     });
   }
 
-  async onExecution(scope: Pick<GatewayTopicScope, "siteId" | "gatewayId">, rawEvent: unknown) {
+  async onExecution(scope: Pick<GatewayTopicScope, "siteId" | "gatewayId">, rawEvent: unknown): Promise<ExecutionIngestResult | undefined> {
     const parsed = automationExecutionEventV1Schema.safeParse(rawEvent);
     if (!parsed.success || parsed.data.gatewayId !== scope.gatewayId) return;
 
@@ -294,8 +299,10 @@ export class AutomationMqttConsumerService {
     tx: Prisma.TransactionClient,
     scope: Pick<GatewayTopicScope, "siteId" | "gatewayId">,
     event: AutomationExecutionEventV1
-  ) {
+  ): Promise<ExecutionIngestResult | undefined> {
     if (!await this.lockCurrentGatewayIdentity(tx, scope)) return;
+    const redactedReplay = await acknowledgeRedactedManualReplay(tx, scope, event);
+    if (redactedReplay) return redactedReplay;
     const reportPayloadHash = canonicalExecutionPayloadHash(event);
     const existing = await tx.automationExecution.findUnique({
       where: {

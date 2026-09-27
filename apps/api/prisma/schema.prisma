@@ -2000,7 +2000,9 @@ model ManualOverride {
   sourceDigest      String?
   sourceKeyVersion  Int?
   requestedById     String?
-  brightnessPercent Int
+  brightnessPercent Int?
+  /// Ended identity-only source; preserves both Command and legacy Override aliases.
+  contentRedactedAt DateTime?
   startedAt         DateTime
   overrideUntil     DateTime?
   endedAt           DateTime?
@@ -2048,7 +2050,9 @@ model AutomationExecution {
   occurrenceKey      String?
   kind               AutomationExecutionKind
   occurredAt         DateTime
-  payload            Json
+  payload            Json?
+  /// Manual execution tombstone; exact replay proof lives in ManualExecutionReplayReceipt.
+  contentRedactedAt   DateTime?
   /// Nullable only for execution history created before canonical MQTT ingestion hashes were introduced.
   payloadHash        String?
   site               Site                               @relation(fields: [siteId], references: [id], onDelete: Cascade, onUpdate: Restrict)

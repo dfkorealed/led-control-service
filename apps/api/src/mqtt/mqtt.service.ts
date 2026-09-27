@@ -530,6 +530,19 @@ export class MqttService implements OnModuleInit {
   }
 
   private async handleMessageBeforeAck(topic: string, payload: Buffer, receivedAt: Date): Promise<(() => Promise<void>) | undefined> {
+    if (parseGatewayTopic(topic)?.channel === "events/automation/execution") {
+      const result = await this.automationConsumer?.handleMessage(topic, payload);
+      if (result?.publishAfterAck) {
+        const intent = result.publishAfterAck;
+        // Only redacted exact replay uses this transient ACK. Its incoming
+        // transaction has committed; customHandleAcks must call done(0) before
+        // publishing, otherwise MQTT.js cannot read this outgoing QoS1 PUBACK.
+        // Keep the default 10-second wire expiry and never persist the raw hash.
+        return () => this.publishTopic(intent.topic, intent.payload,
+          { timeoutMs: MQTT_BACKGROUND_PUBLISH_TIMEOUT_MS });
+      }
+      return;
+    }
     if (parseGatewayTopic(topic)?.channel === "commands/clock/request") {
       const response = await this.prepareCommandClockResponse(topic, payload);
       // Publish after inbound PUBACK: MQTT.js cannot receive the outgoing

@@ -1,5 +1,15 @@
 # 데이터베이스 테이블 구조
 
+## 2026-09-27 종료 명령 파생 상세의 원자적 제거
+
+`20260927160000_command_derived_content_redaction`은 종료된 `ManualOverride`와 수동 `AutomationExecution`에 `contentRedactedAt`을 추가한다. Override의 밝기·요청자·source digest와 target membership, execution의 payload·unkeyed hash·occurrence 및 fixture results를 제거한다. 부모 ID·현장·Gateway·Command FK와 legacy Override-ID alias는 유지한다. CHECK와 remove-only trigger는 정상 행의 필수 내용을 유지하고 비식별 상태 복원·늦은 child/outbox 재삽입을 거부한다. Command/dispatch의 상세 복원도 DB에서 차단한다.
+
+`redactSettledCommandDetails(tx, commandId, retainedFromUtc)`는 호출자가 같은 거래에서 잠근 Command에만 사용한다. 중앙 DB UTC 시각, 정확 cutoff 보존, 종료 outcome/dispatch/result, hold 없음, 종료 override, published/lease 없는 outbox를 확인한다. 같은 거래에서 Command 요청자도 NULL로 지우며, Task 2의 현장 단위 orphan 요청 키 보호로 재실행을 막는다. 기존 Task 2 상태 정의에서 요청자 유지가 가능했더라도 이 정리 helper는 사용자 연결을 남기지 않는다. 모든 원본·결과·wire/ACK outbox·수동 상세·연결 활동 source 및 검증된 완료 재위촉 snapshot 정리가 성공해야 marker를 기록한다. 예외는 `CommandDetailRedactionBlocked.reasonCode`만 노출하며 호출자가 전체 거래를 rollback해야 한다.
+
+수동 실행의 exact `ManualExecutionReplayReceipt` HMAC은 기존 원장에 보존한다. 재전송은 이 증명과 현장/Gateway/event/sequence를 검증한 뒤 거래 commit 및 inbound PUBACK 이후, 10초 MQTT message expiry의 일회성 V1 ACK만 발행한다. raw report hash를 DB outbox에 재저장하지 않는다. 발행 실패 시 Gateway의 기존 durable report 재전송으로 다시 처리하며 새 Set/Get을 만들지 않는다. 증명·키가 없거나 변조된 보고, 새 event, 검증할 수 없는 legacy alias는 실패로 닫는다.
+
+과거 `device_status_ack` 원장의 hash는 Command에 연결할 수 없어 같은 Gateway에 남아 있으면 `legacy_ack_attribution_unverifiable`로 보류한다. 출처가 끊긴 legacy manual 사본, 활동 keyring 부족, 미완료/증명 없는 재위촉 snapshot도 보류하며 관련 없는 원장을 추측해서 지우지 않는다. 이 helper/순방향 migration은 일회용 PostgreSQL 검증 대상이고 기본 timer 등록·운영 적용·물리 purge·보호 cutover 활성화는 포함하지 않는다.
+
 ## 2026-09-27 Command 상세 내용 제거 상태
 
 현장·요청 키의 orphan 검사는 새 `Command_siteId_clientRequestId_idx` 인덱스를 사용한다. 기존 unique 인덱스의 중간 `requestedBy`를 알 수 없는 조회가 현장 전체 기록을 반복 탐색하지 않도록 한다.

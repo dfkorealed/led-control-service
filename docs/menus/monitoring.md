@@ -1,5 +1,13 @@
 # 모니터링 메뉴 기능 현황
 
+## 2026-09-27 종료 명령의 연결 활동 사본 정리
+
+- 구현 완료: 내부 명령 상세 정리 helper는 성공한 후보에 연결된 raw 및 알려진 keyed command activity source를 같은 거래에서 제거한다. 늦게 생성된 활동의 별도 recordedAt 때문에 만료 명령 연결 사본이 남지 않도록 한다. 이후 단계가 실패하면 활동도 rollback한다.
+- 미구현: 내용 정리 worker의 기본 timer 연결·운영 활성화. 일반 활동 이력의 기존 중앙 DB 3개월 조회/정리 경계는 유지한다.
+- 부족하거나 개선이 필요한 기능: keyed source 검증 키가 없으면 보수적으로 후보를 보류하며 운영 적용 전 과거 keyring 보존을 확인해야 한다.
+- 관련 파일: `apps/api/src/retention/command-detail-redaction.ts`, `apps/api/src/retention/command-detail-redaction.integration.spec.ts`.
+- 갱신 규칙: helper 구현을 운영 정리 완료로 기록하지 않으며 제어/모니터링 사본 제거와 rollback 검증을 함께 유지한다.
+
 ## 2026-09-27 현장·층 대시보드 집계 계약
 
 - 구현 완료: `GET /sites/:siteId/dashboard`는 활성 층의 전체 등록 조명을 동일 현장 정책·응답 시각으로 한 번씩 분류해 현장 `offlineFixtures`와 층별 `summary`를 반환한다. `includeFixtures=false`여도 집계는 유지하고 조명 상세는 제외한다. 층의 `mapRevision`과 `mapConfigured`는 현재 공통 맵 revision의 작은 집계값을 현장당 한 번 조회해 반환하며 전체 변경 snapshot이나 맵 blob을 응답에 싣지 않는다.
