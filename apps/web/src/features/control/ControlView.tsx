@@ -6,6 +6,7 @@ import { useLocation, useNavigate } from "react-router-dom";
 import type { AuthUser } from "../../api/auth";
 import { Button, Card, Heading, NumberField, ProgressSteps, SidePanel, Slider, StatusBadge, Text, useSessionStatus, type ProgressStep, type ProgressStepState, type SessionStatusItem } from "../../components/ui";
 import {
+  commandReadRevalidation,
   canonicalizeDimmingCommandInput,
   createDimmingCommand,
   createCommandStatusCheck,
@@ -96,7 +97,7 @@ export function ControlView({
   const [activeRequest, setActiveRequest] = useState<CreateDimmingCommandInput | null>(null);
   const [replayRejected, setReplayRejected] = useState(false);
   const [reconciledOriginalCommandId, setReconciledOriginalCommandId] = useState<string | null>(null);
-  const [terminalResult, setTerminalResult] = useState<{ siteId: string; status: CommandStatusResponse } | null>(null);
+  const [terminalResult, setTerminalResult] = useState<{ siteId: string; commandId: string } | null>(null);
   const [verificationRequest, setVerificationRequest] = useState<{
     commandId: string; clientRequestId: string; dispatchIds?: string[]; responseLost?: boolean;
   } | null>(null);
@@ -119,22 +120,25 @@ export function ControlView({
   );
   const scopedCommandId = commandScopeMatches ? commandId : null;
   const scopedActiveRequest = commandScopeMatches && activeRequest?.siteId === activeSiteId ? activeRequest : null;
+  const detailCommandId = scopedCommandId ?? (commandScopeMatches && terminalResult?.siteId === activeSiteId ? terminalResult.commandId : null);
   const statusArguments: [string | null, string[]?, boolean?] = verificationRequest
-    ? [scopedCommandId, verificationRequest.dispatchIds, true] : [scopedCommandId];
+    ? [detailCommandId, verificationRequest.dispatchIds, true] : [detailCommandId];
   const commandQuery = useCommandStatus(...statusArguments);
-  const matchingCommandStatus = commandQuery.data?.id === scopedCommandId ? commandQuery.data : null;
+  const freshDetail = !commandQuery.error && !commandQuery.isFetching && !commandQuery.isPaused ? commandQuery.data : undefined;
+  const matchingCommandStatus = freshDetail?.id === scopedCommandId ? freshDetail : null;
   const waitingForVerification = Boolean(verificationRequest && (!verificationRequest.dispatchIds
     || verificationRequest.dispatchIds.some((id) => !matchingCommandStatus?.dispatches.some((dispatch) => dispatch.id === id))));
   // A conclusive device result can arrive even when the status-check POST reply
   // was lost. It must release the lock without requiring that missing reply.
   const matchingCommandIsTerminal = isSettledCommandStatus(matchingCommandStatus)
     && (!waitingForVerification || matchingCommandStatus?.stage !== "verification_required");
-  const displayedStatus = matchingCommandStatus ?? (commandScopeMatches && terminalResult?.siteId === activeSiteId ? terminalResult.status : null);
+  const displayedStatus = freshDetail?.id === detailCommandId ? freshDetail : null;
   const hasMismatchedCommandStatus = Boolean(
     scopedCommandId && commandQuery.data && commandQuery.data.id !== scopedCommandId
   );
   const missingCommand = isMissingCommandError(commandQuery.error);
   const exactVerificationCases = useQuery({
+    ...commandReadRevalidation,
     queryKey: ["command-verification-cases-exact", userId, activeSiteId, scopedCommandId],
     queryFn: () => listCommandVerificationCases({ siteId: activeSiteId!, originalCommandId: scopedCommandId!, limit: 1 }),
     enabled: Boolean(activeSiteId && (!siteId || siteId === activeSiteId) && scopedCommandId && missingCommand && !matchingCommandIsTerminal),
@@ -142,6 +146,7 @@ export function ControlView({
     refetchOnMount: "always"
   });
   const reconciledCaseRead = useQuery({
+    ...commandReadRevalidation,
     queryKey: ["command-reconciled-case-exact", userId, activeSiteId, reconciledOriginalCommandId],
     queryFn: () => listCommandVerificationCases({ siteId: activeSiteId!, originalCommandId: reconciledOriginalCommandId!, limit: 1 }),
     enabled: Boolean(activeSiteId && (!siteId || siteId === activeSiteId) && scopedActiveRequest && replayRejected && reconciledOriginalCommandId),
@@ -266,7 +271,7 @@ export function ControlView({
 
   useEffect(() => {
     if (!activeSiteId || !scopedActiveRequest || !replayRejected || !reconciledOriginalCommandId
-      || siteId && siteId !== activeSiteId || reconciledCaseRead.isFetching || !reconciledCaseRead.isFetchedAfterMount
+      || siteId && siteId !== activeSiteId || reconciledCaseRead.isFetching || reconciledCaseRead.isPaused || !reconciledCaseRead.isFetchedAfterMount
       || reconciledCaseRead.error || !reconciledCaseRead.data || reconciledCaseRead.data.items.length !== 0) return;
     const caseId = loadActiveCommandReplayRejectedCaseId(userId, activeSiteId, scopedActiveRequest.clientRequestId);
     if (!caseId || loadReconciledOriginalCommandId(userId, activeSiteId, scopedActiveRequest.clientRequestId) !== reconciledOriginalCommandId) return;
@@ -284,7 +289,7 @@ export function ControlView({
 
   useEffect(() => {
     if (!activeSiteId || !scopedCommandId || !missingCommand || matchingCommandIsTerminal
-      || siteId && siteId !== activeSiteId || exactVerificationCases.isFetching || !exactVerificationCases.isFetchedAfterMount || exactVerificationCases.error
+      || siteId && siteId !== activeSiteId || exactVerificationCases.isFetching || exactVerificationCases.isPaused || !exactVerificationCases.isFetchedAfterMount || exactVerificationCases.error
       || !exactVerificationCases.data) return;
     const caseRecord = exactVerificationCases.data.items.find((item) => item.siteId === activeSiteId && item.originalCommandId === scopedCommandId);
     if (caseRecord) {
@@ -316,7 +321,7 @@ export function ControlView({
   useEffect(() => {
     if (!activeSiteId || !scopedCommandId || !matchingCommandStatus || !matchingCommandIsTerminal || isSubmitting) return;
 
-    setTerminalResult({ siteId: activeSiteId, status: matchingCommandStatus });
+    setTerminalResult({ siteId: activeSiteId, commandId: matchingCommandStatus.id });
     clearActiveCommandId(userId, activeSiteId, scopedCommandId);
     const observedCaseId = loadObservedVerificationCase(userId, activeSiteId, scopedCommandId);
     if (observedCaseId) clearObservedVerificationCase(userId, activeSiteId, scopedCommandId, observedCaseId);
@@ -360,6 +365,7 @@ export function ControlView({
   }
 
   async function safelyReapply() {
+    if (!commandQuery.isDetailCurrent()) return;
     if (!displayedStatus || displayedStatus.stage !== "verified_not_applied" || controlsLocked
       || !activeSiteId || isActiveCommandSessionBlocked(userId)) return;
     const { targetFixtureIds, brightness: originalBrightness } = displayedStatus;
@@ -380,6 +386,7 @@ export function ControlView({
   }
 
   async function checkActualState() {
+    if (!commandQuery.isDetailCurrent()) return;
     if (!displayedStatus || displayedStatus.stage !== "verification_required" || readOnly || isSubmitting
       || commandSessionBlocked || restorePending || !activeSiteId || isActiveCommandSessionBlocked(userId)) return;
     if (!verificationRequest && (displayedStatus.verificationAttemptCount ?? 0) >= 3) return;
@@ -392,6 +399,7 @@ export function ControlView({
     activePostController.current?.abort();
     activePostController.current = controller;
     setVerificationRequest(request);
+    void queryClient.invalidateQueries({ queryKey: ["command-status", request.commandId], exact: true });
     setCommandId(request.commandId);
     saveActiveCommandId(userId, requestSiteId, request.commandId);
     const preserveInterruptedRequest = () => {
@@ -625,7 +633,7 @@ export function ControlView({
             displayedStatus={displayedStatus} onRetryPending={() => void sendCommand(scopedActiveRequest!, userId)} onCheck={() => void checkActualState()}
             onReapply={() => void safelyReapply()} readOnly={readOnly} restorePending={restorePending} verificationRequest={verificationRequest}
             commandInProgress={commandInProgress} onCloseDetail={() => setTerminalResult(null)}
-            hasMismatchedCommandStatus={hasMismatchedCommandStatus} missingCommand={missingCommand} matchingCommandIsTerminal={matchingCommandIsTerminal} commandError={commandQuery.error}
+            hasMismatchedCommandStatus={hasMismatchedCommandStatus} missingCommand={missingCommand} matchingCommandIsTerminal={matchingCommandIsTerminal} commandError={commandQuery.error} detailCommandId={detailCommandId} retentionExpired={commandQuery.retentionExpired}
             isCommandFetching={commandQuery.isFetching} onRefreshStatus={() => void commandQuery.refetch()} />
         </SidePanel>
         <CommandHistoryPanel key={`${userId}:${data.site.id}`} userId={userId} siteId={data.site.id}
@@ -706,7 +714,7 @@ function manualApplyLabel(commandSessionBlocked: boolean, controlsLocked: boolea
 
 function ManualControlFeedback({ compact = false, scopedActiveRequest, scopedCommandId, replayRejected, awaitingCaseRelease, isCaseReleaseFetching, onRefreshCaseRelease, isSubmitting, commandSessionBlocked, message, verificationError,
   displayedStatus, onRetryPending, onCheck, onReapply, readOnly, restorePending, verificationRequest, commandInProgress, onCloseDetail,
-  hasMismatchedCommandStatus, missingCommand, matchingCommandIsTerminal, commandError, isCommandFetching, onRefreshStatus }: {
+  hasMismatchedCommandStatus, missingCommand, matchingCommandIsTerminal, commandError, detailCommandId, retentionExpired, isCommandFetching, onRefreshStatus }: {
   compact?: boolean;
   scopedActiveRequest: CreateDimmingCommandInput | null;
   scopedCommandId: string | null;
@@ -731,6 +739,8 @@ function ManualControlFeedback({ compact = false, scopedActiveRequest, scopedCom
   missingCommand: boolean;
   matchingCommandIsTerminal: boolean;
   commandError: unknown;
+  detailCommandId: string | null;
+  retentionExpired?: boolean;
   isCommandFetching: boolean;
   onRefreshStatus: () => void;
 }) {
@@ -761,13 +771,13 @@ function ManualControlFeedback({ compact = false, scopedActiveRequest, scopedCom
         {isCommandFetching ? "명령 상태 조회 중" : "명령 상태 다시 조회"}
       </Button>
     </div> : null}
-    {missingCommand && scopedCommandId && !matchingCommandIsTerminal ? <div className="grid gap-2" role="alert">
-      <Text tone="danger">명령 원본을 찾을 수 없습니다. 실제 상태 확인 전까지 제어 잠금을 유지합니다.</Text>
+    {(missingCommand || retentionExpired) && detailCommandId ? <div className="grid gap-2" role="alert">
+      <Text tone="danger">{isCommandExpiredError(commandError) ? "상세 보관 종료. 최근 3개월의 명령 상세만 조회할 수 있습니다." : retentionExpired ? "상세 보관 기한을 지나 서버 확인이 필요합니다." : "명령 원본을 찾을 수 없습니다."} 실제 상태 확인 전까지 제어 잠금을 유지합니다.</Text>
       <Button variant="secondary" type="button" onClick={onRefreshStatus} disabled={isCommandFetching}>
         {isCommandFetching ? "명령 상태 조회 중" : "명령 상태 다시 조회"}
       </Button>
     </div> : null}
-    {commandError && scopedCommandId && !missingCommand && !matchingCommandIsTerminal && !hasMismatchedCommandStatus ? <div className="grid gap-2" role="alert">
+    {commandError && detailCommandId && !missingCommand && !matchingCommandIsTerminal && !hasMismatchedCommandStatus ? <div className="grid gap-2" role="alert">
       <Text tone="danger">명령 상태를 불러오지 못했습니다. 연결을 확인한 뒤 다시 조회하세요.</Text>
       <Button variant="secondary" type="button" onClick={onRefreshStatus} disabled={isCommandFetching}>
         {isCommandFetching ? "명령 상태 조회 중" : "명령 상태 다시 조회"}
@@ -842,6 +852,11 @@ function terminalStepState(stage: CommandStage): ProgressStepState {
 
 function commandStageLabel(stage: CommandStage) {
   return COMMAND_STAGE_LABELS[stage];
+}
+
+function isCommandExpiredError(error: unknown): boolean {
+  return Boolean(error && typeof error === "object" && "status" in error && error.status === 410
+    && "body" in error && error.body && typeof error.body === "object" && "code" in error.body && error.body.code === "command_expired");
 }
 
 function isMissingCommandError(error: unknown): error is { status: number } {

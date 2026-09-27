@@ -40,7 +40,7 @@ describe("MonitoringLogTicker", () => {
     expect(screen.getByRole("button", { name: "다시 시도" })).toBeVisible();
     rerender(ticker({ error: new Error("offline"), isRefetchError: true }));
     expect(screen.getByText(/갱신에 실패/)).toBeVisible();
-    expect(screen.getByText(/B-04/)).toBeVisible();
-    expect(screen.getByRole("button", { name: "전체 보기" })).toBeVisible();
+    expect(screen.queryByText(/B-04/)).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "다시 시도" })).toBeVisible();
   });
 });

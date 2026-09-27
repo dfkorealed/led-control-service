@@ -1,6 +1,16 @@
-import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
+import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { CreateDimmingCommandInput } from "@led-control/shared";
 import { apiGet, apiPost } from "./client";
+import { useEffect, useRef } from "react";
+import { isDetailRetained, useDetailRetentionClock } from "./detail-retention";
+
+export const commandReadRevalidation = {
+  staleTime: 0,
+  retry: false,
+  refetchOnMount: "always",
+  refetchOnWindowFocus: "always",
+  refetchOnReconnect: "always"
+} as const;
 
 export type CommandDeliveryMode = "unicast" | "parallel_unicast" | "mesh_group";
 
@@ -114,13 +124,23 @@ export function listCommands(input: CommandHistoryInput) {
 }
 
 export function useCommandHistory(userId: string, input: Omit<CommandHistoryInput, "cursor">, enabled = true) {
-  return useInfiniteQuery({
+  const query = useInfiniteQuery({
+    ...commandReadRevalidation,
     queryKey: ["command-history", userId, input],
     initialPageParam: undefined as string | undefined,
     queryFn: ({ pageParam }) => listCommands({ ...input, cursor: pageParam }),
     getNextPageParam: (page) => page.nextCursor ?? undefined,
     enabled: enabled && Boolean(input.siteId)
   });
+  const now = useDetailRetentionClock(query.data?.pages.flatMap((page) => page.items.map((item) => item.createdAt)) ?? []);
+  const expired = query.data?.pages.some((page) => page.items.some((item) => !isDetailRetained(item.createdAt, now)));
+  const expirationRead = useRef(false);
+  useEffect(() => {
+    if (!expired) { expirationRead.current = false; return; }
+    if (enabled && !expirationRead.current) { expirationRead.current = true; void query.refetch(); }
+  }, [enabled, expired, query.refetch]);
+  const data = !query.error && !query.isFetching && !query.isPaused && query.isFetchedAfterMount ? query.data : undefined;
+  return { ...query, data: data ? { ...data, pages: data.pages.map((page) => ({ ...page, items: page.items.filter((item) => isDetailRetained(item.createdAt, now)) })) } : undefined };
 }
 
 export type CommandVerificationReason = "outcome_unknown" | "attempts_exhausted" | "gateway_unavailable";
@@ -182,6 +202,7 @@ export function listCommandVerificationCases(input: CommandVerificationCasesInpu
 
 export function useCommandVerificationCases(userId: string, input: Omit<CommandVerificationCasesInput, "cursor">, enabled = true) {
   return useInfiniteQuery({
+    ...commandReadRevalidation,
     queryKey: ["command-verification-cases", userId, input],
     initialPageParam: undefined as string | undefined,
     queryFn: ({ pageParam }) => listCommandVerificationCases({ ...input, cursor: pageParam }),
@@ -259,10 +280,30 @@ export function canonicalizeDimmingCommandInput(
 }
 
 export function useCommandStatus(commandId: string | null, pendingVerificationDispatchIds?: string[], hasUnresolvedVerificationRequest = false) {
-  return useQuery({
+  const queryClient = useQueryClient();
+  const query = useQuery({
+    ...commandReadRevalidation,
     queryKey: ["command-status", commandId],
     queryFn: () => apiGet<CommandStatusResponse>(`/commands/${commandId}`),
     enabled: Boolean(commandId),
     refetchInterval: (query) => getCommandStatusRefetchInterval(commandId, query.state.data, pendingVerificationDispatchIds, hasUnresolvedVerificationRequest)
   });
+  const now = useDetailRetentionClock([query.data?.createdAt]);
+  const retentionExpired = Boolean(query.data && !isDetailRetained(query.data.createdAt, now));
+  const expirationRead = useRef<string | null>(null);
+  useEffect(() => {
+    if (retentionExpired && commandId && expirationRead.current !== commandId) {
+      expirationRead.current = commandId;
+      void query.refetch();
+    }
+  }, [commandId, retentionExpired, query.refetch]);
+  const data = !retentionExpired && !query.error && !query.isFetching && !query.isPaused && query.isFetchedAfterMount ? query.data : undefined;
+  function isDetailCurrent() {
+    const state = queryClient.getQueryState(["command-status", commandId]);
+    // A click can beat React's refetch notification or retention timer. Check
+    // cache authority and the wall clock again before allowing a physical action.
+    return Boolean(data && isDetailRetained(data.createdAt) && state?.fetchStatus === "idle"
+      && !state.error && !state.isInvalidated && state.data === data);
+  }
+  return { ...query, retentionExpired, data, isDetailCurrent };
 }

@@ -40,6 +40,13 @@ describe("MonitoringLogDrawer", () => {
     expect(await within(dialog).findByText(/B-0/)).toBeVisible();
   });
 
+  it.each([403, 404, 500])("hides cached operations after background HTTP %s", (status) => {
+    useMonitoringActivity.mockReturnValue({ data: firstPage, error: new ApiError("Unavailable", status, {}), isPending: false, refetch: vi.fn() });
+    render(drawer());
+    expect(screen.queryByText(/B-0/)).not.toBeInTheDocument();
+    expect(screen.getByRole("alert")).toHaveTextContent("불러오지 못했습니다");
+  });
+
   it("shows an expired cursor only as a 410 recovery, never a fabricated page", async () => {
     useMonitoringActivity.mockImplementation(({ cursor }: { cursor: string }) => ({
       data: cursor ? undefined : firstPage,

@@ -32,7 +32,10 @@ vi.mock("../../api/queries", async (importOriginal) => ({
 }));
 vi.mock("../../api/commands", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../api/commands")>()),
-  useCommandStatus: mocks.useCommandStatus
+  useCommandStatus: (...args: Parameters<typeof import("../../api/commands").useCommandStatus>) => ({
+    isDetailCurrent: () => true,
+    ...mocks.useCommandStatus(...args)
+  })
 }));
 vi.mock("./automation/ScheduleControlPanel", () => ({
   ScheduleControlPanel: ({ siteId }: { siteId: string }) => {
@@ -175,6 +178,50 @@ describe("ControlView 대상 선택", () => {
     vi.useRealTimers();
     cleanup();
     sessionStorage.clear();
+  });
+
+  it.each([401, 403, 404, 410, 500])("discards an open terminal result after refetch %s without replay", async (status) => {
+    const actual = await vi.importActual<typeof import("../../api/commands")>("../../api/commands");
+    mocks.useCommandStatus.mockImplementation(actual.useCommandStatus);
+    const record = { ...createCommandStatus(commandIds.terminal, "verified_not_applied"), createdAt: new Date().toISOString(), siteId: dashboard.site.id, targetFixtureIds: [fixtureIds.b2First], brightness: 37 };
+    let unavailable = false;
+    mocks.apiGet.mockImplementation(async (path: string) => {
+      if (path.startsWith("/commands?")) return { items: [record], nextCursor: null };
+      if (unavailable) throw { status, body: { code: status === 410 ? "command_expired" : "unavailable" } };
+      return record;
+    });
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(<QueryClientProvider client={client}><SessionStatusProvider><MemoryRouter><ControlView siteId={dashboard.site.id} userId={USER_A} userRole="admin" /></MemoryRouter></SessionStatusProvider></QueryClientProvider>);
+    fireEvent.click(await screen.findByRole("button", { name: new RegExp(commandIds.terminal) }));
+    expect(await screen.findByRole("button", { name: "안전하게 다시 적용" })).toBeEnabled();
+    unavailable = true;
+    await act(async () => { await client.invalidateQueries({ queryKey: ["command-status", record.id] }); });
+    await waitFor(() => expect(screen.queryByRole("button", { name: "안전하게 다시 적용" })).not.toBeInTheDocument());
+    expect(screen.queryByRole("region", { name: "명령 결과 후속 조치" })).not.toBeInTheDocument();
+    expect(Boolean(screen.queryByText(/상세 보관 종료/))).toBe(status === 410);
+    expect(mocks.apiPost).not.toHaveBeenCalled();
+  });
+
+  it("expires the open terminal result and history drawer at the calendar boundary", async () => {
+    vi.useFakeTimers(); vi.setSystemTime(new Date("2026-08-31T11:59:59Z"));
+    const actual = await vi.importActual<typeof import("../../api/commands")>("../../api/commands");
+    mocks.useCommandStatus.mockImplementation(actual.useCommandStatus);
+    const record = { ...createCommandStatus(commandIds.terminal, "verified_not_applied"), createdAt: "2026-05-31T12:00:00Z", siteId: dashboard.site.id, targetFixtureIds: [fixtureIds.b2First], brightness: 37 };
+    mocks.apiGet.mockImplementation(async (path: string) => path.startsWith("/commands?") ? { items: [record], nextCursor: null } : record);
+    renderControl();
+    await act(async () => { await vi.advanceTimersByTimeAsync(20); });
+    fireEvent.click(screen.getByRole("button", { name: new RegExp(commandIds.terminal) }));
+    await act(async () => { await vi.advanceTimersByTimeAsync(20); });
+    expect(screen.getByRole("button", { name: "안전하게 다시 적용" })).toBeEnabled();
+    fireEvent.click(screen.getByRole("button", { name: "명령 이력 열기" }));
+    await act(async () => { await vi.advanceTimersByTimeAsync(20); });
+    const drawer = screen.getByRole("dialog", { name: "명령 이력" });
+    expect(within(drawer).getByRole("button", { name: new RegExp(commandIds.terminal) })).toBeInTheDocument();
+    await act(async () => { await vi.advanceTimersByTimeAsync(942); });
+    expect(within(drawer).queryByRole("button", { name: new RegExp(commandIds.terminal) })).not.toBeInTheDocument();
+    fireEvent.click(within(drawer).getByRole("button", { name: "명령 이력 닫기" }));
+    expect(screen.queryByRole("button", { name: "안전하게 다시 적용" })).not.toBeInTheDocument();
+    expect(mocks.apiPost).not.toHaveBeenCalled();
   });
 
   it("atlas execution keeps one natural-flow map and execution surface with no numbered duplicate headings", () => {
@@ -458,7 +505,7 @@ describe("ControlView 대상 선택", () => {
     expect(await screen.findByText("요청한 밝기가 이미 적용되어 있습니다.")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "명령 상세 닫기" }));
     expect(screen.queryByText("요청한 밝기가 이미 적용되어 있습니다.")).not.toBeInTheDocument();
-    fireEvent.click(row);
+    fireEvent.click(await screen.findByRole("button", { name: new RegExp(commandIds.terminal) }));
     expect(await screen.findByText("요청한 밝기가 이미 적용되어 있습니다.")).toBeInTheDocument();
     expect(mocks.apiPost).not.toHaveBeenCalled();
   });
@@ -1258,61 +1305,6 @@ describe("ControlView 대상 선택", () => {
     expect(mocks.apiPost).toHaveBeenCalledTimes(1);
   });
 
-  it("requires a fresh Apply and UUID after the exact blocking case is reconciled", async () => {
-    const caseRecord = { caseId: "case-1", originalCommandId: commandIds.missing, siteId: dashboard.site.id,
-      targetCount: 1, verificationAttemptCount: 3, status: "verification_required", canRequestStatusCheck: false,
-      lastCheckedAt: null, reasonCode: "attempts_exhausted" };
-    let caseExists = true;
-    let finishExactRead: (value: unknown) => void = () => undefined;
-    let dimmingCalls = 0;
-    mocks.apiGet.mockImplementation((path: string) => {
-      if (path.endsWith("/case-1")) return Promise.resolve({ ...caseRecord, targetFixtureIds: [fixtureIds.b2First] });
-      if (path.includes(`originalCommandId=${commandIds.missing}`) && !caseExists) {
-        return new Promise((resolve) => { finishExactRead = resolve; });
-      }
-      if (path.startsWith("/commands/requiring-verification?")) return Promise.resolve({ items: caseExists ? [caseRecord] : [], nextCursor: null, generatedAt: "2026-09-25T00:00:00.000Z" });
-      return Promise.resolve({ items: [], nextCursor: null });
-    });
-    mocks.apiPost.mockImplementation(async (path: string) => {
-      if (path === "/commands/dimming") {
-        dimmingCalls += 1;
-        if (dimmingCalls === 1) throw Object.assign(new Error("blocked"), {
-          status: 409, body: { code: "command_requires_verification", caseId: "case-1", blockingCaseCount: 1 }
-        });
-        return { id: commandIds.default, dispatchCount: 1 };
-      }
-      if (path.endsWith("/reconcile")) {
-        caseExists = false;
-        return { caseId: "case-1", reconciled: true, reconciledAt: "2026-09-25T00:00:00.000Z" };
-      }
-      throw new Error("unexpected POST");
-    });
-    renderControl();
-    selectFixture("B2-L001");
-    fireEvent.click(applyButton());
-    expect(await screen.findByText(/이 요청은 재전송할 수 없습니다/)).toBeInTheDocument();
-    const oldId = mocks.apiPost.mock.calls.find(([path]) => path === "/commands/dimming")![1].clientRequestId;
-    fireEvent.click(screen.getByRole("button", { name: "확인 필요한 명령" }));
-    const drawer = await screen.findByRole("dialog", { name: "확인 필요한 명령" });
-    fireEvent.click(await within(drawer).findByRole("button", { name: new RegExp(commandIds.missing) }));
-    fireEvent.click(await within(drawer).findByRole("button", { name: "위험 승인" }));
-    fireEvent.click(screen.getByRole("radio", { name: "물리 상태 확인 완료" }));
-    fireEvent.change(screen.getByRole("textbox", { name: "승인 사유" }), { target: { value: "현장에서 실제 조명 상태 확인" } });
-    fireEvent.click(screen.getByRole("checkbox", { name: /위험을 이해하고 승인/ }));
-    fireEvent.click(screen.getByRole("button", { name: "위험 승인 및 차단 해제" }));
-    await waitFor(() => expect(mocks.apiGet.mock.calls.some(([path]) => String(path).includes(`originalCommandId=${commandIds.missing}`))).toBe(true));
-    expect(applyButton()).toBeDisabled();
-    expect(dimmingCalls).toBe(1);
-    finishExactRead({ items: [], nextCursor: null, generatedAt: "2026-09-25T00:00:00.000Z" });
-    await waitFor(() => expect(applyButton()).toBeEnabled());
-    expect(dimmingCalls).toBe(1);
-    fireEvent.click(within(drawer).getByRole("button", { name: "확인 필요한 명령 닫기" }));
-    fireEvent.click(applyButton());
-    await waitFor(() => expect(dimmingCalls).toBe(2));
-    const dimmingPayloads = mocks.apiPost.mock.calls.filter(([path]) => path === "/commands/dimming").map(([, payload]) => payload);
-    expect(dimmingPayloads[1].clientRequestId).not.toBe(oldId);
-  });
-
   it("keeps a reconciled safety hold on reload until a fresh exact case read succeeds", async () => {
     const request = { siteId: dashboard.site.id, clientRequestId: "00000000-0000-4000-8000-000000009099",
       target: { type: "fixture" as const, fixtureId: fixtureIds.b2First }, brightness: 30 };
@@ -1496,39 +1488,24 @@ describe("ControlView 대상 선택", () => {
     expect(sessionStorage.getItem(activeCommandStorageKey(USER_A, dashboard.site.id))).toContain(commandIds.missing);
   });
 
-  it("releases a known expired hold only after risk approval and a fresh exact-filter empty read", async () => {
+  it("releases a known expired hold only after a fresh exact-filter empty read, with no case POST", async () => {
     const caseRecord = { caseId: "case-1", originalCommandId: commandIds.missing, siteId: dashboard.site.id, targetCount: 2,
       verificationAttemptCount: 3, status: "verification_required", canRequestStatusCheck: false, lastCheckedAt: null, reasonCode: "attempts_exhausted" };
     let caseExists = true;
     sessionStorage.setItem(activeCommandStorageKey(USER_A, dashboard.site.id), JSON.stringify({ commandId: commandIds.missing }));
     mocks.useCommandStatus.mockReturnValue({ data: undefined, error: { status: 410, body: { code: "command_expired" } }, isFetching: false, refetch: vi.fn() });
-    mocks.apiGet.mockImplementation(async (path: string) => path.endsWith("/case-1")
-      ? { ...caseRecord, targetFixtureIds: [fixtureIds.b2First, fixtureIds.b2Second] }
-      : path.startsWith("/commands/requiring-verification?")
-        ? { items: caseExists ? [caseRecord] : [], nextCursor: null, generatedAt: "2026-09-25T00:00:00.000Z" }
-        : { items: [], nextCursor: null });
-    mocks.apiPost.mockImplementation(async (path: string) => {
-      if (path.endsWith("/reconcile")) { caseExists = false; return { caseId: "case-1", reconciled: true, reconciledAt: "2026-09-25T00:00:00.000Z" }; }
-      throw new Error("unexpected command POST");
-    });
-    renderControl();
-    await waitFor(() => expect(mocks.apiGet).toHaveBeenCalledWith(expect.stringContaining(`originalCommandId=${commandIds.missing}`)));
+    mocks.apiGet.mockImplementation(async (path: string) => path.startsWith("/commands/requiring-verification?")
+      ? { items: caseExists ? [caseRecord] : [], nextCursor: null, generatedAt: "2026-09-25T00:00:00.000Z" } : { items: [], nextCursor: null });
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(<QueryClientProvider client={client}><SessionStatusProvider><MemoryRouter><ControlView siteId={dashboard.site.id} userId={USER_A} userRole="admin" /></MemoryRouter></SessionStatusProvider></QueryClientProvider>);
+    await waitFor(() => expect(loadObservedVerificationCase(USER_A, dashboard.site.id, commandIds.missing)).toBe("case-1"));
     expect(applyButton()).toBeDisabled();
-    fireEvent.click(screen.getByRole("button", { name: "확인 필요한 명령" }));
-    const drawer = await screen.findByRole("dialog", { name: "확인 필요한 명령" });
-    fireEvent.click(await within(drawer).findByRole("button", { name: new RegExp(commandIds.missing) }));
-    fireEvent.click(await within(drawer).findByRole("button", { name: "위험 승인" }));
-    fireEvent.click(screen.getByRole("radio", { name: "물리 상태 확인 완료" }));
-    fireEvent.change(screen.getByRole("textbox", { name: "승인 사유" }), { target: { value: "현장에서 두 조명 상태를 확인함" } });
-    fireEvent.click(screen.getByRole("checkbox", { name: /위험을 이해하고 승인/ }));
-    fireEvent.click(screen.getByRole("button", { name: "위험 승인 및 차단 해제" }));
-    await waitFor(() => expect(mocks.apiPost).toHaveBeenCalledWith("/commands/requiring-verification/case-1/reconcile", expect.objectContaining({ acknowledgeRisk: true }), expect.any(Object)));
-    await waitFor(() => expect(mocks.apiGet.mock.calls.filter(([path]) => String(path).includes(`originalCommandId=${commandIds.missing}`)).length).toBeGreaterThan(1));
+    caseExists = false;
+    await act(async () => { await client.invalidateQueries({ queryKey: ["command-verification-cases-exact"] }); });
     await waitFor(() => expect(sessionStorage.getItem(activeCommandStorageKey(USER_A, dashboard.site.id))).toBeNull());
-    fireEvent.click(within(drawer).getByRole("button", { name: "확인 필요한 명령 닫기" }));
-    expect(fixtureMarker("B2-L001")).toBeEnabled();
     selectFixture("B2-L001");
     expect(applyButton()).toBeEnabled();
+    expect(mocks.apiPost).not.toHaveBeenCalled();
   });
 
   it("recovers an observed case marker after remount and waits for a fresh authorized exact empty read", async () => {
@@ -1565,7 +1542,7 @@ describe("ControlView 대상 선택", () => {
     expect(sessionStorage.getItem(activeCommandStorageKey(USER_A, dashboard.site.id))).toContain(commandIds.cached404);
   });
 
-  it("hides a stale status error when matching terminal results arrive", async () => {
+  it("hides cached terminal results and retains the lock after detail 404", async () => {
     sessionStorage.setItem(activeCommandStorageKey(USER_A, dashboard.site.id), JSON.stringify({ commandId: commandIds.terminal }));
     mocks.useCommandStatus.mockReturnValue({
       data: createCommandStatus(commandIds.terminal, "completed"),
@@ -1576,7 +1553,8 @@ describe("ControlView 대상 선택", () => {
 
     renderControl();
 
-    expect(await within(screen.getByRole("status", { name: "명령 진행 상태" })).findByText("조명 적용 완료 · 기본 밝기로 저장됨")).toBeInTheDocument();
+    expect(within(screen.getByRole("status", { name: "명령 진행 상태" })).queryByText("조명 적용 완료 · 기본 밝기로 저장됨")).not.toBeInTheDocument();
+    expect(screen.getByRole("slider", { name: "밝기" })).toBeDisabled();
     expect(screen.queryByText("진행 중 명령을 찾을 수 없어 제어 잠금을 해제했습니다")).not.toBeInTheDocument();
     expect(screen.queryByText("명령 상태를 불러오지 못했습니다. 연결을 확인한 뒤 다시 조회하세요.")).not.toBeInTheDocument();
   });

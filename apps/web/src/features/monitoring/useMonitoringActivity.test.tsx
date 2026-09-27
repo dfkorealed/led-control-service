@@ -48,7 +48,7 @@ describe("useMonitoringActivity", () => {
     expect(result.current.data).toBeUndefined();
   });
 
-  it("keeps the last successful page visible on a same-scope refresh failure", async () => {
+  it("hides the last successful page on a same-scope refresh failure", async () => {
     apiGet.mockResolvedValueOnce(response).mockRejectedValueOnce(new Error("temporary activity outage"));
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const scope = { principal: "user-1", siteId: "site-1", floorId: "floor-1" };
@@ -59,7 +59,7 @@ describe("useMonitoringActivity", () => {
     await waitFor(() => expect(result.current.data?.items).toHaveLength(1));
     await act(async () => { await result.current.refetch(); });
     await waitFor(() => expect(result.current.isRefetchError).toBe(true));
-    expect(result.current.data?.items[0]?.displayName).toBe("B-04");
+    expect(result.current.data).toBeUndefined();
   });
 
   it("does not expose a previous principal or floor page when the new scope fails", async () => {

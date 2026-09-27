@@ -1,3 +1,4 @@
+import { isDetailRetained, useDetailRetentionClock } from "../../api/detail-retention";
 import type { MonitoringActivityItem } from "@led-control/shared";
 import { useEffect, useState, type RefObject } from "react";
 import { Button, Text } from "../../components/ui";
@@ -35,9 +36,11 @@ export function MonitoringLogTicker({ items, generatedAt, retainedFrom, isPendin
     return () => window.clearInterval(timer);
   }, [items.length, paused, visible]);
 
-  const item = items[activeIndex % items.length];
-  const hasItems = items.length > 0;
-  const stale = hasItems && isRefetchError && Boolean(error);
+  const now = useDetailRetentionClock(items.map((item) => item.recordedAt));
+  const retainedItems = error ? [] : items.filter((item) => isDetailRetained(item.recordedAt, now));
+  const item = retainedItems[activeIndex % retainedItems.length];
+  const hasItems = retainedItems.length > 0;
+  const stale = isRefetchError && Boolean(error);
   const copy = hasItems && item
     ? formatMonitoringActivity(item, timeZone)
     : isPending ? "운영 활동을 불러오는 중"

@@ -465,3 +465,11 @@
 ## 갱신 규칙
 
 모니터링 메뉴의 UI, API, DB, MQTT, 실제 gateway, 펌웨어 계약이 바뀌면 이 문서를 같은 작업 안에서 갱신한다.
+
+## 2026-09-27 열린 운영 로그 보관 경계 (Task 5)
+
+- 구현 완료: 전체 로그 drawer는 cursor 410의 최신 기록 복구와 최근 3개월 안내를 유지한다. 재조회 실패 때 이전 활동을 계속 표시하지 않으며 ticker도 실패한 캐시의 활동 내용을 숨긴다. 열린 활동의 달력 3개월 경계에서는 내용이 숨겨지고 API를 다시 조회하며 포커스·재연결도 재검증한다.
+- 미구현: 운영 DB 활성화·과거 데이터 backfill·실제 현장 HIL은 이 Web 변경에 포함하지 않는다.
+- 부족하거나 개선이 필요한 기능: 브라우저 UTC 달력 계산은 열린 화면의 표시 방어이며 중앙 DB의 `retainedFrom`을 대체하지 않는다. 실제 API↔Web 프록시 검증은 별도 통합 관문에 기록한다.
+- 관련 파일: `apps/web/src/api/detail-retention.ts`, `apps/web/src/features/monitoring/{useMonitoringActivity,MonitoringLogDrawer,MonitoringLogTicker}`와 해당 테스트.
+- 갱신 규칙: cursor 오류·재검증·활동 보관 정책이 바뀌면 제어 메뉴 문서와 이 항목을 함께 갱신한다.

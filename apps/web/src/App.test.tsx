@@ -1526,7 +1526,7 @@ describe("App", () => {
       await Promise.resolve();
     });
 
-    expect(await screen.findByRole("alert")).toHaveTextContent("로그아웃에 실패했습니다");
+    expect((await screen.findByText(/로그아웃에 실패했습니다/)).closest('[role="alert"]')).toBeInTheDocument();
     expect(apiGet).toHaveBeenCalledWith("/auth/me", { timeoutMs: 8_000 });
     const retryButton = screen.getByRole("button", { name: "동일 요청 확인(새 제어 아님)" });
     expect(retryButton).toBeEnabled();
@@ -1591,7 +1591,12 @@ describe("App", () => {
       if (lateResult === "success") finishOldCheck({ dispatchId: "stale-dispatch", dispatchIds: ["stale-dispatch"], verificationAttempt: 3 });
       else if (lateResult === "failure") failOldCheck(new Error("late failure"));
     });
-    expect(recover).toBeDisabled();
+    // Revalidation can remove and remount the action; a detached old button is
+    // not the current UI. Neither the fresh action nor the stale node may POST.
+    const currentRecovery = screen.queryByRole("button", { name: "동일 상태 확인 요청 조회" });
+    if (currentRecovery) expect(currentRecovery).toBeDisabled();
+    fireEvent.click(recover);
+    expect(checkBodies).toHaveLength(2);
     expect(screen.getByRole("slider", { name: "밝기" })).toBeDisabled();
     await act(async () => finishRecovery({ dispatchId: "third-check", dispatchIds: ["third-check"], verificationAttempt: 3 }));
     expect(await screen.findByText(/현장 확인이 필요합니다/)).toBeInTheDocument();
