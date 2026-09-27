@@ -223,6 +223,18 @@ export function isScheduleUnauthorized(error: unknown): error is ApiError {
   return error instanceof ApiError && error.status === 401;
 }
 
+// List reads use 404 for a missing site or revoked site-read grant; cached rows must not remain actionable.
+export function isAutomationListAccessDenied(error: unknown): error is ApiError {
+  return error instanceof ApiError && [401, 403, 404].includes(error.status);
+}
+
+export function automationListAccessErrorMessage(error: unknown): string {
+  if (isScheduleUnauthorized(error)) return "로그인 세션이 만료되었습니다.";
+  return error instanceof ApiError && error.status === 404
+    ? "현장을 찾을 수 없거나 조회 권한이 없습니다."
+    : "현장을 조회할 권한이 없습니다.";
+}
+
 export function scheduleQueryErrorMessage(error: unknown): string {
   return isScheduleUnauthorized(error)
     ? "로그인 세션이 만료되었습니다."

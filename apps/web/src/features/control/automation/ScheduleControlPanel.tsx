@@ -3,8 +3,10 @@ import { automationExecutionActionResultPayloadV1Schema } from "@led-control/sha
 import { CalendarPlus, CircleCheck, Clock3, Eye, Pencil, Power, PowerOff, Trash2, TriangleAlert } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
+  automationListAccessErrorMessage,
   createSchedule,
   deleteSchedule,
+  isAutomationListAccessDenied,
   isScheduleUnauthorized,
   listSchedules,
   scheduleMutationErrorMessage,
@@ -98,7 +100,8 @@ export function ScheduleControlPanel({
   const pollingPage = schedulesQuery.data?.pages[pollingPageIndex];
   const visibleCursor = String(schedulesQuery.data?.pageParams[pollingPageIndex] ?? "");
   const refreshVisiblePage = useAutomationVisiblePagePoll<ScheduleListResponse>({
-    enabled: (schedulesQuery.data?.pages.length ?? 0) > 1 && Boolean(pollingPage) && !isScheduleUnauthorized(visiblePollError),
+    enabled: (schedulesQuery.data?.pages.length ?? 0) > 1 && Boolean(pollingPage)
+      && !isAutomationListAccessDenied(visiblePollError) && !isAutomationListAccessDenied(schedulesQuery.error),
     scopeKey: listScopeKey,
     pageKey: `${pollingPageIndex}:${visibleCursor}`,
     fetchPage: () => listSchedules(siteId, { ...automationListRequest(filter, appliedQuery), ...(visibleCursor ? { cursor: visibleCursor } : {}) }),
@@ -125,14 +128,21 @@ export function ScheduleControlPanel({
       setVisiblePollFailure({ scope: listScopeKey, error });
     }
   });
-  const effectiveError = visiblePollError ?? schedulesQuery.error;
+  // A current list access denial wins over an older visible-page transient error.
+  const accessError = isAutomationListAccessDenied(schedulesQuery.error) ? schedulesQuery.error
+    : isAutomationListAccessDenied(visiblePollError) ? visiblePollError : null;
+  const effectiveError = accessError ?? visiblePollError ?? schedulesQuery.error;
   const retryRefresh = () => (schedulesQuery.data?.pages.length ?? 0) > 1
     ? refreshVisiblePage() : schedulesQuery.refetch();
   // A successful refresh can remove or replace the failed cursor; that page is no longer retryable.
   const missingCursor = failedNextPage?.scope === listScopeKey
     && schedulesQuery.data?.pages.at(-1)?.nextCursor === failedNextPage.cursor ? failedNextPage.cursor : null;
-  const queryFailure = isScheduleUnauthorized(visiblePollError)
-    ? { message: scheduleQueryErrorMessage(visiblePollError), retryLabel: "상태 다시 조회", retry: retryRefresh }
+  const queryFailure = accessError
+    ? {
+        message: automationListAccessErrorMessage(accessError),
+        retryLabel: accessError === schedulesQuery.error && schedulesQuery.isLoadingError ? "다시 시도" : "상태 다시 조회",
+        retry: accessError === schedulesQuery.error ? () => schedulesQuery.refetch() : retryRefresh
+      }
     : schedulesQuery.isLoadingError
     ? {
         message: scheduleQueryErrorMessage(schedulesQuery.error),
@@ -166,11 +176,12 @@ export function ScheduleControlPanel({
               retry: retryRefresh
             }
         : null;
-  const isNonBlockingQueryFailure = Boolean(schedulesQuery.data && queryFailure && !isScheduleUnauthorized(effectiveError));
-  const isAuthBlocked = Boolean(queryFailure && isScheduleUnauthorized(effectiveError));
+  const isNonBlockingQueryFailure = Boolean(schedulesQuery.data && queryFailure && !accessError);
+  // Site-read loss (403/404) blocks cached management like session expiry; mutation 403/404 stays local.
+  const isAuthBlocked = Boolean(accessError);
   const authBlockedRef = useRef(isAuthBlocked);
   authBlockedRef.current = isAuthBlocked;
-  const queryUnauthorized = isScheduleUnauthorized(effectiveError);
+  const queryUnauthorized = Boolean(accessError);
   const refreshFailure = failedRefreshScope === listScopeKey || schedulesQuery.isRefetchError || Boolean(visiblePollError);
   const statusItems = useMemo<SessionStatusItem[]>(() => {
     const items: SessionStatusItem[] = [];

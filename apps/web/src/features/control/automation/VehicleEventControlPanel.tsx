@@ -2,8 +2,10 @@ import { useInfiniteQuery, useMutation, useQueryClient, type InfiniteData } from
 import { CarFront, CircleCheck, Clock3, Eye, Pencil, Power, PowerOff, Trash2, TriangleAlert } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import {
+  automationListAccessErrorMessage,
   createVehicleEventRule,
   deleteVehicleEventRule,
+  isAutomationListAccessDenied,
   isScheduleUnauthorized,
   listVehicleEventRules,
   vehicleEventMutationErrorMessage,
@@ -93,7 +95,8 @@ export function VehicleEventControlPanel({
   const pollingPage = rulesQuery.data?.pages[pollingPageIndex];
   const visibleCursor = String(rulesQuery.data?.pageParams[pollingPageIndex] ?? "");
   const refreshVisiblePage = useAutomationVisiblePagePoll<VehicleEventRuleListResponse>({
-    enabled: (rulesQuery.data?.pages.length ?? 0) > 1 && Boolean(pollingPage) && !isScheduleUnauthorized(visiblePollError),
+    enabled: (rulesQuery.data?.pages.length ?? 0) > 1 && Boolean(pollingPage)
+      && !isAutomationListAccessDenied(visiblePollError) && !isAutomationListAccessDenied(rulesQuery.error),
     scopeKey: listScopeKey,
     pageKey: `${pollingPageIndex}:${visibleCursor}`,
     fetchPage: () => listVehicleEventRules(siteId, { ...automationListRequest(filter, appliedQuery), ...(visibleCursor ? { cursor: visibleCursor } : {}) }),
@@ -120,14 +123,21 @@ export function VehicleEventControlPanel({
       setVisiblePollFailure({ scope: listScopeKey, error });
     }
   });
-  const effectiveError = visiblePollError ?? rulesQuery.error;
+  // A current list access denial wins over an older visible-page transient error.
+  const accessError = isAutomationListAccessDenied(rulesQuery.error) ? rulesQuery.error
+    : isAutomationListAccessDenied(visiblePollError) ? visiblePollError : null;
+  const effectiveError = accessError ?? visiblePollError ?? rulesQuery.error;
   const retryRefresh = () => (rulesQuery.data?.pages.length ?? 0) > 1
     ? refreshVisiblePage() : rulesQuery.refetch();
   // A successful refresh can remove or replace the failed cursor; that page is no longer retryable.
   const missingCursor = failedNextPage?.scope === listScopeKey
     && rulesQuery.data?.pages.at(-1)?.nextCursor === failedNextPage.cursor ? failedNextPage.cursor : null;
-  const queryFailure = isScheduleUnauthorized(visiblePollError)
-    ? { message: "로그인 세션이 만료되었습니다.", retryLabel: "상태 다시 조회", retry: retryRefresh }
+  const queryFailure = accessError
+    ? {
+        message: automationListAccessErrorMessage(accessError),
+        retryLabel: accessError === rulesQuery.error && rulesQuery.isLoadingError ? "다시 시도" : "상태 다시 조회",
+        retry: accessError === rulesQuery.error ? () => rulesQuery.refetch() : retryRefresh
+      }
     : rulesQuery.isLoadingError
     ? {
         message: isScheduleUnauthorized(rulesQuery.error) ? "로그인 세션이 만료되었습니다." : "이벤트 규칙 목록을 불러오지 못했습니다.",
@@ -155,11 +165,12 @@ export function VehicleEventControlPanel({
               retry: retryRefresh
             }
         : null;
-  const isNonBlockingQueryFailure = Boolean(rulesQuery.data && queryFailure && !isScheduleUnauthorized(effectiveError));
-  const isAuthBlocked = Boolean(queryFailure && isScheduleUnauthorized(effectiveError));
+  const isNonBlockingQueryFailure = Boolean(rulesQuery.data && queryFailure && !accessError);
+  // Site-read loss (403/404) blocks cached management like session expiry; mutation 403/404 stays local.
+  const isAuthBlocked = Boolean(accessError);
   const authBlockedRef = useRef(isAuthBlocked);
   authBlockedRef.current = isAuthBlocked;
-  const queryUnauthorized = isScheduleUnauthorized(effectiveError);
+  const queryUnauthorized = Boolean(accessError);
   const refreshFailure = failedRefreshScope === listScopeKey || rulesQuery.isRefetchError || Boolean(visiblePollError);
   const statusItems = useMemo<SessionStatusItem[]>(() => {
     const items: SessionStatusItem[] = [];
