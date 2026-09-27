@@ -379,7 +379,8 @@ test("landing token proposal preserves exact values", async () => {
     "--animate-landing-hero-pointer": "hero-pointer-drift 3.8s ease-in-out both",
     "--color-status-inquiry-danger-foreground": "#b42318",
     "--color-status-inquiry-danger-border": "#fecdca",
-    "--color-status-inquiry-danger-background": "#fff5f4"
+    "--color-status-inquiry-danger-background": "#fff5f4",
+    "--leading-landing-concept-document": "normal"
   };
   const theme = (await readFile(new URL("../src/styles/theme.css", import.meta.url), "utf8"))
     .replace(/\/\*[\s\S]*?\*\//g, "");

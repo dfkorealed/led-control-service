@@ -536,6 +536,7 @@ px 수치의 출현 단위다. shorthand/clamp 내 두 수치는 두 번 센다.
 | `--leading-landing-footer-description` | `1.65` | `leading-landing-footer-description` | 1 | R:303 .footer-company p [line-height] |
 | `--leading-landing-footer-contact-row` | `1.6` | `leading-landing-footer-contact-row` | 1 | R:304 .footer-contact dl div [line-height] |
 | `--leading-landing-concept-inquiry-message` | `1.5` | `leading-landing-concept-inquiry-message` | 1 | C:282 .inquiry-field textarea [line-height] |
+| `--leading-landing-concept-document` | `normal` | `leading-landing-concept-document` | 1 | C:26 body [browser normal inherited by document descendants; original static baseline] |
 | `--spacing-landing-anchor-anchor-offset` | `100px` | `scroll-mt-landing-anchor-anchor-offset` | 1 | R:28 .field-day [id] [scroll-margin-top] |
 | `--spacing-landing-skip-link-top` | `-100px` | `top-landing-skip-link-top` | 2 | R:32 .skip-link [top]; C:33 .skip-link [top] |
 | `--spacing-landing-button-inset` | `0 19px` | `p-landing-button-inset` | 2 | R:35 .button [padding]; C:36 .button [padding] |
@@ -789,3 +790,14 @@ I3. `concept-inquiry-privacy-label` 후보를 삭제했다. C:288의 direct stro
 Minor1. header-raised 및 fixture-highlight로 shadow 계약을 명명했다. fixture-highlight의 hover와 aria-pressed 소비자는 표의 원본 selector에 모두 남겼다.
 Minor2. demo toolbar/disclaimer가 실제 공유하는 것은 compact inline inset13px뿐이다. toolbar 기본 inline inset22px와 disclaimer 기본 `11px 22px` 전체 frame은 별도로 유지하므로 기본22px 통합을 성과로 주장하지 않는다.
 Minor3. inquiry-modal 표에 React `PublicSiteLayout.tsx:19`의18px override를 추가해 static/React dialog corner 소비자 두 개를 명시했다.
+
+
+### Supplemental 승인: 시안 문서 기본 행간
+
+앞의369선언 승인 및 `d7044f139ee663ebeeff9437e08cc14f45ac061d` 커밋은 당시 검토 결과로 보존한다. 이후 concept 문서의 기본 행간 보존 경로를 보완하면서 `--leading-landing-concept-document: normal` **한 선언만** 추가 승인했다. 기존369값은 그대로이며 현재 승인 map은370개, SHA-256은 `2b145a3c5a5229f66d5f74b96978122f1e30991a9e8436b4b7f55c0bd98896a4`다. 최종표의 문서 행간 역할은 새 기본 UI 스케일이 아니라 original static baseline을 유지하는 root 상속 계약이다.
+
+동일 브라우저1440×900 조건에서 original static의 html/body/hero/eyebrow는 computed line-height `normal`이었다. React의 html/body/field-day/hero는 font-size16px에 line-height24px, eyebrow는13px에19.5px라 기존1.5 상속이 확인됐다. 보완 전 확인에 사용한 static·React 원본 CSS와 component는 기준 commit 이후 변경하지 않았다.
+
+현재 UI policy는 `leading-normal`을 unapproved-typography, `leading-[normal]`을 arbitrary-typography로 거부한다. 따라서 뒤의 시안 전환은 document root에 승인된 `leading-landing-concept-document`를 사용해 명시 행간이 없는 자손에게 original normal을 상속시킨다. 개별 역할의 explicit line-height는 그대로 우선하며 React root를 변경하지 않는다. normal을1.5 같은 숫자로 근사하거나 @utility·arbitrary property 우회를 추가하지 않는다.
+
+이번 보완의 focused exact-value test는 신규 역할 누락0회에서 RED를 확인한 뒤, flat theme에1회 추가해370개 값/선언1회 GREEN을 확인한다. 시안 전환 후 실제 root utility 적용과 각 element의 inherited/explicit line-height 보존은 후속 compile/PNG gate에서 검증한다.

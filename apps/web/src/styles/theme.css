@@ -538,4 +538,6 @@
   --color-status-inquiry-danger-foreground: #b42318;
   --color-status-inquiry-danger-border: #fecdca;
   --color-status-inquiry-danger-background: #fff5f4;
+  /* The standalone concept inherits browser normal, while React uses 1.5. */
+  --leading-landing-concept-document: normal;
 }
