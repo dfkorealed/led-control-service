@@ -33,10 +33,12 @@
 
 **Interfaces:** `commandHistoryGetDbClockRequested(): boolean`은 `COMMAND_HISTORY_RETENTION_ENABLED=1`만 읽는다. `commandHistoryGetReadBoundary(db, siteId)`는 `{ generatedAt: Date; retainedFrom: Date; retentionEnabled: true }`를 반환한다. 기존 POST/Set용 `commandHistoryRetentionReady`와 recovery/purge hard-off는 변경하지 않는다.
 
-- [ ] **Step 1: RED 테스트 작성.** HISTORY만 ON·RECOVERY/PUBLISHER OFF에서 서버 시작 허용, DB UTC cutoff 직전/정각 목록·상세 410/포함, 만료 cursor 400, 타 현장 404, host ±60초·session 3종, old `unknown`으로 site 전체가 legacy 목록으로 되돌아가지 않음을 고정한다. 만료된 기존 `clientRequestId`로 POST/Set을 재시도하면 payload-free 409·Set/outbox 0, 최근 멱등 재시도는 기존 응답인 것을 HTTP/service로 고정한다. 컷오프 이전 unheld `pending`/`unknown` 한 건에서 rollout preflight 실패, 0건에서 통과, 검사 오류에서 fail-closed를 검증한다. 기존 안전 overlap 차단 회귀도 추가한다.
-- [ ] **Step 2: RED 확인.** `pnpm --filter @led-control/api exec jest src/commands/command-history-rollout.spec.ts src/commands/command-status.service.spec.ts src/commands/command-recovery-rollout.guard.spec.ts --runInBand`와 opt-in disposable PG spec에서 현재 joint gate 실패를 확인한다.
-- [ ] **Step 3: 최소 구현.** GET-only flag/clock 경계를 분리하고 `CommandStatusService`의 list/detail에 DB 시각을 사용한다. `CommandsService.findIdempotentCommand`/`toCreateResponse`도 recovery readiness와 독립된 같은 DB cutoff로 만료된 재응답을 차단한다. 인가 먼저, 404 cloak, payload-free 410/409, 기존 cursor 400 및 no-store를 유지한다. read-only preflight는 같은 중앙 DB 시계로 컷오프 이전의 Hold 없는 미확정 명령 수와 식별 가능한 증거만 출력하고 양수/오류에서 실패한다. 배포 경로는 해당 검사 통과 증거가 없으면 HISTORY flag ON을 거부하고 기본 OFF를 유지한다.
+- [x] **Step 1: RED 테스트 작성.** HISTORY만 ON·RECOVERY/PUBLISHER OFF에서 서버 시작 허용, DB UTC cutoff 직전/정각 목록·상세 410/포함, 만료 cursor 400, 타 현장 404, host ±60초·session 3종, old `unknown`으로 site 전체가 legacy 목록으로 되돌아가지 않음을 고정한다. 만료된 기존 `clientRequestId`로 POST/Set을 재시도하면 payload-free 409·Set/outbox 0, 최근 멱등 재시도는 기존 응답인 것을 HTTP/service로 고정한다. 컷오프 이전 unheld `pending`/`unknown` 한 건에서 rollout preflight 실패, 0건에서 통과, 검사 오류에서 fail-closed를 검증한다. 기존 안전 overlap 차단 회귀도 추가한다.
+- [x] **Step 2: RED 확인.** `pnpm --filter @led-control/api exec jest src/commands/command-history-rollout.spec.ts src/commands/command-status.service.spec.ts src/commands/command-recovery-rollout.guard.spec.ts --runInBand`와 opt-in disposable PG spec에서 현재 joint gate 실패를 확인한다.
+- [x] **Step 3: 최소 구현.** GET-only flag/clock 경계를 분리하고 `CommandStatusService`의 list/detail에 DB 시각을 사용한다. `CommandsService.findIdempotentCommand`/`toCreateResponse`도 recovery readiness와 독립된 같은 DB cutoff로 만료된 재응답을 차단한다. 인가 먼저, 404 cloak, payload-free 410/409, 기존 cursor 400 및 no-store를 유지한다. read-only preflight는 같은 중앙 DB 시계로 컷오프 이전의 Hold 없는 미확정 명령 수와 식별 가능한 증거만 출력하고 양수/오류에서 실패한다. 배포 경로는 해당 검사 통과 증거가 없으면 HISTORY flag ON을 거부하고 기본 OFF를 유지한다.
 - [ ] **Step 4: GREEN·선택 통합.** 위 focused+PG, 전체 API test/typecheck/build, 소유 파일 diff-check를 통과하고 독립 리뷰 뒤 정확 선택본 commit.
+
+Task 1 검증 메모: 집중·일회용 PG·배포 계약 테스트와 API typecheck/build, 독립 리뷰는 통과했다. 전체 API 스위트의 기존 미커밋 `data-retention.service.spec.ts` 5개 실패는 최종 통합 관문에서 재확인할 때까지 Step 4를 열어둔다.
 
 ### Task 2: 명령 내용 제거 상태와 API 소비자 차단
 
