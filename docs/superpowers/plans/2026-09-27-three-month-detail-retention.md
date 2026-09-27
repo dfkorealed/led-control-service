@@ -85,10 +85,12 @@ Task 4 검증 메모: 선택본 전체 API 236 suites·2,852 tests, 실제 로�
 
 **Interfaces:** 410 `command_expired`만 ‘상세 보관 종료’로 표현한다. 등록되지 않은 case POST 두 기능은 준비 전 비활성+이유 표시하며 기존 최근 명령의 `POST /commands/:id/status-checks`는 유지한다.
 
-- [ ] **Step 1: RED 테스트 작성.** 열린 상세의 refetch 410/404/401/403/500 후 대상·밝기·재실행 버튼/POST 0, terminal 상세·목록 및 `ControlView.terminalResult`를 열린 채 3 calendar months 경과할 때 fake timer로 내용·동작 숨김과 서버 재검증(포커스·재연결·오프라인 오류 포함), cached case로 잠금 해제 0, fresh exact-case 0건에서만 해제, 미등록 case action 버튼 비활성, 모니터링 cursor 410과 3개월 문구를 고정한다.
-- [ ] **Step 2: RED 확인.** `pnpm --filter @led-control/web exec vitest run src/features/control/ControlView.test.tsx src/features/control/CommandVerificationCases.test.tsx src/features/monitoring/MonitoringLogDrawer.test.tsx`에서 기존 stale/case 버튼 계약 실패를 확인한다.
-- [ ] **Step 3: 최소 구현.** 기존 공통 Button/카드 재사용, 404를 만료로 오해하지 않으며 refetch 중 stale payload를 숨긴다. terminal 결과의 polling 중단과 `ControlView.terminalResult`에 복사된 상세 각각에 보관 기한/서버 재검증/만료 시 폐기 정책을 적용하고 열린 drawer/list가 경계를 넘으면 즉시 payload를 숨긴다. 1년 tier UI는 추가하지 않는다.
-- [ ] **Step 4: GREEN·선택 통합.** focused+Web 전체 Vitest/typecheck/build/ui:check, `pnpm --filter @led-control/web exec playwright test e2e/monitoring-control-flow.spec.ts --project=chromium`, 실제 API proxy의 401/404/410/최근 명령 status-check smoke, 독립 리뷰 후 정확 선택본 commit.
+- [x] **Step 1: RED 테스트 작성.** 열린 상세의 refetch 410/404/401/403/500 후 대상·밝기·재실행 버튼/POST 0, terminal 상세·목록 및 `ControlView.terminalResult`를 열린 채 3 calendar months 경과할 때 fake timer로 내용·동작 숨김과 서버 재검증(포커스·재연결·오프라인 오류 포함), cached case로 잠금 해제 0, fresh exact-case 0건에서만 해제, 미등록 case action 버튼 비활성, 모니터링 cursor 410과 3개월 문구를 고정한다.
+- [x] **Step 2: RED 확인.** `pnpm --filter @led-control/web exec vitest run src/features/control/ControlView.test.tsx src/features/control/CommandVerificationCases.test.tsx src/features/monitoring/MonitoringLogDrawer.test.tsx`에서 기존 stale/case 버튼 계약 실패를 확인한다.
+- [x] **Step 3: 최소 구현.** 기존 공통 Button/카드 재사용, 404를 만료로 오해하지 않으며 refetch 중 stale payload를 숨긴다. terminal 결과의 polling 중단과 `ControlView.terminalResult`에 복사된 상세 각각에 보관 기한/서버 재검증/만료 시 폐기 정책을 적용하고 열린 drawer/list가 경계를 넘으면 즉시 payload를 숨긴다. 1년 tier UI는 추가하지 않는다.
+- [ ] **Step 4: GREEN·선택 통합.** focused+Web 전체 Vitest/typecheck/build/ui:check, `pnpm --filter @led-control/web exec playwright test e2e/monitoring-control-flow.spec.ts --project=chromium`, 실제 API proxy의 401/404/410/최근 명령 status-check smoke, 독립 리뷰 후 정확 선택본 commit. 선택본 코드·Web·신규 보관 Chromium·독립 리뷰는 완료했으며 기존 시나리오 선택자 7실패와 실제 proxy smoke는 최종 통합 관문으로 이관했다.
+
+Task 5 검증 메모: `8de4c42b`와 월말 경계 보완 `f781ab3f`의 Web 전체 2,534 tests, 신규 보관 Chromium 5/5, typecheck/build/UI 정책과 독립 재검토가 통과했다. 기존 `monitoring-control-flow`는 현재 Atlas 레이아웃과 맞지 않는 선택자 7건 때문에 24 passed/7 failed였고, 실제 API↔Web proxy 검증은 아직 실행하지 않았다.
 
 ## Final integration gate
 
