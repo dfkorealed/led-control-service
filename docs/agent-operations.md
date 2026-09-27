@@ -66,8 +66,8 @@ Custom agent가 대체하는 범위는 임시 역할 프롬프트, 역할 선택
 - `pnpm audit:production`은 fresh `pnpm audit --prod --audit-level=moderate --json`을 정책 스크립트로 전달한다. 예상하지 못한 Moderate/High/Critical advisory는 exact 경로와 patched floor를 출력하고 실패하며, 허용된 예외도 성공 로그에서 숨기지 않는다.
 - `@nestjs/platform-express>multer=2.3.0`은 Nest 11.2.3이 아직 2.2.0을 고정하므로 사용하는 selector override다. 현재 API에 multipart upload/FileValidator 경로는 없지만 Nest bootstrap/controller와 API typecheck/build로 검증한다. Nest가 Multer 2.3.0 이상을 지원하면 제거한다.
 - `@prisma/config>deepmerge-ts=8.0.2`는 request runtime이 아닌 Prisma CLI config 경로에만 적용한다. Prisma validate/generate와 새 disposable PostgreSQL에 대한 전체 `prisma migrate deploy`가 모두 통과해야 유지하며, Prisma가 8.x 이상을 직접 사용하면 제거한다.
-- `image-size@1.2.1`은 upstream safe release가 없어서 Metro build-time asset 검사 경로의 ICNS/JXL/HEIF signature를 parser dispatch 전에 fail-close하는 repository patch를 사용한다. 악성 shape와 정상 PNG regression, patch SHA-256, exact 두 GHSA와 dependency path가 모두 일치해야 정책 예외가 허용된다. upstream non-vulnerable release가 나오면 patch와 예외를 함께 제거한다.
-- `uuid@8.3.2` Moderate는 ExcelJS 4.4.0의 `uuid.v4()` 사용 경로만 남는다. advisory의 caller-provided buffer API는 호출하지 않으며 XLSX render/load regression으로 소비 경로를 고정한다. ExcelJS가 `uuid>=11.1.1`을 지원하거나 검증된 대체재를 채택하면 예외를 제거한다.
+- `image-size@1.2.1`은 Metro build-time asset 검사 경로의 ICNS/JXL/HEIF signature를 parser dispatch 전에 fail-close하는 repository patch를 사용한다. 악성 shape와 정상 PNG regression, patch SHA-256, exact 두 GHSA와 dependency path가 모두 일치할 때만 정책 예외를 허용한다. 2026-09-27 fresh `pnpm audit:production`은 두 GHSA의 외부 patched floor가 정책의 기존 `<0.0.0`에서 `>=2.0.3`으로 바뀌어 둘 다 `UNEXPECTED`로 판정하고 종료 코드 1로 실패했다(High 2, Moderate 0, 822 dependencies). 현재 감사 게이트는 통과 상태가 아니며, upstream 버전·실제 의존 경로·patch 효과와 정책을 다시 검토해야 한다. 예외를 임의로 넓혀 성공으로 표시하지 않는다.
+- PDF 전용 전환에서 ExcelJS와 `uuid@8.3.2` Moderate 예외를 제거했다. 새 XLSX 생성 경로와 그 소비 회귀는 더 이상 현재 제품 계약이 아니다. fresh 감사 결과에도 해당 Moderate advisory는 없었으며, 과거 XLSX 통과 결과를 현재 production audit 통과 근거로 사용하지 않는다.
 
 ## Workspace build·검증 gate
 

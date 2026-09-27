@@ -1,6 +1,6 @@
 # 데이터베이스 테이블 구조
 
-작성일: 2026-09-19
+작성일: 2026-09-27
 
 수동 모니터링 확인 갱신일: 2026-09-18
 
@@ -23,7 +23,7 @@
 
 ### EnergyReportJob (P2 보고서)
 
-Migration: `20260912_statistics_p2_reports`, 대상명 확장 `20260916_report_operations_metadata`. 상태 enum은 `queued`, `processing`, `completed`, `failed`, `expired`, 형식 enum은 `xlsx`, `pdf`다.
+Migration: 최초 생성 `20260912_statistics_p2_reports`, 대상명 확장 `20260916_report_operations_metadata`, PDF 전용·이력 초기화 `20260927090000_pdf_only_energy_reports`. 상태 enum은 `queued`, `processing`, `completed`, `failed`, `expired`이며 현재 `EnergyReportFormat` enum은 `pdf` 하나다.
 
 | 필드 | 타입 | 의미 |
 | --- | --- | --- |
@@ -44,7 +44,7 @@ Migration: `20260912_statistics_p2_reports`, 대상명 확장 `20260916_report_o
 
 `(siteId, requestedByActorId, requestHash) WHERE status IN ('queued', 'processing')` partial unique index는 같은 요청자의 실행 중 요청만 중복 방지한다. 완료·실패 후 재요청은 가능하다. 별도 상태/lease/생성 시각 index와 상태/만료/삭제 시각 index는 durable worker의 claim·회수·보관 정리에 사용한다. 최대 시도는 worker 상수 3과 DB check로 제한하며 변경 가능한 행별 설정은 두지 않는다.
 
-보고서 이력 목록은 `siteId`를 선두 조건으로 사용해 현장 tenant 범위 안에서만 조회하며, `(createdAt DESC, id DESC)` 순서로 keyset 페이지를 나눈다. 같은 `createdAt`을 가진 작업도 `id`를 tie-break로 사용해 순서를 안정적으로 유지한다. 이를 지원하는 additive index는 `(siteId, createdAt, id)`이며, 기존 index를 대체하거나 삭제하지 않는다. 페이지 조회의 cursor predicate(`createdAt`이 cursor보다 이전이거나, 시각이 같고 `id`가 cursor보다 작은 조건)는 해당 페이지에만 적용하고, `totalCount`의 filtered count는 `siteId`와 상태·형식·대상·요청일 필터만 사용해 cursor predicate를 제외한다.
+보고서 이력 목록은 PDF 작업만 대상으로 `siteId` 안에서 `(createdAt DESC, id DESC)` keyset 페이지를 나눈다. additive `(siteId, createdAt, id)` index와 같은 repeatable-read 조회의 filtered `totalCount`를 유지한다. 구 형식 조건은 새 생성·목록 계약에서 제거했다.
 
 상태별 진행률·시각·lease·완료 object 필수 값은 SQL CHECK로 보호한다. 완료 문서는 데이터 스냅샷과 일치하는 fingerprint 필드를 함께 가져야 한다. SQL trigger는 요청·요청자 identity의 변경을 막고, 데이터·문서·fingerprint의 최초 저장 이후 변경/삭제를 막는다. 사용자 FK의 SetNull은 허용하며 요청자 스냅샷은 유지한다. 현장 삭제 시 행은 Cascade 삭제되므로 실제 현장 삭제 workflow에서 object 정리 대상을 삭제 전에 확보해야 한다.
 
@@ -52,15 +52,15 @@ Migration: `20260912_statistics_p2_reports`, 대상명 확장 `20260916_report_o
 
 공개 작업은 `target: { scope, identityId, label }`, `requestedAt`과 `failure: { code, message, action } | null`을 제공하며 기존 `createdAt`·`failureCode`도 유지한다. `requestedAt`은 DB에서 읽은 `createdAt`과 정확히 같다. 생성 시각은 JS Date로 명시해 PostgreSQL session timezone의 naive timestamp 기본값에 의존하지 않는다. legacy 대상명은 `현장/조명/층/그룹: identityId`로 표시하고 현재 이름을 조회하지 않는다. 공개 failure code는 `generation_failed`, `storage_unavailable`, `rendering_failed`, `snapshot_invalid`, `attempts_exhausted`만 허용한다. 알 수 없는 내부 code는 기존 필드도 `REPORT_GENERATION_FAILED`로 정제하며 원시 DB/S3/render 오류나 객체 경로를 반환하지 않는다. 공유 parser는 기존 서버에서 누락된 신규 필드를 안전한 기본값으로 채우고, 명시된 대상·요청 시각·실패 상태 불일치는 거부한다. 마이그레이션과 이름 보존·실패 분류는 disposable PostgreSQL에서 검증하며 사용자/운영 DB에는 적용하지 않았다.
 
-보고서 스냅샷은 한 `RepeatableRead` transaction에서 현장 timezone, 이력 차원과 완료된 현지 날짜의 persisted daily/hourly 집계를 읽는다. legacy DB 열 `estimatedKwh`는 보고서 데이터에서 `energyKwh`, 일별 `estimatedCost`는 `cost`, `knownSeconds`는 밝기 가중 계산 및 값 존재 판정용 `durationSeconds`로 매핑한다. 저장된 실제 전력량·비용은 불변의 과거 사실이며 `cost`는 저장된 Decimal 문자열 또는 값 없음이다. 현재 state cursor·미완료 날짜는 읽지 않는다. 현재 단가는 명시적으로 `captured_current_configuration` 원천을 표시한 현재 설정 기준선·절감 비교 KPI에만 capture하며, 이 값으로 저장된 실제 비용을 소급 변경하거나 다시 계산하지 않는다. 요약·일별 표·순위에 비용을 포함하고 직전 동일 일수의 전력량/비용 차이 및 이전 값이 0이 아닐 때만 변화율을 산출한다. 적용 단가/원천 산출식의 역사적 증거를 보관한 FK나 snapshot은 없으므로 문서에는 해당 항목을 `데이터 없음`으로 설명한다.
+보고서 스냅샷은 한 `RepeatableRead` transaction에서 현장 timezone, 이력 차원과 완료된 현지 날짜의 저장된 일별/시간별 집계를 읽는다. DB 열 `estimatedKwh`와 `estimatedCost`는 정격 전력·상태 이벤트로 계산된 제품의 저장 추정값이며 계량기 실측값이 아니다. `knownSeconds`는 값 존재·자료 완전성 판정에 사용한다. 당시 저장 비용은 변경하지 않고 현재 단가로 소급 계산하지 않는다. PDF 비교는 양쪽 동일 일수의 충분한 기록이 있을 때만 표시하며 결측·0을 구분한다. 저장 비용은 청구액이나 검증된 절감액이 아니다.
 
 데이터 snapshot의 identity/dimension/group `from`/`to`는 날짜로 축약하지 않은 전체 ISO UTC 시각이며 시간별 행은 `bucketStartUtc`를 보존한다. 현장 일별 총계는 identity 추적 시작/종료와 무관하게 저장된 사실을 보존한다. 순위와 층·그룹 일별 값은 현지 하루 전체의 이력이 확정된 경우만 포함한다. 시간별 소속은 UTC 한 시간 전체의 이력으로 먼저 판단한 뒤 `localDate`/`localHour`의 요일·시간으로 fold한다. 경계를 걸친 집계를 비례 배분하지 않고 DST 반복 버킷은 같은 셀에 합친다. 일별/시간별 집계 차이를 문서 생성 중 보정하지 않는다.
 
-기존 저장 문서와 fingerprint는 불변으로 보존한다. XLSX/PDF는 같은 순서·값·표시 문자열·계산 설명·fingerprint를 렌더링한다. `GET report-targets`는 기존 analytics identity와 최신 저장 이름/과거 층 이름을 조회해 운영 Fixture/FixtureGroup ID와 혼동하지 않는 tenant-scoped 선택 계약을 제공한다. 반환 label의 글꼴 왕복이 불가능한 항목만 제외하며 무관한 과거 이름 때문에 endpoint 전체가 실패하지 않는다. 접수 전 Site 잠금 밖의 read-only `RepeatableRead` 사전 조회가 실제 범위·날짜·사실로 최종 문서를 만들어 문자/shaping 검사를 수행하고 폐기한다. 이를 `EnergyReportJob`에 저장하지 않으며 첫 worker 시도의 별도 한 transaction에서만 불변 snapshot을 저장한다. worker는 이 최종 문서 문자 검사를 다시 수행하고 이후 재시도는 저장 문서를 유지한다.
+PDF 전용 전환 뒤 신규 보고서만 불변 문서와 fingerprint를 저장한다. 기존 `EnergyReportJob` 행과 그 문서 스냅샷은 순방향 초기화 migration에서 삭제되므로 과거 파일을 다시 렌더링하지 않는다. `GET report-targets`는 tenant-scoped 분석 identity와 표시 가능한 이름을 제공한다. 접수 전 read-only 사전 조회는 선택 범위의 최종 문서 문자를 검사해 폐기하고, worker 첫 시도는 별도 transaction에서 불변 스냅샷을 저장한다.
 
 ### EnergyReportObjectCleanup (보고서 파일 회수 원장)
 
-Migration: `20260913_report_object_cleanup_ledger`. Site/보고서 FK를 두지 않아 현장 cascade와 생성 후 90일 보고서 메타데이터 삭제 뒤에도 유지한다. 요청자·이름·집계/문서 스냅샷은 저장하지 않고, 고정된 ID·형식의 허용 시도 1·2·3 키만 영구 보존한다. 아직 0/1회 시도한 보고서도 3개를 예약해 rolling upgrade 중 구버전 claim의 늦은 업로드를 회수한다. 프로세스가 임의의 시간 동안 정지했다가 PUT을 수행할 수 있으므로 유한한 유예 시간만으로 원장을 제거하지 않는다.
+Migration: `20260913_report_object_cleanup_ledger`. 원장은 PDF 전환 뒤에도 Site/보고서 FK 없이 유지된다. 과거 XLSX·PDF 키가 남을 수 있으므로 키 검증과 반복 삭제 경로는 원장 회수가 끝날 때까지 두 형식을 모두 이해한다. 요청자·이름·집계/문서 스냅샷은 저장하지 않는다. 현장 cascade와 보고서 메타데이터 삭제 뒤에도 삭제할 키만 보존한다.
 
 | 필드 | 타입 | 의미 |
 | --- | --- | --- |
@@ -86,11 +86,15 @@ Migration: `20260913_report_object_cleanup_ledger`. Site/보고서 FK를 두지 
 
 매 sweep은 `report_object_cleanup_sweep` structured log와 반환값에 처리·purge·실패·재시도·임대 상실 회차 및 `metrics`를 제공한다. `ledgerCount`는 전체 원장 수, `backlogCount`는 미성공/직전 실패 원장과 아직 원장에 등록되지 않은 만료·실패 보고서의 합, `uninventoriedCount`는 그 미등록 보고서 수다. `dueCount`·`oldestDueAgeMs`는 임대 여부와 무관하게 예정 시각이 지난 원장 수·가장 오래 지난 시간이며 대상이 없으면 0이다. `retryPendingCount`는 직전 실패 원장 수다. `deleteRetryCount`는 실패 뒤 실제 재시도만 누적하며 정상 반복 확인은 포함하지 않는다. 나머지 동명 카운터는 원장 전체 합계이고 정밀도 손실·JSON BigInt 오류를 막기 위해 10진 문자열로 출력한다. 전체 원장 합계 조회 비용은 원장 수에 비례하며 외부 metrics 제품·자동 원장 삭제는 추가하지 않았다.
 
-`20260914_report_delete_tombstone_guard`는 `EnergyReportJob`의 `BEFORE DELETE` 행 트리거 `EnergyReportJob_preserve_objects_before_delete`와 함수 `preserve_energy_report_object_tombstone()`을 추가한다. migration은 DELETE와 충돌하는 테이블 잠금을 얻고 트리거 설치까지 하나의 transaction으로 커밋한다. 이 커밋 이후에는 runtime helper를 모르는 구버전 인스턴스의 직접 DELETE·90일 purge·Site FK cascade도 같은 삭제 transaction에서 세 키를 남긴다. reportId/siteId는 엄격한 UUID, 형식은 불변 xlsx/pdf enum에서 검증하고, 잘못된 이력 식별자는 `23514`로 삭제를 중단한다. `objectKey`나 호출자 경로를 삭제 권한으로 사용하지 않는다. 대상 원장 schema는 `TG_TABLE_SCHEMA`로 고정하고 신규 행의 시각은 DB 세션 timezone과 무관하게 UTC로 기록한다.
+`20260914_report_delete_tombstone_guard`의 `BEFORE DELETE` 트리거는 PDF 전용 초기화 migration에서도 모든 과거 XLSX/PDF 작업의 허용 시도 키를 `EnergyReportObjectCleanup`에 보존한다. `objectKey`를 단독 삭제 권한으로 쓰지 않는다. 이 트리거와 키 검증은 과거 XLSX 객체의 회수가 끝날 때까지 유지한다.
 
 트리거의 upsert는 기존 세 키를 확장/확인하되 현재 `leaseOwner`, `leaseExpiresAt`, `nextAttemptAt`을 유지한다. 따라서 새 reaper의 fenced finalize가 메타데이터를 삭제해도 스스로 임대를 잃지 않으며 중복 원장을 만들지 않는다. DELETE rollback 시 원장 쓰기도 rollback한다. 트리거는 DB 키 원장만 쓰고 S3 네트워크 호출을 하지 않는다. 보호 범위는 트리거 migration 커밋 이후 정상 DELETE/cascade이며, 관리자가 트리거를 끄거나 TRUNCATE로 우회하는 작업은 이 보장을 깨므로 운영 정리 경로로 사용하지 않는다.
 
 ### 보고서 migration 사전 검사와 실패 복구
+
+`20260927090000_pdf_only_energy_reports`는 구 API/worker의 신규 보고서 생성·객체 PUT을 중지한 유지보수 경계에서만 적용하는 순방향 migration이다. `EnergyReportJob`에 `ACCESS EXCLUSIVE` 잠금을 얻고 모든 기존 작업 행을 `DELETE`한다. 기존 삭제 트리거가 각 행의 과거 XLSX/PDF attempt 키를 `EnergyReportObjectCleanup`에 남긴 뒤, `EnergyReportFormat` enum을 `pdf` 하나로 교체한다. 행 삭제와 enum 교체는 한 transaction이다. 원장은 `TRUNCATE`하지 않으며 S3 파일은 DB migration이 직접 지우지 않는다. 반복 HEAD/DELETE가 모든 객체를 회수했는지 별도로 확인해야 한다. 새 PDF 작업을 받기 전 postflight는 보고서 행 0건·PDF 단일 enum·migration 완료를 검사한다.
+
+이 문서는 코드·migration의 목표 구조를 설명한다. 2026-09-27 현재 영속 로컬 DB와 운영 DB에는 이 초기화 migration을 실행하지 않았다. 로컬은 기존 API 프로세스가 실행 중이어서 중지에 대한 사용자 확인을 기다린다. 기존 데이터의 백업은 확보했지만 백업만으로 삭제가 완료됐다고 판단하지 않는다. 대상 환경 식별, 복구 가능한 백업 확인, 구 worker 중지·늦은 PUT 차단, preflight, 단일 deploy, postflight, 객체 원장 회수와 보관 상태를 순서대로 확인한 뒤 환경별 적용 결과를 별도로 기록한다. 일회성 테스트 PostgreSQL의 migration 검증은 영속 DB 적용 증거가 아니다.
 
 20260912~14 적용은 구 API, report worker와 Site 삭제/메타데이터 purge를 실행하는 모든 프로세스를 중지한 maintenance barrier 안에서 수행한다. 이미 시작한 transaction도 종료됐는지 확인한다. 20260914의 테이블 잠금은 설치 중의 DELETE/쓰기와 충돌하지만 20260912~13 적용 구간까지 보호하지 않으므로 프로세스 중지가 필요하다. 기존 migration SQL과 checksum은 수정하지 않는다.
 
@@ -102,7 +106,7 @@ pnpm --filter @led-control/api exec prisma migrate deploy
 pnpm --filter @led-control/api reports:migration-preflight --phase=post
 ```
 
-preflight는 `.env`를 자동으로 읽지 않고 PostgreSQL의 `READ ONLY`, `RepeatableRead` transaction으로 검사한다. 검사별 statement timeout 5초, lock timeout 1초를 사용한다. `{ "ok": true, ... }`와 종료 코드 0만 통과로 인정하며, 설정/접속/검사 오류도 종료 코드 1로 차단한다. 출력은 진단 code만 제공하고 URL, 자격 증명, 개인 객체 경로와 원문 DB 오류를 노출하지 않는다. `pre`는 아직 적용하지 않은 보고서 migration을 허용하고, `post`는 세 migration이 모두 완료돼야 통과한다.
+preflight는 `.env`를 자동으로 읽지 않고 PostgreSQL의 `READ ONLY`, `RepeatableRead` transaction으로 검사한다. 검사별 statement timeout 5초, lock timeout 1초를 사용한다. `{ "ok": true, ... }`와 종료 코드 0만 통과로 인정하며, 설정/접속/검사 오류도 종료 코드 1로 차단한다. 출력은 진단 code만 제공하고 URL, 자격 증명, 개인 객체 경로와 원문 DB 오류를 노출하지 않는다. `pre`는 아직 적용하지 않은 보고서 migration을 허용하고, 즉시 실행하는 `post`는 기존 3개 보호 migration과 PDF 전용 초기화 migration의 완료, 작업 행 0건 및 enum 단일 값을 요구한다. 새 PDF 작업 생성 이후에는 행 0건 조건이 성립하지 않으므로 이 검사는 초기화 직후 관문이다.
 
 - `unfinished_migration`: `finished_at`과 `rolled_back_at`이 모두 null인 migration. `logs`가 null이어도 실패/중단 상태다.
 - `legacy_object_keys_not_array`: 기존 `SiteDeletionCleanup.objectKeys`의 scalar/object/JSON null. 완료 원장도 포함한다.
@@ -110,10 +114,11 @@ preflight는 `.env`를 자동으로 읽지 않고 PostgreSQL의 `READ ONLY`, `Re
 - `unexpected_report_catalog`, `report_catalog_missing`, `migration_history_gap`: 이력과 테이블/enum/함수 상태가 불일치한다. 부분 적용 또는 수동 복구 흔적을 자동으로 덮어쓰지 않는다.
 - `report_constraint_missing`, `active_request_index_missing`, `snapshot_trigger_missing_or_disabled`, `delete_trigger_missing_or_disabled`: 검증된 CHECK, 활성 요청 unique index, 활성화된 올바른 함수·이벤트의 보호 트리거가 누락됐다.
 - `legacy_report_backfill_missing`: 기존 cleanup의 확장된 키가 영구 원장에 없거나 site/키가 일치하지 않는다.
+- `report_history_not_empty`, `report_format_not_pdf_only`, `report_migrations_pending`: PDF 전용 postflight에서 기존 보고서 행이 남았거나 enum에 PDF 이외 값이 있거나 필수 migration이 완료되지 않았다.
 
 preflight는 데이터/카탈로그 검사이며 백업 검증이나 maintenance barrier를 대신하지 않는다. 배포 전에 복구 가능한 백업/PITR 지점을 확보한다. 배포 connection의 PostgreSQL `options`에 `-c lock_timeout=5s -c statement_timeout=120s`를 설정해 잠금 대기와 전체 statement 시간을 제한한다. Prisma URL의 query parameter 예시는 `options=-c%20lock_timeout%3D5s%20-c%20statement_timeout%3D120s`이며 기존 query가 있으면 `&`로 추가한다. 20260914 원본에는 timeout이 없으므로 세션 설정을 생략하지 않는다. 실제 배포 시간 한도는 데이터 규모에 맞춰 검토한다. 적용 후 post 검사와 새 버전의 추가 schema/backfill 검증을 통과한 뒤에만 API/worker를 시작한다.
 
-신규 `20260915_statistics_operations_retention`, `20260916_report_operations_metadata`, `20260917_report_cleanup_metrics`도 같은 barrier에서 순서대로 적용한다. 이 세 migration은 각각 명시적 transaction과 10초 lock timeout을 가지며 기존 파일을 수정하지 않는다. report pre/postflight의 보호 대상은 20260912~14이므로 그것만 통과했다고 신규 watermark·terminal identity backfill, `targetLabelSnapshot` 불변성, cleanup 카운터 CHECK·UTC 기본값까지 검증됐다고 판단하지 않는다. 새 API/worker 시작 전 이 신규 구조를 별도로 확인하고, 시작 후 `data_retention_sweep`와 `report_object_cleanup_sweep`를 관찰한다.
+기존 `20260915_statistics_operations_retention`, `20260916_report_operations_metadata`, `20260917_report_cleanup_metrics`도 적용 순서를 유지한다. PDF 전용 migration은 그 뒤에 놓인 새 순방향 변경이며 구 파일/checksum을 수정하지 않는다. report pre/postflight만으로 watermark·terminal identity backfill, `targetLabelSnapshot` 불변성, cleanup 카운터 CHECK·UTC 기본값까지 검증됐다고 판단하지 않는다. 새 API/worker 시작 전 이 구조를 별도로 확인하고, 시작 후 `data_retention_sweep`와 `report_object_cleanup_sweep`를 관찰한다.
 
 실패 시에는 다음 절차를 따른다.
 
