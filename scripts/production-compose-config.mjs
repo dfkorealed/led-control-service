@@ -54,6 +54,9 @@ export function validateProductionConfig(config, {smokeProject}={}) {
   // The base deployment has no reviewed generation-specific mounts or all-node
   // admission/census proof. Variables are preparation, never activation evidence.
   requireRule(s.api.environment.COMMAND_SET_EGRESS_ENABLED==='0','Set egress cutover remains disabled');
+  // The stock Compose path has no live DB readiness proof attached to this
+  // immutable release. Keep the read flag OFF until that deploy gate is wired.
+  requireRule(s.api.environment.COMMAND_HISTORY_RETENTION_ENABLED==='0','command history read activation requires DB readiness evidence');
   // Stock Mosquitto has no immutable generation admission/CA ledger. Neither
   // restored ACL/CRL files nor disposable evidence can authorize production.
   requireRule(s.api.environment.COMMAND_RETENTION_PURGE_ENABLED===undefined || s.api.environment.COMMAND_RETENTION_PURGE_ENABLED==='0','stock broker immutable admission unavailable; retention purge remains disabled');

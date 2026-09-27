@@ -19,6 +19,11 @@ describe("Command recovery compiled-route rollout gate", () => {
     expect(() => new CommandRecoveryRolloutGuard().onModuleInit()).not.toThrow();
   });
 
+  it("allows the GET-only history flag while recovery and publisher remain OFF", () => {
+    process.env.COMMAND_HISTORY_RETENTION_ENABLED = "1";
+    expect(() => new CommandRecoveryRolloutGuard().onModuleInit()).not.toThrow();
+  });
+
   it("rejects physical purge env independently of the read and recovery flags", () => {
     process.env.COMMAND_RETENTION_PURGE_ENABLED = "1";
     expect(() => new CommandRecoveryRolloutGuard().onModuleInit())

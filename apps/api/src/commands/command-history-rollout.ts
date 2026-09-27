@@ -5,9 +5,7 @@ type CommandReadinessDb = Pick<Prisma.TransactionClient, "$queryRaw">;
 
 /** GET-only preparation. The shared host-clock helper below still serves POST/Set callers. */
 export function commandHistoryGetDbClockRequested() {
-  return process.env.COMMAND_HISTORY_RETENTION_ENABLED === "1"
-    && process.env.COMMAND_RECOVERY_ACTIONS_ENABLED === "1"
-    && process.env.COMMAND_RECOVERY_PUBLISHER_READY === "1";
+  return process.env.COMMAND_HISTORY_RETENTION_ENABLED === "1";
 }
 
 export async function commandHistoryGetReadBoundary(db: CommandReadinessDb, siteId: string) {
@@ -20,16 +18,39 @@ export async function commandHistoryGetReadBoundary(db: CommandReadinessDb, site
     || !(clock.retainedFrom instanceof Date) || Number.isNaN(clock.retainedFrom.getTime())) {
     throw new Error("command history DB clock unavailable");
   }
-  const unheld = await db.$queryRaw<Array<{ id: string }>>(Prisma.sql`
-    SELECT command."id" FROM "Command" AS command
-    WHERE command."siteId" = ${siteId}
-      AND command."createdAt" < (${clock.retainedFrom}::timestamptz AT TIME ZONE 'UTC')
-      AND (command."outcome" IS NULL OR command."outcome" IN ('pending', 'unknown'))
-      AND NOT EXISTS (SELECT 1 FROM "UnresolvedCommandHold" AS hold
-        WHERE hold."originalCommandId" = command."id" AND hold."siteId" = command."siteId")
-    LIMIT 1
+  return { ...clock, retentionEnabled: true as const };
+}
+
+/** Read-only activation audit. The sample contains opaque Command IDs only. */
+export async function inspectCommandHistoryReadiness(db: CommandReadinessDb) {
+  const [result] = await db.$queryRaw<Array<{
+    generatedAt: Date; retainedFrom: Date; unheldCount: bigint; sampleIds: string[]
+  }>>(Prisma.sql`
+    WITH boundary AS (
+      SELECT transaction_timestamp() AT TIME ZONE 'UTC' AS "generatedAt",
+        (transaction_timestamp() AT TIME ZONE 'UTC') - INTERVAL '3 months' AS "retainedFrom"
+    ), candidates AS (
+      SELECT command."id" FROM "Command" AS command CROSS JOIN boundary
+      WHERE command."createdAt" < boundary."retainedFrom"
+        AND (command."outcome" IS NULL OR command."outcome" IN ('pending', 'unknown'))
+        AND NOT EXISTS (SELECT 1 FROM "UnresolvedCommandHold" AS hold
+          WHERE hold."originalCommandId" = command."id" AND hold."siteId" = command."siteId")
+    )
+    SELECT boundary."generatedAt", boundary."retainedFrom",
+      (SELECT count(*) FROM candidates) AS "unheldCount",
+      (SELECT coalesce(array_agg(sample."id"), ARRAY[]::text[]) FROM
+        (SELECT "id" FROM candidates ORDER BY "id" LIMIT 20) AS sample) AS "sampleIds"
+    FROM boundary
   `);
-  return { ...clock, retentionEnabled: unheld.length === 0 };
+  if (!(result?.generatedAt instanceof Date) || Number.isNaN(result.generatedAt.getTime())
+    || !(result.retainedFrom instanceof Date) || Number.isNaN(result.retainedFrom.getTime())
+    || typeof result.unheldCount !== "bigint" || result.unheldCount < 0n
+    || !Array.isArray(result.sampleIds)) throw new Error("command history preflight evidence unavailable");
+  if (result.unheldCount > 0n) {
+    throw new Error(`unheld old commands: ${result.unheldCount} (${result.sampleIds.join(",")})`);
+  }
+  return { generatedAt: result.generatedAt, retainedFrom: result.retainedFrom,
+    unheldCount: Number(result.unheldCount), sampleIds: result.sampleIds };
 }
 
 /**

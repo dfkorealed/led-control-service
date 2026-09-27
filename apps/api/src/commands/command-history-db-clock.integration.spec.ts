@@ -3,6 +3,7 @@ import { PrismaClient } from "@prisma/client";
 import { randomUUID } from "node:crypto";
 import { disposablePostgres } from "../../test/support/disposable-postgres";
 import type { AuthenticatedUser } from "../auth/auth.types";
+import { inspectCommandHistoryReadiness } from "./command-history-rollout";
 import { CommandStatusService } from "./command-status.service";
 
 const enabled = process.env.COMMAND_HISTORY_DB_CLOCK_TEST === "1";
@@ -31,8 +32,6 @@ const enabled = process.env.COMMAND_HISTORY_DB_CLOCK_TEST === "1";
   beforeEach(async () => {
     await db.command.deleteMany({ where: { siteId } });
     process.env.COMMAND_HISTORY_RETENTION_ENABLED = "1";
-    process.env.COMMAND_RECOVERY_ACTIONS_ENABLED = "1";
-    process.env.COMMAND_RECOVERY_PUBLISHER_READY = "1";
   });
   afterEach(() => {
     delete process.env.COMMAND_HISTORY_RETENTION_ENABLED;
@@ -47,7 +46,7 @@ const enabled = process.env.COMMAND_HISTORY_DB_CLOCK_TEST === "1";
     return clock;
   }
 
-  async function insertCommand(createdAt: Date, outcome: "applied" | "unknown") {
+  async function insertCommand(createdAt: Date, outcome: "applied" | "unknown" | "pending") {
     return db.command.create({ data: { siteId, clientRequestId: randomUUID(), requestFingerprint: randomUUID(),
       targetType: "fixtures", targetFixtureIds: [], brightness: 30, status: "acknowledged", outcome, createdAt } });
   }
@@ -83,9 +82,26 @@ const enabled = process.env.COMMAND_HISTORY_DB_CLOCK_TEST === "1";
       expect(list.generatedAt).toEqual(expect.any(String));
       expect(list.items.map((item) => item.id)).toContain(fresh.id);
       const expired = await insertCommand(new Date(clock.retainedFrom.getTime() - 30_000), "unknown");
-      const legacy = await service.listCommands(user, { siteId }, new Date(clock.generatedAt.getTime() - 60_000));
-      expect(legacy.generatedAt).toBeUndefined();
-      expect(legacy.items.map((item) => item.id)).toContain(expired.id);
+      const retained = await service.listCommands(user, { siteId }, new Date(clock.generatedAt.getTime() - 60_000));
+      expect(retained.generatedAt).toEqual(expect.any(String));
+      expect(retained.items.map((item) => item.id)).toEqual([fresh.id]);
+      await expect(service.getCommand(user, expired.id)).rejects.toBeInstanceOf(GoneException);
     }
   );
+
+  it("preflight rejects old unheld pending and unknown rows and passes after removal", async () => {
+    const clock = await dbBoundary();
+    const old = await insertCommand(new Date(clock.retainedFrom.getTime() - 30_000), "unknown");
+    const pending = await insertCommand(new Date(clock.retainedFrom.getTime() - 30_000), "pending");
+    await expect(db.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe("SET TRANSACTION READ ONLY");
+      return inspectCommandHistoryReadiness(tx);
+    })).rejects.toThrow("unheld old commands: 2");
+    await db.command.delete({ where: { id: old.id } });
+    await db.command.delete({ where: { id: pending.id } });
+    await expect(db.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe("SET TRANSACTION READ ONLY");
+      return inspectCommandHistoryReadiness(tx);
+    })).resolves.toMatchObject({ unheldCount: 0, sampleIds: [] });
+  });
 });

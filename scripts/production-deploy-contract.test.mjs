@@ -50,6 +50,16 @@ test("Set egress cutover defaults OFF and production rejects premature activatio
   assert.match(premature.preflight.stderr, /Set egress cutover remains disabled/);
 });
 
+test("command history read activation defaults OFF and requires DB readiness evidence", () => {
+  const baseline = render();
+  assert.equal(baseline.config.services.api.environment.COMMAND_HISTORY_RETENTION_ENABLED, "0");
+  assert.equal(baseline.preflight.status, 0);
+  const premature = render(undefined, "led-production-contract", { COMMAND_HISTORY_RETENTION_ENABLED: "1" });
+  assert.equal(premature.status, 0);
+  assert.equal(premature.preflight.status, 1);
+  assert.match(premature.preflight.stderr, /command history read activation requires DB readiness evidence/);
+});
+
 test("stock broker cannot authorize purge using a supplied disposable evidence claim", () => {
   const baseline = render();
   assert.equal(baseline.status, 0);

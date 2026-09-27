@@ -92,6 +92,8 @@ API는 migration과 runtime에 같은 image를 사용한다. 로컬 image ID와 
 | CAD converter | `CAD_IMPORT_CONVERTER_BUNDLE_PATH`, `CAD_IMPORT_CONVERTER_ARGV_JSON`, `CAD_IMPORT_CONVERTER_SHA256` |
 | API·Web TLS·port | `API_TLS_CERT_DIR`, `WEB_TLS_CERT_DIR`, `WEB_PUBLIC_URL`, `WEB_HTTPS_ORIGIN`, `WEB_HTTP_PORT`, `WEB_HTTPS_PORT`, `DEVICE_API_HTTPS_PORT` |
 
+명령 상세 GET의 독립 3개월 경계는 `COMMAND_HISTORY_RETENTION_ENABLED`가 기본 `0`이다. 활성화 검토 시 중앙 DB에 read-only 자격증명으로 `pnpm --filter @led-control/api exec tsx src/commands/command-history-readiness.cli.ts`를 실행해 DB UTC cutoff와 cutoff 이전 hold 없는 pending/unknown 0건을 확인하고, 출력 시각·건수·릴리스 digest를 변경 기록에 남긴다. 양수면 오류 출력의 opaque ID를 조사하고, SQL/권한 오류도 실패로 취급한다. 현재 production Compose preflight는 이 증거를 배포 입력에 안전하게 결합하는 단계가 없어 `1`을 거부한다. 이 경로를 검증·통합하기 전에는 운영 flag를 켜지 않는다. 이 GET 경계는 물리 purge·recovery POST·publisher를 활성화하지 않는다.
+
 `PRODUCTION_COMPOSE_PROJECT`는 `led-production-` prefix, 소문자 영숫자와 단일 하이픈, 최대 63자다. checkout 기본 project와 `led-production-default/dev/development`는 거부한다. 신규 배포는 해당 이름의 기존 자원 부재를 확인하고, 업데이트는 정확한 기존 운영 project와 백업 대상 volume을 승인 기록에 대조한다. 모든 named volume은 project prefix를 가져야 하며 external/shared volume은 금지한다.
 
 | host 경로 입력 | 필요한 파일 / container 소비 경로 |

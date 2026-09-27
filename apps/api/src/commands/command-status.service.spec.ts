@@ -190,17 +190,20 @@ describe("CommandStatusService", () => {
     expect(tx.command.findUnique).not.toHaveBeenCalled();
   });
 
-  it("preserves the legacy unknown detail and history path until hold/UI rollout is ready", async () => {
+  it("hides old unknown detail and history independently of recovery flags", async () => {
     process.env.COMMAND_HISTORY_RETENTION_ENABLED = "1";
     const old = { ...historyCommand("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"),
       createdAt: new Date("2026-01-01T00:00:00.000Z") };
-    const prisma = { command: { findUnique: jest.fn().mockResolvedValue(old),
-      findMany: jest.fn().mockResolvedValue([old]) } };
+    const tx = { $queryRaw: jest.fn().mockResolvedValue([{ generatedAt: new Date("2026-09-25T00:00:00.000Z"),
+      retainedFrom: new Date("2026-06-25T00:00:00.000Z") }]), command: { findMany: jest.fn().mockResolvedValue([]), findUnique: jest.fn() } };
+    const prisma = { $transaction: jest.fn((fn) => fn(tx)), command: { findUnique: jest.fn().mockResolvedValue(old) } };
     const service = new (CommandStatusService as any)(prisma, { assert: jest.fn() });
-    await expect(service.getCommand(user, old.id, new Date("2026-09-25T00:00:00.000Z"))).resolves.toMatchObject({ id: old.id });
+    await expect(service.getCommand(user, old.id, new Date("2026-09-25T00:00:00.000Z"))).rejects.toMatchObject({
+      status: 410, response: { code: "command_expired" }
+    });
     await expect(service.listCommands(user, { siteId: "site-1" }, new Date("2026-09-25T00:00:00.000Z")))
-      .resolves.toMatchObject({ items: [expect.objectContaining({ id: old.id })] });
-    expect(prisma.command.findMany.mock.calls[0][0].where.AND).toEqual([]);
+      .resolves.toMatchObject({ items: [] });
+    expect(tx.command.findMany.mock.calls[0][0].where.AND).toContainEqual({ createdAt: { gte: new Date("2026-06-25T00:00:00.000Z") } });
   });
 
   it("authorizes before the DB-clock transaction and leaves the disabled legacy path query-free", async () => {

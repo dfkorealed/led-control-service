@@ -15,6 +15,7 @@ import { AuthenticatedUser } from "../auth/auth.types";
 import { MeshControlGroupService } from "../mesh-control-groups/mesh-control-group.service";
 import { PrismaService } from "../prisma/prisma.service";
 import { CommandDispatchService } from "./command-dispatch.service";
+import { commandHistoryGetDbClockRequested, commandHistoryGetReadBoundary } from "./command-history-rollout";
 
 type DeliveryMode = "unicast" | "parallel_unicast" | "mesh_group";
 
@@ -264,6 +265,12 @@ export class CommandsService {
       include: idempotentCommandInclude
     });
     if (!existing) return null;
+    // Visibility expires at the request cutoff, not when the physical sweep
+    // eventually removes the row. Never echo a detailed old response on retry.
+    if (commandHistoryGetDbClockRequested()
+      && existing.createdAt < (await commandHistoryGetReadBoundary(tx, input.siteId)).retainedFrom) {
+      throw new ConflictException({ code: "command_request_expired" });
+    }
     // Retired clients hashed the raw optional expiry, whose lexical precision cannot
     // be reconstructed from PostgreSQL TIMESTAMP(3). The persisted Command columns
     // are the canonical idempotency boundary across both historical and new rows.

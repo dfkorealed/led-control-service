@@ -16,8 +16,7 @@ export class CommandRecoveryRolloutGuard implements OnModuleInit {
     if (process.env.COMMAND_RETENTION_PURGE_ENABLED === "1") {
       throw new Error("command physical purge is not certified in this build");
     }
-    if (process.env.COMMAND_HISTORY_RETENTION_ENABLED === "1"
-      || process.env.COMMAND_RECOVERY_ACTIONS_ENABLED === "1") {
+    if (process.env.COMMAND_RECOVERY_ACTIONS_ENABLED === "1") {
       throw new Error("recovery POST route is not registered in this build");
     }
   }
