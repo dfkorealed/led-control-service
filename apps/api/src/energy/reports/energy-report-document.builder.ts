@@ -123,6 +123,89 @@ export class EnergyReportDocumentBuilder {
       "전력량은 소수점 4자리, 비용·밝기·변화율은 소수점 2자리로 반올림하여 표시합니다."
     ] });
     const calculation = data.schemaVersion === 2 ? enrichV2(sections, request, data, currentTotal, current.reduce((total, row) => total + row.durationSeconds, 0)) : undefined;
+    if (data.schemaVersion === 2) {
+      // Renderer-only source rows retain exact persisted decimals and per-day
+      // collection time. Summary/table display cells are already rounded and
+      // cannot prove that a missing fixture-day was a measured zero.
+      const sourceRows = [...dates(data.comparisonRange).map(date => ({ date, period: "previous" })),
+        ...dates(request).map(date => ({ date, period: "current" }))];
+      const sourceFacts = [...previous.map(row => ({ ...row, period: "previous" })),
+        ...current.map(row => ({ ...row, period: "current" }))];
+      const sourceCell = (value: string | null): ReportCell => value === null
+        ? { value: null, displayValue: "데이터 없음" } : textCell(value);
+      const coverageRows = sourceRows.map(({ date, period }) => {
+        const interval = intervalFor(date);
+        const dayFacts = sourceFacts.filter(row => row.period === period && row.localDate === date);
+        let expectedSeconds = 0, uncertain = false;
+        for (const fixture of data.fixtures) {
+          const day = configurationDay(fixture, request, interval);
+          expectedSeconds += day.seconds;
+          uncertain ||= day.scopeMissing || ((request.scope === "floor" || request.scope === "group") && day.partial);
+          // A persisted legacy day can predate lifecycle capture; its active
+          // time cannot be inferred from a later tracking-start timestamp.
+          uncertain ||= dayFacts.some(row => row.fixture.id === fixture.id) &&
+            dateValue(fixture.from).getTime() > interval.from.getTime();
+        }
+        const knownSeconds = dayFacts.reduce((total, row) => total + row.durationSeconds, 0);
+        const status = uncertain || knownSeconds > expectedSeconds ? "unknown"
+          : expectedSeconds === 0 || dayFacts.length === 0 ? "missing"
+          : knownSeconds === expectedSeconds ? "complete" : "partial";
+        return [textCell(period), textCell(date), sourceCell(sum(dayFacts)?.toString() ?? null),
+          sourceCell(sumCost(dayFacts)?.toString() ?? null), sourceCell(uncertain ? null : String(expectedSeconds)),
+          textCell(String(knownSeconds)), textCell(status)];
+      });
+      const factRows = sourceFacts.map(row => {
+        const dimension = dailyDimension(row.fixture, intervalFor(row.localDate));
+        return [textCell(row.period), textCell(row.localDate), textCell(row.fixture.id),
+          sourceCell(dimension?.name ?? null), sourceCell(dimension?.floorId ?? null), sourceCell(dimension?.floorName ?? null),
+          textCell(row.energyKwh), sourceCell(row.cost), textCell(String(row.durationSeconds))];
+      });
+      const sourceTable = (id: string, columns: string[], rows: ReportCell[][]): EnergyReportSection => ({
+        kind: "table", id, title: "PDF 원본 검증 자료", columns: columns.map(column => ({ id: column, label: column })),
+        rows, rowIds: rows.map((_, index) => String(index))
+      });
+      const hourFormatter = new Intl.DateTimeFormat("en-US", { timeZone: data.site.timeZone, hour: "2-digit", hourCycle: "h23" });
+      const hourCells = Array.from({ length: 168 }, () => ({ energy: new Prisma.Decimal(0), knownSeconds: 0, expectedSeconds: 0, uncertain: false }));
+      for (const date of dates(request)) {
+        const interval = intervalFor(date);
+        const weekday = dateValue(date).getUTCDay();
+        for (let start = interval.from.getTime(); start < interval.to.getTime(); start += 3_600_000) {
+          const from = new Date(start), to = new Date(Math.min(start + 3_600_000, interval.to.getTime()));
+          const hour = Number(hourFormatter.formatToParts(from).find(part => part.type === "hour")?.value);
+          const cell = hourCells[weekday * 24 + hour];
+          for (const fixture of data.fixtures) {
+            const selected = configurationDay(fixture, request, { from, to });
+            cell.expectedSeconds += selected.seconds;
+            cell.uncertain ||= selected.scopeMissing ||
+              ((request.scope === "floor" || request.scope === "group") && selected.partial);
+          }
+        }
+      }
+      for (const fixture of data.fixtures) for (const row of fixture.hourly) {
+        if (!inRange(row.localDate, request)) continue;
+        const from = new Date(row.bucketStartUtc), to = new Date(from.getTime() + 3_600_000);
+        const selected = configurationDay(fixture, request, { from, to });
+        const inSelectedScope = request.scope === "site" || (request.scope === "fixture" && fixture.id === request.identityId)
+          || (selected.seconds === 3600 && !selected.scopeMissing && (request.scope === "floor" ||
+            fixture.groups.some(group => group.id === request.identityId && coversInterval(effectiveDates(group), from, to))));
+        if (!inSelectedScope) continue;
+        const cell = hourCells[dateValue(row.localDate).getUTCDay() * 24 + row.localHour];
+        cell.energy = cell.energy.add(row.energyKwh);
+        cell.knownSeconds += row.durationSeconds;
+      }
+      const hourRows = hourCells.map((cell, index) => {
+        const status = cell.uncertain || cell.knownSeconds > cell.expectedSeconds ? "unknown"
+          : cell.expectedSeconds === 0 ? "not_applicable"
+          : cell.knownSeconds === 0 ? "missing"
+          : cell.knownSeconds === cell.expectedSeconds ? "complete" : "partial";
+        return [textCell(String(Math.floor(index / 24))), textCell(String(index % 24)),
+          sourceCell(cell.knownSeconds === 0 ? null : cell.energy.toString()),
+          textCell(String(cell.expectedSeconds)), textCell(String(cell.knownSeconds)), textCell(status)];
+      });
+      sections.push(sourceTable("pdf-source-coverage", ["period", "date", "energy", "cost", "expect", "known", "status"], coverageRows));
+      sections.push(sourceTable("pdf-source-facts", ["period", "date", "fid", "fname", "floorId", "floor", "energy", "cost", "known"], factRows));
+      sections.push(sourceTable("pdf-source-hourly", ["weekday", "hour", "energy", "expect", "known", "status"], hourRows));
+    }
     const input = energyReportDocumentFingerprintInputSchema.parse({ schemaVersion: data.schemaVersion, reportId, title: "조명 에너지 보고서",
       ...(calculation ? { calculationBasis: calculation } : {}),
       metadata: [
