@@ -960,8 +960,12 @@ describe("VehicleEventControlPanel", () => {
   });
 
   it.each([403, 404])("hides cached events and closes an open editor after list %i", async (status) => {
+    const summary = { ruleCount: 2, syncRuleCounts: { APPLIED: 0, PENDING: 2, REJECTED: 0 } };
+    mocks.listVehicleEventRules.mockResolvedValueOnce({ items: [rule()], total: 2, filteredTotal: 2, siteSummary: summary, nextCursor: "page-2" });
     const { queryClient } = renderPanel("admin");
     await screen.findByText("입구 차량 감지");
+    expect(screen.getByRole("region", { name: "이벤트 목록 조건" })).toHaveTextContent("조건에 맞는 규칙 2건");
+    expect(screen.getByRole("button", { name: "다음" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "입구 차량 감지 수정" }));
     const submit = within(screen.getByRole("dialog", { name: "이벤트 수정" })).getByRole("button", { name: "저장" });
     mocks.listVehicleEventRules.mockRejectedValueOnce(new ApiError("site access lost", status, null));
@@ -969,6 +973,8 @@ describe("VehicleEventControlPanel", () => {
 
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "이벤트 수정" })).not.toBeInTheDocument());
     expect(screen.queryByText("입구 차량 감지")).not.toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "이벤트 목록 조건" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "다음" })).not.toBeInTheDocument();
     expect(screen.getByRole("alert")).not.toHaveTextContent("로그인 세션이 만료되었습니다.");
     fireEvent.click(submit);
     expect(mocks.updateVehicleEventRule).not.toHaveBeenCalled();
@@ -1000,6 +1006,7 @@ describe("VehicleEventControlPanel", () => {
     fireEvent.click(screen.getByRole("button", { name: "출구 차량 감지 수정" }));
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "이벤트 수정" })).not.toBeInTheDocument(), { timeout: 4500 });
     expect(screen.queryByText("출구 차량 감지")).not.toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "이벤트 목록 조건" })).not.toBeInTheDocument();
     expect(mocks.updateVehicleEventRule).not.toHaveBeenCalled();
   });
 

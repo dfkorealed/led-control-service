@@ -452,7 +452,7 @@ export function VehicleEventControlPanel({
       <AutomationWorkspaceSummary label="이벤트 요약" timeZone={dashboard?.site.timeZone} total={firstPage?.total} siteSummary={firstPage?.siteSummary}
         loadedStatuses={rules.map((rule) => rule.syncStatus)}
         state={rulesQuery.isLoading ? "loading" : isAuthBlocked || rulesQuery.isLoadingError ? "error" : "ready"} />
-      {hasGlobalContract ? <AutomationRuleControls label="이벤트" filter={filter}
+      {hasGlobalContract && !isAuthBlocked ? <AutomationRuleControls label="이벤트" filter={filter}
         filteredTotal={isSearchPending ? undefined : firstPage?.filteredTotal}
         pageIndex={currentPageIndex} currentPageCount={isSearchPending ? 0 : rules.length}
         hasNextPage={!isSearchPending && (currentPageIndex < (rulesQuery.data?.pages.length ?? 0) - 1 || Boolean(currentPage?.nextCursor))}

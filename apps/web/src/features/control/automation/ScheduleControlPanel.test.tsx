@@ -1196,8 +1196,12 @@ describe("ScheduleControlPanel", () => {
   });
 
   it.each([403, 404])("hides cached schedules and closes an open editor after list %i", async (status) => {
+    const summary = { ruleCount: 2, syncRuleCounts: { APPLIED: 0, PENDING: 2, REJECTED: 0 } };
+    mocks.listSchedules.mockResolvedValueOnce({ items: [schedule()], total: 2, filteredTotal: 2, siteSummary: summary, nextCursor: "page-2" });
     const { queryClient } = renderPanel("admin");
     await screen.findByText("야간 운영");
+    expect(screen.getByRole("region", { name: "스케줄 목록 조건" })).toHaveTextContent("조건에 맞는 규칙 2건");
+    expect(screen.getByRole("button", { name: "다음" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "야간 운영 수정" }));
     const submit = within(screen.getByRole("dialog", { name: "스케줄 수정" })).getByRole("button", { name: "변경 저장" });
     mocks.listSchedules.mockRejectedValueOnce(new ApiError("site access lost", status, null));
@@ -1205,6 +1209,8 @@ describe("ScheduleControlPanel", () => {
 
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "스케줄 수정" })).not.toBeInTheDocument());
     expect(screen.queryByText("야간 운영")).not.toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "스케줄 목록 조건" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "다음" })).not.toBeInTheDocument();
     expect(screen.getByRole("alert")).not.toHaveTextContent("로그인 세션이 만료되었습니다.");
     fireEvent.click(submit);
     expect(mocks.updateSchedule).not.toHaveBeenCalled();
@@ -1236,6 +1242,7 @@ describe("ScheduleControlPanel", () => {
     fireEvent.click(screen.getByRole("button", { name: "두 번째 스케줄 수정" }));
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "스케줄 수정" })).not.toBeInTheDocument(), { timeout: 4500 });
     expect(screen.queryByText("두 번째 스케줄")).not.toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "스케줄 목록 조건" })).not.toBeInTheDocument();
     expect(mocks.updateSchedule).not.toHaveBeenCalled();
   });
 

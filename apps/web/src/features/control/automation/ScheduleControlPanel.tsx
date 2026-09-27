@@ -495,7 +495,7 @@ export function ScheduleControlPanel({
         loadedStatuses={schedules.map((schedule) => schedule.syncStatus)}
         state={schedulesQuery.isLoading ? "loading" : isAuthBlocked || schedulesQuery.isLoadingError ? "error" : "ready"} />
 
-      {hasGlobalContract ? <AutomationRuleControls label="스케줄" filter={filter}
+      {hasGlobalContract && !isAuthBlocked ? <AutomationRuleControls label="스케줄" filter={filter}
         filteredTotal={isSearchPending ? undefined : firstPage?.filteredTotal}
         pageIndex={currentPageIndex} currentPageCount={isSearchPending ? 0 : schedules.length}
         hasNextPage={!isSearchPending && (currentPageIndex < (schedulesQuery.data?.pages.length ?? 0) - 1 || Boolean(currentPage?.nextCursor))}
