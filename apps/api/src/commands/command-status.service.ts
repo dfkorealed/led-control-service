@@ -4,8 +4,7 @@ import { z } from "zod";
 import { SiteAccessService } from "../access/site-access.service";
 import { AuthenticatedUser } from "../auth/auth.types";
 import { PrismaService } from "../prisma/prisma.service";
-import { threeCalendarMonthsBefore } from "../retention/calendar-month-window";
-import { commandHistoryRetentionReady } from "./command-history-rollout";
+import { commandHistoryGetDbClockRequested, commandHistoryGetReadBoundary } from "./command-history-rollout";
 
 type ResultStatus = "pending" | "succeeded" | "failed" | "timed_out";
 
@@ -25,6 +24,7 @@ const historyInclude = {
     fixtureResults: { select: { fixtureId: true, status: true } } } }
 } satisfies Prisma.CommandInclude;
 type SummaryCommand = Prisma.CommandGetPayload<{ include: typeof historyInclude }>;
+type CommandReadDb = Pick<Prisma.TransactionClient, "command" | "unresolvedCommandHold">;
 
 @Injectable()
 export class CommandStatusService {
@@ -33,50 +33,56 @@ export class CommandStatusService {
     private readonly siteAccess: SiteAccessService
   ) {}
 
-  async listCommands(user: AuthenticatedUser, input: HistoryInput, now = new Date()) {
+  async listCommands(user: AuthenticatedUser, input: HistoryInput, _now = new Date()) {
     await this.siteAccess.assert(user, input.siteId, "read");
-    const retentionEnabled = await commandHistoryRetentionReady(this.prisma, input.siteId, now);
-    const retainedFrom = threeCalendarMonthsBefore(now);
-    const limit = input.limit ?? 20;
-    if (!Number.isInteger(limit) || limit < 1 || limit > 100 || (input.query?.length ?? 0) > 100) {
-      throw new BadRequestException("invalid command history query");
-    }
-    const filters: Prisma.CommandWhereInput[] = retentionEnabled ? [{ createdAt: { gte: retainedFrom } }] : [];
-    const query = input.query?.trim();
-    if (query) filters.push({ OR: [
-      { id: { startsWith: query, mode: "insensitive" } },
-      { dispatches: { some: { fixtureResults: { some: { fixture: { name: { contains: query, mode: "insensitive" } } } } } } }
-    ] });
-    if (input.stage) filters.push(stageFilter(input.stage));
-    if (input.cursor) {
-      const cursor = parseHistoryCursor(input.cursor);
-      if (retentionEnabled && cursor.createdAt < retainedFrom) {
-        throw new BadRequestException({ code: "command_history_cursor_expired" });
+    const read = async (db: CommandReadDb, boundary?: { generatedAt: Date; retainedFrom: Date; retentionEnabled: boolean }) => {
+      const retainedFrom = boundary?.retentionEnabled ? boundary.retainedFrom : null;
+      const limit = input.limit ?? 20;
+      if (!Number.isInteger(limit) || limit < 1 || limit > 100 || (input.query?.length ?? 0) > 100) {
+        throw new BadRequestException("invalid command history query");
       }
-      filters.push({ OR: [
-        { createdAt: { lt: cursor.createdAt } },
-        { createdAt: cursor.createdAt, id: { lt: cursor.id } }
+      const filters: Prisma.CommandWhereInput[] = retainedFrom ? [{ createdAt: { gte: retainedFrom } }] : [];
+      const query = input.query?.trim();
+      if (query) filters.push({ OR: [
+        { id: { startsWith: query, mode: "insensitive" } },
+        { dispatches: { some: { fixtureResults: { some: { fixture: { name: { contains: query, mode: "insensitive" } } } } } } }
       ] });
-    }
-    const commands = await this.prisma.command.findMany({
-      // Keep siteId outside all search/cursor OR predicates to prevent scope escape.
-      where: { siteId: input.siteId, AND: filters },
-      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
-      take: limit + 1,
-      include: historyInclude
-    });
-    const page = commands.slice(0, limit);
-    const last = page.at(-1);
-    return {
-      items: page.map(summarizeCommand),
-      ...(retentionEnabled ? { generatedAt: now.toISOString(), retainedFrom: retainedFrom.toISOString() } : {}),
-      nextCursor: commands.length > limit && last ? Buffer.from(JSON.stringify({
-        id: last.id, createdAt: last.createdAt.toISOString()
-      })).toString("base64url") : null
+      if (input.stage) filters.push(stageFilter(input.stage));
+      if (input.cursor) {
+        const cursor = parseHistoryCursor(input.cursor);
+        if (retainedFrom && cursor.createdAt < retainedFrom) {
+          throw new BadRequestException({ code: "command_history_cursor_expired" });
+        }
+        filters.push({ OR: [
+          { createdAt: { lt: cursor.createdAt } },
+          { createdAt: cursor.createdAt, id: { lt: cursor.id } }
+        ] });
+      }
+      const commands = await db.command.findMany({
+        // Keep siteId outside all search/cursor OR predicates to prevent scope escape.
+        where: { siteId: input.siteId, AND: filters },
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+        take: limit + 1,
+        include: historyInclude
+      });
+      const page = commands.slice(0, limit);
+      const last = page.at(-1);
+      return {
+        items: page.map(summarizeCommand),
+        ...(retainedFrom ? { generatedAt: boundary!.generatedAt.toISOString(), retainedFrom: retainedFrom.toISOString() } : {}),
+        nextCursor: commands.length > limit && last ? Buffer.from(JSON.stringify({
+          id: last.id, createdAt: last.createdAt.toISOString()
+        })).toString("base64url") : null
+      };
     };
+    // Only enabled GETs open a short read transaction; the disabled legacy path
+    // does not consult the DB clock or alter its existing query sequence.
+    return commandHistoryGetDbClockRequested()
+      ? this.prisma.$transaction(async (tx) => read(tx, await commandHistoryGetReadBoundary(tx, input.siteId)))
+      : read(this.prisma);
   }
 
-  async getCommand(user: AuthenticatedUser, commandId: string, now = new Date()) {
+  async getCommand(user: AuthenticatedUser, commandId: string, _now = new Date()) {
     const scopedCommand = await this.prisma.command.findUnique({
       where: { id: commandId },
       select: { siteId: true, createdAt: true }
@@ -102,63 +108,67 @@ export class CommandStatusService {
       if (error instanceof NotFoundException) throw commandNotFound();
       throw error;
     }
-    // A delayed physical sweep must never extend the customer-visible history window.
-    if (await commandHistoryRetentionReady(this.prisma, scopedCommand.siteId, now)
-      && scopedCommand.createdAt < threeCalendarMonthsBefore(now)) {
-      throw new GoneException({ code: "command_expired" });
-    }
+    const read = async (db: CommandReadDb, boundary?: { retainedFrom: Date; retentionEnabled: boolean }) => {
+      // A delayed physical sweep must never extend the customer-visible history window.
+      if (boundary?.retentionEnabled && scopedCommand.createdAt < boundary.retainedFrom) {
+        throw new GoneException({ code: "command_expired" });
+      }
 
-    const command = await this.prisma.command.findUnique({
-      where: { id: commandId },
-      include: {
-        dispatches: {
-          orderBy: { createdAt: "asc" },
-          include: {
-            gateway: { select: { id: true, name: true } },
-            fixtureResults: {
-              orderBy: { fixture: { name: "asc" } },
-              include: { fixture: { select: { name: true } } }
+      const command = await db.command.findUnique({
+        where: { id: commandId },
+        include: {
+          dispatches: {
+            orderBy: { createdAt: "asc" },
+            include: {
+              gateway: { select: { id: true, name: true } },
+              fixtureResults: {
+                orderBy: { fixture: { name: "asc" } },
+                include: { fixture: { select: { name: true } } }
+              }
             }
           }
         }
-      }
-    });
-    if (!command) {
-      const hold = await this.prisma.unresolvedCommandHold.findUnique({
-        where: { originalCommandId: commandId }, select: { siteId: true }
       });
-      if (hold?.siteId === scopedCommand.siteId) throw new GoneException({ code: "command_expired" });
-      throw commandNotFound();
-    }
+      if (!command) {
+        const hold = await db.unresolvedCommandHold.findUnique({
+          where: { originalCommandId: commandId }, select: { siteId: true }
+        });
+        if (hold?.siteId === scopedCommand.siteId) throw new GoneException({ code: "command_expired" });
+        throw commandNotFound();
+      }
 
-    return {
-      ...summarizeCommand(command),
-      dispatches: command.dispatches.map((dispatch) => ({
-        id: dispatch.id,
-        kind: dispatch.kind,
-        verificationAttempt: dispatch.verificationAttempt,
-        deliveryMode: dispatch.deliveryMode,
-        destinationAddress: dispatch.destinationAddress,
-        meshControlGroupId: dispatch.meshControlGroupId,
-        meshControlGroupVersion: dispatch.meshControlGroupVersion,
-        status: dispatch.status,
-        gateway: dispatch.gateway,
-        publishedAt: toIso(dispatch.publishedAt),
-        acceptedAt: toIso(dispatch.acceptedAt),
-        completedAt: toIso(dispatch.completedAt),
-        errorCode: dispatch.errorCode,
-        errorMessage: dispatch.errorMessage,
-        results: dispatch.fixtureResults.map((result) => ({
-          fixtureId: result.fixtureId,
-          fixtureName: result.fixture.name,
-          status: result.status,
-          brightness: result.brightness,
-          faultCode: result.faultCode,
-          errorMessage: result.errorMessage,
-          occurredAt: toIso(result.occurredAt)
+      return {
+        ...summarizeCommand(command),
+        dispatches: command.dispatches.map((dispatch) => ({
+          id: dispatch.id,
+          kind: dispatch.kind,
+          verificationAttempt: dispatch.verificationAttempt,
+          deliveryMode: dispatch.deliveryMode,
+          destinationAddress: dispatch.destinationAddress,
+          meshControlGroupId: dispatch.meshControlGroupId,
+          meshControlGroupVersion: dispatch.meshControlGroupVersion,
+          status: dispatch.status,
+          gateway: dispatch.gateway,
+          publishedAt: toIso(dispatch.publishedAt),
+          acceptedAt: toIso(dispatch.acceptedAt),
+          completedAt: toIso(dispatch.completedAt),
+          errorCode: dispatch.errorCode,
+          errorMessage: dispatch.errorMessage,
+          results: dispatch.fixtureResults.map((result) => ({
+            fixtureId: result.fixtureId,
+            fixtureName: result.fixture.name,
+            status: result.status,
+            brightness: result.brightness,
+            faultCode: result.faultCode,
+            errorMessage: result.errorMessage,
+            occurredAt: toIso(result.occurredAt)
+          }))
         }))
-      }))
+      };
     };
+    return commandHistoryGetDbClockRequested()
+      ? this.prisma.$transaction(async (tx) => read(tx, await commandHistoryGetReadBoundary(tx, scopedCommand.siteId)))
+      : read(this.prisma);
   }
 }
 

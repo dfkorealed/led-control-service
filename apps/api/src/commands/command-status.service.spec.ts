@@ -154,12 +154,15 @@ describe("CommandStatusService", () => {
     enableReadCutoff();
     const now = new Date(nowIso);
     const cutoff = new Date(cutoffIso);
-    const prisma = { $queryRaw: jest.fn().mockResolvedValue([]), command: { findMany: jest.fn().mockResolvedValue([]) } };
+    const tx = { $queryRaw: jest.fn().mockImplementation((query) => query.strings.join(" ").includes("transaction_timestamp()")
+      ? [{ generatedAt: now, retainedFrom: cutoff }] : []),
+    command: { findMany: jest.fn().mockResolvedValue([]) } };
+    const prisma = { $transaction: jest.fn((fn) => fn(tx)) };
     const service = new (CommandStatusService as any)(prisma, { assert: jest.fn() });
     await expect(service.listCommands(user, { siteId: "site-1" }, now)).resolves.toMatchObject({
       generatedAt: nowIso, retainedFrom: cutoffIso, items: [], nextCursor: null
     });
-    expect(prisma.command.findMany.mock.calls[0][0].where.AND).toContainEqual({ createdAt: { gte: cutoff } });
+    expect(tx.command.findMany.mock.calls[0][0].where.AND).toContainEqual({ createdAt: { gte: cutoff } });
 
     const exactCursor = Buffer.from(JSON.stringify({ id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", createdAt: cutoffIso })).toString("base64url");
     await expect(service.listCommands(user, { siteId: "site-1", cursor: exactCursor }, now)).resolves.toMatchObject({ items: [] });
@@ -168,19 +171,23 @@ describe("CommandStatusService", () => {
     const expired = await service.listCommands(user, { siteId: "site-1", cursor: expiredCursor }, now).catch((error: unknown) => error);
     expect(expired).toBeInstanceOf(BadRequestException);
     expect(expired.getResponse()).toMatchObject({ code: "command_history_cursor_expired" });
-    expect(prisma.command.findMany).toHaveBeenCalledTimes(2);
+    expect(tx.command.findMany).toHaveBeenCalledTimes(2);
   });
 
   it("hides old originals even when their updatedAt is recent, without exposing dispatch payload", async () => {
     enableReadCutoff();
     const old = { ...historyCommand("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"),
       createdAt: new Date("2026-02-28T11:59:59.999Z"), updatedAt: new Date("2026-05-31T11:59:59.999Z") };
-    const prisma = { $queryRaw: jest.fn().mockResolvedValue([]), command: { findUnique: jest.fn().mockResolvedValue(old) } };
+    const tx = { $queryRaw: jest.fn().mockImplementation((query) => query.strings.join(" ").includes("transaction_timestamp()")
+      ? [{ generatedAt: new Date("2026-05-31T12:00:00.000Z"), retainedFrom: new Date("2026-02-28T12:00:00.000Z") }] : []),
+    command: { findUnique: jest.fn() } };
+    const prisma = { $transaction: jest.fn((fn) => fn(tx)), command: { findUnique: jest.fn().mockResolvedValue(old) } };
     const service = new (CommandStatusService as any)(prisma, { assert: jest.fn() });
     const error = await service.getCommand(user, old.id, new Date("2026-05-31T12:00:00.000Z")).catch((caught: unknown) => caught);
     expect(error).toBeInstanceOf(GoneException);
     expect(error.getResponse()).toMatchObject({ code: "command_expired" });
     expect(prisma.command.findUnique).toHaveBeenCalledTimes(1);
+    expect(tx.command.findUnique).not.toHaveBeenCalled();
   });
 
   it("preserves the legacy unknown detail and history path until hold/UI rollout is ready", async () => {
@@ -196,6 +203,41 @@ describe("CommandStatusService", () => {
     expect(prisma.command.findMany.mock.calls[0][0].where.AND).toEqual([]);
   });
 
+  it("authorizes before the DB-clock transaction and leaves the disabled legacy path query-free", async () => {
+    const prisma = { $transaction: jest.fn(), $queryRaw: jest.fn(), command: { findMany: jest.fn().mockResolvedValue([]) } };
+    const access = { assert: jest.fn().mockResolvedValue(undefined) };
+    const service = new (CommandStatusService as any)(prisma, access);
+    await service.listCommands(user, { siteId: "site-1" });
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+    expect(prisma.$queryRaw).not.toHaveBeenCalled();
+    enableReadCutoff();
+    access.assert.mockRejectedValueOnce(new NotFoundException());
+    await expect(service.listCommands(user, { siteId: "other-site" })).rejects.toBeInstanceOf(NotFoundException);
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it("fails closed when the authorized DB-clock transaction fails", async () => {
+    enableReadCutoff();
+    const prisma = { $transaction: jest.fn().mockRejectedValue(new Error("db clock unavailable")),
+      command: { findMany: jest.fn(), findUnique: jest.fn().mockResolvedValue({ siteId: "site-1", createdAt: new Date() }) } };
+    const service = new (CommandStatusService as any)(prisma, { assert: jest.fn() });
+    await expect(service.listCommands(user, { siteId: "site-1" })).rejects.toThrow("db clock unavailable");
+    await expect(service.getCommand(user, "command-1")).rejects.toThrow("db clock unavailable");
+    expect(prisma.command.findMany).not.toHaveBeenCalled();
+    expect(prisma.$transaction).toHaveBeenCalledTimes(2);
+  });
+
+  it("cloaks a foreign detail before entering the enabled DB-clock transaction", async () => {
+    enableReadCutoff();
+    const prisma = { $transaction: jest.fn(), command: { findUnique: jest.fn().mockResolvedValue({
+      siteId: "foreign-site", createdAt: new Date("2026-09-25T00:00:00.000Z") }) } };
+    const service = new (CommandStatusService as any)(prisma,
+      { assert: jest.fn().mockRejectedValue(new NotFoundException()) });
+    const error = await service.getCommand(user, "command-1").catch((caught: unknown) => caught);
+    expect(error.getResponse()).toMatchObject({ code: "command_not_found" });
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
   it("returns 410 if the detail row is purged between authorization and second read but its hold remains", async () => {
     const prisma = { command: { findUnique: jest.fn().mockResolvedValueOnce({ siteId: "site-1",
       createdAt: new Date("2026-09-01T00:00:00.000Z") }).mockResolvedValueOnce(null) },
@@ -206,6 +248,25 @@ describe("CommandStatusService", () => {
     expect(error).toBeInstanceOf(GoneException);
     expect(error.getResponse()).toEqual({ code: "command_expired" });
   });
+
+  it.each([["site-1", GoneException], [null, NotFoundException]])(
+    "preserves detail purge-race cloak with authorized hold %s inside the DB-clock read transaction",
+    async (holdSite, expected) => {
+      enableReadCutoff();
+      const clock = { generatedAt: new Date("2026-09-25T12:00:00.000Z"),
+        retainedFrom: new Date("2026-06-25T12:00:00.000Z") };
+      const tx = { $queryRaw: jest.fn().mockResolvedValueOnce([clock]).mockResolvedValueOnce([]),
+        command: { findUnique: jest.fn().mockResolvedValue(null) },
+        unresolvedCommandHold: { findUnique: jest.fn().mockResolvedValue(holdSite ? { siteId: holdSite } : null) } };
+      const prisma = { $transaction: jest.fn((fn) => fn(tx)),
+        command: { findUnique: jest.fn().mockResolvedValue({ siteId: "site-1", createdAt: clock.generatedAt }) } };
+      const service = new (CommandStatusService as any)(prisma, { assert: jest.fn() });
+      await expect(service.getCommand(user, "command-1")).rejects.toBeInstanceOf(expected);
+      expect(tx.command.findUnique).toHaveBeenCalledTimes(1);
+      expect(tx.unresolvedCommandHold.findUnique).toHaveBeenCalledTimes(1);
+      expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+    }
+  );
 
   it("keeps both ID and fixture search branches inside the requested site and stage", async () => {
     const prisma = { command: { findMany: jest.fn().mockResolvedValue([]) } };
