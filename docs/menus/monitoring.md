@@ -473,3 +473,4 @@
 - 부족하거나 개선이 필요한 기능: 브라우저 UTC 달력 계산은 열린 화면의 표시 방어이며 중앙 DB의 `retainedFrom`을 대체하지 않는다. 실제 API↔Web 프록시 검증은 별도 통합 관문에 기록한다.
 - 관련 파일: `apps/web/src/api/detail-retention.ts`, `apps/web/src/features/monitoring/{useMonitoringActivity,MonitoringLogDrawer,MonitoringLogTicker}`와 해당 테스트.
 - 갱신 규칙: cursor 오류·재검증·활동 보관 정책이 바뀌면 제어 메뉴 문서와 이 항목을 함께 갱신한다.
+- 검토 보완: 공통 보관 시계는 평년·윤년 2월 말의 비단조 cutoff를 날짜별로 검사한다. 3개월 뒤 월말의 첫 제외 시점을 마지막 날까지 미루지 않는다.

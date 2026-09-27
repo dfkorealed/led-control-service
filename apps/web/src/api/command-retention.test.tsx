@@ -37,9 +37,19 @@ describe("retained command authority", () => {
     await act(async () => { rejectRead({ ok: false, status: code, headers: { get: () => "application/json" }, json: async () => ({ code: code === 410 ? "command_expired" : "unavailable" }) }); await pending; });
     expect(result.current.data).toBeUndefined();
   });
-  it("hides a settled command one millisecond beyond the calendar cutoff and revalidates", async () => {
-    vi.useFakeTimers(); vi.setSystemTime(new Date("2026-08-31T11:59:59.999Z"));
-    const fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => status }); vi.stubGlobal("fetch", fetch);
+  it.each([
+    ["2026-05-31T12:00:00.000Z", "2026-08-31T12:00:00.000Z"],
+    ["2026-02-28T23:00:00.000Z", "2026-05-28T23:00:00.000Z"],
+    ["2026-02-28T23:00:00.000Z", "2026-05-29T23:00:00.000Z"],
+    ["2026-02-28T23:00:00.000Z", "2026-05-30T23:00:00.000Z"],
+    ["2024-02-29T23:30:00.000Z", "2024-05-29T23:30:00.000Z"],
+    ["2024-02-29T23:30:00.000Z", "2024-05-30T23:30:00.000Z"],
+    ["2024-02-29T23:30:00.000Z", "2024-05-31T23:30:00.000Z"],
+    ["2026-02-28T23:59:59.999Z", "2026-05-31T23:59:59.999Z"],
+    ["2025-11-30T23:00:00.000Z", "2026-02-28T23:59:59.999Z"]
+  ])("hides settled %s one millisecond beyond cutoff %s and revalidates", async (createdAt, boundary) => {
+    vi.useFakeTimers(); vi.setSystemTime(new Date(Date.parse(boundary) - 1));
+    const fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ ...status, createdAt }) }); vi.stubGlobal("fetch", fetch);
     const { result } = setup();
     await act(async () => { await vi.advanceTimersByTimeAsync(0); });
     await act(async () => { await vi.advanceTimersByTimeAsync(1); });
@@ -47,6 +57,15 @@ describe("retained command authority", () => {
     await act(async () => { await vi.advanceTimersByTimeAsync(1); });
     expect(result.current.data).toBeUndefined();
     expect(fetch.mock.calls.length).toBeGreaterThan(1);
+  });
+  it("keeps a legacy timestamp-less detail only under fresh server authority", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValueOnce({ ok: true, json: async () => ({ ...status, createdAt: undefined }) }).mockRejectedValue(new TypeError("offline")));
+    const { result } = setup();
+    await waitFor(() => expect(result.current.data?.brightness).toBe(37));
+    expect(result.current.isDetailCurrent()).toBe(true);
+    await act(async () => { await result.current.refetch(); });
+    await waitFor(() => expect(result.current.data).toBeUndefined());
+    expect(result.current.isDetailCurrent()).toBe(false);
   });
   it.each(["focus", "reconnect"])("revalidates settled detail on %s even under inherited infinite staleTime", async (event) => {
     vi.useFakeTimers({ toFake: ["Date"] }); vi.setSystemTime(new Date("2026-08-30T00:00:00Z"));

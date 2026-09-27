@@ -202,11 +202,16 @@ describe("ControlView 대상 선택", () => {
     expect(mocks.apiPost).not.toHaveBeenCalled();
   });
 
-  it("expires the open terminal result and history drawer at the calendar boundary", async () => {
-    vi.useFakeTimers(); vi.setSystemTime(new Date("2026-08-31T11:59:59Z"));
+  it.each([
+    ["2026-05-31T12:00:00Z", "2026-08-31T12:00:00Z"],
+    ["2026-02-28T23:00:00Z", "2026-05-28T23:00:00Z"],
+    ["2024-02-29T23:30:00Z", "2024-05-29T23:30:00Z"],
+    ["2026-02-28T23:00:00Z", "2026-05-29T23:00:00Z"]
+  ])("expires the open terminal result and history drawer for %s at %s", async (createdAt, boundary) => {
+    vi.useFakeTimers(); vi.setSystemTime(new Date(Date.parse(boundary) - 1_000));
     const actual = await vi.importActual<typeof import("../../api/commands")>("../../api/commands");
     mocks.useCommandStatus.mockImplementation(actual.useCommandStatus);
-    const record = { ...createCommandStatus(commandIds.terminal, "verified_not_applied"), createdAt: "2026-05-31T12:00:00Z", siteId: dashboard.site.id, targetFixtureIds: [fixtureIds.b2First], brightness: 37 };
+    const record = { ...createCommandStatus(commandIds.terminal, "verified_not_applied"), createdAt, siteId: dashboard.site.id, targetFixtureIds: [fixtureIds.b2First], brightness: 37 };
     mocks.apiGet.mockImplementation(async (path: string) => path.startsWith("/commands?") ? { items: [record], nextCursor: null } : record);
     renderControl();
     await act(async () => { await vi.advanceTimersByTimeAsync(20); });

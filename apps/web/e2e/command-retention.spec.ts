@@ -44,10 +44,15 @@ for (const error of [404, 410]) {
   });
 }
 
-test("an open terminal result disappears at its three-calendar-month deadline", async ({ page }) => {
-  await page.clock.install({ time: new Date("2026-08-31T11:59:00Z") });
+for (const [createdAt, boundary] of [
+  ["2026-05-31T12:00:00Z", "2026-08-31T12:00:00Z"],
+  ["2026-02-28T23:00:00Z", "2026-05-28T23:00:00Z"],
+  ["2024-02-29T23:30:00Z", "2024-05-29T23:30:00Z"]
+]) {
+test(`an open terminal result from ${createdAt} disappears at its first calendar cutoff`, async ({ page }) => {
+  await page.clock.install({ time: new Date(Date.parse(boundary) - 60_000) });
   await installFixture(page);
-  const command = { id: commandId, siteId, stage: "verified_not_applied", outcome: "not_applied", createdAt: "2026-05-31T12:00:00Z", targetFixtureIds: [fixtureId], brightness: 37, totalFixtureCount: 1, completedFixtureCount: 1, dispatchCount: 1, dispatches: [], errorMessage: null };
+  const command = { id: commandId, siteId, stage: "verified_not_applied", outcome: "not_applied", createdAt, targetFixtureIds: [fixtureId], brightness: 37, totalFixtureCount: 1, completedFixtureCount: 1, dispatchCount: 1, dispatches: [], errorMessage: null };
   let posts = 0;
   await page.route("**/api/commands**", async (route) => {
     if (route.request().method() === "POST") { posts += 1; return route.fulfill({ status: 500, json: {} }); }
@@ -63,3 +68,4 @@ test("an open terminal result disappears at its three-calendar-month deadline", 
   await expect(page.getByRole("button", { name: new RegExp(`최근 명령 상세: ${commandId}`) })).toHaveCount(0);
   expect(posts).toBe(0);
 });
+}

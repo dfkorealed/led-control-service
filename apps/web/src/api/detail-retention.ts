@@ -16,19 +16,26 @@ export function isDetailRetained(createdAt: string | undefined, now = Date.now()
   return createdAt === undefined || Date.parse(createdAt) >= detailRetainedFrom(now);
 }
 
-function detailDeadline(createdAt: string): number {
+function detailDeadline(createdAt: string, now: number): number {
   const created = Date.parse(createdAt);
   if (!Number.isFinite(created)) return 0;
-  // Adding three months is not the inverse of a clamped subtraction (Nov 30
-  // remains retained through February). Find the first excluded millisecond.
-  let low = created;
-  let high = created + 124 * 86_400_000;
-  while (low < high) {
-    const middle = Math.floor((low + high) / 2);
-    if (detailRetainedFrom(middle) > created) high = middle;
-    else low = middle + 1;
+  if (!isDetailRetained(createdAt, now)) return Infinity;
+  const date = new Date(created);
+  const dayMilliseconds = 86_400_000;
+  const timeOfDay = created - Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate());
+  const monthStart = Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 3, 1);
+  const nextMonth = Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 4, 1);
+  // Month-end clamping can move the cutoff BACK at midnight: May 28 23:00
+  // maps to Feb 28 23:00, but May 29 00:00 maps to Feb 28 00:00. Therefore
+  // neither binary search nor adding three months finds every next boundary.
+  // Within each UTC day the cutoff moves linearly. Check that day's midnight
+  // and matching time + 1ms separately, then the following month's midnight.
+  for (let day = monthStart; day <= nextMonth; day += dayMilliseconds) {
+    for (const candidate of [day, day + timeOfDay + 1]) {
+      if (candidate > now && candidate <= nextMonth && detailRetainedFrom(candidate) > created) return candidate;
+    }
   }
-  return low;
+  return Infinity;
 }
 
 /** Wake an open surface at its next retention boundary, including suspended tabs. */
@@ -36,7 +43,7 @@ export function useDetailRetentionClock(timestamps: Array<string | undefined>) {
   const [, setRevision] = useState(0);
   const now = Date.now();
   const deadline = Math.min(...timestamps.filter((value): value is string => Boolean(value))
-    .map(detailDeadline).filter((value) => value > now));
+    .map((value) => detailDeadline(value, now)).filter((value) => value > now));
   useEffect(() => {
     const wake = () => setRevision((value) => value + 1);
     const timer = Number.isFinite(deadline) ? window.setTimeout(wake, Math.min(deadline - Date.now(), 2_147_483_647)) : undefined;

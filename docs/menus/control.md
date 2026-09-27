@@ -692,3 +692,4 @@
 - 부족하거나 개선이 필요한 기능: 상세 GET에는 서버 시각 메타데이터가 없어 로컬 기한 검사의 시계 오차 한계가 있다. 최종 API↔Web 실제 프록시 통합 증거는 총괄 통합 관문에서 별도로 기록한다.
 - 관련 파일: `apps/web/src/api/{commands,detail-retention}.ts`, `apps/web/src/features/control/{ControlView,CommandVerificationCases}.tsx`와 해당 테스트.
 - 갱신 규칙: 보관 기간·오류 표시·case POST 가용성 또는 캐시 재검증 정책 변경 시 이 항목과 회귀 테스트를 함께 갱신한다.
+- 검토 보완: 2월 말 기록은 3개월 뒤 여러 날짜가 같은 2월 말로 보정되므로 cutoff가 자정에 되돌아갈 수 있다. 다음 만료 시각은 각 UTC 날짜의 경계를 따로 검사하며 평년·윤년의 첫 경계와 이후 보정 날짜에 열린 결과/목록을 숨기는 테스트로 검증한다. 이전 API의 `createdAt` 없는 응답은 로컬 기한을 추정하지 않고 새 서버 조회 권한만 적용하는 호환 경로이며, 오류·재조회 중에는 동일하게 숨긴다. 현재 API는 `createdAt`을 반환한다.
