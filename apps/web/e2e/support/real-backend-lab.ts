@@ -316,6 +316,7 @@ export class RealBackendLab {
   private readonly provisioningDeviceTerminalAckCommandIds = new Set<string>();
   private mqtt?: MqttClient;
   private automationObserver?: MqttClient;
+  private automationGatewayObserver?: MqttClient;
   private apiProcess?: ChildProcess;
   private mqttProcess?: ChildProcess;
   private automationGateway?: ChildProcess;
@@ -811,6 +812,12 @@ export class RealBackendLab {
     const broker = this.mqttProcess;
     if (!broker) throw new Error("lab MQTT broker process is unavailable");
     if (this.mqtt) throw new Error("test Gateway publisher must be detached before broker session reset");
+    const hadGatewayObserver = Boolean(this.automationGatewayObserver);
+    if (this.automationGatewayObserver) {
+      await closeMqttStrictWithin(this.automationGatewayObserver, false, this.cleanupTimeoutMs,
+        "automation Gateway observer close before broker reset");
+      this.automationGatewayObserver = undefined;
+    }
     await stopProcessGroup(broker, this.cleanupTimeoutMs);
     const replacement = this.spawnLogged("mqtt", "mosquitto", ["-c", join(this.labDir, "mosquitto.conf")], {});
     this.mqttProcess = replacement;
@@ -818,6 +825,7 @@ export class RealBackendLab {
     if (this.automationObserver) {
       await this.waitFor(() => Boolean(this.automationObserver?.connected), 15_000);
     }
+    if (hadGatewayObserver) await this.attachAutomationGatewayObserver();
     this.automationConvergenceEvidence.push({
       scenario: "broker-session-reset",
       stage: "non-persistent-broker-restarted",
@@ -1158,11 +1166,17 @@ export class RealBackendLab {
     const foreignGatewayId = randomUUID();
     const allowedReads = [
       `sites/${siteId}/gateways/${gatewayId}/commands/status-check`,
-      `sites/${siteId}/gateways/${gatewayId}/acks/state-ingested`
+      `sites/${siteId}/gateways/${gatewayId}/acks/state-ingested`,
+      mqttTopics.automationConfig(siteId, gatewayId),
+      mqttTopics.automationConfigAppliedReceipt(siteId, gatewayId),
+      mqttTopics.automationExecutionIngested(siteId, gatewayId)
     ];
     const deniedReads = [
       `sites/${siteId}/gateways/${foreignGatewayId}/commands/status-check`,
-      `sites/${siteId}/gateways/${foreignGatewayId}/acks/state-ingested`
+      `sites/${siteId}/gateways/${foreignGatewayId}/acks/state-ingested`,
+      mqttTopics.automationConfig(siteId, foreignGatewayId),
+      mqttTopics.automationConfigAppliedReceipt(siteId, foreignGatewayId),
+      mqttTopics.automationExecutionIngested(siteId, foreignGatewayId)
     ];
     const apiPublisher = await connectMqttForLab({
       host: "127.0.0.1",
@@ -1570,6 +1584,54 @@ export class RealBackendLab {
     });
     await subscribe(observer, [`sites/${installation.siteId}/gateways/${this.gateway.id}/#`]);
     this.automationObserver = observer;
+    await this.attachAutomationGatewayObserver();
+  }
+
+  private async attachAutomationGatewayObserver() {
+    const installation = this.requireInstallation();
+    const certificateName = `gateway-${this.gateway.id.replaceAll(/[^a-zA-Z0-9._-]/g, "_")}`;
+    // The real Gateway owns gateway-${gatewayId} with a durable session. This
+    // passive lab reader uses a separate ephemeral client and never publishes.
+    const observer = await connectMqttForLab({
+      host: "127.0.0.1",
+      port: this.ports.mqtt,
+      clientId: `task19-gateway-observer-${this.runId}`,
+      clean: true,
+      resubscribe: false,
+      reconnectPeriod: 0,
+      properties: { sessionExpiryInterval: 0 },
+      ca: await readFile(join(this.pkiDir, "ca.crt")),
+      cert: await readFile(join(this.pkiDir, `${certificateName}.crt`)),
+      key: await readFile(join(this.pkiDir, `${certificateName}.key`))
+    });
+    observer.on("error", (error) => this.recordMqtt({
+      direction: "automation-observer-error",
+      principal: "gateway-passive-reader",
+      error: safeMessage(error)
+    }));
+    observer.on("message", (topic, payload, packet) => {
+      // A retained message predating the scenario cursor is not protocol evidence.
+      if (packet.retain) return;
+      this.recordMqtt({
+        direction: "automation-observer",
+        producer: "api",
+        producerPid: null,
+        observerPrincipal: "gateway-passive-reader",
+        topic,
+        payload: parseJson(payload)
+      });
+    });
+    try {
+      await subscribe(observer, [
+        mqttTopics.automationConfig(installation.siteId, this.gateway.id),
+        mqttTopics.automationConfigAppliedReceipt(installation.siteId, this.gateway.id),
+        mqttTopics.automationExecutionIngested(installation.siteId, this.gateway.id)
+      ]);
+      this.automationGatewayObserver = observer;
+    } catch (error) {
+      await closeMqttWithin(observer, true, this.cleanupTimeoutMs);
+      throw error;
+    }
   }
 
   private handleAutomationIpcMessage(message: unknown) {
@@ -2060,9 +2122,11 @@ export class RealBackendLab {
         errors.push(error);
       }
       try {
-        if (this.automationObserver) {
+        if (this.automationObserver || this.automationGatewayObserver) {
           const observerClose = await settleWithin(
-            [closeMqtt(this.automationObserver, false)],
+            [this.automationObserver, this.automationGatewayObserver]
+              .filter((client): client is MqttClient => Boolean(client))
+              .map((client) => closeMqtt(client, false)),
             this.cleanupTimeoutMs,
             "automation observer close"
           );
@@ -2081,6 +2145,7 @@ export class RealBackendLab {
     } finally {
       this.mqtt = undefined;
       this.automationObserver = undefined;
+      this.automationGatewayObserver = undefined;
       this.apiProcess = undefined;
       this.mqttProcess = undefined;
       this.automationGateway = undefined;

@@ -246,7 +246,7 @@ test("lab Mosquitto ACL은 infrastructure 정본과 정확히 일치한다", asy
   }
 });
 
-test("lab Gateway ACL은 자기 command·ACK read만 허용하고 다른 Gateway read와 금지 write를 막는다", async () => {
+test("lab Gateway ACL은 자기 status·automation command/ACK read만 허용하고 다른 Gateway read와 금지 write를 막는다", async () => {
   test.skip(process.env.E2E_REAL_BACKEND_LAB !== "1", "Requires the disposable RealBackendLab broker and database.");
   test.setTimeout(180_000);
   const lab = new RealBackendLab({ ports: await allocateUnusedLabPorts() });
@@ -270,8 +270,8 @@ test("lab Gateway ACL은 자기 command·ACK read만 허용하고 다른 Gateway
       WHERE "serialNumber"='${lab.gateway.serialNumber}'`);
     await lab.attachGatewayPublisher();
     expect(internal.mqttEvidence).toEqual(expect.arrayContaining([
-      expect.objectContaining({ direction: "acl-positive", allowedReadCount: 2 }),
-      expect.objectContaining({ direction: "acl-negative", deniedPublishCount: 2, deniedReadCount: 2 })
+      expect.objectContaining({ direction: "acl-positive", allowedReadCount: 5 }),
+      expect.objectContaining({ direction: "acl-negative", deniedPublishCount: 2, deniedReadCount: 5 })
     ]));
   } finally {
     await lab.stop();

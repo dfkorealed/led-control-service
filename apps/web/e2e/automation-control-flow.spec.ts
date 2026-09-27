@@ -257,7 +257,7 @@ async function createVehicleEvent(
     "02 실행 조명",
     "03 동작 설정",
   ]);
-  await expect(dialog.getByRole("region", { name: "03 동작 설정" }).getByRole("group", { name: "유지 시간" })).toBeVisible();
+  await expect(dialog.getByRole("region", { name: "03 동작 설정" }).getByRole("group", { name: "유지 시간", exact: true })).toBeVisible();
   await dialog.getByRole("button", { name: "감지 센서 선택" }).click();
   await selectFixtureFromList(page, dialog, input.source);
   await dialog.getByRole("button", { name: "1개 조명 선택 완료", exact: true }).click();
