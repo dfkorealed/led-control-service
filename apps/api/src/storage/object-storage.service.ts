@@ -37,8 +37,10 @@ export class ObjectStorageService {
 
   async putReportObject(key: string, bytes: Buffer, contentType: string) {
     const Bucket = this.reportBucket(key);
+    // Historical XLSX object keys are valid only for cleanup reads/deletes.
+    if (!key.endsWith(".pdf")) throw new BadRequestException("invalid report upload key");
     if (bytes.length < 1 || bytes.length > 25 * 1024 * 1024) throw new BadRequestException("report size must be between 1 byte and 25 MB");
-    if (contentType !== (key.endsWith(".pdf") ? "application/pdf" : "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")) {
+    if (contentType !== "application/pdf") {
       throw new BadRequestException("invalid report MIME type");
     }
     return this.client.send(new PutObjectCommand({ Bucket, Key: key, Body: bytes, ContentType: contentType,

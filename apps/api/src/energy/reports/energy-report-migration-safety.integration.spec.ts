@@ -91,7 +91,7 @@ const key = (format = "xlsx", attempt = 1) => `reports/${siteId}/${reportId}/att
   it("replays real migrate deploy from clean and rejects a missing post-deploy delete guard", () => {
     const db = database();
     expect(preflight(db)).toMatchObject({ status: 0, ok: true });
-    success(db, migrationCopy());
+    success(db, migrationCopy("20260927090000_pdf_only_energy_reports"));
     expect(preflight(db, "post")).toMatchObject({ status: 0, ok: true });
     sql(db, 'ALTER TABLE "EnergyReportJob" DISABLE TRIGGER "EnergyReportJob_preserve_objects_before_delete"');
     expect(preflight(db, "post")).toMatchObject({ status: 1, issues: expect.arrayContaining([{ code: "delete_trigger_missing_or_disabled" }]) });
@@ -108,12 +108,36 @@ const key = (format = "xlsx", attempt = 1) => `reports/${siteId}/${reportId}/att
     sql(db, `INSERT INTO "EnergyReportObjectCleanup" ("reportId", "siteId", "objectKeys", "nextAttemptAt", "updatedAt")
       VALUES ('44444444-4444-4444-8444-444444444444', '${siteId}', '["reports/${siteId}/44444444-4444-4444-8444-444444444444/attempt-1.xlsx"]', now(), now());`);
     success(db, migrationCopy("20260927090000_pdf_only_energy_reports"));
+    expect(preflight(db, "post")).toMatchObject({ status: 0, ok: true });
     expect(sql(db, 'SELECT count(*) FROM "EnergyReportJob"')).toBe("0");
     expect(JSON.parse(sql(db, `SELECT "objectKeys" FROM "EnergyReportObjectCleanup" WHERE "reportId" = '${reportId}'`)))
       .toEqual([key(), key("xlsx", 2), key("xlsx", 3)]);
     expect(sql(db, 'SELECT count(*) FROM "EnergyReportObjectCleanup"')).toBe("3");
     expect(sql(db, `SELECT enumlabel FROM pg_enum WHERE enumtypid = '"EnergyReportFormat"'::regtype`)).toBe("pdf");
   }, 60_000);
+
+  it("requires the PDF-only reset migration in the post-deploy gate", () => {
+    const db = database();
+    success(db, migrationCopy("20260925150000_landing_oauth_generation"));
+    expect(preflight(db, "post")).toMatchObject({ status: 1, issues: expect.arrayContaining([{ code: "report_migrations_pending" }]) });
+  }, 30_000);
+
+  it("rejects report rows recreated after the PDF-only reset", () => {
+    const db = database();
+    success(db, migrationCopy("20260927090000_pdf_only_energy_reports"));
+    sql(db, `INSERT INTO "Organization" ("id", "name", "type", "updatedAt") VALUES ('org', 'test', 'customer', now());
+      INSERT INTO "Site" ("id", "organizationId", "name", "updatedAt") VALUES ('${siteId}', 'org', 'test', now());
+      INSERT INTO "EnergyReportJob" ("id", "siteId", "requestedByActorId", "requestedByLoginIdSnapshot", "requestHash", "format", "requestSnapshot", "updatedAt")
+      VALUES ('${reportId}', '${siteId}', 'actor', 'actor', repeat('a', 64), 'pdf', '{}', now());`);
+    expect(preflight(db, "post")).toMatchObject({ status: 1, issues: expect.arrayContaining([{ code: "report_history_not_empty" }]) });
+  }, 30_000);
+
+  it("rejects an XLSX enum value reintroduced after the PDF-only reset", () => {
+    const db = database();
+    success(db, migrationCopy("20260927090000_pdf_only_energy_reports"));
+    sql(db, 'ALTER TYPE "EnergyReportFormat" ADD VALUE \'xlsx\'');
+    expect(preflight(db, "post")).toMatchObject({ status: 1, issues: expect.arrayContaining([{ code: "report_format_not_pdf_only" }]) });
+  }, 30_000);
 
   it("upgrades 20260911 history and preserves all three attempt keys from completed cleanup", () => {
     const db = database();
@@ -124,7 +148,7 @@ const key = (format = "xlsx", attempt = 1) => `reports/${siteId}/${reportId}/att
     success(db, migrationCopy());
     expect(JSON.parse(sql(db, 'SELECT "objectKeys" FROM "EnergyReportObjectCleanup"'))).toEqual([key(), key("xlsx", 2), key("xlsx", 3)]);
     expect(sql(db, 'SELECT count(*) FROM "SiteDeletionCleanup" WHERE "completedAt" IS NOT NULL')).toBe("1");
-    expect(preflight(db, "post")).toMatchObject({ status: 0, ok: true });
+    expect(preflight(db, "post")).toMatchObject({ status: 1, issues: expect.arrayContaining([{ code: "report_migrations_pending" }]) });
     sql(db, 'DELETE FROM "EnergyReportObjectCleanup"');
     expect(preflight(db, "post")).toMatchObject({ status: 1, issues: expect.arrayContaining([{ code: "legacy_report_backfill_missing" }]) });
     sql(db, 'ALTER TABLE "EnergyReportJob" DROP CONSTRAINT "EnergyReportJob_attempt_check"');
@@ -184,7 +208,7 @@ const key = (format = "xlsx", attempt = 1) => `reports/${siteId}/${reportId}/att
       expect(sql(db, 'SELECT count(*) FROM "EnergyReportObjectCleanup"')).toBe("0");
     }
     const recovered = database();
-    success(recovered, migrationCopy());
+    success(recovered, migrationCopy("20260927090000_pdf_only_energy_reports"));
     expect(preflight(recovered, "post")).toMatchObject({ status: 0, ok: true });
   }, 45_000);
 

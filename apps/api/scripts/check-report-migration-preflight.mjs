@@ -3,7 +3,8 @@ import { PrismaClient } from "@prisma/client";
 const migrations = [
   "20260912_statistics_p2_reports",
   "20260913_report_object_cleanup_ledger",
-  "20260914_report_delete_tombstone_guard"
+  "20260914_report_delete_tombstone_guard",
+  "20260927090000_pdf_only_energy_reports"
 ];
 const phase = process.argv[2] ?? "--phase=pre";
 const issues = [];
@@ -30,7 +31,7 @@ try {
       const history = catalog.history ? await query('SELECT migration_name, finished_at, rolled_back_at FROM "_prisma_migrations"') : [];
       if (history.some(row => !row.finished_at && !row.rolled_back_at)) flag("unfinished_migration");
       const applied = migrations.map(name => history.some(row => row.migration_name === name && row.finished_at && !row.rolled_back_at));
-      if ((applied[1] && !applied[0]) || (applied[2] && !applied[1])) flag("migration_history_gap");
+      if ((applied[1] && !applied[0]) || (applied[2] && !applied[1]) || (applied[3] && !applied[2])) flag("migration_history_gap");
       if (phase === "--phase=post" && applied.some(value => !value)) flag("report_migrations_pending");
 
       const types = await query(`SELECT typname FROM pg_type WHERE typnamespace = current_schema()::regnamespace
@@ -41,6 +42,19 @@ try {
         || (!applied[1] && catalog.cleanup)
         || (!applied[2] && functions.some(row => row.proname === 'preserve_energy_report_object_tombstone'))) flag("unexpected_report_catalog");
       if ((applied[0] && (!catalog.job || types.length !== 2)) || (applied[1] && !catalog.cleanup)) flag("report_catalog_missing");
+
+      if (phase === "--phase=post" && applied[3]) {
+        // This is the immediate post-reset gate, before new PDF jobs are accepted.
+        // Later routine preflights permit legitimate new report rows.
+        if (catalog.job) {
+          const [rows] = await query('SELECT count(*)::int AS count FROM "EnergyReportJob"');
+          if (rows.count !== 0) flag("report_history_not_empty");
+        }
+        const formatLabels = await query(`SELECT e.enumlabel FROM pg_enum e JOIN pg_type t ON t.oid = e.enumtypid
+          WHERE t.typnamespace = current_schema()::regnamespace AND t.typname = 'EnergyReportFormat'
+          ORDER BY e.enumsortorder`);
+        if (formatLabels.length !== 1 || formatLabels[0].enumlabel !== "pdf") flag("report_format_not_pdf_only");
+      }
 
       const constraints = await query(`SELECT conname FROM pg_constraint WHERE connamespace = current_schema()::regnamespace AND convalidated`);
       const expectedChecks = [

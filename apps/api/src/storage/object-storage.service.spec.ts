@@ -269,6 +269,7 @@ describe("ObjectStorageService", () => {
 
 describe("private report storage", () => {
   const key = "reports/20000000-0000-4000-8000-000000000001/10000000-0000-4000-8000-000000000001/attempt-1.xlsx";
+  const pdfKey = key.replace(".xlsx", ".pdf");
   const bytes = Buffer.from("report bytes");
   const sha256 = createHash("sha256").update(bytes).digest("hex");
   function setup() {
@@ -277,6 +278,17 @@ describe("private report storage", () => {
       bucket: "public-floors", publicBaseUrl: "https://public.example", reportBucket: "private-reports"
     }) };
   }
+  it("rejects new XLSX uploads while retaining historical XLSX HEAD and DELETE", async () => {
+    const { send, service } = setup();
+    await expect(service.putReportObject(key, bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))
+      .rejects.toBeInstanceOf(BadRequestException);
+    expect(send).not.toHaveBeenCalled();
+    await service.headReportObject(key);
+    await service.deleteReportObject(key);
+    expect(send.mock.calls.map(([command]) => command.constructor)).toEqual([HeadObjectCommand, DeleteObjectCommand]);
+    await service.putReportObject(pdfKey, bytes, "application/pdf");
+    expect(send.mock.calls[2][0]).toBeInstanceOf(PutObjectCommand);
+  });
   it.each(["put", "head", "delete"])("bounds a stalled private report %s transport and aborts it", async operation => {
     jest.useFakeTimers();
     const timeout = jest.spyOn(AbortSignal, "timeout").mockImplementation(ms => {
@@ -287,7 +299,7 @@ describe("private report storage", () => {
       new Promise((_resolve, reject) => options?.abortSignal?.addEventListener("abort", () => reject(new Error("aborted")), { once: true }))
     } as never, { bucket: "public-floors", reportBucket: "private-reports", publicBaseUrl: "https://public.example" });
     try {
-      const pending = operation === "put" ? service.putReportObject(key, bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+      const pending = operation === "put" ? service.putReportObject(pdfKey, bytes, "application/pdf")
         : operation === "head" ? service.headReportObject(key) : service.deleteReportObject(key);
       void pending.then(() => { outcome = "resolved"; }, () => { outcome = "aborted"; });
       await jest.advanceTimersByTimeAsync(3999);
@@ -298,17 +310,17 @@ describe("private report storage", () => {
   });
   it("puts only to the private bucket with checksum/length, then HEADs with checksum mode and deletes", async () => {
     const { send, service } = setup();
-    await service.putReportObject(key, bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    await service.putReportObject(pdfKey, bytes, "application/pdf");
     expect(send.mock.calls[0][0]).toBeInstanceOf(PutObjectCommand);
-    expect(send.mock.calls[0][0].input).toMatchObject({ Bucket: "private-reports", Key: key, Body: bytes, ContentLength: bytes.length,
+    expect(send.mock.calls[0][0].input).toMatchObject({ Bucket: "private-reports", Key: pdfKey, Body: bytes, ContentLength: bytes.length,
       ChecksumSHA256: Buffer.from(sha256, "hex").toString("base64"), CacheControl: "private, no-store" });
     expect(send.mock.calls[0][0].input.ACL).toBeUndefined();
-    await service.headReportObject(key);
+    await service.headReportObject(pdfKey);
     expect(send.mock.calls[1][0]).toBeInstanceOf(HeadObjectCommand);
-    expect(send.mock.calls[1][0].input).toEqual({ Bucket: "private-reports", Key: key, ChecksumMode: "ENABLED" });
-    await service.deleteReportObject(key);
+    expect(send.mock.calls[1][0].input).toEqual({ Bucket: "private-reports", Key: pdfKey, ChecksumMode: "ENABLED" });
+    await service.deleteReportObject(pdfKey);
     expect(send.mock.calls[2][0]).toBeInstanceOf(DeleteObjectCommand);
-    expect(send.mock.calls[2][0].input).toEqual({ Bucket: "private-reports", Key: key });
+    expect(send.mock.calls[2][0].input).toEqual({ Bucket: "private-reports", Key: pdfKey });
   });
   it.each(["floors/a/file.pdf", "reports/../../secret", key.replace("attempt-1", "attempt-0"), key.replace("attempt-1", "attempt-4"), key + "/extra"])("rejects key outside the report allowlist: %s", async invalid => {
     const { service, send } = setup();
@@ -321,9 +333,9 @@ describe("private report storage", () => {
   it("rejects 0 and >25 MB uploads and mismatched MIME before sending", async () => {
     const { service, send } = setup();
     for (const bytes of [Buffer.alloc(0), Buffer.alloc(25 * 1024 * 1024 + 1)]) {
-      await expect(service.putReportObject(key, bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")).rejects.toBeInstanceOf(BadRequestException);
+      await expect(service.putReportObject(pdfKey, bytes, "application/pdf")).rejects.toBeInstanceOf(BadRequestException);
     }
-    await expect(service.putReportObject(key, bytes, "application/pdf")).rejects.toBeInstanceOf(BadRequestException);
+    await expect(service.putReportObject(pdfKey, bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")).rejects.toBeInstanceOf(BadRequestException);
     expect(send).not.toHaveBeenCalled();
   });
   it("creates a real 300-second signed GetObject URL with safe attachment filename and no-store", async () => {
