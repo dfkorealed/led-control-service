@@ -10,6 +10,8 @@
 
 **Spec:** [랜딩 UI 정책 전환 설계 명세](../specs/2026-09-27-landing-ui-policy-design.md)
 
+**실행 상태(2026-09-28):** 사용자 실행 승인. Task 1 기준 채증·토큰 감사부터 순차 진행 중이며 작업별 독립 리뷰와 ignored SDD ledger를 유지한다. 아직 정책 925건은 미해결이다.
+
 ## Global Constraints
 
 - 기준은 `6c61995099db7329adaf5910aac323b03fa331de`, 격리 브랜치는 `codex/landing-ui-policy`다. 기존 925건은 해결 전까지 실패로 기록한다.
