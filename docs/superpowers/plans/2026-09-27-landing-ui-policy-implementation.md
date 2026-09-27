@@ -10,7 +10,7 @@
 
 **Spec:** [랜딩 UI 정책 전환 설계 명세](../specs/2026-09-27-landing-ui-policy-design.md)
 
-**실행 상태(2026-09-28):** 사용자 실행 승인. Task 1 기준 채증·토큰 감사부터 순차 진행 중이며 작업별 독립 리뷰와 ignored SDD ledger를 유지한다. 아직 정책 925건은 미해결이다.
+**실행 상태(2026-09-28):** 사용자 실행 승인. Task 1 기준 채증·토큰 감사·RED/GREEN·토큰 전용 커밋과 독립 리뷰를 완료했다. Task 2 승인 앵커/포함형 variant 전환을 진행한다. 원래 925건은 미해결이며 구 앵커로 인해 중간 검사는 1368건 FAIL이다.
 
 ## Global Constraints
 
@@ -53,12 +53,12 @@
 
 **Interfaces:** Consumes 설계 명세 2절과 기존 `@theme static`. Produces 검토된 토큰 이름→정확 값의 **토큰 전용 Git 커밋 SHA**; Task 2의 승인 ref 입력이다. 승인 요청 후보는 `--text-landing-hero-fluid: clamp(55px, 5.3vw, 78px)`, `--text-landing-concept-hero-fluid: clamp(55px, 6.7vw, 100px)`, `--text-landing-eyebrow: 13px`, `--radius-landing-glass-panel: 18px`, `--shadow-landing-demo-card: 0 18px 55px rgb(21 50 74 / .10)`다. 두 히어로는 서로 다른 핵심 역할이다. 사용 위치·횟수 및 기존 토큰과의 차이를 검토받기 전에는 추가하지 않는다.
 
-- [ ] **Step 1: 기준 이미지를 저장한다.** React `/`·`/features`·`/pricing`와 시안 `.html`의 320/390/1024/1440 전체·히어로·데모·팝업 PNG를 같은 브라우저/높이/폰트/reduced-motion으로 저장한다. `pnpm --filter @led-control/web ui:check`의 기존 925건 FAIL도 함께 기록한다.
-- [ ] **Step 2: 값의 역할을 전수 분류한다.** 57종·175회 간격 및 36/14/20/23/20종 서체·반경·그림자를 사용 위치별로 분류해 기존 토큰 적합/유틸리티로 정확 표현/새 의미 토큰 필요의 세 갈래와 사용 횟수를 `docs/ui-spacing.md`에 기록한다.
-- [ ] **Step 3: 후보를 검토받는다.** 위 다섯 후보 및 Step 2의 추가 후보에 정확한 역할·값·사용처를 붙여 승인받는다. 반려된 후보는 테스트에 고정하지 않고 정확한 대체 경로가 확인될 때까지 멈춘다.
-- [ ] **Step 4: 확정된 후보의 RED 테스트를 쓴다.** `ui-policy.test.mjs`에 `landing token proposal preserves exact values` 테스트를 추가해 승인된 이름→값 표와 실제 `theme.css`의 값/선언 횟수 1을 단언한다. 위 다섯 후보가 승인되면 다섯 값을 그대로 고정한다. `pnpm --filter @led-control/web exec node --test --test-name-pattern="landing token proposal preserves exact values" scripts/ui-policy.test.mjs`는 첫 누락 토큰에서 FAIL해야 한다.
-- [ ] **Step 5: 승인된 선언만 `@theme static`에 넣는다.** 위 `--test-name-pattern` 집중 명령의 신규 토큰 값 단언만 PASS해야 한다. 전체 `test:ui-policy`의 생산 0건 단언과 `ui:check`는 승인 ref가 옛 Git 객체를 가리키므로 이 중간 커밋에서 FAIL한다; 전체 테스트 성공으로 보고하지 않는다.
-- [ ] **Step 6: 토큰 전용 커밋을 만든다.** `git add apps/web/src/styles/theme.css docs/ui-spacing.md apps/web/scripts/ui-policy.test.mjs && git commit -m "feat(web): approve minimal landing tokens"`. SHA와 추가 토큰 표를 Task 2에 넘기며, 나머지 구현 파일은 이 커밋에 섞지 않는다.
+- [x] **Step 1: 기준 이미지를 저장한다.** React `/`·`/features`·`/pricing`와 시안 `.html`의 320/390/1024/1440 전체·히어로·데모·팝업 PNG를 같은 브라우저/높이/폰트/reduced-motion으로 저장한다. `pnpm --filter @led-control/web ui:check`의 기존 925건 FAIL도 함께 기록한다.
+- [x] **Step 2: 값의 역할을 전수 분류한다.** 57종·175회 간격 및 36/14/20/23/20종 서체·반경·그림자를 사용 위치별로 분류해 기존 토큰 적합/유틸리티로 정확 표현/새 의미 토큰 필요의 세 갈래와 사용 횟수를 `docs/ui-spacing.md`에 기록한다.
+- [x] **Step 3: 후보를 검토받는다.** 위 다섯 후보 및 Step 2의 추가 후보에 정확한 역할·값·사용처를 붙여 승인받는다. 반려된 후보는 테스트에 고정하지 않고 정확한 대체 경로가 확인될 때까지 멈춘다.
+- [x] **Step 4: 확정된 후보의 RED 테스트를 쓴다.** `ui-policy.test.mjs`에 `landing token proposal preserves exact values` 테스트를 추가해 승인된 이름→값 표와 실제 `theme.css`의 값/선언 횟수 1을 단언한다. 위 다섯 후보가 승인되면 다섯 값을 그대로 고정한다. `pnpm --filter @led-control/web exec node --test --test-name-pattern="landing token proposal preserves exact values" scripts/ui-policy.test.mjs`는 첫 누락 토큰에서 FAIL해야 한다.
+- [x] **Step 5: 승인된 선언만 `@theme static`에 넣는다.** 위 `--test-name-pattern` 집중 명령의 신규 토큰 값 단언만 PASS해야 한다. 전체 `test:ui-policy`의 생산 0건 단언과 `ui:check`는 승인 ref가 옛 Git 객체를 가리키므로 이 중간 커밋에서 FAIL한다; 전체 테스트 성공으로 보고하지 않는다.
+- [x] **Step 6: 토큰 전용 커밋을 만든다.** `git add apps/web/src/styles/theme.css docs/ui-spacing.md apps/web/scripts/ui-policy.test.mjs && git commit -m "feat(web): approve minimal landing tokens"`. SHA와 추가 토큰 표를 Task 2에 넘기며, 나머지 구현 파일은 이 커밋에 섞지 않는다.
 
 ### Task 2: 정책 신뢰 앵커와 포함형 반응형 variant
 
