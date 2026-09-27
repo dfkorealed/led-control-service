@@ -2,6 +2,11 @@
 
 기준일: 2026-09-27
 
+## 2026-09-27 PDF 전용 에너지 보고서 전환
+
+- [x] Excel 제거·기존 보고서 이력 전량 초기화·PDF 6쪽 시안 수정 요구를 [설계](superpowers/specs/2026-09-27-pdf-only-energy-report-design.md)와 [실행 체크리스트](superpowers/plans/2026-09-27-pdf-only-energy-report.md)에 반영했다. 사용자 요청에 따라 별도 중간 승인 대기 없이 격리 브랜치에서 구현한다.
+- [ ] PDF 전용 생성 계약, 안전한 이력/객체 정리, 의미 기반 PDF 렌더러, Web·랜딩 UI, 관련 메뉴/DB 문서와 자동 검증을 완료한다. 실제 DB 초기화는 접속 환경 확인과 유지보수 경계 후 실행 여부를 별도로 기록한다.
+
 ## 2026-09-27 공개 랜딩 파일 정리·통합
 
 - [x] 랜딩 적용 후 참조 관계를 감사했다. 현재 production 랜딩 컴포넌트는 모두 사용 중이며 삭제된 `landing.css`의 정책 허용·테스트만 제거했다. Web unit 2,371개(3 제외), 랜딩 Chromium 31/31, typecheck·build가 통과했다. 전체 `ui:check`는 활성 랜딩 CSS 중심의 기존 927건으로, `test:ui-policy` 전체는 그 생산 UI 무위반 단언 1개로 실패한다. 토큰/Tailwind 정비가 후속 과제다. 다른 미커밋 맵/Final Atlas 작업과 활성 worktree는 보존한다. [정리 체크리스트](superpowers/plans/2026-09-27-landing-cleanup-and-integration.md)를 따른다.
