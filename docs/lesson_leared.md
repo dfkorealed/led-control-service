@@ -1000,3 +1000,10 @@
 - **발생했던 문제/실수**: 카메라 이동이나 요소 변경 뒤 새 cell을 만들기 전에 기존 Pixi raster를 제거했다. 네트워크 decode·Canvas paint·worker 취소가 이어지면 지도에 일시적인 빈 영역과 깜빡임이 생길 수 있었다.
 - **해결 및 예방책**: 새 bitmap은 generation staging owner에서 decode·paint와 최종 메모리 예약을 끝낸 뒤에만 active cell과 동기 교체한다. admission이 실패하면 기존 cell을 남기고 degraded 상태를 보고하며, off-screen stale cell만 LRU eviction 대상으로 연다.
 - **반복 방지 체크**: 지연 `loadTile` 중 `removeTile`이 호출되지 않는 회귀, destroy 뒤 staging/active budget 0, abort된 generation이 raster를 재발행하지 않는 회귀를 함께 유지한다.
+
+## 2026-09-27 / 실연동 여정의 화면 selector와 MQTT ACL probe를 제품 계약에 맞춘다
+
+- **문제**: 설치 여정이 사라진 `층 자동 생성` 버튼을 기다렸고, Gateway read 권한 검사에서 API 인증서로 임의 `review-probe` topic을 발행해 `Not authorized`로 중단됐다. 자동화 여정의 lab Gateway는 누락된 journal 경로 때문에 운영 기본값 `/var/lib/led-control`에 쓰려다 권한 오류로 종료됐다.
+- **원인**: 현재 SetupWizard 액션은 `맵 생성`이다. OFF ACL은 API가 구체적인 command/ACK topic에만 write할 수 있는데, 임의 probe 발행 실패를 Gateway read 거부와 혼동했다. lab child 환경에는 provisioning-device·monitoring-refresh journal의 일회용 경로가 빠져 있었다.
+- **예방**: E2E selector는 실제 사용자 동작과 함께 갱신하고, broker 권한 검사는 발행자에게 허용된 exact topic에서 자기 Gateway 수신·타 Gateway 미수신·금지 write를 분리 확인한다. lab Gateway의 모든 durable state는 일회용 디렉터리를 지정한다. 테스트 성공을 생산 ACL 완화나 실제 Gateway/RF HIL 증거로 해석하지 않는다.
+- **잔여 검증**: journal 경로 보완 후 자동화 Gateway는 기동하지만 first-connect에서 config-applied delivery가 관측되는 반면 snapshot 재전달·application receipt와 DB `appliedRevision` 수렴은 확인되지 않았다. 이는 별도 프로토콜 진단 대상이며 자동화 실연동 여정 통과나 실제 RF 동작으로 주장하지 않는다.

@@ -85,9 +85,9 @@ for (const viewport of viewports) {
       await expect(page.getByRole("list", { name: "현장 설치 진행" })).toContainText("Gateway 연결");
       await page.getByLabel("주소").fill("서울시 강남구");
       await expectNoHorizontalOverflow(page);
-      await expectCommissioningActionsReachable(page, ["주소 미입력", "층 자동 생성"], viewport.width);
+      await expectCommissioningActionsReachable(page, ["주소 미입력", "맵 생성"], viewport.width);
       await expectMobileRegionTargetsReachable(page, '[data-testid="site-setup-flow"]', viewport.width);
-      await page.getByRole("button", { name: "층 자동 생성" }).click();
+      await page.getByRole("button", { name: "맵 생성", exact: true }).click();
       await expectNoHorizontalOverflow(page);
       await expect(page.getByRole("button", { name: "초기 설정 완료" })).toBeEnabled();
       await expectCommissioningActionsReachable(page, ["초기 설정 완료"], viewport.width);

@@ -285,7 +285,7 @@ test.describe("모니터링-제어 브라우저 route fixture 계약 (실제 하
       });
       await setupPage.goto(`/settings?siteId=${ids.site}`);
       await setupPage.getByLabel("주소").fill("서울시 강남구");
-      for (const actionName of ["주소 미입력", "층 자동 생성", "초기 설정 완료"]) {
+      for (const actionName of ["주소 미입력", "맵 생성", "초기 설정 완료"]) {
         const action = setupPage.getByRole("button", { name: actionName });
         await expect(action).toBeEnabled();
         await expectMinimumTouchTargetSize(action);

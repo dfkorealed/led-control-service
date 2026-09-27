@@ -636,7 +636,10 @@ export class RealBackendLab {
       GATEWAY_COMMAND_JOURNAL_PATH: join(gatewayDir, "command-journal.json"),
       GATEWAY_EVENT_SEQUENCE_PATH: eventSequencePath,
       GATEWAY_PROVISIONING_SCAN_JOURNAL_PATH: join(gatewayDir, "provisioning-scan-journal.json"),
+      // All durable Gateway state in this child must stay inside the disposable lab.
+      GATEWAY_PROVISIONING_DEVICE_JOURNAL_PATH: join(gatewayDir, "provisioning-device-journal.json"),
       GATEWAY_STATE_EVENT_OUTBOX_PATH: join(gatewayDir, "state-event-outbox.json"),
+      GATEWAY_MONITORING_REFRESH_JOURNAL_PATH: join(gatewayDir, "monitoring-refresh-journal.json"),
       GATEWAY_MESH_GROUP_STATE_PATH: join(gatewayDir, "mesh-groups.json"),
       GATEWAY_MESH_GROUP_RESYNC_PATH: join(gatewayDir, "mesh-group-resync.json"),
       GATEWAY_AUTOMATION_CONFIG_PATH: automationSnapshotPath,
@@ -1152,9 +1155,14 @@ export class RealBackendLab {
         if (!safeMessage(error).toLowerCase().includes("not authorized")) throw error;
       }
     }
+    const foreignGatewayId = randomUUID();
+    const allowedReads = [
+      `sites/${siteId}/gateways/${gatewayId}/commands/status-check`,
+      `sites/${siteId}/gateways/${gatewayId}/acks/state-ingested`
+    ];
     const deniedReads = [
-      `sites/${siteId}/gateways/${randomUUID()}/commands/#`,
-      `sites/${siteId}/gateways/${gatewayId}/acks/#`
+      `sites/${siteId}/gateways/${foreignGatewayId}/commands/status-check`,
+      `sites/${siteId}/gateways/${foreignGatewayId}/acks/state-ingested`
     ];
     const apiPublisher = await connectMqttForLab({
       host: "127.0.0.1",
@@ -1166,7 +1174,9 @@ export class RealBackendLab {
     });
     apiPublisher.on("error", () => undefined);
     try {
-      await expectReadsDenied(client, apiPublisher, deniedReads);
+      // The API certificate may publish these exact production topics; a
+      // fabricated review-probe topic would only test API write denial.
+      await expectReadBoundary(client, apiPublisher, allowedReads, deniedReads);
     } finally {
       await closeMqttWithin(apiPublisher, true, 1_000);
     }
@@ -1175,6 +1185,7 @@ export class RealBackendLab {
       deniedPublishCount: deniedTopics.length,
       deniedReadCount: deniedReads.length
     });
+    this.recordMqtt({ direction: "acl-positive", allowedReadCount: allowedReads.length });
   }
 
   async publishEnergyHistory(mode: "partial" | "available") {
@@ -2339,21 +2350,27 @@ function subscribe(client: MqttClient, topics: string[]) {
   }));
 }
 
-async function expectReadsDenied(client: MqttClient, publisher: MqttClient, topics: string[]) {
+async function expectReadBoundary(client: MqttClient, publisher: MqttClient,
+  allowedTopics: string[], deniedTopics: string[]) {
   const subscribed: string[] = [];
   const marker = randomUUID();
-  let delivered = false;
-  const onMessage = (_topic: string, payload: Buffer) => {
-    if (payload.toString() === marker) delivered = true;
+  const delivered = new Set<string>();
+  const onMessage = (topic: string, payload: Buffer) => {
+    if (payload.toString() === marker) delivered.add(topic);
   };
   client.on("message", onMessage);
   try {
-    for (const topic of topics) {
-      if (await subscribeForNegativeRead(client, topic)) subscribed.push(topic);
+    for (const topic of [...allowedTopics, ...deniedTopics]) {
+      const granted = await subscribeForNegativeRead(client, topic);
+      if (allowedTopics.includes(topic) && !granted) throw new Error(`lab gateway ACL denied own read: ${topic}`);
+      if (granted) subscribed.push(topic);
     }
-    for (const topic of topics) await publish(publisher, topic.replace(/#$/, "review-probe"), marker, { qos: 1 });
+    for (const topic of [...allowedTopics, ...deniedTopics]) await publish(publisher, topic, marker, { qos: 1 });
+    const deadline = Date.now() + 2_000;
+    while (allowedTopics.some(topic => !delivered.has(topic)) && Date.now() < deadline) await delay(20);
     await delay(250);
-    if (delivered) throw new Error("lab gateway ACL allowed an unauthorized read");
+    if (allowedTopics.some(topic => !delivered.has(topic))) throw new Error("lab gateway ACL denied an authorized own read");
+    if (deniedTopics.some(topic => delivered.has(topic))) throw new Error("lab gateway ACL allowed a foreign Gateway read");
   } finally {
     client.removeListener("message", onMessage);
     if (subscribed.length > 0) await unsubscribe(client, subscribed);
