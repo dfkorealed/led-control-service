@@ -36,9 +36,9 @@
 - [x] **Step 1: RED 테스트 작성.** HISTORY만 ON·RECOVERY/PUBLISHER OFF에서 서버 시작 허용, DB UTC cutoff 직전/정각 목록·상세 410/포함, 만료 cursor 400, 타 현장 404, host ±60초·session 3종, old `unknown`으로 site 전체가 legacy 목록으로 되돌아가지 않음을 고정한다. 만료된 기존 `clientRequestId`로 POST/Set을 재시도하면 payload-free 409·Set/outbox 0, 최근 멱등 재시도는 기존 응답인 것을 HTTP/service로 고정한다. 컷오프 이전 unheld `pending`/`unknown` 한 건에서 rollout preflight 실패, 0건에서 통과, 검사 오류에서 fail-closed를 검증한다. 기존 안전 overlap 차단 회귀도 추가한다.
 - [x] **Step 2: RED 확인.** `pnpm --filter @led-control/api exec jest src/commands/command-history-rollout.spec.ts src/commands/command-status.service.spec.ts src/commands/command-recovery-rollout.guard.spec.ts --runInBand`와 opt-in disposable PG spec에서 현재 joint gate 실패를 확인한다.
 - [x] **Step 3: 최소 구현.** GET-only flag/clock 경계를 분리하고 `CommandStatusService`의 list/detail에 DB 시각을 사용한다. `CommandsService.findIdempotentCommand`/`toCreateResponse`도 recovery readiness와 독립된 같은 DB cutoff로 만료된 재응답을 차단한다. 인가 먼저, 404 cloak, payload-free 410/409, 기존 cursor 400 및 no-store를 유지한다. read-only preflight는 같은 중앙 DB 시계로 컷오프 이전의 Hold 없는 미확정 명령 수와 식별 가능한 증거만 출력하고 양수/오류에서 실패한다. 배포 경로는 해당 검사 통과 증거가 없으면 HISTORY flag ON을 거부하고 기본 OFF를 유지한다.
-- [ ] **Step 4: GREEN·선택 통합.** 위 focused+PG, 전체 API test/typecheck/build, 소유 파일 diff-check를 통과하고 독립 리뷰 뒤 정확 선택본 commit.
+- [x] **Step 4: GREEN·선택 통합.** 위 focused+PG, 전체 API test/typecheck/build, 소유 파일 diff-check를 통과하고 독립 리뷰 뒤 정확 선택본 commit.
 
-Task 1 검증 메모: 집중·일회용 PG·배포 계약 테스트와 API typecheck/build, 독립 리뷰는 통과했다. 전체 API 스위트의 기존 미커밋 `data-retention.service.spec.ts` 5개 실패는 최종 통합 관문에서 재확인할 때까지 Step 4를 열어둔다.
+Task 1 검증 메모: 집중·일회용 PG·배포 계약 테스트와 API typecheck/build, 독립 리뷰가 통과했다. Task 3까지 포함한 선택 커밋만의 전체 API 235 suites·2,839 tests도 통과해 커밋 코드의 전체 GREEN을 확인했다. 공유 dirty 작업 트리의 별도 `data-retention.service.spec.ts` 5개 실패는 최종 통합 관문에서 따로 해결한다.
 
 ### Task 2: 명령 내용 제거 상태와 API 소비자 차단
 
@@ -49,20 +49,22 @@ Task 1 검증 메모: 집중·일회용 PG·배포 계약 테스트와 API typec
 - [x] **Step 1: RED 테스트 작성.** SQL의 반쪽 비식별 INSERT/UPDATE 거부, 정상 Set 생성 불변, 동일 키 비식별 재POST 409·Set/outbox 0, 삭제된 user의 orphan key 재사용 409·Set 0(동시 2요청 포함), 옛 Get 410·Get 0, late ACK의 원문 재생성 0을 검증한다.
 - [x] **Step 2: RED 확인.** focused Jest와 opt-in disposable PG에서 현재 `contentRedactedAt` 부재·orphan 중복 반례를 확인한다.
 - [x] **Step 3: 최소 구현.** 새 nullable 내용 필드+`contentRedactedAt`/DB CHECK를 순방향 migration에 추가한다. `clientRequestId` UUID와 요청자 내부 ID는 중복 방지에만 유지하고 API에서 숨긴다. User 삭제로 NULL인 legacy 키는 site-scoped 직렬화 guard로 보수적 충돌 처리한다. Set·Get·ACK 소비자는 비식별 상태를 먼저 검사한다. 기존 HMAC purge dual-write를 전제로 하지 않는다.
-- [ ] **Step 4: GREEN·선택 통합.** Prisma validate/generate, focused+PG, 전체 API test/typecheck/build, 메뉴·schema 문서 및 독립 리뷰 후 정확 선택본 commit. 이 단계는 비식별 worker를 켜지 않는다.
+- [x] **Step 4: GREEN·선택 통합.** Prisma validate/generate, focused+PG, 전체 API test/typecheck/build, 메뉴·schema 문서 및 독립 리뷰 후 정확 선택본 commit. 이 단계는 비식별 worker를 켜지 않는다.
 
-Task 2 검증 메모: 선택본 312 passed/1 skipped, 신규 PostgreSQL·HTTP 12 passed, Prisma validate/generate·API typecheck/build와 독립 리뷰는 통과했다. 전체 API의 기존 dirty retention 5개 실패가 남아 Step 4의 전체 GREEN은 최종 관문에서 확인한다.
+Task 2 검증 메모: 선택본 312 passed/1 skipped, 신규 PostgreSQL·HTTP 12 passed, Prisma validate/generate·API typecheck/build와 독립 리뷰가 통과했다. Task 3까지 포함한 선택 커밋의 전체 API도 235 suites·2,839 tests를 통과했다. 공유 dirty 작업 트리의 별도 retention 테스트 5개 실패는 최종 관문에 남아 있다.
 
 ### Task 3: 완료 후보의 raw 사본 정리 helper
 
-**Files:** Create `apps/api/src/retention/command-detail-redaction.ts`와 `.spec.ts`/disposable PG spec; inspect/modify only necessary owned hunks in `apps/api/src/automation/manual-execution-retirement.ts`, `automation-mqtt-consumer.service.ts`, `apps/api/src/monitoring-activity/command-activity-source-backfill.ts`, `docs/database-schema.md`.
+**Files:** Create `apps/api/src/retention/command-detail-redaction.ts`와 `.spec.ts`/disposable PG spec; approved derived-parent tombstone forward migration/`schema.prisma` and exact-replay helper; modify only necessary owned hunks in `apps/api/src/automation/automation-mqtt-consumer.service.ts`, `apps/api/src/mqtt/mqtt.service.ts`, `docs/database-schema.md`, `docs/menus/{control,monitoring}.md`. 기존 `manual-execution-retirement.ts`/활동 source backfill은 감사하되 보호 cutover를 호출하지 않는다.
 
 **Interfaces:** `redactSettledCommandDetails(tx: Prisma.TransactionClient, commandId: string, retainedFromUtc: Date): Promise<"redacted" | "already_redacted">`; 불확실 후보는 `CommandDetailRedactionBlocked(reasonCode)`를 던져 transaction 전체를 rollback한다. 호출자는 같은 transaction에서 원본 행을 잠근다. helper는 새로운 Set/Get을 발행하지 않는다.
 
-- [ ] **Step 1: RED 테스트 작성.** 종료 `outcome`+모든 dispatch terminal/outbox settled/no lease/no Hold/no active override에서 원본 및 결과·wire/outbox·수동 실행·활동 source·완료 재위촉 snapshot raw copy가 남지 않음을 검증한다. 하나라도 미확정·raw 사본 검증 실패면 전부 rollback, 성공 뒤 manual replay·late ACK로 복사본 재생성 0을 검증한다.
-- [ ] **Step 2: RED 확인.** 신규 helper spec과 `COMMAND_DETAIL_REDACTION_TEST=1` disposable PG spec에서 raw 사본 잔존 반례를 확인한다.
-- [ ] **Step 3: 최소 구현.** 기존 부모/FK는 유지하고 안전 종료 사본만 같은 transaction에서 제거·비식별화한다. 기존 full-row purge staging/보호 SQL을 그대로 재사용하지 않는다. 활성 override·미해결 명령은 이유와 함께 skip한다.
-- [ ] **Step 4: GREEN·선택 통합.** focused+PG, 관련 automation/MQTT 회귀, 전체 API test/typecheck/build 및 독립 리뷰 후 정확 선택본 commit.
+- [x] **Step 1: RED 테스트 작성.** 종료 `outcome`+모든 dispatch terminal/outbox settled/no lease/no Hold/no active override에서 원본 및 결과·wire/outbox·수동 실행·활동 source·완료 재위촉 snapshot raw copy가 남지 않음을 검증한다. 하나라도 미확정·raw 사본 검증 실패면 전부 rollback, 성공 뒤 manual replay·late ACK로 복사본 재생성 0을 검증한다.
+- [x] **Step 2: RED 확인.** 신규 helper spec과 `COMMAND_DETAIL_REDACTION_TEST=1` disposable PG spec에서 raw 사본 잔존 반례를 확인한다.
+- [x] **Step 3: 최소 구현.** 기존 부모/FK는 유지하고 안전 종료 사본만 같은 transaction에서 제거·비식별화한다. 기존 full-row purge staging/보호 SQL을 그대로 재사용하지 않는다. 활성 override·미해결 명령은 이유와 함께 skip한다.
+- [x] **Step 4: GREEN·선택 통합.** focused+PG, 관련 automation/MQTT 회귀, 전체 API test/typecheck/build 및 독립 리뷰 후 정확 선택본 commit.
+
+Task 3 검증 메모: 선택 커밋만의 전체 API 235 suites·2,839 tests, 신규 일회용 PG 18/18, 집중 150 passed/1 skipped, typecheck/build와 독립 리뷰가 통과했다. legacy ACK 귀속 불가·증명/키 부재는 안전하게 건너뛰며 운영 rollout은 별도다.
 
 ### Task 4: 기본-OFF bounded 내용 정리 worker
 

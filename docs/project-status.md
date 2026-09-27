@@ -8,7 +8,7 @@
 
 - [x] Task 1: GET 조회의 독립적인 중앙 DB 3개월 경계, 만료된 동일 요청 ID의 내용 없는 409, 오래된 미확정 명령의 잠금 유지, read-only rollout 점검을 구현·독립 리뷰했다 (`1e5cea0a`, `f7dbdf96`). 집중 92/92, 일회용 PostgreSQL 5/5, HTTP/DB 보완 78/78, 배포 계약 18/18, API typecheck/build가 통과했다. 기존 미커밋 `data-retention.service.spec.ts`의 호출 횟수 기대값 5개가 전체 API 스위트에서 실패해 [실행 계획](superpowers/plans/2026-09-27-three-month-detail-retention.md)의 전체 검증 단계는 열려 있다. 운영 Compose의 HISTORY 활성화는 DB 준비 증거 연결 전까지 거부하며 운영 DB는 변경하지 않았다.
 - [x] Task 2: `Command.contentRedactedAt`과 원문/비식별 두 상태의 DB CHECK·순방향 migration, 동일 요청 ID·삭제된 사용자 키의 409, 오래된 상세·기존 상태 확인의 410, 늦은 ACK의 상세 재생성 차단을 구현·독립 리뷰했다 (`ca3c5aab`). 선택본 312 passed/1 skipped, 신규 일회용 PostgreSQL·HTTP 12 passed, Prisma validate/generate·API typecheck/build가 통과했다. 운영 DB에는 migration을 적용하지 않았고 worker도 아직 켜지 않았다. 전체 API의 기존 dirty retention 5개 실패는 최종 관문에 남아 있다.
-- [ ] Task 3: 종료 명령의 파생 raw 사본을 한 거래에서 정리하는 helper를 구현·검증한다.
+- [x] Task 3: 완료 후보의 `Command` 원문·dispatch/result·wire/ACK outbox·종료된 수동 실행/override·활동 source·완료 재위촉 snapshot을 한 거래에서 제거하는 helper와 derived-parent tombstone migration, 증명된 재전송의 DB 저장 없는 짧은 ACK를 구현·독립 리뷰했다 (`6113d1e7`). 선택 커밋만의 전체 API 235 suites·2,839 tests, 신규 일회용 PostgreSQL 18/18, 집중 150 passed/1 skipped, typecheck/build가 통과했다. 공유 dirty 작업 트리의 기존 retention 테스트 5개 실패는 별도이며, 과거 ACK 귀속 불가나 증명/키가 없는 후보는 정리를 보류한다. 운영 DB migration·worker·장비는 건드리지 않았다.
 - [ ] Task 4: 기본 OFF의 bounded 중앙 DB 내용 정리 worker를 구현·검증한다.
 - [ ] Task 5: 제어·모니터링의 열린 화면 만료와 캐시 실패 시 내용·동작 숨김을 구현·검증한다.
 - [ ] 전체 API/Web·일회용 DB·브라우저 통합과 독립 최종 리뷰, 운영 적용 전 백업·dry-run·예외 감사가 남아 있다. 이 작업은 현재 운영 중앙 DB migration·flag ON, 실제 장비/HIL을 포함하지 않는다.
