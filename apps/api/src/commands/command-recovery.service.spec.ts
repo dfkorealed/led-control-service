@@ -7,6 +7,7 @@ import { disposablePostgres } from "../../test/support/disposable-postgres";
 import { CommandSafetyDigest } from "./command-safety-digest";
 import { CommandRecoveryService } from "./command-recovery.service";
 import { CommandStatusService } from "./command-status.service";
+import { threeCalendarMonthsBefore } from "../retention/calendar-month-window";
 
 const user: AuthenticatedUser = { id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", organizationId: "org-1",
   organizationType: "customer", loginId: "operator", name: "Operator", role: "admin", mustChangePassword: false, status: "active" };
@@ -23,7 +24,7 @@ function fixture() {
     _count: { targets: 2 }, recoveryDispatches: [] };
   const prisma = { unresolvedCommandHold: { findMany: jest.fn().mockResolvedValue([row]), findUnique: jest.fn().mockResolvedValue({
     ...row, targets: [{ fixtureId: "fixture-1" }, { fixtureId: "fixture-2" }]
-  }) }, resolvedCommandRecovery: { findUnique: jest.fn().mockResolvedValue(null) } };
+  }) }, $queryRaw: jest.fn().mockResolvedValue([]) };
   const access = { assert: jest.fn().mockResolvedValue({ id: siteId }) };
   const service = new (CommandRecoveryService as any)(prisma, access,
     new CommandSafetyDigest({ activeVersion: 1, keys: { 1: key } }));
@@ -85,30 +86,29 @@ describe("CommandRecoveryService read-only case contract", () => {
   it("returns only a bounded terminal classification after hold/dispatch deletion", async () => {
     const { service, prisma, access } = fixture();
     prisma.unresolvedCommandHold.findUnique.mockResolvedValue(null);
-    prisma.resolvedCommandRecovery.findUnique.mockResolvedValue({ id: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
+    prisma.$queryRaw.mockResolvedValue([{ id: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
       siteId, classification: "verified_partial", targetCount: 2,
-      resolvedAt: new Date("2026-06-25T12:00:00.000Z") });
-    const result = await service.getCase(user, "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee", now);
+      resolvedAt: new Date("2026-06-25T12:00:00.000Z") }]);
+    const result = await service.getCase(user, "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee");
     expect(result).toEqual({ caseId: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee", siteId,
       status: "verified_partial", targetCount: 2, resolvedAt: "2026-06-25T12:00:00.000Z" });
     expect(JSON.stringify(result)).not.toMatch(/originalCommandId|fixtureId|brightness|gateway|payload/i);
     expect(access.assert).toHaveBeenCalledWith(user, siteId, "read");
   });
 
-  it("keeps the exact UTC three-month terminal boundary but hides earlier and foreign summaries", async () => {
+  it("hides absent and foreign terminal summaries without exposing their site", async () => {
     const { service, prisma, access } = fixture();
     prisma.unresolvedCommandHold.findUnique.mockResolvedValue(null);
     const terminal = { id: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee", siteId,
       classification: "verified_not_applied", targetCount: 2,
       resolvedAt: new Date("2026-06-25T12:00:00.000Z") };
-    prisma.resolvedCommandRecovery.findUnique.mockResolvedValue(terminal);
-    await expect(service.getCase(user, terminal.id, now)).resolves.toMatchObject({ status: "verified_not_applied" });
-    prisma.resolvedCommandRecovery.findUnique.mockResolvedValue({ ...terminal,
-      resolvedAt: new Date("2026-06-25T11:59:59.999Z") });
-    await expect(service.getCase(user, terminal.id, now)).rejects.toMatchObject({ status: 404 });
-    prisma.resolvedCommandRecovery.findUnique.mockResolvedValue(terminal);
+    prisma.$queryRaw.mockResolvedValue([terminal]);
+    await expect(service.getCase(user, terminal.id)).resolves.toMatchObject({ status: "verified_not_applied" });
+    prisma.$queryRaw.mockResolvedValue([]);
+    await expect(service.getCase(user, terminal.id)).rejects.toMatchObject({ status: 404 });
+    prisma.$queryRaw.mockResolvedValue([terminal]);
     access.assert.mockRejectedValue(new NotFoundException());
-    await expect(service.getCase(otherUser, terminal.id, now)).rejects.toMatchObject({ status: 404 });
+    await expect(service.getCase(otherUser, terminal.id)).rejects.toMatchObject({ status: 404 });
   });
 });
 
@@ -130,7 +130,7 @@ describe("CommandRecoveryService read-only case contract", () => {
       const url = cluster.database();
       const deployed = cluster.deploy(url);
       expect(deployed.status).toBe(0);
-      db = new PrismaClient({ datasourceUrl: url });
+      db = new PrismaClient({ datasourceUrl: `${url}?connection_limit=1` });
     }, 90_000);
     afterAll(async () => { await db?.$disconnect(); cluster?.stop(); });
     beforeEach(async () => {
@@ -195,9 +195,9 @@ describe("CommandRecoveryService read-only case contract", () => {
 
     it("returns authorized target IDs while hiding foreign case and original details", async () => {
       const { recovery, history } = services();
-      const detail = await recovery.getCase(owner, newest.id, at);
+      const detail = await recovery.getCase(owner, newest.id);
       expect(detail).toMatchObject({ targetFixtureIds: [newest.fixtureId] });
-      await expect(recovery.getCase(owner, foreign.id, at)).rejects.toBeInstanceOf(NotFoundException);
+      await expect(recovery.getCase(owner, foreign.id)).rejects.toBeInstanceOf(NotFoundException);
       await expect(history.getCommand(owner, newest.originalCommandId, at))
         .rejects.toMatchObject({ status: 410, response: { code: "command_expired" } });
       await expect(history.getCommand(owner, foreign.originalCommandId, at))
@@ -212,8 +212,69 @@ describe("CommandRecoveryService read-only case contract", () => {
       await expect(recovery.listCases(owner, { siteId: site, limit: "100" }, at))
         .resolves.toMatchObject({ items: expect.arrayContaining([expect.objectContaining({ caseId: newest.id })]),
           nextCursor: null });
-      await expect(recovery.getCase(owner, newest.id, at)).resolves.toMatchObject({ caseId: newest.id });
+      await expect(recovery.getCase(owner, newest.id)).resolves.toMatchObject({ caseId: newest.id });
       await expect(recovery.listCases(owner, { siteId: site, limit: "1" }, at))
         .rejects.toMatchObject({ status: 503, response: { code: "verification_case_cursor_unavailable" } });
     });
+
+    it("keeps a DB-fresh terminal summary visible when the API clock is one minute fast", async () => {
+      const [{ dbNow }] = await db.$queryRaw<Array<{ dbNow: Date }>>`
+        SELECT transaction_timestamp() AS "dbNow"`;
+      const terminal = await db.resolvedCommandRecovery.create({ data: {
+        id: randomUUID(), siteId: site, classification: "verified_applied", targetCount: 1,
+        resolvedAt: new Date(threeCalendarMonthsBefore(dbNow).getTime() + 30_000)
+      } });
+      const { recovery } = services();
+      jest.useFakeTimers({ doNotFake: ["hrtime", "nextTick", "performance", "queueMicrotask",
+        "setTimeout", "clearTimeout", "setInterval", "clearInterval", "setImmediate", "clearImmediate"] });
+      jest.setSystemTime(new Date(dbNow.getTime() + 60_000));
+      try {
+        await expect(recovery.getCase(owner, terminal.id))
+          .resolves.toMatchObject({ caseId: terminal.id, status: "verified_applied" });
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
+    it("keeps an unresolved hold visible before any same-ID terminal summary", async () => {
+      await db.resolvedCommandRecovery.create({ data: {
+        id: newest.id, siteId: site, classification: "verified_applied", targetCount: 1,
+        resolvedAt: new Date("2020-01-01T00:00:00.000Z")
+      } });
+      const { recovery } = services();
+      await expect(recovery.getCase(owner, newest.id)).resolves.toMatchObject({
+        caseId: newest.id, status: "verification_required", targetFixtureIds: [newest.fixtureId]
+      });
+    });
+
+    it.each(["UTC", "Asia/Seoul", "America/New_York"])(
+      "reads only DB-retained terminal summaries and hides a foreign site in %s", async zone => {
+        await db.$executeRawUnsafe(`SET TIME ZONE '${zone}'`);
+        try {
+          const [{ dbNow }] = await db.$queryRaw<Array<{ dbNow: Date }>>`
+            SELECT transaction_timestamp() AS "dbNow"`;
+          const cutoff = threeCalendarMonthsBefore(dbNow);
+          const expired = await db.resolvedCommandRecovery.create({ data: {
+            id: randomUUID(), siteId: site, classification: "verified_partial", targetCount: 1,
+            resolvedAt: new Date(cutoff.getTime() - 30_000)
+          } });
+          const fresh = await db.resolvedCommandRecovery.create({ data: {
+            id: randomUUID(), siteId: site, classification: "verified_not_applied", targetCount: 1,
+            resolvedAt: new Date(cutoff.getTime() + 30_000)
+          } });
+          const foreignSummary = await db.resolvedCommandRecovery.create({ data: {
+            id: randomUUID(), siteId: foreignSite, classification: "verified_applied", targetCount: 1,
+            resolvedAt: new Date(cutoff.getTime() + 30_000)
+          } });
+          const { recovery } = services();
+          await expect(recovery.getCase(owner, expired.id)).rejects.toMatchObject({ status: 404 });
+          await expect(recovery.getCase(owner, fresh.id)).resolves.toMatchObject({
+            caseId: fresh.id, status: "verified_not_applied"
+          });
+          await expect(recovery.getCase(owner, foreignSummary.id)).rejects.toMatchObject({ status: 404 });
+        } finally {
+          await db.$executeRawUnsafe("SET TIME ZONE 'UTC'");
+        }
+      }
+    );
   });

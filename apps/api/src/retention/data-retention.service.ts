@@ -7,7 +7,7 @@ import { backfillLegacyCommandActivitySources } from "../monitoring-activity/com
 const DAY_MS = 86_400_000;
 const SWEEP_DELETE_BUDGET = 21_000;
 type DeletedCounts = { gatewayEvents: number; sessions: number; floorMapRevisions: number;
-  monitoringRefreshes: number; monitoringActivities: number };
+  monitoringRefreshes: number; monitoringActivities: number; resolvedCommandRecoveries: number };
 
 @Injectable()
 export class DataRetentionService implements OnModuleInit, OnModuleDestroy {
@@ -18,6 +18,7 @@ export class DataRetentionService implements OnModuleInit, OnModuleDestroy {
   constructor(private readonly prisma: PrismaService) {}
 
   onModuleInit() {
+    this.assertResolvedSummarySweepAvailable();
     if (this.timer || process.env.NODE_ENV === "test") return;
     this.timer = setInterval(() => {
       if (!this.running) void this.prune().catch(() => { /* The sweep already logged its failed stage. */ });
@@ -39,11 +40,13 @@ export class DataRetentionService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async sweep(now: Date): Promise<DeletedCounts> {
+    this.assertResolvedSummarySweepAvailable();
     const started = Date.now();
     const deleted: DeletedCounts = { gatewayEvents: 0, sessions: 0, floorMapRevisions: 0,
-      monitoringRefreshes: 0, monitoringActivities: 0 };
+      monitoringRefreshes: 0, monitoringActivities: 0, resolvedCommandRecoveries: 0 };
     let stage: keyof DeletedCounts | "commandActivitySourceBackfill" = "gatewayEvents";
     let rekeyedCommandActivitySources = 0;
+    let resolvedSummaryBacklog: boolean | null = null;
     // Prisma binds JS Date as timestamptz; these schema columns store naive UTC.
     // An implicit comparison would shift the cutoff by the DB session timezone.
     const cutoff = (days: number) => Prisma.sql`(${new Date(now.getTime() - days * DAY_MS)}::timestamptz AT TIME ZONE 'UTC')`;
@@ -180,6 +183,31 @@ export class DataRetentionService implements OnModuleInit, OnModuleDestroy {
         )
         DELETE FROM "MonitoringActivity" activity USING candidates WHERE activity."id" = candidates."id"
       `);
+      if (process.env.RESOLVED_COMMAND_RECOVERY_RETENTION_ENABLED === "1") {
+        stage = "resolvedCommandRecoveries";
+        // This customer-visible summary is independent of raw Command purge.
+        // The DB clock and UTC month subtraction occur in this one statement;
+        // the API host clock must not move the physical cutoff forward.
+        deleted.resolvedCommandRecoveries = await this.prisma.$executeRaw(Prisma.sql`
+          WITH candidates AS (
+            SELECT "id" FROM "ResolvedCommandRecovery"
+            WHERE "resolvedAt" < ((transaction_timestamp() AT TIME ZONE 'UTC') - INTERVAL '3 months')
+            ORDER BY "resolvedAt", "id" LIMIT 1000 FOR UPDATE SKIP LOCKED
+          )
+          DELETE FROM "ResolvedCommandRecovery" summary USING candidates WHERE summary."id" = candidates."id"
+        `);
+        // A saturated page is not the only backlog signal: SKIP LOCKED can
+        // leave older rows even when fewer than 1,000 were deleted. This
+        // indexed EXISTS reports remaining work without counting the table.
+        const [backlog] = await this.prisma.$queryRaw<Array<{ remaining: boolean }>>(Prisma.sql`
+          SELECT EXISTS (
+            SELECT 1 FROM "ResolvedCommandRecovery"
+            WHERE "resolvedAt" < ((transaction_timestamp() AT TIME ZONE 'UTC') - INTERVAL '3 months')
+          ) AS "remaining"
+        `);
+        if (!backlog || typeof backlog.remaining !== "boolean") throw new Error("resolved summary backlog unavailable");
+        resolvedSummaryBacklog = backlog.remaining;
+      }
       if (process.env.MONITORING_ACTIVITY_KEYED_COMMAND_SOURCE_ENABLED === "1") {
         stage = "commandActivitySourceBackfill";
         // Separate from the deletion budget: this preserves each original
@@ -188,13 +216,21 @@ export class DataRetentionService implements OnModuleInit, OnModuleDestroy {
         rekeyedCommandActivitySources = backfill.rekeyed;
       }
       this.logger.log({ event: "data_retention_sweep", status: "completed", asOf: now.toISOString(),
-        durationMs: Date.now() - started, deleted, rekeyedCommandActivitySources });
+        durationMs: Date.now() - started, deleted, rekeyedCommandActivitySources, resolvedSummaryBacklog });
       return deleted;
     } catch (error) {
       // Keep raw SQL, row values and connection details out of operational logs.
       this.logger.warn({ event: "data_retention_sweep", status: "failed", asOf: now.toISOString(),
-        durationMs: Date.now() - started, failedStage: stage, deleted, rekeyedCommandActivitySources });
+        durationMs: Date.now() - started, failedStage: stage, deleted, rekeyedCommandActivitySources,
+        resolvedSummaryBacklog });
       throw error;
+    }
+  }
+
+  private assertResolvedSummarySweepAvailable() {
+    if (process.env.RESOLVED_COMMAND_RECOVERY_RETENTION_ENABLED === "1"
+      && (process.env.NODE_ENV !== "test" || process.env.DATA_RETENTION_TEST !== "1")) {
+      throw new Error("resolved recovery summary retention is not certified for production");
     }
   }
 }

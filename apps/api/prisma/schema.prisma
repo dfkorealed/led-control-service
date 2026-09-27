@@ -1716,7 +1716,8 @@ model ResolvedCommandRecovery {
   siteId         String
   classification String
   targetCount    Int
-  resolvedAt     DateTime @default(now())
+  // Store a UTC-naive DB-host timestamp even if the session TimeZone differs.
+  resolvedAt     DateTime @default(dbgenerated("(transaction_timestamp() AT TIME ZONE 'UTC')"))
   site           Site     @relation(fields: [siteId], references: [id], onDelete: Cascade)
 
   @@index([resolvedAt, id])

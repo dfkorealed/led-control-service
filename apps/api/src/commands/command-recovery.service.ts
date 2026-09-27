@@ -5,7 +5,6 @@ import { SiteAccessService } from "../access/site-access.service";
 import { AuthenticatedUser } from "../auth/auth.types";
 import { PrismaService } from "../prisma/prisma.service";
 import { CommandSafetyDigest, CommandSafetyKeyUnavailableError, VersionedCommandDigest } from "./command-safety-digest";
-import { threeCalendarMonthsBefore } from "../retention/calendar-month-window";
 
 const querySchema = z.object({ siteId: z.string().uuid(), originalCommandId: z.string().uuid().optional(),
   cursor: z.string().min(1).max(1024).optional(),
@@ -23,6 +22,8 @@ const listSelect = { id: true, siteId: true, originalCommandId: true, reasonCode
   recoveryDispatches: { where: { status: { in: ["pending", "published", "accepted"] } }, select: { id: true }, take: 1 }
 } satisfies Prisma.UnresolvedCommandHoldSelect;
 type CaseRow = Prisma.UnresolvedCommandHoldGetPayload<{ select: typeof listSelect }>;
+type TerminalCaseRow = Pick<Prisma.ResolvedCommandRecoveryGetPayload<object>,
+  "id" | "siteId" | "classification" | "targetCount" | "resolvedAt">;
 
 @Injectable()
 export class CommandRecoveryService {
@@ -50,10 +51,19 @@ export class CommandRecoveryService {
       generatedAt: now.toISOString() };
   }
 
-  async getCase(user: AuthenticatedUser, caseId: string, now = new Date()) {
+  async getCase(user: AuthenticatedUser, caseId: string) {
     const row = await this.prisma.unresolvedCommandHold.findUnique({ where: { id: caseId },
       select: { ...listSelect, targets: { select: { fixtureId: true }, orderBy: { fixtureId: "asc" } } } });
-    const terminal = row ? null : await this.prisma.resolvedCommandRecovery.findUnique({ where: { id: caseId } });
+    // A terminal summary's visibility is decided by the DB clock in this one
+    // statement. An API host clock (or a session-local timestamp cast) must
+    // never hide a fresh case or authorize its physical deletion early.
+    const terminal = row ? null : (await this.prisma.$queryRaw<TerminalCaseRow[]>(Prisma.sql`
+      SELECT "id", "siteId", "classification", "targetCount", "resolvedAt"
+      FROM "ResolvedCommandRecovery"
+      WHERE "id" = ${caseId}
+        AND "resolvedAt" >= ((transaction_timestamp() AT TIME ZONE 'UTC') - INTERVAL '3 months')
+      LIMIT 1
+    `))[0] ?? null;
     if (!row && !terminal) throw caseNotFound();
     try {
       await this.siteAccess.assert(user, (row ?? terminal)!.siteId, "read");
@@ -62,7 +72,7 @@ export class CommandRecoveryService {
       throw error;
     }
     if (row) return { ...publicCase(row), targetFixtureIds: row.targets.map(({ fixtureId }) => fixtureId) };
-    if (!terminal || terminal.resolvedAt < threeCalendarMonthsBefore(now)) throw caseNotFound();
+    if (!terminal) throw caseNotFound();
     if (!["verified_applied", "verified_not_applied", "verified_partial"].includes(terminal.classification)) {
       throw new Error("invalid recovery classification");
     }

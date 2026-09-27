@@ -45,7 +45,7 @@ describe("operational retention lifecycle", () => {
     release();
     await jest.advanceTimersByTimeAsync(0);
     expect(log).toHaveBeenCalledWith(expect.objectContaining({
-      event: "data_retention_sweep", status: "completed", deleted: { gatewayEvents: 2, sessions: 0, floorMapRevisions: 0, monitoringRefreshes: 0, monitoringActivities: 0 }
+      event: "data_retention_sweep", status: "completed", deleted: { gatewayEvents: 2, sessions: 0, floorMapRevisions: 0, monitoringRefreshes: 0, monitoringActivities: 0, resolvedCommandRecoveries: 0 }
     }));
     await jest.advanceTimersByTimeAsync(60_000);
     expect(db.$executeRaw).toHaveBeenCalledTimes(10);
@@ -65,7 +65,7 @@ describe("operational retention lifecycle", () => {
     await jest.advanceTimersByTimeAsync(60_000);
     expect(warn).toHaveBeenCalledWith(expect.objectContaining({
       event: "data_retention_sweep", status: "failed", failedStage: "sessions",
-      deleted: { gatewayEvents: 3, sessions: 0, floorMapRevisions: 0, monitoringRefreshes: 0, monitoringActivities: 0 }
+      deleted: { gatewayEvents: 3, sessions: 0, floorMapRevisions: 0, monitoringRefreshes: 0, monitoringActivities: 0, resolvedCommandRecoveries: 0 }
     }));
     expect(JSON.stringify(warn.mock.calls)).not.toContain("sensitive database error");
     await jest.advanceTimersByTimeAsync(60_000);
@@ -87,5 +87,29 @@ describe("operational retention lifecycle", () => {
     await sweep;
     await destruction;
     expect(destroyed).toBe(true);
+  });
+
+  it("rejects production activation before startup or a manual sweep can delete anything", async () => {
+    const previousNodeEnv = process.env.NODE_ENV;
+    const previousFlag = process.env.RESOLVED_COMMAND_RECOVERY_RETENTION_ENABLED;
+    const previousOptIn = process.env.DATA_RETENTION_TEST;
+    const execute = jest.fn().mockResolvedValue(0);
+    const service = new DataRetentionService({ $executeRaw: execute } as never);
+    process.env.NODE_ENV = "production";
+    process.env.DATA_RETENTION_TEST = "1";
+    process.env.RESOLVED_COMMAND_RECOVERY_RETENTION_ENABLED = "1";
+    try {
+      expect(() => service.onModuleInit()).toThrow("resolved recovery summary retention is not certified");
+      await expect(service.prune()).rejects.toThrow("resolved recovery summary retention is not certified");
+      expect(execute).not.toHaveBeenCalled();
+    } finally {
+      await service.onModuleDestroy();
+      if (previousNodeEnv === undefined) delete process.env.NODE_ENV;
+      else process.env.NODE_ENV = previousNodeEnv;
+      if (previousOptIn === undefined) delete process.env.DATA_RETENTION_TEST;
+      else process.env.DATA_RETENTION_TEST = previousOptIn;
+      if (previousFlag === undefined) delete process.env.RESOLVED_COMMAND_RECOVERY_RETENTION_ENABLED;
+      else process.env.RESOLVED_COMMAND_RECOVERY_RETENTION_ENABLED = previousFlag;
+    }
   });
 });

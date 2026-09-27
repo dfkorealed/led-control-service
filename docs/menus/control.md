@@ -325,6 +325,7 @@
 
 - Set epoch 발행 경계는 활성 세대·등록 worker·동일 DB primary의 시각 증거를 claim/prepare/attempt/publish마다 재확인하고, MQTT 전 `CommandPublishAttempt`에 절대 만료를 기록한다. Quiesce의 member ACK는 로컬 중지만 뜻하며 응답 없는 member를 시간 경과로 안전 처리하지 않는다. 원본 Command의 UTC rolling 3개월 cutoff와 Set 전용 permit을 적용하며, legacy status-check Get은 quiesce와 분리한다.
 - 운영 DB-host attestor와 세대별 durable primary/step 연속성 제공자는 아직 없다. 새 API 프로세스는 이 증거 없이 ON Set을 발행할 수 없으며, 재시작을 가로지르는 시각 연속성은 아직 증명되지 않았다. Broker 구세대 admission 반롤백·Gateway/RF drain 및 parent-free recovery publisher의 전체 통합은 후속 게이트다. 운영 cutover, purge, recovery POST는 계속 OFF다.
+- 확인 필요 case의 미해결 Hold는 기간이 지나도 먼저 조회하고 유지한다. 해결된 최소 요약만 중앙 DB 시각의 최근 UTC 3 calendar months를 상세 GET에서 보여 주며, 정확한 경계 행은 남긴다. 요약의 물리 sweep은 독립된 `RESOLVED_COMMAND_RECOVERY_RETENTION_ENABLED` 기본 OFF·운영 ON 거부 상태로, 일회용 PG에서만 회당 최대 1,000행·남은 backlog 로그를 검증했다. 목록 `generatedAt`은 표시용 API 시각이며 보존 cutoff가 아니다. DB-host 시계/failover 운영 증거와 migration 적용은 아직 없어 실제 삭제가 활성화된 것은 아니다. 일반 Command 원본 purge·HISTORY/RECOVERY_ACTIONS·복구 POST는 계속 OFF다.
 
 - Set 전용 세대 mTLS egress는 준비 구현이며 `COMMAND_SET_EGRESS_ENABLED=0` 기본값에서 기존 Set/Get 발행을 유지한다. 전환 모드는 active DB member, wire `publishEpoch`, 일치하는 세대 인증서와 broker ACL이 없으면 Set을 거부하며 구 `api-service`로 우회하지 않는다. 원본 만료 전 Get과 recovery Get은 공유 연결을 계속 사용한다. 세대별 durable DB 시각 연속성, 전체 broker 반롤백·Gateway RF drain 증거는 후속 검증 사항이며 운영 cutover·purge·recovery POST는 OFF다. 관련 파일: `apps/api/src/mqtt/command-set-mqtt.service.ts`, `apps/api/src/mqtt/outbox-publisher.service.ts`, `scripts/dev-runtime.mjs`, `docs/runbooks/production-api-web-deployment.md`.
 
