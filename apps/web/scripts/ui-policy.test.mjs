@@ -380,7 +380,8 @@ test("landing token proposal preserves exact values", async () => {
     "--color-status-inquiry-danger-foreground": "#b42318",
     "--color-status-inquiry-danger-border": "#fecdca",
     "--color-status-inquiry-danger-background": "#fff5f4",
-    "--leading-landing-concept-document": "normal"
+    "--leading-landing-concept-document": "normal",
+    "--font-landing": "Inter, \"Pretendard\", \"Noto Sans KR\", -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif"
   };
   const theme = (await readFile(new URL("../src/styles/theme.css", import.meta.url), "utf8"))
     .replace(/\/\*[\s\S]*?\*\//g, "");

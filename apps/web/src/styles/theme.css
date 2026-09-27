@@ -540,4 +540,6 @@
   --color-status-inquiry-danger-background: #fff5f4;
   /* The standalone concept inherits browser normal, while React uses 1.5. */
   --leading-landing-concept-document: normal;
+  /* Both public roots keep this exact fallback order across installed font sets. */
+  --font-landing: Inter, "Pretendard", "Noto Sans KR", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }

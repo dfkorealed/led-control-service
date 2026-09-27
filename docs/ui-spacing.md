@@ -752,6 +752,7 @@ px 수치의 출현 단위다. shorthand/clamp 내 두 수치는 두 번 센다.
 | `--color-status-inquiry-danger-foreground` | `#b42318` | `semantic color utility` | 1 | 정적 상담 필수표시/오류본문/invalid border |
 | `--color-status-inquiry-danger-border` | `#fecdca` | `semantic color utility` | 1 | 정적 상담 error feedback border |
 | `--color-status-inquiry-danger-background` | `#fff5f4` | `semantic color utility` | 1 | 정적 상담 error feedback background |
+| `--font-landing` | `Inter, "Pretendard", "Noto Sans KR", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif` | `font-landing` | 2 | R:24 .field-day [font-family]; C:25 body [font-family] |
 
 
 ## Pre-RED fix round 1 — 역할 경계 계약
@@ -801,3 +802,14 @@ Minor3. inquiry-modal 표에 React `PublicSiteLayout.tsx:19`의18px override를 
 현재 UI policy는 `leading-normal`을 unapproved-typography, `leading-[normal]`을 arbitrary-typography로 거부한다. 따라서 뒤의 시안 전환은 document root에 승인된 `leading-landing-concept-document`를 사용해 명시 행간이 없는 자손에게 original normal을 상속시킨다. 개별 역할의 explicit line-height는 그대로 우선하며 React root를 변경하지 않는다. normal을1.5 같은 숫자로 근사하거나 @utility·arbitrary property 우회를 추가하지 않는다.
 
 이번 보완의 focused exact-value test는 신규 역할 누락0회에서 RED를 확인한 뒤, flat theme에1회 추가해370개 값/선언1회 GREEN을 확인한다. 시안 전환 후 실제 root utility 적용과 각 element의 inherited/explicit line-height 보존은 후속 compile/PNG gate에서 검증한다.
+
+
+### Supplemental 승인: 공개 root 폰트 family
+
+기존370 역할은 그대로 두고 React `.field-day`와 static `body`가 공동 소유하는 `--font-landing` 한 선언을 추가 승인했다. 정확 값은 `Inter, "Pretendard", "Noto Sans KR", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`이다. 370map의 historical digest `2b145a3c5a5229f66d5f74b96978122f1e30991a9e8436b4b7f55c0bd98896a4` 및 token commit `e1fb48c6cc9e1cd3b5481afef1fb86c8abceb5be`는 이전 검증 근거로 보존한다. 현재371map digest는 `d2c48e7fb7e9c8b256dda08b955484f97723004f6c8f2b4f3cd3859d3aa9c16b`다.
+
+R:24/C:25의 원래 source stack은 순서와 따옴표까지 동일하다. Chromium149.0.7827.55에서 `.field-day`와 concept body/hero의 computed family도 `Inter, Pretendard, "Noto Sans KR", -apple-system, "system-ui", "Segoe UI", sans-serif`로 같다. Chromium이 BlinkMacSystemFont를 system-ui로 직렬화한 결과를 source 값에 역으로 덮어쓰지 않는다. Canonical base html의 `Inter, ui-sans-serif, system-ui, ...` 목록은 Pretendard/Noto Sans KR 우선순위와 다르며 기존 theme에는 font 역할이 없었다. 폰트가 설치된 환경마다 fallback 선택이 달라지므로 원래 순서를 그대로 보존하는 root core 역할이 필요하다. 실제 `font-landing` root 적용은 후속 Task3/7 소유다.
+
+다른 root 기본값은 설치된 Tailwind4.3.3의 좁은 utility 생성 및 scanner probe로 확인했다. `min-w-[320px]`, `bg-brand-paper`, `text-brand-navy`, `break-keep`, `m-0`, `box-border`가 각각 min-width320px/기존 paper·navy 색/keep-all/zero margin/border-box를 내고 guard 위반0이었다. 이 geometry utility는 arbitrary family 우회와 다르며 family는 승인된 `font-landing`만 쓴다. `antialiased`는 원래 `-webkit-font-smoothing: antialiased`를 내지만 추가로 `-moz-osx-font-smoothing: grayscale`을 낸다. Chromium은 후자를 노출하지 않아 이번 baseline에서는 영향이 없었고, 다른 브라우저까지 같은 CSS라고 주장하지 않는다. 후속 root 적용 검토에서 이 표준 utility의 추가 vendor 속성을 인지해야 한다. 별도 smoothing token/@utility/property escape는 추가하지 않았다.
+
+Focused371 exact-value test는 font 역할 누락 RED 후 flat theme 한 선언으로 GREEN을 검증한다. 전체 suite를 반복하거나 root 소비 컴포넌트를 바꾸는 작업은 이번 보완에 포함하지 않는다.
