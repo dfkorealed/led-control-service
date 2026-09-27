@@ -70,21 +70,8 @@ const reviewedRuntimeExceptions = new Map([
 ]);
 
 const spacing = new Set(["0", "0.5", "1", "1.5", "2", "2.5", "3", "3.5", "4", "4.5", "5", "6", "7", "8", "10", "12", "16"]);
-const landingMotionCss = "src/features/landing/landing.css";
-const approvedCss = new Set(["src/styles.css", "src/styles/theme.css", "src/styles/base.css", "src/styles/exceptions.css", landingMotionCss]);
-const entryImports = new Set(["tailwindcss", "./styles/theme.css", "./styles/base.css", "./styles/exceptions.css", "./features/landing/landing.css"]);
-// The public landing owns these motion selectors only. An exact list prevents
-// comma branches or sibling combinators from leaking styles into authenticated UI.
-const reviewedLandingMotionSelectors = new Set([
-  ".landing-page[data-landing-hero-ready] :is( .landing-hero-heading, .landing-hero-description, .landing-hero-actions, .landing-hero-preview )",
-  ".landing-page .landing-hero-description",
-  ".landing-page .landing-hero-actions",
-  ".landing-page .landing-hero-preview",
-  ".landing-page[data-landing-motion] [data-landing-revealed]",
-  ".landing-page[data-landing-motion] [data-preview-panel]",
-  ".landing-page[data-landing-motion] :is([data-landing-reveal], [data-preview-panel]):focus-within, .landing-page[data-landing-motion] [data-landing-reveal]:target",
-  ".landing-page, .landing-page *, .landing-page *::before, .landing-page *::after"
-]);
+const approvedCss = new Set(["src/styles.css", "src/styles/theme.css", "src/styles/base.css", "src/styles/exceptions.css"]);
+const entryImports = new Set(["tailwindcss", "./styles/theme.css", "./styles/base.css", "./styles/exceptions.css"]);
 // CAD browser harnesses and codec golden data are test-only, with exact suffixes.
 // The same classification below forbids production imports of these files.
 const testPath = /(?:^|\/)(?:test|tests|__tests__|e2e)(?:\/|$)|\.(?:test|spec)\.[^.]+$|(?:\.smoke\.ts|-smoke\.tsx|\.golden\.ts)$/;
@@ -589,8 +576,7 @@ export function inspectUiSource(path, source) {
       }
       if (selector.startsWith("@")) continue;
       const baseAllowed = path === "src/styles/base.css" && ["html", "body", "button, input, select, textarea", ":focus-visible"].includes(selector);
-      const landingMotionAllowed = path === landingMotionCss && reviewedLandingMotionSelectors.has(selector);
-      if (!baseAllowed && !landingMotionAllowed) add("css-selector", selector, m.index);
+      if (!baseAllowed) add("css-selector", selector, m.index);
       if (/(?:^|[\s,>+~])(?:input|select|textarea|button)(?=[\s.#[:>+~,]|$)/.test(selector) && !baseAllowed) add("raw-form-style", selector, m.index);
     }
   }

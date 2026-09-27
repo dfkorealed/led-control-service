@@ -250,23 +250,24 @@ test("rejects unknown theme names, semantic typos and arbitrary responsive break
 });
 
 test("allows exact entry imports and main entry only", () => {
-  assert.deepEqual(inspectUiSource("src/styles.css", '@import "tailwindcss"; @import "./styles/theme.css"; @import "./styles/base.css"; @import "./styles/exceptions.css"; @import "./features/landing/landing.css";'), []);
+  assert.deepEqual(inspectUiSource("src/styles.css", '@import "tailwindcss"; @import "./styles/theme.css"; @import "./styles/base.css"; @import "./styles/exceptions.css";'), []);
   assert.deepEqual(inspectUiSource("src/main.tsx", 'import "./styles.css";'), []);
   assert.ok(inspectUiSource("src/page.tsx", 'import "./page.css";').some(v => v.rule === "css-import"));
   assert.ok(inspectUiSource("src/page.tsx", 'import("./page.css");').some(v => v.rule === "css-import"));
 });
 
-test("allows the landing motion stylesheet only through the canonical CSS entry", () => {
-  assert.deepEqual(inspectUiSource("src/styles.css", '@import "./features/landing/landing.css";'), []);
+test("rejects imports of the retired landing motion stylesheet", () => {
+  assert.ok(inspectUiSource("src/styles.css", '@import "./features/landing/landing.css";').some(v => v.rule === "css-import"));
   assert.ok(inspectUiSource("src/page.tsx", 'import "./features/landing/landing.css";').some(v => v.rule === "css-import"));
   assert.ok(inspectUiSource("src/styles.css", '@import "./features/landing/other.css";').some(v => v.rule === "css-import"));
 });
 
-test("allows reviewed landing motion selectors without opening other CSS files", () => {
+test("rejects retired landing motion selectors and stylesheets", () => {
   const source = '.landing-page[data-landing-motion] [data-landing-revealed] { animation: landing-enter 520ms both; }';
-  assert.deepEqual(inspectUiSource("src/features/landing/landing.css", source), []);
+  assert.ok(inspectUiSource("src/features/landing/landing.css", source).some(v => v.rule === "css-file"));
+  assert.ok(inspectUiSource("src/features/landing/landing.css", source).some(v => v.rule === "css-selector"));
   const hero = '.landing-page[data-landing-hero-ready] :is( .landing-hero-heading, .landing-hero-description, .landing-hero-actions, .landing-hero-preview ) { animation: landing-enter 560ms both; }';
-  assert.deepEqual(inspectUiSource("src/features/landing/landing.css", hero), []);
+  assert.ok(inspectUiSource("src/features/landing/landing.css", hero).some(v => v.rule === "css-selector"));
   const removedKicker = '.landing-page[data-landing-hero-ready] :is( .landing-hero-kicker, .landing-hero-heading, .landing-hero-description, .landing-hero-actions, .landing-hero-preview ) { animation: landing-enter 560ms both; }';
   assert.ok(inspectUiSource("src/features/landing/landing.css", removedKicker).some(v => v.rule === "css-selector"));
   const elsewhere = inspectUiSource("src/features/landing/other.css", source);
@@ -274,7 +275,7 @@ test("allows reviewed landing motion selectors without opening other CSS files",
   assert.ok(elsewhere.some(v => v.rule === "css-selector"));
 });
 
-test("landing CSS cannot escape its root or bypass color and spacing policy", () => {
+test("retired landing CSS cannot bypass selector, color or spacing policy", () => {
   for (const selector of ["body", ".landing-page-rogue", ".landing-page, body", ".landing-page + .other", ".landing-page ~ .other"]) {
     assert.ok(inspectUiSource("src/features/landing/landing.css", `${selector} { animation: none; }`).some(v => v.rule === "css-selector"), selector);
   }
@@ -406,7 +407,7 @@ test("workspace skips CAD fixtures without admitting their production HTML entri
   try {
     await mkdir(join(root, "src"));
     await writeFile(join(root, "src/App.tsx"), 'import "./styles.css";');
-    await writeFile(join(root, "src/styles.css"), '@import "tailwindcss"; @import "./styles/theme.css"; @import "./styles/base.css"; @import "./styles/exceptions.css"; @import "./features/landing/landing.css";');
+    await writeFile(join(root, "src/styles.css"), '@import "tailwindcss"; @import "./styles/theme.css"; @import "./styles/base.css"; @import "./styles/exceptions.css";');
     for (const fixture of fixtures) {
       await writeFile(join(root, "src", fixture), 'import "./styles.css"; const color = "#123456";');
     }
@@ -463,7 +464,7 @@ test("I4 CLI rejects every production DOM query with a zero baseline", async () 
     await mkdir(join(root, "src/components"));
     await mkdir(join(root, "scripts"));
     await writeFile(join(root, "src/App.tsx"), 'import "./styles.css";');
-    await writeFile(join(root, "src/styles.css"), '@import "tailwindcss"; @import "./styles/theme.css"; @import "./styles/base.css"; @import "./styles/exceptions.css"; @import "./features/landing/landing.css";');
+    await writeFile(join(root, "src/styles.css"), '@import "tailwindcss"; @import "./styles/theme.css"; @import "./styles/base.css"; @import "./styles/exceptions.css";');
     await writeFile(join(root, "scripts/ui-policy-baseline.json"), JSON.stringify({ version: 1, sourceRef: "24b5ea593e860575f7bf1007781146cf1101beb7", files: {} }));
     await writeFile(join(root, "src/components/ConfirmDialog.tsx"), 'dialogElement.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR);');
     assert.equal(run().status, 1);
@@ -486,7 +487,7 @@ test("CLI inventories only production src and rejects any policy debt", async ()
     await mkdir(join(root, "src"));
     await mkdir(join(root, "scripts"));
     await writeFile(join(root, "src/App.tsx"), 'import "./styles.css";');
-    await writeFile(join(root, "src/styles.css"), '@import "tailwindcss"; @import "./styles/theme.css"; @import "./styles/base.css"; @import "./styles/exceptions.css"; @import "./features/landing/landing.css";');
+    await writeFile(join(root, "src/styles.css"), '@import "tailwindcss"; @import "./styles/theme.css"; @import "./styles/base.css"; @import "./styles/exceptions.css";');
     await writeFile(join(root, "src/ignored.test.tsx"), '"p-[15px]"');
     await writeFile(join(root, "scripts/ui-policy-baseline.json"), JSON.stringify({ version: 1, sourceRef: "24b5ea593e860575f7bf1007781146cf1101beb7", files: {} }));
     assert.equal(run().status, 0);
@@ -507,7 +508,7 @@ test("workspace closes skipped-module, entry HTML and public CSS scan gaps", asy
     await mkdir(join(root, "src"));
     await mkdir(join(root, "public"));
     await writeFile(join(root, "src/App.tsx"), 'import "./styles.css"; import "./hidden.test"; import "./hidden.spec?raw";');
-    await writeFile(join(root, "src/styles.css"), '@import "tailwindcss"; @import "./styles/theme.css"; @import "./styles/base.css"; @import "./styles/exceptions.css"; @import "./features/landing/landing.css";');
+    await writeFile(join(root, "src/styles.css"), '@import "tailwindcss"; @import "./styles/theme.css"; @import "./styles/base.css"; @import "./styles/exceptions.css";');
     await writeFile(join(root, "index.html"), '<link rel="stylesheet" href="/rogue.css"><link rel=stylesheet href=/theme><script type="module" src="/e2e/page.ts"></script>');
     await writeFile(join(root, "public/rogue.css"), 'body {}');
 
@@ -525,7 +526,7 @@ test("workspace closes skipped-module, entry HTML and public CSS scan gaps", asy
 
 test("workspace requires every canonical CSS import exactly once", async () => {
   const root = await mkdtemp(join(tmpdir(), "led-ui-css-inventory-"));
-  const canonical = '@import "tailwindcss"; @import "./styles/theme.css"; @import "./styles/base.css"; @import "./styles/exceptions.css"; @import "./features/landing/landing.css";';
+  const canonical = '@import "tailwindcss"; @import "./styles/theme.css"; @import "./styles/base.css"; @import "./styles/exceptions.css";';
   try {
     await mkdir(join(root, "src"));
     await writeFile(join(root, "src/App.tsx"), 'import "./styles.css";');
@@ -567,7 +568,7 @@ test("workspace requires every canonical CSS import exactly once", async () => {
 
 test("workspace rejects extensionless bare imports only when package metadata exposes CSS", async () => {
   const root = await mkdtemp(join(tmpdir(), "led-ui-package-css-"));
-  const canonical = '@import "tailwindcss"; @import "./styles/theme.css"; @import "./styles/base.css"; @import "./styles/exceptions.css"; @import "./features/landing/landing.css";';
+  const canonical = '@import "tailwindcss"; @import "./styles/theme.css"; @import "./styles/base.css"; @import "./styles/exceptions.css";';
   try {
     await mkdir(join(root, "src"));
     await mkdir(join(root, "node_modules/@vendor/theme"), { recursive: true });
@@ -597,7 +598,7 @@ test("workspace rejects extensionless bare imports only when package metadata ex
 
 test("workspace resolves overlapping package export patterns by Node specificity, not declaration order", async () => {
   const root = await mkdtemp(join(tmpdir(), "led-ui-package-pattern-"));
-  const canonical = '@import "tailwindcss"; @import "./styles/theme.css"; @import "./styles/base.css"; @import "./styles/exceptions.css"; @import "./features/landing/landing.css";';
+  const canonical = '@import "tailwindcss"; @import "./styles/theme.css"; @import "./styles/base.css"; @import "./styles/exceptions.css";';
   try {
     await mkdir(join(root, "src"));
     await mkdir(join(root, "node_modules/@vendor/patterns"), { recursive: true });
