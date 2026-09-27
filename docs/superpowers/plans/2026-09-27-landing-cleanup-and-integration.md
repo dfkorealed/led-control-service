@@ -18,5 +18,6 @@
 ## 3. 검증 및 통합
 
 - [x] Web 정책 집중 테스트·typecheck·단위 테스트·build와 관련 브라우저 회귀를 검증한다. 퇴역 CSS 거부 집중 5/5, Web unit 2,371개(3 제외), 랜딩 Chromium 31/31, typecheck/build 통과. 전체 `ui:check`는 활성 랜딩 CSS 등을 포함한 기존 927건으로 실패하고 `test:ui-policy` 전체 61개 중 생산 UI 무위반 단언 1개가 같은 원인으로 실패한다. 후속 리팩터링 대상이다.
-- [ ] `git diff --check`, 삭제 후 참조 검색, `/`·`/features`·`/pricing` 로컬 HTTP 응답을 확인한다.
-- [ ] 랜딩 정리만 별도 커밋하고 다른 미커밋 작업을 보존한다. 대상이 확인되면 지정 브랜치에 반영한다.
+- [x] `git diff --check`, 퇴역 CSS 정책 참조 검색, `/`·`/features`·`/pricing` 로컬 HTTP 200을 확인했다.
+- [x] 랜딩 정리만 `315d4cc9`로 별도 커밋하고 다른 미커밋 작업을 보존했다.
+- [ ] `main` 병합 여부와 대상이 확인되면 해당 브랜치에 반영한다. 현재 저장소 원격 기본 브랜치는 `codex/mvp1-cloud-web`이고 `main`은 약 1,015개 커밋 뒤에 있다.
