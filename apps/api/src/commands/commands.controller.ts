@@ -1,4 +1,4 @@
-import { BadRequestException, Body, Controller, Get, Param, Post, Query, UseGuards } from "@nestjs/common";
+import { BadRequestException, Body, Controller, Get, Header, Param, Post, Query, UseGuards } from "@nestjs/common";
 import { createDimmingCommandRequestSchema } from "@led-control/shared";
 import { CurrentUser } from "../auth/current-user.decorator";
 import { SessionAuthGuard } from "../auth/session-auth.guard";
@@ -22,6 +22,7 @@ export class CommandsController {
   ) {}
 
   @Get()
+  @Header("Cache-Control", "private, no-store")
   listCommands(@Query() query: unknown, @CurrentUser() user: AuthenticatedUser) {
     const parsed = commandHistoryQuerySchema.safeParse(query);
     if (!parsed.success) throw new BadRequestException("invalid command history query");
@@ -29,17 +30,20 @@ export class CommandsController {
   }
 
   @Get("requiring-verification")
+  @Header("Cache-Control", "private, no-store")
   listVerificationCases(@Query() query: unknown, @CurrentUser() user: AuthenticatedUser) {
     // Site authorization precedes all filter/cursor parsing in the service.
     return this.commandRecoveryService.listCases(user, query);
   }
 
   @Get("requiring-verification/:caseId")
+  @Header("Cache-Control", "private, no-store")
   getVerificationCase(@Param("caseId") caseId: string, @CurrentUser() user: AuthenticatedUser) {
     return this.commandRecoveryService.getCase(user, caseId);
   }
 
   @Get(":commandId")
+  @Header("Cache-Control", "private, no-store")
   getCommand(@Param("commandId") commandId: string, @CurrentUser() user: AuthenticatedUser) {
     return this.commandStatusService.getCommand(user, commandId);
   }
