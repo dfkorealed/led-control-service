@@ -948,10 +948,13 @@ describe("MqttService", () => {
 
   it("marks a gateway dispatch accepted from a scoped acceptance ACK", async () => {
     const prisma: any = {
+      $executeRaw: jest.fn(),
+      $queryRaw: jest.fn().mockResolvedValue([{ contentRedactedAt: null }]),
       commandDispatch: {
         updateMany: jest.fn().mockResolvedValue({ count: 1 })
       }
     };
+    prisma.$transaction = jest.fn(async (callback) => callback(prisma));
     const service = new MqttService(prisma, createMeshGroupsMock() as never);
     await service.handleMessage(
       "sites/22222222-2222-4222-8222-222222222222/gateways/55555555-5555-4555-8555-555555555555/acks/acceptance",

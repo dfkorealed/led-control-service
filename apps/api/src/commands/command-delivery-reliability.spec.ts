@@ -261,6 +261,7 @@ function harness(options: { statusCheck?: boolean; loseAttemptFence?: boolean } 
       $queryRaw: async (query: any, ...parameters: any[]) => {
         const sql = Array.isArray(query) ? query.join("") : query.text;
         const values = Array.isArray(query) ? parameters : query.values;
+        if (sql.includes('FROM "Site"')) return [{ id: ids.site }];
         if (sql.includes('FROM "MqttOutbox"')) {
           mutation("claim-row-lock");
           return outboxes.filter((row) => row.publishedAt === null && row.deadLetteredAt === null && row.dispatchId !== null

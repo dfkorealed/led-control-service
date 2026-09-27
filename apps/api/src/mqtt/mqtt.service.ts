@@ -78,7 +78,8 @@ interface LockedCommandDispatch {
   status: "pending" | "published" | "accepted" | "completed" | "failed" | "timed_out";
   errorCode: string | null;
   outcome: "pending" | "applied" | "not_applied" | "partially_applied" | "unknown" | null;
-  brightness: number;
+  brightness: number | null;
+  contentRedactedAt: Date | null;
   targetFixtureIds: Prisma.JsonValue;
 }
 
@@ -1203,7 +1204,13 @@ export class MqttService implements OnModuleInit {
       errorMessage: ack.errorMessage ?? null
     };
     if (ack.status === "accepted") {
-      await this.prisma.commandDispatch.updateMany({ where, data });
+      // Lock the parent with the dispatch so a concurrent detail cleanup cannot
+      // be followed by an acceptance writer restoring its error text.
+      await this.prisma.$transaction(async (tx) => {
+        await this.automationSnapshot.lockMutation(tx);
+        if (!await this.lockCommandDispatch(tx, ack)) return;
+        await tx.commandDispatch.updateMany({ where, data });
+      });
       return;
     }
 
@@ -1460,17 +1467,20 @@ export class MqttService implements OnModuleInit {
     ack: { dispatchId: string; commandId: string; gatewayId: string; idempotencyKey: string; sequence: number; siteId: string }
   ) {
     const rows = await tx.$queryRaw<LockedCommandDispatch[]>`
-      SELECT d."id", d."commandId", d."kind", d."verificationAttempt", d."status", d."errorCode", c."outcome", c."brightness", c."targetFixtureIds"
+      SELECT d."id", d."commandId", d."kind", d."verificationAttempt", d."status", d."errorCode", c."outcome", c."brightness", c."targetFixtureIds", c."contentRedactedAt"
       FROM "CommandDispatch" d INNER JOIN "Command" c ON c."id" = d."commandId"
       WHERE d."id" = ${ack.dispatchId} AND d."commandId" = ${ack.commandId}
         AND d."gatewayId" = ${ack.gatewayId} AND d."idempotencyKey" = ${ack.idempotencyKey}
         AND d."sequence" = ${BigInt(ack.sequence)} AND c."siteId" = ${ack.siteId}
       FOR UPDATE OF d, c
     `;
-    return rows[0];
+    // Consume late ACKs using their exact stored identity without rebuilding
+    // raw event ledgers, fixture results, observations, or parent error content.
+    return rows[0]?.contentRedactedAt ? undefined : rows[0];
   }
 
   private async finishParentCommand(tx: Prisma.TransactionClient, dispatch: LockedCommandDispatch) {
+    if (dispatch.brightness === null) throw new Error("active command content is unavailable");
     const verification = dispatch.kind === "status_check";
     const dispatches = await tx.commandDispatch.findMany({
       where: { commandId: dispatch.commandId, kind: dispatch.kind,

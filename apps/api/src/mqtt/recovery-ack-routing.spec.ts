@@ -51,7 +51,9 @@ describe("MQTT Get-only recovery ACK routing", () => {
   });
 
   it("retains legacy Command ACK handling when no recovery dispatch owns the ID", async () => {
-    const prisma: any = { commandDispatch: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) } };
+    const prisma: any = { commandDispatch: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+      $executeRaw: jest.fn(), $queryRaw: jest.fn().mockResolvedValue([{ contentRedactedAt: null }]) };
+    prisma.$transaction = jest.fn(async (callback) => callback(prisma));
     const recoveryAcks = { tryStoreAcceptanceAck: jest.fn().mockResolvedValue(false),
       tryStoreDeviceStatusAck: jest.fn().mockResolvedValue(false) };
     const lateSetAcks = { tryStoreDeviceStatusAck: jest.fn().mockResolvedValue(false) };

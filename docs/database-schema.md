@@ -1,5 +1,15 @@
 # 데이터베이스 테이블 구조
 
+## 2026-09-27 Command 상세 내용 제거 상태
+
+현장·요청 키의 orphan 검사는 새 `Command_siteId_clientRequestId_idx` 인덱스를 사용한다. 기존 unique 인덱스의 중간 `requestedBy`를 알 수 없는 조회가 현장 전체 기록을 반복 탐색하지 않도록 한다.
+
+`20260927150000_command_content_redaction`은 `Command.contentRedactedAt TIMESTAMP(3)`과 `Command_content_state_check`를 추가한다. 일반 행은 기존처럼 `requestFingerprint`, `targetType`, `targetFixtureIds`, `brightness`가 필수다. 내용 제거 행은 이 네 필드와 `targetId`, `errorMessage`를 SQL NULL로 함께 비우고 `contentRedactedAt`을 기록해야 한다. JSON null이나 일부 필드만 제거한 중간 상태는 허용하지 않는다. 새 명령 생산자의 내용은 유지하며 Command 행과 FK는 삭제하지 않는다.
+
+`clientRequestId`와 내부 `requestedBy`는 중복 방지에 유지하며 생성 응답에서 fingerprint와 함께 숨긴다. 사용자 삭제로 요청자 FK가 NULL인 기존 키는 현장 행과 동일 요청 키의 Command 행 잠금으로 모든 요청자의 재사용을 보수적으로 409 차단한다. 삭제가 진행 중이면 FK 변경 완료 후 NULL 여부를 재확인한다. 비식별 재요청은 `command_request_expired`, 인가된 상세·상태 확인은 내용 없는 `command_expired`(410)다. ACK는 정확한 전송 식별자를 잠근 뒤 내용 제거 상태를 확인하며 원문·결과·관측을 복원하지 않는다.
+
+이 변경은 새 일회용 PostgreSQL의 전체 migration 적용과 API 회귀로 검증한다. 운영 DB migration, 비식별 worker, 물리 purge, 복구 POST와 실제 Gateway/RF 동작은 활성화하지 않는다. 원본과 파생 사본의 실제 정리는 후속 worker 작업이며 아래의 이전 물리 삭제 실험 설명은 새 정책의 활성화 조건이 아니다.
+
 ## 2026-09-27 제한 worker의 Command 삭제 장벽
 
 `20260925120000`~`20260925153000`의 13개 선행 migration은 활동 snapshot, replay HMAC, 미확정 hold와 대상, 원본 없는 Get dispatch/outbox, 늦은 Set/Get ACK 표식, 수동 실행 receipt·출처 보호와 재시도 backlog를 추가한다. `ManualOverride.commandId`의 nullable Prisma 관계는 별도 `manual-override-guarded-detach.sql` cutover 뒤 상태를 표현하며 additive migration만으로 원본을 분리하거나 지우지 않는다. 활성 suppression·미확정 hold는 원본 삭제 뒤에도 보존하고 수동 child/ACK 복사본·raw 활동 key·미확정 재위촉 snapshot이 있으면 삭제를 차단한다. 활동은 site/Command/outcome HMAC으로 재키잉하며 raw payload를 새 장벽 증명에 복제하지 않는다.

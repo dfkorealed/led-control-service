@@ -60,7 +60,7 @@ export class CommandStatusService {
       }
       const commands = await db.command.findMany({
         // Keep siteId outside all search/cursor OR predicates to prevent scope escape.
-        where: { siteId: input.siteId, AND: filters },
+        where: { siteId: input.siteId, contentRedactedAt: null, AND: filters },
         orderBy: [{ createdAt: "desc" }, { id: "desc" }],
         take: limit + 1,
         include: historyInclude
@@ -136,6 +136,7 @@ export class CommandStatusService {
         if (hold?.siteId === scopedCommand.siteId) throw new GoneException({ code: "command_expired" });
         throw commandNotFound();
       }
+      if (command.contentRedactedAt) throw new GoneException({ code: "command_expired" });
 
       return {
         ...summarizeCommand(command),

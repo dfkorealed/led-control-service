@@ -66,6 +66,7 @@ function createHarness(options: {
   };
   let storedCommand: Record<string, unknown> | null = options.existingCommand ?? null;
   const tx: any = {
+    $queryRaw: jest.fn().mockResolvedValue([]),
     fixture: { findMany: jest.fn().mockResolvedValue(options.fixtures ?? []) },
     floor: {
       findFirst: jest.fn().mockResolvedValue(options.floor ?? null),

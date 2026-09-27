@@ -1553,11 +1553,13 @@ model Command {
   siteId             String
   requestedBy        String?
   clientRequestId    String
-  requestFingerprint String
-  targetType         String
+  requestFingerprint String?
+  targetType         String?
   targetId           String?
-  targetFixtureIds   Json              @default("[]")
-  brightness         Int
+  targetFixtureIds   Json?             @default("[]")
+  brightness         Int?
+  /// Non-null only after all detailed content has been removed atomically.
+  contentRedactedAt  DateTime?
   status             CommandStatus     @default(pending)
   /// Legacy outcomes are unknown historically; only new producers assign an outcome.
   outcome            CommandOutcome?
@@ -1571,6 +1573,7 @@ model Command {
   updatedAt          DateTime          @updatedAt
 
   @@unique([siteId, requestedBy, clientRequestId])
+  @@index([siteId, clientRequestId])
   @@index([siteId, createdAt])
 }
 

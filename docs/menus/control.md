@@ -12,6 +12,8 @@
 
 ## 구현 완료
 
+- 2026-09-27 상세 내용 제거 상태(Task 2): `Command.contentRedactedAt`이 있는 행은 플래그 상태와 무관하게 일반 목록에서 제외하며, 인가된 상세와 기존 상태 확인은 내용 없는 `410 command_expired`를 반환한다. 동일 키 재제어와 사용자 삭제로 요청자를 알 수 없는 현장 내 기존 키 재사용은 `409 command_request_expired`로 차단하며 Set/Get/outbox를 생성하지 않는다. 기존 상태 확인의 기간 제한도 `COMMAND_HISTORY_RETENTION_ENABLED=1`에서 중앙 DB UTC transaction 시각의 3 calendar months를 사용하고 정확 경계는 유지한다. 생성 응답은 내부 요청자·요청 키·fingerprint를 숨기며, 늦은 ACK는 제거한 상세를 복원하지 않는다. 일회용 PostgreSQL과 API 소프트웨어 검증 범위이며 비식별 worker와 운영 migration은 아직 활성화하지 않았다.
+
 - 2026-09-25 Final Atlas 자동화 목록 API(Task 7): 스케줄·차량 이벤트의 현장 전체 목록에서 이름의 trim된 리터럴 부분 검색(한글·`%`·`_` 포함), 활성 상태, Gateway 구성 동기화 상태 필터와 `limit=1..100`을 지원한다. 기존 `items,total,nextCursor`와 무필터 v1 cursor는 유지하고, 조건에 맞는 전체 `filteredTotal` 및 필터 없는 현장 전체 규칙 수·상태별 규칙 수 `siteSummary`를 같은 RepeatableRead 조회에서 반환한다. 설정이 없는 Gateway의 규칙은 `PENDING`이며 수치를 Gateway 대수나 현재 로드된 페이지 수로 해석하지 않는다. 필터 cursor v2는 인증 사용자·현장·규칙 종류·정규화된 조건에 묶고, 현장 `read` 권한을 cursor 해석 전에 확인한다. 집중 단위·일회용 PostgreSQL E2E 검증 범위이며 실제 현장 규모의 브라우저 조작과 장비 HIL 증거는 아니다.
 - 2026-09-27 Gateway 중앙 Set 물리 전송 경계(Task 6): 명령별 cached permit을 실제 BlueZ D-Bus `Send`와 BIO native write 직전에 동기 재검사한다. 주소/queue/D-Bus interface 조회 지연 및 BIO brightness→force-on 사이의 proof 손실은 후속 Set을 차단한다. 현재 프로세스에서 write 0이 확인된 경우만 내구적 refusal/수동 pending abort로 끝내며, 첫 전송 이후 veto·USB/D-Bus 오류는 unknown/partial을 보존한다. 기존 로컬 일정·센서 자동화 및 Get(이미 보낸 Set의 read-back 포함)은 DB proof veto 대상이 아니다. scoped nonce/epoch drain 요청은 boot ID·Gateway 버전과 queued/submitted/unconfirmed 수를 응답하지만 제출 콜백·관측 성공을 물리 RF 종료로 인증하지 않는다.
 - 2026-09-26 Final Atlas 수동 이력 시각 보완: 지도·밝기 실행 아래 최근 이력을 PC에서는 한 줄, 390/320px 모바일에서는 읽을 수 있는 두 줄의 compact bar로 표시한다. 최근 명령의 현장 시각·조명 수·밝기·상태를 요약하고, 요약을 누르면 기존 명령 상세로 진입한다. 전체 3개월 이력·검색·필터·보관 시작 시각은 기존 drawer에 유지하며 확인 필요 명령 진입과 안전 잠금은 변경하지 않았다. Mock API 기반 Vitest 및 Chromium 1440/390/320px 검증이며 실제 Gateway/조명 HIL은 별도다.
@@ -308,6 +310,8 @@
 
 ## 미구현
 
+- 완료된 오래된 Command 원본·파생 사본을 실제로 비우는 비식별 worker는 후속 작업이다. Task 2는 DB 상태 제약과 소비자 차단만 추가하며 기존 미확정 잠금·수동 Set·최근 상태 확인을 유지한다.
+
 - BIO 센서 `0x09`의 detected/cleared boolean mapping, source capability `supported` 승격 및 production event 실행은 미구현이다. `0x0c`는 생존 관측이며 이벤트 입력이 아니다.
 
 - 수동 제어의 현재 선택을 그대로 넘기는 `이 선택을 구역으로 저장` 단축 동작은 미구현이다. 현재는 `구역 관리 → 새 구역`에서 지도·목록으로 멤버를 선택해야 한다. 후속 구현에서는 다층/100개 초과 선택 처리, 생성 권한·명령 잠금, 열린 dialog의 초안 초기화와 focus 복귀, 저장 후 기존 수동 선택 보존을 함께 검증해야 하므로 최종 오류 수정 범위에서는 보류했다.
@@ -375,6 +379,8 @@
 - Task 20 Fix Round 4에서 temp directory는 fixed lock의 owner/coordination 상태가 아닌 publish 후보로 유지하되, cleanup은 원본 temp를 같은 parent의 unique quarantine path로 먼저 atomic rename해 소유권을 확보한 뒤 quarantine 내부만 정리한다. quarantine 내부가 empty directory이거나 exact regular `.owner.<token>` marker 하나만 가진 경우에만 삭제하고, publisher가 먼저 temp를 fixed lock으로 rename하면 cleaner는 원본 temp `ENOENT`로 중단한다. cleaner가 먼저 quarantine하면 publisher는 `ENOENT` 후 같은 token으로 새 temp를 만들어 retry한다. fixed lock directory 자체는 quarantine하지 않는다. temp/quarantine symlink·non-directory·marker symlink·multi-entry·외부 sentinel은 따라가거나 삭제하지 않고 fixed lock 획득을 막지 않는다. fixed lock은 계속 token/PID/`ps` process-start identity를 exact marker로 확인해 active owner wait, stale/PID reuse takeover, unknown identity fail-closed, exact release, successor ABA 보호와 same-output 직렬화를 유지한다. production `scripts/esp32-h2-build.sh`는 Bluetooth SIG 자사 Company ID와 signed manufacturing approval이 없는 현재 `unprovisioned` policy에서 의도적으로 fail-closed한다. 이는 HIL 실패나 HIL 완료 증거가 아니다.
 
 ## 관련 파일
+
+- `apps/api/prisma/migrations/20260927150000_command_content_redaction/migration.sql`, `apps/api/src/commands/command-redacted-state.spec.ts`, `apps/api/src/commands/command-redacted-state.integration.spec.ts`
 
 - `apps/gateway/src/commands/command-rf-drain.ts`, `apps/gateway/src/commands/gateway-command-handler.ts`, `apps/gateway/src/mesh/bluez-transport.ts`, `apps/gateway/src/mesh/bluez-mesh-adapter.ts`, `apps/gateway/src/bio/bio-usb-transport.ts`, `apps/gateway/src/bio/bio-dongle-client.ts`, `apps/gateway/src/adapters/bio-usb-dongle-adapter.ts`, `apps/gateway/src/index.ts`
 - `apps/gateway/src/bio/bio-command-codec.ts`

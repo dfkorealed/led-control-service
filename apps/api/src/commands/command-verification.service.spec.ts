@@ -22,7 +22,9 @@ function harness() {
       kind: "dimming", status: "timed_out", verificationAttempt: null, clientRequestId: null }]
   };
   const tx: any = {
-    $queryRaw: jest.fn().mockResolvedValue([{ id: ids.command }]),
+    $queryRaw: jest.fn().mockImplementation(async (query) => query.text.includes("transaction_timestamp()")
+      ? [{ generatedAt: now, retainedFrom: new Date("2026-06-12T00:00:00.000Z") }]
+      : [{ id: ids.command }]),
     command: { findUnique: jest.fn().mockImplementation(async () => command) },
     commandDispatch: {
       findUnique: jest.fn().mockResolvedValue(null),
@@ -46,6 +48,15 @@ function harness() {
 }
 
 describe("CommandVerificationService", () => {
+  afterEach(() => { delete process.env.COMMAND_HISTORY_RETENTION_ENABLED; });
+  it("keeps status-check Get available exactly on the DB retention cutoff", async () => {
+    process.env.COMMAND_HISTORY_RETENTION_ENABLED = "1";
+    const { service, command, tx } = harness();
+    command.createdAt = new Date("2026-06-12T00:00:00.000Z");
+    await expect(service.requestStatusCheck(user, ids.command, input)).resolves.toMatchObject({ verificationAttempt: 1 });
+    expect(tx.mqttOutbox.create).toHaveBeenCalledTimes(1);
+  });
+
   it("creates the Get dispatch, pending results and outbox atomically after locked authorization", async () => {
     const { service, tx, prisma, automation, access } = harness();
     const response = await service.requestStatusCheck(user, ids.command, input);

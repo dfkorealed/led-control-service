@@ -26,6 +26,12 @@ export async function stageExpiredCommandCandidate(
   if (locked.length !== 1) throw new CommandPurgeCandidateBlocked(["command_missing_or_not_expired"]);
   const command = await tx.command.findUniqueOrThrow({ where: { id: commandId },
     include: { dispatches: true, manualOverride: true } });
+  // The retired physical-purge path must not interpret an identity-only row as
+  // an ordinary command or rebuild a hold from absent content.
+  if (command.contentRedactedAt || command.brightness === null) {
+    throw new CommandPurgeCandidateBlocked(["command_content_unavailable"]);
+  }
+  const brightness = command.brightness;
   // Legacy Set retry prevention is staged before any raw row can disappear.
   const domain = command.requestedBy ? "set-replay" : "set-replay-orphan";
   const principalSnapshot = command.requestedBy ?? "__unattributed__";
@@ -66,7 +72,7 @@ export async function stageExpiredCommandCandidate(
       siteId: command.siteId, gatewayId: dispatch.gatewayId,
       originalCommandId: command.id, originalCreatedAt: command.createdAt,
       reasonCode: "outcome_unknown", targets: { createMany: { data: fixtureIds.map(fixtureId => ({
-        fixtureId, expectedBrightness: command.brightness
+        fixtureId, expectedBrightness: brightness
       })) } }
     } });
     if (legacyGetAttempts > hold.verificationAttemptCount) {

@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, ConflictException, GoneException, Injectable, NotFoundException } from "@nestjs/common";
 import { gatewayStatusCheckCommandDraftV2Schema, mqttTopicsV2 } from "@led-control/shared";
 import { Prisma } from "@prisma/client";
 import { randomUUID } from "node:crypto";
@@ -7,6 +7,7 @@ import { PrismaService } from "../prisma/prisma.service";
 import { SiteAccessService } from "../access/site-access.service";
 import { AutomationSnapshotService } from "../automation/automation-snapshot.service";
 import { AutomationClock } from "../automation/automation-clock";
+import { commandHistoryGetDbClockRequested, commandHistoryGetReadBoundary } from "./command-history-rollout";
 
 @Injectable()
 export class CommandVerificationService {
@@ -19,12 +20,13 @@ export class CommandVerificationService {
 
   async requestStatusCheck(user: AuthenticatedUser, commandId: string, input: { clientRequestId: string }) {
     const scopedCommand = await this.prisma.command.findUnique({
-      where: { id: commandId }, select: { siteId: true }
+      where: { id: commandId }, select: { siteId: true, createdAt: true, contentRedactedAt: true }
     });
     if (!scopedCommand) throw new NotFoundException("command not found");
 
     try {
       await this.siteAccess.assert(user, scopedCommand.siteId, "control");
+      if (scopedCommand.contentRedactedAt) throw new GoneException({ code: "command_expired" });
       return await this.prisma.$transaction(async (tx) => {
         await this.automationSnapshot.lockMutation(tx);
         await this.siteAccess.assertControlInTransaction(tx, user, scopedCommand.siteId);
@@ -40,6 +42,10 @@ export class CommandVerificationService {
           where: { id: commandId }, include: { dispatches: { orderBy: [{ createdAt: "asc" }, { sequence: "asc" }] } }
         });
         if (!command || command.siteId !== scopedCommand.siteId) throw new NotFoundException("command not found");
+        if (command.contentRedactedAt || (commandHistoryGetDbClockRequested()
+          && command.createdAt < (await commandHistoryGetReadBoundary(tx, scopedCommand.siteId)).retainedFrom)) {
+          throw new GoneException({ code: "command_expired" });
+        }
 
         const existing = await tx.commandDispatch.findUnique({ where: { clientRequestId: input.clientRequestId } });
         if (existing) {

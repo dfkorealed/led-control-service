@@ -597,9 +597,12 @@ describe("MqttService v2 ordered state", () => {
 
   it("PUBACKs a command acceptance only after its database write completes", async () => {
     const stored = deferred<{ count: number }>();
-    const prisma = {
+    const prisma: any = {
+      $executeRaw: jest.fn(),
+      $queryRaw: jest.fn().mockResolvedValue([{ contentRedactedAt: null }]),
       commandDispatch: { updateMany: jest.fn(() => stored.promise) }
     };
+    prisma.$transaction = jest.fn(async (callback) => callback(prisma));
     const service = new MqttService(prisma as never, { attachProvisionedNode: jest.fn() } as never);
     const client = mqttClientHarness(service);
     const internal = mqttInternals(service);
@@ -621,7 +624,7 @@ describe("MqttService v2 ordered state", () => {
     });
 
     internal.createCustomHandleAcks()(topic, payload, packet, done);
-    await flushPromises();
+    await waitFor(() => prisma.commandDispatch.updateMany.mock.calls.length === 1);
 
     expect(prisma.commandDispatch.updateMany).toHaveBeenCalledTimes(1);
     expect(done).not.toHaveBeenCalled();

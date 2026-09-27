@@ -254,6 +254,19 @@ export class CommandsService {
     user: AuthenticatedUser,
     input: CreateDimmingCommandInput
   ) {
+    // User deletion erases the original principal FK. Serialize new requests by
+    // site, then lock every matching key row (including non-orphans) so a concurrent
+    // FK SET NULL must commit before this read or wait until this request commits.
+    // An orphan key conservatively fences every principal without HMAC/cutover.
+    await tx.$queryRaw(Prisma.sql`SELECT "id" FROM "Site" WHERE "id" = ${input.siteId} FOR UPDATE`);
+    const keys = await tx.$queryRaw<Array<{ requestedBy: string | null }>>(Prisma.sql`
+      SELECT "requestedBy" FROM "Command"
+      WHERE "siteId" = ${input.siteId} AND "clientRequestId" = ${input.clientRequestId}
+      ORDER BY "id" FOR UPDATE
+    `);
+    if (keys.some((key) => key.requestedBy === null)) {
+      throw new ConflictException({ code: "command_request_expired" });
+    }
     const existing = await tx.command.findUnique({
       where: {
         siteId_requestedBy_clientRequestId: {
@@ -265,6 +278,7 @@ export class CommandsService {
       include: idempotentCommandInclude
     });
     if (!existing) return null;
+    if (existing.contentRedactedAt) throw new ConflictException({ code: "command_request_expired" });
     // Visibility expires at the request cutoff, not when the physical sweep
     // eventually removes the row. Never echo a detailed old response on retry.
     if (commandHistoryGetDbClockRequested()
@@ -281,7 +295,8 @@ export class CommandsService {
   }
 
   private toCreateResponse(command: IdempotentCommand) {
-    const { dispatches, manualOverride, ...storedCommand } = command;
+    const { dispatches, manualOverride, requestedBy, clientRequestId, requestFingerprint,
+      contentRedactedAt, ...storedCommand } = command;
     const deliveryMode = dispatches[0]?.deliveryMode;
     if (!isDeliveryMode(deliveryMode)) throw new Error("stored command delivery mode is invalid");
     const fixtureIds = Array.isArray(command.targetFixtureIds)
