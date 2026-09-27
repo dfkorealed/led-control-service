@@ -24,7 +24,8 @@ describe("public features page", () => {
     }
     const statistics = within(document.getElementById("feature-statistics")!);
     expect(statistics.getByText(/상태 기반 추정 전력/)).toBeVisible();
-    expect(statistics.getByText(/PDF·XLSX 보고서/)).toBeVisible();
+    expect(statistics.getByText(/PDF 보고서/)).toBeVisible();
+    expect(statistics.queryByText(/XLSX|Excel/)).not.toBeInTheDocument();
     expect(screen.getByText(/실제 현장 데이터나 조명 제어 결과가 아닙니다/)).toBeVisible();
   });
 });

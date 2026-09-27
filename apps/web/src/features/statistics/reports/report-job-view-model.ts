@@ -11,7 +11,6 @@ export interface ReportJobViewModel {
   targetLabel: string;
   scopeLabel: string;
   rangeLabel: string;
-  formatLabel: "PDF" | "XLSX";
   status: { label: string; tone: StatusTone; progress?: number };
   requestedAt: FormattedInstant;
   expiresAt?: FormattedInstant;
@@ -30,7 +29,6 @@ export function reportJobViewModel(job: EnergyReportJob, timeZone?: string): Rep
     targetLabel: job.target.label,
     scopeLabel: scopeLabel(job.request.scope),
     rangeLabel: `${job.request.from} ~ ${job.request.to}`,
-    formatLabel: job.request.format === "pdf" ? "PDF" : "XLSX",
     status: reportStatus(job),
     requestedAt: formatInstant(job.requestedAt, timeZone),
     ...(job.expiresAt ? { expiresAt: formatInstant(job.expiresAt, timeZone) } : {}),

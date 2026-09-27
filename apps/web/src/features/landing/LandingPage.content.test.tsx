@@ -28,6 +28,7 @@ describe("public field-day landing narrative", () => {
     expect(statistics.getByText(/실측 전력이 아닙니다/)).toBeVisible();
     expect(report.getByRole("heading", { name: /정리한 기록을.*보고서로/ })).toBeVisible();
     expect(report.getByText(/파일을 만들거나 내려받지 않습니다/)).toBeVisible();
+    expect(report.queryByRole("button", { name: /XLSX|Excel/ })).not.toBeInTheDocument();
     expect(map.getByRole("heading", { name: /도면도 조명도.*직접, 쉽게 배치/ })).toBeVisible();
     expect(map.getByText(/자동 등록이나 실제 저장은 수행하지 않습니다/)).toBeVisible();
   });

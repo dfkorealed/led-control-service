@@ -26,7 +26,6 @@ export function ReportJobCards({
             <dl className="m-0 grid min-w-0 grid-cols-2 gap-x-3 gap-y-2 text-caption" role="group" aria-label="보고서 메타데이터">
               <Metadata label="기간" value={item.view.rangeLabel} />
               <Metadata label="범위" value={item.view.scopeLabel} />
-              <Metadata label="형식" value={item.view.formatLabel} />
               <Metadata label="요청 시각" value={<ReportTime instant={item.view.requestedAt} />} />
               {item.view.expiresAt ? <Metadata label="파일 만료 시각" value={<ReportTime instant={item.view.expiresAt} />} /> : null}
             </dl>

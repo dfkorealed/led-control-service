@@ -9,7 +9,6 @@ const optionalKeys = [
   "cursor",
   "query",
   "status",
-  "format",
   "scope",
   "requestedFrom",
   "requestedTo"

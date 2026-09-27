@@ -14,6 +14,7 @@ import {
 } from "@led-control/shared/energy-analytics-contracts";
 import {
   energyHeatmapResponseSchema,
+  energyCsvExportQuerySchema,
   energyReportDownloadResponseSchema,
   energyReportJobSchema,
   energyReportListQuerySchema,
@@ -186,7 +187,7 @@ export async function downloadEnergyReport(siteId: string, reportId: string) {
 }
 
 export async function downloadEnergyCsv(siteId: string, request: Omit<EnergyReportRequest, "format">) {
-  const validRequest = energyReportRequestSchema.parse({ ...request, format: "xlsx" });
+  const validRequest = energyCsvExportQuerySchema.parse(request);
   const parameters = new URLSearchParams({
     from: validRequest.from,
     to: validRequest.to,

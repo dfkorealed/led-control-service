@@ -108,8 +108,8 @@ test("scene examples respond to controls and replay on return", async ({ page })
   await page.getByRole("button", { name: /밝기 적용/ }).click();
   await expect(page.locator("#control").getByRole("status")).toContainText(`${manualValue}%`);
   await page.locator("#report").scrollIntoViewIfNeeded();
-  await page.getByRole("button", { name: "XLSX" }).click();
-  await expect(page.locator("#report").getByRole("status")).toContainText("XLSX");
+  await expect(page.locator("#report").getByRole("status")).toContainText("PDF");
+  await expect(page.locator("#report").getByRole("button", { name: "XLSX" })).toHaveCount(0);
   await expect(page.locator("#report").getByRole("button", { name: "CSV" })).toHaveCount(0);
   await page.locator("#map-editor").scrollIntoViewIfNeeded();
   await page.getByRole("button", { name: "조명 배치" }).click();

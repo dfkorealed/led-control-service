@@ -137,13 +137,13 @@ describe("energy queries", () => {
   it("gets a completed report's signed URL only on download action", async () => {
     apiGet.mockResolvedValue({
       reportId: reportJob.reportId,
-      format: "xlsx",
-      downloadUrl: "https://reports.example.test/signed.xlsx",
+      format: "pdf",
+      downloadUrl: "https://reports.example.test/signed.pdf",
       expiresInSeconds: 300
     });
 
     await expect(downloadEnergyReport("site/2", reportJob.reportId)).resolves.toEqual(expect.objectContaining({
-      downloadUrl: "https://reports.example.test/signed.xlsx"
+      downloadUrl: "https://reports.example.test/signed.pdf"
     }));
     expect(apiGet).toHaveBeenCalledWith(`/energy/sites/site%2F2/reports/${reportJob.reportId}/download`);
   });
@@ -157,7 +157,8 @@ describe("energy queries", () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, blob: async () => new Blob(["csv"]) }));
     const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => { throw new Error("click failed"); });
     try {
-      await expect(downloadEnergyCsv(reportJob.siteId, reportJob.request)).rejects.toThrow("click failed");
+      const { format: _format, ...csvRange } = reportJob.request;
+      await expect(downloadEnergyCsv(reportJob.siteId, csvRange)).rejects.toThrow("click failed");
       expect(document.querySelector('a[href="blob:csv-failure"]')).toBeNull();
       expect(revoke).toHaveBeenCalledWith("blob:csv-failure");
     } finally {
@@ -168,13 +169,37 @@ describe("energy queries", () => {
     }
   });
 
+  it("exports CSV through its format-free range contract", async () => {
+    const csvResponse = new Response("date,kwh\n2026-09-01,1");
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(csvResponse));
+    vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => undefined);
+    const createDescriptor = Object.getOwnPropertyDescriptor(URL, "createObjectURL");
+    const revokeDescriptor = Object.getOwnPropertyDescriptor(URL, "revokeObjectURL");
+    Object.defineProperty(URL, "createObjectURL", { configurable: true, value: () => "blob:csv" });
+    Object.defineProperty(URL, "revokeObjectURL", { configurable: true, value: vi.fn() });
+    try {
+      await downloadEnergyCsv(reportJob.siteId, {
+        from: "2026-09-01", to: "2026-09-10", scope: "site", identityId: reportJob.siteId
+      });
+      expect(fetch).toHaveBeenCalledWith(
+        `/api/energy/sites/${reportJob.siteId}/exports/csv?from=2026-09-01&to=2026-09-10&scope=site&identityId=${reportJob.siteId}`,
+        { credentials: "include" }
+      );
+    } finally {
+      vi.unstubAllGlobals();
+      if (createDescriptor) Object.defineProperty(URL, "createObjectURL", createDescriptor); else Reflect.deleteProperty(URL, "createObjectURL");
+      if (revokeDescriptor) Object.defineProperty(URL, "revokeObjectURL", revokeDescriptor); else Reflect.deleteProperty(URL, "revokeObjectURL");
+    }
+  });
+
   it("preserves the CSV response status as an ApiError", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(
       JSON.stringify({ message: "scope not found" }),
       { status: 404, headers: { "Content-Type": "application/json" } }
     )));
     try {
-      await expect(downloadEnergyCsv(reportJob.siteId, reportJob.request)).rejects.toMatchObject({
+      const { format: _format, ...csvRange } = reportJob.request;
+      await expect(downloadEnergyCsv(reportJob.siteId, csvRange)).rejects.toMatchObject({
         name: "ApiError",
         status: 404,
         body: { message: "scope not found" }
@@ -372,7 +397,7 @@ const reportJob = {
     to: "2026-09-10",
     scope: "site" as const,
     identityId: "30000000-0000-4000-8000-000000000001",
-    format: "xlsx" as const
+    format: "pdf" as const
   },
   status: "queued" as const,
   progressPercent: 0,

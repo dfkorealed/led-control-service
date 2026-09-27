@@ -59,7 +59,7 @@ describe("StatisticsReportsPage", () => {
     reportsApi.download.mockReset();
     reportsApi.reports.mockReset();
     reportsApi.create.mockResolvedValue(job("queued", 0));
-    reportsApi.download.mockResolvedValue({ downloadUrl: "https://reports.example.test/signed.xlsx" });
+    reportsApi.download.mockResolvedValue({ downloadUrl: "https://reports.example.test/signed.pdf" });
     reportsApi.reports.mockReturnValue({
       data: { reports, nextCursor: null, totalCount: reports.length },
       isLoading: false,
@@ -69,6 +69,25 @@ describe("StatisticsReportsPage", () => {
     vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => undefined);
   });
   afterEach(() => { cleanup(); vi.restoreAllMocks(); });
+
+  it("drops a legacy XLSX URL and restores the first PDF history page", async () => {
+    renderPage({ initialEntry: "/statistics/reports?siteId=" + siteId + "&format=xlsx&scope=site" });
+
+    await waitFor(() => expect(screen.getByTestId("location-search")).not.toHaveTextContent("format="));
+    expect(reportsApi.reports).toHaveBeenLastCalledWith(siteId, { limit: 20, scope: "site" });
+    expect(screen.getByRole("search", { name: "보고서 이력 필터" })).not.toHaveTextContent("형식");
+  });
+
+  it("offers a PDF request without format selection and omits history format metadata", () => {
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "보고서 만들기" }));
+    const dialog = screen.getByRole("dialog", { name: "에너지 사용량 보고서 만들기" });
+    expect(within(dialog).queryByRole("button", { name: "파일 형식" })).not.toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: "CSV 내보내기" })).toBeEnabled();
+    fireEvent.click(within(dialog).getByRole("button", { name: "닫기" }));
+    expect(screen.getByRole("table", { name: "보고서 생성 이력" })).not.toHaveTextContent("형식");
+    expect(screen.getByRole("list", { name: "모바일 보고서 생성 이력" })).not.toHaveTextContent("형식");
+  });
 
   it("uses analytics targets even when the operational dashboard contains no fixture details", async () => {
     dashboardState.data = { ...dashboard, floors: [{ ...dashboard.floors[0], fixtures: [] }] };
@@ -98,7 +117,7 @@ describe("StatisticsReportsPage", () => {
 
   it("keeps a restored cursor page and URL unchanged when advanced filters are only opened or closed", async () => {
     reportsApi.reports.mockReturnValue(reportQueryResult(pageJobs(21, 20), { nextCursor: null, totalCount: 40 }));
-    const fingerprint = "limit=20&format=pdf&scope=floor";
+    const fingerprint = "limit=20&scope=floor";
     renderPage({ initialEntry: {
       pathname: "/statistics/reports",
       search: `?${fingerprint}&siteId=${siteId}`,
@@ -106,14 +125,13 @@ describe("StatisticsReportsPage", () => {
     } });
 
     await waitFor(() => expect(reportsApi.reports).toHaveBeenLastCalledWith(siteId, {
-      limit: 20, format: "pdf", scope: "floor", cursor: "cursor-20"
+      limit: 20, scope: "floor", cursor: "cursor-20"
     }));
     const search = screen.getByTestId("location-search").textContent;
     const calls = reportsApi.reports.mock.calls.length;
     const disclosure = screen.getByRole("button", { name: /상세 필터/ });
-    expect(disclosure).toHaveTextContent("2개 적용");
+    expect(disclosure).toHaveTextContent("1개 적용");
     fireEvent.click(disclosure);
-    expect(screen.getByRole("button", { name: "파일 형식" })).toHaveTextContent("PDF");
     expect(screen.getByRole("button", { name: "범위" })).toHaveTextContent("층");
     fireEvent.click(disclosure);
 
@@ -715,7 +733,7 @@ describe("StatisticsReportsPage", () => {
     const table = screen.getByRole("table", { name: "보고서 생성 이력", hidden: true });
     expect(table.closest("div.hidden")).toHaveClass("desktop:block");
     expect(within(table).getAllByRole("columnheader", { hidden: true }).map((header) => header.textContent)).toEqual([
-      "대상", "기간", "형식", "상태", "요청 시각", "파일 만료 시각", "작업"
+      "대상", "기간", "상태", "요청 시각", "파일 만료 시각", "작업"
     ]);
 
     const list = screen.getByRole("list", { name: "모바일 보고서 생성 이력" });
@@ -818,10 +836,6 @@ describe("StatisticsReportsPage", () => {
     fireEvent.keyDown(await screen.findByRole("option", { name: "조명" }), { key: "Enter" });
     fireEvent.keyUp(document.activeElement!, { key: "Enter" });
 
-    const format = within(dialog).getByRole("button", { name: "파일 형식" });
-    fireEvent.keyDown(format, { key: "ArrowDown" });
-    fireEvent.keyDown(await screen.findByRole("option", { name: "PDF" }), { key: "Enter" });
-    fireEvent.keyUp(document.activeElement!, { key: "Enter" });
     fireEvent.click(within(dialog).getByRole("button", { name: "보고서 요청" }));
 
     await waitFor(() => expect(reportsApi.create).toHaveBeenCalledWith(siteId, {
@@ -849,7 +863,7 @@ describe("StatisticsReportsPage", () => {
     expect(reportsApi.create).not.toHaveBeenCalled();
   });
 
-  it("creates one standard XLSX or PDF report from a period and identity without section choices", async () => {
+  it("creates one standard PDF report from a period and identity without section choices", async () => {
     renderPage();
     fireEvent.click(screen.getByRole("button", { name: "보고서 만들기" }));
 
@@ -858,12 +872,11 @@ describe("StatisticsReportsPage", () => {
     expect(within(dialog).getByRole("group", { name: "기간 종료" })).toBeInTheDocument();
     expect(within(dialog).getByRole("button", { name: "범위" })).toHaveTextContent("현장");
     expect(within(dialog).getByRole("button", { name: "대상" })).toHaveTextContent("서울 물류센터");
-    expect(within(dialog).getByRole("button", { name: "파일 형식" })).toHaveTextContent("XLSX");
-    expect(dialog).toHaveTextContent("XLSX와 PDF는 동일한 표준 보고서 내용을 파일 형식만 다르게 제공합니다.");
+    expect(within(dialog).queryByRole("button", { name: "파일 형식" })).not.toBeInTheDocument();
+    expect(dialog).toHaveTextContent("PDF 보고서로 만듭니다.");
     expect(within(dialog).queryByText(/섹션/)).not.toBeInTheDocument();
 
     await chooseSelect("범위", "조명", dialog);
-    await chooseSelect("파일 형식", "PDF", dialog);
     fireEvent.click(within(dialog).getByRole("button", { name: "보고서 요청" }));
 
     await waitFor(() => expect(reportsApi.create).toHaveBeenCalledWith(siteId, expect.objectContaining({
@@ -947,7 +960,7 @@ describe("StatisticsReportsPage", () => {
     const list = screen.getByRole("list", { name: "모바일 보고서 생성 이력" });
     const completed = within(list).getByRole("listitem", { name: "대상 completed 보고서" });
     const metadata = within(completed).getByRole("group", { name: "보고서 메타데이터" });
-    expect(metadata).toHaveTextContent("형식XLSX");
+    expect(metadata).not.toHaveTextContent("형식");
     expect(metadata).toHaveTextContent("범위현장");
     expect(metadata).toHaveTextContent("요청 시각");
     expect(within(completed).getByRole("group", { name: "보고서 작업" })).toContainElement(
@@ -1054,7 +1067,7 @@ function job(status: "queued" | "processing" | "completed" | "failed" | "expired
   return {
     reportId: `30000000-0000-4000-8000-0000000000${({ queued: 41, processing: 42, completed: 43, failed: 44, expired: 45 })[status]}`,
     siteId,
-    request: { from: "2026-09-01", to: "2026-09-10", scope: "site" as const, identityId: siteId, format: "xlsx" as const },
+    request: { from: "2026-09-01", to: "2026-09-10", scope: "site" as const, identityId: siteId, format: "pdf" as const },
     status, progressPercent,
     createdAt: "2026-09-10T00:00:00.000Z",
     startedAt: started ? "2026-09-10T00:00:02.000Z" : null,

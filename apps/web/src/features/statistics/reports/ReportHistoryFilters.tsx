@@ -1,6 +1,5 @@
 import {
   energyReportListQuerySchema,
-  type EnergyReportFormat,
   type EnergyReportStatus,
   type EnergyScope
 } from "@led-control/shared/energy-p2-contracts";
@@ -22,11 +21,6 @@ const statusItems: ReadonlyArray<{ id: EnergyReportStatus | ""; label: string }>
   { id: "failed", label: "생성 실패" },
   { id: "expired", label: "만료됨" }
 ];
-const formatItems: ReadonlyArray<{ id: EnergyReportFormat | ""; label: string }> = [
-  { id: "", label: "전체 형식" },
-  { id: "xlsx", label: "XLSX" },
-  { id: "pdf", label: "PDF" }
-];
 const scopeItems: ReadonlyArray<{ id: EnergyScope | ""; label: string }> = [
   { id: "", label: "전체 범위" },
   { id: "site", label: "현장" },
@@ -41,7 +35,7 @@ export function ReportHistoryFilters({ value, onChange, className }: ReportHisto
   const [dateError, setDateError] = useState<string | null>(null);
   const [isAdvancedOpen, setIsAdvancedOpen] = useState(false);
   const advancedPanelId = useId();
-  const activeAdvancedCount = Number(Boolean(value.format)) + Number(Boolean(value.scope));
+  const activeAdvancedCount = Number(Boolean(value.scope));
   const valueRef = useRef(value);
   const onChangeRef = useRef(onChange);
   valueRef.current = value;
@@ -68,7 +62,6 @@ export function ReportHistoryFilters({ value, onChange, className }: ReportHisto
       onChange(removeFilters(value, "query"));
     } }] : []),
     ...(value.status ? [{ key: "status", label: `상태: ${itemLabel(statusItems, value.status)}`, remove: () => onChange(removeFilters(value, "status")) }] : []),
-    ...(value.format ? [{ key: "format", label: `형식: ${itemLabel(formatItems, value.format)}`, remove: () => onChange(removeFilters(value, "format")) }] : []),
     ...(value.scope ? [{ key: "scope", label: `범위: ${itemLabel(scopeItems, value.scope)}`, remove: () => onChange(removeFilters(value, "scope")) }] : []),
     ...(dateRange ? [{ key: "requestedRange", label: `요청 기간: ${dateRange.start} ~ ${dateRange.end}`, remove: () => onChange(removeFilters(value, "requestedFrom", "requestedTo")) }] : [])
   ];
@@ -138,17 +131,8 @@ export function ReportHistoryFilters({ value, onChange, className }: ReportHisto
         role="group"
         aria-label="상세 필터 항목"
         hidden={!isAdvancedOpen}
-        className={isAdvancedOpen ? "grid min-w-0 grid-cols-1 gap-3 tablet:grid-cols-2" : "hidden"}
+        className={isAdvancedOpen ? "grid min-w-0 grid-cols-1 gap-3" : "hidden"}
       >
-        <SelectBox
-          label="파일 형식"
-          items={formatItems}
-          selectedKey={value.format ?? ""}
-          onSelectionChange={(format) => onChange(format
-            ? updateFilterState(value, { format })
-            : removeFilters(value, "format"))}
-          className="min-w-0"
-        />
         <SelectBox
           label="범위"
           items={scopeItems}

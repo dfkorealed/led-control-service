@@ -11,7 +11,6 @@ describe("reportJobViewModel", () => {
       targetLabel: "서울 물류센터",
       scopeLabel: "현장",
       rangeLabel: "2026-09-01 ~ 2026-09-10",
-      formatLabel: "XLSX",
       status: { label: "완료", tone: "success" },
       action: "download"
     });
@@ -53,7 +52,7 @@ function reportJob(status: "completed" | "failed") {
       to: "2026-09-10",
       scope: "site" as const,
       identityId: "30000000-0000-4000-8000-000000000001",
-      format: "xlsx" as const
+      format: "pdf" as const
     },
     status,
     progressPercent: completed ? 100 : 0,

@@ -10,26 +10,14 @@ import {
 } from "./support/layout-assertions";
 
 const generatedAt = "2026-08-26T00:00:00.000Z";
-const expectedReportVisualIds = [
-  "daily-chart",
-  "comparison-chart/energyKwh",
-  "comparison-chart/cost",
-  "fixture-ranking-chart",
-  "floor-ranking-chart",
-  "group-ranking-chart",
-  "energy-heatmap-chart",
-  "brightness-heatmap-chart"
-] as const;
-
 type RendererBrowserFixtures = {
   metadata: {
     schemaVersion: 2;
     scalarManifest: unknown;
     visualIds: string[];
     visualHashes: Record<string, string>;
-    files: Record<"xlsx" | "pdf", { byteLength: number; sha256: string }>;
+    files: Record<"pdf", { byteLength: number; sha256: string }>;
   };
-  xlsx: { bytes: string; manifest: unknown; visuals: Array<{ id: string; sha256: string; width: number; height: number }> };
   pdf: { bytes: string; manifest: unknown; visuals: Array<{ id: string; sha256: string; width: number; height: number }> };
 };
 let downloadFixtureServer: Server | undefined;
@@ -124,12 +112,11 @@ function heatmap(url: URL) {
 }
 function browserReport(
   status: EnergyReportJob["status"],
-  format: "xlsx" | "pdf" = "xlsx",
   request: EnergyReportJob["request"] = {
-    from: "2026-09-01", to: "2026-09-07", scope: "site", identityId: reportSiteId, format
+    from: "2026-09-01", to: "2026-09-07", scope: "site", identityId: reportSiteId, format: "pdf"
   }
 ): EnergyReportJob {
-  return { reportId: `30000000-0000-4000-8000-0000000000${format === "xlsx" ? "40" : "41"}`, siteId: reportSiteId,
+  return { reportId: "30000000-0000-4000-8000-000000000041", siteId: reportSiteId,
     request, status,
     progressPercent: status === "processing" ? 40 : status === "completed" || status === "expired" ? 100 : 0,
     createdAt: generatedAt, startedAt: status === "queued" ? null : generatedAt,
@@ -141,30 +128,23 @@ function browserReport(
     failure: status === "failed" ? { code: "generation_failed", message: "보고서를 생성하지 못했습니다.", action: "잠시 후 다시 생성해 주세요." } : null };
 }
 
-test("creates both report formats, polls state, downloads actual renderer bytes with identical extracted content, and retries", async ({ page }) => {
+test("creates a PDF report, polls state, downloads actual renderer bytes, and retries", async ({ page }) => {
   test.setTimeout(60_000);
   const fixtures = JSON.parse(execFileSync("pnpm", ["--filter", "@led-control/api", "exec", "tsx", "test/support/render-report-browser-fixtures.ts"],
     { encoding: "utf8", maxBuffer: 30 * 1024 * 1024 })) as RendererBrowserFixtures;
   expect(fixtures.metadata.schemaVersion).toBe(2);
-  expect(fixtures.metadata.visualIds).toEqual(expectedReportVisualIds);
-  expect(fixtures.xlsx.visuals).toEqual(fixtures.pdf.visuals);
+  expect(fixtures.metadata.visualIds).toEqual(fixtures.pdf.visuals.map(({ id }) => id));
   expect(Object.fromEntries(fixtures.pdf.visuals.map(({ id, sha256 }) => [id, sha256]))).toEqual(fixtures.metadata.visualHashes);
-  expect(fixtures.metadata.files.xlsx.byteLength).toBe(Buffer.from(fixtures.xlsx.bytes, "base64").byteLength);
   expect(fixtures.metadata.files.pdf.byteLength).toBe(Buffer.from(fixtures.pdf.bytes, "base64").byteLength);
-  expect(fixtures.xlsx.manifest).toEqual(fixtures.metadata.scalarManifest);
   expect(fixtures.pdf.manifest).toEqual(fixtures.metadata.scalarManifest);
-  expect(fixtures.xlsx.manifest).toEqual(fixtures.pdf.manifest);
-  expect(JSON.stringify(fixtures.metadata.scalarManifest)).toContain("서울 공장");
-  expect(JSON.stringify(fixtures.metadata.scalarManifest)).toContain("한글 조명");
-  expect(JSON.stringify(fixtures.metadata.scalarManifest)).not.toMatch(/상태 기반 추정|coverage|unknown|forecast|탄소|배출|carbon|emission|최적화/i);
+  expect(fixtures.metadata.scalarManifest).not.toEqual([]);
   await page.clock.install();
   // Chromium's anchor downloads can bypass request interception. A loopback server
   // provides deterministic file bytes without relying on a real worker or S3 account.
-  downloadFixtureServer = createServer((request, response) => {
-    const format = request.url?.includes(".pdf") ? "pdf" : "xlsx";
-    response.writeHead(200, { "content-type": format === "pdf" ? "application/pdf" : "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-      "content-disposition": `attachment; filename="report.${format}"` });
-    response.end(Buffer.from(fixtures[format].bytes, "base64"));
+  downloadFixtureServer = createServer((_request, response) => {
+    response.writeHead(200, { "content-type": "application/pdf",
+      "content-disposition": "attachment; filename=\"report.pdf\"" });
+    response.end(Buffer.from(fixtures.pdf.bytes, "base64"));
   });
   await new Promise<void>(resolve => downloadFixtureServer!.listen(0, "127.0.0.1", resolve));
   const address = downloadFixtureServer.address();
@@ -176,7 +156,7 @@ test("creates both report formats, polls state, downloads actual renderer bytes 
   await page.route("**/energy/sites/*/reports*", async route => {
     if (route.request().method() === "POST") {
       const request = route.request().postDataJSON(); requests.push(request);
-      const job = browserReport("queued", request.format, request);
+      const job = browserReport("queued", request);
       records = [job]; await route.fulfill({ status: 202, json: job });
     } else await route.fulfill({ json: { reports: records, nextCursor: null, totalCount: records.length } });
   });
@@ -189,38 +169,36 @@ test("creates both report formats, polls state, downloads actual renderer bytes 
   await page.goto(`/statistics/reports?siteId=${reportSiteId}`);
   await expect(page.getByText("요청한 보고서가 없습니다.")).toBeVisible();
   const reportHistory = page.getByRole("region", { name: "요청한 보고서" });
-  for (const format of ["xlsx", "pdf"] as const) {
-    await page.getByRole("button", { name: "보고서 만들기" }).click();
-    const dialog = page.getByRole("dialog", { name: "에너지 사용량 보고서 만들기" });
-    await setDatePicker(dialog, "기간 시작", "2026-09-01");
-    await setDatePicker(dialog, "기간 종료", "2026-09-07");
-    await chooseOption(page, dialog, "파일 형식", format.toUpperCase());
-    await dialog.getByRole("button", { name: "보고서 요청" }).click();
-    await expect(reportHistory.getByText("대기 중", { exact: true }).first()).toBeVisible();
-    expect(downloadRequests).toBe(format === "xlsx" ? 0 : 1);
-    records = [browserReport("processing", format)];
-    await page.clock.runFor(3000);
-    await expect(reportHistory.getByText("생성 중 40%").first()).toBeVisible();
-    await expect(reportHistory.getByRole("progressbar", { name: /보고서 생성 진행률/ }).first()).toHaveAttribute("aria-valuenow", "40");
-    records = [browserReport("completed", format)];
-    await page.clock.runFor(3000);
-    const download = page.waitForEvent("download");
-    await page.getByRole("button", { name: /보고서 다운로드$/ }).click();
-    const file = await download;
-    expect(file.suggestedFilename()).toBe(`report.${format}`);
-    expect(await readFile((await file.path())!)).toEqual(Buffer.from(fixtures[format].bytes, "base64"));
-    await expect(page.getByRole("region", { name: "에너지 보고서" })).not.toContainText(/예상|추정|coverage|known|unknown|forecast|baseline|탄소|배출|최적화/i);
-  }
-  expect(requests).toEqual([browserReport("queued", "xlsx").request, browserReport("queued", "pdf").request]);
+  await page.getByRole("button", { name: "보고서 만들기" }).click();
+  const dialog = page.getByRole("dialog", { name: "에너지 사용량 보고서 만들기" });
+  await setDatePicker(dialog, "기간 시작", "2026-09-01");
+  await setDatePicker(dialog, "기간 종료", "2026-09-07");
+  await expect(dialog.getByRole("button", { name: "파일 형식" })).toHaveCount(0);
+  await dialog.getByRole("button", { name: "보고서 요청" }).click();
+  await expect(reportHistory.getByText("대기 중", { exact: true }).first()).toBeVisible();
+  expect(downloadRequests).toBe(0);
+  records = [browserReport("processing")];
+  await page.clock.runFor(3000);
+  await expect(reportHistory.getByText("생성 중 40%").first()).toBeVisible();
+  await expect(reportHistory.getByRole("progressbar", { name: /보고서 생성 진행률/ }).first()).toHaveAttribute("aria-valuenow", "40");
+  records = [browserReport("completed")];
+  await page.clock.runFor(3000);
+  const download = page.waitForEvent("download");
+  await page.getByRole("button", { name: /보고서 다운로드$/ }).click();
+  const file = await download;
+  expect(file.suggestedFilename()).toBe("report.pdf");
+  expect(await readFile((await file.path())!)).toEqual(Buffer.from(fixtures.pdf.bytes, "base64"));
+  await expect(page.getByRole("region", { name: "에너지 보고서" })).not.toContainText(/예상|추정|coverage|known|unknown|forecast|baseline|탄소|배출|최적화/i);
+  expect(requests).toEqual([browserReport("queued").request]);
   for (const status of ["failed", "expired"] as const) {
-    records = [browserReport(status, "pdf")];
+    records = [browserReport(status)];
     await page.reload();
     await expect(reportHistory.getByText(status === "failed" ? "생성 실패" : "만료됨", { exact: true }).first()).toBeVisible();
     await page.getByRole("button", { name: /보고서 다시 생성$/ }).click();
     await expect(reportHistory.getByText("대기 중", { exact: true }).first()).toBeVisible();
-    expect(requests.at(-1)).toEqual(browserReport("queued", "pdf").request);
+    expect(requests.at(-1)).toEqual(browserReport("queued").request);
   }
-  expect(downloadRequests).toBe(2);
+  expect(downloadRequests).toBe(1);
   await expect(page.getByRole("navigation", { name: "통계 메뉴" }).getByRole("link")).toHaveText(["개요", "사용 분석", "보고서"]);
 });
 
@@ -276,17 +254,14 @@ test("searches and paginates 101 server records, restores filters, and returns t
   const advancedFilters = filters.getByRole("button", { name: /상세 필터/ });
   await expect(advancedFilters).toHaveAttribute("aria-expanded", "false");
   await advancedFilters.click();
-  fixture.expectNextListQuery({ limit: "100", query: "서울", status: "completed", format: "pdf" });
-  await chooseOption(page, filters, "파일 형식", "PDF");
-  await expect(pagination.getByRole("status")).toContainText("1~6 / 6건");
-  fixture.expectNextListQuery({ limit: "100", query: "서울", status: "completed", format: "pdf", scope: "site" });
+  await expect(filters.getByRole("button", { name: "파일 형식" })).toHaveCount(0);
+  fixture.expectNextListQuery({ limit: "100", query: "서울", status: "completed", scope: "site" });
   await chooseOption(page, filters, "범위", "현장");
   await expect(pagination.getByRole("status")).toContainText("1~5 / 5건");
   fixture.expectNextListQuery({
     limit: "100",
     query: "서울",
     status: "completed",
-    format: "pdf",
     scope: "site",
     requestedFrom: "2026-09-08",
     requestedTo: "2026-09-10"
@@ -301,7 +276,6 @@ test("searches and paginates 101 server records, restores filters, and returns t
     limit: "100",
     query: "서울",
     status: "completed",
-    format: "pdf",
     scope: "site",
     requestedFrom: "2026-09-08",
     requestedTo: "2026-09-10"
@@ -310,12 +284,10 @@ test("searches and paginates 101 server records, restores filters, and returns t
   await expect(filters.getByRole("searchbox", { name: "보고서 검색" })).toHaveValue("서울");
   await expect(filters.getByRole("button", { name: "상태", exact: true })).toContainText("완료");
   await expect(advancedFilters).toHaveAttribute("aria-expanded", "false");
-  await expect(advancedFilters).toContainText("2개 적용");
-  await expect(filters.getByRole("button", { name: "형식: PDF 조건 제거" })).toBeVisible();
+  await expect(advancedFilters).toContainText("1개 적용");
   await expect(filters.getByRole("button", { name: "범위: 현장 조건 제거" })).toBeVisible();
   const restoredUrl = page.url();
   await advancedFilters.click();
-  await expect(filters.getByRole("button", { name: "파일 형식", exact: true })).toContainText("PDF");
   await expect(filters.getByRole("button", { name: "범위", exact: true })).toContainText("현장");
   await advancedFilters.click();
   await expect(page).toHaveURL(restoredUrl);
@@ -324,7 +296,6 @@ test("searches and paginates 101 server records, restores filters, and returns t
   fixture.expectNextListQuery({
     limit: "100",
     status: "completed",
-    format: "pdf",
     scope: "site",
     requestedFrom: "2026-09-08",
     requestedTo: "2026-09-10"
@@ -338,7 +309,6 @@ test("searches and paginates 101 server records, restores filters, and returns t
     limit: "100",
     query: "서울",
     status: "completed",
-    format: "pdf",
     scope: "site",
     requestedFrom: "2026-09-08",
     requestedTo: "2026-09-10"
@@ -353,7 +323,6 @@ test("searches and paginates 101 server records, restores filters, and returns t
   await expect(filters.getByRole("searchbox", { name: "보고서 검색" })).toHaveValue("");
   await expect(filters.getByRole("button", { name: "상태", exact: true })).toContainText("전체 상태");
   await advancedFilters.click();
-  await expect(filters.getByRole("button", { name: "파일 형식", exact: true })).toContainText("전체 형식");
   await expect(filters.getByRole("button", { name: "범위", exact: true })).toContainText("전체 범위");
   for (const segment of await filters.getByRole("group", { name: "요청 기간" }).getByRole("spinbutton").all()) {
     await expect(segment).not.toHaveAttribute("aria-valuenow");
@@ -388,7 +357,7 @@ for (const viewport of [
   test(`report history uses the accessible responsive surface at ${viewport.width}x${viewport.height}`, async ({ page }) => {
     await page.setViewportSize(viewport);
     await installReportHistoryFixture(page);
-    await page.goto(`/statistics/reports?siteId=${reportSiteId}&query=%EC%84%9C%EC%9A%B8&format=pdf&scope=site&requestedFrom=2026-09-07&requestedTo=2026-09-11`);
+    await page.goto(`/statistics/reports?siteId=${reportSiteId}&query=%EC%84%9C%EC%9A%B8&scope=site&requestedFrom=2026-09-07&requestedTo=2026-09-11`);
 
     if (viewport.width >= 1024) {
       await expect(page.getByRole("table", { name: "보고서 생성 이력" })).toBeVisible();
@@ -403,14 +372,11 @@ for (const viewport of [
     const pagination = page.getByRole("navigation", { name: "페이지 이동" });
     const dateRange = filters.getByRole("group", { name: "요청 기간" });
     const advancedPanel = filters.locator('[role="group"][aria-label="상세 필터 항목"]');
-    const formatSelect = advancedPanel.getByRole("button", { name: "파일 형식", exact: true, includeHidden: true });
     const scopeSelect = advancedPanel.getByRole("button", { name: "범위", exact: true, includeHidden: true });
     const advancedFilters = filters.getByRole("button", { name: /상세 필터/ });
     await expect(advancedFilters).toHaveAttribute("aria-expanded", "false");
-    await expect(advancedFilters).toContainText("2개 적용");
-    await expect(formatSelect).toBeHidden();
+    await expect(advancedFilters).toContainText("1개 적용");
     await expect(scopeSelect).toBeHidden();
-    await expect(filters.getByRole("button", { name: "형식: PDF 조건 제거" })).toBeVisible();
     await expect(filters.getByRole("button", { name: "범위: 현장 조건 제거" })).toBeVisible();
     const beforeToggleUrl = page.url();
     const beforeToggleRange = await pagination.getByRole("status").textContent();
@@ -426,7 +392,6 @@ for (const viewport of [
       filters.getByRole("searchbox", { name: "보고서 검색" }),
       filters.getByRole("button", { name: "상태" }),
       advancedFilters,
-      formatSelect,
       scopeSelect,
       pagination.getByRole("button", { name: "페이지당 항목 수" }),
       visibleHistory.getByRole("button", { name: /보고서 다운로드$/ }).first(),
@@ -471,7 +436,7 @@ test("selects analytics fixture/group history and bounds dates to the site's com
   await page.route("**/energy/sites/*/reports*", async route => {
     if (route.request().method() === "POST") {
       const request = route.request().postDataJSON(); requests.push(request);
-      await route.fulfill({ status: 202, json: browserReport("queued", request.format, request) });
+      await route.fulfill({ status: 202, json: browserReport("queued", request) });
     } else await route.fulfill({ json: { reports: [], nextCursor: null, totalCount: 0 } });
   });
   await page.goto(`/statistics/reports?siteId=${reportSiteId}`);
@@ -1067,7 +1032,6 @@ async function installReportHistoryFixture(page: Page) {
       createdRequests.push(request);
       const created = historyReport(1_000, {
         status: "queued",
-        format: request.format,
         scope: request.scope,
         label: "새 보고서",
         requestedAt: "2026-09-11T12:00:00.000Z",
@@ -1094,7 +1058,6 @@ async function installReportHistoryFixture(page: Page) {
     lastObservedListQuery = actualListQuery;
     const query = (url.searchParams.get("query") ?? "").trim().toLocaleLowerCase("ko-KR");
     const status = url.searchParams.get("status");
-    const format = url.searchParams.get("format");
     const scope = url.searchParams.get("scope");
     const requestedFrom = url.searchParams.get("requestedFrom");
     const requestedTo = url.searchParams.get("requestedTo");
@@ -1102,7 +1065,6 @@ async function installReportHistoryFixture(page: Page) {
       const requestedDate = record.requestedAt.slice(0, 10);
       return (!query || record.target.label.toLocaleLowerCase("ko-KR").includes(query))
         && (!status || record.status === status)
-        && (!format || record.request.format === format)
         && (!scope || record.request.scope === scope)
         && (!requestedFrom || requestedDate >= requestedFrom)
         && (!requestedTo || requestedDate <= requestedTo);
@@ -1130,12 +1092,42 @@ async function installReportHistoryFixture(page: Page) {
   };
 }
 
+test("opens a legacy XLSX history URL on the first PDF page", async ({ page }) => {
+  const fixture = await installReportHistoryFixture(page);
+  fixture.expectNextListQuery({ limit: "20", scope: "site" });
+  await page.goto(`/statistics/reports?siteId=${reportSiteId}&format=xlsx&reportPage=3&scope=site`);
+  await expect(page.getByRole("navigation", { name: "페이지 이동" }).getByRole("status")).toContainText("1~20 /");
+  await expect(page).toHaveURL(new RegExp(`\\?limit=20&scope=site&siteId=${reportSiteId}$`));
+  await expect(page.getByRole("search", { name: "보고서 이력 필터" }).getByRole("button", { name: "파일 형식" })).toHaveCount(0);
+  fixture.expectAllListQueriesObserved();
+});
+
+test("exports the selected range as raw CSV without a report format", async ({ page }) => {
+  const requests: URL[] = [];
+  await page.route("**/energy/sites/*/exports/csv?**", async route => {
+    requests.push(new URL(route.request().url()));
+    await route.fulfill({ contentType: "text/csv", body: "date,kwh\n2026-09-01,1\n" });
+  });
+  await page.goto(`/statistics/reports?siteId=${reportSiteId}`);
+  await page.getByRole("button", { name: "보고서 만들기" }).click();
+  const dialog = page.getByRole("dialog", { name: "에너지 사용량 보고서 만들기" });
+  const download = page.waitForEvent("download");
+  await dialog.getByRole("button", { name: "CSV 내보내기" }).click();
+  const file = await download;
+  expect(file.suggestedFilename()).toBe("energy-export.csv");
+  expect(await readFile((await file.path())!, "utf8")).toBe("date,kwh\n2026-09-01,1\n");
+  expect(requests).toHaveLength(1);
+  expect(Object.fromEntries(requests[0].searchParams)).toEqual({
+    from: "2026-08-13", to: "2026-09-11", scope: "site", identityId: reportSiteId
+  });
+  expect(requests[0].searchParams.has("format")).toBe(false);
+});
+
 function reportHistoryRecords(): EnergyReportJob[] {
   return Array.from({ length: 101 }, (_, index) => {
     if (index < 3) {
       return historyReport(index, {
         status: "completed",
-        format: "pdf",
         scope: "site",
         label: ["서울 본사", "서울 강남", "서울 연구소"][index],
         requestedAt: `2026-09-${String(10 - index).padStart(2, "0")}T09:00:00.000Z`
@@ -1144,32 +1136,29 @@ function reportHistoryRecords(): EnergyReportJob[] {
     if (index === 3) {
       return historyReport(index, {
         status: "completed",
-        format: "pdf",
         scope: "site",
         label: "부산 검색 조건 불일치",
         requestedAt: "2026-09-10T09:00:00.000Z"
       });
     }
     if (index === 4) return historyReport(index, {
-      status: "failed", format: "pdf", scope: "site", label: "서울 상태 조건 불일치", requestedAt: "2026-09-10T09:00:00.000Z"
+      status: "failed", scope: "site", label: "서울 상태 조건 불일치", requestedAt: "2026-09-10T09:00:00.000Z"
     });
     if (index === 5) return historyReport(index, {
-      status: "completed", format: "xlsx", scope: "site", label: "서울 형식 조건 불일치", requestedAt: "2026-09-10T09:00:00.000Z"
+      status: "completed", scope: "floor", label: "서울 범위 조건 불일치 2", requestedAt: "2026-09-10T09:00:00.000Z"
     });
     if (index === 6) return historyReport(index, {
-      status: "completed", format: "pdf", scope: "floor", label: "서울 범위 조건 불일치", requestedAt: "2026-09-10T09:00:00.000Z"
+      status: "completed", scope: "floor", label: "서울 범위 조건 불일치", requestedAt: "2026-09-10T09:00:00.000Z"
     });
     if (index === 7) return historyReport(index, {
-      status: "completed", format: "pdf", scope: "site", label: "서울 시작일 조건 불일치", requestedAt: "2026-09-07T09:00:00.000Z"
+      status: "completed", scope: "site", label: "서울 시작일 조건 불일치", requestedAt: "2026-09-07T09:00:00.000Z"
     });
     if (index === 8) return historyReport(index, {
-      status: "completed", format: "pdf", scope: "site", label: "서울 종료일 조건 불일치", requestedAt: "2026-09-11T09:00:00.000Z"
+      status: "completed", scope: "site", label: "서울 종료일 조건 불일치", requestedAt: "2026-09-11T09:00:00.000Z"
     });
-    const formats = ["xlsx", "pdf"] as const;
     const scopes = ["site", "floor", "group", "fixture"] as const;
     return historyReport(index, {
       status: index % 19 === 0 ? "processing" : index % 17 === 0 ? "queued" : "completed",
-      format: formats[index % formats.length],
       scope: scopes[index % scopes.length],
       label: `부산 보고서 ${String(index + 1).padStart(3, "0")}`,
       requestedAt: new Date(Date.parse("2026-09-07T08:00:00.000Z") - index * 3_600_000).toISOString()
@@ -1179,7 +1168,6 @@ function reportHistoryRecords(): EnergyReportJob[] {
 
 function historyReport(index: number, options: {
   status: EnergyReportJob["status"];
-  format: "xlsx" | "pdf";
   scope: EnergyReportJob["request"]["scope"];
   label: string;
   requestedAt: string;
@@ -1193,9 +1181,9 @@ function historyReport(index: number, options: {
     to: "2026-08-31",
     scope: options.scope,
     identityId,
-    format: options.format
+    format: "pdf" as const
   };
-  const report = browserReport(options.status, options.format, request);
+  const report = browserReport(options.status, request);
   return {
     ...report,
     reportId: `40000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`,

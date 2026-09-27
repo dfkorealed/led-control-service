@@ -25,7 +25,7 @@ describe("ReportHistoryFilters", () => {
 
     fireEvent.click(disclosure);
     expect(disclosure).toHaveAttribute("aria-expanded", "true");
-    expect(screen.getByRole("button", { name: "파일 형식" })).toBeVisible();
+    expect(screen.queryByRole("button", { name: "파일 형식" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "범위" })).toBeVisible();
     fireEvent.click(disclosure);
     expect(disclosure).toHaveAttribute("aria-expanded", "false");
@@ -54,19 +54,17 @@ describe("ReportHistoryFilters", () => {
   });
 
   it("keeps active advanced conditions visible and unchanged when the panel is collapsed", () => {
-    render(<FilterHarness initial={{ limit: 50, cursor: "older-page", format: "pdf", scope: "floor" }} />);
+    render(<FilterHarness initial={{ limit: 50, cursor: "older-page", scope: "floor" }} />);
 
     const disclosure = screen.getByRole("button", { name: /상세 필터/ });
     expect(disclosure).toHaveAttribute("aria-expanded", "false");
-    expect(disclosure).toHaveTextContent("2개 적용");
-    expect(screen.getByRole("button", { name: "형식: PDF 조건 제거" })).toBeVisible();
+    expect(disclosure).toHaveTextContent("1개 적용");
     expect(screen.getByRole("button", { name: "범위: 층 조건 제거" })).toBeVisible();
 
     fireEvent.click(disclosure);
-    expect(screen.getByRole("button", { name: "파일 형식" })).toHaveTextContent("PDF");
     expect(screen.getByRole("button", { name: "범위" })).toHaveTextContent("층");
     fireEvent.click(disclosure);
-    expect(readState()).toEqual({ limit: 50, cursor: "older-page", format: "pdf", scope: "floor" });
+    expect(readState()).toEqual({ limit: 50, cursor: "older-page", scope: "floor" });
   });
 
   it("explains that request dates are not the report document period", () => {
@@ -108,7 +106,6 @@ describe("ReportHistoryFilters", () => {
       limit: 50,
       cursor: "older-page",
       status: "completed",
-      format: "pdf",
       scope: "floor",
       requestedFrom: "2026-09-01",
       requestedTo: "2026-09-15"
@@ -118,7 +115,6 @@ describe("ReportHistoryFilters", () => {
     expect(filters).toHaveClass("custom-filters", "min-w-0");
     expect(screen.getByRole("button", { name: "상태" })).toHaveTextContent("완료");
     fireEvent.click(screen.getByRole("button", { name: /상세 필터/ }));
-    expect(screen.getByRole("button", { name: "파일 형식" })).toHaveTextContent("PDF");
     expect(screen.getByRole("button", { name: "범위" })).toHaveTextContent("층");
     expect(screen.getByRole("button", { name: "요청 기간: 2026-09-01 ~ 2026-09-15 조건 제거" })).toHaveClass("min-h-11");
 
@@ -126,7 +122,6 @@ describe("ReportHistoryFilters", () => {
     expect(screen.getByRole("button", { name: "상태" })).toHaveTextContent("전체 상태");
     expect(readState()).toEqual({
       limit: 50,
-      format: "pdf",
       scope: "floor",
       requestedFrom: "2026-09-01",
       requestedTo: "2026-09-15"
@@ -140,7 +135,6 @@ describe("ReportHistoryFilters", () => {
       cursor: "older-page",
       query: "서울",
       status: "completed",
-      format: "pdf",
       scope: "site",
       requestedFrom: "2026-09-08",
       requestedTo: "2026-09-10"
@@ -152,7 +146,6 @@ describe("ReportHistoryFilters", () => {
 
     expect(screen.getByRole("searchbox", { name: "보고서 검색" })).toHaveValue("");
     expect(screen.getByRole("button", { name: "상태" })).toHaveTextContent("전체 상태");
-    expect(screen.getByRole("button", { name: "파일 형식" })).toHaveTextContent("전체 형식");
     expect(screen.getByRole("button", { name: "범위" })).toHaveTextContent("전체 범위");
     expect(screen.queryByLabelText("활성 조건")).not.toBeInTheDocument();
     expect(readState()).toEqual({ limit: 50 });

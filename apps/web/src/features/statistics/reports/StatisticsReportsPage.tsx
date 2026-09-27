@@ -19,7 +19,7 @@ interface ReportCursorPageState {
 
 const firstReportPage: ReportCursorPageState = { page: 1, currentCursor: undefined, previousCursors: [] };
 const reportHistoryStateKey = "statisticsReportHistory";
-const legacyReportLocationParams = ["cursor", "reportCursor", "reportPage", "reportHistory", "reportSite"] as const;
+const legacyReportLocationParams = ["cursor", "reportCursor", "reportPage", "reportHistory", "reportSite", "format"] as const;
 
 interface RetainedReportPage {
   scopeKey: string;

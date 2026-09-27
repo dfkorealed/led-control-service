@@ -2,6 +2,10 @@ import { describe, expect, it } from "vitest";
 import { parseReportHistorySearchParams, serializeReportHistorySearchParams } from "./report-history-filters";
 
 describe("report history URL filters", () => {
+  it("drops a legacy XLSX format filter while keeping supported conditions", () => {
+    expect(parseReportHistorySearchParams(new URLSearchParams("limit=50&format=xlsx&scope=floor&status=completed")))
+      .toEqual({ limit: 50, scope: "floor", status: "completed" });
+  });
   it("trims search text, coerces the page size and omits absent filters", () => {
     expect(parseReportHistorySearchParams(new URLSearchParams(
       "query=%20%EC%84%9C%EC%9A%B8%20&status=completed&limit=50"
@@ -14,7 +18,6 @@ describe("report history URL filters", () => {
       cursor: "next+/=cursor",
       query: "서울 & B2/입구",
       status: "processing" as const,
-      format: "pdf" as const,
       scope: "floor" as const,
       requestedFrom: "2026-09-01",
       requestedTo: "2026-09-15"
