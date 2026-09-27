@@ -13,6 +13,7 @@
 - [x] 사용자가 상세 구현 계획의 실행을 승인했다. 격리 `codex/landing-ui-policy`에서 토큰 감사→RED→토큰 전용 커밋→신뢰 앵커 회전→화면/시안 전환을 순차 수행하고, 작업별 독립 리뷰·ledger와 체크리스트를 유지한다.
 - [x] Task 1의 16조합 기준 PNG 124개·925건 FAIL·전수 역할 감사와 두 차례 후보 검토/수정 검토를 완료했다. 검토된 369개 역할/동반 선언을 기존 값 변경 없이 토큰 전용 `d7044f13`으로 추가하고 exact-value/단일 선언 RED→GREEN을 확인했다. 구현 독립 리뷰는 spec PASS·quality Approved·Important 0이다. 전체 정책은 59 passed/4 failed, `ui:check`는 구 앵커 때문에 원래 925+테마 443=1368건 FAIL인 중간 상태다. 화면/동작 전환이나 0건 완료를 주장하지 않는다.
 - [x] Task 2 앵커 고정 전 공유 의존성을 보완했다. 정적 문서의 `normal`과 React의 1.5 행간을 실측하고, 정확한 기존 utility가 정책상 허용되지 않음을 확인했다. `e1fb48c6`에 `--leading-landing-concept-document: normal` 한 역할을 추가해 기존 369값을 그대로 유지한 370개 exact-value RED→GREEN을 확인했으며 scoped 독립 리뷰는 spec PASS·quality Approved·신규 지적 0이다. 시안 root 적용과 시각 검증은 후속 과제다.
+- [x] 랜딩 두 root가 공유하는 글꼴 대체 순서도 canonical html과 달라 `76791eaf`에 exact `--font-landing` 한 역할을 보완했다. 기존 370값 유지·총 371값 RED→GREEN·독립 scoped 리뷰 PASS/Approved·신규 지적 0을 확인했다. 실제 root 적용/다른 설치 폰트의 시각 및 Tailwind antialiased 추가 Mozilla 속성의 영향은 후속 화면 전환 검증으로 남긴다.
 - [ ] Task 2에서 승인 Git ref를 토큰 전용 커밋으로 회전하고 430/720/1050px 포함형 variant를 검증한다. 후속 페이지·데모·정적 URL 전환과 최종 시각/기능/정책 게이트를 수행한다.
 - [ ] 검토된 의미 기반 토큰·반응형 기준과 랜딩 스타일링 계약, 정적 시안의 Vite 페이지/React 경로 중 한 가지를 합의한 뒤 남은 925건의 0건 수렴과 시각 동일성을 검증한다.
 
