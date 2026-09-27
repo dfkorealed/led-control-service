@@ -23,9 +23,9 @@
 
 - 보고서 객체 정리는 HEAD의 존재 여부·크기를 측정하고 시도·실패·재시도, 관측·삭제·late PUT 객체 수와 바이트를 영구 원장에 기록한다. HEAD 404는 정상이며 lease를 잃은 회차는 지표를 저장하지 않는다. sweep 로그에 미등록 대상을 포함한 backlog, oldest due, 재시도·실패·late PUT 합계를 제공한다. UTC/서울 DB 세션에서 정확한 만료·재시도 경계와 고정 `prune(now)`, 51건 정리 수렴을 검증했다.
 
-- 보고서 생성 transaction은 접수 당시 현장·조명·층·그룹 대상명을 고정한다. 공개 응답은 `target`, `requestedAt`, 정제된 실패 코드·사유·다음 행동을 제공한다. 과거 이력의 대상명 보존 테스트는 해당 시점의 격리 PostgreSQL 증거이며, PDF 전용 migration 이후 기존 작업 행은 삭제 대상으로 취급한다.
+- 보고서 생성 transaction은 접수 당시 현장·조명·층·그룹 대상명을 고정한다. 공개 응답은 `target`, `requestedAt`, 정제된 실패 코드·사유·다음 행동을 제공한다. 과거 이력의 대상명 보존 테스트는 해당 시점의 격리 PostgreSQL 증거이며, PDF 전용 migration 적용 시 기존 작업 행은 삭제된다. 영속 로컬 DB에서는 2026-09-27에 이 삭제를 확인했다.
 
-- 보고서 목록은 접수 당시 대상명, 범위·기간·형식, 요청 시각, 완료/만료 파일의 만료 시각을 표시하고 실패 사유와 다음 행동을 함께 안내한다. 다운로드·다시 생성 버튼의 접근성 이름에는 대상명이 포함된다. 생성·재생성·다운로드·CSV 오류는 `ApiError`의 `400/422`, `404`, `409`, `5xx`와 fetch `TypeError`를 구분해 입력 수정, 대상/파일 부재·만료, 충돌, 서버, 네트워크 안내로 매핑하며 원시 서버 오류는 표시하지 않는다. 320px Chromium에서 메타데이터가 둘 이상의 행으로 감기고 작업 버튼과 문서가 가로로 넘치지 않음을 확인했다.
+- 보고서 목록은 접수 당시 대상명, 범위·기간, 요청 시각, 완료/만료 파일의 만료 시각을 표시하고 실패 사유와 다음 행동을 함께 안내한다. 다운로드·다시 생성 버튼의 접근성 이름에는 대상명이 포함된다. 생성·재생성·다운로드·CSV 오류는 `ApiError`의 `400/422`, `404`, `409`, `5xx`와 fetch `TypeError`를 구분해 입력 수정, 대상/파일 부재·만료, 충돌, 서버, 네트워크 안내로 매핑하며 원시 서버 오류는 표시하지 않는다. 320px Chromium에서 메타데이터가 둘 이상의 행으로 감기고 작업 버튼과 문서가 가로로 넘치지 않음을 확인했다.
 
 - 개요의 누적·일별·월별 비용과 분석 순위·보고서/CSV 비용은 “당시 적용 단가의 저장 비용”으로, 월 forecast·24시간 100% baseline·예상 절감 비용은 “현재 설정 단가 기준”으로 구분해 표시한다. 저장 비용을 현재 단가로 소급 계산한 예상 청구액으로 표현하지 않는다.
 
@@ -121,21 +121,21 @@
 
 ## 부족하거나 개선이 필요한 기능
 
-- PDF 전용 요청·저장소 업로드·구 이력 URL 정규화·Web 생성/재생성/다운로드와 별도 CSV 내보내기는 코드에 반영됐다. 62일 완전 fixture의 PDF 출력과 API 전체 runnable Jest/typecheck/build를 검증했다. opt-in 57 suites·655 tests와 영속 로컬/운영 DB 적용, 실제 Object Storage 회수, 실장비·실계량기 검증은 수행하지 않았다. 기존 XLSX/PDF 동등성 테스트 결과를 새 PDF 검증으로 간주하지 않는다.
-- `20260927090000_pdf_only_energy_reports`는 기존 `EnergyReportJob` 전체를 삭제하고 PDF 단일 enum으로 바꾸는 순방향 migration이다. 삭제 트리거가 과거 XLSX/PDF 객체 키를 `EnergyReportObjectCleanup`에 보존하고 반복 정리가 회수한다. 2026-09-27 현재 영속 로컬 DB·운영 DB에는 아직 적용하지 않았다. 로컬은 기존 API 프로세스가 실행 중이므로 중지에 대한 사용자 확인을 기다린다. 백업은 확보했으며 환경 식별·유지보수 경계·구 worker 중지·pre/postflight·S3 회수 확인 뒤 적용 결과를 기록해야 한다. 기존 이력이 실제 화면에서 비워졌다고 주장하지 않는다.
+- PDF 전용 요청·저장소 업로드·구 이력 URL 정규화·Web 생성/재생성/다운로드와 별도 CSV 내보내기는 코드에 반영됐다. 62일 완전 fixture의 PDF 출력과 API 전체 runnable Jest/typecheck/build를 검증했다. opt-in 57 suites·655 tests와 운영 DB·운영 Object Storage 적용, 실장비·실계량기 검증은 수행하지 않았다. 기존 XLSX/PDF 동등성 테스트 결과를 새 PDF 검증으로 간주하지 않는다.
+- `20260927090000_pdf_only_energy_reports`는 기존 `EnergyReportJob` 전체를 삭제하고 PDF 단일 enum으로 바꾸는 순방향 migration이다. 삭제 트리거가 과거 XLSX/PDF 객체 키를 `EnergyReportObjectCleanup`에 보존하고 반복 정리가 회수한다. 2026-09-27 사용자 승인 후 기존 `pnpm dev` API·Web을 중지하고 영속 로컬 `localhost:5432/led_control` 및 `energy-reports`의 새 보호 백업을 기본 checkout의 ignored `.local/backups`에 확보했다. 로컬 pre/postflight는 모두 종료 코드 0, 작업 4→0건, 보존 원장 2→4건·12개 키, 정리 확인 삭제 4건·오류 0건이었다. 로컬 버킷 객체 2→0개와 원래 PDF·XLSX 객체의 HEAD 404를 확인했다. 기존 개발 서버는 재시작하지 않았고, 운영 DB·저장소에는 적용하지 않았다.
 - PDF의 저장 전력량은 제품 상태 이벤트와 정격 전력에서 산출한 추정값이다. 계량기 실측, 청구액 또는 검증된 절감액으로 홍보하거나 표시하지 않는다. 자료 부족·결측·대상 귀속 공백과 저장 비용 부재를 0으로 보정하지 않는지 최종 PDF에서 확인해야 한다.
 - 이번 P1 기간·출처·히트맵 축·보고서 만료 메타 변경은 mock API 기반 Chromium `statistics-flow.spec.ts` 27/27을 1440/1024/390/320px 시나리오로 통과했다. 보고서 이력 반응형 테스트는 숨긴 SelectBox와 보이는 활성 조건 chip을 정확한 이름·상세 필터 DOM 범위로 구분하도록 locator를 보정했고 네 viewport 모두 재검증했다. 320px KPI 기간·비용 helper는 최대 3줄·카드 높이 230px 이내·카드/문서 넘침 없음과 별도 차트 경고 블록 부재를 확인했다. 전체 Web typecheck/build/Playwright, Recharts Y축 숫자 눈금의 별도 브라우저 확인, 실제 WebView·실계량기·Gateway·조명 HIL은 이 검증으로 완료됐다고 보지 않는다.
 - 보고서 필터 위계 변경의 320/390/1024/1440px mock API Playwright 회귀, Web typecheck와 UI policy는 통과했다. 전체 Web build·전체 Playwright와 실제 WebView 표시·터치 동작 및 실장비 수집은 이 검증으로 보증하지 않는다.
 - 디자인 시스템 pilot의 시각 증거는 자동 Chromium 스크린샷과 계산 스타일 검사다. 실제 iOS/Android WebView, 브라우저별 날짜 입력 보조기기, 수동 in-app 시각 QA는 수행하지 않았다.
 - production build의 main chunk는 655.68 kB(gzip 200.97 kB)로 기존 500 kB 경고가 남는다. 통계 route는 별도 lazy chunk를 유지하며, 이 작업은 공통 chunk 전략을 변경하지 않았다.
 
-- legacy 보고서 작업은 요청 당시 이름이 없어 범위와 identity ID로 표시한다. 새 migration은 격리 PostgreSQL에서만 검증했으며 사용자/운영 DB에는 적용하지 않았다.
+- legacy 보고서 작업은 요청 당시 이름이 없어 범위와 identity ID로 표시했다. PDF 전용 migration으로 영속 로컬 DB의 기존 작업 이력은 삭제됐으며, 운영 DB에는 적용하지 않았다.
 
 - 임의 과거 event ID의 exact dedupe는 해당 raw 원장이 남아 있는 기간에 의존한다. 정리 뒤에는 stream별 최신 identity·단조 high-water와 scan terminal ACK identity를 유지하며 Gateway identity 내 sequence reset/reuse는 허용하지 않는다. scope/hash가 없는 legacy 원장, 알 수 없는 유형, 삭제된 fixture·누락된 cursor 등 안전 조건을 증명할 수 없는 원장은 기한 없이 남을 수 있다. scan watermark는 기존 gateway/type 전체 순서이고 raw scope만 session ID다. 사용자 DB 적용과 실장비 재전송 검증은 미실행이다.
 - 배포는 구 API·report worker·삭제 작업을 중지한 maintenance barrier에서 읽기 전용 preflight → 단일 migration deploy → postflight 및 신규 schema/backfill 검증 → 새 API/worker 시작 순서로 진행해야 한다. 기존 migration checksum은 보존한다. 실패 이력·카탈로그·PostgreSQL 로그를 보존하며 자동 resolve나 부분 적용 덮어쓰기를 하지 않는다. 상세 복구 절차는 [DB 문서](../database-schema.md#보고서-migration-사전-검사와-실패-복구)를 따른다.
 
 - 보고서 파일의 7일 만료는 조회·다운로드에서 즉시 적용하며 물리 삭제는 60초 정리 주기와 backlog·저장소 상태에 따라 늦을 수 있다. 원장별 최대 3개 키의 HEAD·DELETE는 각각 4초 제한이며 DB transaction 밖에서 수행한다. PUT 10초·HEAD 4초 제한은 네트워크 보호일 뿐 정지한 프로세스의 미래 PUT을 막는 증거로 쓰지 않는다. 회수 원장은 자동 삭제하지 않으므로 크기, 반복 HEAD·DELETE와 전체 카운터 합계 조회 비용이 보고서 수에 따라 증가한다. 요청/문서 데이터는 원장에 포함하지 않는다. 매우 많은 보고서가 있는 현장의 삭제는 전체 시도 키 목록과 순차 저장소 삭제에 시간이 걸릴 수 있다.
-- 정리 지표는 HEAD에서 확인한 객체의 DELETE 성공 응답을 기준으로 하며 물리 저장 용량·과금 증거가 아니다. 현장 삭제의 직접 DELETE, 응답 유실·임대 상실·동시 객체 교체는 지표와 실제 삭제량 차이를 만들 수 있다. 실패한 late PUT 삭제는 이후 성공할 때 누적하며, 기존 원장의 과거 카운터는 복원하지 않고 새 migration부터 0으로 시작한다. 사용자/운영 DB에는 migration을 적용하지 않았다.
+- 정리 지표는 HEAD에서 확인한 객체의 DELETE 성공 응답을 기준으로 하며 물리 저장 용량·과금 증거가 아니다. 현장 삭제의 직접 DELETE, 응답 유실·임대 상실·동시 객체 교체는 지표와 실제 삭제량 차이를 만들 수 있다. 실패한 late PUT 삭제는 이후 성공할 때 누적하며, 기존 원장의 과거 카운터는 복원하지 않고 지표 migration부터 0으로 시작한다. PDF 전용 초기화는 영속 로컬 DB에만 적용했으며 운영 DB에는 적용하지 않았다.
 - 플랫폼 운영 배포 절차는 [API·Web runbook](../runbooks/production-api-web-deployment.md)을 따른다. 단일 호스트 Compose, 외부 Vault·공개 MQTT/Object Storage 연결, 장비 mTLS 공개 SAN, CRL 갱신 후 수동 broker SIGHUP, API 교체 후 nginx upstream 재해석·재시작이 운영 조건이다. Process-local 지표만 제공하며 외부 metrics/dashboard/alert/log shipping은 구성하지 않았다. 운영 배포·사용자 DB 적용·실장비 HIL과 native WebView·수동 시각 QA는 이번 자동 검증에 포함하지 않는다.
 
 - 1440/390/320px 결과는 Chromium 자동 브라우저 software 증거다. 실제 iOS/Android native WebView, 수동 in-app 시각 QA, WebView safe-area 실측 또는 Raspberry Pi/ESP32-H2 HIL을 수행한 결과가 아니다. Lazy chunk 실패의 복구 UI는 플랫폼 Task 3에서 구현했으며, prefetch/offline cache는 후속 범위다. Task 3 오류 주입은 Vite에서 실제 앱 셸의 동적 import 요청을 차단한 deterministic Chromium 결과이며, 운영 CDN/container 배포나 실제 backend 장애·HIL 검증을 의미하지 않는다.

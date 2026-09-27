@@ -94,11 +94,11 @@ Migration: `20260913_report_object_cleanup_ledger`. 원장은 PDF 전환 뒤에�
 
 `20260927090000_pdf_only_energy_reports`는 구 API/worker의 신규 보고서 생성·객체 PUT을 중지한 유지보수 경계에서만 적용하는 순방향 migration이다. `EnergyReportJob`에 `ACCESS EXCLUSIVE` 잠금을 얻고 모든 기존 작업 행을 `DELETE`한다. 기존 삭제 트리거가 각 행의 과거 XLSX/PDF attempt 키를 `EnergyReportObjectCleanup`에 남긴 뒤, `EnergyReportFormat` enum을 `pdf` 하나로 교체한다. 행 삭제와 enum 교체는 한 transaction이다. 원장은 `TRUNCATE`하지 않으며 S3 파일은 DB migration이 직접 지우지 않는다. 반복 HEAD/DELETE가 모든 객체를 회수했는지 별도로 확인해야 한다. 새 PDF 작업을 받기 전 postflight는 보고서 행 0건·PDF 단일 enum·migration 완료를 검사한다.
 
-이 문서는 코드·migration의 목표 구조를 설명한다. 2026-09-27 현재 영속 로컬 DB와 운영 DB에는 이 초기화 migration을 실행하지 않았다. 로컬은 기존 API 프로세스가 실행 중이어서 중지에 대한 사용자 확인을 기다린다. 기존 데이터의 백업은 확보했지만 백업만으로 삭제가 완료됐다고 판단하지 않는다. 대상 환경 식별, 복구 가능한 백업 확인, 구 worker 중지·늦은 PUT 차단, preflight, 단일 deploy, postflight, 객체 원장 회수와 보관 상태를 순서대로 확인한 뒤 환경별 적용 결과를 별도로 기록한다. 일회성 테스트 PostgreSQL의 migration 검증은 영속 DB 적용 증거가 아니다.
+2026-09-27 사용자 승인 후 기존 `pnpm dev` API·Web을 중지하고 영속 로컬 `localhost:5432/led_control` 및 로컬 `energy-reports`의 새 보호 백업을 기본 checkout의 ignored `.local/backups`에 확보했다. 유지보수 경계에서 로컬 `20260927090000_pdf_only_energy_reports`를 적용했고 pre/postflight는 각각 종료 코드 0이었다. `EnergyReportJob` 4→0건, `EnergyReportObjectCleanup` 2→4건·12개 키 보존을 확인했다. 정리 서비스가 확인한 삭제는 4건·오류 0건이며, 로컬 버킷 객체는 2→0개, 원래 PDF·XLSX 객체의 HEAD는 모두 404였다. 원장 지표의 확인 삭제 수와 버킷의 실제 객체 수는 다른 척도다. 기존 개발 서버는 재시작하지 않았다. 운영 DB·운영 Object Storage에는 적용하지 않았으며, 운영 적용에는 별도 환경 식별·복구 가능한 백업·구 worker 중지와 늦은 PUT 차단·preflight·단일 deploy·postflight·객체 회수 검증이 필요하다.
 
 20260912~14 적용은 구 API, report worker와 Site 삭제/메타데이터 purge를 실행하는 모든 프로세스를 중지한 maintenance barrier 안에서 수행한다. 이미 시작한 transaction도 종료됐는지 확인한다. 20260914의 테이블 잠금은 설치 중의 DELETE/쓰기와 충돌하지만 20260912~13 적용 구간까지 보호하지 않으므로 프로세스 중지가 필요하다. 기존 migration SQL과 checksum은 수정하지 않는다.
 
-`DATABASE_URL`을 대상 DB로 명시적으로 설정한 배포 세션에서 다음 순서로 실행한다. 아래 명령은 운영 절차이며 이번 구현에서 사용자/운영 DB에는 실행하지 않았다.
+`DATABASE_URL`을 대상 DB로 명시적으로 설정한 배포 세션에서 다음 순서로 실행한다. 이 순서는 2026-09-27 영속 로컬 DB에 적용해 확인했으며 운영 DB에는 실행하지 않았다.
 
 ```bash
 pnpm --filter @led-control/api reports:migration-preflight --phase=pre

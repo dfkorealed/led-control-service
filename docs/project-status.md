@@ -5,10 +5,11 @@
 ## 2026-09-27 PDF 전용 에너지 보고서 전환
 
 - [x] Excel 제거·기존 보고서 이력 전량 초기화·PDF 6쪽 시안 수정 요구를 [설계](superpowers/specs/2026-09-27-pdf-only-energy-report-design.md)와 [실행 체크리스트](superpowers/plans/2026-09-27-pdf-only-energy-report.md)에 반영했다. 사용자 요청에 따라 별도 중간 승인 대기 없이 격리 브랜치에서 구현한다.
-- [ ] PDF 전용 생성 계약, 안전한 이력/객체 정리, 의미 기반 PDF 렌더러, Web·랜딩 UI, 관련 메뉴/DB 문서와 자동 검증을 완료한다. 실제 DB 초기화는 접속 환경 확인과 유지보수 경계 후 실행 여부를 별도로 기록한다.
+- [x] PDF 전용 생성 계약, 안전한 이력/객체 정리, 의미 기반 PDF 렌더러, Web·랜딩 UI, 관련 메뉴/DB 문서와 자동 검증을 완료했다. 영속 로컬 DB 적용·파일 회수 결과와 운영 DB 미적용 상태는 아래에 분리해 기록한다.
 - [x] PDF 전용 shared/API 계약·worker 업로드 제한과 별도 CSV 검증, 구 이력 정리 migration 및 postflight, Web PDF 생성·재생성·다운로드·구 `format` URL 정규화와 랜딩 Excel 홍보 제거를 코드에 반영했다. 과거 XLSX/PDF 객체 키는 FK 없는 `EnergyReportObjectCleanup` 원장과 legacy 키 검증·반복 HEAD/DELETE 경로에 남긴다. 새 생성의 XLSX 요청은 거절한다.
 - [x] PDF 표시 사실 모델은 저장된 상태 기반 추정 전력·당시 저장 비용과 결측/0·자료 완전성을 구분한다. 62일 완전 fixture의 A4 6쪽 출력은 2개 층·6개 조명, 168개 정사각형 히트맵 셀과 겹침·잘림 부재를 시각 확인했다. `ece4530a`는 층 17개·20개 순위의 페이지 분할, 동일 이름의 현장·보고 범위 대상 구분, 부분/확인 불가 날짜의 일별 그래프 단절을 보완했고 `0e8c8dbc`는 양옆이 결측인 고립된 완전 기록일의 점을 표시한다. browser fixture의 의미 manifest·hash가 일치했고 API 전체 runnable Jest 217 suites·2,622 tests, typecheck와 Nest build가 통과했다. 환경 의존 opt-in 57 suites·655 tests는 실행하지 않았다. 계량기 실측, 청구액, 검증된 절감액으로 표현하지 않는다.
-- [ ] 영속 로컬 DB와 운영 DB의 보고서 초기화 migration은 아직 실행하지 않았다. 로컬은 기존 API 프로세스가 실행 중이므로 중지에 대한 사용자 확인을 기다린다. 백업은 확보했지만 적용 증거가 아니다. 대상 환경 식별·복구 가능성·구 worker 종료와 늦은 PUT 차단·maintenance barrier를 확인한 뒤 preflight → migration → 즉시 postflight → 객체 원장 회수 상태를 환경별로 기록한다. 현재 기존 이력과 저장소 파일이 실제로 삭제됐다고 주장하지 않는다.
+- [x] 사용자 승인 후 기존 `pnpm dev` API·Web 프로세스를 중지하고 영속 로컬 `localhost:5432/led_control` 및 로컬 `energy-reports` 버킷의 새 보호 백업을 기본 checkout의 ignored `.local/backups` 아래 확보했다. 로컬 DB의 `20260927090000_pdf_only_energy_reports` 적용 전·후 pre/postflight가 모두 종료 코드 0이었다. 기존 `EnergyReportJob` 4→0건, `EnergyReportObjectCleanup` 2→4건·12개 키 보존을 확인했고 정리 서비스의 확인된 삭제 4건·오류 0건을 기록했다. 로컬 버킷 객체는 2→0개이며 원래 PDF·XLSX 객체의 HEAD는 모두 404였다. 기존 개발 서버는 재시작하지 않았다.
+- [ ] 운영 DB·운영 Object Storage에는 이 초기화나 객체 회수를 적용하지 않았다. 운영 환경은 별도 백업·maintenance barrier·preflight → migration → 즉시 postflight → 객체 원장 회수 검증이 필요하다. 로컬 백업과 정리 결과를 운영 적용 증거로 사용하지 않는다.
 - [ ] 현재 fresh `pnpm audit:production`은 822개 의존성에서 Critical 0/High 2/Moderate 0/Low 0을 보고했지만 종료 코드 1이다. 기존 `image-size@1.2.1` 두 GHSA의 외부 patched floor가 `>=2.0.3`으로 바뀌어 고정된 예외 계약과 일치하지 않는다. ExcelJS/uuid 예외는 제거됐고 해당 Moderate 결과도 없다. 감사 정책 또는 의존성 검토가 끝나기 전 production audit 통과로 기록하지 않는다.
 
 ## 2026-09-27 공개 랜딩 파일 정리·통합
