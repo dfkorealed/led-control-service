@@ -46,10 +46,12 @@ Task 1 검증 메모: 집중·일회용 PG·배포 계약 테스트와 API typec
 
 **Interfaces:** `Command.contentRedactedAt: DateTime?`; 새 행은 현재 payload 필수, 비식별 행은 `targetType/targetFixtureIds/brightness/requestFingerprint/errorMessage`가 없음. DB CHECK는 두 상태의 중간값을 거부한다. 중복 키에 비식별 행이 발견되면 `409 command_request_expired`, 상태 확인은 내용 없는 `410 command_expired`와 발행 0건이다.
 
-- [ ] **Step 1: RED 테스트 작성.** SQL의 반쪽 비식별 INSERT/UPDATE 거부, 정상 Set 생성 불변, 동일 키 비식별 재POST 409·Set/outbox 0, 삭제된 user의 orphan key 재사용 409·Set 0(동시 2요청 포함), 옛 Get 410·Get 0, late ACK의 원문 재생성 0을 검증한다.
-- [ ] **Step 2: RED 확인.** focused Jest와 opt-in disposable PG에서 현재 `contentRedactedAt` 부재·orphan 중복 반례를 확인한다.
-- [ ] **Step 3: 최소 구현.** 새 nullable 내용 필드+`contentRedactedAt`/DB CHECK를 순방향 migration에 추가한다. `clientRequestId` UUID와 요청자 내부 ID는 중복 방지에만 유지하고 API에서 숨긴다. User 삭제로 NULL인 legacy 키는 site-scoped 직렬화 guard로 보수적 충돌 처리한다. Set·Get·ACK 소비자는 비식별 상태를 먼저 검사한다. 기존 HMAC purge dual-write를 전제로 하지 않는다.
+- [x] **Step 1: RED 테스트 작성.** SQL의 반쪽 비식별 INSERT/UPDATE 거부, 정상 Set 생성 불변, 동일 키 비식별 재POST 409·Set/outbox 0, 삭제된 user의 orphan key 재사용 409·Set 0(동시 2요청 포함), 옛 Get 410·Get 0, late ACK의 원문 재생성 0을 검증한다.
+- [x] **Step 2: RED 확인.** focused Jest와 opt-in disposable PG에서 현재 `contentRedactedAt` 부재·orphan 중복 반례를 확인한다.
+- [x] **Step 3: 최소 구현.** 새 nullable 내용 필드+`contentRedactedAt`/DB CHECK를 순방향 migration에 추가한다. `clientRequestId` UUID와 요청자 내부 ID는 중복 방지에만 유지하고 API에서 숨긴다. User 삭제로 NULL인 legacy 키는 site-scoped 직렬화 guard로 보수적 충돌 처리한다. Set·Get·ACK 소비자는 비식별 상태를 먼저 검사한다. 기존 HMAC purge dual-write를 전제로 하지 않는다.
 - [ ] **Step 4: GREEN·선택 통합.** Prisma validate/generate, focused+PG, 전체 API test/typecheck/build, 메뉴·schema 문서 및 독립 리뷰 후 정확 선택본 commit. 이 단계는 비식별 worker를 켜지 않는다.
+
+Task 2 검증 메모: 선택본 312 passed/1 skipped, 신규 PostgreSQL·HTTP 12 passed, Prisma validate/generate·API typecheck/build와 독립 리뷰는 통과했다. 전체 API의 기존 dirty retention 5개 실패가 남아 Step 4의 전체 GREEN은 최종 관문에서 확인한다.
 
 ### Task 3: 완료 후보의 raw 사본 정리 helper
 

@@ -7,11 +7,12 @@
 ## 2026-09-27 최근 3개월 상세 보존 — 진행 중
 
 - [x] Task 1: GET 조회의 독립적인 중앙 DB 3개월 경계, 만료된 동일 요청 ID의 내용 없는 409, 오래된 미확정 명령의 잠금 유지, read-only rollout 점검을 구현·독립 리뷰했다 (`1e5cea0a`, `f7dbdf96`). 집중 92/92, 일회용 PostgreSQL 5/5, HTTP/DB 보완 78/78, 배포 계약 18/18, API typecheck/build가 통과했다. 기존 미커밋 `data-retention.service.spec.ts`의 호출 횟수 기대값 5개가 전체 API 스위트에서 실패해 [실행 계획](superpowers/plans/2026-09-27-three-month-detail-retention.md)의 전체 검증 단계는 열려 있다. 운영 Compose의 HISTORY 활성화는 DB 준비 증거 연결 전까지 거부하며 운영 DB는 변경하지 않았다.
-- [ ] Task 2: `Command` 내용 제거 상태·DB 제약과 중복 요청/ACK 소비자 안전 경계를 구현·검증한다.
+- [x] Task 2: `Command.contentRedactedAt`과 원문/비식별 두 상태의 DB CHECK·순방향 migration, 동일 요청 ID·삭제된 사용자 키의 409, 오래된 상세·기존 상태 확인의 410, 늦은 ACK의 상세 재생성 차단을 구현·독립 리뷰했다 (`ca3c5aab`). 선택본 312 passed/1 skipped, 신규 일회용 PostgreSQL·HTTP 12 passed, Prisma validate/generate·API typecheck/build가 통과했다. 운영 DB에는 migration을 적용하지 않았고 worker도 아직 켜지 않았다. 전체 API의 기존 dirty retention 5개 실패는 최종 관문에 남아 있다.
 - [ ] Task 3: 종료 명령의 파생 raw 사본을 한 거래에서 정리하는 helper를 구현·검증한다.
 - [ ] Task 4: 기본 OFF의 bounded 중앙 DB 내용 정리 worker를 구현·검증한다.
 - [ ] Task 5: 제어·모니터링의 열린 화면 만료와 캐시 실패 시 내용·동작 숨김을 구현·검증한다.
 - [ ] 전체 API/Web·일회용 DB·브라우저 통합과 독립 최종 리뷰, 운영 적용 전 백업·dry-run·예외 감사가 남아 있다. 이 작업은 현재 운영 중앙 DB migration·flag ON, 실제 장비/HIL을 포함하지 않는다.
+- [ ] 위 보존 작업이 끝나면 기존 Final Atlas UI 변경을 메인 개발 흐름에 통합한다. `codex/mvp1-cloud-web`을 점유한 별도 작업공간과 보존한 WIP 디자인·맵 변경(`codex/wip-base-atlas-map-20260927`)을 먼저 비교해 기존 기능과 충돌을 확인하고, 통합 후 회귀 검증한다. 아직 merge/push하지 않았다.
 
 ## 2026-09-25 Final Atlas 구현·통합 현황 (이하 물리 purge 항목은 당시 실험 기록이며 현재 구현 목표가 아님)
 
