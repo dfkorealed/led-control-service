@@ -187,5 +187,102 @@ import { backfillLegacyCommandActivitySources } from "./command-activity-source-
       });
       await db.$executeRawUnsafe('UPDATE "MonitoringCommandSourcePolicy" SET "keyedRequired" = false WHERE "id" = 1');
     });
+
+    it("limits one raw Command source across 101 floors to 100 legacy rows per pass", async () => {
+      process.env.COMMAND_SAFETY_HMAC_ACTIVE_VERSION = "1";
+      process.env.COMMAND_SAFETY_HMAC_KEYS_JSON = JSON.stringify({ 1: randomBytes(32).toString("base64url") });
+      const organization = await db.organization.create({ data: { name: "row-bound activity", type: "customer" } });
+      const site = await db.site.create({ data: { organizationId: organization.id, name: "site" } });
+      const floorIds = Array.from({ length: 101 }, () => randomUUID());
+      await db.floor.createMany({ data: floorIds.map((id, level) => ({ id, siteId: site.id, name: `F${level}`, level })) });
+      const sourceKey = `${randomUUID()}:unknown`;
+      await db.monitoringActivity.createMany({ data: floorIds.map(floorId => ({
+        siteId: site.id, floorId, sourceType: "command", sourceKey,
+        kind: "command_result", commandOutcome: "unknown",
+        recordedAt: new Date("2026-09-24T12:00:00.000Z")
+      })) });
+
+      expect(await backfillLegacyCommandActivitySources(db, 100)).toEqual({ scanned: 100, rekeyed: 100 });
+      expect(await db.monitoringActivity.count({ where: { sourceKey } })).toBe(1);
+      expect(await backfillLegacyCommandActivitySources(db, 100)).toEqual({ scanned: 1, rekeyed: 1 });
+      expect(await db.monitoringActivity.count({ where: { sourceKey } })).toBe(0);
+      expect(await db.monitoringActivity.count({ where: { siteId: site.id } })).toBe(101);
+    });
+
+    it("limits 100 multi-floor raw sources by rows and converges on the next pass", async () => {
+      process.env.COMMAND_SAFETY_HMAC_ACTIVE_VERSION = "1";
+      process.env.COMMAND_SAFETY_HMAC_KEYS_JSON = JSON.stringify({ 1: randomBytes(32).toString("base64url") });
+      const organization = await db.organization.create({ data: { name: "group-bound activity", type: "customer" } });
+      const site = await db.site.create({ data: { organizationId: organization.id, name: "site" } });
+      const floors = await Promise.all([0, 1].map(level => db.floor.create({
+        data: { siteId: site.id, name: `F${level}`, level }
+      })));
+      const sourceKeys = Array.from({ length: 100 }, () => `${randomUUID()}:unknown`);
+      await db.monitoringActivity.createMany({ data: sourceKeys.flatMap(sourceKey => floors.map(floor => ({
+        siteId: site.id, floorId: floor.id, sourceType: "command", sourceKey,
+        kind: "command_result", commandOutcome: "unknown",
+        recordedAt: new Date("2026-09-24T12:00:00.000Z")
+      }))) });
+
+      expect(await backfillLegacyCommandActivitySources(db, 100)).toEqual({ scanned: 100, rekeyed: 100 });
+      expect(await db.monitoringActivity.count({ where: { siteId: site.id,
+        sourceKey: { in: sourceKeys } } })).toBe(100);
+      expect(await backfillLegacyCommandActivitySources(db, 100)).toEqual({ scanned: 100, rekeyed: 100 });
+      expect(await db.monitoringActivity.count({ where: { siteId: site.id,
+        sourceKey: { in: sourceKeys } } })).toBe(0);
+      expect(await db.monitoringActivity.count({ where: { siteId: site.id } })).toBe(200);
+    });
+
+    it("uses a raw-only ordered index for a large keyed activity table", async () => {
+      const indexes = await db.$queryRaw<Array<{ indexname: string }>>`
+        SELECT indexname FROM pg_indexes WHERE tablename = 'MonitoringActivity'
+          AND indexname = 'MonitoringActivity_raw_command_backfill_idx'`;
+      expect(indexes).toHaveLength(1);
+      const organization = await db.organization.create({ data: { name: "raw index activity", type: "customer" } });
+      const site = await db.site.create({ data: { organizationId: organization.id, name: "site" } });
+      const floor = await db.floor.create({ data: { siteId: site.id, name: "F1", level: 1 } });
+      await db.monitoringActivity.createMany({ data: Array.from({ length: 10_000 }, (_, index) => ({
+        siteId: site.id, floorId: floor.id, sourceType: "command",
+        sourceKey: `v1:hmac-sha256:${index.toString(16).padStart(64, "0")}`,
+        kind: "command_result" as const, commandOutcome: "unknown" as const,
+        recordedAt: new Date("2026-09-24T12:00:00.000Z")
+      })) });
+      await db.monitoringActivity.create({ data: { siteId: site.id, floorId: floor.id,
+        sourceType: "command", sourceKey: `${randomUUID()}:unknown`,
+        kind: "command_result", commandOutcome: "unknown",
+        recordedAt: new Date("2026-09-24T12:00:00.000Z") } });
+      await db.$executeRawUnsafe('ANALYZE "MonitoringActivity"');
+      const plan = await db.$queryRaw<Array<{ "QUERY PLAN": unknown }>>`
+        EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON)
+        SELECT "siteId", "sourceKey", "floorId" FROM "MonitoringActivity"
+        WHERE "sourceType" = 'command'
+          AND "sourceKey" ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}:(applied|not_applied|partially_applied|unknown)$'
+          AND "recordedAt" >= ('2026-09-01T00:00:00Z'::timestamptz AT TIME ZONE 'UTC')
+        ORDER BY "recordedAt", "id" LIMIT 100`;
+      const planText = JSON.stringify(plan[0]?.["QUERY PLAN"]);
+      expect(planText).toContain("MonitoringActivity_raw_command_backfill_idx");
+      expect(planText).not.toContain('"Node Type":"Seq Scan"');
+      expect(planText).not.toContain('"Node Type":"Sort"');
+      for (let batch = 1; batch < 10; batch++) {
+        await db.monitoringActivity.createMany({ data: Array.from({ length: 10_000 }, (_, index) => ({
+          siteId: site.id, floorId: floor.id, sourceType: "command",
+          sourceKey: `v1:hmac-sha256:${(batch * 10_000 + index).toString(16).padStart(64, "0")}`,
+          kind: "command_result" as const, commandOutcome: "unknown" as const,
+          recordedAt: new Date("2026-09-24T12:00:00.000Z")
+        })) });
+      }
+      await db.$executeRawUnsafe('ANALYZE "MonitoringActivity"');
+      const largePlan = await db.$queryRaw<Array<{ "QUERY PLAN": unknown }>>`
+        EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON)
+        SELECT "siteId", "sourceKey", "floorId" FROM "MonitoringActivity"
+        WHERE "sourceType" = 'command'
+          AND "sourceKey" ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}:(applied|not_applied|partially_applied|unknown)$'
+          AND "recordedAt" >= ('2026-09-01T00:00:00Z'::timestamptz AT TIME ZONE 'UTC')
+        ORDER BY "recordedAt", "id" LIMIT 100`;
+      const largePlanText = JSON.stringify(largePlan[0]?.["QUERY PLAN"]);
+      expect(largePlanText).toContain("MonitoringActivity_raw_command_backfill_idx");
+      expect(largePlanText).not.toContain('"Node Type":"Seq Scan"');
+      expect(largePlanText).not.toContain('"Node Type":"Sort"');
+    });
   }
 );

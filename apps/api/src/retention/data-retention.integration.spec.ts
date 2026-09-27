@@ -2,9 +2,10 @@ import { Logger } from "@nestjs/common";
 import { threeCalendarMonthsBefore } from "./calendar-month-window";
 import { Test } from "@nestjs/testing";
 import { Prisma, PrismaClient } from "@prisma/client";
-import { randomUUID } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import { disposablePostgres } from "../../test/support/disposable-postgres";
 import { DataRetentionService } from "./data-retention.service";
+import { recordCommandOutcomeActivity } from "../monitoring-activity/command-outcome-activity";
 import { PrismaModule } from "../prisma/prisma.module";
 import { PrismaService } from "../prisma/prisma.service";
 import { RetentionModule } from "./retention.module";
@@ -43,6 +44,11 @@ const policies = [
     jest.spyOn(Logger.prototype, "log").mockImplementation(() => {});
   }, 30_000);
   afterAll(async () => { await db?.$disconnect(); await peer?.$disconnect(); cluster?.stop(); jest.restoreAllMocks(); });
+  afterEach(() => {
+    delete process.env.MONITORING_ACTIVITY_KEYED_COMMAND_SOURCE_ENABLED;
+    delete process.env.COMMAND_SAFETY_HMAC_ACTIVE_VERSION;
+    delete process.env.COMMAND_SAFETY_HMAC_KEYS_JSON;
+  });
   beforeEach(async () => {
     sequence = 0;
     await db.$executeRawUnsafe('TRUNCATE TABLE "Organization" CASCADE');
@@ -83,6 +89,167 @@ const policies = [
       fixtureId: eventType === "fixture_state" ? ids.fixture : null, meshNodeId: eventType === "vehicle_sensor_capability" ? ids.node : null,
       scopeKey, payloadHash: hash, occurredAt: old, createdAt, ...overrides } });
   }
+
+  it("backfills a still-visible raw Command activity key without changing its recordedAt or retention window", async () => {
+    process.env.MONITORING_ACTIVITY_KEYED_COMMAND_SOURCE_ENABLED = "1";
+    process.env.COMMAND_SAFETY_HMAC_ACTIVE_VERSION = "1";
+    process.env.COMMAND_SAFETY_HMAC_KEYS_JSON = JSON.stringify({
+      1: randomBytes(32).toString("base64url") });
+    const commandId = randomUUID();
+    const recordedAt = new Date("2026-09-11T12:00:00.000Z");
+    const activity = await db.monitoringActivity.create({ data: {
+      siteId: ids.site, floorId: ids.floor, sourceType: "command",
+      sourceKey: `${commandId}:unknown`, kind: "command_result",
+      commandOutcome: "unknown", recordedAt
+    } });
+    await service.prune(now);
+    const rekeyed = await db.monitoringActivity.findUniqueOrThrow({ where: { id: activity.id } });
+    expect(rekeyed).toMatchObject({ recordedAt, sourceKey: expect.stringMatching(/^v1:hmac-sha256:[a-f0-9]{64}$/) });
+    expect(rekeyed.sourceKey).not.toContain(commandId);
+  });
+
+  it("leaves legacy Command activity untouched when keyed-source backfill is disabled", async () => {
+    const commandId = randomUUID();
+    const activity = await db.monitoringActivity.create({ data: {
+      siteId: ids.site, floorId: ids.floor, sourceType: "command",
+      sourceKey: `${commandId}:unknown`, kind: "command_result",
+      commandOutcome: "unknown", recordedAt: new Date("2026-09-11T12:00:00.000Z")
+    } });
+    await service.prune(now);
+    expect(await db.monitoringActivity.findUniqueOrThrow({ where: { id: activity.id } }))
+      .toMatchObject({ sourceKey: `${commandId}:unknown` });
+  });
+
+  it("rekeys no more than 100 legacy Command sources per sweep and converges on repetition", async () => {
+    process.env.MONITORING_ACTIVITY_KEYED_COMMAND_SOURCE_ENABLED = "1";
+    process.env.COMMAND_SAFETY_HMAC_ACTIVE_VERSION = "1";
+    process.env.COMMAND_SAFETY_HMAC_KEYS_JSON = JSON.stringify({ 1: randomBytes(32).toString("base64url") });
+    const sources = Array.from({ length: 101 }, (_, index) =>
+      `00000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}:unknown`);
+    await db.monitoringActivity.createMany({ data: sources.map(sourceKey => ({
+      siteId: ids.site, floorId: ids.floor, sourceType: "command", sourceKey,
+      kind: "command_result", commandOutcome: "unknown",
+      recordedAt: new Date("2026-09-11T12:00:00.000Z")
+    })) });
+    await service.prune(now);
+    const first = await db.monitoringActivity.findMany({ select: { sourceKey: true } });
+    expect(first.filter(row => row.sourceKey.endsWith(":unknown"))).toHaveLength(1);
+    expect(first.filter(row => row.sourceKey.startsWith("v1:hmac-sha256:"))).toHaveLength(100);
+    await service.prune(now);
+    const second = await db.monitoringActivity.findMany({ select: { sourceKey: true } });
+    expect(second).toHaveLength(101);
+    expect(second.every(row => /^v1:hmac-sha256:[a-f0-9]{64}$/.test(row.sourceKey))).toBe(true);
+    await service.prune(now);
+    expect(await db.monitoringActivity.count()).toBe(101);
+  });
+
+  it("deletes only pre-cutoff Command activity and rekeys the exact UTC calendar-month boundary", async () => {
+    process.env.MONITORING_ACTIVITY_KEYED_COMMAND_SOURCE_ENABLED = "1";
+    process.env.COMMAND_SAFETY_HMAC_ACTIVE_VERSION = "1";
+    process.env.COMMAND_SAFETY_HMAC_KEYS_JSON = JSON.stringify({ 1: randomBytes(32).toString("base64url") });
+    const boundary = new Date("2026-02-28T12:00:00.000Z");
+    const rows = await Promise.all([-1, 0, 1].map(offset => db.monitoringActivity.create({ data: {
+      siteId: ids.site, floorId: ids.floor, sourceType: "command",
+      sourceKey: `${randomUUID()}:unknown`, kind: "command_result", commandOutcome: "unknown",
+      recordedAt: new Date(boundary.getTime() + offset)
+    } })));
+    expect(await service.prune(new Date("2026-05-31T12:00:00.000Z")))
+      .toMatchObject({ monitoringActivities: 1 });
+    expect(await db.monitoringActivity.findUnique({ where: { id: rows[0].id } })).toBeNull();
+    for (const row of rows.slice(1)) {
+      expect(await db.monitoringActivity.findUniqueOrThrow({ where: { id: row.id } }))
+        .toMatchObject({ recordedAt: row.recordedAt,
+          sourceKey: expect.stringMatching(/^v1:hmac-sha256:[a-f0-9]{64}$/) });
+    }
+  });
+
+  it("reserves the backfill page for visible rows while the physical deletion backlog drains", async () => {
+    process.env.MONITORING_ACTIVITY_KEYED_COMMAND_SOURCE_ENABLED = "1";
+    process.env.COMMAND_SAFETY_HMAC_ACTIVE_VERSION = "1";
+    process.env.COMMAND_SAFETY_HMAC_KEYS_JSON = JSON.stringify({ 1: randomBytes(32).toString("base64url") });
+    const expiredAt = new Date("2026-02-28T11:59:59.999Z");
+    const retainedFrom = new Date("2026-02-28T12:00:00.000Z");
+    await db.monitoringActivity.createMany({ data: Array.from({ length: 1001 }, (_, index) => ({
+      siteId: ids.site, floorId: ids.floor, sourceType: "command",
+      sourceKey: `00000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}:unknown`,
+      kind: "command_result" as const, commandOutcome: "unknown" as const,
+      recordedAt: expiredAt
+    })) });
+    const visible = await db.monitoringActivity.create({ data: {
+      siteId: ids.site, floorId: ids.floor, sourceType: "command",
+      sourceKey: "ffffffff-ffff-4fff-8fff-ffffffffffff:unknown",
+      kind: "command_result", commandOutcome: "unknown", recordedAt: retainedFrom
+    } });
+    expect(await service.prune(new Date("2026-05-31T12:00:00.000Z")))
+      .toMatchObject({ monitoringActivities: 1000 });
+    expect(await db.monitoringActivity.count({ where: { recordedAt: expiredAt } })).toBe(1);
+    expect(await db.monitoringActivity.count({ where: { recordedAt: expiredAt,
+      sourceKey: { startsWith: "v1:hmac-sha256:" } } })).toBe(0);
+    expect((await db.monitoringActivity.findUniqueOrThrow({ where: { id: visible.id } })).sourceKey)
+      .toMatch(/^v1:hmac-sha256:[a-f0-9]{64}$/);
+  });
+
+  it("fails closed without an HMAC key and leaves surviving raw Command activity intact", async () => {
+    process.env.MONITORING_ACTIVITY_KEYED_COMMAND_SOURCE_ENABLED = "1";
+    const warn = jest.spyOn(Logger.prototype, "warn").mockImplementation(() => {});
+    const sourceKey = `${randomUUID()}:unknown`;
+    const activity = await db.monitoringActivity.create({ data: {
+      siteId: ids.site, floorId: ids.floor, sourceType: "command", sourceKey,
+      kind: "command_result", commandOutcome: "unknown",
+      recordedAt: new Date("2026-09-11T12:00:00.000Z")
+    } });
+    try {
+      await expect(service.prune(now)).rejects.toThrow("command safety HMAC key unavailable");
+      expect(await db.monitoringActivity.findUniqueOrThrow({ where: { id: activity.id } }))
+        .toMatchObject({ sourceKey });
+      expect(warn).toHaveBeenCalledWith(expect.objectContaining({
+        failedStage: "commandActivitySourceBackfill", rekeyedCommandActivitySources: 0
+      }));
+      expect(JSON.stringify(warn.mock.calls)).not.toContain(sourceKey);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("merges a concurrent keyed producer with the backfill without a duplicate activity", async () => {
+    process.env.MONITORING_ACTIVITY_KEYED_COMMAND_SOURCE_ENABLED = "1";
+    process.env.COMMAND_SAFETY_HMAC_ACTIVE_VERSION = "1";
+    process.env.COMMAND_SAFETY_HMAC_KEYS_JSON = JSON.stringify({ 1: randomBytes(32).toString("base64url") });
+    const command = await db.command.create({ data: {
+      siteId: ids.site, clientRequestId: randomUUID(), requestFingerprint: "retention-concurrency",
+      targetType: "fixture", targetFixtureIds: [ids.fixture], brightness: 70,
+      status: "pending", outcome: "pending"
+    } });
+    const recordedAt = new Date("2026-09-11T12:00:00.000Z");
+    const legacy = await db.monitoringActivity.create({ data: {
+      siteId: ids.site, floorId: ids.floor, sourceType: "command",
+      sourceKey: `${command.id}:unknown`, kind: "command_result",
+      commandOutcome: "unknown", recordedAt
+    } });
+    let sweep!: ReturnType<DataRetentionService["prune"]>;
+    await peer.$transaction(async tx => {
+      expect((await tx.command.updateMany({ where: { id: command.id, outcome: "pending" },
+        data: { status: "failed", outcome: "unknown" } })).count).toBe(1);
+      await recordCommandOutcomeActivity(tx, command.id, "pending", "unknown");
+      sweep = service.prune(now);
+      let waiting = false;
+      for (let attempt = 0; attempt < 150 && !waiting; attempt += 1) {
+        const locks = await tx.$queryRaw<Array<{ count: number }>>`
+          SELECT count(*)::int AS "count" FROM pg_locks
+          WHERE locktype = 'advisory' AND granted = false`;
+        waiting = locks[0]?.count === 1;
+        if (!waiting) await new Promise(resolve => setTimeout(resolve, 20));
+      }
+      expect(waiting).toBe(true);
+    }, { timeout: 15_000 });
+    await sweep;
+    const activities = await db.monitoringActivity.findMany({ where: {
+      siteId: ids.site, sourceType: "command", commandOutcome: "unknown"
+    } });
+    expect(activities).toHaveLength(1);
+    expect(activities[0]).toMatchObject({ id: legacy.id, recordedAt,
+      sourceKey: expect.stringMatching(/^v1:hmac-sha256:[a-f0-9]{64}$/) });
+  });
 
   it.each(policies)("deletes %s only after %i complete days measured by createdAt", async (type, days) => {
     const cutoff = now.getTime() - days * day;

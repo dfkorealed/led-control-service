@@ -2,6 +2,7 @@ import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from "@nestjs/commo
 import { Prisma } from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
 import { threeCalendarMonthsBefore } from "./calendar-month-window";
+import { backfillLegacyCommandActivitySources } from "../monitoring-activity/command-activity-source-backfill";
 
 const DAY_MS = 86_400_000;
 const SWEEP_DELETE_BUDGET = 21_000;
@@ -41,7 +42,8 @@ export class DataRetentionService implements OnModuleInit, OnModuleDestroy {
     const started = Date.now();
     const deleted: DeletedCounts = { gatewayEvents: 0, sessions: 0, floorMapRevisions: 0,
       monitoringRefreshes: 0, monitoringActivities: 0 };
-    let stage: keyof DeletedCounts = "gatewayEvents";
+    let stage: keyof DeletedCounts | "commandActivitySourceBackfill" = "gatewayEvents";
+    let rekeyedCommandActivitySources = 0;
     // Prisma binds JS Date as timestamptz; these schema columns store naive UTC.
     // An implicit comparison would shift the cutoff by the DB session timezone.
     const cutoff = (days: number) => Prisma.sql`(${new Date(now.getTime() - days * DAY_MS)}::timestamptz AT TIME ZONE 'UTC')`;
@@ -178,13 +180,20 @@ export class DataRetentionService implements OnModuleInit, OnModuleDestroy {
         )
         DELETE FROM "MonitoringActivity" activity USING candidates WHERE activity."id" = candidates."id"
       `);
+      if (process.env.MONITORING_ACTIVITY_KEYED_COMMAND_SOURCE_ENABLED === "1") {
+        stage = "commandActivitySourceBackfill";
+        // Separate from the deletion budget: this preserves each original
+        // recordedAt while removing a raw Command UUID from the source key.
+        const backfill = await backfillLegacyCommandActivitySources(this.prisma, 100, retainedFrom);
+        rekeyedCommandActivitySources = backfill.rekeyed;
+      }
       this.logger.log({ event: "data_retention_sweep", status: "completed", asOf: now.toISOString(),
-        durationMs: Date.now() - started, deleted });
+        durationMs: Date.now() - started, deleted, rekeyedCommandActivitySources });
       return deleted;
     } catch (error) {
       // Keep raw SQL, row values and connection details out of operational logs.
       this.logger.warn({ event: "data_retention_sweep", status: "failed", asOf: now.toISOString(),
-        durationMs: Date.now() - started, failedStage: stage, deleted });
+        durationMs: Date.now() - started, failedStage: stage, deleted, rekeyedCommandActivitySources });
       throw error;
     }
   }
