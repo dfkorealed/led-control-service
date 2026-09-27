@@ -878,3 +878,75 @@ describe("GET-only history cutoff on Set idempotency", () => {
     }
   });
 });
+
+describe("HISTORY-only Set HTTP and safety overlap", () => {
+  const oldId = "11111111-1111-4111-8111-111111111111";
+  const cutoff = new Date("2026-02-28T12:00:00.000Z");
+
+  afterEach(() => { delete process.env.COMMAND_HISTORY_RETENTION_ENABLED; });
+
+  it.each([
+    ["expired", "2026-02-28T11:59:59.999Z", 409],
+    ["recent", "2026-02-28T12:00:00.000Z", 201]
+  ])("returns the %s retry contract over HTTP with only HISTORY enabled", async (_kind, createdAt, expectedStatus) => {
+    process.env.COMMAND_HISTORY_RETENTION_ENABLED = "1";
+    const request = { siteId: ids.site, clientRequestId: oldId,
+      target: { type: "fixture" as const, fixtureId: ids.fixture1 }, brightness: 40 };
+    const existing = { id: ids.command, siteId: ids.site, requestedBy: operator.id,
+      clientRequestId: request.clientRequestId, targetType: "fixture", targetId: ids.fixture1,
+      targetFixtureIds: [ids.fixture1], brightness: 40, createdAt: new Date(createdAt),
+      dispatches: [{ deliveryMode: "unicast" }], manualOverride: { overrideUntil: null } };
+    const { service, tx } = createHarness({ existingCommand: existing, fixtures: [fixture(ids.fixture1)] });
+    tx.$queryRaw.mockImplementation(async (query: any) => query.strings.join(" ").includes("transaction_timestamp()")
+      ? [{ generatedAt: new Date("2026-05-31T12:00:00.000Z"), retainedFrom: cutoff }] : []);
+    const { Test } = await import("@nestjs/testing");
+    const { AuthService } = await import("../auth/auth.service");
+    const { CommandsController } = await import("./commands.controller");
+    const { CommandStatusService } = await import("./command-status.service");
+    const { CommandVerificationService } = await import("./command-verification.service");
+    const { CommandRecoveryService } = await import("./command-recovery.service");
+    const module = await Test.createTestingModule({ controllers: [CommandsController], providers: [
+      { provide: AuthService, useValue: { getUserBySessionToken: async () => operator } },
+      { provide: CommandsService, useValue: service },
+      { provide: CommandStatusService, useValue: {} },
+      { provide: CommandVerificationService, useValue: {} },
+      { provide: CommandRecoveryService, useValue: {} }
+    ] }).compile();
+    const app = module.createNestApplication();
+    await app.listen(0, "127.0.0.1");
+    const baseUrl = await app.getUrl();
+    try {
+      const send = () => fetch(`${baseUrl}/commands/dimming`, { method: "POST", headers: {
+        Cookie: "led_session=test", "Content-Type": "application/json"
+      }, body: JSON.stringify(request) });
+      const first = await send();
+      const body = await first.json();
+      expect(first.status).toBe(expectedStatus);
+      if (expectedStatus === 409) expect(body).toEqual({ code: "command_request_expired" });
+      else {
+        expect(body).toMatchObject({ id: ids.command, brightness: 40, deliveryMode: "unicast" });
+        const repeated = await send();
+        expect(repeated.status).toBe(201);
+        expect(await repeated.json()).toEqual(body);
+      }
+      expect(tx.command.create).not.toHaveBeenCalled();
+      expect(tx.mqttOutbox.create).not.toHaveBeenCalled();
+    } finally {
+      await app.close();
+    }
+  });
+
+  it("still blocks a fresh overlapping Set on an old unresolved command", async () => {
+    process.env.COMMAND_HISTORY_RETENTION_ENABLED = "1";
+    const { service, tx } = createHarness({ fixtures: [fixture(ids.fixture1)] });
+    tx.command.findMany.mockResolvedValueOnce([{ id: "old-unknown", siteId: ids.site,
+      createdAt: new Date("2026-01-01T00:00:00.000Z"), outcome: "unknown", targetFixtureIds: [ids.fixture1] }]);
+    await expect(service.createDimmingCommand(operator, { siteId: ids.site,
+      clientRequestId: "99999999-9999-4999-8999-999999999996",
+      target: { type: "fixture", fixtureId: ids.fixture1 }, brightness: 50 }))
+      .rejects.toMatchObject({ status: 409, response: { code: "uncertain_command_requires_status_check" } });
+    expect(tx.command.create).not.toHaveBeenCalled();
+    expect(tx.gateway.update).not.toHaveBeenCalled();
+    expect(tx.mqttOutbox.create).not.toHaveBeenCalled();
+  });
+});
