@@ -1,11 +1,12 @@
 # 제어 메뉴 기능 현황
 
-## 2026-09-27 종료 명령 상세 정리 helper
+## 2026-09-27 종료 명령 상세 정리 helper와 기본 OFF worker
 
 - 구현 완료: 종료 outcome과 terminal dispatch/result, hold 없음, 종료 override, settled outbox를 확인한 뒤 원본과 파생 상세를 같은 거래에서 제거하는 내부 helper 및 DB tombstone 제약을 추가했다. Command/dispatch/수동 parent ID·FK·alias는 보존하며 exact 수동 replay는 keyed 증명으로 검증해 DB 상세/ACK hash 재생성 없이 응답한다. 실패하면 전체 거래를 rollback한다.
-- 미구현: 기본 OFF의 bounded worker 연결과 운영 중앙 DB migration/활성화. 물리 Command purge, 보호 cutover, 복구 POST와 새 자동 Set/Get은 이번 변경으로 켜지지 않는다.
+- 구현 완료: 기본 OFF인 `COMMAND_DETAIL_REDACTION_ENABLED` worker를 등록했다. ON에서 60초마다 기본 100개(허용 상한 1,000개) 후보를 DB UTC 3 calendar months 기준으로 잠그고 helper를 실행한다. 정확 cutoff·이미 제거된 행은 보존/제외하며 실패 거래 rollback 뒤 `detail_` 사유로 1시간 재시도를 미뤄 뒤 후보의 기아를 방지한다. batch의 처리/보류/지연 건수, 전체 사유별 보류 건수와 최고 경과 초를 기록한다. 오래된 미해결·활성 상태는 보류하고 제어 잠금을 유지한다.
+- 미구현: 운영 중앙 DB migration/활성화와 외부 운영 경보 연결. 물리 Command purge, 보호 cutover, 복구 POST와 새 자동 Set/Get은 이번 변경으로 켜지지 않는다. 운영 적용은 백업·dry-run·DB 시계·raw 사본 감사 뒤 별도다.
 - 부족하거나 개선이 필요한 기능: 연결할 수 없는 과거 ACK hash·고아 수동 실행·미완료 재위촉·증명/키 부족은 이유와 함께 보류된다. 일회성 ACK 발행 실패는 Gateway의 기존 보고 재전송에 의존하며 실제 broker/Gateway/RF HIL은 별도다.
-- 관련 파일: `apps/api/src/retention/command-detail-redaction.ts`, `apps/api/src/automation/redacted-manual-execution-replay.ts`, `apps/api/src/mqtt/mqtt.service.ts`, `apps/api/prisma/migrations/20260927160000_command_derived_content_redaction/migration.sql`.
+- 관련 파일: `apps/api/src/retention/command-detail-redaction.ts`, `apps/api/src/retention/command-detail-retention.service.ts`, `apps/api/src/retention/retention.module.ts`, `apps/api/src/automation/redacted-manual-execution-replay.ts`, `apps/api/src/mqtt/mqtt.service.ts`, `apps/api/prisma/migrations/20260927160000_command_derived_content_redaction/migration.sql`.
 - 갱신 규칙: software DB/transport 회귀와 실제 운영·하드웨어 검증을 구분하고, 사본 검증 실패를 정리 성공으로 기록하지 않는다.
 
 ## 2026-09-27 발행 세대와 보관 worker 안전 통합

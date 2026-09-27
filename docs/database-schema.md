@@ -1,5 +1,13 @@
 # 데이터베이스 테이블 구조
 
+## 2026-09-27 기본 OFF의 명령 상세 정리 worker
+
+`CommandDetailRetentionService.runBatch(maxCandidates=100)`은 `COMMAND_DETAIL_REDACTION_ENABLED=1`일 때만 실행한다. 기본 OFF에서는 DB 읽기·쓰기를 하지 않으며, 활성화한 API의 60초 timer와 수동 호출은 인스턴스 내 실행을 공유한다. 배치 상한은 1~1,000개 Command 후보다. DB UTC transaction 시각을 기존 timestamp/Date의 밀리초 정밀도로 맞추고 3 calendar months를 뺀 경계를 배치 동안 고정한다. 정확한 경계는 보존하며 `contentRedactedAt IS NULL`인 더 오래된 행만 `(createdAt,id)` 순서로 한 행씩 `FOR UPDATE SKIP LOCKED`로 잠근다. 후보 수 상한은 파생 상세 행 수나 전체 backlog 집계 비용의 상한이 아니다.
+
+각 후보의 helper는 같은 transaction에서 실행한다. 실패하면 해당 거래 전체를 rollback한 뒤 별도 거래에서 원본을 다시 잠그고 marker를 재확인하여 기존 `CommandRetentionAttempt`에 `detail_` 사유·DB UTC 시도 시각·1시간 뒤 `retryAfterAt`을 기록한다. 이 접두사의 재시도 대기 행을 제외하므로 오래된 보류 후보가 뒤의 처리 가능한 후보를 가로막지 않는다. 성공하면 해당 detail 시도 기록을 제거한다. 물리 purge 전용 flag는 읽거나 활성화하지 않는다.
+
+배치 결과는 `examined`, `redacted`, `skippedByReason`, `overdueCount`를 반환하고, 운영 로그는 보류 중인 전체 `blockedByReason`과 가장 오래된 미정리 행의 `oldestAgeSeconds`도 제공한다. 과거 ACK 귀속 불가의 `legacy_ack_attribution_unverifiable`도 별도로 집계하며 raw SQL/원문 오류/명령 ID를 로그에 넣지 않는다. OFF의 0은 미조회 값이며 backlog가 없다는 증거가 아니다. 운영 migration·flag ON은 백업, DB 시계/기존 raw 사본 감사와 dry-run 검증 뒤 별도로 진행한다. 이 작업에는 새로운 migration이나 운영 적용이 없다.
+
 ## 2026-09-27 종료 명령 파생 상세의 원자적 제거
 
 `20260927160000_command_derived_content_redaction`은 종료된 `ManualOverride`와 수동 `AutomationExecution`에 `contentRedactedAt`을 추가한다. Override의 밝기·요청자·source digest와 target membership, execution의 payload·unkeyed hash·occurrence 및 fixture results를 제거한다. 부모 ID·현장·Gateway·Command FK와 legacy Override-ID alias는 유지한다. CHECK와 remove-only trigger는 정상 행의 필수 내용을 유지하고 비식별 상태 복원·늦은 child/outbox 재삽입을 거부한다. Command/dispatch의 상세 복원도 DB에서 차단한다.
