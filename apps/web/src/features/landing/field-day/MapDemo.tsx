@@ -12,7 +12,8 @@ export function MapDemo({ motion }: { motion: SceneMotion }) {
   const [ghost, setGhost] = useState<Position | null>(null);
   const content = useRef<HTMLDivElement>(null);
   const canvas = useRef<HTMLDivElement>(null);
-  const tool = useRef<HTMLButtonElement>(null);
+  const toolIcon = useRef<HTMLElement>(null);
+  const ghostNode = useRef<HTMLSpanElement>(null);
   const marker = useRef<HTMLButtonElement>(null);
   const drag = useRef<{ id: number; startX: number; startY: number; moving: boolean } | null>(null);
   const markerDrag = useRef<number | null>(null);
@@ -29,19 +30,19 @@ export function MapDemo({ motion }: { motion: SceneMotion }) {
     setPosition({ x: 72, y: 53 });
     setStatus("도면에 조명을 배치하고 있습니다.");
     const contentRect = content.current?.getBoundingClientRect();
-    const sourceRect = tool.current?.querySelector("i")?.getBoundingClientRect();
+    const sourceRect = toolIcon.current?.getBoundingClientRect();
     const canvasRect = canvas.current?.getBoundingClientRect();
-    const ghostNode = content.current?.querySelector<HTMLElement>(".map-drag-ghost");
+    const ghost = ghostNode.current;
     let animation: Animation | null = null;
-    if (contentRect && sourceRect && canvasRect && ghostNode && typeof ghostNode.animate === "function") {
+    if (contentRect && sourceRect && canvasRect && ghost && typeof ghost.animate === "function") {
       const startX = sourceRect.left + sourceRect.width / 2 - contentRect.left;
       const startY = sourceRect.top + sourceRect.height / 2 - contentRect.top;
       const dx = canvasRect.left + canvasRect.width * .65 - contentRect.left - startX;
       const dy = canvasRect.top + canvasRect.height * .36 - contentRect.top - startY;
-      ghostNode.style.left = `${startX - 9}px`;
-      ghostNode.style.top = `${startY - 9}px`;
-      ghostNode.classList.add("is-visible");
-      animation = ghostNode.animate([
+      ghost.style.left = `${startX - 9}px`;
+      ghost.style.top = `${startY - 9}px`;
+      ghost.classList.add("is-visible");
+      animation = ghost.animate([
         { transform: "translate(0, 0) scale(.8)", opacity: 0 },
         { transform: `translate(${dx * .35}px, ${dy * .15}px) scale(1.12)`, opacity: 1, offset: .35 },
         { transform: `translate(${dx}px, ${dy}px) scale(1)`, opacity: 1 }
@@ -49,12 +50,12 @@ export function MapDemo({ motion }: { motion: SceneMotion }) {
     }
     const drop = window.setTimeout(() => {
       animation?.cancel();
-      ghostNode?.classList.remove("is-visible");
+      ghost?.classList.remove("is-visible");
       setPlaced(true); setPosition({ x: 65, y: 36 });
       setStatus("예시 조명을 도면에 놓았습니다. 위치를 조정합니다.");
     }, 1150);
     const move = window.setTimeout(() => setPosition({ x: 72, y: 53 }), 1400);
-    return () => { window.clearTimeout(drop); window.clearTimeout(move); animation?.cancel(); ghostNode?.classList.remove("is-visible"); };
+    return () => { window.clearTimeout(drop); window.clearTimeout(move); animation?.cancel(); ghost?.classList.remove("is-visible"); };
   }, [motion.run, motion.phase]);
 
   function toMapPosition(clientX: number, clientY: number): Position | null {
@@ -92,13 +93,13 @@ export function MapDemo({ motion }: { motion: SceneMotion }) {
     className={`map-demo ${placed ? "has-placed" : ""}`}>
     <div className="map-content" ref={content}>
       <div className="map-tools"><span>배치 도구</span>
-        <Button ref={tool} type="button" variant="primary" className="button button--tool"
+        <Button type="button" variant="primary" className="button button--tool"
           onPointerDown={event => { if (event.button !== 0) return; drag.current = { id: event.pointerId, startX: event.clientX, startY: event.clientY, moving: false }; event.currentTarget.setPointerCapture(event.pointerId); }}
           onPointerMove={onToolMove} onPointerUp={onToolUp} onPointerCancel={() => { drag.current = null; setGhost(null); }}
-          onClick={() => { if (suppressClick.current) return; manual.current = true; motion.stop(); setPlaced(true); setStatus("도면에 예시 조명 하나를 직접 배치했습니다."); }}><i aria-hidden="true" /> 조명 배치</Button>
+          onClick={() => { if (suppressClick.current) return; manual.current = true; motion.stop(); setPlaced(true); setStatus("도면에 예시 조명 하나를 직접 배치했습니다."); }}><i ref={toolIcon} aria-hidden="true" /> 조명 배치</Button>
         <Button type="button" variant="ghost" className="button button--quiet" onClick={() => { manual.current = true; motion.stop(); setPlaced(false); setStatus("추가한 예시 조명의 배치를 취소했습니다."); }}>배치 취소</Button>
       </div>
-      <span className={`map-drag-ghost ${ghost ? "is-visible" : ""}`} style={ghost ? { left: ghost.x, top: ghost.y } : undefined} aria-hidden="true" />
+      <span ref={ghostNode} className={`map-drag-ghost ${ghost ? "is-visible" : ""}`} style={ghost ? { left: ghost.x, top: ghost.y } : undefined} aria-hidden="true" />
       <div className="map-canvas" ref={canvas} aria-label="조명 위치를 배치해 보는 예시 도면">
         <div className="map-canvas__grid" aria-hidden="true" /><div className="map-canvas__room map-canvas__room--a">주차 구역 A</div><div className="map-canvas__room map-canvas__room--b">출입구</div><div className="map-canvas__wall" aria-hidden="true" />
         <span className="map-light map-light--one" aria-hidden="true" /><span className="map-light map-light--two" aria-hidden="true" />
