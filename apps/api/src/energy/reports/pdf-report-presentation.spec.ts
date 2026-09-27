@@ -124,4 +124,61 @@ describe("PDF report presentation", () => {
     expect(result.heatmap.find(cell => cell.weekday === 1 && cell.hour === 3)).toMatchObject({
       energy: { raw: "0" }, expectedSeconds: 3600, knownSeconds: 3600 });
   });
+
+  it("does not label missing-period allocation buckets as known zero", () => {
+    const absent = data();
+    absent.fixtures[0].daily = absent.fixtures[0].daily.filter(row => row.localDate < request.from);
+    const allMissing = present(absent);
+    expect(allMissing.floors.unassigned).toMatchObject({ raw: null, text: "데이터 없음" });
+    expect(allMissing.fixtures.other).toMatchObject({ raw: null, text: "데이터 없음" });
+    const partlyMissing = data();
+    partlyMissing.fixtures[0].daily = partlyMissing.fixtures[0].daily.filter(row => row.localDate !== request.to);
+    const partial = present(partlyMissing);
+    expect(partial.fixtures.other.raw).toBe("0");
+    expect(partial.fixtures.other.text).toContain("부분 기록");
+    expect(partial.summary.current).toMatchObject({ raw: null, text: "데이터 없음" });
+  });
+
+  it("shows positive energy below display resolution instead of a false zero", () => {
+    const snapshot = data();
+    snapshot.fixtures[0].daily[2].energyKwh = "0.000049";
+    snapshot.fixtures[0].daily[3].energyKwh = "0.000049";
+    const result = present(snapshot);
+    expect(result.daily.map(day => day.energy.text)).toEqual(["< 0.0001 kWh", "< 0.0001 kWh"]);
+    expect(result.monthly[0].energy).toMatchObject({ raw: "0.000098", text: "0.0001 kWh" });
+  });
+
+  it("does not claim complete hourly coverage from shifted UTC buckets in Asia/Kolkata", () => {
+    const snapshot = data(); snapshot.site.timeZone = "Asia/Kolkata";
+    snapshot.fixtures[0].hourly = [];
+    snapshot.fixtures[0].daily = [{ localDate: "2026-09-07", energyKwh: "0", cost: "0", durationSeconds: 86400 }];
+    for (let hour = 0; hour < 24; hour++) {
+      const bucket = new Date(Date.parse("2026-09-06T19:00:00.000Z") + hour * 3600000);
+      snapshot.fixtures[0].hourly.push({ bucketStartUtc: bucket.toISOString(), localDate: "2026-09-07",
+        localHour: hour, energyKwh: "0", durationSeconds: 3600, brightnessWeightedSeconds: "0" });
+    }
+    const document = new EnergyReportDocumentBuilder().build(reportId,
+      { ...request, to: request.from }, { ...snapshot, comparisonRange: { from: "2026-09-06", to: "2026-09-06" } });
+    const result = buildPdfReportPresentation(document);
+    expect(result.daily[0].completeness).toBe("complete");
+    expect(result.heatmapCoverage).toBe("unknown");
+  });
+
+  it("compacts 1,000 fixtures across 62 days to one source row per fixture", () => {
+    const snapshot = data();
+    const dates = Array.from({ length: 124 }, (_, index) =>
+      new Date(Date.parse("2026-04-30T00:00:00.000Z") + index * 86400000).toISOString().slice(0, 10));
+    snapshot.fixtures = Array.from({ length: 1000 }, (_, index) => ({ ...fixture(), id: `fixture-${index}`,
+      from: "2026-04-01T00:00:00.000Z",
+      dimensions: [{ ...fixture().dimensions[0], from: "2026-04-01T00:00:00.000Z", name: `조명 ${index}` }], hourly: [],
+      daily: dates.map(localDate => ({ localDate, energyKwh: "0.1", cost: "1", durationSeconds: 86400 })) }));
+    snapshot.comparisonRange = { from: "2026-04-30", to: "2026-06-30" };
+    const document = new EnergyReportDocumentBuilder().build(reportId,
+      { ...request, from: "2026-07-01", to: "2026-08-31" }, snapshot);
+    const facts = document.sections.find(section => section.kind === "table" && section.id === "pdf-source-facts");
+    expect(facts?.kind === "table" ? facts.rows.length : -1).toBe(1000);
+    const result = buildPdfReportPresentation(document);
+    expect(result.summary.current.raw).toBe("6200");
+    expect(result.fixtures.topFive[0].energy.raw).toBe("6.2");
+  }, 120000);
 });

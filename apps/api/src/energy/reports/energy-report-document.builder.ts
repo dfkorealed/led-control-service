@@ -131,11 +131,19 @@ export class EnergyReportDocumentBuilder {
         ...dates(request).map(date => ({ date, period: "current" }))];
       const sourceFacts = [...previous.map(row => ({ ...row, period: "previous" })),
         ...current.map(row => ({ ...row, period: "current" }))];
+      const factsByDay = new Map<string, typeof sourceFacts>();
+      for (const row of sourceFacts) {
+        const key = `${row.period}:${row.localDate}`;
+        const rows = factsByDay.get(key);
+        if (rows) rows.push(row);
+        else factsByDay.set(key, [row]);
+      }
       const sourceCell = (value: string | null): ReportCell => value === null
         ? { value: null, displayValue: "데이터 없음" } : textCell(value);
       const coverageRows = sourceRows.map(({ date, period }) => {
         const interval = intervalFor(date);
-        const dayFacts = sourceFacts.filter(row => row.period === period && row.localDate === date);
+        const dayFacts = factsByDay.get(`${period}:${date}`) ?? [];
+        const recordedFixtureIds = new Set(dayFacts.map(row => row.fixture.id));
         let expectedSeconds = 0, uncertain = false;
         for (const fixture of data.fixtures) {
           const day = configurationDay(fixture, request, interval);
@@ -143,7 +151,7 @@ export class EnergyReportDocumentBuilder {
           uncertain ||= day.scopeMissing || ((request.scope === "floor" || request.scope === "group") && day.partial);
           // A persisted legacy day can predate lifecycle capture; its active
           // time cannot be inferred from a later tracking-start timestamp.
-          uncertain ||= dayFacts.some(row => row.fixture.id === fixture.id) &&
+          uncertain ||= recordedFixtureIds.has(fixture.id) &&
             dateValue(fixture.from).getTime() > interval.from.getTime();
         }
         const knownSeconds = dayFacts.reduce((total, row) => total + row.durationSeconds, 0);
@@ -154,12 +162,25 @@ export class EnergyReportDocumentBuilder {
           sourceCell(sumCost(dayFacts)?.toString() ?? null), sourceCell(uncertain ? null : String(expectedSeconds)),
           textCell(String(knownSeconds)), textCell(status)];
       });
-      const factRows = sourceFacts.map(row => {
+      const allocations = new Map<string, { fixtureId: string; fixtureName: string | null;
+        floorId: string | null; floorName: string | null; nameDate: string; energy: Prisma.Decimal;
+        cost: Prisma.Decimal | null; knownSeconds: number }>();
+      for (const row of current) {
         const dimension = dailyDimension(row.fixture, intervalFor(row.localDate));
-        return [textCell(row.period), textCell(row.localDate), textCell(row.fixture.id),
-          sourceCell(dimension?.name ?? null), sourceCell(dimension?.floorId ?? null), sourceCell(dimension?.floorName ?? null),
-          textCell(row.energyKwh), sourceCell(row.cost), textCell(String(row.durationSeconds))];
-      });
+        const key = `${row.fixture.id}\0${dimension?.floorId ?? ""}`;
+        const prior = allocations.get(key);
+        allocations.set(key, { fixtureId: row.fixture.id,
+          fixtureName: prior && prior.nameDate > row.localDate ? prior.fixtureName : dimension?.name ?? null,
+          floorId: dimension?.floorId ?? null,
+          floorName: prior && prior.nameDate > row.localDate ? prior.floorName : dimension?.floorName ?? null,
+          nameDate: prior && prior.nameDate > row.localDate ? prior.nameDate : row.localDate,
+          energy: (prior?.energy ?? new Prisma.Decimal(0)).add(row.energyKwh),
+          cost: row.cost === null || prior?.cost === null ? null : (prior?.cost ?? new Prisma.Decimal(0)).add(row.cost),
+          knownSeconds: (prior?.knownSeconds ?? 0) + row.durationSeconds });
+      }
+      const factRows = [...allocations.values()].map(row => [textCell("current"), textCell(row.nameDate), textCell(row.fixtureId),
+        sourceCell(row.fixtureName), sourceCell(row.floorId), sourceCell(row.floorName), textCell(row.energy.toString()),
+        sourceCell(row.cost?.toString() ?? null), textCell(String(row.knownSeconds))]);
       const sourceTable = (id: string, columns: string[], rows: ReportCell[][]): EnergyReportSection => ({
         kind: "table", id, title: "PDF 원본 검증 자료", columns: columns.map(column => ({ id: column, label: column })),
         rows, rowIds: rows.map((_, index) => String(index))
@@ -169,12 +190,19 @@ export class EnergyReportDocumentBuilder {
       for (const date of dates(request)) {
         const interval = intervalFor(date);
         const weekday = dateValue(date).getUTCDay();
-        for (let start = interval.from.getTime(); start < interval.to.getTime(); start += 3_600_000) {
-          const from = new Date(start), to = new Date(Math.min(start + 3_600_000, interval.to.getTime()));
+        for (let start = Math.floor(interval.from.getTime() / 3_600_000) * 3_600_000;
+          start < interval.to.getTime(); start += 3_600_000) {
+          const from = new Date(Math.max(start, interval.from.getTime()));
+          const to = new Date(Math.min(start + 3_600_000, interval.to.getTime()));
           const hour = Number(hourFormatter.formatToParts(from).find(part => part.type === "hour")?.value);
           const cell = hourCells[weekday * 24 + hour];
+          // UTC-hour aggregates are labeled by the bucket start, so a bucket
+          // crossing local midnight can be stored under the adjacent local
+          // date. A current-period-only hourly snapshot cannot prove coverage
+          // for this split bucket in half-hour-offset time zones.
+          cell.uncertain ||= from.getTime() !== start || to.getTime() !== start + 3_600_000;
           for (const fixture of data.fixtures) {
-            const selected = configurationDay(fixture, request, { from, to });
+            const selected = hourlySelection(fixture, request, { from, to });
             cell.expectedSeconds += selected.seconds;
             cell.uncertain ||= selected.scopeMissing ||
               ((request.scope === "floor" || request.scope === "group") && selected.partial);
@@ -184,7 +212,7 @@ export class EnergyReportDocumentBuilder {
       for (const fixture of data.fixtures) for (const row of fixture.hourly) {
         if (!inRange(row.localDate, request)) continue;
         const from = new Date(row.bucketStartUtc), to = new Date(from.getTime() + 3_600_000);
-        const selected = configurationDay(fixture, request, { from, to });
+        const selected = hourlySelection(fixture, request, { from, to });
         const inSelectedScope = request.scope === "site" || (request.scope === "fixture" && fixture.id === request.identityId)
           || (selected.seconds === 3600 && !selected.scopeMissing && (request.scope === "floor" ||
             fixture.groups.some(group => group.id === request.identityId && coversInterval(effectiveDates(group), from, to))));
@@ -222,6 +250,16 @@ export class EnergyReportDocumentBuilder {
     reportBlocks(document);
     return document;
   }
+}
+
+function hourlySelection(fixture: ReportFixtureSnapshot, request: EnergyReportRequest, interval: ReturnType<typeof dayInterval>) {
+  if (request.scope === "site" || request.scope === "fixture") {
+    const active = request.scope === "site" || fixture.id === request.identityId;
+    const seconds = active ? Math.max(0, Math.min(interval.to.getTime(), fixture.to === null ? Infinity : dateValue(fixture.to).getTime())
+      - Math.max(interval.from.getTime(), dateValue(fixture.from).getTime())) / 1000 : 0;
+    return { seconds, scopeMissing: false, partial: seconds > 0 && seconds < (interval.to.getTime() - interval.from.getTime()) / 1000 };
+  }
+  return configurationDay(fixture, request, interval);
 }
 
 /** Partition only configuration intervals. Persisted daily facts are never split

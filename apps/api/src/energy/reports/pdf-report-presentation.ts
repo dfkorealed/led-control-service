@@ -40,7 +40,15 @@ function add(values: Array<string | null>): string | null {
   return values.reduce<Prisma.Decimal>((sum, value) => sum.add(value!), ZERO).toString();
 }
 function measure(value: string | null, unit: "kWh" | "원", precision: number, missing = "데이터 없음"): PdfMeasure {
-  return { raw: value, text: value === null ? missing : `${new Prisma.Decimal(value).toFixed(unit === "kWh" ? precision : 2)} ${unit}` };
+  if (value === null) return { raw: null, text: missing };
+  const decimal = new Prisma.Decimal(value);
+  const digits = unit === "kWh" ? precision : 2;
+  const rounded = decimal.toFixed(digits);
+  // A small persisted nonzero must never be displayed as an exact zero.
+  const text = !decimal.isZero() && new Prisma.Decimal(rounded).isZero()
+    ? `${decimal.isNegative() ? "> -" : "< "}${new Prisma.Decimal(1).div(10 ** digits).toFixed(digits)} ${unit}`
+    : `${rounded} ${unit}`;
+  return { raw: value, text };
 }
 function sortedTotals(rows: SourceRow[], id: string, label: string) {
   const totals = new Map<string, { name: string; date: string; energy: Prisma.Decimal }>();
@@ -80,7 +88,13 @@ export function buildPdfReportPresentation(input: EnergyReportDocument): PdfRepo
   const summaryCurrent = add(current.map(row => row.energy));
   const summaryPrevious = add(previous.map(row => row.energy));
   const complete = (rows: SourceRow[]) => rows.length > 0 && rows.every(row => row.status === "complete");
-  const comparisonAvailable = complete(current) && complete(previous) && current.length === previous.length;
+  const currentComplete = complete(current);
+  const allocation = (raw: string): PdfMeasure => {
+    if (facts.length === 0) return energy(null);
+    const value = energy(raw);
+    return currentComplete ? value : { ...value, text: `${value.text} (부분 기록)` };
+  };
+  const comparisonAvailable = currentComplete && complete(previous) && current.length === previous.length;
   const comparisonReason = comparisonAvailable ? null : "현재 또는 직전 동일 일수의 수집 기록이 완전하지 않습니다.";
   const difference = comparisonAvailable && summaryCurrent !== null && summaryPrevious !== null
     ? new Prisma.Decimal(summaryCurrent).sub(summaryPrevious).toString() : null;
@@ -131,11 +145,11 @@ export function buildPdfReportPresentation(input: EnergyReportDocument): PdfRepo
     summary: { current: energy(summaryCurrent), previous: energy(summaryPrevious), difference: energy(difference, "비교 불가"),
       storedCost: cost(add(current.map(row => row.cost))), comparisonAvailable, comparisonReason },
     daily, monthly, peakDay: peak ? { date: peak.date!, energy: energy(peak.energy) } : null,
-    floors: { rows: floorTotals.rows.map(([, row]) => ({ name: row.name, energy: energy(row.energy.toString()) })),
-      unassigned: energy(floorTotals.unassigned) },
-    fixtures: { topFive: fixtureTop.map(([, row]) => ({ name: row.name, energy: energy(row.energy.toString()) })),
-      other: energy(fixtureTotals.rows.slice(5).reduce((sum, [, row]) => sum.add(row.energy), ZERO).toString()),
-      unassigned: energy(fixtureTotals.unassigned) },
+    floors: { rows: floorTotals.rows.map(([, row]) => ({ name: row.name, energy: allocation(row.energy.toString()) })),
+      unassigned: allocation(floorTotals.unassigned) },
+    fixtures: { topFive: fixtureTop.map(([, row]) => ({ name: row.name, energy: allocation(row.energy.toString()) })),
+      other: allocation(fixtureTotals.rows.slice(5).reduce((sum, [, row]) => sum.add(row.energy), ZERO).toString()),
+      unassigned: allocation(fixtureTotals.unassigned) },
     heatmap, heatmapCoverage, peakCell, dominantHours, quality,
     notes: ["전력량은 저장된 조명 상태 기반 집계이며 별도 계량기 검증값이 아닙니다.",
       "비용은 생성 당시 저장된 비용 합계입니다. 청구액이나 요금 절감액을 뜻하지 않습니다.",
