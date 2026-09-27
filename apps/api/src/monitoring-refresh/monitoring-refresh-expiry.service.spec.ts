@@ -2,6 +2,8 @@ import { Logger } from "@nestjs/common";
 import { MonitoringRefreshExpiryService } from "./monitoring-refresh-expiry.service";
 
 const refreshId = "11111111-1111-4111-8111-111111111111";
+const siteId = "22222222-2222-4222-8222-222222222222";
+const floorId = "33333333-3333-4333-8333-333333333333";
 const now = new Date("2026-09-15T08:00:31.000Z");
 
 function harness() {
@@ -10,6 +12,8 @@ function harness() {
     monitoringRefresh: {
       findUnique: jest.fn().mockResolvedValue({
         id: refreshId,
+        siteId,
+        floorId,
         status: "pending",
         deadlineAt: new Date("2026-09-15T08:00:30.000Z"),
         totalFixtures: 2
@@ -25,7 +29,9 @@ function harness() {
       ])
     },
     monitoringRefreshBatch: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
-    mqttOutbox: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) }
+    mqttOutbox: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+    floor: { findMany: jest.fn().mockResolvedValue([{ id: floorId }]) },
+    monitoringActivity: { createMany: jest.fn().mockResolvedValue({ count: 1 }) }
   };
   prisma.$transaction = jest.fn((callback) => callback(prisma));
   const service = new MonitoringRefreshExpiryService(prisma, { pollMs: 1_000 });
@@ -61,6 +67,10 @@ describe("MonitoringRefreshExpiryService", () => {
         completedAt: now
       }
     });
+    expect(prisma.monitoringActivity.createMany).toHaveBeenCalledWith({ data: [{
+      siteId, floorId, sourceType: "monitoring_refresh", sourceKey: `${refreshId}:partial`,
+      kind: "monitoring_refresh_result", refreshStatus: "partial"
+    }], skipDuplicates: true });
     expect(prisma.fixture).toBeUndefined();
   });
 

@@ -30,6 +30,10 @@ const reviewedThemeTokenAdditions = new Map([
   ["--text-landing-hero--line-height", "4.5rem"],
   ["--breakpoint-phone-wide", "22.5rem"],
   ["--radius-fixture-marker", "3px"],
+  ["--spacing-shell-rail", "5.5rem"],
+  ["--container-auth", "60rem"],
+  ["--container-operator", "72.5rem"],
+  ["--container-status-drawer", "27.5rem"],
   ...fixtureBrightnessShadowValues.map((value, index) => [`--shadow-fixture-brightness-${index + 1}`, normalizeThemeValue(value)])
 ]);
 const approvedThemeValues = new Map([...maskComments(approvedSource("src/styles/theme.css"), "theme.css").matchAll(/(--[\w*-]+)\s*:\s*([^;]+);/g)].map(match => [match[1], normalizeThemeValue(match[2])]));

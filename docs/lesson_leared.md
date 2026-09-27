@@ -1007,3 +1007,10 @@
 - **발생했던 문제/실수**: API host port가 없다는 사실만으로 Web의 단일 proxy hop을 신뢰하면, 같은 API로 연결되는 공개 9443 raw TLS 경로에서 위조 전달 헤더를 받아들일 수 있었다. OAuth의 같은 state 재사용 차단만으로는 서로 다른 오래된 인가 URL의 credential 덮어쓰기를 막지 못했다.
 - **해결 및 예방책**: 전체 ingress 경로와 TLS 종료 위치를 함께 검토한다. 공개 문의는 nginx가 덮어쓴 방문자 IP와 독립 서버 비밀을 검증하고 전역 proxy trust를 켜지 않는다. 실제 nginx HTTP/TCP 경로의 서로 다른 방문자·위조 입력을 테스트한다. 인가 시작·단회 소비·최신 세대 재검증·refresh를 같은 DB credential 잠금으로 조율하고, 서로 다른 state 및 claim 뒤 새 인가가 시작하는 순서를 별도 DB 연결로 검증한다.
 - **관측 확인**: 문자열 Logger 호출의 숫자가 production JSON logger에서 제거될 수 있으므로 실제 logger 경로로 `landing_inquiry_prune`·숫자 `deletedCount` 보존과 PII 배제를 검증한다.
+
+## 2026-09-27 / 실연동 여정의 화면 selector와 MQTT ACL probe를 제품 계약에 맞춘다
+
+- **문제**: 설치 여정이 사라진 `층 자동 생성` 버튼을 기다렸고, Gateway read 권한 검사에서 API 인증서로 임의 `review-probe` topic을 발행해 `Not authorized`로 중단됐다. 자동화 여정의 lab Gateway는 누락된 journal 경로 때문에 운영 기본값 `/var/lib/led-control`에 쓰려다 권한 오류로 종료됐다.
+- **원인**: 현재 SetupWizard 액션은 `맵 생성`이다. OFF ACL은 API가 구체적인 command/ACK topic에만 write할 수 있는데, 임의 probe 발행 실패를 Gateway read 거부와 혼동했다. lab child 환경에는 provisioning-device·monitoring-refresh journal의 일회용 경로가 빠져 있었다.
+- **예방**: E2E selector는 실제 사용자 동작과 함께 갱신하고, broker 권한 검사는 발행자에게 허용된 exact topic에서 자기 Gateway 수신·타 Gateway 미수신·금지 write를 분리 확인한다. lab Gateway의 모든 durable state는 일회용 디렉터리를 지정한다. 테스트 성공을 생산 ACL 완화나 실제 Gateway/RF HIL 증거로 해석하지 않는다.
+- **후속 확인**: first-connect 당시 DB·Gateway 로컬 snapshot은 `desiredRevision=appliedRevision=1`, pending ACK 0으로 이미 수렴했다. API 인증서 관측기는 생산 ACL상 command/ACK write-only라 snapshot 재전달·application receipt·execution ACK를 읽지 못한 것이 테스트 oracle의 원인이었다. 일회용 lab에서만 Gateway 인증서로 별도 비영속·수동 관측기를 두고 자기 Gateway의 정확한 세 토픽만 read하며, 타 Gateway read 거부를 함께 검증한다. 이후 자동화 실연동 E2E는 broker/API 재시작까지 통과했지만 소프트웨어 Gateway 경로 검증이며 실제 RF/HIL 증거는 아니다.

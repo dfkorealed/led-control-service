@@ -1,6 +1,7 @@
 import { BadRequestException } from "@nestjs/common";
 import {
   energyComparisonPresetSchema,
+  energyRangeComparisonQuerySchema,
   type EnergyComparisonPreset
 } from "@led-control/shared";
 import {
@@ -10,6 +11,8 @@ import {
   endOfCalendarMonth,
   formatCalendarDate,
   localDateAt,
+  listDaysInclusive,
+  parseCalendarDate,
   replaceCalendarYear,
   type CalendarDate
 } from "./energy-periods";
@@ -44,6 +47,30 @@ export function comparisonRanges(
   if (preset === "last_7_days") return lastSevenDaysRanges(yesterday);
   if (preset === "current_month") return currentMonthRanges(today, yesterday);
   return currentYearRanges(today, yesterday);
+}
+
+export function customComparisonRanges(raw: unknown, generatedAt: Date, timeZone: string): ComparisonRanges {
+  const parsed = energyRangeComparisonQuerySchema.safeParse(raw);
+  if (!parsed.success) throw new BadRequestException("invalid energy comparison range");
+  try {
+    const from = parseCalendarDate(parsed.data.from);
+    const to = parseCalendarDate(parsed.data.to);
+    const length = listDaysInclusive(from, to, 400).length;
+    if (parsed.data.to >= formatCalendarDate(localDateAt(generatedAt, timeZone))) {
+      throw new RangeError("comparison range must contain completed days only");
+    }
+    const previousYearEnd = replaceCalendarYear(to, to.year - 1);
+    return {
+      display: range(from, to),
+      completed: range(from, to),
+      completedThrough: parsed.data.to,
+      previousPeriod: range(addCalendarDays(from, -length), addCalendarDays(from, -1)),
+      previousYear: range(addCalendarDays(previousYearEnd, 1 - length), previousYearEnd),
+      pointGranularity: "day"
+    };
+  } catch (error) {
+    throw new BadRequestException(error instanceof Error ? error.message : "invalid energy comparison range");
+  }
 }
 
 function lastSevenDaysRanges(yesterday: CalendarDate): ComparisonRanges {

@@ -131,9 +131,15 @@ export function RequiredPasswordChangeView({ user, onCompleted }: {
     }
   }
 
+  const passwordStage = action === "change" ? "changing" : errorMessage ? "failed" : "ready";
+
   return (
     <main className="required-password-shell grid min-h-screen place-items-center bg-surface-canvas px-5 py-8">
-      <Card className="required-password-card grid w-full max-w-lg gap-5 p-7 shadow-panel">
+      <Card
+        data-testid="required-password-card"
+        data-password-stage={passwordStage}
+        className="required-password-card grid w-full max-w-lg gap-5 p-7 shadow-panel"
+      >
         <div className="required-password-heading flex items-center gap-3.5">
           <span className="required-password-icon grid size-11 shrink-0 place-items-center rounded-control bg-action-primary-soft text-action-primary"><KeyRound size={22} aria-hidden="true" /></span>
           <div className="grid gap-1"><Text as="span" variant="overline" tone="secondary">최초 로그인</Text><Heading as="h1" variant="section-title">비밀번호를 변경해 주세요</Heading></div>
@@ -147,6 +153,7 @@ export function RequiredPasswordChangeView({ user, onCompleted }: {
           <Button className="w-full" type="submit" variant="primary" isLoading={action === "change"} disabled={action !== null} loadingLabel="변경 중">비밀번호 변경</Button>
         </form>
         <Button className="w-full" type="button" variant="ghost" onClick={() => void handleLogout()} isLoading={action === "logout"} disabled={action !== null} loadingLabel="로그아웃 중"><LogOut size={16} aria-hidden="true" />로그아웃</Button>
+        <Text variant="caption" tone="secondary">변경에 문제가 계속되면 서비스 운영 담당자에게 문의하세요.</Text>
       </Card>
     </main>
   );

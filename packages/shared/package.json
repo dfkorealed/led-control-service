@@ -84,6 +84,27 @@
       "require": "./dist/energy-p2-contracts.js",
       "import": "./dist/esm/energy-p2-contracts.js",
       "default": "./dist/energy-p2-contracts.js"
+    },
+    "./monitoring-activity-contracts": {
+      "types": "./dist/esm/monitoring-activity-contracts.d.ts",
+      "browser": "./dist/esm/monitoring-activity-contracts.js",
+      "require": "./dist/monitoring-activity-contracts.js",
+      "import": "./dist/esm/monitoring-activity-contracts.js",
+      "default": "./dist/monitoring-activity-contracts.js"
+    },
+    "./energy-range-contracts": {
+      "types": "./dist/esm/energy-range-contracts.d.ts",
+      "browser": "./dist/esm/energy-range-contracts.js",
+      "require": "./dist/energy-range-contracts.js",
+      "import": "./dist/esm/energy-range-contracts.js",
+      "default": "./dist/energy-range-contracts.js"
+    },
+    "./energy-observed-mean-contracts": {
+      "types": "./dist/esm/energy-observed-mean-contracts.d.ts",
+      "browser": "./dist/esm/energy-observed-mean-contracts.js",
+      "require": "./dist/energy-observed-mean-contracts.js",
+      "import": "./dist/esm/energy-observed-mean-contracts.js",
+      "default": "./dist/energy-observed-mean-contracts.js"
     }
   },
   "scripts": {

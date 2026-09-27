@@ -8,9 +8,23 @@ import { SettingsShell } from "./SettingsShell";
 import { SettingsView } from "./SettingsView";
 
 const manageCapabilities = { read: true, control: true, manage: true, commission: true };
+const settingsDashboard = {
+  ...mockDashboard,
+  floors: mockDashboard.floors.map((floor) => ({
+    ...floor,
+    mapConfigured: true,
+    mapRevision: 1,
+    summary: {
+      totalFixtures: floor.fixtures.length,
+      onlineFixtures: floor.fixtures.filter((fixture) => fixture.status === "online").length,
+      faultFixtures: floor.fixtures.filter((fixture) => fixture.status === "fault").length,
+      offlineFixtures: floor.fixtures.filter((fixture) => fixture.status === "offline").length
+    }
+  }))
+};
 
 vi.mock("../../api/queries", () => ({
-  useDashboard: () => ({ data: mockDashboard })
+  useDashboard: () => ({ data: settingsDashboard })
 }));
 vi.mock("../registration/RegistrationPanel", () => ({ RegistrationPanel: () => <section aria-label="조명 등록 패널">조명 등록 패널</section> }));
 vi.mock("../setup/GatewayClaimPanel", () => ({ GatewayClaimPanel: () => null }));

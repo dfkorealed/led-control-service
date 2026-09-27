@@ -6,7 +6,7 @@ import { mockDashboard } from "../../../test/fixtures";
 import { RegistrationSettingsView } from "./RegistrationSettingsView";
 
 vi.mock("../../../api/queries", () => ({ useDashboard: vi.fn() }));
-vi.mock("../../registration/RegistrationPanel", () => ({ RegistrationPanel: ({ onRefreshGatewayStatus }: { onRefreshGatewayStatus?: () => void }) => <div data-testid="registration-panel-stub">등록 패널<button onClick={onRefreshGatewayStatus}>게이트웨이 상태 다시 확인</button></div> }));
+vi.mock("../../registration/RegistrationPanel", () => ({ RegistrationPanel: ({ onRefreshGatewayStatus, headingLevel }: { onRefreshGatewayStatus?: () => void; headingLevel?: number }) => <div data-testid="registration-panel-stub"><h2>{headingLevel === 2 ? "조명 등록" : "등록 패널"}</h2>등록 패널<button onClick={onRefreshGatewayStatus}>게이트웨이 상태 다시 확인</button></div> }));
 vi.mock("../../setup/GatewayClaimPanel", () => ({ GatewayClaimPanel: () => <div>게이트웨이 등록 패널</div> }));
 
 describe("RegistrationSettingsView 다음 단계", () => {
@@ -36,5 +36,20 @@ describe("RegistrationSettingsView 다음 단계", () => {
     expect(screen.queryByText("게이트웨이가 오프라인으로 표시되면 연결 상태를 다시 확인하세요.")).not.toBeInTheDocument();
     fireEvent.click(within(screen.getByTestId("registration-panel-stub")).getByRole("button", { name: "게이트웨이 상태 다시 확인" }));
     expect(refetch).toHaveBeenCalledOnce();
+  });
+
+  it("게이트웨이 연결 전후에 조명 등록 페이지 제목을 한 번만 표시한다", () => {
+    const dashboard = structuredClone(mockDashboard);
+    dashboard.gateways = [];
+    vi.mocked(useDashboard).mockReturnValue({ data: dashboard } as ReturnType<typeof useDashboard>);
+    const view = render(<MemoryRouter><RegistrationSettingsView siteId={dashboard.site.id} /></MemoryRouter>);
+    expect(screen.getAllByRole("heading", { name: "조명 등록", level: 2 })).toHaveLength(1);
+    expect(screen.getByText("게이트웨이 등록 패널")).toBeInTheDocument();
+
+    view.unmount();
+    vi.mocked(useDashboard).mockReturnValue({ data: mockDashboard } as ReturnType<typeof useDashboard>);
+    render(<MemoryRouter><RegistrationSettingsView siteId={mockDashboard.site.id} /></MemoryRouter>);
+    expect(screen.getAllByRole("heading", { name: "조명 등록", level: 2 })).toHaveLength(1);
+    expect(screen.queryByText("게이트웨이 등록 패널")).not.toBeInTheDocument();
   });
 });

@@ -71,6 +71,7 @@ describe("SiteUsersView", () => {
     renderView();
     expect(screen.getByRole("table", { name: "현장 사용자 목록" })).toHaveTextContent("hyunsu.kim");
     expect(screen.getByText("2 / 100명")).toBeVisible();
+    expect(screen.getByRole("button", { name: "김현수 수정" })).toHaveClass("min-h-11", "min-w-11");
   });
 
   it("keeps stale rows visible when a background refresh fails and supports retry", () => {

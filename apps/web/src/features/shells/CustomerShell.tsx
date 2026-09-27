@@ -1,5 +1,5 @@
 import { forwardRef, lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
-import { Activity, BarChart3, CircleAlert, LoaderCircle, LogOut, RadioTower, SlidersHorizontal } from "lucide-react";
+import { Activity, BarChart3, CircleAlert, LoaderCircle, LogOut, SlidersHorizontal } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { matchPath, Navigate, NavLink, Route, Routes, useLocation } from "react-router-dom";
 import { logout, type AuthUser } from "../../api/auth";
@@ -14,11 +14,10 @@ import {
   IconTooltipButton,
   SessionStatusCenter,
   SessionStatusProvider,
-  StatusBadge,
   Text,
   ToastRegion,
   useSessionStatus,
-  type SessionStatusCenterHandle,
+  type SessionStatusContextItem,
   type SessionStatusItem
 } from "../../components/ui";
 import { RouteLoadingState } from "../../components/ui/RouteLoadingState";
@@ -93,8 +92,6 @@ export function CustomerShell({ user }: { user: AuthUser }) {
   const [logoutError, setLogoutError] = useState("");
   const logoutButtonRef = useRef<HTMLButtonElement>(null);
   const siteSwitcherRef = useRef<HTMLButtonElement>(null);
-  const gatewayStatusButtonRef = useRef<HTMLButtonElement>(null);
-  const sessionStatusCenterRef = useRef<SessionStatusCenterHandle>(null);
   const restoreLogoutFocusAfterFailureRef = useRef(false);
   const siteId = new URLSearchParams(location.search).get("siteId") ?? undefined;
   const sitesQuery = useSites();
@@ -110,6 +107,12 @@ export function CustomerShell({ user }: { user: AuthUser }) {
     : undefined;
   const siteSelection = useGuardedSiteSelection(authorizedSelectedSiteId);
   const gatewayAggregate = deriveGatewayAggregate({ gateways: dashboard?.gateways, error: dashboardError });
+  const gatewayContextItems = useMemo<readonly SessionStatusContextItem[]>(() => [{
+    id: `gateway-summary:${selectedSiteId ?? "default"}`,
+    title: "Gateway 연결",
+    description: gatewayAggregate.label,
+    tone: gatewayAggregate.tone
+  }], [gatewayAggregate.label, gatewayAggregate.tone, selectedSiteId]);
   const shellStatusItems = useMemo<SessionStatusItem[]>(() => {
     const statuses: SessionStatusItem[] = [];
     if (sitesQuery.error) {
@@ -262,7 +265,7 @@ export function CustomerShell({ user }: { user: AuthUser }) {
           <PrimaryNavigation capabilities={capabilities} search={location.search} />
         </nav>
       ) : (
-        <aside className={`sticky top-0 z-20 ${isEditorRoute ? "h-full" : "h-screen"} w-24 shrink-0 border-r border-border-default bg-surface-panel px-2.5 py-4`} data-shell-navigation="desktop">
+        <aside className={`sticky top-0 z-20 ${isEditorRoute ? "h-full" : "h-screen"} w-shell-rail shrink-0 border-r border-border-default bg-surface-panel px-2 py-4`} data-shell-navigation="desktop">
           <KindaLogo context="관제 센터" compact />
           <nav className="grid w-full gap-2" aria-label="주 메뉴">
             <PrimaryNavigation capabilities={capabilities} search={location.search} />
@@ -270,9 +273,9 @@ export function CustomerShell({ user }: { user: AuthUser }) {
         </aside>
       )}
       <main className={`flex min-w-0 flex-1 flex-col ${isEditorRoute ? "min-h-0 overflow-hidden" : ""}`}>
-        <header className="grid min-h-16 min-w-0 shrink-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-2 gap-y-2 border-b border-border-default bg-surface-panel px-3.5 py-2 compact:grid-cols-[minmax(0,1fr)_minmax(0,auto)_auto] compact:gap-x-4 compact:px-7" data-shell-topbar>
+        <header className="sticky top-0 z-10 grid min-h-16 min-w-0 shrink-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-2 gap-y-2 border-b border-border-default bg-surface-panel px-3.5 py-2 compact:grid-cols-[minmax(0,1fr)_minmax(0,auto)_auto] compact:gap-x-4 compact:px-7" data-shell-topbar>
           <div className="col-start-1 row-start-1 min-w-0">
-            <Heading as="h1" variant="page-title" className="truncate">{titleForPath(location.pathname)}</Heading>
+            <Heading as="h1" variant="page-title" className="truncate" data-testid="shell-current-menu">{titleForPath(location.pathname)}</Heading>
           </div>
           <div className="col-span-2 row-start-2 flex min-w-0 items-center gap-2 compact:col-span-1 compact:col-start-2 compact:row-start-1" aria-label="현장 정보" data-shell-context>
             <SiteContextControl
@@ -283,33 +286,10 @@ export function CustomerShell({ user }: { user: AuthUser }) {
               hasError={Boolean(sitesQuery.error)}
               onSelectionChange={siteSelection.requestSiteChange}
             />
-            <Button
-              ref={gatewayStatusButtonRef}
-              type="button"
-              variant="ghost"
-              aria-label={`${gatewayAggregate.label} 상태 센터 열기`}
-              className="min-h-13 max-w-40 shrink-0 border-transparent p-0"
-              title={gatewayAggregate.label}
-              onClick={() => sessionStatusCenterRef.current?.open(
-                gatewayStatusButtonRef.current,
-                gatewayAggregate.kind === "attention" ? `gateway:${selectedSiteId ?? "default"}` : undefined
-              )}
-            >
-              <StatusBadge
-                aria-label={gatewayAggregate.label}
-                className="pointer-events-none max-w-full overflow-hidden"
-                data-testid="gateway-status-badge"
-                icon={RadioTower}
-                tone={gatewayAggregate.tone}
-              >
-                <span className="hidden truncate compact:inline">{gatewayAggregate.label}</span>
-                <span className="truncate compact:hidden">{gatewayAggregate.compactLabel}</span>
-              </StatusBadge>
-            </Button>
             <span className="sr-only" data-testid="active-site-badge">{dashboard?.site.name || "현장 미등록"}</span>
           </div>
           <div className="col-start-2 row-start-1 flex min-w-0 items-center justify-end gap-2 compact:col-start-3" data-shell-actions>
-            <SessionStatusCenter ref={sessionStatusCenterRef} />
+            <SessionStatusCenter contextItems={gatewayContextItems} />
             <IconTooltipButton
               ref={logoutButtonRef}
               className="size-13"
@@ -323,7 +303,7 @@ export function CustomerShell({ user }: { user: AuthUser }) {
         </header>
         {/* Only the editor bounds SettingsShell's navigation and outlet rows.
             Keeping this scoped avoids changing normal settings scroll. */}
-        <div className={`m-0! min-w-0 flex-1 ${isEditorRoute ? "min-h-0 overflow-hidden p-2 compact:p-3 [&>section]:h-full [&>section]:min-h-0 [&>section]:grid-rows-[auto_minmax(0,1fr)] [&>section]:gap-2 [&>section>div]:min-h-0" : "p-6 max-compact:p-3.5"}`}>
+        <div data-shell-content className={`m-0! min-w-0 flex-1 ${isEditorRoute ? "min-h-0 overflow-hidden p-2 compact:p-3 [&>section]:h-full [&>section]:min-h-0 [&>section]:grid-rows-[auto_minmax(0,1fr)] [&>section]:gap-2 [&>section>div]:min-h-0" : "p-6 max-compact:p-3.5"}`}>
           <Suspense fallback={<RouteLoadingState />}>
             <Routes>
             <Route path="/monitoring" element={<MonitoringView userRole={user.role} siteId={siteId} />} />

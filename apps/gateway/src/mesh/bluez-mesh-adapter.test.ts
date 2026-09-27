@@ -4,7 +4,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { BluezMeshAdapter } from "./bluez-mesh-adapter";
-import { BluezTransportError } from "./bluez-transport";
+import { BluezTransport, BluezTransportError } from "./bluez-transport";
+import { CommandJournal } from "../commands/command-journal";
+import { CommandRfDrain } from "../commands/command-rf-drain";
 import { handleGatewayDimmingCommand } from "../commands/gateway-command-handler";
 import { handleFixturePresenceCheck, MonitoringRefreshEventPublisher } from "../commands/fixture-presence-check-handler";
 import { MonitoringRefreshJournal } from "../state/monitoring-refresh-journal";
@@ -59,7 +61,109 @@ function fixture(options: { responseTimeoutMs?: number; observationCoherenceMs?:
   };
 }
 
+function nativeVetoCommand() {
+  const id = "66666666-6666-4666-8666-666666666666";
+  return {
+    commandId: "11111111-1111-4111-8111-111111111111", dispatchId: "22222222-2222-4222-8222-222222222222",
+    idempotencyKey: "33333333-3333-4333-8333-333333333333", sequence: 1,
+    siteId: "44444444-4444-4444-8444-444444444444", gatewayId: "55555555-5555-4555-8555-555555555555",
+    targetType: "fixture" as const, targetId: id, targetFixtureIds: [id], deliveryMode: "unicast" as const,
+    brightness: 60, requestedAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 60_000).toISOString(), publishEpoch: 7
+  };
+}
+
 describe("BluezMeshAdapter", () => {
+  it("prevents a native Send whose interface lookup resumes after the command watchdog completed", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "late-native-write-"));
+    let entered!: () => void;
+    let release!: () => void;
+    const enteredLookup = new Promise<void>((resolve) => { entered = resolve; });
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    let writes = 0;
+    const native = new BluezTransport(() => ({ getInterface: async () => {
+      entered(); await gate;
+      return { Send: (...args: unknown[]) => { writes++; (args.at(-1) as (error: null) => void)(null); } };
+    } }));
+    const f = fixture({ responseTimeoutMs: 2000 });
+    f.transport.call = native.call.bind(native) as any;
+    const command = nativeVetoCommand();
+    f.addresses.findByFixtureId.mockResolvedValue({ fixtureId: command.targetId, primaryUnicast: 0x0100, status: "confirmed" });
+    const drain = new CommandRfDrain();
+    try {
+      const result = handleGatewayDimmingCommand(f.adapter, new CommandJournal(join(directory, "journal.json")), command, undefined, {
+        timeoutMs: 1000, rfDrain: drain, setPermit: () => undefined
+      });
+      await enteredLookup;
+      expect((await result).deviceStatus.status).toBe("timed_out");
+      release();
+      // Await the real adapter's per-source queue so the delayed lookup has
+      // resumed, without inspecting private state or guessing a sleep duration.
+      await f.adapter.applyUnicast(command.targetId, 60, undefined, undefined, { mayStartWrite: () => false, onWriteStarted: () => undefined });
+      expect(writes).toBe(0);
+      expect(drain.snapshot(7)).toMatchObject({ queuedCount: 0, submittedCount: 0, physicalCompletionCertified: false });
+    } finally { release(); await rm(directory, { recursive: true, force: true }); }
+  });
+  it("keeps native Send callback failure unknown after submission", async () => {
+    const f = fixture();
+    const native = new BluezTransport(() => ({ getInterface: async () => ({
+      Send: (...args: unknown[]) => { (args.at(-1) as (error: Error) => void)(new Error("bus disconnected")); }
+    }) }));
+    f.transport.call = native.call.bind(native) as any;
+    await expect(f.adapter.applyUnicast("fixture-1", 60, undefined, undefined, {
+      mayStartWrite: () => true, onWriteStarted: () => undefined
+    })).resolves.toMatchObject({ acknowledged: false, outcome: "timed_out" });
+  });
+  it.each([false, true])("routes a native veto through durable command outcome (first write started=%s)", async (started) => {
+    const directory = await mkdtemp(join(tmpdir(), "native-write-veto-"));
+    const f = fixture({ responseTimeoutMs: 5 });
+    let allowed = true;
+    let physicalWrites = 0;
+    const native = new BluezTransport(() => ({ getInterface: async () => {
+      if (!started) allowed = false;
+      return { Send: (...args: unknown[]) => {
+        physicalWrites++;
+        allowed = false;
+        (args.at(-1) as (error: null) => void)(null);
+      } };
+    } }));
+    f.transport.call = native.call.bind(native) as any;
+    const id = "66666666-6666-4666-8666-666666666666";
+    f.addresses.findByFixtureId.mockResolvedValue({ fixtureId: id, primaryUnicast: 0x0100, status: "confirmed" });
+    const command = nativeVetoCommand();
+    const journal = new CommandJournal(join(directory, "journal.json"));
+    const rfDrain = new CommandRfDrain();
+    const automation = { prepare: vi.fn(async () => undefined), handoff: vi.fn(async () => undefined), abortManualControl: vi.fn(async () => undefined) };
+    try {
+      const result = await handleGatewayDimmingCommand(f.adapter, journal, command, undefined, {
+        rfDrain, automation, setPermit: () => allowed ? undefined : "GATEWAY_CLOCK_UNTRUSTED"
+      });
+      expect(physicalWrites).toBe(started ? 1 : 0);
+      expect(result.acceptance).toMatchObject(started ? { status: "accepted" } : { status: "rejected", errorCode: "GATEWAY_CLOCK_UNTRUSTED" });
+      expect(result.deviceStatus.status).toBe(started ? "timed_out" : "failed");
+      expect(result.fixtureStateObserved).toBe(false);
+      expect(await journal.get(command.idempotencyKey)).toMatchObject(started
+        ? { automationHandoff: "completed" } : { automationAbort: "completed" });
+      expect(rfDrain.snapshot(7)).toEqual({ queuedCount: 0, submittedCount: started ? 1 : 0, unconfirmedCount: started ? 1 : 0, physicalCompletionCertified: false });
+      const duplicate = await handleGatewayDimmingCommand(f.adapter, journal, command, undefined, { rfDrain, automation, setPermit: () => "GATEWAY_CLOCK_UNTRUSTED" });
+      expect(duplicate).toEqual(result);
+      expect(physicalWrites).toBe(started ? 1 : 0);
+    } finally { await rm(directory, { recursive: true, force: true }); }
+  });
+  it("vetoes a queued Set after proof expires while preserving the preceding local Set", async () => {
+    const f = fixture({ responseTimeoutMs: 1000 });
+    const first = f.adapter.applyUnicast("fixture-1", 100);
+    await vi.waitFor(() => expect(f.transport.calls).toHaveLength(1));
+    let allowed = true;
+    const queued = f.adapter.applyUnicast("fixture-1", 60, undefined, undefined, {
+      mayStartWrite: () => allowed, onWriteStarted: () => undefined
+    });
+    allowed = false;
+    f.application.emit("messageReceived", { source: 0x0100, data: [0x82, 0x4e, 0xff, 0xff] });
+    await expect(first).resolves.toMatchObject({ acknowledged: true });
+    await expect(queued).resolves.toMatchObject({ acknowledged: false, outcome: "timed_out", faultCode: "COMMAND_WRITE_VETOED" });
+    expect(f.transport.calls).toHaveLength(1);
+  });
+
   it("probes only OnOff and Lightness GET and requires both verified observations", async () => {
     const f = fixture();
     const probing = f.adapter.probeFixturePresence(["fixture-1", "unknown"]);

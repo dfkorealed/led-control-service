@@ -1,4 +1,12 @@
 import type { Page } from "@playwright/test";
+
+// Model the server's DB-clock envelope independently of the browser wall clock.
+export const commandDetailClockFixture = {
+  createdAt: "2026-07-12T00:00:00.000Z",
+  generatedAt: "2026-07-12T00:01:00.000Z",
+  retainedFrom: "2026-04-12T00:01:00.000Z",
+  retentionEnabled: true
+} as const;
 import type { MapElement, MapOp } from "@led-control/shared/map-document-contracts";
 import { getMapElementBounds } from "@led-control/shared/map-document-geometry";
 import {
@@ -346,7 +354,9 @@ export async function installSettingsApiRoutes(
           includeGateway,
           gatewayHeartbeatAt,
           snapshotGeneratedAt ?? new Date().toISOString(),
-          includeFloor
+          includeFloor,
+          mapRevision,
+          mapElementState.length > 0 || runtimeFloor.floorPlan !== null
         )
       });
     }
@@ -577,8 +587,13 @@ function dashboard(
   includeGateway = true,
   gatewayHeartbeatAt = new Date().toISOString(),
   generatedAt = new Date().toISOString(),
-  includeFloor = true
+  includeFloor = true,
+  mapRevision = 0,
+  mapConfigured = false
 ) {
+  const onlineFixtures = fixtures.filter((fixture) => fixture.status === "online").length;
+  const faultFixtures = fixtures.filter((fixture) => fixture.status === "fault").length;
+  const offlineFixtures = fixtures.length - onlineFixtures - faultFixtures;
   return {
     generatedAt,
     monitoringPolicy: {
@@ -601,8 +616,9 @@ function dashboard(
     },
     summary: {
       totalFixtures: fixtures.length,
-      onlineFixtures: fixtures.filter((fixture) => fixture.status === "online").length,
-      faultFixtures: fixtures.filter((fixture) => fixture.status === "fault").length,
+      onlineFixtures,
+      faultFixtures,
+      offlineFixtures,
       averageBrightness: fixtures.length
         ? Math.round(fixtures.reduce((total, fixture) => total + fixture.brightness, 0) / fixtures.length)
         : 0
@@ -611,6 +627,9 @@ function dashboard(
       id: runtimeFloor.id,
       name: runtimeFloor.name,
       level: runtimeFloor.level,
+      summary: { totalFixtures: fixtures.length, onlineFixtures, faultFixtures, offlineFixtures },
+      mapRevision,
+      mapConfigured,
       floorPlan: runtimeFloor.floorPlan,
       meshControlGroups: [],
       fixtures: includeFixtures ? fixtures : []
@@ -649,6 +668,7 @@ function mapSnapshot(runtimeFloor: typeof floor, revision: number, objects: Sett
 function commandStatus(id: string, stage: FixtureCommandStage, results: FixtureCommandResult[], gatewayId: string) {
   const completedFixtureCount = results.filter((result) => result.status !== "pending").length;
   return {
+    ...commandDetailClockFixture,
     id,
     stage,
     dispatchCount: 1,

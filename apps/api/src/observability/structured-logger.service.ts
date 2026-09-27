@@ -2,6 +2,7 @@ import { Inject, Injectable, LoggerService } from "@nestjs/common";
 import { RequestContext } from "./request-context.middleware";
 import { OBSERVABILITY_CLOCK } from "./readiness.service";
 import { safeCadImportDiagnosticFields } from "../floor-import/cad-import-diagnostics";
+import { safeCommandDetailRetentionFields } from "../retention/command-detail-retention-diagnostics";
 
 export const STRUCTURED_LOG_WRITER = Symbol("STRUCTURED_LOG_WRITER");
 
@@ -49,7 +50,8 @@ const safeContexts = new Set([
   "EnergyRetentionService",
   "EnergyReportWorkerService",
   "FloorImportWorkerService",
-  "LandingMailWorker"
+  "LandingMailWorker",
+  "CommandDetailRetentionService"
 ]);
 
 @Injectable()
@@ -86,7 +88,7 @@ export class StructuredLoggerService implements LoggerService {
       level,
       context: context && safeContexts.has(context) ? context : "Application",
       ...(this.requestIdField()),
-      ...classifyApplicationEvent(message, level)
+      ...classifyApplicationEvent(message, level, context)
     });
   }
 
@@ -100,26 +102,27 @@ export class StructuredLoggerService implements LoggerService {
   }
 }
 
-function classifyApplicationEvent(message: unknown, level: LogLevel) {
+function classifyApplicationEvent(message: unknown, level: LogLevel, context?: string) {
   const record = message && typeof message === "object" && !Array.isArray(message)
     ? message as Record<string, unknown>
     : undefined;
   const requestedOperation = record?.operation;
-  const operation = typeof requestedOperation === "string" && applicationOperations.has(requestedOperation)
+  const retention = safeCommandDetailRetentionFields(record, context);
+  const operation = "event" in retention ? "background_job" : typeof requestedOperation === "string" && applicationOperations.has(requestedOperation)
     ? requestedOperation
     : classifyLegacyOperation(typeof message === "string" ? message : "");
   if (level !== "error" && level !== "fatal") {
-    // Retention emits counts only. The bounded worker batch is at most 100 rows;
+    // Landing retention emits counts only. The bounded worker batch is at most 100 rows;
     // arbitrary messages, identifiers and provider bodies stay excluded.
     const deletedCount = record?.deletedCount;
-    return { operation, ...(operation === "landing_inquiry_prune" && typeof deletedCount === "number" &&
+    return { operation, ...retention, ...(operation === "landing_inquiry_prune" && typeof deletedCount === "number" &&
       Number.isInteger(deletedCount) && deletedCount >= 0 && deletedCount <= 100 ? { deletedCount } : {}) };
   }
 
   const error = message instanceof Error ? message : record?.error;
   const requestedClass = error instanceof Error ? error.name : record?.errorClass;
   const errorClass = typeof requestedClass === "string" && errorClasses.has(requestedClass) ? requestedClass : "Error";
-  return { operation, errorClass,
+  return { operation, errorClass, ...retention,
     ...(operation === "background_job" ? safeCadImportDiagnosticFields(record) : {}) };
 }
 

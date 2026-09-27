@@ -28,4 +28,24 @@ describe("EnergyController comparisons", () => {
     expect(() => controller.getSiteComparisons(user, "site-1", "custom")).toThrow(BadRequestException);
     expect(energyService.getSiteComparisons).not.toHaveBeenCalled();
   });
+
+  it("delegates the custom date range without changing the preset route", async () => {
+    const energyService = { getSiteCustomComparison: jest.fn().mockResolvedValue({ selection: { kind: "custom" } }) };
+    const controller = new EnergyController(energyService as never);
+    const query = { from: "2026-09-01", to: "2026-09-23" };
+
+    await expect(Reflect.apply(controller.getSiteCustomComparison, controller, [user, "site-1", query]))
+      .resolves.toEqual({ selection: { kind: "custom" } });
+    expect(energyService.getSiteCustomComparison).toHaveBeenCalledWith(user, "site-1", query);
+  });
+
+  it("preserves extra custom query keys for strict service validation", async () => {
+    const energyService = { getSiteCustomComparison: jest.fn().mockResolvedValue({}) };
+    const controller = new EnergyController(energyService as never);
+    const query = { from: "2026-09-01", to: "2026-09-23", unexpected: "ignored-before" };
+
+    await Reflect.apply(controller.getSiteCustomComparison, controller, [user, "site-1", query]);
+
+    expect(energyService.getSiteCustomComparison).toHaveBeenCalledWith(user, "site-1", query);
+  });
 });

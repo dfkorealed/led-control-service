@@ -1,5 +1,47 @@
 # 데이터베이스 테이블 구조
 
+## 2026-09-27 기본 OFF의 명령 상세 정리 worker
+
+운영 `StructuredLoggerService`는 고정 context `CommandDetailRetentionService`와 event `command_detail_retention_batch`, `completed`/`failed` 상태만 상세 지표로 허용한다. 후보/처리/이번 보류 사유별 수는 0~1,000 정수, 전체 지연/보류 수는 음수가 아닌 safe integer, 최고 경과 초는 유한한 음수 아닌 수로 검증한다. helper의 허용 목록에 있는 사유만 로그에 남기며 알 수 없는 사유·원문 오류·ID·SQL은 버린다. 실제 production JSON writer까지 연결한 worker 회귀로 이 계약을 검증한다.
+
+`CommandDetailRetentionService.runBatch(maxCandidates=100)`은 `COMMAND_DETAIL_REDACTION_ENABLED=1`일 때만 실행한다. 기본 OFF에서는 DB 읽기·쓰기를 하지 않으며, 활성화한 API의 60초 timer와 수동 호출은 인스턴스 내 실행을 공유한다. 배치 상한은 1~1,000개 Command 후보다. DB UTC transaction 시각을 기존 timestamp/Date의 밀리초 정밀도로 맞추고 3 calendar months를 뺀 경계를 배치 동안 고정한다. 정확한 경계는 보존하며 `contentRedactedAt IS NULL`인 더 오래된 행만 `(createdAt,id)` 순서로 한 행씩 `FOR UPDATE SKIP LOCKED`로 잠근다. 후보 수 상한은 파생 상세 행 수나 전체 backlog 집계 비용의 상한이 아니다.
+
+각 후보의 helper는 같은 transaction에서 실행한다. 실패하면 해당 거래 전체를 rollback한 뒤 별도 거래에서 원본을 다시 잠그고 marker를 재확인하여 기존 `CommandRetentionAttempt`에 `detail_` 사유·DB UTC 시도 시각·1시간 뒤 `retryAfterAt`을 기록한다. 이 접두사의 재시도 대기 행을 제외하므로 오래된 보류 후보가 뒤의 처리 가능한 후보를 가로막지 않는다. 성공하면 해당 detail 시도 기록을 제거한다. 물리 purge 전용 flag는 읽거나 활성화하지 않는다.
+
+배치 결과는 `examined`, `redacted`, `skippedByReason`, `overdueCount`를 반환하고, 운영 로그는 보류 중인 전체 `blockedByReason`과 가장 오래된 미정리 행의 `oldestAgeSeconds`도 제공한다. 과거 ACK 귀속 불가의 `legacy_ack_attribution_unverifiable`도 별도로 집계하며 raw SQL/원문 오류/명령 ID를 로그에 넣지 않는다. OFF의 0은 미조회 값이며 backlog가 없다는 증거가 아니다. 운영 migration·flag ON은 백업, DB 시계/기존 raw 사본 감사와 dry-run 검증 뒤 별도로 진행한다. 이 작업에는 새로운 migration이나 운영 적용이 없다.
+
+## 2026-09-27 종료 명령 파생 상세의 원자적 제거
+
+`20260927160000_command_derived_content_redaction`은 종료된 `ManualOverride`와 수동 `AutomationExecution`에 `contentRedactedAt`을 추가한다. Override의 밝기·요청자·source digest와 target membership, execution의 payload·unkeyed hash·occurrence 및 fixture results를 제거한다. 부모 ID·현장·Gateway·Command FK와 legacy Override-ID alias는 유지한다. CHECK와 remove-only trigger는 정상 행의 필수 내용을 유지하고 비식별 상태 복원·늦은 child/outbox 재삽입을 거부한다. Command/dispatch의 상세 복원도 DB에서 차단한다.
+
+`redactSettledCommandDetails(tx, commandId, retainedFromUtc)`는 호출자가 같은 거래에서 잠근 Command에만 사용한다. 중앙 DB UTC 시각, 정확 cutoff 보존, 종료 outcome/dispatch/result, hold 없음, 종료 override, published/lease 없는 outbox를 확인한다. 같은 거래에서 Command 요청자도 NULL로 지우며, Task 2의 현장 단위 orphan 요청 키 보호로 재실행을 막는다. 기존 Task 2 상태 정의에서 요청자 유지가 가능했더라도 이 정리 helper는 사용자 연결을 남기지 않는다. 모든 원본·결과·wire/ACK outbox·수동 상세·연결 활동 source 및 검증된 완료 재위촉 snapshot 정리가 성공해야 marker를 기록한다. 예외는 `CommandDetailRedactionBlocked.reasonCode`만 노출하며 호출자가 전체 거래를 rollback해야 한다.
+
+수동 실행의 exact `ManualExecutionReplayReceipt` HMAC은 기존 원장에 보존한다. 재전송은 이 증명과 현장/Gateway/event/sequence를 검증한 뒤 거래 commit 및 inbound PUBACK 이후, 10초 MQTT message expiry의 일회성 V1 ACK만 발행한다. raw report hash를 DB outbox에 재저장하지 않는다. 발행 실패 시 Gateway의 기존 durable report 재전송으로 다시 처리하며 새 Set/Get을 만들지 않는다. 증명·키가 없거나 변조된 보고, 새 event, 검증할 수 없는 legacy alias는 실패로 닫는다.
+
+과거 `device_status_ack` 원장의 hash는 Command에 연결할 수 없어 같은 Gateway에 남아 있으면 `legacy_ack_attribution_unverifiable`로 보류한다. 출처가 끊긴 legacy manual 사본, 활동 keyring 부족, 미완료/증명 없는 재위촉 snapshot도 보류하며 관련 없는 원장을 추측해서 지우지 않는다. 이 helper/순방향 migration은 일회용 PostgreSQL 검증 대상이고 기본 timer 등록·운영 적용·물리 purge·보호 cutover 활성화는 포함하지 않는다.
+
+## 2026-09-27 Command 상세 내용 제거 상태
+
+현장·요청 키의 orphan 검사는 새 `Command_siteId_clientRequestId_idx` 인덱스를 사용한다. 기존 unique 인덱스의 중간 `requestedBy`를 알 수 없는 조회가 현장 전체 기록을 반복 탐색하지 않도록 한다.
+
+`20260927150000_command_content_redaction`은 `Command.contentRedactedAt TIMESTAMP(3)`과 `Command_content_state_check`를 추가한다. 일반 행은 기존처럼 `requestFingerprint`, `targetType`, `targetFixtureIds`, `brightness`가 필수다. 내용 제거 행은 이 네 필드와 `targetId`, `errorMessage`를 SQL NULL로 함께 비우고 `contentRedactedAt`을 기록해야 한다. JSON null이나 일부 필드만 제거한 중간 상태는 허용하지 않는다. 새 명령 생산자의 내용은 유지하며 Command 행과 FK는 삭제하지 않는다.
+
+`clientRequestId`와 내부 `requestedBy`는 중복 방지에 유지하며 생성 응답에서 fingerprint와 함께 숨긴다. 사용자 삭제로 요청자 FK가 NULL인 기존 키는 현장 행과 동일 요청 키의 Command 행 잠금으로 모든 요청자의 재사용을 보수적으로 409 차단한다. 삭제가 진행 중이면 FK 변경 완료 후 NULL 여부를 재확인한다. 비식별 재요청은 `command_request_expired`, 인가된 상세·상태 확인은 내용 없는 `command_expired`(410)다. ACK는 정확한 전송 식별자를 잠근 뒤 내용 제거 상태를 확인하며 원문·결과·관측을 복원하지 않는다.
+
+이 변경은 새 일회용 PostgreSQL의 전체 migration 적용과 API 회귀로 검증한다. 운영 DB migration, 비식별 worker, 물리 purge, 복구 POST와 실제 Gateway/RF 동작은 활성화하지 않는다. 원본과 파생 사본의 실제 정리는 후속 worker 작업이며 아래의 이전 물리 삭제 실험 설명은 새 정책의 활성화 조건이 아니다.
+
+## 2026-09-27 제한 worker의 Command 삭제 장벽
+
+`20260925120000`~`20260925153000`의 13개 선행 migration은 활동 snapshot, replay HMAC, 미확정 hold와 대상, 원본 없는 Get dispatch/outbox, 늦은 Set/Get ACK 표식, 수동 실행 receipt·출처 보호와 재시도 backlog를 추가한다. `ManualOverride.commandId`의 nullable Prisma 관계는 별도 `manual-override-guarded-detach.sql` cutover 뒤 상태를 표현하며 additive migration만으로 원본을 분리하거나 지우지 않는다. 활성 suppression·미확정 hold는 원본 삭제 뒤에도 보존하고 수동 child/ACK 복사본·raw 활동 key·미확정 재위촉 snapshot이 있으면 삭제를 차단한다. 활동은 site/Command/outcome HMAC으로 재키잉하며 raw payload를 새 장벽 증명에 복제하지 않는다.
+
+`20260927100000_command_purge_barrier`는 `CommandPurgeBarrierEvidence.proof` JSON과 비공개 `purge_barrier_verify_key`, `purge_clock_attestation`을 추가한다. proof의 HMAC은 evidence ID·worker DB identity·keyVersion·generation·worker boot·primary/continuity·member/broker/Gateway/clock digest·fence 시각·최대 absolute expiry·UTC 3 calendar months cutoff·시각 표본·500ms 이하 유효기간·실제 단조 대기/최소 대기를 함께 묶는다. 기존 proof 없는 행은 삭제에 쓸 수 없다. clock attestation은 실제 primary postmaster 시작 identity와 일치하고 1초 이내여야 한다. primary/continuity 변경·건강 손실 뒤 복구·시각 역행은 같은 기록을 되살릴 수 없으며 새 epoch가 필요하다. migration은 키·시각 attestor·worker credential을 provision하지 않는다.
+
+보호 SQL은 automation mutation → exclusive publish permit 순서로 잠그고 같은 transaction에서 서명·세대·전체 member ACK·시각 연속성·모든 시도 envelope를 다시 확인한다. 현재 broker 증명에 worker identity→인증서 소유 매핑이 없어 누락 ACK의 broker 대체 경로는 허용하지 않는다. 제한 worker에는 Command 직접 DELETE/TRUNCATE·생성시각/대상 변경·private key SELECT·SQL 서명 함수를 주지 않는다. nonlogin definer만 최종 Command/해당 attempt를 삭제하며 row lock을 위해 `Command.updatedAt`, `CommandPublishEpoch.generation`에만 열 단위 UPDATE 권한을 받는다. proof의 cutoff보다 엄격히 오래된 `createdAt`만 삭제하고 정확 경계·hold/Get을 보존한다. 차단은 allowlist 사유·overdue 건수로 보고한다.
+
+제한 worker가 TS preflight 없이 보호 SQL을 직접 호출해도 unknown 원본의 hold Gateway·원본 생성시각·Command/Set/hold/receipt의 완전한 대상 집합·기대 밝기·기존 Get 시도 수를 다시 비교한다. late Set receipt는 정확히 한 건이어야 하고 원래 dispatch·idempotency key·sequence까지 DB 비공개 `command_safety_verify_key`의 `late-set-wire` HMAC으로 검증한다. 잘못된 scope·대상·밝기·receipt·키는 삭제 0이며 키 읽기나 범용 서명 권한을 worker에 추가하지 않는다.
+
+이 경로는 `watermark_N` 일회용 PostgreSQL과 test capability에서만 성공할 수 있다. Gateway의 zero counters/재시작은 물리 RF 완료가 아니며 별도 HIL certificate와 submit→RF 측정 상한이 필요하다. inventory/HIL/응답의 버전 문자열 일치도 capability 증거가 아니다. 별도 release 인증 목록에서 불변 Gateway 버전의 DB clock proof v1·매 물리 submit 만료 재검사·보수적 RF 계수 v1을 확인하고 해당 인증 revision을 증명 digest에 묶는다. 기본 인증 목록·운영 adapter는 없으며 offline Gateway도 미지원 버전이면 차단한다. 전체 Gateway census·offline 세션 폐기, stock broker 반롤백, DB-host 시각 attestor와 실장비 HIL은 운영 증거가 없으므로 production purge와 recovery POST는 hard OFF다. 기존 미커밋 메뉴/API sweep 변경이나 운영 migration·배포를 이 검증에 포함하지 않는다.
+
 작성일: 2026-09-19
 
 수동 모니터링 확인 갱신일: 2026-09-18
@@ -15,7 +57,7 @@
 - 공통 맵 정본/파생 표시: `FloorMapDocument`, `FloorMapGeneration`, `FloorMapChunk`, `FloorMapIndexShard`, `FloorMapDisplayAsset`, `FloorMapChangeSet`, `FloorMapRevisionAsset`, `FloorMapStage`, `FloorMapStagePart`
 - 조명/그룹/게이트웨이/메시 노드: `Fixture`, `FixtureGroup`, `GroupFixture`, `Gateway`, `GatewayInventory`, `MeshNode`, `MeshControlGroup`, `MeshControlGroupMember`, `MeshControlGroupExpectedOperation`, `MeshControlGroupAppliedMember`
 - 게이트웨이 PKI: `GatewayEnrollment`, `GatewayCertificate`, `CertificateRevocationReconciliation`
-- 제어/모니터링: `Command`, `CommandDispatch`, `CommandFixtureResult`, `MqttOutbox`, `ProcessedGatewayEvent`, `GatewayEventWatermark`, `MonitoringIncident`, `EnergyUsage`
+- 제어/모니터링: `Command`, `CommandDispatch`, `CommandFixtureResult`, `MqttOutbox`, `ProcessedGatewayEvent`, `GatewayEventWatermark`, `MonitoringIncident`, `MonitoringActivity`, `EnergyUsage`
 - 자동 제어: `GatewayAutomationConfiguration`, `LightingSchedule`, `LightingScheduleFixture`, `VehicleEventRule`, `VehicleEventSource`, `VehicleEventTarget`, `ManualOverride`, `ManualOverrideFixture`, `AutomationExecution`, `AutomationExecutionFixtureResult`
 - 감사/삭제 정리: `GatewayClaimAudit`, `AuditLog`, `SiteDeletionCleanup`
 - 조명 검색/등록: `ProvisioningSession`, `ProvisioningScanOutbox`, `ProvisioningDeviceOutbox`, `DiscoveredMeshNode`
@@ -475,6 +517,16 @@ Task 5는 schema를 변경하지 않았다. 빈 disposable PostgreSQL에 전체 
 Reconciler도 Site → Gateway → Fixture → Incident 순서로 잠그며 현장 전체 대상은 ID 순으로 잠근다. Gateway offline은 대상당 하나이며, fixture stale은 online Gateway에 매핑되고 첫 상태 대기 중이 아닌 조명에만 발생한다. Health fault와 command failure는 각각 Health snapshot과 `reportedStatusReason`에서 판정한다. 따라서 command failure는 운영 freshness가 사유를 덮어써도 유지되며 다음 실제 수락 보고에서 사유가 바뀌어야 해소된다. 관측 지속은 SQL로 `lastObservedAt`만 전진시켜 Prisma `@updatedAt`과 사용자 확인·담당 변경 revision을 보존한다. 조건 해소 시 `activeKey=NULL`, `resolutionKind=automatic_recovery`로 전환하고 `updatedAt`을 최소 1ms 증가시킨다. 확인·담당 이력은 보존하며 새 장애는 별도 행을 만든다.
 
 수집 commit과 incident 반영 사이에는 다음 sweep까지 지연이 있다. 각 Site 내부 고정 운영 상태 변경·reconcile은 원자적이며, 다른 Site는 별도 transaction이다. transaction 획득 대기 2초/실행 5초로 제한하고 실패 현장만 rollback한 뒤 다음 현장을 처리한다. 첫 sweep 이전 과거 장애는 backfill하지 않는다.
+
+### MonitoringActivity
+
+`recordedAt`의 DB 기본값은 `CURRENT_TIMESTAMP AT TIME ZONE 'UTC'`로 명시해 세션 timezone과 무관한 UTC naive timestamp를 저장한다. 순방향 `20260927120000_monitoring_activity_db_clock_default`는 이 기존 기본값만 다시 확립하고 과거 행을 고치거나 다시 쓰지 않는다. Prisma 모델은 `dbgenerated`로 정렬해 `createMany`가 API 프로세스 시각을 명시 삽입하지 않고 실제 DB 기본값을 사용한다. 이 DDL은 적용 시 짧은 table lock을 요구하며 이 작업에서는 운영 DB에 적용하지 않았다.
+
+`20260925120000_monitoring_activity`는 고객에게 안전하게 표시할 운영 활동 projection을 원시 MQTT 이벤트, 내부 `MonitoringIncident`, IP/user-agent 등이 있는 감사 원장과 분리한다. `MonitoringActivity`는 `id`, `siteId`, 삭제된 층도 식별하는 snapshot `floorId`, `sourceType/sourceKey`, 제한된 `kind`, DB 서버 기본값 `recordedAt`, 선택적 장치 관측 `observedAt`, `fixtureId/displayName` snapshot과 `status/brightnessPercent/commandOutcome/refreshStatus`만 저장한다. 원시 payload, 인증 정보, serial, IP, 내부 fault code, incident 조치 데이터는 컬럼과 고객 응답에 없다. producer는 검증된 원본 상태 전이와 같은 transaction에서 `recordMonitoringActivity`를 호출한다. helper는 같은 transaction에서 현재 Floor의 site 소속을 확인하고, producer의 `recordedAt` 지정은 금지한다. 여러 행은 batch helper로 층 검사를 묶는다. `(siteId, sourceType, sourceKey, floorId)` unique와 `skipDuplicates`로 재전달을 멱등 처리한다. 기존 원시 원장에서 과거 고객 문구를 추측해 backfill하지 않는다.
+
+기본 OFF인 `MONITORING_ACTIVITY_KEYED_COMMAND_SOURCE_ENABLED=1`은 기존 Command 활동의 raw `sourceKey=Command UUID:outcome`를 site·Command ID·outcome의 server-key HMAC으로 재키잉한다. 순방향 `20260927101500_monitoring_activity_raw_backfill_index`는 Prisma 모델/컬럼 변경 없이 raw Command source 정규식 predicate의 partial `(recordedAt,id) INCLUDE (siteId,sourceKey,floorId)` index를 추가한다. 후보 쿼리도 정확히 같은 predicate와 `recordedAt >= retainedFrom` cutoff를 사용해 만료 backlog·keyed 행을 후보에서 제외하고 `(recordedAt,id)` 순 최대 **100 legacy 활동 행**만 선택한다. 정확한 UTC 3 calendar-month 경계 행은 포함하며 만료 backlog는 별도 1,000행 물리 삭제 sweep이 처리한다. 기존 source별 advisory lock과 unique 충돌 병합은 유지하며 원래 행 ID·기록시각을 보존하지만, raw 삭제나 keyed 충돌 상대행의 시각 갱신이 따를 수 있어 100은 **총 DB 변경 행 수** 상한이 아니다. PostgreSQL의 작은 테이블 cost-based sequential scan은 허용하지만, 일회용 DB 10k/100k keyed 행에서 `ANALYZE` 후 자연 `EXPLAIN (ANALYZE, BUFFERS)`가 정렬·전체 scan 없이 partial index를 사용하는 것을 검증했다. 이 검증은 운영 migration 적용이나 flag ON을 뜻하지 않으며 구 생산자의 raw 재생성 방지는 별도 guarded cutover가 필요하다.
+
+`(siteId, floorId, recordedAt DESC, id DESC)`는 site/floor 최신순 읽기, `(recordedAt, id)`는 bounded 보존 sweep의 후보 순서용이다. 고객 조회는 현장 인가·층 소속 검사 후 짧은 DB 읽기 transaction에서 `transaction_timestamp() AT TIME ZONE 'UTC'`와 `INTERVAL '3 months'` cutoff를 한 번 받아 `generatedAt`·`retainedFrom`·cursor 410·행 필터에 공통 사용한다. DB 시각 조회 실패 시 API 시계로 대체하지 않는다. 물리 sweep과 기본-OFF raw Command source backfill 후보 SQL도 각 statement에서 같은 UTC DB cutoff를 계산한다. 조회는 `recordedAt >= cutoff`, sweep은 `< cutoff`만 삭제하므로 정확한 경계 행은 남긴다. sweep은 60초마다 `(recordedAt,id)` 순 최대 1,000행을 `FOR UPDATE SKIP LOCKED`로 잠그며, 장애·backlog에서는 다음 sweep으로 미룬다. `recordedAt + 3개월` 저장 만료일은 월말 clamp 역산과 불일치하므로 사용하지 않는다. `Site` FK만 `ON DELETE CASCADE`이며 명시적 현장 삭제는 projection을 즉시 삭제한다. `Floor`/`Gateway`/`Fixture` FK를 두지 않아 층·조명 삭제 또는 현장을 유지하는 Gateway 재설치/재위촉은 미만료 활동 snapshot을 삭제하지 않는다. 읽기는 현재 site `read` 인가와 floor-site 일치를 확인하며, 보관 중인 archived Floor도 조회할 수 있다. cursor는 기존 API와 같은 정규화된 base64 페이지 상태로 principal/site/floor/anchor를 검사하지만 암호학적 무결성 보증이나 인가 토큰은 아니다; 매 요청마다 site 인가와 현재 floor 소속을 재검사한다. 과거 Prisma API 시계로 쓰인 행의 진짜 DB 발생시각은 복원할 출처가 없어 소급 재작성하지 않는다. DB primary 시계 연속성·failover 건전성 attestation은 별도 출시 관문이다.
 
 ### MonitoringRefresh / MonitoringRefreshBatch / MonitoringRefreshFixture
 
@@ -1425,7 +1477,7 @@ cloud가 ACK로 확인한 실제 group subscription pair snapshot이다. 복합 
 | `status` | `CommandStatus` | 예 | `pending` | 명령 상태 |
 | `outcome` | `CommandOutcome?` | 아니오 | 기본값 없음 | 실제 적용 결과. 기존 행은 `NULL`, 신규 producer가 명시 |
 | `errorMessage` | `String?` | 아니오 |  | 실패 사유 |
-| `createdAt` | `DateTime` | 예 | `now()` | 생성 시각 |
+| `createdAt` | `DateTime` | 예 | DB UTC `CURRENT_TIMESTAMP AT TIME ZONE 'UTC'` | 원본 Command 생성 시각 (`TIMESTAMP(3)`) |
 | `updatedAt` | `DateTime` | 예 | `@updatedAt` | 수정 시각 |
 
 관계:
@@ -1440,6 +1492,8 @@ cloud가 ACK로 확인한 실제 group subscription pair snapshot이다. 복합 
 - MQTT command ACK 수신 시 `status`, `errorMessage`가 갱신된다.
 - `(siteId, requestedBy, clientRequestId)` unique는 동일 사용자·현장 요청의 중복 Command, Outbox, Gateway sequence 생성을 차단한다. 현재 fingerprint는 안정 정렬 target·brightness만 해시한다. 과거 API는 optional expiry의 원문까지 해시했으므로 PostgreSQL `TIMESTAMP(3)`에서 원래 소수점 표기를 역산하지 않는다. Idempotent recovery는 저장된 `targetType`, `targetId`/`targetFixtureIds`, `brightness`를 canonical 요청과 비교하며, 동일 ID에 target 또는 brightness가 다르면 API는 conflict로 처리한다.
 - `ManualOverride.commandId`는 `Command.id`를 직접 참조하는 1:1 FK다. 사용자 영구 삭제로 요청자 값이 `NULL`이 되어도 수동 override와 명령 이력 관계는 유지된다.
+
+`20260927130000_command_created_at_db_clock_default`는 새 `Command.createdAt`의 기본값만 UTC DB 서버 transaction 시각으로 다시 설정한다. Prisma 모델의 `dbgenerated`로 실제 Set `tx.command.create`는 `createdAt`을 전달하지 않고 DB 기본값을 사용한다. `requestedAt` wire는 계속 저장된 `command.createdAt`에서 만든 ISO 시각이며 밝기·대상·발행 안전 경로는 바꾸지 않는다. 일회용 PostgreSQL에서 API clock ±60초·직접 SQL session UTC/Seoul/New York·migration 재실행과 월말 cutoff를 검증했다. 기존 행을 소급 재작성하지 않으므로 과거 API-clock 행의 진짜 DB 발생 시각은 복원할 수 없다. 미설치 실험 `prisma/cutovers/recommission-protected-delete.sql`의 Command `BEFORE INSERT` trigger는 `clock_timestamp()`를 timezone 없는 열에 대입해 이 UTC default를 덮을 수 있으므로, 그 cutover의 UTC 교정·별도 검증 전에는 적용하면 안 된다. 이 migration 자체도 운영 DB에 적용하지 않았고 HISTORY/RECOVERY/PURGE startup hard-off를 유지한다. DB primary/failover 시계 attestation, broker/Gateway 안전 증거와 원본 물리 삭제는 별도 출시 관문이다.
 
 ### CommandDispatch / CommandFixtureResult / MqttOutbox
 
@@ -1762,8 +1816,11 @@ null은 원래 payload 동등성의 증거가 아니며 첫 인증 replay가 과
 | `Session` | 만료 또는 폐기 후 30일 | 활성 session 보존; 최대 10,000행 |
 | `FloorMapRevision` | floor별 최신 100개 또는 최근 365일 중 넓은 범위 | revision 번호 내림차순으로 최신 100개 보호; 나머지 최대 1,000행 |
 | `MonitoringRefresh` | terminal 완료 후 7일 초과 | `completed/partial/failed/expired`와 `completedAt < cutoff`를 후보 선택·삭제에서 재검사; pending 제외. 앞 세 단계 삭제 수를 뺀 기존 총 21,000 부모 행 budget의 잔여와 1,000 중 작은 값 |
+| `MonitoringActivity` | DB-host UTC rolling 3 calendar months | 조회와 같은 DB 시각 역산 cutoff보다 엄격히 오래된 `recordedAt`만 삭제; `(recordedAt,id)` 순 독립 최대 1,000행 budget. 정확한 경계 보존 |
+| `ResolvedCommandRecovery` | 해결 시각 기준 UTC rolling 3 calendar months | 고객 case detail은 DB 시각 cutoff 이상만 반환; 별도 기본-OFF sweep은 cutoff 미만을 `(resolvedAt,id)` 순 최대 1,000행 삭제. 원본 UUID·Set 상세 없음 |
 
-refresh 삭제는 batch·fixture 결과·요청 alias·연결 outbox를 FK cascade로 정리한다. 위 budget과 로그의 `monitoringRefreshes`는 직접 삭제한 부모 행 수이며 cascade 하위 행 수를 의미하지 않는다. budget 소진 시 다음 sweep으로 미루며, 7일은 최소 보존 기간이지 물리 삭제 완료 기한이 아니다.
+refresh 삭제는 batch·fixture 결과·요청 alias·연결 outbox를 FK cascade로 정리한다. 위 budget과 로그의 `monitoringRefreshes`는 직접 삭제한 부모 행 수이며 cascade 하위 행 수를 의미하지 않는다. `monitoringActivities`와 `resolvedCommandRecoveries`는 각각 독립된 1,000행 budget·로그 수다. budget 소진 시 다음 sweep으로 미루며, 7일 및 rolling 3개월은 최소 보존 기간이지 물리 삭제 완료 기한이 아니다. Command 원본·dispatch·결과는 이 두 projection sweep에서 삭제하지 않는다.
+`20260927110000_resolved_command_recovery_db_clock`은 기존 행을 바꾸지 않고 `resolvedAt` 기본값을 `transaction_timestamp() AT TIME ZONE 'UTC'`로 변경한다. Prisma 모델도 DB 생성 기본값을 사용하므로 두 완료 producer와 직접 SQL writer의 새 요약은 DB 세션 시간대나 API 시계에 좌우되지 않는다. 고객 case detail의 terminal fallback과 별도 요약 sweep은 각 SQL statement에서 동일한 `((transaction_timestamp() AT TIME ZONE 'UTC') - INTERVAL '3 months')`를 계산한다. 정확한 cutoff 행은 조회 가능하며 삭제는 그보다 엄격히 오래된 행에만 적용된다. 미해결 Hold는 먼저 조회하며 요약과 FK가 없어 sweep으로 삭제되지 않는다. 미해결 case 목록의 `generatedAt`은 표시용 API 시각일 뿐 요약 보존 cutoff가 아니다. 요약 sweep의 `RESOLVED_COMMAND_RECOVERY_RETENTION_ENABLED`는 기본 OFF이고 이 빌드의 운영 ON은 시작·수동 sweep 모두 거부한다. 일회용 PostgreSQL에서만 ON 검증했으며 운영 migration·flag 활성화는 하지 않았다. `resolvedSummaryBacklog`는 삭제 뒤 index-backed `EXISTS`로 확인한 만료 행 잔여 여부이고 총 건수는 아니다. 이전 stage 실패 시 해당 tick의 요약 sweep도 지연되며, DB-host 시계 연속성·failover 건전성은 별도 출시 관문이다.
 
 이벤트 네 유형은 합산 최대 10,000행이다. 모든 이벤트 후보는 완전한 scope/hash와 최신 watermark가 필요하며 같은 sequence이면 ID/hash/발생 시각도 일치해야 한다. 알 수 없는 유형, legacy 불완전 원장, 삭제된 fixture·cursor 누락처럼 안전 조건을 충족하지 못하는 행은 무기한 남을 수 있다. 배치 상한은 인스턴스의 sweep당 값이며 여러 인스턴스는 서로 잠근 행을 건너뛴다. `data_retention_sweep`는 기준 시각·소요 시간·대상별 삭제 수와 성공/실패를 기록하고 실패 시 `failedStage`와 앞 단계에서 이미 완료된 삭제 수를 남긴다.
 
@@ -2295,3 +2352,28 @@ DB 구조가 변경될 때는 다음 순서로 함께 갱신한다.
 2. `apps/api/prisma/migrations/*/migration.sql`
 3. 이 문서 `docs/database-schema.md`
 4. 필요한 경우 API 테스트, 웹 테스트, `docs/lesson_leared.md`
+
+## 8. Command Set 발행 epoch 및 보호된 attempt envelope
+
+`20260926100000_command_publish_epoch`는 운영 활성화 없이 추가하는 안전 기반이다. 모든 현장의 원본 보존 정책은 최근 **3 calendar months**이며 1년 요금제·청구·보존 등급을 추가하지 않는다. migration은 active epoch나 로그인 credential을 만들지 않으며 production purge와 recovery POST는 계속 OFF다.
+
+| 모델 | 핵심 필드와 제약 |
+| --- | --- |
+| `CommandPublishEpoch` | 양수 `generation` PK, `active → quiescing → fenced → retired`, `createdAt/quiescingAt/fencedAt/retiredAt`. DB advisory lock과 trigger가 세대 재사용·역행·단계 생략·이력 삭제를 거부한다. retired 전에는 다음 active 세대를 만들 수 없다. |
+| `CommandPublishMember` | `(generation, workerId)` PK, 세대별 `brokerIdentity`, DB 소유 `registeredAt/quiesceAckAt`. active 때 등록하고 quiescing 때 한 번 ACK한다. 누락 ACK를 시간 초과로 만료시키지 않는다. |
+| `CommandPublishAttempt` | `id`, `generation`, `workerId`, `dispatchId`, 절대 `expiresAt`, DB 소유 `attemptedAt`. 등록된 member와 active epoch, 실제 dimming dispatch만 허용한다. 동일 dispatch는 세대를 넘길 수 없으며 행 수정과 Set→Get 종류 변경을 거부한다. `(generation, expiresAt)`와 `dispatchId` 인덱스를 둔다. |
+| `CommandPurgeBarrierEvidence` | `generation`, `workerId`, broker/Gateway/clock의 SHA-256 digest, HMAC signature와 `keyVersion`, DB 소유 `createdAt`. fenced 세대의 보호 worker만 추가하며 수정·삭제를 거부한다. signature 형식 검증은 실제 서명 검증이나 현장 안전 증명과 다르다. |
+
+새 안전 시각 컬럼은 모두 `TIMESTAMPTZ(3)`이다. `TIMESTAMP(3)`에 raw Date 파라미터를 넣으면 Asia/Seoul DB 세션에서 `12:00Z`가 `21:00Z`로 읽히는 반례가 확인되었다. 통합 테스트는 Asia/Seoul에서 저장한 절대 만료가 UTC 세션으로 바뀌어도 동일한 `12:00:20Z`인지 검사한다. 기존 테이블 시각 컬럼은 이 migration에서 바꾸지 않는다.
+
+`CommandPublishEpochService.currentForSet(tx)`는 active generation 하나만 반환한다. 호출자는 기존 shared publish permit을 실제 Set handoff까지 유지해야 한다. `maxUnsettledExpiry(tx, generation)`는 보호된 envelope의 최대 만료를 반환하며 PUBACK/terminal ACK가 있어도 최대값에서 제외하지 않는다. 전역 dimming dispatch에서 발행·수락·완료·실패/시도 흔적이 있는데 envelope가 없으면 legacy/unknown expiry로 실패한다. mutable outbox payload의 `expiresAt`을 대신 신뢰하지 않는다. Get/status-check는 이 검사에 포함하지 않는다. 값이 없으면 `null`이며, 존재하지 않거나 유효하지 않은 세대는 오류다. 보호 worker는 exclusive permit 아래에서 이 조회와 barrier 재검증을 수행해야 한다.
+
+`CommandPublishAttempt.dispatchId`는 `CommandDispatch`에 **ON DELETE RESTRICT**로 연결된다. 따라서 기존 Command cascade purge도 envelope가 남으면 차단된다. 후속 보호 worker(Task 6)는 서명·broker/Gateway drain·DB clock 증명을 검증한 뒤 **같은 보호 transaction 안에서 attempt와 원본 Command를 명시 정리**해야 한다. 단순 fenced 상태나 API ACK만으로 삭제를 허용하는 작업을 등록하지 않는다. Task 4 발행기는 각 실제 Set handoff 전에 envelope와 outbox 시도 표식을 같은 transaction에 기록해야 한다. 이 단계는 기존 publisher를 연결하거나 legacy 기록을 추정 backfill하지 않는다.
+
+권한은 NOLOGIN 그룹 `command_set_publisher`와 `command_publish_retention`으로 분리한다. publisher는 epoch/member/attempt 조회, member·attempt 추가, quiesce ACK만 가능하고 epoch 전이·evidence 쓰기·attempt DELETE/TRUNCATE는 불가하다. retention 그룹만 epoch 추가·status 전이, evidence 추가, fenced/retired attempt 삭제 권한을 가진다. row lock용 컬럼 UPDATE 권한은 trigger의 불변 검사를 우회하지 못한다. migration 실행자는 역할 생성 권한이 필요하며 실제 비소유자 로그인 역할의 그룹 연결은 별도 운영 절차다. migration owner/superuser로 runtime을 실행하면 이 권한 경계가 성립하지 않는다.
+
+epoch/member/evidence에는 Command payload나 원문 idempotency key를 복사하지 않는다. 검증은 disposable PostgreSQL에만 migration을 적용했고 운영 DB migration·reset·배포·credential 발급·flag 활성화는 수행하지 않는다. broker 반롤백, 실제 Gateway census, DB-host clock, HIL 및 서명 검증과 단조 drain 대기는 후속 작업이며 이 스키마만으로 운영 purge를 인증하지 않는다.
+
+후속 additive migration `20260926101000_command_publish_epoch_guards`는 epoch 및 attempt INSERT를 DB trigger에서 **READ COMMITTED transaction으로 제한**한다. advisory lock만으로는 이미 만들어진 REPEATABLE READ snapshot이 갱신되지 않아, 다른 연결에서 더 높은 세대를 retired한 뒤 낮은 세대를 추가할 수 있었다. 두 연결 회귀 테스트는 이 오래된 snapshot의 쓰기가 DB에서 거부되는지 확인하고, 별도 동시 삽입 테스트는 서로 다른 PostgreSQL backend 두 개가 같은 출발점에서 경쟁해 하나만 active가 되는지 확인한다.
+
+첫 attempt envelope를 만들 때에는 dispatch와 outbox를 함께 잠그고 기존 `publishedAt`, `acceptedAt`, `completedAt`, non-pending status, `deliveryAttemptedAt`, outbox `publishedAt`, `attempts > 0`을 검사한다. 기존 시도 가능성이 있으면 뒤늦은 첫 envelope를 거부하여 legacy unknown expiry가 새 expiry로 가려지지 않게 한다. Task 4는 **같은 READ COMMITTED transaction에서 먼저 envelope를 기록하고 그 뒤 attempted marker를 기록**해야 한다. 정상 첫 envelope가 있는 후속 시도는 추가 만료 상한을 기록할 수 있다. outbox row lock에 필요한 publisher 권한은 `updatedAt` 컬럼 UPDATE로 제한하며 payload나 시도 표식을 지울 권한을 새로 주지 않는다. 이 보강도 purge·recovery POST를 활성화하지 않는다.

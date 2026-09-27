@@ -83,6 +83,34 @@ describe("schedule API", () => {
     );
   });
 
+  it("sends literal schedule filters and preserves site-wide versus filtered totals", async () => {
+    mocks.apiGet.mockResolvedValueOnce({
+      items: [], total: 120, filteredTotal: 35,
+      siteSummary: { ruleCount: 120, syncRuleCounts: { APPLIED: 20, PENDING: 90, REJECTED: 10 } },
+      nextCursor: "opaque-v2"
+    });
+
+    const result = await listSchedules(siteId, {
+      query: "입구_%", status: "enabled", syncStatus: "PENDING", limit: 20, cursor: "opaque-v2"
+    });
+
+    expect(mocks.apiGet).toHaveBeenLastCalledWith(
+      `/sites/${siteId}/automation/schedules?limit=20&query=${encodeURIComponent("입구_%")}&status=enabled&syncStatus=PENDING&cursor=opaque-v2`
+    );
+    expect(result).toMatchObject({ total: 120, filteredTotal: 35,
+      siteSummary: { ruleCount: 120, syncRuleCounts: { APPLIED: 20, PENDING: 90, REJECTED: 10 } } });
+  });
+
+  it("sends event filters without changing the existing CRUD routes", async () => {
+    await listVehicleEventRules(siteId, {
+      query: "센서%_", status: "disabled", syncStatus: "REJECTED", limit: 10
+    });
+
+    expect(mocks.apiGet).toHaveBeenLastCalledWith(
+      `/sites/${siteId}/automation/vehicle-event-rules?limit=10&query=${encodeURIComponent("센서%_")}&status=disabled&syncStatus=REJECTED`
+    );
+  });
+
   it("uses the production create, patch, and delete routes without reshaping bodies", async () => {
     await createSchedule(siteId, input);
     await updateSchedule(siteId, scheduleId, { status: "disabled" });

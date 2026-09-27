@@ -1,4 +1,5 @@
 import type { EnergyComparisonPoint, EnergyComparisonResponse } from "@led-control/shared";
+import type { EnergyRangeComparisonResponse } from "@led-control/shared/energy-range-contracts";
 import {
   Bar,
   CartesianGrid,
@@ -36,7 +37,7 @@ export function comparisonChartData(points: EnergyComparisonPoint[]): Comparison
   }));
 }
 
-export function EnergyComparisonChart({ comparison }: { comparison: EnergyComparisonResponse }) {
+export function EnergyComparisonChart({ comparison }: { comparison: EnergyComparisonResponse | EnergyRangeComparisonResponse }) {
   const data = comparisonChartData(comparison.points);
   const hasUnavailablePeriod = data.some((point) => point.phase === "unavailable");
 

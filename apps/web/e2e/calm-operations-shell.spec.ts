@@ -7,10 +7,11 @@ import { installSettingsApiRoutes } from "./support/settings-api";
 
 const responsiveViewports = [
   { width: 1440, height: 900 },
+  { width: 1378, height: 1237 },
   { width: 1024, height: 768 },
   { width: 760, height: 844 },
   { width: 390, height: 844 },
-  { width: 320, height: 740 }
+  { width: 320, height: 720 }
 ] as const;
 
 for (const viewport of responsiveViewports) {
@@ -32,8 +33,10 @@ for (const viewport of responsiveViewports) {
     if (viewport.width >= 760) {
       await expect(rail).toBeVisible();
       await expect(bottomNav).toHaveCount(0);
-      await expect(rail).toHaveCSS("width", "96px");
+      await expect(rail).toHaveCSS("width", "88px");
       await expect(topbar).toHaveCSS("min-height", "64px");
+      await expect(topbar).toHaveCSS("position", "sticky");
+      await expect(topbar).toHaveCSS("top", "0px");
       await expect(page.getByRole("img", { name: "킨다 관제 센터" })).toBeVisible();
 
       const [railBounds, logoMarkBounds, navigationItemBounds] = await Promise.all([
@@ -97,9 +100,17 @@ for (const viewport of responsiveViewports) {
     }
 
     await expect(page.getByRole("link", { name: "모니터링" })).toHaveAttribute("aria-current", "page");
+    await expect(page.getByTestId("shell-current-menu")).toHaveText("모니터링");
     await expect(page.getByTestId("active-site-badge")).toHaveText("고객사 B2 현장");
     await expect(page.getByTestId("active-floor-badge")).toHaveCount(0);
+    await expect(page.getByRole("button", { name: /게이트웨이 .*상태 센터 열기/ })).toHaveCount(0);
     await expect(topbar.getByText(/게이트웨이 (정상|오프라인|미등록)/)).toHaveCount(0);
+    const statusTrigger = page.getByRole("button", { name: /상태 센터, 미해결/ });
+    await statusTrigger.click();
+    const statusDrawer = page.getByRole("dialog", { name: "현재 세션 상태" });
+    await expect(statusDrawer).toContainText("Gateway 연결");
+    await statusDrawer.getByRole("button", { name: "상태 센터 닫기" }).click();
+    await expect(statusTrigger).toBeFocused();
     await expectNoHorizontalOverflow(page);
   });
 }
@@ -110,10 +121,80 @@ test("shell navigation updates when the viewport crosses the compact breakpoint"
   await page.goto("/monitoring?siteId=site-1");
   await expect(page.locator('[data-shell-navigation="desktop"]')).toBeVisible();
 
-  await page.setViewportSize({ width: 390, height: 844 });
+  await page.setViewportSize({ width: 760, height: 844 });
+  await expect(page.locator('[data-shell-navigation="desktop"]')).toBeVisible();
+  await expect(page.locator('[data-shell-navigation="compact"]')).toHaveCount(0);
+
+  await page.setViewportSize({ width: 759, height: 844 });
 
   await expect(page.locator('[data-shell-navigation="desktop"]')).toHaveCount(0);
   const compactNavigation = page.locator('[data-shell-navigation="compact"]');
   await expect(compactNavigation).toBeVisible();
   await expect(compactNavigation.getByRole("link")).toHaveCount(4);
+});
+
+test("shell titles follow the current customer route", async ({ page }) => {
+  await page.setViewportSize({ width: 1024, height: 768 });
+  await installSettingsApiRoutes(page, "admin");
+
+  for (const [path, title] of [
+    ["/monitoring?siteId=site-1", "모니터링"],
+    ["/control?siteId=site-1", "제어"],
+    ["/statistics/overview?siteId=site-1", "통계"],
+    ["/settings?siteId=site-1", "설정"]
+  ] as const) {
+    await page.goto(path);
+    await expect(page.getByTestId("shell-current-menu")).toHaveText(title);
+    await expect(page.getByText("현장 관제", { exact: true })).toHaveCount(0);
+  }
+});
+
+test("sticky topbar does not cover settings content at desktop atlas widths", async ({ page }) => {
+  await installSettingsApiRoutes(page, "admin");
+  for (const viewport of [{ width: 1440, height: 900 }, { width: 1378, height: 1237 }]) {
+    await page.setViewportSize(viewport);
+    for (const path of ["/settings?siteId=site-1", "/settings/site?siteId=site-1"] as const) {
+      await page.goto(path);
+      const contentTarget = page.locator("[data-shell-content] h1, [data-shell-content] h2, [data-shell-content] [data-page-header]").first();
+      await expect(contentTarget).toBeVisible();
+      const topbarBox = await page.locator("[data-shell-topbar]").boundingBox();
+      const firstContentBox = await page.locator("[data-shell-content] > *").first().boundingBox();
+      expect(topbarBox).not.toBeNull();
+      expect(firstContentBox).not.toBeNull();
+      expect(firstContentBox!.y).toBeGreaterThanOrEqual(topbarBox!.y + topbarBox!.height);
+      const hitEvidence = await contentTarget.evaluate((target) => {
+        const topbar = document.querySelector<HTMLElement>("[data-shell-topbar]");
+        if (!topbar) return { passes: false, reason: "missing-topbar", target: target.tagName, hit: null };
+        const rect = target.getBoundingClientRect();
+        const hit = document.elementFromPoint(rect.left + Math.min(8, rect.width / 2), rect.top + Math.min(8, rect.height / 2));
+        return {
+          passes: Boolean(hit && !topbar.contains(hit) && (hit === target || target.contains(hit))),
+          reason: "measured",
+          target: `${target.tagName}.${target.className}`,
+          hit: hit ? `${hit.tagName}.${(hit as HTMLElement).className}` : null,
+          targetRect: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
+          topbarRect: topbar.getBoundingClientRect().toJSON()
+        };
+      });
+      expect(hitEvidence, JSON.stringify(hitEvidence)).toMatchObject({ passes: true });
+    }
+  }
+});
+
+test("320px content can scroll above the fixed bottom navigation", async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 720 });
+  await installSettingsApiRoutes(page, "admin");
+  await page.goto("/settings/site?siteId=site-1");
+  const appShell = page.locator("[data-app-shell]");
+  const bottomNavigation = page.locator('[data-shell-navigation="compact"]');
+  const bottomNavigationBox = await bottomNavigation.boundingBox();
+  expect(bottomNavigationBox).not.toBeNull();
+  expect(await appShell.evaluate((element) => Number.parseFloat(getComputedStyle(element).paddingBottom)))
+    .toBeGreaterThanOrEqual(bottomNavigationBox!.height);
+  await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+  const lastVisibleControl = page.locator('[data-shell-content] :is(a,button,input,select,textarea):visible').last();
+  const lastVisibleControlBox = await lastVisibleControl.boundingBox();
+  expect(lastVisibleControlBox).not.toBeNull();
+  expect(lastVisibleControlBox!.y + lastVisibleControlBox!.height).toBeLessThanOrEqual(bottomNavigationBox!.y);
+  await expectNoHorizontalOverflow(page);
 });

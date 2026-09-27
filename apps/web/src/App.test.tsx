@@ -143,7 +143,7 @@ vi.mock("./api/client", async (importOriginal) => ({
         objects: []
       });
     }
-    if (path === "/commands/command-created-1" && apiState.commandStatus) return Promise.resolve(apiState.commandStatus);
+    if (path === "/commands/command-created-1" && apiState.commandStatus) return Promise.resolve({ generatedAt: "2026-09-27T00:00:00.000Z", retainedFrom: "2026-06-27T00:00:00.000Z", retentionEnabled: false, ...apiState.commandStatus as object });
     const floorEditorMatch = path.match(/^\/floors\/(.+)\/editor-state$/);
     if (floorEditorMatch) {
       const dashboard = (apiState.dashboard ?? mockDashboard) as typeof mockDashboard;
@@ -322,6 +322,11 @@ async function chooseSelect(label: string, option: string) {
   const choice = await screen.findByRole("option", { name: option });
   fireEvent.keyDown(choice, { key: "Enter" });
   fireEvent.keyUp(document.activeElement!, { key: "Enter" });
+}
+
+async function openMonitoringInspector() {
+  fireEvent.click(await screen.findByRole("button", { name: "조명 검색·상세" }));
+  return screen.findByRole("dialog", { name: "조명 검색·상세" });
 }
 
 async function selectMapFixture(name: string) {
@@ -863,7 +868,8 @@ describe("App", () => {
 
     expect(await screen.findByRole("button", { name: "맵 선택" })).toBeInTheDocument();
     expect(screen.getByRole("group", { name: "전체 조명" })).toBeInTheDocument();
-    expect(screen.getByRole("complementary", { name: "선택 조명 상세" })).toBeInTheDocument();
+    const inspector = await openMonitoringInspector();
+    expect(within(inspector).getByRole("complementary", { name: "선택 조명 상세" })).toBeInTheDocument();
     expect(screen.getAllByText("관제 센터").length).toBeGreaterThan(0);
   });
 
@@ -886,7 +892,8 @@ describe("App", () => {
       </QueryClientProvider>
     );
 
-    expect(await screen.findByText("조명 전용 게이트웨이 A (정상)")).toBeInTheDocument();
+    const inspector = await openMonitoringInspector();
+    expect(await within(inspector).findByText("조명 전용 게이트웨이 A (정상)")).toBeInTheDocument();
   });
 
   it("disables control and explains the server-provided block reason", async () => {
@@ -956,7 +963,14 @@ describe("App", () => {
 
     const topbar = (await screen.findByRole("heading", { name: "모니터링" })).closest<HTMLElement>("header");
     expect(topbar).not.toBeNull();
-    expect(within(topbar!).getByTestId("gateway-status-badge")).toHaveAccessibleName("게이트웨이 미등록");
+    expect(within(topbar!).queryByTestId("gateway-status-badge")).not.toBeInTheDocument();
+    const statusTrigger = within(topbar!).getByRole("button", { name: "상태 센터, 미해결 0건" });
+    fireEvent.click(statusTrigger);
+    const statusDrawer = await screen.findByRole("dialog", { name: "현재 세션 상태" });
+    expect(statusDrawer).toHaveTextContent("Gateway 연결");
+    expect(statusDrawer).toHaveTextContent("게이트웨이 미등록");
+    fireEvent.keyDown(statusDrawer, { key: "Escape" });
+    await waitFor(() => expect(statusTrigger).toHaveFocus());
 
     fireEvent.click(screen.getByRole("link", { name: "설정" }));
     expect(await screen.findByRole("group", { name: "Gateway 상태" })).toHaveTextContent("미등록");
@@ -1021,9 +1035,10 @@ describe("App", () => {
     expect(await screen.findByRole("button", { name: "B1-L01 정상 50%" })).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "B1-L02 정상 55%" }));
-    expect(await screen.findByRole("heading", { name: "B1-L02" })).toBeInTheDocument();
-    expect(screen.getByRole("complementary", { name: "선택 조명 상세" })).toHaveTextContent("-56 dBm");
-    expect(screen.getByRole("complementary", { name: "선택 조명 상세" })).toHaveTextContent("99%");
+    const inspector = await openMonitoringInspector();
+    expect(await within(inspector).findByRole("heading", { name: "B1-L02" })).toBeInTheDocument();
+    expect(within(inspector).getByRole("complementary", { name: "선택 조명 상세" })).toHaveTextContent("-56 dBm");
+    expect(within(inspector).getByRole("complementary", { name: "선택 조명 상세" })).toHaveTextContent("99%");
   });
 
   it("keeps the monitoring floor map read only", async () => {
@@ -1070,7 +1085,7 @@ describe("App", () => {
     );
 
     expect(screen.queryByRole("heading", { name: "점검 큐" })).not.toBeInTheDocument();
-    await screen.findByRole("button", { name: "상세 조명 선택" });
+    await openMonitoringInspector();
     await chooseSelect("상세 조명 선택", "B2-L-OFFLINE · 오프라인");
 
     expect(await screen.findByRole("heading", { name: "B2-L-OFFLINE" })).toBeInTheDocument();
@@ -1096,7 +1111,8 @@ describe("App", () => {
 
     expect(await screen.findByRole("button", { name: "맵 선택" })).toBeInTheDocument();
     expect(screen.getByRole("region", { name: "층 도면" })).toBeInTheDocument();
-    expect(screen.getByRole("complementary", { name: "선택 조명 상세" })).toBeInTheDocument();
+    const inspector = await openMonitoringInspector();
+    expect(within(inspector).getByRole("complementary", { name: "선택 조명 상세" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "맵 편집" })).not.toBeInTheDocument();
   });
 
@@ -1109,10 +1125,10 @@ describe("App", () => {
     );
 
     fireEvent.click(await screen.findByRole("link", { name: "제어" }));
-    expect(await screen.findByRole("heading", { name: "조명 밝기 제어" })).toBeInTheDocument();
+    expect(await screen.findByRole("region", { name: "제어 대상 지도" })).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("link", { name: "통계" }));
-    expect(await screen.findByText("에너지 리포트")).toBeInTheDocument();
+    expect(await screen.findByRole("region", { name: "에너지 통계" })).toBeInTheDocument();
     expect(screen.queryByText("18%")).not.toBeInTheDocument();
     expect(screen.queryByText("18:00-22:00")).not.toBeInTheDocument();
 
@@ -1510,7 +1526,7 @@ describe("App", () => {
       await Promise.resolve();
     });
 
-    expect(await screen.findByRole("alert")).toHaveTextContent("로그아웃에 실패했습니다");
+    expect((await screen.findByText(/로그아웃에 실패했습니다/)).closest('[role="alert"]')).toBeInTheDocument();
     expect(apiGet).toHaveBeenCalledWith("/auth/me", { timeoutMs: 8_000 });
     const retryButton = screen.getByRole("button", { name: "동일 요청 확인(새 제어 아님)" });
     expect(retryButton).toBeEnabled();
@@ -1575,7 +1591,12 @@ describe("App", () => {
       if (lateResult === "success") finishOldCheck({ dispatchId: "stale-dispatch", dispatchIds: ["stale-dispatch"], verificationAttempt: 3 });
       else if (lateResult === "failure") failOldCheck(new Error("late failure"));
     });
-    expect(recover).toBeDisabled();
+    // Revalidation can remove and remount the action; a detached old button is
+    // not the current UI. Neither the fresh action nor the stale node may POST.
+    const currentRecovery = screen.queryByRole("button", { name: "동일 상태 확인 요청 조회" });
+    if (currentRecovery) expect(currentRecovery).toBeDisabled();
+    fireEvent.click(recover);
+    expect(checkBodies).toHaveLength(2);
     expect(screen.getByRole("slider", { name: "밝기" })).toBeDisabled();
     await act(async () => finishRecovery({ dispatchId: "third-check", dispatchIds: ["third-check"], verificationAttempt: 3 }));
     expect(await screen.findByText(/현장 확인이 필요합니다/)).toBeInTheDocument();

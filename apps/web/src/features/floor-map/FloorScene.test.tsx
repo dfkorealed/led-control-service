@@ -483,7 +483,19 @@ describe("FloorScene", () => {
     expect(screen.queryByText("B1-L001")).not.toBeInTheDocument();
     expect(screen.queryByText("70%")).not.toBeInTheDocument();
     fireEvent.click(fixture);
-    expect(onFixturePress).toHaveBeenCalledWith("fixture-1");
+    expect(onFixturePress).toHaveBeenCalledWith("fixture-1", fixture);
+  });
+
+  it("allows monitoring to show a name-only native tooltip while preserving the accessible status and anchor", () => {
+    const onFixturePress = vi.fn();
+    render(<FloorScene snapshot={snapshot} fixtures={[{
+      id: "fixture-1", name: "B1-L001", x: 100, y: 120, brightness: 70, status: "online"
+    }]} interactive={false} markerTitle={(fixture) => fixture.name} onFixturePress={onFixturePress} />);
+
+    const marker = screen.getByRole("button", { name: "B1-L001 정상 70%" });
+    expect(marker).toHaveAttribute("title", "B1-L001");
+    fireEvent.click(marker);
+    expect(onFixturePress).toHaveBeenCalledWith("fixture-1", marker);
   });
 
   it("keeps snapshot fixtures when runtime placement is stale while hiding runtime-only unplaced fixtures", () => {

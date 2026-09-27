@@ -4,6 +4,37 @@
 
 ## 적용 범위와 사전 조건
 
+### Command Set 세대 egress 준비 — 운영 전환 OFF
+
+`COMMAND_SET_EGRESS_ENABLED=0`이 기본이다. 기존 API identity의 Set/Get과 수집은 계속 동작한다. ACL은 `sites/#` 대신 아래 명시적 권한으로 좁히되 OFF에서는 `sites/+/gateways/+/commands/dimming`과 구형 `sites/+/commands/dimming` write를 유지한다. `infra/mosquitto.acl.example`은 production Compose가 mount하는 OFF 예시이며 기존 Gateway onboarding의 `%u` scoped pattern도 유지한다. 전환 시에는 이 파일을 전체 Gateway 목록의 renderer 결과로 교체해야 한다. 전역 `pattern`은 새 Set principal에도 다른 권한을 주므로 ON에서는 남기지 않는다.
+
+ACL 수정 전 확인한 공용 identity 토픽 목록은 모두 `sites/+/gateways/+/` 접두사를 사용한다.
+
+| 방향 | 필요한 suffix |
+| --- | --- |
+| write: Get 및 제어 보조 | `commands/status-check` (legacy/recovery 공용), `commands/identify`, `commands/fixture-presence-check`, `commands/provisioning/{scan-start,scan-stop,identify-device,provision-device}`, `commands/mesh-group/{subscription-sync,resync-ack}`, `commands/automation/config-sync` |
+| write: 수신 확인·시각 | `acks/state-ingested`, `acks/fixture-presence-check-completed`, `acks/provisioning/{scan-terminal-ingested,device-terminal-ingested}`, `acks/automation/{config-applied-ingested,execution-ingested,vehicle-sensor-capability-ingested}`, `events/clock/response`, `commands/drain/request` |
+| read: ACK·상태 | `acks/{acceptance,device-status}`, `state/{fixtures,fixture-presence,heartbeat}` |
+| read: 이벤트·시각 | `events/provisioning/{scan-found,scan-completed,scan-failed,device-terminal}`, `events/{provisioning-completed,provisioning-failed,provisioning-progress,identify-result,fixture-presence-check-completed,fixture-unreachable,mesh-node-metrics}`, `events/mesh-group/{resync-request,subscription-result}`, `events/automation/{config-applied,current-config-request,execution,vehicle-sensor-capability}`, `commands/clock/request`, `events/drain/response` |
+
+위 목록은 19개 gateway-scoped write와 24개 read다. 추가로 production broker healthcheck의 정확한 `sites/health/production-probe` write를 유지한다. clock/drain, telemetry 호환 권한도 포함한다. Gateway에는 자기 clock request write/response read를 명시한다. 전환 후에도 이 목록을 그대로 유지한다.
+
+명시적 개발/일회용 전환은 `COMMAND_SET_EGRESS_ENABLED=1`, 양의 `MQTT_SET_GENERATION=N`, 고유한 `MQTT_API_INSTANCE_ID`, 별도 `MQTT_SET_CLIENT_CERT_PATH`·`MQTT_SET_CLIENT_KEY_PATH`를 요구한다. 전용 인증서 CN은 정확히 `command-set-N`이며 key와 일치해야 한다. 서비스는 시작 시 active epoch의 `(generation, workerId, brokerIdentity)` DB member를 등록하고 publish마다 active·미ACK member를 재확인한다. 권한이 없는 DB 계정, 등록 실패, 잘못된 cert, epoch 없는 구 wire는 Set 거부로 남으며 shared API client로 fallback하지 않는다. clean MQTT v5/session expiry 0/자동 reconnect 없음은 로컬 lifecycle 특성일 뿐 broker drain 증거가 아니다. timeout 후 client를 닫고 해당 instance에서 추가 Set을 거부한다.
+
+개발 prepare는 ON인 경우에만 `renderMosquittoAcl(ids, { setGeneration: N })`으로 두 legacy Set write를 제거하고 `command-set-N`에 dimming write 하나만 부여한다. 인증서 발급, DB migration/epoch 생성, 운영 broker reload는 자동 실행하지 않는다. 기본 production Compose는 credential mount·wire epoch producer·모든 노드 admission 검증이 준비되지 않았으므로 preflight에서 ON을 무조건 거부한다. 빈 Set credential 환경 입력은 준비 인터페이스일 뿐 사용 가능한 mount가 아니다.
+
+후속 운영 전환에는 별도로 승인한 cert/key RO mount, DB publisher role, epoch/attempt producer, 전체 API·Gateway census를 준비하고 유지보수 절차에서 기존 발행 중지 → 모든 broker 구 principal 거부/세션·queue 폐기 → 새 epoch/credential/ACL/wire 일치 확인 → 신규 발행 재개를 검증해야 한다. 이 순서는 runbook 요구이며 Compose·ACL 파일 게시가 여러 프로세스의 원자적 전환을 제공한다는 뜻이 아니다. ACL/CRL 롤백 또는 broker 재시작은 stock Mosquitto에서 구세대를 되살릴 수 있다. 독립적인 단조 admission 최소 세대·폐기 원장·모든 broker 노드 증거와 Gateway RF drain/HIL 없이는 purge·recovery POST 및 운영 cutover를 계속 OFF로 둔다.
+
+`BrokerGenerationFence.verifyRetired(generation)`의 기본 운영 adapter는 항상 `immutable_admission_unavailable`을 반환한다. `verified`는 일회용 검증용 `scope: disposable`에서만 존재하며 두 반환 분기 모두 `productionPurgeAllowed: false`다. JSON 증거·환경 변수·ACL 거부 응답·`client.end()`를 운영 승인으로 해석하지 않는다. 현재 구성 검사는 stock broker에서 purge 활성화를 거부한다.
+
+일회용 증거도 배포/CA 관리 측에서 별도로 제공한 전체 broker census와 해당 세대의 모든 인증서 fingerprint 목록을 요구한다. 응답한 노드 목록으로 census를 대체하지 않는다. 각 노드는 같은 generation·요청 nonce·inventory revision·boot ID에 대해 인증서의 비가역 폐기, 기존 연결 0, persistent session 0, 구 Set을 보유한 subscriber outgoing queue 0, 새 구세대 publish 거부, 재시작/구 ACL/구 CRL/둘의 복원 뒤에도 단조 최소 세대와 폐기 원장 유지·거부를 모두 확인해야 한다. 노드 누락·중복, 다른 세대·이전 nonce, 조회 중 inventory/boot 변경, 시간 제한 초과는 전체 증거를 무효화한다. 수집은 단조 시각의 기본 1초 기한(최대 10초)으로 제한한다. 반환 deadline은 해당 verifier 프로세스 안에서만 유효하며 재시작 후 재사용하지 않는다. barrier 소비자는 같은 프로세스의 기한을 재확인하고 새 증거를 수집해야 하며, digest는 서명이나 운영 신뢰의 대체물이 아니다.
+
+운영 adapter를 추가하려면 broker 설정/디스크 snapshot과 별개로 롤백할 수 없는 단조 최소 세대 및 CA 폐기 원장, 그 원장을 검증하지 못하면 입장 또는 기동을 거부하는 제어 계층, 전체 배포·인증서 inventory의 신뢰 경계, 모든 노드의 인증된 증거 수집을 먼저 마련해야 한다. 현재 인터페이스의 boolean 필드나 `source` 문자열은 외부 증거의 서명 검증을 구현한 것이 아니다. 운영 adapter·제한 worker 연동·DB clock의 재시작 연속성·Gateway census/RF HIL 승인은 후속 gate다.
+
+`DEV_MQTT_ACL_INTEGRATION=1 node --test scripts/dev-mqtt-acl.integration.test.mjs`는 임시 CA/인증서와 임의 로컬 포트의 일회용 broker만 사용한다. 실제 stock broker에서 ACL 변경·재시작 후 오프라인 session/Set queue가 남는 반례, CRL 폐기 후 이전 ACL+CRL 복원 시 구 credential 발행이 다시 성공하는 반례를 재현하고 verifier가 거부하는지 검사한다. 별도 admission test double은 모든 롤백 뒤 구세대를 거부하되 운영 purge를 승인하지 않는다. 이 검증은 운영 broker/CA 설정 변경 절차가 아니다.
+
+Task 3 시점에서 original-Command cutoff/permit과 recovery publisher 일부는 기존 미커밋 작업에만 있다. 이 egress 준비 커밋만으로 Get 복구·3개월 보관 안전성의 전체 커밋 연속성을 주장하지 않는다. 후속 Task 4/6에서 반드시 통합·검증한다.
+
 이 절차는 단일 호스트의 standalone `docker-compose.production.yml`에 적용한다. 운영 배포 권한, 유지보수 시간, DB·Object Storage·CRL 백업과 복원 책임자, 승인된 API/Web release digest, Docker daemon/Compose, 저장소 Node 22·pnpm 9.15.0 환경이 필요하다. DNS·방화벽·외부 Vault와 MQTT/Object Storage 진입점은 별도로 준비한다. 이 작업은 `docker:up:production`, 운영 migration, 실장비 HIL, 실제 자격 증명 작업을 실행하지 않았다.
 
 아래 명령은 저장소 루트에서 Bash로 실행한다. `/secure/path/.env.production`과 `led-production-sitea`는 자리표시자이므로 승인된 절대 경로와 운영 project로 바꾼다. 값이 든 env 파일을 shell에서 `source`하거나 출력하지 않는다. `set -x`, 전체 `docker inspect`, raw Compose config 출력은 secret을 노출할 수 있다.
@@ -63,6 +94,8 @@ API는 migration과 runtime에 같은 image를 사용한다. 로컬 image ID와 
 | API·Web TLS·port | `API_TLS_CERT_DIR`, `WEB_TLS_CERT_DIR`, `WEB_PUBLIC_URL`, `WEB_HTTPS_ORIGIN`, `WEB_HTTP_PORT`, `WEB_HTTPS_PORT`, `DEVICE_API_HTTPS_PORT` |
 
 공개 문의 ingress는 nginx가 덮어쓴 방문자 IP와 별도 비밀을 검증한다. 장비용 9443 raw TLS 우회를 막기 위해 `API_TRUST_PROXY`는 설정하지 않는다. 선택적인 메일 설정 5개는 API에만 전달하며 등록 callback은 Web origin의 `/api/landing-mail/oauth/callback`이다. 누락·교체·재연결 절차는 [메일 연결 운영 절차](landing-mail-setup.md)를 따른다.
+
+명령 상세 GET의 독립 3개월 경계는 `COMMAND_HISTORY_RETENTION_ENABLED`가 기본 `0`이다. 활성화 검토 시 중앙 DB에 read-only 자격증명으로 `pnpm --filter @led-control/api exec tsx src/commands/command-history-readiness.cli.ts`를 실행해 DB UTC cutoff와 cutoff 이전 hold 없는 pending/unknown 0건을 확인하고, 출력 시각·건수·릴리스 digest를 변경 기록에 남긴다. 양수면 오류 출력의 opaque ID를 조사하고, SQL/권한 오류도 실패로 취급한다. 현재 production Compose preflight는 이 증거를 배포 입력에 안전하게 결합하는 단계가 없어 `1`을 거부한다. 이 경로를 검증·통합하기 전에는 운영 flag를 켜지 않는다. 이 GET 경계는 물리 purge·recovery POST·publisher를 활성화하지 않는다.
 
 `PRODUCTION_COMPOSE_PROJECT`는 `led-production-` prefix, 소문자 영숫자와 단일 하이픈, 최대 63자다. checkout 기본 project와 `led-production-default/dev/development`는 거부한다. 신규 배포는 해당 이름의 기존 자원 부재를 확인하고, 업데이트는 정확한 기존 운영 project와 백업 대상 volume을 승인 기록에 대조한다. 모든 named volume은 project prefix를 가져야 하며 external/shared volume은 금지한다.
 

@@ -24,16 +24,26 @@ export function AccountSecurityView({ user }: { user: AuthUser }) {
   const principal = principalKey(user);
   const mfaQueryKey: MfaQueryKey = ["auth", "mfa", principal];
   const sessionsQueryKey = authSessionsQueryKey(principal);
+  const canManageMfa = user.role === "admin" || user.role === "operator";
 
   return (
     <section className="grid gap-5">
-      <PageHeader title="계정 보안" description="비밀번호, 2단계 인증과 로그인된 기기를 관리합니다." />
-      <div key={principal} className="grid gap-5">
-        <PasswordChangeCard />
-        {user.role === "admin" || user.role === "operator" ? (
+      <PageHeader
+        title="계정 보안"
+        description={canManageMfa
+          ? "비밀번호, 2단계 인증과 로그인된 기기를 관리합니다."
+          : "비밀번호와 로그인된 기기를 관리합니다."}
+      />
+      <div key={principal} data-testid="account-security-layout" className="grid gap-3 compact:grid-cols-2">
+        <div data-testid="password-security-cell" className="min-w-0 compact:col-span-2">
+          <PasswordChangeCard />
+        </div>
+        {canManageMfa ? (
           <MfaCard principal={principal} mfaQueryKey={mfaQueryKey} sessionsQueryKey={sessionsQueryKey} />
         ) : null}
-        <SessionsCard principal={principal} sessionsQueryKey={sessionsQueryKey} />
+        <div data-testid="sessions-security-cell" className={canManageMfa ? "min-w-0" : "min-w-0 compact:col-span-2"}>
+          <SessionsCard principal={principal} sessionsQueryKey={sessionsQueryKey} />
+        </div>
       </div>
     </section>
   );
@@ -140,7 +150,7 @@ function MfaCard({
   }
 
   return (
-    <Card className="grid gap-5 p-5" aria-labelledby="mfa-card-title">
+    <Card className="grid min-w-0 gap-5 p-5" aria-labelledby="mfa-card-title" data-security-card="mfa">
       <div className="flex items-start justify-between gap-4">
         <div>
           <h2 id="mfa-card-title" className="m-0 text-card-title font-bold">2단계 인증</h2>
@@ -283,7 +293,7 @@ function SessionsCard({ principal, sessionsQueryKey }: { principal: string; sess
   const otherSessionCount = sessions.filter((session) => !session.current).length;
 
   return (
-    <Card className="grid gap-5 p-5" aria-labelledby="sessions-card-title">
+    <Card className="grid min-w-0 gap-5 p-5" aria-labelledby="sessions-card-title" data-security-card="sessions">
       <div className="flex items-start justify-between gap-4">
         <div>
           <h2 id="sessions-card-title" className="m-0 text-card-title font-bold">활성 세션</h2>
@@ -303,10 +313,10 @@ function SessionsCard({ principal, sessionsQueryKey }: { principal: string; sess
       {data && sessions.length === 0 ? <FeedbackState tone="neutral" icon={Laptop} title="표시할 활성 세션이 없습니다." /> : null}
       {sessions.length > 0 ? (
         <>
-          <ul className="grid list-none gap-3 p-0" aria-label="활성 세션">
+          <ul className="grid min-w-0 list-none gap-3 p-0" aria-label="활성 세션">
             {sessions.map((session) => (
-              <li key={session.id} className="flex flex-wrap items-center justify-between gap-4 rounded-control border border-border-default p-4">
-                <div>
+              <li key={session.id} className="flex min-w-0 flex-wrap items-center justify-between gap-4 rounded-control border border-border-default p-4">
+                <div className="min-w-0 break-words">
                   <div className="flex flex-wrap items-center gap-2">
                     <strong>{session.userAgent || "알 수 없는 브라우저"}</strong>
                     {session.current ? <StatusBadge tone="success" icon={CircleCheck}>현재 세션</StatusBadge> : null}

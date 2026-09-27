@@ -56,7 +56,7 @@ test("비활성화된 일반 유저의 현재 세션과 재로그인을 실제 A
   await admin.getByRole("option", { name: "Asia/Seoul", exact: true }).click();
   await admin.getByLabel("지하 층수").fill("1");
   await admin.getByLabel("지상 층수").fill("0");
-  await admin.getByRole("button", { name: "층 자동 생성" }).click();
+  await admin.getByRole("button", { name: "맵 생성", exact: true }).click();
   await admin.getByRole("button", { name: "초기 설정 완료" }).click();
   await expect(admin.getByRole("heading", { name: "설정 개요" })).toBeVisible();
 
@@ -102,7 +102,7 @@ test("비활성화된 일반 유저의 현재 세션과 재로그인을 실제 A
   await expect(user).toHaveURL(/\/monitoring$/);
   await expect(user.getByRole("heading", { name: "모니터링", level: 1 })).toBeVisible();
   await expect(user.getByRole("navigation", { name: "주 메뉴" }).getByRole("link")).toHaveText(["모니터링", "통계", "설정"]);
-  await user.getByRole("link", { name: "설정", exact: true }).hover();
+  await user.getByRole("link", { name: "설정", exact: true }).click();
   await expect(user.getByRole("navigation", { name: "설정 메뉴" }).getByRole("link")).toHaveText(["설정 개요", "맵 관리", "계정 보안"]);
   await user.goto(`/settings/users?siteId=${createdSite.siteId}`);
   await expect(user).toHaveURL(new RegExp(`/settings\\?siteId=${createdSite.siteId}`));

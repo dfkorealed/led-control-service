@@ -1,11 +1,12 @@
 import { expect, test, type Page } from "@playwright/test";
-import { expectMinimumTouchTargets, expectNoHorizontalOverflow } from "./support/layout-assertions";
+import { expectMinimumTouchTargets, expectMinimumTouchTargetsAfterScrolling, expectNoHorizontalOverflow } from "./support/layout-assertions";
 
 const viewports = [
   { width: 1440, height: 900 },
+  { width: 1378, height: 1237 },
   { width: 1024, height: 768 },
   { width: 390, height: 844 },
-  { width: 320, height: 740 }
+  { width: 320, height: 720 }
 ] as const;
 
 const siteAdmins = [
@@ -43,13 +44,19 @@ for (const viewport of viewports) {
   test(`calm operations auth and operator surfaces remain responsive at ${viewport.width}px`, async ({ page }) => {
     await page.setViewportSize(viewport);
     let authenticated = false;
-    await installAuthOperatorRoutes(page, () => authenticated);
+    const operatorLoginId = viewport.width === 320 ? `operator_${"a".repeat(91)}` : "operator";
+    await installAuthOperatorRoutes(page, () => authenticated, operatorLoginId);
 
-    await page.goto("/");
-    await expect(page.getByRole("heading", { name: /빛을 더 안정적으로/ })).toBeVisible();
+    // Public landing owns `/`; this scenario verifies the authenticated entry surface.
+    await page.goto("/login");
     await expect(page).toHaveTitle("킨다 | 스마트 조명 운영");
     await expect(page.getByRole("img", { name: "킨다", exact: true })).toBeVisible();
     await expect(page.getByRole("heading", { name: "킨다 로그인" })).toBeVisible();
+    const authMain = page.getByRole("main");
+    const authBox = await authMain.boundingBox();
+    expect(authBox).not.toBeNull();
+    expect(authBox!.width).toBeLessThanOrEqual(Math.min(viewport.width, 960));
+    await expect(page.getByTestId("auth-stage-card")).toHaveAttribute("data-auth-stage", "credentials");
     const loginButton = page.getByRole("button", { name: "로그인", exact: true });
     await expect(loginButton).toHaveCSS("background-color", "rgb(37, 111, 161)");
     await loginButton.hover();
@@ -76,21 +83,43 @@ for (const viewport of viewports) {
     await expect(page.getByText(/^(Gateway|게이트웨이)$/i)).toHaveCount(0);
     await expectNoHorizontalOverflow(page);
 
-    if (viewport.width <= 760) {
+    if (viewport.width < 760) {
       await expectMinimumTouchTargets(page, "[data-auth-submit]");
     }
 
     authenticated = true;
     await page.goto("/operator/site-admins");
     await expect(page.getByRole("img", { name: "킨다 서비스 운영" })).toBeVisible();
+    await expect(page.getByText(operatorLoginId, { exact: true })).toBeVisible();
     await expect(page.getByRole("heading", { name: "현장 관리자 계정" })).toBeVisible();
-    await expect(page.getByLabel("현장 관리자 계정 표")).toBeVisible();
+    const operatorMain = page.getByRole("main");
+    const mainBox = await operatorMain.boundingBox();
+    expect(mainBox).not.toBeNull();
+    expect(mainBox!.width).toBeLessThanOrEqual(Math.min(viewport.width, 1160));
+    await expectMinimumTouchTargets(page, "header");
+    if (viewport.width >= 760) {
+      await expect(page.getByLabel("현장 관리자 계정 표")).toBeVisible();
+      await expect(page.getByLabel("현장 관리자 계정 카드 목록")).toHaveCount(0);
+    } else {
+      await expect(page.getByLabel("현장 관리자 계정 표")).toHaveCount(0);
+      await expect(page.getByLabel("현장 관리자 계정 카드 목록")).toBeVisible();
+      await expectMinimumTouchTargetsAfterScrolling(page, '[aria-label="현장 관리자 계정 카드 목록"]');
+      const metrics = page.locator('[data-testid="operator-summary-strip"] [data-metric-card]');
+      const first = await metrics.nth(0).boundingBox();
+      const second = await metrics.nth(1).boundingBox();
+      const third = await metrics.nth(2).boundingBox();
+      expect(first).not.toBeNull();
+      expect(second).not.toBeNull();
+      expect(third).not.toBeNull();
+      expect(Math.abs(first!.y - second!.y)).toBeLessThanOrEqual(1);
+      expect(third!.y).toBeGreaterThan(first!.y + first!.height);
+    }
     await expect(page.getByRole("group", { name: "운영 현장" })).toContainText("4");
     await expect(page.getByRole("group", { name: "설치 완료" })).toContainText("2");
     await expectNoHorizontalOverflow(page);
 
     if (viewport.width <= 760) {
-      await expectMinimumTouchTargets(page, "[data-operator-admin-header]");
+      await expectMinimumTouchTargetsAfterScrolling(page, "[data-operator-admin-header]");
     }
 
     await page.getByRole("button", { name: "현장 및 관리자 생성" }).click();
@@ -100,13 +129,18 @@ for (const viewport of viewports) {
 
     if (viewport.width <= 760) {
       await expectMobileDialogControls(createDialog);
-      await createDialog.getByRole("button", { name: "현장 및 관리자 생성 닫기" }).click();
+    }
+    await createDialog.getByRole("button", { name: "현장 및 관리자 생성 닫기" }).click();
 
-      await page.getByRole("button", { name: "김관리 수정" }).click();
-      const editDialog = page.getByRole("dialog", { name: "김관리 수정" });
+    await page.getByRole("button", { name: "김관리 수정" }).click();
+    const editDialog = page.getByRole("dialog", { name: "김관리 수정" });
+    await expect(editDialog).toBeVisible();
+    if (viewport.width <= 760) {
       await expectMobileDialogControls(editDialog);
-      await editDialog.getByRole("button", { name: "김관리 수정 닫기" }).click();
+    }
+    await editDialog.getByRole("button", { name: "김관리 수정 닫기" }).click();
 
+    if (viewport.width <= 760) {
       await page.getByRole("button", { name: "김관리 비밀번호 재설정" }).click();
       const resetDialog = page.getByRole("dialog", { name: "김관리 비밀번호 재설정" });
       await expectMobileDialogControls(resetDialog);
@@ -136,7 +170,7 @@ async function expectMobileDialogControls(dialog: ReturnType<Page["getByRole"]>)
   }
 }
 
-async function installAuthOperatorRoutes(page: Page, isAuthenticated: () => boolean) {
+async function installAuthOperatorRoutes(page: Page, isAuthenticated: () => boolean, loginId: string) {
   await page.route("**/api/**", async (route) => {
     const request = route.request();
     const pathname = new URL(request.url()).pathname;
@@ -145,7 +179,7 @@ async function installAuthOperatorRoutes(page: Page, isAuthenticated: () => bool
 
     if (path === "/auth/me") {
       return route.fulfill(isAuthenticated()
-        ? { json: { user: { id: "operator-1", organizationId: "provider-1", organizationType: "service_provider", loginId: "operator", name: "운영자", role: "operator", status: "active" } } }
+        ? { json: { user: { id: "operator-1", organizationId: "provider-1", organizationType: "service_provider", loginId, name: "운영자", role: "operator", status: "active" } } }
         : { status: 401, json: { message: "unauthorized" } });
     }
     if (path === "/operator/site-admins" && request.method() === "GET") {

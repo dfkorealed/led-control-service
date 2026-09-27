@@ -1,6 +1,8 @@
 import { gatewayEventWatermarkMock } from "../../test/support/gateway-event-watermark.mock";
 import { Logger } from "@nestjs/common";
 import { EventEmitter } from "node:events";
+import mqtt from "mqtt";
+import { disposableMosquitto } from "../../test/support/disposable-mosquitto";
 import { createMqttConnectionOptions, MqttService } from "./mqtt.service";
 import { mqttTopicsV2 } from "@led-control/shared";
 
@@ -756,15 +758,19 @@ describe("MqttService", () => {
     try {
       let lastMessageId = 0;
       const callbacks = new Map<number, (error?: Error) => void>();
+      const outgoing: Record<number, { cb: (error?: Error) => void }> = {};
       const client: any = {
+        outgoing,
         publish: jest.fn((_topic, _payload, _options, callback) => {
           lastMessageId += 1;
           callbacks.set(lastMessageId, callback);
+          outgoing[lastMessageId] = { cb: callback };
           return client;
         }),
         getLastMessageId: jest.fn(() => lastMessageId),
         removeOutgoingMessage: jest.fn((messageId: number) => {
           callbacks.get(messageId)?.(new Error("Message removed"));
+          delete outgoing[messageId];
           return client;
         })
       };
@@ -792,12 +798,163 @@ describe("MqttService", () => {
     }
   });
 
+  it("does not cancel another QoS 1 packet when MQTT.js defers ID allocation for this publish", async () => {
+    jest.useFakeTimers();
+    try {
+      let lastMessageId = 0;
+      let firstCallback: ((error?: Error) => void) | undefined;
+      const outgoing: Record<number, { cb: (error?: Error) => void }> = {};
+      const client: any = {
+        outgoing,
+        publish: jest.fn((_topic: string, _payload: string, _options: unknown,
+          callback: (error?: Error) => void) => {
+          if (lastMessageId === 0) {
+            lastMessageId = 1;
+            firstCallback = callback;
+            outgoing[1] = { cb: callback };
+          }
+          // MQTT.js queues the second invocation during outgoing-store replay
+          // and has not allocated its own message ID yet.
+          return client;
+        }),
+        getLastMessageId: jest.fn(() => lastMessageId),
+        removeOutgoingMessage: jest.fn((messageId: number) => {
+          outgoing[messageId]?.cb(new Error("Message removed"));
+          delete outgoing[messageId];
+          return client;
+        })
+      };
+      const service = new MqttService({} as never, createMeshGroupsMock() as never);
+      (service as any).client = client;
+      const first = service.publishTopic("topic/first", { id: 1 }, { timeoutMs: 5_000 });
+      const firstResult = first.then(() => "resolved", (error: Error) => error.message);
+      const second = service.publishTopic("topic/deferred", { id: 2 }, { timeoutMs: 1_000 });
+      const secondSettled = second.then(() => "resolved", (error: Error) => error.message);
+      await jest.advanceTimersByTimeAsync(1_000);
+      expect(await secondSettled).toBe("MQTT publish timed out after 1000ms");
+      expect(client.removeOutgoingMessage).not.toHaveBeenCalled();
+      firstCallback?.();
+      expect(await firstResult).toBe("resolved");
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it("cancels only its own packet if another QoS 1 packet gets the global last ID during publish", async () => {
+    jest.useFakeTimers();
+    try {
+      let lastMessageId = 1;
+      const otherCallback = jest.fn();
+      const outgoing: Record<number, { cb: (error?: Error) => void }> = {};
+      const client: any = {
+        outgoing,
+        publish: jest.fn((_topic: string, _payload: string, _options: unknown,
+          callback: (error?: Error) => void) => {
+          outgoing[2] = { cb: callback };
+          outgoing[3] = { cb: otherCallback };
+          lastMessageId = 3;
+          return client;
+        }),
+        getLastMessageId: jest.fn(() => lastMessageId),
+        removeOutgoingMessage: jest.fn((messageId: number) => {
+          outgoing[messageId]?.cb(new Error("Message removed"));
+          delete outgoing[messageId];
+          return client;
+        })
+      };
+      const service = new MqttService({} as never, createMeshGroupsMock() as never);
+      (service as any).client = client;
+      const publishing = service.publishTopic("topic/own", { id: 2 }, { timeoutMs: 1_000 });
+      const result = publishing.then(() => "resolved", (error: Error) => error.message);
+
+      await jest.advanceTimersByTimeAsync(1_000);
+      expect(await result).toBe("MQTT publish timed out after 1000ms");
+      expect(client.removeOutgoingMessage).toHaveBeenCalledTimes(1);
+      expect(client.removeOutgoingMessage).toHaveBeenCalledWith(2);
+      expect(otherCallback).not.toHaveBeenCalled();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it("does not cancel a reused ID when MQTT replaces the pending callback before timeout", async () => {
+    jest.useFakeTimers();
+    try {
+      const replacementCallback = jest.fn();
+      const outgoing: Record<number, { cb: (error?: Error) => void }> = {};
+      const client: any = {
+        outgoing,
+        publish: jest.fn((_topic: string, _payload: string, _options: unknown,
+          callback: (error?: Error) => void) => {
+          outgoing[7] = { cb: callback };
+          return client;
+        }),
+        getLastMessageId: jest.fn(() => 7),
+        removeOutgoingMessage: jest.fn((messageId: number) => {
+          outgoing[messageId]?.cb(new Error("Message removed"));
+          return client;
+        })
+      };
+      const service = new MqttService({} as never, createMeshGroupsMock() as never);
+      (service as any).client = client;
+      const publishing = service.publishTopic("topic/replaced", { id: 7 }, { timeoutMs: 1_000 });
+      const result = publishing.then(() => "resolved", (error: Error) => error.message);
+      outgoing[7] = { cb: replacementCallback };
+
+      await jest.advanceTimersByTimeAsync(1_000);
+      expect(await result).toBe("MQTT publish timed out after 1000ms");
+      expect(client.removeOutgoingMessage).not.toHaveBeenCalled();
+      expect(replacementCallback).not.toHaveBeenCalled();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  (process.env.MQTT_MESSAGE_ID_BROKER_TEST === "1" ? it : it.skip)(
+    "does not cancel another real MQTT.js packet when store processing defers this publish", async () => {
+      const broker = await disposableMosquitto();
+      const client = mqtt.connect(broker.url, { protocolVersion: 5, reconnectPeriod: 0 });
+      try {
+        await new Promise<void>(resolve => client.once("connect", () => resolve()));
+        const service = new MqttService({} as never, createMeshGroupsMock() as never);
+        (service as any).client = client;
+        const removed = jest.spyOn(client, "removeOutgoingMessage");
+        client.stream.pause();
+        const first = new Promise<void>((resolve, reject) => client.publish(
+          "topic/first", "first", { qos: 1 }, error => error ? reject(error) : resolve()
+        ));
+        const firstResult = first.then(() => "resolved", (error: Error) => error.message);
+        const firstId = client.getLastMessageId();
+        expect(client.outgoing[firstId]).toBeDefined();
+        // Force the same queue state used while MQTT.js replays its outgoing
+        // store; the broker/client, ID allocator and pending first packet are real.
+        (client as any)._storeProcessing = true;
+
+        await expect(service.publishTopic("topic/deferred", { id: 2 }, { timeoutMs: 100 }))
+          .rejects.toThrow("MQTT publish timed out after 100ms");
+        expect(removed).not.toHaveBeenCalled();
+        expect(client.outgoing[firstId]).toBeDefined();
+        (client as any)._storeProcessing = false;
+        (client as any)._storeProcessingQueue.length = 0;
+        client.stream.resume();
+        expect(await firstResult).toBe("resolved");
+      } finally {
+        client.stream?.resume();
+        await client.endAsync(true);
+        await broker.stop();
+      }
+    }, 20_000
+  );
+
   it("marks a gateway dispatch accepted from a scoped acceptance ACK", async () => {
     const prisma: any = {
+      $executeRaw: jest.fn(),
+      $queryRaw: jest.fn().mockResolvedValue([{ contentRedactedAt: null }]),
       commandDispatch: {
         updateMany: jest.fn().mockResolvedValue({ count: 1 })
       }
     };
+    prisma.$transaction = jest.fn(async (callback) => callback(prisma));
     const service = new MqttService(prisma, createMeshGroupsMock() as never);
     await service.handleMessage(
       "sites/22222222-2222-4222-8222-222222222222/gateways/55555555-5555-4555-8555-555555555555/acks/acceptance",
@@ -894,6 +1051,89 @@ describe("MqttService", () => {
     }));
     expect(prisma.commandFixtureResult.updateMany).toHaveBeenCalledTimes(1);
     expect(prisma.command.updateMany).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(["siteId", "gatewayId", "dispatchId"] as const)(
+    "ignores a clock refusal attributed to another %s without changing the command", async (field) => {
+      const state = clockAckState();
+      const ack = { ...acceptanceAckPayload(), status: "rejected", errorCode: "GATEWAY_CLOCK_UNTRUSTED",
+        [field]: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" };
+      await state.service.handleMessage(deviceStatusTopic().replace("device-status", "acceptance"),
+        Buffer.from(JSON.stringify(ack)));
+      expect(state.prisma.commandDispatch.updateMany).not.toHaveBeenCalled();
+      expect(state.prisma.commandFixtureResult.updateMany).not.toHaveBeenCalled();
+      expect(state.prisma.command.updateMany).not.toHaveBeenCalled();
+      expect(state.prisma.mqttOutbox.updateMany).not.toHaveBeenCalled();
+    }
+  );
+
+  it("does not close a clock refusal whose dispatch targets differ from the command target snapshot", async () => {
+    const state = clockAckState(["aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"]);
+    await state.service.handleMessage(deviceStatusTopic().replace("device-status", "acceptance"),
+      Buffer.from(JSON.stringify({ ...acceptanceAckPayload(), status: "rejected",
+        errorCode: "GATEWAY_CLOCK_UNTRUSTED" })));
+    expect(state.command.outcome).toBe("pending");
+    expect(state.dispatch.status).toBe("accepted");
+    expect(state.prisma.commandFixtureResult.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("does not erase an already observed fixture when a clock refusal arrives", async () => {
+    const state = clockAckState();
+    state.results[0].status = "succeeded";
+    (state.results[0] as { brightness: number | null }).brightness = 70;
+    await state.service.handleMessage(deviceStatusTopic().replace("device-status", "acceptance"),
+      Buffer.from(JSON.stringify({ ...acceptanceAckPayload(), status: "rejected",
+        errorCode: "GATEWAY_CLOCK_UNTRUSTED" })));
+    expect(state.dispatch.status).toBe("accepted");
+    expect(state.results[0]).toMatchObject({ status: "succeeded", brightness: 70 });
+    expect(state.command.outcome).toBe("pending");
+  });
+
+  it("makes an exact clock refusal terminal without a fixture observation or a Set retry", async () => {
+    const state = clockAckState();
+    await state.service.handleMessage(deviceStatusTopic().replace("device-status", "acceptance"),
+      Buffer.from(JSON.stringify({ ...acceptanceAckPayload(), status: "rejected",
+        errorCode: "GATEWAY_CLOCK_UNTRUSTED", errorMessage: "gateway command clock or epoch proof is unavailable" })));
+    expect(state.dispatch).toMatchObject({ status: "failed", errorCode: "GATEWAY_CLOCK_UNTRUSTED" });
+    expect(state.command).toMatchObject({ status: "failed", outcome: "not_applied" });
+    expect(state.results[0]).toMatchObject({ status: "failed", brightness: null });
+    expect(state.prisma.commandDispatch.updateMany).toHaveBeenCalledTimes(1);
+    expect(state.prisma.mqttOutbox.updateMany).toHaveBeenCalledWith({
+      where: { dispatchId: state.dispatch.id, publishedAt: null, deadLetteredAt: null },
+      data: { deadLetteredAt: expect.any(Date), lastError: "GATEWAY_CLOCK_UNTRUSTED",
+        lockedBy: null, lockedAt: null, leaseExpiresAt: null }
+    });
+    await state.service.handleMessage(deviceStatusTopic(), Buffer.from(JSON.stringify(deviceStatusAckPayload())));
+    expect(state.command.outcome).toBe("not_applied");
+    expect(state.results[0]).toMatchObject({ status: "failed", brightness: null });
+    expect(state.prisma.mqttOutbox.create).not.toHaveBeenCalled();
+  });
+
+  it("does not accept a contradictory accepted clock-refusal ACK as proof of delivery", async () => {
+    const state = clockAckState(undefined, { status: "published" });
+    await state.service.handleMessage(deviceStatusTopic().replace("device-status", "acceptance"),
+      Buffer.from(JSON.stringify({ ...acceptanceAckPayload(), errorCode: "GATEWAY_CLOCK_UNTRUSTED" })));
+    expect(state.dispatch.status).toBe("published");
+    expect(state.command.outcome).toBe("pending");
+  });
+
+  it("does not apply a Set-only clock refusal to a status-check dispatch", async () => {
+    const state = clockAckState(undefined, { kind: "status_check", verificationAttempt: 1 }, "unknown");
+    await state.service.handleMessage(deviceStatusTopic().replace("device-status", "acceptance"),
+      Buffer.from(JSON.stringify({ ...acceptanceAckPayload(), status: "rejected",
+        errorCode: "GATEWAY_CLOCK_UNTRUSTED" })));
+    expect(state.dispatch.status).toBe("accepted");
+    expect(state.command.outcome).toBe("unknown");
+    expect(state.prisma.commandFixtureResult.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("leaves an already unknown Set in verification even if a clock refusal arrives late", async () => {
+    const state = clockAckState(undefined, { status: "accepted" }, "unknown");
+    await state.service.handleMessage(deviceStatusTopic().replace("device-status", "acceptance"),
+      Buffer.from(JSON.stringify({ ...acceptanceAckPayload(), status: "rejected",
+        errorCode: "GATEWAY_CLOCK_UNTRUSTED" })));
+    expect(state.command.outcome).toBe("unknown");
+    expect(state.prisma.commandFixtureResult.updateMany).not.toHaveBeenCalled();
   });
 
   it("does not process a device-status ACK for an already terminal dispatch", async () => {
@@ -2699,7 +2939,9 @@ function deviceStatusAckPayload() {
 // to the following aggregate read and duplicate delivery, without a broker or database.
 function reconciliationPrisma(count: number, overrides: Record<string, unknown> = {}, outcome: string | null = "pending") {
   const payload = deviceStatusAckPayload();
-  const command = { id: payload.commandId, outcome, brightness: 70, status: outcome === "pending" ? "pending" : "failed" };
+  const command = { id: payload.commandId, siteId: "22222222-2222-4222-8222-222222222222",
+    targetFixtureIds: [payload.results[0].fixtureId], outcome, brightness: 70,
+    status: outcome === "pending" ? "pending" : "failed" };
   const results = Array.from({ length: count }, (_, index) => ({
     fixtureId: index === 0 ? payload.results[0].fixtureId : "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", status: "pending", brightness: null
   }));
@@ -2741,10 +2983,33 @@ function reconciliationPrisma(count: number, overrides: Record<string, unknown> 
         .filter((result: any) => !where.fixtureId || result.fixtureId === where.fixtureId);
       matches.forEach((result: any) => Object.assign(result, data)); return { count: matches.length };
     }) },
-    command: { updateMany: jest.fn(async ({ data }: any) => { Object.assign(command, data); return { count: 1 }; }) }
+    command: { findUnique: jest.fn().mockResolvedValue(command),
+      updateMany: jest.fn(async ({ data }: any) => { Object.assign(command, data); return { count: 1 }; }) },
+    fixture: { findMany: jest.fn().mockResolvedValue([{ floorId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb" }]) },
+    floor: { findMany: jest.fn().mockResolvedValue([{ id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb" }]) },
+    monitoringActivity: { createMany: jest.fn().mockResolvedValue({ count: 1 }) }
   };
   prisma.$transaction = jest.fn(async (callback: (tx: any) => Promise<unknown>) => callback(prisma));
   return { prisma, command, dispatch, dispatches, results, order, service: new MqttService(prisma, createMeshGroupsMock() as never) };
+}
+
+function clockAckState(targetFixtureIds = [deviceStatusAckPayload().results[0].fixtureId],
+  overrides: Record<string, unknown> = {}, outcome: string | null = "pending") {
+  const state = reconciliationPrisma(1, overrides, outcome);
+  const read = state.prisma.$queryRaw;
+  state.prisma.$queryRaw = jest.fn(async (query: TemplateStringsArray, ...values: unknown[]) => {
+    const sql = query.join("");
+    if (sql.includes('FROM "CommandDispatch"')) {
+      const owner = acceptanceAckPayload();
+      if (values[0] !== owner.dispatchId || values[1] !== owner.commandId || values[2] !== owner.gatewayId
+        || values[3] !== owner.idempotencyKey || values[4] !== BigInt(owner.sequence) || values[5] !== owner.siteId) return [];
+    }
+    const rows = await read(query, ...values);
+    return sql.includes('FROM "CommandDispatch"')
+      ? rows.map((row: Record<string, unknown>) => ({ ...row, targetFixtureIds })) : rows;
+  });
+  state.prisma.mqttOutbox = { create: jest.fn(), updateMany: jest.fn().mockResolvedValue({ count: 1 }) };
+  return state;
 }
 
 function deviceStatusTopic() {
@@ -2775,7 +3040,11 @@ function deviceAckPrisma(expectedFixtureIds: string[]) {
       findMany: jest.fn().mockResolvedValue(expectedFixtureIds.map((fixtureId) => ({ fixtureId }))),
       updateMany: jest.fn().mockResolvedValue({ count: 1 })
     },
-    command: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) }
+    command: { findUnique: jest.fn().mockResolvedValue({ siteId: "22222222-2222-4222-8222-222222222222",
+      targetFixtureIds: expectedFixtureIds }), updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+    fixture: { findMany: jest.fn().mockResolvedValue([{ floorId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb" }]) },
+    floor: { findMany: jest.fn().mockResolvedValue([{ id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb" }]) },
+    monitoringActivity: { createMany: jest.fn().mockResolvedValue({ count: 1 }) }
   };
   prisma.$queryRaw = jest.fn(async (query: TemplateStringsArray) => {
     const sql = query.join("");

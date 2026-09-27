@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { Dashboard, DashboardFixture } from "../../../api/queries";
 import { useFloorMapSnapshot } from "../../../api/queries";
 import { Button, ConfirmDialog, Text } from "../../../components/ui";
@@ -29,6 +29,8 @@ export interface SpatialTargetSelectorProps {
   onInteractionModeChange?: (mode: MapInteractionMode) => void;
   compactSummary?: ReactNode;
   compactDetails?: ReactNode;
+  managementAction?: ReactNode;
+  hideEmbeddedSummary?: boolean;
   onCompactSheetHeightChange?: (height: number) => void;
   onChange: (selection: ControlSelection) => void;
 }
@@ -38,13 +40,14 @@ export const spatialTargetDialogClassName = "grid! h-full! w-full! max-w-6xl gri
 
 export function SpatialTargetSelector({
   siteId, dashboard, selection, displaySelection, disabled, allowedModes = defaultModes, fixtureFilter, fixtureFilterReason, preferredFloorId, requiredGatewayId = null, modeLabels, modeSelectionSemantics,
-  interactionMode: controlledInteractionMode, onInteractionModeChange, compactSummary, compactDetails, onCompactSheetHeightChange, onChange
+  interactionMode: controlledInteractionMode, onInteractionModeChange, compactSummary, compactDetails, managementAction, hideEmbeddedSummary = false, onCompactSheetHeightChange, onChange
 }: SpatialTargetSelectorProps) {
   const resolvedSelection = displaySelection ?? selection;
   const selectionFloorId = floorForSelection(dashboard, selection);
   const validSelectionFloorId = dashboard.floors.some((floor) => floor.id === selectionFloorId) ? selectionFloorId : null;
   const [activeFloorId, setActiveFloorId] = useState(() => preferredFloorId || validSelectionFloorId || dashboard.floors[0]?.id || "");
   const [listOpen, setListOpen] = useState(false);
+  const listOpenerRef = useRef<HTMLButtonElement>(null);
   const [requestedMode, setRequestedMode] = useState<ControlMode | null>(null);
   const [localInteractionMode, setLocalInteractionMode] = useState<MapInteractionMode>("select");
   const interactionMode = controlledInteractionMode ?? localInteractionMode;
@@ -120,26 +123,32 @@ export function SpatialTargetSelector({
   const sceneSelection = useMemo(() => ({ kind: "multiple" as const, selectedFixtureIds, disabledFixtureIds, disabledReasons }), [disabledFixtureIds, disabledReasons, selectedFixtureIds]);
   const group = selection.mode === "group" ? dashboard.groups.find((item) => item.id === selection.groupId) : undefined;
 
-  return <section className="flex min-h-0 min-w-0 flex-1 flex-col gap-3 overflow-hidden" aria-label="공간 대상 선택" data-spatial-target-selector="">
+  return <section className={`flex min-h-0 min-w-0 flex-1 flex-col gap-3 overflow-hidden ${hideEmbeddedSummary ? "max-compact:flex-none max-compact:overflow-visible" : ""}`} aria-label="공간 대상 선택" data-spatial-target-selector="">
     <TargetSelectionToolbar allowedModes={allowedModes} selection={selection} activeFloorId={activeFloor?.id ?? ""} floors={dashboard.floors} modeLabels={modeLabels}
       modeSelectionSemantics={modeSelectionSemantics}
       interactionMode={interactionMode} disabled={disabled} onModeChange={requestModeChange} onFloorChange={setActiveFloorId}
-      onInteractionModeChange={setInteractionMode} onOpenList={() => setListOpen(true)}
+      onInteractionModeChange={setInteractionMode} onOpenList={() => setListOpen(true)} listOpenerRef={listOpenerRef} managementAction={managementAction}
       onClear={selection.mode === "fixtures" && selection.fixtureIds.length > 0 ? () => onChange({ mode: "fixtures", fixtureIds: [] }) : undefined} />
-    <div className="grid min-h-0 min-w-0 flex-1 gap-3 overflow-y-auto overscroll-contain tablet:grid-cols-[minmax(0,1fr)_16rem] tablet:overflow-hidden" data-target-selection-content="">
+    <div className={`grid min-h-0 min-w-0 flex-1 gap-3 overflow-y-auto overscroll-contain ${hideEmbeddedSummary ? "max-compact:flex-none max-compact:overflow-visible" : ""} ${hideEmbeddedSummary && selection.mode === "fixtures" ? "tablet:overflow-hidden" : "tablet:grid-cols-[minmax(0,1fr)_16rem] tablet:overflow-hidden"}`} data-target-selection-content="">
       <div className="relative h-64 min-h-64 min-w-0 overflow-hidden rounded-panel border border-border-default bg-surface-inset tablet:h-full tablet:min-h-0">
         {mapQuery.data && activeFloor ? <FloorMapViewport snapshot={mapQuery.data} ariaLabel={`${activeFloor.name} 도면`} mode={interactionMode} onAreaSelect={selectArea} viewportTestId="target-selection-map-viewport">
           <FloorScene snapshot={mapQuery.data} fixtures={activeFloor.fixtures} interactive={false} floorName={activeFloor.name} selection={sceneSelection} coarsePointer onFixturePress={toggleFixture} />
         </FloorMapViewport> : <div className="grid h-full place-items-center p-4"><Text tone="secondary">등록된 도면이 없어 목록으로 선택합니다.</Text></div>}
         {mapQuery.data && mapQuery.error ? <Text className="absolute top-3 left-3 z-6 rounded-control border border-border-default bg-surface-panel px-2 py-1" role="alert" tone="danger">도면을 최신 상태로 갱신하지 못했습니다.</Text> : null}
         {group ? <Text className="pointer-events-none absolute top-3 right-3 z-6 rounded-control border border-border-default bg-surface-panel px-2 py-1" variant="caption">{group.name}</Text> : null}
+        {mapQuery.data ? <div className="pointer-events-none absolute bottom-3 left-3 z-6 flex flex-wrap gap-2 rounded-control border border-border-default bg-surface-panel px-2 py-1 text-label" aria-label="지도 조명 상태 범례">
+          <span className="inline-flex items-center gap-1"><span aria-hidden="true" className="size-2 rounded-fixture-marker bg-fixture-connected" />정상</span>
+          <span className="inline-flex items-center gap-1"><span aria-hidden="true" className="size-2 rounded-fixture-marker bg-fixture-fault" />장애</span>
+          <span className="inline-flex items-center gap-1"><span aria-hidden="true" className="size-2 rounded-fixture-marker bg-fixture-offline" />오프라인</span>
+          <span className="inline-flex items-center gap-1"><span aria-hidden="true" className="size-2 rounded-fixture-marker bg-fixture-selected" />선택</span>
+        </div> : null}
       </div>
-      <div className="min-h-0 overflow-y-auto overscroll-contain" data-target-selection-detail-panel=""><SelectionSummaryPanel resolved={resolved} compactSummary={compactSummary} compactDetails={compactDetails} onCompactSheetHeightChange={onCompactSheetHeightChange} />
+      <div className={hideEmbeddedSummary && selection.mode === "fixtures" ? "hidden" : "min-h-0 overflow-y-auto overscroll-contain"} data-target-selection-detail-panel="">{!hideEmbeddedSummary ? <SelectionSummaryPanel resolved={resolved} compactSummary={compactSummary} compactDetails={compactDetails} onCompactSheetHeightChange={onCompactSheetHeightChange} /> : null}
         {selection.mode === "floor" ? <SelectionChoices kind="floor" dashboard={dashboard} selection={selection} disabled={disabled} fixtureFilter={fixtureFilter} requiredGatewayId={requiredGatewayId} onChange={onChange} /> : null}
         {selection.mode === "group" ? <SelectionChoices kind="group" dashboard={dashboard} selection={selection} disabled={disabled} fixtureFilter={fixtureFilter} requiredGatewayId={requiredGatewayId} onChange={onChange} /> : null}
       </div>
     </div>
-    <FixtureSelectionDrawer open={listOpen} dashboard={dashboard} selectedFixtureIds={selectedFixtureIds} disabledFixtureIds={disabledFixtureIds} disabledReasons={disabledReasons} readOnly={selection.mode !== "fixtures"} disabled={disabled}
+    <FixtureSelectionDrawer open={listOpen} dashboard={dashboard} selectedFixtureIds={selectedFixtureIds} disabledFixtureIds={disabledFixtureIds} disabledReasons={disabledReasons} readOnly={selection.mode !== "fixtures"} disabled={disabled} returnFocusRef={listOpenerRef}
       onClose={() => setListOpen(false)} onToggleFixture={toggleFixture} />
     {requestedMode ? <ConfirmDialog isOpen title="선택 방식 변경" description="현재 선택을 버리고 다른 방식으로 변경할까요?" role="alertdialog"
       confirmLabel="변경" onCancel={() => setRequestedMode(null)} onConfirm={() => changeMode(requestedMode)}>{null}</ConfirmDialog> : null}

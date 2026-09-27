@@ -42,6 +42,35 @@ const discovered = {
 };
 
 describe("BioUsbDongleAdapter", () => {
+  it("keeps native write rejection unknown after brightness submission", async () => {
+    const f = createPhysicalControlFixture({ failOutput: true });
+    try {
+      await f.client.probe(); await f.adapter.scan(scanCommand);
+      await expect(f.adapter.applyUnicast(provisioningCommand.nodeId, 60, undefined, undefined, {
+        mayStartWrite: () => true, onWriteStarted: () => undefined
+      })).resolves.toMatchObject({ acknowledged: false, outcome: "timed_out" });
+      expect(f.bodies.filter((body) => body.startsWith("cd"))).toEqual(["cd13c6"]);
+    } finally { await f.client.close(); }
+  });
+  it.each(["unicast", "parallel", "group"])("preserves unknown after the first BIO write when %s proof expires", async (mode) => {
+    const f = createPhysicalControlFixture();
+    const writesStarted: number[] = [];
+    try {
+      await f.client.probe();
+      await f.adapter.scan(scanCommand);
+      await f.adapter.hydrateGroupSubscriptions([{ groupId: "group", groupAddress: "0xc000", version: 1,
+        members: [{ meshNodeId: provisioningCommand.nodeId, meshAddress: "0x0101" }] }]);
+      const control = { mayStartWrite: () => f.allowed(), onWriteStarted: () => { writesStarted.push(1); } };
+      const results = mode === "unicast"
+        ? [await f.adapter.applyUnicast(provisioningCommand.nodeId, 60, undefined, undefined, control)]
+        : mode === "parallel"
+          ? await f.adapter.applyParallelUnicast([provisioningCommand.nodeId], 60, 4, undefined, undefined, control)
+          : await f.adapter.applyMeshGroup(0xc000, [provisioningCommand.nodeId], 60, undefined, undefined, control);
+      expect(f.bodies.filter((body) => body.startsWith("cd") || body.startsWith("cc"))).toEqual(["cd13c6"]);
+      expect(results).toEqual([expect.objectContaining({ acknowledged: false, outcome: "timed_out", faultCode: "COMMAND_WRITE_VETOED" })]);
+      expect(writesStarted).toEqual([1]);
+    } finally { await f.client.close(); }
+  });
   it("accepts only canonical lowercase BIO UUIDs", () => {
     const adapter = createFixture().adapter;
 
@@ -970,6 +999,44 @@ function createFixture(events: string[] = []) {
     mappings,
     adapter: new BioUsbDongleAdapter(client, mappings, { now: () => new Date("2026-09-13T00:00:02.000Z") })
   };
+}
+
+function createPhysicalControlFixture(options: { failOutput?: boolean } = {}) {
+  const events = new EventEmitter();
+  const bodies: string[] = [];
+  let allowed = true;
+  const connection = {
+    async open() {}, async close() {},
+    onData(listener: (bytes: Buffer) => void) { events.on("data", listener); return () => { events.off("data", listener); }; },
+    onDisconnect(listener: (error: Error) => void) { events.on("disconnect", listener); return () => { events.off("disconnect", listener); }; },
+    async write(bytes: Uint8Array) {
+      const frame = Buffer.from(bytes);
+      if (options.failOutput && frame[2] === 0x10 && frame.subarray(19, -2).toString("hex") === "cd13c6") {
+        bodies.push("cd13c6");
+        throw new Error("native write may have partially completed");
+      }
+      queueMicrotask(() => {
+        if (frame[0] !== 0x55) return;
+        if (frame[2] === 0x82) events.emit("data", Buffer.from("55aa030c02050320682f0000000300001147", "hex"));
+        else if (frame[2] === 0x0a) events.emit("data", Buffer.from("55aa0b0d0001000000000000010c000320c50e", "hex"));
+        else if (frame[2] === 0x10) {
+          const body = frame.subarray(19, -2).toString("hex"); bodies.push(body);
+          if (body === "cd13c6") allowed = false;
+          events.emit("data", Buffer.from("55aa1101002055", "hex"));
+          if (body === "8305") {
+            const payload = Buffer.from("d3001122334455832e0101c00000000a010505085932020100030000", "hex");
+            Buffer.from(discovered.nativeUuid, "hex").copy(payload, 1);
+            events.emit("data", encodeCrcFrame(0x12, payload));
+          }
+        }
+      });
+    }
+  };
+  const client = new BioDongleClient({ connectionFactory: () => connection, scanDurationMs: 1, observationTimeoutMs: 5 });
+  const f = createFixture();
+  f.mappings.findByFixtureId.mockResolvedValue(confirmedMapping());
+  f.mappings.findByLogicalAddress.mockResolvedValue(confirmedMapping());
+  return { client, adapter: new BioUsbDongleAdapter(client, f.mappings), bodies, allowed: () => allowed };
 }
 
 function readyForOnePresence() {

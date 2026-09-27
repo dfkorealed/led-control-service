@@ -58,30 +58,54 @@ export class FixtureFreshnessService implements OnModuleInit, OnModuleDestroy {
         // let a monitoring preference alter their fixed 90초/20분 safety policy.
         const gatewayCutoff = gatewayHeartbeatFreshSince(now);
         const fixtureCutoff = new Date(now.getTime() - FIXTURE_OPERATIONAL_FRESHNESS_MS);
-        const observedFixture = { OR: [
-          { reportedStatusReason: { not: "provisioning_waiting_state" } }, { reportedStatusReason: null }
-        ] };
-        const gatewayOffline = await tx.fixture.updateMany({
-          where: { siteId, ...observedFixture,
-            meshNode: { gateway: { OR: [{ lastHeartbeatAt: { lt: gatewayCutoff } }, { lastHeartbeatAt: null }] } } },
-          data: { status: "offline", statusReason: "gateway_offline" }
-        });
-        const fixtureStale = await tx.fixture.updateMany({
-          where: { siteId,
-            // A recovered gateway can leave an already-offline fixture stale.
-            // Require an online gateway instead of excluding offline fixtures.
-            meshNode: { gateway: { lastHeartbeatAt: { gte: gatewayCutoff } } },
-            AND: [observedFixture, { OR: [
-              { lastSeenAt: { lt: fixtureCutoff } }, { lastSeenAt: null },
-              // Compare the two receipt clocks, not a wall-clock cutoff: manual
-              // verification remains offline until a later accepted observation.
-              { lastUnreachableAt: { gt: tx.fixture.fields.lastSeenAt } }
-            ] }]
-          },
-          data: { status: "offline", statusReason: "fixture_stale" }
-        });
+        const applyOffline = async (condition: Prisma.Sql, statusReason: "gateway_offline" | "fixture_stale") => {
+          // The Site → Gateway → Fixture locks above serialize state writers. A
+          // materialized snapshot retains each row's *previous* status while one
+          // UPDATE and INSERT project the entire Site atomically. Looping Prisma
+          // 500-row batches here exceeded the 5s transaction budget at 6000 rows.
+          const [result] = await tx.$queryRaw<{ changed: bigint }[]>(Prisma.sql`
+            WITH candidates AS MATERIALIZED (
+              SELECT f."id", f."floorId", f."name", f."status"
+              FROM "Fixture" f
+              WHERE f."siteId" = ${siteId}
+                AND f."reportedStatusReason" IS DISTINCT FROM 'provisioning_waiting_state'
+                AND (f."status" <> 'offline'::"FixtureStatus" OR f."statusReason" IS DISTINCT FROM ${statusReason})
+                AND EXISTS (
+                  SELECT 1 FROM "MeshNode" n
+                  JOIN "Gateway" g ON g."id" = n."gatewayId"
+                  WHERE n."id" = f."meshNodeId" AND n."gatewayId" = f."gatewayId" AND ${condition}
+                )
+            ), updated AS (
+              UPDATE "Fixture" f
+              SET "status" = 'offline'::"FixtureStatus", "statusReason" = ${statusReason},
+                  "updatedAt" = CURRENT_TIMESTAMP AT TIME ZONE 'UTC'
+              FROM candidates c WHERE f."id" = c."id"
+              RETURNING c."id", c."floorId", c."name", c."status"
+            ), activity AS (
+              INSERT INTO "MonitoringActivity" ("id", "siteId", "floorId", "sourceType", "sourceKey",
+                "kind", "fixtureId", "displayName", "status")
+              SELECT gen_random_uuid()::text, ${siteId}, u."floorId", 'gateway_freshness', gen_random_uuid()::text,
+                'fixture_offline'::"MonitoringActivityKind", u."id", u."name", 'offline'::"FixtureStatus"
+              FROM updated u WHERE u."status" <> 'offline'::"FixtureStatus"
+              RETURNING "id"
+            )
+            SELECT count(*)::bigint AS "changed" FROM updated
+          `);
+          return Number(result.changed);
+        };
+        const gatewayOffline = await applyOffline(Prisma.sql`
+          (g."lastHeartbeatAt" < ${gatewayCutoff} OR g."lastHeartbeatAt" IS NULL)
+        `, "gateway_offline");
+        // A recovered gateway can leave an already-offline fixture stale. Compare
+        // receipt clocks, not a wall cutoff, for manual verification failures.
+        const fixtureStale = await applyOffline(Prisma.sql`
+          g."lastHeartbeatAt" >= ${gatewayCutoff} AND (
+            f."lastSeenAt" < ${fixtureCutoff} OR f."lastSeenAt" IS NULL OR
+            f."lastUnreachableAt" > f."lastSeenAt"
+          )
+        `, "fixture_stale");
         await this.reconciler.reconcile(tx, site, now);
-        return { gatewayOffline: gatewayOffline.count, fixtureStale: fixtureStale.count };
+        return { gatewayOffline, fixtureStale };
       }, { maxWait: 2000, timeout: 5000 }).catch((error) => {
         // One unavailable Site must not starve later Sites. The transaction
         // rolls back, and the next scheduled sweep retries the same Site.

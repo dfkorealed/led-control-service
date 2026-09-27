@@ -101,7 +101,8 @@ export interface FloorSceneProps {
   floorName?: string;
   selection?: FixtureSceneSelection;
   coarsePointer?: boolean;
-  onFixturePress?: (fixtureId: string) => void;
+  markerTitle?: (fixture: SceneFixture) => string;
+  onFixturePress?: (fixtureId: string, anchor: HTMLButtonElement) => void;
 }
 
 interface FixtureMarkerStyle extends CSSProperties {
@@ -118,6 +119,7 @@ export function FloorScene({
   floorName,
   selection = noFixtureSceneSelection,
   coarsePointer = false,
+  markerTitle,
   onFixturePress
 }: FloorSceneProps) {
   const commonMap = snapshot.mapDocument;
@@ -253,7 +255,7 @@ export function FloorScene({
               selected && "z-3"
             )}
             style={markerStyle}
-            title={`${fixture.name} ${statusLabel} ${fixture.brightness}%`}
+            title={markerTitle?.(fixture) ?? `${fixture.name} ${statusLabel} ${fixture.brightness}%`}
             aria-label={`${fixture.name} ${statusLabel} ${fixture.brightness}%${accessibleState ? ` ${accessibleState}` : ""}`}
             aria-current={selection.kind === "single" && selected ? "true" : undefined}
             aria-pressed={selection.kind === "multiple" ? selected : undefined}
@@ -261,7 +263,7 @@ export function FloorScene({
             data-selected={selected ? "true" : "false"}
             data-disabled={disabled ? "true" : "false"}
             data-disabled-reason={disabledReason}
-            onClick={() => onFixturePress?.(fixture.id)}
+            onClick={(event) => onFixturePress?.(fixture.id, event.currentTarget)}
           >
             {/* The marker dot stays 20px; only its transparent button target expands for coarse pointers. */}
             <span data-spatial-map-marker-dot="true" className={cn("pointer-events-none absolute left-1/2 top-1/2 block size-5 -translate-x-1/2 -translate-y-1/2 rounded-fixture-marker! border! border-fixture-offline! transition-[background-color,box-shadow] duration-150 motion-reduce:duration-[0.01ms]", markerStateClass, selected && "outline-3 outline-offset-4 outline-fixture-selected")}>

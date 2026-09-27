@@ -198,6 +198,46 @@ test("자동화 빈 목록과 조회 실패는 실제 추가와 재시도 동작
   await expectNoHorizontalOverflow(page);
 });
 
+test("자동화 전역 목록은 현장 요약과 조건별 페이지를 분리한다", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await installAutomationFixture(page);
+  const scheduleSummary = { ruleCount: 22, syncRuleCounts: { APPLIED: 5, PENDING: 15, REJECTED: 2 } };
+  const eventSummary = { ruleCount: 12, syncRuleCounts: { APPLIED: 4, PENDING: 7, REJECTED: 1 } };
+  await page.route("**/api/sites/*/automation/schedules**", async (route) => {
+    const params = new URL(route.request().url()).searchParams;
+    const items = params.has("query") ? [] : params.has("cursor") ? [schedule("두 번째 스케줄", "APPLIED")] : [schedule("첫 번째 스케줄", "PENDING")];
+    await route.fulfill({ json: { items, total: 22, filteredTotal: params.has("query") ? 0 : 22, siteSummary: scheduleSummary, nextCursor: !params.has("query") && !params.has("cursor") ? "opaque-schedule" : null } });
+  });
+  await page.route("**/api/sites/*/automation/vehicle-event-rules**", async (route) => {
+    const params = new URL(route.request().url()).searchParams;
+    const filtered = params.get("status") === "disabled";
+    await route.fulfill({ json: { items: [eventRule(filtered ? "비활성 이벤트" : "활성 이벤트", filtered ? "disabled" : "enabled")], total: 12, filteredTotal: filtered ? 3 : 12, siteSummary: eventSummary, nextCursor: null } });
+  });
+
+  await page.goto(`/control?siteId=${ids.site}&mode=schedule`);
+  await expect(page.getByRole("group", { name: "스케줄 요약" })).toContainText("현장 전체 규칙 22건");
+  await expect(page.getByRole("group", { name: "스케줄 요약" })).toContainText("적용 완료 5건 · 적용 대기 15건 · 적용 실패 2건");
+  const scheduleControls = page.getByRole("region", { name: "스케줄 목록 조건" });
+  await expect(scheduleControls).toContainText("조건에 맞는 규칙 22건");
+  await scheduleControls.getByRole("button", { name: "다음" }).click();
+  await expect(page.getByText("두 번째 스케줄")).toBeVisible();
+  await expect(page.getByText("첫 번째 스케줄")).toHaveCount(0);
+  await scheduleControls.getByRole("button", { name: "이전" }).click();
+  await expect(page.getByText("첫 번째 스케줄")).toBeVisible();
+  await scheduleControls.getByRole("searchbox", { name: "스케줄 검색" }).fill("입구_%");
+  await expect(scheduleControls).toContainText("조건에 맞는 규칙 0건");
+  await expect(page.getByText("조건에 맞는 스케줄이 없습니다.")).toBeVisible();
+
+  await page.getByRole("tab", { name: "이벤트 제어" }).click();
+  const eventControls = page.getByRole("region", { name: "이벤트 목록 조건" });
+  await expect(eventControls).toContainText("조건에 맞는 규칙 12건");
+  await selectBox(page, eventControls, "활성 상태", "비활성");
+  await expect(eventControls).toContainText("조건에 맞는 규칙 3건");
+  await expect(page.getByText("비활성 이벤트")).toBeVisible();
+  await expect(page.getByRole("group", { name: "이벤트 요약" })).toContainText("현장 전체 규칙 12건");
+  await expectNoHorizontalOverflow(page);
+});
+
 async function installAutomationFixture(
   page: Page,
   options: { fixtures?: SettingsFixture[]; schedules?: unknown[]; events?: unknown[]; scheduleFailures?: number; eventFailures?: number } = {}

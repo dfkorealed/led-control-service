@@ -2,6 +2,8 @@ import {
   energyComparisonResponseSchema,
   type EnergyComparisonPreset
 } from "@led-control/shared/energy-contracts";
+import { energyRangeComparisonQuerySchema, energyRangeComparisonResponseSchema } from "@led-control/shared/energy-range-contracts";
+import { energyObservedMeanResponseSchema } from "@led-control/shared/energy-observed-mean-contracts";
 import {
   type EnergySeriesResponse,
   type EnergySummary
@@ -61,13 +63,32 @@ export function useEnergySeries({ siteId, granularity, from, to, enabled }: Ener
   });
 }
 
-export function useEnergyComparison(siteId: string | undefined, preset: EnergyComparisonPreset) {
+export function useEnergyComparison(siteId: string | undefined, preset: EnergyComparisonPreset, enabled = true) {
   return useQuery({
     queryKey: ["energy-comparison", siteId, preset],
     queryFn: async () => energyComparisonResponseSchema.parse(await apiGet<unknown>(
       `/energy/sites/${encodeURIComponent(siteId!)}/comparisons?preset=${preset}`
     )),
-    enabled: Boolean(siteId),
+    enabled: enabled && Boolean(siteId),
+    retry: 1
+  });
+}
+
+export function useEnergyRangeComparison(siteId: string | undefined, from: string, to: string, enabled = true) {
+  const validRange = energyRangeComparisonQuerySchema.safeParse({ from, to }).success;
+  return useQuery({
+    queryKey: ["energy-comparison-range", siteId, from, to],
+    queryFn: async () => {
+      const response = energyRangeComparisonResponseSchema.parse(await apiGet<unknown>(
+        `/energy/sites/${encodeURIComponent(siteId!)}/comparisons/range?${new URLSearchParams({ from, to })}`
+      ));
+      // A schema-valid response can still belong to another request. Never cache it under this site's range key.
+      if (response.siteId !== siteId || response.selection.from !== from || response.selection.to !== to) {
+        throw new Error("Custom energy comparison response does not match the requested site and range");
+      }
+      return response;
+    },
+    enabled: enabled && Boolean(siteId) && validRange,
     retry: 1
   });
 }
@@ -80,6 +101,7 @@ export interface EnergyRankingsQuery {
   from: string;
   to: string;
   limit?: number;
+  enabled?: boolean;
 }
 
 export function useEnergyRankings(query: EnergyRankingsQuery) {
@@ -99,7 +121,8 @@ export function useEnergyRankings(query: EnergyRankingsQuery) {
         `/energy/sites/${encodeURIComponent(query.siteId!)}/rankings?${params.toString()}`
       ));
     },
-    enabled: Boolean(query.siteId && query.from && query.to),
+    enabled: query.enabled !== false && Boolean(query.siteId) &&
+      energyRangeComparisonQuerySchema.safeParse({ from: query.from, to: query.to }).success,
     retry: 1
   });
 }
@@ -130,6 +153,20 @@ export function useEnergyHeatmap(query: EnergyHeatmapQuery) {
       ));
     },
     enabled: query.enabled !== false && Boolean(query.siteId && query.identityId && query.from && query.to),
+    retry: 1
+  });
+}
+
+export function useEnergyObservedMeanHeatmap(query: EnergyHeatmapQuery) {
+  const validRange = energyRangeComparisonQuerySchema.safeParse({ from: query.from, to: query.to }).success;
+  return useQuery({
+    queryKey: ["energy-heatmap-observed-mean", query.siteId, query.scope, query.identityId, query.metric, query.from, query.to],
+    queryFn: async () => energyObservedMeanResponseSchema.parse(await apiGet<unknown>(
+      `/energy/sites/${encodeURIComponent(query.siteId!)}/heatmap/observed-mean?${new URLSearchParams({
+        scope: query.scope, identityId: query.identityId!, metric: query.metric, from: query.from!, to: query.to!
+      })}`
+    )),
+    enabled: query.enabled !== false && Boolean(query.siteId && query.identityId) && validRange,
     retry: 1
   });
 }

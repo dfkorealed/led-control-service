@@ -56,7 +56,8 @@ function harness() {
   let createdRefresh = refresh();
   const tx: any = {
     $queryRaw: jest.fn().mockResolvedValue([{ id: floorId }]),
-    floor: { findFirst: jest.fn().mockResolvedValue({ id: floorId, siteId, status: "active" }) },
+    floor: { findFirst: jest.fn().mockResolvedValue({ id: floorId, siteId, status: "active" }),
+      findMany: jest.fn().mockResolvedValue([{ id: floorId }]) },
     fixture: { findMany: jest.fn().mockResolvedValue(fixtures(1)) },
     monitoringRefresh: {
       findUnique: jest.fn().mockResolvedValue(null),
@@ -76,6 +77,7 @@ function harness() {
     },
     monitoringRefreshFixture: { createMany: jest.fn().mockResolvedValue({ count: 1 }) },
     mqttOutbox: { create: jest.fn().mockResolvedValue({ id: randomUUID() }) },
+    monitoringActivity: { createMany: jest.fn().mockResolvedValue({ count: 1 }) },
     gateway: {
       update: jest.fn().mockResolvedValue({ id: gatewayId, siteId, nextCommandSequence: 1n })
     }
@@ -176,6 +178,10 @@ describe("MonitoringRefreshService", () => {
     expect(tx.monitoringRefreshBatch.create).not.toHaveBeenCalled();
     expect(tx.monitoringRefreshFixture.createMany).not.toHaveBeenCalled();
     expect(tx.mqttOutbox.create).not.toHaveBeenCalled();
+    expect(tx.monitoringActivity.createMany).toHaveBeenCalledWith({ data: [{
+      siteId, floorId, sourceType: "monitoring_refresh", sourceKey: `${refresh().id}:completed`,
+      kind: "monitoring_refresh_result", refreshStatus: "completed"
+    }], skipDuplicates: true });
   });
 
   it("rejects 1,001 fixtures without creating a refresh", async () => {

@@ -322,6 +322,22 @@ test("accepts only the reviewed 360px phone-wide token and named utilities", asy
   assert.ok(inspectUiSource(path, theme.replace(/--breakpoint-phone-wide:[^;]+;/, "--breakpoint-phone-wide: 22rem;")).some(v => v.rule === "unapproved-theme-value"));
 });
 
+test("accepts only the reviewed final atlas shell layout tokens", async () => {
+  const path = "src/styles/theme.css";
+  const theme = await readFile(new URL("../src/styles/theme.css", import.meta.url), "utf8");
+  const tokens = new Map([
+    ["--spacing-shell-rail", "5.5rem"],
+    ["--container-auth", "60rem"],
+    ["--container-operator", "72.5rem"],
+    ["--container-status-drawer", "27.5rem"]
+  ]);
+  for (const [name, value] of tokens) {
+    assert.match(theme, new RegExp(`${name}: ${value.replace(".", "\\.")};`));
+    const changed = theme.replace(`${name}: ${value};`, `${name}: 1rem;`);
+    assert.ok(inspectUiSource(path, changed).some(violation => violation.rule === "unapproved-theme-value"), name);
+  }
+});
+
 test("inventories unapproved CSS files, selectors and raw form styling", () => {
   const violations = inspectUiSource("src/page.css", '.new-panel { display: grid; } input { appearance: none; }');
   assert.ok(violations.some(v => v.rule === "css-file"));

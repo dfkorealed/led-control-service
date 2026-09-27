@@ -1,9 +1,11 @@
 import { Logger } from "@nestjs/common";
+import { threeCalendarMonthsBefore } from "./calendar-month-window";
 import { Test } from "@nestjs/testing";
 import { Prisma, PrismaClient } from "@prisma/client";
-import { randomUUID } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import { disposablePostgres } from "../../test/support/disposable-postgres";
 import { DataRetentionService } from "./data-retention.service";
+import { recordCommandOutcomeActivity } from "../monitoring-activity/command-outcome-activity";
 import { PrismaModule } from "../prisma/prisma.module";
 import { PrismaService } from "../prisma/prisma.service";
 import { RetentionModule } from "./retention.module";
@@ -42,6 +44,12 @@ const policies = [
     jest.spyOn(Logger.prototype, "log").mockImplementation(() => {});
   }, 30_000);
   afterAll(async () => { await db?.$disconnect(); await peer?.$disconnect(); cluster?.stop(); jest.restoreAllMocks(); });
+  afterEach(() => {
+    delete process.env.RESOLVED_COMMAND_RECOVERY_RETENTION_ENABLED;
+    delete process.env.MONITORING_ACTIVITY_KEYED_COMMAND_SOURCE_ENABLED;
+    delete process.env.COMMAND_SAFETY_HMAC_ACTIVE_VERSION;
+    delete process.env.COMMAND_SAFETY_HMAC_KEYS_JSON;
+  });
   beforeEach(async () => {
     sequence = 0;
     await db.$executeRawUnsafe('TRUNCATE TABLE "Organization" CASCADE');
@@ -82,6 +90,169 @@ const policies = [
       fixtureId: eventType === "fixture_state" ? ids.fixture : null, meshNodeId: eventType === "vehicle_sensor_capability" ? ids.node : null,
       scopeKey, payloadHash: hash, occurredAt: old, createdAt, ...overrides } });
   }
+
+  it("backfills a still-visible raw Command activity key without changing its recordedAt or retention window", async () => {
+    process.env.MONITORING_ACTIVITY_KEYED_COMMAND_SOURCE_ENABLED = "1";
+    process.env.COMMAND_SAFETY_HMAC_ACTIVE_VERSION = "1";
+    process.env.COMMAND_SAFETY_HMAC_KEYS_JSON = JSON.stringify({
+      1: randomBytes(32).toString("base64url") });
+    const commandId = randomUUID();
+    const recordedAt = new Date("2026-09-11T12:00:00.000Z");
+    const activity = await db.monitoringActivity.create({ data: {
+      siteId: ids.site, floorId: ids.floor, sourceType: "command",
+      sourceKey: `${commandId}:unknown`, kind: "command_result",
+      commandOutcome: "unknown", recordedAt
+    } });
+    await service.prune(now);
+    const rekeyed = await db.monitoringActivity.findUniqueOrThrow({ where: { id: activity.id } });
+    expect(rekeyed).toMatchObject({ recordedAt, sourceKey: expect.stringMatching(/^v1:hmac-sha256:[a-f0-9]{64}$/) });
+    expect(rekeyed.sourceKey).not.toContain(commandId);
+  });
+
+  it("leaves legacy Command activity untouched when keyed-source backfill is disabled", async () => {
+    const commandId = randomUUID();
+    const activity = await db.monitoringActivity.create({ data: {
+      siteId: ids.site, floorId: ids.floor, sourceType: "command",
+      sourceKey: `${commandId}:unknown`, kind: "command_result",
+      commandOutcome: "unknown", recordedAt: new Date("2026-09-11T12:00:00.000Z")
+    } });
+    await service.prune(now);
+    expect(await db.monitoringActivity.findUniqueOrThrow({ where: { id: activity.id } }))
+      .toMatchObject({ sourceKey: `${commandId}:unknown` });
+  });
+
+  it("rekeys no more than 100 legacy Command sources per sweep and converges on repetition", async () => {
+    process.env.MONITORING_ACTIVITY_KEYED_COMMAND_SOURCE_ENABLED = "1";
+    process.env.COMMAND_SAFETY_HMAC_ACTIVE_VERSION = "1";
+    process.env.COMMAND_SAFETY_HMAC_KEYS_JSON = JSON.stringify({ 1: randomBytes(32).toString("base64url") });
+    const sources = Array.from({ length: 101 }, (_, index) =>
+      `00000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}:unknown`);
+    await db.monitoringActivity.createMany({ data: sources.map(sourceKey => ({
+      siteId: ids.site, floorId: ids.floor, sourceType: "command", sourceKey,
+      kind: "command_result", commandOutcome: "unknown",
+      recordedAt: new Date("2026-09-11T12:00:00.000Z")
+    })) });
+    await service.prune(now);
+    const first = await db.monitoringActivity.findMany({ select: { sourceKey: true } });
+    expect(first.filter(row => row.sourceKey.endsWith(":unknown"))).toHaveLength(1);
+    expect(first.filter(row => row.sourceKey.startsWith("v1:hmac-sha256:"))).toHaveLength(100);
+    await service.prune(now);
+    const second = await db.monitoringActivity.findMany({ select: { sourceKey: true } });
+    expect(second).toHaveLength(101);
+    expect(second.every(row => /^v1:hmac-sha256:[a-f0-9]{64}$/.test(row.sourceKey))).toBe(true);
+    await service.prune(now);
+    expect(await db.monitoringActivity.count()).toBe(101);
+  });
+
+  it("deletes DB-expired Command activity and rekeys still-retained rows", async () => {
+    process.env.MONITORING_ACTIVITY_KEYED_COMMAND_SOURCE_ENABLED = "1";
+    process.env.COMMAND_SAFETY_HMAC_ACTIVE_VERSION = "1";
+    process.env.COMMAND_SAFETY_HMAC_KEYS_JSON = JSON.stringify({ 1: randomBytes(32).toString("base64url") });
+    const [{ boundary }] = await db.$queryRaw<Array<{ boundary: Date }>>`
+      SELECT ((transaction_timestamp() AT TIME ZONE 'UTC') - INTERVAL '3 months') AS boundary`;
+    const rows = await Promise.all([-30_000, 30_000, 31_000].map(offset => db.monitoringActivity.create({ data: {
+      siteId: ids.site, floorId: ids.floor, sourceType: "command",
+      sourceKey: `${randomUUID()}:unknown`, kind: "command_result", commandOutcome: "unknown",
+      recordedAt: new Date(boundary.getTime() + offset)
+    } })));
+    expect(await service.prune(new Date("2026-05-31T12:00:00.000Z")))
+      .toMatchObject({ monitoringActivities: 1 });
+    expect(await db.monitoringActivity.findUnique({ where: { id: rows[0].id } })).toBeNull();
+    for (const row of rows.slice(1)) {
+      expect(await db.monitoringActivity.findUniqueOrThrow({ where: { id: row.id } }))
+        .toMatchObject({ recordedAt: row.recordedAt,
+          sourceKey: expect.stringMatching(/^v1:hmac-sha256:[a-f0-9]{64}$/) });
+    }
+  });
+
+  it("reserves the backfill page for visible rows while the physical deletion backlog drains", async () => {
+    process.env.MONITORING_ACTIVITY_KEYED_COMMAND_SOURCE_ENABLED = "1";
+    process.env.COMMAND_SAFETY_HMAC_ACTIVE_VERSION = "1";
+    process.env.COMMAND_SAFETY_HMAC_KEYS_JSON = JSON.stringify({ 1: randomBytes(32).toString("base64url") });
+    const [{ retainedFrom }] = await db.$queryRaw<Array<{ retainedFrom: Date }>>`
+      SELECT ((transaction_timestamp() AT TIME ZONE 'UTC') - INTERVAL '3 months') AS "retainedFrom"`;
+    const expiredAt = new Date(retainedFrom.getTime() - 30_000);
+    await db.monitoringActivity.createMany({ data: Array.from({ length: 1001 }, (_, index) => ({
+      siteId: ids.site, floorId: ids.floor, sourceType: "command",
+      sourceKey: `00000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}:unknown`,
+      kind: "command_result" as const, commandOutcome: "unknown" as const,
+      recordedAt: expiredAt
+    })) });
+    const visible = await db.monitoringActivity.create({ data: {
+      siteId: ids.site, floorId: ids.floor, sourceType: "command",
+      sourceKey: "ffffffff-ffff-4fff-8fff-ffffffffffff:unknown",
+      kind: "command_result", commandOutcome: "unknown", recordedAt: new Date(retainedFrom.getTime() + 30_000)
+    } });
+    expect(await service.prune(new Date("2026-05-31T12:00:00.000Z")))
+      .toMatchObject({ monitoringActivities: 1000 });
+    expect(await db.monitoringActivity.count({ where: { recordedAt: expiredAt } })).toBe(1);
+    expect(await db.monitoringActivity.count({ where: { recordedAt: expiredAt,
+      sourceKey: { startsWith: "v1:hmac-sha256:" } } })).toBe(0);
+    expect((await db.monitoringActivity.findUniqueOrThrow({ where: { id: visible.id } })).sourceKey)
+      .toMatch(/^v1:hmac-sha256:[a-f0-9]{64}$/);
+  });
+
+  it("fails closed without an HMAC key and leaves surviving raw Command activity intact", async () => {
+    process.env.MONITORING_ACTIVITY_KEYED_COMMAND_SOURCE_ENABLED = "1";
+    const warn = jest.spyOn(Logger.prototype, "warn").mockImplementation(() => {});
+    const sourceKey = `${randomUUID()}:unknown`;
+    const activity = await db.monitoringActivity.create({ data: {
+      siteId: ids.site, floorId: ids.floor, sourceType: "command", sourceKey,
+      kind: "command_result", commandOutcome: "unknown",
+      recordedAt: new Date("2026-09-11T12:00:00.000Z")
+    } });
+    try {
+      await expect(service.prune(now)).rejects.toThrow("command safety HMAC key unavailable");
+      expect(await db.monitoringActivity.findUniqueOrThrow({ where: { id: activity.id } }))
+        .toMatchObject({ sourceKey });
+      expect(warn).toHaveBeenCalledWith(expect.objectContaining({
+        failedStage: "commandActivitySourceBackfill", rekeyedCommandActivitySources: 0
+      }));
+      expect(JSON.stringify(warn.mock.calls)).not.toContain(sourceKey);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("merges a concurrent keyed producer with the backfill without a duplicate activity", async () => {
+    process.env.MONITORING_ACTIVITY_KEYED_COMMAND_SOURCE_ENABLED = "1";
+    process.env.COMMAND_SAFETY_HMAC_ACTIVE_VERSION = "1";
+    process.env.COMMAND_SAFETY_HMAC_KEYS_JSON = JSON.stringify({ 1: randomBytes(32).toString("base64url") });
+    const command = await db.command.create({ data: {
+      siteId: ids.site, clientRequestId: randomUUID(), requestFingerprint: "retention-concurrency",
+      targetType: "fixture", targetFixtureIds: [ids.fixture], brightness: 70,
+      status: "pending", outcome: "pending"
+    } });
+    const recordedAt = new Date("2026-09-11T12:00:00.000Z");
+    const legacy = await db.monitoringActivity.create({ data: {
+      siteId: ids.site, floorId: ids.floor, sourceType: "command",
+      sourceKey: `${command.id}:unknown`, kind: "command_result",
+      commandOutcome: "unknown", recordedAt
+    } });
+    let sweep!: ReturnType<DataRetentionService["prune"]>;
+    await peer.$transaction(async tx => {
+      expect((await tx.command.updateMany({ where: { id: command.id, outcome: "pending" },
+        data: { status: "failed", outcome: "unknown" } })).count).toBe(1);
+      await recordCommandOutcomeActivity(tx, command.id, "pending", "unknown");
+      sweep = service.prune(now);
+      let waiting = false;
+      for (let attempt = 0; attempt < 150 && !waiting; attempt += 1) {
+        const locks = await tx.$queryRaw<Array<{ count: number }>>`
+          SELECT count(*)::int AS "count" FROM pg_locks
+          WHERE locktype = 'advisory' AND granted = false`;
+        waiting = locks[0]?.count === 1;
+        if (!waiting) await new Promise(resolve => setTimeout(resolve, 20));
+      }
+      expect(waiting).toBe(true);
+    }, { timeout: 15_000 });
+    await sweep;
+    const activities = await db.monitoringActivity.findMany({ where: {
+      siteId: ids.site, sourceType: "command", commandOutcome: "unknown"
+    } });
+    expect(activities).toHaveLength(1);
+    expect(activities[0]).toMatchObject({ id: legacy.id, recordedAt,
+      sourceKey: expect.stringMatching(/^v1:hmac-sha256:[a-f0-9]{64}$/) });
+  });
 
   it.each(policies)("deletes %s only after %i complete days measured by createdAt", async (type, days) => {
     const cutoff = now.getTime() - days * day;
@@ -261,6 +432,294 @@ const policies = [
     expect(await service.prune(now)).toMatchObject({ monitoringRefreshes: 1 });
   });
 
+  it("does not delete terminal recovery summaries while the dedicated sweep flag is off", async () => {
+    const row = await db.resolvedCommandRecovery.create({ data: {
+      id: randomUUID(), siteId: ids.site, classification: "verified_applied", targetCount: 1,
+      resolvedAt: new Date("2025-01-01T00:00:00.000Z")
+    } });
+    expect(await service.prune(now)).toMatchObject({ resolvedCommandRecoveries: 0 });
+    expect(await db.resolvedCommandRecovery.findUnique({ where: { id: row.id } })).not.toBeNull();
+  });
+
+  it("does not delete a DB-fresh terminal summary when the API clock is one minute fast", async () => {
+    process.env.RESOLVED_COMMAND_RECOVERY_RETENTION_ENABLED = "1";
+    const [{ dbNow }] = await db.$queryRaw<Array<{ dbNow: Date }>>`
+      SELECT transaction_timestamp() AS "dbNow"`;
+    const row = await db.resolvedCommandRecovery.create({ data: {
+      id: randomUUID(), siteId: ids.site, classification: "verified_applied", targetCount: 1,
+      resolvedAt: new Date(threeCalendarMonthsBefore(dbNow).getTime() + 30_000)
+    } });
+    expect(await service.prune(new Date(dbNow.getTime() + 60_000)))
+      .toMatchObject({ resolvedCommandRecoveries: 0 });
+    expect(await db.resolvedCommandRecovery.findUnique({ where: { id: row.id } })).not.toBeNull();
+  });
+
+  it("does not prune 1001 DB-fresh activities when the API clock is one minute fast", async () => {
+    const [{ dbNow, cutoff }] = await db.$queryRaw<Array<{ dbNow: Date; cutoff: Date }>>`
+      SELECT (transaction_timestamp() AT TIME ZONE 'UTC') AS "dbNow",
+        ((transaction_timestamp() AT TIME ZONE 'UTC') - INTERVAL '3 months') AS cutoff`;
+    await db.$executeRaw(Prisma.sql`
+      INSERT INTO "MonitoringActivity" ("id", "siteId", "floorId", "sourceType", "sourceKey", "kind", "recordedAt")
+      SELECT 'db-fresh-' || value, ${ids.site}, ${ids.floor}, 'fixture_state', 'db-fresh-' || value,
+        'fixture_online'::"MonitoringActivityKind", (${new Date(cutoff.getTime() + 30_000)}::timestamptz AT TIME ZONE 'UTC')
+      FROM generate_series(1, 1001) value
+    `);
+    expect(await service.prune(new Date(dbNow.getTime() + 60_000)))
+      .toMatchObject({ monitoringActivities: 0 });
+    expect(await db.monitoringActivity.count()).toBe(1001);
+  });
+
+  it("drains 1001 DB-expired activities even when the API clock is one minute slow", async () => {
+    const [{ dbNow, cutoff }] = await db.$queryRaw<Array<{ dbNow: Date; cutoff: Date }>>`
+      SELECT (transaction_timestamp() AT TIME ZONE 'UTC') AS "dbNow",
+        ((transaction_timestamp() AT TIME ZONE 'UTC') - INTERVAL '3 months') AS cutoff`;
+    await db.$executeRaw(Prisma.sql`
+      INSERT INTO "MonitoringActivity" ("id", "siteId", "floorId", "sourceType", "sourceKey", "kind", "recordedAt")
+      SELECT 'db-expired-' || value, ${ids.site}, ${ids.floor}, 'fixture_state', 'db-expired-' || value,
+        'fixture_offline'::"MonitoringActivityKind", (${new Date(cutoff.getTime() - 30_000)}::timestamptz AT TIME ZONE 'UTC')
+      FROM generate_series(1, 1001) value
+    `);
+    expect(await service.prune(new Date(dbNow.getTime() - 60_000)))
+      .toMatchObject({ monitoringActivities: 1000 });
+    expect(await db.monitoringActivity.count()).toBe(1);
+    expect(await service.prune(new Date(dbNow.getTime() - 60_000)))
+      .toMatchObject({ monitoringActivities: 1 });
+    expect(await db.monitoringActivity.count()).toBe(0);
+  });
+
+  it("rekeys only DB-retained Command activity despite a fast API clock", async () => {
+    process.env.MONITORING_ACTIVITY_KEYED_COMMAND_SOURCE_ENABLED = "1";
+    process.env.COMMAND_SAFETY_HMAC_ACTIVE_VERSION = "1";
+    process.env.COMMAND_SAFETY_HMAC_KEYS_JSON = JSON.stringify({ 1: randomBytes(32).toString("base64url") });
+    const [{ dbNow, cutoff }] = await db.$queryRaw<Array<{ dbNow: Date; cutoff: Date }>>`
+      SELECT (transaction_timestamp() AT TIME ZONE 'UTC') AS "dbNow",
+        ((transaction_timestamp() AT TIME ZONE 'UTC') - INTERVAL '3 months') AS cutoff`;
+    const expired = await db.monitoringActivity.create({ data: {
+      siteId: ids.site, floorId: ids.floor, sourceType: "command", sourceKey: `${randomUUID()}:unknown`,
+      kind: "command_result", commandOutcome: "unknown", recordedAt: new Date(cutoff.getTime() - 30_000)
+    } });
+    const fresh = await db.monitoringActivity.create({ data: {
+      siteId: ids.site, floorId: ids.floor, sourceType: "command", sourceKey: `${randomUUID()}:unknown`,
+      kind: "command_result", commandOutcome: "unknown", recordedAt: new Date(cutoff.getTime() + 30_000)
+    } });
+    expect(await service.prune(new Date(dbNow.getTime() + 60_000)))
+      .toMatchObject({ monitoringActivities: 1 });
+    expect(await db.monitoringActivity.findUnique({ where: { id: expired.id } })).toBeNull();
+    expect(await db.monitoringActivity.findUniqueOrThrow({ where: { id: fresh.id } }))
+      .toMatchObject({ sourceKey: expect.stringMatching(/^v1:hmac-sha256:[a-f0-9]{64}$/) });
+  });
+
+  it.each(["UTC", "Asia/Seoul", "America/New_York"])(
+    "timestamps direct and Prisma terminal summary writes from the UTC DB clock in %s", async zone => {
+      await db.$executeRawUnsafe(`SET TIME ZONE '${zone}'`);
+      try {
+        const directId = randomUUID();
+        await db.$executeRaw(Prisma.sql`
+          INSERT INTO "ResolvedCommandRecovery" ("id", "siteId", "classification", "targetCount")
+          VALUES (${directId}, ${ids.site}, 'verified_applied', 1)
+        `);
+        const [direct] = await db.$queryRaw<Array<{ driftSeconds: number }>>(Prisma.sql`
+          SELECT abs(EXTRACT(EPOCH FROM ("resolvedAt" - (transaction_timestamp() AT TIME ZONE 'UTC'))))::float8
+            AS "driftSeconds"
+          FROM "ResolvedCommandRecovery" WHERE "id" = ${directId}
+        `);
+        expect(direct.driftSeconds).toBeLessThan(2);
+
+        const [{ dbNow }] = await db.$queryRaw<Array<{ dbNow: Date }>>`
+          SELECT transaction_timestamp() AS "dbNow"`;
+        jest.useFakeTimers({ doNotFake: ["hrtime", "nextTick", "performance", "queueMicrotask",
+          "setTimeout", "clearTimeout", "setInterval", "clearInterval", "setImmediate", "clearImmediate"] });
+        jest.setSystemTime(new Date(dbNow.getTime() + 60_000));
+        const ormId = randomUUID();
+        try {
+          await db.resolvedCommandRecovery.create({ data: {
+            id: ormId, siteId: ids.site, classification: "verified_partial", targetCount: 2
+          } });
+        } finally {
+          jest.useRealTimers();
+        }
+        const [orm] = await db.$queryRaw<Array<{ driftSeconds: number }>>(Prisma.sql`
+          SELECT abs(EXTRACT(EPOCH FROM ("resolvedAt" - (transaction_timestamp() AT TIME ZONE 'UTC'))))::float8
+            AS "driftSeconds"
+          FROM "ResolvedCommandRecovery" WHERE "id" = ${ormId}
+        `);
+        expect(orm.driftSeconds).toBeLessThan(2);
+      } finally {
+        await db.$executeRawUnsafe("SET TIME ZONE 'Asia/Seoul'");
+      }
+    }
+  );
+
+  it("lets the DB default provide Prisma terminal summary resolvedAt", async () => {
+    class RollbackFixture extends Error {}
+    const sentinel = new Date("2001-02-03T04:05:06.000Z");
+    try {
+      await db.$transaction(async tx => {
+        await tx.$executeRawUnsafe(`ALTER TABLE "ResolvedCommandRecovery"
+          ALTER COLUMN "resolvedAt" SET DEFAULT TIMESTAMP '2001-02-03 04:05:06'`);
+        const row = await tx.resolvedCommandRecovery.create({ data: {
+          id: randomUUID(), siteId: ids.site, classification: "verified_applied", targetCount: 1
+        } });
+        expect(row.resolvedAt).toEqual(sentinel);
+        throw new RollbackFixture();
+      });
+    } catch (error) {
+      if (!(error instanceof RollbackFixture)) throw error;
+    }
+  });
+
+  it.each(["UTC", "Asia/Seoul", "America/New_York"])(
+    "physically removes only DB-expired activity in %s", async zone => {
+    await db.$executeRawUnsafe(`SET TIME ZONE '${zone}'`);
+    try {
+      const [{ cutoff }] = await db.$queryRaw<Array<{ cutoff: Date }>>`
+        SELECT ((transaction_timestamp() AT TIME ZONE 'UTC') - INTERVAL '3 months') AS cutoff`;
+      await db.monitoringActivity.createMany({ data: [-30_000, 30_000, 31_000].map(offset => ({
+        siteId: ids.site, floorId: ids.floor, sourceType: "fixture_state", sourceKey: `zone:${offset}`,
+        kind: "fixture_online" as const, recordedAt: new Date(cutoff.getTime() + offset)
+      })) });
+      expect(await service.prune(now)).toMatchObject({ monitoringActivities: 1 });
+      expect((await db.monitoringActivity.findMany({ orderBy: { recordedAt: "asc" }, select: { sourceKey: true } }))
+        .map(row => row.sourceKey)).toEqual(["zone:30000", "zone:31000"]);
+    } finally {
+      await db.$executeRawUnsafe("SET TIME ZONE 'Asia/Seoul'");
+    }
+  });
+
+  it("bounds activity deletion at 1,000 rows without changing Command or recent activity", async () => {
+    const cutoff = threeCalendarMonthsBefore(now);
+    await db.monitoringActivity.createMany({ data: Array.from({ length: 1001 }, (_, index) => ({
+      siteId: ids.site, floorId: ids.floor, sourceType: "fixture_state", sourceKey: `old:${index}`,
+      kind: "fixture_online" as const, recordedAt: new Date(cutoff.getTime() - 1)
+    })) });
+    await db.monitoringActivity.create({ data: { siteId: ids.site, floorId: ids.floor,
+      sourceType: "fixture_state", sourceKey: "new", kind: "fixture_online", recordedAt: now } });
+    const beforeCommands = await db.command.count();
+    expect(await service.prune(now)).toMatchObject({ monitoringActivities: 1000 });
+    expect(await db.monitoringActivity.count()).toBe(2);
+    expect(await db.command.count()).toBe(beforeCommands);
+    expect(await service.prune(now)).toMatchObject({ monitoringActivities: 1 });
+    expect(await db.monitoringActivity.findMany({ select: { sourceKey: true } })).toEqual([{ sourceKey: "new" }]);
+  });
+
+  it.each([
+    ["2026-01-31T12:00:00.000Z", "2025-10-31T12:00:00.000Z"],
+    ["2026-02-28T12:00:00.000Z", "2025-11-28T12:00:00.000Z"],
+    ["2026-05-31T12:00:00.000Z", "2026-02-28T12:00:00.000Z"]
+  ])("uses the same UTC DB calendar cutoff with strict deletion at %s", async (iso, expected) => {
+    for (const zone of ["UTC", "Asia/Seoul", "America/New_York"]) {
+      await db.$executeRawUnsafe(`SET TIME ZONE '${zone}'`);
+      const [comparison] = await db.$queryRaw<Array<{ cutoff: Date; beforeExpired: boolean;
+        boundaryExpired: boolean; afterExpired: boolean }>>(Prisma.sql`
+        WITH clock AS (
+          SELECT ((${new Date(iso)}::timestamptz AT TIME ZONE 'UTC') - INTERVAL '3 months') AS cutoff
+        )
+        SELECT cutoff, cutoff - INTERVAL '1 millisecond' < cutoff AS "beforeExpired",
+          cutoff < cutoff AS "boundaryExpired", cutoff + INTERVAL '1 millisecond' < cutoff AS "afterExpired"
+        FROM clock
+      `);
+      expect(comparison).toEqual({ cutoff: new Date(expected), beforeExpired: true,
+        boundaryExpired: false, afterExpired: false });
+    }
+    await db.$executeRawUnsafe("SET TIME ZONE 'Asia/Seoul'");
+  });
+
+  it("physically removes only DB-expired terminal summaries despite a slow API clock", async () => {
+    process.env.RESOLVED_COMMAND_RECOVERY_RETENTION_ENABLED = "1";
+    const [{ dbNow }] = await db.$queryRaw<Array<{ dbNow: Date }>>`
+      SELECT transaction_timestamp() AS "dbNow"`;
+    const cutoff = threeCalendarMonthsBefore(dbNow);
+    const expired = await db.resolvedCommandRecovery.create({ data: {
+      id: randomUUID(), siteId: ids.site, classification: "verified_partial", targetCount: 2,
+      resolvedAt: new Date(cutoff.getTime() - 30_000)
+    } });
+    const fresh = await db.resolvedCommandRecovery.create({ data: {
+      id: randomUUID(), siteId: ids.site, classification: "verified_applied", targetCount: 1,
+      resolvedAt: new Date(cutoff.getTime() + 30_000)
+    } });
+    expect(await service.prune(new Date(dbNow.getTime() - 60_000)))
+      .toMatchObject({ resolvedCommandRecoveries: 1 });
+    expect(await db.resolvedCommandRecovery.findUnique({ where: { id: expired.id } })).toBeNull();
+    expect(await db.resolvedCommandRecovery.findUnique({ where: { id: fresh.id } })).not.toBeNull();
+  });
+
+  it("bounds terminal summary deletion at 1000 rows and reports a remaining backlog", async () => {
+    process.env.RESOLVED_COMMAND_RECOVERY_RETENTION_ENABLED = "1";
+    await db.$executeRaw(Prisma.sql`
+      INSERT INTO "ResolvedCommandRecovery" ("id", "siteId", "classification", "targetCount", "resolvedAt")
+      SELECT 'resolved-old-' || value, ${ids.site}, 'verified_partial', 1, TIMESTAMP '2020-01-01 00:00:00'
+      FROM generate_series(1, 1001) value
+    `);
+    const log = jest.spyOn(Logger.prototype, "log").mockImplementation(() => {});
+    log.mockClear();
+    expect(await service.prune(now)).toMatchObject({ resolvedCommandRecoveries: 1000 });
+    expect(await db.resolvedCommandRecovery.count()).toBe(1);
+    expect(log).toHaveBeenLastCalledWith(expect.objectContaining({ resolvedSummaryBacklog: true }));
+    expect(await service.prune(now)).toMatchObject({ resolvedCommandRecoveries: 1 });
+    expect(await db.resolvedCommandRecovery.count()).toBe(0);
+    expect(log).toHaveBeenLastCalledWith(expect.objectContaining({ resolvedSummaryBacklog: false }));
+  });
+
+  it("skips a locked terminal summary and preserves an unresolved hold during summary cleanup", async () => {
+    process.env.RESOLVED_COMMAND_RECOVERY_RETENTION_ENABLED = "1";
+    const hold = await db.unresolvedCommandHold.create({ data: {
+      siteId: ids.site, gatewayId: ids.gateway, originalCommandId: randomUUID(),
+      originalCreatedAt: new Date("2020-01-01T00:00:00.000Z"), reasonCode: "outcome_unknown"
+    } });
+    const lockedId = randomUUID();
+    await db.resolvedCommandRecovery.createMany({ data: [lockedId, hold.id].map(id => ({
+      id, siteId: ids.site, classification: "verified_partial", targetCount: 1,
+      resolvedAt: new Date("2020-01-01T00:00:00.000Z")
+    })) });
+    let release!: () => void;
+    let acquired!: () => void;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    const ready = new Promise<void>(resolve => { acquired = resolve; });
+    const lock = peer.$transaction(async tx => {
+      await tx.$queryRaw`SELECT "id" FROM "ResolvedCommandRecovery" WHERE "id" = ${lockedId} FOR UPDATE`;
+      acquired();
+      await gate;
+    }, { timeout: 10_000 });
+    try {
+      await ready;
+      expect(await service.prune(now)).toMatchObject({ resolvedCommandRecoveries: 1 });
+      expect(await db.resolvedCommandRecovery.findUnique({ where: { id: lockedId } })).not.toBeNull();
+      expect(await db.unresolvedCommandHold.findUnique({ where: { id: hold.id } })).not.toBeNull();
+    } finally { release(); await lock; }
+    expect(await service.prune(now)).toMatchObject({ resolvedCommandRecoveries: 1 });
+    expect(await db.unresolvedCommandHold.findUnique({ where: { id: hold.id } })).not.toBeNull();
+  }, 15_000);
+
+  it("leaves terminal summaries intact after an earlier stage fails and retries next sweep", async () => {
+    process.env.RESOLVED_COMMAND_RECOVERY_RETENTION_ENABLED = "1";
+    const row = await db.resolvedCommandRecovery.create({ data: {
+      id: randomUUID(), siteId: ids.site, classification: "verified_not_applied", targetCount: 1,
+      resolvedAt: new Date("2020-01-01T00:00:00.000Z")
+    } });
+    const execute = jest.spyOn(db, "$executeRaw").mockRejectedValueOnce(new Error("forced earlier stage failure"));
+    try {
+      await expect(service.prune(now)).rejects.toThrow("forced earlier stage failure");
+    } finally { execute.mockRestore(); }
+    expect(await db.resolvedCommandRecovery.findUnique({ where: { id: row.id } })).not.toBeNull();
+    expect(await service.prune(now)).toMatchObject({ resolvedCommandRecoveries: 1 });
+  });
+
+  it("drains an expired terminal summary before an optional keyed backfill fails closed", async () => {
+    process.env.RESOLVED_COMMAND_RECOVERY_RETENTION_ENABLED = "1";
+    process.env.MONITORING_ACTIVITY_KEYED_COMMAND_SOURCE_ENABLED = "1";
+    const row = await db.resolvedCommandRecovery.create({ data: {
+      id: randomUUID(), siteId: ids.site, classification: "verified_partial", targetCount: 1,
+      resolvedAt: new Date("2020-01-01T00:00:00.000Z")
+    } });
+    await db.monitoringActivity.create({ data: {
+      siteId: ids.site, floorId: ids.floor, sourceType: "command",
+      sourceKey: `${randomUUID()}:unknown`, kind: "command_result",
+      recordedAt: new Date("2026-09-11T12:00:00.000Z")
+    } });
+    await expect(service.prune(now)).rejects.toThrow();
+    expect(await db.resolvedCommandRecovery.findUnique({ where: { id: row.id } })).toBeNull();
+  });
+
   it("keeps the latest 100 revisions per floor or the last 365 days, whichever is wider", async () => {
     await revisions(ids.floor, 105);
     await db.floorMapRevision.updateMany({ where: { floorId: ids.floor, revision: 2 }, data: { createdAt: new Date(now.getTime() - 365 * day) } });
@@ -287,13 +746,16 @@ const policies = [
     `);
     await revisions(ids.floor, 1101);
     const retainedRefresh = await refresh("completed", old);
-    expect(await service.prune(now)).toEqual({ gatewayEvents: 10000, sessions: 10000, floorMapRevisions: 1000, monitoringRefreshes: 0 });
+    expect(await service.prune(now)).toEqual({ gatewayEvents: 10000, sessions: 10000, floorMapRevisions: 1000,
+      monitoringRefreshes: 0, monitoringActivities: 0, resolvedCommandRecoveries: 0 });
     expect(await db.monitoringRefresh.findUnique({ where: { id: retainedRefresh.id } })).not.toBeNull();
     expect((await db.processedGatewayEvent.findMany()).map(row => row.eventId)).toEqual(["bounded-event-10001"]);
     expect((await db.session.findMany()).map(row => row.id)).toEqual(["bounded-session-10001"]);
     expect((await db.floorMapRevision.findMany({ orderBy: { revision: "asc" }, take: 1 }))[0].revision).toBe(1001);
-    expect(await service.prune(now)).toEqual({ gatewayEvents: 1, sessions: 1, floorMapRevisions: 1, monitoringRefreshes: 1 });
-    expect(await service.prune(now)).toEqual({ gatewayEvents: 0, sessions: 0, floorMapRevisions: 0, monitoringRefreshes: 0 });
+    expect(await service.prune(now)).toEqual({ gatewayEvents: 1, sessions: 1, floorMapRevisions: 1,
+      monitoringRefreshes: 1, monitoringActivities: 0, resolvedCommandRecoveries: 0 });
+    expect(await service.prune(now)).toEqual({ gatewayEvents: 0, sessions: 0, floorMapRevisions: 0,
+      monitoringRefreshes: 0, monitoringActivities: 0, resolvedCommandRecoveries: 0 });
   });
 
   it("skips rows locked by another connection and converges on the next sweep", async () => {
@@ -303,6 +765,11 @@ const policies = [
     await revisions(ids.floor, 102);
     const lockedRefresh = await refresh("completed", old);
     await refresh("completed", old);
+    const activityTime = new Date(threeCalendarMonthsBefore(now).getTime() - 1);
+    const lockedActivity = await db.monitoringActivity.create({ data: { siteId: ids.site, floorId: ids.floor,
+      sourceType: "fixture_state", sourceKey: "locked-activity", kind: "fixture_online", recordedAt: activityTime } });
+    await db.monitoringActivity.create({ data: { siteId: ids.site, floorId: ids.floor,
+      sourceType: "fixture_state", sourceKey: "free-activity", kind: "fixture_online", recordedAt: activityTime } });
     let release!: () => void;
     let acquired!: () => void;
     const gate = new Promise<void>(resolve => { release = resolve; });
@@ -312,19 +779,24 @@ const policies = [
       await tx.$queryRaw`SELECT "id" FROM "Session" WHERE "id" = 'locked' FOR UPDATE`;
       await tx.$queryRaw`SELECT "id" FROM "FloorMapRevision" WHERE "floorId" = ${ids.floor} AND "revision" = 1 FOR UPDATE`;
       await tx.$queryRaw`SELECT "id" FROM "MonitoringRefresh" WHERE "id" = ${lockedRefresh.id} FOR UPDATE`;
+      await tx.$queryRaw`SELECT "id" FROM "MonitoringActivity" WHERE "id" = ${lockedActivity.id} FOR UPDATE`;
       acquired();
       await gate;
     }, { timeout: 10_000 });
     try {
       await Promise.race([ready, lock.then(() => { throw new Error("lock transaction ended before acquiring rows"); })]);
-      expect(await service.prune(now)).toEqual({ gatewayEvents: 1, sessions: 1, floorMapRevisions: 1, monitoringRefreshes: 1 });
+      expect(await service.prune(now)).toEqual({ gatewayEvents: 1, sessions: 1, floorMapRevisions: 1,
+        monitoringRefreshes: 1, monitoringActivities: 1, resolvedCommandRecoveries: 0 });
       expect(await db.monitoringRefresh.findUnique({ where: { id: lockedRefresh.id } })).not.toBeNull();
       expect(await db.processedGatewayEvent.findUnique({ where: { eventId: locked.eventId } })).not.toBeNull();
       expect(await db.session.findUnique({ where: { id: "locked" } })).not.toBeNull();
       expect(await db.floorMapRevision.count()).toBe(101);
+      expect(await db.monitoringActivity.findUnique({ where: { id: lockedActivity.id } })).not.toBeNull();
     } finally { release(); await lock; }
-    expect(await service.prune(now)).toEqual({ gatewayEvents: 1, sessions: 1, floorMapRevisions: 1, monitoringRefreshes: 1 });
+    expect(await service.prune(now)).toEqual({ gatewayEvents: 1, sessions: 1, floorMapRevisions: 1,
+      monitoringRefreshes: 1, monitoringActivities: 1, resolvedCommandRecoveries: 0 });
     expect(await db.floorMapRevision.count()).toBe(100);
+    expect(await db.monitoringActivity.count()).toBe(0);
   }, 15_000);
 
   it("drains retention before final Prisma disconnect when the real Nest application closes", async () => {
@@ -384,10 +856,12 @@ const policies = [
       await draining;
       const atDrain = [...order];
       release();
-      expect(await sweep).toEqual({ gatewayEvents: 1, sessions: 1, floorMapRevisions: 1, monitoringRefreshes: 0 });
+      expect(await sweep).toEqual({ gatewayEvents: 1, sessions: 1, floorMapRevisions: 1,
+        monitoringRefreshes: 0, monitoringActivities: 0, resolvedCommandRecoveries: 0 });
       await closing;
       expect({ atDrain, completed: order, connections: await connectionCount() }).toEqual({
-        atDrain: ["query-1"], completed: ["query-1", "query-2", "query-3", "query-4", "disconnect"], connections: baselineConnections
+        atDrain: ["query-1"], completed: ["query-1", "query-2", "query-3", "query-4", "query-5", "disconnect"],
+        connections: baselineConnections
       });
       expect(await db.session.count()).toBe(0);
       expect(await db.floorMapRevision.count()).toBe(100);

@@ -208,7 +208,7 @@ export function SiteUsersView({ siteId }: { siteId?: string }) {
 }
 
 function IconAction({ label, title, icon: Icon, danger = false, ...props }: React.ButtonHTMLAttributes<HTMLButtonElement> & { label: string; title: string; icon: typeof Pencil; danger?: boolean }) {
-  return <Button type="button" variant={danger ? "danger" : "ghost"} className="h-9 min-h-9 w-9 min-w-9 p-0" aria-label={label} title={title} {...props}><Icon size={16} aria-hidden="true" /></Button>;
+  return <Button type="button" variant={danger ? "danger" : "ghost"} className="h-11 min-h-11 w-11 min-w-11 p-0" aria-label={label} title={title} {...props}><Icon size={16} aria-hidden="true" /></Button>;
 }
 
 function formatLastLogin(value: string | null) {

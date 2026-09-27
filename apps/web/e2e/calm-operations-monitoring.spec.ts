@@ -33,12 +33,25 @@ const fixtures: SettingsFixture[] = [
 ];
 const viewports = [
   { width: 1440, height: 900, columns: 4, rows: 1 },
+  { width: 1378, height: 1237, columns: 4, rows: 1 },
   { width: 1024, height: 768, columns: 4, rows: 1 },
   { width: 390, height: 844, columns: 4, rows: 1 },
-  { width: 320, height: 740, columns: 2, rows: 2 }
+  { width: 320, height: 720, columns: 2, rows: 2 }
 ] as const;
 
 const monitoringSnapshotAt = "2026-09-12T00:00:00.000Z";
+const activityGeneratedAt = "2026-09-25T05:00:00.000Z";
+const activityRetainedFrom = "2026-06-25T05:00:00.000Z";
+const activityPath = `/api/sites/${ids.site}/floors/${ids.floor}/monitoring-activity`;
+
+function activityItem(index: number, displayName = `B2-운영 조명 ${index}`) {
+  return {
+    id: `99999999-9999-4999-8999-${String(index).padStart(12, "0")}`,
+    kind: "fixture_online",
+    recordedAt: `2026-09-25T04:${String(index).padStart(2, "0")}:00.000Z`,
+    displayName
+  };
+}
 const staleFixtureId = "33333333-3333-4333-8333-000000000440";
 const reliabilityFixtures = fixtures.map((item) => item.id === staleFixtureId ? {
   ...item,
@@ -120,6 +133,9 @@ async function installMonitoringFixture(
     id: "refresh-1", status: "completed", totalFixtures: fixtureRows.length,
     onlineFixtures: fixtureRows.length, offlineFixtures: 0, unverifiedFixtures: 0, completedAt: new Date().toISOString()
   } }));
+  await page.route((url) => url.pathname === activityPath, (route) => route.fulfill({ json: {
+    generatedAt: activityGeneratedAt, retainedFrom: activityRetainedFrom, items: [], nextCursor: null
+  } }));
   return api;
 }
 
@@ -149,7 +165,7 @@ for (const viewport of viewports) {
         await route.fulfill({ json: { id: "refresh-1", status, totalFixtures: 2, onlineFixtures: status === "partial" ? 0 : 1, offlineFixtures: 1, unverifiedFixtures: status === "partial" ? 1 : 0, completedAt: new Date().toISOString(), error: "secret raw transport failure" } });
       });
       await page.goto(`/monitoring?siteId=${ids.site}`);
-      await expect(page.getByRole("group", { name: "정상" })).toContainText("2");
+      await expect(page.getByRole("group", { name: "정상", exact: true })).toContainText("2");
       await page.getByRole("button", { name: "B2-L002 정상 70%" }).click();
       await page.getByRole("button", { name: "지도 확대" }).click();
       await page.getByRole("button", { name: "새로고침" }).click();
@@ -158,14 +174,16 @@ for (const viewport of viewports) {
       const before = { dashboard: api.dashboardRequests, fixtures: api.fixturePageRequests, map: api.mapSnapshotRequests };
       finish();
       await expect(page.getByRole("button", { name: "새로고침" })).toBeEnabled();
-      await expect(page.getByRole("group", { name: "전체 조명" })).toContainText("2");
-      await expect(page.getByRole("group", { name: "정상" })).toContainText("1");
-      await expect(page.getByRole("group", { name: "오프라인" })).toContainText("1");
+      await expect(page.getByRole("group", { name: "전체 조명", exact: true })).toContainText("2");
+      await expect(page.getByRole("group", { name: "정상", exact: true })).toContainText("1");
+      await expect(page.getByRole("group", { name: "오프라인", exact: true })).toContainText("1");
       expect(polls).toBeGreaterThanOrEqual(2);
       await expect(page.getByRole("button", { name: "B2-L002 상태 수신 지연 70%" })).toHaveAttribute("aria-current", "true");
+      await openInspector(page);
       await expect(page.getByRole("complementary", { name: "선택 조명 상세" })).toContainText("B2-L002");
       await expect(page.getByRole("complementary", { name: "선택 조명 상세" })).toContainText("상태 수신 지연");
       await expect(page.getByRole("complementary", { name: "선택 조명 상세" })).toContainText("조명 통신 상태 확인");
+      await closeInspector(page);
       await expect(page.getByRole("button", { name: "지도 배율 110%" })).toBeVisible();
       expect(posts).toBe(1);
       expect(api.dashboardRequests).toBeGreaterThan(before.dashboard);
@@ -188,8 +206,8 @@ for (const viewport of viewports) {
     await expect(page.getByText(/10분마다 자동 갱신/)).toHaveCount(0);
     const mapSelector = page.getByRole("button", { name: "맵 선택" });
     await expect(mapSelector).toBeVisible();
-    await expect(page.getByRole("group", { name: "오프라인" })).toContainText("2");
-    await expect(page.getByRole("group", { name: "오프라인" })).toContainText("상태 확인 대기 포함");
+    await expect(page.getByRole("group", { name: "오프라인", exact: true })).toContainText("2");
+    await expect(page.getByRole("group", { name: "오프라인", exact: true })).toContainText("상태 확인 대기 포함");
     await expect(page.getByRole("group", { name: "평균 밝기" })).toHaveCount(0);
     await expect(page.getByRole("region", { name: "빠른 상태" })).toHaveCount(0);
     await expect(page.getByRole("region", { name: "층 도면" })).toBeVisible();
@@ -211,8 +229,10 @@ for (const viewport of viewports) {
     expect(toolbar).not.toBeNull();
     expect(refresh).not.toBeNull();
     expect(Math.abs((toolbar?.x ?? 0) + (toolbar?.width ?? 0) - ((refresh?.x ?? 0) + (refresh?.width ?? 0)))).toBeLessThan(2);
+    await openInspector(page);
     await expect(page.getByRole("complementary", { name: "선택 조명 상세" })).toContainText("현재 밝기");
     await expect(page.getByRole("complementary", { name: "선택 조명 상세" }).getByRole("heading", { name: "점검 큐" })).toHaveCount(0);
+    await closeInspector(page);
     await expectMetricGrid(page, viewport.columns, viewport.rows);
     await expectNoHorizontalOverflow(page);
 
@@ -253,38 +273,171 @@ for (const viewport of viewports) {
     }));
     expect(markerSizes.every(({ width, height }) => width >= 44 && height >= 44)).toBe(true);
 
-    if (viewport.width >= 1024) {
-      await expectDesktopMonitoringUsesInternalScroll(page);
-    }
-
+    if (viewport.width >= 1024) await expectDesktopMonitoringUsesInternalScroll(page);
     const mapBox = await page.locator("[data-monitoring-map-panel]").boundingBox();
-    const finderBox = await page.locator("[data-monitoring-fixture-finder]").boundingBox();
-    const detailBox = await page.locator("[data-monitoring-detail-panel]").boundingBox();
+    const layoutBox = await page.locator("[data-monitoring-layout]").boundingBox();
     expect(mapBox).not.toBeNull();
-    expect(finderBox).not.toBeNull();
-    expect(detailBox).not.toBeNull();
+    expect(layoutBox).not.toBeNull();
     if (viewport.width >= 1024) {
-      expect(Math.abs((mapBox?.y ?? 0) - (finderBox?.y ?? 0))).toBeLessThan(2);
-      expect((detailBox?.y ?? 0)).toBeGreaterThan((finderBox?.y ?? 0) + (finderBox?.height ?? 0));
+      expect((mapBox?.width ?? 0) / (layoutBox?.width ?? Infinity)).toBeGreaterThan(0.95);
     } else {
-      expect((detailBox?.y ?? 0)).toBeGreaterThan((mapBox?.y ?? 0) + (mapBox?.height ?? 0));
-      if (viewport.width === 320) expect((finderBox?.y ?? 0) + (finderBox?.height ?? 0)).toBeLessThanOrEqual((mapBox?.y ?? 0));
-      if (viewport.width === 390) expect((finderBox?.y ?? 0)).toBeGreaterThan((mapBox?.y ?? 0) + (mapBox?.height ?? 0));
+      const mapShellHeight = await page.locator("[data-monitoring-map-shell]").evaluate((shell) => shell.getBoundingClientRect().height);
+      expect(Math.round(mapShellHeight)).toBe(viewport.width === 390 ? 340 : 300);
     }
 
     if (viewport.width <= 760) {
       await page.getByRole("region", { name: "층 도면" }).scrollIntoViewIfNeeded();
       await expectMinimumTouchTargetsAfterScrolling(page, '[role="group"][aria-label="지도 확대 축소"]');
+      await openInspector(page);
       await expectMinimumTouchTargetsAfterScrolling(page, "[data-monitoring-fixture-selector]");
+      await closeInspector(page);
     }
   });
 }
+
+test("1440px 모니터링 지도는 전폭에 가깝고 검색·상세는 드로어에서 사용한다", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await installMonitoringFixture(page);
+  await page.goto(`/monitoring?siteId=${ids.site}`);
+
+  const layout = page.locator("[data-monitoring-layout]");
+  const map = page.locator("[data-monitoring-map-panel]");
+  const layoutBox = await layout.boundingBox();
+  const mapBox = await map.boundingBox();
+  expect(layoutBox).not.toBeNull();
+  expect(mapBox).not.toBeNull();
+  expect((mapBox?.width ?? 0) / (layoutBox?.width ?? Infinity)).toBeGreaterThan(0.95);
+
+  const siteMetrics = await page.locator("[data-monitoring-site-summary] > [role='group']").evaluateAll((elements) =>
+    elements.map((element) => element.getBoundingClientRect())
+  );
+  expect(new Set(siteMetrics.map(({ y }) => Math.round(y))).size).toBe(1);
+  const siteStrip = await page.locator("[data-monitoring-site-summary]").boundingBox();
+  const floorStrip = await page.locator("[data-monitoring-summary]").boundingBox();
+  expect(siteStrip?.height ?? Infinity).toBeLessThanOrEqual(76);
+  expect(floorStrip?.height ?? Infinity).toBeLessThanOrEqual(76);
+
+  await page.getByRole("button", { name: "조명 검색·상세" }).click();
+  const inspector = page.getByRole("dialog", { name: "조명 검색·상세" });
+  await expect(inspector.getByRole("searchbox", { name: "조명 이름 또는 번호 검색" })).toBeVisible();
+  await expect(inspector.getByRole("complementary", { name: "선택 조명 상세" })).toContainText("현재 밝기");
+  await page.keyboard.press("Escape");
+  await expect(inspector).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "조명 검색·상세" })).toBeFocused();
+  await expectNoHorizontalOverflow(page);
+});
+
+test("등록 조명 0대여도 실제 운영 활동은 320px 우측 전체 보기와 drawer로 이어진다", async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 720 });
+  await installMonitoringFixture(page, { fixtureRows: [] });
+  const longName = "B2-출입구에서 중앙 주차장을 지나 가장자리까지 이어지는 긴 조명 이름";
+  const requests: { method: string; pathname: string }[] = [];
+  page.on("request", (request) => requests.push({ method: request.method(), pathname: new URL(request.url()).pathname }));
+  await page.route((url) => url.pathname === activityPath, (route) => route.fulfill({ json: {
+    generatedAt: activityGeneratedAt, retainedFrom: activityRetainedFrom,
+    items: [activityItem(1, longName)], nextCursor: null
+  } }));
+  await page.goto(`/monitoring?siteId=${ids.site}`);
+  await expect(page.getByRole("heading", { name: "등록된 조명이 없습니다" })).toBeVisible();
+  const ticker = page.getByRole("region", { name: "최근 운영 로그" });
+  await expect(ticker).toContainText(longName);
+  await ticker.scrollIntoViewIfNeeded();
+  const opener = ticker.getByRole("button", { name: "전체 보기" });
+  const tickerBounds = await ticker.boundingBox();
+  const openerBounds = await opener.boundingBox();
+  expect(tickerBounds).not.toBeNull();
+  expect(openerBounds).not.toBeNull();
+  expect(Math.abs((tickerBounds?.x ?? 0) + (tickerBounds?.width ?? 0) - (openerBounds?.x ?? 0) - (openerBounds?.width ?? 0))).toBeLessThanOrEqual(16);
+  expect(openerBounds?.height ?? 0).toBeGreaterThanOrEqual(44);
+  await opener.click();
+  const drawer = page.getByRole("dialog", { name: "전체 로그" });
+  await expect(drawer).toContainText(longName);
+  await expect(drawer).toContainText("최근 3개월");
+  const drawerBounds = await drawer.boundingBox();
+  expect(drawerBounds).not.toBeNull();
+  expect(drawerBounds?.width ?? Infinity).toBeLessThanOrEqual(320);
+  await page.keyboard.press("Escape");
+  await expect(drawer).toHaveCount(0);
+  await expect(opener).toBeFocused();
+  expect(requests.filter(({ pathname }) => pathname.includes("monitoring-incidents"))).toHaveLength(0);
+  expect(requests.filter(({ method }) => method !== "GET")).toHaveLength(0);
+  await expectNoHorizontalOverflow(page);
+});
+
+test("320px 긴 실제 로그에서도 범례 간격과 우측 전체 보기 위치를 유지한다", async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 720 });
+  await installMonitoringFixture(page);
+  await page.route((url) => url.pathname === activityPath, (route) => route.fulfill({ json: {
+    generatedAt: activityGeneratedAt, retainedFrom: activityRetainedFrom,
+    items: [activityItem(2, "B2층 가장자리의 매우 긴 조명 이름과 운영 상태 기록")], nextCursor: null
+  } }));
+  await page.goto(`/monitoring?siteId=${ids.site}`);
+  const legend = page.getByRole("list", { name: "조명 상태 범례" });
+  const ticker = page.getByRole("region", { name: "최근 운영 로그" });
+  const opener = ticker.getByRole("button", { name: "전체 보기" });
+  await expect(ticker).toContainText("매우 긴 조명 이름");
+  const legendBounds = await legend.boundingBox();
+  const tickerBounds = await ticker.boundingBox();
+  const openerBounds = await opener.boundingBox();
+  expect((tickerBounds?.y ?? 0) - ((legendBounds?.y ?? 0) + (legendBounds?.height ?? 0))).toBeGreaterThanOrEqual(18);
+  expect(Math.abs((tickerBounds?.x ?? 0) + (tickerBounds?.width ?? 0) - (openerBounds?.x ?? 0) - (openerBounds?.width ?? 0))).toBeLessThanOrEqual(16);
+  await expectNoHorizontalOverflow(page);
+});
+
+test("운영 로그는 서버 5건 cursor만 따라가며 만료 페이지에서 최신으로 돌아간다", async ({ page }) => {
+  await page.setViewportSize({ width: 1378, height: 1237 });
+  await installMonitoringFixture(page);
+  const items = Array.from({ length: 11 }, (_, index) => activityItem(index + 1));
+  const cursors: Array<string | null> = [];
+  let expireSecondPage = false;
+  await page.route((url) => url.pathname === activityPath, (route) => {
+    const cursor = new URL(route.request().url()).searchParams.get("cursor");
+    cursors.push(cursor);
+    if (expireSecondPage && cursor === "page-2") return route.fulfill({ status: 410, json: { message: "cursor expired" } });
+    const offset = cursor === "page-3" ? 10 : cursor === "page-2" ? 5 : 0;
+    return route.fulfill({ json: {
+      generatedAt: activityGeneratedAt, retainedFrom: activityRetainedFrom,
+      items: items.slice(offset, offset + 5),
+      nextCursor: offset === 0 ? "page-2" : offset === 5 ? "page-3" : null
+    } });
+  });
+  await page.goto(`/monitoring?siteId=${ids.site}`);
+  const ticker = page.getByRole("region", { name: "최근 운영 로그" });
+  await expect(ticker).toContainText("B2-운영 조명 1");
+  const legend = page.getByRole("list", { name: "조명 상태 범례" });
+  const legendBounds = await legend.boundingBox();
+  const tickerBounds = await ticker.boundingBox();
+  expect((tickerBounds?.y ?? 0) - ((legendBounds?.y ?? 0) + (legendBounds?.height ?? 0))).toBeGreaterThanOrEqual(18);
+  await ticker.getByRole("button", { name: "전체 보기" }).click();
+  const drawer = page.getByRole("dialog", { name: "전체 로그" });
+  await expect(drawer.getByRole("listitem")).toHaveCount(5);
+  await drawer.getByRole("button", { name: "다음" }).click();
+  await expect(drawer).toContainText("B2-운영 조명 6");
+  await expect(drawer.getByRole("listitem")).toHaveCount(5);
+  await drawer.getByRole("button", { name: "다음" }).click();
+  await expect(drawer).toContainText("B2-운영 조명 11");
+  await expect(drawer.getByRole("listitem")).toHaveCount(1);
+  await expect(drawer.getByRole("button", { name: "다음" })).toBeDisabled();
+  await drawer.getByRole("button", { name: "이전" }).click();
+  await expect(drawer).toContainText("B2-운영 조명 6");
+  expireSecondPage = true;
+  await drawer.getByRole("button", { name: "이전" }).click();
+  await expect(drawer).toContainText("B2-운영 조명 1");
+  await drawer.getByRole("button", { name: "다음" }).click();
+  await expect(drawer).toContainText("보관 기간이 지나 이 페이지를 볼 수 없습니다.");
+  await expect(drawer.getByRole("listitem")).toHaveCount(0);
+  await drawer.getByRole("button", { name: "최신 기록 보기" }).click();
+  await expect(drawer).toContainText("B2-운영 조명 1");
+  expect(cursors).toContain("page-2");
+  expect(cursors).toContain("page-3");
+});
 
 test("미배치 조명을 번호로 찾아 상세를 열고 지도에는 마커를 만들지 않는다", async ({ page }) => {
   const unplaced = { ...fixture("B2-L099", "offline", "gateway_offline", 840, 460, 35), placementStatus: "unplaced" as const };
   await installMonitoringFixture(page, { fixtureRows: [fixtures[0]!, unplaced] });
   await page.goto(`/monitoring?siteId=${ids.site}`);
 
+  await openInspector(page);
   await page.getByRole("searchbox", { name: "조명 이름 또는 번호 검색" }).fill("099");
   const list = page.getByRole("list", { name: "조명 목록" });
   await expect(list.getByRole("button", { name: /B2-L099/ })).toBeVisible();
@@ -292,6 +445,7 @@ test("미배치 조명을 번호로 찾아 상세를 열고 지도에는 마커�
   const detail = page.getByRole("complementary", { name: "선택 조명 상세" });
   await expect(detail.getByRole("heading", { name: "B2-L099" })).toBeVisible();
   await expect(detail).toContainText("최근 확인 밝기");
+  await closeInspector(page);
   await expect(page.getByRole("region", { name: "층 도면" }).getByRole("button", { name: /B2-L099/ })).toHaveCount(0);
 });
 
@@ -369,17 +523,44 @@ test("데스크톱 지도는 내부에서 확대·스크롤되고 상세 정보�
   expect(draggedScroll.top).toBeLessThanOrEqual(draggedScroll.maxTop);
 
   await page.getByRole("button", { name: "B2-L001-매우-긴-테스트-조명-이름 정상 70%" }).click();
+  await openInspector(page);
   await expect(page.getByRole("complementary", { name: "선택 조명 상세" })).toContainText("B2-L001-매우-긴-테스트-조명-이름");
 
-  const panelOverflow = await page.getByRole("complementary", { name: "선택 조명 상세" }).evaluate((element) => ({
+  const panelOverflow = await page.getByRole("dialog", { name: "조명 검색·상세" }).evaluate((element) => ({
     clientWidth: element.clientWidth,
     scrollWidth: element.scrollWidth,
     overflowX: getComputedStyle(element).overflowX,
     overflowY: getComputedStyle(element).overflowY
   }));
-  expect(panelOverflow.overflowX).toBe("hidden");
+  expect(panelOverflow.overflowX).toBe("auto");
   expect(panelOverflow.overflowY).toBe("auto");
   expect(panelOverflow.scrollWidth).toBeLessThanOrEqual(panelOverflow.clientWidth + 1);
+  await expectNoHorizontalOverflow(page);
+});
+
+test("320px 가장자리 핀 정보는 화면 안에 머물고 실제 상태·좌표·초점 복귀를 보존한다", async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 720 });
+  await installMonitoringFixture(page, { fixtureRows: [
+    fixture("B2-오른쪽 아래 긴 조명 이름", "online", "reported", 1120, 740, 70),
+    fixture("B2-다른 핀", "fault", "reported", 120, 140, 42)
+  ] });
+  await page.goto(`/monitoring?siteId=${ids.site}`);
+  const map = page.getByRole("region", { name: "층 도면" });
+  const edgePin = map.getByRole("button", { name: "B2-오른쪽 아래 긴 조명 이름 정상 70%" });
+  await expect(edgePin).toHaveAttribute("title", "B2-오른쪽 아래 긴 조명 이름");
+  await edgePin.click();
+  const info = page.getByRole("dialog", { name: "B2-오른쪽 아래 긴 조명 이름 조명 정보" });
+  await expect(info).toBeVisible();
+  await expect(info).toContainText("현재 밝기");
+  await expect(info).toContainText("70%");
+  await expect(info).toContainText("저장된 위치 정보 없음");
+  const bounds = await info.boundingBox();
+  expect(bounds).not.toBeNull();
+  expect(bounds!.x).toBeGreaterThanOrEqual(0);
+  expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(320);
+  await page.keyboard.press("Escape");
+  await expect(info).toHaveCount(0);
+  await expect(edgePin).toBeFocused();
   await expectNoHorizontalOverflow(page);
 });
 
@@ -414,7 +595,9 @@ test("조명 마커는 44px hit target 안에 3px 네모 20px dot을 유지하�
   await expect(visualDot(levels[9])).toHaveCSS("border-radius", "3px");
   await levels[9].press("Enter");
   await expect(levels[9]).toHaveAttribute("aria-current", "true");
+  await openInspector(page);
   await expect(page.getByRole("heading", { name: "B2-밝기-단계-10" })).toBeVisible();
+  await closeInspector(page);
   await levels[9].blur();
 
   await page.locator('[data-spatial-map-marker="true"]').evaluateAll(async (markers) => {
@@ -550,6 +733,7 @@ test("모니터링 예외 상태는 등록과 지도 실패를 정상 화면과 
     await mapFailurePage.goto(`/monitoring?siteId=${ids.site}`);
     await expect(mapFailurePage.getByText("저장된 지도를 불러오지 못했습니다.")).toBeVisible({ timeout: 10_000 });
     await expect(mapFailurePage.getByRole("region", { name: "빠른 상태" })).toHaveCount(0);
+    await openInspector(mapFailurePage);
     await expect(mapFailurePage.getByRole("complementary", { name: "선택 조명 상세" })).toContainText("현재 밝기");
   } finally {
     await mapFailurePage.close();
@@ -687,8 +871,10 @@ test("dashboard/map과 fixture의 부분 갱신 실패에도 cached 화면과 �
   await page.getByRole("button", { name: "지도 확대" }).click();
   await page.getByRole("button", { name: "지도 확대" }).click();
   await expect(page.getByRole("button", { name: "지도 배율 120%" })).toBeVisible();
+  await openInspector(page);
   await expect(page.getByRole("complementary", { name: "선택 조명 상세" })).toContainText("조명의 마지막 상태 보고가 현장 freshness 기준을 지났습니다.");
   await expect(page.getByRole("complementary", { name: "선택 조명 상세" })).toContainText("조명 통신 상태 확인");
+  await closeInspector(page);
 
   failures.failNextDashboardRequests(3);
   api.failNextMapSnapshots(3);
@@ -745,6 +931,7 @@ test("네 monitoring 장애 원인은 selector·marker·badge·상세 설명에�
   await installMonitoringFixture(page, { fixtureRows: statusPresentationCases.map(({ fixture: row }) => row) });
   await page.goto(`/monitoring?siteId=${ids.site}`);
 
+  await openInspector(page);
   const selector = page.getByRole("button", { name: "상세 조명 선택" });
   const detail = page.getByRole("complementary", { name: "선택 조명 상세" });
   for (const statusCase of statusPresentationCases) {
@@ -754,9 +941,11 @@ test("네 monitoring 장애 원인은 selector·marker·badge·상세 설명에�
       const option = page.getByRole("option", { name: `${statusCase.fixture.name} · ${statusCase.label}` });
       await expect(option).toBeVisible();
       await option.click();
+      await closeInspector(page);
       const marker = page.getByRole("button", { name: markerName, exact: true });
       await expect(marker).toHaveAttribute("aria-label", markerName);
       await expect(marker).toHaveAttribute("aria-current", "true");
+      await openInspector(page);
       await expect(detail.locator("[data-tone] > span", { hasText: statusCase.label })).toBeVisible();
       await expect(detail.getByText(statusCase.description, { exact: true })).toBeVisible();
       await expect(detail.getByText(statusCase.recommendedAction, { exact: true })).toBeVisible();
@@ -771,13 +960,17 @@ for (const viewport of viewports) {
     await page.goto(`/monitoring?siteId=${ids.site}`);
 
     await selectReliabilityFixtureAt120Percent(page);
+    await openInspector(page);
     const detailPanel = page.getByRole("complementary", { name: "선택 조명 상세" });
     await expect(detailPanel.getByRole("region", { name: "선택 조명 정보" })).toBeVisible();
     await expect(detailPanel.getByText(/인시던트/)).toHaveCount(0);
     await expect(detailPanel.getByRole("button", { name: "판정 기준" })).toHaveCount(0);
+    await closeInspector(page);
     await expectReliabilitySelectionAndZoom(page);
     await expectNoHorizontalOverflow(page);
+    await openInspector(page);
     await expectElementFitsViewportAndOwnWidth(page, "[data-monitoring-detail-panel]");
+    await closeInspector(page);
   });
 }
 
@@ -791,6 +984,7 @@ test("부분 지도 갱신 실패에도 이전 지도와 선택 상세를 유지
 
   await expect(page.getByText("저장된 지도를 유지하고 있습니다. 지도 갱신에 실패했습니다.")).toBeVisible({ timeout: 10_000 });
   await expect(page.getByRole("region", { name: "층 도면" })).toBeVisible();
+  await openInspector(page);
   await expect(page.getByRole("complementary", { name: "선택 조명 상세" })).toContainText("현재 밝기");
 });
 
@@ -855,19 +1049,34 @@ async function selectReliabilityFixtureAt120Percent(page: Page) {
 
 async function expectReliabilitySelectionAndZoom(page: Page) {
   await expect(page.getByRole("button", { name: "맵 선택" })).toContainText("B2");
-  await expect(page.locator("[data-monitoring-fixture-selector] button")).toContainText("B2-L003 · 상태 수신 지연");
   await expect(page.getByRole("button", { name: "B2-L003 상태 수신 지연 70%" })).toHaveAttribute("aria-current", "true");
   await expect(page.getByRole("button", { name: "지도 배율 120%" })).toBeVisible();
+  await openInspector(page);
+  await expect(page.locator("[data-monitoring-fixture-selector] button")).toContainText("B2-L003 · 상태 수신 지연");
+  await closeInspector(page);
 }
 
 async function expectMonitoringSelectionToRemain(page: Page) {
-  await expect(page.getByRole("group", { name: "전체 조명" })).toContainText(String(reliabilityFixtures.length));
+  await expect(page.getByRole("group", { name: "전체 조명", exact: true })).toContainText(String(reliabilityFixtures.length));
   await expect(page.getByRole("button", { name: "맵 선택" })).toContainText("B2");
-  await expect(page.locator("[data-monitoring-fixture-selector] button")).toContainText("B2-L003 · 상태 수신 지연");
   await expect(page.getByRole("button", { name: "B2-L003 상태 수신 지연 70%" })).toHaveAttribute("aria-current", "true");
   await expect(page.getByRole("button", { name: "지도 배율 120%" })).toBeVisible();
   await expect(page.getByRole("region", { name: "층 도면" })).toBeVisible();
+  await openInspector(page);
+  await expect(page.locator("[data-monitoring-fixture-selector] button")).toContainText("B2-L003 · 상태 수신 지연");
   await expect(page.getByRole("complementary", { name: "선택 조명 상세" })).toContainText("상태 수신 지연");
+  await closeInspector(page);
+}
+
+async function openInspector(page: Page) {
+  await page.getByRole("button", { name: "조명 검색·상세" }).click();
+  return page.getByRole("dialog", { name: "조명 검색·상세" });
+}
+
+async function closeInspector(page: Page) {
+  if (await page.getByRole("dialog", { name: "조명 검색·상세" }).count() === 0) return;
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("dialog", { name: "조명 검색·상세" })).toHaveCount(0);
 }
 
 async function expectElementFitsViewportAndOwnWidth(page: Page, selector: string) {
@@ -900,21 +1109,22 @@ async function expectMetricGrid(page: Page, columns: number, rows: number) {
 }
 
 async function expectDesktopMonitoringUsesInternalScroll(page: Page) {
+  await openInspector(page);
   const metrics = await page.evaluate(() => {
     const detail = document.querySelector<HTMLElement>("[data-monitoring-detail-panel]");
     if (!detail) throw new Error("상세 패널을 찾을 수 없습니다.");
     return {
       documentClientHeight: document.documentElement.clientHeight,
       documentScrollHeight: document.documentElement.scrollHeight,
-      detailClientHeight: detail.clientHeight,
-      detailScrollHeight: detail.scrollHeight,
-      detailOverflowY: getComputedStyle(detail).overflowY
+      drawer: detail.closest<HTMLElement>("[data-dialog-surface]")?.getBoundingClientRect(),
+      drawerOverflowY: getComputedStyle(detail.closest<HTMLElement>("[data-dialog-surface]") ?? detail).overflowY
     };
   });
 
   expect(metrics.documentScrollHeight).toBeLessThanOrEqual(metrics.documentClientHeight + 1);
-  expect(metrics.detailOverflowY).toBe("auto");
-  expect(metrics.detailScrollHeight).toBeGreaterThan(metrics.detailClientHeight);
+  expect(metrics.drawerOverflowY).toBe("auto");
+  expect(metrics.drawer?.height).toBeLessThanOrEqual(page.viewportSize()?.height ?? Infinity);
+  await closeInspector(page);
 }
 
 const activeRegistrationSession: RegistrationSession = {

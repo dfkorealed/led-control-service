@@ -1,4 +1,5 @@
 import { Prisma } from "@prisma/client";
+import { recordMonitoringActivity } from "../monitoring-activity/monitoring-activity.projection";
 
 export async function finalizeResolvedMonitoringRefresh(
   tx: Prisma.TransactionClient,
@@ -24,5 +25,15 @@ export async function finalizeResolvedMonitoringRefresh(
     where: { id: refreshId, status: "pending" },
     data: { status, onlineFixtures, offlineFixtures, unverifiedFixtures, completedAt }
   });
+  if (updated.count === 1) {
+    const refresh = await tx.monitoringRefresh.findUnique({ where: { id: refreshId },
+      select: { siteId: true, floorId: true } });
+    if (!refresh) throw new Error("terminal monitoring refresh disappeared");
+    await recordMonitoringActivity(tx, {
+      siteId: refresh.siteId, floorId: refresh.floorId,
+      sourceType: "monitoring_refresh", sourceKey: `${refreshId}:${status}`,
+      kind: "monitoring_refresh_result", refreshStatus: status
+    });
+  }
   return updated.count === 1;
 }

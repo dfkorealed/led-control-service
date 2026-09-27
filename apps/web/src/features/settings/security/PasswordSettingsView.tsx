@@ -114,7 +114,7 @@ export function PasswordChangeCard() {
           {successMessage ? (
             <FeedbackState tone="success" icon={CircleCheck} title={successMessage} />
           ) : null}
-          <Button className="justify-self-start" variant="primary" type="submit" isLoading={isPending} loadingLabel="변경 중">
+          <Button className="justify-self-start max-compact:w-full" variant="primary" type="submit" isLoading={isPending} loadingLabel="변경 중">
             비밀번호 변경
           </Button>
         </Card>

@@ -71,6 +71,88 @@ describe("VehicleEventControlPanel", () => {
     vi.unstubAllEnvs();
   });
 
+  it("atlas event surface separates the site total from loaded gateway status", async () => {
+    mocks.listVehicleEventRules.mockResolvedValue({ items: [rule()], total: 27, nextCursor: "next-page" });
+    renderPanel("admin");
+    const overview = await screen.findByRole("group", { name: "이벤트 요약" });
+    expect(overview).toHaveTextContent("현장 전체 규칙 27건");
+    expect(overview).toHaveTextContent("불러온 1건 기준");
+    expect(overview).toHaveTextContent("확인 필요 1건");
+    const list = screen.getByRole("region", { name: "자동화 목록" });
+    expect(list).toContainElement(screen.getByRole("table", { name: "차량 이벤트 목록" }));
+    expect(list.querySelector("[data-automation-list-scroll]")).toBeInTheDocument();
+  });
+
+  it("shows site-wide event totals while paging only the filtered current page", async () => {
+    const summary = { ruleCount: 82, syncRuleCounts: { APPLIED: 8, PENDING: 70, REJECTED: 4 } };
+    const second = rule({ id: "00000000-0000-4000-8000-000000000099", name: "출구 차량 감지" });
+    mocks.listVehicleEventRules.mockImplementation(async (_siteId, query) => query.cursor
+      ? { items: [second], total: 82, filteredTotal: 20, siteSummary: summary, nextCursor: null }
+      : { items: [rule()], total: 82, filteredTotal: 20, siteSummary: summary, nextCursor: "opaque-v2" });
+    renderPanel("admin");
+
+    const overview = await screen.findByRole("group", { name: "이벤트 요약" });
+    expect(overview).toHaveTextContent("현장 전체 규칙 82건");
+    expect(overview).toHaveTextContent("적용 완료 8건 · 적용 대기 70건 · 적용 실패 4건");
+    expect(within(screen.getByRole("region", { name: "이벤트 목록 조건" })).getByRole("status")).toHaveTextContent("조건에 맞는 규칙 20건");
+    fireEvent.click(screen.getByRole("button", { name: "다음" }));
+    expect(await screen.findByText("출구 차량 감지")).toBeInTheDocument();
+    expect(screen.queryByText("입구 차량 감지")).not.toBeInTheDocument();
+    expect(mocks.listVehicleEventRules).toHaveBeenLastCalledWith(siteId, { limit: 10, cursor: "opaque-v2" });
+    fireEvent.click(screen.getByRole("button", { name: "이전" }));
+    expect(screen.getByText("입구 차량 감지")).toBeInTheDocument();
+  });
+
+  it("sends literal event search and resets the cursor", async () => {
+    const summary = { ruleCount: 82, syncRuleCounts: { APPLIED: 8, PENDING: 70, REJECTED: 4 } };
+    mocks.listVehicleEventRules.mockImplementation(async (_siteId, query) => query.query
+      ? { items: [], total: 82, filteredTotal: 0, siteSummary: summary, nextCursor: null }
+      : { items: [rule()], total: 82, filteredTotal: 82, siteSummary: summary, nextCursor: "opaque-v1" });
+    renderPanel("admin");
+    await screen.findByText("입구 차량 감지");
+    fireEvent.change(screen.getByRole("searchbox", { name: "이벤트 검색" }), { target: { value: "입구_%" } });
+
+    await waitFor(() => expect(mocks.listVehicleEventRules).toHaveBeenLastCalledWith(siteId, { limit: 10, query: "입구_%" }));
+    expect(within(screen.getByRole("region", { name: "이벤트 목록 조건" })).getByRole("status")).toHaveTextContent("조건에 맞는 규칙 0건");
+    expect(screen.getByText("조건에 맞는 이벤트 규칙이 없습니다.")).toBeInTheDocument();
+  });
+
+  it("recovers an invalid event cursor by reloading the first page", async () => {
+    const summary = { ruleCount: 2, syncRuleCounts: { APPLIED: 0, PENDING: 2, REJECTED: 0 } };
+    mocks.listVehicleEventRules.mockResolvedValueOnce({ items: [rule()], total: 2, filteredTotal: 2, siteSummary: summary, nextCursor: "stale-cursor" })
+      .mockRejectedValueOnce(new ApiError("invalid cursor", 400, null))
+      .mockResolvedValueOnce({ items: [rule()], total: 2, filteredTotal: 2, siteSummary: summary, nextCursor: null });
+    renderPanel("admin");
+    await screen.findByText("입구 차량 감지");
+    fireEvent.click(screen.getByRole("button", { name: "다음" }));
+    await waitFor(() => expect(mocks.listVehicleEventRules).toHaveBeenCalledTimes(3));
+    expect(mocks.listVehicleEventRules).toHaveBeenNthCalledWith(3, siteId, { limit: 10 });
+    expect(screen.getByText("입구 차량 감지")).toBeInTheDocument();
+  });
+
+  it("polls only the visible event page after visiting multiple cursor pages", async () => {
+    const summary = { ruleCount: 30, syncRuleCounts: { APPLIED: 30, PENDING: 0, REJECTED: 0 } };
+    const cursors = ["", "page-2", "page-3"];
+    mocks.listVehicleEventRules.mockImplementation(async (_siteId, query) => {
+      const index = cursors.indexOf(query.cursor ?? "");
+      return {
+        items: [rule({ id: `00000000-0000-4000-8000-0000000000${21 + index}`, name: `이벤트 ${index + 1}` })],
+        total: 30, filteredTotal: 30, siteSummary: summary, nextCursor: cursors[index + 1] ?? null
+      };
+    });
+    renderPanel("admin");
+    await screen.findByText("이벤트 1");
+    fireEvent.click(screen.getByRole("button", { name: "다음" }));
+    await screen.findByText("이벤트 2");
+    fireEvent.click(screen.getByRole("button", { name: "다음" }));
+    await screen.findByText("이벤트 3");
+    expect(mocks.listVehicleEventRules).toHaveBeenCalledTimes(3);
+
+    await new Promise((resolve) => setTimeout(resolve, 3250));
+    expect(mocks.listVehicleEventRules).toHaveBeenCalledTimes(4);
+    expect(mocks.listVehicleEventRules).toHaveBeenLastCalledWith(siteId, { limit: 10, cursor: "page-3" });
+  });
+
   it("shows every event operation field and working management actions in the compact card", async () => {
     vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn() })));
     mocks.listVehicleEventRules.mockResolvedValue({
@@ -210,7 +292,7 @@ describe("VehicleEventControlPanel", () => {
 
   it("shows last successful refresh in the selected site's time zone", async () => {
     vi.stubEnv("TZ", "UTC");
-    vi.spyOn(Date, "now").mockReturnValue(Date.parse("2026-09-23T23:00:00Z"));
+    const clock = vi.spyOn(Date, "now").mockReturnValue(Date.parse("2026-09-23T23:00:00Z"));
     const { queryClient } = renderPanel("admin");
     await screen.findByText("입구 차량 감지");
     mocks.listVehicleEventRules.mockRejectedValueOnce(new Error("poll failed"));
@@ -250,20 +332,30 @@ describe("VehicleEventControlPanel", () => {
   });
 
   it.each(["user scope", "401"])("forgets the last whole-list success time after %s ends its scope", async (boundary) => {
-    vi.spyOn(Date, "now").mockReturnValue(Date.parse("2026-09-23T23:00:00Z"));
+    const clock = vi.spyOn(Date, "now").mockReturnValue(Date.parse("2026-09-23T23:00:00Z"));
     const rendered = renderPanel("admin");
     await screen.findByText("입구 차량 감지");
     if (boundary === "user scope") {
+      clock.mockReturnValue(Date.parse("2026-09-24T03:00:00Z"));
       rendered.rerender(panelElement("admin", rendered.queryClient, siteId, "another-user"));
+      await waitFor(() => expect(mocks.listVehicleEventRules).toHaveBeenCalledTimes(2));
+      await waitFor(() => expect(rendered.queryClient.isFetching({ queryKey: vehicleEventRuleQueryKey(siteId) })).toBe(0));
     } else {
       mocks.listVehicleEventRules.mockRejectedValueOnce(new ApiError("expired", 401, null));
       await act(async () => { await rendered.queryClient.refetchQueries({ queryKey: vehicleEventRuleQueryKey(siteId) }); });
       await screen.findByText("로그인 세션이 만료되었습니다.");
     }
     mocks.listVehicleEventRules.mockRejectedValueOnce(new Error("refresh failed"));
-    await act(async () => { await rendered.queryClient.refetchQueries({ queryKey: vehicleEventRuleQueryKey(siteId) }); });
+    const activeQueryKey = rendered.queryClient.getQueryCache().findAll({ queryKey: vehicleEventRuleQueryKey(siteId) }).find((query) => query.getObserversCount() > 0)?.queryKey;
+    await act(async () => { await rendered.queryClient.refetchQueries({ queryKey: activeQueryKey, exact: true }); });
     fireEvent.click(await screen.findByRole("button", { name: "상태 센터, 미해결 1건" }));
-    expect(screen.getByRole("dialog", { name: "현재 세션 상태" })).not.toHaveTextContent("마지막 성공:");
+    const center = screen.getByRole("dialog", { name: "현재 세션 상태" });
+    if (boundary === "user scope") {
+      expect(center).toHaveTextContent("마지막 성공: 26. 9. 24. 오후 12:00");
+      expect(center).not.toHaveTextContent("마지막 성공: 26. 9. 24. 오전 8:00");
+    } else {
+      expect(center).not.toHaveTextContent("마지막 성공:");
+    }
   });
 
   it("keeps a failed next page recoverable from the status center", async () => {
@@ -308,7 +400,12 @@ describe("VehicleEventControlPanel", () => {
   });
 
   it("keeps next-page and refresh failures as separate recoverable statuses", async () => {
-    mocks.listVehicleEventRules.mockResolvedValueOnce({ items: [rule()], total: 2, nextCursor: "next-page" }).mockRejectedValueOnce(new Error("next page failed"));
+    const firstPage = { items: [rule()], total: 2, nextCursor: "next-page" };
+    const nextPage = { items: [rule({ id: "next-1", name: "두 번째 이벤트" })], total: 2, nextCursor: null };
+    // Background visible-page polling may interleave with explicit refresh.
+    // Tie successful fixture data to the requested cursor, not call order.
+    mocks.listVehicleEventRules.mockImplementation(async (_siteId, input) => input.cursor ? nextPage : firstPage)
+      .mockResolvedValueOnce(firstPage).mockRejectedValueOnce(new Error("next page failed"));
     const { queryClient } = renderPanel("admin");
     await screen.findByText("입구 차량 감지");
     fireEvent.click(screen.getByRole("button", { name: "더 보기" }));
@@ -324,13 +421,11 @@ describe("VehicleEventControlPanel", () => {
     const center = screen.getByRole("dialog", { name: "현재 세션 상태" });
     expect(within(center).getByRole("button", { name: "다음 페이지 다시 시도" })).toBeInTheDocument();
     expect(within(center).getByRole("button", { name: "상태 다시 조회" })).toBeInTheDocument();
-    mocks.listVehicleEventRules.mockResolvedValueOnce({ items: [rule({ id: "next-1", name: "두 번째 이벤트" })], total: 2, nextCursor: null });
     fireEvent.click(within(center).getByRole("button", { name: "다음 페이지 다시 시도" }));
     expect(await screen.findByText("두 번째 이벤트")).toBeInTheDocument();
     await waitFor(() => expect(within(center).queryByRole("button", { name: "다음 페이지 다시 시도" })).not.toBeInTheDocument());
     expect(within(center).getByRole("button", { name: "상태 다시 조회" })).toBeInTheDocument();
     expect(within(screen.getByRole("region", { name: "알림", hidden: true })).getAllByRole("status", { hidden: true })).toHaveLength(1);
-    mocks.listVehicleEventRules.mockResolvedValueOnce({ items: [rule()], total: 2, nextCursor: "next-page" }).mockResolvedValueOnce({ items: [rule({ id: "next-1", name: "두 번째 이벤트" })], total: 2, nextCursor: null });
     fireEvent.click(within(center).getByRole("button", { name: "상태 다시 조회" }));
     await waitFor(() => expect(center).toHaveTextContent("현재 확인할 상태가 없습니다."));
   });
@@ -842,7 +937,7 @@ describe("VehicleEventControlPanel", () => {
     expect(screen.getByRole("dialog", { name: "이벤트 수정" })).toBeInTheDocument();
     mocks.listVehicleEventRules.mockRejectedValueOnce(new ApiError("unauthorized", 401, null));
     await act(async () => { await queryClient.refetchQueries({ queryKey: vehicleEventRuleQueryKey(siteId) }); });
-    await waitFor(() => expect(queryClient.getQueryState(vehicleEventRuleQueryKey(siteId))?.error).toBeInstanceOf(ApiError));
+    await waitFor(() => expect(queryClient.getQueryCache().findAll({ queryKey: vehicleEventRuleQueryKey(siteId) }).some((query) => query.state.error instanceof ApiError)).toBe(true));
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "이벤트 수정" })).not.toBeInTheDocument());
     expect(screen.getByRole("alert")).toHaveTextContent("로그인 세션이 만료되었습니다.");
     await waitFor(() => expect(screen.getByRole("button", { name: "상태 다시 조회" })).toHaveFocus());
@@ -856,12 +951,112 @@ describe("VehicleEventControlPanel", () => {
     const confirm = within(screen.getByRole("dialog", { name: "이벤트 규칙 삭제" })).getByRole("button", { name: "삭제" });
     mocks.listVehicleEventRules.mockRejectedValueOnce(new ApiError("unauthorized", 401, null));
     await act(async () => { await queryClient.refetchQueries({ queryKey: vehicleEventRuleQueryKey(siteId) }); });
-    await waitFor(() => expect(queryClient.getQueryState(vehicleEventRuleQueryKey(siteId))?.error).toBeInstanceOf(ApiError));
+    await waitFor(() => expect(queryClient.getQueryCache().findAll({ queryKey: vehicleEventRuleQueryKey(siteId) }).some((query) => query.state.error instanceof ApiError)).toBe(true));
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "이벤트 규칙 삭제" })).not.toBeInTheDocument());
     expect(screen.getByRole("alert")).toHaveTextContent("로그인 세션이 만료되었습니다.");
     fireEvent.click(confirm);
     expect(mocks.deleteVehicleEventRule).not.toHaveBeenCalled();
     await waitFor(() => expect(screen.getByRole("button", { name: "상태 다시 조회" })).toHaveFocus());
+  });
+
+  it.each([403, 404])("hides cached events and closes an open editor after list %i", async (status) => {
+    const summary = { ruleCount: 2, syncRuleCounts: { APPLIED: 0, PENDING: 2, REJECTED: 0 } };
+    mocks.listVehicleEventRules.mockResolvedValueOnce({ items: [rule()], total: 2, filteredTotal: 2, siteSummary: summary, nextCursor: "page-2" });
+    const { queryClient } = renderPanel("admin");
+    await screen.findByText("입구 차량 감지");
+    expect(screen.getByRole("region", { name: "이벤트 목록 조건" })).toHaveTextContent("조건에 맞는 규칙 2건");
+    expect(screen.getByRole("button", { name: "다음" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "입구 차량 감지 수정" }));
+    const submit = within(screen.getByRole("dialog", { name: "이벤트 수정" })).getByRole("button", { name: "저장" });
+    mocks.listVehicleEventRules.mockRejectedValueOnce(new ApiError("site access lost", status, null));
+    await act(async () => { await queryClient.refetchQueries({ queryKey: vehicleEventRuleQueryKey(siteId) }); });
+
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "이벤트 수정" })).not.toBeInTheDocument());
+    expect(screen.queryByText("입구 차량 감지")).not.toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "이벤트 목록 조건" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "다음" })).not.toBeInTheDocument();
+    expect(screen.getByRole("alert")).not.toHaveTextContent("로그인 세션이 만료되었습니다.");
+    fireEvent.click(submit);
+    expect(mocks.updateVehicleEventRule).not.toHaveBeenCalled();
+  });
+
+  it.each([403, 404])("closes cached event deletion without POST after list %i", async (status) => {
+    const { queryClient } = renderPanel("admin");
+    await screen.findByText("입구 차량 감지");
+    fireEvent.click(screen.getByRole("button", { name: "입구 차량 감지 삭제" }));
+    const confirm = within(screen.getByRole("dialog", { name: "이벤트 규칙 삭제" })).getByRole("button", { name: "삭제" });
+    mocks.listVehicleEventRules.mockRejectedValueOnce(new ApiError("site access lost", status, null));
+    await act(async () => { await queryClient.refetchQueries({ queryKey: vehicleEventRuleQueryKey(siteId) }); });
+
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "이벤트 규칙 삭제" })).not.toBeInTheDocument());
+    expect(screen.queryByRole("button", { name: "입구 차량 감지 비활성화" })).not.toBeInTheDocument();
+    fireEvent.click(confirm);
+    expect(mocks.deleteVehicleEventRule).not.toHaveBeenCalled();
+  });
+
+  it.each([403, 404])("closes a cached event editor after visible-page poll %i", async (status) => {
+    const summary = { ruleCount: 2, syncRuleCounts: { APPLIED: 0, PENDING: 2, REJECTED: 0 } };
+    mocks.listVehicleEventRules.mockResolvedValueOnce({ items: [rule()], total: 2, filteredTotal: 2, siteSummary: summary, nextCursor: "page-2" })
+      .mockResolvedValueOnce({ items: [rule({ id: "00000000-0000-4000-8000-000000000099", name: "출구 차량 감지" })], total: 2, filteredTotal: 2, siteSummary: summary, nextCursor: null })
+      .mockRejectedValueOnce(new ApiError("site access lost", status, null));
+    renderPanel("admin");
+    await screen.findByText("입구 차량 감지");
+    fireEvent.click(screen.getByRole("button", { name: "다음" }));
+    await screen.findByText("출구 차량 감지");
+    fireEvent.click(screen.getByRole("button", { name: "출구 차량 감지 수정" }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "이벤트 수정" })).not.toBeInTheDocument(), { timeout: 4500 });
+    expect(screen.queryByText("출구 차량 감지")).not.toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "이벤트 목록 조건" })).not.toBeInTheDocument();
+    expect(mocks.updateVehicleEventRule).not.toHaveBeenCalled();
+  });
+
+  it.each([403, 404])("closes a cached event deletion after visible-page poll %i", async (status) => {
+    const summary = { ruleCount: 2, syncRuleCounts: { APPLIED: 0, PENDING: 2, REJECTED: 0 } };
+    mocks.listVehicleEventRules.mockResolvedValueOnce({ items: [rule()], total: 2, filteredTotal: 2, siteSummary: summary, nextCursor: "page-2" })
+      .mockResolvedValueOnce({ items: [rule({ id: "00000000-0000-4000-8000-000000000099", name: "출구 차량 감지" })], total: 2, filteredTotal: 2, siteSummary: summary, nextCursor: null })
+      .mockRejectedValueOnce(new ApiError("site access lost", status, null));
+    renderPanel("admin");
+    await screen.findByText("입구 차량 감지");
+    fireEvent.click(screen.getByRole("button", { name: "다음" }));
+    await screen.findByText("출구 차량 감지");
+    fireEvent.click(screen.getByRole("button", { name: "출구 차량 감지 삭제" }));
+    const confirm = within(screen.getByRole("dialog", { name: "이벤트 규칙 삭제" })).getByRole("button", { name: "삭제" });
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "이벤트 규칙 삭제" })).not.toBeInTheDocument(), { timeout: 4500 });
+    fireEvent.click(confirm);
+    expect(screen.queryByText("출구 차량 감지")).not.toBeInTheDocument();
+    expect(mocks.deleteVehicleEventRule).not.toHaveBeenCalled();
+  });
+
+  it.each([403, 404])("recovers event controls only after a successful list retry from %i", async (status) => {
+    const { queryClient } = renderPanel("admin");
+    await screen.findByText("입구 차량 감지");
+    mocks.listVehicleEventRules.mockRejectedValueOnce(new ApiError("site access lost", status, null));
+    await act(async () => { await queryClient.refetchQueries({ queryKey: vehicleEventRuleQueryKey(siteId) }); });
+    await waitFor(() => expect(screen.queryByText("입구 차량 감지")).not.toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "상태 다시 조회" }));
+    await screen.findByText("입구 차량 감지");
+    expect(screen.getByRole("button", { name: "입구 차량 감지 수정" })).toBeInTheDocument();
+  });
+
+  it.each([401, 403, 404])("gives a new event list %i priority over an older visible-page 503", async (status) => {
+    const queryClient = testQueryClient();
+    const invalidate = vi.spyOn(queryClient, "invalidateQueries");
+    const summary = { ruleCount: 2, syncRuleCounts: { APPLIED: 0, PENDING: 2, REJECTED: 0 } };
+    mocks.listVehicleEventRules.mockResolvedValueOnce({ items: [rule()], total: 2, filteredTotal: 2, siteSummary: summary, nextCursor: "page-2" })
+      .mockResolvedValueOnce({ items: [rule({ id: "00000000-0000-4000-8000-000000000099", name: "출구 차량 감지" })], total: 2, filteredTotal: 2, siteSummary: summary, nextCursor: null })
+      .mockRejectedValueOnce(new ApiError("poll unavailable", 503, null));
+    renderPanel("admin", { queryClient });
+    await screen.findByText("입구 차량 감지");
+    fireEvent.click(screen.getByRole("button", { name: "다음" }));
+    await screen.findByText("출구 차량 감지");
+    await waitFor(() => expect(screen.getByRole("button", { name: "상태 센터, 미해결 1건" })).toBeInTheDocument(), { timeout: 4500 });
+
+    mocks.listVehicleEventRules.mockRejectedValueOnce(new ApiError("site access lost", status, null));
+    await act(async () => { await queryClient.refetchQueries({ queryKey: vehicleEventRuleQueryKey(siteId) }); });
+    await waitFor(() => expect(screen.queryByText("출구 차량 감지")).not.toBeInTheDocument());
+    expect(screen.getByRole("alert")).toHaveTextContent(status === 401 ? "로그인 세션이 만료되었습니다." : /현장/);
+    if (status === 401) expect(invalidate).toHaveBeenCalledWith({ queryKey: authMeQueryKey });
+    else expect(invalidate).not.toHaveBeenCalledWith({ queryKey: authMeQueryKey });
   });
 });
 

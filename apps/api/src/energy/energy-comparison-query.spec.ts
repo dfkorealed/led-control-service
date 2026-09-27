@@ -1,5 +1,5 @@
 import { BadRequestException } from "@nestjs/common";
-import { comparisonRanges, parseComparisonPreset } from "./energy-comparison-query";
+import { comparisonRanges, customComparisonRanges, parseComparisonPreset } from "./energy-comparison-query";
 
 describe("energy comparison query", () => {
   it("parses only the three published presets", () => {
@@ -60,5 +60,39 @@ describe("energy comparison query", () => {
       completed: { from: "2026-02-01", to: "2026-02-27" },
       completedThrough: "2026-02-27"
     });
+  });
+});
+
+describe("custom comparison ranges", () => {
+  const generatedAt = new Date("2026-03-01T05:30:00.000Z");
+
+  it("uses completed site-local dates and adjacent equal-length comparison windows", () => {
+    expect(customComparisonRanges({ from: "2026-02-27", to: "2026-02-28" }, generatedAt, "America/New_York")).toEqual({
+      display: { from: "2026-02-27", to: "2026-02-28" },
+      completed: { from: "2026-02-27", to: "2026-02-28" },
+      completedThrough: "2026-02-28",
+      previousPeriod: { from: "2026-02-25", to: "2026-02-26" },
+      previousYear: { from: "2025-02-27", to: "2025-02-28" },
+      pointGranularity: "day"
+    });
+  });
+
+  it("clamps leap-day prior-year anchor and preserves selected length", () => {
+    expect(customComparisonRanges({ from: "2024-02-28", to: "2024-02-29" }, new Date("2024-03-02T00:00:00.000Z"), "UTC").previousYear)
+      .toEqual({ from: "2023-02-27", to: "2023-02-28" });
+  });
+
+  it.each([
+    { from: "2026-02-30", to: "2026-02-28" },
+    { from: "2026-03-01", to: "2026-03-01" },
+    { from: "2026-02-28", to: "2026-02-27" },
+    { from: "2025-01-01", to: "2026-02-28" }
+  ])("rejects malformed, incomplete, reversed or overlong selection %j", (query) => {
+    expect(() => customComparisonRanges(query, generatedAt, "America/New_York")).toThrow(BadRequestException);
+  });
+
+  it("rejects extra query keys with a sanitized validation error", () => {
+    expect(() => customComparisonRanges({ from: "2026-02-27", to: "2026-02-28", unexpected: "secret" }, generatedAt, "America/New_York"))
+      .toThrow(new BadRequestException("invalid energy comparison range"));
   });
 });

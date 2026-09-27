@@ -15,6 +15,7 @@ import type { GroupStateIdentity, GroupStateStore } from "../mesh/group-state-st
 import type { KeyedSerialTaskQueue } from "../runtime/keyed-serial-task-queue";
 import type { ManualTerminalContext } from "../automation/schedule-runtime";
 import { parseManualTerminalSourceContext, type ManualTerminalSourceContext } from "../automation/automation-state-store";
+import { CommandRfDrain, type CommandWriteControl } from "./command-rf-drain";
 
 interface JournalLike {
   get(key: string): Promise<{
@@ -22,14 +23,18 @@ interface JournalLike {
     command: unknown;
     result?: unknown;
     automationHandoff?: "pending" | "completed";
+    automationAbort?: "pending" | "completed";
+    executionPhase?: "pre_rf" | "may_have_written";
   } | null>;
-  accept(key: string, command: unknown): Promise<boolean>;
+  accept(key: string, command: unknown, options?: { terminalResult?: unknown; executionPhase?: "pre_rf" }): Promise<boolean>;
   complete(
     key: string,
     result: unknown,
-    options?: { automationHandoffPending?: boolean }
+    options?: { automationHandoffPending?: boolean; automationAbortPending?: boolean }
   ): Promise<void>;
   markAutomationHandoffComplete?(key: string): Promise<void>;
+  markExecutionMayHaveStarted?(key: string): Promise<void>;
+  markAutomationAbortComplete?(key: string): Promise<void>;
 }
 
 export interface GatewayCommandResult {
@@ -49,6 +54,7 @@ export interface GatewayFixtureObservation {
 }
 
 export interface ManualControlCoordinator {
+  abortManualControl?(sourceId: string, fixtureIds: string[]): Promise<void>;
   prepare(command: GatewayDimmingCommandV2Compatible, receipt?: GatewayCommandReceipt): Promise<void>;
   handoff(command: GatewayDimmingCommandV2Compatible, terminal: DeviceStatusAckV2, context?: ManualTerminalContext): Promise<void>;
   captureTerminalContext?(command: GatewayDimmingCommandV2Compatible, terminal: DeviceStatusAckV2): ManualTerminalSourceContext;
@@ -65,13 +71,16 @@ interface ManualAutomationRecoveryJournal {
     state: "accepted" | "completed";
     command: unknown;
     result?: unknown;
+    automationAbort?: "pending" | "completed";
+    executionPhase?: "pre_rf" | "may_have_written";
   }>>;
   complete(
     key: string,
     result: unknown,
-    options?: { automationHandoffPending?: boolean }
+    options?: { automationHandoffPending?: boolean; automationAbortPending?: boolean }
   ): Promise<void>;
   markAutomationHandoffComplete(key: string): Promise<void>;
+  markAutomationAbortComplete?(key: string): Promise<void>;
 }
 
 export interface GatewayCommandOptions {
@@ -80,12 +89,16 @@ export interface GatewayCommandOptions {
   groupQueue?: Pick<KeyedSerialTaskQueue, "run">;
   beforeExecution?: () => Promise<void>;
   isCommandExpired?: (expiresAt: string) => Promise<boolean> | boolean;
+  setPermit?: (command: GatewayDimmingCommandV2Compatible) => GatewaySetRefusal | undefined;
+  rfDrain?: CommandRfDrain;
   automation?: ManualControlCoordinator;
   onAutomationError?: (error: unknown) => void;
   receipt?: GatewayCommandReceipt;
   monotonicClock?: () => number;
   onDurableReceipt?: () => void;
 }
+
+export type GatewaySetRefusal = "COMMAND_EXPIRED" | "GATEWAY_CLOCK_UNTRUSTED";
 
 interface AutomationDimmingAction {
   fixtureId: string;
@@ -99,6 +112,7 @@ interface AutomationDimmingOptions {
 
 const COMMAND_COMPLETION_GRACE_MS = 250;
 const MAX_BLE_STATUS_TIMEOUT_MS = 29_000;
+const liveCommands = new WeakMap<JournalLike, Map<string, Promise<GatewayCommandResult>>>();
 
 export function handleGatewayDimmingCommand(
   adapter: BleMeshAdapter,
@@ -107,14 +121,29 @@ export function handleGatewayDimmingCommand(
   onAccepted?: (acceptance: AcceptanceAckV2) => Promise<void>,
   options: GatewayCommandOptions = {}
 ): Promise<GatewayCommandResult> {
-  if (command.deliveryMode !== "mesh_group") {
-    return executeGatewayDimmingCommand(adapter, journal, command, onAccepted, options);
-  }
-  const groupId = command.meshControlGroupId;
-  if (!groupId || !options.groupQueue) {
-    return executeGatewayDimmingCommand(adapter, journal, command, onAccepted, options);
-  }
-  return options.groupQueue.run(groupId, () => executeGatewayDimmingCommand(adapter, journal, command, onAccepted, options));
+  // Latch receive-time refusal: evidence arriving while a packet waits must not
+  // revive that packet. Existing journal results still take precedence on DUP.
+  const receivedRefusal = options.setPermit?.(command);
+  const rfWork = options.rfDrain?.begin("publishEpoch" in command ? command.publishEpoch : undefined);
+  const execute = () => executeGatewayDimmingCommand(adapter, journal, command, onAccepted, options, receivedRefusal, rfWork);
+  const executeQueued = () => {
+    const groupId = command.meshControlGroupId;
+    if (command.deliveryMode === "mesh_group" && groupId && options.groupQueue) return options.groupQueue.run(groupId, execute);
+    return execute();
+  };
+  const active = liveCommands.get(journal) ?? new Map<string, Promise<GatewayCommandResult>>();
+  liveCommands.set(journal, active);
+  // Register before the first asynchronous lookup/persistence. All delivery
+  // modes must wait for a live owner before interpreting pre_rf as a restart;
+  // otherwise its still-running prepare could recreate already-aborted pending
+  // state. Each waiter then reads the durable outcome, including failed aborts.
+  const previous = active.get(command.idempotencyKey) ?? Promise.resolve();
+  const task = previous.then(executeQueued, executeQueued).finally(() => {
+    rfWork?.finish();
+    if (active.get(command.idempotencyKey) === task) active.delete(command.idempotencyKey);
+  });
+  active.set(command.idempotencyKey, task);
+  return task;
 }
 
 export async function recoverPendingManualAutomationHandoffs(
@@ -124,6 +153,14 @@ export async function recoverPendingManualAutomationHandoffs(
   for (const recovery of await journal.pendingAutomationRecoveries()) {
     const wrapper = recovery.command as { command?: unknown };
     const command = gatewayDimmingCommandV2CompatibilitySchema.parse(wrapper.command);
+    if (recovery.automationAbort === "pending") {
+      await replayAutomationAbort(journal, command, automation);
+      continue;
+    }
+    if (recovery.state === "accepted" && recovery.executionPhase === "pre_rf") {
+      await completeWithAutomationAbort(journal, command, createSetRefusalResult(command, "GATEWAY_CLOCK_UNTRUSTED"), automation);
+      continue;
+    }
     const result = recovery.state === "completed"
       ? recovery.result as GatewayCommandResult
       : createIndeterminateResult(command);
@@ -140,40 +177,46 @@ async function executeGatewayDimmingCommand(
   journal: JournalLike,
   command: GatewayDimmingCommandV2Compatible,
   onAccepted: ((acceptance: AcceptanceAckV2) => Promise<void>) | undefined,
-  options: GatewayCommandOptions
+  options: GatewayCommandOptions,
+  receivedRefusal?: GatewaySetRefusal,
+  rfWork?: ReturnType<CommandRfDrain["begin"]>
 ): Promise<GatewayCommandResult> {
   const existing = await journal.get(command.idempotencyKey);
   if (existing?.state === "completed") {
     options.onDurableReceipt?.();
-    const result = existing.result as GatewayCommandResult;
-    if (existing.automationHandoff === "pending") {
-      await replayAutomationHandoff(journal, command, result, options, "recovery");
-    }
-    return result;
+    return replayCompletedCommand(journal, existing, options);
   }
   if (existing?.state === "accepted") {
     options.onDurableReceipt?.();
-    const stored = existing.command as { acceptance?: AcceptanceAckV2 };
-    const result = createIndeterminateResult(command, stored.acceptance);
-    await completeWithAutomationHandoff(journal, command, result, options, "recovery");
+    // A DUP supplies no authority to change the owner/targets already fsynced,
+    // including when RF may have started and recovery must remain unknown.
+    const stored = existing.command as { command?: unknown; acceptance?: AcceptanceAckV2 };
+    const storedCommand = gatewayDimmingCommandV2CompatibilitySchema.parse(stored.command);
+    if (existing.executionPhase === "pre_rf") {
+      const result = createSetRefusalResult(storedCommand, "GATEWAY_CLOCK_UNTRUSTED");
+      await completeWithAutomationAbort(journal, storedCommand, result, options.automation);
+      return result;
+    }
+    const result = createIndeterminateResult(storedCommand, stored.acceptance);
+    await completeWithAutomationHandoff(journal, storedCommand, result, options, "recovery");
     return result;
   }
 
-  // Broker expiry is primary; this verifies the API's publish-relative deadline before BLE execution.
-  if (await commandExpired(command.expiresAt, options)) {
-    return rejectExpiredCommand(journal, command);
+  const intakeRefusal = receivedRefusal ?? await commandRefusal(command, options);
+  if (intakeRefusal) {
+    return rejectSetCommand(journal, command, intakeRefusal, options);
   }
 
   if (command.deliveryMode === "mesh_group") {
     const identity = meshGroupIdentity(command);
     if (!options.groupStateStore || !options.groupQueue || !adapter.applyMeshGroup) {
-      return rejectBeforeExecution(journal, command, "MESH_GROUP_UNAVAILABLE", "mesh group control is unavailable");
+      return rejectBeforeExecution(journal, command, "MESH_GROUP_UNAVAILABLE", "mesh group control is unavailable", options);
     }
     try {
       await options.groupStateStore.assertReady(identity);
     } catch (error) {
       const code = errorCode(error, "MESH_GROUP_NOT_READY");
-      return rejectBeforeExecution(journal, command, code, error instanceof Error ? error.message : "mesh group is not ready");
+      return rejectBeforeExecution(journal, command, code, error instanceof Error ? error.message : "mesh group is not ready", options);
     }
   }
 
@@ -184,9 +227,15 @@ async function executeGatewayDimmingCommand(
       journal,
       command,
       "STATE_OUTBOX_CAPACITY",
-      "durable fixture state capacity is unavailable"
+      "durable fixture state capacity is unavailable",
+      options
     );
   }
+
+  // Group readiness and state-outbox reservations can await disk I/O. Recheck
+  // directly before journal admission, independently of the receive/dequeue gate.
+  const admissionRefusal = await commandRefusal(command, options);
+  if (admissionRefusal) return rejectSetCommand(journal, command, admissionRefusal, options);
 
   const identity = {
     commandId: command.commandId,
@@ -202,45 +251,75 @@ async function executeGatewayDimmingCommand(
     status: "accepted",
     acceptedAt: new Date().toISOString()
   });
-  const reserved = await journal.accept(command.idempotencyKey, { command, acceptance });
+  const reserved = await journal.accept(command.idempotencyKey, { command, acceptance }, options.setPermit ? { executionPhase: "pre_rf" } : {});
   if (!reserved) {
     const raced = await journal.get(command.idempotencyKey);
     if (raced) options.onDurableReceipt?.();
-    if (raced?.state === "completed") return raced.result as GatewayCommandResult;
+    if (raced?.state === "completed") return replayCompletedCommand(journal, raced, options);
     throw new Error("duplicate command has an indeterminate accepted result");
   }
   options.onDurableReceipt?.();
+  const persistedRefusal = await commandRefusal(command, options);
+  if (persistedRefusal) return rejectSetCommand(journal, command, persistedRefusal, options, true);
   await onAccepted?.(acceptance);
 
   // Journal fsync and the acceptance PUBACK can consume the remaining delivery window.
-  if (await commandExpired(command.expiresAt, options)) {
-    return rejectExpiredCommand(journal, command, true, options);
+  const acknowledgedRefusal = await commandRefusal(command, options);
+  if (acknowledgedRefusal) {
+    return rejectSetCommand(journal, command, acknowledgedRefusal, options, true);
   }
 
   let deviceStatus: DeviceStatusAckV2;
   let fixtureStateObserved = false;
   let observedFixtureIds: string[] = [];
   let fixtureObservations: GatewayFixtureObservation[] = [];
+  let hardwareMayHaveStarted = false;
+  let physicalWriteStarted = false;
+  let writeRefusal: GatewaySetRefusal | undefined;
+  let writesClosed = false;
+  const writeControl: CommandWriteControl | undefined = options.setPermit || rfWork ? {
+    mayStartWrite: () => {
+      if (writesClosed) return false;
+      // Check relative TTL synchronously too: no network/await may separate
+      // this cached proof from the native write. Once refused it stays refused.
+      writeRefusal ??= receiptRemainingMs(options) <= 0 ? "COMMAND_EXPIRED" : options.setPermit?.(command);
+      return writeRefusal === undefined;
+    },
+    onWriteStarted: () => { physicalWriteStarted = true; rfWork?.onWriteStarted(); }
+  } : undefined;
   try {
     if (options.receipt) await options.automation?.prepare(command, options.receipt);
     else await options.automation?.prepare(command);
     // Automation persistence can consume the last part of the broker delivery window.
-    if (await commandExpired(command.expiresAt, options)) {
-      return rejectExpiredCommand(journal, command, true, options);
+    const preparedRefusal = await commandRefusal(command, options);
+    if (preparedRefusal) {
+      return rejectSetCommand(journal, command, preparedRefusal, options, true, true);
     }
     const configuredTimeoutMs = validateTimeout(options.timeoutMs ?? 8000);
+    if (options.setPermit) {
+      if (!journal.markExecutionMayHaveStarted) throw new Error("durable RF phase journal is unavailable");
+      await journal.markExecutionMayHaveStarted(command.idempotencyKey);
+      // The marker fsync also consumes proof lifetime. In this live invocation
+      // no adapter call has occurred yet, so refusal can still durably abort.
+      const writeRefusal = await commandRefusal(command, options);
+      if (writeRefusal) return rejectSetCommand(journal, command, writeRefusal, options, true, true);
+    }
     const timeoutMs = Math.min(configuredTimeoutMs, Math.max(1, receiptRemainingMs(options)));
     const deadlineAt = Date.now() + timeoutMs;
     const controller = new AbortController();
+    hardwareMayHaveStarted = true;
     const reports = validateReports(
       command.targetFixtureIds,
       await withTimeout(
-        applyCommand(adapter, command, controller.signal, deadlineAt),
+        applyCommand(adapter, command, controller.signal, deadlineAt, writeControl),
         deadlineAt + COMMAND_COMPLETION_GRACE_MS,
         timeoutMs,
         () => controller.abort()
       )
     );
+    if (writeRefusal && !physicalWriteStarted) {
+      return rejectSetCommand(journal, command, writeRefusal, options, true, true);
+    }
     // [확인됨] acknowledged는 adapter가 read-back까지 검증한 applied만 뜻한다. BIO outer ACK
     // 단독은 여기에 도달하지 않으며, mismatch만 관측값을 보존한 failed fixture state가 된다.
     fixtureObservations = reports.flatMap((report) => {
@@ -282,7 +361,13 @@ async function executeGatewayDimmingCommand(
       results
     });
   } catch (error) {
-    const timedOut = error instanceof MeshStatusTimeoutError;
+    if (writeRefusal && !physicalWriteStarted) {
+      return rejectSetCommand(journal, command, writeRefusal, options, true, true);
+    }
+    // A failed/uncertain prepare or phase fsync must leave the durable record
+    // for recovery. It must not fabricate a terminal handoff or swallow abort.
+    if (options.setPermit && !hardwareMayHaveStarted) throw error;
+    const timedOut = physicalWriteStarted || error instanceof MeshStatusTimeoutError;
     deviceStatus = deviceStatusAckV2Schema.parse({
       ...identity,
       eventId: randomUUID(),
@@ -294,6 +379,10 @@ async function executeGatewayDimmingCommand(
         errorMessage: error instanceof Error ? error.message : "unknown BLE Mesh command error"
       }))
     });
+  } finally {
+    // A watchdog can finish before an adapter await resolves. Late continuations
+    // retain this closed gate and cannot start another native Set write.
+    writesClosed = true;
   }
 
   const result = { acceptance, deviceStatus, fixtureStateObserved, observedFixtureIds, fixtureObservations };
@@ -301,11 +390,15 @@ async function executeGatewayDimmingCommand(
   return result;
 }
 
-async function commandExpired(expiresAt: string, options: GatewayCommandOptions) {
-  if (receiptRemainingMs(options) <= 0) return true;
-  return options.isCommandExpired
-    ? options.isCommandExpired(expiresAt)
-    : isGatewayCommandExpired(expiresAt);
+async function commandRefusal(command: GatewayDimmingCommandV2Compatible, options: GatewayCommandOptions): Promise<GatewaySetRefusal | undefined> {
+  if (receiptRemainingMs(options) <= 0) return "COMMAND_EXPIRED";
+  // After cutover only the DB proof may authorize absolute expiry. An OS trust
+  // marker cannot substitute for the bounded same-epoch DB time sample.
+  if (options.setPermit) return options.setPermit(command);
+  const expired = options.isCommandExpired
+    ? await options.isCommandExpired(command.expiresAt)
+    : isGatewayCommandExpired(command.expiresAt);
+  return expired ? "COMMAND_EXPIRED" : undefined;
 }
 
 function receiptRemainingMs(options: GatewayCommandOptions) {
@@ -429,16 +522,18 @@ function applyCommand(
   adapter: BleMeshAdapter,
   command: GatewayDimmingCommandV2Compatible,
   signal: AbortSignal,
-  deadlineAt: number
+  deadlineAt: number,
+  writeControl?: CommandWriteControl
 ) {
+  const writeArgs: [] | [CommandWriteControl] = writeControl ? [writeControl] : [];
   switch (command.deliveryMode) {
     case "unicast":
       return adapter.applyUnicast
-        ? adapter.applyUnicast(command.targetFixtureIds[0], command.brightness, signal, deadlineAt).then((report) => [report])
-        : adapter.setBrightness(command.targetFixtureIds, command.brightness);
+        ? adapter.applyUnicast(command.targetFixtureIds[0], command.brightness, signal, deadlineAt, ...writeArgs).then((report) => [report])
+        : adapter.setBrightness(command.targetFixtureIds, command.brightness, ...writeArgs);
     case "parallel_unicast":
       if (!adapter.applyParallelUnicast) throw new Error("parallel unicast control is unavailable");
-      return adapter.applyParallelUnicast(command.targetFixtureIds, command.brightness, 8, signal, deadlineAt);
+      return adapter.applyParallelUnicast(command.targetFixtureIds, command.brightness, 8, signal, deadlineAt, ...writeArgs);
     case "mesh_group":
       if (!adapter.applyMeshGroup || !command.destinationAddress) throw new Error("mesh group control is unavailable");
       return adapter.applyMeshGroup(
@@ -446,7 +541,8 @@ function applyCommand(
         command.targetFixtureIds,
         command.brightness,
         signal,
-        deadlineAt
+        deadlineAt,
+        ...writeArgs
       );
   }
 }
@@ -594,12 +690,10 @@ function createIndeterminateResult(command: GatewayDimmingCommandV2Compatible, a
   return { acceptance: accepted, deviceStatus, fixtureStateObserved: false };
 }
 
-async function rejectExpiredCommand(
-  journal: JournalLike,
+function createSetRefusalResult(
   command: GatewayDimmingCommandV2Compatible,
-  alreadyAccepted = false,
-  options?: GatewayCommandOptions
-): Promise<GatewayCommandResult> {
+  code: GatewaySetRefusal
+): GatewayCommandResult {
   const identity = {
     commandId: command.commandId,
     dispatchId: command.dispatchId,
@@ -608,14 +702,14 @@ async function rejectExpiredCommand(
     siteId: command.siteId,
     gatewayId: command.gatewayId
   };
-  const result: GatewayCommandResult = {
+  return {
     acceptance: acceptanceAckV2Schema.parse({
       ...identity,
       eventId: randomUUID(),
       status: "rejected",
       acceptedAt: new Date().toISOString(),
-      errorCode: "COMMAND_EXPIRED",
-      errorMessage: "gateway command expired before execution"
+      errorCode: code,
+      errorMessage: refusalMessage(code)
     }),
     deviceStatus: deviceStatusAckV2Schema.parse({
       ...identity,
@@ -625,31 +719,89 @@ async function rejectExpiredCommand(
       results: command.targetFixtureIds.map((fixtureId) => ({
         fixtureId,
         status: "failed" as const,
-        errorMessage: "gateway command expired before execution"
+        errorMessage: refusalMessage(code)
       }))
     }),
     fixtureStateObserved: false
   };
+}
+
+async function completeWithAutomationAbort(
+  journal: Pick<JournalLike, "complete" | "markAutomationAbortComplete">,
+  command: GatewayDimmingCommandV2Compatible,
+  result: GatewayCommandResult,
+  automation: ManualControlCoordinator | undefined
+) {
+  // Terminal refusal and abort intent share one fsync. ACK publication waits
+  // for the automation-state fsync and the final journal acknowledgement.
+  await journal.complete(command.idempotencyKey, result, { automationAbortPending: true });
+  await replayAutomationAbort(journal, command, automation);
+}
+
+async function replayAutomationAbort(
+  journal: Pick<JournalLike, "markAutomationAbortComplete">,
+  command: GatewayDimmingCommandV2Compatible,
+  automation: ManualControlCoordinator | undefined
+) {
+  if (!automation?.abortManualControl || !journal.markAutomationAbortComplete) throw new Error("durable manual abort coordinator is unavailable");
+  await automation.abortManualControl(command.commandId, command.targetFixtureIds);
+  await journal.markAutomationAbortComplete(command.idempotencyKey);
+}
+
+async function replayCompletedCommand(
+  journal: JournalLike,
+  record: NonNullable<Awaited<ReturnType<JournalLike["get"]>>>,
+  options: GatewayCommandOptions
+) {
+  const result = record.result as GatewayCommandResult;
+  // Every replay, including a lost accept race, uses the durable owner for
+  // pending abort/handoff and terminal context. Incoming DUP identity is inert.
+  if (record.automationAbort === "pending" || record.automationHandoff === "pending") {
+    const storedCommand = gatewayDimmingCommandV2CompatibilitySchema.parse((record.command as { command?: unknown }).command);
+    if (record.automationAbort === "pending") await replayAutomationAbort(journal, storedCommand, options.automation);
+    if (record.automationHandoff === "pending") await replayAutomationHandoff(journal, storedCommand, result, options, "recovery");
+  }
+  return result;
+}
+
+async function rejectSetCommand(
+  journal: JournalLike,
+  command: GatewayDimmingCommandV2Compatible,
+  code: GatewaySetRefusal,
+  options: GatewayCommandOptions,
+  alreadyAccepted = false,
+  prepared = false
+): Promise<GatewayCommandResult> {
+  const result = createSetRefusalResult(command, code);
   if (alreadyAccepted) {
-    if (options) await completeWithAutomationHandoff(journal, command, result, options);
+    if (prepared && options.automation) await completeWithAutomationAbort(journal, command, result, options.automation);
     else await journal.complete(command.idempotencyKey, result);
     return result;
   }
-  const reserved = await journal.accept(command.idempotencyKey, { command, acceptance: result.acceptance });
+  const reserved = await journal.accept(command.idempotencyKey, { command, acceptance: result.acceptance }, { terminalResult: result });
   if (!reserved) {
     const raced = await journal.get(command.idempotencyKey);
-    if (raced?.state === "completed") return raced.result as GatewayCommandResult;
+    if (raced?.state === "completed") {
+      options.onDurableReceipt?.();
+      return replayCompletedCommand(journal, raced, options);
+    }
     throw new Error("duplicate command has an indeterminate accepted result");
   }
   await journal.complete(command.idempotencyKey, result);
+  options.onDurableReceipt?.();
   return result;
+}
+
+function refusalMessage(code: GatewaySetRefusal) {
+  return code === "COMMAND_EXPIRED" ? "gateway command expired before execution" : "gateway command clock or epoch proof is unavailable";
 }
 
 async function rejectBeforeExecution(
   journal: JournalLike,
   command: GatewayDimmingCommandV2Compatible,
   code: string,
-  message: string
+  message: string,
+  options: GatewayCommandOptions
 ): Promise<GatewayCommandResult> {
   const identity = {
     commandId: command.commandId,
@@ -680,7 +832,10 @@ async function rejectBeforeExecution(
   const reserved = await journal.accept(command.idempotencyKey, { command, acceptance: result.acceptance });
   if (!reserved) {
     const raced = await journal.get(command.idempotencyKey);
-    if (raced?.state === "completed") return raced.result as GatewayCommandResult;
+    if (raced?.state === "completed") {
+      options.onDurableReceipt?.();
+      return replayCompletedCommand(journal, raced, options);
+    }
     throw new Error("duplicate command has an indeterminate rejected result");
   }
   await journal.complete(command.idempotencyKey, result);

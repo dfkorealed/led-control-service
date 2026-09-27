@@ -1,6 +1,16 @@
-import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
-import type { CreateDimmingCommandInput } from "@led-control/shared";
+import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
+import type { CreateDimmingCommandInput, DetailRetentionAnchor } from "@led-control/shared";
 import { apiGet, apiPost } from "./client";
+import { useEffect, useRef } from "react";
+import { isRetainedByClock, retentionNow, useDetailRetentionClock, withRetentionClock } from "./detail-retention";
+
+export const commandReadRevalidation = {
+  staleTime: 0,
+  retry: false,
+  refetchOnMount: "always",
+  refetchOnWindowFocus: "always",
+  refetchOnReconnect: "always"
+} as const;
 
 export type CommandDeliveryMode = "unicast" | "parallel_unicast" | "mesh_group";
 
@@ -16,7 +26,7 @@ export interface CreateDimmingCommandResponse {
 export type CommandStage = "queued" | "published" | "accepted" | "completed" | "partial_failed" | "failed" | "timed_out"
   | "verification_required" | "verified_applied" | "verified_not_applied" | "verified_partial";
 
-export interface CommandStatusResponse {
+export interface CommandStatusResponse extends Partial<DetailRetentionAnchor> {
   id: string;
   stage: CommandStage;
   // Optional for historical clients/cached responses predating outcome reporting.
@@ -32,6 +42,7 @@ export interface CommandStatusResponse {
   completedFixtureCount: number;
   totalFixtureCount: number;
   errorMessage: string | null;
+  errorCode?: "GATEWAY_CLOCK_UNTRUSTED" | null;
   dispatches: Array<{
     id: string;
     kind?: "dimming" | "status_check";
@@ -99,6 +110,8 @@ export interface CommandHistoryInput {
 export interface CommandHistoryResponse {
   items: Array<Omit<CommandStatusResponse, "dispatches">>;
   nextCursor: string | null;
+  generatedAt: string;
+  retainedFrom: string;
 }
 
 export function listCommands(input: CommandHistoryInput) {
@@ -107,17 +120,135 @@ export function listCommands(input: CommandHistoryInput) {
   if (input.stage) params.set("stage", input.stage);
   if (input.cursor) params.set("cursor", input.cursor);
   params.set("limit", String(input.limit ?? 20));
-  return apiGet<CommandHistoryResponse>(`/commands?${params}`);
+  return withRetentionClock(() => apiGet<CommandHistoryResponse>(`/commands?${params}`));
 }
 
-export function useCommandHistory(userId: string, input: Omit<CommandHistoryInput, "cursor">) {
-  return useInfiniteQuery({
+export function useCommandHistory(userId: string, input: Omit<CommandHistoryInput, "cursor">, enabled = true) {
+  const query = useInfiniteQuery({
+    ...commandReadRevalidation,
     queryKey: ["command-history", userId, input],
     initialPageParam: undefined as string | undefined,
     queryFn: ({ pageParam }) => listCommands({ ...input, cursor: pageParam }),
     getNextPageParam: (page) => page.nextCursor ?? undefined,
-    enabled: Boolean(input.siteId)
+    enabled: enabled && Boolean(input.siteId)
   });
+  // Use the most advanced server-time estimate to wake all loaded pages early.
+  const clock = query.data?.pages.reduce<typeof query.data.pages[number]["retentionClock"]>((oldest, page) =>
+    !oldest || retentionNow(page.retentionClock) > retentionNow(oldest) ? page.retentionClock : oldest, undefined);
+  useDetailRetentionClock(query.data?.pages.flatMap((page) => page.items.map((item) => item.createdAt)) ?? [], clock,
+    enabled && input.siteId ? query.refetch : undefined);
+  const expired = query.data?.pages.some((page) => page.items.some((item) => !isRetainedByClock(item.createdAt, page.retentionClock)));
+  const expirationRead = useRef(false);
+  useEffect(() => {
+    if (!expired) { expirationRead.current = false; return; }
+    if (enabled && !expirationRead.current) { expirationRead.current = true; void query.refetch(); }
+  }, [enabled, expired, query.refetch]);
+  const data = !query.error && !query.isFetching && !query.isPaused && query.isFetchedAfterMount ? query.data : undefined;
+  return { ...query, data: data ? { ...data, pages: data.pages.map((page) => ({ ...page, items: page.items.filter((item) => isRetainedByClock(item.createdAt, page.retentionClock)) })) } : undefined };
+}
+
+export type CommandVerificationReason = "outcome_unknown" | "attempts_exhausted" | "gateway_unavailable";
+
+export interface CommandVerificationCase {
+  caseId: string;
+  originalCommandId: string;
+  siteId: string;
+  targetCount: number;
+  verificationAttemptCount: number;
+  status: "verification_required" | "verification_in_progress";
+  canRequestStatusCheck: boolean;
+  lastCheckedAt: string | null;
+  reasonCode: CommandVerificationReason;
+}
+
+export interface ActiveCommandVerificationCaseDetail extends CommandVerificationCase {
+  targetFixtureIds: string[];
+}
+
+export interface ResolvedCommandVerificationCaseDetail {
+  caseId: string;
+  siteId: string;
+  status: "verified_applied" | "verified_not_applied" | "verified_partial";
+  targetCount: number;
+  resolvedAt: string;
+}
+
+export type CommandVerificationCaseDetail = ActiveCommandVerificationCaseDetail | ResolvedCommandVerificationCaseDetail;
+
+export function isActiveCommandVerificationCase(detail: CommandVerificationCaseDetail): detail is ActiveCommandVerificationCaseDetail {
+  return detail.status === "verification_required" || detail.status === "verification_in_progress";
+}
+
+export function isResolvedCommandVerificationCase(detail: CommandVerificationCaseDetail): detail is ResolvedCommandVerificationCaseDetail {
+  return detail.status === "verified_applied" || detail.status === "verified_not_applied" || detail.status === "verified_partial";
+}
+
+export interface CommandVerificationCasesInput {
+  siteId: string;
+  originalCommandId?: string;
+  cursor?: string;
+  limit?: number;
+}
+
+export interface CommandVerificationCasesResponse {
+  items: CommandVerificationCase[];
+  nextCursor: string | null;
+  generatedAt: string;
+}
+
+export function listCommandVerificationCases(input: CommandVerificationCasesInput) {
+  const params = new URLSearchParams({ siteId: input.siteId });
+  if (input.originalCommandId) params.set("originalCommandId", input.originalCommandId);
+  if (input.cursor) params.set("cursor", input.cursor);
+  params.set("limit", String(input.limit ?? 4));
+  return apiGet<CommandVerificationCasesResponse>(`/commands/requiring-verification?${params}`);
+}
+
+export function useCommandVerificationCases(userId: string, input: Omit<CommandVerificationCasesInput, "cursor">, enabled = true) {
+  return useInfiniteQuery({
+    ...commandReadRevalidation,
+    queryKey: ["command-verification-cases", userId, input],
+    initialPageParam: undefined as string | undefined,
+    queryFn: ({ pageParam }) => listCommandVerificationCases({ ...input, cursor: pageParam }),
+    getNextPageParam: (page) => page.nextCursor ?? undefined,
+    enabled: enabled && Boolean(input.siteId)
+  });
+}
+
+function commandCasePath(caseId: string) {
+  return `/commands/requiring-verification/${encodeURIComponent(caseId)}`;
+}
+
+export function getCommandVerificationCase(caseId: string) {
+  return apiGet<CommandVerificationCaseDetail>(commandCasePath(caseId));
+}
+
+export interface CommandCaseStatusCheckResponse {
+  caseId: string;
+  dispatchId: string;
+  dispatchIds: string[];
+  verificationAttempt: number;
+  terminalStatusUrl: string;
+}
+
+export function createCaseStatusCheck(caseId: string, clientRequestId: string, signal?: AbortSignal) {
+  return apiPost<CommandCaseStatusCheckResponse>(`${commandCasePath(caseId)}/status-checks`, { clientRequestId }, { signal });
+}
+
+export interface CommandCaseReconcileInput {
+  acknowledgeRisk: true;
+  verificationMethod: "verified_physical_state" | "unable_to_verify";
+  reason: string;
+}
+
+export interface CommandCaseReconcileResponse {
+  caseId: string;
+  reconciled: true;
+  reconciledAt: string;
+}
+
+export function reconcileCommandCase(caseId: string, input: CommandCaseReconcileInput, signal?: AbortSignal) {
+  return apiPost<CommandCaseReconcileResponse>(`${commandCasePath(caseId)}/reconcile`, input, { signal });
 }
 
 export interface CommandStatusCheckResponse {
@@ -153,10 +284,31 @@ export function canonicalizeDimmingCommandInput(
 }
 
 export function useCommandStatus(commandId: string | null, pendingVerificationDispatchIds?: string[], hasUnresolvedVerificationRequest = false) {
-  return useQuery({
+  const queryClient = useQueryClient();
+  const query = useQuery({
+    ...commandReadRevalidation,
     queryKey: ["command-status", commandId],
-    queryFn: () => apiGet<CommandStatusResponse>(`/commands/${commandId}`),
+    queryFn: () => withRetentionClock(() => apiGet<CommandStatusResponse>(`/commands/${commandId}`)),
     enabled: Boolean(commandId),
     refetchInterval: (query) => getCommandStatusRefetchInterval(commandId, query.state.data, pendingVerificationDispatchIds, hasUnresolvedVerificationRequest)
   });
+  useDetailRetentionClock([query.data?.createdAt], query.data?.retentionClock, commandId ? query.refetch : undefined);
+  const retentionExpired = Boolean(query.data && !isRetainedByClock(query.data.createdAt, query.data.retentionClock));
+  const expirationRead = useRef<string | null>(null);
+  useEffect(() => {
+    if (!retentionExpired) { expirationRead.current = null; return; }
+    if (retentionExpired && commandId && expirationRead.current !== commandId) {
+      expirationRead.current = commandId;
+      void query.refetch();
+    }
+  }, [commandId, retentionExpired, query.refetch]);
+  const data = !retentionExpired && !query.error && !query.isFetching && !query.isPaused && query.isFetchedAfterMount ? query.data : undefined;
+  function isDetailCurrent() {
+    const state = queryClient.getQueryState(["command-status", commandId]);
+    // A click can beat React's refetch notification or retention timer. Check
+    // cache authority and monotonic server time before allowing a physical action.
+    return Boolean(data && isRetainedByClock(data.createdAt, data.retentionClock) && state?.fetchStatus === "idle"
+      && !state.error && !state.isInvalidated && state.data === data);
+  }
+  return { ...query, retentionExpired, data, isDetailCurrent };
 }

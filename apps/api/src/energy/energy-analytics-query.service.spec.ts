@@ -1,6 +1,6 @@
 import { NotFoundException } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
-import { energyComparisonResponseSchema } from "@led-control/shared";
+import { energyComparisonResponseSchema, energyRangeComparisonResponseSchema } from "@led-control/shared";
 import type { AuthenticatedUser } from "../auth/auth.types";
 import { EnergyAnalyticsQueryService } from "./energy-analytics-query.service";
 
@@ -99,6 +99,99 @@ describe("EnergyAnalyticsQueryService comparisons", () => {
     await expect(service.getComparison(user, "foreign-site", "current_month")).rejects.toBeInstanceOf(NotFoundException);
     expect(prisma.site.findUniqueOrThrow).not.toHaveBeenCalled();
     expect(prisma.fixture.findMany).not.toHaveBeenCalled();
+  });
+});
+
+describe("EnergyAnalyticsQueryService custom completed comparisons", () => {
+  afterEach(() => jest.useRealTimers());
+
+  it("keeps observed zero and reports -100 percent only when both complete periods have known fixture-seconds", async () => {
+    jest.useFakeTimers().setSystemTime(new Date("2026-09-10T00:00:00.000Z"));
+    const aggregates = [
+      ...dailyAggregates("2026-09-05", 2, 2),
+      ...dailyAggregates("2026-09-07", 2, 0)
+    ];
+    const { service } = createService({ fixtures: [fixture({ aggregates, startedAt: "2026-09-01T00:00:00.000Z" })] });
+
+    const result = await service.getCustomComparison(user, SITE_ID, { from: "2026-09-07", to: "2026-09-08" });
+
+    expect(result.selection).toEqual({ kind: "custom", from: "2026-09-07", to: "2026-09-08" });
+    expect(result.summary).toMatchObject({ estimatedKwh: 0, forecastReason: "not_applicable" });
+    expect(result.priorComparisons[0]).toMatchObject({
+      kind: "previous_period", currentKwh: 0, comparisonKwh: 4,
+      currentCoverageRate: 1, comparisonCoverageRate: 1, changeRatePercent: -100
+    });
+    expect(result.points.map((point) => point.period)).toEqual(["2026-09-07", "2026-09-08"]);
+    expect(energyRangeComparisonResponseSchema.safeParse(result).success).toBe(true);
+  });
+
+  it("does not claim complete coverage when an entire expected local day has no row", async () => {
+    jest.useFakeTimers().setSystemTime(new Date("2026-09-10T00:00:00.000Z"));
+    const aggregates = [...dailyAggregates("2026-09-05", 2, 2), aggregate("2026-09-07", 1, 86_400, 0)];
+    const { service } = createService({ fixtures: [fixture({ aggregates })] });
+
+    const result = await service.getCustomComparison(user, SITE_ID, { from: "2026-09-07", to: "2026-09-08" });
+
+    expect(result.priorComparisons[0]).toMatchObject({
+      currentKwh: 1, comparisonKwh: 4, currentCoverageRate: 0.5,
+      comparisonCoverageRate: 1, changeRatePercent: null
+    });
+    expect(result.points[1]).toMatchObject({ estimatedKwh: null, phase: "unavailable" });
+  });
+
+  it("suppresses a change rate when a current fixture entered tracking after the comparison window began", async () => {
+    jest.useFakeTimers().setSystemTime(new Date("2026-09-10T00:00:00.000Z"));
+    const older = fixture({ aggregates: dailyAggregates("2026-09-05", 4, 1), startedAt: "2026-09-01T00:00:00.000Z" });
+    const newer = { ...fixture({ aggregates: dailyAggregates("2026-09-08", 1, 1), startedAt: "2026-09-08T00:00:00.000Z" }), id: "fixture-2" };
+    const { service } = createService({ fixtures: [older, newer] });
+
+    const result = await service.getCustomComparison(user, SITE_ID, { from: "2026-09-07", to: "2026-09-08" });
+
+    expect(result.priorComparisons[0]).toMatchObject({
+      currentKwh: 3, comparisonKwh: 2, changeRatePercent: null
+    });
+  });
+
+  it("authorizes before reading site data for a custom range", async () => {
+    const { service, prisma, siteAccess } = createService();
+    siteAccess.assert.mockRejectedValue(new NotFoundException("site not found"));
+
+    await expect(service.getCustomComparison(user, "foreign-site", { from: "2026-09-07", to: "2026-09-08" }))
+      .rejects.toBeInstanceOf(NotFoundException);
+    expect(prisma.site.findUniqueOrThrow).not.toHaveBeenCalled();
+  });
+
+  it("visits dense fixture-day values once for a 400-point custom comparison", async () => {
+    jest.useFakeTimers().setSystemTime(new Date("2026-11-10T06:00:00.000Z"));
+    const fixtures = Array.from({ length: 10 }, (_, index) => ({
+      ...fixture({ startedAt: "2025-01-01T00:00:00.000Z" }), id: `fixture-${index}`
+    }));
+    const { service } = createService({ fixtures });
+    const values = new Map<string, Map<string, any>>();
+    const dailyValue = { estimatedKwh: new Prisma.Decimal(1), estimatedCost: new Prisma.Decimal(160),
+      knownSeconds: 86_400, unknownSeconds: 0, hasData: true };
+    let visits = 0;
+    const firstDay = Date.parse("2025-10-06T00:00:00.000Z");
+    for (const fixtureRow of fixtures) {
+      const daily = new Map<string, any>();
+      for (let index = 0; index < 400; index++) {
+        daily.set(new Date(firstDay + index * 86_400_000).toISOString().slice(0, 10), dailyValue);
+      }
+      const iterate = daily[Symbol.iterator].bind(daily);
+      Object.defineProperty(daily, Symbol.iterator, { value: function* () {
+        for (const entry of iterate()) { visits++; yield entry; }
+      } });
+      values.set(fixtureRow.id, daily);
+    }
+    jest.spyOn(service as any, "buildFixtureValues").mockReturnValue(values);
+
+    const result = await service.getCustomComparison(user, SITE_ID, { from: "2025-10-06", to: "2026-11-09" });
+
+    expect(result.points).toHaveLength(400);
+    expect(result.points[0]).toMatchObject({ estimatedKwh: 10, phase: "observed" });
+    expect(result.points[399]).toMatchObject({ estimatedKwh: 10, phase: "observed" });
+    expect(result.summary.estimatedKwh).toBe(4_000);
+    expect(visits).toBeLessThanOrEqual(8_000);
   });
 });
 

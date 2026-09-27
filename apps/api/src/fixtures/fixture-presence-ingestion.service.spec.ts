@@ -1,7 +1,10 @@
 import { Prisma } from "@prisma/client";
 import { fixturePresenceV2Schema } from "@led-control/shared";
 import { canonicalPayloadHash } from "../automation/automation-payload-hash";
+import { recordMonitoringActivity } from "../monitoring-activity/monitoring-activity.projection";
 import { FixturePresenceIngestionService } from "./fixture-presence-ingestion.service";
+
+jest.mock("../monitoring-activity/monitoring-activity.projection", () => ({ recordMonitoringActivity: jest.fn() }));
 
 const scope = {
   siteId: "22222222-2222-4222-8222-222222222222",
@@ -10,6 +13,19 @@ const scope = {
 };
 
 describe("FixturePresenceIngestionService", () => {
+  it("records a real freshness recovery but not a repeated liveness read-back", async () => {
+    const first = presencePrisma();
+    (recordMonitoringActivity as jest.Mock).mockClear();
+    await new FixturePresenceIngestionService(first as never).ingest(scope.gatewayId, presence());
+    expect(recordMonitoringActivity).toHaveBeenCalledWith(first, expect.objectContaining({
+      siteId: scope.siteId, fixtureId: scope.fixtureId, kind: "fixture_online", status: "online"
+    }));
+    const repeated = presencePrisma({ statusReason: "reported" });
+    Object.assign(repeated.__row, { status: "online", lastUnreachableAt: null });
+    (recordMonitoringActivity as jest.Mock).mockClear();
+    await new FixturePresenceIngestionService(repeated as never).ingest(scope.gatewayId, presence());
+    expect(recordMonitoringActivity).not.toHaveBeenCalled();
+  });
   it("rejects altered watermark identity on a retired correlated presence", async () => {
     const prisma = presencePrisma(); const query = prisma.$queryRaw.getMockImplementation();
     prisma.$queryRaw.mockImplementation(async (q: any) => q.sql.includes('FROM "MonitoringRefresh') ? [] : query(q));
@@ -241,13 +257,15 @@ function presencePrisma(options: {
 } = {}) {
   const row = {
     id: scope.fixtureId, siteId: scope.siteId, gatewayId: scope.gatewayId,
-    floorId: "floor", lastUnreachableAt: new Date("2026-09-14T00:00:01Z"),
+    name: "B1-L01", status: "offline", floorId: "floor",
+    lastUnreachableAt: new Date("2026-09-14T00:00:01Z"),
     lastPresenceOccurredAt: options.lastPresenceOccurredAt ?? null,
     statusReason: options.statusReason ?? "fixture_stale",
     reportedStatus: options.reportedStatus ?? "online",
     reportedStatusReason: options.reportedStatusReason ?? "reported"
   };
   const prisma: any = {
+    __row: row,
     $executeRaw: jest.fn().mockResolvedValue(1),
     $queryRaw: jest.fn(async (query: { sql: string; values: unknown[] }) => {
       if (query.sql.includes('FROM "Site"')) return query.values.includes(scope.siteId) ? [{ id: scope.siteId }] : [];

@@ -4,8 +4,8 @@ import {
   type EnergyReportStatus,
   type EnergyScope
 } from "@led-control/shared/energy-p2-contracts";
-import { useEffect, useId, useRef, useState } from "react";
-import { Button, DateRangePicker, SelectBox, Text, TextField, cn, type DateRangeValue } from "../../../components/ui";
+import { useEffect, useRef, useState } from "react";
+import { Button, DateRangePicker, ModalDialog, SelectBox, Text, TextField, cn, type DateRangeValue } from "../../../components/ui";
 import type { ReportHistoryFilterState } from "./report-history-filters";
 
 export interface ReportHistoryFiltersProps {
@@ -39,9 +39,8 @@ export function ReportHistoryFilters({ value, onChange, className }: ReportHisto
   const [searchInput, setSearchInput] = useState(value.query ?? "");
   const [dateDraft, setDateDraft] = useState<DateRangeValue | null>(() => reportDateRange(value));
   const [dateError, setDateError] = useState<string | null>(null);
-  const [isAdvancedOpen, setIsAdvancedOpen] = useState(false);
-  const advancedPanelId = useId();
-  const activeAdvancedCount = Number(Boolean(value.format)) + Number(Boolean(value.scope));
+  const [isDateDialogOpen, setIsDateDialogOpen] = useState(false);
+  const dateTriggerRef = useRef<HTMLButtonElement>(null);
   const valueRef = useRef(value);
   const onChangeRef = useRef(onChange);
   valueRef.current = value;
@@ -75,7 +74,7 @@ export function ReportHistoryFilters({ value, onChange, className }: ReportHisto
 
   return (
     <section role="search" aria-label="보고서 이력 필터" className={cn("grid min-w-0 gap-3", className)}>
-      <div className="grid min-w-0 grid-cols-1 items-end gap-3 compact:grid-cols-2 tablet:grid-cols-[minmax(0,2fr)_minmax(0,1fr)_minmax(0,2fr)_auto]">
+      <div className="grid min-w-0 grid-cols-1 items-end gap-3 compact:grid-cols-2 tablet:grid-cols-[minmax(0,1.4fr)_minmax(0,0.9fr)_minmax(0,1.5fr)_minmax(0,0.9fr)_minmax(0,0.9fr)]">
         <TextField
           type="search"
           label="보고서 검색"
@@ -94,6 +93,37 @@ export function ReportHistoryFilters({ value, onChange, className }: ReportHisto
             : removeFilters(value, "status"))}
           className="min-w-0"
         />
+        <div className="grid min-w-0 gap-2 compact:col-span-2 tablet:col-span-1">
+          <Text as="span" variant="label">요청 기간</Text>
+          <Button ref={dateTriggerRef} type="button" variant="secondary" className="w-full min-w-0 justify-between overflow-hidden text-left"
+            aria-label={`요청 기간 선택, 현재 ${dateRange ? `${dateRange.start} ~ ${dateRange.end}` : "전체 기간"}`}
+            aria-haspopup="dialog" aria-expanded={isDateDialogOpen} onClick={() => setIsDateDialogOpen(true)}>
+            <span className="truncate text-content-primary">{dateRange ? `${dateRange.start} ~ ${dateRange.end}` : "전체 기간"}</span>
+            <span aria-hidden="true">▦</span>
+          </Button>
+        </div>
+        <SelectBox
+          label="파일 형식"
+          items={formatItems}
+          selectedKey={value.format ?? ""}
+          onSelectionChange={(format) => onChange(format
+            ? updateFilterState(value, { format })
+            : removeFilters(value, "format"))}
+          className="min-w-0"
+        />
+        <SelectBox
+          label="범위"
+          items={scopeItems}
+          selectedKey={value.scope ?? ""}
+          onSelectionChange={(scope) => onChange(scope
+            ? updateFilterState(value, { scope })
+            : removeFilters(value, "scope"))}
+          className="min-w-0"
+        />
+      </div>
+      {isDateDialogOpen ? <ModalDialog title="요청 기간 선택" closeLabel="요청 기간 선택 닫기"
+        onClose={() => setIsDateDialogOpen(false)} returnFocusRef={dateTriggerRef} className="max-w-lg"
+        actions={<Button type="button" variant="primary" onClick={() => setIsDateDialogOpen(false)}>완료</Button>}>
         <DateRangePicker
           label="요청 기간"
           description="보고서를 요청한 날짜로 검색합니다. 보고서 본문 대상 기간과 다릅니다."
@@ -120,45 +150,9 @@ export function ReportHistoryFilters({ value, onChange, className }: ReportHisto
             setDateError(null);
             onChange(result.data);
           }}
-          className="min-w-0 compact:col-span-2 tablet:col-span-1"
-        />
-        <Button
-          type="button"
-          variant="secondary"
-          aria-expanded={isAdvancedOpen}
-          aria-controls={advancedPanelId}
-          className="min-h-11 w-full tablet:w-auto"
-          onClick={() => setIsAdvancedOpen((open) => !open)}
-        >
-          상세 필터{activeAdvancedCount ? ` · ${activeAdvancedCount}개 적용` : ""}
-        </Button>
-      </div>
-      <div
-        id={advancedPanelId}
-        role="group"
-        aria-label="상세 필터 항목"
-        hidden={!isAdvancedOpen}
-        className={isAdvancedOpen ? "grid min-w-0 grid-cols-1 gap-3 tablet:grid-cols-2" : "hidden"}
-      >
-        <SelectBox
-          label="파일 형식"
-          items={formatItems}
-          selectedKey={value.format ?? ""}
-          onSelectionChange={(format) => onChange(format
-            ? updateFilterState(value, { format })
-            : removeFilters(value, "format"))}
           className="min-w-0"
         />
-        <SelectBox
-          label="범위"
-          items={scopeItems}
-          selectedKey={value.scope ?? ""}
-          onSelectionChange={(scope) => onChange(scope
-            ? updateFilterState(value, { scope })
-            : removeFilters(value, "scope"))}
-          className="min-w-0"
-        />
-      </div>
+      </ModalDialog> : null}
       {chips.length ? (
         <div className="flex min-w-0 flex-wrap items-center gap-2" aria-label="활성 조건">
           <Text as="span" variant="label" tone="secondary" className="w-full compact:w-auto">활성 조건</Text>

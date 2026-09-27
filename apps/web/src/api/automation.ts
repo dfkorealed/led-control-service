@@ -11,6 +11,19 @@ import { ApiError, apiDelete, apiGet, apiPatch, apiPost } from "./client";
 
 export type AutomationSyncStatus = "PENDING" | "APPLIED" | "REJECTED";
 
+export interface AutomationListQuery {
+  query?: string;
+  status?: "enabled" | "disabled";
+  syncStatus?: AutomationSyncStatus;
+  limit?: number;
+  cursor?: string;
+}
+
+export interface AutomationSiteSummary {
+  ruleCount: number;
+  syncRuleCounts: Record<AutomationSyncStatus, number>;
+}
+
 export type CreateScheduleInput = Omit<LightingScheduleSnapshotV1, "id" | "fixtureIds"> & {
   target: DimmingTarget;
 };
@@ -59,6 +72,9 @@ export interface ScheduleResponse {
 export interface ScheduleListResponse {
   items: ScheduleResponse[];
   total: number;
+  // Optional while previously deployed API instances remain reachable during rollout.
+  filteredTotal?: number;
+  siteSummary?: AutomationSiteSummary;
   nextCursor: string | null;
 }
 
@@ -96,6 +112,9 @@ interface AutomationExecutionResponse {
 export interface VehicleEventRuleListResponse {
   items: VehicleEventRuleResponse[];
   total: number;
+  // Optional while previously deployed API instances remain reachable during rollout.
+  filteredTotal?: number;
+  siteSummary?: AutomationSiteSummary;
   nextCursor: string | null;
 }
 
@@ -109,10 +128,9 @@ export function vehicleEventRuleQueryKey(siteId: string) {
 
 export function listSchedules(
   siteId: string,
-  query: { limit?: number; cursor?: string } = {}
+  query: AutomationListQuery = {}
 ) {
-  const search = new URLSearchParams({ limit: String(query.limit ?? 100) });
-  if (query.cursor) search.set("cursor", query.cursor);
+  const search = automationListParams(query);
   return apiGet<ScheduleListResponse>(`${scheduleCollectionPath(siteId)}?${search.toString()}`);
 }
 
@@ -136,11 +154,19 @@ export function deleteSchedule(siteId: string, scheduleId: string) {
 
 export function listVehicleEventRules(
   siteId: string,
-  query: { limit?: number; cursor?: string } = {}
+  query: AutomationListQuery = {}
 ) {
-  const search = new URLSearchParams({ limit: String(query.limit ?? 100) });
-  if (query.cursor) search.set("cursor", query.cursor);
+  const search = automationListParams(query);
   return apiGet<VehicleEventRuleListResponse>(`${vehicleEventRuleCollectionPath(siteId)}?${search.toString()}`);
+}
+
+function automationListParams(query: AutomationListQuery) {
+  const search = new URLSearchParams({ limit: String(query.limit ?? 100) });
+  if (query.query) search.set("query", query.query);
+  if (query.status) search.set("status", query.status);
+  if (query.syncStatus) search.set("syncStatus", query.syncStatus);
+  if (query.cursor) search.set("cursor", query.cursor);
+  return search;
 }
 
 export function createVehicleEventRule(siteId: string, input: CreateVehicleEventRuleInput) {
@@ -195,6 +221,18 @@ export function scheduleMutationErrorMessage(error: unknown): string {
 
 export function isScheduleUnauthorized(error: unknown): error is ApiError {
   return error instanceof ApiError && error.status === 401;
+}
+
+// List reads use 404 for a missing site or revoked site-read grant; cached rows must not remain actionable.
+export function isAutomationListAccessDenied(error: unknown): error is ApiError {
+  return error instanceof ApiError && [401, 403, 404].includes(error.status);
+}
+
+export function automationListAccessErrorMessage(error: unknown): string {
+  if (isScheduleUnauthorized(error)) return "로그인 세션이 만료되었습니다.";
+  return error instanceof ApiError && error.status === 404
+    ? "현장을 찾을 수 없거나 조회 권한이 없습니다."
+    : "현장을 조회할 권한이 없습니다.";
 }
 
 export function scheduleQueryErrorMessage(error: unknown): string {

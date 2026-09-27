@@ -10,6 +10,7 @@ import {
   useRef,
   useState,
   type CSSProperties,
+  type KeyboardEventHandler,
   type PointerEvent as ReactPointerEvent,
   type ReactNode
 } from "react";
@@ -57,6 +58,7 @@ interface FloorMapViewportProps {
   showControls?: boolean;
   onZoomChange?: (zoom: number) => void;
   viewportTestId?: string;
+  onViewportKeyDown?: KeyboardEventHandler<HTMLDivElement>;
 }
 
 interface PanGesture {
@@ -85,7 +87,8 @@ export function FloorMapViewport({
   onAreaSelect,
   showControls = true,
   onZoomChange,
-  viewportTestId
+  viewportTestId,
+  onViewportKeyDown
 }: FloorMapViewportProps) {
   const viewportRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
@@ -525,6 +528,7 @@ export function FloorMapViewport({
         ref={viewportRef}
         className="h-full min-h-0 w-full min-w-0 touch-none cursor-grab overflow-auto overscroll-contain bg-surface-inset focus-visible:outline-none focus-visible:shadow-focus active:cursor-grabbing"
         data-testid={viewportTestId}
+        onKeyDown={onViewportKeyDown}
         role="region"
         aria-label={ariaLabel}
         data-zoom={zoomRef.current}

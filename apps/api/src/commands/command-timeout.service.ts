@@ -1,6 +1,7 @@
 import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from "@nestjs/common";
 import { GATEWAY_COMMAND_ACCEPTANCE_DEADLINE_MS } from "@led-control/shared";
 import { PrismaService } from "../prisma/prisma.service";
+import { recordCommandOutcomeActivity } from "../monitoring-activity/command-outcome-activity";
 import { AutomationSnapshotService } from "../automation/automation-snapshot.service";
 
 const DEVICE_STATUS_TIMEOUT_MS = 30_000;
@@ -132,13 +133,16 @@ export class CommandTimeoutService implements OnModuleInit, OnModuleDestroy {
           // in particular, a concurrent successful verification must never be overwritten.
           if (dispatch.kind === "dimming") {
             const legacy = dispatch.command.outcome === null;
-            await tx.command.updateMany({
+            const updated = await tx.command.updateMany({
               where: { id: dispatch.commandId, status: "pending", outcome: legacy ? null : "pending" },
               data: {
                 status: "failed", errorMessage: "one or more gateway dispatches timed out",
                 ...(legacy ? {} : { outcome: deliveryAttempted ? "unknown" : "not_applied" })
               }
             });
+            if (updated.count === 1 && !legacy) {
+              await recordCommandOutcomeActivity(tx, dispatch.commandId, "pending", deliveryAttempted ? "unknown" : "not_applied");
+            }
           }
           return true;
         });

@@ -9,13 +9,16 @@ import { canonicalPayloadHash } from "../automation/automation-payload-hash";
 import { gatewayEventIsTooFarInFuture, gatewayEventMaxFutureSkewMs } from "../mqtt/gateway-event-time";
 import { PrismaService } from "../prisma/prisma.service";
 import { compareAndAdvanceGatewayEvent } from "../retention/gateway-event-watermark";
+import { recordMonitoringActivity } from "../monitoring-activity/monitoring-activity.projection";
 import { assertRefreshWatermarkIdentity, lockRefreshObservation, resolveRefreshObservation } from "../monitoring-refresh/monitoring-refresh-ingestion.service";
 
 type IngestionStatus = ApplicationStateIngestedAckV2["status"];
 
 interface LockedFixtureRow {
   id: string;
+  name: string;
   floorId: string;
+  status: "online" | "offline" | "fault";
   lastUnreachableAt: Date | null;
   lastSeenAt: Date | null;
   lastPresenceOccurredAt: Date | null;
@@ -100,7 +103,7 @@ export class FixturePresenceIngestionService {
     if (!gateway) throw new Error("fixture presence scope rejected");
 
     const [fixture] = await tx.$queryRaw<LockedFixtureRow[]>(Prisma.sql`
-      SELECT f."id", f."floorId", f."lastUnreachableAt", f."lastSeenAt", f."lastPresenceOccurredAt", f."statusReason",
+      SELECT f."id", f."name", f."floorId", f."status", f."lastUnreachableAt", f."lastSeenAt", f."lastPresenceOccurredAt", f."statusReason",
         f."reportedStatus", f."reportedStatusReason"
       FROM "Fixture" f
       INNER JOIN "Floor" fl ON fl."id" = f."floorId"
@@ -171,6 +174,9 @@ export class FixturePresenceIngestionService {
     // 아니다. presence를 brightness/powerOn 또는 energy checkpoint로 옮기면 꺼진
     // 조명을 켜진 것으로 추정해 전력 집계를 오염시킬 수 있으므로 이 transaction은
     // liveness와 BIO readback metadata만 갱신하며 energy helper를 호출하지 않는다.
+    const freshnessResolved = (!fixture.lastUnreachableAt || receivedAt > fixture.lastUnreachableAt) &&
+      (fixture.statusReason === "fixture_stale" || fixture.statusReason === "gateway_offline");
+    const restoredStatus = freshnessResolved ? restoreReportedOperationalState(fixture).status : fixture.status;
     await tx.fixture.update({
       where: { id: fixture.id },
       data: {
@@ -190,6 +196,12 @@ export class FixturePresenceIngestionService {
           : {})
       }
     });
+    if (freshnessResolved && fixture.status !== restoredStatus) {
+      await recordMonitoringActivity(tx, { siteId: presence.siteId, floorId: fixture.floorId,
+        fixtureId: fixture.id, displayName: fixture.name, sourceType: "fixture_presence",
+        sourceKey: presence.eventId, kind: restoredStatus === "online" ? "fixture_online" : "fixture_status_changed",
+        status: restoredStatus, observedAt: occurredAt });
+    }
     if (!fixture.lastUnreachableAt || receivedAt > fixture.lastUnreachableAt) {
       await resolveRefreshObservation(tx, refreshContext, receivedAt);
     }

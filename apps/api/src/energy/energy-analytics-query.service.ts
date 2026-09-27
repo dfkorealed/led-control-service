@@ -1,9 +1,11 @@
 import { BadRequestException, ConflictException, Injectable } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
+import { energyRangeComparisonResponseSchema } from "@led-control/shared";
 import type {
   EnergyComparisonPoint,
   EnergyComparisonPreset,
   EnergyComparisonResponse,
+  EnergyRangeComparisonResponse,
   EnergySeriesResponse,
   EnergySummary
 } from "@led-control/shared";
@@ -18,6 +20,7 @@ import {
 } from "./energy-aggregation";
 import {
   comparisonRanges,
+  customComparisonRanges,
   type ComparisonDateRange
 } from "./energy-comparison-query";
 import {
@@ -265,6 +268,51 @@ export class EnergyAnalyticsQueryService {
     };
   }
 
+  async getCustomComparison(
+    user: AuthenticatedUser,
+    siteId: string,
+    rawQuery: unknown
+  ): Promise<EnergyRangeComparisonResponse> {
+    await this.siteAccess.assert(user, siteId, "read");
+    const site = await this.loadSite(siteId);
+    this.assertTariffAvailable(site.tariffKwhRate);
+    const generatedAt = new Date();
+    const ranges = customComparisonRanges(rawQuery, generatedAt, site.timeZone);
+    const loadRanges = [ranges.display, ranges.previousPeriod, ranges.previousYear]
+      .filter((value): value is ComparisonDateRange => value !== null);
+    const queryStart = parseCalendarDate(loadRanges.map((value) => value.from).sort()[0]);
+    const endExclusive = addCalendarDays(parseCalendarDate(ranges.display.to), 1);
+    const fixtures = await this.loadFixtures(siteId, queryStart, endExclusive);
+    const values = this.buildFixtureValues(
+      fixtures,
+      queryStart,
+      startOfLocalDate(endExclusive, site.timeZone),
+      site.timeZone,
+      site.tariffKwhRate
+    );
+    const dailyTotals = aggregateSiteDailyValues(values);
+    const siteValues = new Map([[siteId, dailyTotals]]);
+    const completed = summarizeRange(siteValues, ranges.display);
+    const baselineKwh = baselineForRange(fixtures, ranges.display, site.timeZone);
+    const tariff = new Prisma.Decimal(site.tariffKwhRate);
+    const days = listDaysInclusive(parseCalendarDate(ranges.display.from), parseCalendarDate(ranges.display.to), 400);
+
+    return energyRangeComparisonResponseSchema.parse({
+      siteId,
+      timeZone: site.timeZone,
+      source: SOURCE,
+      generatedAt: generatedAt.toISOString(),
+      selection: { kind: "custom", ...ranges.display },
+      range: { ...ranges.display, completedThrough: ranges.completedThrough },
+      summary: comparisonSummary(baselineKwh, decimalEnergyOrNull(completed), tariff, "not_applicable"),
+      priorComparisons: buildCustomPriorComparisons(siteValues, fixtures, ranges, site.timeZone),
+      points: days.map((day) => {
+        const key = formatCalendarDate(day);
+        return observedPoint(key, baselineForCalendarDates(fixtures, day, day, site.timeZone), dailyTotals.get(key) ?? emptyDaily());
+      })
+    });
+  }
+
   private async loadSite(siteId: string) {
     return this.prisma.site.findUniqueOrThrow({
       where: { id: siteId },
@@ -338,6 +386,54 @@ export class EnergyAnalyticsQueryService {
     }
     return values;
   }
+}
+
+function buildCustomPriorComparisons(
+  values: Map<string, Map<string, DailyValue>>,
+  fixtures: EnergyFixtureRow[],
+  ranges: ReturnType<typeof customComparisonRanges>,
+  timeZone: string
+): EnergyRangeComparisonResponse["priorComparisons"] {
+  const current = summarizeRange(values, ranges.display);
+  return ([
+    { kind: "previous_period" as const, range: ranges.previousPeriod! },
+    { kind: "previous_year" as const, range: ranges.previousYear! }
+  ]).map(({ kind, range }) => {
+    const comparison = summarizeRange(values, range);
+    const currentKwh = decimalEnergyOrNull(current);
+    const comparisonKwh = decimalEnergyOrNull(comparison);
+    const currentExpected = expectedFixtureSeconds(fixtures, ranges.display, timeZone);
+    const comparisonExpected = expectedFixtureSeconds(fixtures, range, timeZone);
+    // The current fixture cohort cannot prove an earlier pre-tracking interval, even if all
+    // seconds after enrollment were observed. Keep observed kWh but suppress the rate.
+    const cohortCoveredFrom = (candidate: ComparisonDateRange) => {
+      const startsAt = startOfLocalDate(parseCalendarDate(candidate.from), timeZone);
+      return fixtures.every((fixture) => fixture.energyTrackingStartedAt <= startsAt);
+    };
+    const complete = (value: DailyValue, expected: number) =>
+      expected > 0 && value.knownSeconds === expected && value.unknownSeconds === 0;
+    return {
+      kind,
+      currentRange: ranges.display,
+      comparisonRange: range,
+      currentKwh: currentKwh === null ? null : roundKwh(currentKwh),
+      comparisonKwh: comparisonKwh === null ? null : roundKwh(comparisonKwh),
+      changeRatePercent: cohortCoveredFrom(ranges.display) && cohortCoveredFrom(range) &&
+        complete(current, currentExpected) && complete(comparison, comparisonExpected) &&
+        currentKwh !== null && comparisonKwh !== null && !comparisonKwh.isZero()
+        ? roundPercent(currentKwh.sub(comparisonKwh).div(comparisonKwh).mul(100))
+        : null,
+      currentCoverageRate: currentExpected > 0 ? Math.min(1, current.knownSeconds / currentExpected) : null,
+      comparisonCoverageRate: comparisonExpected > 0 ? Math.min(1, comparison.knownSeconds / comparisonExpected) : null,
+      historyQuality: "legacy_structure_unknown" as const
+    };
+  });
+}
+
+function expectedFixtureSeconds(fixtures: EnergyFixtureRow[], range: ComparisonDateRange, timeZone: string): number {
+  const from = startOfLocalDate(parseCalendarDate(range.from), timeZone).getTime();
+  const to = startOfLocalDate(addCalendarDays(parseCalendarDate(range.to), 1), timeZone).getTime();
+  return fixtures.reduce((sum, fixture) => sum + Math.max(0, (to - Math.max(from, fixture.energyTrackingStartedAt.getTime())) / 1_000), 0);
 }
 
 function buildComparisonPoints(input: {
@@ -633,6 +729,22 @@ function mergeDaily(
 function summarizeRange(values: Map<string, Map<string, DailyValue>>, range: ComparisonDateRange | null) {
   if (!range) return emptyDaily();
   return summarizeValues(values, (key) => key >= range.from && key <= range.to);
+}
+
+function aggregateSiteDailyValues(values: Map<string, Map<string, DailyValue>>) {
+  const totals = new Map<string, DailyValue>();
+  for (const daily of values.values()) {
+    for (const [key, value] of daily) {
+      const total = totals.get(key) ?? emptyDaily();
+      total.estimatedKwh = total.estimatedKwh.add(value.estimatedKwh);
+      total.estimatedCost = total.estimatedCost.add(value.estimatedCost);
+      total.knownSeconds += value.knownSeconds;
+      total.unknownSeconds += value.unknownSeconds;
+      total.hasData ||= value.hasData;
+      totals.set(key, total);
+    }
+  }
+  return totals;
 }
 
 function summarizeValues(values: Map<string, Map<string, DailyValue>>, includes: (key: string) => boolean) {

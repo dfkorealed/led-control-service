@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { expectNoHorizontalOverflow } from "./support/layout-assertions";
 
 const operator = {
   id: "operator-1",
@@ -92,6 +93,24 @@ test("MFA 로그인 후 계정 보안에서 MFA 등록과 세션 종료를 완�
   await expect(page.getByRole("heading", { name: "계정 보안" })).toBeVisible();
   await expect(page.getByText("Chrome current")).toBeVisible();
   await expect(page.getByText("Safari other")).toBeVisible();
+
+  await page.setViewportSize({ width: 1440, height: 900 });
+  const mfaCard = page.locator('[data-security-card="mfa"]');
+  const sessionsCard = page.locator('[data-security-card="sessions"]');
+  const mfaBox = await mfaCard.boundingBox();
+  const sessionsBox = await sessionsCard.boundingBox();
+  expect(mfaBox).not.toBeNull();
+  expect(sessionsBox).not.toBeNull();
+  expect(Math.abs(mfaBox!.y - sessionsBox!.y)).toBeLessThanOrEqual(1);
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  const mobileMfaBox = await mfaCard.boundingBox();
+  const mobileSessionsBox = await sessionsCard.boundingBox();
+  expect(mobileMfaBox).not.toBeNull();
+  expect(mobileSessionsBox).not.toBeNull();
+  expect(mobileSessionsBox!.y).toBeGreaterThan(mobileMfaBox!.y + mobileMfaBox!.height);
+  await expectNoHorizontalOverflow(page);
+  await page.setViewportSize({ width: 1440, height: 900 });
 
   await page.getByRole("button", { name: "2단계 인증 설정" }).click();
   await expect(page.getByText(secrets.enrollmentSecret)).toBeVisible();

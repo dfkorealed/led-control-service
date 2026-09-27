@@ -29,7 +29,7 @@ export function SettingsView({ userRole, siteId }: { userRole: "operator" | "adm
   }
 
   const gateway = data.gateways[0];
-  const registeredPlanCount = data.floors.filter((floor) => floor.floorPlan !== null).length;
+  const registeredPlanCount = data.floors.filter((floor) => floor.mapConfigured === true).length;
   const nextStepSearch = new URLSearchParams(location.search);
   nextStepSearch.set("siteId", data.site.id);
   const nextStep = data.gateways.length === 0
@@ -46,7 +46,7 @@ export function SettingsView({ userRole, siteId }: { userRole: "operator" | "adm
       />
 
       {userRole === "admin" ? (
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border-default pb-5">
+        <section className="flex flex-wrap items-center justify-between gap-3 rounded-panel border border-border-default bg-action-secondary p-4" aria-label="설치 이어가기">
           <div className="grid gap-1">
             <span className="text-overline font-bold text-content-secondary">설치 이어가기</span>
             <strong className="text-card-title text-content-primary">{nextStep.title}</strong>
@@ -55,7 +55,7 @@ export function SettingsView({ userRole, siteId }: { userRole: "operator" | "adm
           <Link className={settingsActionLinkClass} to={{ pathname: nextStep.path, search: nextStepSearch.toString() }}>
             {nextStep.label}
           </Link>
-        </div>
+        </section>
       ) : null}
 
       <div className="grid gap-4 compact:grid-cols-2">
