@@ -30,6 +30,11 @@
 - [ ] 미적용 토큰 검토 후보: 히어로 1규칙에 --text-landing-hero-fluid: clamp(55px, 5.3vw, 78px), 장면 문구 1규칙에 --text-landing-eyebrow: 13px(13px 전체 7회), 상담 팝업 1곳에 --radius-landing-dialog: 18px, 데모 카드 선언·사용 각 1곳에 --shadow-landing-card: 0 18px 55px rgb(21 50 74 / .10), 세 화면 전환에 --breakpoint-landing-narrow: 26.875rem, --breakpoint-landing-stack: 45rem, --breakpoint-landing-wide: 65.625rem을 검토한다. 나머지 서체·간격 역할과 정책 계약도 검토가 필요하다.
 - [ ] 막힘: 기존 화면을 정확히 유지한 0건 전환에는 검토된 의미 기반 토큰·화면 전환 기준과 컴포넌트 스타일링 계약이 필요하다. 이 작업에서 정책이나 토큰을 임의 변경하지 않는다.
 
+## 설계 명세 검토 관문
+
+- [x] 사용자가 필요한 의미 기반 토큰만 추가하는 방향을 선택했다. [전환 설계 명세](../specs/2026-09-27-landing-ui-policy-design.md)에 외형·동작 보존 계약, 토큰 후보와 정식 승인 경로, 선택자·애니메이션 대응, 정적 시안 URL 구조, 검증 게이트 및 변경된 실행 순서를 기록했다. 이 단계에서 구현·정책·토큰 파일은 수정하지 않았다.
+- [ ] 사용자가 설계 명세를 검토한 뒤 실행 체크리스트의 토큰·정적 시안 경계와 순서를 확정한다. 현재 925건은 잔여 상태이며 정책 0건으로 표시하지 않는다.
+
 ## 작업 1: 활성 랜딩 스타일
 
 대상: apps/web/src/features/landing/field-day.css와 랜딩 React 컴포넌트.
