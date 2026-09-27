@@ -151,7 +151,8 @@ export class PdfEnergyReportRenderer implements EnergyReportRenderer {
       fact("trend.note", 92, 650, 8, 425, false, color.muted);
     const plot = { x: 92, y: 365, w: 425, h: 268 };
     // A persisted amount from a partial or uncertain day is not a full-day
-    // measurement. Keep it in the detail table, but never connect it as a trend point.
+    // measurement. Retain it in the internal source/model, withhold its numeric
+    // daily display, and never connect it as a trend point.
     const values = model.daily.map(row => row.completeness !== "complete" || row.energy.raw === null ? null : Number(row.energy.raw));
     const maxDaily = Math.max(1, ...values.filter((value): value is number => value !== null));
     for (let tick = 0; tick <= 3; tick++) {
