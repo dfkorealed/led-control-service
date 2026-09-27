@@ -6,6 +6,7 @@ import { EnergyReportSnapshotService } from "./energy-report-snapshot.service";
 import { EnergyReportDocumentBuilder } from "./energy-report-document.builder";
 import { PdfEnergyReportRenderer } from "./pdf-energy-report.renderer";
 import { extractPdfReportManifest } from "./pdf-report-manifest";
+import { expectedPdfReportManifest } from "./pdf-energy-report.renderer";
 import { ObjectStorageService } from "../../storage/object-storage.service";
 import { expectedManifest } from "./report-renderer.test-support";
 import { EnergyReportCleanupService } from "./energy-report-cleanup.service";
@@ -274,8 +275,7 @@ const databaseUrl = process.env.ENERGY_REPORT_TEST_DATABASE_URL;
     const document = energyReportDocumentSchema.parse(completed.documentSnapshot);
     expect(document.schemaVersion).toBe(2);
     const leaves = expectedManifest(document);
-    const displayed = leaves.filter(token => !token.path.startsWith("calculationBasis.") && !/\.(visualization|rowIds)\.|\.source$/.test(token.path));
-    expect([...manifest].sort(byPath)).toEqual(displayed.sort(byPath));
+    expect([...manifest].sort(byPath)).toEqual(expectedPdfReportManifest(document).sort(byPath));
     expect(leaves).toEqual(expect.arrayContaining([
       { path: "calculationBasis.configurationSource", value: "captured_current_configuration" },
       { path: "sections.1.visualization.type", value: "daily_actual_vs_baseline" },

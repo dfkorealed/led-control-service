@@ -10,6 +10,8 @@ import { physicalPdfManifest, type PdfTextRun, type PdfTokenMapping } from "./pd
  */
 export async function extractPdfReportManifest(bytes: Uint8Array): Promise<ReportManifest> {
   const pdf = await PDFDocument.load(bytes);
+  const displayMap = pdf.catalog.lookupMaybe(PDFName.of("ReportDisplayMap"), PDFHexString);
+  if (displayMap) return extractDisplayManifest(pdf, displayMap);
   // pdf-lib spreads the entire UTF-16 token map onto the call stack. Two full
   // heatmaps exceed that limit; Buffer decoding is bounded by available memory.
   const tokenMap = Buffer.from(pdf.catalog.lookup(PDFName.of("ReportTokenMap"), PDFHexString).asBytes());
@@ -63,6 +65,60 @@ export async function extractPdfReportManifest(bytes: Uint8Array): Promise<Repor
     }
   }
   return physicalPdfManifest(mapping, pages);
+}
+
+/** The semantic report maps paths only. Values are decoded from visible glyphs,
+ * and their page order is checked after serialization. */
+function extractDisplayManifest(pdf: PDFDocument, displayMap: PDFHexString): ReportManifest {
+  const bytes = Buffer.from(displayMap.asBytes());
+  const paths = JSON.parse(bytes.subarray(2).swap16().toString("utf16le")) as string[];
+  if (!Array.isArray(paths) || paths.some(path => typeof path !== "string")) throw new Error("Invalid PDF display map");
+  const values = new Map<number, { nextPart: number; text: string }>();
+  let lastIndex = -1;
+  for (const page of pdf.getPages()) {
+    const fonts = page.node.Resources()!.lookup(PDFName.of("Font"), PDFDict);
+    const maps = new Map<string, Map<string, string>>();
+    for (const [name, ref] of fonts.entries()) {
+      const font = pdf.context.lookup(ref, PDFDict);
+      const cmap = decodeStream(font.lookup(PDFName.of("ToUnicode")) as PDFRawStream);
+      const characters = new Map<string, string>();
+      for (const block of cmap.matchAll(/beginbfchar([\s\S]*?)endbfchar/g))
+        for (const pair of block[1].matchAll(/<([0-9a-f]+)>\s*<([0-9a-f]+)>/gi))
+          characters.set(pair[1].toUpperCase().padStart(4, "0"), Buffer.from(pair[2], "hex").swap16().toString("utf16le"));
+      maps.set(name.asString().slice(1), characters);
+    }
+    const streams = page.node.Contents() as PDFArray;
+    for (let streamIndex = 0; streamIndex < streams.size(); streamIndex++) {
+      const content = decodeStream(streams.lookup(streamIndex, PDFRawStream));
+      for (const match of content.matchAll(/\/D(\d+)S(\d+) BMC([\s\S]*?)EMC/g)) {
+        const index = Number(match[1]);
+        const part = Number(match[2]);
+        if (index >= paths.length || index < lastIndex) throw new Error("Invalid PDF display order");
+        const state = values.get(index) ?? { nextPart: 0, text: "" };
+        if (part !== state.nextPart || (index > lastIndex && part !== 0)) throw new Error("Invalid PDF display continuation");
+        const position = /1 0 0 1 ([\d.]+) ([\d.]+) Tm/.exec(match[3]);
+        if (!position || Number(position[1]) < 44 || Number(position[1]) > 551.28 || Number(position[2]) < 44 || Number(position[2]) > 798)
+          throw new Error("PDF display text exceeds page bounds");
+        let line = "";
+        for (const run of match[3].matchAll(/\/([^\s/]+) [\d.]+ Tf[\s\S]*?<([0-9a-f]*)> Tj/gi)) {
+          const characters = maps.get(run[1]);
+          if (!characters) throw new Error("Missing PDF display font map");
+          for (const glyph of run[2].match(/.{4}/g) ?? []) {
+            const character = characters.get(glyph.toUpperCase());
+            if (character === undefined) throw new Error("Unmapped PDF display glyph");
+            line += character;
+          }
+        }
+        if (!line && match[3].includes(" Tj") === false) throw new Error("Missing PDF display text");
+        state.text += line;
+        state.nextPart++;
+        values.set(index, state);
+        lastIndex = index;
+      }
+    }
+  }
+  if (values.size !== paths.length) throw new Error("Missing PDF display value");
+  return paths.map((path, index) => ({ path, value: values.get(index)!.text }));
 }
 
 function decodeStream(stream: PDFRawStream): string { return Buffer.from(decodePDFRawStream(stream).decode()).toString(); }

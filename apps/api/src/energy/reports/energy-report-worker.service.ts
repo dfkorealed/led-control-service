@@ -5,9 +5,8 @@ import { createHash, randomUUID } from "node:crypto";
 import { PrismaService } from "../../prisma/prisma.service";
 import { ObjectStorageService } from "../../storage/object-storage.service";
 import { EnergyReportSnapshotService } from "./energy-report-snapshot.service";
-import { PdfEnergyReportRenderer } from "./pdf-energy-report.renderer";
+import { PdfEnergyReportRenderer, verifyPdfReportManifest } from "./pdf-energy-report.renderer";
 import { canonicalJson } from "./energy-report-document.builder";
-import { reportBlocks, verifyManifest } from "./report-renderer";
 import { ZodError } from "zod";
 
 @Injectable()
@@ -148,7 +147,9 @@ export class EnergyReportWorkerService implements OnModuleInit, OnModuleDestroy 
       await pulse(25);
       const rendered = await reportPhase("REPORT_RENDERING_FAILED", async () => {
         const result = await this.pdf.render(document);
-        verifyManifest(reportBlocks(document), result.manifest);
+        // The renderer returns glyphs extracted from serialized PDF bytes;
+        // compare their semantic display facts with this fingerprinted snapshot.
+        verifyPdfReportManifest(document, result.manifest);
         if (result.extension !== job.format || result.bytes.length < 1 || result.bytes.length > 25 * 1024 * 1024) {
           throw new Error("REPORT_FILE_INVALID");
         }

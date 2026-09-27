@@ -4,6 +4,64 @@ import type { EnergyReportDocument } from "@led-control/shared";
 import { createHash } from "node:crypto";
 import { buildReportVisuals } from "./report-visual-model";
 import { REPORT_CHART_SIZE, renderReportVisual, validateReportVisualPng, type RenderedReportVisual } from "./report-chart-image.renderer";
+import type { PdfReportPresentation } from "./pdf-report-presentation";
+import type { ReportManifest } from "./report-renderer";
+
+export const ENERGY_PDF_PAGE = { width: 595.28, height: 841.89, margin: 44, top: 798, bottom: 44 } as const;
+export const hasPdfAmount = (measure: { raw: string | null }) => measure.raw !== null && measure.raw !== "0";
+function qualitySummary(notes: string[]): string {
+  const selected = [notes[0]];
+  const hourly = notes.find(note => note.startsWith("요일·시간별 전력량:"));
+  if (hourly && hourly !== notes[0]) selected.push(hourly);
+  const rest = notes.length - selected.length;
+  return `${selected.join(" / ")}${rest ? ` 외 ${rest}건. 날짜별 자료 상태는 일별 상세를 확인하세요.` : ""}`;
+}
+function localCaptureTime(iso: string, timeZone: string): string {
+  const parts = new Intl.DateTimeFormat("en-US", { timeZone, year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).formatToParts(new Date(iso));
+  const value = (type: Intl.DateTimeFormatPartTypes) => parts.find(part => part.type === type)?.value;
+  return `${value("year")}-${value("month")}-${value("day")} ${value("hour")}:${value("minute")}`;
+}
+
+/** One entry per visible fact. This list is built independently of drawing so
+ * the worker can compare the serialized PDF glyphs with the snapshot. */
+export function pdfDisplayFacts(p: PdfReportPresentation): ReportManifest {
+  const facts: ReportManifest = [];
+  const add = (path: string, value: string) => facts.push({ path, value });
+  add("site", p.site);
+  if (p.target !== p.site) add("target", p.target);
+  add("period", `${p.period.from} ~ ${p.period.to}`);
+  add("quality.current", `${p.quality.current.completeDays}/${p.quality.current.totalDays}일`);
+  add("summary.current", p.summary.current.text);
+  add("summary.previous", p.summary.comparisonAvailable ? p.summary.previous.text : "비교 불가");
+  add("summary.difference", p.summary.comparisonAvailable ? p.summary.difference.text : "비교 불가");
+  add("summary.storedCost", p.summary.storedCost.text);
+  if (p.peakDay) { add("peakDay.date", p.peakDay.date); add("peakDay.energy", p.peakDay.energy.text); }
+  p.monthly.forEach((month, index) => {
+    add(`monthly.${index}.month`, month.month);
+    add(`monthly.${index}.energy`, month.energy.text);
+    add(`monthly.${index}.cost`, month.cost.text);
+  });
+  p.floors.rows.forEach((row, index) => { add(`floors.${index}.name`, row.name); add(`floors.${index}.energy`, row.energy.text); });
+  if (hasPdfAmount(p.floors.unassigned)) add("floors.unassigned", p.floors.unassigned.text);
+  p.fixtures.topFive.forEach((row, index) => { add(`fixtures.${index}.name`, row.name); add(`fixtures.${index}.energy`, row.energy.text); });
+  if (hasPdfAmount(p.fixtures.other)) add("fixtures.other", p.fixtures.other.text);
+  if (hasPdfAmount(p.fixtures.unassigned)) add("fixtures.unassigned", p.fixtures.unassigned.text);
+  add("heatmap.coverage", ({ complete: "완전", partial: "부분 기록", missing: "기록 없음", unknown: "확인 불가" } as const)[p.heatmapCoverage ?? "unknown"]);
+  if (p.peakCell) add("heatmap.peak", `${["일", "월", "화", "수", "목", "금", "토"][p.peakCell.weekday]}요일 ${String(p.peakCell.hour).padStart(2, "0")}:00 ${p.peakCell.energy.text}`);
+  p.dominantHours.forEach((hour, index) => add(`heatmap.hour.${index}`, `${String(hour.hour).padStart(2, "0")}:00 ${hour.energy.text}`));
+  add("document.formula", "차이 = 이번 기간 - 직전 동일 일수. 저장 비용은 당시 저장된 값입니다. 기록상의 차이는 검증된 절감량이 아닙니다.");
+  if (p.quality.notes.length) add("quality.note", qualitySummary(p.quality.notes));
+  add("timeZone", p.timeZone);
+  add("capturedAt", localCaptureTime(p.capturedAt, p.timeZone));
+  p.daily.forEach((row, index) => {
+    add(`daily.${index}.date`, row.date);
+    add(`daily.${index}.energy`, row.energy.text);
+    add(`daily.${index}.cost`, row.cost.text);
+    add(`daily.${index}.status`, row.completeness === "complete" ? "완전" : row.completeness === "missing" ? "기록 없음" : row.completeness === "partial" ? "부분 기록" : "확인 불가");
+  });
+  return facts;
+}
 
 export type ReportVisualManifest = Array<{ id: string; sha256: string; width: number; height: number }>;
 
