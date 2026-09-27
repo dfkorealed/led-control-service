@@ -1,8 +1,13 @@
-import { BadRequestException, NotFoundException } from "@nestjs/common";
+import { BadRequestException, GoneException, NotFoundException } from "@nestjs/common";
 import { AuthenticatedUser } from "../auth/auth.types";
 import { CommandStatusService } from "./command-status.service";
 
 describe("CommandStatusService", () => {
+  afterEach(() => {
+    delete process.env.COMMAND_HISTORY_RETENTION_ENABLED;
+    delete process.env.COMMAND_RECOVERY_ACTIONS_ENABLED;
+    delete process.env.COMMAND_RECOVERY_PUBLISHER_READY;
+  });
   const user: AuthenticatedUser = {
     id: "user-1", organizationId: "org-1", organizationType: "customer", loginId: "fixture_user", name: "Admin", role: "admin", mustChangePassword: false, status: "active"
   };
@@ -141,6 +146,67 @@ describe("CommandStatusService", () => {
     expect(access.assert).toHaveBeenCalledWith(user, "site-1", "read");
   });
 
+  it.each([
+    ["2026-05-31T12:00:00.000Z", "2026-02-28T12:00:00.000Z"],
+    ["2026-02-28T12:00:00.000Z", "2025-11-28T12:00:00.000Z"],
+    ["2026-01-31T12:00:00.000Z", "2025-10-31T12:00:00.000Z"]
+  ])("uses one UTC calendar cutoff at %s for list and cursor", async (nowIso, cutoffIso) => {
+    enableReadCutoff();
+    const now = new Date(nowIso);
+    const cutoff = new Date(cutoffIso);
+    const prisma = { $queryRaw: jest.fn().mockResolvedValue([]), command: { findMany: jest.fn().mockResolvedValue([]) } };
+    const service = new (CommandStatusService as any)(prisma, { assert: jest.fn() });
+    await expect(service.listCommands(user, { siteId: "site-1" }, now)).resolves.toMatchObject({
+      generatedAt: nowIso, retainedFrom: cutoffIso, items: [], nextCursor: null
+    });
+    expect(prisma.command.findMany.mock.calls[0][0].where.AND).toContainEqual({ createdAt: { gte: cutoff } });
+
+    const exactCursor = Buffer.from(JSON.stringify({ id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", createdAt: cutoffIso })).toString("base64url");
+    await expect(service.listCommands(user, { siteId: "site-1", cursor: exactCursor }, now)).resolves.toMatchObject({ items: [] });
+    const expiredCursor = Buffer.from(JSON.stringify({ id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      createdAt: new Date(cutoff.getTime() - 1).toISOString() })).toString("base64url");
+    const expired = await service.listCommands(user, { siteId: "site-1", cursor: expiredCursor }, now).catch((error: unknown) => error);
+    expect(expired).toBeInstanceOf(BadRequestException);
+    expect(expired.getResponse()).toMatchObject({ code: "command_history_cursor_expired" });
+    expect(prisma.command.findMany).toHaveBeenCalledTimes(2);
+  });
+
+  it("hides old originals even when their updatedAt is recent, without exposing dispatch payload", async () => {
+    enableReadCutoff();
+    const old = { ...historyCommand("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"),
+      createdAt: new Date("2026-02-28T11:59:59.999Z"), updatedAt: new Date("2026-05-31T11:59:59.999Z") };
+    const prisma = { $queryRaw: jest.fn().mockResolvedValue([]), command: { findUnique: jest.fn().mockResolvedValue(old) } };
+    const service = new (CommandStatusService as any)(prisma, { assert: jest.fn() });
+    const error = await service.getCommand(user, old.id, new Date("2026-05-31T12:00:00.000Z")).catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(GoneException);
+    expect(error.getResponse()).toMatchObject({ code: "command_expired" });
+    expect(prisma.command.findUnique).toHaveBeenCalledTimes(1);
+  });
+
+  it("preserves the legacy unknown detail and history path until hold/UI rollout is ready", async () => {
+    process.env.COMMAND_HISTORY_RETENTION_ENABLED = "1";
+    const old = { ...historyCommand("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"),
+      createdAt: new Date("2026-01-01T00:00:00.000Z") };
+    const prisma = { command: { findUnique: jest.fn().mockResolvedValue(old),
+      findMany: jest.fn().mockResolvedValue([old]) } };
+    const service = new (CommandStatusService as any)(prisma, { assert: jest.fn() });
+    await expect(service.getCommand(user, old.id, new Date("2026-09-25T00:00:00.000Z"))).resolves.toMatchObject({ id: old.id });
+    await expect(service.listCommands(user, { siteId: "site-1" }, new Date("2026-09-25T00:00:00.000Z")))
+      .resolves.toMatchObject({ items: [expect.objectContaining({ id: old.id })] });
+    expect(prisma.command.findMany.mock.calls[0][0].where.AND).toEqual([]);
+  });
+
+  it("returns 410 if the detail row is purged between authorization and second read but its hold remains", async () => {
+    const prisma = { command: { findUnique: jest.fn().mockResolvedValueOnce({ siteId: "site-1",
+      createdAt: new Date("2026-09-01T00:00:00.000Z") }).mockResolvedValueOnce(null) },
+      unresolvedCommandHold: { findUnique: jest.fn().mockResolvedValue({ siteId: "site-1" }) } };
+    const service = new (CommandStatusService as any)(prisma, { assert: jest.fn() });
+    const error = await service.getCommand(user, "command-1", new Date("2026-09-25T00:00:00.000Z"))
+      .catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(GoneException);
+    expect(error.getResponse()).toEqual({ code: "command_expired" });
+  });
+
   it("keeps both ID and fixture search branches inside the requested site and stage", async () => {
     const prisma = { command: { findMany: jest.fn().mockResolvedValue([]) } };
     const service = new (CommandStatusService as any)(prisma, { assert: jest.fn() });
@@ -190,10 +256,36 @@ describe("CommandStatusService", () => {
   });
 
   it("does not reveal a command outside the user's organization", async () => {
-    const prisma: any = { command: { findUnique: jest.fn().mockResolvedValue(null) } };
+    const prisma: any = { command: { findUnique: jest.fn().mockResolvedValue(null) },
+      unresolvedCommandHold: { findUnique: jest.fn().mockResolvedValue(null) } };
     const service = new (CommandStatusService as any)(prisma, { assert: jest.fn() });
 
     await expect(service.getCommand(user, "command-other")).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it("returns payload-free 410 for an authorized purged original with an unresolved hold", async () => {
+    const prisma: any = { command: { findUnique: jest.fn().mockResolvedValue(null) },
+      unresolvedCommandHold: { findUnique: jest.fn().mockResolvedValue({ siteId: "site-1" }) } };
+    const access = { assert: jest.fn() };
+    const service = new (CommandStatusService as any)(prisma, access);
+    const error = await service.getCommand(user, "command-purged").catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(GoneException);
+    expect(error.getResponse()).toEqual({ code: "command_expired" });
+    expect(access.assert).toHaveBeenCalledWith(user, "site-1", "read");
+    expect(prisma.command.findUnique).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps purged resolved and foreign holds indistinguishable from absent commands", async () => {
+    const absent = { command: { findUnique: jest.fn().mockResolvedValue(null) },
+      unresolvedCommandHold: { findUnique: jest.fn().mockResolvedValue(null) } };
+    const foreign = { command: { findUnique: jest.fn().mockResolvedValue(null) },
+      unresolvedCommandHold: { findUnique: jest.fn().mockResolvedValue({ siteId: "foreign" }) } };
+    const absentError = await new (CommandStatusService as any)(absent, { assert: jest.fn() })
+      .getCommand(user, "old").catch((caught: unknown) => caught);
+    const foreignError = await new (CommandStatusService as any)(foreign,
+      { assert: jest.fn().mockRejectedValue(new NotFoundException()) }).getCommand(user, "old").catch((caught: unknown) => caught);
+    expect(absentError.getResponse()).toEqual(foreignError.getResponse());
+    expect(absentError.getResponse()).toMatchObject({ code: "command_not_found" });
   });
 
   it("reports partial failure when terminal fixture results are mixed", async () => {
@@ -253,7 +345,8 @@ describe("CommandStatusService", () => {
 
   it("returns the same public 404 response for absent and inaccessible commands", async () => {
     const absentService = new (CommandStatusService as any)(
-      { command: { findUnique: jest.fn().mockResolvedValue(null) } },
+      { command: { findUnique: jest.fn().mockResolvedValue(null) },
+        unresolvedCommandHold: { findUnique: jest.fn().mockResolvedValue(null) } },
       { assert: jest.fn() }
     );
     const inaccessibleService = new (CommandStatusService as any)(
@@ -277,4 +370,10 @@ function historyCommand(id: string, outcome = "unknown", attempt = 0) {
     status: "failed", outcome, errorMessage: "deadline exceeded", createdAt: new Date("2026-09-12T00:00:00.000Z"), updatedAt: new Date("2026-09-12T00:00:01.000Z"),
     dispatches: [dispatch, ...(attempt ? [{ ...dispatch, id: "check-1", kind: "status_check", verificationAttempt: attempt },
       { ...dispatch, id: "check-2", kind: "status_check", verificationAttempt: attempt }] : [])] };
+}
+
+function enableReadCutoff() {
+  process.env.COMMAND_HISTORY_RETENTION_ENABLED = "1";
+  process.env.COMMAND_RECOVERY_ACTIONS_ENABLED = "1";
+  process.env.COMMAND_RECOVERY_PUBLISHER_READY = "1";
 }

@@ -6,6 +6,7 @@ import { AuthenticatedUser } from "../auth/auth.types";
 import { CommandsService } from "./commands.service";
 import { commandHistoryQuerySchema, CommandStatusService } from "./command-status.service";
 import { CommandVerificationService } from "./command-verification.service";
+import { CommandRecoveryService } from "./command-recovery.service";
 import { z } from "zod";
 
 const statusCheckRequestSchema = z.object({ clientRequestId: z.string().uuid() }).strict();
@@ -16,7 +17,8 @@ export class CommandsController {
   constructor(
     private readonly commandsService: CommandsService,
     private readonly commandStatusService: CommandStatusService,
-    private readonly commandVerificationService: CommandVerificationService
+    private readonly commandVerificationService: CommandVerificationService,
+    private readonly commandRecoveryService: CommandRecoveryService
   ) {}
 
   @Get()
@@ -24,6 +26,17 @@ export class CommandsController {
     const parsed = commandHistoryQuerySchema.safeParse(query);
     if (!parsed.success) throw new BadRequestException("invalid command history query");
     return this.commandStatusService.listCommands(user, parsed.data);
+  }
+
+  @Get("requiring-verification")
+  listVerificationCases(@Query() query: unknown, @CurrentUser() user: AuthenticatedUser) {
+    // Site authorization precedes all filter/cursor parsing in the service.
+    return this.commandRecoveryService.listCases(user, query);
+  }
+
+  @Get("requiring-verification/:caseId")
+  getVerificationCase(@Param("caseId") caseId: string, @CurrentUser() user: AuthenticatedUser) {
+    return this.commandRecoveryService.getCase(user, caseId);
   }
 
   @Get(":commandId")

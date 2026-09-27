@@ -1,9 +1,11 @@
-import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, GoneException, Injectable, NotFoundException } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import { z } from "zod";
 import { SiteAccessService } from "../access/site-access.service";
 import { AuthenticatedUser } from "../auth/auth.types";
 import { PrismaService } from "../prisma/prisma.service";
+import { threeCalendarMonthsBefore } from "../retention/calendar-month-window";
+import { commandHistoryRetentionReady } from "./command-history-rollout";
 
 type ResultStatus = "pending" | "succeeded" | "failed" | "timed_out";
 
@@ -31,13 +33,15 @@ export class CommandStatusService {
     private readonly siteAccess: SiteAccessService
   ) {}
 
-  async listCommands(user: AuthenticatedUser, input: HistoryInput) {
+  async listCommands(user: AuthenticatedUser, input: HistoryInput, now = new Date()) {
     await this.siteAccess.assert(user, input.siteId, "read");
+    const retentionEnabled = await commandHistoryRetentionReady(this.prisma, input.siteId, now);
+    const retainedFrom = threeCalendarMonthsBefore(now);
     const limit = input.limit ?? 20;
     if (!Number.isInteger(limit) || limit < 1 || limit > 100 || (input.query?.length ?? 0) > 100) {
       throw new BadRequestException("invalid command history query");
     }
-    const filters: Prisma.CommandWhereInput[] = [];
+    const filters: Prisma.CommandWhereInput[] = retentionEnabled ? [{ createdAt: { gte: retainedFrom } }] : [];
     const query = input.query?.trim();
     if (query) filters.push({ OR: [
       { id: { startsWith: query, mode: "insensitive" } },
@@ -46,6 +50,9 @@ export class CommandStatusService {
     if (input.stage) filters.push(stageFilter(input.stage));
     if (input.cursor) {
       const cursor = parseHistoryCursor(input.cursor);
+      if (retentionEnabled && cursor.createdAt < retainedFrom) {
+        throw new BadRequestException({ code: "command_history_cursor_expired" });
+      }
       filters.push({ OR: [
         { createdAt: { lt: cursor.createdAt } },
         { createdAt: cursor.createdAt, id: { lt: cursor.id } }
@@ -62,23 +69,43 @@ export class CommandStatusService {
     const last = page.at(-1);
     return {
       items: page.map(summarizeCommand),
+      ...(retentionEnabled ? { generatedAt: now.toISOString(), retainedFrom: retainedFrom.toISOString() } : {}),
       nextCursor: commands.length > limit && last ? Buffer.from(JSON.stringify({
         id: last.id, createdAt: last.createdAt.toISOString()
       })).toString("base64url") : null
     };
   }
 
-  async getCommand(user: AuthenticatedUser, commandId: string) {
+  async getCommand(user: AuthenticatedUser, commandId: string, now = new Date()) {
     const scopedCommand = await this.prisma.command.findUnique({
       where: { id: commandId },
-      select: { siteId: true }
+      select: { siteId: true, createdAt: true }
     });
-    if (!scopedCommand) throw new NotFoundException("command not found");
+    if (!scopedCommand) {
+      // Once the Command row is physically gone, only a minimal unresolved
+      // recovery case may establish an authorized payload-free expiry answer.
+      const hold = await this.prisma.unresolvedCommandHold.findUnique({
+        where: { originalCommandId: commandId }, select: { siteId: true }
+      });
+      if (!hold) throw commandNotFound();
+      try {
+        await this.siteAccess.assert(user, hold.siteId, "read");
+      } catch (error) {
+        if (error instanceof NotFoundException) throw commandNotFound();
+        throw error;
+      }
+      throw new GoneException({ code: "command_expired" });
+    }
     try {
       await this.siteAccess.assert(user, scopedCommand.siteId, "read");
     } catch (error) {
-      if (error instanceof NotFoundException) throw new NotFoundException("command not found");
+      if (error instanceof NotFoundException) throw commandNotFound();
       throw error;
+    }
+    // A delayed physical sweep must never extend the customer-visible history window.
+    if (await commandHistoryRetentionReady(this.prisma, scopedCommand.siteId, now)
+      && scopedCommand.createdAt < threeCalendarMonthsBefore(now)) {
+      throw new GoneException({ code: "command_expired" });
     }
 
     const command = await this.prisma.command.findUnique({
@@ -96,7 +123,13 @@ export class CommandStatusService {
         }
       }
     });
-    if (!command) throw new NotFoundException("command not found");
+    if (!command) {
+      const hold = await this.prisma.unresolvedCommandHold.findUnique({
+        where: { originalCommandId: commandId }, select: { siteId: true }
+      });
+      if (hold?.siteId === scopedCommand.siteId) throw new GoneException({ code: "command_expired" });
+      throw commandNotFound();
+    }
 
     return {
       ...summarizeCommand(command),
@@ -127,6 +160,10 @@ export class CommandStatusService {
       }))
     };
   }
+}
+
+function commandNotFound() {
+  return new NotFoundException({ code: "command_not_found", message: "command not found" });
 }
 
 function summarizeCommand(command: SummaryCommand) {
