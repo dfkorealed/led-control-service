@@ -1,6 +1,8 @@
 import { gatewayEventWatermarkMock } from "../../test/support/gateway-event-watermark.mock";
 import { Logger } from "@nestjs/common";
 import { EventEmitter } from "node:events";
+import mqtt from "mqtt";
+import { disposableMosquitto } from "../../test/support/disposable-mosquitto";
 import { createMqttConnectionOptions, MqttService } from "./mqtt.service";
 import { mqttTopicsV2 } from "@led-control/shared";
 
@@ -756,15 +758,19 @@ describe("MqttService", () => {
     try {
       let lastMessageId = 0;
       const callbacks = new Map<number, (error?: Error) => void>();
+      const outgoing: Record<number, { cb: (error?: Error) => void }> = {};
       const client: any = {
+        outgoing,
         publish: jest.fn((_topic, _payload, _options, callback) => {
           lastMessageId += 1;
           callbacks.set(lastMessageId, callback);
+          outgoing[lastMessageId] = { cb: callback };
           return client;
         }),
         getLastMessageId: jest.fn(() => lastMessageId),
         removeOutgoingMessage: jest.fn((messageId: number) => {
           callbacks.get(messageId)?.(new Error("Message removed"));
+          delete outgoing[messageId];
           return client;
         })
       };
@@ -791,6 +797,154 @@ describe("MqttService", () => {
       jest.useRealTimers();
     }
   });
+
+  it("does not cancel another QoS 1 packet when MQTT.js defers ID allocation for this publish", async () => {
+    jest.useFakeTimers();
+    try {
+      let lastMessageId = 0;
+      let firstCallback: ((error?: Error) => void) | undefined;
+      const outgoing: Record<number, { cb: (error?: Error) => void }> = {};
+      const client: any = {
+        outgoing,
+        publish: jest.fn((_topic: string, _payload: string, _options: unknown,
+          callback: (error?: Error) => void) => {
+          if (lastMessageId === 0) {
+            lastMessageId = 1;
+            firstCallback = callback;
+            outgoing[1] = { cb: callback };
+          }
+          // MQTT.js queues the second invocation during outgoing-store replay
+          // and has not allocated its own message ID yet.
+          return client;
+        }),
+        getLastMessageId: jest.fn(() => lastMessageId),
+        removeOutgoingMessage: jest.fn((messageId: number) => {
+          outgoing[messageId]?.cb(new Error("Message removed"));
+          delete outgoing[messageId];
+          return client;
+        })
+      };
+      const service = new MqttService({} as never, createMeshGroupsMock() as never);
+      (service as any).client = client;
+      const first = service.publishTopic("topic/first", { id: 1 }, { timeoutMs: 5_000 });
+      const firstResult = first.then(() => "resolved", (error: Error) => error.message);
+      const second = service.publishTopic("topic/deferred", { id: 2 }, { timeoutMs: 1_000 });
+      const secondSettled = second.then(() => "resolved", (error: Error) => error.message);
+      await jest.advanceTimersByTimeAsync(1_000);
+      expect(await secondSettled).toBe("MQTT publish timed out after 1000ms");
+      expect(client.removeOutgoingMessage).not.toHaveBeenCalled();
+      firstCallback?.();
+      expect(await firstResult).toBe("resolved");
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it("cancels only its own packet if another QoS 1 packet gets the global last ID during publish", async () => {
+    jest.useFakeTimers();
+    try {
+      let lastMessageId = 1;
+      const otherCallback = jest.fn();
+      const outgoing: Record<number, { cb: (error?: Error) => void }> = {};
+      const client: any = {
+        outgoing,
+        publish: jest.fn((_topic: string, _payload: string, _options: unknown,
+          callback: (error?: Error) => void) => {
+          outgoing[2] = { cb: callback };
+          outgoing[3] = { cb: otherCallback };
+          lastMessageId = 3;
+          return client;
+        }),
+        getLastMessageId: jest.fn(() => lastMessageId),
+        removeOutgoingMessage: jest.fn((messageId: number) => {
+          outgoing[messageId]?.cb(new Error("Message removed"));
+          delete outgoing[messageId];
+          return client;
+        })
+      };
+      const service = new MqttService({} as never, createMeshGroupsMock() as never);
+      (service as any).client = client;
+      const publishing = service.publishTopic("topic/own", { id: 2 }, { timeoutMs: 1_000 });
+      const result = publishing.then(() => "resolved", (error: Error) => error.message);
+
+      await jest.advanceTimersByTimeAsync(1_000);
+      expect(await result).toBe("MQTT publish timed out after 1000ms");
+      expect(client.removeOutgoingMessage).toHaveBeenCalledTimes(1);
+      expect(client.removeOutgoingMessage).toHaveBeenCalledWith(2);
+      expect(otherCallback).not.toHaveBeenCalled();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it("does not cancel a reused ID when MQTT replaces the pending callback before timeout", async () => {
+    jest.useFakeTimers();
+    try {
+      const replacementCallback = jest.fn();
+      const outgoing: Record<number, { cb: (error?: Error) => void }> = {};
+      const client: any = {
+        outgoing,
+        publish: jest.fn((_topic: string, _payload: string, _options: unknown,
+          callback: (error?: Error) => void) => {
+          outgoing[7] = { cb: callback };
+          return client;
+        }),
+        getLastMessageId: jest.fn(() => 7),
+        removeOutgoingMessage: jest.fn((messageId: number) => {
+          outgoing[messageId]?.cb(new Error("Message removed"));
+          return client;
+        })
+      };
+      const service = new MqttService({} as never, createMeshGroupsMock() as never);
+      (service as any).client = client;
+      const publishing = service.publishTopic("topic/replaced", { id: 7 }, { timeoutMs: 1_000 });
+      const result = publishing.then(() => "resolved", (error: Error) => error.message);
+      outgoing[7] = { cb: replacementCallback };
+
+      await jest.advanceTimersByTimeAsync(1_000);
+      expect(await result).toBe("MQTT publish timed out after 1000ms");
+      expect(client.removeOutgoingMessage).not.toHaveBeenCalled();
+      expect(replacementCallback).not.toHaveBeenCalled();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  (process.env.MQTT_MESSAGE_ID_BROKER_TEST === "1" ? it : it.skip)(
+    "does not cancel another real MQTT.js packet when store processing defers this publish", async () => {
+      const broker = await disposableMosquitto();
+      const client = mqtt.connect(broker.url, { protocolVersion: 5, reconnectPeriod: 0 });
+      try {
+        await new Promise<void>(resolve => client.once("connect", () => resolve()));
+        const service = new MqttService({} as never, createMeshGroupsMock() as never);
+        (service as any).client = client;
+        const removed = jest.spyOn(client, "removeOutgoingMessage");
+        client.stream.pause();
+        const first = new Promise<void>((resolve, reject) => client.publish(
+          "topic/first", "first", { qos: 1 }, error => error ? reject(error) : resolve()
+        ));
+        const firstResult = first.then(() => "resolved", (error: Error) => error.message);
+        const firstId = client.getLastMessageId();
+        expect(client.outgoing[firstId]).toBeDefined();
+        // Force the same queue state used while MQTT.js replays its outgoing
+        // store; the broker/client, ID allocator and pending first packet are real.
+        (client as any)._storeProcessing = true;
+
+        await expect(service.publishTopic("topic/deferred", { id: 2 }, { timeoutMs: 100 }))
+          .rejects.toThrow("MQTT publish timed out after 100ms");
+        expect(removed).not.toHaveBeenCalled();
+        expect(client.outgoing[firstId]).toBeDefined();
+        (client as any)._storeProcessing = false;
+        (client as any)._storeProcessingQueue.length = 0;
+        client.stream.resume();
+        expect(await firstResult).toBe("resolved");
+      } finally {
+        client.stream?.resume();
+        await client.endAsync(true);
+        await broker.stop();
+      }
+    }, 20_000
+  );
 
   it("marks a gateway dispatch accepted from a scoped acceptance ACK", async () => {
     const prisma: any = {

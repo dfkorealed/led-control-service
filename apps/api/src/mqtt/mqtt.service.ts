@@ -261,17 +261,24 @@ export class MqttService implements OnModuleInit {
               messageExpiryInterval: options.messageExpiryInterval ?? GATEWAY_COMMAND_ACCEPTANCE_DEADLINE_MS / 1000
             }
           };
-      client.publish(topic, JSON.stringify(payload), publishOptions, (error) => {
+      const onPublished = (error?: Error) => {
         finish(error ?? undefined);
-      });
+      };
+      client.publish(topic, JSON.stringify(payload), publishOptions, onPublished);
 
       if (settled || options.timeoutMs === undefined) return;
-      const messageId = client.getLastMessageId();
       timeout = setTimeout(() => {
         if (settled) return;
         settled = true;
         timeout = null;
-        client.removeOutgoingMessage(messageId);
+        // MQTT.js 5.15.2 exposes outgoing[messageId].cb for QoS 1. Its global
+        // last ID may belong to another packet, especially during store replay.
+        // Cancel only an entry still owned by this exact publish callback;
+        // absent/replaced entries fail closed. A deferred packet may still be
+        // sent later, so this is not a Command-retention purge safety proof.
+        const ownMessageId = Object.entries(client.outgoing ?? {})
+          .find(([, entry]) => entry?.cb === onPublished)?.[0];
+        if (ownMessageId !== undefined) client.removeOutgoingMessage(Number(ownMessageId));
         reject(new Error(`MQTT publish timed out after ${options.timeoutMs}ms`));
       }, options.timeoutMs);
     });

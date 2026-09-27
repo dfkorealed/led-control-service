@@ -169,8 +169,10 @@ describe("MqttShutdownCoordinator", () => {
     let client: any;
     client = Object.assign(new EventEmitter(), {
       subscribe: jest.fn(),
+      outgoing: {} as Record<number, { cb: (error?: Error) => void }>,
       publish: jest.fn((topic: string, _payload: string, _options: object, callback: (error?: Error) => void) => {
         lastMessageId += 1;
+        client.outgoing[lastMessageId] = { cb: callback };
         if (topic.endsWith("/commands/mesh-group/subscription-sync")) {
           order.push("mesh-publish-started");
           meshPublishCallback = (error?: Error) => {
