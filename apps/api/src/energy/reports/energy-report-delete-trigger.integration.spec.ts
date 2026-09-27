@@ -43,7 +43,7 @@ const databaseUrl = process.env.ENERGY_REPORT_TEST_DATABASE_URL;
     await prisma.organization.delete({ where: { id: organizationId } });
     await prisma.$disconnect();
   });
-  const enqueue = async (format: "xlsx" | "pdf", attemptCount: number) => {
+  const enqueue = async (format: "pdf", attemptCount: number) => {
     const siteId = randomUUID(); sites.push(siteId);
     await prisma.site.create({ data: { id: siteId, organizationId, name: "Post-migration old API" } });
     return prisma.energyReportJob.create({ data: {
@@ -56,7 +56,7 @@ const databaseUrl = process.env.ENERGY_REPORT_TEST_DATABASE_URL;
 
   it.each([
     { deletion: "site cascade", format: "pdf" as const, attemptCount: 0 },
-    { deletion: "manual DELETE", format: "xlsx" as const, attemptCount: 1 },
+    { deletion: "manual DELETE", format: "pdf" as const, attemptCount: 1 },
     { deletion: "legacy ninety-day DELETE", format: "pdf" as const, attemptCount: 3 }
   ])("reaps late uploads after $deletion by an old instance without runtime inventory", async ({ deletion, format, attemptCount }) => {
     const job = await enqueue(format, attemptCount);
@@ -69,8 +69,7 @@ const databaseUrl = process.env.ENERGY_REPORT_TEST_DATABASE_URL;
     else await prisma.$executeRaw`DELETE FROM "EnergyReportJob" WHERE "id" = ${job.id}
       AND "status" = 'failed' AND "createdAt" <= (clock_timestamp() AT TIME ZONE 'UTC') - interval '90 days'`;
     expect(await prisma.energyReportJob.findUnique({ where: { id: job.id } })).toBeNull();
-    const contentType = format === "pdf" ? "application/pdf" : "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
-    for (const key of keys) await storage.putReportObject(key, Buffer.from("late legacy upload"), contentType);
+    for (const key of keys) await storage.putReportObject(key, Buffer.from("late legacy upload"), "application/pdf");
     await cleanup.prune(new Date(Date.now() + 60_000));
     expect(objects.size).toBe(0);
     expect(await prisma.energyReportObjectCleanup.findUnique({ where: { reportId: job.id } })).toMatchObject({

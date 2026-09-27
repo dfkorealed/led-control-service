@@ -5,7 +5,6 @@ import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 import { EnergyReportDocumentBuilder } from "./energy-report-document.builder";
 import { EnergyReportSnapshotService } from "./energy-report-snapshot.service";
-import { ExcelEnergyReportRenderer } from "./excel-energy-report.renderer";
 import { PdfEnergyReportRenderer } from "./pdf-energy-report.renderer";
 import type { EnergyReportDocument } from "@led-control/shared";
 
@@ -44,12 +43,12 @@ const databaseUrl = process.env.ENERGY_REPORT_TEST_DATABASE_URL;
     sql(`DROP SCHEMA IF EXISTS "${schema}" CASCADE;`);
   });
 
-  it("keeps upgraded authoritative totals/costs but no fabricated historical rankings, in identical files", async () => {
+  it("keeps upgraded authoritative totals/costs but no fabricated historical rankings in PDF", async () => {
     const identity = await prisma.energyFixtureIdentity.findUniqueOrThrow({ where: { fixtureId } });
     expect(identity.trackingStartedAt.getTime()).toBeGreaterThan(Date.parse("2026-09-02T15:00:00Z"));
     const snapshots = new EnergyReportSnapshotService(prisma as never, new EnergyReportDocumentBuilder());
     const { dataSnapshot, documentSnapshot: document } = await snapshots.capture(randomUUID(), siteId,
-      { from: "2026-09-02", to: "2026-09-02", scope: "site", identityId: siteId, format: "xlsx" }, new Date("2026-09-12T00:00:00Z"));
+      { from: "2026-09-02", to: "2026-09-02", scope: "site", identityId: siteId, format: "pdf" }, new Date("2026-09-12T00:00:00Z"));
     expect(dataSnapshot.fixtures[0].daily).toEqual([
       { localDate: "2026-09-01", energyKwh: "0.5", cost: "50", durationSeconds: 900 },
       { localDate: "2026-09-02", energyKwh: "1.25", cost: "187.5", durationSeconds: 1800 }
@@ -60,9 +59,8 @@ const databaseUrl = process.env.ENERGY_REPORT_TEST_DATABASE_URL;
       ["차이", null, 0.75, 137.5], ["변화율", null, 150, 275]
     ]);
     for (const kind of ["fixture", "floor", "group"]) expect(table(document, `${kind}-ranking`)).toEqual([]);
-    const xlsx = await new ExcelEnergyReportRenderer().render(document);
     const pdf = await new PdfEnergyReportRenderer().render(document);
-    expect(xlsx.manifest).toEqual(pdf.manifest);
+    expect(pdf.bytes.length).toBeGreaterThan(0);
     expect(document).toMatchObject({ schemaVersion: 2, calculationBasis: { tariffKwhRate: "9999", baselineReason: "dimension_history_missing", expectedSeconds: null, knownSeconds: null } });
     expect(JSON.stringify(document)).not.toMatch(/forecast|carbon|emission|탄소|최적화/i);
     const retiredId = randomUUID();

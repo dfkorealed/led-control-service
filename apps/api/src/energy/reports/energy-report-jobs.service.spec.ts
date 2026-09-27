@@ -14,12 +14,12 @@ const siteId = "20000000-0000-4000-8000-000000000001";
 const reportId = "10000000-0000-4000-8000-000000000001";
 const actorId = "30000000-0000-4000-8000-000000000001";
 const user = { id: actorId, loginId: "report.reader" } as never;
-const request = { from: "2026-09-01", to: "2026-09-02", scope: "site", identityId: siteId, format: "xlsx" };
+const request = { from: "2026-09-01", to: "2026-09-02", scope: "site", identityId: siteId, format: "pdf" };
 const now = new Date("2026-09-10T00:00:00Z");
 function job(overrides: Record<string, unknown> = {}) {
   return { id: reportId, siteId, requestSnapshot: request, status: "queued", progressPercent: 0,
     createdAt: now, startedAt: null, completedAt: null, expiresAt: null, failureCode: null,
-    objectKey: null, format: "xlsx", objectDeletedAt: null, targetLabelSnapshot: null, ...overrides };
+    objectKey: null, format: "pdf", objectDeletedAt: null, targetLabelSnapshot: null, ...overrides };
 }
 function setup() {
   const prisma = { $transaction: jest.fn(), $queryRaw: jest.fn().mockResolvedValue([{ id: siteId }]),
@@ -75,7 +75,7 @@ describe("EnergyReportJobsService", () => {
     expect(result).toMatchObject({ siteId, request, status: "queued", progressPercent: 0 });
     const data = prisma.energyReportJob.create.mock.calls[0][0].data;
     expect(data).toMatchObject({ requestedByUserId: actorId, requestedByActorId: actorId,
-      requestedByLoginIdSnapshot: "report.reader", format: "xlsx", requestSnapshot: request,
+      requestedByLoginIdSnapshot: "report.reader", format: "pdf", requestSnapshot: request,
       requestHash: createHash("sha256").update(canonicalJson(request)).digest("hex") });
     expect(data.documentSnapshot).toBeUndefined();
     expect(data.dataSnapshot).toBeUndefined();
@@ -101,6 +101,7 @@ describe("EnergyReportJobsService", () => {
 
   it("rejects extra section fields and inverted dates without creating a job", async () => {
     const { service, prisma, client } = setup();
+    await expect(service.create(user, siteId, { ...request, format: "xlsx" }, now)).rejects.toBeInstanceOf(BadRequestException);
     await expect(service.create(user, siteId, { ...request, sections: ["summary"] }, now)).rejects.toBeInstanceOf(BadRequestException);
     expect(prisma.energyReportJob.findFirst).not.toHaveBeenCalled();
     await expect(service.create(user, siteId, { ...request, to: "2026-08-31" }, now)).rejects.toBeInstanceOf(BadRequestException);
@@ -111,7 +112,7 @@ describe("EnergyReportJobsService", () => {
   it("reuses the active canonical request after read-only preflight without writing a new snapshot", async () => {
     const { service, prisma, client } = setup();
     prisma.energyReportJob.findFirst.mockResolvedValue(job() as never);
-    const result = await service.create(user, siteId, { format: "xlsx", identityId: siteId, scope: "site", to: request.to, from: request.from }, now);
+    const result = await service.create(user, siteId, { format: "pdf", identityId: siteId, scope: "site", to: request.to, from: request.from }, now);
     expect(result.reportId).toBe(reportId);
     expect(prisma.energyReportJob.findFirst).toHaveBeenCalledWith(expect.objectContaining({ where: {
       siteId, requestedByActorId: actorId, requestHash: expect.stringMatching(/^[a-f0-9]{64}$/), status: { in: ["queued", "processing"] }
@@ -204,7 +205,7 @@ describe("EnergyReportJobsService", () => {
   it("keeps the same expired report eligible before and after cleanup for both the page and total count", async () => {
     const { service, prisma, client } = setup();
     const elapsedBeforeCleanup = job({ status: "completed", progressPercent: 100, startedAt: now, completedAt: now,
-      expiresAt: now, objectKey: `reports/${siteId}/${reportId}/attempt-1.xlsx` });
+      expiresAt: now, objectKey: `reports/${siteId}/${reportId}/attempt-1.pdf` });
     const storedAfterCleanup = { ...elapsedBeforeCleanup, status: "expired", objectDeletedAt: now };
     prisma.energyReportJob.findMany.mockResolvedValueOnce([elapsedBeforeCleanup] as never).mockResolvedValueOnce([storedAfterCleanup] as never);
     prisma.energyReportJob.count.mockResolvedValue(1);
@@ -263,7 +264,7 @@ describe("EnergyReportJobsService", () => {
     prisma.energyReportJob.findFirst.mockResolvedValue(job({ status: ["elapsed", "deleted", "wrong-key"].includes(state) ? "completed" : state,
       expiresAt: new Date(state === "elapsed" ? "2026-09-10T00:00:00Z" : "2026-09-17T00:00:00Z"),
       objectDeletedAt: state === "deleted" ? now : null,
-      objectKey: `reports/${state === "wrong-key" ? actorId : siteId}/${reportId}/attempt-1.xlsx` }) as never);
+      objectKey: `reports/${state === "wrong-key" ? actorId : siteId}/${reportId}/attempt-1.pdf` }) as never);
     await expect(service.download(user, siteId, reportId, now)).rejects.toBeInstanceOf(NotFoundException);
     client.destroy();
   });
@@ -271,12 +272,12 @@ describe("EnergyReportJobsService", () => {
   it("signs a completed unexpired file using generated ASCII filename and returns only the shared download shape", async () => {
     const { service, prisma, client } = setup();
     prisma.energyReportJob.findFirst.mockResolvedValue(job({ status: "completed", expiresAt: new Date("2026-09-17T00:00:00Z"),
-      objectKey: `reports/${siteId}/${reportId}/attempt-2.xlsx` }) as never);
+      objectKey: `reports/${siteId}/${reportId}/attempt-2.pdf` }) as never);
     const result = await service.download(user, siteId, reportId, now);
     expect(Object.keys(result).sort()).toEqual(["downloadUrl", "expiresInSeconds", "format", "reportId"]);
     expect(result.expiresInSeconds).toBe(300);
     expect(new URL(result.downloadUrl).searchParams.get("response-content-disposition"))
-      .toBe(`attachment; filename="energy-report_2026-09-01_2026-09-02_${reportId}.xlsx"`);
+      .toBe(`attachment; filename="energy-report_2026-09-01_2026-09-02_${reportId}.pdf"`);
     client.destroy();
   });
   it("checks expiry after a delayed database read before issuing a signed URL", async () => {
@@ -285,7 +286,7 @@ describe("EnergyReportJobsService", () => {
     prisma.energyReportJob.findFirst.mockImplementation(async () => {
       jest.setSystemTime(new Date(now.getTime() + 10_000));
       return job({ status: "completed", expiresAt: new Date(now.getTime() + 5000),
-        objectKey: `reports/${siteId}/${reportId}/attempt-1.xlsx` }) as never;
+        objectKey: `reports/${siteId}/${reportId}/attempt-1.pdf` }) as never;
     });
     try { await expect(service.download(user, siteId, reportId)).rejects.toBeInstanceOf(NotFoundException); }
     finally { jest.useRealTimers(); client.destroy(); }
@@ -297,7 +298,7 @@ const databaseUrl = process.env.ENERGY_REPORT_TEST_DATABASE_URL;
   it("retries after a real unique-index conflict whose winner commits failed before recovery reads", async () => {
     const prisma = new PrismaClient({ datasourceUrl: databaseUrl });
     const organizationId = randomUUID(); const actor = randomUUID(); const site = randomUUID();
-    const request = { from: "2026-09-01", to: "2026-09-02", scope: "site", identityId: site, format: "xlsx" };
+    const request = { from: "2026-09-01", to: "2026-09-02", scope: "site", identityId: site, format: "pdf" };
     const user = { id: actor, organizationId, organizationType: "customer", role: "admin", status: "active", loginId: `race-${actor}` } as never;
     let competitorId: string | undefined;
     let observedConflict = false;

@@ -28,7 +28,7 @@ const validReportRequest = {
   to: "2026-09-10",
   scope: "fixture" as const,
   identityId: fixtureId,
-  format: "xlsx" as const
+  format: "pdf" as const
 };
 
 const reportJob = (index: number) => ({
@@ -201,6 +201,7 @@ describe("energy P2 contracts", () => {
 
   it("accepts a report request with only its fixed range, scope, identity, and format", () => {
     expect(energyReportRequestSchema.parse(validReportRequest)).toEqual(validReportRequest);
+    expect(energyReportRequestSchema.safeParse({ ...validReportRequest, format: "xlsx" }).success).toBe(false);
     expect(energyReportRequestSchema.safeParse({ ...validReportRequest, sections: ["summary"] }).success).toBe(false);
     expect(energyReportRequestSchema.safeParse({ ...validReportRequest, format: "csv" }).success).toBe(false);
     expect(energyReportRequestSchema.safeParse({ ...validReportRequest, scope: "carbon" }).success).toBe(false);
@@ -253,6 +254,7 @@ describe("energy P2 contracts", () => {
   });
 
   it("normalizes report filters", () => {
+    expect(energyReportListQuerySchema.safeParse({ limit: 20, format: "xlsx" }).success).toBe(false);
     expect(energyReportListQuerySchema.parse({
       limit: 20,
       query: "  서울 물류센터  ",
@@ -326,8 +328,8 @@ describe("energy P2 contracts", () => {
     expect(energyReportListResponseSchema.parse({ reports: [job], nextCursor: null, totalCount: 1 }).reports).toHaveLength(1);
     expect(energyReportDownloadResponseSchema.parse({
       reportId,
-      format: "xlsx",
-      downloadUrl: "https://storage.example.test/download/report.xlsx",
+      format: "pdf",
+      downloadUrl: "https://storage.example.test/download/report.pdf",
       expiresInSeconds: 300
     }).expiresInSeconds).toBe(300);
   });

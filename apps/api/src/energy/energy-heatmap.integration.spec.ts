@@ -92,7 +92,7 @@ describeWithDatabase("energy heatmap PostgreSQL query", () => {
       const range = { from: "2026-09-02", to: "2026-09-02", scope, identityId };
       const result = await service.getHeatmap(user, ids.siteId, { ...range, metric: "energy" });
       expect([result.cells[81].value, result.cells[87].value]).toEqual([morning, afternoon]);
-      const { documentSnapshot } = await snapshots.capture(randomUUID(), ids.siteId, { ...range, format: "xlsx" }, new Date("2026-09-04"));
+      const { documentSnapshot } = await snapshots.capture(randomUUID(), ids.siteId, { ...range, format: "pdf" }, new Date("2026-09-04"));
       const heatmap = documentSnapshot.sections.find(section => section.kind === "heatmap" && section.metric === "energy");
       if (heatmap?.kind !== "heatmap") throw new Error("missing report heatmap");
       expect([heatmap.cells[81].value, heatmap.cells[87].value]).toEqual([morning, afternoon]);

@@ -15,7 +15,6 @@ import { EnergyReportDocumentBuilder } from "./reports/energy-report-document.bu
 import { EnergyReportSnapshotService } from "./reports/energy-report-snapshot.service";
 import { EnergyReportJobsService } from "./reports/energy-report-jobs.service";
 import { EnergyReportWorkerService } from "./reports/energy-report-worker.service";
-import { ExcelEnergyReportRenderer } from "./reports/excel-energy-report.renderer";
 import { PdfEnergyReportRenderer } from "./reports/pdf-energy-report.renderer";
 import { EnergyReportCleanupService } from "./reports/energy-report-cleanup.service";
 import { EnergyReportTargetsService } from "./reports/energy-report-targets.service";
@@ -31,7 +30,6 @@ import { EnergyReportTargetsService } from "./reports/energy-report-targets.serv
     EnergyReportTargetsService,
     EnergyReportWorkerService,
     EnergyReportCleanupService,
-    ExcelEnergyReportRenderer,
     PdfEnergyReportRenderer,
     EnergyAnalyticsQueryService,
     EnergyHeatmapService,

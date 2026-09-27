@@ -6,25 +6,27 @@ import { EnergyReportJobsService } from "./energy-report-jobs.service";
 import { EnergyReportSnapshotService } from "./energy-report-snapshot.service";
 import { EnergyReportDocumentBuilder } from "./energy-report-document.builder";
 import { EnergyReportWorkerService } from "./energy-report-worker.service";
-import { ExcelEnergyReportRenderer } from "./excel-energy-report.renderer";
 import { PdfEnergyReportRenderer } from "./pdf-energy-report.renderer";
 import { ObjectStorageService } from "../../storage/object-storage.service";
 import { SiteAccessService } from "../../access/site-access.service";
 
 (process.env.REPORT_METADATA_TEST === "1" ? describe : describe.skip)("report metadata on disposable PostgreSQL", () => {
+  // These assertions render up to three complete PDFs through the real worker;
+  // the default five-second Jest deadline is shorter than that workload.
+  jest.setTimeout(30_000);
   let cluster: Awaited<ReturnType<typeof disposablePostgres>>;
   let prisma: PrismaClient;
   let jobs: EnergyReportJobsService;
   let worker: EnergyReportWorkerService;
   const organizationId = randomUUID(); const siteId = randomUUID(); const actorId = randomUUID();
   const floorId = randomUUID(); const fixtureId = randomUUID(); const groupId = randomUUID();
-  const request = { from: "2026-09-01", to: "2026-09-02", scope: "site", identityId: siteId, format: "xlsx" };
+  const request = { from: "2026-09-01", to: "2026-09-02", scope: "site", identityId: siteId, format: "pdf" };
   const user = { id: actorId, loginId: "metadata-reader", organizationId, organizationType: "customer", role: "admin", status: "active" } as never;
   const bytes = new Map<string, { Body: Buffer; ContentType: string }>();
   let failure: "none" | "put" | "head" | "mismatch" = "none";
   let legacyId: string;
   let storage: ObjectStorageService;
-  const renderer = new ExcelEnergyReportRenderer();
+  const renderer = new PdfEnergyReportRenderer();
 
   beforeAll(async () => {
     cluster = await disposablePostgres();
@@ -38,7 +40,7 @@ import { SiteAccessService } from "../../access/site-access.service";
     // Exercise an actual upgrade row without asking the newly generated Prisma model
     // to select a column that does not exist until the next deploy.
     await prisma.$executeRaw`INSERT INTO "EnergyReportJob" ("id", "siteId", "requestedByActorId", "requestedByLoginIdSnapshot", "requestHash", "format", "requestSnapshot", "updatedAt")
-      VALUES (${legacyId}, ${siteId}, ${actorId}, 'legacy', ${"b".repeat(64)}, 'xlsx', ${JSON.stringify(request)}::jsonb, (clock_timestamp() AT TIME ZONE 'UTC'))`;
+      VALUES (${legacyId}, ${siteId}, ${actorId}, 'legacy', ${"b".repeat(64)}, 'xlsx', ${JSON.stringify({ ...request, format: "xlsx" })}::jsonb, (clock_timestamp() AT TIME ZONE 'UTC'))`;
     expect(cluster.deploy(url).status).toBe(0);
     storage = new ObjectStorageService({ send: async (command: any) => {
       if (command instanceof PutObjectCommand) {
@@ -55,16 +57,15 @@ import { SiteAccessService } from "../../access/site-access.service";
     } } as never, { bucket: "floors", reportBucket: "reports", publicBaseUrl: "https://public.example" });
     const snapshots = new EnergyReportSnapshotService(prisma as never, new EnergyReportDocumentBuilder());
     jobs = new EnergyReportJobsService(prisma as never, new SiteAccessService(prisma as never), storage, snapshots);
-    worker = new EnergyReportWorkerService(prisma as never, storage, snapshots, renderer, new PdfEnergyReportRenderer());
+    worker = new EnergyReportWorkerService(prisma as never, storage, snapshots, renderer);
   }, 60_000);
   afterAll(async () => { worker?.onModuleDestroy(); await prisma?.$disconnect(); cluster?.stop(); });
 
-  it("keeps a legacy null label stable and forbids replacing or filling labels after INSERT", async () => {
-    const [legacy] = await prisma.$queryRaw<Array<{ targetLabelSnapshot: string | null }>>`SELECT "targetLabelSnapshot" FROM "EnergyReportJob" WHERE "id" = ${legacyId}`;
-    expect(legacy.targetLabelSnapshot).toBeNull();
-    expect(await jobs.detail(user, siteId, legacyId)).toMatchObject({ target: { label: `현장: ${siteId}` } });
-    await expect(prisma.$executeRaw`UPDATE "EnergyReportJob" SET "targetLabelSnapshot" = 'invented' WHERE "id" = ${legacyId}`).rejects.toThrow();
-    await prisma.energyReportJob.delete({ where: { id: legacyId } });
+  it("removes legacy XLSX history while preserving its cleanup keys, then protects new PDF metadata", async () => {
+    expect(await prisma.energyReportJob.findUnique({ where: { id: legacyId } })).toBeNull();
+    expect(await prisma.energyReportObjectCleanup.findUnique({ where: { reportId: legacyId } })).toMatchObject({
+      objectKeys: [1, 2, 3].map(attempt => `reports/${siteId}/${legacyId}/attempt-${attempt}.xlsx`)
+    });
     const created = await jobs.create(user, siteId, request);
     expect(created).toMatchObject({ target: { label: "접수 현장" }, requestedAt: created.createdAt });
     expect(Math.abs(Date.parse(created.requestedAt) - Date.now())).toBeLessThan(1500);
@@ -130,7 +131,7 @@ import { SiteAccessService } from "../../access/site-access.service";
 
   it("classifies invalid stored documents", async () => {
     const invalid = await prisma.energyReportJob.create({ data: { siteId, requestedByActorId: actorId, requestedByLoginIdSnapshot: "reader",
-      requestHash: "c".repeat(64), format: "xlsx", requestSnapshot: request, dataSnapshot: {},
+      requestHash: "c".repeat(64), format: "pdf", requestSnapshot: request, dataSnapshot: {},
       documentSnapshot: { contentFingerprint: "a".repeat(64) }, contentFingerprint: "a".repeat(64) } });
     await worker.runOnce(); await worker.runOnce(); await worker.runOnce();
     expect(await jobs.detail(user, siteId, invalid.id)).toMatchObject({ failureCode: "REPORT_SNAPSHOT_INVALID", failure: { code: "snapshot_invalid" } });

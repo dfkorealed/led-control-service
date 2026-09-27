@@ -99,6 +99,22 @@ const key = (format = "xlsx", attempt = 1) => `reports/${siteId}/${reportId}/att
     expect(preflight(db, "post")).toMatchObject({ status: 1, ok: false, issues: expect.arrayContaining([{ code: "delete_trigger_missing_or_disabled" }]) });
   }, 30_000);
 
+  it("clears every historical report and preserves the XLSX cleanup ledger before narrowing the enum", () => {
+    const db = database();
+    success(db, migrationCopy("20260925150000_landing_oauth_generation"));
+    seedReport(db);
+    sql(db, `INSERT INTO "EnergyReportJob" ("id", "siteId", "requestedByActorId", "requestedByLoginIdSnapshot", "requestHash", "format", "requestSnapshot", "updatedAt")
+      VALUES ('33333333-3333-4333-8333-333333333333', '${siteId}', 'actor', 'actor', repeat('b', 64), 'pdf', '{}', now());`);
+    sql(db, `INSERT INTO "EnergyReportObjectCleanup" ("reportId", "siteId", "objectKeys", "nextAttemptAt", "updatedAt")
+      VALUES ('44444444-4444-4444-8444-444444444444', '${siteId}', '["reports/${siteId}/44444444-4444-4444-8444-444444444444/attempt-1.xlsx"]', now(), now());`);
+    success(db, migrationCopy("20260927090000_pdf_only_energy_reports"));
+    expect(sql(db, 'SELECT count(*) FROM "EnergyReportJob"')).toBe("0");
+    expect(JSON.parse(sql(db, `SELECT "objectKeys" FROM "EnergyReportObjectCleanup" WHERE "reportId" = '${reportId}'`)))
+      .toEqual([key(), key("xlsx", 2), key("xlsx", 3)]);
+    expect(sql(db, 'SELECT count(*) FROM "EnergyReportObjectCleanup"')).toBe("3");
+    expect(sql(db, `SELECT enumlabel FROM pg_enum WHERE enumtypid = '"EnergyReportFormat"'::regtype`)).toBe("pdf");
+  }, 60_000);
+
   it("upgrades 20260911 history and preserves all three attempt keys from completed cleanup", () => {
     const db = database();
     success(db, migrationCopy("20260911999999"));

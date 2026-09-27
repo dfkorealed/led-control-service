@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable } from "@nestjs/common";
-import { energyReportRequestSchema, type EnergyReportDocument } from "@led-control/shared";
+import { energyCsvExportQuerySchema, type EnergyReportDocument } from "@led-control/shared";
 import { randomUUID } from "node:crypto";
 import { Readable } from "node:stream";
 import { SiteAccessService } from "../../access/site-access.service";
@@ -11,13 +11,11 @@ export class EnergyCsvExportService {
   constructor(private readonly access: SiteAccessService, private readonly snapshots: EnergyReportSnapshotService) {}
   async export(user: AuthenticatedUser, siteId: string, query: unknown): Promise<Readable> {
     await this.access.assert(user, siteId, "read");
-    if (!query || typeof query !== "object" || Array.isArray(query) || "format" in query) {
-      throw new BadRequestException("invalid CSV request");
-    }
-    // CSV shares the document's scope/date validation; format is internal only.
-    const parsed = energyReportRequestSchema.safeParse({ ...query, format: "xlsx" });
+    const parsed = energyCsvExportQuerySchema.safeParse(query);
     if (!parsed.success) throw new BadRequestException("invalid CSV request");
-    const snapshot = await this.snapshots.capture(randomUUID(), siteId, parsed.data);
+    // Snapshot capture still needs a report-shaped internal request. PDF here is
+    // only an internal discriminator; CSV callers never choose a file format.
+    const snapshot = await this.snapshots.capture(randomUUID(), siteId, { ...parsed.data, format: "pdf" });
     return this.stream(snapshot.documentSnapshot);
   }
 

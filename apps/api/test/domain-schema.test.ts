@@ -17,7 +17,7 @@ describeReportsWithDatabase("EnergyReportJob PostgreSQL invariants", () => {
   const contentFingerprint = "b".repeat(64);
   let prisma: PrismaClient;
   const jobData = () => ({ siteId, requestedByActorId: actorId, requestedByLoginIdSnapshot: "report-test",
-    requestHash, format: "xlsx" as const, requestSnapshot: { from: "2026-09-07", to: "2026-09-08", scope: "site", identityId: siteId, format: "xlsx" } });
+    requestHash, format: "pdf" as const, requestSnapshot: { from: "2026-09-07", to: "2026-09-08", scope: "site", identityId: siteId, format: "pdf" } });
 
   beforeAll(async () => {
     prisma = new PrismaClient({ datasourceUrl: reportDatabaseUrl });

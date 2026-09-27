@@ -13,7 +13,7 @@ function setup() {
   const prisma = { $transaction: jest.fn(async (fn: any) => fn(tx)) };
   const access = { assert: jest.fn().mockResolvedValue(undefined) };
   const snapshot = new EnergyReportSnapshotService(prisma as never, new EnergyReportDocumentBuilder());
-  return { prisma, access, service: new EnergyCsvExportService(access as never, snapshot) };
+  return { prisma, access, snapshot, service: new EnergyCsvExportService(access as never, snapshot) };
 }
 async function read(stream: Readable) { let text = ""; for await (const chunk of stream) text += chunk.toString(); return text; }
 
@@ -67,10 +67,19 @@ describe("EnergyCsvExportService", () => {
     await expect(service.export({ id: "actor" } as never, siteId, query)).rejects.toBeInstanceOf(NotFoundException);
     expect(prisma.$transaction).not.toHaveBeenCalled();
     access.assert.mockResolvedValue(undefined);
+    await expect(service.export({ id: "actor" } as never, siteId, { ...query, format: "xlsx" })).rejects.toBeInstanceOf(BadRequestException);
     await expect(service.export({ id: "actor" } as never, siteId, { ...query, sections: ["summary"] })).rejects.toBeInstanceOf(BadRequestException);
     expect(prisma.$transaction).not.toHaveBeenCalled();
     const csv = await read(await service.export({ id: "actor" } as never, siteId, query));
     expect(access.assert).toHaveBeenLastCalledWith({ id: "actor" }, siteId, "read");
     expect(csv).toContain("서울");
+  });
+
+  it("uses a PDF-neutral scope and date request while keeping CSV independent of report format", async () => {
+    const { service, snapshot } = setup();
+    const capture = jest.spyOn(snapshot, "capture");
+    await read(await service.export({ id: "actor" } as never, siteId, query));
+    expect(capture).toHaveBeenCalledWith(expect.any(String), siteId,
+      { ...query, format: "pdf" });
   });
 });

@@ -90,7 +90,8 @@ export class ObjectStorageService {
 
   async createReportDownloadUrl(key: string, filename: string): Promise<string> {
     const Bucket = this.reportBucket(key);
-    if (!/^[A-Za-z0-9][A-Za-z0-9_-]{0,180}\.(xlsx|pdf)$/.test(filename) || !filename.endsWith(key.slice(key.lastIndexOf(".")))) {
+    // Historical XLSX keys remain valid for HEAD/DELETE cleanup, never for new downloads.
+    if (!key.endsWith(".pdf") || !/^[A-Za-z0-9][A-Za-z0-9_-]{0,180}\.pdf$/.test(filename)) {
       throw new BadRequestException("invalid report filename");
     }
     return getSignedUrl(this.signingClient, new GetObjectCommand({ Bucket, Key: key,

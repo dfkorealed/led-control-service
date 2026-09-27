@@ -227,8 +227,8 @@ describe("ObjectStorageService", () => {
       }));
       const floorDownload = new URL(await moduleService.createFloorAssetDownloadUrl("floors/floor-1/file.png"));
       const reportDownload = new URL(await moduleService.createReportDownloadUrl(
-        "reports/20000000-0000-4000-8000-000000000001/10000000-0000-4000-8000-000000000001/attempt-1.xlsx",
-        "energy-report.xlsx"
+        "reports/20000000-0000-4000-8000-000000000001/10000000-0000-4000-8000-000000000001/attempt-1.pdf",
+        "energy-report.pdf"
       ));
 
       for (const signedUrl of [upload, floorDownload, reportDownload]) {
@@ -243,7 +243,7 @@ describe("ObjectStorageService", () => {
       expect(upload.pathname).toBe("/s3/floor-assets/floors/floor-1/file.png");
       expect(floorDownload.pathname).toBe("/s3/floor-assets/floors/floor-1/file.png");
       expect(reportDownload.pathname).toBe(
-        "/s3/private-reports/reports/20000000-0000-4000-8000-000000000001/10000000-0000-4000-8000-000000000001/attempt-1.xlsx"
+        "/s3/private-reports/reports/20000000-0000-4000-8000-000000000001/10000000-0000-4000-8000-000000000001/attempt-1.pdf"
       );
     } finally {
       await module.close();
@@ -330,12 +330,14 @@ describe("private report storage", () => {
     const client = new S3Client({ region: "us-east-1", endpoint: "https://objects.example", forcePathStyle: true,
       credentials: { accessKeyId: "test-access", secretAccessKey: "test-secret" } });
     const service = new ObjectStorageService(client, { bucket: "public-floors", publicBaseUrl: "https://public.example", reportBucket: "private-reports" });
-    const url = new URL(await service.createReportDownloadUrl(key, "energy-report_2026-09-01.xlsx"));
-    expect(url.pathname).toBe(`/private-reports/${key}`);
+    const pdfKey = key.replace(".xlsx", ".pdf");
+    const url = new URL(await service.createReportDownloadUrl(pdfKey, "energy-report_2026-09-01.pdf"));
+    expect(url.pathname).toBe(`/private-reports/${pdfKey}`);
     expect(url.searchParams.get("X-Amz-Expires")).toBe("300");
-    expect(url.searchParams.get("response-content-disposition")).toBe('attachment; filename="energy-report_2026-09-01.xlsx"');
+    expect(url.searchParams.get("response-content-disposition")).toBe('attachment; filename="energy-report_2026-09-01.pdf"');
     expect(url.searchParams.get("response-cache-control")).toBe("private, no-store");
-    await expect(service.createReportDownloadUrl(key, 'bad"\r\nheader.xlsx')).rejects.toBeInstanceOf(BadRequestException);
+    await expect(service.createReportDownloadUrl(key, "energy-report_2026-09-01.xlsx")).rejects.toBeInstanceOf(BadRequestException);
+    await expect(service.createReportDownloadUrl(pdfKey, 'bad"\r\nheader.pdf')).rejects.toBeInstanceOf(BadRequestException);
     client.destroy();
   });
   it("refuses a report bucket configured as the public floor bucket", async () => {

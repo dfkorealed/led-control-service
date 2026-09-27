@@ -31,7 +31,7 @@ const dateRangeSchema = z.object({
 
 export const energyScopeSchema = z.enum(["site", "fixture", "floor", "group"]);
 export const energyHeatmapMetricSchema = z.enum(["energy", "brightness"]);
-export const energyReportFormatSchema = z.enum(["xlsx", "pdf"]);
+export const energyReportFormatSchema = z.literal("pdf");
 export const energyReportStatusSchema = z.enum(["queued", "processing", "completed", "failed", "expired"]);
 
 const scopedRangeSchema = dateRangeSchema.extend({
@@ -89,6 +89,10 @@ export const energyHeatmapResponseSchema = z.object({
 export const energyReportRequestSchema = scopedRangeSchema.extend({
   format: energyReportFormatSchema
 }).strict().superRefine((request, context) => addRangeIssue(request, context));
+
+/** CSV is a separate export, so its public range has no report file format. */
+export const energyCsvExportQuerySchema = scopedRangeSchema.strict()
+  .superRefine((query, context) => addRangeIssue(query, context));
 
 /** Fixture/group IDs are analytics identities, never operational device/group IDs. */
 export const energyReportTargetSchema = z.object({

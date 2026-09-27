@@ -4,7 +4,6 @@ import { DeleteObjectCommand, HeadObjectCommand, PutObjectCommand } from "@aws-s
 import { EnergyReportWorkerService } from "./energy-report-worker.service";
 import { EnergyReportSnapshotService } from "./energy-report-snapshot.service";
 import { EnergyReportDocumentBuilder } from "./energy-report-document.builder";
-import { ExcelEnergyReportRenderer, extractExcelReportManifest } from "./excel-energy-report.renderer";
 import { PdfEnergyReportRenderer } from "./pdf-energy-report.renderer";
 import { extractPdfReportManifest } from "./pdf-report-manifest";
 import { ObjectStorageService } from "../../storage/object-storage.service";
@@ -14,6 +13,20 @@ import { SiteDeletionCleanupService } from "../../operator-site-admins/site-dele
 import { energyReportDocumentSchema } from "@led-control/shared";
 
 describe("report worker lifecycle", () => {
+  it("fails a legacy XLSX claim before snapshot capture or object upload", async () => {
+    const capture = jest.fn();
+    const putReportObject = jest.fn();
+    const prisma = { $executeRaw: jest.fn().mockResolvedValue(1) };
+    const worker = new EnergyReportWorkerService(prisma as never, { putReportObject } as never,
+      { capture } as never, new PdfEnergyReportRenderer());
+    try {
+      await (worker as any).process({ id: randomUUID(), siteId: randomUUID(), format: "xlsx",
+        attemptCount: 3, documentSnapshot: null });
+      expect(capture).not.toHaveBeenCalled();
+      expect(putReportObject).not.toHaveBeenCalled();
+      expect(prisma.$executeRaw).toHaveBeenCalledTimes(1);
+    } finally { worker.onModuleDestroy(); }
+  });
   it("does not start snapshot capture or a heartbeat when shutdown occurs during a pending claim", async () => {
     let resolveClaim!: (rows: unknown[]) => void;
     let markClaimStarted!: () => void;
@@ -25,14 +38,14 @@ describe("report worker lifecycle", () => {
       $transaction: jest.fn().mockRejectedValue(new Error("unexpected snapshot read after shutdown"))
     };
     const snapshots = new EnergyReportSnapshotService(prisma as never, new EnergyReportDocumentBuilder());
-    const worker = new EnergyReportWorkerService(prisma as never, {} as never, snapshots, new ExcelEnergyReportRenderer(), new PdfEnergyReportRenderer());
+    const worker = new EnergyReportWorkerService(prisma as never, {} as never, snapshots, new PdfEnergyReportRenderer());
     const timer = jest.spyOn(global, "setInterval");
     try {
       const pending = worker.runOnce();
       await started;
       worker.onModuleDestroy();
-      resolveClaim([{ id: randomUUID(), siteId: randomUUID(), format: "xlsx", attemptCount: 1, documentSnapshot: null,
-        requestSnapshot: { from: "2026-09-01", to: "2026-09-02", scope: "site", identityId: randomUUID(), format: "xlsx" } }]);
+      resolveClaim([{ id: randomUUID(), siteId: randomUUID(), format: "pdf", attemptCount: 1, documentSnapshot: null,
+        requestSnapshot: { from: "2026-09-01", to: "2026-09-02", scope: "site", identityId: randomUUID(), format: "pdf" } }]);
       expect(await pending).toBe(false);
       expect(prisma.$transaction).not.toHaveBeenCalled();
       expect(timer).not.toHaveBeenCalled();
@@ -45,7 +58,7 @@ describe("report worker lifecycle", () => {
     let resolveSweep!: (count: number) => void;
     const sweep = new Promise<number>(resolve => { resolveSweep = resolve; });
     const prisma = { $executeRaw: jest.fn(() => sweep), $queryRaw: jest.fn().mockResolvedValue([]) };
-    const worker = new EnergyReportWorkerService(prisma as never, {} as never, {} as never, new ExcelEnergyReportRenderer(), new PdfEnergyReportRenderer());
+    const worker = new EnergyReportWorkerService(prisma as never, {} as never, {} as never, new PdfEnergyReportRenderer());
     const pending = worker.runOnce();
     worker.onModuleDestroy();
     resolveSweep(0);
@@ -56,12 +69,12 @@ describe("report worker lifecycle", () => {
   it("does not start rendering when shutdown occurs during the awaited lease renewal", async () => {
     const reportId = randomUUID(); const siteId = randomUUID();
     const document = new EnergyReportDocumentBuilder().build(reportId,
-      { from: "2026-09-01", to: "2026-09-02", scope: "site", identityId: siteId, format: "xlsx" },
+      { from: "2026-09-01", to: "2026-09-02", scope: "site", identityId: siteId, format: "pdf" },
       { schemaVersion: 1, capturedAt: new Date().toISOString(), site: { id: siteId, name: "Shutdown", timeZone: "UTC" },
         comparisonRange: { from: "2026-08-30", to: "2026-08-31" }, fixtures: [] });
     let worker: EnergyReportWorkerService;
     const prisma = {
-      $queryRaw: jest.fn().mockResolvedValue([{ id: reportId, siteId, format: "xlsx", attemptCount: 1, documentSnapshot: document }]),
+      $queryRaw: jest.fn().mockResolvedValue([{ id: reportId, siteId, format: "pdf", attemptCount: 1, documentSnapshot: document }]),
       siteDeletionCleanup: { findUnique: jest.fn().mockResolvedValue(null) },
       $transaction: async (run: (tx: unknown) => unknown) => run(prisma),
       $executeRaw: jest.fn(async query => {
@@ -69,9 +82,9 @@ describe("report worker lifecycle", () => {
         return 0;
       })
     };
-    const excel = new ExcelEnergyReportRenderer();
-    const render = jest.spyOn(excel, "render"); // Call-through instrumentation; rendering remains real.
-    worker = new EnergyReportWorkerService(prisma as never, {} as never, {} as never, excel, new PdfEnergyReportRenderer());
+    const pdf = new PdfEnergyReportRenderer();
+    const render = jest.spyOn(pdf, "render"); // Call-through instrumentation; rendering remains real.
+    worker = new EnergyReportWorkerService(prisma as never, {} as never, {} as never, pdf);
     try {
       await worker.runOnce();
       expect(render).not.toHaveBeenCalled();
@@ -82,7 +95,7 @@ describe("report worker lifecycle", () => {
 
   it("does not start polling under NODE_ENV=test", () => {
     const timer = jest.spyOn(global, "setInterval");
-    const worker = new EnergyReportWorkerService({} as never, {} as never, {} as never, new ExcelEnergyReportRenderer(), new PdfEnergyReportRenderer());
+    const worker = new EnergyReportWorkerService({} as never, {} as never, {} as never, new PdfEnergyReportRenderer());
     worker.onModuleInit();
     expect(timer).not.toHaveBeenCalled();
     worker.onModuleDestroy();
@@ -93,7 +106,7 @@ describe("report worker lifecycle", () => {
     process.env.NODE_ENV = "production";
     const timer = jest.spyOn(global, "setInterval");
     const clear = jest.spyOn(global, "clearInterval");
-    const worker = new EnergyReportWorkerService({} as never, {} as never, {} as never, new ExcelEnergyReportRenderer(), new PdfEnergyReportRenderer());
+    const worker = new EnergyReportWorkerService({} as never, {} as never, {} as never, new PdfEnergyReportRenderer());
     try {
       worker.onModuleInit(); worker.onModuleInit();
       expect(timer).toHaveBeenCalledTimes(1);
@@ -136,9 +149,9 @@ const databaseUrl = process.env.ENERGY_REPORT_TEST_DATABASE_URL;
       throw new Error("unexpected S3 command");
     } } as never, { bucket: "public-floors", reportBucket: "private-reports", publicBaseUrl: "https://public.example" });
     return new EnergyReportWorkerService(client as never, storage,
-      new EnergyReportSnapshotService(client as never, new EnergyReportDocumentBuilder()), new ExcelEnergyReportRenderer(), new PdfEnergyReportRenderer());
+      new EnergyReportSnapshotService(client as never, new EnergyReportDocumentBuilder()), new PdfEnergyReportRenderer());
   };
-  const enqueue = (format: "xlsx" | "pdf" = "xlsx", extra: Record<string, unknown> = {}) => prisma.energyReportJob.create({ data: {
+  const enqueue = (format: "pdf" = "pdf", extra: Record<string, unknown> = {}) => prisma.energyReportJob.create({ data: {
     siteId, requestedByActorId: randomUUID(), requestedByLoginIdSnapshot: "reader", requestHash: "a".repeat(64), format,
     requestSnapshot: { from: "2026-09-01", to: "2026-09-02", scope: "site", identityId: siteId, format }, ...extra
   } });
@@ -192,8 +205,8 @@ const databaseUrl = process.env.ENERGY_REPORT_TEST_DATABASE_URL;
   it("reaps a delayed third-attempt PUT after site cascade and already completed 305-second cleanup", async () => {
     const deletedSiteId = randomUUID();
     await prisma.site.create({ data: { id: deletedSiteId, organizationId, name: "Delayed upload", timeZone: "UTC" } });
-    const job = await enqueue("xlsx", { siteId: deletedSiteId, attemptCount: 2,
-      requestSnapshot: { from: "2026-09-01", to: "2026-09-02", scope: "site", identityId: deletedSiteId, format: "xlsx" } });
+    const job = await enqueue("pdf", { siteId: deletedSiteId, attemptCount: 2,
+      requestSnapshot: { from: "2026-09-01", to: "2026-09-02", scope: "site", identityId: deletedSiteId, format: "pdf" } });
     let release!: () => void; let started!: () => void;
     const gate = new Promise<void>(resolve => { release = resolve; });
     const entered = new Promise<void>(resolve => { started = resolve; });
@@ -223,7 +236,7 @@ const databaseUrl = process.env.ENERGY_REPORT_TEST_DATABASE_URL;
       await cleanup.prune(sweepTime); // The durable reaper has already completed a successful pass, too.
       expect(objects.size).toBe(0);
       release(); await pending;
-      expect(putKeys).toEqual([`reports/${deletedSiteId}/${job.id}/attempt-3.xlsx`]);
+      expect(putKeys).toEqual([`reports/${deletedSiteId}/${job.id}/attempt-3.pdf`]);
       expect(objects.size).toBe(1); // An arbitrarily late successful PUT is not prevented by a DB fence.
       await cleanup.prune(new Date(sweepTime.getTime() + 60_000));
       expect(objects.size).toBe(0);
@@ -237,7 +250,8 @@ const databaseUrl = process.env.ENERGY_REPORT_TEST_DATABASE_URL;
     }
   });
 
-  it.each(["xlsx", "pdf"] as const)("captures, renders stored document to %s, verifies actual S3 bytes and completes for seven days", async format => {
+  it("captures, renders stored document to PDF, verifies actual S3 bytes and completes for seven days", async () => {
+    const format = "pdf";
     const job = await enqueue(format);
     let progressAtUpload = 0;
     putHook = async () => { progressAtUpload = (await load(job.id)).progressPercent; };
@@ -253,7 +267,7 @@ const databaseUrl = process.env.ENERGY_REPORT_TEST_DATABASE_URL;
     expect(completed.sizeBytes).toBe(stored.bytes.length);
     expect(completed.sizeBytes).toBeLessThanOrEqual(25 * 1024 * 1024);
     expect(completed.contentSha256).toBe(createHash("sha256").update(stored.bytes).digest("hex"));
-    const manifest = await (format === "xlsx" ? extractExcelReportManifest(stored.bytes) : extractPdfReportManifest(stored.bytes));
+    const manifest = await extractPdfReportManifest(stored.bytes);
     // PostgreSQL JSONB reorders object keys. Compare every path/value independently;
     // serialized section/row ordering is already enforced by the real renderer manifest.
     const byPath = (left: { path: string }, right: { path: string }) => left.path.localeCompare(right.path);
@@ -291,7 +305,7 @@ const databaseUrl = process.env.ENERGY_REPORT_TEST_DATABASE_URL;
     expect(failed.documentSnapshot).toEqual(first.documentSnapshot);
     expect(failed.dataSnapshot).toEqual(first.dataSnapshot);
     expect(await worker.runOnce()).toBe(false);
-    expect(putKeys.map(key => key.slice(key.lastIndexOf("/") + 1))).toEqual(["attempt-1.xlsx", "attempt-2.xlsx", "attempt-3.xlsx"]);
+    expect(putKeys.map(key => key.slice(key.lastIndexOf("/") + 1))).toEqual(["attempt-1.pdf", "attempt-2.pdf", "attempt-3.pdf"]);
     expect(objects.size).toBe(0);
   });
 
@@ -313,7 +327,7 @@ const databaseUrl = process.env.ENERGY_REPORT_TEST_DATABASE_URL;
     };
     await worker.runOnce();
     expect(await load(job.id)).toMatchObject({ status: "processing", attemptCount: 2, objectKey: null, progressPercent: 1 });
-    expect(objects.has(`reports/${siteId}/${job.id}/attempt-2.xlsx`)).toBe(false);
+    expect(objects.has(`reports/${siteId}/${job.id}/attempt-2.pdf`)).toBe(false);
   });
 
   it("does not renew or complete an expired lease even if nobody reclaimed it yet", async () => {
@@ -327,7 +341,7 @@ const databaseUrl = process.env.ENERGY_REPORT_TEST_DATABASE_URL;
     const job = await enqueue();
     // Both inserts can share the same millisecond; explicitly order the waiting job
     // so this test never relies on random UUID ordering for equal createdAt values.
-    const waiting = await enqueue("xlsx", { createdAt: new Date(Date.now() + 1000) });
+    const waiting = await enqueue("pdf", { createdAt: new Date(Date.now() + 1000) });
     putHook = async () => {
       const before = await load(job.id);
       expect(await worker.runOnce()).toBe(false);
@@ -353,7 +367,7 @@ const databaseUrl = process.env.ENERGY_REPORT_TEST_DATABASE_URL;
   });
 
   it("leaves invalid completed-date requests without a document or uploaded object", async () => {
-    const job = await enqueue("xlsx", { requestSnapshot: { from: "2099-01-01", to: "2099-01-02", scope: "site", identityId: siteId, format: "xlsx" } });
+    const job = await enqueue("pdf", { requestSnapshot: { from: "2099-01-01", to: "2099-01-02", scope: "site", identityId: siteId, format: "pdf" } });
     await worker.runOnce();
     expect(await load(job.id)).toMatchObject({ status: "queued", documentSnapshot: null, objectKey: null });
     expect(putKeys).toEqual([]);

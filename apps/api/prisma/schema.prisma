@@ -348,7 +348,6 @@ enum EnergyReportStatus {
 }
 
 enum EnergyReportFormat {
-  xlsx
   pdf
 }
 

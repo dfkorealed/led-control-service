@@ -22,14 +22,14 @@ const selfOwned = process.env.REPORT_CLEANUP_TEST === "1";
   let failKey: string | undefined;
   let failHeadKey: string | undefined;
   let deleting: (() => Promise<void>) | undefined;
-  const key = (id: string, n: number, format = "xlsx") => `reports/${siteId}/${id}/attempt-${n}.${format}`;
+  const key = (id: string, n: number, format = "pdf") => `reports/${siteId}/${id}/attempt-${n}.${format}`;
   const enqueue = async (extra: Record<string, unknown> = {}) => {
     const id = randomUUID();
     const status = extra.status ?? "completed";
     const terminalFile = status === "completed" || status === "expired";
     const job = await prisma.energyReportJob.create({ data: {
       id, siteId, requestedByActorId: randomUUID(), requestedByLoginIdSnapshot: "retention",
-      requestHash: "a".repeat(64), format: "xlsx", status: "completed", attemptCount: 3,
+      requestHash: "a".repeat(64), format: "pdf", status: "completed", attemptCount: 3,
       requestSnapshot: {}, objectKey: terminalFile ? key(id, 3) : null, createdAt: new Date(now.getTime() - 8 * day),
       progressPercent: terminalFile ? 100 : status === "processing" ? 1 : 0,
       startedAt: status === "queued" ? null : new Date(now.getTime() - 8 * day),
@@ -38,7 +38,7 @@ const selfOwned = process.env.REPORT_CLEANUP_TEST === "1";
       leaseOwner: status === "processing" ? "worker" : null,
       leaseExpiresAt: status === "processing" ? now : null,
       ...(terminalFile ? { dataSnapshot: {}, documentSnapshot: { contentFingerprint: "a".repeat(64) },
-        contentFingerprint: "a".repeat(64), contentSha256: "a".repeat(64), contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", sizeBytes: 1 } : {}),
+        contentFingerprint: "a".repeat(64), contentSha256: "a".repeat(64), contentType: "application/pdf", sizeBytes: 1 } : {}),
       ...extra
     } });
     for (let n = 1; n <= job.attemptCount; n++) objects.add(key(id, n, job.format));
@@ -96,6 +96,19 @@ const selfOwned = process.env.REPORT_CLEANUP_TEST === "1";
     } finally {
       try { await prisma?.$disconnect(); } finally { cluster?.stop(); }
     }
+  });
+
+  it("deletes a historical XLSX key from the preserved ledger after the PDF-only migration", async () => {
+    const id = randomUUID();
+    const legacyKey = key(id, 1, "xlsx");
+    await prisma.energyReportObjectCleanup.create({ data: {
+      reportId: id, siteId, objectKeys: [legacyKey], nextAttemptAt: now
+    } });
+    objects.add(legacyKey);
+    await service.prune(now);
+    expect(objects.has(legacyKey)).toBe(false);
+    expect(await prisma.energyReportObjectCleanup.findUnique({ where: { reportId: id } }))
+      .toMatchObject({ objectKeys: [legacyKey], lastCleanedAt: now });
   });
 
   it("expires all attempt objects exactly at seven days while retaining metadata", async () => {

@@ -141,7 +141,7 @@ test("CI는 fresh audit JSON을 stdin으로 전달해 같은 fail-closed 정책�
   assert.doesNotMatch(result.stderr, /ENOENT/);
 });
 
-test("승인된 exception은 exact package/version/path에만 적용하고 제거 조건까지 항상 출력한다", (t) => {
+test("제거된 ExcelJS의 uuid advisory는 승인하지 않는다", (t) => {
   const advisory = {
     github_advisory_id: "GHSA-w5hq-g745-h8pq",
     module_name: "uuid",
@@ -157,10 +157,8 @@ test("승인된 exception은 exact package/version/path에만 적용하고 제�
   };
 
   const accepted = runPolicy(t, report);
-  assert.equal(accepted.status, 0, accepted.stderr);
-  assert.match(accepted.stdout, /EXCEPTION GHSA-w5hq-g745-h8pq uuid@8\.3\.2 moderate/);
-  assert.match(accepted.stdout, /runtime=ExcelJS imports uuid\.v4 only/);
-  assert.match(accepted.stdout, /removal=Remove when ExcelJS supports uuid >=11\.1\.1/);
+  assert.equal(accepted.status, 1);
+  assert.match(accepted.stdout, /UNEXPECTED GHSA-w5hq-g745-h8pq/);
 
   const changed = runPolicy(t, {
     ...report,
@@ -261,7 +259,7 @@ test("metadata severity count와 advisory 목록이 다르면 fail-closed한다"
   assert.match(result.stderr, /high count mismatch: metadata=1 advisories=0/);
 });
 
-test("실제 audit command의 error envelope는 실패하고 vulnerability exit 1의 승인 예외 report는 통과한다", (t) => {
+test("실제 audit command의 error envelope는 실패하고 vulnerability exit 1의 패치 승인 예외 report는 통과한다", (t) => {
   const failedCollection = runLivePolicy(
     t,
     { error: { code: "ERR_PNPM_AUDIT_BAD_RESPONSE", message: "registry unreachable" } },
@@ -273,20 +271,23 @@ test("실제 audit command의 error envelope는 실패하고 vulnerability exit 
   const allowedAdvisory = {
     advisories: {
       "700": {
-        github_advisory_id: "GHSA-w5hq-g745-h8pq",
-        module_name: "uuid",
-        severity: "moderate",
-        title: "uuid buffer bounds",
-        vulnerable_versions: "<11.1.1",
-        patched_versions: ">=11.1.1",
-        findings: [{ version: "8.3.2", paths: ["apps/api > exceljs@4.4.0 > uuid@8.3.2"] }]
+        github_advisory_id: "GHSA-w3rx-r6r6-pgpr",
+        module_name: "image-size",
+        severity: "high",
+        title: "ICNS parser infinite loop",
+        vulnerable_versions: "<=2.0.2",
+        patched_versions: "<0.0.0",
+        findings: [{ version: "1.2.1", paths: [
+          "apps/mobile > react-native-webview@13.17.0 > react-native@0.76.5 > @react-native/community-cli-plugin@0.76.5 > metro@0.81.5 > image-size@1.2.1",
+          "apps/mobile > react-native@0.76.5 > @react-native/community-cli-plugin@0.76.5 > metro@0.81.5 > image-size@1.2.1"
+        ] }]
       }
     },
-    metadata: auditMetadata({ moderate: 1 }, 30)
+    metadata: auditMetadata({ high: 1 }, 30)
   };
   const acceptedVulnerabilityReport = runLivePolicy(t, allowedAdvisory, 1);
   assert.equal(acceptedVulnerabilityReport.status, 0, acceptedVulnerabilityReport.stderr);
-  assert.match(acceptedVulnerabilityReport.stdout, /EXCEPTION GHSA-w5hq-g745-h8pq uuid@8\.3\.2 moderate/);
+  assert.match(acceptedVulnerabilityReport.stdout, /EXCEPTION GHSA-w3rx-r6r6-pgpr image-size@1\.2\.1 high/);
 });
 
 test("공백과 한글 checkout path에서도 main guard가 unknown High를 실행해 실패한다", (t) => {

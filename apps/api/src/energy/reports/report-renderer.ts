@@ -7,7 +7,7 @@ export type ReportManifest = Array<{ path: string; value: ReportValue }>;
 export type RenderedEnergyReport = {
   bytes: Buffer;
   contentType: string;
-  extension: "xlsx" | "pdf";
+  extension: "pdf";
   /** Extracted from the serialized file, never copied from the input document. */
   manifest: ReportManifest;
 };

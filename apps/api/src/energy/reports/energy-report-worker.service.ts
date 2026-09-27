@@ -5,7 +5,6 @@ import { createHash, randomUUID } from "node:crypto";
 import { PrismaService } from "../../prisma/prisma.service";
 import { ObjectStorageService } from "../../storage/object-storage.service";
 import { EnergyReportSnapshotService } from "./energy-report-snapshot.service";
-import { ExcelEnergyReportRenderer } from "./excel-energy-report.renderer";
 import { PdfEnergyReportRenderer } from "./pdf-energy-report.renderer";
 import { canonicalJson } from "./energy-report-document.builder";
 import { reportBlocks, verifyManifest } from "./report-renderer";
@@ -20,8 +19,7 @@ export class EnergyReportWorkerService implements OnModuleInit, OnModuleDestroy 
   private running = false;
   private stopping = false;
   constructor(private readonly prisma: PrismaService, private readonly storage: ObjectStorageService,
-    private readonly snapshots: EnergyReportSnapshotService, private readonly excel: ExcelEnergyReportRenderer,
-    private readonly pdf: PdfEnergyReportRenderer) {}
+    private readonly snapshots: EnergyReportSnapshotService, private readonly pdf: PdfEnergyReportRenderer) {}
   onModuleInit() {
     if (this.timer || process.env.NODE_ENV === "test") return;
     this.stopping = false;
@@ -116,6 +114,9 @@ export class EnergyReportWorkerService implements OnModuleInit, OnModuleDestroy 
     }, 10_000);
     this.heartbeat.unref();
     try {
+      // Old workers must be stopped before the reset migration. Fail closed if
+      // a stale or malformed claim reaches this process during a rolling release.
+      if (job.format !== "pdf") throw new ReportProcessingError("REPORT_RENDERING_FAILED");
       let storedDocument = job.documentSnapshot;
       if (storedDocument === null) {
         const snapshot = await this.snapshots.capture(job.id, job.siteId, job.requestSnapshot, new Date(), job.targetLabelSnapshot)
@@ -145,9 +146,8 @@ export class EnergyReportWorkerService implements OnModuleInit, OnModuleDestroy 
         return parsed;
       });
       await pulse(25);
-      const renderer = job.format === "xlsx" ? this.excel : this.pdf;
       const rendered = await reportPhase("REPORT_RENDERING_FAILED", async () => {
-        const result = await renderer.render(document);
+        const result = await this.pdf.render(document);
         verifyManifest(reportBlocks(document), result.manifest);
         if (result.extension !== job.format || result.bytes.length < 1 || result.bytes.length > 25 * 1024 * 1024) {
           throw new Error("REPORT_FILE_INVALID");

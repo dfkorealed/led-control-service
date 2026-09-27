@@ -4,7 +4,7 @@ import { EnergyReportDocumentBuilder, type EnergyReportDataSnapshot } from "./en
 
 const reportId = "10000000-0000-4000-8000-000000000001";
 const siteId = "20000000-0000-4000-8000-000000000001";
-const request: EnergyReportRequest = { from: "2026-09-07", to: "2026-09-08", scope: "site", identityId: siteId, format: "xlsx" };
+const request: EnergyReportRequest = { from: "2026-09-07", to: "2026-09-08", scope: "site", identityId: siteId, format: "pdf" };
 const makeData = (): EnergyReportDataSnapshot => ({
   schemaVersion: 1, capturedAt: "2026-09-10T01:00:00.000Z",
   site: { id: siteId, name: "서울 현장", timeZone: "UTC" },

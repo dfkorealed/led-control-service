@@ -152,18 +152,18 @@ const reportDatabaseUrl = process.env.ENERGY_REPORT_TEST_DATABASE_URL;
   it("persists all attempt keys before external deletion and blocks queued claims and new report requests", async () => {
     const job = await enqueue();
     await prisma.energyReportJob.create({ data: { siteId, requestedByActorId: actorId, requestedByLoginIdSnapshot: "reader",
-      requestHash: "c".repeat(64), format: "xlsx", requestSnapshot: {} } });
+      requestHash: "c".repeat(64), format: "pdf", requestSnapshot: {} } });
     const prepared = await service.prepareReportDeletion(siteId);
     expect(prepared?.objectKeys.sort()).toEqual([key(job.id, 1), key(job.id, 2), key(job.id, 3)]);
     expect(objects.size).toBe(0);
     expect(await prisma.energyReportJob.count({ where: { siteId } })).toBe(2);
     const marker = await prisma.siteDeletionCleanup.findUnique({ where: { siteId } });
     expect(marker?.objectKeys).toEqual(expect.arrayContaining([key(job.id, 1), key(job.id, 2), key(job.id, 3)]));
-    const worker = new EnergyReportWorkerService(prisma as never, storage, {} as never, {} as never, {} as never);
+    const worker = new EnergyReportWorkerService(prisma as never, storage, {} as never, {} as never);
     expect(await worker.claimNext()).toBeNull();
     const jobs = new EnergyReportJobsService(prisma as never, { assert: async () => undefined } as never, storage);
     await expect(jobs.create({ id: actorId, loginId: "reader" } as never, siteId,
-      { from: "2026-09-01", to: "2026-09-02", scope: "site", identityId: siteId, format: "xlsx" })).rejects.toBeInstanceOf(ConflictException);
+      { from: "2026-09-01", to: "2026-09-02", scope: "site", identityId: siteId, format: "pdf" })).rejects.toBeInstanceOf(ConflictException);
     expect(await prisma.energyReportJob.count({ where: { siteId } })).toBe(2);
   });
   it.each([0, 1])("reserves all three private attempt keys for a pre-upgrade paused claim at attempt %s", async attemptCount => {
@@ -195,7 +195,7 @@ const reportDatabaseUrl = process.env.ENERGY_REPORT_TEST_DATABASE_URL;
     const job = await enqueue(true);
     await prisma.energyReportJob.update({ where: { id: job.id }, data: { attemptCount: 1, leaseExpiresAt: new Date(0) } });
     await prisma.siteDeletionCleanup.create({ data: { siteId, inventoryIds: [], objectKeys: [key(job.id, 1)], lastError: "REPORTS_BEFORE_SITE_DELETE" } });
-    const worker = new EnergyReportWorkerService(prisma as never, storage, {} as never, {} as never, {} as never);
+    const worker = new EnergyReportWorkerService(prisma as never, storage, {} as never, {} as never);
     expect(await worker.claimNext()).toBeNull();
     expect(await prisma.energyReportJob.findUnique({ where: { id: job.id } })).toMatchObject({ status: "failed", leaseOwner: null });
     fail = true;
@@ -220,7 +220,7 @@ const reportDatabaseUrl = process.env.ENERGY_REPORT_TEST_DATABASE_URL;
       const value = Reflect.get(target, property);
       return typeof value === "function" ? value.bind(target) : value;
     } });
-    const worker = new EnergyReportWorkerService(gated as never, storage, {} as never, {} as never, {} as never);
+    const worker = new EnergyReportWorkerService(gated as never, storage, {} as never, {} as never);
     let release!: () => void; let locked!: () => void;
     const gate = new Promise<void>(resolve => { release = resolve; });
     const acquired = new Promise<void>(resolve => { locked = resolve; });

@@ -113,16 +113,6 @@ export function normalizeAuditReport(report) {
 const gatedSeverities = new Set(["moderate", "high", "critical"]);
 
 const auditExceptions = {
-  "GHSA-w5hq-g745-h8pq": {
-    package: "uuid",
-    severity: "moderate",
-    versions: ["8.3.2"],
-    patchedFloor: ">=11.1.1",
-    paths: ["apps/api > exceljs@4.4.0 > uuid@8.3.2"],
-    runtimeReachability: "ExcelJS imports uuid.v4 only; the advisory affects the v3/v5/v6 caller-provided buffer API",
-    mitigation: "XLSX render/load regression covers the only production consumer",
-    removal: "Remove when ExcelJS supports uuid >=11.1.1 or a tested supported replacement is adopted"
-  },
   "GHSA-w3rx-r6r6-pgpr": imageSizeException(),
   "GHSA-5p2g-fcmc-qvqq": imageSizeException()
 };

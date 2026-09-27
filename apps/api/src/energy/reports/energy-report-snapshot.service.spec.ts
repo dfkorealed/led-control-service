@@ -7,7 +7,7 @@ import type { PrismaService } from "../../prisma/prisma.service";
 const reportId = "10000000-0000-4000-8000-000000000001";
 const siteId = "20000000-0000-4000-8000-000000000001";
 const fixtureId = "30000000-0000-4000-8000-000000000001";
-const request = { from: "2026-09-07", to: "2026-09-08", scope: "site", identityId: siteId, format: "xlsx" };
+const request = { from: "2026-09-07", to: "2026-09-08", scope: "site", identityId: siteId, format: "pdf" };
 const decimal = (value: string) => new Prisma.Decimal(value);
 const day = (value: string) => new Date(`${value}T00:00:00.000Z`);
 

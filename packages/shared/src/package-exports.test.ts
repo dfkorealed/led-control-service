@@ -243,7 +243,7 @@ const energyP2ImportSmoke = `
   const { energyReportRequestSchema: schema, energyReportJobSchema } = await import("@led-control/shared/energy-p2-contracts");
   const result = schema.safeParse({
     from: "2026-09-01", to: "2026-09-10", scope: "site",
-    identityId: "00000000-0000-4000-8000-000000000003", format: "xlsx"
+    identityId: "00000000-0000-4000-8000-000000000003", format: "pdf"
   });
   if (!result.success) process.exit(1);
   const job = energyReportJobSchema.parse({ reportId: "00000000-0000-4000-8000-000000000004",
