@@ -1,6 +1,8 @@
 import { CommandOutcome, Prisma, PrismaClient } from "@prisma/client";
 import { randomUUID } from "node:crypto";
-import { Logger } from "@nestjs/common";
+import { ConsoleLogger, Logger } from "@nestjs/common";
+import { StructuredLoggerService } from "../observability/structured-logger.service";
+import { RequestContext } from "../observability/request-context.middleware";
 import { disposablePostgres } from "../../test/support/disposable-postgres";
 import { CommandDetailRetentionService } from "./command-detail-retention.service";
 
@@ -11,7 +13,7 @@ const enabled = process.env.COMMAND_DETAIL_RETENTION_TEST === "1";
   let siteId: string;
   let gatewayId: string;
   let sequence = 0n;
-  let log: jest.SpyInstance;
+  const log: Array<Record<string, any>> = [];
   const oldFlag = process.env.COMMAND_DETAIL_REDACTION_ENABLED;
   beforeAll(async () => {
     cluster = await disposablePostgres();
@@ -20,7 +22,8 @@ const enabled = process.env.COMMAND_DETAIL_RETENTION_TEST === "1";
     expect(deployed.stderr + deployed.stdout).not.toMatch(/Error:|P30\d\d/);
     expect(deployed.status).toBe(0);
     db = new PrismaClient({ datasourceUrl: url });
-    log = jest.spyOn(Logger.prototype, "log").mockImplementation(() => undefined);
+    Logger.overrideLogger(new StructuredLoggerService(new RequestContext(),
+      line => log.push(JSON.parse(line)), () => new Date()));
   }, 40_000);
   beforeEach(async () => {
     process.env.COMMAND_DETAIL_REDACTION_ENABLED = "1";
@@ -32,7 +35,7 @@ const enabled = process.env.COMMAND_DETAIL_RETENTION_TEST === "1";
   });
   afterAll(async () => {
     await db?.$disconnect(); cluster?.stop();
-    log?.mockRestore();
+    Logger.overrideLogger(new ConsoleLogger());
     if (oldFlag === undefined) delete process.env.COMMAND_DETAIL_REDACTION_ENABLED;
     else process.env.COMMAND_DETAIL_REDACTION_ENABLED = oldFlag;
   });
@@ -66,9 +69,10 @@ const enabled = process.env.COMMAND_DETAIL_RETENTION_TEST === "1";
     expect(await worker().runBatch()).toMatchObject({ examined: 100, redacted: 0,
       skippedByReason: { command_unresolved: 100 }, overdueCount: 101 });
     expect(await worker().runBatch()).toMatchObject({ examined: 1, redacted: 1, overdueCount: 100 });
-    expect(log).toHaveBeenLastCalledWith(expect.objectContaining({ overdueCount: 100,
-      blockedByReason: { command_unresolved: 100 }, oldestAgeSeconds: expect.any(Number) }));
-    expect(log.mock.calls.at(-1)![0].oldestAgeSeconds).toBeGreaterThan(86_400_000);
+    expect(log.at(-1)).toMatchObject({ context: "CommandDetailRetentionService",
+      event: "command_detail_retention_batch", status: "completed", overdueCount: 100,
+      blockedByReason: { command_unresolved: 100 }, oldestAgeSeconds: expect.any(Number) });
+    expect(log.at(-1)!.oldestAgeSeconds).toBeGreaterThan(86_400_000);
     expect((await db.command.findUniqueOrThrow({ where: { id: later.id } })).contentRedactedAt).not.toBeNull();
     const attempts = await db.commandRetentionAttempt.findMany({ where: { command: { siteId } } });
     expect(attempts).toHaveLength(100);
@@ -80,8 +84,8 @@ const enabled = process.env.COMMAND_DETAIL_RETENTION_TEST === "1";
       eventType: "device_status_ack", sequence: ++sequence, payloadHash: `sha256:${"a".repeat(64)}`, occurredAt: new Date() } });
     expect(await worker().runBatch()).toMatchObject({ redacted: 0,
       skippedByReason: { legacy_ack_attribution_unverifiable: 1 } });
-    expect(log).toHaveBeenLastCalledWith(expect.objectContaining({
-      blockedByReason: expect.objectContaining({ legacy_ack_attribution_unverifiable: 1 }) }));
+    expect(log.at(-1)).toMatchObject({
+      blockedByReason: { legacy_ack_attribution_unverifiable: 1 } });
     expect((await db.command.findUniqueOrThrow({ where: { id: command.id } })).brightness).toBe(42);
     await db.processedGatewayEvent.delete({ where: { eventId: ledger.eventId } });
     await db.commandRetentionAttempt.update({ where: { commandId: command.id }, data: { retryAfterAt: new Date("2000-01-01Z") } });
@@ -128,7 +132,7 @@ const enabled = process.env.COMMAND_DETAIL_RETENTION_TEST === "1";
         skippedByReason: { raw_copy_cleanup_failed: 1 } });
       expect((await db.command.findUniqueOrThrow({ where: { id: command.id } })).brightness).toBe(42);
       expect(await db.mqttOutbox.count({ where: { dispatch: { commandId: command.id } } })).toBe(1);
-      expect(JSON.stringify(log.mock.calls)).not.toContain("private raw detail");
+      expect(JSON.stringify(log)).not.toContain("private raw detail");
       const attempt = await db.commandRetentionAttempt.findUniqueOrThrow({ where: { commandId: command.id } });
       expect(attempt.reasonCode).toBe("detail_raw_copy_cleanup_failed");
     } finally {

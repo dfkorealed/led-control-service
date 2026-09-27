@@ -2,6 +2,7 @@ import { Inject, Injectable, LoggerService } from "@nestjs/common";
 import { RequestContext } from "./request-context.middleware";
 import { OBSERVABILITY_CLOCK } from "./readiness.service";
 import { safeCadImportDiagnosticFields } from "../floor-import/cad-import-diagnostics";
+import { safeCommandDetailRetentionFields } from "../retention/command-detail-retention-diagnostics";
 
 export const STRUCTURED_LOG_WRITER = Symbol("STRUCTURED_LOG_WRITER");
 
@@ -47,7 +48,8 @@ const safeContexts = new Set([
   "EnergyReportCleanupService",
   "EnergyRetentionService",
   "EnergyReportWorkerService",
-  "FloorImportWorkerService"
+  "FloorImportWorkerService",
+  "CommandDetailRetentionService"
 ]);
 
 @Injectable()
@@ -84,7 +86,7 @@ export class StructuredLoggerService implements LoggerService {
       level,
       context: context && safeContexts.has(context) ? context : "Application",
       ...(this.requestIdField()),
-      ...classifyApplicationEvent(message, level)
+      ...classifyApplicationEvent(message, level, context)
     });
   }
 
@@ -98,20 +100,21 @@ export class StructuredLoggerService implements LoggerService {
   }
 }
 
-function classifyApplicationEvent(message: unknown, level: LogLevel) {
+function classifyApplicationEvent(message: unknown, level: LogLevel, context?: string) {
   const record = message && typeof message === "object" && !Array.isArray(message)
     ? message as Record<string, unknown>
     : undefined;
   const requestedOperation = record?.operation;
-  const operation = typeof requestedOperation === "string" && applicationOperations.has(requestedOperation)
+  const retention = safeCommandDetailRetentionFields(record, context);
+  const operation = "event" in retention ? "background_job" : typeof requestedOperation === "string" && applicationOperations.has(requestedOperation)
     ? requestedOperation
     : classifyLegacyOperation(typeof message === "string" ? message : "");
-  if (level !== "error" && level !== "fatal") return { operation };
+  if (level !== "error" && level !== "fatal") return { operation, ...retention };
 
   const error = message instanceof Error ? message : record?.error;
   const requestedClass = error instanceof Error ? error.name : record?.errorClass;
   const errorClass = typeof requestedClass === "string" && errorClasses.has(requestedClass) ? requestedClass : "Error";
-  return { operation, errorClass,
+  return { operation, errorClass, ...retention,
     ...(operation === "background_job" ? safeCadImportDiagnosticFields(record) : {}) };
 }
 

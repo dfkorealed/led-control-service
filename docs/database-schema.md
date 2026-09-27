@@ -2,6 +2,8 @@
 
 ## 2026-09-27 기본 OFF의 명령 상세 정리 worker
 
+운영 `StructuredLoggerService`는 고정 context `CommandDetailRetentionService`와 event `command_detail_retention_batch`, `completed`/`failed` 상태만 상세 지표로 허용한다. 후보/처리/이번 보류 사유별 수는 0~1,000 정수, 전체 지연/보류 수는 음수가 아닌 safe integer, 최고 경과 초는 유한한 음수 아닌 수로 검증한다. helper의 허용 목록에 있는 사유만 로그에 남기며 알 수 없는 사유·원문 오류·ID·SQL은 버린다. 실제 production JSON writer까지 연결한 worker 회귀로 이 계약을 검증한다.
+
 `CommandDetailRetentionService.runBatch(maxCandidates=100)`은 `COMMAND_DETAIL_REDACTION_ENABLED=1`일 때만 실행한다. 기본 OFF에서는 DB 읽기·쓰기를 하지 않으며, 활성화한 API의 60초 timer와 수동 호출은 인스턴스 내 실행을 공유한다. 배치 상한은 1~1,000개 Command 후보다. DB UTC transaction 시각을 기존 timestamp/Date의 밀리초 정밀도로 맞추고 3 calendar months를 뺀 경계를 배치 동안 고정한다. 정확한 경계는 보존하며 `contentRedactedAt IS NULL`인 더 오래된 행만 `(createdAt,id)` 순서로 한 행씩 `FOR UPDATE SKIP LOCKED`로 잠근다. 후보 수 상한은 파생 상세 행 수나 전체 backlog 집계 비용의 상한이 아니다.
 
 각 후보의 helper는 같은 transaction에서 실행한다. 실패하면 해당 거래 전체를 rollback한 뒤 별도 거래에서 원본을 다시 잠그고 marker를 재확인하여 기존 `CommandRetentionAttempt`에 `detail_` 사유·DB UTC 시도 시각·1시간 뒤 `retryAfterAt`을 기록한다. 이 접두사의 재시도 대기 행을 제외하므로 오래된 보류 후보가 뒤의 처리 가능한 후보를 가로막지 않는다. 성공하면 해당 detail 시도 기록을 제거한다. 물리 purge 전용 flag는 읽거나 활성화하지 않는다.
