@@ -14,7 +14,7 @@
 
 - 현재 3 calendar months, 중앙 DB UTC transaction clock, 경계의 행은 보존한다. 90일 치환·1년 요금제 구현은 금지한다.
 - `Command` 물리 DELETE·미설치 보호 cutover·`COMMAND_RETENTION_PURGE_ENABLED`·새 recovery POST/Set은 활성화하지 않는다. 기존 수동 Set·3개월 안 상태 확인, 미해결 잠금을 보존한다.
-- 읽기 제한은 정리 backlog와 분리하되 오래된 미확정 명령의 별도 확인 경로가 없는 상태에서는 운영 rollout을 승인하지 않는다. 정리 불확실 후보는 skip+관측, 원문 부분 삭제 금지.
+- 읽기 제한은 정리 backlog와 분리하되 오래된 미확정 명령의 별도 확인 경로가 없는 상태에서는 운영 rollout을 승인하지 않는다. 조회와 같은 내용을 반환하는 멱등 재요청도 만료 경계를 지킨다. 정리 불확실 후보는 skip+관측, 원문 부분 삭제 금지.
 - 기존 dirty worktree는 사용자 소유다. 담당자는 소유 hunk만 선택 stage·검증·review 후 commit한다. 스키마는 `docs/database-schema.md`, 메뉴 동작은 영향받는 `docs/menus` 문서를 같은 선택본에 갱신한다.
 
 ## Review Focus
@@ -23,19 +23,19 @@
 2. 3개월 이전 `unknown`이 일반 이력 밖이어도 대상 제어 잠금이 풀리지 않고 운영자가 예외 건을 찾을 수 있어야 한다 — Task 1 preflight·Task 5 UI 테스트.
 3. 이미 완료된 명령의 늦은 ACK나 manual event replay가 제거한 상세를 다시 쓰거나 조명 상태를 덮지 않아야 한다 — Task 2·3 disposable PG 테스트.
 4. 비UTC DB session/API host ±60초·월말·정확 cutoff가 조회와 정리에서 일치해야 한다 — Task 1·4 DB 테스트.
-5. 오래된 상세의 410, 타 현장/없는 ID의 404, 401/403/500 뒤의 cached 화면은 대상·밝기·재적용 동작을 드러내지 않아야 한다 — Task 1·5 HTTP/Web 테스트.
+5. 오래된 상세의 410, 타 현장/없는 ID의 404, 401/403/500 뒤의 cached 화면과 열린 화면의 시간 경과는 대상·밝기·재적용 동작을 드러내지 않아야 한다 — Task 1·5 HTTP/Web 테스트.
 
 ---
 
 ### Task 1: 명령 상세 조회만 독립적인 3개월 창으로 전환
 
-**Files:** Modify `apps/api/src/commands/command-history-rollout.ts`, `command-recovery-rollout.guard.ts`, `command-status.service.ts`, 해당 `.spec.ts`, `command-history-db-clock.integration.spec.ts`, `docs/menus/control.md`의 소유 hunk.
+**Files:** Modify `apps/api/src/commands/command-history-rollout.ts`, `command-recovery-rollout.guard.ts`, `command-status.service.ts`, `commands.service.ts`의 멱등 재응답 경계, 해당 `.spec.ts`, `command-history-db-clock.integration.spec.ts`, 운영 조회 경계용 read-only preflight 및 `docs/runbooks/production-api-web-deployment.md`, `docs/menus/control.md`의 소유 hunk.
 
 **Interfaces:** `commandHistoryGetDbClockRequested(): boolean`은 `COMMAND_HISTORY_RETENTION_ENABLED=1`만 읽는다. `commandHistoryGetReadBoundary(db, siteId)`는 `{ generatedAt: Date; retainedFrom: Date; retentionEnabled: true }`를 반환한다. 기존 POST/Set용 `commandHistoryRetentionReady`와 recovery/purge hard-off는 변경하지 않는다.
 
-- [ ] **Step 1: RED 테스트 작성.** HISTORY만 ON·RECOVERY/PUBLISHER OFF에서 서버 시작 허용, DB UTC cutoff 직전/정각 목록·상세 410/포함, 만료 cursor 400, 타 현장 404, host ±60초·session 3종, old `unknown`으로 site 전체가 legacy 목록으로 되돌아가지 않음을 고정한다. 기존 안전 overlap 차단 회귀도 추가한다.
+- [ ] **Step 1: RED 테스트 작성.** HISTORY만 ON·RECOVERY/PUBLISHER OFF에서 서버 시작 허용, DB UTC cutoff 직전/정각 목록·상세 410/포함, 만료 cursor 400, 타 현장 404, host ±60초·session 3종, old `unknown`으로 site 전체가 legacy 목록으로 되돌아가지 않음을 고정한다. 만료된 기존 `clientRequestId`로 POST/Set을 재시도하면 payload-free 409·Set/outbox 0, 최근 멱등 재시도는 기존 응답인 것을 HTTP/service로 고정한다. 컷오프 이전 unheld `pending`/`unknown` 한 건에서 rollout preflight 실패, 0건에서 통과, 검사 오류에서 fail-closed를 검증한다. 기존 안전 overlap 차단 회귀도 추가한다.
 - [ ] **Step 2: RED 확인.** `pnpm --filter @led-control/api exec jest src/commands/command-history-rollout.spec.ts src/commands/command-status.service.spec.ts src/commands/command-recovery-rollout.guard.spec.ts --runInBand`와 opt-in disposable PG spec에서 현재 joint gate 실패를 확인한다.
-- [ ] **Step 3: 최소 구현.** GET-only flag/clock 경계를 분리하고 `CommandStatusService`의 list/detail만 DB 시각을 사용한다. 인가 먼저, 404 cloak, payload-free 410, 기존 cursor 400 및 no-store를 유지한다. 운영 preflight에는 cutoff 이전 미확정 명령의 case 이관/해결 건수 0 확인을 명시한다.
+- [ ] **Step 3: 최소 구현.** GET-only flag/clock 경계를 분리하고 `CommandStatusService`의 list/detail에 DB 시각을 사용한다. `CommandsService.findIdempotentCommand`/`toCreateResponse`도 recovery readiness와 독립된 같은 DB cutoff로 만료된 재응답을 차단한다. 인가 먼저, 404 cloak, payload-free 410/409, 기존 cursor 400 및 no-store를 유지한다. read-only preflight는 같은 중앙 DB 시계로 컷오프 이전의 Hold 없는 미확정 명령 수와 식별 가능한 증거만 출력하고 양수/오류에서 실패한다. 배포 경로는 해당 검사 통과 증거가 없으면 HISTORY flag ON을 거부하고 기본 OFF를 유지한다.
 - [ ] **Step 4: GREEN·선택 통합.** 위 focused+PG, 전체 API test/typecheck/build, 소유 파일 diff-check를 통과하고 독립 리뷰 뒤 정확 선택본 commit.
 
 ### Task 2: 명령 내용 제거 상태와 API 소비자 차단
@@ -66,20 +66,20 @@
 
 **Interfaces:** `runBatch(maxCandidates = 100): Promise<{ examined: number; redacted: number; skippedByReason: Record<string, number>; overdueCount: number }>`; `COMMAND_DETAIL_REDACTION_ENABLED` 기본 OFF. Task 3 helper를 호출하며 physical purge flag를 읽거나 켜지 않는다.
 
-- [ ] **Step 1: RED 테스트 작성.** OFF 쓰기 0, DB UTC `< retainedFrom`만 대상, 정각 보존·월말/비UTC session, 1,001건의 반복 수렴, 두 worker 경합/rollback, 100개 오래된 blocked 후보 뒤 eligible 행이 굶지 않는지, 예외·최고 경과 건수 관측을 고정한다.
+- [ ] **Step 1: RED 테스트 작성.** OFF 쓰기 0, DB UTC `< retainedFrom`만 대상, 정각 보존·월말/비UTC session, 1,001건의 반복 수렴과 재실행 멱등, 두 worker 경합/rollback, 100개 오래된 blocked·이미 비식별화된 후보 뒤 eligible 행이 굶지 않는지, 예외·최고 경과 건수 관측을 고정한다.
 - [ ] **Step 2: RED 확인.** focused Jest+opt-in PG에서 worker 부재/경계 반례를 확인한다.
-- [ ] **Step 3: 최소 구현.** `FOR UPDATE SKIP LOCKED` bounded 후보/동일 transaction helper와 기존 `CommandRetentionAttempt.retryAfterAt`의 별도 detail reason을 재사용해 blocked 후보가 뒤 행을 굶기지 않게 한다. 실패 transaction rollback 뒤 이유를 기록한다. 운영 DB migration·flag ON은 별도 백업/dry-run/시계·raw-copy 감사 뒤로 남긴다.
+- [ ] **Step 3: 최소 구현.** `contentRedactedAt IS NULL`인 후보만 `FOR UPDATE SKIP LOCKED`로 bounded 선택한다. 동일 transaction helper와 기존 `CommandRetentionAttempt.retryAfterAt`의 별도 detail reason을 재사용해 blocked 후보가 뒤 행을 굶기지 않게 한다. 실패 transaction rollback 뒤 이유를 기록한다. 운영 DB migration·flag ON은 별도 백업/dry-run/시계·raw-copy 감사 뒤로 남긴다.
 - [ ] **Step 4: GREEN·선택 통합.** focused+PG, 전체 API test/typecheck/build, 메뉴/schema 문서·독립 리뷰 후 정확 선택본 commit.
 
 ### Task 5: 제어·모니터링 화면의 만료/실패 표시
 
-**Files:** Modify `apps/web/src/features/control/{ControlView,CommandHistoryPanel,CommandVerificationCases}.tsx`와 tests, `apps/web/src/features/monitoring/{MonitoringLogDrawer,MonitoringLogTicker}.tsx`와 tests, `docs/menus/{control,monitoring}.md` 소유 hunk.
+**Files:** Modify `apps/web/src/features/control/{ControlView,CommandHistoryPanel,CommandVerificationCases}.tsx`, `apps/web/src/api/commands.ts`의 조회 재검증 설정과 tests, `apps/web/src/features/monitoring/{MonitoringLogDrawer,MonitoringLogTicker}.tsx`와 tests, `docs/menus/{control,monitoring}.md` 소유 hunk.
 
 **Interfaces:** 410 `command_expired`만 ‘상세 보관 종료’로 표현한다. 등록되지 않은 case POST 두 기능은 준비 전 비활성+이유 표시하며 기존 최근 명령의 `POST /commands/:id/status-checks`는 유지한다.
 
-- [ ] **Step 1: RED 테스트 작성.** 열린 상세의 refetch 410/404/401/403/500 후 대상·밝기·재실행 버튼/POST 0, cached case로 잠금 해제 0, fresh exact-case 0건에서만 해제, 미등록 case action 버튼 비활성, 모니터링 cursor 410과 3개월 문구를 고정한다.
+- [ ] **Step 1: RED 테스트 작성.** 열린 상세의 refetch 410/404/401/403/500 후 대상·밝기·재실행 버튼/POST 0, terminal 상세·목록 및 `ControlView.terminalResult`를 열린 채 3 calendar months 경과할 때 fake timer로 내용·동작 숨김과 서버 재검증(포커스·재연결·오프라인 오류 포함), cached case로 잠금 해제 0, fresh exact-case 0건에서만 해제, 미등록 case action 버튼 비활성, 모니터링 cursor 410과 3개월 문구를 고정한다.
 - [ ] **Step 2: RED 확인.** `pnpm --filter @led-control/web exec vitest run src/features/control/ControlView.test.tsx src/features/control/CommandVerificationCases.test.tsx src/features/monitoring/MonitoringLogDrawer.test.tsx`에서 기존 stale/case 버튼 계약 실패를 확인한다.
-- [ ] **Step 3: 최소 구현.** 기존 공통 Button/카드 재사용, 404를 만료로 오해하지 않으며 refetch 중 stale payload를 숨긴다. 1년 tier UI는 추가하지 않는다.
+- [ ] **Step 3: 최소 구현.** 기존 공통 Button/카드 재사용, 404를 만료로 오해하지 않으며 refetch 중 stale payload를 숨긴다. terminal 결과의 polling 중단과 `ControlView.terminalResult`에 복사된 상세 각각에 보관 기한/서버 재검증/만료 시 폐기 정책을 적용하고 열린 drawer/list가 경계를 넘으면 즉시 payload를 숨긴다. 1년 tier UI는 추가하지 않는다.
 - [ ] **Step 4: GREEN·선택 통합.** focused+Web 전체 Vitest/typecheck/build/ui:check, `pnpm --filter @led-control/web exec playwright test e2e/monitoring-control-flow.spec.ts --project=chromium`, 실제 API proxy의 401/404/410/최근 명령 status-check smoke, 독립 리뷰 후 정확 선택본 commit.
 
 ## Final integration gate
