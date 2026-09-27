@@ -112,6 +112,151 @@ describe("ScheduleControlPanel", () => {
     vi.unstubAllEnvs();
   });
 
+  it("atlas schedule surface shows the existing server total but labels gateway counts as loaded rows only", async () => {
+    mocks.listSchedules.mockResolvedValue({ items: [schedule()], total: 27, nextCursor: "next-page" });
+    renderPanel("admin");
+    const overview = await screen.findByRole("group", { name: "스케줄 요약" });
+    expect(overview).toHaveTextContent("Asia/Seoul");
+    expect(overview).toHaveTextContent("현장 전체 규칙 27건");
+    expect(overview).toHaveTextContent("불러온 1건 기준");
+    expect(overview).toHaveTextContent("확인 필요 1건");
+    const list = screen.getByRole("region", { name: "자동화 목록" });
+    expect(list).toContainElement(screen.getByRole("table", { name: "스케줄 목록" }));
+    expect(list.querySelector("[data-automation-list-scroll]")).toBeInTheDocument();
+  });
+
+  it("uses global schedule totals and navigates opaque cursor pages without appending rows", async () => {
+    const first = schedule({ name: "첫 스케줄" });
+    const second = schedule({ id: "00000000-0000-4000-8000-000000000012", name: "다음 스케줄" });
+    const summary = { ruleCount: 120, syncRuleCounts: { APPLIED: 20, PENDING: 90, REJECTED: 10 } };
+    mocks.listSchedules.mockImplementation(async (_siteId, query) => query.cursor
+      ? { items: [second], total: 120, filteredTotal: 35, siteSummary: summary, nextCursor: null }
+      : { items: [first], total: 120, filteredTotal: 35, siteSummary: summary, nextCursor: "opaque-v2" });
+    renderPanel("admin");
+
+    const overview = await screen.findByRole("group", { name: "스케줄 요약" });
+    expect(overview).toHaveTextContent("현장 전체 규칙 120건");
+    expect(overview).toHaveTextContent("적용 완료 20건 · 적용 대기 90건 · 적용 실패 10건");
+    expect(screen.getByRole("status")).toHaveTextContent("조건에 맞는 규칙 35건");
+    expect(screen.getByText("첫 스케줄")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "다음" }));
+    expect(await screen.findByText("다음 스케줄")).toBeInTheDocument();
+    expect(screen.queryByText("첫 스케줄")).not.toBeInTheDocument();
+    expect(mocks.listSchedules).toHaveBeenLastCalledWith(siteId, { limit: 10, cursor: "opaque-v2" });
+    fireEvent.click(screen.getByRole("button", { name: "이전" }));
+    expect(screen.getByText("첫 스케줄")).toBeInTheDocument();
+    expect(screen.queryByText("다음 스케줄")).not.toBeInTheDocument();
+  });
+
+  it("resets schedule cursor when a literal server search changes", async () => {
+    const summary = { ruleCount: 120, syncRuleCounts: { APPLIED: 20, PENDING: 90, REJECTED: 10 } };
+    mocks.listSchedules.mockImplementation(async (_siteId, query) => query.query
+      ? { items: [], total: 120, filteredTotal: 0, siteSummary: summary, nextCursor: null }
+      : { items: [schedule()], total: 120, filteredTotal: 120, siteSummary: summary, nextCursor: "opaque-v1" });
+    renderPanel("admin");
+    await screen.findByText("야간 운영");
+    fireEvent.change(screen.getByRole("searchbox", { name: "스케줄 검색" }), { target: { value: "입구_%" } });
+
+    await waitFor(() => expect(mocks.listSchedules).toHaveBeenLastCalledWith(siteId, { limit: 10, query: "입구_%" }));
+    expect(within(screen.getByRole("region", { name: "스케줄 목록 조건" })).getByRole("status")).toHaveTextContent("조건에 맞는 규칙 0건");
+    expect(screen.getByText("조건에 맞는 스케줄이 없습니다.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "이전" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "다음" })).toBeDisabled();
+  });
+
+  it("recovers an invalid schedule cursor by reloading the first page", async () => {
+    const summary = { ruleCount: 2, syncRuleCounts: { APPLIED: 0, PENDING: 2, REJECTED: 0 } };
+    mocks.listSchedules.mockResolvedValueOnce({ items: [schedule()], total: 2, filteredTotal: 2, siteSummary: summary, nextCursor: "stale-cursor" })
+      .mockRejectedValueOnce(new ApiError("invalid cursor", 400, null))
+      .mockResolvedValueOnce({ items: [schedule()], total: 2, filteredTotal: 2, siteSummary: summary, nextCursor: null });
+    renderPanel("admin");
+    await screen.findByText("야간 운영");
+    fireEvent.click(screen.getByRole("button", { name: "다음" }));
+    await waitFor(() => expect(mocks.listSchedules).toHaveBeenCalledTimes(3));
+    expect(mocks.listSchedules).toHaveBeenNthCalledWith(3, siteId, { limit: 10 });
+    expect(screen.getByText("야간 운영")).toBeInTheDocument();
+  });
+
+  it("polls only the visible schedule page after visiting multiple cursor pages", async () => {
+    const summary = { ruleCount: 30, syncRuleCounts: { APPLIED: 0, PENDING: 30, REJECTED: 0 } };
+    const cursors = ["", "page-2", "page-3"];
+    let thirdPageCalls = 0;
+    mocks.listSchedules.mockImplementation(async (_siteId, query) => {
+      const index = cursors.indexOf(query.cursor ?? "");
+      if (index === 2) thirdPageCalls += 1;
+      const updated = index === 2 && thirdPageCalls > 1;
+      return {
+        items: [schedule({ id: `00000000-0000-4000-8000-0000000000${11 + index}`, name: `스케줄 ${index + 1}` })],
+        total: updated ? 31 : 30, filteredTotal: updated ? 31 : 30,
+        siteSummary: updated ? { ruleCount: 31, syncRuleCounts: { APPLIED: 1, PENDING: 30, REJECTED: 0 } } : summary,
+        nextCursor: cursors[index + 1] ?? null
+      };
+    });
+    renderPanel("admin");
+    await screen.findByText("스케줄 1");
+    fireEvent.click(screen.getByRole("button", { name: "다음" }));
+    await screen.findByText("스케줄 2");
+    fireEvent.click(screen.getByRole("button", { name: "다음" }));
+    await screen.findByText("스케줄 3");
+    expect(mocks.listSchedules).toHaveBeenCalledTimes(3);
+
+    await new Promise((resolve) => setTimeout(resolve, 3250));
+    expect(mocks.listSchedules).toHaveBeenCalledTimes(4);
+    expect(mocks.listSchedules).toHaveBeenLastCalledWith(siteId, { limit: 10, cursor: "page-3" });
+    expect(screen.getByRole("group", { name: "스케줄 요약" })).toHaveTextContent("현장 전체 규칙 31건");
+    expect(within(screen.getByRole("region", { name: "스케줄 목록 조건" })).getByRole("status")).toHaveTextContent("조건에 맞는 규칙 31건");
+  });
+
+  it("bounds polling for a legacy list response after multiple pages", async () => {
+    const cursors = ["", "page-2", "page-3"];
+    mocks.listSchedules.mockImplementation(async (_siteId, query) => {
+      const index = cursors.indexOf(query.cursor ?? "");
+      return { items: [schedule({ id: `00000000-0000-4000-8000-0000000000${11 + index}`, name: `구형 스케줄 ${index + 1}` })],
+        total: 30, nextCursor: cursors[index + 1] ?? null };
+    });
+    renderPanel("admin");
+    await screen.findByText("구형 스케줄 1");
+    fireEvent.click(screen.getByRole("button", { name: "스케줄 더 보기" }));
+    await screen.findByText("구형 스케줄 2");
+    fireEvent.click(screen.getByRole("button", { name: "스케줄 더 보기" }));
+    await screen.findByText("구형 스케줄 3");
+    expect(mocks.listSchedules).toHaveBeenCalledTimes(3);
+
+    await new Promise((resolve) => setTimeout(resolve, 3250));
+    expect(mocks.listSchedules).toHaveBeenCalledTimes(4);
+    expect(mocks.listSchedules).toHaveBeenLastCalledWith(siteId, { limit: 10, cursor: "page-3" });
+  });
+
+  it("blocks schedule actions when visible-page polling returns 401 after a next-page failure", async () => {
+    const summary = { ruleCount: 3, syncRuleCounts: { APPLIED: 0, PENDING: 3, REJECTED: 0 } };
+    const pageResult = (name: string, nextCursor: string | null) => ({ items: [schedule({ name })], total: 3, filteredTotal: 3, siteSummary: summary, nextCursor });
+    mocks.listSchedules.mockResolvedValueOnce(pageResult("첫 스케줄", "page-2"))
+      .mockResolvedValueOnce(pageResult("둘째 스케줄", "page-3"))
+      .mockRejectedValueOnce(new Error("page-3 failed"))
+      .mockRejectedValueOnce(new ApiError("expired", 401, null));
+    renderPanel("admin");
+    await screen.findByText("첫 스케줄");
+    fireEvent.click(screen.getByRole("button", { name: "다음" }));
+    await screen.findByText("둘째 스케줄");
+    fireEvent.click(screen.getByRole("button", { name: "다음" }));
+    await screen.findByRole("button", { name: "상태 센터, 미해결 1건" });
+    await waitFor(() => expect(mocks.listSchedules).toHaveBeenCalledTimes(4), { timeout: 4500 });
+    expect(await screen.findByText("로그인 세션이 만료되었습니다.")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "둘째 스케줄 수정" })).not.toBeInTheDocument();
+  });
+
+  it("keeps schedule filters editable when a filtered request fails", async () => {
+    const summary = { ruleCount: 1, syncRuleCounts: { APPLIED: 0, PENDING: 1, REJECTED: 0 } };
+    mocks.listSchedules.mockResolvedValueOnce({ items: [schedule()], total: 1, filteredTotal: 1, siteSummary: summary, nextCursor: null })
+      .mockRejectedValueOnce(new Error("network failed"));
+    renderPanel("admin");
+    await screen.findByText("야간 운영");
+    fireEvent.change(screen.getByRole("searchbox", { name: "스케줄 검색" }), { target: { value: "없는 규칙" } });
+    await waitFor(() => expect(mocks.listSchedules).toHaveBeenCalledWith(siteId, { limit: 10, query: "없는 규칙" }));
+    await screen.findByRole("alert");
+    expect(screen.getByRole("searchbox", { name: "스케줄 검색" })).toHaveValue("없는 규칙");
+  });
+
   it("shows every schedule operation field and working management actions in the compact card", async () => {
     vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn() })));
     mocks.listSchedules.mockResolvedValue(page([schedule({
@@ -596,8 +741,8 @@ describe("ScheduleControlPanel", () => {
     fireEvent.click(screen.getByRole("button", { name: "다음 페이지 다시 시도" }));
     expect(await screen.findByText("두 번째 페이지")).toBeInTheDocument();
     expect(screen.getAllByText("두 번째 페이지")).toHaveLength(1);
-    expect(mocks.listSchedules).toHaveBeenNthCalledWith(2, siteId, { limit: 100, cursor: "cursor-2" });
-    expect(mocks.listSchedules).toHaveBeenNthCalledWith(3, siteId, { limit: 100, cursor: "cursor-2" });
+    expect(mocks.listSchedules).toHaveBeenNthCalledWith(2, siteId, { limit: 10, cursor: "cursor-2" });
+    expect(mocks.listSchedules).toHaveBeenNthCalledWith(3, siteId, { limit: 10, cursor: "cursor-2" });
   });
 
   it("keeps a missing next page in status after the loaded page polls successfully", async () => {
@@ -679,7 +824,7 @@ describe("ScheduleControlPanel", () => {
 
   it("shows last successful refresh in the selected site's time zone", async () => {
     vi.stubEnv("TZ", "UTC");
-    vi.spyOn(Date, "now").mockReturnValue(Date.parse("2026-09-23T23:00:00Z"));
+    const clock = vi.spyOn(Date, "now").mockReturnValue(Date.parse("2026-09-23T23:00:00Z"));
     const { queryClient } = renderPanel("admin");
     await screen.findByText("야간 운영");
     mocks.listSchedules.mockRejectedValueOnce(new Error("poll failed"));
@@ -719,20 +864,30 @@ describe("ScheduleControlPanel", () => {
   });
 
   it.each(["user scope", "401"])("forgets the last whole-list success time after %s ends its scope", async (boundary) => {
-    vi.spyOn(Date, "now").mockReturnValue(Date.parse("2026-09-23T23:00:00Z"));
+    const clock = vi.spyOn(Date, "now").mockReturnValue(Date.parse("2026-09-23T23:00:00Z"));
     const rendered = renderPanel("admin");
     await screen.findByText("야간 운영");
     if (boundary === "user scope") {
+      clock.mockReturnValue(Date.parse("2026-09-24T03:00:00Z"));
       rendered.rerender(panelElement("admin", rendered.queryClient, siteId, "another-user"));
+      await waitFor(() => expect(mocks.listSchedules).toHaveBeenCalledTimes(2));
+      await waitFor(() => expect(rendered.queryClient.isFetching({ queryKey: scheduleQueryKey(siteId) })).toBe(0));
     } else {
       mocks.listSchedules.mockRejectedValueOnce(new ApiError("expired", 401, null));
       await act(async () => { await rendered.queryClient.refetchQueries({ queryKey: scheduleQueryKey(siteId) }); });
       await screen.findByText("로그인 세션이 만료되었습니다.");
     }
     mocks.listSchedules.mockRejectedValueOnce(new Error("refresh failed"));
-    await act(async () => { await rendered.queryClient.refetchQueries({ queryKey: scheduleQueryKey(siteId) }); });
+    const activeQueryKey = rendered.queryClient.getQueryCache().findAll({ queryKey: scheduleQueryKey(siteId) }).find((query) => query.getObserversCount() > 0)?.queryKey;
+    await act(async () => { await rendered.queryClient.refetchQueries({ queryKey: activeQueryKey, exact: true }); });
     fireEvent.click(await screen.findByRole("button", { name: "상태 센터, 미해결 1건" }));
-    expect(screen.getByRole("dialog", { name: "현재 세션 상태" })).not.toHaveTextContent("마지막 성공:");
+    const center = screen.getByRole("dialog", { name: "현재 세션 상태" });
+    if (boundary === "user scope") {
+      expect(center).toHaveTextContent("마지막 성공: 26. 9. 24. 오후 12:00");
+      expect(center).not.toHaveTextContent("마지막 성공: 26. 9. 24. 오전 8:00");
+    } else {
+      expect(center).not.toHaveTextContent("마지막 성공:");
+    }
   });
 
   it("keeps one status and toast for repeated stale polling, then resolves both after success", async () => {
@@ -1018,7 +1173,7 @@ describe("ScheduleControlPanel", () => {
     expect(screen.getByRole("dialog", { name: "스케줄 수정" })).toBeInTheDocument();
     mocks.listSchedules.mockRejectedValueOnce(new ApiError("unauthorized", 401, null));
     await act(async () => { await queryClient.refetchQueries({ queryKey: scheduleQueryKey(siteId) }); });
-    await waitFor(() => expect(queryClient.getQueryState(scheduleQueryKey(siteId))?.error).toBeInstanceOf(ApiError));
+    await waitFor(() => expect(queryClient.getQueryCache().findAll({ queryKey: scheduleQueryKey(siteId) }).some((query) => query.state.error instanceof ApiError)).toBe(true));
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "스케줄 수정" })).not.toBeInTheDocument());
     expect(screen.getByRole("alert")).toHaveTextContent("로그인 세션이 만료되었습니다.");
     await waitFor(() => expect(screen.getByRole("button", { name: "상태 다시 조회" })).toHaveFocus());
@@ -1032,7 +1187,7 @@ describe("ScheduleControlPanel", () => {
     const confirm = within(screen.getByRole("dialog", { name: "스케줄 삭제" })).getByRole("button", { name: "삭제" });
     mocks.listSchedules.mockRejectedValueOnce(new ApiError("unauthorized", 401, null));
     await act(async () => { await queryClient.refetchQueries({ queryKey: scheduleQueryKey(siteId) }); });
-    await waitFor(() => expect(queryClient.getQueryState(scheduleQueryKey(siteId))?.error).toBeInstanceOf(ApiError));
+    await waitFor(() => expect(queryClient.getQueryCache().findAll({ queryKey: scheduleQueryKey(siteId) }).some((query) => query.state.error instanceof ApiError)).toBe(true));
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "스케줄 삭제" })).not.toBeInTheDocument());
     expect(screen.getByRole("alert")).toHaveTextContent("로그인 세션이 만료되었습니다.");
     fireEvent.click(confirm);

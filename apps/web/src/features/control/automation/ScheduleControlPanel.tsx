@@ -1,4 +1,4 @@
-import { useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useInfiniteQuery, useMutation, useQueryClient, type InfiniteData } from "@tanstack/react-query";
 import { automationExecutionActionResultPayloadV1Schema } from "@led-control/shared/automation-contracts";
 import { CalendarPlus, CircleCheck, Clock3, Eye, Pencil, Power, PowerOff, Trash2, TriangleAlert } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -12,14 +12,20 @@ import {
   scheduleQueryKey,
   updateSchedule,
   type CreateScheduleInput,
-  type ScheduleResponse
+  type ScheduleResponse,
+  type ScheduleListResponse
 } from "../../../api/automation";
 import type { AuthUser } from "../../../api/auth";
+import { isApiStatus } from "../../../api/client";
 import { authMeQueryKey, principalKey } from "../../../api/principal-cache";
 import type { Dashboard } from "../../../api/queries";
 import { Button, ConfirmDialog, FeedbackState, PageHeader, StatusBadge, Text, useSessionStatus, useSessionToast, type SessionStatusItem } from "../../../components/ui";
 import { ScheduleDialog } from "./ScheduleDialog";
 import { AutomationRuleCard } from "./components/AutomationRuleCard";
+import { AutomationRuleControls } from "./components/AutomationRuleControls";
+import { AutomationRuleWorkspace, AutomationWorkspaceSummary } from "./components/AutomationWorkspaceSurface";
+import { automationListRequest, useAutomationListState } from "./components/useAutomationListState";
+import { useAutomationVisiblePagePoll } from "./components/useAutomationVisiblePagePoll";
 import {
   AutomationRuleTable,
   automationTableCellClassName,
@@ -62,23 +68,72 @@ export function ScheduleControlPanel({
   const [failedNextPage, setFailedNextPage] = useState<{ scope: string; cursor: string } | null>(null);
   const [failedRefreshScope, setFailedRefreshScope] = useState<string | null>(null);
   const [lastRefreshSuccess, setLastRefreshSuccess] = useState<{ scope: string; at: number } | null>(null);
+  const [visiblePollFailure, setVisiblePollFailure] = useState<{ scope: string; error: unknown } | null>(null);
   const canManage = role === "admin";
   const isCompactList = useCompactAutomationList();
+  const { filter, appliedQuery, pageIndex, isSearchPending, changeFilter, changePage } = useAutomationListState(operationScopeKey);
+  const listScopeKey = JSON.stringify([operationScopeKey, appliedQuery, filter.status, filter.syncStatus, filter.limit]);
+  const currentListScope = useRef(listScopeKey);
+  currentListScope.current = listScopeKey;
+  const listQueryKey = [...scheduleQueryKey(siteId), listScopeKey] as const;
   const schedulesQuery = useInfiniteQuery({
-    queryKey: scheduleQueryKey(siteId),
+    queryKey: listQueryKey,
     queryFn: ({ pageParam }) => listSchedules(siteId, {
-      limit: 100,
+      ...automationListRequest(filter, appliedQuery),
       ...(pageParam ? { cursor: pageParam } : {})
     }),
     initialPageParam: "",
     getNextPageParam: (page) => page.nextCursor ?? undefined,
-    refetchInterval: 3000
+    refetchInterval: (query) => (query.state.data?.pages.length ?? 0) > 1 ? false : 3000
   });
-  const schedules = schedulesQuery.data?.pages.flatMap((page) => page.items) ?? [];
+  const firstPage = schedulesQuery.data?.pages[0];
+  const globalContractScope = useRef<string | null>(null);
+  if (firstPage) globalContractScope.current = firstPage.siteSummary && typeof firstPage.filteredTotal === "number" ? operationScopeKey : null;
+  const hasGlobalContract = globalContractScope.current === operationScopeKey;
+  const currentPageIndex = Math.min(pageIndex, Math.max(0, (schedulesQuery.data?.pages.length ?? 1) - 1));
+  const currentPage = schedulesQuery.data?.pages[currentPageIndex];
+  const schedules = hasGlobalContract ? currentPage?.items ?? [] : schedulesQuery.data?.pages.flatMap((page) => page.items) ?? [];
+  const visiblePollError = visiblePollFailure?.scope === listScopeKey ? visiblePollFailure.error : null;
+  const pollingPageIndex = hasGlobalContract ? currentPageIndex : Math.max(0, (schedulesQuery.data?.pages.length ?? 1) - 1);
+  const pollingPage = schedulesQuery.data?.pages[pollingPageIndex];
+  const visibleCursor = String(schedulesQuery.data?.pageParams[pollingPageIndex] ?? "");
+  const refreshVisiblePage = useAutomationVisiblePagePoll<ScheduleListResponse>({
+    enabled: (schedulesQuery.data?.pages.length ?? 0) > 1 && Boolean(pollingPage) && !isScheduleUnauthorized(visiblePollError),
+    scopeKey: listScopeKey,
+    pageKey: `${pollingPageIndex}:${visibleCursor}`,
+    fetchPage: () => listSchedules(siteId, { ...automationListRequest(filter, appliedQuery), ...(visibleCursor ? { cursor: visibleCursor } : {}) }),
+    onSuccess: (page) => {
+      setVisiblePollFailure(null);
+      setFailedRefreshScope(null);
+      setLastRefreshSuccess({ scope: listScopeKey, at: Date.now() });
+      queryClient.setQueryData<InfiniteData<ScheduleListResponse>>(listQueryKey, (previous) => {
+        if (!previous?.pages[pollingPageIndex]) return previous;
+        const changedCursor = previous.pages[pollingPageIndex].nextCursor !== page.nextCursor;
+        const pages = previous.pages.slice(0, changedCursor ? pollingPageIndex + 1 : undefined);
+        pages[pollingPageIndex] = page;
+        if (pollingPageIndex > 0) pages[0] = { ...pages[0], total: page.total, filteredTotal: page.filteredTotal, siteSummary: page.siteSummary };
+        return { ...previous, pages, pageParams: changedCursor ? previous.pageParams.slice(0, pollingPageIndex + 1) : previous.pageParams };
+      });
+    },
+    onError: (error) => {
+      if (visibleCursor && isApiStatus(error, 400)) {
+        setVisiblePollFailure(null);
+        changePage(0);
+        void queryClient.resetQueries({ queryKey: listQueryKey, exact: true });
+        return;
+      }
+      setVisiblePollFailure({ scope: listScopeKey, error });
+    }
+  });
+  const effectiveError = visiblePollError ?? schedulesQuery.error;
+  const retryRefresh = () => (schedulesQuery.data?.pages.length ?? 0) > 1
+    ? refreshVisiblePage() : schedulesQuery.refetch();
   // A successful refresh can remove or replace the failed cursor; that page is no longer retryable.
-  const missingCursor = failedNextPage?.scope === operationScopeKey
+  const missingCursor = failedNextPage?.scope === listScopeKey
     && schedulesQuery.data?.pages.at(-1)?.nextCursor === failedNextPage.cursor ? failedNextPage.cursor : null;
-  const queryFailure = schedulesQuery.isLoadingError
+  const queryFailure = isScheduleUnauthorized(visiblePollError)
+    ? { message: scheduleQueryErrorMessage(visiblePollError), retryLabel: "상태 다시 조회", retry: retryRefresh }
+    : schedulesQuery.isLoadingError
     ? {
         message: scheduleQueryErrorMessage(schedulesQuery.error),
         retryLabel: "다시 시도",
@@ -102,20 +157,28 @@ export function ScheduleControlPanel({
             retryLabel: "상태 다시 조회",
             retry: () => schedulesQuery.refetch()
           }
+        : visiblePollError
+          ? {
+              message: isScheduleUnauthorized(visiblePollError)
+                ? scheduleQueryErrorMessage(visiblePollError)
+                : "Gateway 적용 상태를 새로고침하지 못했습니다. 표시된 상태가 최신이 아닐 수 있습니다.",
+              retryLabel: "상태 다시 조회",
+              retry: retryRefresh
+            }
         : null;
-  const isNonBlockingQueryFailure = Boolean(schedulesQuery.data && queryFailure && !isScheduleUnauthorized(schedulesQuery.error));
-  const isAuthBlocked = Boolean(queryFailure && isScheduleUnauthorized(schedulesQuery.error));
+  const isNonBlockingQueryFailure = Boolean(schedulesQuery.data && queryFailure && !isScheduleUnauthorized(effectiveError));
+  const isAuthBlocked = Boolean(queryFailure && isScheduleUnauthorized(effectiveError));
   const authBlockedRef = useRef(isAuthBlocked);
   authBlockedRef.current = isAuthBlocked;
-  const queryUnauthorized = isScheduleUnauthorized(schedulesQuery.error);
-  const refreshFailure = failedRefreshScope === operationScopeKey || schedulesQuery.isRefetchError;
+  const queryUnauthorized = isScheduleUnauthorized(effectiveError);
+  const refreshFailure = failedRefreshScope === listScopeKey || schedulesQuery.isRefetchError || Boolean(visiblePollError);
   const statusItems = useMemo<SessionStatusItem[]>(() => {
     const items: SessionStatusItem[] = [];
-    const lastSuccess = lastRefreshSuccess?.scope === operationScopeKey
+    const lastSuccess = lastRefreshSuccess?.scope === listScopeKey
       ? `마지막 성공: ${new Intl.DateTimeFormat("ko-KR", { dateStyle: "short", timeStyle: "short", timeZone: dashboard?.site.timeZone ?? "UTC" }).format(lastRefreshSuccess.at)}`
       : undefined;
     if (schedulesQuery.data && !queryUnauthorized && (missingCursor || schedulesQuery.isFetchNextPageError)) items.push({
-      id: `control:schedule:${scopeKey}:${siteId}:query:next`,
+      id: `control:schedule:${scopeKey}:${siteId}:${listScopeKey}:query:next`,
       fingerprint: "next-page-failure",
       source: "query",
       tone: "warning",
@@ -124,13 +187,13 @@ export function ScheduleControlPanel({
       action: { label: "다음 페이지 다시 시도", onAction: () => void loadNextPage() }
     });
     if (schedulesQuery.data && !queryUnauthorized && refreshFailure) items.push({
-      id: `control:schedule:${scopeKey}:${siteId}:query:refresh`,
+      id: `control:schedule:${scopeKey}:${siteId}:${listScopeKey}:query:refresh`,
       fingerprint: "refresh-failure",
       source: "query",
       tone: "warning",
       title: "Gateway 적용 상태를 새로고침하지 못했습니다. 표시된 상태가 최신이 아닐 수 있습니다.",
       description: lastSuccess,
-      action: { label: "상태 다시 조회", onAction: () => void schedulesQuery.refetch() }
+      action: { label: "상태 다시 조회", onAction: () => void retryRefresh() }
     });
     if (!queryUnauthorized) for (const [scheduleId, error] of Object.entries(toggleErrors)) {
       if (error.scope !== operationScopeKey) continue;
@@ -144,7 +207,7 @@ export function ScheduleControlPanel({
       });
     }
     return items;
-  }, [dashboard?.site.timeZone, lastRefreshSuccess, missingCursor, operationScopeKey, queryUnauthorized, refreshFailure, schedulesQuery.data, schedulesQuery.fetchNextPage, schedulesQuery.isFetchNextPageError, schedulesQuery.refetch, scopeKey, siteId, toggleErrors]);
+  }, [dashboard?.site.timeZone, lastRefreshSuccess, listScopeKey, missingCursor, operationScopeKey, queryUnauthorized, refreshFailure, schedulesQuery.data, schedulesQuery.fetchNextPage, schedulesQuery.isFetchNextPageError, schedulesQuery.refetch, scopeKey, siteId, toggleErrors]);
   useSessionStatus(`control:schedule:${scopeKey}:${siteId}`, statusItems);
 
   const saveMutation = useMutation({
@@ -182,6 +245,7 @@ export function ScheduleControlPanel({
     setFailedNextPage(null);
     setFailedRefreshScope(null);
     setLastRefreshSuccess(null);
+    setVisiblePollFailure(null);
     setScheduleDialogOpen(false);
     setEditingSchedule(null);
     setDeleteCandidate(null);
@@ -189,24 +253,31 @@ export function ScheduleControlPanel({
     setToggleErrors({});
   }, [scopeKey, siteId]);
 
+  useEffect(() => {
+    setFailedNextPage(null);
+    setFailedRefreshScope(null);
+    setLastRefreshSuccess(null);
+    setVisiblePollFailure(null);
+  }, [listScopeKey]);
+
   useEffect(() => queryClient.getQueryCache().subscribe((event) => {
-    if (event.type !== "updated" || event.query.queryKey[0] !== "automation-schedules" || event.query.queryKey[1] !== siteId) return;
+    if (event.type !== "updated" || JSON.stringify(event.query.queryKey) !== JSON.stringify(listQueryKey)) return;
     // Infinite queries share one error state. Cache events keep a loaded-page refresh
     // failure until that operation succeeds; fetching the next page cannot resolve it.
     if (event.query.state.fetchMeta?.fetchMore?.direction) return;
     if (event.action.type === "error" && event.query.state.data && !isScheduleUnauthorized(event.action.error)) {
-      setFailedRefreshScope(operationScopeKey);
+      setFailedRefreshScope(listScopeKey);
     } else if (event.action.type === "success" && !event.action.manual) {
-      setFailedRefreshScope((current) => current === operationScopeKey ? null : current);
+      setFailedRefreshScope((current) => current === listScopeKey ? null : current);
       // dataUpdatedAt also advances for next-page fetches and manual cache writes.
       // Only a completed whole-list fetch establishes freshness in this scope.
-      setLastRefreshSuccess({ scope: operationScopeKey, at: event.query.state.dataUpdatedAt });
+      setLastRefreshSuccess({ scope: listScopeKey, at: event.query.state.dataUpdatedAt });
     }
-  }), [operationScopeKey, queryClient, siteId]);
+  }), [listScopeKey, queryClient, siteId]);
 
   useEffect(() => {
-    expirePrincipal(schedulesQuery.error, operationScopeKey, currentScopeGeneration);
-  }, [currentScopeGeneration, operationScopeKey, schedulesQuery.error, schedulesQuery.errorUpdatedAt]);
+    expirePrincipal(effectiveError, operationScopeKey, currentScopeGeneration);
+  }, [currentScopeGeneration, effectiveError, operationScopeKey, schedulesQuery.errorUpdatedAt]);
 
   useEffect(() => {
     if (!isAuthBlocked) return;
@@ -255,14 +326,27 @@ export function ScheduleControlPanel({
   }
 
   async function loadNextPage() {
+    if (hasGlobalContract && currentPageIndex < (schedulesQuery.data?.pages.length ?? 0) - 1) {
+      changePage(currentPageIndex + 1);
+      return;
+    }
     const cursor = schedulesQuery.data?.pages.at(-1)?.nextCursor;
     const previousPageCount = schedulesQuery.data?.pages.length ?? 0;
     if (!cursor) return;
     const result = await schedulesQuery.fetchNextPage();
+    if (currentListScope.current !== listScopeKey) return;
+    if (isApiStatus(result.error, 400)) {
+      // An opaque cursor can expire after a server-side list change. Rebuild the chain from page one.
+      setFailedNextPage(null);
+      changePage(0);
+      await queryClient.resetQueries({ queryKey: listQueryKey, exact: true });
+      return;
+    }
     if (result.isFetchNextPageError && !isScheduleUnauthorized(result.error)) {
-      setFailedNextPage({ scope: operationScopeKey, cursor });
+      setFailedNextPage({ scope: listScopeKey, cursor });
     } else if (result.isSuccess && (result.data?.pages.length ?? 0) > previousPageCount) {
-      setFailedNextPage((current) => current?.scope === operationScopeKey && current.cursor === cursor ? null : current);
+      setFailedNextPage((current) => current?.scope === listScopeKey && current.cursor === cursor ? null : current);
+      if (hasGlobalContract) changePage(previousPageCount);
     }
   }
 
@@ -373,7 +457,7 @@ export function ScheduleControlPanel({
   return (
     <div
       id="control-mode-panel-schedule"
-      className="grid min-w-0 content-start gap-4 tablet:min-h-0 tablet:flex-1 tablet:overflow-y-auto"
+      className="grid min-w-0 content-start gap-4 tablet:min-h-0 tablet:flex-1 tablet:flex-col tablet:overflow-hidden"
       role="tabpanel"
       aria-labelledby="control-mode-schedule"
       data-control-automation-panel="schedule"
@@ -381,7 +465,6 @@ export function ScheduleControlPanel({
       <PageHeader
         title="스케줄 제어"
         headingLevel={3}
-        description="Gateway가 현장 시간대에 맞춰 반복 밝기 규칙을 실행합니다."
         status={!canManage ? <StatusBadge tone="neutral" icon={Eye}>조회 전용</StatusBadge> : undefined}
         actions={canManage && !isAuthBlocked ? (
           <Button
@@ -397,10 +480,28 @@ export function ScheduleControlPanel({
         ) : undefined}
       />
 
+      <AutomationWorkspaceSummary label="스케줄 요약" timeZone={dashboard?.site.timeZone} total={firstPage?.total} siteSummary={firstPage?.siteSummary}
+        loadedStatuses={schedules.map((schedule) => schedule.syncStatus)}
+        state={schedulesQuery.isLoading ? "loading" : isAuthBlocked || schedulesQuery.isLoadingError ? "error" : "ready"} />
+
+      {hasGlobalContract ? <AutomationRuleControls label="스케줄" filter={filter}
+        filteredTotal={isSearchPending ? undefined : firstPage?.filteredTotal}
+        pageIndex={currentPageIndex} currentPageCount={isSearchPending ? 0 : schedules.length}
+        hasNextPage={!isSearchPending && (currentPageIndex < (schedulesQuery.data?.pages.length ?? 0) - 1 || Boolean(currentPage?.nextCursor))}
+        isFetchingNextPage={schedulesQuery.isFetchingNextPage}
+        onFilterChange={changeFilter} onPrevious={() => changePage(currentPageIndex - 1)} onNext={() => void loadNextPage()} /> : null}
+
+      <AutomationRuleWorkspace footer={!hasGlobalContract && schedulesQuery.hasNextPage && !schedulesQuery.isFetchNextPageError && !isAuthBlocked ? (
+        <Button variant="secondary" type="button" disabled={schedulesQuery.isFetchingNextPage} onClick={() => void loadNextPage()}>
+          {schedulesQuery.isFetchingNextPage ? "불러오는 중" : "스케줄 더 보기"}
+        </Button>
+      ) : undefined}>
+
       {schedulesQuery.isLoading ? <FeedbackState icon={Clock3} title="스케줄을 불러오는 중입니다." /> : null}
+      {isSearchPending ? <FeedbackState icon={Clock3} title="검색 조건을 적용 중입니다." /> : null}
       {queryFailure && !isNonBlockingQueryFailure ? (
         <FeedbackState
-          tone={schedulesQuery.isRefetchError && !isScheduleUnauthorized(schedulesQuery.error) ? "warning" : "danger"}
+          tone={(schedulesQuery.isRefetchError || visiblePollError) && !isScheduleUnauthorized(effectiveError) ? "warning" : "danger"}
           liveRole="alert"
           icon={TriangleAlert}
           title={queryFailure.message}
@@ -408,7 +509,7 @@ export function ScheduleControlPanel({
         />
       ) : null}
 
-      {!schedulesQuery.isLoading && !schedulesQuery.isLoadingError && !isAuthBlocked ? (
+      {!schedulesQuery.isLoading && !schedulesQuery.isLoadingError && !isAuthBlocked && !isSearchPending ? (
         schedules.length > 0 ? isCompactList ? <div role="list" aria-label="스케줄 카드 목록" className="grid min-w-0 gap-3">
           {schedules.map((schedule) => <AutomationRuleCard
             key={schedule.id}
@@ -466,22 +567,12 @@ export function ScheduleControlPanel({
             </tbody>
         </AutomationRuleTable> : <FeedbackState
           icon={CalendarPlus}
-          title="등록된 스케줄이 없습니다."
-          description="반복 밝기 규칙을 추가하면 Gateway 적용 상태와 최근 결과를 여기서 확인할 수 있습니다."
+          title={hasGlobalContract && firstPage?.total !== 0 ? "조건에 맞는 스케줄이 없습니다." : "등록된 스케줄이 없습니다."}
+          description={hasGlobalContract && firstPage?.total !== 0 ? "검색이나 필터 조건을 바꿔 다시 확인해 주세요." : "반복 밝기 규칙을 추가하면 Gateway 적용 상태와 최근 결과를 여기서 확인할 수 있습니다."}
         />
       ) : null}
 
-      {schedulesQuery.hasNextPage && !schedulesQuery.isFetchNextPageError && !isAuthBlocked ? (
-        <Button
-          variant="secondary"
-          className="justify-self-center"
-          type="button"
-          disabled={schedulesQuery.isFetchingNextPage}
-          onClick={() => void loadNextPage()}
-        >
-          {schedulesQuery.isFetchingNextPage ? "불러오는 중" : "스케줄 더 보기"}
-        </Button>
-      ) : null}
+      </AutomationRuleWorkspace>
 
       {dashboard ? (
         <ScheduleDialog
