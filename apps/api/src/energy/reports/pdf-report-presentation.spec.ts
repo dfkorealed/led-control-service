@@ -148,6 +148,27 @@ describe("PDF report presentation", () => {
     expect(result.monthly[0].energy).toMatchObject({ raw: "0.000098", text: "0.0001 kWh" });
   });
 
+  it("groups exact thousands and displays integral won without .00", () => {
+    const snapshot = data();
+    snapshot.fixtures[0].daily[2].energyKwh = "1234567.89";
+    snapshot.fixtures[0].daily[2].cost = "80808";
+    snapshot.fixtures[0].daily[3].cost = "0";
+    const result = present(snapshot);
+    expect(result.summary.current).toMatchObject({ raw: "1234567.89", text: "1,234,567.8900 kWh" });
+    expect(result.summary.storedCost).toMatchObject({ raw: "80808", text: "80,808원" });
+    expect(result.daily[0].cost.text).toBe("80,808원");
+    expect(result.daily[1].cost.text).toBe("0원");
+  });
+
+  it("keeps fractional won and large decimal values exact while grouping", () => {
+    const snapshot = data();
+    snapshot.fixtures[0].daily[2].cost = "9007199254740993.25";
+    snapshot.fixtures[0].daily[3].cost = "0";
+    const result = present(snapshot);
+    expect(result.summary.storedCost).toMatchObject({ raw: "9007199254740993.25",
+      text: "9,007,199,254,740,993.25원" });
+  });
+
   it("does not claim complete hourly coverage from shifted UTC buckets in Asia/Kolkata", () => {
     const snapshot = data(); snapshot.site.timeZone = "Asia/Kolkata";
     snapshot.fixtures[0].hourly = [];

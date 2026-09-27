@@ -44,10 +44,13 @@ function measure(value: string | null, unit: "kWh" | "원", precision: number, m
   const decimal = new Prisma.Decimal(value);
   const digits = unit === "kWh" ? precision : 2;
   const rounded = decimal.toFixed(digits);
+  const suffix = unit === "원" ? "원" : " kWh";
+  const [integer, fraction] = rounded.split(".");
+  const grouped = integer.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
   // A small persisted nonzero must never be displayed as an exact zero.
   const text = !decimal.isZero() && new Prisma.Decimal(rounded).isZero()
-    ? `${decimal.isNegative() ? "> -" : "< "}${new Prisma.Decimal(1).div(10 ** digits).toFixed(digits)} ${unit}`
-    : `${rounded} ${unit}`;
+    ? `${decimal.isNegative() ? "> -" : "< "}${new Prisma.Decimal(1).div(10 ** digits).toFixed(digits)}${suffix}`
+    : `${grouped}${unit === "원" && fraction === "00" ? "" : `.${fraction}`}${suffix}`;
   return { raw: value, text };
 }
 function sortedTotals(rows: SourceRow[], id: string, label: string) {
