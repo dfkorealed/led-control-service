@@ -1447,7 +1447,7 @@ cloud가 ACK로 확인한 실제 group subscription pair snapshot이다. 복합 
 | `status` | `CommandStatus` | 예 | `pending` | 명령 상태 |
 | `outcome` | `CommandOutcome?` | 아니오 | 기본값 없음 | 실제 적용 결과. 기존 행은 `NULL`, 신규 producer가 명시 |
 | `errorMessage` | `String?` | 아니오 |  | 실패 사유 |
-| `createdAt` | `DateTime` | 예 | `now()` | 생성 시각 |
+| `createdAt` | `DateTime` | 예 | DB UTC `CURRENT_TIMESTAMP AT TIME ZONE 'UTC'` | 원본 Command 생성 시각 (`TIMESTAMP(3)`) |
 | `updatedAt` | `DateTime` | 예 | `@updatedAt` | 수정 시각 |
 
 관계:
@@ -1462,6 +1462,8 @@ cloud가 ACK로 확인한 실제 group subscription pair snapshot이다. 복합 
 - MQTT command ACK 수신 시 `status`, `errorMessage`가 갱신된다.
 - `(siteId, requestedBy, clientRequestId)` unique는 동일 사용자·현장 요청의 중복 Command, Outbox, Gateway sequence 생성을 차단한다. 현재 fingerprint는 안정 정렬 target·brightness만 해시한다. 과거 API는 optional expiry의 원문까지 해시했으므로 PostgreSQL `TIMESTAMP(3)`에서 원래 소수점 표기를 역산하지 않는다. Idempotent recovery는 저장된 `targetType`, `targetId`/`targetFixtureIds`, `brightness`를 canonical 요청과 비교하며, 동일 ID에 target 또는 brightness가 다르면 API는 conflict로 처리한다.
 - `ManualOverride.commandId`는 `Command.id`를 직접 참조하는 1:1 FK다. 사용자 영구 삭제로 요청자 값이 `NULL`이 되어도 수동 override와 명령 이력 관계는 유지된다.
+
+`20260927130000_command_created_at_db_clock_default`는 새 `Command.createdAt`의 기본값만 UTC DB 서버 transaction 시각으로 다시 설정한다. Prisma 모델의 `dbgenerated`로 실제 Set `tx.command.create`는 `createdAt`을 전달하지 않고 DB 기본값을 사용한다. `requestedAt` wire는 계속 저장된 `command.createdAt`에서 만든 ISO 시각이며 밝기·대상·발행 안전 경로는 바꾸지 않는다. 일회용 PostgreSQL에서 API clock ±60초·직접 SQL session UTC/Seoul/New York·migration 재실행과 월말 cutoff를 검증했다. 기존 행을 소급 재작성하지 않으므로 과거 API-clock 행의 진짜 DB 발생 시각은 복원할 수 없다. 미설치 실험 `prisma/cutovers/recommission-protected-delete.sql`의 Command `BEFORE INSERT` trigger는 `clock_timestamp()`를 timezone 없는 열에 대입해 이 UTC default를 덮을 수 있으므로, 그 cutover의 UTC 교정·별도 검증 전에는 적용하면 안 된다. 이 migration 자체도 운영 DB에 적용하지 않았고 HISTORY/RECOVERY/PURGE startup hard-off를 유지한다. DB primary/failover 시계 attestation, broker/Gateway 안전 증거와 원본 물리 삭제는 별도 출시 관문이다.
 
 ### CommandDispatch / CommandFixtureResult / MqttOutbox
 

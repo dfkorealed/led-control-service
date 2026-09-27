@@ -1567,7 +1567,7 @@ model Command {
   dispatches         CommandDispatch[]
   manualOverride     ManualOverride?
   retentionAttempt   CommandRetentionAttempt?
-  createdAt          DateTime          @default(now())
+  createdAt          DateTime          @default(dbgenerated("(CURRENT_TIMESTAMP AT TIME ZONE 'UTC'::text)"))
   updatedAt          DateTime          @updatedAt
 
   @@unique([siteId, requestedBy, clientRequestId])
