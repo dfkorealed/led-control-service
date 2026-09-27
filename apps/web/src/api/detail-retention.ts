@@ -1,4 +1,23 @@
 import { useEffect, useState } from "react";
+import { detailRetentionAnchorSchema } from "@led-control/shared/monitoring-activity-contracts";
+
+export interface RetentionClock { generatedAt: number; requestStartedAt: number; retentionEnabled: boolean }
+export async function withRetentionClock<T>(read: () => Promise<T>): Promise<T & { retentionClock?: RetentionClock }> {
+  const requestStartedAt = performance.now();
+  const response = await read();
+  const parsed = detailRetentionAnchorSchema.safeParse(response);
+  const generatedAt = parsed.success ? Date.parse(parsed.data.generatedAt) : NaN;
+  const valid = parsed.success && Date.parse(parsed.data.retainedFrom) === detailRetainedFrom(generatedAt);
+  // Counting the full request RTT as elapsed server time deliberately hides a
+  // boundary response early. Starting at receipt could expose expired content.
+  return { ...response, retentionClock: valid ? { generatedAt, requestStartedAt, retentionEnabled: parsed.data.retentionEnabled !== false } : undefined };
+}
+
+export function retentionNow(clock: RetentionClock | undefined): number {
+  if (!clock) return NaN;
+  const elapsed = performance.now() - clock.requestStartedAt;
+  return elapsed >= 0 ? clock.generatedAt + elapsed : NaN;
+}
 
 /** PostgreSQL's UTC `now - interval '3 months'`, including month-end clamping. */
 export function detailRetainedFrom(now: number): number {
@@ -11,9 +30,17 @@ export function detailRetainedFrom(now: number): number {
   return date.getTime();
 }
 
-export function isDetailRetained(createdAt: string | undefined, now = Date.now()): boolean {
-  // Older API versions omit the timestamp. Server revalidation still applies.
-  return createdAt === undefined || Date.parse(createdAt) >= detailRetainedFrom(now);
+export function isDetailRetained(createdAt: string | undefined, now: number): boolean {
+  return typeof createdAt === "string" && Number.isFinite(now) && Date.parse(createdAt) >= detailRetainedFrom(now);
+}
+
+export function isRetainedByClock(createdAt: string | undefined, clock?: RetentionClock): boolean {
+  if (!clock || !Number.isFinite(retentionNow(clock))) return false;
+  if (!clock.retentionEnabled) return true;
+  // Clamping can move the cutoff backwards at midnight. Once this response
+  // crosses its FIRST exclusion, only a new authorized read may restore it.
+  return Boolean(createdAt && isDetailRetained(createdAt, clock.generatedAt)
+    && retentionNow(clock) < detailDeadline(createdAt, clock.generatedAt));
 }
 
 function detailDeadline(createdAt: string, now: number): number {
@@ -39,17 +66,18 @@ function detailDeadline(createdAt: string, now: number): number {
 }
 
 /** Wake an open surface at its next retention boundary, including suspended tabs. */
-export function useDetailRetentionClock(timestamps: Array<string | undefined>) {
+export function useDetailRetentionClock(timestamps: Array<string | undefined>, clock?: RetentionClock, revalidate?: () => unknown) {
   const [, setRevision] = useState(0);
-  const now = Date.now();
-  const deadline = Math.min(...timestamps.filter((value): value is string => Boolean(value))
-    .map((value) => detailDeadline(value, now)).filter((value) => value > now));
+  const now = retentionNow(clock);
+  const deadline = clock?.retentionEnabled === false ? Infinity : Math.min(...timestamps.filter((value): value is string => Boolean(value))
+    .map((value) => detailDeadline(value, clock?.generatedAt ?? NaN)).filter((value) => value > now));
   useEffect(() => {
     const wake = () => setRevision((value) => value + 1);
-    const timer = Number.isFinite(deadline) ? window.setTimeout(wake, Math.min(deadline - Date.now(), 2_147_483_647)) : undefined;
-    window.addEventListener("focus", wake);
-    document.addEventListener("visibilitychange", wake);
-    return () => { window.clearTimeout(timer); window.removeEventListener("focus", wake); document.removeEventListener("visibilitychange", wake); };
-  }, [deadline, now]);
+    const regainFocus = () => { wake(); if (document.visibilityState === "visible") void revalidate?.(); };
+    const timer = Number.isFinite(deadline) ? window.setTimeout(wake, Math.max(0, Math.min(deadline - retentionNow(clock), 2_147_483_647))) : undefined;
+    window.addEventListener("focus", regainFocus);
+    document.addEventListener("visibilitychange", regainFocus);
+    return () => { window.clearTimeout(timer); window.removeEventListener("focus", regainFocus); document.removeEventListener("visibilitychange", regainFocus); };
+  }, [deadline, now, clock, revalidate]);
   return now;
 }

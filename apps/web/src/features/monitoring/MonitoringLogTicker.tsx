@@ -1,4 +1,3 @@
-import { isDetailRetained, useDetailRetentionClock } from "../../api/detail-retention";
 import type { MonitoringActivityItem } from "@led-control/shared";
 import { useEffect, useState, type RefObject } from "react";
 import { Button, Text } from "../../components/ui";
@@ -36,8 +35,8 @@ export function MonitoringLogTicker({ items, generatedAt, retainedFrom, isPendin
     return () => window.clearInterval(timer);
   }, [items.length, paused, visible]);
 
-  const now = useDetailRetentionClock(items.map((item) => item.recordedAt));
-  const retainedItems = error ? [] : items.filter((item) => isDetailRetained(item.recordedAt, now));
+  // The activity query owns the server-clock retention deadline for these items.
+  const retainedItems = error ? [] : items;
   const item = retainedItems[activeIndex % retainedItems.length];
   const hasItems = retainedItems.length > 0;
   const stale = isRefetchError && Boolean(error);

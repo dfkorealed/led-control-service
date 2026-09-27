@@ -9,7 +9,6 @@ export function commandHistoryGetDbClockRequested() {
 }
 
 export async function commandHistoryGetReadBoundary(db: CommandReadinessDb, siteId: string) {
-  if (!commandHistoryGetDbClockRequested()) throw new Error("command history DB-clock rollout is disabled");
   const [clock] = await db.$queryRaw<Array<{ generatedAt: Date; retainedFrom: Date }>>(Prisma.sql`
     SELECT transaction_timestamp() AT TIME ZONE 'UTC' AS "generatedAt",
       (transaction_timestamp() AT TIME ZONE 'UTC') - INTERVAL '3 months' AS "retainedFrom"
@@ -18,7 +17,7 @@ export async function commandHistoryGetReadBoundary(db: CommandReadinessDb, site
     || !(clock.retainedFrom instanceof Date) || Number.isNaN(clock.retainedFrom.getTime())) {
     throw new Error("command history DB clock unavailable");
   }
-  return { ...clock, retentionEnabled: true as const };
+  return { ...clock, retentionEnabled: commandHistoryGetDbClockRequested() };
 }
 
 /** Read-only activation audit. The sample contains opaque Command IDs only. */

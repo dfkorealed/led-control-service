@@ -48,7 +48,8 @@ describe("Command content redaction consumers", () => {
     expect(tx.mqttOutbox.create).not.toHaveBeenCalled();
   });
   it("returns content-free expiry for an authorized redacted detail with rollout disabled", async () => {
-    const { db } = harness();
+    const { db, tx } = harness();
+    tx.$queryRaw.mockResolvedValue([{ generatedAt: new Date("2026-09-25"), retainedFrom: new Date("2026-06-25") }]);
     const service = new CommandStatusService(db as never, access as never);
     await expect(service.getCommand(user, "command")).rejects.toMatchObject({ status: 410,
       response: { code: "command_expired" } });

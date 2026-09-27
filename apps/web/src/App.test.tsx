@@ -143,7 +143,7 @@ vi.mock("./api/client", async (importOriginal) => ({
         objects: []
       });
     }
-    if (path === "/commands/command-created-1" && apiState.commandStatus) return Promise.resolve(apiState.commandStatus);
+    if (path === "/commands/command-created-1" && apiState.commandStatus) return Promise.resolve({ generatedAt: "2026-09-27T00:00:00.000Z", retainedFrom: "2026-06-27T00:00:00.000Z", retentionEnabled: false, ...apiState.commandStatus as object });
     const floorEditorMatch = path.match(/^\/floors\/(.+)\/editor-state$/);
     if (floorEditorMatch) {
       const dashboard = (apiState.dashboard ?? mockDashboard) as typeof mockDashboard;

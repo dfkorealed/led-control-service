@@ -470,7 +470,7 @@
 
 - 구현 완료: 전체 로그 drawer는 cursor 410의 최신 기록 복구와 최근 3개월 안내를 유지한다. 재조회 실패 때 이전 활동을 계속 표시하지 않으며 ticker도 실패한 캐시의 활동 내용을 숨긴다. 열린 활동의 달력 3개월 경계에서는 내용이 숨겨지고 API를 다시 조회하며 포커스·재연결도 재검증한다.
 - 미구현: 운영 DB 활성화·과거 데이터 backfill·실제 현장 HIL은 이 Web 변경에 포함하지 않는다.
-- 부족하거나 개선이 필요한 기능: 브라우저 UTC 달력 계산은 열린 화면의 표시 방어이며 중앙 DB의 `retainedFrom`을 대체하지 않는다. 실제 API↔Web 프록시 검증은 별도 통합 관문에 기록한다.
+- 부족하거나 개선이 필요한 기능: 응답의 DB UTC `generatedAt`/`retainedFrom`과 요청 시작 단조 시계를 사용한다. 왕복 시간을 보수적으로 포함하여 조금 일찍 숨길 수 있으며, 시각 메타데이터 누락·오류는 숨김으로 처리한다. ticker는 조회 계층이 검증한 행만 표시하며 로컬 벽시계로 재판정하지 않는다. 실제 API↔Web 프록시 검증은 별도 통합 관문에 기록한다.
 - 관련 파일: `apps/web/src/api/detail-retention.ts`, `apps/web/src/features/monitoring/{useMonitoringActivity,MonitoringLogDrawer,MonitoringLogTicker}`와 해당 테스트.
 - 갱신 규칙: cursor 오류·재검증·활동 보관 정책이 바뀌면 제어 메뉴 문서와 이 항목을 함께 갱신한다.
 - 검토 보완: 공통 보관 시계는 평년·윤년 2월 말의 비단조 cutoff를 날짜별로 검사한다. 3개월 뒤 월말의 첫 제외 시점을 마지막 날까지 미루지 않는다.

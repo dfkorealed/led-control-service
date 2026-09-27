@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { isDetailRetained, useDetailRetentionClock } from "../../api/detail-retention";
+import { isRetainedByClock, useDetailRetentionClock, withRetentionClock } from "../../api/detail-retention";
 import { useQuery } from "@tanstack/react-query";
 import { monitoringActivityResponseSchema } from "@led-control/shared/monitoring-activity-contracts";
 import { apiGet } from "../../api/client";
@@ -29,8 +29,7 @@ export function useMonitoringActivity(scope: MonitoringActivityScope) {
       if (!principal || !siteId || !floorId) throw new Error("Monitoring activity scope is required");
       const search = new URLSearchParams({ limit: String(limit) });
       if (cursor) search.set("cursor", cursor);
-      const response = await apiGet<unknown>(`/sites/${encodeURIComponent(siteId)}/floors/${encodeURIComponent(floorId)}/monitoring-activity?${search}`, { signal });
-      return monitoringActivityResponseSchema.parse(response);
+      return withRetentionClock(async () => monitoringActivityResponseSchema.parse(await apiGet<unknown>(`/sites/${encodeURIComponent(siteId)}/floors/${encodeURIComponent(floorId)}/monitoring-activity?${search}`, { signal })));
     },
     staleTime: 0,
     refetchInterval: 60_000,
@@ -38,13 +37,14 @@ export function useMonitoringActivity(scope: MonitoringActivityScope) {
     refetchOnReconnect: "always",
     retry: false
   });
-  const now = useDetailRetentionClock(query.data?.items.map((item) => item.recordedAt) ?? []);
-  const expired = query.data?.items.some((item) => !isDetailRetained(item.recordedAt, now));
+  useDetailRetentionClock(query.data?.items.map((item) => item.recordedAt) ?? [], query.data?.retentionClock,
+    principal && siteId && floorId ? query.refetch : undefined);
+  const expired = query.data?.items.some((item) => !isRetainedByClock(item.recordedAt, query.data?.retentionClock));
   const expirationRead = useRef(false);
   useEffect(() => {
     if (!expired) { expirationRead.current = false; return; }
     if (!expirationRead.current) { expirationRead.current = true; void query.refetch(); }
   }, [expired, query.refetch]);
   const data = !query.error && !query.isFetching && !query.isPaused ? query.data : undefined;
-  return { ...query, data: data ? { ...data, items: data.items.filter((item) => isDetailRetained(item.recordedAt, now)) } : undefined };
+  return { ...query, data: data ? { ...data, items: data.items.filter((item) => isRetainedByClock(item.recordedAt, data.retentionClock)) } : undefined };
 }

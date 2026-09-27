@@ -18,9 +18,16 @@ export const monitoringActivityItemSchema = z.object({
   refreshStatus: z.enum(["completed", "partial", "failed", "expired"]).optional()
 }).strict();
 
-export const monitoringActivityResponseSchema = z.object({
+/** DB transaction UTC anchor shared by retained command detail/history and activity. */
+export const detailRetentionAnchorSchema = z.object({
   generatedAt: z.string().datetime(),
   retainedFrom: z.string().datetime(),
+  // Monitoring always enforces retention; command GETs expose rollout state.
+  retentionEnabled: z.boolean().optional()
+});
+export type DetailRetentionAnchor = z.infer<typeof detailRetentionAnchorSchema>;
+
+export const monitoringActivityResponseSchema = detailRetentionAnchorSchema.extend({
   items: z.array(monitoringActivityItemSchema),
   nextCursor: z.string().min(1).nullable()
 }).strict();

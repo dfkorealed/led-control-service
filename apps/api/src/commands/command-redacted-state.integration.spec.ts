@@ -115,6 +115,16 @@ const enabled = process.env.COMMAND_REDACTION_TEST === "1";
     try {
       const baseUrl = await app.getUrl();
       const headers = { Cookie: "led_session=test", "Content-Type": "application/json" };
+      const recent = await db.command.create({ data: commandData() });
+      for (const enabled of [false, true]) {
+        if (enabled) process.env.COMMAND_HISTORY_RETENTION_ENABLED = "1";
+        else delete process.env.COMMAND_HISTORY_RETENTION_ENABLED;
+        const fresh = await fetch(`${baseUrl}/commands/${recent.id}`, { headers });
+        expect(fresh.status).toBe(200);
+        expect(await fresh.json()).toMatchObject({ id: recent.id, generatedAt: expect.any(String),
+          retainedFrom: expect.any(String), retentionEnabled: enabled });
+      }
+      delete process.env.COMMAND_HISTORY_RETENTION_ENABLED;
       const detail = await fetch(`${baseUrl}/commands/${original.id}`, { headers });
       expect(detail.status).toBe(410);
       expect(await detail.json()).toEqual({ code: "command_expired" });
@@ -129,7 +139,7 @@ const enabled = process.env.COMMAND_REDACTION_TEST === "1";
       expect(set.status).toBe(409);
       expect(await set.json()).toEqual({ code: "command_request_expired" });
       expect(await db.mqttOutbox.count()).toBe(0);
-    } finally { await app.close(); }
+    } finally { delete process.env.COMMAND_HISTORY_RETENTION_ENABLED; await app.close(); }
   });
 
   it("consumes late acceptance and result ACKs without recreating detailed rows or raw ledger", async () => {

@@ -4,7 +4,7 @@ import { z } from "zod";
 import { SiteAccessService } from "../access/site-access.service";
 import { AuthenticatedUser } from "../auth/auth.types";
 import { PrismaService } from "../prisma/prisma.service";
-import { commandHistoryGetDbClockRequested, commandHistoryGetReadBoundary } from "./command-history-rollout";
+import { commandHistoryGetReadBoundary } from "./command-history-rollout";
 
 type ResultStatus = "pending" | "succeeded" | "failed" | "timed_out";
 
@@ -69,17 +69,14 @@ export class CommandStatusService {
       const last = page.at(-1);
       return {
         items: page.map(summarizeCommand),
-        ...(retainedFrom ? { generatedAt: boundary!.generatedAt.toISOString(), retainedFrom: retainedFrom.toISOString() } : {}),
+        ...(boundary ? { generatedAt: boundary.generatedAt.toISOString(), retainedFrom: boundary.retainedFrom.toISOString(), retentionEnabled: boundary.retentionEnabled } : {}),
         nextCursor: commands.length > limit && last ? Buffer.from(JSON.stringify({
           id: last.id, createdAt: last.createdAt.toISOString()
         })).toString("base64url") : null
       };
     };
-    // Only enabled GETs open a short read transaction; the disabled legacy path
-    // does not consult the DB clock or alter its existing query sequence.
-    return commandHistoryGetDbClockRequested()
-      ? this.prisma.$transaction(async (tx) => read(tx, await commandHistoryGetReadBoundary(tx, input.siteId)))
-      : read(this.prisma);
+    // OFF still needs an authoritative display clock, but never applies cutoff.
+    return this.prisma.$transaction(async (tx) => read(tx, await commandHistoryGetReadBoundary(tx, input.siteId)));
   }
 
   async getCommand(user: AuthenticatedUser, commandId: string, _now = new Date()) {
@@ -108,7 +105,7 @@ export class CommandStatusService {
       if (error instanceof NotFoundException) throw commandNotFound();
       throw error;
     }
-    const read = async (db: CommandReadDb, boundary?: { retainedFrom: Date; retentionEnabled: boolean }) => {
+    const read = async (db: CommandReadDb, boundary?: { generatedAt: Date; retainedFrom: Date; retentionEnabled: boolean }) => {
       // A delayed physical sweep must never extend the customer-visible history window.
       if (boundary?.retentionEnabled && scopedCommand.createdAt < boundary.retainedFrom) {
         throw new GoneException({ code: "command_expired" });
@@ -140,6 +137,7 @@ export class CommandStatusService {
 
       return {
         ...summarizeCommand(command),
+        ...(boundary ? { generatedAt: boundary.generatedAt.toISOString(), retainedFrom: boundary.retainedFrom.toISOString(), retentionEnabled: boundary.retentionEnabled } : {}),
         dispatches: command.dispatches.map((dispatch) => ({
           id: dispatch.id,
           kind: dispatch.kind,
@@ -167,9 +165,7 @@ export class CommandStatusService {
         }))
       };
     };
-    return commandHistoryGetDbClockRequested()
-      ? this.prisma.$transaction(async (tx) => read(tx, await commandHistoryGetReadBoundary(tx, scopedCommand.siteId)))
-      : read(this.prisma);
+    return this.prisma.$transaction(async (tx) => read(tx, await commandHistoryGetReadBoundary(tx, scopedCommand.siteId)));
   }
 }
 

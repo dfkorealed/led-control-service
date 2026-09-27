@@ -64,13 +64,25 @@ const enabled = process.env.COMMAND_HISTORY_DB_CLOCK_TEST === "1";
       expect(Math.abs(new Date(list.generatedAt!).getTime() - clock.generatedAt.getTime())).toBeLessThan(10_000);
       expect(Math.abs(new Date(list.generatedAt!).getTime() - hostNow.getTime())).toBeGreaterThan(30_000);
       expect(Math.abs(new Date(list.retainedFrom!).getTime() - clock.retainedFrom.getTime())).toBeLessThan(10_000);
-      await expect(service.getCommand(user, fresh.id, hostNow)).resolves.toMatchObject({ id: fresh.id });
+      const detail = await service.getCommand(user, fresh.id, hostNow);
+      expect(detail).toMatchObject({ id: fresh.id, generatedAt: expect.any(String), retainedFrom: expect.any(String) });
+      expect(Math.abs(Date.parse((detail as any).generatedAt) - clock.generatedAt.getTime())).toBeLessThan(10_000);
       await expect(service.getCommand(user, expired.id, hostNow)).rejects.toBeInstanceOf(GoneException);
     }
     const expiredCursor = Buffer.from(JSON.stringify({ id: expired.id, createdAt: expired.createdAt.toISOString() })).toString("base64url");
     await expect(service.listCommands(user, { siteId, cursor: expiredCursor }, slowHost)).rejects.toMatchObject({
       response: { code: "command_history_cursor_expired" }, status: 400
     });
+  });
+
+  it("exposes DB anchors with rollout OFF while preserving old unresolved detail and history", async () => {
+    delete process.env.COMMAND_HISTORY_RETENTION_ENABLED;
+    const clock = await dbBoundary();
+    const old = await insertCommand(new Date("2020-01-01T00:00:00Z"), "unknown");
+    const detail = await service.getCommand(user, old.id, new Date("1900-01-01"));
+    expect(detail).toMatchObject({ id: old.id, retentionEnabled: false, brightness: 30, generatedAt: expect.any(String) });
+    expect(Math.abs(Date.parse(detail.generatedAt!) - clock.generatedAt.getTime())).toBeLessThan(10_000);
+    expect(await service.listCommands(user, { siteId })).toMatchObject({ retentionEnabled: false, items: [{ id: old.id }] });
   });
 
   it.each(["UTC", "Asia/Seoul", "America/New_York"])(

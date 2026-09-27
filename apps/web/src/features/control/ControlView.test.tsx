@@ -7,6 +7,7 @@ import type { FloorMapSnapshot } from "@led-control/shared";
 import type { CommandStage } from "../../api/commands";
 import type { Dashboard } from "../../api/queries";
 import { SessionStatusCenter, SessionStatusProvider, ToastRegion } from "../../components/ui";
+import { detailRetainedFrom } from "../../api/detail-retention";
 import { ControlView } from "./ControlView";
 import { activeCommandStorageKey, loadObservedVerificationCase, saveObservedVerificationCase,
   saveActiveCommandRequest, markActiveCommandReplayRejected, markActiveCommandCaseReconciled } from "./active-command-store";
@@ -22,7 +23,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock("../../api/client", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../api/client")>()),
   apiPost: mocks.apiPost,
-  apiGet: mocks.apiGet,
+  apiGet: async (...args: unknown[]) => ({ generatedAt: "2026-09-25T00:00:00.000Z", retainedFrom: "2026-06-25T00:00:00.000Z", retentionEnabled: false, ...await mocks.apiGet(...args) }),
   apiRequest: vi.fn()
 }));
 vi.mock("../../api/queries", async (importOriginal) => ({
@@ -183,10 +184,10 @@ describe("ControlView 대상 선택", () => {
   it.each([401, 403, 404, 410, 500])("discards an open terminal result after refetch %s without replay", async (status) => {
     const actual = await vi.importActual<typeof import("../../api/commands")>("../../api/commands");
     mocks.useCommandStatus.mockImplementation(actual.useCommandStatus);
-    const record = { ...createCommandStatus(commandIds.terminal, "verified_not_applied"), createdAt: new Date().toISOString(), siteId: dashboard.site.id, targetFixtureIds: [fixtureIds.b2First], brightness: 37 };
+    const record = { ...createCommandStatus(commandIds.terminal, "verified_not_applied"), retentionEnabled: true, get generatedAt() { return new Date().toISOString(); }, get retainedFrom() { return new Date(detailRetainedFrom(Date.now())).toISOString(); }, createdAt: new Date().toISOString(), siteId: dashboard.site.id, targetFixtureIds: [fixtureIds.b2First], brightness: 37 };
     let unavailable = false;
     mocks.apiGet.mockImplementation(async (path: string) => {
-      if (path.startsWith("/commands?")) return { items: [record], nextCursor: null };
+      if (path.startsWith("/commands?")) return { retentionEnabled: true, generatedAt: record.generatedAt, retainedFrom: record.retainedFrom, items: [record], nextCursor: null };
       if (unavailable) throw { status, body: { code: status === 410 ? "command_expired" : "unavailable" } };
       return record;
     });
@@ -208,11 +209,11 @@ describe("ControlView 대상 선택", () => {
     ["2024-02-29T23:30:00Z", "2024-05-29T23:30:00Z"],
     ["2026-02-28T23:00:00Z", "2026-05-29T23:00:00Z"]
   ])("expires the open terminal result and history drawer for %s at %s", async (createdAt, boundary) => {
-    vi.useFakeTimers(); vi.setSystemTime(new Date(Date.parse(boundary) - 1_000));
+    vi.useFakeTimers({ toFake: ["Date", "performance", "setTimeout", "clearTimeout", "setInterval", "clearInterval"] }); vi.setSystemTime(new Date(Date.parse(boundary) - 1_000));
     const actual = await vi.importActual<typeof import("../../api/commands")>("../../api/commands");
     mocks.useCommandStatus.mockImplementation(actual.useCommandStatus);
-    const record = { ...createCommandStatus(commandIds.terminal, "verified_not_applied"), createdAt, siteId: dashboard.site.id, targetFixtureIds: [fixtureIds.b2First], brightness: 37 };
-    mocks.apiGet.mockImplementation(async (path: string) => path.startsWith("/commands?") ? { items: [record], nextCursor: null } : record);
+    const record = { ...createCommandStatus(commandIds.terminal, "verified_not_applied"), retentionEnabled: true, get generatedAt() { return new Date().toISOString(); }, get retainedFrom() { return new Date(detailRetainedFrom(Date.now())).toISOString(); }, createdAt, siteId: dashboard.site.id, targetFixtureIds: [fixtureIds.b2First], brightness: 37 };
+    mocks.apiGet.mockImplementation(async (path: string) => path.startsWith("/commands?") ? { retentionEnabled: true, generatedAt: record.generatedAt, retainedFrom: record.retainedFrom, items: [record], nextCursor: null } : record);
     renderControl();
     await act(async () => { await vi.advanceTimersByTimeAsync(20); });
     fireEvent.click(screen.getByRole("button", { name: new RegExp(commandIds.terminal) }));

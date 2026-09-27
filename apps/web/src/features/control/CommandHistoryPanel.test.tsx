@@ -18,7 +18,7 @@ function command(id: string) {
 describe("CommandHistoryPanel", () => {
   it("explains an exact pre-RF clock refusal in the latest history without offering automatic execution", async () => {
     const refused = { ...command("clock-refused"), stage: "failed", outcome: "not_applied", errorCode: "GATEWAY_CLOCK_UNTRUSTED" };
-    const fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ items: [refused], nextCursor: null }) });
+    const fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ generatedAt: "2026-09-25T00:00:00.000Z", retainedFrom: "2026-06-25T00:00:00.000Z", retentionEnabled: false, items: [refused], nextCursor: null }) });
     vi.stubGlobal("fetch", fetch);
     renderHistory();
 
@@ -34,7 +34,7 @@ describe("CommandHistoryPanel", () => {
     const partial = { ...command("partial-command"), stage: "partial_failed", outcome: "partially_applied", errorCode: "GATEWAY_CLOCK_UNTRUSTED" };
     const expired = { ...command("expired-command"), stage: "failed", outcome: "not_applied", errorCode: "COMMAND_EXPIRED" };
     vi.stubGlobal("fetch", vi.fn().mockImplementation(async (url: string) => ({ ok: true, json: async () => ({
-      items: url.includes("limit=1") ? [unknown] : [unknown, partial, expired], nextCursor: null
+      generatedAt: "2026-09-25T00:00:00.000Z", retainedFrom: "2026-06-25T00:00:00.000Z", retentionEnabled: false, items: url.includes("limit=1") ? [unknown] : [unknown, partial, expired], nextCursor: null
     }) })));
     const onOpenVerificationCases = vi.fn();
     renderHistory(vi.fn(), false, onOpenVerificationCases);
@@ -52,7 +52,7 @@ describe("CommandHistoryPanel", () => {
 
   it("shows the clock refusal in compact history while keeping the command detail entry", async () => {
     const refused = { ...command("clock-refused"), stage: "failed", outcome: "not_applied", errorCode: "GATEWAY_CLOCK_UNTRUSTED" };
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: async () => ({ items: [refused], nextCursor: null }) }));
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: async () => ({ generatedAt: "2026-09-25T00:00:00.000Z", retainedFrom: "2026-06-25T00:00:00.000Z", retentionEnabled: false, items: [refused], nextCursor: null }) }));
     const { onSelect } = renderHistory(vi.fn(), true);
 
     const recent = await screen.findByRole("region", { name: "최근 명령 이력" });
@@ -64,7 +64,7 @@ describe("CommandHistoryPanel", () => {
 
   it("keeps the compact latest-history bar concise while retaining detail, drawer and verification entry", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: async () => ({
-      items: [command("newest-command")], nextCursor: null, retainedFrom: "2026-06-25T01:00:00.000Z"
+      generatedAt: "2026-09-25T01:00:00.000Z", retainedFrom: "2026-06-25T01:00:00.000Z", retentionEnabled: false, items: [command("newest-command")], nextCursor: null
     }) }));
     const onOpenVerificationCases = vi.fn();
     const { onSelect } = renderHistory(vi.fn(), true, onOpenVerificationCases);
@@ -85,7 +85,7 @@ describe("CommandHistoryPanel", () => {
     const fetch = vi.fn().mockImplementation(async (url: string) => {
       const limit = new URL(url, "http://localhost").searchParams.get("limit");
       return { ok: true, json: async () => ({
-        items: limit === "1" ? [command("newest-command")] : [command("newest-command"), command("older-command")],
+        retentionEnabled: false, items: limit === "1" ? [command("newest-command")] : [command("newest-command"), command("older-command")],
         nextCursor: null,
         generatedAt: "2026-09-25T01:00:00.000Z",
         retainedFrom: "2026-06-25T01:00:00.000Z"
@@ -107,7 +107,7 @@ describe("CommandHistoryPanel", () => {
   });
 
   it("uses the shared search field and SelectBox trigger", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: async () => ({ items: [], nextCursor: null }) }));
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: async () => ({ generatedAt: "2026-09-25T00:00:00.000Z", retainedFrom: "2026-06-25T00:00:00.000Z", retentionEnabled: false, items: [], nextCursor: null }) }));
     renderHistory();
 
     await screen.findByText("명령 이력이 없습니다.");
@@ -117,7 +117,7 @@ describe("CommandHistoryPanel", () => {
   });
 
   it("debounces search, changes stage filters and resets pagination for a new search", async () => {
-    const fetch = vi.fn().mockImplementation(async () => ({ ok: true, json: async () => ({ items: [], nextCursor: null }) }));
+    const fetch = vi.fn().mockImplementation(async () => ({ ok: true, json: async () => ({ generatedAt: "2026-09-25T00:00:00.000Z", retainedFrom: "2026-06-25T00:00:00.000Z", retentionEnabled: false, items: [], nextCursor: null }) }));
     vi.stubGlobal("fetch", fetch);
     renderHistory();
     await screen.findByText("명령 이력이 없습니다.");
@@ -136,8 +136,8 @@ describe("CommandHistoryPanel", () => {
   });
   it("moves through opaque cursor pages and opens the chosen command without issuing a control", async () => {
     const fetch = vi.fn().mockImplementation(async (url: string) => ({ ok: true, json: async () => url.includes("cursor=")
-      ? { items: [command("older-command")], nextCursor: null }
-      : { items: [command("latest-command")], nextCursor: "opaque-cursor" } }));
+      ? { generatedAt: "2026-09-25T00:00:00.000Z", retainedFrom: "2026-06-25T00:00:00.000Z", retentionEnabled: false, items: [command("older-command")], nextCursor: null }
+      : { generatedAt: "2026-09-25T00:00:00.000Z", retainedFrom: "2026-06-25T00:00:00.000Z", retentionEnabled: false, items: [command("latest-command")], nextCursor: "opaque-cursor" } }));
     vi.stubGlobal("fetch", fetch);
     const { onSelect } = renderHistory();
     fireEvent.click(await screen.findByRole("button", { name: /latest-command/ }));
@@ -159,10 +159,10 @@ describe("CommandHistoryPanel", () => {
     let firstPageReads = 0;
     const fetch = vi.fn().mockImplementation(async (url: string) => {
       const params = new URL(url, "http://localhost").searchParams;
-      if (params.get("limit") === "1") return { ok: true, json: async () => ({ items: [command("latest")], nextCursor: null }) };
+      if (params.get("limit") === "1") return { ok: true, json: async () => ({ generatedAt: "2026-09-25T00:00:00.000Z", retainedFrom: "2026-06-25T00:00:00.000Z", retentionEnabled: false, items: [command("latest")], nextCursor: null }) };
       if (params.has("cursor")) return { ok: false, status: 400, headers: { get: () => "application/json" }, json: async () => ({ code: "command_history_cursor_expired" }) };
       firstPageReads += 1;
-      return { ok: true, json: async () => ({ items: [command("latest")], nextCursor: firstPageReads === 1 ? "expired-cursor" : null }) };
+      return { ok: true, json: async () => ({ generatedAt: "2026-09-25T00:00:00.000Z", retainedFrom: "2026-06-25T00:00:00.000Z", retentionEnabled: false, items: [command("latest")], nextCursor: firstPageReads === 1 ? "expired-cursor" : null }) };
     });
     vi.stubGlobal("fetch", fetch);
     renderHistory();
@@ -182,7 +182,7 @@ describe("CommandHistoryPanel", () => {
       const params = new URL(url, "http://localhost").searchParams;
       if (params.has("cursor")) return new Promise((resolve) => { finishOldPage = resolve; });
       return { ok: true, json: async () => ({
-        items: [command(params.has("stage") ? "filtered-command" : "first-command")],
+        generatedAt: "2026-09-25T00:00:00.000Z", retainedFrom: "2026-06-25T00:00:00.000Z", retentionEnabled: false, items: [command(params.has("stage") ? "filtered-command" : "first-command")],
         nextCursor: params.has("stage") ? null : "old-cursor"
       }) };
     });
@@ -196,13 +196,13 @@ describe("CommandHistoryPanel", () => {
     fireEvent.click(within(drawer).getByRole("button", { name: "명령 상태 필터" }));
     fireEvent.click(screen.getByRole("option", { name: "실제 상태 확인 필요" }));
     expect(await within(drawer).findByRole("button", { name: /filtered-command/ })).toBeInTheDocument();
-    finishOldPage({ ok: true, json: async () => ({ items: [command("stale-command")], nextCursor: null }) });
+    finishOldPage({ ok: true, json: async () => ({ generatedAt: "2026-09-25T00:00:00.000Z", retainedFrom: "2026-06-25T00:00:00.000Z", retentionEnabled: false, items: [command("stale-command")], nextCursor: null }) });
     await waitFor(() => expect(next).toBeDisabled());
     expect(within(drawer).getByRole("button", { name: /filtered-command/ })).toBeInTheDocument();
     expect(within(drawer).queryByRole("button", { name: /stale-command/ })).not.toBeInTheDocument();
   });
   it("offers a read retry on history failure", async () => {
-    const fetch = vi.fn().mockRejectedValueOnce(new Error("network")).mockResolvedValue({ ok: true, json: async () => ({ items: [], nextCursor: null }) });
+    const fetch = vi.fn().mockRejectedValueOnce(new Error("network")).mockResolvedValue({ ok: true, json: async () => ({ generatedAt: "2026-09-25T00:00:00.000Z", retainedFrom: "2026-06-25T00:00:00.000Z", retentionEnabled: false, items: [], nextCursor: null }) });
     vi.stubGlobal("fetch", fetch);
     renderHistory();
     fireEvent.click(await screen.findByRole("button", { name: "최근 명령 다시 조회" }));
@@ -216,7 +216,7 @@ describe("CommandHistoryPanel", () => {
       if (limit === "4") drawerReads += 1;
       return limit === "4" && drawerReads > 1
         ? { ok: false, status: 401, headers: { get: () => "application/json" }, json: async () => ({ code: "unauthorized" }) }
-        : { ok: true, json: async () => ({ items: [command("cached-command")], nextCursor: null }) };
+        : { ok: true, json: async () => ({ generatedAt: "2026-09-25T00:00:00.000Z", retainedFrom: "2026-06-25T00:00:00.000Z", retentionEnabled: false, items: [command("cached-command")], nextCursor: null }) };
     });
     vi.stubGlobal("fetch", fetch);
     const { client } = renderHistory();

@@ -1,6 +1,13 @@
 import { BadRequestException, GoneException, NotFoundException } from "@nestjs/common";
 import { AuthenticatedUser } from "../auth/auth.types";
-import { CommandStatusService } from "./command-status.service";
+import { CommandStatusService as ActualCommandStatusService } from "./command-status.service";
+
+// Supply the DB transaction clock now required in both rollout modes.
+function CommandStatusService(db: any, access: any) {
+  db.$queryRaw ??= jest.fn().mockResolvedValue([{ generatedAt: new Date("2026-09-25T00:00:00Z"), retainedFrom: new Date("2026-06-25T00:00:00Z") }]);
+  db.$transaction ??= jest.fn((read) => read(db));
+  return new ActualCommandStatusService(db, access);
+}
 
 describe("CommandStatusService", () => {
   afterEach(() => {
@@ -206,13 +213,13 @@ describe("CommandStatusService", () => {
     expect(tx.command.findMany.mock.calls[0][0].where.AND).toContainEqual({ createdAt: { gte: new Date("2026-06-25T00:00:00.000Z") } });
   });
 
-  it("authorizes before the DB-clock transaction and leaves the disabled legacy path query-free", async () => {
-    const prisma = { $transaction: jest.fn(), $queryRaw: jest.fn(), command: { findMany: jest.fn().mockResolvedValue([]) } };
+  it("authorizes before the DB-clock transaction and returns an OFF-mode clock without cutoff", async () => {
+    const prisma: any = { command: { findMany: jest.fn().mockResolvedValue([]) } };
     const access = { assert: jest.fn().mockResolvedValue(undefined) };
     const service = new (CommandStatusService as any)(prisma, access);
-    await service.listCommands(user, { siteId: "site-1" });
-    expect(prisma.$transaction).not.toHaveBeenCalled();
-    expect(prisma.$queryRaw).not.toHaveBeenCalled();
+    await expect(service.listCommands(user, { siteId: "site-1" })).resolves.toMatchObject({ retentionEnabled: false, generatedAt: "2026-09-25T00:00:00.000Z" });
+    expect(prisma.command.findMany.mock.calls[0][0].where.AND).toEqual([]);
+    prisma.$transaction.mockClear();
     enableReadCutoff();
     access.assert.mockRejectedValueOnce(new NotFoundException());
     await expect(service.listCommands(user, { siteId: "other-site" })).rejects.toBeInstanceOf(NotFoundException);
