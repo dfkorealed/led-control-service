@@ -23,7 +23,9 @@ describe("operational retention lifecycle", () => {
       expect(query.values).toContainEqual(new Date("2026-09-08T08:00:00.000Z"));
       expect(query.values).toContain(remaining);
     }
-    expect(execute.mock.calls.at(-1)?.[0].values).toContainEqual(new Date("2026-06-15T08:00:00.000Z"));
+    const activitySweep = execute.mock.calls.at(-1)?.[0];
+    expect(activitySweep.strings.join("")).toContain("transaction_timestamp() AT TIME ZONE 'UTC'");
+    expect(activitySweep.values).not.toContainEqual(new Date("2026-06-15T08:00:00.000Z"));
   });
 
   it("uses an unreferenced timer, skips overlapping ticks and stops on destruction", async () => {

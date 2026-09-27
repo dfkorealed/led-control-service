@@ -17,18 +17,20 @@ const second = { ...first, id: "00000000-0000-4000-8000-000000000006",
 function setup(rows = [first, second]) {
   const prisma = {
     floor: { findUnique: jest.fn().mockResolvedValue({ siteId, status: "active" }) },
-    monitoringActivity: { findMany: jest.fn().mockResolvedValue(rows) }
+    monitoringActivity: { findMany: jest.fn().mockResolvedValue(rows) },
+    $queryRaw: jest.fn().mockResolvedValue([{ generatedAt: new Date("2026-09-25T01:00:00.000Z"),
+      retainedFrom: new Date("2026-06-25T01:00:00.000Z") }]),
+    $transaction: jest.fn() as jest.Mock
   };
+  prisma.$transaction.mockImplementation(async callback => callback(prisma));
   const access = { assert: jest.fn().mockResolvedValue({ id: siteId }) };
   return { service: new MonitoringActivityService(prisma as never, access as never), prisma, access };
 }
 
 describe("MonitoringActivityService", () => {
-  const now = new Date("2026-09-25T01:00:00.000Z");
-
   it("returns a read-authorized allowlist page with the exact rolling retention boundary", async () => {
     const { service, prisma, access } = setup();
-    const result = await service.list(user, siteId, floorId, { limit: 1 }, now);
+    const result = await service.list(user, siteId, floorId, { limit: 1 });
     expect(access.assert).toHaveBeenCalledWith(user, siteId, "read");
     expect(result).toEqual({
       generatedAt: "2026-09-25T01:00:00.000Z", retainedFrom: "2026-06-25T01:00:00.000Z",
@@ -43,25 +45,34 @@ describe("MonitoringActivityService", () => {
 
   it("rejects a cursor from another principal or floor without leaking rows", async () => {
     const { service, prisma } = setup();
-    const page = await service.list(user, siteId, floorId, { limit: 1 }, now);
+    const page = await service.list(user, siteId, floorId, { limit: 1 });
     const cursor = page.nextCursor!;
-    await expect(service.list({ ...user, id: otherFloorId }, siteId, floorId, { cursor }, now)).rejects.toBeInstanceOf(BadRequestException);
-    await expect(service.list(user, siteId, otherFloorId, { cursor }, now)).rejects.toBeInstanceOf(BadRequestException);
+    await expect(service.list({ ...user, id: otherFloorId }, siteId, floorId, { cursor })).rejects.toBeInstanceOf(BadRequestException);
+    await expect(service.list(user, siteId, otherFloorId, { cursor })).rejects.toBeInstanceOf(BadRequestException);
     const otherSiteId = "00000000-0000-4000-8000-000000000007";
     prisma.floor.findUnique.mockResolvedValueOnce({ siteId: otherSiteId, status: "active" });
-    await expect(service.list(user, otherSiteId, otherFloorId, { cursor }, now)).rejects.toBeInstanceOf(BadRequestException);
+    await expect(service.list(user, otherSiteId, otherFloorId, { cursor })).rejects.toBeInstanceOf(BadRequestException);
     expect(prisma.monitoringActivity.findMany).toHaveBeenCalledTimes(1);
   });
 
   it("distinguishes expired anchor from malformed cursor and checks site authority first", async () => {
     const { service, prisma, access } = setup([second, first]);
-    const cursor = (await service.list(user, siteId, floorId, { limit: 1 }, now)).nextCursor!;
-    await expect(service.list(user, siteId, floorId, { cursor }, new Date("2026-10-25T01:00:00.001Z")))
+    const cursor = (await service.list(user, siteId, floorId, { limit: 1 })).nextCursor!;
+    prisma.$queryRaw.mockResolvedValueOnce([{ generatedAt: new Date("2026-10-25T01:00:00.001Z"),
+      retainedFrom: new Date("2026-07-25T01:00:00.001Z") }]);
+    await expect(service.list(user, siteId, floorId, { cursor }))
       .rejects.toBeInstanceOf(GoneException);
-    await expect(service.list(user, siteId, floorId, { cursor: "invalid+" }, now)).rejects.toBeInstanceOf(BadRequestException);
-    await expect(service.list(user, siteId, floorId, { cursor: `${cursor}=` }, now)).rejects.toBeInstanceOf(BadRequestException);
+    await expect(service.list(user, siteId, floorId, { cursor: "invalid+" })).rejects.toBeInstanceOf(BadRequestException);
+    await expect(service.list(user, siteId, floorId, { cursor: `${cursor}=` })).rejects.toBeInstanceOf(BadRequestException);
     access.assert.mockRejectedValueOnce(new NotFoundException("site not found"));
-    await expect(service.list(user, siteId, floorId, { cursor: "invalid+" }, now)).rejects.toBeInstanceOf(NotFoundException);
+    await expect(service.list(user, siteId, floorId, { cursor: "invalid+" })).rejects.toBeInstanceOf(NotFoundException);
     expect(prisma.monitoringActivity.findMany).toHaveBeenCalledTimes(1);
+  });
+
+  it("fails closed when the DB clock row is unavailable", async () => {
+    const { service, prisma } = setup();
+    prisma.$queryRaw.mockResolvedValue([]);
+    await expect(service.list(user, siteId, floorId, {})).rejects.toThrow("monitoring activity DB clock unavailable");
+    expect(prisma.monitoringActivity.findMany).not.toHaveBeenCalled();
   });
 });

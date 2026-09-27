@@ -5,7 +5,6 @@ import { z } from "zod";
 import { SiteAccessService } from "../access/site-access.service";
 import { AuthenticatedUser } from "../auth/auth.types";
 import { PrismaService } from "../prisma/prisma.service";
-import { threeCalendarMonthsBefore } from "../retention/calendar-month-window";
 
 const cursorSchema = z.object({
   version: z.literal(1), principalId: z.string().uuid(), siteId: z.string().uuid(), floorId: z.string().uuid(),
@@ -23,45 +22,57 @@ export class MonitoringActivityService {
   constructor(private readonly prisma: PrismaService, private readonly siteAccess: SiteAccessService) {}
 
   async list(user: AuthenticatedUser, siteId: string, floorId: string,
-    input: { limit?: number; cursor?: string }, now = new Date()) {
+    input: { limit?: number; cursor?: string }) {
     await this.siteAccess.assert(user, siteId, "read");
     const floor = await this.prisma.floor.findUnique({ where: { id: floorId }, select: { siteId: true } });
     if (!floor || floor.siteId !== siteId) throw new NotFoundException("floor not found");
 
     const limit = input.limit ?? 5;
     if (!Number.isInteger(limit) || limit < 1 || limit > 50) throw new BadRequestException("invalid monitoring activity query");
-    const retainedFrom = threeCalendarMonthsBefore(now);
     const cursor = input.cursor ? parseCursor(input.cursor, user.id, siteId, floorId) : null;
-    if (cursor && new Date(cursor.recordedAt) < retainedFrom) {
-      throw new GoneException({ code: "monitoring_activity_cursor_expired" });
-    }
-    const where: Prisma.MonitoringActivityWhereInput = {
-      siteId, floorId, recordedAt: { gte: retainedFrom },
-      ...(cursor ? { OR: [
-        { recordedAt: { lt: new Date(cursor.recordedAt) } },
-        { recordedAt: new Date(cursor.recordedAt), id: { lt: cursor.id } }
-      ] } : {})
-    };
-    const rows = await this.prisma.monitoringActivity.findMany({
-      where, orderBy: [{ recordedAt: "desc" }, { id: "desc" }], take: limit + 1, select: activitySelect
-    });
-    const page = rows.slice(0, limit);
-    const last = page.at(-1);
-    return monitoringActivityResponseSchema.parse({
-      generatedAt: now.toISOString(), retainedFrom: retainedFrom.toISOString(),
-      items: page.map((row) => ({
-        id: row.id, kind: row.kind, recordedAt: row.recordedAt.toISOString(),
-        ...(row.observedAt ? { observedAt: row.observedAt.toISOString() } : {}),
-        ...(row.fixtureId ? { fixtureId: row.fixtureId } : {}),
-        ...(row.displayName ? { displayName: row.displayName } : {}),
-        ...(row.status ? { status: row.status } : {}),
-        ...(row.brightnessPercent !== null ? { brightnessPercent: row.brightnessPercent } : {}),
-        ...(row.commandOutcome ? { commandOutcome: row.commandOutcome } : {}),
-        ...(row.refreshStatus ? { refreshStatus: row.refreshStatus } : {})
-      })),
-      nextCursor: rows.length > limit && last ? encodeCursor({
-        version: 1, principalId: user.id, siteId, floorId, recordedAt: last.recordedAt.toISOString(), id: last.id
-      }) : null
+    // Keep the scalar DB clock and page read on one connection. The transaction
+    // adds no row locks; API-host time must never set a visible retention edge.
+    return this.prisma.$transaction(async tx => {
+      const [clock] = await tx.$queryRaw<Array<{ generatedAt: Date; retainedFrom: Date }>>(Prisma.sql`
+        SELECT (transaction_timestamp() AT TIME ZONE 'UTC') AS "generatedAt",
+          ((transaction_timestamp() AT TIME ZONE 'UTC') - INTERVAL '3 months') AS "retainedFrom"
+      `);
+      if (!clock || !(clock.generatedAt instanceof Date) || !Number.isFinite(clock.generatedAt.getTime())
+        || !(clock.retainedFrom instanceof Date) || !Number.isFinite(clock.retainedFrom.getTime())) {
+        throw new Error("monitoring activity DB clock unavailable");
+      }
+      const { generatedAt, retainedFrom } = clock;
+      if (cursor && new Date(cursor.recordedAt) < retainedFrom) {
+        throw new GoneException({ code: "monitoring_activity_cursor_expired" });
+      }
+      const where: Prisma.MonitoringActivityWhereInput = {
+        siteId, floorId, recordedAt: { gte: retainedFrom },
+        ...(cursor ? { OR: [
+          { recordedAt: { lt: new Date(cursor.recordedAt) } },
+          { recordedAt: new Date(cursor.recordedAt), id: { lt: cursor.id } }
+        ] } : {})
+      };
+      const rows = await tx.monitoringActivity.findMany({
+        where, orderBy: [{ recordedAt: "desc" }, { id: "desc" }], take: limit + 1, select: activitySelect
+      });
+      const page = rows.slice(0, limit);
+      const last = page.at(-1);
+      return monitoringActivityResponseSchema.parse({
+        generatedAt: generatedAt.toISOString(), retainedFrom: retainedFrom.toISOString(),
+        items: page.map((row) => ({
+          id: row.id, kind: row.kind, recordedAt: row.recordedAt.toISOString(),
+          ...(row.observedAt ? { observedAt: row.observedAt.toISOString() } : {}),
+          ...(row.fixtureId ? { fixtureId: row.fixtureId } : {}),
+          ...(row.displayName ? { displayName: row.displayName } : {}),
+          ...(row.status ? { status: row.status } : {}),
+          ...(row.brightnessPercent !== null ? { brightnessPercent: row.brightnessPercent } : {}),
+          ...(row.commandOutcome ? { commandOutcome: row.commandOutcome } : {}),
+          ...(row.refreshStatus ? { refreshStatus: row.refreshStatus } : {})
+        })),
+        nextCursor: rows.length > limit && last ? encodeCursor({
+          version: 1, principalId: user.id, siteId, floorId, recordedAt: last.recordedAt.toISOString(), id: last.id
+        }) : null
+      });
     });
   }
 }

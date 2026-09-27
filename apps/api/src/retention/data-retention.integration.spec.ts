@@ -144,12 +144,13 @@ const policies = [
     expect(await db.monitoringActivity.count()).toBe(101);
   });
 
-  it("deletes only pre-cutoff Command activity and rekeys the exact UTC calendar-month boundary", async () => {
+  it("deletes DB-expired Command activity and rekeys still-retained rows", async () => {
     process.env.MONITORING_ACTIVITY_KEYED_COMMAND_SOURCE_ENABLED = "1";
     process.env.COMMAND_SAFETY_HMAC_ACTIVE_VERSION = "1";
     process.env.COMMAND_SAFETY_HMAC_KEYS_JSON = JSON.stringify({ 1: randomBytes(32).toString("base64url") });
-    const boundary = new Date("2026-02-28T12:00:00.000Z");
-    const rows = await Promise.all([-1, 0, 1].map(offset => db.monitoringActivity.create({ data: {
+    const [{ boundary }] = await db.$queryRaw<Array<{ boundary: Date }>>`
+      SELECT ((transaction_timestamp() AT TIME ZONE 'UTC') - INTERVAL '3 months') AS boundary`;
+    const rows = await Promise.all([-30_000, 30_000, 31_000].map(offset => db.monitoringActivity.create({ data: {
       siteId: ids.site, floorId: ids.floor, sourceType: "command",
       sourceKey: `${randomUUID()}:unknown`, kind: "command_result", commandOutcome: "unknown",
       recordedAt: new Date(boundary.getTime() + offset)
@@ -168,8 +169,9 @@ const policies = [
     process.env.MONITORING_ACTIVITY_KEYED_COMMAND_SOURCE_ENABLED = "1";
     process.env.COMMAND_SAFETY_HMAC_ACTIVE_VERSION = "1";
     process.env.COMMAND_SAFETY_HMAC_KEYS_JSON = JSON.stringify({ 1: randomBytes(32).toString("base64url") });
-    const expiredAt = new Date("2026-02-28T11:59:59.999Z");
-    const retainedFrom = new Date("2026-02-28T12:00:00.000Z");
+    const [{ retainedFrom }] = await db.$queryRaw<Array<{ retainedFrom: Date }>>`
+      SELECT ((transaction_timestamp() AT TIME ZONE 'UTC') - INTERVAL '3 months') AS "retainedFrom"`;
+    const expiredAt = new Date(retainedFrom.getTime() - 30_000);
     await db.monitoringActivity.createMany({ data: Array.from({ length: 1001 }, (_, index) => ({
       siteId: ids.site, floorId: ids.floor, sourceType: "command",
       sourceKey: `00000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}:unknown`,
@@ -179,7 +181,7 @@ const policies = [
     const visible = await db.monitoringActivity.create({ data: {
       siteId: ids.site, floorId: ids.floor, sourceType: "command",
       sourceKey: "ffffffff-ffff-4fff-8fff-ffffffffffff:unknown",
-      kind: "command_result", commandOutcome: "unknown", recordedAt: retainedFrom
+      kind: "command_result", commandOutcome: "unknown", recordedAt: new Date(retainedFrom.getTime() + 30_000)
     } });
     expect(await service.prune(new Date("2026-05-31T12:00:00.000Z")))
       .toMatchObject({ monitoringActivities: 1000 });
@@ -452,6 +454,61 @@ const policies = [
     expect(await db.resolvedCommandRecovery.findUnique({ where: { id: row.id } })).not.toBeNull();
   });
 
+  it("does not prune 1001 DB-fresh activities when the API clock is one minute fast", async () => {
+    const [{ dbNow, cutoff }] = await db.$queryRaw<Array<{ dbNow: Date; cutoff: Date }>>`
+      SELECT (transaction_timestamp() AT TIME ZONE 'UTC') AS "dbNow",
+        ((transaction_timestamp() AT TIME ZONE 'UTC') - INTERVAL '3 months') AS cutoff`;
+    await db.$executeRaw(Prisma.sql`
+      INSERT INTO "MonitoringActivity" ("id", "siteId", "floorId", "sourceType", "sourceKey", "kind", "recordedAt")
+      SELECT 'db-fresh-' || value, ${ids.site}, ${ids.floor}, 'fixture_state', 'db-fresh-' || value,
+        'fixture_online'::"MonitoringActivityKind", (${new Date(cutoff.getTime() + 30_000)}::timestamptz AT TIME ZONE 'UTC')
+      FROM generate_series(1, 1001) value
+    `);
+    expect(await service.prune(new Date(dbNow.getTime() + 60_000)))
+      .toMatchObject({ monitoringActivities: 0 });
+    expect(await db.monitoringActivity.count()).toBe(1001);
+  });
+
+  it("drains 1001 DB-expired activities even when the API clock is one minute slow", async () => {
+    const [{ dbNow, cutoff }] = await db.$queryRaw<Array<{ dbNow: Date; cutoff: Date }>>`
+      SELECT (transaction_timestamp() AT TIME ZONE 'UTC') AS "dbNow",
+        ((transaction_timestamp() AT TIME ZONE 'UTC') - INTERVAL '3 months') AS cutoff`;
+    await db.$executeRaw(Prisma.sql`
+      INSERT INTO "MonitoringActivity" ("id", "siteId", "floorId", "sourceType", "sourceKey", "kind", "recordedAt")
+      SELECT 'db-expired-' || value, ${ids.site}, ${ids.floor}, 'fixture_state', 'db-expired-' || value,
+        'fixture_offline'::"MonitoringActivityKind", (${new Date(cutoff.getTime() - 30_000)}::timestamptz AT TIME ZONE 'UTC')
+      FROM generate_series(1, 1001) value
+    `);
+    expect(await service.prune(new Date(dbNow.getTime() - 60_000)))
+      .toMatchObject({ monitoringActivities: 1000 });
+    expect(await db.monitoringActivity.count()).toBe(1);
+    expect(await service.prune(new Date(dbNow.getTime() - 60_000)))
+      .toMatchObject({ monitoringActivities: 1 });
+    expect(await db.monitoringActivity.count()).toBe(0);
+  });
+
+  it("rekeys only DB-retained Command activity despite a fast API clock", async () => {
+    process.env.MONITORING_ACTIVITY_KEYED_COMMAND_SOURCE_ENABLED = "1";
+    process.env.COMMAND_SAFETY_HMAC_ACTIVE_VERSION = "1";
+    process.env.COMMAND_SAFETY_HMAC_KEYS_JSON = JSON.stringify({ 1: randomBytes(32).toString("base64url") });
+    const [{ dbNow, cutoff }] = await db.$queryRaw<Array<{ dbNow: Date; cutoff: Date }>>`
+      SELECT (transaction_timestamp() AT TIME ZONE 'UTC') AS "dbNow",
+        ((transaction_timestamp() AT TIME ZONE 'UTC') - INTERVAL '3 months') AS cutoff`;
+    const expired = await db.monitoringActivity.create({ data: {
+      siteId: ids.site, floorId: ids.floor, sourceType: "command", sourceKey: `${randomUUID()}:unknown`,
+      kind: "command_result", commandOutcome: "unknown", recordedAt: new Date(cutoff.getTime() - 30_000)
+    } });
+    const fresh = await db.monitoringActivity.create({ data: {
+      siteId: ids.site, floorId: ids.floor, sourceType: "command", sourceKey: `${randomUUID()}:unknown`,
+      kind: "command_result", commandOutcome: "unknown", recordedAt: new Date(cutoff.getTime() + 30_000)
+    } });
+    expect(await service.prune(new Date(dbNow.getTime() + 60_000)))
+      .toMatchObject({ monitoringActivities: 1 });
+    expect(await db.monitoringActivity.findUnique({ where: { id: expired.id } })).toBeNull();
+    expect(await db.monitoringActivity.findUniqueOrThrow({ where: { id: fresh.id } }))
+      .toMatchObject({ sourceKey: expect.stringMatching(/^v1:hmac-sha256:[a-f0-9]{64}$/) });
+  });
+
   it.each(["UTC", "Asia/Seoul", "America/New_York"])(
     "timestamps direct and Prisma terminal summary writes from the UTC DB clock in %s", async zone => {
       await db.$executeRawUnsafe(`SET TIME ZONE '${zone}'`);
@@ -511,31 +568,19 @@ const policies = [
     }
   });
 
-  it.each(["2026-01-31T12:00:00.000Z", "2026-02-28T12:00:00.000Z", "2026-05-31T12:00:00.000Z"])(
-    "physically removes only activity strictly before the shared 3-calendar-month cutoff at %s", async iso => {
-      const asOf = new Date(iso);
-      const cutoff = threeCalendarMonthsBefore(asOf);
-      await db.monitoringActivity.createMany({ data: [-1, 0, 1].map(offset => ({
-        siteId: ids.site, floorId: ids.floor, sourceType: "fixture_state", sourceKey: `boundary:${offset}`,
-        kind: "fixture_online" as const, recordedAt: new Date(cutoff.getTime() + offset)
-      })) });
-      expect(await service.prune(asOf)).toMatchObject({ monitoringActivities: 1 });
-      expect((await db.monitoringActivity.findMany({ orderBy: { recordedAt: "asc" }, select: { sourceKey: true } }))
-        .map(row => row.sourceKey)).toEqual(["boundary:0", "boundary:1"]);
-    }
-  );
-
-  it("uses the same exclusive UTC boundary in a UTC database session", async () => {
-    await db.$executeRawUnsafe("SET TIME ZONE 'UTC'");
+  it.each(["UTC", "Asia/Seoul", "America/New_York"])(
+    "physically removes only DB-expired activity in %s", async zone => {
+    await db.$executeRawUnsafe(`SET TIME ZONE '${zone}'`);
     try {
-      const cutoff = threeCalendarMonthsBefore(now);
-      await db.monitoringActivity.createMany({ data: [-1, 0, 1].map(offset => ({
-        siteId: ids.site, floorId: ids.floor, sourceType: "fixture_state", sourceKey: `utc:${offset}`,
+      const [{ cutoff }] = await db.$queryRaw<Array<{ cutoff: Date }>>`
+        SELECT ((transaction_timestamp() AT TIME ZONE 'UTC') - INTERVAL '3 months') AS cutoff`;
+      await db.monitoringActivity.createMany({ data: [-30_000, 30_000, 31_000].map(offset => ({
+        siteId: ids.site, floorId: ids.floor, sourceType: "fixture_state", sourceKey: `zone:${offset}`,
         kind: "fixture_online" as const, recordedAt: new Date(cutoff.getTime() + offset)
       })) });
       expect(await service.prune(now)).toMatchObject({ monitoringActivities: 1 });
       expect((await db.monitoringActivity.findMany({ orderBy: { recordedAt: "asc" }, select: { sourceKey: true } }))
-        .map(row => row.sourceKey)).toEqual(["utc:0", "utc:1"]);
+        .map(row => row.sourceKey)).toEqual(["zone:30000", "zone:31000"]);
     } finally {
       await db.$executeRawUnsafe("SET TIME ZONE 'Asia/Seoul'");
     }

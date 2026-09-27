@@ -19,7 +19,7 @@ const enabled = process.env.MONITORING_ACTIVITY_TEST === "1";
     const migrated = cluster.deploy(url);
     expect(migrated.stderr + migrated.stdout).not.toMatch(/Error:|P30\d\d/);
     expect(migrated.status).toBe(0);
-    db = new PrismaClient({ datasourceUrl: url });
+    db = new PrismaClient({ datasourceUrl: `${url}?connection_limit=1` });
     await db.$executeRawUnsafe("SET TIME ZONE 'Asia/Seoul'");
   }, 60_000);
   afterAll(async () => { await db?.$disconnect(); cluster?.stop(); });
@@ -80,42 +80,113 @@ const enabled = process.env.MONITORING_ACTIVITY_TEST === "1";
       kind: "fixture_offline"
     }));
     expect(await db.monitoringActivity.count({ where: { sourceKey: sameKey } })).toBe(2);
-    const activity = await service().list(user, otherSiteId, floorId, { limit: 5 }, new Date());
+    const activity = await service().list(user, otherSiteId, floorId, { limit: 5 });
     expect(activity.items).toHaveLength(1);
   });
 
-  it("stores server recordedAt as UTC even when the transaction session uses Asia/Seoul", async () => {
-    const before = new Date();
+  it.each(["UTC", "Asia/Seoul", "America/New_York"])(
+    "stores Prisma and direct SQL activity from the UTC DB clock in %s", async zone => {
+    const [{ before }] = await db.$queryRaw<Array<{ before: Date }>>`
+      SELECT (transaction_timestamp() AT TIME ZONE 'UTC') AS before`;
+    const sourceKey = randomUUID();
+    const directKey = randomUUID();
     await db.$transaction(async tx => {
-      await tx.$executeRawUnsafe("SET LOCAL TIME ZONE 'Asia/Seoul'");
-      const zone = await tx.$queryRawUnsafe<Array<{ TimeZone: string }>>("SHOW TIME ZONE");
-      expect(zone[0]?.TimeZone).toBe("Asia/Seoul");
+      await tx.$executeRawUnsafe(`SET LOCAL TIME ZONE '${zone}'`);
+      const [session] = await tx.$queryRawUnsafe<Array<{ TimeZone: string }>>("SHOW TIME ZONE");
+      expect(session?.TimeZone).toBe(zone);
       await recordMonitoringActivity(tx, { siteId, floorId, sourceType: "fixture_state",
-        sourceKey: randomUUID(), kind: "fixture_offline" });
+        sourceKey, kind: "fixture_offline" });
+      await tx.$executeRaw`
+        INSERT INTO "MonitoringActivity" ("id", "siteId", "floorId", "sourceType", "sourceKey", "kind")
+        VALUES (${randomUUID()}, ${siteId}, ${floorId}, 'fixture_state', ${directKey}, 'fixture_online')`;
     });
-    const activity = await db.monitoringActivity.findFirstOrThrow({ where: { siteId, floorId } });
-    expect(activity.recordedAt.getTime()).toBeGreaterThanOrEqual(before.getTime() - 1000);
-    expect(activity.recordedAt.getTime()).toBeLessThanOrEqual(Date.now() + 1000);
+    const rows = await db.monitoringActivity.findMany({ where: { sourceKey: { in: [sourceKey, directKey] } } });
+    expect(rows).toHaveLength(2);
+    for (const row of rows) {
+      expect(row.recordedAt.getTime()).toBeGreaterThanOrEqual(before.getTime() - 1000);
+      expect(row.recordedAt.getTime()).toBeLessThanOrEqual(Date.now() + 1000);
+    }
+  });
+
+  it("deploys a session-independent UTC recordedAt default", async () => {
+    const [row] = await db.$queryRawUnsafe<Array<{ expression: string }>>(`
+      SELECT pg_get_expr(adbin, adrelid) AS expression FROM pg_attrdef
+      WHERE adrelid = '"MonitoringActivity"'::regclass
+        AND adnum = (SELECT attnum FROM pg_attribute WHERE attrelid = '"MonitoringActivity"'::regclass
+          AND attname = 'recordedAt')`);
+    expect(row.expression).toContain("CURRENT_TIMESTAMP AT TIME ZONE 'UTC'");
+  });
+
+  it("lets the UTC DB default timestamp a Prisma projection producer", async () => {
+    class RollbackFixture extends Error {}
+    const sentinel = new Date("2001-02-03T04:05:06.000Z");
+    try {
+      await db.$transaction(async tx => {
+        await tx.$executeRawUnsafe(`ALTER TABLE "MonitoringActivity"
+          ALTER COLUMN "recordedAt" SET DEFAULT TIMESTAMP '2001-02-03 04:05:06'`);
+        const sourceKey = randomUUID();
+        await recordMonitoringActivity(tx, { siteId, floorId, sourceType: "fixture_state",
+          sourceKey, kind: "fixture_online" });
+        const row = await tx.monitoringActivity.findFirstOrThrow({ where: { sourceKey } });
+        expect(row.recordedAt).toEqual(sentinel);
+        throw new RollbackFixture();
+      });
+    } catch (error) {
+      if (!(error instanceof RollbackFixture)) throw error;
+    }
+  });
+
+  it("uses DB time for visible rows, cursor expiry and response metadata despite a fast or slow API clock", async () => {
+    const [{ dbNow, cutoff }] = await db.$queryRaw<Array<{ dbNow: Date; cutoff: Date }>>`
+      SELECT (transaction_timestamp() AT TIME ZONE 'UTC') AS "dbNow",
+        ((transaction_timestamp() AT TIME ZONE 'UTC') - INTERVAL '3 months') AS cutoff`;
+    const expired = await db.monitoringActivity.create({ data: {
+      siteId, floorId, sourceType: "fixture_state", sourceKey: "expired", kind: "fixture_offline",
+      recordedAt: new Date(cutoff.getTime() - 30_000)
+    } });
+    const fresh = await db.monitoringActivity.create({ data: {
+      siteId, floorId, sourceType: "fixture_state", sourceKey: "fresh", kind: "fixture_online",
+      recordedAt: new Date(cutoff.getTime() + 30_000)
+    } });
+    await db.monitoringActivity.create({ data: {
+      siteId, floorId, sourceType: "fixture_state", sourceKey: "newest", kind: "fixture_online",
+      recordedAt: new Date(cutoff.getTime() + 31_000)
+    } });
+    for (const offset of [60_000, -60_000]) {
+      jest.useFakeTimers({ doNotFake: ["hrtime", "nextTick", "performance", "queueMicrotask",
+        "setTimeout", "clearTimeout", "setInterval", "clearInterval", "setImmediate", "clearImmediate"] });
+      jest.setSystemTime(new Date(dbNow.getTime() + offset));
+      try {
+        const page = await service().list(user, siteId, floorId, { limit: 1 });
+        expect(Math.abs(new Date(page.generatedAt).getTime() - dbNow.getTime())).toBeLessThan(10_000);
+        expect(Math.abs(new Date(page.retainedFrom).getTime() - cutoff.getTime())).toBeLessThan(10_000);
+        const next = await service().list(user, siteId, floorId, { limit: 5, cursor: page.nextCursor! });
+        expect(next.items.map(item => item.id)).toContain(fresh.id);
+        expect(next.items.map(item => item.id)).not.toContain(expired.id);
+      } finally {
+        jest.useRealTimers();
+      }
+    }
   });
 
   it.each([
     ["2026-01-31T15:04:05.123Z", "2025-10-31T15:04:05.123Z"],
     ["2026-02-28T15:04:05.123Z", "2025-11-28T15:04:05.123Z"],
     ["2026-05-31T15:04:05.123Z", "2026-02-28T15:04:05.123Z"]
-  ])("reads the exact UTC month-end boundary for %s under a non-UTC DB session", async (nowIso, cutoffIso) => {
-    const now = new Date(nowIso);
-    const cutoff = new Date(cutoffIso);
-    await db.monitoringActivity.createMany({ data: [
-      { siteId, floorId, sourceType: "fixture_state", sourceKey: "before", kind: "fixture_offline",
-        recordedAt: new Date(cutoff.getTime() - 1) },
-      { siteId, floorId, sourceType: "fixture_state", sourceKey: "exact", kind: "fixture_online", recordedAt: cutoff },
-      { siteId, floorId, sourceType: "fixture_state", sourceKey: "newer", kind: "fixture_status_changed",
-        recordedAt: new Date(cutoff.getTime() + 1), status: "online" }
-    ] });
-    const result = await service().list(user, siteId, floorId, { limit: 5 }, now);
-    expect(result.retainedFrom).toBe(cutoff.toISOString());
-    expect(result.items.map(item => item.kind)).toEqual(["fixture_status_changed", "fixture_online"]);
-    expect(JSON.stringify(result)).not.toMatch(/sourceKey|ipAddress|payload|faultCode/);
+  ])("uses the exact UTC DB month-end cutoff at %s under non-UTC sessions", async (nowIso, cutoffIso) => {
+    for (const zone of ["UTC", "Asia/Seoul", "America/New_York"]) {
+      await db.$executeRawUnsafe(`SET TIME ZONE '${zone}'`);
+      const [result] = await db.$queryRaw<Array<{ cutoff: Date; beforeExpired: boolean;
+        exactExpired: boolean; afterExpired: boolean }>>`
+        WITH clock AS (SELECT ((${new Date(nowIso)}::timestamptz AT TIME ZONE 'UTC')
+          - INTERVAL '3 months') AS cutoff)
+        SELECT cutoff, cutoff - INTERVAL '1 millisecond' < cutoff AS "beforeExpired",
+          cutoff < cutoff AS "exactExpired",
+          cutoff + INTERVAL '1 millisecond' < cutoff AS "afterExpired" FROM clock`;
+      expect(result).toEqual({ cutoff: new Date(cutoffIso), beforeExpired: true,
+        exactExpired: false, afterExpired: false });
+    }
+    await db.$executeRawUnsafe("SET TIME ZONE 'Asia/Seoul'");
   });
 
   it("deletes activity with explicit site removal but not Gateway removal while the site remains", async () => {

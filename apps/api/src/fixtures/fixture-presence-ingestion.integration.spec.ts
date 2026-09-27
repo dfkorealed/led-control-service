@@ -101,15 +101,21 @@ describeWithDatabase("fixture-presence PostgreSQL ingestion", () => {
     const user = { id: "31000000-0000-4000-8000-000000000009" } as never;
     const access = { assert: async () => ({ id: ids.siteId }) } as never;
     const list = new MonitoringActivityService(prisma, access);
-    const visible = await list.list(user, ids.siteId, ids.floorId, { limit: 5 }, activity.recordedAt);
+    const visible = await list.list(user, ids.siteId, ids.floorId, { limit: 5 });
     expect(visible.items).toEqual([expect.objectContaining({ id: activity.id, kind: "fixture_online", status: "online" })]);
 
-    const expiredAt = new Date(activity.recordedAt.getTime() + 124 * 86_400_000);
-    const delayedSweep = await list.list(user, ids.siteId, ids.floorId, { limit: 5 }, expiredAt);
+    const [{ retainedFrom, monthEnd }] = await prisma.$queryRaw<Array<{ retainedFrom: Date; monthEnd: Date }>>`
+      SELECT ((transaction_timestamp() AT TIME ZONE 'UTC') - INTERVAL '3 months') AS "retainedFrom",
+        (TIMESTAMP '2026-05-31 12:00:00' - INTERVAL '3 months') AS "monthEnd"`;
+    expect(monthEnd).toEqual(new Date("2026-02-28T12:00:00.000Z"));
+    await prisma.monitoringActivity.update({ where: { id: activity.id },
+      data: { recordedAt: new Date(retainedFrom.getTime() - 30_000) } });
+    const delayedSweep = await list.list(user, ids.siteId, ids.floorId, { limit: 5 });
     expect(delayedSweep.items).toEqual([]);
     expect(await prisma.monitoringActivity.count({ where: { siteId: ids.siteId } })).toBe(1);
 
-    expect(await new DataRetentionService(prisma).prune(expiredAt)).toMatchObject({ monitoringActivities: 1 });
+    expect(await new DataRetentionService(prisma).prune(new Date(Date.now() + 60_000)))
+      .toMatchObject({ monitoringActivities: 1 });
     expect(await prisma.monitoringActivity.count({ where: { siteId: ids.siteId } })).toBe(0);
   });
 

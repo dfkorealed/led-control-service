@@ -1,7 +1,6 @@
 import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
-import { threeCalendarMonthsBefore } from "./calendar-month-window";
 import { backfillLegacyCommandActivitySources } from "../monitoring-activity/command-activity-source-backfill";
 
 const DAY_MS = 86_400_000;
@@ -172,13 +171,12 @@ export class DataRetentionService implements OnModuleInit, OnModuleDestroy {
         `);
       }
       stage = "monitoringActivities";
-      // Use the exact same backward UTC calendar cutoff as the read API. A
-      // per-row forward +3 months expiry would delete Feb 28 too early in May.
-      const retainedFrom = threeCalendarMonthsBefore(now);
+      // Match the read API's DB-host UTC cutoff inside this one bounded
+      // statement. A forward per-row expiry would delete Feb 28 too early.
       deleted.monitoringActivities = await this.prisma.$executeRaw(Prisma.sql`
         WITH candidates AS (
           SELECT "id" FROM "MonitoringActivity"
-          WHERE "recordedAt" < (${retainedFrom}::timestamptz AT TIME ZONE 'UTC')
+          WHERE "recordedAt" < ((transaction_timestamp() AT TIME ZONE 'UTC') - INTERVAL '3 months')
           ORDER BY "recordedAt", "id" LIMIT 1000 FOR UPDATE SKIP LOCKED
         )
         DELETE FROM "MonitoringActivity" activity USING candidates WHERE activity."id" = candidates."id"
@@ -212,7 +210,7 @@ export class DataRetentionService implements OnModuleInit, OnModuleDestroy {
         stage = "commandActivitySourceBackfill";
         // Separate from the deletion budget: this preserves each original
         // recordedAt while removing a raw Command UUID from the source key.
-        const backfill = await backfillLegacyCommandActivitySources(this.prisma, 100, retainedFrom);
+        const backfill = await backfillLegacyCommandActivitySources(this.prisma, 100, true);
         rekeyedCommandActivitySources = backfill.rekeyed;
       }
       this.logger.log({ event: "data_retention_sweep", status: "completed", asOf: now.toISOString(),

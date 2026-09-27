@@ -9,16 +9,13 @@ const LEGACY_SOURCE = /^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f
  * raw UUIDs after this pass. It does not delete any actual activity.
  */
 export async function backfillLegacyCommandActivitySources(
-  prisma: PrismaClient, limit = 1000, retainedFrom?: Date
+  prisma: PrismaClient, limit = 1000, retainedOnly = false
 ) {
   if (!Number.isSafeInteger(limit) || limit < 1 || limit > 1000) {
     throw new Error("invalid command activity backfill limit");
   }
-  if (retainedFrom && !Number.isFinite(retainedFrom.getTime())) {
-    throw new Error("invalid command activity retainedFrom");
-  }
-  const visible = retainedFrom
-    ? Prisma.sql`AND "recordedAt" >= (${retainedFrom}::timestamptz AT TIME ZONE 'UTC')`
+  const visible = retainedOnly
+    ? Prisma.sql`AND "recordedAt" >= ((transaction_timestamp() AT TIME ZONE 'UTC') - INTERVAL '3 months')`
     : Prisma.empty;
   const candidates = await prisma.$queryRaw<Array<{ siteId: string; sourceKey: string; floorId: string }>>(Prisma.sql`
     SELECT "siteId", "sourceKey", "floorId"

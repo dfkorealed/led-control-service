@@ -570,7 +570,8 @@ model MonitoringActivity {
   sourceType        String
   sourceKey         String
   kind              MonitoringActivityKind
-  recordedAt        DateTime                @default(now())
+  // Keep Prisma from supplying an API-process timestamp; the DB default is UTC.
+  recordedAt        DateTime                @default(dbgenerated("(CURRENT_TIMESTAMP AT TIME ZONE 'UTC')"))
   observedAt        DateTime?
   fixtureId         String?
   displayName       String?
