@@ -72,10 +72,12 @@ Task 3 검증 메모: 선택 커밋만의 전체 API 235 suites·2,839 tests, �
 
 **Interfaces:** `runBatch(maxCandidates = 100): Promise<{ examined: number; redacted: number; skippedByReason: Record<string, number>; overdueCount: number }>`; `COMMAND_DETAIL_REDACTION_ENABLED` 기본 OFF. Task 3 helper를 호출하며 physical purge flag를 읽거나 켜지 않는다.
 
-- [ ] **Step 1: RED 테스트 작성.** OFF 쓰기 0, DB UTC `< retainedFrom`만 대상, 정각 보존·월말/비UTC session, 1,001건의 반복 수렴과 재실행 멱등, 두 worker 경합/rollback, 100개 오래된 blocked·이미 비식별화된 후보 뒤 eligible 행이 굶지 않는지, 예외·최고 경과 건수 관측을 고정한다.
-- [ ] **Step 2: RED 확인.** focused Jest+opt-in PG에서 worker 부재/경계 반례를 확인한다.
-- [ ] **Step 3: 최소 구현.** `contentRedactedAt IS NULL`인 후보만 `FOR UPDATE SKIP LOCKED`로 bounded 선택한다. 동일 transaction helper와 기존 `CommandRetentionAttempt.retryAfterAt`의 별도 detail reason을 재사용해 blocked 후보가 뒤 행을 굶기지 않게 한다. 실패 transaction rollback 뒤 이유를 기록한다. 운영 DB migration·flag ON은 별도 백업/dry-run/시계·raw-copy 감사 뒤로 남긴다.
-- [ ] **Step 4: GREEN·선택 통합.** focused+PG, 전체 API test/typecheck/build, 메뉴/schema 문서·독립 리뷰 후 정확 선택본 commit.
+- [x] **Step 1: RED 테스트 작성.** OFF 쓰기 0, DB UTC `< retainedFrom`만 대상, 정각 보존·월말/비UTC session, 1,001건의 반복 수렴과 재실행 멱등, 두 worker 경합/rollback, 100개 오래된 blocked·이미 비식별화된 후보 뒤 eligible 행이 굶지 않는지, 예외·최고 경과 건수 관측을 고정한다.
+- [x] **Step 2: RED 확인.** focused Jest+opt-in PG에서 worker 부재/경계 반례를 확인한다.
+- [x] **Step 3: 최소 구현.** `contentRedactedAt IS NULL`인 후보만 `FOR UPDATE SKIP LOCKED`로 bounded 선택한다. 동일 transaction helper와 기존 `CommandRetentionAttempt.retryAfterAt`의 별도 detail reason을 재사용해 blocked 후보가 뒤 행을 굶기지 않게 한다. 실패 transaction rollback 뒤 이유를 기록한다. 운영 DB migration·flag ON은 별도 백업/dry-run/시계·raw-copy 감사 뒤로 남긴다.
+- [x] **Step 4: GREEN·선택 통합.** focused+PG, 전체 API test/typecheck/build, 메뉴/schema 문서·독립 리뷰 후 정확 선택본 commit.
+
+Task 4 검증 메모: 선택본 전체 API 236 suites·2,852 tests, 실제 로거·일회용 PostgreSQL 집중 28/28, typecheck/build가 통과했다. 독립 리뷰의 운영 로그 유실 1건을 `5c3dbf25`에서 실제 구조화 출력 검증과 안전한 집계 필드로 보완했고 재검토에서 닫혔다. 공유 dirty 작업 트리의 기존 retention mock 5건은 별도 통합 과제로 남아 있으며 운영 DB migration·flag ON은 수행하지 않았다.
 
 ### Task 5: 제어·모니터링 화면의 만료/실패 표시
 
