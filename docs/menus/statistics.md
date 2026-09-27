@@ -12,7 +12,8 @@
 - 보고서 이력은 현장의 전체 보관 이력을 `(createdAt desc, id desc)` keyset cursor로 조회한다. 페이지 크기는 10·20·50·100, 기본값은 20이다. 대상명·상태·범위·현장 현지 요청일을 조합 검색하며 현재 페이지와 `totalCount`는 같은 repeatable-read 조회에 묶는다. URL에는 정규화된 조건·페이지 크기·현장 ID를, cursor stack은 동일 scope의 browser history state에 저장한다. 유효하지 않거나 구 형식 정보가 있는 state는 첫 페이지로 정규화한다. 새 보고서 생성·현장·조건 변경도 첫 페이지로 이동한다.
 - 보고서 이력 UI는 1024px 이상 표, 그 미만 `ul/li`·`dl` 카드로 제공한다. 검색·상태·범위·요청일 chip의 개별 제거와 전체 초기화, 0건·오류·처리 상태·다운로드·재생성 동작을 제공한다. 동일 현장·조건의 갱신 실패는 마지막 성공 행을 보존하고 재시도를 안내한다. 생성·재생성·다운로드는 PDF만 다루고 CSV는 별도 버튼으로 내보낸다.
 - 보고서 문서 스냅샷은 한 시점의 저장된 일별·시간별 상태 기반 추정 전력량과 당시 저장 비용을 보존한다. 현재 단가나 정격 W 기준선을 과거 비용·실측·검증된 절감액으로 혼동하지 않는다. PDF 표시 모델은 충분한 자료가 있는 현재·직전 동일 일수만 비교하고 결측과 기록된 0을 구분한다. 층·조명에 귀속할 수 없는 현장 사용량은 별도 항목으로 남기며 가상 기준선·추정 절감량·그룹 중복 순위·밝기 히트맵은 표준 PDF 본문에서 제외한다.
-- 새 생성 계약은 PDF 전용이다. 2개월·62일 완전 fixture는 A4 6쪽으로 출력하며 1~4쪽에 요약·일별·층/조명·168셀 에너지 히트맵을, 5~6쪽에 월별 일별 상세를 싣는다. 기간·자료 상태에 따라 페이지를 동적으로 구성한다. 완전 사례의 2개 층·6개 조명·168개 정사각형 셀과 겹침·잘림 부재를 PDF 시각 검사로 확인했다. 17개·20개 층 사례에서는 층 순위를 여러 쪽에 분할하고 각 쪽에 제목을 반복한다. 1쪽은 현장명과 보고 범위·대상을 구별해 표시하며, 부분 기록·확인 불가 날짜의 전력량이 있어도 일별 추이선을 그 날짜로 연결하지 않는다.
+- 새 생성 계약은 PDF 전용이다. 2026-09-28 주석 반영 후 2개월·62일 완전 fixture는 A4 7쪽으로 출력한다. 1쪽은 중앙 제목 `조명 에너지 사용 보고서`와 현장·보고 범위·기간만 있는 표지이며 2쪽 핵심 결과, 3쪽 일별·월별 추이, 4쪽 `사용량 순위`, 5쪽 `시간대별 사용량`과 168셀 에너지 히트맵, 6~7쪽 월별 일별 상세로 구성한다. 기간·자료 상태에 따라 페이지 수는 동적으로 변한다. 표지에는 브랜드·쪽 번호를 넣지 않고 본문 쪽 번호는 `2 / 7`부터 실제 문서 번호를 따른다. 완전 사례의 2개 층·6개 조명·168개 정사각형 셀과 겹침·잘림 부재를 7쪽 전체 PNG로 확인했다. 17개·20개 층에서는 순위를 여러 쪽에 분할하며 `사용량 순위 (계속)`과 층별 제목을 반복한다. 긴 현장·대상 이름도 글꼴 폭으로 줄바꿈하고 각 줄을 중앙 정렬한다.
+- PDF 본문의 자료 확인 카드, 히트맵 자료 상태 표기, 일별 상세 자료 열, UTC/현장 시간대와 생성 시각을 제거했다. 원본 불변 문서의 시간대·기준 시각과 내부 완전성 판정·비교 차단은 유지한다. 부분·확인불가 날짜의 일별 사용량과 비용은 `집계 불가`, 기록이 없는 날짜는 `데이터 없음`으로 표시하며 원시 값·known/expected 정보는 보존한다. 완전 날짜의 기록된 0은 문서의 전력량 정밀도에 맞춘 0과 `0원`으로 표시하고 비용 자체가 결측이면 `데이터 없음`을 유지한다. 부분 기록의 귀속 사용량 표시와 자료 부족 사유는 남기고, 부분·확인불가 날짜의 전력량이 있어도 일별 추이선을 그 날짜로 연결하지 않는다.
 
 - 2026-09-16 Tailwind Task 12에서 통계 개요·분석·보고서와 공통 MetricCard/dialog/navigation의 legacy class/CSS adapter를 제거하고 의미 토큰·utility 및 `data-*` 테스트 계약으로 수렴했다. Recharts chart margin은 정적 문서 간격이 아닌 runtime geometry exact allowlist로만 유지하며 정책 baseline은 빈 violation map을 사용한다. Fresh Web **1,224/1,224**, UI policy **53/53**, 전체 Chromium 직렬 **257 passed·5 환경 의존 skip·실패 0**, 별도 opt-in RealBackendLab 통계 연계 흐름 **3/3**을 통과했다. 실제 iOS/Android WebView와 실계량기·Gateway·조명 HIL은 실행하지 않았다.
 
@@ -52,7 +53,7 @@
 - 브라우저 다운로드 fixture는 실제 서버 렌더러 바이트를 사용하는 소프트웨어 검증용이다. 이전 XLSX/PDF manifest·8개 PNG 동등성 결과는 폐기된 형식 병행 구현의 기록이며 새 PDF 본문·시각 검증으로 대체한다.
 - 활성 보고서의 정확한 3초 polling과 완료·실패·만료 뒤 중단은 가상 시간 회귀로 확인했다. CSV 클릭 예외에서도 임시 anchor와 blob URL을 `finally`에서 해제한다.
 - 보고서 생성 API는 고유 인덱스 충돌 직후 선행 작업이 종료되어 활성 조회에서 사라져도 최대 3회의 INSERT 시도로 새 작업을 생성한다. 계속 경합하면 재요청 가능한 `409`를 반환하며 원시 DB 오류를 노출하지 않는다. worker 종료 중 대기하던 DB claim이 반환되어도 새 스냅샷 조회나 heartbeat를 시작하지 않고, 이미 확보된 작업은 기존 임대 만료 후 복구할 수 있게 둔다.
-- 보고서 서버는 불변 `EnergyReportDocument`를 생성하고 PDF 전용 표시 모델에서 문서에 필요한 사실을 선택한다. PDF 렌더러는 그 모델로 A4 페이지·표·그래프·문자를 구성한다. 완전 사례의 시각 검사와 browser fixture의 의미 manifest·hash 일치를 확인했다. 층 17개·20개 분할, 동일 이름의 현장·범위 대상 구분, 부분/확인 불가 날짜의 그래프 단절과 양옆이 결측이어도 고립된 완전 기록일의 점 표시를 회귀로 고정했다. API 전체 runnable Jest 217 suites·2,622 tests, typecheck와 Nest build가 통과했다. 환경 의존 opt-in 57 suites·655 tests는 실행하지 않았다.
+- 보고서 서버는 불변 `EnergyReportDocument`를 생성하고 PDF 전용 표시 모델에서 문서에 필요한 사실을 선택한다. PDF 렌더러는 그 모델로 A4 페이지·표·그래프·문자를 구성한다. 2026-09-28 완전 사례의 7쪽 PNG 시각 검사와 실제 재생성한 browser fixture의 의미 manifest·hash 일치를 확인했다. 층 17개·20개 분할, 동일 이름의 현장·범위 대상 구분, 부분/확인 불가 날짜의 그래프 단절과 양옆이 결측이어도 고립된 완전 기록일의 점 표시를 회귀로 고정했다. 신규 표지·상태 표시 제거·불완전 일별 수치 제한 회귀 7개는 RED→GREEN을 확인했고 PDF 집중 42개, API 전체 runnable Jest 217 suites·2,629 tests, typecheck와 Nest build가 통과했다. 환경 의존 opt-in 57 suites·655 tests는 실행하지 않았다. 기존 pnpm 설정 위치 경고와 테스트의 오류 주입 경로에서 출력한 Nest ERROR/WARN 로그가 남는다.
 - `/statistics/reports`는 기간과 현장·조명·층·그룹 범위를 선택해 PDF 보고서를 요청한다. 대상 정보가 로딩 중이거나 비어 있으면 보고서·CSV 요청을 막는다. 목록은 대기·생성 중·완료·실패·만료 상태와 활성 작업 3초 갱신을 제공한다. 완료 파일의 서명 URL은 다운로드할 때만 발급받고, 실패·만료 작업은 재생성할 수 있다. CSV 원본 내보내기는 보고서 형식과 무관한 별도 기능이다.
 - `POST /energy/sites/:siteId/reports`는 strict 공통 요청을 받아 `202` 작업을 반환하고 현장·요청자·동일 요청의 활성 작업을 중복 생성하지 않는다. 목록은 전체 보관 이력을 tenant-scoped keyset cursor와 서버 filter로 조회하며 상세·다운로드를 포함한 모든 API는 데이터 조회 전에 현장 read 권한을 검사하고 다른 현장의 보고서 ID는 `404`로 숨긴다. worker가 첫 시도에서 완료된 날짜의 문서를 저장하고 이후 재시도는 이 저장 문서만 렌더링한다. PostgreSQL `SKIP LOCKED`, 30초 임대·10초 갱신, 최대 3회 시도와 살아 있는 소유자/시도 번호 검증을 적용한다.
 - 보고서는 비공개 도면 자산과 분리된 비공개 버킷의 시도별 키에 업로드한다. 25 MB 상한과 HEAD 크기·MIME·SHA-256 검증 후 7일 만료 시각을 저장하며, 완료·미만료 파일만 안전한 파일명의 300초 서명 URL로 제공한다. 보고서 API와 파일은 no-store이고, `GET /energy/sites/:siteId/exports/csv`는 공통 문서의 메타데이터·표·표시값을 UTF-8 BOM, CSV 인용, 수식 접두어 방어를 적용해 행 단위 스트림으로 내보낸다.
@@ -181,6 +182,8 @@
 - `apps/api/src/energy/reports/energy-report-upgrade.integration.spec.ts`
 - `apps/api/src/energy/reports/report-text.ts`
 - `apps/api/src/energy/reports/report-pdf-layout.ts`
+- `apps/api/src/energy/reports/semantic-pdf-energy-report.renderer.ts`, `apps/api/src/energy/reports/pdf-energy-report.semantic.spec.ts`, `apps/api/src/energy/reports/pdf-report-presentation.spec.ts`
+- `apps/api/scripts/generate-energy-report-sample.ts` (명시적인 PDF 출력 경로를 받는 로컬 가상 데이터 예시 생성; DB·저장소 연결 없이 실제 제품 렌더러 사용, 기존 파일 덮어쓰기 거절)
 - `apps/api/src/energy/reports/energy-csv-export.service.ts`
 - `apps/api/src/energy/reports/energy-report-jobs.service.ts`
 - `apps/api/src/energy/reports/energy-report-metadata.integration.spec.ts`

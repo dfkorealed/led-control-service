@@ -82,13 +82,13 @@ export class PdfEnergyReportRenderer implements EnergyReportRenderer {
       return y;
     };
     const fact = (path: string, x: number, y: number, size: number, maxWidth: number, bold = false,
-      ink = color.navy, leading = size + 5) => {
+      ink = color.navy, leading = size + 5, centered = false) => {
       const entry = facts[factNo];
       if (entry?.path !== path) throw new Error(`PDF fact order mismatch: ${path} / ${entry?.path}`);
       const index = factNo++;
       wrap(String(entry.value), size, maxWidth, bold).forEach((part, fragment) => {
         page.pushOperators(beginMarkedContent(`D${index}S${fragment}`));
-        writeLine(part, x, y, size, bold, ink);
+        writeLine(part, centered ? (P.width - measure(part, size, bold)) / 2 : x, y, size, bold, ink);
         page.pushOperators(endMarkedContent());
         y -= leading;
       });
@@ -96,9 +96,13 @@ export class PdfEnergyReportRenderer implements EnergyReportRenderer {
     };
     const box = (x: number, y: number, w: number, h: number, fill = color.white, stroke = color.border) =>
       page.drawRectangle({ x, y, width: w, height: h, color: fill, borderColor: stroke, borderWidth: 0.7 });
-    const newPage = (title: string) => {
+    const newPage = (title: string, cover = false) => {
       page = pdf.addPage([P.width, P.height]); pageNo++;
       textBoxes.set(pageNo, []);
+      if (cover) {
+        writeLine(title, (P.width - measure(title, 25, true)) / 2, 474, 25, true);
+        return;
+      }
       write("KINDA / ENERGY REPORT", P.margin, 789, 8, 320, true, color.blue);
       page.drawLine({ start: { x: P.margin, y: 777 }, end: { x: P.width - P.margin, y: 777 }, thickness: 0.7, color: color.border });
       write(title, P.margin, 744, 18, 507, true);
@@ -108,16 +112,12 @@ export class PdfEnergyReportRenderer implements EnergyReportRenderer {
       if (ratio > 0) box(x, y, Math.max(1, w * Math.min(1, ratio)), h, fill, fill);
     };
 
-    newPage("조명 에너지 사용 보고서");
-    let introY = fact("site", P.margin, 710, 10, 500);
-    introY = fact("scope", P.margin, introY - 1, 9, 500, false, color.muted);
-    introY = fact("period", P.margin, introY - 1, 9, 500, false, color.muted);
-    const qualityY = Math.min(655, introY - 52);
-    box(P.margin, qualityY, 507, 51, color.pale, color.pale);
-    write("자료 확인", P.margin + 15, qualityY + 32, 10, 470, true, color.blue);
-    fact("quality.current", P.margin + 15, qualityY + 14, 9, 470);
-    const kpiTop = qualityY - 27;
-    write("핵심 결과", P.margin, kpiTop, 12, 480, true);
+    newPage("조명 에너지 사용 보고서", true);
+    let introY = fact("site", P.margin, 430, 10, 500, false, color.navy, 15, true);
+    introY = fact("scope", P.margin, introY - 5, 9, 500, false, color.muted, 14, true);
+    fact("period", P.margin, introY - 5, 9, 500, false, color.muted, 14, true);
+    newPage("핵심 결과");
+    const kpiTop = 730;
     const cards = [
       ["이번 기간 사용량", "summary.current", P.margin, kpiTop - 119],
       ["직전 동일 일수 사용량", "summary.previous", P.margin + 260, kpiTop - 119],
@@ -198,7 +198,7 @@ export class PdfEnergyReportRenderer implements EnergyReportRenderer {
     }
 
     if (model.floors.rows.length || model.fixtures.topFive.length || hasPdfAmount(model.floors.unassigned) || hasPdfAmount(model.fixtures.unassigned)) {
-      newPage("어디에서 사용했나");
+      newPage("사용량 순위");
       const floorRowHeights = model.floors.rows.map(row => Math.max(35,
         wrap(row.name, 9, 105, true).length * 14 + 8,
         wrap(row.energy.text, 9, 100, true).length * 14 + 8));
@@ -236,7 +236,7 @@ export class PdfEnergyReportRenderer implements EnergyReportRenderer {
           write("귀속 불가", P.margin + 16, floorY, 9, 120);
           fact("floors.unassigned", P.margin + 390, floorY, 9, 100, true);
         }
-        if (!lastFloorPage) { newPage("어디에서 사용했나 (계속)"); floorTop = 712; }
+        if (!lastFloorPage) { newPage("사용량 순위 (계속)"); floorTop = 712; }
       } while (floorIndex < floorRowHeights.length);
       const fixtureRowHeights = model.fixtures.topFive.map(row => Math.max(35,
         wrap(row.name, 8, 180).length * 11 + 8,
@@ -244,7 +244,7 @@ export class PdfEnergyReportRenderer implements EnergyReportRenderer {
       const fixtureHeight = 55 + fixtureRowHeights.reduce((sum, height) => sum + height, 0) +
         (hasPdfAmount(model.fixtures.other) ? 23 : 0) + (hasPdfAmount(model.fixtures.unassigned) ? 23 : 0) + 10;
       let fixtureTop = floorBottom - 16;
-      if (fixtureTop - fixtureHeight < 85) { newPage("조명 사용량"); fixtureTop = 712; }
+      if (fixtureTop - fixtureHeight < 85) { newPage("사용량 순위 (계속)"); fixtureTop = 712; }
       if (fixtureTop - fixtureHeight < 85) throw new Error("Fixture ranking exceeds PDF page capacity");
       box(P.margin, fixtureTop - fixtureHeight, 507, fixtureHeight);
       write("사용량 상위 5개 조명", P.margin + 15, fixtureTop - 26, 11, 470, true);
@@ -267,7 +267,7 @@ export class PdfEnergyReportRenderer implements EnergyReportRenderer {
       }
     }
 
-    newPage("언제 사용했나");
+    newPage("시간대별 사용량");
     box(P.margin, 457, 507, 255);
     write("요일·시간별 누적 전력량", P.margin + 15, 686, 11, 420, true);
     write("단위 kWh", 490, 686, 8, 58, false, color.muted);
@@ -289,8 +289,6 @@ export class PdfEnergyReportRenderer implements EnergyReportRenderer {
     [color.pale, rgb(0.79, 0.90, 0.96), rgb(0.59, 0.81, 0.92), rgb(0.35, 0.68, 0.84), color.blue]
       .forEach((fill, index) => box(120 + index * 24, 479, 21, 11, fill, fill));
     write("많음", 252, 482, 8, 35, false, color.muted);
-    write("자료 상태", 345, 482, 8, 65, false, color.muted);
-    fact("heatmap.coverage", 413, 482, 8, 130, true);
     const peakTop = 438;
     const peakHeight = 64 + (model.peakCell ? 24 : 0) + model.dominantHours.length * 18;
     box(P.margin, peakTop - peakHeight, 507, peakHeight, color.pale, color.pale);
@@ -301,14 +299,12 @@ export class PdfEnergyReportRenderer implements EnergyReportRenderer {
     const formulaTop = peakTop - peakHeight - 18;
     const formulaText = String(facts.find(entry => entry.path === "document.formula")!.value);
     const noteText = String(facts.find(entry => entry.path === "quality.note")?.value ?? "");
-    const formulaHeight = 84 + (wrap(formulaText, 8, 470).length - 1) * 12 +
+    const formulaHeight = 66 + (wrap(formulaText, 8, 470).length - 1) * 12 +
       (noteText ? wrap(noteText, 8, 470).length * 12 + 2 : 0);
     box(P.margin, formulaTop - formulaHeight, 507, formulaHeight);
     write("산식 및 문서 정보", P.margin + 15, formulaTop - 25, 10, 470, true);
-    let infoY = fact("document.formula", P.margin + 15, formulaTop - 50, 8, 470, false, color.navy, 12) - 3;
-    if (model.quality.notes.length) infoY = fact("quality.note", P.margin + 15, infoY, 8, 470, false, color.muted, 12) - 2;
-    infoY = fact("timeZone", P.margin + 15, infoY, 8, 470, false, color.muted);
-    fact("capturedAt", P.margin + 15, infoY, 8, 470, false, color.muted);
+    const infoY = fact("document.formula", P.margin + 15, formulaTop - 50, 8, 470, false, color.navy, 12) - 3;
+    if (model.quality.notes.length) fact("quality.note", P.margin + 15, infoY, 8, 470, false, color.muted, 12);
 
     let dailyIndex = 0;
     for (const month of model.monthly) {
@@ -318,8 +314,7 @@ export class PdfEnergyReportRenderer implements EnergyReportRenderer {
         box(P.margin, rowY - 12, 507, 27, color.pale, color.pale);
         write("날짜", P.margin + 13, rowY, 8, 108, true);
         write("사용량", P.margin + 154, rowY, 8, 125, true);
-        write("저장 비용", P.margin + 307, rowY, 8, 130, true);
-        write("자료", P.margin + 443, rowY, 8, 49, true);
+        write("저장 비용", P.margin + 307, rowY, 8, 190, true);
         rowY -= 34;
       };
       header();
@@ -329,14 +324,13 @@ export class PdfEnergyReportRenderer implements EnergyReportRenderer {
         box(P.margin, rowY - 10, 507, 23, fill, fill);
         fact(`daily.${dailyIndex}.date`, P.margin + 13, rowY, 8, 127);
         fact(`daily.${dailyIndex}.energy`, P.margin + 154, rowY, 8, 141);
-        fact(`daily.${dailyIndex}.cost`, P.margin + 307, rowY, 8, 124);
-        fact(`daily.${dailyIndex}.status`, P.margin + 443, rowY, 8, 51, false,
-          row.completeness === "complete" ? color.muted : color.blue);
+        fact(`daily.${dailyIndex}.cost`, P.margin + 307, rowY, 8, 190);
         dailyIndex++; rowY -= 19;
       }
     }
     if (factNo !== facts.length) throw new Error(`PDF facts omitted: ${facts.slice(factNo).map(f => f.path).join(", ")}`);
     pdf.getPages().forEach((current, index) => {
+      if (index === 0) return;
       page = current; pageNo = index + 1;
       page.drawLine({ start: { x: P.margin, y: 68 }, end: { x: P.width - P.margin, y: 68 }, thickness: 0.7, color: color.border });
       write(`${index + 1} / ${pdf.getPageCount()}`, 514, 52, 7, 37, false, color.muted);

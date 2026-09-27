@@ -101,9 +101,16 @@ export function buildPdfReportPresentation(input: EnergyReportDocument): PdfRepo
   const comparisonReason = comparisonAvailable ? null : "현재 또는 직전 동일 일수의 수집 기록이 완전하지 않습니다.";
   const difference = comparisonAvailable && summaryCurrent !== null && summaryPrevious !== null
     ? new Prisma.Decimal(summaryCurrent).sub(summaryPrevious).toString() : null;
-  const daily = current.map(row => ({ date: row.date!, energy: energy(row.energy), cost: cost(row.cost),
-    completeness: row.status as PdfCompleteness, expectedSeconds: row.expect === null ? null : Number(row.expect),
-    knownSeconds: Number(row.known) }));
+  const daily = current.map(row => {
+    // Without a status column, an incomplete amount could look like a full-day
+    // total. Preserve the raw snapshot amount for internal checks, but publish
+    // a reason instead of a numeric daily energy/cost for that date.
+    const dailyMeasure = (value: PdfMeasure): PdfMeasure => row.status === "complete" ? value :
+      { ...value, text: row.status === "missing" ? "데이터 없음" : "집계 불가" };
+    return { date: row.date!, energy: dailyMeasure(energy(row.energy)), cost: dailyMeasure(cost(row.cost)),
+      completeness: row.status as PdfCompleteness, expectedSeconds: row.expect === null ? null : Number(row.expect),
+      knownSeconds: Number(row.known) };
+  });
   const months = new Map<string, SourceRow[]>();
   for (const row of current) months.set(row.date!.slice(0, 7), [...(months.get(row.date!.slice(0, 7)) ?? []), row]);
   const monthly = [...months].map(([month, rows]) => ({ month,

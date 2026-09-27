@@ -23,6 +23,17 @@ const data = (): EnergyReportDataSnapshot => ({
 const present = (snapshot = data()) => buildPdfReportPresentation(new EnergyReportDocumentBuilder().build(reportId, request, snapshot));
 
 describe("PDF report presentation", () => {
+  it.each([[3600, "partial"], [90000, "unknown"]] as const)("withholds %s-second daily totals but preserves the raw record", (duration, status) => {
+    const snapshot = data(); snapshot.fixtures[0].daily[2].durationSeconds = duration;
+    const result = present(snapshot);
+    expect(result.daily[0]).toMatchObject({ completeness: status, knownSeconds: duration, expectedSeconds: 86400,
+      energy: { raw: "0.30003", text: "집계 불가" }, cost: { raw: "30", text: "집계 불가" } });
+    expect(result.daily[1]).toMatchObject({ completeness: "complete", energy: { raw: "0", text: "0.0000 kWh" }, cost: { raw: "0", text: "0원" } });
+    expect(result.summary).toMatchObject({ current: { raw: "0.30003" }, comparisonAvailable: false });
+    expect(result.floors.rows[0].energy.text).toContain("부분 기록");
+    expect(snapshot.fixtures[0].daily[2]).toMatchObject({ energyKwh: "0.30003", cost: "30", durationSeconds: duration });
+  });
+
   it("uses exact persisted sums and keeps a complete zero day distinct from a missing day", () => {
     const result = present();
     expect(result.summary).toMatchObject({ current: { raw: "0.30003" }, previous: { raw: "0.30003" },

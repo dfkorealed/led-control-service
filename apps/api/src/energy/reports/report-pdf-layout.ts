@@ -14,13 +14,7 @@ function qualitySummary(notes: string[]): string {
   const hourly = notes.find(note => note.startsWith("요일·시간별 전력량:"));
   if (hourly && hourly !== notes[0]) selected.push(hourly);
   const rest = notes.length - selected.length;
-  return `${selected.join(" / ")}${rest ? ` 외 ${rest}건. 날짜별 자료 상태는 일별 상세를 확인하세요.` : ""}`;
-}
-function localCaptureTime(iso: string, timeZone: string): string {
-  const parts = new Intl.DateTimeFormat("en-US", { timeZone, year: "numeric", month: "2-digit", day: "2-digit",
-    hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).formatToParts(new Date(iso));
-  const value = (type: Intl.DateTimeFormatPartTypes) => parts.find(part => part.type === type)?.value;
-  return `${value("year")}-${value("month")}-${value("day")} ${value("hour")}:${value("minute")}`;
+  return `${selected.join(" / ")}${rest ? ` 외 ${rest}건. 불완전한 날짜의 일별 값은 집계 불가 또는 데이터 없음으로 표시합니다.` : ""}`;
 }
 
 /** One entry per visible fact. This list is built independently of drawing so
@@ -31,7 +25,6 @@ export function pdfDisplayFacts(p: PdfReportPresentation): ReportManifest {
   add("site", `현장: ${p.site}`);
   add("scope", p.scope === "현장" ? "보고 범위: 현장 전체" : `보고 범위: ${p.scope} · ${p.target}`);
   add("period", `${p.period.from} ~ ${p.period.to}`);
-  add("quality.current", `${p.quality.current.completeDays}/${p.quality.current.totalDays}일`);
   add("summary.current", p.summary.current.text);
   add("summary.previous", p.summary.comparisonAvailable ? p.summary.previous.text : "비교 불가");
   add("summary.difference", p.summary.comparisonAvailable ? p.summary.difference.text : "비교 불가");
@@ -49,18 +42,14 @@ export function pdfDisplayFacts(p: PdfReportPresentation): ReportManifest {
   p.fixtures.topFive.forEach((row, index) => { add(`fixtures.${index}.name`, row.name); add(`fixtures.${index}.energy`, row.energy.text); });
   if (hasPdfAmount(p.fixtures.other)) add("fixtures.other", p.fixtures.other.text);
   if (hasPdfAmount(p.fixtures.unassigned)) add("fixtures.unassigned", p.fixtures.unassigned.text);
-  add("heatmap.coverage", ({ complete: "완전", partial: "부분 기록", missing: "기록 없음", unknown: "확인 불가" } as const)[p.heatmapCoverage ?? "unknown"]);
   if (p.peakCell) add("heatmap.peak", `${["일", "월", "화", "수", "목", "금", "토"][p.peakCell.weekday]}요일 ${String(p.peakCell.hour).padStart(2, "0")}:00 ${p.peakCell.energy.text}`);
   p.dominantHours.forEach((hour, index) => add(`heatmap.hour.${index}`, `${String(hour.hour).padStart(2, "0")}:00 ${hour.energy.text}`));
   add("document.formula", "차이 = 이번 기간 - 직전 동일 일수. 저장 비용은 당시 저장된 값입니다. 기록상의 차이는 검증된 절감량이 아닙니다.");
   if (p.quality.notes.length) add("quality.note", qualitySummary(p.quality.notes));
-  add("timeZone", p.timeZone);
-  add("capturedAt", localCaptureTime(p.capturedAt, p.timeZone));
   p.daily.forEach((row, index) => {
     add(`daily.${index}.date`, row.date);
     add(`daily.${index}.energy`, row.energy.text);
     add(`daily.${index}.cost`, row.cost.text);
-    add(`daily.${index}.status`, row.completeness === "complete" ? "완전" : row.completeness === "missing" ? "기록 없음" : row.completeness === "partial" ? "부분 기록" : "확인 불가");
   });
   return facts;
 }
