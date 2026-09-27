@@ -2,6 +2,22 @@ import { expect, test } from "@playwright/test";
 
 const concept = "/concepts/field-day.html";
 
+test("공개 시안의 보고서 미리보기는 PDF만 표시하고 재생해도 형식 선택을 노출하지 않는다", async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.goto(concept);
+  const report = page.locator("#report");
+  await report.scrollIntoViewIfNeeded();
+
+  await expect(report.getByText("PDF 보고서", { exact: true })).toBeVisible();
+  await expect(report.getByRole("group", { name: "보고서 파일 형식 미리보기" })).toHaveCount(0);
+  await expect(report.getByRole("button", { name: /XLSX|CSV|PDF/ })).toHaveCount(0);
+  await expect(report.getByRole("status")).toContainText("PDF");
+
+  await report.getByRole("button", { name: "보고서 예시 다시 보기" }).click();
+  await expect(report.getByRole("status")).toContainText("PDF");
+  await expect(report.getByRole("button", { name: /XLSX|CSV|PDF/ })).toHaveCount(0);
+});
+
 async function fillInquiry(page: import("@playwright/test").Page) {
   await page.getByLabel("회사명 *").fill("  예시 회사  ");
   await page.getByLabel("담당자 이름 *").fill("  김담당  ");

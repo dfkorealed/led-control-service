@@ -132,7 +132,7 @@
         document.getElementById('statistics-status').textContent = '예시 추정 전력 그래프가 표시됐습니다.';
         break;
       case 'report':
-        document.getElementById('report-status').textContent = '예시 보고서 미리보기가 준비됐습니다.';
+        document.getElementById('report-status').textContent = '예시 PDF 보고서 미리보기가 준비됐습니다.';
         break;
       case 'map':
         setMapMarkerPosition(72, 53);
@@ -240,21 +240,6 @@
     stopRun(scene);
     scene.classList.add('is-complete');
     document.getElementById('control-status').textContent = `예시 밝기 ${document.getElementById('brightness-range').value}%를 적용했습니다.`;
-  });
-
-  document.querySelectorAll('[data-format]').forEach((button) => {
-    button.addEventListener('click', () => {
-      const scene = button.closest('.scene');
-      finishScene(scene);
-      document.querySelectorAll('[data-format]').forEach((option) => {
-        const selected = option === button;
-        option.classList.toggle('is-selected', selected);
-        option.setAttribute('aria-pressed', String(selected));
-      });
-      document.getElementById('selected-format').textContent = `${button.dataset.format} 형식`;
-      document.getElementById('history-format').textContent = button.dataset.format;
-      document.getElementById('report-status').textContent = `${button.dataset.format} 형식의 설명용 미리보기입니다.`;
-    });
   });
 
   let pointerDrag = null;

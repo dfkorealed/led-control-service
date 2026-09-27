@@ -214,9 +214,6 @@ svg { display: block; }
 /* Report */
 .report-content { padding: 20px 25px 23px; background: var(--paper); }
 .report-controls { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 17px; font-size: 11px; font-weight: 750; }
-.report-controls > div { display: flex; gap: 4px; }
-.format-button { min-height: 30px; padding: 0 9px; border: 1px solid var(--border); border-radius: 7px; background: var(--panel); color: var(--secondary); font-size: 10px; font-weight: 800; }
-.format-button.is-selected { border-color: var(--blue); background: var(--soft-blue); color: var(--blue); }
 .report-sheet { width: min(100%, 440px); margin-inline: auto; padding: 26px 31px 18px; box-shadow: 0 12px 30px rgb(21 50 74 / .07); }
 .report-sheet__top, .report-sheet__footer { display: flex; justify-content: space-between; gap: 10px; font-size: 9px; font-weight: 800; letter-spacing: .1em; }
 .report-sheet__top { color: var(--blue); }.report-sheet__top small { color: var(--muted); font-size: 9px; letter-spacing: 0; }

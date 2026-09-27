@@ -1,5 +1,6 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { createServer, type Server } from "node:http";
 import { energyReportListResponseSchema, type EnergyReportJob } from "@led-control/shared/energy-p2-contracts";
@@ -13,12 +14,10 @@ const generatedAt = "2026-08-26T00:00:00.000Z";
 type RendererBrowserFixtures = {
   metadata: {
     schemaVersion: 2;
-    scalarManifest: unknown;
-    visualIds: string[];
-    visualHashes: Record<string, string>;
+    displayManifest: Array<{ path: string; value: unknown }>;
     files: Record<"pdf", { byteLength: number; sha256: string }>;
   };
-  pdf: { bytes: string; manifest: unknown; visuals: Array<{ id: string; sha256: string; width: number; height: number }> };
+  pdf: { bytes: string; manifest: Array<{ path: string; value: unknown }> };
 };
 let downloadFixtureServer: Server | undefined;
 test.afterEach(async () => {
@@ -133,18 +132,18 @@ test("creates a PDF report, polls state, downloads actual renderer bytes, and re
   const fixtures = JSON.parse(execFileSync("pnpm", ["--filter", "@led-control/api", "exec", "tsx", "test/support/render-report-browser-fixtures.ts"],
     { encoding: "utf8", maxBuffer: 30 * 1024 * 1024 })) as RendererBrowserFixtures;
   expect(fixtures.metadata.schemaVersion).toBe(2);
-  expect(fixtures.metadata.visualIds).toEqual(fixtures.pdf.visuals.map(({ id }) => id));
-  expect(Object.fromEntries(fixtures.pdf.visuals.map(({ id, sha256 }) => [id, sha256]))).toEqual(fixtures.metadata.visualHashes);
-  expect(fixtures.metadata.files.pdf.byteLength).toBe(Buffer.from(fixtures.pdf.bytes, "base64").byteLength);
-  expect(fixtures.pdf.manifest).toEqual(fixtures.metadata.scalarManifest);
-  expect(fixtures.metadata.scalarManifest).not.toEqual([]);
+  const pdfBytes = Buffer.from(fixtures.pdf.bytes, "base64");
+  expect(fixtures.metadata.files.pdf.byteLength).toBe(pdfBytes.byteLength);
+  expect(fixtures.metadata.files.pdf.sha256).toBe(createHash("sha256").update(pdfBytes).digest("hex"));
+  expect(fixtures.pdf.manifest).toEqual(fixtures.metadata.displayManifest);
+  expect(fixtures.metadata.displayManifest).not.toEqual([]);
   await page.clock.install();
   // Chromium's anchor downloads can bypass request interception. A loopback server
   // provides deterministic file bytes without relying on a real worker or S3 account.
   downloadFixtureServer = createServer((_request, response) => {
     response.writeHead(200, { "content-type": "application/pdf",
       "content-disposition": "attachment; filename=\"report.pdf\"" });
-    response.end(Buffer.from(fixtures.pdf.bytes, "base64"));
+    response.end(pdfBytes);
   });
   await new Promise<void>(resolve => downloadFixtureServer!.listen(0, "127.0.0.1", resolve));
   const address = downloadFixtureServer.address();
@@ -187,7 +186,7 @@ test("creates a PDF report, polls state, downloads actual renderer bytes, and re
   await page.getByRole("button", { name: /보고서 다운로드$/ }).click();
   const file = await download;
   expect(file.suggestedFilename()).toBe("report.pdf");
-  expect(await readFile((await file.path())!)).toEqual(Buffer.from(fixtures.pdf.bytes, "base64"));
+  expect(await readFile((await file.path())!)).toEqual(pdfBytes);
   await expect(page.getByRole("region", { name: "에너지 보고서" })).not.toContainText(/예상|추정|coverage|known|unknown|forecast|baseline|탄소|배출|최적화/i);
   expect(requests).toEqual([browserReport("queued").request]);
   for (const status of ["failed", "expired"] as const) {
