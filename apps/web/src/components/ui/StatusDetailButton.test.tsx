@@ -22,7 +22,7 @@ describe("StatusDetailButton", () => {
     fireEvent.keyDown(details, { key: "Escape" });
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "이력 제외 안내" })).not.toBeInTheDocument());
     expect(trigger).toHaveAttribute("aria-expanded", "false");
-    expect(trigger).toHaveFocus();
+    await waitFor(() => expect(trigger).toHaveFocus());
   });
 
   it("keeps a recovery action inside the dialog and invokes it once", async () => {

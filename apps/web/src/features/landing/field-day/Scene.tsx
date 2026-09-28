@@ -90,6 +90,6 @@ export function DemoCard({ title, detail, name, disclaimer, motion, children, cl
       <Button type="button" variant={concept ? "landingConceptReplay" : "landingReplay"} className="replay-button" onClick={motion.replay} aria-label={`${title} 예시 다시 보기`}>↺ <span className="landing-narrow:hidden">다시 보기</span></Button>
     </div>
     {children}
-    <p className="demo-disclaimer m-0 p-landing-demo-disclaimer-inset border-t border-border-subtle bg-surface-inset text-content-secondary text-landing-demo-disclaimer landing-narrow:px-landing-demo-frame-compact-inline-inset">{disclaimer}</p>
+    <p className="demo-disclaimer m-0 p-landing-demo-disclaimer-inset border-t border-border-subtle bg-surface-inset text-content-primary text-landing-demo-disclaimer landing-narrow:px-landing-demo-frame-compact-inline-inset">{disclaimer}</p>
   </Card>;
 }

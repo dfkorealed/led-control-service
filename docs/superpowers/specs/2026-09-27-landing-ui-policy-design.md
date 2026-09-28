@@ -15,6 +15,21 @@ React `/`, `/features`, `/pricing`의 글자·색·크기·줄바꿈·간격·�
 
 공개 페이지는 인증 조회 없이 열리고, 데모는 예시 데이터이며 실제 조명 명령을 내리지 않는다. 상담은 기존 `InquiryForm`·API 계약, 접수 중 닫기 제한, 실패 시 동일 문의 키 재시도, 503 이메일 경로, 포커스 복귀를 유지한다. 정적 시안도 기존 독립 상담 흐름을 유지하거나 동등한 React 구현으로 이전해야 한다. `/concepts/index.html`의 현장의 하루 링크, `/concepts/field-day.html` 직접 접근·새로고침·뒤로 가기, 상대/절대 자산 URL을 계약에 포함한다.
 
+## Task 8 사용자 승인과 접근성 판정 보완 (2026-09-28)
+
+사용자가 ‘오케이’로 승인한 외형 변경은 다음 **두 foreground 역할의 글자색**이다. React 공개 화면과 공유 보관 시안에 함께 적용한다. 기존 미승인 제안/철회 기록은 승인 전 이력이며 현재 승인과 구별한다.
+
+| 실제 텍스트 소유자 | 원래 foreground / 실제 배경 / 대비 | 승인 foreground / 대비 |
+| --- | --- | --- |
+| `Scene.tsx` 공통 `DemoCard`의 다섯 `.demo-disclaimer` 하단 안내 | `text-content-secondary` (`#64748b`) / `#f1f5f9` / 4.3439:1 | 기존 `text-content-primary` (`#15324a`) / 12.0787:1 |
+| `MapDemo.tsx` `.map-save`의 ‘배치 검토 → 저장’ | `text-brand-blue` (`#256fa1`) / `#dbe7f5` / 4.3343:1 | 기존 `text-content-primary` (`#15324a`) / 10.5613:1 |
+
+원본 axe 4.13.0은 pseudo 배경 때문에 일부 실제 읽는 문구를 `INCOMPLETE`로 남겼다. 승인 변경은 위 두 역할의 glyph 색 차이로 별도 분류한다. 배경·다른 색·배치·폰트·문구·기능·ARIA·테마·정책 예외는 바꾸지 않는다. 원본 124 PNG/manifest는 불변으로 유지한다.
+
+부모의 별도 기술 판정은 [W3C SC 1.4.3의 incidental 조항](https://www.w3.org/WAI/WCAG21/Understanding/contrast-minimum.html)에 따른 **테스트 분류**만 승인했다. 전체 raw axe 결과를 보존하고 고정 `.scene-watermark`는 순수 장식, `.control-visual__caption`는 실제 lamp/glow/beam/floor 그림에 부수적인 글자로 구분한다. 기존 숨김 소유만으로 예외를 인정하지 않으며 정확한 DOM/문구/그림/위치/대응 제목과 실제 조작 UI/비상호작용 조건을 검사한다. 읽는 안내·맵 힌트와 다른 serious/critical는 계속 실패한다. 규칙 비활성화·subtree 제외·임계 변경이나 제품 DOM/ARIA 변경은 없다.
+
+제어 그림은 pendant **하나**이고 caption의 ‘4개’가 별도 조작 UI에 그대로 중복되지는 않는다. 그룹 명칭은 toolbar/‘출입구 그룹 밝기’ 슬라이더에 대응하지만 숫자 중복이나 네 개 조명 그림을 주장하지 않는다. 이 고정 그림 caption의 incidental 판정과 보존 조건은 독립 검토 대상이다. 실제 raw 장식 실패와 분류 후 잔여 0을 구분하며 ‘raw axe 0’으로 기록하지 않는다. 새 124 화면의 두 글자색 차이와 추가 캡처 잔여 분류, 전체 root 및 독립 최종 검토는 최종 보고서를 따른다.
+
 ## 2. 필요한 토큰의 좁은 승인 후보
 
 현 테마의 브랜드·표면·본문·상태 색은 이미 다수의 `--navy`, `--blue`, `--panel` 별칭에 대응한다. 같은 숫자라는 이유만으로 새 토큰을 만들지 않는다. 아래 횟수는 **현재 활성 CSS의 선언 또는 사용 횟수**이고, 정적 CSS나 TSX의 추가 사용은 별도로 적었다. 먼저 값·역할·재사용 범위를 정하고, 해당 역할이 실제 컴포넌트에 모였을 때만 추가한다.

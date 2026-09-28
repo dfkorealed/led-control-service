@@ -134,7 +134,7 @@ export function MapDemo({ motion }: { motion: SceneMotion }) {
           onKeyDown={event => { const direction = { ArrowLeft: [-3,0], ArrowRight: [3,0], ArrowUp: [0,-3], ArrowDown: [0,3] }[event.key] as [number,number] | undefined; if (!direction) return; event.preventDefault(); manual.current = true; motion.stop(); setPosition(current => ({ x: clamp(current.x + direction[0]), y: clamp(current.y + direction[1]) })); setStatus("예시 조명의 위치를 조정했습니다."); }} >{null}</Button>}
         <span className="map-canvas__hint absolute left-landing-map-hint-left bottom-2.5 p-landing-demo-status-label-inset rounded-landing-map-hint bg-surface-panel text-content-secondary text-landing-demo-caption">조명 위치를 직접 배치하는 예시</span>
       </div>
-      <div className="map-bottom flex justify-between gap-2.5 mt-3.5 text-content-secondary text-landing-demo-meta font-[750]"><span>배치된 조명 {placed ? 3 : 2}개</span><span className="map-save text-brand-blue">배치 검토 → 저장</span></div>
+      <div className="map-bottom flex justify-between gap-2.5 mt-3.5 text-content-secondary text-landing-demo-meta font-[750]"><span>배치된 조명 {placed ? 3 : 2}개</span><span className="map-save text-content-primary">배치 검토 → 저장</span></div>
       <p className="demo-status mb-0 mx-0 mt-landing-map-result-top-space text-brand-blue text-landing-demo-status font-[750]" role="status" aria-live="polite">{status}</p>
     </div>
   </DemoCard>;
