@@ -76,6 +76,7 @@ export function ReportCreateDialog({
     >
       <div className="grid min-w-0 grid-cols-2 gap-3 max-compact:grid-cols-1">
         <Text variant="body-sm" tone="secondary" className="col-span-full">보고서 대상 기간은 현장 시간대의 마지막 완료일까지 선택할 수 있습니다.</Text>
+        <Text variant="body-sm" tone="muted" className="col-span-full">보고서와 CSV 비용은 당시 적용 단가의 저장 비용입니다.</Text>
         <DatePicker className={reportDatePickerClass} label="기간 시작" value={from || null} maxValue={to && to < completedDate ? to : completedDate || undefined}
           onChange={setFrom} />
         <DatePicker className={reportDatePickerClass} label="기간 종료" value={to || null} minValue={from || undefined} maxValue={completedDate || undefined}

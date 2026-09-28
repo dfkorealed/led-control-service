@@ -1,6 +1,7 @@
 import type { EnergyComparisonPreset, EnergySeriesPoint, EnergySummary } from "@led-control/shared";
-import { Activity, CircleCheck, CircleOff, TriangleAlert, TrendingDown, TrendingUp } from "lucide-react";
-import { useState } from "react";
+import { energyRangeComparisonQuerySchema } from "@led-control/shared/energy-range-contracts";
+import { Activity, CalendarDays, CircleCheck, CircleOff, TriangleAlert, TrendingDown, TrendingUp } from "lucide-react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useOutletContext } from "react-router-dom";
 import {
   CartesianGrid,
@@ -11,8 +12,8 @@ import {
   XAxis,
   YAxis
 } from "recharts";
-import { useEnergyComparison, useEnergySeries, useEnergySummary } from "../../api/energy";
-import { Button, Card, FeedbackState, Heading, MetricCard, PageHeader, SidePanel, StatusBadge, Text, themeColor } from "../../components/ui";
+import { useEnergyComparison, useEnergyRangeComparison, useEnergySeries, useEnergySummary } from "../../api/energy";
+import { Button, Card, DateRangePicker, FeedbackState, Heading, MetricCard, ModalDialog, SidePanel, StatusBadge, Text, themeColor, type FocusableFieldHandle } from "../../components/ui";
 import { EnergyComparisonChart } from "./EnergyComparisonChart";
 import { PeriodComparisonPanel } from "./PeriodComparisonPanel";
 import { comparisonPresentation } from "./statistics-comparison";
@@ -40,8 +41,18 @@ export function StatisticsOverviewPage() {
   const { siteId } = useOutletContext<StatisticsOutletContext>();
   const [granularity, setGranularity] = useState<Granularity>("day");
   const [comparisonPreset, setComparisonPreset] = useState<EnergyComparisonPreset>("current_month");
+  const [customRange, setCustomRange] = useState<{ siteId: string; from: string; to: string } | null>(null);
+  const [customActive, setCustomActive] = useState(false);
+  const [showCustomPicker, setShowCustomPicker] = useState(false);
+  const [draftRange, setDraftRange] = useState({ from: "", to: "" });
+  const rangeOpenerRef = useRef<HTMLButtonElement>(null);
+  const rangeFieldRef = useRef<FocusableFieldHandle>(null);
+  const isCustomActive = customActive && customRange?.siteId === siteId;
   const summaryQuery = useEnergySummary(siteId);
-  const comparisonQuery = useEnergyComparison(siteId, comparisonPreset);
+  const presetComparisonQuery = useEnergyComparison(siteId, comparisonPreset, !isCustomActive);
+  const customComparisonQuery = useEnergyRangeComparison(siteId, customRange?.from ?? "", customRange?.to ?? "", isCustomActive);
+  const comparisonQuery = isCustomActive ? customComparisonQuery : presetComparisonQuery;
+  useEffect(() => { setCustomActive(false); setShowCustomPicker(false); }, [siteId]);
   const ranges = summaryQuery.data
     ? getEnergySeriesRanges(summaryQuery.data.generatedAt, summaryQuery.data.timeZone)
     : null;
@@ -86,6 +97,43 @@ export function StatisticsOverviewPage() {
 
   const summary = summaryQuery.data;
   const siteDate = formatSiteDate(summary.generatedAt, summary.timeZone);
+  const lastCompletedDate = shiftDate(siteDate, -1);
+  const validDraftRange = draftRange.to <= lastCompletedDate &&
+    energyRangeComparisonQuerySchema.safeParse(draftRange).success;
+  const currentRangeLabel = comparisonQuery.data
+    ? `${comparisonQuery.data.range.from} ~ ${comparisonQuery.data.range.to}`
+    : isCustomActive && customRange ? `${customRange.from} ~ ${customRange.to}`
+      : comparisonPresetOptions.find((option) => option.value === comparisonPreset)?.label ?? "선택 전";
+  const customPicker = showCustomPicker ? (
+    <ModalDialog title="완료일 비교 기간 선택" onClose={() => setShowCustomPicker(false)} returnFocusRef={rangeOpenerRef}
+      initialFocusRef={rangeFieldRef}
+      actions={<>
+        <Button variant="secondary" onClick={() => setShowCustomPicker(false)}>취소</Button>
+        <Button variant="primary" isDisabled={!validDraftRange} onClick={() => {
+          setCustomRange({ ...draftRange, siteId });
+          setCustomActive(true);
+          setShowCustomPicker(false);
+        }}>선택 기간 적용</Button>
+      </>}>
+      <div className="grid gap-4">
+        <Text variant="body-sm" tone="secondary">완료된 날짜만 절감 비교에 포함합니다. 오늘 진행 중인 집계와 이번 달 비용 전망은 아래 별도 영역에 유지됩니다.</Text>
+        <div className="flex flex-wrap gap-2" role="group" aria-label="빠른 기간 선택">
+          {comparisonPresetOptions.map((option) => {
+            const range = draftForPreset(option.value, lastCompletedDate);
+            return <Button key={option.value} size="sm" variant="secondary"
+              aria-pressed={draftRange.from === range.from && draftRange.to === range.to}
+              onClick={() => setDraftRange(range)}>{option.label}</Button>;
+          })}
+        </div>
+        <DateRangePicker ref={rangeFieldRef} label="완료 기간 시작일과 종료일"
+          value={draftRange.from && draftRange.to ? { start: draftRange.from, end: draftRange.to } : null}
+          maxValue={lastCompletedDate} onChange={(value) => setDraftRange(value
+            ? { from: value.start, to: value.end } : { from: "", to: "" })} />
+        <Text variant="caption" tone="secondary">현장 시간대 {summary.timeZone} · 마지막 완료일 {lastCompletedDate} · 1~400일</Text>
+        {!validDraftRange ? <p role="alert" className="m-0 text-body-sm text-status-danger-foreground">시작일과 종료일을 완료된 1~400일 범위로 선택해 주세요.</p> : null}
+      </div>
+    </ModalDialog>
+  ) : null;
   const todayRangeLabel = formatTodayRangeLabel(summary, siteDate);
   const hasNoKnownData = summary.today.knownSeconds + summary.monthToDate.knownSeconds + summary.yearToDate.knownSeconds === 0;
   const hasPartialData = [summary.today, summary.monthToDate, summary.yearToDate]
@@ -159,30 +207,38 @@ export function StatisticsOverviewPage() {
     ) : <Text variant="body-sm" tone="muted">{unavailableMessage}</Text>;
 
   return (
-    <section className="grid min-w-0 gap-6" aria-label="에너지 통계">
-      <PageHeader
-        title="에너지 리포트"
-        description={(
-          <Text variant="body-sm" tone="secondary">
-            {summary.timeZone} · {summary.lastAggregatedAt
-              ? `마지막 집계 ${formatTimestamp(summary.lastAggregatedAt, summary.timeZone)}`
-              : `마지막 집계 확인 불가 · 조회 ${formatTimestamp(summary.generatedAt, summary.timeZone)}`}
-          </Text>
-        )}
-        status={<>
-          <StatusBadge tone="info" icon={Activity}>상태 기반 추정</StatusBadge>
-          {hasPartialData ? <StatusBadge tone="warning" icon={TriangleAlert}
-            title="수집 공백이 있어 일부 기간은 추정값이 불완전할 수 있습니다."
-            aria-label="KPI 수집 공백: 일부 기간의 추정값이 불완전할 수 있습니다.">KPI 수집 공백</StatusBadge> : null}
-        </>}
-      />
-
+    <section className="grid min-w-0 gap-5" aria-label="에너지 통계">
       <ComparisonSection
         preset={comparisonPreset}
-        onPresetChange={setComparisonPreset}
+        onPresetChange={(preset) => { setComparisonPreset(preset); setCustomActive(false); setShowCustomPicker(false); }}
+        customActive={isCustomActive}
+        currentRangeLabel={currentRangeLabel}
+        rangeOpenerRef={rangeOpenerRef}
+        onCustomClick={() => {
+          setDraftRange(customRange?.siteId === siteId ? customRange : draftForPreset(comparisonPreset, lastCompletedDate));
+          setShowCustomPicker(true);
+        }}
+        customPicker={customPicker}
         query={comparisonQuery}
       />
 
+      <section className="grid min-w-0 gap-4 border-t border-border-default pt-5" aria-labelledby="statistics-current-title">
+        <div className="flex min-w-0 flex-wrap items-start justify-between gap-3">
+          <div className="grid min-w-0 gap-1">
+            <Heading as="h3" variant="section-title" id="statistics-current-title">오늘 사용량과 비용</Heading>
+            <Text variant="body-sm" tone="secondary">
+              {summary.timeZone} · {summary.lastAggregatedAt
+                ? `마지막 집계 ${formatTimestamp(summary.lastAggregatedAt, summary.timeZone)}`
+                : `마지막 집계 확인 불가 · 조회 ${formatTimestamp(summary.generatedAt, summary.timeZone)}`}
+            </Text>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <StatusBadge tone="info" icon={Activity}>상태 기반 추정</StatusBadge>
+            {hasPartialData ? <StatusBadge tone="warning" icon={TriangleAlert}
+              title="수집 공백이 있어 일부 기간은 추정값이 불완전할 수 있습니다."
+              aria-label="KPI 수집 공백: 일부 기간의 추정값이 불완전할 수 있습니다.">KPI 수집 공백</StatusBadge> : null}
+          </div>
+        </div>
       {hasNoKnownData ? (
         <FeedbackState
           icon={Activity}
@@ -248,6 +304,7 @@ export function StatisticsOverviewPage() {
           </div>
         </>
       )}
+      </section>
     </section>
   );
 }
@@ -261,11 +318,21 @@ const comparisonPresetOptions: Array<{ value: EnergyComparisonPreset; label: str
 function ComparisonSection({
   preset,
   onPresetChange,
+  customActive,
+  currentRangeLabel,
+  rangeOpenerRef,
+  onCustomClick,
+  customPicker,
   query
 }: {
   preset: EnergyComparisonPreset;
   onPresetChange: (preset: EnergyComparisonPreset) => void;
-  query: ReturnType<typeof useEnergyComparison>;
+  customActive: boolean;
+  currentRangeLabel: string;
+  rangeOpenerRef: React.RefObject<HTMLButtonElement>;
+  onCustomClick: () => void;
+  customPicker: ReactNode;
+  query: ReturnType<typeof useEnergyComparison> | ReturnType<typeof useEnergyRangeComparison>;
 }) {
   let content;
   if (query.isLoading) {
@@ -366,7 +433,7 @@ function ComparisonSection({
         <div className="grid gap-1">
           <Text variant="overline" tone="muted">핵심 절감 분석</Text>
           <Heading as="h3" variant="section-title" id="statistics-comparison-title">기준 대비 에너지 절감</Heading>
-          {query.data ? <Text variant="caption" tone="secondary">
+          {query.data && !query.isError ? <Text variant="caption" tone="secondary">
             비교 기간 {query.data.range.from} ~ {query.data.range.to} · 완료 실적 {query.data.range.completedThrough}까지 · {query.data.timeZone} · 24시간 100% 비교 기준
           </Text> : null}
         </div>
@@ -376,16 +443,20 @@ function ComparisonSection({
               key={option.value}
               type="button"
               size="sm"
-              variant={preset === option.value ? "primary" : "secondary"}
+              variant={!customActive && preset === option.value ? "primary" : "secondary"}
               className="max-compact:flex-1"
-              aria-pressed={preset === option.value}
+              aria-pressed={!customActive && preset === option.value}
               onClick={() => onPresetChange(option.value)}
             >
               {option.label}
             </Button>
           ))}
+          <Button ref={rangeOpenerRef} type="button" size="sm" variant={customActive ? "primary" : "secondary"}
+            aria-label={`완료 기간 날짜 범위 선택, 현재 ${currentRangeLabel}`}
+            aria-pressed={customActive} onClick={onCustomClick}><CalendarDays size={16} aria-hidden="true" />기간 선택</Button>
         </div>
       </div>
+      {customPicker}
       {content}
     </section>
   );
@@ -519,6 +590,19 @@ function formatSiteDate(timestamp: string, timeZone: string) {
   }).formatToParts(new Date(timestamp));
   const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
   return `${values.year}-${values.month}-${values.day}`;
+}
+
+function shiftDate(date: string, days: number) {
+  const value = new Date(`${date}T00:00:00.000Z`);
+  value.setUTCDate(value.getUTCDate() + days);
+  return value.toISOString().slice(0, 10);
+}
+
+function draftForPreset(preset: EnergyComparisonPreset, lastCompletedDate: string) {
+  const from = preset === "last_7_days" ? shiftDate(lastCompletedDate, -6)
+    : preset === "current_month" ? `${lastCompletedDate.slice(0, 7)}-01`
+      : `${lastCompletedDate.slice(0, 4)}-01-01`;
+  return { from, to: lastCompletedDate };
 }
 
 function formatSiteClock(timestamp: string, timeZone: string) {

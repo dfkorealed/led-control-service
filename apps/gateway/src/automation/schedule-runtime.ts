@@ -372,6 +372,33 @@ export class ScheduleRuntime {
     }).finally(() => clearTimeout(diagnosticTimer));
   }
 
+  abortManualControl(sourceId: string, fixtureIds: string[]): Promise<void> {
+    return this.runExternal(async () => {
+      await this.ensureInitialized();
+      const cleared: string[] = [];
+      // The command journal may acknowledge abort only after this mutation is
+      // durable. The normal control path's ENOSPC memory-only fallback would
+      // resurrect pending ownership on restart after its replay intent is gone.
+      await this.options.store.updateDurable((state) => {
+        for (const fixtureId of fixtureIds) {
+          // Only the journal owner can release its prepare. A delayed replay must
+          // not remove a newer command or an unrelated local automation transition.
+          if (state.pendingManualControls[fixtureId]?.sourceId !== sourceId) continue;
+          delete state.pendingManualControls[fixtureId];
+          const transition = state.transitionsByFixture[fixtureId];
+          if (transition?.sourceType === "manual_override" && transition.sourceId === sourceId && transition.phase === "pending") {
+            delete state.transitionsByFixture[fixtureId];
+            cleared.push(fixtureId);
+          }
+        }
+        return state;
+      });
+      for (const fixtureId of cleared) {
+        if (this.state().unverifiedDesiredByFixture[fixtureId] === undefined) this.pendingObservationFixtures.delete(fixtureId);
+      }
+    });
+  }
+
   captureManualTerminalContext(sourceId: string, results: AutomationExecutionFixtureResultV1[]): ManualTerminalSourceContext {
     // Capture synchronously at hardware success, before journal fsync or another
     // queued activation can change the sources that this manual result supersedes.

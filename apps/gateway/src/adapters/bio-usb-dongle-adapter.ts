@@ -32,6 +32,7 @@ import type {
 } from "../bio/bio-device-mapping-store";
 import { BioDeviceReadTimeoutError, BioUsbError } from "../bio/bio-usb-error";
 import { SerialTaskQueue } from "../runtime/serial-task-queue";
+import { CommandWriteVetoError, trackCommandWrites, type CommandWriteControl } from "../commands/command-rf-drain";
 
 const BIO_DEVICE_UUID = /^bio:[0-9a-f]{12}$/;
 const BIO_GROUP_UNICAST_CONCURRENCY = 4;
@@ -196,26 +197,28 @@ export class BioUsbDongleAdapter implements BleMeshAdapter, ProvisioningScannerA
     return action === "start" ? 2 : 0;
   }
 
-  async setBrightness(fixtureIds: string[], brightness: number) {
-    return mapWithConcurrency(fixtureIds, 1, (fixtureId) => this.applyUnicast(fixtureId, brightness));
+  async setBrightness(fixtureIds: string[], brightness: number, writeControl?: CommandWriteControl) {
+    return mapWithConcurrency(fixtureIds, 1, (fixtureId) => this.applyUnicast(fixtureId, brightness, undefined, undefined, writeControl));
   }
 
   async applyUnicast(
     fixtureId: string,
     brightness: number,
     signal?: AbortSignal,
-    deadlineAt?: number
+    deadlineAt?: number,
+    writeControl?: CommandWriteControl
   ): Promise<BleMeshCommandReport> {
     if (expired(signal, deadlineAt)) return failed(fixtureId, undefined, "command_expired", "timed_out");
     const mapping = await this.mappings.findByFixtureId(fixtureId);
     if (!mapping) return failed(fixtureId, undefined, "fixture_not_registered");
     let device: BioDiscoveredDevice | undefined;
+    const writes = trackCommandWrites(writeControl);
     try {
       device = await this.requireDiscovered(mapping, { signal, deadlineAt });
       if (expired(signal, deadlineAt)) return failed(fixtureId, undefined, "command_expired", "timed_out", device.rssi);
       const outputTarget = target(device, mapping.logicalAddress);
-      const observed = signal || deadlineAt !== undefined
-        ? await this.client.setOutput(outputTarget, brightness, { signal, deadlineAt })
+      const observed = signal || deadlineAt !== undefined || writeControl
+        ? await this.client.setOutput(outputTarget, brightness, { signal, deadlineAt, ...writes.control })
         : await this.client.setOutput(outputTarget, brightness);
       if (expired(signal, deadlineAt)) {
         return failed(fixtureId, undefined, "command_expired", "timed_out", device.rssi);
@@ -230,12 +233,18 @@ export class BioUsbDongleAdapter implements BleMeshAdapter, ProvisioningScannerA
         hopCount: null
       };
     } catch (error) {
+      if (error instanceof CommandWriteVetoError) {
+        // The brightness phase may already have changed the lamp. Only the
+        // command owner can prove write-zero and durably abort; retain unknown.
+        return failed(fixtureId, undefined, error.code, "timed_out", device?.rssi ?? null);
+      }
       if (expired(signal, deadlineAt)) {
         return failed(fixtureId, undefined, "command_expired", "timed_out", device?.rssi ?? null);
       }
       const observation = readbackObservation(error);
+      const hasObservation = observation.brightness !== undefined || observation.rawBrightness !== undefined || observation.mode !== undefined;
       return {
-        ...failed(fixtureId, observation.brightness, errorCode(error), "failed", device?.rssi ?? null),
+        ...failed(fixtureId, observation.brightness, errorCode(error), writes.hasStarted() && !hasObservation ? "timed_out" : "failed", device?.rssi ?? null),
         ...(observation.rawBrightness === undefined ? {} : { rawBrightness: observation.rawBrightness }),
         ...(observation.mode ? { mode: observation.mode } : {})
       };
@@ -247,12 +256,13 @@ export class BioUsbDongleAdapter implements BleMeshAdapter, ProvisioningScannerA
     brightness: number,
     concurrency = BIO_GROUP_UNICAST_CONCURRENCY,
     signal?: AbortSignal,
-    deadlineAt?: number
+    deadlineAt?: number,
+    writeControl?: CommandWriteControl
   ) {
     // [확인됨] 상위 handler가 8을 요청해도 BIO wire는 global correlation 제약이 있으므로
     // 모든 multi-unicast 진입점에서 hard maximum 4를 다시 강제한다.
     return mapWithConcurrency(fixtureIds, Math.min(positiveConcurrency(concurrency), BIO_GROUP_UNICAST_CONCURRENCY),
-      (fixtureId) => this.applyUnicast(fixtureId, brightness, signal, deadlineAt));
+      (fixtureId) => this.applyUnicast(fixtureId, brightness, signal, deadlineAt, writeControl));
   }
 
   async applyMeshGroup(
@@ -260,7 +270,8 @@ export class BioUsbDongleAdapter implements BleMeshAdapter, ProvisioningScannerA
     fixtureIds: string[],
     brightness: number,
     signal?: AbortSignal,
-    deadlineAt?: number
+    deadlineAt?: number,
+    writeControl?: CommandWriteControl
   ) {
     requireGroupAddress(groupAddress);
     const members = this.virtualGroups.get(groupAddress);
@@ -270,7 +281,7 @@ export class BioUsbDongleAdapter implements BleMeshAdapter, ProvisioningScannerA
     // BIO firmware native group 적용을 가장하지 않는다. local membership의 각 confirmed fixture만
     // 정확히 4개 worker에서 개별 UUID/address read-back 제어한다.
     return mapWithConcurrency(fixtureIds, BIO_GROUP_UNICAST_CONCURRENCY,
-      (fixtureId) => this.applyUnicast(fixtureId, brightness, signal, deadlineAt));
+      (fixtureId) => this.applyUnicast(fixtureId, brightness, signal, deadlineAt, writeControl));
   }
 
   async syncGroupSubscriptions(

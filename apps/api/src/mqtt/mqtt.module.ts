@@ -5,9 +5,12 @@ import { MeshControlGroupModule } from "../mesh-control-groups/mesh-control-grou
 import { MeshGroupSyncWorker } from "../mesh-control-groups/mesh-group-sync.worker";
 import { PrismaModule } from "../prisma/prisma.module";
 import { MqttService } from "./mqtt.service";
+import { CommandSetMqttService } from "./command-set-mqtt.service";
 import { FixtureFreshnessService } from "../fixtures/fixture-freshness.service";
 import { CommandTimeoutService } from "../commands/command-timeout.service";
 import { OutboxPublisherService } from "./outbox-publisher.service";
+import { LegacyStatusCheckPublisherService } from "./legacy-status-check-publisher.service";
+import { RecoveryOutboxPublisherService } from "./recovery-outbox-publisher.service";
 import { ProvisioningScanOutboxPublisherService } from "./provisioning-scan-outbox-publisher.service";
 import { ProvisioningDeviceOutboxPublisherService } from "./provisioning-device-outbox-publisher.service";
 import { MqttShutdownCoordinator } from "./mqtt-shutdown-coordinator.service";
@@ -17,23 +20,42 @@ import { MonitoringIncidentsModule } from "../monitoring-incidents/monitoring-in
 import { ProvisioningDeviceTerminalService } from "./provisioning-device-terminal.service";
 import { FixturePresenceIngestionService } from "../fixtures/fixture-presence-ingestion.service";
 import { MonitoringRefreshIngestionService } from "../monitoring-refresh/monitoring-refresh-ingestion.service";
+import { CommandRecoveryAckService } from "../commands/command-recovery-ack.service";
+import { CommandLateSetAckService } from "../commands/command-late-set-ack.service";
+import { CommandLegacyGetAckService } from "../commands/command-legacy-get-ack.service";
+import { CommandSafetyDigest } from "../commands/command-safety-digest";
+import { CommandClockResponderService } from "./command-clock-responder.service";
+import { CommandDbClockHealth } from "./command-db-clock-health.service";
+import { CommandPublishEpochService } from "./command-publish-epoch.service";
+import { CommandPublishQuiesceService } from "./command-publish-quiesce.service";
 
 @Module({
   imports: [PrismaModule, MeshControlGroupModule, AutomationRuntimeModule, MonitoringIncidentsModule],
   providers: [
     MqttService,
+    CommandSetMqttService,
     FixtureStateIngestionService,
     FixturePresenceIngestionService,
     MonitoringRefreshIngestionService,
     EnergyDimensionHistoryService,
     FixtureFreshnessService,
     OutboxPublisherService,
+    LegacyStatusCheckPublisherService,
+    RecoveryOutboxPublisherService,
     AutomationOutboxPublisherService,
     ProvisioningScanOutboxPublisherService,
     ProvisioningDeviceOutboxPublisherService,
     ProvisioningDeviceTerminalService,
     MqttShutdownCoordinator,
     CommandTimeoutService,
+    CommandRecoveryAckService,
+    CommandLateSetAckService,
+    CommandLegacyGetAckService,
+    CommandSafetyDigest,
+    CommandDbClockHealth,
+    CommandPublishEpochService,
+    CommandPublishQuiesceService,
+    CommandClockResponderService,
     MeshGroupSyncWorker
   ],
   exports: [MqttService]

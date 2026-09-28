@@ -15,9 +15,12 @@ import { VehicleSensorCapabilityService } from "../src/automation/vehicle-sensor
 import type { AuthenticatedUser } from "../src/auth/auth.types";
 import { SessionAuthGuard } from "../src/auth/session-auth.guard";
 import { PrismaService } from "../src/prisma/prisma.service";
+import { RedisProvider } from "../src/redis/redis.provider";
+import { disposablePostgres } from "./support/disposable-postgres";
 
-const databaseUrl = process.env.AUTOMATION_VEHICLE_EVENT_RULES_TEST_DATABASE_URL;
-const describeWithPostgres = databaseUrl ? describe : describe.skip;
+let databaseUrl = process.env.AUTOMATION_VEHICLE_EVENT_RULES_TEST_DATABASE_URL;
+const selfOwnedDatabase = process.env.AUTOMATION_VEHICLE_RULES_DISPOSABLE_POSTGRES === "1";
+const describeWithPostgres = databaseUrl || selfOwnedDatabase ? describe : describe.skip;
 const FIXED_NOW = new Date("2026-08-31T23:00:00.000Z");
 let automationNow = FIXED_NOW;
 
@@ -26,9 +29,16 @@ describeWithPostgres("vehicle event rules PostgreSQL E2E", () => {
   let prisma: PrismaService;
   let capabilityService: VehicleSensorCapabilityService;
   let baseUrl: string;
+  let cluster: Awaited<ReturnType<typeof disposablePostgres>> | undefined;
+  const previousDatabaseUrl = process.env.DATABASE_URL;
   const actors = new Map<string, AuthenticatedUser>();
 
   beforeAll(async () => {
+    if (selfOwnedDatabase) {
+      cluster = await disposablePostgres();
+      databaseUrl = cluster.database();
+      expect(cluster.deploy(databaseUrl).status).toBe(0);
+    }
     process.env.DATABASE_URL = databaseUrl;
     const authGuard: CanActivate = {
       canActivate(context: ExecutionContext) {
@@ -42,6 +52,8 @@ describeWithPostgres("vehicle event rules PostgreSQL E2E", () => {
     const module = await Test.createTestingModule({ imports: [AutomationModule] })
       .overrideGuard(SessionAuthGuard)
       .useValue(authGuard)
+      .overrideProvider(RedisProvider)
+      .useValue({ getClient: () => { throw new Error("Redis is not used by automation list E2E"); } })
       .overrideProvider(AutomationClock)
       .useValue({ now: () => new Date(automationNow) })
       .compile();
@@ -56,6 +68,9 @@ describeWithPostgres("vehicle event rules PostgreSQL E2E", () => {
 
   afterAll(async () => {
     await app?.close();
+    cluster?.stop();
+    if (previousDatabaseUrl === undefined) delete process.env.DATABASE_URL;
+    else process.env.DATABASE_URL = previousDatabaseUrl;
   });
 
   it("allows viewer reads, restricts writes to the assigned admin, and hides operator and foreign resources", async () => {
@@ -1232,6 +1247,34 @@ describeWithPostgres("vehicle event rules PostgreSQL E2E", () => {
       `/sites/${scenario.siteId}/automation/vehicle-event-rules?limit=101`,
       scenario.actorKeys.viewer
     )).status).toBe(400);
+  });
+
+  it("filters literal rule names and returns site-wide counts with principal-bound v2 pages", async () => {
+    const scenario = await createScenario(prisma, actors);
+    await insertDirectRules(prisma, scenario, [
+      { id: randomUUID(), name: "B%_ first", createdAt: new Date("2026-08-30T03:00:00.000Z") },
+      { id: randomUUID(), name: "B%_ second", createdAt: new Date("2026-08-30T02:00:00.000Z") },
+      { id: randomUUID(), name: "Bxx third", createdAt: new Date("2026-08-30T01:00:00.000Z") }
+    ]);
+    const filter = `query=${encodeURIComponent(" B%_ ")}&status=disabled&syncStatus=PENDING&limit=1`;
+    const first = await api("GET", `/sites/${scenario.siteId}/automation/vehicle-event-rules?${filter}`,
+      scenario.actorKeys.viewer);
+    expect(first.status).toBe(200);
+    expect(first.body).toMatchObject({ total: 3, filteredTotal: 2,
+      siteSummary: { ruleCount: 3, syncRuleCounts: { APPLIED: 0, PENDING: 3, REJECTED: 0 } },
+      nextCursor: expect.any(String) });
+    const cursor = (first.body as { nextCursor: string }).nextCursor;
+    expect(decodeCursor(cursor)).toMatchObject({ v: 2, siteId: scenario.siteId,
+      principalId: actors.get(scenario.actorKeys.viewer)?.id, resource: "vehicle_event_rule" });
+    const second = await api("GET", `/sites/${scenario.siteId}/automation/vehicle-event-rules?${filter}&cursor=${cursor}`,
+      scenario.actorKeys.viewer);
+    expect(second.body).toMatchObject({ filteredTotal: 2, nextCursor: null });
+    expect((first.body as { items: Array<{ id: string }> }).items[0].id)
+      .not.toBe((second.body as { items: Array<{ id: string }> }).items[0].id);
+    expect((await api("GET", `/sites/${scenario.siteId}/automation/vehicle-event-rules?${filter}&cursor=${cursor}`,
+      scenario.actorKeys.admin)).status).toBe(400);
+    expect((await api("GET", `/sites/${scenario.siteId}/automation/vehicle-event-rules?query=B&status=disabled&syncStatus=PENDING&limit=1&cursor=${cursor}`,
+      scenario.actorKeys.viewer)).status).toBe(400);
   });
 
   async function api(method: string, path: string, actorKey: string, body?: unknown) {

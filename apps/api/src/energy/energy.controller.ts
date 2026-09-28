@@ -5,6 +5,7 @@ import { SessionAuthGuard } from "../auth/session-auth.guard";
 import { parseComparisonPreset } from "./energy-comparison-query";
 import { EnergyService } from "./energy.service";
 import { EnergyHeatmapService } from "./energy-heatmap.service";
+import { EnergyObservedMeanService } from "./energy-observed-mean.service";
 import { EnergyCsvExportService } from "./reports/energy-csv-export.service";
 import { EnergyReportJobsService } from "./reports/energy-report-jobs.service";
 import { EnergyReportTargetsService } from "./reports/energy-report-targets.service";
@@ -17,7 +18,8 @@ export class EnergyController {
     private readonly heatmap?: EnergyHeatmapService,
     @Optional() private readonly reports?: EnergyReportJobsService,
     @Optional() private readonly csv?: EnergyCsvExportService,
-    @Optional() private readonly reportTargets?: EnergyReportTargetsService
+    @Optional() private readonly reportTargets?: EnergyReportTargetsService,
+    @Optional() private readonly observedMean?: EnergyObservedMeanService
   ) {}
 
   @Get("sites/:siteId/report-targets")
@@ -92,6 +94,16 @@ export class EnergyController {
     return this.energyService.getSiteComparisons(user, siteId, parseComparisonPreset(preset));
   }
 
+  @Get("sites/:siteId/comparisons/range")
+  @Header("Cache-Control", "no-store")
+  getSiteCustomComparison(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param("siteId") siteId: string,
+    @Query() query: Record<string, unknown>
+  ) {
+    return this.energyService.getSiteCustomComparison(user, siteId, query);
+  }
+
   @Get("sites/:siteId/series")
   getSiteSeries(
     @CurrentUser() user: AuthenticatedUser,
@@ -120,5 +132,16 @@ export class EnergyController {
   ) {
     if (!this.heatmap) throw new Error("energy heatmap service is unavailable");
     return this.heatmap.getHeatmap(user, siteId, query);
+  }
+
+  @Get("sites/:siteId/heatmap/observed-mean")
+  @Header("Cache-Control", "no-store")
+  getSiteObservedMean(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param("siteId") siteId: string,
+    @Query() query: Record<string, unknown>
+  ) {
+    if (!this.observedMean) throw new Error("energy observed mean service is unavailable");
+    return this.observedMean.getObservedMean(user, siteId, query);
   }
 }

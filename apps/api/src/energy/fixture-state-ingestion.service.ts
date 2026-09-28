@@ -13,6 +13,7 @@ import { gatewayEventIsTooFarInFuture, gatewayEventMaxFutureSkewMs } from "../mq
 import { reconcileLegacyGatewayEventReplay } from "../mqtt/legacy-gateway-event-replay";
 import { PrismaService } from "../prisma/prisma.service";
 import { compareAndAdvanceGatewayEvent } from "../retention/gateway-event-watermark";
+import { recordMonitoringActivities, type MonitoringActivityInput } from "../monitoring-activity/monitoring-activity.projection";
 import { assertRefreshWatermarkIdentity, lockRefreshObservation, resolveRefreshObservation } from "../monitoring-refresh/monitoring-refresh-ingestion.service";
 import {
   aggregateFixtureStateTransition,
@@ -26,7 +27,10 @@ type IngestionStatus = ApplicationStateIngestedAckV2["status"];
 
 interface LockedFixtureRow {
   id: string;
+  name: string;
   floorId: string;
+  status: "online" | "offline" | "fault";
+  healthFaultCodes: Prisma.JsonValue | null;
   lastUnreachableAt: Date | null;
   lastSeenAt: Date | null;
   energyFixtureId: string;
@@ -132,7 +136,7 @@ export class FixtureStateIngestionService {
     const [fixture] = await tx.$queryRaw<LockedFixtureRow[]>(Prisma.sql`
       SELECT
         f."id",
-        f."floorId", f."lastUnreachableAt", f."lastSeenAt",
+        f."name", f."floorId", f."status", f."healthFaultCodes", f."lastUnreachableAt", f."lastSeenAt",
         energy_fixture."id" AS "energyFixtureId",
         fl."siteId" AS "siteId",
         mn."gatewayId" AS "gatewayId",
@@ -259,6 +263,8 @@ export class FixtureStateIngestionService {
     const health = state.health
       ? { faultCodes: mapHealthFaults(state.health.faultCodes), observedAt: new Date(state.health.observedAt) }
       : null;
+    const nextStatus = fixture.lastUnreachableAt && receivedAt <= fixture.lastUnreachableAt
+      ? "offline" as const : health ? statusFromHealth(health.faultCodes) : state.status;
     await tx.fixture.update({
       where: { id: fixture.id },
       data: {
@@ -283,6 +289,17 @@ export class FixtureStateIngestionService {
         lastStateOccurredAt: occurredAt
       }
     });
+    const activityBase = { siteId: fixture.siteId, floorId: fixture.floorId, fixtureId: fixture.id,
+      displayName: fixture.name, sourceType: "fixture_state" as const, observedAt: occurredAt };
+    const activities: MonitoringActivityInput[] = [];
+    if (fixture.status !== nextStatus) activities.push({ ...activityBase, sourceKey: `${state.eventId}:status`,
+      kind: "fixture_status_changed", status: nextStatus });
+    if (fixture.brightness !== state.brightness) activities.push({ ...activityBase,
+      sourceKey: `${state.eventId}:brightness`, kind: "fixture_brightness_changed", brightnessPercent: state.brightness });
+    if (health && JSON.stringify(fixture.healthFaultCodes) !== JSON.stringify(health.faultCodes)) {
+      activities.push({ ...activityBase, sourceKey: `${state.eventId}:health`, kind: "fixture_health_changed", status: nextStatus });
+    }
+    if (activities.length) await recordMonitoringActivities(tx, activities);
     if (!fixture.lastUnreachableAt || receivedAt > fixture.lastUnreachableAt) {
       await resolveRefreshObservation(tx, refreshContext, receivedAt);
     }

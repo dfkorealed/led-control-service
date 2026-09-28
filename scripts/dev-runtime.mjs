@@ -259,16 +259,58 @@ function checksumOf(content) {
   return createHash("sha256").update(content).digest("hex");
 }
 
-export function renderMosquittoAcl(gatewayIds) {
+// Inventory: MqttService subscriptions; Get/recovery, provisioning, identify,
+// monitoring refresh, mesh sync and automation outbox producers. Never grant
+// api-service sites/#: cutover removes only the two legacy dimming writes.
+const API_READ_SUFFIXES = [
+  "acks/acceptance", "acks/device-status", "state/fixtures", "state/fixture-presence", "state/heartbeat",
+  "events/provisioning/scan-found", "events/provisioning/scan-completed", "events/provisioning/scan-failed",
+  "events/provisioning/device-terminal", "events/provisioning-completed", "events/provisioning-failed",
+  "events/identify-result", "events/fixture-presence-check-completed", "events/fixture-unreachable",
+  "events/mesh-group/resync-request", "events/mesh-group/subscription-result", "events/mesh-node-metrics",
+  "events/provisioning-progress", "events/automation/config-applied", "events/automation/current-config-request",
+  "events/automation/execution", "events/automation/vehicle-sensor-capability", "commands/clock/request", "events/drain/response"
+];
+const API_WRITE_SUFFIXES = [
+  "commands/status-check", "commands/identify", "commands/fixture-presence-check",
+  "commands/provisioning/scan-start", "commands/provisioning/scan-stop", "commands/provisioning/identify-device",
+  "commands/provisioning/provision-device", "commands/mesh-group/subscription-sync", "commands/mesh-group/resync-ack",
+  "commands/automation/config-sync", "events/clock/response", "commands/drain/request", "acks/state-ingested",
+  "acks/fixture-presence-check-completed", "acks/provisioning/scan-terminal-ingested", "acks/provisioning/device-terminal-ingested",
+  "acks/automation/config-applied-ingested", "acks/automation/execution-ingested", "acks/automation/vehicle-sensor-capability-ingested"
+];
+
+export function commandSetAclOptions(env) {
+  const flag = env.COMMAND_SET_EGRESS_ENABLED ?? "0";
+  if (flag === "0") return {};
+  if (flag !== "1" || !/^[1-9][0-9]*$/.test(env.MQTT_SET_GENERATION ?? "") || Number(env.MQTT_SET_GENERATION) > 2147483647) {
+    throw new Error("explicit valid Set cutover generation required");
+  }
+  return { setGeneration: Number(env.MQTT_SET_GENERATION) };
+}
+
+export function renderMosquittoAcl(gatewayIds, { setGeneration } = {}) {
+  if (setGeneration !== undefined && (!Number.isInteger(setGeneration) || setGeneration <= 0 || setGeneration > 2147483647)) {
+    throw new Error("invalid Set generation");
+  }
   const values = Array.isArray(gatewayIds) ? gatewayIds : gatewayIds ? [gatewayIds] : [];
   const identities = normalizeGatewayIds(values, "gateway ID");
+  if (setGeneration !== undefined && identities.length === 0) throw new Error("Set cutover requires an explicit Gateway census");
   return [
     "user api-service",
-    "topic readwrite sites/#",
+    "topic write sites/health/production-probe",
+    ...API_READ_SUFFIXES.map((suffix) => `topic read sites/+/gateways/+/${suffix}`),
+    ...API_WRITE_SUFFIXES.map((suffix) => `topic write sites/+/gateways/+/${suffix}`),
+    ...(setGeneration === undefined ? [
+      "# Transitional legacy Set: remove both writes only during coordinated cutover.",
+      "topic write sites/+/gateways/+/commands/dimming", "topic write sites/+/commands/dimming"
+    ] : ["", `user command-set-${setGeneration}`, "topic write sites/+/gateways/+/commands/dimming"]),
     "",
     ...identities.flatMap((gatewayId) => [
       `user ${gatewayId}`,
       `topic read sites/+/gateways/${gatewayId}/commands/#`,
+      `topic read sites/+/gateways/${gatewayId}/events/clock/response`,
+      `topic write sites/+/gateways/${gatewayId}/commands/clock/request`,
       `topic read sites/+/gateways/${gatewayId}/acks/state-ingested`,
       `topic read sites/+/gateways/${gatewayId}/acks/fixture-presence-check-completed`,
       `topic read sites/+/gateways/${gatewayId}/acks/provisioning/scan-terminal-ingested`,
@@ -286,8 +328,8 @@ export function renderMosquittoAcl(gatewayIds) {
   ].join("\n");
 }
 
-export function publishMosquittoAcl(destination, gatewayIds) {
-  const content = renderMosquittoAcl(gatewayIds);
+export function publishMosquittoAcl(destination, gatewayIds, options) {
+  const content = renderMosquittoAcl(gatewayIds, options);
   const parent = dirname(destination);
   let parentStatus;
   try {

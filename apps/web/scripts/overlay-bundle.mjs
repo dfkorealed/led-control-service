@@ -32,7 +32,7 @@ async function appBundle(mode) {
     name: "overlay-bundle-control", enforce: "pre",
     load(id) {
       if (mode === "without-dropdown" && id.endsWith("/src/components/ui/index.ts")) {
-        // SessionStatusCenter consumes Popover, so only DropdownMenu is unused.
+        // SessionStatusCenter consumes DrawerDialog; DropdownMenu stays unused.
         return readFileSync(id, "utf8").split("\n").filter(line => !/from "\.\/overlays\/DropdownMenu"/.test(line)).join("\n");
       }
       if (mode === "impure-overlay" && unusedOverlay.test(id)) return readFileSync(id, "utf8").replaceAll("/* @__PURE__ */", "");
@@ -40,12 +40,12 @@ async function appBundle(mode) {
   }] })));
 }
 
-test("unused DropdownMenu export costs zero while used Popover and explicit consumers remain", { timeout: 90_000 }, async context => {
+test("unused popover exports cost zero while the status drawer and explicit consumers remain", { timeout: 90_000 }, async context => {
   const normal = await appBundle("normal");
   const control = await appBundle("without-dropdown");
   assert.deepEqual(normal, control, "Unused DropdownMenu must preserve the exact app entry, gzip and module count");
   assert.ok(!normal.overlayModules.some(id => id.endsWith("/DropdownMenu.tsx")));
-  assert.ok(normal.overlayModules.some(id => id.endsWith("/Popover.tsx")), "SessionStatusCenter must retain its Popover dependency");
+  assert.ok(!normal.overlayModules.some(id => id.endsWith("/Popover.tsx")), "App entry must drop Popover after status center migrates to DrawerDialog");
   context.diagnostic(`Normal/control: ${normal.characters} chars, gzip ${normal.gzip} bytes, ${normal.modules} modules, sha256 ${normal.digest}; delta 0/0/0`);
   const impure = await appBundle("impure-overlay");
   assert.ok(impure.overlayModules.length === 2 && impure.gzip > normal.gzip && impure.modules > normal.modules,
@@ -58,7 +58,7 @@ test("unused DropdownMenu export costs zero while used Popover and explicit cons
     import React,{useRef} from "react";
     import {createRoot} from "react-dom/client";
     import {flushSync} from "react-dom";
-    import {DropdownMenu,Popover,SessionStatusCenter,SessionStatusProvider,ToastRegion} from "/src/components/ui/index.ts";
+    import {DrawerDialog,DropdownMenu,Popover,SessionStatusCenter,SessionStatusProvider,ToastRegion} from "/src/components/ui/index.ts";
     const el=React.createElement;
     function App(){
       const trigger=useRef(null);
@@ -67,6 +67,7 @@ test("unused DropdownMenu export costs zero while used Popover and explicit cons
           el(DropdownMenu,{label:"dropdown-consumer",items:[{id:0,label:"action"}],onAction:()=>{}}),
           el("button",{ref:trigger},"anchor"),
           el(Popover,{isOpen:true,triggerRef:trigger,label:"popover-consumer"},el("button",null,"popover-body")),
+          el(DrawerDialog,{isOpen:true,title:"drawer-consumer",onClose:()=>{}},el("button",null,"drawer-body")),
           el(SessionStatusCenter),el(ToastRegion)));
     }
     const container=document.createElement("div");document.body.append(container);
@@ -79,6 +80,8 @@ test("unused DropdownMenu export costs zero while used Popover and explicit cons
     load(id) { if (id === "\0" + virtual) return source; }
   }] }));
   for (const name of ["DropdownMenu", "Popover"]) assert.ok(Object.keys(consumer.modules).some(id => id.endsWith(`/components/ui/overlays/${name}.tsx`)), `${name} must remain when used`);
+  assert.ok(Object.keys(consumer.modules).some(id => id.endsWith("/components/ui/DrawerDialog.tsx")), "DrawerDialog must remain when used");
+  assert.ok(Object.keys(consumer.modules).some(id => id.endsWith("/components/ui/overlays/DialogBase.tsx")), "DrawerDialog must retain DialogBase");
   for (const name of ["SessionStatusProvider", "SessionStatusCenter", "ToastRegion"]) assert.ok(Object.keys(consumer.modules).some(id => id.endsWith(`/components/ui/session-status/${name}.tsx`)), `${name} must remain when used`);
 
   // A browserless DOM executes the actual production chunk, including an open
@@ -106,8 +109,9 @@ test("unused DropdownMenu export costs zero while used Popover and explicit cons
     await new Promise(resolve => setTimeout(resolve, 50));
     assert.ok(dom.window.document.body.textContent.includes("dropdown-consumer"), "Dropdown trigger must render");
     assert.ok(dom.window.document.body.textContent.includes("popover-body"), "Open Popover must render its portal content");
-    assert.ok(dom.window.document.body.textContent.includes("상태"), "Session status trigger must render");
-    context.diagnostic("Explicit consumer: DropdownMenu, Popover and session status feedback retained; production triggers and open portal rendered in browserless DOM");
+    assert.ok(dom.window.document.body.textContent.includes("drawer-body"), "Open DrawerDialog must render its portal content");
+    assert.ok(dom.window.document.querySelector('[aria-label="상태 센터, 미해결 0건"]'), "Session status trigger must render");
+    context.diagnostic("Explicit consumer: DropdownMenu, Popover, DrawerDialog and session status feedback retained; production triggers and open portals rendered in browserless DOM");
   } finally {
     globalThis[marker]?.();
     delete globalThis[marker];

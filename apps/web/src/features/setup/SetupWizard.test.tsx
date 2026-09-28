@@ -41,7 +41,7 @@ describe("SetupWizard", () => {
     renderWizard();
     fireEvent.change(screen.getByLabelText("지하 층수"), { target: { value: "2" } });
     fireEvent.change(screen.getByLabelText("지상 층수"), { target: { value: "2" } });
-    fireEvent.click(screen.getByRole("button", { name: "층 자동 생성" }));
+    fireEvent.click(screen.getByRole("button", { name: "맵 생성" }));
     expect(screen.getByDisplayValue("B2")).toBeInTheDocument();
     expect(screen.getByDisplayValue("B1")).toBeInTheDocument();
     expect(screen.getByDisplayValue("1F")).toBeInTheDocument();
@@ -55,6 +55,8 @@ describe("SetupWizard", () => {
     expect(screen.getByText("설치 담당자가 현장을 준비 중입니다")).toBeInTheDocument();
     expect(screen.getByText("현장 관리자가 설치와 조명 등록을 완료하면 조회할 수 있습니다.")).toBeInTheDocument();
     expect(screen.queryByLabelText("고객사명")).not.toBeInTheDocument();
+    expect(screen.getByRole("list", { name: "현장 설치 진행" })).toHaveTextContent("조명 등록");
+    expect(screen.queryByRole("button", { name: "초기 설정 완료" })).not.toBeInTheDocument();
   });
 
   it("현장 정보부터 운영 시작까지 설치 진행 단계를 표시한다", () => {
@@ -65,6 +67,14 @@ describe("SetupWizard", () => {
     expect(screen.getByRole("heading", { name: "현장 기본 정보를 입력하세요" })).toBeInTheDocument();
     expect(screen.getByLabelText("kWh 단가").closest("[data-field]")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "시간대" })).toBeInTheDocument();
+  });
+
+  it("현장 정보와 층별 맵 생성 영역을 별도 작업 구역으로 표시한다", () => {
+    renderWizard();
+
+    expect(screen.getByRole("region", { name: "현장 정보" })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "층별 맵 생성" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "맵 생성" })).toBeInTheDocument();
   });
 
   it("assigned pending site를 고객사명·현장명 입력 없이 완료한다", async () => {
@@ -137,14 +147,14 @@ describe("SetupWizard", () => {
     renderWizard();
     fireEvent.change(screen.getByLabelText("층 이름 1"), { target: { value: "지하 주차 2층" } });
     fireEvent.change(screen.getByLabelText("지상 층수"), { target: { value: "1" } });
-    fireEvent.click(screen.getByRole("button", { name: "층 자동 생성" }));
+    fireEvent.click(screen.getByRole("button", { name: "맵 생성" }));
 
     expect(screen.getByRole("alertdialog", { name: "층 목록 다시 생성" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "취소" }));
     expect(screen.getByLabelText("층 이름 1")).toHaveValue("지하 주차 2층");
     expect(screen.queryByDisplayValue("1F")).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "층 자동 생성" }));
+    fireEvent.click(screen.getByRole("button", { name: "맵 생성" }));
     fireEvent.click(screen.getByRole("button", { name: "다시 생성" }));
     expect(screen.getByDisplayValue("1F")).toBeInTheDocument();
   });

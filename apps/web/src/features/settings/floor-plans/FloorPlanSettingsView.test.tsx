@@ -15,7 +15,7 @@ describe("FloorPlanSettingsView", () => {
   });
 
   it("links an admin to the floor editor while preserving siteId", async () => {
-    const dashboard = { ...mockDashboard, floors: [mockDashboard.floors[0]] };
+    const dashboard = { ...mockDashboard, floors: [{ ...mockDashboard.floors[0], mapConfigured: true }] };
     useDashboard.mockReturnValue({ data: dashboard, isLoading: false, error: null });
 
     render(
@@ -41,7 +41,7 @@ describe("FloorPlanSettingsView", () => {
   });
 
   it("keeps the floor-plan list read only without manage capability", async () => {
-    const dashboard = { ...mockDashboard, floors: [mockDashboard.floors[0]] };
+    const dashboard = { ...mockDashboard, floors: [{ ...mockDashboard.floors[0], mapConfigured: true }] };
     useDashboard.mockReturnValue({ data: dashboard, isLoading: false, error: null });
 
     render(
@@ -54,5 +54,30 @@ describe("FloorPlanSettingsView", () => {
     expect(screen.getByText("맵 설정됨")).toBeInTheDocument();
     expect(screen.getByText("읽기 전용")).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "B2 맵 편집" })).not.toBeInTheDocument();
+  });
+
+  it("mapConfigured와 층 요약만 사용하고 초기화된 맵을 설정됨으로 오인하지 않는다", () => {
+    const floor = mockDashboard.floors[0];
+    const dashboard = { ...mockDashboard, floors: [
+      { ...floor, floorPlan: null, mapConfigured: true, mapRevision: 4, summary: { totalFixtures: 1000, onlineFixtures: 500, faultFixtures: 0, offlineFixtures: 500 } },
+      { ...floor, id: "floor-reset", name: "B1", floorPlan: null, mapConfigured: false, mapRevision: 5, summary: { totalFixtures: 0, onlineFixtures: 0, faultFixtures: 0, offlineFixtures: 0 } }
+    ] };
+    useDashboard.mockReturnValue({ data: dashboard, isLoading: false, error: null });
+    render(<MemoryRouter><FloorPlanSettingsView siteId={dashboard.site.id} capabilities={{ read: true, control: true, manage: true, commission: true }} /></MemoryRouter>);
+
+    const cards = screen.getAllByTestId("floor-plan-item");
+    expect(cards[0]).toHaveTextContent("맵 설정됨");
+    expect(cards[0]).toHaveTextContent("조명 1,000개");
+    expect(cards[0]).toHaveTextContent("리비전 4");
+    expect(cards[1]).toHaveTextContent("맵 미설정");
+    expect(cards[1]).toHaveTextContent("리비전 5");
+  });
+
+  it("층이 없으면 샘플 카드 대신 빈 상태를 보여준다", () => {
+    const dashboard = { ...mockDashboard, floors: [] };
+    useDashboard.mockReturnValue({ data: dashboard, isLoading: false, error: null });
+    render(<MemoryRouter><FloorPlanSettingsView siteId={dashboard.site.id} capabilities={{ read: true, control: true, manage: true, commission: true }} /></MemoryRouter>);
+    expect(screen.getByText("등록된 층이 없습니다.")).toBeInTheDocument();
+    expect(screen.queryByTestId("floor-plan-item")).not.toBeInTheDocument();
   });
 });

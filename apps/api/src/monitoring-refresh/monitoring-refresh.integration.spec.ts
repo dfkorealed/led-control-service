@@ -75,9 +75,19 @@ const at = (seconds: number) => new Date(Date.UTC(2026, 8, 15, 8, 0, seconds));
     expect(await prisma.monitoringRefresh.findUniqueOrThrow({ where: { id: setup.scope.refreshId } })).toMatchObject({
       status: "completed", onlineFixtures: 1, offlineFixtures: 1, unverifiedFixtures: 0
     });
+    expect(await prisma.monitoringActivity.findMany({ where: { siteId: setup.scope.siteId,
+      sourceType: "monitoring_refresh", kind: "monitoring_refresh_result" },
+      select: { sourceKey: true, refreshStatus: true } })).toEqual([{
+      sourceKey: `${setup.scope.refreshId}:completed`, refreshStatus: "completed"
+    }]);
     expect(await prisma.fixture.findUniqueOrThrow({ where: { id: setup.fixtures[1].id } })).toMatchObject({
       status: "offline", statusReason: "fixture_stale", lastUnreachableAt: at(3), brightness: 70, reportedStatus: "online"
     });
+    expect(await prisma.monitoringActivity.findMany({ where: { siteId: setup.scope.siteId,
+      sourceType: "monitoring_refresh", sourceKey: `${unreachable.eventId}:fixture_offline` },
+      select: { kind: true, fixtureId: true, status: true } })).toEqual([{
+      kind: "fixture_offline", fixtureId: setup.fixtures[1].id, status: "offline"
+    }]);
     expect(await prisma.mqttOutbox.count({ where: { monitoringRefreshBatchId: setup.scope.batchId } })).toBe(0);
     await new FixturePresenceIngestionService(prisma as never).ingest(setup.scope.gatewayId, {
       siteId: setup.scope.siteId, gatewayId: setup.scope.gatewayId, fixtureId: setup.fixtures[1].id,

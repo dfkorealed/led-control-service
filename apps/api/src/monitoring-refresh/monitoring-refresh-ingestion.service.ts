@@ -8,6 +8,7 @@ import { canonicalPayloadHash } from "../automation/automation-payload-hash";
 import { isMonitoringGatewayOnline, type MonitoringPolicy } from "../monitoring-incidents/monitoring-conditions";
 import { gatewayEventIsTooFarInFuture, gatewayEventMaxFutureSkewMs } from "../mqtt/gateway-event-time";
 import { PrismaService } from "../prisma/prisma.service";
+import { recordMonitoringActivity } from "../monitoring-activity/monitoring-activity.projection";
 import { compareAndAdvanceGatewayEvent } from "../retention/gateway-event-watermark";
 import { finalizeResolvedMonitoringRefresh } from "./monitoring-refresh-state";
 
@@ -47,8 +48,8 @@ export class MonitoringRefreshIngestionService {
     const now = new Date(receivedAt);
     return this.prisma.$transaction(async (tx) => {
       const { site, gateway } = await lockParents(tx, event);
-      const [fixture] = await tx.$queryRaw<Array<{ id: string; floorId: string; lastSeenAt: Date | null; lastUnreachableAt: Date | null }>>(Prisma.sql`
-        SELECT f."id", f."floorId", f."lastSeenAt", f."lastUnreachableAt" FROM "Fixture" f
+      const [fixture] = await tx.$queryRaw<Array<{ id: string; floorId: string; name: string; status: string; lastSeenAt: Date | null; lastUnreachableAt: Date | null }>>(Prisma.sql`
+        SELECT f."id", f."floorId", f."name", f."status", f."lastSeenAt", f."lastUnreachableAt" FROM "Fixture" f
         INNER JOIN "MeshNode" mn ON mn."id" = f."meshNodeId"
         WHERE f."id" = ${event.fixtureId} AND f."siteId" = ${event.siteId} AND mn."gatewayId" = ${event.gatewayId}
         FOR UPDATE OF f
@@ -72,8 +73,14 @@ export class MonitoringRefreshIngestionService {
         // older command's delayed receipt must not extend its offline timestamp.
         await resolveChild(tx, context, "unverified", now, "stale_observation");
       } else {
+        const becameOffline = fixture.status !== "offline";
         await tx.fixture.update({ where: { id: fixture.id },
           data: { lastUnreachableAt: now, status: "offline", statusReason: "fixture_stale" } });
+        if (becameOffline) await recordMonitoringActivity(tx, {
+          siteId: event.siteId, floorId: fixture.floorId, fixtureId: fixture.id, displayName: fixture.name,
+          sourceType: "monitoring_refresh", sourceKey: `${event.eventId}:fixture_offline`,
+          kind: "fixture_offline", status: "offline"
+        });
         await resolveChild(tx, context, "offline", now, event.reason);
       }
       return stateResult(event, "ingested");

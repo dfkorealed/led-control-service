@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { EnergyComparisonPreset, EnergySeriesResponse, EnergySummary } from "@led-control/shared";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MemoryRouter, Outlet, Route, Routes } from "react-router-dom";
@@ -12,13 +12,15 @@ const mocks = vi.hoisted(() => ({
   day: {} as ReturnType<typeof queryResult>,
   month: {} as ReturnType<typeof queryResult>,
   comparison: {} as ReturnType<typeof queryResult>,
-  comparisonHook: vi.fn()
+  comparisonHook: vi.fn(),
+  customHook: vi.fn()
 }));
 
 vi.mock("../../api/energy", () => ({
   useEnergySummary: () => mocks.summary,
   useEnergySeries: ({ granularity }: { granularity: "day" | "month" }) => mocks[granularity],
-  useEnergyComparison: (_siteId: string, preset: EnergyComparisonPreset) => mocks.comparisonHook(preset)
+  useEnergyComparison: (_siteId: string, preset: EnergyComparisonPreset, enabled?: boolean) => mocks.comparisonHook(preset, enabled),
+  useEnergyRangeComparison: (_siteId: string, from: string, to: string, enabled?: boolean) => mocks.customHook(from, to, enabled)
 }));
 
 function queryResult<T>(data?: T) {
@@ -97,6 +99,9 @@ describe("StatisticsOverviewPage", () => {
     mocks.comparison = queryResult(makeEnergyComparison());
     mocks.comparisonHook.mockReset();
     mocks.comparisonHook.mockImplementation(() => mocks.comparison);
+    mocks.customHook.mockReset();
+    mocks.customHook.mockImplementation((from: string, to: string) => queryResult({ ...makeEnergyComparison(),
+      selection: { kind: "custom", from, to }, range: { from, to, completedThrough: to } }));
   });
 
   afterEach(cleanup);
@@ -111,14 +116,15 @@ describe("StatisticsOverviewPage", () => {
   it("shows today, month and year estimates with coverage text", () => {
     renderView();
 
-    expect(screen.getByRole("heading", { name: "에너지 리포트" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "에너지 리포트" })).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "오늘 사용량과 비용" })).toBeInTheDocument();
     expect(screen.getByRole("group", { name: "오늘 전력 사용량" })).toHaveTextContent("4.25 kWh");
     expect(screen.getByRole("group", { name: "이번 달 누적 전력 사용량" })).toHaveTextContent("120.5 kWh");
     expect(screen.getByRole("group", { name: "올해 누적 전력 사용량" })).toHaveTextContent("900 kWh");
     expect(screen.getByText("수집 완료")).toBeInTheDocument();
     expect(screen.getAllByText("수집 공백 있음")).toHaveLength(2);
-    const header = screen.getByRole("heading", { name: "에너지 리포트" }).closest("header");
-    expect(within(header!).getByText("KPI 수집 공백")).toBeInTheDocument();
+    const currentSection = screen.getByRole("region", { name: "오늘 사용량과 비용" });
+    expect(within(currentSection).getByText("KPI 수집 공백")).toBeInTheDocument();
     expect(screen.queryByText("수집 공백이 있어 일부 기간은 추정값이 불완전할 수 있습니다.")).not.toBeInTheDocument();
   });
 
@@ -219,7 +225,63 @@ describe("StatisticsOverviewPage", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "최근 7일" }));
     expect(screen.getByRole("button", { name: "최근 7일" })).toHaveAttribute("aria-pressed", "true");
-    expect(mocks.comparisonHook).toHaveBeenLastCalledWith("last_7_days");
+    expect(mocks.comparisonHook).toHaveBeenLastCalledWith("last_7_days", true);
+  });
+
+  it("switches to a completed custom period without changing independent today or forecast cards", async () => {
+    renderView();
+    const opener = screen.getByRole("button", { name: /완료 기간 날짜 범위 선택, 현재/ });
+    opener.focus();
+    fireEvent.click(opener);
+    const picker = screen.getByRole("dialog", { name: "완료일 비교 기간 선택" });
+    expect(picker).toHaveTextContent("오늘 진행 중인 집계와 이번 달 비용 전망은 아래 별도 영역에 유지됩니다.");
+    expect(within(picker).getByRole("group", { name: "빠른 기간 선택" })).toBeInTheDocument();
+    expect(within(picker).getAllByRole("spinbutton")[0]).toHaveFocus();
+    fireEvent.click(within(picker).getByRole("button", { name: "최근 7일" }));
+    fireEvent.click(within(picker).getByRole("button", { name: "선택 기간 적용" }));
+
+    expect(screen.queryByRole("dialog", { name: "완료일 비교 기간 선택" })).not.toBeInTheDocument();
+    expect(opener).toHaveAttribute("aria-pressed", "true");
+    expect(opener).toHaveAccessibleName("완료 기간 날짜 범위 선택, 현재 2026-08-19 ~ 2026-08-25");
+    await waitFor(() => expect(opener).toHaveFocus());
+    expect(mocks.comparisonHook).toHaveBeenLastCalledWith("current_month", false);
+    expect(mocks.customHook).toHaveBeenLastCalledWith("2026-08-19", "2026-08-25", true);
+    expect(screen.getByRole("group", { name: "오늘 전력 사용량" })).toHaveTextContent("4.25 kWh");
+    expect(screen.getByRole("heading", { name: "이번 달 비용 비교" })).toBeInTheDocument();
+  });
+
+  it("does not present a cached custom comparison period as current after its refetch fails", () => {
+    mocks.customHook.mockImplementation((from: string, to: string) => ({
+      ...queryResult({ ...makeEnergyComparison(), selection: { kind: "custom", from, to },
+        range: { from, to, completedThrough: to } }),
+      isError: true,
+      error: new Error("unavailable")
+    }));
+    renderView();
+    fireEvent.click(screen.getByRole("button", { name: /완료 기간 날짜 범위 선택, 현재/ }));
+    const picker = screen.getByRole("dialog", { name: "완료일 비교 기간 선택" });
+    fireEvent.click(within(within(picker).getByRole("group", { name: "빠른 기간 선택" })).getByRole("button", { name: "최근 7일" }));
+    fireEvent.click(within(picker).getByRole("button", { name: "선택 기간 적용" }));
+
+    expect(screen.getByText("절감 비교를 불러오지 못했습니다.")).toBeInTheDocument();
+    expect(screen.queryByText(/비교 기간 2026-08-19 ~ 2026-08-25 · 완료 실적/)).not.toBeInTheDocument();
+    expect(screen.queryByRole("group", { name: "기준 및 동기간 비교" })).not.toBeInTheDocument();
+    expect(screen.getByRole("group", { name: "오늘 전력 사용량" })).toHaveTextContent("4.25 kWh");
+  });
+
+  it("prevents applying a range that includes the site-local in-progress day and returns focus on cancel", async () => {
+    renderView();
+    const opener = screen.getByRole("button", { name: /완료 기간 날짜 범위 선택, 현재/ });
+    opener.focus();
+    fireEvent.click(opener);
+    const picker = screen.getByRole("dialog", { name: "완료일 비교 기간 선택" });
+    const segments = within(picker).getByRole("group", { name: "완료 기간 시작일과 종료일" }).querySelectorAll('[role="spinbutton"]');
+    fireEvent.keyDown(segments[5], { key: "ArrowUp" });
+    expect(within(picker).getByRole("button", { name: "선택 기간 적용" })).toBeDisabled();
+    expect(within(picker).getByRole("alert")).toHaveTextContent("완료된 1~400일");
+    fireEvent.click(within(picker).getByRole("button", { name: "취소" }));
+    await waitFor(() => expect(opener).toHaveFocus());
+    expect(mocks.customHook).not.toHaveBeenCalledWith(expect.any(String), expect.any(String), true);
   });
 
   it("isolates comparison errors and retries without hiding the existing summary", () => {
@@ -251,15 +313,16 @@ describe("StatisticsOverviewPage", () => {
     expect(screen.queryByRole("group", { name: "예상 절감 전력" })).not.toBeInTheDocument();
   });
 
-  it("에너지 리포트는 metric, chart, 비용 비교 영역을 구분한다", () => {
+  it("separates completed comparison from ongoing metrics, chart, and cost", () => {
     renderView();
 
-    const heading = screen.getByRole("heading", { name: "에너지 리포트" });
+    const comparison = screen.getByRole("heading", { name: "기준 대비 에너지 절감" });
+    const heading = screen.getByRole("heading", { name: "오늘 사용량과 비용" });
     const todayMetric = screen.getByRole("group", { name: "오늘 전력 사용량" });
     const chart = screen.getByRole("region", { name: "상태 기반 추정 사용량" });
     const costs = screen.getByRole("complementary", { name: "비용 비교" });
 
-    expect(heading).toBeInTheDocument();
+    expect(comparison.compareDocumentPosition(heading)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
     expect(todayMetric.compareDocumentPosition(chart)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
     expect(chart.compareDocumentPosition(costs)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
     expect(screen.getByRole("group", { name: "오늘 전력 사용량" }))

@@ -6,6 +6,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   createGatewayAutomationServices,
+  createGatewayCommandClockRuntime,
+  createGatewayCommandDrainHandler,
+  createGatewaySetPermit,
   createGatewayStatusCheckRuntime,
   createFixturePresenceCheckRuntime,
   initializeAutomationBeforeManualRecovery,
@@ -64,10 +67,163 @@ import {
 import { ProvisioningDeviceJournal } from "./state/provisioning-device-journal";
 import { GroupStateStore } from "./mesh/group-state-store";
 import { BioUsbDongleAdapter } from "./adapters/bio-usb-dongle-adapter";
+import { StubBleMeshAdapter } from "../test/stub-adapters";
 
 const scopedSiteId = "00000000-0000-4000-8000-000000000003";
 const scopedGatewayId = "00000000-0000-4000-8000-000000000004";
 const scopedFixtureId = "00000000-0000-4000-8000-000000000005";
+
+describe("Gateway command drain MQTT routing", () => {
+  it("echoes only a valid scoped nonce/epoch with conservative submission counts", async () => {
+    const { CommandRfDrain } = await import("./commands/command-rf-drain");
+    const drain = new CommandRfDrain();
+    const work = drain.begin(7); work.onWriteStarted(); work.finish();
+    const sent: any[] = [];
+    const client = { connected: true, publish: (topic: string, payload: string, options: unknown) => { sent.push({ topic, payload: JSON.parse(payload), options }); } };
+    const scope = { siteId: scopedSiteId, gatewayId: scopedGatewayId };
+    const handle = createGatewayCommandDrainHandler({ scope, drain, gatewayVersion: "0.1.0-test", clock: {
+      sample: () => ({ bootId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", milliseconds: 1000 })
+    } });
+    const request = { ...scope, nonce: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", publishEpoch: 7 };
+    for (const change of [{ siteId: "99999999-9999-4999-8999-999999999999" }, { gatewayId: "99999999-9999-4999-8999-999999999999" }, { nonce: "wrong-nonce" }, { publishEpoch: 0 }]) {
+      handle(Buffer.from(JSON.stringify({ ...request, ...change })), client as never);
+    }
+    handle(Buffer.from(JSON.stringify(request)), client as never, { retain: true } as never);
+    handle(Buffer.from(JSON.stringify(request)), client as never, { topic: "wrong/scope" } as never);
+    expect(sent).toEqual([]);
+    handle(Buffer.from(JSON.stringify(request)), client as never);
+    expect(sent).toEqual([{ topic: mqttTopicsV2.commandDrainResponse(scope.siteId, scope.gatewayId), options: { qos: 0, retain: false }, payload: {
+      ...request, gatewayVersion: "0.1.0-test", bootId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", queuedCount: 0, submittedCount: 1, unconfirmedCount: 1
+    } }]);
+    client.connected = false;
+    handle(Buffer.from(JSON.stringify(request)), client as never);
+    expect(sent).toHaveLength(1);
+  });
+});
+
+describe("Gateway command clock MQTT runtime", () => {
+  function setup() {
+    let milliseconds = 1000;
+    let unavailable = false;
+    const sent: { topic: string; payload: any; options: any }[] = [];
+    const client = { connected: true, publish(topic: string, payload: string, options: unknown, callback: (error?: Error) => void) {
+      sent.push({ topic, payload: JSON.parse(payload), options });
+      callback();
+    } };
+    const runtime = createGatewayCommandClockRuntime({
+      scope: { siteId: scopedSiteId, gatewayId: scopedGatewayId },
+      clock: { sample: () => {
+        if (unavailable) throw new Error("proc unavailable");
+        return { bootId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", milliseconds };
+      } }
+    });
+    const reply = (request = sent.at(-1)!.payload, source = client, retained = false) => {
+      milliseconds += 100;
+      runtime.handle(Buffer.from(JSON.stringify({ ...request, dbNow: "2026-09-26T00:00:00.000Z", publishEpoch: 7 })), source as never, { retain: retained } as never);
+    };
+    return { runtime, client, sent, reply, failClock: () => { unavailable = true; } };
+  }
+  const expiry = "2026-09-26T00:00:10.000Z";
+
+  it.each([
+    ["legacy before cutover", "", {}, false, "accepted", undefined],
+    ["missing epoch", "1", {}, true, "rejected", "GATEWAY_CLOCK_UNTRUSTED"],
+    ["cross-site", "1", { publishEpoch: 7, siteId: scopedFixtureId }, true, "rejected", "GATEWAY_CLOCK_UNTRUSTED"],
+    ["cross-gateway", "1", { publishEpoch: 7, gatewayId: scopedFixtureId }, true, "rejected", "GATEWAY_CLOCK_UNTRUSTED"],
+    ["no proof", "1", { publishEpoch: 7 }, false, "rejected", "GATEWAY_CLOCK_UNTRUSTED"],
+    ["wrong epoch", "1", { publishEpoch: 8 }, true, "rejected", "GATEWAY_CLOCK_UNTRUSTED"],
+    ["proven expiry", "1", { publishEpoch: 7, expiresAt: "2026-09-26T00:00:02.200Z" }, true, "rejected", "COMMAND_EXPIRED"],
+    ["valid proof", "1", { publishEpoch: 7 }, true, "accepted", undefined]
+  ])("enforces the Set cutover for %s with durable replay and no refusal fixture state", async (_name, cutover, change, withProof, status, errorCode) => {
+    const { runtime, client, reply } = setup();
+    const directory = await mkdtemp(join(tmpdir(), "gateway-set-cutover-"));
+    try {
+      runtime.connect(client as never);
+      if (withProof) reply();
+      const setPermit = createGatewaySetPermit({ scope: { siteId: scopedSiteId, gatewayId: scopedGatewayId }, clock: runtime, cutover });
+      const command = { ...baselineGatewayCommand(), expiresAt: expiry, ...change };
+      const adapter = new StubBleMeshAdapter();
+      const journal = new CommandJournal(join(directory, "journal.json"));
+      const options = { ...(setPermit ? { setPermit } : {}), isCommandExpired: () => false };
+      const result = await handleGatewayDimmingCommand(adapter, journal, command, undefined, options);
+      expect(result.acceptance.status).toBe(status);
+      expect(result.acceptance.errorCode).toBe(errorCode);
+      expect(result.acceptance).toMatchObject({ siteId: command.siteId, gatewayId: command.gatewayId, dispatchId: command.dispatchId });
+      expect(result.fixtureStateObserved).toBe(status === "accepted");
+      expect(await handleGatewayDimmingCommand(adapter, new CommandJournal(join(directory, "journal.json")), command, undefined, options)).toEqual(result);
+      expect(adapter.commands).toHaveLength(status === "accepted" ? 1 : 0);
+    } finally {
+      runtime.disconnect();
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("requests its own scope without retention and admits only a nonce-correlated fresh response", () => {
+    const { runtime, client, sent, reply } = setup();
+    try {
+      runtime.connect(client as never);
+      expect(sent[0]).toEqual({
+        topic: mqttTopicsV2.commandClockRequest(scopedSiteId, scopedGatewayId),
+        payload: { siteId: scopedSiteId, gatewayId: scopedGatewayId, nonce: expect.any(String) },
+        options: { qos: 0, retain: false }
+      });
+      expect(runtime.allows(7, expiry)).toBe(false);
+      reply({ ...sent[0]!.payload, nonce: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb" });
+      reply({ ...sent[0]!.payload, gatewayId: scopedFixtureId });
+      expect(runtime.allows(7, expiry)).toBe(false);
+      reply();
+      expect(runtime.allows(7, expiry)).toBe(true);
+    } finally { runtime.disconnect(); }
+  });
+
+  it("invalidates cache and pending nonce on disconnect and reconnect", () => {
+    const { runtime, client, sent, reply } = setup();
+    try {
+      runtime.connect(client as never);
+      const old = sent[0]!.payload;
+      reply();
+      expect(runtime.allows(7, expiry)).toBe(true);
+      runtime.disconnect();
+      expect(runtime.allows(7, expiry)).toBe(false);
+      runtime.connect(client as never);
+      expect(sent[1]!.payload.nonce).not.toBe(old.nonce);
+      reply(old);
+      expect(runtime.allows(7, expiry)).toBe(false);
+      reply();
+      expect(runtime.allows(7, expiry)).toBe(true);
+      runtime.connect(client as never);
+      expect(runtime.allows(7, expiry)).toBe(false);
+    } finally { runtime.disconnect(); }
+  });
+
+  it("rejects retained and replaced-client responses and fails closed on clock I/O failure", () => {
+    const { runtime, client, sent, reply, failClock } = setup();
+    try {
+      runtime.connect(client as never);
+      reply(sent[0]!.payload, client, true);
+      reply(sent[0]!.payload, { ...client });
+      expect(runtime.allows(7, expiry)).toBe(false);
+      reply();
+      expect(runtime.allows(7, expiry)).toBe(true);
+      failClock();
+      expect(runtime.allows(7, expiry)).toBe(false);
+    } finally { runtime.disconnect(); }
+  });
+
+  it("refreshes every five seconds and stops requesting after disconnect", () => {
+    vi.useFakeTimers();
+    const { runtime, client, sent } = setup();
+    try {
+      runtime.connect(client as never);
+      vi.advanceTimersByTime(5000);
+      expect(sent).toHaveLength(2);
+      expect(sent[0]!.payload.nonce).not.toBe(sent[1]!.payload.nonce);
+      runtime.disconnect();
+      vi.advanceTimersByTime(10000);
+      expect(sent).toHaveLength(2);
+    } finally { runtime.disconnect(); vi.useRealTimers(); }
+  });
+});
 
 it("defers QoS1 PUBACK for commands whose durable journal must commit first", () => {
   expect(gatewayDeferredPubackTopics(scopedSiteId, scopedGatewayId)).toEqual([
@@ -152,7 +308,9 @@ describe("status check MQTT runtime", () => {
     ]), { qos: 1 }, expect.any(Function));
   });
 
-  it("publishes durable receipt, acceptance, Get, then device status and replays a failed terminal publish", async () => {
+  it.each(["", "1"])("publishes durable Get and replays terminal publish even without DB proof (Set cutover=%s)", async (cutover) => {
+    const previousCutover = process.env.GATEWAY_COMMAND_EPOCH_CUTOVER;
+    process.env.GATEWAY_COMMAND_EPOCH_CUTOVER = cutover;
     const ctx = await setup();
     try {
       ctx.publish.mockImplementationOnce(async (_source, topic, payload) => {
@@ -167,7 +325,11 @@ describe("status check MQTT runtime", () => {
       expect(ctx.published.at(-1)?.payload).toEqual((stored?.result as any).deviceStatus);
       expect(ctx.published.at(-1)?.topic).toBe(`sites/${scopedSiteId}/gateways/${scopedGatewayId}/acks/device-status`);
       expect(ctx.published.at(-2)?.topic).toBe(`sites/${scopedSiteId}/gateways/${scopedGatewayId}/acks/acceptance`);
-    } finally { await ctx.runtime.stopAndDrain(); await rm(ctx.directory, { recursive: true, force: true }); }
+    } finally {
+      if (previousCutover === undefined) delete process.env.GATEWAY_COMMAND_EPOCH_CUTOVER;
+      else process.env.GATEWAY_COMMAND_EPOCH_CUTOVER = previousCutover;
+      await ctx.runtime.stopAndDrain(); await rm(ctx.directory, { recursive: true, force: true });
+    }
   });
 
   it("fails closed on a mismatched scope and drains an aborted in-flight Get before stop resolves", async () => {
@@ -802,6 +964,7 @@ describe("startGatewayRuntime", () => {
 
   it("passes only manual intent to runtime while mapping terminal results", async () => {
     const scheduleRuntime = {
+      abortManualControl: vi.fn().mockResolvedValue(undefined),
       captureManualTerminalContext: vi.fn().mockReturnValue({ suppressions: {} }),
       prepareManualControl: vi.fn().mockResolvedValue(undefined),
       handoffManualTerminal: vi.fn().mockResolvedValue(undefined)
@@ -851,6 +1014,7 @@ describe("startGatewayRuntime", () => {
 
   it("passes legacy wire intent without expiry metadata to runtime", async () => {
     const scheduleRuntime = {
+      abortManualControl: vi.fn().mockResolvedValue(undefined),
       captureManualTerminalContext: vi.fn().mockReturnValue({ suppressions: {} }),
       prepareManualControl: vi.fn().mockResolvedValue(undefined),
       handoffManualTerminal: vi.fn().mockResolvedValue(undefined)
@@ -1967,6 +2131,8 @@ describe("startGatewayRuntime", () => {
         "sites/site-27/gateways/gateway-27/commands/provisioning/provision-device",
         "sites/site-27/gateways/gateway-27/commands/automation/config-sync",
         "sites/site-27/gateways/gateway-27/commands/mesh-group/subscription-sync",
+        "sites/site-27/gateways/gateway-27/events/clock/response",
+        "sites/site-27/gateways/gateway-27/commands/drain/request",
         "sites/site-27/gateways/gateway-27/commands/mesh-group/resync-ack",
         "sites/site-27/gateways/gateway-27/acks/provisioning/scan-terminal-ingested",
         "sites/site-27/gateways/gateway-27/acks/provisioning/device-terminal-ingested",
@@ -1989,6 +2155,8 @@ describe("startGatewayRuntime", () => {
 
     expect(subscribe).toHaveBeenCalledWith(
       [
+        "sites/site-27/gateways/gateway-27/events/clock/response",
+        "sites/site-27/gateways/gateway-27/commands/drain/request",
         "sites/site-27/gateways/gateway-27/commands/mesh-group/resync-ack",
         "sites/site-27/gateways/gateway-27/acks/provisioning/scan-terminal-ingested",
         "sites/site-27/gateways/gateway-27/acks/provisioning/device-terminal-ingested",

@@ -1,6 +1,52 @@
 # 모니터링 메뉴 기능 현황
 
-기준일: 2026-09-24
+## 2026-09-27 종료 명령의 연결 활동 사본 정리
+
+- 구현 완료: 내부 명령 상세 정리 helper는 성공한 후보에 연결된 raw 및 알려진 keyed command activity source를 같은 거래에서 제거한다. 늦게 생성된 활동의 별도 recordedAt 때문에 만료 명령 연결 사본이 남지 않도록 한다. 이후 단계가 실패하면 활동도 rollback한다.
+- 미구현: 내용 정리 worker의 기본 timer 연결·운영 활성화. 일반 활동 이력의 기존 중앙 DB 3개월 조회/정리 경계는 유지한다.
+- 부족하거나 개선이 필요한 기능: keyed source 검증 키가 없으면 보수적으로 후보를 보류하며 운영 적용 전 과거 keyring 보존을 확인해야 한다.
+- 관련 파일: `apps/api/src/retention/command-detail-redaction.ts`, `apps/api/src/retention/command-detail-redaction.integration.spec.ts`.
+- 갱신 규칙: helper 구현을 운영 정리 완료로 기록하지 않으며 제어/모니터링 사본 제거와 rollback 검증을 함께 유지한다.
+
+## 2026-09-27 현장·층 대시보드 집계 계약
+
+- 구현 완료: `GET /sites/:siteId/dashboard`는 활성 층의 전체 등록 조명을 동일 현장 정책·응답 시각으로 한 번씩 분류해 현장 `offlineFixtures`와 층별 `summary`를 반환한다. `includeFixtures=false`여도 집계는 유지하고 조명 상세는 제외한다. 층의 `mapRevision`과 `mapConfigured`는 현재 공통 맵 revision의 작은 집계값을 현장당 한 번 조회해 반환하며 전체 변경 snapshot이나 맵 blob을 응답에 싣지 않는다.
+- 미구현: 이 API 계약 변경만으로 실제 장비 상태 수신, 고객 DB 적용, 운영 배포가 검증되지는 않는다.
+- 부족하거나 개선이 필요한 기능: 현재 revision snapshot이 없거나 revision 값과 불일치하면 맵 상태를 거짓으로 표시하지 않고 dashboard 조회를 실패시킨다. 공통 문서의 `elementCount`에는 표시 여부가 없어 모든 요소가 숨김이어도 true일 수 있다. 표시 가능한 요소만 구분하려면 별도 메타데이터 계약이 필요하다. 층별 등록 수는 지도에 배치된 핀 수와 다르다.
+- 관련 파일: `apps/api/src/sites/sites.service.ts`, `apps/api/src/sites/sites.service.spec.ts`, `apps/api/src/sites/sites-dashboard.integration.spec.ts`, `apps/web/src/api/queries.ts`.
+- 갱신 규칙: 대시보드 상태 분류나 맵 판정 조건을 바꾸면 활성 층 합계, 상세 제외 경로, 실제 DB 회귀와 Web 소비 계약을 함께 갱신한다.
+
+## 2026-09-27 운영 활동 3개월 보존 코드 통합
+
+- 구현 완료: 인증된 현장·층 활동 조회 API는 `read` 권한·층 소속을 확인한 뒤 중앙 DB UTC 시각에서 3 calendar months를 역산한 `retainedFrom` 이후의 기록만 반환한다. `generatedAt`·cursor 만료 `410`·행 필터도 같은 짧은 DB 읽기 transaction의 시각을 사용하고 DB 시각 조회 실패를 API 시계로 대체하지 않는다. 5건 기본 cursor 페이지는 사용자·현장·층에 묶인다. 검증된 조명 상태·밝기·Health 전이, 실제 오프라인·복구 전이, 수동 상태 확인의 종료 결과를 원본 전이와 같은 transaction에 기록한다. 명령의 MQTT ACK·timeout·outbox terminal 경로도 실제 outcome CAS가 승리한 경우에만 영향 층마다 결과 활동을 같은 transaction에 기록한다. `unknown`과 이후 상태 확인으로 확정된 `applied`는 별도 행이며 pending·전송 자체는 활동으로 기록하지 않는다. Prisma 활동 producer는 DB UTC `recordedAt` 기본값을 사용한다. 보존 worker는 각 삭제 SQL의 DB 시각 cutoff보다 오래된 활동만 sweep당 최대 1,000행 물리 삭제하며 정확한 경계 행은 보존한다.
+- 미구현: 기존 기록의 소급 backfill과 고객 DB migration·운영 배포는 수행하지 않았다. Command 원본 purge·복구 POST는 별도 안전 게이트 전까지 활성화하지 않는다.
+- 부족하거나 개선이 필요한 기능: sweep이 밀리면 만료 행이 DB에 잠시 남을 수 있으나 조회 API는 즉시 숨긴다. 시간당 처리량은 현재 단일 worker 기준 최대 60,000행이며 여러 인스턴스의 `SKIP LOCKED` 경쟁과 실제 유입량을 고려해 backlog를 관찰해야 한다. 조명 freshness의 운영 상태 갱신과 활동 기록은 현장 단위 잠금·원자성을 유지하는 집합 처리로 6,001대 격리 PostgreSQL 회귀를 통과했지만, 이는 실제 현장의 지속 처리량이나 대규모 장애 incident 조정 시간을 보증하지 않는다. Command 원본 물리 삭제는 보호 cutover·복구 검증 전까지 계속 OFF다.
+- 부족하거나 개선이 필요한 기능: 기존 활동의 raw Command source key 재키잉은 `MONITORING_ACTIVITY_KEYED_COMMAND_SOURCE_ENABLED=1`일 때만 물리 보존 sweep 뒤 각 후보 SQL의 중앙 DB UTC cutoff 이상인 legacy 활동 행을 회당 최대 100개 선택해 수행한다. 정확한 UTC 3 calendar-month 경계 행은 포함하고 만료 backlog는 별도 1,000행 물리 sweep이 처리한다. 원래 `recordedAt`을 유지하지만 keyed 중복 상대행의 시각 갱신과 raw 행 삭제가 가능하므로 100은 총 DB 변경 행 수 상한이 아니다. 기본값은 OFF이고 HMAC 키가 없으면 해당 재키잉 단계가 실패해 raw key를 임의 변환하지 않는다. 일회용 PostgreSQL에서 반복 수렴·UTC 월 경계·동시 keyed 생산자 중복 방지를 검증했지만 운영 키 배포·구형 생산자 drain·Command 원본 purge/이력 cutoff/복구 POST는 아직 활성화하지 않았다.
+- 부족하거나 개선이 필요한 기능: 과거 Prisma client가 API 프로세스 시각을 명시 삽입한 활동 행은 진짜 DB 기록시각을 복원할 출처가 없어 소급 변경하지 않는다. 새 순방향 기본값 migration은 기존 행 rewrite 없이 UTC default를 재확립하지만 적용 시 짧은 DDL lock이 필요하며 고객 DB에 적용하지 않았다. DB primary 시계 연속성·failover 건전성 attestation, 운영 규모 backlog와 실장비 HIL은 별도 출시 검증이다.
+- 관련 파일: `apps/api/src/monitoring-activity/monitoring-activity.service.ts`, `monitoring-activity.controller.ts`, `command-outcome-activity.ts`, `command-activity-source-backfill.ts`, `apps/api/src/{energy,fixtures,monitoring-refresh}/`, `apps/api/src/{mqtt,commands}/`, `apps/api/src/retention/data-retention.service.ts`, `apps/api/prisma/schema.prisma`, `apps/api/prisma/migrations/20260927120000_monitoring_activity_db_clock_default/migration.sql`.
+- 갱신 규칙: 신규 producer나 보존 조건을 바꿀 때 실제 고객 응답·물리 삭제 테스트와 운영 적용 여부를 함께 기록한다.
+
+## 2026-09-27 Command 보관 선행 구조 통합
+
+- 구현 완료: 보호된 일회용 Command purge는 활동의 raw Command source key를 site/outcome HMAC으로 재키잉하고 기존 층·기록시각을 보존한다. `MonitoringActivity` 모델·shared 계약·projection helper가 제한 worker의 선행 의존으로 포함된다.
+- 미구현: Command outcome 활동 생산자와 무관하게 운영 purge·복구 POST는 비활성이다. 실제 DB migration/cutover는 별도 운영 작업이다.
+- 부족하거나 개선이 필요한 기능: raw 활동·수동 원본 복사본을 검증하지 못하면 Command 삭제를 미루며 Gateway zero counter는 실제 조명 상태 관측이나 RF 완료 증거가 아니다.
+- 관련 파일: `apps/api/src/monitoring-activity/command-outcome-activity.ts`, `monitoring-activity.projection.ts`, `packages/shared/src/monitoring-activity-contracts.ts`, `apps/api/src/commands/command-retention-worker.ts`.
+- 갱신 규칙: 활동 조회/UI 구현 상태와 원본 삭제 안전 검증을 구분하고 실제 운영 반영 여부를 함께 기록한다.
+
+기준일: 2026-09-27
+
+## 2026-09-25 Final Atlas 적용 진행 상태
+
+- 현장 전체와 선택 층의 조명 KPI를 별도 영역으로 분리했다. 등록 수와 상태별 수치는 dashboard의 현장·층 집계만 사용하며 조명 페이지 일부나 지도 핀 수로 역산하지 않는다. 오래된 로컬 테스트 DTO처럼 새 집계 필드가 없는 경우 `집계 준비 중`으로 표시하고 `0`으로 꾸미지 않는다. 실제 API는 `offlineFixtures`, 층별 `summary`, `mapRevision`, `mapConfigured`를 반환한다. `지도 표시 N대`는 선택 층 저장 map snapshot의 배치 수만 사용하고 숨김 도형·미배치 조명은 세지 않는다. 옛 지도에서 runtime-only 핀이 함께 보이거나 배치 필드가 누락되면 정확한 총수를 증명할 수 없으므로 비수치 `지도 배치 정보 확인 불가`로 표시한다.
+- 현장·층 KPI를 각각 하나의 가로 strip으로 묶고, 데스크톱에서 검색·상세 상시 보조열을 `조명 검색·상세` 읽기 전용 드로어로 옮겨 지도가 본문 가용 폭의 95% 이상을 차지하도록 했다. 모바일에서도 같은 44px 이상 진입 버튼으로 검색·미배치 선택·상세를 열 수 있고 390/320px 지도 높이 340/300px, 문서 가로 overflow 0을 유지한다. 저장된 지도 카메라, pan/zoom, 실제 새로고침, 핀 팝오버와 권한별 설정 링크는 그대로 둔다. 드로어는 닫기/Escape로 닫히고 진입 버튼에 초점이 복귀한다.
+- 지도 핀은 이름만 native 툴팁에 표시하고 접근성 이름에는 기존 상태·밝기를 유지한다. 클릭하면 공통 읽기 전용 팝오버에서 실제 마지막 관측 밝기와 저장 map snapshot 좌표를 보여 준다. 미관측 밝기·없는 저장 좌표를 만들어내지 않으며, 저장 핀의 runtime 행이 아직 로드되지 않았을 때 다른 조명의 게이트웨이·RSSI를 상세에 표시하지 않는다. Escape 닫기·핀 초점 복귀와 지도 포커스 방향키 이동을 제공한다. 320px Chromium 핀 가장자리·가로 overflow 테스트와 focused Vitest/타입/UI 정책 검사를 통과했다.
+- 웹은 선택 현장·층의 실제 `GET /sites/:siteId/floors/:floorId/monitoring-activity` 응답을 사용자별 query cache로 조회한다. 최근 활동 띠는 서버에서 받은 항목만 3초 간격으로 회전하고 긴 문구에도 `전체 보기`를 우측 끝에 둔다. 등록 조명 0대라도 실제 기록이 있으면 서랍을 열 수 있으며, 범례와 로그는 최소 18px 띄운다. 서랍은 서버 cursor로 5건씩 이동하고 `410` 만료에는 이전 행을 재사용하지 않고 명시적인 `최신 기록 보기`를 제공한다. 실제 0건, 최초 조회 실패, 마지막 성공 뒤 갱신 실패를 서로 다르게 표시한다.
+- 운영 활동 범위는 중앙 DB 시각의 `retainedFrom`을 정본으로 하는 최근 UTC 3 calendar months다. 브라우저가 90일로 환산하거나 아틀라스 가상 로그를 생성하지 않는다. 명령 원본이 3개월 뒤 물리 삭제되어도 표시 가능한 안전한 활동 snapshot만 사용하고, 만료된 명령 상세 링크·재전송 UI를 제공하지 않는다. API 조회·조명/refresh/확정된 Command 결과 생산자·활동 보존 sweep은 코드에 통합됐으며, 고객 DB migration·과거 기록 backfill·실장비 HIL은 아직 수행하지 않았다.
+
+## 2026-09-24 공통 맵 타일 요청 보완
+
+- 읽기 전용 모니터링 지도가 설정 편집기와 공유하는 ordered raster renderer에서 검증된 원본 tile의 인증 scope별 제한 LRU를 사용한다. 팬·줌·셀 교체 때 같은 tile의 HTTP 재요청을 줄이며 기존 셀의 완료 전 교체 금지, 캐시 32/128MiB 통합 메모리 제한과 권한 범위를 유지한다. 공유 renderer의 독립 Chromium fixture는 4개 tile의 50→4건, 30초 유휴 추가 0건 및 픽셀/context 복원을 통과했다. 실제 현장 모니터링의 HTTP 전후 수치와 모바일 WebView 체감은 별도 검증 대상이다.
 
 ## 2026-09-20 맵 표시 성능 반영
 
@@ -216,6 +262,8 @@
 
 ## 부족하거나 개선이 필요한 기능
 
+- 실제 Dashboard API 응답과 계약 테스트에는 현장 `offlineFixtures`, 층별 `summary`, `mapRevision`, `mapConfigured`가 필수다. 다만 Web의 `Dashboard` TypeScript 타입은 제어·셸·설치 화면 등의 기존 typed 테스트 fixture가 이 필드를 아직 빠뜨려 일시적으로 optional이다. 런타임 응답에서 층별 집계나 현장 오프라인 집계가 누락되면 모니터링은 `0`을 만들지 않고 `집계 준비 중`으로 표시한다. 해당 fixture를 전수 이관한 뒤 Web 타입도 required로 승격해야 한다.
+- Final Atlas 모니터링 웹은 shared response schema, API cursor/`retainedFrom`, 조회 오류와 `410`을 소비한다. 모니터링·공통 지도·App/셸 focused Vitest 232개와 Chromium route fixture 42개(1440·1378·1024·390·320px 포함)는 통과했지만, 브라우저 fixture 기록을 실제 현장에 이미 보존된 활동이라고 해석하지 않는다. 고객 DB에 신규 migration을 적용한 뒤 생산자·3개월 물리 삭제 sweep·권한·현장 시간대 표시를 운영 환경에서 통합 점검해야 한다. 과거 3개월 기록의 소급 backfill은 제공하지 않는다.
 - 수동 장치 확인의 물리 BIO USB 동글·조명 2대 연결 증거가 없어 이번 작업의 HIL은 미수행이다. 후속 현장 절차는 두 대 online → 한 대 실제 전원 차단 → 새로고침 → `정상 1 / 오프라인 1` → 전원 복구 → 새로고침 → `정상 2 / 오프라인 0`이며 Gateway 버전/API revision·가린 장비 identity·시각·결과를 기록해야 한다. 자동 unit/Chromium route fixture와 lab 발행 terminal은 실제 two-pass RF/USB 검증을 증명하지 않는다.
 - 실제 API/PostgreSQL/Redis/MQTT transport 회귀는 `E2E_REAL_BACKEND_LAB=1 pnpm --filter @led-control/web exec playwright test e2e/real-backend-lab-support.spec.ts --project=chromium`으로 opt-in한다. PostgreSQL 도구·Redis·Mosquitto·OpenSSL과 API/Web build가 필요하며 미설정 시 해당 transport 시나리오는 명시적으로 skip한다. 환경이 준비돼 실행한 실패는 skip 또는 HIL 성공으로 바꾸지 않는다.
 - 2026-09-18 Task 7 검증: retention 단위 6개·disposable PostgreSQL 42개, 기존 조회 fixture 보정 33개, monitoring Chromium 32개, lab 지원 17개(transport opt-in 1개 제외; ACK payload 계약·식별자 음성 회귀 포함), 실제 Docker Mosquitto persistence/운영·개발 ACL 3개가 통과했다. 정식 lint/typecheck/build와 opt-in lab 기동은 기존 CAD `confirmMapReset` 누락에 막히며 root test는 기존 CI cgroup 기대값 불일치로 실패한다. 이를 우회하지 않는 정식 명령은 실패 상태로 남긴다. 별도 일회성 진단에서 Web 타입 검사만 Vite build로 대체한 lab transport 1개는 실제 API POST/GET·MQTT application ACK·`정상 1 / 오프라인 1`·동일 결과 재전송 멱등성·새 presence의 `정상 2 / 오프라인 0` 복구를 통과했다. 진단 우회 코드는 제거했고, 이 결과를 정식 build 통과나 물리 장비 HIL로 확대하지 않는다.
@@ -254,7 +302,20 @@
 
 ## 관련 파일
 
+- `apps/web/src/features/monitoring/MonitoringSummary.tsx`
+- `apps/web/src/features/monitoring/FloorMap.tsx`
+- `apps/web/src/features/monitoring/FixturePinPopover.tsx`
+- `apps/web/src/features/monitoring/monitoring-time.ts`
+- `apps/web/src/features/monitoring/useMonitoringActivity.ts`
+- `apps/web/src/features/monitoring/monitoring-activity-presentation.ts`
+- `apps/web/src/features/monitoring/MonitoringLogTicker.tsx`
+- `apps/web/src/features/monitoring/MonitoringLogDrawer.tsx`
+- `apps/web/src/features/monitoring/MonitoringView.tsx`
+- `apps/web/src/features/floor-map/FloorScene.tsx`
+- `apps/web/src/features/floor-map/FloorMapViewport.tsx`
+- `apps/web/src/api/queries.ts`
 - `apps/api/src/monitoring-refresh/`
+- `apps/api/src/monitoring-activity/`
 - `apps/api/src/retention/data-retention.service.ts`
 - `apps/api/prisma/migrations/20260918100000_monitoring_manual_refresh/migration.sql`
 - `apps/gateway/src/commands/fixture-presence-check-handler.ts`
@@ -404,3 +465,12 @@
 ## 갱신 규칙
 
 모니터링 메뉴의 UI, API, DB, MQTT, 실제 gateway, 펌웨어 계약이 바뀌면 이 문서를 같은 작업 안에서 갱신한다.
+
+## 2026-09-27 열린 운영 로그 보관 경계 (Task 5)
+
+- 구현 완료: 전체 로그 drawer는 cursor 410의 최신 기록 복구와 최근 3개월 안내를 유지한다. 재조회 실패 때 이전 활동을 계속 표시하지 않으며 ticker도 실패한 캐시의 활동 내용을 숨긴다. 열린 활동의 달력 3개월 경계에서는 내용이 숨겨지고 API를 다시 조회하며 포커스·재연결도 재검증한다.
+- 미구현: 운영 DB 활성화·과거 데이터 backfill·실제 현장 HIL은 이 Web 변경에 포함하지 않는다.
+- 부족하거나 개선이 필요한 기능: 응답의 DB UTC `generatedAt`/`retainedFrom`과 요청 시작 단조 시계를 사용한다. 왕복 시간을 보수적으로 포함하여 조금 일찍 숨길 수 있으며, 시각 메타데이터 누락·오류는 숨김으로 처리한다. ticker는 조회 계층이 검증한 행만 표시하며 로컬 벽시계로 재판정하지 않는다. 실제 API↔Web 프록시 검증은 별도 통합 관문에 기록한다.
+- 관련 파일: `apps/web/src/api/detail-retention.ts`, `apps/web/src/features/monitoring/{useMonitoringActivity,MonitoringLogDrawer,MonitoringLogTicker}`와 해당 테스트.
+- 갱신 규칙: cursor 오류·재검증·활동 보관 정책이 바뀌면 제어 메뉴 문서와 이 항목을 함께 갱신한다.
+- 검토 보완: 공통 보관 시계는 평년·윤년 2월 말의 비단조 cutoff를 날짜별로 검사한다. 3개월 뒤 월말의 첫 제외 시점을 마지막 날까지 미루지 않는다.

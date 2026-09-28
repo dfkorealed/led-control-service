@@ -246,6 +246,38 @@ test("lab Mosquitto ACL은 infrastructure 정본과 정확히 일치한다", asy
   }
 });
 
+test("lab Gateway ACL은 자기 status·automation command/ACK read만 허용하고 다른 Gateway read와 금지 write를 막는다", async () => {
+  test.skip(process.env.E2E_REAL_BACKEND_LAB !== "1", "Requires the disposable RealBackendLab broker and database.");
+  test.setTimeout(180_000);
+  const lab = new RealBackendLab({ ports: await allocateUnusedLabPorts() });
+  const internal = lab as unknown as {
+    sql: (statement: string) => Promise<void>;
+    mqttEvidence: Array<Record<string, unknown>>;
+  };
+  const ids = { organization: randomUUID(), site: randomUUID(), floor: randomUUID(), gateway: randomUUID() };
+  try {
+    await lab.start();
+    await internal.sql(`
+      INSERT INTO "Organization" (id,name,"updatedAt") VALUES ('${ids.organization}','Gateway ACL lab',now());
+      INSERT INTO "Site" (id,"organizationId",name,"updatedAt") VALUES ('${ids.site}','${ids.organization}','Gateway ACL site',now());
+      INSERT INTO "Floor" (id,"siteId",name,level,"updatedAt") VALUES ('${ids.floor}','${ids.site}','B1',-1,now());
+      INSERT INTO "Gateway" (id,"siteId",name,"serialNumber","firmwareVersion","updatedAt")
+        VALUES ('${ids.gateway}','${ids.site}','Gateway ACL target','${lab.gateway.serialNumber}','test',now());
+    `);
+    expect((await lab.readInstallation()).siteId).toBe(ids.site);
+    await lab.seedGatewayInventory();
+    await internal.sql(`UPDATE "GatewayInventory" SET "claimedGatewayId"='${ids.gateway}', "claimedAt"=now()
+      WHERE "serialNumber"='${lab.gateway.serialNumber}'`);
+    await lab.attachGatewayPublisher();
+    expect(internal.mqttEvidence).toEqual(expect.arrayContaining([
+      expect.objectContaining({ direction: "acl-positive", allowedReadCount: 5 }),
+      expect.objectContaining({ direction: "acl-negative", deniedPublishCount: 2, deniedReadCount: 5 })
+    ]));
+  } finally {
+    await lab.stop();
+  }
+});
+
 test("선점된 lab 포트는 build나 외부 fixture mutation 전에 실패하고 정리한다", async () => {
   const server = createServer((socket) => socket.on("data", () => {
     throw new Error("lab wrote to the external fixture");

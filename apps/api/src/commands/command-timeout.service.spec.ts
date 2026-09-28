@@ -37,6 +37,25 @@ describe("CommandTimeoutService", () => {
       where: { id: "command", status: "pending", outcome: "pending" },
       data: { status: "failed", outcome, errorMessage: "one or more gateway dispatches timed out" }
     });
+    expect(prisma.monitoringActivity.createMany).toHaveBeenCalledWith({ data: [{
+      siteId: "11111111-1111-4111-8111-111111111111",
+      floorId: "22222222-2222-4222-8222-222222222222",
+      sourceType: "command", sourceKey: `command:${outcome}`,
+      kind: "command_result", commandOutcome: outcome
+    }], skipDuplicates: true });
+  });
+
+  it("does not project a terminal activity when another writer wins the parent outcome CAS", async () => {
+    const prisma = createPrisma({
+      dispatches: [{ id: "dispatch", commandId: "command", status: "accepted", kind: "dimming",
+        command: { outcome: "pending" } }],
+      outboxClaimCount: 1, dispatchUpdateCount: 1, commandUpdateCount: 0
+    });
+
+    await expect(createTimeoutService(prisma).closeExpired(now)).resolves.toEqual({ timedOut: 1 });
+
+    expect(prisma.command.updateMany).toHaveBeenCalledTimes(1);
+    expect(prisma.monitoringActivity.createMany).not.toHaveBeenCalled();
   });
 
   it.each(["pending", "published", "accepted"])("closes %s status checks without altering the original unknown outcome", async (status) => {
@@ -256,6 +275,7 @@ function createPrisma(options: {
   dispatches: Array<{ id: string; commandId: string; status: string; kind?: string; command?: { outcome: string | null } }>;
   outboxClaimCount?: number;
   dispatchUpdateCount?: number;
+  commandUpdateCount?: number;
 }) {
   const prisma: any = {
     $executeRaw: jest.fn().mockResolvedValue(1),
@@ -264,7 +284,13 @@ function createPrisma(options: {
       updateMany: jest.fn().mockResolvedValue({ count: options.dispatchUpdateCount ?? 0 })
     },
     commandFixtureResult: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
-    command: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+    command: { findUnique: jest.fn().mockResolvedValue({
+      siteId: "11111111-1111-4111-8111-111111111111",
+      targetFixtureIds: ["33333333-3333-4333-8333-333333333333"]
+    }), updateMany: jest.fn().mockResolvedValue({ count: options.commandUpdateCount ?? 1 }) },
+    fixture: { findMany: jest.fn().mockResolvedValue([{ floorId: "22222222-2222-4222-8222-222222222222" }]) },
+    floor: { findMany: jest.fn().mockResolvedValue([{ id: "22222222-2222-4222-8222-222222222222" }]) },
+    monitoringActivity: { createMany: jest.fn().mockResolvedValue({ count: 1 }) },
     mqttOutbox: {
       findUnique: jest.fn().mockResolvedValue({ deliveryAttemptedAt: null }),
       updateMany: jest.fn().mockResolvedValue({ count: options.outboxClaimCount ?? 0 })

@@ -1,5 +1,6 @@
 import * as dbusNative from "@homebridge/dbus-native";
 import type { DBusInterface, MessageBus } from "@homebridge/dbus-native";
+import { assertCommandWriteAllowed, CommandWriteVetoError, type CommandWriteControl } from "../commands/command-rf-drain";
 
 type DbusCallback = (error: unknown, ...values: unknown[]) => void;
 type DbusMethod = (...args: [...unknown[], DbusCallback]) => unknown;
@@ -134,7 +135,7 @@ export class BluezTransport {
     this.bus ??= this.createBus();
   }
 
-  async call<T>(service: string, path: string, interfaceName: string, method: string, args: unknown[]): Promise<T> {
+  async call<T>(service: string, path: string, interfaceName: string, method: string, args: unknown[], writeControl?: CommandWriteControl): Promise<T> {
     try {
       await this.connect();
       const dbusInterface = await this.bus!.getInterface(service, path, interfaceName);
@@ -143,8 +144,13 @@ export class BluezTransport {
         throw new Error(`D-Bus method ${interfaceName}.${method} is unavailable`);
       }
 
+      // Interface lookup may await D-Bus. Only a command-scoped Set control is
+      // rechecked at the native call boundary; Get/config/local calls omit it.
+      assertCommandWriteAllowed(writeControl);
+      writeControl?.onWriteStarted();
       return (await invokeDbusMethod((dbusMethod as DbusMethod).bind(dbusInterface), args)) as T;
     } catch (cause) {
+      if (cause instanceof CommandWriteVetoError) throw cause;
       const errorDetail = formatDbusErrorDetail(cause);
       const detail = errorDetail ? `: ${errorDetail}` : "";
       throw new BluezTransportError(

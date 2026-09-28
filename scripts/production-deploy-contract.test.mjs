@@ -14,7 +14,7 @@ const runbook = readFileSync(path.join(root, "docs/runbooks/production-api-web-d
 const required = ["API_IMAGE", "WEB_IMAGE", "POSTGRES_USER", "POSTGRES_PASSWORD", "POSTGRES_DB", "DATABASE_URL", "REDIS_PASSWORD", "REDIS_URL", "MQTT_URL", "MQTT_PUBLIC_URL", "MQTT_API_INSTANCE_ID", "MQTT_TLS_CERT_DIR", "API_TLS_CERT_DIR", "WEB_TLS_CERT_DIR", "VAULT_ADDR", "VAULT_TOKEN_FILE", "VAULT_CA_CERT_PATH", "VAULT_PKI_DEVICE_MOUNT", "VAULT_PKI_DEVICE_ROLE", "VAULT_PKI_MQTT_MOUNT", "VAULT_PKI_MQTT_ROLE", "OBJECT_STORAGE_ACCESS_KEY", "OBJECT_STORAGE_SECRET_KEY", "OBJECT_STORAGE_BUCKET", "OBJECT_STORAGE_REPORT_BUCKET", "OBJECT_STORAGE_ENDPOINT", "OBJECT_STORAGE_PUBLIC_URL", "OBJECT_STORAGE_REGION", "WEB_PUBLIC_URL", "WEB_HTTPS_ORIGIN", "WEB_HTTP_PORT", "WEB_HTTPS_PORT", "CAD_IMPORT_CONVERTER_BUNDLE_PATH", "CAD_IMPORT_CONVERTER_ARGV_JSON", "CAD_IMPORT_CONVERTER_SHA256"];
 required.push("PRODUCTION_COMPOSE_PROJECT", "DEVICE_API_HTTPS_PORT", "LANDING_INGRESS_SECRET");
 // Config output is never logged; fixtures cannot inherit shell credentials or .env.
-function render(omit, project = "led-production-contract", optionalEnv = {}) {
+function render(omit, project = "led-production-contract", overrides = {}) {
   const dir = mkdtempSync(path.join(tmpdir(), "led-production-contract-"));
   const env = Object.fromEntries(required.map(key => [key, `fixture-${randomBytes(16).toString("hex")}`]));
   Object.assign(env, { API_IMAGE: `led-api@sha256:${'a'.repeat(64)}`, WEB_IMAGE: `led-web@sha256:${'b'.repeat(64)}`, WEB_HTTP_PORT: "18080", WEB_HTTPS_PORT: "18443" });
@@ -26,7 +26,7 @@ function render(omit, project = "led-production-contract", optionalEnv = {}) {
   writeFileSync(path.join(dir, "bin/converter"), "approved-converter");
   chmodSync(path.join(dir, "bin/converter"), 0o555);
   env.CAD_IMPORT_CONVERTER_SHA256 = createHash("sha256").update("approved-converter").digest("hex");
-  Object.assign(env, { LANDING_INGRESS_SECRET: "a".repeat(64) }, optionalEnv);
+  Object.assign(env, { LANDING_INGRESS_SECRET: "a".repeat(64) }, overrides);
   if (omit) delete env[omit];
   const envPath = path.join(dir, "fixture.env");
   writeFileSync(envPath, Object.entries(env).map(([k, v]) => `${k}=${v}`).join("\n"), { mode: 0o600 });
@@ -37,6 +37,42 @@ function render(omit, project = "led-production-contract", optionalEnv = {}) {
     return { status: result.status, config: result.status === 0 ? JSON.parse(result.stdout) : undefined, preflight };
   } finally { rmSync(dir, { recursive: true, force: true }); }
 }
+
+test("Set egress cutover defaults OFF and production rejects premature activation", () => {
+  const baseline = render();
+  assert.equal(baseline.status, 0);
+  assert.equal(baseline.config.services.api.environment.COMMAND_SET_EGRESS_ENABLED, '0');
+  assert.equal(baseline.preflight.status, 0);
+  const premature = render(undefined, 'led-production-contract', { COMMAND_SET_EGRESS_ENABLED: '1', MQTT_SET_GENERATION: '7' });
+  assert.equal(premature.status, 0);
+  assert.equal(premature.config.services.api.environment.COMMAND_SET_EGRESS_ENABLED, '1');
+  assert.notEqual(premature.preflight.status, 0);
+  assert.match(premature.preflight.stderr, /Set egress cutover remains disabled/);
+});
+
+test("command history read activation defaults OFF and requires DB readiness evidence", () => {
+  const baseline = render();
+  assert.equal(baseline.config.services.api.environment.COMMAND_HISTORY_RETENTION_ENABLED, "0");
+  assert.equal(baseline.preflight.status, 0);
+  const premature = render(undefined, "led-production-contract", { COMMAND_HISTORY_RETENTION_ENABLED: "1" });
+  assert.equal(premature.status, 0);
+  assert.equal(premature.preflight.status, 1);
+  assert.match(premature.preflight.stderr, /command history read activation requires DB readiness evidence/);
+});
+
+test("stock broker cannot authorize purge using a supplied disposable evidence claim", () => {
+  const baseline = render();
+  assert.equal(baseline.status, 0);
+  const config = baseline.config;
+  config.services.api.environment.DATABASE_URL = "postgresql://runtime:test-only@postgres:5432/led_control";
+  config.services["api-migrate"].environment.DATABASE_URL = "postgresql://migrator:test-only@postgres:5432/led_control";
+  config.services.api.environment.COMMAND_RETENTION_PURGE_ENABLED = "1";
+  // Even a falsely labeled environment claim is not an immutable admission
+  // adapter. The base stock deployment must reject this configuration outright.
+  config.services.api.environment.BROKER_FENCE_EVIDENCE = JSON.stringify({ status: "verified", scope: "disposable", productionPurgeAllowed: false });
+  assert.throws(() => validateProductionConfig(config), /retention purge remains disabled/);
+});
+
 
 test("standalone config renders all services and migration → API → Web gates", () => {
   const result = render();

@@ -1,5 +1,5 @@
 import type { FloorMapSnapshot } from "@led-control/shared";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Dashboard } from "../../../api/queries";
@@ -55,6 +55,38 @@ describe("SpatialTargetSelector", () => {
   });
 
   afterEach(cleanup);
+
+  it("atlas target places the optional management action in the map toolbar and hides only the embedded summary", () => {
+    renderSelector({ managementAction: <button type="button">구역 관리</button>, hideEmbeddedSummary: true });
+    const toolbar = document.querySelector<HTMLElement>("[data-target-selection-toolbar]");
+    expect(toolbar).not.toBeNull();
+    expect(toolbar).toContainElement(screen.getByRole("button", { name: "구역 관리" }));
+    expect(screen.queryByRole("complementary", { name: "선택 대상 요약" })).not.toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "B2 도면" })).toBeInTheDocument();
+  });
+
+  it("atlas fixture drawer retains filtering and returns focus to the map toolbar opener", async () => {
+    renderSelector({ selection: { mode: "fixtures", fixtureIds: [fixtureA] } });
+    const opener = screen.getByRole("button", { name: "조명 목록 열기" });
+    fireEvent.click(opener);
+    const drawer = screen.getByRole("dialog", { name: "조명 목록" });
+    expect(drawer).toHaveAttribute("data-dialog-variant", "drawer");
+    expect(screen.getByRole("checkbox", { name: "B2-L003 선택" })).toHaveAccessibleDescription(/같은 게이트웨이/);
+    fireEvent.change(screen.getByRole("searchbox", { name: "조명 검색" }), { target: { value: "L002" } });
+    expect(screen.getByRole("checkbox", { name: "B2-L002 선택" })).toBeInTheDocument();
+    expect(screen.queryByRole("checkbox", { name: "B2-L001 선택" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "선택 완료" }));
+    await waitFor(() => expect(opener).toHaveFocus());
+  });
+
+  it("atlas fixture drawer closes with Escape and restores its opener", async () => {
+    renderSelector();
+    const opener = screen.getByRole("button", { name: "조명 목록 열기" });
+    fireEvent.click(opener);
+    fireEvent.keyDown(screen.getByRole("dialog", { name: "조명 목록" }), { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "조명 목록" })).not.toBeInTheDocument());
+    await waitFor(() => expect(opener).toHaveFocus());
+  });
 
   it("clears unresolved IDs after dashboard removal and can select a replacement without closing", () => {
     const view = renderSelector({ selection: { mode: "fixtures", fixtureIds: [fixtureA] }, allowedModes: ["fixtures"] });
@@ -206,7 +238,8 @@ describe("SpatialTargetSelector", () => {
     const body = dialog.querySelector<HTMLElement>("[data-dialog-body]")!;
     const list = screen.getByRole("group", { name: "조명 목록" });
     const completion = screen.getByRole("button", { name: "선택 완료" });
-    expect(dialog).toHaveClass("max-compact:h-full!", "overflow-hidden!");
+    expect(dialog).toHaveAttribute("data-dialog-variant", "drawer");
+    expect(dialog).toHaveClass("h-dvh!", "overflow-hidden!");
     expect(body).toHaveClass("min-h-0", "overflow-hidden");
     expect(list).toHaveAttribute("data-fixture-selection-list", "");
     expect(list).toHaveClass("min-h-0", "overflow-y-auto", "overscroll-contain");

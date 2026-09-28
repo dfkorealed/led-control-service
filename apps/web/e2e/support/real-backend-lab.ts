@@ -316,6 +316,7 @@ export class RealBackendLab {
   private readonly provisioningDeviceTerminalAckCommandIds = new Set<string>();
   private mqtt?: MqttClient;
   private automationObserver?: MqttClient;
+  private automationGatewayObserver?: MqttClient;
   private apiProcess?: ChildProcess;
   private mqttProcess?: ChildProcess;
   private automationGateway?: ChildProcess;
@@ -636,7 +637,10 @@ export class RealBackendLab {
       GATEWAY_COMMAND_JOURNAL_PATH: join(gatewayDir, "command-journal.json"),
       GATEWAY_EVENT_SEQUENCE_PATH: eventSequencePath,
       GATEWAY_PROVISIONING_SCAN_JOURNAL_PATH: join(gatewayDir, "provisioning-scan-journal.json"),
+      // All durable Gateway state in this child must stay inside the disposable lab.
+      GATEWAY_PROVISIONING_DEVICE_JOURNAL_PATH: join(gatewayDir, "provisioning-device-journal.json"),
       GATEWAY_STATE_EVENT_OUTBOX_PATH: join(gatewayDir, "state-event-outbox.json"),
+      GATEWAY_MONITORING_REFRESH_JOURNAL_PATH: join(gatewayDir, "monitoring-refresh-journal.json"),
       GATEWAY_MESH_GROUP_STATE_PATH: join(gatewayDir, "mesh-groups.json"),
       GATEWAY_MESH_GROUP_RESYNC_PATH: join(gatewayDir, "mesh-group-resync.json"),
       GATEWAY_AUTOMATION_CONFIG_PATH: automationSnapshotPath,
@@ -808,6 +812,12 @@ export class RealBackendLab {
     const broker = this.mqttProcess;
     if (!broker) throw new Error("lab MQTT broker process is unavailable");
     if (this.mqtt) throw new Error("test Gateway publisher must be detached before broker session reset");
+    const hadGatewayObserver = Boolean(this.automationGatewayObserver);
+    if (this.automationGatewayObserver) {
+      await closeMqttStrictWithin(this.automationGatewayObserver, false, this.cleanupTimeoutMs,
+        "automation Gateway observer close before broker reset");
+      this.automationGatewayObserver = undefined;
+    }
     await stopProcessGroup(broker, this.cleanupTimeoutMs);
     const replacement = this.spawnLogged("mqtt", "mosquitto", ["-c", join(this.labDir, "mosquitto.conf")], {});
     this.mqttProcess = replacement;
@@ -815,6 +825,7 @@ export class RealBackendLab {
     if (this.automationObserver) {
       await this.waitFor(() => Boolean(this.automationObserver?.connected), 15_000);
     }
+    if (hadGatewayObserver) await this.attachAutomationGatewayObserver();
     this.automationConvergenceEvidence.push({
       scenario: "broker-session-reset",
       stage: "non-persistent-broker-restarted",
@@ -1152,9 +1163,20 @@ export class RealBackendLab {
         if (!safeMessage(error).toLowerCase().includes("not authorized")) throw error;
       }
     }
+    const foreignGatewayId = randomUUID();
+    const allowedReads = [
+      `sites/${siteId}/gateways/${gatewayId}/commands/status-check`,
+      `sites/${siteId}/gateways/${gatewayId}/acks/state-ingested`,
+      mqttTopics.automationConfig(siteId, gatewayId),
+      mqttTopics.automationConfigAppliedReceipt(siteId, gatewayId),
+      mqttTopics.automationExecutionIngested(siteId, gatewayId)
+    ];
     const deniedReads = [
-      `sites/${siteId}/gateways/${randomUUID()}/commands/#`,
-      `sites/${siteId}/gateways/${gatewayId}/acks/#`
+      `sites/${siteId}/gateways/${foreignGatewayId}/commands/status-check`,
+      `sites/${siteId}/gateways/${foreignGatewayId}/acks/state-ingested`,
+      mqttTopics.automationConfig(siteId, foreignGatewayId),
+      mqttTopics.automationConfigAppliedReceipt(siteId, foreignGatewayId),
+      mqttTopics.automationExecutionIngested(siteId, foreignGatewayId)
     ];
     const apiPublisher = await connectMqttForLab({
       host: "127.0.0.1",
@@ -1166,7 +1188,9 @@ export class RealBackendLab {
     });
     apiPublisher.on("error", () => undefined);
     try {
-      await expectReadsDenied(client, apiPublisher, deniedReads);
+      // The API certificate may publish these exact production topics; a
+      // fabricated review-probe topic would only test API write denial.
+      await expectReadBoundary(client, apiPublisher, allowedReads, deniedReads);
     } finally {
       await closeMqttWithin(apiPublisher, true, 1_000);
     }
@@ -1175,6 +1199,7 @@ export class RealBackendLab {
       deniedPublishCount: deniedTopics.length,
       deniedReadCount: deniedReads.length
     });
+    this.recordMqtt({ direction: "acl-positive", allowedReadCount: allowedReads.length });
   }
 
   async publishEnergyHistory(mode: "partial" | "available") {
@@ -1559,6 +1584,54 @@ export class RealBackendLab {
     });
     await subscribe(observer, [`sites/${installation.siteId}/gateways/${this.gateway.id}/#`]);
     this.automationObserver = observer;
+    await this.attachAutomationGatewayObserver();
+  }
+
+  private async attachAutomationGatewayObserver() {
+    const installation = this.requireInstallation();
+    const certificateName = `gateway-${this.gateway.id.replaceAll(/[^a-zA-Z0-9._-]/g, "_")}`;
+    // The real Gateway owns gateway-${gatewayId} with a durable session. This
+    // passive lab reader uses a separate ephemeral client and never publishes.
+    const observer = await connectMqttForLab({
+      host: "127.0.0.1",
+      port: this.ports.mqtt,
+      clientId: `task19-gateway-observer-${this.runId}`,
+      clean: true,
+      resubscribe: false,
+      reconnectPeriod: 0,
+      properties: { sessionExpiryInterval: 0 },
+      ca: await readFile(join(this.pkiDir, "ca.crt")),
+      cert: await readFile(join(this.pkiDir, `${certificateName}.crt`)),
+      key: await readFile(join(this.pkiDir, `${certificateName}.key`))
+    });
+    observer.on("error", (error) => this.recordMqtt({
+      direction: "automation-observer-error",
+      principal: "gateway-passive-reader",
+      error: safeMessage(error)
+    }));
+    observer.on("message", (topic, payload, packet) => {
+      // A retained message predating the scenario cursor is not protocol evidence.
+      if (packet.retain) return;
+      this.recordMqtt({
+        direction: "automation-observer",
+        producer: "api",
+        producerPid: null,
+        observerPrincipal: "gateway-passive-reader",
+        topic,
+        payload: parseJson(payload)
+      });
+    });
+    try {
+      await subscribe(observer, [
+        mqttTopics.automationConfig(installation.siteId, this.gateway.id),
+        mqttTopics.automationConfigAppliedReceipt(installation.siteId, this.gateway.id),
+        mqttTopics.automationExecutionIngested(installation.siteId, this.gateway.id)
+      ]);
+      this.automationGatewayObserver = observer;
+    } catch (error) {
+      await closeMqttWithin(observer, true, this.cleanupTimeoutMs);
+      throw error;
+    }
   }
 
   private handleAutomationIpcMessage(message: unknown) {
@@ -2049,9 +2122,11 @@ export class RealBackendLab {
         errors.push(error);
       }
       try {
-        if (this.automationObserver) {
+        if (this.automationObserver || this.automationGatewayObserver) {
           const observerClose = await settleWithin(
-            [closeMqtt(this.automationObserver, false)],
+            [this.automationObserver, this.automationGatewayObserver]
+              .filter((client): client is MqttClient => Boolean(client))
+              .map((client) => closeMqtt(client, false)),
             this.cleanupTimeoutMs,
             "automation observer close"
           );
@@ -2070,6 +2145,7 @@ export class RealBackendLab {
     } finally {
       this.mqtt = undefined;
       this.automationObserver = undefined;
+      this.automationGatewayObserver = undefined;
       this.apiProcess = undefined;
       this.mqttProcess = undefined;
       this.automationGateway = undefined;
@@ -2339,21 +2415,27 @@ function subscribe(client: MqttClient, topics: string[]) {
   }));
 }
 
-async function expectReadsDenied(client: MqttClient, publisher: MqttClient, topics: string[]) {
+async function expectReadBoundary(client: MqttClient, publisher: MqttClient,
+  allowedTopics: string[], deniedTopics: string[]) {
   const subscribed: string[] = [];
   const marker = randomUUID();
-  let delivered = false;
-  const onMessage = (_topic: string, payload: Buffer) => {
-    if (payload.toString() === marker) delivered = true;
+  const delivered = new Set<string>();
+  const onMessage = (topic: string, payload: Buffer) => {
+    if (payload.toString() === marker) delivered.add(topic);
   };
   client.on("message", onMessage);
   try {
-    for (const topic of topics) {
-      if (await subscribeForNegativeRead(client, topic)) subscribed.push(topic);
+    for (const topic of [...allowedTopics, ...deniedTopics]) {
+      const granted = await subscribeForNegativeRead(client, topic);
+      if (allowedTopics.includes(topic) && !granted) throw new Error(`lab gateway ACL denied own read: ${topic}`);
+      if (granted) subscribed.push(topic);
     }
-    for (const topic of topics) await publish(publisher, topic.replace(/#$/, "review-probe"), marker, { qos: 1 });
+    for (const topic of [...allowedTopics, ...deniedTopics]) await publish(publisher, topic, marker, { qos: 1 });
+    const deadline = Date.now() + 2_000;
+    while (allowedTopics.some(topic => !delivered.has(topic)) && Date.now() < deadline) await delay(20);
     await delay(250);
-    if (delivered) throw new Error("lab gateway ACL allowed an unauthorized read");
+    if (allowedTopics.some(topic => !delivered.has(topic))) throw new Error("lab gateway ACL denied an authorized own read");
+    if (deniedTopics.some(topic => delivered.has(topic))) throw new Error("lab gateway ACL allowed a foreign Gateway read");
   } finally {
     client.removeListener("message", onMessage);
     if (subscribed.length > 0) await unsubscribe(client, subscribed);

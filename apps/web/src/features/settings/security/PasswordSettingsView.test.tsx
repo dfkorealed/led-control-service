@@ -50,6 +50,15 @@ describe("PasswordSettingsView", () => {
     expect(screen.getByRole("form", { name: "비밀번호 변경" })).toBeInTheDocument();
   });
 
+  it("모바일에서 비밀번호 변경 action을 전체 폭으로 제공한다", () => {
+    renderView();
+
+    expect(screen.getByRole("button", { name: "비밀번호 변경" })).toHaveClass(
+      "justify-self-start",
+      "max-compact:w-full"
+    );
+  });
+
   it("blocks a new password shorter than eight characters before requesting", () => {
     renderView();
     fillPasswords("current-password", "short");

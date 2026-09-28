@@ -4,9 +4,11 @@ export interface KindaLogoProps {
   context?: string;
   className?: string;
   compact?: boolean;
+  presentation?: "default" | "landing" | "concept";
 }
 
-export function KindaLogo({ context, className, compact = false }: KindaLogoProps) {
+export function KindaLogo({ context, className, compact = false, presentation = "default" }: KindaLogoProps) {
+  if (presentation === "concept") return <span className="inline-flex items-center gap-2.5"><img className="size-[33px] rounded-landing-brand-mark bg-surface-panel p-landing-brand-mark-inset landing-narrow:size-[30px]" src="/brand/kinda-mark.svg" alt="" /><span>킨다</span></span>;
   const classes = cn(
     "inline-flex items-center gap-3 text-brand-navy",
     compact && "mb-6 w-full flex-col gap-0",
@@ -16,9 +18,9 @@ export function KindaLogo({ context, className, compact = false }: KindaLogoProp
 
   return (
     <div className={classes} data-compact={compact || undefined} data-kinda-logo role="img" aria-label={accessibleName}>
-      <img className="block size-10 shrink-0" data-kinda-logo-mark src="/brand/kinda-mark.svg" alt="" aria-hidden="true" width="42" height="42" />
+      <img className={cn("block size-10 shrink-0", presentation === "landing" && "size-[33px] rounded-landing-brand-mark bg-surface-panel p-landing-brand-mark-inset landing-wide:landing-stack:landing-narrow:size-[30px]")} data-kinda-logo-mark src="/brand/kinda-mark.svg" alt="" aria-hidden="true" width="42" height="42" />
       <span className={`min-w-0 gap-0.5 ${compact ? "hidden" : "grid"}`} aria-hidden="true">
-        <strong className="text-card-title font-black text-brand-navy">킨다</strong>
+        <strong className={cn("text-card-title font-black", presentation === "landing" ? "text-content-inverse" : "text-brand-navy")}>킨다</strong>
         {context ? <span className="text-overline font-bold text-brand-blue">{context}</span> : null}
       </span>
     </div>

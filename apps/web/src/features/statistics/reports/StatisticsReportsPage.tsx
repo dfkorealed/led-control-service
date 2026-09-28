@@ -3,7 +3,7 @@ import { FileText } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { createEnergyReport, downloadEnergyCsv, downloadEnergyReport, energyReportRequestErrorMessage, useEnergyReports, useEnergyReportTargets } from "../../../api/energy";
-import { Button, PageHeader, PaginationBar, Text, type PaginationPageSize } from "../../../components/ui";
+import { Button, Card, Heading, PageHeader, PaginationBar, Text, type PaginationPageSize } from "../../../components/ui";
 import { useLocation, useOutletContext, useSearchParams } from "react-router-dom";
 import type { StatisticsOutletContext } from "../StatisticsShell";
 import { ReportCreateDialog } from "./ReportCreateDialog";
@@ -217,30 +217,34 @@ export function StatisticsReportsPage() {
   }
 
   return <section className="grid min-w-0 gap-6" aria-label="에너지 보고서">
-    <PageHeader title="보고서" description="현장 에너지 사용량을 기간과 범위에 맞춰 내보냅니다." status={undefined}
+    <PageHeader title="보고서" status={undefined}
       actions={<Button variant="primary" onClick={() => setIsDialogOpen(true)}><FileText size={16} />보고서 만들기</Button>} />
-    <Text variant="body-sm" tone="muted">보고서와 CSV 비용은 당시 적용 단가의 저장 비용입니다.</Text>
-    <ReportHistoryFilters value={filters} onChange={resetToFirstPage} />
-    <ReportJobList reports={displayedPage?.data.reports} timeZone={targets.data?.timeZone} focusTargetRef={reportListRef}
-      isLoading={(reports.isLoading || reports.isPlaceholderData || !siteId) && !displayedPage}
-      isError={Boolean(reports.isError && !displayedPage)} hasRefreshError={hasRefreshError}
-      isBusy={reports.isFetching}
-      retryingReportId={retryingReportId} onRetry={retryList} onRegenerate={(job) => void regenerate(job)} onDownload={(job) => void download(job)} />
-    <PaginationBar
-      page={displayedPage?.pageState.page ?? activePageState.page}
-      pageSize={filters.limit}
-      totalCount={displayedPage?.data.totalCount ?? 0}
-      hasPrevious={activePageState.previousCursors.length > 0}
-      hasNext={!reports.isError
-        && !isForwardPending
-        && !reports.isFetching
-        && !reports.isPlaceholderData
-        && Number.isSafeInteger(activePageState.page + 1)
-        && validNextPageCursor(currentPage?.data.nextCursor, activePageState)}
-      onPrevious={previousPage}
-      onNext={nextPage}
-      onPageSizeChange={(limit: PaginationPageSize) => resetToFirstPage({ ...filters, limit })}
-    />
+    <Card className="min-w-0 p-4 compact:p-5">
+      <ReportHistoryFilters value={filters} onChange={resetToFirstPage} />
+    </Card>
+    <Card className="grid min-w-0 gap-4 p-4 compact:p-5" aria-label="보고서 이력">
+      <Heading as="h3" variant="card-title">요청한 보고서</Heading>
+      <ReportJobList reports={displayedPage?.data.reports} timeZone={targets.data?.timeZone} focusTargetRef={reportListRef}
+        isLoading={(reports.isLoading || reports.isPlaceholderData || !siteId) && !displayedPage}
+        isError={Boolean(reports.isError && !displayedPage)} hasRefreshError={hasRefreshError}
+        isBusy={reports.isFetching}
+        retryingReportId={retryingReportId} onRetry={retryList} onRegenerate={(job) => void regenerate(job)} onDownload={(job) => void download(job)} />
+      <PaginationBar
+        page={displayedPage?.pageState.page ?? activePageState.page}
+        pageSize={filters.limit}
+        totalCount={displayedPage?.data.totalCount ?? 0}
+        hasPrevious={activePageState.previousCursors.length > 0}
+        hasNext={!reports.isError
+          && !isForwardPending
+          && !reports.isFetching
+          && !reports.isPlaceholderData
+          && Number.isSafeInteger(activePageState.page + 1)
+          && validNextPageCursor(currentPage?.data.nextCursor, activePageState)}
+        onPrevious={previousPage}
+        onNext={nextPage}
+        onPageSizeChange={(limit: PaginationPageSize) => resetToFirstPage({ ...filters, limit })}
+      />
+    </Card>
     {downloadError ? <Text tone="danger" role="alert">{downloadError}</Text> : null}
     {retryError ? <Text tone="danger" role="alert">{retryError}</Text> : null}
     {isDialogOpen && siteId ? <ReportCreateDialog key={siteId} siteId={siteId} targetData={targets.data} onClose={() => setIsDialogOpen(false)}

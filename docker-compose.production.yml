@@ -210,10 +210,16 @@ services:
       CAD_IMPORT_TEMP_ROOT: /tmp/cad-import
       API_PORT: "4000"
       DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL}
+      COMMAND_HISTORY_RETENTION_ENABLED: ${COMMAND_HISTORY_RETENTION_ENABLED-0}
       REDIS_URL: ${REDIS_URL:?Set REDIS_URL}
       MQTT_URL: ${MQTT_URL:?Set MQTT_URL}
       MQTT_PUBLIC_URL: ${MQTT_PUBLIC_URL:?Set MQTT_PUBLIC_URL}
       MQTT_API_INSTANCE_ID: ${MQTT_API_INSTANCE_ID:?Set stable MQTT_API_INSTANCE_ID}
+      # Prepared only: production preflight rejects ON until coordinated cutover.
+      COMMAND_SET_EGRESS_ENABLED: ${COMMAND_SET_EGRESS_ENABLED-0}
+      MQTT_SET_GENERATION: ${MQTT_SET_GENERATION-}
+      MQTT_SET_CLIENT_CERT_PATH: ${MQTT_SET_CLIENT_CERT_PATH-}
+      MQTT_SET_CLIENT_KEY_PATH: ${MQTT_SET_CLIENT_KEY_PATH-}
       MQTT_CA_PATH: /run/mqtt-tls/mqtt-ca.crt
       MQTT_CLIENT_CERT_PATH: /run/mqtt-tls/api-client.crt
       MQTT_CLIENT_KEY_PATH: /run/mqtt-tls/api-client.key

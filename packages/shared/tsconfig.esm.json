@@ -14,7 +14,10 @@
     "src/dimming-command.ts",
     "src/energy-contracts.ts",
     "src/energy-analytics-contracts.ts",
-    "src/energy-p2-contracts.ts"
+    "src/energy-p2-contracts.ts",
+    "src/monitoring-activity-contracts.ts",
+    "src/energy-range-contracts.ts",
+    "src/energy-observed-mean-contracts.ts"
   ],
   "exclude": []
 }

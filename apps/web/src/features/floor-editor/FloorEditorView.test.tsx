@@ -482,6 +482,9 @@ describe("FloorEditorView", () => {
     const sidePanel = screen.getByRole("complementary", { name: "맵 편집 정보" });
     expect(sidePanel).toBeVisible();
     expect(sidePanel.parentElement).toHaveAttribute("data-testid", "floor-editor-layout");
+    expect(screen.getByLabelText("도구 및 조명")).toHaveClass("w-[220px]");
+    expect(sidePanel).toHaveClass("w-[280px]");
+    expect(within(screen.getByRole("tablist", { name: "편집 패널" })).getAllByRole("tab").map((tab) => tab.textContent)).toEqual(["속성", "배치", "레이어", "자료"]);
     expect(screen.getByRole("heading", { name: "맵 설정" })).toBeInTheDocument();
     expect(screen.getByLabelText("맵 너비")).toHaveValue("1,200");
     expect(screen.getByLabelText("맵 높이")).toHaveValue("800");

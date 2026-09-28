@@ -7,10 +7,21 @@ import type { ModalDialogProps } from "../ModalDialog";
 import { cn } from "../utils/cn";
 import { focusConnected, registerOverlay } from "./overlay-stack";
 
-type DialogBaseProps = ModalDialogProps;
+type DialogSurface = "modal" | "drawer";
+type DialogBaseProps = ModalDialogProps & { surface?: DialogSurface };
+
+const overlayClass = {
+  modal: "fixed! inset-0! z-1000! grid! items-end! justify-items-center! overflow-y-auto! bg-surface-inverse/50! p-3! compact:items-center! compact:p-6!",
+  drawer: "fixed! inset-0! z-1000! grid! items-stretch! justify-items-end! overflow-hidden! bg-surface-inverse/50! p-0!"
+} satisfies Record<DialogSurface, string>;
+
+const surfaceClass = {
+  modal: "w-[min(var(--container-lg),100%)] max-h-[calc(100dvh-48px)] overflow-y-auto rounded-panel! border! border-border-default! bg-surface-panel! p-4.5! text-body text-content-primary shadow-popover! outline-none compact:p-6!",
+  drawer: "h-dvh w-full max-w-status-drawer overflow-y-auto border-l! border-border-default! bg-surface-panel! p-4.5! text-body text-content-primary shadow-popover! outline-none compact:p-6!"
+} satisfies Record<DialogSurface, string>;
 
 export const DialogBase = /* @__PURE__ */ forwardRef<HTMLElement, DialogBaseProps>(function DialogBase(
-  { isOpen, open, isPending = false, onClose, ...props }, ref
+  { isOpen, open, isPending = false, onClose, surface = "modal", ...props }, ref
 ) {
   const visible = isOpen ?? open ?? true;
   const closing = useRef(false);
@@ -25,7 +36,7 @@ export const DialogBase = /* @__PURE__ */ forwardRef<HTMLElement, DialogBaseProp
   return <ModalOverlay ref={backdrop} isOpen={visible} isDismissable={!isPending} isKeyboardDismissDisabled={isPending}
     shouldCloseOnInteractOutside={(target) => target !== backdrop.current}
     onOpenChange={(next) => { if (!next) requestClose(); }}
-    className="fixed! inset-0! z-1000! grid! items-end! justify-items-center! overflow-y-auto! bg-surface-inverse/50! p-3! compact:items-center! compact:p-6!"
+    className={overlayClass[surface]}
     data-testid="modal-backdrop"
     render={(domProps) => <div {...domProps} onMouseDown={(event) => {
       domProps.onMouseDown?.(event);
@@ -34,13 +45,13 @@ export const DialogBase = /* @__PURE__ */ forwardRef<HTMLElement, DialogBaseProp
     {/* The public Dialog root owns width. A layout-neutral wrapper avoids
         clamping caller CSS and leaves the surrounding backdrop dismissable. */}
     <Modal className="contents outline-none">
-      <DialogContent {...props} isPending={isPending} onClose={requestClose} rootRef={ref} />
+      <DialogContent {...props} isPending={isPending} onClose={requestClose} rootRef={ref} surface={surface} />
     </Modal>
   </ModalOverlay>;
 });
 
 function DialogContent({ title, description, children, actions, onClose, isPending, initialFocusRef,
-  returnFocusRef, fallbackFocusRef, returnFocusElement, fallbackFocusElement, role = "dialog", closeLabel = "닫기", className, bodyClassName, rootRef
+  returnFocusRef, fallbackFocusRef, returnFocusElement, fallbackFocusElement, role = "dialog", closeLabel = "닫기", className, bodyClassName, rootRef, surface = "modal"
 }: Omit<DialogBaseProps, "isOpen" | "open"> & { rootRef: Ref<HTMLElement> }) {
   const descriptionId = useId();
   const dialog = useRef<HTMLElement>(null);
@@ -72,9 +83,9 @@ function DialogContent({ title, description, children, actions, onClose, isPendi
     else if (!manager?.focusFirst({ tabbable: true, accept: (node) => !!body.current?.contains(node) })) dialog.current?.focus();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-  return <Dialog ref={mergeRefs(dialog, rootRef)} role={role} aria-describedby={description ? descriptionId : undefined} data-dialog-surface=""
+  return <Dialog ref={mergeRefs(dialog, rootRef)} role={role} aria-describedby={description ? descriptionId : undefined} data-dialog-surface="" data-dialog-variant={surface}
     render={(domProps) => <section {...domProps} aria-modal="true" />}
-    className={cn("w-[min(var(--container-lg),100%)] max-h-[calc(100dvh-48px)] overflow-y-auto rounded-panel! border! border-border-default! bg-surface-panel! p-4.5! text-body text-content-primary shadow-popover! outline-none compact:p-6!", className)}>
+    className={cn(surfaceClass[surface], className)}>
     <header className="mb-4.5! flex! items-start! justify-between! gap-4!" data-dialog-header="">
       <div className="min-w-0">
         <Heading slot="title" className="m-0! text-card-title! font-bold text-content-primary!">{title}</Heading>

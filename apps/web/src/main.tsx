@@ -2,12 +2,14 @@ import { onlineManager } from "@tanstack/react-query";
 import React from "react";
 import ReactDOM from "react-dom/client";
 import { AppRoot } from "./AppRoot";
+import { FieldDayConceptPage } from "./features/landing/FieldDayConceptPage";
 import { LandingPage } from "./features/landing/LandingPage";
 import { FeaturesPage } from "./features/landing/FeaturesPage";
 import { PricingPage } from "./features/landing/PricingPage";
 
 function WebEntry() {
   switch (window.location.pathname) {
+    case "/concepts/field-day.html": return <FieldDayConceptPage />;
     case "/": return <LandingPage />;
     case "/features": return <FeaturesPage />;
     case "/pricing": return <PricingPage />;

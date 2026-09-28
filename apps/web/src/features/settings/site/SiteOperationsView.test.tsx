@@ -124,6 +124,14 @@ describe("SiteOperationsView", () => {
 
   afterEach(cleanup);
 
+  it("층과 구역을 한 작업 구역에 두고 조명 관리를 분리한다", async () => {
+    renderView();
+    const layout = await screen.findByRole("region", { name: "층·구역 관리" });
+    expect(within(layout).getByRole("region", { name: "층 관리" })).toBeInTheDocument();
+    expect(within(layout).getByRole("region", { name: "구역 관리" })).toBeInTheDocument();
+    expect(within(layout).queryByRole("region", { name: "조명 관리" })).not.toBeInTheDocument();
+  });
+
   it("shows loading and retries a failed initial settings request", async () => {
     let release: ((value: SiteSettingsResponse) => void) | undefined;
     siteApi.getSiteSettings.mockReturnValueOnce(new Promise((resolve) => { release = resolve; }));

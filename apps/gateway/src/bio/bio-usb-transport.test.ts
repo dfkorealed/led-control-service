@@ -92,6 +92,26 @@ describe("BioUsbTransport", () => {
   beforeEach(() => vi.useFakeTimers());
   afterEach(() => vi.useRealTimers());
 
+  it("vetoes queued native writes after proof loss without blocking a following Get", async () => {
+    const h = harness(); await ready(h);
+    const first = h.transport.request({ command: 0x10, payload: new Uint8Array() });
+    let allowed = true;
+    let started = 0;
+    const queued = settled(h.transport.request({ command: 0x10, payload: new Uint8Array() }, {
+      mayStartWrite: () => allowed, onWriteStarted: () => { started++; }
+    }));
+    allowed = false;
+    h.devices[0].receive("47531100ee"); await first; await flush();
+    expect(h.devices[0].writes).toHaveLength(2);
+    expect(started).toBe(0);
+    expect(await queued).toMatchObject({ code: "COMMAND_WRITE_VETOED" });
+    const get = h.transport.request({ command: 0x10, payload: new Uint8Array() });
+    await flush();
+    expect(h.devices[0].writes).toHaveLength(3);
+    h.devices[0].receive("47531100ee"); await get;
+    await h.transport.stop();
+  });
+
   it("rejects a response candidate that started before the request write", async () => {
     const connection = new FakeBioByteConnection();
     const transport = createTransport(connection);

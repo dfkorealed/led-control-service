@@ -1,12 +1,30 @@
-import { cleanup, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import { LandingPage } from "./LandingPage";
 import { FeaturesPage } from "./FeaturesPage";
 import { PricingPage } from "./PricingPage";
+import { FieldDayConceptPage } from "./FieldDayConceptPage";
 
 afterEach(cleanup);
 
 describe("public field-day landing narrative", () => {
+  it.each([LandingPage, FieldDayConceptPage])("keeps the merged public and concept report PDF-only across replay (%#)", (Page) => {
+    const { container } = render(<Page />);
+    const report = within(container.querySelector<HTMLElement>("#report")!);
+    const replay = report.getByRole("button", { name: "보고서 예시 다시 보기" });
+    const assertPdf = () => {
+      expect(report.getByText("PDF 보고서", { exact: true })).toBeVisible();
+      expect(report.getByText("PDF 형식", { exact: true })).toBeVisible();
+      expect(report.queryByRole("group", { name: "보고서 파일 형식 미리보기" })).not.toBeInTheDocument();
+      expect(report.queryByRole("button", { name: /PDF|XLSX|CSV|Excel/ })).not.toBeInTheDocument();
+      expect(report.getByText(/설명용 PDF 보고서.*파일을 만들거나 내려받지 않습니다/)).toBeVisible();
+    };
+    assertPdf();
+    fireEvent.click(replay);
+    assertPdf();
+    expect(report.getByRole("button", { name: "보고서 예시 다시 보기" })).toBe(replay);
+  });
+
   it("opens with the approved field-day story and consultation action", () => {
     render(<LandingPage />);
     expect(screen.getByRole("heading", { level: 1, name: /현장의 하루.*한눈에 이어지다/ })).toBeVisible();

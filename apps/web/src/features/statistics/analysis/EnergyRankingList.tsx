@@ -23,7 +23,7 @@ export function EnergyRankingList({
 }) {
   const max = Math.max(...items.map((item) => item.metricValue ?? 0), 1);
   return (
-    <Card className="grid min-w-0 gap-4 p-4 compact:p-6" aria-label="사용량 순위">
+    <Card className="grid min-w-0 gap-3 p-4 compact:p-5" aria-label="사용량 순위">
       <header className="flex items-start justify-between gap-3">
         <div className="grid gap-1"><Text variant="overline" tone="muted">순위</Text><Heading as="h3" variant="card-title">에너지 사용 비교</Heading></div>
         <Text as="span" variant="caption" tone="muted">{items.length}개 항목</Text>
@@ -36,7 +36,7 @@ export function EnergyRankingList({
               <Button
                 type="button"
                 variant="ghost"
-                className={`grid w-full grid-cols-[2rem_minmax(0,1fr)_auto] items-center gap-3 rounded-control border p-3 text-left ${selectedId === item.identityId ? "border-action-primary bg-action-primary-soft" : "border-border-default bg-surface-panel"}`}
+                className={`grid w-full grid-cols-[2rem_minmax(0,1fr)_auto] items-center gap-2 rounded-control border p-2.5 text-left ${selectedId === item.identityId ? "border-action-primary bg-action-primary-soft" : "border-border-default bg-surface-panel"}`}
                 aria-pressed={selectedId === item.identityId}
                 onClick={() => onSelect(item)}
               >

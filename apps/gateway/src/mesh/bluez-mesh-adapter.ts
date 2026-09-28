@@ -25,6 +25,7 @@ import {
 import { KeyedSerialTaskQueue } from "../runtime/keyed-serial-task-queue";
 import { BluezTransportError } from "./bluez-transport";
 import { requestHealthAttention } from "./health-attention";
+import { assertCommandWriteAllowed, CommandWriteVetoError, trackCommandWrites, type CommandWriteControl } from "../commands/command-rf-drain";
 const BLUEZ_SERVICE = "org.bluez.mesh";
 const NODE_INTERFACE = "org.bluez.mesh.Node1";
 const GENERIC_ONOFF_GET = Uint8Array.from([0x82, 0x01]);
@@ -34,7 +35,7 @@ const LIGHT_LIGHTNESS_GET = Uint8Array.from([0x82, 0x4b]);
 // domain 값이 무선 패킷 형식에 직접 섞이지 않도록 그 API 호출과 BLE Mesh 사이만 맡는다.
 
 interface AdapterTransport {
-  call(service: string, path: string, interfaceName: string, method: string, args: unknown[]): Promise<unknown>;
+  call(service: string, path: string, interfaceName: string, method: string, args: unknown[], writeControl?: CommandWriteControl): Promise<unknown>;
 }
 
 interface AdapterProvisioner {
@@ -254,10 +255,10 @@ export class BluezMeshAdapter implements BleMeshAdapter, ProvisioningScannerAdap
       }, Math.min(2000, remaining), signal);
   }
 
-  async setBrightness(fixtureIds: string[], brightness: number): Promise<BleMeshCommandReport[]> {
+  async setBrightness(fixtureIds: string[], brightness: number, writeControl?: CommandWriteControl): Promise<BleMeshCommandReport[]> {
     await this.start();
     const reports: BleMeshCommandReport[] = [];
-    for (const fixtureId of fixtureIds) reports.push(await this.applyUnicast(fixtureId, brightness));
+    for (const fixtureId of fixtureIds) reports.push(await this.applyUnicast(fixtureId, brightness, undefined, undefined, writeControl));
     return reports;
   }
 
@@ -265,7 +266,8 @@ export class BluezMeshAdapter implements BleMeshAdapter, ProvisioningScannerAdap
     fixtureId: string,
     brightness: number,
     signal?: AbortSignal,
-    deadlineAt?: number
+    deadlineAt?: number,
+    writeControl?: CommandWriteControl
   ): Promise<BleMeshCommandReport> {
     await this.start();
     if (isCommandExpired(signal, deadlineAt)) return deadlineExceeded(fixtureId, brightness, signal);
@@ -275,7 +277,7 @@ export class BluezMeshAdapter implements BleMeshAdapter, ProvisioningScannerAdap
     return this.commandSources.run(String(mapping.primaryUnicast), () =>
       isCommandExpired(signal, deadlineAt)
         ? Promise.resolve(deadlineExceeded(fixtureId, brightness, signal))
-        : this.sendFixtureBrightness(fixtureId, mapping.primaryUnicast, brightness, signal, deadlineAt)
+        : this.sendFixtureBrightness(fixtureId, mapping.primaryUnicast, brightness, signal, deadlineAt, undefined, writeControl)
     );
   }
 
@@ -284,7 +286,8 @@ export class BluezMeshAdapter implements BleMeshAdapter, ProvisioningScannerAdap
     brightness: number,
     concurrency = 8,
     signal?: AbortSignal,
-    deadlineAt?: number
+    deadlineAt?: number,
+    writeControl?: CommandWriteControl
   ): Promise<BleMeshCommandReport[]> {
     await this.start();
     validateConcurrency(concurrency);
@@ -319,7 +322,8 @@ export class BluezMeshAdapter implements BleMeshAdapter, ProvisioningScannerAdap
             brightness,
             signal,
             deadlineAt,
-            tidsByFixture.get(fixtureId)
+            tidsByFixture.get(fixtureId),
+            writeControl
           )
       );
     }, signal);
@@ -330,7 +334,8 @@ export class BluezMeshAdapter implements BleMeshAdapter, ProvisioningScannerAdap
     fixtureIds: string[],
     brightness: number,
     signal?: AbortSignal,
-    deadlineAt?: number
+    deadlineAt?: number,
+    writeControl?: CommandWriteControl
   ): Promise<BleMeshCommandReport[]> {
     await this.start();
     validateGroupAddress(groupAddress);
@@ -346,6 +351,7 @@ export class BluezMeshAdapter implements BleMeshAdapter, ProvisioningScannerAdap
       return fixtureIds.map((fixtureId) => failed(fixtureId, brightness, "mesh_mapping_incomplete", "failed"));
     }
     const expected = mappings.map(({ fixtureId, mapping }) => ({ fixtureId, source: mapping!.primaryUnicast }));
+    const writes = trackCommandWrites(writeControl);
     return this.commandSources.runMany(expected.map(({ source }) => String(source)), async () => {
       if (isCommandExpired(signal, deadlineAt)) return deadlineExceededMany(fixtureIds, brightness, signal);
       const tid = await this.transactions.next(groupAddress);
@@ -365,13 +371,14 @@ export class BluezMeshAdapter implements BleMeshAdapter, ProvisioningScannerAdap
           statuses.cancel();
           return deadlineExceededMany(fixtureIds, brightness, signal);
         }
+        assertCommandWriteAllowed(writeControl);
         await this.transport.call(BLUEZ_SERVICE, this.requireNodePath(), NODE_INTERFACE, "Send", [
           BLUEZ_APPLICATION_PATHS.element,
           groupAddress,
           0,
           [],
           Array.from(encodeLightnessSetUnacknowledged(targetLightness, tid))
-        ]);
+        ], writes.control);
         const observed = await statuses.promise;
         return expected.map(({ fixtureId, source }) => {
           const status = observed.get(source);
@@ -384,12 +391,13 @@ export class BluezMeshAdapter implements BleMeshAdapter, ProvisioningScannerAdap
         });
       } catch (error) {
         statuses.cancel();
+        if (error instanceof CommandWriteVetoError) return fixtureIds.map((fixtureId) => failed(fixtureId, brightness, error.code, "timed_out"));
         if (signal?.aborted || isAbortError(error)) return aborted(fixtureIds, brightness);
         return fixtureIds.map((fixtureId) => failed(
           fixtureId,
           brightness,
           error instanceof Error && error.message.includes("timed out") ? "status_timeout" : "mesh_send_failed",
-          error instanceof Error && error.message.includes("timed out") ? "timed_out" : "failed"
+          writes.hasStarted() || (error instanceof Error && error.message.includes("timed out")) ? "timed_out" : "failed"
         ));
       }
     });
@@ -454,13 +462,15 @@ export class BluezMeshAdapter implements BleMeshAdapter, ProvisioningScannerAdap
     brightness: number,
     signal?: AbortSignal,
     deadlineAt?: number,
-    reservedTid?: number
+    reservedTid?: number,
+    writeControl?: CommandWriteControl
   ): Promise<BleMeshCommandReport> {
     // fixture ID는 업무 식별자이고 primaryUnicast는 Mesh에서 답을 보낼 주소다. 저장된
     // mapping을 여기서 경계로 사용해야 다른 조명의 Status를 이 명령 성공으로 받아들이는
     // 일을 막고, 아래 D-Bus Send와 status 관찰이 같은 node를 대상으로 한다.
     const nodePath = this.requireNodePath();
     const tid = reservedTid ?? await this.transactions.next(primaryUnicast);
+    const writes = trackCommandWrites(writeControl);
     if (isCommandExpired(signal, deadlineAt)) return deadlineExceeded(fixtureId, brightness, signal);
     const targetLightness = percentToLightness(brightness);
     const timeoutMs = remainingStatusTimeout(this.responseTimeoutMs, deadlineAt);
@@ -477,13 +487,14 @@ export class BluezMeshAdapter implements BleMeshAdapter, ProvisioningScannerAdap
         status.cancel();
         return deadlineExceeded(fixtureId, brightness, signal);
       }
+      assertCommandWriteAllowed(writeControl);
       await this.transport.call(BLUEZ_SERVICE, nodePath, NODE_INTERFACE, "Send", [
         BLUEZ_APPLICATION_PATHS.element,
         primaryUnicast,
         0,
         [],
         Array.from(encodeLightnessSet({ lightness: targetLightness, tid }))
-      ]);
+      ], writes.control);
       // Send 완료는 daemon이 요청을 받았다는 뜻일 뿐 조명이 바뀌었다는 확인은 아니다.
       // Lightness Status를 기다려야 RF 유실·주소 오류를 성공으로 ACK하는 것을 막고,
       // 다음 command/상태 outbox 계층에 실제 관측값만 전달한다.
@@ -494,12 +505,13 @@ export class BluezMeshAdapter implements BleMeshAdapter, ProvisioningScannerAdap
       return applied(fixtureId, reportedBrightness);
     } catch (error) {
       status.cancel();
+      if (error instanceof CommandWriteVetoError) return failed(fixtureId, brightness, error.code, "timed_out");
       if (signal?.aborted || isAbortError(error)) {
         return failed(fixtureId, brightness, "command_aborted", "timed_out");
       }
       const timedOut = error instanceof Error && error.message.includes("timed out");
       // A missing Status after Send is absent evidence, not proof the Set failed.
-      return failed(fixtureId, brightness, timedOut ? "STATUS_TIMEOUT" : "MESH_SEND_FAILED", timedOut ? "timed_out" : "failed");
+      return failed(fixtureId, brightness, timedOut ? "STATUS_TIMEOUT" : "MESH_SEND_FAILED", writes.hasStarted() || timedOut ? "timed_out" : "failed");
     }
   }
 

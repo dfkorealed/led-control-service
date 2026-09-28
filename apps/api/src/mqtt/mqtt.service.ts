@@ -1,6 +1,7 @@
 import { Injectable, Logger, OnModuleInit, Optional } from "@nestjs/common";
 import {
   acceptanceAckV2Schema,
+  commandClockRequestSchema,
   applicationStateIngestedAckV2Schema,
   applicationProvisioningScanTerminalIngestedAckV2Schema,
   deriveDeviceStatusAckStatus,
@@ -52,6 +53,11 @@ import { compareAndAdvanceGatewayEvent } from "../retention/gateway-event-waterm
 import { parseGatewayTopic } from "./topic-scope";
 import { gatewayEventIsTooFarInFuture, gatewayEventMaxFutureSkewMs } from "./gateway-event-time";
 import { ProvisioningDeviceTerminalService } from "./provisioning-device-terminal.service";
+import { recordCommandOutcomeActivity } from "../monitoring-activity/command-outcome-activity";
+import { CommandRecoveryAckService } from "../commands/command-recovery-ack.service";
+import { CommandLateSetAckService } from "../commands/command-late-set-ack.service";
+import { CommandLegacyGetAckService } from "../commands/command-legacy-get-ack.service";
+import { CommandClockResponderService } from "./command-clock-responder.service";
 
 const MQTT_BACKGROUND_PUBLISH_TIMEOUT_MS = 10_000;
 const MQTT_CLOSE_TIMEOUT_MS = 5_000;
@@ -72,7 +78,9 @@ interface LockedCommandDispatch {
   status: "pending" | "published" | "accepted" | "completed" | "failed" | "timed_out";
   errorCode: string | null;
   outcome: "pending" | "applied" | "not_applied" | "partially_applied" | "unknown" | null;
-  brightness: number;
+  brightness: number | null;
+  contentRedactedAt: Date | null;
+  targetFixtureIds: Prisma.JsonValue;
 }
 
 const ACTIVE_DISPATCH_STATUSES = ["pending", "published", "accepted"];
@@ -145,7 +153,11 @@ export class MqttService implements OnModuleInit {
     @Optional() private readonly automationSnapshot: AutomationSnapshotService = new AutomationSnapshotService(new AutomationClock()),
     @Optional() provisioningDeviceTerminal?: ProvisioningDeviceTerminalService,
     fixturePresenceIngestion?: FixturePresenceIngestionService,
-    @Optional() monitoringRefreshIngestion?: MonitoringRefreshIngestionService
+    @Optional() monitoringRefreshIngestion?: MonitoringRefreshIngestionService,
+    @Optional() private readonly recoveryAcks?: CommandRecoveryAckService,
+    @Optional() private readonly lateSetAcks?: CommandLateSetAckService,
+    @Optional() private readonly legacyGetAcks?: CommandLegacyGetAckService,
+    @Optional() private readonly commandClockResponder?: CommandClockResponderService
   ) {
     this.fixtureStateIngestion = fixtureStateIngestion ?? new FixtureStateIngestionService(prisma);
     this.fixturePresenceIngestion = fixturePresenceIngestion ?? new FixturePresenceIngestionService(prisma);
@@ -169,7 +181,8 @@ export class MqttService implements OnModuleInit {
           "sites/+/gateways/+/events/provisioning-completed",
           "sites/+/gateways/+/events/provisioning-failed",
           "sites/+/gateways/+/events/mesh-group/resync-request",
-          "sites/+/gateways/+/events/mesh-group/subscription-result"
+          "sites/+/gateways/+/events/mesh-group/subscription-result",
+          mqttTopicsV2.commandClockRequest("+", "+")
         ],
         { qos: 1 }
       );
@@ -220,8 +233,11 @@ export class MqttService implements OnModuleInit {
   async publishTopic(
     topic: string,
     payload: unknown,
-    options: { messageExpiryInterval?: number | null; timeoutMs?: number } = {}
+    options: { messageExpiryInterval?: number | null; timeoutMs?: number; retain?: false } = {}
   ) {
+    if (process.env.COMMAND_SET_EGRESS_ENABLED === "1" && /\/commands\/dimming(?:\/|$)/.test(topic)) {
+      throw new Error("Set must use generation-scoped MQTT egress");
+    }
     await new Promise<void>((resolve, reject) => {
       const client = this.getClient();
       let settled = false;
@@ -238,24 +254,32 @@ export class MqttService implements OnModuleInit {
       };
 
       const publishOptions = options.messageExpiryInterval === null
-        ? { qos: 1 as const }
+        ? { qos: 1 as const, ...(options.retain === false ? { retain: false as const } : {}) }
         : {
             qos: 1 as const,
+            ...(options.retain === false ? { retain: false as const } : {}),
             properties: {
               messageExpiryInterval: options.messageExpiryInterval ?? GATEWAY_COMMAND_ACCEPTANCE_DEADLINE_MS / 1000
             }
           };
-      client.publish(topic, JSON.stringify(payload), publishOptions, (error) => {
+      const onPublished = (error?: Error) => {
         finish(error ?? undefined);
-      });
+      };
+      client.publish(topic, JSON.stringify(payload), publishOptions, onPublished);
 
       if (settled || options.timeoutMs === undefined) return;
-      const messageId = client.getLastMessageId();
       timeout = setTimeout(() => {
         if (settled) return;
         settled = true;
         timeout = null;
-        client.removeOutgoingMessage(messageId);
+        // MQTT.js 5.15.2 exposes outgoing[messageId].cb for QoS 1. Its global
+        // last ID may belong to another packet, especially during store replay.
+        // Cancel only an entry still owned by this exact publish callback;
+        // absent/replaced entries fail closed. A deferred packet may still be
+        // sent later, so this is not a Command-retention purge safety proof.
+        const ownMessageId = Object.entries(client.outgoing ?? {})
+          .find(([, entry]) => entry?.cb === onPublished)?.[0];
+        if (ownMessageId !== undefined) client.removeOutgoingMessage(Number(ownMessageId));
         reject(new Error(`MQTT publish timed out after ${options.timeoutMs}ms`));
       }, options.timeoutMs);
     });
@@ -506,6 +530,25 @@ export class MqttService implements OnModuleInit {
   }
 
   private async handleMessageBeforeAck(topic: string, payload: Buffer, receivedAt: Date): Promise<(() => Promise<void>) | undefined> {
+    if (parseGatewayTopic(topic)?.channel === "events/automation/execution") {
+      const result = await this.automationConsumer?.handleMessage(topic, payload);
+      if (result?.publishAfterAck) {
+        const intent = result.publishAfterAck;
+        // Only redacted exact replay uses this transient ACK. Its incoming
+        // transaction has committed; customHandleAcks must call done(0) before
+        // publishing, otherwise MQTT.js cannot read this outgoing QoS1 PUBACK.
+        // Keep the default 10-second wire expiry and never persist the raw hash.
+        return () => this.publishTopic(intent.topic, intent.payload,
+          { timeoutMs: MQTT_BACKGROUND_PUBLISH_TIMEOUT_MS });
+      }
+      return;
+    }
+    if (parseGatewayTopic(topic)?.channel === "commands/clock/request") {
+      const response = await this.prepareCommandClockResponse(topic, payload);
+      // Publish after inbound PUBACK: MQTT.js cannot receive the outgoing
+      // PUBACK while customHandleAcks still holds its inbound parser.
+      return response ? () => this.publishCommandClockResponse(response) : undefined;
+    }
     if (topic.endsWith("/events/fixture-presence-check-completed")) {
       const { ack } = await this.monitoringRefreshIngestion.completeBatch(topic, JSON.parse(payload.toString()), receivedAt);
       if (!ack) return;
@@ -526,6 +569,25 @@ export class MqttService implements OnModuleInit {
     // broker PUBACK. Keep the publish in the tracked handler, but start it only
     // after the inbound database transaction has been acknowledged.
     return () => this.publishMeshGroupResyncAcknowledgement(acknowledgement);
+  }
+
+  private async prepareCommandClockResponse(topic: string, payload: Buffer) {
+    const scope = parseGatewayTopic(topic);
+    if (!scope || scope.channel !== "commands/clock/request" || !this.commandClockResponder) return null;
+    let body: unknown;
+    try {
+      body = JSON.parse(payload.toString());
+    } catch {
+      return null;
+    }
+    const request = commandClockRequestSchema.safeParse(body);
+    if (!request.success) return null;
+    return this.commandClockResponder.respond(scope, request.data);
+  }
+
+  private publishCommandClockResponse(response: { siteId: string; gatewayId: string; nonce: string; dbNow: string; publishEpoch: number }) {
+    return this.publishTopic(mqttTopicsV2.commandClockResponse(response.siteId, response.gatewayId), response,
+      { retain: false, timeoutMs: MQTT_BACKGROUND_PUBLISH_TIMEOUT_MS });
   }
 
   private hasActiveMessageListener() {
@@ -688,6 +750,11 @@ export class MqttService implements OnModuleInit {
 
   async handleMessage(topic: string, payload: Buffer, receivedAt = new Date()) {
     const frozenReceivedAt = new Date(receivedAt.getTime());
+    if (parseGatewayTopic(topic)?.channel === "commands/clock/request") {
+      const response = await this.prepareCommandClockResponse(topic, payload);
+      if (response) await this.publishCommandClockResponse(response);
+      return;
+    }
     if (topic.endsWith("/events/fixture-presence-check-completed")) {
       const publish = await this.handleMessageBeforeAck(topic, payload, frozenReceivedAt);
       await publish?.();
@@ -738,6 +805,8 @@ export class MqttService implements OnModuleInit {
       const scope = parseGatewayScopedTopic(topic);
       const ack = acceptanceAckV2Schema.parse(JSON.parse(payload.toString()));
       if (!scope || scope.siteId !== ack.siteId || scope.gatewayId !== ack.gatewayId) return;
+      if (this.recoveryAcks && await this.recoveryAcks.tryStoreAcceptanceAck(ack)) return;
+      if (this.legacyGetAcks && await this.legacyGetAcks.tryStoreAcceptanceAck(ack)) return;
       await this.storeAcceptanceAck(ack);
       return;
     }
@@ -746,6 +815,9 @@ export class MqttService implements OnModuleInit {
       const scope = parseGatewayScopedTopic(topic);
       const ack = deviceStatusAckV2Schema.parse(JSON.parse(payload.toString()));
       if (!scope || scope.siteId !== ack.siteId || scope.gatewayId !== ack.gatewayId) return;
+      if (this.recoveryAcks && await this.recoveryAcks.tryStoreDeviceStatusAck(ack)) return;
+      if (this.legacyGetAcks && await this.legacyGetAcks.tryStoreDeviceStatusAck(ack)) return;
+      if (this.lateSetAcks && await this.lateSetAcks.tryStoreDeviceStatusAck(ack)) return;
       await this.storeDeviceStatusAck(ack);
       return;
     }
@@ -1124,6 +1196,8 @@ export class MqttService implements OnModuleInit {
   }
 
   private async storeAcceptanceAck(ack: ReturnType<typeof acceptanceAckV2Schema.parse>) {
+    // The clock code is a terminal pre-RF Set refusal, never an acceptance.
+    if (ack.status === "accepted" && ack.errorCode === "GATEWAY_CLOCK_UNTRUSTED") return;
     const where: Prisma.CommandDispatchWhereInput = {
       id: ack.dispatchId,
       commandId: ack.commandId,
@@ -1143,7 +1217,13 @@ export class MqttService implements OnModuleInit {
       errorMessage: ack.errorMessage ?? null
     };
     if (ack.status === "accepted") {
-      await this.prisma.commandDispatch.updateMany({ where, data });
+      // Lock the parent with the dispatch so a concurrent detail cleanup cannot
+      // be followed by an acceptance writer restoring its error text.
+      await this.prisma.$transaction(async (tx) => {
+        await this.automationSnapshot.lockMutation(tx);
+        if (!await this.lockCommandDispatch(tx, ack)) return;
+        await tx.commandDispatch.updateMany({ where, data });
+      });
       return;
     }
 
@@ -1151,8 +1231,36 @@ export class MqttService implements OnModuleInit {
       await this.automationSnapshot.lockMutation(tx);
       const dispatch = await this.lockCommandDispatch(tx, ack);
       if (!dispatch || !ACTIVE_DISPATCH_STATUSES.includes(dispatch.status)) return;
+      if (ack.errorCode === "GATEWAY_CLOCK_UNTRUSTED"
+        && (dispatch.kind !== "dimming" || ![null, "pending"].includes(dispatch.outcome))) {
+        // Once RF may have started, a late refusal cannot clear an unknown hold.
+        return;
+      }
+      if (ack.errorCode === "GATEWAY_CLOCK_UNTRUSTED") {
+        const rows = await tx.$queryRaw<Array<{ fixtureId: string; status: string }>>`
+          SELECT r."fixtureId", r."status" FROM "CommandFixtureResult" r
+          WHERE r."dispatchId" = ${dispatch.id} ORDER BY r."fixtureId" FOR UPDATE OF r
+        `;
+        const targets = dispatch.targetFixtureIds;
+        // The acceptance wire has no target list. Its locked dispatch snapshot
+        // must account for every target before a pre-RF refusal can close it.
+        if (!Array.isArray(targets) || targets.length === 0 || targets.length !== rows.length
+          || targets.some((id) => typeof id !== "string")
+          || new Set(targets).size !== targets.length
+          || rows.some((row) => row.status !== "pending" || !targets.includes(row.fixtureId))
+          || new Set(rows.map((row) => row.fixtureId)).size !== targets.length) return;
+      }
       const failed = await tx.commandDispatch.updateMany({ where, data });
       if (failed.count !== 1) return;
+      if (ack.errorCode === "GATEWAY_CLOCK_UNTRUSTED") {
+        // A pre-RF refusal closes the undelivered Set envelope in the same
+        // transaction as its dispatch. Lost MQTT PUBACK must not reclaim it.
+        await tx.mqttOutbox.updateMany({
+          where: { dispatchId: dispatch.id, publishedAt: null, deadLetteredAt: null },
+          data: { deadLetteredAt: new Date(), lastError: "GATEWAY_CLOCK_UNTRUSTED",
+            lockedBy: null, lockedAt: null, leaseExpiresAt: null }
+        });
+      }
       const errorMessage = ack.errorMessage ?? "gateway rejected command";
       await tx.commandFixtureResult.updateMany({
         where: { dispatchId: ack.dispatchId, status: "pending" },
@@ -1372,17 +1480,20 @@ export class MqttService implements OnModuleInit {
     ack: { dispatchId: string; commandId: string; gatewayId: string; idempotencyKey: string; sequence: number; siteId: string }
   ) {
     const rows = await tx.$queryRaw<LockedCommandDispatch[]>`
-      SELECT d."id", d."commandId", d."kind", d."verificationAttempt", d."status", d."errorCode", c."outcome", c."brightness"
+      SELECT d."id", d."commandId", d."kind", d."verificationAttempt", d."status", d."errorCode", c."outcome", c."brightness", c."targetFixtureIds", c."contentRedactedAt"
       FROM "CommandDispatch" d INNER JOIN "Command" c ON c."id" = d."commandId"
       WHERE d."id" = ${ack.dispatchId} AND d."commandId" = ${ack.commandId}
         AND d."gatewayId" = ${ack.gatewayId} AND d."idempotencyKey" = ${ack.idempotencyKey}
         AND d."sequence" = ${BigInt(ack.sequence)} AND c."siteId" = ${ack.siteId}
       FOR UPDATE OF d, c
     `;
-    return rows[0];
+    // Consume late ACKs using their exact stored identity without rebuilding
+    // raw event ledgers, fixture results, observations, or parent error content.
+    return rows[0]?.contentRedactedAt ? undefined : rows[0];
   }
 
   private async finishParentCommand(tx: Prisma.TransactionClient, dispatch: LockedCommandDispatch) {
+    if (dispatch.brightness === null) throw new Error("active command content is unavailable");
     const verification = dispatch.kind === "status_check";
     const dispatches = await tx.commandDispatch.findMany({
       where: { commandId: dispatch.commandId, kind: dispatch.kind,
@@ -1397,7 +1508,7 @@ export class MqttService implements OnModuleInit {
     const outcome = verification
       ? this.verificationOutcome(results, dispatch.brightness)
       : this.dimmingOutcome(dispatches, results);
-    await tx.command.updateMany({
+    const updated = await tx.command.updateMany({
       where: { id: dispatch.commandId, ...(verification ? { outcome: "unknown" } : { outcome: dispatch.outcome }) },
       data: {
         status: outcome === "applied" ? "acknowledged" : "failed",
@@ -1405,6 +1516,9 @@ export class MqttService implements OnModuleInit {
         errorMessage: outcome === "applied" ? null : "one or more gateway dispatches failed"
       }
     });
+    if (updated.count === 1 && dispatch.outcome !== null) {
+      await recordCommandOutcomeActivity(tx, dispatch.commandId, dispatch.outcome, outcome);
+    }
   }
 
   private verificationOutcome(results: Array<{ status: string; brightness: number | null }>, expectedBrightness: number) {

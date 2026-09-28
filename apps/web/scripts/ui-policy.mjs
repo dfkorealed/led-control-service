@@ -5,7 +5,7 @@ import ts from "typescript";
 import { execFileSync } from "node:child_process";
 
 // Updating this reviewed trust anchor is a policy change, never a baseline edit.
-const approvedSourceRef = "24b5ea593e860575f7bf1007781146cf1101beb7";
+const approvedSourceRef = "7b2617b173618d376e7b3a90ec31e1392c3b7bc0";
 const webRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 function approvedSource(path) {
   return execFileSync("git", ["show", `${approvedSourceRef}:apps/web/${path}`], { cwd: webRoot, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
@@ -13,30 +13,9 @@ function approvedSource(path) {
 // Normalize formatting, not CSS meaning: token values remain owned by the
 // reviewed Git source. Preserve separators between numbers/identifiers.
 const normalizeThemeValue = value => value.trim().replace(/\s+/g, " ").replace(/\s*([(),/])\s*/g, "$1");
-const fixtureBrightnessShadowValues = [
-  "0 0 0 0 color-mix(in srgb, var(--color-fixture-on) 0%, transparent), inset 0 0 0 1px color-mix(in srgb, var(--color-content-inverse) 24%, transparent)",
-  "0 0 2px 0.5px color-mix(in srgb, var(--color-fixture-on) 4%, transparent), inset 0 0 0 1px color-mix(in srgb, var(--color-content-inverse) 24%, transparent)",
-  "0 0 3.5px 1px color-mix(in srgb, var(--color-fixture-on) 8%, transparent), inset 0 0 0 1px color-mix(in srgb, var(--color-content-inverse) 24%, transparent)",
-  "0 0 5px 1.5px color-mix(in srgb, var(--color-fixture-on) 12%, transparent), inset 0 0 0 1px color-mix(in srgb, var(--color-content-inverse) 24%, transparent)",
-  "0 0 6.5px 2px color-mix(in srgb, var(--color-fixture-on) 16%, transparent), inset 0 0 0 1px color-mix(in srgb, var(--color-content-inverse) 24%, transparent)",
-  "0 0 8px 2.5px color-mix(in srgb, var(--color-fixture-on) 20%, transparent), inset 0 0 0 1px color-mix(in srgb, var(--color-content-inverse) 24%, transparent)",
-  "0 0 9.5px 3px color-mix(in srgb, var(--color-fixture-on) 24%, transparent), inset 0 0 0 1px color-mix(in srgb, var(--color-content-inverse) 24%, transparent)",
-  "0 0 11px 3.5px color-mix(in srgb, var(--color-fixture-on) 28%, transparent), inset 0 0 0 1px color-mix(in srgb, var(--color-content-inverse) 24%, transparent)",
-  "0 0 12.5px 4.25px color-mix(in srgb, var(--color-fixture-on) 34%, transparent), inset 0 0 0 1px color-mix(in srgb, var(--color-content-inverse) 24%, transparent)",
-  "0 0 14px 5px color-mix(in srgb, var(--color-fixture-on) 42%, transparent), inset 0 0 0 1px color-mix(in srgb, var(--color-content-inverse) 24%, transparent)"
-];
-const reviewedThemeTokenAdditions = new Map([
-  ["--text-landing-hero", "4rem"],
-  ["--text-landing-hero--line-height", "4.5rem"],
-  ["--breakpoint-phone-wide", "22.5rem"],
-  ["--radius-fixture-marker", "3px"],
-  ...fixtureBrightnessShadowValues.map((value, index) => [`--shadow-fixture-brightness-${index + 1}`, normalizeThemeValue(value)])
-]);
 const approvedThemeValues = new Map([...maskComments(approvedSource("src/styles/theme.css"), "theme.css").matchAll(/(--[\w*-]+)\s*:\s*([^;]+);/g)].map(match => [match[1], normalizeThemeValue(match[2])]));
-for (const name of reviewedThemeTokenAdditions.keys()) {
-  if (approvedThemeValues.has(name)) throw new Error(`Reviewed theme addition already exists in the immutable source: ${name}`);
-}
-const themeValues = new Map([...approvedThemeValues, ...reviewedThemeTokenAdditions]);
+// Previously reviewed additions are now covered by the immutable token commit.
+const themeValues = approvedThemeValues;
 const themeTokens = new Set(themeValues.keys());
 
 // These values are runtime geometry/data consumed by Konva or Recharts, not
@@ -80,6 +59,13 @@ const reviewedUtilities = new Map([
   ["pb-shell-navigation-safe", "padding-bottom: calc(var(--spacing) * 17 + env(safe-area-inset-bottom));"],
   ["h-shell-navigation-safe", "height: calc(var(--spacing) * 17 + env(safe-area-inset-bottom));"],
   ["pb-safe-area-bottom", "padding-bottom: env(safe-area-inset-bottom);"]
+]);
+// These preserve the inclusive boundaries of the reviewed landing CSS. They
+// are exact contracts, not permission for arbitrary custom media variants.
+const approvedLandingVariants = new Map([
+  ["landing-narrow", "(@media(max-width:430px))"],
+  ["landing-stack", "(@media(max-width:720px))"],
+  ["landing-wide", "(@media(max-width:1050px))"]
 ]);
 const colorLiteral = /#[\da-f]{3,8}\b|\b(?:rgba?|hsla?|oklch|oklab|lch|lab|color)\([^;{}]*?\)/gi;
 const namedColors = new Set(("aliceblue antiquewhite aqua aquamarine azure beige bisque black blanchedalmond blue blueviolet brown burlywood cadetblue chartreuse chocolate coral cornflowerblue cornsilk crimson cyan darkblue darkcyan darkgoldenrod darkgray darkgreen darkgrey darkkhaki darkmagenta darkolivegreen darkorange darkorchid darkred darksalmon darkseagreen darkslateblue darkslategray darkslategrey darkturquoise darkviolet deeppink deepskyblue dimgray dimgrey dodgerblue firebrick floralwhite forestgreen fuchsia gainsboro ghostwhite gold goldenrod gray green greenyellow grey honeydew hotpink indianred indigo ivory khaki lavender lavenderblush lawngreen lemonchiffon lightblue lightcoral lightcyan lightgoldenrodyellow lightgray lightgreen lightgrey lightpink lightsalmon lightseagreen lightskyblue lightslategray lightslategrey lightsteelblue lightyellow lime limegreen linen magenta maroon mediumaquamarine mediumblue mediumorchid mediumpurple mediumseagreen mediumslateblue mediumspringgreen mediumturquoise mediumvioletred midnightblue mintcream mistyrose moccasin navajowhite navy oldlace olive olivedrab orange orangered orchid palegoldenrod palegreen paleturquoise palevioletred papayawhip peachpuff peru pink plum powderblue purple rebeccapurple red rosybrown royalblue saddlebrown salmon sandybrown seagreen seashell sienna silver skyblue slateblue slategray slategrey snow springgreen steelblue tan teal thistle tomato turquoise violet wheat white whitesmoke yellow yellowgreen").split(" "));
@@ -358,10 +344,10 @@ export function inspectUiSource(path, source) {
   // A CVA size map's sm:/md:/lg: keys (or TypeScript property signatures) are
   // syntax, not utilities. CSS @apply candidates still use the CSS source.
   const responsiveRanges = path.endsWith(".css") ? null : scriptLiteralRanges(text, path);
-  scan(/(?<![\w-])(?:(?:max-|min-)\[[^\]\n]+\]|(?:max-|min-)?(?:sm|md|lg|xl|2xl|phone-wide|compact|tablet)):/g, m => {
+  scan(/(?<![\w-])(?:(?:max-|min-)\[[^\]\n]+\]|(?:max-|min-)?(?:sm|md|lg|xl|2xl|phone-wide|compact|tablet)|landing-[\w-]+):/g, m => {
     if (responsiveRanges && !responsiveRanges.some(([start, end]) => m.index >= start && m.index + m[0].length <= end)) return;
     const name = m[0].replace(/^(?:max-|min-)/, "").slice(0, -1);
-    if (!themeTokens.has(`--breakpoint-${name}`)) add("unapproved-breakpoint", m[0], m.index);
+    if (!approvedLandingVariants.has(name) && !themeTokens.has(`--breakpoint-${name}`)) add("unapproved-breakpoint", m[0], m.index);
   });
   scan(/(?<![\w-])(?:bg|text|border(?:-[trblxyse])?|ring(?:-offset)?|outline|fill|stroke|decoration|accent|caret|from|via|to)-((?:brand|surface|content|border|action|status|chart|fixture)-[\w-]+)/g, m => {
     if (!themeTokens.has(`--color-${m[1]}`)) add("unapproved-color", m[0], m.index);
@@ -488,6 +474,19 @@ export function inspectUiSource(path, source) {
     }
     visitFormElements(file);
   }
+  const customVariantCounts = new Map();
+  scan(/@custom-variant\b([^;{}]*)(?:;|(?=[{}])|$)/g, m => {
+    const declaration = m[1].trim();
+    const parts = declaration.match(/^([\w-]+)\s+(.+)$/);
+    const name = parts?.[1];
+    const count = (customVariantCounts.get(name) ?? 0) + 1;
+    customVariantCounts.set(name, count);
+    const media = parts?.[2].replace(/\s+/g, " ").replace(/\s*([():])\s*/g, "$1");
+    if (path !== "src/styles.css" || count !== 1 || !m[0].endsWith(";")
+      || !approvedLandingVariants.has(name) || approvedLandingVariants.get(name) !== media) {
+      add("unapproved-custom-variant", m[0], m.index);
+    }
+  });
   const approvedUtilityStarts = new Set();
   const utilityCounts = new Map();
   scan(/@utility\s+([^\s{]+)\s*\{([^{}]*)\}/g, m => {
@@ -630,6 +629,12 @@ export async function inspectWorkspace({ root = webRoot, baseline = {} } = {}) {
     const count = stylesheetImports.filter(specifier => specifier === required).length;
     if (count === 0) violations.push({ rule: "missing-css-import", path: "src/styles.css", match: required });
     else if (count > 1) violations.push({ rule: "duplicate-css-import", path: "src/styles.css", match: required });
+  }
+
+  for (const name of approvedLandingVariants.keys()) {
+    if (!new RegExp(`@custom-variant\\s+${name}(?![\\w-])`).test(stylesheetText)) {
+      violations.push({ rule: "missing-custom-variant", path: "src/styles.css", match: name });
+    }
   }
 
   const entryOwners = [];

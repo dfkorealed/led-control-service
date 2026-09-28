@@ -66,8 +66,8 @@ export function parseUpdateScheduleInput(rawInput: unknown): UpdateScheduleInput
   return parsed.data;
 }
 
-export function parseScheduleListQuery(rawQuery: unknown, siteId: string): ScheduleListQuery {
-  return parseAutomationListQuery(rawQuery, siteId, "schedule");
+export function parseScheduleListQuery(rawQuery: unknown, siteId: string, principalId?: string): ScheduleListQuery {
+  return parseAutomationListQuery(rawQuery, siteId, "schedule", principalId, "schedule");
 }
 
 export function encodeScheduleListCursor(cursor: ScheduleListCursor) {

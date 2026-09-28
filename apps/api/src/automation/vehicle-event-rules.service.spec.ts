@@ -32,6 +32,24 @@ function ruleInput(overrides: Record<string, unknown> = {}) {
 }
 
 describe("VehicleEventRulesService", () => {
+  it("returns filtered vehicle-rule counts and site-wide Gateway sync counts in one read transaction", async () => {
+    const tx = { vehicleEventRule: { count: jest.fn().mockResolvedValueOnce(4).mockResolvedValueOnce(1)
+      .mockResolvedValueOnce(1).mockResolvedValueOnce(2).mockResolvedValueOnce(1),
+      findMany: jest.fn().mockResolvedValue([]) } };
+    const prisma = { $transaction: jest.fn((callback, _options) => callback(tx)) };
+    const service = new VehicleEventRulesService(prisma as never,
+      { assertReadInTransaction: jest.fn().mockResolvedValue({ id: SITE_ID }) } as never,
+      {} as never, {} as never);
+    await expect(service.list(SITE_ID, admin, { query: "  차고%_  ", status: "disabled", syncStatus: "REJECTED" }))
+      .resolves.toEqual({ items: [], total: 4, filteredTotal: 1,
+        siteSummary: { ruleCount: 4, syncRuleCounts: { APPLIED: 1, PENDING: 2, REJECTED: 1 } }, nextCursor: null });
+    expect(tx.vehicleEventRule.count.mock.calls[1][0].where).toMatchObject({ siteId: SITE_ID,
+      name: { contains: "차고\\%\\_", mode: "insensitive" }, status: "disabled" });
+    expect(tx.vehicleEventRule.findMany.mock.calls[0][0].where).toMatchObject({ siteId: SITE_ID,
+      name: { contains: "차고\\%\\_", mode: "insensitive" }, status: "disabled" });
+    expect(prisma.$transaction).toHaveBeenCalledWith(expect.any(Function), { isolationLevel: "RepeatableRead" });
+  });
+
   it("rejects an invalid hold duration before opening a write transaction", async () => {
     const prisma = { $transaction: jest.fn() };
     const siteAccess = { assert: jest.fn().mockResolvedValue({ id: SITE_ID }) };

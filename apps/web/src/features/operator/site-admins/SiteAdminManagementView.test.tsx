@@ -46,12 +46,27 @@ const unassignedSite: SiteAdminSummary = {
 describe("SiteAdminManagementView", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.stubGlobal("matchMedia", vi.fn(() => ({
+      matches: false,
+      media: "(max-width: 759px)",
+      onchange: null,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      dispatchEvent: vi.fn()
+    })));
     api.listSiteAdmins.mockResolvedValue([assignedSite, unassignedSite]);
     api.createSiteAdmin.mockResolvedValue({ ...assignedSite, siteId: "site-3" });
     api.assignSiteAdmin.mockResolvedValue({ ...unassignedSite, admin: assignedSite.admin });
     api.updateSiteAdmin.mockResolvedValue({ ...assignedSite.admin, name: "김수정", loginId: "updated_admin" });
     api.resetSiteAdminPassword.mockResolvedValue({ ok: true });
     api.deleteSiteAdmin.mockResolvedValue({ ok: true });
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
   });
 
   it("운영자 목록은 실제 데이터로 네 요약과 상태 표를 표시한다", async () => {
@@ -74,6 +89,36 @@ describe("SiteAdminManagementView", () => {
     expect(screen.getByRole("button", { name: "강남 주차장 관리자 지정" })).toBeVisible();
   });
 
+  it("renders the desktop table from the assigned site record", async () => {
+    renderView();
+
+    expect(screen.getByTestId("operator-summary-strip")).toHaveClass("grid-cols-2", "compact:grid-cols-4");
+    const table = await screen.findByLabelText("현장 관리자 계정 표");
+    expect(within(table).getByText("새빛 물류")).toBeInTheDocument();
+    expect(within(table).getByRole("button", { name: "김관리 수정" })).toBeInTheDocument();
+    expect(screen.queryByLabelText("현장 관리자 계정 카드 목록")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /활성화/ })).not.toBeInTheDocument();
+  });
+
+  it("renders the mobile cards from the same assigned site record", async () => {
+    vi.mocked(window.matchMedia).mockReturnValue({
+      matches: true,
+      media: "(max-width: 759px)",
+      onchange: null,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      dispatchEvent: vi.fn()
+    });
+    renderView();
+
+    const cards = await screen.findByLabelText("현장 관리자 계정 카드 목록");
+    expect(within(cards).getByText("새빛 물류")).toBeInTheDocument();
+    expect(within(cards).getByRole("button", { name: "김관리 수정" })).toBeInTheDocument();
+    expect(screen.queryByLabelText("현장 관리자 계정 표")).not.toBeInTheDocument();
+  });
+
   it("운영자 계정 dialog는 mutation 후 초점을 복원한다", async () => {
     renderView();
     await screen.findByText("customer_admin");
@@ -89,8 +134,6 @@ describe("SiteAdminManagementView", () => {
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     expect(document.activeElement).toBe(trigger);
   });
-
-  afterEach(cleanup);
 
   it("creates a site admin without creating a password-bearing React Query mutation", async () => {
     const queryClient = renderView();

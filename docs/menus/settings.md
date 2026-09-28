@@ -1,8 +1,23 @@
 # 설정 메뉴 기능 현황 및 구현 설계
 
+## 2026-09-27 층별 설정 대시보드 계약
+
+- 구현 완료: 기존 dashboard 응답에 활성 층의 `summary.totalFixtures`, `mapRevision`, `mapConfigured`가 추가돼 설정 개요와 맵 목록이 실제 등록 수 및 맵 구성 상태를 사용할 수 있다. 공통 맵은 현재 revision snapshot의 요소 수만 한 번에 읽으며 조명 상세를 생략하는 기본 조회에서도 이 필드는 유지된다.
+- 미구현: `mapConfigured`의 표시 요소별 가시성 판정과 실제 장비·고객 DB 운영 검증은 이번 경량 API 변경에 포함되지 않는다.
+- 부족하거나 개선이 필요한 기능: 현재 공통 맵 revision snapshot이 누락되거나 불일치하면 dashboard 조회를 실패시킨다. 해당 snapshot의 `elementCount > 0`은 모두 숨김인 맵도 구성된 것으로 분류할 수 있다. 리비전 증가나 `sourceType=none`인 빈 배경은 구성 완료로 보지 않으며, 등록 조명 수를 배치된 핀 수로 해석하지 않는다.
+- 관련 파일: `apps/api/src/sites/sites.service.ts`, `apps/api/src/sites/sites.service.spec.ts`, `apps/api/src/sites/sites-dashboard.integration.spec.ts`, `apps/web/src/api/queries.ts`.
+- 갱신 규칙: 층별 지도 콘텐츠 또는 등록 수 판정 계약을 바꾸면 설정 개요·맵 목록의 소비 방식과 실제 DB 테스트 결과를 함께 갱신한다.
+
 > 모든 설계와 완료 판정은 양산 기준을 사용한다. 코드·자동 테스트 완료와 Raspberry Pi/ESP32-H2 실기 검증 완료를 구분하며, 실기 증거가 없으면 양산 E2E 완료로 표시하지 않는다.
 
-기준일: 2026-09-24
+기준일: 2026-09-25
+
+## 2026-09-25 최종 아틀라스 설정·초기 설치 적용 진행
+
+- 관리자 초기 설치는 현장 정보와 층별 맵 생성 입력을 데스크톱 2열·좁은 화면 1열로 배치하고, viewer 설치 대기는 같은 4단계 진행 표시와 읽기 전용 대기 상태를 사용한다. 층 목록 재생성 확인, 검증, `createInitialSiteSetup` payload와 dashboard cache 갱신은 유지한다.
+- 설정 개요의 설치 이어가기 안내를 별도 영역으로 정리했다. 맵 설정 수는 `floorPlan` 존재 여부나 revision으로 추정하지 않고 dashboard의 `floors[].mapConfigured`가 true인 층만 집계한다. 현장 관리의 층·구역은 데스크톱 2열, 조명 관리는 아래 전폭으로 표시하며 기존 mutation은 변경하지 않았다.
+- 맵 관리 목록은 실제 층별 `summary.totalFixtures`, `mapRevision`, `mapConfigured`를 사용한다. 맵 설정 상태를 알 수 없는 구형 응답은 미설정으로 단정하지 않고 확인 중으로 표시하며, 층 0개는 빈 상태를 표시한다. viewer의 편집 링크는 계속 숨기고 admin 링크의 층 ID·현장 query를 유지한다. 등록 화면에서 Gateway 0개와 등록 완료 분기의 `조명 등록` 제목은 각각 한 번만 표시하고 일회성 claim code 필수 계약을 유지한다. 유저 관리 행의 관리 아이콘은 44px 터치 영역을 사용한다.
+- 이번 범위는 Web UI/요약 소비 변경이며 Raspberry Pi/ESP32-H2 및 실제 모바일 WebView 검증이 아니다. dashboard의 표시 전용 `mapConfigured`는 generation의 기준 수가 아닌 현재 revision snapshot의 `elementCount > 0`과 기존 floor plan/CAD/맵 객체를 사용한다. 이 경량 조회는 `snapshotSha256` 무결성을 검증하지 않으며, 편집기의 `currentRef` 조회는 이를 검증한다. 모든 요소가 숨김인 맵도 설정됨으로 보일 수 있어 표시 가능한 요소만을 판별하는 후속 계약이 필요하다. 층 조명 수는 실제 등록 수이며 맵에 배치된 핀 수와 다르다.
 
 ## 2026-09-24 비차단 경고 표시 정리
 
@@ -144,6 +159,8 @@
 - 설정과 에디터는 URL을 가지며 새로고침, 브라우저 뒤로 가기와 직접 진입을 지원한다.
 
 ## 구현 완료
+
+- 2026-09-25 설정·초기 설치 UI 단위: 관리자 입력 2열/모바일 1열, viewer 대기 단계, 개요 설치 CTA, 층·구역 병렬 관리, 맵 목록의 실제 층 요약/빈 상태, 등록 제목 단일 표시 회귀, 유저 행 44px 관리 대상. 실장비 및 모바일 WebView 검증은 완료 범위에 포함하지 않는다.
 
 - 2026-09-19 CAD parser의 평면 ELLIPSE 입력과 bounds/미리보기를 보강했다. 공통 요소 변환 코어는 HATCH edge 링, 텍스트 기준선, 반복·겹친 별도 원본의 식별자 보존까지 집중 회귀 및 독립 검토를 통과했다. 공통 문서 저장·화면 연결은 아직 미완료이며 이 항목을 새 편집 흐름 전체 완료나 실제 대형 DWG 재현 정확도 증거로 해석하지 않는다.
 
@@ -519,6 +536,8 @@ DB 모델이 실제 변경되는 작업에서는 `docs/database-schema.md`를 �
 
 ## 부족하거나 개선이 필요한 기능
 
+- dashboard의 표시 전용 `mapConfigured`는 현재 MapDocument revision snapshot의 경량 `elementCount > 0` 또는 기존 floor plan/CAD/맵 객체로 판정하며, generation의 기준 수나 `snapshotSha256` 검증 결과가 아니다. 편집기의 `currentRef`는 별도로 snapshot hash를 검증한다. 모든 요소가 숨김인 경우에도 설정 완료로 보일 수 있으므로 표시 가능한 요소 수를 별도로 확정하는 계약이 필요하다. 층의 `summary.totalFixtures`는 등록 조명 수이며 실제 맵에 배치된 핀 수가 아니다.
+
 - 기존 `objects`의 이동 보조선은 유지되지만, 공통 `MapDocument` 도형 편집 overlay에는 다른 도형의 `guideTargets`가 연결되지 않아 공통 맵 도형 간 PPT식 정렬선 완료로 판정할 수 없다. 대량 도형에서도 주변 대상만 제한적으로 조회하는 방식의 후속 보강과 별도 브라우저 검증이 필요하다.
 
 - 네이티브 CAD의 일부 원본 entity(`ELLIPSE` 등) 파싱과 사람 기준 재현 정확도 평가는 남아 있다. 큰 도면 첫 전체 표시는 로컬 실제 타일 검증에서 약 10~13초이므로 초기 전송량 최적화 여지가 있다. Chromium 모바일 정책 검증은 실제 iOS/Android WebView GPU·메모리 성능을 대신하지 않는다.
@@ -566,6 +585,8 @@ DB 모델이 실제 변경되는 작업에서는 `docs/database-schema.md`를 �
   - https://www.lutron.com/us/en/controls/systems/vive
 
 ## 관련 파일
+
+- `apps/web/src/features/setup/SetupWizard.tsx`, `apps/web/src/features/settings/SettingsView.tsx`, `apps/web/src/features/settings/site/SiteOperationsView.tsx`, `apps/web/src/features/settings/floor-plans/FloorPlanSettingsView.tsx`, `apps/web/src/features/settings/users/SiteUsersView.tsx`
 
 - `scripts/analyze-cad-import.mjs`
 - `scripts/analyze-cad-import.test.mjs`

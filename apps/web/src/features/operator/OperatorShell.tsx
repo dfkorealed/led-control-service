@@ -42,21 +42,26 @@ export function OperatorShell({ user }: { user: AuthUser }) {
 
   return (
     <div className="min-h-screen bg-surface-canvas">
-      <header className="flex min-h-16 items-center justify-between gap-4 border-b border-border-default bg-surface-panel px-6 py-4 max-compact:flex-col max-compact:items-start max-compact:px-3.5">
-        <KindaLogo context="서비스 운영" />
-        <div className="flex items-center gap-3 max-compact:w-full max-compact:justify-between">
-          <Text as="span" variant="body-sm" tone="secondary" weight="bold">{user.loginId}</Text>
-          <IconTooltipButton
-            className="size-13"
-            icon={LogOut}
-            label="로그아웃"
-            loadingLabel="로그아웃 중"
-            isLoading={isLoggingOut}
-            onClick={handleLogout}
-          />
+      <header className="border-b border-border-default bg-surface-panel">
+        <div
+          data-testid="operator-header-inner"
+          className="mx-auto flex min-h-16 w-full max-w-operator items-center justify-between gap-4 px-6 py-3 max-compact:flex-col max-compact:items-stretch max-compact:px-3.5"
+        >
+          <KindaLogo context="서비스 운영" />
+          <div className="flex min-w-0 items-center gap-3 max-compact:w-full">
+            <Text className="min-w-0 truncate" as="span" variant="body-sm" tone="secondary" weight="bold">{user.loginId}</Text>
+            <IconTooltipButton
+              className="ml-auto size-13 shrink-0"
+              icon={LogOut}
+              label="로그아웃"
+              loadingLabel="로그아웃 중"
+              isLoading={isLoggingOut}
+              onClick={handleLogout}
+            />
+          </div>
         </div>
       </header>
-      <main className="mx-auto grid w-full max-w-6xl content-start gap-5 px-6 py-10 max-compact:px-3.5 max-compact:py-6">
+      <main className="mx-auto grid w-full max-w-operator content-start gap-5 px-6 py-8 max-compact:px-3.5 max-compact:py-6">
         {logoutError ? <FeedbackState tone="danger" icon={CircleAlert} title={logoutError} /> : null}
         <UnderlineNavigation aria-label="운영자 메뉴">
           <NavLink

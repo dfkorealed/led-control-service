@@ -53,7 +53,7 @@ test("admin creates and executes schedule and vehicle event rules", async ({ bro
   await admin.getByRole("option", { name: "Asia/Seoul", exact: true }).click();
   await admin.getByLabel("지하 층수").fill("1");
   await admin.getByLabel("지상 층수").fill("0");
-  await admin.getByRole("button", { name: "층 자동 생성" }).click();
+  await admin.getByRole("button", { name: "맵 생성", exact: true }).click();
   await admin.getByRole("button", { name: "초기 설정 완료" }).click();
   await expect(admin.getByRole("heading", { name: "설정 개요" })).toBeVisible();
   await admin.getByRole("navigation", { name: "설정 메뉴" }).getByRole("link", { name: "조명 등록", exact: true }).click();
@@ -257,7 +257,7 @@ async function createVehicleEvent(
     "02 실행 조명",
     "03 동작 설정",
   ]);
-  await expect(dialog.getByRole("region", { name: "03 동작 설정" }).getByRole("group", { name: "유지 시간" })).toBeVisible();
+  await expect(dialog.getByRole("region", { name: "03 동작 설정" }).getByRole("group", { name: "유지 시간", exact: true })).toBeVisible();
   await dialog.getByRole("button", { name: "감지 센서 선택" }).click();
   await selectFixtureFromList(page, dialog, input.source);
   await dialog.getByRole("button", { name: "1개 조명 선택 완료", exact: true }).click();

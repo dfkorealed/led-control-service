@@ -73,6 +73,42 @@ describe("overlay migration contracts", () => {
     expect(dialog.querySelector("[data-dialog-body]")).toHaveClass("min-h-0", "overflow-hidden");
   });
 
+  it("renders a right drawer with modal focus and returns focus to its opener", async () => {
+    render(<DrawerReturnFocus />);
+    fireEvent.click(screen.getByRole("button", { name: "상태 열기" }));
+    const drawer = screen.getByRole("dialog", { name: "상태 센터" });
+    expect(drawer).toHaveAttribute("data-dialog-variant", "drawer");
+    expect(drawer).toHaveClass("max-w-status-drawer");
+    fireEvent.keyDown(drawer, { key: "Escape" });
+    await waitFor(() => expect(screen.getByRole("button", { name: "상태 열기" })).toHaveFocus());
+  });
+
+  it("dismisses a drawer from its backdrop and returns focus to the opener", async () => {
+    render(<DrawerReturnFocus />);
+    const opener = screen.getByRole("button", { name: "상태 열기" });
+    fireEvent.click(opener);
+
+    fireEvent.mouseDown(screen.getByTestId("modal-backdrop"));
+
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "상태 센터" })).not.toBeInTheDocument());
+    expect(opener).toHaveFocus();
+  });
+
+  it("locks every drawer dismissal route while pending", () => {
+    const close = vi.fn();
+    render(<UI.DrawerDialog title="처리 중 상태" closeLabel="상태 닫기" isPending onClose={close}>본문</UI.DrawerDialog>);
+    const drawer = screen.getByRole("dialog", { name: "처리 중 상태" });
+    const closeButton = screen.getByRole("button", { name: "상태 닫기" });
+
+    expect(closeButton).toBeDisabled();
+    fireEvent.keyDown(drawer, { key: "Escape" });
+    fireEvent.mouseDown(screen.getByTestId("modal-backdrop"));
+    fireEvent.click(closeButton);
+
+    expect(close).not.toHaveBeenCalled();
+    expect(drawer).toBeVisible();
+  });
+
   it("defaults confirmation focus to safe cancel and prefers onCancel over the legacy callback", async () => {
     const onCancel = vi.fn(); const onClose = vi.fn(); const onConfirm = vi.fn();
     render(<ConfirmDialog title="확인" description="되돌릴 수 없음" confirmLabel="실행" onCancel={onCancel} onClose={onClose} onConfirm={onConfirm} />);
@@ -246,5 +282,16 @@ function ReturnFocus({ target }: { target: "ref" | "element" | "opener" | "fallb
     {open && <ModalDialog title="반환" onClose={() => setOpen(false)} returnFocusRef={preferred} returnFocusElement={element.current} fallbackFocusRef={fallback} fallbackFocusElement={fallbackElement.current}>
       <button onClick={() => { setRemoved(target.startsWith("fallback")); setOpen(false); }}>완료</button>
     </ModalDialog>}
+  </>;
+}
+
+function DrawerReturnFocus() {
+  const [open, setOpen] = useState(false);
+  const trigger = useRef<HTMLButtonElement>(null);
+  return <>
+    <button ref={trigger} onClick={() => setOpen(true)}>상태 열기</button>
+    <UI.DrawerDialog isOpen={open} title="상태 센터" returnFocusRef={trigger} onClose={() => setOpen(false)}>
+      <button>첫 action</button>
+    </UI.DrawerDialog>
   </>;
 }

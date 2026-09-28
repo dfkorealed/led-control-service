@@ -24,6 +24,7 @@ describe("SettingsView 설치 이어가기", () => {
 
   it("게이트웨이가 없으면 기존 등록 경로로 연결한다", () => {
     const siteId = renderSettings(0, 0);
+    expect(screen.getByRole("region", { name: "설치 이어가기" })).toHaveTextContent("게이트웨이 연결");
     expect(screen.getByRole("link", { name: "게이트웨이 연결하기" })).toHaveAttribute("href", `/settings/registration?siteId=${siteId}`);
   });
 
@@ -45,5 +46,17 @@ describe("SettingsView 설치 이어가기", () => {
   it("오래된 URL의 현장 ID 대신 조회된 현장 ID로 이동한다", () => {
     const siteId = renderSettings(0, 0, "admin", "/settings?siteId=old-site");
     expect(screen.getByRole("link", { name: "게이트웨이 연결하기" })).toHaveAttribute("href", `/settings/registration?siteId=${siteId}`);
+  });
+
+  it("맵 설정 수는 floorPlan 유무가 아닌 mapConfigured 요약으로 계산한다", () => {
+    const dashboard = structuredClone(mockDashboard);
+    dashboard.floors = [
+      { ...dashboard.floors[0], floorPlan: null, mapConfigured: true },
+      { ...dashboard.floors[0], id: "floor-reset", name: "B1", floorPlan: null, mapRevision: 3, mapConfigured: false }
+    ];
+    vi.mocked(useDashboard).mockReturnValue({ data: dashboard } as ReturnType<typeof useDashboard>);
+    render(<MemoryRouter><SettingsView userRole="admin" siteId={dashboard.site.id} /></MemoryRouter>);
+    expect(screen.getByRole("group", { name: "층·도면" })).toHaveTextContent("2개 층");
+    expect(screen.getByRole("group", { name: "층·도면" })).toHaveTextContent("맵 설정 1개");
   });
 });

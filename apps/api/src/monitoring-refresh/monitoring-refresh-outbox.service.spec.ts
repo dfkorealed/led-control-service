@@ -5,6 +5,7 @@ import { MonitoringRefreshOutboxService } from "./monitoring-refresh-outbox.serv
 const siteId = "11111111-1111-4111-8111-111111111111";
 const gatewayId = "22222222-2222-4222-8222-222222222222";
 const refreshId = "33333333-3333-4333-8333-333333333333";
+const floorId = "99999999-9999-4999-8999-999999999999";
 const batchId = "44444444-4444-4444-8444-444444444444";
 const fixtureId = "55555555-5555-4555-8555-555555555555";
 const otherFixtureId = "77777777-7777-4777-8777-777777777777";
@@ -70,7 +71,10 @@ function harness(clock = () => startedAt) {
       count: jest.fn().mockResolvedValue(0),
       groupBy: jest.fn().mockResolvedValue([{ status: "unverified", _count: { _all: 1 } }])
     },
-    monitoringRefresh: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) }
+    monitoringRefresh: { findUnique: jest.fn().mockResolvedValue({ siteId, floorId }),
+      updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+    floor: { findMany: jest.fn().mockResolvedValue([{ id: floorId }]) },
+    monitoringActivity: { createMany: jest.fn().mockResolvedValue({ count: 1 }) }
   };
   prisma.$transaction = jest.fn((callback) => callback(prisma));
   const mqtt = { publishTopic: jest.fn().mockResolvedValue(undefined) };

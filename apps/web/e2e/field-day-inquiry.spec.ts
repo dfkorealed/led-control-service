@@ -155,3 +155,167 @@ test("접수 중에는 세 닫기 경로를 막고 응답 후 닫기와 포커�
   await expect(dialog).toBeHidden();
   await expect(trigger).toBeFocused();
 });
+
+
+test("concept uses the shared Vite entry without public styles", async ({ page }) => {
+  const requests: string[] = [];
+  page.on("request", request => requests.push(new URL(request.url()).pathname));
+  const check = async () => {
+    await expect(page).toHaveTitle("현장의 하루 · 킨다 랜딩 시안");
+    await expect(page.locator("[data-open-inquiry]")).toHaveCount(3);
+    await expect(page.getByRole("heading", { level: 1 })).toContainText("현장의 하루,");
+  };
+  await page.goto("/concepts/index.html");
+  await page.locator('a[href="field-day.html"]').click();
+  await check();
+  await page.reload();
+  await check();
+  await page.getByRole("link", { name: "로그인" }).click();
+  await page.goBack();
+  await check();
+  await page.goto(concept);
+  await check();
+  expect(requests).not.toContain("/concepts/field-day.css");
+  expect(requests).not.toContain("/concepts/field-day.js");
+});
+
+test("시안 문의는 닫고 다시 열어도 입력 내용과 실패한 문의 키를 유지한다", async ({ page }) => {
+  const keys: string[] = [];
+  await page.route("**/api/landing/inquiries", async route => {
+    keys.push(route.request().postDataJSON().idempotencyKey);
+    await route.fulfill({ status: 503, contentType: "application/json", body: "{}" });
+  });
+  await page.goto(concept);
+  const trigger = page.locator("[data-open-inquiry]").first();
+  await trigger.click();
+  await expect(page.getByRole("heading", { name: "도입 상담", exact: true })).toBeFocused();
+  await fillInquiry(page);
+  await page.getByRole("button", { name: "상담 문의 보내기" }).click();
+  await expect(page.getByText("현재 온라인 상담을 접수할 수 없습니다.")).toBeVisible();
+  await page.keyboard.press("Escape");
+  await trigger.click();
+  await expect(page.getByLabel("회사명 *")).toHaveValue("  예시 회사  ");
+  await expect(page.getByText("현재 온라인 상담을 접수할 수 없습니다.")).toBeVisible();
+  await page.getByRole("button", { name: "상담 문의 보내기" }).click();
+  await expect.poll(() => keys.length).toBe(2);
+  expect(keys[1]).toBe(keys[0]);
+});
+
+test("시안 성공 상태와 네이티브 필드 계약은 팝업 재진입에도 유지된다", async ({ page }) => {
+  await page.route("**/api/landing/inquiries", route => route.fulfill({ status: 201, contentType: "application/json", body: JSON.stringify({ status: "received", reference: "KND-PERSIST" }) }));
+  await page.goto(concept);
+  const trigger = page.locator("[data-open-inquiry]").first();
+  await trigger.click();
+  for (const [label, maxLength, autocomplete] of [["회사명 *", "120", "organization"], ["담당자 이름 *", "80", "name"], ["회신 이메일 *", "254", "email"], ["전화번호 선택", "30", "tel"]]) {
+    await expect(page.getByLabel(label)).toHaveAttribute("maxlength", maxLength);
+    await expect(page.getByLabel(label)).toHaveAttribute("autocomplete", autocomplete);
+  }
+  await expect(page.getByLabel("문의 내용 *")).toHaveAttribute("maxlength", "2000");
+  expect(await page.getByLabel("고객 유형 선택").evaluate(node => node.tagName)).toBe("SELECT");
+  await fillInquiry(page);
+  await page.getByRole("button", { name: "상담 문의 보내기" }).click();
+  const close = page.getByRole("button", { name: "상담 팝업 닫기" });
+  await expect(close).toBeFocused();
+  await expect(page.getByRole("button", { name: "상담 문의 보내기" })).toBeDisabled();
+  await close.click();
+  await trigger.click();
+  await expect(page.getByText("접수번호: KND-PERSIST")).toBeVisible();
+  await expect(page.getByRole("button", { name: "상담 문의 보내기" })).toBeDisabled();
+});
+
+test("시안 PDF 미리보기와 공개 페이지의 인증 조회 부재를 보존한다", async ({ page }) => {
+  const calls: string[] = [];
+  page.on("request", request => { const path = new URL(request.url()).pathname; if (path.startsWith("/api/")) calls.push(path); });
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.goto(concept);
+  const report = page.locator("#report");
+  await report.scrollIntoViewIfNeeded();
+  await expect(report.getByText("PDF 형식", { exact: true })).toBeVisible();
+  await expect(report.getByRole("status")).toHaveText("예시 PDF 보고서 미리보기가 준비됐습니다.");
+  await expect(report.getByRole("button", { name: /PDF|CSV|XLSX/ })).toHaveCount(0);
+  expect(calls).toEqual([]);
+  await page.goto("/");
+  await expect(page.getByRole("button", { name: "CSV", exact: true })).toHaveCount(0);
+});
+
+test("시안 맵 도구는 원래 드롭 시점의 확대 이동과 취소·재생 흐름을 보존한다", async ({ page }) => {
+  await page.goto(concept);
+  const scene = page.locator('.scene--map');
+  await scene.scrollIntoViewIfNeeded();
+  const place = scene.locator('.button--tool');
+  const marker = scene.locator('.map-light--placed');
+  // The original concept marker is decorative; only the site has a movable
+  // keyboard marker, so it is intentionally absent from the concept focus set.
+  await expect(marker).toHaveAttribute('aria-hidden', 'true');
+  expect(await marker.evaluate(node => node.tagName)).toBe('SPAN');
+  await place.click();
+  await expect.poll(() => scene.locator('.map-drag-ghost').evaluate(node => node.getAnimations().some(animation => animation.effect?.getTiming().duration === 1150))).toBe(true);
+  await expect.poll(() => marker.evaluate(node => node.getAnimations().some(animation => animation.effect?.getTiming().duration === 950))).toBe(true);
+  const move = await marker.evaluate(async node => {
+    const animation = node.getAnimations().find(item => item.effect?.getTiming().duration === 950)!;
+    animation.pause(); animation.currentTime = 475;
+    await new Promise(resolve => requestAnimationFrame(resolve));
+    return { timing: animation.effect!.getTiming(), frames: (animation.effect as KeyframeEffect).getKeyframes().map(frame => ({ left: frame.left, top: frame.top, transform: frame.transform, offset: frame.computedOffset })), transform: getComputedStyle(node).transform };
+  });
+  expect(move.timing.easing).toBe('ease-in-out');
+  expect(move.frames).toEqual([
+    { left: '65%', top: '36%', transform: 'scale(1)', offset: 0 },
+    { left: '72%', top: '53%', transform: 'scale(1.18)', offset: .72 },
+    { left: '72%', top: '53%', transform: 'scale(1)', offset: 1 }
+  ]);
+  expect(Number(move.transform.match(/matrix\(([^,]+)/)?.[1])).toBeGreaterThan(1);
+  await scene.locator('.button--quiet').click();
+  await expect(marker).toHaveCSS('opacity', '0');
+  expect(await marker.evaluate(node => node.getAnimations().length)).toBe(0);
+  const cancelled = await marker.evaluate(node => { const style = getComputedStyle(node), parent = node.parentElement!; return { left: style.left, top: style.top, width: parent.clientWidth, height: parent.clientHeight }; });
+  expect(Math.abs(parseFloat(cancelled.left) - cancelled.width * .72)).toBeLessThan(1 / 64);
+  expect(Math.abs(parseFloat(cancelled.top) - cancelled.height * .53)).toBeLessThan(1 / 64);
+  await place.click();
+  await expect.poll(() => scene.locator('.map-drag-ghost').evaluate(node => node.getAnimations().length)).toBeGreaterThan(0);
+  await page.evaluate(() => window.scrollTo({ top: 0, behavior: 'instant' }));
+  await expect.poll(() => scene.locator('.map-drag-ghost').evaluate(node => node.getAnimations().length)).toBe(0);
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await scene.scrollIntoViewIfNeeded();
+  await place.click();
+  await expect(marker).toHaveCSS('opacity', '1');
+  await expect(scene.getByText('배치된 조명 3개')).toBeVisible();
+  expect(await marker.evaluate(node => node.getAnimations().length)).toBe(0);
+});
+
+for (const reducedMotion of ["no-preference", "reduce"] as const) {
+  for (const action of ["replay", "reenter"]) {
+    test(`시안 PDF 보고서는 재생·재진입 후에도 형식 선택 없이 유지된다 (${action}, ${reducedMotion})`, async ({ page }) => {
+      await page.emulateMedia({ reducedMotion });
+      await page.goto(concept);
+      const report = page.locator("#report");
+      await report.scrollIntoViewIfNeeded();
+      await expect(report).toHaveClass(/is-complete/);
+      const assertFormat = async () => {
+        await expect(report.getByRole("button", { name: /PDF|XLSX|CSV|Excel/ })).toHaveCount(0);
+        await expect(report.locator(".report-sheet__footer")).toHaveText("작성 완료 예시PDF 형식");
+        await expect(report.locator(".report-history strong")).toHaveText("주간 조명 운영 보고서 · PDF");
+        await expect(report.locator(".demo-disclaimer")).toHaveText("설명용 PDF 보고서입니다. 파일을 만들거나 내려받지 않습니다.");
+      };
+      {
+        await assertFormat();
+        const previousSheet = await report.locator(".report-sheet").elementHandle();
+        if (action === "replay") {
+          await report.getByRole("button", { name: "보고서 예시 다시 보기" }).click();
+        } else {
+          await page.evaluate(() => window.scrollTo({ top: 0, behavior: "instant" }));
+          await expect.poll(() => report.evaluate(node => node.getBoundingClientRect().top >= innerHeight)).toBe(true);
+          // Allow the real observer to record the exit before re-entering.
+          await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+          await report.scrollIntoViewIfNeeded();
+        }
+        // A new sheet proves replay/re-entry actually ran. Waiting for completion
+        // plus two frames avoids accepting a pre-replay completion on reduced motion.
+        await expect.poll(() => previousSheet!.evaluate(node => node.isConnected)).toBe(false);
+        await expect(report).toHaveClass(/is-complete/);
+        await expect(report.getByRole("status")).toHaveText("예시 PDF 보고서 미리보기가 준비됐습니다.");
+        await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+        await assertFormat();
+      }
+    });
+  }
+}

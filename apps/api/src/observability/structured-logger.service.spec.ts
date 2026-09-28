@@ -11,6 +11,38 @@ describe("StructuredLoggerService", () => {
     return { context, logger, lines };
   }
 
+  it.each(["completed", "failed"])("preserves bounded retention metrics for %s events without raw data", status => {
+    const { logger, lines } = harness();
+    logger.warn({ event: "command_detail_retention_batch", status, examined: 100, redacted: 1,
+      overdueCount: 1500, oldestAgeSeconds: 123456.5, skippedByReason: { command_unresolved: 99 },
+      blockedByReason: { legacy_ack_attribution_unverifiable: 1401 },
+      error: new Error("SQL password=secret"), commandId: "secret-id", sql: "secret query" }, "CommandDetailRetentionService");
+    expect(JSON.parse(lines[0])).toEqual({ timestamp, level: "warn", context: "CommandDetailRetentionService",
+      operation: "background_job", event: "command_detail_retention_batch", status,
+      examined: 100, redacted: 1, overdueCount: 1500, oldestAgeSeconds: 123456.5,
+      skippedByReason: { command_unresolved: 99 }, blockedByReason: { legacy_ack_attribution_unverifiable: 1401 } });
+    expect(lines[0]).not.toContain("secret");
+  });
+
+  it("drops invalid counters, unknown reason keys and unrecognized retention event/context", () => {
+    const { logger, lines } = harness();
+    logger.log({ event: "command_detail_retention_batch", status: "completed", examined: 1001,
+      redacted: -1, overdueCount: "secret", oldestAgeSeconds: Infinity,
+      skippedByReason: { command_unresolved: 1001, secret: 1 },
+      blockedByReason: { legacy_ack_attribution_unverifiable: 2, command_unresolved: NaN,
+        raw_copy_cleanup_failed: -1, secret: 1 }, commandId: "secret" }, "CommandDetailRetentionService");
+    expect(JSON.parse(lines[0])).toEqual({ timestamp, level: "info", context: "CommandDetailRetentionService",
+      operation: "background_job", event: "command_detail_retention_batch", status: "completed",
+      skippedByReason: {}, blockedByReason: { legacy_ack_attribution_unverifiable: 2 } });
+    for (const [event, context, status] of [
+      ["secret", "CommandDetailRetentionService", "completed"],
+      ["command_detail_retention_batch", "secret", "completed"],
+      ["command_detail_retention_batch", "CommandDetailRetentionService", "secret"]
+    ]) logger.log({ event, status, examined: 1 }, context);
+    for (const line of lines.slice(1)) expect(JSON.parse(line)).not.toHaveProperty("event");
+    expect(lines.join("")).not.toContain("secret");
+  });
+
   it("writes one JSON line with the bounded HTTP request fields", () => {
     const { context, logger, lines } = harness();
 

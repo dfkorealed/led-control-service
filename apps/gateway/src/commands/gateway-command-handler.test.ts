@@ -7,6 +7,16 @@ import {
   recoverPendingManualAutomationHandoffs
 } from "./gateway-command-handler";
 import { KeyedSerialTaskQueue } from "../runtime/keyed-serial-task-queue";
+import { CommandJournal } from "./command-journal";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { FileAutomationStateStore } from "../automation/automation-state-store";
+import { ScheduleRuntime } from "../automation/schedule-runtime";
+import { createManualControlCoordinator } from "../index";
+import { AutomationTelemetryGapJournal } from "../automation/automation-telemetry-gap-journal";
+import { StorageHeadroomManager } from "../storage/storage-headroom-manager";
+import { writeJsonAtomic } from "../mesh/mesh-store-file";
 
 const command = {
   commandId: "11111111-1111-4111-8111-111111111111",
@@ -25,6 +35,499 @@ const command = {
 };
 
 describe("handleGatewayDimmingCommand", () => {
+  it("retains durable abort intent when production gap-journal fallback cannot persist an ENOSPC abort", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "abort-enospc-restart-"));
+    try {
+      const journalPath = join(directory, "journal.json");
+      const statePath = join(directory, "state.json");
+      const gapJournal = new AutomationTelemetryGapJournal(join(directory, "telemetry.gap"));
+      const headroom = new StorageHeadroomManager(join(directory, "telemetry.reserve"), 4096);
+      await gapJournal.initialize();
+      await headroom.initialize();
+      let abortDiskFull = false;
+      const store = new FileAutomationStateStore(statePath, async (path, value) => {
+        if (abortDiskFull) throw Object.assign(new Error("state volume is full"), { code: "ENOSPC" });
+        await writeJsonAtomic(path, value);
+      }, undefined, { gapJournal, headroom });
+      const runtime = new ScheduleRuntime({ store, clockTrust: { isTrusted: async () => true }, execute: async () => [], allowManualStateInitialization: true });
+      await runtime.initialize();
+      const automation = createManualControlCoordinator(runtime);
+      const prepare = automation.prepare;
+      automation.prepare = async (...args) => { await prepare(...args); abortDiskFull = true; };
+      const adapter = new StubBleMeshAdapter();
+      const outcomes = await Promise.allSettled([handleGatewayDimmingCommand(adapter, new CommandJournal(journalPath), command, undefined, {
+        automation, setPermit: () => abortDiskFull ? "GATEWAY_CLOCK_UNTRUSTED" : undefined
+      })]);
+      // Journal storage remains healthy: only the automation-state write fails,
+      // including the real production headroom retry and gap-journal fallback.
+      const journal = new CommandJournal(journalPath);
+      expect(await journal.get(command.idempotencyKey)).toMatchObject({ automationAbort: "pending" });
+      expect(outcomes[0]?.status).toBe("rejected");
+      abortDiskFull = false;
+      const restartedStore = new FileAutomationStateStore(statePath, undefined, undefined, { gapJournal: new AutomationTelemetryGapJournal(join(directory, "telemetry.gap")) });
+      const restarted = new ScheduleRuntime({ store: restartedStore, clockTrust: { isTrusted: async () => true }, execute: async () => [], allowManualStateInitialization: true });
+      await restarted.initialize();
+      expect(restarted.state().pendingManualControls[command.targetId]?.sourceId).toBe(command.commandId);
+      await recoverPendingManualAutomationHandoffs(journal, createManualControlCoordinator(restarted));
+      expect(restarted.state().pendingManualControls).toEqual({});
+      expect(await journal.pendingAutomationRecoveries()).toEqual([]);
+      expect(await journal.get(command.idempotencyKey)).toMatchObject({ automationAbort: "completed" });
+      const finalStore = new FileAutomationStateStore(statePath);
+      await finalStore.initialize();
+      expect(finalStore.read().pendingManualControls).toEqual({});
+      expect(adapter.commands).toHaveLength(0);
+    } finally { await rm(directory, { recursive: true, force: true }); }
+  });
+  it("waits for a live unicast prepare before recovering its DUP, leaving no orphaned pending control", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "live-prepare-duplicate-"));
+    try {
+      const journal = new CommandJournal(join(directory, "journal.json"));
+      const runtime = new ScheduleRuntime({ store: new FileAutomationStateStore(join(directory, "state.json")), clockTrust: { isTrusted: async () => true }, execute: async () => [], allowManualStateInitialization: true });
+      await runtime.initialize();
+      const coordinator = createManualControlCoordinator(runtime);
+      let release!: () => void;
+      let entered!: () => void;
+      const gate = new Promise<void>((resolve) => { release = resolve; });
+      const preparing = new Promise<void>((resolve) => { entered = resolve; });
+      const prepare = coordinator.prepare;
+      coordinator.prepare = async (...args) => { entered(); await gate; await prepare(...args); };
+      const adapter = new StubBleMeshAdapter();
+      const options = { automation: coordinator, setPermit: () => undefined };
+      const original = handleGatewayDimmingCommand(adapter, journal, command, undefined, options);
+      await preparing;
+      let duplicateSettled = false;
+      const duplicate = handleGatewayDimmingCommand(adapter, journal, command, undefined, options).then((result) => { duplicateSettled = true; return result; });
+      try {
+        await new Promise<void>((resolve) => setTimeout(resolve, 30));
+        expect(duplicateSettled).toBe(false);
+        expect(await journal.get(command.idempotencyKey)).toMatchObject({ state: "accepted", executionPhase: "pre_rf" });
+      } finally { release(); await Promise.allSettled([original, duplicate]); }
+      expect(await duplicate).toEqual(await original);
+      expect((await original).deviceStatus.status).toBe("succeeded");
+      expect(runtime.state().pendingManualControls).toEqual({});
+      expect(adapter.commands).toHaveLength(1);
+    } finally { await rm(directory, { recursive: true, force: true }); }
+  });
+
+  it.each(["different-key", "different-journal-and-site"])("does not serialize independent %s work behind a live prepare", async (scope) => {
+    const journal = memoryJournal(new Map());
+    const adapter = new StubBleMeshAdapter();
+    let release!: () => void;
+    let entered!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const preparing = new Promise<void>((resolve) => { entered = resolve; });
+    const original = handleGatewayDimmingCommand(adapter, journal, command, undefined, { automation: { prepare: async () => { entered(); await gate; }, handoff: async () => undefined } });
+    await preparing;
+    try {
+      const second = { ...command, ...(scope === "different-key" ? { idempotencyKey: "77777777-7777-4777-8777-777777777777" } : { siteId: "77777777-7777-4777-8777-777777777777" }) };
+      const result = await handleGatewayDimmingCommand(adapter, scope === "different-key" ? journal : memoryJournal(new Map()), second);
+      expect(result.deviceStatus.status).toBe("succeeded");
+      expect(adapter.commands).toHaveLength(1);
+    } finally { release(); await original; }
+    expect(adapter.commands).toHaveLength(2);
+  });
+  it.each(["GATEWAY_CLOCK_UNTRUSTED", "COMMAND_EXPIRED"] as const)("aborts before adapter submission when the RF-marker fsync loses proof with %s", async (reason) => {
+    const directory = await mkdtemp(join(tmpdir(), "marker-proof-loss-"));
+    try {
+      const journal = new CommandJournal(join(directory, "journal.json"));
+      const runtime = new ScheduleRuntime({ store: new FileAutomationStateStore(join(directory, "state.json")), clockTrust: { isTrusted: async () => true }, execute: async () => [], allowManualStateInitialization: true });
+      await runtime.initialize();
+      let valid = true;
+      const mark = journal.markExecutionMayHaveStarted.bind(journal);
+      journal.markExecutionMayHaveStarted = async (key) => { await mark(key); valid = false; };
+      const adapter = new StubBleMeshAdapter();
+      const result = await handleGatewayDimmingCommand(adapter, journal, command, undefined, { automation: createManualControlCoordinator(runtime), setPermit: () => valid ? undefined : reason });
+      expect(result.acceptance).toMatchObject({ status: "rejected", errorCode: reason });
+      expect(runtime.state().pendingManualControls).toEqual({});
+      expect(await journal.pendingAutomationRecoveries()).toEqual([]);
+      expect(await journal.latestFixtureSnapshots()).toEqual([]);
+      expect(adapter.commands).toHaveLength(0);
+    } finally { await rm(directory, { recursive: true, force: true }); }
+  });
+  it.each(["pre_rf", "abort_pending", "admission_race", "refusal_race"])("uses the durable source and fixtures when an altered DUP triggers %s abort", async (phase) => {
+    const directory = await mkdtemp(join(tmpdir(), "abort-duplicate-scope-"));
+    try {
+      const journal = new CommandJournal(join(directory, "journal.json"));
+      const runtime = new ScheduleRuntime({ store: new FileAutomationStateStore(join(directory, "state.json")), clockTrust: { isTrusted: async () => true }, execute: async () => [], allowManualStateInitialization: true });
+      await runtime.initialize();
+      const coordinator = createManualControlCoordinator(runtime);
+      await journal.accept(command.idempotencyKey, { command }, { executionPhase: "pre_rf" });
+      await coordinator.prepare(command);
+      const otherId = "77777777-7777-4777-8777-777777777777";
+      await runtime.prepareManualControl({ sourceId: otherId, fixtureIds: [otherId], brightnessPercent: 20, requestedAt: command.requestedAt });
+      const adapter = new StubBleMeshAdapter();
+      if (phase !== "pre_rf") {
+        await expect(handleGatewayDimmingCommand(adapter, journal, command, undefined, { automation: { ...coordinator, abortManualControl: async () => { throw new Error("crash"); } } })).rejects.toThrow("crash");
+      }
+      if (phase.endsWith("race")) {
+        // The initial lookup precedes another receiver's terminal fsync; this
+        // caller learns it lost journal admission only from accept(false).
+        const get = journal.get.bind(journal);
+        let first = true;
+        journal.get = async (key) => { if (first) { first = false; return null; } return get(key); };
+      }
+      const result = await handleGatewayDimmingCommand(adapter, journal, { ...command, commandId: otherId, targetFixtureIds: [otherId] }, undefined, { automation: coordinator, setPermit: () => phase === "admission_race" ? undefined : "GATEWAY_CLOCK_UNTRUSTED" });
+      expect(result.acceptance.commandId).toBe(command.commandId);
+      expect(runtime.state().pendingManualControls).toEqual({ [otherId]: expect.objectContaining({ sourceId: otherId }) });
+      expect(adapter.commands).toHaveLength(0);
+    } finally { await rm(directory, { recursive: true, force: true }); }
+  });
+
+  it.each(["before-marker", "after-marker", "after-write"])("keeps correct uncertainty when interrupted %s", async (boundary) => {
+    const directory = await mkdtemp(join(tmpdir(), "rf-marker-restart-"));
+    try {
+      const path = join(directory, "journal.json");
+      const journal = new CommandJournal(path);
+      const runtime = new ScheduleRuntime({ store: new FileAutomationStateStore(join(directory, "state.json")), clockTrust: { isTrusted: async () => true }, execute: async () => [], allowManualStateInitialization: true });
+      await runtime.initialize();
+      const coordinator = createManualControlCoordinator(runtime);
+      const adapter = new StubBleMeshAdapter();
+      if (boundary === "after-write") journal.complete = async () => { throw new Error("crash"); };
+      else {
+        const mark = journal.markExecutionMayHaveStarted.bind(journal);
+        journal.markExecutionMayHaveStarted = async (key) => { if (boundary === "after-marker") await mark(key); throw new Error("crash"); };
+      }
+      await expect(handleGatewayDimmingCommand(adapter, journal, command, undefined, { automation: coordinator, setPermit: () => undefined })).rejects.toThrow("crash");
+      const restarted = new CommandJournal(path);
+      await recoverPendingManualAutomationHandoffs(restarted, coordinator);
+      const result = await handleGatewayDimmingCommand(adapter, restarted, command, undefined, { automation: coordinator, setPermit: () => "GATEWAY_CLOCK_UNTRUSTED" });
+      expect(result.acceptance.status).toBe(boundary === "before-marker" ? "rejected" : "accepted");
+      expect(result.deviceStatus.status).toBe(boundary === "before-marker" ? "failed" : "timed_out");
+      expect((await restarted.get(command.idempotencyKey))?.automationAbort).toBe(boundary === "before-marker" ? "completed" : undefined);
+      expect(adapter.commands).toHaveLength(boundary === "after-write" ? 1 : 0);
+      expect(result.fixtureStateObserved).toBe(false);
+    } finally { await rm(directory, { recursive: true, force: true }); }
+  });
+  it.each([
+    ["may_have_written", "direct"],
+    ["legacy_accepted", "direct"],
+    ["completed_unknown", "direct"],
+    ["completed_unknown", "admission_race"],
+    ["completed_unknown", "refusal_race"],
+    ["completed_unknown", "preflight_race"],
+    ["completed_success", "direct"]
+  ] as const)("recovers the durable original from an altered DUP after %s via %s", async (phase, replay) => {
+    const directory = await mkdtemp(join(tmpdir(), "handoff-duplicate-original-"));
+    try {
+      const journalPath = join(directory, "journal.json");
+      const statePath = join(directory, "state.json");
+      const createRuntime = () => new ScheduleRuntime({
+        store: new FileAutomationStateStore(statePath),
+        clockTrust: { isTrusted: async () => true },
+        execute: async () => [],
+        allowManualStateInitialization: true
+      });
+      const original = { ...command, requestedAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 60_000).toISOString() };
+      const otherId = "77777777-7777-4777-8777-777777777777";
+      const altered = {
+        ...original, commandId: otherId, dispatchId: otherId, sequence: 42,
+        siteId: "88888888-8888-4888-8888-888888888888",
+        gatewayId: "99999999-9999-4999-8999-999999999999",
+        targetId: otherId, targetFixtureIds: [otherId], brightness: 10
+      };
+      const runtime = createRuntime();
+      await runtime.initialize();
+      await runtime.recordFixtureState(original.targetId, 20);
+      await runtime.prepareManualControl({ sourceId: otherId, fixtureIds: [otherId], brightnessPercent: 30, requestedAt: original.requestedAt });
+      const otherPending = runtime.state().pendingManualControls[otherId];
+      const journal = new CommandJournal(journalPath);
+      const complete = journal.complete.bind(journal);
+      const coordinator = createManualControlCoordinator(runtime);
+      const adapter = new StubBleMeshAdapter();
+      const interruptedHandoff = { ...coordinator, handoff: async () => { throw new Error("handoff interrupted"); } };
+      const initialOptions = {
+        automation: interruptedHandoff,
+        ...(phase === "legacy_accepted" ? {} : { setPermit: () => undefined })
+      };
+      if (phase === "completed_success") {
+        await handleGatewayDimmingCommand(adapter, journal, original, undefined, initialOptions);
+      } else {
+        // RF has run, but its terminal result did not reach durable storage.
+        // Recovery must retain uncertainty and settle the original manual owner.
+        journal.complete = async () => { throw new Error("terminal fsync failed"); };
+        await expect(handleGatewayDimmingCommand(adapter, journal, original, undefined, initialOptions)).rejects.toThrow("terminal fsync failed");
+        journal.complete = complete;
+        expect(await journal.get(original.idempotencyKey)).toMatchObject({
+          state: "accepted",
+          ...(phase === "legacy_accepted" ? {} : { executionPhase: "may_have_written" })
+        });
+        if (phase === "completed_unknown") {
+          await handleGatewayDimmingCommand(adapter, journal, original, undefined, { automation: interruptedHandoff });
+        }
+      }
+      expect(adapter.commands).toHaveLength(1);
+      if (phase.startsWith("completed")) {
+        expect(await journal.get(original.idempotencyKey)).toMatchObject({ state: "completed", automationHandoff: "pending" });
+      }
+      const restarted = createRuntime();
+      await restarted.initialize();
+      expect(restarted.state().pendingManualControls[original.targetId]?.sourceId).toBe(original.commandId);
+      const recoveryJournal = new CommandJournal(journalPath);
+      if (replay.endsWith("race")) {
+        // Another receiver has committed between lookup and admission. Keep
+        // the durable journal real; only inject that first stale observation.
+        const get = recoveryJournal.get.bind(recoveryJournal);
+        let first = true;
+        recoveryJournal.get = async (key) => { if (first) { first = false; return null; } return get(key); };
+      }
+      const recoveryAdapter = new StubBleMeshAdapter();
+      const result = await handleGatewayDimmingCommand(recoveryAdapter, recoveryJournal, altered, undefined, {
+        automation: createManualControlCoordinator(restarted),
+        setPermit: () => replay === "admission_race" || replay === "preflight_race" ? undefined : "GATEWAY_CLOCK_UNTRUSTED",
+        ...(replay === "preflight_race" ? { beforeExecution: async () => { throw new Error("outbox capacity unavailable"); } } : {})
+      });
+      const originalIdentity = {
+        commandId: "11111111-1111-4111-8111-111111111111",
+        dispatchId: "22222222-2222-4222-8222-222222222222",
+        idempotencyKey: "33333333-3333-4333-8333-333333333333",
+        sequence: 1,
+        siteId: "44444444-4444-4444-8444-444444444444",
+        gatewayId: "55555555-5555-4555-8555-555555555555"
+      };
+      expect.soft(result.acceptance).toMatchObject({ ...originalIdentity, status: "accepted" });
+      expect.soft(result.deviceStatus).toMatchObject({
+        ...originalIdentity,
+        status: phase === "completed_success" ? "succeeded" : "timed_out",
+        results: [{ fixtureId: "66666666-6666-4666-8666-666666666666", status: phase === "completed_success" ? "succeeded" : "timed_out" }]
+      });
+      expect.soft(result.fixtureStateObserved).toBe(phase === "completed_success");
+      expect.soft(restarted.state().pendingManualControls).toEqual({ [otherId]: otherPending });
+      expect.soft(restarted.state().transitionsByFixture[original.targetId]).toMatchObject({
+        phase: "terminal", sourceId: original.commandId, status: phase === "completed_success" ? "succeeded" : "timed_out"
+      });
+      expect.soft(restarted.state().currentByFixture[original.targetId]).toBe(phase === "completed_success" ? 65 : 20);
+      expect.soft(await recoveryJournal.get(original.idempotencyKey)).toMatchObject({ state: "completed", automationHandoff: "completed" });
+      expect.soft((await recoveryJournal.get(original.idempotencyKey))?.automationAbort).toBeUndefined();
+      expect.soft(await recoveryJournal.pendingAutomationRecoveries()).toEqual([]);
+      expect.soft(recoveryAdapter.commands).toHaveLength(0);
+      const persisted = createRuntime();
+      await persisted.initialize();
+      expect.soft(persisted.state().pendingManualControls).toEqual({ [otherId]: otherPending });
+      expect(await handleGatewayDimmingCommand(recoveryAdapter, recoveryJournal, altered, undefined, {
+        automation: createManualControlCoordinator(persisted)
+      })).toEqual(result);
+      expect(recoveryAdapter.commands).toHaveLength(0);
+    } finally { await rm(directory, { recursive: true, force: true }); }
+  });
+  it.each(["prepare", "terminal-before", "terminal-after", "abort-before", "abort-after", "abort-ack-before", "abort-ack-after"])("recovers an exact pre-RF abort after crash at %s without handoff or RF", async (boundary) => {
+    const directory = await mkdtemp(join(tmpdir(), "manual-abort-restart-"));
+    try {
+      const journalPath = join(directory, "journal.json");
+      const statePath = join(directory, "state.json");
+      const createRuntime = () => new ScheduleRuntime({ store: new FileAutomationStateStore(statePath), clockTrust: { isTrusted: async () => true }, execute: async () => [], allowManualStateInitialization: true });
+      const runtime = createRuntime();
+      await runtime.initialize();
+      const otherId = "77777777-7777-4777-8777-777777777777";
+      await runtime.prepareManualControl({ sourceId: otherId, fixtureIds: [otherId], brightnessPercent: 20, requestedAt: command.requestedAt });
+      const journal = new CommandJournal(journalPath);
+      const coordinator = createManualControlCoordinator(runtime);
+      let valid = true;
+      const prepare = coordinator.prepare;
+      coordinator.prepare = async (...args) => { await prepare(...args); valid = false; if (boundary === "prepare") throw new Error("crash"); };
+      if (boundary.startsWith("terminal")) {
+        const complete = journal.complete.bind(journal);
+        journal.complete = async (...args) => { if (boundary === "terminal-before") throw new Error("crash"); await complete(...args); throw new Error("crash"); };
+      }
+      if (boundary.startsWith("abort-ack")) {
+        const mark = journal.markAutomationAbortComplete?.bind(journal);
+        journal.markAutomationAbortComplete = async (...args) => { if (boundary === "abort-ack-before") throw new Error("crash"); await mark!(...args); throw new Error("crash"); };
+      } else if (boundary.startsWith("abort")) {
+        const abort = coordinator.abortManualControl?.bind(coordinator);
+        coordinator.abortManualControl = async (...args) => { if (boundary === "abort-before") throw new Error("crash"); await abort!(...args); throw new Error("crash"); };
+      }
+      const adapter = new StubBleMeshAdapter();
+      await expect(handleGatewayDimmingCommand(adapter, journal, command, undefined, {
+        automation: coordinator, setPermit: () => valid ? undefined : "GATEWAY_CLOCK_UNTRUSTED"
+      })).rejects.toThrow("crash");
+      const restarted = createRuntime();
+      await restarted.initialize();
+      const recoveryJournal = new CommandJournal(journalPath);
+      const recoveredCoordinator = createManualControlCoordinator(restarted);
+      await recoverPendingManualAutomationHandoffs(recoveryJournal, recoveredCoordinator);
+      await recoverPendingManualAutomationHandoffs(recoveryJournal, recoveredCoordinator);
+      expect(restarted.state().pendingManualControls).toEqual({ [otherId]: expect.objectContaining({ sourceId: otherId }) });
+      expect(restarted.state().transitionsByFixture[command.targetId]).toBeUndefined();
+      expect(restarted.state().manualAutomationSuppressions).toEqual({});
+      expect(restarted.state().pendingTelemetryHandoffs).toEqual([]);
+      expect(await recoveryJournal.latestFixtureSnapshots()).toEqual([]);
+      expect(await recoveryJournal.pendingAutomationRecoveries()).toEqual([]);
+      const result = await handleGatewayDimmingCommand(adapter, recoveryJournal, command, undefined, { automation: recoveredCoordinator, setPermit: () => undefined });
+      expect(result.acceptance).toMatchObject({ status: "rejected", errorCode: "GATEWAY_CLOCK_UNTRUSTED" });
+      expect(result.fixtureStateObserved).toBe(false);
+      expect(adapter.commands).toHaveLength(0);
+    } finally { await rm(directory, { recursive: true, force: true }); }
+  });
+  it.each([
+    ["receive", "GATEWAY_CLOCK_UNTRUSTED"], ["reservation", "GATEWAY_CLOCK_UNTRUSTED"],
+    ["fsync", "GATEWAY_CLOCK_UNTRUSTED"], ["accepted ACK", "GATEWAY_CLOCK_UNTRUSTED"],
+    ["reservation", "COMMAND_EXPIRED"], ["fsync", "COMMAND_EXPIRED"], ["accepted ACK", "COMMAND_EXPIRED"]
+  ] as const)("durably refuses at %s with %s without RF or automation handoff", async (boundary, reason) => {
+    const records = new Map<string, any>();
+    const journal = memoryJournal(records);
+    const accept = journal.accept;
+    let valid = boundary !== "receive";
+    journal.accept = async (key, value) => {
+      const reserved = await accept(key, value);
+      if (boundary === "fsync") valid = false;
+      return reserved;
+    };
+    const adapter = new StubBleMeshAdapter();
+    const automation = { prepare: vi.fn(), handoff: vi.fn() };
+    let durable = false;
+    let acceptedAckSent = false;
+    const options = {
+      setPermit: () => valid ? undefined : reason,
+      isCommandExpired: () => false,
+      beforeExecution: async () => { if (boundary === "reservation") valid = false; },
+      automation,
+      onDurableReceipt: () => { durable = true; }
+    };
+    const result = await handleGatewayDimmingCommand(adapter, journal, command,
+      async () => { acceptedAckSent = true; if (boundary === "accepted ACK") valid = false; }, options);
+    expect(result.acceptance).toMatchObject({ status: "rejected", errorCode: reason });
+    expect(result.fixtureStateObserved).toBe(false);
+    expect(records.get(command.idempotencyKey)).toMatchObject({ state: "completed", result });
+    expect(durable).toBe(true);
+    expect(acceptedAckSent).toBe(boundary === "accepted ACK");
+    expect(automation.prepare).not.toHaveBeenCalled();
+    expect(automation.handoff).not.toHaveBeenCalled();
+    valid = true;
+    expect(await handleGatewayDimmingCommand(adapter, journal, command, undefined, options)).toEqual(result);
+    expect(adapter.commands).toHaveLength(0);
+  });
+
+  it("does not revive a receive-time refusal when proof arrives before dequeue", async () => {
+    const queue = new KeyedSerialTaskQueue();
+    const queued = meshCommand();
+    let release!: () => void;
+    const held = queue.run(queued.meshControlGroupId, () => new Promise<void>((resolve) => { release = resolve; }));
+    await Promise.resolve();
+    let valid = false;
+    const adapter = new StubBleMeshAdapter();
+    const applyMeshGroup = async (_address: number, fixtureIds: string[], brightness: number) => adapter.setBrightness(fixtureIds, brightness);
+    const pending = handleGatewayDimmingCommand(Object.assign(adapter, { applyMeshGroup }), memoryJournal(new Map()), queued, undefined, {
+      groupQueue: queue, groupStateStore: { assertReady: async () => undefined },
+      setPermit: () => valid ? undefined : "GATEWAY_CLOCK_UNTRUSTED"
+    });
+    valid = true;
+    release();
+    await held;
+    expect((await pending).acceptance.errorCode).toBe("GATEWAY_CLOCK_UNTRUSTED");
+    expect(adapter.commands).toHaveLength(0);
+  });
+
+  it.each(["GATEWAY_CLOCK_UNTRUSTED", "COMMAND_EXPIRED"] as const)("waits for live group RF before replaying a DUP whose permit now returns %s", async (reason) => {
+    const records = new Map<string, any>();
+    const journal = memoryJournal(records);
+    const groupCommand = meshCommand();
+    const groupQueue = new KeyedSerialTaskQueue();
+    const adapter = new StubBleMeshAdapter();
+    let releaseRf!: () => void;
+    let notifyRfStarted!: () => void;
+    const rfGate = new Promise<void>((resolve) => { releaseRf = resolve; });
+    const rfStarted = new Promise<void>((resolve) => { notifyRfStarted = resolve; });
+    let rfCalls = 0;
+    let manualPending = false;
+    let valid = true;
+    const handoffs: string[] = [];
+    const automation = {
+      prepare: async () => { manualPending = true; },
+      handoff: async (_command: unknown, terminal: { status: string }) => {
+        handoffs.push(terminal.status);
+        manualPending = false;
+      }
+    };
+    const applyMeshGroup = async (_address: number, fixtureIds: string[], brightness: number) => {
+      rfCalls += 1;
+      notifyRfStarted();
+      await rfGate;
+      return adapter.setBrightness(fixtureIds, brightness);
+    };
+    const groupAdapter = Object.assign(adapter, { applyMeshGroup });
+    const options = {
+      groupQueue, automation, groupStateStore: { assertReady: async () => undefined },
+      setPermit: () => valid ? undefined : reason
+    };
+    const original = handleGatewayDimmingCommand(groupAdapter, journal, groupCommand, undefined, options);
+    await rfStarted;
+    valid = false;
+    let duplicateSettled = false;
+    const duplicate = handleGatewayDimmingCommand(groupAdapter, journal, groupCommand, undefined, options)
+      .then((result) => { duplicateSettled = true; return result; });
+    try {
+      // Let all immediate journal/recovery work settle while RF remains held.
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      expect(await journal.get(groupCommand.idempotencyKey)).toMatchObject({ state: "accepted" });
+      expect(duplicateSettled).toBe(false);
+      expect(manualPending).toBe(true);
+      expect(handoffs).toEqual([]);
+      expect(rfCalls).toBe(1);
+    } finally {
+      releaseRf();
+      await Promise.all([original, duplicate]);
+    }
+    const result = await original;
+    expect(result.deviceStatus.status).toBe("succeeded");
+    expect(await duplicate).toEqual(result);
+    expect(handoffs).toEqual(["succeeded"]);
+    expect(manualPending).toBe(false);
+    expect(rfCalls).toBe(1);
+  });
+
+  it.each(["GATEWAY_CLOCK_UNTRUSTED", "COMMAND_EXPIRED"] as const)("rechecks proof for %s when a Set leaves the group queue", async (reason) => {
+    const queue = new KeyedSerialTaskQueue();
+    const queued = meshCommand();
+    let release!: () => void;
+    const held = queue.run(queued.meshControlGroupId, () => new Promise<void>((resolve) => { release = resolve; }));
+    await Promise.resolve();
+    let valid = true;
+    const adapter = new StubBleMeshAdapter();
+    const applyMeshGroup = async (_address: number, fixtureIds: string[], brightness: number) => adapter.setBrightness(fixtureIds, brightness);
+    const pending = handleGatewayDimmingCommand(Object.assign(adapter, { applyMeshGroup }), memoryJournal(new Map()), queued, undefined, {
+      groupQueue: queue,
+      groupStateStore: { assertReady: async () => undefined },
+      setPermit: () => valid ? undefined : reason
+    });
+    valid = false;
+    release();
+    await held;
+    expect((await pending).acceptance.errorCode).toBe(reason);
+    expect(adapter.commands).toHaveLength(0);
+  });
+
+  it("refuses a DUP after the 24h journal prune and replays that terminal refusal after restart", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "gateway-pruned-dup-"));
+    try {
+      let now = new Date("2026-09-26T00:00:00.000Z");
+      const path = join(directory, "journal.json");
+      const journal = new CommandJournal(path, { now: () => now });
+      const adapter = new StubBleMeshAdapter();
+      await journal.accept(command.idempotencyKey, { command });
+      await journal.complete(command.idempotencyKey, { acceptance: { status: "accepted" }, fixtureStateObserved: false });
+      now = new Date("2026-09-27T00:00:00.001Z");
+      await journal.accept("trigger-prune", {});
+      expect(await journal.get(command.idempotencyKey)).toBeNull();
+      const options = { setPermit: () => "GATEWAY_CLOCK_UNTRUSTED" as const, isCommandExpired: () => false };
+      const result = await handleGatewayDimmingCommand(adapter, journal, command, undefined, options);
+      expect(result.acceptance.errorCode).toBe("GATEWAY_CLOCK_UNTRUSTED");
+      expect(await handleGatewayDimmingCommand(adapter, new CommandJournal(path, { now: () => now }), command, undefined, options)).toEqual(result);
+      expect(adapter.commands).toHaveLength(0);
+      expect(await journal.latestFixtureSnapshots()).toEqual([]);
+    } finally { await rm(directory, { recursive: true, force: true }); }
+  });
+
+  it("keeps an accepted-only restart indeterminate even if the Set permit is now refused", async () => {
+    const records = new Map<string, any>();
+    const journal = memoryJournal(records);
+    await journal.accept(command.idempotencyKey, { command });
+    const adapter = new StubBleMeshAdapter();
+    const result = await handleGatewayDimmingCommand(adapter, journal, command, undefined, {
+      setPermit: () => "GATEWAY_CLOCK_UNTRUSTED"
+    });
+    expect(result.acceptance.status).toBe("accepted");
+    expect(result.deviceStatus.status).toBe("timed_out");
+    expect(adapter.commands).toHaveLength(0);
+  });
   it.each(["unknown key", "bad fixture", "duplicate identity", "capacity", "wrong source", "wrong terminal", "missing success"])(
     "rejects malformed terminal suppression context during replay: %s", async (fault) => {
       const terminal = "2026-08-30T00:50:00.000Z";
@@ -422,6 +925,7 @@ describe("handleGatewayDimmingCommand", () => {
     const adapter = new StubBleMeshAdapter();
     const automation = {
       prepare: vi.fn(async () => { monotonicNow = 3_001; }),
+      abortManualControl: vi.fn().mockResolvedValue(undefined),
       handoff: vi.fn().mockResolvedValue(undefined)
     };
 
@@ -441,11 +945,8 @@ describe("handleGatewayDimmingCommand", () => {
     expect(automation.prepare).toHaveBeenCalledTimes(1);
     expect(result.acceptance).toMatchObject({ status: "rejected", errorCode: "COMMAND_EXPIRED" });
     expect(adapter.commands).toHaveLength(0);
-    expect(automation.handoff).toHaveBeenCalledWith(
-      expect.any(Object),
-      expect.objectContaining({ status: "failed" }),
-      "live"
-    );
+    expect(automation.handoff).not.toHaveBeenCalled();
+    expect(automation.abortManualControl).toHaveBeenCalledWith(command.commandId, command.targetFixtureIds);
   });
 
   it("times out a BLE adapter that never returns", async () => {
@@ -964,21 +1465,28 @@ function meshCommand() {
 function memoryJournal(records: Map<string, any>) {
   return {
     get: async (key: string) => records.get(key) ?? null,
-    accept: async (key: string, value: unknown) => {
+    accept: async (key: string, value: unknown, options: { executionPhase?: "pre_rf" } = {}) => {
       if (records.has(key)) return false;
-      records.set(key, { state: "accepted", command: value });
+      records.set(key, { state: "accepted", command: value, ...options });
       return true;
     },
-    complete: async (key: string, result: unknown, options: { automationHandoffPending?: boolean } = {}) => {
+    complete: async (key: string, result: unknown, options: { automationHandoffPending?: boolean; automationAbortPending?: boolean } = {}) => {
       records.set(key, {
         ...records.get(key),
         state: "completed",
         result,
+        ...(options.automationAbortPending ? { automationAbort: "pending" } : {}),
         automationHandoff: options.automationHandoffPending ? "pending" : "not_required"
       });
     },
     markAutomationHandoffComplete: async (key: string) => {
       records.set(key, { ...records.get(key), automationHandoff: "completed" });
+    },
+    markExecutionMayHaveStarted: async (key: string) => {
+      records.set(key, { ...records.get(key), executionPhase: "may_have_written" });
+    },
+    markAutomationAbortComplete: async (key: string) => {
+      records.set(key, { ...records.get(key), automationAbort: "completed" });
     }
   };
 }

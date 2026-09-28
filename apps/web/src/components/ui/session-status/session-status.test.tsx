@@ -50,6 +50,32 @@ function ImperativeOpenHarness() {
 }
 
 describe("session status feedback", () => {
+  it("shows gateway context in the drawer without counting it as unresolved", () => {
+    render(
+      <SessionStatusProvider>
+        <SessionStatusCenter contextItems={[{
+          id: "gateway-summary",
+          title: "Gateway 연결",
+          description: "게이트웨이 2/2대 연결",
+          tone: "success"
+        }]} />
+      </SessionStatusProvider>
+    );
+    const trigger = screen.getByRole("button", { name: "상태 센터, 미해결 0건" });
+    expect(within(trigger).queryByTestId("status-unresolved-badge")).not.toBeInTheDocument();
+    fireEvent.click(trigger);
+    const drawer = screen.getByRole("dialog", { name: "현재 세션 상태" });
+    expect(drawer).toHaveTextContent("게이트웨이 2/2대 연결");
+    expect(drawer).toHaveTextContent("읽지 않은 알림 수가 아니라 현재 해결이 필요한 상태 수입니다.");
+  });
+
+  it("uses one unresolved count for the bell label and visible badge", () => {
+    render(<SessionStatusProvider><QueryStatusHarness fingerprint="1" /></SessionStatusProvider>);
+    const trigger = screen.getByRole("button", { name: "상태 센터, 미해결 1건" });
+    expect(trigger).toHaveAttribute("title", "상태 센터, 미해결 1건");
+    expect(within(trigger).getByTestId("status-unresolved-badge")).toHaveTextContent("1");
+  });
+
   it("deduplicates a current query issue, resolves it, and announces a later episode again", async () => {
     const { rerender } = render(<SessionStatusProvider><QueryStatusHarness fingerprint="1" /></SessionStatusProvider>);
 
@@ -130,6 +156,12 @@ describe("session status feedback", () => {
     fireEvent.keyDown(dialog, { key: "Escape" });
 
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "현재 세션 상태" })).not.toBeInTheDocument());
+    await waitFor(() => expect(trigger).toHaveFocus());
+    expect(trigger).toHaveAttribute("aria-expanded", "false");
+
+    fireEvent.click(trigger);
+    const reopened = await screen.findByRole("dialog", { name: "현재 세션 상태" });
+    fireEvent.click(within(reopened).getByRole("button", { name: "닫기" }));
     await waitFor(() => expect(trigger).toHaveFocus());
     expect(trigger).toHaveAttribute("aria-expanded", "false");
   });

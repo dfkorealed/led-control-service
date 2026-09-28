@@ -21,6 +21,7 @@ import {
   type UpdateVehicleEventRuleInput
 } from "./dto/vehicle-event-rule.dto";
 import { TargetSnapshotService } from "./target-snapshot.service";
+import { automationSyncWhere, literalAutomationName } from "./automation-list-filters";
 
 const responseInclude = {
   sources: { select: { fixtureId: true }, orderBy: { fixtureId: "asc" as const } },
@@ -71,17 +72,26 @@ export class VehicleEventRulesService {
   async list(siteId: string, actor: AuthenticatedUser, rawQuery: unknown) {
     return this.prisma.$transaction(async (tx) => {
       await this.siteAccess.assertReadInTransaction(tx, actor, siteId);
-      const query = parseAutomationListQuery(rawQuery, siteId, "vehicle event rule");
-      const pageWhere: Prisma.VehicleEventRuleWhereInput = query.cursor
+      const query = parseAutomationListQuery(rawQuery, siteId, "vehicle event rule", actor.id, "vehicle_event_rule");
+      const filteredWhere: Prisma.VehicleEventRuleWhereInput = { siteId,
+        ...(query.query ? { name: literalAutomationName(query.query) } : {}),
+        ...(query.status ? { status: query.status } : {}),
+        ...(query.syncStatus ? automationSyncWhere(query.syncStatus) : {}) };
+      const anchorWhere: Prisma.VehicleEventRuleWhereInput | null = query.cursor
         ? {
-          siteId,
           OR: [
             { createdAt: { lt: query.cursor.createdAt } },
             { createdAt: query.cursor.createdAt, id: { gt: query.cursor.id } }
           ]
         }
-        : { siteId };
+        : null;
+      const pageWhere: Prisma.VehicleEventRuleWhereInput = query.hasFilters
+        ? anchorWhere ? { AND: [filteredWhere, anchorWhere] } : filteredWhere
+        : anchorWhere ? { siteId, ...anchorWhere } : { siteId };
       const total = await tx.vehicleEventRule.count({ where: { siteId } });
+      const filteredTotal = query.hasFilters ? await tx.vehicleEventRule.count({ where: filteredWhere }) : total;
+      const [applied, pending, rejected] = await Promise.all(["APPLIED", "PENDING", "REJECTED"].map(syncStatus =>
+        tx.vehicleEventRule.count({ where: { siteId, ...automationSyncWhere(syncStatus as "APPLIED" | "PENDING" | "REJECTED") } })));
       const rows = await tx.vehicleEventRule.findMany({
         where: pageWhere,
         orderBy: [{ createdAt: "desc" }, { id: "asc" }],
@@ -95,8 +105,13 @@ export class VehicleEventRulesService {
       return {
         items: rules.map((rule) => this.toResponse(rule, executions)),
         total,
+        filteredTotal,
+        siteSummary: { ruleCount: total, syncRuleCounts: { APPLIED: applied, PENDING: pending, REJECTED: rejected } },
         nextCursor: hasNextPage && lastRule
-          ? encodeAutomationListCursor({ siteId, createdAt: lastRule.createdAt, id: lastRule.id })
+          ? query.hasFilters
+            ? encodeAutomationListCursor({ siteId, createdAt: lastRule.createdAt, id: lastRule.id,
+              principalId: actor.id, resource: "vehicle_event_rule", filterSignature: query.filterSignature! })
+            : encodeAutomationListCursor({ siteId, createdAt: lastRule.createdAt, id: lastRule.id })
           : null
       };
     }, { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead });

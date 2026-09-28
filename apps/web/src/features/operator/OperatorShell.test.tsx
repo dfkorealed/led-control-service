@@ -23,14 +23,14 @@ function LocationProbe() {
   return <output aria-label="현재 경로">{`${location.pathname}${location.search}${location.hash}`}</output>;
 }
 
-function renderShell(path = "/operator/site-admins") {
+function renderShell(path = "/operator/site-admins", user = operator) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  client.setQueryData(authMeQueryKey, { user: operator });
+  client.setQueryData(authMeQueryKey, { user });
   client.setQueryData(["tenant", "private"], { siteId: "site-1" });
   render(
     <QueryClientProvider client={client}>
       <MemoryRouter initialEntries={[path]}>
-        <OperatorShell user={operator} />
+        <OperatorShell user={user} />
         <LocationProbe />
       </MemoryRouter>
     </QueryClientProvider>
@@ -65,6 +65,29 @@ describe("operator shell route boundary", () => {
 
     expect(screen.getByRole("img", { name: "킨다 서비스 운영" })).toBeVisible();
     expect(screen.queryByText(/LED\s+Control/)).not.toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "현장 관리자 계정" })).toBeVisible();
+  });
+
+  it("긴 운영자 아이디에서도 모바일 로그아웃 action을 밀어내지 않는다", async () => {
+    const longLoginId = `operator_${"a".repeat(91)}`;
+    renderShell("/operator/site-admins", { ...operator, loginId: longLoginId });
+
+    expect(screen.getByTestId("operator-header-inner")).toHaveClass(
+      "max-compact:flex-col",
+      "max-compact:items-stretch"
+    );
+    expect(screen.getByText(longLoginId)).toHaveClass("min-w-0", "truncate");
+    expect(screen.getByRole("button", { name: "로그아웃" })).toHaveClass("shrink-0");
+    expect(await screen.findByRole("heading", { name: "현장 관리자 계정" })).toBeVisible();
+  });
+
+  it("uses the operator atlas frame without mounting the customer shell", async () => {
+    renderShell();
+
+    const main = screen.getByRole("main");
+    expect(main).toHaveClass("max-w-operator");
+    expect(screen.getByRole("navigation", { name: "운영자 메뉴" })).toBeVisible();
+    expect(screen.queryByRole("navigation", { name: "주 메뉴" })).not.toBeInTheDocument();
     expect(await screen.findByRole("heading", { name: "현장 관리자 계정" })).toBeVisible();
   });
 

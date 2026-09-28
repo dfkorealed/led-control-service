@@ -2,6 +2,7 @@ import { expect, test, type Locator, type Page } from "@playwright/test";
 import type { CreateFixtureGroupInput, FixtureGroupMetadata } from "@led-control/shared";
 import {
   installSettingsApiRoutes,
+  commandDetailClockFixture,
   type SettingsFixture
 } from "./support/settings-api";
 import {
@@ -285,7 +286,7 @@ test.describe("모니터링-제어 브라우저 route fixture 계약 (실제 하
       });
       await setupPage.goto(`/settings?siteId=${ids.site}`);
       await setupPage.getByLabel("주소").fill("서울시 강남구");
-      for (const actionName of ["주소 미입력", "층 자동 생성", "초기 설정 완료"]) {
+      for (const actionName of ["주소 미입력", "맵 생성", "초기 설정 완료"]) {
         const action = setupPage.getByRole("button", { name: actionName });
         await expect(action).toBeEnabled();
         await expectMinimumTouchTargetSize(action);
@@ -645,19 +646,30 @@ test.describe("모니터링-제어 브라우저 route fixture 계약 (실제 하
   });
 
   for (const viewport of responsiveViewports) {
-    test(`${viewport.width}px에서 모니터링과 제어 작업 패널이 반응형 계약을 지킨다`, async ({ page }) => {
+    test(`${viewport.width}px에서 모니터링과 제어 작업 패널이 반응형 계약을 지킨다`, async ({ page }, testInfo) => {
       await page.setViewportSize(viewport);
       await installBrowserContractFixture(page);
 
       await page.goto(`/monitoring?siteId=${ids.site}`);
       await expect(page.getByRole("button", { name: "맵 선택" })).toBeVisible();
-      await expectResponsivePanelLayout(page, "[data-monitoring-map-panel]", "[data-monitoring-detail-panel]", viewport.width < 768);
+      await expect(page.locator("[data-monitoring-map-panel]")).toBeVisible();
+      await expect(page.getByRole("dialog", { name: "조명 검색·상세", exact: true })).toHaveCount(0);
       await expectNoHorizontalOverflow(page);
       if (viewport.width <= 760) {
         // Keep the full shell in scope while scrolling long dashboard controls into reach.
         // Spatial markers are positioned visual affordances, not standalone touch controls.
         await expectMinimumTouchTargetsAfterScrolling(page, "[data-app-shell]", { excludeSpatialMapMarkers: true });
-        const fixtureSelector = page.getByRole("button", { name: "상세 조명 선택" });
+      }
+      // Atlas moves the former inline inspector into an explicit drawer at every viewport.
+      await page.getByRole("button", { name: "조명 검색·상세", exact: true }).click();
+      const inspector = page.getByRole("dialog", { name: "조명 검색·상세", exact: true });
+      await expect(inspector).toBeVisible();
+      const inspectorBounds = await inspector.boundingBox();
+      expect(inspectorBounds).not.toBeNull();
+      expect(inspectorBounds!.x).toBeGreaterThanOrEqual(0);
+      expect(inspectorBounds!.x + inspectorBounds!.width).toBeLessThanOrEqual(viewport.width + 1);
+      if (viewport.width <= 760) {
+        const fixtureSelector = inspector.getByRole("button", { name: "상세 조명 선택" });
         await expect(fixtureSelector).toBeVisible();
         await fixtureSelector.click();
         await expect(page.getByRole("option")).toHaveCount(fixtures.length);
@@ -668,17 +680,28 @@ test.describe("모니터링-제어 브라우저 route fixture 계약 (실제 하
         await page.getByRole("option", { name: "B2-L001 · 정상", exact: true }).click();
         await expect(page.getByRole("complementary", { name: "선택 조명 상세" }).getByRole("heading", { name: "B2-L001" })).toBeVisible();
       }
+      await inspector.getByRole("button", { name: "조명 검색·상세 닫기" }).click();
+      await expect(inspector).toHaveCount(0);
 
       await page.goto(`/control?siteId=${ids.site}`);
-      await expect(page.getByRole("heading", { name: "조명 밝기 제어", exact: true })).toBeVisible();
+      await expect(page.getByRole("heading", { name: "제어", exact: true })).toBeVisible();
+      await expect(page.getByRole("slider", { name: "밝기", exact: true })).toBeVisible();
       await expectResponsivePanelLayout(
         page,
-        viewport.width < 768 ? '[data-testid="target-selection-map-viewport"]' : "[data-control-target-card]",
-        viewport.width < 768 ? "[data-target-selection-detail-panel]" : "[data-control-panel]",
-        viewport.width < 768
+        "[data-control-target-card]",
+        "[data-control-panel]",
+        viewport.width < 760
       );
       await expectNoHorizontalOverflow(page);
       if (viewport.width <= 760) {
+        const verificationButton = page.getByRole("button", { name: "확인 필요한 명령", exact: true });
+        await verificationButton.scrollIntoViewIfNeeded();
+        await testInfo.attach("verification-command-hit-geometry", { contentType: "application/json", body: JSON.stringify(await verificationButton.evaluate(element => {
+          const bounds = element.getBoundingClientRect();
+          const style = getComputedStyle(element);
+          const corner = document.elementFromPoint(bounds.left + 0.5, bounds.top + 0.5);
+          return { width: bounds.width, height: bounds.height, borderRadius: style.borderRadius, cornerHitsButton: corner === element || (corner ? element.contains(corner) : false) };
+        })) });
         await expectMinimumTouchTargetsAfterScrolling(page, "[data-control-screen]", { excludeSpatialMapMarkers: true });
       }
     });
@@ -730,7 +753,8 @@ test.describe("모니터링-제어 브라우저 route fixture 계약 (실제 하
       await installBrowserContractFixture(page);
       await installAutomationListRoutes(page);
       await page.goto(`/control?siteId=${ids.site}&mode=manual`);
-      await expect(page.getByRole("heading", { name: "조명 밝기 제어" })).toBeVisible();
+      await expect(page.getByRole("heading", { name: "제어", exact: true })).toBeVisible();
+      await expect(page.getByRole("slider", { name: "밝기", exact: true })).toBeVisible();
 
       const manualTabSizes = await controlModeTabSizes(page);
 
@@ -989,6 +1013,7 @@ async function installReadyMeshControlRoutes(page: Page) {
       return route.fulfill({ json: {
         id: commandId,
         stage: "completed",
+        ...commandDetailClockFixture,
         dispatchCount: 1,
         completedFixtureCount: 2,
         totalFixtureCount: 2,

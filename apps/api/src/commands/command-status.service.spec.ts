@@ -1,8 +1,20 @@
-import { BadRequestException, NotFoundException } from "@nestjs/common";
+import { BadRequestException, GoneException, NotFoundException } from "@nestjs/common";
 import { AuthenticatedUser } from "../auth/auth.types";
-import { CommandStatusService } from "./command-status.service";
+import { CommandStatusService as ActualCommandStatusService } from "./command-status.service";
+
+// Supply the DB transaction clock now required in both rollout modes.
+function CommandStatusService(db: any, access: any) {
+  db.$queryRaw ??= jest.fn().mockResolvedValue([{ generatedAt: new Date("2026-09-25T00:00:00Z"), retainedFrom: new Date("2026-06-25T00:00:00Z") }]);
+  db.$transaction ??= jest.fn((read) => read(db));
+  return new ActualCommandStatusService(db, access);
+}
 
 describe("CommandStatusService", () => {
+  afterEach(() => {
+    delete process.env.COMMAND_HISTORY_RETENTION_ENABLED;
+    delete process.env.COMMAND_RECOVERY_ACTIONS_ENABLED;
+    delete process.env.COMMAND_RECOVERY_PUBLISHER_READY;
+  });
   const user: AuthenticatedUser = {
     id: "user-1", organizationId: "org-1", organizationType: "customer", loginId: "fixture_user", name: "Admin", role: "admin", mustChangePassword: false, status: "active"
   };
@@ -90,6 +102,36 @@ describe("CommandStatusService", () => {
         ...(attempt ? [expect.objectContaining({ kind: "status_check", verificationAttempt: attempt }), expect.objectContaining({ verificationAttempt: attempt })] : [])] });
   });
 
+  it("exposes only an exact terminal clock refusal in command history and detail", async () => {
+    const clock = historyCommand("command-clock", "not_applied");
+    clock.dispatches[0].status = "failed";
+    clock.dispatches[0].errorCode = "GATEWAY_CLOCK_UNTRUSTED";
+    clock.dispatches[0].fixtureResults[0].status = "failed";
+    const uncertain = historyCommand("command-unknown", "unknown");
+    uncertain.dispatches[0].errorCode = "GATEWAY_CLOCK_UNTRUSTED";
+    const partial = historyCommand("command-partial", "partially_applied");
+    partial.dispatches[0].errorCode = "GATEWAY_CLOCK_UNTRUSTED";
+    partial.dispatches[0].fixtureResults[0].status = "succeeded";
+    const expired = historyCommand("command-expired", "not_applied");
+    expired.dispatches[0].status = "failed";
+    expired.dispatches[0].errorCode = "COMMAND_EXPIRED";
+    expired.dispatches[0].fixtureResults[0].status = "failed";
+    const prisma = { command: { findMany: jest.fn().mockResolvedValue([clock, uncertain, partial, expired]),
+      findUnique: jest.fn().mockResolvedValue(clock) } };
+    const service = new (CommandStatusService as any)(prisma, { assert: jest.fn() });
+    const list = await service.listCommands(user, { siteId: "site-1" });
+    expect(list.items.map((item: any) => item.errorCode)).toEqual([
+      "GATEWAY_CLOCK_UNTRUSTED", undefined, undefined, undefined
+    ]);
+    await expect(service.getCommand(user, clock.id)).resolves.toMatchObject({
+      errorCode: "GATEWAY_CLOCK_UNTRUSTED", stage: "failed",
+      dispatches: [expect.objectContaining({ errorCode: "GATEWAY_CLOCK_UNTRUSTED" })]
+    });
+    clock.dispatches[0].fixtureResults[0].fixtureId = "outside-target";
+    const wrongTarget = await service.listCommands(user, { siteId: "site-1" });
+    expect(wrongTarget.items[0].errorCode).toBeUndefined();
+  });
+
   it("lists summaries with stable descending timestamp/id pagination and an exclusive cursor", async () => {
     const rows = [historyCommand("cccccccc-cccc-4ccc-8ccc-cccccccccccc"), historyCommand("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb")];
     const prisma = { command: { findMany: jest.fn().mockResolvedValue(rows) } };
@@ -110,6 +152,131 @@ describe("CommandStatusService", () => {
     });
     expect(access.assert).toHaveBeenCalledWith(user, "site-1", "read");
   });
+
+  it.each([
+    ["2026-05-31T12:00:00.000Z", "2026-02-28T12:00:00.000Z"],
+    ["2026-02-28T12:00:00.000Z", "2025-11-28T12:00:00.000Z"],
+    ["2026-01-31T12:00:00.000Z", "2025-10-31T12:00:00.000Z"]
+  ])("uses one UTC calendar cutoff at %s for list and cursor", async (nowIso, cutoffIso) => {
+    enableReadCutoff();
+    const now = new Date(nowIso);
+    const cutoff = new Date(cutoffIso);
+    const tx = { $queryRaw: jest.fn().mockImplementation((query) => query.strings.join(" ").includes("transaction_timestamp()")
+      ? [{ generatedAt: now, retainedFrom: cutoff }] : []),
+    command: { findMany: jest.fn().mockResolvedValue([]) } };
+    const prisma = { $transaction: jest.fn((fn) => fn(tx)) };
+    const service = new (CommandStatusService as any)(prisma, { assert: jest.fn() });
+    await expect(service.listCommands(user, { siteId: "site-1" }, now)).resolves.toMatchObject({
+      generatedAt: nowIso, retainedFrom: cutoffIso, items: [], nextCursor: null
+    });
+    expect(tx.command.findMany.mock.calls[0][0].where.AND).toContainEqual({ createdAt: { gte: cutoff } });
+
+    const exactCursor = Buffer.from(JSON.stringify({ id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", createdAt: cutoffIso })).toString("base64url");
+    await expect(service.listCommands(user, { siteId: "site-1", cursor: exactCursor }, now)).resolves.toMatchObject({ items: [] });
+    const expiredCursor = Buffer.from(JSON.stringify({ id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      createdAt: new Date(cutoff.getTime() - 1).toISOString() })).toString("base64url");
+    const expired = await service.listCommands(user, { siteId: "site-1", cursor: expiredCursor }, now).catch((error: unknown) => error);
+    expect(expired).toBeInstanceOf(BadRequestException);
+    expect(expired.getResponse()).toMatchObject({ code: "command_history_cursor_expired" });
+    expect(tx.command.findMany).toHaveBeenCalledTimes(2);
+  });
+
+  it("hides old originals even when their updatedAt is recent, without exposing dispatch payload", async () => {
+    enableReadCutoff();
+    const old = { ...historyCommand("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"),
+      createdAt: new Date("2026-02-28T11:59:59.999Z"), updatedAt: new Date("2026-05-31T11:59:59.999Z") };
+    const tx = { $queryRaw: jest.fn().mockImplementation((query) => query.strings.join(" ").includes("transaction_timestamp()")
+      ? [{ generatedAt: new Date("2026-05-31T12:00:00.000Z"), retainedFrom: new Date("2026-02-28T12:00:00.000Z") }] : []),
+    command: { findUnique: jest.fn() } };
+    const prisma = { $transaction: jest.fn((fn) => fn(tx)), command: { findUnique: jest.fn().mockResolvedValue(old) } };
+    const service = new (CommandStatusService as any)(prisma, { assert: jest.fn() });
+    const error = await service.getCommand(user, old.id, new Date("2026-05-31T12:00:00.000Z")).catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(GoneException);
+    expect(error.getResponse()).toMatchObject({ code: "command_expired" });
+    expect(prisma.command.findUnique).toHaveBeenCalledTimes(1);
+    expect(tx.command.findUnique).not.toHaveBeenCalled();
+  });
+
+  it("hides old unknown detail and history independently of recovery flags", async () => {
+    process.env.COMMAND_HISTORY_RETENTION_ENABLED = "1";
+    const old = { ...historyCommand("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"),
+      createdAt: new Date("2026-01-01T00:00:00.000Z") };
+    const tx = { $queryRaw: jest.fn().mockResolvedValue([{ generatedAt: new Date("2026-09-25T00:00:00.000Z"),
+      retainedFrom: new Date("2026-06-25T00:00:00.000Z") }]), command: { findMany: jest.fn().mockResolvedValue([]), findUnique: jest.fn() } };
+    const prisma = { $transaction: jest.fn((fn) => fn(tx)), command: { findUnique: jest.fn().mockResolvedValue(old) } };
+    const service = new (CommandStatusService as any)(prisma, { assert: jest.fn() });
+    await expect(service.getCommand(user, old.id, new Date("2026-09-25T00:00:00.000Z"))).rejects.toMatchObject({
+      status: 410, response: { code: "command_expired" }
+    });
+    await expect(service.listCommands(user, { siteId: "site-1" }, new Date("2026-09-25T00:00:00.000Z")))
+      .resolves.toMatchObject({ items: [] });
+    expect(tx.command.findMany.mock.calls[0][0].where.AND).toContainEqual({ createdAt: { gte: new Date("2026-06-25T00:00:00.000Z") } });
+  });
+
+  it("authorizes before the DB-clock transaction and returns an OFF-mode clock without cutoff", async () => {
+    const prisma: any = { command: { findMany: jest.fn().mockResolvedValue([]) } };
+    const access = { assert: jest.fn().mockResolvedValue(undefined) };
+    const service = new (CommandStatusService as any)(prisma, access);
+    await expect(service.listCommands(user, { siteId: "site-1" })).resolves.toMatchObject({ retentionEnabled: false, generatedAt: "2026-09-25T00:00:00.000Z" });
+    expect(prisma.command.findMany.mock.calls[0][0].where.AND).toEqual([]);
+    prisma.$transaction.mockClear();
+    enableReadCutoff();
+    access.assert.mockRejectedValueOnce(new NotFoundException());
+    await expect(service.listCommands(user, { siteId: "other-site" })).rejects.toBeInstanceOf(NotFoundException);
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it("fails closed when the authorized DB-clock transaction fails", async () => {
+    enableReadCutoff();
+    const prisma = { $transaction: jest.fn().mockRejectedValue(new Error("db clock unavailable")),
+      command: { findMany: jest.fn(), findUnique: jest.fn().mockResolvedValue({ siteId: "site-1", createdAt: new Date() }) } };
+    const service = new (CommandStatusService as any)(prisma, { assert: jest.fn() });
+    await expect(service.listCommands(user, { siteId: "site-1" })).rejects.toThrow("db clock unavailable");
+    await expect(service.getCommand(user, "command-1")).rejects.toThrow("db clock unavailable");
+    expect(prisma.command.findMany).not.toHaveBeenCalled();
+    expect(prisma.$transaction).toHaveBeenCalledTimes(2);
+  });
+
+  it("cloaks a foreign detail before entering the enabled DB-clock transaction", async () => {
+    enableReadCutoff();
+    const prisma = { $transaction: jest.fn(), command: { findUnique: jest.fn().mockResolvedValue({
+      siteId: "foreign-site", createdAt: new Date("2026-09-25T00:00:00.000Z") }) } };
+    const service = new (CommandStatusService as any)(prisma,
+      { assert: jest.fn().mockRejectedValue(new NotFoundException()) });
+    const error = await service.getCommand(user, "command-1").catch((caught: unknown) => caught);
+    expect(error.getResponse()).toMatchObject({ code: "command_not_found" });
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it("returns 410 if the detail row is purged between authorization and second read but its hold remains", async () => {
+    const prisma = { command: { findUnique: jest.fn().mockResolvedValueOnce({ siteId: "site-1",
+      createdAt: new Date("2026-09-01T00:00:00.000Z") }).mockResolvedValueOnce(null) },
+      unresolvedCommandHold: { findUnique: jest.fn().mockResolvedValue({ siteId: "site-1" }) } };
+    const service = new (CommandStatusService as any)(prisma, { assert: jest.fn() });
+    const error = await service.getCommand(user, "command-1", new Date("2026-09-25T00:00:00.000Z"))
+      .catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(GoneException);
+    expect(error.getResponse()).toEqual({ code: "command_expired" });
+  });
+
+  it.each([["site-1", GoneException], [null, NotFoundException]])(
+    "preserves detail purge-race cloak with authorized hold %s inside the DB-clock read transaction",
+    async (holdSite, expected) => {
+      enableReadCutoff();
+      const clock = { generatedAt: new Date("2026-09-25T12:00:00.000Z"),
+        retainedFrom: new Date("2026-06-25T12:00:00.000Z") };
+      const tx = { $queryRaw: jest.fn().mockResolvedValueOnce([clock]).mockResolvedValueOnce([]),
+        command: { findUnique: jest.fn().mockResolvedValue(null) },
+        unresolvedCommandHold: { findUnique: jest.fn().mockResolvedValue(holdSite ? { siteId: holdSite } : null) } };
+      const prisma = { $transaction: jest.fn((fn) => fn(tx)),
+        command: { findUnique: jest.fn().mockResolvedValue({ siteId: "site-1", createdAt: clock.generatedAt }) } };
+      const service = new (CommandStatusService as any)(prisma, { assert: jest.fn() });
+      await expect(service.getCommand(user, "command-1")).rejects.toBeInstanceOf(expected);
+      expect(tx.command.findUnique).toHaveBeenCalledTimes(1);
+      expect(tx.unresolvedCommandHold.findUnique).toHaveBeenCalledTimes(1);
+      expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+    }
+  );
 
   it("keeps both ID and fixture search branches inside the requested site and stage", async () => {
     const prisma = { command: { findMany: jest.fn().mockResolvedValue([]) } };
@@ -160,10 +327,36 @@ describe("CommandStatusService", () => {
   });
 
   it("does not reveal a command outside the user's organization", async () => {
-    const prisma: any = { command: { findUnique: jest.fn().mockResolvedValue(null) } };
+    const prisma: any = { command: { findUnique: jest.fn().mockResolvedValue(null) },
+      unresolvedCommandHold: { findUnique: jest.fn().mockResolvedValue(null) } };
     const service = new (CommandStatusService as any)(prisma, { assert: jest.fn() });
 
     await expect(service.getCommand(user, "command-other")).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it("returns payload-free 410 for an authorized purged original with an unresolved hold", async () => {
+    const prisma: any = { command: { findUnique: jest.fn().mockResolvedValue(null) },
+      unresolvedCommandHold: { findUnique: jest.fn().mockResolvedValue({ siteId: "site-1" }) } };
+    const access = { assert: jest.fn() };
+    const service = new (CommandStatusService as any)(prisma, access);
+    const error = await service.getCommand(user, "command-purged").catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(GoneException);
+    expect(error.getResponse()).toEqual({ code: "command_expired" });
+    expect(access.assert).toHaveBeenCalledWith(user, "site-1", "read");
+    expect(prisma.command.findUnique).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps purged resolved and foreign holds indistinguishable from absent commands", async () => {
+    const absent = { command: { findUnique: jest.fn().mockResolvedValue(null) },
+      unresolvedCommandHold: { findUnique: jest.fn().mockResolvedValue(null) } };
+    const foreign = { command: { findUnique: jest.fn().mockResolvedValue(null) },
+      unresolvedCommandHold: { findUnique: jest.fn().mockResolvedValue({ siteId: "foreign" }) } };
+    const absentError = await new (CommandStatusService as any)(absent, { assert: jest.fn() })
+      .getCommand(user, "old").catch((caught: unknown) => caught);
+    const foreignError = await new (CommandStatusService as any)(foreign,
+      { assert: jest.fn().mockRejectedValue(new NotFoundException()) }).getCommand(user, "old").catch((caught: unknown) => caught);
+    expect(absentError.getResponse()).toEqual(foreignError.getResponse());
+    expect(absentError.getResponse()).toMatchObject({ code: "command_not_found" });
   });
 
   it("reports partial failure when terminal fixture results are mixed", async () => {
@@ -223,7 +416,8 @@ describe("CommandStatusService", () => {
 
   it("returns the same public 404 response for absent and inaccessible commands", async () => {
     const absentService = new (CommandStatusService as any)(
-      { command: { findUnique: jest.fn().mockResolvedValue(null) } },
+      { command: { findUnique: jest.fn().mockResolvedValue(null) },
+        unresolvedCommandHold: { findUnique: jest.fn().mockResolvedValue(null) } },
       { assert: jest.fn() }
     );
     const inaccessibleService = new (CommandStatusService as any)(
@@ -247,4 +441,10 @@ function historyCommand(id: string, outcome = "unknown", attempt = 0) {
     status: "failed", outcome, errorMessage: "deadline exceeded", createdAt: new Date("2026-09-12T00:00:00.000Z"), updatedAt: new Date("2026-09-12T00:00:01.000Z"),
     dispatches: [dispatch, ...(attempt ? [{ ...dispatch, id: "check-1", kind: "status_check", verificationAttempt: attempt },
       { ...dispatch, id: "check-2", kind: "status_check", verificationAttempt: attempt }] : [])] };
+}
+
+function enableReadCutoff() {
+  process.env.COMMAND_HISTORY_RETENTION_ENABLED = "1";
+  process.env.COMMAND_RECOVERY_ACTIONS_ENABLED = "1";
+  process.env.COMMAND_RECOVERY_PUBLISHER_READY = "1";
 }

@@ -27,6 +27,8 @@ import {
   type UpdateScheduleInput
 } from "./dto/schedule.dto";
 import { TargetSnapshotService } from "./target-snapshot.service";
+import { automationSyncWhere, literalAutomationName } from "./automation-list-filters";
+import { encodeAutomationListCursor } from "./dto/automation-list.dto";
 
 const responseInclude = {
   fixtures: { select: { fixtureId: true }, orderBy: { fixtureId: "asc" as const } },
@@ -73,17 +75,26 @@ export class SchedulesService {
   async list(siteId: string, actor: AuthenticatedUser, rawQuery: unknown) {
     return this.prisma.$transaction(async (tx) => {
       const site = await this.siteAccess.assertReadInTransaction(tx, actor, siteId);
-      const query = parseScheduleListQuery(rawQuery, siteId);
-      const pageWhere: Prisma.LightingScheduleWhereInput = query.cursor
+      const query = parseScheduleListQuery(rawQuery, siteId, actor.id);
+      const filteredWhere: Prisma.LightingScheduleWhereInput = { siteId,
+        ...(query.query ? { name: literalAutomationName(query.query) } : {}),
+        ...(query.status ? { status: query.status } : {}),
+        ...(query.syncStatus ? automationSyncWhere(query.syncStatus) : {}) };
+      const anchorWhere: Prisma.LightingScheduleWhereInput | null = query.cursor
         ? {
-          siteId,
           OR: [
             { createdAt: { lt: query.cursor.createdAt } },
             { createdAt: query.cursor.createdAt, id: { gt: query.cursor.id } }
           ]
         }
-        : { siteId };
+        : null;
+      const pageWhere: Prisma.LightingScheduleWhereInput = query.hasFilters
+        ? anchorWhere ? { AND: [filteredWhere, anchorWhere] } : filteredWhere
+        : anchorWhere ? { siteId, ...anchorWhere } : { siteId };
       const total = await tx.lightingSchedule.count({ where: { siteId } });
+      const filteredTotal = query.hasFilters ? await tx.lightingSchedule.count({ where: filteredWhere }) : total;
+      const [applied, pending, rejected] = await Promise.all(["APPLIED", "PENDING", "REJECTED"].map(syncStatus =>
+        tx.lightingSchedule.count({ where: { siteId, ...automationSyncWhere(syncStatus as "APPLIED" | "PENDING" | "REJECTED") } })));
       const rows = await tx.lightingSchedule.findMany({
         where: pageWhere,
         orderBy: [{ createdAt: "desc" }, { id: "asc" }],
@@ -97,8 +108,13 @@ export class SchedulesService {
       return {
         items: schedules.map((schedule) => this.toResponse(schedule, site.timeZone, now)),
         total,
+        filteredTotal,
+        siteSummary: { ruleCount: total, syncRuleCounts: { APPLIED: applied, PENDING: pending, REJECTED: rejected } },
         nextCursor: hasNextPage && lastSchedule
-          ? encodeScheduleListCursor({ siteId, createdAt: lastSchedule.createdAt, id: lastSchedule.id })
+          ? query.hasFilters
+            ? encodeAutomationListCursor({ siteId, createdAt: lastSchedule.createdAt, id: lastSchedule.id,
+              principalId: actor.id, resource: "schedule", filterSignature: query.filterSignature! })
+            : encodeScheduleListCursor({ siteId, createdAt: lastSchedule.createdAt, id: lastSchedule.id })
           : null
       };
     }, { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead });

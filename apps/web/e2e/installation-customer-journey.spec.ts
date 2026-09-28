@@ -75,7 +75,7 @@ test("operator가 발급한 admin이 설치부터 운영하고 viewer는 읽기 
   await admin.getByRole("option", { name: "Asia/Seoul", exact: true }).click();
   await admin.getByLabel("지하 층수").fill("1");
   await admin.getByLabel("지상 층수").fill("0");
-  await admin.getByRole("button", { name: "층 자동 생성" }).click();
+  await admin.getByRole("button", { name: "맵 생성", exact: true }).click();
   const setupResponsePromise = admin.waitForResponse((response) => (
     response.url().endsWith("/api/setup/initial-site") && response.request().method() === "POST"
   ));
@@ -120,9 +120,11 @@ test("operator가 발급한 admin이 설치부터 운영하고 viewer는 읽기 
   await expect(admin.locator("[data-shell-topbar]").getByText(/게이트웨이 (정상|오프라인|미등록)/)).toHaveCount(0);
 
   await admin.getByRole("link", { name: "제어" }).click();
-  await expect(admin.getByRole("heading", { name: "조명 밝기 제어" })).toBeVisible();
+  await expect(admin.getByRole("tabpanel", { name: "수동 제어" })).toBeVisible();
+  const executionPanel = admin.getByRole("complementary", { name: "밝기 실행" });
+  await expect(executionPanel).toBeVisible();
   await expect(admin.locator("[data-control-panel]").getByText("제어 대상을 하나 이상 선택해 주세요.")).toBeVisible();
-  await expect(admin.getByText("0개 선택 · 제어 불가 0개")).toBeVisible();
+  await expect(executionPanel.getByText("0개 선택")).toBeVisible();
   await expect(admin.getByRole("button", { name: "밝기 적용" })).toBeDisabled();
 
   await admin.getByRole("link", { name: "통계" }).click();
@@ -159,11 +161,17 @@ test("operator가 발급한 admin이 설치부터 운영하고 viewer는 읽기 
   await admin.getByRole("link", { name: "모니터링" }).click();
   await expect(admin.getByRole("button", { name: "맵 선택", exact: true })).toBeVisible();
   await expect(admin.getByText("배치된 조명이 없습니다", { exact: true })).toBeVisible();
-  await expect(admin.getByText("장비 Health")).toBeVisible();
+  await admin.getByRole("button", { name: "조명 검색·상세" }).click();
+  const monitoringInspector = admin.getByRole("dialog", { name: "조명 검색·상세" });
+  await monitoringInspector.getByRole("button", { name: "상세 조명 선택" }).click();
+  await admin.getByRole("option", { name: new RegExp(fixtureNames[0]) }).click();
+  await expect(monitoringInspector.getByText("장비 Health")).toBeVisible();
+  await admin.getByRole("button", { name: "조명 검색·상세 닫기" }).click();
   await lab.screenshot(admin, testInfo, "02-admin-monitoring");
 
   await admin.getByRole("link", { name: "제어" }).click();
-  await expect(admin.getByRole("heading", { name: "조명 밝기 제어" })).toBeVisible();
+  await expect(admin.getByRole("tabpanel", { name: "수동 제어" })).toBeVisible();
+  await expect(executionPanel).toBeVisible();
   let expectedDimmingCount = lab.dimmingCommandCount();
 
   await admin.getByRole("button", { name: "조명 목록 열기" }).click();
@@ -286,7 +294,9 @@ test("operator가 발급한 admin이 설치부터 운영하고 viewer는 읽기 
   await expect(viewerSettingsNavigation.getByRole("link", { name: "조명 등록", exact: true })).toHaveCount(0);
   await viewerSettingsNavigation.getByRole("link", { name: "맵 관리", exact: true }).click();
   const viewerMapRow = viewer.getByTestId("floor-plan-item").filter({ hasText: "B1" });
-  await expect(viewerMapRow.getByText("맵 설정됨")).toBeVisible();
+  // Fixture pins are placed, but an empty map document is still unconfigured.
+  await expect(viewerMapRow.getByText("맵 미설정")).toBeVisible();
+  await expect(viewerMapRow.getByText("리비전 2")).toBeVisible();
   await expect(viewerMapRow.getByText("읽기 전용")).toBeVisible();
   await expect(viewer.getByRole("link", { name: /B1 도면 (등록|편집)/ })).toHaveCount(0);
   await lab.screenshot(viewer, testInfo, "03-viewer-read-only");

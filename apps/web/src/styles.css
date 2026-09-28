@@ -9,3 +9,24 @@
 @source not "./**/*.test.{ts,tsx}";
 @source not "./**/*.spec.{ts,tsx}";
 @source not "./test";
+
+/* 기존 랜딩 max-width의 정수·소수 경계를 포함형으로 보존한다. */
+@custom-variant landing-narrow (@media (max-width: 430px));
+@custom-variant landing-stack (@media (max-width: 720px));
+@custom-variant landing-wide (@media (max-width: 1050px));
+
+/* Public hero motion uses the original timelines; React owns replay state. */
+@keyframes rise-in { from { opacity: 0; transform: translateY(18px); } to { opacity: 1; transform: none; } }
+@keyframes art-float { to { transform: translateY(-12px); } }
+@keyframes hero-bar-rise { from { opacity: .4; transform: scaleY(.18); } to { opacity: 1; transform: scaleY(1); } }
+@keyframes hero-dot-drift { 0% { transform: translate(0, 0); } 52% { transform: translate(14px, -8px); } 100% { transform: translate(8px, -3px); } }
+@keyframes hero-pointer-drift { 0% { transform: translate(0, 0) rotate(-8deg); } 52% { transform: translate(15px, -10px) rotate(2deg); } 100% { transform: translate(8px, -5px); } }
+
+/* Monitoring cursor keeps the original positions and 3.4s approved timeline. */
+@keyframes cursor-path { 0% { left: 3%; top: 7%; opacity: 0; } 8% { opacity: 1; } 32%, 43% { left: 23%; top: 34%; } 68%, 83% { left: 65%; top: 34%; opacity: 1; } 100% { left: 65%; top: 34%; opacity: 0; } }
+
+/* Original statistics/report reveal timelines; only decorative nodes restart. */
+@keyframes draw-chart { to { stroke-dashoffset: 0; } }
+@keyframes reveal-area { to { opacity: 1; } }
+@keyframes reveal-points { to { opacity: 1; } }
+@keyframes report-row-in { to { opacity: 1; transform: none; } }

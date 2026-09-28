@@ -7,6 +7,7 @@ import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import {
   parseEnvFile,
+  commandSetAclOptions,
   publishMosquittoAcl,
   resolveDevAppFilters,
   resolveDevEnvironment,
@@ -373,11 +374,26 @@ test("명시한 Vault client 경로는 PKI_LAB_CURRENT_DIR 없이도 Mosquitto b
   assert.match(config, /crlfile \/vault\/pki\/current\/mqtt-client\.crl/);
 });
 
+test("Set cutover requires an explicit valid generation before development preparation mutates files", () => {
+  assert.deepEqual(commandSetAclOptions({}), {});
+  assert.deepEqual(commandSetAclOptions({ COMMAND_SET_EGRESS_ENABLED: "1", MQTT_SET_GENERATION: "7" }), { setGeneration: 7 });
+  for (const generation of [undefined, "0", "-1", "7\nuser api-service", "2147483648"]) {
+    assert.throws(() => prepareDevelopmentRuntime("/nonexistent-set-cutover-test", {
+      COMMAND_SET_EGRESS_ENABLED: "1", MQTT_SET_GENERATION: generation
+    }), /valid Set cutover generation/);
+  }
+  assert.throws(() => commandSetAclOptions({ COMMAND_SET_EGRESS_ENABLED: "yes" }), /valid Set cutover generation/);
+  assert.throws(() => renderMosquittoAcl([], { setGeneration: 7 }), /explicit Gateway census/);
+  assert.throws(() => prepareDevelopmentRuntime("/nonexistent-set-cutover-test", {
+    COMMAND_SET_EGRESS_ENABLED: "1", MQTT_SET_GENERATION: "7"
+  }), /explicit Gateway census/);
+});
+
 test("DEV_GATEWAY_ID가 없으면 mock identity 없이 온보딩 모드로 시작한다", () => {
   const env = resolveDevEnvironment("/workspace/led-control", {});
   assert.equal(env.DEV_GATEWAY_ID, "");
   assert.equal(env.DEV_GATEWAY_IDS, "");
-  assert.equal(renderMosquittoAcl([]), "user api-service\ntopic readwrite sites/#\n\n");
+  assert.deepEqual(renderMosquittoAcl([]).match(/^user .+$/gm), ["user api-service"]);
 });
 
 test("DEV_GATEWAY_IDS는 복수 UUID를 trim, 소문자화, 중복 제거하고 안정적으로 정렬한다", () => {
@@ -851,7 +867,8 @@ test("host Mosquitto 설정은 mTLS와 gateway-scoped ACL을 강제한다", () =
   assert.match(config, /require_certificate true/);
   assert.match(config, /tls_version tlsv1\.2/);
   assert.match(config, /cafile \/workspace\/led-control\/.local\/pki\/ca\.crt/);
-  assert.match(acl, /user api-service\ntopic readwrite sites\/#/);
+  assert.match(acl, /^user api-service$/m);
+  assert.doesNotMatch(acl, /topic readwrite sites\/#/);
   assert.match(acl, /user 00000000-0000-4000-8000-000000000004/);
   assert.match(acl, /topic read sites\/\+\/gateways\/00000000-0000-4000-8000-000000000004\/commands\/#/);
   assert.match(
@@ -878,7 +895,8 @@ test("host Mosquitto 설정은 mTLS와 gateway-scoped ACL을 강제한다", () =
   assert.match(acl, /topic write sites\/\+\/gateways\/00000000-0000-4000-8000-000000000004\/acks\/acceptance/);
   assert.match(acl, /topic write sites\/\+\/gateways\/00000000-0000-4000-8000-000000000004\/acks\/device-status/);
   assert.doesNotMatch(acl, /topic write sites\/\+\/gateways\/00000000-0000-4000-8000-000000000004\/acks\/#/);
-  assert.doesNotMatch(acl, /topic write .*\/acks\/(?:state-ingested|provisioning\/scan-terminal-ingested)/);
+  const gatewayAcl = acl.split("user 00000000-0000-4000-8000-000000000004")[1];
+  assert.doesNotMatch(gatewayAcl, /topic write .*\/acks\/(?:state-ingested|provisioning\/scan-terminal-ingested)/);
 });
 
 test("기본 pnpm dev는 실제 장비 시험을 위해 mock gateway를 실행하지 않는다", () => {

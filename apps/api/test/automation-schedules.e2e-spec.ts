@@ -10,18 +10,28 @@ import { SchedulesService } from "../src/automation/schedules.service";
 import { SessionAuthGuard } from "../src/auth/session-auth.guard";
 import type { AuthenticatedUser } from "../src/auth/auth.types";
 import { PrismaService } from "../src/prisma/prisma.service";
+import { RedisProvider } from "../src/redis/redis.provider";
+import { disposablePostgres } from "./support/disposable-postgres";
 
-const databaseUrl = process.env.AUTOMATION_SCHEDULES_TEST_DATABASE_URL;
-const describeWithPostgres = databaseUrl ? describe : describe.skip;
+let databaseUrl = process.env.AUTOMATION_SCHEDULES_TEST_DATABASE_URL;
+const selfOwnedDatabase = process.env.AUTOMATION_SCHEDULES_DISPOSABLE_POSTGRES === "1";
+const describeWithPostgres = databaseUrl || selfOwnedDatabase ? describe : describe.skip;
 const FIXED_NOW = new Date("2026-08-31T23:00:00.000Z");
 
 describeWithPostgres("automation schedules PostgreSQL E2E", () => {
   let app: INestApplication;
   let prisma: PrismaService;
   let baseUrl: string;
+  let cluster: Awaited<ReturnType<typeof disposablePostgres>> | undefined;
+  const previousDatabaseUrl = process.env.DATABASE_URL;
   const actors = new Map<string, AuthenticatedUser>();
 
   beforeAll(async () => {
+    if (selfOwnedDatabase) {
+      cluster = await disposablePostgres();
+      databaseUrl = cluster.database();
+      expect(cluster.deploy(databaseUrl).status).toBe(0);
+    }
     process.env.DATABASE_URL = databaseUrl;
     const authGuard: CanActivate = {
       canActivate(context: ExecutionContext) {
@@ -35,6 +45,8 @@ describeWithPostgres("automation schedules PostgreSQL E2E", () => {
     const module = await Test.createTestingModule({ imports: [AutomationModule] })
       .overrideGuard(SessionAuthGuard)
       .useValue(authGuard)
+      .overrideProvider(RedisProvider)
+      .useValue({ getClient: () => { throw new Error("Redis is not used by automation list E2E"); } })
       .overrideProvider(AutomationClock)
       .useValue({ now: () => new Date(FIXED_NOW) })
       .compile();
@@ -48,6 +60,9 @@ describeWithPostgres("automation schedules PostgreSQL E2E", () => {
 
   afterAll(async () => {
     await app?.close();
+    cluster?.stop();
+    if (previousDatabaseUrl === undefined) delete process.env.DATABASE_URL;
+    else process.env.DATABASE_URL = previousDatabaseUrl;
   });
 
   it("enforces read/mutation tenant roles and rechecks overlap when enabling", async () => {
@@ -625,6 +640,76 @@ describeWithPostgres("automation schedules PostgreSQL E2E", () => {
     expect(third.body).toMatchObject({ total: 27, nextCursor: null });
     expect((await api("GET", `/sites/${scenario.siteId}/automation/schedules?limit=101`, "viewer")).status)
       .toBe(400);
+  });
+
+  it("filters literal names and binds v2 pagination to principal, Site, resource, and filters", async () => {
+    const scenario = await createScenario(prisma, actors);
+    const otherSite = await createScenario(prisma, actors);
+    await insertDirectSchedules(prisma, scenario, [
+      { id: randomUUID(), name: "A%_ first", createdAt: new Date("2026-08-30T03:00:00.000Z") },
+      { id: randomUUID(), name: "A%_ second", createdAt: new Date("2026-08-30T02:00:00.000Z") },
+      { id: randomUUID(), name: "Axx third", createdAt: new Date("2026-08-30T01:00:00.000Z") }
+    ]);
+    const filter = `query=${encodeURIComponent(" A%_ ")}&status=disabled&syncStatus=PENDING&limit=1`;
+    const first = await api("GET", `/sites/${scenario.siteId}/automation/schedules?${filter}`, scenario.actorKeys.viewer);
+    expect(first.status).toBe(200);
+    expect(first.body).toMatchObject({ total: 3, filteredTotal: 2,
+      siteSummary: { ruleCount: 3, syncRuleCounts: { APPLIED: 0, PENDING: 3, REJECTED: 0 } },
+      nextCursor: expect.any(String) });
+    const cursor = (first.body as { nextCursor: string }).nextCursor;
+    expect(decodeCursor(cursor)).toMatchObject({ v: 2, siteId: scenario.siteId,
+      principalId: actors.get(scenario.actorKeys.viewer)?.id, resource: "schedule" });
+    const second = await api("GET", `/sites/${scenario.siteId}/automation/schedules?${filter}&cursor=${cursor}`, scenario.actorKeys.viewer);
+    expect(second.body).toMatchObject({ filteredTotal: 2, nextCursor: null });
+    expect((first.body as { items: Array<{ id: string }> }).items[0].id)
+      .not.toBe((second.body as { items: Array<{ id: string }> }).items[0].id);
+    expect((await api("GET", `/sites/${scenario.siteId}/automation/schedules?${filter}&cursor=${cursor}`,
+      scenario.actorKeys.admin)).status).toBe(400);
+    expect((await api("GET", `/sites/${otherSite.siteId}/automation/schedules?${filter}&cursor=${cursor}`,
+      otherSite.actorKeys.viewer)).status).toBe(400);
+    expect((await api("GET", `/sites/${scenario.siteId}/automation/vehicle-event-rules?${filter}&cursor=${cursor}`,
+      scenario.actorKeys.viewer)).status).toBe(400);
+    expect((await api("GET", `/sites/${scenario.siteId}/automation/schedules?query=A&status=disabled&syncStatus=PENDING&limit=1&cursor=${cursor}`,
+      scenario.actorKeys.viewer)).status).toBe(400);
+    expect((await api("GET", `/sites/${otherSite.siteId}/automation/schedules?${filter}&cursor=${cursor}`,
+      scenario.actorKeys.viewer)).status).toBe(404);
+    await prisma.gatewayAutomationConfiguration.create({ data: {
+      gatewayId: scenario.gatewayId, siteId: scenario.siteId, syncStatus: "APPLIED",
+      desiredRevision: 1, appliedRevision: 1, payloadHash: `sha256:${"0".repeat(64)}`,
+      lastAppliedAt: new Date("2026-08-30T04:00:00.000Z")
+    } });
+    const applied = await api("GET", `/sites/${scenario.siteId}/automation/schedules?syncStatus=APPLIED`,
+      scenario.actorKeys.viewer);
+    expect(applied.body).toMatchObject({ total: 3, filteredTotal: 3,
+      siteSummary: { ruleCount: 3, syncRuleCounts: { APPLIED: 3, PENDING: 0, REJECTED: 0 } } });
+  });
+
+  it("bounds a filtered page when a Site has 1,000 rules", async () => {
+    const scenario = await createScenario(prisma, actors);
+    const rows = Array.from({ length: 1_000 }, (_, index) => ({
+      ...directScheduleData(randomUUID(), scenario, { name: `Scale ${index}`, status: "disabled" }),
+      createdAt: new Date(Date.UTC(2026, 7, 30, 0, 0, 0, index))
+    }));
+    await prisma.$transaction(async tx => {
+      await tx.$executeRaw(Prisma.sql`SELECT "lock_automation_membership_mutation"()`);
+      await tx.lightingSchedule.createMany({ data: rows });
+      await tx.lightingScheduleFixture.createMany({ data: rows.map(row => ({
+        scheduleId: row.id, fixtureId: scenario.fixtureIds[0], siteId: scenario.siteId,
+        gatewayId: scenario.gatewayId
+      })) });
+    });
+    const page = await api("GET", `/sites/${scenario.siteId}/automation/schedules?query=Scale&status=disabled&limit=25`,
+      scenario.actorKeys.viewer);
+    expect(page.body).toMatchObject({ total: 1_000, filteredTotal: 1_000, nextCursor: expect.any(String),
+      siteSummary: { ruleCount: 1_000, syncRuleCounts: { APPLIED: 0, PENDING: 1_000, REJECTED: 0 } } });
+    expect((page.body as { items: unknown[] }).items).toHaveLength(25);
+    // Inspect the real PostgreSQL plan for the indexed Site/status page shape.
+    const plan = await prisma.$queryRaw<Array<{ "QUERY PLAN": unknown }>>(Prisma.sql`
+      EXPLAIN (FORMAT JSON) SELECT "id" FROM "LightingSchedule"
+      WHERE "siteId" = ${scenario.siteId} AND "status" = 'disabled'
+      ORDER BY "createdAt" DESC, "id" ASC LIMIT 26
+    `);
+    expect(plan[0]?.["QUERY PLAN"]).toBeDefined();
   });
 
   it("keeps tied timestamps stable and continues after a deleted anchor", async () => {

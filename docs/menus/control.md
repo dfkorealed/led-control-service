@@ -1,14 +1,42 @@
 # 제어 메뉴 기능 현황
 
+## 2026-09-27 종료 명령 상세 정리 helper와 기본 OFF worker
+
+- 구현 완료: worker 성공·실패·지연/사유별 보류 지표는 production JSON 로거의 고정 event/context 계약을 통과한다. 숫자 범위와 허용 사유를 검증하며 원문 오류·명령 ID·SQL은 기록하지 않는다. 실제 로거 출력까지 연결한 소프트웨어 회귀를 포함한다.
+- 구현 완료: 종료 outcome과 terminal dispatch/result, hold 없음, 종료 override, settled outbox를 확인한 뒤 원본과 파생 상세를 같은 거래에서 제거하는 내부 helper 및 DB tombstone 제약을 추가했다. Command/dispatch/수동 parent ID·FK·alias는 보존하며 exact 수동 replay는 keyed 증명으로 검증해 DB 상세/ACK hash 재생성 없이 응답한다. 실패하면 전체 거래를 rollback한다.
+- 구현 완료: 기본 OFF인 `COMMAND_DETAIL_REDACTION_ENABLED` worker를 등록했다. ON에서 60초마다 기본 100개(허용 상한 1,000개) 후보를 DB UTC 3 calendar months 기준으로 잠그고 helper를 실행한다. 정확 cutoff·이미 제거된 행은 보존/제외하며 실패 거래 rollback 뒤 `detail_` 사유로 1시간 재시도를 미뤄 뒤 후보의 기아를 방지한다. batch의 처리/보류/지연 건수, 전체 사유별 보류 건수와 최고 경과 초를 기록한다. 오래된 미해결·활성 상태는 보류하고 제어 잠금을 유지한다.
+- 미구현: 운영 중앙 DB migration/활성화와 외부 운영 경보 연결. 물리 Command purge, 보호 cutover, 복구 POST와 새 자동 Set/Get은 이번 변경으로 켜지지 않는다. 운영 적용은 백업·dry-run·DB 시계·raw 사본 감사 뒤 별도다.
+- 부족하거나 개선이 필요한 기능: 연결할 수 없는 과거 ACK hash·고아 수동 실행·미완료 재위촉·증명/키 부족은 이유와 함께 보류된다. 일회성 ACK 발행 실패는 Gateway의 기존 보고 재전송에 의존하며 실제 broker/Gateway/RF HIL은 별도다.
+- 관련 파일: `apps/api/src/retention/command-detail-redaction.ts`, `apps/api/src/retention/command-detail-retention.service.ts`, `apps/api/src/retention/retention.module.ts`, `apps/api/src/automation/redacted-manual-execution-replay.ts`, `apps/api/src/mqtt/mqtt.service.ts`, `apps/api/prisma/migrations/20260927160000_command_derived_content_redaction/migration.sql`.
+- 갱신 규칙: software DB/transport 회귀와 실제 운영·하드웨어 검증을 구분하고, 사본 검증 실패를 정리 성공으로 기록하지 않는다.
+
+## 2026-09-27 발행 세대와 보관 worker 안전 통합
+
+- 구현 완료: 일회용 PostgreSQL의 제한 worker는 전체 member ACK, 시도별 absolute expiry, 같은 primary의 내구적 시각 연속성, 전체 broker/Gateway 증명과 독립 단조 대기를 통과해야 서명된 정확 cutoff로 원본을 삭제한다. 증명 누락·위조·다른 boot/세대는 삭제 0이다. Set quiesce와 독립인 원본 없는 Get publisher를 등록하고 MQTT 종료 전에 해당 Get도 drain한다.
+- 미구현: 운영 물리 purge와 recovery POST 활성화, 운영 DB-host attestor, 되돌릴 수 없는 broker admission/인증서 원장, 전체 현장 Gateway census 및 Raspberry Pi/BlueZ/BIO 물리 RF HIL 인증.
+- 부족하거나 개선이 필요한 기능: 소프트웨어 queue/submitted/unconfirmed 0과 재시작만으로 RF 완료를 인정하지 않는다. Gateway 버전 문자열 일치만으로도 허용하지 않으며 독립 release 인증의 clock proof·매 submit 만료 재검사·보수적 RF 계수 capability와 별도 물리 HIL이 모두 필요하다. 기본 인증 목록과 운영 adapter는 없다. broker digest에 worker identity→인증서 소유 증명이 없어 member ACK 하나라도 없으면 backlog로 남긴다. CLI는 별도 장벽 입력이 없는 경우 삭제 0이며 운영 스케줄러가 아니다. 제한 worker의 SQL 직접 호출도 정확한 hold 대상·밝기·Gateway와 late Set wire HMAC을 재검증하며 TS 사전 검사만으로 삭제를 허용하지 않는다.
+- 관련 파일: `apps/api/src/commands/command-purge-barrier.service.ts`, `command-retention-worker.ts`, `apps/api/src/mqtt/gateway-command-drain.service.ts`, `recovery-outbox-publisher.service.ts`, `apps/api/prisma/cutovers/command-retention-protected-delete.sql`.
+- 갱신 규칙: 운영 gate는 disposable 테스트와 별도로 기록하고 실제 broker/clock/HIL 증거 없이 완료 또는 purge ON으로 바꾸지 않는다. 기존 unknown/partial hold·늦은 ACK·Get 전용 복구와 자동 Set 재시도 금지 경계를 유지한다.
+
 기준일: 2026-09-24
 
 ## 구현 완료
 
+- 랜딩·Atlas 통합 검증에서 최근 이력의 `확인 필요한 명령`·`명령 이력 열기` 공통 버튼을 최소 높이 52px로 보정했다. 둥근 44px 외곽에서 실제 hit 영역이 부족했던 모바일 회귀를 수정하며, 전체 통합 검증 상태는 [통합 체크리스트](../superpowers/plans/2026-09-27-atlas-landing-integration.md)를 따른다.
+- 2026-09-27 상세 내용 제거 상태(Task 2): `Command.contentRedactedAt`이 있는 행은 플래그 상태와 무관하게 일반 목록에서 제외하며, 인가된 상세와 기존 상태 확인은 내용 없는 `410 command_expired`를 반환한다. 동일 키 재제어와 사용자 삭제로 요청자를 알 수 없는 현장 내 기존 키 재사용은 `409 command_request_expired`로 차단하며 Set/Get/outbox를 생성하지 않는다. 기존 상태 확인의 기간 제한도 `COMMAND_HISTORY_RETENTION_ENABLED=1`에서 중앙 DB UTC transaction 시각의 3 calendar months를 사용하고 정확 경계는 유지한다. 생성 응답은 내부 요청자·요청 키·fingerprint를 숨기며, 늦은 ACK는 제거한 상세를 복원하지 않는다. 일회용 PostgreSQL과 API 소프트웨어 검증 범위이며 비식별 worker와 운영 migration은 아직 활성화하지 않았다.
+
+- 2026-09-25 Final Atlas 자동화 목록 API(Task 7): 스케줄·차량 이벤트의 현장 전체 목록에서 이름의 trim된 리터럴 부분 검색(한글·`%`·`_` 포함), 활성 상태, Gateway 구성 동기화 상태 필터와 `limit=1..100`을 지원한다. 기존 `items,total,nextCursor`와 무필터 v1 cursor는 유지하고, 조건에 맞는 전체 `filteredTotal` 및 필터 없는 현장 전체 규칙 수·상태별 규칙 수 `siteSummary`를 같은 RepeatableRead 조회에서 반환한다. 설정이 없는 Gateway의 규칙은 `PENDING`이며 수치를 Gateway 대수나 현재 로드된 페이지 수로 해석하지 않는다. 필터 cursor v2는 인증 사용자·현장·규칙 종류·정규화된 조건에 묶고, 현장 `read` 권한을 cursor 해석 전에 확인한다. 집중 단위·일회용 PostgreSQL E2E 검증 범위이며 실제 현장 규모의 브라우저 조작과 장비 HIL 증거는 아니다.
+- 2026-09-27 Gateway 중앙 Set 물리 전송 경계(Task 6): 명령별 cached permit을 실제 BlueZ D-Bus `Send`와 BIO native write 직전에 동기 재검사한다. 주소/queue/D-Bus interface 조회 지연 및 BIO brightness→force-on 사이의 proof 손실은 후속 Set을 차단한다. 현재 프로세스에서 write 0이 확인된 경우만 내구적 refusal/수동 pending abort로 끝내며, 첫 전송 이후 veto·USB/D-Bus 오류는 unknown/partial을 보존한다. 기존 로컬 일정·센서 자동화 및 Get(이미 보낸 Set의 read-back 포함)은 DB proof veto 대상이 아니다. scoped nonce/epoch drain 요청은 boot ID·Gateway 버전과 queued/submitted/unconfirmed 수를 응답하지만 제출 콜백·관측 성공을 물리 RF 종료로 인증하지 않는다.
+- 2026-09-26 Final Atlas 수동 이력 시각 보완: 지도·밝기 실행 아래 최근 이력을 PC에서는 한 줄, 390/320px 모바일에서는 읽을 수 있는 두 줄의 compact bar로 표시한다. 최근 명령의 현장 시각·조명 수·밝기·상태를 요약하고, 요약을 누르면 기존 명령 상세로 진입한다. 전체 3개월 이력·검색·필터·보관 시작 시각은 기존 drawer에 유지하며 확인 필요 명령 진입과 안전 잠금은 변경하지 않았다. Mock API 기반 Vitest 및 Chromium 1440/390/320px 검증이며 실제 Gateway/조명 HIL은 별도다.
+- 2026-09-25 Final Atlas 명령 이력·확인 필요 case Web UI(Task 3): 수동 화면의 최근 명령 1건은 무필터 `limit=1`로 조회하고, 일반 이력은 공통 오른쪽 drawer에서 검색·상태 필터와 서버 opaque cursor 4건 단위 이전/다음으로 탐색한다. `GET /commands`가 돌려준 UTC `retainedFrom`만 현장 시간대로 표시하며 클라이언트가 3개월 하한이나 가상 전체 페이지 수를 계산하지 않는다. 메타데이터가 없으면 기간 확인 불가로 표시하고 `command_history_cursor_expired`(400)는 첫 페이지를 재조회한다. 오래된 cursor 응답은 사용자·현장·필터 세대가 바뀐 뒤 페이지를 넘기지 못하며 끝 페이지의 키보드 초점은 사용 가능한 이전/다음으로 이동한다. 일반 이력과 별도로 `requiring-verification` 목록/상세를 Site `read`로 열고, Site `control`의 전용 Get-only 상태 확인과 Site `manage`의 명시적 위험 승인(기본 미체크·확인 방법·500자 이내 사유)을 분리했다. 상태 확인 HTTP 응답 유실의 `clientRequestId`는 사용자·현장·case 범위로 세션 보존해 새로고침 뒤에도 동일 키만 재시도한다. 목록/상세/drawer/승인 폼 열기와 승인 자체는 기존 dimming Set을 보내지 않는다. 원본 상세 404/410과 안전 관련 409/410은 잠금을 유지하며 일반 충돌의 새 제어 요청 문구를 표시하지 않는다. 명시적인 안전 거절은 응답 유실과 구분해 같은 dimming 요청의 재전송을 새로고침 뒤에도 금지한다. 정확히 연결된 case의 권한 있는 위험 승인 성공만으로는 잠금을 풀지 않고, 그 사실을 세션에 보존한 뒤 서버의 원본 ID exact-filter 새 조회가 비어 있음을 확인할 때 거절된 로컬 요청만 해제한다. 조회가 지연·실패하거나 case가 남으면 잠금을 유지한다. 새 제어에는 사용자의 재적용과 새 요청 ID가 필요하다. 이미 관측된 원본 명령 case도 권한 있는 원본 ID exact-filter 재조회에서 사라진 경우에만 해당 브라우저의 case 잠금 표시를 해제한다. 처음부터 빈 case 목록·상세 404·조회 실패만으로는 해제하지 않는다. 동일 현장에서 배경 재조회가 401/403이면 캐시된 이력/case/승인 동작을 숨긴다. 해소된 case는 사용자·현장 범위의 최근 case ID로 다시 조회해 서버의 최소 결과(`적용됨`/`미적용`/`일부 적용`, 대상 수, 확인 시각)만 보여주며, case 부재를 적용 성공으로 추정하거나 미적용·일부 적용을 자동 재전송하지 않는다. Web mock Vitest·Chromium software 검증 범위이며 실제 Gateway/조명 동작 증거는 아니다.
+- 2026-09-25 게이트웨이 재위촉 차단 응답: 새 수동 Set이 HTTP 409 `gateway_recommission_in_progress`로 거절되면 서버가 기존 요청 ID 조회를 먼저 수행하고 새 Command를 생성하지 않았으므로, UI는 저장된 미전송 요청을 정리하고 별도 재위촉 안내를 표시한다. 같은 ID의 “동일 요청 확인” 버튼이나 미확정 명령 잠금을 남기지 않는다. 재위촉 완료 뒤 다시 제어하려면 사용자가 적용을 명시적으로 눌러 새 요청 ID를 발급해야 한다. 이 예외는 dimming POST에만 적용하며 알 수 없는 409·확인 필요 case의 안전 잠금은 유지한다. Web 단위 회귀 검증 범위이고 실제 재위촉 Gateway/조명 HIL은 별도다.
+- 2026-09-25 Final Atlas 수동 제어 Task 1–2: 지도 툴바에 기존 구역 관리/조회 진입점을 한 번만 배치하고, 개별·층·구역 선택과 지도 이동·영역 선택, 조명 목록의 검색·상태/층 필터·100건씩 더 보기·제어 불가 사유를 유지한다. 조명 목록은 공통 오른쪽 drawer(최대 440px, 모바일 전체 폭)로 열고 닫기/완료 뒤 목록 opener로 포커스를 돌린다. 수동 화면에서만 지도 안의 중복 선택 요약을 숨기고, 실행 패널에 선택 수량 한 곳과 별도 차단 경고를 배치했다. PC는 지도와 약 350px 실행 패널, 모바일은 지도→실행→이력의 자연스러운 읽기 순서이며 `01/02` 중복 제목과 고정 하단 실행 시트를 제거했다. 명령 생성·멱등 ID·잠금·상태 조회·응답 불명/일부 적용/재확인 handler와 조명 1,000개·단일 Gateway 제한은 변경하지 않았다. focused Vitest는 통과했으며 실제 반응형 브라우저·Gateway HIL은 통합 검증이 남아 있다.
+- 2026-09-25 Final Atlas 자동화 목록 UI: 스케줄·차량 이벤트 양쪽에서 공통 이름 검색(리터럴 부분 일치), 활성/Gateway 동기화 상태 필터, 10·20·50·100건 페이지 크기와 서버 cursor 이전/다음 이동을 제공한다. 조건·사용자·현장 전환 시 첫 페이지로 돌아가며, `filteredTotal`은 조건 전체 결과 수, `siteSummary.ruleCount`와 `syncRuleCounts`는 필터 없는 현장 전체 규칙·Gateway 상태별 규칙 수로 구분한다. 3초 갱신은 현재 보이는 cursor 페이지 하나만 조회하고 A→B→A 범위 전환에서 오래된 응답을 버린다. 구 API 응답에 새 필드가 없으면 전체 Gateway 수를 추정하지 않고 로드된 행 기준으로 명시한다. 기존 추가·수정·삭제·활성 전환과 권한·인증 차단은 유지하며, Chromium mock은 실제 Gateway/조명 HIL 증거가 아니다.
 - 2026-09-24 제어 세션 상태는 사용자·현장 범위의 공통 상태 센터에 모인다. 스케줄·차량 이벤트 목록의 기존 페이지를 유지한 백그라운드 재조회 실패와 다음 페이지 실패는 본문을 막지 않는 별도 항목으로 표시하고, 각각 `상태 다시 조회`와 `다음 페이지 다시 시도`를 제공한다. 다음 페이지가 성공해도 이전 페이지의 재조회 실패는 실제 재조회 성공 전까지 남으며, 실패한 cursor가 갱신으로 사라지면 동작할 수 없는 재시도 항목도 해제한다. `마지막 성공`은 현재 사용자·현장 범위에서 실제 최초/전체 목록 조회가 성공한 시각을 현장 시간대로 표시한다. 다음 페이지 성공이나 수동 캐시 쓰기로 갱신하지 않으며, 사용자·현장 전환 또는 401 차단 뒤에는 새 전체 목록 조회가 성공하기 전까지 이전 시각을 표시하지 않는다.
 - 활성화/비활성화 실패는 규칙별 독립 항목으로 이름과 함께 표시한다. 새 규칙 추가·다른 규칙 편집을 열거나 다른 규칙의 저장·토글·삭제가 성공해도 기존 실패는 남는다. 해당 규칙의 토글 또는 삭제가 현재 사용자·현장 범위에서 성공했을 때만 그 규칙의 실패를 해제하며, 삭제 실패 중에는 유지한다. 사용자·현장 범위 종료·401 차단에서도 해제한다. 같은 규칙의 같은 실패 toast는 재시도 중에도 반복 발행하지 않으며, 서로 다른 규칙의 같은 오류는 각각 유지한다. 성공은 짧은 toast로 알리고, 추가/수정·삭제 오류는 해당 dialog 문맥에 남긴다. viewer는 읽기 전용의 중립 badge만 보고 관리 동작은 사용할 수 없다. 최초 목록 조회 실패·인증 차단은 기존 본문 복구 표시를 유지하며, 캐시 목록에서 401이 나면 행과 열린 편집·삭제 dialog도 닫아 조작을 차단한다.
-- 수동 명령의 전송·진행·상태 조회 실패, 응답 ID 불일치, `unknown`, 일부 적용 등 확인이 필요한 결과도 같은 상태 센터에 표시한다. 센터의 동작은 수동 제어 탭으로만 안전하게 돌아가며 명령 전송, 상태 확인 또는 재적용을 대신 실행하지 않는다. 실제 조회 재시도, 조명별 결과 확인 및 미적용 확인 후 재적용은 기존 `03 / 최근 결과` 패널에서 수행한다. 현장·사용자 전환 뒤 이전 요청의 상태와 늦은 응답·toast는 새 범위에 넘어가지 않는다. 이 연계는 focused Vitest·Web typecheck의 소프트웨어 검증 범위이며 브라우저 E2E나 실제 Gateway/조명 HIL 통과로 간주하지 않는다.
+- 수동 명령의 전송·진행·상태 조회 실패, 응답 ID 불일치, `unknown`, 일부 적용 등 확인이 필요한 결과도 같은 상태 센터에 표시한다. 센터의 동작은 수동 제어 탭으로만 안전하게 돌아가며 명령 전송, 상태 확인 또는 재적용을 대신 실행하지 않는다. 실제 조회 재시도, 조명별 결과 확인 및 미적용 확인 후 재적용은 실행 패널의 `최근 결과`에서 수행한다. 현장·사용자 전환 뒤 이전 요청의 상태와 늦은 응답·toast는 새 범위에 넘어가지 않는다. 이 연계는 focused Vitest 소프트웨어 검증 범위이며 브라우저 E2E나 실제 Gateway/조명 HIL 통과로 간주하지 않는다.
 
-- 2026-09-24 수동 제어 화면은 `01 / 제어 대상 → 02 / 밝기 실행 → 03 / 최근 결과` 순서로 지도 선택, 밝기 적용, 명령 피드백을 읽도록 정보 위계를 정리했다. compact 시트는 접힌 상태의 대상·밝기 실행과 펼친 상태의 최근 결과를 구분한다. 기술 전송 방식은 사용자 선택이나 실행 조건이 아니므로 고객 화면의 전면 문구에서 제거했고, 실제 명령의 전송 방식 결정과 기존 명령 잠금·멱등 요청·ACK·`unknown`·`verified_not_applied` 후속 조치 계약은 유지한다. 차량 이벤트 추가·수정도 `01 감지 센서 → 02 실행 조명 → 03 동작 설정`과 실행 요약으로 선택 순서를 명확히 하되 verified capability·동일 Gateway·감지 센서 변경 시 실행 대상 해제와 기존 payload를 유지한다. 760px 이하 스케줄·이벤트 규칙 목록은 가로 스크롤 표 대신 공통 카드로 표시한다. 스케줄 카드는 이름·활성·적용 기간·다음 실행·반복/시간·밝기·대상 수·Gateway 동기화·최근 결과를, 이벤트 카드는 이름·활성·감지 센서/제어 조명 수·밝기·유지 시간·Gateway 동기화·최근 감지를 표시하며 관리 권한의 기존 동작 버튼을 유지한다. PC는 기존 표, viewer는 읽기 전용을 유지한다. 이번 변경은 focused Vitest 범위이며 390/320px 카드 조작·overflow와 PC 표를 확인하는 브라우저 E2E assertion은 작성만 하고 공유 checkout에서 실행하지 않았다. 실제 모바일 WebView·Gateway/조명 HIL 증거도 아니다.
+- 2026-09-24 당시 수동 제어 화면은 `01 / 제어 대상 → 02 / 밝기 실행 → 03 / 최근 결과` 순서와 compact 고정 시트를 사용했다. 이 배치는 위 2026-09-25 Atlas 작업에서 지도→실행의 자연 흐름과 제목 없는 단일 실행 패널로 대체했다. 기술 전송 방식은 사용자 선택이나 실행 조건이 아니므로 고객 화면의 전면 문구에서 제거했고, 실제 명령의 전송 방식 결정과 기존 명령 잠금·멱등 요청·ACK·`unknown`·`verified_not_applied` 후속 조치 계약은 유지한다. 차량 이벤트 추가·수정도 `01 감지 센서 → 02 실행 조명 → 03 동작 설정`과 실행 요약으로 선택 순서를 명확히 하되 verified capability·동일 Gateway·감지 센서 변경 시 실행 대상 해제와 기존 payload를 유지한다. 760px 이하 스케줄·이벤트 규칙 목록은 가로 스크롤 표 대신 공통 카드로 표시한다. 스케줄 카드는 이름·활성·적용 기간·다음 실행·반복/시간·밝기·대상 수·Gateway 동기화·최근 결과를, 이벤트 카드는 이름·활성·감지 센서/제어 조명 수·밝기·유지 시간·Gateway 동기화·최근 감지를 표시하며 관리 권한의 기존 동작 버튼을 유지한다. PC는 기존 표, viewer는 읽기 전용을 유지한다. 당시 변경은 focused Vitest 범위였으며 390/320px 카드 조작·overflow와 PC 표를 확인하는 브라우저 E2E assertion은 작성만 하고 공유 checkout에서 실행하지 않았다. 실제 모바일 WebView·Gateway/조명 HIL 증거도 아니다.
 
 - 2026-09-24 스케줄 추가·수정의 적용 시작일·종료일을 접힌 세부 설정에서 기본 `언제 켤까요?` 영역으로 옮겨, 반복 프리셋과 기간을 함께 확인할 수 있다. 새 스케줄은 기존처럼 현장 시간대의 오늘이 시작일과 종료일이며, 같은 날짜일 때 `오늘만 적용` 또는 선택한 날짜의 하루만 적용된다는 안내와 요약을 표시한다. 여러 날짜를 지정하면 요약에 양끝 날짜를 표시하고 종료일 이후에는 반복되지 않음을 안내한다. 날짜 검증·현장 시간대 ISO 변환·fixture snapshot·Gateway sync와 서버 payload는 바꾸지 않았다. focused Vitest 검증 범위이며 브라우저/실장비 HIL 검증은 총괄 통합 게이트와 별도 장비 절차를 기다린다.
 
@@ -18,6 +46,9 @@
 - 제어 대상 CAD 지도도 새 raster가 준비되기 전 마지막 완성 raster를 유지하므로, 느린 타일 decode 또는 취소로 선택 대상 지도가 빈 상태가 되지 않는다.
 - 2026-09-19 공통 맵 표면은 설정에서 적용한 네이티브 CAD를 읽기 전용 Pixi 타일로 합성하고 수동 도형·조명 선택 오버레이와 카메라를 동기화한다. 최대 32,768 논리 맵에서도 전체 논리 크기의 canvas를 할당하지 않는다. 기존 제어 권한, 대상 선택 및 MQTT/장비 명령 계약은 변경하지 않았으며 이번 CAD 검증은 실장비 제어 HIL을 대신하지 않는다.
 - 2026-09-18 모니터링의 수동 읽기 전용 확인에서 fresh Gateway의 두 번 연속 검증된 조명 실패가 수신되면 `Fixture.lastUnreachableAt`과 운영 `offline/fixture_stale`을 저장해 기본 20분 stale 대기 없이 제어를 차단한다. Gateway/MQTT 자체 실패는 개별 조명의 unreachable 증거로 쓰지 않는다. 확인 작업은 밝기 제어 Command/이력을 만들거나 밝기·전원·BIO mode를 바꾸지 않는다.
+- 2026-09-27 제어 API 읽기 계약: `GET /commands/requiring-verification`와 `GET /commands/requiring-verification/:caseId`는 현장 read 권한으로 확인 필요 case의 최소 정보만 제공한다. 목록 cursor는 사용자·현장·원본 명령 필터에 묶이고, 상세의 대상 ID는 권한 확인 후에만 제공한다. 원본 명령이 없고 접근 가능한 미해결 hold가 있으면 내용 없는 410, 외부 현장·없는 원본은 같은 404다. 이는 임시 PostgreSQL·단위 테스트의 소프트웨어 검증이며 case 상태 확인/위험 승인 POST를 등록하거나 Gateway Get/Set을 발행하지 않는다. 일반 명령 이력의 UTC 3 calendar months 조회 제한은 `COMMAND_HISTORY_RETENTION_ENABLED=1`만으로 동작하되 기본 OFF이고 운영 Compose preflight는 DB readiness 증거 연결 전 ON을 거부한다. 운영 purge·복구 POST·실장비 HIL은 미완료다.
+- 일반 명령 이력 GET은 현장 read 인가 후 같은 짧은 DB 트랜잭션의 `transaction_timestamp() AT TIME ZONE 'UTC'`와 UTC 3 calendar months cutoff를 목록/상세·cursor 400·`generatedAt`/`retainedFrom`에 공통 사용한다. 정확한 cutoff는 포함하고 이전 행만 숨긴다. 오래된 기존 `clientRequestId`의 Set 재시도도 같은 DB cutoff로 내용 없는 409를 반환하며 새 Set/outbox를 만들지 않는다. 미해결 원본 한 건 때문에 현장 전체가 legacy 목록으로 되돌아가지 않는다. 별도 읽기 전용 preflight가 cutoff 이전의 hold 없는 pending/unknown을 검사하고, 양수·DB 오류면 활성화를 거부한다. 플래그 OFF에서는 기존 조회와 추가 DB-clock 질의 0건을 유지한다. 일회용 PostgreSQL에서 host ±60초 및 UTC·Seoul·New York 세션을 검증했으나 운영 Compose의 flag는 기본 OFF/활성화 거부이며 운영 DB, 원본 삭제, 복구 POST, Gateway HIL은 적용하지 않았다.
+- 2026-09-27 제어 명령 API 캐시 보완: 인증된 일반 명령 이력·상세와 확인 필요 case 목록·상세의 GET HTTP 응답에 `Cache-Control: private, no-store`를 지정한다. 이력 만료 410도 같은 헤더를 반환한다. 실제 Nest HTTP 회귀 테스트로 확인했으며 서버 권한, 복구 POST 미등록 및 보관 기능 OFF 상태는 바꾸지 않았다.
 - 수동 unreachable보다 더 최신의 수락 presence/state가 도착하면 `lastUnreachableAt`을 해제하고 freshness 차단을 복구한다. 늦은 이전 실패는 더 최신 성공 관측을 덮지 않는다. 생존 presence만으로 실제 Health fault·`command_failed`·등록 대기를 지우지 않으며 BIO sensor 설정 밝기를 실제 출력으로 추정하지 않는다.
 - BlueZ D-Bus Send timeout은 Gateway 전송 실패이므로 조명 unreachable이나 제어 차단을 만들지 않는다. 요청 보존기간 뒤 요청/batch 모두 삭제된 correlated 결과는 상태 변경 없이 폐기 ACK만 반환하며, 오래된 재전송으로 밝기·전원·에너지나 제어 가능성을 바꾸지 않는다. 이후 정상 비연관 presence/state는 기존 수집·복구 규칙을 따른다.
 
@@ -124,11 +155,12 @@
 - Scenes 13~16 수동 제어는 `명령 접수 → Gateway 전송 → 장비 응답 → 조명 적용` 진행 목록을 표시한다. `ACK`는 원문 protocol/terminal/retry 판단에 유지하고 화면 설명만 `장비 응답`으로 바꾼다. 저장 구역 dialog의 CRUD·재동기화·삭제 확인·viewer 읽기 전용·focus trap/return focus를 유지하며 삭제 pending 중 Escape/backdrop/close로 후보를 지우지 않는다. Chromium route fixture는 종료 필드가 없는 밝기 payload, nonterminal 입력 잠금, configuring/failed Mesh 차단, 네 viewport overflow·모바일 44px target을 검증한다. 이는 Raspberry Pi/BIO/BlueZ/ESP32-H2 HIL 증거가 아니다.
 - 수동 전송 가능 여부, 자동화 활성 여부, Gateway 동기화와 최근 실행·감지 상태는 WCAG AA 4.5:1 이상 text contrast를 검증한 공통 icon+text `StatusBadge`로 표시한다. 공통 tone뿐 아니라 더 높은 specificity의 monitoring 화면 override까지 실제 CSS cascade 결과로 대비 계약을 검증한다. Gateway sync 문구는 `적용됨 | 적용 대기 | 적용 실패`로 통일하며 색상만으로 상태를 구분하지 않는다. 스케줄·이벤트 목록은 16px bordered surface와 최소 56px 행을 사용하고 구역 관리/add/edit/retry/delete는 ref 전달을 지원하는 공통 `Button` variant를 사용하되 기존 accessible name과 mutation·pagination·`401`·validation·scope side effect 계약을 유지한다. 760px 이하에서는 제어 PageHeader와 action 영역을 세로·전체 폭으로 전환해 320px/390px 화면에서도 추가 버튼 문구가 비정상적으로 접히지 않는다.
 - 제어 페이지에 `수동 제어 | 스케줄 제어 | 이벤트 제어` 탭을 추가했다. 선택 상태는 `mode=manual|schedule|event` URL query로 유지하고 누락되거나 잘못된 값은 기존 `siteId`를 보존한 채 `manual`로 정규화한다. 선택 탭만 일반 Tab 순서에 두고 좌우 방향키 순환, Home/End에서 focus·선택·URL을 함께 갱신하며 browser back/forward 뒤에도 roving focus 상태를 복원한다. Site 또는 사용자 scope가 바뀌면 열린 스케줄 dialog와 mutation 표시 상태를 새 scope로 넘기지 않는다. Schedule panel은 schedule mode에서 lazy-load하고 loading 동안 연결된 `tabpanel` 상태를 유지한다.
-- schedule 목록은 서버 `schedules.service.ts`의 실제 응답 형태를 사용해 이름, 활성 상태, 현장 시간대의 다음 실행, 반복·시간, 밝기, 대상 수, Gateway `PENDING|APPLIED|REJECTED` 상태와 최근 실행 결과를 표시한다. 최근 `action_result`는 `@led-control/shared/automation-contracts`의 narrow production schema로 검증한 뒤 fixture별 성공·실패·시간 초과를 집계하고 legacy/unknown payload는 상세 확인 불가로 표시한다. subpath의 `browser`와 generic `import`는 shared build가 생성한 executable `dist/esm` artifact를 사용하고 CommonJS `require`는 기존 CJS artifact를 유지하며, shared root CommonJS runtime은 Web production graph에 포함하지 않는다. Shared build cleanup은 manifest 소유 파일만 제거하고 `dist` root/parent/target symlink와 non-directory를 fail-closed하며 unrelated 파일을 보존한다. Artifact logical path는 POSIX 상대 경로만 허용하고 colon/backslash, drive-relative, ADS, UNC/device와 terminal dot/space를 host OS와 무관하게 mutation 전에 거부한다. 100개 bounded cursor page를 이어 불러오며 목록은 3초 polling한다. 첫 페이지, 다음 페이지, background 상태 갱신 오류를 구분하고 기존 행을 유지한 비차단 경고와 오류 종류에 맞는 재시도를 제공한다.
+- schedule 목록은 서버 `schedules.service.ts`의 실제 응답 형태를 사용해 이름, 활성 상태, 현장 시간대의 다음 실행, 반복·시간, 밝기, 대상 수, Gateway `PENDING|APPLIED|REJECTED` 상태와 최근 실행 결과를 표시한다. 최근 `action_result`는 `@led-control/shared/automation-contracts`의 narrow production schema로 검증한 뒤 fixture별 성공·실패·시간 초과를 집계하고 legacy/unknown payload는 상세 확인 불가로 표시한다. subpath의 `browser`와 generic `import`는 shared build가 생성한 executable `dist/esm` artifact를 사용하고 CommonJS `require`는 기존 CJS artifact를 유지하며, shared root CommonJS runtime은 Web production graph에 포함하지 않는다. Shared build cleanup은 manifest 소유 파일만 제거하고 `dist` root/parent/target symlink와 non-directory를 fail-closed하며 unrelated 파일을 보존한다. Artifact logical path는 POSIX 상대 경로만 허용하고 colon/backslash, drive-relative, ADS, UNC/device와 terminal dot/space를 host OS와 무관하게 mutation 전에 거부한다. 목록은 기본 10건(선택 가능 10·20·50·100건) bounded cursor page로 조회하며 3초 polling한다. 첫 페이지, 다음 페이지, background 상태 갱신 오류를 구분하고 기존 행을 유지한 비차단 경고와 오류 종류에 맞는 재시도를 제공한다.
 - admin은 schedule 추가·수정·삭제·활성화/비활성화를 수행할 수 있고 viewer는 같은 목록과 상태만 조회한다. mutation 성공 시 중앙 schedule query key와 dashboard query를 invalidate한다. `schedule_overlap`, `single_gateway_required`, 권한·입력 오류는 서버 원문을 노출하지 않는 한글 메시지로 표시한다.
 - schedule dialog는 빠른 프리셋의 `매일`, `평일`, `주말`, `한 번`을 기존 daily/weekly/once 계약으로 변환하며 평일은 월~금, 주말은 토~일 exact day set을 사용한다. 적용 날짜 기간과 하나의 자정 통과 가능 시간 구간은 기본 화면에 표시하고, 고급 설정은 1회·매일·매주·매월·매년 전체 반복과 디밍 ON 밝기 0~100·디밍 OFF 100%를 유지한다. 개별/다중·층·구역 target도 유지한다. 날짜는 Site IANA timezone의 달력 날짜를 ISO instant로 변환하며 브라우저 local timezone과 분리한다. 직접 선택은 최대 1,000개이고 월 29~31일 및 매년 2월 29일의 건너뛰기 의미를 안내한다. 매월 29~31일은 허용하지만 매년 4월 31일·2월 30일처럼 Gregorian 달력에 영구히 존재하지 않는 조합은 저장 전에 거부한다.
 - schedule list/poll/mutation의 `401`은 로그인 세션 만료로 안내하고 중앙 `auth/me` query를 현재 사용자·Site 세대당 한 번만 invalidate한다. scope가 바뀌었다가 같은 값으로 돌아온 경우에도 과거 세대의 지연된 `401`이 새 principal을 만료시키지 않으며 `403` 권한 오류와 network 오류는 별도 문구를 유지한다.
 - 이벤트 탭은 lazy-load한 차량 이벤트 규칙 panel로 admin CRUD·활성화/비활성화와 viewer read-only 목록을 제공한다. 목록은 활성 상태, source·target 수, 밝기, hold, Gateway sync 상태와 최근 감지를 표시한다. 초기 목록·다음 cursor·background polling의 `401`은 모두 세션 만료로 안내하고 중앙 `auth/me` query를 invalidate한다. mutation의 auth/cache side effect는 mutation-level callback에서 수행해 panel unmount 뒤에도 보장하며, dialog/message 같은 UI state만 scope 세대로 제한한다.
+- 스케줄·이벤트 목록 조회와 보이는 페이지 polling에서 `401` 세션 만료 또는 `403`/`404` 현장 조회 권한 상실이 확인되면 캐시된 행·관리 버튼·열린 수정/삭제 대화상자뿐 아니라 조건별 집계·페이지 이동도 즉시 차단한다. 앞선 일시적 polling `503`보다 새 목록 접근 오류를 우선 표시하고, `401`만 `auth/me`를 무효화한다. `403`/`404` 뒤에는 실제 목록 재조회 성공 시에만 관리를 다시 제공한다. 이는 Web mock 기반 차단 검증이며 실장비 동작 검증은 아니다.
 - 이벤트 dialog는 감지 센서와 실행할 조명의 요약 카드를 원인→결과 순서로 배치하고, 밝기 50/70/80/100%와 유지 시간 30초/1분/5분 프리셋을 제공한다. 프리셋 밖의 5~1,800초는 직접 입력으로 유지한다. source picker는 전용 선택 view에서 Dashboard fixture의 Gateway 등록, `supported` vehicle sensor capability 및 canonical ISO verified timestamp가 모두 확인된 fixture만 노출한다. timestamp 누락·`null`·비정상 값은 fail-closed한다. target은 direct fixture selection만 지원하며 API의 단일 Gateway 제약을 그대로 적용한다. submit validation 오류는 stable error id로 해당 input/control group과 연결하고, 필요한 고급 설정 또는 picker view를 연 뒤 첫 invalid group 또는 input으로 focus를 이동한다.
 - 수동 제어는 종료 시각 입력 없이 대상과 밝기를 전송한다. 성공한 조명별 밝기는 영속 기본값으로 저장하고 `조명 적용 완료 · 기본 밝기로 저장됨`으로 안내한다. 실패·시간 초과 조명은 기존 기본값을 유지한다. 응답 유실 복구는 target+brightness로 동일 요청을 재전송하며 유효한 legacy 저장 요청의 `overrideUntil`은 복구 시 제거한다.
 - Gateway production runtime은 snapshot activation을 실제 offline scheduler와 priority arbiter에 연결한다. 수동 성공 시점에 활성인 exact schedule `(scheduleId, occurrenceKey)`와 vehicle `(ruleId, startedAt)`만 억제한다. 다음 occurrence/activation부터 `억제되지 않은 차량 event 중 최대 brightness > schedule > 기본 밝기` 순으로 동작하고 자동 실행 종료 후 수동 기본 밝기로 돌아온다. 진행 중 event의 Low hold 연장·재감지는 같은 activation이며 종료 후 새 감지부터 재개한다.
@@ -274,7 +306,22 @@
 - ESP32-H2는 group Light Lightness Set Unacknowledged를 PWM에 즉시 반영하고 primary unicast 기반 `64~5,179ms` 결정적 지터 뒤 실제 Lightness Status를 publication한다. `(source, destination, TID)` 6초 cache가 중복 적용과 publication 재예약을 막는다.
 - 펌웨어의 모델별 group subscription 상한은 16개이며, 서비스 계약은 조명 한 대당 층 group 1개와 사용자 fixture group 최대 15개다. API도 provisioning member 연결 시 같은 사용자 group 상한을 검증한다.
 
+- 2026-09-26 Gateway Set 수신 경계: `GATEWAY_COMMAND_EPOCH_CUTOVER=1`에서 현장/Gateway scope, publish epoch 및 DB 시각 증거를 수신·group queue dequeue·journal 수락 직전·fsync/accepted ACK 이후에 재검사한다. 유효한 동일 epoch 증거로 확인한 만료와 상대 receipt TTL 소진은 `COMMAND_EXPIRED`, scope/epoch/증거 거부는 `GATEWAY_CLOCK_UNTRUSTED`로 기록한다. 최초 거부를 journal의 첫 원자 저장부터 terminal로 보존하고 DUP에 같은 ACK를 재생한다. 24시간 journal 정리 뒤 DUP도 다시 검증해 RF를 차단하며 로컬 journal의 기존 보관기간은 바꾸지 않는다. `prepare` 전 거부는 RF·자동화 handoff·fixture-state 성공을 만들지 않고 legacy accepted-only 또는 RF 시작 가능 기록의 재시작은 기존 불확정 결과를 보존한다. cutover 전 legacy Set, Get/status-check, 로컬 자동화는 기존 정책을 유지한다. 어댑터의 각 native write 직전 차단과 보수적 배수 응답(Task 6)은 소프트웨어 구현·자동 검증을 완료했으며, 물리 RF 종료·취소 및 submit→RF 상한을 확인하는 Pi/BlueZ/BIO HIL, 운영 DB-host attestor와 운영 cutover는 별도 출시 관문으로 남아 있다. 따라서 cutover·운영 purge·복구 POST는 OFF를 유지하며, 중앙 보존 정책은 모든 현장에 최근 3 calendar months만 적용한다. 관련 구현은 `apps/gateway/src/index.ts`, `commands/gateway-command-handler.ts`, `commands/command-journal.ts`, `commands/db-clock-proof.ts`다.
+
+- 2026-09-27 Gateway 수동 prepare 취소: cutover Set은 journal 수락에 `pre_rf`, adapter 호출 전에 `may_have_written`을 각각 fsync한다. RF 이전 거부는 terminal 결과와 abort intent를 원자 저장하고 `abortManualControl(sourceId, fixtureIds)`로 저장된 원본 source/fixture에 일치하는 pending 수동 제어·transition만 해제한 뒤 abort 완료를 저장하고 ACK를 반환한다. prepare·terminal 저장·abort·완료 기록 경계에서 재시작해도 재생은 멱등이며 다른 명령, 기존 기본 밝기, 관측 상태를 변경하지 않는다. `pre_rf` 재시작은 `GATEWAY_CLOCK_UNTRUSTED`로 거부하고 로컬 일정·센서 실행을 다시 허용하지만, RF 시작 가능 단계와 legacy accepted 기록은 미적용으로 단정하거나 abort하지 않는다. 변조된 DUP와 journal 수락 경합도 저장된 원본 대상으로 취소를 완료한 뒤 같은 terminal을 재생한다. 구현·재시작 테스트는 `apps/gateway/src/automation/schedule-runtime.ts`, `commands/gateway-command-handler.ts`, `commands/command-journal.ts`, `index.ts`와 대응 테스트에 있으며 실제 RF/HIL·운영 cutover는 아직 검증·활성화하지 않았다.
+
+- 2026-09-26 Gateway Set DUP 순서 보완: 수신 시 시각/epoch 거부가 결정되어도 동일 그룹 queue를 통과한다. 원본 RF가 진행 중이면 기존 accepted 기록을 재시작 잔여 명령으로 오인해 `timed_out`이나 자동화 handoff를 먼저 만들지 않고, 원본 완료 뒤 같은 terminal 결과를 재생한다. RF 재실행은 없으며 수신 시 거부 판정도 queue 대기 중 새 증거로 해제하지 않는다. 2026-09-27에는 journal instance·idempotencyKey별 진행 중 Promise를 첫 비동기 저장 전에 등록해 unicast를 포함한 모든 delivery mode에 이 순서를 적용했다. 원본 prepare가 진행 중인 DUP는 완료를 기다린 뒤 durable 결과를 읽으며 다른 key 또는 다른 journal의 명령은 병렬 실행한다.
+
+- 2026-09-27 수동 prepare 취소의 저장 실패 보완: abort는 일반 로컬 제어의 ENOSPC 메모리 대체 저장을 사용하지 않고 영속 저장을 요구한다. 저장 실패 시 journal abort intent를 유지하고 terminal ACK를 반환하지 않아 재시작 후 정확한 취소를 다시 수행한다. 별도로 관측되지 않은 desired 밝기가 0%여도 기존 observation fence를 유지한다. 실제 gap journal·headroom 설정의 ENOSPC 주입과 새 runtime/journal 복구로 검증했으며 운영 cutover·purge는 계속 OFF다.
+
+- 2026-09-27 API clock 거부 ACK 귀속: `GATEWAY_CLOCK_UNTRUSTED`는 site/Gateway/Command/dispatch/key/sequence가 일치한 새 Set의 terminal 사전 RF 거부로만 반영한다. `accepted`와 동시에 온 clock 오류, Get/status-check에 온 Set 전용 clock 거부, 이미 `unknown`인 명령의 늦은 clock 거부는 명령·조명 상태를 확정하지 않는다. `COMMAND_EXPIRED`의 기존 terminal 처리는 유지한다. 최근 이력 요약은 원본 Set의 전체 대상이 실패하고 outcome이 `not_applied`인 정확한 clock 거부에만 선택적 `errorCode`를 제공하며, 상세 조회는 기존 dispatch 오류 코드를 보존한다. 원본 삭제 뒤 늦은 RF 불확정 Set ACK와 Get-only 복구 실패는 hold/status-check 경로에 남고 자동 Set 재발행이나 성공 fixture 관측을 만들지 않는다. 해당 terminal clock ACK는 미발행 Set outbox도 같은 DB transaction에서 닫고, 기본/세대별 Set publisher는 native enqueue 직전 live dispatch를 잠가 재확인한다. 임시 PostgreSQL 두 연결의 ACK↔발행 경쟁과 PUBACK 유실 재획득 0건을 검증했지만 실제 Gateway RF/HIL 완료나 운영 purge/cutover 승인은 아니다.
+
+- 2026-09-27 제어 이력의 시각 불신 거부 설명: 서버 이력의 선택적 `GATEWAY_CLOCK_UNTRUSTED` 코드가 `failed`·`not_applied`와 함께 온 경우에만 최근 이력과 이력 drawer에 조명 RF 전 거부 및 자동 재실행 없음 안내를 표시한다. `unknown`·부분 적용은 기존 확인 필요 진입과 상태 확인 경로를 유지하며, `COMMAND_EXPIRED` 표시는 바꾸지 않았다. 이력 범위는 계속 서버가 정의한 UTC rolling 3 calendar months이고 1년 보관 선택은 제공하지 않는다. Web 단위 테스트는 UI 표시와 GET 전용 경로를 확인한 소프트웨어 증거이며 실제 Gateway/조명 RF 검증은 아니다.
+- 2026-09-27 제어 안전 UI 재검토 보완: 확인 필요 case 상세의 배경 재조회 중이나 404/500 실패 뒤에는 캐시 상세로 Get-only 상태 확인·위험 승인을 실행하지 않는다. 열린 위험 승인 폼도 닫고, 새 상세 조회가 성공해야 동작을 다시 제공한다. 정확한 시각 불신·전체 미적용·terminal 실패의 명령 상세에서는 Gateway 수신 이후 장비 응답을 미도달로 표시하고 조명 적용을 오류로 둔다. 일반 실패와 `COMMAND_EXPIRED` 단계 표시는 유지한다. Vitest/Chromium mock 검증은 실제 Gateway RF·운영 안전 인증을 대신하지 않는다.
+
 ## 미구현
+
+- 완료된 오래된 Command 원본·파생 사본을 실제로 비우는 비식별 worker는 후속 작업이다. Task 2는 DB 상태 제약과 소비자 차단만 추가하며 기존 미확정 잠금·수동 Set·최근 상태 확인을 유지한다.
 
 - BIO 센서 `0x09`의 detected/cleared boolean mapping, source capability `supported` 승격 및 production event 실행은 미구현이다. `0x0c`는 생존 관측이며 이벤트 입력이 아니다.
 
@@ -292,6 +339,14 @@
 
 ## 부족하거나 개선이 필요한 기능
 
+- Set epoch 발행 경계는 활성 세대·등록 worker·동일 DB primary의 시각 증거를 claim/prepare/attempt/publish마다 재확인하고, MQTT 전 `CommandPublishAttempt`에 절대 만료를 기록한다. Quiesce의 member ACK는 로컬 중지만 뜻하며 응답 없는 member를 시간 경과로 안전 처리하지 않는다. 원본 Command의 UTC rolling 3개월 cutoff와 Set 전용 permit을 적용하며, legacy status-check Get은 quiesce와 분리한다.
+- 운영 DB-host attestor와 세대별 durable primary/step 연속성 제공자는 아직 없다. 새 API 프로세스는 이 증거 없이 ON Set을 발행할 수 없으며, 재시작을 가로지르는 시각 연속성은 아직 증명되지 않았다. Broker 구세대 admission 반롤백·Gateway/RF drain 및 parent-free recovery publisher의 전체 통합은 후속 게이트다. 운영 cutover, purge, recovery POST는 계속 OFF다.
+- 확인 필요 case의 미해결 Hold는 기간이 지나도 먼저 조회하고 유지한다. 해결된 최소 요약만 중앙 DB 시각의 최근 UTC 3 calendar months를 상세 GET에서 보여 주며, 정확한 경계 행은 남긴다. 요약의 물리 sweep은 독립된 `RESOLVED_COMMAND_RECOVERY_RETENTION_ENABLED` 기본 OFF·운영 ON 거부 상태로, 일회용 PG에서만 회당 최대 1,000행·남은 backlog 로그를 검증했다. 목록 `generatedAt`은 표시용 API 시각이며 보존 cutoff가 아니다. DB-host 시계/failover 운영 증거와 migration 적용은 아직 없어 실제 삭제가 활성화된 것은 아니다. 일반 Command 원본 purge·HISTORY/RECOVERY_ACTIONS·복구 POST는 계속 OFF다.
+
+- Set 전용 세대 mTLS egress는 준비 구현이며 `COMMAND_SET_EGRESS_ENABLED=0` 기본값에서 기존 Set/Get 발행을 유지한다. 전환 모드는 active DB member, wire `publishEpoch`, 일치하는 세대 인증서와 broker ACL이 없으면 Set을 거부하며 구 `api-service`로 우회하지 않는다. 원본 만료 전 Get과 recovery Get은 공유 연결을 계속 사용한다. 세대별 durable DB 시각 연속성, 전체 broker 반롤백·Gateway RF drain 증거는 후속 검증 사항이며 운영 cutover·purge·recovery POST는 OFF다. 관련 파일: `apps/api/src/mqtt/command-set-mqtt.service.ts`, `apps/api/src/mqtt/outbox-publisher.service.ts`, `scripts/dev-runtime.mjs`, `docs/runbooks/production-api-web-deployment.md`.
+
+- Task 6 drain 카운터는 프로세스 메모리의 보수적 작업 현황이다. API/retention worker는 0건 응답이나 프로세스 재시작으로 초기화된 카운터를 물리 RF 종료 증거로 추론하면 안 된다. 응답 계약에는 물리 완료 인증 필드가 없고, 실장비 submit→RF 상한 측정·boot 세대/전체 subscriber 확인·broker fence가 필수다. Raspberry Pi/BlueZ/BIO HIL 미실행 상태이므로 cutover·운영 purge·복구 POST는 계속 OFF다.
+- 자동화 전역 목록의 실제 현장 규모 사용성, 갱신 중 cursor 변화와 모바일 WebView는 추가 검증이 필요하다. 서버 cursor는 이전/다음 탐색만 보장하며 실시간 변경 중 고정 총 페이지 수나 임의 페이지 점프를 약속하지 않는다. 구 API 과도기 응답의 로드된 행 기준 수치는 현장 전체 집계가 아니다.
 - 제어 세션 상태 센터 연계는 focused Vitest와 Web typecheck로 확인했으며 브라우저 E2E·실제 모바일 WebView 시각/조작 검증은 아직 완료 증거가 없다. 소프트웨어의 상태·재시도 표시와 실제 Gateway/Mesh 명령 적용·장애 복구 HIL을 구분해 검증해야 한다.
 
 - BIO 센서 자극/회복 10-cycle 물리 HIL과 packet 의미 검토를 완료한 뒤, 별도의 production 통합 계획을 작성해야 한다. 현재 shadow evidence의 `readyForProtocolReview=true`는 protocol 검토 가능 여부일 뿐 `productionActivationAllowed=false`를 바꾸지 않는다.
@@ -336,6 +391,9 @@
 
 ## 관련 파일
 
+- `apps/api/prisma/migrations/20260927150000_command_content_redaction/migration.sql`, `apps/api/src/commands/command-redacted-state.spec.ts`, `apps/api/src/commands/command-redacted-state.integration.spec.ts`
+
+- `apps/gateway/src/commands/command-rf-drain.ts`, `apps/gateway/src/commands/gateway-command-handler.ts`, `apps/gateway/src/mesh/bluez-transport.ts`, `apps/gateway/src/mesh/bluez-mesh-adapter.ts`, `apps/gateway/src/bio/bio-usb-transport.ts`, `apps/gateway/src/bio/bio-dongle-client.ts`, `apps/gateway/src/adapters/bio-usb-dongle-adapter.ts`, `apps/gateway/src/index.ts`
 - `apps/gateway/src/bio/bio-command-codec.ts`
 - `apps/gateway/src/bio/bio-sensor-shadow-capture.ts`
 - `apps/gateway/scripts/bio-sensor-shadow-analyze.ts`
@@ -346,11 +404,19 @@
 - `apps/api/src/monitoring-refresh/monitoring-refresh-ingestion.service.ts`
 - `apps/api/src/fixtures/fixture-presence-ingestion.service.ts`
 - `apps/api/src/energy/fixture-state-ingestion.service.ts`
+- `apps/api/src/automation/dto/automation-list.dto.ts`, `apps/api/src/automation/automation-list-filters.ts`, `apps/api/src/automation/schedules.service.ts`, `apps/api/src/automation/vehicle-event-rules.service.ts`
+- `apps/api/src/mqtt/mqtt.service.ts`, `apps/api/src/mqtt/outbox-publisher.service.ts`, `apps/api/src/commands/command-status.service.ts`, `apps/api/src/commands/command-late-set-ack.service.ts`, `apps/api/src/commands/command-recovery-ack.service.ts`, `apps/api/src/commands/command-legacy-get-ack.service.ts`
 - `apps/api/src/monitoring-incidents/monitoring-conditions.ts`
 - `infra/mosquitto.acl.example`
 - `scripts/dev-runtime.mjs`
 
 - `apps/web/src/features/control/ControlView.tsx`
+- `apps/web/src/features/control/active-command-store.ts`
+- `apps/web/src/api/commands.ts`
+- `apps/web/src/features/control/CommandHistoryPanel.tsx`
+- `apps/web/src/features/control/CommandVerificationCases.tsx`
+- `apps/web/src/features/control/CommandRiskReconcileDialog.tsx`
+- `apps/web/src/features/control/control-time.ts`
 - `apps/web/src/components/ui/session-status/SessionStatusProvider.tsx`
 - `apps/web/src/components/ui/session-status/SessionStatusCenter.tsx`
 - `apps/web/src/components/ui/session-status/ToastRegion.tsx`
@@ -367,6 +433,10 @@
 - `apps/web/src/features/control/automation/VehicleEventControlPanel.tsx`
 - `apps/web/src/features/control/automation/VehicleEventDialog.tsx`
 - `apps/web/src/features/control/automation/components/AutomationRuleCard.tsx`
+- `apps/web/src/features/control/automation/components/AutomationRuleControls.tsx`
+- `apps/web/src/features/control/automation/components/AutomationWorkspaceSurface.tsx`
+- `apps/web/src/features/control/automation/components/useAutomationListState.ts`
+- `apps/web/src/features/control/automation/components/useAutomationVisiblePagePoll.ts`
 - `apps/web/src/features/control/automation/components/AutomationQuickFields.tsx`
 - `apps/web/e2e/calm-operations-manual-control.spec.ts`
 - `apps/web/e2e/calm-operations-automation.spec.ts`
@@ -613,3 +683,14 @@
 ## 갱신 규칙
 
 제어 메뉴의 개별/그룹/스케줄/이벤트 제어 기능이 바뀌면 이 문서를 같은 작업 안에서 갱신한다. software E2E 또는 HIL 증거 상태가 바뀌면 두 상태를 분리해 함께 갱신하며, 실장비 미실행 항목을 자동 검증 결과로 완료 처리하지 않는다.
+
+## 2026-09-27 상세 보관 종료 화면 (Task 5)
+
+- 구현 완료: 완료 명령은 컴포넌트에 상세 사본을 남기지 않고 ID만 보관하여 동일 GET을 포커스·재연결 때 재검증한다. 재조회 중·오프라인 대기·401/403/404/410/500 실패에는 이전 대상·밝기와 재적용/상태 확인을 숨긴다. 열린 최근 이력·전체 이력·최근 결과는 UTC 달력 3개월 경계에서도 숨기고 서버를 다시 조회한다. DB UTC `generatedAt`/`retainedFrom`과 요청 시작 단조 시계를 사용하여 브라우저 벽시계 ±60초 오차를 제거한다. 전체 왕복 시간을 경과 시간에 포함하여 경계에서 조금 일찍 숨길 수 있다.
+- 구현 완료: `410 command_expired`만 ‘상세 보관 종료’로 표시한다. 404는 원본 없음, 다른 오류는 조회 실패로 구분한다. 과거 UI 구현 기록과 달리 현재 case 상태 확인 요청·위험 승인 버튼은 서버 기능 준비 전이라는 이유와 함께 비활성이다. 기존 최근 명령의 `/commands/:id/status-checks`는 유지한다.
+- 구현 완료: 원본 404/410만으로 잠금을 해제하지 않는다. 이전에 관측한 정확한 case와 새 인가된 exact 조회의 0건 응답이 있어야 해제하며 캐시·오류·재조회·오프라인 대기는 근거가 아니다.
+- 미구현: case POST 서버 활성화, 운영 DB 적용·보관 flag ON·실제 조명 HIL. 기존 위험 승인 dialog와 API helper는 향후 연결을 위한 코드로 남으며 현재 화면에서 실행되지 않는다.
+- 부족하거나 개선이 필요한 기능: 서버 시각이 없거나 잘못된 응답은 상세·행동 권한을 부여하지 않는다. 기본 OFF 모드도 DB 시각과 `retentionEnabled:false`를 반환하며 기존 미확정 상세·상태 확인을 유지한다. ON 모드만 달력 기한을 적용한다. 최종 API↔Web 실제 프록시 통합 증거는 총괄 통합 관문에서 별도로 기록한다.
+- 관련 파일: `apps/web/src/api/{commands,detail-retention}.ts`, `apps/web/src/features/control/{ControlView,CommandVerificationCases}.tsx`와 해당 테스트.
+- 갱신 규칙: 보관 기간·오류 표시·case POST 가용성 또는 캐시 재검증 정책 변경 시 이 항목과 회귀 테스트를 함께 갱신한다.
+- 검토 보완: 2월 말 기록은 3개월 뒤 여러 날짜가 같은 2월 말로 보정되므로 cutoff가 자정에 되돌아갈 수 있다. 다음 만료 시각은 각 UTC 날짜의 경계를 따로 검사하며 평년·윤년의 첫 경계와 이후 보정 날짜에 열린 결과/목록을 숨기는 테스트로 검증한다. ON 모드의 `createdAt` 없는 응답도 숨긴다. 최초 제외 시점을 지난 응답은 월말 cutoff가 되돌아가도 새 서버 조회 없이 복원하지 않는다. 클릭 순간에도 동일한 단조 시계와 현재 캐시 권한을 검사한다.
