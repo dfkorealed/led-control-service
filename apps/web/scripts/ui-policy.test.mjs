@@ -1159,10 +1159,6 @@ test("approved landing policy rejects mutated variant or anchor", async () => {
 
 test("approved landing variants compile at inclusive boundaries", async () => {
   const css = await compilePolicyCss();
-  for (const [variant, width] of [["landing-narrow", 430], ["landing-stack", 720], ["landing-wide", 1050]]) {
-    const media = css.match(new RegExp(`@media\\s*\\(max-width:${width}px\\)\\{(?:[^{}]*\\{[^{}]*\\})+\\}`))?.[0];
-    assert.ok(media?.includes(`.${variant}\\:block{display:block}`), `${variant} has exact inclusive max-width:${width}px`);
-  }
   for (const declaration of [
     '.p-landing-demo-disclaimer-inset{padding:var(--spacing-landing-demo-disclaimer-inset)}',
     '.m-landing-hero-heading-margin{margin:var(--spacing-landing-hero-heading-margin)}',
@@ -1183,7 +1179,23 @@ test("approved landing variants compile at inclusive boundaries", async () => {
     const evidence = await page.evaluate(async css => {
       const frame = document.querySelector("iframe");
       frame.contentDocument.head.innerHTML = `<style>${css}</style>`;
+      // Production variants can contain nested responsive rules. Read the exact
+      // media's direct rules through CSSOM instead of a flat-brace regex.
+      const variants = [["landing-narrow", 430], ["landing-stack", 720], ["landing-wide", 1050]];
+      const compiledBlocks = variants.map(([variant, width]) => {
+        const media = [...frame.contentDocument.styleSheets[0].cssRules]
+          .flatMap(rule => rule.cssRules ? [...rule.cssRules] : [])
+          .find(rule => rule.conditionText === `(max-width: ${width}px)`);
+        return Boolean(media && [...media.cssRules].some(rule =>
+          rule.selectorText === `.${CSS.escape(`${variant}:block`)}` && rule.style.display === "block"));
+      });
       frame.contentDocument.body.innerHTML = '<div id="spacing" class="p-landing-demo-disclaimer-inset m-landing-hero-heading-margin gap-landing-header-frame-stacked-gap"></div><div id="block" class="py-landing-hero-frame-block-inset"></div><h1 id="type" class="text-landing-hero-fluid landing-stack:text-landing-hero-fluid-stacked landing-narrow:text-landing-hero-fluid-narrow"></h1><div id="document" class="font-landing leading-landing-concept-document"></div>';
+      for (const [variant] of variants) {
+        const probe = frame.contentDocument.createElement("div");
+        probe.id = variant;
+        probe.className = `hidden ${variant}:block`;
+        frame.contentDocument.body.append(probe);
+      }
       // Chromium serializes BlinkMacSystemFont as system-ui on some platforms;
       // compare the computed family to the same original CSS declaration.
       const reference = frame.contentDocument.createElement("div");
@@ -1194,19 +1206,21 @@ test("approved landing variants compile at inclusive boundaries", async () => {
         frame.style.width = `${width}px`;
         await new Promise(resolve => requestAnimationFrame(resolve));
         const style = frame.contentWindow.getComputedStyle(frame.contentDocument.getElementById("type"));
-        values.push({ width, matches: [430, 720, 1050].map(boundary => frame.contentWindow.matchMedia(`(max-width: ${boundary}px)`).matches), lineHeight: parseFloat(style.lineHeight) / parseFloat(style.fontSize), tracking: parseFloat(style.letterSpacing) / parseFloat(style.fontSize) });
+        values.push({ width, matches: [430, 720, 1050].map(boundary => frame.contentWindow.matchMedia(`(max-width: ${boundary}px)`).matches), lineHeight: parseFloat(style.lineHeight) / parseFloat(style.fontSize), tracking: parseFloat(style.letterSpacing) / parseFloat(style.fontSize), blocks: variants.map(([variant]) => frame.contentWindow.getComputedStyle(frame.contentDocument.getElementById(variant)).display) });
       }
       const read = (id, properties) => {
         const style = frame.contentWindow.getComputedStyle(frame.contentDocument.getElementById(id));
         return properties.map(property => style[property]);
       };
-      return { referenceFamily: frame.contentWindow.getComputedStyle(reference).fontFamily, values, spacing: read("spacing", ["paddingTop", "paddingRight", "paddingBottom", "paddingLeft", "marginTop", "marginRight", "marginBottom", "marginLeft", "rowGap", "columnGap"]), block: read("block", ["paddingTop", "paddingRight", "paddingBottom", "paddingLeft"]), document: read("document", ["fontFamily", "lineHeight"]) };
+      return { compiledBlocks, referenceFamily: frame.contentWindow.getComputedStyle(reference).fontFamily, values, spacing: read("spacing", ["paddingTop", "paddingRight", "paddingBottom", "paddingLeft", "marginTop", "marginRight", "marginBottom", "marginLeft", "rowGap", "columnGap"]), block: read("block", ["paddingTop", "paddingRight", "paddingBottom", "paddingLeft"]), document: read("document", ["fontFamily", "lineHeight"]) };
     }, css);
+    assert.deepEqual(evidence.compiledBlocks, [true, true, true], "each exact inclusive media owns its direct block rule");
     assert.deepEqual(evidence.spacing, ["11px", "22px", "11px", "22px", "22px", "0px", "26px", "0px", "5px", "20px"]);
     assert.deepEqual(evidence.block, ["150px", "0px", "130px", "0px"]);
     assert.deepEqual(evidence.document, [evidence.referenceFamily, "normal"]);
     for (const value of evidence.values) {
       assert.deepEqual(value.matches, [value.width <= 430, value.width <= 720, value.width <= 1050], `${value.width}px inclusion`);
+      assert.deepEqual(value.blocks, [430, 720, 1050].map(width => value.width <= width ? "block" : "none"), `${value.width}px actual variant display`);
       assert.ok(Math.abs(value.lineHeight - 1.15) < 0.001, `${value.width}px retains line-height`);
       assert.ok(Math.abs(value.tracking + 0.085) < 0.001, `${value.width}px retains letter-spacing`);
     }

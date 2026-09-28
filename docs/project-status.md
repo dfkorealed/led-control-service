@@ -21,15 +21,17 @@
 - [x] Task 5 장면 공통·모니터링·제어 전환 `0056c64f`를 완료했다. 독립 리뷰의 현황 문서 P2를 `514e10be`로 수정·재검토했고 기능 코드 추가 지적은 없었다. focused Vitest 31·Chromium 31·typecheck/build, 4너비 시각·13너비 계산·중간 모션/재생/포커스·키보드/터치를 확인했다. 밝기 토큰은 루트 변수 계산으로 15% 고정되는 실제 실패를 확인해 철회했다. 표준 단일 gradient는 4너비×6밝기 24쌍 원본 초기 paint와 정확히 같았고 앵커를 `b1b50079`/374역할로 복원했다. 정책 441→186(CSS 182·import 1·Report/Map 버튼 2·정적 CSS 1), 해당 소유 위반은 0이다. 원본 기준 PNG를 유지하고 alpha/shadow와 crop 차이를 원인별로 분류했으며 임계값만으로 승인하지 않았다.
 - [x] Task 6 통계·보고서·맵 전환 `f90246af`을 완료·독립 리뷰했다(Spec PASS/Quality Approved·Critical/Important 0). compact button leading 별칭은 토큰 전용 `7b2617b1`로 검토하고 `0be27a6f`로 앵커를 회전해 375역할이다. focused Vitest 31·Chromium 40·typecheck/build, 자체 12개 PNG exact·13너비 계산·root/auth 격리·재생 포커스/상태·맵 touch/WAAPI·히어로 delay를 확인했다. 활성 CSS/import를 제거했고 정책은 186→1(정적 시안 CSS만)이다. 최신 HEAD 전체 시각·정적 URL/0건·전체 회귀 관문은 Task 7–8에 남으며 기본 서버는 전체 통합 후 총괄이 실행한다.
 - [x] Task7 정적 시안 MPA `45550c9c`를 전환하고, 독립 리뷰의 보고서 형식 보존 P2를 `0ddacc18`로 수정·재검토했다(ADDRESSED·새 Critical/Important0). 기존 시안의 고유 화면·native 문의 수명·Map 동작은 명시적 concept 표시로 보존하며 공통 entry/컴포넌트를 쓴다. 실제URL11·siteMap3·unit44·typecheck/build, 수정4RED→5GREEN과 정책0/0을 확인했다. 자체36PNG/20너비·포커스18종과 남은 합성·clip 원인을 분류했다. 이전public HTML/CSS/JS3개를 제거하고 물리dist HTML/sharedassets를 확인했다. Task8의 fresh 전체Web/root/최종HEAD시각/nginx·wholebranch review가 남아 있다.
-- [ ] 승인된 의미 토큰·반응형 기준과 공유 React 진입점의 Vite 다중 페이지 계획에 따라 남은 695건의 0건 수렴 및 최종 시각·기능·production URL 검증을 완료한다.
+- [x] Task 8의 정책·시각·운영 파일 경로 검증을 수집했다. `ui:check` 기존0/신규0, 정책65/65, Web lint/typecheck·2,577 passed/3 skipped·build가 통과했다. 최종 제품 소스의 4경로 × 4너비 124 PNG와 20너비 정수/분수 경계를 원본에 비교해 배치·팝업·앵커 변화 0과 합성/모서리 래스터 잔여를 전부 분류했다. 실제 nginx 1.27.5가 읽기 전용 dist를 제공한 여섯 직접 경로·새로고침·자산 200, mock 상담 503→201/동일 키/포커스와 401 로그인 격리를 확인했다. 배포·실제 API/메일·장비 검증은 아니다.
+- [ ] Task 8 전체 GREEN과 독립 최종 리뷰는 미완료다. Chromium은 73 passed/4 failed로 원본에서 pseudo 때문에 평가되지 않았던 실제 읽는 글자의 색 대비 부족을 확인했다. 사용자 UI 보존 조건에 따라 팔레트·ARIA·axe oracle를 유지하고, 두 글자색 개선안은 미승인 비교 자료로만 남겼다. 루트 `pnpm test` 첫 실행은 API 2935 passed/1 failed/822 skipped(소유 CAD fixture ENOTEMPTY) 및 Gateway midpoint restart 5000ms timeout, 기본 명령 재실행은 API 2936 passed/814 skipped·Jest worker SIGSEGV로 실패했다. 첫 두 named 테스트는 개별 통과했고 재실행에서도 통과했지만 루트 성공으로 확대하지 않는다. 최종 상태는 색상 선택과 루트 worker 원인 판정 대기이며 통합/fast-forward/push는 하지 않았다.
 
-## 2026-09-27 랜딩·Final Atlas 로컬 통합 — 검증 중
+## 2026-09-27 랜딩·Final Atlas 로컬 통합 — merge 검토 완료, 개발 기준 반영 대기
 
 - [x] 사용자 지정 개발 기준 `b429f856`에서 `codex/integrate-atlas-landing-20260927`을 만들고 검증된 Atlas `f943de42`를 통합했다. 랜딩·운영자 문의·Atlas·최근 3개월 상세 보존 기능과 양쪽 migration 원본을 함께 보존하는 충돌 해법을 적용했다.
 - [x] 병합 결과 Prisma generate/validate·logger 10/10·production contract 27/27, 일회용 PostgreSQL 신규 123개·랜딩 101→123개·Atlas 120→123개 migration을 검증했다. 실행 기록은 [통합 체크리스트](superpowers/plans/2026-09-27-atlas-landing-integration.md)에 유지한다.
 - [x] root lint/typecheck/build, 전체 package tests(Web 2,574·API 2,936·Gateway 1,408·Shared 411 등) 통과. test-only 로그인 경로·DB 시계 mock·Atlas 선택자를 정합하고 실제 모바일 최근 이력 버튼 hit 영역을 보정했다. 최종 제어 Chromium 31/31과 앞선 랜딩31·auth/operator5·보존8을 통과했고 마지막 수정 후 관련 unit12·Web production build/typecheck도 통과했다.
-- [x] root test 마지막 UI 정책은 기존 랜딩 927건으로 실패(정책 61 passed/1 failed)했다. 사용자가 해당 기존 작업을 변경하지 않고 통합하도록 명시적으로 지시했다. 마지막 버튼 보정 뒤에도 finding 전체 목록과 해당 여섯 파일의 `b429f856` 대비 무변경을 확인했고 정책은 완화하지 않았다. 아래 과거 dirty retention 실패 기록은 당시 공유 작업 트리의 이력이며 이번 선택본/통합 package API 전체는 통과했다.
-- [ ] 통합 결과 독립 검토와 개발 기준 브랜치 fast-forward를 마친다. 기존 맵 WIP `675184ff`, 다른 worktree와 사용자 변경은 보존하며 운영 DB·실장비·push는 범위 밖이다.
+- [x] **당시 통합 이력**: root test의 Root 147개 중 143 passed/4 skipped였고, 마지막 UI 정책은 기존 랜딩 927건으로 실패(정책 61 passed/1 failed)했다. 사용자가 당시 해당 기존 작업을 변경하지 않고 통합하도록 명시적으로 지시했다. 마지막 버튼 보정 뒤에도 finding 전체 목록과 해당 여섯 파일의 `b429f856` 대비 무변경을 확인했고 정책은 완화하지 않았다. 아래 과거 dirty retention 실패 기록은 당시 공유 작업 트리의 이력이며 이번 선택본/통합 package API 전체는 통과했다.
+- [x] 통합 merge `04de3375`를 만들고 독립 리뷰에서 새 P0–P2 지적 0을 확인했다. 이는 아래 랜딩 정책 전환 이전 통합 결과의 검토 기록이다.
+- [ ] 승인된 개발 기준 브랜치 fast-forward는 미완료다. 현재 게이트는 랜딩 정책 0건과 fresh 전체 회귀·최종 리뷰이며, 과거 927건 부채 수용을 현재의 면제로 사용하지 않는다. 격리 정책 브랜치는 0건이지만 위 Task 8의 접근성/루트 worker 실패가 남아 있다. 기존 맵 WIP `675184ff`, 다른 worktree와 사용자 변경을 보존하고 운영 DB·실장비·push는 범위 밖이다.
 
 ## 2026-09-27 공개 랜딩 파일 정리·통합
 
