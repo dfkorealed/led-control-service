@@ -40,9 +40,7 @@ HTTP 접속은 canonical Web HTTPS origin으로 이동한다. HTTPS 요청의 Ho
 - Vite → API: `https://127.0.0.1:<API_PORT>`
 - API → 로컬 MQTT broker: `mqtts://127.0.0.1:8883`
 
-TLS 검증을 끄지 않는다. 실제 연결 주소는 loopback이지만 API와 MQTT client는 각각 명시한 인증서 DNS server name으로 인증서를 검증한다. Vite proxy, API MQTT client, command Set MQTT client와 개발 launcher의 사전 handshake가 같은 server-name 계약을 사용한다.
-
-설정 이름은 `VITE_API_TLS_SERVERNAME`과 `MQTT_TLS_SERVERNAME`으로 고정한다. 로컬 앱 전용 모드의 resolver는 `VITE_API_PROXY_TARGET`과 `MQTT_URL`을 loopback으로 정규화하되 두 server-name 값은 각각 `LAB_API_DNS`, `LAB_MQTT_DNS`와 정확히 같아야 한다.
+TLS 검증을 끄지 않는다. 실제 연결 주소는 loopback이지만 API와 MQTT client는 기존 `LAB_API_DNS`, `LAB_MQTT_DNS`를 TLS server name으로 사용해 인증서를 검증한다. Vite proxy, API MQTT client, command Set MQTT client와 개발 launcher의 사전 handshake가 같은 server-name 계약을 사용한다. 별도의 server-name 환경변수는 추가하지 않는다.
 
 이 모드에서는 stale `LAB_API_IP`, `LAB_MQTT_IP`, `MQTT_PUBLIC_URL` 때문에 API·Web 기동을 막지 않는다. 대신 내부 endpoint가 loopback인지, protocol과 port가 맞는지, TLS server name이 설정된 Lab DNS와 일치하는지를 검증한다. 장비 공개 endpoint는 자동으로 새 IP로 바꾸거나 online으로 간주하지 않으며, 실제 Gateway/HIL 작업 전에는 일반 Lab 모드로 돌아가 현재 네트워크의 PKI와 공개 DNS를 별도 검증해야 한다.
 
@@ -54,10 +52,10 @@ API 전역의 `trust proxy`는 켜지 않는다. 같은 API listener가 Web HTTP
 
 Web nginx는 외부 요청의 관련 header를 전달하지 않고 다음 값을 항상 덮어쓴다.
 
-- `X-Web-Ingress-Secret`: `WEB_INGRESS_SECRET`에서 주입하는 API·Web 전용 64자리 hex secret
+- `X-Web-Ingress-Secret`: 기존 `LANDING_INGRESS_SECRET`을 Web ingress 전체 비밀로 일반화해 주입하는 64자리 hex secret
 - `X-Web-Client-IP`: nginx가 관측한 `$remote_addr`
 
-API의 공통 client-address resolver는 secret을 timing-safe 비교한다. 검증된 Web ingress 요청만 `X-Web-Client-IP`를 사용하고, 그 밖의 직접·device 요청은 socket에서 계산된 `request.ip`를 사용한다. `X-Forwarded-For`, `X-Real-IP` 또는 secret 없는 전용 header를 직접 신뢰하지 않는다. Landing ingress secret과 Web auth ingress secret은 역할과 회전 범위를 분리한다.
+API의 공통 client-address resolver는 secret을 timing-safe 비교한다. 검증된 Web ingress 요청만 `X-Web-Client-IP`를 사용하고, 그 밖의 직접·device 요청은 socket에서 계산된 `request.ip`를 사용한다. `X-Forwarded-For`, `X-Real-IP` 또는 secret 없는 전용 header를 직접 신뢰하지 않는다. 공개 문의와 브라우저 인증은 같은 nginx→API ingress 경계를 사용하므로 하나의 secret을 함께 회전하며, OAuth·메일·MFA 암호화 키와는 재사용하지 않는다.
 
 개발 Vite proxy는 외부 사용자 IP를 신뢰 경계로 전달하지 않는다. 로컬 요청의 loopback 주소가 감사·rate-limit 주소가 되는 것이 정상이다.
 
@@ -83,12 +81,14 @@ rate limit은 접속 IP와 account/tenant 차원을 계속 사용한다. 비밀�
 
 production preflight는 다음을 강제한다.
 
-- `WEB_PUBLIC_URL`과 `WEB_HTTPS_ORIGIN`은 같은 canonical public HTTPS origin이고 `WEB_CANONICAL_HOST`는 그 origin의 hostname과 정확히 같다.
-- `MQTT_PUBLIC_URL`과 신규 `DEVICE_API_PUBLIC_URL`은 `localhost`, 사설 container name, IP literal이 아닌 승인된 DNS hostname을 사용한다.
+- `WEB_PUBLIC_URL`과 `WEB_HTTPS_ORIGIN`은 같은 canonical public HTTPS origin이다. canonical host는 `WEB_HTTPS_ORIGIN`에서 시작 시 파생하며 사용자 설정을 추가하지 않는다.
+- `MQTT_PUBLIC_URL`은 `localhost`, 사설 container name, IP literal이 아닌 승인된 DNS hostname을 사용한다. 장비 API 공개 주소는 기존 Gateway 배포의 `GATEWAY_BOOTSTRAP_URL`에서 같은 규칙을 검증하며 서버용 중복 환경변수를 추가하지 않는다.
 - API의 내부 MQTT URL은 production network의 `mqtt-tls` service identity를 사용한다.
 - Web ingress secret은 landing secret과 다르고 정확히 64자리 hex다.
 - Web nginx는 client IP/secret header를 overwrite하고 API는 secret 없이는 해당 IP를 신뢰하지 않는다.
 - browser origin certificate, device API certificate, MQTT certificate는 각각의 DNS 이름을 SAN으로 포함한다.
+
+이번 변경에서 새로 추가하는 사용자 설정은 `DEV_LOCAL_APP_ONLY` 하나뿐이다. 나머지 값은 기존 `LAB_API_DNS`, `LAB_MQTT_DNS`, `WEB_HTTPS_ORIGIN`, `LANDING_INGRESS_SECRET`, `MQTT_PUBLIC_URL`, `GATEWAY_BOOTSTRAP_URL`에서 파생하거나 기존 의미를 일반화한다.
 
 실제 DNS record, 공인 TLS 발급, cloud load balancer, firewall와 secret 주입은 배포 환경의 책임이다. 저장소는 render/preflight/container smoke로 잘못된 값과 신뢰 경계 우회를 차단하고 runbook에 provisioning·회전·rollback 순서를 제공한다.
 
