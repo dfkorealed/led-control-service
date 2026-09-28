@@ -4,16 +4,20 @@ import { cva } from "class-variance-authority";
 import { cn } from "./utils/cn";
 
 export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement>, Pick<AriaButtonProps, "isDisabled" | "onPress"> {
-  variant?: "primary" | "secondary" | "ghost" | "danger" | "link" | "landingCta" | "landingHeaderContact" | "landingHeroContact";
+  variant?: "primary" | "secondary" | "ghost" | "danger" | "link" | "landingCta" | "landingHeaderContact" | "landingHeroContact" | "landingPlanPrimary" | "landingPlanSecondary";
   size?: "sm" | "md" | "lg";
   isLoading?: boolean;
   loadingLabel?: string;
   children: ReactNode;
 }
 
+const landingPlanFrame = "min-h-12 gap-3 rounded-landing-button border-transparent p-landing-button-inset text-landing-button font-extrabold transition-[transform,background,border-color] duration-200 ease-[ease] hover:transform-[translateY(-2px)]";
+
 const button = cva("inline-flex min-h-11 items-center justify-center gap-2 rounded-control border font-bold cursor-pointer focus-visible:outline-none focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60", {
   variants: {
     variant: {
+      landingPlanPrimary: `${landingPlanFrame} bg-action-primary text-content-inverse hover:enabled:bg-action-primary-hover`,
+      landingPlanSecondary: `${landingPlanFrame} bg-action-secondary text-action-primary`,
       landingCta: "min-h-12 gap-3 rounded-landing-button border-transparent bg-brand-coral p-landing-button-inset text-landing-button font-extrabold text-brand-navy transition-[transform,background,border-color] duration-200 ease-[ease] hover:transform-[translateY(-2px)] hover:enabled:bg-surface-panel",
       landingHeaderContact: "leading-landing-text-action border-0 bg-transparent px-0 py-2 text-landing-navigation font-[750] text-surface-panel underline underline-offset-4 hover:enabled:text-brand-coral landing-wide:landing-stack:text-landing-navigation-stacked landing-wide:landing-stack:landing-narrow:text-landing-navigation-narrow",
       landingHeroContact: "leading-landing-text-action border-0 bg-transparent px-0 py-2.5 text-landing-action font-[750] text-surface-panel no-underline hover:enabled:text-brand-coral",

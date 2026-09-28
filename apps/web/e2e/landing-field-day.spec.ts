@@ -401,3 +401,50 @@ test("hero keyboard re-entry preserves inquiry and CTA nodes and focus", async (
   expect(await ctaNode!.evaluate(element => element.isConnected && element === document.activeElement)).toBe(true);
   expect(await artStyles()).toEqual(originalArtStyles);
 });
+
+test("feature and pricing preserve preview geometry and inclusive page boundaries", async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  for (const width of [320, 390, 1024, 1440, 429, 430, 431, 719, 720, 721, 1049, 1050, 1051]) {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto("/features");
+    await expect(page.locator("#features-title")).toHaveCSS("font-weight", "400");
+    await expect(page.locator("#feature-monitoring h2")).toHaveCSS("font-weight", "400");
+    const preview = page.locator("#features .feature-preview").first();
+    await expect(preview).toHaveAttribute("aria-hidden", "true");
+    await expect(preview).toHaveCSS("width", `${width <= 430 ? 100 : width <= 720 ? 145 : width <= 1050 ? 130 : 172}px`);
+    await expect(preview).toHaveCSS("height", `${width <= 430 ? 118 : width <= 720 ? 145 : width <= 1050 ? 130 : 172}px`);
+    await expect(preview).toHaveCSS("border-radius", "18px");
+    const expanded = page.locator("#feature-monitoring .feature-preview");
+    await expect(expanded).toHaveCSS("height", `${width <= 430 ? 220 : width <= 720 ? 270 : 330}px`);
+    await expect(page.locator("#feature-monitoring")).toHaveCSS("scroll-margin-top", "100px");
+    await page.getByRole("link", { name: "모니터링 자세히 보기" }).click();
+    await expect(page).toHaveURL(/#feature-monitoring$/);
+    await expect(page.locator("#feature-monitoring")).toBeInViewport();
+    await page.goto("/pricing");
+    await expect(page.locator("#pricing-title")).toHaveCSS("font-weight", "400");
+    for (const plan of ["Basic", "Plus"]) {
+      const button = page.getByRole("button", { name: `${plan} 도입 상담` });
+      await expect(button).toHaveCSS("min-height", "48px");
+      await expect(button).toHaveCSS("font-size", "14px");
+      await expect(button).toHaveCSS("line-height", "16.8px");
+      await expect(button).toHaveCSS("border-radius", "12px");
+    }
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  }
+});
+
+test("pricing buttons retain transform transition and plan selection during hover", async ({ page }) => {
+  await page.goto("/pricing");
+  for (const plan of ["Basic", "Plus"]) {
+    const button = page.getByRole("button", { name: `${plan} 도입 상담` });
+    await expect(button).toHaveCSS("transition-property", "transform, background, border-color");
+    expect(await button.evaluate(element => getComputedStyle(element).transitionDuration.split(", ").every(duration => duration === "0.2s"))).toBe(true);
+    expect(await button.evaluate(element => getComputedStyle(element).transitionTimingFunction.split(", ").every(timing => timing === "ease"))).toBe(true);
+    await button.hover();
+    await expect(button).toHaveCSS("transform", "matrix(1, 0, 0, 1, 0, -2)");
+    await button.click();
+    await expect(page.getByRole("dialog").getByText(`선택한 요금제: ${plan}`)).toBeVisible();
+    await page.getByRole("button", { name: "상담 팝업 닫기" }).click();
+    await expect(button).toBeFocused();
+  }
+});
