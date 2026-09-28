@@ -99,7 +99,7 @@ baseline의 `sourceRef`는 scanner에 고정된 승인 Git commit `7b2617b173618
 
 랜딩 포함형 variant는 실제 Vite 생성 CSS와 Chromium iframe의 429/430/430.5/431·719/720/720.5/721·1049/1050/1050.5/1051px media query로 검증한다. 복합 `p`·`m`·`gap`·`py`의 원래 속성과 값, font-size 전용 반응형 utility가 기본 1.15 행간·-.085em 자간을 보존하는지, `font-landing`의 정확 fallback stack과 `leading-landing-concept-document`의 `normal`을 함께 검사한다. Task 1–8에서 제품 루트·공통 컴포넌트·시안 진입점 전환과 페이지별 시각·동작 검증을 완료하고 작업별 독립 검토를 통과했다. 최종 124 실제 URL PNG와 20너비 정수/분수 경계, 원본 normal/reduced-motion, 실제 nginx 여섯 경로 증거를 유지한다. 사용자 승인 두 foreground 차이와 캡처 합성/래스터 인과를 분리했고, raw axe 장식 결과는 정확한 두 역할의 수동 WCAG 분류 후 잔여 0과 구별한다. 실제 장비·메일·배포·Firefox/Safari/native WebView 동일성은 미검증이다.
 
-**현재 검증 (2026-09-28, Task 8):** `ui:check`는 기존 0·신규/증가 0, `test:ui-policy`는 65/65를 통과했다. 부모 Node 22 기본 root test/lint/typecheck/build도 모두 통과했다(Root 143 passed/4 skipped, Shared 411, Automation 28, Mobile 6, Web 2,577 passed/3 skipped, API 2,936 passed/822 skipped, Gateway 1,408). 최종 전체 브랜치 리뷰는 With fixes(I1 문서 정합성)로 이번 수정의 scoped 재검토 대기이며 개발 기준 fast-forward는 미완료다. Node 24의 기존 native crash 근본 원인은 미확정이고 경고 출력은 유지한다.
+**현재 검증 (2026-09-28, Task 8):** `ui:check`는 기존 0·신규/증가 0, `test:ui-policy`는 65/65를 통과했다. 부모 Node 22 기본 root test/lint/typecheck/build도 모두 통과했다(Root 143 passed/4 skipped, Shared 411, Automation 28, Mobile 6, Web 2,577 passed/3 skipped, API 2,936 passed/822 skipped, Gateway 1,408). 최종 전체 브랜치 리뷰의 I1은 `3fe4c3a4` 수정 재검토에서 ADDRESSED·새 Critical/Important 0으로 종결했으며 개발 기준 fast-forward는 미완료다. Node 24의 기존 native crash 근본 원인은 미확정이고 경고 출력은 유지한다.
 
 **Task 1 앵커 회전 직후 이력 (2026-09-28):** 당시 `ui:check`는 기존 랜딩 925건으로 실패했다. 회전 전 기준의 path/rule/match 집합과 같았고 빈 baseline에서는 925건이 기존·신규/증가 양쪽 출력에 집계됐다. 당시 전체 `test:ui-policy`의 생산 0건 단언도 실패했으며, 후속 Task 2–8에서 실제 부채를 해소했다.
 
