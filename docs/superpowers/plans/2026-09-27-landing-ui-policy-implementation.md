@@ -10,7 +10,7 @@
 
 **Spec:** [랜딩 UI 정책 전환 설계 명세](../specs/2026-09-27-landing-ui-policy-design.md)
 
-**실행 상태(2026-09-28):** 사용자 실행 승인. Task 1 기준 채증·토큰 감사·RED/GREEN·토큰 전용 커밋과 독립 리뷰를 완료했다. 정적 문서 normal 행간을 보존하는 토큰 1개도 보완·독립 검토했다(행간 보완 `e1fb48c6`, font-family 보완 및 최신 토큰 전용 `76791eaf`, 총 371선언). Task 2 승인 앵커/포함형 variant 전환을 진행한다. 원래 925건은 미해결이며 구 앵커로 인해 중간 검사는 1368건 FAIL이다.
+**실행 상태(2026-09-28):** 사용자 실행 승인. Task 1 기준 채증·토큰 감사·RED/GREEN·토큰 전용 커밋과 독립 리뷰를 완료했다. 정적 문서 normal 행간을 보존하는 토큰 1개도 보완·독립 검토했다(행간 보완 `e1fb48c6`, font-family 보완 및 최신 토큰 전용 `76791eaf`, 총 371선언). Task 2 앵커/포함형 variant와 승인 색상 adapter 의존성 보완을 독립 검토까지 완료했다. Task 3 공개 공통/히어로 스타일 전환을 진행한다. 앵커 회전 후 검사는 원래 925건과 정확히 같으며 새 위반은 없다; 아직 0건은 아니다.
 
 ## Global Constraints
 
@@ -66,11 +66,13 @@
 
 **Interfaces:** Consumes Task 1의 커밋 SHA와 토큰 이름→값. Produces `landing-narrow:`, `landing-stack:`, `landing-wide:` 클래스 variant로 각각 `@media (max-width: 430px)`, `720px`, `1050px`를 포함하는 컴파일 CSS, 그리고 그 세 이름·값만 검증하는 정책 계약이다.
 
-- [ ] **Step 1: 컴파일 RED 테스트를 쓴다.** `ui-policy.test.mjs`에 `approved landing variants compile at inclusive boundaries`를 추가한다. 기존 Vite `load` hook의 테스트용 `@source inline(...)`에 `landing-narrow:block landing-stack:block landing-wide:block`을 넣고 CSS의 세 media 조건이 각각 정확히 `max-width:430px/720px/1050px`이며 클래스가 그 안에 생성되는지 단언한다.
-- [ ] **Step 2: 거부 RED 테스트를 쓴다.** `approved landing policy rejects mutated variant or anchor`에서 ref/baseline 불일치, 값 변경·삭제, 네 번째 custom variant, 세 값 변경, 임의 `max-[777px]`을 거부하도록 단언한다. `pnpm --filter @led-control/web exec node --test --test-name-pattern="approved landing" scripts/ui-policy.test.mjs`는 현재 variant 누락/구 ref로 FAIL해야 한다.
-- [ ] **Step 3: 최소 구현한다.** `src/styles.css`에 정확히 세 `@custom-variant`를 선언한다. `ui-policy.mjs`의 신뢰 ref와 빈 baseline의 `sourceRef`를 Task 1 SHA로 함께 바꾸고, 테스트 fixture의 구 ref도 교체한다. 스캐너는 세 이름을 클래스 문자열에서 인식해 `@custom-variant`의 정확한 이름·미디어·중복/누락을 검증해야 한다. 광범위 allowlist나 새 CSS entry는 금지한다.
-- [ ] **Step 4: GREEN을 확인한다.** 위 `--test-name-pattern` 집중 명령은 PASS하고 전체 `test:ui-policy`의 생산 0건 단언만 기존 925건 때문에 FAIL인지 분리한다. `ui:check`는 이전 925개 path/rule/match 목록과 비교해 **신규 위반이 없어야** 한다. 컴파일 CSS의 `max-width` 조건은 해당 정수 경계를 포함하고 430.5/720.5/1050.5px은 제외하는지 테스트한다. 실제 페이지 폭별 E2E는 variant가 사용되는 Task 3–6과 Task 8에서 실행한다.
-- [ ] **Step 5: 커밋한다.** `git add apps/web/src/styles.css apps/web/scripts/ui-policy.mjs apps/web/scripts/ui-policy-baseline.json apps/web/scripts/ui-policy.test.mjs docs/ui-spacing.md && git commit -m "fix(web): anchor approved landing tokens and exact breakpoints"`.
+- [x] **Step 1: 컴파일 RED 테스트를 쓴다.** `ui-policy.test.mjs`에 `approved landing variants compile at inclusive boundaries`를 추가한다. 기존 Vite `load` hook의 테스트용 `@source inline(...)`에 `landing-narrow:block landing-stack:block landing-wide:block`을 넣고 CSS의 세 media 조건이 각각 정확히 `max-width:430px/720px/1050px`이며 클래스가 그 안에 생성되는지 단언한다.
+- [x] **Step 2: 거부 RED 테스트를 쓴다.** `approved landing policy rejects mutated variant or anchor`에서 ref/baseline 불일치, 값 변경·삭제, 네 번째 custom variant, 세 값 변경, 임의 `max-[777px]`을 거부하도록 단언한다. `pnpm --filter @led-control/web exec node --test --test-name-pattern="approved landing" scripts/ui-policy.test.mjs`는 현재 variant 누락/구 ref로 FAIL해야 한다.
+- [x] **Step 3: 최소 구현한다.** `src/styles.css`에 정확히 세 `@custom-variant`를 선언한다. `ui-policy.mjs`의 신뢰 ref와 빈 baseline의 `sourceRef`를 Task 1 SHA로 함께 바꾸고, 테스트 fixture의 구 ref도 교체한다. 스캐너는 세 이름을 클래스 문자열에서 인식해 `@custom-variant`의 정확한 이름·미디어·중복/누락을 검증해야 한다. 광범위 allowlist나 새 CSS entry는 금지한다.
+- [x] **Step 4: GREEN을 확인한다.** 위 `--test-name-pattern` 집중 명령은 PASS하고 전체 `test:ui-policy`의 생산 0건 단언만 기존 925건 때문에 FAIL인지 분리한다. `ui:check`는 이전 925개 path/rule/match 목록과 비교해 **신규 위반이 없어야** 한다. 컴파일 CSS의 `max-width` 조건은 해당 정수 경계를 포함하고 430.5/720.5/1050.5px은 제외하는지 테스트한다. 실제 페이지 폭별 E2E는 variant가 사용되는 Task 3–6과 Task 8에서 실행한다.
+- [x] **Step 5: 커밋한다.** `git add apps/web/src/styles.css apps/web/scripts/ui-policy.mjs apps/web/scripts/ui-policy-baseline.json apps/web/scripts/ui-policy.test.mjs docs/ui-spacing.md && git commit -m "fix(web): anchor approved landing tokens and exact breakpoints"`.
+
+**Task 2 추가 범위:** 추가 Web 회귀가 발견한 canonical color adapter 누락을 controller ruling으로 같은 단계에서 좁게 보완했다. `components/ui/utils/theme-color.ts`에 이미 승인된 문의 색상 이름 3개만 별도 `c2c5a42c`로 추가했고, 기존 Typography 테스트의 실제 RED와 focused 24/24 GREEN·typecheck를 확인했다. 전체 Web 재실행은 최종 Task 8 관문이다.
 
 ### Task 3: 공개 공통 껍질·히어로·문의·푸터 전환
 
