@@ -266,3 +266,44 @@ test("시안 맵 도구는 원래 드롭 시점의 확대 이동과 취소·재�
   await expect(scene.getByText('배치된 조명 3개')).toBeVisible();
   expect(await marker.evaluate(node => node.getAnimations().length)).toBe(0);
 });
+
+for (const reducedMotion of ["no-preference", "reduce"] as const) {
+  for (const format of ["CSV", "XLSX"]) {
+    test(`시안 보고서 선택 형식은 재생·재진입 후에도 유지된다 (${format}, ${reducedMotion})`, async ({ page }) => {
+      await page.emulateMedia({ reducedMotion });
+      await page.goto(concept);
+      const report = page.locator("#report");
+      await report.scrollIntoViewIfNeeded();
+      await expect(report).toHaveClass(/is-complete/);
+      const selected = report.getByRole("button", { name: format, exact: true });
+      const assertFormat = async () => {
+        await expect(selected).toHaveAttribute("aria-pressed", "true");
+        await expect(report.getByRole("button", { name: "PDF", exact: true })).toHaveAttribute("aria-pressed", "false");
+        await expect(report.locator(".report-sheet__footer")).toHaveText(`작성 완료 예시${format} 형식`);
+        await expect(report.locator(".report-history strong")).toHaveText(`주간 조명 운영 보고서 · ${format}`);
+      };
+      for (const action of ["replay", "reenter"]) {
+        await selected.click();
+        await expect(report.getByRole("status")).toHaveText(`${format} 형식의 설명용 미리보기입니다.`);
+        await assertFormat();
+        const previousSheet = await report.locator(".report-sheet").elementHandle();
+        if (action === "replay") {
+          await report.getByRole("button", { name: "보고서 예시 다시 보기" }).click();
+        } else {
+          await page.evaluate(() => window.scrollTo({ top: 0, behavior: "instant" }));
+          await expect.poll(() => report.evaluate(node => node.getBoundingClientRect().top >= innerHeight)).toBe(true);
+          // Allow the real observer to record the exit before re-entering.
+          await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+          await report.scrollIntoViewIfNeeded();
+        }
+        // A new sheet proves replay/re-entry actually ran. Waiting for completion
+        // plus two frames avoids accepting the pre-effect selection on reduced motion.
+        await expect.poll(() => previousSheet!.evaluate(node => node.isConnected)).toBe(false);
+        await expect(report).toHaveClass(/is-complete/);
+        await expect(report.getByRole("status")).toHaveText("예시 보고서 미리보기가 준비됐습니다.");
+        await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+        await assertFormat();
+      }
+    });
+  }
+}

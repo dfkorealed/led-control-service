@@ -11,7 +11,12 @@ export function ReportDemo({ motion }: { motion: SceneMotion }) {
   const formats = concept ? conceptFormats : siteFormats;
   const [format, setFormat] = useState<(typeof conceptFormats)[number]>("PDF");
   const [manual, setManual] = useState(false);
-  useEffect(() => { setFormat("PDF"); setManual(false); }, [motion.run]);
+  useEffect(() => {
+    // The archived concept changes format only on explicit selection; its replay
+    // and scene re-entry reset the status alone. The site keeps its PDF reset.
+    if (!concept) setFormat("PDF");
+    setManual(false);
+  }, [motion.run, concept]);
   return <DemoCard title="보고서" detail="생성 미리보기" name="보고서 생성 흐름 미리보기"
     disclaimer="설명용 보고서입니다. 형식 선택은 미리보기만 바꾸며 파일을 만들거나 내려받지 않습니다." motion={motion} className="report-demo">
     <div className="report-content p-landing-report-content-inset bg-brand-paper landing-narrow:p-landing-demo-content-compact-inset">
