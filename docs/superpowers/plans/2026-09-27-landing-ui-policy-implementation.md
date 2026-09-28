@@ -10,7 +10,7 @@
 
 **Spec:** [랜딩 UI 정책 전환 설계 명세](../specs/2026-09-27-landing-ui-policy-design.md)
 
-**실행 상태(2026-09-28):** 사용자 실행 승인. Task 1–4 구현·독립 검토를 완료했다. 최신 토큰 전용 앵커는 `b1b50079`(374선언), ref 회전은 `5d1d9ada`다. Task 4 주요 기능·요금제 전환 `8e965f78`은 집중 92개·Chromium 24개+easing 1개·typecheck/build와 자기 기준 시각 비교를 통과했고 독립 리뷰는 PASS/Approved·finding 0이다. 현재 UI 정책 441건은 장면 CSS 436·공개 CSS import 1·데모 원시 버튼 3·정적 시안 CSS 1의 expected FAIL이다. Task 5 장면 공통·모니터링·제어를 진행하고 Task 6–8 전체 전환/최종 0건 검증이 남는다.
+**실행 상태(2026-09-28):** 사용자 실행 승인. Task 1–5 구현·독립 검토를 완료했다. Task 5 `0056c64f`의 문서 P2를 `514e10be`에서 고쳐 scoped 재검토를 통과했다. 모니터링·제어는 focused Vitest 31·Chromium 31·typecheck/build와 4너비 시각/13너비 계산 비교·실제 모션 검증을 통과했다. 밝기 트랙의 루트 변수 토큰은 실제 15% 고정 실패를 확인해 철회했고, 기존 Tailwind 단일 paint gradient의 24개 원본 초기 렌더 비교가 픽셀 일치했다. 승인 앵커는 `b1b50079`/374선언으로 복원됐다(`b1a03939`). 현재 정책 186건(CSS 182·import 1·Report/Map 버튼 2·정적 CSS 1)은 expected FAIL이다. Task 6 통계·보고서·맵을 진행하고 Task 7–8 URL/전체 0건 검증이 남는다.
 
 ## Global Constraints
 
@@ -102,12 +102,14 @@
 
 **Files:** Modify `apps/web/src/features/landing/field-day/{Scene,MonitoringDemo,ControlDemo}.tsx`, `apps/web/src/features/landing/field-day.css`; Test `apps/web/e2e/landing-field-day.spec.ts`, `apps/web/src/features/landing/LandingPage.content.test.tsx`.
 
+**추가 승인 범위:** 실제 공통 native `NativeRangeSlider`(RAC 변경 없이 기존 input 계약 보존), 닫힌 Button/Card variant와 Typography union 검사, canonical 순수 cursor keyframes, Monitoring/Control 소비자 key 제거로 재생 포커스 보존, 기존 I6의 마지막 세미콜론 fixture 보정. 실패한 동적 gradient 토큰은 독립 검토 후 철회하고 승인 앵커를 이전과 바이트 동일한 테마로 복원했다.
+
 **Interfaces:** Consumes Task 2의 토큰/variant와 Task 3의 공개 레이아웃. Produces 기존 `SceneMotion = { phase: "playing" | "complete"; run: number; replay(): void; stop(): void }`, `SceneKind`, `DemoCard` props를 그대로 유지해 Task 6의 세 데모가 소비한다.
 
-- [ ] **Step 1: RED/기준을 확인한다.** `ui:check`의 `.scene*`, `.demo-*`, `.floorplan*`, `.control-*` 위반을 기록한다. E2E에 섹션 이탈→재진입 재생, 조명 선택의 `aria-pressed`·상태, 밝기 15→70 동작·직접 조정/적용, reduced-motion의 최종 70% 및 재생 중단을 단언한다. 기존 동작 테스트는 PASS를 확인한다.
-- [ ] **Step 2: 상태·장식·폼을 명시적 노드 및 유틸리티로 옮기고 해당 CSS를 제거한다.** `Scene`의 observer/timer와 `SceneMotion` 계약은 유지한다. 조명·슬라이더·적용 버튼은 공통 UI 소유권을 확인해 원시 폼 스타일 위반 중 MonitoringDemo 1건을 이 단계에서 없앤다. ReportDemo/MapDemo의 나머지 2건은 해당 소비자 스타일을 소유하는 Task 6에서 실제 공통 UI로 전환한다. 동적 밝기 값만 현행 계산값으로 유지하고 정적 스타일을 인라인으로 옮기지 않는다.
-- [ ] **Step 3: GREEN을 확인한다.** `pnpm --filter @led-control/web exec vitest run src/features/landing/LandingPage.content.test.tsx`와 `pnpm --filter @led-control/web exec playwright test e2e/landing-field-day.spec.ts --project=chromium`을 통과시킨다. 4너비 계산 스타일/PNG, reduced-motion과 키보드/터치 조작, 대상 CSS finding 소멸을 확인한다.
-- [ ] **Step 4: 커밋한다.** `docs/menus/landing.md`, 상태 문서/체크리스트를 동기화하고 `git commit -m "refactor(web): migrate scene monitoring and control styles"`.
+- [x] **Step 1: RED/기준을 확인한다.** `ui:check`의 `.scene*`, `.demo-*`, `.floorplan*`, `.control-*` 위반을 기록한다. E2E에 섹션 이탈→재진입 재생, 조명 선택의 `aria-pressed`·상태, 밝기 15→70 동작·직접 조정/적용, reduced-motion의 최종 70% 및 재생 중단을 단언한다. 기존 동작 테스트는 PASS를 확인한다.
+- [x] **Step 2: 상태·장식·폼을 명시적 노드 및 유틸리티로 옮기고 해당 CSS를 제거한다.** `Scene`의 observer/timer와 `SceneMotion` 계약은 유지한다. 조명·슬라이더·적용 버튼은 공통 UI 소유권을 확인해 원시 폼 스타일 위반 중 MonitoringDemo 1건을 이 단계에서 없앤다. ReportDemo/MapDemo의 나머지 2건은 해당 소비자 스타일을 소유하는 Task 6에서 실제 공통 UI로 전환한다. 동적 밝기 값만 현행 계산값으로 유지하고 정적 스타일을 인라인으로 옮기지 않는다.
+- [x] **Step 3: GREEN을 확인한다.** `pnpm --filter @led-control/web exec vitest run src/features/landing/LandingPage.content.test.tsx`와 `pnpm --filter @led-control/web exec playwright test e2e/landing-field-day.spec.ts --project=chromium`을 통과시킨다. 4너비 계산 스타일/PNG, reduced-motion과 키보드/터치 조작, 대상 CSS finding 소멸을 확인한다.
+- [x] **Step 4: 커밋한다.** `docs/menus/landing.md`, 상태 문서/체크리스트를 동기화하고 `git commit -m "refactor(web): migrate scene monitoring and control styles"`.
 
 ### Task 6: 통계 그래프·보고서·맵 편집 전환
 
