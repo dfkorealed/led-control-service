@@ -858,3 +858,6 @@ Task 5의 원본 `753896ce` `.control-panel input[type="range"]`는 동일한 �
 | `--background-image-landing-brightness-track` | `linear-gradient(to right, var(--color-brand-blue) 0 var(--brightness-pct, 15%), var(--color-border-default) var(--brightness-pct, 15%) 100%)` | 공개 제어 데모의 공유 네이티브 밝기 트랙 |
 
 총괄이 승인한 단일 역할이며 `--brightness-pct`는 기존 사용자 입력 계산값이다. 원본 320·1440px의 완료 상태 계산값은 blue `rgb(37, 111, 161)` 0→70%, border `rgb(219, 231, 245)` 70→100%로 확인했다. 기존374 이름·값과 전체 theme 선언을 전부 유지한375 역할 map SHA-256(정렬한 compact UTF-8 JSON)은 `88db3801b90e7f6e772ed85a82832e46b452ff078d145612a88563711894bfbd`다. 선언 누락 RED를 확인했으며 정확 값·선언1회 GREEN을 검사한다. 정책 예외·arbitrary gradient·새 CSS 경로를 추가하지 않고 기존 background-image namespace를 사용한다. 신뢰 앵커는 토큰 전용 커밋의 독립 검토 뒤 별도로 회전한다.
+
+
+375역할 토큰 전용 커밋 `b788d2386979a03fd6eaf1e8b6e1dfd38d7c2121`은 독립 검토 Spec PASS·quality Approved·findings0으로 확인되어 현재 scanner/baseline 승인 ref를 별도로 회전했다. `files: {}`와 기존 거부 사례, 포함형 custom variant 세 개는 그대로 유지한다. 기존374 map과 `b1b50079`는 당시 근거다. 실제 선언 수는522→523이며 별도로 wildcard namespace reset5개가 불변이다. 미전환 데모·정적 시안 위반은 계속 실패로 남는다.
