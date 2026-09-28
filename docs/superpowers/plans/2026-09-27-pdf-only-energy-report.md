@@ -110,3 +110,12 @@
 - [x] PDF 렌더러와 표시 사실 목록을 변경하고 GREEN·API 검증을 확인했다. `350da0ab`: 집중 42/42, API 전체 217 suites·2,629 passed·57 suites/655 환경 의존 skipped, typecheck·Nest build 종료 코드 0. 기존 pnpm 설정 경고와 실패 주입 Nest 로그를 숨기지 않고 구현 보고서에 기록했다.
 - [x] 통계 메뉴 및 기존 설계를 최신화하고 샘플 PDF를 생성·검수했다. 샘플 7쪽 전체 PNG 시각 검수에서 겹침·잘림 부재를 확인했고 독립 텍스트 추출은 62행·505.008 kWh·80,808원, 제거 문구 0·페이지 밖 글리프 0으로 통과했다. Browser 동적 fixture의 실제 생성·manifest 일치도 확인했다(새 Chromium 실행은 아님).
 - [x] 독립 검토 후 상태판과 이 체크리스트에 결과·남은 한계를 기록했다. 작업 검토는 요구사항/품질 승인, 최종 통합 검토도 Ready to integrate(Critical·Important 0)이다. Minor 코드 주석·오래된 문서 진행 표현을 바로잡았고 런타임은 변경하지 않았다. 주석 전용 `0f6d05f6` 뒤 fresh API typecheck·diff 검사와 샘플 동일 hash를 확인했다(전체 테스트는 런타임 코드 `350da0ab`에서 실행). 기존 pnpm 경고/테스트 로그 잡음은 별도 정리 Minor이며 이 PDF 변경의 차단 결함은 아니다. 병합·push·서버 시작은 수행하지 않았다.
+
+### Task 8: 2026-09-28 기존 브랜치 로컬 병합
+
+**승인/경계:** 사용자가 `codex/mvp1-cloud-web` 병합을 선택했다. 원격 push·서버 시작·DB 작업이나 다른 활성 브랜치 변경은 포함하지 않는다.
+
+- [x] 대상 checkout의 변경 없음과 fast-forward 가능 여부를 확인했다. 기준 `b429f856`은 작업 HEAD `7766e7ae`의 조상이며 기본 checkout은 다른 활성 브랜치로 보존한다.
+- [x] 병합 전 fresh 검증 증거를 수집했다. Canonical root `pnpm test`는 변경하지 않은 CAD SVG 메모리 단언 1건 실패로 exit 1(API 2,628 pass/655 skip/1 fail)이다. Root script 141 pass/2 skip, Shared 395, Automation 28, Mobile 6, Web 2,375 pass/3 skip, Gateway 1,287 pass. CAD 단독 순차 회귀 17/17과 API 전체 순차 재실행 217 suites·2,629 pass/655 skip은 exit 0(343.309초)이지만 root 실패 원인은 확정하지 않았고 canonical 통과로 표시하지 않는다. 코드·테스트 한도는 그대로다.
+- [ ] 기존 검증 실패의 처리 방향을 확인한다. Fresh UI 정책 60 pass/1 fail; 기준 위반 927→920건, 신규 없음. Root 실패/순차 통과와 기존 UI 실패를 공개하고 기존 실패 허용을 사용자에게 확인하며 아직 답변 대기다. 검증 관문에서 병합을 보류했다.
+- [ ] 대상 브랜치에 로컬 병합 후 결과 tree와 관련 테스트를 검증하고 상태판을 수렴한다. 실패 상태를 통과로 표시하거나 다른 메뉴/테스트 한도를 변경하지 않는다.
