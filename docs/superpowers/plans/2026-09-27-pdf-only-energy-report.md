@@ -113,9 +113,9 @@
 
 ### Task 8: 2026-09-28 기존 브랜치 로컬 병합
 
-**승인/경계:** 사용자가 `codex/mvp1-cloud-web` 병합을 선택했다. 원격 push·서버 시작·DB 작업이나 다른 활성 브랜치 변경은 포함하지 않는다.
+**승인/경계:** 사용자가 `codex/mvp1-cloud-web` 병합을 선택했고 이후 기존 검증 실패는 다른 에이전트가 해결 중이므로 병합하라고 명시했다. 이 실패는 이번 병합의 차단 조건에서만 제외하며 정책·테스트를 완화하거나 전체 gate 통과로 바꾸지 않는다. 원격 push·서버 시작·DB 작업이나 다른 활성 브랜치 변경은 포함하지 않는다.
 
-- [x] 대상 checkout의 변경 없음과 fast-forward 가능 여부를 확인했다. 기준 `b429f856`은 작업 HEAD `7766e7ae`의 조상이며 기본 checkout은 다른 활성 브랜치로 보존한다.
+- [x] 대상 checkout의 변경 없음과 fast-forward 가능 여부를 확인했다. 기준 `b429f856`은 최종 작업 HEAD `cdaa1c8b`의 조상이며 기본 checkout은 다른 활성 브랜치로 보존한다.
 - [x] 병합 전 fresh 검증 증거를 수집했다. Canonical root `pnpm test`는 변경하지 않은 CAD SVG 메모리 단언 1건 실패로 exit 1(API 2,628 pass/655 skip/1 fail)이다. Root script 141 pass/2 skip, Shared 395, Automation 28, Mobile 6, Web 2,375 pass/3 skip, Gateway 1,287 pass. CAD 단독 순차 회귀 17/17과 API 전체 순차 재실행 217 suites·2,629 pass/655 skip은 exit 0(343.309초)이지만 root 실패 원인은 확정하지 않았고 canonical 통과로 표시하지 않는다. 코드·테스트 한도는 그대로다.
-- [ ] 기존 검증 실패의 처리 방향을 확인한다. Fresh UI 정책 60 pass/1 fail; 기준 위반 927→920건, 신규 없음. Root 실패/순차 통과와 기존 UI 실패를 공개하고 기존 실패 허용을 사용자에게 확인하며 아직 답변 대기다. 검증 관문에서 병합을 보류했다.
-- [ ] 대상 브랜치에 로컬 병합 후 결과 tree와 관련 테스트를 검증하고 상태판을 수렴한다. 실패 상태를 통과로 표시하거나 다른 메뉴/테스트 한도를 변경하지 않는다.
+- [x] 기존 검증 실패의 처리 방향을 확인했다. Fresh UI 정책 60 pass/1 fail; 기준 위반 927→920건, 신규 없음. Root 실패/순차 통과와 기존 UI 실패를 공개한 뒤 사용자가 다른 에이전트의 해결 작업과 분리해 병합하라고 승인했다.
+- [x] 대상 브랜치에 `b429f856`→`cdaa1c8b` fast-forward 병합했다. 전체 source commit 포함·동일 tree·충돌 없음·깨끗한 checkout을 확인했다. 병합 후 frozen install·Prisma Client generate·canonical root typecheck exit 0. Root test는 script 141 pass/2 skip, Shared 395, Automation 28, Mobile 6, Web 2,375 pass/3 skip, Gateway 1,287, API 217 suites·2,629 pass/655 skip을 통과했고 CAD 검사도 이번 실행에서는 통과했다. UI 정책 60 pass/1 기존 실패 때문에 최종 exit 1이며 전체 gate 통과나 CAD 원인 해결로 확대하지 않는다. 사용자 승인에 따라 기존 실패는 별도 작업으로 남기고 병합 완료·검증 결과를 상태판에 수렴했다. 다른 활성 브랜치와 QA 증거를 보존하며 push·DB migration/초기화·서버 시작·메뉴/테스트 한도 변경은 하지 않았다.

@@ -4,15 +4,16 @@
 
 ## 2026-09-28 PDF 보고서 기존 브랜치 병합 검증
 
-- [x] 사용자가 `codex/mvp1-cloud-web` 로컬 병합을 승인했다. 대상은 `.worktrees/bio-codec-comments`의 깨끗한 checkout이고 `b429f856`은 PDF 작업 HEAD `7766e7ae`의 조상이다. 기본 checkout의 다른 활성 브랜치는 변경하지 않는다.
+- [x] 사용자가 `codex/mvp1-cloud-web` 로컬 병합을 승인했다. 대상은 `.worktrees/bio-codec-comments`의 깨끗한 checkout이고 `b429f856`은 최종 PDF 작업 HEAD `cdaa1c8b`의 조상이다. 기본 checkout의 다른 활성 브랜치는 변경하지 않았다.
 - [x] 병합 전 fresh 검증 증거를 수집했다. Canonical `pnpm test`는 API CAD SVG 메모리 상한 1건(64 MiB 한도, 70,402,048 bytes 측정)으로 종료 코드 1이며, 나머지 root script 141/143(2 제외), Shared 395, Automation 28, Mobile 6, Web 2,375(3 제외), Gateway 1,287은 통과했다. 해당 CAD 코드·테스트는 기준 브랜치와 동일하다. 단독 순차 회귀 17/17 및 API 전체 순차 재실행(217 suites·2,629 passed·57 suites/655 skipped, 343.309초)은 exit 0이었다. Root 병렬 실행의 실패 원인은 확정하지 않았고 순차 통과를 canonical root 통과로 바꾸지 않는다. 제품 코드나 테스트 한도는 변경하지 않았다.
-- [ ] 병합은 검증 관문에서 보류했다. 별도 fresh UI 정책 검사는 60/61 통과·기존 생산 UI 무위반 단언 1건 실패다. 동일 검사기로 기준 브랜치 927건과 변경 브랜치 920건을 비교했고 신규 위반은 없었다. Root 실패/순차 통과와 기존 UI 실패를 공개하며 이번 병합에서 기존 검증 실패를 허용할지 사용자 확인을 요청했다. 아직 병합·push·DB 변경·서버 재시작을 수행하지 않았다. 세부 상태는 PDF 실행 체크리스트 Task 8에 기록한다.
+- [x] 사용자가 해당 실패는 다른 에이전트가 해결 중이므로 병합하라고 명시했다. 기존 UI 정책 60/61 통과·1 실패 및 기준 위반 927→920건(신규 없음), root 병렬 CAD 실패·순차 전체 통과는 남은 별도 작업으로 보존하고 이번 병합의 차단 조건에서만 제외한다. 테스트나 정책을 완화하지 않았다.
+- [x] `codex/mvp1-cloud-web`에 `b429f856`→`cdaa1c8b` fast-forward 병합했고 소스 브랜치의 전체 commit 포함·동일 tree·충돌 없음·변경 없음 상태를 확인했다. 병합 후 frozen install·Prisma Client generate 및 canonical root typecheck는 exit 0이다. Root `pnpm test`에서 script 141 pass/2 skip, Shared 395, Automation 28, Mobile 6, Web 2,375 pass/3 skip, Gateway 1,287, API 217 suites·2,629 pass/655 skip은 통과했고 CAD 메모리 검사도 이번에는 통과했다. 뒤의 UI 정책 60 pass/1 기존 실패 때문에 최종 exit 1이며 전체 gate 통과로 표시하지 않는다. 이번 실행의 CAD 통과를 원인 해결 증거로 확대하지 않으며 기존 실패 수정은 다른 에이전트의 작업으로 남긴다. 기본 checkout과 다른 활성 브랜치·QA 산출물은 보존했고 push·DB migration/초기화·서버 재시작은 수행하지 않았다. 세부 상태는 PDF 실행 체크리스트 Task 8에 기록한다.
 
 ## 2026-09-28 PDF 보고서 주석 반영
 
 - [x] 승인된 표지 분리, 제목 변경, UTC·생성 시각 제거와 자료 상태 표시 제거를 기존 PDF 렌더러에 적용했다 (`350da0ab`). 누락/부분 기록의 내부 판정과 비교 차단은 유지하며 상태 열이 사라진 일별 상세는 부분/확인 불가를 `집계 불가`, 누락을 `데이터 없음`으로 구별한다. 기존 격리 브랜치에서 진행했으며 서버 재시작·추가 이력 초기화·운영 변경은 수행하지 않았다.
 - [x] 신규 7개 회귀의 RED(7 failed)와 최소 구현 후 GREEN(7 passed)을 확인했다. 표지·페이지 순서·제목·상태/시각 제거와 불완전 일별 수치 공개 제한을 검사했고 전체 회귀·샘플 시각 검수도 완료했다.
-- [x] 집중 회귀 42/42, API 전체 217 suites·2,629 passed·57 suites/655 환경 의존 skipped, typecheck·Nest build를 종료 코드 0으로 통과했다. 실제 제품 렌더러의 2개월 가상 데이터 예시 생성·7쪽 전체 시각 검수와 동적 browser fixture manifest 일치도 확인했다. 독립 작업 검토는 요구사항/품질 승인, 최종 통합 검토도 Ready to integrate(Critical·Important 0)이며 Minor 주석/문서 표현을 정리했다. 마지막 주석 전용 변경 `0f6d05f6` 뒤 fresh API typecheck·diff 검사와 동일 샘플 hash를 확인했다(당시 전체 테스트는 런타임 코드 `350da0ab`에서 실행, 이후 병합 전 fresh 검증은 위 별도 항목 참조). 세부 상태는 기존 [실행 체크리스트](superpowers/plans/2026-09-27-pdf-only-energy-report.md)의 Task 7과 일치시킨다. 기존 pnpm 설정 경고와 실패 주입 테스트의 Nest 로그는 보고서에 기록했고 production audit/HIL/새 Chromium 실행을 통과했다고 확대하지 않는다. 브랜치는 미병합이며 서버는 중지 상태를 유지한다.
+- [x] 집중 회귀 42/42, API 전체 217 suites·2,629 passed·57 suites/655 환경 의존 skipped, typecheck·Nest build를 종료 코드 0으로 통과했다. 실제 제품 렌더러의 2개월 가상 데이터 예시 생성·7쪽 전체 시각 검수와 동적 browser fixture manifest 일치도 확인했다. 독립 작업 검토는 요구사항/품질 승인, 최종 통합 검토도 Ready to integrate(Critical·Important 0)이며 Minor 주석/문서 표현을 정리했다. 마지막 주석 전용 변경 `0f6d05f6` 뒤 fresh API typecheck·diff 검사와 동일 샘플 hash를 확인했다(당시 전체 테스트는 런타임 코드 `350da0ab`에서 실행, 이후 병합 전·후 fresh 검증은 위 별도 항목 참조). 세부 상태는 기존 [실행 체크리스트](superpowers/plans/2026-09-27-pdf-only-energy-report.md)의 Task 7과 일치시킨다. 기존 pnpm 설정 경고와 실패 주입 테스트의 Nest 로그는 보고서에 기록했고 production audit/HIL/새 Chromium 실행을 통과했다고 확대하지 않는다. Task 7 구현 당시 미병합 상태였으며 이후 Task 8에서 로컬 병합했다. 서버 재시작은 수행하지 않았다.
 - 샘플 7쪽 전체를 PNG로 렌더링해 겹침·잘림 부재와 표지·제목·자료 상태/UTC/생성 시각 제거를 확인했다. 독립 텍스트 추출은 62행·505.008 kWh·80,808원, 제거 문구 0·페이지 밖 글리프 0이었다. 실제 제품 렌더러와 가상 fixture 결과이며 사용자 DB·실장비 데이터 검증을 뜻하지 않는다.
 
 ## 2026-09-27 PDF 전용 에너지 보고서 전환
