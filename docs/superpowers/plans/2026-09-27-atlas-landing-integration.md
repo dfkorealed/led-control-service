@@ -2,6 +2,8 @@
 
 기준일: 2026-09-28
 
+이 문서는 최초 clean-base 통합 단계의 범위와 검증 이력이다. 이후 사용자의 실제 메인 반영 요청은 [2026-09-28 메인 UI 통합 계획](2026-09-28-main-ui-merge.md)에서 별도로 완료했다. 아래 당시 `codex/mvp1-cloud-web` 제외 경계를 현재 메인 미반영 상태로 해석하지 않는다.
+
 ## 범위
 
 사용자가 지정한 개발 checkout `/Users/kim-jh/Documents/led-control-service`의 `codex/mvp1-cloud-web-clean-base-20260927` (`b429f856`)과 검증된 `codex/final-atlas-implementation` (`f943de42`)을 통합했고 검토된 최종 `24be5748`로 반영했다. 별도 worktree가 점유한 `codex/mvp1-cloud-web`, 맵 WIP `675184ff`, 사용자 미커밋 변경은 이동하거나 포팅하지 않는다. 운영 DB·배포·실장비·push는 제외한다.

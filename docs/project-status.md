@@ -2,11 +2,11 @@
 
 기준일: 2026-09-28
 
-## 2026-09-28 기존 UI 실제 메인 통합 진행
+## 2026-09-28 기존 UI 실제 메인 로컬 통합 완료
 
-- [ ] 실제 `codex/mvp1-cloud-web` (`f907a580`)와 Atlas·랜딩 기준 `e64620aa`의 격리 통합 구현 `30fe76fd` 및 작업 단위 독립 검토를 완료했다(요구사항·품질 승인, Critical0/Important0). 최신 PDF-only 기능·주석 수정과 UI/CSS 계약을 함께 보존했고 Node22/pnpm9 root test/lint/typecheck/build 모두 exit0, mock Chromium97/97·정책65/65·UI0/0이다. Root143/4skip, Shared411, Automation28, Mobile6, Web2583/3skip, API2934/827skip, Gateway1408이다. 환경 제외834개와 기존 실패·경고는 성공에 포함하지 않는다. 최종 전체 통합 검토 및 실제 메인 반영은 남아 있다. [실행 체크리스트](superpowers/plans/2026-09-28-main-ui-merge.md)를 따른다.
+- [x] 실제 `codex/mvp1-cloud-web` (`f907a580`)와 Atlas·랜딩 기준 `e64620aa`의 격리 통합 구현 `30fe76fd`, 작업 단위 독립 검토·최종 전체 통합 검토를 완료했다(요구사항·품질 승인, Critical0/Important0, local merge Yes). 실제 `.worktrees/bio-codec-comments` target을 f907a580→검토된 fb13ed5c로 fast-forward했고 tree일치·양쪽 조상·clean을 확인했다. 최신 PDF-only 기능·주석 수정과 UI/CSS 계약을 함께 보존했고 Node22/pnpm9 동일 제품 코드의 격리 root test/lint/typecheck/build 모두 exit0, mock Chromium97/97·정책65/65·UI0/0이다. Root143/4skip, Shared411, Automation28, Mobile6, Web2583/3skip, API2934/827skip, Gateway1408이다. 환경 제외834개와 기존 실패·경고는 성공에 포함하지 않는다. 실제 target의 fresh frozen install·Prisma generate·root typecheck·정책65/65·UI0/0도 exit0이다. 후속 변경은 완료 기록 문서뿐이다. [실행 체크리스트](superpowers/plans/2026-09-28-main-ui-merge.md)를 따른다.
 - GET/sites mock 누락·기존 중복 rule-key/색 환경/Nest 실패 주입 로그·876.86kB chunk 경고는 Minor 후속으로 보존한다. production audit의 기존 High2 불일치 및 운영 적용/HIL은 완료 범위가 아니다.
-- 기존 5173/5178 미리보기·다른 worktree·맵 WIP는 유지하며 운영 DB·migration·실장비·push는 범위에서 제외한다.
+- 기존 5173/5178 미리보기·기본 clean-base checkout·다른 worktree·맵 WIP는 유지했다. 운영 DB·migration·서버 변경·실장비·push는 실행하지 않았다. 실제 운영 적용 완료를 뜻하지 않으며 원본 ignored 검토/실패 증거 때문에 통합 worktree도 보존한다.
 
 ## 2026-09-28 PDF 보고서 기존 브랜치 병합 검증
 

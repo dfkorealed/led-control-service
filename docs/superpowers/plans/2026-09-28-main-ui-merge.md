@@ -44,17 +44,19 @@
 - [x] Node22.20.0/pnpm9.15.0 frozen install·Prisma generate/validate·root `pnpm test`, `pnpm lint`, `pnpm typecheck`, `pnpm build` 모두 exit0. `.local/main-ui-merge-*.log`에 실패와 성공을 함께 보존했다.
 - [x] 관련 mock Chromium97/97을 격리15228 Vite/closed15229 proxy에서 통과했다. 기존 서버/DB는 사용·재시작하지 않았다. 첫96pass/1fail과 proxy/color 경고는 보존한다.
 - [x] 통합 커밋 `30fe76fd`, 양쪽 조상 포함·clean·migration 원본 불변을 확인했다. 실제 메인 참조는 아직 변경하지 않았다.
-- [ ] 총괄이 검토 패키지를 만들어 독립 요구사항·품질 검토와 최종 통합 검토를 받고 필요한 수정 후 재검토한다.
+- [x] 작업 단위 요구사항·품질 검토와 최종 전체 통합 검토 모두 승인했다. Critical0/Important0이며 최종 판정은 authorized local merge Yes다. Minor 후속은 기록했고 제품 추가 수정은 필요하지 않았다.
 
 ## Task 2: 총괄의 실제 메인 반영
 
-- [ ] 메인 담당자와 진행 중 작업 여부를 확인하고 실제 target checkout의 clean/HEAD·참조 이동 여부를 재확인한다.
-- [ ] 검증된 통합 결과를 메인에 `--ff-only` 반영한다. target이 이동했거나 dirty면 덮어쓰지 않는다.
-- [ ] 실제 메인의 양쪽 SHA 포함·통합 tree 일치·clean 상태·fresh 관련 검증을 확인한다. 새 기능 없음 및 원격/운영 미적용 경계를 기록한다.
-- [ ] 상태판과 체크리스트를 완료 증거에 맞춰 동시에 갱신하고 정확한 대상 브랜치·커밋을 사용자에게 보고한다.
+- [x] 통계 담당자의 종료/clean/비사용 확인 뒤 실제 target branch와 HEAD=f907a580 및 clean을 다시 확인했다. 별도 `refs/heads/main`은 대상이 아니며 변경하지 않았다.
+- [x] 실제 `codex/mvp1-cloud-web`의 `.worktrees/bio-codec-comments` checkout을 f907a580→검토된 fb13ed5c로 `--ff-only` 반영했다. 두 입력과 runtime merge30fe76fd를 모두 포함한다.
+- [x] 직후 target tree1116ecf19936950b8b9d0651afbd9e644bebc80f=검토된 HEAD tree, 양쪽 조상0/0·clean을 확인했다. 실제 target에서 Node22/pnpm9 frozen install·Prisma generate·canonical root typecheck·정책65/65·UI0/0를 fresh exit0으로 확인했다. 전체 test/lint/typecheck/build 및 Chromium97/97은 동일 제품 코드의 격리 통합 실행이며 target에서 전체 재실행한 것으로 확대하지 않는다.
+- [x] 상태판과 체크리스트를 최종 로컬 완료 증거에 맞춰 갱신했다. 후속 변경은 문서 기록뿐이며 제품 diff0·clean/조상 상태를 최종 확인한다. push·DB 적용·서버 변경·실장비 작업은 하지 않았다.
 
 ## 현재 상태
 
-2026-09-28: 격리 작업공간을 만들었다. Native worktree 도구는 앱에 연결된 경로가 Git 저장소가 아니어서 실패했고, 검증된 실제 저장소의 ignored `.worktrees`에 Git fallback으로 생성했다. 실제 메인은 아직 변경하지 않았다. 진행 상태와 과거 실패는 결과 보고 후 갱신한다.
+2026-09-28: 실제 메인 로컬 통합을 완료했다. Native worktree 도구는 앱에 연결된 경로가 Git 저장소가 아니어서 실패했고, 검증된 실제 저장소의 ignored `.worktrees`에 Git fallback으로 생성했다. runtime merge30fe76fd와 검토된 문서 checkpoint fb13ed5c를 실제 target에 반영했으며 이 최종 기록은 문서 전용이다.
 
-통합 구현과 작업 단위 독립 검토는 완료했다(요구사항·품질 승인, Critical0/Important0). 최종 전체 통합 검토와 실제 target FF는 남아 있다. GET/sites mock 누락·기존 중복 rule-key/색 환경/Nest 실패 주입 로그·876.86kB chunk 경고는 Minor 후속으로 보존하며 최종 검토에서 분류한다. Root143pass/4skip, Shared411, Automation28, Mobile6, Web2583pass/3skip, API2934pass/827skip, Gateway1408, 정책65/65·UI0/0이다. 제외834개를 성공으로 계산하지 않는다. production audit 기존 High2 불일치·운영 적용/HIL은 완료 범위가 아니다.
+통합 구현·작업 단위 검토·최종 전체 통합 검토 및 실제 target FF를 완료했다(요구사항·품질 승인, Critical0/Important0). GET/sites mock 누락·기존 중복 rule-key/색 환경/Nest 실패 주입 로그·876.86kB chunk 경고는 최종 검토에서도 로컬 머지 비차단 Minor 후속이다. Root143pass/4skip, Shared411, Automation28, Mobile6, Web2583pass/3skip, API2934pass/827skip, Gateway1408, 정책65/65·UI0/0이다. 제외834개를 성공으로 계산하지 않는다. production audit 기존 High2 불일치·운영 적용/HIL은 완료 범위가 아니다.
+
+격리 통합 checkout의 `.local/main-ui-merge-*.log`와 `.superpowers/sdd/2026-09-28-main-ui-merge`에 담당자/검토 보고서와 원본 실패·성공을 보존한다. 실제 target의 `.local/main-ui-target-{install,prisma-generate,typecheck,policy-tests,ui-check}.log`는 반영 후 별도 확인이다. 최초 target install은 로그 디렉터리가 없어 실행 전 shell redirection이 실패했고, ignored `.local` 생성 뒤 frozen install이 정상 종료했다. 기존5173/5178와 기본 clean-base checkout은 변경하지 않았으며 이번 요청에서 삭제·원격 push·운영 DB 변경을 하지 않았다.
