@@ -10,7 +10,7 @@
 
 **Spec:** [랜딩 UI 정책 전환 설계 명세](../specs/2026-09-27-landing-ui-policy-design.md)
 
-**실행 상태(2026-09-28):** 사용자 실행 승인. Task 1 감사·토큰 전용 RED/GREEN·독립 검토와 Task 2 신뢰 앵커/포함형 variant를 완료했다. Task 3에서 정확한 React 상담 버튼 22px 행간 역할을 추가·독립 검토한 최신 토큰 전용 앵커는 `b9b0ad4b`(총 372선언), ref 회전은 `356ded68`이다. 공개 공통·히어로·문의·푸터 전환 `4e29c1d6` 및 키보드 재진입 포커스/메뉴 현황 수정 `7552a69f`를 검토해 Task 3를 완료했다. UI 정책은 925→695건이며 후속 기능·요금제·데모·정적 URL 전환과 Task 8 최종 0건 검증이 남는다. Task 4를 진행한다.
+**실행 상태(2026-09-28):** 사용자 실행 승인. Task 1–4 구현·독립 검토를 완료했다. 최신 토큰 전용 앵커는 `b1b50079`(374선언), ref 회전은 `5d1d9ada`다. Task 4 주요 기능·요금제 전환 `8e965f78`은 집중 92개·Chromium 24개+easing 1개·typecheck/build와 자기 기준 시각 비교를 통과했고 독립 리뷰는 PASS/Approved·finding 0이다. 현재 UI 정책 441건은 장면 CSS 436·공개 CSS import 1·데모 원시 버튼 3·정적 시안 CSS 1의 expected FAIL이다. Task 5 장면 공통·모니터링·제어를 진행하고 Task 6–8 전체 전환/최종 0건 검증이 남는다.
 
 ## Global Constraints
 
@@ -93,10 +93,10 @@
 
 **Interfaces:** Consumes Task 3 `PublicSiteLayout`와 `OpenInquiry`; Produces 기존 `FeatureOverview(): JSX.Element`, `PricingSection({ onInquiry }: { onInquiry: (event: MouseEvent<HTMLButtonElement>, plan: LandingPlan) => void })` 계약, Basic/Plus 카피·가격·플랜 상담 전달을 유지한다.
 
-- [ ] **Step 1: RED/기준을 확인한다.** `ui:check`의 `.feature-*`, `.pricing-*`, `.section-intro` 선택자 finding을 기록한다. `/features`, `/pricing` 직접/새로고침/뒤로 가기·320/390 가로 넘침 없음·Basic/Plus 상담 값 전달 E2E는 전환 전 PASS를 확인한다.
-- [ ] **Step 2: 컴포넌트별 유틸리티와 공통 카드/버튼 variant로 외형을 옮기고 해당 CSS만 제거한다.** 기능 미리보기 장식 노드는 `aria-hidden`을 유지하며 18px 패널 반경·타이포·shadow를 승인 토큰/정확 유틸리티에 대응시킨다.
-- [ ] **Step 3: GREEN을 확인한다.** `pnpm --filter @led-control/web exec vitest run src/features/landing/FeaturesPage.content.test.tsx src/features/landing/LandingPage.content.test.tsx` 및 `pnpm --filter @led-control/web exec playwright test e2e/landing-field-day.spec.ts --project=chromium`을 통과시킨다. 각 페이지의 4너비 PNG와 계산 스타일 차이를 분류하고 해당 selector finding 소멸을 확인한다.
-- [ ] **Step 4: 커밋한다.** 기능 내용/한계가 달라졌다면 `docs/menus/features.md`·`pricing.md`도 갱신하고, 상태 문서/체크리스트와 함께 `git commit -m "refactor(web): migrate feature and pricing pages"`.
+- [x] **Step 1: RED/기준을 확인한다.** `ui:check`의 `.feature-*`, `.pricing-*`, `.section-intro` 선택자 finding을 기록한다. `/features`, `/pricing` 직접/새로고침/뒤로 가기·320/390 가로 넘침 없음·Basic/Plus 상담 값 전달 E2E는 전환 전 PASS를 확인한다.
+- [x] **Step 2: 컴포넌트별 유틸리티와 공통 카드/버튼 variant로 외형을 옮기고 해당 CSS만 제거한다.** 기능 미리보기 장식 노드는 `aria-hidden`을 유지하며 18px 패널 반경·타이포·shadow를 승인 토큰/정확 유틸리티에 대응시킨다.
+- [x] **Step 3: GREEN을 확인한다.** `pnpm --filter @led-control/web exec vitest run src/features/landing/FeaturesPage.content.test.tsx src/features/landing/LandingPage.content.test.tsx` 및 `pnpm --filter @led-control/web exec playwright test e2e/landing-field-day.spec.ts --project=chromium`을 통과시킨다. 각 페이지의 4너비 PNG와 계산 스타일 차이를 분류하고 해당 selector finding 소멸을 확인한다.
+- [x] **Step 4: 커밋한다.** 기능 내용/한계가 달라졌다면 `docs/menus/features.md`·`pricing.md`도 갱신하고, 상태 문서/체크리스트와 함께 `git commit -m "refactor(web): migrate feature and pricing pages"`.
 
 ### Task 5: 장면 공통·모니터링·제어 전환
 
