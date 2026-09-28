@@ -91,7 +91,7 @@ Task 12 baseline의 violation map은 비어 있으며 production 정책 부채�
 
 검토된 랜딩 371개 역할 토큰(기본 normal 행간·font fallback stack 포함)의 토큰 전용 commit으로 신뢰 앵커를 회전했다. 이전 `reviewedThemeTokenAdditions`는 모두 새 앵커에 포함되어 별도 승인 추가 map을 제거했다. 값·누락·중복 검증과 `files: {}`·0건 목표·기존 거부 규칙은 유지한다.
 
-baseline의 `sourceRef`는 scanner에 고정된 승인 Git commit `b9b0ad4beadd9f6001f9882d0ae3b40c0007c024`과 일치해야 한다. Git object가 없거나 sourceRef·빈 map이 변조되면 fail-closed한다. canonical root unit gate가 Web `test:ui-policy`와 `ui:check`를 일반 unit 뒤에 실행하고, CI unit checkout은 `fetch-depth: 0`으로 승인 object를 확보한다.
+baseline의 `sourceRef`는 scanner에 고정된 승인 Git commit `b1b500793ad8e4be394d3b2467fe35e0f2631197`과 일치해야 한다. Git object가 없거나 sourceRef·빈 map이 변조되면 fail-closed한다. canonical root unit gate가 Web `test:ui-policy`와 `ui:check`를 일반 unit 뒤에 실행하고, CI unit checkout은 `fetch-depth: 0`으로 승인 object를 확보한다.
 
 `p-px`와 정적 `calc`/`clamp` 간격, semantic typography의 `/7`·`/[17px]`·변수 line-height modifier, 계산식 안의 literal font-size를 거부한다. 측정/percentage/viewport를 사용하는 runtime position은 별도 예외이며 일반 padding/margin/gap에 임의 간격을 더하는 수단으로 쓰지 않는다. 허용 token 이름은 승인 commit의 canonical `theme.css`에서 읽는다. 신규 `--text-rogue`, `bg-surface-pannel` 같은 오타와 `max-[777px]:*` 같은 임의 breakpoint는 정책 오류다. CSS import의 query/hash suffix도 원본 resource ID 기준으로 검사한다.
 
@@ -844,3 +844,6 @@ Task 4의 original React `field-day.css`(`cdc642087a7b2e78f8309cccba6bca90dd3433
 | `--background-image-landing-preview-editor-grid` | `linear-gradient(var(--color-border-default) 1px, transparent 1px), linear-gradient(90deg, var(--color-border-default) 1px, transparent 1px)` | 맵 편집 작은 카드·확대 상세 FeaturePreview |
 
 총괄은 두 정확 값을 승인했다. 기존372 역할 이름·값을 모두 유지하며 두 선언을 flat theme에 각각 한 번 추가한다. 새374 map SHA-256(정렬한 compact UTF-8 JSON)은 `c6fae50b1edff6dc150a397881f7c9cac4923b6918eda0502f6aea21f4eb057e`다. 기존372 digest와 `b9b0ad4b`는 당시 근거로 보존한다. 선언 누락 RED 후 정확 값·선언1회 GREEN을 확인하며 Tailwind 기존 background-image namespace의 `bg-landing-preview-map-grid`·`bg-landing-preview-editor-grid`를 소비한다. 정책 예외·새 CSS 경로·arbitrary property·SVG 대체는 추가하지 않는다. 신뢰 앵커는 토큰 전용 커밋의 독립 검토 후 별도로 회전한다.
+
+
+374역할 토큰 전용 커밋 `b1b500793ad8e4be394d3b2467fe35e0f2631197`의 독립 검토는 Spec PASS·quality Approved·findings0이다. 이를 현재 scanner/baseline 승인 ref로 별도 회전한다. `files: {}`·0건 목표·기존 거부 사례와 3개 inclusive custom variant는 유지한다. 이전 `b9b0ad4b`·372map은 당시 증거이며 current ref가 아니다. 미전환 Scene·데모·정적 시안 CSS 부채는 계속 실패로 기록한다.

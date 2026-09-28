@@ -5,7 +5,7 @@ import ts from "typescript";
 import { execFileSync } from "node:child_process";
 
 // Updating this reviewed trust anchor is a policy change, never a baseline edit.
-const approvedSourceRef = "b9b0ad4beadd9f6001f9882d0ae3b40c0007c024";
+const approvedSourceRef = "b1b500793ad8e4be394d3b2467fe35e0f2631197";
 const webRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 function approvedSource(path) {
   return execFileSync("git", ["show", `${approvedSourceRef}:apps/web/${path}`], { cwd: webRoot, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
