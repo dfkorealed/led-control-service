@@ -48,7 +48,7 @@ describe("typed typography and token adapters", () => {
   });
 
   it("keeps variants and color names closed at the public type boundary", () => {
-    expectTypeOf<ButtonProps["variant"]>().toEqualTypeOf<"primary" | "secondary" | "ghost" | "danger" | "link" | "landingCta" | "landingHeaderContact" | "landingHeroContact" | "landingPlanPrimary" | "landingPlanSecondary" | undefined>();
+    expectTypeOf<ButtonProps["variant"]>().toEqualTypeOf<"primary" | "secondary" | "ghost" | "danger" | "link" | "landingCta" | "landingHeaderContact" | "landingHeroContact" | "landingPlanPrimary" | "landingPlanSecondary" | "landingReplay" | "landingFixture" | undefined>();
     expectTypeOf<ButtonProps["size"]>().toEqualTypeOf<"sm" | "md" | "lg" | undefined>();
     expectTypeOf<string>().not.toExtend<ThemeColorToken>();
     expectTypeOf<string>().not.toExtend<TypographyVariant>();

@@ -448,3 +448,173 @@ test("pricing buttons retain transform transition and plan selection during hove
     await expect(button).toBeFocused();
   }
 });
+
+test("monitoring and control replay preserve keyboard focus and native control identity", async ({ page }) => {
+  await page.goto("/");
+  for (const id of ["monitoring", "control"]) {
+    const scene = page.locator(`#${id}`);
+    await scene.scrollIntoViewIfNeeded();
+    const replay = scene.getByRole("button", { name: /예시 다시 보기/ });
+    await replay.focus();
+    const original = await replay.elementHandle();
+    await replay.press("Enter");
+    await expect(replay).toBeFocused();
+    expect(await original!.evaluate(element => element.isConnected)).toBe(true);
+    await expect(scene).toHaveClass(/is-playing/);
+  }
+});
+
+test("monitoring selection cancels its timeline and keeps native keyboard selection", async ({ page }) => {
+  await page.goto("/");
+  const scene = page.locator("#monitoring");
+  await scene.scrollIntoViewIfNeeded();
+  const fixture = scene.getByRole("button", { name: "주차 구역 조명 04 선택" });
+  await fixture.focus();
+  await fixture.press("Space");
+  await expect(fixture).toHaveAttribute("aria-pressed", "true");
+  await expect(scene.getByRole("status")).toContainText("주차 구역 조명 04");
+  await expect(scene).toHaveClass(/is-complete/);
+  await page.waitForTimeout(2450);
+  await expect(fixture).toHaveAttribute("aria-pressed", "true");
+  await expect(fixture).toBeFocused();
+  await page.locator("#report").scrollIntoViewIfNeeded();
+  await scene.scrollIntoViewIfNeeded();
+  await expect(scene).toHaveClass(/is-playing/);
+  await expect(fixture).toHaveAttribute("aria-pressed", "false");
+});
+
+test("control brightness has intermediate frames, cancels on keyboard adjustment and settles at 70 with reduced motion", async ({ page }) => {
+  await page.goto("/");
+  const scene = page.locator("#control");
+  await scene.scrollIntoViewIfNeeded();
+  const slider = scene.getByRole("slider");
+  await scene.getByRole("button", { name: /예시 다시 보기/ }).click();
+  const frames = await slider.evaluate(async element => {
+    const values: number[] = [];
+    const end = performance.now() + 1900;
+    while (performance.now() < end) { values.push(Number((element as HTMLInputElement).value)); await new Promise(requestAnimationFrame); }
+    return values;
+  });
+  expect(Math.min(...frames)).toBeLessThan(30);
+  expect(frames.some(value => value > 30 && value < 65)).toBe(true);
+  expect(frames.at(-1)).toBe(70);
+  await slider.focus();
+  await slider.press("ArrowLeft");
+  await expect(slider).toHaveValue("69");
+  await expect(slider).toBeFocused();
+  await expect(scene).toHaveClass(/is-complete/);
+  await page.waitForTimeout(400);
+  await expect(slider).toHaveValue("69");
+  await scene.getByRole("button", { name: /밝기 적용/ }).click();
+  await expect(scene.getByRole("status")).toHaveText("예시 밝기 69%를 적용했습니다.");
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await scene.getByRole("button", { name: /예시 다시 보기/ }).click();
+  await expect(slider).toHaveValue("70");
+  await expect(scene).toHaveClass(/is-complete/);
+  await expect(scene.getByRole("status")).toHaveText("예시 밝기 70%를 적용했습니다.");
+});
+
+test("monitoring fixture hover preserves transform interpolation", async ({ page }) => {
+  await page.goto("/");
+  const scene = page.locator("#monitoring");
+  await scene.scrollIntoViewIfNeeded();
+  await scene.getByRole("button", { name: "통로 조명 02 선택" }).click();
+  const fixture = scene.getByRole("button", { name: "주차 구역 조명 04 선택" });
+  const dot = fixture.locator("span");
+  await fixture.hover();
+  const frames = await dot.evaluate(async element => {
+    const values: number[] = [];
+    const until = performance.now() + 280;
+    while (performance.now() < until) { values.push(new DOMMatrix(getComputedStyle(element).transform).a); await new Promise(requestAnimationFrame); }
+    return { values, duration: getComputedStyle(element).transitionDuration, translate: getComputedStyle(element).translate, scale: getComputedStyle(element).scale };
+  });
+  expect(frames.values.some(value => value > 1 && value < 1.25)).toBe(true);
+  expect(frames.values.at(-1)).toBe(1.25);
+  expect(frames.duration.split(", ").every(value => value === "0.22s")).toBe(true);
+  expect(frames.translate).toBe("none");
+  expect(frames.scale).toBe("none");
+});
+
+test("touch selects a monitoring fixture and adjusts the native brightness slider", async ({ browser }) => {
+  const context = await browser.newContext({ viewport: { width: 390, height: 900 }, hasTouch: true, isMobile: true, reducedMotion: "reduce" });
+  const page = await context.newPage();
+  try {
+    await page.goto("/");
+    const fixture = page.getByRole("button", { name: "주차 구역 조명 04 선택" });
+    await fixture.tap();
+    await expect(fixture).toHaveAttribute("aria-pressed", "true");
+    const slider = page.getByRole("slider", { name: "출입구 그룹 밝기" });
+    await slider.scrollIntoViewIfNeeded();
+    const box = await slider.boundingBox();
+    await page.touchscreen.tap(box!.x + box!.width * .3, box!.y + box!.height / 2);
+    expect(Number(await slider.inputValue())).toBeLessThan(40);
+    const value = await slider.inputValue();
+    await page.getByRole("button", { name: /밝기 적용/ }).tap();
+    await expect(page.locator("#control").getByRole("status")).toContainText(`${value}%를 적용`);
+  } finally { await context.close(); }
+});
+
+test("monitoring cursor preserves its path, duration, replay and cancellation", async ({ page }) => {
+  await page.goto("/");
+  const scene = page.locator("#monitoring");
+  await scene.scrollIntoViewIfNeeded();
+  await scene.getByRole("button", { name: /예시 다시 보기/ }).click();
+  const cursor = scene.locator(".demo-cursor");
+  const samples = await cursor.evaluate(async element => {
+    const animation = element.getAnimations()[0];
+    await animation.ready;
+    animation.pause();
+    const timing = animation.effect!.getTiming();
+    const values = [];
+    for (const time of [0, 500, 1088, 1800, 2312, 3400]) {
+      animation.currentTime = time;
+      const style = getComputedStyle(element);
+      const parent = getComputedStyle(element.parentElement!);
+      const width = parseFloat(parent.width) - parseFloat(parent.borderLeftWidth) - parseFloat(parent.borderRightWidth);
+      const height = parseFloat(parent.height) - parseFloat(parent.borderTopWidth) - parseFloat(parent.borderBottomWidth);
+      values.push({ time, left: parseFloat(style.left) / width * 100, top: parseFloat(style.top) / height * 100, opacity: Number(style.opacity) });
+    }
+    return { timing, values, easing: getComputedStyle(element).animationTimingFunction, keyframeEasings: animation.effect!.getKeyframes().map(frame => frame.easing) };
+  });
+  expect(samples.timing.duration).toBe(3400);
+  // CSS animation easing belongs to keyframe segments; WAAPI effect easing is linear.
+  expect(samples.easing).toBe("ease-in-out");
+  expect(samples.keyframeEasings.every(easing => easing === "ease-in-out")).toBe(true);
+  expect(samples.timing.fill).toBe("forwards");
+  expect(samples.values[0].left).toBeCloseTo(3, 1);
+  expect(samples.values[1].left).toBeGreaterThan(3);
+  expect(samples.values[1].left).toBeLessThan(23);
+  expect(samples.values[2].left).toBeCloseTo(23, 1);
+  expect(samples.values[2].top).toBeCloseTo(34, 1);
+  expect(samples.values[3].left).toBeGreaterThan(23);
+  expect(samples.values[3].left).toBeLessThan(65);
+  expect(samples.values[4].left).toBeCloseTo(65, 1);
+  expect(samples.values[5].opacity).toBe(0);
+  await scene.getByRole("button", { name: "주차 구역 조명 04 선택" }).click();
+  expect(await cursor.evaluate(element => element.getAnimations().length)).toBe(0);
+  await expect(cursor).toHaveCSS("opacity", "0");
+  await scene.getByRole("button", { name: /예시 다시 보기/ }).click();
+  expect(await cursor.evaluate(element => element.getAnimations().length)).toBe(1);
+  await page.locator("#report").scrollIntoViewIfNeeded();
+  await expect(scene).toHaveClass(/is-complete/);
+  expect(await cursor.evaluate(element => element.getAnimations().length)).toBe(0);
+});
+
+test("native demo controls retain keyboard focus presentation", async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.goto("/");
+  const fixture = page.getByRole("button", { name: "주차 구역 조명 04 선택" });
+  await fixture.focus();
+  await fixture.press("Space");
+  await expect(fixture).toHaveCSS("outline-style", "solid");
+  await expect(fixture).toHaveCSS("outline-width", "2px");
+  const slider = page.getByRole("slider", { name: "출입구 그룹 밝기" });
+  await slider.focus();
+  await slider.press("ArrowLeft");
+  await expect(slider).toHaveCSS("outline-style", "solid");
+  await expect(slider).toHaveCSS("outline-width", "3px");
+  await expect(slider).toHaveCSS("outline-offset", "9px");
+  const value = await slider.inputValue();
+  const fill = await slider.evaluate(element => getComputedStyle(element).backgroundImage);
+  expect(fill).toBe(`linear-gradient(to right, rgb(37, 111, 161) ${value}%, rgb(219, 231, 245) ${value}%)`);
+});

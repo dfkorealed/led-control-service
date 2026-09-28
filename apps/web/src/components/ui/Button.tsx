@@ -4,7 +4,7 @@ import { cva } from "class-variance-authority";
 import { cn } from "./utils/cn";
 
 export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement>, Pick<AriaButtonProps, "isDisabled" | "onPress"> {
-  variant?: "primary" | "secondary" | "ghost" | "danger" | "link" | "landingCta" | "landingHeaderContact" | "landingHeroContact" | "landingPlanPrimary" | "landingPlanSecondary";
+  variant?: "landingReplay" | "landingFixture" | "primary" | "secondary" | "ghost" | "danger" | "link" | "landingCta" | "landingHeaderContact" | "landingHeroContact" | "landingPlanPrimary" | "landingPlanSecondary";
   size?: "sm" | "md" | "lg";
   isLoading?: boolean;
   loadingLabel?: string;
@@ -16,6 +16,8 @@ const landingPlanFrame = "min-h-12 gap-3 rounded-landing-button border-transpare
 const button = cva("inline-flex min-h-11 items-center justify-center gap-2 rounded-control border font-bold cursor-pointer focus-visible:outline-none focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60", {
   variants: {
     variant: {
+      landingReplay: "leading-landing-text-action min-h-[38px] flex-none rounded-landing-compact-control border-border-subtle bg-surface-panel px-2.5 py-0 text-landing-compact-action font-[750] text-brand-blue hover:enabled:bg-action-primary-soft first-letter:text-landing-replay-icon landing-narrow:min-w-[34px] landing-narrow:min-h-[34px]",
+      landingFixture: "group absolute z-2 grid size-8 min-h-0 place-items-center justify-normal gap-0 font-normal focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-border-focus focus-visible:outline-offset-2 focus-visible:shadow-none rounded-landing-ellipse border-0 border-none bg-transparent p-0 transform-[translate(-50%,-50%)]",
       landingPlanPrimary: `${landingPlanFrame} bg-action-primary text-content-inverse hover:enabled:bg-action-primary-hover`,
       landingPlanSecondary: `${landingPlanFrame} bg-action-secondary text-action-primary`,
       landingCta: "min-h-12 gap-3 rounded-landing-button border-transparent bg-brand-coral p-landing-button-inset text-landing-button font-extrabold text-brand-navy transition-[transform,background,border-color] duration-200 ease-[ease] hover:transform-[translateY(-2px)] hover:enabled:bg-surface-panel",

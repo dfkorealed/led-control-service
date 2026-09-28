@@ -4,6 +4,8 @@
 
 ## 구현 완료
 
+- 2026-09-28 UI 정책 전환 Task 5: 다섯 장면의 공통 틀과 모니터링·제어 예시를 승인 유틸리티, 공통 Button/Card, 네이티브 RangeSlider 소유 스타일로 옮겼다. 모니터링·제어는 다시 보기 때 버튼/input DOM을 유지해 키보드 포커스를 보존하고 장식 커서만 재시작한다. Scene observer·타이머·재생 길이, 조명 선택·밝기 자동15→70%·수동 조정/적용, reduced motion 완료 상태를 유지한다. 통계·보고서·맵 예시의 내부 전환은 후속 단계이며 실제 장비 명령이나 API 동작 변경은 없다.
+
 - 공통 공개 헤더·회사 푸터·상담 팝업을 승인된 유틸리티와 공통 Button·LinkButton·Card 변형으로 전환했다. 320·390·1024·1440px의 기존 배치·글자·팝업 스크롤/포커스 복귀 및 `/login`의 401 로그인 화면 계산 스타일을 비교했다. 팝업 모서리는 원래 CSS 우선순위로 표시되던14px을 보존한다.
 - `LandingStory`가 기존 다섯 장면과 상담 callback을 공유하고 `site`/`concept` 시각 인자를 받는다. 현재 `/`는 `site`를 사용한다. 히어로 애니메이션의 재진입·순서·지연과 reduced-motion 정지 상태를 유지한다. 재진입은 애니메이션 클래스만 다시 적용하므로 상담 버튼·CTA의 DOM과 키보드 포커스도 유지한다. 정적 시안 경로의 React 통합은 후속이다.
 
@@ -30,6 +32,8 @@
 
 ## 부족하거나 개선이 필요한 기능
 
+- Task 5의 Chromium 검증은 네 너비(320·390·1024·1440px), 세 포함 경계의 양쪽, 키보드·터치·재생 취소와 밝기 채움을 대상으로 한다. NativeRangeSlider의 두 동적 색 경계는 원본 네 stop gradient와24개 초기 렌더 비교에서 일치했다. 실제 하드웨어·다른 브라우저 검증은 아니다. 통계·보고서·맵 및 정적 시안 CSS가 남아 전체 UI 정책0건은 아직 달성하지 않았다.
+
 - 이번 공개 스타일 전환의 소프트웨어 검증은 집중104개, Web 전체2,577개 통과(3개 환경 조건 제외), Chromium37개 및 hover 회귀1개와 typecheck/build다. 4경로×4너비의124개 기준 PNG에서 실제 레이아웃 차이를 수정했으며 남은 미세 색상/래스터 차이를 분류했다. 정책은 아직695건으로 실패하며 미전환 기능·데모·정적 시안 CSS가 남는다. 이 결과는 실장비·배포 검증이나 모든 브라우저의 동일성을 뜻하지 않는다.
 
 - 웹 UI 정책의 현재 잔여 위반은 **695건**이다. 실제 사용 중인 [field-day.css](../../apps/web/src/features/landing/field-day.css)의 **690건**, 공개 레이아웃의 CSS import **1건**, 맵·모니터링·보고서 예시의 직접 폼 스타일 **3건**, 정적 시안 CSS **1건**이 남는다. 필요한 의미 기반 토큰과 반응형 계약은 승인됐고 공개 헤더·히어로·문의·푸터 전환을 완료했다. 기능·요금제 페이지, 장면·데모 및 정적 시안의 전환은 후속 작업이며, 남은 소비자가 사용하는 공통 CSS 규칙은 해당 전환까지 유지한다. 정책 목표는 **0건**이고 zero baseline과 검사 규칙을 우회하지 않는다. `ui:check`와 `test:ui-policy`의 생산 UI 무위반 단언은 이 잔여 위반이 있는 동안 실패한다.
@@ -44,7 +48,7 @@
 
 ## 관련 파일
 
-- 화면: [공개 경로](../../apps/web/src/main.tsx), [공통 공개 레이아웃](../../apps/web/src/features/landing/PublicSiteLayout.tsx), [홈 랜딩](../../apps/web/src/features/landing/LandingPage.tsx), [기능 페이지](../../apps/web/src/features/landing/FeaturesPage.tsx), [기능 상세](../../apps/web/src/features/landing/field-day/FeatureOverview.tsx), [요금 페이지](../../apps/web/src/features/landing/PricingPage.tsx), [요금 안내](../../apps/web/src/features/landing/field-day/PricingSection.tsx), [회사 푸터](../../apps/web/src/features/landing/field-day/CompanyFooter.tsx), [공통 장면/데모 틀](../../apps/web/src/features/landing/field-day/Scene.tsx), [맵 예시](../../apps/web/src/features/landing/field-day/MapDemo.tsx), [랜딩 CSS](../../apps/web/src/features/landing/field-day.css), [상담 양식](../../apps/web/src/features/landing/InquiryForm.tsx), [웹 API 어댑터](../../apps/web/src/api/landing-inquiries.ts)
+- 화면: [공개 경로](../../apps/web/src/main.tsx), [공통 공개 레이아웃](../../apps/web/src/features/landing/PublicSiteLayout.tsx), [홈 랜딩](../../apps/web/src/features/landing/LandingPage.tsx), [기능 페이지](../../apps/web/src/features/landing/FeaturesPage.tsx), [기능 상세](../../apps/web/src/features/landing/field-day/FeatureOverview.tsx), [요금 페이지](../../apps/web/src/features/landing/PricingPage.tsx), [요금 안내](../../apps/web/src/features/landing/field-day/PricingSection.tsx), [회사 푸터](../../apps/web/src/features/landing/field-day/CompanyFooter.tsx), [공통 장면/데모 틀](../../apps/web/src/features/landing/field-day/Scene.tsx), [모니터링 예시](../../apps/web/src/features/landing/field-day/MonitoringDemo.tsx), [제어 예시](../../apps/web/src/features/landing/field-day/ControlDemo.tsx), [공통 네이티브 슬라이더](../../apps/web/src/components/ui/fields/NativeRangeSlider.tsx), [맵 예시](../../apps/web/src/features/landing/field-day/MapDemo.tsx), [랜딩 CSS](../../apps/web/src/features/landing/field-day.css), [상담 양식](../../apps/web/src/features/landing/InquiryForm.tsx), [웹 API 어댑터](../../apps/web/src/api/landing-inquiries.ts)
 - 정적 시안: [현장의 하루](../../apps/web/public/concepts/field-day.html), [스타일](../../apps/web/public/concepts/field-day.css), [인터랙션](../../apps/web/public/concepts/field-day.js), [비교 갤러리](../../apps/web/public/concepts/index.html)
 - API: [접수 컨트롤러](../../apps/api/src/landing-inquiries/landing-inquiries.controller.ts), [접수 서비스](../../apps/api/src/landing-inquiries/landing-inquiries.service.ts), [DTO](../../apps/api/src/landing-inquiries/landing-inquiry.dto.ts), [요청 제한](../../apps/api/src/landing-inquiries/landing-inquiry-rate-limit.service.ts), [DB 스키마](../database-schema.md)
 - 검증: [랜딩 브라우저 테스트](../../apps/web/e2e/landing.spec.ts), [공개 페이지·장면 조작 테스트](../../apps/web/e2e/landing-field-day.spec.ts), [정적 시안 상담 팝업 테스트](../../apps/web/e2e/field-day-inquiry.spec.ts), [랜딩 내용 테스트](../../apps/web/src/features/landing/LandingPage.content.test.tsx), [기능 상세 테스트](../../apps/web/src/features/landing/FeaturesPage.content.test.tsx), [양식 테스트](../../apps/web/src/features/landing/InquiryForm.test.tsx), [접수 서비스 테스트](../../apps/api/src/landing-inquiries/landing-inquiries.service.spec.ts), [요청 크기 테스트](../../apps/api/src/api-body-parser-landing.spec.ts)
