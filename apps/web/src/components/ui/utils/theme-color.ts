@@ -12,6 +12,7 @@ export const themeColorTokens = [
   "status-success-foreground", "status-success-background", "status-success-border",
   "status-warning-foreground", "status-warning-background", "status-warning-border",
   "status-danger-foreground", "status-danger-background", "status-danger-border",
+  "status-inquiry-danger-foreground", "status-inquiry-danger-background", "status-inquiry-danger-border",
   "status-warning-badge", "status-danger-badge", "status-info-feedback-foreground", "status-info-feedback-background",
   "status-success-feedback-foreground", "status-warning-feedback-foreground", "status-warning-feedback-background", "status-danger-feedback-foreground",
   "chart-usage", "chart-cost", "chart-baseline", "chart-forecast", "chart-grid", "chart-point", "chart-ranking",
