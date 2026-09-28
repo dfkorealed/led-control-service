@@ -366,3 +366,38 @@ test("landing button hover keeps its original transform transition", async ({ pa
   await expect(cta).toHaveCSS("transform", "matrix(1, 0, 0, 1, 0, -2)");
   await expect(cta).toHaveCSS("background-color", "rgb(255, 255, 255)");
 });
+
+test("hero keyboard re-entry preserves inquiry and CTA nodes and focus", async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: "no-preference" });
+  await page.goto("/");
+  const pointer = page.locator(".hero-art__pointer");
+  const contact = page.locator(".hero-contact");
+  const cta = page.getByRole("link", { name: /하루 따라가기/ });
+  await expect(pointer).toHaveCSS("animation-name", "hero-pointer-drift");
+  const contactNode = await contact.elementHandle();
+  const ctaNode = await cta.elementHandle();
+  expect(contactNode).not.toBeNull();
+  expect(ctaNode).not.toBeNull();
+  const artStyles = () => page.locator(".hero-art, .hero-art__ring, .hero-art__panel, .hero-art__pointer").evaluateAll(elements => elements.map(element => {
+    const style = getComputedStyle(element);
+    return { width: style.width, height: style.height, backgroundImage: style.backgroundImage, borderRadius: style.borderRadius, clipPath: style.clipPath };
+  }));
+  const originalArtStyles = await artStyles();
+
+  const monitoring = page.locator("#monitoring");
+  await monitoring.scrollIntoViewIfNeeded();
+  await expect(monitoring).toHaveClass(/is-playing/);
+  const replay = page.getByRole("button", { name: "모니터링 예시 다시 보기" });
+  await replay.focus();
+  await page.locator("#map-editor").scrollIntoViewIfNeeded();
+  await expect(replay).toBeFocused();
+  await expect(pointer).toHaveCSS("animation-name", "none");
+  await page.keyboard.press("Shift+Tab");
+  await expect(pointer).toHaveCSS("animation-name", "hero-pointer-drift");
+  await expect(contact).toBeFocused();
+  expect(await contactNode!.evaluate(element => element.isConnected && element === document.activeElement)).toBe(true);
+  await page.keyboard.press("Shift+Tab");
+  await expect(cta).toBeFocused();
+  expect(await ctaNode!.evaluate(element => element.isConnected && element === document.activeElement)).toBe(true);
+  expect(await artStyles()).toEqual(originalArtStyles);
+});

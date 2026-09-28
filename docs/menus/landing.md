@@ -5,7 +5,7 @@
 ## 구현 완료
 
 - 공통 공개 헤더·회사 푸터·상담 팝업을 승인된 유틸리티와 공통 Button·LinkButton·Card 변형으로 전환했다. 320·390·1024·1440px의 기존 배치·글자·팝업 스크롤/포커스 복귀 및 `/login`의 401 로그인 화면 계산 스타일을 비교했다. 팝업 모서리는 원래 CSS 우선순위로 표시되던14px을 보존한다.
-- `LandingStory`가 기존 다섯 장면과 상담 callback을 공유하고 `site`/`concept` 시각 인자를 받는다. 현재 `/`는 `site`를 사용한다. 히어로 애니메이션의 재진입·순서·지연과 reduced-motion 정지 상태를 유지하며 정적 시안 경로의 React 통합은 후속이다.
+- `LandingStory`가 기존 다섯 장면과 상담 callback을 공유하고 `site`/`concept` 시각 인자를 받는다. 현재 `/`는 `site`를 사용한다. 히어로 애니메이션의 재진입·순서·지연과 reduced-motion 정지 상태를 유지한다. 재진입은 애니메이션 클래스만 다시 적용하므로 상담 버튼·CTA의 DOM과 키보드 포커스도 유지한다. 정적 시안 경로의 React 통합은 후속이다.
 
 - `/`, `/features`, `/pricing`은 로그인 없이 여는 공개 페이지다. 세 경로 모두 인증 상태를 조회하지 않고, 공통 고정 헤더·회사 푸터·상담 팝업을 사용한다. 헤더의 `주요 기능`과 `요금제`는 각각 독립 경로로 이동하며 `/login`은 기존 로그인 화면을 연다.
 - `/`는 승인된 **현장의 하루** 시안을 React 컴포넌트로 제공한다. 네이비 히어로, 화면 높이에 맞춘 모니터링·제어·통계 그래프·보고서·맵 편집 5개 장면, 마지막 상담 유도 영역을 포함한다. 히어로 보조 문장의 두 번째 문장은 별도 줄에 두고 상담 버튼의 평상시 테두리를 제거했다.
@@ -32,7 +32,7 @@
 
 - 이번 공개 스타일 전환의 소프트웨어 검증은 집중104개, Web 전체2,577개 통과(3개 환경 조건 제외), Chromium37개 및 hover 회귀1개와 typecheck/build다. 4경로×4너비의124개 기준 PNG에서 실제 레이아웃 차이를 수정했으며 남은 미세 색상/래스터 차이를 분류했다. 정책은 아직695건으로 실패하며 미전환 기능·데모·정적 시안 CSS가 남는다. 이 결과는 실장비·배포 검증이나 모든 브라우저의 동일성을 뜻하지 않는다.
 
-- 웹 UI 정책은 삭제된 이전 `landing.css`의 import·선택자 허용 규칙을 제거했다. 이 작업의 맵 ref 정리로 `pnpm --filter @led-control/web ui:check`의 위반 수는 **927건에서 925건**으로 줄었다. 남은 내용은 실제 사용 중인 [field-day.css](../../apps/web/src/features/landing/field-day.css)의 **919건**, 공개 레이아웃의 CSS import와 18px 모달 반경 **2건**, 예시 버튼의 직접 스타일 **3건**, 보관 중인 정적 시안 CSS **1건**이다. 활성 CSS 919건에는 정책이 금지하는 선택자 481건, 간격 237건, 서체 164건, 원시 색상 32건, 폼 선택자 4건과 파일 자체 1건이 포함된다. 승인 토큰에는 기존 78px 히어로 글자, 430·720·1050px 화면 전환, 18px 반경 등의 정확한 대응값이 없어 현재 디자인을 보존한 정책 0건은 검토된 의미 기반 토큰·스타일링 계약의 확장이 선행되어야 한다. 공통 UI 경로의 단순 전달 버튼으로 예시 버튼 3건을 숨기려던 변경은 독립 검토에서 정책 우회로 판정해 원복했다. 정책 검사 파일이나 zero baseline을 우회해 수치를 없애지 않는다. `test:ui-policy`의 생산 UI 무위반 단언도 이 잔여 위반이 있는 동안 실패한다.
+- 웹 UI 정책의 현재 잔여 위반은 **695건**이다. 실제 사용 중인 [field-day.css](../../apps/web/src/features/landing/field-day.css)의 **690건**, 공개 레이아웃의 CSS import **1건**, 맵·모니터링·보고서 예시의 직접 폼 스타일 **3건**, 정적 시안 CSS **1건**이 남는다. 필요한 의미 기반 토큰과 반응형 계약은 승인됐고 공개 헤더·히어로·문의·푸터 전환을 완료했다. 기능·요금제 페이지, 장면·데모 및 정적 시안의 전환은 후속 작업이며, 남은 소비자가 사용하는 공통 CSS 규칙은 해당 전환까지 유지한다. 정책 목표는 **0건**이고 zero baseline과 검사 규칙을 우회하지 않는다. `ui:check`와 `test:ui-policy`의 생산 UI 무위반 단언은 이 잔여 위반이 있는 동안 실패한다.
 - 검토용 정적 시안: [비교 갤러리](../../apps/web/public/concepts/index.html)에서 [기존 밝은 분할형](../../apps/web/public/concepts/toss-inspired-landing.html), [관제실](../../apps/web/public/concepts/control-room.html), [에디토리얼](../../apps/web/public/concepts/editorial.html), [현장의 하루](../../apps/web/public/concepts/field-day.html)를 비교할 수 있다. 네 페이지의 관제 장면은 예시 데이터로 만든 독립 HTML이며 네 번째 시안의 구성과 기능 흐름을 React 공개 `/`로 옮겼다.
 - 네 번째 [**현장의 하루** 정적 시안](../../apps/web/public/concepts/field-day.html)은 적용 전 비교 기록이다. React 화면의 디자인 색상은 [웹 디자인 토큰](../../apps/web/src/styles/theme.css)을 참조한다. 정적 시안과 실제 `/`는 예시 조작을 실제 관제 API·장비·저장소에 반영하지 않는다. 상담 팝업은 필수/선택 필드·90일 고지·4KB 검사·동일 문의 UUID 재시도·15초 제한·503 이메일 대체 동선을 기존 `InquiryForm`의 `/api/landing/inquiries` 제출로 제공한다. 201 응답과 접수번호는 서버 접수만 뜻하고 실제 메일 발송은 보증하지 않는다. 별도의 [이전 색상 검토본](../../apps/web/public/concepts/field-day-design-system.html)은 이전 검토 기록이다.
 - 토스의 메시지 전개 방식을 참고한 [랜딩 방향 예시](../../apps/web/public/concepts/toss-inspired-landing.html)와 [개편 계획](../superpowers/plans/2026-09-26-toss-inspired-kinda-landing.md)을 별도로 만들었다. 이 정적 예시는 디자인 검토용이며 현재 `/`의 구현·상담 API에는 반영되지 않았다. 영상은 사용하지 않는다.
