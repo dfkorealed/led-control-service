@@ -91,7 +91,7 @@ Task 12 baseline의 violation map은 비어 있으며 production 정책 부채�
 
 검토된 랜딩 371개 역할 토큰(기본 normal 행간·font fallback stack 포함)의 토큰 전용 commit으로 신뢰 앵커를 회전했다. 이전 `reviewedThemeTokenAdditions`는 모두 새 앵커에 포함되어 별도 승인 추가 map을 제거했다. 값·누락·중복 검증과 `files: {}`·0건 목표·기존 거부 규칙은 유지한다.
 
-baseline의 `sourceRef`는 scanner에 고정된 승인 Git commit `b1b500793ad8e4be394d3b2467fe35e0f2631197`과 일치해야 한다. Git object가 없거나 sourceRef·빈 map이 변조되면 fail-closed한다. canonical root unit gate가 Web `test:ui-policy`와 `ui:check`를 일반 unit 뒤에 실행하고, CI unit checkout은 `fetch-depth: 0`으로 승인 object를 확보한다.
+baseline의 `sourceRef`는 scanner에 고정된 승인 Git commit `7b2617b173618d376e7b3a90ec31e1392c3b7bc0`과 일치해야 한다. Git object가 없거나 sourceRef·빈 map이 변조되면 fail-closed한다. canonical root unit gate가 Web `test:ui-policy`와 `ui:check`를 일반 unit 뒤에 실행하고, CI unit checkout은 `fetch-depth: 0`으로 승인 object를 확보한다.
 
 `p-px`와 정적 `calc`/`clamp` 간격, semantic typography의 `/7`·`/[17px]`·변수 line-height modifier, 계산식 안의 literal font-size를 거부한다. 측정/percentage/viewport를 사용하는 runtime position은 별도 예외이며 일반 padding/margin/gap에 임의 간격을 더하는 수단으로 쓰지 않는다. 허용 token 이름은 승인 commit의 canonical `theme.css`에서 읽는다. 신규 `--text-rogue`, `bg-surface-pannel` 같은 오타와 `max-[777px]:*` 같은 임의 breakpoint는 정책 오류다. CSS import의 query/hash suffix도 원본 resource ID 기준으로 검사한다.
 
@@ -872,3 +872,8 @@ Task 5에서 검토한 `--background-image-landing-brightness-track` 역할은 �
 | `--leading-landing-compact-button` | `var(--text-landing-button--line-height)` | 공통 Button의 `landingMapTool`·`landingMapCancel` 작은 도구 버튼. 기존 승인1.2를 별칭으로 재사용하며 `leading-landing-compact-button`으로 글자10px/행간12px을 보존한다. 기본 인증 UI 버튼은 변경하지 않는다. |
 
 기존374역할 이름·값과 theme의 모든 기존 선언은 그대로다. 새375 frozen map SHA-256(정렬한 compact UTF-8 JSON)은 `54791d86f31f9b11614257d89c24464fbf527c0a33fe970ff20bc82377cd649f`다. 이 선언을 제거하면 전체 theme는 검토된 `b1b500793ad8e4be394d3b2467fe35e0f2631197`과 바이트 동일하다. 선언 누락 RED→정확값·선언1회 GREEN 뒤 토큰 전용3파일 커밋의 독립 검토를 기다리며, 승인 ref 회전과 실제 소비는 별도 단계로 진행한다. `files: {}`·0건 목표·기존 거부 사례·반응형 custom variant를 유지한다.
+
+
+### Task 6 작은 버튼 행간 승인 ref 회전
+
+토큰 전용 `7b2617b173618d376e7b3a90ec31e1392c3b7bc0`의 독립 검토는 Spec PASS·Quality Approved·findings0이다. scanner/baseline 및 실제 fixture의 승인 ref를 이 검토된375역할 커밋으로 회전한다. 이전 `b1b50079`·374역할은 당시 기록이다. `files: {}`·기존 거부 규칙·포함형 custom variant와 runtime 예외는 변경하지 않는다. 실제 named leading 소비자의10px/12px·중간 motion·포커스·화면 검증은 Task 6 소비자 작업에서 확인한다.

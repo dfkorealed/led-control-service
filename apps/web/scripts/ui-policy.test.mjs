@@ -880,7 +880,7 @@ test("I4 CLI rejects every production DOM query with a zero baseline", async () 
     await mkdir(join(root, "scripts"));
     await writeFile(join(root, "src/App.tsx"), 'import "./styles.css";');
     await writeFile(join(root, "src/styles.css"), canonicalStyles);
-    await writeFile(join(root, "scripts/ui-policy-baseline.json"), JSON.stringify({ version: 1, sourceRef: "b1b500793ad8e4be394d3b2467fe35e0f2631197", files: {} }));
+    await writeFile(join(root, "scripts/ui-policy-baseline.json"), JSON.stringify({ version: 1, sourceRef: "7b2617b173618d376e7b3a90ec31e1392c3b7bc0", files: {} }));
     await writeFile(join(root, "src/components/ConfirmDialog.tsx"), 'dialogElement.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR);');
     assert.equal(run().status, 1);
     await writeFile(join(root, "src/components/ConfirmDialog.tsx"), 'const unused = 1;\ndialogElement.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR);');
@@ -904,7 +904,7 @@ test("CLI inventories only production src and rejects any policy debt", async ()
     await writeFile(join(root, "src/App.tsx"), 'import "./styles.css";');
     await writeFile(join(root, "src/styles.css"), canonicalStyles);
     await writeFile(join(root, "src/ignored.test.tsx"), '"p-[15px]"');
-    await writeFile(join(root, "scripts/ui-policy-baseline.json"), JSON.stringify({ version: 1, sourceRef: "b1b500793ad8e4be394d3b2467fe35e0f2631197", files: {} }));
+    await writeFile(join(root, "scripts/ui-policy-baseline.json"), JSON.stringify({ version: 1, sourceRef: "7b2617b173618d376e7b3a90ec31e1392c3b7bc0", files: {} }));
     assert.equal(run().status, 0);
     await writeFile(join(root, "src/App.tsx"), 'import "./new.css";');
     assert.equal(run().status, 1);
@@ -1068,7 +1068,7 @@ test("baseline must preserve the approved Git anchor and an empty violation map"
     await writeFile(join(root, "scripts/ui-policy-baseline.json"), JSON.stringify({ version: 1, sourceRef: "0000000000000000000000000000000000000000", files: {} }));
     assert.equal(run().status, 1, "an edited sourceRef must fail even without current violations");
     await writeFile(join(root, "src/App.tsx"), 'const clean = true;');
-    await writeFile(join(root, "scripts/ui-policy-baseline.json"), JSON.stringify({ version: 1, sourceRef: "b1b500793ad8e4be394d3b2467fe35e0f2631197", files: { "src/App.tsx": { "css-import": { count: 2, matches: { "./styles.css": 2 } } } } }));
+    await writeFile(join(root, "scripts/ui-policy-baseline.json"), JSON.stringify({ version: 1, sourceRef: "7b2617b173618d376e7b3a90ec31e1392c3b7bc0", files: { "src/App.tsx": { "css-import": { count: 2, matches: { "./styles.css": 2 } } } } }));
     assert.equal(run().status, 1, "non-empty debt allowances must fail even with clean source");
   } finally {
     await rm(root, { recursive: true, force: true });
@@ -1141,7 +1141,7 @@ test("approved landing policy rejects mutated variant or anchor", async () => {
     await mkdir(join(root, "scripts"));
     await writeFile(join(root, "src/App.tsx"), 'import "./styles.css";');
     await writeFile(join(root, "src/styles.css"), canonical);
-    await writeFile(join(root, "scripts/ui-policy-baseline.json"), JSON.stringify({ version: 1, sourceRef: "b1b500793ad8e4be394d3b2467fe35e0f2631197", files: {} }));
+    await writeFile(join(root, "scripts/ui-policy-baseline.json"), JSON.stringify({ version: 1, sourceRef: "7b2617b173618d376e7b3a90ec31e1392c3b7bc0", files: {} }));
     assert.equal(run().status, 0, "reviewed immutable ref and empty baseline");
     for (const width of [430, 720, 1050]) {
       await writeFile(join(root, "src/styles.css"), canonical.replace(new RegExp(`@custom-variant [^;]+${width}px[^;]+;`), ""));
