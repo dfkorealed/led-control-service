@@ -117,10 +117,10 @@
 
 **Interfaces:** Consumes Task 5 `DemoCard`·`SceneMotion`; Produces 기존 세 데모의 props `({ motion }: { motion: SceneMotion })`와 상태 안내, 포맷 선택, 지도 배치·취소·드래그 동작.
 
-- [ ] **Step 1: RED/기준을 확인한다.** `ui:check`의 `.chart-*`, `.report-*`, `.map-*` CSS finding을 기록한다. Playwright에 그래프 선/점의 재생·완료, PDF/XLSX 선택과 보고서 상태, 맵 요소 배치→중간 이동→취소·touch drag, reduced-motion 완료 상태·이탈 중 WAAPI 취소를 단언한다. 기존 테스트의 PASS가 동작 기준이다.
-- [ ] **Step 2: 정적 배치·색·장식을 승인 유틸리티/토큰으로 옮기고 해당 CSS를 제거한다.** ReportDemo/MapDemo의 원시 폼 스타일 2건도 실제 스타일을 소유하는 공통 UI로 전환한다. 그래프 drawing/보고서 행 reveal/맵 ghost의 CSS keyframe은 합의된 motion utility 또는 기존 WAAPI 상태로 옮겨 프레임과 최종 상태를 보존한다. 미리보기 값·좌표 계산만 동적 style로 남긴다.
-- [ ] **Step 3: GREEN을 확인한다.** `pnpm --filter @led-control/web exec playwright test e2e/landing-field-day.spec.ts --project=chromium`과 해당 Vitest, 4너비 비교, 대상 정책 finding 소멸을 확인한다. 장면 전체가 이전됐다면 `field-day.css`의 남은 규칙을 전수 검토하고 파일과 `PublicSiteLayout.tsx`의 import를 제거한다. `ui:check`는 시안 CSS 1건 등이 남을 수 있으므로 잔여 목록을 기록한다.
-- [ ] **Step 4: 커밋한다.** `docs/menus/landing.md`, 상태 문서/체크리스트와 변경 코드만 `git commit -m "refactor(web): migrate statistics report and map demos"`.
+- [x] **Step 1: RED/기준을 확인한다.** `ui:check`의 `.chart-*`, `.report-*`, `.map-*` CSS finding을 기록한다. Playwright에 그래프 선/점의 재생·완료, PDF/XLSX 선택과 보고서 상태, 맵 요소 배치→중간 이동→취소·touch drag, reduced-motion 완료 상태·이탈 중 WAAPI 취소를 단언한다. 기존 테스트의 PASS가 동작 기준이다.
+- [x] **Step 2: 정적 배치·색·장식을 승인 유틸리티/토큰으로 옮기고 해당 CSS를 제거한다.** ReportDemo/MapDemo의 원시 폼 스타일 2건도 실제 스타일을 소유하는 공통 UI로 전환한다. 그래프 drawing/보고서 행 reveal/맵 ghost의 CSS keyframe은 합의된 motion utility 또는 기존 WAAPI 상태로 옮겨 프레임과 최종 상태를 보존한다. 미리보기 값·좌표 계산만 동적 style로 남긴다.
+- [x] **Step 3: GREEN을 확인한다.** `pnpm --filter @led-control/web exec playwright test e2e/landing-field-day.spec.ts --project=chromium`과 해당 Vitest, 4너비 비교, 대상 정책 finding 소멸을 확인한다. 장면 전체가 이전됐다면 `field-day.css`의 남은 규칙을 전수 검토하고 파일과 `PublicSiteLayout.tsx`의 import를 제거한다. `ui:check`는 시안 CSS 1건 등이 남을 수 있으므로 잔여 목록을 기록한다.
+- [x] **Step 4: 커밋한다.** `docs/menus/landing.md`, 상태 문서/체크리스트와 변경 코드만 `git commit -m "refactor(web): migrate statistics report and map demos"`.
 
 ### Task 7: 보관용 정적 시안의 URL 보존 전환
 
