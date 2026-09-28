@@ -847,3 +847,14 @@ Task 4의 original React `field-day.css`(`cdc642087a7b2e78f8309cccba6bca90dd3433
 
 
 374역할 토큰 전용 커밋 `b1b500793ad8e4be394d3b2467fe35e0f2631197`의 독립 검토는 Spec PASS·quality Approved·findings0이다. 이를 현재 scanner/baseline 승인 ref로 별도 회전한다. `files: {}`·0건 목표·기존 거부 사례와 3개 inclusive custom variant는 유지한다. 이전 `b9b0ad4b`·372map은 당시 증거이며 current ref가 아니다. 미전환 Scene·데모·정적 시안 CSS 부채는 계속 실패로 기록한다.
+
+
+### Supplemental 승인: 네이티브 밝기 트랙
+
+Task 5의 원본 `753896ce` `.control-panel input[type="range"]`는 동일한 밝기 위치를 두 색상의 경계로 사용하는 수평 gradient다. 공유 `NativeRangeSlider`가 원래 input DOM·ref·키보드·터치 조작을 보존하면서 트랙과 브라우저 thumb 스타일을 소유한다. 기존 RAC Slider의 구조와 기본 스타일은 변경하지 않는다.
+
+| 역할 | 정확 값 | 소비자 |
+|---|---|---|
+| `--background-image-landing-brightness-track` | `linear-gradient(to right, var(--color-brand-blue) 0 var(--brightness-pct, 15%), var(--color-border-default) var(--brightness-pct, 15%) 100%)` | 공개 제어 데모의 공유 네이티브 밝기 트랙 |
+
+총괄이 승인한 단일 역할이며 `--brightness-pct`는 기존 사용자 입력 계산값이다. 원본 320·1440px의 완료 상태 계산값은 blue `rgb(37, 111, 161)` 0→70%, border `rgb(219, 231, 245)` 70→100%로 확인했다. 기존374 이름·값과 전체 theme 선언을 전부 유지한375 역할 map SHA-256(정렬한 compact UTF-8 JSON)은 `88db3801b90e7f6e772ed85a82832e46b452ff078d145612a88563711894bfbd`다. 선언 누락 RED를 확인했으며 정확 값·선언1회 GREEN을 검사한다. 정책 예외·arbitrary gradient·새 CSS 경로를 추가하지 않고 기존 background-image namespace를 사용한다. 신뢰 앵커는 토큰 전용 커밋의 독립 검토 뒤 별도로 회전한다.
