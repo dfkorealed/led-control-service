@@ -16,8 +16,9 @@
 - [x] 랜딩 두 root가 공유하는 글꼴 대체 순서도 canonical html과 달라 `76791eaf`에 exact `--font-landing` 한 역할을 보완했다. 기존 370값 유지·총 371값 RED→GREEN·독립 scoped 리뷰 PASS/Approved·신규 지적 0을 확인했다. 실제 root 적용/다른 설치 폰트의 시각 및 Tailwind antialiased 추가 Mozilla 속성의 영향은 후속 화면 전환 검증으로 남긴다.
 - [x] Task 2 `63659222`에서 앵커와 빈 baseline ref를 검토된 `76791eaf`로 회전하고 정확한 포함형 variant 세 개만 승인했다. 집중 2/2는 정수·0.5px 경계의 실제 iframe 12너비, 복합 여백·글꼴·normal 및 반응형 동반 행간/자간을 확인한다. 원래 925개의 path/rule/match 전체 순서·중복이 같고 새 finding 0이며, 정책 64/65의 유일 실패는 미전환 생산 UI 925건이다. typecheck/build 통과, 독립 리뷰 spec PASS·quality Approved·Important 0이다.
 - [x] 추가 Web 회귀 2,573 passed/1 failed/3 skipped에서 발견한 공통 색상 adapter의 승인 문의 색상 3개 누락을 별도 `c2c5a42c`로 보완했다. covering Typography 24/24와 typecheck가 통과했고 기존 adapter 이름/함수는 그대로다. 전체 재실행 성공으로 확대하지 않고 Task 8 최종 회귀를 유지한다.
-- [ ] Task 3 공개 공통·히어로·문의·푸터의 스타일 전환을 시작한다. 후속 페이지·데모·정적 URL 전환과 최종 시각/기능/정책 게이트가 남는다.
-- [ ] 검토된 의미 기반 토큰·반응형 기준과 랜딩 스타일링 계약, 정적 시안의 Vite 페이지/React 경로 중 한 가지를 합의한 뒤 남은 925건의 0건 수렴과 시각 동일성을 검증한다.
+- [x] Task 3 공개 공통·히어로·문의·푸터를 `4e29c1d6`에서 실제 공통 variant/유틸리티로 전환하고 정책을 925→695건으로 줄였다. 기존 React 상담 22px 행간을 토큰 전용 `b9b0ad4b`/앵커 `356ded68`로 보완해 총 372선언을 독립 검토했다. 집중 104개·Chromium 37개와 hover 1개, Web 전체 2,577 passed/3 skipped, typecheck/build 및 자기 기준 124PNG·색/알파/gradient/repeat 분류 근거를 확인했다. 독립 리뷰에서 발견한 키보드 재진입 포커스와 오래된 메뉴 수치를 `7552a69f`로 수정하고 관련 Chromium 3개·내용 7개와 scoped 재검토를 통과했다. 원본 기준 PNG를 유지했으며 작은 픽셀 임계값만으로 시각 차이를 승인하지 않았다. 현재 정책 695건은 후속 범위의 expected FAIL이고, 전체 브라우저/실장비/메일/배포 검증은 주장하지 않는다.
+- [ ] Task 4 주요 기능·요금제 스타일을 자기 기준 외형/동작으로 전환한다. 이후 장면·정적 URL 전환과 최종 0건 게이트가 남는다.
+- [ ] 승인된 의미 토큰·반응형 기준과 공유 React 진입점의 Vite 다중 페이지 계획에 따라 남은 695건의 0건 수렴 및 최종 시각·기능·production URL 검증을 완료한다.
 
 ## 2026-09-27 랜딩·Final Atlas 로컬 통합 — 검증 중
 

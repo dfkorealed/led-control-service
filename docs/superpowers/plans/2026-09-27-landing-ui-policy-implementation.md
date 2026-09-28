@@ -10,7 +10,7 @@
 
 **Spec:** [랜딩 UI 정책 전환 설계 명세](../specs/2026-09-27-landing-ui-policy-design.md)
 
-**실행 상태(2026-09-28):** 사용자 실행 승인. Task 1 기준 채증·토큰 감사·RED/GREEN·토큰 전용 커밋과 독립 리뷰를 완료했다. 정적 문서 normal 행간을 보존하는 토큰 1개도 보완·독립 검토했다(행간 보완 `e1fb48c6`, font-family 보완 및 최신 토큰 전용 `76791eaf`, 총 371선언). Task 2 앵커/포함형 variant와 승인 색상 adapter 의존성 보완을 독립 검토까지 완료했다. Task 3 공개 공통/히어로 스타일 전환을 진행한다. 앵커 회전 후 검사는 원래 925건과 정확히 같으며 새 위반은 없다; 아직 0건은 아니다.
+**실행 상태(2026-09-28):** 사용자 실행 승인. Task 1 감사·토큰 전용 RED/GREEN·독립 검토와 Task 2 신뢰 앵커/포함형 variant를 완료했다. Task 3에서 정확한 React 상담 버튼 22px 행간 역할을 추가·독립 검토한 최신 토큰 전용 앵커는 `b9b0ad4b`(총 372선언), ref 회전은 `356ded68`이다. 공개 공통·히어로·문의·푸터 전환 `4e29c1d6` 및 키보드 재진입 포커스/메뉴 현황 수정 `7552a69f`를 검토해 Task 3를 완료했다. UI 정책은 925→695건이며 후속 기능·요금제·데모·정적 URL 전환과 Task 8 최종 0건 검증이 남는다. Task 4를 진행한다.
 
 ## Global Constraints
 
@@ -78,12 +78,14 @@
 
 **Files:** Modify `apps/web/src/features/landing/{PublicSiteLayout.tsx,LandingPage.tsx,field-day/CompanyFooter.tsx,field-day.css}`, optionally `apps/web/src/components/ui/{Button,Card}.tsx` for genuinely shared variants; Test `apps/web/e2e/{landing.spec.ts,landing-field-day.spec.ts}` and `apps/web/src/features/landing/{LandingPage.content.test.tsx,InquiryForm.test.tsx}`.
 
+**추가 승인 범위:** 실제 공통 `LinkButton` 랜딩 variant·`KindaLogo` landing presentation·`Card` glass variant, 정확히 알려진 승인 text/radius/spacing 역할의 `cn` 병합 및 집중 회귀, canonical `styles.css`의 원래 pure keyframes, 영향받는 features/pricing 메뉴 문서. React 상담 22px 행간의 토큰 전용 보완·앵커 회전은 별도 검토 커밋으로 수행했다.
+
 **Interfaces:** Consumes Task 2 승인 토큰/variant와 기존 `OpenInquiry = (event: MouseEvent<HTMLButtonElement>, plan?: LandingPlan | null) => void`. Produces `LandingStory({ onInquiry, visualVariant = "site" }: { onInquiry: OpenInquiry; visualVariant?: "site" | "concept" }): JSX.Element`를 `LandingPage.tsx`에서 export한다. 기존 `LandingPage()`는 이를 site로 렌더링하고 Task 7은 concept로 소비한다. `PublicSiteLayout`/`CompanyFooter`, `InquiryForm` API와 `ModalDialog`의 focus/pending 계약은 유지한다.
 
-- [ ] **Step 1: RED/기준을 확인한다.** `ui:check`에서 `.site-header`, `.hero`, `.closing`, `.footer`, `.field-day-inquiry-body`의 CSS 선택자 위반이 존재해야 한다. E2E에 320/390/1024/1440 헤더 고정·로그인 링크·히어로 줄바꿈/무테두리·문의 팝업 스크롤/포커스 복귀, `/login` 계산 스타일 및 공개 경로의 `/api/auth/me` 요청 0을 보강한다. 로그인 외형 비교에는 `/api/auth/me`를 401로 stub해 실제 로그인 폼을 렌더링한다. 기존 기능 테스트는 전환 전 PASS가 기준이다.
-- [ ] **Step 2: 최소 구현한다.** 일반/자손/상태 선택자의 외형을 요소별 유틸리티·조건부 클래스·공통 Button/Card variant로 옮기고 해당 CSS 규칙만 제거한다. 다섯 장면 구성은 `LandingStory`로 분리해 Task 7이 공유한다. popup 18px은 승인 반경 역할 또는 기존 `ModalDialog` 정확 계약으로 처리한다. 히어로 pointer/막대 애니메이션과 reduced-motion의 최종 프레임은 React 상태/승인 motion 클래스에서 보존한다.
-- [ ] **Step 3: GREEN을 확인한다.** `pnpm --filter @led-control/web exec vitest run src/features/landing/LandingPage.content.test.tsx src/features/landing/InquiryForm.test.tsx`와 `pnpm --filter @led-control/web exec playwright test e2e/landing.spec.ts e2e/landing-field-day.spec.ts --project=chromium`을 통과시킨다. 기준 PNG/계산 스타일과 비교하고 이 영역의 정책 finding이 없어졌는지 `ui:check` 출력으로 확인한다. 다른 미이전 CSS의 잔여 실패는 기록한다.
-- [ ] **Step 4: 관련 문서와 함께 커밋한다.** `docs/menus/landing.md`의 실제 기능/검증 상태와 `docs/project-status.md`·이 체크리스트를 갱신하고 변경 파일만 `git add` 후 `git commit -m "refactor(web): migrate public shell and hero styles"`.
+- [x] **Step 1: RED/기준을 확인한다.** `ui:check`에서 `.site-header`, `.hero`, `.closing`, `.footer`, `.field-day-inquiry-body`의 CSS 선택자 위반이 존재해야 한다. E2E에 320/390/1024/1440 헤더 고정·로그인 링크·히어로 줄바꿈/무테두리·문의 팝업 스크롤/포커스 복귀, `/login` 계산 스타일 및 공개 경로의 `/api/auth/me` 요청 0을 보강한다. 로그인 외형 비교에는 `/api/auth/me`를 401로 stub해 실제 로그인 폼을 렌더링한다. 기존 기능 테스트는 전환 전 PASS가 기준이다.
+- [x] **Step 2: 최소 구현한다.** 일반/자손/상태 선택자의 외형을 요소별 유틸리티·조건부 클래스·공통 Button/Card variant로 옮기고 해당 CSS 규칙만 제거한다. 다섯 장면 구성은 `LandingStory`로 분리해 Task 7이 공유한다. popup 18px은 승인 반경 역할 또는 기존 `ModalDialog` 정확 계약으로 처리한다. 히어로 pointer/막대 애니메이션과 reduced-motion의 최종 프레임은 React 상태/승인 motion 클래스에서 보존한다.
+- [x] **Step 3: GREEN을 확인한다.** `pnpm --filter @led-control/web exec vitest run src/features/landing/LandingPage.content.test.tsx src/features/landing/InquiryForm.test.tsx`와 `pnpm --filter @led-control/web exec playwright test e2e/landing.spec.ts e2e/landing-field-day.spec.ts --project=chromium`을 통과시킨다. 기준 PNG/계산 스타일과 비교하고 이 영역의 정책 finding이 없어졌는지 `ui:check` 출력으로 확인한다. 다른 미이전 CSS의 잔여 실패는 기록한다.
+- [x] **Step 4: 관련 문서와 함께 커밋한다.** `docs/menus/landing.md`의 실제 기능/검증 상태와 `docs/project-status.md`·이 체크리스트를 갱신하고 변경 파일만 `git add` 후 `git commit -m "refactor(web): migrate public shell and hero styles"`.
 
 ### Task 4: 주요 기능·요금제 페이지 전환
 
@@ -103,7 +105,7 @@
 **Interfaces:** Consumes Task 2의 토큰/variant와 Task 3의 공개 레이아웃. Produces 기존 `SceneMotion = { phase: "playing" | "complete"; run: number; replay(): void; stop(): void }`, `SceneKind`, `DemoCard` props를 그대로 유지해 Task 6의 세 데모가 소비한다.
 
 - [ ] **Step 1: RED/기준을 확인한다.** `ui:check`의 `.scene*`, `.demo-*`, `.floorplan*`, `.control-*` 위반을 기록한다. E2E에 섹션 이탈→재진입 재생, 조명 선택의 `aria-pressed`·상태, 밝기 15→70 동작·직접 조정/적용, reduced-motion의 최종 70% 및 재생 중단을 단언한다. 기존 동작 테스트는 PASS를 확인한다.
-- [ ] **Step 2: 상태·장식·폼을 명시적 노드 및 유틸리티로 옮기고 해당 CSS를 제거한다.** `Scene`의 observer/timer와 `SceneMotion` 계약은 유지한다. 조명·슬라이더·적용 버튼은 공통 UI 소유권을 확인해 원시 폼 스타일 위반 3건도 이 단계에서 없앤다. 동적 밝기 값만 현행 계산값으로 유지하고 정적 스타일을 인라인으로 옮기지 않는다.
+- [ ] **Step 2: 상태·장식·폼을 명시적 노드 및 유틸리티로 옮기고 해당 CSS를 제거한다.** `Scene`의 observer/timer와 `SceneMotion` 계약은 유지한다. 조명·슬라이더·적용 버튼은 공통 UI 소유권을 확인해 원시 폼 스타일 위반 중 MonitoringDemo 1건을 이 단계에서 없앤다. ReportDemo/MapDemo의 나머지 2건은 해당 소비자 스타일을 소유하는 Task 6에서 실제 공통 UI로 전환한다. 동적 밝기 값만 현행 계산값으로 유지하고 정적 스타일을 인라인으로 옮기지 않는다.
 - [ ] **Step 3: GREEN을 확인한다.** `pnpm --filter @led-control/web exec vitest run src/features/landing/LandingPage.content.test.tsx`와 `pnpm --filter @led-control/web exec playwright test e2e/landing-field-day.spec.ts --project=chromium`을 통과시킨다. 4너비 계산 스타일/PNG, reduced-motion과 키보드/터치 조작, 대상 CSS finding 소멸을 확인한다.
 - [ ] **Step 4: 커밋한다.** `docs/menus/landing.md`, 상태 문서/체크리스트를 동기화하고 `git commit -m "refactor(web): migrate scene monitoring and control styles"`.
 
@@ -114,7 +116,7 @@
 **Interfaces:** Consumes Task 5 `DemoCard`·`SceneMotion`; Produces 기존 세 데모의 props `({ motion }: { motion: SceneMotion })`와 상태 안내, 포맷 선택, 지도 배치·취소·드래그 동작.
 
 - [ ] **Step 1: RED/기준을 확인한다.** `ui:check`의 `.chart-*`, `.report-*`, `.map-*` CSS finding을 기록한다. Playwright에 그래프 선/점의 재생·완료, PDF/XLSX 선택과 보고서 상태, 맵 요소 배치→중간 이동→취소·touch drag, reduced-motion 완료 상태·이탈 중 WAAPI 취소를 단언한다. 기존 테스트의 PASS가 동작 기준이다.
-- [ ] **Step 2: 정적 배치·색·장식을 승인 유틸리티/토큰으로 옮기고 해당 CSS를 제거한다.** 그래프 drawing/보고서 행 reveal/맵 ghost의 CSS keyframe은 합의된 motion utility 또는 기존 WAAPI 상태로 옮겨 프레임과 최종 상태를 보존한다. 미리보기 값·좌표 계산만 동적 style로 남긴다.
+- [ ] **Step 2: 정적 배치·색·장식을 승인 유틸리티/토큰으로 옮기고 해당 CSS를 제거한다.** ReportDemo/MapDemo의 원시 폼 스타일 2건도 실제 스타일을 소유하는 공통 UI로 전환한다. 그래프 drawing/보고서 행 reveal/맵 ghost의 CSS keyframe은 합의된 motion utility 또는 기존 WAAPI 상태로 옮겨 프레임과 최종 상태를 보존한다. 미리보기 값·좌표 계산만 동적 style로 남긴다.
 - [ ] **Step 3: GREEN을 확인한다.** `pnpm --filter @led-control/web exec playwright test e2e/landing-field-day.spec.ts --project=chromium`과 해당 Vitest, 4너비 비교, 대상 정책 finding 소멸을 확인한다. 장면 전체가 이전됐다면 `field-day.css`의 남은 규칙을 전수 검토하고 파일과 `PublicSiteLayout.tsx`의 import를 제거한다. `ui:check`는 시안 CSS 1건 등이 남을 수 있으므로 잔여 목록을 기록한다.
 - [ ] **Step 4: 커밋한다.** `docs/menus/landing.md`, 상태 문서/체크리스트와 변경 코드만 `git commit -m "refactor(web): migrate statistics report and map demos"`.
 
