@@ -4,7 +4,7 @@ import { cva } from "class-variance-authority";
 import { cn } from "./utils/cn";
 
 export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement>, Pick<AriaButtonProps, "isDisabled" | "onPress"> {
-  variant?: "landingReplay" | "landingFixture" | "primary" | "secondary" | "ghost" | "danger" | "link" | "landingCta" | "landingHeaderContact" | "landingHeroContact" | "landingPlanPrimary" | "landingPlanSecondary";
+  variant?: "landingReportFormat" | "landingMapTool" | "landingMapCancel" | "landingMapMarker" | "landingReplay" | "landingFixture" | "primary" | "secondary" | "ghost" | "danger" | "link" | "landingCta" | "landingHeaderContact" | "landingHeroContact" | "landingPlanPrimary" | "landingPlanSecondary";
   size?: "sm" | "md" | "lg";
   isLoading?: boolean;
   loadingLabel?: string;
@@ -13,9 +13,15 @@ export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement>, Pi
 
 const landingPlanFrame = "min-h-12 gap-3 rounded-landing-button border-transparent p-landing-button-inset text-landing-button font-extrabold transition-[transform,background,border-color] duration-200 ease-[ease] hover:transform-[translateY(-2px)]";
 
+const landingMapToolFrame = "min-h-[34px] gap-3 rounded-landing-map-tool border-transparent px-2.5 py-0 text-landing-demo-control-label font-extrabold leading-landing-compact-button transition-[transform,background,border-color] duration-200 ease-[ease] hover:transform-[translateY(-2px)]";
+
 const button = cva("inline-flex min-h-11 items-center justify-center gap-2 rounded-control border font-bold cursor-pointer focus-visible:outline-none focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60", {
   variants: {
     variant: {
+      landingReportFormat: "block min-h-[30px] gap-0 items-normal justify-normal rounded-landing-compact-choice-control border-border-subtle bg-surface-panel p-landing-report-format-inset text-landing-demo-control-label font-extrabold text-content-secondary cursor-default focus-visible:outline-3 focus-visible:outline-solid focus-visible:outline-current focus-visible:outline-offset-0 focus-visible:shadow-none aria-pressed:border-brand-blue aria-pressed:bg-action-primary-soft aria-pressed:text-brand-blue",
+      landingMapTool: `${landingMapToolFrame} touch-none bg-brand-blue text-surface-panel`,
+      landingMapCancel: `${landingMapToolFrame} border-border-subtle bg-surface-panel text-brand-navy hover:border-brand-blue`,
+      landingMapMarker: "absolute z-2 block size-4.5 min-h-0 items-normal justify-normal gap-0 rounded-landing-ellipse border-4 border-brand-blue bg-surface-panel p-0 font-normal cursor-default ring-5 ring-action-primary-soft touch-none focus-visible:outline-3 focus-visible:outline-solid focus-visible:outline-current focus-visible:outline-offset-0 focus-visible:shadow-none",
       landingReplay: "leading-landing-text-action min-h-[38px] flex-none rounded-landing-compact-control border-border-subtle bg-surface-panel px-2.5 py-0 text-landing-compact-action font-[750] text-brand-blue hover:enabled:bg-action-primary-soft first-letter:text-landing-replay-icon landing-narrow:min-w-[34px] landing-narrow:min-h-[34px]",
       landingFixture: "group absolute z-2 grid size-8 min-h-0 place-items-center justify-normal gap-0 font-normal focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-border-focus focus-visible:outline-offset-2 focus-visible:shadow-none rounded-landing-ellipse border-0 border-none bg-transparent p-0 transform-[translate(-50%,-50%)]",
       landingPlanPrimary: `${landingPlanFrame} bg-action-primary text-content-inverse hover:enabled:bg-action-primary-hover`,

@@ -50,11 +50,11 @@ export function ControlDemo({ motion }: { motion: SceneMotion }) {
       <Card variant="landingDemoSurface" className="control-panel self-center m-4.5 p-landing-control-panel-inset landing-stack:m-landing-control-panel-stacked-margin">
         <div className="control-panel__heading flex items-center justify-between gap-3 text-landing-control-heading font-extrabold"><span>밝기 조정</span><strong className="text-brand-blue text-landing-control-metric">{brightness}%</strong></div>
         <label className="sr-only" htmlFor="brightness-range">출입구 그룹 밝기</label>
-        <NativeRangeSlider fillPercentage={brightness} ref={range} id="brightness-range" min="0" max="100" step="1" value={brightness} aria-describedby="brightness-hint"
+        <NativeRangeSlider className="scroll-mt-landing-anchor-anchor-offset" fillPercentage={brightness} ref={range} id="brightness-range" min="0" max="100" step="1" value={brightness} aria-describedby="brightness-hint"
           onInput={event => updateFromRange(Number(event.currentTarget.value))}
           onChange={event => updateFromRange(Number(event.currentTarget.value))} />
         <div className="range-ends flex justify-between text-status-neutral-foreground text-landing-demo-caption"><span>0%</span><span>100%</span></div>
-        <p id="brightness-hint" className="control-hint min-h-9 m-landing-control-hint-margin text-content-secondary text-landing-control-hint">슬라이더를 움직여 예시 밝기를 바꿔보세요.</p>
+        <p id="brightness-hint" className="control-hint scroll-mt-landing-anchor-anchor-offset min-h-9 m-landing-control-hint-margin text-content-secondary text-landing-control-hint">슬라이더를 움직여 예시 밝기를 바꿔보세요.</p>
         <Button type="button" variant="landingPlanPrimary" className="w-full" onClick={() => { manual.current = true; motion.stop(); const value = Number(range.current?.value ?? brightness); setBrightness(value); setStatus(`예시 밝기 ${value}%를 적용했습니다.`); }}>밝기 적용 <span aria-hidden="true">→</span></Button>
         <p className="demo-status min-h-4.5 m-0 mt-landing-demo-result-top-space text-brand-blue text-landing-demo-status font-[750]" role="status" aria-live="polite">{status}</p>
       </Card>

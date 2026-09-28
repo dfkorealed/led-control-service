@@ -24,3 +24,9 @@
 
 /* Monitoring cursor keeps the original positions and 3.4s approved timeline. */
 @keyframes cursor-path { 0% { left: 3%; top: 7%; opacity: 0; } 8% { opacity: 1; } 32%, 43% { left: 23%; top: 34%; } 68%, 83% { left: 65%; top: 34%; opacity: 1; } 100% { left: 65%; top: 34%; opacity: 0; } }
+
+/* Original statistics/report reveal timelines; only decorative nodes restart. */
+@keyframes draw-chart { to { stroke-dashoffset: 0; } }
+@keyframes reveal-area { to { opacity: 1; } }
+@keyframes reveal-points { to { opacity: 1; } }
+@keyframes report-row-in { to { opacity: 1; transform: none; } }

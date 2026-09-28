@@ -6,7 +6,6 @@ import { ModalDialog } from "../../components/ui/ModalDialog";
 import { CompanyFooter } from "./field-day/CompanyFooter";
 import type { LandingPlan } from "./field-day/PricingSection";
 import { InquiryForm } from "./InquiryForm";
-import "./field-day.css";
 
 export type OpenInquiry = (event: MouseEvent<HTMLButtonElement>, plan?: LandingPlan | null) => void;
 type PublicPage = "home" | "features" | "pricing";
@@ -65,7 +64,7 @@ export function PublicSiteLayout({ page, children }: { page: PublicPage; childre
     setSelectedPlan(plan);
     setInquiryOpen(true);
   };
-  return <div className="field-day landing-page min-w-[320px] bg-brand-paper font-landing text-brand-navy break-keep antialiased">
+  return <div className="field-day landing-page [&_*]:motion-reduce:[animation-duration:.01ms]! [&_*]:motion-reduce:[animation-iteration-count:1]! [&_*]:motion-reduce:duration-[.01ms]! [&_*::before]:motion-reduce:[animation-duration:.01ms]! [&_*::before]:motion-reduce:[animation-iteration-count:1]! [&_*::before]:motion-reduce:duration-[.01ms]! [&_*::after]:motion-reduce:[animation-duration:.01ms]! [&_*::after]:motion-reduce:[animation-iteration-count:1]! [&_*::after]:motion-reduce:duration-[.01ms]! min-w-[320px] bg-brand-paper font-landing text-brand-navy break-keep antialiased">
     <a className="skip-link fixed top-landing-skip-link-top left-4 z-100 rounded-landing-skip-link bg-surface-panel px-4 py-3 text-brand-navy focus:top-4" href="#main">본문으로 이동</a>
     <header className={`site-header fixed inset-x-0 top-0 z-20 text-surface-panel transition-[background,box-shadow] duration-250 ease-[ease] ${scrolled || page !== "home" ? "is-scrolled bg-brand-navy/97 shadow-landing-header-raised" : ""}`}>
       <div className="header-inner mx-auto w-[min(1180px,calc(100%-72px))] phone-wide:max-w-[360px] compact:max-w-[760px] tablet:max-w-[1024px] flex min-h-[82px] items-center justify-between gap-6 border-b border-surface-panel/18 landing-wide:landing-stack:w-[calc(100%-38px)] landing-wide:landing-stack:min-h-[96px] landing-wide:landing-stack:flex-wrap landing-wide:landing-stack:gap-landing-header-frame-stacked-gap landing-wide:landing-stack:py-2.5 landing-wide:landing-stack:landing-narrow:w-[calc(100%-30px)]">
