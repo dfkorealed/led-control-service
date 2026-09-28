@@ -832,3 +832,15 @@ Task 3의 전환 전 Chromium149 실측에서 `.header-contact`는 320/390px에�
 | `--leading-landing-text-action` | `var(--text-body--line-height)` (현재1.375rem, 기본16px에서22px) | React 공개 헤더·히어로의 상담 텍스트 Button만 사용. static 시안 navigation에는 적용하지 않는다. |
 
 기존371 역할의 이름·값은 모두 유지하고 flat theme에 한 선언만 더했다. 기존371map digest `d2c48e7fb7e9c8b256dda08b955484f97723004f6c8f2b4f3cd3859d3aa9c16b`와 이전 ref는 당시 증거다. 새372map SHA-256은 `2d04e87651537a0e69636b8855cfe589dd826bd864848ebde3e8f50d84562f9b`다. 독립된 exact-value 검사는 해당 선언이0회인 상태에서 RED, 정확히1회인 상태에서 GREEN이다. 실제 소비 클래스·화면의22px 보존은 Task 3 후속 검증에 포함한다. 신뢰 앵커는 토큰 전용 커밋 검토 이후 별도로 회전하며 그 전 full policy의 stale-anchor 실패를 성공으로 기록하지 않는다.
+
+
+### Supplemental 승인: 기능 미리보기 격자 배경
+
+Task 4의 original React `field-day.css`(`cdc642087a7b2e78f8309cccba6bca90dd3433c2`, 214·219행)는 모니터링과 맵 편집 예시에 각각 두 개의 gradient를 겹친다. 같은 FeaturePreview가 작은 카드와 확대 상세 화면에서 재사용한다. 기존 `--border-blue` alias의 실제 값은 `--color-border-default`와 같으며 DOM·색·위치·stop·격자 크기를 보존한다.
+
+| 역할 | 정확 값 | 소비자 |
+|---|---|---|
+| `--background-image-landing-preview-map-grid` | `linear-gradient(90deg, transparent 48%, var(--color-border-default) 49%, var(--color-border-default) 50%, transparent 51%), linear-gradient(transparent 49%, var(--color-border-default) 50%, transparent 51%)` | 모니터링 작은 카드·확대 상세 FeaturePreview |
+| `--background-image-landing-preview-editor-grid` | `linear-gradient(var(--color-border-default) 1px, transparent 1px), linear-gradient(90deg, var(--color-border-default) 1px, transparent 1px)` | 맵 편집 작은 카드·확대 상세 FeaturePreview |
+
+총괄은 두 정확 값을 승인했다. 기존372 역할 이름·값을 모두 유지하며 두 선언을 flat theme에 각각 한 번 추가한다. 새374 map SHA-256(정렬한 compact UTF-8 JSON)은 `c6fae50b1edff6dc150a397881f7c9cac4923b6918eda0502f6aea21f4eb057e`다. 기존372 digest와 `b9b0ad4b`는 당시 근거로 보존한다. 선언 누락 RED 후 정확 값·선언1회 GREEN을 확인하며 Tailwind 기존 background-image namespace의 `bg-landing-preview-map-grid`·`bg-landing-preview-editor-grid`를 소비한다. 정책 예외·새 CSS 경로·arbitrary property·SVG 대체는 추가하지 않는다. 신뢰 앵커는 토큰 전용 커밋의 독립 검토 후 별도로 회전한다.
