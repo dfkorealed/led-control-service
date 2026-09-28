@@ -28,7 +28,7 @@ React `/`, `/features`, `/pricing`의 글자·색·크기·줄바꿈·간격·�
 
 부모의 별도 기술 판정은 [W3C SC 1.4.3의 incidental 조항](https://www.w3.org/WAI/WCAG21/Understanding/contrast-minimum.html)에 따른 **테스트 분류**만 승인했다. 전체 raw axe 결과를 보존하고 고정 `.scene-watermark`는 순수 장식, `.control-visual__caption`는 실제 lamp/glow/beam/floor 그림에 부수적인 글자로 구분한다. 기존 숨김 소유만으로 예외를 인정하지 않으며 정확한 DOM/문구/그림/위치/대응 제목과 실제 조작 UI/비상호작용 조건을 검사한다. 읽는 안내·맵 힌트와 다른 serious/critical는 계속 실패한다. 규칙 비활성화·subtree 제외·임계 변경이나 제품 DOM/ARIA 변경은 없다.
 
-제어 그림은 pendant **하나**이고 caption의 ‘4개’가 별도 조작 UI에 그대로 중복되지는 않는다. 그룹 명칭은 toolbar/‘출입구 그룹 밝기’ 슬라이더에 대응하지만 숫자 중복이나 네 개 조명 그림을 주장하지 않는다. 이 고정 그림 caption의 incidental 판정과 보존 조건은 독립 검토 대상이다. 실제 raw 장식 실패와 분류 후 잔여 0을 구분하며 ‘raw axe 0’으로 기록하지 않는다. 새 124 화면의 두 글자색 차이와 추가 캡처 잔여 분류, 전체 root 및 독립 최종 검토는 최종 보고서를 따른다.
+제어 그림은 pendant **하나**이고 caption의 ‘4개’가 별도 조작 UI에 그대로 중복되지는 않는다. 그룹 명칭은 toolbar/‘출입구 그룹 밝기’ 슬라이더에 대응하지만 숫자 중복이나 네 개 조명 그림을 주장하지 않는다. 이 고정 그림 caption의 incidental 판정과 보존 조건은 독립 검토 대상이다. 실제 raw 장식 실패와 분류 후 잔여 0을 구분하며 ‘raw axe 0’으로 기록하지 않는다. 독립 리뷰의 완전 clip/React 위임 이벤트 지적은 테스트에서 원래 beam polygon·실제 그림 교차/기하와 정확한 장식 JSX·소유 조상 event props/spreads 검사로 보완했다. 기존 Card의 rest forwarding은 DemoCard 명시 props와 정확한 직접 전달 소스 계약으로 한정하며 조작 버튼 형제의 이벤트를 금지하지 않는다. 새 124 화면의 두 글자색 차이와 잔여는 동일 소스 전체 화면·crop 반복 및 그림자 인과로 분류했고 부모 Node 22 전체 관문은 통과했다. 후속 테스트 보완의 독립 재검토·전체 브랜치 리뷰는 남아 있으며 최종 보고서를 따른다.
 
 ## 2. 필요한 토큰의 좁은 승인 후보
 

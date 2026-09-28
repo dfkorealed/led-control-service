@@ -24,10 +24,11 @@ export async function classifyLandingAxe(page: Page, raw: LandingAxeInput) {
       return heading?.tagName === "H2" && section.contains(heading) && !!heading.textContent?.trim() &&
         !heading.closest("[aria-hidden='true']") && hasVisiblePaint(heading);
     };
-    const hasVisiblePaint = (element: Element) => {
+    const hasVisiblePaint = (element: Element, clipPath = "none") => {
       const style = getComputedStyle(element), rect = element.getBoundingClientRect();
       return style.display !== "none" && style.visibility === "visible" &&
-        Number(style.opacity) > 0 && rect.width > 0 && rect.height > 0;
+        Number(style.opacity) > 0 && rect.width > 0 && rect.height > 0 &&
+        style.clipPath === clipPath && style.clip === "auto" && style.maskImage === "none";
     };
     const decorationRole = (element: Element): string | null => {
       // Manual SC 1.4.3 ruling: only these existing incidental picture roles qualify.
@@ -41,6 +42,9 @@ export async function classifyLandingAxe(page: Page, raw: LandingAxeInput) {
         if (!kind || section?.id !== ids[kind] || !section.matches(`.scene.scene--${kind}`) ||
           element.textContent !== kind || element.getAttribute("aria-hidden") !== "true" ||
           !hasHeading(section) || getComputedStyle(element).pointerEvents !== "none" || getComputedStyle(element).position !== "absolute") return null;
+        const ownerRect = section.getBoundingClientRect(), rect = element.getBoundingClientRect();
+        if (Math.min(rect.right, ownerRect.right) <= Math.max(rect.left, ownerRect.left) ||
+          Math.min(rect.bottom, ownerRect.bottom) <= Math.max(rect.top, ownerRect.top)) return null;
         return "scene-watermark";
       }
       if (element.matches(".control-visual__caption")) {
@@ -51,12 +55,33 @@ export async function classifyLandingAxe(page: Page, raw: LandingAxeInput) {
           element.textContent !== "출입구 그룹 · 조명 4개" || !section || !hasHeading(section)) return null;
         // One pendant plus glow/beam/floor is significant visual content. The fixed
         // illustrative count 4 is NOT separately repeated by the control UI.
+        const pictureRect = picture.getBoundingClientRect();
+        const stacked = matchMedia("(max-width: 720px)").matches;
         for (const part of ["lamp", "glow", "beam", "floor"]) {
           const shapes = picture.querySelectorAll(`:scope > .control-visual__${part}`);
-          if (shapes.length !== 1 || !hasVisiblePaint(shapes[0])) return null;
+          const clip = part === "beam" ? "polygon(41% 0px, 59% 0px, 100% 100%, 0px 100%)" : "none";
+          if (shapes.length !== 1 || !hasVisiblePaint(shapes[0], clip)) return null;
+          const shape = shapes[0], style = getComputedStyle(shape), rect = shape.getBoundingClientRect();
+          // Original owned geometry only. This is CSS layout quantization (1/64px),
+          // not a pixel-difference tolerance or a generic rendering oracle.
+          const near = (a: number, b: number) => Math.abs(a - b) <= 1 / 64;
+          const top = part === "lamp" ? (stacked ? .06 : .16) : part === "glow" ? (stacked ? .28 : .37) : (stacked ? .26 : .33);
+          if (style.position !== "absolute" ||
+            Math.min(rect.right, pictureRect.right) <= Math.max(rect.left, pictureRect.left) ||
+            Math.min(rect.bottom, pictureRect.bottom) <= Math.max(rect.top, pictureRect.top)) return null;
+          if (part === "floor") {
+            if (style.transform !== "none" || !near(rect.left, pictureRect.left - pictureRect.width * .2) ||
+              !near(rect.width, pictureRect.width * 1.4) || !near(rect.height, pictureRect.height * .47) ||
+              !near(rect.bottom, pictureRect.bottom + pictureRect.height * .32)) return null;
+          } else {
+            const size = part === "lamp" ? [70, 68] : part === "glow" ? [220, 220] : [300, 300];
+            if (!near(rect.width, size[0]) || !near(rect.height, size[1]) ||
+              !near(rect.left + rect.width / 2, pictureRect.left + pictureRect.width / 2) ||
+              !near(rect.top + (part === "glow" ? rect.height / 2 : 0), pictureRect.top + pictureRect.height * top)) return null;
+          }
         }
         const captionStyle = getComputedStyle(element);
-        const pictureRect = picture.getBoundingClientRect(), captionRect = element.getBoundingClientRect();
+        const captionRect = element.getBoundingClientRect();
         if (getComputedStyle(picture).position !== "relative" || captionStyle.position !== "absolute" ||
           captionStyle.left !== "20px" || captionStyle.bottom !== "19px" ||
           captionRect.left < pictureRect.left || captionRect.right > pictureRect.right ||

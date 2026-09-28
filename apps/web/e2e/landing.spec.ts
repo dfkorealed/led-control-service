@@ -1,7 +1,9 @@
 import { expect, test } from "@playwright/test";
 import { classifyLandingAxe, runLandingAxe } from "./support/landing-accessibility";
+import { landingDecorationSourceIssues } from "./support/landing-decoration-source";
 import { installSettingsApiRoutes } from "./support/settings-api";
 import { mkdir, writeFile } from "node:fs/promises";
+import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { createRequire } from "node:module";
 
@@ -278,7 +280,7 @@ for (const [width, selector] of [[1024, "#map-editor > .scene-watermark"], [320,
     const original = await node.evaluate(e => e.outerHTML);
     const hiddenOwner = width === 320 ? page.locator(".control-visual") : node;
     expect((await classifyLandingAxe(page, raw)).incidental).toHaveLength(1);
-    for (const mutation of ["text", "hidden", "focus", "role", "handler", "readable-role", "picture", "position", "css-hidden", "css-transparent", "heading-hidden"] as const) {
+    for (const mutation of ["text", "hidden", "focus", "role", "handler", "readable-role", "picture", "position", "css-hidden", "css-transparent", "heading-hidden", "picture-clipped", "picture-moved"] as const) {
       const pictureOriginal = await page.locator(".control-visual").evaluate(e => e.outerHTML);
       await node.evaluate((e, mutation) => {
         if (mutation === "text") e.textContent = "새로운 운영 안내";
@@ -298,6 +300,14 @@ for (const [width, selector] of [[1024, "#map-editor > .scene-watermark"], [320,
           if (mutation === "css-hidden") artwork.style.visibility = "hidden";
           else artwork.style.opacity = "0";
         }
+        if (mutation === "picture-clipped" || mutation === "picture-moved") {
+          const artwork = e.matches(".control-visual__caption")
+            ? [...e.parentElement!.querySelectorAll<HTMLElement>(":scope > div")] : [e as HTMLElement];
+          for (const part of artwork) {
+            if (mutation === "picture-clipped") part.style.clipPath = "inset(100%)";
+            else part.style.transform = "translate(10000px,10000px)";
+          }
+        }
       }, mutation);
       expect((await classifyLandingAxe(page, raw)).remaining.length, mutation).toBeGreaterThan(0);
       await node.evaluate((e, original) => { e.outerHTML = original; }, original);
@@ -313,6 +323,26 @@ for (const [width, selector] of [[1024, "#map-editor > .scene-watermark"], [320,
     }
   });
 }
+
+test("decorative JSX owners and their owned ancestors reject delegated event props and spreads", () => {
+  const paths = ["features/landing/field-day/ControlDemo.tsx", "features/landing/field-day/Scene.tsx",
+    "features/landing/LandingPage.tsx", "features/landing/FieldDayConceptPage.tsx",
+    "features/landing/PublicSiteLayout.tsx", "components/ui/Card.tsx"];
+  const sources = Object.fromEntries(paths.map(path => [path, readFileSync(resolve("src", path), "utf8")]));
+  expect(landingDecorationSourceIssues(sources)).toEqual([]);
+  for (const [path, original, replacement] of [
+    [paths[0], '<span className="control-visual__caption', '<span onClick={() => {}} className="control-visual__caption'],
+    [paths[0], '<div className="control-content', '<div onPointerDown={() => {}} className="control-content'],
+    [paths[0], '<div className="control-visual relative', '<div {...pictureProps} className="control-visual relative'],
+    [paths[1], '<span aria-hidden="true" className={`scene-watermark', '<span onClick={() => {}} aria-hidden="true" className={`scene-watermark'],
+    [paths[1], '<Card variant="landingDemo"', '<Card {...pictureProps} variant="landingDemo"'],
+    [paths[4], '<div className={`${concept', '<div onClickCapture={() => {}} className={`${concept'],
+    [paths[5], '<section {...props}', '<section onClick={() => {}} {...props}']
+  ]) {
+    expect(sources[path]).toContain(original);
+    expect(landingDecorationSourceIssues({ ...sources, [path]: sources[path].replace(original, replacement) }), replacement).not.toEqual([]);
+  }
+});
 
 test("readable contrast violations remain blocking when their exact DOM targets exist", async ({ page }) => {
   await page.goto("/");

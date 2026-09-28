@@ -17,7 +17,7 @@
 - [x] 최초 focused Chromium 59 passed/16 failed를 수집했다. 위 정합 후 75개 중 73 passed/2 failed는 최근 이력의 두 번째 버튼 touch-area였으며, 해당 보정 뒤 제어 31/31을 통과했다. 동일 범위의 앞선 랜딩 31/31·auth/operator 5/5·보존 8/8을 합쳐 75개 시나리오의 성공 증거를 확보했다. 마지막 버튼 수정 뒤 관련 unit 12/12·Web typecheck 포함 production build도 통과했다. 앞선 관련 unit 147/147도 통과했다.
 - [x] **당시 통합 이력**: 사용자가 기존 랜딩 작업의 정책 부채를 변경하지 않고 통합하도록 명시적으로 지시했다. canonical root test는 정책 61 passed/1 failed, `ui:check` 927건으로 계속 실패하며 GREEN으로 기록하지 않는다. 마지막 제품 보정 뒤에도 finding 전체 목록이 동일함을 확인했고 다음 여섯 파일은 기준 `b429f856` 대비 변경 0이다: `PublicSiteLayout.tsx` 2, `field-day.css` 919, `MapDemo.tsx` 3, `MonitoringDemo.tsx` 1, `ReportDemo.tsx` 1, `public/concepts/field-day.css` 1. 정책 baseline·코드 예외는 완화하지 않았다.
 - [x] 통합 merge `04de3375`를 만들었고 독립 리뷰의 새 P0–P2 지적 0을 확인했다.
-- [ ] 승인된 clean-base 브랜치 fast-forward는 미완료다. 현행 게이트는 랜딩 정책 0건·fresh 전체 회귀·최종 리뷰이며, 아래 과거 부채 수용을 면제로 사용하지 않는다. 격리 정책 브랜치의 Task 8은 정책 0/0·65/65, Web 2,577 passed/3 skipped, 최종 124 PNG/20너비 및 실제 nginx 경로를 확인했지만 Chromium 73 passed/4 failed(색 대비)·root 재실행 SIGSEGV가 남아 있다. 통합/fast-forward를 실행하지 않았다.
+- [ ] 승인된 clean-base 브랜치 fast-forward는 미완료다. 현행 게이트는 랜딩 정책 0건·fresh 전체 회귀·최종 리뷰이며, 아래 과거 부채 수용을 면제로 사용하지 않는다. 승인 전 Task 8의 Chromium 73 passed/4 failed(색 대비)와 Node 24 root 두 실패는 당시 이력이며 SIGSEGV 근본 원인은 미확정이다. 이후 사용자의 두 foreground 승인과 좁은 테스트 보완을 반영해 Chromium 80/80·후속 집중 검사, 새 124 PNG/20너비·실제 nginx 경로와 시각 잔여 인과 분류를 완료했다. 부모 Node 22 기본 root test/lint/typecheck/build가 모두 통과했다(Root 143/4 skipped, Shared 411, Automation 28, Mobile 6, Web 2,577/3 skipped, API 2,936/822 skipped, Gateway 1,408, 정책 65/65·UI 0/0). 후속 테스트·문서 수정의 Task 8 재검토와 전체 브랜치 독립 리뷰는 대기 중이다. 통합/fast-forward를 실행하지 않았다.
 
 ## 유지할 경계
 
