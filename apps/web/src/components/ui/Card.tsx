@@ -2,11 +2,11 @@ import { forwardRef, type HTMLAttributes, type ReactNode } from "react";
 import { cva } from "class-variance-authority";
 import { cn } from "./utils/cn";
 
-export type CardTone = "default" | "selected" | "danger";
+export type CardTone = "default" | "selected" | "danger" | "landingGlass";
 
 export interface CardProps extends HTMLAttributes<HTMLElement> { tone?: CardTone; variant?: CardTone; children: ReactNode }
 export const card = cva("rounded-panel border bg-surface-panel", {
-  variants: { variant: { default: "border-border-default", selected: "border-action-primary", danger: "border-status-danger-border" } },
+  variants: { variant: { landingGlass: "rounded-landing-glass-panel border-surface-panel/45 shadow-landing-glass-panel backdrop-blur-[16px]", default: "border-border-default", selected: "border-action-primary", danger: "border-status-danger-border" } },
   defaultVariants: { variant: "default" }
 });
 

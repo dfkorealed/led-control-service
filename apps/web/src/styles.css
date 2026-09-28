@@ -14,3 +14,10 @@
 @custom-variant landing-narrow (@media (max-width: 430px));
 @custom-variant landing-stack (@media (max-width: 720px));
 @custom-variant landing-wide (@media (max-width: 1050px));
+
+/* Public hero motion uses the original timelines; React owns replay state. */
+@keyframes rise-in { from { opacity: 0; transform: translateY(18px); } to { opacity: 1; transform: none; } }
+@keyframes art-float { to { transform: translateY(-12px); } }
+@keyframes hero-bar-rise { from { opacity: .4; transform: scaleY(.18); } to { opacity: 1; transform: scaleY(1); } }
+@keyframes hero-dot-drift { 0% { transform: translate(0, 0); } 52% { transform: translate(14px, -8px); } 100% { transform: translate(8px, -3px); } }
+@keyframes hero-pointer-drift { 0% { transform: translate(0, 0) rotate(-8deg); } 52% { transform: translate(15px, -10px) rotate(2deg); } 100% { transform: translate(8px, -5px); } }

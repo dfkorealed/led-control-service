@@ -319,3 +319,50 @@ test("legacy contact fragment clears a previously selected plan", async ({ page 
   await expect(dialog.getByText(/선택한 요금제:/)).toHaveCount(0);
   await expect(dialog.getByRole("textbox", { name: "문의 내용" })).toBeEmpty();
 });
+
+
+test("hero animation restarts on return and reduced motion leaves the complete artwork", async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: "no-preference" });
+  await page.goto("/");
+  const pointer = page.locator(".hero-art__pointer");
+  await expect(pointer).toHaveCSS("animation-name", "hero-pointer-drift");
+  await expect(page.locator(".hero-art__panel--front b").nth(5)).toHaveCSS("animation-delay", "0.75s");
+  await page.locator("#map-editor").scrollIntoViewIfNeeded();
+  await expect(pointer).toHaveCSS("animation-name", "none");
+  await page.evaluate(() => scrollTo(0, 0));
+  await expect(pointer).toHaveCSS("animation-name", "hero-pointer-drift");
+  await expect.poll(() => pointer.evaluate(element => element.getAnimations().some(animation => Number(animation.currentTime) < 1000))).toBe(true);
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await expect(pointer).toHaveCSS("animation-name", "none");
+  await expect(pointer).toHaveCSS("transform", "none");
+  for (const bar of await page.locator(".hero-art__panel--front b").all()) {
+    await expect(bar).toHaveCSS("opacity", "1");
+    await expect(bar).toHaveCSS("transform", "none");
+  }
+});
+
+test("public shell and hero preserve all three inclusive layout boundaries", async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  for (const width of [429, 430, 431, 719, 720, 721, 1049, 1050, 1051]) {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto("/");
+    await expect(page.locator(".header-nav")).toHaveCSS("font-size", width <= 430 ? "11px" : width <= 720 ? "12px" : "13px");
+    await expect(page.locator(".hero")).toHaveCSS("min-height", width <= 430 ? "760px" : width <= 720 ? "790px" : "900px");
+    const columns = await page.locator(".hero-inner").evaluate(element => getComputedStyle(element).gridTemplateColumns.split(" ").map(Number.parseFloat));
+    expect(columns).toHaveLength(width <= 720 ? 1 : 2);
+    if (width > 720) expect(columns[0] / columns[1]).toBeCloseTo(width <= 1050 ? 1.25 : 1.08 / .92, 2);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  }
+});
+
+
+test("landing button hover keeps its original transform transition", async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: "no-preference" });
+  await page.goto("/");
+  const cta = page.getByRole("link", { name: /하루 따라가기/ });
+  await expect(cta).toHaveCSS("transition-property", "transform, background, border-color");
+  await expect(cta).toHaveCSS("transition-duration", "0.2s");
+  await cta.hover();
+  await expect(cta).toHaveCSS("transform", "matrix(1, 0, 0, 1, 0, -2)");
+  await expect(cta).toHaveCSS("background-color", "rgb(255, 255, 255)");
+});

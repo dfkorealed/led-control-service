@@ -17,6 +17,12 @@ for (const width of [1440, 1024, 390, 320]) {
     await page.goto("/");
     await expect(page.getByRole("heading", { level: 1, name: /현장의 하루.*한눈에 이어지다/ })).toBeVisible();
     await expect(page.locator(".scene")).toHaveCount(5);
+    await expect(page.locator(".site-header")).toHaveCSS("position", "fixed");
+    await expect(page.locator(".hero-copy__second-line")).toHaveCSS("display", "block");
+    await expect(page.locator(".hero-contact")).toHaveCSS("border-top-width", "0px");
+    await expect(page.locator(".hero-contact")).toHaveCSS("line-height", "22px");
+    await expect(page.locator(".header-contact")).toHaveCSS("line-height", "22px");
+    await expect(page.locator(".hero h1")).toHaveCSS("font-size", width <= 430 ? "46px" : width === 1024 ? "55px" : "76.32px");
     await expect(page.getByRole("link", { name: /로그인/ })).toHaveAttribute("href", "/login");
     for (const id of ["monitoring", "control", "statistics", "report", "map-editor"]) {
       await expect(page.locator(`#${id}`)).toBeVisible();
@@ -33,7 +39,14 @@ for (const width of [1440, 1024, 390, 320]) {
     expect(box).not.toBeNull();
     expect(box!.width).toBeLessThanOrEqual(viewport.width);
     expect(box!.height).toBeLessThanOrEqual(viewport.height);
+    await expect(dialog).toHaveCSS("border-radius", "14px");
+    await expect(dialog).toHaveCSS("overflow-y", "auto");
+    const submit = dialog.getByRole("button", { name: "상담 문의 보내기" });
+    await submit.focus();
+    await expect(submit).toBeFocused();
+    await expect(submit).toBeInViewport();
     await dialog.getByRole("button", { name: "상담 팝업 닫기" }).click();
+    await expect(page.getByRole("button", { name: "도입 상담", exact: true }).first()).toBeFocused();
 
     await page.emulateMedia({ reducedMotion: "reduce" });
     await page.reload();
@@ -222,5 +235,28 @@ for (const role of ["admin", "viewer"] as const) {
     await expect(page).toHaveURL(/\/monitoring$/);
     await expect(page.getByRole("heading", { name: "상담 문의 관리" })).toHaveCount(0);
     expect(operatorRequests).toEqual([]);
+  });
+}
+
+for (const width of [320, 390, 1024, 1440]) {
+  test(`public styles keep the real signed-out login unchanged at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await page.route("**/api/auth/me", route => route.fulfill({ status: 401, json: { message: "unauthorized" } }));
+    await page.goto("/");
+    await page.getByRole("link", { name: /로그인/ }).click();
+    const login = page.getByRole("button", { name: "로그인", exact: true });
+    await expect(login).toBeVisible();
+    await expect(login).toHaveCSS("font-size", "14px");
+    await expect(login).toHaveCSS("line-height", "22px");
+    await expect(login).toHaveCSS("border-radius", "10px");
+    await expect(login).toHaveCSS("background-color", "rgb(37, 111, 161)");
+    await expect(page.locator("[data-kinda-logo] strong")).toHaveCSS("color", "rgb(21, 50, 74)");
+    await expect(page.locator("[data-kinda-logo] img")).toHaveCSS("width", "40px");
+    await expect(page.locator("body")).toHaveCSS("word-break", "normal");
+    await expect(page.locator(".field-day")).toHaveCount(0);
+    const font = await login.evaluate(element => getComputedStyle(element).fontFamily);
+    expect(font).not.toContain("Pretendard");
+    await page.reload();
+    await expect(login).toHaveCSS("border-radius", "10px");
   });
 }

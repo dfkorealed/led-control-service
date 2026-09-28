@@ -4,7 +4,7 @@ import { cva } from "class-variance-authority";
 import { cn } from "./utils/cn";
 
 export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement>, Pick<AriaButtonProps, "isDisabled" | "onPress"> {
-  variant?: "primary" | "secondary" | "ghost" | "danger" | "link";
+  variant?: "primary" | "secondary" | "ghost" | "danger" | "link" | "landingCta" | "landingHeaderContact" | "landingHeroContact";
   size?: "sm" | "md" | "lg";
   isLoading?: boolean;
   loadingLabel?: string;
@@ -14,6 +14,9 @@ export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement>, Pi
 const button = cva("inline-flex min-h-11 items-center justify-center gap-2 rounded-control border font-bold cursor-pointer focus-visible:outline-none focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60", {
   variants: {
     variant: {
+      landingCta: "min-h-12 gap-3 rounded-landing-button border-transparent bg-brand-coral p-landing-button-inset text-landing-button font-extrabold text-brand-navy transition-[transform,background,border-color] duration-200 ease-[ease] hover:transform-[translateY(-2px)] hover:enabled:bg-surface-panel",
+      landingHeaderContact: "leading-landing-text-action border-0 bg-transparent px-0 py-2 text-landing-navigation font-[750] text-surface-panel underline underline-offset-4 hover:enabled:text-brand-coral landing-wide:landing-stack:text-landing-navigation-stacked landing-wide:landing-stack:landing-narrow:text-landing-navigation-narrow",
+      landingHeroContact: "leading-landing-text-action border-0 bg-transparent px-0 py-2.5 text-landing-action font-[750] text-surface-panel no-underline hover:enabled:text-brand-coral",
       primary: "border-action-primary bg-action-primary text-content-inverse hover:enabled:border-action-primary-hover hover:enabled:bg-action-primary-hover active:enabled:bg-action-primary-active",
       secondary: "border-border-default bg-action-secondary text-action-primary",
       ghost: "border-border-default bg-surface-panel text-action-primary",
@@ -32,7 +35,9 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
   const activation = useRef<{ key?: string; pointerType?: "mouse" | "touch" | "pen" }>({});
   // Keep native button submission and activation semantics. The adapter only
   // observes the browser click origin and never synthesizes a second action.
-  return <button ref={ref} {...props} disabled={disabled || isDisabled || isLoading} aria-busy={isLoading || props["aria-busy"]} data-variant={variant} className={cn(button({ variant, size }), className)}
+  // Public landing variants own their exact frame independently of app control density.
+  const classes = button({ variant, size: variant.startsWith("landing") ? null : size });
+  return <button ref={ref} {...props} disabled={disabled || isDisabled || isLoading} aria-busy={isLoading || props["aria-busy"]} data-variant={variant} className={cn(classes, className)}
     onKeyDown={(event) => {
       onKeyDown?.(event);
       if (!event.defaultPrevented && (event.key === "Enter" || event.key === " ")) activation.current = { key: event.key };
