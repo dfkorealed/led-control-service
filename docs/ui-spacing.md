@@ -89,7 +89,7 @@ Task 12 baseline의 violation map은 비어 있으며 production 정책 부채�
 
 2026-09-16 최종 검증에서 UI policy **53/53**, `ui:check` **기존 0·신규/증가 0**, Web Vitest **83 files·1,224/1,224**, 1440×900·1024×768·390×844·320×740 layout assertions를 포함한 전체 Chromium 직렬 **257 passed·5 environment-gated skipped·실패 0**을 확인했다. 별도 opt-in RealBackendLab도 설치 여정 **2/2**와 층 배치·제어·통계 **1/1**을 통과했다. 루트 `pnpm test`도 fail-closed UI 정책 체인을 포함한 상태로 통과했다. 실제 native WebView safe-area 실측과 수동 in-app 시각 QA는 별도 후속 검증이다.
 
-검토된 랜딩 371개 역할 토큰(기본 normal 행간·font fallback stack 포함)의 토큰 전용 commit으로 신뢰 앵커를 회전했다. 이전 `reviewedThemeTokenAdditions`는 모두 새 앵커에 포함되어 별도 승인 추가 map을 제거했다. 값·누락·중복 검증과 `files: {}`·0건 목표·기존 거부 규칙은 유지한다.
+현재 승인 앵커는 검토된 랜딩 **375개 역할**의 토큰 전용 commit `7b2617b173618d376e7b3a90ec31e1392c3b7bc0`이다. 기본 normal 행간·font fallback stack과 후속 검토된 역할을 포함하며 이전 `reviewedThemeTokenAdditions`는 앵커에 흡수되어 별도 추가 map을 사용하지 않는다. 371개 역할 회전은 2026-09-28 Task 1 시점의 이력이다. 값·누락·중복 검증과 `files: {}`·0건 목표·기존 거부 규칙은 유지한다.
 
 baseline의 `sourceRef`는 scanner에 고정된 승인 Git commit `7b2617b173618d376e7b3a90ec31e1392c3b7bc0`과 일치해야 한다. Git object가 없거나 sourceRef·빈 map이 변조되면 fail-closed한다. canonical root unit gate가 Web `test:ui-policy`와 `ui:check`를 일반 unit 뒤에 실행하고, CI unit checkout은 `fetch-depth: 0`으로 승인 object를 확보한다.
 
@@ -97,9 +97,11 @@ baseline의 `sourceRef`는 scanner에 고정된 승인 Git commit `7b2617b173618
 
 주석 처리는 기존 TypeScript parser의 실제 trivia 위치를 사용해 trailing/JSX comment를 제거하고 URL·문자열·template 내용을 보존한다. CSS는 문자열을 인식하는 comment scan을 사용한다. `test:ui-policy`에는 실제 Vite 메모리 빌드의 semantic/spacing/typography/`max-compact` 생성 및 test fixture 클래스 제외 검증이 포함된다. standalone 두 정책 command는 canonical root/CI unit gate에 연결되어 있다.
 
-랜딩 포함형 variant는 실제 Vite 생성 CSS와 Chromium iframe의 429/430/430.5/431·719/720/720.5/721·1049/1050/1050.5/1051px media query로 검증한다. 복합 `p`·`m`·`gap`·`py`의 원래 속성과 값, font-size 전용 반응형 utility가 기본 1.15 행간·-.085em 자간을 보존하는지, `font-landing`의 정확 fallback stack과 `leading-landing-concept-document`의 `normal`을 함께 검사한다. 제품 루트에 적용하는 작업과 페이지별 시각·동작 검증은 후속 단계다.
+랜딩 포함형 variant는 실제 Vite 생성 CSS와 Chromium iframe의 429/430/430.5/431·719/720/720.5/721·1049/1050/1050.5/1051px media query로 검증한다. 복합 `p`·`m`·`gap`·`py`의 원래 속성과 값, font-size 전용 반응형 utility가 기본 1.15 행간·-.085em 자간을 보존하는지, `font-landing`의 정확 fallback stack과 `leading-landing-concept-document`의 `normal`을 함께 검사한다. Task 1–8에서 제품 루트·공통 컴포넌트·시안 진입점 전환과 페이지별 시각·동작 검증을 완료하고 작업별 독립 검토를 통과했다. 최종 124 실제 URL PNG와 20너비 정수/분수 경계, 원본 normal/reduced-motion, 실제 nginx 여섯 경로 증거를 유지한다. 사용자 승인 두 foreground 차이와 캡처 합성/래스터 인과를 분리했고, raw axe 장식 결과는 정확한 두 역할의 수동 WCAG 분류 후 잔여 0과 구별한다. 실제 장비·메일·배포·Firefox/Safari/native WebView 동일성은 미검증이다.
 
-2026-09-28 앵커 회전 후 `ui:check`는 기존 랜딩 925건으로 계속 실패한다. 회전 전 기준의 path/rule/match 집합과 정확히 같으며 추가·삭제 항목은 없다. 빈 baseline에서는 같은 925건이 기존·신규/증가 양쪽 출력에 집계된다. 전체 `test:ui-policy`의 생산 0건 단언은 부채 해소까지 실패로 유지한다.
+**현재 검증 (2026-09-28, Task 8):** `ui:check`는 기존 0·신규/증가 0, `test:ui-policy`는 65/65를 통과했다. 부모 Node 22 기본 root test/lint/typecheck/build도 모두 통과했다(Root 143 passed/4 skipped, Shared 411, Automation 28, Mobile 6, Web 2,577 passed/3 skipped, API 2,936 passed/822 skipped, Gateway 1,408). 최종 전체 브랜치 리뷰는 With fixes(I1 문서 정합성)로 이번 수정의 scoped 재검토 대기이며 개발 기준 fast-forward는 미완료다. Node 24의 기존 native crash 근본 원인은 미확정이고 경고 출력은 유지한다.
+
+**Task 1 앵커 회전 직후 이력 (2026-09-28):** 당시 `ui:check`는 기존 랜딩 925건으로 실패했다. 회전 전 기준의 path/rule/match 집합과 같았고 빈 baseline에서는 925건이 기존·신규/증가 양쪽 출력에 집계됐다. 당시 전체 `test:ui-policy`의 생산 0건 단언도 실패했으며, 후속 Task 2–8에서 실제 부채를 해소했다.
 
 색상은 JSX template의 정적 구간, `backgroundImage`/`background-image`, `boxShadow`/`box-shadow`, `text-shadow`, `filter`/`drop-shadow` 및 SVG `stopColor`/`stop-color`의 literal도 검사한다. TypeScript AST로 template expression을 분리하므로 semantic `var(--color-...)`와 runtime palette/shadow 표현식은 named color로 오인하지 않는다. URL payload는 제외하되 그 뒤 쉼표·줄바꿈으로 연결된 gradient는 계속 검사한다.
 

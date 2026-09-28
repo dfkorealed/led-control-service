@@ -22,14 +22,16 @@
 
 ## 부족하거나 개선이 필요한 기능
 
-- 기능·요금제 전환의 최종 소프트웨어 검증은 집중92개, Chromium24개, typecheck/build다. 각 경로의320·390·1024·1440px 원본 기준 PNG52개와 계산 스타일, 3개 경계의 직전/해당/직후9너비를 비교했다. 현재52개는 이전 승인된 공통 껍질 화면과 pixel-identical이며, 원본 기준38개 동일·14개 차이는 같은 공통 껍질의 색/합성 직렬화 차이로 유지된다. 기능·요금제 대상 선택자와 새 소비자 정책 위반은0개다. 전체 정책은 아직441건(남은 field-day.css436·공개 CSS import1·데모 raw button3·정적 시안1)으로 실패하므로 후속 Scene·데모·정적 시안 전환이 필요하다. 실제 장비·메일 수신·배포·모든 브라우저 동일성을 검증한 결과는 아니다. 기존 전체 Web 검증은 Task3의2,577개이며 이번 작업에서 반복 실행하지 않았다.
+- **현재 검증 (2026-09-28)**: 랜딩 정책 전환 Task 1–8의 구현과 작업별 독립 검토를 완료했다. 승인 앵커는 `7b2617b173618d376e7b3a90ec31e1392c3b7bc0`의 375개 역할이며 UI 정책 기존 0/신규 0·정책 65/65다. 부모의 Node 22 기본 root test/lint/typecheck/build를 모두 통과했다(Web 2,577 passed/3 skipped). 최종 124 PNG와 실제 nginx 경로, 관련 Chromium 80/80 및 후속 집중 검사의 증거는 [랜딩 현황](landing.md)에 유지한다. raw axe 장식 결과를 보존하고 정확한 두 역할의 수동 WCAG 분류 후 잔여 0과 구별한다. 최종 전체 브랜치 리뷰는 With fixes(I1 문서 정합성)로 이번 수정의 scoped 재검토 대기이며, 개발 기준 fast-forward도 미완료다. 실제 장비·메일 수신·배포·모든 브라우저 동일성은 미검증이다.
+
+- **Task 4 완료 시점 이력 (2026-09-28)**: 당시 기능·요금제 소프트웨어 검증은 집중92개, Chromium24개, typecheck/build다. 각 경로의320·390·1024·1440px 원본 기준 PNG52개와 계산 스타일, 3개 경계의 직전/해당/직후9너비를 비교했다. 당시 52개는 이전 승인된 공통 껍질 화면과 pixel-identical이며, 원본 기준38개 동일·14개 차이는 같은 공통 껍질의 색/합성 직렬화 차이로 유지된다. 기능·요금제 대상 선택자와 새 소비자 정책 위반은0개다. 당시 전체 정책은 441건(남은 field-day.css436·공개 CSS import1·데모 raw button3·정적 시안1)으로 실패했으며 Scene·데모·정적 시안 전환은 당시 후속 작업이었다. 실제 장비·메일 수신·배포·모든 브라우저 동일성을 검증한 결과는 아니다. 당시 전체 Web 검증은 Task 3의 2,577개였으며 Task 4에서는 반복 실행하지 않았다.
 
 - 기능 화면과 설명은 제품 이해를 위한 예시다. 현장별 제공 범위와 장비 연결 조건은 도입 상담에서 확인해야 한다.
 - 현재 공통 정적 `index.html`의 설명/공유 메타를 사용하므로 `/features` 링크의 검색·공유 미리보기가 홈과 동일할 수 있다. 경로별 서버 HTML 메타 제공은 후속 작업이다.
 
 ## 관련 파일
 
-- 화면: [공개 경로](../../apps/web/src/main.tsx), [공통 레이아웃](../../apps/web/src/features/landing/PublicSiteLayout.tsx), [기능 페이지](../../apps/web/src/features/landing/FeaturesPage.tsx), [기능 설명](../../apps/web/src/features/landing/field-day/FeatureOverview.tsx), [스타일](../../apps/web/src/features/landing/field-day.css)
+- 화면: [공개 경로](../../apps/web/src/main.tsx), [공통 레이아웃](../../apps/web/src/features/landing/PublicSiteLayout.tsx), [기능 페이지](../../apps/web/src/features/landing/FeaturesPage.tsx), [기능 설명](../../apps/web/src/features/landing/field-day/FeatureOverview.tsx), [공통 CSS entry](../../apps/web/src/styles.css), [정본 테마](../../apps/web/src/styles/theme.css), [공통 Card](../../apps/web/src/components/ui/Card.tsx), [공통 Button](../../apps/web/src/components/ui/Button.tsx), [공통 LinkButton](../../apps/web/src/components/ui/LinkButton.tsx)
 - 검증: [내용 테스트](../../apps/web/src/features/landing/FeaturesPage.content.test.tsx), [브라우저 테스트](../../apps/web/e2e/landing-field-day.spec.ts)
 
 ## 갱신 규칙
