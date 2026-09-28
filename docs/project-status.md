@@ -2,6 +2,11 @@
 
 기준일: 2026-09-28
 
+## 2026-09-28 기존 UI 실제 메인 통합 진행
+
+- [ ] 사용자 요청에 따라 실제 `codex/mvp1-cloud-web` (`f907a580`)와 검토된 Atlas·랜딩 기준 `e64620aa`를 격리 `codex/atlas-main-ui-merge-20260928`에서 통합한다. 최신 PDF-only 기능·주석 수정과 UI/CSS 계약을 함께 보존하며 13개 충돌의 해결·새 회귀·독립 검토가 남아 있다. 실제 메인은 아직 변경하지 않았다. [실행 체크리스트](superpowers/plans/2026-09-28-main-ui-merge.md)를 따른다.
+- 기존 5173/5178 미리보기·다른 worktree·맵 WIP는 유지하며 운영 DB·migration·실장비·push는 범위에서 제외한다.
+
 ## 2026-09-28 PDF 보고서 기존 브랜치 병합 검증
 
 - [x] 사용자가 `codex/mvp1-cloud-web` 로컬 병합을 승인했다. 대상은 `.worktrees/bio-codec-comments`의 깨끗한 checkout이고 `b429f856`은 최종 PDF 작업 HEAD `cdaa1c8b`의 조상이다. 기본 checkout의 다른 활성 브랜치는 변경하지 않았다.
