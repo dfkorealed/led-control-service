@@ -849,15 +849,12 @@ Task 4의 original React `field-day.css`(`cdc642087a7b2e78f8309cccba6bca90dd3433
 374역할 토큰 전용 커밋 `b1b500793ad8e4be394d3b2467fe35e0f2631197`의 독립 검토는 Spec PASS·quality Approved·findings0이다. 이를 현재 scanner/baseline 승인 ref로 별도 회전한다. `files: {}`·0건 목표·기존 거부 사례와 3개 inclusive custom variant는 유지한다. 이전 `b9b0ad4b`·372map은 당시 증거이며 current ref가 아니다. 미전환 Scene·데모·정적 시안 CSS 부채는 계속 실패로 기록한다.
 
 
-### Supplemental 승인: 네이티브 밝기 트랙
+### 밝기 트랙 역할 철회와 네이티브 동적 경계
 
-Task 5의 원본 `753896ce` `.control-panel input[type="range"]`는 동일한 밝기 위치를 두 색상의 경계로 사용하는 수평 gradient다. 공유 `NativeRangeSlider`가 원래 input DOM·ref·키보드·터치 조작을 보존하면서 트랙과 브라우저 thumb 스타일을 소유한다. 기존 RAC Slider의 구조와 기본 스타일은 변경하지 않는다.
+Task 5에서 검토한 `--background-image-landing-brightness-track` 역할은 철회했다. 토큰 전용 `b788d238`의 문법·값 검토와 `60f805b8`의 ref 회전 뒤 실제 브라우저 검증에서 루트 `@theme static` gradient가 `--brightness-pct`를 입력 요소의 밝기보다 먼저 계산해 항상15%를 쓰는 문제가 확인됐다. 값69%에서 실제 배경15%가 된 RED를 보존하며, 사용되지 않는 실패 역할을 테마에 남기지 않는다.
 
-| 역할 | 정확 값 | 소비자 |
-|---|---|---|
-| `--background-image-landing-brightness-track` | `linear-gradient(to right, var(--color-brand-blue) 0 var(--brightness-pct, 15%), var(--color-border-default) var(--brightness-pct, 15%) 100%)` | 공개 제어 데모의 공유 네이티브 밝기 트랙 |
+공통 `NativeRangeSlider`는 기존 네이티브 input DOM·ref·키보드·터치 조작을 유지하고 `bg-linear-to-r/srgb from-brand-blue to-border-default`를 사용한다. 동일 input에 실제 밝기에서 계산한 `--tw-gradient-from-position`과 `--tw-gradient-to-position`을 같은 백분율로 설정해 원본과 같은 단일 gradient의 명확한 색 경계를 만든다. 정적인 인라인 gradient·새 CSS utility·정책 예외는 없다. 기존 RAC Slider는 바꾸지 않는다.
 
-총괄이 승인한 단일 역할이며 `--brightness-pct`는 기존 사용자 입력 계산값이다. 원본 320·1440px의 완료 상태 계산값은 blue `rgb(37, 111, 161)` 0→70%, border `rgb(219, 231, 245)` 70→100%로 확인했다. 기존374 이름·값과 전체 theme 선언을 전부 유지한375 역할 map SHA-256(정렬한 compact UTF-8 JSON)은 `88db3801b90e7f6e772ed85a82832e46b452ff078d145612a88563711894bfbd`다. 선언 누락 RED를 확인했으며 정확 값·선언1회 GREEN을 검사한다. 정책 예외·arbitrary gradient·새 CSS 경로를 추가하지 않고 기존 background-image namespace를 사용한다. 신뢰 앵커는 토큰 전용 커밋의 독립 검토 뒤 별도로 회전한다.
+320·390·1024·1440px 각각에서0·15·37.5·69·70·100%의 원본4stop 초기 렌더와 새2stop 초기 렌더24쌍이 RGBA 픽셀까지 일치했다. 원본 blue `rgb(37, 111, 161)`와 border `rgb(219, 231, 245)`가 유지된다. 후처리로 네이티브 input 배경을 교체하는 탐색 probe의 thumb 재래스터 차이는 초기 렌더 비교와 구분한다.
 
-
-375역할 토큰 전용 커밋 `b788d2386979a03fd6eaf1e8b6e1dfd38d7c2121`은 독립 검토 Spec PASS·quality Approved·findings0으로 확인되어 현재 scanner/baseline 승인 ref를 별도로 회전했다. `files: {}`와 기존 거부 사례, 포함형 custom variant 세 개는 그대로 유지한다. 기존374 map과 `b1b50079`는 당시 근거다. 실제 선언 수는522→523이며 별도로 wildcard namespace reset5개가 불변이다. 미전환 데모·정적 시안 위반은 계속 실패로 남는다.
+철회 뒤374 역할 map SHA-256은 `c6fae50b1edff6dc150a397881f7c9cac4923b6918eda0502f6aea21f4eb057e`이며, 전체 theme 파일은 검토된 `b1b500793ad8e4be394d3b2467fe35e0f2631197`과 바이트까지 같다. 실제 선언522개와 wildcard reset5개가 복원된다. 잘못된 역할이 남으면 실패하는 RED→GREEN을 확인하고, 독립 철회 검토 뒤 현재 신뢰 앵커를 별도로 회전한다. `files: {}`와 포함형 custom variant·기존 거부 규칙은 유지한다.
