@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent, type RefObject } from "react";
 import { AlertCircle, CheckCircle2 } from "lucide-react";
 import { ApiError, classifyApiFailure } from "../../api/client";
 import { submitLandingInquiry, type LandingInquiryInput } from "../../api/landing-inquiries";
@@ -6,6 +6,7 @@ import { Button } from "../../components/ui/Button";
 import { Card } from "../../components/ui/Card";
 import { FeedbackState } from "../../components/ui/FeedbackState";
 import { HoneypotField } from "../../components/ui/HoneypotField";
+import { NativeInquiryCheckbox, NativeInquiryInput, NativeInquirySelect, NativeInquiryTextArea } from "../../components/ui/fields/NativeInquiryField";
 import { Checkbox } from "../../components/ui/fields/Checkbox";
 import { SelectBox } from "../../components/ui/fields/SelectBox";
 import { TextArea, TextField } from "../../components/ui/fields/TextField";
@@ -61,7 +62,7 @@ function errorOutcome(error: unknown): Extract<Outcome, { kind: "error" }> {
   return { kind: "error", title: "문의 내용을 확인해 주세요.", description: "입력 내용은 남아 있습니다. 확인 후 다시 시도해 주세요." };
 }
 
-export function InquiryForm({ onPendingChange, presentation = "card", initialMessage = "", selectedPlan = null }: { onPendingChange?: (pending: boolean) => void; presentation?: "card" | "dialog"; initialMessage?: string; selectedPlan?: LandingPlan | null } = {}) {
+export function InquiryForm({ onPendingChange, presentation = "card", initialMessage = "", selectedPlan = null, submitButtonRef, onSuccess }: { onPendingChange?: (pending: boolean) => void; onSuccess?: () => void; submitButtonRef?: RefObject<HTMLButtonElement>; presentation?: "card" | "dialog" | "concept"; initialMessage?: string; selectedPlan?: LandingPlan | null } = {}) {
   const [fields, setFields] = useState<Fields>(() => ({ ...initialFields, message: initialMessage }));
   const [errors, setErrors] = useState<FieldErrors>({});
   const [outcome, setOutcome] = useState<Outcome>({ kind: "idle" });
@@ -75,6 +76,11 @@ export function InquiryForm({ onPendingChange, presentation = "card", initialMes
   const consentRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => { onPendingChange?.(pending); }, [onPendingChange, pending]);
+  useEffect(() => {
+    // The original native concept disables its successful submit and moves to
+    // the remaining close control; the mounted form survives later reopening.
+    if (presentation === "concept" && outcome.kind === "success") onSuccess?.();
+  }, [outcome, presentation, onSuccess]);
 
   function update<K extends keyof Fields>(name: K, value: Fields[K]) {
     setFields((current) => ({ ...current, [name]: value }));
@@ -123,6 +129,23 @@ export function InquiryForm({ onPendingChange, presentation = "card", initialMes
       setPending(false);
     }
   }
+
+  if (presentation === "concept") return <form noValidate onSubmit={handleSubmit} className="grid gap-landing-concept-inquiry-form-gap p-landing-concept-inquiry-form-inset landing-stack:p-5">
+    <div className="inquiry-fields grid grid-cols-2 gap-landing-concept-inquiry-fields-gap landing-stack:grid-cols-1">
+      <NativeInquiryInput ref={companyRef} label="회사명" name="companyName" autoComplete="organization" maxLength={120} required value={fields.companyName} onChange={event => update("companyName", event.target.value)} errorMessage={errors.companyName} disabled={pending} />
+      <NativeInquiryInput ref={contactRef} label="담당자 이름" name="contactName" autoComplete="name" maxLength={80} required value={fields.contactName} onChange={event => update("contactName", event.target.value)} errorMessage={errors.contactName} disabled={pending} />
+      <NativeInquiryInput ref={emailRef} label="회신 이메일" name="email" type="email" autoComplete="email" maxLength={254} required value={fields.email} onChange={event => update("email", event.target.value)} errorMessage={errors.email} disabled={pending} />
+      <NativeInquiryInput ref={phoneRef} label="전화번호" name="phone" type="tel" autoComplete="tel" maxLength={30} optional value={fields.phone} onChange={event => update("phone", event.target.value)} errorMessage={errors.phone} disabled={pending} />
+      <NativeInquirySelect label="고객 유형" name="audience" optional className="col-span-full" value={fields.audience ?? ""} onChange={event => update("audience", event.target.value === "facility" || event.target.value === "partner" ? event.target.value : null)} disabled={pending}><option value="">선택해 주세요</option>{audienceItems.map(item => <option key={item.id} value={item.id}>{item.label}</option>)}</NativeInquirySelect>
+      <NativeInquiryTextArea ref={messageRef} label="문의 내용" name="message" rows={5} maxLength={2000} required className="col-span-full" value={fields.message} onChange={event => update("message", event.target.value)} errorMessage={errors.message} disabled={pending} />
+    </div>
+    <HoneypotField value={fields.website} onChange={value => update("website", value)} />
+    <div className="inquiry-privacy rounded-landing-concept-inquiry-privacy bg-brand-paper p-landing-concept-inquiry-message-inset text-landing-concept-inquiry-privacy"><strong>개인정보 수집·이용 안내</strong><p className="m-landing-concept-inquiry-message-description-space">상담 접수와 회신을 위해 회사명, 담당자 이름, 회신 이메일, 문의 내용을 수집합니다. 전화번호와 고객 유형은 선택 항목입니다. 문의 내용은 접수 후 90일간 보관합니다. 메일 사본은 NAVER WORKS의 보유 정책을 따릅니다. 동의를 거부할 수 있으나 온라인 문의 접수가 제한됩니다.</p></div>
+    <NativeInquiryCheckbox ref={consentRef} label="개인정보 수집·이용에 동의합니다" name="consent" checked={fields.consent} onChange={event => update("consent", event.target.checked)} required errorMessage={errors.consent} disabled={pending} />
+    {outcome.kind !== "idle" && <div role="alert" className={`inquiry-feedback rounded-control border p-landing-concept-inquiry-message-inset text-landing-concept-inquiry-feedback ${outcome.kind === "error" ? "border-status-inquiry-danger-border bg-status-inquiry-danger-background" : "border-status-success-border bg-status-success-background"}`}><strong>{outcome.kind === "success" ? "상담 문의가 접수되었습니다." : outcome.title}</strong><p className="m-landing-concept-inquiry-message-description-space">{outcome.kind === "success" ? `접수번호: ${outcome.reference}` : outcome.description}</p>{outcome.kind === "error" && outcome.mailFallback && <a href="mailto:kymkjh2002@dfkorealed.com" className="mt-landing-concept-inquiry-feedback-action-top-space inline-block font-extrabold text-action-primary-hover underline underline-offset-3">이메일로 직접 문의하기</a>}</div>}
+    <p className="sr-only" role="status" aria-live="polite">{pending ? "상담 문의를 접수하고 있습니다. 잠시만 기다려 주세요." : ""}</p>
+    <Button ref={submitButtonRef} type="submit" variant="landingConceptSubmit" aria-disabled={pending} disabled={outcome.kind === "success"}>{pending ? "접수 중" : "상담 문의 보내기"}</Button>
+  </form>;
 
   const form = <form noValidate onSubmit={handleSubmit} className="grid gap-5 text-content-primary">
       {presentation === "card" && <p className="text-body font-bold">상담 내용을 남겨주세요</p>}

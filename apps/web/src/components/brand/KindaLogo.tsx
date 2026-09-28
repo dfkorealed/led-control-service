@@ -4,10 +4,11 @@ export interface KindaLogoProps {
   context?: string;
   className?: string;
   compact?: boolean;
-  presentation?: "default" | "landing";
+  presentation?: "default" | "landing" | "concept";
 }
 
 export function KindaLogo({ context, className, compact = false, presentation = "default" }: KindaLogoProps) {
+  if (presentation === "concept") return <span className="inline-flex items-center gap-2.5"><img className="size-[33px] rounded-landing-brand-mark bg-surface-panel p-landing-brand-mark-inset landing-narrow:size-[30px]" src="/brand/kinda-mark.svg" alt="" /><span>킨다</span></span>;
   const classes = cn(
     "inline-flex items-center gap-3 text-brand-navy",
     compact && "mb-6 w-full flex-col gap-0",

@@ -4,7 +4,7 @@ import { cva } from "class-variance-authority";
 import { cn } from "./utils/cn";
 
 export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement>, Pick<AriaButtonProps, "isDisabled" | "onPress"> {
-  variant?: "landingReportFormat" | "landingMapTool" | "landingMapCancel" | "landingMapMarker" | "landingReplay" | "landingFixture" | "primary" | "secondary" | "ghost" | "danger" | "link" | "landingCta" | "landingHeaderContact" | "landingHeroContact" | "landingPlanPrimary" | "landingPlanSecondary";
+  variant?: "landingConceptDismiss" | "landingConceptSubmit" | "landingConceptHeaderContact" | "landingConceptHeroContact" | "landingConceptReplay" | "landingReportFormat" | "landingMapTool" | "landingMapCancel" | "landingMapMarker" | "landingReplay" | "landingFixture" | "primary" | "secondary" | "ghost" | "danger" | "link" | "landingCta" | "landingHeaderContact" | "landingHeroContact" | "landingPlanPrimary" | "landingPlanSecondary";
   size?: "sm" | "md" | "lg";
   isLoading?: boolean;
   loadingLabel?: string;
@@ -18,6 +18,11 @@ const landingMapToolFrame = "min-h-[34px] gap-3 rounded-landing-map-tool border-
 const button = cva("inline-flex min-h-11 items-center justify-center gap-2 rounded-control border font-bold cursor-pointer focus-visible:outline-none focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60", {
   variants: {
     variant: {
+      landingConceptDismiss: "inquiry-dialog__close grid size-9 min-h-0 flex-none place-items-center gap-0 rounded-landing-compact-control border-border-subtle bg-surface-panel p-0 text-landing-concept-inquiry-dismiss font-normal leading-landing-concept-document text-brand-navy hover:enabled:bg-brand-paper aria-disabled:opacity-45 aria-disabled:cursor-wait",
+      landingConceptSubmit: "w-full min-h-[50px] gap-3 rounded-landing-button border-transparent bg-brand-blue p-landing-button-inset text-landing-button font-extrabold text-surface-panel transition-[transform,background,border-color] duration-200 ease-[ease] hover:transform-[translateY(-2px)] hover:enabled:bg-action-primary-hover aria-disabled:opacity-60 aria-disabled:cursor-wait aria-disabled:transform-none",
+      landingConceptHeaderContact: "block min-h-0 gap-0 rounded-none border-0 bg-transparent px-0 py-2 text-landing-navigation font-[750] leading-landing-concept-document text-surface-panel hover:enabled:text-brand-coral landing-stack:text-landing-navigation-stacked",
+      landingConceptHeroContact: "block min-h-0 gap-0 rounded-none border-0 border-b border-surface-panel/48 bg-transparent px-0 py-2.5 text-landing-action font-[750] leading-landing-concept-document text-surface-panel hover:enabled:text-brand-coral",
+      landingConceptReplay: "block min-h-[38px] flex-none rounded-landing-compact-control border-border-subtle bg-surface-panel px-2.5 py-0 text-landing-compact-action font-[750] leading-landing-concept-document text-brand-blue hover:enabled:bg-action-primary-soft first-letter:text-landing-replay-icon landing-narrow:min-w-[34px] landing-narrow:min-h-[34px]",
       landingReportFormat: "block min-h-[30px] gap-0 items-normal justify-normal rounded-landing-compact-choice-control border-border-subtle bg-surface-panel p-landing-report-format-inset text-landing-demo-control-label font-extrabold text-content-secondary cursor-default focus-visible:outline-3 focus-visible:outline-solid focus-visible:outline-current focus-visible:outline-offset-0 focus-visible:shadow-none aria-pressed:border-brand-blue aria-pressed:bg-action-primary-soft aria-pressed:text-brand-blue",
       landingMapTool: `${landingMapToolFrame} touch-none bg-brand-blue text-surface-panel`,
       landingMapCancel: `${landingMapToolFrame} border-border-subtle bg-surface-panel text-brand-navy hover:border-brand-blue`,

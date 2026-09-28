@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Button } from "../../../components/ui/Button";
 import { Card } from "../../../components/ui/Card";
-import { DemoCard, type SceneMotion } from "./Scene";
+import { DemoCard, useConceptPresentation, type SceneMotion } from "./Scene";
 
 const fixtures = [
   { id: "01", name: "출입구 조명 01", location: "출입구 구역" },
@@ -12,6 +12,7 @@ const fixtures = [
 
 export function MonitoringDemo({ motion }: { motion: SceneMotion }) {
   const [selected, setSelected] = useState<string | null>(null);
+  const concept = useConceptPresentation();
   const manual = useRef(false);
   const previousRun = useRef(motion.run);
   useEffect(() => {
@@ -49,7 +50,7 @@ export function MonitoringDemo({ motion }: { motion: SceneMotion }) {
       <Card variant="landingDemoSurface" className="inspector flex flex-col items-start px-4 py-5 landing-stack:grid landing-stack:grid-cols-[1fr_auto] landing-stack:gap-landing-inspector-stacked-gap">
         <span className="inspector__label text-status-neutral-foreground text-landing-demo-caption font-[750]">선택한 조명</span><strong className="mt-2.5 text-landing-inspector-heading landing-stack:m-0 landing-stack:col-start-1">{active?.name ?? "조명을 선택하세요"}</strong>
         {active && <><span className="status-pill inline-flex items-center gap-landing-demo-status-label-gap mt-3 p-landing-demo-status-label-inset border border-status-success-border rounded-pill bg-status-success-background text-status-success-foreground text-landing-demo-control-label font-extrabold landing-stack:col-start-2 landing-stack:row-start-1 landing-stack:row-end-3 landing-stack:m-0"><i className="size-[5px] rounded-landing-ellipse bg-status-success-foreground" />연결됨</span><dl className="w-full mt-auto mx-0 mb-3.5 pt-5 landing-stack:col-span-full landing-stack:m-0 landing-stack:p-0"><div className="flex justify-between gap-2 mt-3.5 pt-landing-inspector-property-top-inset border-t border-border-subtle text-landing-demo-caption landing-stack:mt-1.5 landing-stack:pt-2"><dt className="text-content-secondary">최근 확인 상태</dt><dd className="m-0 font-extrabold text-right">켜짐</dd></div><div className="flex justify-between gap-2 mt-3.5 pt-landing-inspector-property-top-inset border-t border-border-subtle text-landing-demo-caption landing-stack:mt-1.5 landing-stack:pt-2"><dt className="text-content-secondary">위치</dt><dd className="m-0 font-extrabold text-right">{active.location}</dd></div></dl></>}
-        <p className="demo-status m-0 text-brand-blue text-landing-demo-status font-[750] landing-stack:col-span-full" role="status" aria-live="polite">{active ? `선택한 조명: ${active.name}` : "도면에서 조명을 선택해 보세요."}</p>
+        <p className="demo-status m-0 text-brand-blue text-landing-demo-status font-[750] landing-stack:col-span-full" role="status" aria-live="polite">{concept ? (active ? `${active.name}을 선택했습니다.` : "도면에서 조명을 선택해 보세요.") : active ? `선택한 조명: ${active.name}` : "도면에서 조명을 선택해 보세요."}</p>
       </Card>
     </div>
   </DemoCard>;
