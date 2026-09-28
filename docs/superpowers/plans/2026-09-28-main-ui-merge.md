@@ -38,12 +38,12 @@
 
 **Interfaces:** 입력은 위 두 고정 SHA이며 결과는 두 SHA를 모두 조상으로 포함하는 검증된 통합 커밋이다. 운영 자원은 사용하지 않는다.
 
-- [ ] 담당자는 관련 AGENTS·운영/교훈·메뉴 문서와 양쪽 PDF/랜딩 계획을 읽고, 변경 전 검증 절차 및 기존 메인 정책 부채를 기록한다.
-- [ ] `git merge --no-ff --no-commit e64620aa94a964126e2c09d5285ec55045571d84` 후 충돌을 의미 단위로 해결한다. `--ours/--theirs`로 전체 파일을 일괄 선택하지 않는다.
-- [ ] PDF-only 필터/이력 unit, 랜딩 보고서 replay/PDF flow, API PDF 회귀로 양쪽 계약을 검증한다. 새 결함을 고치는 경우 기존 재현의 RED→GREEN을 남긴다.
-- [ ] Node 22/pnpm 9의 frozen install, Prisma generate/validate, root `pnpm test`, `pnpm lint`, `pnpm typecheck`, `pnpm build`를 순차 실행한다. 로그는 ignored `.local/main-ui-merge-*.log`에 보존하며 실패를 숨기지 않는다.
-- [ ] 브라우저 mock 통계/랜딩 관련 E2E를 격리 loopback 서버에서 실행한다. 기존 서버/DB를 사용하거나 재시작하지 않는다.
-- [ ] 소스·문서 diff/조상 포함·migration 불변을 확인하고 통합 커밋, 검증 결과, 한계와 해결별 근거를 담당자 보고서에 기록한다. 메인 참조/checkout에는 반영하지 않는다.
+- [x] 담당자는 관련 AGENTS·운영/교훈·메뉴 문서와 양쪽 PDF/랜딩 계획을 읽고, 변경 전 검증 절차 및 기존 메인 정책 부채를 기록한다.
+- [x] `git merge --no-ff --no-commit e64620aa94a964126e2c09d5285ec55045571d84` 후 충돌을 의미 단위로 해결했다. `--ours/--theirs`로 전체 파일을 일괄 선택하지 않았다.
+- [x] PDF-only 필터/이력 unit·랜딩 PDF replay·API PDF 회귀로 양쪽 계약을 검증했고 replay/날짜 helper의 RED→GREEN을 기록했다. 집중 Web123·API172개 통과, 환경 제외는 별도다.
+- [x] Node22.20.0/pnpm9.15.0 frozen install·Prisma generate/validate·root `pnpm test`, `pnpm lint`, `pnpm typecheck`, `pnpm build` 모두 exit0. `.local/main-ui-merge-*.log`에 실패와 성공을 함께 보존했다.
+- [x] 관련 mock Chromium97/97을 격리15228 Vite/closed15229 proxy에서 통과했다. 기존 서버/DB는 사용·재시작하지 않았다. 첫96pass/1fail과 proxy/color 경고는 보존한다.
+- [x] 통합 커밋 `30fe76fd`, 양쪽 조상 포함·clean·migration 원본 불변을 확인했다. 실제 메인 참조는 아직 변경하지 않았다.
 - [ ] 총괄이 검토 패키지를 만들어 독립 요구사항·품질 검토와 최종 통합 검토를 받고 필요한 수정 후 재검토한다.
 
 ## Task 2: 총괄의 실제 메인 반영
@@ -56,3 +56,5 @@
 ## 현재 상태
 
 2026-09-28: 격리 작업공간을 만들었다. Native worktree 도구는 앱에 연결된 경로가 Git 저장소가 아니어서 실패했고, 검증된 실제 저장소의 ignored `.worktrees`에 Git fallback으로 생성했다. 실제 메인은 아직 변경하지 않았다. 진행 상태와 과거 실패는 결과 보고 후 갱신한다.
+
+통합 구현과 작업 단위 독립 검토는 완료했다(요구사항·품질 승인, Critical0/Important0). 최종 전체 통합 검토와 실제 target FF는 남아 있다. GET/sites mock 누락·기존 중복 rule-key/색 환경/Nest 실패 주입 로그·876.86kB chunk 경고는 Minor 후속으로 보존하며 최종 검토에서 분류한다. Root143pass/4skip, Shared411, Automation28, Mobile6, Web2583pass/3skip, API2934pass/827skip, Gateway1408, 정책65/65·UI0/0이다. 제외834개를 성공으로 계산하지 않는다. production audit 기존 High2 불일치·운영 적용/HIL은 완료 범위가 아니다.
