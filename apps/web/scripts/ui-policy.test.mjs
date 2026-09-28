@@ -386,6 +386,7 @@ test("landing token proposal preserves exact values", async () => {
     "--color-status-inquiry-danger-border": "#fecdca",
     "--color-status-inquiry-danger-background": "#fff5f4",
     "--leading-landing-concept-document": "normal",
+    "--leading-landing-text-action": "var(--text-body--line-height)",
     "--font-landing": "Inter, \"Pretendard\", \"Noto Sans KR\", -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif"
   };
   const theme = (await readFile(new URL("../src/styles/theme.css", import.meta.url), "utf8"))

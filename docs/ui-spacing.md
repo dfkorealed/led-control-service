@@ -821,3 +821,14 @@ R:24/C:25의 원래 source stack은 순서와 따옴표까지 동일하다. Chro
 다른 root 기본값은 설치된 Tailwind4.3.3의 좁은 utility 생성 및 scanner probe로 확인했다. `min-w-[320px]`, `bg-brand-paper`, `text-brand-navy`, `break-keep`, `m-0`, `box-border`가 각각 min-width320px/기존 paper·navy 색/keep-all/zero margin/border-box를 내고 guard 위반0이었다. 이 geometry utility는 arbitrary family 우회와 다르며 family는 승인된 `font-landing`만 쓴다. `antialiased`는 원래 `-webkit-font-smoothing: antialiased`를 내지만 추가로 `-moz-osx-font-smoothing: grayscale`을 낸다. Chromium은 후자를 노출하지 않아 이번 baseline에서는 영향이 없었고, 다른 브라우저까지 같은 CSS라고 주장하지 않는다. 후속 root 적용 검토에서 이 표준 utility의 추가 vendor 속성을 인지해야 한다. 별도 smoothing token/@utility/property escape는 추가하지 않았다.
 
 Focused371 exact-value test는 font 역할 누락 RED 후 flat theme 한 선언으로 GREEN을 검증한다. 전체 suite를 반복하거나 root 소비 컴포넌트를 바꾸는 작업은 이번 보완에 포함하지 않는다.
+
+
+### Supplemental 승인: React 상담 버튼 행간
+
+Task 3의 전환 전 Chromium149 실측에서 `.header-contact`는 320/390px에서 글자11px, 1024/1440px에서13px이며 네 너비 모두 행간22px이었다. `.hero-contact`는 네 너비 모두 글자14px·행간22px이었다. 기존 공통 Button의 `text-body`가22px 행간을 소유하고 scoped CSS는 글자 크기만 바꾸었기 때문이다. 크기 역할을 공통 클래스 병합으로 교체하면 이전 행간이 없어지므로 정확한 공통 행간 역할이 필요하다.
+
+| 역할 | 정확 값 | 소비자·경계 |
+|---|---|---|
+| `--leading-landing-text-action` | `var(--text-body--line-height)` (현재1.375rem, 기본16px에서22px) | React 공개 헤더·히어로의 상담 텍스트 Button만 사용. static 시안 navigation에는 적용하지 않는다. |
+
+기존371 역할의 이름·값은 모두 유지하고 flat theme에 한 선언만 더했다. 기존371map digest `d2c48e7fb7e9c8b256dda08b955484f97723004f6c8f2b4f3cd3859d3aa9c16b`와 이전 ref는 당시 증거다. 새372map SHA-256은 `2d04e87651537a0e69636b8855cfe589dd826bd864848ebde3e8f50d84562f9b`다. 독립된 exact-value 검사는 해당 선언이0회인 상태에서 RED, 정확히1회인 상태에서 GREEN이다. 실제 소비 클래스·화면의22px 보존은 Task 3 후속 검증에 포함한다. 신뢰 앵커는 토큰 전용 커밋 검토 이후 별도로 회전하며 그 전 full policy의 stale-anchor 실패를 성공으로 기록하지 않는다.

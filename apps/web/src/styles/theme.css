@@ -542,4 +542,6 @@
   --leading-landing-concept-document: normal;
   /* Both public roots keep this exact fallback order across installed font sets. */
   --font-landing: Inter, "Pretendard", "Noto Sans KR", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  /* React text actions keep the existing shared Button body leading at every size. */
+  --leading-landing-text-action: var(--text-body--line-height);
 }
