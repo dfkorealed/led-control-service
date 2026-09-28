@@ -861,3 +861,14 @@ Task 5에서 검토한 `--background-image-landing-brightness-track` 역할은 �
 
 
 철회 커밋 `1d2ef01231678e4fbcc71e3c848ef3906a83a9f5`의 독립 검토가 Spec PASS·quality Approved·findings0으로 완료됐다. 전체 테마가 바이트까지 같은 검토된374역할 커밋 `b1b500793ad8e4be394d3b2467fe35e0f2631197`으로 scanner/baseline 신뢰 앵커를 별도 회전했다. 실패 역할은 현재 테마에 없고 기존 빈 baseline·거부 규칙·반응형 경계는 바뀌지 않는다.
+
+
+### Task 6 보완 역할 — 작은 랜딩 버튼의 행간 (총괄 승인)
+
+원본 맵 도구 버튼은10px 글자에 unitless `line-height: 1.2`를 사용해 실제12px 행간을 갖는다. 기존 `--text-landing-button--line-height: 1.2`는 승인됐지만 font-only10px 역할과 독립적으로 적용할 승인 leading namespace가 없다. `leading-(--text-landing-button--line-height)` 실제 Tailwind 출력은 정확한 var 선언이고 computed10px/12px이지만 기존 정책이 `arbitrary-typography`로 거부한다. 검사 규칙이나 허용 예외를 늘리지 않는다.
+
+| 역할 | 정확 값 | 소비자·범위 |
+|---|---|---|
+| `--leading-landing-compact-button` | `var(--text-landing-button--line-height)` | 공통 Button의 `landingMapTool`·`landingMapCancel` 작은 도구 버튼. 기존 승인1.2를 별칭으로 재사용하며 `leading-landing-compact-button`으로 글자10px/행간12px을 보존한다. 기본 인증 UI 버튼은 변경하지 않는다. |
+
+기존374역할 이름·값과 theme의 모든 기존 선언은 그대로다. 새375 frozen map SHA-256(정렬한 compact UTF-8 JSON)은 `54791d86f31f9b11614257d89c24464fbf527c0a33fe970ff20bc82377cd649f`다. 이 선언을 제거하면 전체 theme는 검토된 `b1b500793ad8e4be394d3b2467fe35e0f2631197`과 바이트 동일하다. 선언 누락 RED→정확값·선언1회 GREEN 뒤 토큰 전용3파일 커밋의 독립 검토를 기다리며, 승인 ref 회전과 실제 소비는 별도 단계로 진행한다. `files: {}`·0건 목표·기존 거부 사례·반응형 custom variant를 유지한다.

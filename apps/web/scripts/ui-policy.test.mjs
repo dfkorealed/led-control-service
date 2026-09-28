@@ -387,6 +387,7 @@ test("landing token proposal preserves exact values", async () => {
     "--color-status-inquiry-danger-background": "#fff5f4",
     "--leading-landing-concept-document": "normal",
     "--leading-landing-text-action": "var(--text-body--line-height)",
+    "--leading-landing-compact-button": "var(--text-landing-button--line-height)",
     "--background-image-landing-preview-map-grid": "linear-gradient(90deg, transparent 48%, var(--color-border-default) 49%, var(--color-border-default) 50%, transparent 51%), linear-gradient(transparent 49%, var(--color-border-default) 50%, transparent 51%)",
     "--background-image-landing-preview-editor-grid": "linear-gradient(var(--color-border-default) 1px, transparent 1px), linear-gradient(90deg, var(--color-border-default) 1px, transparent 1px)",
     "--font-landing": "Inter, \"Pretendard\", \"Noto Sans KR\", -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif"
