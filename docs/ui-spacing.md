@@ -91,7 +91,7 @@ Task 12 baseline의 violation map은 비어 있으며 production 정책 부채�
 
 검토된 랜딩 371개 역할 토큰(기본 normal 행간·font fallback stack 포함)의 토큰 전용 commit으로 신뢰 앵커를 회전했다. 이전 `reviewedThemeTokenAdditions`는 모두 새 앵커에 포함되어 별도 승인 추가 map을 제거했다. 값·누락·중복 검증과 `files: {}`·0건 목표·기존 거부 규칙은 유지한다.
 
-baseline의 `sourceRef`는 scanner에 고정된 승인 Git commit `76791eafb907e9c9e9523b2ee1976eaec5c49163`과 일치해야 한다. Git object가 없거나 sourceRef·빈 map이 변조되면 fail-closed한다. canonical root unit gate가 Web `test:ui-policy`와 `ui:check`를 일반 unit 뒤에 실행하고, CI unit checkout은 `fetch-depth: 0`으로 승인 object를 확보한다.
+baseline의 `sourceRef`는 scanner에 고정된 승인 Git commit `b9b0ad4beadd9f6001f9882d0ae3b40c0007c024`과 일치해야 한다. Git object가 없거나 sourceRef·빈 map이 변조되면 fail-closed한다. canonical root unit gate가 Web `test:ui-policy`와 `ui:check`를 일반 unit 뒤에 실행하고, CI unit checkout은 `fetch-depth: 0`으로 승인 object를 확보한다.
 
 `p-px`와 정적 `calc`/`clamp` 간격, semantic typography의 `/7`·`/[17px]`·변수 line-height modifier, 계산식 안의 literal font-size를 거부한다. 측정/percentage/viewport를 사용하는 runtime position은 별도 예외이며 일반 padding/margin/gap에 임의 간격을 더하는 수단으로 쓰지 않는다. 허용 token 이름은 승인 commit의 canonical `theme.css`에서 읽는다. 신규 `--text-rogue`, `bg-surface-pannel` 같은 오타와 `max-[777px]:*` 같은 임의 breakpoint는 정책 오류다. CSS import의 query/hash suffix도 원본 resource ID 기준으로 검사한다.
 
