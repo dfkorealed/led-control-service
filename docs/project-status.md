@@ -1,6 +1,13 @@
 # 메뉴 완성 작업 상태판
 
-기준일: 2026-09-28
+기준일: 2026-09-29
+
+## 2026-09-29 IP 비종속 로그인·양산 ingress — 설계 검토 대기
+
+- [x] 현재 로그인 500은 Web 자체 오류가 아니라 API 4000 미기동으로 재현했다. `.env`/Lab 인증서의 이전 주소 `192.168.45.69`와 현재 Mac 주소 `172.30.1.6` 불일치로 network preflight가 API 기동을 차단하고, 남아 있던 Vite가 `/api/auth/login` proxy 500을 반환했다.
+- [x] 사용자는 로컬 복구뿐 아니라 양산 오픈 후에도 접속 IP 변경과 무관한 로그인을 요구했고, 중앙 클라우드 단일 서비스 + 고객사별 tenant 분리를 승인했다.
+- [x] [설계 명세](superpowers/specs/2026-09-29-ip-independent-auth-production-ingress-design.md)에 local loopback 앱 모드, 고정 public DNS, 신뢰된 Web ingress client IP, IP 비종속 MFA/session, production fail-closed 검증과 staging 승인 관문을 기록했다.
+- [ ] 사용자가 작성된 명세를 검토·승인한 뒤 상세 구현 계획을 작성한다. 제품 코드, 로컬 `.env`, 실행 중인 Web/API, production 배포는 아직 변경하지 않았다.
 
 ## 2026-09-28 랜딩 UI 정책 927건 정리 — 구현·검토·개발 기준 통합 완료
 
