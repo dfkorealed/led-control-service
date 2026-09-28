@@ -858,3 +858,6 @@ Task 5에서 검토한 `--background-image-landing-brightness-track` 역할은 �
 320·390·1024·1440px 각각에서0·15·37.5·69·70·100%의 원본4stop 초기 렌더와 새2stop 초기 렌더24쌍이 RGBA 픽셀까지 일치했다. 원본 blue `rgb(37, 111, 161)`와 border `rgb(219, 231, 245)`가 유지된다. 후처리로 네이티브 input 배경을 교체하는 탐색 probe의 thumb 재래스터 차이는 초기 렌더 비교와 구분한다.
 
 철회 뒤374 역할 map SHA-256은 `c6fae50b1edff6dc150a397881f7c9cac4923b6918eda0502f6aea21f4eb057e`이며, 전체 theme 파일은 검토된 `b1b500793ad8e4be394d3b2467fe35e0f2631197`과 바이트까지 같다. 실제 선언522개와 wildcard reset5개가 복원된다. 잘못된 역할이 남으면 실패하는 RED→GREEN을 확인하고, 독립 철회 검토 뒤 현재 신뢰 앵커를 별도로 회전한다. `files: {}`와 포함형 custom variant·기존 거부 규칙은 유지한다.
+
+
+철회 커밋 `1d2ef01231678e4fbcc71e3c848ef3906a83a9f5`의 독립 검토가 Spec PASS·quality Approved·findings0으로 완료됐다. 전체 테마가 바이트까지 같은 검토된374역할 커밋 `b1b500793ad8e4be394d3b2467fe35e0f2631197`으로 scanner/baseline 신뢰 앵커를 별도 회전했다. 실패 역할은 현재 테마에 없고 기존 빈 baseline·거부 규칙·반응형 경계는 바뀌지 않는다.
