@@ -9,3 +9,8 @@
 @source not "./**/*.test.{ts,tsx}";
 @source not "./**/*.spec.{ts,tsx}";
 @source not "./test";
+
+/* 기존 랜딩 max-width의 정수·소수 경계를 포함형으로 보존한다. */
+@custom-variant landing-narrow (@media (max-width: 430px));
+@custom-variant landing-stack (@media (max-width: 720px));
+@custom-variant landing-wide (@media (max-width: 1050px));

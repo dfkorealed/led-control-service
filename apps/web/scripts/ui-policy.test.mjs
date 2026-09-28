@@ -7,6 +7,11 @@ import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 import { inspectUiSource, inspectWorkspace } from "./ui-policy.mjs";
 
+const approvedLandingVariants = `@custom-variant landing-narrow (@media (max-width: 430px));
+@custom-variant landing-stack (@media (max-width: 720px));
+@custom-variant landing-wide (@media (max-width: 1050px));`;
+const canonicalStyles = '@import "tailwindcss"; @import "./styles/theme.css"; @import "./styles/base.css"; @import "./styles/exceptions.css";' + "\n" + approvedLandingVariants;
+
 // Reviewed role/value inventory: docs/ui-spacing.md, landing Task 1 approval.
 // Keep this frozen expectation independent of the live theme and policy anchor.
 test("landing token proposal preserves exact values", async () => {
@@ -607,7 +612,7 @@ test("I6 rejects changed anchored theme values across every token family", async
   }
   assert.deepEqual(inspectUiSource(path, theme.replace("0 8px 24px rgb(30 64 175 / 0.06)", "0  /* explanation */ 8px\n 24px rgb( 30 64 175/0.06 )")), []);
   assert.ok(inspectUiSource(path, "@theme static { --spacing: 13px }").some(v => v.rule === "unapproved-theme-value"));
-  assert.deepEqual(inspectUiSource(path, theme.replace("--breakpoint-tablet: 64rem;", "--breakpoint-tablet: 64rem")), []);
+  assert.deepEqual(inspectUiSource(path, theme.replace(/(--font-landing:[^;]+);/, "$1")), []);
 });
 
 test("I8 requires one complete canonical theme declaration inventory", async () => {
@@ -809,7 +814,7 @@ test("workspace skips CAD fixtures without admitting their production HTML entri
   try {
     await mkdir(join(root, "src"));
     await writeFile(join(root, "src/App.tsx"), 'import "./styles.css";');
-    await writeFile(join(root, "src/styles.css"), '@import "tailwindcss"; @import "./styles/theme.css"; @import "./styles/base.css"; @import "./styles/exceptions.css";');
+    await writeFile(join(root, "src/styles.css"), canonicalStyles);
     for (const fixture of fixtures) {
       await writeFile(join(root, "src", fixture), 'import "./styles.css"; const color = "#123456";');
     }
@@ -866,8 +871,8 @@ test("I4 CLI rejects every production DOM query with a zero baseline", async () 
     await mkdir(join(root, "src/components"));
     await mkdir(join(root, "scripts"));
     await writeFile(join(root, "src/App.tsx"), 'import "./styles.css";');
-    await writeFile(join(root, "src/styles.css"), '@import "tailwindcss"; @import "./styles/theme.css"; @import "./styles/base.css"; @import "./styles/exceptions.css";');
-    await writeFile(join(root, "scripts/ui-policy-baseline.json"), JSON.stringify({ version: 1, sourceRef: "24b5ea593e860575f7bf1007781146cf1101beb7", files: {} }));
+    await writeFile(join(root, "src/styles.css"), canonicalStyles);
+    await writeFile(join(root, "scripts/ui-policy-baseline.json"), JSON.stringify({ version: 1, sourceRef: "76791eafb907e9c9e9523b2ee1976eaec5c49163", files: {} }));
     await writeFile(join(root, "src/components/ConfirmDialog.tsx"), 'dialogElement.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR);');
     assert.equal(run().status, 1);
     await writeFile(join(root, "src/components/ConfirmDialog.tsx"), 'const unused = 1;\ndialogElement.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR);');
@@ -889,9 +894,9 @@ test("CLI inventories only production src and rejects any policy debt", async ()
     await mkdir(join(root, "src"));
     await mkdir(join(root, "scripts"));
     await writeFile(join(root, "src/App.tsx"), 'import "./styles.css";');
-    await writeFile(join(root, "src/styles.css"), '@import "tailwindcss"; @import "./styles/theme.css"; @import "./styles/base.css"; @import "./styles/exceptions.css";');
+    await writeFile(join(root, "src/styles.css"), canonicalStyles);
     await writeFile(join(root, "src/ignored.test.tsx"), '"p-[15px]"');
-    await writeFile(join(root, "scripts/ui-policy-baseline.json"), JSON.stringify({ version: 1, sourceRef: "24b5ea593e860575f7bf1007781146cf1101beb7", files: {} }));
+    await writeFile(join(root, "scripts/ui-policy-baseline.json"), JSON.stringify({ version: 1, sourceRef: "76791eafb907e9c9e9523b2ee1976eaec5c49163", files: {} }));
     assert.equal(run().status, 0);
     await writeFile(join(root, "src/App.tsx"), 'import "./new.css";');
     assert.equal(run().status, 1);
@@ -910,7 +915,7 @@ test("workspace closes skipped-module, entry HTML and public CSS scan gaps", asy
     await mkdir(join(root, "src"));
     await mkdir(join(root, "public"));
     await writeFile(join(root, "src/App.tsx"), 'import "./styles.css"; import "./hidden.test"; import "./hidden.spec?raw";');
-    await writeFile(join(root, "src/styles.css"), '@import "tailwindcss"; @import "./styles/theme.css"; @import "./styles/base.css"; @import "./styles/exceptions.css";');
+    await writeFile(join(root, "src/styles.css"), canonicalStyles);
     await writeFile(join(root, "index.html"), '<link rel="stylesheet" href="/rogue.css"><link rel=stylesheet href=/theme><script type="module" src="/e2e/page.ts"></script>');
     await writeFile(join(root, "public/rogue.css"), 'body {}');
 
@@ -928,7 +933,7 @@ test("workspace closes skipped-module, entry HTML and public CSS scan gaps", asy
 
 test("workspace requires every canonical CSS import exactly once", async () => {
   const root = await mkdtemp(join(tmpdir(), "led-ui-css-inventory-"));
-  const canonical = '@import "tailwindcss"; @import "./styles/theme.css"; @import "./styles/base.css"; @import "./styles/exceptions.css";';
+  const canonical = canonicalStyles;
   try {
     await mkdir(join(root, "src"));
     await writeFile(join(root, "src/App.tsx"), 'import "./styles.css";');
@@ -970,7 +975,7 @@ test("workspace requires every canonical CSS import exactly once", async () => {
 
 test("workspace rejects extensionless bare imports only when package metadata exposes CSS", async () => {
   const root = await mkdtemp(join(tmpdir(), "led-ui-package-css-"));
-  const canonical = '@import "tailwindcss"; @import "./styles/theme.css"; @import "./styles/base.css"; @import "./styles/exceptions.css";';
+  const canonical = canonicalStyles;
   try {
     await mkdir(join(root, "src"));
     await mkdir(join(root, "node_modules/@vendor/theme"), { recursive: true });
@@ -1000,7 +1005,7 @@ test("workspace rejects extensionless bare imports only when package metadata ex
 
 test("workspace resolves overlapping package export patterns by Node specificity, not declaration order", async () => {
   const root = await mkdtemp(join(tmpdir(), "led-ui-package-pattern-"));
-  const canonical = '@import "tailwindcss"; @import "./styles/theme.css"; @import "./styles/base.css"; @import "./styles/exceptions.css";';
+  const canonical = canonicalStyles;
   try {
     await mkdir(join(root, "src"));
     await mkdir(join(root, "node_modules/@vendor/patterns"), { recursive: true });
@@ -1055,28 +1060,37 @@ test("baseline must preserve the approved Git anchor and an empty violation map"
     await writeFile(join(root, "scripts/ui-policy-baseline.json"), JSON.stringify({ version: 1, sourceRef: "0000000000000000000000000000000000000000", files: {} }));
     assert.equal(run().status, 1, "an edited sourceRef must fail even without current violations");
     await writeFile(join(root, "src/App.tsx"), 'const clean = true;');
-    await writeFile(join(root, "scripts/ui-policy-baseline.json"), JSON.stringify({ version: 1, sourceRef: "24b5ea593e860575f7bf1007781146cf1101beb7", files: { "src/App.tsx": { "css-import": { count: 2, matches: { "./styles.css": 2 } } } } }));
+    await writeFile(join(root, "scripts/ui-policy-baseline.json"), JSON.stringify({ version: 1, sourceRef: "76791eafb907e9c9e9523b2ee1976eaec5c49163", files: { "src/App.tsx": { "css-import": { count: 2, matches: { "./styles.css": 2 } } } } }));
     assert.equal(run().status, 1, "non-empty debt allowances must fail even with clean source");
   } finally {
     await rm(root, { recursive: true, force: true });
   }
 });
 
+let compiledPolicyCss;
+async function compilePolicyCss() {
+  if (compiledPolicyCss) return compiledPolicyCss;
+  compiledPolicyCss = (async () => {
+    const { build } = await import("vite");
+    const result = await build({
+      root: fileURLToPath(new URL("../", import.meta.url)),
+      logLevel: "warn",
+      build: { write: false },
+      plugins: [{
+        name: "ui-policy-compile-proof",
+        enforce: "pre",
+        async load(id) {
+          if (id.endsWith("/src/styles.css")) return await readFile(id, "utf8") + '\n@source inline("p-0.5 p-16 bg-surface-panel text-content-primary text-body max-compact:p-4 phone-wide:grid-cols-4 max-phone-wide:order-1 landing-narrow:block landing-stack:block landing-wide:block p-landing-demo-disclaimer-inset m-landing-hero-heading-margin gap-landing-header-frame-stacked-gap py-landing-hero-frame-block-inset text-landing-hero-fluid landing-stack:text-landing-hero-fluid-stacked landing-narrow:text-landing-hero-fluid-narrow leading-landing-concept-document font-landing");';
+        }
+      }]
+    });
+    return result.output.filter(item => item.type === "asset" && item.fileName.endsWith(".css")).map(item => item.source).join("\n");
+  })();
+  return compiledPolicyCss;
+}
+
 test("real Vite build emits semantic and reviewed responsive CSS without fixture pollution", async () => {
-  const { build } = await import("vite");
-  const result = await build({
-    root: fileURLToPath(new URL("../", import.meta.url)),
-    logLevel: "warn",
-    build: { write: false },
-    plugins: [{
-      name: "ui-policy-compile-proof",
-      enforce: "pre",
-      async load(id) {
-        if (id.endsWith("/src/styles.css")) return await readFile(id, "utf8") + '\n@source inline("p-0.5 p-16 bg-surface-panel text-content-primary text-body max-compact:p-4 phone-wide:grid-cols-4 max-phone-wide:order-1");';
-      }
-    }]
-  });
-  const css = result.output.filter(item => item.type === "asset" && item.fileName.endsWith(".css")).map(item => item.source).join("\n");
+  const css = await compilePolicyCss();
   for (const declaration of [
     '.p-0\\.5{padding:calc(var(--spacing) * .5)}',
     '.p-16{padding:calc(var(--spacing) * 16)}',
@@ -1089,4 +1103,106 @@ test("real Vite build emits semantic and reviewed responsive CSS without fixture
   assert.ok(css.includes('.phone-wide\\:grid-cols-4{'), "phone-wide min-width CSS");
   assert.ok(css.includes('.max-phone-wide\\:order-1{'), "phone-wide max-width CSS");
   assert.ok(!css.includes('.p-9{') && !css.includes('.max-compact\\:px-0\\.75{'));
+});
+
+test("approved landing policy rejects mutated variant or anchor", async () => {
+  const theme = await readFile(new URL("../src/styles/theme.css", import.meta.url), "utf8");
+  assert.deepEqual(inspectUiSource("src/styles/theme.css", theme), [], "approved immutable theme");
+  for (const source of [
+    theme.replace("--text-landing-hero-fluid: clamp(55px, 5.3vw, 78px);", "--text-landing-hero-fluid: 1rem;"),
+    theme.replace(/--text-landing-hero-fluid:[^;]+;/, ""),
+    theme.replace("--text-landing-hero-fluid: clamp(55px, 5.3vw, 78px);", "--text-landing-hero-fluid: clamp(55px, 5.3vw, 78px); --text-landing-hero-fluid: clamp(55px, 5.3vw, 78px);")
+  ]) assert.ok(inspectUiSource("src/styles/theme.css", source).length);
+  assert.deepEqual(inspectUiSource("src/New.tsx", '"landing-narrow:block landing-stack:block landing-wide:block"'), []);
+  assert.ok(inspectUiSource("src/New.tsx", '"max-[777px]:block"').some(v => v.rule === "unapproved-breakpoint"));
+  assert.ok(inspectUiSource("src/New.tsx", '"landing-extra:block"').some(v => v.rule === "unapproved-breakpoint"));
+  for (const source of [
+    ...[430, 720, 1050].map(width => approvedLandingVariants.replace(`${width}px`, `${width + 1}px`)),
+    approvedLandingVariants + "\n@custom-variant landing-extra (@media (max-width: 777px));",
+    approvedLandingVariants + "\n@custom-variant landing-narrow (@media (max-width: 430px));",
+    approvedLandingVariants.replace("(@media (max-width: 430px))", "(&:hover)"),
+    approvedLandingVariants.replace("max-width", "max - width"),
+    approvedLandingVariants.replace("landing-narrow (", "landing-narrow(")
+  ]) assert.ok(inspectUiSource("src/styles.css", source).some(v => v.rule === "unapproved-custom-variant"), source);
+  assert.ok(inspectUiSource("src/styles/base.css", approvedLandingVariants).some(v => v.rule === "unapproved-custom-variant"));
+  const root = await mkdtemp(join(tmpdir(), "led-ui-landing-anchor-"));
+  const canonical = await readFile(new URL("../src/styles.css", import.meta.url), "utf8");
+  const run = () => spawnSync(process.execPath, [new URL("./ui-policy.mjs", import.meta.url).pathname, "--root", root], { encoding: "utf8" });
+  try {
+    await mkdir(join(root, "src"));
+    await mkdir(join(root, "scripts"));
+    await writeFile(join(root, "src/App.tsx"), 'import "./styles.css";');
+    await writeFile(join(root, "src/styles.css"), canonical);
+    await writeFile(join(root, "scripts/ui-policy-baseline.json"), JSON.stringify({ version: 1, sourceRef: "76791eafb907e9c9e9523b2ee1976eaec5c49163", files: {} }));
+    assert.equal(run().status, 0, "reviewed immutable ref and empty baseline");
+    for (const width of [430, 720, 1050]) {
+      await writeFile(join(root, "src/styles.css"), canonical.replace(new RegExp(`@custom-variant [^;]+${width}px[^;]+;`), ""));
+      assert.ok((await inspectWorkspace({ root })).violations.some(v => v.rule === "missing-custom-variant"), `${width}px missing`);
+    }
+    await writeFile(join(root, "src/styles.css"), canonical);
+    await writeFile(join(root, "scripts/ui-policy-baseline.json"), JSON.stringify({ version: 1, sourceRef: "24b5ea593e860575f7bf1007781146cf1101beb7", files: {} }));
+    const stale = run();
+    assert.equal(stale.status, 1);
+    assert.match(stale.stderr, /sourceRef is not the reviewed Git commit/);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("approved landing variants compile at inclusive boundaries", async () => {
+  const css = await compilePolicyCss();
+  for (const [variant, width] of [["landing-narrow", 430], ["landing-stack", 720], ["landing-wide", 1050]]) {
+    const media = css.match(new RegExp(`@media\\s*\\(max-width:${width}px\\)\\{(?:[^{}]*\\{[^{}]*\\})+\\}`))?.[0];
+    assert.ok(media?.includes(`.${variant}\\:block{display:block}`), `${variant} has exact inclusive max-width:${width}px`);
+  }
+  for (const declaration of [
+    '.p-landing-demo-disclaimer-inset{padding:var(--spacing-landing-demo-disclaimer-inset)}',
+    '.m-landing-hero-heading-margin{margin:var(--spacing-landing-hero-heading-margin)}',
+    '.gap-landing-header-frame-stacked-gap{gap:var(--spacing-landing-header-frame-stacked-gap)}',
+    '.py-landing-hero-frame-block-inset{padding-block:var(--spacing-landing-hero-frame-block-inset)}',
+    '.landing-stack\\:text-landing-hero-fluid-stacked{font-size:var(--text-landing-hero-fluid-stacked)}',
+    '.landing-narrow\\:text-landing-hero-fluid-narrow{font-size:var(--text-landing-hero-fluid-narrow)}',
+    '.leading-landing-concept-document{--tw-leading:var(--leading-landing-concept-document);line-height:var(--leading-landing-concept-document)}',
+    '.font-landing{font-family:var(--font-landing)}',
+    '--font-landing:Inter, "Pretendard", "Noto Sans KR", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+    '--leading-landing-concept-document:normal'
+  ]) assert.ok(css.includes(declaration), declaration);
+  const { chromium } = await import("@playwright/test");
+  const browser = await chromium.launch();
+  try {
+    const page = await browser.newPage();
+    await page.setContent('<iframe></iframe>');
+    const evidence = await page.evaluate(async css => {
+      const frame = document.querySelector("iframe");
+      frame.contentDocument.head.innerHTML = `<style>${css}</style>`;
+      frame.contentDocument.body.innerHTML = '<div id="spacing" class="p-landing-demo-disclaimer-inset m-landing-hero-heading-margin gap-landing-header-frame-stacked-gap"></div><div id="block" class="py-landing-hero-frame-block-inset"></div><h1 id="type" class="text-landing-hero-fluid landing-stack:text-landing-hero-fluid-stacked landing-narrow:text-landing-hero-fluid-narrow"></h1><div id="document" class="font-landing leading-landing-concept-document"></div>';
+      // Chromium serializes BlinkMacSystemFont as system-ui on some platforms;
+      // compare the computed family to the same original CSS declaration.
+      const reference = frame.contentDocument.createElement("div");
+      reference.style.fontFamily = 'Inter, "Pretendard", "Noto Sans KR", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+      frame.contentDocument.body.append(reference);
+      const values = [];
+      for (const width of [429, 430, 430.5, 431, 719, 720, 720.5, 721, 1049, 1050, 1050.5, 1051]) {
+        frame.style.width = `${width}px`;
+        await new Promise(resolve => requestAnimationFrame(resolve));
+        const style = frame.contentWindow.getComputedStyle(frame.contentDocument.getElementById("type"));
+        values.push({ width, matches: [430, 720, 1050].map(boundary => frame.contentWindow.matchMedia(`(max-width: ${boundary}px)`).matches), lineHeight: parseFloat(style.lineHeight) / parseFloat(style.fontSize), tracking: parseFloat(style.letterSpacing) / parseFloat(style.fontSize) });
+      }
+      const read = (id, properties) => {
+        const style = frame.contentWindow.getComputedStyle(frame.contentDocument.getElementById(id));
+        return properties.map(property => style[property]);
+      };
+      return { referenceFamily: frame.contentWindow.getComputedStyle(reference).fontFamily, values, spacing: read("spacing", ["paddingTop", "paddingRight", "paddingBottom", "paddingLeft", "marginTop", "marginRight", "marginBottom", "marginLeft", "rowGap", "columnGap"]), block: read("block", ["paddingTop", "paddingRight", "paddingBottom", "paddingLeft"]), document: read("document", ["fontFamily", "lineHeight"]) };
+    }, css);
+    assert.deepEqual(evidence.spacing, ["11px", "22px", "11px", "22px", "22px", "0px", "26px", "0px", "5px", "20px"]);
+    assert.deepEqual(evidence.block, ["150px", "0px", "130px", "0px"]);
+    assert.deepEqual(evidence.document, [evidence.referenceFamily, "normal"]);
+    for (const value of evidence.values) {
+      assert.deepEqual(value.matches, [value.width <= 430, value.width <= 720, value.width <= 1050], `${value.width}px inclusion`);
+      assert.ok(Math.abs(value.lineHeight - 1.15) < 0.001, `${value.width}px retains line-height`);
+      assert.ok(Math.abs(value.tracking + 0.085) < 0.001, `${value.width}px retains letter-spacing`);
+    }
+  } finally {
+    await browser.close();
+  }
 });

@@ -45,6 +45,8 @@
 
 ## 반응형과 예외
 
+- 공개 랜딩 전환에는 canonical `styles.css`의 `landing-narrow:`, `landing-stack:`, `landing-wide:`만 사용한다. 각각 `@media (max-width: 430px)`, `720px`, `1050px`로 기존 경계를 포함하며 430.5/720.5/1050.5px은 해당 variant에서 제외한다. 세 선언의 이름·값·중복·누락과 네 번째 custom variant를 정책으로 검사한다. 기존 `max-compact`의 미만 조건과 구분한다.
+
 - 신규 utility는 `p-6 max-compact:p-4`처럼 쓴다. `compact=47.5rem`(기본 16px 기준 760px), `tablet=64rem`이며 `max-compact`는 **760px 미만**이다. 기존 compatibility CSS의 `max-width: 760px`는 경계값을 포함하므로 페이지 전환 시 760px 경계도 확인한다. 섹션 간 24px 리듬은 유지한다.
 - 44px 최소 터치 영역, safe area, 차트 높이는 간격 토큰이 아닌 사용성 제약이다. compact shell은 공통 `pb-shell-navigation-safe`, `h-shell-navigation-safe`, `pb-safe-area-bottom` utility로 iOS `safe-area-inset-bottom`을 반영하고 feature 코드에는 raw `env(...)`를 쓰지 않는다.
 - 텍스트 줄바꿈으로 카드 높이가 달라질 수 있으며, 정렬을 위해 내용을 잘라내거나 터치 영역을 줄이지 않는다.
@@ -87,11 +89,17 @@ Task 12 baseline의 violation map은 비어 있으며 production 정책 부채�
 
 2026-09-16 최종 검증에서 UI policy **53/53**, `ui:check` **기존 0·신규/증가 0**, Web Vitest **83 files·1,224/1,224**, 1440×900·1024×768·390×844·320×740 layout assertions를 포함한 전체 Chromium 직렬 **257 passed·5 environment-gated skipped·실패 0**을 확인했다. 별도 opt-in RealBackendLab도 설치 여정 **2/2**와 층 배치·제어·통계 **1/1**을 통과했다. 루트 `pnpm test`도 fail-closed UI 정책 체인을 포함한 상태로 통과했다. 실제 native WebView safe-area 실측과 수동 in-app 시각 QA는 별도 후속 검증이다.
 
-baseline의 `sourceRef`는 scanner에 고정된 승인 Git commit `24b5ea593e860575f7bf1007781146cf1101beb7`과 일치해야 한다. Git object가 없거나 sourceRef·빈 map이 변조되면 fail-closed한다. canonical root unit gate가 Web `test:ui-policy`와 `ui:check`를 일반 unit 뒤에 실행하고, CI unit checkout은 `fetch-depth: 0`으로 승인 object를 확보한다.
+검토된 랜딩 371개 역할 토큰(기본 normal 행간·font fallback stack 포함)의 토큰 전용 commit으로 신뢰 앵커를 회전했다. 이전 `reviewedThemeTokenAdditions`는 모두 새 앵커에 포함되어 별도 승인 추가 map을 제거했다. 값·누락·중복 검증과 `files: {}`·0건 목표·기존 거부 규칙은 유지한다.
+
+baseline의 `sourceRef`는 scanner에 고정된 승인 Git commit `76791eafb907e9c9e9523b2ee1976eaec5c49163`과 일치해야 한다. Git object가 없거나 sourceRef·빈 map이 변조되면 fail-closed한다. canonical root unit gate가 Web `test:ui-policy`와 `ui:check`를 일반 unit 뒤에 실행하고, CI unit checkout은 `fetch-depth: 0`으로 승인 object를 확보한다.
 
 `p-px`와 정적 `calc`/`clamp` 간격, semantic typography의 `/7`·`/[17px]`·변수 line-height modifier, 계산식 안의 literal font-size를 거부한다. 측정/percentage/viewport를 사용하는 runtime position은 별도 예외이며 일반 padding/margin/gap에 임의 간격을 더하는 수단으로 쓰지 않는다. 허용 token 이름은 승인 commit의 canonical `theme.css`에서 읽는다. 신규 `--text-rogue`, `bg-surface-pannel` 같은 오타와 `max-[777px]:*` 같은 임의 breakpoint는 정책 오류다. CSS import의 query/hash suffix도 원본 resource ID 기준으로 검사한다.
 
 주석 처리는 기존 TypeScript parser의 실제 trivia 위치를 사용해 trailing/JSX comment를 제거하고 URL·문자열·template 내용을 보존한다. CSS는 문자열을 인식하는 comment scan을 사용한다. `test:ui-policy`에는 실제 Vite 메모리 빌드의 semantic/spacing/typography/`max-compact` 생성 및 test fixture 클래스 제외 검증이 포함된다. standalone 두 정책 command는 canonical root/CI unit gate에 연결되어 있다.
+
+랜딩 포함형 variant는 실제 Vite 생성 CSS와 Chromium iframe의 429/430/430.5/431·719/720/720.5/721·1049/1050/1050.5/1051px media query로 검증한다. 복합 `p`·`m`·`gap`·`py`의 원래 속성과 값, font-size 전용 반응형 utility가 기본 1.15 행간·-.085em 자간을 보존하는지, `font-landing`의 정확 fallback stack과 `leading-landing-concept-document`의 `normal`을 함께 검사한다. 제품 루트에 적용하는 작업과 페이지별 시각·동작 검증은 후속 단계다.
+
+2026-09-28 앵커 회전 후 `ui:check`는 기존 랜딩 925건으로 계속 실패한다. 회전 전 기준의 path/rule/match 집합과 정확히 같으며 추가·삭제 항목은 없다. 빈 baseline에서는 같은 925건이 기존·신규/증가 양쪽 출력에 집계된다. 전체 `test:ui-policy`의 생산 0건 단언은 부채 해소까지 실패로 유지한다.
 
 색상은 JSX template의 정적 구간, `backgroundImage`/`background-image`, `boxShadow`/`box-shadow`, `text-shadow`, `filter`/`drop-shadow` 및 SVG `stopColor`/`stop-color`의 literal도 검사한다. TypeScript AST로 template expression을 분리하므로 semantic `var(--color-...)`와 runtime palette/shadow 표현식은 named color로 오인하지 않는다. URL payload는 제외하되 그 뒤 쉼표·줄바꿈으로 연결된 gradient는 계속 검사한다.
 
