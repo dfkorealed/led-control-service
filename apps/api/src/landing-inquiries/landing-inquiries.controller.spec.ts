@@ -10,13 +10,13 @@ describe("LandingInquiriesController", () => {
     const submit = jest.fn(async (_input: unknown, ip: string) => ({ ip }));
     const controller = new LandingInquiriesController({ submit } as any);
     for (const ip of ["198.51.100.20", "198.51.100.21"]) {
-      expect(await controller.submit({} as any, { ip: "10.0.0.2", headers: { "x-landing-ingress-secret": "a".repeat(64), "x-landing-client-ip": ip, "x-forwarded-for": "spoofed" } } as any)).toEqual({ ip });
+      expect(await controller.submit({} as any, { ip: "10.0.0.2", headers: { "x-web-ingress-secret": "a".repeat(64), "x-web-client-ip": ip, "x-forwarded-for": "spoofed" } } as any)).toEqual({ ip });
     }
     for (const headers of [
       { "x-forwarded-for": "198.51.100.99" },
-      { "x-landing-ingress-secret": "b".repeat(64), "x-landing-client-ip": "198.51.100.99" },
-      { "x-landing-ingress-secret": "a".repeat(64), "x-landing-client-ip": "198.51.100.20, 198.51.100.99" },
-      { "x-landing-ingress-secret": "a".repeat(64), "x-landing-client-ip": ["198.51.100.20"] }
+      { "x-web-ingress-secret": "b".repeat(64), "x-web-client-ip": "198.51.100.99" },
+      { "x-web-ingress-secret": "a".repeat(64), "x-web-client-ip": "198.51.100.20, 198.51.100.99" },
+      { "x-web-ingress-secret": "a".repeat(64), "x-web-client-ip": ["198.51.100.20"] }
     ]) expect(() => controller.submit({} as any, { ip: "10.0.0.2", headers } as any)).toThrow();
     delete process.env.LANDING_INGRESS_SECRET;
     expect(() => controller.submit({} as any, { ip: "10.0.0.2", headers: {} } as any)).toThrow();
@@ -28,7 +28,7 @@ describe("LandingInquiriesController", () => {
     const controller = new LandingInquiriesController({ submit: jest.fn() } as any);
     for (const key of ["a".repeat(64) + "\n", "a".repeat(63), "A".repeat(64)]) {
       process.env.LANDING_INGRESS_SECRET = key;
-      expect(() => controller.submit({} as any, { headers: { "x-landing-ingress-secret": key, "x-landing-client-ip": "127.0.0.1" } } as any)).toThrow();
+      expect(() => controller.submit({} as any, { headers: { "x-web-ingress-secret": key, "x-web-client-ip": "127.0.0.1" } } as any)).toThrow();
     }
   });
 

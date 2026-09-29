@@ -17,7 +17,8 @@ RUN pnpm --filter @led-control/web build
 
 FROM nginx:1.27.5-alpine
 
-# Render only these server settings; nginx request variables survive unchanged.
+# Render the canonical Web origin and the shared authenticated Web-ingress secret;
+# nginx request variables survive unchanged and untrusted client headers are overwritten.
 ENV NGINX_ENVSUBST_FILTER="^(WEB_HTTPS_ORIGIN|LANDING_INGRESS_SECRET)$"
 RUN sed -i 's@^pid .*;@pid /tmp/nginx.pid;@; /user  nginx;/d' /etc/nginx/nginx.conf
 RUN printf '\ninclude /etc/nginx/stream.conf;\n' >> /etc/nginx/nginx.conf

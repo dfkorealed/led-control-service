@@ -98,7 +98,7 @@ describeDocker("landing production nginx ingress", () => {
   beforeEach(() => buckets.clear());
 
   it("separates visitors, overwrites forged identity and keeps each bucket limited", async () => {
-    const forged = ["-X", "POST", "-H", "X-Forwarded-For: 198.51.100.99", "-H", "X-Landing-Client-IP: 198.51.100.99", "-H", `X-Landing-Ingress-Secret: ${"b".repeat(64)}`];
+    const forged = ["-X", "POST", "-H", "X-Forwarded-For: 198.51.100.99", "-H", "X-Web-Client-IP: 198.51.100.99", "-H", `X-Web-Ingress-Secret: ${"b".repeat(64)}`];
     for (let index = 0; index < 5; index++) {
       const first = await request("127.0.0.2", "/api/landing/inquiries", forged);
       expect(first.status).toBe(201);
@@ -113,7 +113,7 @@ describeDocker("landing production nginx ingress", () => {
 
   it("rejects forged direct requests through the public raw TLS listener", async () => {
     const response = await request("127.0.0.2", "/landing/inquiries", ["-X", "POST", "-H", "X-Forwarded-For: 198.51.100.99",
-      "-H", "X-Landing-Client-IP: 198.51.100.99", "-H", `X-Landing-Ingress-Secret: ${"b".repeat(64)}`], 9443);
+      "-H", "X-Web-Client-IP: 198.51.100.99", "-H", `X-Web-Ingress-Secret: ${"b".repeat(64)}`], 9443);
     expect(response.status).toBe(503);
     expect(buckets.size).toBe(0);
   });

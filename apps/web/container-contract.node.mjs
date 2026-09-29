@@ -23,6 +23,9 @@ test("Web verifies API identity and forwards correlation without trusting client
   assert.match(nginx, /proxy_ssl_trusted_certificate \/run\/api-tls\/api-ca.crt/);
   assert.match(nginx, /proxy_set_header X-Request-Id \$http_x_request_id/);
   assert.match(nginx, /proxy_set_header X-Forwarded-For \$remote_addr/);
+  assert.match(nginx, /proxy_set_header X-Web-Ingress-Secret "\$\{LANDING_INGRESS_SECRET\}"/);
+  assert.match(nginx, /proxy_set_header X-Web-Client-IP \$remote_addr/);
+  assert.doesNotMatch(nginx, /proxy_set_header X-Landing-(?:Ingress-Secret|Client-IP)/);
   assert.doesNotMatch(nginx, /proxy_add_x_forwarded_for/);
 });
 test("Web distinguishes immutable assets from shell and sets security headers", () => {

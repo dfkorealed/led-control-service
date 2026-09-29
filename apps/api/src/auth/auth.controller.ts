@@ -6,6 +6,7 @@ import { AuthenticatedRequest, AuthenticatedUser } from "./auth.types";
 import { AllowPasswordChangePending } from "./allow-password-change-pending.decorator";
 import { MfaService } from "./mfa.service";
 import { SessionManagementService } from "./session-management.service";
+import { trustedWebClientIp } from "../http/web-ingress-client-ip";
 
 type CookieResponse = {
   cookie: (name: string, value: string, options: Record<string, unknown>) => CookieResponse;
@@ -34,7 +35,7 @@ export class AuthController {
     const result = await this.authService.login({
       ...this.loginBody(body),
       userAgent: this.readHeader(request.headers["user-agent"]),
-      ipAddress: request.ip ?? "unknown"
+      ipAddress: this.clientIp(request)
     });
     if ("mfaRequired" in result) return result;
     this.setSessionCookie(response, result.sessionToken, result.expiresAt);
@@ -52,7 +53,7 @@ export class AuthController {
     const result = await this.mfa().completeLogin({
       challengeToken: this.requiredString(value.challengeToken, "challengeToken"),
       ...verification
-    }, request.ip ?? "unknown", this.readHeader(request.headers["user-agent"]));
+    }, this.clientIp(request), this.readHeader(request.headers["user-agent"]));
     this.setSessionCookie(response, result.sessionToken, result.expiresAt);
     return { user: result.user, recoveryCodeUsed: result.recoveryCodeUsed };
   }
@@ -69,7 +70,7 @@ export class AuthController {
     return this.mfa().startEnrollment(
       request.user!,
       this.currentSessionToken(request),
-      request.ip ?? "unknown",
+      this.clientIp(request),
       this.readHeader(request.headers["user-agent"])
     );
   }
@@ -86,7 +87,7 @@ export class AuthController {
     const result = await this.mfa().confirmEnrollment(request.user!, token, {
       enrollmentToken: this.requiredString(value.enrollmentToken, "enrollmentToken"),
       code: this.requiredString(value.code, "code")
-    }, request.ip ?? "unknown", this.readHeader(request.headers["user-agent"]));
+    }, this.clientIp(request), this.readHeader(request.headers["user-agent"]));
     this.setSessionCookie(response, result.sessionToken, result.expiresAt);
     return { mfaEnabled: true, recoveryCodes: result.recoveryCodes };
   }
@@ -188,6 +189,10 @@ export class AuthController {
 
   private readHeader(value: string | string[] | undefined) {
     return Array.isArray(value) ? value.join(", ") : value;
+  }
+
+  private clientIp(request: AuthenticatedRequest) {
+    return trustedWebClientIp(request) ?? request.ip ?? "unknown";
   }
 
   private signupBody(body: unknown) {
