@@ -17,11 +17,27 @@ const gatewayId="22222222-2222-4222-8222-222222222222";
 const serial="NEW-GATEWAY";
 let directory:string, artifact:string;
 let env:NodeJS.ProcessEnv;
+let localApiUrl:string;
 let api:ReturnType<typeof createServer>, broker:ReturnType<typeof createTlsServer>;
 let mode="assigned";
 let events:string[];
 let sockets:Set<TLSSocket>;
-let run: typeof import("./bootstrap-only").runBootstrapOnly;
+let run: (env:NodeJS.ProcessEnv,args?:readonly string[])=>ReturnType<typeof import("./bootstrap-only").runBootstrapOnly>;
+
+it("accepts only a canonical HTTPS DNS bootstrap endpoint",async()=>{
+  const {parseCanonicalGatewayBootstrapUrl}=await import("./bootstrap-only");
+  expect(parseCanonicalGatewayBootstrapUrl("https://api.example.com:8443/gateway-bootstrap").hostname).toBe("api.example.com");
+  for(const value of [
+    "http://api.example.com/gateway-bootstrap",
+    "https://127.0.0.1:4000/gateway-bootstrap",
+    "https://192.168.10.8:4000/gateway-bootstrap",
+    "https://localhost:4000/gateway-bootstrap",
+    "https://api:4000/gateway-bootstrap",
+    "https://user:secret@api.example.com/gateway-bootstrap",
+    "https://api.example.com/other",
+    "https://api.example.com/gateway-bootstrap?site=secret"
+  ])expect(()=>parseCanonicalGatewayBootstrapUrl(value)).toThrow("invalid endpoint");
+});
 
 it("BIO host preflight validates installed scope/identity without network or issuing again", async()=>{
   expect(await run(env)).toEqual({status:"complete",operation:"bootstrap-only"});
@@ -45,10 +61,23 @@ it("BIO host preflight rejects absent assignment without bootstrap or hardware w
 beforeAll(async()=>{
   // This assertion is the initial RED when the dedicated product CLI is absent.
   await expect(readFile(join(import.meta.dirname,"bootstrap-only.ts"),"utf8")).resolves.toContain("runBootstrapOnly");
-  run=(await import("./bootstrap-only")).runBootstrapOnly;
+  const module=await import("./bootstrap-only");
+  run=(testEnv,args=[])=>module.runBootstrapOnly(testEnv,args,{parseBootstrapUrl:value=>{
+    const url=new URL(value);url.hostname="127.0.0.1";return url;
+  }});
   artifact=await mkdtemp(join(process.cwd(),".bootstrap-test-"));
   await build({entryPoints:[join(import.meta.dirname,"bootstrap-only.ts")],bundle:true,platform:"node",format:"esm",packages:"external",outfile:join(artifact,"cli.mjs")});
   await build({entryPoints:[join(import.meta.dirname,"config/bootstrap-client.ts")],bundle:true,platform:"node",format:"esm",packages:"external",outfile:join(artifact,"bootstrap-client.mjs")});
+  await writeFile(join(artifact,"canonical-dns.cjs"), `
+    const dns=require("node:dns");
+    const original=dns.lookup;
+    dns.lookup=function(hostname,options,callback){
+      if(hostname!=="bootstrap.example.invalid") return original.apply(this,arguments);
+      if(typeof options==="function"){callback=options;options={};}
+      if(options?.all) return callback(null,[{address:"127.0.0.1",family:4}]);
+      return callback(null,"127.0.0.1",4);
+    };
+  `);
   await mkdir(join(artifact,"bin"));
   // Execute the real entrypoint and preserve its umask. Only the image's fixed
   // artifact location is mapped to this test build; no production branch is copied.
@@ -60,7 +89,7 @@ beforeEach(async()=>{
   mode="assigned";events=[];sockets=new Set();
   await exec("openssl",["req","-x509","-newkey","ec","-pkeyopt","ec_paramgen_curve:P-256","-nodes","-keyout",join(directory,"ca.key"),"-out",join(directory,"ca.crt"),"-subj","/CN=Disposable CA","-days","1"]);
   await exec("openssl",["req","-newkey","ec","-pkeyopt","ec_paramgen_curve:P-256","-nodes","-keyout",join(directory,"server.key"),"-out",join(directory,"server.csr"),"-subj","/CN=localhost"]);
-  await writeFile(join(directory,"server.ext"),"subjectAltName=IP:127.0.0.1,DNS:localhost\nextendedKeyUsage=serverAuth\n");
+  await writeFile(join(directory,"server.ext"),"subjectAltName=IP:127.0.0.1,DNS:localhost,DNS:bootstrap.example.invalid\nextendedKeyUsage=serverAuth\n");
   await exec("openssl",["x509","-req","-in",join(directory,"server.csr"),"-CA",join(directory,"ca.crt"),"-CAkey",join(directory,"ca.key"),"-CAcreateserial","-out",join(directory,"server.crt"),"-days","1","-extfile",join(directory,"server.ext")]);
   const ca=await readFile(join(directory,"ca.crt"),"utf8");
   await mkdir(join(directory,"identity"),{mode:0o750});
@@ -109,8 +138,9 @@ beforeEach(async()=>{
     } catch {response.writeHead(500);response.end();}
   });
   await new Promise<void>(resolve=>api.listen(0,"127.0.0.1",resolve));
+  localApiUrl=`https://127.0.0.1:${(api.address() as {port:number}).port}/gateway-bootstrap`;
   env={GATEWAY_SERIAL:serial,GATEWAY_EXPECTED_SITE_ID:siteId,GATEWAY_EXPECTED_GATEWAY_ID:gatewayId,
-    GATEWAY_BOOTSTRAP_URL:`https://127.0.0.1:${(api.address() as {port:number}).port}/gateway-bootstrap`,
+    GATEWAY_BOOTSTRAP_URL:`https://bootstrap.example.invalid:${(api.address() as {port:number}).port}/gateway-bootstrap`,
     GATEWAY_BOOTSTRAP_IDENTITY_DIR:join(directory,"identity"),GATEWAY_BOOTSTRAP_STATE_DIR:join(directory,"gateway")};
 });
 afterEach(async()=>{
@@ -122,7 +152,7 @@ afterEach(async()=>{
 });
 
 it.each(["direct", "entrypoint-077"])("%s CLI persists assignment and MQTT under safe modes, then exits without publish",async(launcher)=>{
-  const childEnv={...process.env,...env,PATH:`${join(artifact,"bin")}:${process.env.PATH}`,TEST_NODE:process.execPath,TEST_ARTIFACT:join(artifact,"cli.mjs")};
+  const childEnv={...process.env,...env,NODE_OPTIONS:`--require=${join(artifact,"canonical-dns.cjs")}`,PATH:`${join(artifact,"bin")}:${process.env.PATH}`,TEST_NODE:process.execPath,TEST_ARTIFACT:join(artifact,"cli.mjs")};
   const command=launcher==="direct"?process.execPath:"/bin/sh";
   const args=launcher==="direct"?[join(artifact,"cli.mjs")]:[join(import.meta.dirname,"../docker/entrypoint.sh"),"bootstrap-only"];
   const {stdout,stderr}=await exec(command,args,{env:childEnv,timeout:10000});
@@ -182,7 +212,7 @@ it("wrong stored identity scope cannot issue or overwrite the existing assignmen
 });
 
 it("CLI rejects raw override arguments and exits nonzero without echoing secret input",async()=>{
-  const result=await exec(process.execPath,[join(artifact,"cli.mjs"),"secret-test"],{env:{...process.env,...env},timeout:10000}).catch(error=>error);
+  const result=await exec(process.execPath,[join(artifact,"cli.mjs"),"secret-test"],{env:{...process.env,...env,NODE_OPTIONS:`--require=${join(artifact,"canonical-dns.cjs")}`},timeout:10000}).catch(error=>error);
   expect(result.code).toBe(1);expect(result.stdout).toBe("");
   expect(JSON.parse(result.stderr)).toEqual({status:"failed",operation:"bootstrap-only",stage:"preflight"});
   expect(events).toEqual([]);
@@ -190,7 +220,7 @@ it("CLI rejects raw override arguments and exits nonzero without echoing secret 
 
 it("invalid TLS trust exits promptly with a fixed error and no dangling deadline",async()=>{
   await writeFile(join(directory,"identity/device/current/api-ca.crt"),"invalid trust");
-  const result=await exec(process.execPath,[join(artifact,"cli.mjs")],{env:{...process.env,...env},timeout:1500}).catch(error=>error);
+  const result=await exec(process.execPath,[join(artifact,"cli.mjs")],{env:{...process.env,...env,NODE_OPTIONS:`--require=${join(artifact,"canonical-dns.cjs")}`},timeout:1500}).catch(error=>error);
   expect(result.code).toBe(1);
   expect(JSON.parse(result.stderr)).toEqual({status:"failed",operation:"bootstrap-only",stage:"assignment"});
   expect(events).toEqual([]);
@@ -212,14 +242,14 @@ it("synchronous TLS key construction failure has no delayed uncaught error or or
     await new Promise(resolve=>setTimeout(resolve,90));
   `;
   const result=await exec(process.execPath,["--input-type=module","-e",program],{timeout:1500,env:{...process.env,
-    TEST_MODULE:join(artifact,"bootstrap-client.mjs"),TEST_URL:env.GATEWAY_BOOTSTRAP_URL,
+    TEST_MODULE:join(artifact,"bootstrap-client.mjs"),TEST_URL:localApiUrl,
     TEST_CERT:join(current,"device.crt"),TEST_KEY:join(directory,"invalid.key"),TEST_CA:join(current,"api-ca.crt")}});
   expect(result.stdout).toBe("sanitized-failure\n"); expect(result.stderr).toBe(""); expect(events).toEqual([]);
 });
 
 it("MQTT certificate HTTP total deadline rejects a continuously active response without retry",async()=>{
   const current=join(directory,"identity/device/current");
-  const client=new MqttCertificateClient({url:new URL("/gateway-certificates/mqtt-slow",env.GATEWAY_BOOTSTRAP_URL).toString(),
+  const client=new MqttCertificateClient({url:new URL("/gateway-certificates/mqtt-slow",localApiUrl).toString(),
     certificatePath:join(current,"device.crt"),privateKeyPath:join(current,"device.key"),caPath:join(current,"api-ca.crt"),timeoutMs:40});
   const attempt=client.requestCertificate(await readFile(join(current,"device.csr"),"utf8"));
   await expect(Promise.race([attempt,new Promise(resolve=>setTimeout(()=>resolve("idle-only timeout"),200))])).rejects.toThrow("MQTT certificate request failed");
@@ -229,7 +259,7 @@ it("MQTT certificate HTTP total deadline rejects a continuously active response 
 it.each(["hang","oversize"])("bootstrap HTTP %s is bounded and rejected without retry",async(failure)=>{
   mode=failure;
   const current=join(directory,"identity/device/current");
-  const request=await createMtlsBootstrapRequest({url:env.GATEWAY_BOOTSTRAP_URL!,certificatePath:join(current,"device.crt"),privateKeyPath:join(current,"device.key"),caPath:join(current,"api-ca.crt"),timeoutMs:40});
+  const request=await createMtlsBootstrapRequest({url:localApiUrl,certificatePath:join(current,"device.crt"),privateKeyPath:join(current,"device.key"),caPath:join(current,"api-ca.crt"),timeoutMs:40});
   await expect(Promise.race([request({serialNumber:serial}),new Promise(resolve=>setTimeout(()=>resolve("unbounded request"),200))])).rejects.toThrow("gateway bootstrap request failed");
   expect(events).toEqual(["bootstrap"]);
 });

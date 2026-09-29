@@ -135,7 +135,7 @@ export class MfaService {
     }
     await this.loginRateLimit.consumeMfaCompletion({ ipAddress, userAgent });
     const challenge = await this.challenges.take<LoginMfaChallenge>("login", this.required(input.challengeToken));
-    if (!challenge || challenge.ipAddress !== ipAddress || (challenge.userAgent ?? "") !== (userAgent ?? "")) {
+    if (!challenge) {
       await this.recordLoginFailure({ ipAddress, userAgent });
       throw this.invalidMfa();
     }
@@ -171,15 +171,19 @@ export class MfaService {
         }
         const session = await this.createSession(tx, storedUser.id, {
           rememberMe: challenge.rememberMe,
-          userAgent: challenge.userAgent,
-          ipAddress: challenge.ipAddress,
+          userAgent,
+          ipAddress,
           mfaVerified: true
         });
         await this.audit.record({
           transaction: tx, organizationId: storedUser.organizationId, actorId: storedUser.id,
           action: "auth.login_succeeded", targetType: "User", targetId: storedUser.id, outcome: "success",
-          ipAddress: challenge.ipAddress, userAgent: challenge.userAgent,
-          metadata: { mfa: true }
+          ipAddress, userAgent,
+          metadata: {
+            mfa: true,
+            challengeOriginIpAddress: challenge.ipAddress,
+            challengeOriginUserAgent: challenge.userAgent ?? null
+          }
         });
         if (verification.recoveryCodeUsed) {
           await this.audit.record({

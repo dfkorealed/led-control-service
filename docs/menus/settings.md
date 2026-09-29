@@ -160,6 +160,8 @@
 
 ## 구현 완료
 
+- 2026-09-29 로그인·계정 보안 경계는 단말 또는 Mac의 IP가 바뀌어도 exact IP/User-Agent 동일성을 요구하지 않는다. 비밀번호 단계와 MFA 완료 단계가 다른 네트워크여도 사용자 row version, 만료, 일회성 Redis challenge, TOTP replay·recovery code 규칙을 통과하면 완료 시점 IP/User-Agent로 session·rate limit·감사를 생성한다. nginx를 통한 browser IP는 기존 `LANDING_INGRESS_SECRET`과 `X-Web-Ingress-Secret`·`X-Web-Client-IP`가 함께 유효할 때만 신뢰하고, 전역 proxy trust와 장비 9443 header trust는 허용하지 않는다. 로컬 API/Web 전용 `DEV_LOCAL_APP_ONLY=1`은 내부 loopback 연결에서도 기존 Lab DNS로 TLS를 검증하며 Gateway/HIL 완료를 의미하지 않는다.
+
 - 2026-09-25 설정·초기 설치 UI 단위: 관리자 입력 2열/모바일 1열, viewer 대기 단계, 개요 설치 CTA, 층·구역 병렬 관리, 맵 목록의 실제 층 요약/빈 상태, 등록 제목 단일 표시 회귀, 유저 행 44px 관리 대상. 실장비 및 모바일 WebView 검증은 완료 범위에 포함하지 않는다.
 
 - 2026-09-19 CAD parser의 평면 ELLIPSE 입력과 bounds/미리보기를 보강했다. 공통 요소 변환 코어는 HATCH edge 링, 텍스트 기준선, 반복·겹친 별도 원본의 식별자 보존까지 집중 회귀 및 독립 검토를 통과했다. 공통 문서 저장·화면 연결은 아직 미완료이며 이 항목을 새 편집 흐름 전체 완료나 실제 대형 DWG 재현 정확도 증거로 해석하지 않는다.
@@ -535,6 +537,8 @@ DB 모델이 실제 변경되는 작업에서는 `docs/database-schema.md`를 �
 - 상세 커밋, 테스트 증거와 재개 순서는 `.superpowers/sdd/progress.md`에 유지한다.
 
 ## 부족하거나 개선이 필요한 기능
+
+- IP 비종속 인증의 단위·통합·브라우저·운영 Compose 계약은 자동 검증했지만 실제 공인 DNS/TLS 전환, CDN/LB가 추가된 topology, 고객망 간 접속, Raspberry Pi/Gateway와 ESP32-H2 HIL은 아직 검증하지 않았다. 양산 전에는 canonical Host 정상 로그인, 잘못된 Host 로그인 POST의 redirect 없는 421, secret 동시 교체, DNS rollback과 장비 bootstrap을 staging에서 확인해야 한다.
 
 - dashboard의 표시 전용 `mapConfigured`는 현재 MapDocument revision snapshot의 경량 `elementCount > 0` 또는 기존 floor plan/CAD/맵 객체로 판정하며, generation의 기준 수나 `snapshotSha256` 검증 결과가 아니다. 편집기의 `currentRef`는 별도로 snapshot hash를 검증한다. 모든 요소가 숨김인 경우에도 설정 완료로 보일 수 있으므로 표시 가능한 요소 수를 별도로 확정하는 계약이 필요하다. 층의 `summary.totalFixtures`는 등록 조명 수이며 실제 맵에 배치된 핀 수가 아니다.
 

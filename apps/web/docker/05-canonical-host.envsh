@@ -1,0 +1,58 @@
+#!/bin/sh
+set -eu
+
+# Compose preflight enforces the same contract before deployment. This image-level
+# gate also fails closed when somebody runs the immutable Web image directly.
+origin=${WEB_HTTPS_ORIGIN:?WEB_HTTPS_ORIGIN is required}
+case "$origin" in
+  https://*) authority=${origin#https://} ;;
+  *) exit 1 ;;
+esac
+authority=${authority%/}
+case "$authority" in
+  */*|*@*|*\?*|*\#*) exit 1 ;;
+esac
+case "$authority" in
+  *:*:*) exit 1 ;;
+  *:*)
+    host=${authority%:*}
+    port=${authority##*:}
+    ;;
+  *)
+    host=$authority
+    port=
+    ;;
+esac
+if [ -n "$port" ]; then
+  case "$port" in ''|*[!0-9]*) exit 1 ;; esac
+  [ "$port" -ge 1 ] 2>/dev/null && [ "$port" -le 65535 ] 2>/dev/null || exit 1
+fi
+case "$host" in
+  localhost|*.localhost|*.local|*[!A-Za-z0-9.-]*|.*|*..*|*.) exit 1 ;;
+  *.*) ;;
+  *) exit 1 ;;
+esac
+
+all_numeric=1
+old_ifs=$IFS
+IFS=.
+set -- $host
+IFS=$old_ifs
+for label do
+  [ "${#label}" -le 63 ] || exit 1
+  case "$label" in ''|*[!A-Za-z0-9-]*|-*|*-) exit 1 ;; esac
+  case "$label" in
+    *[!0-9]*)
+      case "$label" in
+        0[xX]?*)
+          hex=${label#0?}
+          case "$hex" in ''|*[!0-9A-Fa-f]*) all_numeric=0 ;; esac
+          ;;
+        *) all_numeric=0 ;;
+      esac
+      ;;
+  esac
+done
+[ "$all_numeric" -eq 0 ] || exit 1
+WEB_CANONICAL_HOST=$host
+export WEB_CANONICAL_HOST

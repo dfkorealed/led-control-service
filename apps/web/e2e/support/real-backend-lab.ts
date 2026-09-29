@@ -285,6 +285,8 @@ function isJsonRecord(value: unknown): value is Record<string, unknown> {
 }
 
 export class RealBackendLab {
+  readonly webIngressSecret = randomBytes(32).toString("hex");
+  private readonly mfaEncryptionKey = randomBytes(32).toString("base64");
   readonly operator = { loginId: runtimeLoginId("operator"), password: runtimePassword() };
   readonly admin = { loginId: runtimeLoginId("admin"), name: "Task 9 현장 관리자", password: runtimePassword(), newPassword: runtimePassword() };
   readonly viewer = {
@@ -1993,6 +1995,8 @@ export class RealBackendLab {
       MQTT_CA_PATH: join(this.pkiDir, "ca.crt"), MQTT_CLIENT_CERT_PATH: join(this.pkiDir, "api.crt"),
       MQTT_CLIENT_KEY_PATH: join(this.pkiDir, "api.key"), MQTT_API_INSTANCE_ID: this.runId,
       API_PORT: String(this.ports.api), WEB_PUBLIC_URL: `http://127.0.0.1:${this.ports.web}`,
+      LANDING_INGRESS_SECRET: this.webIngressSecret,
+      MFA_ENCRYPTION_KEY: this.mfaEncryptionKey,
       // This isolated browser lab serves HTTP. Explicit empty values block both
       // inherited TLS settings and API bootstrap's later parent-checkout dotenv
       // load; deleting these keys would let external certificate paths back in.

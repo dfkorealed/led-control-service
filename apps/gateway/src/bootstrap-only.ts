@@ -1,6 +1,7 @@
 import { constants } from "node:fs";
 import { access, lstat, readFile, realpath } from "node:fs/promises";
 import { X509Certificate } from "node:crypto";
+import { isIP } from "node:net";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createAssignmentStore, resolveGatewayAssignment } from "./config/resolve-assignment";
@@ -22,7 +23,11 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-
  * BlueZ와 명령 runtime이 들어 있다. 전용 artifact/entrypoint로 분리해야 실수로
  * HCI 전원을 바꾸거나 BIO 패킷을 보내는 일을 실행 시작 전부터 차단할 수 있다.
  */
-export async function runBootstrapOnly(env: NodeJS.ProcessEnv, args: readonly string[] = []): Promise<Result> {
+type BootstrapOnlyDependencies = {
+  parseBootstrapUrl?: (value: string) => URL;
+};
+
+export async function runBootstrapOnly(env: NodeJS.ProcessEnv, args: readonly string[] = [], dependencies: BootstrapOnlyDependencies = {}): Promise<Result> {
   let stage: Stage = "preflight";
   try {
     // Root 권한으로 identity를 생성하지 않는다. Host는 새 root의 소유권만 미리
@@ -32,8 +37,9 @@ export async function runBootstrapOnly(env: NodeJS.ProcessEnv, args: readonly st
     const siteId = env.GATEWAY_EXPECTED_SITE_ID ?? "";
     const gatewayId = env.GATEWAY_EXPECTED_GATEWAY_ID ?? "";
     if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(serialNumber) || !UUID.test(siteId) || !UUID.test(gatewayId)) throw new Error("invalid scope");
-    const url = new URL(env.GATEWAY_BOOTSTRAP_URL ?? "");
-    if (url.protocol !== "https:" || url.username || url.password || url.search || url.hash || url.pathname !== "/gateway-bootstrap") throw new Error("invalid endpoint");
+    // 실제 entrypoint는 항상 기본 parser를 사용한다. 의존성 주입은 loopback TLS
+    // fixture가 네트워크/인증서 수명주기를 검증할 때만 endpoint transport를 대체한다.
+    const url = (dependencies.parseBootstrapUrl ?? parseCanonicalGatewayBootstrapUrl)(env.GATEWAY_BOOTSTRAP_URL ?? "");
     const identityRoot = await writableRoot(env.GATEWAY_BOOTSTRAP_IDENTITY_DIR ?? "/data/identity");
     const stateRoot = await writableRoot(env.GATEWAY_BOOTSTRAP_STATE_DIR ?? "/data/gateway");
     if (contains(identityRoot, stateRoot) || contains(stateRoot, identityRoot)) throw new Error("overlapping roots");
@@ -65,6 +71,19 @@ export async function runBootstrapOnly(env: NodeJS.ProcessEnv, args: readonly st
     // 않고 고정 stage만 반환한다. 원시 Error/PEM/URL/ID/claim code는 로그 금지다.
     return { status: "failed", operation: "bootstrap-only", stage };
   }
+}
+
+export function parseCanonicalGatewayBootstrapUrl(value: string) {
+  let url: URL;
+  try { url = new URL(value); }
+  catch { throw new Error("invalid endpoint"); }
+  const hostname=url.hostname.toLowerCase();
+  const canonicalDns=!isIP(hostname)&&hostname.length<=253&&hostname.includes('.')&&
+    hostname!=="localhost"&&!hostname.endsWith(".localhost")&&!hostname.endsWith(".local")&&
+    hostname.split('.').every(label=>label.length>0&&label.length<=63&&/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/i.test(label));
+  if (url.protocol !== "https:" || url.username || url.password || url.search || url.hash ||
+    url.pathname !== "/gateway-bootstrap" || !canonicalDns) throw new Error("invalid endpoint");
+  return url;
 }
 
 async function writableRoot(path: string) {

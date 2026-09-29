@@ -2,6 +2,7 @@ import { fileURLToPath } from "node:url";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import { defineConfig } from "vitest/config";
+import { createViteApiProxyOptions } from "./vite-api-proxy";
 
 export default defineConfig({
   // 개발 서버와 병렬 브라우저 검증이 서로의 최적화 파일을 지우지 않도록 격리한다.
@@ -11,11 +12,7 @@ export default defineConfig({
   build: { rollupOptions: { input: { main: fileURLToPath(new URL("./index.html", import.meta.url)), concept: fileURLToPath(new URL("./concepts/field-day.html", import.meta.url)) } } },
   server: {
     proxy: {
-      "/api": {
-        target: process.env.VITE_API_PROXY_TARGET ?? "http://localhost:4000",
-        changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/api/, "")
-      }
+      "/api": createViteApiProxyOptions(process.env)
     }
   },
   test: {

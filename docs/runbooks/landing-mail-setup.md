@@ -18,7 +18,7 @@
 | `LANDING_NAVER_WORKS_SENDER` | 메일 발신 구성원의 고정 이메일 주소. NAVER WORKS `/users/{userId}/mail` 경로에 사용됨 |
 | `LANDING_MAIL_TOKEN_KEY` | 암호학적으로 생성한 32바이트 난수의 **표준 Base64** 인코딩. AES-256-GCM 토큰 암호화에 사용 |
 
-별도로 **필수** `LANDING_INGRESS_SECRET`을 같은 env 파일에 설정한다. 보안이 통제된 환경에서 `openssl rand -hex 32`로 독립 난수를 생성하며 정확히 64자리 소문자 hex여야 한다. OAuth secret·토큰 암호화 키와 재사용하지 않는다. 이 값은 API와 Web nginx runtime에만 전달된다. nginx는 브라우저가 보낸 `X-Landing-Ingress-Secret`·`X-Landing-Client-IP`를 각각 이 비밀과 실제 연결의 `$remote_addr`로 덮어쓴다. API는 상수 시간 비밀 비교와 단일 IP 검증을 통과한 공개 문의만 처리한다. 다른 container·클라이언트·로그·정적 번들에 값을 넣지 않는다.
+별도로 **필수** `LANDING_INGRESS_SECRET`을 같은 env 파일에 설정한다. 보안이 통제된 환경에서 `openssl rand -hex 32`로 독립 난수를 생성하며 정확히 64자리 소문자 hex여야 한다. OAuth secret·토큰 암호화 키와 재사용하지 않는다. 이름은 기존 배포 호환성을 위해 유지하지만 현재는 공개 문의뿐 아니라 로그인·rate limit·감사의 Web→API client-IP 신뢰 경계 전체에 사용한다. 이 값은 API와 Web nginx runtime에만 전달된다. nginx는 브라우저가 보낸 `X-Web-Ingress-Secret`·`X-Web-Client-IP`와 `X-Real-IP`·`X-Forwarded-*`를 각각 이 비밀과 실제 연결의 `$remote_addr`로 덮어쓴다. API는 상수 시간 비밀 비교와 단일 IP 검증을 통과한 요청만 Web client IP로 신뢰하고, 실패하면 인증은 socket IP로 fallback하며 공개 문의는 503으로 닫힌다. 다른 container·클라이언트·로그·정적 번들에 값을 넣지 않는다.
 
 지원 topology는 인터넷 방문자 → Web nginx 8443 → 내부 API 4000이다. API는 host port를 직접 게시하지 않는다. 장비용 Web 9443은 같은 API로 TLS를 그대로 전달하므로 **전역 `API_TRUST_PROXY`를 설정하지 않는다**. 9443 직접 문의는 인증 헤더가 없어 503으로 거부된다. 추가 CDN/LB를 앞에 붙이면 현재 계약에서는 그 LB가 한 방문자로 계산되므로, 별도의 검토 없이 클라이언트 XFF를 신뢰하지 않는다. 비밀 누락은 Compose render를 실패시키고, 형식·API/Web 불일치·origin 불일치·전역 proxy trust는 preflight에서 거부한다. 교체 시 API/Web을 같은 유지보수 창에서 갱신하며 불일치 중 새 접수는 503이다.
 
