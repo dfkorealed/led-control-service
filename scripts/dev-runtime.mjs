@@ -58,7 +58,13 @@ export function resolveDevEnvironment(root, source) {
 
   return {
     ...source,
-    ...(localAppOnly ? { VITE_API_PROXY_TARGET: `https://127.0.0.1:${apiPort}` } : {}),
+    ...(localAppOnly ? {
+      VITE_API_PROXY_TARGET: `https://127.0.0.1:${apiPort}`,
+      // UI/API 확인 모드는 장비 claim·인증서 발급을 수행하지 않는다. 만료된 Lab
+      // Vault token 때문에 로그인 서버까지 막지 않되 API HTTPS/mTLS 재료와 MQTT
+      // server identity 검증은 그대로 유지한다. 기본 Lab/HIL 모드는 Vault를 바꾸지 않는다.
+      PKI_PROVIDER: "unavailable"
+    } : {}),
     MQTT_URL: mqttUrl,
     MQTT_PUBLIC_URL: mqttPublicUrl,
     MQTT_CA_PATH: source.MQTT_CA_PATH?.trim() || join(pki, usesLabBundle ? "mqtt-ca.crt" : "ca.crt"),

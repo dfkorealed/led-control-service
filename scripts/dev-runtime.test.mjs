@@ -132,6 +132,7 @@ test("로컬 앱 모드는 내부 API와 MQTT만 loopback으로 파생하고 공
   assert.equal(env.MQTT_PUBLIC_URL, "mqtts://192.168.45.69:8883");
   assert.equal(env.LAB_API_DNS, "api.led.lan");
   assert.equal(env.LAB_MQTT_DNS, "mqtt.led.lan");
+  assert.equal(env.PKI_PROVIDER, "unavailable");
 });
 
 test("로컬 앱 모드는 stale 공개 Lab IP 소유권을 요구하지 않는다", async () => {
