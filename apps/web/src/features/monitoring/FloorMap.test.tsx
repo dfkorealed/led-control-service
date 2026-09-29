@@ -85,26 +85,30 @@ describe("FloorMap", () => {
     expect(screen.getByText("지도 배치 정보 확인 불가")).toBeVisible();
   });
 
-  it("opens a read-only popover with saved coordinates and real brightness, then restores marker focus", async () => {
+  it("opens user-friendly information and closes without scrolling the marker into view", async () => {
     const onSelectFixture = vi.fn();
     render(<FloorMap floor={navigationFloor} snapshot={{ ...mapSnapshot, fixtures: [{
       id: "fixture-1", name: "B1-L001", x: 120, y: 80, size: 20
     }] }} selectedFixtureId={null} onSelectFixture={onSelectFixture} timeZone="Asia/Seoul" />);
 
     const marker = screen.getByRole("button", { name: "B1-L001 정상 70%" });
+    const focus = vi.spyOn(marker, "focus");
     fireEvent.click(marker);
     const info = await screen.findByRole("dialog", { name: "B1-L001 조명 정보" });
     expect(info).toHaveTextContent("현재 밝기");
     expect(info).toHaveTextContent("70%");
-    expect(info).toHaveTextContent("지도 좌표");
-    expect(info).toHaveTextContent("120, 80");
+    expect(info).not.toHaveTextContent("지도 좌표");
+    expect(within(info).getByRole("button", { name: "조명 정보 닫기" })).toBeVisible();
+    fireEvent.click(within(info).getByRole("button", { name: "조명 정보 닫기" }));
+    await waitFor(() => expect(focus).toHaveBeenCalledWith({ preventScroll: true }));
+    fireEvent.click(marker);
+    const reopened = await screen.findByRole("dialog", { name: "B1-L001 조명 정보" });
     expect(info).not.toHaveTextContent("주차면 앞");
-    expect(info.querySelector("button")).toBeNull();
     expect(onSelectFixture).toHaveBeenCalledWith("fixture-1");
 
-    fireEvent.keyDown(info, { key: "Escape" });
+    fireEvent.keyDown(reopened, { key: "Escape" });
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "B1-L001 조명 정보" })).not.toBeInTheDocument());
-    expect(marker).toHaveFocus();
+    await waitFor(() => expect(marker).toHaveFocus());
   });
 
   it("moves only the focused map viewport with arrow keys", () => {
@@ -141,12 +145,12 @@ describe("FloorMap", () => {
     const saved = await screen.findByRole("dialog", { name: "저장된 조명 조명 정보" });
     expect(saved).toHaveTextContent("상태 확인 전");
     expect(saved).not.toHaveTextContent("0%");
-    expect(saved).toHaveTextContent("1120, 740");
+    expect(saved).not.toHaveTextContent("1120, 740");
 
     rerender(<FloorMap floor={navigationFloor} snapshot={{ ...mapSnapshot, fixtures: [] }} selectedFixtureId={null} onSelectFixture={vi.fn()} />);
     fireEvent.click(screen.getByRole("button", { name: "B1-L001 정상 70%" }));
     const runtime = await screen.findByRole("dialog", { name: "B1-L001 조명 정보" });
-    expect(runtime).toHaveTextContent("저장된 위치 정보 없음");
+    expect(runtime).not.toHaveTextContent("지도 좌표");
     expect(runtime).toHaveTextContent("70%");
   });
 

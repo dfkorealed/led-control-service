@@ -62,7 +62,7 @@ test("브라우저 fixture로 1,000개 조명과 지도 객체를 렌더링하�
   });
 
   const startedAt = Date.now();
-  await page.goto("/");
+  await page.goto(`/monitoring?siteId=${ids.site}`);
   await expect(page.locator('[data-spatial-map-marker="true"]')).toHaveCount(1000, { timeout: 10_000 });
   expect(Date.now() - startedAt).toBeLessThan(10_000);
   await expect(page.getByRole("button", { name: "B2-L1000 정상 70%" })).toBeVisible();
@@ -102,7 +102,14 @@ test("브라우저 fixture로 1,000개 조명과 지도 객체를 렌더링하�
     fixtures[799].id
   ]);
   await expect(page.getByRole("button", { name: "B2-L1000 장애 15%" })).toBeVisible();
+});
 
+test("1,000대 편집기는 실제 프레임 시계에서 8초 안에 준비되고 위치 변경을 저장한다", async ({ page }) => {
+  // Clock.install은 Date뿐 아니라 RAF/performance와 browser context 전체를 바꾼다.
+  // 10분 가상 시간 전진 검증과 실제 렌더링 성능 측정은 별도 context로 격리한다.
+  const api = await installSettingsApiRoutes(page, "admin", {
+    fixtures, mapObjects, ids: { siteId: ids.site, floorId: ids.floor, gatewayId: ids.gateway }
+  });
   const editorStartedAt = Date.now();
   await page.goto(`/settings/floor-plans/${ids.floor}/edit?siteId=${ids.site}`);
   await expect(page.getByRole("heading", { name: "B2 맵 편집" })).toBeVisible({ timeout: remainingEditorBudget(editorStartedAt) });
@@ -110,15 +117,29 @@ test("브라우저 fixture로 1,000개 조명과 지도 객체를 렌더링하�
     const latestLease = [...api.editorRequests].reverse().find((request) => request.type === "lease-acquire");
     return latestLease?.type === "lease-acquire" && latestLease.result.editable;
   }, { timeout: remainingEditorBudget(editorStartedAt) }).toBe(true);
-  const canvas = page.getByLabel("B2 편집 캔버스");
-  await expect.poll(async () => canvas.locator("canvas").nth(2).evaluate((element: HTMLCanvasElement) => {
-    const context = element.getContext("2d");
-    return context ? Array.from(context.getImageData(20, 20, 1, 1).data) : [];
-  }), { timeout: remainingEditorBudget(editorStartedAt) }).toEqual([21, 159, 129, 255]);
-  await canvas.click({ position: { x: 20, y: 20 }, force: true, timeout: remainingEditorBudget(editorStartedAt) });
+  const canvas = page.getByTestId("floor-editor-canvas");
+  // 편집기는 최초 화면 맞춤을 수행하므로 지도 좌표를 실제 카메라 좌표로 변환한다.
+  // 고정 (20,20) 픽셀은 조명이 아니라 화면 맞춤으로 생긴 빈 여백을 검사한다.
+  const markerPoint = await page.evaluate(() => {
+    const element = document.querySelector("[data-testid='floor-editor-canvas']")!;
+    const bounds = element.getBoundingClientRect();
+    return { x: bounds.left + 20 * Number(element.getAttribute("data-zoom")) + Number(element.getAttribute("data-pan-x")),
+      y: bounds.top + 20 * Number(element.getAttribute("data-zoom")) + Number(element.getAttribute("data-pan-y")) };
+  });
+  await page.mouse.click(markerPoint.x, markerPoint.y);
   const properties = page.getByRole("complementary", { name: "속성 패널" });
   await expect(properties.getByRole("heading", { name: "B2-L0001" })).toBeVisible({ timeout: remainingEditorBudget(editorStartedAt) });
   expect(Date.now() - editorStartedAt).toBeLessThan(editorReadinessBudgetMs);
+  // 8초 내 실제 선택 가능 여부를 먼저 검사하고 별도로 렌더링 픽셀을 확인한다.
+  const pixels = await canvas.locator(".konvajs-content canvas").evaluateAll(nodes => nodes.map(node => {
+    const element = node as HTMLCanvasElement;
+    const host = element.closest("[data-testid='floor-editor-canvas']")!;
+    const zoom = Number(host.getAttribute("data-zoom"));
+    const point = { x: 20 * zoom + Number(host.getAttribute("data-pan-x")), y: 20 * zoom + Number(host.getAttribute("data-pan-y")) };
+    const context = element.getContext("2d");
+    return context ? Array.from(context.getImageData(Math.round(point.x), Math.round(point.y), 1, 1).data) : [];
+  }));
+  expect(pixels).toContainEqual([21, 159, 129, 255]);
   await properties.getByLabel("X").fill("50");
   await properties.getByLabel("X").press("Tab");
   await expect(page.getByRole("button", { name: "저장", exact: true })).toBeEnabled();

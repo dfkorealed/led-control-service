@@ -867,13 +867,13 @@ describe("App", () => {
     );
 
     expect(await screen.findByRole("button", { name: "맵 선택" })).toBeInTheDocument();
-    expect(screen.getByRole("group", { name: "전체 조명" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "전체 조명" })).toBeInTheDocument();
     const inspector = await openMonitoringInspector();
     expect(within(inspector).getByRole("complementary", { name: "선택 조명 상세" })).toBeInTheDocument();
     expect(screen.getAllByText("관제 센터").length).toBeGreaterThan(0);
   });
 
-  it("shows the selected fixture's assigned gateway in monitoring details", async () => {
+  it("does not expose assigned gateway or other technical data in monitoring details", async () => {
     apiState.dashboard = {
       ...mockDashboard,
       floors: mockDashboard.floors.map((floor, floorIndex) => ({
@@ -892,8 +892,12 @@ describe("App", () => {
       </QueryClientProvider>
     );
 
+    fireEvent.click(await screen.findByRole("button", { name: /^B2-L11 / }));
     const inspector = await openMonitoringInspector();
-    expect(await within(inspector).findByText("조명 전용 게이트웨이 A (정상)")).toBeInTheDocument();
+    const detail = within(inspector).getByRole("complementary", { name: "선택 조명 상세" });
+    expect(detail).toHaveTextContent("B2-L11");
+    expect(detail).toHaveTextContent("현재 밝기");
+    expect(detail).not.toHaveTextContent(/조명 전용 게이트웨이|RSSI|Hop|Health|정격 전력|명령 성공률/);
   });
 
   it("disables control and explains the server-provided block reason", async () => {
@@ -1037,8 +1041,10 @@ describe("App", () => {
     fireEvent.click(screen.getByRole("button", { name: "B1-L02 정상 55%" }));
     const inspector = await openMonitoringInspector();
     expect(await within(inspector).findByRole("heading", { name: "B1-L02" })).toBeInTheDocument();
-    expect(within(inspector).getByRole("complementary", { name: "선택 조명 상세" })).toHaveTextContent("-56 dBm");
-    expect(within(inspector).getByRole("complementary", { name: "선택 조명 상세" })).toHaveTextContent("99%");
+    const detail = within(inspector).getByRole("complementary", { name: "선택 조명 상세" });
+    expect(detail).toHaveTextContent("55%");
+    expect(detail).toHaveTextContent("조치 불필요");
+    expect(detail).not.toHaveTextContent(/-56 dBm|99%|RSSI|명령 성공률/);
   });
 
   it("keeps the monitoring floor map read only", async () => {

@@ -34,13 +34,21 @@
 - 관련 파일: `apps/api/src/monitoring-activity/command-outcome-activity.ts`, `monitoring-activity.projection.ts`, `packages/shared/src/monitoring-activity-contracts.ts`, `apps/api/src/commands/command-retention-worker.ts`.
 - 갱신 규칙: 활동 조회/UI 구현 상태와 원본 삭제 안전 검증을 구분하고 실제 운영 반영 여부를 함께 기록한다.
 
-기준일: 2026-09-27
+기준일: 2026-09-30
+
+## 2026-09-30 탐색·시야 개선 검증 상태
+
+- 구현 완료: 별도 `codex/monitoring-navigation-confidence`에서 KPI 필터·지도 위치 찾기, 간단 조명 정보, 아이콘 전용 전체 보기와 범위별 카메라 기억을 구현했다. 상태 확인 결과 UI 및 모든 기술 정보 표시는 제외하고 기존 수동 장치 확인·최근 활동은 유지한다.
+- 미구현: 메인 작업 브랜치 병합은 검증 결과 판단 후 수행한다. 실제 현장/HIL·DB migration·배포·push는 이번 작업에 포함하지 않는다.
+- 부족하거나 개선이 필요한 기능: Node22/pnpm9.15의 root lint/typecheck/test/build는 exit0이다. Web 2,626 passed/3 skipped, API 2,963 passed/827 skipped, Gateway 1,409 passed 및 UI 정책 65/65·위반0/0이다. 최종 Chromium은82 passed/1 failed(exit1)이며 새 탐색·시야8건은 모두 통과했다. 1,000대 설정 편집기의8초 준비 성능 검사 실패는 미해결이다. 기존 CustomerShell 코드로 비교해도 약22초로 재현됐지만 전체 기준 브랜치 성능이나 원인 해결을 증명한 것은 아니다. 성능 한도를 완화하거나 실패를 통과로 취급하지 않는다.
+- 관련 파일: 아래 `관련 파일`의 지도·모니터링·공통 UI와 `apps/web/e2e/monitoring-1000.spec.ts`, `docs/superpowers/plans/2026-09-29-monitoring-navigation-and-confidence.md`.
+- 갱신 규칙: software fixture와 실제 장비 결과, 독립 코드 리뷰와 작성자 자기 검토를 구분한다. 사용자의 새 서브에이전트 금지에 따라 코드 검토는 작성자가 수행했고 기존 UI/UX 디자이너 세션이 구현 화면4종을 시각 검토했다.
 
 ## 2026-09-25 Final Atlas 적용 진행 상태
 
 - 현장 전체와 선택 층의 조명 KPI를 별도 영역으로 분리했다. 등록 수와 상태별 수치는 dashboard의 현장·층 집계만 사용하며 조명 페이지 일부나 지도 핀 수로 역산하지 않는다. 오래된 로컬 테스트 DTO처럼 새 집계 필드가 없는 경우 `집계 준비 중`으로 표시하고 `0`으로 꾸미지 않는다. 실제 API는 `offlineFixtures`, 층별 `summary`, `mapRevision`, `mapConfigured`를 반환한다. `지도 표시 N대`는 선택 층 저장 map snapshot의 배치 수만 사용하고 숨김 도형·미배치 조명은 세지 않는다. 옛 지도에서 runtime-only 핀이 함께 보이거나 배치 필드가 누락되면 정확한 총수를 증명할 수 없으므로 비수치 `지도 배치 정보 확인 불가`로 표시한다.
 - 현장·층 KPI를 각각 하나의 가로 strip으로 묶고, 데스크톱에서 검색·상세 상시 보조열을 `조명 검색·상세` 읽기 전용 드로어로 옮겨 지도가 본문 가용 폭의 95% 이상을 차지하도록 했다. 모바일에서도 같은 44px 이상 진입 버튼으로 검색·미배치 선택·상세를 열 수 있고 390/320px 지도 높이 340/300px, 문서 가로 overflow 0을 유지한다. 저장된 지도 카메라, pan/zoom, 실제 새로고침, 핀 팝오버와 권한별 설정 링크는 그대로 둔다. 드로어는 닫기/Escape로 닫히고 진입 버튼에 초점이 복귀한다.
-- 지도 핀은 이름만 native 툴팁에 표시하고 접근성 이름에는 기존 상태·밝기를 유지한다. 클릭하면 공통 읽기 전용 팝오버에서 실제 마지막 관측 밝기와 저장 map snapshot 좌표를 보여 준다. 미관측 밝기·없는 저장 좌표를 만들어내지 않으며, 저장 핀의 runtime 행이 아직 로드되지 않았을 때 다른 조명의 게이트웨이·RSSI를 상세에 표시하지 않는다. Escape 닫기·핀 초점 복귀와 지도 포커스 방향키 이동을 제공한다. 320px Chromium 핀 가장자리·가로 overflow 테스트와 focused Vitest/타입/UI 정책 검사를 통과했다.
+- 지도 핀은 이름만 native 툴팁에 표시하고 접근성 이름에는 기존 상태·밝기를 유지한다. 클릭하면 공통 읽기 전용 팝오버에서 실제 마지막 관측 밝기·시각·권장 조치를 보여 준다. 2026-09-29 변경으로 좌표와 기술 정보 표시는 제거했다. 미관측 밝기·없는 저장 좌표를 만들어내지 않으며, 저장 핀의 runtime 행이 아직 로드되지 않았을 때 다른 조명의 게이트웨이·RSSI를 상세에 표시하지 않는다. Escape 닫기·핀 초점 복귀와 지도 포커스 방향키 이동을 제공한다. 320px Chromium 핀 가장자리·가로 overflow 테스트와 focused Vitest/타입/UI 정책 검사를 통과했다.
 - 웹은 선택 현장·층의 실제 `GET /sites/:siteId/floors/:floorId/monitoring-activity` 응답을 사용자별 query cache로 조회한다. 최근 활동 띠는 서버에서 받은 항목만 3초 간격으로 회전하고 긴 문구에도 `전체 보기`를 우측 끝에 둔다. 등록 조명 0대라도 실제 기록이 있으면 서랍을 열 수 있으며, 범례와 로그는 최소 18px 띄운다. 서랍은 서버 cursor로 5건씩 이동하고 `410` 만료에는 이전 행을 재사용하지 않고 명시적인 `최신 기록 보기`를 제공한다. 실제 0건, 최초 조회 실패, 마지막 성공 뒤 갱신 실패를 서로 다르게 표시한다.
 - 운영 활동 범위는 중앙 DB 시각의 `retainedFrom`을 정본으로 하는 최근 UTC 3 calendar months다. 브라우저가 90일로 환산하거나 아틀라스 가상 로그를 생성하지 않는다. 명령 원본이 3개월 뒤 물리 삭제되어도 표시 가능한 안전한 활동 snapshot만 사용하고, 만료된 명령 상세 링크·재전송 UI를 제공하지 않는다. API 조회·조명/refresh/확정된 Command 결과 생산자·활동 보존 sweep은 코드에 통합됐으며, 고객 DB migration·과거 기록 backfill·실장비 HIL은 아직 수행하지 않았다.
 
@@ -88,7 +96,11 @@
 
 ## 구현 완료
 
-- 2026-09-24 모니터링 상세의 오프라인·상태 수신 지연 조명은 현재 밝기처럼 표시하지 않고 `최근 확인 밝기`와 현장 시간대 기준 마지막 확인 시각을 함께 표시한다. 최초 상태 수신 전에는 밝기를 `확인 전`으로 표시하며 BIO 센서 설정 밝기를 실제 출력값으로 대체하지 않는다. Health 장애의 원인·권장 조치는 고객 언어로 안내하고 숫자 fault code는 기존 장비 정보에만 남긴다. 선택 층의 KPI는 320px 2×2, 390px 1×4를 목표로 압축하고, 공통 검색 필드와 상태별 목록에서 이름/번호 조각 검색·미배치 조명 선택을 지원한다. 미배치는 지도 마커로 만들지 않으며 관리자만 설정 배치 링크를 본다. 기존 층 fixture 페이지를 연속 조회하므로 다음 페이지가 남아 있으면 검색 0건을 최종 결과로 단정하지 않는다. 관련 focused Vitest는 통과했으며 4개 폭 Chromium과 실제 WebView/HIL은 총괄의 별도 직렬 검증을 기다린다.
+- 2026-09-29 탐색 개선 구현: 선택 층 KPI는 접근 가능한 상태 필터 버튼으로 연결하고 현장 KPI는 읽기 전용 집계를 유지한다. 목록 필터와 지도 강조는 서버 DTO 상태 기준이며 배치 위치는 설정 snapshot을 우선한다. 추가 페이지 실패 시 자동 재요청을 멈추고 부분 조회 안내·수동 재시도를 제공한다. 모든 페이지 조회가 끝난 뒤 등록 수와 집계가 다르면 확인 시점 차이를 안내하며 검색 결과 수나 부분 페이지 수로 KPI를 덮어쓰지 않는다.
+- 조명 핀/상세는 상태·확인된 밝기·마지막 확인 시각·권장 조치·배치 여부만 제공한다. 기술 정보와 상태 확인 결과 별도 UI는 제공하지 않으며 기존 수동 장치 확인·실패 안내는 유지한다. 미조회 핀은 확인 전으로 표시한다.
+- 전체 보기는 아이콘 전용이며 공통 지도 인스턴스를 유지한다. 닫기 시 지도 높이를 바꾸지 않고 연결된 마커에 preventScroll 초점을 복귀한다. 사용자·현장·층·맵 generation/크기별 카메라 기억은 30일·사용자당50개·300ms 지연 저장이며 저장소 실패 시 현재 세션 메모리만 사용한다. 브라우저 통합 검증은 진행 중이며 실장비 검증을 뜻하지 않는다.
+
+- 2026-09-24 모니터링 상세의 오프라인·상태 수신 지연 조명은 현재 밝기처럼 표시하지 않고 `최근 확인 밝기`와 현장 시간대 기준 마지막 확인 시각을 함께 표시한다. 최초 상태 수신 전에는 밝기를 `확인 전`으로 표시하며 BIO 센서 설정 밝기를 실제 출력값으로 대체하지 않는다. Health 장애의 원인·권장 조치는 고객 언어로 안내하고 숫자 fault code 등 기술 세부는 모니터링에 표시하지 않는다(2026-09-29 후속 변경). 선택 층의 KPI는 320px 2×2, 390px 1×4를 목표로 압축하고, 공통 검색 필드와 상태별 목록에서 이름/번호 조각 검색·미배치 조명 선택을 지원한다. 미배치는 지도 마커로 만들지 않으며 관리자만 설정 배치 링크를 본다. 기존 층 fixture 페이지를 연속 조회하므로 다음 페이지가 남아 있으면 검색 0건을 최종 결과로 단정하지 않는다. 관련 focused Vitest는 통과했으며 4개 폭 Chromium과 실제 WebView/HIL은 총괄의 별도 직렬 검증을 기다린다.
 
 - 네이티브 CAD는 원본을 보존한 표시용 벡터 batch로 전체 영역을 렌더링한다. 실제 두 도면의 모든 803/875개 tile을 PC·390px에서 확인했고 WebView foreground 정책의 32 MiB 예산에서도 누락 없이 표시했다. Context loss 복귀 시 이전 화면 캐시를 퇴출 가능 상태로 전환하며, 원거리 편집 요소와 저장 revision을 다시 반영한다. 실서버 pipeline 검증과 브라우저 API fixture 검증의 범위는 CAD 검증 보고서에 구분한다.
 
@@ -142,7 +154,7 @@
 - 조명 등록 진행 표시는 session·scan·node 상태를 하나의 순서 상태 머신으로 파생한다. active workflow는 오류가 없는 동안 정확히 한 단계만 `aria-current="step"`이고, 선행 단계는 완료, scan/장비 등록 실패는 실제 발생 단계의 오류로 표현한다. `completed`는 전체 완료, `cancelled`는 도달 단계 이후를 pending으로 유지해 current가 없고, session-level `failed`는 도달한 실제 단계가 error가 되어 terminal session을 진행 중으로 오인하지 않는다. 서버의 `errorMessage`, 개별 등록 검증 오류와 `scanFailureMessage`는 API 값 자체를 바꾸지 않고 공통 표시 경계에서 `Gateway ACK timeout` 같은 transport 원문을 `게이트웨이 장비 응답 시간 초과`처럼 한국어로 바꾼다.
 - 390px·320px commissioning 회귀는 버튼뿐 아니라 setup/Gateway claim/조명 등록의 enabled input·select·checkbox/radio associated label을 실제 clipping·occlusion을 고려한 연속 44×44px reachable area로 검증한다. 등록 직후 기본 일괄 form의 다섯 input을 먼저 검사하고, 개별 설정으로 전환한 뒤 개별 input을 다시 검사한다. 등록 form input과 select는 최소 44px이고, 18px checkbox/radio 시각 크기는 유지하되 label hit 영역을 44px 이상 제공한다.
 - 1440×900, 1024×768, 390×844, 320×740 Chromium route fixture에서 지도·상세 패널 배치와 document-level horizontal overflow를 검증한다. `맵 선택` 문구와 SelectBox의 수평 정렬, 새로고침 버튼의 우측 끝 정렬, 지도 오버레이 순서와 compact marker 상태 배지 위치도 같은 네 viewport에서 실제 픽셀로 검증한다. 1440×900 데스크톱은 문서 세로 스크롤 없이 뷰포트 안에 운영 화면을 고정하고, 상세 내용만 패널 안에서 세로 스크롤되는 계약을 추가로 검증한다. `2400×600`, `600×2400`처럼 가로·세로 비율이 극단적인 도면도 지도 영역의 가로·세로 경계 안에서 원본 비율을 유지한다. 760px 이하의 공통 helper는 root 아래 interactive element 중 disabled/hidden, `.sr-only`/`aria-hidden`, `display`/`visibility`/`opacity`로 숨긴 조상을 제외하고 현재 viewport 및 실제 overflow clip과 교차하는 effective target을 검사한다. usable intersection을 1 CSS px 이하 cell로 나누고 각 cell 중앙 hit sample이 target 또는 그 descendant인 연속 44×44px 후보가 하나 이상일 때만 통과하며, 부분·완전 occlusion은 정상 peer가 있어도 실패한다. checkbox/radio는 모든 associated label과 input fallback 중 이 조건을 만족하는 후보를 사용한다. viewport-fixed target은 transform/filter/perspective 등 fixed containing block을 만드는 조상이 있을 때만 ancestor overflow clip을 적용한다. 이 계약으로 새로고침, 맵·현장·등록 대상 select, 등록 방식 radio label, 로그아웃과 주 메뉴를 검증한다. 특히 390px와 320px에서 enabled `조명 검색 시작`·검색 실패 재시도의 actual bounding box가 44px 이상인지, 390px에서 pending setup·Gateway claim·조명 등록·reconciliation의 enabled primary/secondary action이 44px 이상인지를 route fixture로 고정한다. 밀집 도면 marker는 선택·hover·focus에서도 20px, 모서리 3px 네모 시각 크기를 유지해 hit overlap을 최소화하며 helper에서 명시적으로 제외한다. 대신 모든 조명을 노출하는 `상세 조명 선택` select가 44px 대체 선택 경로를 제공하고 marker/selector/상세 상태를 같은 selection state로 동기화한다. 이 검증은 deterministic API fixture 기반이며 실제 Raspberry Pi/ESP32-H2 HIL 증거는 아니다.
-- 운영 화면 상단은 선택 층 기준 `전체 조명`, `정상`, `점검 필요`, `오프라인` 4개 `MetricCard`를 compact하게 표시한다. 오프라인은 등록 직후 첫 상태를 기다리는 `provisioning_waiting_state`를 포함하며 점검 필요 오른쪽에 배치한다. 평균 밝기와 별도 빠른 상태 영역은 제거해 지도 높이를 확보했다. KPI 열/행 계약은 1440px 4/1, 1024px 2/2, 390px 2/2, 320px 1/4이고 해당 네 viewport에서 document horizontal overflow를 자동 검증한다.
+- 운영 화면 상단은 현장 집계의 읽기 전용 `MetricCard`와 선택 층의 필터용 `MetricButton`으로 `전체 조명`, `정상`, `점검 필요`, `오프라인`을 구분해 표시한다. 오프라인은 등록 직후 첫 상태를 기다리는 `provisioning_waiting_state`를 포함하며 점검 필요 오른쪽에 배치한다. 평균 밝기와 별도 빠른 상태 영역은 제거해 지도 높이를 확보했다. 각 KPI strip의 네 viewport 가로 overflow를 자동 검증한다.
 - KPI 다음에는 `층 도면`, `선택 조명 상세` 순서를 유지한다. 데스크톱 지도는 남은 뷰포트 높이를 모두 사용하고 현재 viewport에 맞춘 100%를 기준으로 10% 단위 확대·축소와 화면 맞춤을 제공한다. `Ctrl`/`Cmd`+휠은 브라우저 기본 확대를 취소하는 non-passive listener로 포인터 중심 zoom만 수행하고, 배경 이미지의 native drag를 비활성화해 빈 지도 drag와 일반 scroll로 안정적인 상하좌우 이동을 제공한다. marker 선택은 그대로 유지한다. 확대된 원본 비율 지도는 전용 viewport 안에서만 overflow되고 모바일 zoom control은 48px touch target을 제공한다.
 - 선택 조명 상세는 도면보다 좁은 고정 범위 패널에 배치하고 현재 밝기와 장비 사실만 표시하며 별도 점검 큐는 제공하지 않는다. 패널과 하위 grid item은 축소 가능한 너비를 사용하고 긴 장비·게이트웨이 이름을 패널 안에서 줄바꿈해 document-level 가로 스크롤을 만들지 않는다. 정상·장애·오프라인·첫 상태 확인 대기는 선택 상세의 `StatusBadge`와 지도 범례에서 icon + visible text로 구분한다. 모든 marker는 모서리 3px의 20px 네모로 표시하고 내부에 이름·밝기 문자와 bar를 렌더링하지 않으며, 정확한 정보는 기존 `title`/`aria-label`과 우측 상세 패널에 유지한다. online marker는 `0~9`, `10~19`, …, `80~89`, `90~100`% 밝기를 10단계로 분류하고 범위 밖은 clamp한다. 각 단계는 brown/orange 없이 cool slate/gray에서 neutral light, lemon/bright ivory로 이어지는 정적 fill·glow를 사용하며 단계가 높아질수록 실제 렌더링 밝기와 glow가 증가한다. fault는 red/double 테두리를 제거하고 같은 밝기 단계의 일반 border/fill/glow와 우상단 red 8px 배지만 사용한다. offline과 `provisioning_waiting_state`는 저장 밝기와 무관하게 무발광 dashed/dotted 상태 스타일을 유지한다. 도면 좌측 상단의 층/`실시간 조명 배치` 라벨은 제거하고, 상태 범례는 지도와 함께 스크롤되지 않는 비상호작용 overlay로 이동 안내 바로 위에 고정해 아래 marker·drag·wheel 입력을 가로채지 않는다. 모바일에서는 기존 공간 절약 정책에 따라 이동 안내를 숨기고 범례만 유지하되 줌 컨트롤과 겹치지 않도록 상단 간격을 확보한다. marker별 상태 문구나 SVG를 1,000개까지 반복 렌더링하지 않으며 기존 한국어 접근성 이름과 선택 상태는 유지한다.
 - 모니터링은 등록 조명 유무와 무관하게 Gateway claim, 조명 등록 패널·버튼·dialog 및 인시던트 이력·조치·판정 기준 UI를 렌더링하지 않는다. 등록 0개인 admin에게는 설정의 admin 전용 `/settings/registration` 이동 경로를 제공하고 viewer에게는 관리자가 설정에서 등록해야 한다고 안내한다. Gateway claim, active registration session 복구와 조명 등록 workflow는 설정 메뉴만 소유한다.
@@ -185,7 +197,7 @@
 - 층별 2D 맵에 도면 이미지와 조명 위치를 표시한다.
 - 조명 점은 선택/hover/focus에서도 크기가 변하지 않는 모서리 3px의 20px 네모 marker로 표시하고 outline과 적층으로만 현재 선택을 구분한다. online은 10개 밝기 단계별 정적 fill/glow를 적용하고 실제 computed 스타일의 단조 증가와 같은 단계의 동일함을 검증한다.
 - 조명 점의 접근성 라벨과 tooltip은 한국어 상태명(정상/오프라인/장애)을 사용하고, `provisioning_waiting_state`는 `상태 확인 대기`로 별도 표시한다.
-- 선택 조명 상세 패널에 현재 밝기, 정격 전력, 마지막 수신, 해당 조명에 실제 매핑된 게이트웨이 이름/상태, RSSI, hop count, 명령 성공률을 표시한다.
+- 선택 조명 상세 패널은 확인된 밝기·마지막 확인·고객용 상태 설명·권장 조치·배치 여부만 표시한다. 좌표·정격 전력·게이트웨이·RSSI·hop count·명령 성공률·숫자 Health 코드 등 기술 정보는 제거했다.
 - 선택 층 기준 전체 조명 수, 온라인 수, 점검 필요 수와 상태 확인 대기를 포함한 오프라인 수를 상단 KPI로 표시한다.
 - 지도 마커 또는 모바일 `상세 조명 선택` SelectBox로 개별 조명을 선택하며 두 입력과 상세 패널의 선택 상태를 동기화한다. 읽기 전용 Konva object 입력 상태는 HTML marker 버튼까지 비활성화하지 않도록 DOM 속성을 분리한다.
 - 층 탭은 좁은 화면에서 가로 스크롤되고, 모바일 하단 내비게이션 CSS는 `env(safe-area-inset-bottom)` 여백 계약을 적용한다. 현재 Chromium route fixture는 non-zero safe-area inset을 에뮬레이션하지 않으므로 실제 WebView inset 실측을 주장하지 않는다.
@@ -277,7 +289,7 @@
 - 플랫폼 운영 배포 절차는 [API·Web runbook](../runbooks/production-api-web-deployment.md)을 따른다. 단일 호스트 Compose, 외부 Vault·공개 MQTT/Object Storage 연결, 장비 mTLS 공개 SAN, CRL 갱신 후 수동 broker SIGHUP, API 교체 후 nginx upstream 재해석·재시작이 운영 조건이다. Process-local 지표만 제공하며 외부 metrics/dashboard/alert/log shipping은 구성하지 않았다. 운영 배포·사용자 DB 적용·실장비 HIL과 native WebView·수동 시각 QA는 이번 자동 검증에 포함하지 않는다.
 
 - 1440/390/320px 결과는 Chromium 자동 브라우저 software 증거다. 실제 iOS/Android native WebView, 수동 in-app 시각 QA, WebView safe-area 실측 또는 Raspberry Pi/ESP32-H2 HIL을 수행한 결과가 아니다. Lazy chunk 실패의 복구 UI는 플랫폼 Task 3에서 구현했으며, prefetch/offline cache는 후속 범위다. Task 3 오류 주입은 Vite에서 실제 앱 셸의 동적 import 요청을 차단한 deterministic Chromium 결과이며, 운영 CDN/container 배포나 실제 backend 장애·HIL 검증을 의미하지 않는다.
-- 지도 배율과 스크롤 위치는 현재 화면 세션 상태이며 층 전환·새로고침 시 100% 화면 맞춤으로 초기화된다. 사용자별 마지막 viewport를 저장하는 기능은 제공하지 않는다.
+- 카메라 기억은 동일 브라우저 사용자·현장·층에만 적용하며 여러 기기 간 동기화는 제공하지 않는다. 인증 범위를 확인하지 못하면 영속 저장하지 않는다. 실제 native WebView와 장비 HIL은 별도 검증이다.
 - 저장 도형 표시 회귀는 deterministic route fixture Chromium에서 검증한다. mock snapshot과 브라우저 합성 결과를 확인하는 범위이며 실제 Gateway, Raspberry Pi, ESP32-H2 또는 현장 도면의 HIL 검증은 아니다.
 - 테스트 데이터는 설정 개요의 설치 완료 assigned `admin` 전용 개발·검증 도구이며, 기본 off 상태이고 API도 비활성화 시 404를 반환한다. 따라서 표시되는 online 상태는 일시적 recent online일 수 있고 freshness 재집계 뒤 offline이 될 수 있으며, 실제 Gateway·Mesh·MQTT 상태나 HIL 검증 증거로 해석할 수 없다.
 - 개별 `provision-device`의 API DB transaction -> MQTT PUBACK과 Gateway RF 전 durable accept, terminal atomic 저장, exact `device-terminal-ingested` ACK 전 bounded replay는 software로 구현됐다. 다만 이 ACK를 생성하는 API terminal ingest/ACK outbox는 Task 3 범위여서 현재 production 통합에서는 device terminal이 계속 pending replay로 남는다. API/Gateway 프로세스 전원 차단 전체 구간의 자동 수렴과 실제 broker/Raspberry Pi/ESP32-H2 재시작 HIL은 Task 3 이후 검증해야 한다.
@@ -292,7 +304,7 @@
 - 5분 future gate, durable terminal rejection, 서버 수신 시각 freshness, 에너지 발생 시각 순서는 Shared/API/Gateway의 mock·software 자동 회귀와 disposable PostgreSQL migration DB에서 검증하는 범위다. 실제 broker, Raspberry Pi, BlueZ Mesh, ESP32-H2/LED를 연결한 HIL이나 사용자 DB migration은 이 작업에서 수행하지 않았다.
 - legacy null hash는 원본 payload와 같다는 증거가 없으므로 첫 인증 replay가 hash를 확정한다는 한계가 있다. 이후에는 exact hash만 허용하며, 새 future rejection에는 처음부터 hash가 있다. migration과 replay 보완은 과거 `Fixture.lastSeenAt`/`Gateway.lastHeartbeatAt` 및 energy 값을 재작성하지 않는다. 새 정상 event 수락 시 freshness가 서버 수신 시각으로 바뀌며, 과거 energy 오염의 소급 정정은 별도 범위다.
 - `lastSeenAt` 상대 시간은 클라이언트 현재 시간 기준이므로 서버 기준 freshness와 완전히 일치하지 않을 수 있다.
-- RSSI, hop count, 명령 성공률은 표시만 하며, 품질 등급이나 설치 가이드로 연결되지 않는다.
+- RSSI, hop count, 명령 성공률, Health 원시 코드, Gateway·정격 전력·좌표는 일반 사용자 모니터링 정보에서 표시하지 않는다. 내부 상태 수신·판정 계약을 삭제한 것은 아니다.
 - 1,000개 marker 조회/렌더링 기준은 자동 검증한다. 현재 이름/번호 검색은 브라우저가 이어 받아온 현재 층 fixture 페이지에 적용되며 서버 전체 검색 API는 없다. 더 큰 현장에는 공간 클러스터링과 서버 검색이 추가로 필요하다.
 - 자사 UUID 검색, batch 등록, 실제 Health Current 수집을 포함한 Raspberry Pi/ESP32-H2 실장비 HIL은 아직 실행하지 않았다. 자동 route fixture 통과를 검색·등록·상태 수집의 실기 완료로 간주하지 않는다.
 - Sensor server-send breaker는 actual patched source allocator fault harness와 fullclean target compile로 검증했다. 실제 device heap pressure, BTC queue saturation과 Sensor Status RF 전달은 HIL에서 확인해야 하며 software allocation test를 실장비 완료로 간주하지 않는다.
@@ -301,6 +313,12 @@
 - scan lifecycle 자동 테스트는 mock MQTT와 scanner adapter를 사용한다. 실제 host Mosquitto mTLS negative ACL integration에서 Gateway CN certificate의 `acks/state-ingested`, `acks/provisioning/scan-terminal-ingested` publish 거부를 확인했다. 2026-09-18 Task 7에서는 Docker broker persistence 재시작과 운영·개발 ACL 검증 3/3을 통과해 과거 Docker daemon 부재로 인한 skip 상태를 갱신했다. 이는 소프트웨어 broker 검증이며 실제 Raspberry Pi BlueZ adapter의 scan timeout, broker/Pi/API 재시작을 가로지르는 terminal application ACK 재전달, ESP32-H2 자사 UUID 필터와 terminal event 전달은 HIL에서 별도로 확인해야 한다.
 
 ## 관련 파일
+
+- `apps/web/src/features/floor-map/{map-camera,fixture-map-position}.ts`
+- `apps/web/src/features/monitoring/{FixtureDetailPanel,FixtureStatusBadge}.tsx`
+- `apps/web/src/features/monitoring/{monitoring-fixture-filter,monitoring-camera-storage,useMonitoringCameraMemory}.ts`
+- `apps/web/src/components/ui/{MetricButton,MetricContent}.tsx`, `workspace-focus/WorkspaceFocusProvider.tsx`
+- `apps/web/e2e/monitoring-navigation-confidence.spec.ts`
 
 - `apps/web/src/features/monitoring/MonitoringSummary.tsx`
 - `apps/web/src/features/monitoring/FloorMap.tsx`

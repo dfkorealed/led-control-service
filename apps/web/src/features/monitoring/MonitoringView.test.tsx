@@ -136,7 +136,7 @@ describe("MonitoringView refresh", () => {
     render(<MonitoringView siteId="site-1" />);
 
     expect(within(screen.getByRole("region", { name: "현장 전체 조명 현황" })).getByRole("group", { name: "현장 조명" })).toHaveTextContent("248");
-    expect(within(screen.getByRole("region", { name: "선택 층 조명 현황" })).getByRole("group", { name: "전체 조명" })).toHaveTextContent("62");
+    expect(within(screen.getByRole("region", { name: "선택 층 조명 현황" })).getByRole("button", { name: "전체 조명" })).toHaveTextContent("62");
     expect(screen.getByRole("button", { name: /B1-L001/ })).toBeInTheDocument();
   });
 
@@ -192,7 +192,7 @@ describe("MonitoringView refresh", () => {
     refetchFixtures.mockImplementationOnce(async () => { query.data.pages[0].items = [online, { ...second, status: "offline", statusReason: "fixture_stale" }]; });
     render(<MonitoringView siteId="site-1" userRole="viewer" />);
     fireEvent.click(screen.getByRole("button", { name: "B1-L002 정상 70%" }));
-    expect(screen.getByRole("group", { name: "정상" })).toHaveTextContent("1");
+    expect(screen.getByRole("button", { name: "정상" })).toHaveTextContent("1");
     fireEvent.click(screen.getByRole("button", { name: "새로고침" }));
     const loading = screen.getByRole("button", { name: "장치 상태 확인 중" });
     expect(loading).toBeDisabled();
@@ -201,9 +201,9 @@ describe("MonitoringView refresh", () => {
     expect(refreshApi.waitForMonitoringRefresh).toHaveBeenCalledWith(expect.objectContaining({ siteId: "site-1", floorId: "floor-1", clientRequestId: expect.any(String), signal: expect.any(AbortSignal) }));
     expect(refetchFixtures).not.toHaveBeenCalled();
     await act(async () => hardware.resolve({ status: "completed" }));
-    expect(screen.getByRole("group", { name: "전체 조명" })).toHaveTextContent("1");
-    expect(screen.getByRole("group", { name: "정상" })).toHaveTextContent("1");
-    expect(screen.getByRole("group", { name: "오프라인" })).toHaveTextContent("0");
+    expect(screen.getByRole("button", { name: "전체 조명" })).toHaveTextContent("1");
+    expect(screen.getByRole("button", { name: "정상" })).toHaveTextContent("1");
+    expect(screen.getByRole("button", { name: "오프라인" })).toHaveTextContent("0");
     expect(screen.getByRole("button", { name: "B1-L002 상태 수신 지연 70%" })).toBeVisible();
     openInspector();
     expect(screen.getByRole("complementary", { name: "선택 조명 상세" })).toHaveTextContent("B1-L002");
@@ -358,7 +358,7 @@ describe("MonitoringView refresh", () => {
 
     expect(screen.getByRole("button", { name: "맵 선택" })).toBeVisible();
     expect(screen.getByText("점검 필요")).toBeVisible();
-    expect(screen.getByRole("group", { name: "오프라인" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "오프라인" })).toBeVisible();
   });
 
   it.each([0, 2])("uses %i saved map placements for the empty-placement banner when runtime placement is stale", (placementCount) => {
@@ -397,12 +397,12 @@ describe("MonitoringView refresh", () => {
     });
     render(<MonitoringView siteId="site-1" />);
 
-    const savedPin = screen.getByRole("button", { name: "B1-L099 오프라인 0%" });
+    const savedPin = screen.getByRole("button", { name: "B1-L099 조명 정보 확인 전" });
     fireEvent.click(savedPin);
-    expect(screen.getByRole("button", { name: "B1-L099 오프라인 0%" })).toHaveAttribute("aria-current", "true");
+    expect(screen.getByRole("button", { name: "B1-L099 조명 정보 확인 전" })).toHaveAttribute("aria-current", "true");
     const inspector = openInspector();
     expect(within(inspector).getByRole("heading", { name: "조명 선택" })).toBeVisible();
-    expect(within(inspector).queryByText("B1-L001")).not.toBeInTheDocument();
+    expect(within(inspector).getByRole("complementary", { name: "선택 조명 상세" })).not.toHaveTextContent("B1-L001");
     expect(within(inspector).queryByText("GW-1 (정상)")).not.toBeInTheDocument();
   });
 
@@ -471,13 +471,13 @@ describe("MonitoringView refresh", () => {
 
     expect(screen.queryByRole("heading", { name: "운영 현황" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "맵 선택" })).toHaveTextContent("B1");
-    expect(screen.getByRole("group", { name: "전체 조명" })).toHaveTextContent("3");
-    expect(screen.getByRole("group", { name: "정상" })).toHaveTextContent("1");
-    expect(screen.getByRole("group", { name: "점검 필요" })).toHaveTextContent("1");
-    const offlineMetric = screen.getByRole("group", { name: "오프라인" });
+    expect(screen.getByRole("button", { name: "전체 조명" })).toHaveTextContent("3");
+    expect(screen.getByRole("button", { name: "정상" })).toHaveTextContent("1");
+    expect(screen.getByRole("button", { name: "점검 필요" })).toHaveTextContent("1");
+    const offlineMetric = screen.getByRole("button", { name: "오프라인" });
     expect(offlineMetric).toHaveTextContent("1");
     expect(offlineMetric).toHaveTextContent("상태 확인 대기 포함");
-    expect(within(offlineMetric.parentElement!).getAllByRole("group").map((metric) => metric.getAttribute("aria-label"))).toEqual([
+    expect(within(offlineMetric.parentElement!).getAllByRole("button").map((metric) => metric.getAttribute("aria-label"))).toEqual([
       "전체 조명",
       "정상",
       "점검 필요",
@@ -514,7 +514,7 @@ describe("MonitoringView refresh", () => {
 
     render(<MonitoringView siteId="site-1" />);
 
-    const summary = screen.getByRole("group", { name: "점검 필요" }).parentElement!;
+    const summary = screen.getByRole("button", { name: "점검 필요" }).parentElement!;
     const map = screen.getByRole("region", { name: "층 도면" });
     expect(summary.compareDocumentPosition(map) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     const drawer = openInspector();
@@ -736,13 +736,14 @@ describe("MonitoringView refresh", () => {
     expect(screen.getByRole("status")).toHaveTextContent(warning);
   });
 
-  it("shows the latest Health Current fault snapshot", () => {
+  it("explains a fault without exposing technical telemetry", () => {
     render(<MonitoringView siteId="site-1" />);
     openInspector();
 
-    expect(screen.getByText("장비 Health")).toBeInTheDocument();
-    expect(screen.getByText("장애 (0x04)")).toBeInTheDocument();
-    expect(screen.getByText("Health 수신")).toBeInTheDocument();
+    expect(screen.queryByText("장비 Health")).not.toBeInTheDocument();
+    expect(screen.queryByText("RSSI")).not.toBeInTheDocument();
+    expect(screen.queryByText("Health 수신")).not.toBeInTheDocument();
+    expect(screen.getByText("조명에서 점검이 필요한 상태를 보고했습니다.")).toBeInTheDocument();
   });
 
   it("shows an offline brightness as the last confirmed reading with its timestamp", () => {
@@ -933,7 +934,7 @@ describe("MonitoringView refresh", () => {
 
     expect(screen.getByRole("status")).toHaveTextContent("조명 상태를 불러오는 중");
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
-    expect(screen.getByRole("group", { name: "전체 조명" })).toHaveTextContent("1");
+    expect(screen.getByRole("button", { name: "전체 조명" })).toHaveTextContent("1");
     expect(screen.queryByText("등록된 층이 없습니다.")).not.toBeInTheDocument();
     expect(screen.queryByRole("region", { name: "층 도면" })).not.toBeInTheDocument();
   });
@@ -986,12 +987,12 @@ describe("MonitoringView refresh", () => {
     }));
     render(<MonitoringView siteId="site-1" />);
 
-    expect(screen.getByRole("group", { name: "전체 조명" })).toHaveTextContent("1");
+    expect(screen.getByRole("button", { name: "전체 조명" })).toHaveTextContent("1");
     await chooseSelect("맵 선택", "B2");
 
     expect(screen.getByRole("status")).toHaveTextContent("B2 조명 상태를 불러오는 중");
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
-    expect(screen.getByRole("group", { name: "전체 조명" })).toHaveTextContent("2");
+    expect(screen.getByRole("button", { name: "전체 조명" })).toHaveTextContent("2");
     expect(screen.queryByRole("region", { name: "층 도면" })).not.toBeInTheDocument();
   });
 
@@ -1011,7 +1012,7 @@ describe("MonitoringView refresh", () => {
     render(<MonitoringView siteId="site-1" />);
 
     expect(screen.getByRole("alert")).toHaveTextContent("조명 상태를 불러오지 못했습니다.");
-    expect(screen.getByRole("group", { name: "전체 조명" })).toHaveTextContent("1");
+    expect(screen.getByRole("button", { name: "전체 조명" })).toHaveTextContent("1");
     fireEvent.click(screen.getByRole("button", { name: "조명 상태 다시 시도" }));
     expect(refetchFixtures).toHaveBeenCalledTimes(1);
     expect(screen.queryByText(/인시던트/)).not.toBeInTheDocument();
@@ -1033,7 +1034,7 @@ describe("MonitoringView refresh", () => {
 
     render(<MonitoringView siteId="site-1" />);
 
-    expect(screen.getByRole("group", { name: "전체 조명" })).toHaveTextContent("1");
+    expect(screen.getByRole("button", { name: "전체 조명" })).toHaveTextContent("1");
     expect(screen.getByRole("region", { name: "층 도면" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "상태 센터, 미해결 1건" })).toBeInTheDocument();
     expect(within(screen.getByRole("region", { name: "알림" })).getByRole("status")).toHaveTextContent("저장된 조명 상태를 유지하고 있습니다. 조명 상태 갱신에 실패했습니다.");
@@ -1200,7 +1201,7 @@ describe("MonitoringView refresh", () => {
     Object.defineProperty(window, "innerWidth", { configurable: true, value: 320 });
     render(<MonitoringView siteId="site-1" />);
 
-    const summary = screen.getByRole("group", { name: "점검 필요" }).parentElement!;
+    const summary = screen.getByRole("button", { name: "점검 필요" }).parentElement!;
     const map = screen.getByRole("region", { name: "층 도면" });
     expect(summary.compareDocumentPosition(map) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(openInspector()).toContainElement(screen.getByRole("complementary", { name: "선택 조명 상세" }));

@@ -2,11 +2,14 @@ import type { FloorMapSnapshot } from "@led-control/shared";
 import { CircleCheck, CircleX, Clock3, Hand, TriangleAlert } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { Dashboard } from "../../api/queries";
-import { Text } from "../../components/ui";
+import { Text, cn } from "../../components/ui";
 import { FloorScene } from "../floor-map/FloorScene";
-import { FloorMapViewport } from "../floor-map/FloorMapViewport";
+import { FloorMapViewport, type FloorMapViewportHandle } from "../floor-map/FloorMapViewport";
+import { resolveFixtureMapPosition } from "../floor-map/fixture-map-position";
 import { FixturePinPopover } from "./FixturePinPopover";
 import { presentFixtureStatus } from "./fixture-status-presentation";
+import { useMonitoringCameraMemory } from "./useMonitoringCameraMemory";
+import type { MonitoringCameraScope } from "./monitoring-camera-storage";
 
 interface FloorMapProps {
   floor: Dashboard["floors"][number];
@@ -14,15 +17,39 @@ interface FloorMapProps {
   selectedFixtureId: string | null;
   onSelectFixture: (fixtureId: string) => void;
   timeZone?: string;
+  focusRequest?: { requestId: number; fixtureId: string };
+  onFocusResult?: (requestId: number, result: "focused" | "unplaced" | "unknown") => void;
+  onPinOpenChange?: (open: boolean) => void;
+  onShowDetails?: (fixtureId: string) => void;
+  emphasizedFixtureIds?: ReadonlySet<string>;
+  fullView?: boolean;
+  cameraScope?: MonitoringCameraScope | null;
 }
 
 const MAP_PAN_STEP_PX = 80;
 
-export function FloorMap({ floor, snapshot, selectedFixtureId, onSelectFixture, timeZone = "Asia/Seoul" }: FloorMapProps) {
+export function FloorMap({ floor, snapshot, selectedFixtureId, onSelectFixture, timeZone = "Asia/Seoul", focusRequest, onFocusResult, onPinOpenChange, onShowDetails, emphasizedFixtureIds, fullView = false, cameraScope = null }: FloorMapProps) {
   const [zoom, setZoom] = useState(1);
+  const viewportRef = useRef<FloorMapViewportHandle>(null);
+  const cameraMemory = useMonitoringCameraMemory(cameraScope, snapshot, viewportRef);
+  const anchors = useRef(new Map<string, HTMLButtonElement>());
+  const lastFocusRequest = useRef<number | null>(null);
+  const onFocusResultRef = useRef(onFocusResult);
+  onFocusResultRef.current = onFocusResult;
   const markerRef = useRef<HTMLButtonElement | null>(null);
   const pinOpenTimerRef = useRef<number | null>(null);
   const [openFixtureId, setOpenFixtureId] = useState<string | null>(null);
+  const previousOpenFixture = useRef<string | null>(null);
+  useEffect(() => {
+    const closed = previousOpenFixture.current !== null && openFixtureId === null;
+    previousOpenFixture.current = openFixtureId;
+    if (!closed) return;
+    // Run after the overlay's own FocusScope teardown, which may restore focus in a frame.
+    const frame = requestAnimationFrame(() => {
+      if (markerRef.current?.isConnected) markerRef.current.focus({ preventScroll: true });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [openFixtureId]);
   const selectedRuntimeFixture = floor.fixtures.find((fixture) => fixture.id === openFixtureId) ?? null;
   const savedFixture = snapshot.fixtures?.find((fixture) => fixture.id === openFixtureId) ?? null;
   const openFixtureName = savedFixture?.name ?? selectedRuntimeFixture?.name ?? "조명";
@@ -35,6 +62,34 @@ export function FloorMap({ floor, snapshot, selectedFixtureId, onSelectFixture, 
   const mapCount = snapshot.fixtures === undefined || hasLegacyRuntimeOnlyPin
     ? null : snapshot.fixtures.length;
   useEffect(() => { setOpenFixtureId(null); }, [floor.id, snapshot.revision]);
+  useEffect(() => { onPinOpenChange?.(openFixtureId !== null); }, [openFixtureId, onPinOpenChange]);
+  useEffect(() => {
+    if (!focusRequest || lastFocusRequest.current === focusRequest.requestId) return;
+    const fixture = floor.fixtures.find(item => item.id === focusRequest.fixtureId);
+    const position = resolveFixtureMapPosition(snapshot, fixture);
+    const anchor = anchors.current.get(focusRequest.fixtureId);
+    if (position.kind !== "placed" || !anchor) {
+      lastFocusRequest.current = focusRequest.requestId;
+      onFocusResultRef.current?.(focusRequest.requestId, position.kind === "unplaced" ? "unplaced" : "unknown");
+      return;
+    }
+    // Centering applies scroll in the viewport's next frame. React Aria dismisses
+    // a pin when its scroll ancestor moves: open only after that scroll settles,
+    // and after the closing drawer has restored its focus.
+    let frame = requestAnimationFrame(() => {
+      viewportRef.current?.centerOn(position.point);
+      frame = requestAnimationFrame(() => {
+        frame = requestAnimationFrame(() => {
+          lastFocusRequest.current = focusRequest.requestId;
+          markerRef.current = anchor;
+          anchor.focus({ preventScroll: true });
+          setOpenFixtureId(focusRequest.fixtureId);
+          onFocusResultRef.current?.(focusRequest.requestId, "focused");
+        });
+      });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [focusRequest, floor.fixtures, snapshot]);
   useEffect(() => () => {
     if (pinOpenTimerRef.current !== null) window.clearTimeout(pinOpenTimerRef.current);
   }, []);
@@ -71,10 +126,16 @@ export function FloorMap({ floor, snapshot, selectedFixtureId, onSelectFixture, 
     ...fixture,
     statusPresentation: presentFixtureStatus(fixture)
   }));
+  const observedFixtureIds = new Set(floor.fixtures.map(fixture => fixture.id));
+  const unobservedFixtureIds = new Set(snapshot.fixtures?.filter(pin => !observedFixtureIds.has(pin.id)).map(pin => pin.id));
 
   return (
-    <div className="relative h-[340px] w-full min-w-0 overflow-hidden rounded-panel border border-border-default bg-surface-inset max-phone-wide:h-[300px] tablet:h-full tablet:min-h-0" role="region" aria-label="층 도면" data-monitoring-map-shell="" data-zoom={zoom}>
+    <div className={cn("relative h-[340px] w-full min-w-0 overflow-hidden rounded-panel border border-border-default bg-surface-inset max-phone-wide:h-[300px] tablet:h-full tablet:min-h-0", fullView && "h-full! min-h-0!")} role="region" aria-label="층 도면" data-monitoring-map-shell="" data-zoom={zoom}>
       <FloorMapViewport
+        ref={viewportRef}
+        maintainCameraOnResize
+        onCameraReady={cameraMemory.onCameraReady}
+        onCameraSettled={cameraMemory.onCameraSettled}
         snapshot={snapshot}
         ariaLabel="상하좌우로 이동하고 확대 축소할 수 있는 지도"
         onZoomChange={setZoom}
@@ -90,6 +151,9 @@ export function FloorMap({ floor, snapshot, selectedFixtureId, onSelectFixture, 
           coarsePointer
           markerTitle={(fixture) => fixture.name}
           onFixturePress={handleFixturePress}
+          onFixtureAnchorChange={(id, anchor) => { if (anchor) anchors.current.set(id, anchor); else anchors.current.delete(id); }}
+          emphasizedFixtureIds={emphasizedFixtureIds}
+          unobservedFixtureIds={unobservedFixtureIds}
         />
       </FloorMapViewport>
       <FixturePinPopover
@@ -98,10 +162,10 @@ export function FloorMap({ floor, snapshot, selectedFixtureId, onSelectFixture, 
         position={savedFixture ? { x: savedFixture.x, y: savedFixture.y } : null}
         triggerRef={markerRef}
         open={openFixtureId !== null}
+        onShowDetails={openFixtureId && onShowDetails ? () => onShowDetails(openFixtureId) : undefined}
         onOpenChange={(open) => {
           if (open) return;
           setOpenFixtureId(null);
-          queueMicrotask(() => markerRef.current?.focus());
         }}
         timeZone={timeZone}
       />

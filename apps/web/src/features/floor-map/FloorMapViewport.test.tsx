@@ -1,6 +1,6 @@
 import type { FloorMapSnapshot } from "@led-control/shared";
-import { StrictMode, useEffect } from "react";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { StrictMode, useEffect, createRef } from "react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { FloorMapViewport, useFloorMapViewportOverlay } from "./FloorMapViewport";
 import type { MapInteractionMode, MapSelectionRect } from "./map-gestures";
@@ -16,6 +16,58 @@ const snapshot: FloorMapSnapshot = {
 
 describe("FloorMapViewport", () => {
   afterEach(() => cleanup());
+
+  it("exposes a camera handle without requiring measured geometry", () => {
+    const ref = createRef<import("./FloorMapViewport").FloorMapViewportHandle>();
+    render(<FloorMapViewport ref={ref} snapshot={snapshot} ariaLabel="camera"><span /></FloorMapViewport>);
+    expect(ref.current?.getCamera()).toBeNull();
+    expect(ref.current?.centerOn).toBeTypeOf("function");
+    expect(ref.current?.fit).toBeTypeOf("function");
+  });
+  it("centers without changing zoom, fits even at 100%, and opt-in resize preserves camera", () => {
+    const callbacks = new Map<number, FrameRequestCallback>();
+    let id = 0;
+    const request = vi.spyOn(globalThis, "requestAnimationFrame").mockImplementation(cb => { callbacks.set(++id, cb); return id; });
+    const cancel = vi.spyOn(globalThis, "cancelAnimationFrame").mockImplementation(id => { callbacks.delete(id); });
+    const resize = globalThis.ResizeObserver;
+    vi.stubGlobal("ResizeObserver", undefined);
+    const ref = createRef<import("./FloorMapViewport").FloorMapViewportHandle>();
+    const settled = vi.fn();
+    let width = 400;
+    function flush() {
+      act(() => { for (let i = 0; i < 5 && callbacks.size; i++) { const pending = [...callbacks.values()]; callbacks.clear(); pending.forEach(cb => cb(0)); } });
+    }
+    try {
+      render(<FloorMapViewport ref={ref} snapshot={snapshot} ariaLabel="camera" maintainCameraOnResize onCameraSettled={settled}><span /></FloorMapViewport>);
+      const viewport = screen.getByRole("region", { name: "camera" });
+      const surface = document.querySelector<HTMLElement>("[data-floor-map-surface]")!;
+      const stage = surface.parentElement!;
+      Object.defineProperties(viewport, { clientWidth: { get: () => width }, clientHeight: { get: () => 300 } });
+      vi.spyOn(viewport, "getBoundingClientRect").mockImplementation(() => rect(0, 0, width, 300));
+      vi.spyOn(surface, "getBoundingClientRect").mockImplementation(() => {
+        const w = parseFloat(surface.style.width) || 600, h = parseFloat(surface.style.height) || 400;
+        return rect((parseFloat(stage.style.width) - w) / 2 - viewport.scrollLeft,
+          (parseFloat(stage.style.height) - h) / 2 - viewport.scrollTop, w, h);
+      });
+      fireEvent(window, new Event("resize")); flush();
+      act(() => ref.current!.restoreCamera({ centerXRatio: .8, centerYRatio: .6, zoom: 2 })); flush();
+      expect(ref.current!.getCamera()?.centerXRatio).toBeCloseTo(.8);
+      expect(ref.current!.getCamera()?.centerYRatio).toBeCloseTo(.6);
+      act(() => ref.current!.centerOn({ x: 420, y: 200 })); flush();
+      expect(ref.current!.getCamera()?.centerXRatio).toBeCloseTo(.7);
+      expect(ref.current!.getCamera()?.centerYRatio).toBeCloseTo(.5);
+      expect(ref.current!.getCamera()?.zoom).toBe(2);
+      width = 500; fireEvent(window, new Event("resize")); flush();
+      expect(ref.current!.getCamera()?.centerXRatio).toBeCloseTo(.7);
+      expect(ref.current!.getCamera()?.zoom).toBe(2);
+      act(() => ref.current!.fit()); flush();
+      viewport.scrollLeft = 100; viewport.scrollTop = 100;
+      act(() => ref.current!.fit()); flush();
+      expect(ref.current!.getCamera()?.centerXRatio).toBeCloseTo(.5);
+      expect(ref.current!.getCamera()?.zoom).toBe(1);
+      expect(settled).toHaveBeenCalled();
+    } finally { cleanup(); request.mockRestore(); cancel.mockRestore(); vi.stubGlobal("ResizeObserver", resize); }
+  });
 
   it("reschedules a cancelled initial camera frame after StrictMode effect replay", () => {
     const pending = new Map<number, FrameRequestCallback>();

@@ -1,6 +1,15 @@
 # 메뉴 완성 작업 상태판
 
-기준일: 2026-09-29
+기준일: 2026-09-30
+
+## 2026-09-30 모니터링 탐색·시야 개선 — 구현·모니터링 검증 완료, 편집기 성능 실패·병합 판단 대기
+
+- [x] 사용자가 시안 검토 후 상태 확인 결과·기술 정보 표시 제외, 전체 보기 아이콘 전용, 조명 정보 닫기 떨림 제거를 요청하고 즉시 구현을 승인했다.
+- [x] 별도 `codex/monitoring-navigation-confidence` / `.worktrees/monitoring-navigation`에서 직접 실행한다. 기본 폴더의 문서 WIP와 실행 중 API/Web은 보존한다. 새 서브에이전트를 사용하지 않는다.
+- [x] [승인 수정 설계](superpowers/specs/2026-09-29-monitoring-navigation-and-confidence-design.md)와 [실행 체크리스트](superpowers/plans/2026-09-29-monitoring-navigation-and-confidence.md)의 카메라→KPI 탐색→간단 정보/안정 닫기→전체 보기→범위 저장을 구현했다. 기술 정보/상태 확인 결과 UI는 제외하고 실제 새로고침·최근 활동은 유지한다.
+- [x] Node22/pnpm9.15 canonical root lint/typecheck/test/build exit0. Root149/4skip, Shared411, Automation28, Mobile6, Web2,626/3skip, API2,963/827skip, Gateway1,409, 정책65/65·UI0/0이다. 기존 chunk 크기·NO_COLOR 경고와 환경 opt-in 제외는 남는다. 작성자 리뷰의 StrictMode 복원·집계 불일치 안내를 RED→GREEN으로 보완했다. 새 독립 코드 리뷰는 없으며 기존 디자이너 세션이 구현4너비 화면을 직접 확인해320px 팝업 잘림 보완을 승인했다.
+- [x] 최종 Chromium82 passed/1 failed(exit1)을 기록했다. 신규 탐색·시야8건과 수동/자동 새로고침·1,000대 모니터링·기존 제어 회귀는 통과했다. 4너비 닫기 geometry/카메라, popup bounds, 지도 인스턴스 유지·전체 보기 Escape/초점을 확인했다. software fixture 결과로 실제 HIL·사용자 DB 상태를 증명하지 않는다.
+- [ ] `codex/mvp1-cloud-web`에 로컬 병합·병합 후 검증한다. 1,000대 설정 편집기의8초 준비 성능 검사 실패는 기존 shell 비교에서도 약22초로 재현되며 원인은 미확정이다. 성능 한도는 유지하고 별도 후속으로 남겨 병합할지 사용자에게 질문했다. 예외 승인은 아직 받지 않았고 메인 파일·서버는 수정하지 않았다. 실제 HIL·DB·배포·push는 제외한다.
 
 ## 2026-09-29 메인 개발 브랜치·기본 폴더 정렬 — 완료
 

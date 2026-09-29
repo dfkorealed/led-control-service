@@ -1,6 +1,9 @@
 import type { RefObject } from "react";
+import { X } from "lucide-react";
 import type { DashboardFixture } from "../../api/queries";
-import { Popover, Text } from "../../components/ui";
+import { Button, IconButton, Popover, Text } from "../../components/ui";
+import { FixtureStatusBadge } from "./FixtureStatusBadge";
+import { presentFixtureStatus } from "./fixture-status-presentation";
 import { presentFixtureBrightness } from "./fixture-brightness-presentation";
 import { formatMonitoringTimestamp } from "./monitoring-time";
 
@@ -12,10 +15,12 @@ interface FixturePinPopoverProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   timeZone: string;
+  onShowDetails?: () => void;
 }
 
-export function FixturePinPopover({ name, fixture, position, triggerRef, open, onOpenChange, timeZone }: FixturePinPopoverProps) {
+export function FixturePinPopover({ name, fixture, triggerRef, open, onOpenChange, timeZone, onShowDetails }: FixturePinPopoverProps) {
   const brightness = fixture ? presentFixtureBrightness(fixture) : null;
+  const status = fixture ? presentFixtureStatus(fixture) : null;
 
   return <Popover
     isOpen={open}
@@ -23,13 +28,19 @@ export function FixturePinPopover({ name, fixture, position, triggerRef, open, o
     triggerRef={triggerRef}
     shouldCloseOnInteractOutside={(element) => !triggerRef.current?.contains(element)}
     isNonModal
-    placement="right"
+    // 위/아래 배치는 좁은 화면에서도 가로 경계 보정이 가능하다.
+    // 좌/우 배치는 중앙 핀 양쪽에 공간이 부족하면 내용이 화면 밖으로 밀린다.
+    placement="top"
     offset={8}
     label={`${name} 조명 정보`}
     className="w-56 max-w-[calc(100vw-24px)]"
   >
     <div className="grid gap-3" data-monitoring-pin-popover="">
-      <Text as="strong" variant="body" weight="bold">{name}</Text>
+      <div className="flex min-w-0 items-start justify-between gap-2">
+        <Text as="strong" variant="body" weight="bold" className="min-w-0 break-words">{name}</Text>
+        <IconButton variant="ghost" className="size-13" aria-label="조명 정보 닫기" onClick={() => onOpenChange(false)}><X size={16} aria-hidden="true" /></IconButton>
+      </div>
+      <FixtureStatusBadge fixture={fixture} />
       <dl className="m-0 grid gap-2 text-body-sm">
         <div className="grid gap-0.5">
           <dt className="text-content-secondary">{brightness?.label ?? "조명 상태"}</dt>
@@ -39,11 +50,9 @@ export function FixturePinPopover({ name, fixture, position, triggerRef, open, o
           <dt className="text-content-secondary">마지막 확인</dt>
           <dd className="m-0"><time dateTime={brightness.observedAt}>{formatMonitoringTimestamp(brightness.observedAt, timeZone)}</time></dd>
         </div> : null}
-        <div className="grid gap-0.5">
-          <dt className="text-content-secondary">지도 좌표</dt>
-          <dd className="m-0">{position ? `${position.x}, ${position.y}` : "저장된 위치 정보 없음"}</dd>
-        </div>
       </dl>
+      {status ? <Text variant="body-sm" tone="secondary">{status.recommendedAction}</Text> : null}
+      {onShowDetails ? <Button variant="secondary" onClick={onShowDetails}>상세 보기</Button> : null}
     </div>
   </Popover>;
 }

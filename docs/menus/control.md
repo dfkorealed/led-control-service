@@ -22,6 +22,8 @@
 
 ## 구현 완료
 
+- 2026-09-30 공통 지도 카메라 계약 보완: `지도 화면 맞춤`은 기본 배율 100%와 지도 중앙을 함께 복원한다. 제어의 기존 선택·pan/zoom·조명 실행 권한은 유지하며, 모니터링 전용 resize 카메라 보존과 사용자별 시야 저장은 제어에서 활성화하지 않는다. 관련 파일은 `FloorMapViewport.tsx`, `map-camera.ts` 및 공통 카메라 회귀다.
+
 - 랜딩·Atlas 통합 검증에서 최근 이력의 `확인 필요한 명령`·`명령 이력 열기` 공통 버튼을 최소 높이 52px로 보정했다. 둥근 44px 외곽에서 실제 hit 영역이 부족했던 모바일 회귀를 수정하며, 전체 통합 검증 상태는 [통합 체크리스트](../superpowers/plans/2026-09-27-atlas-landing-integration.md)를 따른다.
 - 2026-09-27 상세 내용 제거 상태(Task 2): `Command.contentRedactedAt`이 있는 행은 플래그 상태와 무관하게 일반 목록에서 제외하며, 인가된 상세와 기존 상태 확인은 내용 없는 `410 command_expired`를 반환한다. 동일 키 재제어와 사용자 삭제로 요청자를 알 수 없는 현장 내 기존 키 재사용은 `409 command_request_expired`로 차단하며 Set/Get/outbox를 생성하지 않는다. 기존 상태 확인의 기간 제한도 `COMMAND_HISTORY_RETENTION_ENABLED=1`에서 중앙 DB UTC transaction 시각의 3 calendar months를 사용하고 정확 경계는 유지한다. 생성 응답은 내부 요청자·요청 키·fingerprint를 숨기며, 늦은 ACK는 제거한 상세를 복원하지 않는다. 일회용 PostgreSQL과 API 소프트웨어 검증 범위이며 비식별 worker와 운영 migration은 아직 활성화하지 않았다.
 

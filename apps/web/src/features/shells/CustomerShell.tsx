@@ -3,7 +3,7 @@ import { Activity, BarChart3, CircleAlert, LoaderCircle, LogOut, SlidersHorizont
 import { useQueryClient } from "@tanstack/react-query";
 import { matchPath, Navigate, NavLink, Route, Routes, useLocation } from "react-router-dom";
 import { logout, type AuthUser } from "../../api/auth";
-import { authMeQueryKey, clearTenantCache } from "../../api/principal-cache";
+import { authMeQueryKey, clearTenantCache, principalKey } from "../../api/principal-cache";
 import { useDashboard, useSites, type SiteCapabilities } from "../../api/queries";
 import { KindaLogo } from "../../components/brand/KindaLogo";
 import {
@@ -14,6 +14,7 @@ import {
   IconTooltipButton,
   SessionStatusCenter,
   SessionStatusProvider,
+  WorkspaceFocusProvider,
   Text,
   ToastRegion,
   useSessionStatus,
@@ -257,23 +258,24 @@ export function CustomerShell({ user }: { user: AuthUser }) {
   }
 
   return (
+    <WorkspaceFocusProvider scope={JSON.stringify([principalKey(user), selectedSiteId, location.pathname])}>{focus =>
     <SessionStatusProvider>
       <ShellStatusRegistration items={shellStatusItems} />
-      <div className={`bg-surface-canvas ${isEditorRoute ? "flex h-dvh min-h-0 overflow-hidden" : "min-h-screen"} ${isCompactNavigation ? "pb-shell-navigation-safe" : "flex"}`} data-app-shell>
+      <div className={`bg-surface-canvas ${focus.active || isEditorRoute ? "flex h-dvh min-h-0 overflow-hidden" : "min-h-screen"} ${isCompactNavigation && !focus.active ? "pb-shell-navigation-safe" : "flex"}`} data-app-shell data-workspace-full-view={focus.active}>
       {isCompactNavigation ? (
-        <nav className="fixed inset-x-0 bottom-0 z-20 grid h-shell-navigation-safe grid-cols-4 gap-1 border-t border-border-default bg-surface-panel px-1.5 pt-1 pb-safe-area-bottom" aria-label="모바일 주 메뉴" data-shell-navigation="compact">
+        <nav hidden={focus.active} className={focus.active ? "hidden" : "fixed inset-x-0 bottom-0 z-20 grid h-shell-navigation-safe grid-cols-4 gap-1 border-t border-border-default bg-surface-panel px-1.5 pt-1 pb-safe-area-bottom"} aria-label="모바일 주 메뉴" data-shell-navigation="compact">
           <PrimaryNavigation capabilities={capabilities} search={location.search} />
         </nav>
       ) : (
-        <aside className={`sticky top-0 z-20 ${isEditorRoute ? "h-full" : "h-screen"} w-shell-rail shrink-0 border-r border-border-default bg-surface-panel px-2 py-4`} data-shell-navigation="desktop">
+        <aside hidden={focus.active} className={focus.active ? "hidden" : `sticky top-0 z-20 ${isEditorRoute ? "h-full" : "h-screen"} w-shell-rail shrink-0 border-r border-border-default bg-surface-panel px-2 py-4`} data-shell-navigation="desktop">
           <KindaLogo context="관제 센터" compact />
           <nav className="grid w-full gap-2" aria-label="주 메뉴">
             <PrimaryNavigation capabilities={capabilities} search={location.search} />
           </nav>
         </aside>
       )}
-      <main className={`flex min-w-0 flex-1 flex-col ${isEditorRoute ? "min-h-0 overflow-hidden" : ""}`}>
-        <header className="sticky top-0 z-10 grid min-h-16 min-w-0 shrink-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-2 gap-y-2 border-b border-border-default bg-surface-panel px-3.5 py-2 compact:grid-cols-[minmax(0,1fr)_minmax(0,auto)_auto] compact:gap-x-4 compact:px-7" data-shell-topbar>
+      <main className={`flex min-w-0 flex-1 flex-col ${focus.active || isEditorRoute ? "min-h-0 overflow-hidden" : ""}`}>
+        <header hidden={focus.active} className={focus.active ? "hidden" : "sticky top-0 z-10 grid min-h-16 min-w-0 shrink-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-2 gap-y-2 border-b border-border-default bg-surface-panel px-3.5 py-2 compact:grid-cols-[minmax(0,1fr)_minmax(0,auto)_auto] compact:gap-x-4 compact:px-7"} data-shell-topbar>
           <div className="col-start-1 row-start-1 min-w-0">
             <Heading as="h1" variant="page-title" className="truncate" data-testid="shell-current-menu">{titleForPath(location.pathname)}</Heading>
           </div>
@@ -303,7 +305,7 @@ export function CustomerShell({ user }: { user: AuthUser }) {
         </header>
         {/* Only the editor bounds SettingsShell's navigation and outlet rows.
             Keeping this scoped avoids changing normal settings scroll. */}
-        <div data-shell-content className={`m-0! min-w-0 flex-1 ${isEditorRoute ? "min-h-0 overflow-hidden p-2 compact:p-3 [&>section]:h-full [&>section]:min-h-0 [&>section]:grid-rows-[auto_minmax(0,1fr)] [&>section]:gap-2 [&>section>div]:min-h-0" : "p-6 max-compact:p-3.5"}`}>
+        <div data-shell-content className={`m-0! min-w-0 flex-1 ${focus.active ? "min-h-0 overflow-hidden p-2 compact:p-3" : isEditorRoute ? "min-h-0 overflow-hidden p-2 compact:p-3 [&>section]:h-full [&>section]:min-h-0 [&>section]:grid-rows-[auto_minmax(0,1fr)] [&>section]:gap-2 [&>section>div]:min-h-0" : "p-6 max-compact:p-3.5"}`}>
           <Suspense fallback={<RouteLoadingState />}>
             <Routes>
             <Route path="/monitoring" element={<MonitoringView userRole={user.role} siteId={siteId} />} />
@@ -391,6 +393,7 @@ export function CustomerShell({ user }: { user: AuthUser }) {
       <ToastRegion />
       </div>
     </SessionStatusProvider>
+    }</WorkspaceFocusProvider>
   );
 }
 

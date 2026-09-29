@@ -50,6 +50,8 @@ export type { FeedbackTone, FeedbackStateProps } from "./FeedbackState";
 export { IconTooltipButton } from "./IconTooltipButton";
 export type { IconTooltipButtonProps } from "./IconTooltipButton";
 export { MetricCard } from "./MetricCard";
+export { WorkspaceFocusProvider, useWorkspaceFocus } from "./workspace-focus/WorkspaceFocusProvider";
+export { MetricButton } from "./MetricButton";
 export type { MetricTone, MetricCardProps } from "./MetricCard";
 export { ModalDialog } from "./ModalDialog";
 export type { ModalDialogProps } from "./ModalDialog";

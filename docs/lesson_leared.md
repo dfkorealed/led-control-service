@@ -1017,6 +1017,12 @@
 - **해결 및 예방책**: 전체 ingress 경로와 TLS 종료 위치를 함께 검토한다. 공개 문의는 nginx가 덮어쓴 방문자 IP와 독립 서버 비밀을 검증하고 전역 proxy trust를 켜지 않는다. 실제 nginx HTTP/TCP 경로의 서로 다른 방문자·위조 입력을 테스트한다. 인가 시작·단회 소비·최신 세대 재검증·refresh를 같은 DB credential 잠금으로 조율하고, 서로 다른 state 및 claim 뒤 새 인가가 시작하는 순서를 별도 DB 연결로 검증한다.
 - **관측 확인**: 문자열 Logger 호출의 숫자가 production JSON logger에서 제거될 수 있으므로 실제 logger 경로로 `landing_inquiry_prune`·숫자 `deletedCount` 보존과 PII 배제를 검증한다.
 
+## 2026-09-29 / 모니터링 정보창은 시야를 바꾸지 않고 화면 경계를 지킨다
+
+- **원인**: 디자이너 시안에서 선택 여부로 지도 높이를 바꾸면 문서 scroll clamp와 ResizeObserver의 카메라 재계산이 겹쳐 닫기 떨림이 생기는 것을 재현했다. 이 결과만으로 기존 제품의 동일 원인을 단정하지 않고 제품의 안정 geometry 계약을 검증한다. 실제 제품에서는 목록 Drawer의 지연 초점 복귀와 지도 이동 scroll이 새 핀 팝업을 바로 닫을 수 있었다. 좁은 화면의 좌/우 팝업 배치는 핀 양쪽의 공간이 부족하면 주축 방향으로 내용이 잘린다.
+- **예방**: 지도 높이는 선택 전후 동일하게 유지하고 닫을 때 카메라·scroll을 바꾸지 않는다. 연결된 마커 초점은 preventScroll로 복귀한다. 목록 위치 이동은 scroll 적용과 Drawer teardown 이후 팝업을 열고 프레임을 취소 가능하게 관리한다. 상/하 배치의 가로 경계 보정을 사용한다.
+- **검증**: 1440/1024/390/320px에서 닫기 전후 지도 높이·문서/지도 scroll·배율·중심을 비교한다. 초기 핀, KPI 위치 이동, 상세 닫기 후 복귀의 팝업 x/right 경계를 모두 검사한다. 전체 보기 전후 같은 지도/renderer 수명, 저장 카메라의 사용자·현장·맵 범위, StrictMode cleanup 후 복원 재시도도 검증한다. fixture 브라우저 검증은 실제 조명/HIL 증거와 구분한다.
+
 ## 2026-09-27 / 실연동 여정의 화면 selector와 MQTT ACL probe를 제품 계약에 맞춘다
 
 - **문제**: 설치 여정이 사라진 `층 자동 생성` 버튼을 기다렸고, Gateway read 권한 검사에서 API 인증서로 임의 `review-probe` topic을 발행해 `Not authorized`로 중단됐다. 자동화 여정의 lab Gateway는 누락된 journal 경로 때문에 운영 기본값 `/var/lib/led-control`에 쓰려다 권한 오류로 종료됐다.

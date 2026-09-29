@@ -103,6 +103,9 @@ export interface FloorSceneProps {
   coarsePointer?: boolean;
   markerTitle?: (fixture: SceneFixture) => string;
   onFixturePress?: (fixtureId: string, anchor: HTMLButtonElement) => void;
+  onFixtureAnchorChange?: (fixtureId: string, anchor: HTMLButtonElement | null) => void;
+  emphasizedFixtureIds?: ReadonlySet<string>;
+  unobservedFixtureIds?: ReadonlySet<string>;
 }
 
 interface FixtureMarkerStyle extends CSSProperties {
@@ -120,7 +123,10 @@ export function FloorScene({
   selection = noFixtureSceneSelection,
   coarsePointer = false,
   markerTitle,
-  onFixturePress
+  onFixturePress,
+  onFixtureAnchorChange,
+  emphasizedFixtureIds,
+  unobservedFixtureIds
 }: FloorSceneProps) {
   const commonMap = snapshot.mapDocument;
   const nativeCad = !commonMap && snapshot.floorPlan?.sourceType === "cad" && snapshot.cadScene;
@@ -207,10 +213,11 @@ export function FloorScene({
         ))}
       </div>
       {renderedFixtures.map((fixture) => {
+        const unobserved = unobservedFixtureIds?.has(fixture.id) ?? false;
         // FloorMap injects the monitoring presenter result. Editor callers omit it and retain
         // their compact legacy status label without owning monitoring cause precedence.
         const awaitingState = fixture.statusPresentation?.state === "provisioning_waiting_state" || fixture.statusReason === "provisioning_waiting_state";
-        const statusLabel = fixture.statusPresentation?.label ?? (awaitingState ? "상태 확인 대기" : fixtureStatusLabels[fixture.status]);
+        const statusLabel = unobserved ? "조명 정보 확인 전" : fixture.statusPresentation?.label ?? (awaitingState ? "상태 확인 대기" : fixtureStatusLabels[fixture.status]);
         const brightnessLevel = fixtureBrightnessLevel(fixture.brightness);
         // Marker position is stored in map coordinates and must scale with the live snapshot.
         const markerStyle = {
@@ -220,12 +227,12 @@ export function FloorScene({
           left: coarsePointer ? "clamp(1.5rem, var(--fixture-left), calc(100% - 1.5rem))" : "clamp(1rem, var(--fixture-left), calc(100% - 1rem))",
           top: coarsePointer ? "clamp(1.5rem, var(--fixture-top), calc(100% - 1.5rem))" : "clamp(1rem, var(--fixture-top), calc(100% - 1rem))"
         } satisfies FixtureMarkerStyle;
-        const markerStateClass = awaitingState
+        const markerStateClass = unobserved ? "bg-surface-inset shadow-none" : awaitingState
           ? "border-2! border-dotted! border-fixture-inspection-border! bg-fixture-inspection-background shadow-none"
           : fixture.status === "offline"
             ? "border-2! border-dashed! border-fixture-offline-border! bg-fixture-offline-background shadow-none"
             : fixtureBrightnessClasses[brightnessLevel];
-        const badgeClass = awaitingState
+        const badgeClass = awaitingState || unobserved
           ? "bg-fixture-inspection"
           : fixture.status === "offline"
             ? "bg-fixture-offline"
@@ -243,6 +250,7 @@ export function FloorScene({
         return (
           <Button
             key={fixture.id}
+            ref={anchor => onFixtureAnchorChange?.(fixture.id, anchor)}
             type="button"
             variant="ghost"
             size="sm"
@@ -252,11 +260,12 @@ export function FloorScene({
               "absolute z-2 block! -translate-x-1/2 -translate-y-1/2 cursor-pointer rounded-fixture-marker! border-0! bg-transparent! p-0! transition-[background-color,box-shadow] duration-150 motion-reduce:duration-[0.01ms] hover:z-4 focus-visible:z-4 focus-visible:outline-3 focus-visible:outline-offset-4 focus-visible:outline-fixture-selected",
               // Leave a pixel-rounding buffer beyond the 44px coarse-pointer minimum so every edge remains reachable in browser layout.
               coarsePointer ? "size-12! min-h-12!" : "size-5! min-h-5!",
-              selected && "z-3"
+              selected && "z-3",
+              emphasizedFixtureIds && !emphasizedFixtureIds.has(fixture.id) && "opacity-30"
             )}
             style={markerStyle}
-            title={markerTitle?.(fixture) ?? `${fixture.name} ${statusLabel} ${fixture.brightness}%`}
-            aria-label={`${fixture.name} ${statusLabel} ${fixture.brightness}%${accessibleState ? ` ${accessibleState}` : ""}`}
+            title={markerTitle?.(fixture) ?? `${fixture.name} ${statusLabel}${unobserved ? "" : ` ${fixture.brightness}%`}`}
+            aria-label={`${fixture.name} ${statusLabel}${unobserved ? "" : ` ${fixture.brightness}%`}${accessibleState ? ` ${accessibleState}` : ""}`}
             aria-current={selection.kind === "single" && selected ? "true" : undefined}
             aria-pressed={selection.kind === "multiple" ? selected : undefined}
             disabled={disabled}

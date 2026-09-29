@@ -75,6 +75,23 @@ const snapshot: FloorMapSnapshot = {
   }]
 };
 
+it("keeps filtered pins selectable and exposes only unknown state for unobserved pins", () => {
+  const onAnchor = vi.fn();
+  const onPress = vi.fn();
+  const { unmount } = render(<FloorScene snapshot={{ ...snapshot, fixtures: [{ id: "unknown", name: "미조회", x: 200, y: 300, size: 20 }] }}
+    fixtures={[]} interactive={false} emphasizedFixtureIds={new Set()} unobservedFixtureIds={new Set(["unknown"])}
+    onFixtureAnchorChange={onAnchor} onFixturePress={onPress} />);
+  const marker = screen.getByRole("button", { name: "미조회 조명 정보 확인 전" });
+  expect(marker).not.toHaveAttribute("aria-label", expect.stringContaining("0%"));
+  expect(marker).toHaveClass("opacity-30");
+  expect(marker).toBeEnabled();
+  fireEvent.click(marker);
+  expect(onPress).toHaveBeenCalledWith("unknown", marker);
+  expect(onAnchor).toHaveBeenCalledWith("unknown", marker);
+  unmount();
+  expect(onAnchor).toHaveBeenLastCalledWith("unknown", null);
+});
+
 describe("FloorScene", () => {
   afterEach(() => {
     cleanup();

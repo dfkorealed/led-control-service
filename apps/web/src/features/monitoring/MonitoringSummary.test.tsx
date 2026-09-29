@@ -1,9 +1,21 @@
-import { cleanup, render, screen, within } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { MonitoringSummary } from "./MonitoringSummary";
 
 describe("MonitoringSummary", () => {
   afterEach(() => cleanup());
+
+  it("makes floor metrics interactive but keeps site metrics read-only", () => {
+    const onSelect = vi.fn();
+    render(<><MonitoringSummary scope="site" total={2} online={2} fault={0} offline={0} onSelect={onSelect} />
+      <MonitoringSummary scope="floor" total={2} online={2} fault={0} offline={null} filter="fault" onSelect={onSelect} /></>);
+    const floor = screen.getByRole("region", { name: "선택 층 조명 현황" });
+    fireEvent.click(within(floor).getByRole("button", { name: "점검 필요" }));
+    expect(onSelect).toHaveBeenCalledWith("fault");
+    expect(within(floor).getByRole("button", { name: "점검 필요" })).toHaveAttribute("aria-pressed", "true");
+    expect(within(floor).getByRole("button", { name: "오프라인" })).toBeDisabled();
+    expect(within(screen.getByRole("region", { name: "현장 전체 조명 현황" })).queryByRole("button")).toBeNull();
+  });
 
   it("separates authoritative site and floor scopes", () => {
     render(<>

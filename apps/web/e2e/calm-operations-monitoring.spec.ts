@@ -165,7 +165,7 @@ for (const viewport of viewports) {
         await route.fulfill({ json: { id: "refresh-1", status, totalFixtures: 2, onlineFixtures: status === "partial" ? 0 : 1, offlineFixtures: 1, unverifiedFixtures: status === "partial" ? 1 : 0, completedAt: new Date().toISOString(), error: "secret raw transport failure" } });
       });
       await page.goto(`/monitoring?siteId=${ids.site}`);
-      await expect(page.getByRole("group", { name: "정상", exact: true })).toContainText("2");
+      await expect(page.getByRole("button", { name: "정상", exact: true })).toContainText("2");
       await page.getByRole("button", { name: "B2-L002 정상 70%" }).click();
       await page.getByRole("button", { name: "지도 확대" }).click();
       await page.getByRole("button", { name: "새로고침" }).click();
@@ -174,9 +174,9 @@ for (const viewport of viewports) {
       const before = { dashboard: api.dashboardRequests, fixtures: api.fixturePageRequests, map: api.mapSnapshotRequests };
       finish();
       await expect(page.getByRole("button", { name: "새로고침" })).toBeEnabled();
-      await expect(page.getByRole("group", { name: "전체 조명", exact: true })).toContainText("2");
-      await expect(page.getByRole("group", { name: "정상", exact: true })).toContainText("1");
-      await expect(page.getByRole("group", { name: "오프라인", exact: true })).toContainText("1");
+      await expect(page.getByRole("button", { name: "전체 조명", exact: true })).toContainText("2");
+      await expect(page.getByRole("button", { name: "정상", exact: true })).toContainText("1");
+      await expect(page.getByRole("button", { name: "오프라인", exact: true })).toContainText("1");
       expect(polls).toBeGreaterThanOrEqual(2);
       await expect(page.getByRole("button", { name: "B2-L002 상태 수신 지연 70%" })).toHaveAttribute("aria-current", "true");
       await openInspector(page);
@@ -206,8 +206,8 @@ for (const viewport of viewports) {
     await expect(page.getByText(/10분마다 자동 갱신/)).toHaveCount(0);
     const mapSelector = page.getByRole("button", { name: "맵 선택" });
     await expect(mapSelector).toBeVisible();
-    await expect(page.getByRole("group", { name: "오프라인", exact: true })).toContainText("2");
-    await expect(page.getByRole("group", { name: "오프라인", exact: true })).toContainText("상태 확인 대기 포함");
+    await expect(page.getByRole("button", { name: "오프라인", exact: true })).toContainText("2");
+    await expect(page.getByRole("button", { name: "오프라인", exact: true })).toContainText("상태 확인 대기 포함");
     await expect(page.getByRole("group", { name: "평균 밝기" })).toHaveCount(0);
     await expect(page.getByRole("region", { name: "빠른 상태" })).toHaveCount(0);
     await expect(page.getByRole("region", { name: "층 도면" })).toBeVisible();
@@ -553,7 +553,7 @@ test("320px 가장자리 핀 정보는 화면 안에 머물고 실제 상태·�
   await expect(info).toBeVisible();
   await expect(info).toContainText("현재 밝기");
   await expect(info).toContainText("70%");
-  await expect(info).toContainText("저장된 위치 정보 없음");
+  await expect(info).not.toContainText("지도 좌표");
   const bounds = await info.boundingBox();
   expect(bounds).not.toBeNull();
   expect(bounds!.x).toBeGreaterThanOrEqual(0);
@@ -988,7 +988,7 @@ test("부분 지도 갱신 실패에도 이전 지도와 선택 상세를 유지
   await expect(page.getByRole("complementary", { name: "선택 조명 상세" })).toContainText("현재 밝기");
 });
 
-test("지도 갱신 3회 실패 뒤 새 revision 자동 poll 성공이 경고를 지우고 선택·배율을 보존한다", async ({ page }) => {
+test("지도 갱신 실패 뒤 새 legacy revision은 경고를 지우고 선택을 유지하며 카메라를 초기화한다", async ({ page }) => {
   await page.clock.install({ time: new Date(monitoringSnapshotAt) });
   const api = await installMonitoringFixture(page, { snapshotGeneratedAt: monitoringSnapshotAt, fixtureRows: reliabilityFixtures });
   await page.goto(`/monitoring?siteId=${ids.site}`);
@@ -1008,7 +1008,8 @@ test("지도 갱신 3회 실패 뒤 새 revision 자동 poll 성공이 경고를
   await expect.poll(() => api.mapSnapshotRequests).toBeGreaterThan(requestsAfterFailure);
   await expect(page.getByText("저장된 지도를 유지하고 있습니다. 지도 갱신에 실패했습니다.")).toHaveCount(0);
   await expect(page.getByText("일부 현황 데이터를 새로고침하지 못했습니다.")).toHaveCount(0);
-  await expectReliabilitySelectionAndZoom(page);
+  // generation이 없는 legacy 도면은 revision 변경을 새 도면으로 취급한다.
+  await expectReliabilitySelectionAndZoom(page, 100);
 });
 
 async function installMonitoringRefreshFailures(page: Page) {
@@ -1047,17 +1048,17 @@ async function selectReliabilityFixtureAt120Percent(page: Page) {
   await expectReliabilitySelectionAndZoom(page);
 }
 
-async function expectReliabilitySelectionAndZoom(page: Page) {
+async function expectReliabilitySelectionAndZoom(page: Page, zoom = 120) {
   await expect(page.getByRole("button", { name: "맵 선택" })).toContainText("B2");
   await expect(page.getByRole("button", { name: "B2-L003 상태 수신 지연 70%" })).toHaveAttribute("aria-current", "true");
-  await expect(page.getByRole("button", { name: "지도 배율 120%" })).toBeVisible();
+  await expect(page.getByRole("button", { name: `지도 배율 ${zoom}%` })).toBeVisible();
   await openInspector(page);
   await expect(page.locator("[data-monitoring-fixture-selector] button")).toContainText("B2-L003 · 상태 수신 지연");
   await closeInspector(page);
 }
 
 async function expectMonitoringSelectionToRemain(page: Page) {
-  await expect(page.getByRole("group", { name: "전체 조명", exact: true })).toContainText(String(reliabilityFixtures.length));
+  await expect(page.getByRole("button", { name: "전체 조명", exact: true })).toContainText(String(reliabilityFixtures.length));
   await expect(page.getByRole("button", { name: "맵 선택" })).toContainText("B2");
   await expect(page.getByRole("button", { name: "B2-L003 상태 수신 지연 70%" })).toHaveAttribute("aria-current", "true");
   await expect(page.getByRole("button", { name: "지도 배율 120%" })).toBeVisible();
@@ -1096,7 +1097,7 @@ async function expectElementFitsViewportAndOwnWidth(page: Page, selector: string
 }
 
 async function expectMetricGrid(page: Page, columns: number, rows: number) {
-  const metrics = page.locator("[data-monitoring-summary] > [role='group']");
+  const metrics = page.locator("[data-monitoring-summary] > button");
   await expect(metrics).toHaveCount(4);
   const boxes = await metrics.evaluateAll((elements) => elements.map((element) => {
     const box = element.getBoundingClientRect();

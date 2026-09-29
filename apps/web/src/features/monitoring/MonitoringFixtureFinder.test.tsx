@@ -26,6 +26,16 @@ function renderFinder(options: Partial<ComponentProps<typeof MonitoringFixtureFi
 }
 
 describe("MonitoringFixtureFinder", () => {
+  it("reports a complete-list count mismatch without treating search results as the total", () => {
+    renderFinder({ defaultOpen: true, expectedTotal: 3 });
+    expect(screen.getByText("목록과 집계의 확인 시점이 다릅니다. 새로고침해 주세요.")).toBeVisible();
+    fireEvent.change(screen.getByRole("searchbox", { name: "조명 이름 또는 번호 검색" }), { target: { value: "001" } });
+    expect(screen.getByText("목록과 집계의 확인 시점이 다릅니다. 새로고침해 주세요.")).toBeVisible();
+  });
+  it("does not report a count mismatch while another page remains", () => {
+    renderFinder({ defaultOpen: true, expectedTotal: 3, hasNextPage: true });
+    expect(screen.queryByText("목록과 집계의 확인 시점이 다릅니다. 새로고침해 주세요.")).not.toBeInTheDocument();
+  });
   it("finds a fixture by its numeric name fragment and selects the same fixture as the map", () => {
     const onSelectFixture = renderFinder();
     fireEvent.change(screen.getByRole("searchbox", { name: "조명 이름 또는 번호 검색" }), { target: { value: "002" } });
@@ -63,8 +73,8 @@ describe("MonitoringFixtureFinder", () => {
     expect(screen.queryByRole("link", { name: "설정에서 조명 배치" })).not.toBeInTheDocument();
   });
 
-  it("keeps a Health-reported fault in the inspection filter even before status catches up", async () => {
-    renderFinder({ fixtures: [{ ...baseFixture, health: { faultCodes: [4], observedAt: "2026-09-24T01:00:00.000Z" } }] });
+  it("matches the server KPI category even when cause presentation has higher priority", async () => {
+    renderFinder({ fixtures: [{ ...baseFixture, status: "fault", statusReason: "command_failed", health: { faultCodes: [4], observedAt: "2026-09-24T01:00:00.000Z" } }] });
     fireEvent.click(screen.getByRole("button", { name: "조명 목록 보기" }));
     fireEvent.click(screen.getByRole("button", { name: "상태 필터" }));
     fireEvent.click(await screen.findByRole("option", { name: "점검 필요" }));

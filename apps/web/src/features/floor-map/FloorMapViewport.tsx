@@ -2,6 +2,8 @@ import type { FloorMapSnapshot } from "@led-control/shared";
 import { Maximize, Minus, Plus } from "lucide-react";
 import {
   createContext,
+  forwardRef,
+  useImperativeHandle,
   useCallback,
   useContext,
   useEffect,
@@ -28,6 +30,14 @@ import {
   type MapSelectionRect
 } from "./map-gestures";
 import type { CadSceneCamera } from "../cad-scene/cad-scene-camera";
+import { cameraFromBounds, isMapViewportCamera, type MapViewportCamera } from "./map-camera";
+
+export interface FloorMapViewportHandle {
+  getCamera(): MapViewportCamera | null;
+  restoreCamera(camera: MapViewportCamera): void;
+  centerOn(point: MapPoint): void;
+  fit(): void;
+}
 
 export interface FloorMapCameraFrame {
   camera: CadSceneCamera;
@@ -59,6 +69,9 @@ interface FloorMapViewportProps {
   onZoomChange?: (zoom: number) => void;
   viewportTestId?: string;
   onViewportKeyDown?: KeyboardEventHandler<HTMLDivElement>;
+  maintainCameraOnResize?: boolean;
+  onCameraSettled?: (camera: MapViewportCamera) => void;
+  onCameraReady?: () => void;
 }
 
 interface PanGesture {
@@ -79,7 +92,7 @@ interface PinchGesture {
   startScroll: MapPoint;
 }
 
-export function FloorMapViewport({
+export const FloorMapViewport = forwardRef<FloorMapViewportHandle, FloorMapViewportProps>(function FloorMapViewport({
   snapshot,
   ariaLabel,
   mode = "pan",
@@ -88,8 +101,11 @@ export function FloorMapViewport({
   showControls = true,
   onZoomChange,
   viewportTestId,
-  onViewportKeyDown
-}: FloorMapViewportProps) {
+  onViewportKeyDown,
+  maintainCameraOnResize = false,
+  onCameraSettled,
+  onCameraReady
+}, forwardedRef) {
   const viewportRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
   const surfaceRef = useRef<HTMLDivElement>(null);
@@ -106,6 +122,11 @@ export function FloorMapViewport({
   const cameraAnimationFrame = useRef<number | null>(null);
   const zoomCommitTimer = useRef<number | null>(null);
   const pendingZoom = useRef<number | null>(null);
+  const lastLogicalCamera = useRef<MapViewportCamera | null>(null);
+  const resizeCamera = useRef<MapViewportCamera | null>(null);
+  const anchorFrames = useRef(new Set<number>());
+  const callbacks = useRef({ onCameraSettled, onCameraReady, maintainCameraOnResize });
+  callbacks.current = { onCameraSettled, onCameraReady, maintainCameraOnResize };
   const [zoom, setZoom] = useState(1);
   const [viewportSize, setViewportSize] = useState({ width: 0, height: 0 });
   const [selection, setSelection] = useState<MapSelectionRect | null>(null);
@@ -135,6 +156,17 @@ export function FloorMapViewport({
         height: `${Math.max(viewportSize.height, renderedHeight + padding * 2)}px`
       }
     : undefined;
+
+  const getCamera = useCallback(() => {
+    const viewport = viewportRef.current;
+    const surface = surfaceRef.current;
+    if (!viewport || !surface) return null;
+    const bounds = surface.getBoundingClientRect();
+    return cameraFromBounds(viewport.getBoundingClientRect(), {
+      left: bounds.left + surface.clientLeft, top: bounds.top + surface.clientTop,
+      width: bounds.width - 2 * surface.clientLeft, height: bounds.height - 2 * surface.clientTop
+    }, zoomRef.current);
+  }, []);
 
   const publishCameraFrame = useCallback(() => {
     cameraAnimationFrame.current = null;
@@ -175,7 +207,12 @@ export function FloorMapViewport({
     }
     cameraFrame.current = frame;
     cameraListeners.current.forEach((listener) => listener(frame));
-  }, [snapshot.width, snapshot.height]);
+    const logical = getCamera();
+    if (logical) {
+      lastLogicalCamera.current = logical;
+      callbacks.current.onCameraSettled?.(logical);
+    }
+  }, [snapshot.width, snapshot.height, getCamera]);
 
   const scheduleCameraFrame = useCallback(() => {
     if (cameraAnimationFrame.current !== null) return;
@@ -259,10 +296,38 @@ export function FloorMapViewport({
     if (settle) commitZoom(); else scheduleZoomCommit();
   }, [applySurfaceZoom, commitZoom, scheduleZoomCommit]);
 
+  function centerOn(point: MapPoint) {
+    const viewport = viewportRef.current;
+    if (!viewport || !Number.isFinite(point.x) || !Number.isFinite(point.y)) return;
+    scheduleMapAnchor({
+      viewport, mapAnchor: point,
+      anchor: { x: viewport.clientWidth / 2, y: viewport.clientHeight / 2 },
+      startScroll: { x: viewport.scrollLeft, y: viewport.scrollTop },
+      fromZoom: zoomRef.current, toZoom: zoomRef.current
+    });
+  }
+  function restoreCamera(camera: MapViewportCamera) {
+    if (!isMapViewportCamera(camera)) return;
+    zoomRef.current = camera.zoom;
+    pendingZoom.current = camera.zoom;
+    applySurfaceZoom(camera.zoom);
+    commitZoom();
+    centerOn({ x: camera.centerXRatio * snapshot.width, y: camera.centerYRatio * snapshot.height });
+  }
+  function fit() {
+    restoreCamera({ centerXRatio: .5, centerYRatio: .5, zoom: 1 });
+  }
+  useImperativeHandle(forwardedRef, () => ({ getCamera, restoreCamera, centerOn, fit }));
+
   useLayoutEffect(() => {
     const viewport = viewportRef.current;
     if (!viewport) return;
-    const updateSize = () => setViewportSize({ width: viewport.clientWidth, height: viewport.clientHeight });
+    const updateSize = () => setViewportSize(current => {
+      const next = { width: viewport.clientWidth, height: viewport.clientHeight };
+      if (current.width === next.width && current.height === next.height) return current;
+      if (callbacks.current.maintainCameraOnResize) resizeCamera.current = lastLogicalCamera.current;
+      return next;
+    });
     updateSize();
     if (typeof ResizeObserver === "undefined") {
       window.addEventListener("resize", updateSize);
@@ -274,8 +339,28 @@ export function FloorMapViewport({
   }, []);
 
   useLayoutEffect(() => {
+    anchorFrames.current.forEach(id => cancelAnimationFrame(id));
+    anchorFrames.current.clear();
+    zoomRef.current = 1;
+    lastLogicalCamera.current = null;
+    resizeCamera.current = null;
+    pendingZoom.current = null;
+    setZoom(1);
+    onZoomChangeRef.current?.(1);
+    if (!viewportRef.current) return;
+    viewportRef.current.scrollLeft = 0;
+    viewportRef.current.scrollTop = 0;
+  }, [snapshot.floorId, snapshot.mapDocument?.generationId]);
+
+  useLayoutEffect(() => {
+    if (resizeCamera.current) {
+      const camera = resizeCamera.current;
+      resizeCamera.current = null;
+      restoreCamera(camera);
+    }
+    if (hasViewportSize) callbacks.current.onCameraReady?.();
     scheduleCameraFrame();
-  }, [scheduleCameraFrame, snapshot.floorId, viewportSize, zoom]);
+  }, [scheduleCameraFrame, snapshot.floorId, snapshot.mapDocument?.generationId, viewportSize, zoom, onCameraReady]);
 
   useEffect(() => () => {
     if (cameraAnimationFrame.current !== null && typeof cancelAnimationFrame !== "undefined") {
@@ -287,18 +372,11 @@ export function FloorMapViewport({
     if (zoomCommitTimer.current !== null) window.clearTimeout(zoomCommitTimer.current);
     zoomCommitTimer.current = null;
     pendingZoom.current = null;
+    anchorFrames.current.forEach(id => cancelAnimationFrame(id));
+    anchorFrames.current.clear();
     cameraListeners.current.clear();
   }, []);
 
-  useLayoutEffect(() => {
-    zoomRef.current = 1;
-    pendingZoom.current = null;
-    setZoom(1);
-    onZoomChangeRef.current?.(1);
-    if (!viewportRef.current) return;
-    viewportRef.current.scrollLeft = 0;
-    viewportRef.current.scrollTop = 0;
-  }, [snapshot.floorId, snapshot.mapDocument?.generationId]);
 
   useEffect(() => {
     const viewport = viewportRef.current;
@@ -382,7 +460,13 @@ export function FloorMapViewport({
       scheduleCameraFrame();
     };
     if (typeof requestAnimationFrame === "undefined") applyAnchoredScroll();
-    else requestAnimationFrame(applyAnchoredScroll);
+    else {
+      const id = requestAnimationFrame(() => {
+        anchorFrames.current.delete(id);
+        applyAnchoredScroll();
+      });
+      anchorFrames.current.add(id);
+    }
   }
 
   function startPinch(event: ReactPointerEvent<HTMLDivElement>) {
@@ -564,12 +648,12 @@ export function FloorMapViewport({
           <IconButton type="button" variant="ghost" size="sm" className="max-compact:size-13" aria-label="지도 축소" disabled={zoom <= 0.1} onClick={() => changeZoom(zoomRef.current - 0.1, undefined, true)}><Minus size={16} aria-hidden="true" /></IconButton>
           <Button type="button" variant="ghost" size="sm" className="min-w-14 px-2 max-compact:min-h-13" aria-label={`지도 배율 ${Math.round(zoom * 100)}%`} onClick={() => changeZoom(1, undefined, true)}>{Math.round(zoom * 100)}%</Button>
           <IconButton type="button" variant="ghost" size="sm" className="max-compact:size-13" aria-label="지도 확대" disabled={zoom >= 4} onClick={() => changeZoom(zoomRef.current + 0.1, undefined, true)}><Plus size={16} aria-hidden="true" /></IconButton>
-          <IconButton type="button" variant="ghost" size="sm" className="max-compact:size-13" aria-label="지도 화면 맞춤" onClick={() => changeZoom(1, undefined, true)}><Maximize size={16} aria-hidden="true" /></IconButton>
+          <IconButton type="button" variant="ghost" size="sm" className="max-compact:size-13" aria-label="지도 화면 맞춤" onClick={fit}><Maximize size={16} aria-hidden="true" /></IconButton>
         </div>
       ) : null}
     </div>
     </FloorMapViewportOverlayContext.Provider>
   );
-}
+});
 
 export type { MapInteractionMode, MapPoint, MapSelectionRect } from "./map-gestures";
