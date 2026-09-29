@@ -33,6 +33,8 @@ describeIntegration("Account security PostgreSQL and Redis integration", () => {
   const password = "integration security password";
   const ipAddress = "203.0.113.77";
   const userAgent = "security-integration";
+  const completionIpAddress = "198.51.100.88";
+  const completionUserAgent = "security-integration-mobile";
   const previous = {
     redisUrl: process.env.REDIS_URL,
     mfaKey: process.env.MFA_ENCRYPTION_KEY
@@ -108,8 +110,8 @@ describeIntegration("Account security PostgreSQL and Redis integration", () => {
     expect(challenge).toMatchObject({ mfaRequired: true });
     const currentCode = totp.codeAt(enrollment.secret, Date.now());
     const concurrentResults = await Promise.allSettled([
-      mfa.completeLogin({ challengeToken: challenge.challengeToken, code: currentCode }, ipAddress, userAgent),
-      mfa.completeLogin({ challengeToken: competingChallenge.challengeToken, code: currentCode }, ipAddress, userAgent)
+      mfa.completeLogin({ challengeToken: challenge.challengeToken, code: currentCode }, completionIpAddress, completionUserAgent),
+      mfa.completeLogin({ challengeToken: competingChallenge.challengeToken, code: currentCode }, completionIpAddress, completionUserAgent)
     ]);
     expect(concurrentResults.filter((result) => result.status === "fulfilled")).toHaveLength(1);
     expect(concurrentResults.filter((result) => result.status === "rejected")).toHaveLength(1);
@@ -117,7 +119,16 @@ describeIntegration("Account security PostgreSQL and Redis integration", () => {
     await expect(auth.getUserBySessionToken(verified.sessionToken)).resolves.toMatchObject({ id: userId });
 
     const active = await sessions.list(verified.user, verified.sessionToken);
-    expect(active.sessions.some((session: { current: boolean }) => session.current)).toBe(true);
+    expect(active.sessions.find((session: { current: boolean }) => session.current)).toMatchObject({
+      ipAddress: completionIpAddress,
+      userAgent: completionUserAgent,
+      mfaVerified: true
+    });
+    await expect(prisma.auditLog.findFirst({
+      where: { action: "auth.login_succeeded", targetId: userId, outcome: "success" },
+      orderBy: { createdAt: "desc" },
+      select: { ipAddress: true, userAgent: true }
+    })).resolves.toEqual({ ipAddress: completionIpAddress, userAgent: completionUserAgent });
     await expect(sessions.revokeOthers(verified.user, verified.sessionToken)).resolves.toMatchObject({ revokedSessionCount: expect.any(Number) });
     await expect(auth.getUserBySessionToken(enrolled.sessionToken)).rejects.toBeInstanceOf(UnauthorizedException);
 
