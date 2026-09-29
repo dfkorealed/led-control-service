@@ -1,11 +1,33 @@
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { lstatSync, readFileSync } from 'node:fs';
+import { isIP } from 'node:net';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 const requireRule = (condition, rule) => { if (!condition) throw new Error(`Production configuration rejected: ${rule}`); };
 const repositoryRoot = path.resolve(import.meta.dirname, '..');
+
+function isCanonicalDnsHostname(hostname) {
+  const normalized=hostname.toLowerCase();
+  if(isIP(normalized) || normalized.length>253 || !normalized.includes('.') ||
+    normalized==='localhost' || normalized.endsWith('.localhost') || normalized.endsWith('.local')) return false;
+  return normalized.split('.').every(label=>label.length>0&&label.length<=63&&/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/i.test(label));
+}
+
+function isCanonicalWebOrigin(value) {
+  try {
+    const url=new URL(value);
+    return url.protocol==='https:'&&!url.username&&!url.password&&!url.search&&!url.hash&&url.pathname==='/'&&isCanonicalDnsHostname(url.hostname);
+  } catch { return false; }
+}
+
+function isCanonicalMqttEndpoint(value) {
+  try {
+    const url=new URL(value);
+    return url.protocol==='mqtts:'&&!url.username&&!url.password&&!url.search&&!url.hash&&url.pathname===''&&Boolean(url.port)&&isCanonicalDnsHostname(url.hostname);
+  } catch { return false; }
+}
 
 function validConverterArgv(value) {
   try {
@@ -54,6 +76,8 @@ export function validateProductionConfig(config, {smokeProject}={}) {
     s.web.environment.LANDING_INGRESS_SECRET === ingressSecret, 'landing ingress shared secret');
   requireRule(!s.api.environment.API_TRUST_PROXY, 'landing ingress excludes global proxy trust');
   requireRule(s.api.environment.WEB_PUBLIC_URL === s.web.environment.WEB_HTTPS_ORIGIN, 'landing ingress canonical Web origin');
+  requireRule(isCanonicalWebOrigin(s.api.environment.WEB_PUBLIC_URL) && isCanonicalWebOrigin(s.web.environment.WEB_HTTPS_ORIGIN), 'canonical Web service identity');
+  requireRule(isCanonicalMqttEndpoint(s.api.environment.MQTT_PUBLIC_URL), 'canonical MQTT service identity');
   requireRule(s.api.image===s['api-migrate'].image,'identical migration and API image');
   requireRule(s.api.depends_on?.['api-migrate']?.condition==='service_completed_successfully','migration before API');
   // The base deployment has no reviewed generation-specific mounts or all-node

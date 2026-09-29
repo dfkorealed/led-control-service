@@ -1,0 +1,27 @@
+#!/bin/sh
+set -eu
+
+# Compose preflight enforces the same contract before deployment. This image-level
+# gate also fails closed when somebody runs the immutable Web image directly.
+origin=${WEB_HTTPS_ORIGIN:?WEB_HTTPS_ORIGIN is required}
+case "$origin" in
+  https://*) authority=${origin#https://} ;;
+  *) exit 1 ;;
+esac
+authority=${authority%/}
+case "$authority" in
+  */*|*@*|*\?*|*\#*) exit 1 ;;
+esac
+host=${authority%%:*}
+if [ "$authority" != "$host" ]; then
+  port=${authority##*:}
+  case "$port" in ''|*[!0-9]*) exit 1 ;; esac
+  [ "$port" -ge 1 ] 2>/dev/null && [ "$port" -le 65535 ] 2>/dev/null || exit 1
+fi
+case "$host" in
+  localhost|*.localhost|*.local|*[!A-Za-z0-9.-]*|.*|*..*|*.) exit 1 ;;
+  *.*) ;;
+  *) exit 1 ;;
+esac
+WEB_CANONICAL_HOST=$host
+export WEB_CANONICAL_HOST

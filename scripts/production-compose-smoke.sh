@@ -70,7 +70,7 @@ function cert(name, cn, usage, san='') {
   write(`${name}.ext`, `basicConstraints=CA:FALSE\nkeyUsage=digitalSignature,keyEncipherment\nextendedKeyUsage=${usage}\n${san ? `subjectAltName=${san}\n` : ''}`);
   openssl('x509','-req','-in',`${name}.csr`,'-CA','ca.crt','-CAkey','ca.key','-CAcreateserial','-days','2','-extfile',`${name}.ext`,'-out',`${name}.crt`);
 }
-cert('server','api','serverAuth','DNS:api,DNS:web,DNS:mqtt-tls,DNS:vault-smoke,DNS:localhost,IP:127.0.0.1');
+cert('server','api','serverAuth','DNS:api,DNS:web,DNS:mqtt-tls,DNS:vault-smoke,DNS:localhost,DNS:web.smoke.invalid,IP:127.0.0.1');
 cert('client','api-service','clientAuth');
 cert('manufacturing','smoke-manufacturing-station','clientAuth');
 for (const [source, targets] of Object.entries({
@@ -110,13 +110,13 @@ const converterDigest=createHash('sha256').update(readFileSync(path.join(dir,'ca
 const password=secret(), redisPassword=secret();
 const env={PRODUCTION_COMPOSE_PROJECT:project,API_IMAGE:`${project}-api:sha-${id}`,WEB_IMAGE:`${project}-web:sha-${id}`,
  POSTGRES_USER:'smoke',POSTGRES_PASSWORD:password,POSTGRES_DB:'smoke',DATABASE_URL:`postgresql://smoke:${password}@postgres:5432/smoke`,
- REDIS_PASSWORD:redisPassword,REDIS_URL:`redis://:${redisPassword}@redis:6379`,MQTT_URL:'mqtts://mqtt-tls:8883',MQTT_PUBLIC_URL:'mqtts://mqtt-tls:8883',MQTT_API_INSTANCE_ID:project,
+ REDIS_PASSWORD:redisPassword,REDIS_URL:`redis://:${redisPassword}@redis:6379`,MQTT_URL:'mqtts://mqtt-tls:8883',MQTT_PUBLIC_URL:'mqtts://mqtt.smoke.invalid:8883',MQTT_API_INSTANCE_ID:project,
  MQTT_TLS_CERT_DIR:path.join(dir,'mqtt-tls'),API_TLS_CERT_DIR:path.join(dir,'api-tls'),WEB_TLS_CERT_DIR:path.join(dir,'web-tls'),
  VAULT_ADDR:'https://vault-smoke:8200',VAULT_TOKEN_FILE:path.join(dir,'vault/token'),VAULT_CA_CERT_PATH:path.join(dir,'vault/ca.crt'),
  VAULT_PKI_DEVICE_MOUNT:'device',VAULT_PKI_DEVICE_ROLE:'gateway',VAULT_PKI_MQTT_MOUNT:'mqtt',VAULT_PKI_MQTT_ROLE:'gateway',
  OBJECT_STORAGE_ACCESS_KEY:secret(),OBJECT_STORAGE_SECRET_KEY:secret(),OBJECT_STORAGE_BUCKET:'floor-assets',OBJECT_STORAGE_REPORT_BUCKET:'energy-reports',OBJECT_STORAGE_ENDPOINT:'http://object-storage:9000',OBJECT_STORAGE_PUBLIC_URL:'http://object-storage:9000/floor-assets',OBJECT_STORAGE_REGION:'us-east-1',
  CAD_IMPORT_CONVERTER_BUNDLE_PATH:path.join(dir,'cad-converter'),CAD_IMPORT_CONVERTER_ARGV_JSON:'["{input}","{output}"]',CAD_IMPORT_CONVERTER_SHA256:converterDigest,
- WEB_PUBLIC_URL:'https://localhost',WEB_HTTPS_ORIGIN:'https://localhost',WEB_HTTP_PORT:'127.0.0.1::8080',WEB_HTTPS_PORT:'127.0.0.1::8443'};
+ WEB_PUBLIC_URL:'https://web.smoke.invalid',WEB_HTTPS_ORIGIN:'https://web.smoke.invalid',WEB_HTTP_PORT:'127.0.0.1::8080',WEB_HTTPS_PORT:'127.0.0.1::8443'};
 // Production uses fixed target ports in its short syntax; zero asks Docker for
 // private loopback ephemeral host ports, avoiding every existing stack's ports.
 env.LANDING_INGRESS_SECRET=randomBytes(32).toString('hex');
@@ -176,8 +176,12 @@ try {
   const ca=readFileSync(path.join(dir,'ca.crt'));
   let port;
   await wait(()=>{try{port=Number(compose('port','web','8443').trim().split(':').at(-1));return Boolean(port)}catch{return false}},'web startup');
-  function request(url,options={},body) {return new Promise((resolve,reject)=>{const req=(url.startsWith('https')?https:http).request(url,{ca,...options},res=>{let responseBody='';res.on('data',c=>responseBody+=c);res.on('end',()=>resolve({status:res.statusCode,headers:res.headers,body:responseBody,tls:res.socket?.getProtocol?.()}));});req.on('error',reject);req.setTimeout(5000,()=>req.destroy(new Error('request timeout')));req.end(body);});}
-  const origin=`https://localhost:${port}`;
+  function request(url,options={},body) {
+    const target=new URL(url);
+    const lookup=target.hostname==='web.smoke.invalid'?((_hostname,_options,callback)=>callback(null,'127.0.0.1',4)):undefined;
+    return new Promise((resolve,reject)=>{const req=(url.startsWith('https')?https:http).request(url,{ca,lookup,...options},res=>{let responseBody='';res.on('data',c=>responseBody+=c);res.on('end',()=>resolve({status:res.statusCode,headers:res.headers,body:responseBody,tls:res.socket?.getProtocol?.()}));});req.on('error',reject);req.setTimeout(5000,()=>req.destroy(new Error('request timeout')));req.end(body);});
+  }
+  const origin=`https://web.smoke.invalid:${port}`;
   await wait(async()=>{try{return (await request(`${origin}/api/health/ready`)).status===200}catch{return false}},'readiness');
   const migrations=Number(sql('SELECT count(*) FROM "_prisma_migrations" WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL'));
   const expected=readdirSync(path.join(root,'apps/api/prisma/migrations'),{withFileTypes:true}).filter(v=>v.isDirectory()).length;
@@ -216,7 +220,9 @@ try {
   for(const response of [shell,assetResponse,live]) for(const header of ['strict-transport-security','x-content-type-options','x-frame-options','referrer-policy']) assert.ok(response.headers[header],header);
   for(const version of ['TLSv1.2','TLSv1.3']) assert.equal((await request(`${origin}/`,{minVersion:version,maxVersion:version})).status,200);
   const httpPort=Number(compose('port','web','8080').trim().split(':').at(-1));
-  const redirect=await request(`http://localhost:${httpPort}/route?q=1`); assert.equal(redirect.status,308); assert.equal(redirect.headers.location,'https://localhost/route?q=1');
+  const redirect=await request(`http://web.smoke.invalid:${httpPort}/route?q=1`); assert.equal(redirect.status,308); assert.equal(redirect.headers.location,'https://web.smoke.invalid/route?q=1');
+  const wrongHost=await request(`https://localhost:${port}/api/auth/login`,{method:'POST',servername:'web.smoke.invalid',headers:{host:'wrong.invalid','content-type':'application/json'}},'{}');
+  assert.equal(wrongHost.status,421); assert.equal(wrongHost.headers.location,undefined);
   // An untrusted client must not be able to verify the generated TLS endpoint.
   await assert.rejects(request(`${origin}/`,{ca:undefined}));
   const devicePort=Number(compose('port','web','9443').trim().split(':').at(-1));
@@ -235,7 +241,7 @@ try {
   await assert.rejects(request(deviceUrl,{...manufacturingOptions,...clientIdentity,servername:'wrong.invalid'},invalidBody));
   assert.equal((await request(`${origin}/api/health/ready`)).status,200);
   log('VERIFY TLS-passthrough no-client=401 valid-client=400 invalid-serial=true server-identity=verified inventory/enrollment=0 browser-proxy=200');
-  log(`VERIFY migrations=${migrations}/${expected} same-api-image=true api-cgroup=${cadCgroupMemory} sidecar-cgroup=${sidecarCgroupMemory} sidecar-network=none uid-separated=true secret-mounts=absent prlimit=root:755:canonical live=200 ready=200 TLS=1.2,1.3 proxy=200 request-id=preserved cache/security=pass HTTP=308`);
+  log(`VERIFY migrations=${migrations}/${expected} same-api-image=true api-cgroup=${cadCgroupMemory} sidecar-cgroup=${sidecarCgroupMemory} sidecar-network=none uid-separated=true secret-mounts=absent prlimit=root:755:canonical live=200 ready=200 TLS=1.2,1.3 proxy=200 request-id=preserved cache/security=pass HTTP=308 wrong-host-auth=421-no-redirect`);
   const digest=content=>createHash('sha256').update(content).digest('hex');
   const sqlLiteral=value=>`'${String(value).replaceAll("'", "''")}'`;
   const sessionToken=secret();

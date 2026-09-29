@@ -18,6 +18,22 @@ test("host launcher refuses unknown commands/arguments without a root fallback",
   const r=spawnSync("bash",[script,...args],{encoding:"utf8"});assert.equal(r.status,2);assert.equal(r.stdout,"");
  }
 });
+test("host launcher accepts only a canonical HTTPS DNS bootstrap endpoint",()=>{
+ for(const endpoint of [
+  "http://api.example.com/gateway-bootstrap",
+  "https://127.0.0.1:4000/gateway-bootstrap",
+  "https://192.168.10.8:4000/gateway-bootstrap",
+  "https://localhost:4000/gateway-bootstrap",
+  "https://api:4000/gateway-bootstrap",
+  "https://user:secret@api.example.com/gateway-bootstrap",
+  "https://api.example.com/other",
+  "https://api.example.com/gateway-bootstrap?site=secret"
+ ])withHostFixture(f=>{
+  const result=f.run("",{GATEWAY_BOOTSTRAP_URL:endpoint});
+  assert.equal(result.status,2,endpoint);assert.match(result.stderr,/BIO_RUNTIME_INPUT_INVALID/);
+  assert(!f.calls().includes("lock-acquired"));
+ });
+});
 test("shadow filename rejects traversal, whitespace, metacharacters and malformed names before Docker",()=>{
  for(const name of ["../bio-sensor-shadow-20260923T010203Z.jsonl","a/b","..","name with space","$(id)","bio-sensor-shadow-20260923T010203Z.jsonl;id","other-20260923T010203Z.jsonl","bio-sensor-shadow-20260923T010203Z.txt","bio-sensor-shadow-20260923T010203Z.jsonl".repeat(3)]){
   withHostFixture(f=>{
@@ -228,7 +244,7 @@ function withHostFixture(callback){
  const nodeStub=readFileSync(resolve(dir,"scripts/gateway-bio-usb-preflight.sh"),'utf8');
  writeFileSync(resolve(dir,"scripts/gateway-bio-usb-preflight-node"),nodeStub,{mode:0o755});
  writeFileSync(resolve(dir,"scripts/gateway-bio-usb-preflight.sh"),`#!/bin/bash\nexec ${JSON.stringify(resolve(dir,"scripts/gateway-bio-usb-preflight-node"))}\n`);
- const options={encoding:'utf8',env:{PATH:`${dir}/bin:${process.env.PATH}`,GATEWAY_BIO_DEPLOYMENT_UID:'1000',GATEWAY_BIO_DATA_ROOT:'/opt/led-control/gateway/data-admin4',GATEWAY_BIO_IMAGE:'led-control-gateway:verified',GATEWAY_BIO_IMAGE_ID:`sha256:${'a'.repeat(64)}`,GATEWAY_BIO_OLD_CONTAINER_ID:'b'.repeat(64),GATEWAY_SERIAL:'NEW-SERIAL',GATEWAY_EXPECTED_SITE_ID:'11111111-1111-4111-8111-111111111111',GATEWAY_EXPECTED_GATEWAY_ID:'22222222-2222-4222-8222-222222222222',GATEWAY_BOOTSTRAP_URL:'https://192.168.45.148:4000/gateway-bootstrap'}};
+ const options={encoding:'utf8',env:{PATH:`${dir}/bin:${process.env.PATH}`,GATEWAY_BIO_DEPLOYMENT_UID:'1000',GATEWAY_BIO_DATA_ROOT:'/opt/led-control/gateway/data-admin4',GATEWAY_BIO_IMAGE:'led-control-gateway:verified',GATEWAY_BIO_IMAGE_ID:`sha256:${'a'.repeat(64)}`,GATEWAY_BIO_OLD_CONTAINER_ID:'b'.repeat(64),GATEWAY_SERIAL:'NEW-SERIAL',GATEWAY_EXPECTED_SITE_ID:'11111111-1111-4111-8111-111111111111',GATEWAY_EXPECTED_GATEWAY_ID:'22222222-2222-4222-8222-222222222222',GATEWAY_BOOTSTRAP_URL:'https://api.example.com:443/gateway-bootstrap'}};
  const args=[resolve(dir,'scripts/gateway-bio-runtime.sh'),'start'];
  const fixture={calls:()=>readFileSync(log,'utf8').trim().split('\n'),seedLock:()=>mkdirSync(lock),lockExists:()=>existsSync(lock),run:(mode='',extra={})=>{writeFileSync(failure,mode);return spawnSync('bash',args,{...options,env:{...options.env,...extra}});},runCurrent:()=>spawnSync('bash',args,options),spawn:(mode)=>{
   writeFileSync(failure,mode);const child=spawn('bash',args,options);

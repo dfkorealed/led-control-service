@@ -26,7 +26,17 @@ capture_name=${GATEWAY_BIO_SENSOR_SHADOW_CAPTURE_NAME:-}
 for value in "${GATEWAY_EXPECTED_SITE_ID:-}" "${GATEWAY_EXPECTED_GATEWAY_ID:-}"; do
   [[ $value =~ ^[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[1-8][a-fA-F0-9]{3}-[89aAbB][a-fA-F0-9]{3}-[a-fA-F0-9]{12}$ ]] || fail_input
 done
-[[ ${GATEWAY_BOOTSTRAP_URL:-} =~ ^https://[a-zA-Z0-9.-]+:[0-9]+/gateway-bootstrap$ ]] || fail_input
+bootstrap_url_pattern='^https://([^/:@?#]+)(:([0-9]{1,5}))?/gateway-bootstrap$'
+[[ ${GATEWAY_BOOTSTRAP_URL:-} =~ $bootstrap_url_pattern ]] || fail_input
+bootstrap_host=${BASH_REMATCH[1],,}
+bootstrap_port=${BASH_REMATCH[3]:-443}
+[[ $bootstrap_host = *.* && $bootstrap_host =~ ^[a-z0-9.-]+$ && ! $bootstrap_host =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]] || fail_input
+[[ $bootstrap_host != localhost && $bootstrap_host != *.localhost && $bootstrap_host != *.local ]] || fail_input
+IFS=. read -r -a bootstrap_labels <<< "$bootstrap_host"
+for bootstrap_label in "${bootstrap_labels[@]}"; do
+  [[ $bootstrap_label =~ ^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$ ]] || fail_input
+done
+(( 10#$bootstrap_port >= 1 && 10#$bootstrap_port <= 65535 )) || fail_input
 ROOT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 COMPOSE_PATH="$ROOT_DIR/apps/gateway/compose.bio-runtime.yml"
 [[ -f $COMPOSE_PATH ]] || fail_gate

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync, rmSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -19,7 +19,7 @@ function render(omit, project = "led-production-contract", overrides = {}) {
   const env = Object.fromEntries(required.map(key => [key, `fixture-${randomBytes(16).toString("hex")}`]));
   Object.assign(env, { API_IMAGE: `led-api@sha256:${'a'.repeat(64)}`, WEB_IMAGE: `led-web@sha256:${'b'.repeat(64)}`, WEB_HTTP_PORT: "18080", WEB_HTTPS_PORT: "18443" });
   Object.assign(env, { PRODUCTION_COMPOSE_PROJECT: project, DEVICE_API_HTTPS_PORT: "19443" });
-  Object.assign(env, {VAULT_ADDR:'https://vault.invalid',WEB_PUBLIC_URL:'https://web.invalid',WEB_HTTPS_ORIGIN:'https://web.invalid',MQTT_URL:'mqtts://mqtt-tls:8883'});
+  Object.assign(env, {VAULT_ADDR:'https://vault.invalid',WEB_PUBLIC_URL:'https://web.invalid',WEB_HTTPS_ORIGIN:'https://web.invalid',MQTT_URL:'mqtts://mqtt-tls:8883',MQTT_PUBLIC_URL:'mqtts://mqtt.invalid:8883'});
   env.CAD_IMPORT_CONVERTER_ARGV_JSON = '["--input","{input}","--output","{output}"]';
   for (const key of required.filter(key => /_DIR$|_FILE$|_PATH$/.test(key))) env[key] = dir;
   mkdirSync(path.join(dir, "bin"));
@@ -142,6 +142,44 @@ test("landing mail settings reach only API while authenticated ingress shares a 
     change(unsafe);
     assert.throws(() => validateProductionConfig(unsafe), /landing ingress/);
   }
+});
+
+test("browser and device public endpoints require canonical DNS service identities", () => {
+  const baseline = render();
+  assert.equal(baseline.preflight.status, 0);
+  const cases = [
+    ["loopback Web IP", config => { config.services.api.environment.WEB_PUBLIC_URL = "https://127.0.0.1"; config.services.web.environment.WEB_HTTPS_ORIGIN = "https://127.0.0.1"; }],
+    ["private Web IP", config => { config.services.api.environment.WEB_PUBLIC_URL = "https://192.168.10.8"; config.services.web.environment.WEB_HTTPS_ORIGIN = "https://192.168.10.8"; }],
+    ["localhost Web name", config => { config.services.api.environment.WEB_PUBLIC_URL = "https://localhost"; config.services.web.environment.WEB_HTTPS_ORIGIN = "https://localhost"; }],
+    ["container Web name", config => { config.services.api.environment.WEB_PUBLIC_URL = "https://web"; config.services.web.environment.WEB_HTTPS_ORIGIN = "https://web"; }],
+    ["Web URL path", config => { config.services.api.environment.WEB_PUBLIC_URL = "https://web.invalid/app"; config.services.web.environment.WEB_HTTPS_ORIGIN = "https://web.invalid/app"; }],
+    ["loopback MQTT IP", config => { config.services.api.environment.MQTT_PUBLIC_URL = "mqtts://127.0.0.1:8883"; }],
+    ["private MQTT IP", config => { config.services.api.environment.MQTT_PUBLIC_URL = "mqtts://10.0.0.5:8883"; }],
+    ["container MQTT name", config => { config.services.api.environment.MQTT_PUBLIC_URL = "mqtts://mqtt-tls:8883"; }],
+    ["MQTT path", config => { config.services.api.environment.MQTT_PUBLIC_URL = "mqtts://mqtt.invalid:8883/topic"; }],
+    ["MQTT without explicit port", config => { config.services.api.environment.MQTT_PUBLIC_URL = "mqtts://mqtt.invalid"; }]
+  ];
+  for (const [label, mutate] of cases) {
+    const unsafe = structuredClone(baseline.config);
+    mutate(unsafe);
+    assert.throws(() => validateProductionConfig(unsafe), /canonical (?:Web|MQTT) service identity/, label);
+  }
+});
+
+test("Web derives one canonical host and rejects wrong-host TLS requests without redirecting credentials", () => {
+  const dockerfile = readFileSync(path.join(root, "apps/web/Dockerfile"), "utf8");
+  const nginx = readFileSync(path.join(root, "apps/web/nginx.conf.template"), "utf8");
+  const entrypoint = path.join(root, "apps/web/docker/05-canonical-host.envsh");
+  assert.ok(existsSync(entrypoint));
+  const derived = execFileSync("sh", ["-ec", '. "$1"; printf %s "$WEB_CANONICAL_HOST"', "sh", entrypoint], {
+    encoding: "utf8", env: { WEB_HTTPS_ORIGIN: "https://console.example.com:8443" }
+  });
+  assert.equal(derived, "console.example.com");
+  assert.match(dockerfile, /COPY (?:--chmod=0555 )?apps\/web\/docker\/05-canonical-host\.envsh \/docker-entrypoint\.d\//);
+  assert.match(dockerfile, /WEB_CANONICAL_HOST/);
+  assert.match(nginx, /listen 8443 ssl default_server;[\s\S]*?server_name _;[\s\S]*?return 421;/);
+  assert.match(nginx, /listen 8443 ssl;[\s\S]*?server_name \$\{WEB_CANONICAL_HOST\};/);
+  assert.doesNotMatch(nginx, /listen 8443 ssl default_server;[^}]*return 30[1278]/);
 });
 
 test("every credential, URL, PKI path and image fails render when omitted", () => {
