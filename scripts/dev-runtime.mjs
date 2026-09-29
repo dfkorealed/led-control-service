@@ -36,16 +36,25 @@ export function parseEnvFile(content) {
   return parsed;
 }
 
+export function isDevLocalAppOnly(source) {
+  return source.DEV_LOCAL_APP_ONLY === "1";
+}
+
 export function resolveDevEnvironment(root, source) {
   const legacyGatewayId = optionalGatewayId(source.DEV_GATEWAY_ID, "DEV_GATEWAY_ID");
   const gatewayIds = resolveDevGatewayIds(source, legacyGatewayId);
   const pki = resolvePkiDirectory(root, source);
   const usesLabBundle = Boolean(source.PKI_LAB_CURRENT_DIR?.trim());
-  const mqttUrl = mqttsUrl(source.MQTT_URL, "MQTT_URL") ?? "mqtts://localhost:8883";
+  const localAppOnly = isDevLocalAppOnly(source);
+  const apiPort = localAppOnly ? requiredPort(source.API_PORT?.trim() || "4000", "API_PORT") : undefined;
+  const mqttUrl = localAppOnly
+    ? "mqtts://127.0.0.1:8883"
+    : mqttsUrl(source.MQTT_URL, "MQTT_URL") ?? "mqtts://localhost:8883";
   const mqttPublicUrl = mqttsUrl(source.MQTT_PUBLIC_URL, "MQTT_PUBLIC_URL") ?? "mqtts://localhost:8883";
 
   return {
     ...source,
+    ...(localAppOnly ? { VITE_API_PROXY_TARGET: `https://127.0.0.1:${apiPort}` } : {}),
     MQTT_URL: mqttUrl,
     MQTT_PUBLIC_URL: mqttPublicUrl,
     MQTT_CA_PATH: source.MQTT_CA_PATH?.trim() || join(pki, usesLabBundle ? "mqtt-ca.crt" : "ca.crt"),
@@ -60,9 +69,15 @@ export function resolveDevEnvironment(root, source) {
 export async function validateLabNetworkConfiguration(source, { localAddresses, resolveHostname }) {
   if (source.PKI_ENV?.trim() !== "lab") return;
 
+  const apiPort = requiredPort(source.API_PORT?.trim() || "4000", "API_PORT");
+  if (isDevLocalAppOnly(source)) {
+    requireLoopbackEndpoint(source.VITE_API_PROXY_TARGET, "VITE_API_PROXY_TARGET", "https:", apiPort);
+    requireLoopbackEndpoint(source.MQTT_URL, "MQTT_URL", "mqtts:", 8883);
+    return;
+  }
+
   const apiIp = requiredLabIp(source.LAB_API_IP, "LAB_API_IP");
   const mqttIp = requiredLabIp(source.LAB_MQTT_IP, "LAB_MQTT_IP");
-  const apiPort = requiredPort(source.API_PORT?.trim() || "4000", "API_PORT");
   if (!source.MQTT_PUBLIC_URL?.trim()) throw new Error("MQTT_PUBLIC_URL is required in Lab mode.");
   const currentAddresses = new Set(localAddresses);
   for (const [name, address] of [["LAB_API_IP", apiIp], ["LAB_MQTT_IP", mqttIp]]) {
@@ -90,6 +105,27 @@ export async function validateLabNetworkConfiguration(source, { localAddresses, 
     8883,
     resolveHostname
   );
+}
+
+function requireLoopbackEndpoint(value, name, protocol, expectedPort) {
+  let url;
+  try {
+    url = new URL(value?.trim() ?? "");
+  } catch {
+    throw new Error(`${name} must be a valid loopback ${protocol}// URL in local-app mode.`);
+  }
+  if (
+    url.protocol !== protocol ||
+    url.hostname !== "127.0.0.1" ||
+    Number(url.port) !== expectedPort ||
+    url.username !== "" ||
+    url.password !== "" ||
+    (url.pathname !== "" && url.pathname !== "/") ||
+    url.search !== "" ||
+    url.hash !== ""
+  ) {
+    throw new Error(`${name} must equal ${protocol}//127.0.0.1:${expectedPort} in local-app mode.`);
+  }
 }
 
 function requiredLabIp(value, name) {

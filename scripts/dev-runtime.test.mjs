@@ -9,6 +9,7 @@ import {
   parseEnvFile,
   commandSetAclOptions,
   publishMosquittoAcl,
+  isDevLocalAppOnly,
   resolveDevAppFilters,
   resolveDevEnvironment,
   renderMosquittoAcl,
@@ -35,6 +36,18 @@ const currentLabEnvironment = {
 const currentLabNetwork = {
   localAddresses: ["127.0.0.1", "172.30.1.13"],
   resolveHostname: async (hostname) => [hostname]
+};
+
+const staleLocalAppEnvironment = {
+  ...currentLabEnvironment,
+  DEV_LOCAL_APP_ONLY: "1",
+  LAB_API_DNS: "api.led.lan",
+  LAB_API_IP: "192.168.45.69",
+  LAB_MQTT_DNS: "mqtt.led.lan",
+  LAB_MQTT_IP: "192.168.45.69",
+  VITE_API_PROXY_TARGET: "https://192.168.45.69:4000",
+  MQTT_URL: "mqtts://192.168.45.69:8883",
+  MQTT_PUBLIC_URL: "mqtts://192.168.45.69:8883"
 };
 
 test("루트 env 파일의 주석, 따옴표, 빈 값을 안전하게 읽는다", () => {
@@ -83,6 +96,84 @@ test("개발 환경은 명시한 LAN MQTT URL과 mTLS 경로를 보존한다", (
   assert.equal(env.MQTT_CLIENT_KEY_PATH, "/vault/current/api-mqtt-client.key");
   assert.equal(env.MQTT_API_INSTANCE_ID, "development");
   assert.equal(env.DEV_GATEWAY_ID, "11111111-1111-4111-8111-111111111111");
+});
+
+test("로컬 앱 모드는 exact 1에서만 활성화된다", () => {
+  assert.equal(isDevLocalAppOnly({ DEV_LOCAL_APP_ONLY: "1" }), true);
+  for (const value of [undefined, "", "0", "false", "true", "yes", " 1 "]) {
+    assert.equal(isDevLocalAppOnly({ DEV_LOCAL_APP_ONLY: value }), false, String(value));
+  }
+});
+
+test("로컬 앱 모드는 내부 API와 MQTT만 loopback으로 파생하고 공개 Lab identity는 보존한다", () => {
+  const env = resolveDevEnvironment("/workspace/led-control", {
+    ...staleLocalAppEnvironment,
+    API_PORT: "4400"
+  });
+
+  assert.equal(env.VITE_API_PROXY_TARGET, "https://127.0.0.1:4400");
+  assert.equal(env.MQTT_URL, "mqtts://127.0.0.1:8883");
+  assert.equal(env.MQTT_PUBLIC_URL, "mqtts://192.168.45.69:8883");
+  assert.equal(env.LAB_API_DNS, "api.led.lan");
+  assert.equal(env.LAB_MQTT_DNS, "mqtt.led.lan");
+});
+
+test("로컬 앱 모드는 stale 공개 Lab IP 소유권을 요구하지 않는다", async () => {
+  const env = resolveDevEnvironment("/workspace/led-control", staleLocalAppEnvironment);
+
+  await assert.doesNotReject(() => validateLabNetworkConfiguration(env, {
+    localAddresses: ["127.0.0.1", "172.30.1.6"],
+    resolveHostname: async () => {
+      throw new Error("local-app preflight must not resolve public Lab endpoints");
+    }
+  }));
+});
+
+test("로컬 앱 모드는 malformed loopback 내부 endpoint를 거부한다", async () => {
+  const cases = [
+    ["VITE_API_PROXY_TARGET", "http://127.0.0.1:4000"],
+    ["VITE_API_PROXY_TARGET", "https://localhost:4000"],
+    ["VITE_API_PROXY_TARGET", "https://user@127.0.0.1:4000"],
+    ["VITE_API_PROXY_TARGET", "https://127.0.0.1:4000/path"],
+    ["VITE_API_PROXY_TARGET", "https://127.0.0.1:4000?query=1"],
+    ["VITE_API_PROXY_TARGET", "https://127.0.0.1:4000#fragment"],
+    ["VITE_API_PROXY_TARGET", "https://127.0.0.1:4001"],
+    ["MQTT_URL", "mqtt://127.0.0.1:8883"],
+    ["MQTT_URL", "mqtts://localhost:8883"],
+    ["MQTT_URL", "mqtts://user@127.0.0.1:8883"],
+    ["MQTT_URL", "mqtts://127.0.0.1:8883/path"],
+    ["MQTT_URL", "mqtts://127.0.0.1:8883?query=1"],
+    ["MQTT_URL", "mqtts://127.0.0.1:8883#fragment"],
+    ["MQTT_URL", "mqtts://127.0.0.1:8884"]
+  ];
+
+  for (const [name, value] of cases) {
+    await assert.rejects(
+      () => validateLabNetworkConfiguration({
+        ...resolveDevEnvironment("/workspace/led-control", staleLocalAppEnvironment),
+        [name]: value
+      }, {
+        localAddresses: ["127.0.0.1", "172.30.1.6"],
+        resolveHostname: async () => []
+      }),
+      new RegExp(name)
+    );
+  }
+});
+
+test("truthy-looking 로컬 앱 값은 기존 stale-address 거부를 완화하지 않는다", async () => {
+  for (const value of ["false", "true", "yes", " 1 "]) {
+    await assert.rejects(
+      () => validateLabNetworkConfiguration({
+        ...staleLocalAppEnvironment,
+        DEV_LOCAL_APP_ONLY: value
+      }, {
+        localAddresses: ["127.0.0.1", "172.30.1.6"],
+        resolveHostname: async () => []
+      }),
+      /LAB_API_IP 192\.168\.45\.69.*current host/i
+    );
+  }
 });
 
 test("Lab 개발 시작은 현재 host에 없는 stale service IP를 거부한다", async () => {
