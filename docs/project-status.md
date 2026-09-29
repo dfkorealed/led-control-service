@@ -2,11 +2,14 @@
 
 기준일: 2026-09-29
 
-## 2026-09-29 메인 개발 브랜치·기본 폴더 정렬 — 진행 중
+## 2026-09-29 메인 개발 브랜치·기본 폴더 정렬 — 완료
 
 - [x] 기본 폴더 `led-control-service`의 clean-base `6bf0c664`와 `bio-codec-comments`의 실제 메인 `5555d8b1`이 갈라져 있음을 확인했다. 최근 인증/IP 보완과 기존 UI/PDF 작업을 모두 보존한다.
 - [x] [실행 체크리스트](superpowers/plans/2026-09-29-main-workspace-alignment.md)에 따라 후보 `0efbd883` 통합·집중 회귀·독립 검토를 완료했다. 제품1,935경로/migration125파일(잠금 파일 포함)의 불일치0, 타입·Web/API build exit0, Node119/Web137/API373/Gateway20·정책65 통과/UI0/0이며 API104 opt-in 제외와 기존 chunk 경고는 남는다. 독립 검토 Critical/Important/Minor0이다. 실DB/HIL·운영 승인으로 확대하지 않는다.
-- [ ] 검토 후 기본 폴더를 `codex/mvp1-cloud-web`로 전환하고 해당 폴더에서 로컬 API/Web을 확인한다. 이전 브랜치·checkout·ignored 증거는 남기며 DB·자격증명·장비·remote를 변경하지 않는다.
+- [x] 검토된 `7f718b33`을 메인에 fast-forward하고 기본 `/Users/kim-jh/Documents/led-control-service`를 `codex/mvp1-cloud-web`로 전환했다. VS Code Explorer `LED-CONTROL-SERVICE`와 메인 상태바를 직접 확인했다. 이전 clean-base `6bf0c664` 및 `bio-codec-comments`의 `5555d8b1` detached checkout·ignored 증거는 보존했다.
+- [x] 기본 폴더 fresh frozen install·Prisma client generate·타입 검사·Web/API build exit0이다. 이전 Node24 watch의3errors·내용 동일 touch 무효를 기록하고 승인된 로컬 앱 그룹만 SIGINT로 정상 종료했다. DB/Redis/broker/VS Code shell은 유지했으며 DB schema/migration/reset/purge 유지보수·자격증명 변경·실장비·push는 실행하지 않았다. 정상 앱의 감사 기록과 자동 timer를 비활성화하지 않았다.
+- [x] Node22 API/Web watch를 새로 시작해 API76136/Web76054의 기본 폴더 cwd·새 시작 시각·watch0errors를 확인했다. 공개4경로200, proxy auth/me401·잘못된 로그인401/Set-Cookie없음, 직접 API CA/DNS TLS401을 확인했고 실제 브라우저 새로고침에서 기존 인증 세션의 모니터링 진입과 최신 갱신 시각을 확인했다. 새 유효 자격증명 로그인·DB/S3/운영DNS·HIL 검증으로 확대하지 않는다. 서버 실행 session52127을 유지한다.
+- [x] 다른 담당자의 모니터링 설계 문서 WIP는 그대로 보존하고 이번 완료 기록에 스테이지/커밋하지 않는다. 제품 diff0이며 전체 working tree clean이라고 주장하지 않는다.
 
 ## 2026-09-29 IP 비종속 로그인·양산 ingress — 구현·자동 검증 완료, 실환경 승인 대기
 

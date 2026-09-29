@@ -43,14 +43,18 @@
 
 **Interfaces:** 검토된 후보와 clean 소유 상태 → 기본 폴더 메인 checkout·로컬 URL.
 
-- [ ] 총괄 승인 이후에만 메인을 후보로 fast-forward한다. `bio-codec-comments`는 기존 `5555d8b1`에서 detached로 남기고 기본 폴더를 `codex/mvp1-cloud-web`로 switch한다. 이전 clean-base ref `6bf0c664`는 보존한다.
-- [ ] 기본 폴더 의존성/클라이언트/빌드 산출물을 현재 후보에 맞추되 DB schema/migration/reset/purge 유지보수는 하지 않는다. 정상 앱 실행의 감사 기록을 비활성화하지 않으며 다른 담당자의 서버를 임의 종료하지 않는다.
-- [ ] 기본 폴더의 기존 env resolver를 사용하는 API/Web 4000/5173만 실행한다. 서버 시작 때문에 필요한 migration·PKI 복구가 있으면 실행하지 않고 보고한다.
-- [ ] 실제 listener PID/cwd, Web HTTP 200, Web proxy `auth/me` 401·잘못된 로그인 401, TLS 검증 유지와 Git clean/main/입력 ancestry를 확인한다. 실제 비밀번호·계정 초기화는 하지 않는다.
-- [ ] 이 계획과 상태판을 실제 결과로 최신화하고 commit한다. 로컬 URL과 보존된 이전 checkout 경로를 보고한다.
+- [x] 총괄 승인 이후에만 메인을 후보로 fast-forward한다. `bio-codec-comments`는 기존 `5555d8b1`에서 detached로 남기고 기본 폴더를 `codex/mvp1-cloud-web`로 switch한다. 이전 clean-base ref `6bf0c664`는 보존한다.
+- [x] 기본 폴더 의존성/클라이언트/빌드 산출물을 현재 후보에 맞추되 DB schema/migration/reset/purge 유지보수는 하지 않는다. 정상 앱 실행의 감사 기록을 비활성화하지 않으며 다른 담당자의 서버를 임의 종료하지 않는다.
+- [x] 기본 폴더의 기존 env resolver를 사용하는 API/Web 4000/5173만 실행한다. 서버 시작 때문에 필요한 migration·PKI 복구가 있으면 실행하지 않고 보고한다.
+- [x] 실제 listener PID/cwd, Web HTTP 200, Web proxy `auth/me` 401·잘못된 로그인 401, TLS 검증 유지와 Git 상태/main/입력 ancestry를 확인한다. 실제 비밀번호·계정 초기화는 하지 않는다. 다른 담당자의 문서 WIP 때문에 전체 clean은 아니며 이를 보존한다.
+- [x] 이 계획과 상태판을 실제 결과로 최신화하고 commit한다. 로컬 URL과 보존된 이전 checkout 경로를 보고한다.
 
 ## 진행 기록
 
 - 2026-09-29: 읽기 전용 사전 확인에서 기본 폴더·두 기존 checkout은 clean이었다. 5173/4000 listener는 없었다. `merge-tree`는 `docs/lesson_leared.md` 1개 충돌만 보고했다. 인증·통계 담당자에게 변경 보류와 소유 확인을 요청했다.
 - 2026-09-29 Task1: `0efbd883`에서 제품 1,935경로와 migration 125파일(잠금 파일 포함, SQL124개)의 원문 불일치 0을 확인했다. 타입 검사·Web/API build exit0, Node119/Web137/API373/Gateway20·UI정책65개 통과, UI위반0/0. API104개 opt-in 제외와 기존 chunk 경고를 유지한다. 전체 suite/Chromium/실DB/HIL 새 검증으로 확대하지 않는다.
 - 2026-09-29 독립 리뷰: `/root/main_workspace_preservation_review`가 두 입력/부모/원문 union·Vite TLS proxy·PDF/CSV 인증 경계를 읽기 전용으로 확인해 Critical/Important/Minor 모두0, 로컬 정렬 후보 승인. 실제 체크아웃 전환·서버·계정 로그인·DB/S3/운영DNS/HIL은 별도 확인 범위다.
+- 2026-09-29 Task2: 검토 후 문서 체크포인트 `7f718b33`으로 메인을 fast-forward하고 기본 폴더를 메인으로 전환했다. 이전 bio는 `5555d8b1` detached, clean-base ref는 `6bf0c664` 그대로다. fresh 기본 폴더 install/generate/typecheck/Web/API build exit0과 compiled API320파일 원문 일치를 확인했다.
+- 2026-09-29 runtime: 별도 사용자 터미널의 Node24 API/Web watch가 이전 shared 타입3errors를 유지해 source 내용 동일 mtime1회 유도로 확인했으나 API PID가 변하지 않았다. 승인 후 앱 그룹71309의13개만 SIGINT로 정상 종료하고 DB42161/Redis42159/Docker broker96052/VS Code shell58935를 유지했다. 기존 env resolver를 재사용하는 ignored `.local/main-workspace-alignment-apps.mjs`로 migration/dev preparation 없이 Node22 API/Web watch를 새로 시작했다. API76136/Web76054, cwd 기본 폴더, watch0errors, 실행 session52127이다. 앞선 실패 이력은 `.local/main-workspace-alignment-task2-report.md`와 로그에 보존한다.
+- 2026-09-29 확인: 공개4경로200·proxy auth/me401·잘못된 로그인401/Set-Cookie없음·직접 API CA/DNS TLS401 모두 exit0이다. 실제 브라우저 reload에서 기존 세션의 모니터링 진입/최신 갱신을 확인했고 VS Code 루트/메인 표시도 확인했다. 새 유효 자격증명 로그인·DB/S3/운영DNS/HIL은 확인하지 않았다. API/Web 외 장비 재시작·DB 유지보수·환경/자격증명 변경·remote push는 하지 않았다.
+- 2026-09-29 공유 작업: 별도 모니터링 담당자의 상태판/메뉴 문서·새 설계 초안은 미stage/미commit로 보존한다. 총괄은 이 계획과 상태판의 메인 정렬 섹션만 완료 기록에 포함하며 다른 작업을 임의로 완료 처리하지 않는다.
