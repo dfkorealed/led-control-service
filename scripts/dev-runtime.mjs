@@ -40,6 +40,10 @@ export function isDevLocalAppOnly(source) {
   return source.DEV_LOCAL_APP_ONLY === "1";
 }
 
+export function resolveDevServiceTlsServername(source, name, fallback) {
+  return isDevLocalAppOnly(source) ? requiredLabDnsName(source[name], name) : fallback;
+}
+
 export function resolveDevEnvironment(root, source) {
   const legacyGatewayId = optionalGatewayId(source.DEV_GATEWAY_ID, "DEV_GATEWAY_ID");
   const gatewayIds = resolveDevGatewayIds(source, legacyGatewayId);
@@ -73,6 +77,8 @@ export async function validateLabNetworkConfiguration(source, { localAddresses, 
   if (isDevLocalAppOnly(source)) {
     requireLoopbackEndpoint(source.VITE_API_PROXY_TARGET, "VITE_API_PROXY_TARGET", "https:", apiPort);
     requireLoopbackEndpoint(source.MQTT_URL, "MQTT_URL", "mqtts:", 8883);
+    requiredLabDnsName(source.LAB_API_DNS, "LAB_API_DNS");
+    requiredLabDnsName(source.LAB_MQTT_DNS, "LAB_MQTT_DNS");
     return;
   }
 
@@ -132,6 +138,15 @@ function requiredLabIp(value, name) {
   const address = value?.trim();
   if (!address || isIP(address) !== 4) throw new Error(`${name} must be a valid IPv4 address in Lab mode.`);
   return address;
+}
+
+function requiredLabDnsName(value, name) {
+  const hostname = value?.trim();
+  const label = "[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?";
+  if (!hostname || isIP(hostname) !== 0 || hostname.length > 253 || !new RegExp(`^(?:${label}\\.)+${label}$`).test(hostname)) {
+    throw new Error(`${name} must be a valid DNS hostname in local-app mode.`);
+  }
+  return hostname;
 }
 
 function requiredPort(value, name) {

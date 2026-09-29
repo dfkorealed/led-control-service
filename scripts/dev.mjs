@@ -14,6 +14,7 @@ import { runDevelopmentNetworkPreflight } from "./dev-network-preflight.mjs";
 import {
   isDevLocalAppOnly,
   resolveDevAppFilters,
+  resolveDevServiceTlsServername,
   resolveMosquittoTlsPaths,
   startMosquittoCrlReload
 } from "./dev-runtime.mjs";
@@ -159,7 +160,7 @@ function canConnectMqttTls(mqttEnv, mqttUrl) {
     const socket = connectTls({
       host: mqttUrl.hostname,
       port: Number(mqttUrl.port || 8883),
-      servername: mqttUrl.hostname,
+      servername: resolveDevServiceTlsServername(mqttEnv, "LAB_MQTT_DNS", mqttUrl.hostname),
       ca: readFileSync(mqttEnv.MQTT_CA_PATH),
       cert: readFileSync(mqttEnv.MQTT_CLIENT_CERT_PATH),
       key: readFileSync(mqttEnv.MQTT_CLIENT_KEY_PATH),

@@ -3,6 +3,7 @@ import { createPrivateKey, X509Certificate } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { connect, IClientOptions, MqttClient } from "mqtt";
 import { PrismaService } from "../prisma/prisma.service";
+import { mqttTlsServernameOption } from "./mqtt-tls-identity";
 
 type Options = { env?: NodeJS.ProcessEnv; timeoutMs?: number };
 export type CommandSetEnqueue = (expirySeconds: number) => Promise<void>;
@@ -151,6 +152,7 @@ function createCommandSetConnection(env: NodeJS.ProcessEnv) {
     registration: { generation, workerId, brokerIdentity },
     connection: { url: env.MQTT_URL, options: {
       ca: read("MQTT_CA_PATH"), cert, key, rejectUnauthorized: true,
+      ...mqttTlsServernameOption(env, env.MQTT_URL),
       clientId: `${brokerIdentity}-${workerId}`, clean: true, protocolVersion: 5 as const,
       reconnectPeriod: 0, queueQoSZero: false, properties: { sessionExpiryInterval: 0 }
     } }

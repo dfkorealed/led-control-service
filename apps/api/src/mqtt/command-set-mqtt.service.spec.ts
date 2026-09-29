@@ -61,6 +61,33 @@ describe("generation-scoped Set egress", () => {
     }, expect.any(Function));
     await service.onModuleDestroy();
   });
+  it("verifies local-app loopback with the Lab MQTT DNS identity", async () => {
+    env.DEV_LOCAL_APP_ONLY = "1";
+    env.MQTT_URL = "mqtts://127.0.0.1:8883";
+    env.LAB_MQTT_DNS = "mqtt.led.lan";
+    const { service } = fixture();
+    await service.onModuleInit();
+    await service.publish(7, topic, payload, authorize(8));
+    expect(connect).toHaveBeenCalledWith(env.MQTT_URL, expect.objectContaining({
+      servername: "mqtt.led.lan",
+      rejectUnauthorized: true
+    }));
+    await service.close();
+  });
+  it.each([undefined, "", "localhost", "127.0.0.1", "bad name", "-mqtt.led.lan", "mqtt.led.lan."])(
+    "rejects missing or invalid local-app Lab MQTT DNS identity: %s",
+    async (LAB_MQTT_DNS) => {
+      env.DEV_LOCAL_APP_ONLY = "1";
+      env.MQTT_URL = "mqtts://127.0.0.1:8883";
+      env.LAB_MQTT_DNS = LAB_MQTT_DNS;
+      const { service, prisma } = fixture();
+      jest.spyOn(Logger.prototype, "error").mockImplementation();
+      await service.onModuleInit();
+      expect(service.memberIdentity).toBeNull();
+      expect(prisma.commandPublishMember.createMany).not.toHaveBeenCalled();
+      expect(connect).not.toHaveBeenCalled();
+    }
+  );
   it("never connects without DB registration, even when credentials are valid", async () => {
     const { service, prisma } = fixture();
     await expect(service.publish(7, topic, payload, authorize(8))).rejects.toThrow(/registration/);

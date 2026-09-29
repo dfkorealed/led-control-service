@@ -12,6 +12,7 @@ import {
   isDevLocalAppOnly,
   resolveDevAppFilters,
   resolveDevEnvironment,
+  resolveDevServiceTlsServername,
   renderMosquittoAcl,
   renderDockerMosquittoConfig,
   renderMosquittoConfig,
@@ -103,6 +104,21 @@ test("로컬 앱 모드는 exact 1에서만 활성화된다", () => {
   for (const value of [undefined, "", "0", "false", "true", "yes", " 1 "]) {
     assert.equal(isDevLocalAppOnly({ DEV_LOCAL_APP_ONLY: value }), false, String(value));
   }
+});
+
+test("개발 launcher는 local-app loopback MQTT를 기존 Lab DNS identity로 검증한다", () => {
+  assert.equal(
+    resolveDevServiceTlsServername(staleLocalAppEnvironment, "LAB_MQTT_DNS", "127.0.0.1"),
+    "mqtt.led.lan"
+  );
+  assert.equal(
+    resolveDevServiceTlsServername({ DEV_LOCAL_APP_ONLY: "false" }, "LAB_MQTT_DNS", "mqtt.example.com"),
+    "mqtt.example.com"
+  );
+  assert.throws(
+    () => resolveDevServiceTlsServername({ DEV_LOCAL_APP_ONLY: "1", LAB_MQTT_DNS: "127.0.0.1" }, "LAB_MQTT_DNS", "127.0.0.1"),
+    /LAB_MQTT_DNS/
+  );
 });
 
 test("로컬 앱 모드는 내부 API와 MQTT만 loopback으로 파생하고 공개 Lab identity는 보존한다", () => {
