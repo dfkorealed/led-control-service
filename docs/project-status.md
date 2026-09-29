@@ -5,7 +5,7 @@
 ## 2026-09-29 메인 개발 브랜치·기본 폴더 정렬 — 진행 중
 
 - [x] 기본 폴더 `led-control-service`의 clean-base `6bf0c664`와 `bio-codec-comments`의 실제 메인 `5555d8b1`이 갈라져 있음을 확인했다. 최근 인증/IP 보완과 기존 UI/PDF 작업을 모두 보존한다.
-- [ ] [실행 체크리스트](superpowers/plans/2026-09-29-main-workspace-alignment.md)에 따라 격리 후보 통합·집중 회귀·독립 검토를 진행한다.
+- [x] [실행 체크리스트](superpowers/plans/2026-09-29-main-workspace-alignment.md)에 따라 후보 `0efbd883` 통합·집중 회귀·독립 검토를 완료했다. 제품1,935경로/migration125파일(잠금 파일 포함)의 불일치0, 타입·Web/API build exit0, Node119/Web137/API373/Gateway20·정책65 통과/UI0/0이며 API104 opt-in 제외와 기존 chunk 경고는 남는다. 독립 검토 Critical/Important/Minor0이다. 실DB/HIL·운영 승인으로 확대하지 않는다.
 - [ ] 검토 후 기본 폴더를 `codex/mvp1-cloud-web`로 전환하고 해당 폴더에서 로컬 API/Web을 확인한다. 이전 브랜치·checkout·ignored 증거는 남기며 DB·자격증명·장비·remote를 변경하지 않는다.
 
 ## 2026-09-29 IP 비종속 로그인·양산 ingress — 구현·자동 검증 완료, 실환경 승인 대기
