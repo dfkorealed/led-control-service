@@ -5,6 +5,10 @@
 - **발생한 문제**: 보고서 전용 `pg_dump -t`에서 대소문자가 섞인 테이블 이름의 SQL 인용을 빠뜨려 의도한 테이블이 선택되지 않았다. 이전 dump 중에는 권한이 `0644`인 파일도 있어 보호 백업으로 재사용할 수 없었다.
 - **예방**: `-t '"EnergyReportJob"'`처럼 대소문자 구분 식별자를 SQL 인용이 포함된 패턴으로 전달하고, 생성 직후 dump의 대상 테이블·복원 가능성과 파일 권한을 확인한다. 기존 파일의 적합성을 추정하지 않고 새 백업을 `umask 077` 아래 만들며 dump를 `0600`, 백업 디렉터리를 제한 권한으로 유지한다. 자격 증명과 객체 전체 키는 문서·로그에 남기지 않는다.
 
+## 2026-09-29 / 접속 주소와 TLS identity를 분리하고 인증 challenge를 네트워크 위치에 묶지 않는다
+
+개발 Mac의 DHCP 주소가 바뀌었을 때 stale Lab IP 검사가 API를 막고 남은 Vite만 500을 반환했다. 앱만 확인하는 경로는 내부 연결을 loopback으로 바꾸되 기존 DNS 인증서 identity와 CA 검증을 유지해야 한다. 양산에서는 반대로 공개 서비스 identity를 고정 DNS로 제한하고 literal/private/container 주소를 거부해야 한다. 로그인 MFA는 exact IP/User-Agent 일치가 아니라 사용자·challenge·factor·만료·replay 방지로 소유권을 검증하고, 현재 관측 IP는 rate limit과 감사 자료로 사용한다. Proxy IP는 전역 신뢰가 아니라 Web nginx가 비밀과 함께 덮어쓴 단일 header만 허용하며, 잘못된 Host의 인증 POST는 redirect 없이 닫아 credential 전달을 막는다.
+
 ## 2026-09-24 / 번들 트리셰이킹 비교는 실제 미사용 export만 제거한다
 
 - **발생한 문제**: 상태 센터가 `Popover`를 직접 사용하게 된 뒤에도 번들 검사가 `DropdownMenu`와 `Popover` 두 public export를 함께 제거했다. 두 빌드의 모듈 수와 코드 길이는 같았지만 Rollup 순서·청크 해시·gzip 크기가 달라져 검사가 실패했다.

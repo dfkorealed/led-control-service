@@ -4,6 +4,22 @@
 
 이 문서는 개발 Mac에서 양산과 같은 신뢰 흐름을 반복 시험하는 단일 기준 절차다. Lab 전용 Root와 Vault를 사용하지만 제품 API의 제조 등록, 일회성 claim, 장비 bootstrap, MQTT mTLS 경로는 우회하지 않는다.
 
+### IP가 바뀐 Mac에서 API·Web만 확인하는 모드
+
+Gateway를 기존 네트워크에 둔 채 Mac만 다른 네트워크에서 로그인·화면·API를 확인할 때는 로컬 `.env`에 `DEV_LOCAL_APP_ONLY=1`을 정확히 한 줄 설정한다. `true`, `yes`, `false`는 활성값이 아니다. 이것이 이번 변경에서 추가된 유일한 사용자 관리 환경변수다. 실행기는 내부 API와 MQTT 연결만 각각 `127.0.0.1:4000`, `127.0.0.1:8883`으로 바꾸고, TLS 검증 이름과 CA는 기존 `LAB_API_DNS`, `LAB_MQTT_DNS` 및 Lab bundle을 그대로 사용한다. 인증서 검증은 끄지 않는다. 이 앱 전용 모드는 장비 인증서 발급을 하지 않으므로 PKI provider를 `unavailable`로 파생해 만료된 Lab Vault application token이 로그인 서버까지 막지 않게 한다. 기본 Lab/HIL 모드의 Vault renewal·fail-closed 계약은 바꾸지 않는다.
+
+이 모드에서는 `.env`와 Lab bundle에 남은 이전 `LAB_API_IP`·`LAB_MQTT_IP`가 현재 Mac 주소가 아니어도 로컬 앱을 시작할 수 있다. 그 값을 새 Wi-Fi 주소로 덮어쓰거나 인증서, DB, Gateway ID, claim, private key를 재생성하지 않는다. 의존 서비스가 이미 실행 중이면 다음 순서로 확인한다.
+
+```bash
+DEV_LOCAL_APP_ONLY=1 pnpm dev:network-preflight
+pnpm dev
+curl --silent --show-error --output /dev/null --write-out '%{http_code}\n' http://127.0.0.1:5173/api/auth/me
+```
+
+마지막 응답의 `401`은 API까지 정상 도달했다는 뜻이고 `500`은 정상 상태가 아니다. 잘못된 로그인도 인증 `401`이어야 하며 transport/proxy `500`이면 안 된다. 알려진 계정으로 성공 로그인을 확인할 수는 있지만, 시험을 위해 알 수 없는 운영자 비밀번호를 초기화하지 않는다.
+
+이 결과는 **로컬 앱 검증**일 뿐 Gateway 연결, MQTT 외부 도달성, 조명 검색·등록·제어 또는 HIL 통과 증거가 아니다. Gateway를 포함한 실기는 아래 기본 Lab 절차처럼 Mac/Pi가 같은 고정 DNS를 해석하고 공개 endpoint에 도달하는 상태에서 수행한다. 기본 Lab 모드는 계속 현재 Mac에 실제 할당된 `LAB_API_IP`·`LAB_MQTT_IP`를 요구하며 stale 주소를 fail-closed한다.
+
 ## 1. 시험 흐름과 각 단계의 목적
 
 1. **Lab Vault 시작**: 장비 인증서를 발급하는 온라인 intermediate CA를 실행한다.
@@ -408,6 +424,7 @@ Vault를 reset한 뒤 기존 `.local/lab-pki`와 Pi 인증서를 섞으면 issue
 | `api.led.lan`을 찾지 못함 | Mac/Pi `/etc/hosts`, 현재 LAN IP | 두 호스트의 DNS 매핑을 같은 IP로 수정 |
 | API 인증서 hostname 오류 | `openssl x509 -in ... -text`의 SAN | 현재 `LAB_HOST_IP`로 Lab PKI 재생성 여부 판단 |
 | 장소 이동 뒤 API/Gateway MQTT가 동시에 offline | 실행 중 API의 `MQTT_URL`, Pi의 `getent hosts`, 인증서 SAN이 이전 IP를 가리킴 | 현재 LAN IP로 `lab:pki:bootstrap`을 재실행하고 새 `lab.env`를 source한 뒤 Pi DNS 매핑·bootstrap endpoint를 갱신하고 API/Web/Docker broker와 Gateway container를 graceful restart한다. Mac `/etc/hosts`를 갱신할 수 없으면 인증서 IP SAN과 명시적 IP endpoint를 사용한다. DB ID·claim·장비 인증서는 유지한다. |
+| Mac만 이동한 뒤 로그인 `/api`가 500 | API 4000은 중지됐지만 이전 Vite 5173만 남았거나 기본 Lab preflight가 stale IP를 거부함 | Gateway/HIL이 아니라 앱만 확인할 목적이면 `.env`의 `DEV_LOCAL_APP_ONLY=1`을 확인하고 `pnpm dev:network-preflight` 후 `pnpm dev`를 다시 실행한다. `auth/me` 401로 proxy 복구를 확인하며 Lab IP·인증서·Gateway identity는 바꾸지 않는다. |
 | `pnpm dev`가 8883 handshake 실패 | 기존 broker가 다른 PKI/config inode를 사용하거나 8883을 점유 | native 경로는 `docker compose stop mqtt-tls` 후 Lab env를 source하고 재실행한다. Docker 경로는 `pnpm dev:prepare && docker compose up -d --force-recreate mqtt-tls` 후 `pnpm dev`를 실행한다. |
 | 제조 endpoint가 401/TLS 실패 | station key 권한, CA/CRL, API 재시작 | `600` 권한과 `lab.env` 적용 여부 확인 |
 | claim 후 Pi가 `unclaimed` 반복 | serial 불일치 또는 claim 미완료 | label, 웹 입력, Pi `GATEWAY_SERIAL`을 비교 |

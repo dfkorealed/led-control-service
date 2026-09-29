@@ -37,6 +37,12 @@ Task 3 시점에서 original-Command cutoff/permit과 recovery publisher 일부�
 
 이 절차는 단일 호스트의 standalone `docker-compose.production.yml`에 적용한다. 운영 배포 권한, 유지보수 시간, DB·Object Storage·CRL 백업과 복원 책임자, 승인된 API/Web release digest, Docker daemon/Compose, 저장소 Node 22·pnpm 9.15.0 환경이 필요하다. DNS·방화벽·외부 Vault와 MQTT/Object Storage 진입점은 별도로 준비한다. 이 작업은 `docker:up:production`, 운영 migration, 실장비 HIL, 실제 자격 증명 작업을 실행하지 않았다.
 
+양산 브라우저 접속과 Gateway bootstrap은 DHCP나 고객 단말 IP가 아니라 서비스의 고정 DNS identity를 기준으로 한다. `WEB_PUBLIC_URL`과 `WEB_HTTPS_ORIGIN`은 동일한 공개 HTTPS origin이어야 하고, `MQTT_PUBLIC_URL`은 공개 `mqtts://` DNS endpoint의 정확한 `:8883` port를 사용해야 한다. API의 내부 `MQTT_URL`은 bundled broker identity인 `mqtts://mqtt-tls:8883`으로 고정한다. Gateway의 `GATEWAY_BOOTSTRAP_URL`도 공개 HTTPS DNS의 정확한 `/gateway-bootstrap` 경로를 사용한다. literal IPv4/IPv6와 축약·16진 IPv4 표기, loopback, RFC1918 주소, `localhost`, `.local`, `web`·`mqtt-tls` 같은 공개 Compose 서비스명, credential·query·fragment·추가 path는 preflight에서 거부된다. nginx canonical host는 `WEB_HTTPS_ORIGIN`에서 파생하므로 별도 host 환경변수를 추가하지 않는다.
+
+공개 DNS 전환 전 staging에서 새 Web/API/MQTT 인증서 SAN, CA chain, 방화벽과 공개 port를 먼저 확인한다. 새 `LANDING_INGRESS_SECRET`을 교체할 때는 API와 Web을 같은 유지보수 창에서 갱신하고 불일치 구간의 503을 정상 성공으로 보지 않는다. nginx는 브라우저 요청의 `X-Web-Ingress-Secret`, `X-Web-Client-IP`, `X-Real-IP`, `X-Forwarded-*`를 실제 연결값으로 덮어쓰며 API는 올바른 secret과 단일 유효 IP일 때만 Web client IP를 신뢰한다. 전역 `API_TRUST_PROXY`는 계속 금지한다. 비밀번호 단계와 MFA 완료 사이에 단말 IP/User-Agent가 바뀌어도 challenge 소유권은 사용자·만료·일회성·사용자 row version·factor로 검증하고, 완료 시점 IP/User-Agent를 session·rate limit·감사에 사용한다.
+
+TLS staging에는 정상 canonical Host의 로그인 요청이 인증 결과(성공 또는 401)를 반환하고, 같은 TLS endpoint에 잘못된 Host로 보낸 로그인 POST가 redirect 없이 `421`을 반환하는 검사를 포함한다. 잘못된 Host의 credential body를 다른 origin으로 30x 전달해서는 안 된다. DNS TTL을 낮춘 뒤 새 endpoint의 readiness와 위 검사를 통과하고 DNS를 전환하며, 관측 창 동안 이전 인증서·endpoint rollback 가능성을 유지한다. 실제 공인 DNS/TLS, 고객망 간 접속과 장비 HIL을 통과하기 전에는 자동 contract 성공만으로 양산 승인을 내리지 않는다.
+
 아래 명령은 저장소 루트에서 Bash로 실행한다. `/secure/path/.env.production`과 `led-production-sitea`는 자리표시자이므로 승인된 절대 경로와 운영 project로 바꾼다. 값이 든 env 파일을 shell에서 `source`하거나 출력하지 않는다. `set -x`, 전체 `docker inspect`, raw Compose config 출력은 secret을 노출할 수 있다.
 
 ## 1. 소스·artifact 확인 — 읽기 전용
@@ -93,7 +99,7 @@ API는 migration과 runtime에 같은 image를 사용한다. 로컬 image ID와 
 | 공개 문의 ingress | `LANDING_INGRESS_SECRET` — 독립 32바이트 난수의 64자리 소문자 hex, API/Web에 동일 주입 |
 | API·Web TLS·port | `API_TLS_CERT_DIR`, `WEB_TLS_CERT_DIR`, `WEB_PUBLIC_URL`, `WEB_HTTPS_ORIGIN`, `WEB_HTTP_PORT`, `WEB_HTTPS_PORT`, `DEVICE_API_HTTPS_PORT` |
 
-공개 문의 ingress는 nginx가 덮어쓴 방문자 IP와 별도 비밀을 검증한다. 장비용 9443 raw TLS 우회를 막기 위해 `API_TRUST_PROXY`는 설정하지 않는다. 선택적인 메일 설정 5개는 API에만 전달하며 등록 callback은 Web origin의 `/api/landing-mail/oauth/callback`이다. 누락·교체·재연결 절차는 [메일 연결 운영 절차](landing-mail-setup.md)를 따른다.
+인증된 Web ingress는 nginx가 덮어쓴 브라우저 IP와 기존 `LANDING_INGRESS_SECRET`을 검증한다. 이름은 호환성을 위해 유지하지만 로그인, rate limit, 감사와 공개 문의가 공유하는 Web→API 경계 비밀이다. 장비용 9443 raw TLS 우회를 막기 위해 `API_TRUST_PROXY`는 설정하지 않는다. 선택적인 메일 설정 5개는 API에만 전달하며 등록 callback은 Web origin의 `/api/landing-mail/oauth/callback`이다. 누락·교체·재연결 절차는 [메일 연결 운영 절차](landing-mail-setup.md)를 따른다.
 
 명령 상세 GET의 독립 3개월 경계는 `COMMAND_HISTORY_RETENTION_ENABLED`가 기본 `0`이다. 활성화 검토 시 중앙 DB에 read-only 자격증명으로 `pnpm --filter @led-control/api exec tsx src/commands/command-history-readiness.cli.ts`를 실행해 DB UTC cutoff와 cutoff 이전 hold 없는 pending/unknown 0건을 확인하고, 출력 시각·건수·릴리스 digest를 변경 기록에 남긴다. 양수면 오류 출력의 opaque ID를 조사하고, SQL/권한 오류도 실패로 취급한다. 현재 production Compose preflight는 이 증거를 배포 입력에 안전하게 결합하는 단계가 없어 `1`을 거부한다. 이 경로를 검증·통합하기 전에는 운영 flag를 켜지 않는다. 이 GET 경계는 물리 purge·recovery POST·publisher를 활성화하지 않는다.
 

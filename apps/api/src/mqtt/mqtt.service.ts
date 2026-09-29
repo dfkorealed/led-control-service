@@ -58,6 +58,7 @@ import { CommandRecoveryAckService } from "../commands/command-recovery-ack.serv
 import { CommandLateSetAckService } from "../commands/command-late-set-ack.service";
 import { CommandLegacyGetAckService } from "../commands/command-legacy-get-ack.service";
 import { CommandClockResponderService } from "./command-clock-responder.service";
+import { mqttTlsServernameOption } from "./mqtt-tls-identity";
 
 const MQTT_BACKGROUND_PUBLISH_TIMEOUT_MS = 10_000;
 const MQTT_CLOSE_TIMEOUT_MS = 5_000;
@@ -1802,6 +1803,7 @@ export function createMqttConnectionOptions(env: NodeJS.ProcessEnv): { url: stri
       cert: readFileSync(requiredMqttPath(env, "MQTT_CLIENT_CERT_PATH")),
       key: readFileSync(requiredMqttPath(env, "MQTT_CLIENT_KEY_PATH")),
       rejectUnauthorized: true,
+      ...mqttTlsServernameOption(env, url),
       clientId: `api-service-${requiredMqttApiInstanceId(env)}`,
       clean: false,
       protocolVersion: 5,

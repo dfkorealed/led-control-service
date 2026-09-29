@@ -3,7 +3,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { networkInterfaces } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { parseEnvFile, validateLabNetworkConfiguration } from "./dev-runtime.mjs";
+import { parseEnvFile, resolveDevEnvironment, validateLabNetworkConfiguration } from "./dev-runtime.mjs";
 
 const scriptPath = fileURLToPath(import.meta.url);
 const repositoryRoot = join(dirname(scriptPath), "..");
@@ -22,7 +22,7 @@ export async function runDevelopmentNetworkPreflight({
   }
 
   const fileEnvironment = parseEnvFile(readEnvironmentFile(environmentPath, "utf8"));
-  const sourceEnvironment = { ...fileEnvironment, ...processEnvironment };
+  const sourceEnvironment = resolveDevEnvironment(root, { ...fileEnvironment, ...processEnvironment });
   const localIpv4Addresses = Object.values(listNetworkInterfaces())
     .flatMap((entries) => entries ?? [])
     .filter((entry) => entry.family === "IPv4" || entry.family === 4)

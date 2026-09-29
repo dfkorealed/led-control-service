@@ -12,7 +12,9 @@ import {
 import { prepareDevelopmentRuntime } from "./dev-prepare.mjs";
 import { runDevelopmentNetworkPreflight } from "./dev-network-preflight.mjs";
 import {
+  isDevLocalAppOnly,
   resolveDevAppFilters,
+  resolveDevServiceTlsServername,
   resolveMosquittoTlsPaths,
   startMosquittoCrlReload
 } from "./dev-runtime.mjs";
@@ -23,6 +25,9 @@ let broker = null;
 let brokerCrlWatcher = null;
 let apps = null;
 const sourceEnv = await runDevelopmentNetworkPreflight({ root });
+if (isDevLocalAppOnly(sourceEnv)) {
+  console.log("[dev] 로컬 앱 모드입니다. API/Web/MQTT는 loopback에서 실행하며 Gateway/HIL 연결 가능 여부는 확인하지 않습니다.");
+}
 if (sourceEnv.AUTOMATION_E2E_SIMULATOR === "1") {
   fail("AUTOMATION_E2E_SIMULATOR는 private child IPC를 제공하는 Chromium RealBackendLab에서만 실행할 수 있습니다.");
 }
@@ -155,7 +160,7 @@ function canConnectMqttTls(mqttEnv, mqttUrl) {
     const socket = connectTls({
       host: mqttUrl.hostname,
       port: Number(mqttUrl.port || 8883),
-      servername: mqttUrl.hostname,
+      servername: resolveDevServiceTlsServername(mqttEnv, "LAB_MQTT_DNS", mqttUrl.hostname),
       ca: readFileSync(mqttEnv.MQTT_CA_PATH),
       cert: readFileSync(mqttEnv.MQTT_CLIENT_CERT_PATH),
       key: readFileSync(mqttEnv.MQTT_CLIENT_KEY_PATH),

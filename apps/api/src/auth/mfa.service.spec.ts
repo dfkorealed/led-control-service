@@ -80,7 +80,7 @@ describe("MfaService", () => {
     expect(crypto.encrypt).toHaveBeenCalledWith("BASE32SECRET");
   });
 
-  it("creates a password-verified login challenge bound to auth version, IP, agent and remember-me", async () => {
+  it("creates a password-verified login challenge with auth version, origin observations and remember-me", async () => {
     const { service, challenges, storedUser } = fixture();
     await expect(service.createLoginChallenge(storedUser, {
       rememberMe: true, ipAddress: "203.0.113.7", userAgent: "browser"
@@ -129,29 +129,37 @@ describe("MfaService", () => {
     expect(tx.userMfa.create).not.toHaveBeenCalled();
   });
 
-  it("completes MFA login with TOTP without accepting a stale or differently bound challenge", async () => {
-    const { service, challenges, storedUser, tx, rateLimit } = fixture();
+  it("completes MFA login after an IP and user-agent change using completion observations", async () => {
+    const { service, challenges, storedUser, tx, rateLimit, audit } = fixture();
     storedUser.mfa = { secretCiphertext: "enc:BASE32SECRET", recoveryCodeHashes: [], lastUsedTotpCounter: 99 };
     challenges.take.mockResolvedValue({
       userId: admin.id, userUpdatedAt: storedUser.updatedAt.toISOString(), rememberMe: false,
       ipAddress: "203.0.113.7", userAgent: "browser"
     });
 
-    const result = await service.completeLogin({ challengeToken: "challenge", code: "123456" }, "203.0.113.7", "browser");
-    expect(rateLimit.consumeMfaCompletion).toHaveBeenCalledWith({ ipAddress: "203.0.113.7", userAgent: "browser" });
+    const result = await service.completeLogin({ challengeToken: "challenge", code: "123456" }, "198.51.100.55", "mobile-browser");
+    expect(rateLimit.consumeMfaCompletion).toHaveBeenCalledWith({ ipAddress: "198.51.100.55", userAgent: "mobile-browser" });
     expect(rateLimit.consumeMfaCompletion.mock.invocationCallOrder[0]).toBeLessThan(challenges.take.mock.invocationCallOrder[0]);
     expect(result.user).toMatchObject({ id: admin.id });
-    expect(tx.session.create).toHaveBeenCalledWith({ data: expect.objectContaining({ mfaVerifiedAt: expect.any(Date), rememberMe: false }) });
+    expect(tx.session.create).toHaveBeenCalledWith({ data: expect.objectContaining({
+      mfaVerifiedAt: expect.any(Date), rememberMe: false, ipAddress: "198.51.100.55", userAgent: "mobile-browser"
+    }) });
     expect(tx.userMfa.update).toHaveBeenCalledWith({
       where: { userId: admin.id }, data: { lastUsedTotpCounter: 100 }
     });
-
-    challenges.take.mockResolvedValue({
-      userId: admin.id, userUpdatedAt: storedUser.updatedAt.toISOString(), rememberMe: false,
-      ipAddress: "198.51.100.1", userAgent: "browser"
-    });
-    await expect(service.completeLogin({ challengeToken: "challenge", code: "123456" }, "203.0.113.7", "browser"))
-      .rejects.toBeInstanceOf(UnauthorizedException);
+    expect(audit.record).toHaveBeenCalledWith(expect.objectContaining({
+      action: "auth.login_succeeded",
+      ipAddress: "198.51.100.55",
+      userAgent: "mobile-browser",
+      metadata: {
+        mfa: true,
+        challengeOriginIpAddress: "203.0.113.7",
+        challengeOriginUserAgent: "browser"
+      }
+    }));
+    expect(rateLimit.resetAfterSuccess).toHaveBeenCalledWith(expect.objectContaining({
+      ipAddress: "198.51.100.55", userAgent: "mobile-browser"
+    }));
   });
 
   it("rejects a TOTP counter that is not strictly newer while holding the user lock", async () => {
@@ -222,18 +230,9 @@ describe("MfaService", () => {
     expect(audit.record.mock.calls[0][0]).not.toHaveProperty("transaction");
   });
 
-  it.each([
-    ["missing", null],
-    ["binding mismatch", {
-      userId: admin.id,
-      userUpdatedAt: "2026-09-12T00:00:00.000Z",
-      rememberMe: false,
-      ipAddress: "198.51.100.1",
-      userAgent: "browser"
-    }]
-  ])("audits a %s challenge failure with request context only", async (_kind, challenge) => {
+  it("audits a missing challenge failure with request context only", async () => {
     const { service, challenges, tx, audit } = fixture();
-    challenges.take.mockResolvedValue(challenge);
+    challenges.take.mockResolvedValue(null);
 
     await expect(service.completeLogin({ challengeToken: "challenge", code: "123456" }, "203.0.113.7", "browser"))
       .rejects.toBeInstanceOf(UnauthorizedException);
@@ -247,6 +246,27 @@ describe("MfaService", () => {
       ipAddress: "203.0.113.7",
       userAgent: "browser"
     });
+  });
+
+  it("rejects a challenge after the authenticated user row changes", async () => {
+    const { service, challenges, storedUser, tx, audit } = fixture();
+    storedUser.mfa = { secretCiphertext: "enc:BASE32SECRET", recoveryCodeHashes: [], lastUsedTotpCounter: 99 };
+    challenges.take.mockResolvedValue({
+      userId: admin.id,
+      userUpdatedAt: "2026-09-11T00:00:00.000Z",
+      rememberMe: false,
+      ipAddress: "203.0.113.7",
+      userAgent: "browser"
+    });
+
+    await expect(service.completeLogin(
+      { challengeToken: "challenge", code: "123456" }, "198.51.100.55", "mobile-browser"
+    )).rejects.toBeInstanceOf(UnauthorizedException);
+    expect(tx.$queryRaw).toHaveBeenCalled();
+    expect(tx.session.create).not.toHaveBeenCalled();
+    expect(audit.record).toHaveBeenCalledWith(expect.objectContaining({
+      action: "auth.login_failed", ipAddress: "198.51.100.55", userAgent: "mobile-browser"
+    }));
   });
 
   it("fails closed when recording an MFA login failure is unavailable", async () => {

@@ -105,6 +105,53 @@ describe("MqttService", () => {
     expect(options.properties).toEqual({ sessionExpiryInterval: 86_400 });
   });
 
+  it("verifies a loopback MQTT connection with the existing Lab MQTT DNS identity", () => {
+    const { options } = createMqttConnectionOptions({
+      DEV_LOCAL_APP_ONLY: "1",
+      MQTT_URL: "mqtts://127.0.0.1:8883",
+      LAB_MQTT_DNS: "mqtt.led.lan",
+      MQTT_CA_PATH: "/certs/ca.crt",
+      MQTT_CLIENT_CERT_PATH: "/certs/api.crt",
+      MQTT_CLIENT_KEY_PATH: "/certs/api.key",
+      MQTT_API_INSTANCE_ID: "local-api"
+    });
+
+    expect(options).toMatchObject({
+      servername: "mqtt.led.lan",
+      rejectUnauthorized: true
+    });
+  });
+
+  it("uses the broker URL hostname outside exact local-app mode", () => {
+    for (const value of [undefined, "0", "false", "true", "yes", " 1 "]) {
+      const { options } = createMqttConnectionOptions({
+        DEV_LOCAL_APP_ONLY: value,
+        MQTT_URL: "mqtts://mqtt.example.com:8883",
+        MQTT_CA_PATH: "/certs/ca.crt",
+        MQTT_CLIENT_CERT_PATH: "/certs/api.crt",
+        MQTT_CLIENT_KEY_PATH: "/certs/api.key",
+        MQTT_API_INSTANCE_ID: "api-blue-2"
+      });
+      expect(options.servername).toBeUndefined();
+      expect(options.rejectUnauthorized).toBe(true);
+    }
+  });
+
+  it.each([undefined, "", "localhost", "127.0.0.1", "bad name", "-mqtt.led.lan", "mqtt.led.lan."])(
+    "rejects missing or invalid local-app Lab MQTT DNS identity: %s",
+    (LAB_MQTT_DNS) => {
+      expect(() => createMqttConnectionOptions({
+        DEV_LOCAL_APP_ONLY: "1",
+        MQTT_URL: "mqtts://127.0.0.1:8883",
+        LAB_MQTT_DNS,
+        MQTT_CA_PATH: "/certs/ca.crt",
+        MQTT_CLIENT_CERT_PATH: "/certs/api.crt",
+        MQTT_CLIENT_KEY_PATH: "/certs/api.key",
+        MQTT_API_INSTANCE_ID: "local-api"
+      })).toThrow(/LAB_MQTT_DNS/);
+    }
+  );
+
   it("awaits the MQTT end callback and reuses one close promise", async () => {
     let finishClose: ((error?: Error) => void) | undefined;
     const client: any = {

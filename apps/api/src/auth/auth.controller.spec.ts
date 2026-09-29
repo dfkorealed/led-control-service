@@ -4,6 +4,8 @@ import { AuthController } from "./auth.controller";
 import { SessionAuthGuard } from "./session-auth.guard";
 
 describe("AuthController", () => {
+  const originalEnv = { ...process.env };
+  afterEach(() => { process.env = { ...originalEnv }; });
   it("keeps logout idempotent so a rotated cookie can still revoke its session family", async () => {
     expect(Reflect.getMetadata(GUARDS_METADATA, AuthController.prototype.logout)).toBeUndefined();
     expect(Reflect.getMetadata(GUARDS_METADATA, AuthController.prototype.me)).toEqual([SessionAuthGuard]);
@@ -91,6 +93,30 @@ describe("AuthController", () => {
     );
 
     expect(authService.login).toHaveBeenCalledWith(expect.objectContaining({ ipAddress: "10.0.0.15", userAgent: "browser" }));
+  });
+
+  it("uses only the authenticated Web ingress client IP and falls back to the socket IP", async () => {
+    process.env.LANDING_INGRESS_SECRET = "a".repeat(64);
+    const authService = { login: jest.fn().mockResolvedValue({ mfaRequired: true, challengeToken: "challenge" }) };
+    const controller = new AuthController(authService as any);
+    const response = { cookie: jest.fn() };
+    const body = { loginId: "admin_01", password: "password", rememberMe: false };
+
+    await controller.login(body, {
+      ip: "10.0.0.15",
+      headers: {
+        "x-web-ingress-secret": "a".repeat(64),
+        "x-web-client-ip": "198.51.100.20",
+        "x-forwarded-for": "203.0.113.99"
+      }
+    } as any, response as any);
+    expect(authService.login).toHaveBeenLastCalledWith(expect.objectContaining({ ipAddress: "198.51.100.20" }));
+
+    await controller.login(body, {
+      ip: "10.0.0.16",
+      headers: { "x-web-ingress-secret": "b".repeat(64), "x-web-client-ip": "198.51.100.21" }
+    } as any, response as any);
+    expect(authService.login).toHaveBeenLastCalledWith(expect.objectContaining({ ipAddress: "10.0.0.16" }));
   });
 
   it("returns an MFA challenge without setting a session cookie", async () => {

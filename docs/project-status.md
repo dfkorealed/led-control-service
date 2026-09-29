@@ -1,6 +1,24 @@
 # 메뉴 완성 작업 상태판
 
-기준일: 2026-09-28
+기준일: 2026-09-29
+
+## 2026-09-29 메인 개발 브랜치·기본 폴더 정렬 — 진행 중
+
+- [x] 기본 폴더 `led-control-service`의 clean-base `6bf0c664`와 `bio-codec-comments`의 실제 메인 `5555d8b1`이 갈라져 있음을 확인했다. 최근 인증/IP 보완과 기존 UI/PDF 작업을 모두 보존한다.
+- [ ] [실행 체크리스트](superpowers/plans/2026-09-29-main-workspace-alignment.md)에 따라 격리 후보 통합·집중 회귀·독립 검토를 진행한다.
+- [ ] 검토 후 기본 폴더를 `codex/mvp1-cloud-web`로 전환하고 해당 폴더에서 로컬 API/Web을 확인한다. 이전 브랜치·checkout·ignored 증거는 남기며 DB·자격증명·장비·remote를 변경하지 않는다.
+
+## 2026-09-29 IP 비종속 로그인·양산 ingress — 구현·자동 검증 완료, 실환경 승인 대기
+
+- [x] 현재 로그인 500은 Web 자체 오류가 아니라 API 4000 미기동으로 재현했다. `.env`/Lab 인증서의 이전 주소 `192.168.45.69`와 현재 Mac 주소 `172.30.1.6` 불일치로 network preflight가 API 기동을 차단하고, 남아 있던 Vite가 `/api/auth/login` proxy 500을 반환했다.
+- [x] 사용자는 로컬 복구뿐 아니라 양산 오픈 후에도 접속 IP 변경과 무관한 로그인을 요구했고, 중앙 클라우드 단일 서비스 + 고객사별 tenant 분리를 승인했다.
+- [x] [설계 명세](superpowers/specs/2026-09-29-ip-independent-auth-production-ingress-design.md)에 local loopback 앱 모드, 고정 public DNS, 신뢰된 Web ingress client IP, IP 비종속 MFA/session, production fail-closed 검증과 staging 승인 관문을 기록했다.
+- [x] 사용자가 중앙 클라우드 명세를 승인하고 환경변수를 불필요하게 늘리지 말라고 요청했다. 신규 사용자 설정은 `DEV_LOCAL_APP_ONLY` 하나로 제한하고 TLS server name·canonical host는 기존 값에서 파생하며 기존 landing ingress secret을 Web ingress 경계 전체로 일반화했다.
+- [x] [상세 구현 계획](superpowers/plans/2026-09-29-ip-independent-auth-production-ingress.md)에 local resolver/TLS, Web ingress, MFA 이동성, production DNS, 운영 복구와 전체 검증을 여섯 작업으로 나누고 단계별 RED→GREEN·커밋 기준을 기록했다.
+- [x] 별도 worktree `codex/ip-independent-auth-production`에서 local-app loopback resolver, DNS 이름을 유지한 TLS 검증, 인증된 Web client-IP 전달, IP가 바뀌는 MFA 완료, canonical production DNS/Host 및 Gateway bootstrap 계약을 구현했다. 신규 사용자 환경변수는 `DEV_LOCAL_APP_ONLY` 하나이며 기존 `LANDING_INGRESS_SECRET`을 일반화해 중복 secret을 만들지 않았다.
+- [x] 정상 production Web/MQTT DNS와 Gateway bootstrap DNS만 허용하고 localhost·literal/private IP·Compose service name을 거부한다. Web nginx는 `WEB_HTTPS_ORIGIN`에서 host를 파생하며 잘못된 Host의 HTTPS 로그인 POST를 redirect하지 않고 421로 닫는다.
+- [x] 로컬 현재 환경은 기존 Lab IP·인증서·DB·Gateway identity를 수정하지 않고 `.env`에 신규 `DEV_LOCAL_APP_ONLY=1`과 기존 필수 MQTT client 식별자 `MQTT_API_INSTANCE_ID`만 보완했다. 앱 전용 모드는 PKI provider를 `unavailable`로 파생해 만료된 Lab Vault 발급 token과 로그인 가용성을 분리한다. 격리 API 4001/Web 5173에서 `auth/me` 401, 잘못된 로그인 401·Set-Cookie 없음, shell 200·transport 5xx 없음과 실제 Chromium 로그인 화면/복구 오류 없음까지 확인했다. 알려지지 않은 계정 비밀번호는 초기화하지 않았다.
+- [ ] 실제 공인 DNS/TLS, secret·인증서 rotation, 고객망 간 staging, CDN/LB topology와 Raspberry Pi/Gateway·ESP32-H2 HIL은 미실행이다. 자동 회귀 결과를 양산 오픈 승인으로 확대하지 않는다.
 
 ## 2026-09-28 기존 UI 실제 메인 로컬 통합 완료
 
