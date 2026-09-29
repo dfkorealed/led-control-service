@@ -47,7 +47,7 @@
 - [x] Run `pnpm --filter @led-control/web exec vitest run src/features/floor-map/map-camera.test.ts src/features/floor-map/fixture-map-position.test.ts src/features/floor-map/FloorMapViewport.test.tsx src/features/floor-map/FloorScene.test.tsx`. Expected new behavior fails.
 - [x] Implement existing refs/gesture/camera publish path, clamp only actual scroll, normalized full-viewport center, opt-in resize retain.
 - [x] GREEN same tests plus `src/features/floor-map/map-gestures.test.ts`, Web typecheck. Expected exit0.
-- [ ] Update monitoring docs and commit `feat(web): add reusable monitoring map camera contracts`.
+- [x] 문서를 갱신하고 Tasks1–5 공통 구현 커밋 `41d77930`으로 기록했다. 작업별 집중 검증·완료 helper 증거를 별도로 유지한다.
 
 ### Task 2: KPI 필터·조명 위치 탐색
 
@@ -59,7 +59,7 @@
 - [x] Run `pnpm --filter @led-control/web exec vitest run src/features/monitoring/monitoring-fixture-filter.test.ts src/components/ui/MetricButton.test.tsx src/features/monitoring/MonitoringSummary.test.tsx src/features/monitoring/MonitoringFixtureFinder.test.tsx src/features/monitoring/FloorMap.test.tsx src/features/monitoring/MonitoringView.test.tsx`. Expected new cases fail.
 - [x] Implement single View filter/scope state, loaded DTO status emphasis, dimnonmatching pins remainselectable; placed row close→camera+anchor→pin; unplaced staysdetail; no-count overwrite and partial/retry cues.
 - [x] GREEN 집중 unit/typecheck 및 Chromium의1,000대 모니터링 렌더·cursor·10분 경계가 통과했다. 같은 파일의 설정 편집기8초 성능 검사 실패는 Task6 미해결 항목으로 남긴다.
-- [ ] Update docs and commit `feat(web): connect monitoring KPIs and map navigation`.
+- [x] 문서를 갱신하고 Tasks1–5 공통 구현 커밋 `41d77930`으로 기록했다. 작업별 집중 검증·완료 helper 증거를 별도로 유지한다.
 
 ### Task 3: 사용자용 조명 정보·안정적인 닫기
 
@@ -72,7 +72,7 @@
 - [x] Run `pnpm --filter @led-control/web exec vitest run src/features/monitoring/FixtureDetailPanel.test.tsx src/features/monitoring/FixturePinPopover.test.tsx src/features/monitoring/FloorMap.test.tsx src/features/monitoring/MonitoringView.test.tsx`; run new Playwright spec with Task2 command pattern. Expected regression fails.
 - [x] Implement shared presentFixtureStatus/brightness/time, replace largeViewdetail, no technical primitive/results. Stable height across open/close; usecommonPopover collision placement and preventScroll focus only.
 - [x] GREEN same tests and new Playwright mobile close-scroll cases, expected exit0.
-- [ ] Update docs/lesson and commit `fix(web): simplify fixture information and prevent close jitter`.
+- [x] 문서를 갱신하고 Tasks1–5 공통 구현 커밋 `41d77930`으로 기록했다. 작업별 집중 검증·완료 helper 증거를 별도로 유지한다.
 
 ### Task 4: 아이콘 전용 전체 보기
 
@@ -84,7 +84,7 @@
 - [x] Run `pnpm --filter @led-control/web exec vitest run src/components/ui/workspace-focus/WorkspaceFocusProvider.test.tsx src/features/shells/CustomerShell.monitoring.test.tsx src/features/monitoring/MonitoringView.test.tsx`. Expected missingcontext/action fails.
 - [x] Implement shell scopedprovider and additive conditionalclasses; preserve DOM/key/renderer, local Escape/event.defaultPrevented and overlay flags.
 - [x] GREEN same tests/typecheck/new E2E at4widths, expectedexit0.
-- [ ] Update docs and commit `feat(web): add icon-only monitoring full view`.
+- [x] 문서를 갱신하고 Tasks1–5 공통 구현 커밋 `41d77930`으로 기록했다. 작업별 집중 검증·완료 helper 증거를 별도로 유지한다.
 
 ### Task 5: 범위별 카메라 기억
 
@@ -96,7 +96,7 @@
 - [x] Run `pnpm --filter @led-control/web exec vitest run src/features/monitoring/monitoring-camera-storage.test.ts src/features/monitoring/useMonitoringCameraMemory.test.tsx src/features/monitoring/FloorMap.test.tsx`. Expected missingstorage behavior fails.
 - [x] Implement small validatedrecords/noauth ordevicedata, namespace/TTL/eviction, scopedmemo+debounced writes, readycallback restorebefore save, mapgeneration fit.
 - [x] GREEN 저장소·hook의 범위/세대/크기/예외/StrictMode unit과 브라우저 reload 복원이 통과했다. 사용자·현장 전환은 unit 검증이며 모든 전환을 실브라우저로 확인했다고 확대하지 않는다.
-- [ ] Update docs and commit `feat(web): remember scoped monitoring map views`.
+- [x] 문서를 갱신하고 Tasks1–5 공통 구현 커밋 `41d77930`으로 기록했다. 작업별 집중 검증·완료 helper 증거를 별도로 유지한다.
 
 ### Task 6: 통합 검증·문서·자기 검토
 
@@ -106,14 +106,16 @@
 - [ ] GREEN `E2E_WEB_PORT=15371 pnpm --filter @led-control/web exec playwright test e2e/monitoring-navigation-confidence.spec.ts e2e/calm-operations-monitoring.spec.ts e2e/monitoring-control-flow.spec.ts e2e/monitoring-1000.spec.ts --project=chromium --workers=1`.
 - [x] Node22 canonicalroot sequential `pnpm lint`, `pnpm typecheck`, `pnpm test`, `pnpm build`; `pnpm --filter @led-control/web ui:check`/`test:ui-policy`; record exact exit/count/warnings.
 - [x] Existingdesigner session compares implemented4width screenshots. No newreviewer subagent due user prohibition; separate wholebranch authorreview, discloseweakerreview, record findings andTDDfixes.
-- [ ] Sync menus/status/checklist; `git diff --check`; commit `test(web): verify monitoring navigation and stable overlays`.
+- [x] 메뉴/현황/체크리스트에 통과·실패·제외·병합 대기를 분리 기록했다. `git diff --check` exit0 및 구현 커밋 `41d77930`을 확인했다. Task6 전체 완료·병합은 표시하지 않는다.
 - [ ] 별도 브랜치 검증 결과와 남은 HIL을 기록하고, 승인된 `codex/mvp1-cloud-web` 로컬 병합·병합 후 검증을 수행한다. push·배포는 하지 않는다.
 
 ## 실행 증거·미해결 항목 (2026-09-30)
 
-- Tasks1–5는 FloorMap/View 계약이 겹쳐 각 RED를 확인한 뒤 한 구현 커밋으로 연결한다. 작업 시작 helper는 Task1에서 실행했으며 Task2–5의 시작 기록을 사후 생성하지 않는다. 세부 증거는 ignored `.superpowers/sdd/2026-09-29-monitoring-navigation-and-confidence/progress.md`에 보존한다.
+- Tasks1–5는 FloorMap/View 계약이 겹쳐 각 RED를 확인한 뒤 한 구현 커밋 `41d77930`으로 연결했다. 작업 시작 helper는 Task1에서 실행했으며 Task2–5의 시작 기록을 사후 생성하지 않는다. 세부 증거는 ignored `.superpowers/sdd/2026-09-29-monitoring-navigation-and-confidence/progress.md`에 보존한다.
 - 작성자 전체 브랜치 검토: 범위/카메라 ready·StrictMode cleanup, pagination 오류 재요청, 저장 위치/미관측 상태, 실제 장치 새로고침 유지, overlay focus/scroll와 renderer 수명을 확인했다. ready release와 완전 조회/집계 차이 안내를 RED→GREEN으로 보완했다. 독립 코드 리뷰 에이전트는 사용자의 금지에 따라 실행하지 않았다.
 - 최종 Node22/pnpm9.15 root lint/typecheck/test/build 모두 exit0. Root149/4skip·Shared411·Automation28·Mobile6·Web2626/3skip·API2963/827skip·Gateway1409·UI 정책65/65·위반0/0. Web main878.04kB chunk 경고와 환경 opt-in 제외를 유지한다.
 - 최종 Chromium83건: **82 passed / 1 failed, exit1**. 새 탐색·시야 spec8건, 기존 수동/자동 갱신·제어 회귀 및1,000대 모니터링은 통과했다. 1440/1024/390/320px PNG를 기존 `UI/UX 디자이너` 세션에서 직접 검토했고320px 팝업 잘림 지적은 수정 확인됐다. 원시 ISO 갱신 문구 밀도(P3)는 후속 후보다.
 - 실패는1,000대 설정 편집기의 기존8초 readiness 기준이며 약22초로 재현됐다. 모니터링 fake clock과 분리한 실제 frame context, 카메라 투영 입력, 기존 CustomerShell 비교에서도 남았다. 기준 shell 비교만으로 전체 base 브랜치가 같은 성능이라고 단정하거나 지연 원인을 확정하지 않는다. timeout/성능 기준 완화·skip·설정 제품 코드 변경은 하지 않았다.
 - 사용자에게 이 실패만 별도 후속으로 남겨 UI를 병합할지, 설정 편집기 성능까지 해결할지 질문했고 답변 대기다. 메인은 변경하지 않는다. HIL/운영/DB/push/서버 재시작은 수행하지 않았다.
+
+- 구현 커밋 후 작업별 focused 재검증: Task1 75/75, Task2 92/92, Task3 82/82, Task4 70/70, Task5 23/23 (테스트 집합 간 중복 포함). 모든 task-done helper exit0, 범위 `0a8dcd52..41d77930`. Task6는 미완료이며 작업 브랜치와 ignored 로그/PNG를 보존한다.
