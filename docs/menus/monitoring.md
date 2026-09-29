@@ -39,7 +39,8 @@
 ## 2026-09-30 탐색·시야 개선 검증 상태
 
 - 구현 완료: 별도 `codex/monitoring-navigation-confidence`에서 KPI 필터·지도 위치 찾기, 간단 조명 정보, 아이콘 전용 전체 보기와 범위별 카메라 기억을 구현했다. 상태 확인 결과 UI 및 모든 기술 정보 표시는 제외하고 기존 수동 장치 확인·최근 활동은 유지한다.
-- 미구현: 사용자는 설정 편집기 성능 실패를 별도 후속으로 남기고 메인 작업 브랜치에 병합하도록 지시했다. 로컬 병합·병합 후 검증은 진행 중이다. 실제 현장/HIL·DB migration·배포·push는 이번 작업에 포함하지 않는다.
+- 구현 완료: 사용자는 설정 편집기 성능 실패를 별도 후속으로 남기고 메인 작업 브랜치에 병합하도록 지시했다. `codex/mvp1-cloud-web` 로컬 fast-forward와 병합 체크아웃의 root lint/typecheck/test/build exit0을 확인했다. 기존 설계 초안4개는 삭제하지 않고 `superseded monitoring design draft before integration` scoped stash로 보존했다.
+- 미구현: 설정 편집기 성능 원인 해결 및 실제 현장/HIL·DB migration·배포·push는 이번 작업에 포함하지 않는다.
 - 부족하거나 개선이 필요한 기능: Node22/pnpm9.15의 root lint/typecheck/test/build는 exit0이다. Web 2,626 passed/3 skipped, API 2,963 passed/827 skipped, Gateway 1,409 passed 및 UI 정책 65/65·위반0/0이다. 최종 Chromium은82 passed/1 failed(exit1)이며 새 탐색·시야8건은 모두 통과했다. 1,000대 설정 편집기의8초 준비 성능 검사 실패는 미해결이다. 기존 CustomerShell 코드로 비교해도 약22초로 재현됐지만 전체 기준 브랜치 성능이나 원인 해결을 증명한 것은 아니다. 성능 한도를 완화하거나 실패를 통과로 취급하지 않는다.
 - 관련 파일: 아래 `관련 파일`의 지도·모니터링·공통 UI와 `apps/web/e2e/monitoring-1000.spec.ts`, `docs/superpowers/plans/2026-09-29-monitoring-navigation-and-confidence.md`.
 - 갱신 규칙: software fixture와 실제 장비 결과, 독립 코드 리뷰와 작성자 자기 검토를 구분한다. 사용자의 새 서브에이전트 금지에 따라 코드 검토는 작성자가 수행했고 기존 UI/UX 디자이너 세션이 구현 화면4종을 시각 검토했다.
