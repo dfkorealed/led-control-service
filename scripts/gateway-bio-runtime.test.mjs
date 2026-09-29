@@ -22,6 +22,10 @@ test("host launcher accepts only a canonical HTTPS DNS bootstrap endpoint",()=>{
  for(const endpoint of [
   "http://api.example.com/gateway-bootstrap",
   "https://127.0.0.1:4000/gateway-bootstrap",
+  "https://127.1/gateway-bootstrap",
+  "https://127.0.1/gateway-bootstrap",
+  "https://0x7f.1/gateway-bootstrap",
+  "https://0x7f.0x0.0x0.0x1/gateway-bootstrap",
   "https://192.168.10.8:4000/gateway-bootstrap",
   "https://localhost:4000/gateway-bootstrap",
   "https://api:4000/gateway-bootstrap",

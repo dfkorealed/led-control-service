@@ -157,7 +157,10 @@ test("browser and device public endpoints require canonical DNS service identiti
     ["private MQTT IP", config => { config.services.api.environment.MQTT_PUBLIC_URL = "mqtts://10.0.0.5:8883"; }],
     ["container MQTT name", config => { config.services.api.environment.MQTT_PUBLIC_URL = "mqtts://mqtt-tls:8883"; }],
     ["MQTT path", config => { config.services.api.environment.MQTT_PUBLIC_URL = "mqtts://mqtt.invalid:8883/topic"; }],
-    ["MQTT without explicit port", config => { config.services.api.environment.MQTT_PUBLIC_URL = "mqtts://mqtt.invalid"; }]
+    ["MQTT without explicit port", config => { config.services.api.environment.MQTT_PUBLIC_URL = "mqtts://mqtt.invalid"; }],
+    ["MQTT wrong public port", config => { config.services.api.environment.MQTT_PUBLIC_URL = "mqtts://mqtt.invalid:1"; }],
+    ["MQTT wrong internal service", config => { config.services.api.environment.MQTT_URL = "mqtts://broker.example.com:8883"; }],
+    ["MQTT wrong internal port", config => { config.services.api.environment.MQTT_URL = "mqtts://mqtt-tls:1883"; }]
   ];
   for (const [label, mutate] of cases) {
     const unsafe = structuredClone(baseline.config);
@@ -175,6 +178,18 @@ test("Web derives one canonical host and rejects wrong-host TLS requests without
     encoding: "utf8", env: { WEB_HTTPS_ORIGIN: "https://console.example.com:8443" }
   });
   assert.equal(derived, "console.example.com");
+  for (const origin of [
+    "https://127.0.0.1",
+    "https://192.168.10.8",
+    "https://127.1",
+    "https://0x7f.1",
+    "https://example.com:443:8443"
+  ]) {
+    const rejected = spawnSync("sh", ["-ec", '. "$1"', "sh", entrypoint], {
+      encoding: "utf8", env: { WEB_HTTPS_ORIGIN: origin }
+    });
+    assert.notEqual(rejected.status, 0, origin);
+  }
   assert.match(dockerfile, /COPY (?:--chmod=0555 )?apps\/web\/docker\/05-canonical-host\.envsh \/docker-entrypoint\.d\//);
   assert.match(dockerfile, /WEB_CANONICAL_HOST/);
   assert.match(nginx, /listen 8443 ssl default_server;[\s\S]*?server_name _;[\s\S]*?return 421;/);

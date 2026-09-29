@@ -25,7 +25,7 @@ function isCanonicalWebOrigin(value) {
 function isCanonicalMqttEndpoint(value) {
   try {
     const url=new URL(value);
-    return url.protocol==='mqtts:'&&!url.username&&!url.password&&!url.search&&!url.hash&&url.pathname===''&&Boolean(url.port)&&isCanonicalDnsHostname(url.hostname);
+    return url.protocol==='mqtts:'&&!url.username&&!url.password&&!url.search&&!url.hash&&url.pathname===''&&url.port==='8883'&&isCanonicalDnsHostname(url.hostname);
   } catch { return false; }
 }
 
@@ -78,6 +78,7 @@ export function validateProductionConfig(config, {smokeProject}={}) {
   requireRule(s.api.environment.WEB_PUBLIC_URL === s.web.environment.WEB_HTTPS_ORIGIN, 'landing ingress canonical Web origin');
   requireRule(isCanonicalWebOrigin(s.api.environment.WEB_PUBLIC_URL) && isCanonicalWebOrigin(s.web.environment.WEB_HTTPS_ORIGIN), 'canonical Web service identity');
   requireRule(isCanonicalMqttEndpoint(s.api.environment.MQTT_PUBLIC_URL), 'canonical MQTT service identity');
+  requireRule(s.api.environment.MQTT_URL==='mqtts://mqtt-tls:8883', 'canonical MQTT service identity');
   requireRule(s.api.image===s['api-migrate'].image,'identical migration and API image');
   requireRule(s.api.depends_on?.['api-migrate']?.condition==='service_completed_successfully','migration before API');
   // The base deployment has no reviewed generation-specific mounts or all-node
