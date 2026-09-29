@@ -116,6 +116,6 @@
 - 최종 Node22/pnpm9.15 root lint/typecheck/test/build 모두 exit0. Root149/4skip·Shared411·Automation28·Mobile6·Web2626/3skip·API2963/827skip·Gateway1409·UI 정책65/65·위반0/0. Web main878.04kB chunk 경고와 환경 opt-in 제외를 유지한다.
 - 최종 Chromium83건: **82 passed / 1 failed, exit1**. 새 탐색·시야 spec8건, 기존 수동/자동 갱신·제어 회귀 및1,000대 모니터링은 통과했다. 1440/1024/390/320px PNG를 기존 `UI/UX 디자이너` 세션에서 직접 검토했고320px 팝업 잘림 지적은 수정 확인됐다. 원시 ISO 갱신 문구 밀도(P3)는 후속 후보다.
 - 실패는1,000대 설정 편집기의 기존8초 readiness 기준이며 약22초로 재현됐다. 모니터링 fake clock과 분리한 실제 frame context, 카메라 투영 입력, 기존 CustomerShell 비교에서도 남았다. 기준 shell 비교만으로 전체 base 브랜치가 같은 성능이라고 단정하거나 지연 원인을 확정하지 않는다. timeout/성능 기준 완화·skip·설정 제품 코드 변경은 하지 않았다.
-- 사용자에게 이 실패만 별도 후속으로 남겨 UI를 병합할지, 설정 편집기 성능까지 해결할지 질문했고 답변 대기다. 메인은 변경하지 않는다. HIL/운영/DB/push/서버 재시작은 수행하지 않았다.
+- 사용자에게 이 실패만 별도 후속으로 남겨 UI를 병합할지, 설정 편집기 성능까지 해결할지 질문했고 `병합해줘` 답변을 받았다. 이는 알려진 실패의 병합 차단만 해제하며 검사 통과·원인 해결이 아니다. 기본 폴더 문서 초안 WIP를 scoped stash로 보존하고 로컬 fast-forward·병합 후 검증한다. HIL/운영/DB/push/서버 재시작은 수행하지 않는다.
 
 - 구현 커밋 후 작업별 focused 재검증: Task1 75/75, Task2 92/92, Task3 82/82, Task4 70/70, Task5 23/23 (테스트 집합 간 중복 포함). 모든 task-done helper exit0, 범위 `0a8dcd52..41d77930`. Task6는 미완료이며 작업 브랜치와 ignored 로그/PNG를 보존한다.
