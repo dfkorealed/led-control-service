@@ -61,11 +61,11 @@
 
 **Interfaces:** Produce `BioSensorPulseCandidate` from the already CRC-checked outer `0x12`/inner `0x09`; `BioSensorPulseIntake.accept(candidate, mapping, profile, health): { accepted: boolean; reason: string; receivedMonotonicMs?: number }`. `profile`은 HIL에서 검증한 exact body length/fixed bytes/firmware·sensor fingerprint의 명시적 allowlist이며 현재는 **빈 목록**으로 시작한다. `0x0c`는 별도 health observation만 갱신한다. 일반 로그에는 reason code만 남긴다.
 
-- [ ] **Step 1: RED 테스트 작성.** 잘린/CRC 오류 프레임, inner `0x0c`, 다른 UUID·주소·network, allowlist 밖 fingerprint/body, 불건강 USB가 모두 `accepted=false`; 유효 fixture에서 profile을 시험 fixture로 명시 주입했을 때만 monotonic 수신시각을 가진 pulse를 방출; 비동기 `0x09`가 command ACK/GET read-back을 소비하지 않음을 확인한다.
-- [ ] **Step 2: RED 확인.** `pnpm --filter @led-control/gateway exec vitest run src/bio/bio-command-codec.test.ts src/bio/bio-dongle-client.test.ts src/bio/bio-sensor-pulse-intake.test.ts` → 새 intake 기대 실패.
-- [ ] **Step 3: 최소 구현.** 기존 USB client 한 개의 notification listener에서 후보를 전달하고, confirmed mapping의 native UUID/address/network 및 exact profile을 확인한다. 검증된 profile을 코드에 추측해 넣지 않는다.
-- [ ] **Step 4: GREEN·타입 확인.** 위 Vitest와 `pnpm --filter @led-control/gateway typecheck` → 통과. 빈 allowlist의 제품 경로는 계속 OFF여야 한다.
-- [ ] **Step 5: 커밋.** decoder/intake·테스트만 저장한다.
+- [x] **Step 1: RED 테스트 작성.** 잘린/CRC 오류 프레임, inner `0x0c`, 다른 UUID·주소·network, allowlist 밖 fingerprint/body, 불건강 USB가 모두 `accepted=false`; 유효 fixture에서 profile을 시험 fixture로 명시 주입했을 때만 monotonic 수신시각을 가진 pulse를 방출; 비동기 `0x09`가 command ACK/GET read-back을 소비하지 않음을 확인한다.
+- [x] **Step 2: RED 확인.** `pnpm --filter @led-control/gateway exec vitest run src/bio/bio-command-codec.test.ts src/bio/bio-dongle-client.test.ts src/bio/bio-sensor-pulse-intake.test.ts` → 새 intake 기대 실패.
+- [x] **Step 3: 최소 구현.** 기존 USB client 한 개의 notification listener에서 후보를 전달하고, confirmed mapping의 native UUID/address/network 및 exact profile을 확인한다. 검증된 profile을 코드에 추측해 넣지 않는다. 현재 durable mapping에 network/fingerprint가 없어 intake 전용 검증 입력으로 한정한다.
+- [x] **Step 4: GREEN·타입 확인.** 위 Vitest 195/195와 `pnpm --filter @led-control/gateway typecheck`, Gateway 전체 1,439/1,439 통과. 빈 allowlist의 제품 경로는 계속 OFF다. 후보 subscriber 예외가 같은 청크의 ACK/read-back을 막지 않는 회귀를 포함한다.
+- [x] **Step 5: 커밋.** decoder/intake·테스트 `72d26ac4`, 후보 subscriber 예외 격리 `ae1d3de5`를 저장하고 독립 재검토했다.
 
 ### Task 3: 펄스 receipt·동일 occurrence 연장
 
@@ -154,7 +154,7 @@
 ## 실행 체크리스트 상태
 
 - [x] Task 1 — 공유 V2 계약 (`ededa5c9`, `f3f0f4c5`; 집중/Shared 검증 통과, root CAD RSS 실패 별도)
-- [ ] Task 2 — BIO decode/intake, allowlist OFF
+- [x] Task 2 — BIO decode/intake, allowlist OFF (`72d26ac4`, `ae1d3de5`; 집중 195/195, Gateway 1,439/1,439, 독립 재검토 승인)
 - [ ] Task 3 — pulse occurrence/receipt
 - [ ] Task 4 — fail-safe/restart/target mode 복원
 - [ ] Task 5 — API/DB versioning 및 capability
