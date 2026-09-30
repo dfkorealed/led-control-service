@@ -453,6 +453,9 @@ export class ScheduleRuntime {
   }
 
   recordVehicleSensorInput(input: VehicleSensorInput): Promise<void> {
+    // BIO RF execution remains closed until independent source health and target
+    // mode restoration are integrated. Candidate intake alone is not readiness.
+    if (input.type === "pulse") return Promise.reject(new Error("bio_pulse_control_unavailable"));
     return this.runExternal(async () => {
       await this.ensureInitialized();
       if (!this.snapshot) return;
@@ -479,6 +482,7 @@ export class ScheduleRuntime {
     input: Exclude<VehicleSensorInput, { type: "current-state" }>,
     identity: VehicleSensorEventIdentity
   ): Promise<boolean> {
+    if (input.type === "pulse") return Promise.reject(new Error("bio_pulse_control_unavailable"));
     return this.runExternal(async () => {
       await this.ensureInitialized();
       if (!this.snapshot) return false;

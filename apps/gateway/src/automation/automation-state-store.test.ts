@@ -16,6 +16,9 @@ import {
 } from "./automation-state-store";
 import { automationTelemetryRecordsHash } from "./automation-telemetry-handoff";
 import { AutomationTelemetryGapJournal } from "./automation-telemetry-gap-journal";
+import { automationSnapshot } from "./automation-test-fixtures";
+import { VehicleEventRuntime, type VehicleSensorInput } from "./vehicle-event-runtime";
+import type { AutomationSnapshotV2 } from "@led-control/shared";
 
 const directories: string[] = [];
 const fixtureId = "00000000-0000-4000-8000-000000000101";
@@ -26,8 +29,9 @@ const requestedAt = "2026-09-01T01:00:00.000Z";
 const appliedAt = "2026-09-01T01:00:01.000Z";
 
 function manualV6State() {
+  const { bioPulseInbox: _bioPulseInbox, ...legacy } = emptyAutomationState();
   return {
-    ...emptyAutomationState(),
+    ...legacy,
     schemaVersion: 6,
     pendingManualControls: {
       [fixtureId]: { sourceId: commandId, brightnessPercent: 60, requestedAt, preBrightness: 30 }
@@ -52,15 +56,90 @@ function legacyV5State() {
   };
 }
 
+describe("V7 BIO receipt journal", () => {
+  it("migrates strict V6 state without inventing a pulse receipt", () => {
+    const legacy = manualV6State();
+    delete (legacy as Record<string, unknown>).bioPulseInbox;
+    expect(parseAutomationState(legacy)).toMatchObject({ schemaVersion: 7, bioPulseInbox: {} });
+    expect(() => parseAutomationState({ ...legacy, bioPulseInbox: {} })).toThrow();
+  });
+
+  it("durably stores receipt and hold together and rejects malformed or unknown BIO fields", async () => {
+    const path = await statePath();
+    const store = new FileAutomationStateStore(path);
+    await store.initialize();
+    const receipt = { nativeUuid: "aabbccddeeff", logicalAddress: 1, networkId: 2, sequence: 255,
+      connectionEpoch: "process-one", connectionGeneration: 1 };
+    await store.updateDurable(state => {
+      state.bioPulseInbox[fixtureId] = { receipt, lastReceivedMonotonicMs: 1000,
+        recentReceipts: [{ sequence: 255, receivedMonotonicMs: 1000 }] };
+      state.vehicleRules[ruleId] = { activeSourceFixtureIds: [], targetFixtureIds: [fixtureId],
+        sensorProtocol: "bio-usb-pulse", brightnessPercent: 80, startedAt: requestedAt,
+        holdUntil: "2026-09-01T01:01:00.000Z", preBrightness: { [fixtureId]: 20 } };
+      return state;
+    });
+    expect(await new FileAutomationStateStore(path).initialize()).toEqual(store.read());
+    for (const invalid of [{ sequence: 256 }, { nativeUuid: "AABBCCDDEEFF" }, { connectionGeneration: 0 }, { unknown: true }]) {
+      const state = store.read();
+      Object.assign(state.bioPulseInbox[fixtureId]!.receipt, invalid);
+      expect(() => parseAutomationState(state)).toThrow();
+    }
+    const state = store.read();
+    state.bioPulseInbox[fixtureId]!.lastReceivedMonotonicMs = -1;
+    expect(() => parseAutomationState(state)).toThrow();
+  });
+
+  it("commits a planned pulse receipt and hold atomically and permits retry after failed persistence", async () => {
+    const path = await statePath();
+    let failWrite = false;
+    const store = new FileAutomationStateStore(path, async (target, state) => {
+      if (failWrite) throw Object.assign(new Error("full"), { code: "ENOSPC" });
+      await writeJsonAtomic(target, state);
+    });
+    await store.initialize();
+    const runtime = new VehicleEventRuntime({ wallClock: () => new Date(requestedAt), monotonicClock: () => 1000,
+      bioConnection: () => ({ epoch: "process-one", generation: 1 }) });
+    const snapshot: AutomationSnapshotV2 = { ...automationSnapshot(1), schemaVersion: 2, vehicleEventRules: [{
+      id: ruleId, name: "BIO test", status: "enabled", sensorProtocol: "bio-usb-pulse", sourceFixtureIds: [commandId],
+      targetFixtureIds: [fixtureId], action: { dimmingEnabled: true, brightnessPercent: 80 }, holdSeconds: 60
+    }] };
+    const pulse: VehicleSensorInput = { type: "pulse", sourceFixtureId: commandId, receivedMonotonicMs: 1000,
+      receipt: { nativeUuid: "aabbccddeeff", logicalAddress: 1, networkId: 2, sequence: 1,
+        connectionEpoch: "process-one", connectionGeneration: 1 } };
+    const commit = async () => {
+      let plan: ReturnType<VehicleEventRuntime["planRecordInput"]> | undefined;
+      await store.updateDurable(state => {
+        plan = runtime.planRecordInput(state, snapshot, pulse);
+        return state;
+      });
+      runtime.restore(plan!.holdDeadlines);
+      return plan!;
+    };
+    failWrite = true;
+    await expect(commit()).rejects.toThrow("automation_state_store_failed");
+    expect(store.read().bioPulseInbox).toEqual({});
+    expect(store.read().vehicleRules).toEqual({});
+    expect(runtime.checkpoint()).toEqual([]);
+    failWrite = false;
+    expect((await commit()).events.map(event => event.kind)).toEqual(["vehicle_detected", "event_started"]);
+    expect(runtime.checkpoint()).toEqual([[ruleId, 61000]]);
+    const restored = await new FileAutomationStateStore(path).initialize();
+    expect(restored.bioPulseInbox[commandId]?.receipt.sequence).toBe(1);
+    expect(restored.vehicleRules[ruleId]).toMatchObject({ sensorProtocol: "bio-usb-pulse", holdUntil: "2026-09-01T01:01:00.000Z" });
+    expect((await commit()).events).toEqual([]);
+  });
+});
+
 describe("V6 automation state", () => {
   it("round-trips pending controls and exact source suppressions through durable storage", async () => {
     const state = manualV6State();
-    expect(parseAutomationState(state)).toEqual(state);
+    const migrated = { ...state, schemaVersion: 7, bioPulseInbox: {} };
+    expect(parseAutomationState(state)).toEqual(migrated);
     const path = await statePath();
     await writeJsonAtomic(path, state);
-    expect(await new FileAutomationStateStore(path).initialize()).toEqual(state);
+    expect(await new FileAutomationStateStore(path).initialize()).toEqual(migrated);
     expect(emptyAutomationState()).toMatchObject({
-      schemaVersion: 6, pendingManualControls: {}, manualAutomationSuppressions: {}
+      schemaVersion: 7, pendingManualControls: {}, manualAutomationSuppressions: {}
     });
     expect(emptyAutomationState()).not.toHaveProperty("manualOverrides");
   });
@@ -99,7 +178,7 @@ describe("V6 automation state", () => {
     const state = manualV6State();
     state.manualAutomationSuppressions[fixtureId]!.schedules.push({ scheduleId, occurrenceKey: "2026-09-02" });
     state.manualAutomationSuppressions[fixtureId]!.vehicleEvents.push({ ruleId, startedAt: appliedAt });
-    expect(parseAutomationState(state)).toEqual(state);
+    expect(parseAutomationState(state)).toEqual({ ...state, schemaVersion: 7, bioPulseInbox: {} });
   });
 
   it.each(["pendingManualControls", "manualAutomationSuppressions"] as const)("bounds %s to 10,000 fixtures", (field) => {
@@ -142,7 +221,7 @@ describe("V6 automation state", () => {
       }
     };
     const result = parseAutomationState(old);
-    expect(result.schemaVersion).toBe(6);
+    expect(result.schemaVersion).toBe(7);
     expect(result.baseBrightnessByFixture).toEqual({ [success]: 60, [observed]: 60, [mismatch]: 20 });
     expect(result.pendingManualControls).toEqual({
       [pending]: { sourceId: commandId, brightnessPercent: 60, requestedAt, preBrightness: 60 }
@@ -322,7 +401,7 @@ describe("FileAutomationStateStore", () => {
 
     const restarted = new FileAutomationStateStore(path);
     await expect(restarted.initialize()).resolves.toMatchObject({
-      schemaVersion: 6,
+      schemaVersion: 7,
       activeOccurrences: {
         "schedule-1": {
           key: "schedule-1:2026-08-30",
@@ -616,7 +695,7 @@ describe("FileAutomationStateStore", () => {
     await store.recordTelemetryGap("2026-08-30T01:00:01.000Z", 3);
 
     await expect(new FileAutomationStateStore(path).initialize()).resolves.toMatchObject({
-      schemaVersion: 6,
+      schemaVersion: 7,
       telemetryGap: {
         firstDroppedAt: "2026-08-30T01:00:01.000Z",
         lastDroppedAt: "2026-08-30T01:00:02.000Z",
@@ -670,7 +749,7 @@ describe("FileAutomationStateStore", () => {
 
     const store = new FileAutomationStateStore(path);
     await expect(store.initialize()).resolves.toMatchObject({
-      schemaVersion: 6,
+      schemaVersion: 7,
       pendingTelemetryHandoffs: [handoff]
     });
     await expect(store.completeTelemetryHandoff(handoff.handoffId, handoff.recordsHash)).resolves.toEqual({
