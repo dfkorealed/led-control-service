@@ -513,7 +513,7 @@ export function VehicleEventControlPanel({
           description={hasGlobalContract && firstPage?.total !== 0 ? "검색이나 필터 조건을 바꿔 다시 확인해 주세요." : "감지 센서와 제어 조명을 연결해 차량 이벤트 대응을 시작할 수 있습니다."} />
       ) : null}
       </AutomationRuleWorkspace>
-      {dashboard ? <VehicleEventDialog open={dialogOpen && !isAuthBlocked} rule={editingRule} dashboard={dashboard} isPending={saveMutation.isPending} serverError={mutationError} returnFocusRef={dialogReturnFocusRef} onClose={() => { if (!saveMutation.isPending) setDialogOpen(false); }} onSubmit={save} /> : null}
+      {dashboard ? <VehicleEventDialog open={dialogOpen && !isAuthBlocked} rule={editingRule} dashboard={dashboard} isPending={saveMutation.isPending} serverError={mutationError} returnFocusRef={dialogReturnFocusRef} onClose={() => { if (!saveMutation.isPending) setDialogOpen(false); }} onRefreshSource={() => queryClient.invalidateQueries({ queryKey: ["dashboard"] }, { throwOnError: true })} onSubmit={save} /> : null}
       <ConfirmDialog isOpen={Boolean(deleteCandidate) && !isAuthBlocked} title="이벤트 규칙 삭제" description={deleteCandidate ? `${deleteCandidate.name} 규칙을 삭제합니다.` : undefined} confirmLabel="삭제" tone="danger" isPending={removeMutation.isPending} returnFocusRef={deleteReturnFocusRef} fallbackFocusRef={addButtonRef} onCancel={() => { if (!removeMutation.isPending) setDeleteCandidate(null); }} onConfirm={remove}>
         {mutationError ? <Text tone="danger" role="alert">{mutationError}</Text> : null}
       </ConfirmDialog>

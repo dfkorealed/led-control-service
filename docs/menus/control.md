@@ -5,6 +5,7 @@
 - 구현 완료: dashboard의 서버 계산 `vehicleEventSource`로 protocol·유효 readiness·차단 사유·활성 센서의 대상 제외 여부를 표시한다. 저장된 BIO `ready` 보고만으로 사용 가능을 만들지 않으며 현재 서버는 제품 gate OFF에 따라 source 선택·화면 저장을 차단한다. `shadow/degraded` 보고는 검증 중·재검증 안내로 구분한다. 기존 내부 disabled draft API 자격 정책은 바꾸지 않았다.
 - 구현 완료: 기존 지도·목록 선택 흐름에서 현재 선택한 A와 서버가 보호 중인 A를 B 대상에서 제외한다. synthetic ready 화면도 BIO 초안을 비활성으로 저장하고 활성화 버튼은 막는다. A 밝기 설정 UI는 없으며 A의 자체 밝기 동작은 현장 검증 전이라고 설명한다.
 - 구현 완료: BIO 유지시간 10~1,800초·기본 60초 입력/수정, 10초 신호 공백의 꺼짐·재점등 경고, 기존 BlueZ 5초 하한을 적용한다. 센서 모드 설정·읽기 전용 재조회와 별도 요청 결과 GET을 제공하며 POST 접수는 검증으로 표시하지 않는다. GET 확인 시점은 과거 기록이고 현재 readiness 근거가 아님을 명시한다.
+- 구현 완료: 모드 확인 시점은 최신 dashboard 증거만 표시한다. 개별 GET 뒤에는 dashboard를 갱신하며, 새 작업·할당/물리 장비 무효화가 도착하면 이전 결과와 늦은 응답을 폐기한다. 동일한 이전 snapshot은 진행 중 요청을 유지하고, 갱신 실패는 과거 확인 시점을 되살리지 않고 확인 중 안내와 준비 상태 재조회 경로를 유지한다.
 - 구현 완료: BIO 규칙에는 키보드로 접근 가능한 지속 운영 안내와 운영자 비활성화 해제 경로를 표시한다. 서버의 degraded capability 보고를 경고하고 실제 실행·복원 상태, 마지막 유효 펄스·장애 시작 시각은 아직 미확인으로 표시한다.
 - 미구현: Task 8의 영속 runtime telemetry projection·실제 마지막 펄스/장애 시각/복원 대기 사유 연동 및 Task 9 HIL. UI fixture 테스트 결과를 실장비 지원으로 해석하지 않는다.
 - 부족하거나 개선이 필요한 기능: 제품 capability·allowlist는 OFF다. 모드 증거는 현재 할당·Fixture·node·physical identity·address와 일치하는 최신 작업의 과거 GET만 표시하며 현 상태 지속을 보장하지 않는다. 실제 조명·운영 DB·MQTT 설정은 변경하지 않았다.

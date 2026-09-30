@@ -49,6 +49,7 @@ export function VehicleEventDialog({
   serverError,
   returnFocusRef,
   onClose,
+  onRefreshSource,
   onSubmit
 }: {
   open: boolean;
@@ -58,6 +59,7 @@ export function VehicleEventDialog({
   serverError: string;
   returnFocusRef?: RefObject<HTMLElement | null>;
   onClose: () => void;
+  onRefreshSource?: () => Promise<unknown>;
   onSubmit: (input: CreateVehicleEventRuleInput) => void;
 }) {
   const sourceFieldRef = useRef<HTMLFieldSetElement>(null);
@@ -237,7 +239,7 @@ export function VehicleEventDialog({
           modeSelectionSemantics="pressed"
           onChange={view === "source" ? changeSource : changeTarget}
         />
-        {view === "source" ? <div className="max-h-48 shrink-0 overflow-y-auto">{dashboard.floors.flatMap(floor => floor.fixtures).filter(fixture => fixture.vehicleEventSource?.sensorProtocol === "bio-usb-pulse").map(fixture => <VehicleEventSourceStatus key={fixture.id} siteId={dashboard.site.id} fixture={fixture} disabled={isPending} />)}</div> : null}
+        {view === "source" ? <div className="max-h-48 shrink-0 overflow-y-auto">{dashboard.floors.flatMap(floor => floor.fixtures).filter(fixture => fixture.vehicleEventSource?.sensorProtocol === "bio-usb-pulse").map(fixture => <VehicleEventSourceStatus key={fixture.id} siteId={dashboard.site.id} fixture={fixture} disabled={isPending} onRefreshSource={onRefreshSource} />)}</div> : null}
         <FieldError
           id={view === "source" ? vehicleEventErrorIds.source : vehicleEventErrorIds.target}
           message={view === "source" ? errors.sourceFixtureIds : errors.targetFixtureIds}
@@ -270,7 +272,7 @@ export function VehicleEventDialog({
                 kind="sensor"
                 onOpen={() => setView("source")}
               />
-              {selectedSources.map(fixture => <VehicleEventSourceStatus key={fixture.id} siteId={dashboard.site.id} fixture={fixture} disabled={isPending} />)}
+              {selectedSources.map(fixture => <VehicleEventSourceStatus key={fixture.id} siteId={dashboard.site.id} fixture={fixture} disabled={isPending} onRefreshSource={onRefreshSource} />)}
               <ArrowDown className="justify-self-center text-content-secondary" size={20} aria-hidden="true" />
               <Heading as="h3" variant="card-title">02 실행 조명</Heading>
               <AutomationSelectionCard
