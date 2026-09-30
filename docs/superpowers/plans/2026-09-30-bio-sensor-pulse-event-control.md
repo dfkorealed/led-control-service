@@ -89,7 +89,7 @@
 
 - [x] **4a RED·GREEN: 건강/재시작 기계.** `f6e09f58`; 독립 health callback 기본 unverified, 연결 epoch/generation 및 연속 건강 구간 검증, 장애 시 hold freeze/새 pulse 거부, 회복 뒤 전체 hold 재관찰, 정상 만료와 operator_release 분리를 구현했다. 집중 156/156, Gateway 전체 1,474/1,474, typecheck와 독립 검토 통과. 실제 scheduler alert handoff는 4c, `0x09`/미검증 `0x0c`는 건강 증거로 사용하지 않는다.
 - [x] **4b RED·GREEN: B별 밝기 설정+BIO mode 원상태와 adapter.** `98db8a0e`, 결함 보완 `298a9c9c`; V8 durable per-B 원상태·물리 identity·적용/복원 결과, 독립 GET 및 설정+mode 복원 helper를 구현했다. `sensor` 값은 구성된 high-brightness이며 광학 출력이 아니다. 여러 B 중 부분 실패/재시작/저장 실패/A 제외 테스트와, 원상태 미확인 B가 해제 뒤 늦게 켜지지 않도록 하는 회귀를 포함한다. 집중 334/334, Gateway 전체 1,502/1,502, typecheck와 독립 재검토 통과. 해제 기록의 durable commit 실패는 4c에서 완료로 취급하면 안 된다. Scheduler RF gate는 OFF다.
-- [ ] **4c RED·GREEN: V2 scheduler 결합과 수동 우선순위.** `ScheduleRuntime.setBioSourceHealth(...)` 및 검증된 V2 snapshot/connection authority/내구성 있는 pulse transaction 뒤에만 규칙을 실행한다. 첫 펄스 B 적용·후속 연장·건강한 만료와 명시 해제에서 4b의 target별 read-back 복원, degraded 중 B 마지막 확인 상태 유지, 동일 activation 수동 억제 및 다음 activation 재허용을 RED→GREEN으로 검증한다. source identity/revision 변화는 차단하고, 제품 allowlist/capability OFF를 유지한다. 집중·Gateway 전체 test/typecheck, 독립 검토 뒤 4c만 커밋한다.
+- [x] **4c RED·GREEN: V2 scheduler 결합과 수동 우선순위.** `ee412d5a`와 3회 안전 보완 `8fd06f2d`·`6ce596c6`·`7bc65eec`를 독립 재검토했다. 시험 전용 주입의 검증된 V2 snapshot/연결 건강/소스 권한과 durable pulse transaction 뒤에만 B를 제어한다. 첫 펄스·연장·건강한 만료·명시 해제·degraded 보류·수동 activation 억제·새 activation·대상별 read-back을 테스트했다. 대기열/복원 저장 중 도착한 pulse도 동일 activation의 수동 제외를 유지하며, 최신 schedule/base 우선순위와 재시도 사유를 보존한다. 집중 395/395, Gateway 전체 1,563/1,563, typecheck 및 독립 재검토 통과. 실제 제품 allowlist/capability는 OFF이고, V2 MQTT/ACK 및 중첩 event target arbitration은 Tasks 5/8의 후속이다.
 
 ### Task 5: API/DB versioning·capability OFF·snapshot ACK
 
@@ -156,7 +156,7 @@
 - [x] Task 1 — 공유 V2 계약 (`ededa5c9`, `f3f0f4c5`; 집중/Shared 검증 통과, root CAD RSS 실패 별도)
 - [x] Task 2 — BIO decode/intake, allowlist OFF (`72d26ac4`, `ae1d3de5`; 집중 195/195, Gateway 1,439/1,439, 독립 재검토 승인)
 - [x] Task 3 — pulse occurrence/receipt (`0ff260a4`; 집중 139/139, Gateway 1,457/1,457, 독립 검토 승인; 제품 실행 OFF)
-- [ ] Task 4 — fail-safe/restart/target mode 복원
+- [x] Task 4 — fail-safe/restart/target mode 복원 (4a `f6e09f58`, 4b `98db8a0e`+`298a9c9c`, 4c `ee412d5a`+`8fd06f2d`+`6ce596c6`+`7bc65eec`; synthetic software only, 제품 OFF)
 - [ ] Task 5 — API/DB versioning 및 capability
 - [ ] Task 6 — A source 보호
 - [ ] Task 7 — Web UI

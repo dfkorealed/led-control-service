@@ -12,7 +12,8 @@
 - [x] Task 3의 BIO 펄스 receipt·동일 occurrence 유지시간 연장과 V7 저장 상태를 `0ff260a4`로 구현·독립 검토했다. 연결 epoch/generation, 짧은 exact 중복 억제, 8-bit wrap, 재시작 전 UTC 만료 오인 방지를 포함한다. 집중 139/139, Gateway 전체 1,457/1,457, typecheck 통과했다. Scheduler의 두 펄스 입력 경로는 Task 4의 건강 판정·복원 전까지 명시적으로 거부하므로 실제 B 제어는 여전히 OFF다.
 - [x] Task 4a의 독립 건강/장애 freeze/재시작 후 전체 유지시간 재관찰을 `f6e09f58`로 구현·독립 검토했다. 집중 156/156, Gateway 전체 1,474/1,474, typecheck 통과했다. 건강 판정은 기본 unverified이고 `0x09` 또는 미검증 `0x0c`만으로 만들지 않는다. 아직 scheduler 경로, 실제 운영 알림, B의 밝기+mode 복원은 연결되지 않아 실제 B 제어는 OFF다.
 - [x] Task 4b의 B별 원래 설정·BIO mode·물리 identity 저장과 GET 확인형 복원을 `98db8a0e`, 늦은 재점등 결함 보완 `298a9c9c`로 구현·독립 재검토했다. `sensor`의 밝기는 순간 광학 출력이 아니라 저장된 high-brightness 설정으로만 다룬다. 여러 B의 부분 실패, 재시작, 내구성 실패와 A 제외를 확인했다. 집중 334/334, Gateway 전체 1,502/1,502, typecheck 통과했다. Scheduler에 연결되지 않았고 제품 capability는 OFF다.
-- [ ] 계획 Task 4c~8의 소프트웨어 구현·검증을 격리 브랜치에서 진행한다. BIO capability와 제품 allowlist는 검증 전 OFF다. Task 9의 shadow HIL, 로컬 MQTT 복구, B-only 실장비 시험은 각각 fresh preflight/백업/원복과 현장 실행 승인 후 진행하며 Pi·인증서·DNS·운영 DB를 임의로 변경하지 않는다.
+- [x] Task 4c의 V2 시험용 scheduler 연결을 `ee412d5a`와 3회 안전 보완 `8fd06f2d`·`6ce596c6`·`7bc65eec`로 구현·독립 재검토했다. 건강/identity/revision을 확인한 합성 입력에서만 B 적용·연장·밝기 설정+mode 복원, 장애 freeze, 수동 제어의 정확한 activation 억제와 재시작을 검증했다. 대기열/복원 저장 중 펄스의 수동값 덮어쓰기와 오래된 schedule base·재시도 기록 오류를 수정했다. 집중 395/395, Gateway 전체 1,563/1,563, typecheck 통과했다. 제품 bootstrap에는 이 시험 경로가 연결되지 않아 capability/allowlist는 계속 OFF이며 실제 A/B 동작은 미검증이다.
+- [ ] 계획 Task 5~8의 API/DB·A 보호·Web·전체 통합을 진행한다. BIO capability와 제품 allowlist는 검증 전 OFF다. Task 9의 shadow HIL, 로컬 MQTT 복구, B-only 실장비 시험은 각각 fresh preflight/백업/원복과 현장 실행 승인 후 진행하며 Pi·인증서·DNS·운영 DB를 임의로 변경하지 않는다.
 
 ## 2026-09-30 제조 일련번호 기반 최초 설치 — 구현 계획 검토 대기
 
