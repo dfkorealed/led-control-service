@@ -59,6 +59,12 @@ export class BioAddressConflictError extends BioUsbError {
 }
 export type BioVerifiedLampTarget = Extract<BioLampTarget, { kind: "unicast" }> & { nativeUuid: string };
 
+/** Configuration only: in sensor mode this is never an observation of optical/current output. */
+export interface BioConfigurationState {
+  configuredHighBrightnessPercent: number;
+  bioMode: BioControlMode;
+}
+
 type ReadbackEvent = Extract<BioResponse, { kind: "high-brightness-report" | "control-mode-report" }>;
 type BioReadbackOperation = Extract<BioOperation,
   { kind: "readHighBrightness" | "readControlMode" | "setControlMode" }>;
@@ -393,6 +399,50 @@ export class BioDongleClient {
       throw new BioUsbError("MALFORMED_FRAME", "BIO control-mode report was not returned");
     }
     return report;
+  }
+
+  async readConfiguration(target: BioVerifiedLampTarget, control: BioOperationControl = {}): Promise<BioConfigurationState> {
+    const brightness = await this.readBrightness(target, control);
+    throwIfOperationStopped(control);
+    const mode = await this.readDeviceInfo(target, control);
+    throwIfOperationStopped(control);
+    if (brightness.networkId !== target.networkId || mode.networkId !== target.networkId) {
+      throw new BioUsbError("BIO_CONFIGURATION_UNVERIFIED", "BIO configuration GET identity mismatch");
+    }
+    const configuredHighBrightnessPercent = bioRawToPercent(brightness.rawHighBrightness);
+    if (configuredHighBrightnessPercent === null) {
+      throw new BioUsbError("BIO_CONFIGURATION_UNVERIFIED", "BIO configured brightness has no exact percent");
+    }
+    return { configuredHighBrightnessPercent, bioMode: mode.mode };
+  }
+
+  /**
+   * Restore the stored high-brightness setting even for force-off. setOutput(0) only
+   * changes mode and therefore cannot restore that setting. Sensor mode does not
+   * imply an optical output value; independent GETs verify configuration only.
+   */
+  async restoreConfiguration(
+    target: BioVerifiedLampTarget,
+    state: BioConfigurationState,
+    control: BioOperationControl = {}
+  ): Promise<BioConfigurationState> {
+    throwIfOperationStopped(control);
+    const rawHighBrightness = percentToBioRaw(state.configuredHighBrightnessPercent);
+    if (!["sensor", "force-on", "force-off"].includes(state.bioMode)) {
+      throw new BioUsbError("BIO_CONFIGURATION_UNVERIFIED", "BIO configuration mode is invalid");
+    }
+    const expected = this.resolveReadbackTarget(target);
+    await this.setBrightness(expected.target, { rawHighBrightness }, control);
+    throwIfOperationStopped(control);
+    await this.setControlMode(expected.target, state.bioMode, control);
+    throwIfOperationStopped(control);
+    const observed = await this.readConfiguration(target, control);
+    if (observed.configuredHighBrightnessPercent !== state.configuredHighBrightnessPercent || observed.bioMode !== state.bioMode) {
+      throw Object.assign(new BioUsbError("BIO_CONFIGURATION_STATE_MISMATCH", "BIO configuration GET did not match"), {
+        observedConfiguration: observed
+      });
+    }
+    return observed;
   }
 
   /**

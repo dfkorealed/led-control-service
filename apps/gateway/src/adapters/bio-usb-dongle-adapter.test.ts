@@ -42,6 +42,46 @@ const discovered = {
 };
 
 describe("BioUsbDongleAdapter", () => {
+  it("captures explicit BIO configuration and binds restore to the same physical target", async () => {
+    const f = createFixture();
+    const device = { ...discovered, logicalAddress: 0x0101 };
+    const configuration = { configuredHighBrightnessPercent: 60, bioMode: "sensor" as const };
+    f.client.scan.mockResolvedValue([device]);
+    f.mappings.findByFixtureId.mockResolvedValue(confirmedMapping());
+    f.client.readConfiguration.mockResolvedValue(configuration);
+    f.client.restoreConfiguration.mockResolvedValue(configuration);
+    const captured = await f.adapter.readBioState(provisioningCommand.nodeId);
+    expect(captured).toEqual({ configuration, target: {
+      kind: "unicast", nativeUuid: discovered.nativeUuid, logicalAddress: 0x0101, networkId: discovered.networkId
+    } });
+    await expect(f.adapter.restoreBioState(provisioningCommand.nodeId, captured.target, configuration)).resolves.toEqual(configuration);
+    expect(f.client.restoreConfiguration).toHaveBeenCalledWith(captured.target, configuration, {});
+    expect(f.client.setOutput).not.toHaveBeenCalled();
+    await expect(f.adapter.restoreBioState(provisioningCommand.nodeId, { ...captured.target, networkId: 1 }, configuration))
+      .rejects.toThrow("BIO target identity changed");
+    expect(f.client.restoreConfiguration).toHaveBeenCalledOnce();
+  });
+
+  it("does not restore when a fixture mapping points to another lamp", async () => {
+    const f = createFixture();
+    f.client.scan.mockResolvedValue([{ ...discovered, logicalAddress: 0x0101 }]);
+    f.mappings.findByFixtureId.mockResolvedValue(confirmedMapping());
+    await expect(f.adapter.restoreBioState(provisioningCommand.nodeId, {
+      kind: "unicast", nativeUuid: "001122334455", logicalAddress: 0x0101, networkId: discovered.networkId
+    }, { configuredHighBrightnessPercent: 60, bioMode: "sensor" })).rejects.toThrow("BIO target identity changed");
+    expect(f.client.restoreConfiguration).not.toHaveBeenCalled();
+  });
+
+  it("requires fresh verified GET before restore even when the discovery cache still matches", async () => {
+    const f = createFixture();
+    f.client.scan.mockResolvedValue([{ ...discovered, logicalAddress: 0x0101 }]);
+    f.mappings.findByFixtureId.mockResolvedValue(confirmedMapping());
+    f.client.readConfiguration.mockResolvedValue({ configuredHighBrightnessPercent: 60, bioMode: "sensor" });
+    const captured = await f.adapter.readBioState(provisioningCommand.nodeId);
+    f.client.readConfiguration.mockRejectedValue(new BioDeviceReadTimeoutError());
+    await expect(f.adapter.restoreBioState(provisioningCommand.nodeId, captured.target, captured.configuration)).rejects.toThrow();
+    expect(f.client.restoreConfiguration).not.toHaveBeenCalled();
+  });
   it("keeps native write rejection unknown after brightness submission", async () => {
     const f = createPhysicalControlFixture({ failOutput: true });
     try {
@@ -984,7 +1024,9 @@ function createFixture(events: string[] = []) {
     setOutput: vi.fn(),
     restoreSensorMode: vi.fn(),
     readBrightness: vi.fn(),
-    readDeviceInfo: vi.fn()
+    readDeviceInfo: vi.fn(),
+    readConfiguration: vi.fn(),
+    restoreConfiguration: vi.fn()
   };
   const mappings = {
     findByDeviceUuidIncludingReserved: vi.fn(async (): Promise<any> => { events.push("lookup-mapping"); return null; }),

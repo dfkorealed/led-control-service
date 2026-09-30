@@ -13,6 +13,7 @@ import {
   type PersistedAutomationTelemetryHandoff
 } from "./automation-telemetry-handoff";
 import type { AutomationTelemetryGapJournalLike } from "./automation-telemetry-gap-journal";
+import type { BioConfigurationState, BioVerifiedLampTarget } from "../bio/bio-dongle-client";
 
 export interface PersistedOccurrenceState {
   key: string;
@@ -117,8 +118,25 @@ export interface PersistedBioPulseInboxSource {
   recentReceipts: Array<{ sequence: number; receivedMonotonicMs: number }>;
 }
 
-export interface PersistedAutomationStateV7 {
-  schemaVersion: 7;
+export interface PersistedBioTargetResult {
+  status: "pending" | "succeeded" | "failed" | "timed_out";
+  attempt: number;
+  at: string;
+  observed: BioConfigurationState | null;
+}
+
+export interface PersistedBioTargetState {
+  activationId: string;
+  sourceFixtureId: string;
+  eventBrightnessPercent: number;
+  target: BioVerifiedLampTarget | null;
+  preState: BioConfigurationState | null;
+  applyResult: PersistedBioTargetResult;
+  restoreResult: PersistedBioTargetResult | null;
+}
+
+export interface PersistedAutomationStateV8 {
+  schemaVersion: 8;
   activeOccurrences: Record<string, PersistedOccurrenceState>;
   pendingManualControls: Record<string, PersistedManualControlState>;
   manualAutomationSuppressions: Record<string, PersistedManualAutomationSuppressionState>;
@@ -132,9 +150,11 @@ export interface PersistedAutomationStateV7 {
   pendingTelemetryHandoffs: PersistedAutomationTelemetryHandoff[];
   vehicleSensorInbox: PersistedVehicleSensorInboxSource[];
   bioPulseInbox: Record<string, PersistedBioPulseInboxSource>;
+  bioTargetsByFixture: Record<string, PersistedBioTargetState>;
 }
 
 // Historical import names refer to the current in-memory schema; only the parser accepts older disk shapes.
+export type PersistedAutomationStateV7 = PersistedAutomationStateV8;
 export type PersistedAutomationStateV6 = PersistedAutomationStateV7;
 export type PersistedAutomationStateV4 = PersistedAutomationStateV7;
 export type PersistedAutomationStateV3 = PersistedAutomationStateV7;
@@ -672,7 +692,7 @@ function isEnospc(error: unknown): error is NodeJS.ErrnoException {
 
 export function emptyAutomationState(): PersistedAutomationStateV4 {
   return {
-    schemaVersion: 7,
+    schemaVersion: 8,
     activeOccurrences: {},
     pendingManualControls: {},
     manualAutomationSuppressions: {},
@@ -685,11 +705,22 @@ export function emptyAutomationState(): PersistedAutomationStateV4 {
     telemetryGap: null,
     pendingTelemetryHandoffs: [],
     vehicleSensorInbox: [],
-    bioPulseInbox: {}
+    bioPulseInbox: {},
+    bioTargetsByFixture: {}
   };
 }
 
 export function parseAutomationState(value: unknown): PersistedAutomationStateV4 {
+  if (isRecord(value) && value.schemaVersion === 8) {
+    // Strip only the new V8 field; V7/V6 retain their exact-key disk contracts.
+    const { bioTargetsByFixture, ...legacy } = value;
+    const state = parseAutomationState({ ...legacy, schemaVersion: 7 });
+    state.bioTargetsByFixture = parseFixtureRecord(bioTargetsByFixture, parseBioTargetState);
+    for (const [fixtureId, row] of Object.entries(state.bioTargetsByFixture)) {
+      if (fixtureId.toLowerCase() === row.sourceFixtureId.toLowerCase()) throw new Error("BIO source cannot be a target");
+    }
+    return state;
+  }
   if (isRecord(value) && value.schemaVersion === 7) {
     // Reuse the strict historical V6 parser after removing precisely the V7 field.
     // Unknown keys still fail there; a missing journal fails its own strict parser.
@@ -711,7 +742,7 @@ export function parseAutomationState(value: unknown): PersistedAutomationStateV4
     "vehicleSensorInbox"
   ]) && value.schemaVersion === 6) {
     return {
-      schemaVersion: 7,
+      schemaVersion: 8,
       activeOccurrences: parseRecord(value.activeOccurrences, parseOccurrence),
       pendingManualControls: parseFixtureRecord(value.pendingManualControls, parseManualControl),
       manualAutomationSuppressions: parseFixtureRecord(value.manualAutomationSuppressions, parseManualSuppression),
@@ -724,7 +755,8 @@ export function parseAutomationState(value: unknown): PersistedAutomationStateV4
       telemetryGap: parseTelemetryGap(value.telemetryGap),
       pendingTelemetryHandoffs: parseTelemetryHandoffs(value.pendingTelemetryHandoffs),
       vehicleSensorInbox: parseVehicleSensorInbox(value.vehicleSensorInbox),
-      bioPulseInbox: {}
+      bioPulseInbox: {},
+      bioTargetsByFixture: {}
     };
   }
   if (hasExactKeys(value, [
@@ -864,7 +896,7 @@ function parseAutomationStateFields(
   // Validate every legacy field before dropping timed overrides, including entries that cannot migrate.
   const manualOverrides = parseRecord(value.manualOverrides, parseManualOverride);
   const state: PersistedAutomationStateV6 = {
-    schemaVersion: 7,
+    schemaVersion: 8,
     activeOccurrences: parseRecord(value.activeOccurrences, parseOccurrence),
     pendingManualControls: {},
     manualAutomationSuppressions: {},
@@ -877,7 +909,8 @@ function parseAutomationStateFields(
     telemetryGap,
     pendingTelemetryHandoffs,
     vehicleSensorInbox,
-    bioPulseInbox: {}
+    bioPulseInbox: {},
+    bioTargetsByFixture: {}
   };
   return migrateV5ManualState(state, manualOverrides);
 }
@@ -1078,6 +1111,62 @@ function parseTransition(value: unknown): PersistedAutomationTransitionState {
     status,
     terminalAt: value.terminalAt === null ? null : parseTimestamp(value.terminalAt)
   };
+}
+
+export function parseBioConfigurationState(value: unknown): BioConfigurationState {
+  if (!hasExactKeys(value, ["configuredHighBrightnessPercent", "bioMode"]) ||
+    !["sensor", "force-on", "force-off"].includes(value.bioMode as string)) {
+    throw new Error("invalid BIO configuration");
+  }
+  return { configuredHighBrightnessPercent: parseBrightness(value.configuredHighBrightnessPercent),
+    bioMode: value.bioMode as BioConfigurationState["bioMode"] };
+}
+
+function parseBioTargetResult(value: unknown): PersistedBioTargetResult {
+  if (!hasExactKeys(value, ["status", "attempt", "at", "observed"]) ||
+    !["pending", "succeeded", "failed", "timed_out"].includes(value.status as string) ||
+    !Number.isSafeInteger(value.attempt) || (value.attempt as number) <= 0) throw new Error("invalid BIO target result");
+  const observed = value.observed === null ? null : parseBioConfigurationState(value.observed);
+  if ((value.status === "pending" && observed !== null) || (value.status === "succeeded" && observed === null)) {
+    throw new Error("invalid BIO target observation");
+  }
+  return { status: value.status as PersistedBioTargetResult["status"], attempt: value.attempt as number,
+    at: parseTimestamp(value.at), observed };
+}
+
+function parseBioTargetState(value: unknown): PersistedBioTargetState {
+  if (!hasExactKeys(value, ["activationId", "sourceFixtureId", "eventBrightnessPercent", "target", "preState", "applyResult", "restoreResult"])) {
+    throw new Error("invalid BIO target state");
+  }
+  const preState = value.preState === null ? null : parseBioConfigurationState(value.preState);
+  let target: BioVerifiedLampTarget | null = null;
+  if (value.target !== null) {
+    const candidate = value.target;
+    if (!hasExactKeys(candidate, ["kind", "nativeUuid", "logicalAddress", "networkId"]) || candidate.kind !== "unicast" ||
+      typeof candidate.nativeUuid !== "string" || !/^[0-9a-f]{12}$/.test(candidate.nativeUuid) ||
+      !isVehicleSensorUnicast(candidate.logicalAddress) || !Number.isInteger(candidate.networkId) ||
+      (candidate.networkId as number) < 0 || (candidate.networkId as number) > 0xffff) throw new Error("invalid BIO target identity");
+    target = { kind: "unicast", nativeUuid: candidate.nativeUuid, logicalAddress: candidate.logicalAddress as number,
+      networkId: candidate.networkId as number };
+  }
+  const applyResult = parseBioTargetResult(value.applyResult);
+  const restoreResult = value.restoreResult === null ? null : parseBioTargetResult(value.restoreResult);
+  const eventBrightnessPercent = parseBrightness(value.eventBrightnessPercent);
+  if ((preState === null) !== (target === null) ||
+    (preState === null && (applyResult.status !== "failed" || restoreResult !== null))) throw new Error("unverified BIO target base");
+  if (preState && applyResult.status === "succeeded" && !isDeepStrictEqual(applyResult.observed, bioEventConfiguration(preState, eventBrightnessPercent))) {
+    throw new Error("BIO applied configuration mismatch");
+  }
+  if (restoreResult?.status === "succeeded" && !isDeepStrictEqual(restoreResult.observed, preState)) {
+    throw new Error("BIO restored configuration mismatch");
+  }
+  return { activationId: parseString(value.activationId), sourceFixtureId: parseUuid(value.sourceFixtureId),
+    eventBrightnessPercent, target, preState, applyResult, restoreResult };
+}
+
+export function bioEventConfiguration(base: BioConfigurationState, brightnessPercent: number): BioConfigurationState {
+  return { configuredHighBrightnessPercent: brightnessPercent === 0 ? base.configuredHighBrightnessPercent : parseBrightness(brightnessPercent),
+    bioMode: brightnessPercent === 0 ? "force-off" : "force-on" };
 }
 
 function parseTelemetryGap(value: unknown): PersistedAutomationTelemetryGap | null {

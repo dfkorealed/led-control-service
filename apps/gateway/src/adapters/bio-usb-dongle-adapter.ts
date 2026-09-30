@@ -21,8 +21,10 @@ import type {
 } from "../gateway";
 import type {
   BioAddressAssignmentResult,
+  BioConfigurationState,
   BioDiscoveredDevice,
   BioDongleClient,
+  BioOperationControl,
   BioVerifiedLampTarget
 } from "../bio/bio-dongle-client";
 import type {
@@ -40,7 +42,7 @@ const BIO_GROUP_UNICAST_CONCURRENCY = 4;
 type BioClientPort = Pick<BioDongleClient,
   "scan" | "startIdentify" | "stopIdentify" | "restoreSensorMode" | "assignAddressOnce" |
   "reconcileAddress" | "setOutput"> &
-  Partial<Pick<BioDongleClient, "readBrightness" | "readDeviceInfo">>;
+  Partial<Pick<BioDongleClient, "readBrightness" | "readDeviceInfo" | "readConfiguration" | "restoreConfiguration">>;
 type BioMappingPort = Pick<BioDeviceMappingStore,
   "findByDeviceUuidIncludingReserved" | "reserve" | "confirm" | "findByFixtureId" |
   "findByLogicalAddress" | "listConfirmed">;
@@ -199,6 +201,44 @@ export class BioUsbDongleAdapter implements BleMeshAdapter, ProvisioningScannerA
 
   async setBrightness(fixtureIds: string[], brightness: number, writeControl?: CommandWriteControl) {
     return mapWithConcurrency(fixtureIds, 1, (fixtureId) => this.applyUnicast(fixtureId, brightness, undefined, undefined, writeControl));
+  }
+
+  /** Reads configuration, never infers sensor optical output or power from high brightness. */
+  async readBioState(fixtureId: string, control: BioOperationControl = {}) {
+    if (!this.client.readConfiguration) throw new BioUsbError("NOT_READY", "BIO configuration read unavailable");
+    const verified = await this.bioConfigurationTarget(fixtureId, control);
+    return { target: verified, configuration: await this.client.readConfiguration(verified, control) };
+  }
+
+  async restoreBioState(
+    fixtureId: string,
+    expected: BioVerifiedLampTarget,
+    configuration: BioConfigurationState,
+    control: BioOperationControl = {}
+  ): Promise<BioConfigurationState> {
+    if (!this.client.restoreConfiguration || !this.client.readConfiguration) {
+      throw new BioUsbError("NOT_READY", "BIO configuration restore unavailable");
+    }
+    const verified = await this.bioConfigurationTarget(fixtureId, control);
+    if (verified.nativeUuid !== expected.nativeUuid || verified.logicalAddress !== expected.logicalAddress ||
+      verified.networkId !== expected.networkId || expected.kind !== "unicast") {
+      throw new BioUsbError("BIO_CONFIGURATION_UNVERIFIED", "BIO target identity changed");
+    }
+    // Cached discovery/mapping is not fresh proof that this lamp still occupies the
+    // address. Matched GETs must succeed before any configuration write is submitted.
+    await this.client.readConfiguration(verified, control);
+    throwIfExpired(control);
+    return this.client.restoreConfiguration(verified, configuration, control);
+  }
+
+  private async bioConfigurationTarget(fixtureId: string, control: BioOperationControl) {
+    throwIfExpired(control);
+    const mapping = await this.mappings.findByFixtureId(fixtureId);
+    if (!mapping || mapping.status !== "confirmed") throw new BioUsbError("BIO_DEVICE_NOT_FOUND", "BIO target not confirmed");
+    await this.requireDiscovered(mapping, control);
+    const device = this.requireExactDiscoveredMapping(mapping);
+    throwIfExpired(control);
+    return target(device, mapping.logicalAddress);
   }
 
   async applyUnicast(

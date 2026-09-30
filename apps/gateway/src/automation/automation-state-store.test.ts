@@ -29,7 +29,7 @@ const requestedAt = "2026-09-01T01:00:00.000Z";
 const appliedAt = "2026-09-01T01:00:01.000Z";
 
 function manualV6State() {
-  const { bioPulseInbox: _bioPulseInbox, ...legacy } = emptyAutomationState();
+  const { bioPulseInbox: _bioPulseInbox, bioTargetsByFixture: _bioTargets, ...legacy } = emptyAutomationState();
   return {
     ...legacy,
     schemaVersion: 6,
@@ -46,6 +46,48 @@ function manualV6State() {
   };
 }
 
+describe("V8 BIO target configuration journal", () => {
+  it("migrates V7 and V6 without inventing a verified target base", () => {
+    const v6 = manualV6State();
+    const v7 = { ...v6, schemaVersion: 7, bioPulseInbox: {} };
+    for (const legacy of [v6, v7]) {
+      expect(parseAutomationState(legacy)).toMatchObject({ schemaVersion: 8, bioTargetsByFixture: {} });
+      expect(() => parseAutomationState({ ...legacy, bioTargetsByFixture: {} })).toThrow();
+    }
+  });
+
+  it("round-trips independently verified target bases and rejects inconsistent terminal results", async () => {
+    const store = new FileAutomationStateStore(await statePath());
+    await store.initialize();
+    const entry = {
+      activationId: "activation-one", sourceFixtureId: commandId, eventBrightnessPercent: 80,
+      target: { kind: "unicast", nativeUuid: "001122334455", logicalAddress: 1, networkId: 2 },
+      preState: { configuredHighBrightnessPercent: 30, bioMode: "sensor" },
+      applyResult: { status: "succeeded", attempt: 1, at: requestedAt,
+        observed: { configuredHighBrightnessPercent: 80, bioMode: "force-on" } },
+      restoreResult: null
+    };
+    await store.updateDurable(state => {
+      state.bioTargetsByFixture[fixtureId] = entry as any;
+      return state;
+    });
+    expect(parseAutomationState(store.read()).bioTargetsByFixture[fixtureId]).toEqual(entry);
+    for (const mutate of [
+      (row: any) => { row.extra = true; },
+      (row: any) => { row.preState.bioMode = "unknown"; },
+      (row: any) => { row.preState.configuredHighBrightnessPercent = 101; },
+      (row: any) => { row.target = null; },
+      (row: any) => { row.applyResult.observed = null; },
+      (row: any) => { row.applyResult.observed.bioMode = "sensor"; },
+      (row: any) => { row.restoreResult = { ...row.applyResult }; },
+      (row: any) => { row.sourceFixtureId = fixtureId; }
+    ]) {
+      const state = store.read(); mutate(state.bioTargetsByFixture[fixtureId]);
+      expect(() => parseAutomationState(state)).toThrow();
+    }
+  });
+});
+
 function legacyV5State() {
   return {
     schemaVersion: 5,
@@ -60,7 +102,7 @@ describe("V7 BIO receipt journal", () => {
   it("migrates strict V6 state without inventing a pulse receipt", () => {
     const legacy = manualV6State();
     delete (legacy as Record<string, unknown>).bioPulseInbox;
-    expect(parseAutomationState(legacy)).toMatchObject({ schemaVersion: 7, bioPulseInbox: {} });
+    expect(parseAutomationState(legacy)).toMatchObject({ schemaVersion: 8, bioPulseInbox: {}, bioTargetsByFixture: {} });
     expect(() => parseAutomationState({ ...legacy, bioPulseInbox: {} })).toThrow();
   });
 
@@ -135,13 +177,13 @@ describe("V7 BIO receipt journal", () => {
 describe("V6 automation state", () => {
   it("round-trips pending controls and exact source suppressions through durable storage", async () => {
     const state = manualV6State();
-    const migrated = { ...state, schemaVersion: 7, bioPulseInbox: {} };
+    const migrated = { ...state, schemaVersion: 8, bioPulseInbox: {}, bioTargetsByFixture: {} };
     expect(parseAutomationState(state)).toEqual(migrated);
     const path = await statePath();
     await writeJsonAtomic(path, state);
     expect(await new FileAutomationStateStore(path).initialize()).toEqual(migrated);
     expect(emptyAutomationState()).toMatchObject({
-      schemaVersion: 7, pendingManualControls: {}, manualAutomationSuppressions: {}
+      schemaVersion: 8, pendingManualControls: {}, manualAutomationSuppressions: {}
     });
     expect(emptyAutomationState()).not.toHaveProperty("manualOverrides");
   });
@@ -180,7 +222,7 @@ describe("V6 automation state", () => {
     const state = manualV6State();
     state.manualAutomationSuppressions[fixtureId]!.schedules.push({ scheduleId, occurrenceKey: "2026-09-02" });
     state.manualAutomationSuppressions[fixtureId]!.vehicleEvents.push({ ruleId, startedAt: appliedAt });
-    expect(parseAutomationState(state)).toEqual({ ...state, schemaVersion: 7, bioPulseInbox: {} });
+    expect(parseAutomationState(state)).toEqual({ ...state, schemaVersion: 8, bioPulseInbox: {}, bioTargetsByFixture: {} });
   });
 
   it.each(["pendingManualControls", "manualAutomationSuppressions"] as const)("bounds %s to 10,000 fixtures", (field) => {
@@ -223,7 +265,7 @@ describe("V6 automation state", () => {
       }
     };
     const result = parseAutomationState(old);
-    expect(result.schemaVersion).toBe(7);
+    expect(result.schemaVersion).toBe(8);
     expect(result.baseBrightnessByFixture).toEqual({ [success]: 60, [observed]: 60, [mismatch]: 20 });
     expect(result.pendingManualControls).toEqual({
       [pending]: { sourceId: commandId, brightnessPercent: 60, requestedAt, preBrightness: 60 }
@@ -403,7 +445,7 @@ describe("FileAutomationStateStore", () => {
 
     const restarted = new FileAutomationStateStore(path);
     await expect(restarted.initialize()).resolves.toMatchObject({
-      schemaVersion: 7,
+      schemaVersion: 8,
       activeOccurrences: {
         "schedule-1": {
           key: "schedule-1:2026-08-30",
@@ -697,7 +739,7 @@ describe("FileAutomationStateStore", () => {
     await store.recordTelemetryGap("2026-08-30T01:00:01.000Z", 3);
 
     await expect(new FileAutomationStateStore(path).initialize()).resolves.toMatchObject({
-      schemaVersion: 7,
+      schemaVersion: 8,
       telemetryGap: {
         firstDroppedAt: "2026-08-30T01:00:01.000Z",
         lastDroppedAt: "2026-08-30T01:00:02.000Z",
@@ -751,7 +793,7 @@ describe("FileAutomationStateStore", () => {
 
     const store = new FileAutomationStateStore(path);
     await expect(store.initialize()).resolves.toMatchObject({
-      schemaVersion: 7,
+      schemaVersion: 8,
       pendingTelemetryHandoffs: [handoff]
     });
     await expect(store.completeTelemetryHandoff(handoff.handoffId, handoff.recordsHash)).resolves.toEqual({
