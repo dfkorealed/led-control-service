@@ -45,7 +45,7 @@ BIO A → 기존 USB 동글 client/CRC·frame 검증 → 0x09 후보 분류
 
 ## 이벤트 수명주기와 복원
 
-- 첫 검증된 A 펄스에서 B의 이벤트 이전 **확인된 밝기와 BIO 제어 모드**를 보존한 뒤 이벤트 밝기를 적용한다. B의 양수 밝기 명령이 `force-on`, 0%가 `force-off`로 바뀌는 현재 BIO 동작 때문에 mode까지 보존·복원한다. 상태가 확인되지 않으면 성공한 적용/복원으로 표시하지 않는다.
+- 첫 검증된 A 펄스에서 B의 이벤트 이전 **확인된 밝기 설정과 BIO 제어 모드**를 보존한 뒤 이벤트 밝기를 적용한다. B의 양수 밝기 명령이 `force-on`, 0%가 `force-off`로 바뀌는 현재 BIO 동작 때문에 mode까지 보존·복원한다. B가 `sensor` 모드이면 brightness GET은 현재 광학 출력이 아닌 구성된 high-brightness 설정만 확인하므로, 원상태는 이 설정과 mode를 각각 read-back으로 검증한다. 둘 중 하나라도 불명확하면 적용을 거부하고, 설정 복원 성공을 실제 광학 밝기 복원으로 표현하지 않는다. 광학 동작은 별도 HIL에서 확인한다.
 - 유효한 새 펄스마다 `deadline = monotonicReceiveTime + holdSeconds`로 갱신한다. 과거 발생 시각으로 들어온 replay, exact duplicate, 불확실한 identity는 갱신하지 않는다. 상태형 source의 active/clear 로직과 deadline은 섞지 않는다.
 - 링크가 건강하고 마지막 펄스 뒤 deadline에 도달하면 이벤트를 종료한다. 그 사이 성공한 수동 제어가 있었다면 그 시점에 활성인 **정확한 이벤트 activation만** 해당 B에서 억제하고 수동 밝기를 새 기본값으로 삼는다. 같은 activation의 후속 펄스는 그 억제를 해제하지 않는다. 새 activation 또는 스케줄 occurrence는 다시 자동 제어할 수 있고, 억제되지 않은 자동 source 사이에서는 기존 `event > schedule` 우선순위를 따른다. 종료 시점에는 최신 기본값과 억제·자동 source 상태를 재계산하며, 낡은 이벤트 전 snapshot으로 새 수동 의도를 덮지 않는다. 적용·복원 모두 read-back을 확인하고 불일치 시 성공으로 기록하지 않는다.
 - 여러 target의 일부만 성공한 경우 각 target의 적용 전 상태와 결과를 독립적으로 추적하고, 실패한 target을 성공했다고 보고하지 않는다. rule 재트리거는 이미 저장된 원래 상태를 덮어쓰지 않는다. 명시적 규칙 비활성화/운영자 해제는 건강한 만료와 다른 종료 사유로 기록하고 read-back을 거쳐 제어를 해제한다.
