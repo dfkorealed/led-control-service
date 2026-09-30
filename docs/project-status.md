@@ -10,7 +10,8 @@
 - [x] Task 1 공유 V2 계약은 `ededa5c9`와 ACK 검증 중복 보완 `f3f0f4c5`로 구현·독립 검토했다. V1 BlueZ 계약을 유지하고 BIO 전용 준비 상태와 10초 하한을 추가했다. 집중 34/34, Shared 전체 429/429, Shared typecheck가 통과했다. Canonical root test는 동시 부하에서 API CAD SVG RSS 제한 테스트 1건 실패(해당 파일 단독 17/17 통과)로 아직 전체 통과가 아니다. 장비/DB/운영 환경 변경은 없고 BIO capability는 OFF다.
 - [x] Task 2의 BIO 후보 decoder/shadow intake를 `72d26ac4`와 예외 격리 보완 `ae1d3de5`로 구현·독립 재검토했다. 조명 A의 `0x09`를 아직 제품 이벤트로 확정하지 않고, 실제 제품 allowlist와 capability는 OFF다. 후보 subscriber 오류가 같은 USB 수신 청크의 ACK/read-back을 막지 않도록 회귀 테스트를 추가했다. 집중 195/195, Gateway 전체 1,439/1,439, Gateway typecheck 통과; Task 2 최초 커밋 기준 canonical root test도 exit 0이었으나 보완 커밋 뒤에는 아직 root 전체를 다시 돌리지 않았다. Node 24 환경 증거이며 Node 22 CI/HIL 증거는 아니다.
 - [x] Task 3의 BIO 펄스 receipt·동일 occurrence 유지시간 연장과 V7 저장 상태를 `0ff260a4`로 구현·독립 검토했다. 연결 epoch/generation, 짧은 exact 중복 억제, 8-bit wrap, 재시작 전 UTC 만료 오인 방지를 포함한다. 집중 139/139, Gateway 전체 1,457/1,457, typecheck 통과했다. Scheduler의 두 펄스 입력 경로는 Task 4의 건강 판정·복원 전까지 명시적으로 거부하므로 실제 B 제어는 여전히 OFF다.
-- [ ] 계획 Task 4~8의 소프트웨어 구현·검증을 격리 브랜치에서 진행한다. BIO capability와 제품 allowlist는 검증 전 OFF다. Task 9의 shadow HIL, 로컬 MQTT 복구, B-only 실장비 시험은 각각 fresh preflight/백업/원복과 현장 실행 승인 후 진행하며 Pi·인증서·DNS·운영 DB를 임의로 변경하지 않는다.
+- [x] Task 4a의 독립 건강/장애 freeze/재시작 후 전체 유지시간 재관찰을 `f6e09f58`로 구현·독립 검토했다. 집중 156/156, Gateway 전체 1,474/1,474, typecheck 통과했다. 건강 판정은 기본 unverified이고 `0x09` 또는 미검증 `0x0c`만으로 만들지 않는다. 아직 scheduler 경로, 실제 운영 알림, B의 밝기+mode 복원은 연결되지 않아 실제 B 제어는 OFF다.
+- [ ] 계획 Task 4b~8의 소프트웨어 구현·검증을 격리 브랜치에서 진행한다. BIO capability와 제품 allowlist는 검증 전 OFF다. Task 9의 shadow HIL, 로컬 MQTT 복구, B-only 실장비 시험은 각각 fresh preflight/백업/원복과 현장 실행 승인 후 진행하며 Pi·인증서·DNS·운영 DB를 임의로 변경하지 않는다.
 
 ## 2026-09-30 제조 일련번호 기반 최초 설치 — 구현 계획 검토 대기
 
