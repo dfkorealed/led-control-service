@@ -110,11 +110,11 @@
 
 **Interfaces:** `assertNoActiveBioSourceTarget(tx, siteId, expandedFixtureIds, operation): Promise<void>`를 단일 API policy module에 둔다. `operation`은 `manual|schedule|event|identify|group`의 명시적 값이다. Gateway는 적용 시 최신 V2 snapshot의 BIO source set과 실제 확장된 fixture set의 교집합이 있으면 RF write 전에 거절한다.
 
-- [ ] **Step 1: RED 테스트 작성.** A 자신과 타 rule target, 다중 수동, 스케줄, group/floor 확장, identify, 저장 뒤 group membership 변경의 A 포함 모두 API에서 거절; 직접 MQTT/replayed command도 Gateway RF write 0건; A가 아닌 B는 정상; A의 로컬 `sensor` 모드는 유지하고 A에 `CD 13` 또는 mode 변경 RF write가 발생하지 않음. 자체 밝기 변화는 소프트웨어 테스트로 단언하지 않는다.
-- [ ] **Step 2: RED 확인.** `pnpm --filter @led-control/api exec jest src/automation/vehicle-event-rules.service.spec.ts src/automation/schedules.service.spec.ts src/commands/commands.service.spec.ts src/fixture-identify/fixture-identify.service.spec.ts --runInBand` 및 Gateway 관련 Vitest → 새 guard 기대 실패.
-- [ ] **Step 3: 최소 구현.** API는 membership 확장 후 같은 transaction 안에서 검사; Gateway는 RF 직전에 다시 검사한다. 기존 공통 target resolver를 재사용해 UI 선택만 보호 장치로 삼지 않는다.
-- [ ] **Step 4: GREEN·문서 확인.** 집중 tests와 API/Gateway typecheck 통과; `docs/menus/control.md`, `settings.md`에 software guard 완료와 live BIO OFF/HIL 보류를 분리 표기한다.
-- [ ] **Step 5: 커밋.** guard와 메뉴 문서를 같은 커밋에 저장한다.
+- [x] **Step 1: RED 테스트 작성.** API의 A 자신/타 rule target, 다중 수동, schedule/event, group/floor 확장·저장 뒤 membership 변경, identify와 Gateway 직접/replayed 명령·cleanup·UUID 복구에서 A RF write 0건을 검증했다. B·BlueZ 정상 경로와 A 광학 미검증을 분리했다.
+- [x] **Step 2: RED 확인.** API/Gateway guard 제거 전 누락과 identify cleanup의 실제 fake USB mode write를 재현했다.
+- [x] **Step 3: 최소 구현.** API 공통 정책을 대상 확장 뒤 transaction·automation lock 안에서 적용하고 Gateway 최신 V2 snapshot/native write 직전에 재검사한다. 부팅 snapshot 초기화 전 identify 복구도 차단했다.
+- [x] **Step 4: GREEN·문서 확인.** 최종 API 집중 149/149, Gateway 집중 429/429, root typecheck/lint/build 및 독립 검토 통과. 제어·설정 문서에 software guard와 제품 OFF/HIL 보류를 구분했다. Root canonical test는 API 시험 fixture 1건으로 exit 1이었고 수정 후 해당 집중 테스트는 통과했으나, 뒤의 API 전체 직렬 실행은 비정상 wall-clock/timeout으로 중단해 **전체 통과 증거가 아니다**. 안정된 환경의 Task 8 전체 gate에서 다시 확인한다.
+- [x] **Step 5: 커밋.** `ba528582`에 guard·테스트·메뉴 문서를 함께 저장하고 독립 검토 승인했다.
 
 ### Task 7: UI의 source 준비 상태·유지시간·장애 표시
 
@@ -159,7 +159,7 @@
 - [x] Task 3 — pulse occurrence/receipt (`0ff260a4`; 집중 139/139, Gateway 1,457/1,457, 독립 검토 승인; 제품 실행 OFF)
 - [x] Task 4 — fail-safe/restart/target mode 복원 (4a `f6e09f58`, 4b `98db8a0e`+`298a9c9c`, 4c `ee412d5a`+`8fd06f2d`+`6ce596c6`+`7bc65eec`; synthetic software only, 제품 OFF)
 - [x] Task 5 — API/DB versioning·V2 ACK·별도 sensor-mode operation (`5a`~`5c2` 소프트웨어·독립 검토 완료; 제품 OFF, 운영 DB 미적용)
-- [ ] Task 6 — A source 보호
+- [x] Task 6 — A source 보호 (`ba528582`; 집중·타입·빌드/독립 검토 통과, 전체 canonical 재검증 Task 8 대기)
 - [ ] Task 7 — Web UI
 - [ ] Task 8 — software 통합과 제품 OFF 검증
 - [ ] Task 9 — 승인 후 shadow/MQTT/B-only 현장 관문
