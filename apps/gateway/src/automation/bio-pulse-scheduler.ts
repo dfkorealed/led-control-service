@@ -145,8 +145,42 @@ export class BioPulseScheduler {
       input.receipt.nativeUuid !== binding.nativeUuid || input.receipt.logicalAddress !== binding.logicalAddress ||
       input.receipt.networkId !== binding.networkId) throw new Error("bio_source_authority_unverified");
     const previous = Object.values(this.store.read().bioActivationsByRule).find(row =>
-      row.binding.sourceFixtureId === input.sourceFixtureId && row.releaseReason !== null && !row.completed);
+      row.binding.sourceFixtureId === input.sourceFixtureId && row.releaseReason !== null &&
+      row.releaseReason !== "hold_expired" && !row.completed);
     if (previous) throw new Error("bio_release_pending");
+  }
+
+  /** Draft mutation only: caller commits this together with a newly accepted
+   * receipt, or discards the entire draft if receipt validation rejects it. */
+  resumeAutomaticReleases(state: PersistedAutomationStateV4, input: Extract<VehicleSensorInput, { type: "pulse" }>): VehicleLifecycleEvent[] {
+    const events: VehicleLifecycleEvent[] = [];
+    for (const [ruleId, activation] of Object.entries(state.bioActivationsByRule)) {
+      const rule = this.snapshot?.vehicleEventRules.find(candidate => candidate.id === ruleId);
+      if (activation.binding.sourceFixtureId !== input.sourceFixtureId || activation.completed || activation.releaseReason !== "hold_expired" ||
+        !rule || input.receivedMonotonicMs + rule.holdSeconds * 1000 <= this.monotonic()) continue;
+      const previousRestores = activation.targetFixtureIds.flatMap(fixtureId => {
+        const target = state.bioTargetsByFixture[fixtureId];
+        if (activation.retiredFixtureIds.includes(fixtureId) || target?.activationId !== activation.activationId || !target.restoreResult) return [];
+        const previous = { fixtureId, status: target.restoreResult.status, configuration: target.restoreResult.observed };
+        // A partial batch may already have restored B1 while B2 is unknown. Keep
+        // both original identities/bases, durably reopen only the automatic phase,
+        // and require the helper's fresh identity+GET before any reapply. Retired
+        // manual targets and explicit operator releases never enter this branch.
+        target.restoreResult = null;
+        target.applyResult = { status: target.preState ? "pending" : "failed", observed: null,
+          attempt: target.applyResult.attempt + 1, at: this.now().toISOString() };
+        return [previous];
+      });
+      activation.releaseReason = null;
+      activation.reportedResults = "";
+      state.vehicleRules[ruleId] = { sensorProtocol: "bio-usb-pulse", activeSourceFixtureIds: [],
+        targetFixtureIds: [...activation.targetFixtureIds], brightnessPercent: activation.brightnessPercent,
+        startedAt: activation.startedAt, holdUntil: this.now().toISOString(), preBrightness: {} };
+      events.push({ kind: "event_extended", ruleId, occurrenceKey: activation.activationId, occurredAt: this.now().toISOString(),
+        payload: { sensorProtocol: "bio-usb-pulse", reason: "bio_automatic_release_cancelled", targetFixtureIds: activation.targetFixtureIds,
+          previousRestores, restorationPending: false } });
+    }
+    return events;
   }
 
   protectedSources() { return [...this.bindings.keys()]; }
@@ -207,9 +241,20 @@ export class BioPulseScheduler {
     return this.snapshot?.vehicleEventRules.some(rule => rule.sensorProtocol === "bio-usb-pulse" && rule.targetFixtureIds.includes(fixtureId)) ?? false;
   }
 
-  async apply() {
+  completedRestorationCauses() {
+    // Correlation only for the normal executor's later baseline results/retries.
+    // These are never republished as lifecycle events or configuration read-backs.
+    return Object.entries(this.store.read().bioActivationsByRule).filter(([, activation]) => activation.completed)
+      .map(([ruleId, activation]) => ({ kind: "event_ended" as const, ruleId, occurrenceKey: activation.activationId,
+        revision: activation.binding.snapshotRevision, occurredAt: this.now().toISOString(),
+        payload: { reason: activation.releaseReason, targetFixtureIds: activation.targetFixtureIds
+          .filter(id => !activation.retiredFixtureIds.includes(id)) } }));
+  }
+
+  async apply(ruleIds?: ReadonlySet<string>) {
     if (!this.snapshot) return;
     for (const [ruleId, activation] of Object.entries(this.store.read().bioActivationsByRule)) {
+      if (ruleIds && !ruleIds.has(ruleId)) continue;
       if (activation.completed) continue;
       const release = activation.releaseReason !== null;
       if (!this.canTransition(activation, release)) {

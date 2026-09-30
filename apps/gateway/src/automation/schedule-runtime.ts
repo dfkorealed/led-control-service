@@ -574,15 +574,47 @@ export class ScheduleRuntime {
     return this.runExternal(async () => {
       await this.ensureInitialized();
       this.bio!.assertPulse(exact);
-      // Finish a previous healthy expiry before admitting a new activation/base.
-      await this.applyComputed(await this.reconcile(this.snapshot!));
+      // Classify against receipt time before reconciling the later processing
+      // clock. A queued, on-time pulse still belongs to its original activation
+      // (and manual suppression), even when the old deadline passed in the queue.
+      const previewState = this.state();
+      this.bio!.resumeAutomaticReleases(previewState, exact);
+      const preview = this.vehicleRuntime.planRecordInput(previewState, this.snapshot!, exact);
+      if (!preview.events.some(event => event.kind === "vehicle_detected")) return false;
+      const expired = new Set(preview.events.filter(event => event.kind === "event_ended" &&
+        event.payload.reason === "hold_expired").map(event => event.ruleId));
+      if (expired.size) {
+        const remainingDeadlines = this.vehicleRuntime.checkpoint().filter(([ruleId]) => !expired.has(ruleId));
+        await this.options.store.updateDurable(state => {
+          const releases = [...expired].flatMap(ruleId => this.vehicleRuntime.planRelease(state, ruleId).events)
+            .map(event => ({ ...event, payload: { ...event.payload, reason: "hold_expired" } }));
+          const projected = this.bio!.stage(state, releases);
+          this.appendTelemetryHandoff(state, lifecycleTelemetryRecords({ revision: this.snapshot!.revision, events: projected }));
+          return state;
+        });
+        this.vehicleRuntime.restore(remainingDeadlines);
+        // Only close rules whose own deadline expired before this receipt.
+        // Another rule on this source may instead be renewing a pending release;
+        // it must not restore/reapply before that renewal is durably committed.
+        await this.bio!.apply(expired);
+        await this.flushTelemetryHandoffs();
+        if ([...expired].some(ruleId => !this.state().bioActivationsByRule[ruleId]?.completed)) {
+          throw new Error("bio_release_pending");
+        }
+      }
       this.bio!.assertPulse(exact);
       let events: VehicleLifecycleEvent[] = [];
       let deadlines: Array<[string, number]> = [];
       await this.options.store.updateDurable(state => {
+        const previous = structuredClone(state);
+        const resumed = this.bio!.resumeAutomaticReleases(state, exact);
         const planned = this.vehicleRuntime.planRecordInput(state, this.snapshot!, exact);
+        if (!planned.events.some(event => event.kind === "vehicle_detected")) {
+          deadlines = this.vehicleRuntime.checkpoint();
+          return previous;
+        }
         deadlines = planned.holdDeadlines;
-        events = this.bio!.stage(state, planned.events);
+        events = this.bio!.stage(state, [...resumed, ...planned.events]);
         pruneManualSuppressions(state, this.snapshot!);
         this.appendTelemetryHandoff(state, lifecycleTelemetryRecords({ revision: this.snapshot!.revision, events }));
         return state;
@@ -657,15 +689,19 @@ export class ScheduleRuntime {
     for (const fixtureId of fixtures) {
       if (this.bio?.ownsFixture(state, fixtureId)) continue;
       const events = Object.entries(state.vehicleRules)
-        .filter(([, vehicle]) => vehicle.targetFixtureIds.includes(fixtureId))
+        .filter(([ruleId, vehicle]) => vehicle.targetFixtureIds.includes(fixtureId) &&
+          // Retirement is the durable suppression authority even when a pending
+          // automatic release temporarily removed the occurrence from the arbiter.
+          !state.bioActivationsByRule[ruleId]?.retiredFixtureIds.includes(fixtureId))
         .map(([ruleId, vehicle]) => ({
           sourceId: ruleId, startedAt: vehicle.startedAt, brightness: vehicle.brightnessPercent
         }));
       const schedules = activeScheduleCandidates(snapshot, state, fixtureId);
       const hasSource = events.length > 0 || schedules.length > 0;
-      // BIO sensor configuration is not optical current state. A completed BIO
-      // restore must not be followed by the generic brightness-only fallback.
-      if (!hasSource && this.bio?.hasTarget(fixtureId)) continue;
+      // A verified BIO configuration restore does not settle later schedule/base
+      // changes. Reapply an independently known baseline when arbitration needs
+      // it, but never invent optical brightness from a sensor configuration GET.
+      if (!hasSource && this.bio?.hasTarget(fixtureId) && state.baseBrightnessByFixture[fixtureId] === undefined) continue;
       if (hasSource && state.baseBrightnessByFixture[fixtureId] === undefined) continue;
       const current = state.baseBrightnessByFixture[fixtureId]
         ?? state.currentByFixture[fixtureId] ?? state.lastDesiredByFixture[fixtureId] ?? null;
@@ -686,6 +722,9 @@ export class ScheduleRuntime {
   private async applyComputed(computed: ComputedDesiredState) {
     await this.bio?.apply();
     if (this.bio && this.snapshot) computed = this.computeDesired(this.snapshot, this.state(), computed.lifecycleEvents);
+    // Historical BIO completion only supplies missing fallback correlation;
+    // a current schedule/event ending is the newer, authoritative cause.
+    const terminalCauses = [...(this.bio?.completedRestorationCauses() ?? []), ...computed.lifecycleEvents];
     const state = this.state();
     const changed = [...computed.actions.values()].filter((action) =>
       state.lastDesiredByFixture[action.fixtureId] !== action.brightnessPercent &&
@@ -750,7 +789,7 @@ export class ScheduleRuntime {
           revision: this.snapshot!.revision,
           actions: changed,
           results,
-          causes: computed.lifecycleEvents
+          causes: terminalCauses
         }));
         return next;
       });
@@ -773,7 +812,7 @@ export class ScheduleRuntime {
     }
     await this.flushTelemetryHandoffs();
     await this.handoffLifecycle(computed.lifecycleEvents);
-    await this.handoff(changed, results, computed.lifecycleEvents);
+    await this.handoff(changed, results, terminalCauses);
   }
 
   private async handoffLifecycle(events: AutomationLifecycleEvent[]) {

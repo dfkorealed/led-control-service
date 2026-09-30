@@ -47,9 +47,9 @@ async function fixture(targets = [b], holdSeconds = 10) {
   }]));
   const writes: Array<{ fixtureId: string; configuration: BioConfigurationState }> = [];
   const failures = new Set<string>();
-  let onRead: (() => void) | undefined;
+  let onRead: ((id: string) => void) | undefined;
   const port = {
-    async readBioState(id: string) { onRead?.(); return structuredClone(lamps.get(id)!); },
+    async readBioState(id: string) { onRead?.(id); return structuredClone(lamps.get(id)!); },
     async restoreBioState(id: string, _target: BioVerifiedLampTarget, configuration: BioConfigurationState) {
       const durable = JSON.parse(await readFile(path, "utf8"));
       expect(durable.bioPulseInbox[a]).toBeDefined();
@@ -62,11 +62,14 @@ async function fixture(targets = [b], holdSeconds = 10) {
     }
   };
   const genericWrites: unknown[] = [];
+  let failGeneric = false;
   const make = async (enabled = true) => {
     const store = new FileAutomationStateStore(path, writer);
     const runtime = new ScheduleRuntime({ store, wallClock: now, monotonicClock: () => ms,
       clockTrust: { isTrusted: async () => true }, execute: async actions => {
         genericWrites.push(...actions);
+        if (failGeneric) return actions.map(action => ({ fixtureId: action.fixtureId, status: "failed" as const,
+          brightnessPercent: null, faultCode: null, errorCode: "synthetic_failure", occurredAt: now().toISOString() }));
         return actions.map(action => { lamps.get(action.fixtureId)!.configuration = {
           configuredHighBrightnessPercent: action.brightnessPercent, bioMode: "force-on" };
           return { fixtureId: action.fixtureId, status: "succeeded" as const, brightnessPercent: action.brightnessPercent,
@@ -82,7 +85,8 @@ async function fixture(targets = [b], holdSeconds = 10) {
       connectionEpoch: authority.connection.epoch, connectionGeneration: authority.connection.generation } });
   return { ...current, path, snapshot, authority, lamps, writes, genericWrites, failures, pulse, make, now,
     advance: (amount: number) => { ms += amount; }, reject: (predicate: typeof reject) => { reject = predicate; },
-    onRead: (callback: () => void) => { onRead = callback; }, wallOffset: (value: number) => { wallOffset = value; } };
+    onRead: (callback: (id: string) => void) => { onRead = callback; }, wallOffset: (value: number) => { wallOffset = value; },
+    failGeneric: (value: boolean) => { failGeneric = value; } };
 }
 
 function rehash(snapshot: AutomationSnapshotV2) {
@@ -363,5 +367,173 @@ describe("synthetic V2 BIO scheduler integration; product gate remains OFF", () 
     f.advance(10000); await f.runtime.tick();
     expect(f.writes).toHaveLength(1);
     expect(f.store.read().bioActivationsByRule[rule]).toMatchObject({ health: "degraded", healthReason: "connection_changed" });
+  });
+
+  it.each([false, true])("extends by receipt time when processing crosses the old deadline (manual=%s)", async takeover => {
+    const f = await fixture(); await f.runtime.activateBioPulseTestSnapshot(f.snapshot); await f.runtime.recordVehicleSensorInput(f.pulse());
+    const startedAt = f.store.read().vehicleRules[rule]!.startedAt;
+    if (takeover) {
+      await f.runtime.prepareManualControl({ sourceId: manual, fixtureIds: [b], brightnessPercent: 60, requestedAt: f.now().toISOString() });
+      f.lamps.get(b)!.configuration = { configuredHighBrightnessPercent: 60, bioMode: "force-on" };
+      await f.runtime.handoffManualTerminal(manual, [{ fixtureId: b, status: "succeeded", brightnessPercent: 60,
+        faultCode: null, errorCode: null, occurredAt: f.now().toISOString() }]);
+    }
+    f.advance(9000); const queued = f.pulse(2); f.advance(2000);
+    await f.runtime.recordVehicleSensorInput(queued);
+    expect(f.store.read().vehicleRules[rule]!.startedAt).toBe(startedAt);
+    expect(f.lamps.get(b)!.configuration.configuredHighBrightnessPercent).toBe(takeover ? 60 : 80);
+    expect(f.writes).toHaveLength(1);
+    f.advance(7999); await f.runtime.tick(); expect(f.writes).toHaveLength(1);
+    f.advance(1); await f.runtime.tick(); expect(f.writes).toHaveLength(takeover ? 1 : 2);
+  });
+
+  it("restores the old base before admitting a pulse actually received after the deadline", async () => {
+    const f = await fixture(); await f.runtime.activateBioPulseTestSnapshot(f.snapshot); await f.runtime.recordVehicleSensorInput(f.pulse());
+    const startedAt = f.store.read().vehicleRules[rule]!.startedAt;
+    f.advance(11000); await f.runtime.recordVehicleSensorInput(f.pulse(2));
+    expect(f.store.read().vehicleRules[rule]!.startedAt).not.toBe(startedAt);
+    expect(f.writes.map(write => write.configuration.configuredHighBrightnessPercent)).toEqual([80, 30, 80]);
+  });
+
+  it.each([false, true])("renews an automatic pending release from a fresh recovery pulse with original per-B bases (partial=%s)", async partial => {
+    const f = await fixture(partial ? [b, c] : [b]); await f.runtime.activateBioPulseTestSnapshot(f.snapshot);
+    await f.runtime.recordVehicleSensorInput(f.pulse()); const startedAt = f.store.read().vehicleRules[rule]!.startedAt;
+    f.advance(10000); f.onRead(id => {
+      if (!partial || id === c) { f.authority.observation.health = "degraded"; f.authority.observation.reason = "usb_disconnected"; }
+    });
+    await f.runtime.tick(); expect(f.store.read().bioActivationsByRule[rule]?.completed).toBe(false);
+    if (partial) expect(f.store.read().bioTargetsByFixture[b]?.restoreResult?.status).toBe("succeeded");
+    f.onRead(() => undefined); f.authority.observation.health = "healthy"; f.authority.observation.healthySinceMonotonicMs = 11000;
+    await f.runtime.setBioSourceHealth(a, "healthy", "qualified"); f.advance(9000);
+    await expect(f.runtime.recordVehicleSensorInput(f.pulse(2))).resolves.toBeUndefined();
+    expect(f.store.read().vehicleRules[rule]!.startedAt).toBe(startedAt);
+    expect(f.store.read().bioActivationsByRule[rule]?.releaseReason).toBeNull();
+    expect(f.store.read().bioTargetsByFixture[b]?.preState).toEqual({ configuredHighBrightnessPercent: 30, bioMode: "sensor" });
+    expect(f.lamps.get(b)!.configuration.configuredHighBrightnessPercent).toBe(80);
+    f.advance(9999); await f.runtime.tick(); expect(f.lamps.get(b)!.configuration.configuredHighBrightnessPercent).toBe(80);
+    f.advance(1); await f.runtime.tick();
+    expect(f.lamps.get(b)!.configuration).toEqual({ configuredHighBrightnessPercent: 30, bioMode: "sensor" });
+    if (partial) expect(f.lamps.get(c)!.configuration).toEqual({ configuredHighBrightnessPercent: 40, bioMode: "force-off" });
+  });
+
+  it("does not let a recovery pulse cancel an explicit operator release", async () => {
+    const f = await fixture(); await f.runtime.activateBioPulseTestSnapshot(f.snapshot); await f.runtime.recordVehicleSensorInput(f.pulse());
+    f.failures.add(b); await f.runtime.releaseBioEvent(rule); f.advance(1000);
+    await expect(f.runtime.recordVehicleSensorInput(f.pulse(2))).rejects.toThrow("bio_release_pending");
+    expect(f.store.read().bioActivationsByRule[rule]?.releaseReason).toBe("operator_release");
+  });
+
+  it.each([false, true])("resolves the latest baseline after a schedule ends beneath an active BIO event (manual=%s)", async takeover => {
+    const f = await fixture([b], 120); await f.runtime.recordFixtureState(b, 30);
+    f.snapshot.schedules.push({ id: c, name: "short schedule", status: "enabled", activeFrom: "2026-09-01T00:00:00.000Z",
+      activeUntil: "2026-10-30T00:00:00.000Z", localStartTime: "00:00", localEndTime: "00:01",
+      recurrence: { kind: "daily", weeklyDays: [], monthlyDay: null, yearlyMonth: null, yearlyDay: null },
+      action: { dimmingEnabled: true, brightnessPercent: 40 }, fixtureIds: [b] }); rehash(f.snapshot);
+    await f.runtime.activateBioPulseTestSnapshot(f.snapshot); await f.runtime.recordVehicleSensorInput(f.pulse());
+    if (takeover) {
+      await f.runtime.prepareManualControl({ sourceId: manual, fixtureIds: [b], brightnessPercent: 60, requestedAt: f.now().toISOString() });
+      f.lamps.get(b)!.configuration = { configuredHighBrightnessPercent: 60, bioMode: "force-on" };
+      await f.runtime.handoffManualTerminal(manual, [{ fixtureId: b, status: "succeeded", brightnessPercent: 60,
+        faultCode: null, errorCode: null, occurredAt: f.now().toISOString() }]);
+    }
+    f.advance(60000); await f.runtime.tick();
+    expect(f.lamps.get(b)!.configuration.configuredHighBrightnessPercent).toBe(takeover ? 60 : 80);
+    f.advance(60000); await f.runtime.tick();
+    expect(f.lamps.get(b)!.configuration.configuredHighBrightnessPercent).toBe(takeover ? 60 : 30);
+    expect(f.store.read().lastDesiredByFixture[b]).toBe(takeover ? 60 : 30);
+    if (!takeover) expect(f.store.read().bioTargetsByFixture[b]?.restoreResult?.observed).toEqual({
+      configuredHighBrightnessPercent: 40, bioMode: "force-on" });
+    if (!takeover) {
+      f.advance(86280000); await f.runtime.tick(); // Next day's independent schedule.
+      f.advance(60000); await f.runtime.tick();
+      const latest = f.store.read().pendingTelemetryHandoffs.flatMap(handoff => handoff.records)
+        .filter(record => record.kind === "action_result").at(-1);
+      expect(latest).toMatchObject({ ruleId: c, payload: { sourceType: "schedule" } });
+    }
+  });
+
+  it("preserves partial restore evidence when the renewal receipt transaction fails", async () => {
+    const f = await fixture([b, c]); await f.runtime.activateBioPulseTestSnapshot(f.snapshot); await f.runtime.recordVehicleSensorInput(f.pulse());
+    f.advance(10000); f.onRead(id => { if (id === c) f.authority.observation.health = "degraded"; }); await f.runtime.tick();
+    f.onRead(() => undefined); f.authority.observation.health = "healthy"; f.authority.observation.healthySinceMonotonicMs = 11000;
+    await f.runtime.setBioSourceHealth(a, "healthy", "qualified"); f.advance(1000);
+    const before = f.store.read(); const writes = f.writes.length;
+    f.reject(state => state.bioPulseInbox[a]?.receipt.sequence === 2);
+    await expect(f.runtime.recordVehicleSensorInput(f.pulse(2))).rejects.toThrow("automation_state_store_failed");
+    expect(f.store.read()).toEqual(before); expect(f.writes).toHaveLength(writes);
+    const reloaded = new FileAutomationStateStore(f.path); await reloaded.initialize();
+    expect(reloaded.read().bioTargetsByFixture[b]?.restoreResult?.status).toBe("succeeded");
+    expect(reloaded.read().bioActivationsByRule[rule]?.releaseReason).toBe("hold_expired");
+  });
+
+  it("preserves manual retirement when a recovery pulse renews a partially released activation", async () => {
+    const f = await fixture([b, c]); await f.runtime.activateBioPulseTestSnapshot(f.snapshot); await f.runtime.recordVehicleSensorInput(f.pulse());
+    f.advance(10000); f.onRead(() => { f.authority.observation.health = "degraded"; }); await f.runtime.tick(); f.onRead(() => undefined);
+    await f.runtime.prepareManualControl({ sourceId: manual, fixtureIds: [b], brightnessPercent: 60, requestedAt: f.now().toISOString() });
+    f.lamps.get(b)!.configuration = { configuredHighBrightnessPercent: 60, bioMode: "force-on" };
+    await f.runtime.handoffManualTerminal(manual, [{ fixtureId: b, status: "succeeded", brightnessPercent: 60,
+      faultCode: null, errorCode: null, occurredAt: f.now().toISOString() }]);
+    f.authority.observation.health = "healthy"; f.authority.observation.healthySinceMonotonicMs = 11000;
+    await f.runtime.setBioSourceHealth(a, "healthy", "qualified"); f.advance(1000); await f.runtime.recordVehicleSensorInput(f.pulse(2));
+    expect(f.store.read().bioTargetsByFixture[b]).toBeUndefined();
+    expect(f.lamps.get(b)!.configuration.configuredHighBrightnessPercent).toBe(60);
+    f.advance(10000); await f.runtime.tick(); expect(f.lamps.get(b)!.configuration.configuredHighBrightnessPercent).toBe(60);
+  });
+
+  it("rejects stale receipts without cancelling automatic release or resetting restore evidence", async () => {
+    const f = await fixture(); await f.runtime.activateBioPulseTestSnapshot(f.snapshot); const old = f.pulse(); await f.runtime.recordVehicleSensorInput(old);
+    f.advance(10000); f.onRead(() => { f.authority.observation.health = "degraded"; }); await f.runtime.tick(); f.onRead(() => undefined);
+    f.authority.observation.health = "healthy"; f.authority.observation.healthySinceMonotonicMs = 11000;
+    await f.runtime.setBioSourceHealth(a, "healthy", "qualified");
+    const before = f.store.read(); await f.runtime.recordVehicleSensorInput(old);
+    expect(f.store.read()).toEqual(before); expect(f.writes).toHaveLength(1);
+  });
+
+  it("does not revive a short-hold pending release from a receipt only still valid for a longer rule", async () => {
+    const f = await fixture(); f.snapshot.vehicleEventRules.push({ ...f.snapshot.vehicleEventRules[0]!, id: manual,
+      targetFixtureIds: [c], holdSeconds: 60 }); rehash(f.snapshot);
+    await f.runtime.activateBioPulseTestSnapshot(f.snapshot); await f.runtime.recordVehicleSensorInput(f.pulse());
+    f.advance(10000); f.onRead(() => { f.authority.observation.health = "degraded"; }); await f.runtime.tick(); f.onRead(() => undefined);
+    f.authority.observation.health = "healthy"; f.authority.observation.healthySinceMonotonicMs = 11000;
+    await f.runtime.setBioSourceHealth(a, "healthy", "qualified"); f.advance(1000); const queued = f.pulse(2); f.advance(13000);
+    await f.runtime.recordVehicleSensorInput(queued);
+    expect(f.store.read().vehicleRules[rule]).toBeUndefined();
+    expect(f.store.read().vehicleRules[manual]).toBeDefined();
+    expect(f.lamps.get(b)!.configuration.configuredHighBrightnessPercent).toBe(30);
+  });
+
+  it("reports a failed latest-baseline write separately from a verified prior configuration restore and retries it", async () => {
+    const f = await fixture([b], 120); await f.runtime.recordFixtureState(b, 30);
+    f.snapshot.schedules.push({ id: c, name: "short schedule", status: "enabled", activeFrom: "2026-09-01T00:00:00.000Z",
+      activeUntil: "2026-10-30T00:00:00.000Z", localStartTime: "00:00", localEndTime: "00:01",
+      recurrence: { kind: "daily", weeklyDays: [], monthlyDay: null, yearlyMonth: null, yearlyDay: null },
+      action: { dimmingEnabled: true, brightnessPercent: 40 }, fixtureIds: [b] }); rehash(f.snapshot);
+    await f.runtime.activateBioPulseTestSnapshot(f.snapshot); await f.runtime.recordVehicleSensorInput(f.pulse());
+    f.advance(60000); await f.runtime.tick(); f.failGeneric(true); f.advance(60000); await f.runtime.tick();
+    expect(f.lamps.get(b)!.configuration.configuredHighBrightnessPercent).toBe(40);
+    expect(f.store.read().lastDesiredByFixture[b]).toBe(40);
+    expect(f.store.read().transitionsByFixture[b]).toMatchObject({ status: "failed", brightnessPercent: 30 });
+    const records = f.store.read().pendingTelemetryHandoffs.flatMap(handoff => handoff.records);
+    expect(records).toContainEqual(expect.objectContaining({ kind: "action_result", ruleId: rule,
+      payload: expect.objectContaining({ sourceType: "vehicle_event_rule", results: [expect.objectContaining({ fixtureId: b,
+        status: "failed", brightnessPercent: null, errorCode: "synthetic_failure" })] }) }));
+    expect(f.store.read().bioTargetsByFixture[b]?.restoreResult?.observed).toEqual({ configuredHighBrightnessPercent: 40, bioMode: "force-on" });
+    f.failGeneric(false); await f.runtime.tick();
+    expect(f.lamps.get(b)!.configuration.configuredHighBrightnessPercent).toBe(30);
+    expect(f.store.read().lastDesiredByFixture[b]).toBe(30);
+  });
+
+  it("does not restore another rule being renewed while retiring a receipt-expired rule of the same source", async () => {
+    const f = await fixture(); f.snapshot.vehicleEventRules.push({ ...f.snapshot.vehicleEventRules[0]!, id: manual,
+      targetFixtureIds: [c], holdSeconds: 60 }); rehash(f.snapshot);
+    await f.runtime.activateBioPulseTestSnapshot(f.snapshot); await f.runtime.recordVehicleSensorInput(f.pulse());
+    const shortStartedAt = f.store.read().vehicleRules[rule]!.startedAt;
+    f.advance(10000); f.onRead(() => { f.authority.observation.health = "degraded"; }); await f.runtime.tick(); f.onRead(() => undefined);
+    f.authority.observation.health = "healthy"; f.authority.observation.healthySinceMonotonicMs = 11000;
+    await f.runtime.setBioSourceHealth(a, "healthy", "qualified"); f.advance(61000);
+    await f.runtime.recordVehicleSensorInput(f.pulse(2));
+    expect(f.store.read().vehicleRules[rule]!.startedAt).toBe(shortStartedAt);
+    expect(f.writes.filter(write => write.fixtureId === b)).toHaveLength(1);
+    expect(f.writes.filter(write => write.fixtureId === c).map(write => write.configuration.configuredHighBrightnessPercent)).toEqual([80, 40, 80]);
   });
 });
