@@ -134,6 +134,8 @@
 
 **Interfaces:** Fixture simulator injects valid `bio-usb-pulse` only with an explicit test profile/healthy link. End-to-end verifies API save→V2 publish→V2 ACK→Gateway occurrence/telemetry→B mode/brightness restore, while product allowlist and capability remain OFF.
 
+Task 8은 **8a Gateway/API synthetic integration → 8b telemetry 읽기/UI·모바일 잔여 → 8c 안정 호스트 전체 gate·최종 검토**로 순차 분할하고 단계마다 독립 검토한다. 제품의 enabled BIO가 API/Gateway에서 의도적으로 거부되므로 positive B 광학/모드 경로는 test-only profile의 in-process simulator에서만 검증한다. 제품 API에서는 disabled BIO draft의 저장→V2 배포/ACK까지만 검증하며, 두 증거를 하나의 production end-to-end 성공으로 합치거나 테스트 예외를 제품 bootstrap으로 옮기지 않는다. 실제 펄스/장애 telemetry가 API에 안전하게 영속·조회되기 전에는 Web의 미확인 표기를 유지한다.
+
 - [ ] **Step 1: RED 통합 테스트 작성.** V1 BlueZ regression, V2 미지원 Gateway fail-closed, V2 BIO software fixture의 10/60초 연장·B 복원·degraded/restart, source A RF write 0건, telemetry redaction, MQTT disconnected/reconnected outbox delivery와 API active-source group membership 경쟁을 검증한다. 기존 모바일 수동 밝기 입력 14px→16px 접근성 결함을 Playwright 390/320px RED로 포함한다.
 - [ ] **Step 2: RED 확인.** Gateway simulator Vitest, API integration, 관련 Playwright가 새 경로에서 실패하는지 확인한다.
 - [ ] **Step 3: 최소 연결 구현.** 기존 MQTT topic/ACK outbox를 version-aware로 연결하고 시험 fixture로만 positive profile을 주입한다. 현장 profile을 소프트웨어 시험 값으로 승격하지 않는다.
