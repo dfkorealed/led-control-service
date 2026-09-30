@@ -85,11 +85,11 @@
 
 **Interfaces:** `BioSourceHealth = "healthy" | "degraded" | "unverified"`; `ScheduleRuntime.setBioSourceHealth(sourceFixtureId: string, health: BioSourceHealth, reason: string): Promise<void>`. Durable target base stores `{ brightnessPercent: number; bioMode: "sensor" | "force-on" | "force-off" }` and per-target transition result; new source identity/revision mismatch rejects control. Explicit operator release is a distinct reason from `hold_expired`.
 
-- [ ] **Step 1: RED 테스트 작성.** USB/identity/liveness fault freezes pending hold and prevents new trigger; B stays at last verified state with degraded alert; restart with uncertain time gives a fresh **full** hold observation window after independent health recovery; no fake clear; B sensor/force-on/force-off each restore both brightness and mode with read-back; one of two targets failing is reported independently; manual change to B suppresses only that activation, later pulse does not undo manual, next activation may run.
-- [ ] **Step 2: RED 확인.** `pnpm --filter @led-control/gateway exec vitest run src/automation/schedule-runtime.test.ts src/automation/vehicle-event-runtime.test.ts src/adapters/bio-usb-dongle-adapter.test.ts` → 새 safety expectations 실패.
-- [ ] **Step 3: 최소 구현.** 독립 health input 없이는 BIO rule을 실행하지 않는다. 재시작/장애에서는 raw silence로 복원하지 않으며, 명시적 해제·read-back 실패를 별도 event code로 기록한다. B의 원상태를 후속 pulse로 덮어쓰지 않는다.
-- [ ] **Step 4: GREEN·회귀 확인.** 위 Vitest, Gateway 전체 test/typecheck → 통과.
-- [ ] **Step 5: 커밋.** 건강·복원·수동 우선순위 동작과 테스트를 저장한다.
+이 Task는 기존 V1-only 스케줄러, 밝기 전용 상태 원장, BIO mode 복원 포트의 선행 작업이 있어 **4a→4b→4c 순차 구현·각각 독립 검토**한다. 4c 승인 전까지 scheduler의 펄스 RF 경로는 OFF다.
+
+- [ ] **4a RED·GREEN: 건강/재시작 기계.** `vehicle-event-runtime`와 필요한 상태 원장에 USB/identity/독립 liveness fault→`degraded`/기존 hold freeze/새 펄스 거부, 건강 회복 뒤 설정된 **전체** hold 재관찰, raw silence의 가짜 clear 금지, 명시적 운영자 해제와 정상 만료의 사유 분리를 실패 테스트로 먼저 고정한다. V7/V6 reader와 기존 BlueZ 회귀를 유지하며 집중·Gateway 전체 test/typecheck 후 4a만 커밋·검토한다. `0x09`나 미검증 `0x0c` 자체를 독립 건강 판정으로 쓰지 않는다.
+- [ ] **4b RED·GREEN: B별 밝기+BIO mode 원상태와 adapter.** 필요 시 V8 durable migration에 대상별 사전 read-back `{brightnessPercent,bioMode}`와 적용/복원 결과를 저장한다. BIO adapter/client에 정확한 mode/brightness 복원·GET read-back 계약을 더하되, `sensor`를 밝기만으로 추론하거나 ACK 접수만 성공으로 삼지 않는다. B의 `sensor`/`force-on`/`force-off` 각각, 여러 B 중 일부 실패, 재시도·원상태 보존을 RED→GREEN·전체 Gateway/typecheck·독립 검토한다. A에는 RF write를 하지 않는다.
+- [ ] **4c RED·GREEN: V2 scheduler 결합과 수동 우선순위.** `ScheduleRuntime.setBioSourceHealth(...)` 및 검증된 V2 snapshot/connection authority/내구성 있는 pulse transaction 뒤에만 규칙을 실행한다. 첫 펄스 B 적용·후속 연장·건강한 만료와 명시 해제에서 4b의 target별 read-back 복원, degraded 중 B 마지막 확인 상태 유지, 동일 activation 수동 억제 및 다음 activation 재허용을 RED→GREEN으로 검증한다. source identity/revision 변화는 차단하고, 제품 allowlist/capability OFF를 유지한다. 집중·Gateway 전체 test/typecheck, 독립 검토 뒤 4c만 커밋한다.
 
 ### Task 5: API/DB versioning·capability OFF·snapshot ACK
 
