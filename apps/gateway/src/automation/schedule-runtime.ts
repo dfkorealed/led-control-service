@@ -576,6 +576,7 @@ export class ScheduleRuntime {
     const exact = structuredClone(input);
     let arrival: ReturnType<ScheduleRuntime["registerBioArrival"]>;
     try { arrival = this.registerBioArrival(exact); } catch (error) { return Promise.reject(error); }
+    const pendingArrivalActivations = new Set(arrival?.activations.keys());
     return this.runExternal(async () => {
       await this.ensureInitialized();
       this.bio!.assertPulse(exact);
@@ -583,7 +584,7 @@ export class ScheduleRuntime {
       // clock. A queued, on-time pulse still belongs to its original activation
       // (and manual suppression), even when the old deadline passed in the queue.
       const previewState = this.state();
-      this.bio!.resumeAutomaticReleases(previewState, exact);
+      this.bio!.resumeAutomaticReleases(previewState, exact, pendingArrivalActivations);
       const preview = this.vehicleRuntime.planRecordInput(previewState, this.snapshot!, exact);
       if (!preview.events.some(event => event.kind === "vehicle_detected")) return false;
       const expired = new Set(preview.events.filter(event => event.kind === "event_ended" &&
@@ -611,8 +612,9 @@ export class ScheduleRuntime {
       let events: VehicleLifecycleEvent[] = [];
       let deadlines: Array<[string, number]> = [];
       await this.options.store.updateDurable(state => {
+        this.bio!.assertPulse(exact);
         const previous = structuredClone(state);
-        const resumed = this.bio!.resumeAutomaticReleases(state, exact);
+        const resumed = this.bio!.resumeAutomaticReleases(state, exact, pendingArrivalActivations);
         const planned = this.vehicleRuntime.planRecordInput(state, this.snapshot!, exact);
         if (!planned.events.some(event => event.kind === "vehicle_detected")) {
           deadlines = this.vehicleRuntime.checkpoint();

@@ -153,11 +153,13 @@ export class BioPulseScheduler {
 
   /** Draft mutation only: caller commits this together with a newly accepted
    * receipt, or discards the entire draft if receipt validation rejects it. */
-  resumeAutomaticReleases(state: PersistedAutomationStateV4, input: Extract<VehicleSensorInput, { type: "pulse" }>): VehicleLifecycleEvent[] {
+  resumeAutomaticReleases(state: PersistedAutomationStateV4, input: Extract<VehicleSensorInput, { type: "pulse" }>,
+    pendingArrivalActivations: ReadonlySet<string> = new Set()): VehicleLifecycleEvent[] {
     const events: VehicleLifecycleEvent[] = [];
     for (const [ruleId, activation] of Object.entries(state.bioActivationsByRule)) {
       const rule = this.snapshot?.vehicleEventRules.find(candidate => candidate.id === ruleId);
-      if (activation.binding.sourceFixtureId !== input.sourceFixtureId || activation.completed || activation.releaseReason !== "hold_expired" ||
+      if (activation.binding.sourceFixtureId !== input.sourceFixtureId ||
+        (activation.completed && !pendingArrivalActivations.has(activation.activationId)) || activation.releaseReason !== "hold_expired" ||
         !rule || input.receivedMonotonicMs + rule.holdSeconds * 1000 <= this.monotonic()) continue;
       const previousRestores = activation.targetFixtureIds.flatMap(fixtureId => {
         const target = state.bioTargetsByFixture[fixtureId];
@@ -172,13 +174,19 @@ export class BioPulseScheduler {
           attempt: target.applyResult.attempt + 1, at: this.now().toISOString() };
         return [previous];
       });
+      // A token can only have been minted while the authoritative store still
+      // held this activation pending. If its final fsync won the race, retain the
+      // truthful completed handoff and durably reopen this tombstone with the
+      // receipt, instead of giving retired manual targets a new activation.
+      const wasCompleted = activation.completed;
+      activation.completed = false;
       activation.releaseReason = null;
       activation.reportedResults = "";
       state.vehicleRules[ruleId] = { sensorProtocol: "bio-usb-pulse", activeSourceFixtureIds: [],
         targetFixtureIds: [...activation.targetFixtureIds], brightnessPercent: activation.brightnessPercent,
         startedAt: activation.startedAt, holdUntil: this.now().toISOString(), preBrightness: {} };
       events.push({ kind: "event_extended", ruleId, occurrenceKey: activation.activationId, occurredAt: this.now().toISOString(),
-        payload: { sensorProtocol: "bio-usb-pulse", reason: "bio_automatic_release_cancelled", targetFixtureIds: activation.targetFixtureIds,
+        payload: { sensorProtocol: "bio-usb-pulse", reason: wasCompleted ? "bio_completed_release_reopened" : "bio_automatic_release_cancelled", targetFixtureIds: activation.targetFixtureIds,
           previousRestores, restorationPending: false } });
     }
     return events;
@@ -291,7 +299,11 @@ export class BioPulseScheduler {
               verification: "configuration_readback", phase: release ? "restore" : "apply", results } }]);
           current.reportedResults = resultHash;
         }
-        if (release && results.every(result => result.status === "succeeded" || result.status === "superseded")) {
+        // A qualified pulse can arrive after the last RF dispatch while its
+        // verified read-back is still pending. Keep that evidence, but leave the
+        // automatic activation pending for durable same-activation renewal.
+        const renewalPending = current.releaseReason === "hold_expired" && this.automaticReleaseBlocked(current.activationId);
+        if (release && !renewalPending && results.every(result => result.status === "succeeded" || result.status === "superseded")) {
           current.completed = true;
           this.append(next, lifecycleTelemetryRecords({ revision: current.binding.snapshotRevision, events: [{
             kind: "event_ended", ruleId, occurrenceKey: current.activationId, occurredAt: this.now().toISOString(),

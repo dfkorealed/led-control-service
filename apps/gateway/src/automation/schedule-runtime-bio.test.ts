@@ -23,7 +23,9 @@ async function fixture(targets = [b], holdSeconds = 10) {
   let ms = 1000;
   let wallOffset = 0;
   let reject: (state: ReturnType<FileAutomationStateStore["read"]>) => boolean = () => false;
+  let beforeWrite: ((state: ReturnType<FileAutomationStateStore["read"]>) => Promise<void>) | undefined;
   const writer = async (destination: string, value: unknown) => {
+    await beforeWrite?.(value as ReturnType<FileAutomationStateStore["read"]>);
     if (reject(value as ReturnType<FileAutomationStateStore["read"]>)) throw Object.assign(new Error("full"), { code: "ENOSPC" });
     await writeJsonAtomic(destination, value);
   };
@@ -48,6 +50,7 @@ async function fixture(targets = [b], holdSeconds = 10) {
   const writes: Array<{ fixtureId: string; configuration: BioConfigurationState }> = [];
   const failures = new Set<string>();
   let onRead: ((id: string) => void) | undefined;
+  let afterRestore: ((id: string) => Promise<void>) | undefined;
   const port = {
     async readBioState(id: string) { onRead?.(id); return structuredClone(lamps.get(id)!); },
     async restoreBioState(id: string, _target: BioVerifiedLampTarget, configuration: BioConfigurationState) {
@@ -58,6 +61,7 @@ async function fixture(targets = [b], holdSeconds = 10) {
       writes.push({ fixtureId: id, configuration: { ...configuration } });
       if (failures.has(id)) throw new Error("unknown RF outcome");
       lamps.get(id)!.configuration = { ...configuration };
+      await afterRestore?.(id);
       return { ...configuration };
     }
   };
@@ -88,6 +92,8 @@ async function fixture(targets = [b], holdSeconds = 10) {
     advance: (amount: number) => { ms += amount; }, reject: (predicate: typeof reject) => { reject = predicate; },
     onRead: (callback: (id: string) => void) => { onRead = callback; }, wallOffset: (value: number) => { wallOffset = value; },
     failGeneric: (value: boolean) => { failGeneric = value; },
+    afterRestore: (value: (id: string) => Promise<void>) => { afterRestore = value; },
+    beforeWrite: (value: (state: ReturnType<FileAutomationStateStore["read"]>) => Promise<void>) => { beforeWrite = value; },
     clockTrust: (value: () => Promise<boolean>) => { clockTrust = value; } };
 }
 
@@ -620,5 +626,83 @@ describe("synthetic V2 BIO scheduler integration; product gate remains OFF", () 
     expect(f.store.read().vehicleRules[manual]!.startedAt).toBe(startedAt);
     expect(f.writes.filter(write => write.fixtureId === c)).toHaveLength(1);
     expect(f.writes.filter(write => write.fixtureId === b).map(write => write.configuration.configuredHighBrightnessPercent)).toEqual([80, 30, 80]);
+  });
+
+  it.each(["read-back", "completion-commit"] as const)("retains manual retirement when a qualified pulse arrives during the last restore %s", async phase => {
+    const f = await fixture([b, c]); await f.runtime.activateBioPulseTestSnapshot(f.snapshot); await f.runtime.recordVehicleSensorInput(f.pulse());
+    const startedAt = f.store.read().vehicleRules[rule]!.startedAt;
+    await f.runtime.prepareManualControl({ sourceId: manual, fixtureIds: [c], brightnessPercent: 60, requestedAt: f.now().toISOString() });
+    f.lamps.get(c)!.configuration = { configuredHighBrightnessPercent: 60, bioMode: "force-on" };
+    await f.runtime.handoffManualTerminal(manual, [{ fixtureId: c, status: "succeeded", brightnessPercent: 60,
+      faultCode: null, errorCode: null, occurredAt: f.now().toISOString() }]);
+    let entered!: () => void; const restoring = new Promise<void>(resolve => { entered = resolve; });
+    let unblock!: () => void; const readback = new Promise<void>(resolve => { unblock = resolve; });
+    if (phase === "read-back") f.afterRestore(async () => { entered(); await readback; });
+    else f.beforeWrite(async state => { if (state.bioActivationsByRule[rule]?.completed) { entered(); await readback; } });
+    f.advance(10000); const tick = f.runtime.tick(); await restoring;
+    f.advance(1000); const pulse = f.runtime.recordVehicleSensorInput(f.pulse(2));
+    unblock(); await tick; await pulse;
+    expect(f.store.read().vehicleRules[rule]!.startedAt).toBe(startedAt);
+    expect(f.store.read().bioActivationsByRule[rule]).toMatchObject({ completed: false, releaseReason: null, retiredFixtureIds: [c] });
+    expect(f.lamps.get(c)!.configuration.configuredHighBrightnessPercent).toBe(60);
+    expect(f.store.read().bioTargetsByFixture[b]?.preState).toEqual({ configuredHighBrightnessPercent: 30, bioMode: "sensor" });
+    expect(f.writes.filter(write => write.fixtureId === c)).toHaveLength(1);
+    const records = f.store.read().pendingTelemetryHandoffs.flatMap(handoff => handoff.records);
+    expect(records.filter(record => record.kind === "event_ended")).toHaveLength(phase === "read-back" ? 0 : 1);
+    expect(records).toContainEqual(expect.objectContaining({ kind: "event_extended", payload: expect.objectContaining({
+      reason: phase === "read-back" ? "bio_automatic_release_cancelled" : "bio_completed_release_reopened", previousRestores: [{ fixtureId: b, status: "succeeded",
+        configuration: { configuredHighBrightnessPercent: 30, bioMode: "sensor" } }] }) }));
+    if (phase === "completion-commit") expect(records.findIndex(record => record.kind === "event_ended"))
+      .toBeLessThan(records.findIndex(record => record.payload.reason === "bio_completed_release_reopened"));
+    f.advance(10000); await f.runtime.tick(); expect(f.lamps.get(c)!.configuration.configuredHighBrightnessPercent).toBe(60);
+  });
+
+  it.each(["operator", "operator-commit", "malformed", "stale", "stale-commit", "elapsed"] as const)(
+    "completes verified restoration despite a nonreviving arrival during read-back (%s)", async path => {
+      const f = await fixture(); await f.runtime.activateBioPulseTestSnapshot(f.snapshot); const original = f.pulse();
+      await f.runtime.recordVehicleSensorInput(original);
+      let entered!: () => void; const restoring = new Promise<void>(resolve => { entered = resolve; });
+      let unblock!: () => void; const readback = new Promise<void>(resolve => { unblock = resolve; });
+      if (path.endsWith("-commit")) f.beforeWrite(async state => {
+        if (state.bioActivationsByRule[rule]?.completed) { entered(); await readback; }
+      });
+      else f.afterRestore(async () => { entered(); await readback; });
+      f.advance(10000);
+      const release = path.startsWith("operator") ? f.runtime.releaseBioEvent(rule) : f.runtime.tick(); await restoring;
+      f.advance(1000); const input = path.startsWith("stale") ? original : f.pulse(2);
+      if (path === "malformed") input.receipt.sequence = -1;
+      const pulse = f.runtime.recordVehicleSensorInput(input).catch(error => error);
+      if (path === "elapsed") f.advance(10000);
+      unblock(); await release; const result = await pulse;
+      if (path.startsWith("operator")) expect(result).toMatchObject({ message: "bio_release_pending" });
+      expect(f.store.read().bioActivationsByRule[rule]?.completed).toBe(true);
+      expect(f.store.read().bioPulseInbox[a]?.receipt.sequence).toBe(1);
+      expect(f.store.read().bioTargetsByFixture[b]?.restoreResult?.status).toBe("succeeded");
+      expect(f.writes.map(write => write.configuration.configuredHighBrightnessPercent)).toEqual([80, 30]);
+    });
+
+  it.each(["completion", "receipt"] as const)("keeps truthful durable state if %s commit fails during token-bound revival", async failure => {
+    const f = await fixture([b, c]); await f.runtime.activateBioPulseTestSnapshot(f.snapshot); await f.runtime.recordVehicleSensorInput(f.pulse());
+    const startedAt = f.store.read().vehicleRules[rule]!.startedAt;
+    await f.runtime.prepareManualControl({ sourceId: manual, fixtureIds: [c], brightnessPercent: 60, requestedAt: f.now().toISOString() });
+    f.lamps.get(c)!.configuration = { configuredHighBrightnessPercent: 60, bioMode: "force-on" };
+    await f.runtime.handoffManualTerminal(manual, [{ fixtureId: c, status: "succeeded", brightnessPercent: 60,
+      faultCode: null, errorCode: null, occurredAt: f.now().toISOString() }]);
+    let entered!: () => void; const committing = new Promise<void>(resolve => { entered = resolve; });
+    let unblock!: () => void; const commit = new Promise<void>(resolve => { unblock = resolve; });
+    f.beforeWrite(async state => { if (state.bioActivationsByRule[rule]?.completed) { entered(); await commit; } });
+    f.reject(state => failure === "completion" ? state.bioActivationsByRule[rule]?.completed === true : state.bioPulseInbox[a]?.receipt.sequence === 2);
+    f.advance(10000); const tick = f.runtime.tick().catch(error => error); await committing;
+    f.advance(1000); const pulse = f.runtime.recordVehicleSensorInput(f.pulse(2)).catch(error => error);
+    unblock(); const tickResult = await tick; const pulseResult = await pulse;
+    expect(failure === "completion" ? tickResult : pulseResult).toMatchObject({ message: "automation_state_store_failed" });
+    expect(f.store.read().bioActivationsByRule[rule]).toMatchObject({ startedAt, completed: failure === "receipt", retiredFixtureIds: [c] });
+    expect(f.store.read().bioPulseInbox[a]?.receipt.sequence).toBe(failure === "receipt" ? 1 : 2);
+    expect(f.store.read().bioTargetsByFixture[b]?.preState).toEqual({ configuredHighBrightnessPercent: 30, bioMode: "sensor" });
+    if (failure === "receipt") expect(f.store.read().bioTargetsByFixture[b]?.restoreResult?.status).toBe("succeeded");
+    expect(f.lamps.get(c)!.configuration.configuredHighBrightnessPercent).toBe(60);
+    expect(f.writes.filter(write => write.fixtureId === c)).toHaveLength(1);
+    const reloaded = new FileAutomationStateStore(f.path); await reloaded.initialize();
+    expect(reloaded.read()).toEqual(f.store.read());
   });
 });
