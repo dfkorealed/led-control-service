@@ -99,6 +99,62 @@ const migration = "20260930120000_bio_pulse_event_contract";
         bioPulseVerifiedAt: null, bioPulseCapabilityRevision: 0, vehicleSensorCapabilityStatus: "unknown" });
   });
 
+  it("rejects legacy enabled-source drift with remediation details and rolls back the entire expansion", async () => {
+    const legacyUrl = cluster.database();
+    deploy(legacyUrl, "20260930");
+    const client = new PrismaClient({ datasources: { db: { url: legacyUrl } } });
+    const legacySql = (statement: string) => cluster.sql(legacyUrl, statement);
+    try {
+      const s = await scenario(client);
+      // The old ruleId-only UPDATE path bypassed capability admission without
+      // disabling a trigger. Both parents retain valid nonempty child counts.
+      legacySql(`BEGIN; ${s.nodes.slice(0, 3).map(bluez).join(" ")}
+        ${rule(s, "audit", undefined, 5, 0, "disabled")}
+        INSERT INTO "VehicleEventSource" ("ruleId","fixtureId","siteId","gatewayId")
+          VALUES ('audit','${s.fixtures[1]}','${s.site}','${s.gateway}');
+        ${rule(s, "enabled-drift", undefined, 5, 2)} COMMIT;
+        UPDATE "MeshNode" SET "vehicleSensorCapabilityStatus"='unsupported',
+          "vehicleSensorCapabilityRevision"=2, "vehicleSensorServerBound"=false,
+          "vehicleVendorEventModelBound"=false WHERE id='${s.nodes[0]}';
+        UPDATE "VehicleEventSource" SET "ruleId"='enabled-drift'
+          WHERE "ruleId"='audit' AND "fixtureId"='${s.fixtures[0]}';`);
+      const snapshot = () => legacySql(`SELECT row_to_json(r) FROM "VehicleEventRule" r ORDER BY id;
+        SELECT row_to_json(s) FROM "VehicleEventSource" s ORDER BY "ruleId", "fixtureId";
+        SELECT row_to_json(n) FROM "MeshNode" n ORDER BY id;`);
+      const before = snapshot();
+      const triggerSnapshot = () => legacySql(`SELECT pg_get_triggerdef(oid) FROM pg_trigger
+        WHERE tgrelid IN ('"VehicleEventRule"'::regclass, '"VehicleEventSource"'::regclass, '"Fixture"'::regclass, '"MeshNode"'::regclass)
+        ORDER BY tgrelid, tgname`);
+      const triggersBefore = triggerSnapshot();
+      const result = cluster.deploy(legacyUrl, migration);
+      expect(result.status).not.toBe(0);
+      const diagnostic = result.stderr + result.stdout;
+      expect(diagnostic).toContain("23514");
+      expect(diagnostic).toContain("Operator remediation required before BIO pulse migration");
+      expect(diagnostic).toContain("rule=enabled-drift");
+      expect(diagnostic).toContain(`fixture=${s.fixtures[0]}`);
+      expect(diagnostic).toContain(`node=${s.nodes[0]}`);
+      expect(diagnostic).toContain("protocol=bluez_stateful");
+      expect(diagnostic).toContain("status=unsupported");
+      expect(diagnostic).toContain("Disable the affected rule or repair/remove its invalid source");
+      expect(snapshot()).toBe(before);
+      expect(triggerSnapshot()).toBe(triggersBefore);
+      expect(legacySql(`SELECT count(*) FROM pg_type WHERE typname IN ('VehicleSensorProtocol', 'BioPulseReadiness')`)).toBe("0");
+      expect(legacySql(`SELECT count(*) FROM information_schema.columns WHERE table_schema='public'
+        AND column_name IN ('sensorProtocol', 'vehicleSensorProtocol', 'bioPulseReadiness', 'bioPulseProfileId', 'bioPulseVerifiedAt', 'bioPulseCapabilityRevision')`)).toBe("0");
+      expect(legacySql(`SELECT count(*) FROM pg_proc WHERE proname='vehicle_event_source_is_ready'`)).toBe("0");
+
+      // Operator remediation is explicit. Disabled audit rows may remain as-is;
+      // Prisma's failed-attempt ledger is resolved separately from the SQL rollback.
+      legacySql(`UPDATE "VehicleEventRule" SET status='disabled' WHERE id='enabled-drift'`);
+      expect(cluster.resolveRolledBack(legacyUrl, migration).status).toBe(0);
+      deploy(legacyUrl, migration);
+      expect(legacySql(`SELECT count(*) FROM information_schema.tables WHERE table_name='BioPulseMigrationFailure'`)).toBe("0");
+      expect(legacySql(`SELECT "vehicleSensorCapabilityStatus" FROM "MeshNode" WHERE id='${s.nodes[0]}'`)).toBe("unsupported");
+      expect(legacySql(`SELECT "sourceCount" FROM "VehicleEventRule" WHERE id='enabled-drift'`)).toBe("2");
+    } finally { await client.$disconnect(); }
+  }, 60_000);
+
   it.each([5, 9, 1801])("rejects BIO hold %i while retaining the BlueZ 5-second boundary", async (hold) => {
     const s = await scenario();
     sql(bio(s.nodes[0]));

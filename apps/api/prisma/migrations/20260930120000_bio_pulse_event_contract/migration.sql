@@ -2,6 +2,10 @@ BEGIN;
 
 SELECT "lock_automation_membership_mutation"();
 
+-- Keep the preflight and guard replacement on one stable membership/capability
+-- state, including direct SQL writes that are not application transactions.
+LOCK TABLE "VehicleEventSource", "VehicleEventRule", "Fixture", "MeshNode" IN SHARE MODE;
+
 CREATE TYPE "VehicleSensorProtocol" AS ENUM ('bluez_stateful', 'bio_usb_pulse');
 CREATE TYPE "BioPulseReadiness" AS ENUM ('off', 'shadow', 'ready', 'degraded');
 
@@ -83,6 +87,58 @@ RETURNS BOOLEAN LANGUAGE sql IMMUTABLE AS $function$
       AND node."bioPulseVerifiedAt" IS NOT NULL
     END, false);
 $function$;
+
+-- Prisma can obscure an exception raised midway through an explicit transaction
+-- with "current transaction is aborted". Raise the locked preflight failure at
+-- COMMIT, following the equal-schedule-time migration, so operators see its details
+-- and all transactional DDL still rolls back. This table/function are session-local.
+CREATE TEMP TABLE "BioPulseMigrationFailure" ("detail" TEXT NOT NULL) ON COMMIT DROP;
+CREATE FUNCTION pg_temp."raise_bio_pulse_migration_failure"()
+RETURNS TRIGGER LANGUAGE plpgsql AS $failure$
+BEGIN
+  RAISE EXCEPTION USING
+    ERRCODE = '23514',
+    MESSAGE = 'Operator remediation required before BIO pulse migration: invalid enabled vehicle event sources',
+    DETAIL = NEW."detail",
+    HINT = 'Disable the affected rule or repair/remove its invalid source, then retry the migration. Details list at most 20 sources. No schema or source rows were changed.';
+  RETURN NEW;
+END;
+$failure$;
+CREATE CONSTRAINT TRIGGER "BioPulseMigrationFailure_raise_at_commit"
+AFTER INSERT ON "BioPulseMigrationFailure" DEFERRABLE INITIALLY DEFERRED
+FOR EACH ROW EXECUTE FUNCTION pg_temp."raise_bio_pulse_migration_failure"();
+
+DO $preflight$
+DECLARE
+  invalid_sources TEXT;
+BEGIN
+  SELECT string_agg(format(
+    'rule=%s,fixture=%s,node=%s,protocol=%s,status=%s,bioReadiness=%s',
+    left(invalid."ruleId", 128), left(invalid."fixtureId", 128), left(COALESCE(invalid."nodeId", '<missing>'), 128),
+    invalid."sensorProtocol", COALESCE(invalid."vehicleSensorCapabilityStatus"::TEXT, '<missing>'),
+    COALESCE(invalid."bioPulseReadiness"::TEXT, '<missing>')
+  ), '; ' ORDER BY invalid."ruleId", invalid."fixtureId") INTO invalid_sources
+  FROM (
+    -- Bound diagnostic output and use only service IDs/enums, never native
+    -- hardware identity, payloads, profile bodies, or credentials.
+    SELECT rule."id" AS "ruleId", source."fixtureId", node."id" AS "nodeId",
+      rule."sensorProtocol", node."vehicleSensorCapabilityStatus", node."bioPulseReadiness"
+    FROM "VehicleEventSource" AS source
+    JOIN "VehicleEventRule" AS rule ON rule."id" = source."ruleId"
+    LEFT JOIN "Fixture" AS fixture ON fixture."id" = source."fixtureId"
+    LEFT JOIN "MeshNode" AS node ON node."id" = fixture."meshNodeId"
+    WHERE rule."status" = 'enabled'
+      AND NOT "vehicle_event_source_is_ready"(node, rule."sensorProtocol")
+    ORDER BY rule."id", source."fixtureId" LIMIT 20
+  ) AS invalid;
+
+  IF invalid_sources IS NOT NULL THEN
+    -- Previous ruleId-only moves could admit unsupported sources. Never repair
+    -- or enable hardware implicitly; disabled audit references remain legal.
+    INSERT INTO "BioPulseMigrationFailure" ("detail") VALUES (invalid_sources);
+  END IF;
+END;
+$preflight$;
 
 CREATE FUNCTION "assert_vehicle_event_source_ready"(fixture_id TEXT, protocol "VehicleSensorProtocol")
 RETURNS VOID LANGUAGE plpgsql AS $function$
