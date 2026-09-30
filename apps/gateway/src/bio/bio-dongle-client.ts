@@ -16,7 +16,8 @@ import { formatBioDeviceUuid, parseBioDeviceUuid } from "./bio-device-identity";
 import { BioDeviceReadTimeoutError, BioUsbError } from "./bio-usb-error";
 import type { CommandWriteControl } from "../commands/command-rf-drain";
 
-export type BioClientEvent = Exclude<BioResponse, { kind: "probe" | "outer-ack" }> | { kind: "invalid-notification" };
+export type BioClientEvent = Exclude<BioResponse, { kind: "probe" | "outer-ack" }>
+  | { kind: "invalid-notification"; reason?: "BIO_PULSE_SUBSCRIBER_FAILED" };
 export type BioDongleClientOptions = Pick<BioTransportOptions, "timeoutMs" | "retirementTimeoutMs"> & {
   connectionFactory?: BioTransportOptions["connectionFactory"];
   initialSequence?: number;
@@ -125,14 +126,31 @@ export class BioDongleClient {
         // 않되 무관한 request를 성공시키지도 않고 redacted invalid event로 격리한다.
         event = { kind: "invalid-notification" };
       }
+      let pulseSubscriberFailed = false;
       if (event.kind === "sensor-status-candidate") {
         // Reuse the sole CRC-checked USB listener. Candidates remain separate from
         // command/read-back ownership and cannot prove movement or independent liveness.
         for (const listener of this.pulseCandidateListeners) {
-          listener({ ...event, innerBody: Buffer.from(event.innerBody), receivedMonotonicMs, generation });
+          try {
+            listener({ ...event, innerBody: Buffer.from(event.innerBody), receivedMonotonicMs, generation });
+          } catch {
+            // A shadow consumer does not own USB receive. Preserve later subscribers and
+            // coalesced command replies; never expose thrown messages, body or identity.
+            pulseSubscriberFailed = true;
+          }
         }
       }
       for (const listener of this.listeners) listener(event);
+      if (pulseSubscriberFailed) {
+        for (const listener of this.listeners) {
+          try {
+            listener({ kind: "invalid-notification", reason: "BIO_PULSE_SUBSCRIBER_FAILED" });
+          } catch {
+            // Diagnostic failure is terminal for this observer only. Do not recursively
+            // report it or let it interrupt the transport's remaining decoded frames.
+          }
+        }
+      }
     });
   }
 

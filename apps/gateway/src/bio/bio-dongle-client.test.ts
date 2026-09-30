@@ -153,6 +153,35 @@ describe("BIO evidence-gated dongle client", () => {
   beforeEach(() => vi.useFakeTimers());
   afterEach(() => vi.useRealTimers());
 
+  it("isolates a throwing pulse subscriber so coalesced ACK and read-back still complete", async () => {
+    const h = harness(); await ready(h);
+    const candidates: BioSensorPulseCandidate[] = [];
+    const events: BioClientEvent[] = [];
+    h.client.onSensorPulseCandidate(() => { throw new Error("private subscriber detail"); });
+    h.client.onSensorPulseCandidate((candidate) => candidates.push(candidate));
+    // A diagnostic consumer can fail too; reporting must not rethrow or recurse.
+    h.client.onEvent((event) => { if (event.kind === "invalid-notification") throw new Error("private diagnostic detail"); });
+    h.client.onEvent((event) => events.push(event));
+    const reading = h.client.readDeviceInfo(verifiedTarget);
+    const outcome = reading.then((value) => ({ ok: true, value }), () => ({ ok: false }));
+    await flush();
+    try {
+      const candidate = encodeCrcFrame(0x12, Buffer.from("d300112233445583ff123401fe000009aabb", "hex"));
+      const coalesced = Buffer.concat([candidate, Buffer.from("55aa1101002055", "hex"), Buffer.from(modeReportHex("001122334455", 0x1234, 0), "hex")]);
+      expect(() => h.device.receive(coalesced.toString("hex"))).not.toThrow();
+      await flush();
+      expect(candidates).toHaveLength(1);
+      expect(events.filter((event) => event.kind === "sensor-status-candidate")).toHaveLength(1);
+      expect(events.filter((event) => event.kind === "invalid-notification")).toEqual([
+        { kind: "invalid-notification", reason: "BIO_PULSE_SUBSCRIBER_FAILED" }
+      ]);
+      expect(await outcome).toMatchObject({ ok: true, value: { kind: "control-mode-report", mode: "sensor" } });
+    } finally {
+      await h.client.close();
+      await outcome;
+    }
+  });
+
   it("routes CRC-checked pulse candidates with receipt metadata without consuming ACK or GET read-back", async () => {
     const h = harness(); await ready(h);
     const candidates: BioSensorPulseCandidate[] = [];
