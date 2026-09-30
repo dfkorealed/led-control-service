@@ -4,12 +4,16 @@ import {
   automationConfigAppliedDeliveryV1Schema,
   automationConfigAppliedReceiptV1Schema,
   automationConfigAppliedV1Schema,
+  automationConfigAppliedV2Schema,
   automationCurrentConfigRequestV1Schema,
   automationExecutionEventV1Schema,
   automationExecutionIngestedAckV1Schema,
   automationSnapshotV1Schema,
+  automationSnapshotV2Schema,
+  vehicleEventRuleSnapshotV2Schema,
   vehicleSensorCapabilityIngestedAckV1Schema,
-  vehicleSensorCapabilityReportV1Schema
+  vehicleSensorCapabilityReportV1Schema,
+  vehicleSensorCapabilityReportV2Schema
 } from "./automation-contracts";
 import {
   BLUETOOTH_COMPANY_ID_CONFIG,
@@ -87,6 +91,72 @@ describe("automation shared contracts", () => {
   it("strictly validates a complete automation snapshot", () => {
     expect(automationSnapshotV1Schema.parse(snapshot)).toEqual(snapshot);
     expect(() => automationSnapshotV1Schema.parse({ ...snapshot, extra: true })).toThrow();
+  });
+
+  it("keeps V1 snapshots strict when V2 protocol fields are introduced", () => {
+    expect(automationSnapshotV1Schema.parse(snapshot)).toEqual(snapshot);
+    const v2Rule = { ...snapshot.vehicleEventRules[0], sensorProtocol: "bluez-stateful" };
+    expect(automationSnapshotV1Schema.safeParse({
+      ...snapshot,
+      vehicleEventRules: [v2Rule]
+    }).success).toBe(false);
+  });
+
+  it.each([
+    ["bluez-stateful", 5],
+    ["bio-usb-pulse", 10],
+    ["bio-usb-pulse", 60],
+    ["bio-usb-pulse", 1_800]
+  ] as const)("accepts %s V2 vehicle rule with %i-second hold", (sensorProtocol, holdSeconds) => {
+    const rule = { ...snapshot.vehicleEventRules[0], sensorProtocol, holdSeconds };
+    expect(vehicleEventRuleSnapshotV2Schema.parse(rule)).toEqual(rule);
+    const v2Snapshot = {
+      ...snapshot,
+      schemaVersion: 2,
+      vehicleEventRules: [rule]
+    };
+    expect(automationSnapshotV2Schema.parse(v2Snapshot)).toEqual(v2Snapshot);
+    expect(automationSnapshotV1Schema.safeParse(v2Snapshot).success).toBe(false);
+  });
+
+  it.each([
+    ["bio-usb-pulse", 9],
+    ["bio-usb-pulse", 1_801],
+    ["bluez-stateful", 4],
+    ["unknown", 60]
+  ])("rejects %s V2 vehicle rule with %i-second hold", (sensorProtocol, holdSeconds) => {
+    expect(vehicleEventRuleSnapshotV2Schema.safeParse({
+      ...snapshot.vehicleEventRules[0],
+      sensorProtocol,
+      holdSeconds
+    }).success).toBe(false);
+  });
+
+  it("rejects extra V2 fields at both rule and snapshot boundaries", () => {
+    const rule = { ...snapshot.vehicleEventRules[0], sensorProtocol: "bio-usb-pulse" };
+    expect(vehicleEventRuleSnapshotV2Schema.safeParse({ ...rule, extra: true }).success).toBe(false);
+    expect(automationSnapshotV2Schema.safeParse({
+      ...snapshot,
+      schemaVersion: 2,
+      vehicleEventRules: [rule],
+      extra: true
+    }).success).toBe(false);
+  });
+
+  it("requires a V2 config applied acknowledgement for a V2 snapshot", () => {
+    const acknowledgement = {
+      schemaVersion: 2,
+      gatewayId,
+      revision: 3,
+      payloadHash,
+      status: "applied",
+      errorCode: null,
+      appliedAt: occurredAt
+    };
+    expect(automationConfigAppliedV2Schema.parse(acknowledgement)).toEqual(acknowledgement);
+    expect(automationConfigAppliedV1Schema.safeParse(acknowledgement).success).toBe(false);
+    expect(automationConfigAppliedV2Schema.safeParse({ ...acknowledgement, schemaVersion: 1 }).success).toBe(false);
+    expect(automationConfigAppliedV2Schema.safeParse({ ...acknowledgement, extra: true }).success).toBe(false);
   });
 
   it.each([
@@ -307,6 +377,58 @@ describe("automation shared contracts", () => {
       capabilityRevision: Number.MAX_SAFE_INTEGER + 1
     })).toThrow();
     expect(() => vehicleSensorCapabilityReportV1Schema.parse({ ...report, extra: true })).toThrow();
+  });
+
+  it("keeps BIO V2 capability separate from the BlueZ V1 binding report", () => {
+    const bioReport = {
+      schemaVersion: 2,
+      eventId,
+      siteId,
+      gatewayId,
+      meshNodeId: fixtureId,
+      capabilityRevision: 7,
+      sensorProtocol: "bio-usb-pulse",
+      readiness: "off",
+      verifiedFingerprintId: null,
+      sensorModeVerifiedAt: null,
+      verifiedAt: occurredAt
+    };
+    expect(vehicleSensorCapabilityReportV2Schema.parse(bioReport)).toEqual(bioReport);
+    expect(vehicleSensorCapabilityReportV1Schema.safeParse(bioReport).success).toBe(false);
+    expect(vehicleSensorCapabilityReportV2Schema.safeParse({
+      ...bioReport,
+      schemaVersion: 1,
+      sensorProtocol: "bluez-stateful"
+    }).success).toBe(false);
+    expect(vehicleSensorCapabilityReportV2Schema.safeParse({
+      ...bioReport,
+      sensorServerBound: true
+    }).success).toBe(false);
+  });
+
+  it("requires an approved fingerprint and sensor-mode verification before BIO readiness is ready", () => {
+    const report = {
+      schemaVersion: 2,
+      eventId,
+      siteId,
+      gatewayId,
+      meshNodeId: fixtureId,
+      capabilityRevision: 7,
+      sensorProtocol: "bio-usb-pulse",
+      readiness: "ready",
+      verifiedFingerprintId: "approved-profile-2026-09",
+      sensorModeVerifiedAt: occurredAt,
+      verifiedAt: occurredAt
+    };
+    expect(vehicleSensorCapabilityReportV2Schema.parse(report)).toEqual(report);
+    expect(vehicleSensorCapabilityReportV2Schema.safeParse({ ...report, verifiedFingerprintId: null }).success).toBe(false);
+    expect(vehicleSensorCapabilityReportV2Schema.safeParse({ ...report, sensorModeVerifiedAt: null }).success).toBe(false);
+    expect(vehicleSensorCapabilityReportV2Schema.safeParse({ ...report, verifiedFingerprintId: "" }).success).toBe(false);
+    expect(vehicleSensorCapabilityReportV2Schema.safeParse({ ...report, readiness: "unknown" }).success).toBe(false);
+    expect(vehicleSensorCapabilityReportV2Schema.safeParse({ ...report, extra: true }).success).toBe(false);
+    for (const readiness of ["shadow", "degraded", "off"]) {
+      expect(vehicleSensorCapabilityReportV2Schema.parse({ ...report, readiness })).toMatchObject({ readiness });
+    }
   });
 
   it("strictly validates vehicle sensor capability ingested acknowledgements", () => {

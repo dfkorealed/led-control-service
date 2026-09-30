@@ -58,6 +58,12 @@ export interface VehicleEventRuleSnapshotV1 {
   holdSeconds: number;
 }
 
+export type VehicleSensorProtocol = "bluez-stateful" | "bio-usb-pulse";
+
+export interface VehicleEventRuleSnapshotV2 extends VehicleEventRuleSnapshotV1 {
+  sensorProtocol: VehicleSensorProtocol;
+}
+
 export interface AutomationSnapshotV1 {
   schemaVersion: 1;
   siteId: string;
@@ -70,6 +76,11 @@ export interface AutomationSnapshotV1 {
   payloadHash: `sha256:${string}`;
 }
 
+export interface AutomationSnapshotV2 extends Omit<AutomationSnapshotV1, "schemaVersion" | "vehicleEventRules"> {
+  schemaVersion: 2;
+  vehicleEventRules: VehicleEventRuleSnapshotV2[];
+}
+
 export interface AutomationConfigAppliedV1 {
   schemaVersion: 1;
   gatewayId: string;
@@ -78,6 +89,10 @@ export interface AutomationConfigAppliedV1 {
   status: "applied" | "rejected";
   errorCode: string | null;
   appliedAt: string;
+}
+
+export interface AutomationConfigAppliedV2 extends Omit<AutomationConfigAppliedV1, "schemaVersion"> {
+  schemaVersion: 2;
 }
 
 export interface AutomationCurrentConfigRequestV1 {
@@ -133,6 +148,20 @@ export interface VehicleSensorCapabilityReportV1 {
   verifiedAt: string;
   sensorServerBound: boolean;
   vendorVehicleEventModelBound: boolean;
+}
+
+export interface VehicleSensorCapabilityReportV2 {
+  schemaVersion: 2;
+  eventId: string;
+  siteId: string;
+  gatewayId: string;
+  meshNodeId: string;
+  capabilityRevision: number;
+  sensorProtocol: "bio-usb-pulse";
+  readiness: "off" | "shadow" | "ready" | "degraded";
+  verifiedFingerprintId: string | null;
+  sensorModeVerifiedAt: string | null;
+  verifiedAt: string;
 }
 
 export interface VehicleSensorCapabilityIngestedAckV1 {
@@ -246,6 +275,22 @@ export const vehicleEventRuleSnapshotV1Schema = z.object({
   holdSeconds: z.number().int().min(5).max(1_800)
 }).strict();
 
+export const vehicleEventRuleSnapshotV2Schema = z.object({
+  id: identifierSchema,
+  name: z.string().trim().min(1),
+  status: z.enum(["enabled", "disabled"]),
+  sourceFixtureIds: fixtureIdsSchema,
+  targetFixtureIds: fixtureIdsSchema,
+  action: automationActionV1Schema,
+  holdSeconds: z.number().int().min(5).max(1_800),
+  sensorProtocol: z.enum(["bluez-stateful", "bio-usb-pulse"])
+}).strict().superRefine((rule, context) => {
+  // BlueZ stateful rules retain the V1 five-second floor; BIO pulses need at least ten seconds.
+  if (rule.sensorProtocol === "bio-usb-pulse" && rule.holdSeconds < 10) {
+    addIssue(context, "holdSeconds", "BIO pulse holdSeconds must be at least 10");
+  }
+});
+
 export const automationSnapshotV1Schema = z.object({
   schemaVersion: z.literal(1),
   siteId: identifierSchema,
@@ -258,8 +303,37 @@ export const automationSnapshotV1Schema = z.object({
   payloadHash: payloadHashSchema
 }).strict();
 
+export const automationSnapshotV2Schema = z.object({
+  schemaVersion: z.literal(2),
+  siteId: identifierSchema,
+  gatewayId: identifierSchema,
+  revision: z.number().int().nonnegative(),
+  timeZone: z.string().min(1).refine(isIanaTimeZone, "timeZone must be a valid IANA time zone"),
+  schedules: z.array(lightingScheduleSnapshotV1Schema),
+  vehicleEventRules: z.array(vehicleEventRuleSnapshotV2Schema),
+  generatedAt: timestampSchema,
+  payloadHash: payloadHashSchema
+}).strict();
+
 export const automationConfigAppliedV1Schema = z.object({
   schemaVersion: z.literal(1),
+  gatewayId: identifierSchema,
+  revision: z.number().int().nonnegative(),
+  payloadHash: payloadHashSchema,
+  status: z.enum(["applied", "rejected"]),
+  errorCode: z.string().trim().min(1).nullable(),
+  appliedAt: timestampSchema
+}).strict().superRefine((configuration, context) => {
+  if (configuration.status === "applied" && configuration.errorCode !== null) {
+    addIssue(context, "errorCode", "applied configuration cannot include an errorCode");
+  }
+  if (configuration.status === "rejected" && configuration.errorCode === null) {
+    addIssue(context, "errorCode", "rejected configuration requires an errorCode");
+  }
+});
+
+export const automationConfigAppliedV2Schema = z.object({
+  schemaVersion: z.literal(2),
   gatewayId: identifierSchema,
   revision: z.number().int().nonnegative(),
   payloadHash: payloadHashSchema,
@@ -376,6 +450,29 @@ export const vehicleSensorCapabilityReportV1Schema = z.object({
   }
   if (report.status === "unsupported" && bothModelsBound) {
     addIssue(context, "status", "unsupported capability requires at least one unbound vehicle sensor model");
+  }
+});
+
+export const vehicleSensorCapabilityReportV2Schema = z.object({
+  schemaVersion: z.literal(2),
+  eventId: identifierSchema,
+  siteId: identifierSchema,
+  gatewayId: identifierSchema,
+  meshNodeId: identifierSchema,
+  capabilityRevision: positiveSafeIntegerSchema,
+  sensorProtocol: z.literal("bio-usb-pulse"),
+  readiness: z.enum(["off", "shadow", "ready", "degraded"]),
+  verifiedFingerprintId: z.string().trim().min(1).nullable(),
+  sensorModeVerifiedAt: z.string().datetime({ offset: true }).nullable(),
+  verifiedAt: z.string().datetime({ offset: true })
+}).strict().superRefine((report, context) => {
+  // Structural readiness is not product support; live health and approved profiles are checked by consumers.
+  if (report.readiness !== "ready") return;
+  if (report.verifiedFingerprintId === null) {
+    addIssue(context, "verifiedFingerprintId", "ready BIO capability requires a verified fingerprint profile");
+  }
+  if (report.sensorModeVerifiedAt === null) {
+    addIssue(context, "sensorModeVerifiedAt", "ready BIO capability requires sensor-mode verification");
   }
 });
 
