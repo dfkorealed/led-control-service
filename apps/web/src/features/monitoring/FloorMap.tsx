@@ -1,8 +1,8 @@
 import type { FloorMapSnapshot } from "@led-control/shared";
-import { CircleCheck, CircleX, Clock3, Hand, TriangleAlert } from "lucide-react";
+import { CircleCheck, CircleX, Clock3, Hand, Maximize, Minimize, TriangleAlert } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { Dashboard } from "../../api/queries";
-import { Text, cn } from "../../components/ui";
+import { IconButton, Text, cn } from "../../components/ui";
 import { FloorScene } from "../floor-map/FloorScene";
 import { FloorMapViewport, type FloorMapViewportHandle } from "../floor-map/FloorMapViewport";
 import { resolveFixtureMapPosition } from "../floor-map/fixture-map-position";
@@ -23,13 +23,16 @@ interface FloorMapProps {
   onShowDetails?: (fixtureId: string) => void;
   emphasizedFixtureIds?: ReadonlySet<string>;
   fullView?: boolean;
+  onToggleFullView?: (trigger: HTMLButtonElement) => void;
+  activeFilter?: string;
   cameraScope?: MonitoringCameraScope | null;
 }
 
 const MAP_PAN_STEP_PX = 80;
 
-export function FloorMap({ floor, snapshot, selectedFixtureId, onSelectFixture, timeZone = "Asia/Seoul", focusRequest, onFocusResult, onPinOpenChange, onShowDetails, emphasizedFixtureIds, fullView = false, cameraScope = null }: FloorMapProps) {
+export function FloorMap({ floor, snapshot, selectedFixtureId, onSelectFixture, timeZone = "Asia/Seoul", focusRequest, onFocusResult, onPinOpenChange, onShowDetails, emphasizedFixtureIds, fullView = false, onToggleFullView, activeFilter, cameraScope = null }: FloorMapProps) {
   const [zoom, setZoom] = useState(1);
+  const shellRef = useRef<HTMLDivElement>(null);
   const viewportRef = useRef<FloorMapViewportHandle>(null);
   const cameraMemory = useMonitoringCameraMemory(cameraScope, snapshot, viewportRef);
   const anchors = useRef(new Map<string, HTMLButtonElement>());
@@ -62,6 +65,10 @@ export function FloorMap({ floor, snapshot, selectedFixtureId, onSelectFixture, 
   const mapCount = snapshot.fixtures === undefined || hasLegacyRuntimeOnlyPin
     ? null : snapshot.fixtures.length;
   useEffect(() => { setOpenFixtureId(null); }, [floor.id, snapshot.revision]);
+  useEffect(() => { setOpenFixtureId(null); }, [activeFilter]);
+  useEffect(() => {
+    if (openFixtureId !== null && selectedFixtureId !== null && openFixtureId !== selectedFixtureId) setOpenFixtureId(null);
+  }, [openFixtureId, selectedFixtureId]);
   useEffect(() => { onPinOpenChange?.(openFixtureId !== null); }, [openFixtureId, onPinOpenChange]);
   useEffect(() => {
     if (!focusRequest || lastFocusRequest.current === focusRequest.requestId) return;
@@ -77,6 +84,11 @@ export function FloorMap({ floor, snapshot, selectedFixtureId, onSelectFixture, 
     // a pin when its scroll ancestor moves: open only after that scroll settles,
     // and after the closing drawer has restored its focus.
     let frame = requestAnimationFrame(() => {
+      // The compact shell has a fixed bottom navigation. Bring an explicitly
+      // located fixture into the visible map area before opening its overlay.
+      if (!fullView && window.matchMedia?.("(max-width: 759px)").matches) {
+        shellRef.current?.scrollIntoView?.({ block: "center", inline: "nearest", behavior: "auto" });
+      }
       viewportRef.current?.centerOn(position.point);
       frame = requestAnimationFrame(() => {
         frame = requestAnimationFrame(() => {
@@ -89,7 +101,7 @@ export function FloorMap({ floor, snapshot, selectedFixtureId, onSelectFixture, 
       });
     });
     return () => cancelAnimationFrame(frame);
-  }, [focusRequest, floor.fixtures, snapshot]);
+  }, [focusRequest, floor.fixtures, snapshot, fullView]);
   useEffect(() => () => {
     if (pinOpenTimerRef.current !== null) window.clearTimeout(pinOpenTimerRef.current);
   }, []);
@@ -130,10 +142,14 @@ export function FloorMap({ floor, snapshot, selectedFixtureId, onSelectFixture, 
   const unobservedFixtureIds = new Set(snapshot.fixtures?.filter(pin => !observedFixtureIds.has(pin.id)).map(pin => pin.id));
 
   return (
-    <div className={cn("relative h-[340px] w-full min-w-0 overflow-hidden rounded-panel border border-border-default bg-surface-inset max-phone-wide:h-[300px] tablet:h-full tablet:min-h-0", fullView && "h-full! min-h-0!")} role="region" aria-label="층 도면" data-monitoring-map-shell="" data-zoom={zoom}>
+    <div ref={shellRef} className={cn("relative h-[340px] w-full min-w-0 overflow-hidden rounded-panel border border-border-default bg-surface-inset max-phone-wide:h-[300px] tablet:h-full tablet:min-h-0", fullView && "h-full! min-h-0!")} role="region" aria-label="층 도면" data-monitoring-map-shell="" data-zoom={zoom}>
       <FloorMapViewport
         ref={viewportRef}
         maintainCameraOnResize
+        wheelZoomWithoutModifier
+        showFitControl={false}
+        resetControlFits
+        controlAfterZoom={onToggleFullView ? <IconButton type="button" variant="ghost" size="sm" className="max-compact:size-13" aria-label={fullView ? "전체 보기 종료" : "지도 전체 보기"} aria-pressed={fullView} onClick={event => onToggleFullView(event.currentTarget)}>{fullView ? <Minimize size={16} aria-hidden="true" /> : <Maximize size={16} aria-hidden="true" />}</IconButton> : undefined}
         onCameraReady={cameraMemory.onCameraReady}
         onCameraSettled={cameraMemory.onCameraSettled}
         snapshot={snapshot}
@@ -178,7 +194,7 @@ export function FloorMap({ floor, snapshot, selectedFixtureId, onSelectFixture, 
         <li className="inline-flex items-center gap-1 whitespace-nowrap text-fixture-offline"><CircleX size={14} aria-hidden="true" /><Text as="span" variant="overline" className="text-fixture-offline">오프라인</Text></li>
         <li className="inline-flex items-center gap-1 whitespace-nowrap text-fixture-inspection"><Clock3 size={14} aria-hidden="true" /><Text as="span" variant="overline" className="text-fixture-inspection">상태 확인 대기</Text></li>
       </ul>
-      <Text as="span" variant="overline" tone="inverse" className="pointer-events-none absolute bottom-3 left-3 z-6 inline-flex items-center gap-1.5 rounded-control bg-surface-inverse px-2.5 py-1.5 max-compact:hidden" data-monitoring-map-pan-hint=""><Hand size={14} aria-hidden="true" />드래그 또는 스크롤로 이동</Text>
+      <Text as="span" variant="overline" tone="inverse" className="pointer-events-none absolute bottom-3 left-3 z-6 inline-flex items-center gap-1.5 rounded-control bg-surface-inverse px-2.5 py-1.5 max-compact:hidden" data-monitoring-map-pan-hint=""><Hand size={14} aria-hidden="true" />드래그로 이동 · 휠로 확대/축소</Text>
     </div>
   );
 }

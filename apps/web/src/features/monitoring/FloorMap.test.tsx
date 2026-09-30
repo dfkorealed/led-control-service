@@ -98,8 +98,8 @@ describe("FloorMap", () => {
     expect(info).toHaveTextContent("현재 밝기");
     expect(info).toHaveTextContent("70%");
     expect(info).not.toHaveTextContent("지도 좌표");
-    expect(within(info).getByRole("button", { name: "조명 정보 닫기" })).toBeVisible();
-    fireEvent.click(within(info).getByRole("button", { name: "조명 정보 닫기" }));
+    expect(within(info).queryByRole("button", { name: "조명 정보 닫기" })).not.toBeInTheDocument();
+    fireEvent.keyDown(info, { key: "Escape" });
     await waitFor(() => expect(focus).toHaveBeenCalledWith({ preventScroll: true }));
     fireEvent.click(marker);
     const reopened = await screen.findByRole("dialog", { name: "B1-L001 조명 정보" });
@@ -340,7 +340,7 @@ describe("FloorMap", () => {
 
     const legend = screen.getByRole("list", { name: "조명 상태 범례" });
     const map = screen.getByRole("region", { name: "층 도면" });
-    const panHint = screen.getByText("드래그 또는 스크롤로 이동");
+    const panHint = screen.getByText("드래그로 이동 · 휠로 확대/축소");
     expect(map.querySelector(".floor-map-label")).not.toBeInTheDocument();
     expect(legend.parentElement).toBe(map);
     expect(panHint.parentElement).toBe(map);
@@ -372,8 +372,10 @@ describe("FloorMap", () => {
     fireEvent.click(screen.getByRole("button", { name: "지도 확대" }));
     expect(map).toHaveAttribute("data-zoom", "1.1");
     expect(screen.getByRole("button", { name: "지도 배율 110%" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "지도 배율 110%" })).toHaveAttribute("aria-description", "누르면 지도 가운데 100%로 재설정");
 
-    fireEvent.click(screen.getByRole("button", { name: "지도 화면 맞춤" }));
+    expect(screen.queryByRole("button", { name: "지도 화면 맞춤" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "지도 배율 110%" }));
     expect(map).toHaveAttribute("data-zoom", "1");
   });
 

@@ -66,6 +66,10 @@ interface FloorMapViewportProps {
   children: ReactNode;
   onAreaSelect?: (rect: MapSelectionRect) => void;
   showControls?: boolean;
+  wheelZoomWithoutModifier?: boolean;
+  showFitControl?: boolean;
+  resetControlFits?: boolean;
+  controlAfterZoom?: ReactNode;
   onZoomChange?: (zoom: number) => void;
   viewportTestId?: string;
   onViewportKeyDown?: KeyboardEventHandler<HTMLDivElement>;
@@ -99,6 +103,10 @@ export const FloorMapViewport = forwardRef<FloorMapViewportHandle, FloorMapViewp
   children,
   onAreaSelect,
   showControls = true,
+  wheelZoomWithoutModifier = false,
+  showFitControl = true,
+  resetControlFits = false,
+  controlAfterZoom,
   onZoomChange,
   viewportTestId,
   onViewportKeyDown,
@@ -384,8 +392,10 @@ export const FloorMapViewport = forwardRef<FloorMapViewportHandle, FloorMapViewp
     // React 18 delegates wheel events through a passive root listener. A native non-passive
     // listener is required so map zoom does not also trigger the browser's Ctrl/Cmd+wheel zoom.
     const handleWheel = (event: WheelEvent) => {
-      if (!event.ctrlKey && !event.metaKey) return;
+      if (!wheelZoomWithoutModifier && !event.ctrlKey && !event.metaKey) return;
       event.preventDefault();
+      // A horizontal-only trackpad gesture must not pan or change map scale.
+      if (event.deltaY === 0) return;
       const bounds = viewport.getBoundingClientRect();
       changeZoom(zoomRef.current * (event.deltaY > 0 ? 1 / 1.1 : 1.1), {
         x: event.clientX - bounds.left,
@@ -394,7 +404,7 @@ export const FloorMapViewport = forwardRef<FloorMapViewportHandle, FloorMapViewp
     };
     viewport.addEventListener("wheel", handleWheel, { passive: false });
     return () => viewport.removeEventListener("wheel", handleWheel);
-  }, [changeZoom]);
+  }, [changeZoom, wheelZoomWithoutModifier]);
 
   function mapPoint(event: ReactPointerEvent<HTMLDivElement>): MapPoint {
     return mapPointFromClient({ x: event.clientX, y: event.clientY });
@@ -644,11 +654,12 @@ export const FloorMapViewport = forwardRef<FloorMapViewportHandle, FloorMapViewp
         </div>
       </div>
       {showControls ? (
-        <div className="absolute right-3 bottom-3 z-6 flex items-center gap-1 rounded-control border border-border-default bg-surface-panel p-1 shadow-popover max-compact:right-2 max-compact:bottom-2" role="group" aria-label="지도 확대 축소">
+        <div className="absolute right-3 bottom-3 z-6 flex items-center gap-1 rounded-control border border-border-default bg-surface-panel p-1 shadow-popover max-compact:right-2 max-compact:bottom-2" role="group" aria-label={controlAfterZoom ? "지도 조작" : "지도 확대 축소"}>
           <IconButton type="button" variant="ghost" size="sm" className="max-compact:size-13" aria-label="지도 축소" disabled={zoom <= 0.1} onClick={() => changeZoom(zoomRef.current - 0.1, undefined, true)}><Minus size={16} aria-hidden="true" /></IconButton>
-          <Button type="button" variant="ghost" size="sm" className="min-w-14 px-2 max-compact:min-h-13" aria-label={`지도 배율 ${Math.round(zoom * 100)}%`} onClick={() => changeZoom(1, undefined, true)}>{Math.round(zoom * 100)}%</Button>
+          <Button type="button" variant="ghost" size="sm" className="min-w-14 px-2 max-compact:min-h-13" aria-label={`지도 배율 ${Math.round(zoom * 100)}%`} aria-description={resetControlFits ? "누르면 지도 가운데 100%로 재설정" : "누르면 100%로 재설정"} title={resetControlFits ? "가운데 100%로 재설정" : "100%로 재설정"} onClick={() => resetControlFits ? fit() : changeZoom(1, undefined, true)}>{Math.round(zoom * 100)}%</Button>
           <IconButton type="button" variant="ghost" size="sm" className="max-compact:size-13" aria-label="지도 확대" disabled={zoom >= 4} onClick={() => changeZoom(zoomRef.current + 0.1, undefined, true)}><Plus size={16} aria-hidden="true" /></IconButton>
-          <IconButton type="button" variant="ghost" size="sm" className="max-compact:size-13" aria-label="지도 화면 맞춤" onClick={fit}><Maximize size={16} aria-hidden="true" /></IconButton>
+          {controlAfterZoom}
+          {showFitControl ? <IconButton type="button" variant="ghost" size="sm" className="max-compact:size-13" aria-label="지도 화면 맞춤" onClick={fit}><Maximize size={16} aria-hidden="true" /></IconButton> : null}
         </div>
       ) : null}
     </div>

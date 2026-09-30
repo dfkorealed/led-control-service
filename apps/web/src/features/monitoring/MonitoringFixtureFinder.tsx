@@ -5,7 +5,7 @@ import { Button, SearchField, SelectBox, Text } from "../../components/ui";
 import { presentFixtureStatus } from "./fixture-status-presentation";
 import type { FloorMapSnapshot } from "@led-control/shared";
 import { resolveFixtureMapPosition } from "../floor-map/fixture-map-position";
-import { matchesMonitoringFixture, type MonitoringFixtureFilter } from "./monitoring-fixture-filter";
+import { matchesMonitoringFixture, matchesMonitoringFixtureSearch, type MonitoringFixtureFilter } from "./monitoring-fixture-filter";
 
 type FixtureFilter = MonitoringFixtureFilter;
 
@@ -16,6 +16,10 @@ const filterOptions: Array<{ id: FixtureFilter; label: string }> = [
   { id: "offline", label: "오프라인" },
   { id: "unplaced", label: "미배치" }
 ];
+const emptyFilterCopy: Record<FixtureFilter, string> = {
+  all: "검색 결과가 없습니다.", online: "정상 조명이 없습니다.", fault: "점검 필요 조명이 없습니다.",
+  offline: "오프라인 조명이 없습니다.", unplaced: "미배치 조명이 없습니다."
+};
 
 export interface MonitoringFixtureFinderProps {
   fixtures: DashboardFixture[];
@@ -31,6 +35,8 @@ export interface MonitoringFixtureFinderProps {
   snapshot?: FloorMapSnapshot;
   filter?: FixtureFilter;
   onFilterChange?: (filter: FixtureFilter) => void;
+  search?: string;
+  onSearchChange?: (search: string) => void;
   defaultOpen?: boolean;
   nextPageError?: boolean;
   expectedTotal?: number | null;
@@ -38,9 +44,10 @@ export interface MonitoringFixtureFinderProps {
 
 export function MonitoringFixtureFinder({
   fixtures, selectedFixtureId, onSelectFixture, hasNextPage, isFetchingNextPage, onLoadMore,
-  userRole, siteId, floorId, placedFixtureIds, snapshot, filter: controlledFilter, onFilterChange, defaultOpen = false, nextPageError = false, expectedTotal
+  userRole, siteId, floorId, placedFixtureIds, snapshot, filter: controlledFilter, onFilterChange, search: controlledSearch, onSearchChange, defaultOpen = false, nextPageError = false, expectedTotal
 }: MonitoringFixtureFinderProps) {
-  const [search, setSearch] = useState("");
+  const [localSearch, setLocalSearch] = useState("");
+  const search = controlledSearch ?? localSearch;
   const [localFilter, setLocalFilter] = useState<FixtureFilter>("all");
   const filter = controlledFilter ?? localFilter;
   const [isOpen, setIsOpen] = useState(defaultOpen);
@@ -49,13 +56,14 @@ export function MonitoringFixtureFinder({
   const isUnplaced = (fixture: DashboardFixture) =>
     snapshot ? resolveFixtureMapPosition(snapshot, fixture).kind === "unplaced" : !placedFixtureIds?.has(fixture.id) && fixture.placementStatus === "unplaced";
   const visibleFixtures = fixtures.filter((fixture) => {
-    if (normalizedSearch && !fixture.name.toLocaleLowerCase("ko-KR").includes(normalizedSearch)) return false;
+    if (!matchesMonitoringFixtureSearch(fixture, normalizedSearch)) return false;
     return matchesMonitoringFixture(fixture, filter, snapshot ? resolveFixtureMapPosition(snapshot, fixture) : isUnplaced(fixture) ? { kind: "unplaced" } : { kind: "unknown" });
   });
 
   return <section className="grid min-w-0 gap-2 rounded-panel border border-border-default bg-surface-panel p-3" aria-label="조명 검색 및 목록" data-monitoring-fixture-finder="">
     <SearchField label="조명 이름 또는 번호 검색" value={search} onChange={(value) => {
-      setSearch(value);
+      setLocalSearch(value);
+      onSearchChange?.(value);
       setIsOpen(true);
     }} placeholder="조명 이름 또는 번호" className="min-w-0" />
     <Button variant="ghost" aria-controls={listId} aria-expanded={isOpen} onClick={() => setIsOpen((current) => !current)}>
@@ -77,7 +85,7 @@ export function MonitoringFixtureFinder({
           </Button>
         </li>)}
       </ul>
-      {visibleFixtures.length === 0 && !hasNextPage ? <Text variant="body-sm" tone="secondary">검색 결과가 없습니다.</Text> : null}
+      {visibleFixtures.length === 0 && !hasNextPage && !isFetchingNextPage && !nextPageError ? <div className="grid gap-2"><Text variant="body-sm" tone="secondary">{normalizedSearch ? "검색 결과가 없습니다." : emptyFilterCopy[filter]}</Text>{filter !== "all" ? <Button variant="secondary" onClick={() => { setLocalSearch(""); onSearchChange?.(""); setLocalFilter("all"); onFilterChange?.("all"); }}>전체 조명 보기</Button> : null}</div> : null}
       {nextPageError ? <Text variant="body-sm" tone="secondary">일부 조명만 표시 중입니다. 다음 조명 보기를 눌러 다시 시도해 주세요.</Text> : null}
       {!hasNextPage && !isFetchingNextPage && !nextPageError && expectedTotal != null && fixtures.length !== expectedTotal
         ? <Text variant="body-sm" tone="secondary">목록과 집계의 확인 시점이 다릅니다. 새로고침해 주세요.</Text> : null}

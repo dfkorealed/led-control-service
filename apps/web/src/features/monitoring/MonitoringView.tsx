@@ -1,4 +1,4 @@
-import { Clock3, Maximize, Minimize, RefreshCw, TriangleAlert } from "lucide-react";
+import { Clock3, RefreshCw, TriangleAlert } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
@@ -6,7 +6,7 @@ import { useDashboard, useFloorFixtures, useFloorMapSnapshot, type Dashboard } f
 import { useCurrentUser } from "../../api/auth";
 import { principalKey } from "../../api/principal-cache";
 import { waitForMonitoringRefresh, type MonitoringRefreshResult } from "../../api/monitoring-refresh";
-import { Button, DrawerDialog, FeedbackState, Heading, IconButton, SelectBox, Text, cn, useWorkspaceFocus, useSessionStatus, type SessionStatusItem } from "../../components/ui";
+import { Button, DrawerDialog, FeedbackState, Heading, SelectBox, Text, cn, useWorkspaceFocus, useSessionStatus, type SessionStatusItem } from "../../components/ui";
 import { InstallationPending } from "../setup/SetupWizard";
 import { FloorMap } from "./FloorMap";
 import { MonitoringFixtureFinder } from "./MonitoringFixtureFinder";
@@ -16,7 +16,7 @@ import { MonitoringLogTicker } from "./MonitoringLogTicker";
 import { monitoringActivityScopeKey, useMonitoringActivity } from "./useMonitoringActivity";
 import { FixtureDetailPanel } from "./FixtureDetailPanel";
 import { resolveFixtureMapPosition } from "../floor-map/fixture-map-position";
-import { matchesMonitoringFixture, type MonitoringFixtureFilter } from "./monitoring-fixture-filter";
+import { matchesMonitoringFixture, matchesMonitoringFixtureSearch, type MonitoringFixtureFilter } from "./monitoring-fixture-filter";
 import { presentFixtureStatus } from "./fixture-status-presentation";
 
 const STALE_SNAPSHOT_AFTER_MS = 60_000;
@@ -80,8 +80,10 @@ function MonitoringDashboard({ data, userRole, siteId, refreshDashboard }: Monit
   const [isPinOpen, setIsPinOpen] = useState(false);
   const workspaceFocus = useWorkspaceFocus();
   const [fixtureFilter, setFixtureFilter] = useState<MonitoringFixtureFilter>("all");
+  const [fixtureSearch, setFixtureSearch] = useState("");
   const [focusRequest, setFocusRequest] = useState<{ requestId: number; fixtureId: string }>();
   const focusSequence = useRef(0);
+  const pinDetailsFixtureRef = useRef<string | null>(null);
   const logTriggerRef = useRef<HTMLButtonElement>(null);
   const inspectorTriggerRef = useRef<HTMLButtonElement>(null);
   const refreshButtonRef = useRef<HTMLButtonElement>(null);
@@ -97,11 +99,14 @@ function MonitoringDashboard({ data, userRole, siteId, refreshDashboard }: Monit
   // snapshot placements plus its legacy/runtime-only placement fallback.
   const hasPlacedFixtures = Boolean(mapSnapshot?.fixtures?.length) || fixtures.some((fixture) => fixture.placementStatus !== "unplaced");
   const mapRefreshFailed = Boolean(floor && mapRefreshFailure && mapRefreshFailure.floorId === floor.id);
+  const normalizedSearch = fixtureSearch.trim().toLocaleLowerCase("ko-KR");
+  const filteredFixtures = fixtures.filter(fixture => matchesMonitoringFixtureSearch(fixture, normalizedSearch)
+    && matchesMonitoringFixture(fixture, fixtureFilter, resolveFixtureMapPosition(mapSnapshot, fixture)));
+  // A KPI filter must never leave an unrelated fixture in the selector, map selection, or detail panel.
   const selectedFixture = selectedFixtureId === null
-    ? fixtures[0]
-    : fixtures.find((fixture) => fixture.id === selectedFixtureId);
-  const emphasizedFixtureIds = fixtureFilter === "all" ? undefined : new Set(fixtures
-    .filter(fixture => matchesMonitoringFixture(fixture, fixtureFilter, resolveFixtureMapPosition(mapSnapshot, fixture))).map(fixture => fixture.id));
+    ? filteredFixtures[0]
+    : filteredFixtures.find((fixture) => fixture.id === selectedFixtureId) ?? (fixtureFilter === "all" && !normalizedSearch ? undefined : filteredFixtures[0]);
+  const emphasizedFixtureIds = fixtureFilter === "all" && !normalizedSearch ? undefined : new Set(filteredFixtures.map(fixture => fixture.id));
   const snapshotFreshness = useMemo(
     // A newly arrived server response must be compared with this render's wall clock, not a
     // periodic timer value captured before the response arrived.
@@ -121,7 +126,16 @@ function MonitoringDashboard({ data, userRole, siteId, refreshDashboard }: Monit
       refreshAbortRef.current = null;
     };
   }, [floor?.id, siteId]);
-  useEffect(() => { setIsLogDrawerOpen(false); setIsInspectorOpen(false); setFixtureFilter("all"); setFocusRequest(undefined); }, [floor?.id, principal]);
+  useEffect(() => { setIsLogDrawerOpen(false); setIsInspectorOpen(false); setFixtureFilter("all"); setFixtureSearch(""); setFocusRequest(undefined); pinDetailsFixtureRef.current = null; }, [floor?.id, principal]);
+
+  function closeInspector() {
+    const returnToPin = pinDetailsFixtureRef.current;
+    pinDetailsFixtureRef.current = null;
+    setIsInspectorOpen(false);
+    // Dialog focus restoration targets the toolbar. Revisit the originating pin
+    // after the drawer closes so compact navigation cannot cover the map target.
+    if (returnToPin) window.requestAnimationFrame(() => setFocusRequest({ requestId: ++focusSequence.current, fixtureId: returnToPin }));
+  }
 
   useEffect(() => {
     if (floor && fixtureQuery.hasNextPage && !fixtureQuery.isFetchingNextPage && !fixtureQuery.isFetchNextPageError) void fixtureQuery.fetchNextPage();
@@ -275,20 +289,18 @@ function MonitoringDashboard({ data, userRole, siteId, refreshDashboard }: Monit
         offline={data.summary.offlineFixtures ?? null}
       /></div>
       <div className="flex items-center justify-between gap-4 max-compact:flex-col max-compact:items-stretch" role="group" aria-label="모니터링 도구">
-        <SelectBox
-          label="맵 선택"
-          items={data.floors.map((item) => ({ id: item.id, label: item.name }))}
-          selectedKey={floor?.id ?? null}
-          isDisabled={data.floors.length === 0}
-          onSelectionChange={(floorId) => floorId !== null && handleSelectFloor(floorId)}
-          className="grid w-full max-w-56 grid-cols-[auto_minmax(0,1fr)] items-center gap-2 max-compact:max-w-none"
-        />
+        <div className="flex min-w-0 items-center gap-2 max-compact:w-full">
+          <SelectBox
+            label="맵 선택"
+            items={data.floors.map((item) => ({ id: item.id, label: item.name }))}
+            selectedKey={floor?.id ?? null}
+            isDisabled={data.floors.length === 0}
+            onSelectionChange={(floorId) => floorId !== null && handleSelectFloor(floorId)}
+            className="grid min-w-0 flex-1 grid-cols-[auto_minmax(0,1fr)] items-center gap-2 max-compact:max-w-none"
+          />
+          <Button ref={inspectorTriggerRef} variant="secondary" className="shrink-0" onClick={() => { setFinderDefaultOpen(false); setIsInspectorOpen(true); }}>조명 검색·상세</Button>
+        </div>
         <div className="ml-auto flex flex-wrap items-center justify-end gap-2 text-content-secondary max-compact:ml-0 max-compact:w-full">
-          <Button ref={inspectorTriggerRef} variant="secondary" onClick={() => { setFinderDefaultOpen(false); setIsInspectorOpen(true); }}>조명 검색·상세</Button>
-          <IconButton variant="secondary" className="size-13" aria-label={workspaceFocus.active ? "전체 보기 종료" : "지도 전체 보기"} aria-pressed={workspaceFocus.active}
-            onClick={event => workspaceFocus.active ? workspaceFocus.exit() : workspaceFocus.enter(event.currentTarget)}>
-            {workspaceFocus.active ? <Minimize size={18} aria-hidden="true" /> : <Maximize size={18} aria-hidden="true" />}
-          </IconButton>
           <Text as="small" variant="caption" tone="secondary" className="whitespace-nowrap">{formatSnapshotUpdatedAt(snapshotFreshness)}</Text>
           <Button
             ref={refreshButtonRef}
@@ -314,7 +326,7 @@ function MonitoringDashboard({ data, userRole, siteId, refreshDashboard }: Monit
       {floor ? <MonitoringSummary
         scope="floor"
         filter={fixtureFilter}
-        onSelect={filter => { setFixtureFilter(filter); setFinderDefaultOpen(true); setIsInspectorOpen(true); }}
+        onSelect={filter => { setFixtureSearch(""); setFixtureFilter(filter); setFinderDefaultOpen(true); setIsInspectorOpen(true); }}
         total={floor.summary?.totalFixtures ?? null}
         online={floor.summary?.onlineFixtures ?? null}
         fault={floor.summary?.faultFixtures ?? null}
@@ -328,12 +340,14 @@ function MonitoringDashboard({ data, userRole, siteId, refreshDashboard }: Monit
             <EmptyFixtureGuidance userRole={userRole} siteId={data.site.id} />
           ) : !hasFixtureData ? null : floor && mapSnapshot ? (
             <>
-              <FloorMap floor={{ ...floor, fixtures }} snapshot={mapSnapshot} selectedFixtureId={selectedFixtureId ?? selectedFixture?.id ?? null} onSelectFixture={setSelectedFixtureId} timeZone={data.site.timeZone}
+              <FloorMap floor={{ ...floor, fixtures }} snapshot={mapSnapshot} selectedFixtureId={fixtureFilter === "all" && !normalizedSearch ? selectedFixtureId ?? selectedFixture?.id ?? null : selectedFixture?.id ?? null} onSelectFixture={id => { setFixtureSearch(""); setFixtureFilter("all"); setSelectedFixtureId(id); }} timeZone={data.site.timeZone}
                 focusRequest={focusRequest} emphasizedFixtureIds={emphasizedFixtureIds}
                 fullView={workspaceFocus.active}
+                activeFilter={`${fixtureFilter}:${normalizedSearch}`}
+                onToggleFullView={trigger => workspaceFocus.active ? workspaceFocus.exit() : workspaceFocus.enter(trigger)}
                 cameraScope={principal ? { principal, siteId: siteId ?? data.site.id, floorId: floor.id } : null}
                 onPinOpenChange={setIsPinOpen}
-                onShowDetails={id => { setSelectedFixtureId(id); setFinderDefaultOpen(false); setIsInspectorOpen(true); }}
+                onShowDetails={id => { pinDetailsFixtureRef.current = id; setSelectedFixtureId(id); setFinderDefaultOpen(false); setIsInspectorOpen(true); }}
                 onFocusResult={(_id, result) => { if (result !== "focused") setIsInspectorOpen(true); }}
               />
               {fixtures.length > 0 && !hasPlacedFixtures && <FeedbackState icon={Clock3} title="배치된 조명이 없습니다" description={`등록된 조명 ${fixtures.length}개는 목록에서 조회하고 제어할 수 있습니다.`} action={userRole === "admin" ? <Link to={`/settings/floor-plans/${encodeURIComponent(floor.id)}/edit?siteId=${encodeURIComponent(data.site.id)}`}>설정에서 조명 배치</Link> : undefined} />}
@@ -367,19 +381,19 @@ function MonitoringDashboard({ data, userRole, siteId, refreshDashboard }: Monit
       </div>
       <DrawerDialog
         isOpen={isInspectorOpen}
-        onClose={() => setIsInspectorOpen(false)}
+        onClose={closeInspector}
         returnFocusRef={inspectorTriggerRef}
         fallbackFocusRef={refreshButtonRef}
         title="조명 검색·상세"
         closeLabel="조명 검색·상세 닫기"
         bodyClassName="grid min-w-0 gap-4"
       >
-        {hasFixtureData && data.summary.totalFixtures > 0 ? <div data-monitoring-fixture-selector="">
+        {hasFixtureData && filteredFixtures.length > 0 ? <div data-monitoring-fixture-selector="">
           <SelectBox
             label="상세 조명 선택"
-            items={fixtures.map((fixture) => ({ id: fixture.id, label: `${fixture.name} · ${presentFixtureStatus(fixture).label}` }))}
+            items={filteredFixtures.map((fixture) => ({ id: fixture.id, label: `${fixture.name} · ${presentFixtureStatus(fixture).label}` }))}
             selectedKey={selectedFixture?.id ?? null}
-            onSelectionChange={(fixtureId) => setSelectedFixtureId(fixtureId)}
+            onSelectionChange={(fixtureId) => { pinDetailsFixtureRef.current = null; setSelectedFixtureId(fixtureId); }}
             className="w-full"
           />
         </div> : null}
@@ -389,6 +403,7 @@ function MonitoringDashboard({ data, userRole, siteId, refreshDashboard }: Monit
             fixtures={fixtures}
             selectedFixtureId={selectedFixture?.id ?? null}
             onSelectFixture={id => {
+              pinDetailsFixtureRef.current = null;
               setSelectedFixtureId(id);
               const position = resolveFixtureMapPosition(mapSnapshot, fixtures.find(fixture => fixture.id === id));
               if (position.kind === "placed") {
@@ -405,13 +420,16 @@ function MonitoringDashboard({ data, userRole, siteId, refreshDashboard }: Monit
             placedFixtureIds={placedFixtureIds}
             snapshot={mapSnapshot}
             filter={fixtureFilter}
-            onFilterChange={setFixtureFilter}
+            onFilterChange={filter => { pinDetailsFixtureRef.current = null; setFixtureFilter(filter); }}
+            search={fixtureSearch}
+            onSearchChange={search => { pinDetailsFixtureRef.current = null; setFixtureSearch(search); }}
             defaultOpen={finderDefaultOpen}
             nextPageError={fixtureQuery.isFetchNextPageError}
             expectedTotal={floor.summary?.totalFixtures}
           />
         </div> : null}
-        <FixtureDetailPanel fixture={selectedFixture ?? null} position={resolveFixtureMapPosition(mapSnapshot, selectedFixture)} timeZone={data.site.timeZone} />
+        {(fixtureFilter === "all" && !normalizedSearch) || filteredFixtures.length > 0
+          ? <FixtureDetailPanel fixture={selectedFixture ?? null} position={resolveFixtureMapPosition(mapSnapshot, selectedFixture)} timeZone={data.site.timeZone} /> : null}
       </DrawerDialog>
       <MonitoringLogDrawer
         isOpen={isLogDrawerOpen}

@@ -1,7 +1,6 @@
 import type { RefObject } from "react";
-import { X } from "lucide-react";
 import type { DashboardFixture } from "../../api/queries";
-import { Button, IconButton, Popover, Text } from "../../components/ui";
+import { Button, Popover, Text } from "../../components/ui";
 import { FixtureStatusBadge } from "./FixtureStatusBadge";
 import { presentFixtureStatus } from "./fixture-status-presentation";
 import { presentFixtureBrightness } from "./fixture-brightness-presentation";
@@ -36,10 +35,7 @@ export function FixturePinPopover({ name, fixture, triggerRef, open, onOpenChang
     className="w-56 max-w-[calc(100vw-24px)]"
   >
     <div className="grid gap-3" data-monitoring-pin-popover="">
-      <div className="flex min-w-0 items-start justify-between gap-2">
-        <Text as="strong" variant="body" weight="bold" className="min-w-0 break-words">{name}</Text>
-        <IconButton variant="ghost" className="size-13" aria-label="조명 정보 닫기" onClick={() => onOpenChange(false)}><X size={16} aria-hidden="true" /></IconButton>
-      </div>
+      <Text as="strong" variant="body" weight="bold" className="min-w-0 break-words">{name}</Text>
       <FixtureStatusBadge fixture={fixture} />
       <dl className="m-0 grid gap-2 text-body-sm">
         <div className="grid gap-0.5">

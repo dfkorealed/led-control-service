@@ -194,6 +194,28 @@ describe("FloorMapViewport", () => {
     expect(screen.getByRole("region", { name: "테스트 지도" })).toHaveAttribute("data-zoom", "4");
   });
 
+  it("opts monitoring into unmodified pointer-anchored wheel zoom without wheel panning", () => {
+    render(<ViewportHarness mode="pan" wheelZoomWithoutModifier />);
+    const viewport = screen.getByRole("region", { name: "테스트 지도" });
+    const wheel = new WheelEvent("wheel", { bubbles: true, cancelable: true, deltaY: -80, clientX: 120, clientY: 90 });
+    expect(fireEvent(viewport, wheel)).toBe(false);
+    expect(wheel.defaultPrevented).toBe(true);
+    expect(viewport).toHaveAttribute("data-zoom", "1.1");
+    const horizontal = new WheelEvent("wheel", { bubbles: true, cancelable: true, deltaX: 90, deltaY: 0 });
+    expect(fireEvent(viewport, horizontal)).toBe(false);
+    expect(horizontal.defaultPrevented).toBe(true);
+    expect(viewport).toHaveAttribute("data-zoom", "1.1");
+  });
+
+  it("keeps unmodified wheel behavior unchanged outside monitoring", () => {
+    render(<ViewportHarness mode="pan" />);
+    const viewport = screen.getByRole("region", { name: "테스트 지도" });
+    const wheel = new WheelEvent("wheel", { bubbles: true, cancelable: true, deltaY: -80 });
+    expect(fireEvent(viewport, wheel)).toBe(true);
+    expect(wheel.defaultPrevented).toBe(false);
+    expect(viewport).toHaveAttribute("data-zoom", "1");
+  });
+
   it("restores the initial map point after a centered fitted surface changes size", () => {
     const animationFrames: FrameRequestCallback[] = [];
     const requestAnimationFrame = vi.spyOn(globalThis, "requestAnimationFrame").mockImplementation((callback: FrameRequestCallback) => {
@@ -298,15 +320,17 @@ function ViewportHarness({
   mode,
   onAreaSelect,
   onMarkerClick,
-  onZoomChange
+  onZoomChange,
+  wheelZoomWithoutModifier
 }: {
   mode: MapInteractionMode;
   onAreaSelect?: (rect: MapSelectionRect) => void;
   onMarkerClick?: () => void;
   onZoomChange?: (zoom: number) => void;
+  wheelZoomWithoutModifier?: boolean;
 }) {
   return (
-    <FloorMapViewport snapshot={snapshot} ariaLabel="테스트 지도" mode={mode} onAreaSelect={onAreaSelect} onZoomChange={onZoomChange}>
+    <FloorMapViewport snapshot={snapshot} ariaLabel="테스트 지도" mode={mode} onAreaSelect={onAreaSelect} onZoomChange={onZoomChange} wheelZoomWithoutModifier={wheelZoomWithoutModifier}>
       <button type="button" aria-label="테스트 조명" onClick={onMarkerClick}>테스트 조명</button>
     </FloorMapViewport>
   );

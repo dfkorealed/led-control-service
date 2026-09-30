@@ -17,7 +17,7 @@ interface MonitoringLogTickerProps {
   triggerRef?: RefObject<HTMLButtonElement>;
 }
 
-export function MonitoringLogTicker({ items, generatedAt, retainedFrom, isPending, error, isRefetchError, timeZone, onOpen, onRetry, triggerRef }: MonitoringLogTickerProps) {
+export function MonitoringLogTicker({ items, generatedAt, isPending, error, isRefetchError, timeZone, onOpen, onRetry, triggerRef }: MonitoringLogTickerProps) {
   const [activeIndex, setActiveIndex] = useState(0);
   const [paused, setPaused] = useState(false);
   const [visible, setVisible] = useState(document.visibilityState === "visible");
@@ -59,7 +59,6 @@ export function MonitoringLogTicker({ items, generatedAt, retainedFrom, isPendin
     <div className="min-w-0">
       <Text variant="body-sm" className="truncate">{copy}</Text>
       {stale ? <Text variant="caption" tone="secondary">활동 갱신에 실패했습니다. 마지막 조회: {generatedAt ? formatMonitoringTimestamp(generatedAt, timeZone) : "확인 불가"}</Text> : null}
-      {!hasItems && !error && !isPending && retainedFrom ? <Text variant="caption" tone="secondary">3개월 이전 기록은 보관되지 않습니다.</Text> : null}
     </div>
     {hasItems ? <Button ref={triggerRef} variant="ghost" onClick={onOpen}>전체 보기</Button>
       : error ? <Button variant="secondary" onClick={onRetry}>다시 시도</Button> : null}

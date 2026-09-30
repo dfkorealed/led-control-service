@@ -34,6 +34,7 @@ describe("MonitoringLogTicker", () => {
   it("keeps true empty, first error and cached refetch error distinct", () => {
     const { rerender } = render(ticker({ items: [], generatedAt: "2026-09-25T00:02:00.000Z" }));
     expect(screen.getByText("최근 3개월의 운영 활동 기록이 없습니다.")).toBeVisible();
+    expect(screen.queryByText("3개월 이전 기록은 보관되지 않습니다.")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "전체 보기" })).not.toBeInTheDocument();
     rerender(ticker({ items: [], generatedAt: null, error: new Error("offline") }));
     expect(screen.getByText("운영 활동을 불러오지 못했습니다.")).toBeVisible();

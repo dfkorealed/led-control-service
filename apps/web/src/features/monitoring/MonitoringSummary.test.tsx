@@ -28,6 +28,9 @@ describe("MonitoringSummary", () => {
     expect(within(site).getByRole("group", { name: "현장 오프라인" })).toHaveTextContent("4");
     expect(within(floor).getByRole("group", { name: "전체 조명" })).toHaveTextContent("62");
     expect(within(floor).getByRole("group", { name: "오프라인" })).toHaveTextContent("2");
+    for (const helper of ["현장 전체 기준", "선택 층 기준", "최근 수신 정상", "우선 점검 대상", "상태 확인 대기 포함"]) {
+      expect(screen.queryByText(helper)).not.toBeInTheDocument();
+    }
   });
 
   it("keeps real zero distinct from a missing summary", () => {

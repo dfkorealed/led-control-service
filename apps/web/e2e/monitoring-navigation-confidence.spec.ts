@@ -47,7 +47,8 @@ for (const width of [1440, 1024, 390, 320]) {
     expect(initialBounds!.x).toBeGreaterThanOrEqual(0);
     expect(initialBounds!.x + initialBounds!.width).toBeLessThanOrEqual(width);
     const before = await geometry(page);
-    await pin.getByRole("button", { name: "조명 정보 닫기" }).click();
+    await expect(pin.getByRole("button", { name: "조명 정보 닫기" })).toHaveCount(0);
+    await page.keyboard.press("Escape");
     await expect(pin).toHaveCount(0);
     await expect.poll(() => geometry(page)).toEqual(before);
     await expect(marker).toBeFocused();
@@ -92,11 +93,65 @@ for (const width of [1440, 1024, 390, 320]) {
     const returnedBounds = await focusedPin.boundingBox();
     expect(returnedBounds!.x).toBeGreaterThanOrEqual(0);
     expect(returnedBounds!.x + returnedBounds!.width).toBeLessThanOrEqual(width);
+    if (width === 320) {
+      const markerBounds = await page.getByRole("button", { name: "B2-L2 명령 처리 실패 70%", exact: true }).boundingBox();
+      const navigationBounds = await page.locator('[data-shell-navigation="compact"]').boundingBox();
+      expect(markerBounds!.y + markerBounds!.height).toBeLessThan(navigationBounds!.y - 8);
+      expect(returnedBounds!.y + returnedBounds!.height).toBeLessThan(navigationBounds!.y - 8);
+    }
     await expectNoHorizontalOverflow(page);
     await page.screenshot({ path: resolve("../..", `.superpowers/sdd/2026-09-29-monitoring-navigation-and-confidence/monitoring-${width}.png`), fullPage: true });
     expect(errors).toEqual([]);
   });
 }
+
+test("맵 안의 일반 휠은 포인터 기준으로 확대하고 수평 휠 이동은 무시한다", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await setup(page);
+  const viewport = page.getByTestId("monitoring-map-viewport");
+  const box = await viewport.boundingBox();
+  const pointer = { x: box!.x + box!.width * .37, y: box!.y + box!.height * .43 };
+  const mapPoint = () => viewport.evaluate((node, point) => {
+    const surface = node.querySelector<HTMLElement>("[data-floor-map-surface]")!;
+    const rect = surface.getBoundingClientRect();
+    return { x: (point.x - rect.left) / rect.width, y: (point.y - rect.top) / rect.height };
+  }, pointer);
+  const before = await mapPoint();
+  await page.mouse.move(pointer.x, pointer.y);
+  await page.mouse.wheel(0, -120);
+  await expect(viewport).toHaveAttribute("data-zoom", "1.1");
+  await expect.poll(async () => {
+    const after = await mapPoint();
+    return Math.abs(after.x - before.x) + Math.abs(after.y - before.y);
+  }).toBeLessThan(.04);
+  const horizontal = await viewport.evaluate(node => {
+    const event = new WheelEvent("wheel", { bubbles: true, cancelable: true, deltaX: 120, deltaY: 0 });
+    return { canceled: !node.dispatchEvent(event), zoom: node.getAttribute("data-zoom") };
+  });
+  expect(horizontal).toEqual({ canceled: true, zoom: "1.1" });
+  await expect(page.getByText("드래그로 이동 · 휠로 확대/축소")).toBeVisible();
+});
+test("0개 상태 KPI는 이전 조명의 선택·상세를 보여주지 않는다", async ({ page }) => {
+  await setup(page);
+  await page.getByRole("button", { name: "오프라인", exact: true }).click();
+  const drawer = page.getByRole("dialog", { name: "조명 검색·상세", exact: true });
+  await expect(drawer.getByText("오프라인 조명이 없습니다.")).toBeVisible();
+  await expect(drawer.getByRole("button", { name: "상세 조명 선택" })).toHaveCount(0);
+  await expect(drawer.getByRole("complementary", { name: "선택 조명 상세" })).toHaveCount(0);
+  await drawer.getByRole("button", { name: "전체 조명 보기" }).click();
+  await expect(drawer.getByRole("button", { name: "상세 조명 선택" })).toBeVisible();
+});
+test("상세에서 다른 조명을 선택하면 원래 핀 정보로 돌아가지 않는다", async ({ page }) => {
+  await setup(page);
+  await page.getByRole("button", { name: "B2-L2 명령 처리 실패 70%", exact: true }).click();
+  await page.getByRole("dialog", { name: "B2-L2 조명 정보" }).getByRole("button", { name: "상세 보기" }).click();
+  const drawer = page.getByRole("dialog", { name: "조명 검색·상세", exact: true });
+  await drawer.getByRole("button", { name: "상세 조명 선택" }).click();
+  await page.getByRole("option", { name: "B2-L1 · 정상" }).click();
+  await drawer.getByRole("button", { name: "조명 검색·상세 닫기" }).click();
+  await expect(page.getByRole("button", { name: "B2-L1 정상 70%", exact: true })).toHaveAttribute("aria-current", "true");
+  await expect(page.getByRole("dialog", { name: "B2-L2 조명 정보" })).toHaveCount(0);
+});
 test("camera restores on reload without saving fixture or selection data", async ({ page }) => {
   await setup(page);
   await page.getByRole("button", { name: "지도 확대", exact: true }).click();

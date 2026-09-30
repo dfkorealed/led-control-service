@@ -406,6 +406,15 @@ describe("MonitoringView refresh", () => {
     expect(within(inspector).queryByText("GW-1 (정상)")).not.toBeInTheDocument();
   });
 
+  it("검색 결과 0개에서도 이전 조명 상세와 선택기를 숨긴다", () => {
+    render(<MonitoringView siteId="site-1" />);
+    const inspector = openInspector();
+    fireEvent.change(within(inspector).getByRole("searchbox", { name: "조명 이름 또는 번호 검색" }), { target: { value: "없는 조명" } });
+    expect(within(inspector).getByText("검색 결과가 없습니다.")).toBeVisible();
+    expect(within(inspector).queryByRole("button", { name: "상세 조명 선택" })).not.toBeInTheDocument();
+    expect(within(inspector).queryByRole("complementary", { name: "선택 조명 상세" })).not.toBeInTheDocument();
+  });
+
   it("shows only fixture details without exposing incident operations", () => {
     render(<MonitoringView siteId="site-1" userRole="admin" />);
     openInspector();
@@ -476,7 +485,7 @@ describe("MonitoringView refresh", () => {
     expect(screen.getByRole("button", { name: "점검 필요" })).toHaveTextContent("1");
     const offlineMetric = screen.getByRole("button", { name: "오프라인" });
     expect(offlineMetric).toHaveTextContent("1");
-    expect(offlineMetric).toHaveTextContent("상태 확인 대기 포함");
+    expect(offlineMetric).not.toHaveTextContent("상태 확인 대기 포함");
     expect(within(offlineMetric.parentElement!).getAllByRole("button").map((metric) => metric.getAttribute("aria-label"))).toEqual([
       "전체 조명",
       "정상",
@@ -1092,6 +1101,20 @@ describe("MonitoringView refresh", () => {
     expect(mapSelector).toHaveAttribute("aria-labelledby", mapSelectorLabel.id);
     const refreshButton = screen.getByRole("button", { name: "새로고침" });
     expect(refreshButton.parentElement?.lastElementChild).toBe(refreshButton);
+    expect(mapSelectorField?.parentElement).toContainElement(screen.getByRole("button", { name: "조명 검색·상세" }));
+    expect(screen.getByRole("group", { name: "지도 조작" })).toContainElement(screen.getByRole("button", { name: "지도 전체 보기" }));
+    expect(screen.queryByRole("button", { name: "지도 화면 맞춤" })).not.toBeInTheDocument();
+  });
+
+  it("0개 상태 필터에서 다른 조명의 상세를 숨기고 전체 목록으로 돌아간다", () => {
+    render(<MonitoringView siteId="site-1" />);
+    fireEvent.click(screen.getByRole("button", { name: "오프라인" }));
+    const inspector = screen.getByRole("dialog", { name: "조명 검색·상세" });
+    expect(within(inspector).getByText("오프라인 조명이 없습니다.")).toBeVisible();
+    expect(within(inspector).queryByRole("button", { name: "상세 조명 선택" })).not.toBeInTheDocument();
+    expect(within(inspector).queryByRole("complementary", { name: "선택 조명 상세" })).not.toBeInTheDocument();
+    fireEvent.click(within(inspector).getByRole("button", { name: "전체 조명 보기" }));
+    expect(within(inspector).getByRole("button", { name: "상세 조명 선택" })).toHaveTextContent("B1-L001");
   });
 
   it("지도 최초 조회 실패에는 빈 캔버스 대신 오류와 재시도를 표시한다", () => {

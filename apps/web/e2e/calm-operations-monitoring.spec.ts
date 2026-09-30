@@ -207,7 +207,7 @@ for (const viewport of viewports) {
     const mapSelector = page.getByRole("button", { name: "맵 선택" });
     await expect(mapSelector).toBeVisible();
     await expect(page.getByRole("button", { name: "오프라인", exact: true })).toContainText("2");
-    await expect(page.getByRole("button", { name: "오프라인", exact: true })).toContainText("상태 확인 대기 포함");
+    await expect(page.getByRole("button", { name: "오프라인", exact: true })).not.toContainText("상태 확인 대기 포함");
     await expect(page.getByRole("group", { name: "평균 밝기" })).toHaveCount(0);
     await expect(page.getByRole("region", { name: "빠른 상태" })).toHaveCount(0);
     await expect(page.getByRole("region", { name: "층 도면" })).toBeVisible();
@@ -240,7 +240,7 @@ for (const viewport of viewports) {
       const legend = shell.querySelector('[aria-label="조명 상태 범례"]')?.getBoundingClientRect();
       const panHintElement = shell.querySelector<HTMLElement>("[data-monitoring-map-pan-hint]");
       const panHint = panHintElement?.getBoundingClientRect();
-      const zoomControls = shell.querySelector('[role="group"][aria-label="지도 확대 축소"]')?.getBoundingClientRect();
+      const zoomControls = shell.querySelector('[role="group"][aria-label="지도 조작"]')?.getBoundingClientRect();
       const legendElement = shell.querySelector<HTMLElement>('[aria-label="조명 상태 범례"]');
       if (!legend || !legendElement || !panHint || !panHintElement || !zoomControls) {
         throw new Error("지도 범례 또는 이동·확대 안내를 찾을 수 없습니다.");
@@ -287,7 +287,7 @@ for (const viewport of viewports) {
 
     if (viewport.width <= 760) {
       await page.getByRole("region", { name: "층 도면" }).scrollIntoViewIfNeeded();
-      await expectMinimumTouchTargetsAfterScrolling(page, '[role="group"][aria-label="지도 확대 축소"]');
+      await expectMinimumTouchTargetsAfterScrolling(page, '[role="group"][aria-label="지도 조작"]');
       await openInspector(page);
       await expectMinimumTouchTargetsAfterScrolling(page, "[data-monitoring-fixture-selector]");
       await closeInspector(page);
@@ -472,7 +472,7 @@ test("데스크톱 지도는 내부에서 확대·스크롤되고 상세 정보�
   expect(modifiedWheel).toEqual({ canceled: true, defaultPrevented: true });
   await expect(map.getByRole("button", { name: "지도 배율 110%" })).toBeVisible();
   expect(await page.evaluate(() => window.visualViewport?.scale ?? 1)).toBe(pageScaleBefore);
-  await map.getByRole("button", { name: "지도 화면 맞춤" }).click();
+  await map.getByRole("button", { name: "지도 배율 110%" }).click();
 
   for (let index = 0; index < 5; index += 1) await map.getByRole("button", { name: "지도 확대" }).click();
   await expect(map.getByRole("button", { name: "지도 배율 150%" })).toBeVisible();
