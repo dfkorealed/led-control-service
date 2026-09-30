@@ -73,11 +73,11 @@
 
 **Interfaces:** Extend `VehicleSensorInput` with `{ type: "pulse"; sourceFixtureId: string; receivedMonotonicMs: number; receipt: BioPulseReceipt }`; `BioPulseReceipt`는 native identity·8-bit sequence·connection epoch를 포함하며 exact duplicate만 짧게 억제한다. `VehicleEventRuntime.planRecordInput()`은 `sensorProtocol: "bio-usb-pulse"` 규칙에서 첫 pulse `vehicle_detected`+`event_started`, 후속 pulse `vehicle_detected`+`event_extended`와 `holdUntil=now+holdSeconds`를 만든다. BlueZ stateful path는 그대로다.
 
-- [ ] **Step 1: RED 테스트 작성.** 첫 BIO pulse가 activeSource를 붙잡지 않고 hold deadline 생성; 두 번째 pulse는 같은 occurrence를 연장; 건강한 10초·60초·1,800초 만료; BlueZ `detected` 뒤 `cleared` 전에는 만료 없음; 중복 receipt·늦은 연결 epoch packet은 연장 없음; `255→0` wrap과 재부팅은 정상 새 pulse를 영구 차단하지 않음을 단언한다.
-- [ ] **Step 2: RED 확인.** `pnpm --filter @led-control/gateway exec vitest run src/automation/vehicle-event-runtime.test.ts src/automation/schedule-runtime.test.ts src/automation/automation-state-store.test.ts` → pulse 경로 실패.
-- [ ] **Step 3: 최소 구현.** 상태 저장 포맷은 기존 V6 reader를 깨지 않는 새 버전으로 migration하고, receipt와 deadline을 durable transition에 함께 기록한다. monotonic deadline은 프로세스 내에서만 사용하며 재시작 후 이전 wall-clock deadline을 그대로 만료 근거로 쓰지 않는다.
-- [ ] **Step 4: GREEN·회귀 확인.** 위 Vitest와 Gateway 전체 `pnpm --filter @led-control/gateway test` → BlueZ 포함 통과.
-- [ ] **Step 5: 커밋.** pulse runtime·state migration·테스트만 저장한다.
+- [x] **Step 1: RED 테스트 작성.** 첫 BIO pulse가 activeSource를 붙잡지 않고 hold deadline 생성; 두 번째 pulse는 같은 occurrence를 연장; 10초·60초·1,800초 만료; BlueZ `detected` 뒤 `cleared` 전에는 만료 없음; 중복 receipt·늦은 연결 epoch packet은 연장 없음; `255→0` wrap과 재부팅은 정상 새 pulse를 영구 차단하지 않음을 단언한다. 독립 건강 판정과 재시작 후 full-hold 관찰은 Task 4에 남긴다.
+- [x] **Step 2: RED 확인.** 지정 Vitest의 새 pulse 경로 11건 실패와 추가 경계 실패를 확인했다.
+- [x] **Step 3: 최소 구현.** V6 reader를 유지한 V7로 migration하고 BIO receipt와 hold를 durable transition에 함께 기록한다. persisted monotonic/UTC hold를 재시작 후 BIO 만료 근거로 사용하지 않는다. 생산 scheduler의 두 진입점은 pulse를 명시적으로 거부한다.
+- [x] **Step 4: GREEN·회귀 확인.** 지정 Vitest 139/139, Gateway 전체 1,457/1,457, Gateway typecheck 통과; 독립 검토 승인. 실제 건강·target 복원은 Task 4다.
+- [x] **Step 5: 커밋.** pulse runtime·V7 state migration·테스트 `0ff260a4`를 저장했다.
 
 ### Task 4: 장애·재시작·대상별 mode 복원
 
@@ -155,7 +155,7 @@
 
 - [x] Task 1 — 공유 V2 계약 (`ededa5c9`, `f3f0f4c5`; 집중/Shared 검증 통과, root CAD RSS 실패 별도)
 - [x] Task 2 — BIO decode/intake, allowlist OFF (`72d26ac4`, `ae1d3de5`; 집중 195/195, Gateway 1,439/1,439, 독립 재검토 승인)
-- [ ] Task 3 — pulse occurrence/receipt
+- [x] Task 3 — pulse occurrence/receipt (`0ff260a4`; 집중 139/139, Gateway 1,457/1,457, 독립 검토 승인; 제품 실행 OFF)
 - [ ] Task 4 — fail-safe/restart/target mode 복원
 - [ ] Task 5 — API/DB versioning 및 capability
 - [ ] Task 6 — A source 보호
