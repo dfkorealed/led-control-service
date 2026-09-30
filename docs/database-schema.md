@@ -1620,6 +1620,24 @@ Exact desired reject 뒤 lower revision의 applied ACK가 늦게 도착하면 `a
 
 구성 row는 감사 이력이 아니라 현재 동기화 상태이므로 Site 또는 Gateway가 삭제되면 cascade한다. Snapshot publish 이력은 같은 Gateway에 연결된 `MqttOutbox` config row가 담당한다. `(gatewayId, siteId)`와 `siteId` FK는 owner key 갱신을 `RESTRICT`한다.
 
+### GatewayAutomationProtocolSupport
+
+순방향 migration `20260930160000_gateway_automation_protocol_support`가 추가하는 명시적 구성 프로토콜 지원 선언 이력이다. 구성 적용 ACK와 센서 준비 상태는 이 표의 근거가 아니다. 기존 Gateway에는 row를 backfill하지 않으며, 선언이 없거나 현재 assignment와 맞지 않으면 V1만 사용하고 BIO 초안은 제외한다.
+
+| 컬럼 | 타입 | 제약 및 의미 |
+| --- | --- | --- |
+| `gatewayId`, `siteId` | `String` | `Gateway(id, siteId)` FK, 삭제 cascade·변경 restrict |
+| `assignmentVersion` | `Int` | 0 이상, 현재 Gateway assignment와 일치해야 유효 |
+| `declarationRevision` | `BigInt` | 1..9007199254740991; Gateway·assignment 안에서 단조 증가 |
+| `declarationId` | `String` | 전역 unique; V2 current-config request의 `requestId` |
+| `maxSnapshotVersion` | `Int` | 1 또는 2; 최신 명시적 선언만 권한이며 1은 지원 하향 |
+| `payloadHash` | `String` | 선언 전체의 canonical SHA-256; 동일 ID의 내용 변경 거절 |
+| `declaredAt`, `receivedAt` | `DateTime` | Gateway 선언 시각과 서버 수신 시각; 순서는 시각 대신 revision으로 판정 |
+
+PK는 `(gatewayId, assignmentVersion, declarationRevision)`이다. API는 MQTT broker의 인증/topic ACL로 전달된 site/Gateway 범위를 현재 claimed·활성 inventory 및 active/non-revoked MQTT certificate와 대조하고 membership lock → Gateway/inventory row lock 순으로 직렬화한다. 소비자가 실제 peer certificate fingerprint를 받는 것은 아니므로 개별 메시지의 인증서 암호학적 결합을 주장하지 않는다. 인증서 회전은 별도 protocol epoch를 만들지 않으며, 현재 활성 인증서가 없는 경우 지원을 사용하지 않는다.
+
+이력은 추가만 하며 자동 보존 삭제 대상에 넣지 않는다. 이전 ID 재사용과 하향 후 replay를 계속 거절하기 위해 outbox 정리와 독립적으로 남기므로, 재연결마다 저장 공간이 증가한다. 향후 정리 시 단조 watermark와 ID 충돌 증거를 보존하는 별도 정책이 필요하다. API는 지원 선언과 새 versioned snapshot을 같은 transaction에서 저장하고 실패 시 함께 rollback한다. 최신 V2 선언이 있어도 BIO 제품 실행·mode GET·readiness·광학 출력이 확인되는 것은 아니다.
+
 ### LightingSchedule / LightingScheduleFixture
 
 `LightingSchedule`은 현장 날짜 범위, 현지 시각 구간, 반복 방식과 action을 저장하고 `LightingScheduleFixture`는 저장 시 확정된 Fixture ID snapshot이다.

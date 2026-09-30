@@ -11,7 +11,6 @@ import {
   commandDrainResponseSchema,
   type CommandClockRequest,
   type AcceptanceAckV2,
-  type AutomationConfigAppliedReceiptV1,
   type AutomationExecutionFixtureResultV1,
   type DeviceStatusAckV2,
   type FixturePresenceV2,
@@ -25,7 +24,7 @@ import {
   gatewayDimmingCommandV2CompatibilitySchema,
   gatewayStatusCheckCommandV2CompatibilitySchema,
   gatewayHeartbeatV2Schema,
-  automationConfigAppliedReceiptV1Schema,
+  automationConfigAppliedReceiptSchema,
   automationExecutionIngestedAckV1Schema,
   vehicleSensorCapabilityIngestedAckV1Schema,
   fixtureIdentifyTopics,
@@ -133,6 +132,7 @@ import {
 import { AutomationRuntime } from "./automation/automation-runtime";
 import { AutomationConfigAckOutbox, AutomationConfigAckPublisher } from "./automation/automation-config-ack-outbox";
 import { AutomationCurrentConfigRequester } from "./automation/automation-current-config-requester";
+import { AutomationProtocolRevisionStore } from "./automation/automation-protocol-revision-store";
 import { FileAutomationStateStore } from "./automation/automation-state-store";
 import {
   ScheduleRuntime,
@@ -681,6 +681,13 @@ async function main() {
   const provisioningQueue = new SerialTaskQueue();
   const commandJournal = new CommandJournal(process.env.GATEWAY_COMMAND_JOURNAL_PATH ?? "/var/lib/led-control/command-journal.json");
   const eventSequence = new EventSequenceStore(process.env.GATEWAY_EVENT_SEQUENCE_PATH ?? "/var/lib/led-control/event-sequence.json");
+  const protocolRevision = new AutomationProtocolRevisionStore(
+    process.env.GATEWAY_AUTOMATION_PROTOCOL_REVISION_PATH ?? "/var/lib/led-control/automation-protocol-revision.json",
+    { siteId, gatewayId }
+  );
+  // Reserve the first declaration durably before recovering any automation
+  // snapshot or accepting MQTT config. A failed barrier cannot produce V2 ACKs.
+  let reservedProtocolRevision: number | undefined = await protocolRevision.next();
   const provisioningScanJournal = new ProvisioningScanJournal(
     process.env.GATEWAY_PROVISIONING_SCAN_JOURNAL_PATH ?? "/var/lib/led-control/provisioning-scan-journal.json"
   );
@@ -970,6 +977,13 @@ async function main() {
     onError: (error) => void reportGatewayError(error, "automation_config_ack_retry")
   });
   const automationConfigRequester = new AutomationCurrentConfigRequester({ siteId, gatewayId }, {
+    protocolSupport: { assignmentVersion: assignment.configVersion, maxSnapshotVersion: 2,
+      nextRevision: async () => {
+        if (reservedProtocolRevision === undefined) return protocolRevision.next();
+        const revision = reservedProtocolRevision;
+        reservedProtocolRevision = undefined;
+        return revision;
+      } },
     onError: (error) => void reportGatewayError(error, "automation_current_config_request_retry")
   });
 
@@ -1346,9 +1360,9 @@ async function main() {
         }
       },
       [mqttTopics.automationConfigAppliedReceipt(siteId, gatewayId)]: async (payload) => {
-        const receipt = automationConfigAppliedReceiptV1Schema.parse(
+        const receipt = automationConfigAppliedReceiptSchema.parse(
           JSON.parse(payload.toString())
-        ) as AutomationConfigAppliedReceiptV1;
+        );
         const result = await automationAckOutbox.acknowledge(receipt);
         if (result === "conflict") throw new Error("automation config receipt conflict");
         if (result === "deleted") void automationAckPublisher.wake()

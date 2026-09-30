@@ -38,6 +38,38 @@ describe("AutomationSnapshotService", () => {
       .toMatchObject({ schemaVersion: 1, vehicleEventRules: [] });
   });
 
+  it("publishes BIO only as V2 after a current authenticated explicit declaration", async () => {
+    const gateway = { id: GATEWAY_ID, siteId: SITE_ID, assignmentVersion: 2,
+      site: { timeZone: "Asia/Seoul" }, automationConfiguration: null,
+      inventory: { id: "claimed-inventory", claimedAt: generatedAt, disabledAt: null },
+      certificates: [{ id: "active", inventoryId: "claimed-inventory" }],
+      automationProtocolDeclarations: [{ assignmentVersion: 2, maxSnapshotVersion: 2 }] };
+    const payloads: any[] = [];
+    const tx = {
+      gateway: { findUnique: async () => gateway },
+      lightingSchedule: { updateMany: async () => ({}), findMany: async () => [] },
+      vehicleEventRule: { updateMany: async () => ({}), findMany: async () => [{
+        id: SCHEDULE_A, name: "BIO", sensorProtocol: "bio_usb_pulse", status: "disabled",
+        dimmingEnabled: true, brightnessPercent: 70, holdSeconds: 10,
+        sources: [{ fixtureId: FIXTURE_A }], targets: [{ fixtureId: FIXTURE_B }]
+      }] },
+      gatewayAutomationConfiguration: { upsert: async () => ({}) },
+      mqttOutbox: { create: async ({ data }: any) => { payloads.push(data.payload); } }
+    };
+    await service.incrementDesiredRevision(tx as never, GATEWAY_ID);
+    expect(payloads[0]).toMatchObject({ schemaVersion: 2,
+      vehicleEventRules: [{ sensorProtocol: "bio-usb-pulse", holdSeconds: 10, status: "disabled" }] });
+    const { payloadHash, ...body } = payloads[0];
+    expect(payloadHash).toBe(`sha256:${createHash("sha256").update(independentCanonicalJson(body)).digest("hex")}`);
+    gateway.assignmentVersion = 3;
+    await service.incrementDesiredRevision(tx as never, GATEWAY_ID);
+    expect(payloads[1]).toMatchObject({ schemaVersion: 1, vehicleEventRules: [] });
+    gateway.assignmentVersion = 2;
+    gateway.certificates[0].inventoryId = "unrelated-inventory";
+    await service.incrementDesiredRevision(tx as never, GATEWAY_ID);
+    expect(payloads[2]).toMatchObject({ schemaVersion: 1, vehicleEventRules: [] });
+  });
+
   it("writes a stable normalized full snapshot and independently verifiable dedup identity", async () => {
     const mqttOutboxCreate = jest.fn().mockResolvedValue({ id: "outbox" });
     const tx = {

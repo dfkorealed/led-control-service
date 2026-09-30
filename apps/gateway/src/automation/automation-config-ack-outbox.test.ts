@@ -22,6 +22,21 @@ afterEach(async () => {
 });
 
 describe("AutomationConfigAckOutbox", () => {
+  it("durably replays V2 ACKs and only consumes a matching V2 receipt", async () => {
+    const path = await outboxPath();
+    const outbox = new AutomationConfigAckOutbox(path, automationScope);
+    const ack = { schemaVersion: 2, gatewayId: automationScope.gatewayId, revision: 3,
+      payloadHash: `sha256:${"a".repeat(64)}`, status: "applied", errorCode: null,
+      appliedAt: "2026-08-30T01:02:03.000Z" } as const;
+    const delivery = await outbox.enqueue(ack as never);
+    expect(delivery.schemaVersion).toBe(2);
+    const restarted = new AutomationConfigAckOutbox(path, automationScope);
+    expect(await restarted.pending()).toEqual([delivery]);
+    await expect(restarted.acknowledge({ ...delivery, schemaVersion: 1,
+      ingestedAt: "2026-08-30T01:03:00.000Z" } as never)).rejects.toThrow();
+    expect(await restarted.pending()).toHaveLength(1);
+    expect(await restarted.acknowledge({ ...delivery, ingestedAt: "2026-08-30T01:03:00.000Z" })).toBe("deleted");
+  });
   it("retains and republishes an exact ACK across broker PUBACK and process restart until its application receipt", async () => {
     const path = await outboxPath();
     const acknowledgement = ack(automationSnapshot(4));

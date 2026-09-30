@@ -4,9 +4,10 @@
 
 - 구현 완료: API는 저장된 node의 protocol과 capability로 source를 판정하며 클라이언트의 protocol 지정은 거절한다. BIO는 준비 근거가 있는 A 1개와 서로 다른 B 대상만 같은 현장·Gateway에 저장할 수 있다. BIO 유지시간은 10~1,800초, 기본 60초이고 기존 BlueZ는 5~1,800초를 유지한다. `off/shadow/degraded` source의 새 저장, 혼합 source, A를 같은 규칙의 target으로 지정하는 요청을 차단한다.
 - 구현 완료: 내부 BIO 자격 보고는 인증된 Gateway 범위와 별도 단조 revision/내구적 중복 원장을 검사한다. 상태 하향 또는 검증 profile 변경 시 해당 활성 규칙을 먼저 비활성화하고 구성·상태·원장을 같은 거래로 저장한다. 오래되거나 중복된 보고와 V1 capability 보고는 BIO 준비 상태를 승격하지 않는다. BlueZ→BIO source 교체 시 기존 적용 번호를 초기화하고 지연된 V1 구성 ACK도 BIO 규칙의 적용 번호를 올리지 않는다. 일회용 PostgreSQL에서 실제 제약과 실패 시 전체 rollback을 검증한 소프트웨어 구현이다.
-- 미구현: BIO 활성 규칙 실행, 인증된 Gateway V2 지원 확인·V2 배포/ACK 및 A sensor-mode 별도 작업은 후속 Task 5c다. 현재 준비된 BIO도 `disabled` 초안만 저장하며 활성화는 `v2_support_unverified`로 거절한다. BIO 초안은 V1 snapshot에 포함되지 않고 목록·필터·집계에서 `PENDING`을 유지한다.
+- 구현 완료: 명시적 Gateway V2 지원 선언을 현재 assignment·인증 범위와 대조해 별도 DB 이력에 저장한다. V1-only/지원 미확인은 BIO를 제외한 V1을 유지하며, V2 지원 확인 뒤에는 비활성 BIO 초안을 V2로 배포하고 전체 해시·ACK 버전을 검증한다. Gateway의 V2 저장·재시작·ACK outbox도 버전을 보존한다. 지원 하향·오래된 선언/ACK는 BIO readiness를 올리지 않는다. 이 결과는 구성 반영 근거일 뿐 sensor-mode 또는 광학 출력 근거가 아니다.
+- 미구현: BIO 활성 규칙 실행과 A sensor-mode 별도 작업은 후속 Task 5c2/6/8이다. 현재 준비된 BIO도 `disabled` 초안만 저장하며 활성화는 기존 `v2_support_unverified`로 거절한다. Gateway도 임의로 조작한 enabled-BIO V2를 저장·RF 전에 거절한다. BIO 초안은 V1 snapshot에 포함되지 않으며, V2 구성 적용 번호와 별개로 제품 준비 전 목록·필터·집계는 `PENDING`을 유지한다.
 - 부족하거나 개선이 필요한 기능: 실제 BIO readiness/HIL·제품 capability는 OFF다. 내부 보고 helper는 HTTP/MQTT 경로에 연결하지 않았으며, 보고의 모드 시각이나 구성 ACK는 별도 실제 mode GET·광학 출력 검증을 대체하지 않는다. 모든 수동·스케줄·식별·다른 이벤트 target의 A 보호는 Task 6, 준비 상태·유지시간 안내 UI는 Task 7에 남아 있다.
-- 관련 파일: `apps/api/src/automation/vehicle-event-rules.service.ts`, `target-snapshot.service.ts`, `vehicle-sensor-capability.service.ts`, `automation-snapshot.service.ts`, `automation-mqtt-consumer.service.ts`, `dto/vehicle-event-rule.dto.ts`, `apps/api/test/vehicle-event-rules.e2e-spec.ts`.
+- 관련 파일: `apps/api/src/automation/vehicle-event-rules.service.ts`, `target-snapshot.service.ts`, `vehicle-sensor-capability.service.ts`, `automation-snapshot.service.ts`, `automation-protocol-support.ts`, `automation-mqtt-consumer.service.ts`, `dto/vehicle-event-rule.dto.ts`, `apps/api/test/vehicle-event-rules.e2e-spec.ts`, `apps/gateway/src/automation/automation-runtime.ts`, `automation-config-store.ts`, `automation-config-ack-outbox.ts`, `automation-current-config-requester.ts`.
 - 갱신 규칙: 소프트웨어 자격 판정·비활성 초안·V2 구성 적용·live source readiness·현장 HIL을 구분하고, 후속 검증 없이 BIO를 사용 가능 또는 제품 ON으로 기록하지 않는다.
 
 ## 2026-09-27 종료 명령 상세 정리 helper와 기본 OFF worker

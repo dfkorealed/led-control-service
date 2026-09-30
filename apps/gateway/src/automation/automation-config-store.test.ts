@@ -14,6 +14,14 @@ afterEach(async () => {
 });
 
 describe("FileAutomationConfigStore", () => {
+  it("persists the V2 protocol and verifies its complete hash after restart", async () => {
+    const path = await snapshotPath();
+    const v2 = automationSnapshot(5, { schemaVersion: 2 } as never);
+    await new FileAutomationConfigStore(path, automationScope).apply(v2);
+    expect(await new FileAutomationConfigStore(path, automationScope).load()).toEqual(v2);
+    await expect(new FileAutomationConfigStore(path, automationScope).apply({ ...v2, schemaVersion: 1 }))
+      .rejects.toMatchObject({ code: "snapshot_hash_mismatch" });
+  });
   it("atomically persists an owner-only snapshot that a restarted store can recover", async () => {
     const path = await snapshotPath();
     const snapshot = automationSnapshot(4);

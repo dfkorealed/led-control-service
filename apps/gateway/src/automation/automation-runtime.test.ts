@@ -4,8 +4,46 @@ import type { AutomationConfigStore } from "./automation-config-store";
 import { AutomationRuntime } from "./automation-runtime";
 import { AutomationStateCommitUncertainError } from "./automation-state-store";
 import { automationScope, automationSnapshot } from "./automation-test-fixtures";
+import { handleAutomationConfigPayload } from "../gateway";
 
 describe("AutomationRuntime", () => {
+  it("rejects a handcrafted enabled BIO V2 rule before storage, activation or RF", async () => {
+    const store = memoryStore();
+    const recompute = vi.fn(async () => ({}));
+    const applyDesiredState = vi.fn(async () => {});
+    const runtime = createRuntime(store, { recompute, applyDesiredState });
+    const candidate = automationSnapshot(5, { schemaVersion: 2, vehicleEventRules: [{
+      id: "00000000-0000-4000-8000-000000000011", name: "BIO", sensorProtocol: "bio-usb-pulse",
+      status: "enabled", sourceFixtureIds: ["00000000-0000-4000-8000-000000000012"],
+      targetFixtureIds: ["00000000-0000-4000-8000-000000000013"],
+      holdSeconds: 10, action: { dimmingEnabled: true, brightnessPercent: 80 }
+    }] } as never);
+    await expect(runtime.hotReload(candidate)).rejects.toMatchObject({ code: "bio_pulse_control_unavailable" });
+    expect(store.apply).not.toHaveBeenCalled();
+    expect(recompute).not.toHaveBeenCalled();
+    expect(applyDesiredState).not.toHaveBeenCalled();
+    expect(runtime.currentSnapshot).toBeNull();
+    const recorded = vi.fn(async () => {});
+    await expect(handleAutomationConfigPayload(Buffer.from(JSON.stringify(candidate)), runtime, recorded))
+      .resolves.toMatchObject({ schemaVersion: 2, status: "rejected", errorCode: "bio_pulse_control_unavailable" });
+    expect(recorded).toHaveBeenCalledWith(expect.objectContaining({ schemaVersion: 2, status: "rejected" }));
+    expect(store.apply).not.toHaveBeenCalled();
+    const disabled = automationSnapshot(6, { schemaVersion: 2,
+      vehicleEventRules: candidate.vehicleEventRules.map(rule => ({ ...rule, status: "disabled" })) } as never);
+    await expect(runtime.hotReload(disabled)).resolves.toMatchObject({ schemaVersion: 2, status: "applied" });
+    expect(applyDesiredState).not.toHaveBeenCalled();
+    const restarted = createRuntime(memoryStore(candidate), { recompute, applyDesiredState });
+    await expect(restarted.initialize()).rejects.toMatchObject({ code: "bio_pulse_control_unavailable" });
+  });
+  it("stores and acknowledges V2 without erasing its version and rejects V1 replay across it", async () => {
+    const runtime = createRuntime(memoryStore());
+    const v2 = automationSnapshot(5, { schemaVersion: 2 } as never);
+    await expect(runtime.hotReload(v2)).resolves.toMatchObject({ schemaVersion: 2, status: "applied" });
+    expect(runtime.currentSnapshot).toMatchObject({ schemaVersion: 2 });
+    await expect(runtime.hotReload(automationSnapshot(5))).rejects.toMatchObject({ code: "snapshot_revision_conflict" });
+    await expect(runtime.hotReload(automationSnapshot(4))).rejects.toMatchObject({ code: "snapshot_old_revision" });
+    await expect(runtime.hotReload(automationSnapshot(6))).resolves.toMatchObject({ schemaVersion: 1 });
+  });
   it("recovers the persisted snapshot on startup and computes its desired state", async () => {
     const persisted = automationSnapshot(3);
     const recompute = vi.fn().mockResolvedValue({ "fixture-1": 40 });

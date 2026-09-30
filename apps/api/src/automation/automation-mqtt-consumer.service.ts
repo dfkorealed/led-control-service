@@ -1,14 +1,14 @@
 import { BadRequestException, Injectable } from "@nestjs/common";
 import {
-  automationConfigAppliedDeliveryV1Schema,
-  automationConfigAppliedReceiptV1Schema,
-  automationCurrentConfigRequestV1Schema,
+  automationConfigAppliedDeliverySchema,
+  automationConfigAppliedReceiptSchema,
+  automationCurrentConfigRequestSchema,
   automationExecutionActionResultPayloadV1Schema,
   automationExecutionEventV1Schema,
   automationExecutionIngestedAckV1Schema,
-  automationSnapshotV1Schema,
+  automationSnapshotSchema,
   mqttTopics,
-  type AutomationConfigAppliedDeliveryV1,
+  type AutomationConfigAppliedDelivery,
   type AutomationExecutionEventV1
 } from "@led-control/shared";
 import { Prisma } from "@prisma/client";
@@ -19,6 +19,8 @@ import { AutomationClock } from "./automation-clock";
 import { canonicalPayloadHash } from "./automation-payload-hash";
 import { acknowledgeRedactedManualReplay } from "./redacted-manual-execution-replay";
 import { VehicleSensorCapabilityService } from "./vehicle-sensor-capability.service";
+import { AutomationSnapshotService } from "./automation-snapshot.service";
+import { loadAutomationProtocolSupport, recordAutomationProtocolSupport } from "./automation-protocol-support";
 
 const CONFIG_APPLIED_CHANNEL = "events/automation/config-applied";
 const CURRENT_CONFIG_REQUEST_CHANNEL = "events/automation/current-config-request";
@@ -43,7 +45,7 @@ type ExecutionSource = {
   allowedFixtureIds: Set<string>;
 };
 
-type StoredAutomationSnapshot = ReturnType<typeof automationSnapshotV1Schema.parse>;
+type StoredAutomationSnapshot = ReturnType<typeof automationSnapshotSchema.parse>;
 type ExecutionAcknowledgement = ReturnType<typeof automationExecutionIngestedAckV1Schema.parse>;
 type ExecutionIngestResult = ExecutionAcknowledgement & {
   publishAfterAck?: { topic: string; payload: ExecutionAcknowledgement };
@@ -54,7 +56,8 @@ export class AutomationMqttConsumerService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly capability: VehicleSensorCapabilityService,
-    private readonly clock: AutomationClock
+    private readonly clock: AutomationClock,
+    private readonly snapshots: AutomationSnapshotService = new AutomationSnapshotService(clock)
   ) {}
 
   async handleMessage(topic: string, payload: Buffer) {
@@ -93,13 +96,19 @@ export class AutomationMqttConsumerService {
     scope: Pick<GatewayTopicScope, "siteId" | "gatewayId">,
     rawRequest: unknown
   ) {
-    const parsed = automationCurrentConfigRequestV1Schema.safeParse(rawRequest);
+    const parsed = automationCurrentConfigRequestSchema.safeParse(rawRequest);
     if (
       !parsed.success || parsed.data.siteId !== scope.siteId ||
       parsed.data.gatewayId !== scope.gatewayId
     ) return;
 
     return this.prisma.$transaction(async (tx) => {
+      if (parsed.data.schemaVersion === 2) {
+        await this.snapshots.lockMutation(tx);
+        const outcome = await recordAutomationProtocolSupport(tx, parsed.data);
+        if (outcome === "stale" || outcome === "unverified") return;
+        if (outcome === "accepted") await this.snapshots.incrementDesiredRevision(tx, scope.gatewayId);
+      }
       const configuration = await this.lockCurrentConfiguration(tx, scope);
       if (!configuration?.payloadHash) return;
       const stored = await this.loadStoredSnapshot(
@@ -109,6 +118,9 @@ export class AutomationMqttConsumerService {
         configuration.payloadHash
       );
       if (!stored) return;
+      // An old binary cannot receive V2 via its strict V1 request. A V1 request
+      // is not an explicit support declaration and cannot upgrade authority.
+      if (parsed.data.schemaVersion === 1 && stored.snapshot.schemaVersion !== 1) return;
       const now = this.clock.now();
       await tx.mqttOutbox.updateMany({
         where: {
@@ -132,21 +144,26 @@ export class AutomationMqttConsumerService {
   }
 
   async onConfigApplied(scope: Pick<GatewayTopicScope, "siteId" | "gatewayId">, rawAck: unknown) {
-    const parsed = automationConfigAppliedDeliveryV1Schema.safeParse(rawAck);
+    const parsed = automationConfigAppliedDeliverySchema.safeParse(rawAck);
     if (
       !parsed.success || parsed.data.siteId !== scope.siteId ||
       parsed.data.gatewayId !== scope.gatewayId
     ) return;
-    const delivery = parsed.data as AutomationConfigAppliedDeliveryV1;
+    const delivery = parsed.data as AutomationConfigAppliedDelivery;
     const ack = delivery.acknowledgement;
 
     return this.prisma.$transaction(async (tx) => {
+      // Rule appliedRevision writes take the same DB membership lock. Acquire
+      // it before Gateway rows, matching declarations and ordinary rule saves.
+      await this.snapshots.lockMutation(tx);
+      if (ack.schemaVersion === 2 && await loadAutomationProtocolSupport(tx, scope) !== 2) return;
       const configuration = await this.lockCurrentConfiguration(tx, scope);
       if (!configuration || ack.revision > configuration.desiredRevision) return;
 
       const stored = await this.loadStoredSnapshot(tx, scope, ack.revision, ack.payloadHash);
       if (!stored) return;
       const storedSnapshot = stored.snapshot;
+      if (storedSnapshot.schemaVersion !== ack.schemaVersion) return;
 
       if (ack.status === "rejected") {
         if (ack.revision === configuration.desiredRevision && ack.revision > configuration.appliedRevision) {
@@ -177,7 +194,9 @@ export class AutomationMqttConsumerService {
             data: { appliedRevision: ack.revision }
           });
         }
-        const eventRuleIds = storedSnapshot.vehicleEventRules.map(({ id }) => id);
+        const eventRuleIds = storedSnapshot.vehicleEventRules
+          .filter(rule => !("sensorProtocol" in rule) || rule.sensorProtocol === "bluez-stateful")
+          .map(({ id }) => id);
         if (eventRuleIds.length > 0) {
           await tx.vehicleEventRule.updateMany({
             // A rule ID can survive a source replacement from BlueZ to BIO.
@@ -186,6 +205,16 @@ export class AutomationMqttConsumerService {
               sensorProtocol: "bluez_stateful", appliedRevision: { lt: ack.revision } },
             data: { appliedRevision: ack.revision }
           });
+        }
+        if (storedSnapshot.schemaVersion === 2 && isCurrentDesired) {
+          const bioIds = storedSnapshot.vehicleEventRules.filter(rule => rule.sensorProtocol === "bio-usb-pulse").map(rule => rule.id);
+          if (bioIds.length) await tx.vehicleEventRule.updateMany({
+            where: { id: { in: bioIds }, gatewayId: scope.gatewayId, sensorProtocol: "bio_usb_pulse",
+              desiredRevision: ack.revision, appliedRevision: { lt: ack.revision } },
+            data: { appliedRevision: ack.revision }
+          });
+          // This is configuration evidence only. MeshNode readiness/mode/health
+          // are intentionally not written by snapshot acknowledgements.
         }
       }
 
@@ -209,7 +238,7 @@ export class AutomationMqttConsumerService {
       },
       select: { id: true, topic: true, payload: true }
     });
-    const parsed = automationSnapshotV1Schema.safeParse(row?.payload);
+    const parsed = automationSnapshotSchema.safeParse(row?.payload);
     if (!row || !parsed.success) return null;
     const { payloadHash: storedHash, ...withoutHash } = parsed.data;
     if (
@@ -224,12 +253,12 @@ export class AutomationMqttConsumerService {
   private async createOrReviveConfigAppliedReceipt(
     tx: Prisma.TransactionClient,
     scope: Pick<GatewayTopicScope, "siteId" | "gatewayId">,
-    delivery: AutomationConfigAppliedDeliveryV1
+    delivery: AutomationConfigAppliedDelivery
   ) {
     const applicationAckKey = configAppliedReceiptKey(scope.gatewayId, delivery.acknowledgementId);
     const existing = await tx.mqttOutbox.findUnique({ where: { applicationAckKey } });
     if (existing) {
-      const receipt = automationConfigAppliedReceiptV1Schema.safeParse(existing.payload);
+      const receipt = automationConfigAppliedReceiptSchema.safeParse(existing.payload);
       if (
         !receipt.success || receipt.data.siteId !== scope.siteId ||
         receipt.data.gatewayId !== scope.gatewayId ||
@@ -242,7 +271,7 @@ export class AutomationMqttConsumerService {
       return receipt.data;
     }
 
-    const receipt = automationConfigAppliedReceiptV1Schema.parse({
+    const receipt = automationConfigAppliedReceiptSchema.parse({
       ...delivery,
       ingestedAt: this.clock.now().toISOString()
     });
@@ -256,7 +285,7 @@ export class AutomationMqttConsumerService {
         payload: receipt
       }
     });
-    return automationConfigAppliedReceiptV1Schema.parse(stored.payload);
+    return automationConfigAppliedReceiptSchema.parse(stored.payload);
   }
 
   private reviveApplicationAck(tx: Prisma.TransactionClient, id: string) {
@@ -460,7 +489,7 @@ export class AutomationMqttConsumerService {
       select: { payloadHash: true, payload: true }
     });
     const snapshots = rows.flatMap((row) => {
-      const parsed = automationSnapshotV1Schema.safeParse(row.payload);
+      const parsed = automationSnapshotSchema.safeParse(row.payload);
       if (!parsed.success) return [];
       const { payloadHash, ...withoutHash } = parsed.data;
       if (

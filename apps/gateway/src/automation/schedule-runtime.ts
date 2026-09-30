@@ -170,15 +170,21 @@ export class ScheduleRuntime {
   }
 
   get currentSnapshot() {
-    // This public consumer is the existing V1 sensor/config path. The synthetic
-    // seam must not masquerade as an authenticated product V2 configuration.
-    return this.snapshot?.schemaVersion === 1 ? structuredClone(this.snapshot) : null;
+    // The synthetic seam must not masquerade as an authenticated configuration.
+    // Product V2 retains its version so BlueZ peers still receive source refresh.
+    return this.bio && this.snapshot?.schemaVersion === 2 ? null : structuredClone(this.snapshot);
   }
 
-  recompute(snapshot: AutomationSnapshotV1): Promise<DesiredLightingState> {
+  recompute(snapshot: SchedulerSnapshot): Promise<DesiredLightingState> {
     return this.enqueue(async () => {
       await this.ensureInitialized();
-      if (this.snapshot?.schemaVersion === 2) throw new Error("bio_test_snapshot_change_unavailable");
+      if (this.bio && this.snapshot?.schemaVersion === 2) throw new Error("bio_test_snapshot_change_unavailable");
+      // Protocol support is configuration ability only. Product BIO pulse
+      // activation still needs the later independent authority/HIL integration.
+      if (snapshot.schemaVersion === 2 && snapshot.vehicleEventRules.some(rule =>
+        rule.sensorProtocol === "bio-usb-pulse" && rule.status === "enabled")) {
+        throw new Error("bio_pulse_control_unavailable");
+      }
       if (this.activationCheckpoint) throw new Error("automation config activation is already pending");
       this.beginActivation();
       const computed = await this.reconcile(snapshot);

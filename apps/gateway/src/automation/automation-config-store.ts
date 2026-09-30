@@ -3,8 +3,8 @@ import { readdir, rm } from "node:fs/promises";
 import { basename, dirname } from "node:path";
 import { isDeepStrictEqual } from "node:util";
 import {
-  automationSnapshotV1Schema,
-  type AutomationSnapshotV1
+  automationSnapshotSchema,
+  type AutomationSnapshot
 } from "@led-control/shared";
 import {
   AtomicJsonCommitUncertainError,
@@ -19,9 +19,9 @@ export interface AutomationScope {
 }
 
 export interface AutomationConfigStore {
-  load(): Promise<AutomationSnapshotV1 | null>;
-  apply(snapshot: AutomationSnapshotV1): Promise<void>;
-  restore(snapshot: AutomationSnapshotV1 | null): Promise<void>;
+  load(): Promise<AutomationSnapshot | null>;
+  apply(snapshot: AutomationSnapshot): Promise<void>;
+  restore(snapshot: AutomationSnapshot | null): Promise<void>;
 }
 
 type AtomicJsonWriter = (path: string, value: unknown) => Promise<void>;
@@ -58,7 +58,7 @@ export class FileAutomationConfigStore implements AutomationConfigStore {
     private readonly write: AtomicJsonWriter = writeJsonAtomic
   ) {}
 
-  async load(): Promise<AutomationSnapshotV1 | null> {
+  async load(): Promise<AutomationSnapshot | null> {
     await this.removeInterruptedWrites();
     let raw: unknown | null;
     try {
@@ -69,7 +69,7 @@ export class FileAutomationConfigStore implements AutomationConfigStore {
     return raw === null ? null : parseAutomationSnapshot(raw, this.scope);
   }
 
-  async apply(snapshot: AutomationSnapshotV1): Promise<void> {
+  async apply(snapshot: AutomationSnapshot): Promise<void> {
     const parsed = parseAutomationSnapshot(snapshot, this.scope);
     const previous = await this.load();
     try {
@@ -82,7 +82,7 @@ export class FileAutomationConfigStore implements AutomationConfigStore {
       } catch (caught) {
         rollbackError = caught;
       }
-      let visible: AutomationSnapshotV1 | null;
+      let visible: AutomationSnapshot | null;
       try {
         visible = await this.load();
       } catch (readbackError) {
@@ -103,7 +103,7 @@ export class FileAutomationConfigStore implements AutomationConfigStore {
     }
   }
 
-  async restore(snapshot: AutomationSnapshotV1 | null): Promise<void> {
+  async restore(snapshot: AutomationSnapshot | null): Promise<void> {
     if (snapshot) {
       await this.write(this.path, parseAutomationSnapshot(snapshot, this.scope));
       return;
@@ -125,8 +125,8 @@ export class FileAutomationConfigStore implements AutomationConfigStore {
   }
 }
 
-export function parseAutomationSnapshot(value: unknown, scope: AutomationScope): AutomationSnapshotV1 {
-  const parsed = automationSnapshotV1Schema.safeParse(value);
+export function parseAutomationSnapshot(value: unknown, scope: AutomationScope): AutomationSnapshot {
+  const parsed = automationSnapshotSchema.safeParse(value);
   if (!parsed.success) {
     throw new AutomationConfigStoreError("snapshot_invalid", "snapshot_invalid", { cause: parsed.error });
   }
@@ -137,7 +137,7 @@ export function parseAutomationSnapshot(value: unknown, scope: AutomationScope):
   if (canonicalPayloadHash(withoutHash) !== payloadHash) {
     throw new AutomationConfigStoreError("snapshot_hash_mismatch", "snapshot_hash_mismatch");
   }
-  return parsed.data as AutomationSnapshotV1;
+  return parsed.data as AutomationSnapshot;
 }
 
 function canonicalPayloadHash(value: unknown) {

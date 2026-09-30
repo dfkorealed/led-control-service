@@ -1302,6 +1302,77 @@ describeWithPostgres("vehicle event rules PostgreSQL E2E", () => {
       verifiedAt: FIXED_NOW.toISOString() };
   }
 
+  it("durably declares V2 independently of ACK, publishes BIO with V2 hash, and fences downgrade and assignment replay", async () => {
+    const s = await bioScenario();
+    const path = `/sites/${s.siteId}/automation/vehicle-event-rules`;
+    const created = await api("POST", path, s.actorKeys.admin, ruleBody(s, { status: "disabled", holdSeconds: 10 }));
+    expect(created.status).toBe(201);
+    const consumer = app.get(AutomationMqttConsumerService);
+    const scope = { siteId: s.siteId, gatewayId: s.gatewayId };
+    const declaration = { schemaVersion: 2, ...scope, requestId: randomUUID(), assignmentVersion: 0,
+      declarationRevision: 1, maxSnapshotVersion: 2, requestedAt: FIXED_NOW.toISOString() };
+    await prisma.meshNode.update({ where: { id: s.meshNodeIds[0] }, data: {
+      bioPulseReadiness: "degraded", bioPulseCapabilityRevision: 2n
+    } });
+    const beforeNode = await prisma.meshNode.findUniqueOrThrow({ where: { id: s.meshNodeIds[0] } });
+    const published = await consumer.onCurrentConfigRequest(scope, declaration);
+    expect(published).toMatchObject({ schemaVersion: 2, revision: 2,
+      vehicleEventRules: [{ sensorProtocol: "bio-usb-pulse", holdSeconds: 10, status: "disabled" }] });
+    expect(await prisma.gatewayAutomationProtocolSupport.count({ where: { gatewayId: s.gatewayId } })).toBe(1);
+    const { payloadHash, ...body } = published!;
+    expect(payloadHash).toBe(canonicalPayloadHash(body));
+    const ack = { schemaVersion: 2, ...scope, acknowledgementId: randomUUID(),
+      acknowledgement: { schemaVersion: 2, gatewayId: s.gatewayId, revision: 2, payloadHash,
+        status: "applied", errorCode: null, appliedAt: FIXED_NOW.toISOString() } };
+    await consumer.onConfigApplied(scope, { ...ack, schemaVersion: 1,
+      acknowledgement: { ...ack.acknowledgement, schemaVersion: 1 } });
+    expect((await prisma.gatewayAutomationConfiguration.findUniqueOrThrow({ where: { gatewayId: s.gatewayId } })).appliedRevision).toBe(0);
+    expect(await consumer.onConfigApplied(scope, ack)).toMatchObject({ schemaVersion: 2 });
+    expect(await prisma.meshNode.findUniqueOrThrow({ where: { id: s.meshNodeIds[0] } })).toEqual(beforeNode);
+    await consumer.onCurrentConfigRequest(scope, declaration);
+    expect(await prisma.gatewayAutomationProtocolSupport.count({ where: { gatewayId: s.gatewayId } })).toBe(1);
+    const downgrade = { ...declaration, requestId: randomUUID(), declarationRevision: 2, maxSnapshotVersion: 1 };
+    expect(await consumer.onCurrentConfigRequest(scope, downgrade)).toMatchObject({ schemaVersion: 1, vehicleEventRules: [] });
+    await consumer.onConfigApplied(scope, ack);
+    expect(await prisma.vehicleEventRule.findUniqueOrThrow({ where: { id: (created.body as { id: string }).id } }))
+      .toMatchObject({ status: "disabled", appliedRevision: 0 });
+    await consumer.onCurrentConfigRequest(scope, declaration);
+    await expect(consumer.onCurrentConfigRequest(scope, { ...declaration, declarationRevision: 3 }))
+      .rejects.toThrow("identity conflict");
+    await prisma.gateway.update({ where: { id: s.gatewayId }, data: { assignmentVersion: 1 } });
+    expect(await consumer.onCurrentConfigRequest(scope, { ...declaration, requestId: randomUUID(), declarationRevision: 3 })).toBeUndefined();
+    expect(await prisma.gatewayAutomationProtocolSupport.count({ where: { gatewayId: s.gatewayId } })).toBe(2);
+    expect(await consumer.onCurrentConfigRequest(scope, { ...declaration, requestId: randomUUID(), assignmentVersion: 1 })).toMatchObject({ schemaVersion: 2 });
+  });
+
+  it("rolls back the support declaration and desired revision when its snapshot cannot be persisted", async () => {
+    const s = await bioScenario();
+    const scope = { siteId: s.siteId, gatewayId: s.gatewayId };
+    const declaration = { schemaVersion: 2, ...scope, requestId: randomUUID(), assignmentVersion: 0,
+      declarationRevision: 1, maxSnapshotVersion: 2, requestedAt: FIXED_NOW.toISOString() };
+    await prisma.$executeRawUnsafe(`ALTER TABLE "MqttOutbox" ADD CONSTRAINT "protocol_test_outbox_failure"
+      CHECK ("gatewayId" IS DISTINCT FROM '${s.gatewayId}')`);
+    try {
+      await expect(app.get(AutomationMqttConsumerService).onCurrentConfigRequest(scope, declaration)).rejects.toThrow();
+      expect(await prisma.gatewayAutomationProtocolSupport.count({ where: { gatewayId: s.gatewayId } })).toBe(0);
+      expect(await prisma.gatewayAutomationConfiguration.findUnique({ where: { gatewayId: s.gatewayId } })).toBeNull();
+    } finally { await prisma.$executeRawUnsafe('ALTER TABLE "MqttOutbox" DROP CONSTRAINT "protocol_test_outbox_failure"'); }
+  });
+
+  it("does not record protocol support for inactive claims or revoked MQTT certificate contexts", async () => {
+    const s = await bioScenario();
+    const scope = { siteId: s.siteId, gatewayId: s.gatewayId };
+    const declaration = { schemaVersion: 2, ...scope, requestId: randomUUID(), assignmentVersion: 0,
+      declarationRevision: 1, maxSnapshotVersion: 2, requestedAt: FIXED_NOW.toISOString() };
+    const consumer = app.get(AutomationMqttConsumerService);
+    await prisma.gatewayInventory.updateMany({ where: { claimedGatewayId: s.gatewayId }, data: { disabledAt: FIXED_NOW } });
+    expect(await consumer.onCurrentConfigRequest(scope, declaration)).toBeUndefined();
+    await prisma.gatewayInventory.updateMany({ where: { claimedGatewayId: s.gatewayId }, data: { disabledAt: null } });
+    await prisma.gatewayCertificate.updateMany({ where: { gatewayId: s.gatewayId }, data: { revokedAt: FIXED_NOW, status: "revoked" } });
+    expect(await consumer.onCurrentConfigRequest(scope, declaration)).toBeUndefined();
+    expect(await prisma.gatewayAutomationProtocolSupport.count({ where: { gatewayId: s.gatewayId } })).toBe(0);
+  });
+
   it("keeps BIO drafts pending in rows, filters and counts after the Gateway's V1 configuration is applied", async () => {
     const s = await bioScenario();
     const path = `/sites/${s.siteId}/automation/vehicle-event-rules`;

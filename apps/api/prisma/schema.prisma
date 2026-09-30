@@ -1353,6 +1353,7 @@ model Gateway {
   eventWatermarks         GatewayEventWatermark[]
   certificates            GatewayCertificate[]
   automationConfiguration GatewayAutomationConfiguration?
+  automationProtocolDeclarations GatewayAutomationProtocolSupport[]
   lightingSchedules       LightingSchedule[]
   vehicleEventRules       VehicleEventRule[]
   manualOverrides         ManualOverride[]
@@ -1955,6 +1956,22 @@ model GatewayAutomationConfiguration {
 
   @@unique([gatewayId, siteId])
   @@index([siteId, syncStatus])
+}
+
+/// Retained protocol declaration history. Never infer support from config ACKs.
+model GatewayAutomationProtocolSupport {
+  gatewayId            String
+  siteId               String
+  assignmentVersion    Int
+  declarationRevision  BigInt
+  declarationId        String @unique
+  maxSnapshotVersion   Int
+  payloadHash          String
+  declaredAt           DateTime
+  receivedAt           DateTime @default(now())
+  gateway              Gateway @relation(fields: [gatewayId, siteId], references: [id, siteId], onDelete: Cascade, onUpdate: Restrict)
+
+  @@id([gatewayId, assignmentVersion, declarationRevision])
 }
 
 model LightingSchedule {

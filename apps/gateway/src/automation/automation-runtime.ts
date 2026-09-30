@@ -1,7 +1,7 @@
 import {
-  automationConfigAppliedV1Schema,
-  type AutomationConfigAppliedV1,
-  type AutomationSnapshotV1
+  automationConfigAppliedSchema,
+  type AutomationConfigApplied,
+  type AutomationSnapshot
 } from "@led-control/shared";
 import { SerialTaskQueue } from "../runtime/serial-task-queue";
 import {
@@ -17,6 +17,7 @@ export type DesiredLightingState = Readonly<Record<string, number>>;
 
 export type AutomationRuntimeErrorCode =
   | "snapshot_invalid"
+  | "bio_pulse_control_unavailable"
   | "snapshot_scope_mismatch"
   | "snapshot_hash_mismatch"
   | "snapshot_old_revision"
@@ -44,17 +45,17 @@ export class AutomationRuntimeError extends Error {
 interface AutomationRuntimeOptions {
   store: AutomationConfigStore;
   scope: AutomationScope;
-  recompute: (snapshot: AutomationSnapshotV1) => Promise<DesiredLightingState>;
+  recompute: (snapshot: AutomationSnapshot) => Promise<DesiredLightingState>;
   applyDesiredState: (next: DesiredLightingState, previous: DesiredLightingState) => Promise<void>;
-  onActivated?: (snapshot: AutomationSnapshotV1) => Promise<void>;
-  onActivationFailed?: (previous: AutomationSnapshotV1 | null) => Promise<void>;
+  onActivated?: (snapshot: AutomationSnapshot) => Promise<void>;
+  onActivationFailed?: (previous: AutomationSnapshot | null) => Promise<void>;
   now?: () => Date;
 }
 
 export class AutomationRuntime {
   private readonly queue = new SerialTaskQueue();
   private readonly now: () => Date;
-  private snapshot: AutomationSnapshotV1 | null = null;
+  private snapshot: AutomationSnapshot | null = null;
   private desiredState: DesiredLightingState = {};
   private initialized = false;
 
@@ -79,6 +80,7 @@ export class AutomationRuntime {
       if (this.initialized) return;
       const recovered = await this.options.store.load();
       if (recovered) {
+        this.parse(recovered);
         try {
           await this.activate(recovered, false);
         } catch (error) {
@@ -90,7 +92,7 @@ export class AutomationRuntime {
     });
   }
 
-  hotReload(value: unknown): Promise<AutomationConfigAppliedV1> {
+  hotReload(value: unknown): Promise<AutomationConfigApplied> {
     return this.queue.run(async () => {
       const snapshot = this.parse(value);
       const current = this.snapshot;
@@ -140,7 +142,14 @@ export class AutomationRuntime {
 
   private parse(value: unknown) {
     try {
-      return parseAutomationSnapshot(value, this.options.scope);
+      const snapshot = parseAutomationSnapshot(value, this.options.scope);
+      // Declared V2 support confirms transport/configuration ability only.
+      // Product BIO execution remains OFF until its independent authority is wired.
+      if (snapshot.schemaVersion === 2 && snapshot.vehicleEventRules.some(rule =>
+        rule.sensorProtocol === "bio-usb-pulse" && rule.status === "enabled")) {
+        throw runtimeError("bio_pulse_control_unavailable", snapshot);
+      }
+      return snapshot;
     } catch (error) {
       if (error instanceof AutomationConfigStoreError) {
         const identity = snapshotIdentity(value);
@@ -150,7 +159,7 @@ export class AutomationRuntime {
     }
   }
 
-  private async activate(snapshot: AutomationSnapshotV1, swapBeforeRecompute: boolean) {
+  private async activate(snapshot: AutomationSnapshot, swapBeforeRecompute: boolean) {
     const previousSnapshot = this.snapshot;
     if (swapBeforeRecompute) this.snapshot = snapshot;
     try {
@@ -184,8 +193,8 @@ export class AutomationRuntime {
   }
 
   private async rollbackActivation(
-    previous: AutomationSnapshotV1 | null,
-    attempted: AutomationSnapshotV1,
+    previous: AutomationSnapshot | null,
+    attempted: AutomationSnapshot,
     activationError: unknown,
     restoreConfig: boolean
   ) {
@@ -214,20 +223,20 @@ export class AutomationRuntime {
     }
   }
 
-  private applied(snapshot: AutomationSnapshotV1): AutomationConfigAppliedV1 {
-    return automationConfigAppliedV1Schema.parse({
-      schemaVersion: 1,
+  private applied(snapshot: AutomationSnapshot): AutomationConfigApplied {
+    return automationConfigAppliedSchema.parse({
+      schemaVersion: snapshot.schemaVersion,
       gatewayId: this.options.scope.gatewayId,
       revision: snapshot.revision,
       payloadHash: snapshot.payloadHash,
       status: "applied",
       errorCode: null,
       appliedAt: this.now().toISOString()
-    }) as AutomationConfigAppliedV1;
+    }) as AutomationConfigApplied;
   }
 }
 
-function runtimeError(code: AutomationRuntimeErrorCode, snapshot: AutomationSnapshotV1) {
+function runtimeError(code: AutomationRuntimeErrorCode, snapshot: AutomationSnapshot) {
   return new AutomationRuntimeError(code, code, snapshot.revision, snapshot.payloadHash);
 }
 

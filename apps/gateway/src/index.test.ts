@@ -909,10 +909,10 @@ describe("startGatewayRuntime", () => {
     }
   });
 
-  it("connects Task 11 hot reload to the durable scheduler and executor", async () => {
+  it.each([1, 2])("connects V%s hot reload to the durable scheduler and executor", async (schemaVersion) => {
     const directory = await mkdtemp(join(tmpdir(), "gateway-automation-wiring-"));
     try {
-      let stored = null as ReturnType<typeof automationSnapshot> | null;
+      let stored = null as import("@led-control/shared").AutomationSnapshot | null;
       const execute = vi.fn(async (actions: Array<{ fixtureId: string; brightnessPercent: number }>) => actions.map((action) => ({
         fixtureId: action.fixtureId,
         status: "succeeded" as const,
@@ -938,6 +938,7 @@ describe("startGatewayRuntime", () => {
       await services.scheduleRuntime.recordFixtureState(scopedFixtureId, 20);
 
       await services.automationRuntime.hotReload(automationSnapshot(1, {
+        schemaVersion: schemaVersion as 1,
         timeZone: "UTC",
         schedules: [{
           id: "00000000-0000-4000-8000-000000000103",
@@ -957,6 +958,7 @@ describe("startGatewayRuntime", () => {
         expect.objectContaining({ fixtureId: scopedFixtureId, brightnessPercent: 40, sourceType: "schedule" })
       ]);
       expect(services.scheduleRuntime.state().lastDesiredByFixture[scopedFixtureId]).toBe(40);
+      expect(services.scheduleRuntime.currentSnapshot?.schemaVersion).toBe(schemaVersion);
     } finally {
       await rm(directory, { recursive: true, force: true });
     }

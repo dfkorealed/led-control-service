@@ -1,6 +1,6 @@
 import type {
-  AutomationSnapshotV1,
-  AutomationConfigAppliedV1,
+  AutomationSnapshot,
+  AutomationConfigApplied,
   IdentifyDevicePayload,
   MeshGroupSubscriptionResultPayload,
   MeshGroupSubscriptionSyncPayload,
@@ -11,7 +11,7 @@ import type {
   ProvisioningScanFoundDevice
 } from "@led-control/shared";
 import {
-  automationConfigAppliedV1Schema,
+  automationConfigAppliedSchema,
   mqttTopicsV2,
   provisioningScanCompletedSchema,
   provisioningScanFailedSchema,
@@ -59,7 +59,7 @@ export interface BleMeshGroupSnapshot {
   members: Array<{ meshNodeId: string; meshAddress: string }>;
 }
 
-export function configuredVehicleSensorSourceFixtureIds(snapshot: AutomationSnapshotV1 | null) {
+export function configuredVehicleSensorSourceFixtureIds(snapshot: AutomationSnapshot | null) {
   if (!snapshot) return [];
   return [...new Set(snapshot.vehicleEventRules
     .filter(({ status }) => status === "enabled")
@@ -164,7 +164,7 @@ export async function applyProvisioningScan(adapter: ProvisioningScannerAdapter,
 export async function handleAutomationConfigPayload(
   payload: Buffer,
   runtime: Pick<AutomationRuntime, "gatewayId" | "hotReload">,
-  recordAcknowledgement: (acknowledgement: AutomationConfigAppliedV1) => Promise<unknown>,
+  recordAcknowledgement: (acknowledgement: AutomationConfigApplied) => Promise<unknown>,
   now: () => Date = () => new Date()
 ) {
   let value: unknown;
@@ -174,7 +174,7 @@ export async function handleAutomationConfigPayload(
     throw new AutomationRuntimeError("snapshot_invalid", "snapshot_invalid", undefined, undefined, { cause: error });
   }
 
-  let acknowledgement: AutomationConfigAppliedV1;
+  let acknowledgement: AutomationConfigApplied;
   try {
     acknowledgement = await runtime.hotReload(value);
   } catch (error) {
@@ -182,15 +182,15 @@ export async function handleAutomationConfigPayload(
       error.revision === undefined || error.payloadHash === undefined) {
       throw error;
     }
-    acknowledgement = automationConfigAppliedV1Schema.parse({
-      schemaVersion: 1,
+    acknowledgement = automationConfigAppliedSchema.parse({
+      schemaVersion: value && typeof value === "object" && "schemaVersion" in value && value.schemaVersion === 2 ? 2 : 1,
       gatewayId: runtime.gatewayId,
       revision: error.revision,
       payloadHash: error.payloadHash,
       status: "rejected",
       errorCode: error.code,
       appliedAt: now().toISOString()
-    }) as AutomationConfigAppliedV1;
+    }) as AutomationConfigApplied;
   }
   await recordAcknowledgement(acknowledgement);
   return acknowledgement;
