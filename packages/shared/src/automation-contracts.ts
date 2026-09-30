@@ -315,39 +315,36 @@ export const automationSnapshotV2Schema = z.object({
   payloadHash: payloadHashSchema
 }).strict();
 
-export const automationConfigAppliedV1Schema = z.object({
-  schemaVersion: z.literal(1),
+const automationConfigAppliedFields = {
   gatewayId: identifierSchema,
   revision: z.number().int().nonnegative(),
   payloadHash: payloadHashSchema,
   status: z.enum(["applied", "rejected"]),
   errorCode: z.string().trim().min(1).nullable(),
   appliedAt: timestampSchema
-}).strict().superRefine((configuration, context) => {
+};
+
+function validateAutomationConfigApplied(
+  configuration: { status: "applied" | "rejected"; errorCode: string | null },
+  context: z.RefinementCtx
+) {
   if (configuration.status === "applied" && configuration.errorCode !== null) {
     addIssue(context, "errorCode", "applied configuration cannot include an errorCode");
   }
   if (configuration.status === "rejected" && configuration.errorCode === null) {
     addIssue(context, "errorCode", "rejected configuration requires an errorCode");
   }
-});
+}
+
+export const automationConfigAppliedV1Schema = z.object({
+  schemaVersion: z.literal(1),
+  ...automationConfigAppliedFields
+}).strict().superRefine(validateAutomationConfigApplied);
 
 export const automationConfigAppliedV2Schema = z.object({
   schemaVersion: z.literal(2),
-  gatewayId: identifierSchema,
-  revision: z.number().int().nonnegative(),
-  payloadHash: payloadHashSchema,
-  status: z.enum(["applied", "rejected"]),
-  errorCode: z.string().trim().min(1).nullable(),
-  appliedAt: timestampSchema
-}).strict().superRefine((configuration, context) => {
-  if (configuration.status === "applied" && configuration.errorCode !== null) {
-    addIssue(context, "errorCode", "applied configuration cannot include an errorCode");
-  }
-  if (configuration.status === "rejected" && configuration.errorCode === null) {
-    addIssue(context, "errorCode", "rejected configuration requires an errorCode");
-  }
-});
+  ...automationConfigAppliedFields
+}).strict().superRefine(validateAutomationConfigApplied);
 
 export const automationCurrentConfigRequestV1Schema = z.object({
   schemaVersion: z.literal(1),

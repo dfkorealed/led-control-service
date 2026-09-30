@@ -104,10 +104,11 @@ describe("automation shared contracts", () => {
 
   it.each([
     ["bluez-stateful", 5],
+    ["bluez-stateful", 1_800],
     ["bio-usb-pulse", 10],
     ["bio-usb-pulse", 60],
     ["bio-usb-pulse", 1_800]
-  ] as const)("accepts %s V2 vehicle rule with %i-second hold", (sensorProtocol, holdSeconds) => {
+  ] as const)("accepts %s V2 vehicle rule with %s-second hold", (sensorProtocol, holdSeconds) => {
     const rule = { ...snapshot.vehicleEventRules[0], sensorProtocol, holdSeconds };
     expect(vehicleEventRuleSnapshotV2Schema.parse(rule)).toEqual(rule);
     const v2Snapshot = {
@@ -122,9 +123,11 @@ describe("automation shared contracts", () => {
   it.each([
     ["bio-usb-pulse", 9],
     ["bio-usb-pulse", 1_801],
+    ["bio-usb-pulse", 10.5],
     ["bluez-stateful", 4],
+    ["bluez-stateful", 1_801],
     ["unknown", 60]
-  ])("rejects %s V2 vehicle rule with %i-second hold", (sensorProtocol, holdSeconds) => {
+  ])("rejects %s V2 vehicle rule with %s-second hold", (sensorProtocol, holdSeconds) => {
     expect(vehicleEventRuleSnapshotV2Schema.safeParse({
       ...snapshot.vehicleEventRules[0],
       sensorProtocol,
@@ -157,6 +160,43 @@ describe("automation shared contracts", () => {
     expect(automationConfigAppliedV1Schema.safeParse(acknowledgement).success).toBe(false);
     expect(automationConfigAppliedV2Schema.safeParse({ ...acknowledgement, schemaVersion: 1 }).success).toBe(false);
     expect(automationConfigAppliedV2Schema.safeParse({ ...acknowledgement, extra: true }).success).toBe(false);
+  });
+
+  it.each([
+    [1, automationConfigAppliedV1Schema],
+    [2, automationConfigAppliedV2Schema]
+  ] as const)("enforces V%i config ACK error-code semantics", (schemaVersion, schema) => {
+    const acknowledgement = {
+      schemaVersion,
+      gatewayId,
+      revision: 3,
+      payloadHash,
+      status: "applied" as const,
+      errorCode: null,
+      appliedAt: occurredAt
+    };
+    expect(schema.parse(acknowledgement)).toEqual(acknowledgement);
+    expect(schema.parse({ ...acknowledgement, status: "rejected", errorCode: "snapshot_invalid" }))
+      .toMatchObject({ status: "rejected", errorCode: "snapshot_invalid" });
+
+    const appliedWithError = schema.safeParse({ ...acknowledgement, errorCode: "snapshot_invalid" });
+    expect(appliedWithError.success).toBe(false);
+    if (!appliedWithError.success) {
+      expect(appliedWithError.error.issues).toContainEqual(expect.objectContaining({
+        path: ["errorCode"],
+        message: "applied configuration cannot include an errorCode"
+      }));
+    }
+    const rejectedWithoutError = schema.safeParse({ ...acknowledgement, status: "rejected" });
+    expect(rejectedWithoutError.success).toBe(false);
+    if (!rejectedWithoutError.success) {
+      expect(rejectedWithoutError.error.issues).toContainEqual(expect.objectContaining({
+        path: ["errorCode"],
+        message: "rejected configuration requires an errorCode"
+      }));
+    }
+    expect(schema.safeParse({ ...acknowledgement, status: "rejected", errorCode: "" }).success).toBe(false);
+    expect(schema.safeParse({ ...acknowledgement, extra: true }).success).toBe(false);
   });
 
   it.each([
