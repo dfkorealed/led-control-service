@@ -20,7 +20,7 @@
 - [x] 첫 root test는 무관한 API CAD 프로세스 종료 타이밍 테스트 1건 실패였으나 해당 파일 단독 20/20, 두 번째 root test 전체 exit0으로 재검증했다. Web 전체 2,630 passed/3 skipped와 관련 Chromium 84 passed/기존 설정 편집기 성능 1 failed를 기록했다.
 - [x] 최종 경계 수정(상세에서 다른 조명 선택 후 원래 핀 재등장 방지)의 브라우저 RED→GREEN, Web 전체 2,630/3 skipped, 관련 Chromium 85/85, root lint/typecheck/build exit0 및 `git diff --check`를 확인했다.
 - [x] 디자이너 세션의 실제 화면 후속 검토에서 발견한 320px 핀 가림·0건 결과·배율 접근성 설명을 반영하고 재검증했다.
-- [ ] 검증 결과·기존 설정 편집기 성능 후속을 정확히 기록하고 별도 브랜치를 메인 작업 브랜치에 병합한다.
+- [x] 검증 결과·기존 설정 편집기 성능 후속을 정확히 기록하고 별도 브랜치를 `codex/mvp1-cloud-web`에 로컬 fast-forward 병합한다. 원격 push·배포·HIL은 수행하지 않는다.
 
 ## 예외·남은 검증
 

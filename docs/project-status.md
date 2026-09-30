@@ -2,14 +2,14 @@
 
 기준일: 2026-09-30
 
-## 2026-09-30 모니터링 화면 정리·휠 줌 — 별도 브랜치 구현 중
+## 2026-09-30 모니터링 화면 정리·휠 줌 — 로컬 병합 완료
 
 - [x] 기존 UI/UX 디자이너 세션에서 14개 브라우저 코멘트와 추가 포인터 기준 휠 줌의 배치·접근성·0개 KPI UX를 검토했다. 새 서브에이전트는 만들지 않았다.
 - [x] `codex/monitoring-toolbar-wheel-ux` 별도 worktree 브랜치에서 먼저 실패 테스트를 확인하고 화면·지도 입력을 수정했다. 팝오버 닫기·4개 상태 문구·로그 ticker·도구 배치·0개 필터·모니터링 전용 휠 줌을 대상으로 한다.
 - [x] Web 전체 Vitest 189 files passed/1 skipped·2,630 passed/3 skipped. 최종 모니터링 관련 Chromium 85/85를 통과했다. 제외하지 않고 실행한 이전 86건 중 유일한 실패는 이미 알려진 별도 설정 편집기 1,000대 8초 준비 성능 검사다. 320px 선택 핀이 하단 내비에 가려지는 문제를 좌표 단언 RED→GREEN으로 고치고, 0건 KPI/검색의 빈 상세 패널·배율 버튼의 접근성 설명·상세에서 다른 조명 선택 후 원래 핀 재등장도 보완했다. 첫 브라우저 실행의 9건 실패는 필터 초기화로 인한 팝오버 소실 4건과 조작 그룹 변경에 대한 옛 selector 5건으로 확인해 수정 후 재검증했다. [실행 체크리스트](superpowers/plans/2026-09-30-monitoring-ui-comments-wheel-zoom.md)를 유지한다.
 - [x] 첫 canonical root test는 이번 범위와 다른 API CAD 변환기 자식 프로세스 종료 타이밍 테스트 1건 실패(2,962 passed/827 skipped)였지만 해당 API 파일 단독 20 passed/1 skipped, 전체 root 재실행 exit0(API 2,963 passed/827 skipped, Web 2,630 passed/3 skipped, Gateway 1,409 passed, UI policy 65/65·위반0)으로 재검증했다. 마지막 자체 리뷰의 상세 선택 후 원래 핀 재등장 문제도 browser RED→GREEN으로 수정했다.
 - [x] 최종 root lint/typecheck/build exit0, root test 재실행 exit0, 4너비 디자이너 시각 검토·diff review를 마쳤다.
-- [ ] 별도 브랜치를 `codex/mvp1-cloud-web`에 로컬 병합한다. 설정 편집기 1,000건 8초 성능 실패는 기존 후속으로 유지하며 새 테스트 결과와 별도로 보고한다. 실제 HIL·배포·push는 하지 않는다.
+- [x] 별도 `codex/monitoring-toolbar-wheel-ux`를 `codex/mvp1-cloud-web`에 로컬 fast-forward 병합했다. 설정 편집기 1,000건 8초 성능 실패는 기존 후속으로 유지하며 새 테스트 결과와 별도로 보고한다. 실제 HIL·배포·push는 하지 않는다.
 
 ## 2026-09-30 모니터링 탐색·시야 개선 — 로컬 병합·회귀 완료, 편집기 성능 후속
 
