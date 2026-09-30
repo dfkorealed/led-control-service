@@ -34,7 +34,8 @@ export class BioPulseScheduler {
   private transition: { activation: PersistedBioActivation; release: boolean } | null = null;
 
   constructor(private readonly profile: BioPulseTestProfile, private readonly store: FileAutomationStateStore,
-    private readonly now: () => Date, private readonly monotonic: () => number) {
+    private readonly now: () => Date, private readonly monotonic: () => number,
+    private readonly automaticReleaseBlocked: (activationId: string) => boolean = () => false) {
     if (profile.kind !== "synthetic-test-only") throw new Error("bio_pulse_control_unavailable");
     this.bindings = new Map(profile.bindings.map(raw => {
       const binding = parseBioSourceBinding(structuredClone(raw));
@@ -241,10 +242,11 @@ export class BioPulseScheduler {
     return this.snapshot?.vehicleEventRules.some(rule => rule.sensorProtocol === "bio-usb-pulse" && rule.targetFixtureIds.includes(fixtureId)) ?? false;
   }
 
-  completedRestorationCauses() {
+  completedRestorationCauses(alreadyCompleted: ReadonlySet<string>) {
     // Correlation only for the normal executor's later baseline results/retries.
     // These are never republished as lifecycle events or configuration read-backs.
-    return Object.entries(this.store.read().bioActivationsByRule).filter(([, activation]) => activation.completed)
+    return Object.entries(this.store.read().bioActivationsByRule).filter(([, activation]) =>
+      activation.completed && !alreadyCompleted.has(activation.activationId))
       .map(([ruleId, activation]) => ({ kind: "event_ended" as const, ruleId, occurrenceKey: activation.activationId,
         revision: activation.binding.snapshotRevision, occurredAt: this.now().toISOString(),
         payload: { reason: activation.releaseReason, targetFixtureIds: activation.targetFixtureIds
@@ -317,6 +319,7 @@ export class BioPulseScheduler {
     const explicitRelease = release && activation.releaseReason === "operator_release";
     if (!this.authorized(activation.binding, !explicitRelease)) return false;
     if (release && !explicitRelease) {
+      if (this.automaticReleaseBlocked(activation.activationId)) return false;
       const health = this.health(activation.binding.sourceFixtureId);
       const rule = this.snapshot?.vehicleEventRules.find(rule => rule.id + ":" + activation.startedAt === activation.activationId);
       // A health fault between the expiry commit and RF must freeze restoration

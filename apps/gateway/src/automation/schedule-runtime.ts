@@ -117,6 +117,8 @@ export class ScheduleRuntime {
   private readonly monotonicClock: () => number;
   private readonly vehicleRuntime: VehicleEventRuntime;
   private readonly bio: BioPulseScheduler | null;
+  private readonly bioArrivals = new Set<{ input: Extract<VehicleSensorInput, { type: "pulse" }>;
+    activations: Map<string, number> }>();
   private snapshot: SchedulerSnapshot | null = null;
   private initialized = false;
   private timer: NodeJS.Timeout | null = null;
@@ -133,7 +135,8 @@ export class ScheduleRuntime {
     this.wallClock = options.wallClock ?? (() => new Date());
     this.monotonicClock = options.monotonicClock ?? (() => performance.now());
     this.bio = options.bioPulseTestProfile
-      ? new BioPulseScheduler(options.bioPulseTestProfile, options.store, this.wallClock, this.monotonicClock) : null;
+      ? new BioPulseScheduler(options.bioPulseTestProfile, options.store, this.wallClock, this.monotonicClock,
+        activationId => this.bioArrivalBlocksRelease(activationId)) : null;
     this.vehicleRuntime = new VehicleEventRuntime({
       wallClock: this.wallClock,
       monotonicClock: this.monotonicClock,
@@ -571,6 +574,8 @@ export class ScheduleRuntime {
   private recordBioPulse(input: Extract<VehicleSensorInput, { type: "pulse" }>): Promise<boolean> {
     if (!this.bio) return Promise.reject(new Error("bio_pulse_control_unavailable"));
     const exact = structuredClone(input);
+    let arrival: ReturnType<ScheduleRuntime["registerBioArrival"]>;
+    try { arrival = this.registerBioArrival(exact); } catch (error) { return Promise.reject(error); }
     return this.runExternal(async () => {
       await this.ensureInitialized();
       this.bio!.assertPulse(exact);
@@ -622,7 +627,46 @@ export class ScheduleRuntime {
       this.vehicleRuntime.restore(deadlines);
       if (events.length) await this.applyComputed(this.computeDesired(this.snapshot!, this.state(), events));
       return events.some(event => event.kind === "vehicle_detected");
-    });
+    }).finally(() => { if (arrival) this.bioArrivals.delete(arrival); });
+  }
+
+  private registerBioArrival(input: Extract<VehicleSensorInput, { type: "pulse" }>) {
+    if (!this.initialized || !this.snapshot) return null;
+    this.bio!.assertPulse(input);
+    const state = this.state();
+    this.bio!.resumeAutomaticReleases(state, input);
+    const preview = this.vehicleRuntime.planRecordInput(state, this.snapshot, input);
+    const activations = new Map<string, number>();
+    for (const event of preview.events) {
+      if (event.kind !== "vehicle_detected") continue;
+      const activation = this.state().bioActivationsByRule[event.ruleId];
+      const rule = this.snapshot.vehicleEventRules.find(rule => rule.id === event.ruleId);
+      if (rule && activation && !activation.completed && event.occurrenceKey === activation.activationId) {
+        activations.set(activation.activationId, input.receivedMonotonicMs + rule.holdSeconds * 1000);
+      }
+    }
+    if (!activations.size) return null;
+    // Arrival is only a bounded expiry veto, never an accepted receipt, durable
+    // occurrence or RF authority. An in-flight async tick may have started before
+    // this on-time pulse; the serialized worker must still validate+commit it.
+    if (this.bioArrivals.size >= 256) throw new Error("bio_pulse_arrival_capacity");
+    const arrival = { input, activations };
+    this.bioArrivals.add(arrival);
+    return arrival;
+  }
+
+  private bioArrivalBlocksRelease(activationId: string) {
+    for (const arrival of this.bioArrivals) {
+      if ((arrival.activations.get(activationId) ?? -Infinity) <= this.monotonicClock()) continue;
+      try { this.bio!.assertPulse(arrival.input); } catch { continue; }
+      const connection = this.bio!.connection();
+      const health = this.bio!.health(arrival.input.sourceFixtureId);
+      if (arrival.input.receipt.connectionEpoch !== connection?.epoch ||
+        arrival.input.receipt.connectionGeneration !== connection?.generation || !health ||
+        arrival.input.receivedMonotonicMs < health.healthySinceMonotonicMs) continue;
+      return true;
+    }
+    return false;
   }
 
   private updateState(mutation: (state: PersistedAutomationStateV4) => PersistedAutomationStateV4) {
@@ -720,13 +764,27 @@ export class ScheduleRuntime {
   }
 
   private async applyComputed(computed: ComputedDesiredState) {
+    const alreadyCompleted = new Set(Object.values(this.state().bioActivationsByRule)
+      .filter(activation => activation.completed).map(activation => activation.activationId));
     await this.bio?.apply();
     if (this.bio && this.snapshot) computed = this.computeDesired(this.snapshot, this.state(), computed.lifecycleEvents);
-    // Historical BIO completion only supplies missing fallback correlation;
-    // a current schedule/event ending is the newer, authoritative cause.
-    const terminalCauses = [...(this.bio?.completedRestorationCauses() ?? []), ...computed.lifecycleEvents];
+    const terminalCauses = [...(this.bio?.completedRestorationCauses(alreadyCompleted) ?? []), ...computed.lifecycleEvents];
     const state = this.state();
-    const changed = [...computed.actions.values()].filter((action) =>
+    const changed = [...computed.actions.values()].map(action => {
+      if (!this.bio || (action.sourceType !== "current" && action.sourceType !== "default")) return action;
+      const cause = [...terminalCauses].reverse().find(event =>
+        (event.kind === "event_ended" || event.kind === "schedule_ended") &&
+        Array.isArray(event.payload.targetFixtureIds) && event.payload.targetFixtureIds.includes(action.fixtureId));
+      if (cause) return { ...action, sourceType: cause.kind === "event_ended" ? "vehicle_event_rule" as const : "schedule" as const,
+        sourceId: cause.ruleId, occurrenceKey: cause.occurrenceKey };
+      const previous = state.transitionsByFixture[action.fixtureId];
+      // Carry the exact failed/pending restoration cause through durable retries,
+      // including restart. An arbitrary historical completed BIO event is not it.
+      if (previous && previous.status !== "succeeded" && previous.brightnessPercent === action.brightnessPercent) {
+        return { ...action, sourceType: previous.sourceType, sourceId: previous.sourceId, occurrenceKey: previous.occurrenceKey };
+      }
+      return action;
+    }).filter((action) =>
       state.lastDesiredByFixture[action.fixtureId] !== action.brightnessPercent &&
       !this.pendingObservationFixtures.has(action.fixtureId) &&
       !state.pendingManualControls[action.fixtureId]

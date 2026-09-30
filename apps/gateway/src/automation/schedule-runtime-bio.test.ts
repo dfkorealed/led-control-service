@@ -63,10 +63,11 @@ async function fixture(targets = [b], holdSeconds = 10) {
   };
   const genericWrites: unknown[] = [];
   let failGeneric = false;
+  let clockTrust: () => Promise<boolean> = async () => true;
   const make = async (enabled = true) => {
     const store = new FileAutomationStateStore(path, writer);
     const runtime = new ScheduleRuntime({ store, wallClock: now, monotonicClock: () => ms,
-      clockTrust: { isTrusted: async () => true }, execute: async actions => {
+      clockTrust: { isTrusted: () => clockTrust() }, execute: async actions => {
         genericWrites.push(...actions);
         if (failGeneric) return actions.map(action => ({ fixtureId: action.fixtureId, status: "failed" as const,
           brightnessPercent: null, faultCode: null, errorCode: "synthetic_failure", occurredAt: now().toISOString() }));
@@ -86,7 +87,8 @@ async function fixture(targets = [b], holdSeconds = 10) {
   return { ...current, path, snapshot, authority, lamps, writes, genericWrites, failures, pulse, make, now,
     advance: (amount: number) => { ms += amount; }, reject: (predicate: typeof reject) => { reject = predicate; },
     onRead: (callback: (id: string) => void) => { onRead = callback; }, wallOffset: (value: number) => { wallOffset = value; },
-    failGeneric: (value: boolean) => { failGeneric = value; } };
+    failGeneric: (value: boolean) => { failGeneric = value; },
+    clockTrust: (value: () => Promise<boolean>) => { clockTrust = value; } };
 }
 
 function rehash(snapshot: AutomationSnapshotV2) {
@@ -423,7 +425,7 @@ describe("synthetic V2 BIO scheduler integration; product gate remains OFF", () 
     expect(f.store.read().bioActivationsByRule[rule]?.releaseReason).toBe("operator_release");
   });
 
-  it.each([false, true])("resolves the latest baseline after a schedule ends beneath an active BIO event (manual=%s)", async takeover => {
+  it.each([[false, false], [true, false], [false, true]])("resolves the latest baseline after a schedule ends beneath an active BIO event (manual=%s, restart=%s)", async (takeover, restart) => {
     const f = await fixture([b], 120); await f.runtime.recordFixtureState(b, 30);
     f.snapshot.schedules.push({ id: c, name: "short schedule", status: "enabled", activeFrom: "2026-09-01T00:00:00.000Z",
       activeUntil: "2026-10-30T00:00:00.000Z", localStartTime: "00:00", localEndTime: "00:01",
@@ -445,10 +447,17 @@ describe("synthetic V2 BIO scheduler integration; product gate remains OFF", () 
       configuredHighBrightnessPercent: 40, bioMode: "force-on" });
     if (!takeover) {
       f.advance(86280000); await f.runtime.tick(); // Next day's independent schedule.
-      f.advance(60000); await f.runtime.tick();
-      const latest = f.store.read().pendingTelemetryHandoffs.flatMap(handoff => handoff.records)
+      f.failGeneric(true); f.advance(60000); await f.runtime.tick();
+      const failed = f.store.read().pendingTelemetryHandoffs.flatMap(handoff => handoff.records)
+        .filter(record => record.kind === "action_result").at(-1);
+      f.failGeneric(false);
+      const retry = restart ? await f.make() : f;
+      if (restart) await retry.runtime.activateBioPulseTestSnapshot(f.snapshot);
+      else await retry.runtime.tick();
+      const latest = retry.store.read().pendingTelemetryHandoffs.flatMap(handoff => handoff.records)
         .filter(record => record.kind === "action_result").at(-1);
       expect(latest).toMatchObject({ ruleId: c, payload: { sourceType: "schedule" } });
+      expect(latest?.occurrenceKey).toBe(failed?.occurrenceKey);
     }
   });
 
@@ -535,5 +544,81 @@ describe("synthetic V2 BIO scheduler integration; product gate remains OFF", () 
     expect(f.store.read().vehicleRules[rule]!.startedAt).toBe(shortStartedAt);
     expect(f.writes.filter(write => write.fixtureId === b)).toHaveLength(1);
     expect(f.writes.filter(write => write.fixtureId === c).map(write => write.configuration.configuredHighBrightnessPercent)).toEqual([80, 40, 80]);
+  });
+
+  it.each([false, true])("preserves an on-time arrival behind an already running deferred tick (manual=%s)", async takeover => {
+    const f = await fixture(); await f.runtime.activateBioPulseTestSnapshot(f.snapshot); await f.runtime.recordVehicleSensorInput(f.pulse());
+    const startedAt = f.store.read().vehicleRules[rule]!.startedAt;
+    if (takeover) {
+      await f.runtime.prepareManualControl({ sourceId: manual, fixtureIds: [b], brightnessPercent: 60, requestedAt: f.now().toISOString() });
+      f.lamps.get(b)!.configuration = { configuredHighBrightnessPercent: 60, bioMode: "force-on" };
+      await f.runtime.handoffManualTerminal(manual, [{ fixtureId: b, status: "succeeded", brightnessPercent: 60,
+        faultCode: null, errorCode: null, occurredAt: f.now().toISOString() }]);
+    }
+    let entered!: () => void; const enteredTrust = new Promise<void>(resolve => { entered = resolve; });
+    let unblock!: (value: boolean) => void; const trust = new Promise<boolean>(resolve => { unblock = resolve; });
+    f.clockTrust(() => { entered(); return trust; });
+    f.advance(8000); const tick = f.runtime.tick(); await enteredTrust;
+    f.advance(1000); const pulse = f.runtime.recordVehicleSensorInput(f.pulse(2)); // Actual arrival at t10, before dequeue.
+    f.advance(2000); unblock(true); await tick; await pulse;
+    expect(f.store.read().vehicleRules[rule]!.startedAt).toBe(startedAt);
+    expect(f.lamps.get(b)!.configuration.configuredHighBrightnessPercent).toBe(takeover ? 60 : 80);
+    expect(f.writes).toHaveLength(1);
+    f.clockTrust(async () => true); f.advance(8000); await f.runtime.tick();
+    expect(f.lamps.get(b)!.configuration.configuredHighBrightnessPercent).toBe(takeover ? 60 : 30);
+  });
+
+  it.each(["malformed", "unqualified", "connection-changed", "elapsed", "commit-failed"] as const)(
+    "does not leave an expiry barrier after an ineligible or failed arrival (%s)", async failure => {
+      const f = await fixture(); await f.runtime.activateBioPulseTestSnapshot(f.snapshot); await f.runtime.recordVehicleSensorInput(f.pulse());
+      let entered!: () => void; const enteredTrust = new Promise<void>(resolve => { entered = resolve; });
+      let unblock!: (value: boolean) => void; const trust = new Promise<boolean>(resolve => { unblock = resolve; });
+      f.clockTrust(() => { entered(); return trust; });
+      f.advance(8000); const tick = f.runtime.tick(); await enteredTrust; f.advance(1000);
+      const input = f.pulse(2);
+      if (failure === "malformed") input.receipt.sequence = -1;
+      if (failure === "unqualified") f.authority.independentlyQualified = false;
+      if (failure === "commit-failed") f.reject(state => state.bioPulseInbox[a]?.receipt.sequence === 2);
+      const pulse = f.runtime.recordVehicleSensorInput(input).catch(() => undefined);
+      f.authority.independentlyQualified = true;
+      if (failure === "connection-changed") {
+        f.authority.connection.epoch = "new-connection"; f.authority.observation.connectionEpoch = "new-connection";
+      }
+      f.advance(failure === "elapsed" ? 11000 : 2000); unblock(true); await tick; await pulse;
+      if (failure !== "commit-failed") expect(f.writes).toHaveLength(2);
+      f.reject(() => false); f.clockTrust(async () => true); await f.runtime.tick();
+      expect(f.store.read().bioPulseInbox[a]?.receipt.sequence).toBe(1);
+      expect(f.store.read().bioActivationsByRule[rule]?.completed).toBe(true);
+      expect(f.lamps.get(b)!.configuration.configuredHighBrightnessPercent).toBe(30);
+      if (failure !== "commit-failed") expect(f.writes).toHaveLength(2);
+    });
+
+  it("bounds queued arrival barriers without extending hold from rejected overflow", async () => {
+    const f = await fixture(); await f.runtime.activateBioPulseTestSnapshot(f.snapshot); await f.runtime.recordVehicleSensorInput(f.pulse());
+    let entered!: () => void; const enteredTrust = new Promise<void>(resolve => { entered = resolve; });
+    let unblock!: (value: boolean) => void; const trust = new Promise<boolean>(resolve => { unblock = resolve; });
+    f.clockTrust(() => { entered(); return trust; }); f.advance(8000); const tick = f.runtime.tick(); await enteredTrust;
+    f.advance(1000); const arrivals = Array.from({ length: 300 }, () => f.runtime.recordVehicleSensorInput(f.pulse(2)).catch(error => error));
+    f.advance(11000); unblock(true); await tick;
+    const results = await Promise.all(arrivals);
+    expect(results.some(result => result instanceof Error && result.message === "bio_pulse_arrival_capacity")).toBe(true);
+    expect(f.store.read().bioPulseInbox[a]?.receipt.sequence).toBe(1);
+    expect(f.store.read().bioActivationsByRule[rule]?.completed).toBe(true);
+    expect(f.writes.map(write => write.configuration.configuredHighBrightnessPercent)).toEqual([80, 30]);
+  });
+
+  it("blocks only the on-time rule when the same-source arrival is late for another rule", async () => {
+    const f = await fixture(); f.snapshot.vehicleEventRules.push({ ...f.snapshot.vehicleEventRules[0]!, id: manual,
+      targetFixtureIds: [c], holdSeconds: 60 }); rehash(f.snapshot);
+    await f.runtime.activateBioPulseTestSnapshot(f.snapshot); await f.runtime.recordVehicleSensorInput(f.pulse());
+    const startedAt = f.store.read().vehicleRules[manual]!.startedAt;
+    let entered!: () => void; const enteredTrust = new Promise<void>(resolve => { entered = resolve; });
+    let unblock!: (value: boolean) => void; const trust = new Promise<boolean>(resolve => { unblock = resolve; });
+    f.clockTrust(() => { entered(); return trust; }); f.advance(58000); const tick = f.runtime.tick(); await enteredTrust;
+    f.advance(1000); const pulse = f.runtime.recordVehicleSensorInput(f.pulse(2)); f.advance(2000); unblock(true);
+    await tick; await pulse;
+    expect(f.store.read().vehicleRules[manual]!.startedAt).toBe(startedAt);
+    expect(f.writes.filter(write => write.fixtureId === c)).toHaveLength(1);
+    expect(f.writes.filter(write => write.fixtureId === b).map(write => write.configuration.configuredHighBrightnessPercent)).toEqual([80, 30, 80]);
   });
 });
