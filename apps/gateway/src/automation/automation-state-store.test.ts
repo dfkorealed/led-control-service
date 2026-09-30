@@ -47,6 +47,27 @@ function manualV6State() {
 }
 
 describe("V8 BIO target configuration journal", () => {
+  it("preserves a released unverified target only as failed without invented observations", () => {
+    const state = emptyAutomationState();
+    state.bioTargetsByFixture[fixtureId] = {
+      activationId: "closed-unverified", sourceFixtureId: commandId, eventBrightnessPercent: 80,
+      target: null, preState: null,
+      applyResult: { status: "failed", attempt: 1, at: requestedAt, observed: null },
+      restoreResult: { status: "failed", attempt: 1, at: appliedAt, observed: null }
+    };
+    expect(parseAutomationState(state)).toEqual(state);
+    for (const status of ["pending", "succeeded", "timed_out"] as const) {
+      const invalid = structuredClone(state);
+      invalid.bioTargetsByFixture[fixtureId]!.restoreResult!.status = status;
+      expect(() => parseAutomationState(invalid)).toThrow();
+    }
+    for (const phase of ["applyResult", "restoreResult"] as const) {
+      const invalid = structuredClone(state);
+      invalid.bioTargetsByFixture[fixtureId]![phase]!.observed = { configuredHighBrightnessPercent: 30, bioMode: "sensor" };
+      expect(() => parseAutomationState(invalid)).toThrow();
+    }
+  });
+
   it("migrates V7 and V6 without inventing a verified target base", () => {
     const v6 = manualV6State();
     const v7 = { ...v6, schemaVersion: 7, bioPulseInbox: {} };

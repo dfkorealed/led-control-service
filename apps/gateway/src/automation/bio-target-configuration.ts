@@ -42,10 +42,17 @@ export class BioTargetConfigurationRuntime {
       for (const fixtureId of request.targetFixtureIds) {
         let row = this.store.read().bioTargetsByFixture[fixtureId];
         if (phase === "restoreResult" && (!row || row.activationId !== request.activationId)) continue;
-        if (phase === "applyResult" && (!row || row.activationId !== request.activationId || row.preState === null)) {
+        if (phase === "applyResult" && (!row || row.activationId !== request.activationId ||
+          (row.preState === null && row.restoreResult === null))) {
           row = await this.capture(fixtureId, request, row);
         }
         if (!row) continue;
+        if (phase === "restoreResult" && row.preState === null && row.restoreResult === null) {
+          // No configuration was captured and no RF write was possible. Release still
+          // closes this activation durably; it cannot become a later successful restore
+          // or authorize recapture when GET starts working again after restart.
+          row = await this.persist(fixtureId, row, { ...row, restoreResult: this.result("failed", 1) });
+        }
         // A completed/releasing activation cannot be revived by another pulse/retry.
         if (row.preState && (phase !== "applyResult" || row.restoreResult === null) && row[phase]?.status !== "succeeded") {
           row = await this.transition(fixtureId, row, phase);

@@ -1153,7 +1153,12 @@ function parseBioTargetState(value: unknown): PersistedBioTargetState {
   const restoreResult = value.restoreResult === null ? null : parseBioTargetResult(value.restoreResult);
   const eventBrightnessPercent = parseBrightness(value.eventBrightnessPercent);
   if ((preState === null) !== (target === null) ||
-    (preState === null && (applyResult.status !== "failed" || restoreResult !== null))) throw new Error("unverified BIO target base");
+    (preState === null && (applyResult.status !== "failed" || applyResult.observed !== null ||
+      (restoreResult !== null && (restoreResult.status !== "failed" || restoreResult.observed !== null))))) {
+    // A null-base target can be explicitly closed after capture failure, but cannot
+    // acquire an invented observation or a pending/successful restoration result.
+    throw new Error("unverified BIO target base");
+  }
   if (preState && applyResult.status === "succeeded" && !isDeepStrictEqual(applyResult.observed, bioEventConfiguration(preState, eventBrightnessPercent))) {
     throw new Error("BIO applied configuration mismatch");
   }

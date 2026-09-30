@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -41,7 +41,7 @@ async function fixture(modes: BioConfigurationState["bioMode"][] = ["sensor", "f
       return structuredClone(lamps.get(fixtureId)!);
     },
     async restoreBioState(fixtureId: string, target: BioVerifiedLampTarget, configuration: BioConfigurationState) {
-      expect(store.read().bioTargetsByFixture[fixtureId]?.preState).not.toBeNull();
+      expect(JSON.parse(await readFile(path, "utf8")).bioTargetsByFixture[fixtureId]?.preState).not.toBeNull();
       expect(target).toEqual(lamps.get(fixtureId)!.target);
       writes.push({ fixtureId, configuration: { ...configuration } });
       if (failures.has(fixtureId)) throw new Error("uncertain write");
@@ -108,6 +108,30 @@ describe("durable BIO target configuration restoration (scheduler remains discon
     expect(f.writes.map(write => write.fixtureId)).toEqual([b2]);
     f.unknown.clear(); await f.runtime.apply(f.request);
     expect(f.store.read().bioTargetsByFixture[b1]?.preState?.bioMode).toBe("sensor");
+  });
+
+  it.each([false, true])("does not revive an unverified target after release of a partial two-B activation (restart=%s)", async restart => {
+    const f = await fixture(); f.unknown.add(b1);
+    await f.runtime.apply(f.request);
+    await f.runtime.restore(f.request);
+    const writesAfterRelease = structuredClone(f.writes);
+    f.unknown.clear();
+    const store = restart ? new FileAutomationStateStore(f.path) : f.store;
+    if (restart) await store.initialize();
+    const runtime = restart ? new BioTargetConfigurationRuntime(store, f.port) : f.runtime;
+    await runtime.apply(f.request);
+    expect(f.writes).toEqual(writesAfterRelease);
+    expect(f.writes.map(write => write.fixtureId)).toEqual([b2, b2]);
+    expect(store.read().bioTargetsByFixture[b1]).toMatchObject({
+      preState: null, target: null, applyResult: { status: "failed", observed: null },
+      restoreResult: { status: "failed", observed: null }
+    });
+    expect(store.read().bioTargetsByFixture[b2]?.restoreResult?.status).toBe("succeeded");
+    const closed = store.read();
+    await runtime.restore(f.request);
+    await runtime.apply(f.request);
+    expect(store.read()).toEqual(closed);
+    expect(f.writes).toEqual(writesAfterRelease);
   });
 
   it("does not submit an RF write before a durable base commit", async () => {
