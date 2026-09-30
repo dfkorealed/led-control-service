@@ -252,6 +252,8 @@ SiteDeletionCleanup (삭제된 Site ID와 외부 정리 대상을 독립 보존)
 | `ScheduleRecurrenceKind` | `once`, `daily`, `weekly`, `monthly`, `yearly` | 현장 timezone 기준 반복 방식 |
 | `AutomationExecutionKind` | `schedule_started`, `schedule_ended`, `vehicle_detected`, `event_started`, `event_extended`, `event_ended`, `action_result`, `telemetry_gap` | Gateway가 전달한 lifecycle 원장 종류 |
 | `VehicleSensorCapabilityStatus` | `unknown`, `supported`, `unsupported` | MeshNode의 검증된 차량 센서 source capability |
+| `VehicleSensorProtocol` | `bluez_stateful`, `bio_usb_pulse` | MeshNode capability 및 차량 이벤트 규칙의 입력 protocol |
+| `BioPulseReadiness` | `off`, `shadow`, `ready`, `degraded` | BIO 자격 준비 상태; 기본 OFF, mode/광학 확인과 별개 |
 
 ### MeshControlTargetType / MeshControlGroupStatus
 
@@ -1347,6 +1349,11 @@ ESP32-H2 BLE Mesh 노드다. 한 노드는 최대 하나의 `Fixture`와 매핑�
 | `serialNumber` | `String?` | 아니오 |  | 장비 시리얼 |
 | `meshAddress` | `String` | 예 | Unique with `gatewayId` | BLE Mesh unicast address |
 | `firmwareVersion` | `String` | 예 |  | 노드 펌웨어 버전 |
+| `vehicleSensorProtocol` | `VehicleSensorProtocol` | 예 | `bluez_stateful` | `bluez_stateful` 또는 `bio_usb_pulse`; 서버가 저장한 capability 프로토콜 |
+| `bioPulseReadiness` | `BioPulseReadiness` | 예 | `off` | `off`, `shadow`, `ready`, `degraded`; BIO는 기본 OFF |
+| `bioPulseProfileId` | `String?` | 아니오 | `NULL`, nonblank CHECK | 검증된 BIO profile 식별자; 현장 allowlist를 자동 생성하지 않음 |
+| `bioPulseVerifiedAt` | `DateTime?` | 아니오 | `NULL`, ready에서 필수 | BIO 자격 검증 근거 시각; sensor-mode GET 확인이나 광학 출력 증거가 아님 |
+| `bioPulseCapabilityRevision` | `BigInt` | 예 | `0`, nonnegative CHECK | V1과 분리된 BIO revision; shadow/ready/degraded는 양수 |
 | `vehicleSensorCapabilityStatus` | `VehicleSensorCapabilityStatus` | 예 | `unknown` | 차량 감지 source capability 상태 |
 | `vehicleSensorCapabilityVerifiedAt` | `DateTime?` | 아니오 | capability coherence DB CHECK | 모델 capability 검증 시각 |
 | `vehicleSensorCapabilityRevision` | `BigInt` | 예 | `0`, capability coherence DB CHECK | Gateway가 영속 관리하는 capability 단조 revision |
@@ -1360,7 +1367,8 @@ ESP32-H2 BLE Mesh 노드다. 한 노드는 최대 하나의 `Fixture`와 매핑�
 - Unique: `deviceUuid`
 - 복합 Unique: `id`, `gatewayId`
 - 복합 Unique: `gatewayId`, `meshAddress`
-- `unknown`은 revision `0`, 검증 시각 `NULL`, 두 model flag `false`인 초기 상태로만 존재한다. `supported`는 양수 revision, 검증 시각, 두 model flag `true`를 모두 요구한다. `unsupported`는 양수 revision과 model flag 하나 이상 `false`를 항상 요구하며 검증 시각 유무로 이 조건을 우회할 수 없다.
+- BlueZ의 `unknown`은 revision `0`, 검증 시각 `NULL`, 두 model flag `false`인 초기 상태로만 존재한다. `supported`는 양수 revision, 검증 시각, 두 model flag `true`를 모두 요구한다. `unsupported`는 양수 revision과 model flag 하나 이상 `false`를 항상 요구하며 검증 시각 유무로 이 조건을 우회할 수 없다.
+- BIO 노드는 V1 capability를 `unknown`/revision `0`/검증 시각 `NULL`/두 model flag `false`로 유지한다. Sensor Server나 vendor model 바인딩을 BIO 지원 근거로 위조하지 않는다. BlueZ 노드의 BIO 열은 `off`/revision `0`/profile·verifiedAt `NULL`만 허용하므로 두 protocol의 지원 상태를 동시에 저장할 수 없다. BIO `off`는 revision `0` 이상, `shadow`/`ready`/`degraded`는 양수 revision이며 `ready`는 nonblank profile과 verifiedAt을 모두 요구한다. DB는 revision의 범위를 강제하고 stale/duplicate 및 단조 증가 report 판정은 후속 API 적용 경계에서 수행한다.
 - 최초 capability migration은 모든 기존 노드를 fail-closed `unknown`/`NULL`로 만들었다. ordering migration은 그 뒤 운영자가 검증한 기존 `supported`/`unsupported`를 baseline revision `1`로, 기존 `unknown`을 revision `0`으로 backfill한다. 차량 이벤트 CRUD source resolver는 `supported`이면서 검증 시각과 두 model flag가 모두 유효한 등록 Fixture만 허용한다.
 - capability 변경은 strict `VehicleSensorCapabilityReportV1`만 API service 경계에서 받는다. report topic은 `sites/{siteId}/gateways/{gatewayId}/events/automation/vehicle-sensor-capability`이고 payload는 `schemaVersion=1`, UUID `eventId/siteId/gatewayId/meshNodeId`, positive safe integer `capabilityRevision`, `supported|unsupported` status, offset 포함 ISO instant `verifiedAt`, `sensorServerBound`, `vendorVehicleEventModelBound`를 가진다. `supported`는 두 model flag가 모두 true일 때만 유효하고 `unsupported`는 하나 이상 false여야 한다.
 - `VehicleSensorCapabilityService.applyReport`는 complete report를 canonical JSON으로 직렬화해 `sha256:<64 lowercase hex>`를 만들고 공통 automation global lock을 첫 DB 작업으로 획득한 뒤 Gateway와 MeshNode를 `FOR UPDATE`로 잠그며 Site/Gateway/MeshNode owner scope를 식별자 비노출 오류로 검증한다. 전역 PK `eventId`와 node-local `(gatewayId, meshNodeId, capabilityRevision, vehicle_sensor_capability)`를 함께 dedupe한다. 동일 key/hash는 `duplicate`, 낮은 새 revision은 원장만 남기고 `stale`, 동일 revision의 state/hash 불일치와 동일 key의 다른 hash는 mutation 없이 `rejected`, 높은 revision만 `applied`다. 같은 Gateway의 서로 다른 두 node는 revision `1`을 순차 또는 동시에 각각 저장할 수 있다.
@@ -1653,9 +1661,10 @@ Exact desired reject 뒤 lower revision의 applied ACK가 늦게 도착하면 `a
 | `gatewayId` | `String` | 예 | `siteId`와 복합 FK -> `Gateway(id, siteId)`, delete cascade; index `(gatewayId, status)` |
 | `name` | `String` | 예 | DB check `btrim(name) <> ''` |
 | `status` | `AutomationRuleStatus` | 예 | `enabled` |
+| `sensorProtocol` | `VehicleSensorProtocol` | 예 | `bluez_stateful`; source MeshNode protocol과 일치해야 함 |
 | `dimmingEnabled` | `Boolean` | 예 | 감지 action 디밍 여부 |
 | `brightnessPercent` | `Int` | 예 | DB check `0..100` |
-| `holdSeconds` | `Int` | 예 | `60`, DB check `5..1800` |
+| `holdSeconds` | `Int` | 예 | `60`, BlueZ DB check `5..1800`, BIO `10..1800` |
 | `desiredRevision`, `appliedRevision` | `Int` | 예 | `0`; DB check `0 <= appliedRevision <= desiredRevision` |
 | `sourceCount`, `targetCount` | `Int` | 예 | `0`; 각각 DB check `>= 0`, child trigger 유지 | 현재 source/target row 수 |
 | `createdById`, `updatedById` | `String` | 예 | named FK -> `User.id`, delete restrict |
@@ -1663,7 +1672,11 @@ Exact desired reject 뒤 lower revision의 applied ACK가 늦게 도착하면 `a
 
 `VehicleEventRule`은 child owner FK 기준인 `(id, siteId, gatewayId)` Unique를 가진다. `VehicleEventSource`와 `VehicleEventTarget`은 각각 `ruleId`, `fixtureId`, `siteId`, `gatewayId`, `createdAt`을 저장하고 `(ruleId, fixtureId)` 복합 PK로 source/target 중복을 차단한다. `(ruleId, siteId, gatewayId)`는 부모 owner를 delete cascade/update restrict로, `(fixtureId, siteId, gatewayId)`는 투영된 Fixture owner를 delete cascade/update restrict로 참조한다. 두 테이블 모두 `(fixtureId)`, `(siteId, gatewayId)` index가 있다.
 
-`VehicleEventSource` INSERT와 `fixtureId` 변경은 연결 Fixture의 MeshNode row를 잠그고 capability가 `supported`이며 verified timestamp가 있는지 검사한다. MeshNode capability UPDATE의 `BEFORE ROW` guard는 status/timestamp 조합을 재검증하고 enabled rule source로 참조되는 node의 downgrade/unknown 전환을 거부한다. Rule status UPDATE도 invalid source를 가진 disabled rule의 re-enable을 거부한다. Fixture의 `meshNodeId` 변경은 enabled source를 미지원 node로 옮기지 못하게 한다. Disabled rule의 기존 source는 감사 목적으로 남길 수 있지만 지원 report 적용 전에는 API와 direct SQL 모두 re-enable할 수 없다. 이 제약은 Prisma를 우회한 direct SQL에도 동일하다.
+`VehicleEventSource` INSERT와 `fixtureId`/`ruleId` 변경은 새 parent protocol에 맞는 source만 받는다. BlueZ는 기존 supported·양수 revision·verifiedAt·두 model binding 조건을 유지하고 BIO는 일치하는 node protocol·ready·양수 BIO revision·profile·verifiedAt을 요구한다. Source 추가는 disabled rule에도 같은 조건을 적용한다. MeshNode capability UPDATE는 enabled source의 downgrade와 protocol 변경을 거부하며, rule status/protocol UPDATE도 미준비 source의 re-enable 또는 다른 protocol으로 재해석하는 변경을 거부한다. Fixture의 `meshNodeId` 변경은 enabled source를 미지원 또는 다른 protocol node로 옮기지 못하게 한다. Disabled rule의 기존 source는 감사 목적으로 남길 수 있으나 준비 조건을 다시 충족하기 전에는 direct SQL로도 re-enable할 수 없다.
+
+Source admission과 re-enable은 Fixture 및 MeshNode에 `updatedAt = updatedAt` 갱신으로 실제 MVCC row version을 남긴다. Source Fixture의 node 변경도 새 MeshNode에 같은 fence를 쓴다. 모든 논리 값과 timestamp를 보존하며 capability/owner trigger 대상 열을 갱신하지 않아 재귀 검증을 일으키지 않는다. `SELECT FOR UPDATE`만으로는 오래된 REPEATABLE READ/SERIALIZABLE snapshot이 새로 생성된 rule을 못 보는 경우를 막지 못하므로 이 쓰기가 필요하다. 기존 공통 advisory lock과 parent lock에 더해, 반대 순서의 downgrade/reassignment/admission은 검증 오류 또는 serialization failure로 종료한다. 비용은 구성 쓰기마다 추가 row version 및 WAL이며, 펄스 수신마다 실행하는 경로가 아니다.
+
+순방향 migration `20260930120000_bio_pulse_event_contract`는 새 열의 기본값으로 기존 rule/node를 BlueZ로 유지하고 기존 5초 hold, model evidence, membership을 수정하지 않는다. 기존 데이터와 새 node의 BIO readiness는 모두 OFF이며, profile·검증 시각·양수 BIO revision을 backfill하지 않는다. CHECK와 guard를 단일 transaction에서 교체한다. 운영 DB에는 실행하지 않았으며, 자체 생성한 임시 PostgreSQL에서 이전 migration 데이터의 업그레이드와 전체 migration 신규 적용을 검증한다. Rollback은 enum/열 삭제만으로 수행할 수 없다. BIO rule을 비활성화하고 source 참조 및 BIO metadata를 보존·정리한 뒤 기존 BlueZ 제약을 만족시키는 별도 승인된 역방향 migration이 필요하며, BIO를 BlueZ supported로 자동 변환해서는 안 된다. 이 DB 단계는 API V2 report 수용·Gateway V2 협상/ACK·durable sensor-mode GET operation·현장 HIL·제품 ON을 구현하거나 증명하지 않는다. BIO source 정확히 1개와 A/B target 보호의 서비스 경계는 후속 작업이다.
 
 `VehicleEventRule_membership_statement_lock`, `VehicleEventSource_membership_statement_lock`, `VehicleEventTarget_membership_statement_lock`은 top-level statement가 parent 또는 child tuple을 잠그기 전에 공통 advisory lock을 획득한다. Row maintenance는 INSERT/DELETE/`ruleId` UPDATE에 맞춰 `sourceCount` 또는 `targetCount`를 원자 갱신하고 부모 이동 시 두 rule row를 ID 오름차순으로 잠근다. Counter가 만든 nested rule UPDATE는 depth guard로 parent statement 작업을 생략하고, nested parent cascade는 이미 사라진 rule의 counter와 deferred 검증을 건너뛴다. Direct DML의 deferred 검증은 두 counter가 각각 1 이상이고 실제 source/target row 수와 정확히 같은지 확인한다. 같은 parent row version을 쓰는 방식이 READ COMMITTED, REPEATABLE READ, SERIALIZABLE의 동시 마지막-child 삭제를 직렬화하거나 serialization failure로 종료한다.
 
@@ -2234,8 +2247,8 @@ Migration: `20260925130000_landing_mail_oauth`, `20260925150000_landing_oauth_ge
 | `GatewayAutomationConfiguration` | PK `gatewayId`, Unique/FK `gatewayId + siteId`, ordered revisions, state-dependent check | Gateway별 단일 full snapshot 적용 상태와 PENDING/APPLIED/REJECTED coherence |
 | `LightingSchedule` | active/time/distinct local times/unique recurrence/brightness/revision checks, non-negative `targetCount`, Unique `id + siteId + gatewayId` | 반복 스케줄 범위, 암묵적 full-day 차단, child owner 기준, 실제 target 수 reconciliation 강제 |
 | `LightingScheduleFixture` | PK `scheduleId + fixtureId`, parent/Fixture owner composite FK, counter maintenance + deferred nonempty/reconciliation trigger | 스케줄 대상 snapshot 중복·tenant/Gateway·isolation-safe 최소 1개 강제 |
-| `VehicleEventRule` | brightness `0..100`, hold `5..1800`, ordered revisions, non-negative source/target counters, Unique `id + siteId + gatewayId` | 차량 감지 action 범위와 실제 source/target 수 reconciliation 강제 |
-| `VehicleEventSource`, `VehicleEventTarget` | PK `ruleId + fixtureId`, parent/Fixture owner composite FK, counter maintenance + deferred nonempty/reconciliation trigger; source는 verified-supported MeshNode trigger | source/target 중복·tenant/Gateway·isolation-safe 각 최소 1개와 source capability 강제 |
+| `VehicleEventRule` | brightness `0..100`, hold BlueZ `5..1800` / BIO `10..1800`, ordered revisions, non-negative source/target counters, Unique `id + siteId + gatewayId` | protocol별 action 범위와 실제 source/target 수 reconciliation 강제 |
+| `VehicleEventSource`, `VehicleEventTarget` | PK `ruleId + fixtureId`, parent/Fixture owner composite FK, counter maintenance + deferred nonempty/reconciliation trigger; source protocol/readiness guard + MVCC fence | source/target 중복·tenant/Gateway·isolation-safe 각 최소 1개와 source capability 강제 |
 | `ManualOverride` | Unique `commandId`, direct Command FK delete cascade, nullable requester/legacy `overrideUntil`, brightness/time checks, non-negative `targetCount` | command별 수동 기본 밝기 감사, timed history 호환, 사용자 삭제 뒤 이력 익명화, 실제 target 수 reconciliation 강제 |
 | `ManualOverrideFixture` | PK `manualOverrideId + fixtureId`, parent/Fixture owner composite FK, counter maintenance + deferred nonempty/reconciliation trigger | 수동 대상 중복·tenant/Gateway·isolation-safe 최소 1개 강제 |
 | `MqttOutbox` | command/config/application-ACK row-shape check, Unique `gatewayId + revision + payloadHash`, Unique `applicationAckKey`, non-superseded automation delivery partial index | requester 없는 command payload와 과거 row scrub, 최신 config snapshot만 발행, durable application ACK dedupe |

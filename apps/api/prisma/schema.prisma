@@ -349,6 +349,18 @@ enum VehicleSensorCapabilityStatus {
   unsupported
 }
 
+enum VehicleSensorProtocol {
+  bluez_stateful
+  bio_usb_pulse
+}
+
+enum BioPulseReadiness {
+  off
+  shadow
+  ready
+  degraded
+}
+
 enum EnergyReportStatus {
   queued
   processing
@@ -1489,6 +1501,11 @@ model MeshNode {
   serialNumber                      String?
   meshAddress                       String
   firmwareVersion                   String
+  vehicleSensorProtocol             VehicleSensorProtocol         @default(bluez_stateful)
+  bioPulseReadiness                  BioPulseReadiness             @default(off)
+  bioPulseProfileId                  String?
+  bioPulseVerifiedAt                 DateTime?
+  bioPulseCapabilityRevision        BigInt                        @default(0)
   vehicleSensorCapabilityStatus     VehicleSensorCapabilityStatus @default(unknown)
   vehicleSensorCapabilityVerifiedAt DateTime?
   vehicleSensorCapabilityRevision   BigInt                        @default(0)
@@ -1997,6 +2014,7 @@ model VehicleEventRule {
   gatewayId         String
   name              String
   status            AutomationRuleStatus  @default(enabled)
+  sensorProtocol    VehicleSensorProtocol @default(bluez_stateful)
   dimmingEnabled    Boolean
   brightnessPercent Int
   holdSeconds       Int                   @default(60)
