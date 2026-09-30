@@ -14,7 +14,8 @@
 - [x] Task 4b의 B별 원래 설정·BIO mode·물리 identity 저장과 GET 확인형 복원을 `98db8a0e`, 늦은 재점등 결함 보완 `298a9c9c`로 구현·독립 재검토했다. `sensor`의 밝기는 순간 광학 출력이 아니라 저장된 high-brightness 설정으로만 다룬다. 여러 B의 부분 실패, 재시작, 내구성 실패와 A 제외를 확인했다. 집중 334/334, Gateway 전체 1,502/1,502, typecheck 통과했다. Scheduler에 연결되지 않았고 제품 capability는 OFF다.
 - [x] Task 4c의 V2 시험용 scheduler 연결을 `ee412d5a`와 3회 안전 보완 `8fd06f2d`·`6ce596c6`·`7bc65eec`로 구현·독립 재검토했다. 건강/identity/revision을 확인한 합성 입력에서만 B 적용·연장·밝기 설정+mode 복원, 장애 freeze, 수동 제어의 정확한 activation 억제와 재시작을 검증했다. 대기열/복원 저장 중 펄스의 수동값 덮어쓰기와 오래된 schedule base·재시도 기록 오류를 수정했다. 집중 395/395, Gateway 전체 1,563/1,563, typecheck 통과했다. 제품 bootstrap에는 이 시험 경로가 연결되지 않아 capability/allowlist는 계속 OFF이며 실제 A/B 동작은 미검증이다.
 - [x] Task 5a의 BIO DB protocol/readiness/revision과 규칙·source 제약을 `ae8bad3a`, migration 사전 검사 보완 `2af7b5a4`로 구현·독립 재검토했다. 기존 BlueZ 5초와 모델 연결 근거를 유지하고 BIO는 기본 OFF다. 과거 활성 부적격 source는 구체적 조치 안내와 전체 rollback으로 거부한다. 일회용 PostgreSQL 기존 BlueZ+BIO 47/47, API 전체 2,963개 실행 테스트, Prisma validate/generate·typecheck·build가 통과했다. 운영 DB migration은 수행하지 않았으며 새 schema 존재만으로 BIO 규칙을 활성화할 수 없다.
-- [ ] 계획 Task 5b~8의 서버 판정·V2 배포·A 보호·Web·전체 통합을 진행한다. BIO capability와 제품 allowlist는 검증 전 OFF다. Task 9의 shadow HIL, 로컬 MQTT 복구, B-only 실장비 시험은 각각 fresh preflight/백업/원복과 현장 실행 승인 후 진행하며 Pi·인증서·DNS·운영 DB를 임의로 변경하지 않는다.
+- [x] Task 5b의 API 서버 소유 BIO source/rule 판정을 `366b3e8b`로 구현·독립 검토했다. 준비된 BIO는 V2 배포/ACK 이전에 비활성 초안만 저장 가능하며 V1 snapshot·appliedRevision·목록 집계와 늦은 V1 ACK에서 제외한다. 내부 인증 scope 보고의 revision 재전송/하향을 검증했고 공개 수신은 없다. 집중 86/86, 일회용 DB 53/53, API 전체 직렬 3,008 passed/858 skipped, typecheck/build 통과. 기본 병렬 API는 변경 없는 CAD RSS 1건 실패(단독 17/17 통과)였으며 원인 해결로 표시하지 않는다. `docs/menus/control.md`를 한계와 함께 갱신했다.
+- [ ] 계획 Task 5c~8의 V2 배포·mode operation·A 보호·Web·전체 통합을 진행한다. BIO capability와 제품 allowlist는 검증 전 OFF다. Task 9의 shadow HIL, 로컬 MQTT 복구, B-only 실장비 시험은 각각 fresh preflight/백업/원복과 현장 실행 승인 후 진행하며 Pi·인증서·DNS·운영 DB를 임의로 변경하지 않는다.
 
 ## 2026-09-30 제조 일련번호 기반 최초 설치 — 구현 계획 검토 대기
 
