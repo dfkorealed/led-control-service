@@ -288,11 +288,11 @@ export class BioDongleClient {
     }
   }
 
-  async stopIdentify(nativeId: string): Promise<void> {
+  async stopIdentify(nativeId: string, control: BioOperationControl = {}): Promise<void> {
     const device = this.resolveCachedDevice(nativeId);
     const session = this.identifySessions.get(device.nativeUuid);
     if (!session) {
-      await this.restoreSensorMode(device);
+      await this.restoreSensorMode(device, control);
       return;
     }
     session.controller.abort();
@@ -540,7 +540,11 @@ export class BioDongleClient {
       // [확인됨] identify가 force-on을 시작했거나 queue에서 취소됐더라도 sensor 복귀는
       // 안전 상태를 위한 유일한 post-expiry physical write 예외다. 이 restore 자체는 새
       // caller deadline을 상속하지 않으며 UUID/address mode report까지 best-effort로 확인한다.
-      await this.restoreSensorMode(device);
+      // Cleanup may outlive the identify deadline, but never its source guard.
+      // Newly protected A must receive neither force-on nor sensor-mode writes.
+      await this.restoreSensorMode(device, {
+        mayStartWrite: control.mayStartWrite, onWriteStarted: control.onWriteStarted
+      });
     } catch (cause) {
       throw new BioUsbError(
         "BIO_IDENTIFY_RESTORE_UNCONFIRMED",

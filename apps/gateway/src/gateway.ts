@@ -20,12 +20,14 @@ import {
 import { ProvisioningScanJournal, type ProvisioningScanTerminalEvent } from "./state/provisioning-scan-journal";
 import { AutomationRuntimeError, type AutomationRuntime } from "./automation/automation-runtime";
 import type { CommandWriteControl } from "./commands/command-rf-drain";
+import type { BioSourceTargetGuard } from "./automation/bio-source-target-guard";
 
 export interface BleMeshAdapter {
+  setBioSourceTargetGuard?(guard: BioSourceTargetGuard): void;
   sensorModeOperation?(command: { fixtureId: string; nodeId: string; meshAddress: string; deviceIdentityHash: string; operation: "ensure_sensor" | "query" },
     control: { signal?: AbortSignal; deadlineAt?: number }): Promise<"sensor" | "force-on" | "force-off">;
   probeFixturePresence?(fixtureIds: string[], signal?: AbortSignal): Promise<BleMeshFixtureProbeResult[]>;
-  setAttention?(fixtureId: string, expiresAt: number, action: "start" | "stop", signal?: AbortSignal): Promise<number>;
+  setAttention?(fixtureId: string, expiresAt: number, action: "start" | "stop", signal?: AbortSignal, writeControl?: CommandWriteControl): Promise<number>;
   setBrightness(fixtureIds: string[], brightness: number, writeControl?: CommandWriteControl): Promise<BleMeshCommandReport[]>;
   applyUnicast?(fixtureId: string, brightness: number, signal?: AbortSignal, deadlineAt?: number, writeControl?: CommandWriteControl): Promise<BleMeshCommandReport>;
   applyParallelUnicast?(

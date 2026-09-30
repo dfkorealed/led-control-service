@@ -453,10 +453,14 @@ export function createGatewayStatusCheckRuntime(input: {
 
 export async function initializeAutomationBeforeManualRecovery(
   automationRuntime: Pick<AutomationRuntime, "initialize">,
-  recoverManualHandoffs: () => Promise<void>
+  recoverManualHandoffs: () => Promise<void>,
+  recoverProvisioningDevices?: () => Promise<void>
 ) {
+  // Startup identify recovery can change a confirmed fixture's sensor mode too.
+  // An unreadable/invalid protection snapshot must stop both recovery paths before RF.
   await automationRuntime.initialize();
   await recoverManualHandoffs();
+  await recoverProvisioningDevices?.();
 }
 
 export function observeAutomationFixtureStatuses(
@@ -674,8 +678,11 @@ async function main() {
     console.warn("LAB HIL ONLY: non-production RFU Bluetooth Company ID 0xFFFE; NOT FOR PRODUCTION");
   }
   await health.meshReady();
+  let scheduleRuntime!: ScheduleRuntime;
   const adapter = adapters.dimming;
+  adapter.setBioSourceTargetGuard?.(fixtureIds => scheduleRuntime?.isBioSourceTarget(fixtureIds) ?? false);
   const fixtureIdentify = new FixtureIdentifyRuntime({ siteId, gatewayId,
+    isBioSourceTarget: fixtureIds => scheduleRuntime?.isBioSourceTarget(fixtureIds) ?? false,
     setAttention: adapter.setAttention?.bind(adapter) });
   const identifyResultAbort = new AbortController();
   const scannerAdapter = adapters.scanner;
@@ -743,11 +750,6 @@ async function main() {
     })
   }));
   const provisioningDeviceReplay = new ProvisioningDeviceReplayPublisher(provisioningDeviceJournal);
-  await recoverProvisioningDevicesOnStartup(provisioningDeviceJournal, provisioningAdapter, async () => ({
-      eventId: randomUUID(),
-      sequence: await eventSequence.next(),
-      occurredAt: new Date().toISOString()
-    }));
   const activeProvisioningHandlers = new Set<Promise<unknown>>();
   const groupStateStore = new GroupStateStore(
     process.env.GATEWAY_MESH_GROUP_STATE_PATH ?? "/var/lib/led-control/mesh-groups.json"
@@ -803,7 +805,6 @@ async function main() {
     }
   );
   const clockTrust = softwareAutomationSimulator?.clockTrust ?? new SystemClockTrustProvider();
-  let scheduleRuntime!: ScheduleRuntime;
   let automationRuntime!: AutomationRuntime;
   const recordRuntimeTelemetryGap = async (
     firstDroppedAt: string,
@@ -856,7 +857,8 @@ async function main() {
     },
     execute: (actions) => executeAutomationWithBestEffortTelemetry({
       actions,
-      execute: (requested) => executeAutomationDimmingActions(adapter, requested, { timeoutMs: commandTimeoutMs }),
+      execute: (requested) => executeAutomationDimmingActions(adapter, requested, { timeoutMs: commandTimeoutMs,
+        isBioSourceTarget: fixtureIds => scheduleRuntime.isBioSourceTarget(fixtureIds) }),
       enqueueTelemetry: (results) => enqueueAutomationFixtureStates({
         siteId,
         gatewayId,
@@ -895,7 +897,12 @@ async function main() {
   const manualControlCoordinator = createManualControlCoordinator(scheduleRuntime);
   await initializeAutomationBeforeManualRecovery(
     automationRuntime,
-    () => recoverPendingManualAutomationHandoffs(commandJournal, manualControlCoordinator)
+    () => recoverPendingManualAutomationHandoffs(commandJournal, manualControlCoordinator),
+    () => recoverProvisioningDevicesOnStartup(provisioningDeviceJournal, provisioningAdapter, async () => ({
+      eventId: randomUUID(),
+      sequence: await eventSequence.next(),
+      occurredAt: new Date().toISOString()
+    }))
   );
   if (automationRuntime.currentRevision !== null) {
     await automationTelemetryCoordinator.flush(automationRuntime.currentRevision);
@@ -1041,6 +1048,7 @@ async function main() {
         },
         {
           timeoutMs: commandTimeoutMs,
+          isBioSourceTarget: fixtureIds => scheduleRuntime.isBioSourceTarget(fixtureIds),
           groupStateStore,
           groupQueue,
           ...(setPermit ? { setPermit } : {}),

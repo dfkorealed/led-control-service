@@ -36,6 +36,7 @@ function context(fixtures = [fixture(sourceId), fixture(targetId)], existing?: R
       } } }))
     },
     vehicleEventSource: {
+      findFirst: jest.fn().mockResolvedValue(null),
       createMany: jest.fn(async ({ data }) => { rule.sources = data; }),
       deleteMany: jest.fn(async () => { rule.sources = []; })
     },
@@ -58,6 +59,21 @@ function input(overrides: Record<string, unknown> = {}) {
 }
 
 describe("server-owned BIO rule qualification", () => {
+  it("rechecks saved event targets during an unrelated PATCH", async () => {
+    const existing = { ...input(), id: otherId, siteId, gatewayId, sensorProtocol: "bio_usb_pulse", holdSeconds: 60,
+      sources: [{ fixtureId: sourceId }], targets: [{ fixtureId: targetId }] };
+    const h = context(undefined, existing);
+    h.tx.vehicleEventSource.findFirst.mockResolvedValue({ fixtureId: targetId });
+    await expect(h.service.update(siteId, otherId, actor, { name: "Renamed" }))
+      .rejects.toMatchObject({ response: { code: "bio_source_target_forbidden" } });
+    expect(h.tx.vehicleEventRule.update).not.toHaveBeenCalled();
+  });
+  it("rejects another enabled BIO rule's source as a new event target", async () => {
+    const h = context();
+    h.tx.vehicleEventSource.findFirst.mockResolvedValue({ fixtureId: targetId });
+    await expect(h.service.create(siteId, actor, input())).rejects.toMatchObject({ response: { code: "bio_source_target_forbidden" } });
+    expect(h.tx.vehicleEventRule.create).not.toHaveBeenCalled();
+  });
   it.each([10, 60, 1800, undefined])("saves a ready BIO disabled draft with hold %s and pending sync", async holdSeconds => {
     const { service, tx } = context();
     const result = await service.create(siteId, actor, input(holdSeconds === undefined ? {} : { holdSeconds }));

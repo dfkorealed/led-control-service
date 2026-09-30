@@ -1,9 +1,12 @@
 import { FIXTURE_IDENTIFY_TTL_MS, fixtureIdentifyCommandSchema, type FixtureIdentifyCommand, type FixtureIdentifyResult } from "@led-control/shared";
+import type { BioSourceTargetGuard } from "../automation/bio-source-target-guard";
+import type { CommandWriteControl } from "../commands/command-rf-drain";
 
 interface Options {
   siteId: string;
   gatewayId: string;
-  setAttention?: (fixtureId: string, expiresAt: number, action: "start" | "stop", signal?: AbortSignal) => Promise<number>;
+  setAttention?: (fixtureId: string, expiresAt: number, action: "start" | "stop", signal?: AbortSignal, writeControl?: CommandWriteControl) => Promise<number>;
+  isBioSourceTarget?: BioSourceTargetGuard;
 }
 
 export class FixtureIdentifyRuntime {
@@ -52,6 +55,7 @@ export class FixtureIdentifyRuntime {
     for (const cache of [this.seen, this.sessions]) for (const [id, expiry] of cache) if (expiry <= now) cache.delete(id);
     if (this.active && Date.parse(this.active.expiresAt) <= now) this.clearActive();
     if (this.stopping) return this.failure(command, "gateway_stopping");
+    if (this.options.isBioSourceTarget?.([command.fixtureId])) return this.failure(command, "bio_source_target_forbidden");
     if (expires <= now || requested > now) return this.failure(command, "command_expired");
     // Memory-only receipt caches must not replay a pre-restart start. During this
     // bounded boot window any previously sent on-node Attention has time to expire.
@@ -87,7 +91,8 @@ export class FixtureIdentifyRuntime {
     } catch (error) {
       // A timeout does not prove RF was not applied. Keep the active reservation
       // until a confirmed stop or the original TTL, never retry/extend a start.
-      const reason = error instanceof Error && /^[a-z_]{1,128}$/.test(error.message) ? error.message : "attention_send_failed";
+      const reason = this.options.isBioSourceTarget?.([command.fixtureId]) ? "bio_source_target_forbidden"
+        : error instanceof Error && /^[a-z_]{1,128}$/.test(error.message) ? error.message : "attention_send_failed";
       return { ...this.failure(command, reason), status: reason === "attention_timeout" ? "timed_out" : "rejected" };
     }
   }
@@ -105,7 +110,13 @@ export class FixtureIdentifyRuntime {
       const onAbort = () => finish(new Error(this.stopping ? "gateway_stopping" : "attention_timeout"));
       const timer = setTimeout(() => controller.abort(), Math.min(2200, Math.max(1, Date.parse(command.expiresAt) - Date.now())));
       controller.signal.addEventListener("abort", onAbort, { once: true });
-      void Promise.resolve().then(() => this.options.setAttention!(command.fixtureId, Date.parse(command.expiresAt), command.action, controller.signal))
+      void Promise.resolve().then(() => {
+        if (this.options.isBioSourceTarget?.([command.fixtureId])) throw new Error("bio_source_target_forbidden");
+        const writeArgs: [] | [CommandWriteControl] = this.options.isBioSourceTarget ? [{
+          mayStartWrite: () => !this.options.isBioSourceTarget!([command.fixtureId]), onWriteStarted: () => undefined
+        }] : [];
+        return this.options.setAttention!(command.fixtureId, Date.parse(command.expiresAt), command.action, controller.signal, ...writeArgs);
+      })
         .then((seconds) => finish(undefined, seconds), (error) => finish(error));
     });
   }

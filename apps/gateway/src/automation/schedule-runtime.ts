@@ -26,6 +26,7 @@ import {
   type VehicleSensorInput
 } from "./vehicle-event-runtime";
 import type { BioSourceHealth } from "./vehicle-event-runtime";
+import { isActiveBioSourceTarget } from "./bio-source-target-guard";
 import { BioPulseScheduler, type BioPulseTestProfile } from "./bio-pulse-scheduler";
 import {
   lifecycleTelemetryRecords,
@@ -163,6 +164,10 @@ export class ScheduleRuntime {
 
   state() {
     return this.options.store.read();
+  }
+
+  isBioSourceTarget(fixtureIds: readonly string[]): boolean {
+    return isActiveBioSourceTarget(this.snapshot, fixtureIds);
   }
 
   pendingObservationFixtureIds() {
@@ -402,7 +407,7 @@ export class ScheduleRuntime {
     return this.runExternal(async () => {
       await this.ensureInitialized();
       validateManualControl(input);
-      if (input.fixtureIds.some(id => this.bio?.protectedSources().includes(id.toLowerCase()))) {
+      if (this.isBioSourceTarget(input.fixtureIds)) {
         throw new Error("bio_source_target_forbidden");
       }
       stage = "persisting_state";
@@ -822,6 +827,7 @@ export class ScheduleRuntime {
     });
     let results: AutomationExecutionFixtureResultV1[];
     try {
+      if (this.isBioSourceTarget(changed.map(action => action.fixtureId))) throw new Error("bio_source_target_forbidden");
       results = validateTerminalResults(changed, await this.options.execute(changed));
     } catch (error) {
       results = failedResults(changed, this.wallClock(), error);

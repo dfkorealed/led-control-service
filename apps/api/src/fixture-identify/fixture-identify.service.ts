@@ -11,6 +11,7 @@ import { MqttService } from "../mqtt/mqtt.service";
 import { PrismaService } from "../prisma/prisma.service";
 import { RedisProvider } from "../redis/redis.provider";
 import { identifyCoordinationDeadline as bounded } from "./fixture-identify-deadline";
+import { assertNoActiveBioSourceTarget } from "../automation/bio-source-target-policy";
 
 export const identifyCompareDelete = `if redis.call('GET', KEYS[1]) == ARGV[1] then return redis.call('DEL', KEYS[1]) end return 0`;
 const prefix = "fixture-identify:v1";
@@ -35,6 +36,7 @@ export class FixtureIdentifyService implements OnModuleInit, OnModuleDestroy {
     const commandId = randomUUID();
     const sessionId = request.sessionId ?? randomUUID();
     const prepared = await this.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw(Prisma.sql`SELECT "lock_automation_membership_mutation"()`);
       const floorRef = await tx.floor.findUnique({ where: { id: floorId }, select: { siteId: true } });
       if (!floorRef) throw new NotFoundException("floor not found");
       const site = await this.access.assertManageInTransaction(tx, user, floorRef.siteId);
@@ -57,6 +59,7 @@ export class FixtureIdentifyService implements OnModuleInit, OnModuleDestroy {
         } } } }
       } });
       if (!fixture) throw new NotFoundException("fixture not found");
+      await assertNoActiveBioSourceTarget(tx, site.id, [fixture.id], "identify");
       const gateway = fixture.meshNode?.gateway;
       if (!gateway || !fixture.gatewayId || gateway.id !== fixture.gatewayId || gateway.siteId !== site.id ||
         !gateway.claimedAt || !gateway.inventory?.claimedAt || gateway.inventory.disabledAt || gateway.inventory.claimedGatewayId !== gateway.id ||

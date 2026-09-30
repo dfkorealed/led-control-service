@@ -74,6 +74,30 @@ const scopedGatewayId = "00000000-0000-4000-8000-000000000004";
 const scopedFixtureId = "00000000-0000-4000-8000-000000000005";
 
 describe("Gateway command drain MQTT routing", () => {
+  it("loads source protection before startup identify recovery can write", async () => {
+    const stages: string[] = [];
+    let snapshotLoaded = false;
+    let rfWrites = 0;
+    await initializeAutomationBeforeManualRecovery({ initialize: async () => {
+      snapshotLoaded = true;
+      stages.push("snapshot");
+    } }, async () => { stages.push("manual"); }, async () => {
+      stages.push("identify");
+      if (!snapshotLoaded) rfWrites += 1;
+    });
+    expect(stages).toEqual(["snapshot", "manual", "identify"]);
+    expect(rfWrites).toBe(0);
+  });
+
+  it("does not recover any commands when the protection snapshot fails to load", async () => {
+    let recoveryCalls = 0;
+    await expect(initializeAutomationBeforeManualRecovery({ initialize: async () => {
+      throw new Error("snapshot unreadable");
+    } }, async () => { recoveryCalls += 1; }, async () => { recoveryCalls += 1; }))
+      .rejects.toThrow("snapshot unreadable");
+    expect(recoveryCalls).toBe(0);
+  });
+
   it("echoes only a valid scoped nonce/epoch with conservative submission counts", async () => {
     const { CommandRfDrain } = await import("./commands/command-rf-drain");
     const drain = new CommandRfDrain();

@@ -4,6 +4,7 @@ import { randomUUID } from "node:crypto";
 import { SiteAccessService } from "../access/site-access.service";
 import type { AuthenticatedUser } from "../auth/auth.types";
 import { PrismaService } from "../prisma/prisma.service";
+import { assertNoActiveBioSourceTarget } from "./bio-source-target-policy";
 import {
   AutomationSnapshotService,
   compareAutomationIds,
@@ -270,6 +271,7 @@ export class VehicleEventRulesService {
     });
     const allFixtureIds = [...new Set([...sourceFixtureIds, ...targetFixtureIds])].sort(compareAutomationIds);
     const gatewayId = await this.targetSnapshot.assertSingleGateway(tx, allFixtureIds);
+    await assertNoActiveBioSourceTarget(tx, siteId, targetFixtureIds, "event");
     if (qualification.sensorProtocol === "bio_usb_pulse" && targetFixtureIds.some(id => sourceFixtureIds.includes(id))) {
       throw new BadRequestException("BIO source must be distinct from event targets");
     }

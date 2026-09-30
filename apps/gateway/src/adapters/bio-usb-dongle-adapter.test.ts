@@ -43,6 +43,49 @@ const discovered = {
 };
 
 describe("BioUsbDongleAdapter", () => {
+  it("keeps unregistered discovery identify available with source protection installed", async () => {
+    const f = createFixture();
+    f.mappings.findByDeviceUuidIncludingReserved.mockResolvedValue(null);
+    f.adapter.setBioSourceTargetGuard(() => true);
+    await expect(f.adapter.identify({ ...provisioningCommand, deviceUuid: discovered.deviceUuid })).resolves.toBeUndefined();
+    expect(f.client.startIdentify).toHaveBeenCalledWith(discovered.deviceUuid);
+  });
+  it.each(["unicast", "parallel", "group", "identify", "recovery"] as const)("emits no native brightness/mode frame for protected A via %s", async mode => {
+    const f = createPhysicalControlFixture();
+    try {
+      await f.client.probe(); await f.adapter.scan(scanCommand);
+      await f.adapter.hydrateGroupSubscriptions([{ groupId: "group", groupAddress: "0xc000", version: 1,
+        members: [{ meshNodeId: provisioningCommand.nodeId, meshAddress: "0x0101" }] }]);
+      f.adapter.setBioSourceTargetGuard(ids => ids.includes(provisioningCommand.nodeId));
+      if (mode === "identify" || mode === "recovery") {
+        await expect(f.adapter.setAttention(provisioningCommand.nodeId, Date.now() + 1000, mode === "identify" ? "start" : "stop"))
+          .rejects.toThrow();
+      } else {
+        const results = mode === "unicast" ? [await f.adapter.applyUnicast(provisioningCommand.nodeId, 60)]
+          : mode === "parallel" ? await f.adapter.applyParallelUnicast([provisioningCommand.nodeId], 60)
+          : await f.adapter.applyMeshGroup(0xc000, [provisioningCommand.nodeId], 60);
+        expect(results[0]?.acknowledged).toBe(false);
+      }
+      expect(f.bodies.filter(body => body.startsWith("cd") || body.startsWith("cc"))).toEqual([]);
+    } finally { await f.client.close(); }
+  });
+  it.each(["identify", "recoverIdentifySafety"] as const)("blocks mapped active A through provisioning %s", async operation => {
+    const f = createFixture();
+    f.mappings.findByDeviceUuidIncludingReserved.mockResolvedValue(confirmedMapping());
+    f.adapter.setBioSourceTargetGuard((ids: readonly string[]) => ids.includes(provisioningCommand.nodeId));
+    await expect(f.adapter[operation]({ ...provisioningCommand, deviceUuid: discovered.deviceUuid }))
+      .rejects.toThrow("bio_source_target_forbidden");
+    expect(f.client.startIdentify).not.toHaveBeenCalled();
+    expect(f.client.restoreSensorMode).not.toHaveBeenCalled();
+  });
+  it.each(["reserved", "unknown"] as const)("rejects ambiguous %s mapping during provisioning identify", async status => {
+    const f = createFixture();
+    f.mappings.findByDeviceUuidIncludingReserved.mockResolvedValue(confirmedMapping({ status }));
+    f.adapter.setBioSourceTargetGuard(() => false);
+    await expect(f.adapter.identify({ ...provisioningCommand, deviceUuid: discovered.deviceUuid }))
+      .rejects.toThrow("bio_mapping_not_confirmed");
+    expect(f.client.startIdentify).not.toHaveBeenCalled();
+  });
   it("captures explicit BIO configuration and binds restore to the same physical target", async () => {
     const f = createFixture();
     const device = { ...discovered, logicalAddress: 0x0101 };
@@ -1017,6 +1060,7 @@ describe("BioUsbDongleAdapter", () => {
 describe("sensor-mode operation fresh GET authority", () => {
   it("does a separate mode GET after sensor SET, with no brightness IO", async () => {
     const f = readyForOnePresence();
+    f.adapter.setBioSourceTargetGuard(() => true);
     f.mappings.findByFixtureId.mockResolvedValue(confirmedMapping());
     f.client.restoreSensorMode.mockResolvedValue(undefined);
     f.client.readDeviceInfo.mockResolvedValue(modeReport("force-on"));

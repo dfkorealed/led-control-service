@@ -106,6 +106,17 @@ function rehash(snapshot: AutomationSnapshotV2) {
 }
 
 describe("synthetic V2 BIO scheduler integration; product gate remains OFF", () => {
+  it("exposes the active snapshot source guard for command/identify and rejects mixed manual A+B", async () => {
+    const f = await fixture();
+    expect(f.runtime.isBioSourceTarget([a])).toBe(false);
+    await f.runtime.activateBioPulseTestSnapshot(f.snapshot);
+    expect(f.runtime.isBioSourceTarget([a, b])).toBe(true);
+    expect(f.runtime.isBioSourceTarget([b])).toBe(false);
+    await expect(f.runtime.prepareManualControl({ sourceId: manual, fixtureIds: [a, b], brightnessPercent: 50, requestedAt: f.now().toISOString() }))
+      .rejects.toThrow("bio_source_target_forbidden");
+    expect(f.writes).toEqual([]); expect(f.genericWrites).toEqual([]);
+    expect(f.runtime.state().pendingManualControls).toEqual({});
+  });
   it("keeps both default pulse entrypoints closed without the injected profile", async () => {
     const f = await fixture(); const { runtime } = await f.make(false);
     await expect(runtime.recordVehicleSensorInput(f.pulse())).rejects.toThrow("bio_pulse_control_unavailable");

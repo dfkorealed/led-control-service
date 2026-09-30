@@ -7,6 +7,7 @@ import type {
   ProvisioningScanFoundDevice,
   ProvisioningScanStartPayload
 } from "@led-control/shared";
+import type { BioSourceTargetGuard } from "../automation/bio-source-target-guard";
 import type {
   BleMeshAdapter,
   BleMeshCommandReport,
@@ -68,6 +69,7 @@ type DurableProvisioningCommand = ProvisionDevicePayload & { commandId: string }
 export class BioUsbDongleAdapter implements BleMeshAdapter, ProvisioningScannerAdapter, ProvisioningAdapter {
   readonly vehicleSensorCloudSupported = false;
   private readonly now: () => Date;
+  private sourceTargetGuard?: BioSourceTargetGuard;
   private readonly discoveredByUuid = new Map<string, BioDiscoveredDevice>();
   private readonly virtualGroups = new Map<number, Set<string>>();
   private readonly discoveryQueue = new SerialTaskQueue();
@@ -86,7 +88,31 @@ export class BioUsbDongleAdapter implements BleMeshAdapter, ProvisioningScannerA
     return BIO_DEVICE_UUID.test(deviceUuid);
   }
 
+  setBioSourceTargetGuard(guard: BioSourceTargetGuard) { this.sourceTargetGuard = guard; }
+
+  private guardedWriteControl(fixtureId: string, control?: Partial<CommandWriteControl>): CommandWriteControl | undefined {
+    if (!this.sourceTargetGuard && !control?.mayStartWrite && !control?.onWriteStarted) return undefined;
+    // Let the command coordinator latch its durable refusal before the adapter
+    // applies its own guard; short-circuiting it would lose the source reason.
+    return { mayStartWrite: () => control?.mayStartWrite?.() !== false && !this.sourceTargetGuard?.([fixtureId]),
+      onWriteStarted: () => control?.onWriteStarted?.() };
+  }
+
+  private async identifyWriteControl(deviceUuid: string) {
+    const mapping = await this.mappings.findByDeviceUuidIncludingReserved(deviceUuid);
+    // An absent mapping is a normal, not-yet-registered discovery. An existing
+    // ambiguous mapping cannot be treated as that absence to bypass A protection.
+    if (!mapping) return undefined;
+    if (mapping.status !== "confirmed" || mapping.deviceUuid !== deviceUuid || !mapping.fixtureId) {
+      throw new Error("bio_mapping_not_confirmed");
+    }
+    if (this.sourceTargetGuard?.([mapping.fixtureId])) throw new Error("bio_source_target_forbidden");
+    return this.guardedWriteControl(mapping.fixtureId);
+  }
+
   async sensorModeOperation(command: { fixtureId: string; nodeId: string; meshAddress: string; deviceIdentityHash: string; operation: "ensure_sensor" | "query" }, control: BioOperationControl) {
+    // This separately authenticated, identity-checked ensure_sensor operation is
+    // the sole source-mode write exception; ordinary identify/restore is guarded.
     throwIfExpired(control);
     const mapping = await this.mappings.findByFixtureId(command.fixtureId);
     if (!mapping || mapping.status !== "confirmed" || mapping.nodeId !== command.nodeId ||
@@ -126,7 +152,8 @@ export class BioUsbDongleAdapter implements BleMeshAdapter, ProvisioningScannerA
 
   async identify(command: IdentifyDevicePayload) {
     requireBioUuid(command.deviceUuid);
-    await this.client.startIdentify(command.deviceUuid);
+    const control = await this.identifyWriteControl(command.deviceUuid);
+    await this.client.startIdentify(command.deviceUuid, ...(control ? [control] : []));
   }
 
   /**
@@ -145,10 +172,11 @@ export class BioUsbDongleAdapter implements BleMeshAdapter, ProvisioningScannerA
    */
   async recoverIdentifySafety(command: IdentifyDevicePayload): Promise<void> {
     requireBioUuid(command.deviceUuid);
+    const control = await this.identifyWriteControl(command.deviceUuid);
     await this.refreshDiscovery();
     const device = this.discoveredByUuid.get(command.deviceUuid);
     if (!device) throw new BioUsbError("BIO_DEVICE_NOT_FOUND", "BIO identify recovery UUID was not rediscovered");
-    await this.client.restoreSensorMode({ ...device });
+    await this.client.restoreSensorMode({ ...device }, ...(control ? [control] : []));
   }
 
   async provision(command: ProvisionDevicePayload): Promise<ProvisioningCompletedPayload> {
@@ -212,16 +240,17 @@ export class BioUsbDongleAdapter implements BleMeshAdapter, ProvisioningScannerA
     return completed(command, confirmed.firmwareVersion, confirmed.rssi, this.now());
   }
 
-  async setAttention(fixtureId: string, expiresAt: number, action: "start" | "stop", signal?: AbortSignal) {
-    const control = { signal, deadlineAt: expiresAt };
+  async setAttention(fixtureId: string, expiresAt: number, action: "start" | "stop", signal?: AbortSignal, writeControl?: CommandWriteControl) {
+    writeControl = this.guardedWriteControl(fixtureId, writeControl);
+    const control = { signal, deadlineAt: expiresAt, ...writeControl };
     throwIfExpired(control);
     const mapping = await this.mappings.findByFixtureId(fixtureId);
     throwIfExpired(control);
     if (!mapping) throw new Error("fixture_not_registered");
     await this.requireDiscovered(mapping, control);
     throwIfExpired(control);
-    if (action === "start") await this.client.startIdentify(mapping.deviceUuid, { signal, deadlineAt: expiresAt });
-    else await this.client.stopIdentify(mapping.deviceUuid);
+    if (action === "start") await this.client.startIdentify(mapping.deviceUuid, control);
+    else await this.client.stopIdentify(mapping.deviceUuid, writeControl);
     return action === "start" ? 2 : 0;
   }
 
@@ -242,6 +271,7 @@ export class BioUsbDongleAdapter implements BleMeshAdapter, ProvisioningScannerA
     configuration: BioConfigurationState,
     control: BioOperationControl = {}
   ): Promise<BioConfigurationState> {
+    control = { ...control, ...this.guardedWriteControl(fixtureId, control) };
     if (!this.client.restoreConfiguration || !this.client.readConfiguration) {
       throw new BioUsbError("NOT_READY", "BIO configuration restore unavailable");
     }
@@ -274,6 +304,7 @@ export class BioUsbDongleAdapter implements BleMeshAdapter, ProvisioningScannerA
     deadlineAt?: number,
     writeControl?: CommandWriteControl
   ): Promise<BleMeshCommandReport> {
+    writeControl = this.guardedWriteControl(fixtureId, writeControl);
     if (expired(signal, deadlineAt)) return failed(fixtureId, undefined, "command_expired", "timed_out");
     const mapping = await this.mappings.findByFixtureId(fixtureId);
     if (!mapping) return failed(fixtureId, undefined, "fixture_not_registered");

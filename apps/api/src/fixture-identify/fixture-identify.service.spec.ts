@@ -23,7 +23,7 @@ function setup() {
   const fixture = { id: fixtureId, siteId, floorId, gatewayId, status: "online", statusReason: null, lastSeenAt: new Date(),
     meshNode: { gateway: { id: gatewayId, siteId, lastHeartbeatAt: new Date(), claimedAt: new Date(),
       inventory: { id: "inventory", claimedGatewayId: gatewayId, claimedAt: new Date(), disabledAt: null }, certificates: [{ inventoryId: "inventory" }] } } };
-  const tx = { floor: { findUnique: jest.fn(async () => floor) }, fixture: { findFirst: jest.fn(async () => fixture) },
+  const tx = { $executeRaw: jest.fn(), vehicleEventSource: { findFirst: jest.fn().mockResolvedValue(null) }, floor: { findUnique: jest.fn(async () => floor) }, fixture: { findFirst: jest.fn(async () => fixture) },
     $queryRaw: jest.fn(async () => [{ ...floor, dbNow: new Date() }]) };
   const prisma = { ...tx, $transaction: jest.fn(async (fn: (tx: unknown) => unknown) => fn(tx)) };
   const access = { assertManageInTransaction: jest.fn(async () => ({ id: siteId, organizationId: user.organizationId })) };
@@ -34,6 +34,15 @@ function setup() {
   return { service, request, mqtt, access, floor, fixture, audit, redis, cache, tx };
 }
 afterEach(() => jest.useRealTimers());
+it("rejects an active BIO source before reserving or dispatching identify", async () => {
+  const h = setup();
+  h.tx.vehicleEventSource.findFirst.mockResolvedValue({ fixtureId });
+  await expect(h.request()).rejects.toMatchObject({ response: { code: "bio_source_target_forbidden" } });
+  expect(h.redis.set).not.toHaveBeenCalled();
+  expect(h.mqtt.publishTopic).not.toHaveBeenCalled();
+  expect(h.tx.$executeRaw.mock.invocationCallOrder[0]).toBeLessThan(h.access.assertManageInTransaction.mock.invocationCallOrder[0]);
+  expect(h.access.assertManageInTransaction.mock.invocationCallOrder[0]).toBeLessThan(h.tx.vehicleEventSource.findFirst.mock.invocationCallOrder[0]);
+});
 it("authorizes before publishing and rejects wrong, expired, or stale DB lease", async () => {
   const h = setup();
   h.access.assertManageInTransaction.mockRejectedValueOnce(new ForbiddenException());

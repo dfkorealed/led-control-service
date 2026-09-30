@@ -66,6 +66,7 @@ function createHarness(options: {
   };
   let storedCommand: Record<string, unknown> | null = options.existingCommand ?? null;
   const tx: any = {
+    vehicleEventSource: { findFirst: jest.fn().mockResolvedValue(null) },
     $queryRaw: jest.fn().mockResolvedValue([]),
     fixture: { findMany: jest.fn().mockResolvedValue(options.fixtures ?? []) },
     floor: {
@@ -136,6 +137,32 @@ function createHarness(options: {
 }
 
 describe("CommandsService", () => {
+  it("re-expands saved group membership and blocks A added after a previous B command", async () => {
+    const b = fixture(ids.fixture2);
+    const h = createHarness({ group: { id: ids.group, groupFixtures: [{ fixtureId: b.id, fixture: b }] } });
+    h.prisma.vehicleEventSource.findFirst.mockImplementation(async ({ where }: any) =>
+      where.fixtureId.in.includes(ids.fixture1) ? { fixtureId: ids.fixture1 } : null);
+    const input = { siteId: ids.site, target: { type: "group" as const, groupId: ids.group }, brightness: 50 };
+    await expect(h.service.createDimmingCommand(operator, input)).resolves.toMatchObject({ targetFixtureIds: [ids.fixture2] });
+    h.prisma.fixtureGroup.findFirst.mockResolvedValue({ id: ids.group, groupFixtures: [b, fixture(ids.fixture1)]
+      .map(fixture => ({ fixtureId: fixture.id, fixture })) });
+    // Model a new request: the fixture harness otherwise replays its single
+    // stored command for every lookup, regardless of client request identity.
+    h.prisma.command.findUnique.mockResolvedValueOnce(null);
+    await expect(h.service.createDimmingCommand(operator, input)).rejects.toMatchObject({ response: { code: "bio_source_target_forbidden" } });
+    expect(h.prisma.command.create).toHaveBeenCalledTimes(1);
+  });
+  it.each(["fixture", "fixtures", "floor", "group"] as const)("rejects expanded %s targets containing an active BIO source before persistence", async type => {
+    const fixtures = [fixture(ids.fixture1), fixture(ids.fixture2)];
+    const h = createHarness({ fixtures: type === "fixture" ? fixtures.slice(0, 1) : fixtures, floor: { id: ids.floor, fixtures },
+      group: { id: ids.group, groupFixtures: fixtures.map(fixture => ({ fixtureId: fixture.id, fixture })) } });
+    h.prisma.vehicleEventSource.findFirst.mockResolvedValue({ fixtureId: ids.fixture1 });
+    const target = type === "fixture" ? { type, fixtureId: ids.fixture1 } : type === "fixtures" ? { type, fixtureIds: fixtures.map(f => f.id) }
+      : type === "floor" ? { type, floorId: ids.floor } : { type, groupId: ids.group };
+    await expect(h.service.createDimmingCommand(operator, { siteId: ids.site, target, brightness: 50 })).rejects.toMatchObject({ response: { code: "bio_source_target_forbidden" } });
+    expect(h.prisma.command.create).not.toHaveBeenCalled();
+    expect(h.prisma.mqttOutbox.create).not.toHaveBeenCalled();
+  });
   it("keeps a timeout outcome transition outside the protected overlap-check/create transaction", async () => {
     const { service, tx, prisma, automationSnapshot } = createHarness({ fixtures: [fixture(ids.fixture1)] });
     const realSnapshot = new AutomationSnapshotService(new AutomationClock());

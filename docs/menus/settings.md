@@ -1,10 +1,21 @@
 # 설정 메뉴 기능 현황 및 구현 설계
 
+## 2026-09-30 활성 BIO 소스 보호
+
+- 구현 완료: 등록 조명 식별과 그룹 생성·구성 변경은 자동화 잠금 → 현장 권한 → 실제 Fixture membership 확인 순서로 활성 BIO source A를 차단한다. 기존 그룹에 A를 뒤늦게 추가하는 변경도 거절하며, 층·그룹 제어는 명령 시점 membership을 다시 검사한다.
+- 구현 완료: Gateway의 식별 시작·중단과 기존 식별의 sensor 복원에서도 최신 source 보호를 native write 직전 재검사한다. 도중 A가 활성 source가 되면 추가 mode 쓰기 없이 거절 결과를 반환한다. 별도 `ensure_sensor` 작업은 자신의 identity·read-back 검증 경로를 유지한다.
+- 구현 완료: 등록 과정의 UUID 기반 식별·중단 복구도 confirmed mapping의 Fixture ID로 같은 보호를 적용한다. 기존 reserved/unknown mapping은 RF 전에 거절하며, 아직 매핑이 없는 미등록 조명의 정상 식별은 유지한다.
+- 구현 완료: 재시작 시 식별 복구는 자동제어 snapshot 초기화 이후에만 실행한다. snapshot 읽기·검증 실패는 복구 RF를 진행하지 않고 시작을 중단한다.
+- 미구현: 화면의 A/B 역할 안내와 제품 BIO 활성화는 후속이다. A 밝기 설정 UI는 제공하지 않는다.
+- 부족하거나 개선이 필요한 기능: 검증은 synthetic source 및 가짜 USB만 사용했다. 실제 A의 sensor mode 지속·자율 밝기는 광학 HIL 전 미검증이고 capability·allowlist는 OFF다.
+- 관련 파일: `apps/api/src/automation/bio-source-target-policy.ts`, `apps/api/src/fixture-groups/fixture-groups.service.ts`, `apps/api/src/fixture-identify/fixture-identify.service.ts`, `apps/gateway/src/runtime/fixture-identify-runtime.ts`, `apps/gateway/src/adapters/bio-usb-dongle-adapter.ts`, `apps/gateway/src/bio/bio-dongle-client.ts`.
+- 갱신 규칙: API 차단과 Gateway RF 직전 차단을 함께 확인하고, software 결과를 실장비 지원 완료로 표시하지 않는다.
+
 ## 2026-09-30 BIO 센서 모드 확인 기반
 
 - 구현 완료: 등록된 BIO Fixture의 센서 모드를 고유 작업 ID로 요청·조회하는 API/Gateway 경로와 재시작·타임아웃 후 새 ID 재조회 기반을 추가했다. 현재 할당과 confirmed mapping을 대조하며 별도 mode GET이 `sensor`일 때만 모드 확인으로 기록한다. 설정 접수·식별 점등 결과·high-brightness 설정값을 이 작업의 성공으로 대체하지 않는다.
 - 복구 안정성: 동시 reconnect/ACK 복구와 실시간 재전달은 결과 ID 하나를 공유한다. 시계 오차가 있는 비성공 결과는 정확한 요청·identity/hash 확인 후 감사 기록으로 ACK하며, 원래 Gateway 시각은 비신뢰 값으로 보존하고 모드 검증 시각으로 사용하지 않는다.
-- 미구현: 설정/제어 화면의 센서 모드 작업 UI, 전체 source 대상 보호와 BIO 제품 활성화는 후속 작업이다. A 밝기 설정 UI는 추가하지 않았다.
+- 미구현: 설정/제어 화면의 센서 모드 작업 UI와 BIO 제품 활성화는 후속 작업이다. A 밝기 설정 UI는 추가하지 않았다.
 - 부족하거나 개선이 필요한 기능: 소프트웨어·일회용 DB/브로커 검증만 수행했다. 실제 자체 밝기 반응·펄스 상관관계·건강 판정은 HIL 전 미검증이고 capability·allowlist는 OFF다. 운영 DB·broker ACL 및 Pi 설정은 변경하지 않았다.
 - 관련 파일: `apps/api/src/commands/sensor-mode-operations.service.ts`, `apps/api/src/mqtt/sensor-mode-publisher.service.ts`, `apps/gateway/src/commands/bio-sensor-mode-handler.ts`, `apps/gateway/src/adapters/bio-usb-dongle-adapter.ts`.
 - 갱신 규칙: 모드 GET 확인, 광학 출력 확인, readiness/제품 활성화의 근거를 각각 구분한다.

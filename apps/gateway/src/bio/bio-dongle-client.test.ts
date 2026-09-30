@@ -597,6 +597,34 @@ describe("BIO evidence-gated dongle client", () => {
     await h.client.close();
   });
 
+  it.each(["start", "stop"] as const)("sends zero mode writes for protected-source identify %s including cleanup", async action => {
+    const h = harness(75, { scanDurationMs: 100, observationTimeoutMs: 100 }); await ready(h);
+    await finishScan(h, [discoveryHex("001122334455", 0x1234)]);
+    const before = h.device.writes.length;
+    const control = { mayStartWrite: () => false, onWriteStarted: () => {} };
+    const operation = action === "start" ? h.client.startIdentify("001122334455", control) : h.client.stopIdentify("001122334455", control);
+    const result = operation.catch(error => error);
+    await vi.advanceTimersByTimeAsync(1_000);
+    await result;
+    expect(h.device.writes.length).toBe(before);
+    await h.client.close();
+  });
+
+  it("does not restore an old identify mode after the fixture becomes an active source", async () => {
+    const h = harness(75, { scanDurationMs: 100, observationTimeoutMs: 100 }); await ready(h);
+    await finishScan(h, [discoveryHex("001122334455", 0x1234)]);
+    let allowed = true;
+    const operation = h.client.startIdentify("001122334455", { mayStartWrite: () => allowed, onWriteStarted: () => {} });
+    const result = operation.catch(error => error);
+    await flush(); h.device.receive("55aa1101002055");
+    const before = h.device.writes.length;
+    allowed = false;
+    await vi.advanceTimersByTimeAsync(3_000);
+    expect(await result).toMatchObject({ code: "BIO_IDENTIFY_RESTORE_UNCONFIRMED" });
+    expect(h.device.writes.length).toBe(before);
+    await h.client.close();
+  });
+
   it("cancels identify early but still makes one verified sensor restore attempt", async () => {
     const h = harness(75, { scanDurationMs: 100, observationTimeoutMs: 100 }); await ready(h);
     await finishScan(h, [discoveryHex("001122334455", 0x1234)]);

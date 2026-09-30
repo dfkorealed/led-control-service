@@ -16,6 +16,7 @@ import type { KeyedSerialTaskQueue } from "../runtime/keyed-serial-task-queue";
 import type { ManualTerminalContext } from "../automation/schedule-runtime";
 import { parseManualTerminalSourceContext, type ManualTerminalSourceContext } from "../automation/automation-state-store";
 import { CommandRfDrain, type CommandWriteControl } from "./command-rf-drain";
+import type { BioSourceTargetGuard } from "../automation/bio-source-target-guard";
 
 interface JournalLike {
   get(key: string): Promise<{
@@ -84,6 +85,7 @@ interface ManualAutomationRecoveryJournal {
 }
 
 export interface GatewayCommandOptions {
+  isBioSourceTarget?: BioSourceTargetGuard;
   timeoutMs?: number;
   groupStateStore?: Pick<GroupStateStore, "assertReady">;
   groupQueue?: Pick<KeyedSerialTaskQueue, "run">;
@@ -98,7 +100,7 @@ export interface GatewayCommandOptions {
   onDurableReceipt?: () => void;
 }
 
-export type GatewaySetRefusal = "COMMAND_EXPIRED" | "GATEWAY_CLOCK_UNTRUSTED";
+export type GatewaySetRefusal = "COMMAND_EXPIRED" | "GATEWAY_CLOCK_UNTRUSTED" | "BIO_SOURCE_TARGET_FORBIDDEN";
 
 interface AutomationDimmingAction {
   fixtureId: string;
@@ -106,6 +108,7 @@ interface AutomationDimmingAction {
 }
 
 interface AutomationDimmingOptions {
+  isBioSourceTarget?: BioSourceTargetGuard;
   timeoutMs?: number;
   now?: () => Date;
 }
@@ -277,12 +280,13 @@ async function executeGatewayDimmingCommand(
   let physicalWriteStarted = false;
   let writeRefusal: GatewaySetRefusal | undefined;
   let writesClosed = false;
-  const writeControl: CommandWriteControl | undefined = options.setPermit || rfWork ? {
+  const writeControl: CommandWriteControl | undefined = options.setPermit || rfWork || options.isBioSourceTarget ? {
     mayStartWrite: () => {
       if (writesClosed) return false;
       // Check relative TTL synchronously too: no network/await may separate
       // this cached proof from the native write. Once refused it stays refused.
-      writeRefusal ??= receiptRemainingMs(options) <= 0 ? "COMMAND_EXPIRED" : options.setPermit?.(command);
+      writeRefusal ??= options.isBioSourceTarget?.(command.targetFixtureIds) ? "BIO_SOURCE_TARGET_FORBIDDEN"
+        : receiptRemainingMs(options) <= 0 ? "COMMAND_EXPIRED" : options.setPermit?.(command);
       return writeRefusal === undefined;
     },
     onWriteStarted: () => { physicalWriteStarted = true; rfWork?.onWriteStarted(); }
@@ -391,6 +395,7 @@ async function executeGatewayDimmingCommand(
 }
 
 async function commandRefusal(command: GatewayDimmingCommandV2Compatible, options: GatewayCommandOptions): Promise<GatewaySetRefusal | undefined> {
+  if (options.isBioSourceTarget?.(command.targetFixtureIds)) return "BIO_SOURCE_TARGET_FORBIDDEN";
   if (receiptRemainingMs(options) <= 0) return "COMMAND_EXPIRED";
   // After cutover only the DB proof may authorize absolute expiry. An OS trust
   // marker cannot substitute for the bounded same-epoch DB time sample.
@@ -474,10 +479,14 @@ export async function executeAutomationDimmingActions(
     const deadlineAt = Date.now() + timeoutMs;
     const controller = new AbortController();
     try {
+      if (options.isBioSourceTarget?.(fixtureIds)) throw new Error("bio_source_target_forbidden");
+      const writeControl = options.isBioSourceTarget ? {
+        mayStartWrite: () => !options.isBioSourceTarget!(fixtureIds), onWriteStarted: () => undefined
+      } : undefined;
       const reports = validateReports(
         fixtureIds,
         await withTimeout(
-          applyAutomationBatch(adapter, fixtureIds, brightness, controller.signal, deadlineAt),
+          applyAutomationBatch(adapter, fixtureIds, brightness, controller.signal, deadlineAt, writeControl),
           deadlineAt + COMMAND_COMPLETION_GRACE_MS,
           timeoutMs,
           () => controller.abort()
@@ -552,15 +561,17 @@ function applyAutomationBatch(
   fixtureIds: string[],
   brightness: number,
   signal: AbortSignal,
-  deadlineAt: number
+  deadlineAt: number,
+  writeControl?: CommandWriteControl
 ) {
+  const writeArgs: [] | [CommandWriteControl] = writeControl ? [writeControl] : [];
   if (fixtureIds.length === 1 && adapter.applyUnicast) {
-    return adapter.applyUnicast(fixtureIds[0], brightness, signal, deadlineAt).then((report) => [report]);
+    return adapter.applyUnicast(fixtureIds[0], brightness, signal, deadlineAt, ...writeArgs).then((report) => [report]);
   }
   if (fixtureIds.length > 1 && adapter.applyParallelUnicast) {
-    return adapter.applyParallelUnicast(fixtureIds, brightness, 8, signal, deadlineAt);
+    return adapter.applyParallelUnicast(fixtureIds, brightness, 8, signal, deadlineAt, ...writeArgs);
   }
-  return adapter.setBrightness(fixtureIds, brightness);
+  return adapter.setBrightness(fixtureIds, brightness, ...writeArgs);
 }
 
 function validateReports(expectedFixtureIds: string[], reports: Awaited<ReturnType<BleMeshAdapter["setBrightness"]>>) {
@@ -793,6 +804,7 @@ async function rejectSetCommand(
 }
 
 function refusalMessage(code: GatewaySetRefusal) {
+  if (code === "BIO_SOURCE_TARGET_FORBIDDEN") return "bio_source_target_forbidden";
   return code === "COMMAND_EXPIRED" ? "gateway command expired before execution" : "gateway command clock or epoch proof is unavailable";
 }
 
