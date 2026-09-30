@@ -3,10 +3,12 @@ import {
   mqttTopics,
   type VehicleSensorCapabilityIngestedAckV1,
   type VehicleSensorCapabilityReportV1,
+  type VehicleSensorCapabilityReportV2,
   vehicleSensorCapabilityIngestedAckV1Schema,
-  vehicleSensorCapabilityReportV1Schema
+  vehicleSensorCapabilityReportV1Schema,
+  vehicleSensorCapabilityReportV2Schema
 } from "@led-control/shared";
-import { Prisma } from "@prisma/client";
+import { Prisma, type BioPulseReadiness, type VehicleSensorProtocol } from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
 import { compareAndAdvanceGatewayEvent } from "../retention/gateway-event-watermark";
 import { AutomationClock } from "./automation-clock";
@@ -14,6 +16,7 @@ import { canonicalPayloadHash } from "./automation-payload-hash";
 import { AutomationSnapshotService, compareAutomationIds } from "./automation-snapshot.service";
 
 export const VEHICLE_SENSOR_CAPABILITY_EVENT_TYPE = "vehicle_sensor_capability";
+const BIO_CAPABILITY_EVENT_TYPE = "bio_pulse_capability";
 
 interface LockedCapabilityNode {
   id: string;
@@ -23,6 +26,11 @@ interface LockedCapabilityNode {
   vehicleSensorServerBound: boolean;
   vehicleVendorEventModelBound: boolean;
   fixtureId: string | null;
+  vehicleSensorProtocol: VehicleSensorProtocol;
+  bioPulseReadiness: BioPulseReadiness;
+  bioPulseCapabilityRevision: bigint;
+  bioPulseProfileId: string | null;
+  bioPulseVerifiedAt: Date | null;
 }
 
 interface CapabilityLedgerRow {
@@ -59,7 +67,7 @@ export class VehicleSensorCapabilityService {
     return this.prisma.$transaction(async (tx) => {
       await this.automationSnapshot.lockMutation(tx);
       const node = await this.lockOwnedNode(tx, report, scope?.requireActiveClaim === true);
-      if (!node) {
+      if (!node || node.vehicleSensorProtocol === "bio_usb_pulse") {
         throw new BadRequestException("vehicle sensor capability report scope rejected");
       }
 
@@ -114,6 +122,72 @@ export class VehicleSensorCapabilityService {
     }, { timeout: 10_000 });
   }
 
+  /** Internal only: no HTTP/MQTT route or V1 ACK. The caller must supply the
+   * authenticated Gateway scope; a report cannot change a node's protocol.
+   * Persisted qualification is not V2 support, a mode operation result, or
+   * permission to execute a BIO rule. Those remain gated in Task 5c. */
+  async applyBioReport(rawReport: unknown,
+    scope: { siteId: string; gatewayId: string; requireActiveClaim: true }
+  ): Promise<{ status: "applied" | "duplicate" | "stale" | "rejected"; errorCode: string | null }> {
+    const parsed = vehicleSensorCapabilityReportV2Schema.safeParse(rawReport);
+    if (!parsed.success || scope?.requireActiveClaim !== true
+      || scope.siteId !== parsed.data.siteId || scope.gatewayId !== parsed.data.gatewayId) {
+      throw new BadRequestException("invalid BIO capability report or authenticated scope");
+    }
+    const report = parsed.data;
+    const payloadHash = canonicalPayloadHash(report);
+    const result = (status: "applied" | "duplicate" | "stale" | "rejected", errorCode: string | null = null) =>
+      ({ status, errorCode });
+    return this.prisma.$transaction(async tx => {
+      await this.automationSnapshot.lockMutation(tx);
+      const node = await this.lockOwnedNode(tx, report, true);
+      if (!node || node.vehicleSensorProtocol !== "bio_usb_pulse") {
+        throw new BadRequestException("BIO capability report scope or protocol rejected");
+      }
+      const revision = BigInt(report.capabilityRevision);
+      const [eventById, eventByRevision] = await Promise.all([
+        tx.processedGatewayEvent.findUnique({ where: { eventId: report.eventId } }),
+        tx.processedGatewayEvent.findFirst({ where: {
+          gatewayId: report.gatewayId, meshNodeId: node.id, sequence: revision, eventType: BIO_CAPABILITY_EVENT_TYPE
+        } })
+      ]);
+      const existing = distinctLedgerRows(eventById, eventByRevision);
+      if (existing.some(row => !sameCapabilityLedger(row, node.id, report, payloadHash, BIO_CAPABILITY_EVENT_TYPE))) {
+        return result("rejected", "capability_event_conflict");
+      }
+      if (revision === node.bioPulseCapabilityRevision && !sameBioCapabilityState(node, report)) {
+        return result("rejected", "capability_state_conflict");
+      }
+      if (existing.length > 0) return result("duplicate");
+      const ordering = await compareAndAdvanceGatewayEvent(tx, {
+        gatewayId: report.gatewayId, eventType: BIO_CAPABILITY_EVENT_TYPE, scopeKey: node.id,
+        sequence: revision, eventId: report.eventId, payloadHash, occurredAt: new Date(report.verifiedAt)
+      });
+      if (ordering === "conflict") return result("rejected", "capability_event_conflict");
+      if (ordering === "duplicate") return result("duplicate");
+      if (ordering === "stale" || revision < node.bioPulseCapabilityRevision) {
+        await this.createLedger(tx, node, report, payloadHash, BIO_CAPABILITY_EVENT_TYPE);
+        return result("stale");
+      }
+      if (revision === node.bioPulseCapabilityRevision) {
+        await this.createLedger(tx, node, report, payloadHash, BIO_CAPABILITY_EVENT_TYPE);
+        return result("duplicate");
+      }
+      if (report.readiness !== "ready" || (node.bioPulseReadiness === "ready"
+        && node.bioPulseProfileId !== report.verifiedFingerprintId)) {
+        // The DB rejects downgrading an enabled source. Disable and enqueue the
+        // new configuration in this same transaction before changing evidence.
+        await this.disableAffectedRules(tx, node, report.gatewayId);
+      }
+      await tx.meshNode.update({ where: { id: node.id }, data: {
+        bioPulseReadiness: report.readiness, bioPulseCapabilityRevision: revision,
+        bioPulseProfileId: report.verifiedFingerprintId, bioPulseVerifiedAt: new Date(report.verifiedAt)
+      } });
+      await this.createLedger(tx, node, report, payloadHash, BIO_CAPABILITY_EVENT_TYPE);
+      return result("applied");
+    }, { timeout: 10_000 });
+  }
+
   private async disableAffectedRules(
     tx: Prisma.TransactionClient,
     node: LockedCapabilityNode,
@@ -144,7 +218,7 @@ export class VehicleSensorCapabilityService {
 
   private async lockOwnedNode(
     tx: Prisma.TransactionClient,
-    report: VehicleSensorCapabilityReportV1,
+    report: Pick<VehicleSensorCapabilityReportV1, "siteId" | "gatewayId" | "meshNodeId">,
     requireActiveClaim: boolean
   ) {
     const activeClaimJoin = requireActiveClaim ? Prisma.sql`
@@ -167,6 +241,11 @@ export class VehicleSensorCapabilityService {
     const nodes = await tx.$queryRaw<LockedCapabilityNode[]>(Prisma.sql`
       SELECT
         node."id",
+        node."vehicleSensorProtocol",
+        node."bioPulseReadiness",
+        node."bioPulseCapabilityRevision",
+        node."bioPulseProfileId",
+        node."bioPulseVerifiedAt",
         node."vehicleSensorCapabilityStatus",
         node."vehicleSensorCapabilityVerifiedAt",
         node."vehicleSensorCapabilityRevision",
@@ -205,8 +284,9 @@ export class VehicleSensorCapabilityService {
   private createLedger(
     tx: Prisma.TransactionClient,
     node: LockedCapabilityNode,
-    report: VehicleSensorCapabilityReportV1,
-    payloadHash: `sha256:${string}`
+    report: VehicleSensorCapabilityReportV1 | VehicleSensorCapabilityReportV2,
+    payloadHash: `sha256:${string}`,
+    eventType = VEHICLE_SENSOR_CAPABILITY_EVENT_TYPE
   ) {
     return tx.processedGatewayEvent.create({
       data: {
@@ -216,7 +296,7 @@ export class VehicleSensorCapabilityService {
         scopeKey: node.id,
         fixtureId: node.fixtureId,
         sequence: BigInt(report.capabilityRevision),
-        eventType: VEHICLE_SENSOR_CAPABILITY_EVENT_TYPE,
+        eventType,
         payloadHash,
         occurredAt: new Date(report.verifiedAt)
       }
@@ -313,14 +393,21 @@ function distinctLedgerRows(
 function sameCapabilityLedger(
   row: CapabilityLedgerRow,
   canonicalMeshNodeId: string,
-  report: VehicleSensorCapabilityReportV1,
-  payloadHash: string
+  report: VehicleSensorCapabilityReportV1 | VehicleSensorCapabilityReportV2,
+  payloadHash: string,
+  eventType = VEHICLE_SENSOR_CAPABILITY_EVENT_TYPE
 ) {
   return row.gatewayId === report.gatewayId
     && row.meshNodeId === canonicalMeshNodeId
     && row.sequence === BigInt(report.capabilityRevision)
-    && row.eventType === VEHICLE_SENSOR_CAPABILITY_EVENT_TYPE
+    && row.eventType === eventType
     && row.payloadHash === payloadHash;
+}
+
+function sameBioCapabilityState(node: LockedCapabilityNode, report: VehicleSensorCapabilityReportV2) {
+  return node.bioPulseReadiness === report.readiness
+    && node.bioPulseProfileId === report.verifiedFingerprintId
+    && node.bioPulseVerifiedAt?.getTime() === new Date(report.verifiedAt).getTime();
 }
 
 function sameCapabilityState(node: LockedCapabilityNode, report: VehicleSensorCapabilityReportV1) {

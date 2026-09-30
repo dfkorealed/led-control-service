@@ -4,6 +4,7 @@ import {
   type VehicleEventRuleSnapshotV1
 } from "@led-control/shared";
 import { z } from "zod";
+import type { VehicleSensorProtocol } from "@prisma/client";
 
 export type CreateVehicleEventRuleInput = Omit<VehicleEventRuleSnapshotV1, "id">;
 export type UpdateVehicleEventRuleInput = Partial<CreateVehicleEventRuleInput>;
@@ -43,4 +44,13 @@ export function parseUpdateVehicleEventRuleInput(rawInput: unknown): UpdateVehic
   const parsed = updateVehicleEventRuleSchema.safeParse(rawInput);
   if (!parsed.success) throw new BadRequestException("invalid vehicle event rule update");
   return parsed.data;
+}
+
+// Protocol is resolved from the stored node, never accepted from request JSON.
+// Partial updates validate the effective duration after merging the stored rule.
+export function assertVehicleEventRuleHoldSeconds(holdSeconds: number, protocol: VehicleSensorProtocol) {
+  const minimum = protocol === "bio_usb_pulse" ? 10 : 5;
+  if (!z.number().int().min(minimum).max(1_800).safeParse(holdSeconds).success) {
+    throw new BadRequestException("invalid vehicle event rule hold duration");
+  }
 }

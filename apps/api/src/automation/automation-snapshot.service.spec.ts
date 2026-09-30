@@ -20,6 +20,24 @@ describe("AutomationSnapshotService", () => {
     expect(tx.$executeRaw).toHaveBeenCalledTimes(1);
   });
 
+  it("excludes BIO drafts from V1 even when a Gateway has BlueZ rules", async () => {
+    const tx = {
+      gateway: { findUnique: async () => ({ id: GATEWAY_ID, siteId: SITE_ID,
+        site: { timeZone: "Asia/Seoul" }, automationConfiguration: null }) },
+      lightingSchedule: { updateMany: async () => ({}), findMany: async () => [] },
+      vehicleEventRule: { updateMany: async () => ({}), findMany: async () => [{
+        id: SCHEDULE_A, name: "BIO", sensorProtocol: "bio_usb_pulse", status: "disabled",
+        dimmingEnabled: true, brightnessPercent: 70, holdSeconds: 60,
+        sources: [{ fixtureId: FIXTURE_A }], targets: [{ fixtureId: FIXTURE_B }]
+      }] },
+      gatewayAutomationConfiguration: { upsert: async () => ({}) },
+      mqttOutbox: { create: jest.fn(async () => ({})) }
+    };
+    await service.incrementDesiredRevision(tx as never, GATEWAY_ID);
+    expect((tx.mqttOutbox.create.mock.calls as unknown as Array<[{ data: { payload: unknown } }]>)[0][0].data.payload)
+      .toMatchObject({ schemaVersion: 1, vehicleEventRules: [] });
+  });
+
   it("writes a stable normalized full snapshot and independently verifiable dedup identity", async () => {
     const mqttOutboxCreate = jest.fn().mockResolvedValue({ id: "outbox" });
     const tx = {

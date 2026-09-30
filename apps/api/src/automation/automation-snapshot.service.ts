@@ -81,6 +81,9 @@ export class AutomationSnapshotService {
         .map(toLightingScheduleSnapshot)
         .sort((left, right) => compareAutomationIds(left.id, right.id)),
       vehicleEventRules: eventRules
+        // V1 cannot express pulse semantics. BIO drafts remain pending until the
+        // separate V2 support/deployment path is implemented (Task 5c).
+        .filter(rule => rule.sensorProtocol !== "bio_usb_pulse")
         .map(toVehicleEventRuleSnapshot)
         .sort((left, right) => compareAutomationIds(left.id, right.id)),
       generatedAt: this.clock.now().toISOString()

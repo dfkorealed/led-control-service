@@ -1,6 +1,6 @@
 import { BadRequestException, ConflictException, Injectable } from "@nestjs/common";
 import type { DimmingTarget } from "@led-control/shared";
-import type { Prisma } from "@prisma/client";
+import type { Prisma, VehicleSensorProtocol, BioPulseReadiness } from "@prisma/client";
 
 type TargetFixture = {
   id: string;
@@ -8,8 +8,13 @@ type TargetFixture = {
   meshNodeId: string | null;
   gatewayId: string | null;
   meshNode: {
+    vehicleSensorProtocol: VehicleSensorProtocol;
     vehicleSensorCapabilityStatus: "unknown" | "supported" | "unsupported";
     vehicleSensorCapabilityVerifiedAt: Date | null;
+    bioPulseReadiness: BioPulseReadiness;
+    bioPulseCapabilityRevision: bigint;
+    bioPulseProfileId: string | null;
+    bioPulseVerifiedAt: Date | null;
   } | null;
 };
 
@@ -21,7 +26,12 @@ const targetFixtureSelect = {
   meshNode: {
     select: {
       vehicleSensorCapabilityStatus: true,
-      vehicleSensorCapabilityVerifiedAt: true
+      vehicleSensorCapabilityVerifiedAt: true,
+      vehicleSensorProtocol: true,
+      bioPulseReadiness: true,
+      bioPulseCapabilityRevision: true,
+      bioPulseProfileId: true,
+      bioPulseVerifiedAt: true
     }
   }
 } satisfies Prisma.FixtureSelect;
@@ -41,17 +51,23 @@ export class TargetSnapshotService {
   async resolveVehicleSources(
     tx: Prisma.TransactionClient,
     siteId: string,
-    fixtureIds: string[]
-  ): Promise<string[]> {
+    fixtureIds: string[],
+    allowUnavailable = false
+  ): Promise<{ fixtureIds: string[]; sensorProtocol: VehicleSensorProtocol }> {
     const fixtures = await this.loadSelection(tx, siteId, { type: "fixtures", fixtureIds });
     this.assertRegistered(fixtures);
-    if (fixtures.some((fixture) =>
-      fixture.meshNode?.vehicleSensorCapabilityStatus !== "supported"
-      || fixture.meshNode.vehicleSensorCapabilityVerifiedAt === null
-    )) {
+    const protocols = new Set(fixtures.map(fixture => fixture.meshNode?.vehicleSensorProtocol));
+    const sensorProtocol = fixtures[0]?.meshNode?.vehicleSensorProtocol;
+    if (!sensorProtocol || protocols.size !== 1 || (sensorProtocol === "bio_usb_pulse" && fixtures.length !== 1)) {
+      throw new BadRequestException("vehicle event requires one protocol and exactly one BIO source");
+    }
+    if (!allowUnavailable && fixtures.some(({ meshNode: node }) => !node || (sensorProtocol === "bio_usb_pulse"
+      ? node.bioPulseReadiness !== "ready" || node.bioPulseCapabilityRevision <= 0n
+        || !node.bioPulseProfileId?.trim() || node.bioPulseVerifiedAt === null
+      : node.vehicleSensorCapabilityStatus !== "supported" || node.vehicleSensorCapabilityVerifiedAt === null))) {
       throw new BadRequestException("vehicle event source is unavailable");
     }
-    return [...new Set(fixtures.map((fixture) => fixture.id))].sort(compareIds);
+    return { fixtureIds: [...new Set(fixtures.map((fixture) => fixture.id))].sort(compareIds), sensorProtocol };
   }
 
   async assertSingleGateway(

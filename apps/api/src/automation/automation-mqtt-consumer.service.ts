@@ -180,7 +180,10 @@ export class AutomationMqttConsumerService {
         const eventRuleIds = storedSnapshot.vehicleEventRules.map(({ id }) => id);
         if (eventRuleIds.length > 0) {
           await tx.vehicleEventRule.updateMany({
-            where: { id: { in: eventRuleIds }, gatewayId: scope.gatewayId, appliedRevision: { lt: ack.revision } },
+            // A rule ID can survive a source replacement from BlueZ to BIO.
+            // An old V1 snapshot ACK cannot apply that new pulse configuration.
+            where: { id: { in: eventRuleIds }, gatewayId: scope.gatewayId,
+              sensorProtocol: "bluez_stateful", appliedRevision: { lt: ack.revision } },
             data: { appliedRevision: ack.revision }
           });
         }

@@ -78,7 +78,7 @@ describe("VehicleEventRulesService", () => {
       })
     };
     const targetSnapshot = {
-      resolveVehicleSources: jest.fn().mockResolvedValue([SOURCE_ID]),
+      resolveVehicleSources: jest.fn().mockResolvedValue({ fixtureIds: [SOURCE_ID], sensorProtocol: "bluez_stateful" }),
       resolve: jest.fn().mockResolvedValue([TARGET_ID]),
       assertSingleGateway: jest.fn().mockRejectedValue({
         status: 409,
@@ -106,7 +106,8 @@ describe("VehicleEventRulesService", () => {
     expect(targetSnapshot.resolveVehicleSources).toHaveBeenCalledWith(
       tx,
       SITE_ID,
-      [SOURCE_ID]
+      [SOURCE_ID],
+      false
     );
     expect(targetSnapshot.resolve).toHaveBeenCalledWith(
       tx,
