@@ -122,22 +122,22 @@
 
 **Interfaces:** `VehicleEventSourceView`는 server capability의 `sensorProtocol`과 `readiness`를 받는다. `validateVehicleEventForm(values, sourceProtocol)`은 BIO 10/BlueZ 5 하한을 적용한다. 기존 공통 `TextField`, 버튼, 카드, 지도 선택 컴포넌트를 재사용한다.
 
-- [ ] **Step 1: RED 테스트 작성.** OFF/shadow/degraded BIO는 저장 불가이고 이유 표시, mode 미확인 A에는 sensor-mode 설정/상태 재조회만 제공하며 성공 GET 전에는 사용 가능으로 표시하지 않음; ready A는 source만 선택되고 target에서는 제외, B target은 선택 가능; A는 센서 모드를 유지하고 **자체 밝기 동작은 현장 검증 전**이라는 정직한 설명, A 밝기 설정 UI 없음; BIO 9초 오류/10초 통과/기본 60초/1,800초 통과/1,801초 오류와 10초 깜박임 경고; BlueZ 5초 통과; 편집 저장 후 hold 유지; degraded 지속 알림·마지막 pulse·운영자 해제 안내를 키보드/스크린리더에서도 읽을 수 있음.
-- [ ] **Step 2: RED 확인.** `pnpm --filter @led-control/web exec vitest run src/features/control/automation/vehicle-event-form.test.ts src/features/control/automation/VehicleEventDialog.test.tsx src/features/control/automation/VehicleEventControlPanel.test.tsx` → 새 UI 기대 실패.
-- [ ] **Step 3: 최소 구현.** server가 판정한 protocol/readiness만 표시하고 client가 이를 지정하지 않는다. 모바일에서 지도 선택·유지시간 입력이 기존 접근성/레이아웃 규칙을 지킨다. 공통 컴포넌트 중복을 만들지 않는다.
-- [ ] **Step 4: GREEN·검증.** 위 Vitest, Web typecheck, `pnpm --filter @led-control/web test:ui-policy`, 관련 Playwright UI test → 통과. 메뉴 문서에는 software 화면과 live OFF를 구분한다.
-- [ ] **Step 5: 커밋.** Web 코드·테스트·영향 메뉴 문서를 함께 저장한다.
+- [x] **Step 1: RED 테스트 작성.** BIO 사용 불가 사유/A source·B target/비활성 초안, sensor-mode 조회의 역사적 증거, 10~1,800초·기본 60초·10초 경고, BlueZ 5초, 지속 운영 미확인/접근성, 모바일 지도와 실제 두 포인터 확대·축소를 검증했다. 마지막 펄스·장애 시작·복원 사유는 실데이터 projection 전까지 **미확인**으로 표시하며 A 자체 밝기는 HIL 미검증이다.
+- [x] **Step 2: RED 확인.** API dashboard read model·Web BIO form/dialog·mode 상태 및 늦은 GET/새 dashboard 경합 실패를 RED로 재현했다.
+- [x] **Step 3: 최소 구현.** 승인된 최소 API projection이 effective readiness와 typed 차단 사유를 판정하고 Web은 읽기만 한다. `139916c3` 및 오래된 로컬 mode 결과가 새 서버 상태를 가리던 결함 보완 `7631e40f`로 dashboard 최신 증거만 표시한다. 공통 UI/지도 컴포넌트를 재사용하고 A 밝기 설정은 추가하지 않았다.
+- [x] **Step 4: GREEN·검증.** API 전체 직렬 3,046 passed/890 skipped, Web 보완 후 전체 2,653 passed/3 skipped, Web/API typecheck/build, UI policy 65/65·위반 0, 독립 재검토 focused Web 107/107 통과. BIO Playwright 4건·실제 pinch 3건은 통과. 전체 Playwright는 **32 passed/2 failed**로 기존 수동 모바일 밝기 입력 14px가 >=16px 계약에 미달하며 Task 8에서 수정·재검증한다. 실제 BIO runtime telemetry와 제품/HIL은 미연결이다.
+- [x] **Step 5: 커밋.** `139916c3`·`7631e40f`에 API/Web 코드·테스트와 제어·모니터링 메뉴 문서를 저장하고 독립 재검토 승인했다.
 
 ### Task 8: 소프트웨어 end-to-end와 제품 OFF 검증
 
-**Files:** Modify `apps/gateway/src/automation/software-automation-simulator.ts` 및 tests, API integration/`apps/web/e2e/automation-control-flow.spec.ts`; Modify `docs/project-status.md`, `docs/menus/{control,settings,monitoring}.md`; 현장 실행 결과가 생기기 전에는 진단 보고서를 완료로 쓰지 않는다.
+**Files:** Modify `apps/gateway/src/automation/software-automation-simulator.ts` 및 tests, API integration/`apps/web/e2e/automation-control-flow.spec.ts`; 기존 모바일 수동 밝기 입력 글꼴의 16px 계약을 만족하는 최소 CSS/Playwright 보완; Modify `docs/project-status.md`, `docs/menus/{control,settings,monitoring}.md`; 현장 실행 결과가 생기기 전에는 진단 보고서를 완료로 쓰지 않는다.
 
 **Interfaces:** Fixture simulator injects valid `bio-usb-pulse` only with an explicit test profile/healthy link. End-to-end verifies API save→V2 publish→V2 ACK→Gateway occurrence/telemetry→B mode/brightness restore, while product allowlist and capability remain OFF.
 
-- [ ] **Step 1: RED 통합 테스트 작성.** V1 BlueZ regression, V2 미지원 Gateway fail-closed, V2 BIO software fixture의 10/60초 연장·B 복원·degraded/restart, source A RF write 0건, telemetry redaction, MQTT disconnected/reconnected outbox delivery를 검증한다.
+- [ ] **Step 1: RED 통합 테스트 작성.** V1 BlueZ regression, V2 미지원 Gateway fail-closed, V2 BIO software fixture의 10/60초 연장·B 복원·degraded/restart, source A RF write 0건, telemetry redaction, MQTT disconnected/reconnected outbox delivery와 API active-source group membership 경쟁을 검증한다. 기존 모바일 수동 밝기 입력 14px→16px 접근성 결함을 Playwright 390/320px RED로 포함한다.
 - [ ] **Step 2: RED 확인.** Gateway simulator Vitest, API integration, 관련 Playwright가 새 경로에서 실패하는지 확인한다.
 - [ ] **Step 3: 최소 연결 구현.** 기존 MQTT topic/ACK outbox를 version-aware로 연결하고 시험 fixture로만 positive profile을 주입한다. 현장 profile을 소프트웨어 시험 값으로 승격하지 않는다.
-- [ ] **Step 4: 전체 software gate.** `pnpm lint`, `pnpm typecheck`, `npm_config_workspace_concurrency=1 pnpm test`, `pnpm build`, `git diff --check`를 실행하고 결과·기존 제외 항목을 상태 문서와 체크리스트에 동기화한다. 실패는 회귀 수정 후 재실행하며 HIL 성공으로 표현하지 않는다.
+- [ ] **Step 4: 전체 software gate.** 안정된 호스트에서 `pnpm lint`, `pnpm typecheck`, `npm_config_workspace_concurrency=1 pnpm test`, `pnpm build`, 관련 Playwright 전체, `git diff --check`를 실행하고 결과·기존 제외 항목을 상태 문서와 체크리스트에 동기화한다. Task6의 canonical 비정상 wall-clock/timeout과 Task7 모바일 입력 2건을 재검증·수정 후 재실행하며 HIL 성공으로 표현하지 않는다.
 - [ ] **Step 5: 최종 검토·커밋.** 독립 QA가 contract/안전 경계/문서 일치와 실장비 미검증 표기를 확인한 뒤 software 변경을 저장한다. HIL·제품 ON은 별도 승인과 근거가 실제로 갖춰질 때만 상태를 갱신한다.
 
 ### Task 9: 별도 현장 운영 관문 — shadow, MQTT, B-only
@@ -160,7 +160,7 @@
 - [x] Task 4 — fail-safe/restart/target mode 복원 (4a `f6e09f58`, 4b `98db8a0e`+`298a9c9c`, 4c `ee412d5a`+`8fd06f2d`+`6ce596c6`+`7bc65eec`; synthetic software only, 제품 OFF)
 - [x] Task 5 — API/DB versioning·V2 ACK·별도 sensor-mode operation (`5a`~`5c2` 소프트웨어·독립 검토 완료; 제품 OFF, 운영 DB 미적용)
 - [x] Task 6 — A source 보호 (`ba528582`; 집중·타입·빌드/독립 검토 통과, 전체 canonical 재검증 Task 8 대기)
-- [ ] Task 7 — Web UI
+- [x] Task 7 — Web UI (`139916c3`, `7631e40f`; BIO/핀치와 unit/타입/빌드 독립 검토 통과, 기존 수동 모바일 Playwright 2건 Task8 잔여)
 - [ ] Task 8 — software 통합과 제품 OFF 검증
 - [ ] Task 9 — 승인 후 shadow/MQTT/B-only 현장 관문
 
