@@ -102,7 +102,7 @@
 - [x] **5a RED·GREEN: DB expand/migrate 및 문서.** `ae8bad3a`와 사전 검사 보완 `2af7b5a4`로 node/rule protocol, BIO 준비 상태·별도 revision·profile·verifiedAt, BlueZ/BIO coherence·source admission/하향·동시성 제약을 순방향 migration에 추가했다. 기존 BlueZ 5초·BIO OFF default를 유지하고, 기존 활성 부적격 source는 조치 안내 `23514`와 전체 롤백으로 거부한다. `docs/database-schema.md` 동시 갱신. 일회용 PostgreSQL 기존 BlueZ+BIO 통합 47/47, API 전체 2,963 실행, Prisma validate/generate/typecheck 및 독립 재검토 통과. 운영 DB에는 적용하지 않았다.
 - [x] **5b RED·GREEN: API source/rule 판정.** `366b3e8b`; 서버 소유 protocol, BIO A 1개·distinct B, ready/10~1,800초, BlueZ 5초를 검증한다. V2 지원/ACK 전 BIO는 비활성 초안만 허용하고 V1 snapshot·appliedRevision·목록 집계·늦은 V1 ACK에서 제외한다. 내부 인증 scope BIO report는 별도 revision과 원자적 하향을 사용하되 공개 ingress는 없다. 집중 86/86, 일회용 DB 53/53, API 전체 직렬 3,008 passed/858 skipped, typecheck/build와 독립 검토 통과. 병렬 API 전체는 기존 CAD RSS 1건 실패(단독 17/17 통과)로 별도 기록했다. `docs/menus/control.md`를 한계와 함께 갱신했다. Task 6의 모든 target 경로 보호는 아직 별도다.
 - [x] **5c1 RED·GREEN: V2 지원·배포/ACK.** `e378f4c9`·`767d9cb2` 및 선언 재시도 결함 보완 `aa99b951`로 독립 V2 지원 선언/DB migration, 현재 할당·claim/active certificate 확인, V1/V2 설정/해시/ACK를 구현하고 독립 재검토 승인했다. V1-only BlueZ는 V1 유지, enabled BIO는 Gateway 저장/RF 전에 차단하고 applied ACK를 만들지 않는다. 오래된 동일 V2 설정이 새 선언 재시도를 조기 종료하던 결함을 RED 3건으로 재현·수정했다. 전용 선언 receipt가 없어 동일 ID를 제한된 간격으로 재전송하며 중복 DB row를 만들지 않는다. Shared 431/431, API 전체 직렬 3,013 passed/859 skipped, Gateway 보완 후 1,575/1,575, 일회용 DB 56/56, typecheck/build/Prisma validate 통과; Gateway/API 재검토 집중 33/33·24/24 통과. `docs/database-schema.md`·`docs/menus/control.md`를 갱신했으며 운영 DB migration·실장비 조작은 없었다. 지원/적용 확인은 mode GET·A 자체 밝기·BIO 제품 준비의 증거가 아니고 capability/allowlist는 OFF다.
-- [ ] **5c2 RED·GREEN: A sensor-mode 작업.** A sensor-mode 요청은 고유 ID와 durable 결과/timeout 재조회를 갖는 별도 operation으로 구현한다. Gateway의 실제 mode GET=`sensor` read-back만 `modeVerified`가 되며, MQTT 접수 ACK나 5c1의 V2 snapshot applied, configured high-brightness는 sensor 준비/현재 광학 출력의 증거가 아니다. 불명확/timeout/재시작 상태는 성공으로 만들지 않고 재조회할 수 있다. 기존 device command/result outbox 패턴을 재사용하며 API/Gateway 테스트·typecheck·가능한 integration을 RED→GREEN으로 검증하고 별도 커밋/독립 검토한다. 실장비 mode SET/RF는 HIL 승인 전 수행하지 않는다.
+- [x] **5c2 RED·GREEN: A sensor-mode 작업.** `772b174a`와 동시 복구·시계 오류 결함 보완 `44c9c3ef`로 고유 ID의 독립 ensure/query 작업, API durable row·outbox·결과 수신, Gateway journal·실제 mode GET 확인·재조회, 정확한 MQTT ACL을 구현해 독립 재검토 승인했다. `modeVerified`는 시간·물리 identity·할당이 일치하는 새 GET=`sensor`에만 허용한다. 중복 SET은 재실행하지 않고, 복구·실시간 재전달의 동시 실행은 결과 하나로 수렴한다. 시계 오류가 있는 비성공 결과는 비검증 감사 기록으로 ACK해 공유 outbox가 막히지 않게 하되 성공 시간 증거는 완화하지 않는다. Shared 437/437, Gateway 보완 후 1,590/1,590, API 전체 직렬 3,014 passed/887 skipped, 일회용 DB 85/85, MQTT ACK 53/53, 타입 검사·빌드 통과; 재검토 집중 Gateway 13/13·DB 29/29 통과. `docs/database-schema.md`와 제어·설정 메뉴 문서를 같은 작업에서 갱신했다. 운영 DB migration·실장비 SET/RF·제품 활성화는 하지 않았다.
 
 ### Task 6: A source를 모든 제어 대상 경로에서 보호
 
@@ -158,7 +158,7 @@
 - [x] Task 2 — BIO decode/intake, allowlist OFF (`72d26ac4`, `ae1d3de5`; 집중 195/195, Gateway 1,439/1,439, 독립 재검토 승인)
 - [x] Task 3 — pulse occurrence/receipt (`0ff260a4`; 집중 139/139, Gateway 1,457/1,457, 독립 검토 승인; 제품 실행 OFF)
 - [x] Task 4 — fail-safe/restart/target mode 복원 (4a `f6e09f58`, 4b `98db8a0e`+`298a9c9c`, 4c `ee412d5a`+`8fd06f2d`+`6ce596c6`+`7bc65eec`; synthetic software only, 제품 OFF)
-- [ ] Task 5 — API/DB versioning 및 capability
+- [x] Task 5 — API/DB versioning·V2 ACK·별도 sensor-mode operation (`5a`~`5c2` 소프트웨어·독립 검토 완료; 제품 OFF, 운영 DB 미적용)
 - [ ] Task 6 — A source 보호
 - [ ] Task 7 — Web UI
 - [ ] Task 8 — software 통합과 제품 OFF 검증
