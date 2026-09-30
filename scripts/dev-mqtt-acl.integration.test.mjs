@@ -131,13 +131,13 @@ test("stock broker restart with restored ACL/CRL revives retired publish and pre
 });
 
 // Independent inventory from API publish producers and MqttService subscriptions.
-const API_WRITE = ["commands/status-check", "commands/identify", "commands/fixture-presence-check",
+const API_WRITE = ["commands/bio-sensor-mode", "commands/status-check", "commands/identify", "commands/fixture-presence-check",
   "commands/provisioning/scan-start", "commands/provisioning/scan-stop", "commands/provisioning/identify-device",
   "commands/provisioning/provision-device", "commands/mesh-group/subscription-sync", "commands/mesh-group/resync-ack",
   "commands/automation/config-sync", "events/clock/response", "commands/drain/request", "acks/state-ingested",
   "acks/fixture-presence-check-completed", "acks/provisioning/scan-terminal-ingested", "acks/provisioning/device-terminal-ingested",
   "acks/automation/config-applied-ingested", "acks/automation/execution-ingested", "acks/automation/vehicle-sensor-capability-ingested"];
-const API_READ = ["acks/acceptance", "acks/device-status", "state/fixtures", "state/fixture-presence", "state/heartbeat",
+const API_READ = ["events/bio-sensor-mode-result", "acks/acceptance", "acks/device-status", "state/fixtures", "state/fixture-presence", "state/heartbeat",
   "events/provisioning/scan-found", "events/provisioning/scan-completed", "events/provisioning/scan-failed",
   "events/provisioning/device-terminal", "events/provisioning-completed", "events/provisioning-failed",
   "events/identify-result", "events/fixture-presence-check-completed", "events/fixture-unreachable",

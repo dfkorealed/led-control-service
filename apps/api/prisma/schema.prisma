@@ -1257,6 +1257,7 @@ model Fixture {
   energyStateCursor          FixtureEnergyStateCursor?
   processedStateEvents       ProcessedGatewayEvent[]
   commandResults             CommandFixtureResult[]
+  sensorModeOperations       SensorModeOperation[]
   lightingScheduleTargets    LightingScheduleFixture[]
   vehicleEventSources        VehicleEventSource[]
   vehicleEventTargets        VehicleEventTarget[]
@@ -1657,6 +1658,42 @@ model Command {
 
 // A failed protected sweep must not starve later eligible Commands. This row
 // exists only while its original Command still exists and cascades with it.
+model SensorModeOperation {
+  commandId           String   @id @default(uuid())
+  siteId              String
+  gatewayId           String
+  fixtureId           String
+  nodeId              String
+  meshAddress         String
+  assignmentVersion   Int
+  requestedById       String
+  clientRequestId     String
+  operation           String
+  requeryOfCommandId   String?
+  requestedAt         DateTime
+  expiresAt           DateTime
+  status              String   @default("pending")
+  supersededAt        DateTime?
+  result              Json?
+  resultHash          String?
+  resultEventId       String?  @unique
+  payload             Json
+  publishedAt         DateTime?
+  attempts            Int      @default(0)
+  nextAttemptAt       DateTime @default(now())
+  lockedBy            String?
+  leaseExpiresAt      DateTime?
+  fixture             Fixture  @relation(fields: [fixtureId, siteId], references: [id, siteId], onDelete: Cascade, onUpdate: Restrict)
+  requeryOf           SensorModeOperation? @relation("SensorModeRequery", fields: [requeryOfCommandId], references: [commandId], onDelete: Restrict)
+  requeries           SensorModeOperation[] @relation("SensorModeRequery")
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@unique([siteId, requestedById, clientRequestId])
+  @@index([status, nextAttemptAt, leaseExpiresAt])
+  @@index([fixtureId, supersededAt])
+}
+
 model CommandRetentionAttempt {
   commandId     String   @id
   reasonCode    String

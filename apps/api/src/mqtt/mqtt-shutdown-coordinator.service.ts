@@ -7,6 +7,7 @@ import { LegacyStatusCheckPublisherService } from "./legacy-status-check-publish
 import { RecoveryOutboxPublisherService } from "./recovery-outbox-publisher.service";
 import { ProvisioningScanOutboxPublisherService } from "./provisioning-scan-outbox-publisher.service";
 import { ProvisioningDeviceOutboxPublisherService } from "./provisioning-device-outbox-publisher.service";
+import { SensorModePublisherService } from "./sensor-mode-publisher.service";
 
 @Injectable()
 export class MqttShutdownCoordinator implements OnModuleDestroy {
@@ -20,7 +21,8 @@ export class MqttShutdownCoordinator implements OnModuleDestroy {
     private readonly automationOutbox: AutomationOutboxPublisherService,
     private readonly meshGroupSync: MeshGroupSyncWorker,
     private readonly mqtt: MqttService,
-    @Optional() private readonly recoveryOutbox?: RecoveryOutboxPublisherService
+    @Optional() private readonly recoveryOutbox?: RecoveryOutboxPublisherService,
+    @Optional() private readonly sensorModeOutbox?: SensorModePublisherService
   ) {}
 
   onModuleDestroy() {
@@ -34,6 +36,7 @@ export class MqttShutdownCoordinator implements OnModuleDestroy {
       const inboundDrain = this.mqtt.stopInboundAndDrain();
       this.shutdownPromise = Promise.all([
         commandDrain,
+        this.sensorModeOutbox?.stopAndDrain(),
         legacyStatusCheckDrain,
         this.recoveryOutbox?.stopAndDrain(),
         scanDrain,

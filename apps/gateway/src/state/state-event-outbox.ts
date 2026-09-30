@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { mkdir, stat } from "node:fs/promises";
 import { dirname } from "node:path";
 import {
+  bioSensorModeResultSchema, bioSensorModeTopics, type BioSensorModeResult,
   applicationStateIngestedAckV2Schema,
   fixturePresenceV2Schema,
   fixtureUnreachableV1Schema,
@@ -32,7 +33,7 @@ export interface StoredStateEvent {
   enqueuedAt: string;
 }
 
-export type GatewayStateEvent = FixtureStateV2 | FixturePresenceV2 | FixtureUnreachableV1;
+export type GatewayStateEvent = FixtureStateV2 | FixturePresenceV2 | FixtureUnreachableV1 | BioSensorModeResult;
 
 interface StoredOutbox {
   version: 1;
@@ -642,6 +643,7 @@ function sameAcknowledgement(payload: GatewayStateEvent, acknowledgement: Applic
 }
 
 function parseGatewayStateEvent(value: unknown): GatewayStateEvent {
+  if (isRecord(value) && "modeVerified" in value) return bioSensorModeResultSchema.parse(value);
   if (isRecord(value) && "reason" in value) return fixtureUnreachableV1Schema.parse(value);
   const fixtureState = fixtureStateV2Schema.safeParse(value);
   if (fixtureState.success) return fixtureState.data;
@@ -653,6 +655,7 @@ function parseStoredGatewayStateEvent(
   value: unknown,
   scope: StateEventOutboxScope
 ): GatewayStateEvent {
+  if (topic === bioSensorModeTopics.result(scope.siteId, scope.gatewayId)) return bioSensorModeResultSchema.parse(value);
   if (topic === mqttTopicsV2.fixtureState(scope.siteId, scope.gatewayId)) {
     return fixtureStateV2Schema.parse(value);
   }
@@ -666,6 +669,7 @@ function parseStoredGatewayStateEvent(
 }
 
 function gatewayStateEventTopic(event: GatewayStateEvent) {
+  if ("modeVerified" in event) return bioSensorModeTopics.result(event.siteId, event.gatewayId);
   if ("reason" in event) return mqttTopicsV2.fixtureUnreachable(event.siteId, event.gatewayId);
   return "brightness" in event
     ? mqttTopicsV2.fixtureState(event.siteId, event.gatewayId)

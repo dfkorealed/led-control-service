@@ -1,5 +1,13 @@
 # 설정 메뉴 기능 현황 및 구현 설계
 
+## 2026-09-30 BIO 센서 모드 확인 기반
+
+- 구현 완료: 등록된 BIO Fixture의 센서 모드를 고유 작업 ID로 요청·조회하는 API/Gateway 경로와 재시작·타임아웃 후 새 ID 재조회 기반을 추가했다. 현재 할당과 confirmed mapping을 대조하며 별도 mode GET이 `sensor`일 때만 모드 확인으로 기록한다. 설정 접수·식별 점등 결과·high-brightness 설정값을 이 작업의 성공으로 대체하지 않는다.
+- 미구현: 설정/제어 화면의 센서 모드 작업 UI, 전체 source 대상 보호와 BIO 제품 활성화는 후속 작업이다. A 밝기 설정 UI는 추가하지 않았다.
+- 부족하거나 개선이 필요한 기능: 소프트웨어·일회용 DB/브로커 검증만 수행했다. 실제 자체 밝기 반응·펄스 상관관계·건강 판정은 HIL 전 미검증이고 capability·allowlist는 OFF다. 운영 DB·broker ACL 및 Pi 설정은 변경하지 않았다.
+- 관련 파일: `apps/api/src/commands/sensor-mode-operations.service.ts`, `apps/api/src/mqtt/sensor-mode-publisher.service.ts`, `apps/gateway/src/commands/bio-sensor-mode-handler.ts`, `apps/gateway/src/adapters/bio-usb-dongle-adapter.ts`.
+- 갱신 규칙: 모드 GET 확인, 광학 출력 확인, readiness/제품 활성화의 근거를 각각 구분한다.
+
 ## 2026-09-27 층별 설정 대시보드 계약
 
 - 구현 완료: 기존 dashboard 응답에 활성 층의 `summary.totalFixtures`, `mapRevision`, `mapConfigured`가 추가돼 설정 개요와 맵 목록이 실제 등록 수 및 맵 구성 상태를 사용할 수 있다. 공통 맵은 현재 revision snapshot의 요소 수만 한 번에 읽으며 조명 상세를 생략하는 기본 조회에서도 이 필드는 유지된다.

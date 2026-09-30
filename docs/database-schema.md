@@ -2,6 +2,16 @@
 
 작성일: 2026-09-28
 
+## 2026-09-30 BIO 센서 모드 별도 작업
+
+`20260930170000_bio_sensor_mode_operation`은 `SensorModeOperation`을 추가한다. `commandId`가 기본 키이며 `(siteId, requestedById, clientRequestId)`는 요청 중복 방지 키다. 현장·Gateway·Fixture·node·주소·assignment, 요청 시각/최대 30초 만료, `ensure_sensor | query`, 원본 재조회 ID와 strict V2 payload를 보존한다. Payload의 장치 식별값은 BIO UUID 원문 대신 SHA-256이며 실제 Gateway mapping과 재대조한다. Fixture 현장 복합 FK와 자기 참조 재조회 FK를 유지하고, 과거 이력이 정상 Gateway 재할당을 막지 않도록 Gateway는 이력 값으로 보존한다.
+
+같은 행의 발행 시각·시도 수·다음 시도·lease가 요청 outbox다. API는 동일 ID/만료로 재전송하고 접수 PUBACK으로 `pending`을 성공으로 바꾸지 않는다. 결과는 `verified | mismatch | unknown | timed_out`, JSON·hash·고유 event ID로 저장한다. `verified` CHECK는 mode GET 근거와 `observedMode=sensor`, `modeVerified=true`가 모두 있어야 통과한다. 이 검사는 값의 일관성 제약이며 실장비 증명은 Gateway의 별도 GET에서 나온다.
+
+결과 수용은 현재 claim/active MQTT 인증서·assignment·Fixture/node/장치 identity와 원본 command를 다시 확인한다. 원본 command에 정확히 귀속되지만 현재 assignment/장치가 바뀐 결과는 성공으로 올리지 않고 `stale_checkpoint` ACK로 소비한다. 동일 결과 hash는 duplicate ACK, 같은 작업의 상충 결과는 거절한다. 타임아웃·새 요청으로 대체된 작업은 늦은 성공 결과로 승격하지 않는다. 재조회는 새 ID의 `query`이며 이전 결과를 상속하지 않는다. DB commit 뒤 기존 state-ingested ACK를 사용한다.
+
+이 테이블은 `Fixture.brightness/powerOn`, 에너지 기록 또는 `MeshNode.bioPulseReadiness`를 갱신하지 않는다. 모드 검증 시각은 해당 GET 당시의 근거이고 자율 점등·펄스 전달·현재 광학 출력의 근거가 아니다. migration 검증은 일회용 PostgreSQL만 사용하며 운영 DB에는 적용하지 않았다.
+
 ## 2026-09-27 기본 OFF의 명령 상세 정리 worker
 
 운영 `StructuredLoggerService`는 고정 context `CommandDetailRetentionService`와 event `command_detail_retention_batch`, `completed`/`failed` 상태만 상세 지표로 허용한다. 후보/처리/이번 보류 사유별 수는 0~1,000 정수, 전체 지연/보류 수는 음수가 아닌 safe integer, 최고 경과 초는 유한한 음수 아닌 수로 검증한다. helper의 허용 목록에 있는 사유만 로그에 남기며 알 수 없는 사유·원문 오류·ID·SQL은 버린다. 실제 production JSON writer까지 연결한 worker 회귀로 이 계약을 검증한다.

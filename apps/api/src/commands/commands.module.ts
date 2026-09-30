@@ -1,4 +1,5 @@
 import { Module } from "@nestjs/common";
+import { SensorModeOperationsController } from "./sensor-mode-operations.controller";
 import { AccessModule } from "../access/access.module";
 import { AutomationRuntimeModule } from "../automation/automation-runtime.module";
 import { AuthModule } from "../auth/auth.module";
@@ -16,7 +17,7 @@ import { CommandRecoveryRolloutGuard } from "./command-recovery-rollout.guard";
 
 @Module({
   imports: [PrismaModule, MqttModule, AuthModule, AccessModule, MeshControlGroupModule, AutomationRuntimeModule],
-  controllers: [CommandsController],
+  controllers: [CommandsController, SensorModeOperationsController],
   providers: [CommandsService, CommandDispatchService, CommandStatusService, CommandVerificationService,
     CommandRecoveryService, CommandSafetyDigest, CommandRecoveryRolloutGuard]
 })

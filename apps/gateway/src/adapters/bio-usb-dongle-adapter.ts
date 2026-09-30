@@ -34,6 +34,7 @@ import type {
 } from "../bio/bio-device-mapping-store";
 import { BioDeviceReadTimeoutError, BioUsbError } from "../bio/bio-usb-error";
 import { SerialTaskQueue } from "../runtime/serial-task-queue";
+import { createHash } from "node:crypto";
 import { CommandWriteVetoError, trackCommandWrites, type CommandWriteControl } from "../commands/command-rf-drain";
 
 const BIO_DEVICE_UUID = /^bio:[0-9a-f]{12}$/;
@@ -83,6 +84,31 @@ export class BioUsbDongleAdapter implements BleMeshAdapter, ProvisioningScannerA
 
   acceptsDeviceUuid(deviceUuid: string) {
     return BIO_DEVICE_UUID.test(deviceUuid);
+  }
+
+  async sensorModeOperation(command: { fixtureId: string; nodeId: string; meshAddress: string; deviceIdentityHash: string; operation: "ensure_sensor" | "query" }, control: BioOperationControl) {
+    throwIfExpired(control);
+    const mapping = await this.mappings.findByFixtureId(command.fixtureId);
+    if (!mapping || mapping.status !== "confirmed" || mapping.nodeId !== command.nodeId ||
+        mapping.logicalAddress !== parseBioMeshAddress(command.meshAddress) ||
+        createHash("sha256").update(mapping.deviceUuid).digest("hex") !== command.deviceIdentityHash) throw new Error("BIO sensor mode identity mismatch");
+    await this.refreshDiscovery(control);
+    const device = this.requireExactDiscoveredMapping(mapping);
+    const verified = target(device, mapping.logicalAddress);
+    const client = this.requireReadOnlyClient();
+    throwIfExpired(control);
+    if (command.operation === "ensure_sensor") {
+      // Consume the SET's own report before opening the GET response slot. An
+      // accepted SET alone can still have a delayed mode report in this protocol.
+      await this.client.restoreSensorMode(device, control);
+    }
+    // SET acceptance (or its unsolicited report) is never verification. Issue a
+    // separate GET through the existing identity-checked serial USB client.
+    throwIfExpired(control);
+    const mode = await client.readDeviceInfo(verified, control);
+    assertExactReadbackIdentity(mapping, device, mode);
+    throwIfExpired(control);
+    return mode.mode;
   }
 
   async scan(_command: ProvisioningScanStartPayload): Promise<ProvisioningScanFoundDevice[]> {

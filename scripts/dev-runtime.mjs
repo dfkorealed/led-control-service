@@ -320,6 +320,7 @@ function checksumOf(content) {
 // monitoring refresh, mesh sync and automation outbox producers. Never grant
 // api-service sites/#: cutover removes only the two legacy dimming writes.
 const API_READ_SUFFIXES = [
+  "events/bio-sensor-mode-result",
   "acks/acceptance", "acks/device-status", "state/fixtures", "state/fixture-presence", "state/heartbeat",
   "events/provisioning/scan-found", "events/provisioning/scan-completed", "events/provisioning/scan-failed",
   "events/provisioning/device-terminal", "events/provisioning-completed", "events/provisioning-failed",
@@ -329,6 +330,7 @@ const API_READ_SUFFIXES = [
   "events/automation/execution", "events/automation/vehicle-sensor-capability", "commands/clock/request", "events/drain/response"
 ];
 const API_WRITE_SUFFIXES = [
+  "commands/bio-sensor-mode",
   "commands/status-check", "commands/identify", "commands/fixture-presence-check",
   "commands/provisioning/scan-start", "commands/provisioning/scan-stop", "commands/provisioning/identify-device",
   "commands/provisioning/provision-device", "commands/mesh-group/subscription-sync", "commands/mesh-group/resync-ack",

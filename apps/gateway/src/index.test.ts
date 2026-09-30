@@ -227,6 +227,7 @@ describe("Gateway command clock MQTT runtime", () => {
 
 it("defers QoS1 PUBACK for commands whose durable journal must commit first", () => {
   expect(gatewayDeferredPubackTopics(scopedSiteId, scopedGatewayId)).toEqual([
+    `sites/${scopedSiteId}/gateways/${scopedGatewayId}/commands/bio-sensor-mode`,
     `sites/${scopedSiteId}/gateways/${scopedGatewayId}/commands/dimming`,
     `sites/${scopedSiteId}/gateways/${scopedGatewayId}/commands/status-check`,
     `sites/${scopedSiteId}/gateways/${scopedGatewayId}/commands/fixture-presence-check`,
@@ -2114,16 +2115,18 @@ describe("startGatewayRuntime", () => {
     expect(() => parseGatewayHeartbeatInterval("0")).toThrow("positive finite integer");
   });
 
-  it("subscribes command topics only when MQTT reports a new session", () => {
+  it("subscribes existing topics for a new session and adds sensor mode to a resumed session", () => {
     const subscribe = vi.fn((_topics, _options, callback?: (error?: Error) => void) => callback?.());
     const client = { subscribe };
 
     subscribeGatewayCommands(client as never, assignment, false);
     subscribeGatewayCommands(client as never, assignment, true);
 
-    expect(subscribe).toHaveBeenCalledTimes(1);
+    expect(subscribe).toHaveBeenCalledTimes(2);
+    expect(subscribe).toHaveBeenLastCalledWith(["sites/site-27/gateways/gateway-27/commands/bio-sensor-mode"], { qos: 1 }, expect.any(Function));
     expect(subscribe).toHaveBeenCalledWith(
       [
+        "sites/site-27/gateways/gateway-27/commands/bio-sensor-mode",
         "sites/site-27/gateways/gateway-27/commands/identify",
         "sites/site-27/gateways/gateway-27/commands/dimming",
         "sites/site-27/gateways/gateway-27/commands/status-check",

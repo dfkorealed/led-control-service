@@ -7,6 +7,7 @@ import type {
 import { BioUsbDongleAdapter } from "./bio-usb-dongle-adapter";
 import { BioDeviceReadTimeoutError, BioUsbError } from "../bio/bio-usb-error";
 import { EventEmitter } from "node:events";
+import { createHash } from "node:crypto";
 import { BioDongleClient } from "../bio/bio-dongle-client";
 import { encodeCrcFrame } from "../bio/bio-frame-codec";
 import type { BleMeshFixturePresence } from "../gateway";
@@ -1010,6 +1011,34 @@ describe("BioUsbDongleAdapter", () => {
       expect(f.client.readBrightness).toHaveBeenCalledOnce();
       expect(f.client.readBrightness).toHaveBeenCalledWith(expect.objectContaining({ logicalAddress: 0x0101 }), expect.any(Object));
     });
+  });
+});
+
+describe("sensor-mode operation fresh GET authority", () => {
+  it("does a separate mode GET after sensor SET, with no brightness IO", async () => {
+    const f = readyForOnePresence();
+    f.mappings.findByFixtureId.mockResolvedValue(confirmedMapping());
+    f.client.restoreSensorMode.mockResolvedValue(undefined);
+    f.client.readDeviceInfo.mockResolvedValue(modeReport("force-on"));
+    const value = await f.adapter.sensorModeOperation({ fixtureId: provisioningCommand.nodeId, nodeId: provisioningCommand.nodeId,
+      meshAddress: "0x0101", deviceIdentityHash: createHash("sha256").update(discovered.deviceUuid).digest("hex"), operation: "ensure_sensor" }, {});
+    expect(value).toBe("force-on");
+    expect(f.client.restoreSensorMode).toHaveBeenCalledTimes(1);
+    expect(f.client.readDeviceInfo).toHaveBeenCalledTimes(1);
+    expect(f.client.readBrightness).not.toHaveBeenCalled();
+    expect(f.client.setOutput).not.toHaveBeenCalled();
+  });
+  it("query reads a fresh mode without any SET and rejects a remapped node", async () => {
+    const f = readyForOnePresence();
+    f.mappings.findByFixtureId.mockResolvedValue(confirmedMapping());
+    f.client.readDeviceInfo.mockResolvedValue(modeReport("sensor"));
+    const input = { fixtureId: provisioningCommand.nodeId, nodeId: provisioningCommand.nodeId, meshAddress: "0x0101",
+      deviceIdentityHash: createHash("sha256").update(discovered.deviceUuid).digest("hex"), operation: "query" as const };
+    expect(await f.adapter.sensorModeOperation(input, {})).toBe("sensor");
+    await expect(f.adapter.sensorModeOperation({ ...input, nodeId: "other" }, {})).rejects.toThrow();
+    await expect(f.adapter.sensorModeOperation({ ...input, deviceIdentityHash: "a".repeat(64) }, {})).rejects.toThrow();
+    expect(f.client.restoreSensorMode).not.toHaveBeenCalled();
+    expect(f.client.setOutput).not.toHaveBeenCalled();
   });
 });
 

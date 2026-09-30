@@ -22,6 +22,8 @@ import { AutomationRuntimeError, type AutomationRuntime } from "./automation/aut
 import type { CommandWriteControl } from "./commands/command-rf-drain";
 
 export interface BleMeshAdapter {
+  sensorModeOperation?(command: { fixtureId: string; nodeId: string; meshAddress: string; deviceIdentityHash: string; operation: "ensure_sensor" | "query" },
+    control: { signal?: AbortSignal; deadlineAt?: number }): Promise<"sensor" | "force-on" | "force-off">;
   probeFixturePresence?(fixtureIds: string[], signal?: AbortSignal): Promise<BleMeshFixtureProbeResult[]>;
   setAttention?(fixtureId: string, expiresAt: number, action: "start" | "stop", signal?: AbortSignal): Promise<number>;
   setBrightness(fixtureIds: string[], brightness: number, writeControl?: CommandWriteControl): Promise<BleMeshCommandReport[]>;

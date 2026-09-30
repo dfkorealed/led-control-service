@@ -61,6 +61,8 @@ import { DbClockProof, type CommandClockDecision } from "./commands/db-clock-pro
 import { CommandRfDrain } from "./commands/command-rf-drain";
 import { LinuxBootClock, type BootClockSample } from "./commands/linux-boot-clock";
 import { handleFixturePresenceCheck, MonitoringRefreshEventPublisher } from "./commands/fixture-presence-check-handler";
+import { bioSensorModeCommandSchema, bioSensorModeTopics } from "@led-control/shared";
+import { handleBioSensorMode, recoverBioSensorModes } from "./commands/bio-sensor-mode-handler";
 import { MonitoringRefreshJournal } from "./state/monitoring-refresh-journal";
 import { handleGatewayStatusCheck, type GatewayStatusCheckOptions } from "./commands/gateway-status-check-handler";
 import {
@@ -680,6 +682,9 @@ async function main() {
   const provisioningAdapter = adapters.provisioning;
   const provisioningQueue = new SerialTaskQueue();
   const commandJournal = new CommandJournal(process.env.GATEWAY_COMMAND_JOURNAL_PATH ?? "/var/lib/led-control/command-journal.json");
+  const sensorModeJournal = new CommandJournal(process.env.GATEWAY_SENSOR_MODE_JOURNAL_PATH ?? "/var/lib/led-control/sensor-mode-journal.json");
+  const sensorModeAbort = new AbortController();
+  const sensorModeHandlers = new Set<Promise<void>>();
   const eventSequence = new EventSequenceStore(process.env.GATEWAY_EVENT_SEQUENCE_PATH ?? "/var/lib/led-control/event-sequence.json");
   const protocolRevision = new AutomationProtocolRevisionStore(
     process.env.GATEWAY_AUTOMATION_PROTOCOL_REVISION_PATH ?? "/var/lib/led-control/automation-protocol-revision.json",
@@ -1327,6 +1332,17 @@ async function main() {
     publishHeartbeat,
     commandTopics: gatewayCommandTopics(siteId, gatewayId),
     topicHandlers: {
+      [bioSensorModeTopics.command(siteId, gatewayId)]: async (payload, _source, _packet, control) => {
+        const command = bioSensorModeCommandSchema.parse(JSON.parse(payload.toString()));
+        const handling = handleBioSensorMode(adapter, command, {
+          journal: sensorModeJournal, outbox: stateEventOutbox, nextSequence: () => eventSequence.next(),
+          scope: { siteId, gatewayId, assignmentVersion: assignment.configVersion },
+          clockTrusted: () => clockTrust.isTrusted(new Date()), signal: sensorModeAbort.signal,
+          onDurableReceipt: () => control?.acknowledgeDurable()
+        }).finally(() => { sensorModeHandlers.delete(handling); stateEventPublisher.wake(); });
+        sensorModeHandlers.add(handling);
+        await handling;
+      },
       [mqttTopicsV2.commandClockResponse(siteId, gatewayId)]: commandClock.handle,
       [mqttTopicsV2.commandDrainRequest(siteId, gatewayId)]: handleCommandDrain,
       [fixtureIdentifyTopics.command(siteId, gatewayId)]: async (payload, source) => {
@@ -1352,6 +1368,9 @@ async function main() {
       [mqttTopicsV2.stateIngestedAck(siteId, gatewayId)]: async (payload) => {
         const removed = await monitoringRefreshPublisher.acknowledgeState(JSON.parse(payload.toString()), stateEventPublisher);
         if (removed) {
+          await recoverBioSensorModes({ journal: sensorModeJournal, outbox: stateEventOutbox,
+            nextSequence: () => eventSequence.next(), scope: { siteId, gatewayId, assignmentVersion: assignment.configVersion } });
+          stateEventPublisher.wake();
           await recoverStateEventCapacityAfterAcknowledgement({
             stateEventCapacity,
             armFixtureStatusIntake,
@@ -1411,6 +1430,9 @@ async function main() {
             (error) => reportGatewayError(error, "provisioning_device_terminal_retry")
           );
           await stateEventPublisher.connect((topic, state) => publish(mqttRuntime.client, topic, state));
+          await recoverBioSensorModes({ journal: sensorModeJournal, outbox: stateEventOutbox,
+            nextSequence: () => eventSequence.next(), scope: { siteId, gatewayId, assignmentVersion: assignment.configVersion } });
+          stateEventPublisher.wake();
           await monitoringRefreshPublisher.connect((topic, event) => publish(mqttRuntime.client, topic, event));
           await groupResyncPublisher.publishPending((topic, payload) => publish(mqttRuntime.client, topic, payload));
           await initialVehicleSensorCapabilityRefresh;
@@ -1432,6 +1454,8 @@ async function main() {
       return health.unhealthy("mqtt_disconnected");
     },
     onBeforeStop: async () => {
+      sensorModeAbort.abort();
+      await Promise.allSettled([...sensorModeHandlers]);
       commandClock.disconnect();
       identifyResultAbort.abort();
       await statusChecks.stopAndDrain();
@@ -1494,6 +1518,7 @@ async function main() {
 
 export function gatewayDeferredPubackTopics(siteId: string, gatewayId: string) {
   return [
+    bioSensorModeTopics.command(siteId, gatewayId),
     mqttTopicsV2.gatewayCommand(siteId, gatewayId, "dimming"),
     mqttTopicsV2.gatewayCommand(siteId, gatewayId, "status-check"),
     mqttTopicsV2.fixturePresenceCheck(siteId, gatewayId),
@@ -1858,6 +1883,10 @@ export function subscribeGatewayCommands(
   sessionPresent: boolean,
   force = false
 ) {
+  // An older persistent broker session cannot already contain this new topic.
+  // Re-subscribing only this addition is idempotent and preserves V1 session behavior.
+  if (sessionPresent && !force) return subscribeGatewayTopics(client,
+    [bioSensorModeTopics.command(assignment.siteId, assignment.gatewayId)], false, false);
   return subscribeGatewayTopics(
     client,
     [
@@ -1885,6 +1914,7 @@ export function subscribeGatewayAcknowledgements(
 
 export function gatewayCommandTopics(siteId: string, gatewayId: string) {
   return [
+    bioSensorModeTopics.command(siteId, gatewayId),
     fixtureIdentifyTopics.command(siteId, gatewayId),
     mqttTopicsV2.gatewayCommand(siteId, gatewayId, "dimming"),
     mqttTopicsV2.gatewayCommand(siteId, gatewayId, "status-check"),
