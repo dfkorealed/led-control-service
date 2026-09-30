@@ -9,7 +9,8 @@ import {
   type BioControlMode,
   type BioLampTarget,
   type BioOperation,
-  type BioResponse
+  type BioResponse,
+  type BioSensorPulseCandidate
 } from "./bio-command-codec";
 import { formatBioDeviceUuid, parseBioDeviceUuid } from "./bio-device-identity";
 import { BioDeviceReadTimeoutError, BioUsbError } from "./bio-usb-error";
@@ -75,6 +76,7 @@ type BioReadbackOperation = Extract<BioOperation,
 export class BioDongleClient {
   private readonly transport: BioUsbTransport;
   private readonly listeners = new Set<(event: BioClientEvent) => void>();
+  private readonly pulseCandidateListeners = new Set<(candidate: BioSensorPulseCandidate) => void>();
   private readonly scanDurationMs: number;
   private readonly observationTimeoutMs: number;
   private readonly reconnectReadyTimeoutMs: number;
@@ -105,6 +107,8 @@ export class BioDongleClient {
       }
     });
     this.transport.onNotification((frame) => {
+      const receivedMonotonicMs = performance.now();
+      const generation = this.transport.snapshot().generation;
       let event: BioClientEvent;
       try {
         const parsed = decodeBioResponse(frame);
@@ -120,6 +124,13 @@ export class BioDongleClient {
         // [추정] 손상된 비동기 0x12는 ACK 요청과 다른 소유권이다. device state로 만들지
         // 않되 무관한 request를 성공시키지도 않고 redacted invalid event로 격리한다.
         event = { kind: "invalid-notification" };
+      }
+      if (event.kind === "sensor-status-candidate") {
+        // Reuse the sole CRC-checked USB listener. Candidates remain separate from
+        // command/read-back ownership and cannot prove movement or independent liveness.
+        for (const listener of this.pulseCandidateListeners) {
+          listener({ ...event, innerBody: Buffer.from(event.innerBody), receivedMonotonicMs, generation });
+        }
       }
       for (const listener of this.listeners) listener(event);
     });
@@ -441,6 +452,12 @@ export class BioDongleClient {
   onEvent(listener: (event: BioClientEvent) => void): () => void {
     this.listeners.add(listener);
     return () => { this.listeners.delete(listener); };
+  }
+
+  /** Shadow-only subscription; no additional USB connection or RF command is created. */
+  onSensorPulseCandidate(listener: (candidate: BioSensorPulseCandidate) => void): () => void {
+    this.pulseCandidateListeners.add(listener);
+    return () => { this.pulseCandidateListeners.delete(listener); };
   }
 
   private async runIdentify(device: BioDiscoveredDevice, control: BioOperationControl): Promise<BioDiscoveredDevice> {

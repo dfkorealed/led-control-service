@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { BioByteConnection } from "./bio-byte-connection";
 import { BioDongleClient, type BioClientEvent } from "./bio-dongle-client";
 import { encodeCrcFrame } from "./bio-frame-codec";
-import type { BioOperation } from "./bio-command-codec";
+import type { BioOperation, BioSensorPulseCandidate } from "./bio-command-codec";
 
 const fixture = JSON.parse(readFileSync(new URL("../../test/fixtures/bio-protocol-v1.json", import.meta.url), "utf8")) as {
   requests: { name: string; operation: BioOperation; sequence: number; hex: string }[];
@@ -152,6 +152,47 @@ async function ready(h: ReturnType<typeof harness>) {
 describe("BIO evidence-gated dongle client", () => {
   beforeEach(() => vi.useFakeTimers());
   afterEach(() => vi.useRealTimers());
+
+  it("routes CRC-checked pulse candidates with receipt metadata without consuming ACK or GET read-back", async () => {
+    const h = harness(); await ready(h);
+    const candidates: BioSensorPulseCandidate[] = [];
+    const events: BioClientEvent[] = [];
+    h.client.onSensorPulseCandidate((candidate) => candidates.push(candidate));
+    h.client.onEvent((event) => events.push(event));
+    const reading = h.client.readDeviceInfo(verifiedTarget);
+    let settled = false;
+    void reading.then(() => { settled = true; });
+    await flush();
+    const payload = Buffer.from("d300112233445583ff123401fe000009aabb", "hex");
+    h.device.receive(encodeCrcFrame(0x12, payload).toString("hex"));
+    await flush();
+    expect(candidates).toHaveLength(1);
+    expect(candidates[0]).toMatchObject({ kind: "sensor-status-candidate", sequence: 255, generation: expect.any(Number), receivedMonotonicMs: expect.any(Number) });
+    expect(candidates[0].receivedMonotonicMs).toBeGreaterThanOrEqual(0);
+    expect(settled).toBe(false);
+    h.device.receive("55aa1101002055"); await flush();
+    expect(settled).toBe(false);
+    payload[15] = 0x0c;
+    h.device.receive(encodeCrcFrame(0x12, payload).toString("hex")); await flush();
+    expect(candidates).toHaveLength(1);
+    expect(events.at(-1)?.kind).toBe("alive-status");
+    expect(settled).toBe(false);
+    h.device.receive(modeReportHex("001122334455", 0x1234, 0));
+    await expect(reading).resolves.toMatchObject({ mode: "sensor" });
+    await h.client.close();
+  });
+
+  it.each(["truncated", "crc"])("does not emit a pulse candidate for a %s frame", async (damage) => {
+    const h = harness(); await ready(h);
+    const candidates: BioSensorPulseCandidate[] = [];
+    h.client.onSensorPulseCandidate((candidate) => candidates.push(candidate));
+    const frame = encodeCrcFrame(0x12, Buffer.from("d300112233445583ff123401fe000009aabb", "hex"));
+    if (damage === "crc") frame[frame.length - 1] ^= 0xff;
+    h.device.receive((damage === "truncated" ? frame.subarray(0, -1) : frame).toString("hex"));
+    await flush();
+    expect(candidates).toEqual([]);
+    await h.client.close();
+  });
 
   it("opens using the observed read-only network query and returns no network secret", async () => {
     const h = harness();
