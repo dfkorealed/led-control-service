@@ -7,7 +7,8 @@
 - [x] A 조명 단일 센서 시험의 보존 증거와 사후 확인을 재검토했다. `0x09` 후보는 움직임 예정 구간뿐 아니라 정지 예정 구간에도 수신됐고 마지막 범위 밖 구간에는 없었으나, 행동 시각은 대략값이고 휴대폰–Pi 시계 오차 한계가 없어 상태형 감지/해제 의미나 정확한 물리 상관관계는 확정하지 않는다. 원본 증거는 별도 `codex/bio-sensor-motion-test-resume-20260929` 브랜치에 보존돼 있다.
 - [x] 사용자가 A는 센서 전용, B는 이벤트 대상인 펄스형 접근과 BIO 유지시간 최소 10초·기본 60초·UI에서 변경 가능한 동작을 승인했다. 10초 설정에서 신호 공백으로 B가 꺼졌다 다시 켜질 수 있는 한계도 승인했다. [새 설계 명세](superpowers/specs/2026-09-30-bio-sensor-pulse-event-control-design.md)는 이전 상태형 가정을 대체하며, 제품 capability와 실제 이벤트 동작은 아직 OFF다.
 - [x] 사용자가 [구현 계획](superpowers/plans/2026-09-30-bio-sensor-pulse-event-control.md) 작성과 즉시 구현을 지시했다. 기존 펌웨어 담당 세션의 읽기 전용 검토에서 A의 `sensor` 모드와 `0x09` 보고 공존은 확인했지만, A의 자체 광학 밝기 변화와 `CD 13`을 이용한 센서 안전 밝기 변경은 미검증으로 확인했다. 명세·계획에는 별도 HIL 관문으로 구분했다.
-- [ ] 계획 Task 1~8의 소프트웨어 구현·검증을 격리 브랜치에서 진행한다. BIO capability와 제품 allowlist는 검증 전 OFF다. Task 9의 shadow HIL, 로컬 MQTT 복구, B-only 실장비 시험은 각각 fresh preflight/백업/원복과 현장 실행 승인 후 진행하며 Pi·인증서·DNS·운영 DB를 임의로 변경하지 않는다.
+- [x] Task 1 공유 V2 계약은 `ededa5c9`와 ACK 검증 중복 보완 `f3f0f4c5`로 구현·독립 검토했다. V1 BlueZ 계약을 유지하고 BIO 전용 준비 상태와 10초 하한을 추가했다. 집중 34/34, Shared 전체 429/429, Shared typecheck가 통과했다. Canonical root test는 동시 부하에서 API CAD SVG RSS 제한 테스트 1건 실패(해당 파일 단독 17/17 통과)로 아직 전체 통과가 아니다. 장비/DB/운영 환경 변경은 없고 BIO capability는 OFF다.
+- [ ] 계획 Task 2~8의 소프트웨어 구현·검증을 격리 브랜치에서 진행한다. BIO capability와 제품 allowlist는 검증 전 OFF다. Task 9의 shadow HIL, 로컬 MQTT 복구, B-only 실장비 시험은 각각 fresh preflight/백업/원복과 현장 실행 승인 후 진행하며 Pi·인증서·DNS·운영 DB를 임의로 변경하지 않는다.
 
 ## 2026-09-30 제조 일련번호 기반 최초 설치 — 구현 계획 검토 대기
 

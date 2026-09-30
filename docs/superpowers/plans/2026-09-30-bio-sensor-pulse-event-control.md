@@ -49,11 +49,11 @@
 
 **Interfaces:** Produce `VehicleSensorProtocol = "bluez-stateful" | "bio-usb-pulse"`; `VehicleEventRuleSnapshotV2`에 `sensorProtocol`; `AutomationSnapshotV2`에 `schemaVersion: 2`; `AutomationConfigAppliedV2`에 `schemaVersion: 2`; 각각 독립 strict Zod schema. `vehicleEventRuleSnapshotV2Schema`는 `sensorProtocol`에 따라 hold 하한 5/10을 분기한다. 기존 V1 exports 및 schema는 불변이다. V2 capability report에는 protocol, 검증된 fingerprint 식별자와 `readiness: "off" | "shadow" | "ready" | "degraded"`를 명시하되 V1 BlueZ 보고서를 위조하지 않는다.
 
-- [ ] **Step 1: RED 테스트 작성.** V1 payload가 그대로 통과하고 V1에 V2 필드를 넣으면 실패, V2 BlueZ 5초와 BIO 10초·60초·1,800초 통과, BIO 9/1,801초 실패, 알 수 없는 protocol/추가 필드 실패, V1 ACK가 V2 ACK를 대신하지 못함을 단언한다.
-- [ ] **Step 2: RED 확인.** `pnpm --filter @led-control/shared exec vitest run src/automation-contracts.test.ts` → 새 V2 exports/분기 기대에서 실패.
-- [ ] **Step 3: 최소 구현.** V1을 수정하지 않고 위의 이름과 schema를 추가한다. V2 hash는 전체 V2 payload를 대상으로 하며 V1 hash 의미를 바꾸지 않는다.
-- [ ] **Step 4: GREEN·타입 확인.** 위 Vitest와 `pnpm --filter @led-control/shared typecheck` → 통과.
-- [ ] **Step 5: 공유 경계 검토·커밋.** 총괄이 Gateway/API/Web 소비자와 필드명·버전 적용 순서를 확인한 뒤 이 파일만 커밋한다.
+- [x] **Step 1: RED 테스트 작성.** V1 payload가 그대로 통과하고 V1에 V2 필드를 넣으면 실패, V2 BlueZ 5초와 BIO 10초·60초·1,800초 통과, BIO 9/1,801초 실패, 알 수 없는 protocol/추가 필드 실패, V1 ACK가 V2 ACK를 대신하지 못함을 단언한다.
+- [x] **Step 2: RED 확인.** `pnpm --filter @led-control/shared exec vitest run src/automation-contracts.test.ts` → 새 V2 exports/분기 기대에서 실패.
+- [x] **Step 3: 최소 구현.** V1 동작을 유지하고 위의 이름과 schema를 추가했다. V2 hash는 전체 V2 payload를 대상으로 하며 V1 hash 의미를 바꾸지 않는다.
+- [x] **Step 4: GREEN·타입 확인.** 집중 34/34, Shared 전체 429/429, Shared typecheck 통과. Root 전체는 API CAD SVG RSS 1건 실패로 미통과이며 Task 8에서 재검증한다.
+- [x] **Step 5: 공유 경계 검토·커밋.** 총괄이 Gateway/API/Web 필드명·적용 순서를 확인했고 공유 계약 `ededa5c9`와 ACK 중복 보완 `f3f0f4c5`를 독립 검토·재검토했다.
 
 ### Task 2: BIO 후보 packet의 안전한 decoder와 shadow intake
 
@@ -153,7 +153,7 @@
 
 ## 실행 체크리스트 상태
 
-- [ ] Task 1 — 공유 V2 계약
+- [x] Task 1 — 공유 V2 계약 (`ededa5c9`, `f3f0f4c5`; 집중/Shared 검증 통과, root CAD RSS 실패 별도)
 - [ ] Task 2 — BIO decode/intake, allowlist OFF
 - [ ] Task 3 — pulse occurrence/receipt
 - [ ] Task 4 — fail-safe/restart/target mode 복원
