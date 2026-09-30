@@ -71,6 +71,33 @@ describe("VehicleEventControlPanel", () => {
     vi.unstubAllEnvs();
   });
 
+  it("keeps BIO operational uncertainty accessible and blocks activation", async () => {
+    mocks.listVehicleEventRules.mockResolvedValue({ items: [rule({ sensorProtocol: "bio-usb-pulse", status: "disabled" })], total: 1, nextCursor: null });
+    renderPanel("admin");
+    const detail = await screen.findByRole("region", { name: /BIO 운영 상태/ });
+    detail.focus();
+    expect(detail).toHaveFocus();
+    expect(detail).toHaveTextContent("마지막 유효 펄스: 미확인");
+    expect(detail).toHaveTextContent("장애 시작 시각: 미확인");
+    expect(detail).toHaveTextContent(/운영자.*비활성화/);
+    expect(screen.getByRole("button", { name: /활성화$/ })).toBeDisabled();
+    expect(detail).toHaveTextContent(/실행·복원 상태 미확인/);
+  });
+
+  it("keeps a degraded source warning visible and permits an explicit operator disable request", async () => {
+    mocks.listVehicleEventRules.mockResolvedValue({ items: [rule({ sensorProtocol: "bio-usb-pulse", status: "enabled" })], total: 1, nextCursor: null });
+    const degraded: Dashboard = { ...dashboard, floors: dashboard.floors.map(floor => ({ ...floor, fixtures: floor.fixtures.map(item => item.id !== sensorFixtureId ? item : {
+      ...item, vehicleEventSource: { sensorProtocol: "bio-usb-pulse", readiness: "off", capabilityEvidence: "degraded", sourceEligible: false, targetEligible: false,
+        blockReasons: ["product_gate_off"], modeVerification: { commandId: null, status: "unverified", modeVerified: false, verifiedAt: null } }
+    }) })) };
+    renderPanel("admin", { dashboard: degraded });
+    const detail = await screen.findByRole("region", { name: /BIO 운영 상태/ });
+    expect(within(detail).getByRole("alert")).toHaveTextContent("센서 장애 보고");
+    fireEvent.click(screen.getByRole("button", { name: /비활성화$/ }));
+    await waitFor(() => expect(mocks.updateVehicleEventRule).toHaveBeenCalledWith(siteId, rule().id, { status: "disabled" }));
+    expect(detail).toHaveTextContent(/해제 완료가 아닙니다/);
+  });
+
   it("atlas event surface separates the site total from loaded gateway status", async () => {
     mocks.listVehicleEventRules.mockResolvedValue({ items: [rule()], total: 27, nextCursor: "next-page" });
     renderPanel("admin");

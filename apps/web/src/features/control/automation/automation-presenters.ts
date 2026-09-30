@@ -201,6 +201,8 @@ export function fixtureIdsAvailability(
 }
 
 export function isVehicleEventSource(fixture: DashboardFixture) {
+  if (fixture.vehicleEventSource) return fixture.gateway !== null
+    && fixture.vehicleEventSource.sourceEligible && fixture.vehicleEventSource.readiness === "ready";
   const verifiedAt = fixture.vehicleSensorCapabilityVerifiedAt;
   return fixture.gateway !== null
     && fixture.vehicleSensorCapabilityStatus === "supported"

@@ -1,4 +1,4 @@
-import type { AutomationRuleStatus } from "@led-control/shared";
+import type { AutomationRuleStatus, VehicleSensorProtocol } from "@led-control/shared";
 import type { CreateVehicleEventRuleInput } from "../../../api/automation";
 
 export interface VehicleEventFormValues {
@@ -23,7 +23,7 @@ export function createEmptyVehicleEventForm(): VehicleEventFormValues {
   };
 }
 
-export function validateVehicleEventForm(values: VehicleEventFormValues): VehicleEventFormErrors {
+export function validateVehicleEventForm(values: VehicleEventFormValues, sourceProtocol: VehicleSensorProtocol = "bluez-stateful"): VehicleEventFormErrors {
   const errors: VehicleEventFormErrors = {};
   if (!values.name.trim()) errors.name = "규칙 이름을 입력해 주세요.";
   if (values.sourceFixtureIds.length === 0) errors.sourceFixtureIds = "감지 센서를 한 개 이상 선택하세요.";
@@ -31,17 +31,19 @@ export function validateVehicleEventForm(values: VehicleEventFormValues): Vehicl
   if (values.dimmingEnabled && !integerInRange(values.brightnessPercent, 0, 100)) {
     errors.brightnessPercent = "밝기는 0~100 사이의 정수여야 합니다.";
   }
-  if (!integerInRange(values.holdSeconds, 5, 1_800)) {
-    errors.holdSeconds = "유지 시간은 5~1,800초 사이의 정수여야 합니다.";
+  const minimumHold = sourceProtocol === "bio-usb-pulse" ? 10 : 5;
+  if (!integerInRange(values.holdSeconds, minimumHold, 1_800)) {
+    errors.holdSeconds = `유지 시간은 ${minimumHold}~1,800초 사이의 정수여야 합니다.`;
   }
   return errors;
 }
 
 export function vehicleEventFormToInput(
   values: VehicleEventFormValues,
-  status: AutomationRuleStatus
+  status: AutomationRuleStatus,
+  sourceProtocol: VehicleSensorProtocol = "bluez-stateful"
 ): CreateVehicleEventRuleInput {
-  const errors = validateVehicleEventForm(values);
+  const errors = validateVehicleEventForm(values, sourceProtocol);
   if (Object.keys(errors).length > 0) throw new Error("invalid vehicle event form");
   return {
     name: values.name.trim(),

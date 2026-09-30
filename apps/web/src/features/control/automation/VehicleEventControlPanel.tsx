@@ -386,6 +386,7 @@ export function VehicleEventControlPanel({
 
   function toggle(rule: VehicleEventRuleResponse) {
     if (authBlockedRef.current) return;
+    if (rule.sensorProtocol === "bio-usb-pulse" && rule.status !== "enabled") return;
     const operationScope = operationScopeKey;
     const operationGeneration = scopeGeneration;
     const status = rule.status === "enabled" ? "disabled" : "enabled";
@@ -435,7 +436,7 @@ export function VehicleEventControlPanel({
   function renderActions(rule: VehicleEventRuleResponse) {
     if (!canManage) return null;
     return <div className="grid grid-cols-3 gap-1.5" data-schedule-row-actions="">
-      <Button variant="ghost" className="w-11 p-0" type="button" aria-label={`${rule.name} ${rule.status === "enabled" ? "비활성화" : "활성화"}`} title={rule.status === "enabled" ? "비활성화" : "활성화"} disabled={isMutating} onClick={() => toggle(rule)}>{rule.status === "enabled" ? <PowerOff size={15} aria-hidden="true" /> : <Power size={15} aria-hidden="true" />}</Button>
+      <Button variant="ghost" className="w-11 p-0" type="button" aria-label={`${rule.name} ${rule.status === "enabled" ? "비활성화" : "활성화"}`} title={rule.status === "enabled" ? "비활성화" : "활성화"} disabled={isMutating || (rule.sensorProtocol === "bio-usb-pulse" && rule.status !== "enabled")} onClick={() => toggle(rule)}>{rule.status === "enabled" ? <PowerOff size={15} aria-hidden="true" /> : <Power size={15} aria-hidden="true" />}</Button>
       <Button variant="ghost" className="w-11 p-0" type="button" aria-label={`${rule.name} 수정`} title="수정" disabled={isMutating} onClick={(event) => beginEdit(rule, event.currentTarget)}><Pencil size={15} aria-hidden="true" /></Button>
       <Button variant="danger" className="w-11 p-0" type="button" aria-label={`${rule.name} 삭제`} title="삭제" disabled={isMutating} onClick={(event) => { setDeleteCandidate(rule); deleteReturnFocusRef.current = event.currentTarget; setMutationError(""); }}><Trash2 size={15} aria-hidden="true" /></Button>
     </div>;
@@ -462,6 +463,17 @@ export function VehicleEventControlPanel({
       {rulesQuery.isLoading ? <FeedbackState icon={Clock3} title="이벤트 규칙을 불러오는 중입니다." /> : null}
       {isSearchPending ? <FeedbackState icon={Clock3} title="검색 조건을 적용 중입니다." /> : null}
       {queryFailure && !isNonBlockingQueryFailure ? <QueryError message={queryFailure.message} onRetry={() => void queryFailure.retry()} label={queryFailure.retryLabel} buttonRef={authRetryRef} /> : null}
+      {!isAuthBlocked && !rulesQuery.isLoadingError && !isSearchPending ? rules.filter(rule => rule.sensorProtocol === "bio-usb-pulse").map(rule => {
+        const sources = dashboard?.floors.flatMap(floor => floor.fixtures).filter(fixture => rule.sourceFixtureIds.includes(fixture.id)) ?? [];
+        const degraded = sources.some(fixture => fixture.vehicleEventSource?.capabilityEvidence === "degraded" || fixture.vehicleEventSource?.readiness === "degraded");
+        return <section key={rule.id} tabIndex={0} aria-label={`${rule.name} BIO 운영 상태`} className="grid min-w-0 gap-2 border-b border-border-default p-4 focus-visible:shadow-focus">
+          <Text weight="semibold">{rule.name} · BIO 운영 상태</Text>
+          {degraded ? <Text role="alert" tone="danger">센서 장애 보고 · 재검증이 필요합니다. 신호가 없다는 이유만으로 B의 복원을 판단하지 않습니다.</Text> : null}
+          <Text>제품 지원 OFF · 실행·복원 상태 미확인</Text>
+          <Text>대상 B: {rule.targetCount}개 · 마지막 유효 펄스: 미확인 · 장애 시작 시각: 미확인</Text>
+          <Text>실행 상태 보고 연동 전입니다. 운영자는 현장을 확인하고 규칙의 비활성화로 명시적 해제를 요청할 수 있습니다. 적용·복원 결과를 확인하기 전에는 해제 완료가 아닙니다.</Text>
+        </section>;
+      }) : null}
       {!rulesQuery.isLoading && !rulesQuery.isLoadingError && !isAuthBlocked && !isSearchPending ? (
         rules.length > 0 ? isCompactList ? <div role="list" aria-label="차량 이벤트 카드 목록" className="grid min-w-0 gap-3">
           {rules.map((rule) => <AutomationRuleCard

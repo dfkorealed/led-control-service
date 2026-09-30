@@ -60,6 +60,53 @@ describe("VehicleEventDialog spatial source and targets", () => {
 
   afterEach(cleanup);
 
+  it.each(["off", "shadow", "degraded"] as const)("blocks saving %s BIO sources and explains server readiness", (readiness) => {
+    const onSubmit = vi.fn();
+    renderVehicleEventDialog({ dashboard: bioDashboard(readiness), rule: existingRule({ sensorProtocol: "bio-usb-pulse" }), onSubmit });
+    expect(screen.getByRole("button", { name: "저장" })).toBeDisabled();
+    expect(screen.getByText(/자체 밝기 동작은 현장 검증 전/)).toBeVisible();
+    expect(screen.getByText(/제품 지원 OFF/)).toBeVisible();
+    expect(screen.getByRole("button", { name: /센서 모드 설정/ })).toBeEnabled();
+    fireEvent.click(screen.getByRole("button", { name: "저장" }));
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+
+  it("keeps a server-ready A source-only and saves edited BIO hold as a disabled draft", () => {
+    const onSubmit = vi.fn();
+    renderVehicleEventDialog({ dashboard: bioDashboard("ready"), rule: existingRule({ sensorProtocol: "bio-usb-pulse", status: "disabled", holdSeconds: 10 }), onSubmit });
+    expect(screen.getByRole("textbox", { name: "유지 시간" })).toHaveValue("10");
+    expect(screen.getByText(/꺼졌다 다시 켜질 수/)).toBeVisible();
+    openTargetView();
+    expect(screen.getByRole("button", { name: /Gateway A 감지 조명.*선택 불가/ })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /Gateway A 통로등/ })).toBeEnabled();
+    fireEvent.click(screen.getByRole("button", { name: "1개 조명 선택 완료" }));
+    fireEvent.click(screen.getByRole("button", { name: "저장" }));
+    expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ status: "disabled", holdSeconds: 10 }));
+    expect(onSubmit.mock.calls[0][0]).not.toHaveProperty("sensorProtocol");
+  });
+
+  it("rejects a stale selected A target even when restored from a saved rule", () => {
+    const onSubmit = vi.fn();
+    renderVehicleEventDialog({ dashboard: bioDashboard("ready"), rule: existingRule({ sensorProtocol: "bio-usb-pulse", targetFixtureIds: [sourceFixtureId] }), onSubmit });
+    fireEvent.click(screen.getByRole("button", { name: "저장" }));
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(screen.getByRole("alert")).toHaveTextContent(/센서 전용/);
+  });
+
+  it("uses the newly selected server protocol when a BIO draft source is replaced with BlueZ", () => {
+    const onSubmit = vi.fn();
+    renderVehicleEventDialog({ dashboard: bioDashboard("ready"), rule: existingRule({ sensorProtocol: "bio-usb-pulse", status: "disabled", holdSeconds: 5 }), onSubmit });
+    openSourceView();
+    fireEvent.click(screen.getByRole("button", { name: "선택 비우기" }));
+    fireEvent.click(screen.getByRole("button", { name: /Gateway B 감지 조명/ }));
+    fireEvent.click(screen.getByRole("button", { name: "1개 조명 선택 완료" }));
+    openTargetView();
+    fireEvent.click(screen.getByRole("button", { name: /Gateway B 감지 조명/ }));
+    fireEvent.click(screen.getByRole("button", { name: "1개 조명 선택 완료" }));
+    fireEvent.click(screen.getByRole("button", { name: "저장" }));
+    expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ holdSeconds: 5, status: "disabled" }));
+  });
+
   it("reads as sensor, execution lights, then brightness and hold action", () => {
     renderVehicleEventDialog();
 
@@ -204,6 +251,15 @@ describe("VehicleEventDialog spatial source and targets", () => {
     expect(screen.getByRole("group", { name: "실행할 조명" })).toHaveTextContent("2개 조명 스냅샷");
   });
 });
+
+function bioDashboard(readiness: "off" | "shadow" | "ready" | "degraded"): Dashboard {
+  return { ...dashboard, floors: dashboard.floors.map(floor => ({ ...floor, fixtures: floor.fixtures.map(item => item.id !== sourceFixtureId ? item : {
+    ...item, vehicleSensorCapabilityStatus: "unknown", vehicleSensorCapabilityVerifiedAt: null,
+    vehicleEventSource: { sensorProtocol: "bio-usb-pulse", readiness, capabilityEvidence: readiness, sourceEligible: readiness === "ready",
+      targetEligible: true, blockReasons: readiness === "ready" ? [] : ["product_gate_off", "mode_unverified"],
+      modeVerification: { commandId: null, status: "unverified", modeVerified: readiness === "ready", verifiedAt: null } }
+  }) })) };
+}
 
 function renderVehicleEventDialog(overrides: Partial<React.ComponentProps<typeof VehicleEventDialog>> = {}) {
   return render(<VehicleEventDialog open rule={null} dashboard={dashboard} isPending={false} serverError="" onClose={vi.fn()} onSubmit={vi.fn()} {...overrides} />);

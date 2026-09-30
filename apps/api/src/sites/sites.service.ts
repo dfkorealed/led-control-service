@@ -4,6 +4,7 @@ import { SiteAccessService } from "../access/site-access.service";
 import { AuthenticatedUser } from "../auth/auth.types";
 import { PrismaService } from "../prisma/prisma.service";
 import { fixtureStatusWithHealth, toFixtureHealthSnapshot } from "../fixtures/fixture-health";
+import { vehicleEventSourceView } from "./vehicle-event-source-view";
 import { DEFAULT_MONITORING_POLICY, isMonitoringGatewayOnline, monitoringFixtureState, type MonitoringPolicy } from "../monitoring-incidents/monitoring-conditions";
 
 @Injectable()
@@ -115,7 +116,11 @@ export class SitesService {
       ? await this.prisma.fixture.findMany({
           where: { floor: { siteId: site.id, status: "active" } },
           orderBy: { name: "asc" },
-          include: { meshNode: { include: { gateway: true } } }
+          include: {
+            meshNode: { include: { gateway: true } },
+            vehicleEventSources: { where: { rule: { status: "enabled", sensorProtocol: "bio_usb_pulse" } }, select: { rule: { select: { status: true, sensorProtocol: true } } } },
+            sensorModeOperations: { orderBy: [{ requestedAt: "desc" }, { commandId: "desc" }], take: 1 }
+          }
         })
       : [];
     const fixturesByFloor = new Map(site.floors.map((floor) => [floor.id, fixtures.filter((fixture) => fixture.floorId === floor.id)]));
@@ -244,6 +249,7 @@ export class SitesService {
             : null,
           vehicleSensorCapabilityStatus: fixture.meshNode?.vehicleSensorCapabilityStatus ?? "unknown",
           vehicleSensorCapabilityVerifiedAt: fixture.meshNode?.vehicleSensorCapabilityVerifiedAt?.toISOString() ?? null,
+          vehicleEventSource: vehicleEventSourceView(fixture, now),
           controllable: controlBlockReason === null,
           controlBlockReason
           };

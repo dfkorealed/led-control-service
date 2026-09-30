@@ -24,6 +24,44 @@ const fixtures: SettingsFixture[] = [
 
 test.use({ timezoneId: "Asia/Seoul" });
 
+for (const width of [320, 390, 1440]) {
+  test(`BIO authoring ${width}px preserves source-only selection, hold warning and touch layout`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 844 });
+    await installControlMapRoutes(page, { bioReadiness: "ready" });
+    await page.goto(`/control?siteId=${ids.site}&mode=event`);
+    await page.getByRole("button", { name: "이벤트 추가" }).click();
+    await page.getByRole("button", { name: "감지 센서 선택", exact: true }).click();
+    const dialog = page.getByRole("dialog");
+    await marker(dialog, "B2-SENSOR-001").click();
+    await dialog.getByRole("button", { name: "1개 조명 선택 완료" }).click();
+    await dialog.getByRole("button", { name: "실행할 조명 선택", exact: true }).click();
+    await expect(marker(dialog, "B2-SENSOR-001")).toBeDisabled();
+    await marker(dialog, "B2-L001").click();
+    await dialog.getByRole("button", { name: "1개 조명 선택 완료" }).click();
+    await dialog.getByRole("button", { name: "직접 입력", exact: true }).click();
+    await dialog.getByRole("textbox", { name: "유지 시간", exact: true }).fill("10");
+    await expect(dialog.getByText(/꺼졌다 다시 켜질 수/)).toBeVisible();
+    await expectMinimumTouchTargetsAfterScrolling(page, "[data-dialog-surface]");
+    await expectNoHorizontalOverflow(page);
+    await expect(dialog.getByRole("textbox", { name: "유지 시간", exact: true })).toHaveValue("10");
+    await expect(dialog.getByText(/자체 밝기 동작은 현장 검증 전/)).toBeVisible();
+  });
+}
+
+test("BIO OFF remains unavailable on the map while mode actions stay reachable", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await installControlMapRoutes(page, { bioReadiness: "off" });
+  await page.goto(`/control?siteId=${ids.site}&mode=event`);
+  await page.getByRole("button", { name: "이벤트 추가" }).click();
+  await page.getByRole("button", { name: "감지 센서 선택", exact: true }).click();
+  const dialog = page.getByRole("dialog");
+  await expect(marker(dialog, "B2-SENSOR-001")).toBeDisabled();
+  await expect(dialog.getByText(/제품 지원 OFF/)).toBeVisible();
+  await dialog.getByRole("button", { name: "상태 재조회", exact: true }).scrollIntoViewIfNeeded();
+  await expect(dialog.getByRole("button", { name: "상태 재조회", exact: true })).toBeEnabled();
+  await expectNoHorizontalOverflow(page);
+});
+
 for (const flow of ["schedule", "event", "group"] as const) {
   test(`final review: ${flow} dialog provides a usable desktop map and marker selection`, async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
@@ -54,24 +92,22 @@ for (const flow of ["schedule", "event", "group"] as const) {
   });
 }
 
-test("final review: compact manual status and apply stay visible when collapsed and expanded at reduced height", async ({ page }) => {
+test("final review: compact manual status and apply remain reachable at reduced height", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 660 });
   await installControlMapRoutes(page);
   await page.goto(`/control?siteId=${ids.site}`);
   await marker(page, "B2-L001").click();
-  const summary = page.getByRole("complementary", { name: "선택 대상 요약" });
+  const summary = page.getByRole("complementary", { name: "밝기 실행" });
   const action = summary.getByRole("button", { name: "1개 조명에 밝기 적용" });
-  for (const expanded of [false, true]) {
-    if (expanded) await summary.getByRole("button", { name: "선택 대상 펼치기" }).click();
     await expect(summary.getByText("1개 선택", { exact: true })).toBeVisible();
     await expect(summary.getByRole("textbox", { name: "밝기 수치" })).toBeVisible();
-    // Do not scroll the action into view: its initial geometry is the fixed-action contract.
+    // The current compact execution panel scrolls normally; it has no collapsed summary state.
+    await action.scrollIntoViewIfNeeded();
     await expectReachableInside(action, summary);
     const actionBox = (await action.boundingBox())!;
     const navBox = (await page.locator('[data-shell-navigation="compact"]').boundingBox())!;
     expect(actionBox.y + actionBox.height).toBeLessThanOrEqual(navBox.y);
     expect(actionBox.y).toBeGreaterThanOrEqual(0);
-  }
 });
 
 test("final review: compact group name uses 16px text", async ({ page }) => {
@@ -233,7 +269,7 @@ test("a 404 floor map opens the list fallback", async ({ page }) => {
   await installControlMapRoutes(page, { mapStatus: 404 });
   await page.goto(`/control?siteId=${ids.site}`);
 
-  await expect(page.getByRole("heading", { name: "조명 밝기 제어", exact: true })).toBeVisible();
+  await expect(page.getByRole("tabpanel", { name: "수동 제어", exact: true })).toBeVisible();
   await expect(page.getByText("등록된 도면이 없어 목록으로 선택합니다.")).toBeVisible();
   await expect(page.getByRole("dialog", { name: "조명 목록" })).toBeVisible();
   await expect(page.getByRole("checkbox", { name: "B2-L001 선택" })).toBeVisible();
@@ -248,11 +284,11 @@ test("viewer control redirect issues no mutating request", async ({ page }) => {
 });
 
 for (const viewport of [{ width: 1440, height: 900 }, { width: 1024, height: 768 }] as const) {
-  test(`desktop control at ${viewport.width}x${viewport.height} keeps page fixed while map, history, and detail scroll internally`, async ({ page }) => {
+  test(`desktop control at ${viewport.width}x${viewport.height} scrolls map, selection detail and history drawer independently`, async ({ page }) => {
     await page.setViewportSize(viewport);
     await installControlMapRoutes(page, { fixtureCount: 80, groupCount: 40, historyCount: 24 });
     await page.goto(`/control?siteId=${ids.site}`);
-    await expect(page.getByRole("heading", { name: "조명 밝기 제어", exact: true })).toBeVisible();
+    await expect(page.getByRole("tabpanel", { name: "수동 제어", exact: true })).toBeVisible();
 
     await page.getByRole("button", { name: "저장된 구역" }).click();
     const history = page.getByRole("region", { name: "최근 명령 이력" });
@@ -269,13 +305,14 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 1024, height: 768
     await expectReachableInside(finalGroup, detail);
     await finalGroup.click();
     await expect(finalGroup).toHaveAttribute("aria-current", "true");
-    const historyList = history.locator("[data-command-history-list]");
+    await history.getByRole("button", { name: "명령 이력 열기" }).click();
+    const historyList = page.getByRole("dialog", { name: "명령 이력" }).locator("[data-command-history-list]");
     await expect(historyList).toHaveCSS("overflow-y", "auto");
     await expectInternalWheelScroll(page, historyList);
     const finalCommand = historyList.getByRole("button", { name: /99999999-9999-4999-8999-000000005023/ });
     await expectReachableInside(finalCommand, historyList);
     await finalCommand.click();
-    await expect(finalCommand).toHaveAttribute("aria-pressed", "true");
+    await expect(page.getByRole("button", { name: "명령 상세 닫기" })).toBeVisible();
     const documentMetrics = await page.evaluate(() => ({ clientHeight: document.documentElement.clientHeight, scrollHeight: document.documentElement.scrollHeight }));
     expect(documentMetrics.scrollHeight).toBe(documentMetrics.clientHeight);
   });
@@ -286,7 +323,7 @@ for (const viewport of [{ width: 390, height: 844 }, { width: 320, height: 740 }
     await page.setViewportSize(viewport);
     await installControlMapRoutes(page);
     await page.goto(`/control?siteId=${ids.site}`);
-    await expect(page.getByRole("heading", { name: "조명 밝기 제어", exact: true })).toBeVisible();
+    await expect(page.getByRole("tabpanel", { name: "수동 제어", exact: true })).toBeVisible();
     await expectNoHorizontalOverflow(page);
     const moveControl = page.getByRole("button", { name: "지도 이동" });
     await moveControl.scrollIntoViewIfNeeded();
@@ -299,10 +336,9 @@ for (const viewport of [{ width: 390, height: 844 }, { width: 320, height: 740 }
     await expectMinimumTouchTargetsAfterScrolling(page, "[data-control-screen]");
 
     await marker(page, "B2-L001").click();
-    await page.getByRole("button", { name: "선택 대상 펼치기" }).click();
-    await expect(page.getByRole("button", { name: "선택 대상 접기" })).toHaveAttribute("aria-expanded", "true");
+    await expect(page.getByRole("complementary", { name: "밝기 실행" })).toContainText("1개 선택");
     await expectMinimumTouchTargetsAfterScrolling(page, "[data-control-screen]");
-    await expectEditableFontSizes(page.getByRole("complementary", { name: "선택 대상 요약" }));
+    await expectEditableFontSizes(page.getByRole("complementary", { name: "밝기 실행" }));
     await page.getByRole("button", { name: "조명 목록 열기" }).click();
     const drawer = page.getByRole("dialog", { name: "조명 목록" });
     await expect(drawer.getByRole("searchbox", { name: "조명 검색" })).toBeVisible();
@@ -327,7 +363,7 @@ for (const mode of ["pan", "select", "area"] as const) {
     await page.setViewportSize({ width: 390, height: 844 });
     await installControlMapRoutes(page);
     await page.goto(`/control?siteId=${ids.site}`);
-    await expect(page.getByRole("heading", { name: "조명 밝기 제어", exact: true })).toBeVisible();
+    await expect(page.getByRole("tabpanel", { name: "수동 제어", exact: true })).toBeVisible();
     await page.getByRole("button", { name: mode === "pan" ? "지도 이동" : mode === "select" ? "조명 선택" : "영역 선택" }).click();
     const viewport = page.getByRole("region", { name: "B2 도면" });
     await expect(viewport).toBeVisible();
@@ -446,6 +482,7 @@ async function installControlMapRoutes(page: Page, options: {
   groupMemberCount?: number;
   historyCount?: number;
   boundaryFixtures?: boolean;
+  bioReadiness?: "ready" | "off";
 } = {}) {
   const fixtureData = options.fixtureCount
     ? Array.from({ length: options.fixtureCount }, (_, index) => fixture(
@@ -454,7 +491,14 @@ async function installControlMapRoutes(page: Page, options: {
       30 + (index % 10) * 100,
       30 + Math.floor(index / 10) * 80
     ))
-    : options.boundaryFixtures ? fixtures.map((item, index) => ({ ...item, x: index === 0 ? 0 : 1200, y: index === 0 ? 0 : 800 })) : fixtures;
+    : options.boundaryFixtures ? fixtures.map((item, index) => ({ ...item, x: index === 0 ? 0 : 1200, y: index === 0 ? 0 : 800 })) : fixtures.map(item => options.bioReadiness && item.id === ids.sensor ? {
+      ...item, vehicleSensorCapabilityStatus: "unknown" as const, vehicleSensorCapabilityVerifiedAt: null,
+      // Synthetic future-ready view exercises UI only; the product API remains OFF.
+      vehicleEventSource: { sensorProtocol: "bio-usb-pulse" as const, readiness: options.bioReadiness, capabilityEvidence: options.bioReadiness,
+        sourceEligible: options.bioReadiness === "ready", targetEligible: true,
+        blockReasons: options.bioReadiness === "off" ? ["product_gate_off" as const, "mode_unverified" as const] : [],
+        modeVerification: { commandId: null, status: "unverified", modeVerified: false, verifiedAt: null } }
+    } : item);
   const api = await installSettingsApiRoutes(page, options.role ?? "admin", {
     fixtures: fixtureData,
     ids: { siteId: ids.site, floorId: ids.floor, gatewayId: ids.gateway }
@@ -480,9 +524,11 @@ async function installControlMapRoutes(page: Page, options: {
     const url = new URL(request.url());
     const path = url.pathname;
     if (request.method() === "POST") state.postRequests.push(path);
-    if (path === "/api/commands" && options.historyCount) return route.fulfill({ json: { items: history, nextCursor: null } });
+    if (path === "/api/commands" && options.historyCount) return route.fulfill({ json: { items: history, nextCursor: null,
+      generatedAt: "2026-09-30T00:00:00.000Z", retainedFrom: "2026-06-30T00:00:00.000Z" } });
     const historicalCommand = history.find((command) => path === `/api/commands/${command.id}`);
-    if (historicalCommand) return route.fulfill({ json: historicalCommand });
+    if (historicalCommand) return route.fulfill({ json: { ...historicalCommand,
+      generatedAt: "2026-09-30T00:00:00.000Z", retainedFrom: "2026-06-30T00:00:00.000Z" } });
     if (path === `/api/sites/${ids.site}/dashboard`) {
       return route.fulfill({ json: dashboardResponse(fixtureData, groups, options.role ?? "admin") });
     }

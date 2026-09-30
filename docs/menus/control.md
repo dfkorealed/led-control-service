@@ -1,10 +1,21 @@
 # 제어 메뉴 기능 현황
 
+## 2026-10-01 BIO 제어 화면 — 소프트웨어 검증, 제품 OFF
+
+- 구현 완료: dashboard의 서버 계산 `vehicleEventSource`로 protocol·유효 readiness·차단 사유·활성 센서의 대상 제외 여부를 표시한다. 저장된 BIO `ready` 보고만으로 사용 가능을 만들지 않으며 현재 서버는 제품 gate OFF에 따라 source 선택·화면 저장을 차단한다. `shadow/degraded` 보고는 검증 중·재검증 안내로 구분한다. 기존 내부 disabled draft API 자격 정책은 바꾸지 않았다.
+- 구현 완료: 기존 지도·목록 선택 흐름에서 현재 선택한 A와 서버가 보호 중인 A를 B 대상에서 제외한다. synthetic ready 화면도 BIO 초안을 비활성으로 저장하고 활성화 버튼은 막는다. A 밝기 설정 UI는 없으며 A의 자체 밝기 동작은 현장 검증 전이라고 설명한다.
+- 구현 완료: BIO 유지시간 10~1,800초·기본 60초 입력/수정, 10초 신호 공백의 꺼짐·재점등 경고, 기존 BlueZ 5초 하한을 적용한다. 센서 모드 설정·읽기 전용 재조회와 별도 요청 결과 GET을 제공하며 POST 접수는 검증으로 표시하지 않는다. GET 확인 시점은 과거 기록이고 현재 readiness 근거가 아님을 명시한다.
+- 구현 완료: BIO 규칙에는 키보드로 접근 가능한 지속 운영 안내와 운영자 비활성화 해제 경로를 표시한다. 서버의 degraded capability 보고를 경고하고 실제 실행·복원 상태, 마지막 유효 펄스·장애 시작 시각은 아직 미확인으로 표시한다.
+- 미구현: Task 8의 영속 runtime telemetry projection·실제 마지막 펄스/장애 시각/복원 대기 사유 연동 및 Task 9 HIL. UI fixture 테스트 결과를 실장비 지원으로 해석하지 않는다.
+- 부족하거나 개선이 필요한 기능: 제품 capability·allowlist는 OFF다. 모드 증거는 현재 할당·Fixture·node·physical identity·address와 일치하는 최신 작업의 과거 GET만 표시하며 현 상태 지속을 보장하지 않는다. 실제 조명·운영 DB·MQTT 설정은 변경하지 않았다.
+- 관련 파일: `apps/api/src/sites/{sites.service,vehicle-event-source-view}.ts`, `apps/web/src/api/{automation,queries}.ts`, `apps/web/src/features/control/automation/{VehicleEventDialog,VehicleEventSourceStatus,VehicleEventControlPanel}.tsx`, `apps/web/src/features/control/automation/vehicle-event-form.ts`, `apps/web/e2e/control-map-target-selection.spec.ts`.
+- 갱신 규칙: 서버 유효 준비 상태와 관찰 증거, 소프트웨어 화면과 실제 HIL, 요청 접수와 GET 검증을 구분해 기록한다.
+
 ## 2026-09-30 BIO 소스 A 대상 보호 — 소프트웨어 검증
 
 - 구현 완료: API 공통 정책은 활성 BIO 규칙의 source를 수동 개별·다중·그룹·층 제어, 스케줄 생성·수정, 다른 이벤트 target, 등록 조명 식별과 그룹 구성 변경에서 거절한다. 그룹·층 선택은 현재 membership을 실제 Fixture ID로 확장한 뒤 같은 자동화 잠금 트랜잭션에서 검사한다. 준비 상태가 저하돼도 활성 source 보호를 해제하지 않는다.
 - 구현 완료: Gateway는 최신 V2 snapshot의 활성 BIO source와 대상 교집합을 검사한다. 직접 MQTT 명령과 재전송, 자동화, 식별은 adapter 진입 및 BIO native write 직전 검사로 A의 밝기·mode 변경을 차단한다. 식별 후 복원도 source 보호를 우회하지 않으며, 명시적 센서 모드 확인 작업과 분리한다. B와 기존 BlueZ 경로는 유지한다.
-- 미구현: 제품 BIO 활성화, Web 선택 안내와 현장 HIL은 후속 작업이다. 실제 capability·allowlist는 OFF이며 A 밝기 설정 UI는 없다.
+- 미구현: 제품 BIO 활성화와 현장 HIL은 후속 작업이다. Web 선택 안내는 위 2026-10-01 항목에 구현했고 실제 capability·allowlist는 OFF이며 A 밝기 설정 UI는 없다.
 - 부족하거나 개선이 필요한 기능: synthetic snapshot·가짜 USB/저장소 검증이다. 실제 A의 자율 밝기 반응, `CD 13`의 센서 보존 여부, 펄스 상관관계·독립 건강 판정은 검증하지 않았다. Pi·운영 DB·MQTT 설정은 변경하지 않았다.
 - 관련 파일: `apps/api/src/automation/bio-source-target-policy.ts`, `apps/api/src/commands/commands.service.ts`, `apps/api/src/fixture-groups/fixture-groups.service.ts`, `apps/api/src/fixture-identify/fixture-identify.service.ts`, `apps/gateway/src/automation/bio-source-target-guard.ts`, `apps/gateway/src/commands/gateway-command-handler.ts`, `apps/gateway/src/runtime/fixture-identify-runtime.ts`, `apps/gateway/src/bio/bio-dongle-client.ts`.
 - 갱신 규칙: 소프트웨어 차단, 제품 capability 활성화와 실장비 광학 검증을 구분한다.

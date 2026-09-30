@@ -5,7 +5,9 @@ import type {
   DimmingTarget,
   LightingScheduleSnapshotV1,
   ScheduleRecurrenceV1,
-  VehicleEventRuleSnapshotV1
+  VehicleEventRuleSnapshotV1,
+  VehicleSensorProtocol,
+  BioSensorModeRequest
 } from "@led-control/shared";
 import { ApiError, apiDelete, apiGet, apiPatch, apiPost } from "./client";
 
@@ -82,6 +84,7 @@ export type CreateVehicleEventRuleInput = Omit<VehicleEventRuleSnapshotV1, "id">
 export type UpdateVehicleEventRuleInput = Partial<CreateVehicleEventRuleInput>;
 
 export interface VehicleEventRuleResponse extends VehicleEventRuleSnapshotV1 {
+  sensorProtocol?: VehicleSensorProtocol;
   gatewayId: string;
   sources: Array<{ fixtureId: string }>;
   targets: Array<{ fixtureId: string }>;
@@ -96,6 +99,44 @@ export interface VehicleEventRuleResponse extends VehicleEventRuleSnapshotV1 {
   updatedById: string;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface SensorModeVerification {
+  commandId: string | null;
+  status: string;
+  modeVerified: boolean;
+  verifiedAt: string | null;
+}
+
+export interface SensorModeOperationResponse extends SensorModeVerification {
+  commandId: string;
+  siteId: string;
+  fixtureId: string;
+  operation: "ensure_sensor" | "query";
+  requeryOfCommandId: string | null;
+  requestedAt: string;
+  expiresAt: string;
+  supersededAt: string | null;
+  observedMode: "sensor" | "force-on" | "force-off" | null;
+}
+
+export type VehicleEventSourceBlockReason = "product_gate_off" | "mode_unverified" | "capability_unverified";
+export interface VehicleEventSourceView {
+  sensorProtocol: VehicleSensorProtocol;
+  readiness: "off" | "shadow" | "ready" | "degraded";
+  capabilityEvidence: "off" | "shadow" | "ready" | "degraded" | null;
+  sourceEligible: boolean;
+  targetEligible: boolean;
+  blockReasons: VehicleEventSourceBlockReason[];
+  modeVerification: SensorModeVerification;
+}
+
+export function requestSensorMode(input: BioSensorModeRequest) {
+  return apiPost<SensorModeOperationResponse>("/sensor-mode-operations", input);
+}
+
+export function getSensorModeOperation(commandId: string) {
+  return apiGet<SensorModeOperationResponse>(`/sensor-mode-operations/${encodeURIComponent(commandId)}`);
 }
 
 interface AutomationExecutionResponse {

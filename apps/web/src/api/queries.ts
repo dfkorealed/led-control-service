@@ -110,6 +110,7 @@ export interface Dashboard {
       commandSuccessRate: number | null;
       lastSeenAt: string | null;
       gateway: { id: string; name: string; connectionStatus: "online" | "offline" } | null;
+      vehicleEventSource?: import("./automation").VehicleEventSourceView;
       vehicleSensorCapabilityStatus?: "unknown" | "supported" | "unsupported";
       vehicleSensorCapabilityVerifiedAt?: string | null;
       controllable: boolean;
