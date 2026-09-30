@@ -83,7 +83,11 @@ export class AutomationCurrentConfigRequester {
 
   confirm(snapshot: Pick<AutomationSnapshotV1, "siteId" | "gatewayId"> & { schemaVersion?: number }) {
     if (snapshot.siteId !== this.scope.siteId || snapshot.gatewayId !== this.scope.gatewayId || !this.request) return false;
-    if (this.protocolSupport && snapshot.schemaVersion !== this.protocolSupport.maxSnapshotVersion) return false;
+    // A snapshot (including a retained same-version one) cannot acknowledge
+    // this connection's protocol declaration. Until a declaration-correlated
+    // receipt exists, replay its exact identity at the bounded retry rate for
+    // the connection lifetime; the API deduplicates it without new history rows.
+    if (this.protocolSupport) return false;
     this.request = undefined;
     this.clearTimer();
     return true;
