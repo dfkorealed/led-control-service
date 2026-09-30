@@ -13,7 +13,9 @@ describe("BIO pulse occurrence", () => {
   function setup(holdSeconds = 60) {
     const clock = fakeClocks("2026-09-30T01:00:00.000Z");
     const connection = { epoch: "process-one", generation: 1 };
-    const runtime = new VehicleEventRuntime({ ...clock, bioConnection: () => connection });
+    const health = { health: "healthy" as "healthy" | "degraded" | "unverified", reason: "verified",
+      connectionEpoch: connection.epoch, connectionGeneration: connection.generation, healthySinceMonotonicMs: 1000 };
+    const runtime = new VehicleEventRuntime({ ...clock, bioConnection: () => connection, bioSourceHealth: () => health });
     const state = stateWithCurrent(20);
     const snapshot: AutomationSnapshotV2 = {
       ...rulesSnapshot([]), schemaVersion: 2,
@@ -24,8 +26,137 @@ describe("BIO pulse occurrence", () => {
       receipt: { nativeUuid: "aabbccddeeff", logicalAddress: 1, networkId: 2, sequence,
         connectionEpoch: connection.epoch, connectionGeneration: connection.generation }
     });
-    return { clock, connection, runtime, state, snapshot, pulse };
+    return { clock, connection, health, runtime, state, snapshot, pulse };
   }
+
+  it("requires independent health even with valid connection and pulse identity", () => {
+    const t = setup();
+    const runtime = new VehicleEventRuntime({ ...t.clock, bioConnection: () => t.connection });
+    expect(runtime.recordInput(t.state, t.snapshot, t.pulse(1))).toEqual([]);
+    expect(t.state.bioPulseInbox).toEqual({});
+    expect(t.state.vehicleRules).toEqual({});
+  });
+
+  it.each(["usb_disconnected", "identity_changed", "liveness_failed"])("freezes before and beyond expiry for %s", reason => {
+    const t = setup(10);
+    t.runtime.recordInput(t.state, t.snapshot, t.pulse(1));
+    const occurrence = structuredClone(t.state.vehicleRules[ruleId]);
+    t.clock.advance(9000);
+    t.health.health = "degraded";
+    t.health.reason = reason;
+    const events = t.runtime.reconcile(t.state, t.snapshot, true);
+    expect(events).toMatchObject([{ kind: "event_extended", payload: { reason: "bio_source_degraded", health: "degraded" } }]);
+    expect(t.runtime.checkpoint()).toEqual([]);
+    t.clock.advance(100_000);
+    expect(t.runtime.recordInput(t.state, t.snapshot, t.pulse(2))).toEqual([]);
+    expect(t.runtime.reconcile(t.state, t.snapshot, true).some(event => event.kind === "event_ended")).toBe(false);
+    expect(t.state.vehicleRules[ruleId]).toEqual(occurrence);
+    expect(t.state.bioPulseInbox[sourceA]?.receipt.sequence).toBe(1);
+  });
+
+  it("freezes when degradation is first observed after the old deadline", () => {
+    const t = setup(10);
+    t.runtime.recordInput(t.state, t.snapshot, t.pulse(1));
+    t.clock.advance(20_000);
+    t.health.health = "degraded";
+    expect(t.runtime.reconcile(t.state, t.snapshot, true)).not.toContainEqual(expect.objectContaining({ kind: "event_ended" }));
+    expect(t.state.vehicleRules[ruleId]).toBeDefined();
+  });
+
+  it.each([10, 60, 1800])("observes a full %ss after recovery, including an outage between ticks", hold => {
+    const t = setup(hold);
+    t.runtime.recordInput(t.state, t.snapshot, t.pulse(1));
+    t.clock.advance(hold * 1000 + 5000);
+    // Independent authority reports the start of this continuous healthy interval.
+    t.health.healthySinceMonotonicMs = t.clock.monotonicClock();
+    expect(t.runtime.reconcile(t.state, t.snapshot, true).some(event => event.kind === "event_ended")).toBe(false);
+    t.clock.advance(hold * 1000 - 1);
+    expect(t.runtime.reconcile(t.state, t.snapshot, true).some(event => event.kind === "event_ended")).toBe(false);
+    t.clock.advance(1);
+    expect(t.runtime.reconcile(t.state, t.snapshot, true)).toMatchObject([{ kind: "event_ended", payload: { reason: "hold_expired" } }]);
+  });
+
+  it("restarts with no expiry authority and observes full hold after independent recovery", () => {
+    const t = setup(10);
+    t.runtime.recordInput(t.state, t.snapshot, t.pulse(1));
+    const restartClock = fakeClocks("2027-01-01T00:00:00.000Z");
+    t.connection.epoch = "new-process";
+    t.health.health = "unverified";
+    const runtime = new VehicleEventRuntime({ ...restartClock, bioConnection: () => t.connection, bioSourceHealth: () => t.health });
+    expect(runtime.reconcile(t.state, t.snapshot, true).some(event => event.kind === "event_ended")).toBe(false);
+    restartClock.advance(50_000);
+    Object.assign(t.health, { health: "healthy", connectionEpoch: "new-process", healthySinceMonotonicMs: restartClock.monotonicClock() });
+    expect(runtime.reconcile(t.state, t.snapshot, true)).toMatchObject([{ kind: "event_extended", payload: { reason: "bio_health_recovered" } }]);
+    restartClock.advance(9999);
+    expect(runtime.reconcile(t.state, t.snapshot, true)).toEqual([]);
+    restartClock.advance(1);
+    expect(runtime.reconcile(t.state, t.snapshot, true)).toMatchObject([{ kind: "event_ended", payload: { reason: "hold_expired" } }]);
+  });
+
+  it("rejects old connection health and queued pre-recovery pulses", () => {
+    const t = setup(10);
+    t.runtime.recordInput(t.state, t.snapshot, t.pulse(1));
+    t.clock.advance(2000);
+    t.connection.generation++;
+    expect(t.runtime.recordInput(t.state, t.snapshot, t.pulse(2))).toEqual([]);
+    expect(t.runtime.reconcile(t.state, t.snapshot, true)).toMatchObject([{ payload: { reason: "bio_source_degraded" } }]);
+    Object.assign(t.health, { connectionGeneration: 2, healthySinceMonotonicMs: t.clock.monotonicClock() });
+    expect(t.runtime.recordInput(t.state, t.snapshot, t.pulse(3, 2000))).toEqual([]);
+    expect(t.runtime.recordInput(t.state, t.snapshot, t.pulse(4))).toHaveLength(2);
+  });
+
+  it("separates explicit operator release from healthy hold expiry", () => {
+    const t = setup();
+    t.runtime.recordInput(t.state, t.snapshot, t.pulse(1));
+    t.health.health = "degraded";
+    const planned = t.runtime.planRelease(t.state, ruleId);
+    expect(planned.events).toMatchObject([{ kind: "event_ended", payload: { reason: "operator_release" } }]);
+    expect(t.state.vehicleRules[ruleId]).toBeUndefined();
+    expect(planned.holdDeadlines).toEqual([]);
+  });
+
+  it.each([NaN, Infinity, -1, 1001])("rejects invalid independent health time %s", healthySinceMonotonicMs => {
+    const t = setup();
+    t.health.healthySinceMonotonicMs = healthySinceMonotonicMs;
+    expect(t.runtime.recordInput(t.state, t.snapshot, t.pulse(1))).toEqual([]);
+    expect(t.state.bioPulseInbox).toEqual({});
+  });
+
+  it("keeps planned freeze and operator release checkpoints isolated until committed", () => {
+    const t = setup();
+    t.runtime.recordInput(t.state, t.snapshot, t.pulse(1));
+    const before = t.runtime.checkpoint();
+    t.health.health = "degraded";
+    t.health.reason = "raw aabbccddeeff credential=secret";
+    const planned = t.runtime.planReconcile(structuredClone(t.state), t.snapshot, true);
+    expect(planned.holdDeadlines).toEqual([]);
+    expect(t.runtime.checkpoint()).toEqual(before);
+    expect(JSON.stringify(planned.events)).not.toMatch(/aabbccddeeff|secret/);
+    expect(planned.events[0]?.payload.healthReason).toBe("health_unverified");
+    t.runtime.planRelease(structuredClone(t.state), ruleId);
+    expect(t.runtime.checkpoint()).toEqual(before);
+    expect(t.state.vehicleRules[ruleId]).toBeDefined();
+    t.runtime.restore(planned.holdDeadlines);
+    expect(t.runtime.checkpoint()).toEqual([]);
+  });
+
+  it("extends the recovered observation window on a fresh pulse without replacing the occurrence", () => {
+    const t = setup(10);
+    const first = t.runtime.recordInput(t.state, t.snapshot, t.pulse(1));
+    t.health.health = "degraded";
+    t.runtime.reconcile(t.state, t.snapshot, false);
+    t.clock.advance(20_000);
+    t.health.health = "healthy";
+    t.health.healthySinceMonotonicMs = t.clock.monotonicClock();
+    t.runtime.reconcile(t.state, t.snapshot, false);
+    t.clock.advance(9000);
+    const next = t.runtime.recordInput(t.state, t.snapshot, t.pulse(2));
+    expect(next[1]?.occurrenceKey).toBe(first[1]?.occurrenceKey);
+    t.clock.advance(1000);
+    expect(t.runtime.reconcile(t.state, t.snapshot, false)).toEqual([]);
+    t.clock.advance(9000);
+    expect(t.runtime.reconcile(t.state, t.snapshot, false)).toMatchObject([{ payload: { reason: "hold_expired" } }]);
+  });
 
   it("starts a pulse hold without a latched High and extends the same occurrence without recapturing base", () => {
     const t = setup();
@@ -97,6 +228,7 @@ describe("BIO pulse occurrence", () => {
     // Fresh time and unused sequence ensure only the connection authority can reject this packet.
     expect(t.runtime.recordInput(t.state, t.snapshot, lateOldGeneration)).toEqual([]);
     expect(t.state).toEqual(before);
+    t.health.connectionGeneration = 2;
     expect(t.runtime.recordInput(t.state, t.snapshot, t.pulse(7))).toHaveLength(2);
   });
 
@@ -106,8 +238,9 @@ describe("BIO pulse occurrence", () => {
     t.clock.advance(3_000);
     expect(t.runtime.recordInput(t.state, t.snapshot, t.pulse(7))).toHaveLength(2);
     t.connection.epoch = "process-two";
+    t.health.connectionEpoch = "process-two";
     const restartClock = fakeClocks("2026-09-30T01:00:05.000Z");
-    const restarted = new VehicleEventRuntime({ ...restartClock, bioConnection: () => t.connection });
+    const restarted = new VehicleEventRuntime({ ...restartClock, bioConnection: () => t.connection, bioSourceHealth: () => t.health });
     expect(restarted.recordInput(t.state, t.snapshot, t.pulse(7, 1000))).toHaveLength(2);
   });
 
@@ -116,7 +249,7 @@ describe("BIO pulse occurrence", () => {
     t.runtime.recordInput(t.state, t.snapshot, t.pulse(1));
     t.clock.advance(60_000);
     const restarted = new VehicleEventRuntime(t.clock);
-    expect(restarted.reconcile(t.state, t.snapshot, true)).toEqual([]);
+    expect(restarted.reconcile(t.state, t.snapshot, true)).toMatchObject([{ payload: { reason: "bio_source_degraded", health: "unverified" } }]);
     expect(t.state.vehicleRules[ruleId]).toBeDefined();
   });
 

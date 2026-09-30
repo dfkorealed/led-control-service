@@ -98,7 +98,9 @@ describe("V7 BIO receipt journal", () => {
     });
     await store.initialize();
     const runtime = new VehicleEventRuntime({ wallClock: () => new Date(requestedAt), monotonicClock: () => 1000,
-      bioConnection: () => ({ epoch: "process-one", generation: 1 }) });
+      bioConnection: () => ({ epoch: "process-one", generation: 1 }),
+      bioSourceHealth: () => ({ health: "healthy", reason: "verified", connectionEpoch: "process-one",
+        connectionGeneration: 1, healthySinceMonotonicMs: 1000 }) });
     const snapshot: AutomationSnapshotV2 = { ...automationSnapshot(1), schemaVersion: 2, vehicleEventRules: [{
       id: ruleId, name: "BIO test", status: "enabled", sensorProtocol: "bio-usb-pulse", sourceFixtureIds: [commandId],
       targetFixtureIds: [fixtureId], action: { dimmingEnabled: true, brightnessPercent: 80 }, holdSeconds: 60

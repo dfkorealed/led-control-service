@@ -9,6 +9,20 @@ import {
 type VehicleSnapshot = AutomationSnapshotV1 | AutomationSnapshotV2;
 export type { BioPulseReceipt } from "./automation-state-store";
 
+export type BioSourceHealth = "healthy" | "degraded" | "unverified";
+
+/** Supplied by an independent qualified health authority, never by pulse intake.
+ * The continuous healthy interval must reset on every fault, even between ticks.
+ * This process-local evidence must not be rehydrated from the state journal.
+ */
+export interface BioSourceHealthObservation {
+  health: BioSourceHealth;
+  reason: string;
+  connectionEpoch: string;
+  connectionGeneration: number;
+  healthySinceMonotonicMs: number;
+}
+
 export type VehicleSensorInput =
   | { type: "detected"; sourceFixtureId: string }
   | { type: "cleared"; sourceFixtureId: string }
@@ -28,6 +42,7 @@ interface VehicleEventRuntimeOptions {
   monotonicClock?: () => number;
   /** Trusted connection authority, never derived from the candidate packet. Default OFF. */
   bioConnection?: () => { epoch: string; generation: number } | null;
+  bioSourceHealth?: (sourceFixtureId: string) => BioSourceHealthObservation | null;
 }
 
 export class VehicleEventRuntime {
@@ -88,10 +103,18 @@ export class VehicleEventRuntime {
         deadlines.delete(rule.id);
         existing = undefined;
       }
-      const deadline = deadlines.get(rule.id);
+      let deadline = deadlines.get(rule.id);
+      if (input.type === "pulse" && existing) {
+        // A new independently healthy interval invalidates any old expiry,
+        // including a fault/recovery that happened between scheduler ticks.
+        const health = this.sourceHealth(input.sourceFixtureId, monotonicNow);
+        deadline = Math.max(deadline ?? monotonicNow + rule.holdSeconds * 1000,
+          health.healthySinceMonotonicMs + rule.holdSeconds * 1000);
+        deadlines.set(rule.id, deadline);
+      }
       // Sensor input can arrive after hold expiry but before the next scheduler tick.
       // Close that activation first so High starts a new identity and cannot revive old manual suppression.
-      // A restored hold without a monotonic deadline still requires trusted-UTC reconciliation.
+      // BlueZ restored holds require trusted UTC; BIO requires independent health.
       if (existing && existing.activeSourceFixtureIds.length === 0 && existing.holdUntil !== null &&
         deadline !== undefined && (input.type === "pulse" ? input.receivedMonotonicMs : monotonicNow) >= deadline) {
         events.push(lifecycle("event_ended", rule.id, vehicleOccurrenceKey(rule.id, existing.startedAt), now, {
@@ -171,9 +194,11 @@ export class VehicleEventRuntime {
     monotonicNow: number
   ) {
     const connection = this.options.bioConnection?.();
+    const health = this.sourceHealth(input.sourceFixtureId, monotonicNow);
     let receipt: BioPulseReceipt;
     try { receipt = parseBioPulseReceipt(input.receipt); } catch { return false; }
-    if (!connection || receipt.connectionEpoch !== connection.epoch || receipt.connectionGeneration !== connection.generation ||
+    if (health.health !== "healthy" || input.receivedMonotonicMs < health.healthySinceMonotonicMs ||
+      !connection || receipt.connectionEpoch !== connection.epoch || receipt.connectionGeneration !== connection.generation ||
       !Number.isFinite(input.receivedMonotonicMs) || input.receivedMonotonicMs < 0 || input.receivedMonotonicMs > monotonicNow) return false;
     const previous = state.bioPulseInbox[input.sourceFixtureId];
     if (previous && (previous.receipt.nativeUuid !== receipt.nativeUuid || previous.receipt.logicalAddress !== receipt.logicalAddress ||
@@ -189,6 +214,45 @@ export class VehicleEventRuntime {
     recentReceipts.push({ sequence: receipt.sequence, receivedMonotonicMs: input.receivedMonotonicMs });
     state.bioPulseInbox[input.sourceFixtureId] = { receipt, lastReceivedMonotonicMs: input.receivedMonotonicMs, recentReceipts };
     return true;
+  }
+
+  private sourceHealth(sourceFixtureId: string, now: number): BioSourceHealthObservation {
+    const connection = this.options.bioConnection?.();
+    const observation = this.options.bioSourceHealth?.(sourceFixtureId);
+    const unavailable: BioSourceHealthObservation = {
+      health: "unverified", reason: "health_unverified", connectionEpoch: "", connectionGeneration: 0,
+      healthySinceMonotonicMs: now
+    };
+    if (!observation) return unavailable;
+    if (!connection || observation.connectionEpoch !== connection.epoch ||
+      observation.connectionGeneration !== connection.generation) {
+      return { ...unavailable, health: "degraded", reason: "connection_changed" };
+    }
+    if (observation.health !== "healthy") {
+      // Only fixed reason codes leave this boundary: arbitrary diagnostic text
+      // may contain a native UUID, packet body, or credential.
+      const reason = ["usb_disconnected", "identity_changed", "liveness_failed", "decoder_failed", "fingerprint_changed"]
+        .includes(observation.reason) ? observation.reason : "health_unverified";
+      return { ...unavailable, health: observation.health === "degraded" ? "degraded" : "unverified", reason };
+    }
+    if (!Number.isFinite(observation.healthySinceMonotonicMs) || observation.healthySinceMonotonicMs < 0 ||
+      observation.healthySinceMonotonicMs > now) return unavailable;
+    return observation;
+  }
+
+  /** Caller commits the mutated state and lifecycle handoff durably before restore(). */
+  planRelease(state: PersistedAutomationStateV4, ruleId: string) {
+    const deadlines = new Map(this.holdDeadlines);
+    const vehicle = state.vehicleRules[ruleId];
+    const events: VehicleLifecycleEvent[] = [];
+    if (vehicle?.sensorProtocol === "bio-usb-pulse") {
+      delete state.vehicleRules[ruleId];
+      deadlines.delete(ruleId);
+      events.push(lifecycle("event_ended", ruleId, vehicleOccurrenceKey(ruleId, vehicle.startedAt), this.wallClock(), {
+        reason: "operator_release", targetFixtureIds: vehicle.targetFixtureIds
+      }));
+    }
+    return { events, holdDeadlines: [...deadlines] as Array<[string, number]> };
   }
 
   reconcile(
@@ -236,6 +300,33 @@ export class VehicleEventRuntime {
         continue;
       }
 
+      if (vehicle.sensorProtocol === "bio-usb-pulse") {
+        const health = rule.sourceFixtureIds.length === 1
+          ? this.sourceHealth(rule.sourceFixtureIds[0]!, monotonicNow) : null;
+        if (health?.health !== "healthy") {
+          deadlines.delete(ruleId);
+          // A status observation, not a new pulse or clear. The scheduler must
+          // durably hand off/deduplicate these before exposing operator alerts.
+          events.push(lifecycle("event_extended", ruleId, occurrenceKey, now, {
+            reason: "bio_source_degraded", health: health?.health ?? "unverified",
+            healthReason: health?.reason ?? "health_unverified", sensorProtocol: "bio-usb-pulse",
+            targetFixtureIds: vehicle.targetFixtureIds, restorationPending: true
+          }));
+          continue;
+        }
+        const previousDeadline = deadlines.get(ruleId);
+        const deadline = Math.max(previousDeadline ?? monotonicNow + rule.holdSeconds * 1000,
+          health.healthySinceMonotonicMs + rule.holdSeconds * 1000);
+        if (deadline !== previousDeadline) {
+          deadlines.set(ruleId, deadline);
+          vehicle.holdUntil = new Date(now.getTime() + deadline - monotonicNow).toISOString();
+          events.push(lifecycle("event_extended", ruleId, occurrenceKey, now, {
+            reason: "bio_health_recovered", health: "healthy", sensorProtocol: "bio-usb-pulse",
+            targetFixtureIds: vehicle.targetFixtureIds, holdUntil: vehicle.holdUntil
+          }));
+        }
+      }
+
       const hadActiveSource = vehicle.activeSourceFixtureIds.length > 0;
       vehicle.activeSourceFixtureIds = vehicle.activeSourceFixtureIds
         .filter((fixtureId) => rule.sourceFixtureIds.includes(fixtureId));
@@ -255,8 +346,8 @@ export class VehicleEventRuntime {
       // A real High is authoritative and intentionally has no software timeout.
       if (vehicle.activeSourceFixtureIds.length > 0 || vehicle.holdUntil === null) continue;
       let deadline = deadlines.get(ruleId);
-      // Persisted BIO wall-clock deadlines cannot authorize restart expiry. Task4
-      // establishes a new full observation window after independent health recovery.
+      // BIO already established a fresh process-local observation window above;
+      // persisted wall-clock deadlines are only an expiry authority for BlueZ.
       if (deadline === undefined && trustedUtc && !("sensorProtocol" in rule && rule.sensorProtocol === "bio-usb-pulse")) {
         const remainingMs = Date.parse(vehicle.holdUntil) - now.getTime();
         if (remainingMs <= 0) {
