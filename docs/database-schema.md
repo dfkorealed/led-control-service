@@ -10,6 +10,8 @@
 
 결과 수용은 현재 claim/active MQTT 인증서·assignment·Fixture/node/장치 identity와 원본 command를 다시 확인한다. 원본 command에 정확히 귀속되지만 현재 assignment/장치가 바뀐 결과는 성공으로 올리지 않고 `stale_checkpoint` ACK로 소비한다. 동일 결과 hash는 duplicate ACK, 같은 작업의 상충 결과는 거절한다. 타임아웃·새 요청으로 대체된 작업은 늦은 성공 결과로 승격하지 않는다. 재조회는 새 ID의 `query`이며 이전 결과를 상속하지 않는다. DB commit 뒤 기존 state-ingested ACK를 사용한다.
 
+비성공 `mismatch | unknown | timed_out`의 원본 JSON `occurredAt`은 시계 오류가 가능한 Gateway 제공 감사 값으로 그대로 보존하며 신뢰된 검증 시각이 아니다. 정확한 command/identity/hash 검증 후 ACK해 공유 outbox 정체를 피하되 서버 만료·대체 상태는 유지한다. `verified` 성공만 요청 이후·만료 이전·서버 수신 시각 허용 범위의 시간 증명을 요구한다. 이 보완은 스키마 변경 없이 결과 수용 정책만 수정한다.
+
 이 테이블은 `Fixture.brightness/powerOn`, 에너지 기록 또는 `MeshNode.bioPulseReadiness`를 갱신하지 않는다. 모드 검증 시각은 해당 GET 당시의 근거이고 자율 점등·펄스 전달·현재 광학 출력의 근거가 아니다. migration 검증은 일회용 PostgreSQL만 사용하며 운영 DB에는 적용하지 않았다.
 
 ## 2026-09-27 기본 OFF의 명령 상세 정리 worker

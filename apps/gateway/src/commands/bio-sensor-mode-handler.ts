@@ -14,6 +14,13 @@ export async function handleBioSensorMode(adapter: Pick<BleMeshAdapter, "sensorM
   const command = bioSensorModeCommandSchema.parse(input);
   if (command.siteId !== options.scope.siteId || command.gatewayId !== options.scope.gatewayId ||
       command.assignmentVersion !== options.scope.assignmentVersion) throw new Error("sensor mode command scope mismatch");
+  return executeOwned(adapter, command, options);
+}
+
+// Live delivery and reconnect/application-ACK recovery must acquire the same
+// ownership before reading the journal. Otherwise both can mint terminal IDs
+// from one accepted record, leaving a conflicting result stuck in the outbox.
+async function executeOwned(adapter: Pick<BleMeshAdapter, "sensorModeOperation">, command: BioSensorModeCommand, options: Options) {
   let active = running.get(options.journal);
   if (!active) { active = new Map(); running.set(options.journal, active); }
   const previous = active.get(command.commandId);
@@ -88,10 +95,10 @@ async function handoff(result: BioSensorModeResult, options: Options) {
 export async function recoverBioSensorModes(options: Options) {
   for (const record of await options.journal.pendingSensorModeOperations()) {
     const command = bioSensorModeCommandSchema.parse((record.command as { command: unknown }).command);
-    if (running.get(options.journal)?.has(command.commandId)) continue;
     if (command.siteId !== options.scope.siteId || command.gatewayId !== options.scope.gatewayId) continue;
     // Restart recovery publishes unknown; only a new query command can make a fresh GET.
-    await execute({}, command, options);
+    // execute rereads durable terminal state inside the shared ownership boundary.
+    await executeOwned({}, command, options);
   }
 }
 

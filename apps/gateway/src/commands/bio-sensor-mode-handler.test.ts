@@ -18,6 +18,37 @@ async function fixture() {
   return { path, outboxPath: join(dir, "outbox.json"), journal: new CommandJournal(path), outbox, scope: command, now: () => new Date("2026-09-30T00:00:01.000Z"), nextSequence: async () => 1 };
 }
 describe("durable BIO sensor mode commands", () => {
+  it("serializes overlapping restart recoveries into one durable terminal event", async () => {
+    const f = await fixture();
+    await f.journal.accept(command.commandId, { kind: "bio_sensor_mode", command });
+    f.journal = new CommandJournal(f.path);
+    let sequence = 0;
+    f.nextSequence = async () => ++sequence;
+    await Promise.all([recoverBioSensorModes(f), recoverBioSensorModes(f), recoverBioSensorModes(f)]);
+    const records = await new StateEventOutbox(f.outboxPath, command).pending();
+    expect(records).toHaveLength(1);
+    expect(records[0].payload).toMatchObject({ modeVerified: false, errorCode: "GATEWAY_RESTART" });
+    expect((await new CommandJournal(f.path).get(command.commandId))?.result).toEqual(records[0].payload);
+    expect(sequence).toBe(1);
+  });
+  it("shares recovery ownership with a simultaneous live redelivery", async () => {
+    const f = await fixture();
+    await f.journal.accept(command.commandId, { kind: "bio_sensor_mode", command });
+    let entered!: () => void; let release!: () => void;
+    const started = new Promise<void>((resolve) => { entered = resolve; });
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    let sequence = 0;
+    f.nextSequence = async () => { entered(); await gate; return ++sequence; };
+    const recovery = recoverBioSensorModes(f);
+    await started;
+    const adapter = { sensorModeOperation: vi.fn() };
+    const delivery = handleBioSensorMode(adapter, command, f);
+    release();
+    await Promise.all([recovery, delivery]);
+    expect(await f.outbox.pending()).toHaveLength(1);
+    expect(sequence).toBe(1);
+    expect(adapter.sensorModeOperation).not.toHaveBeenCalled();
+  });
   it("retains a result until full outbox capacity returns without repeating SET", async () => {
     const f = await fixture();
     f.outbox = new StateEventOutbox(f.outboxPath, command, { maxRecords: 1 });

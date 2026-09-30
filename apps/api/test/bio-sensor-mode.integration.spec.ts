@@ -10,6 +10,15 @@ import { AuthenticatedUser } from "../src/auth/auth.types";
 import { bioSensorModeTopics } from "@led-control/shared";
 import { SensorModePublisherService } from "../src/mqtt/sensor-mode-publisher.service";
 import { MqttService } from "../src/mqtt/mqtt.service";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { bioSensorModeCommandSchema } from "@led-control/shared";
+// Runtime-only integration imports keep Gateway test dependencies out of API's
+// TypeScript emit root; static cross-app imports move dist/src/main.js.
+const { CommandJournal } = require("../../gateway/src/commands/command-journal");
+const { StateEventOutbox } = require("../../gateway/src/state/state-event-outbox");
+const { handleBioSensorMode } = require("../../gateway/src/commands/bio-sensor-mode-handler");
 
 (process.env.BIO_SENSOR_MODE_DISPOSABLE_POSTGRES === "1" ? describe : describe.skip)("sensor mode durable operation on disposable PostgreSQL", () => {
   let cluster: Awaited<ReturnType<typeof disposablePostgres>>;
@@ -42,12 +51,78 @@ import { MqttService } from "../src/mqtt/mqtt.service";
     fixtureId = (await prisma.fixture.create({ data: { floorId: floor.id, meshNodeId: node.id, name: "A", ratedWatt: 20, x: 0, y: 0 } })).id;
   });
   const request = () => ({ siteId, fixtureId, clientRequestId: randomUUID(), operation: "ensure_sensor" as const });
+  it.each([-60_000, 60_000].flatMap((offset) => [false, true].map((restart) => ({ offset, restart }))))(
+    "ACKs a real Gateway failure with clock offset $offset and restart=$restart without verifying", async ({ offset, restart }) => {
+    const created = await service.create(user, request());
+    const row = await prisma.sensorModeOperation.findUniqueOrThrow({ where: { commandId: created.commandId } });
+    const command = bioSensorModeCommandSchema.parse(row.payload);
+    const dir = await mkdtemp(join(tmpdir(), "bio-mode-api-clock-"));
+    try {
+      const outbox = new StateEventOutbox(join(dir, "outbox.json"), command);
+      const adapter = { sensorModeOperation: jest.fn() };
+      const journal = new CommandJournal(join(dir, "journal.json"));
+      if (restart) await journal.accept(command.commandId, { kind: "bio_sensor_mode", command });
+      await handleBioSensorMode(adapter, command, { journal, outbox,
+        scope: command, now: () => new Date(row.requestedAt.getTime() + offset), nextSequence: async () => 1 });
+      const [event] = await outbox.pending();
+      expect(event.payload).toMatchObject({ status: restart ? "unknown" : "timed_out", modeVerified: false,
+        errorCode: restart ? "GATEWAY_RESTART" : "COMMAND_EXPIRED" });
+      expect(adapter.sensorModeOperation).not.toHaveBeenCalled();
+      // Relaxing failure time proof must not relax command identity or success proof.
+      await expect(service.ingest(event.topic, { ...event.payload, deviceIdentityHash: "f".repeat(64) })).rejects.toThrow("identity");
+      const { errorCode: _error, ...envelope } = event.payload as Record<string, unknown>;
+      await expect(service.ingest(event.topic, { ...envelope, status: "verified", modeVerified: true,
+        observedMode: "sensor", evidence: "mode_get" })).rejects.toThrow("time");
+      const ack = await service.ingest(event.topic, event.payload);
+      expect(ack.status).toBe("ingested");
+      expect(await service.get(user, created.commandId)).toMatchObject({ status: restart ? "unknown" : "timed_out", modeVerified: false, verifiedAt: null });
+      expect((await service.ingest(event.topic, event.payload)).status).toBe("duplicate");
+      await outbox.acknowledge({ ...ack, ingestedAt: new Date().toISOString() });
+      expect(await outbox.pending()).toEqual([]);
+    } finally { await rm(dir, { recursive: true, force: true }); }
+  });
   async function result(commandId: string, changes: Record<string, unknown> = {}) {
     const row = await prisma.sensorModeOperation.findUniqueOrThrow({ where: { commandId } });
     const { requestedAt: _requestedAt, expiresAt: _expiresAt, ...identity } = row.payload as Record<string, unknown>;
     return { ...identity, eventId: randomUUID(), sequence: 1, occurredAt: new Date().toISOString(), status: "verified", modeVerified: true,
       observedMode: "sensor", evidence: "mode_get", ...changes };
   }
+  it.each([
+    { reason: "before request", offset: -1, receivedOffset: 1_000 },
+    { reason: "future versus server receipt", offset: 5_000, receivedOffset: 1_000 },
+    { reason: "after command expiry", offset: 30_001, receivedOffset: 32_000 }
+  ])("still rejects verified GET $reason", async ({ offset, receivedOffset }) => {
+    const created = await service.create(user, request());
+    const start = Date.parse(created.requestedAt);
+    await expect(service.ingest(bioSensorModeTopics.result(siteId, gatewayId),
+      await result(created.commandId, { occurredAt: new Date(start + offset).toISOString() }),
+      new Date(start + receivedOffset))).rejects.toThrow("time");
+    const row = await prisma.sensorModeOperation.findUniqueOrThrow({ where: { commandId: created.commandId } });
+    expect(row).toMatchObject({ status: "pending", result: null, resultHash: null });
+  });
+  it.each([-60_000, 60_000].flatMap((offset) => [
+    { status: "mismatch", observedMode: "force-on", evidence: "mode_get" },
+    { status: "mismatch", observedMode: "force-off", evidence: "mode_get" },
+    { status: "unknown", errorCode: "GATEWAY_CLOCK_UNTRUSTED" },
+    { status: "unknown", errorCode: "GATEWAY_SHUTDOWN" },
+    { status: "unknown", errorCode: "UNSUPPORTED_ADAPTER" },
+    { status: "unknown", errorCode: "MODE_GET_UNCONFIRMED" },
+    { status: "timed_out", errorCode: "MODE_GET_UNCONFIRMED" }
+  ].map((detail) => ({ offset, detail }))))("keeps $detail at offset $offset as unverified audit only", async ({ offset, detail }) => {
+    const created = await service.create(user, request());
+    const success = await result(created.commandId);
+    const { observedMode: _mode, evidence: _proof, ...envelope } = success;
+    const event = { ...envelope, ...detail, modeVerified: false,
+      occurredAt: new Date(Date.parse(created.requestedAt) + offset).toISOString() };
+    const topic = bioSensorModeTopics.result(siteId, gatewayId);
+    await expect(service.ingest(topic, { ...event, assignmentVersion: 2 })).rejects.toThrow("identity");
+    await expect(service.ingest(bioSensorModeTopics.result(siteId, randomUUID()), event)).rejects.toThrow("scope");
+    expect((await service.ingest(topic, event)).status).toBe("ingested");
+    expect(await service.get(user, created.commandId)).toMatchObject({ modeVerified: false, verifiedAt: null });
+    expect((await prisma.sensorModeOperation.findUniqueOrThrow({ where: { commandId: created.commandId } })).result).toEqual(event);
+    expect((await service.ingest(topic, event)).status).toBe("duplicate");
+    await expect(service.ingest(topic, { ...event, sequence: 2 })).rejects.toThrow("conflict");
+  });
   it("persists one command per request and never treats publish acceptance as mode verification", async () => {
     const input = request(); const created = await service.create(user, input);
     expect(await service.create(user, input)).toEqual(created);

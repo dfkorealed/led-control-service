@@ -102,8 +102,14 @@ export class SensorModeOperationsService {
       if (["siteId", "gatewayId", "fixtureId", "nodeId", "assignmentVersion", "meshAddress", "deviceIdentityHash", "operation", "requeryOfCommandId"].some(
         (key) => command[key as keyof typeof command] !== result[key as keyof typeof result])) throw new BadRequestException("sensor mode result identity mismatch");
       const occurredAt = Date.parse(result.occurredAt);
-      if (occurredAt < row.requestedAt.getTime() || occurredAt > receivedAt.getTime() + 1_000 ||
-          (result.modeVerified && occurredAt > row.expiresAt.getTime())) throw new BadRequestException("sensor mode result time mismatch");
+      // An exact-command authenticated non-success is an audit checkpoint, not
+      // successful mode proof. Its clock may itself be the failure (including after
+      // restart); rejecting it forever blocks the shared result outbox. Preserve
+      // all identity/hash checks and require time proof for verified GET only.
+      // Preserve the supplied occurredAt verbatim as untrusted audit data for
+      // non-success; it never becomes verifiedAt or overrides server expiry.
+      if (result.modeVerified && (occurredAt < row.requestedAt.getTime() || occurredAt > receivedAt.getTime() + 1_000 ||
+          occurredAt > row.expiresAt.getTime())) throw new BadRequestException("sensor mode result time mismatch");
       const ack = { eventId: result.eventId, sequence: result.sequence, fixtureId: result.fixtureId };
       if (row.resultHash) {
         if (row.resultHash !== hash) throw new BadRequestException("sensor mode result identity conflict");
