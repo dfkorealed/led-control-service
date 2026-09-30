@@ -135,8 +135,36 @@ export interface PersistedBioTargetState {
   restoreResult: PersistedBioTargetResult | null;
 }
 
-export interface PersistedAutomationStateV8 {
-  schemaVersion: 8;
+/** Private local authorization identity; never project this record to MQTT. */
+export interface BioSourceBinding {
+  sourceFixtureId: string;
+  nativeUuid: string;
+  logicalAddress: number;
+  networkId: number;
+  capabilityRevision: number;
+  snapshotRevision: number;
+  profileId: string;
+  firmwareFingerprint: string;
+  sensorFingerprint: string;
+}
+
+export interface PersistedBioActivation {
+  activationId: string;
+  startedAt: string;
+  snapshotHash: string;
+  binding: BioSourceBinding;
+  targetFixtureIds: string[];
+  brightnessPercent: number;
+  health: "healthy" | "degraded" | "unverified";
+  healthReason: string;
+  releaseReason: "hold_expired" | "operator_release" | "configuration_changed" | null;
+  completed: boolean;
+  retiredFixtureIds: string[];
+  reportedResults: string;
+}
+
+export interface PersistedAutomationStateV9 {
+  schemaVersion: 9;
   activeOccurrences: Record<string, PersistedOccurrenceState>;
   pendingManualControls: Record<string, PersistedManualControlState>;
   manualAutomationSuppressions: Record<string, PersistedManualAutomationSuppressionState>;
@@ -151,9 +179,11 @@ export interface PersistedAutomationStateV8 {
   vehicleSensorInbox: PersistedVehicleSensorInboxSource[];
   bioPulseInbox: Record<string, PersistedBioPulseInboxSource>;
   bioTargetsByFixture: Record<string, PersistedBioTargetState>;
+  bioActivationsByRule: Record<string, PersistedBioActivation>;
 }
 
 // Historical import names refer to the current in-memory schema; only the parser accepts older disk shapes.
+export type PersistedAutomationStateV8 = PersistedAutomationStateV9;
 export type PersistedAutomationStateV7 = PersistedAutomationStateV8;
 export type PersistedAutomationStateV6 = PersistedAutomationStateV7;
 export type PersistedAutomationStateV4 = PersistedAutomationStateV7;
@@ -692,7 +722,7 @@ function isEnospc(error: unknown): error is NodeJS.ErrnoException {
 
 export function emptyAutomationState(): PersistedAutomationStateV4 {
   return {
-    schemaVersion: 8,
+    schemaVersion: 9,
     activeOccurrences: {},
     pendingManualControls: {},
     manualAutomationSuppressions: {},
@@ -706,11 +736,35 @@ export function emptyAutomationState(): PersistedAutomationStateV4 {
     pendingTelemetryHandoffs: [],
     vehicleSensorInbox: [],
     bioPulseInbox: {},
-    bioTargetsByFixture: {}
+    bioTargetsByFixture: {},
+    bioActivationsByRule: {}
   };
 }
 
 export function parseAutomationState(value: unknown): PersistedAutomationStateV4 {
+  if (isRecord(value) && value.schemaVersion === 9) {
+    const { bioActivationsByRule, ...legacy } = value;
+    const state = parseAutomationState({ ...legacy, schemaVersion: 8 });
+    state.bioActivationsByRule = parseFixtureRecord(bioActivationsByRule, parseBioActivation);
+    for (const [ruleId, row] of Object.entries(state.bioActivationsByRule)) {
+      if (row.activationId !== `${ruleId}:${row.startedAt}`) throw new Error("invalid BIO activation identity");
+      const vehicle = state.vehicleRules[ruleId];
+      if (row.releaseReason === null && (!vehicle || vehicle.sensorProtocol !== "bio-usb-pulse" ||
+        vehicle.startedAt !== row.startedAt || vehicle.brightnessPercent !== row.brightnessPercent ||
+        !isDeepStrictEqual(vehicle.targetFixtureIds, row.targetFixtureIds))) throw new Error("invalid BIO active occurrence");
+      for (const fixtureId of row.targetFixtureIds) {
+        const target = state.bioTargetsByFixture[fixtureId];
+        if (row.completed && !row.retiredFixtureIds.includes(fixtureId) &&
+          (target?.activationId !== row.activationId || target.restoreResult?.status !== "succeeded")) {
+          throw new Error("invalid BIO release completion");
+        }
+        if (target?.activationId !== row.activationId) continue;
+        if (row.retiredFixtureIds.includes(fixtureId) || target.sourceFixtureId !== row.binding.sourceFixtureId ||
+          target.eventBrightnessPercent !== row.brightnessPercent) throw new Error("invalid BIO target ownership");
+      }
+    }
+    return state;
+  }
   if (isRecord(value) && value.schemaVersion === 8) {
     // Strip only the new V8 field; V7/V6 retain their exact-key disk contracts.
     const { bioTargetsByFixture, ...legacy } = value;
@@ -742,7 +796,7 @@ export function parseAutomationState(value: unknown): PersistedAutomationStateV4
     "vehicleSensorInbox"
   ]) && value.schemaVersion === 6) {
     return {
-      schemaVersion: 8,
+      schemaVersion: 9,
       activeOccurrences: parseRecord(value.activeOccurrences, parseOccurrence),
       pendingManualControls: parseFixtureRecord(value.pendingManualControls, parseManualControl),
       manualAutomationSuppressions: parseFixtureRecord(value.manualAutomationSuppressions, parseManualSuppression),
@@ -756,7 +810,8 @@ export function parseAutomationState(value: unknown): PersistedAutomationStateV4
       pendingTelemetryHandoffs: parseTelemetryHandoffs(value.pendingTelemetryHandoffs),
       vehicleSensorInbox: parseVehicleSensorInbox(value.vehicleSensorInbox),
       bioPulseInbox: {},
-      bioTargetsByFixture: {}
+      bioTargetsByFixture: {},
+      bioActivationsByRule: {}
     };
   }
   if (hasExactKeys(value, [
@@ -896,7 +951,7 @@ function parseAutomationStateFields(
   // Validate every legacy field before dropping timed overrides, including entries that cannot migrate.
   const manualOverrides = parseRecord(value.manualOverrides, parseManualOverride);
   const state: PersistedAutomationStateV6 = {
-    schemaVersion: 8,
+    schemaVersion: 9,
     activeOccurrences: parseRecord(value.activeOccurrences, parseOccurrence),
     pendingManualControls: {},
     manualAutomationSuppressions: {},
@@ -910,7 +965,8 @@ function parseAutomationStateFields(
     pendingTelemetryHandoffs,
     vehicleSensorInbox,
     bioPulseInbox: {},
-    bioTargetsByFixture: {}
+    bioTargetsByFixture: {},
+    bioActivationsByRule: {}
   };
   return migrateV5ManualState(state, manualOverrides);
 }
@@ -1120,6 +1176,46 @@ export function parseBioConfigurationState(value: unknown): BioConfigurationStat
   }
   return { configuredHighBrightnessPercent: parseBrightness(value.configuredHighBrightnessPercent),
     bioMode: value.bioMode as BioConfigurationState["bioMode"] };
+}
+
+export function parseBioSourceBinding(value: unknown): BioSourceBinding {
+  if (!hasExactKeys(value, ["sourceFixtureId", "nativeUuid", "logicalAddress", "networkId", "capabilityRevision",
+    "snapshotRevision", "profileId", "firmwareFingerprint", "sensorFingerprint"]) ||
+    !isUint32(value.capabilityRevision) || !isUint32(value.snapshotRevision)) throw new Error("invalid BIO source binding");
+  const receipt = parseBioPulseReceipt({ nativeUuid: value.nativeUuid, logicalAddress: value.logicalAddress,
+    networkId: value.networkId, sequence: 0, connectionEpoch: "validation", connectionGeneration: 1 });
+  return { sourceFixtureId: parseUuid(value.sourceFixtureId), nativeUuid: receipt.nativeUuid,
+    logicalAddress: receipt.logicalAddress, networkId: receipt.networkId, capabilityRevision: value.capabilityRevision,
+    snapshotRevision: value.snapshotRevision, profileId: parseString(value.profileId),
+    firmwareFingerprint: parseString(value.firmwareFingerprint), sensorFingerprint: parseString(value.sensorFingerprint) };
+}
+
+function parseBioActivation(value: unknown): PersistedBioActivation {
+  if (!hasExactKeys(value, ["activationId", "startedAt", "snapshotHash", "binding", "targetFixtureIds", "brightnessPercent", "health",
+    "healthReason", "releaseReason", "completed", "retiredFixtureIds", "reportedResults"]) ||
+    !["healthy", "degraded", "unverified"].includes(value.health as string) ||
+    ![null, "hold_expired", "operator_release", "configuration_changed"].includes(value.releaseReason as null) ||
+    typeof value.completed !== "boolean" || (value.completed && value.releaseReason === null) ||
+    typeof value.reportedResults !== "string" || value.reportedResults.length > 128 ||
+    typeof value.snapshotHash !== "string" || !/^sha256:[a-f0-9]{64}$/.test(value.snapshotHash)) throw new Error("invalid BIO activation");
+  const binding = parseBioSourceBinding(value.binding);
+  const fixtures = (input: unknown) => {
+    if (!Array.isArray(input) || input.length > 10_000) throw new Error("invalid BIO activation fixtures");
+    const ids = input.map(parseUuid);
+    if (ids.some(id => id !== id.toLowerCase()) || new Set(ids).size !== ids.length) throw new Error("invalid BIO activation fixtures");
+    return ids;
+  };
+  const targetFixtureIds = fixtures(value.targetFixtureIds);
+  const retiredFixtureIds = fixtures(value.retiredFixtureIds);
+  if (!targetFixtureIds.length || targetFixtureIds.includes(binding.sourceFixtureId.toLowerCase()) ||
+    retiredFixtureIds.some(id => !targetFixtureIds.includes(id))) throw new Error("invalid BIO activation fixtures");
+  const healthReason = parseString(value.healthReason);
+  if (!["qualified", "health_unverified", "usb_disconnected", "identity_changed", "liveness_failed", "decoder_failed",
+    "fingerprint_changed", "connection_changed"].includes(healthReason)) throw new Error("invalid BIO health reason");
+  return { activationId: parseString(value.activationId), startedAt: parseTimestamp(value.startedAt), snapshotHash: value.snapshotHash, binding,
+    targetFixtureIds, brightnessPercent: parseBrightness(value.brightnessPercent), health: value.health as PersistedBioActivation["health"],
+    healthReason, releaseReason: value.releaseReason as PersistedBioActivation["releaseReason"], completed: value.completed,
+    retiredFixtureIds, reportedResults: value.reportedResults };
 }
 
 function parseBioTargetResult(value: unknown): PersistedBioTargetResult {

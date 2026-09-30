@@ -126,6 +126,13 @@ export class VehicleEventRuntime {
       }
       if (input.type === "pulse") {
         const next = createVehicleState(rule, existing, [], now, state);
+        const previousActivation = state.bioActivationsByRule[rule.id];
+        if (!existing && previousActivation) {
+          // startedAt is also the suppression/target-journal activation identity.
+          // Repeated or rolled-back UTC must not reuse a released activation. This
+          // logical 1ms increment is identity ordering, never a hold-time authority.
+          next.startedAt = new Date(Math.max(now.getTime(), Date.parse(previousActivation.startedAt) + 1)).toISOString();
+        }
         next.sensorProtocol = "bio-usb-pulse";
         // A repeated pulse retains the activation's original target base even if
         // a subsequent manual command has established a newer current baseline.
