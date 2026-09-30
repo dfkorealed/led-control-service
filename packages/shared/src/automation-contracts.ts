@@ -115,6 +115,29 @@ export interface AutomationConfigAppliedReceiptV1 extends AutomationConfigApplie
   ingestedAt: string;
 }
 
+/** A protocol declaration is configuration transport ability, never sensor readiness. */
+export interface AutomationCurrentConfigRequestV2 extends Omit<AutomationCurrentConfigRequestV1, "schemaVersion"> {
+  schemaVersion: 2;
+  assignmentVersion: number;
+  declarationRevision: number;
+  maxSnapshotVersion: 1 | 2;
+}
+
+export interface AutomationConfigAppliedDeliveryV2 extends Omit<AutomationConfigAppliedDeliveryV1, "schemaVersion" | "acknowledgement"> {
+  schemaVersion: 2;
+  acknowledgement: AutomationConfigAppliedV2;
+}
+
+export interface AutomationConfigAppliedReceiptV2 extends AutomationConfigAppliedDeliveryV2 {
+  ingestedAt: string;
+}
+
+export type AutomationSnapshot = AutomationSnapshotV1 | AutomationSnapshotV2;
+export type AutomationConfigApplied = AutomationConfigAppliedV1 | AutomationConfigAppliedV2;
+export type AutomationConfigAppliedDelivery = AutomationConfigAppliedDeliveryV1 | AutomationConfigAppliedDeliveryV2;
+export type AutomationConfigAppliedReceipt = AutomationConfigAppliedReceiptV1 | AutomationConfigAppliedReceiptV2;
+export type AutomationCurrentConfigRequest = AutomationCurrentConfigRequestV1 | AutomationCurrentConfigRequestV2;
+
 export interface AutomationExecutionEventV1 {
   schemaVersion: 1;
   eventId: string;
@@ -354,6 +377,13 @@ export const automationCurrentConfigRequestV1Schema = z.object({
   requestedAt: timestampSchema
 }).strict();
 
+export const automationCurrentConfigRequestV2Schema = automationCurrentConfigRequestV1Schema.extend({
+  schemaVersion: z.literal(2),
+  assignmentVersion: z.number().int().nonnegative().safe(),
+  declarationRevision: z.number().int().positive().safe(),
+  maxSnapshotVersion: z.union([z.literal(1), z.literal(2)])
+}).strict();
+
 const automationConfigAppliedDeliveryShape = {
   schemaVersion: z.literal(1),
   acknowledgementId: identifierSchema,
@@ -378,6 +408,32 @@ export const automationConfigAppliedReceiptV1Schema = z.object({
     addIssue(context, "gatewayId", "config acknowledgement Gateway scope must match its receipt");
   }
 });
+
+const automationConfigAppliedDeliveryV2Shape = {
+  ...automationConfigAppliedDeliveryShape,
+  schemaVersion: z.literal(2),
+  acknowledgement: automationConfigAppliedV2Schema
+};
+
+function validateConfigDeliveryScope(
+  delivery: { gatewayId: string; acknowledgement: { gatewayId: string } },
+  context: z.RefinementCtx
+) {
+  if (delivery.gatewayId !== delivery.acknowledgement.gatewayId) {
+    addIssue(context, "gatewayId", "config acknowledgement Gateway scope must match its delivery");
+  }
+}
+
+export const automationConfigAppliedDeliveryV2Schema = z.object(automationConfigAppliedDeliveryV2Shape)
+  .strict().superRefine(validateConfigDeliveryScope);
+export const automationConfigAppliedReceiptV2Schema = z.object({
+  ...automationConfigAppliedDeliveryV2Shape, ingestedAt: timestampSchema
+}).strict().superRefine(validateConfigDeliveryScope);
+export const automationSnapshotSchema = z.union([automationSnapshotV1Schema, automationSnapshotV2Schema]);
+export const automationConfigAppliedSchema = z.union([automationConfigAppliedV1Schema, automationConfigAppliedV2Schema]);
+export const automationConfigAppliedDeliverySchema = z.union([automationConfigAppliedDeliveryV1Schema, automationConfigAppliedDeliveryV2Schema]);
+export const automationConfigAppliedReceiptSchema = z.union([automationConfigAppliedReceiptV1Schema, automationConfigAppliedReceiptV2Schema]);
+export const automationCurrentConfigRequestSchema = z.union([automationCurrentConfigRequestV1Schema, automationCurrentConfigRequestV2Schema]);
 
 export const automationExecutionEventV1Schema = z.object({
   schemaVersion: z.literal(1),

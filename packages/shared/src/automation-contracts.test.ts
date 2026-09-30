@@ -5,6 +5,9 @@ import {
   automationConfigAppliedReceiptV1Schema,
   automationConfigAppliedV1Schema,
   automationConfigAppliedV2Schema,
+  automationConfigAppliedDeliveryV2Schema,
+  automationConfigAppliedReceiptV2Schema,
+  automationCurrentConfigRequestV2Schema,
   automationCurrentConfigRequestV1Schema,
   automationExecutionEventV1Schema,
   automationExecutionIngestedAckV1Schema,
@@ -70,6 +73,33 @@ const snapshot = {
 };
 
 describe("automation shared contracts", () => {
+  it("requires explicit ordered assignment-bound support independently of snapshot ACK", () => {
+    const request = { schemaVersion: 2, requestId, siteId, gatewayId, requestedAt: occurredAt,
+      assignmentVersion: 1, declarationRevision: 1, maxSnapshotVersion: 2 };
+    expect(automationCurrentConfigRequestV2Schema.safeParse(request).success).toBe(true);
+    expect(automationCurrentConfigRequestV2Schema.safeParse({ ...request, maxSnapshotVersion: 1 }).success).toBe(true);
+    for (const patch of [{ declarationRevision: 0 }, { declarationRevision: 1.5 },
+      { declarationRevision: Number.MAX_SAFE_INTEGER + 1 }, { assignmentVersion: -1 },
+      { maxSnapshotVersion: 3 }, { maxSnapshotVersion: undefined }, { readiness: "ready" }]) {
+      expect(automationCurrentConfigRequestV2Schema.safeParse({ ...request, ...patch }).success).toBe(false);
+    }
+    expect(automationCurrentConfigRequestV1Schema.safeParse(request).success).toBe(false);
+  });
+
+  it("binds V2 ACK delivery and receipt to the same wire version and Gateway", () => {
+    const acknowledgement = { schemaVersion: 2, gatewayId, revision: 3, payloadHash,
+      status: "applied", errorCode: null, appliedAt: occurredAt };
+    const delivery = { schemaVersion: 2, acknowledgementId, siteId, gatewayId, acknowledgement };
+    expect(automationConfigAppliedDeliveryV2Schema.safeParse(delivery).success).toBe(true);
+    expect(automationConfigAppliedReceiptV2Schema.safeParse({ ...delivery, ingestedAt: occurredAt }).success).toBe(true);
+    expect(automationConfigAppliedDeliveryV1Schema.safeParse(delivery).success).toBe(false);
+    for (const patch of [{ schemaVersion: 1 }, { gatewayId: siteId }, { status: "applied", errorCode: "failed" }]) {
+      expect(automationConfigAppliedDeliveryV2Schema.safeParse({ ...delivery,
+        acknowledgement: { ...acknowledgement, ...patch } }).success).toBe(false);
+    }
+    expect(automationConfigAppliedReceiptV2Schema.safeParse({ ...delivery, ingestedAt: occurredAt,
+      readiness: "ready" }).success).toBe(false);
+  });
   it("requires one deployment-owned Bluetooth Company Identifier for Gateway and firmware builds", () => {
     expect(BLUETOOTH_COMPANY_ID_CONFIG).toEqual({
       gatewayEnvironment: "GATEWAY_BLUETOOTH_COMPANY_ID",
