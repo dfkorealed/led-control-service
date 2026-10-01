@@ -40,7 +40,7 @@
 | 2 | Shell backend: 개인 알람 읽음 | 완료·독립 명세/품질 승인 | bdb2d9e1; focused97/97(실제DB56 포함) |
 | 3 | Shell 공통 UI | 완료·독립 명세/품질 승인 | 793d126a; focused429/429, Web type/build/UI0; P3 경계1건 후속 |
 | 4 | Shell 범위·새 내부 구현 보조 | 소스 승인·물리 P2 보완 대기 | 9740967e + 13249728; scoped 소스 승인·28/28·Chromium2/2, 닫기/안전영역 물리 지적2건 |
-| 5 | 모니터링 담당 범위·새 실행 보조 | 구현 반환·독립 검토 중 | 7455d16c;275단위·타입/빌드/UI0, Chromium108/109(상속 편집기1실패) |
+| 5 | 모니터링 담당 범위·새 실행 보조 | 독립 검토 불합격·보완1 배정 | 7455d16c; 기존275단위/108브라우저로 놓친 P2 세건, 후속/병합 차단 |
 | 6 | 제어 UI 개선 담당자(GPT-6.1 Sol/high) | 대기 | — |
 | 7 | 통계 페이지 담당자 | 대기 | — |
 | 8 | 설정 담당 → Shell 운영 담당 | 대기 | — |
@@ -156,6 +156,12 @@ Task5 parent checkpoint: targeted parent assertion RED→GREEN and fresh browser
 - [x] Step 5 — Update monitoring menu and commit `feat: refine monitoring map selection detail and log ux`; report shared map ownership returned and independent review before control.
 
 Task5 returned7455d16c fromBASEb0b31c2c; final fullreport/postcommit/sourcehash/clean/ownport cleanup read by coordinator. Fresh25files275tests/type/UI0/build/diff passed; required frozen five-file Chromium109=108PASS/1unchanged editor1000/8s FAIL(22.7s), no skip/limit relaxation. Earlier pre-detail390 fullviewEscape intermittent observation remains a review concern, not a claimed repair. Conditional monitoring-only Shell boundary, actualscene240/flowfooter, existing44 closehit safety restoration, explicit ID-scoped camera/scroll/focus, actual1000logs included. Fresh Task5 spec/quality review is pending; all22/native200/positive-safearea/two-sessionDB/root and Task4 physical2P2 still pending. Checked steps mean implemented/executed/returned, not independent approval or whole-request completion.
+
+Task5 independent review final138lines fully read: Spec❌/quality Needs changes, P2 I1–I3, no P0/P1/P3. Actual isolated GET-only browser confirms I1 known runtime row exits fault filter but selected/detail remain empty; I2 close/reopen and floorA2→B1→A2 revive oldstored cursor; I3 pending PaginationBar unmount loses keyboard focus to close and fails to return. Actor/site roundtrip is same source mechanism, not claimed browser evidence. Same writer receives narrow monitoring selection/log navigation source+tests/E2E/menu repair, clean RED→GREEN and scoped original reviewer re-review; no Task4 physical or Task6 product dispatch before approval. Savedpin runtime-late/partial/error selection, first-render scope isolation/no-fake0/410 recovery and stable pending control safety remain mandatory. Earlier390Escape three fresh independent passes are not a claimed intermittent repair. Prior checkboxes record original execution only; new repair gate below remains open.
+
+- [ ] Task5 fix1 — reproduce I1/I2/I3 with clean owned assertion RED; repair only selection validity and log scope/pending controls, retaining loading/partial/error and safety contracts.
+- [ ] Task5 fix1 — fresh focused/type/build/UI0, own frozen five-file browser evidence, monitoring menu and scoped feature commit/report/writer return.
+- [ ] Task5 fix1 — original reviewer scoped previous product7455d16c→repairHEAD re-review and all three findings resolved before further product dispatch.
 
 ### Task 6: 제어 직접 조작·단일 밝기·스케줄·공통 이력
 
