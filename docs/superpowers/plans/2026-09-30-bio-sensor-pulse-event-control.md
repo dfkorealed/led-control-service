@@ -130,6 +130,8 @@
 
 ### Task 8: 소프트웨어 end-to-end와 제품 OFF 검증
 
+**2026-10-01 사용자 범위 결정:** 로그인/CAD/지도 등 이번 BIO 연동과 관계없는 전체 저장소 실패 수정은 제외한다. 해당 실패 기록은 보존하되 BIO 완료 조건은 관련 UI·BIO 통합·실백엔드 경계 검증과 독립 검토로 한정한다. Task 8의 관련 소프트웨어 검증은 승인됐으며 다음 작업은 Task 9 실장비 검증이다.
+
 **Files:** Modify `apps/gateway/src/automation/software-automation-simulator.ts` 및 tests, API integration/`apps/web/e2e/automation-control-flow.spec.ts`; 기존 모바일 수동 밝기 입력 글꼴의 16px 계약을 만족하는 최소 CSS/Playwright 보완; Modify `docs/project-status.md`, `docs/menus/{control,settings,monitoring}.md`; 현장 실행 결과가 생기기 전에는 진단 보고서를 완료로 쓰지 않는다.
 
 **Interfaces:** Fixture simulator injects valid `bio-usb-pulse` only with an explicit test profile/healthy link. End-to-end verifies API save→V2 publish→V2 ACK→Gateway occurrence/telemetry→B mode/brightness restore, while product allowlist and capability remain OFF.
@@ -139,24 +141,30 @@ Task 8은 **8a Gateway/API synthetic integration·additive V2 BIO telemetry hand
 - [x] **8a 독립 소프트웨어 경계.** `c2587e03`으로 API 비활성 BIO 초안→V2 설정/ACK, Gateway test-only 펄스→B 적용·복원·장애·재시작/A RF 0건을 별도 통합 시험했다. strict V2 BIO telemetry producer/outbox를 추가해 V1-only outbox가 결과 뒤 FIFO를 막던 결함을 해결했고 malformed producer는 journal append 전에 거부한다. V1 wire/consumer, 제품 empty allowlist·capability OFF, enabled BIO 거부를 유지한다. Shared 446/446, Gateway 1,624/1,624, API 전체 직렬 3,046 passed/900 skipped, 일회용 DB 10/10, 타입/빌드 통과; 독립 검토 191개 집중·경쟁/재시작/버전 adversarial 통과. 실제 MQTT·RF·운영 DB 및 V2 API telemetry ingest/ACK는 미실행·미구현이다.
 - [x] **8b1 API BIO telemetry 영속·조회/ACK.** `8e3b4746`와 source 귀속·exact ACK 복구 보완 `f06b35d8`로 V2 event/ACK에 required `assignmentVersion`, 서버 snapshot의 assignment·원본 Fixture→MeshNode binding, durable event ledger·quarantine·projection·commit 후 ACK를 추가해 독립 재검토 승인했다. 지연된 첫 이벤트/새 occurrence도 A 교체 뒤에는 `stale_configuration` 감사+ACK만 남고, 이미 저장된 exact event는 재할당 후 현재 같은 site/Gateway 인증 범위 안에서 옛 ACK만 재발행한다. 출처 불명·hash 충돌은 수용하지 않는다. 시계 오류는 `untrusted_time` 감사+ACK, 실제 pulse/degraded/restorePending만 projection하며 configured read-back은 광학/전력 값으로 쓰지 않는다. V1 consumer·제품 enabled BIO 차단은 유지한다. Shared 447/447, Gateway 1,625/1,625, API 최종 전체 직렬 3,046 passed/932 skipped, 일회용 DB·snapshot 집중 46/46, API 타입/빌드·Prisma 검증과 독립 adversarial 재검토 통과. Migration·`docs/database-schema.md`·메뉴 문서 동시 갱신; 운영 DB/실장비 미적용.
 - [x] **8b2 Web 실제 telemetry 표시·모바일 잔여.** `cba7bf96`으로 서버 projection만 마지막 펄스·건강/장애·복원 대기·설정 read-back을 표시하고 null/remap 시 과거 증거를 제거한다. A 전체 규칙의 집계임을 밝히고 광학 출력/전력/readiness로 승격하지 않는다. 수동 모바일 숫자 입력을 공통 16px로, 이벤트 카드 실제 터치 면적을 52px 공통 Button으로 보완했다. Web 전체 2,657 passed/3 skipped, 타입/빌드·UI 정책 65/65·위반 0, control-map Playwright 29/29·automation 7/7 통과. 확장 Playwright는 **60/62**로 기존 모바일 이력 막대 114px >112px 두 건 실패이며 독립 검토에서도 재현했다. 제어·모니터링 문서 갱신·독립 검토 승인, 제품 OFF 유지.
-- [ ] **8c 안정 호스트 전체 gate·최종 QA.** `418b8423`·`012e69f5`·`f6a5107e`로 모바일 이력 114→110px(112px 상한·44px 터치 유지), 실제 MQTT topic의 V2 ACK→Prisma `channel` 누출, 일회용 실백엔드 lab의 V1/V2 협상·최종 revision/receipt oracle을 RED→GREEN 보완하고 독립 재검토 승인을 받았다. 관련 UI 62/62, BIO 일회용 DB 43/43, 실백엔드 lab/support 22 passed/2 opt-in skipped와 정확한 revision 2/4/6/8 수렴·미처리 ACK 0·시험 리소스 정리를 확인했다. lint/typecheck/build/diff check는 exit 0이지만 **최종 root test는 CAD 임시 폴더 ENOTEMPTY 1건으로 exit 1**, 전체 Chromium은 **451 passed/18 failed/17 skipped/2 미실행으로 exit 1**이다. 단독 CAD 3회 통과로 전체 결과를 대체하지 않는다. 남은 브라우저 실패는 첫 불일치만 읽기 전용으로 진단했으며 branch 간접 영향·전체 재검증은 미완료여서 전체 software gate는 아직 미통과다. 제품 BIO OFF·실장비/운영 DB 미변경.
+- [x] **8c BIO 관련 검증·독립 QA.** `418b8423`·`012e69f5`·`f6a5107e`로 모바일 이력 110px/44px 터치, 실제 MQTT V2 ACK의 Prisma scope, 실백엔드 lab의 협상·최종 확인 응답을 RED→GREEN 보완하고 독립 재검토 승인했다. 관련 UI 62/62, BIO 일회용 DB 43/43, 실백엔드 lab/support 22 passed/2 opt-in skipped, exact revision 2/4/6/8·미처리 ACK 0과 정리를 확인했다. lint/typecheck/build/diff check exit 0. 당시 전체 root test CAD ENOTEMPTY 1건·전체 Chromium 451 passed/18 failed/17 skipped/2 미실행의 exit 1 기록은 유지한다. 사용자가 2026-10-01 해당 별도 화면/fixture 수정을 이번 범위에서 제외했으므로 전체 저장소 실패를 BIO 완료 관문으로 삼지 않는다. 전체 저장소 PASS나 현장 HIL을 주장하지 않으며 제품 BIO OFF다.
 
 - [x] **Step 1: RED 통합 테스트 작성.** V1/V2, 펄스·B 복원·장애/재시작·A RF 0, telemetry/outbox/경쟁, 320/390px 입력·이력 레이아웃을 각 독립 경계에서 시험했다. 제품 positive BIO는 test-only profile에서만 시험한다.
 - [x] **Step 2: RED 확인.** Gateway/API/Playwright의 대상 결함과 실제 MQTT topic→Prisma `Unknown argument channel`, 오래된 receipt·미지원 V2 협상을 수정 전 실패로 재현했다.
 - [x] **Step 3: 최소 연결 구현.** strict V1 유지·V2 별도 ACK/telemetry, 영속 상태 조회, 시험 fixture profile을 연결했다. 제품 capability/allowlist는 비활성이고 실제 A/B 광학 제어를 주장하지 않는다.
 - [x] **Step 4: 전체 software gate 실행·실패 기록.** 최종 lint/typecheck/build/diff check와 관련 UI/BIO/lab은 통과했지만 최종 root test 1건·전체 Chromium 18건 실패로 **전체 PASS 아님**. Node 24 로컬 결과이며 Node 22 CI·실장비 HIL 증거가 아니다. CAD 단독 3회 통과 및 다른 Chromium 실패의 기준 상태를 실패 면책 근거로 사용하지 않는다.
 - [x] **Step 5: 독립 검토·커밋.** Task별 독립 QA와 8c 재검토에서 Critical/Important 0, 협상 oracle Minor를 RED→GREEN 보완하고 세 커밋에 저장했다. 전체 gate 실패 및 실제 A 자체 광학 밝기/`CD 13` 미검증·제품 OFF를 유지한다.
-- [ ] **전체 저장소 잔여 진단/범위 결정.** 읽기 전용 단독 조사에서 공개 `/` 랜딩과 과거 로그인/모니터링 진입 fixture 4건, 개발 모드 취소 요청을 카운트한 인증 회복 6건, CAD의 최신 monitoring/common-document/탭 fixture 4건, 배치 화면 clip 1건, 지도 로딩 지연 1건, 1,000등 선택/준비·19.5초 stall 1건의 첫 불일치를 구분했다. 원래 미실행된 권한 여정 2건은 단독 1 PASS/1 FAIL이고, 실패는 command retention clock이 빠진 fixture에서 발생했다. 수정/전체 재검증은 BIO 제어 범위를 넘어서는 별도 결정이 필요하며, 기준 커밋을 실행 비교하지 않아 이들을 검증된 baseline 실패라고 부르지 않는다. CAD root `ENOTEMPTY` 원인도 미확정이다.
+- [x] **전체 저장소 잔여의 범위 결정.** 사용자가 2026-10-01 관련 없는 로그인/CAD/지도 실패 수정은 제외했다. 읽기 전용 조사 결과와 당시 실패 기록은 보존하며 별도 구현/재실행은 하지 않는다. 기준 커밋 실행 비교가 없어 검증된 baseline 실패로 단정하지 않고 CAD root ENOTEMPTY 원인도 미확정으로 유지한다.
 
 ### Task 9: 별도 현장 운영 관문 — shadow, MQTT, B-only
+
+**2026-10-01 착수:** 사용자가 남은 실제 A/B 시험·서비스 연동을 진행하도록 지시했다. 이 지시를 현장 작업의 승인으로 기록하고, 매 행동 시작 때는 실제 참여 준비만 확인한다. 기존 상태를 백업한 최소 랩 연결 복구를 완료했고 펌웨어 담당자의 패킷/광학/liveness 반복 관찰 기준을 받았다. 오늘 전용 A 예비 시험 도구를 준비·검토하며 실제 START는 아직 실행하지 않았다.
 
 **Files:** Update `docs/project-status.md` and relevant `docs/menus/{control,settings,monitoring}.md` only as each real gate completes; create diagnostic evidence under `docs/diagnostics/bio-sensor-motion-<date>/` only after authorized HIL. Do not modify production DNS, DB, credentials or certificate material as part of this task.
 
 **Interfaces:** Shadow HIL report separately records timed human markers, A optical brightness, `sensor` mode read-back, `0x09` and `0x0c` arrivals, packet evidence hash, fingerprint, independent health evidence, Pi/phone clock error bound, and `physicalTimingVerified`. MQTT gate records original/restored hosts/assignment/bootstrap and three **new** heartbeats. B-only report adds B optical/read-back apply and restore to the same timeline.
 
 - [ ] **Step 1: 현장 승인·사전 상태.** 사용자와 shadow 창·원복을 합의하기 전 Pi/B를 바꾸지 않는다. original container/identity/mapping/assignment, A/B brightness/mode, MQTT endpoint·SAN·신뢰 체인을 읽기 전용으로 기록한다.
+  - [x] 오늘 전용 fresh scratch `/tmp/bio-probe-20261001.Wz4jVBPH`, one-use phase/token, fixed 300초 A-only·B SET 금지, durable original 및 exact raw/mode 복원, 별도 행동/광학/시계 기록을 준비했다. Node24와 별도 local Node22에서 각 131/131 통과. 실제 Pi image fixture/HIL과 구분한다.
+  - [x] 독립 검토: Important 2건을 재현했다. UTC 역행 시 Date.now-only 복원 deadline 연장, action/optical exact replay·closed window·1970 click POST 허용. safety/driver/host fail-closed 보호와 파일 hash는 확인됐으나 live 실행은 보류한다.
+  - [ ] fresh scratch의 독립 monotonic restore deadline/signal과 live marker one-use·active/expiry 경계를 보완하고 회귀·hash 갱신·독립 재검토한다. 오래된 증거와 제품 소스는 바꾸지 않는다.
+  - [ ] exact Pi image의 network-none/no-USB fixture, remote owner/hash/empty evidence, 현재 장비/clock 사전 점검과 사용자 현장 준비를 확인한다. 이 관문과 실제 START/HIL은 아직 미실행이다.
 - [ ] **Step 2: shadow HIL.** 최소 10회 독립 행동 주기, 장시간 정지/지속 움직임, USB 분리/재시작, sequence/loss, 독립 `0x0c` 건강 성질과 시계 오차를 검증하고 원시 hash를 보존한다. A의 실제 광학 출력·`sensor` 모드 read-back·`0x09` 수신 시각을 같은 동기화된 타임라인에 두고 자체 밝기 반응을 별도로 확인한다. `CD 13`을 이용한 A 밝기 설정 가능성은 별도 승인된 실험/원복 및 설계 관문으로 분리하고 현재 UI에는 노출하지 않는다. 실패하거나 펄스 가설·A 밝기 기대가 흔들리면 capability OFF로 유지한다.
-- [ ] **Step 3: 로컬 MQTT 복구.** 실행 당일 현재 IP·hosts·assignment/bootstrap·SAN/체인을 다시 읽기 전용 확인하고 백업/원복을 확보한다. 승인된 랩 DNS hostname만 최소 수정하고 DNS→TCP→TLS/mTLS→MQTT CONNACK→신규 heartbeat 3회로 검증한다. hostname 검증 해제·임의 인증서 재발급·production DNS/DB 변경은 하지 않는다. 실패 시 즉시 원복하고 USB/mapping/조명 상태를 확인한다.
+- [x] **Step 3: 로컬 MQTT 복구.** 2026-10-01 현재 랩 주소와 DNS SAN을 검증했다. 만료된 MQTT/device 중간 공개 CRL 두 개는 Vault가 이미 서명한 fresh 본문의 issuer·동일 폐기 내역·Root block을 검증해 기존 atomic publisher로 반영하고 정확한 broker에 reload했다. 보호된 원본 백업 뒤 Pi/기존 container hosts와 assignment의 MQTT DNS URL만 수정했다. 동일 container·image를 유지한 중단 3.858초 후 DNS/TCP/엄격한 TLS/mTLS, healthy·MQTT=true, 신규 DB heartbeat 3건 이상, mapping/identity/USB 불변·대기 명령 0을 확인했고 총괄도 최신 health를 독립 조회했다. 원복 백업은 보존한다. 새 인증서/키/폐기·DB migration/조명 명령은 없다. Wire 전체 SET 개수의 별도 계측은 미실행이다. 불변 container env의 이전 bootstrap IP는 현재 assignment/identity 경로에서 미사용이지만 향후 재등록 전 보완해야 하며, fresh CRL nextUpdate는 2026-10-02 14:38 KST다.
 - [ ] **Step 4: B-only live 시험.** shadow, MQTT, 운영 담당자/최대 조치시간/연락 실패 정책과 사용자 현장 승인을 모두 받은 뒤 A sensor mode read-back, B 사전 brightness/mode read-back, 기본 60초, 이후 10초 순으로 한 B만 시험한다. 같은 타임라인에 A 광학 출력·펄스·B 출력 및 복원을 남긴다. 적용·복원 read-back과 장애/degraded를 기록한다. 그 전에는 제품 capability OFF다.
 - [ ] **Step 5: 관문 판정.** 실제 증거에 한해서 상태판/메뉴 문서를 갱신하고, 실패 시 원복과 capability OFF를 명시한다. 별도 펌웨어 조합은 새 fingerprint/health 검증 없이 자동 지원하지 않는다.
 
@@ -169,7 +177,7 @@ Task 8은 **8a Gateway/API synthetic integration·additive V2 BIO telemetry hand
 - [x] Task 5 — API/DB versioning·V2 ACK·별도 sensor-mode operation (`5a`~`5c2` 소프트웨어·독립 검토 완료; 제품 OFF, 운영 DB 미적용)
 - [x] Task 6 — A source 보호 (`ba528582`; 집중·타입·빌드/독립 검토 통과, 전체 canonical 재검증 Task 8 대기)
 - [x] Task 7 — Web UI (`139916c3`, `7631e40f`; BIO/핀치와 unit/타입/빌드 독립 검토 통과, 기존 수동 모바일 Playwright 2건 Task8 잔여)
-- [ ] Task 8 — software 구현·독립 검토는 수행, 전체 root/Chromium gate 미통과(CAD 1·Chromium 18), 제품 OFF 유지
-- [ ] Task 9 — 승인 후 shadow/MQTT/B-only 현장 관문
+- [x] Task 8 — 사용자 지정 BIO 관련 software 검증·독립 검토 완료, 전체 저장소 실패 수정은 이번 범위에서 제외하고 기록 유지, 제품 OFF
+- [ ] Task 9 — 사용자 진행 지시 수신·랩 연결 복구 완료, 오늘 전용 A pilot의 독립 검토 Important 2건 보완·현장 준비 대기
 
-현재 이 계획은 **소프트웨어 구현 후 전체 gate 잔여 진단 상태**다. 일부 자동 검증과 독립 검토 통과는 현장 시험·제품 지원 완료를 뜻하지 않는다. 총괄은 각 상태 변경을 `docs/project-status.md`와 동기화한다.
+현재 이 계획은 **BIO 관련 소프트웨어 검증 완료 후 실제 장비 검증 착수 상태**다. 전체 저장소 실패는 별도 기록으로 유지하며, 소프트웨어 통과를 현장 시험·제품 지원 완료로 표현하지 않는다. 총괄은 각 상태 변경을 `docs/project-status.md`와 동기화한다.
