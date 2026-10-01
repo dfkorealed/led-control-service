@@ -36,8 +36,8 @@
 | Task | 담당 세션/역할 | 상태 | 커밋·검토 |
 | --- | --- | --- | --- |
 | 준비 | Shell·인증·운영 담당자 | 격리 실행 완료; root test 1건 실패 | lint/typecheck/build exit0, Gateway CLI timeout; API 전체 종료 요약 없음 |
-| 1 | Shell backend: 로그 API | 품질 승인·명세 보완 재검토 대기 | bd891e7e..5c1d313e; 날짜 경계 P3 보완 |
-| 2 | Shell backend: 개인 알람 읽음 | 대기 | — |
+| 1 | Shell backend: 로그 API | 완료·독립 명세/품질 승인 | 5c1d313e + 982f999a; focused119/119 |
+| 2 | Shell backend: 개인 알람 읽음 | 구현 배정 | Task1 DB 검증도 함께 수행 |
 | 3 | Shell 공통 UI | 대기 | — |
 | 4 | Shell 알람센터 소비 | 대기 | — |
 | 5 | 모니터링 페이지 담당자 | 대기 | — |
@@ -64,11 +64,13 @@ API와 공통 파일을 동시에 쓰지 않는다. Task 5는 `FloorScene`/`Floo
 - 새 v2 cursor는 principal/site/floor(모니터링)/fromDate/toDate/effective limit, 명령 query/stage를 canonical scope의 SHA-256 digest로 결합하고 원본 timestamp/id를 유지한다. 기존 모니터링 v1·명령 unversioned cursor는 새 날짜 필터가 없고 기존 limit 상한 안에서만 허용하며 구 query/stage 동작은 보존한다. 응답은 항상 v2를 발급한다. v2 조건/scope 불일치·잘못된 cursor는 400, 기존 모니터링 410/명령 400 만료 의미는 유지한다. cursor 상한 512bytes를 늘리지 않고 100자 검색어에서도 길이를 검증한다.
 - Preserve `items`, `nextCursor`, `generatedAt`, `retainedFrom`, `retentionEnabled`, ISO precision, same-time id descending, site outside search OR and content redaction. No new response fields/DB schema/shared exports are required.
 
-- [ ] Step 1 — Add tests `log_dates_pair_invalid_and_site_day_inclusive`, `log_dates_clamp_db_clock_dst_month_end`, `monitoring_limit_1000_preserves_floor_scope`, `history_v2_binds_actor_query_period_limit`, `log_cursor_ties_and_legacy_compatibility`: assert 1000 accepted/1001 rejected, lone date/impossible leapday/reversed rejected, Seoul 2026-10-01 ends 2026-10-01T15:00:00Z, LA DST day length honored, same timestamp IDs neither duplicated nor omitted, changed scope/limit/filter rejected, old compact default preserved, rollout OFF not silently enforced.
-- [ ] Step 2 — Run `pnpm --filter @led-control/api run test --runInBand --runTestsByPath src/retention/log-date-range.spec.ts src/monitoring-activity/monitoring-activity.controller.spec.ts src/monitoring-activity/monitoring-activity.service.spec.ts src/commands/command-status.service.spec.ts src/commands/commands.controller.spec.ts`; record expected assertion failures before implementation (not import/environment failures). `run test`로 Jest 인자를 전달하며 pnpm 자체 인자 오류는 RED 증거가 아니다.
-- [ ] Step 3 — Implement these query/helper/cursor interfaces with DB transaction boundary and existing read authorization. Read Site timezone inside authorized scope; no fallback to device timezone. Keep existing deletion/retention workers and command detail routes unchanged.
-- [ ] Step 4 — Run the same tests, API typecheck/build, shared response compatibility tests, `git diff --check`; record counts/exit and opt-in integration status separately. Integration DB verification is completed in Task2/9 with disposable infrastructure.
-- [ ] Step 5 — Update monitoring/control menu limitations and commit `feat: add date-scoped paginated operation logs`; submit base/head, RED/GREEN outputs and exact producer contract for independent review.
+- [x] Step 1 — Add tests `log_dates_pair_invalid_and_site_day_inclusive`, `log_dates_clamp_db_clock_dst_month_end`, `monitoring_limit_1000_preserves_floor_scope`, `history_v2_binds_actor_query_period_limit`, `log_cursor_ties_and_legacy_compatibility`: assert 1000 accepted/1001 rejected, lone date/impossible leapday/reversed rejected, Seoul 2026-10-01 ends 2026-10-01T15:00:00Z, LA DST day length honored, same timestamp IDs neither duplicated nor omitted, changed scope/limit/filter rejected, old compact default preserved, rollout OFF not silently enforced.
+- [x] Step 2 — Run `pnpm --filter @led-control/api run test --runInBand --runTestsByPath src/retention/log-date-range.spec.ts src/monitoring-activity/monitoring-activity.controller.spec.ts src/monitoring-activity/monitoring-activity.service.spec.ts src/commands/command-status.service.spec.ts src/commands/commands.controller.spec.ts`; record expected assertion failures before implementation (not import/environment failures). `run test`로 Jest 인자를 전달하며 pnpm 자체 인자 오류는 RED 증거가 아니다.
+- [x] Step 3 — Implement these query/helper/cursor interfaces with DB transaction boundary and existing read authorization. Read Site timezone inside authorized scope; no fallback to device timezone. Keep existing deletion/retention workers and command detail routes unchanged.
+- [x] Step 4 — Run the same tests, API typecheck/build, shared response compatibility tests, `git diff --check`; record counts/exit and opt-in integration status separately. Integration DB verification is completed in Task2/9 with disposable infrastructure.
+- [x] Step 5 — Update monitoring/control menu limitations and commit `feat: add date-scoped paginated operation logs`; submit base/head, RED/GREEN outputs and exact producer contract for independent review.
+
+Task1 evidence: assertion RED23/89; initial focused114 passed/12 opt-in skipped; repair RED3/116→GREEN119/119, API typecheck/build exit0. Initial API3012/827 skipped and Shared411 are pre-repair evidence; not fresh whole-root results. Independent task and scoped re-review approve spec and quality. Actual PostgreSQL date/1000-row traversal remains Task2/9, whole-root final gate remains Task9. Unrelated failure-fixture logger noise P3 is deferred for final triage.
 
 ### Task 2: 계정별 영속 알람 읽음 producer
 
