@@ -3,13 +3,13 @@ import {
   acceptanceAckV2Schema,
   applicationProvisioningDeviceTerminalIngestedAckV2Schema,
   applicationStateIngestedAckV2Schema,
-  automationConfigAppliedDeliveryV1Schema,
-  automationConfigAppliedReceiptV1Schema,
-  automationCurrentConfigRequestV1Schema,
+  automationConfigAppliedDeliverySchema,
+  automationConfigAppliedReceiptSchema,
+  automationCurrentConfigRequestSchema,
   automationExecutionActionResultPayloadV1Schema,
   automationExecutionEventV1Schema,
   automationExecutionIngestedAckV1Schema,
-  automationSnapshotV1Schema,
+  automationSnapshotSchema,
   deviceStatusAckV2Schema,
   fixtureStateV2Schema,
   gatewayHeartbeatV2Schema,
@@ -323,6 +323,7 @@ export class RealBackendLab {
   private mqttProcess?: ChildProcess;
   private automationGateway?: ChildProcess;
   private automationGatewayEnvironment?: NodeJS.ProcessEnv;
+  private readonly automationAssignmentVersion = 1;
   private automationConfigAckOutboxPath?: string;
   private automationSnapshotPath?: string;
   private automationTelemetryOutboxPath?: string;
@@ -603,13 +604,16 @@ export class RealBackendLab {
       gatewayId: this.gateway.id,
       serialNumber: this.gateway.serialNumber,
       mqttUrl: `mqtts://localhost:${this.ports.mqtt}`,
-      configVersion: 1
+      configVersion: this.automationAssignmentVersion
     }, null, 2)}\n`, { mode: 0o600 });
     await writeFile(eventSequencePath, `${JSON.stringify({ sequence: this.eventSequence })}\n`, { mode: 0o600 });
     const certificateName = `gateway-${this.gateway.id.replaceAll(/[^a-zA-Z0-9._-]/g, "_")}`;
     const identity = await this.seedGatewayIdentityStores(gatewayDir, certificateName);
     this.automationGatewayEnvironment = {
       NODE_ENV: "test",
+      // This child owns a separate localhost mTLS broker, not the developer's
+      // fixed local-app endpoint. Keep inherited/dotenv deployment settings out.
+      DEV_LOCAL_APP_ONLY: "0",
       AUTOMATION_E2E_SIMULATOR: "1",
       AUTOMATION_E2E_SIMULATOR_IPC_TOKEN: this.automationIpcToken,
       AUTOMATION_E2E_SIMULATOR_FIXTURES: JSON.stringify([
@@ -637,6 +641,7 @@ export class RealBackendLab {
       MQTT_CLIENT_KEY_PATH: identity.mqttKeyPath,
       GATEWAY_HEALTH_PATH: join(gatewayDir, "health.json"),
       GATEWAY_COMMAND_JOURNAL_PATH: join(gatewayDir, "command-journal.json"),
+      GATEWAY_SENSOR_MODE_JOURNAL_PATH: join(gatewayDir, "sensor-mode-journal.json"),
       GATEWAY_EVENT_SEQUENCE_PATH: eventSequencePath,
       GATEWAY_PROVISIONING_SCAN_JOURNAL_PATH: join(gatewayDir, "provisioning-scan-journal.json"),
       // All durable Gateway state in this child must stay inside the disposable lab.
@@ -649,6 +654,7 @@ export class RealBackendLab {
       GATEWAY_AUTOMATION_STATE_PATH: join(gatewayDir, "automation-state.json"),
       GATEWAY_AUTOMATION_TELEMETRY_OUTBOX_PATH: automationTelemetryOutboxPath,
       GATEWAY_AUTOMATION_ACK_OUTBOX_PATH: automationConfigAckOutboxPath,
+      GATEWAY_AUTOMATION_PROTOCOL_REVISION_PATH: join(gatewayDir, "automation-protocol-revision.json"),
       GATEWAY_VEHICLE_SENSOR_CAPABILITY_JOURNAL_PATH: join(gatewayDir, "vehicle-sensor-capabilities.json")
     };
     await this.launchAutomationGateway();
@@ -727,7 +733,9 @@ export class RealBackendLab {
         ) {
           throw new Error("database, local snapshot, and durable ACK state are not converged");
         }
-        const protocol = this.readAutomationProtocolEvidence(evidenceCursor);
+        const protocol = this.readAutomationProtocolEvidence(evidenceCursor, {
+          revision: state.desiredRevision, payloadHash: state.payloadHash
+        });
         const evidence = {
           scenario: label,
           stage: "application-protocol-converged",
@@ -838,7 +846,7 @@ export class RealBackendLab {
 
   async publishLatestDesiredSnapshotAsApiPrincipal() {
     const installation = this.requireInstallation();
-    const snapshot = automationSnapshotV1Schema.parse(await this.queryJson<unknown>(`
+    const snapshot = automationSnapshotSchema.parse(await this.queryJson<unknown>(`
       SELECT outbox.payload
       FROM "GatewayAutomationConfiguration" configuration
       JOIN "MqttOutbox" outbox
@@ -1744,7 +1752,7 @@ export class RealBackendLab {
   private async readLocalAutomationSnapshot() {
     const path = this.automationSnapshotPath;
     if (!path) throw new Error("Gateway automation snapshot path is unavailable");
-    return automationSnapshotV1Schema.parse(JSON.parse(await readFile(path, "utf8")));
+    return automationSnapshotSchema.parse(JSON.parse(await readFile(path, "utf8")));
   }
 
   private async readAutomationConfigAckRecords() {
@@ -1757,10 +1765,10 @@ export class RealBackendLab {
       value.scope.siteId !== installation.siteId || value.scope.gatewayId !== this.gateway.id ||
       !Array.isArray(value.records)
     ) throw new Error("Gateway automation config ACK outbox identity or shape mismatch");
-    return value.records.map((record) => automationConfigAppliedDeliveryV1Schema.parse(record));
+    return value.records.map((record) => automationConfigAppliedDeliverySchema.parse(record));
   }
 
-  private readAutomationProtocolEvidence(evidenceCursor: number) {
+  private readAutomationProtocolEvidence(evidenceCursor: number, expected: { revision: number; payloadHash: string }) {
     const installation = this.requireInstallation();
     const topics = {
       request: mqttTopics.automationCurrentConfigRequest(installation.siteId, this.gateway.id),
@@ -1770,25 +1778,37 @@ export class RealBackendLab {
     };
     const evidence = this.mqttEvidence.slice(evidenceCursor);
     const requestEntry = evidence.find((entry) => entry.topic === topics.request && "payload" in entry);
-    const snapshotEntry = evidence.find((entry) => entry.topic === topics.snapshot && "payload" in entry);
+    const snapshots = evidence
+      .filter((entry) => entry.topic === topics.snapshot && "payload" in entry)
+      .map((entry) => automationSnapshotSchema.parse(entry.payload));
     const deliveries = evidence
       .filter((entry) => entry.topic === topics.delivery && "payload" in entry)
-      .map((entry) => automationConfigAppliedDeliveryV1Schema.parse(entry.payload));
+      .map((entry) => automationConfigAppliedDeliverySchema.parse(entry.payload));
     const receipts = evidence
       .filter((entry) => entry.topic === topics.receipt && "payload" in entry)
-      .map((entry) => automationConfigAppliedReceiptV1Schema.parse(entry.payload));
-    if (!requestEntry || !snapshotEntry || deliveries.length === 0 || receipts.length === 0) {
+      .map((entry) => automationConfigAppliedReceiptSchema.parse(entry.payload));
+    if (!requestEntry || snapshots.length === 0 || deliveries.length === 0 || receipts.length === 0) {
       throw new Error("request, snapshot, config-applied delivery, or application receipt evidence is missing");
     }
-    const request = automationCurrentConfigRequestV1Schema.parse(requestEntry.payload);
-    const snapshot = automationSnapshotV1Schema.parse(snapshotEntry.payload);
-    const receipt = receipts.find((candidate) => deliveries.some((delivery) => (
+    const request = automationCurrentConfigRequestSchema.parse(requestEntry.payload);
+    const matchesSnapshot = (snapshot: ReturnType<typeof automationSnapshotSchema.parse>, receipt: ReturnType<typeof automationConfigAppliedReceiptSchema.parse>) => (
+      snapshot.revision === expected.revision && snapshot.payloadHash === expected.payloadHash &&
+      snapshot.schemaVersion === receipt.schemaVersion && snapshot.siteId === receipt.siteId &&
+      snapshot.gatewayId === receipt.gatewayId && snapshot.revision === receipt.acknowledgement.revision &&
+      snapshot.payloadHash === receipt.acknowledgement.payloadHash && receipt.acknowledgement.status === "applied"
+    );
+    const receipt = receipts.find((candidate) => snapshots.some(snapshot => matchesSnapshot(snapshot, candidate)) && deliveries.some((delivery) => (
+      delivery.schemaVersion === candidate.schemaVersion && delivery.siteId === candidate.siteId && delivery.gatewayId === candidate.gatewayId &&
       delivery.acknowledgementId === candidate.acknowledgementId &&
       isDeepStrictEqual(delivery.acknowledgement, candidate.acknowledgement)
     )));
     if (!receipt) throw new Error("config-applied receipt does not match an exact durable ACK delivery");
+    // First connect can contain both the pre-declaration V1 and negotiated V2
+    // snapshots. Bind evidence to the exact acknowledged version/hash/revision.
+    const snapshot = snapshots.find(snapshot => matchesSnapshot(snapshot, receipt))!;
     if (
       request.siteId !== installation.siteId || request.gatewayId !== this.gateway.id ||
+      (request.schemaVersion === 2 && request.assignmentVersion !== this.automationAssignmentVersion) ||
       snapshot.siteId !== installation.siteId || snapshot.gatewayId !== this.gateway.id ||
       receipt.siteId !== installation.siteId || receipt.gatewayId !== this.gateway.id
     ) throw new Error("automation convergence protocol scope mismatch");
@@ -1988,6 +2008,9 @@ export class RealBackendLab {
     const socket = encodeURIComponent(this.postgresSocketDir);
     if (this.isolatedCadStorage && !this.storagePort) throw new Error("Owned CAD storage must start before API configuration");
     return {
+      // Explicitly override parent env and later dotenv without relaxing the
+      // production local-app TLS guard for the developer's separate endpoint.
+      DEV_LOCAL_APP_ONLY: "0",
       DATABASE_URL: `postgresql://led:led@localhost:${this.ports.postgres}/led_control?host=${socket}&schema=public`,
       REDIS_URL: `redis://127.0.0.1:${this.ports.redis}`,
       MQTT_URL: `mqtts://localhost:${this.ports.mqtt}`,

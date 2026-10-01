@@ -14,6 +14,7 @@
 
 ## 2026-10-01 BIO 통합 경계 — 소프트웨어, 제품 OFF
 
+- 구현 완료: V2 구성 ACK의 실제 MQTT topic 수신 경로에서 topic의 `channel`이 Prisma 조회 조건에 섞이던 오류를 수정했다. 지원 선언 조회에는 현장·Gateway·현재 assignment만 사용한다. 일회용 PostgreSQL 회귀는 topic 파싱부터 적용 번호·정확한 application receipt 저장과 Gateway ACK outbox 삭제까지 검사하며 제품 BIO 활성화와는 구분한다.
 - 구현 완료: 일회용 PostgreSQL에서 실제 규칙 서비스의 disabled BIO 10/60초 저장 → 현재 claim·인증서·assignment에 묶인 V2 지원 선언 → V2 outbox 발행·전체 해시 → Gateway 파일 저장·V2 ACK·API 수신 확인을 연결했다. V1 5초 BlueZ 회귀, 미지원/인증 근거 상실/할당 변경/하향 선언과 잘못된 버전·해시 ACK의 차단을 함께 검증한다. API와 Gateway의 enabled BIO 거부는 유지한다.
 - 구현 완료: 별도 in-process 시험 경로에서만 명시적 합성 profile·독립 healthy link와 CRC16 `0x09` 프레임을 decoder/intake/runtime에 연결했다. 10/60초 연장·B의 설정 밝기와 mode 복원·degraded/재시작 후 전체 건강 관찰창·A 쓰기 0건을 실제 파일 저널로 검증한다. 제품 bootstrap·환경변수·IPC에 BIO 양성 시험 입력은 연결하지 않았다.
 - 구현 완료: BIO 수명주기·설정 read-back 결과는 별도 strict V2 telemetry로 outbox에 전달한다. malformed payload는 저널 append 전에 거절하고 장애·복구·연장 이력은 합치지 않는다. 연결 단절·파일 재시작·재접속 동안 순서·event identity·해시를 보존하며 broker 접수만으로 삭제하지 않는다. MQTT transport와 B 장비 read-back은 시험용 대체물이며 실제 broker/RF 검증이 아니다.

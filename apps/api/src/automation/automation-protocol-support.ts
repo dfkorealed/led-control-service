@@ -26,7 +26,9 @@ export async function loadAutomationProtocolSupport(tx: Prisma.TransactionClient
   const identity = await lockAutomationProtocolIdentity(tx, scope);
   if (!identity) return 1;
   const declaration = await tx.gatewayAutomationProtocolSupport.findFirst({
-    where: { ...scope, assignmentVersion: identity.assignmentVersion },
+    // MQTT topic scopes also carry `channel` at runtime. TypeScript's narrower
+    // Scope type does not remove it; only persisted identity fields belong here.
+    where: { siteId: scope.siteId, gatewayId: scope.gatewayId, assignmentVersion: identity.assignmentVersion },
     orderBy: { declarationRevision: "desc" }
   });
   return declaration?.maxSnapshotVersion === 2 ? 2 : 1;

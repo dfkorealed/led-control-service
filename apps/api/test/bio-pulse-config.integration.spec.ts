@@ -86,6 +86,22 @@ const { AutomationConfigAckOutbox } = require("../../gateway/src/automation/auto
     return { runtime, acknowledgements, delivery };
   }
 
+  it("ingests a V2 ACK through its MQTT topic without leaking channel into the Prisma scope", async () => {
+    await rules.create(siteId, actor, input());
+    const snapshot = await declare();
+    const g = await gateway(snapshot as AutomationSnapshot);
+    await consumer.handleMessage(mqttTopics.automationConfigApplied(siteId, gatewayId), Buffer.from(JSON.stringify(g.delivery)));
+    expect(await prisma.gatewayAutomationConfiguration.findUniqueOrThrow({ where: { gatewayId } }))
+      .toMatchObject({ desiredRevision: snapshot!.revision, appliedRevision: snapshot!.revision, syncStatus: "APPLIED" });
+    const receipt = await prisma.mqttOutbox.findUniqueOrThrow({
+      where: { applicationAckKey: `automation-config-applied:${gatewayId}:${g.delivery.acknowledgementId}` }
+    });
+    expect(receipt.topic).toBe(mqttTopics.automationConfigAppliedReceipt(siteId, gatewayId));
+    expect(receipt.payload).toMatchObject({ ...g.delivery });
+    expect(await g.acknowledgements.acknowledge(receipt.payload)).toBe("deleted");
+    expect(await g.acknowledgements.pending()).toEqual([]);
+  });
+
   it.each([10, 60])("saves disabled %ss BIO, negotiates V2, publishes exact hash, and converges exact Gateway ACK", async holdSeconds => {
     const draft = await rules.create(siteId, actor, input({ holdSeconds }));
     expect(await latest()).toMatchObject({ schemaVersion: 1, vehicleEventRules: [] });
