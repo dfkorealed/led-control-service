@@ -8,6 +8,7 @@
 - 부족하거나 개선이 필요한 기능: 이번 지원은 로그 읽기 producer 계약이며 명령 상세/복구/Get/Set·worker·rollout flag를 변경하거나 운영 활성화하지 않는다. 일회용 DB opt-in 통합·독립 리뷰와 웹 소비 검증은 별도 완료 증거가 필요하다.
 - 관련 파일: `apps/api/src/retention/log-date-range.ts`, `apps/api/src/commands/command-status.service.ts`, `commands.controller.ts`와 관련 단위 테스트.
 - 갱신 규칙: API 날짜·limit·v2/legacy cursor 계약과 UI 적용 상태를 따로 기록하고, 보존 OFF/ON·인가·검색 OR의 Site 격리·동일 시각 ID tie-break·응답 요약/메타데이터를 회귀 검증한다.
+- 날짜 경계 보완: 현장 시간대에서 실제로 존재하지 않는 시작일·종료일을 선택하면 400으로 거부한다. 유효한 종료일 다음 날짜만 시간대 전환으로 사라진 경우에는 다음 실제 날짜 시작을 종료 경계로 사용하며, 보존 범위 밖의 유효한 기간은 그대로 빈 교집합이다. Pacific/Apia 역사 경계는 단위 테스트 증거이며 실제 DB 검증은 후속이다.
 
 ## 2026-09-27 종료 명령 상세 정리 helper와 기본 OFF worker
 

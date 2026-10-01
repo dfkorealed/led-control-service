@@ -54,6 +54,29 @@ describe("operation log calendar range", () => {
       .toEqual({ start: clock.retainedFrom, end: new Date("2026-01-03T00:00:00.000Z") });
   });
 
+  it("ends a valid Apia day at the first actual instant after its skipped successor", () => {
+    expect(resolveRange({ fromDate: "2011-12-29", toDate: "2011-12-29" }, "Pacific/Apia",
+      { generatedAt: clock.generatedAt }))
+      .toEqual({ start: new Date("2011-12-29T10:00:00.000Z"), end: new Date("2011-12-30T10:00:00.000Z") });
+  });
+
+  it("keeps a valid Apia day before the cutoff as an empty intersection", () => {
+    expect(resolveRange({ fromDate: "2011-12-29", toDate: "2011-12-29" }, "Pacific/Apia", clock))
+      .toEqual({ start: clock.retainedFrom, end: new Date("2011-12-30T10:00:00.000Z") });
+  });
+
+  it.each([
+    { fromDate: "2011-12-29", toDate: "2011-12-30" },
+    { fromDate: "2011-12-30", toDate: "2011-12-31" },
+  ])("rejects an absent selected Apia endpoint rather than normalizing %p", input => {
+    expect(() => resolveRange(input, "Pacific/Apia", clock)).toThrow(BadRequestException);
+  });
+
+  it("rejects an exclusive successor outside the supported four-digit calendar", () => {
+    expect(() => resolveRange({ fromDate: "9999-12-31", toDate: "9999-12-31" }, "UTC", clock))
+      .toThrow(BadRequestException);
+  });
+
   it.each([undefined, "", "not/a-zone"])("never falls back to the host zone for missing/invalid persisted zone %s", zone => {
     expect(() => resolveRange({ fromDate: "2026-10-01", toDate: "2026-10-01" }, zone as string, clock)).toThrow();
   });

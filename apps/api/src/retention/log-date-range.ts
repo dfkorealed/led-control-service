@@ -1,5 +1,5 @@
 import { BadRequestException } from "@nestjs/common";
-import { addCalendarDays, parseCalendarDate, startOfLocalDate } from "../energy/energy-periods";
+import { addCalendarDays, formatCalendarDate, parseCalendarDate, startOfLocalDate } from "../energy/energy-periods";
 
 export type LogDateRangeInput = { fromDate?: string; toDate?: string };
 
@@ -38,10 +38,25 @@ export function resolveLogDateRange(input: LogDateRangeInput, timeZone: string,
   let start: Date, requestedEnd: Date;
   try {
     start = startOfLocalDate(parseCalendarDate(input.fromDate), timeZone);
-    requestedEnd = startOfLocalDate(addCalendarDays(parseCalendarDate(input.toDate), 1), timeZone);
+    const endingDate = parseCalendarDate(input.toDate);
+    // Both selected endpoints must exist locally. Only the exclusive successor
+    // may skip absent days (e.g. Apia 2011-12-30), without adding fixed 24h.
+    startOfLocalDate(endingDate, timeZone);
+    let successor = addCalendarDays(endingDate, 1);
+    for (;;) {
+      // Keep the existing four-digit calendar boundary; never search beyond it.
+      parseCalendarDate(formatCalendarDate(successor));
+      try {
+        requestedEnd = startOfLocalDate(successor, timeZone);
+        break;
+      } catch (error) {
+        if (!(error instanceof RangeError)) throw error;
+        successor = addCalendarDays(successor, 1);
+      }
+    }
   } catch {
-    // A valid Gregorian date can still be absent in a zone (e.g. a skipped
-    // local calendar day). Reject it instead of normalizing to another day.
+    // A selected Gregorian endpoint can be absent locally. Do not normalize
+    // that user-selected date, even when its range is older than retainedFrom.
     throw new BadRequestException("invalid log date range");
   }
   if (boundary.retainedFrom && start < boundary.retainedFrom) start = boundary.retainedFrom;

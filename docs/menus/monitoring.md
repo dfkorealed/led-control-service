@@ -8,6 +8,7 @@
 - 부족하거나 개선이 필요한 기능: 이번 API 단위 회귀와 전체 소프트웨어 검증은 실제 사용자 DB·장비 또는 운영 적용 증거가 아니다. 일회용 PostgreSQL opt-in 통합과 독립 검토는 별도 관문으로 기록한다. 명령/incident 보존 및 기존 활동 삭제 worker를 변경하지 않는다.
 - 관련 파일: `apps/api/src/retention/log-date-range.ts`, `apps/api/src/monitoring-activity/monitoring-activity.{controller,service}.ts`, 관련 단위·통합 테스트.
 - 갱신 규칙: producer 지원과 웹 소비 적용을 구분하고 paired 날짜 검증·현장 시간대/DST·DB 시각·scope/조회 크기 cursor·동일 시각 ID 순서·legacy 호환 및 opt-in 실행 여부를 함께 유지한다.
+- 날짜 경계 보완: 현장 시간대에서 실제로 존재하지 않는 시작일·종료일을 선택하면 400으로 거부한다. 유효한 종료일 다음 날짜만 시간대 전환으로 사라진 경우에는 다음 실제 날짜 시작을 종료 경계로 사용하며, 보존 범위 밖의 유효한 기간은 그대로 빈 교집합이다. Pacific/Apia 역사 경계는 단위 테스트 증거이며 실제 DB 검증은 후속이다.
 
 ## 2026-09-27 종료 명령의 연결 활동 사본 정리
 
