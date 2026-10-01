@@ -1,8 +1,8 @@
 # 메뉴 완성 작업 상태판
 
-기준일: 2026-09-30
+기준일: 2026-10-01
 
-## 2026-09-30 BIO 센서 펄스형 이벤트 제어 — 설계 명세 검토 대기
+## 2026-09-30 BIO 센서 펄스형 이벤트 제어 — 소프트웨어 구현·검토, 전체 검증/현장 관문 대기
 
 - [x] A 조명 단일 센서 시험의 보존 증거와 사후 확인을 재검토했다. `0x09` 후보는 움직임 예정 구간뿐 아니라 정지 예정 구간에도 수신됐고 마지막 범위 밖 구간에는 없었으나, 행동 시각은 대략값이고 휴대폰–Pi 시계 오차 한계가 없어 상태형 감지/해제 의미나 정확한 물리 상관관계는 확정하지 않는다. 원본 증거는 별도 `codex/bio-sensor-motion-test-resume-20260929` 브랜치에 보존돼 있다.
 - [x] 사용자가 A는 센서 전용, B는 이벤트 대상인 펄스형 접근과 BIO 유지시간 최소 10초·기본 60초·UI에서 변경 가능한 동작을 승인했다. 10초 설정에서 신호 공백으로 B가 꺼졌다 다시 켜질 수 있는 한계도 승인했다. [새 설계 명세](superpowers/specs/2026-09-30-bio-sensor-pulse-event-control-design.md)는 이전 상태형 가정을 대체하며, 제품 capability와 실제 이벤트 동작은 아직 OFF다.
@@ -22,7 +22,8 @@
 - [x] Task 8a의 두 별도 소프트웨어 경계를 `c2587e03`으로 구현·독립 검토했다. API 비활성 BIO 초안→V2 지원 선언·설정/hash/ACK와 Gateway 시험 전용 건강한 펄스→B 적용·10/60초 연장·장애/재시작·원래 설정 복원을 분리해 검증했다. BIO action-result가 V1 전용 전송 대기열을 막던 결함은 strict additive V2 telemetry와 기록 전 검증으로 해결했다. A RF write 0건, V1 consumer 불변, 제품 enabled BIO 거부·allowlist/capability OFF를 유지한다. Shared 전체 446, Gateway 전체 1,624, API 전체 직렬 3,046, 일회용 DB 10개 및 독립 집중 191개 통과. 실제 broker·장비·운영 DB는 미접속이고, API V2 telemetry 영속 수신/ACK/화면 조회는 아직 없다. 이 두 경로를 운영 end-to-end 성공으로 표현하지 않는다.
 - [x] Task 8b1의 V2 BIO telemetry 원장·현재 상태 조회·commit 후 ACK를 `8e3b4746`, 소스 교체 귀속·재할당 exact ACK 보완 `f06b35d8`로 구현·독립 재검토했다. Event에 원래 assignmentVersion을 고정하고 서버 snapshot의 당시 Fixture→MeshNode를 저장한다. 오래된 설정·시계 오류·교체 전 A 기록은 감사 격리+ACK만 하고 현재 마지막 펄스·장애 상태로 올리지 않는다. 이미 저장된 exact event는 현재 동일 site/Gateway 인증이 확인되면 재할당 뒤에도 ACK만 복구한다. Shared 447, Gateway 1,625, API 최종 직렬 3,046 테스트와 일회용 DB 집중 46개, 독립 추가 공격적 시험 3개 통과. 신규 migration·DB/제어·모니터링·설정 문서 갱신은 로컬에만 있고 운영 DB·브로커·장비에는 미적용이다. 제품 gate/allowlist는 OFF다.
 - [x] Task 8b2의 실제 BIO 기록 표시와 모바일 입력 개선을 `cba7bf96`으로 구현·독립 검토했다. 서버에 저장된 A 전체 규칙의 마지막 펄스·건강/장애·복원 대기만 표시하고 A 재매핑/null 시 과거 값을 지운다. B의 설정 read-back을 실제 광학 출력·전력으로 표현하지 않는다. 모바일 밝기 입력 16px, 이벤트 버튼 실제 터치 면적을 보완했다. Web 전체 2,657 테스트·타입/빌드·UI 정책, 지도/BIO 브라우저 29건 통과. 확장 브라우저는 **60/62로 미통과**: 기존 수동 이력 막대가 320/390px에서 114px로 높이 기준 112px를 2px 초과하며 독립 검토에서 재현했다. 제품 BIO OFF, 실장비·운영 DB 미변경.
-- [ ] Task 8c에서 모바일 이력 막대 2px 결함을 실제 UI에서 고치고 안정 호스트의 전체 테스트·빌드·브라우저 gate·최종 QA를 진행한다. BIO capability와 제품 allowlist는 검증 전 OFF다. Task 9의 shadow HIL, 로컬 MQTT 복구, B-only 실장비 시험은 각각 fresh preflight/백업/원복과 현장 실행 승인 후 진행하며 Pi·인증서·DNS·운영 DB를 임의로 변경하지 않는다.
+- [ ] Task 8c의 소프트웨어 수정·독립 검토는 `418b8423`·`012e69f5`·`f6a5107e`로 수행했다. 수동 모바일 이력 막대는 114→110px로 112px 상한·44px 터치를 만족한다. 실제 MQTT topic에서 V2 적용 확인을 서버가 저장하지 못하던 `channel`/Prisma 조회 오류를 RED→GREEN 수정했고, 일회용 실백엔드 시험에서 연결·재연결·규칙 삭제·서버 재시작마다 원하는/적용/로컬/확인 revision 2/4/6/8 및 hash 일치·미처리 ACK 0을 확인했다. 최종 관련 UI 62/62, BIO 일회용 DB 43/43, 실백엔드 lab/support 22 passed/2 opt-in skipped, lint/typecheck/build/diff check가 통과했고 시험 리소스는 정리됐다. 그러나 **최종 root test는 CAD 임시 폴더 `ENOTEMPTY` 1건으로 exit 1**, 전체 Chromium은 **451 passed/18 failed/17 skipped/2 미실행으로 exit 1**이다. CAD 단독 3회 통과나 직접 변경 파일 부재를 전체 실패의 면책으로 보지 않으며, 브라우저 실패의 branch 간접 영향은 아직 배제되지 않았다. 따라서 전체 software gate는 미통과다. 제품 BIO capability/allowlist는 OFF이고 실제 A 광학 자체 반응·B 실장비 제어, Pi/운영 DB·브로커는 미검증·미변경이다. Task 9 shadow HIL/현장 MQTT/B-only 시험은 별도 fresh preflight·원복과 현장 승인 뒤 진행한다.
+- [ ] 전체 브라우저 실패의 읽기 전용 단독 조사는 공개 `/` 랜딩과 로그인/모니터링 진입 가정 4건, 개발 모드의 취소 요청을 실제 재시도로 센 인증 회복 6건, CAD의 monitoring 응답·common-document·자료 탭 fixture 4건, 배치 화면의 보이지 않는 선택 좌표 1건, 지도 로딩 지연 1건, 1,000등 시험의 준비/겹친 클릭 대상 및 미확정 19.5초 지연 1건으로 첫 불일치를 분리했다. 최초 미실행 2건은 별도 1 PASS/1 FAIL이며 실패는 command retention 시각이 누락된 fixture에서 발생했다. 관련 소유 파일은 이번 BIO 브랜치에서 변경되지 않았으나 기준 커밋의 동등 실행 비교가 없어 **검증된 baseline 실패라고 단정하지 않는다**. 이들 별도 화면/fixture 수정과 전체 재검증은 BIO 구현 범위와 구분해 결정해야 한다.
 
 ## 2026-09-30 제조 일련번호 기반 최초 설치 — 구현 계획 검토 대기
 
