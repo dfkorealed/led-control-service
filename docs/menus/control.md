@@ -6,7 +6,8 @@
 - 미구현: 이 타이머를 사용한 새 전체 A 현장 시험과 반복/liveness/B 연동 시험. 이전 A 시험은 새로고침 오류로 중단·원복됐으며 성공한 HIL이 아니다. 제품 제어 페이지에 타이머를 추가하거나 BIO gate를 활성화한 작업이 아니다.
 - 부족하거나 개선이 필요한 기능: Node24/Node22·독립168/168과 실제 브라우저의 failed/inactive·새로고침만 확인했다. active 단계는 실제 HTML VM 검증이며 실제 RF/광학·Pi–Mac 시각 오차·사용자 반응 시간은 별도 검증이 필요하다. 사용된 phase/token/native 참조는 새 시험에 재사용하지 않는다.
 - 구현 완료(소프트웨어): 원격 전송의3초 유효시간을 별도 작은 영수증으로 확인하고 서버 조회·행동/광학 저장 직전에 검사한다. 화면은 남은 유효시간에서 요청 왕복 시간을 빼므로 GET·새로고침·서버 재시작이 만료를 연장하지 않는다. 종료 후 시계 비교는 기존 인증/window/issued sample/budget/replay 검증을 유지하며 전송 만료와 분리한다. Node24·격리Node22 각각183/183 및 scoped 독립 검토 지적0, 로컬8088 교체·인증 HTML/status 대기 상태까지 확인했다.
-- 부족하거나 개선이 필요한 기능: 실제 새 기록창/reload 확인은 앱 브라우저의 CDP focus timeout으로 미완료다. 보호된 새 주소 열기 요청과 탭 유지만 수행했으며 사용자 화면 확인·현재 현장 시작 신호 전 재START하지 않는다. 전송 최신성은 장비 프로세스 생존·물리 행동 시각의 증거가 아니다. 새 시험의 --run/게이트웨이 중단/USB/GET·SET0이고 제품 gate는 OFF다.
+- 구현 완료(화면 확인): 사용자 재열기 요청 때 종료된 로컬 기록 서버만 같은 검토 소스로 다시 실행하고 기존bootstrap을 보호 보존했다. 실제 새 기록 탭 및 reload에서 정상 HTML·기록 창 대기/종료/unavailable·행동/광학/clock 비활성·인증 오류 없음으로 앞선 CDP 확인 관문을 해소했다. 서버 종료 원인은 미확정이다.
+- 부족하거나 개선이 필요한 기능: 현재 현장 시작 신호 전 재START하지 않는다. 전송 최신성은 장비 프로세스 생존·물리 행동 시각의 증거가 아니다. 새 시험의 --run/게이트웨이 중단/USB/GET·SET0이고 제품 gate는 OFF다.
 - 관련 파일: `.local/task9-network/marker-timer-20261001/{pilot-marker-page.html,pilot-marker-server.mjs,TIMER-READY.md,timer-manifest.json}`, `.local/task9-network/marker-freshness-fix1-20261001/{FRESHNESS-FIX1-READY.md,fix1-manifest.json,pilot-marker-server.mjs,marker-transfer-freshness.mjs,timer-status-bridge.mjs}`, `docs/superpowers/plans/2026-09-30-bio-sensor-pulse-event-control.md`. 보호된 로컬 진단 소스이며 비밀/원시증거는 소스 export에 포함하지 않는다.
 - 갱신 규칙: 임시 기록 화면·자동 검증·실제 하드웨어 결과·제품 지원 상태를 분리하고 새 현장 시험 완료 전 미구현 표시를 유지한다.
 
