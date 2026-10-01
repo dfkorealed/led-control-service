@@ -80,6 +80,7 @@ function MonitoringDashboard({ data, userRole, siteId, refreshDashboard }: Monit
   const [isDetailOpen, setIsDetailOpen] = useState(false);
   const [isDesktop, setIsDesktop] = useState(() => window.matchMedia?.("(min-width: 1024px)").matches ?? false);
   const detailReturnRef = useRef<HTMLElement | null>(null);
+  const detailScopeRef = useRef<string | null>(null);
   const detailRef = useRef<HTMLElement | null>(null);
   const detailBodyRef = useRef<HTMLDivElement | null>(null);
   const sheetDetailRef = useRef<HTMLElement | null>(null);
@@ -98,6 +99,7 @@ function MonitoringDashboard({ data, userRole, siteId, refreshDashboard }: Monit
   const inspectorTriggerRef = useRef<HTMLButtonElement>(null);
   const refreshButtonRef = useRef<HTMLButtonElement>(null);
   const floor = data.floors.find((item) => item.id === selectedFloorId) ?? data.floors[0];
+  const detailScope = JSON.stringify([principal, siteId ?? data.site.id, floor?.id]);
   const activityQuery = useMonitoringActivity({ principal, siteId: siteId ?? data.site.id, floorId: floor?.id });
   const fixtureQuery = useFloorFixtures(floor?.id, siteId ?? data.site.id);
   const mapQuery = useFloorMapSnapshot(floor?.id, siteId ?? data.site.id);
@@ -167,10 +169,23 @@ function MonitoringDashboard({ data, userRole, siteId, refreshDashboard }: Monit
     return () => { cancelAnimationFrame(frame); if (releaseFrame !== undefined) cancelAnimationFrame(releaseFrame); };
   }, [isDesktop, isDetailOpen, selectedFixtureId]);
 
-  function clearSelection() { setSelectedFixtureId(null); setIsDetailOpen(false); setFocusRequest(undefined); pinDetailsFixtureRef.current = null; }
+  function clearSelection() {
+    // Automatic runtime exclusion/deletion can remove a focused nonmodal aside.
+    // Return only its own current-scope focus, before removal: no deferred job
+    // may steal outside focus after an account/site/floor change or unmount.
+    // Compact DetailSheet retains its shared portal return lifecycle.
+    if (isDesktop && isDetailOpen && detailScopeRef.current === detailScope && detailRef.current?.contains(document.activeElement)) {
+      const opener = detailReturnRef.current;
+      const target = opener?.isConnected && opener.tabIndex >= 0 && !detailRef.current.contains(opener) && !("disabled" in opener && opener.disabled)
+        ? opener : inspectorTriggerRef.current;
+      target?.focus({ preventScroll: true });
+    }
+    setSelectedFixtureId(null); setIsDetailOpen(false); setFocusRequest(undefined); pinDetailsFixtureRef.current = null;
+  }
   function openDetail(id: string, trigger?: HTMLElement) {
     if (selectedFixtureId !== id) detailScrollRef.current = 0;
     detailReturnRef.current = trigger ?? (document.activeElement instanceof HTMLElement ? document.activeElement : null);
+    detailScopeRef.current = detailScope;
     setSelectedFixtureId(id); setIsInspectorOpen(false); setIsDetailOpen(true);
   }
   function rememberDetailScroll(scrollTop: number) {

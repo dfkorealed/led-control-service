@@ -45,6 +45,53 @@ async function installAlarmFixture(page: Page) {
 
 const alarmTrigger = (page: Page) => page.locator('[data-shell-actions] button[aria-label^="알람센터,"]');
 
+for (const mode of ["inside", "outside", "compact"] as const) {
+  test(`monitoring fix2 settled automatic detail removal preserves ${mode} focus and camera`, async ({ page }) => {
+    await page.setViewportSize({ width: mode === "compact" ? 390 : 1440, height: 900 });
+    await page.clock.install();
+    const fixture: SettingsFixture = { id: alarmId(1), name: "자동 갱신 장애 조명", x: 350, y: 250, ratedWatt: 40, brightness: 70,
+      status: "fault", statusReason: "reported", health: null, rssi: null, hopCount: null, commandSuccessRate: null,
+      lastSeenAt: "2026-09-25T04:00:00.000Z", gateway: null, controllable: false, controlBlockReason: "fixture_fault" };
+    const state = await installSettingsApiRoutes(page, "viewer", { fixtures: [fixture] });
+    await page.goto("/monitoring?siteId=site-1");
+    await page.getByRole("button", { name: /점검 필요/ }).click();
+    const finder = page.getByRole("dialog", { name: "조명 검색·상세", exact: true });
+    await finder.getByRole("button", { name: "상세 조명 선택", exact: true }).click();
+    await page.getByRole("option", { name: /자동 갱신 장애 조명 ·/ }).click();
+    await finder.getByRole("button", { name: "상세 보기", exact: true }).click();
+    const detail = page.getByRole(mode === "compact" ? "dialog" : "complementary", { name: "조명 상세", exact: true });
+    await expect(detail).toContainText(fixture.name);
+    await page.clock.runFor(500);
+    const focused = mode === "outside" ? page.getByRole("button", { name: "지도 확대", exact: true }) : detail.getByRole("button", { name: "조명 상세 닫기", exact: true });
+    if (mode === "outside") await focused.click();
+    await focused.focus();
+    await expect(focused).toBeFocused();
+    const cameraState = () => page.getByTestId("monitoring-map-viewport").evaluate(node => {
+      const surface = node.querySelector("[data-floor-map-surface]")!.getBoundingClientRect();
+      const bounds = node.getBoundingClientRect();
+      return { zoom: node.getAttribute("data-zoom"), x: (bounds.x + bounds.width / 2 - surface.x) / surface.width, y: (bounds.y + bounds.height / 2 - surface.y) / surface.height };
+    });
+    const camera = await cameraState();
+    const scroll = await page.evaluate(() => ({ x: window.scrollX, y: window.scrollY }));
+    const before = state.fixturePageRequests;
+    state.updateFixture(fixture.id, { status: "online", brightness: 70, statusReason: "reported" });
+    await page.clock.fastForward(600001);
+    await expect.poll(() => state.fixturePageRequests).toBeGreaterThan(before);
+    await expect(detail).toHaveCount(0);
+    await page.clock.runFor(320);
+    await expect(mode === "outside" ? focused : page.getByRole("button", { name: "조명 검색·상세", exact: true })).toBeFocused();
+    expect(await cameraState()).toEqual(camera);
+    expect(await page.evaluate(() => ({ x: window.scrollX, y: window.scrollY }))).toEqual(scroll);
+    await expect(page.locator('[data-spatial-map-marker][data-selected="true"]')).toHaveCount(0);
+    await expect(page.locator('[data-monitoring-pin-popover]')).toHaveCount(0);
+    if (mode === "inside") {
+      await page.keyboard.press("Tab");
+      await expect(page.getByRole("button", { name: "새로고침", exact: true })).toBeFocused();
+    }
+    expect(state.requests.filter(request => !request.startsWith("GET "))).toEqual([]);
+  });
+}
+
 test("monitoring fix1 confirmed runtime filter exclusion clears detail and pin without replacement", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.clock.install();

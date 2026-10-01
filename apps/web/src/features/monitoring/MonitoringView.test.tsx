@@ -132,6 +132,90 @@ describe("MonitoringView refresh", () => {
   afterEach(() => {
     cleanup();
     vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  async function openDesktopCondition(condition: "fault" | "search" | "placement" | "deletion", focusOpener = true) {
+    vi.stubGlobal("matchMedia", vi.fn((media: string) => ({ matches: media === "(min-width: 1024px)", media, addEventListener: vi.fn(), removeEventListener: vi.fn() })));
+    queryMocks.useFloorFixtures().data.pages[0].items = [{ ...fixture, status: "fault", placementStatus: condition === "placement" ? "unplaced" : "placed" }];
+    const view = render(<MonitoringView siteId="site-1" userRole="viewer" />);
+    const finder = openInspector();
+    if (condition === "search") fireEvent.change(within(finder).getByRole("searchbox", { name: "조명 이름 또는 번호 검색" }), { target: { value: fixture.name } });
+    else if (condition !== "deletion") {
+      fireEvent.click(within(finder).getByRole("button", { name: "조명 목록 보기" }));
+      await chooseSelect("상태 필터", condition === "fault" ? "점검 필요" : "미배치");
+    }
+    fireEvent.click(within(finder).getByRole("button", { name: "상세 조명 선택" }));
+    fireEvent.click(await screen.findByRole("option", { name: /B1-L001/ }));
+    const opener = within(finder).getByRole("button", { name: "상세 보기" });
+    if (focusOpener) opener.focus();
+    fireEvent.click(opener);
+    const detail = screen.getByRole("complementary", { name: "조명 상세" });
+    // Let the old finder portal's return lifecycle finish before focusing the
+    // desktop detail; its late return is not automatic-removal evidence.
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 500)); });
+    const close = within(detail).getByRole("button", { name: "조명 상세 닫기" });
+    close.focus();
+    expect(close).toHaveFocus();
+    expect(opener.isConnected).toBe(false);
+    return { view, detail };
+  }
+
+  function exitDesktopCondition(condition: "fault" | "search" | "placement" | "deletion") {
+    queryMocks.useFloorFixtures().data.pages[0].items = condition === "deletion" ? [] : [{ ...fixture, health: null, status: "online", name: condition === "search" ? "다른 이름" : fixture.name, placementStatus: "placed" }];
+  }
+
+  it.each(["fault", "search", "placement", "deletion"] as const)("N1 restores monitoring fallback when focused desktop detail is automatically removed by %s", async condition => {
+    const { view } = await openDesktopCondition(condition);
+    exitDesktopCondition(condition);
+    view.rerender(<MonitoringView siteId="site-1" userRole="viewer" />);
+    expect(screen.queryByRole("complementary", { name: "조명 상세" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "조명 검색·상세" })).toHaveFocus();
+    expect(document.querySelector('[data-spatial-map-marker][data-selected="true"]')).not.toBeInTheDocument();
+    expect(refreshApi.waitForMonitoringRefresh).not.toHaveBeenCalled();
+  });
+
+  it("N1 preserves intentional outside focus during automatic desktop removal", async () => {
+    const { view } = await openDesktopCondition("fault");
+    const outside = screen.getByRole("button", { name: "새로고침" });
+    outside.focus();
+    exitDesktopCondition("fault");
+    view.rerender(<MonitoringView siteId="site-1" userRole="viewer" />);
+    expect(screen.queryByRole("complementary", { name: "조명 상세" })).not.toBeInTheDocument();
+    expect(outside).toHaveFocus();
+    await act(async () => { await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))); });
+    expect(outside).toHaveFocus();
+  });
+
+  it("N1 rejects a connected noninteractive original focus target", async () => {
+    const { view } = await openDesktopCondition("fault", false);
+    exitDesktopCondition("fault");
+    view.rerender(<MonitoringView siteId="site-1" userRole="viewer" />);
+    expect(screen.getByRole("button", { name: "조명 검색·상세" })).toHaveFocus();
+  });
+
+  it.each(["principal", "site", "floor", "unmount"] as const)("N1 never schedules stale focus after %s scope exit", async scope => {
+    if (scope === "floor") queryMocks.useDashboard.mockReturnValue({ ...queryMocks.useDashboard(), data: { ...dashboard, floors: [...dashboard.floors, { ...dashboard.floors[0], id: "floor-2", name: "B2" }] } });
+    const { view } = await openDesktopCondition("fault");
+    const outside = document.createElement("button");
+    outside.textContent = "다른 화면의 작업";
+    document.body.append(outside);
+    try {
+      if (scope === "principal") {
+        authApi.useCurrentUser.mockReturnValue({ data: { user: { id: "user-2", organizationId: "org-1" } } });
+        exitDesktopCondition("fault");
+        view.rerender(<MonitoringView siteId="site-1" userRole="viewer" />);
+        expect(screen.getByRole("button", { name: "조명 검색·상세" })).not.toHaveFocus();
+      } else if (scope === "site") view.rerender(<MonitoringView siteId="site-2" userRole="viewer" />);
+      else if (scope === "floor") {
+        outside.focus();
+        await chooseSelect("맵 선택", "B2");
+      } else view.unmount();
+      outside.focus();
+      await act(async () => { await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))); });
+      expect(outside).toHaveFocus();
+      expect(refreshApi.waitForMonitoringRefresh).not.toHaveBeenCalled();
+    } finally { outside.remove(); }
   });
 
   it("keeps initial selection empty on runtime arrival and finder opening", () => {
