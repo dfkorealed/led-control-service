@@ -1,6 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import { expectMinimumTouchTargetsAfterScrolling, expectNoHorizontalOverflow } from "./support/layout-assertions";
 import { installSettingsApiRoutes, type SettingsFixture, type SettingsRole } from "./support/settings-api";
+import type { BioPulseTelemetryView } from "../src/api/automation";
 
 const ids = {
   site: "99999999-9999-4999-8999-999999999901",
@@ -23,6 +24,48 @@ const fixtures: SettingsFixture[] = [
 ];
 
 test.use({ timezoneId: "Asia/Seoul" });
+
+for (const viewport of [{ width: 320, height: 740 }, { width: 390, height: 844 }]) {
+  test(`BIO server telemetry ${viewport.width}px stays accessible and clears on source remap without promoting readiness`, async ({ page }) => {
+    await page.setViewportSize(viewport);
+    let telemetry: BioPulseTelemetryView | null = {
+      evidence: "gateway_runtime_telemetry", gatewayId: ids.gateway, assignmentVersion: 1, revision: 1,
+      lastPulseAt: "2026-10-01T03:04:05.000Z", health: "degraded", healthReason: "usb_disconnected",
+      degradedSince: "2026-10-01T03:05:00.000Z", restorationPending: true, restorationReason: "usb_disconnected",
+      targetFixtureIds: [ids.fixture, ids.fixtureTwo], lastEventAt: "2026-10-01T03:06:00.000Z", receivedAt: "2026-10-01T03:06:01.000Z",
+      occurrences: [{ ruleId: "99999999-9999-4999-8999-999999999911", occurrenceKey: "old", targetFixtureIds: [ids.fixture],
+        health: "degraded", degradedSince: "2026-10-01T03:05:00.000Z", restorationPending: true, restorationReason: "usb_disconnected" },
+        { ruleId: "99999999-9999-4999-8999-999999999912", occurrenceKey: "new", targetFixtureIds: [ids.fixtureTwo],
+          health: "unverified", degradedSince: null, restorationPending: null, restorationReason: null }],
+      configurationReadback: { sensorProtocol: "bio-usb-pulse", verification: "configuration_readback", phase: "restore", sequence: 5,
+        occurredAt: "2026-10-01T03:06:00.000Z", results: [{ fixtureId: ids.fixture, status: "succeeded",
+          configuration: { configuredHighBrightnessPercent: 35, bioMode: "sensor" } },
+          { fixtureId: ids.fixtureTwo, status: "failed", configuration: null }] }
+    };
+    await installControlMapRoutes(page, { bioReadiness: "off", bioTelemetry: () => telemetry });
+    await page.goto(`/control?siteId=${ids.site}&mode=event`);
+    const region = page.getByRole("region", { name: "BIO 시험 규칙 BIO 운영 상태" });
+    await expect(region).toContainText("센서를 사용하는 전체 규칙의 운영 보고");
+    await expect(region).toContainText("마지막 유효 펄스: 2026. 10. 1. 오후 12:04:05");
+    await expect(region).toContainText("복원 대기: 대기 중");
+    await expect(region).toContainText("복원 사유: USB 연결 끊김");
+    await expect(region).toContainText("B2-L002 · 복원 설정 확인: 실패");
+    await expect(region).toContainText("설정 밝기: 35% · 설정 모드: 센서");
+    await expect(region).toContainText("현재 광학 출력·전력·에너지 또는 센서 준비 상태의 증거가 아닙니다");
+    await region.focus();
+    await expect(region).toBeFocused();
+    await expect(page.getByRole("button", { name: "BIO 시험 규칙 활성화", exact: true })).toBeDisabled();
+    await expectMinimumTouchTargetsAfterScrolling(page, "[data-control-screen]");
+    await expectNoHorizontalOverflow(page);
+    // API null after physical source remapping must erase all previous evidence.
+    telemetry = null;
+    await expect(region).toContainText("마지막 유효 펄스: 미확인", { timeout: 10_000 });
+    await expect(region).toContainText("복원 대기: 미확인");
+    await expect(region).not.toContainText("35%");
+    await expect(region.locator("time")).toHaveCount(0);
+    await expectNoHorizontalOverflow(page);
+  });
+}
 
 for (const width of [320, 390, 1440]) {
   test(`BIO authoring ${width}px preserves source-only selection, hold warning and touch layout`, async ({ page }) => {
@@ -483,6 +526,7 @@ async function installControlMapRoutes(page: Page, options: {
   historyCount?: number;
   boundaryFixtures?: boolean;
   bioReadiness?: "ready" | "off";
+  bioTelemetry?: () => BioPulseTelemetryView | null;
 } = {}) {
   const fixtureData = options.fixtureCount
     ? Array.from({ length: options.fixtureCount }, (_, index) => fixture(
@@ -530,7 +574,8 @@ async function installControlMapRoutes(page: Page, options: {
     if (historicalCommand) return route.fulfill({ json: { ...historicalCommand,
       generatedAt: "2026-09-30T00:00:00.000Z", retainedFrom: "2026-06-30T00:00:00.000Z" } });
     if (path === `/api/sites/${ids.site}/dashboard`) {
-      return route.fulfill({ json: dashboardResponse(fixtureData, groups, options.role ?? "admin") });
+      return route.fulfill({ json: dashboardResponse(fixtureData.map(item => item.id === ids.sensor && options.bioTelemetry
+        ? { ...item, bioPulseTelemetry: options.bioTelemetry() } : item), groups, options.role ?? "admin") });
     }
     if (path === `/api/sites/${ids.site}/floors/${ids.floor}/map-snapshot` && options.mapStatus) {
       return route.fulfill({ status: options.mapStatus, json: { message: "map unavailable" } });
@@ -554,7 +599,9 @@ async function installControlMapRoutes(page: Page, options: {
       }
     }
     if (path === `/api/sites/${ids.site}/automation/vehicle-event-rules`) {
-      if (request.method() === "GET") return route.fulfill({ json: { items: [], total: 0, nextCursor: null } });
+      if (request.method() === "GET") return route.fulfill({ json: { items: options.bioTelemetry ? [eventResponse({ name: "BIO 시험 규칙", sensorProtocol: "bio-usb-pulse",
+        status: "disabled", sourceFixtureIds: [ids.sensor], targetFixtureIds: [ids.fixture], holdSeconds: 60,
+        action: { dimmingEnabled: true, brightnessPercent: 80 } })] : [], total: options.bioTelemetry ? 1 : 0, nextCursor: null } });
       if (request.method() === "POST") {
         const input = request.postDataJSON() as Record<string, unknown>;
         state.eventRequests.push(input);

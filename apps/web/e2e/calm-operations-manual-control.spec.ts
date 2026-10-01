@@ -6,6 +6,10 @@ import { installSettingsApiRoutes, type SettingsFixture } from "./support/settin
 
 test.use({ timezoneId: "Asia/Seoul" });
 
+// History and detail reads require matching server retention anchors. Missing
+// anchors intentionally hide records, even when their createdAt looks recent.
+const retentionAnchor = { generatedAt: "2026-09-25T00:00:00.000Z", retainedFrom: "2026-06-25T00:00:00.000Z" };
+
 const ids = {
   site: "77777777-7777-4777-8777-777777777701",
   floor: "77777777-7777-4777-8777-777777777702",
@@ -48,7 +52,7 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
         id: "77777777-7777-4777-8777-777777777799", stage: "completed", outcome: "applied", brightness: 70,
         totalFixtureCount: 2, completedFixtureCount: 2, createdAt: "2026-09-12T01:00:00.000Z", dispatchCount: 1,
         errorMessage: null, verificationAttemptCount: 0
-      }], nextCursor: null, retainedFrom: "2026-06-25T01:00:00.000Z"
+      }], nextCursor: null, ...retentionAnchor
     } }));
     await page.goto(`/control?siteId=${ids.site}`);
     const history = page.getByRole("region", { name: "최근 명령 이력" });
@@ -86,7 +90,7 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
       if (url.pathname === "/api/commands") {
         historyRequests.push(url);
         const limit = Number(url.searchParams.get("limit") ?? 20);
-        return route.fulfill({ json: { items: Array.from({ length: limit }, (_, index) => ({ ...original, id: index === 0 && !url.searchParams.has("cursor") ? commandId : `77777777-7777-4777-8777-${String((url.searchParams.has("cursor") ? 50 : 10) + index).padStart(12, "0")}` })), nextCursor: limit === 1 || url.searchParams.has("cursor") ? null : "next-page", generatedAt: "2026-09-25T00:00:00.000Z", retainedFrom: "2026-06-25T00:00:00.000Z" } });
+        return route.fulfill({ json: { items: Array.from({ length: limit }, (_, index) => ({ ...original, id: index === 0 && !url.searchParams.has("cursor") ? commandId : `77777777-7777-4777-8777-${String((url.searchParams.has("cursor") ? 50 : 10) + index).padStart(12, "0")}` })), nextCursor: limit === 1 || url.searchParams.has("cursor") ? null : "next-page", ...retentionAnchor } });
       }
       if (url.pathname === `/api/commands/${commandId}/status-checks`) {
         checkRequests.push(route.request().postDataJSON());
@@ -95,7 +99,7 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
         return route.fulfill({ json: { dispatchId: "check-dispatch", dispatchIds: ["check-dispatch"], verificationAttempt: 1, terminalStatusUrl: `/commands/${commandId}` } });
       }
       if (url.pathname === `/api/commands/${commandId}`) return route.fulfill({ json: {
-        ...original, stage: verified ? "verified_not_applied" : "verification_required", outcome: verified ? "not_applied" : "unknown",
+        ...original, ...retentionAnchor, stage: verified ? "verified_not_applied" : "verification_required", outcome: verified ? "not_applied" : "unknown",
         verificationAttemptCount: checking ? 1 : 0,
         dispatches: checking ? [...original.dispatches, { id: "check-dispatch", kind: "status_check", verificationAttempt: 1, status: verified ? "completed" : "accepted", gateway: { id: ids.gateway, name: "GW" }, errorMessage: null, results: [{ ...commandResult("succeeded", null), brightness: 70 }] }] : original.dispatches
       } });

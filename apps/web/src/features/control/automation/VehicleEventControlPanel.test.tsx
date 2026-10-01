@@ -98,6 +98,59 @@ describe("VehicleEventControlPanel", () => {
     expect(detail).toHaveTextContent(/해제 완료가 아닙니다/);
   });
 
+  it("renders server pulse, health and pending restoration as historical evidence without enabling BIO", async () => {
+    mocks.listVehicleEventRules.mockResolvedValue({ items: [rule({ sensorProtocol: "bio-usb-pulse", status: "disabled" })], total: 1, nextCursor: null });
+    renderPanel("admin", { dashboard: telemetryDashboard() });
+    const detail = await screen.findByRole("region", { name: /BIO 운영 상태/ });
+    expect(detail).toHaveTextContent("마지막 유효 펄스: 2026. 10. 1. 오후 12:04:05");
+    expect(detail).toHaveTextContent("센서 건강 보고: 장애");
+    expect(detail).toHaveTextContent("장애 시작 시각: 2026. 10. 1. 오후 12:05:00");
+    expect(detail).toHaveTextContent("복원 대기: 대기 중");
+    expect(detail).toHaveTextContent("복원 사유: USB 연결 끊김");
+    expect(detail).toHaveTextContent("센서를 사용하는 전체 규칙의 운영 보고");
+    expect(detail).toHaveTextContent("Asia/Seoul");
+    expect(detail.querySelector('time[datetime="2026-10-01T03:04:05.000Z"]')).not.toBeNull();
+    expect(screen.getByRole("button", { name: /활성화$/ })).toBeDisabled();
+  });
+
+  it("labels read-back as configured values and retains pending restoration even after a successful restore read-back", async () => {
+    mocks.listVehicleEventRules.mockResolvedValue({ items: [rule({ sensorProtocol: "bio-usb-pulse" })], total: 1, nextCursor: null });
+    renderPanel("viewer", { dashboard: telemetryDashboard() });
+    const detail = await screen.findByRole("region", { name: /BIO 운영 상태/ });
+    expect(detail).toHaveTextContent("B1-L001 · 복원 설정 확인: 성공");
+    expect(detail).toHaveTextContent("설정 밝기: 35% · 설정 모드: 센서");
+    expect(detail).toHaveTextContent("현재 광학 출력·전력·에너지 또는 센서 준비 상태의 증거가 아닙니다");
+    expect(detail).toHaveTextContent("복원 대기: 대기 중");
+    expect(screen.queryByRole("button", { name: /비활성화$/ })).not.toBeInTheDocument();
+  });
+
+  it("uses new dashboard evidence on recovery and clears old source evidence on server remap", async () => {
+    mocks.listVehicleEventRules.mockResolvedValue({ items: [rule({ sensorProtocol: "bio-usb-pulse", status: "disabled" })], total: 1, nextCursor: null });
+    const { rerender, queryClient } = renderPanel("admin", { dashboard: telemetryDashboard() });
+    const detail = await screen.findByRole("region", { name: /BIO 운영 상태/ });
+    rerender(panelElement("admin", queryClient, siteId, siteId, telemetryDashboard({ health: "healthy", degradedSince: null, healthReason: "qualified" })));
+    expect(detail).toHaveTextContent("센서 건강 보고: 정상 보고");
+    expect(detail).toHaveTextContent("복원 대기: 대기 중");
+    expect(detail).toHaveTextContent("장애 시작 시각: 미확인");
+    rerender(panelElement("admin", queryClient, siteId, siteId, telemetryDashboard(null)));
+    expect(detail).toHaveTextContent("마지막 유효 펄스: 미확인");
+    expect(detail).toHaveTextContent("복원 대기: 미확인");
+    expect(detail).not.toHaveTextContent("35%");
+    expect(detail.querySelector("time")).toBeNull();
+  });
+
+  it("does not infer healthy or release completion from a pulse or a server false pending flag", async () => {
+    mocks.listVehicleEventRules.mockResolvedValue({ items: [rule({ sensorProtocol: "bio-usb-pulse" })], total: 1, nextCursor: null });
+    renderPanel("admin", { dashboard: telemetryDashboard({ health: "unverified", healthReason: null, degradedSince: null,
+      restorationPending: false, restorationReason: null, configurationReadback: null }) });
+    const detail = await screen.findByRole("region", { name: /BIO 운영 상태/ });
+    expect(detail).toHaveTextContent("센서 건강 보고: 미확인");
+    expect(detail).toHaveTextContent("복원 대기: 대기 없음 보고");
+    expect(detail).toHaveTextContent("복원 사유: 미확인");
+    expect(detail).toHaveTextContent("설정 확인: 미확인");
+    expect(within(detail).queryByText("복원 성공", { exact: true })).not.toBeInTheDocument();
+  });
+
   it("atlas event surface separates the site total from loaded gateway status", async () => {
     mocks.listVehicleEventRules.mockResolvedValue({ items: [rule()], total: 27, nextCursor: "next-page" });
     renderPanel("admin");
@@ -1109,6 +1162,22 @@ function renderPanel(
 
 function testQueryClient() {
   return new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+}
+
+function telemetryDashboard(overrides: Record<string, unknown> | null = {}): Dashboard {
+  const telemetry = overrides === null ? null : {
+    evidence: "gateway_runtime_telemetry", gatewayId: "gateway-1", assignmentVersion: 1, revision: 3,
+    lastPulseAt: "2026-10-01T03:04:05.000Z", health: "degraded", healthReason: "usb_disconnected",
+    degradedSince: "2026-10-01T03:05:00.000Z", restorationPending: true, restorationReason: "usb_disconnected",
+    targetFixtureIds: [targetFixtureId], lastEventAt: "2026-10-01T03:06:00.000Z", receivedAt: "2026-10-01T03:06:01.000Z",
+    occurrences: [{ ruleId: rule().id, occurrenceKey: "first", targetFixtureIds: [targetFixtureId], health: "degraded",
+      degradedSince: "2026-10-01T03:05:00.000Z", restorationPending: true, restorationReason: "usb_disconnected" }],
+    configurationReadback: { sensorProtocol: "bio-usb-pulse", verification: "configuration_readback", phase: "restore", sequence: 5,
+      occurredAt: "2026-10-01T03:06:00.000Z", results: [{ fixtureId: targetFixtureId, status: "succeeded",
+        configuration: { configuredHighBrightnessPercent: 35, bioMode: "sensor" } }] }, ...overrides
+  };
+  return { ...dashboard, floors: dashboard.floors.map(floor => ({ ...floor, fixtures: floor.fixtures.map(item => item.id === sensorFixtureId
+    ? { ...item, bioPulseTelemetry: telemetry } : item) })) } as Dashboard;
 }
 
 async function submitValidCreate() {

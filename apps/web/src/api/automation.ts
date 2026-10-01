@@ -131,6 +131,44 @@ export interface VehicleEventSourceView {
   modeVerification: SensorModeVerification;
 }
 
+/** Server-owned historical runtime evidence; never source readiness or optical output. */
+export interface BioPulseTelemetryView {
+  evidence: "gateway_runtime_telemetry";
+  gatewayId: string;
+  assignmentVersion: number;
+  revision: number;
+  lastPulseAt: string | null;
+  health: "healthy" | "degraded" | "unverified";
+  healthReason: string | null;
+  degradedSince: string | null;
+  restorationPending: boolean | null;
+  restorationReason: string | null;
+  targetFixtureIds: string[];
+  lastEventAt: string;
+  receivedAt: string;
+  occurrences: Array<{
+    ruleId: string;
+    occurrenceKey: string;
+    targetFixtureIds: string[];
+    health: "healthy" | "degraded" | "unverified";
+    degradedSince: string | null;
+    restorationPending: boolean | null;
+    restorationReason: string | null;
+  }>;
+  configurationReadback: {
+    sensorProtocol: "bio-usb-pulse";
+    verification: "configuration_readback";
+    phase: "apply" | "restore";
+    occurredAt: string;
+    sequence: number;
+    results: Array<{
+      fixtureId: string;
+      status: "pending" | "succeeded" | "failed" | "timed_out" | "superseded";
+      configuration: { configuredHighBrightnessPercent: number; bioMode: "sensor" | "force-on" | "force-off" } | null;
+    }>;
+  } | null;
+}
+
 export function requestSensorMode(input: BioSensorModeRequest) {
   return apiPost<SensorModeOperationResponse>("/sensor-mode-operations", input);
 }

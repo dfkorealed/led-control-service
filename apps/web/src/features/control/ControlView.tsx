@@ -682,7 +682,7 @@ function DimmingExecutionControls({ compact = false, brightness, controlsLocked,
       <Slider label="밝기" minValue={0} maxValue={100} step={1} value={brightness} isDisabled={controlsLocked} onChange={onBrightnessChange} />
       {!compact ? <NumberField
         label="밝기 수치"
-        size={compact ? "lg" : "md"}
+        size="lg"
         minValue={0}
         maxValue={100}
         step={1}

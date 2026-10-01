@@ -21,6 +21,7 @@ import { authMeQueryKey, principalKey } from "../../../api/principal-cache";
 import type { Dashboard } from "../../../api/queries";
 import { Button, ConfirmDialog, FeedbackState, PageHeader, StatusBadge, Text, useSessionStatus, useSessionToast, type SessionStatusItem } from "../../../components/ui";
 import { VehicleEventDialog } from "./VehicleEventDialog";
+import { BioPulseTelemetryStatus } from "./BioPulseTelemetryStatus";
 import { AutomationRuleCard } from "./components/AutomationRuleCard";
 import { AutomationRuleControls } from "./components/AutomationRuleControls";
 import { AutomationRuleWorkspace, AutomationWorkspaceSummary } from "./components/AutomationWorkspaceSurface";
@@ -435,10 +436,13 @@ export function VehicleEventControlPanel({
 
   function renderActions(rule: VehicleEventRuleResponse) {
     if (!canManage) return null;
+    // Rounded 44px controls lack a full 44x44 hit area. Compact cards reserve
+    // room around the corners while desktop table density stays unchanged.
+    const actionClassName = isCompactList ? "min-h-13 w-13 p-0" : "w-11 p-0";
     return <div className="grid grid-cols-3 gap-1.5" data-schedule-row-actions="">
-      <Button variant="ghost" className="w-11 p-0" type="button" aria-label={`${rule.name} ${rule.status === "enabled" ? "비활성화" : "활성화"}`} title={rule.status === "enabled" ? "비활성화" : "활성화"} disabled={isMutating || (rule.sensorProtocol === "bio-usb-pulse" && rule.status !== "enabled")} onClick={() => toggle(rule)}>{rule.status === "enabled" ? <PowerOff size={15} aria-hidden="true" /> : <Power size={15} aria-hidden="true" />}</Button>
-      <Button variant="ghost" className="w-11 p-0" type="button" aria-label={`${rule.name} 수정`} title="수정" disabled={isMutating} onClick={(event) => beginEdit(rule, event.currentTarget)}><Pencil size={15} aria-hidden="true" /></Button>
-      <Button variant="danger" className="w-11 p-0" type="button" aria-label={`${rule.name} 삭제`} title="삭제" disabled={isMutating} onClick={(event) => { setDeleteCandidate(rule); deleteReturnFocusRef.current = event.currentTarget; setMutationError(""); }}><Trash2 size={15} aria-hidden="true" /></Button>
+      <Button variant="ghost" className={actionClassName} type="button" aria-label={`${rule.name} ${rule.status === "enabled" ? "비활성화" : "활성화"}`} title={rule.status === "enabled" ? "비활성화" : "활성화"} disabled={isMutating || (rule.sensorProtocol === "bio-usb-pulse" && rule.status !== "enabled")} onClick={() => toggle(rule)}>{rule.status === "enabled" ? <PowerOff size={15} aria-hidden="true" /> : <Power size={15} aria-hidden="true" />}</Button>
+      <Button variant="ghost" className={actionClassName} type="button" aria-label={`${rule.name} 수정`} title="수정" disabled={isMutating} onClick={(event) => beginEdit(rule, event.currentTarget)}><Pencil size={15} aria-hidden="true" /></Button>
+      <Button variant="danger" className={actionClassName} type="button" aria-label={`${rule.name} 삭제`} title="삭제" disabled={isMutating} onClick={(event) => { setDeleteCandidate(rule); deleteReturnFocusRef.current = event.currentTarget; setMutationError(""); }}><Trash2 size={15} aria-hidden="true" /></Button>
     </div>;
   }
 
@@ -469,9 +473,10 @@ export function VehicleEventControlPanel({
         return <section key={rule.id} tabIndex={0} aria-label={`${rule.name} BIO 운영 상태`} className="grid min-w-0 gap-2 border-b border-border-default p-4 focus-visible:shadow-focus">
           <Text weight="semibold">{rule.name} · BIO 운영 상태</Text>
           {degraded ? <Text role="alert" tone="danger">센서 장애 보고 · 재검증이 필요합니다. 신호가 없다는 이유만으로 B의 복원을 판단하지 않습니다.</Text> : null}
-          <Text>제품 지원 OFF · 실행·복원 상태 미확인</Text>
-          <Text>대상 B: {rule.targetCount}개 · 마지막 유효 펄스: 미확인 · 장애 시작 시각: 미확인</Text>
-          <Text>실행 상태 보고 연동 전입니다. 운영자는 현장을 확인하고 규칙의 비활성화로 명시적 해제를 요청할 수 있습니다. 적용·복원 결과를 확인하기 전에는 해제 완료가 아닙니다.</Text>
+          <Text>제품 지원 OFF{sources.some(source => source.bioPulseTelemetry) ? " · 과거 운영 보고" : " · 실행·복원 상태 미확인"}</Text>
+          <Text>이 규칙의 대상 B: {rule.targetCount}개</Text>
+          {(sources.length ? sources : [undefined]).map((source, index) => <BioPulseTelemetryStatus key={source?.id ?? index} source={source} fixtures={dashboard?.floors.flatMap(floor => floor.fixtures) ?? []} timeZone={dashboard?.site.timeZone ?? "UTC"} />)}
+          <Text>운영자는 현장을 확인하고 규칙의 비활성화로 명시적 해제를 요청할 수 있습니다. 적용·복원 결과를 확인하기 전에는 해제 완료가 아닙니다.</Text>
         </section>;
       }) : null}
       {!rulesQuery.isLoading && !rulesQuery.isLoadingError && !isAuthBlocked && !isSearchPending ? (
