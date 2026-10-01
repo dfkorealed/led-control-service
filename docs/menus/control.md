@@ -1,5 +1,13 @@
 # 제어 메뉴 기능 현황
 
+## 2026-10-01 BIO 현장 시험 기록 화면 — 임시 진단 도구
+
+- 구현 완료: 별도 시험 브라우저에 경과·단계 잔여 시간, 현재 행동과 다음 예고를 추가했다. 실제 관측창 기준50/30/60/30/130초 순서이며 늦게 열어도0초부터 재시작하지 않는다. 연결/시계/가시성/종료·기록 후 새로고침 문제가 있으면 안내를 중단하고 실제 행동·밝기 기록은 사용자 버튼으로만 남긴다. 화면 GET 전용10분 HttpOnly 인증 복원은 API 인증을 대체하지 않는다.
+- 미구현: 이 타이머를 사용한 새 전체 A 현장 시험과 반복/liveness/B 연동 시험. 이전 A 시험은 새로고침 오류로 중단·원복됐으며 성공한 HIL이 아니다. 제품 제어 페이지에 타이머를 추가하거나 BIO gate를 활성화한 작업이 아니다.
+- 부족하거나 개선이 필요한 기능: Node24/Node22·독립168/168과 실제 브라우저의 failed/inactive·새로고침만 확인했다. active 단계는 실제 HTML VM 검증이며 실제 RF/광학·Pi–Mac 시각 오차·사용자 반응 시간은 별도 검증이 필요하다. 사용된 phase/token/native 참조는 새 시험에 재사용하지 않는다.
+- 관련 파일: `.local/task9-network/marker-timer-20261001/{pilot-marker-page.html,pilot-marker-server.mjs,TIMER-READY.md,timer-manifest.json}`, `docs/superpowers/plans/2026-09-30-bio-sensor-pulse-event-control.md`. 보호된 로컬 진단 소스이며 비밀/원시증거는 소스 export에 포함하지 않는다.
+- 갱신 규칙: 임시 기록 화면·자동 검증·실제 하드웨어 결과·제품 지원 상태를 분리하고 새 현장 시험 완료 전 미구현 표시를 유지한다.
+
 ## 2026-10-01 BIO 실행 이력·조회/ACK 기반
 
 - 구현 완료: snapshot 생성 당시 source Fixture→MeshNode를 서버 metadata로 보존한다. 교체 전 펄스가 첫 수신/새 occurrence로 늦게 도착해도 새 센서 상태로 표시하지 않고 감사 격리+ACK한다. 같은 현장 재배정 뒤 이미 저장된 exact event는 현재 claim·인증 근거 확인 후 원래 ACK만 재발행하며 새 과거 배정 이벤트는 거절한다.
