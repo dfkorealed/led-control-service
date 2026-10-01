@@ -39,7 +39,7 @@
 | 1 | Shell backend: 로그 API | 완료·독립 명세/품질 승인 | 5c1d313e + 982f999a; focused119/119 |
 | 2 | Shell backend: 개인 알람 읽음 | 완료·독립 명세/품질 승인 | bdb2d9e1; focused97/97(실제DB56 포함) |
 | 3 | Shell 공통 UI | 완료·독립 명세/품질 승인 | 793d126a; focused429/429, Web type/build/UI0; P3 경계1건 후속 |
-| 4 | Shell 알람센터 소비 | 구현 배정 | 공유 API/UI 계약 전달 |
+| 4 | Shell 범위·새 내부 구현 보조 | 재배정 | 반복 context-compaction 이탈 후 fresh Task4 context |
 | 5 | 모니터링 페이지 담당자 | 대기 | — |
 | 6 | 제어 UI 개선 담당자(GPT-6.1 Sol/high) | 대기 | — |
 | 7 | 통계 페이지 담당자 | 대기 | — |
@@ -47,6 +47,8 @@
 | 9 | 디자이너·독립 QA·총괄 | 대기 | — |
 
 API와 공통 파일을 동시에 쓰지 않는다. Task 5는 `FloorScene`/`FloorMapViewport` 작성권을 받고, 반환·검토 후 Task 6에 넘긴다. Task 8의 설정/운영도 순차 배정한다. 소비자가 공통 계약 변경을 원하면 총괄에게 반환하고 producer가 수정·재검토한다. 개별 작업은 지정 파일과 보고서만 작성하며 다른 세션/서브에이전트를 임의 생성하지 않는다.
+
+Task4 execution recovery Ruling: existing Shell session successfully delivered Tasks1–3, but context compaction repeatedly dropped current delegated instructions and resumed an old localhost diagnosis (confirmed again in Task4 turn, no product edits). Primary assigns one fresh internal implementation helper with only Task4 durable context rather than repeating unsafe stale-history handoffs. No new sidebar task or additional scope is created; source ownership stays one writer, existing page-owner sequence and separate fresh review stay unchanged. This is the user/AGENTS-authorized delegation fallback, not operational DB/server permission.
 
 ---
 
