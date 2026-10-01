@@ -160,6 +160,13 @@ Task 8은 **8a Gateway/API synthetic integration·additive V2 BIO telemetry hand
 
 **T2 사후 정정:** 사용자가 첫 ‘움직임 시작’은 놓쳐 움직이지 않았고 나머지 예정 행동은 수행했다고 명시했다. 앞선 포괄적 긍정보다 이 정정을 우선하며 원본 보고서/버튼 기록은 보존하고 `native-result/operator-followup.json`에 별도 기록한다. 첫 움직임 미실행, 정확한 전환 시각/광학 관찰 미확정, B final GET timeout이 남으므로 전체 관문은 미통과다. 예정 시각 대입·자동 재START하지 않는다.
 
+**T2 후속 — 오프라인 분석 완료, 현장 검증 미완료:** 원본은 불변이고 장비/서버 조작은 없다. B 마지막 GET 뒤 약3초의 대기/종료까지 valid `0x12` 및 decoded-report가0건이다. 수신한 응답을 matching이 버린 결함의 증거는 없으며 RF/동글/USB 전달·부분/잘못된 프레임·종료 뒤 지연 중 구체 원인은 미확정이다. 코드 결함을 추측해 timeout/identity/원복 경계를 완화하거나 자동 retry하지 않는다.
+
+- [x] B 최종 GET 경계 분석: 처음 B GET은 동일 identity/address/network에서 성공했다. TX/RX sequence 일치를 요구하지 않으며 마지막 GET은 matching report 수신이 기록되지 않았다. 좁은 캡처의 한계를 포함한 최종 보고서 `.local/task9-network/offline-b-final-get-20261001/report.md`를 총괄이 읽고 SHA256=`7fdd82d1ec4f4430602a9a03ffbda8248382fed73b9a1295086895c3d644ca92`를 확인했다. 원인을 사용자 움직임과 연결하지 않는다.
+- [x] exact A 분석: 전체 후보57개 중 A29개, A `0x0c`28개, exact 중복0. 마지막 후보08:38:34.835Z 뒤 `0x0c`15개, 실제 outside-again 영수증08:39:06.349Z 뒤 후보0/`0x0c`12개다. 첫 움직임 미실행을 범위 밖 유지/무자극/오감지로 바꾸지 않는다. actual timing/광학/독립 건강/펄스 가설 판정은 미확정이다. 보호 보고서 `.local/task9-network/offline-a-evidence-20261001/report.md` SHA256=`af45c4bf85604f0ca6357bcd93da5f2652b2f88d1eec9597dc6eed5b14417e6f`와 timeline SHA256=`53453e364fdd4e896ab71ddb76687a8f2d41df182413d94d74c51b9187f88f4d`를 총괄이 확인했다.
+- [x] 수정 필요 여부 검토: 증명된 matching 코드 결함이 없어 구현/회귀 재실행은 불필요하다. 원본 packet/summary/사후 설명/clock/receipt 해시는 불변이고 분석 폴더0700/파일0600을 확인했다. 제품 gate는 OFF다.
+- [ ] 다음 교정 시험: 새 phase/token, 현재 참여 준비 및 별도 시작 신호 뒤 첫 움직임부터 실제 행동 전환 버튼·A 밝기 관찰을 확보한다. B 사전/최종 GET을 유지하며 동일 실패가 반복되면 별도 승인된 좁은 읽기 전용 진단으로 분리한다. 이번 분석에서는 새 package/server/START를 실행하지 않았다.
+
 - [x] **현장 참여 준비 확인.** 사용자가 “현장 준비됨”, 이어 A 감지 범위 밖·타인/움직이는 물체 없음을 확인했다. 약 6분 제어 중단·A-only/B 무변경·원복·기록 방법을 안내했다. 이 시점은 START가 아니며 fresh 사전 점검과 화면 준비를 진행한다.
 - [x] **첫 A-only 시도 중단·원복 확인.** 사용자 기록 화면 준비 확인 뒤 START 1회, 2026-10-01T05:26:41.258Z 관측창이 열렸다. 화면이 query key를 history에서 제거하고 인증을 JS 메모리에만 두어 F5의 GET `/`가 403 `session rejected`로 끝났다. 동기화된 기록 준비가 깨져 exact diagnostic에 SIGTERM 한 번으로 중단했고 guarded cleanup을 유지했다. A raw/mode 최종 GET=원본·journal closed/pending0·non-A SET0·USB release/driver 원복·동일 Gateway healthy/identity/mapping 불변·새 DB heartbeat3·pending/new command/automation0을 확인했다. 총괄도 보호된 restoration-summary와 SHA256=`ad76475b9bc0975edaa7f6cb64fe465d8d30b445909523ecf6cc734c25cb5324`를 확인했다. 전체 창과 B final workflow GET는 미완료이고 trialValid=false다. 중단 증거·사용된 token/source를 보존하며 재사용/자동 재START하지 않는다.
 - [x] **화면 새로고침 복구.** 별도 `/tmp/bio-marker-auth-20261001.tPkPtfXw`에서 인증된 화면 재조회만 갱신 없는 10분 loopback HttpOnly·SameSite=Strict cookie로 복구하고, API header/origin/window/replay/clock 경계를 유지했다. RED6→GREEN6, 기존 scoped150 포함 Node24/Node22 및 독립 검토 각156/156·exit0, 검토 지적0을 확인했다. 별도8088 metadata 서버를 실행하고 총괄이 실제 in-app browser의 query 제거된 화면을 reload해 정상 HTML·failed/inactive 상태·행동/광학 버튼 비활성을 확인했다. 행동 기록 뒤 reload는 읽기 전용·새 시험 필요이며 monotonic origin을 자동 이어붙이지 않는다. 기존8087·frozen used source·중단 원시 증거·Pi/USB/DB는 변경하지 않았고 새 START는 없다. auth manifest SHA256=`f7e30e21537477936afc7a1a1c89030eeee6ae20dcf1e56ce0d9ee4219bd14b9`.
@@ -206,6 +213,6 @@ Task 8은 **8a Gateway/API synthetic integration·additive V2 BIO telemetry hand
 - [x] Task 6 — A source 보호 (`ba528582`; 집중·타입·빌드/독립 검토 통과, 전체 canonical 재검증 Task 8 대기)
 - [x] Task 7 — Web UI (`139916c3`, `7631e40f`; BIO/핀치와 unit/타입/빌드 독립 검토 통과, 기존 수동 모바일 Playwright 2건 Task8 잔여)
 - [x] Task 8 — 사용자 지정 BIO 관련 software 검증·독립 검토 완료, 전체 저장소 실패 수정은 이번 범위에서 제외하고 기록 유지, 제품 OFF
-- [ ] Task 9 — 랩 연결 복구·오늘 전용 A pilot 소프트웨어 준비/독립 검토·exact Pi image 150/150 완료, 현장 준비 응답과 live 사전 점검/START 대기
+- [ ] Task 9 — 랩 연결/시험 도구 검증 및 T2 오프라인 분석 완료, A 원복·Gateway 정상 복귀 확인. B 최종 GET의 valid 수신 부재 원인과 실제 행동 시각·광학·독립 건강은 미확정이므로 관문 미통과. 현재 참여 준비/새 교정시험 시작 신호, 반복 shadow/liveness/B60·10초/제품 연동 검증은 남음.
 
 현재 이 계획은 **BIO 관련 소프트웨어 검증 완료 후 실제 장비 검증 착수 상태**다. 전체 저장소 실패는 별도 기록으로 유지하며, 소프트웨어 통과를 현장 시험·제품 지원 완료로 표현하지 않는다. 총괄은 각 상태 변경을 `docs/project-status.md`와 동기화한다.

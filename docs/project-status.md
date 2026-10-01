@@ -4,6 +4,8 @@
 
 ## 2026-09-30 BIO 센서 펄스형 이벤트 제어 — 관련 소프트웨어 검증 완료·실장비 시험 착수
 
+**현재 후속 작업 — 오프라인 분석 완료, 새 현장 검증 대기:** B 마지막 GET 뒤 약3초의 대기/종료까지 valid `0x12`/decoded-report0으로 수신한 응답을 matching이 버린 코드 결함의 근거는 없다. RF/동글/USB·부분 프레임·늦은 응답 등 구체 원인은 미확정이다. A 후보29개/`0x0c`28개, 실제 outside-again 영수증 뒤 후보0/`0x0c`12개지만 actual timing/광학/독립 건강은 미확정이며 첫 움직임 미실행을 무자극 유지로 해석하지 않는다. 두 보호 보고서와 원본 hash 불변·0700/0600을 총괄이 확인했다. SSH/USB/조명 명령/Gateway 중단·서버 변경0, 추측성 timeout 완화/자동 retry/제품 활성화 없이 기존 경계를 유지한다. 다음은 새 phase/token과 현재 참여 준비·별도 시작 신호를 확인한 교정시험이며 실제 행동 전환/밝기 기록과 B 사전·최종 GET을 확보한다. 반복 shadow/liveness/B60·10초/실제 제품 연동은 여전히 미완료다.
+
 **최신 사용자 사후 정정:** T2 시험에서 첫 ‘움직임 시작’ 구간은 놓쳐 실제로 움직이지 않았고, 나머지 예정 행동은 수행했다고 설명했다. 앞선 포괄적 “맞아” 답변보다 이 구체적 정정을 우선한다. 원본 버튼 기록/최종 보고서는 바꾸지 않고 보호된 `operator-followup.json`에 별도 보존한다. 정확한 행동 전환 시각·광학 밝기 관찰은 여전히 미확정이며 예정 구간을 실제 시각으로 대입하지 않는다. 첫 움직임 미실행과 B final GET timeout으로 전체 시험 통과/제품 활성화 판정은 바뀌지 않는다.
 
 **현장 실행 갱신:** A-only START1회 뒤 2026-10-01 14:26:41.258 KST에 관측창이 열렸지만 사용자 새로고침의 `session rejected`로 즉시 중단·원복했다. A raw/mode 최종 GET=원본, journal closed/pending0, non-A SET0, USB/driver 복원과 동일 Gateway healthy·새 heartbeat3·pending/new commands0을 확인했고 총괄도 복원 증거/hash를 조회했다. B 최종 workflow GET와 전체 창은 미완료이며 trialValid=false/physicalTimingVerified=false다. 중단 증거는 `.local/task9-network/live-pilot-preflight/aborted-trial`에 보존하고 재START하지 않았다. 화면 인증 복구 후 사용자 승인대로 행동 안내 타이머와 분리된 실행 root를 구현했고 최종168/168·독립 검토와 실제 브라우저의 중단 화면/reload를 확인했다. 화면 GET 전용 갱신 없는10분 cookie와 기존 API/기록 경계를 유지하며 행동 기록 뒤 reload는 읽기 전용·새 시험 필요다. 새 native phase/token/START는 준비하거나 실행하지 않았고 제품 gate OFF다. 아래 START 미실행 문장은 첫 실행 전 준비 checkpoint의 기록이다.
