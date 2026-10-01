@@ -1,8 +1,11 @@
-import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
+import { type QueryClient, useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { listMonitoringIncidents, markMonitoringIncidentRead } from "../../../api/monitoring-incidents";
 
 function activeDocument() { return document.visibilityState === "visible" && document.hasFocus(); }
+// QueryClient owns both mode caches. Keep request order for that same lifetime,
+// including StrictMode/remount, rather than resetting beneath cached snapshots.
+const requestSequences = new WeakMap<QueryClient, number>();
 
 export function useMonitoringIncidents(userId: string | undefined, siteId: string | undefined, open: boolean) {
   const client = useQueryClient();
@@ -16,12 +19,13 @@ export function useMonitoringIncidents(userId: string | undefined, siteId: strin
   latestScope.current = { scope, open };
   const [documentActive, setDocumentActive] = useState(activeDocument);
   const [readState, setReadState] = useState({ scope, failures: new Set<string>() });
-  const getPage = async (signal: AbortSignal, limit: number, cursor?: string) => ({
-    ...await listMonitoringIncidents(siteId!, { limit, ...(cursor ? { cursor } : {}) }, { signal }),
-    // Pages and the closed summary can complete independently. The newest
-    // successful GET supplies the count, including a newly fetched next page.
-    receivedAt: performance.now()
-  });
+  const getPage = async (signal: AbortSignal, limit: number, cursor?: string) => {
+    const requestOrder = (requestSequences.get(client) ?? 0) + 1;
+    requestSequences.set(client, requestOrder);
+    // Response completion is not authority: an older snapshot may arrive last.
+    // Only a later-started successful GET can replace the canonical count.
+    return { ...await listMonitoringIncidents(siteId!, { limit, ...(cursor ? { cursor } : {}) }, { signal }), requestOrder };
+  };
   const summary = useQuery({
     queryKey: [...scope.key, "summary"], enabled: enabled && !open,
     queryFn: ({ signal }) => getPage(signal, 1), retry: false,
@@ -39,7 +43,7 @@ export function useMonitoringIncidents(userId: string | undefined, siteId: strin
     return [...rows.values()];
   }, [list.data]);
   const snapshots = [summary.data, ...(list.data?.pages ?? [])].filter(snapshot => snapshot !== undefined);
-  const canonical = snapshots.reduce<typeof summary.data>((last, snapshot) => !last || snapshot.receivedAt > last.receivedAt ? snapshot : last, undefined);
+  const canonical = snapshots.reduce<typeof summary.data>((last, snapshot) => !last || snapshot.requestOrder > last.requestOrder ? snapshot : last, undefined);
   const query = open ? list : summary;
 
   useEffect(() => {
@@ -49,6 +53,11 @@ export function useMonitoringIncidents(userId: string | undefined, siteId: strin
     scope.lifetime = lifetime;
     return () => { lifetime.abort(); };
   }, [scope]);
+  useEffect(() => {
+    // Disabling an observer does not cancel its running query. Cancel the old
+    // mode so its rows/errors, as well as its count, cannot become fresh later.
+    void client.cancelQueries({ queryKey: [...scope.key, open ? "summary" : "list"] });
+  }, [client, open, scope]);
   useEffect(() => {
     let changed = false;
     for (const incident of [...incidents, ...(summary.data?.incidents ?? [])]) {
@@ -93,6 +102,10 @@ export function useMonitoringIncidents(userId: string | undefined, siteId: strin
         setReadState({ scope, failures: new Set(scope.failures) });
         // A PUT confirms a personal receipt only. Do not change any badge or
         // row optimistically; server GET accounts for concurrent device reads.
+        // Fence all pre-write GETs, including a disabled mode with no data;
+        // invalidate alone only replaces the active query's existing refresh.
+        await client.cancelQueries({ queryKey: scope.key });
+        if (!isCurrent()) return;
         await client.invalidateQueries({ queryKey: scope.key });
       } catch {
         if (!isCurrent()) return;

@@ -6,10 +6,11 @@
 - 구현 완료: 열린 센터·활성 문서에서 IntersectionObserver가 실제 가시성을 확인한 행만 빈 body PUT로 읽음을 저장한다. 닫힘·화면 밖·미조회 다음 페이지·숨김/비활성 문서는 읽음 요청이 없고, 스크롤과 중복 관찰은 계정·현장·ID별 in-flight 중복 방지로 보호한다. 실패한 행은 미읽음/배지를 유지하며 가시 행의 재시도를 제공한다. 성공 후 목록·배지는 정본 GET로 갱신하고 로컬 수치를 차감하지 않는다.
 - 구현 완료: 장애 목록과 `현재 화면 상태`를 별도 영역으로 제공한다. 기존 연결 안내·조회 실패·명령 진행·toast·retry/action은 유지하며 DB 미읽음 수에 합산하지 않는다. 개인 읽음은 operational acknowledge/assign/resolve나 장치 명령을 수행하지 않고, 읽은 미해결 장애도 목록에 남는다. 최초 GET 실패는 확인 불가, 마지막 성공 후 실패는 마지막 수치와 갱신 실패로 구분한다.
 - 구현 완료: 계정·현장 query key와 요청 수명·취소를 분리해 이전 범위의 늦은 응답이 새 범위를 바꾸지 않게 한다. 30초 polling과 문서 복귀/포커스의 정본 조회로 다른 기기의 읽음 상태를 동기화하고, 해당 ID의 읽음을 서버가 확인하면 이전 저장 실패도 해제한다. StrictMode 재설정·동일 incident polling·새 세션의 서버 receipt 재조회 회귀를 유지한다.
+- 구현 완료: 닫힌 요약과 열린 목록의 정본 수치는 완료 시각이 아닌 QueryClient 수명의 요청 시작 순서로 선택한다. 열기·닫기 전환은 이전 모드의 실행 중 GET를 취소하고, 개인 읽음 PUT 성공 뒤 두 모드의 이전 GET를 취소한 다음 정본을 재조회한다. 늦은 pre-read 응답이 읽음 후 수치를 되돌리지 않으며, 후속 서버 수치의 정상 증가·다른 기기의 읽음에 따른 감소·실패 시 마지막 수치와 stale 표기를 보존한다. 같은 캐시를 재사용하는 remount에서도 요청 순서를 초기화하지 않는다.
 - 미구현: 사용자/운영 DB migration·배포·실장비 HIL은 실행하지 않았다. 실제 두 브라우저 세션과 동일 계정의 DB 영속성 검증, 전체 뷰포트 물리 검수는 Task 9에 남아 있으며 mock 서버 receipt 재조회나 Chromium 결과로 대체하지 않는다.
 - 부족하거나 개선이 필요한 기능: Task 4 집중 단위 및 격리 Chromium은 소프트웨어 증거다. 독립 코드 리뷰·후속 메뉴 회귀와 최종 통합 관문은 총괄이 이어서 확인한다. 알람 push 기반 실시간 동기화는 추가하지 않았다.
 - 관련 파일: `apps/web/src/api/monitoring-incidents.ts`, `apps/web/src/components/ui/session-status/{useMonitoringIncidents.ts,SessionStatusCenter.tsx,SessionStatusProvider.tsx}`, `apps/web/src/features/shells/CustomerShell.tsx`, 관련 API·hook·session·shell 테스트, `apps/web/e2e/operations-ui-comments.spec.ts`.
-- 갱신 규칙: durable 미읽음 수와 transient 상태, 개인 열람과 장애 처리, 실제 DB·software fixture·실장비 증거를 구분한다. closed/open/hidden/offscreen·PUT 실패·canonical count·계정/현장 late response·키보드/스크롤 회귀를 같은 변경에서 유지한다.
+- 갱신 규칙: durable 미읽음 수와 transient 상태, 개인 열람과 장애 처리, 실제 DB·software fixture·실장비 증거를 구분한다. closed/open/hidden/offscreen·PUT 실패·canonical count·mode/읽음 갱신 요청 역전·계정/현장 late response·transient 상태 유지/제거·키보드/스크롤 회귀를 같은 변경에서 유지한다.
 
 ## 2026-10-02 계정별 영속 알람 읽음 API (Task 2)
 

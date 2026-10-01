@@ -160,6 +160,140 @@ describe("persistent alarm center", () => {
     await waitFor(() => expect(result.current.unreadCount).toBe(2));
   });
 
+  it("does not let a delayed closed GET overwrite the post-read canonical count", async () => {
+    let resolveSummary!: (response: Response) => void;
+    let summarySignal!: AbortSignal;
+    const original = fetchSpy.getMockImplementation()!;
+    fetchSpy.mockImplementation((path: string, init: RequestInit = {}) => {
+      if (path.endsWith("?limit=1")) {
+        summarySignal = init.signal!;
+        return new Promise<Response>(resolve => { resolveSummary = resolve; });
+      }
+      return original(path, init);
+    });
+    const { result, rerender } = renderHook(({ open }) => useMonitoringIncidents("user-1", siteId, open),
+      { wrapper, initialProps: { open: false } });
+    await waitFor(() => expect(fetchSpy).toHaveBeenCalledOnce());
+    rerender({ open: true });
+    await waitFor(() => expect(result.current.unreadCount).toBe(3));
+    await act(async () => { await result.current.markRead(firstId); });
+    await waitFor(() => expect(result.current.unreadCount).toBe(2));
+    expect(result.current.incidents[0].isRead).toBe(true);
+
+    await act(async () => { resolveSummary(Response.json({ incidents: [incident(firstId)], unreadCount: 3, activeCount: 3, nextCursor: null })); });
+    await waitFor(() => expect(client.isFetching({ queryKey: ["monitoring-incidents", "user-1", siteId] })).toBe(0));
+    expect(result.current.unreadCount).toBe(2);
+    expect(result.current.isStale).toBe(false);
+    expect(summarySignal.aborted).toBe(true);
+  });
+
+  it("cancels a superseded open GET when the closed summary becomes canonical", async () => {
+    let resolveList!: (response: Response) => void;
+    let listSignal!: AbortSignal;
+    const original = fetchSpy.getMockImplementation()!;
+    fetchSpy.mockImplementation((path: string, init: RequestInit = {}) => {
+      if (path.endsWith("?limit=25")) {
+        listSignal = init.signal!;
+        return new Promise<Response>(resolve => { resolveList = resolve; });
+      }
+      return original(path, init);
+    });
+    const { result, rerender } = renderHook(({ open }) => useMonitoringIncidents("user-1", siteId, open),
+      { wrapper, initialProps: { open: true } });
+    await waitFor(() => expect(fetchSpy).toHaveBeenCalledOnce());
+    unread = 2;
+    rerender({ open: false });
+    await waitFor(() => expect(result.current.unreadCount).toBe(2));
+    await act(async () => { resolveList(Response.json({ incidents: [incident(firstId)], unreadCount: 3, activeCount: 3, nextCursor: null })); });
+    await waitFor(() => expect(client.isFetching({ queryKey: ["monitoring-incidents", "user-1", siteId] })).toBe(0));
+    expect(result.current.unreadCount).toBe(2);
+    expect(listSignal.aborted).toBe(true);
+  });
+
+  it("accepts future canonical increases and device decreases but preserves stale counts on the newest GET failure", async () => {
+    const { result, rerender } = renderHook(({ open }) => useMonitoringIncidents("user-1", siteId, open),
+      { wrapper, initialProps: { open: true } });
+    await waitFor(() => expect(result.current.unreadCount).toBe(3));
+    await act(async () => { await result.current.markRead(firstId); });
+    await waitFor(() => expect(result.current.unreadCount).toBe(2));
+    unread = 3;
+    await act(async () => { await result.current.refetch(); });
+    await waitFor(() => expect(result.current.unreadCount).toBe(3));
+    receipts.add(secondId); unread = 1;
+    rerender({ open: false });
+    await waitFor(() => expect(result.current.unreadCount).toBe(1));
+    failGet = true;
+    rerender({ open: true });
+    await waitFor(() => expect(result.current.isStale).toBe(true));
+    expect(result.current.error).not.toBeNull();
+    expect(result.current.unreadCount).toBe(1);
+    failGet = false; unread = 5;
+    await act(async () => { await result.current.refetch(); });
+    await waitFor(() => expect(result.current.unreadCount).toBe(5));
+    expect(result.current.isStale).toBe(false);
+  });
+
+  it("orders independently refreshed mode snapshots by request start rather than late completion", async () => {
+    const { result, rerender } = renderHook(({ open }) => useMonitoringIncidents("user-1", siteId, open),
+      { wrapper, initialProps: { open: false } });
+    await waitFor(() => expect(result.current.unreadCount).toBe(3));
+    rerender({ open: true });
+    await waitFor(() => expect(result.current.incidents).toHaveLength(2));
+    let resolveSummary!: (response: Response) => void;
+    const original = fetchSpy.getMockImplementation()!;
+    fetchSpy.mockImplementation((path: string, init: RequestInit = {}) => path.endsWith("?limit=1")
+      ? new Promise<Response>(resolve => { resolveSummary = resolve; }) : original(path, init));
+    let refresh!: Promise<unknown>;
+    // Keep both real query functions: independently refreshing an existing
+    // cached mode must not give its older request authority by finishing last.
+    act(() => { refresh = client.fetchQuery({ queryKey: ["monitoring-incidents", "user-1", siteId, "summary"] }); });
+    await waitFor(() => expect(resolveSummary).toBeTypeOf("function"));
+    receipts.add(firstId); unread = 2;
+    await act(async () => { await result.current.refetch(); });
+    await waitFor(() => expect(result.current.unreadCount).toBe(2));
+    const beforeLateResponse = result.current;
+    await act(async () => { resolveSummary(Response.json({ incidents: [incident(firstId)], unreadCount: 3, activeCount: 3, nextCursor: null })); await refresh; });
+    // Await the real observer's render, not just the fetch promise: React Query
+    // schedules notifications after it accepts a response into the cache.
+    await waitFor(() => expect(result.current).not.toBe(beforeLateResponse));
+    expect(result.current.unreadCount).toBe(2);
+    expect(result.current.incidents[0].isRead).toBe(true);
+    expect(result.current.isStale).toBe(false);
+  });
+
+  it("continues canonical ordering when StrictMode remount reuses both query caches", async () => {
+    const strictWrapper = ({ children }: PropsWithChildren) => <StrictMode>{wrapper({ children })}</StrictMode>;
+    const first = renderHook(({ open }) => useMonitoringIncidents("user-1", siteId, open),
+      { wrapper: strictWrapper, initialProps: { open: false } });
+    await waitFor(() => expect(first.result.current.unreadCount).toBe(3));
+    first.rerender({ open: true });
+    await waitFor(() => expect(first.result.current.incidents).toHaveLength(2));
+    await act(async () => { await first.result.current.markRead(firstId); });
+    await waitFor(() => expect(first.result.current.unreadCount).toBe(2));
+    first.unmount();
+    unread = 4;
+    const second = renderHook(() => useMonitoringIncidents("user-1", siteId, false), { wrapper: strictWrapper });
+    await waitFor(() => expect(second.result.current.unreadCount).toBe(4));
+    expect(puts()).toHaveLength(1);
+    expect(second.result.current.isStale).toBe(false);
+  });
+
+  it.each(["account", "site"])("does not accept a delayed GET from the old %s", async change => {
+    let resolveOld!: (response: Response) => void;
+    const original = fetchSpy.getMockImplementation()!;
+    fetchSpy.mockImplementationOnce(() => new Promise<Response>(resolve => { resolveOld = resolve; }));
+    const { result, rerender } = renderHook(({ user, site }) => useMonitoringIncidents(user, site, false),
+      { wrapper, initialProps: { user: "user-1", site: siteId } });
+    await waitFor(() => expect(fetchSpy).toHaveBeenCalledOnce());
+    fetchSpy.mockImplementation(original);
+    unread = 1;
+    rerender({ user: change === "account" ? "user-2" : "user-1", site: change === "site" ? "55555555-5555-4555-8555-555555555555" : siteId });
+    await waitFor(() => expect(result.current.unreadCount).toBe(1));
+    await act(async () => { resolveOld(Response.json({ incidents: [incident(firstId)], unreadCount: 3, activeCount: 3, nextCursor: null })); });
+    expect(result.current.unreadCount).toBe(1);
+    expect(result.current.isStale).toBe(false);
+  });
+
   it("pages by server cursor without marking fetched unseen rows", async () => {
     const { result } = renderHook(() => useMonitoringIncidents("user-1", siteId, true), { wrapper });
     await waitFor(() => expect(result.current.hasNextPage).toBe(true));

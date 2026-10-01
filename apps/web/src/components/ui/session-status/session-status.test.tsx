@@ -29,7 +29,7 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-function QueryStatusHarness({ fingerprint, revision = 0 }: { fingerprint: string | null; revision?: number }) {
+function QueryStatusProducer({ fingerprint, revision = 0 }: { fingerprint: string | null; revision?: number }) {
   const items = useMemo<SessionStatusItem[]>(() => fingerprint ? [{
     id: "query:dashboard:site-1",
     fingerprint,
@@ -39,8 +39,16 @@ function QueryStatusHarness({ fingerprint, revision = 0 }: { fingerprint: string
     description: `revision ${fingerprint}`
   }] : [], [fingerprint, revision]);
   useSessionStatus("dashboard:site-1", items);
+  return null;
+}
+
+function QueryStatusHarness(props: { fingerprint: string | null; revision?: number }) {
+  return <><QueryStatusProducer {...props} /><ScreenStatusObserver /><SessionStatusCenter /><ToastRegion /></>;
+}
+
+function ScreenStatusObserver() {
   const { statuses } = useSessionStatusState();
-  return <><output data-testid="screen-status-count">{statuses.length}</output><SessionStatusCenter /><ToastRegion /></>;
+  return <output data-testid="screen-status-count">{statuses.length}</output>;
 }
 
 function ToastHarness() {
@@ -67,6 +75,7 @@ describe("session status feedback", () => {
   it("does not treat a transient query issue as a durable alarm count", () => {
     render(<SessionStatusProvider><QueryStatusHarness fingerprint="1" /></SessionStatusProvider>);
     expect(screen.getByRole("button", { name: "알람센터, 현장 미선택" })).toBeVisible();
+    expect(screen.getByTestId("screen-status-count")).toHaveTextContent("1");
     expect(screen.queryByTestId("alarm-unread-badge")).not.toBeInTheDocument();
   });
   it("shows gateway context in the drawer without counting it as unresolved", () => {
@@ -106,17 +115,20 @@ describe("session status feedback", () => {
 
     rerender(<SessionStatusProvider><QueryStatusHarness fingerprint="1" /></SessionStatusProvider>);
     expect(within(region).getAllByRole("status")).toHaveLength(1);
+    expect(screen.getByTestId("screen-status-count")).toHaveTextContent("1");
 
     rerender(<SessionStatusProvider><QueryStatusHarness fingerprint="2" /></SessionStatusProvider>);
     expect(await within(region).findByText("revision 2")).toBeVisible();
     expect(within(region).getAllByRole("status")).toHaveLength(1);
+    expect(screen.getByTestId("screen-status-count")).toHaveTextContent("1");
 
     rerender(<SessionStatusProvider><QueryStatusHarness fingerprint={null} /></SessionStatusProvider>);
     await waitFor(() => expect(within(region).queryByRole("status")).not.toBeInTheDocument());
-    expect(screen.getByRole("button", { name: "알람센터, 현장 미선택" })).toBeVisible();
+    expect(screen.getByTestId("screen-status-count")).toHaveTextContent("0");
 
     rerender(<SessionStatusProvider><QueryStatusHarness fingerprint="2" /></SessionStatusProvider>);
     expect(await within(region).findByRole("status")).toHaveTextContent("revision 2");
+    expect(screen.getByTestId("screen-status-count")).toHaveTextContent("1");
   });
 
   it("does not announce a sustained id and fingerprint again when polling creates a new items array", async () => {
@@ -128,7 +140,7 @@ describe("session status feedback", () => {
 
     rerender(<SessionStatusProvider><QueryStatusHarness fingerprint="1" revision={2} /></SessionStatusProvider>);
 
-    expect(screen.getByRole("button", { name: "알람센터, 현장 미선택" })).toBeVisible();
+    expect(screen.getByTestId("screen-status-count")).toHaveTextContent("1");
     expect(within(region).queryByRole("status")).not.toBeInTheDocument();
   });
 
@@ -201,13 +213,13 @@ describe("session status feedback", () => {
   it("unregisters source items when their producer unmounts", async () => {
     function Toggle() {
       const [visible, setVisible] = useState(true);
-      return <><button onClick={() => setVisible(false)}>producer 제거</button>{visible ? <QueryStatusHarness fingerprint="1" /> : <><SessionStatusCenter /><ToastRegion /></>}</>;
+      return <><button onClick={() => setVisible(false)}>producer 제거</button>{visible ? <QueryStatusProducer fingerprint="1" /> : null}<ScreenStatusObserver /><SessionStatusCenter /><ToastRegion /></>;
     }
     render(<SessionStatusProvider><Toggle /></SessionStatusProvider>);
-    expect(await screen.findByRole("button", { name: "알람센터, 현장 미선택" })).toBeVisible();
+    expect(screen.getByTestId("screen-status-count")).toHaveTextContent("1");
     fireEvent.click(screen.getByRole("button", { name: "producer 제거" }));
 
-    await waitFor(() => expect(screen.getByRole("button", { name: "알람센터, 현장 미선택" })).toBeVisible());
+    await waitFor(() => expect(screen.getByTestId("screen-status-count")).toHaveTextContent("0"));
     expect(within(screen.getByRole("region", { name: "알림" })).queryByRole("status")).not.toBeInTheDocument();
   });
 });
