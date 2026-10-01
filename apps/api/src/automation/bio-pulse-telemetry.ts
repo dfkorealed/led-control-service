@@ -1,10 +1,12 @@
 import { BadRequestException } from "@nestjs/common";
 import { automationSnapshotSchema, bioPulseExecutionIngestedAckV2Schema, mqttTopics, type BioPulseExecutionEventV2 } from "@led-control/shared";
 import { Prisma } from "@prisma/client";
+import { z } from "zod";
 import { canonicalPayloadHash } from "./automation-payload-hash";
 
 type Scope = { siteId: string; gatewayId: string };
 type Event = BioPulseExecutionEventV2;
+const sourceBindingsSchema = z.record(z.string().uuid(), z.string().uuid().nullable());
 
 /** Membership lock precedes identity locks, matching config/assignment mutations.
  * Broker mTLS/topic ACL authenticates delivery; the SQL checks current authority,
@@ -22,21 +24,24 @@ export async function ingestBioPulseTelemetry(tx: Prisma.TransactionClient, scop
     WHERE gateway.id=${scope.gatewayId} AND gateway."siteId"=${scope.siteId}
     FOR UPDATE OF gateway, inventory, certificate
   `);
-  if (!identities.length || identities[0]!.assignmentVersion !== event.assignmentVersion) return;
-  const declaration = await tx.gatewayAutomationProtocolSupport.findFirst({
-    where: { ...scope, assignmentVersion: event.assignmentVersion }, orderBy: { declarationRevision: "desc" }
-  });
-  if (declaration?.maxSnapshotVersion !== 2) return;
+  if (!identities.length) return;
   const hash = canonicalBioPulseTelemetryHash(event);
   const existing = await tx.bioPulseTelemetryEvent.findFirst({ where: { gatewayId: scope.gatewayId,
     OR: [{ eventId: event.eventId }, { assignmentVersion: event.assignmentVersion, sequence: BigInt(event.sequence) }] } });
   if (existing) {
-    if (existing.eventId !== event.eventId || existing.assignmentVersion !== event.assignmentVersion ||
+    if (existing.siteId !== scope.siteId || existing.eventId !== event.eventId || existing.assignmentVersion !== event.assignmentVersion ||
       existing.sequence !== BigInt(event.sequence) || existing.payloadHash !== hash) {
       throw new BadRequestException("BIO telemetry identity conflict");
     }
     return persistAck(tx, scope, event, hash, existing.receivedAt, now);
   }
+  // An exact committed receipt may drain after same-site assignment rotation,
+  // but new evidence must still prove the current assignment and declaration.
+  if (identities[0]!.assignmentVersion !== event.assignmentVersion) return;
+  const declaration = await tx.gatewayAutomationProtocolSupport.findFirst({
+    where: { ...scope, assignmentVersion: event.assignmentVersion }, orderBy: { declarationRevision: "desc" }
+  });
+  if (declaration?.maxSnapshotVersion !== 2) return;
   const rows = await tx.mqttOutbox.findMany({ where: { gatewayId: scope.gatewayId, revision: event.revision,
     dispatchId: null, applicationAckKey: null, automationAssignmentVersion: event.assignmentVersion } });
   if (rows.length !== 1) return;
@@ -49,6 +54,12 @@ export async function ingestBioPulseTelemetry(tx: Prisma.TransactionClient, scop
   const rule = body.vehicleEventRules.find(rule => rule.id === event.ruleId && rule.status === "enabled" && rule.sensorProtocol === "bio-usb-pulse");
   if (!rule || rule.sourceFixtureIds.length !== 1 || rule.targetFixtureIds.includes(rule.sourceFixtureIds[0]!)) return;
   const sourceFixtureId = rule.sourceFixtureIds[0]!;
+  const bindings = sourceBindingsSchema.safeParse(row.automationSourceBindings);
+  const expectedSources = [...new Set(body.vehicleEventRules.filter(rule => rule.sensorProtocol === "bio-usb-pulse")
+    .flatMap(rule => rule.sourceFixtureIds))].sort();
+  if (!bindings.success || canonicalPayloadHash(Object.keys(bindings.data).sort()) !== canonicalPayloadHash(expectedSources)) return;
+  const sourceMeshNodeId = bindings.data[sourceFixtureId];
+  if (!sourceMeshNodeId) return;
   const targets = [...rule.targetFixtureIds].sort();
   const payload = event.payload;
   if (payload.sourceFixtureId !== undefined && payload.sourceFixtureId !== sourceFixtureId) return;
@@ -63,13 +74,13 @@ export async function ingestBioPulseTelemetry(tx: Prisma.TransactionClient, scop
   // Authentic but clock-invalid records must drain the shared FIFO. Quarantine
   // them only after snapshot/source/target attribution, never as live evidence.
   const untrustedTime = Date.parse(event.occurredAt) > now.getTime() || Date.parse(event.occurredAt) < Date.parse(body.generatedAt);
-  const disposition = untrustedTime ? "untrusted_time" : event.revision !== configuration.desiredRevision ? "stale_configuration"
+  const currentSource = await tx.fixture.findFirst({ where: { id: sourceFixtureId, ...scope }, select: { meshNodeId: true } });
+  const staleSource = currentSource?.meshNodeId !== sourceMeshNodeId;
+  const disposition = untrustedTime ? "untrusted_time" : event.revision !== configuration.desiredRevision || staleSource ? "stale_configuration"
     : latest && latest.sequence > BigInt(event.sequence) ? "stale_sequence" : "accepted";
-  let sourceMeshNodeId: string | undefined;
   if (disposition === "accepted") {
     const fixtures = await tx.fixture.findMany({ where: { id: { in: [sourceFixtureId, ...targets] }, ...scope, meshNodeId: { not: null } }, include: { meshNode: true } });
     if (fixtures.length !== targets.length + 1 || fixtures.find(f => f.id === sourceFixtureId)?.meshNode?.vehicleSensorProtocol !== "bio_usb_pulse") return;
-    sourceMeshNodeId = fixtures.find(f => f.id === sourceFixtureId)!.meshNodeId!;
   }
   const saved = await tx.bioPulseTelemetryEvent.create({ data: {
     ...scope, assignmentVersion: event.assignmentVersion, eventId: event.eventId, sequence: BigInt(event.sequence),
@@ -77,7 +88,7 @@ export async function ingestBioPulseTelemetry(tx: Prisma.TransactionClient, scop
     targetFixtureIds: targets, kind: event.kind, occurredAt: new Date(event.occurredAt),
     payload: payload as Prisma.InputJsonValue, payloadHash: hash, disposition, receivedAt: now
   } });
-  if (disposition === "accepted") await projectEvent(tx, scope, event, sourceFixtureId, sourceMeshNodeId!, targets, now);
+  if (disposition === "accepted") await projectEvent(tx, scope, event, sourceFixtureId, sourceMeshNodeId, targets, now);
   return persistAck(tx, scope, event, hash, saved.receivedAt, now);
 }
 

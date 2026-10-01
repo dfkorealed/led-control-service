@@ -2,6 +2,7 @@
 
 ## 2026-10-01 BIO telemetry 소프트웨어 전달 경계
 
+- 구현 완료: 지연 수신된 첫 펄스도 snapshot 생성 당시 source node와 현재 연결을 비교해 교체 센서의 관측으로 잘못 표시하지 않는다. 이미 저장된 exact 기록은 같은 현장 재배정 뒤에도 현재 인증 근거 아래 ACK만 재발행하고 projection은 변경하지 않는다. snapshot binding은 기대 구성 근거이며 광학/센서 송신 증명은 아니다.
 - 구현 완료: Gateway 합성 시험의 펄스·연장·장애·복구·B 설정 적용/복원 결과를 strict V2 outbox로 전달한다. 설정 결과에 `verification=configuration_readback`, `configuredHighBrightnessPercent`, `bioMode`를 쓰며 raw body·native UUID·임의 오류 문자열은 허용하지 않는다. 장애/복구 이력을 합치지 않고 파일 재시작·재전송의 순서·identity·해시를 보존한다.
 - 구현 완료: API는 현재 claim·유효 MQTT 인증서·배정·V2 선언·저장된 snapshot topic/hash/source/target를 검증한 V2 이력과 별도 projection을 한 거래로 저장한다. DB commit 뒤 exact V2 assignment/event/sequence/hash ACK를 발행하며 실제 Gateway 파일 기록 삭제를 일회용 DB·in-process transport로 검증한다. 알려진 과거 설정/sequence와 출처가 정확한 시계 오류는 감사 격리+ACK만 하고 현재 상태를 바꾸지 않는다.
 - 구현 완료: 상세 dashboard의 `bioPulseTelemetry`는 최신 펄스·명시적 장애 시작·복원 대기·구성 read-back을 실제 저장 기록에서만 읽는다. 현재 배정/설정과 맞지 않는 이력은 숨기고 미관측은 NULL이다. `0x0c`, 침묵, 새 펄스나 단순 경과 시간으로 건강/clear/복원 성공을 만들지 않는다.

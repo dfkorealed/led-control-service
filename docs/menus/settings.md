@@ -2,10 +2,10 @@
 
 ## 2026-10-01 BIO telemetry 배정·구성 경계
 
-- 구현 완료: 새 V2 snapshot은 서버 outbox에 원래 assignment metadata를 함께 저장한다. API telemetry는 이를 현재 배정과 event의 required assignmentVersion에 대조한다. 과거 metadata NULL snapshot과 재배정 뒤 과거 event는 상태 근거로 사용하지 않는다. V1 wire와 기존 구성 ACK wire는 유지한다.
+- 구현 완료: 새 V2 snapshot은 서버 outbox에 원래 assignment와 source Fixture→MeshNode metadata를 같은 잠금 거래에서 저장한다. 신규 API telemetry는 이를 현재 배정/연결과 event의 required assignmentVersion에 대조한다. 과거 metadata NULL snapshot과 재배정 뒤 과거 event는 상태 근거로 사용하지 않는다. 이미 commit된 exact event는 같은 현장 재배정 뒤 현재 claim·인증 근거 확인 후 원래 ACK만 재발행할 수 있다. V1 wire와 기존 구성 ACK wire는 유지한다.
 - 미구현: 운영 DB migration 적용과 제품 BIO 활성화. 이전 배정 없는 test-only V2 파일은 자동 보정하지 않으며 수동 격리/복구 대상이다.
 - 부족하거나 개선이 필요한 기능: telemetry 구성 read-back은 별도 sensor-mode GET 작업, live capability, A 자율 밝기·실제 전력의 증거를 대체하지 않는다. 제품 gate/allowlist는 OFF이며 실장비·MQTT 검증은 별도다.
-- 관련 파일: `apps/api/src/automation/automation-snapshot.service.ts`, `apps/api/src/automation/bio-pulse-telemetry.ts`, `apps/api/prisma/migrations/20261001010000_bio_pulse_telemetry/migration.sql`, `docs/database-schema.md`.
+- 관련 파일: `apps/api/src/automation/automation-snapshot.service.ts`, `apps/api/src/automation/bio-pulse-telemetry.ts`, `apps/api/prisma/migrations/20261001010000_bio_pulse_telemetry/migration.sql`, `apps/api/prisma/migrations/20261001020000_bio_snapshot_source_bindings/migration.sql`, `docs/database-schema.md`.
 - 갱신 규칙: assignment와 snapshot 계약을 바꿀 때 재배정/옛 ACK/NULL metadata의 fail-closed 회귀를 함께 검증한다.
 
 ## 2026-10-01 BIO 그룹 경쟁·구성 증거 통합 검증

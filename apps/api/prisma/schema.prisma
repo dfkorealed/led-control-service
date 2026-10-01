@@ -1959,6 +1959,8 @@ model MqttOutbox {
   applicationAckKey   String?          @unique
   /// Server-recorded assignment at snapshot creation; legacy NULL never qualifies V2 telemetry.
   automationAssignmentVersion Int?
+  /// Snapshot-time BIO source Fixture -> MeshNode mapping, never reconstructed from current membership.
+  automationSourceBindings Json?
   revision            Int?
   payloadHash         String?
   topic               String

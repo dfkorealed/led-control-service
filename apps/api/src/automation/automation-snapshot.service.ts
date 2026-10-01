@@ -82,7 +82,7 @@ export class AutomationSnapshotService {
     const eventRules = await tx.vehicleEventRule.findMany({
       where: { gatewayId },
       include: {
-        sources: { select: { fixtureId: true }, orderBy: { fixtureId: "asc" } },
+        sources: { select: { fixtureId: true, fixture: { select: { meshNodeId: true } } }, orderBy: { fixtureId: "asc" } },
         targets: { select: { fixtureId: true }, orderBy: { fixtureId: "asc" } }
       },
       orderBy: { id: "asc" }
@@ -131,6 +131,11 @@ export class AutomationSnapshotService {
         gatewayId,
         revision: desiredRevision,
         automationAssignmentVersion: version === 2 ? gateway.assignmentVersion : null,
+        // Capture under the caller's membership lock with the snapshot. Never
+        // rebuild this historical attribution from a Fixture at ingest time.
+        automationSourceBindings: version === 2 ? Object.fromEntries(eventRules
+          .filter(rule => rule.sensorProtocol === "bio_usb_pulse")
+          .flatMap(rule => rule.sources.map(source => [source.fixtureId, source.fixture.meshNodeId]))) : Prisma.DbNull,
         payloadHash,
         topic: mqttTopics.automationConfig(gateway.siteId, gatewayId),
         payload: payload as unknown as Prisma.InputJsonValue

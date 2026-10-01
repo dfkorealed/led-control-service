@@ -2,6 +2,7 @@
 
 ## 2026-10-01 BIO 실행 이력·조회/ACK 기반
 
+- 구현 완료: snapshot 생성 당시 source Fixture→MeshNode를 서버 metadata로 보존한다. 교체 전 펄스가 첫 수신/새 occurrence로 늦게 도착해도 새 센서 상태로 표시하지 않고 감사 격리+ACK한다. 같은 현장 재배정 뒤 이미 저장된 exact event는 현재 claim·인증 근거 확인 후 원래 ACK만 재발행하며 새 과거 배정 이벤트는 거절한다.
 - 구현 완료: API는 strict V2 execution의 현재 claim·유효 MQTT 인증서·배정·V2 선언·snapshot hash/topic·source/target를 확인하고 별도 감사 이력과 조회 상태를 저장한다. 원래 assignment를 보존한 exact ACK는 DB commit 뒤 outbox로 발행하며 Gateway는 버전·배정·event ID·sequence·hash 일치 뒤에만 파일 기록을 제거한다. V1 소비는 유지한다.
 - 구현 완료: 상세 dashboard Fixture의 서버 소유 `bioPulseTelemetry`는 실제 저장 기록의 마지막 펄스, 건강/장애 시각, 복원 대기와 구성 read-back을 제공한다. 알려진 과거 설정·늦은 sequence·출처가 정확한 시계 오류는 ACK 가능한 감사 격리만 하고 projection은 갱신하지 않는다. 배정·source node mapping·설정 변경 뒤 옛 projection은 표시하지 않으며 없는 증거는 NULL이다.
 - 미구현: Web 표시 연결은 Task 8b2, 실제 broker/mTLS 송수신·Pi/RF·광학 HIL은 별도다. 합성 활성 snapshot의 일회용 DB 시험을 제품 활성화로 해석하지 않는다.

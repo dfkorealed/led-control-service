@@ -51,7 +51,7 @@ describe("AutomationSnapshotService", () => {
       vehicleEventRule: { updateMany: async () => ({}), findMany: async () => [{
         id: SCHEDULE_A, name: "BIO", sensorProtocol: "bio_usb_pulse", status: "disabled",
         dimmingEnabled: true, brightnessPercent: 70, holdSeconds: 10,
-        sources: [{ fixtureId: FIXTURE_A }], targets: [{ fixtureId: FIXTURE_B }]
+        sources: [{ fixtureId: FIXTURE_A, fixture: { meshNodeId: "00000000-0000-4000-8000-000000000009" } }], targets: [{ fixtureId: FIXTURE_B }]
       }] },
       gatewayAutomationConfiguration: { upsert: async () => ({}) },
       mqttOutbox: { create: async ({ data }: any) => { payloads.push(data.payload); } }

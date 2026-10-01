@@ -1,4 +1,4 @@
-import { PrismaClient } from "@prisma/client";
+import { Prisma, PrismaClient } from "@prisma/client";
 import { createHash, randomUUID } from "node:crypto";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -66,7 +66,7 @@ function independentHash(value: unknown): string {
         sourceFixtureIds: [sourceId], targetFixtureIds: [targetId], action: { dimmingEnabled: true, brightnessPercent: 80 }, holdSeconds: 60 }] };
     const payloadHash = canonicalPayloadHash(body);
     snapshotId = (await db.mqttOutbox.create({ data: { gatewayId, revision: 5, topic: mqttTopics.automationConfig(siteId, gatewayId),
-      payload: { ...body, payloadHash }, payloadHash } })).id;
+      payload: { ...body, payloadHash }, payloadHash, automationSourceBindings: { [sourceId]: source.id } } })).id;
     // Added metadata is server-owned; older V2 snapshots must remain ineligible.
     await db.$executeRaw`UPDATE "MqttOutbox" SET "automationAssignmentVersion"=1 WHERE id=${snapshotId}`;
     await db.gatewayAutomationConfiguration.create({ data: { ...scope(), desiredRevision: 5, appliedRevision: 5, syncStatus: "APPLIED", lastAppliedAt: now, payloadHash } });
@@ -166,13 +166,45 @@ function independentHash(value: unknown): string {
     if (reason === "snapshot_topic") await db.mqttOutbox.update({ where: { id: snapshotId }, data: { topic: "wrong" } });
     expect(await consumer.onExecution(scope(), event())).toBeUndefined();
   });
-  it("rejects replay after reassignment even with a new V2 declaration; an old snapshot cannot qualify new evidence", async () => {
-    const pulse = event(); await consumer.onExecution(scope(), pulse);
+  it("revives the exact committed ACK after same-site reassignment without accepting new old-assignment evidence", async () => {
+    const pulse = event(); const ack = await consumer.onExecution(scope(), pulse);
+    const receipt = await db.mqttOutbox.findFirstOrThrow({ where: { gatewayId, applicationAckKey: { not: null } } });
+    await db.mqttOutbox.update({ where: { id: receipt.id }, data: { publishedAt: now } });
+    const before = await db.bioPulseTelemetryProjection.findMany({ where: { gatewayId } });
     await db.gateway.update({ where: { id: gatewayId }, data: { assignmentVersion: 2 } });
     await db.gatewayAutomationProtocolSupport.create({ data: { ...scope(), assignmentVersion: 2, declarationRevision: 2,
       declarationId: randomUUID(), maxSnapshotVersion: 2, payloadHash: `sha256:${"b".repeat(64)}`, declaredAt: now } });
-    expect(await consumer.onExecution(scope(), pulse)).toBeUndefined();
+    expect(await consumer.onExecution(scope(), pulse)).toEqual(ack);
+    expect((await db.mqttOutbox.findUniqueOrThrow({ where: { id: receipt.id } })).publishedAt).toBeNull();
+    expect(await db.bioPulseTelemetryEvent.count({ where: { gatewayId } })).toBe(1);
+    expect(await db.bioPulseTelemetryProjection.findMany({ where: { gatewayId } })).toEqual(before);
+    expect(await consumer.onExecution(scope(), event(2))).toBeUndefined();
+    await expect(consumer.onExecution(scope(), { ...pulse, sequence: 2 })).rejects.toThrow("identity conflict");
     expect(await consumer.onExecution(scope(), { ...event(2), assignmentVersion: 2 })).toBeUndefined();
+    expect(await projection()).toBeNull();
+  });
+  it.each(["unclaimed", "revoked", "expired", "wrong_site"])("does not revive an old committed ACK without current %s authority", async reason => {
+    const pulse = event(); await consumer.onExecution(scope(), pulse);
+    const receipt = await db.mqttOutbox.findFirstOrThrow({ where: { gatewayId, applicationAckKey: { not: null } } });
+    await db.mqttOutbox.update({ where: { id: receipt.id }, data: { publishedAt: now } });
+    await db.gateway.update({ where: { id: gatewayId }, data: { assignmentVersion: 2 } });
+    if (reason === "unclaimed") await db.gatewayInventory.updateMany({ where: { claimedGatewayId: gatewayId }, data: { disabledAt: now } });
+    if (reason === "revoked") await db.gatewayCertificate.updateMany({ where: { gatewayId }, data: { status: "revoked", revokedAt: now } });
+    if (reason === "expired") await db.gatewayCertificate.updateMany({ where: { gatewayId }, data: { notAfter: now } });
+    const topicScope = reason === "wrong_site" ? { gatewayId, siteId: randomUUID() } : scope();
+    expect(await consumer.onExecution(topicScope, pulse)).toBeUndefined();
+    expect((await db.mqttOutbox.findUniqueOrThrow({ where: { id: receipt.id } })).publishedAt).toEqual(now);
+    expect(await db.bioPulseTelemetryEvent.count({ where: { gatewayId } })).toBe(1);
+  });
+  it.each(["null", "missing_source", "extra_source", "invalid_node", "null_node"])("fails closed for %s snapshot-time source binding", async reason => {
+    const original = (await db.fixture.findUniqueOrThrow({ where: { id: sourceId } })).meshNodeId!;
+    const bindings = reason === "null" ? Prisma.DbNull : reason === "missing_source" ? {} :
+      reason === "extra_source" ? { [sourceId]: original, [targetId]: original } :
+      { [sourceId]: reason === "null_node" ? null : "not-a-node-id" };
+    await db.mqttOutbox.update({ where: { id: snapshotId }, data: { automationSourceBindings: bindings } });
+    expect(await consumer.onExecution(scope(), event())).toBeUndefined();
+    expect(await db.bioPulseTelemetryEvent.count({ where: { gatewayId } })).toBe(0);
+    expect(await db.mqttOutbox.count({ where: { gatewayId, applicationAckKey: { not: null } } })).toBe(0);
     expect(await projection()).toBeNull();
   });
   it.each(["2099-01-01T00:00:00.000Z", "2000-01-01T00:00:00.000Z"])("durably quarantines authenticated clock error %s without poisoning the FIFO or changing projection", async occurredAt => {
@@ -196,6 +228,17 @@ function independentHash(value: unknown): string {
     await db.fixture.update({ where: { id: sourceId }, data: { meshNodeId: replacement.id } });
     expect(await projection()).toBeNull();
     await consumer.onExecution(scope(), event(2));
+    expect(await projection()).toBeNull();
+  });
+  it.each([false, true])("quarantines a delayed old-node pulse even when occurrence is new (prior occurrence=%s)", async priorOccurrence => {
+    if (priorOccurrence) await consumer.onExecution(scope(), event());
+    const pulse = { ...event(2), occurrenceKey: `${ruleId}:delayed-new-occurrence` };
+    const before = await db.bioPulseTelemetryProjection.findMany({ where: { gatewayId } });
+    const replacement = await db.meshNode.create({ data: { gatewayId, meshAddress: "0x0003", firmwareVersion: "synthetic", vehicleSensorProtocol: "bio_usb_pulse" } });
+    await db.fixture.update({ where: { id: sourceId }, data: { meshNodeId: replacement.id } });
+    expect(await consumer.onExecution(scope(), pulse)).toMatchObject({ eventId: pulse.eventId });
+    expect(await db.bioPulseTelemetryEvent.findFirst({ where: { gatewayId, eventId: pulse.eventId } })).toMatchObject({ disposition: "stale_configuration" });
+    expect(await db.bioPulseTelemetryProjection.findMany({ where: { gatewayId } })).toEqual(before);
     expect(await projection()).toBeNull();
   });
   it("selects the newest pulse across occurrences even when an older occurrence later emits lifecycle telemetry", async () => {
