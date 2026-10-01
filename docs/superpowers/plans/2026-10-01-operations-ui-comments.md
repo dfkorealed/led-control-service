@@ -77,6 +77,7 @@ Task1 evidence: assertion RED23/89; initial focused114 passed/12 opt-in skipped;
 **Files:**
 - Modify: `apps/api/prisma/schema.prisma`, `apps/api/src/monitoring-incidents/monitoring-incidents.dto.ts`, `monitoring-incidents.controller.ts`, `monitoring-incidents.service.ts`, and their existing `*.spec.ts`/`monitoring-incidents.integration.spec.ts`; `docs/database-schema.md`, `docs/menus/monitoring.md`.
 - Create: `apps/api/prisma/migrations/20261001100000_monitoring_incident_read_receipts/migration.sql`.
+- Test only: extend `apps/api/src/monitoring-activity/monitoring-activity.integration.spec.ts` and `apps/api/src/commands/command-history-db-clock.integration.spec.ts` to execute Task1 date/1000-row/tied-cursor assertions in self-owned disposable PostgreSQL. Keep existing CI opt-in contracts; no additional production log changes.
 
 **Interfaces:**
 - Model `MonitoringIncidentReadReceipt(incidentId,userId,readAt)` composite PK, incident/User cascade FKs, DB default readAt, userId lookup index. Do not amend existing migrations or incident operational revision/retention.
