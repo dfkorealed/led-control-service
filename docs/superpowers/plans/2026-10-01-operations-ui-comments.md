@@ -37,8 +37,8 @@
 | --- | --- | --- | --- |
 | 준비 | Shell·인증·운영 담당자 | 격리 실행 완료; root test 1건 실패 | lint/typecheck/build exit0, Gateway CLI timeout; API 전체 종료 요약 없음 |
 | 1 | Shell backend: 로그 API | 완료·독립 명세/품질 승인 | 5c1d313e + 982f999a; focused119/119 |
-| 2 | Shell backend: 개인 알람 읽음 | 구현 반환·독립 검토 진행 | bdb2d9e1; focused97/97(실제DB56 포함) |
-| 3 | Shell 공통 UI | 대기 | — |
+| 2 | Shell backend: 개인 알람 읽음 | 완료·독립 명세/품질 승인 | bdb2d9e1; focused97/97(실제DB56 포함) |
+| 3 | Shell 공통 UI | 구현 배정 | 디자이너 준비 검토 전달 |
 | 4 | Shell 알람센터 소비 | 대기 | — |
 | 5 | 모니터링 페이지 담당자 | 대기 | — |
 | 6 | 제어 UI 개선 담당자(GPT-6.1 Sol/high) | 대기 | — |
@@ -85,11 +85,13 @@ Task1 evidence: assertion RED23/89; initial focused114 passed/12 opt-in skipped;
 - PUT `/sites/:siteId/monitoring-incidents/:incidentId/read`: `markRead(user:AuthenticatedUser,siteId:string,incidentId:string): Promise<{incidentId:string;isRead:true;readAt:string}>`; first readAt immutable, actor server-derived, viewer read permission. Transaction rechecks active actor/site membership and incident belongs to site using existing access lock boundary, no new revision409.
 - Existing 401/403/404/400 meanings in spec6.2; no body actor override or manage requirement.
 
-- [ ] Step 1 — Add `read_receipt_is_actor_scoped_idempotent_and_filter_independent`, `read_receipt_races_revocation_parent_delete_and_user_delete` tests: accountA read≠B read; duplicate concurrent PUT samefirsttime; resolved unread counts; polling sameID remains read, recurrence newID unread; crosssite404/viewerallowed/expired401/password403; deletes cascade with no orphan and revoked membership cannot insert receipt.
-- [ ] Step 2 — Run `pnpm --filter @led-control/api run test --runInBand --runTestsByPath src/monitoring-incidents/monitoring-incidents.dto.spec.ts src/monitoring-incidents/monitoring-incidents.service.spec.ts`; record RED assertions.
-- [ ] Step 3 — Implement migration/model/DTO/service/controller; use existing transaction site-access race protections and uniqueness, preserve additive consumer compatibility. Generate Prisma Client in this worktree only.
-- [ ] Step 4 — GREEN focused tests, API typecheck/build. In an identity-checked disposable PostgreSQL apply all migrations and run actual receipt/log integration/cascade/concurrency tests in band; never point at user `led_control` DB. Record schema before/after and cleanup. If infrastructure absent, report explicit unverified gate; do not mark Task2 complete on mocks alone.
-- [ ] Step 5 — Update DB/menu docs with actual migration execution limits and commit `feat: persist account-scoped alarm read receipts`; independent review before web consumer starts.
+- [x] Step 1 — Add `read_receipt_is_actor_scoped_idempotent_and_filter_independent`, `read_receipt_races_revocation_parent_delete_and_user_delete` tests: accountA read≠B read; duplicate concurrent PUT samefirsttime; resolved unread counts; polling sameID remains read, recurrence newID unread; crosssite404/viewerallowed/expired401/password403; deletes cascade with no orphan and revoked membership cannot insert receipt.
+- [x] Step 2 — Run `pnpm --filter @led-control/api run test --runInBand --runTestsByPath src/monitoring-incidents/monitoring-incidents.dto.spec.ts src/monitoring-incidents/monitoring-incidents.service.spec.ts`; record RED assertions.
+- [x] Step 3 — Implement migration/model/DTO/service/controller; use existing transaction site-access race protections and uniqueness, preserve additive consumer compatibility. Generate Prisma Client in this worktree only.
+- [x] Step 4 — GREEN focused tests, API typecheck/build. In an identity-checked disposable PostgreSQL apply all migrations and run actual receipt/log integration/cascade/concurrency tests in band; never point at user `led_control` DB. Record schema before/after and cleanup. If infrastructure absent, report explicit unverified gate; do not mark Task2 complete on mocks alone.
+- [x] Step 5 — Update DB/menu docs with actual migration execution limits and commit `feat: persist account-scoped alarm read receipts`; independent review before web consumer starts.
+
+Task2 evidence: RED13/26→final97/97(41unit56real PostgreSQL/HTTP,0skip), finaltype/build/diff0,3ownedclusters125migrations and cleanup. Astra independent Spec✅/qualityApproved, no findings. Receipt UTC default separately verified nonUTC; existing legacy incident tuple cursor nonUTC limitation remains outside this producer. Redis initialization is test-only stubbed/throws on use, not Redis/MFA proof. Productionscale/deployment, visible-item web behavior and finalwholebranch gates remain pending. User DB receipt migration not applied.
 
 ### Task 3: 공통 필터·로그·페이지·시각·상세 surface
 
