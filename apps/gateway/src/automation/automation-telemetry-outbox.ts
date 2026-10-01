@@ -2,8 +2,9 @@ import { createHash, randomUUID } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
 import {
   automationExecutionEventV1Schema,
+  automationExecutionEventSchema,
   mqttTopics,
-  type AutomationExecutionEventV1
+  type AutomationExecutionEvent
 } from "@led-control/shared";
 import {
   AtomicJsonCommitUncertainError,
@@ -47,7 +48,7 @@ const DEFAULT_PUBLISH_TIMEOUT_MS = 10_000;
 export type AutomationTelemetryInput = AutomationTelemetryRecordInput;
 
 export interface StoredAutomationTelemetryRecord {
-  event: AutomationExecutionEventV1;
+  event: AutomationExecutionEvent;
   reportPayloadHash: `sha256:${string}`;
   publishAttempted: boolean;
 }
@@ -177,17 +178,19 @@ export class AutomationTelemetryOutbox {
         const sequence = next.nextSequence + 1;
         if (!Number.isSafeInteger(sequence)) throw new Error("automation telemetry sequence exceeded safe integer range");
         next.nextSequence = sequence;
-        const event = automationExecutionEventV1Schema.parse({
-          schemaVersion: 1,
+        const event = automationExecutionEventSchema.parse({
+          schemaVersion: input.payload.sensorProtocol === "bio-usb-pulse" ? 2 : 1,
           eventId: this.createEventId(),
           sequence,
           gatewayId: this.scope.gatewayId,
           ...input
-        }) as AutomationExecutionEventV1;
+        }) as AutomationExecutionEvent;
         const record = storedRecord(event);
-        if (event.kind === "event_extended") {
+        // BIO extensions also carry health, release and recovery history. Keep each
+        // V2 event ordered; V1's unsent hold-extension coalescing remains unchanged.
+        if (event.schemaVersion === 1 && event.kind === "event_extended") {
           next.records = next.records.filter((candidate) => !(
-            !candidate.publishAttempted && candidate.event.kind === "event_extended" &&
+            !candidate.publishAttempted && candidate.event.schemaVersion === 1 && candidate.event.kind === "event_extended" &&
             candidate.event.ruleId === event.ruleId && candidate.event.occurrenceKey === event.occurrenceKey
           ));
         }
@@ -275,7 +278,7 @@ export class AutomationTelemetryOutbox {
             lastDroppedAt: gap.lastDroppedAt,
             droppedCount: gap.droppedCount
           }
-        }) as AutomationExecutionEventV1));
+        }) as AutomationExecutionEvent));
         next.gap = null;
         this.assertStrictCapacity(next);
         await this.commit(current, next);
@@ -954,7 +957,7 @@ function laterTimestamp(left: string, right: string) {
   return Date.parse(left) >= Date.parse(right) ? left : right;
 }
 
-function storedRecord(event: AutomationExecutionEventV1): StoredAutomationTelemetryRecord {
+function storedRecord(event: AutomationExecutionEvent): StoredAutomationTelemetryRecord {
   return {
     event: structuredClone(event),
     reportPayloadHash: canonicalExecutionPayloadHash(event),
@@ -962,7 +965,7 @@ function storedRecord(event: AutomationExecutionEventV1): StoredAutomationTeleme
   };
 }
 
-function canonicalExecutionPayloadHash(event: AutomationExecutionEventV1) {
+function canonicalExecutionPayloadHash(event: AutomationExecutionEvent) {
   const value = event.kind === "action_result" && Array.isArray(event.payload.results)
     ? {
       ...event,
@@ -1009,7 +1012,7 @@ function parseStoredOutbox(value: unknown, scope: AutomationScope, maxBytes: num
 function parseStoredRecord(value: unknown, scope: AutomationScope): StoredAutomationTelemetryRecord {
   if (!isRecord(value) || !hasExactKeys(value, ["event", "reportPayloadHash", "publishAttempted"]) ||
     typeof value.publishAttempted !== "boolean") throw new AutomationTelemetryStoreError();
-  const event = automationExecutionEventV1Schema.parse(value.event) as AutomationExecutionEventV1;
+  const event = automationExecutionEventSchema.parse(value.event) as AutomationExecutionEvent;
   if (event.gatewayId !== scope.gatewayId || value.reportPayloadHash !== canonicalExecutionPayloadHash(event)) {
     throw new AutomationTelemetryStoreError();
   }
@@ -1060,7 +1063,7 @@ function sameStoredIdentity(
     left.reportPayloadHash === right.reportPayloadHash;
 }
 
-function publishQos1(client: AutomationTelemetryMqttClient, topic: string, event: AutomationExecutionEventV1) {
+function publishQos1(client: AutomationTelemetryMqttClient, topic: string, event: AutomationExecutionEvent) {
   return new Promise<void>((resolve, reject) => {
     client.publish(topic, JSON.stringify(event), { qos: 1 }, (error) => error ? reject(error) : resolve());
   });

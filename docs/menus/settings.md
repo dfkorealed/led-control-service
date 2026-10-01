@@ -1,5 +1,14 @@
 # 설정 메뉴 기능 현황 및 구현 설계
 
+## 2026-10-01 BIO 그룹 경쟁·구성 증거 통합 검증
+
+- 구현 완료: 일회용 PostgreSQL에서 활성 source membership 거래가 자동화 잠금을 보유하는 동안 그룹 확장이 대기하는 것을 확인하고, source commit 뒤 A 추가를 거절해 기존 B membership을 보존한다. 제품에서는 만들 수 없는 활성 BIO 행은 이 경쟁 시험의 격리 DB 전제로만 주입한다.
+- 구현 완료: disabled BIO V2 구성 ACK는 source node의 readiness·mode·capability 값을 바꾸지 않는다. 현재 claim·인증서·assignment 근거가 없거나 지원이 하향되면 V2 적용을 인정하지 않으며 API/Gateway enabled BIO는 차단한다.
+- 미구현: 제품 BIO 활성화와 실제 센서/RF·광학 검증. A 밝기 설정 UI는 제공하지 않는다.
+- 부족하거나 개선이 필요한 기능: 실제 PostgreSQL 서비스와 파일 저널을 연결한 소프트웨어 시험이며 MQTT transport·source readiness는 합성 전제다. 운영 DB·인증서·Pi 설정은 변경하지 않았다.
+- 관련 파일: `apps/api/test/bio-pulse-config.integration.spec.ts`, `apps/api/src/fixture-groups/fixture-groups.service.ts`, `apps/api/src/automation/bio-source-target-policy.ts`.
+- 갱신 규칙: 그룹 경쟁 차단·구성 ACK와 실장비 센서 준비 판정을 혼동하지 않는다.
+
 ## 2026-09-30 활성 BIO 소스 보호
 
 - 구현 완료: 등록 조명 식별과 그룹 생성·구성 변경은 자동화 잠금 → 현장 권한 → 실제 Fixture membership 확인 순서로 활성 BIO source A를 차단한다. 기존 그룹에 A를 뒤늦게 추가하는 변경도 거절하며, 층·그룹 제어는 명령 시점 membership을 다시 검사한다.

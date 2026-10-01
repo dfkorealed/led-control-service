@@ -1,5 +1,13 @@
 # 모니터링 메뉴 기능 현황
 
+## 2026-10-01 BIO telemetry 소프트웨어 전달 경계
+
+- 구현 완료: Gateway 합성 시험의 펄스·연장·장애·복구·B 설정 적용/복원 결과를 strict V2 outbox로 전달한다. 설정 결과에 `verification=configuration_readback`, `configuredHighBrightnessPercent`, `bioMode`를 쓰며 raw body·native UUID·임의 오류 문자열은 허용하지 않는다. 장애/복구 이력을 합치지 않고 파일 재시작·재전송의 순서·identity·해시를 보존한다.
+- 미구현: API는 V2 BIO 실행 telemetry를 아직 영속 수신하거나 ACK하지 않는다. 마지막 펄스·장애 시작·복원 대기 사유의 API 조회와 화면은 Task 8b이며 현재 Web 미확인 표기를 유지한다. 시험용 outbox 삭제는 exact identity/hash 경계의 검증이지 API 수신 완료 증거가 아니다.
+- 부족하거나 개선이 필요한 기능: 설정 read-back을 현재 LED 광학 출력·전력/에너지 또는 A 자율 밝기로 투영하지 않는다. 제품 capability·allowlist는 OFF이고 실제 MQTT·Pi/RF/HIL 결과는 이번 통합 시험에 포함되지 않는다.
+- 관련 파일: `packages/shared/src/bio-pulse-telemetry-contracts.ts`, `apps/gateway/src/automation/automation-telemetry-handoff.ts`, `automation-telemetry-outbox.ts`, `software-bio-pulse-integration.test.ts`.
+- 갱신 규칙: Gateway 영속 전달, API 영속 수신, 화면 조회와 실제 광학 관찰을 별도 근거로 기록한다.
+
 ## 2026-10-01 BIO 관찰 증거와 제어 준비 상태 구분
 
 - 구현 완료: 상세 dashboard Fixture에 서버 소유 `vehicleEventSource`를 제공해 BIO protocol, 유효 readiness와 capability 관찰 증거, 차단 사유, 활성 A의 대상 보호를 제어 화면에서 소비한다. BIO 제품 OFF 동안 stored ready 보고를 사용 가능으로 승격하지 않는다.

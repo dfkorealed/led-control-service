@@ -1,5 +1,15 @@
 # 제어 메뉴 기능 현황
 
+## 2026-10-01 BIO 통합 경계 — 소프트웨어, 제품 OFF
+
+- 구현 완료: 일회용 PostgreSQL에서 실제 규칙 서비스의 disabled BIO 10/60초 저장 → 현재 claim·인증서·assignment에 묶인 V2 지원 선언 → V2 outbox 발행·전체 해시 → Gateway 파일 저장·V2 ACK·API 수신 확인을 연결했다. V1 5초 BlueZ 회귀, 미지원/인증 근거 상실/할당 변경/하향 선언과 잘못된 버전·해시 ACK의 차단을 함께 검증한다. API와 Gateway의 enabled BIO 거부는 유지한다.
+- 구현 완료: 별도 in-process 시험 경로에서만 명시적 합성 profile·독립 healthy link와 CRC16 `0x09` 프레임을 decoder/intake/runtime에 연결했다. 10/60초 연장·B의 설정 밝기와 mode 복원·degraded/재시작 후 전체 건강 관찰창·A 쓰기 0건을 실제 파일 저널로 검증한다. 제품 bootstrap·환경변수·IPC에 BIO 양성 시험 입력은 연결하지 않았다.
+- 구현 완료: BIO 수명주기·설정 read-back 결과는 별도 strict V2 telemetry로 outbox에 전달한다. malformed payload는 저널 append 전에 거절하고 장애·복구·연장 이력은 합치지 않는다. 연결 단절·파일 재시작·재접속 동안 순서·event identity·해시를 보존하며 broker 접수만으로 삭제하지 않는다. MQTT transport와 B 장비 read-back은 시험용 대체물이며 실제 broker/RF 검증이 아니다.
+- 미구현: V2 BIO telemetry의 API 영속 수신·application ACK·조회 projection과 Web 연결은 Task 8b다. 두 시험 경로를 제품 저장부터 B 실행까지의 단일 end-to-end 성공으로 합치지 않는다.
+- 부족하거나 개선이 필요한 기능: API 저장 시험의 ready source는 격리 DB에 주입한 합성 전제다. 제품 capability·allowlist는 계속 OFF이며 `configuredHighBrightnessPercent`와 `bioMode`는 구성 확인값이다. 실제 광학 밝기·전력·A 자율 동작, Pi·운영 DB·현장 MQTT는 검증하거나 변경하지 않았다.
+- 관련 파일: `packages/shared/src/bio-pulse-telemetry-contracts.ts`, `apps/api/test/bio-pulse-config.integration.spec.ts`, `apps/gateway/src/automation/software-bio-pulse-integration.test.ts`, `software-automation-simulator.ts`, `automation-telemetry-handoff.ts`, `automation-telemetry-outbox.ts`, `bio-pulse-scheduler.ts`.
+- 갱신 규칙: disabled 구성 적용, 합성 펄스 수명주기, API 실수신, 광학 HIL과 제품 ON을 각각 실제 증거로 구분한다.
+
 ## 2026-10-01 BIO 제어 화면 — 소프트웨어 검증, 제품 OFF
 
 - 구현 완료: dashboard의 서버 계산 `vehicleEventSource`로 protocol·유효 readiness·차단 사유·활성 센서의 대상 제외 여부를 표시한다. 저장된 BIO `ready` 보고만으로 사용 가능을 만들지 않으며 현재 서버는 제품 gate OFF에 따라 source 선택·화면 저장을 차단한다. `shadow/degraded` 보고는 검증 중·재검증 안내로 구분한다. 기존 내부 disabled draft API 자격 정책은 바꾸지 않았다.
@@ -28,7 +38,7 @@
 - 구현 완료: 명시적 Gateway V2 지원 선언을 현재 assignment·인증 범위와 대조해 별도 DB 이력에 저장한다. V1-only/지원 미확인은 BIO를 제외한 V1을 유지하며, V2 지원 확인 뒤에는 비활성 BIO 초안을 V2로 배포하고 전체 해시·ACK 버전을 검증한다. Gateway의 V2 저장·재시작·ACK outbox도 버전을 보존한다. 지원 하향·오래된 선언/ACK는 BIO readiness를 올리지 않는다. 이 결과는 구성 반영 근거일 뿐 sensor-mode 또는 광학 출력 근거가 아니다.
 - 부족하거나 개선이 필요한 기능: 지원 선언 전용 수신 확인은 아직 없으므로 Gateway는 연결 동안 같은 선언 ID/내용을 제한된 재시도 간격(기본 1초에서 최대 30초 backoff + jitter)으로 계속 전송한다. 구성 수신/ACK만으로 선언 재전송을 종료하지 않는다. API는 동일 선언을 중복 저장하지 않지만 현재 구성 재전송 트래픽은 발생하며, 연결 종료 시 재시도를 멈추고 다음 연결은 새 선언을 사용한다.
 - 구현 완료: A sensor-mode는 별도 `POST /sensor-mode-operations` 요청과 `GET /sensor-mode-operations/:commandId` 조회로 저장한다. 현장 제어 권한, 현재 claim/assignment와 BIO Fixture identity를 확인하며 `ensure_sensor` 명시적 요청만 센서 모드 SET 후 별도 GET을 한다. `query`와 timeout/unknown 후 새 ID 재조회는 모드 GET만 한다. Gateway 접수 journal·결과 outbox, API 동일 ID 재전송/중복 결과 ACK를 사용한다. 복구와 실시간 재전달은 명령별로 직렬화하여 결과 ID 하나를 보존한다. 시계 오차가 있는 비성공 terminal은 identity/hash 검증 후 비검증 감사 기록으로 ACK하며 원래 `occurredAt`은 신뢰하지 않는 Gateway 시각으로 보존한다. 서버 만료 상태를 바꾸거나 `verifiedAt`으로 사용하지 않는다. 실제 GET=`sensor`와 엄격한 시간 검증만 해당 작업의 `modeVerified`이고 configured high-brightness·MQTT 접수·구성 적용 ACK는 검증 근거가 아니다.
-- 미구현: BIO 활성 규칙의 제품 실행은 후속 Task 8이다. 현재 준비된 BIO도 `disabled` 초안만 저장하며 활성화는 기존 `v2_support_unverified`로 거절한다. Gateway도 임의로 조작한 enabled-BIO V2를 저장·RF 전에 거절한다. BIO 초안은 V1 snapshot에 포함되지 않으며, V2 구성 적용 번호와 별개로 제품 준비 전 목록·필터·집계는 `PENDING`을 유지한다.
+- 미구현: BIO 활성 규칙의 제품 실행은 별도 HIL·운영 승인 이후 범위다. Task 8의 소프트웨어 통합은 제품 gate를 켜지 않는다. 현재 준비된 BIO도 `disabled` 초안만 저장하며 활성화는 기존 `v2_support_unverified`로 거절한다. Gateway도 임의로 조작한 enabled-BIO V2를 저장·RF 전에 거절한다. BIO 초안은 V1 snapshot에 포함되지 않으며, V2 구성 적용 번호와 별개로 제품 준비 전 목록·필터·집계는 `PENDING`을 유지한다.
 - 부족하거나 개선이 필요한 기능: 센서 모드 작업 UI는 Task 7에 남아 있다. 모드 성공 이력은 요청 당시 GET의 결과이며 지속적인 센서 건강이나 실제 자체 점등을 뜻하지 않는다. 프로세스 중단 작업은 재시작 후 `unknown`, 만료는 `timed_out`이며 재조회가 새 관측을 만든다. 실제 Pi/RF 시험과 운영 migration/ACL 적용은 수행하지 않았고 BIO capability·allowlist는 계속 OFF다. A 밝기 설정 UI는 제공하지 않는다.
 - 부족하거나 개선이 필요한 기능: 실제 BIO readiness/HIL·제품 capability는 OFF다. 내부 보고 helper는 HTTP/MQTT 경로에 연결하지 않았으며, 보고의 모드 시각이나 구성 ACK는 별도 실제 mode GET·광학 출력 검증을 대체하지 않는다. 준비 상태·유지시간 안내 UI는 Task 7에 남아 있다.
 - 관련 파일: `apps/api/src/automation/vehicle-event-rules.service.ts`, `target-snapshot.service.ts`, `vehicle-sensor-capability.service.ts`, `automation-snapshot.service.ts`, `automation-protocol-support.ts`, `automation-mqtt-consumer.service.ts`, `dto/vehicle-event-rule.dto.ts`, `apps/api/test/vehicle-event-rules.e2e-spec.ts`, `apps/gateway/src/automation/automation-runtime.ts`, `automation-config-store.ts`, `automation-config-ack-outbox.ts`, `automation-current-config-requester.ts`.

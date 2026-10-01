@@ -228,10 +228,10 @@ export class BioPulseScheduler {
         activation.releaseReason = event.payload.reason === "operator_release" ? "operator_release"
           : event.payload.reason === "hold_expired" ? "hold_expired" : "configuration_changed";
         projected.push({ ...event, kind: "event_extended", payload: { ...event.payload,
-          reason: "bio_release_pending", releaseReason: activation.releaseReason, restorationPending: true } });
+          sensorProtocol: "bio-usb-pulse", reason: "bio_release_pending", releaseReason: activation.releaseReason, restorationPending: true } });
       } else if (event.payload.reason === "bio_source_degraded" || event.payload.reason === "bio_health_recovered") {
         const health = event.payload.health as BioSourceHealth;
-        const reason = health === "healthy" ? "qualified" : safeReason(String(event.payload.healthReason));
+        const reason = health === "healthy" ? "qualified" : safeDegradedReason(String(event.payload.healthReason));
         if (activation.health !== health || activation.healthReason !== reason) {
           activation.health = health; activation.healthReason = reason;
           projected.push({ ...event, payload: { ...event.payload, healthReason: reason } });
@@ -345,7 +345,7 @@ export class BioPulseScheduler {
     const activation = state.bioActivationsByRule[ruleId]!;
     const observation = this.health(activation.binding.sourceFixtureId);
     const health = observation?.health ?? "unverified";
-    const reason = health === "healthy" ? "qualified" : safeReason(observation?.reason ?? "health_unverified");
+    const reason = health === "healthy" ? "qualified" : safeDegradedReason(observation?.reason ?? "health_unverified");
     if (activation.health === health && activation.healthReason === reason) return;
     activation.health = health; activation.healthReason = reason;
     this.append(state, lifecycleTelemetryRecords({ revision: activation.binding.snapshotRevision, events: [{
@@ -375,6 +375,12 @@ export class BioPulseScheduler {
 function safeReason(reason: string) {
   return ["qualified", "usb_disconnected", "identity_changed", "liveness_failed", "decoder_failed", "fingerprint_changed", "connection_changed"]
     .includes(reason) ? reason : "health_unverified";
+}
+
+function safeDegradedReason(reason: string) {
+  // An authority may revoke health before replacing its old reason. Never label
+  // that degraded observation as qualified in the strict telemetry contract.
+  return reason === "qualified" ? "health_unverified" : safeReason(reason);
 }
 
 function hash(value: unknown): `sha256:${string}` {
