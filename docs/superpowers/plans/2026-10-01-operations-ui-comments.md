@@ -36,7 +36,7 @@
 | Task | 담당 세션/역할 | 상태 | 커밋·검토 |
 | --- | --- | --- | --- |
 | 준비 | Shell·인증·운영 담당자 | 격리 실행 완료; root test 1건 실패 | lint/typecheck/build exit0, Gateway CLI timeout; API 전체 종료 요약 없음 |
-| 1 | Shell backend: 로그 API | 구현 반환·독립 검토 진행 | bd891e7e..5c1d313e; API3012 passed/827 skipped |
+| 1 | Shell backend: 로그 API | 품질 승인·명세 보완 재검토 대기 | bd891e7e..5c1d313e; 날짜 경계 P3 보완 |
 | 2 | Shell backend: 개인 알람 읽음 | 대기 | — |
 | 3 | Shell 공통 UI | 대기 | — |
 | 4 | Shell 알람센터 소비 | 대기 | — |
@@ -54,12 +54,13 @@ API와 공통 파일을 동시에 쓰지 않는다. Task 5는 `FloorScene`/`Floo
 
 **Files:**
 - Create: `apps/api/src/retention/log-date-range.ts`, `apps/api/src/retention/log-date-range.spec.ts`, `apps/api/src/monitoring-activity/monitoring-activity.controller.spec.ts`.
-- Modify: `apps/api/src/monitoring-activity/monitoring-activity.controller.ts`, `apps/api/src/monitoring-activity/monitoring-activity.service.ts`, `apps/api/src/commands/command-status.service.ts`, `apps/api/src/commands/commands.controller.ts`, `docs/menus/monitoring.md`, `docs/menus/control.md`.
+- Modify: `apps/api/src/monitoring-activity/monitoring-activity.controller.ts`, `apps/api/src/monitoring-activity/monitoring-activity.service.ts`, `apps/api/src/commands/command-status.service.ts`, `docs/menus/monitoring.md`, `docs/menus/control.md`.
+- Reuse unchanged: `apps/api/src/commands/commands.controller.ts` already parses the extended imported schema; controller tests verify the transitive contract without a source no-op.
 - Test: existing `monitoring-activity.service.spec.ts`, `monitoring-activity.integration.spec.ts`, `commands/command-status.service.spec.ts`, `commands/commands.controller.spec.ts`; paths under the above API directories.
 
 **Interfaces:**
 - Both list inputs add optional paired `fromDate?: string`, `toDate?: string` in strict `YYYY-MM-DD`, inclusive local-calendar end; limit accepts 1–1000. Existing defaults monitoring=5/command=20 remain backward compatible; full UI explicitly supplies 50.
-- `resolveLogDateRange(input: {fromDate?:string;toDate?:string}, timeZone:string, boundary:{generatedAt:Date;retainedFrom?:Date}): {start:Date|undefined;end:Date}` in `retention/log-date-range.ts`; use `energy/energy-periods.ts` helpers, never host-clock/90day arithmetic. End=min(next-local-day,DB generatedAt), start=max(request-start,retainedFrom when enforced); empty intersection returns empty list.
+- `resolveLogDateRange(input: {fromDate?:string;toDate?:string}, timeZone:string, boundary:{generatedAt:Date;retainedFrom?:Date}): {start:Date|undefined;end:Date}` in `retention/log-date-range.ts`; use `energy/energy-periods.ts` helpers, never host-clock/90day arithmetic. End=min(first actual local instant after the selected ending day,DB generatedAt), start=max(request-start,retainedFrom when enforced); empty intersection returns empty list. A skipped successor date must not reject a valid selected ending day; absent selected local endpoints remain rejected.
 - 새 v2 cursor는 principal/site/floor(모니터링)/fromDate/toDate/effective limit, 명령 query/stage를 canonical scope의 SHA-256 digest로 결합하고 원본 timestamp/id를 유지한다. 기존 모니터링 v1·명령 unversioned cursor는 새 날짜 필터가 없고 기존 limit 상한 안에서만 허용하며 구 query/stage 동작은 보존한다. 응답은 항상 v2를 발급한다. v2 조건/scope 불일치·잘못된 cursor는 400, 기존 모니터링 410/명령 400 만료 의미는 유지한다. cursor 상한 512bytes를 늘리지 않고 100자 검색어에서도 길이를 검증한다.
 - Preserve `items`, `nextCursor`, `generatedAt`, `retainedFrom`, `retentionEnabled`, ISO precision, same-time id descending, site outside search OR and content redaction. No new response fields/DB schema/shared exports are required.
 
