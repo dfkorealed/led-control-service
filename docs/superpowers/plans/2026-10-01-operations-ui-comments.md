@@ -209,6 +209,8 @@ Inherited editor gate read-only audit: coordinator read complete `editor-gate-au
 
 ### Task 7: 통계 표시 정리·공통 필터·시각
 
+Task6 read-only readiness completed (not product execution): existing separate control UI owner returned48line task-6-readiness.md without source/tests/Git/server changes. Root resolves three narrow ambiguities in queued brief: comment11 means only input+slider, remove visible four preset buttons while preserving command safety tests; NumberField public draft sufficiency requires actual failing assertion before any producer NEEDS_CONTEXT grant; preserve currently available mutation/execution failure reasons and sync warnings, no invented Gateway reason/schema expansion. Exact implementation BASE/single-writer grant still waits on Task4 designer physical verdict. Reading overlaps independent audit only, not product authorship.
+
 **Files:** Modify `apps/web/src/features/statistics/StatisticsOverviewPage.tsx`, `EnergyComparisonChart.tsx`, `analysis/StatisticsAnalysisPage.tsx`, `analysis/EnergyHeatmap.tsx`, `reports/{ReportHistoryFilters,StatisticsReportsPage,ReportJobTable,ReportJobCards,ReportJobList}.tsx`, `reports/report-job-view-model.ts`, existing tests; `apps/web/e2e/statistics-flow.spec.ts`, `operations-ui-comments.spec.ts`, `docs/menus/statistics.md`.
 
 **Interfaces:** Task3 FilterPanel accepts existing controlledconditions/chips/reset slots; noanalysisreset/URLaddition. Overvieweachperiodline `YYYY-MM-DD ~ YYYY-MM-DD` fromitsownselectedperiod; no overline/estimate-gapbadges. Task3 formatter for actualtimestamps only, retained site/device timezone branches.
