@@ -38,8 +38,8 @@
 | 준비 | Shell·인증·운영 담당자 | 격리 실행 완료; root test 1건 실패 | lint/typecheck/build exit0, Gateway CLI timeout; API 전체 종료 요약 없음 |
 | 1 | Shell backend: 로그 API | 완료·독립 명세/품질 승인 | 5c1d313e + 982f999a; focused119/119 |
 | 2 | Shell backend: 개인 알람 읽음 | 완료·독립 명세/품질 승인 | bdb2d9e1; focused97/97(실제DB56 포함) |
-| 3 | Shell 공통 UI | 작성자 완료·독립 검토 중 | 793d126a; focused429/429, Web type/build/UI0 |
-| 4 | Shell 알람센터 소비 | 대기 | — |
+| 3 | Shell 공통 UI | 완료·독립 명세/품질 승인 | 793d126a; focused429/429, Web type/build/UI0; P3 경계1건 후속 |
+| 4 | Shell 알람센터 소비 | 구현 배정 | 공유 API/UI 계약 전달 |
 | 5 | 모니터링 페이지 담당자 | 대기 | — |
 | 6 | 제어 UI 개선 담당자(GPT-6.1 Sol/high) | 대기 | — |
 | 7 | 통계 페이지 담당자 | 대기 | — |
@@ -108,11 +108,13 @@ Task2 evidence: RED13/26→final97/97(41unit56real PostgreSQL/HTTP,0skip), final
 - `LogView({label:string,filters:ReactNode,pagination:ReactNode,status:ReactNode,children:ReactNode,className?:string})` provides fixed header/footer + min-h-0 independently scrollable body. Callers own loading/empty/error/count/query/command diagnosis.
 - Add `surface:"sheet"` to DialogBase with bottom alignment, safe-area and body-only scroll, keep existing modal compact760/drawer unaffected. Export `DetailSheet(props:ModalDialogProps)` wrapper; PC panel remains feature's nonmodal aside, never DialogBase.
 
-- [ ] Step 1 — Add formatter assertions Seoul seconds/midnight/offset/DST/devicezone/invalid, total PaginationBar unchanged and cursor hidesfake total/accepts4logoptions/pending disables; filter slots/tab order, sheet focus/Escape/pending/restore and 1000-row LogView footer accessible.
-- [ ] Step 2 — Run `pnpm --filter @led-control/web test src/components/ui/utils/formatTimestamp.test.ts src/components/ui/PaginationBar.test.tsx src/components/ui/FilterPanel.test.tsx src/components/ui/LogView.test.tsx src/components/ui/overlays/overlays.test.tsx`; record RED.
-- [ ] Step 3 — Implement these presentation interfaces using existingtokens. No timestamp/date calculations in wrappers, no CSS policy exemptions/newdeps/newbreakpoints. Keep overlay-stack nestedclose and trigger fallback contracts.
-- [ ] Step 4 — Same tests GREEN, Web typecheck/build, `pnpm --filter @led-control/web ui:check` and overlays/date/field regression, `git diff --check`.
-- [ ] Step 5 — Commit `feat: unify operation filters logs and detail surfaces`; record exported props and return shared-file ownership for independent review.
+- [x] Step 1 — Add formatter assertions Seoul seconds/midnight/offset/DST/devicezone/invalid, total PaginationBar unchanged and cursor hidesfake total/accepts4logoptions/pending disables; filter slots/tab order, sheet focus/Escape/pending/restore and 1000-row LogView footer accessible.
+- [x] Step 2 — Run `pnpm --filter @led-control/web test src/components/ui/utils/formatTimestamp.test.ts src/components/ui/PaginationBar.test.tsx src/components/ui/FilterPanel.test.tsx src/components/ui/LogView.test.tsx src/components/ui/overlays/overlays.test.tsx`; record RED.
+- [x] Step 3 — Implement these presentation interfaces using existingtokens. No timestamp/date calculations in wrappers, no CSS policy exemptions/newdeps/newbreakpoints. Keep overlay-stack nestedclose and trigger fallback contracts.
+- [x] Step 4 — Same tests GREEN, Web typecheck/build, `pnpm --filter @led-control/web ui:check` and overlays/date/field regression, `git diff --check`.
+- [x] Step 5 — Commit `feat: unify operation filters logs and detail surfaces`; record exported props and return shared-file ownership for independent review.
+
+Task3 evidence: 793d126a, updated Ruling included; RED37/31→scoped429/429(9files,0skip), finalWebtype/build/UIpolicy0. Fresh reviewer Spec✅/qualityApproved, Critical0/Important0/Minor1. BCE/year-zero Date or offset crossing era loses era in output; reproduced P3 remains uncorrected and explicitly parked for final triage because current operational timestamps are modern. No expanded historical-time domain decision made. Physical viewport/1000-row footer/200%/pointer-focus/positive safe-area and page integration remain Task9; unit assertions do not discharge those gates.
 
 ### Task 4: 실제 알람센터와 보이는 항목 읽음
 
