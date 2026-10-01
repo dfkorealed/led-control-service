@@ -39,8 +39,8 @@
 | 1 | Shell backend: 로그 API | 완료·독립 명세/품질 승인 | 5c1d313e + 982f999a; focused119/119 |
 | 2 | Shell backend: 개인 알람 읽음 | 완료·독립 명세/품질 승인 | bdb2d9e1; focused97/97(실제DB56 포함) |
 | 3 | Shell 공통 UI | 완료·독립 명세/품질 승인 | 793d126a; focused429/429, Web type/build/UI0; P3 경계1건 후속 |
-| 4 | Shell 범위·새 내부 구현 보조 | 소스 승인·물리 P2 보완 대기 | 9740967e + 13249728; scoped 소스 승인·28/28·Chromium2/2, 닫기/안전영역 물리 지적2건 |
-| 5 | 모니터링 담당 범위·새 실행 보조 | 기존 세 지적 해결·새 초점 P2 보완2 | 3c107e60; I1/I2/I3 재검토 해결, 자동 상세 닫힘의 초점 유실 N1로 후속/병합 차단 |
+| 4 | Shell 범위·새 내부 구현 보조 | 소스 승인·물리 P2 보완 배정 | 9740967e + 13249728; 기존 소스 승인 유지, 닫기/안전영역 물리 지적2건 보완 |
+| 5 | 모니터링 담당 범위·새 실행 보조 | 구현·scoped 독립 검토 승인 | 7455d16c + 3c107e60 + 3405415d; I1/I2/I3/N1 해결·새 지적0, Task9 전체검수 대기 |
 | 6 | 제어 UI 개선 담당자(GPT-6.1 Sol/high) | 대기 | — |
 | 7 | 통계 페이지 담당자 | 대기 | — |
 | 8 | 설정 담당 → Shell 운영 담당 | 대기 | — |
@@ -139,6 +139,12 @@ Task3 evidence: 793d126a, updated Ruling included; RED37/31→scoped429/429(9fil
 
 Task4 evidence: product9740967e initial88/88·ownChromium2/2; independent review caught delayed GET canonical-count reversal P2 and weaker lifecycle assertions P3. Same implementer fix13249728 cleanRED2/25→final28/28·ownChromium2/2/type/build/UI0/diff0. Original reviewer scoped previous9740967e→fix13249728: I1/M1 addressed, Spec✅/qualityApproved, new findings0. Request-start order/cache lifetime and cancellation protect both query modes while canonical increases/decreases/errors remain valid. Actual DB two-session persistence, downstream selector migrations, whole-root and physical matrix remain future gates, not completed by this source/fixture approval.
 
+Task4 physical repair gate: after Task5 fix2 scoped approval, same `/root/operations_ui_task4_impl` owns only `SessionStatusCenter.tsx`, `session-status.test.tsx`, alarm-only operations E2E and monitoring menu. Full designer report P2-01 wholeDrawer scroll/hidden header-footer all12 sizes/native200 and P2-02 actual CDPtop24/bottom34 intrusion require clean assertion RED and finite body-only scroll/safe rectangle GREEN. Shared `styles/base.css` and opt-in `DialogBase.tsx`/`ModalDialog.tsx`/`DrawerDialog.tsx` plus direct overlays tests require a precise evidence-backed NEEDS_CONTEXT/primary ruling, no global defaults or cn.ts grant. Root scoped diff13249728→3405415d of those eight producer paths is empty, so previous source approval remains valid; review uses newly approved branch checkpoint and new physical repair, with prior Task4 findings retained as context. Protected actual mainAPI4000 and Vite5173 are not fixture resources.
+
+- [ ] Task4 physical — clean behavior/bounds RED, minimal finite body scroll and one-owner top/bottom safe-area repair; visible-only observer and transient/read canonical behavior retained.
+- [ ] Task4 physical — scoped unit/type/UI0/build/diff and actual12/native200/positiveenv assertions, menu/owned commit/clean/ports/writer return.
+- [ ] Task4 physical — original scoped reviewer plus same designer independent physical rerun; P2-01/P2-02 resolved before Task6 product dispatch. Actual two-session DB/full22/root remain Task9.
+
 ### Task 5: 모니터링 지도·명시 선택·상세·공통 로그
 
 **Files:** Modify files and timestamp consumers in spec rows1–4/6/8/21/22 and section5: `features/monitoring/{MonitoringView,FloorMap,FixtureDetailPanel,FixturePinPopover,MonitoringFixtureFinder,MonitoringLogDrawer,MonitoringLogTicker}.tsx`, `fixture-status-presentation.ts`, `monitoring-time.ts`, `monitoring-activity-presentation.ts`, `useMonitoringActivity.ts`; `features/floor-map/{FloorScene,FloorMapViewport}.tsx`; their existing tests, `apps/web/e2e/operations-ui-comments.spec.ts`, `docs/menus/monitoring.md`.
@@ -171,9 +177,11 @@ Task5 fix1 review returned and fully read: I1/I2/I3 ADDRESSED, but Spec❌/quali
 
 - [x] Task5 fix2 — clean N1 assertion RED4FAIL/5PASS + settled automatic-GET browser1FAIL, minimal automatic-close focus repair, focused-detail/outside-focus/detached-trigger/scope/compact/camera regressions GREEN.
 - [x] Task5 fix2 — fresh167unit/type/UI0/build/diff and named3/frozen129=128PASS1inheritededitorFAIL; same feature/menu4file commit3405415d, report and writer return. Execution complete, independent approval pending.
-- [ ] Task5 fix2 — original reviewer scoped previous reviewed product3c107e60→fix2HEAD; no unresolved P0/P1/P2 before Task4 physical repair or Task6 dispatch.
+- [x] Task5 fix2 — original reviewer scoped previous reviewed product3c107e60→3405415d: N1 ADDRESSED, Spec✅/quality Approved, new findings0. I1/I2/I3 resolutions retained; source ownership returned, Task4 physical next.
 
 Task5 fix2 returned `3405415d5313e88c3d7bbd25b5549a7c80a9c9a3` from exactBASEfdad4791. Fullreport/lastreturn read, clean owned4paths156+/1-, ports16190/16191 empty, source-frozen SHA retained. Initial option-name setup9FAIL excluded, clean4assertionFAIL/5PASS plus settled browser1FAIL; connected BODY target initialGREEN4FAIL led to tabIndex validity plus noninteractive regression, then10namedunit and167fullmonitoringunit PASS. Latestsource named3 browser PASS, frozen129128PASS/1unchangededitorFAIL146.135sec with remaining1ms/wholecase22.4sec notreadinessdelta. Source only17-line View change: current-scope focused PC detail returns synchronously to valid connected opener or toolbar with preventScroll; outside focus/compact shared lifecycle preserved, no deferred job. Original reviewer receives scoped3c107e60→3405415d package and N1/adjacent safeguards, not completed producers/fullroot repeats. No next product dispatch or Task5 approval until verdict.
+
+Task5 final source disposition: root read complete fix2-review.md to EOF. N1 ADDRESSED, Spec✅/qualityApproved, allnewP0–P3=0; prior I1/I2/I3 and nullable count approvals maintained. Reviewer independently read raw167unit/latestnamed3/frozen129128PASS1inheritedFAIL and verified source hashes/status/ports; did not repeat suites or claim actualDB/native200/safeenv/full22/HIL. Task5 implementation/scoped review is complete, all final integrated gates remain pending. Proceed only queued Task4 physical repair as single writer, then new control UI session.
 
 Inherited editor gate read-only audit: coordinator read complete `editor-gate-audit.md`. Previously logged22.7s is the entire Playwright case, not an exact readiness-timer delta. Failure at selected-properties expectation with1ms remaining proves at least7,999ms elapsed; the final strict<8,000ms assertion was not reached. Timer starts before navigation and includes lazy-route work; no resource/camera/hit timing identifies the actual cause. Cold editor modules and asynchronous camera/hit readiness are separate unconfirmed hypotheses; legacy map preparation banner does not establish selection blocking. No audit tests/source/servers were changed. Retain original gate, failure and exclusions. If final Task9 still needs cause separation, the bounded proposal is original-case cold→warm two-run trace on one owned isolated server with untouched timer/assertions; warm result is diagnostic only, not a replacement cold pass or an authorized performance implementation now.
 
