@@ -39,7 +39,7 @@
 | 1 | Shell backend: 로그 API | 완료·독립 명세/품질 승인 | 5c1d313e + 982f999a; focused119/119 |
 | 2 | Shell backend: 개인 알람 읽음 | 완료·독립 명세/품질 승인 | bdb2d9e1; focused97/97(실제DB56 포함) |
 | 3 | Shell 공통 UI | 완료·독립 명세/품질 승인 | 793d126a; focused429/429, Web type/build/UI0; P3 경계1건 후속 |
-| 4 | Shell 범위·새 내부 구현 보조 | 작성자 완료·독립 검토 | 9740967e;88/88·Chromium2/2·type/build/UI0 |
+| 4 | Shell 범위·새 내부 구현 보조 | 보완1·독립 검토 미승인 | 9740967e P2 늦은 조회 역전; scoped RED/GREEN 필요 |
 | 5 | 모니터링 페이지 담당자 | 대기 | — |
 | 6 | 제어 UI 개선 담당자(GPT-6.1 Sol/high) | 대기 | — |
 | 7 | 통계 페이지 담당자 | 대기 | — |
