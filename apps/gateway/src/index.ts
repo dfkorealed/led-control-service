@@ -25,7 +25,7 @@ import {
   gatewayStatusCheckCommandV2CompatibilitySchema,
   gatewayHeartbeatV2Schema,
   automationConfigAppliedReceiptSchema,
-  automationExecutionIngestedAckV1Schema,
+  automationExecutionIngestedAckSchema,
   vehicleSensorCapabilityIngestedAckV1Schema,
   fixtureIdentifyTopics,
   isGatewayCommandExpired,
@@ -764,6 +764,7 @@ async function main() {
   await groupResyncStore.initialize(groupRestore.reason);
   const groupResyncPublisher = new MeshGroupResyncPublisher({ siteId, gatewayId }, groupResyncStore);
   const automationStorage = createAutomationStorage({
+    assignmentVersion: assignment.configVersion,
     statePath: process.env.GATEWAY_AUTOMATION_STATE_PATH ?? "/var/lib/led-control/automation-state.json",
     telemetryOutboxPath: process.env.GATEWAY_AUTOMATION_TELEMETRY_OUTBOX_PATH ??
       "/var/lib/led-control/automation-telemetry.json",
@@ -1396,7 +1397,7 @@ async function main() {
           .catch((error) => void reportGatewayError(error, "automation_config_ack_publish"));
       },
       [mqttTopics.automationExecutionIngested(siteId, gatewayId)]: async (payload) => {
-        const acknowledgement = automationExecutionIngestedAckV1Schema.parse(JSON.parse(payload.toString()));
+        const acknowledgement = automationExecutionIngestedAckSchema.parse(JSON.parse(payload.toString()));
         if (acknowledgement.gatewayId !== gatewayId) throw new Error("automation execution ACK scope mismatch");
         const result = await automationTelemetryOutbox.markIngested(acknowledgement);
         if (result === "conflict") throw new Error("automation execution ACK hash conflict");

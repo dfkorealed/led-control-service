@@ -130,6 +130,7 @@ export class AutomationSnapshotService {
       data: {
         gatewayId,
         revision: desiredRevision,
+        automationAssignmentVersion: version === 2 ? gateway.assignmentVersion : null,
         payloadHash,
         topic: mqttTopics.automationConfig(gateway.siteId, gatewayId),
         payload: payload as unknown as Prisma.InputJsonValue

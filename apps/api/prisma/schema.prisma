@@ -450,6 +450,8 @@ model Site {
   vehicleEventRules          VehicleEventRule[]
   manualOverrides            ManualOverride[]
   automationExecutions       AutomationExecution[]
+  bioPulseTelemetryEvents    BioPulseTelemetryEvent[]
+  bioPulseTelemetryProjections BioPulseTelemetryProjection[]
   energyFixtureIdentities    EnergyFixtureIdentity[]
   energyGroupIdentities      EnergyGroupIdentity[]
   energyReportJobs           EnergyReportJob[]
@@ -1359,6 +1361,8 @@ model Gateway {
   vehicleEventRules       VehicleEventRule[]
   manualOverrides         ManualOverride[]
   automationExecutions    AutomationExecution[]
+  bioPulseTelemetryEvents BioPulseTelemetryEvent[]
+  bioPulseTelemetryProjections BioPulseTelemetryProjection[]
   automationOutboxEntries MqttOutbox[]                    @relation("AutomationConfigOutboxGateway")
   monitoringIncidents     MonitoringIncident[]
   monitoringRefreshBatches MonitoringRefreshBatch[]
@@ -1953,6 +1957,8 @@ model MqttOutbox {
   monitoringRefreshBatchId String?     @unique
   gatewayId           String?
   applicationAckKey   String?          @unique
+  /// Server-recorded assignment at snapshot creation; legacy NULL never qualifies V2 telemetry.
+  automationAssignmentVersion Int?
   revision            Int?
   payloadHash         String?
   topic               String
@@ -2166,6 +2172,60 @@ model ManualOverrideFixture {
   @@id([manualOverrideId, fixtureId])
   @@index([fixtureId])
   @@index([siteId, gatewayId])
+}
+
+model BioPulseTelemetryEvent {
+  id                String @id @default(uuid())
+  siteId            String
+  gatewayId         String
+  assignmentVersion Int
+  eventId           String
+  sequence          BigInt
+  revision          Int
+  ruleId            String
+  occurrenceKey     String
+  sourceFixtureId   String
+  targetFixtureIds  String[]
+  kind              String
+  occurredAt        DateTime
+  payload           Json
+  payloadHash       String
+  disposition       String
+  receivedAt        DateTime @default(now())
+  site              Site @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  gateway           Gateway @relation(fields: [gatewayId, siteId], references: [id, siteId], onDelete: Cascade, onUpdate: Restrict)
+
+  @@unique([gatewayId, eventId])
+  @@unique([gatewayId, assignmentVersion, sequence])
+  @@index([siteId, sourceFixtureId, receivedAt])
+}
+
+model BioPulseTelemetryProjection {
+  gatewayId         String
+  siteId            String
+  assignmentVersion Int
+  ruleId            String
+  occurrenceKey     String
+  revision          Int
+  sourceFixtureId   String
+  sourceMeshNodeId   String
+  targetFixtureIds  String[]
+  sequence          BigInt
+  lastPulseAt       DateTime?
+  lastPulseSequence BigInt?
+  health            String @default("unverified")
+  healthReason      String?
+  degradedSince     DateTime?
+  restorationPending Boolean?
+  restorationReason String?
+  configurationReadback Json?
+  lastEventAt       DateTime
+  receivedAt        DateTime @default(now())
+  site              Site @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  gateway           Gateway @relation(fields: [gatewayId, siteId], references: [id, siteId], onDelete: Cascade, onUpdate: Restrict)
+
+  @@id([gatewayId, assignmentVersion, ruleId, occurrenceKey])
+  @@index([siteId, sourceFixtureId, sequence(sort: Desc)])
 }
 
 model AutomationExecution {

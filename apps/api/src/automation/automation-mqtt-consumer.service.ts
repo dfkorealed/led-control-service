@@ -5,6 +5,7 @@ import {
   automationCurrentConfigRequestSchema,
   automationExecutionActionResultPayloadV1Schema,
   automationExecutionEventV1Schema,
+  bioPulseExecutionEventV2Schema,
   automationExecutionIngestedAckV1Schema,
   automationSnapshotSchema,
   mqttTopics,
@@ -21,6 +22,7 @@ import { acknowledgeRedactedManualReplay } from "./redacted-manual-execution-rep
 import { VehicleSensorCapabilityService } from "./vehicle-sensor-capability.service";
 import { AutomationSnapshotService } from "./automation-snapshot.service";
 import { loadAutomationProtocolSupport, recordAutomationProtocolSupport } from "./automation-protocol-support";
+import { ingestBioPulseTelemetry } from "./bio-pulse-telemetry";
 
 const CONFIG_APPLIED_CHANNEL = "events/automation/config-applied";
 const CURRENT_CONFIG_REQUEST_CHANNEL = "events/automation/current-config-request";
@@ -315,7 +317,12 @@ export class AutomationMqttConsumerService {
     });
   }
 
-  async onExecution(scope: Pick<GatewayTopicScope, "siteId" | "gatewayId">, rawEvent: unknown): Promise<ExecutionIngestResult | undefined> {
+  async onExecution(scope: Pick<GatewayTopicScope, "siteId" | "gatewayId">, rawEvent: unknown): Promise<ExecutionIngestResult | Awaited<ReturnType<typeof ingestBioPulseTelemetry>> | undefined> {
+    const bio = bioPulseExecutionEventV2Schema.safeParse(rawEvent);
+    if (bio.success) {
+      if (bio.data.gatewayId !== scope.gatewayId) return;
+      return this.prisma.$transaction(tx => ingestBioPulseTelemetry(tx, scope, bio.data, this.clock.now()));
+    }
     const parsed = automationExecutionEventV1Schema.safeParse(rawEvent);
     if (!parsed.success || parsed.data.gatewayId !== scope.gatewayId) return;
 

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { automationExecutionEventV1Schema, type AutomationExecutionEventV1 } from "./automation-contracts";
+import { automationExecutionEventV1Schema, automationExecutionIngestedAckV1Schema, type AutomationExecutionEventV1 } from "./automation-contracts";
 
 const id = z.string().uuid();
 const timestamp = z.string().datetime();
@@ -55,7 +55,16 @@ function validatePayload(value: { kind: keyof typeof payloadSchemas; payload: Re
 /** Validate before journaling. Configuration GET is not optical output or power. */
 export const bioPulseTelemetryRecordV2Schema = z.object(recordShape).strict().superRefine(validatePayload);
 export const bioPulseExecutionEventV2Schema = z.object({ schemaVersion: z.literal(2), eventId: id,
+  assignmentVersion: z.number().int().positive().safe(),
   sequence: z.number().int().nonnegative().safe(), gatewayId: id, ...recordShape }).strict().superRefine(validatePayload);
 export type BioPulseExecutionEventV2 = z.infer<typeof bioPulseExecutionEventV2Schema>;
 export type AutomationExecutionEvent = AutomationExecutionEventV1 | BioPulseExecutionEventV2;
 export const automationExecutionEventSchema = z.union([automationExecutionEventV1Schema, bioPulseExecutionEventV2Schema]);
+
+export const bioPulseExecutionIngestedAckV2Schema = automationExecutionIngestedAckV1Schema.extend({
+  schemaVersion: z.literal(2), assignmentVersion: z.number().int().positive().safe(),
+  sequence: z.number().int().nonnegative().safe()
+}).strict();
+export const automationExecutionIngestedAckSchema = z.union([
+  automationExecutionIngestedAckV1Schema, bioPulseExecutionIngestedAckV2Schema
+]);

@@ -94,6 +94,7 @@ const { AutomationConfigAckOutbox } = require("../../gateway/src/automation/auto
     const snapshot = await declare(); expect(snapshot).toMatchObject({ schemaVersion: 2,
       vehicleEventRules: [{ id: draft.id, status: "disabled", sensorProtocol: "bio-usb-pulse", holdSeconds }] });
     const payload = snapshot!;
+    expect(await prisma.mqttOutbox.findFirst({ where: { gatewayId, revision: payload.revision } })).toMatchObject({ automationAssignmentVersion: 1 });
     const { payloadHash, ...body } = payload;
     const canonical = (value: unknown): unknown => Array.isArray(value) ? value.map(canonical) : value && typeof value === "object"
       ? Object.fromEntries(Object.entries(value).sort(([l], [r]) => l.localeCompare(r)).map(([key, child]) => [key, canonical(child)])) : value;

@@ -116,11 +116,13 @@ export class AutomationTelemetryOutbox {
   private available = true;
   private gapJournalAvailable = false;
   private unresolvedCommit: AutomationTelemetryCommitUncertainError | undefined;
+  private readonly assignmentVersion: number | undefined;
 
   constructor(
     private readonly path: string,
     private readonly scope: AutomationScope,
     options: {
+      assignmentVersion?: number;
       maxBytes?: number;
       write?: AtomicJsonWriter;
       createEventId?: () => string;
@@ -129,6 +131,7 @@ export class AutomationTelemetryOutbox {
       gapJournal?: AutomationTelemetryGapJournalLike;
     } = {}
   ) {
+    this.assignmentVersion = options.assignmentVersion;
     this.maxBytes = options.maxBytes ?? AUTOMATION_TELEMETRY_MAX_BYTES;
     this.write = options.write ?? writeJsonAtomic;
     this.createEventId = options.createEventId ?? randomUUID;
@@ -180,6 +183,7 @@ export class AutomationTelemetryOutbox {
         next.nextSequence = sequence;
         const event = automationExecutionEventSchema.parse({
           schemaVersion: input.payload.sensorProtocol === "bio-usb-pulse" ? 2 : 1,
+          ...(input.payload.sensorProtocol === "bio-usb-pulse" ? { assignmentVersion: this.assignmentVersion } : {}),
           eventId: this.createEventId(),
           sequence,
           gatewayId: this.scope.gatewayId,
@@ -323,6 +327,8 @@ export class AutomationTelemetryOutbox {
   }
 
   markIngested(acknowledgement: {
+    schemaVersion?: number;
+    assignmentVersion?: number;
     eventId: string;
     sequence: number;
     reportPayloadHash: string;
@@ -334,6 +340,10 @@ export class AutomationTelemetryOutbox {
         record.event.eventId === acknowledgement.eventId && record.event.sequence === acknowledgement.sequence
       );
       if (index < 0) return "not_found";
+      const event = current.records[index]!.event;
+      if (event.schemaVersion === 2 && (acknowledgement.schemaVersion !== 2 ||
+        acknowledgement.assignmentVersion !== event.assignmentVersion)) return "conflict";
+      if (event.schemaVersion === 1 && acknowledgement.schemaVersion === 2) return "conflict";
       if (current.records[index]!.reportPayloadHash !== acknowledgement.reportPayloadHash) return "conflict";
       const next = structuredClone(current);
       next.records.splice(index, 1);

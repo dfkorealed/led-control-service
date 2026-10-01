@@ -3,9 +3,11 @@
 ## 2026-10-01 BIO telemetry 소프트웨어 전달 경계
 
 - 구현 완료: Gateway 합성 시험의 펄스·연장·장애·복구·B 설정 적용/복원 결과를 strict V2 outbox로 전달한다. 설정 결과에 `verification=configuration_readback`, `configuredHighBrightnessPercent`, `bioMode`를 쓰며 raw body·native UUID·임의 오류 문자열은 허용하지 않는다. 장애/복구 이력을 합치지 않고 파일 재시작·재전송의 순서·identity·해시를 보존한다.
-- 미구현: API는 V2 BIO 실행 telemetry를 아직 영속 수신하거나 ACK하지 않는다. 마지막 펄스·장애 시작·복원 대기 사유의 API 조회와 화면은 Task 8b이며 현재 Web 미확인 표기를 유지한다. 시험용 outbox 삭제는 exact identity/hash 경계의 검증이지 API 수신 완료 증거가 아니다.
+- 구현 완료: API는 현재 claim·유효 MQTT 인증서·배정·V2 선언·저장된 snapshot topic/hash/source/target를 검증한 V2 이력과 별도 projection을 한 거래로 저장한다. DB commit 뒤 exact V2 assignment/event/sequence/hash ACK를 발행하며 실제 Gateway 파일 기록 삭제를 일회용 DB·in-process transport로 검증한다. 알려진 과거 설정/sequence와 출처가 정확한 시계 오류는 감사 격리+ACK만 하고 현재 상태를 바꾸지 않는다.
+- 구현 완료: 상세 dashboard의 `bioPulseTelemetry`는 최신 펄스·명시적 장애 시작·복원 대기·구성 read-back을 실제 저장 기록에서만 읽는다. 현재 배정/설정과 맞지 않는 이력은 숨기고 미관측은 NULL이다. `0x0c`, 침묵, 새 펄스나 단순 경과 시간으로 건강/clear/복원 성공을 만들지 않는다.
+- 미구현: Web 소비는 Task 8b2이며 현재 화면 미확인 표기를 유지한다. 실제 broker/mTLS/장비 검증, BIO incident·알림, 이력 보존·대규모 조회 부하 검증은 별도다.
 - 부족하거나 개선이 필요한 기능: 설정 read-back을 현재 LED 광학 출력·전력/에너지 또는 A 자율 밝기로 투영하지 않는다. 제품 capability·allowlist는 OFF이고 실제 MQTT·Pi/RF/HIL 결과는 이번 통합 시험에 포함되지 않는다.
-- 관련 파일: `packages/shared/src/bio-pulse-telemetry-contracts.ts`, `apps/gateway/src/automation/automation-telemetry-handoff.ts`, `automation-telemetry-outbox.ts`, `software-bio-pulse-integration.test.ts`.
+- 관련 파일: `packages/shared/src/bio-pulse-telemetry-contracts.ts`, `apps/api/src/automation/bio-pulse-telemetry.ts`, `apps/api/src/sites/bio-pulse-telemetry-view.ts`, `apps/api/test/bio-pulse-telemetry.integration.spec.ts`, `apps/gateway/src/automation/automation-telemetry-handoff.ts`, `automation-telemetry-outbox.ts`, `software-bio-pulse-integration.test.ts`.
 - 갱신 규칙: Gateway 영속 전달, API 영속 수신, 화면 조회와 실제 광학 관찰을 별도 근거로 기록한다.
 
 ## 2026-10-01 BIO 관찰 증거와 제어 준비 상태 구분
@@ -13,7 +15,7 @@
 - 구현 완료: 상세 dashboard Fixture에 서버 소유 `vehicleEventSource`를 제공해 BIO protocol, 유효 readiness와 capability 관찰 증거, 차단 사유, 활성 A의 대상 보호를 제어 화면에서 소비한다. BIO 제품 OFF 동안 stored ready 보고를 사용 가능으로 승격하지 않는다.
 - 구현 완료: 최신 sensor-mode 작업은 현재 할당·물리 identity·주소·Fixture와 일치하는 GET 결과의 과거 확인 시점만 표시한다. 이 값은 실시간 밝기·에너지·자율 광학 출력 또는 현재 source readiness의 증거가 아니다.
 - 구현 완료: 제어 화면의 로컬 GET 결과는 dashboard 최신 증거를 덮어쓰지 않는다. GET 후 서버 projection을 다시 조회하고, 새 작업이나 identity 무효화는 이전 확인 표시를 제거한다. 서버 갱신 실패 시 확인 중/재조회 안내를 유지하며 이전 verified를 임시 현재 증거로 복원하지 않는다.
-- 미구현: BIO runtime의 마지막 유효 펄스·장애 시작 시각·복원 대기 사유 영속 조회는 Task 8 후속이다. 제어 화면의 지속 운영 안내는 이를 미확인으로 표시하며 임의 시각이나 해제 완료를 만들지 않는다. 모니터링 incident/알림의 BIO 전용 실시간 연동도 완료하지 않았다.
+- 미구현: BIO runtime 영속 조회를 사용하는 Web 연결은 Task 8b2다. 제어 화면의 지속 운영 안내는 아직 이를 미확인으로 표시하며 임의 시각이나 해제 완료를 만들지 않는다. 모니터링 incident/알림의 BIO 전용 실시간 연동도 완료하지 않았다.
 - 부족하거나 개선이 필요한 기능: 화면 검증은 synthetic 응답으로 진행했다. 독립 센서 건강, A 자체 밝기 및 B 적용·복원 광학 HIL은 미완료이고 제품 gate·allowlist는 OFF다.
 - 관련 파일: `apps/api/src/sites/vehicle-event-source-view.ts`, `apps/api/src/sites/sites.service.ts`, `apps/web/src/api/queries.ts`, `apps/web/src/features/control/automation/VehicleEventControlPanel.tsx`.
 - 갱신 규칙: 관찰 보고·과거 mode GET·현재 준비·실제 LED 출력을 서로 대체하지 않는다. runtime projection이 구현되면 실제 영속 증거와 화면 문서를 함께 갱신한다.

@@ -538,7 +538,7 @@ export class MqttService implements OnModuleInit {
   private async handleMessageBeforeAck(topic: string, payload: Buffer, receivedAt: Date): Promise<(() => Promise<void>) | undefined> {
     if (parseGatewayTopic(topic)?.channel === "events/automation/execution") {
       const result = await this.automationConsumer?.handleMessage(topic, payload);
-      if (result?.publishAfterAck) {
+      if (result && typeof result === "object" && "publishAfterAck" in result && result.publishAfterAck) {
         const intent = result.publishAfterAck;
         // Only redacted exact replay uses this transient ACK. Its incoming
         // transaction has committed; customHandleAcks must call done(0) before

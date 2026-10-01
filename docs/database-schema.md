@@ -2,6 +2,18 @@
 
 작성일: 2026-09-28
 
+## 2026-10-01 BIO V2 telemetry 영속 수신과 조회
+
+`20261001010000_bio_pulse_telemetry`는 `BioPulseTelemetryEvent` 감사 이력과 `BioPulseTelemetryProjection` 조회 상태를 추가한다. 이력은 site/Gateway/원래 assignment, event ID, sequence, snapshot revision, rule/occurrence, source/target Fixture ID, strict redacted payload와 canonical SHA-256을 보존한다. `(gatewayId,eventId)`와 `(gatewayId,assignmentVersion,sequence)`는 각각 고유하며 같은 identity의 다른 내용은 거절한다. Site/Gateway 복합 FK는 현장 경계를 유지하고 삭제 시 cascade한다. Fixture ID는 과거 snapshot 값이며 Fixture 밝기·mode·power/energy 결과 테이블의 FK나 측정값으로 승격하지 않는다.
+
+`MqttOutbox.automationAssignmentVersion`은 API가 snapshot을 만들 때 기록한 nullable 서버 메타데이터다. V2 snapshot/config ACK wire는 바꾸지 않는다. 신규 V2 execution/ingested ACK는 required `assignmentVersion`을 가지며 이벤트·현재 Gateway 배정·서버 snapshot metadata가 같아야 한다. 이전 NULL snapshot은 BIO telemetry를 수용하지 않고 V1 소비에는 영향이 없다. Broker mTLS/topic ACL 인증에 더해 현재 claim, 활성·유효기간 내 MQTT 인증서, 최신 V2 선언과 strict snapshot topic/hash/source/target를 검사한다. 구독자는 송신 peer certificate를 받지 않으므로 메시지별 인증서 fingerprint 바인딩을 주장하지 않는다.
+
+Disposition은 `accepted | stale_configuration | stale_sequence | untrusted_time`다. 알려진 같은 배정의 과거 설정/순서 기록과 출처는 정확하지만 미래 또는 snapshot 생성 전 시각의 기록은 감사 이력과 exact ACK만 남겨 FIFO를 진행시키고 현재 조회 상태는 바꾸지 않는다. 미확인 snapshot·배정·변조 identity는 ACK하지 않는다. 최신 수신 sequence는 assignment별 ledger에서 확인하며 자동화 membership과 Gateway/inventory/certificate 행 잠금 안에서 중복을 직렬화한다. 같은 거래에서 이력·projection·ACK outbox를 저장하고 기존 publisher가 commit 이후 발행한다. 실패하면 모두 rollback한다.
+
+Projection 키는 `(gatewayId,assignmentVersion,ruleId,occurrenceKey)`다. source node ID, 마지막 펄스·pulse sequence, 명시적 건강 상태/장애 시작 시각, nullable 복원 대기·사유, sequence를 포함한 `configuration_readback` JSON, 마지막 관측·서버 수신 시각을 보존한다. 펄스나 wall clock만으로 건강/해제/복원 완료를 만들지 않는다. Dashboard는 현재 배정·source node mapping·설정 revision의 저장된 projection만 반환하며 증거가 없으면 NULL이다. 여러 occurrence의 최신 펄스/설정 결과는 각각 원래 evidence sequence로 선택하고 남아 있는 복원 대기를 최신 펄스로 가리지 않는다. 별도 운영 보존/압축 정책과 대규모 이력·조회 부하 검증은 제품 ON 전 후속이다.
+
+Migration은 일회용 PostgreSQL에서만 검증하며 운영 DB에는 적용하지 않았다. 제품 enabled BIO와 profile allowlist는 OFF다. 과거 assignment가 없는 시험용 V2 Gateway 파일은 재서명하지 않고 fail-closed하므로 수동 격리/복구가 필요하다.
+
 ## 2026-09-30 BIO 센서 모드 별도 작업
 
 `20260930170000_bio_sensor_mode_operation`은 `SensorModeOperation`을 추가한다. `commandId`가 기본 키이며 `(siteId, requestedById, clientRequestId)`는 요청 중복 방지 키다. 현장·Gateway·Fixture·node·주소·assignment, 요청 시각/최대 30초 만료, `ensure_sensor | query`, 원본 재조회 ID와 strict V2 payload를 보존한다. Payload의 장치 식별값은 BIO UUID 원문 대신 SHA-256이며 실제 Gateway mapping과 재대조한다. Fixture 현장 복합 FK와 자기 참조 재조회 FK를 유지하고, 과거 이력이 정상 Gateway 재할당을 막지 않도록 Gateway는 이력 값으로 보존한다.

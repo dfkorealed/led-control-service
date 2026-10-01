@@ -57,7 +57,7 @@ async function fixture(holdSeconds = 10) {
   let configuration: BioConfigurationState = { configuredHighBrightnessPercent: 30, bioMode: "sensor" };
   const writes: Array<{ fixtureId: string; configuration: BioConfigurationState }> = [];
   const outboxPath = join(directory, "telemetry.json");
-  const outbox = new AutomationTelemetryOutbox(outboxPath, scope, { headroomBytes: 16384 });
+  const outbox = new AutomationTelemetryOutbox(outboxPath, scope, { headroomBytes: 16384, assignmentVersion: 1 });
   await outbox.initialize();
   const make = async () => {
     const store = new FileAutomationStateStore(join(directory, "state.json"));
@@ -200,7 +200,7 @@ describe("BIO synthetic frame integration (separate from product config acceptan
     expect(delivered.slice(pending.length)).toEqual(delivered.slice(0, pending.length));
     expect(await recovered.markIngested({ eventId: pending[0]!.event.eventId, sequence: pending[0]!.event.sequence,
       reportPayloadHash: `sha256:${"0".repeat(64)}` })).toBe("conflict");
-    for (const record of pending) await recovered.markIngested({ eventId: record.event.eventId, sequence: record.event.sequence,
+    for (const record of pending) await recovered.markIngested({ schemaVersion: 2, assignmentVersion: 1, eventId: record.event.eventId, sequence: record.event.sequence,
       reportPayloadHash: record.reportPayloadHash });
     expect(await recovered.pending()).toEqual([]);
   });

@@ -1,11 +1,20 @@
 # 제어 메뉴 기능 현황
 
+## 2026-10-01 BIO 실행 이력·조회/ACK 기반
+
+- 구현 완료: API는 strict V2 execution의 현재 claim·유효 MQTT 인증서·배정·V2 선언·snapshot hash/topic·source/target를 확인하고 별도 감사 이력과 조회 상태를 저장한다. 원래 assignment를 보존한 exact ACK는 DB commit 뒤 outbox로 발행하며 Gateway는 버전·배정·event ID·sequence·hash 일치 뒤에만 파일 기록을 제거한다. V1 소비는 유지한다.
+- 구현 완료: 상세 dashboard Fixture의 서버 소유 `bioPulseTelemetry`는 실제 저장 기록의 마지막 펄스, 건강/장애 시각, 복원 대기와 구성 read-back을 제공한다. 알려진 과거 설정·늦은 sequence·출처가 정확한 시계 오류는 ACK 가능한 감사 격리만 하고 projection은 갱신하지 않는다. 배정·source node mapping·설정 변경 뒤 옛 projection은 표시하지 않으며 없는 증거는 NULL이다.
+- 미구현: Web 표시 연결은 Task 8b2, 실제 broker/mTLS 송수신·Pi/RF·광학 HIL은 별도다. 합성 활성 snapshot의 일회용 DB 시험을 제품 활성화로 해석하지 않는다.
+- 부족하거나 개선이 필요한 기능: 제품 enabled BIO/allowlist는 OFF다. `configuration_readback`은 당시 설정 밝기/mode이며 현재 LED 광학 출력·Fixture.brightness·전력/에너지 또는 source readiness를 변경하지 않는다. 배정 없는 옛 시험 V2 파일과 출처를 검증할 수 없는 snapshot은 자동 ACK/재서명하지 않아 수동 복구가 필요하다. 운영 보존/대규모 조회 검증은 후속이다.
+- 관련 파일: `apps/api/src/automation/bio-pulse-telemetry.ts`, `apps/api/src/sites/bio-pulse-telemetry-view.ts`, `apps/api/test/bio-pulse-telemetry.integration.spec.ts`, `packages/shared/src/bio-pulse-telemetry-contracts.ts`, `apps/gateway/src/automation/automation-telemetry-outbox.ts`.
+- 갱신 규칙: 영속 수신·화면 소비·장비 건강·광학 결과·제품 지원 상태를 분리하고 schema 변경은 `docs/database-schema.md`와 함께 갱신한다.
+
 ## 2026-10-01 BIO 통합 경계 — 소프트웨어, 제품 OFF
 
 - 구현 완료: 일회용 PostgreSQL에서 실제 규칙 서비스의 disabled BIO 10/60초 저장 → 현재 claim·인증서·assignment에 묶인 V2 지원 선언 → V2 outbox 발행·전체 해시 → Gateway 파일 저장·V2 ACK·API 수신 확인을 연결했다. V1 5초 BlueZ 회귀, 미지원/인증 근거 상실/할당 변경/하향 선언과 잘못된 버전·해시 ACK의 차단을 함께 검증한다. API와 Gateway의 enabled BIO 거부는 유지한다.
 - 구현 완료: 별도 in-process 시험 경로에서만 명시적 합성 profile·독립 healthy link와 CRC16 `0x09` 프레임을 decoder/intake/runtime에 연결했다. 10/60초 연장·B의 설정 밝기와 mode 복원·degraded/재시작 후 전체 건강 관찰창·A 쓰기 0건을 실제 파일 저널로 검증한다. 제품 bootstrap·환경변수·IPC에 BIO 양성 시험 입력은 연결하지 않았다.
 - 구현 완료: BIO 수명주기·설정 read-back 결과는 별도 strict V2 telemetry로 outbox에 전달한다. malformed payload는 저널 append 전에 거절하고 장애·복구·연장 이력은 합치지 않는다. 연결 단절·파일 재시작·재접속 동안 순서·event identity·해시를 보존하며 broker 접수만으로 삭제하지 않는다. MQTT transport와 B 장비 read-back은 시험용 대체물이며 실제 broker/RF 검증이 아니다.
-- 미구현: V2 BIO telemetry의 API 영속 수신·application ACK·조회 projection과 Web 연결은 Task 8b다. 두 시험 경로를 제품 저장부터 B 실행까지의 단일 end-to-end 성공으로 합치지 않는다.
+- 미구현: V2 BIO telemetry의 Web 연결은 Task 8b2다. API 영속 수신·application ACK·조회 projection은 위 8b1 기반을 따른다. 두 시험 경로를 제품 저장부터 B 실행까지의 단일 end-to-end 성공으로 합치지 않는다.
 - 부족하거나 개선이 필요한 기능: API 저장 시험의 ready source는 격리 DB에 주입한 합성 전제다. 제품 capability·allowlist는 계속 OFF이며 `configuredHighBrightnessPercent`와 `bioMode`는 구성 확인값이다. 실제 광학 밝기·전력·A 자율 동작, Pi·운영 DB·현장 MQTT는 검증하거나 변경하지 않았다.
 - 관련 파일: `packages/shared/src/bio-pulse-telemetry-contracts.ts`, `apps/api/test/bio-pulse-config.integration.spec.ts`, `apps/gateway/src/automation/software-bio-pulse-integration.test.ts`, `software-automation-simulator.ts`, `automation-telemetry-handoff.ts`, `automation-telemetry-outbox.ts`, `bio-pulse-scheduler.ts`.
 - 갱신 규칙: disabled 구성 적용, 합성 펄스 수명주기, API 실수신, 광학 HIL과 제품 ON을 각각 실제 증거로 구분한다.
@@ -17,7 +26,7 @@
 - 구현 완료: BIO 유지시간 10~1,800초·기본 60초 입력/수정, 10초 신호 공백의 꺼짐·재점등 경고, 기존 BlueZ 5초 하한을 적용한다. 센서 모드 설정·읽기 전용 재조회와 별도 요청 결과 GET을 제공하며 POST 접수는 검증으로 표시하지 않는다. GET 확인 시점은 과거 기록이고 현재 readiness 근거가 아님을 명시한다.
 - 구현 완료: 모드 확인 시점은 최신 dashboard 증거만 표시한다. 개별 GET 뒤에는 dashboard를 갱신하며, 새 작업·할당/물리 장비 무효화가 도착하면 이전 결과와 늦은 응답을 폐기한다. 동일한 이전 snapshot은 진행 중 요청을 유지하고, 갱신 실패는 과거 확인 시점을 되살리지 않고 확인 중 안내와 준비 상태 재조회 경로를 유지한다.
 - 구현 완료: BIO 규칙에는 키보드로 접근 가능한 지속 운영 안내와 운영자 비활성화 해제 경로를 표시한다. 서버의 degraded capability 보고를 경고하고 실제 실행·복원 상태, 마지막 유효 펄스·장애 시작 시각은 아직 미확인으로 표시한다.
-- 미구현: Task 8의 영속 runtime telemetry projection·실제 마지막 펄스/장애 시각/복원 대기 사유 연동 및 Task 9 HIL. UI fixture 테스트 결과를 실장비 지원으로 해석하지 않는다.
+- 미구현: Task 8b2의 서버 runtime projection 화면 연동 및 Task 9 HIL. UI fixture 테스트 결과를 실장비 지원으로 해석하지 않는다.
 - 부족하거나 개선이 필요한 기능: 제품 capability·allowlist는 OFF다. 모드 증거는 현재 할당·Fixture·node·physical identity·address와 일치하는 최신 작업의 과거 GET만 표시하며 현 상태 지속을 보장하지 않는다. 실제 조명·운영 DB·MQTT 설정은 변경하지 않았다.
 - 관련 파일: `apps/api/src/sites/{sites.service,vehicle-event-source-view}.ts`, `apps/web/src/api/{automation,queries}.ts`, `apps/web/src/features/control/automation/{VehicleEventDialog,VehicleEventSourceStatus,VehicleEventControlPanel}.tsx`, `apps/web/src/features/control/automation/vehicle-event-form.ts`, `apps/web/e2e/control-map-target-selection.spec.ts`.
 - 갱신 규칙: 서버 유효 준비 상태와 관찰 증거, 소프트웨어 화면과 실제 HIL, 요청 접수와 GET 검증을 구분해 기록한다.

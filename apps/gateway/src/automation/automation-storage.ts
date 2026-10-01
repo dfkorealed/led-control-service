@@ -11,6 +11,7 @@ interface CreateAutomationStorageOptions {
   statePath: string;
   telemetryOutboxPath: string;
   scope: AutomationScope;
+  assignmentVersion?: number;
   telemetryMaxBytes?: number;
   headroomBytes?: number;
   onStateDurabilityChange?: (mode: "ready" | "degraded", reason: string | null) => void;
@@ -39,7 +40,7 @@ export function createAutomationStorage(options: CreateAutomationStorageOptions)
   const telemetryOutbox = new AutomationTelemetryOutbox(
     options.telemetryOutboxPath,
     options.scope,
-    { maxBytes, headroom, gapJournal }
+    { maxBytes, headroom, gapJournal, assignmentVersion: options.assignmentVersion }
   );
 
   return {

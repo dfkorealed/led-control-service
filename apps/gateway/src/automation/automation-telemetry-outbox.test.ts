@@ -32,6 +32,20 @@ afterEach(async () => {
 });
 
 describe("AutomationTelemetryOutbox", () => {
+  it("retains BIO assignment across restart and requires the exact V2 assignment ACK", async () => {
+    const test = await outboxFixture();
+    const outbox = new AutomationTelemetryOutbox(test.path, automationScope, { assignmentVersion: 3 });
+    const stored = await outbox.append(eventInput("vehicle_detected", {
+      sensorProtocol: "bio-usb-pulse", inputType: "pulse", sourceFixtureId: ruleId
+    }, `${ruleId}:pulse`));
+    expect(stored!.event).toMatchObject({ schemaVersion: 2, assignmentVersion: 3 });
+    const restarted = new AutomationTelemetryOutbox(test.path, automationScope, { assignmentVersion: 4 });
+    expect(await restarted.pending()).toEqual([stored]);
+    const ack = { eventId: stored!.event.eventId, sequence: stored!.event.sequence, reportPayloadHash: stored!.reportPayloadHash };
+    expect(await restarted.markIngested(ack)).toBe("conflict");
+    expect(await restarted.markIngested({ ...ack, schemaVersion: 2, assignmentVersion: 4 })).toBe("conflict");
+    expect(await restarted.markIngested({ ...ack, schemaVersion: 2, assignmentVersion: 3 })).toBe("deleted");
+  });
   it("persists immutable event identity across restart and deletes only an exact application ACK", async () => {
     const test = await outboxFixture();
     const stored = await test.outbox.append(eventInput("event_started", {
