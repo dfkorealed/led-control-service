@@ -39,7 +39,7 @@
 | 1 | Shell backend: 로그 API | 완료·독립 명세/품질 승인 | 5c1d313e + 982f999a; focused119/119 |
 | 2 | Shell backend: 개인 알람 읽음 | 완료·독립 명세/품질 승인 | bdb2d9e1; focused97/97(실제DB56 포함) |
 | 3 | Shell 공통 UI | 완료·독립 명세/품질 승인 | 793d126a; focused429/429, Web type/build/UI0; P3 경계1건 후속 |
-| 4 | Shell 범위·새 내부 구현 보조 | 재배정 | 반복 context-compaction 이탈 후 fresh Task4 context |
+| 4 | Shell 범위·새 내부 구현 보조 | 작성자 완료·독립 검토 | 9740967e;88/88·Chromium2/2·type/build/UI0 |
 | 5 | 모니터링 페이지 담당자 | 대기 | — |
 | 6 | 제어 UI 개선 담당자(GPT-6.1 Sol/high) | 대기 | — |
 | 7 | 통계 페이지 담당자 | 대기 | — |
@@ -176,6 +176,8 @@ Task3 evidence: 793d126a, updated Ruling included; RED37/31→scoped429/429(9fil
 ### Task 8: 설정·운영 timestamp 소비 마무리
 
 **Files:** Modify only actual timestamp presentation in specsection5: `apps/web/src/features/settings/security/AccountSecurityView.tsx`, `settings/users/SiteUsersView.tsx`, `features/floor-editor/FloorEditorView.tsx`, `features/operator/site-admins/SiteAdminManagementView.tsx`, `features/operator/LandingInquiriesView.tsx`, their tests, `docs/menus/settings.md`, `docs/menus/operator.md`.
+
+Test-only Shell compatibility addition: `apps/web/e2e/calm-operations-shell.spec.ts` old status-center labels/count assertions are updated by the Shell subphase using Task4 handoff. Preserve gateway aggregate/actions and transient-row assertions, no new Shell runtime code or fake durable-count fixture. Run this focused Chromium test on owned isolated fixture ports. Monitoring/control stale selectors stay their respective Task5/6 ownership.
 
 **Interfaces:** Consume Task3 formatTimestamp with omittedtimezone for existingdevice-display consumers; ISO storage/revision/dateonly/accountpolicy unchanged. Settingsthread receives ourworktree only, preservesownserialbranchWIP; afterreturnedreviewShellconsumesoperatorfiles.
 
