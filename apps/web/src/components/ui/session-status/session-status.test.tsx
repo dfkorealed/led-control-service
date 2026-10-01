@@ -1,5 +1,8 @@
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import type { ReactElement, PropsWithChildren } from "react";
+import { useSessionStatusState } from "./SessionStatusProvider";
 import { useMemo, useRef, useState } from "react";
-import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render as renderUI, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   SessionStatusCenter,
@@ -11,7 +14,17 @@ import {
   type SessionStatusItem
 } from "../index";
 
+const clients = new Set<QueryClient>();
+function render(ui: ReactElement) {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity } } });
+  clients.add(client);
+  const wrapper = ({ children }: PropsWithChildren) => <QueryClientProvider client={client}>{children}</QueryClientProvider>;
+  return renderUI(ui, { wrapper });
+}
+
 afterEach(() => {
+  clients.forEach(client => client.clear());
+  clients.clear();
   cleanup();
   vi.useRealTimers();
 });
@@ -26,7 +39,8 @@ function QueryStatusHarness({ fingerprint, revision = 0 }: { fingerprint: string
     description: `revision ${fingerprint}`
   }] : [], [fingerprint, revision]);
   useSessionStatus("dashboard:site-1", items);
-  return <><SessionStatusCenter /><ToastRegion /></>;
+  const { statuses } = useSessionStatusState();
+  return <><output data-testid="screen-status-count">{statuses.length}</output><SessionStatusCenter /><ToastRegion /></>;
 }
 
 function ToastHarness() {
@@ -50,6 +64,11 @@ function ImperativeOpenHarness() {
 }
 
 describe("session status feedback", () => {
+  it("does not treat a transient query issue as a durable alarm count", () => {
+    render(<SessionStatusProvider><QueryStatusHarness fingerprint="1" /></SessionStatusProvider>);
+    expect(screen.getByRole("button", { name: "알람센터, 현장 미선택" })).toBeVisible();
+    expect(screen.queryByTestId("alarm-unread-badge")).not.toBeInTheDocument();
+  });
   it("shows gateway context in the drawer without counting it as unresolved", () => {
     render(
       <SessionStatusProvider>
@@ -61,19 +80,20 @@ describe("session status feedback", () => {
         }]} />
       </SessionStatusProvider>
     );
-    const trigger = screen.getByRole("button", { name: "상태 센터, 미해결 0건" });
-    expect(within(trigger).queryByTestId("status-unresolved-badge")).not.toBeInTheDocument();
+    const trigger = screen.getByRole("button", { name: "알람센터, 현장 미선택" });
+    expect(within(trigger).queryByTestId("alarm-unread-badge")).not.toBeInTheDocument();
     fireEvent.click(trigger);
-    const drawer = screen.getByRole("dialog", { name: "현재 세션 상태" });
+    const drawer = screen.getByRole("dialog", { name: "알람센터" });
     expect(drawer).toHaveTextContent("게이트웨이 2/2대 연결");
-    expect(drawer).toHaveTextContent("읽지 않은 알림 수가 아니라 현재 해결이 필요한 상태 수입니다.");
+    expect(drawer).toHaveTextContent("화면에 보인 알람만 읽음으로 저장하며 장애 처리 상태는 유지됩니다.");
   });
 
-  it("uses one unresolved count for the bell label and visible badge", () => {
+  it("keeps transient statuses available without inventing an alarm badge", () => {
     render(<SessionStatusProvider><QueryStatusHarness fingerprint="1" /></SessionStatusProvider>);
-    const trigger = screen.getByRole("button", { name: "상태 센터, 미해결 1건" });
-    expect(trigger).toHaveAttribute("title", "상태 센터, 미해결 1건");
-    expect(within(trigger).getByTestId("status-unresolved-badge")).toHaveTextContent("1");
+    const trigger = screen.getByRole("button", { name: "알람센터, 현장 미선택" });
+    expect(trigger).toHaveAttribute("title", "알람센터, 현장 미선택");
+    expect(within(trigger).queryByTestId("alarm-unread-badge")).not.toBeInTheDocument();
+    expect(screen.getByTestId("screen-status-count")).toHaveTextContent("1");
   });
 
   it("deduplicates a current query issue, resolves it, and announces a later episode again", async () => {
@@ -82,7 +102,7 @@ describe("session status feedback", () => {
     const region = await screen.findByRole("region", { name: "알림" });
     expect(within(region).getAllByRole("status")).toHaveLength(1);
     expect(within(region).getByRole("status")).toHaveTextContent("revision 1");
-    expect(screen.getByRole("button", { name: "상태 센터, 미해결 1건" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "알람센터, 현장 미선택" })).toBeVisible();
 
     rerender(<SessionStatusProvider><QueryStatusHarness fingerprint="1" /></SessionStatusProvider>);
     expect(within(region).getAllByRole("status")).toHaveLength(1);
@@ -93,7 +113,7 @@ describe("session status feedback", () => {
 
     rerender(<SessionStatusProvider><QueryStatusHarness fingerprint={null} /></SessionStatusProvider>);
     await waitFor(() => expect(within(region).queryByRole("status")).not.toBeInTheDocument());
-    expect(screen.getByRole("button", { name: "상태 센터, 미해결 0건" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "알람센터, 현장 미선택" })).toBeVisible();
 
     rerender(<SessionStatusProvider><QueryStatusHarness fingerprint="2" /></SessionStatusProvider>);
     expect(await within(region).findByRole("status")).toHaveTextContent("revision 2");
@@ -108,7 +128,7 @@ describe("session status feedback", () => {
 
     rerender(<SessionStatusProvider><QueryStatusHarness fingerprint="1" revision={2} /></SessionStatusProvider>);
 
-    expect(screen.getByRole("button", { name: "상태 센터, 미해결 1건" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "알람센터, 현장 미선택" })).toBeVisible();
     expect(within(region).queryByRole("status")).not.toBeInTheDocument();
   });
 
@@ -146,21 +166,21 @@ describe("session status feedback", () => {
 
   it("opens the status center as a named dialog and returns focus after Escape", async () => {
     render(<SessionStatusProvider><QueryStatusHarness fingerprint="1" /></SessionStatusProvider>);
-    const trigger = screen.getByRole("button", { name: "상태 센터, 미해결 1건" });
+    const trigger = screen.getByRole("button", { name: "알람센터, 현장 미선택" });
     expect(trigger).toHaveClass("min-h-13", "min-w-13");
     fireEvent.click(trigger);
 
-    const dialog = await screen.findByRole("dialog", { name: "현재 세션 상태" });
+    const dialog = await screen.findByRole("dialog", { name: "알람센터" });
     expect(trigger).toHaveAttribute("aria-expanded", "true");
     expect(dialog).toHaveTextContent("현장 정보를 갱신하지 못했습니다.");
     fireEvent.keyDown(dialog, { key: "Escape" });
 
-    await waitFor(() => expect(screen.queryByRole("dialog", { name: "현재 세션 상태" })).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "알람센터" })).not.toBeInTheDocument());
     await waitFor(() => expect(trigger).toHaveFocus());
     expect(trigger).toHaveAttribute("aria-expanded", "false");
 
     fireEvent.click(trigger);
-    const reopened = await screen.findByRole("dialog", { name: "현재 세션 상태" });
+    const reopened = await screen.findByRole("dialog", { name: "알람센터" });
     fireEvent.click(within(reopened).getByRole("button", { name: "닫기" }));
     await waitFor(() => expect(trigger).toHaveFocus());
     expect(trigger).toHaveAttribute("aria-expanded", "false");
@@ -171,7 +191,7 @@ describe("session status feedback", () => {
     const source = screen.getByRole("button", { name: "게이트웨이 상태" });
 
     fireEvent.click(source);
-    const dialog = await screen.findByRole("dialog", { name: "현재 세션 상태" });
+    const dialog = await screen.findByRole("dialog", { name: "알람센터" });
     fireEvent.keyDown(dialog, { key: "Escape" });
 
     await waitFor(() => expect(dialog).not.toBeInTheDocument());
@@ -184,10 +204,10 @@ describe("session status feedback", () => {
       return <><button onClick={() => setVisible(false)}>producer 제거</button>{visible ? <QueryStatusHarness fingerprint="1" /> : <><SessionStatusCenter /><ToastRegion /></>}</>;
     }
     render(<SessionStatusProvider><Toggle /></SessionStatusProvider>);
-    expect(await screen.findByRole("button", { name: "상태 센터, 미해결 1건" })).toBeVisible();
+    expect(await screen.findByRole("button", { name: "알람센터, 현장 미선택" })).toBeVisible();
     fireEvent.click(screen.getByRole("button", { name: "producer 제거" }));
 
-    await waitFor(() => expect(screen.getByRole("button", { name: "상태 센터, 미해결 0건" })).toBeVisible());
+    await waitFor(() => expect(screen.getByRole("button", { name: "알람센터, 현장 미선택" })).toBeVisible());
     expect(within(screen.getByRole("region", { name: "알림" })).queryByRole("status")).not.toBeInTheDocument();
   });
 });

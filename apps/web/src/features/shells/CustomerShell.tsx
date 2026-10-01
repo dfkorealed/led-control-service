@@ -291,7 +291,13 @@ export function CustomerShell({ user }: { user: AuthUser }) {
             <span className="sr-only" data-testid="active-site-badge">{dashboard?.site.name || "현장 미등록"}</span>
           </div>
           <div className="col-start-2 row-start-1 flex min-w-0 items-center justify-end gap-2 compact:col-start-3" data-shell-actions>
-            <SessionStatusCenter contextItems={gatewayContextItems} />
+            <SessionStatusCenter
+              key={JSON.stringify([user.id, authorizedSelectedSiteId])}
+              userId={user.id}
+              siteId={authorizedSelectedSiteId}
+              timeZone={dashboard?.site.id === authorizedSelectedSiteId ? dashboard.site.timeZone : undefined}
+              contextItems={gatewayContextItems}
+            />
             <IconTooltipButton
               ref={logoutButtonRef}
               className="size-13"

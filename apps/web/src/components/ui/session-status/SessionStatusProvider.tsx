@@ -34,6 +34,8 @@ export interface SessionToast extends Required<Pick<SessionToastInput, "id" | "d
 }
 
 interface SessionStatusContextValue {
+  // These statuses describe the current screen and its actions. Durable alarm
+  // counts belong to the authenticated, site-scoped monitoring incident GET.
   statuses: readonly SessionStatusItem[];
   toasts: readonly SessionToast[];
   register(sourceId: string, items: readonly SessionStatusItem[]): void;

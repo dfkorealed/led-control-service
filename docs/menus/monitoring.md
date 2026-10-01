@@ -1,11 +1,22 @@
 # 모니터링 메뉴 기능 현황
 
+## 2026-10-02 영속 알람센터 웹 소비 (Task 4)
+
+- 구현 완료: CustomerShell의 인증 계정·접근 가능한 선택 현장을 기준으로 기존 incident GET/개인 읽음 PUT를 소비한다. `알람센터` 배지는 서버의 현장 전체 `unreadCount`만 사용하며, 닫힌 센터는 `limit=1`, 열린 목록은 25건과 서버 cursor를 사용한다. 기존 `incidents[]`·`activeCount`·운영 상태·시각 정밀도를 검증하고 잘못된 응답을 0건으로 표시하지 않는다.
+- 구현 완료: 열린 센터·활성 문서에서 IntersectionObserver가 실제 가시성을 확인한 행만 빈 body PUT로 읽음을 저장한다. 닫힘·화면 밖·미조회 다음 페이지·숨김/비활성 문서는 읽음 요청이 없고, 스크롤과 중복 관찰은 계정·현장·ID별 in-flight 중복 방지로 보호한다. 실패한 행은 미읽음/배지를 유지하며 가시 행의 재시도를 제공한다. 성공 후 목록·배지는 정본 GET로 갱신하고 로컬 수치를 차감하지 않는다.
+- 구현 완료: 장애 목록과 `현재 화면 상태`를 별도 영역으로 제공한다. 기존 연결 안내·조회 실패·명령 진행·toast·retry/action은 유지하며 DB 미읽음 수에 합산하지 않는다. 개인 읽음은 operational acknowledge/assign/resolve나 장치 명령을 수행하지 않고, 읽은 미해결 장애도 목록에 남는다. 최초 GET 실패는 확인 불가, 마지막 성공 후 실패는 마지막 수치와 갱신 실패로 구분한다.
+- 구현 완료: 계정·현장 query key와 요청 수명·취소를 분리해 이전 범위의 늦은 응답이 새 범위를 바꾸지 않게 한다. 30초 polling과 문서 복귀/포커스의 정본 조회로 다른 기기의 읽음 상태를 동기화하고, 해당 ID의 읽음을 서버가 확인하면 이전 저장 실패도 해제한다. StrictMode 재설정·동일 incident polling·새 세션의 서버 receipt 재조회 회귀를 유지한다.
+- 미구현: 사용자/운영 DB migration·배포·실장비 HIL은 실행하지 않았다. 실제 두 브라우저 세션과 동일 계정의 DB 영속성 검증, 전체 뷰포트 물리 검수는 Task 9에 남아 있으며 mock 서버 receipt 재조회나 Chromium 결과로 대체하지 않는다.
+- 부족하거나 개선이 필요한 기능: Task 4 집중 단위 및 격리 Chromium은 소프트웨어 증거다. 독립 코드 리뷰·후속 메뉴 회귀와 최종 통합 관문은 총괄이 이어서 확인한다. 알람 push 기반 실시간 동기화는 추가하지 않았다.
+- 관련 파일: `apps/web/src/api/monitoring-incidents.ts`, `apps/web/src/components/ui/session-status/{useMonitoringIncidents.ts,SessionStatusCenter.tsx,SessionStatusProvider.tsx}`, `apps/web/src/features/shells/CustomerShell.tsx`, 관련 API·hook·session·shell 테스트, `apps/web/e2e/operations-ui-comments.spec.ts`.
+- 갱신 규칙: durable 미읽음 수와 transient 상태, 개인 열람과 장애 처리, 실제 DB·software fixture·실장비 증거를 구분한다. closed/open/hidden/offscreen·PUT 실패·canonical count·계정/현장 late response·키보드/스크롤 회귀를 같은 변경에서 유지한다.
+
 ## 2026-10-02 계정별 영속 알람 읽음 API (Task 2)
 
 - 구현 완료: 기존 incident GET의 `incidents[]`에 현재 계정의 `isRead`·`readAt|null`과 현장 전체 `unreadCount`를 추가했다. 해결된 미읽음도 집계하고 상태/유형/커서/현재 페이지와 독립이다. 기존 정렬·커서·`activeCount`는 보존하며 GET는 receipt를 쓰지 않는다.
 - 구현 완료: `PUT /sites/:siteId/monitoring-incidents/:incidentId/read`는 서버 인증 actor의 개인 읽음을 기록하고 최초 DB UTC `readAt`을 중복·동시 PUT에도 유지한다. read-only viewer도 허용하고 활성 계정·멤버십·현장 소속을 같은 transaction에서 잠금 후 재검증한다. actor/시각/revision body 지정은 400이며 operational acknowledge/resolve와 incident revision을 변경하지 않는다.
 - 구현 완료: receipt는 incident/User 삭제 cascade이며 별도 TTL이나 incident 3개월 purge는 없다. 같은 ID polling은 읽음 유지, 회복 후 재발의 새 ID는 새 미읽음이다. 실제 자기 소유 임시 PostgreSQL에서 전체 migration과 계정 격리·권한/삭제 경쟁·cascade, Task 1 날짜·1,000행 커서를 확인했다. 사용자 DB 적용·장비/HIL 증거는 아니다.
-- 미구현: 웹 알람센터·배지 정본 조회와 실제 보이는 항목의 PUT 소비는 후속 Task다. 이번 API만으로 닫힌 센터/화면 밖 항목을 자동으로 읽음 처리하지 않으며 transient SessionStatus 항목도 DB 알람 수에 합치지 않는다.
+- 미구현: 운영 DB migration·배포와 최종 실제 두 세션 검증은 별도 관문이다. 웹 알람센터·배지 정본 조회·실제 보이는 항목 PUT 소비는 위 Task 4에 구현했으며 닫힌 센터/화면 밖 항목이나 transient 상태를 읽음/DB 알람 수에 포함하지 않는다.
 - 부족하거나 개선이 필요한 기능: 독립 검토와 최종 전체 회귀, 사용자/운영 migration·배포는 별도 관문이다. UI는 PUT 성공 ID만 반영하고 GET 재검증으로 두 기기 숫자를 동기화해야 하며 낙관 차감은 하지 않는다. HTTP 테스트는 실제 session DB guard를 사용하되 무관한 Redis login/MFA 초기화만 대체했다.
 - 관련 파일: `apps/api/prisma/schema.prisma`, `20261001100000_monitoring_incident_read_receipts/migration.sql`, `apps/api/src/monitoring-incidents/monitoring-incidents.{dto,controller,service}.ts`, 관련 단위·통합 테스트, `docs/database-schema.md`.
 - 갱신 규칙: 개인 읽음과 운영 확인/해결, producer와 웹 소비, 실제 임시 DB와 운영 적용 증거를 구분한다. filter 독립 unread·첫 시각·계정/현장 격리·revocation/cascade·실제 visible 성공 PUT 회귀를 함께 유지한다.

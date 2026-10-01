@@ -88,7 +88,9 @@ function renderShell(path: string, user: AuthUser = adminUser) {
 describe("customer shell site context", () => {
   beforeEach(() => {
     vi.mocked(logout).mockReset().mockResolvedValue({ ok: true });
-    vi.mocked(apiGet).mockReset().mockResolvedValue({ users: [], count: 0, limit: 100 });
+    vi.mocked(apiGet).mockReset().mockImplementation(async (path) => path.includes("monitoring-incidents")
+      ? { incidents: [], activeCount: 0, unreadCount: 0, nextCursor: null }
+      : { users: [], count: 0, limit: 100 });
     dashboardState.current = { data: dashboardFor({ read: true, control: true, manage: true, commission: true }), isLoading: false, error: null, refetch: vi.fn() };
     sitesState.current = { data: [{ id: "site", name: "현장", customerName: "고객사" }], isLoading: false, error: null, refetch: vi.fn() };
     vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() })));
@@ -129,9 +131,9 @@ describe("customer shell site context", () => {
     renderShell("/monitoring?siteId=site");
 
     expect(screen.getByRole("button", { name: "현장 목록 확인 불가" })).toBeDisabled();
-    const statusTrigger = await screen.findByRole("button", { name: "상태 센터, 미해결 1건" });
+    const statusTrigger = await screen.findByRole("button", { name: "알람센터, 현장 미선택" });
     fireEvent.click(statusTrigger);
-    expect(await screen.findByRole("dialog", { name: "현재 세션 상태" })).toHaveTextContent("현장 목록을 확인하지 못했습니다.");
+    expect(await screen.findByRole("dialog", { name: "알람센터" })).toHaveTextContent("현장 목록을 확인하지 못했습니다.");
   });
 
   it("keeps the gateway aggregate inside the status drawer without a second topbar control", async () => {
@@ -145,10 +147,10 @@ describe("customer shell site context", () => {
     renderShell("/monitoring?siteId=site");
 
     expect(screen.queryByRole("button", { name: /게이트웨이 .*상태 센터 열기/ })).not.toBeInTheDocument();
-    const statusTrigger = screen.getByRole("button", { name: "상태 센터, 미해결 1건" });
+    const statusTrigger = await screen.findByRole("button", { name: "알람센터, 미읽음 0건" });
     fireEvent.click(statusTrigger);
 
-    const dialog = await screen.findByRole("dialog", { name: "현재 세션 상태" });
+    const dialog = await screen.findByRole("dialog", { name: "알람센터" });
     expect(dialog).toHaveTextContent("게이트웨이 1/2대 연결");
     expect(dialog).toHaveTextContent("확인이 필요한 게이트웨이가 있습니다.");
     fireEvent.keyDown(dialog, { key: "Escape" });

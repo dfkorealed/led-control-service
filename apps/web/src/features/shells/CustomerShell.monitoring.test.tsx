@@ -19,6 +19,8 @@ beforeEach(() => {
   client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
   vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() })));
   fetchMock = vi.fn(async (path: string) => {
+    if (path === "/api/sites") return Response.json([{ id: "site-1", name: "현장", customerName: "고객" }]);
+    if (path === "/api/sites/site-1/monitoring-incidents?limit=1") return Response.json({ incidents: [], unreadCount: 0, activeCount: 0, nextCursor: null });
     if (path === "/api/sites/site-1/dashboard") {
       const fixtureCounts = refreshed
         ? { totalFixtures: 1, onlineFixtures: 0, faultFixtures: 0, offlineFixtures: 1 }
@@ -97,13 +99,15 @@ describe("customer shell monitoring details", () => {
     expect(refresh).toBeEnabled();
     expect(fetchMock.mock.calls.filter(([path]) => path === "/api/sites/site-1/floors/floor-1/monitoring-refreshes")).toHaveLength(1);
   });
-  it("shows fixture details without requesting or exposing incident operations", async () => {
+  it("shows fixture details with a read-only closed alarm badge and no incident operations", async () => {
     mount();
     const inspector = await openFixtureInspector();
     expect(await within(inspector).findByRole("region", { name: "선택 조명 정보" })).toBeVisible();
     expect(screen.queryByText(/인시던트/)).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "판정 기준" })).not.toBeInTheDocument();
-    await waitFor(() => expect(fetchMock.mock.calls.some(([path]) => String(path).includes("monitoring-incidents"))).toBe(false));
+    await waitFor(() => expect(fetchMock.mock.calls.filter(([path]) => String(path).includes("monitoring-incidents"))).toEqual([
+      ["/api/sites/site-1/monitoring-incidents?limit=1", expect.objectContaining({ credentials: "include" })]
+    ]));
     expect(fetchMock.mock.calls.some(([path]) => path === "/api/sites/site-1/users")).toBe(false);
   });
 });
