@@ -1,6 +1,16 @@
 # 데이터베이스 테이블 구조
 
-작성일: 2026-09-28
+작성일: 2026-10-02
+
+## 2026-10-02 계정별 알람 읽음 (운영 UI Task 2)
+
+`20261001100000_monitoring_incident_read_receipts`는 `MonitoringIncidentReadReceipt`만 추가하는 순방향 migration이다. `incidentId`·`userId` 복합 PK, 두 부모의 삭제 cascade FK, 사용자 조회용 `userId` 인덱스를 둔다. `readAt`은 필수 `TIMESTAMP(3)`이며 `CURRENT_TIMESTAMP AT TIME ZONE 'UTC'` DB 기본값으로 저장한다. API는 중복 읽음의 최초 시각을 수정하지 않는다. 기존 incident 상태·revision·보존 정책은 그대로이고 receipt 독립 TTL이나 과거 읽음 backfill은 없다.
+
+기존 GET `/sites/:siteId/monitoring-incidents`는 각 항목에 현재 로그인 계정의 `isRead`·ISO `readAt|null`, 최상위에 `unreadCount`를 추가한다. 미읽음 수는 원본이 보관된 해당 현장의 모든 상태(해결 포함)에서 receipt 없는 항목 수이며 목록 상태·유형·커서·limit과 독립이다. 기존 `activeCount`, `incidents`, 정렬·커서는 유지한다. GET는 읽음을 기록하지 않는다.
+
+PUT `/sites/:siteId/monitoring-incidents/:incidentId/read`는 서버 인증 actor만 사용하고 빈 body 외 actor·시각·revision 지정은 400으로 거부한다. read-only viewer도 허용한다. 기존 사용자 관리 advisory gate → Site `FOR UPDATE` → User와 viewer 멤버십 `FOR SHARE` → 현장 내 incident `FOR KEY SHARE` 순서로 잠근 뒤 활성 계정·현장 접근을 다시 확인한다. 첫 receipt만 DB 기본값으로 삽입하며 중복은 동일 `readAt`을 반환한다. 개인 읽음은 operational acknowledge/resolve·revision·감사 변경을 수행하지 않는다.
+
+실제 검증은 `disposable-postgres.ts`가 initdb/pg_ctl로 직접 생성한 임시 cluster의 loopback·임시 DB 이름·data_directory를 확인하고 빈 public schema에 전체 125개 migration을 적용했다. 실제 receipt의 계정 격리·멱등·권한 회수/부모 삭제 경쟁·cascade와 Task 1 SQL 날짜/1,000건 동시 시각 cursor를 검증하고 cluster를 종료·임시 디렉터리를 제거했다. 기존 CI DB URL opt-in은 유지하며 이번 실행은 별도의 자기 소유 모드로 ambient URL을 무시했다. 사용자/운영 DB 적용, 기본 서버 재시작, 실제 장비·배포는 하지 않았다. 기존 incident의 raw 커서는 UTC DB session 계약에서 검증했으며 non-UTC receipt 기본값 검증과 구분한다. 최종 실행 결과·정리 경로는 Task 2 보고서에 기록한다.
 
 ## 2026-09-27 기본 OFF의 명령 상세 정리 worker
 
@@ -58,7 +68,7 @@
 - 공통 맵 정본/파생 표시: `FloorMapDocument`, `FloorMapGeneration`, `FloorMapChunk`, `FloorMapIndexShard`, `FloorMapDisplayAsset`, `FloorMapChangeSet`, `FloorMapRevisionAsset`, `FloorMapStage`, `FloorMapStagePart`
 - 조명/그룹/게이트웨이/메시 노드: `Fixture`, `FixtureGroup`, `GroupFixture`, `Gateway`, `GatewayInventory`, `MeshNode`, `MeshControlGroup`, `MeshControlGroupMember`, `MeshControlGroupExpectedOperation`, `MeshControlGroupAppliedMember`
 - 게이트웨이 PKI: `GatewayEnrollment`, `GatewayCertificate`, `CertificateRevocationReconciliation`
-- 제어/모니터링: `Command`, `CommandDispatch`, `CommandFixtureResult`, `MqttOutbox`, `ProcessedGatewayEvent`, `GatewayEventWatermark`, `MonitoringIncident`, `MonitoringActivity`, `EnergyUsage`
+- 제어/모니터링: `Command`, `CommandDispatch`, `CommandFixtureResult`, `MqttOutbox`, `ProcessedGatewayEvent`, `GatewayEventWatermark`, `MonitoringIncident`, `MonitoringIncidentReadReceipt`, `MonitoringActivity`, `EnergyUsage`
 - 자동 제어: `GatewayAutomationConfiguration`, `LightingSchedule`, `LightingScheduleFixture`, `VehicleEventRule`, `VehicleEventSource`, `VehicleEventTarget`, `ManualOverride`, `ManualOverrideFixture`, `AutomationExecution`, `AutomationExecutionFixtureResult`
 - 감사/삭제 정리: `GatewayClaimAudit`, `AuditLog`, `SiteDeletionCleanup`
 - 조명 검색/등록: `ProvisioningSession`, `ProvisioningScanOutbox`, `ProvisioningDeviceOutbox`, `DiscoveredMeshNode`
@@ -523,6 +533,16 @@ Task 5는 schema를 변경하지 않았다. 빈 disposable PostgreSQL에 전체 
 Reconciler도 Site → Gateway → Fixture → Incident 순서로 잠그며 현장 전체 대상은 ID 순으로 잠근다. Gateway offline은 대상당 하나이며, fixture stale은 online Gateway에 매핑되고 첫 상태 대기 중이 아닌 조명에만 발생한다. Health fault와 command failure는 각각 Health snapshot과 `reportedStatusReason`에서 판정한다. 따라서 command failure는 운영 freshness가 사유를 덮어써도 유지되며 다음 실제 수락 보고에서 사유가 바뀌어야 해소된다. 관측 지속은 SQL로 `lastObservedAt`만 전진시켜 Prisma `@updatedAt`과 사용자 확인·담당 변경 revision을 보존한다. 조건 해소 시 `activeKey=NULL`, `resolutionKind=automatic_recovery`로 전환하고 `updatedAt`을 최소 1ms 증가시킨다. 확인·담당 이력은 보존하며 새 장애는 별도 행을 만든다.
 
 수집 commit과 incident 반영 사이에는 다음 sweep까지 지연이 있다. 각 Site 내부 고정 운영 상태 변경·reconcile은 원자적이며, 다른 Site는 별도 transaction이다. transaction 획득 대기 2초/실행 5초로 제한하고 실패 현장만 rollback한 뒤 다음 현장을 처리한다. 첫 sweep 이전 과거 장애는 backfill하지 않는다.
+
+### MonitoringIncidentReadReceipt
+
+| 컬럼 | 타입/제약 | 설명 |
+| --- | --- | --- |
+| `incidentId` | 문자열, 복합 PK, MonitoringIncident FK cascade | 원본 장애 발생 ID; 재발의 새 ID는 새 미읽음 |
+| `userId` | 문자열, 복합 PK, User FK cascade, 조회 인덱스 | 열람 계정; API는 인증 계정에서만 파생 |
+| `readAt` | 필수 TIMESTAMP(3), DB UTC 기본값 | 최초 읽음 시각; 중복 PUT는 변경하지 않음 |
+
+계정 A의 receipt는 계정 B의 읽음·미읽음 수에 영향을 주지 않는다. 같은 ID의 관측 polling은 receipt를 유지한다. 부모 incident/사용자 삭제 시에만 cascade하며 별도 TTL·3개월 incident purge는 없다. 운영 확인/해결 사용자 FK의 SetNull과 개인 읽음의 Cascade는 서로 다른 계약이다.
 
 ### MonitoringActivity
 

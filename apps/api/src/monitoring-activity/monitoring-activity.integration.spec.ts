@@ -1,6 +1,8 @@
 import { PrismaClient } from "@prisma/client";
 import { BadRequestException } from "@nestjs/common";
 import { randomUUID } from "node:crypto";
+import { existsSync, realpathSync } from "node:fs";
+import { dirname, join } from "node:path";
 import type { AuthenticatedUser } from "../auth/auth.types";
 import { disposablePostgres } from "../../test/support/disposable-postgres";
 import { recordMonitoringActivity } from "./monitoring-activity.projection";
@@ -11,19 +13,40 @@ const enabled = process.env.MONITORING_ACTIVITY_TEST === "1";
 (enabled ? describe : describe.skip)("MonitoringActivity on disposable PostgreSQL", () => {
   let cluster: Awaited<ReturnType<typeof disposablePostgres>>;
   let db: PrismaClient;
+  let ownedDirectory: string | undefined;
   let siteId: string, floorId: string, otherFloorId: string;
   const user = { id: "00000000-0000-4000-8000-000000000004" } as AuthenticatedUser;
 
   beforeAll(async () => {
     cluster = await disposablePostgres();
     const url = cluster.database();
+    expect(new URL(url).hostname).toBe("127.0.0.1");
+    expect(new URL(url).pathname).toMatch(/^\/watermark_\d+$/);
+    const dataDirectory = cluster.sql(url, "SHOW data_directory");
+    expect(dataDirectory.startsWith(join(realpathSync("/tmp"), "gateway-watermark-"))).toBe(true);
+    expect(dataDirectory.endsWith("/data")).toBe(true);
+    ownedDirectory = dirname(dataDirectory);
+    expect(cluster.sql(url, "SELECT current_database() || ':' || inet_server_port()"))
+      .toBe(`${new URL(url).pathname.slice(1)}:${new URL(url).port}`);
+    expect(cluster.sql(url, "SELECT count(*) FROM pg_tables WHERE schemaname='public'")).toBe("0");
     const migrated = cluster.deploy(url);
     expect(migrated.stderr + migrated.stdout).not.toMatch(/Error:|P30\d\d/);
     expect(migrated.status).toBe(0);
+    console.info("Task2 activity owned PostgreSQL", { dataDirectory, databaseUrl: url,
+      appliedMigrations: cluster.sql(url, 'SELECT count(*) FROM "_prisma_migrations" WHERE finished_at IS NOT NULL') });
     db = new PrismaClient({ datasourceUrl: `${url}?connection_limit=1` });
     await db.$executeRawUnsafe("SET TIME ZONE 'Asia/Seoul'");
   }, 60_000);
-  afterAll(async () => { await db?.$disconnect(); cluster?.stop(); });
+  afterAll(async () => {
+    try { await db?.$disconnect(); }
+    finally {
+      cluster?.stop();
+      if (ownedDirectory) {
+        expect(existsSync(ownedDirectory)).toBe(false);
+        console.info("Task2 activity PostgreSQL cleanup", { directory: ownedDirectory, exists: false });
+      }
+    }
+  });
   beforeEach(async () => {
     await db.$executeRawUnsafe('TRUNCATE TABLE "Organization" CASCADE');
     const organizationId = randomUUID(); siteId = randomUUID(); floorId = randomUUID(); otherFloorId = randomUUID();
@@ -40,6 +63,36 @@ const enabled = process.env.MONITORING_ACTIVITY_TEST === "1";
       assert: async (_user: AuthenticatedUser, authorizedSiteId: string) => db.site.findUniqueOrThrow({ where: { id: authorizedSiteId } })
     } as never);
   }
+
+  it("filters site-local dates in SQL and traverses 1000-row equal-time pages without loss", async () => {
+    await db.site.update({ where: { id: siteId }, data: { timeZone: "Asia/Seoul" } });
+    const [{ date, start, end }] = await db.$queryRaw<Array<{ date: string; start: Date; end: Date }>>`
+      WITH day AS (SELECT (transaction_timestamp() AT TIME ZONE 'Asia/Seoul')::date - 1 AS date)
+      SELECT to_char(date, 'YYYY-MM-DD') AS date,
+        (date::timestamp AT TIME ZONE 'Asia/Seoul') AT TIME ZONE 'UTC' AS start,
+        ((date + 1)::timestamp AT TIME ZONE 'Asia/Seoul') AT TIME ZONE 'UTC' AS end FROM day`;
+    const tiedAt = new Date(start.getTime() + 12 * 60 * 60 * 1000 + 123);
+    const ids = Array.from({ length: 1001 }, () => randomUUID());
+    const startId = randomUUID();
+    const data = (id: string, recordedAt: Date, targetFloor = floorId) => ({ id, siteId, floorId: targetFloor,
+      sourceType: "fixture_state" as const, sourceKey: id, kind: "fixture_online" as const, recordedAt });
+    await db.monitoringActivity.createMany({ data: [
+      ...ids.map(id => data(id, tiedAt)), data(startId, start),
+      data(randomUUID(), new Date(start.getTime() - 1)), data(randomUUID(), end),
+      data(randomUUID(), tiedAt, otherFloorId)
+    ] });
+    const input = { limit: 1000, fromDate: date, toDate: date };
+    const first = await service().list(user, siteId, floorId, input);
+    expect(first.items.map(row => row.id)).toEqual(ids.sort().reverse().slice(0, 1000));
+    expect(first.items.every(row => row.recordedAt === tiedAt.toISOString())).toBe(true);
+    expect(first.nextCursor).toEqual(expect.any(String));
+    await expect(service().list(user, siteId, floorId, { ...input, limit: 500, cursor: first.nextCursor! }))
+      .rejects.toBeInstanceOf(BadRequestException);
+    const second = await service().list(user, siteId, floorId, { ...input, cursor: first.nextCursor! });
+    expect(second.items.map(row => row.id)).toEqual([ids[1000], startId]);
+    expect(second.nextCursor).toBeNull();
+    expect(new Set([...first.items, ...second.items].map(row => row.id)).size).toBe(1002);
+  });
 
   it("deduplicates a source per floor and keeps safe snapshots after fixture/floor deletion", async () => {
     const sourceKey = randomUUID();

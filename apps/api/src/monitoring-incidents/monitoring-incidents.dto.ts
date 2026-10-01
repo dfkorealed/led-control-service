@@ -4,6 +4,10 @@ import { z } from "zod";
 const type = z.enum(["gateway_offline", "fixture_stale", "fixture_fault", "command_failed"]);
 const status = z.enum(["open", "acknowledged", "resolved", "all"]);
 const expectedUpdatedAt = z.string().datetime();
+const readBodySchema = z.object({}).strict();
+const readTargetSchema = z.object({ siteId: z.string().uuid(), incidentId: z.string().uuid() }).strict();
+export const incidentReadStateSchema = z.object({ isRead: z.boolean(), readAt: z.string().datetime().nullable() }).strict();
+export const incidentReadReceiptResponseSchema = z.object({ incidentId: z.string().uuid(), isRead: z.literal(true), readAt: z.string().datetime() }).strict();
 const policySchema = z.object({
   gatewayOfflineAfterSeconds: z.number().int().min(30).max(900),
   fixtureStaleAfterSeconds: z.number().int().min(60).max(3600),
@@ -33,6 +37,8 @@ function parse<T extends z.ZodTypeAny>(schema: T, input: unknown): z.output<T> {
 
 export const parseMonitoringPolicy = (input: unknown) => parse(policySchema, input);
 export const parseIncidentMutation = (input: unknown) => parse(mutationSchema, input);
+export const parseIncidentReadBody = (input: unknown) => parse(readBodySchema, input === undefined ? {} : input);
+export const parseIncidentReadTarget = (siteId: string, incidentId: string) => parse(readTargetSchema, { siteId, incidentId });
 
 export function encodeIncidentCursor(cursor: IncidentCursor) {
   return Buffer.from(JSON.stringify({ v: 1, ...cursor, openedAt: cursor.openedAt.toISOString() }), "utf8").toString("base64url");

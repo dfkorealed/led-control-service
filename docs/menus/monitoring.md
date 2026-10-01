@@ -1,5 +1,15 @@
 # 모니터링 메뉴 기능 현황
 
+## 2026-10-02 계정별 영속 알람 읽음 API (Task 2)
+
+- 구현 완료: 기존 incident GET의 `incidents[]`에 현재 계정의 `isRead`·`readAt|null`과 현장 전체 `unreadCount`를 추가했다. 해결된 미읽음도 집계하고 상태/유형/커서/현재 페이지와 독립이다. 기존 정렬·커서·`activeCount`는 보존하며 GET는 receipt를 쓰지 않는다.
+- 구현 완료: `PUT /sites/:siteId/monitoring-incidents/:incidentId/read`는 서버 인증 actor의 개인 읽음을 기록하고 최초 DB UTC `readAt`을 중복·동시 PUT에도 유지한다. read-only viewer도 허용하고 활성 계정·멤버십·현장 소속을 같은 transaction에서 잠금 후 재검증한다. actor/시각/revision body 지정은 400이며 operational acknowledge/resolve와 incident revision을 변경하지 않는다.
+- 구현 완료: receipt는 incident/User 삭제 cascade이며 별도 TTL이나 incident 3개월 purge는 없다. 같은 ID polling은 읽음 유지, 회복 후 재발의 새 ID는 새 미읽음이다. 실제 자기 소유 임시 PostgreSQL에서 전체 migration과 계정 격리·권한/삭제 경쟁·cascade, Task 1 날짜·1,000행 커서를 확인했다. 사용자 DB 적용·장비/HIL 증거는 아니다.
+- 미구현: 웹 알람센터·배지 정본 조회와 실제 보이는 항목의 PUT 소비는 후속 Task다. 이번 API만으로 닫힌 센터/화면 밖 항목을 자동으로 읽음 처리하지 않으며 transient SessionStatus 항목도 DB 알람 수에 합치지 않는다.
+- 부족하거나 개선이 필요한 기능: 독립 검토와 최종 전체 회귀, 사용자/운영 migration·배포는 별도 관문이다. UI는 PUT 성공 ID만 반영하고 GET 재검증으로 두 기기 숫자를 동기화해야 하며 낙관 차감은 하지 않는다. HTTP 테스트는 실제 session DB guard를 사용하되 무관한 Redis login/MFA 초기화만 대체했다.
+- 관련 파일: `apps/api/prisma/schema.prisma`, `20261001100000_monitoring_incident_read_receipts/migration.sql`, `apps/api/src/monitoring-incidents/monitoring-incidents.{dto,controller,service}.ts`, 관련 단위·통합 테스트, `docs/database-schema.md`.
+- 갱신 규칙: 개인 읽음과 운영 확인/해결, producer와 웹 소비, 실제 임시 DB와 운영 적용 증거를 구분한다. filter 독립 unread·첫 시각·계정/현장 격리·revocation/cascade·실제 visible 성공 PUT 회귀를 함께 유지한다.
+
 ## 2026-10-02 운영 로그 기간·1,000건 API (Task 1)
 
 - 구현 완료: 현장·선택 층 `monitoring-activity` 조회에 paired `fromDate`/`toDate`(`YYYY-MM-DD`)와 1–1,000건 상한을 추가했다. API 기본 5건은 유지한다. 현장에 저장된 시간대로 종료일을 포함하는 `[start,end)`를 계산하고, 같은 읽기 transaction의 중앙 DB `generatedAt`·3 calendar months `retainedFrom`과 교차한다. 빈 교집합은 기록 0건이며 다른 기간으로 확장하지 않는다.

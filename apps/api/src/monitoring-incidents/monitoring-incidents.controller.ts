@@ -1,8 +1,9 @@
-import { Body, Controller, Get, Param, Patch, Query, UseGuards } from "@nestjs/common";
+import { Body, Controller, Get, Param, Patch, Put, Query, UseGuards } from "@nestjs/common";
 import type { AuthenticatedUser } from "../auth/auth.types";
 import { CurrentUser } from "../auth/current-user.decorator";
 import { SessionAuthGuard } from "../auth/session-auth.guard";
 import { MonitoringIncidentsService } from "./monitoring-incidents.service";
+import { parseIncidentReadBody } from "./monitoring-incidents.dto";
 
 @UseGuards(SessionAuthGuard)
 @Controller("sites/:siteId")
@@ -27,5 +28,13 @@ export class MonitoringIncidentsController {
   @Patch("monitoring-incidents/:incidentId")
   update(@CurrentUser() user: AuthenticatedUser, @Param("siteId") siteId: string, @Param("incidentId") id: string, @Body() body: unknown) {
     return this.incidents.update(user, siteId, id, body);
+  }
+
+  @Put("monitoring-incidents/:incidentId/read")
+  markRead(@CurrentUser() user: AuthenticatedUser, @Param("siteId") siteId: string,
+    @Param("incidentId") incidentId: string, @Body() body: unknown) {
+    // The authenticated principal is the only actor; reject client overrides.
+    parseIncidentReadBody(body);
+    return this.incidents.markRead(user, siteId, incidentId);
   }
 }

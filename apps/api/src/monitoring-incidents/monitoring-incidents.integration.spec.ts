@@ -1,4 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
+import { existsSync, realpathSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { Test } from "@nestjs/testing";
 import { Prisma, MonitoringIncidentType } from "@prisma/client";
 import { SiteAccessService } from "../access/site-access.service";
@@ -8,9 +10,15 @@ import { PrismaService } from "../prisma/prisma.service";
 import { MonitoringIncidentsService } from "./monitoring-incidents.service";
 import { MonitoringIncidentsModule } from "./monitoring-incidents.module";
 import { AuthService } from "../auth/auth.service";
+import { disposablePostgres } from "../../test/support/disposable-postgres";
+import { RedisProvider } from "../redis/redis.provider";
 
-const databaseUrl = process.env.MONITORING_INCIDENTS_TEST_DATABASE_URL;
-(databaseUrl ? describe : describe.skip)("monitoring incident PostgreSQL API behavior", () => {
+const ownedDatabase = process.env.MONITORING_INCIDENTS_DISPOSABLE_TEST === "1";
+// Keep the existing CI URL opt-in, but never consume it in self-owned mode.
+let databaseUrl = ownedDatabase ? undefined : process.env.MONITORING_INCIDENTS_TEST_DATABASE_URL;
+(ownedDatabase || databaseUrl ? describe : describe.skip)("monitoring incident PostgreSQL API behavior", () => {
+  let cluster: Awaited<ReturnType<typeof disposablePostgres>> | undefined;
+  let ownedDirectory: string | undefined;
   let prisma: PrismaService;
   let access: SiteAccessService;
   let audit: AuditService;
@@ -22,12 +30,40 @@ const databaseUrl = process.env.MONITORING_INCIDENTS_TEST_DATABASE_URL;
   let gatewayId: string;
   const openedAt = new Date("2026-09-11T00:00:00.000Z");
 
-  beforeAll(() => {
+  beforeAll(async () => {
+    if (ownedDatabase) {
+      cluster = await disposablePostgres();
+      databaseUrl = cluster.database();
+      expect(new URL(databaseUrl).hostname).toBe("127.0.0.1");
+      expect(new URL(databaseUrl).pathname).toMatch(/^\/watermark_\d+$/);
+      const dataDirectory = cluster.sql(databaseUrl, "SHOW data_directory");
+      expect(dataDirectory.startsWith(join(realpathSync("/tmp"), "gateway-watermark-"))).toBe(true);
+      expect(dataDirectory.endsWith("/data")).toBe(true);
+      ownedDirectory = dirname(dataDirectory);
+      expect(cluster.sql(databaseUrl, "SELECT current_database() || ':' || inet_server_port()"))
+        .toBe(`${new URL(databaseUrl).pathname.slice(1)}:${new URL(databaseUrl).port}`);
+      expect(cluster.sql(databaseUrl, "SELECT count(*) FROM pg_tables WHERE schemaname='public'")).toBe("0");
+      // Match the existing CI database's UTC session contract. initdb otherwise
+      // inherits the host zone, affecting unchanged raw incident tuple cursors.
+      cluster.sql(databaseUrl, `ALTER DATABASE "${new URL(databaseUrl).pathname.slice(1)}" SET timezone TO 'UTC'`);
+      const deployment = cluster.deploy(databaseUrl);
+      expect(deployment.stderr + deployment.stdout).not.toMatch(/Error:|P30\d\d/);
+      expect(deployment.status).toBe(0);
+      const cascadeParents = JSON.parse(cluster.sql(databaseUrl, `SELECT json_agg(confrelid::regclass::text ORDER BY confrelid::regclass::text)
+        FROM pg_constraint WHERE conrelid='"MonitoringIncidentReadReceipt"'::regclass AND contype='f' AND confdeltype='c'`));
+      expect(cascadeParents).toEqual(['"MonitoringIncident"', '"User"']);
+      expect(cluster.sql(databaseUrl, `SELECT indexdef FROM pg_indexes WHERE tablename='MonitoringIncidentReadReceipt'
+        AND indexname='MonitoringIncidentReadReceipt_userId_idx'`)).toContain('("userId")');
+      console.info("Task2 owned PostgreSQL", { dataDirectory, databaseUrl,
+        appliedMigrations: cluster.sql(databaseUrl, 'SELECT count(*) FROM "_prisma_migrations" WHERE finished_at IS NOT NULL'),
+        receiptTable: cluster.sql(databaseUrl, `SELECT to_regclass('"MonitoringIncidentReadReceipt"')`), cascadeParents,
+        publicTables: cluster.sql(databaseUrl, "SELECT count(*) FROM pg_tables WHERE schemaname='public'") });
+    }
     prisma = new PrismaService({ datasources: { db: { url: databaseUrl! } } });
     access = new SiteAccessService(prisma);
     audit = new AuditService(prisma);
     service = new MonitoringIncidentsService(prisma, access, audit);
-  });
+  }, 60_000);
 
   beforeEach(async () => {
     const org = await prisma.organization.create({ data: { name: "P1 test", type: "customer" } });
@@ -47,7 +83,16 @@ const databaseUrl = process.env.MONITORING_INCIDENTS_TEST_DATABASE_URL;
     fixtureId = fixture.id;
   });
   afterEach(() => jest.restoreAllMocks());
-  afterAll(async () => prisma?.$disconnect());
+  afterAll(async () => {
+    try { await prisma?.$disconnect(); }
+    finally {
+      cluster?.stop();
+      if (ownedDirectory) {
+        expect(existsSync(ownedDirectory)).toBe(false);
+        console.info("Task2 owned PostgreSQL cleanup", { directory: ownedDirectory, exists: false });
+      }
+    }
+  });
 
   const createIncident = (type: MonitoringIncidentType = "fixture_stale", extra: Partial<Prisma.MonitoringIncidentUncheckedCreateInput> = {}) => {
     const targetKey = type === "gateway_offline" ? `gateway:${gatewayId}` : `fixture:${fixtureId}`;
@@ -58,13 +103,132 @@ const databaseUrl = process.env.MONITORING_INCIDENTS_TEST_DATABASE_URL;
     } });
   };
   const patch = (id: string, updatedAt: Date, action: Record<string, unknown>) => service.update(admin, siteId, id, { expectedUpdatedAt: updatedAt.toISOString(), ...action });
+  const markRead = (user: AuthenticatedUser, incidentId: string, targetSite = siteId) =>
+    service.markRead(user, targetSite, incidentId);
+  const receiptCount = async () => (await prisma.$queryRaw<Array<{ count: bigint }>>`
+    SELECT count(*) FROM "MonitoringIncidentReadReceipt" WHERE "userId" = ${viewer.id}`)[0].count;
+
+  it("read_receipt_is_actor_scoped_idempotent_and_filter_independent", async () => {
+    const incident = await createIncident();
+    const resolved = await createIncident("gateway_offline", { status: "resolved", activeKey: null,
+      resolvedAt: new Date(), resolutionKind: "automatic_recovery" });
+    expect(await service.list(viewer, siteId, { status: "open", limit: 1 }))
+      .toMatchObject({ activeCount: 1, unreadCount: 2, incidents: [{ id: incident.id, isRead: false, readAt: null }] });
+    expect(await receiptCount()).toBe(0n);
+    const first = await markRead(viewer, incident.id);
+    expect(first).toEqual({ incidentId: incident.id, isRead: true, readAt: expect.any(String) });
+    const duplicate = await markRead(viewer, incident.id);
+    expect(duplicate).toEqual(first);
+    expect(await service.list(viewer, siteId, { status: "resolved", type: "gateway_offline", limit: 1 }))
+      .toMatchObject({ unreadCount: 1, incidents: [{ id: resolved.id, isRead: false, readAt: null }] });
+    expect(await service.list(admin, siteId, {})).toMatchObject({ unreadCount: 2 });
+    expect((await prisma.monitoringIncident.findUniqueOrThrow({ where: { id: incident.id } })).updatedAt).toEqual(incident.updatedAt);
+    // Polling updates the occurrence without resetting either receipt or revision.
+    await prisma.$executeRaw`UPDATE "MonitoringIncident" SET "lastObservedAt" = (CURRENT_TIMESTAMP AT TIME ZONE 'UTC') WHERE "id" = ${incident.id}`;
+    expect(await service.list(viewer, siteId, {}))
+      .toMatchObject({ incidents: expect.arrayContaining([expect.objectContaining({ id: incident.id, isRead: true, readAt: first.readAt })]) });
+    await prisma.monitoringIncident.update({ where: { id: incident.id }, data: {
+      status: "resolved", activeKey: null, resolvedAt: new Date(), resolutionKind: "automatic_recovery"
+    } });
+    const recurrence = await createIncident();
+    expect(await service.list(viewer, siteId, { status: "open", limit: 1 }))
+      .toMatchObject({ unreadCount: 2, incidents: [{ id: recurrence.id, isRead: false, readAt: null }] });
+    const freshService = new MonitoringIncidentsService(prisma, new SiteAccessService(prisma), audit);
+    expect(await freshService.list(viewer, siteId, { status: "resolved" }))
+      .toMatchObject({ incidents: expect.arrayContaining([expect.objectContaining({ id: incident.id, isRead: true, readAt: first.readAt })]) });
+  });
+
+  it("preserves the first UTC DB readAt for concurrent PUT without touching operational state", async () => {
+    const incident = await createIncident();
+    const [{ before }] = await prisma.$queryRaw<Array<{ before: Date }>>`SELECT transaction_timestamp() AT TIME ZONE 'UTC' AS before`;
+    const results = await Promise.all([markRead(viewer, incident.id), markRead(viewer, incident.id)]);
+    expect(results[0]).toEqual(results[1]);
+    expect(Date.parse(results[0].readAt)).toBeGreaterThanOrEqual(before.getTime());
+    expect(await receiptCount()).toBe(1n);
+    expect(await prisma.monitoringIncident.findUniqueOrThrow({ where: { id: incident.id } }))
+      .toMatchObject({ status: "open", updatedAt: incident.updatedAt, acknowledgedAt: null, acknowledgedByUserId: null });
+    const [{ expression }] = await prisma.$queryRaw<Array<{ expression: string }>>`
+      SELECT pg_get_expr(adbin, adrelid) AS expression FROM pg_attrdef
+      WHERE adrelid = '"MonitoringIncidentReadReceipt"'::regclass
+        AND adnum = (SELECT attnum FROM pg_attribute WHERE attrelid = '"MonitoringIncidentReadReceipt"'::regclass AND attname = 'readAt')`;
+    expect(expression).toContain("CURRENT_TIMESTAMP AT TIME ZONE 'UTC'");
+    // Test the DB default under a non-UTC connection too, independently of the
+    // application's authorization route and its unchanged UTC cursor contract.
+    const adminRead = await prisma.$transaction(async tx => {
+      await tx.$executeRawUnsafe("SET LOCAL TIME ZONE 'Asia/Seoul'");
+      return tx.monitoringIncidentReadReceipt.create({ data: { incidentId: incident.id, userId: admin.id } });
+    });
+    const [{ after }] = await prisma.$queryRaw<Array<{ after: Date }>>`SELECT transaction_timestamp() AT TIME ZONE 'UTC' AS after`;
+    expect(adminRead.readAt.getTime()).toBeGreaterThanOrEqual(before.getTime());
+    expect(adminRead.readAt.getTime()).toBeLessThanOrEqual(after.getTime());
+  });
+
+  it("hides cross-site incidents and missing incidents from a read-only viewer", async () => {
+    const otherSite = await prisma.site.create({ data: { organizationId: admin.organizationId, name: "other" } });
+    const otherGateway = await prisma.gateway.create({ data: { siteId: otherSite.id, name: "other", serialNumber: randomUUID(), firmwareVersion: "test" } });
+    const other = await prisma.monitoringIncident.create({ data: { siteId: otherSite.id, type: "gateway_offline",
+      gatewayId: otherGateway.id, targetKey: `gateway:${otherGateway.id}`, activeKey: `${otherSite.id}:gateway_offline:gateway:${otherGateway.id}` } });
+    await expect(markRead(viewer, other.id)).rejects.toMatchObject({ status: 404 });
+    await expect(markRead(viewer, other.id, otherSite.id)).rejects.toMatchObject({ status: 404 });
+    await expect(markRead(viewer, randomUUID())).rejects.toMatchObject({ status: 404 });
+    expect(await receiptCount()).toBe(0n);
+  });
+
+  it.each(["membership", "disabled", "password", "deleted"])(
+    "read_receipt_races_revocation_parent_delete_and_user_delete reauthorizes %s after precheck", async change => {
+      const incident = await createIncident();
+      const assert = access.assert.bind(access);
+      jest.spyOn(access, "assert").mockImplementationOnce(async (...args) => {
+        const result = await assert(...args);
+        if (change === "membership") await prisma.siteMembership.deleteMany({ where: { userId: viewer.id, siteId } });
+        else if (change === "deleted") await prisma.user.delete({ where: { id: viewer.id } });
+        else await prisma.user.update({ where: { id: viewer.id }, data: change === "disabled" ? { status: "disabled" } : { mustChangePassword: true } });
+        return result;
+      });
+      await expect(markRead(viewer, incident.id)).rejects.toMatchObject({ status: change === "password" ? 403 : 404 });
+      expect(await receiptCount()).toBe(0n);
+    });
+
+  it.each(["MonitoringIncident", "User", "Site"])("waits for a preceding %s deletion and inserts no orphan", async table => {
+    const incident = await createIncident();
+    const competitor = new PrismaService({ datasources: { db: { url: databaseUrl! } } });
+    const deleted = gate(), release = gate(), attempted = gate();
+    const deletion = competitor.$transaction(async tx => {
+      if (table === "User") await tx.user.delete({ where: { id: viewer.id } });
+      else if (table === "Site") await tx.site.delete({ where: { id: siteId } });
+      else await tx.monitoringIncident.delete({ where: { id: incident.id } });
+      deleted.release(); await release.promise;
+    }, { timeout: 10_000 });
+    try {
+      await deleted.promise;
+      interceptTransaction({ beforeQuery: async sql => { if (sql.includes(`FROM "${table}"`)) attempted.release(); } });
+      const reading = markRead(viewer, incident.id).then(value => ({ value }), reason => ({ reason }));
+      await Promise.race([reading, attempted.promise]);
+      release.release(); await deletion;
+      expect(await reading).toMatchObject({ reason: { status: 404 } });
+      expect(await receiptCount()).toBe(0n);
+    } finally { release.release(); await deletion; await competitor.$disconnect(); }
+  });
+
+  it("cascades incident, target, site and User deletion without touching another actor receipt", async () => {
+    const incident = await createIncident();
+    await markRead(viewer, incident.id); await markRead(admin, incident.id);
+    await prisma.user.delete({ where: { id: viewer.id } });
+    expect(await receiptCount()).toBe(0n);
+    expect((await prisma.$queryRaw<Array<{ count: bigint }>>`SELECT count(*) FROM "MonitoringIncidentReadReceipt" WHERE "incidentId" = ${incident.id}`)[0].count).toBe(1n);
+    await prisma.fixture.delete({ where: { id: fixtureId } });
+    expect((await prisma.$queryRaw<Array<{ count: bigint }>>`SELECT count(*) FROM "MonitoringIncidentReadReceipt" WHERE "incidentId" = ${incident.id}`)[0].count).toBe(0n);
+    const siteIncident = await createIncident("gateway_offline"); await markRead(admin, siteIncident.id);
+    await prisma.site.delete({ where: { id: siteId } });
+    expect((await prisma.$queryRaw<Array<{ count: bigint }>>`SELECT count(*) FROM "MonitoringIncidentReadReceipt" WHERE "incidentId" = ${siteIncident.id}`)[0].count).toBe(0n);
+  });
 
   function gate() {
     let release!: () => void;
     const promise = new Promise<void>((resolve) => { release = resolve; });
     return { promise, release };
   }
-  function interceptTransaction(hooks: { beforeQuery?: (sql: string) => Promise<void>; beforeWrite?: () => Promise<void> }) {
+  function interceptTransaction(hooks: { beforeQuery?: (sql: string) => Promise<void>; beforeWrite?: () => Promise<void>; beforeReceiptWrite?: () => Promise<void> }) {
     const transaction = prisma.$transaction.bind(prisma);
     jest.spyOn(prisma, "$transaction").mockImplementationOnce((operation: any) => transaction(async (tx) => operation(new Proxy(tx, {
       get(target, key) {
@@ -78,10 +242,41 @@ const databaseUrl = process.env.MONITORING_INCIDENTS_TEST_DATABASE_URL;
             return async (args: Prisma.MonitoringIncidentUpdateArgs) => { await hooks.beforeWrite?.(); return delegate.update(args); };
           }
         });
+        if (key === "monitoringIncidentReadReceipt") return new Proxy(target.monitoringIncidentReadReceipt, {
+          get(delegate, method) {
+            if (method !== "upsert") return Reflect.get(delegate, method);
+            return async (args: Prisma.MonitoringIncidentReadReceiptUpsertArgs) => { await hooks.beforeReceiptWrite?.(); return delegate.upsert(args); };
+          }
+        });
         return Reflect.get(target, key);
       }
     })), { timeout: 10_000 }));
   }
+
+  it.each(["membership", "password", "incident", "user", "site"])(
+    "holds authorization and parent locks until the receipt commit against %s", async change => {
+      const incident = await createIncident();
+      const competitor = new PrismaService({ datasources: { db: { url: databaseUrl! } } });
+      const held = gate(), release = gate();
+      interceptTransaction({ beforeReceiptWrite: async () => { held.release(); await release.promise; } });
+      const reading = markRead(viewer, incident.id);
+      try {
+        await held.promise;
+        await expect(competitor.$transaction(async tx => {
+          await tx.$executeRawUnsafe("SET LOCAL lock_timeout = '200ms'");
+          if (change === "membership") await tx.siteMembership.deleteMany({ where: { userId: viewer.id, siteId } });
+          else if (change === "password") await tx.user.update({ where: { id: viewer.id }, data: { mustChangePassword: true } });
+          else if (change === "incident") await tx.monitoringIncident.delete({ where: { id: incident.id } });
+          else if (change === "site") await tx.site.delete({ where: { id: siteId } });
+          else await tx.user.delete({ where: { id: viewer.id } });
+        })).rejects.toThrow(/lock timeout/);
+      } finally { release.release(); await competitor.$disconnect(); }
+      expect(await reading).toMatchObject({ incidentId: incident.id, isRead: true });
+      if (change === "incident") await prisma.monitoringIncident.delete({ where: { id: incident.id } });
+      if (change === "user") await prisma.user.delete({ where: { id: viewer.id } });
+      if (change === "site") await prisma.site.delete({ where: { id: siteId } });
+      expect(await receiptCount()).toBe(["incident", "user", "site"].includes(change) ? 0n : 1n);
+    });
 
   it("waits for a preceding heartbeat commit before checking fixture-stale recovery", async () => {
     const incident = await createIncident();
@@ -173,7 +368,8 @@ const databaseUrl = process.env.MONITORING_INCIDENTS_TEST_DATABASE_URL;
 
   it("returns Site defaults to read users and applies audited policy changes only for managers", async () => {
     const policy = await service.getPolicy(viewer, siteId);
-    expect(policy).toMatchObject({ gatewayOfflineAfterSeconds: 90, fixtureStaleAfterSeconds: 180 });
+    // Current migrations changed the default from the old 180s to 1200s.
+    expect(policy).toMatchObject({ gatewayOfflineAfterSeconds: 90, fixtureStaleAfterSeconds: 1200 });
     const input = { gatewayOfflineAfterSeconds: 30, fixtureStaleAfterSeconds: 3600, expectedUpdatedAt: policy.updatedAt.toISOString() };
     await expect(service.updatePolicy(viewer, siteId, input)).rejects.toMatchObject({ status: 403 });
     const saved = await service.updatePolicy(admin, siteId, input);
@@ -198,10 +394,14 @@ const databaseUrl = process.env.MONITORING_INCIDENTS_TEST_DATABASE_URL;
     const first = await service.list(viewer, siteId, { limit: "1" });
     expect(first.incidents.map((row: { id: string }) => row.id)).toEqual([newer.id]);
     expect(first.activeCount).toBe(2);
+    expect(first.unreadCount).toBe(3);
+    await markRead(viewer, newer.id);
     const second = await service.list(viewer, siteId, { limit: "1", cursor: first.nextCursor });
+    expect(second.unreadCount).toBe(2);
     expect(second.incidents[0]).toMatchObject({ id: older.id, target: { kind: "fixture", id: fixtureId, name: "fixture" }, assignedTo: { id: viewer.id, name: "viewer" } });
     expect(JSON.stringify(second)).not.toMatch(/passwordHash|organizationType|mustChangePassword/);
     const third = await service.list(viewer, siteId, { cursor: second.nextCursor });
+    expect(third.unreadCount).toBe(2);
     expect(third.incidents.map((row: { id: string }) => row.id)).toEqual([resolved.id]);
     expect(third.nextCursor).toBeNull();
     expect((await service.list(viewer, siteId, { type: "fixture_fault", status: "acknowledged" })).incidents.map((row: { id: string }) => row.id)).toEqual([newer.id]);
@@ -313,10 +513,14 @@ const databaseUrl = process.env.MONITORING_INCIDENTS_TEST_DATABASE_URL;
     expect(await prisma.monitoringIncident.count({ where: { id: history.id } })).toBe(0);
   });
   it("serves authenticated policy and incident routes with capability enforcement", async () => {
-    const module = await Test.createTestingModule({ imports: [MonitoringIncidentsModule] }).overrideProvider(PrismaService).useValue(prisma).compile();
+    const module = await Test.createTestingModule({ imports: [MonitoringIncidentsModule] })
+      .overrideProvider(PrismaService).useValue(prisma)
+      // These routes use the real session DB guard, not Redis login/MFA flows.
+      // Do not initialize or connect an ambient Redis for unrelated module hooks.
+      .overrideProvider(RedisProvider).useValue({ getClient: () => { throw new Error("Redis is outside incident route test scope"); } }).compile();
     const app = module.createNestApplication();
-    await app.listen(0, "127.0.0.1");
     try {
+      await app.listen(0, "127.0.0.1");
       const base = `${await app.getUrl()}/sites/${siteId}`;
       const cookies = new Map<string, string>();
       for (const user of [admin, viewer]) {
@@ -338,6 +542,19 @@ const databaseUrl = process.env.MONITORING_INCIDENTS_TEST_DATABASE_URL;
       const listing = await fetch(`${base}/monitoring-incidents?status=acknowledged&limit=10`, { headers: { cookie: cookies.get(viewer.id)! } });
       expect(listing.status).toBe(200);
       expect(await listing.json()).toMatchObject({ activeCount: 1, incidents: [{ id: incident.id }], nextCursor: null });
+      const readUrl = `${base}/monitoring-incidents/${incident.id}/read`;
+      expect((await fetch(readUrl, { method: "PUT" })).status).toBe(401);
+      const readResponse = await fetch(readUrl, { method: "PUT", headers: { cookie: cookies.get(viewer.id)! } });
+      expect(readResponse.status).toBe(200);
+      expect(await readResponse.json()).toMatchObject({ incidentId: incident.id, isRead: true, readAt: expect.any(String) });
+      const overridden = await fetch(readUrl, { method: "PUT", headers: { cookie: cookies.get(viewer.id)!, "content-type": "application/json" }, body: JSON.stringify({ userId: admin.id }) });
+      expect(overridden.status).toBe(400);
+      expect((await fetch(`${base}/monitoring-incidents/not-a-uuid/read`, { method: "PUT", headers: { cookie: cookies.get(viewer.id)! } })).status).toBe(400);
+      const expired = randomUUID();
+      await prisma.session.create({ data: { userId: viewer.id, tokenHash: createHash("sha256").update(expired).digest("hex"), expiresAt: new Date(Date.now() - 1000) } });
+      expect((await fetch(readUrl, { method: "PUT", headers: { cookie: `${AuthService.sessionCookieName}=${expired}` } })).status).toBe(401);
+      await prisma.user.update({ where: { id: viewer.id }, data: { mustChangePassword: true } });
+      expect((await fetch(readUrl, { method: "PUT", headers: { cookie: cookies.get(viewer.id)! } })).status).toBe(403);
     } finally { await app.close(); }
   });
 });

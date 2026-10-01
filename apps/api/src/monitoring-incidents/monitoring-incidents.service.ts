@@ -1,10 +1,12 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
 import { Prisma, type MonitoringIncident } from "@prisma/client";
 import { SiteAccessService } from "../access/site-access.service";
+import { runSiteUserTransaction } from "../access/site-user-policy";
 import { AuditService } from "../audit/audit.service";
 import { AuthenticatedUser } from "../auth/auth.types";
 import { PrismaService } from "../prisma/prisma.service";
-import { encodeIncidentCursor, parseIncidentMutation, parseIncidentQuery, parseMonitoringPolicy } from "./monitoring-incidents.dto";
+import { encodeIncidentCursor, incidentReadReceiptResponseSchema, incidentReadStateSchema, parseIncidentMutation,
+  parseIncidentQuery, parseIncidentReadTarget, parseMonitoringPolicy } from "./monitoring-incidents.dto";
 import { isMonitoringConditionActive } from "./monitoring-conditions";
 
 const policySelect = { id: true, gatewayOfflineAfterSeconds: true, fixtureStaleAfterSeconds: true, updatedAt: true } satisfies Prisma.SiteSelect;
@@ -60,13 +62,57 @@ export class MonitoringIncidentsService {
       const ordered = pageIds.map((id) => byId.get(id)!);
       const last = ordered.at(-1);
       const activeCount = await tx.monitoringIncident.count({ where: { siteId, status: { in: ["open", "acknowledged"] } } });
+      // Personal unread count includes resolved occurrences and is independent
+      // of this page/status/type/cursor. GET never creates receipts.
+      const unreadCount = await tx.monitoringIncident.count({ where: { siteId, readReceipts: { none: { userId: user.id } } } });
+      const receipts = await tx.monitoringIncidentReadReceipt.findMany({
+        where: { userId: user.id, incidentId: { in: pageIds } }, select: { incidentId: true, readAt: true }
+      });
+      const readAtById = new Map(receipts.map(receipt => [receipt.incidentId, receipt.readAt]));
       return {
-        incidents: ordered.map((row) => this.summary(row)), activeCount,
+        incidents: ordered.map(row => ({ ...this.summary(row), ...incidentReadStateSchema.parse({
+          isRead: readAtById.has(row.id), readAt: readAtById.get(row.id)?.toISOString() ?? null
+        }) })), activeCount, unreadCount,
         nextCursor: rows.length > query.limit && last ? encodeIncidentCursor({
           siteId, status: query.status, type: query.type, active: last.resolvedAt === null, openedAt: last.openedAt, id: last.id
         }) : null
       };
     }, { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead });
+  }
+
+  async markRead(user: AuthenticatedUser, siteId: string, incidentId: string): Promise<{ incidentId: string; isRead: true; readAt: string }> {
+    parseIncidentReadTarget(siteId, incidentId);
+    await this.access.assert(user, siteId, "read");
+    // Reuse the assignment advisory gate before Site, matching site-user writes.
+    // ReadCommitted refreshes authorization after a competing revocation commits.
+    return runSiteUserTransaction(this.prisma, async tx => {
+      const sites = await tx.$queryRaw<{ id: string }[]>(Prisma.sql`SELECT "id" FROM "Site" WHERE "id" = ${siteId} FOR UPDATE`);
+      if (!sites.length) throw new NotFoundException("site not found");
+      // SHARE also blocks password/status updates (KEY SHARE would not). Hold
+      // User and membership through the receipt write, including direct deletes.
+      await tx.$queryRaw(Prisma.sql`SELECT "id" FROM "User" WHERE "id" = ${user.id} FOR SHARE`);
+      const actor = await tx.user.findUnique({ where: { id: user.id }, select: {
+        id: true, organizationId: true, role: true, status: true, mustChangePassword: true,
+        organization: { select: { type: true } }
+      } });
+      if (!actor || actor.status !== "active" || actor.role !== user.role || actor.organizationId !== user.organizationId
+        || actor.organization.type !== user.organizationType) throw new NotFoundException("site not found");
+      if (actor.mustChangePassword) throw new ForbiddenException({ code: "PASSWORD_CHANGE_REQUIRED", message: "Password change required" });
+      if (actor.role === "viewer") {
+        await tx.$queryRaw(Prisma.sql`SELECT "id" FROM "SiteMembership" WHERE "siteId" = ${siteId} AND "userId" = ${user.id} FOR SHARE`);
+      }
+      await this.access.assertReadInTransaction(tx, user, siteId);
+      // KEY SHARE prevents parent deletion but permits ordinary observation and
+      // operational non-key updates. Personal reads never change its revision.
+      const incidents = await tx.$queryRaw<{ id: string }[]>(Prisma.sql`
+        SELECT "id" FROM "MonitoringIncident" WHERE "id" = ${incidentId} AND "siteId" = ${siteId} FOR KEY SHARE`);
+      if (!incidents.length) throw new NotFoundException("incident not found");
+      const receipt = await tx.monitoringIncidentReadReceipt.upsert({
+        where: { incidentId_userId: { incidentId, userId: user.id } },
+        create: { incidentId, userId: user.id }, update: {}, select: { incidentId: true, readAt: true }
+      });
+      return incidentReadReceiptResponseSchema.parse({ incidentId: receipt.incidentId, isRead: true, readAt: receipt.readAt.toISOString() });
+    }, Prisma.TransactionIsolationLevel.ReadCommitted);
   }
 
   async update(user: AuthenticatedUser, siteId: string, id: string, input: unknown) {
