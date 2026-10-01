@@ -57,6 +57,43 @@ describe("overlay migration contracts", () => {
     expect(initial.current).toHaveFocus();
   });
 
+  it("opts a drawer into one top/bottom safe-area owner without moving actions into its body", () => {
+    const props = { title: "안전 영역 알람", onClose: () => {}, safeArea: true };
+    render(<UI.DrawerDialog {...props} className="flex min-h-0 flex-col overflow-hidden" bodyClassName="min-h-0 flex-1 overflow-y-auto" actions={<button>완료</button>}>알람 목록</UI.DrawerDialog>);
+    const dialog = screen.getByRole("dialog", { name: "안전 영역 알람" });
+    const owner = dialog.querySelector("[data-dialog-safe-area]");
+    expect(dialog.querySelectorAll("[data-dialog-safe-area]")).toHaveLength(1);
+    expect(owner).toBeInTheDocument();
+    expect(owner).toHaveClass("pt-safe-area-top", "pb-safe-area-bottom");
+    expect(dialog.querySelectorAll(".pb-safe-area-bottom")).toHaveLength(1);
+    expect(dialog).toHaveClass("p-0!", "compact:p-0!");
+    expect(dialog).not.toHaveClass("p-4.5!", "compact:p-6!");
+    expect(dialog.querySelector("[data-dialog-body]")).not.toContainElement(screen.getByRole("button", { name: "완료" }));
+    expect(owner).toContainElement(screen.getByRole("button", { name: "닫기" }));
+    expect(owner).toContainElement(screen.getByRole("button", { name: "완료" }));
+  });
+
+  it("does not stack the sheet bottom inset when explicitly opting into top/bottom safe-area", () => {
+    const props = { title: "안전 영역 상세", onClose: () => {}, safeArea: true };
+    const DetailSheet = sheet();
+    render(<DetailSheet {...props} actions={<button>완료</button>}>상세</DetailSheet>);
+    const dialog = screen.getByRole("dialog", { name: "안전 영역 상세" });
+    expect(dialog.querySelectorAll("[data-dialog-safe-area]")).toHaveLength(1);
+    expect(dialog.querySelector("[data-dialog-safe-area]")).toHaveClass("pt-safe-area-top", "pb-safe-area-bottom");
+    expect(dialog.querySelectorAll(".pb-safe-area-bottom")).toHaveLength(1);
+  });
+
+  it.each(["modal", "drawer", "sheet"] as const)("keeps the ordinary %s layout default isolated from safe-area opt-in", surface => {
+    const Component = surface === "modal" ? ModalDialog : surface === "drawer" ? UI.DrawerDialog : sheet();
+    render(<Component title="기본 레이아웃" onClose={() => {}}>본문</Component>);
+    const dialog = screen.getByRole("dialog");
+    expect(dialog.querySelector("[data-dialog-safe-area]")).not.toBeInTheDocument();
+    if (surface !== "sheet") {
+      expect(dialog).toHaveClass("p-4.5!", "compact:p-6!", "overflow-y-auto");
+      expect(dialog.querySelector("[data-dialog-body]")).not.toHaveClass("overflow-y-auto");
+    } else expect(dialog.querySelectorAll(".pb-safe-area-bottom")).toHaveLength(1);
+  });
+
   it.each(["escape", "outside", "close"])("dismisses sheet via %s once and blocks it during pending", (method) => {
     const DetailSheet = sheet(); const close = vi.fn();
     const content = (pending: boolean) => <DetailSheet title="상세" isPending={pending} onClose={close}>본문</DetailSheet>;

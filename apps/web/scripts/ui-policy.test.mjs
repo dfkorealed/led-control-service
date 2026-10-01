@@ -721,6 +721,18 @@ test("accepts only the reviewed 360px phone-wide token and named utilities", asy
   assert.ok(inspectUiSource(path, theme.replace(/--breakpoint-phone-wide:[^;]+;/, "--breakpoint-phone-wide: 22rem;")).some(v => v.rule === "unapproved-theme-value"));
 });
 
+test("accepts the exact reviewed top safe-area helper only at its owned base CSS path", () => {
+  const helper = "@utility pt-safe-area-top { padding-top: env(safe-area-inset-top); }";
+  assert.deepEqual(inspectUiSource("src/styles/base.css", helper), []);
+  for (const source of [
+    "@utility pt-safe-area-top { padding-top: 24px; }",
+    "@utility pt-safe-area-top { padding-top: env(safe-area-inset-top); padding-bottom: 24px; }",
+    `${helper}\n${helper}`,
+    "@utility pt-safe-area-other { padding-top: env(safe-area-inset-top); }"
+  ]) assert.ok(inspectUiSource("src/styles/base.css", source).some(violation => violation.rule === "css-utility"), source);
+  assert.ok(inspectUiSource("src/styles.css", helper).some(violation => violation.rule === "css-utility"));
+});
+
 test("accepts only the reviewed final atlas shell layout tokens", async () => {
   const path = "src/styles/theme.css";
   const theme = await readFile(new URL("../src/styles/theme.css", import.meta.url), "utf8");

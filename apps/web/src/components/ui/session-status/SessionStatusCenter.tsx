@@ -116,6 +116,9 @@ export const SessionStatusCenter = forwardRef<SessionStatusCenterHandle, Session
     </Button>
     <DrawerDialog
       ref={dialogRef}
+      className="flex min-h-0 flex-col overflow-hidden"
+      bodyClassName="min-h-0 flex-1 overflow-y-auto"
+      safeArea
       isOpen={isOpen}
       title="알람센터"
       description="선택 현장의 계정별 알람입니다. 화면에 보인 알람만 읽음으로 저장하며 장애 처리 상태는 유지됩니다."

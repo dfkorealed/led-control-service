@@ -1,21 +1,26 @@
-import { expect, test, type Page } from "@playwright/test";
+import { chromium, expect, test, type Page } from "@playwright/test";
 import { installSettingsApiRoutes, type SettingsFixture } from "./support/settings-api";
 
 const alarmInstant = "2026-10-01T15:00:00.000Z";
 const alarmId = (index: number) => `11111111-1111-4111-8111-${String(index).padStart(12, "0")}`;
-function alarmRow(index: number, isRead: boolean, siteId = "site-1") {
+function alarmRow(index: number, isRead: boolean, siteId = "site-1", longName = false) {
   const id = alarmId(index);
   return { id, siteId, type: "gateway_offline", status: "open", targetKey: `gateway:${id}`,
     fixtureId: null, gatewayId: id, openedAt: alarmInstant, lastObservedAt: alarmInstant,
     acknowledgedAt: null, acknowledgedByUserId: null, assignedToUserId: null, resolvedAt: null,
     resolvedByUserId: null, resolutionKind: null, resolutionNote: null, createdAt: alarmInstant, updatedAt: alarmInstant,
     acknowledgedBy: null, assignedTo: null, resolvedBy: null,
-    target: { kind: "gateway", id, name: `테스트 알람 ${String(index).padStart(2, "0")}` }, isRead, readAt: isRead ? alarmInstant : null };
+    target: { kind: "gateway", id, name: longName
+      ? `${index % 2 ? "긴현장게이트웨이연결알람".repeat(5) : "LongGatewayAlarmWithoutWhitespace".repeat(3)} ${index}`
+      : `테스트 알람 ${String(index).padStart(2, "0")}` }, isRead, readAt: isRead ? alarmInstant : null };
 }
 
-async function installAlarmFixture(page: Page) {
+async function installAlarmFixture(page: Page, options: { mode?: "loading" | "failure" | "empty" | "read-failure"; longNames?: boolean } = {}) {
   await installSettingsApiRoutes(page, "viewer");
-  const state = { reads: new Set<string>(), puts: [] as string[], gets: [] as { limit: number; cursor: string | null }[], failRead: false, failGet: false };
+  let release!: () => void;
+  const hold = new Promise<void>(resolve => { release = resolve; });
+  const state = { reads: new Set<string>(), puts: [] as string[], gets: [] as { limit: number; cursor: string | null }[],
+    failRead: options.mode === "read-failure", failGet: options.mode === "failure", release };
   await page.route("**/api/sites/*/monitoring-incidents**", async route => {
     const request = route.request();
     const url = new URL(request.url());
@@ -31,19 +36,52 @@ async function installAlarmFixture(page: Page) {
     const limit = Number(url.searchParams.get("limit"));
     const cursor = url.searchParams.get("cursor");
     state.gets.push({ limit, cursor });
+    if (options.mode === "loading") await hold;
     if (state.failGet) return route.fulfill({ status: 503, json: { message: "private upstream reason" } });
     const start = cursor ? 26 : 1;
-    const count = Math.min(limit, 28 - start);
+    const count = options.mode === "empty" ? 0 : Math.min(limit, 28 - start);
     return route.fulfill({ json: {
-      incidents: Array.from({ length: count }, (_, offset) => alarmRow(start + offset, state.reads.has(alarmId(start + offset)))),
-      unreadCount: 27 - state.reads.size, activeCount: 27,
-      nextCursor: start + count <= 27 ? "page_25" : null
+      incidents: Array.from({ length: count }, (_, offset) => alarmRow(start + offset, state.reads.has(alarmId(start + offset)), "site-1", options.longNames)),
+      unreadCount: options.mode === "empty" ? 0 : 27 - state.reads.size, activeCount: options.mode === "empty" ? 0 : 27,
+      nextCursor: count && start + count <= 27 ? "page_25" : null
     } });
   });
   return state;
 }
 
 const alarmTrigger = (page: Page) => page.locator('[data-shell-actions] button[aria-label^="알람센터,"]');
+
+async function alarmBounds(page: Page) {
+  return page.getByRole("dialog", { name: "알람센터", exact: true }).evaluate(dialog => {
+    const rect = (element: Element) => {
+      const r = element.getBoundingClientRect();
+      return { top: r.top, bottom: r.bottom, width: r.width, height: r.height };
+    };
+    const body = dialog.querySelector<HTMLElement>("[data-dialog-body]")!;
+    return { viewportHeight: innerHeight, horizontalOverflow: Math.max(0, document.documentElement.scrollWidth - innerWidth),
+      root: { ...rect(dialog), scroll: dialog.scrollTop, overflow: getComputedStyle(dialog).overflowY },
+      body: { ...rect(body), scroll: body.scrollTop, scrollHeight: body.scrollHeight, overflow: getComputedStyle(body).overflowY },
+      header: rect(dialog.querySelector("[data-dialog-header]")!), close: rect(dialog.querySelector("[data-dialog-close]")!),
+      footer: rect(dialog.querySelector("[data-dialog-actions]")!), footerClose: rect(dialog.querySelector("[data-dialog-actions] button")!) };
+  });
+}
+
+function expectAlarmBounds(bounds: Awaited<ReturnType<typeof alarmBounds>>, top = 0, bottom = 0) {
+  expect(bounds.body.height).toBeGreaterThan(0);
+  expect(bounds.body.height).toBeLessThan(bounds.viewportHeight);
+  expect(bounds.root.overflow).toBe("hidden");
+  expect(bounds.root.scroll).toBe(0);
+  expect(bounds.body.overflow).toBe("auto");
+  expect(bounds.header.top).toBeGreaterThanOrEqual(top);
+  expect(bounds.close.top).toBeGreaterThanOrEqual(top);
+  expect(bounds.footer.bottom).toBeLessThanOrEqual(bounds.viewportHeight - bottom);
+  expect(bounds.footerClose.bottom).toBeLessThanOrEqual(bounds.viewportHeight - bottom);
+  expect(bounds.close.width).toBeGreaterThanOrEqual(44);
+  expect(bounds.close.height).toBeGreaterThanOrEqual(44);
+  expect(bounds.footerClose.width).toBeGreaterThanOrEqual(44);
+  expect(bounds.footerClose.height).toBeGreaterThanOrEqual(44);
+  expect(bounds.horizontalOverflow).toBe(0);
+}
 
 for (const mode of ["inside", "outside", "compact"] as const) {
   test(`monitoring fix2 settled automatic detail removal preserves ${mode} focus and camera`, async ({ page }) => {
@@ -554,12 +592,15 @@ test("operations alarm center keyboard opening reads only visible rows and scrol
   await page.keyboard.press("Enter");
   const dialog = page.getByRole("dialog", { name: "알람센터", exact: true });
   await expect(dialog).toBeVisible();
+  expectAlarmBounds(await alarmBounds(page));
   await expect.poll(() => state.reads.has(alarmId(1))).toBe(true);
   expect(state.reads.has(alarmId(25))).toBe(false);
   expect(state.reads.has(alarmId(26))).toBe(false);
   expect(state.puts).toHaveLength(new Set(state.puts).size);
 
   await dialog.locator(`[data-alarm-id="${alarmId(25)}"]`).scrollIntoViewIfNeeded();
+  await expect.poll(() => dialog.locator("[data-dialog-body]").evaluate(body => body.scrollTop)).toBeGreaterThan(0);
+  expectAlarmBounds(await alarmBounds(page));
   await expect.poll(() => state.reads.has(alarmId(25))).toBe(true);
   expect(state.reads.has(alarmId(26))).toBe(false);
   await dialog.getByRole("button", { name: "알람 더 보기" }).click();
@@ -606,4 +647,139 @@ test("operations alarm center failed reads preserve badge and successful retry u
   await trigger.click();
   await expect(page.getByText("알람 갱신 실패 · 마지막으로 확인한 값을 표시합니다.", { exact: true })).toBeVisible();
   await expect(page.getByText("private upstream reason", { exact: true })).toHaveCount(0);
+});
+
+const alarmPhysicalViewports = [
+  ...[320, 390, 768, 962, 1017, 1023, 1024, 1025, 1440].map(width => ({ width, height: width < 760 ? 844 : 900 })),
+  { width: 390, height: 320 }, { width: 768, height: 390 }, { width: 1024, height: 480 }
+];
+for (const viewport of alarmPhysicalViewports) {
+  test(`operations alarm center physical body scroll and visible controls ${viewport.width}x${viewport.height}`, async ({ page }, testInfo) => {
+    await page.setViewportSize(viewport);
+    const state = await installAlarmFixture(page, { longNames: true });
+    await page.goto("/settings/site?siteId=site-1");
+    const trigger = alarmTrigger(page);
+    await expect(trigger).toHaveAttribute("aria-label", "알람센터, 미읽음 27건");
+    expect(state.puts).toHaveLength(0);
+    await trigger.focus(); await page.keyboard.press("Enter");
+    const dialog = page.getByRole("dialog", { name: "알람센터", exact: true });
+    const body = dialog.locator("[data-dialog-body]");
+    await expect(dialog.locator("[data-alarm-id]")).toHaveCount(25);
+    const before = await alarmBounds(page);
+    expectAlarmBounds(before);
+    expect(state.reads.has(alarmId(25))).toBe(false);
+    expect(state.reads.has(alarmId(26))).toBe(false);
+    for (let index = 0; index < 5; index++) {
+      await page.keyboard.press("Tab");
+      expect(await dialog.evaluate(node => node.contains(document.activeElement))).toBe(true);
+    }
+    await body.evaluate(node => { node.scrollTop = 0; });
+    await body.hover(); await page.mouse.wheel(0, 1600);
+    await expect.poll(() => body.evaluate(node => node.scrollTop)).toBeGreaterThan(0);
+    const after = await alarmBounds(page);
+    expectAlarmBounds(after);
+    await body.evaluate(node => { node.scrollTop = node.scrollHeight; });
+    await expect(dialog.getByRole("button", { name: "알람 더 보기" })).toBeVisible();
+    await dialog.getByRole("button", { name: "알람 더 보기" }).click();
+    await dialog.locator(`[data-alarm-id="${alarmId(27)}"]`).scrollIntoViewIfNeeded();
+    await expect.poll(() => state.reads.has(alarmId(27))).toBe(true);
+    expectAlarmBounds(await alarmBounds(page));
+    await testInfo.attach("physical-bounds", { body: JSON.stringify({ before, after }), contentType: "application/json" });
+    await testInfo.attach("physical-end", { body: await page.screenshot(), contentType: "image/png" });
+    if (viewport.height === 320) {
+      for (let index = 0; index < 5; index++) {
+        await page.keyboard.press("Shift+Tab");
+        expect(await dialog.evaluate(node => node.contains(document.activeElement))).toBe(true);
+      }
+      await dialog.locator("[data-dialog-actions]").getByRole("button", { name: "닫기", exact: true }).click();
+      await expect(trigger).toBeFocused();
+      await trigger.click(); await dialog.getByRole("button", { name: "알람센터 닫기" }).click();
+    } else await page.keyboard.press("Escape");
+    await expect(dialog).toHaveCount(0); await expect(trigger).toBeFocused();
+    expect(state.puts).toHaveLength(new Set(state.puts).size);
+  });
+}
+
+for (const mode of ["loading", "failure", "empty", "read-failure"] as const) {
+  test(`operations alarm center physical short-height ${mode} keeps both close paths`, async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 320 });
+    const state = await installAlarmFixture(page, { mode });
+    try {
+      await page.goto("/settings/site?siteId=site-1");
+      const trigger = alarmTrigger(page);
+      await trigger.click();
+      const dialog = page.getByRole("dialog", { name: "알람센터", exact: true });
+      await expect(dialog).toContainText(mode === "loading" ? "알람 확인 중" : mode === "failure" ? "알람 확인 불가" : mode === "empty" ? "등록된 알람이 없습니다" : "읽음 저장 실패");
+      expectAlarmBounds(await alarmBounds(page));
+      if (mode === "read-failure") {
+        expect(state.reads.size).toBe(0);
+        await expect(trigger).toHaveAttribute("aria-label", "알람센터, 미읽음 27건");
+      } else expect(state.puts).toHaveLength(0);
+      await dialog.getByRole("button", { name: "알람센터 닫기" }).click();
+      await expect(trigger).toBeFocused();
+    } finally { state.release(); }
+  });
+}
+
+test("operations alarm center physical positive safe area protects header and footer", async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await installAlarmFixture(page);
+  const cdp = await page.context().newCDPSession(page);
+  await cdp.send("Emulation.setSafeAreaInsetsOverride", { insets: { top: 24, bottom: 34, left: 0, right: 0 } });
+  await page.goto("/settings/site?siteId=site-1");
+  const env = await page.evaluate(() => {
+    const probe = document.createElement("div");
+    probe.style.cssText = "position:fixed;visibility:hidden;padding-top:env(safe-area-inset-top);padding-bottom:env(safe-area-inset-bottom)";
+    document.body.append(probe);
+    const value = { top: getComputedStyle(probe).paddingTop, bottom: getComputedStyle(probe).paddingBottom };
+    probe.remove(); return value;
+  });
+  expect(env).toEqual({ top: "24px", bottom: "34px" });
+  await alarmTrigger(page).click();
+  const dialog = page.getByRole("dialog", { name: "알람센터", exact: true });
+  await expect(dialog.locator("[data-alarm-id]")).toHaveCount(25);
+  const before = await alarmBounds(page);
+  expect(before.close.top).toBeGreaterThanOrEqual(24);
+  expectAlarmBounds(before, 24, 34);
+  await dialog.locator("[data-dialog-body]").evaluate(body => { body.scrollTop = body.scrollHeight; });
+  expectAlarmBounds(await alarmBounds(page), 24, 34);
+  await testInfo.attach("positive-safe-area", { body: JSON.stringify({ env, before, after: await alarmBounds(page) }), contentType: "application/json" });
+  await page.keyboard.press("Escape"); await expect(alarmTrigger(page)).toBeFocused();
+});
+
+test("operations alarm center physical native browser 200 percent keeps finite body and close paths", async ({}, testInfo) => {
+  const context = await chromium.launchPersistentContext("", { channel: "chromium", viewport: null, deviceScaleFactor: undefined, args: ["--window-size=1440,900"] });
+  try {
+    const page = await context.newPage();
+    await installAlarmFixture(page, { longNames: true });
+    await page.goto(`${testInfo.project.use.baseURL}/settings/site?siteId=site-1`);
+    const original = await page.evaluate(() => ({ width: innerWidth, height: innerHeight, dpr: devicePixelRatio, scale: visualViewport?.scale }));
+    const settings = await context.newPage();
+    await settings.goto("chrome://settings/appearance");
+    await settings.locator("select#zoomLevel").selectOption("2");
+    await page.bringToFront(); await page.reload();
+    const zoom = await page.evaluate(() => ({ width: innerWidth, height: innerHeight, dpr: devicePixelRatio, scale: visualViewport?.scale }));
+    expect(zoom.dpr / original.dpr).toBe(2);
+    expect(Math.abs(zoom.width * 2 - original.width)).toBeLessThanOrEqual(1);
+    expect(zoom.scale).toBe(original.scale);
+    await alarmTrigger(page).focus(); await page.keyboard.press("Enter");
+    const dialog = page.getByRole("dialog", { name: "알람센터", exact: true });
+    await expect(dialog.locator("[data-alarm-id]")).toHaveCount(25);
+    const before = await alarmBounds(page);
+    expectAlarmBounds(before);
+    const body = dialog.locator("[data-dialog-body]");
+    await body.hover(); await page.mouse.wheel(0, 800);
+    await expect.poll(() => body.evaluate(node => node.scrollTop)).toBeGreaterThan(0);
+    const after = await alarmBounds(page);
+    expectAlarmBounds(after);
+    for (let index = 0; index < 5; index++) {
+      await page.keyboard.press("Tab");
+      expect(await dialog.evaluate(node => node.contains(document.activeElement))).toBe(true);
+    }
+    const cdp = await context.newCDPSession(page);
+    const screenshot = await cdp.send("Page.captureScreenshot", { format: "png", fromSurface: true, captureBeyondViewport: false });
+    await testInfo.attach("native-200-percent", { body: Buffer.from(screenshot.data, "base64"), contentType: "image/png" });
+    await testInfo.attach("native-200-bounds", { body: JSON.stringify({ original, zoom, before, after }), contentType: "application/json" });
+    await page.keyboard.press("Escape"); await expect(alarmTrigger(page)).toBeFocused();
+  } finally { await context.close(); }
 });

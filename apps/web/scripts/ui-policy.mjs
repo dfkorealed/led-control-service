@@ -58,7 +58,8 @@ const nativeFormElements = new Set(["input", "select", "textarea", "button"]);
 const reviewedUtilities = new Map([
   ["pb-shell-navigation-safe", "padding-bottom: calc(var(--spacing) * 17 + env(safe-area-inset-bottom));"],
   ["h-shell-navigation-safe", "height: calc(var(--spacing) * 17 + env(safe-area-inset-bottom));"],
-  ["pb-safe-area-bottom", "padding-bottom: env(safe-area-inset-bottom);"]
+  ["pb-safe-area-bottom", "padding-bottom: env(safe-area-inset-bottom);"],
+  ["pt-safe-area-top", "padding-top: env(safe-area-inset-top);"]
 ]);
 // These preserve the inclusive boundaries of the reviewed landing CSS. They
 // are exact contracts, not permission for arbitrary custom media variants.

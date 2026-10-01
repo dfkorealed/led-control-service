@@ -21,6 +21,8 @@ export interface ModalDialogProps {
   closeLabel?: string;
   className?: string;
   bodyClassName?: string;
+  /** Opt in to one top/bottom inset owner; does not change the default scroll layout. */
+  safeArea?: boolean;
 }
 
 export const ModalDialog = /* @__PURE__ */ forwardRef<HTMLElement, ModalDialogProps>(function ModalDialog(props, ref) {

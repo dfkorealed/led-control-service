@@ -53,7 +53,7 @@ export const DialogBase = /* @__PURE__ */ forwardRef<HTMLElement, DialogBaseProp
 });
 
 function DialogContent({ title, description, children, actions, onClose, isPending, initialFocusRef,
-  returnFocusRef, fallbackFocusRef, returnFocusElement, fallbackFocusElement, role = "dialog", closeLabel = "닫기", className, bodyClassName, rootRef, surface = "modal"
+  returnFocusRef, fallbackFocusRef, returnFocusElement, fallbackFocusElement, role = "dialog", closeLabel = "닫기", className, bodyClassName, safeArea = false, rootRef, surface = "modal"
 }: Omit<DialogBaseProps, "isOpen" | "open"> & { rootRef: Ref<HTMLElement> }) {
   const descriptionId = useId();
   const dialog = useRef<HTMLElement>(null);
@@ -100,9 +100,13 @@ function DialogContent({ title, description, children, actions, onClose, isPendi
   </>;
   return <Dialog ref={mergeRefs(dialog, rootRef)} role={role} aria-describedby={description ? descriptionId : undefined} data-dialog-surface="" data-dialog-variant={surface}
     render={(domProps) => <section {...domProps} aria-modal="true" />}
-    className={cn(surfaceClass[surface], className)}>
-    {/* The sheet alone owns the inset. Do not also apply shell navigation space
-        or inset padding on its body/actions; those must remain above this area. */}
-    {isSheet ? <div className="flex min-h-0 flex-col overflow-hidden px-4.5 pt-4.5 pb-safe-area-bottom">{content}</div> : content}
+    className={cn(surfaceClass[surface], className, safeArea && "p-0! compact:p-0!")}>
+    {/* The opt-in wrapper or legacy sheet wrapper owns the insets, never both.
+        Body/actions must not add shell navigation space or duplicate insets. */}
+    {safeArea ? <div data-dialog-safe-area="" className="flex min-h-0 flex-1 flex-col overflow-hidden pt-safe-area-top pb-safe-area-bottom">
+      {/* Insets belong only to this wrapper. Preserve the ordinary surface
+          spacing inside it, without shell-nav space or a second sheet inset. */}
+      <div className={cn("flex min-h-0 flex-1 flex-col overflow-hidden", isSheet ? "px-4.5 pt-4.5" : "p-4.5 compact:p-6")}>{content}</div>
+    </div> : isSheet ? <div className="flex min-h-0 flex-col overflow-hidden px-4.5 pt-4.5 pb-safe-area-bottom">{content}</div> : content}
   </Dialog>;
 }

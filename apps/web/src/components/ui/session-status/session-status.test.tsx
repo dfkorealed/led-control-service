@@ -210,6 +210,19 @@ describe("session status feedback", () => {
     await waitFor(() => expect(source).toHaveFocus());
   });
 
+  it("keeps alarm close controls outside a bounded independently scrolling body", () => {
+    render(<SessionStatusProvider><QueryStatusHarness fingerprint="1" /></SessionStatusProvider>);
+    fireEvent.click(screen.getByRole("button", { name: "알람센터, 현장 미선택" }));
+    const dialog = screen.getByRole("dialog", { name: "알람센터" });
+    const body = dialog.querySelector("[data-dialog-body]")!;
+    expect(dialog).toHaveClass("h-dvh", "flex", "min-h-0", "overflow-hidden");
+    expect(dialog).not.toHaveClass("overflow-y-auto");
+    expect(body).toHaveClass("min-h-0", "flex-1", "overflow-y-auto");
+    expect(body).toContainElement(screen.getByRole("region", { name: "현재 화면 상태" }));
+    expect(body).not.toContainElement(screen.getByRole("button", { name: "알람센터 닫기" }));
+    expect(body).not.toContainElement(screen.getByRole("button", { name: "닫기" }));
+  });
+
   it("unregisters source items when their producer unmounts", async () => {
     function Toggle() {
       const [visible, setVisible] = useState(true);
