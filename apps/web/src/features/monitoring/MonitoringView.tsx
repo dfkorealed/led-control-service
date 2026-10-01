@@ -113,6 +113,7 @@ function MonitoringDashboard({ data, userRole, siteId, refreshDashboard }: Monit
   const filteredFixtures = fixtures.filter(fixture => matchesMonitoringFixtureSearch(fixture, normalizedSearch)
     && matchesMonitoringFixture(fixture, fixtureFilter, resolveFixtureMapPosition(mapSnapshot, fixture)));
   const selectedFixture = selectedFixtureId === null ? undefined : filteredFixtures.find(fixture => fixture.id === selectedFixtureId);
+  const selectedRuntimeFixture = selectedFixtureId === null ? undefined : fixtures.find(fixture => fixture.id === selectedFixtureId);
   const selectedPin = mapSnapshot?.fixtures?.find(pin => pin.id === selectedFixtureId);
   const emphasizedFixtureIds = fixtureFilter === "all" && !normalizedSearch ? undefined : new Set(filteredFixtures.map(fixture => fixture.id));
   const snapshotFreshness = useMemo(
@@ -166,7 +167,7 @@ function MonitoringDashboard({ data, userRole, siteId, refreshDashboard }: Monit
     return () => { cancelAnimationFrame(frame); if (releaseFrame !== undefined) cancelAnimationFrame(releaseFrame); };
   }, [isDesktop, isDetailOpen, selectedFixtureId]);
 
-  function clearSelection() { setSelectedFixtureId(null); setIsDetailOpen(false); pinDetailsFixtureRef.current = null; }
+  function clearSelection() { setSelectedFixtureId(null); setIsDetailOpen(false); setFocusRequest(undefined); pinDetailsFixtureRef.current = null; }
   function openDetail(id: string, trigger?: HTMLElement) {
     if (selectedFixtureId !== id) detailScrollRef.current = 0;
     detailReturnRef.current = trigger ?? (document.activeElement instanceof HTMLElement ? document.activeElement : null);
@@ -206,11 +207,20 @@ function MonitoringDashboard({ data, userRole, siteId, refreshDashboard }: Monit
   useEffect(() => {
     if (!floor) return;
     setSelectedFloorId((current) => current ?? floor.id);
+    // A confirmed runtime row leaving the current search/filter is invalid,
+    // unlike a saved pin whose runtime row has not arrived in paged results.
+    // Placement exclusion additionally needs a successful map observation.
+    const runtimeConfirmed = hasFixtureData && !fixtureQuery.isFetching && !fixtureQuery.error;
+    const placementConfirmed = fixtureFilter !== "unplaced" || Boolean(mapSnapshot && !mapQuery.isFetching && !mapQuery.error);
+    if (selectedRuntimeFixture && runtimeConfirmed && placementConfirmed && !selectedFixture) {
+      clearSelection();
+      return;
+    }
     // Only a complete successful pair of sources can establish deletion.
     // A saved pin before its runtime row remains an explicit loading selection.
     if (selectedFixtureId && hasFixtureData && mapSnapshot && !fixtureQuery.isFetching && !mapQuery.isFetching && !fixtureQuery.hasNextPage
       && !fixtureQuery.error && !mapQuery.error && !fixtures.some(fixture => fixture.id === selectedFixtureId) && !selectedPin) clearSelection();
-  }, [floor?.id, fixtures, mapSnapshot, hasFixtureData, selectedFixtureId, selectedPin, fixtureQuery.isFetching, fixtureQuery.hasNextPage, fixtureQuery.error, mapQuery.isFetching, mapQuery.error]);
+  }, [floor?.id, fixtures, mapSnapshot, hasFixtureData, selectedFixtureId, selectedFixture, selectedRuntimeFixture, selectedPin, fixtureFilter, fixtureQuery.isFetching, fixtureQuery.hasNextPage, fixtureQuery.error, mapQuery.isFetching, mapQuery.error]);
 
   useEffect(() => {
     if (!mapRefreshFailure || mapRefreshFailure.floorId !== floor?.id) return;

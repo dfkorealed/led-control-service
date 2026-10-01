@@ -21,7 +21,7 @@ interface PaginationCommonProps<TPageSize extends PaginationPageSize> {
 
 type PaginationCountProps =
   | { mode?: "total"; totalCount: number; itemCount?: never }
-  | { mode: "cursor"; itemCount: number; totalCount?: never };
+  | { mode: "cursor"; itemCount: number | null; totalCount?: never };
 
 type DefaultPaginationProps = PaginationCommonProps<DefaultPaginationPageSize> & PaginationCountProps & { pageSizeOptions?: undefined };
 type CustomPaginationProps<TPageSize extends PaginationPageSize> = PaginationCommonProps<TPageSize> & PaginationCountProps & { pageSizeOptions: readonly TPageSize[] };
@@ -59,7 +59,9 @@ function PaginationContent<TPageSize extends PaginationPageSize>(props: CustomPa
   let countLabel: string;
   let nextDisabled = !hasNext;
   if (props.mode === "cursor") {
-    countLabel = `현재 ${props.itemCount}건`;
+    // A new cursor/pending/error may have no confirmed rows yet. Null must not
+    // announce an invented zero or reuse the previous page's current count.
+    countLabel = props.itemCount === null ? "" : `현재 ${props.itemCount}건`;
   } else {
     // Unknown totals never reach this branch: cursor pagination owns only the
     // current row count and server flags, not a fabricated range/end page.

@@ -53,6 +53,77 @@ describe("MonitoringLogDrawer", () => {
     expect(useMonitoringActivity.mock.calls.every(([scope]) => scope.cursor === "" && scope.floorId === "floor-2")).toBe(true);
   });
 
+  it.each(["principal", "siteId", "floorId"] as const)("discards a visited cursor on a %s round trip", (field) => {
+    useMonitoringActivity.mockReturnValue({ data: firstPage, error: null, isPending: false, isFetching: false, refetch: vi.fn() });
+    const props = { isOpen: true, onClose: vi.fn(), returnFocusRef: { current: null }, fallbackFocusRef: { current: null }, principal: "user-1", siteId: "site-1", floorId: "floor-1", timeZone: "Asia/Seoul" };
+    const view = render(<MonitoringLogDrawer {...props} />);
+    fireEvent.click(screen.getByRole("button", { name: "다음 페이지" }));
+    expect(screen.getByText("2페이지")).toBeVisible();
+    useMonitoringActivity.mockClear();
+    view.rerender(<MonitoringLogDrawer {...props} {...{ [field]: "other-scope" }} />);
+    expect(useMonitoringActivity.mock.calls.every(([scope]) => scope.cursor === "")).toBe(true);
+    expect(screen.getByText("1페이지")).toBeVisible();
+    useMonitoringActivity.mockClear();
+    view.rerender(<MonitoringLogDrawer {...props} />);
+    expect(useMonitoringActivity.mock.calls.every(([scope]) => scope.cursor === "")).toBe(true);
+    expect(screen.getByText("1페이지")).toBeVisible();
+  });
+
+  it("discards a visited cursor when the drawer closes and reopens", () => {
+    useMonitoringActivity.mockReturnValue({ data: firstPage, error: null, isPending: false, isFetching: false, refetch: vi.fn() });
+    const props = { isOpen: true, onClose: vi.fn(), returnFocusRef: { current: null }, fallbackFocusRef: { current: null }, principal: "user-1", siteId: "site-1", floorId: "floor-1", timeZone: "Asia/Seoul" };
+    const view = render(<MonitoringLogDrawer {...props} />);
+    fireEvent.click(screen.getByRole("button", { name: "다음 페이지" }));
+    view.rerender(<MonitoringLogDrawer {...props} isOpen={false} />);
+    useMonitoringActivity.mockClear();
+    view.rerender(<MonitoringLogDrawer {...props} />);
+    expect(useMonitoringActivity.mock.calls.every(([scope]) => scope.cursor === "")).toBe(true);
+    expect(screen.getByText("1페이지")).toBeVisible();
+  });
+
+  it("keeps pager controls mounted and disabled during pending without a fabricated row count", () => {
+    useMonitoringActivity.mockReturnValue({ data: firstPage, error: null, isPending: false, isFetching: false, refetch: vi.fn() });
+    const view = render(drawer());
+    const next = screen.getByRole("button", { name: "다음 페이지" });
+    next.focus();
+    fireEvent.click(next);
+    useMonitoringActivity.mockReturnValue({ data: undefined, error: null, isPending: false, isFetching: true, refetch: vi.fn() });
+    view.rerender(drawer());
+    expect(next.isConnected).toBe(true);
+    expect(screen.getByRole("button", { name: "다음 페이지" })).toBe(next);
+    expect(next).toBeDisabled();
+    expect(screen.getByRole("button", { name: "페이지당 항목 수" })).toBeDisabled();
+    expect(screen.queryByText(/현재 0건|현재 5건|기록이 없습니다/)).not.toBeInTheDocument();
+  });
+
+  it("keeps pending focus in a named pager and restores an enabled originating control", () => {
+    useMonitoringActivity.mockReturnValue({ data: firstPage, error: null, isPending: false, isFetching: false, refetch: vi.fn() });
+    const view = render(drawer());
+    const next = screen.getByRole("button", { name: "다음 페이지" });
+    next.focus(); fireEvent.click(next);
+    useMonitoringActivity.mockReturnValue({ data: undefined, error: null, isPending: false, isFetching: true, refetch: vi.fn() });
+    view.rerender(drawer());
+    expect(screen.getByRole("group", { name: "운영 로그 페이지 조작" })).toHaveFocus();
+    useMonitoringActivity.mockReturnValue({ data: firstPage, error: null, isPending: false, isFetching: false, refetch: vi.fn() });
+    view.rerender(drawer());
+    expect(next).toHaveFocus();
+  });
+
+  it("uses an enabled pager fallback after an expired Next and does not restore over intentional focus", () => {
+    useMonitoringActivity.mockReturnValue({ data: firstPage, error: null, isPending: false, isFetching: false, refetch: vi.fn() });
+    const view = render(drawer());
+    const next = screen.getByRole("button", { name: "다음 페이지" });
+    next.focus(); fireEvent.click(next);
+    useMonitoringActivity.mockReturnValue({ data: undefined, error: new ApiError("Expired", 410, {}), isPending: false, isFetching: false, refetch: vi.fn() });
+    view.rerender(drawer());
+    expect(screen.getByRole("button", { name: "페이지당 항목 수" })).toHaveFocus();
+    const body = screen.getByRole("region", { name: "운영 로그 본문" });
+    body.focus();
+    useMonitoringActivity.mockReturnValue({ data: firstPage, error: null, isPending: false, isFetching: false, refetch: vi.fn() });
+    view.rerender(drawer());
+    expect(body).toHaveFocus();
+  });
+
   it("uses server cursors for next and previous without inventing totals", async () => {
     useMonitoringActivity.mockImplementation(({ cursor }: { cursor: string }) => ({
       data: cursor ? { ...firstPage, items: [{ ...firstItems[0], id: "00000000-0000-4000-8000-000000000010", displayName: "B-5" }], nextCursor: null } : firstPage,

@@ -188,6 +188,46 @@ describe("MonitoringView refresh", () => {
     expect(marker).toHaveAttribute("data-selected", "true");
   });
 
+  it.each(["fault", "search", "placement"] as const)("clears confirmed runtime selection that exits the current %s condition", async (condition) => {
+    queryMocks.useFloorFixtures().data.pages[0].items = [{ ...fixture, status: "fault", placementStatus: condition === "placement" ? "unplaced" : "placed" }];
+    const view = render(<MonitoringView siteId="site-1" userRole="viewer" />);
+    const finder = openInspector();
+    if (condition === "search") fireEvent.change(within(finder).getByRole("searchbox", { name: "조명 이름 또는 번호 검색" }), { target: { value: "B1-L001" } });
+    else {
+      fireEvent.click(within(finder).getByRole("button", { name: "조명 목록 보기" }));
+      fireEvent.click(within(finder).getByRole("button", { name: "상태 필터" }));
+      fireEvent.click(await screen.findByRole("option", { name: condition === "fault" ? /^점검 필요$/ : /^미배치$/ }));
+    }
+    fireEvent.click(within(finder).getByRole("button", { name: "상세 조명 선택" }));
+    fireEvent.click(await screen.findByRole("option", { name: /B1-L001/ }));
+    fireEvent.click(within(finder).getByRole("button", { name: "상세 보기" }));
+    expect(screen.getByRole("dialog", { name: "조명 상세" })).toBeVisible();
+    const updated = { ...fixture, status: "online", health: null, name: condition === "search" ? "다른 이름" : fixture.name, placementStatus: "placed" };
+    queryMocks.useFloorFixtures().data.pages[0].items = [updated];
+    view.rerender(<MonitoringView siteId="site-1" userRole="viewer" />);
+    expect(screen.queryByRole("dialog", { name: "조명 상세" })).not.toBeInTheDocument();
+    expect(document.querySelector('[data-spatial-map-marker][data-selected="true"]')).not.toBeInTheDocument();
+    expect(document.querySelector("[data-monitoring-pin-popover]")).not.toBeInTheDocument();
+    const reopened = openInspector();
+    expect(within(reopened).queryByRole("button", { name: "상세 보기" })).not.toBeInTheDocument();
+    expect(refreshApi.waitForMonitoringRefresh).not.toHaveBeenCalled();
+  });
+
+  it.each(["partial", "error"] as const)("keeps an explicitly selected saved pin with missing runtime during %s retrieval", async (state) => {
+    const snapshot = { ...mapSnapshot, fixtures: [{ id: "saved-only", name: "저장된 조명", x: 100, y: 100, size: 20 }] };
+    queryMocks.useFloorMapSnapshot().data = snapshot;
+    queryMocks.useFloorFixtures.mockReturnValue({ ...queryMocks.useFloorFixtures(), hasNextPage: state === "partial", error: state === "error" ? new Error("runtime unavailable") : null });
+    render(<MonitoringView siteId="site-1" />);
+    const marker = screen.getByRole("button", { name: "저장된 조명 조명 정보 확인 전" });
+    fireEvent.click(marker);
+    const pin = await screen.findByRole("dialog", { name: "저장된 조명 조명 정보" });
+    fireEvent.click(within(pin).getByRole("button", { name: "상세 보기" }));
+    expect(screen.getByRole("dialog", { name: "조명 상세" })).toHaveTextContent("저장된 조명");
+    expect(screen.getByRole("dialog", { name: "조명 상세" })).toHaveTextContent("정보 확인 전 · 상태를 불러오는 중");
+    expect(marker).toHaveAttribute("data-selected", "true");
+    expect(refreshApi.waitForMonitoringRefresh).not.toHaveBeenCalled();
+  });
+
   it("clears explicit selection on principal switch", () => {
     const view = render(<MonitoringView siteId="site-1" />);
     fireEvent.click(screen.getByRole("button", { name: /B1-L001/ }));

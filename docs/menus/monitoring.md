@@ -1,5 +1,16 @@
 # 모니터링 메뉴 기능 현황
 
+## 2026-10-02 모니터링 선택·로그 상태 검토 보완 (Task 5 보완1)
+
+- 구현 완료: 성공적으로 확인한 runtime 조명이 기존 장애·검색·배치 조건에서 제외되면 선택 ID·상세·내부 pin을 함께 해제하고 다른 조명을 대입하지 않는다. 저장 pin만 먼저 받은 상태, runtime 부분 수신·진행 중·실패는 확인된 조건 이탈과 구분하여 원래 ID와 정보 확인 중 상태를 보존한다.
+- 구현 완료: 계정·현장·층·열림 조건이 바뀔 때 로그 cursor stack 자체를 폐기한다. 첫 새 조건 요청부터 첫 페이지를 사용하며 A2→B1→A1 및 닫기→재열기에서 이전 페이지가 되살아나지 않는다. 크기·기간·410 복구와 이전 범위 응답 격리도 유지한다.
+- 구현 완료: 로그 페이지 조작은 조회 중에도 같은 controls를 유지·비활성화한다. 현재 건수를 모르는 pending/error에는 공통 PaginationBar의 nullable cursor count로 이전 건수나 가짜0을 표시하지 않는다. 실제 numeric0은 정상 빈 결과로 유지하며 기존 total 방식과 기본·사용자 지정 크기 계약은 변경하지 않는다.
+- 구현 완료: 비활성화로 native focus가 이탈하면 보이는 페이지 조작 영역에 임시 focus를 유지한다. 성공 뒤 유효한 원래 control, 마지막 페이지·오류에는 같은 영역의 활성 control로 복귀한다. 기간·본문·닫기로 사용자가 이동하면 복귀 권한을 폐기하고, background 재조회·닫힌 drawer·옛 범위는 다른 focus를 가져오지 않는다. SelectBox popup의 반환 순서와 Tab·ShiftTab·Escape를 보존한다.
+- 미구현: 실제 운영 DB·두 계정/기기·native 확대·양수 safe-area·실장비 검증과 최종 통합은 후속 Task9 관문이다.
+- 부족하거나 개선이 필요한 기능: 이번 보완은 격리 API fixture·단위·Chromium 증거이며 독립 재검토 승인과 공통 알람 Drawer 물리 보완은 별도다. 기존 편집기1000개/8초 실패는 기준·skip 변경 없이 분리하여 보고한다.
+- 관련 파일: `apps/web/src/features/monitoring/{MonitoringView,MonitoringLogDrawer}.tsx`와 직접 테스트, `apps/web/src/components/ui/PaginationBar.tsx`와 직접 테스트, `apps/web/e2e/operations-ui-comments.spec.ts`.
+- 갱신 규칙: 확인된 조건 이탈과 saved-pin 미수신, scope 왕복과 첫 요청, stable controls와 실제 native focus·명시적 이동·오류·늦은 응답을 구분하여 같은 기능 변경에서 검증·갱신한다.
+
 ## 2026-10-02 지도·명시 선택·상세·전체 로그 (Task 5)
 
 - 구현 완료: 지도에 실제 표시되는 정상·장애·오프라인·상태 확인 대기·정보 확인 전 상태만 아이콘과 문구로 범례에 표시한다. 고정 이동 안내와 지도 표시 대수만 제거하며 KPI·검색 결과·로그 실제 개수는 유지한다. 시각 중심은 20px 원형, 실제 monitoring hit는 48×48 CSS px이고 상태 테두리/아이콘과 별도 선택 외곽선·키보드 초점으로 색상 외 구분을 제공한다. 기존 밝기 단계·CAD·휠·키보드·touch·Gateway/권한 제약은 유지한다.

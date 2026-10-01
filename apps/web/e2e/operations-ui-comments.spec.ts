@@ -45,6 +45,264 @@ async function installAlarmFixture(page: Page) {
 
 const alarmTrigger = (page: Page) => page.locator('[data-shell-actions] button[aria-label^="알람센터,"]');
 
+test("monitoring fix1 confirmed runtime filter exclusion clears detail and pin without replacement", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.clock.install();
+  const fixture: SettingsFixture = { id: alarmId(1), name: "회귀 장애 조명", x: 350, y: 250, ratedWatt: 40, brightness: 70,
+    status: "fault", statusReason: "reported", health: null, rssi: null, hopCount: null, commandSuccessRate: null,
+    lastSeenAt: "2026-09-25T04:00:00.000Z", gateway: null, controllable: false, controlBlockReason: "fixture_fault" };
+  const state = await installSettingsApiRoutes(page, "viewer", { fixtures: [fixture] });
+  await page.goto("/monitoring?siteId=site-1");
+  await page.getByRole("button", { name: /점검 필요/ }).click();
+  const finder = page.getByRole("dialog", { name: "조명 검색·상세", exact: true });
+  await finder.getByRole("button", { name: "상세 조명 선택", exact: true }).click();
+  await page.getByRole("option", { name: /회귀 장애 조명 ·/ }).click();
+  await finder.getByRole("button", { name: "상세 보기", exact: true }).click();
+  const detail = page.getByRole("complementary", { name: "조명 상세", exact: true });
+  await expect(detail).toContainText(fixture.name);
+  const before = state.fixturePageRequests;
+  state.updateFixture(fixture.id, { status: "online", brightness: 70, statusReason: "reported" });
+  await page.clock.fastForward(600001);
+  await expect.poll(() => state.fixturePageRequests).toBeGreaterThan(before);
+  await expect(detail).toHaveCount(0);
+  await expect(page.locator('[data-spatial-map-marker][data-selected="true"]')).toHaveCount(0);
+  await expect(page.locator("[data-monitoring-pin-popover]")).toHaveCount(0);
+  await page.getByRole("button", { name: "조명 검색·상세", exact: true }).click();
+  await expect(finder.getByRole("button", { name: "상세 보기", exact: true })).toHaveCount(0);
+  expect(state.requests.filter(request => !request.startsWith("GET "))).toEqual([]);
+});
+
+test("monitoring fix1 closing and reopening discards the visited log cursor", async ({ page }) => {
+  const state = await installSettingsApiRoutes(page, "viewer");
+  const cursors: (string | null)[] = [];
+  await page.route("**/api/sites/*/floors/*/monitoring-activity?*", route => {
+    const url = new URL(route.request().url());
+    if (url.searchParams.get("limit") === "50") cursors.push(url.searchParams.get("cursor"));
+    return route.fulfill({ json: { generatedAt: alarmInstant, retainedFrom: "2026-07-01T15:00:00.000Z",
+      items: [{ id: alarmId(1), kind: "fixture_online", recordedAt: alarmInstant, displayName: url.searchParams.has("cursor") ? "둘째 기록" : "첫째 기록" }], nextCursor: "page-2" } });
+  });
+  await page.goto("/monitoring?siteId=site-1");
+  await page.getByRole("button", { name: "전체 보기", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "전체 로그", exact: true });
+  await dialog.getByRole("button", { name: "다음 페이지", exact: true }).click();
+  await expect(dialog.getByText("2페이지", { exact: true })).toBeVisible();
+  await expect(dialog.getByRole("region", { name: "운영 로그 본문" })).toContainText("둘째 기록");
+  await dialog.getByRole("button", { name: "전체 로그 닫기", exact: true }).click();
+  await page.getByRole("button", { name: "전체 보기", exact: true }).click();
+  await expect(dialog.getByText("1페이지", { exact: true })).toBeVisible();
+  await expect(dialog.getByRole("region", { name: "운영 로그 본문" })).toContainText("첫째 기록");
+  expect(cursors.at(-1)).toBe(null);
+  expect(state.requests.filter(request => !request.startsWith("GET "))).toEqual([]);
+});
+
+test("monitoring fix1 actual floor A2 to B1 to A1 ignores a late old-floor response", async ({ page }) => {
+  await page.clock.install();
+  const state = await installSettingsApiRoutes(page, "viewer");
+  const dashboardResponse = page.waitForResponse(response => new URL(response.url()).pathname === "/api/sites/site-1/dashboard");
+  const mapResponse = page.waitForResponse(response => new URL(response.url()).pathname.endsWith("/floor-1/map-snapshot"));
+  const fixtureResponse = page.waitForResponse(response => new URL(response.url()).pathname.endsWith("/floor-1/fixtures"));
+  await page.goto("/monitoring?siteId=site-1");
+  const dashboard = await (await dashboardResponse).json();
+  const map = await (await mapResponse).json();
+  const fixtures = await (await fixtureResponse).json();
+  await page.route("**/api/sites/site-1/dashboard", route => route.fulfill({ json: { ...dashboard,
+    floors: [dashboard.floors[0], { ...dashboard.floors[0], id: "floor-2", name: "회귀 B층" }] } }));
+  await page.route("**/api/sites/site-1/floors/floor-2/map-snapshot", route => route.fulfill({ json: { ...map, floorId: "floor-2" } }));
+  await page.route("**/api/sites/site-1/floors/floor-2/fixtures?*", route => route.fulfill({ json: fixtures }));
+  const reads: { floor: string; cursor: string | null }[] = [];
+  let holdOld = false;
+  let finish!: () => void;
+  const late = new Promise<void>(resolve => { finish = resolve; });
+  await page.route("**/api/sites/*/floors/*/monitoring-activity?*", async route => {
+    const url = new URL(route.request().url());
+    const floor = url.pathname.split("/").at(-2)!;
+    const cursor = url.searchParams.get("cursor");
+    if (url.searchParams.get("limit") === "50") reads.push({ floor, cursor });
+    if (holdOld && floor === "floor-1" && cursor) await late;
+    return route.fulfill({ json: { generatedAt: alarmInstant, retainedFrom: "2026-07-01T15:00:00.000Z",
+      items: [{ id: alarmId(1), kind: "fixture_online", recordedAt: alarmInstant, displayName: `${floor} ${cursor ? "둘째" : "첫째"} 기록` }], nextCursor: "page-2" } });
+  });
+  await page.clock.fastForward(600001);
+  const mapSelect = page.getByRole("button", { name: "맵 선택", exact: true });
+  await mapSelect.click();
+  await expect(page.getByRole("option", { name: "회귀 B층", exact: true })).toBeVisible();
+  await page.keyboard.press("Escape");
+  const logTrigger = page.getByRole("button", { name: "전체 보기", exact: true });
+  await logTrigger.click();
+  const dialog = page.getByRole("dialog", { name: "전체 로그", exact: true });
+  await dialog.getByRole("button", { name: "다음 페이지", exact: true }).click();
+  await expect(dialog.getByText("2페이지", { exact: true })).toBeVisible();
+  await expect(dialog.getByRole("region", { name: "운영 로그 본문" })).toContainText("floor-1 둘째 기록");
+  holdOld = true;
+  try {
+    await page.clock.fastForward(60001);
+    await expect(dialog.getByText("운영 활동을 불러오는 중", { exact: true })).toBeVisible();
+    await dialog.getByRole("button", { name: "전체 로그 닫기", exact: true }).click();
+    await mapSelect.click();
+    await page.getByRole("option", { name: "회귀 B층", exact: true }).click();
+    await logTrigger.click();
+    await expect(dialog.getByText("1페이지", { exact: true })).toBeVisible();
+    await expect(dialog.getByRole("region", { name: "운영 로그 본문" })).toContainText("floor-2 첫째 기록");
+    finish();
+    await expect(dialog.getByRole("region", { name: "운영 로그 본문" })).not.toContainText("floor-1");
+    await dialog.getByRole("button", { name: "전체 로그 닫기", exact: true }).click();
+    await mapSelect.click();
+    await page.getByRole("option", { name: "B2", exact: true }).click();
+    await logTrigger.click();
+    await expect(dialog.getByText("1페이지", { exact: true })).toBeVisible();
+    await expect(dialog.getByRole("region", { name: "운영 로그 본문" })).toContainText("floor-1 첫째 기록");
+    expect(reads.at(-1)).toEqual({ floor: "floor-1", cursor: null });
+    expect(state.requests.filter(request => !request.startsWith("GET "))).toEqual([]);
+  } finally { finish(); }
+});
+
+for (const control of ["다음 페이지", "이전 페이지", "페이지당 항목 수"] as const) {
+  for (const outcome of [200, 500, 410]) {
+    test(`monitoring fix1 stable focused ${control} pending to HTTP ${outcome}`, async ({ page }) => {
+      await page.setViewportSize({ width: 1024, height: 600 });
+      const state = await installSettingsApiRoutes(page, "viewer");
+      let hold = false;
+      let finish!: () => void;
+      const response = new Promise<void>(resolve => { finish = resolve; });
+      const reads: string[] = [];
+      await page.route("**/api/sites/*/floors/*/monitoring-activity?*", async route => {
+        const url = new URL(route.request().url());
+        const full = Number(url.searchParams.get("limit")) !== 5;
+        if (full) reads.push(url.search);
+        const held = full && hold;
+        if (held) await response;
+        if (held && outcome !== 200) return route.fulfill({ status: outcome, json: { message: "unavailable", code: outcome === 410 ? "monitoring_activity_cursor_expired" : "unavailable" } });
+        return route.fulfill({ json: { generatedAt: alarmInstant, retainedFrom: "2026-07-01T15:00:00.000Z",
+          items: [{ id: alarmId(1), kind: "fixture_online", recordedAt: alarmInstant, displayName: "확인된 운영 기록" }], nextCursor: "page-2" } });
+      });
+      await page.goto("/monitoring?siteId=site-1");
+      await page.getByRole("button", { name: "전체 보기", exact: true }).click();
+      const dialog = page.getByRole("dialog", { name: "전체 로그", exact: true });
+      const body = dialog.getByRole("region", { name: "운영 로그 본문", exact: true });
+      const footer = dialog.locator("footer");
+      await expect(body.locator("li")).toHaveCount(1);
+      if (control === "이전 페이지") {
+        await dialog.getByRole("button", { name: "다음 페이지", exact: true }).click();
+        await expect(dialog.getByText("2페이지", { exact: true })).toBeVisible();
+        await expect(body.locator("li")).toHaveCount(1);
+      }
+      const trigger = dialog.getByRole("button", { name: control, exact: true });
+      await trigger.evaluate(node => { node.setAttribute("data-fix1-identity", "original"); });
+      hold = true;
+      const before = reads.length;
+      const footerBefore = await footer.boundingBox();
+      try {
+        await trigger.focus();
+        await trigger.press("Enter");
+        if (control === "페이지당 항목 수") await page.getByRole("option", { name: "100개", exact: true }).click();
+        await expect(dialog.getByText("운영 활동을 불러오는 중", { exact: true })).toBeVisible();
+        await expect(trigger).toHaveAttribute("data-fix1-identity", "original");
+        for (const name of ["다음 페이지", "이전 페이지", "페이지당 항목 수"]) await expect(dialog.getByRole("button", { name, exact: true })).toBeDisabled();
+        await expect(body.locator("li")).toHaveCount(0);
+        await expect(footer).not.toContainText(/현재 \d+건|null|undefined/);
+        expect(await footer.boundingBox()).toEqual(footerBefore);
+        const pendingFocus = await page.evaluate(() => ({ tag: document.activeElement?.tagName, label: document.activeElement?.getAttribute("aria-label"), text: document.activeElement?.textContent, connected: document.querySelector('[data-fix1-identity="original"]')?.isConnected }));
+        await expect.poll(() => footer.evaluate(node => node.contains(document.activeElement)), { message: JSON.stringify(pendingFocus) }).toBe(true);
+        await trigger.press("Enter");
+        expect(reads.length).toBe(before + 1);
+        finish();
+        if (outcome === 200) {
+          await expect(body.locator("li")).toHaveCount(1);
+          if (control === "이전 페이지") {
+            await expect(trigger).toBeDisabled();
+            await expect(dialog.getByRole("button", { name: "페이지당 항목 수", exact: true })).toBeFocused();
+          } else await expect(trigger).toBeFocused();
+        } else {
+          await expect(dialog.getByText(outcome === 410 ? "보관 기간이 지나 이 페이지를 볼 수 없습니다." : "운영 활동을 불러오지 못했습니다.", { exact: true })).toBeVisible();
+          await expect(body.locator("li")).toHaveCount(0);
+          await expect(footer).not.toContainText(/현재 \d+건|null|undefined/);
+          await expect.poll(() => footer.evaluate(node => node.contains(document.activeElement))).toBe(true);
+        }
+        expect(state.requests.filter(request => !request.startsWith("GET "))).toEqual([]);
+      } finally { finish(); }
+    });
+  }
+}
+
+for (const intent of ["pager", "period", "close", "keyboard", "terminal"] as const) {
+  test(`monitoring fix1 background and pending focus lease respects ${intent}`, async ({ page }) => {
+    await page.setViewportSize({ width: 1024, height: 600 });
+    await page.clock.install();
+    const state = await installSettingsApiRoutes(page, "viewer");
+    let hold = false;
+    let finishedHeldReads = 0;
+    let finish!: () => void;
+    let response = new Promise<void>(resolve => { finish = resolve; });
+    const reads: string[] = [];
+    await page.route("**/api/sites/*/floors/*/monitoring-activity?*", async route => {
+      const url = new URL(route.request().url());
+      const full = url.searchParams.get("limit") === "50";
+      if (full) reads.push(url.search);
+      const held = full && hold;
+      if (held) await response;
+      await route.fulfill({ json: { generatedAt: alarmInstant, retainedFrom: "2026-07-01T15:00:00.000Z",
+        items: [{ id: alarmId(1), kind: "fixture_online", recordedAt: alarmInstant, displayName: "확인된 운영 기록" }], nextCursor: held && intent === "terminal" ? null : "page-2" } });
+      if (held) finishedHeldReads += 1;
+    });
+    await page.goto("/monitoring?siteId=site-1");
+    const logTrigger = page.getByRole("button", { name: "전체 보기", exact: true });
+    await logTrigger.click();
+    const dialog = page.getByRole("dialog", { name: "전체 로그", exact: true });
+    const next = dialog.getByRole("button", { name: "다음 페이지", exact: true });
+    const period = dialog.getByRole("group", { name: "조회 기간", exact: true }).getByRole("spinbutton").first();
+    const close = dialog.getByRole("button", { name: "전체 로그 닫기", exact: true });
+    await expect(dialog.getByRole("region", { name: "운영 로그 본문" }).locator("li")).toHaveCount(1);
+    await (intent === "period" ? period : intent === "close" ? close : next).focus();
+    const before = reads.length;
+    hold = true;
+    try {
+      if (intent === "terminal") await next.press("Enter");
+      else await page.clock.fastForward(60001);
+      await expect(dialog.getByText("운영 활동을 불러오는 중", { exact: true })).toBeVisible();
+      if (intent === "period") await expect(period).toBeFocused();
+      else if (intent === "close") await expect(close).toBeFocused();
+      else await expect(dialog.getByRole("group", { name: "운영 로그 페이지 조작", exact: true })).toBeFocused();
+      if (intent === "keyboard") {
+        await page.keyboard.press("Tab");
+        await expect(close).toBeFocused();
+        await page.keyboard.press("Shift+Tab");
+        const body = dialog.getByRole("region", { name: "운영 로그 본문", exact: true });
+        await expect(body).toBeFocused();
+        finish();
+        await expect(body.locator("li")).toHaveCount(1);
+        await expect(body).toBeFocused();
+        await page.keyboard.press("Escape");
+        await expect(dialog).toHaveCount(0);
+        await expect(logTrigger).toBeFocused();
+      } else {
+        finish();
+        await expect(dialog.getByRole("region", { name: "운영 로그 본문" }).locator("li")).toHaveCount(1);
+        if (intent === "terminal") {
+          await expect(next).toBeDisabled();
+          await expect(dialog.getByRole("button", { name: "페이지당 항목 수", exact: true })).toBeFocused();
+        } else await expect(intent === "period" ? period : intent === "close" ? close : next).toBeFocused();
+        if (intent === "close") {
+          response = new Promise<void>(resolve => { finish = resolve; });
+          hold = true;
+          await page.clock.fastForward(60001);
+          await expect(dialog.getByText("운영 활동을 불러오는 중", { exact: true })).toBeVisible();
+          await expect(close).toBeFocused();
+          await page.keyboard.press("Escape");
+          await expect(dialog).toHaveCount(0);
+          await expect(logTrigger).toBeFocused();
+          finish();
+          await expect.poll(() => finishedHeldReads).toBe(2);
+          await expect(dialog).toHaveCount(0);
+          await expect(logTrigger).toBeFocused();
+        }
+      }
+      // The ticker may refetch too, but a held full-log request is never duplicated.
+      expect(reads.length).toBe(before + (intent === "close" ? 2 : 1));
+      expect(state.requests.filter(request => !request.startsWith("GET "))).toEqual([]);
+    } finally { finish(); }
+  });
+}
+
 test("monitoring tall desktop allocates remaining height without pushing ticker below the viewport", async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 1440, height: 1200 });
   await installSettingsApiRoutes(page, "viewer");

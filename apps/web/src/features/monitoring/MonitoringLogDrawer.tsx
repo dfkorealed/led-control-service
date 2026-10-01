@@ -1,6 +1,7 @@
-import { useEffect, useState, type RefObject } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from "react";
+import { FocusScope, useFocusManager } from "react-aria";
 import { isApiStatus } from "../../api/client";
-import { Button, DateRangePicker, DrawerDialog, FilterPanel, LogView, PaginationBar, SelectBox, Text, type DateRangeValue } from "../../components/ui";
+import { Button, DateRangePicker, DrawerDialog, FilterPanel, LogView, PaginationBar, Text, type DateRangeValue } from "../../components/ui";
 import { formatMonitoringActivity } from "./monitoring-activity-presentation";
 import { formatMonitoringTimestamp } from "./monitoring-time";
 import { useMonitoringActivity } from "./useMonitoringActivity";
@@ -30,6 +31,9 @@ export function MonitoringLogDrawer({ isOpen, onClose, returnFocusRef, fallbackF
   const success = !pending && !query.error && Boolean(query.data);
   const options = [50, 100, 500, 1000] as const;
 
+  // The derived first-render guard prevents a stale cursor request, while this
+  // discards the old stack so returning to that scope cannot revive page two.
+  useEffect(() => { setNavigation(current => current.scopeKey === scopeKey ? current : { scopeKey, cursors: [""] }); }, [scopeKey]);
   useEffect(() => { if (isOpen && isApiStatus(query.error, 401)) onClose(); }, [isOpen, query.error, onClose]);
 
   return <DrawerDialog
@@ -44,7 +48,16 @@ export function MonitoringLogDrawer({ isOpen, onClose, returnFocusRef, fallbackF
   >
     <LogView label="운영 로그" filters={<FilterPanel label="운영 로그 필터" actions={period ? <Button variant="secondary" onClick={() => { setPeriod(null); setCursorStack([""]); }}>전체 보관 기간</Button> : undefined}>
       <DateRangePicker label="조회 기간" value={period} onChange={value => { setPeriod(value); setCursorStack([""]); }} description={period ? `${period.start} ~ ${period.end} · 종료일 포함` : "전체 보관 기간 · 최근 3개월"} />
-    </FilterPanel>} pagination={success ? <PaginationBar mode="cursor" page={cursorStack.length} pageSize={limit} pageSizeOptions={options} itemCount={query.data!.items.length} hasPrevious={cursorStack.length > 1} hasNext={Boolean(query.data!.nextCursor)} onPrevious={() => setCursorStack(stack => stack.slice(0, -1))} onNext={() => { const next = query.data?.nextCursor; if (next) setCursorStack(stack => [...stack, next]); }} onPageSizeChange={value => { setLimit(value); setCursorStack([""]); }} /> : <SelectBox label="페이지당 항목 수" selectedKey={limit} items={options.map(id => ({ id, label: `${id}개` }))} isDisabled={pending} onSelectionChange={value => { if (value) { setLimit(value); setCursorStack([""]); } }} />} status={<>
+    </FilterPanel>} pagination={<FocusScope><MonitoringLogPager isOpen={isOpen} scopeKey={scopeKey} pending={pending} success={success} error={query.error}>
+      <PaginationBar
+        mode="cursor" page={cursorStack.length} pageSize={limit} pageSizeOptions={options}
+        itemCount={success ? query.data!.items.length : null} isPending={pending}
+        hasPrevious={cursorStack.length > 1} hasNext={success && Boolean(query.data!.nextCursor)}
+        onPrevious={() => setCursorStack(stack => stack.slice(0, -1))}
+        onNext={() => { const next = success ? query.data?.nextCursor : null; if (next) setCursorStack(stack => [...stack, next]); }}
+        onPageSizeChange={value => { setLimit(value); setCursorStack([""]); }}
+      />
+    </MonitoringLogPager></FocusScope>} status={<>
       <Text variant="body-sm" tone="secondary">선택 층의 최근 3개월 운영 활동 기록입니다. 3개월 이전 기록은 보관되지 않습니다.</Text>
       {success ? <Text variant="caption" tone="secondary">보관 시작: {formatMonitoringTimestamp(query.data!.retainedFrom, timeZone)}</Text> : null}
       {expired ? <section role="status" className="grid gap-3">
@@ -61,4 +74,44 @@ export function MonitoringLogDrawer({ isOpen, onClose, returnFocusRef, fallbackF
           </ol> : null}
     </LogView>
   </DrawerDialog>;
+}
+
+function MonitoringLogPager({ isOpen, scopeKey, pending, success, error, children }: {
+  isOpen: boolean; scopeKey: string; pending: boolean; success: boolean; error: unknown; children: ReactNode;
+}) {
+  const pagerRef = useRef<HTMLDivElement>(null);
+  const focusIntentRef = useRef<{ scopeKey: string; control: HTMLButtonElement } | null>(null);
+  const focusManager = useFocusManager();
+
+  // Native disabling may lose focus despite stable controls. This lease belongs
+  // only to this open scope, and any deliberate move outside the pager revokes it.
+  useLayoutEffect(() => {
+    const restore = () => {
+      const intent = focusIntentRef.current;
+      const pager = pagerRef.current;
+      if (!isOpen || intent?.scopeKey !== scopeKey) { focusIntentRef.current = null; return; }
+      if (!pager || !intent.control.isConnected) return;
+      const active = document.activeElement;
+      const dialog = pager.closest('[role="dialog"]');
+      if (active && active !== document.body && active !== dialog && !pager.contains(active)) return;
+      if (pending) pager.focus({ preventScroll: true });
+      else if (!intent.control.disabled) intent.control.focus({ preventScroll: true });
+      else if (!focusManager?.focusFirst({ tabbable: true })) pager.focus({ preventScroll: true });
+    };
+    restore();
+    // Portalled SelectBox options finish closing after the layout pass. Recheck
+    // the live lease then, without racing or overriding another valid focus.
+    const frame = requestAnimationFrame(restore);
+    return () => cancelAnimationFrame(frame);
+  }, [isOpen, scopeKey, pending, success, error, focusManager]);
+
+  return <div ref={pagerRef} role="group" aria-label="운영 로그 페이지 조작" aria-busy={pending || undefined} tabIndex={-1}
+    onFocusCapture={event => { if (event.target instanceof HTMLButtonElement && event.currentTarget.contains(event.target)) focusIntentRef.current = { scopeKey, control: event.target }; }}
+    onBlurCapture={event => {
+      const next = event.relatedTarget;
+      // The portalled options and their closing dialog fallback are part of the
+      // same selection interaction, unlike a user move to date/body/close.
+      if (next instanceof Element && !event.currentTarget.contains(next) && !next.closest('[role="listbox"]') &&
+        !(event.target instanceof Element && event.target.closest('[role="listbox"]') && next.getAttribute("role") === "dialog")) focusIntentRef.current = null;
+    }}>{children}</div>;
 }

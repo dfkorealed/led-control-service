@@ -7,6 +7,7 @@ function paginationTypeContract() {
   const common = { page: 1, hasPrevious: false, hasNext: false, onPrevious() {}, onNext() {} };
   const legacy = <PaginationBar {...common} totalCount={0} pageSize={20} onPageSizeChange={(size: DefaultPaginationPageSize) => void size} />;
   const custom = <PaginationBar {...common} mode="cursor" itemCount={0} pageSizeOptions={[50, 100, 500, 1000] as const} pageSize={1000} onPageSizeChange={(size: 50 | 100 | 500 | 1000) => void size} />;
+  const unknown = <PaginationBar {...common} mode="cursor" itemCount={null} pageSize={50} onPageSizeChange={(size: DefaultPaginationPageSize) => void size} />;
   // @ts-expect-error Cursor mode must not invent a total.
   const fakeTotal: PaginationBarProps = { ...common, mode: "cursor", totalCount: 10, itemCount: 10, pageSize: 50, onPageSizeChange() {} };
   // @ts-expect-error Extended sizes require explicit matching options.
@@ -15,7 +16,7 @@ function paginationTypeContract() {
   const wrongSelection = <PaginationBar {...common} totalCount={0} pageSizeOptions={[50, 100] as const} pageSize={1000} onPageSizeChange={() => {}} />;
   // @ts-expect-error A four-size handler cannot consume 500/1000 from explicit options.
   const narrowHandler = <PaginationBar {...common} mode="cursor" itemCount={0} pageSizeOptions={[50, 100, 500, 1000] as const} pageSize={50} onPageSizeChange={(size: 10 | 20 | 50 | 100) => void size} />;
-  return [legacy, custom, fakeTotal, missingOptions, wrongSelection, narrowHandler];
+  return [legacy, custom, unknown, fakeTotal, missingOptions, wrongSelection, narrowHandler];
 }
 void paginationTypeContract;
 
@@ -54,6 +55,35 @@ describe("PaginationBar", () => {
     expect(status).toHaveTextContent("현재 17건");
     expect(status.textContent).not.toMatch(/NaN|undefined|~|\/|마지막|전체/);
     expect(screen.queryByRole("spinbutton")).not.toBeInTheDocument();
+  });
+
+  it("presents an unknown cursor count neutrally across known and genuine empty pages", () => {
+    const view = render(<PaginationBar {...cursorProps} itemCount={null} />);
+    const status = screen.getByRole("status");
+    expect(status).toHaveTextContent("2페이지");
+    expect(status.textContent).not.toMatch(/현재|건|null|undefined|NaN|전체|총/);
+    view.rerender(<PaginationBar {...cursorProps} />);
+    expect(status).toHaveTextContent("현재 17건");
+    view.rerender(<PaginationBar {...cursorProps} itemCount={null} isPending />);
+    expect(status.textContent).not.toMatch(/현재|건|null|undefined|NaN/);
+    view.rerender(<PaginationBar {...cursorProps} itemCount={0} hasNext={false} />);
+    expect(status).toHaveTextContent("현재 0건");
+  });
+
+  it.each(["이전 페이지", "다음 페이지", "페이지당 항목 수"])("keeps the focused %s identity through unknown pending and recovery", (name) => {
+    const view = render(<PaginationBar {...cursorProps} />);
+    const control = screen.getByRole("button", { name });
+    control.focus();
+    view.rerender(<PaginationBar {...cursorProps} itemCount={null} isPending />);
+    expect(screen.getByRole("button", { name })).toBe(control);
+    expect(control).toBeDisabled();
+    expect(control).toHaveFocus();
+    expect(screen.getByRole("status").textContent).not.toMatch(/현재|건|null|undefined/);
+    view.rerender(<PaginationBar {...cursorProps} itemCount={null} />);
+    expect(control).toBeEnabled();
+    expect(control).toHaveFocus();
+    view.rerender(<PaginationBar {...cursorProps} />);
+    expect(control).toHaveFocus();
   });
 
   it.each([500, 1000] as const)("offers log page sizes and emits numeric %s once", async (size) => {
