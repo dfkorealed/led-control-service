@@ -39,9 +39,9 @@
 | 1 | Shell backend: 로그 API | 완료·독립 명세/품질 승인 | 5c1d313e + 982f999a; focused119/119 |
 | 2 | Shell backend: 개인 알람 읽음 | 완료·독립 명세/품질 승인 | bdb2d9e1; focused97/97(실제DB56 포함) |
 | 3 | Shell 공통 UI | 완료·독립 명세/품질 승인 | 793d126a; focused429/429, Web type/build/UI0; P3 경계1건 후속 |
-| 4 | Shell 범위·새 내부 구현 보조 | 물리 소스 승인·디자이너 독립 재검수 대기 | 9740967e + 13249728 + cf3e075c; scoped Spec✅/qualityApproved/P2두건ADDRESSED/새지적0; 독립 물리 실행 전 최종 보류 |
+| 4 | Shell 범위·새 내부 구현 보조 | 소스·독립 물리 재검수 승인 | 9740967e + 13249728 + cf3e075c; scoped Spec✅/qualityApproved·디자이너34/34·P2두건해결·새지적0 |
 | 5 | 모니터링 담당 범위·새 실행 보조 | 구현·scoped 독립 검토 승인 | 7455d16c + 3c107e60 + 3405415d; I1/I2/I3/N1 해결·새 지적0, Task9 전체검수 대기 |
-| 6 | 제어 UI 개선 담당자(GPT-6.1 Sol/high) | 대기 | — |
+| 6 | 제어 UI 개선 담당자(GPT-6.1 Sol/high) | 읽기 준비 완료·단독 구현 배정 | 이 문서 checkpoint 후 정확한 BASE 전달; brief의 기존 계약/좁은 판단 유지 |
 | 7 | 통계 페이지 담당자 | 대기 | — |
 | 8 | 설정 담당 → Shell 운영 담당 | 대기 | — |
 | 9 | 디자이너·독립 QA·총괄 | 대기 | — |
@@ -143,7 +143,7 @@ Task4 physical repair gate: after Task5 fix2 scoped approval, same `/root/operat
 
 - [x] Task4 physical — clean behavior/bounds RED, minimal finite body scroll and one-owner top/bottom safe-area repair; visible-only observer and transient/read canonical behavior retained.
 - [x] Task4 physical — scoped unit/type/UI0/build/diff and actual12/native200/positiveenv assertions, menu/owned commit/clean/ports/writer return.
-- [ ] Task4 physical — original scoped reviewer plus same designer independent physical rerun; P2-01/P2-02 resolved before Task6 product dispatch. Actual two-session DB/full22/root remain Task9.
+- [x] Task4 physical — original scoped reviewer plus same designer independent physical rerun; P2-01/P2-02 resolved before Task6 product dispatch. Actual two-session DB/full22/root remain Task9.
 
 Task4 physical safe-area ownership Ruling: same writer reports precise producer gap before source; root read Modal props/Drawer alias/baseCSS/cn and current DialogBase. Drawer important p-4.5/compact:p-6 cannot reliably be overridden by semantic inset classes, only sheet currently has a one-owner wrapper, top utility absent. Authorize ONLY four extra paths `styles/base.css` (reusable pt-safe-area-top env utility), `components/ui/ModalDialog.tsx` (backward-compatible opt-in safeArea boolean), `components/ui/overlays/DialogBase.tsx` (opt-in single inset-owner wrapper), `components/ui/overlays/overlays.test.tsx` (opt-in/default isolation). Drawer alias already forwards props, no source edit required; cn.ts remains unowned. Center retains public className/bodyClassName finite/body scroll responsibility. Default modal/drawer/sheet behavior/geometry/keyboard/focus must remain unchanged; opt-in must not stack sheet bottom/shell nav or double-count env. Clean behavior/bounds/directopt-in assertion RED before implementation, physical positive-env/zero-env/native200/default-overlay regressions required. Exact dispatchBASEa6f5ad98 stays fixed despite this docs-only ruling.
 
@@ -152,6 +152,8 @@ Task4 physical CSS registration Ruling: actual UI scanner accepts helpers only b
 Task4 physical returned evidence (not independent approval): exact dispatch/review BASE `a6f5ad98244f39d2f05b8a78575dbbd734038a06`, product HEAD `cf3e075c26acc3bec4de8313286fdfbfb728f282`, authorized10paths269+/16-. Root read complete final report including commit/return and actual raw49unit/66policy/27browser, verified tracked clean and own16184/16185 empty. Final same-source type/UI0/build/diff exit0; body-only scroll/visible close-footer across12sizes, real Chromium200% and actual env top24/bottom34 assertions pass in writer evidence. Invalid setup failures are excluded from clean RED; registry extension leaves baseline/parser/theme/runtime/cn unchanged. Original scoped reviewer and same designer must independently review/rerun before resolving P2-01/P2-02 and handing Task6 ownership. ActualDB two-session/full22/root/inherited editor gate remain Task9.
 
 Task4 physical source review returned: root read complete52line task-4-physical-fix-review.md to EOF. Original reviewer read exact package/source/raw bounds independently, P2-01/P2-02 ADDRESSED, Spec✅/qualityApproved/newP0–P3=0. Opt-in/default isolation, exact helper registry negatives, unchanged visible-only observer/request ordering/transient actions verified; no repeated suites or actualDB/full22/native-mobile claim. SAME designer actual12/native200/positiveenv rerun remains pending and is not replaced by this source approval. Last physical checkbox stays unchecked and Task6 product dispatch remains blocked until that independent physical verdict.
+
+Task4 physical final disposition: SAME designer final127line report read fully by root; Approved/P2-01/P2-02ADDRESSED/newP0–P3=0. Fresh independent34/34 (27new+7ordinary), exit0/0skip/0flaky, raw1790898384502.json and1790898384505.log confirmed (50.420972s). All12 finite body-only wheel/PageUp/CDP touch-equivalent, actual row27/More and true bottom, stable header/footer/keyboard; real200%1440→720/DPR1→2, actualenv24/34/body652→594→652 singleowner; synchronous fetch-start visible/open/active and canonical27→26→29/stale/closed0; six BASE-memory default geometry plus seven existing overlay contracts. Root visually inspected final desktop/short/native/positive-open/end PNGs, verified cf3→HEAD Web/menu diff0, clean and own16186/16187 empty. Originalfailures/helpererrors retained, source603/originalevidence84hashunchanged and nativeexactprofilecleanup reported. This closes only Task4 physical gate; actualDBtwoUI-sessions/full22/root/editor8s/native-mobile/HIL not included. Task6 single-writer dispatch now allowed after this docs-only checkpoint.
 
 ### Task 5: 모니터링 지도·명시 선택·상세·공통 로그
 
@@ -207,9 +209,11 @@ Inherited editor gate read-only audit: coordinator read complete `editor-gate-au
 - [ ] Step 4 — GREEN focused +typecheck/build/ui:check, Chromium workers1 `control-map-target-selection.spec.ts calm-operations-manual-control.spec.ts automation-control-flow.spec.ts command-retention.spec.ts operations-ui-comments.spec.ts`. Confirm monitoring defaultpan/wheel and nohardwarecommands fromtests.
 - [ ] Step 5 — Update control menu and commit `feat: simplify direct control and unify command history`; independent review. Do not message protected sensor owner or cherry-pick sensorcode.
 
-### Task 7: 통계 표시 정리·공통 필터·시각
-
 Task6 read-only readiness completed (not product execution): existing separate control UI owner returned48line task-6-readiness.md without source/tests/Git/server changes. Root resolves three narrow ambiguities in queued brief: comment11 means only input+slider, remove visible four preset buttons while preserving command safety tests; NumberField public draft sufficiency requires actual failing assertion before any producer NEEDS_CONTEXT grant; preserve currently available mutation/execution failure reasons and sync warnings, no invented Gateway reason/schema expansion. Exact implementation BASE/single-writer grant still waits on Task4 designer physical verdict. Reading overlaps independent audit only, not product authorship.
+
+Task6 execution handoff: Task5 scoped fix2 and Task4 source+physical independent gates are approved. Existing new control UI owner01a0f776-b930-7eb2-a121-e05bef4d1581 receives exact docs-checkpoint BASE and sole owned product writer scope from task-6-brief.md; model gpt-6.1-sol/high. Readiness rulings/safeArea and stable nullable-count producer contracts apply. Own16192/16193 strict failclosed, no sensor-owner messages/DB/currentserver changes/helpers/producer or root-suite repeats. All five implementation checkboxes remain pending until actual evidence/return, followed by fresh spec/quality review before Task7.
+
+### Task 7: 통계 표시 정리·공통 필터·시각
 
 **Files:** Modify `apps/web/src/features/statistics/StatisticsOverviewPage.tsx`, `EnergyComparisonChart.tsx`, `analysis/StatisticsAnalysisPage.tsx`, `analysis/EnergyHeatmap.tsx`, `reports/{ReportHistoryFilters,StatisticsReportsPage,ReportJobTable,ReportJobCards,ReportJobList}.tsx`, `reports/report-job-view-model.ts`, existing tests; `apps/web/e2e/statistics-flow.spec.ts`, `operations-ui-comments.spec.ts`, `docs/menus/statistics.md`.
 
