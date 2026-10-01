@@ -2,7 +2,7 @@
 
 기준일: 2026-10-02
 
-## 2026-10-01 운영 화면 주석 22건·공통 UI — 로그 API 승인·개인 알람 읽음 구현 배정
+## 2026-10-01 운영 화면 주석 22건·공통 UI — 개인 알람 읽음 구현 반환·독립 검토 진행
 
 - [x] 사용자 주석 1–22의 기존 동작과 관련 파일을 모니터링·통계·Shell 담당 세션 및 UI/UX 디자이너 세션에서 읽기 전용으로 조사했다. 상태 범례는 실제 데이터와 연결되며, 중간 폭 지도는 300/340px 고정 높이, 기존 뱃지는 미읽음이 아닌 메모리 상태 항목 수임을 확인했다. 실장비 상태 전환 검증 결과는 아니다.
 - [x] 사용자가 기존 공통 컴포넌트 확장, 용도별 상세 패널/하단 시트, 로그 기간·50/100/500/1000건 조회, 명시적 조명 선택, 제어·통계 주석 반영 방향을 승인했다. 알람 읽음은 계정별 영속 저장으로 확정했으며 장애 운영 확인·해결과 별개다.
@@ -15,8 +15,10 @@
 - Task 1의 실제 assertion RED는 5 suites·19 failed/84 passed였다. pnpm9.15의 예약 `test` 인자 오류는 별도 실패로 분리하고 동일 package script에 Jest 인자를 전달하도록 실행 명령을 `run test`로 보완했다. 제품 동작·검증 범위는 변경하지 않는다.
 - Task 1 기능 커밋 `5c1d313e`를 반환받고 독립 spec/quality 검토를 배정했다. 최종 의도된 RED는 23 failed/89 passed·GREEN 114 passed/12 DB opt-in skipped, API 전체 248 suites·3012 passed/827 skipped, Shared411/411·API typecheck/build exit0이었다. 이후 root test는 변경하지 않은 Shared export 테스트의 5초 timeout(410 passed/1 failed)으로 중단되어 전체 통과가 아니다. 실제 DB 기간/1000행 검증은 Task2/9에서 수행하며 아직 후속 API·UI 구현이나 병합은 완료되지 않았다.
 - 준비 보조 스크립트가 최초 경로 계산을 잘못하여 기본 checkout에서 검증한 오류를 확인했다. 해당 결과는 격리 baseline 증거에서 제외하고 별도 보존한다. 기본 소스는 clean/원래 HEAD이며 DB·서버·장비 변경은 없었다. runner에 cwd/Git root/branch 강제 확인을 추가하고 실제 격리 worktree에서 설치부터 다시 실행했다. 기본 ignored 설치/생성/build 산출물 가능 범위는 준비 보고서에서 구분하며 삭제하지 않는다.
-- 로그 API의 독립 검토는 품질 Approved, 명세는 날짜 경계 P3 및 계획 파일 목록 불일치로 보완 요청이었다. 기존 controller가 확장 schema를 이미 소비하므로 무의미한 소스 변경 대신 계획을 정정했다. 유효한 종료일 바로 다음 날짜가 시간대 전환으로 없는 경우를 담당 세션이 집중 테스트와 함께 보완한 뒤 재검토한다. 다른 작업의 실패 주입 테스트 로그 경고는 이번 기능의 회귀로 확정하지 않는다.
-- 같은 Shell backend 담당에게 Task2 계정별 읽음 DB/API와 독립 PostgreSQL 검증을 이어 배정한다. 기존 incident 확인/해결 상태와 개인 읽음을 분리하고, 처음 읽은 시각·계정별 격리·동시 요청·권한 회수·삭제 cascade를 검사한다. 사용자 DB migration은 적용하지 않는다.
+- 로그 API의 첫 독립 검토는 품질 Approved, 명세는 날짜 경계 P3 및 계획 파일 목록 불일치로 보완 요청이었다. 기존 controller의 확장 schema 소비는 유지하고 계획을 정정했다. 날짜 경계 보완은 RED3/116→GREEN119/119·API typecheck/build를 통과한 뒤 재검토에서 Spec✅/quality Approved였다. 다른 작업의 실패 주입 테스트 로그 경고는 이번 기능의 회귀로 확정하지 않는다.
+- 같은 Shell backend 담당이 Task2 계정별 읽음 DB/API를 `bdb2d9e1`로 반환했다. 초기 RED13/26 뒤 최종 focused97/97(단위41·실제 PostgreSQL/HTTP56, 제외0), 최종 API typecheck/build·diff 검사 exit0를 보고했다. 자체 임시 cluster3개에 전체125 migrations를 적용하고 소유 확인·삭제 cascade·정리를 검증했으며 Task1의1000건/동시각/날짜 경계 SQL도 실행했다. 가장 역량 높은 모델의 독립 보안·동시성 spec/quality 검토 중이며 아직 Task2 완료로 표시하지 않는다.
+- 첫 DB 검사50 passed/4 failed는 fixture UTC 시각·현재1200초 기본값·기존 UTC 세션 cursor 가정·미사용 Redis 초기화로 구분해 보완했다. 제품 기본값·정렬·시간 정책·한도/skip은 완화하지 않았다. 기존 비UTC incident tuple cursor 한계는 고친 것으로 표시하지 않는다. 실제 HTTP 세션은 DB 인증을 사용했고 Redis 호출은 대체하지 않았으나 미사용 module 초기화만 차단했으므로 전체 Redis/MFA 검증 증거가 아니다. 사용자 DB migration과 현행 서버 변경은 미실행이다.
+- 디자이너의 공통 UI 준비 검토(10개 위험·34개 참조 확인)를 회수해 Task3에 전달할 높이·본문 스크롤·footer·cursor·focus·safe-area 단언을 기록했다. 존재하지 않는 FieldGroup 참조는 기존 FormField 재사용으로 정정했다. 이 준비 문서는 실제 화면 검수 통과가 아니며 별도 승인 대기를 만들지 않는다.
 - [ ] 계정별 읽음 DB/API, 공통 UI, 알람센터, 모니터링, 신설 제어 UI, 통계, 설정/운영 시각을 구현하고 단계별 독립 검토를 통과한다. 메뉴 현황·스키마 문서는 해당 기능과 같은 커밋에서 갱신한다.
 - [ ] 구현 후 화면 폭 320/390/768/962/1017/1024/1440px와 1023/1025px 경계, 짧은 높이·200% 확대·키보드·터치 및 데이터/권한/명령 안전 회귀를 검증한다. 독립 UI/UX·코드 검토의 미해결 P0–P2가 없어야 기본 개발 브랜치에 병합한다. 실제 HIL·운영 배포·사용자 DB 초기화·원격 push는 포함하지 않는다.
 
