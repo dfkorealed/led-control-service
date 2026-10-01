@@ -1,4 +1,5 @@
 import { PrismaClient } from "@prisma/client";
+import { BadRequestException } from "@nestjs/common";
 import { randomUUID } from "node:crypto";
 import type { AuthenticatedUser } from "../auth/auth.types";
 import { disposablePostgres } from "../../test/support/disposable-postgres";
@@ -35,7 +36,9 @@ const enabled = process.env.MONITORING_ACTIVITY_TEST === "1";
   });
 
   function service() {
-    return new MonitoringActivityService(db as never, { assert: async () => ({ id: siteId }) } as never);
+    return new MonitoringActivityService(db as never, {
+      assert: async (_user: AuthenticatedUser, authorizedSiteId: string) => db.site.findUniqueOrThrow({ where: { id: authorizedSiteId } })
+    } as never);
   }
 
   it("deduplicates a source per floor and keeps safe snapshots after fixture/floor deletion", async () => {
@@ -160,7 +163,9 @@ const enabled = process.env.MONITORING_ACTIVITY_TEST === "1";
         const page = await service().list(user, siteId, floorId, { limit: 1 });
         expect(Math.abs(new Date(page.generatedAt).getTime() - dbNow.getTime())).toBeLessThan(10_000);
         expect(Math.abs(new Date(page.retainedFrom).getTime() - cutoff.getTime())).toBeLessThan(10_000);
-        const next = await service().list(user, siteId, floorId, { limit: 5, cursor: page.nextCursor! });
+        await expect(service().list(user, siteId, floorId, { limit: 5, cursor: page.nextCursor! }))
+          .rejects.toBeInstanceOf(BadRequestException);
+        const next = await service().list(user, siteId, floorId, { limit: 1, cursor: page.nextCursor! });
         expect(next.items.map(item => item.id)).toContain(fresh.id);
         expect(next.items.map(item => item.id)).not.toContain(expired.id);
       } finally {

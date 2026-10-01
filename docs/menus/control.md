@@ -1,5 +1,14 @@
 # 제어 메뉴 기능 현황
 
+## 2026-10-02 명령 이력 기간·1,000건 API (Task 1)
+
+- 구현 완료: `GET /commands`에 paired `fromDate`/`toDate`(`YYYY-MM-DD`)와 1–1,000건 상한을 추가했다. 현장 범위·읽기 권한·기본 20건·검색/단계·content redaction·결과 요약을 유지한다. 종료일은 저장된 Site 시간대의 다음 날짜 시작까지 포함하며 end는 동일 transaction의 DB `generatedAt`으로 제한한다. 보존 rollout ON일 때만 DB `retainedFrom`과 하한을 교차하고 OFF에는 강제로 3개월을 적용하지 않는다.
+- 구현 완료: 새 v2 cursor는 사용자·현장·정규화 검색/단계·날짜·실효 조회 크기의 canonical SHA-256 scope와 원본 createdAt/id를 유지한다. 100자 검색어에서도 cursor 512bytes 상한을 유지하며 조건 불일치/잘못된 cursor는 400, 보존 만료는 기존 `command_history_cursor_expired`(400)다. 구 unversioned cursor는 날짜 조건 없이 기존 상한 100 이하에서만 허용하고 구 검색/단계 동작은 유지한다. 다음 cursor는 항상 v2다.
+- 미구현: 웹 일반 이력의 기본 50건·50/100/500/1000 옵션과 기간 UI는 후속 Task다. 최근 1건 조회·기존 drawer 소량 페이지는 이 API 변경만으로 확대하지 않는다.
+- 부족하거나 개선이 필요한 기능: 이번 지원은 로그 읽기 producer 계약이며 명령 상세/복구/Get/Set·worker·rollout flag를 변경하거나 운영 활성화하지 않는다. 일회용 DB opt-in 통합·독립 리뷰와 웹 소비 검증은 별도 완료 증거가 필요하다.
+- 관련 파일: `apps/api/src/retention/log-date-range.ts`, `apps/api/src/commands/command-status.service.ts`, `commands.controller.ts`와 관련 단위 테스트.
+- 갱신 규칙: API 날짜·limit·v2/legacy cursor 계약과 UI 적용 상태를 따로 기록하고, 보존 OFF/ON·인가·검색 OR의 Site 격리·동일 시각 ID tie-break·응답 요약/메타데이터를 회귀 검증한다.
+
 ## 2026-09-27 종료 명령 상세 정리 helper와 기본 OFF worker
 
 - 구현 완료: worker 성공·실패·지연/사유별 보류 지표는 production JSON 로거의 고정 event/context 계약을 통과한다. 숫자 범위와 허용 사유를 검증하며 원문 오류·명령 ID·SQL은 기록하지 않는다. 실제 로거 출력까지 연결한 소프트웨어 회귀를 포함한다.

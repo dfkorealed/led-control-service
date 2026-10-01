@@ -169,7 +169,7 @@ describe("CommandStatusService", () => {
     await expect(service.listCommands(user, { siteId: "site-1" }, now)).resolves.toMatchObject({
       generatedAt: nowIso, retainedFrom: cutoffIso, items: [], nextCursor: null
     });
-    expect(tx.command.findMany.mock.calls[0][0].where.AND).toContainEqual({ createdAt: { gte: cutoff } });
+    expect(tx.command.findMany.mock.calls[0][0].where.AND).toContainEqual({ createdAt: { gte: cutoff, lt: now } });
 
     const exactCursor = Buffer.from(JSON.stringify({ id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", createdAt: cutoffIso })).toString("base64url");
     await expect(service.listCommands(user, { siteId: "site-1", cursor: exactCursor }, now)).resolves.toMatchObject({ items: [] });
@@ -210,7 +210,9 @@ describe("CommandStatusService", () => {
     });
     await expect(service.listCommands(user, { siteId: "site-1" }, new Date("2026-09-25T00:00:00.000Z")))
       .resolves.toMatchObject({ items: [] });
-    expect(tx.command.findMany.mock.calls[0][0].where.AND).toContainEqual({ createdAt: { gte: new Date("2026-06-25T00:00:00.000Z") } });
+    expect(tx.command.findMany.mock.calls[0][0].where.AND).toContainEqual({ createdAt: {
+      gte: new Date("2026-06-25T00:00:00.000Z"), lt: new Date("2026-09-25T00:00:00.000Z")
+    } });
   });
 
   it("authorizes before the DB-clock transaction and returns an OFF-mode clock without cutoff", async () => {
@@ -218,7 +220,7 @@ describe("CommandStatusService", () => {
     const access = { assert: jest.fn().mockResolvedValue(undefined) };
     const service = new (CommandStatusService as any)(prisma, access);
     await expect(service.listCommands(user, { siteId: "site-1" })).resolves.toMatchObject({ retentionEnabled: false, generatedAt: "2026-09-25T00:00:00.000Z" });
-    expect(prisma.command.findMany.mock.calls[0][0].where.AND).toEqual([]);
+    expect(prisma.command.findMany.mock.calls[0][0].where.AND).toEqual([{ createdAt: { lt: new Date("2026-09-25T00:00:00.000Z") } }]);
     prisma.$transaction.mockClear();
     enableReadCutoff();
     access.assert.mockRejectedValueOnce(new NotFoundException());
@@ -296,9 +298,9 @@ describe("CommandStatusService", () => {
     const prisma = { command: { findMany: jest.fn().mockResolvedValue([]) } };
     const service = new (CommandStatusService as any)(prisma, { assert: jest.fn() });
     await service.listCommands(user, { siteId: "site-1", stage });
-    expect(prisma.command.findMany.mock.calls[0][0]).toMatchObject({ where: { siteId: "site-1", AND: [{ AND: [
+    expect(prisma.command.findMany.mock.calls[0][0]).toMatchObject({ where: { siteId: "site-1", AND: expect.arrayContaining([{ AND: [
       { outcome }, { dispatches: { some: { kind: "status_check", verificationAttempt: { gt: 0 } } } }
-    ] }] } });
+    ] }]) } });
   });
 
   it.each([["completed", "applied"], ["failed", "not_applied"], ["partial_failed", "partially_applied"]])(
@@ -306,7 +308,7 @@ describe("CommandStatusService", () => {
       const prisma = { command: { findMany: jest.fn().mockResolvedValue([]) } };
       const service = new (CommandStatusService as any)(prisma, { assert: jest.fn() });
       await service.listCommands(user, { siteId: "site-1", stage });
-      const filter = prisma.command.findMany.mock.calls[0][0].where.AND[0];
+      const filter = prisma.command.findMany.mock.calls[0][0].where.AND.find((entry: any) => entry.OR);
       expect(filter.OR[0]).toEqual({ AND: [{ outcome }, { NOT: { dispatches: { some: { kind: "status_check", verificationAttempt: { gt: 0 } } } } }] });
       expect(filter.OR[1].AND).toContainEqual({ OR: [{ outcome: null }, { outcome: "pending" }] });
     }
@@ -318,6 +320,96 @@ describe("CommandStatusService", () => {
     expect(typeof service.listCommands).toBe("function");
     await expect(service.listCommands(user, { siteId: "other-site" })).rejects.toBeInstanceOf(NotFoundException);
     expect(prisma.command.findMany).not.toHaveBeenCalled();
+  });
+
+  function logSetup() {
+    const rows = ["cccccccc-cccc-4ccc-8ccc-cccccccccccc", "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"]
+      .map(id => ({ ...historyCommand(id), createdAt: new Date("2026-10-01T01:02:03.123Z") }));
+    const prisma = { command: { findMany: jest.fn().mockResolvedValue(rows) },
+      $queryRaw: jest.fn().mockResolvedValue([{ generatedAt: new Date("2026-10-02T12:00:00.123Z"),
+        retainedFrom: new Date("2026-07-02T12:00:00.123Z") }]) };
+    const access = { assert: jest.fn().mockResolvedValue({ id: "site-1", timeZone: "Asia/Seoul" }) };
+    return { prisma, access, rows, service: new (CommandStatusService as any)(prisma, access) };
+  }
+
+  it("history_v2_binds_actor_query_period_limit with a 100-character search and stable compact encoding", async () => {
+    const { service, prisma, rows } = logSetup();
+    const input = { siteId: "site-1", limit: 1, query: "x".repeat(100), stage: "verification_required",
+      fromDate: "2026-10-01", toDate: "2026-10-01" };
+    const first = await service.listCommands(user, input);
+    expect(JSON.parse(Buffer.from(first.nextCursor, "base64url").toString())).toMatchObject({
+      version: 2, id: rows[0].id, createdAt: "2026-10-01T01:02:03.123Z"
+    });
+    expect(Buffer.byteLength(first.nextCursor)).toBeLessThanOrEqual(512);
+    for (const changed of [{ siteId: "site-2" }, { query: "different" }, { stage: "failed" },
+      { fromDate: "2026-09-30" }, { toDate: "2026-10-02" }, { limit: 2 }]) {
+      await expect(service.listCommands(user, { ...input, ...changed, cursor: first.nextCursor })).rejects.toBeInstanceOf(BadRequestException);
+    }
+    await expect(service.listCommands({ ...user, id: "other-user" }, { ...input, cursor: first.nextCursor }))
+      .rejects.toBeInstanceOf(BadRequestException);
+    expect(prisma.command.findMany).toHaveBeenCalledTimes(1);
+    prisma.command.findMany.mockResolvedValue([rows[1]]);
+    const next = await service.listCommands(user, { ...input, query: ` ${input.query} `, cursor: first.nextCursor });
+    expect([...first.items, ...next.items].map((row: any) => row.id)).toEqual(rows.map(row => row.id));
+    expect(prisma.command.findMany).toHaveBeenLastCalledWith(expect.objectContaining({
+      where: { siteId: "site-1", contentRedactedAt: null, AND: expect.arrayContaining([
+        { createdAt: { gte: new Date("2026-09-30T15:00:00.000Z"), lt: new Date("2026-10-01T15:00:00.000Z") } },
+        { OR: [{ createdAt: { lt: rows[0].createdAt } }, { createdAt: rows[0].createdAt, id: { lt: rows[0].id } }] }
+      ]) }, take: 2
+    }));
+    expect(next.nextCursor).toBeNull();
+  });
+
+  it("accepts 1000 while preserving OFF history without a silently imposed retention cutoff", async () => {
+    const { service, prisma } = logSetup();
+    await expect(service.listCommands(user, { siteId: "site-1", limit: 1000 }))
+      .resolves.toMatchObject({ retentionEnabled: false });
+    expect(prisma.command.findMany).toHaveBeenCalledWith(expect.objectContaining({ take: 1001,
+      where: { siteId: "site-1", contentRedactedAt: null, AND: [{ createdAt: { lt: new Date("2026-10-02T12:00:00.123Z") } }] }
+    }));
+    await expect(service.listCommands(user, { siteId: "site-1", limit: 1001 })).rejects.toBeInstanceOf(BadRequestException);
+    await service.listCommands(user, { siteId: "site-1" });
+    expect(prisma.command.findMany).toHaveBeenLastCalledWith(expect.objectContaining({ take: 21 }));
+  });
+
+  it("returns 1000 summaries without exposing the lookahead row or dispatch payload", async () => {
+    const { service, prisma } = logSetup();
+    prisma.command.findMany.mockResolvedValue(Array.from({ length: 1001 }, (_, index) =>
+      historyCommand(`00000000-0000-4000-8000-${(1001 - index).toString().padStart(12, "0")}`)));
+    const page = await service.listCommands(user, { siteId: "site-1", limit: 1000 });
+    expect(page.items).toHaveLength(1000);
+    expect(page.items.at(-1).id).toBe("00000000-0000-4000-8000-000000000002");
+    expect(page.items.every((row: any) => row.dispatches === undefined)).toBe(true);
+    expect(JSON.parse(Buffer.from(page.nextCursor, "base64url").toString())).toMatchObject({
+      version: 2, id: "00000000-0000-4000-8000-000000000002"
+    });
+  });
+
+  it("intersects periods with the enforced DB cutoff and returns empty intersections", async () => {
+    const { service, prisma } = logSetup();
+    process.env.COMMAND_HISTORY_RETENTION_ENABLED = "1";
+    await service.listCommands(user, { siteId: "site-1", fromDate: "2026-01-01", toDate: "2026-10-01" });
+    expect(prisma.command.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ AND: expect.arrayContaining([{ createdAt: {
+        gte: new Date("2026-07-02T12:00:00.123Z"), lt: new Date("2026-10-01T15:00:00.000Z")
+      } }]) })
+    }));
+    prisma.command.findMany.mockClear();
+    await expect(service.listCommands(user, { siteId: "site-1", fromDate: "2026-01-01", toDate: "2026-01-02" }))
+      .resolves.toMatchObject({ items: [], nextCursor: null, retentionEnabled: true });
+    expect(prisma.command.findMany).not.toHaveBeenCalled();
+    await expect(service.listCommands(user, { siteId: "site-1", fromDate: "2026-10-01" })).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it("log_cursor_ties_and_legacy_compatibility allows old query/stage cursors only without new dates and limits", async () => {
+    const { service, rows, prisma } = logSetup();
+    const cursor = Buffer.from(JSON.stringify({ id: rows[0].id, createdAt: rows[0].createdAt.toISOString() })).toString("base64url");
+    const result = await service.listCommands(user, { siteId: "site-1", query: "Lobby", stage: "verification_required", limit: 1, cursor });
+    expect(JSON.parse(Buffer.from(result.nextCursor, "base64url").toString()).version).toBe(2);
+    await expect(service.listCommands(user, { siteId: "site-1", limit: 101, cursor })).rejects.toBeInstanceOf(BadRequestException);
+    await expect(service.listCommands(user, { siteId: "site-1", fromDate: "2026-10-01", toDate: "2026-10-01", cursor }))
+      .rejects.toBeInstanceOf(BadRequestException);
+    expect(prisma.command.findMany).toHaveBeenCalledTimes(1);
   });
 
   it.each(["bad", Buffer.from(JSON.stringify({ id: "abc", createdAt: "not-a-date" })).toString("base64url")])("rejects invalid cursor %s", async (cursor) => {

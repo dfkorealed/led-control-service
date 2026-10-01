@@ -1,5 +1,14 @@
 # 모니터링 메뉴 기능 현황
 
+## 2026-10-02 운영 로그 기간·1,000건 API (Task 1)
+
+- 구현 완료: 현장·선택 층 `monitoring-activity` 조회에 paired `fromDate`/`toDate`(`YYYY-MM-DD`)와 1–1,000건 상한을 추가했다. API 기본 5건은 유지한다. 현장에 저장된 시간대로 종료일을 포함하는 `[start,end)`를 계산하고, 같은 읽기 transaction의 중앙 DB `generatedAt`·3 calendar months `retainedFrom`과 교차한다. 빈 교집합은 기록 0건이며 다른 기간으로 확장하지 않는다.
+- 구현 완료: 응답은 사용자·현장·층·날짜 조건·실효 조회 크기의 canonical SHA-256 scope와 원본 recordedAt/id를 담은 v2 cursor를 발급한다. 조건 변경/잘못된 cursor는 400, 같은 scope의 보존 만료는 기존 410이다. 기존 v1은 날짜 조건 없이 기존 상한 50 이하에서만 수용하고 다음 cursor는 v2다. `items`·`nextCursor`·ISO 메타데이터와 안전한 필드 allowlist는 유지한다.
+- 미구현: 웹 전체 로그의 50/100/500/1000 선택·기간 입력·unknown-total 페이지 UI는 후속 Task다. 현재 최근 활동 띠/기존 서랍의 소량 조회는 그대로다.
+- 부족하거나 개선이 필요한 기능: 이번 API 단위 회귀와 전체 소프트웨어 검증은 실제 사용자 DB·장비 또는 운영 적용 증거가 아니다. 일회용 PostgreSQL opt-in 통합과 독립 검토는 별도 관문으로 기록한다. 명령/incident 보존 및 기존 활동 삭제 worker를 변경하지 않는다.
+- 관련 파일: `apps/api/src/retention/log-date-range.ts`, `apps/api/src/monitoring-activity/monitoring-activity.{controller,service}.ts`, 관련 단위·통합 테스트.
+- 갱신 규칙: producer 지원과 웹 소비 적용을 구분하고 paired 날짜 검증·현장 시간대/DST·DB 시각·scope/조회 크기 cursor·동일 시각 ID 순서·legacy 호환 및 opt-in 실행 여부를 함께 유지한다.
+
 ## 2026-09-27 종료 명령의 연결 활동 사본 정리
 
 - 구현 완료: 내부 명령 상세 정리 helper는 성공한 후보에 연결된 raw 및 알려진 keyed command activity source를 같은 거래에서 제거한다. 늦게 생성된 활동의 별도 recordedAt 때문에 만료 명령 연결 사본이 남지 않도록 한다. 이후 단계가 실패하면 활동도 rollback한다.

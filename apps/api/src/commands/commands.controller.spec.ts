@@ -51,7 +51,27 @@ describe("CommandsController", () => {
     expect(Reflect.getMetadata("path", controller.getVerificationCase)).toBe("requiring-verification/:caseId");
   });
 
-  it.each([{ limit: "0" }, { limit: "101" }, { limit: "1.5" }, { limit: "1e2" }, { limit: ["2"] },
+  it("history_v2_binds_actor_query_period_limit accepts 1000 and validates site-local dates", () => {
+    const status = { listCommands: jest.fn() };
+    const controller = new (CommandsController as any)({}, status, {});
+    controller.listCommands({ siteId: "22222222-2222-4222-8222-222222222222", limit: "1000",
+      fromDate: "2026-10-01", toDate: "2026-10-01" }, user);
+    expect(status.listCommands).toHaveBeenCalledWith(user, { siteId: "22222222-2222-4222-8222-222222222222",
+      limit: 1000, fromDate: "2026-10-01", toDate: "2026-10-01" });
+  });
+
+  it("keeps the compact command default of twenty", () => {
+    const status = { listCommands: jest.fn() };
+    const controller = new (CommandsController as any)({}, status, {});
+    controller.listCommands({ siteId: "22222222-2222-4222-8222-222222222222" }, user);
+    expect(status.listCommands).toHaveBeenCalledWith(user, { siteId: "22222222-2222-4222-8222-222222222222", limit: 20 });
+  });
+
+  it.each([{ limit: "0" }, { limit: "1001" }, { limit: "1.5" }, { limit: "1e2" }, { limit: ["2"] },
+    { fromDate: "2026-10-01" }, { toDate: "2026-10-01" },
+    { fromDate: "2026-02-29", toDate: "2026-03-01" },
+    { fromDate: "2026-10-02", toDate: "2026-10-01" },
+    { fromDate: "2026-1-01", toDate: "2026-10-01" },
     { stage: "unknown" }, { query: "x".repeat(101) }, { siteId: "bad" }, { cursor: "x".repeat(513) }])(
     "rejects malformed history query %p", (invalid) => {
       const status = { listCommands: jest.fn() };

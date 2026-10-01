@@ -2,14 +2,20 @@ import { BadRequestException, GoneException, Injectable, NotFoundException } fro
 import { Prisma } from "@prisma/client";
 import { monitoringActivityResponseSchema } from "@led-control/shared";
 import { z } from "zod";
+import { createHash } from "node:crypto";
 import { SiteAccessService } from "../access/site-access.service";
 import { AuthenticatedUser } from "../auth/auth.types";
 import { PrismaService } from "../prisma/prisma.service";
+import { isValidLogDateRange, LogDateRangeInput, resolveLogDateRange } from "../retention/log-date-range";
 
-const cursorSchema = z.object({
+const legacyCursorSchema = z.object({
   version: z.literal(1), principalId: z.string().uuid(), siteId: z.string().uuid(), floorId: z.string().uuid(),
   recordedAt: z.string().datetime(), id: z.string().uuid()
 }).strict();
+const cursorSchema = z.union([z.object({
+  version: z.literal(2), scope: z.string().regex(/^[a-f0-9]{64}$/),
+  recordedAt: z.string().datetime(), id: z.string().uuid()
+}).strict(), legacyCursorSchema]);
 type ActivityCursor = z.infer<typeof cursorSchema>;
 
 const activitySelect = {
@@ -22,14 +28,20 @@ export class MonitoringActivityService {
   constructor(private readonly prisma: PrismaService, private readonly siteAccess: SiteAccessService) {}
 
   async list(user: AuthenticatedUser, siteId: string, floorId: string,
-    input: { limit?: number; cursor?: string }) {
-    await this.siteAccess.assert(user, siteId, "read");
+    input: LogDateRangeInput & { limit?: number; cursor?: string }) {
+    const site = await this.siteAccess.assert(user, siteId, "read");
     const floor = await this.prisma.floor.findUnique({ where: { id: floorId }, select: { siteId: true } });
     if (!floor || floor.siteId !== siteId) throw new NotFoundException("floor not found");
 
     const limit = input.limit ?? 5;
-    if (!Number.isInteger(limit) || limit < 1 || limit > 50) throw new BadRequestException("invalid monitoring activity query");
-    const cursor = input.cursor ? parseCursor(input.cursor, user.id, siteId, floorId) : null;
+    if (!Number.isInteger(limit) || limit < 1 || limit > 1000 || !isValidLogDateRange(input)) {
+      throw new BadRequestException("invalid monitoring activity query");
+    }
+    const scope = createHash("sha256").update(JSON.stringify([
+      "monitoring-activity", user.id, siteId, floorId, input.fromDate ?? null, input.toDate ?? null, limit
+    ])).digest("hex");
+    const cursor = input.cursor ? parseCursor(input.cursor, scope, user.id, siteId, floorId,
+      limit <= 50 && input.fromDate === undefined && input.toDate === undefined) : null;
     // Keep the scalar DB clock and page read on one connection. The transaction
     // adds no row locks; API-host time must never set a visible retention edge.
     return this.prisma.$transaction(async tx => {
@@ -45,14 +57,15 @@ export class MonitoringActivityService {
       if (cursor && new Date(cursor.recordedAt) < retainedFrom) {
         throw new GoneException({ code: "monitoring_activity_cursor_expired" });
       }
+      const { start, end } = resolveLogDateRange(input, site?.timeZone, clock);
       const where: Prisma.MonitoringActivityWhereInput = {
-        siteId, floorId, recordedAt: { gte: retainedFrom },
+        siteId, floorId, recordedAt: { gte: start, lt: end },
         ...(cursor ? { OR: [
           { recordedAt: { lt: new Date(cursor.recordedAt) } },
           { recordedAt: new Date(cursor.recordedAt), id: { lt: cursor.id } }
         ] } : {})
       };
-      const rows = await tx.monitoringActivity.findMany({
+      const rows = start && start >= end ? [] : await tx.monitoringActivity.findMany({
         where, orderBy: [{ recordedAt: "desc" }, { id: "desc" }], take: limit + 1, select: activitySelect
       });
       const page = rows.slice(0, limit);
@@ -70,7 +83,7 @@ export class MonitoringActivityService {
           ...(row.refreshStatus ? { refreshStatus: row.refreshStatus } : {})
         })),
         nextCursor: rows.length > limit && last ? encodeCursor({
-          version: 1, principalId: user.id, siteId, floorId, recordedAt: last.recordedAt.toISOString(), id: last.id
+          version: 2, scope, recordedAt: last.recordedAt.toISOString(), id: last.id
         }) : null
       });
     });
@@ -81,12 +94,15 @@ function encodeCursor(cursor: ActivityCursor) {
   return Buffer.from(JSON.stringify(cursor)).toString("base64url");
 }
 
-function parseCursor(encoded: string, principalId: string, siteId: string, floorId: string): ActivityCursor {
+function parseCursor(encoded: string, scope: string, principalId: string, siteId: string, floorId: string,
+  allowLegacy: boolean): ActivityCursor {
   try {
     if (encoded.length > 512 || !/^[A-Za-z0-9_-]+$/.test(encoded)) throw new Error("invalid encoding");
     const cursor = cursorSchema.parse(JSON.parse(Buffer.from(encoded, "base64url").toString("utf8")));
-    if (encodeCursor(cursor) !== encoded || cursor.principalId !== principalId || cursor.siteId !== siteId
-      || cursor.floorId !== floorId || new Date(cursor.recordedAt).toISOString() !== cursor.recordedAt) {
+    const matchesScope = cursor.version === 2 ? cursor.scope === scope
+      : allowLegacy && cursor.principalId === principalId && cursor.siteId === siteId && cursor.floorId === floorId;
+    if (encodeCursor(cursor) !== encoded || !matchesScope
+      || new Date(cursor.recordedAt).toISOString() !== cursor.recordedAt) {
       throw new Error("invalid scope");
     }
     return cursor;
