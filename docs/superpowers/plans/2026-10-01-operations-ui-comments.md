@@ -40,7 +40,7 @@
 | 2 | Shell backend: 개인 알람 읽음 | 완료·독립 명세/품질 승인 | bdb2d9e1; focused97/97(실제DB56 포함) |
 | 3 | Shell 공통 UI | 완료·독립 명세/품질 승인 | 793d126a; focused429/429, Web type/build/UI0; P3 경계1건 후속 |
 | 4 | Shell 범위·새 내부 구현 보조 | 완료·독립 명세/품질 승인 | 9740967e + 13249728; scoped 재검토 승인·28/28·Chromium2/2 |
-| 5 | 모니터링 페이지 담당자 | 대기 | — |
+| 5 | 모니터링 담당 범위·새 실행 보조 | 구현 중·문맥 이탈 복구 | 현재 brief의 복구 BASE 사용; 옛 휠34건은 이번 완료 아님 |
 | 6 | 제어 UI 개선 담당자(GPT-6.1 Sol/high) | 대기 | — |
 | 7 | 통계 페이지 담당자 | 대기 | — |
 | 8 | 설정 담당 → Shell 운영 담당 | 대기 | — |
@@ -49,6 +49,8 @@
 API와 공통 파일을 동시에 쓰지 않는다. Task 5는 `FloorScene`/`FloorMapViewport` 작성권을 받고, 반환·검토 후 Task 6에 넘긴다. Task 8의 설정/운영도 순차 배정한다. 소비자가 공통 계약 변경을 원하면 총괄에게 반환하고 producer가 수정·재검토한다. 개별 작업은 지정 파일과 보고서만 작성하며 다른 세션/서브에이전트를 임의 생성하지 않는다.
 
 Task4 execution recovery Ruling: existing Shell session successfully delivered Tasks1–3, but context compaction repeatedly dropped current delegated instructions and resumed an old localhost diagnosis (confirmed again in Task4 turn, no product edits). Primary assigns one fresh internal implementation helper with only Task4 durable context rather than repeating unsafe stale-history handoffs. No new sidebar task or additional scope is created; source ownership stays one writer, existing page-owner sequence and separate fresh review stay unchanged. This is the user/AGENTS-authorized delegation fallback, not operational DB/server permission.
+
+Task5 execution recovery Ruling: existing monitoring owner likewise read the current brief/checkpoint then contextCompaction resumed the older wheel-only human task and returned unrelated34passed/oldmergeclaim without Task5 edits. Primary verified no human override and clean source; fresh internal Task5-only execution support receives the same page scope. Existing owner is informed and receives results, no new sidebar task/extra product scope or parallel writer. Original dispatch BASE0ad18e11 remains historical; the fresh helper records its single BASE after this docs-only recovery checkpoint. Old34tests are not accepted as new Task5 evidence.
 
 ---
 
