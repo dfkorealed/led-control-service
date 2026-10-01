@@ -1791,7 +1791,11 @@ export class RealBackendLab {
       throw new Error("request, snapshot, config-applied delivery, or application receipt evidence is missing");
     }
     const request = automationCurrentConfigRequestSchema.parse(requestEntry.payload);
+    // An exact ACK pair is insufficient if the requesting binary did not
+    // advertise support for that snapshot version (including explicit downgrade).
+    const maxSnapshotVersion = request.schemaVersion === 1 ? 1 : request.maxSnapshotVersion;
     const matchesSnapshot = (snapshot: ReturnType<typeof automationSnapshotSchema.parse>, receipt: ReturnType<typeof automationConfigAppliedReceiptSchema.parse>) => (
+      snapshot.schemaVersion <= maxSnapshotVersion &&
       snapshot.revision === expected.revision && snapshot.payloadHash === expected.payloadHash &&
       snapshot.schemaVersion === receipt.schemaVersion && snapshot.siteId === receipt.siteId &&
       snapshot.gatewayId === receipt.gatewayId && snapshot.revision === receipt.acknowledgement.revision &&

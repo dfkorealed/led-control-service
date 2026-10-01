@@ -553,6 +553,18 @@ for (const version of [1, 2] as const) {
     if (version === 2) {
       internal.mqttEvidence[0].payload = { ...request, assignmentVersion: 2 };
       expect(() => internal.readAutomationProtocolEvidence(0, expected)).toThrow();
+      for (const unsupportedRequest of [
+        { schemaVersion: 1, requestId: request.requestId, siteId, gatewayId, requestedAt: occurredAt },
+        { ...request, maxSnapshotVersion: 1 }
+      ]) {
+        internal.mqttEvidence[0].payload = unsupportedRequest;
+        expect.soft(() => internal.readAutomationProtocolEvidence(0, expected),
+          `request ${JSON.stringify(unsupportedRequest)} must not authorize a V2 snapshot`).toThrow();
+      }
+    } else {
+      internal.mqttEvidence[0].payload = { ...request, schemaVersion: 2,
+        assignmentVersion: 1, declarationRevision: 1, maxSnapshotVersion: 1 };
+      expect(internal.readAutomationProtocolEvidence(0, expected)).toMatchObject({ responseRevision: 7, receiptRevision: 7 });
     }
   });
 }
