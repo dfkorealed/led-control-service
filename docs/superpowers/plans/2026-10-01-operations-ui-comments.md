@@ -39,7 +39,7 @@
 | 1 | Shell backend: 로그 API | 완료·독립 명세/품질 승인 | 5c1d313e + 982f999a; focused119/119 |
 | 2 | Shell backend: 개인 알람 읽음 | 완료·독립 명세/품질 승인 | bdb2d9e1; focused97/97(실제DB56 포함) |
 | 3 | Shell 공통 UI | 완료·독립 명세/품질 승인 | 793d126a; focused429/429, Web type/build/UI0; P3 경계1건 후속 |
-| 4 | Shell 범위·새 내부 구현 보조 | 물리 보완 회수·독립 재검토 대기 | 9740967e + 13249728 + cf3e075c; 작성자49단위/66정책/27브라우저 통과, 검토·디자이너 재검수 전 P2 승인 보류 |
+| 4 | Shell 범위·새 내부 구현 보조 | 물리 소스 승인·디자이너 독립 재검수 대기 | 9740967e + 13249728 + cf3e075c; scoped Spec✅/qualityApproved/P2두건ADDRESSED/새지적0; 독립 물리 실행 전 최종 보류 |
 | 5 | 모니터링 담당 범위·새 실행 보조 | 구현·scoped 독립 검토 승인 | 7455d16c + 3c107e60 + 3405415d; I1/I2/I3/N1 해결·새 지적0, Task9 전체검수 대기 |
 | 6 | 제어 UI 개선 담당자(GPT-6.1 Sol/high) | 대기 | — |
 | 7 | 통계 페이지 담당자 | 대기 | — |
@@ -150,6 +150,8 @@ Task4 physical safe-area ownership Ruling: same writer reports precise producer 
 Task4 physical CSS registration Ruling: actual UI scanner accepts helpers only by exact name/body, src/styles/base.css path and first occurrence. Current source58–62 lacks approved pt-safe-area-top, so latest UI failure is the approved helper's missing registry, not permission to waive CSS policy. Root read matching function490–499 and real test path. Same writer additionally owns ONLY `apps/web/scripts/ui-policy.mjs` reviewedUtilities exact entry `pt-safe-area-top`→`padding-top: env(safe-area-inset-top);` and `apps/web/scripts/ui-policy.test.mjs` clean RED/exact acceptance plus altered-body/extra-declaration/wrong-path/duplicate rejection regressions. Keep approvedSourceRef, theme/runtime exceptions, zero baseline, parser/scan rules and existing entries unchanged. Full direct policy tests/UI0, then fresh scoped freeze gates; not an arbitrary CSS exception or baseline relaxation. Physical cleanRED body5384≥320/topclose18<24 and producer owner0→1 established; interim browser27PASS requires final evidence/independent review/designer rerun, not approval.
 
 Task4 physical returned evidence (not independent approval): exact dispatch/review BASE `a6f5ad98244f39d2f05b8a78575dbbd734038a06`, product HEAD `cf3e075c26acc3bec4de8313286fdfbfb728f282`, authorized10paths269+/16-. Root read complete final report including commit/return and actual raw49unit/66policy/27browser, verified tracked clean and own16184/16185 empty. Final same-source type/UI0/build/diff exit0; body-only scroll/visible close-footer across12sizes, real Chromium200% and actual env top24/bottom34 assertions pass in writer evidence. Invalid setup failures are excluded from clean RED; registry extension leaves baseline/parser/theme/runtime/cn unchanged. Original scoped reviewer and same designer must independently review/rerun before resolving P2-01/P2-02 and handing Task6 ownership. ActualDB two-session/full22/root/inherited editor gate remain Task9.
+
+Task4 physical source review returned: root read complete52line task-4-physical-fix-review.md to EOF. Original reviewer read exact package/source/raw bounds independently, P2-01/P2-02 ADDRESSED, Spec✅/qualityApproved/newP0–P3=0. Opt-in/default isolation, exact helper registry negatives, unchanged visible-only observer/request ordering/transient actions verified; no repeated suites or actualDB/full22/native-mobile claim. SAME designer actual12/native200/positiveenv rerun remains pending and is not replaced by this source approval. Last physical checkbox stays unchecked and Task6 product dispatch remains blocked until that independent physical verdict.
 
 ### Task 5: 모니터링 지도·명시 선택·상세·공통 로그
 
