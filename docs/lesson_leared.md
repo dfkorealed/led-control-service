@@ -537,6 +537,7 @@
 - **원인**: Mock Vault가 한 가지 JSON shape만 반환했고, certificate 재발급과 CRL 회전을 같은 lifecycle로 다루지 않았다. 브라우저 endpoint와 장비 mTLS endpoint가 listener를 공유한다는 조건도 TLS transport 설정에 반영하지 않았다.
 - **해결 및 예방책**: PEM 문자열과 배열 CA chain을 모두 엄격 검증하고, bootstrap마다 목적별 CRL 자동 재생성과 즉시 회전을 설정한다. API listener는 client certificate를 요청하되 일반 TLS 연결은 허용하며 제조·Gateway route의 전용 Guard가 `socket.authorized`와 issuer를 fail-closed 검증한다.
 - **반복 방지 체크**: Lab 재개 시험에는 실제 Vault 버전의 JSON shape, `openssl verify -crl_check_all`, CRL `nextUpdate`, 인증서 없는 `/auth/me`의 HTTP 401 도달, 잘못된 제조·장비 인증서의 전용 route 401을 함께 확인한다.
+- **후속 교훈(2026-10-01)**: BIO Lab에서는 기존 leaf와 CA가 유효하고 chain-only 검증도 통과했지만, broker가 로드한 intermediate CRL의 `nextUpdate`가 지난 상태여서 TLS가 `certificate expired` alert를 반환했다. 시계·leaf·CA·intermediate/Root CRL 수명을 각각 확인하며, 이 사례의 정확한 실패는 `openssl verify -crl_check_all`의 `error 12: CRL has expired`였다. 이미 Vault가 서명한 fresh 공개 CRL의 서명·issuer·전체 폐기 entry(시리얼·폐기 시각·사유) 동일성과 기존 Root CRL 보존을 확인한 뒤, 공개 원본만 보호 백업하고 기존 `publishCrlAtomically`로 게시했다. 정확한 broker에 SIGHUP을 보내고 mounted hash·Gateway의 device/MQTT chain CRL 검증·기존 identity의 mTLS를 재확인했다. 새 인증서 발급·폐기·키 변경은 없었다. 갱신본의 `nextUpdate`는 **2026-10-02 05:38:08 UTC(14:38:08 KST)**로 약 25시간만 남았고 Root CRL은 **2026-10-27 05:37:20 UTC**까지 유효하므로, 두 수명을 구분하고 이 복구를 지속 운영의 CRL freshness 보장으로 기록하지 않는다.
 
 ## 2026-09-01 / Gateway 컨테이너는 clean build에서 전이 workspace 입력을 검증한다
 
@@ -628,6 +629,7 @@
 - **원인**: 현재 인터페이스 IP, Lab 서비스 인증서 SAN, Mac에서 이미 export된 `MQTT_URL`, Pi의 `/etc/hosts`와 실행 중 container의 이름 해석을 각각 독립 상태로 두고 일부만 갱신했다.
 - **해결 및 예방책**: `route -n get default`와 `ipconfig getifaddr`로 현재 LAN을 확인하고, 같은 IP로 `lab:pki:bootstrap`을 재실행한 뒤 새 `lab.env`를 source한다. Pi의 `api.led.lan`/`mqtt.led.lan` 매핑을 교체하고 container를 재생성해 `/etc/hosts` 반영을 확인한다. DB의 site/gateway ID, claim과 장비 client certificate는 그대로 유지한다.
 - **반복 방지 체크**: 장소 이동 뒤에는 API process socket destination, `openssl x509` SAN, Pi/container `getent hosts`, 4000/8883 TCP, API·Gateway mTLS client 연결, Gateway health와 heartbeat를 순서대로 확인한 다음 HIL을 시작한다.
+- **후속 교훈(2026-10-01)**: 반복 DHCP 변경 때 유효한 기존 DNS SAN이 있으면 이전 절차를 그대로 재실행해 인증서를 발급하거나 container를 재생성하기 전에, 현재 IP와 Pi/container DNS를 대조하고 assignment의 MQTT endpoint를 검증 가능한 DNS hostname으로 맞출 수 있는지 확인한다. 이번 BIO Lab은 사전 DB 조회에서 현재 배정·동일 snapshot·미처리 RF 작업 없음과 만료된 스케줄을 확인한 뒤, 보호된 hosts/assignment 원본과 mode·owner·inode·digest를 확보하고 같은 container를 잠시 정지해 최소 수정했다. 재개 뒤 DNS→TCP→TLS/mTLS→MQTT 연결→서버가 수용한 신규 heartbeat 3건 및 identity·mapping·USB 불변을 확인했다. Container의 immutable bootstrap 환경은 이전 IP로 남아 있으며, 현재 저장된 assignment와 유효한 기존 identity가 bootstrap 조회·발급을 건너뛰는 동안만 사용되지 않는다. 향후 bootstrap·갱신 전에는 이 환경을 별도 운영 범위에서 복구해야 하며, 현재 MQTT 정상 상태로 그 제약이 해소됐다고 판단하지 않는다.
 
 ## 2026-09-04 / 실제 fsync 비동기 테스트에 수십 ms wall-clock race를 두지 않는다
 
