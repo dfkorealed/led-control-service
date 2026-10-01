@@ -82,7 +82,7 @@ export function CommandHistoryPanel({ userId, siteId, onSelect, disabled = false
 
   return <>
     <Card className={cn(compactDisclosure
-      ? "grid min-h-0 min-w-0 grid-cols-[auto_minmax(0,1fr)] items-center gap-x-2 gap-y-0 overflow-hidden px-3 py-2 compact:grid-cols-[auto_minmax(0,1fr)_auto]"
+      ? "grid min-h-0 min-w-0 grid-cols-[auto_minmax(0,1fr)] items-center gap-x-2 gap-y-0 overflow-hidden px-3 py-1.5 compact:grid-cols-[auto_minmax(0,1fr)_auto] compact:py-2"
       : "flex min-h-0 min-w-0 flex-col gap-3 overflow-hidden p-4", className)} aria-label="최근 명령 이력" data-command-history-panel="">
       {compactDisclosure ? <>
         <Heading as="h3" variant="card-title" className="whitespace-nowrap text-label!">최근 이력</Heading>

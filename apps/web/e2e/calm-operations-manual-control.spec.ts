@@ -1,7 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import type { FixtureGroupMetadata } from "@led-control/shared";
 import type { CommandStatusResponse } from "../src/api/commands";
-import { expectNoHorizontalOverflow } from "./support/layout-assertions";
+import { expectMinimumTouchTargetsAfterScrolling, expectNoHorizontalOverflow } from "./support/layout-assertions";
 import { installSettingsApiRoutes, type SettingsFixture } from "./support/settings-api";
 
 test.use({ timezoneId: "Asia/Seoul" });
@@ -64,6 +64,9 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
     expect(executionBox).not.toBeNull();
     expect(historyBox!.y).toBeGreaterThanOrEqual(executionBox!.y + executionBox!.height);
     expect(historyBox!.height).toBeLessThanOrEqual(viewport.width >= 760 ? 72 : 112);
+    if (viewport.width < 760) {
+      await expectMinimumTouchTargetsAfterScrolling(page, "[data-command-history-panel]");
+    }
     await history.getByRole("button", { name: "명령 이력 열기" }).click();
     await expect(page.getByRole("dialog", { name: "명령 이력" })).toContainText("최근 3개월");
     await expectNoHorizontalOverflow(page);

@@ -32,7 +32,7 @@
 - 구현 완료: 수동 밝기 숫자 입력은 공통 NumberField의 16px 크기를 사용한다. 모바일 이벤트 카드의 관리 버튼은 둥근 모서리 안에 실제 44×44px 터치 영역을 확보하도록 52px 공통 Button을 사용한다. 320/390px의 입력·터치·overflow·지도와 두 포인터 확대/축소는 브라우저 회귀로 검증한다.
 - 미구현: Task 9 HIL. UI fixture 테스트 결과를 실장비 지원으로 해석하지 않는다.
 - 부족하거나 개선이 필요한 기능: 제품 capability·allowlist는 OFF다. 모드 증거는 현재 할당·Fixture·node·physical identity·address와 일치하는 최신 작업의 과거 GET만 표시하며 현 상태 지속을 보장하지 않는다. 실제 조명·운영 DB·MQTT 설정은 변경하지 않았다.
-- 부족하거나 개선이 필요한 기능: 확장 Chromium 검증에서 기존 수동 제어의 최근 이력 막대가 320/390px에서 높이 114px로 측정되어 112px 계약을 넘었다. 누락된 보존 기준 시각을 시험 응답에 보완한 뒤 드러난 레이아웃 결함이며, Task 8c에서 수정·전체 재검증한다. 해당 패널과 높이 assertion은 이번 변경에서 완화하지 않았다.
+- 구현 완료: Task 8c에서 320/390px 수동 최근 이력 막대의 114px 높이 실패를 재현하고 모바일 상하 여백을 각각 8px에서 6px로 줄여 기존 112px 이하 계약을 만족시켰다. PC 여백과 44px 요약·52px 작업 버튼은 유지하며, 이력이 있는 상태의 실제 44×44px 터치 영역과 drawer 열기·가로 overflow를 Chromium 회귀로 함께 검사한다. 이 결과는 브라우저 소프트웨어 검증이며 실제 모바일 WebView·조명 HIL은 별도다.
 - 관련 파일: `apps/api/src/sites/{sites.service,vehicle-event-source-view}.ts`, `apps/web/src/api/{automation,queries}.ts`, `apps/web/src/features/control/automation/{VehicleEventDialog,VehicleEventSourceStatus,VehicleEventControlPanel}.tsx`, `apps/web/src/features/control/automation/vehicle-event-form.ts`, `apps/web/e2e/control-map-target-selection.spec.ts`.
 - 갱신 규칙: 서버 유효 준비 상태와 관찰 증거, 소프트웨어 화면과 실제 HIL, 요청 접수와 GET 검증을 구분해 기록한다.
 
