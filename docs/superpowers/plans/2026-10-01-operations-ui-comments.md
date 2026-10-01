@@ -38,7 +38,7 @@
 | 준비 | Shell·인증·운영 담당자 | 격리 실행 완료; root test 1건 실패 | lint/typecheck/build exit0, Gateway CLI timeout; API 전체 종료 요약 없음 |
 | 1 | Shell backend: 로그 API | 완료·독립 명세/품질 승인 | 5c1d313e + 982f999a; focused119/119 |
 | 2 | Shell backend: 개인 알람 읽음 | 완료·독립 명세/품질 승인 | bdb2d9e1; focused97/97(실제DB56 포함) |
-| 3 | Shell 공통 UI | 구현 배정 | 디자이너 준비 검토 전달 |
+| 3 | Shell 공통 UI | 작성자 완료·독립 검토 중 | 793d126a; focused429/429, Web type/build/UI0 |
 | 4 | Shell 알람센터 소비 | 대기 | — |
 | 5 | 모니터링 페이지 담당자 | 대기 | — |
 | 6 | 제어 UI 개선 담당자(GPT-6.1 Sol/high) | 대기 | — |
