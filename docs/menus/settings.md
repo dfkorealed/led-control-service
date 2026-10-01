@@ -160,6 +160,8 @@
 
 ## 구현 완료
 
+- 2026-10-02 공통 페이지 크기 타입 호환: `CadImportPanel` 도면 영역의 페이지 크기 state는 `DefaultPaginationPageSize`(10/20/50/100)에 연결했다. 기본 20·기존 네 옵션과 영역 선택/페이지 초기화·CAD 업로드/변환/검토/적용 정책은 그대로다. 공통 로그용 500/1000 확장은 CAD 영역 조회 수를 늘리지 않는다. 이 변경은 타입-only 연결이며 설정 화면에 새 `FilterPanel`/`LogView`/`DetailSheet`를 적용하거나 실제 viewport/safe-area·장비 검증을 완료한 것이 아니다.
+
 - 2026-09-29 로그인·계정 보안 경계는 단말 또는 Mac의 IP가 바뀌어도 exact IP/User-Agent 동일성을 요구하지 않는다. 비밀번호 단계와 MFA 완료 단계가 다른 네트워크여도 사용자 row version, 만료, 일회성 Redis challenge, TOTP replay·recovery code 규칙을 통과하면 완료 시점 IP/User-Agent로 session·rate limit·감사를 생성한다. nginx를 통한 browser IP는 기존 `LANDING_INGRESS_SECRET`과 `X-Web-Ingress-Secret`·`X-Web-Client-IP`가 함께 유효할 때만 신뢰하고, 전역 proxy trust와 장비 9443 header trust는 허용하지 않는다. 로컬 API/Web 전용 `DEV_LOCAL_APP_ONLY=1`은 내부 loopback 연결에서도 기존 Lab DNS로 TLS를 검증하며 Gateway/HIL 완료를 의미하지 않는다.
 
 - 2026-09-25 설정·초기 설치 UI 단위: 관리자 입력 2열/모바일 1열, viewer 대기 단계, 개요 설치 CTA, 층·구역 병렬 관리, 맵 목록의 실제 층 요약/빈 상태, 등록 제목 단일 표시 회귀, 유저 행 44px 관리 대상. 실장비 및 모바일 WebView 검증은 완료 범위에 포함하지 않는다.
@@ -589,6 +591,8 @@ DB 모델이 실제 변경되는 작업에서는 `docs/database-schema.md`를 �
   - https://www.lutron.com/us/en/controls/systems/vive
 
 ## 관련 파일
+
+- `apps/web/src/features/floor-editor/CadImportPanel.tsx`, `apps/web/src/components/ui/PaginationBar.tsx`, `apps/web/src/components/ui/PaginationBar.test.tsx`, `apps/web/src/components/ui/index.ts` — 기존 CAD 영역 조회 수의 기본 옵션 타입 연결.
 
 - `apps/web/src/features/setup/SetupWizard.tsx`, `apps/web/src/features/settings/SettingsView.tsx`, `apps/web/src/features/settings/site/SiteOperationsView.tsx`, `apps/web/src/features/settings/floor-plans/FloorPlanSettingsView.tsx`, `apps/web/src/features/settings/users/SiteUsersView.tsx`
 

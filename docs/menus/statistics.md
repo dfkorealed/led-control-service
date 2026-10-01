@@ -4,6 +4,8 @@
 
 ## 구현 완료
 
+- 2026-10-02 공통 페이지 크기 타입 호환: 보고서 이력 콜백은 `DefaultPaginationPageSize`(10/20/50/100)에 연결했다. 공통 `PaginationPageSize`의 로그용 500/1000 확장은 명시적 옵션 사용처에만 적용하며 보고서의 기본 20·네 조회 수 옵션·total/cursor 조회·URL/필터·생성/다운로드 정책은 변경하지 않았다. 이 변경은 타입-only 연결이며 보고서 화면의 `FilterPanel`/`LogView`/공통 시각 formatter 적용 완료나 실제 화면 검증을 의미하지 않는다.
+
 - 2026-09-28 실제 메인용 격리 통합에서 Atlas의 네 기본 필터·기간 팝업/이력 카드와 PDF 전용 생성·재생성·다운로드·구 `format` URL 정규화·별도 CSV를 함께 보존했다. 관련 Web 집중 123개, PDF/API 집중 172개(환경 의존 103개 제외), 통계 mock Chromium 41개를 통과했다. 날짜 helper의 팝업 호출 오류는 첫 Chromium 실패 기록을 보존하고 최소 test-only 수정 후 RED→GREEN·관련 세 spec 전체 97/97로 재검증했다. 루트 test/lint/typecheck/build는 종료 코드 0이며 API 2,934개 통과/827개 환경 의존 제외다. 양쪽 migration 원본은 그대로이며 이번 작업에서는 DB에 적용하지 않았다. 실제 메인 반영·독립 통합 검토는 별도 단계다.
 
 - 통계 응답 검증 보강: 같은 조건의 분석 순위를 다시 불러오다 503이 발생하면 React Query가 이전 성공 응답을 보유하더라도 KPI·순위·선택 상세·평균 히트맵을 현재 결과로 표시하지 않고 오류와 재시도를 제공한다. 성공 재조회 시 기존 결과가 복구된다. 직접 선택 절감 비교는 strict 스키마 검사에 더해 요청한 현장 ID·시작일·종료일과 응답이 정확히 일치해야 캐시하며, 불일치 또는 갱신 오류에는 비교 수치·기간 메타를 숨긴다. 오늘 현황, 기존 비교 프리셋과 보고서 생성·이력·다운로드 경로는 변경하지 않았다. 동일 key invalidate→503의 캐시 특성, UI 실패·복구, 다른 현장/기간의 유효한 응답을 각각 단위·브라우저 회귀로 검증했다. 8개 선택 파일의 깨끗한 스냅샷에서 통계 단위 테스트 161/161, 전체 Web 2,458 pass·3 skip, 빌드/타입 검사, UI policy 위반 0, 독립 포트 통계 Chromium 39/39를 확인했다.
@@ -171,6 +173,8 @@
 - 실제 전력계 측정값이 아니라 BLE Mesh 상태 수신 이력과 정격 전력을 이용한 추정치다. 180초를 넘는 통신 공백은 사용량을 추정하지 않고 `partial`로 노출한다.
 
 ## 관련 파일
+
+- `apps/web/src/components/ui/PaginationBar.tsx`, `apps/web/src/components/ui/PaginationBar.test.tsx`, `apps/web/src/components/ui/index.ts` — 기본 옵션과 명시적 사용자 옵션의 타입 계약.
 
 - `apps/api/src/retention/gateway-event-watermark.ts`, `apps/api/src/retention/gateway-event-watermark.integration.spec.ts`
 - `apps/api/src/retention/data-retention.service.ts`, `apps/api/src/retention/data-retention.integration.spec.ts`, `apps/api/src/retention/retention.module.ts`

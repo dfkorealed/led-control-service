@@ -3,7 +3,7 @@ import { FileText } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { createEnergyReport, downloadEnergyCsv, downloadEnergyReport, energyReportRequestErrorMessage, useEnergyReports, useEnergyReportTargets } from "../../../api/energy";
-import { Button, Card, Heading, PageHeader, PaginationBar, Text, type PaginationPageSize } from "../../../components/ui";
+import { Button, Card, Heading, PageHeader, PaginationBar, Text, type DefaultPaginationPageSize } from "../../../components/ui";
 import { useLocation, useOutletContext, useSearchParams } from "react-router-dom";
 import type { StatisticsOutletContext } from "../StatisticsShell";
 import { ReportCreateDialog } from "./ReportCreateDialog";
@@ -242,7 +242,7 @@ export function StatisticsReportsPage() {
           && validNextPageCursor(currentPage?.data.nextCursor, activePageState)}
         onPrevious={previousPage}
         onNext={nextPage}
-        onPageSizeChange={(limit: PaginationPageSize) => resetToFirstPage({ ...filters, limit })}
+        onPageSizeChange={(limit: DefaultPaginationPageSize) => resetToFirstPage({ ...filters, limit })}
       />
     </Card>
     {downloadError ? <Text tone="danger" role="alert">{downloadError}</Text> : null}

@@ -33,6 +33,75 @@ const userEvent = {
 };
 
 describe("overlay migration contracts", () => {
+  function sheet() {
+    const component = UI.DetailSheet;
+    expect(component, "public detail sheet is exported").toBeDefined();
+    return component;
+  }
+
+  it("keeps sheet header/actions out of the scrolling body with one safe-area owner", () => {
+    const DetailSheet = sheet(); const initial = createRef<HTMLInputElement>(); const root = createRef<HTMLElement>();
+    render(<DetailSheet ref={root} title="조명 상세" description="선택 조명" onClose={() => {}} initialFocusRef={initial} className="consumer-sheet" bodyClassName="consumer-body" actions={<button>저장</button>}>
+      <input ref={initial} aria-label="상세 입력" />{Array.from({ length: 1000 }, (_, i) => <p key={i}>상세 {i}</p>)}
+    </DetailSheet>);
+    const dialog = screen.getByRole("dialog", { name: "조명 상세" });
+    expect(root.current).toBe(dialog); expect(dialog).toHaveAccessibleDescription("선택 조명");
+    expect(dialog).toHaveAttribute("data-dialog-variant", "sheet");
+    expect(dialog).toHaveClass("max-h-dvh", "min-h-0", "overflow-hidden", "consumer-sheet");
+    expect(dialog).not.toHaveClass("overflow-y-auto");
+    const body = dialog.querySelector("[data-dialog-body]")!;
+    expect(body).toHaveClass("min-h-0", "overflow-y-auto", "consumer-body");
+    expect(body).not.toContainElement(screen.getByRole("button", { name: "저장" }));
+    expect(body).not.toContainElement(screen.getByRole("button", { name: "닫기" }));
+    expect(dialog.querySelectorAll(".pb-safe-area-bottom")).toHaveLength(1);
+    expect(initial.current).toHaveFocus();
+  });
+
+  it.each(["escape", "outside", "close"])("dismisses sheet via %s once and blocks it during pending", (method) => {
+    const DetailSheet = sheet(); const close = vi.fn();
+    const content = (pending: boolean) => <DetailSheet title="상세" isPending={pending} onClose={close}>본문</DetailSheet>;
+    const { rerender } = render(content(true));
+    const dismiss = () => {
+      if (method === "escape") fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
+      if (method === "outside") fireEvent.mouseDown(screen.getByTestId("modal-backdrop"));
+      if (method === "close") fireEvent.click(screen.getByRole("button", { name: "닫기" }));
+    };
+    dismiss(); expect(close).not.toHaveBeenCalled();
+    rerender(content(false)); dismiss(); expect(close).toHaveBeenCalledOnce();
+  });
+
+  it("preserves sheet focus on rerender and returns to a connected fallback after opener removal", async () => {
+    const DetailSheet = sheet(); const initial = createRef<HTMLInputElement>(); const fallback = createRef<HTMLButtonElement>();
+    const opener = document.createElement("button"); document.body.append(opener); opener.focus();
+    const content = (title: string) => <><button ref={fallback}>지도</button><DetailSheet title={title} onClose={() => {}} initialFocusRef={initial} fallbackFocusRef={fallback}><input ref={initial} aria-label="첫 항목" /><button>다른 항목</button></DetailSheet></>;
+    const { rerender, unmount } = render(content("처음"));
+    const original = screen.getByRole("dialog"); screen.getByRole("button", { name: "다른 항목" }).focus();
+    rerender(content("변경"));
+    expect(screen.getByRole("dialog")).toBe(original); expect(screen.getByRole("button", { name: "다른 항목" })).toHaveFocus();
+    opener.remove();
+    rerender(<button ref={fallback}>지도</button>);
+    await waitFor(() => expect(screen.getByRole("button", { name: "지도" })).toHaveFocus()); unmount();
+  });
+
+  it("returns a nested child overlay to its sheet trigger", async () => {
+    const DetailSheet = sheet();
+    function Parent() {
+      const [open, setOpen] = useState(false);
+      return <DetailSheet title="부모 시트" onClose={() => {}}><button onClick={() => setOpen(true)}>자식 열기</button>
+        {open && <ConfirmDialog title="자식 확인" confirmLabel="확인" onCancel={() => setOpen(false)} onConfirm={() => {}} />}</DetailSheet>;
+    }
+    render(<Parent />); const trigger = screen.getByRole("button", { name: "자식 열기" });
+    userEvent.click(trigger); expect(screen.getByRole("button", { name: "취소" })).toHaveFocus();
+    userEvent.keyboard("{Escape}"); await waitFor(() => expect(trigger).toHaveFocus());
+    expect(screen.getByRole("dialog", { name: "부모 시트" })).toBeVisible();
+  });
+
+  it("focuses the sheet root when no body field is focusable, with no actions required", () => {
+    const DetailSheet = sheet();
+    render(<DetailSheet title="읽기 전용 상세" onClose={() => {}}>상태 정보</DetailSheet>);
+    expect(screen.getByRole("dialog", { name: "읽기 전용 상세" })).toHaveFocus();
+    expect(screen.getByRole("button", { name: "닫기" })).toBeEnabled();
+  });
   it("contains no production DOM enumeration in the three dialog entry points", () => {
     const directory = resolve("src/components/ui/overlays");
     const sources = readdirSync(directory).filter(path => /\.tsx?$/.test(path) && !path.includes(".test."));

@@ -7,17 +7,19 @@ import type { ModalDialogProps } from "../ModalDialog";
 import { cn } from "../utils/cn";
 import { focusConnected, registerOverlay } from "./overlay-stack";
 
-type DialogSurface = "modal" | "drawer";
+type DialogSurface = "modal" | "drawer" | "sheet";
 type DialogBaseProps = ModalDialogProps & { surface?: DialogSurface };
 
 const overlayClass = {
   modal: "fixed! inset-0! z-1000! grid! items-end! justify-items-center! overflow-y-auto! bg-surface-inverse/50! p-3! compact:items-center! compact:p-6!",
-  drawer: "fixed! inset-0! z-1000! grid! items-stretch! justify-items-end! overflow-hidden! bg-surface-inverse/50! p-0!"
+  drawer: "fixed! inset-0! z-1000! grid! items-stretch! justify-items-end! overflow-hidden! bg-surface-inverse/50! p-0!",
+  sheet: "fixed! inset-0! z-1000! grid! items-end! justify-items-center! overflow-hidden! bg-surface-inverse/50! p-0!"
 } satisfies Record<DialogSurface, string>;
 
 const surfaceClass = {
   modal: "w-[min(var(--container-lg),100%)] max-h-[calc(100dvh-48px)] overflow-y-auto rounded-panel! border! border-border-default! bg-surface-panel! p-4.5! text-body text-content-primary shadow-popover! outline-none compact:p-6!",
-  drawer: "h-dvh w-full max-w-status-drawer overflow-y-auto border-l! border-border-default! bg-surface-panel! p-4.5! text-body text-content-primary shadow-popover! outline-none compact:p-6!"
+  drawer: "h-dvh w-full max-w-status-drawer overflow-y-auto border-l! border-border-default! bg-surface-panel! p-4.5! text-body text-content-primary shadow-popover! outline-none compact:p-6!",
+  sheet: "flex max-h-dvh min-h-0 w-full flex-col overflow-hidden rounded-panel! border! border-border-default! bg-surface-panel! p-0! text-body text-content-primary shadow-popover! outline-none"
 } satisfies Record<DialogSurface, string>;
 
 export const DialogBase = /* @__PURE__ */ forwardRef<HTMLElement, DialogBaseProps>(function DialogBase(
@@ -83,9 +85,8 @@ function DialogContent({ title, description, children, actions, onClose, isPendi
     else if (!manager?.focusFirst({ tabbable: true, accept: (node) => !!body.current?.contains(node) })) dialog.current?.focus();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-  return <Dialog ref={mergeRefs(dialog, rootRef)} role={role} aria-describedby={description ? descriptionId : undefined} data-dialog-surface="" data-dialog-variant={surface}
-    render={(domProps) => <section {...domProps} aria-modal="true" />}
-    className={cn(surfaceClass[surface], className)}>
+  const isSheet = surface === "sheet";
+  const content = <>
     <header className="mb-4.5! flex! items-start! justify-between! gap-4!" data-dialog-header="">
       <div className="min-w-0">
         <Heading slot="title" className="m-0! text-card-title! font-bold text-content-primary!">{title}</Heading>
@@ -94,7 +95,14 @@ function DialogContent({ title, description, children, actions, onClose, isPendi
       <Button type="button" variant="ghost" className="size-13! min-h-13! min-w-13! shrink-0 p-0!" data-dialog-close=""
         aria-label={closeLabel} title={closeLabel} disabled={isPending} onClick={onClose}><X size={20} aria-hidden="true" /></Button>
     </header>
-    <div ref={body} className={cn("min-w-0 break-words", bodyClassName)} data-dialog-body="">{children}</div>
-    {actions ? <footer className="mt-5! flex! flex-wrap! justify-end! gap-2!" data-dialog-actions="">{actions}</footer> : null}
+    <div ref={body} className={cn("min-w-0 break-words", isSheet && "min-h-0 flex-1 overflow-y-auto pb-4.5", bodyClassName)} data-dialog-body="">{children}</div>
+    {actions ? <footer className={cn("mt-5! flex! flex-wrap! justify-end! gap-2!", isSheet && "shrink-0 pb-4.5")} data-dialog-actions="">{actions}</footer> : null}
+  </>;
+  return <Dialog ref={mergeRefs(dialog, rootRef)} role={role} aria-describedby={description ? descriptionId : undefined} data-dialog-surface="" data-dialog-variant={surface}
+    render={(domProps) => <section {...domProps} aria-modal="true" />}
+    className={cn(surfaceClass[surface], className)}>
+    {/* The sheet alone owns the inset. Do not also apply shell navigation space
+        or inset padding on its body/actions; those must remain above this area. */}
+    {isSheet ? <div className="flex min-h-0 flex-col overflow-hidden px-4.5 pt-4.5 pb-safe-area-bottom">{content}</div> : content}
   </Dialog>;
 }

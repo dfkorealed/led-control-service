@@ -19,7 +19,7 @@ import {
 } from "../../api/floor-editor";
 import { listFloorImportRegions, selectFloorImportRegion } from "../../api/queries";
 import { ApiError } from "../../api/client";
-import { Button, Checkbox, ConfirmDialog, FeedbackState, FileField, Heading, IconButton, PaginationBar, Popover, Text, type PaginationPageSize } from "../../components/ui";
+import { Button, Checkbox, ConfirmDialog, FeedbackState, FileField, Heading, IconButton, PaginationBar, Popover, Text, type DefaultPaginationPageSize } from "../../components/ui";
 import type {
   CadImportReviewState,
   CadMapResetSummary,
@@ -99,7 +99,7 @@ export function CadImportPanel({
   const [confirmApply, setConfirmApply] = useState(false);
   const [regions, setRegions] = useState<FloorImportRegionListResponse | null>(null);
   const [regionPage, setRegionPage] = useState(1);
-  const [regionPageSize, setRegionPageSize] = useState<PaginationPageSize>(20);
+  const [regionPageSize, setRegionPageSize] = useState<DefaultPaginationPageSize>(20);
   const [selectedRegionId, setSelectedRegionId] = useState<string | null>(null);
   const [activePreviewRegionId, setActivePreviewRegionId] = useState<string | null>(null);
   const [progressHighWater, setProgressHighWater] = useState(0);
