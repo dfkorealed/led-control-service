@@ -1,4 +1,5 @@
 import Konva from "konva";
+import { CircleX, Clock3, TriangleAlert } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   lazy,
@@ -62,7 +63,7 @@ export interface SceneFixture {
   status: "online" | "offline" | "fault";
   statusReason?: string | null;
   placementStatus?: "unplaced" | "placed";
-  statusPresentation?: { label: string; state: string };
+  statusPresentation?: { label: string; state: string; mapState?: "online" | "fault" | "offline" | "waiting" };
 }
 
 export interface SceneMapObject {
@@ -216,7 +217,8 @@ export function FloorScene({
         const unobserved = unobservedFixtureIds?.has(fixture.id) ?? false;
         // FloorMap injects the monitoring presenter result. Editor callers omit it and retain
         // their compact legacy status label without owning monitoring cause precedence.
-        const awaitingState = fixture.statusPresentation?.state === "provisioning_waiting_state" || fixture.statusReason === "provisioning_waiting_state";
+        const mapState = unobserved ? "unknown" : fixture.statusPresentation?.mapState ?? (fixture.statusReason === "provisioning_waiting_state" ? "waiting" : fixture.status);
+        const awaitingState = mapState === "waiting";
         const statusLabel = unobserved ? "조명 정보 확인 전" : fixture.statusPresentation?.label ?? (awaitingState ? "상태 확인 대기" : fixtureStatusLabels[fixture.status]);
         const brightnessLevel = fixtureBrightnessLevel(fixture.brightness);
         // Marker position is stored in map coordinates and must scale with the live snapshot.
@@ -227,16 +229,12 @@ export function FloorScene({
           left: coarsePointer ? "clamp(1.5rem, var(--fixture-left), calc(100% - 1.5rem))" : "clamp(1rem, var(--fixture-left), calc(100% - 1rem))",
           top: coarsePointer ? "clamp(1.5rem, var(--fixture-top), calc(100% - 1.5rem))" : "clamp(1rem, var(--fixture-top), calc(100% - 1rem))"
         } satisfies FixtureMarkerStyle;
-        const markerStateClass = unobserved ? "bg-surface-inset shadow-none" : awaitingState
+        const markerStateClass = unobserved ? "border-2! border-dotted! border-fixture-inspection-border! bg-surface-inset shadow-none" : awaitingState
           ? "border-2! border-dotted! border-fixture-inspection-border! bg-fixture-inspection-background shadow-none"
-          : fixture.status === "offline"
+          : mapState === "offline"
             ? "border-2! border-dashed! border-fixture-offline-border! bg-fixture-offline-background shadow-none"
-            : fixtureBrightnessClasses[brightnessLevel];
-        const badgeClass = awaitingState || unobserved
-          ? "bg-fixture-inspection"
-          : fixture.status === "offline"
-            ? "bg-fixture-offline"
-            : fixture.status === "fault" ? "bg-fixture-fault" : "bg-fixture-connected";
+            : cn(fixtureBrightnessClasses[brightnessLevel], mapState === "fault" ? "border-2! border-fixture-fault!" : "border-2! border-fixture-connected!");
+        const StatusIcon = mapState === "fault" ? TriangleAlert : mapState === "offline" ? CircleX : awaitingState || unobserved ? Clock3 : null;
         const selected = selection.kind !== "none" && selection.selectedFixtureIds.has(fixture.id);
         const disabled = selection.kind === "multiple" && selection.disabledFixtureIds.has(fixture.id);
         const disabledReason = selection.kind === "multiple" ? selection.disabledReasons?.get(fixture.id) : undefined;
@@ -257,7 +255,7 @@ export function FloorScene({
             data-spatial-map-marker="true"
             data-brightness-level={brightnessLevel}
             className={cn(
-              "absolute z-2 block! -translate-x-1/2 -translate-y-1/2 cursor-pointer rounded-fixture-marker! border-0! bg-transparent! p-0! transition-[background-color,box-shadow] duration-150 motion-reduce:duration-[0.01ms] hover:z-4 focus-visible:z-4 focus-visible:outline-3 focus-visible:outline-offset-4 focus-visible:outline-fixture-selected",
+              "absolute z-2 block! -translate-x-1/2 -translate-y-1/2 cursor-pointer rounded-pill! border-0! bg-transparent! p-0! transition-[background-color,box-shadow] duration-150 motion-reduce:duration-[0.01ms] hover:z-4 focus-visible:z-4 focus-visible:outline-3 focus-visible:outline-offset-4 focus-visible:outline-fixture-selected",
               // Leave a pixel-rounding buffer beyond the 44px coarse-pointer minimum so every edge remains reachable in browser layout.
               coarsePointer ? "size-12! min-h-12!" : "size-5! min-h-5!",
               selected && "z-3",
@@ -275,8 +273,8 @@ export function FloorScene({
             onClick={(event) => onFixturePress?.(fixture.id, event.currentTarget)}
           >
             {/* The marker dot stays 20px; only its transparent button target expands for coarse pointers. */}
-            <span data-spatial-map-marker-dot="true" className={cn("pointer-events-none absolute left-1/2 top-1/2 block size-5 -translate-x-1/2 -translate-y-1/2 rounded-fixture-marker! border! border-fixture-offline! transition-[background-color,box-shadow] duration-150 motion-reduce:duration-[0.01ms]", markerStateClass, selected && "outline-3 outline-offset-4 outline-fixture-selected")}>
-              <span aria-hidden="true" className={cn("pointer-events-none absolute -top-1.5 -right-1.5 size-2 rounded-pill border-2 border-surface-panel shadow-panel", badgeClass)} />
+            <span data-spatial-map-marker-dot="true" className={cn("pointer-events-none absolute left-1/2 top-1/2 grid size-5 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-pill! border! border-fixture-offline! transition-[background-color,box-shadow] duration-150 motion-reduce:duration-[0.01ms]", markerStateClass, selected && "outline-3 outline-offset-4 outline-fixture-selected")}>
+              {StatusIcon ? <StatusIcon size={12} aria-hidden="true" className="text-content-primary" /> : null}
             </span>
           </Button>
         );

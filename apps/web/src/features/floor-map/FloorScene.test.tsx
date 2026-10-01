@@ -484,7 +484,7 @@ describe("FloorScene", () => {
     expect(screen.getByTestId("map-object-rectangle-1")).toBeInTheDocument();
     expect(screen.queryByTestId("floor-transformer")).not.toBeInTheDocument();
     const fixture = screen.getByRole("button", { name: "B1-L001 정상 70%" });
-    expect(fixture).toHaveClass("size-5!", "min-h-5!", "rounded-fixture-marker!", "p-0!");
+    expect(fixture).toHaveClass("size-5!", "min-h-5!", "rounded-pill!", "p-0!");
     expect(fixture).toHaveAttribute("data-spatial-map-marker", "true");
     expect(fixture).toHaveAttribute("data-brightness-level", "8");
     expect(fixture.querySelector("[data-spatial-map-marker-dot]")).toHaveClass(
@@ -496,7 +496,7 @@ describe("FloorScene", () => {
     expect(fixture).not.toHaveAttribute("aria-pressed");
     expect(fixture).toHaveAttribute("title", "B1-L001 정상 70%");
     expect(fixture).toHaveTextContent("");
-    expect(fixture.querySelector("span[aria-hidden='true']")).toHaveClass("bg-fixture-connected");
+    expect(fixture.querySelector("[data-spatial-map-marker-dot]")).toHaveClass("border-fixture-connected!", "rounded-pill!");
     expect(screen.queryByText("B1-L001")).not.toBeInTheDocument();
     expect(screen.queryByText("70%")).not.toBeInTheDocument();
     fireEvent.click(fixture);

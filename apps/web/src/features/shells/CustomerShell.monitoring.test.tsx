@@ -17,7 +17,7 @@ beforeEach(() => {
   canManage = true;
   refreshed = false;
   client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
-  vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() })));
+  vi.stubGlobal("matchMedia", vi.fn((query: string) => ({ matches: query === "(min-width: 1024px)", addEventListener: vi.fn(), removeEventListener: vi.fn() })));
   fetchMock = vi.fn(async (path: string) => {
     if (path === "/api/sites") return Response.json([{ id: "site-1", name: "현장", customerName: "고객" }]);
     if (path === "/api/sites/site-1/monitoring-incidents?limit=1") return Response.json({ incidents: [], unreadCount: 0, activeCount: 0, nextCursor: null });
@@ -54,10 +54,30 @@ function mount() {
 
 async function openFixtureInspector() {
   fireEvent.click(await screen.findByRole("button", { name: "조명 검색·상세" }));
-  return screen.findByRole("dialog", { name: "조명 검색·상세" });
+  const finder = await screen.findByRole("dialog", { name: "조명 검색·상세" });
+  expect(within(finder).queryByRole("complementary", { name: "선택 조명 상세" })).not.toBeInTheDocument();
+  fireEvent.click(within(finder).getByRole("button", { name: "상세 조명 선택" }));
+  fireEvent.click(await screen.findByRole("option", { name: /입구 조명/ }));
+  fireEvent.click(within(finder).getByRole("button", { name: "상세 보기" }));
+  return screen.findByRole("complementary", { name: "조명 상세" });
 }
 
 describe("customer shell monitoring details", () => {
+  it.each([false, true])("gives monitoring a definite flex height without clipping short-height page overflow (compact %s)", async (compact) => {
+    vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: compact, addEventListener: vi.fn(), removeEventListener: vi.fn() })));
+    mount();
+    await screen.findByRole("button", { name: "새로고침" });
+    const main = screen.getByRole("main");
+    expect(main.parentElement).toHaveClass("flex", "h-dvh", "min-h-0");
+    expect(main.parentElement).not.toHaveClass("pb-shell-navigation-safe");
+    expect(main.parentElement).not.toHaveClass("overflow-hidden");
+    expect(main).toHaveClass("min-h-0");
+    expect(main).not.toHaveClass("overflow-hidden");
+    const content = main.querySelector("[data-shell-content]");
+    expect(content).toHaveClass("flex", "flex-col", "min-h-0");
+    expect(content).not.toHaveClass("overflow-hidden");
+  });
+
   it.each(["loading", "error"])("sends exactly one hardware POST after the initial fixture GET recovers from %s", async (initialState) => {
     const normalFetch = fetchMock.getMockImplementation()!;
     let blocked = true;

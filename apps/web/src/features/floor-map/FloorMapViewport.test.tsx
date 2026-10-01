@@ -17,6 +17,14 @@ const snapshot: FloorMapSnapshot = {
 describe("FloorMapViewport", () => {
   afterEach(() => cleanup());
 
+  it("can reserve a controls footer without changing the default overlay", () => {
+    const view = render(<FloorMapViewport snapshot={snapshot} ariaLabel="footer camera" controlsPlacement="footer"><span /></FloorMapViewport>);
+    expect(screen.getByRole("group", { name: "지도 확대 축소" })).toHaveClass("shrink-0");
+    expect(screen.getByRole("group", { name: "지도 확대 축소" })).not.toHaveClass("absolute");
+    view.rerender(<FloorMapViewport snapshot={snapshot} ariaLabel="footer camera"><span /></FloorMapViewport>);
+    expect(screen.getByRole("group", { name: "지도 확대 축소" })).toHaveClass("absolute");
+  });
+
   it("exposes a camera handle without requiring measured geometry", () => {
     const ref = createRef<import("./FloorMapViewport").FloorMapViewportHandle>();
     render(<FloorMapViewport ref={ref} snapshot={snapshot} ariaLabel="camera"><span /></FloorMapViewport>);

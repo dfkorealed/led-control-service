@@ -2,6 +2,11 @@ import { describe, expect, it } from "vitest";
 import { presentFixtureStatus } from "./fixture-status-presentation";
 
 describe("presentFixtureStatus", () => {
+  it("keeps server fault primary while explaining its offline gateway", () => {
+    const result = presentFixtureStatus({ status: "fault", statusReason: "gateway_offline" });
+    expect(result).toMatchObject({ label: "장애", state: "fault", tone: "danger" });
+    expect(result.description).toContain("게이트웨이");
+  });
   it.each([
     [{ status: "offline", statusReason: "provisioning_waiting_state", health: null }, "상태 확인 대기", "최초 상태 수신 대기", "warning", "provisioning_waiting_state"],
     [{ status: "offline", statusReason: "gateway_offline", health: null }, "게이트웨이 오프라인", "게이트웨이 연결 확인", "danger", "gateway_offline"],

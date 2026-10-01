@@ -16,7 +16,7 @@ import {
   type PointerEvent as ReactPointerEvent,
   type ReactNode
 } from "react";
-import { Button, IconButton } from "../../components/ui";
+import { Button, IconButton, cn } from "../../components/ui";
 import {
   anchoredScrollPosition,
   clampMapZoom,
@@ -66,6 +66,7 @@ interface FloorMapViewportProps {
   children: ReactNode;
   onAreaSelect?: (rect: MapSelectionRect) => void;
   showControls?: boolean;
+  controlsPlacement?: "overlay" | "footer";
   wheelZoomWithoutModifier?: boolean;
   showFitControl?: boolean;
   resetControlFits?: boolean;
@@ -103,6 +104,7 @@ export const FloorMapViewport = forwardRef<FloorMapViewportHandle, FloorMapViewp
   children,
   onAreaSelect,
   showControls = true,
+  controlsPlacement = "overlay",
   wheelZoomWithoutModifier = false,
   showFitControl = true,
   resetControlFits = false,
@@ -617,10 +619,10 @@ export const FloorMapViewport = forwardRef<FloorMapViewportHandle, FloorMapViewp
 
   return (
     <FloorMapViewportOverlayContext.Provider value={overlayContext}>
-    <div className="relative h-full min-h-0 min-w-0 overflow-hidden bg-surface-inset">
+    <div className={cn("relative h-full min-h-0 min-w-0 overflow-hidden bg-surface-inset", controlsPlacement === "footer" && "flex min-h-min flex-col")}>
       <div
         ref={viewportRef}
-        className="h-full min-h-0 w-full min-w-0 touch-none cursor-grab overflow-auto overscroll-contain bg-surface-inset focus-visible:outline-none focus-visible:shadow-focus active:cursor-grabbing"
+        className={cn("h-full min-h-0 w-full min-w-0 touch-none cursor-grab overflow-auto overscroll-contain bg-surface-inset focus-visible:outline-none focus-visible:shadow-focus active:cursor-grabbing", controlsPlacement === "footer" && "min-h-[240px] flex-1 [contain:size]")}
         data-testid={viewportTestId}
         onKeyDown={onViewportKeyDown}
         role="region"
@@ -654,7 +656,7 @@ export const FloorMapViewport = forwardRef<FloorMapViewportHandle, FloorMapViewp
         </div>
       </div>
       {showControls ? (
-        <div className="absolute right-3 bottom-3 z-6 flex items-center gap-1 rounded-control border border-border-default bg-surface-panel p-1 shadow-popover max-compact:right-2 max-compact:bottom-2" role="group" aria-label={controlAfterZoom ? "지도 조작" : "지도 확대 축소"}>
+        <div className={cn("flex items-center gap-1 rounded-control border border-border-default bg-surface-panel p-1", controlsPlacement === "footer" ? "m-2 shrink-0 self-end" : "absolute right-3 bottom-3 z-6 shadow-popover max-compact:right-2 max-compact:bottom-2")} role="group" aria-label={controlAfterZoom ? "지도 조작" : "지도 확대 축소"}>
           <IconButton type="button" variant="ghost" size="sm" className="max-compact:size-13" aria-label="지도 축소" disabled={zoom <= 0.1} onClick={() => changeZoom(zoomRef.current - 0.1, undefined, true)}><Minus size={16} aria-hidden="true" /></IconButton>
           <Button type="button" variant="ghost" size="sm" className="min-w-14 px-2 max-compact:min-h-13" aria-label={`지도 배율 ${Math.round(zoom * 100)}%`} aria-description={resetControlFits ? "누르면 지도 가운데 100%로 재설정" : "누르면 100%로 재설정"} title={resetControlFits ? "가운데 100%로 재설정" : "100%로 재설정"} onClick={() => resetControlFits ? fit() : changeZoom(1, undefined, true)}>{Math.round(zoom * 100)}%</Button>
           <IconButton type="button" variant="ghost" size="sm" className="max-compact:size-13" aria-label="지도 확대" disabled={zoom >= 4} onClick={() => changeZoom(zoomRef.current + 0.1, undefined, true)}><Plus size={16} aria-hidden="true" /></IconButton>

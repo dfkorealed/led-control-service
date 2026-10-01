@@ -1,5 +1,17 @@
 # 모니터링 메뉴 기능 현황
 
+## 2026-10-02 지도·명시 선택·상세·전체 로그 (Task 5)
+
+- 구현 완료: 지도에 실제 표시되는 정상·장애·오프라인·상태 확인 대기·정보 확인 전 상태만 아이콘과 문구로 범례에 표시한다. 고정 이동 안내와 지도 표시 대수만 제거하며 KPI·검색 결과·로그 실제 개수는 유지한다. 시각 중심은 20px 원형, 실제 monitoring hit는 48×48 CSS px이고 상태 테두리/아이콘과 별도 선택 외곽선·키보드 초점으로 색상 외 구분을 제공한다. 기존 밝기 단계·CAD·휠·키보드·touch·Gateway/권한 제약은 유지한다.
+- 구현 완료: 선택 ID는 처음 `null`이며 검색 열기·조회 도착·0건 필터가 임의 조명을 선택하지 않는다. 명시 pin 선택은 필터 초기화와 같은 갱신에서 ID를 유지한다. 외부 검색/KPI·층·현장·계정 변경과 확인된 삭제는 선택을 해제하고 다른 조명으로 대체하지 않는다. 저장 pin이 runtime보다 먼저 도착하면 그 ID/이름과 불러오는 중 상태를 유지한다.
+- 구현 완료: 검색과 상세의 열림은 독립이다. 명시 상세 확장은 1024px 이상 비모달 aside, 그 미만 공통 DetailSheet에서 같은 조명 정보를 표시하며 팝오버를 중복 노출하지 않는다. 지도 viewport는 유지하고 상세 닫기는 연결된 원래 marker 또는 toolbar로 초점을 돌려준다. PC 닫기도 기존 52px 토큰으로 실제 연속 44px 클릭 영역을 확보한다. 모니터링 전용 유한 flex 높이는 남은 공간을 지도로 배분하며 조작 footer를 제외한 실제 지도 viewport 최소 240px와 짧은 화면의 접근 가능한 page scroll을 보존한다. zoom/full-view 조작은 모니터링에서만 별도 footer 공간을 사용해 오른쪽 아래 48px pin 클릭을 가리지 않는다. 다른 메뉴의 viewport overlay와 문서 스크롤 정책은 변경하지 않는다.
+- 구현 완료: 전체 로그는 공통 FilterPanel·LogView·PaginationBar를 소비하고 기본50/100/500/1000건, 종료일 포함 paired 기간 및 전체 보관 기간, unknown-total cursor 이동을 제공한다. 계정·현장·층·크기·기간별 query scope와 cursor 초기화를 분리하며 이전 범위의 늦은 응답은 새 화면에 섞이지 않는다. loading/error/410에는 이전 행이나 가짜0건 성공을 표시하지 않고 재시도/최신 기록 복구를 제공한다. 최근 ticker는 기존 소량5건 호출을 유지한다.
+- 구현 완료: 실제 서버 시각은 공통 formatter의 `yyyy-MM-dd HH:mm:ss`/Gregorian/h23를 사용하며 자정은 `00:00:00`, 잘못된 값은 `—`다. 현장 시간대와 ISO 원본 정밀도·freshness/retention 의미는 그대로 유지한다.
+- 미구현: 운영 DB migration·실장비·native WebView·실제 브라우저 두 세션·운영 배포 검증은 이번 변경에 포함하지 않는다.
+- 부족하거나 개선이 필요한 기능: 검증은 격리 route fixture와 scoped 자동 회귀이며 완료된 실장비 증거가 아니다. 공통 알람 Drawer/safe-area의 독립 검수 보완과 최종 통합/디자이너 검수는 총괄이 이어서 수행한다. 기존 설정 편집기1000대/8초 성능 실패는 별도로 유지하며 제한을 늘리거나 skip하지 않는다.
+- 관련 파일: `apps/web/src/features/monitoring/{MonitoringView,FloorMap,FixtureDetailPanel,MonitoringLogDrawer,monitoring-time,useMonitoringActivity,fixture-status-presentation}`, `apps/web/src/features/floor-map/{FloorScene,FloorMapViewport}`, 모니터링 전용 display 분기의 `apps/web/src/features/shells/CustomerShell.tsx`, 관련 단위·monitoring E2E 및 `operations-ui-comments.spec.ts`.
+- 갱신 규칙: 이전 날짜의 네모 marker/자동 선택/5건 drawer 설명은 당시 증거이며 현재 계약은 이 Task5 항목을 우선한다. 선택·필터·삭제·runtime 순서·breakpoint 카메라/scroll/focus·실제 footer/marker bounds·로그 기간/크기/cursor/stale/error 회귀와 이 문서를 같은 기능 변경에서 유지한다.
+
 ## 2026-10-02 영속 알람센터 웹 소비 (Task 4)
 
 - 구현 완료: CustomerShell의 인증 계정·접근 가능한 선택 현장을 기준으로 기존 incident GET/개인 읽음 PUT를 소비한다. `알람센터` 배지는 서버의 현장 전체 `unreadCount`만 사용하며, 닫힌 센터는 `limit=1`, 열린 목록은 25건과 서버 cursor를 사용한다. 기존 `incidents[]`·`activeCount`·운영 상태·시각 정밀도를 검증하고 잘못된 응답을 0건으로 표시하지 않는다.
@@ -26,7 +38,7 @@
 
 - 구현 완료: 현장·선택 층 `monitoring-activity` 조회에 paired `fromDate`/`toDate`(`YYYY-MM-DD`)와 1–1,000건 상한을 추가했다. API 기본 5건은 유지한다. 현장에 저장된 시간대로 종료일을 포함하는 `[start,end)`를 계산하고, 같은 읽기 transaction의 중앙 DB `generatedAt`·3 calendar months `retainedFrom`과 교차한다. 빈 교집합은 기록 0건이며 다른 기간으로 확장하지 않는다.
 - 구현 완료: 응답은 사용자·현장·층·날짜 조건·실효 조회 크기의 canonical SHA-256 scope와 원본 recordedAt/id를 담은 v2 cursor를 발급한다. 조건 변경/잘못된 cursor는 400, 같은 scope의 보존 만료는 기존 410이다. 기존 v1은 날짜 조건 없이 기존 상한 50 이하에서만 수용하고 다음 cursor는 v2다. `items`·`nextCursor`·ISO 메타데이터와 안전한 필드 allowlist는 유지한다.
-- 미구현: 웹 전체 로그의 50/100/500/1000 선택·기간 입력·unknown-total 페이지 UI는 후속 Task다. 현재 최근 활동 띠/기존 서랍의 소량 조회는 그대로다.
+- 구현 완료(웹 후속 Task5): 전체 로그의 50/100/500/1000 선택·기간 입력·unknown-total cursor UI를 소비한다. 최근 활동 띠의 소량5건 조회는 그대로다.
 - 부족하거나 개선이 필요한 기능: 이번 API 단위 회귀와 전체 소프트웨어 검증은 실제 사용자 DB·장비 또는 운영 적용 증거가 아니다. 일회용 PostgreSQL opt-in 통합과 독립 검토는 별도 관문으로 기록한다. 명령/incident 보존 및 기존 활동 삭제 worker를 변경하지 않는다.
 - 관련 파일: `apps/api/src/retention/log-date-range.ts`, `apps/api/src/monitoring-activity/monitoring-activity.{controller,service}.ts`, 관련 단위·통합 테스트.
 - 갱신 규칙: producer 지원과 웹 소비 적용을 구분하고 paired 날짜 검증·현장 시간대/DST·DB 시각·scope/조회 크기 cursor·동일 시각 ID 순서·legacy 호환 및 opt-in 실행 여부를 함께 유지한다.
@@ -239,7 +251,7 @@
 - 이미 다른 층에 매핑된 기존 fixture가 같은 device UUID로 다시 발견되면 자동 이동하지 않고 provisioning 완료를 `failed`로 종료해 현장 매핑 충돌을 드러낸다.
 - 상단 `맵 선택` SelectBox로 지하/지상 층을 전환하며 문구와 SelectBox를 한 줄에 배치한다.
 - 층별 2D 맵에 도면 이미지와 조명 위치를 표시한다.
-- 조명 점은 선택/hover/focus에서도 크기가 변하지 않는 모서리 3px의 20px 네모 marker로 표시하고 outline과 적층으로만 현재 선택을 구분한다. online은 10개 밝기 단계별 정적 fill/glow를 적용하고 실제 computed 스타일의 단조 증가와 같은 단계의 동일함을 검증한다.
+- 조명 점은 선택/hover/focus에서도 시각 크기가 변하지 않는 20px 원형이며 실제 monitoring hit는 48×48px이다. 상태 테두리·비색상 아이콘과 별도 선택/초점 outline으로 상태와 선택을 구분한다. online은 기존 10개 밝기 단계별 정적 fill/glow와 실제 computed 스타일의 단조 증가·같은 단계 동일함을 유지한다.
 - 조명 점의 접근성 라벨과 tooltip은 한국어 상태명(정상/오프라인/장애)을 사용하고, `provisioning_waiting_state`는 `상태 확인 대기`로 별도 표시한다.
 - 선택 조명 상세 패널은 확인된 밝기·마지막 확인·고객용 상태 설명·권장 조치·배치 여부만 표시한다. 좌표·정격 전력·게이트웨이·RSSI·hop count·명령 성공률·숫자 Health 코드 등 기술 정보는 제거했다.
 - 선택 층 기준 전체 조명 수, 온라인 수, 점검 필요 수와 상태 확인 대기를 포함한 오프라인 수를 상단 KPI로 표시한다.
@@ -352,7 +364,7 @@
 - 1,000개 marker 조회/렌더링 기준은 자동 검증한다. 현재 이름/번호 검색은 브라우저가 이어 받아온 현재 층 fixture 페이지에 적용되며 서버 전체 검색 API는 없다. 더 큰 현장에는 공간 클러스터링과 서버 검색이 추가로 필요하다.
 - 자사 UUID 검색, batch 등록, 실제 Health Current 수집을 포함한 Raspberry Pi/ESP32-H2 실장비 HIL은 아직 실행하지 않았다. 자동 route fixture 통과를 검색·등록·상태 수집의 실기 완료로 간주하지 않는다.
 - Sensor server-send breaker는 actual patched source allocator fault harness와 fullclean target compile로 검증했다. 실제 device heap pressure, BTC queue saturation과 Sensor Status RF 전달은 HIL에서 확인해야 하며 software allocation test를 실장비 완료로 간주하지 않는다.
-- 현재 선택 로직은 첫 장애 조명 또는 첫 조명을 자동 선택하므로, 사용자가 이전에 보던 조명을 유지하는 정책을 더 정교하게 만들 수 있다.
+- 현재 선택 로직은 명시 선택 ID 또는 `null`만 사용한다. 자동 첫 장애/첫 조명 선택은 제거했으며 새 데이터와 저장 pin/runtime 도착 순서가 임의로 선택을 바꾸지 않는다.
 - 등록 패널은 `pending/scanning` 또는 provisioning 중에만 1.5초 registration session polling으로 결과를 반영한다. `reconcile_required`의 서버 상태 재조회, 명시적 제외와 세션 취소는 구현했지만 장비가 실제로 provisioned 되었는지 Gateway/BlueZ에 질의하고 자동 정리하는 기능은 없다. 현장 관리자가 장비를 확인·초기화하지 않은 채 제외하면 안 되며 이 절차는 Raspberry Pi/ESP32-H2 HIL로 검증해야 한다.
 - scan lifecycle 자동 테스트는 mock MQTT와 scanner adapter를 사용한다. 실제 host Mosquitto mTLS negative ACL integration에서 Gateway CN certificate의 `acks/state-ingested`, `acks/provisioning/scan-terminal-ingested` publish 거부를 확인했다. 2026-09-18 Task 7에서는 Docker broker persistence 재시작과 운영·개발 ACL 검증 3/3을 통과해 과거 Docker daemon 부재로 인한 skip 상태를 갱신했다. 이는 소프트웨어 broker 검증이며 실제 Raspberry Pi BlueZ adapter의 scan timeout, broker/Pi/API 재시작을 가로지르는 terminal application ACK 재전달, ESP32-H2 자사 UUID 필터와 terminal event 전달은 HIL에서 별도로 확인해야 한다.
 

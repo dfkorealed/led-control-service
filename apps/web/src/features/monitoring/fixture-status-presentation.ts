@@ -18,6 +18,7 @@ export interface FixtureStatusPresentation {
   recommendedAction: string;
   tone: StatusTone;
   state: "provisioning_waiting_state" | "gateway_offline" | "fixture_stale" | "command_failed" | "fault" | "online" | "offline";
+  mapState: "online" | "fault" | "offline" | "waiting";
 }
 
 export function presentFixtureStatus({
@@ -29,6 +30,11 @@ export function presentFixtureStatus({
   statusReason?: FixtureStatusReason;
   health?: { faultCodes: readonly number[]; observedAt: string } | null;
 }): FixtureStatusPresentation {
+  // A server fault remains primary even when the connection cause is offline.
+  // Preserve that cause in detail rather than changing server status precedence.
+  if (status === "fault" && statusReason === "gateway_offline") {
+    return presentation("장애", "조명에서 점검이 필요한 상태를 보고했습니다. 연결된 게이트웨이도 오프라인입니다.", "조명 상태와 연결 확인", "danger", "fault");
+  }
   if (statusReason === "provisioning_waiting_state") {
     return presentation("상태 확인 대기", "조명이 등록된 뒤 최초 상태 보고를 기다리고 있습니다.", "최초 상태 수신 대기", "warning", "provisioning_waiting_state");
   }
@@ -57,5 +63,8 @@ function presentation(
   tone: StatusTone,
   state: FixtureStatusPresentation["state"]
 ): FixtureStatusPresentation {
-  return { label, description, recommendedAction, tone, state };
+  const mapState = state === "provisioning_waiting_state" || state === "fixture_stale" ? "waiting"
+    : state === "fault" || state === "command_failed" ? "fault"
+      : state === "online" ? "online" : "offline";
+  return { label, description, recommendedAction, tone, state, mapState };
 }

@@ -104,6 +104,16 @@ describe("customer shell site context", () => {
     expect(screen.queryByText(/LED\s+Control/)).not.toBeInTheDocument();
   });
 
+  it.each(["/control", "/settings", "/statistics/overview"])("keeps the ordinary %s document-scroll layout outside monitoring", async (path) => {
+    renderShell(`${path}?siteId=site`);
+    const main = screen.getByRole("main");
+    expect(main.parentElement).toHaveClass("min-h-screen");
+    expect(main.parentElement).not.toHaveClass("h-dvh", "overflow-hidden");
+    expect(main).not.toHaveClass("min-h-0", "overflow-hidden");
+    const content = main.querySelector("[data-shell-content]");
+    expect(content).not.toHaveClass("flex", "min-h-0", "overflow-hidden");
+  });
+
   it("shows authorized sites globally and switches only the siteId in the current route", async () => {
     sitesState.current.data = [
       { id: "site", name: "본사", customerName: "고객사 A" },
