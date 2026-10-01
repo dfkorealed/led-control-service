@@ -39,7 +39,7 @@
 | 1 | Shell backend: 로그 API | 완료·독립 명세/품질 승인 | 5c1d313e + 982f999a; focused119/119 |
 | 2 | Shell backend: 개인 알람 읽음 | 완료·독립 명세/품질 승인 | bdb2d9e1; focused97/97(실제DB56 포함) |
 | 3 | Shell 공통 UI | 완료·독립 명세/품질 승인 | 793d126a; focused429/429, Web type/build/UI0; P3 경계1건 후속 |
-| 4 | Shell 범위·새 내부 구현 보조 | 보완1·독립 검토 미승인 | 9740967e P2 늦은 조회 역전; scoped RED/GREEN 필요 |
+| 4 | Shell 범위·새 내부 구현 보조 | 완료·독립 명세/품질 승인 | 9740967e + 13249728; scoped 재검토 승인·28/28·Chromium2/2 |
 | 5 | 모니터링 페이지 담당자 | 대기 | — |
 | 6 | 제어 UI 개선 담당자(GPT-6.1 Sol/high) | 대기 | — |
 | 7 | 통계 페이지 담당자 | 대기 | — |
@@ -129,11 +129,13 @@ Task3 evidence: 793d126a, updated Ruling included; RED37/31→scoped429/429(9fil
 - `useMonitoringIncidents(userId:string|undefined,siteId:string|undefined,open:boolean)` exposes server unreadCount/list loading/error/stale state + cursorpaging and read action; query keys include principal/site. Closed uses GETlimit1, open paginated25; retain in-flight dedupe per scopedID, only visible active-document center rows PUT.
 - Center title/trigger/close ‘알람센터’; durable list + separate ‘현재 화면 상태’. Badge uses durable unreadCount only, no optimistic subtraction/zero onfailure. Success refetch canonical counts; pagevisibility/focusrefresh syncdevices.
 
-- [ ] Step 1 — Add `closed_hidden_next_page_alarms_are_not_read`, `visible_read_succeeds_refetches_and_failure_preserves_badge`, `account_site_switch_discards_late_read`, `transient_status_actions_are_not_alarm_count`: assert visible PUT exactlyonce, offscreen/closed0, serverrelogin read persists, sameincidentpoll no newread, PUTfail unread preserved, stale GET labeled, previous scope abandoned, transientretry/progress remains available.
-- [ ] Step 2 — Run focused `pnpm --filter @led-control/web run test src/api/monitoring-incidents.test.ts src/components/ui/session-status src/features/shells --maxWorkers=1 --minWorkers=1`; record assertion RED (no import/setup failures). Explicit `run test` forwards Vitest worker flags through pnpm9.15.
-- [ ] Step 3 — Implement validation/hook/center/CustomerShell using existing session lifecycle and ReactQuery scoped cache; IntersectionObserver only inside open center+documentactive, dispose observer onclose/scopechange. No autoack/resolve or dispatch command.
-- [ ] Step 4 — GREEN same tests + Web typecheck/build/ui:check; browser center keyboard/open/scroll/read-failure/route-switch assertions in `apps/web/e2e/operations-ui-comments.spec.ts` (created here, downstream add serially).
-- [ ] Step 5 — Update monitoring menu and commit `feat: replace session badge with persistent alarm center`; independent review.
+- [x] Step 1 — Add `closed_hidden_next_page_alarms_are_not_read`, `visible_read_succeeds_refetches_and_failure_preserves_badge`, `account_site_switch_discards_late_read`, `transient_status_actions_are_not_alarm_count`: assert visible PUT exactlyonce, offscreen/closed0, serverrelogin read persists, sameincidentpoll no newread, PUTfail unread preserved, stale GET labeled, previous scope abandoned, transientretry/progress remains available.
+- [x] Step 2 — Run focused `pnpm --filter @led-control/web run test src/api/monitoring-incidents.test.ts src/components/ui/session-status src/features/shells --maxWorkers=1 --minWorkers=1`; record assertion RED (no import/setup failures). Explicit `run test` forwards Vitest worker flags through pnpm9.15.
+- [x] Step 3 — Implement validation/hook/center/CustomerShell using existing session lifecycle and ReactQuery scoped cache; IntersectionObserver only inside open center+documentactive, dispose observer onclose/scopechange. No autoack/resolve or dispatch command.
+- [x] Step 4 — GREEN same tests + Web typecheck/build/ui:check; browser center keyboard/open/scroll/read-failure/route-switch assertions in `apps/web/e2e/operations-ui-comments.spec.ts` (created here, downstream add serially).
+- [x] Step 5 — Update monitoring menu and commit `feat: replace session badge with persistent alarm center`; independent review.
+
+Task4 evidence: product9740967e initial88/88·ownChromium2/2; independent review caught delayed GET canonical-count reversal P2 and weaker lifecycle assertions P3. Same implementer fix13249728 cleanRED2/25→final28/28·ownChromium2/2/type/build/UI0/diff0. Original reviewer scoped previous9740967e→fix13249728: I1/M1 addressed, Spec✅/qualityApproved, new findings0. Request-start order/cache lifetime and cancellation protect both query modes while canonical increases/decreases/errors remain valid. Actual DB two-session persistence, downstream selector migrations, whole-root and physical matrix remain future gates, not completed by this source/fixture approval.
 
 ### Task 5: 모니터링 지도·명시 선택·상세·공통 로그
 
