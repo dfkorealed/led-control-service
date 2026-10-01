@@ -35,8 +35,8 @@
 
 | Task | 담당 세션/역할 | 상태 | 커밋·검토 |
 | --- | --- | --- | --- |
-| 준비 | Shell·인증·운영 담당자 | 환경 준비·baseline 진행 | 제품 코드 변경 없음 |
-| 1 | Shell backend: 로그 API | 환경 준비 후 구현 배정 | BASE bd891e7e; 독립 검토 전 |
+| 준비 | Shell·인증·운영 담당자 | 격리 실행 완료; root test 1건 실패 | lint/typecheck/build exit0, Gateway CLI timeout; API 전체 종료 요약 없음 |
+| 1 | Shell backend: 로그 API | 구현 진행 | BASE bd891e7e; 독립 검토 전 |
 | 2 | Shell backend: 개인 알람 읽음 | 대기 | — |
 | 3 | Shell 공통 UI | 대기 | — |
 | 4 | Shell 알람센터 소비 | 대기 | — |

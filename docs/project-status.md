@@ -10,9 +10,9 @@
 - [x] 기본 개발 기준 `codex/mvp1-cloud-web`의 `36a99b29`에서 `.worktrees/operations-ui-comments-20261001` / `codex/operations-ui-comments-20261001`을 만들었다. 앱 도구는 등록 폴더가 Git 저장소가 아니어서 실패했으며 확인된 실제 저장소에서 Git fallback으로 격리했다. 기본 체크아웃·실행 중 서버·설치 및 센서 worktree의 WIP는 변경하지 않는다.
 - [x] UI/UX 디자이너가 [설계 명세](superpowers/specs/2026-10-01-operations-ui-comments-design.md)를 작성하고 총괄이 주석 1–22의 누락 없음과 참조 경로 76개 존재를 재검증했다. 파일 경로 오류 1건과 오류 응답·검토 지적 범위 표현을 보완했다. 이번 산출물은 설계/상태 문서이며 구현 테스트는 실행하지 않았다.
 - [x] 사용자가 ‘그냥 너가 계획 작성하고 바로 진행해줘’로 추가 문서 검토 대기 없이 실행을 지시했다. [실행 체크리스트](superpowers/plans/2026-10-01-operations-ui-comments.md)를 작성·자기 검토하고 공유 API/DB → 공통 UI → 페이지 소비 순서를 고정했다. 운영 DB 적용·실장비 배포·원격 push까지 승인한 것은 아니다.
-- [ ] 기존 Shell 담당 세션이 이 격리 worktree에서 Node22/pnpm9.15 frozen 설치·Prisma 생성·workspace 준비와 fresh root baseline을 진행한다. 제품 코드는 아직 변경하지 않았으며 각 기능 Task는 검증된 선행 결과 뒤 순차 배정한다.
+- [x] 기존 Shell 담당 세션이 실제 격리 worktree에서 Node22/pnpm9.15 frozen 설치·Prisma 생성·workspace 준비와 root baseline 실행을 마쳤다. lint/typecheck/build exit0, test exit1이다. 변경 전 `scripts/bio-sensor-shadow-analyze.test.ts`의 5초 timeout 1건(Gateway 1408 passed/1 failed)을 기록했으며 전체 API 종료 요약과 후행 UI 정책 단계는 완료 증거가 없다. Web 2630 passed/3 skipped·Shared411·Automation28·Mobile6·root149/4 skipped 결과는 확인했다. baseline 전체 통과로 표현하지 않는다.
 - [ ] Shell 담당 세션에 준비 완료 후 Task 1 로그 기간·1000건 API를 바로 이어 구현하도록 배정했다(BASE `bd891e7e`). task brief/report를 격리 계획 전용 기록부에 전달했고 기존 기본 서버와 센서/설치 WIP에는 수정 권한을 주지 않았다. 아직 구현 완료/독립 검토 통과 상태가 아니다.
-- 준비 보조 스크립트가 최초 경로 계산을 잘못하여 기본 checkout에서 검증한 오류를 확인했다. 해당 결과는 격리 baseline 증거에서 제외하고 별도 보존한다. 기본 소스는 clean/원래 HEAD이며 DB·서버·장비 변경은 없었다. runner에 cwd/Git root/branch 강제 확인을 추가하고 실제 격리 worktree에서 설치부터 다시 검증 중이다.
+- 준비 보조 스크립트가 최초 경로 계산을 잘못하여 기본 checkout에서 검증한 오류를 확인했다. 해당 결과는 격리 baseline 증거에서 제외하고 별도 보존한다. 기본 소스는 clean/원래 HEAD이며 DB·서버·장비 변경은 없었다. runner에 cwd/Git root/branch 강제 확인을 추가하고 실제 격리 worktree에서 설치부터 다시 실행했다. 기본 ignored 설치/생성/build 산출물 가능 범위는 준비 보고서에서 구분하며 삭제하지 않는다.
 - [ ] 로그 기간/1000건 API, 계정별 읽음 DB/API, 공통 UI, 알람센터, 모니터링, 신설 제어 UI, 통계, 설정/운영 시각을 구현하고 단계별 독립 검토를 통과한다. 메뉴 현황·스키마 문서는 해당 기능과 같은 커밋에서 갱신한다.
 - [ ] 구현 후 화면 폭 320/390/768/962/1017/1024/1440px와 1023/1025px 경계, 짧은 높이·200% 확대·키보드·터치 및 데이터/권한/명령 안전 회귀를 검증한다. 독립 UI/UX·코드 검토의 미해결 P0–P2가 없어야 기본 개발 브랜치에 병합한다. 실제 HIL·운영 배포·사용자 DB 초기화·원격 push는 포함하지 않는다.
 
