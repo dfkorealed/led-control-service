@@ -40,7 +40,7 @@
 | 2 | Shell backend: 개인 알람 읽음 | 완료·독립 명세/품질 승인 | bdb2d9e1; focused97/97(실제DB56 포함) |
 | 3 | Shell 공통 UI | 완료·독립 명세/품질 승인 | 793d126a; focused429/429, Web type/build/UI0; P3 경계1건 후속 |
 | 4 | Shell 범위·새 내부 구현 보조 | 소스 승인·물리 P2 보완 대기 | 9740967e + 13249728; scoped 소스 승인·28/28·Chromium2/2, 닫기/안전영역 물리 지적2건 |
-| 5 | 모니터링 담당 범위·새 실행 보조 | 구현 중·문맥 이탈 복구 | 현재 brief의 복구 BASE 사용; 옛 휠34건은 이번 완료 아님 |
+| 5 | 모니터링 담당 범위·새 실행 보조 | 구현 반환·독립 검토 중 | 7455d16c;275단위·타입/빌드/UI0, Chromium108/109(상속 편집기1실패) |
 | 6 | 제어 UI 개선 담당자(GPT-6.1 Sol/high) | 대기 | — |
 | 7 | 통계 페이지 담당자 | 대기 | — |
 | 8 | 설정 담당 → Shell 운영 담당 | 대기 | — |
@@ -151,9 +151,11 @@ Task5 parent checkpoint: targeted parent assertion RED→GREEN and fresh browser
 
 - [x] Step 1 — Add tests for realstatuslegendpresentonly/unknown/fault+offline, no countoverlay, all3selectionstates initiallynull; search/KPI0 doesn'tselect, explicitpinatomicfilterclear keepsID, changedfilter/floor/site/principal or deletedID clears not substitutes. Savedpinbefore runtime keepsselectedID withloading. Full logs date/size resetfirstpage/stale responseignored/410recover/no fake0.
 - [x] Step 2 — RED focused `pnpm --filter @led-control/web test src/features/monitoring src/features/floor-map`; browser RED for responsive map, circlemarker/detail before changes.
-- [ ] Step 3 — Implement data-linked legend oldhintposition/countremoval, statuscircle/noncolor/48pxhit, flexheightchain/min240/pageoverflow, formatter adapters, LogView/FilterPanel/PaginationBar consumer and PCaside/mobileDetailSheet. Expand opens samefixture and hides duplicatepopover; switchingwidth preserves camera/scroll/validfocus. No logsDrawer fordetail.
-- [ ] Step 4 — GREEN focused tests + typecheck/build/ui:check; Playwright `operations-ui-comments.spec.ts monitoring-navigation-confidence.spec.ts monitoring-control-flow.spec.ts calm-operations-monitoring.spec.ts monitoring-1000.spec.ts` Chromium workers1. Include bounds/focus/camerachecks at320/390/768/962/1017/1023/1024/1025/1440 and shortheights; isolate known editor1000 performance failure without raisingthreshold or claimingpass.
-- [ ] Step 5 — Update monitoring menu and commit `feat: refine monitoring map selection detail and log ux`; report shared map ownership returned and independent review before control.
+- [x] Step 3 — Implement data-linked legend oldhintposition/countremoval, statuscircle/noncolor/48pxhit, flexheightchain/min240/pageoverflow, formatter adapters, LogView/FilterPanel/PaginationBar consumer and PCaside/mobileDetailSheet. Expand opens samefixture and hides duplicatepopover; switchingwidth preserves camera/scroll/validfocus. No logsDrawer fordetail.
+- [x] Step 4 — GREEN focused tests + typecheck/build/ui:check; Playwright `operations-ui-comments.spec.ts monitoring-navigation-confidence.spec.ts monitoring-control-flow.spec.ts calm-operations-monitoring.spec.ts monitoring-1000.spec.ts` Chromium workers1. Include bounds/focus/camerachecks at320/390/768/962/1017/1023/1024/1025/1440 and shortheights; isolate known editor1000 performance failure without raisingthreshold or claimingpass.
+- [x] Step 5 — Update monitoring menu and commit `feat: refine monitoring map selection detail and log ux`; report shared map ownership returned and independent review before control.
+
+Task5 returned7455d16c fromBASEb0b31c2c; final fullreport/postcommit/sourcehash/clean/ownport cleanup read by coordinator. Fresh25files275tests/type/UI0/build/diff passed; required frozen five-file Chromium109=108PASS/1unchanged editor1000/8s FAIL(22.7s), no skip/limit relaxation. Earlier pre-detail390 fullviewEscape intermittent observation remains a review concern, not a claimed repair. Conditional monitoring-only Shell boundary, actualscene240/flowfooter, existing44 closehit safety restoration, explicit ID-scoped camera/scroll/focus, actual1000logs included. Fresh Task5 spec/quality review is pending; all22/native200/positive-safearea/two-sessionDB/root and Task4 physical2P2 still pending. Checked steps mean implemented/executed/returned, not independent approval or whole-request completion.
 
 ### Task 6: 제어 직접 조작·단일 밝기·스케줄·공통 이력
 
