@@ -1,8 +1,8 @@
 # 메뉴 완성 작업 상태판
 
-기준일: 2026-10-01
+기준일: 2026-10-02
 
-## 2026-10-01 운영 화면 주석 22건·공통 UI — 실행 계획 작성·격리 환경 준비 진행
+## 2026-10-01 운영 화면 주석 22건·공통 UI — 로그 API 구현 반환·독립 검토 진행
 
 - [x] 사용자 주석 1–22의 기존 동작과 관련 파일을 모니터링·통계·Shell 담당 세션 및 UI/UX 디자이너 세션에서 읽기 전용으로 조사했다. 상태 범례는 실제 데이터와 연결되며, 중간 폭 지도는 300/340px 고정 높이, 기존 뱃지는 미읽음이 아닌 메모리 상태 항목 수임을 확인했다. 실장비 상태 전환 검증 결과는 아니다.
 - [x] 사용자가 기존 공통 컴포넌트 확장, 용도별 상세 패널/하단 시트, 로그 기간·50/100/500/1000건 조회, 명시적 조명 선택, 제어·통계 주석 반영 방향을 승인했다. 알람 읽음은 계정별 영속 저장으로 확정했으며 장애 운영 확인·해결과 별개다.
@@ -13,6 +13,7 @@
 - [x] 기존 Shell 담당 세션이 실제 격리 worktree에서 Node22/pnpm9.15 frozen 설치·Prisma 생성·workspace 준비와 root baseline 실행을 마쳤다. lint/typecheck/build exit0, test exit1이다. 변경 전 `scripts/bio-sensor-shadow-analyze.test.ts`의 5초 timeout 1건(Gateway 1408 passed/1 failed)을 기록했으며 전체 API 종료 요약과 후행 UI 정책 단계는 완료 증거가 없다. Web 2630 passed/3 skipped·Shared411·Automation28·Mobile6·root149/4 skipped 결과는 확인했다. baseline 전체 통과로 표현하지 않는다.
 - [ ] Shell 담당 세션에 준비 완료 후 Task 1 로그 기간·1000건 API를 바로 이어 구현하도록 배정했다(BASE `bd891e7e`). task brief/report를 격리 계획 전용 기록부에 전달했고 기존 기본 서버와 센서/설치 WIP에는 수정 권한을 주지 않았다. 아직 구현 완료/독립 검토 통과 상태가 아니다.
 - Task 1의 실제 assertion RED는 5 suites·19 failed/84 passed였다. pnpm9.15의 예약 `test` 인자 오류는 별도 실패로 분리하고 동일 package script에 Jest 인자를 전달하도록 실행 명령을 `run test`로 보완했다. 제품 동작·검증 범위는 변경하지 않는다.
+- Task 1 기능 커밋 `5c1d313e`를 반환받고 독립 spec/quality 검토를 배정했다. 최종 의도된 RED는 23 failed/89 passed·GREEN 114 passed/12 DB opt-in skipped, API 전체 248 suites·3012 passed/827 skipped, Shared411/411·API typecheck/build exit0이었다. 이후 root test는 변경하지 않은 Shared export 테스트의 5초 timeout(410 passed/1 failed)으로 중단되어 전체 통과가 아니다. 실제 DB 기간/1000행 검증은 Task2/9에서 수행하며 아직 후속 API·UI 구현이나 병합은 완료되지 않았다.
 - 준비 보조 스크립트가 최초 경로 계산을 잘못하여 기본 checkout에서 검증한 오류를 확인했다. 해당 결과는 격리 baseline 증거에서 제외하고 별도 보존한다. 기본 소스는 clean/원래 HEAD이며 DB·서버·장비 변경은 없었다. runner에 cwd/Git root/branch 강제 확인을 추가하고 실제 격리 worktree에서 설치부터 다시 실행했다. 기본 ignored 설치/생성/build 산출물 가능 범위는 준비 보고서에서 구분하며 삭제하지 않는다.
 - [ ] 로그 기간/1000건 API, 계정별 읽음 DB/API, 공통 UI, 알람센터, 모니터링, 신설 제어 UI, 통계, 설정/운영 시각을 구현하고 단계별 독립 검토를 통과한다. 메뉴 현황·스키마 문서는 해당 기능과 같은 커밋에서 갱신한다.
 - [ ] 구현 후 화면 폭 320/390/768/962/1017/1024/1440px와 1023/1025px 경계, 짧은 높이·200% 확대·키보드·터치 및 데이터/권한/명령 안전 회귀를 검증한다. 독립 UI/UX·코드 검토의 미해결 P0–P2가 없어야 기본 개발 브랜치에 병합한다. 실제 HIL·운영 배포·사용자 DB 초기화·원격 push는 포함하지 않는다.
