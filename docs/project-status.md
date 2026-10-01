@@ -4,6 +4,8 @@
 
 ## 2026-09-30 BIO 센서 펄스형 이벤트 제어 — 관련 소프트웨어 검증 완료·실장비 시험 착수
 
+**최신 사용자 사후 정정:** T2 시험에서 첫 ‘움직임 시작’ 구간은 놓쳐 실제로 움직이지 않았고, 나머지 예정 행동은 수행했다고 설명했다. 앞선 포괄적 “맞아” 답변보다 이 구체적 정정을 우선한다. 원본 버튼 기록/최종 보고서는 바꾸지 않고 보호된 `operator-followup.json`에 별도 보존한다. 정확한 행동 전환 시각·광학 밝기 관찰은 여전히 미확정이며 예정 구간을 실제 시각으로 대입하지 않는다. 첫 움직임 미실행과 B final GET timeout으로 전체 시험 통과/제품 활성화 판정은 바뀌지 않는다.
+
 **현장 실행 갱신:** A-only START1회 뒤 2026-10-01 14:26:41.258 KST에 관측창이 열렸지만 사용자 새로고침의 `session rejected`로 즉시 중단·원복했다. A raw/mode 최종 GET=원본, journal closed/pending0, non-A SET0, USB/driver 복원과 동일 Gateway healthy·새 heartbeat3·pending/new commands0을 확인했고 총괄도 복원 증거/hash를 조회했다. B 최종 workflow GET와 전체 창은 미완료이며 trialValid=false/physicalTimingVerified=false다. 중단 증거는 `.local/task9-network/live-pilot-preflight/aborted-trial`에 보존하고 재START하지 않았다. 화면 인증 복구 후 사용자 승인대로 행동 안내 타이머와 분리된 실행 root를 구현했고 최종168/168·독립 검토와 실제 브라우저의 중단 화면/reload를 확인했다. 화면 GET 전용 갱신 없는10분 cookie와 기존 API/기록 경계를 유지하며 행동 기록 뒤 reload는 읽기 전용·새 시험 필요다. 새 native phase/token/START는 준비하거나 실행하지 않았고 제품 gate OFF다. 아래 START 미실행 문장은 첫 실행 전 준비 checkpoint의 기록이다.
 
 **2026-10-01 현재 범위:** 사용자가 이번 BIO 연동과 무관한 로그인/CAD/지도 전체 실패 수정은 제외하고 남은 실제 A/B 시험·서비스 연동을 진행하도록 지시했다. 관련 소프트웨어 검증과 독립 검토는 완료로 인정하고, 아래 전체 저장소 실패는 당시 검증 기록으로 보존한다. Task 9 랩 연결은 원본 백업 뒤 복구했고, 펌웨어 담당자의 물리 동작·독립 liveness 관찰 기준을 받았다. 오늘 전용 A 예비 시험 도구를 보완·독립 재검토하고 exact Pi image 격리 fixture 150/150을 완료했다. 사용자 현장 준비 응답과 live 직전 상태 확인은 대기이며 실제 START/조명 SET은 실행하지 않았다.
