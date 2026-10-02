@@ -44,7 +44,7 @@
 | 6 | 제어 UI 개선 담당자(GPT-6.1 Sol/high) | 완료·독립 명세/품질 승인 | e02d00eb→4128c2de; frozen683단위/90브라우저, Spec✅/qualityApproved; M2 실제 짧은 필터 조작은 Task9 |
 | 7 | 통계 페이지 담당자 → 내부 이어쓰기 | 완료·독립 명세/품질 승인 | e042ef46→ebeebdea;135단위/47브라우저·실제200%·UI0, Spec✅/qualityApproved; 전체검수 별도 |
 | 8 | 같은 설정 담당·5개 시각 batch | 완료·독립 명세/품질 승인 | d014261e→5e39a29e;155단위/Seoul15/브라우저11+1·UI0, 보조 편집기3실패는 결합 Task9에서 확인 |
-| 9 | 디자이너·독립 QA·총괄 | 편집기 보완 승인·직렬 전체 화면검수 | root484f에서7946통과/852skip/UI0; 편집기24f29d46의52단위/8브라우저·원cold/warm8초·저장 통과/독립승인; 최종 root·DB·UIUX·병합 대기 |
+| 9 | 디자이너·독립 QA·총괄 | 실제 화면 검수 Needs fixes·담당자 순차 보완 | 원108 중 중복 제거88통과/20미통과·확정P1 2/P2 3; 지도 오선택·제어 높이→통계 날짜/긴 이름→로그 inset 순차 보완; 관련 재검수·최종 root/DB/검토/병합 대기 |
 
 API와 공통 파일을 동시에 쓰지 않는다. Task 5는 `FloorScene`/`FloorMapViewport` 작성권을 받고, 반환·검토 후 Task 6에 넘긴다. Task 8의 설정/운영도 순차 배정한다. 소비자가 공통 계약 변경을 원하면 총괄에게 반환하고 producer가 수정·재검토한다. 개별 작업은 지정 파일과 보고서만 작성하며 다른 세션/서브에이전트를 임의 생성하지 않는다.
 
@@ -264,6 +264,17 @@ Test-only Shell compatibility addition: `apps/web/e2e/calm-operations-shell.spec
 - [x] Step 5 — Sameownerupdatesbothaffectedmenus andcommitsfive-consumerbatch `refactor: unify remaining timestamp presentation`; fresh batch review Spec✅/qualityApproved, noP0–P2; P3 color/chunk warnings carried to final review. Formatter contract is prior Task3-approved; bounded audit is not an exhaustive raw/external-library claim. Combined editor gates remain Task9.
 
 ### Task 9: 엄격한 UI/UX 관문·실제 격리 소프트웨어·기본 브랜치 통합
+
+Actual 화면 검수 반환 — frozen20137의 같은 디자이너가 원108 사례와 실패 재실행의 모든 원본을 보존했다. 중복 제거 결과88통과/20미통과이며 한 번의 전체108 실행이88통과했다는 뜻은 아니다. 확정 결함은 P1 운영 지도48px 겹침에 의한 잘못된 조명 선택, P1 통계 시작일 연도 ArrowUp 후 모순된 날짜 범위의 화면 crash, P2 짧은 제어 지도 실제69px, P2 통계 긴 이름의 페이지 전체 가로 overflow, P2 모니터링 로그 양수 safe-area 누락이다. 상세의 실제 휠/키보드 끝 정보 접근과 짧은 보고서 필터 접근은 미검증으로 유지한다. 자체 서버/프로필 종료·추적 파일 해시/기본 브랜치/기존 서버 불변을 확인했으며 기본 병합 차단이다.
+
+Ruling — 하나의 순차 source repair wave: 기존 별도 제어 UI 세션(GPT6.1 Sol/high)에 공통 FloorScene 타기팅·짧은 제어 지도, 읽기 진단을 마친 task-only 통계 담당자에 상세 내부 최소폭·통계/보고서 소비자의 안전한 날짜 범위 연결, 같은 모니터링 담당자에 로그 safeArea opt-in을 순서대로 배정한다. 공통 날짜 core의 strict bounds/사용자 초안 보존·48px 접근성·원 편집기·권한/명령 안전성은 유지한다. 원인이 미확정인 상세 스크롤은 실제 사용자 입력 증거로 판단한 뒤에만 보완한다. 한 명만 추적 제품을 쓰며 각 직접 RED/GREEN·메뉴 문서·자원 종료 후 다음 정확 BASE를 전달한다. 보완 묶음의 새 scoped 검토1회→같은 디자이너의 관련 실패/잔여 접근성 재검수→최종 동결 QA 순서이며 완료한 원108 전체 검수는 반복하지 않는다.
+
+Native visibility harness checkpoint — own blank-page probe1회가 .ts 설정의 CommonJS/import.meta 호환 오류로 수집/브라우저 이전691ms에 종료했다. 제품/native 조건 실패로 해석하지 않고 모든6조건은 NOT_REACHED다. 자체 child 종료·tracked/main 불변을 확인했다. 같은 QA에 own ignored harness 호환 보완 작성만 허용하고 실행은 보완·검토 후 새 동결 소스에서 따로 배정한다. 실제 알람/로그 Lab 실행 권한은 아직 없다. 운영 authoritative DB 읽기 결과는 localhost:5432/led_control/PostgreSQL16.14이며 개인 읽음 테이블/해당 migration 기록이 없다; 기존 데이터 삭제·적용·서버 재시작은 수행하지 않았다.
+
+- [ ] Repair A — 같은 제어 UI 담당자: 실제 겹친 조명 중심/disabled/키보드/직접 제스처와 짧은 화면 실제 지도 높이 보완·직접 검증·두 메뉴 갱신.
+- [ ] Repair B — 통계 담당자: 원래 긴 이름/페이지 overflow와 native 연도 입력·clear/reversed draft·무효 요청0/유효 복구, PDF/CSV 계약 보존·메뉴 갱신.
+- [ ] Repair C — 같은 모니터링 담당자: 로그 양수 inset 보완·메뉴 갱신, 상세 끝 정보의 실제 접근 검증과 필요한 경우에만 추가 보완.
+- [ ] Repair review — 보완 묶음 scoped 검토와 같은 디자이너의 원 실패/잔여 관련 재검수, 그 뒤 canonical4·실제 임시DB·ONE whole 검토.
 
 Task9 원 편집기 보완 `24f29d46bbe4f9cdf82f236c33e8d9e2c41b296a`는 정확7d2727f9→6개 허용 파일/설정 메뉴 동시 갱신이다. 최종52단위·type/UI0·실제8브라우저가 통과했고 원1000개/8,000ms/첫ID/픽셀/X50/저장 테스트는 byte-identical이다. 원 cold/warm 전체case2321/2003ms, 신규pointer3·compact3도 통과했다. 초기 Stage 연결 누락·중간 타입/fixture/Transformer 가림 정정과 모든 실패는 보존했다. 새 scoped 검토 Spec PASS/qualityApproved·P0–P3없음, main1ea/서버 신원 불변·소유 자원 정리를 확인했다. 전체22·새소스root·실DB·운영 적용은 이 승인 밖이다. 검토의 제외 항목 중 전체UI/root/DB는 다음 필수 관문, 공통 document picker의 기존 경계는 최종 whole 검토에 명시, HIL/native/무제한 성능·비정상 raw 입력·전체 JS바이트 인증은 지원 범위 밖이며 통과로 확대하지 않는다.
 
