@@ -42,7 +42,7 @@
 | 4 | Shell 범위·새 내부 구현 보조 | 소스·독립 물리 재검수 승인 | 9740967e + 13249728 + cf3e075c; scoped Spec✅/qualityApproved·디자이너34/34·P2두건해결·새지적0 |
 | 5 | 모니터링 담당 범위·새 실행 보조 | 구현·scoped 독립 검토 승인 | 7455d16c + 3c107e60 + 3405415d; I1/I2/I3/N1 해결·새 지적0, Task9 전체검수 대기 |
 | 6 | 제어 UI 개선 담당자(GPT-6.1 Sol/high) | 완료·독립 명세/품질 승인 | e02d00eb→4128c2de; frozen683단위/90브라우저, Spec✅/qualityApproved; M2 실제 짧은 필터 조작은 Task9 |
-| 7 | 통계 페이지 담당자 | 단독 구현·검증 중 | 정확 BASE e042ef46; 새 단언9건 RED·통계134단위 통과는 중간 증거, 실제200%/최종 동결·반환·독립 검토 대기 |
+| 7 | 통계 페이지 담당자 → 내부 이어쓰기 | 구현·동결 반환·독립 검토 중 | 정확 BASE e042ef46→ebeebdea;135단위/47브라우저·실제200%·UI0,12소유파일/clean; 새 Spec/품질 검토 대기 |
 | 8 | 설정 담당 → Shell 운영 담당 | 대기 | — |
 | 9 | 디자이너·독립 QA·총괄 | 대기 | — |
 
@@ -229,10 +229,10 @@ Task6 disposition: complete scoped source/review after root read56-line task-6-r
 
 **Interfaces:** Task3 FilterPanel accepts existing controlledconditions/chips/reset slots; noanalysisreset/URLaddition. Overvieweachperiodline `YYYY-MM-DD ~ YYYY-MM-DD` fromitsownselectedperiod; no overline/estimate-gapbadges. Task3 formatter for actualtimestamps only, retained site/device timezone branches.
 
-- [ ] Step 1 — Assert removed3copy/badges, selectedquickrange textonly, actual0≠missing—, chartconnectNullsfalse and isolatedcompletepoint, comparisonblocked/incomplete/errors/retry/responsemismatch remain. Analysislocalconditions querymatch, reportURLbackforward/search300ms/requestdate90days/PDFonly/signeddownload retain; lengthyfilters nooverflow.
-- [ ] Step 2 — RED `pnpm --filter @led-control/web test src/features/statistics` focused newassertions.
-- [ ] Step 3 — Apply FilterPanel and timestampadapter, delete onlyunusedpresentation/imports notstatecalculators/datamodels, do not relabelestimateasmeasured. Keep filter dateinput/source responsibilities and report PDF/CSV workflows.
-- [ ] Step 4 — GREEN statistics tests +Webtypecheck/build/ui:check +Chromium `statistics-flow.spec.ts operations-ui-comments.spec.ts` workers1 at320/390/962/1440/200%zoom with0/missing/partialstates.
+- [x] Step 1 — Assert removed3copy/badges, selectedquickrange textonly, actual0≠missing—, chartconnectNullsfalse and isolatedcompletepoint, comparisonblocked/incomplete/errors/retry/responsemismatch remain. Analysislocalconditions querymatch, reportURLbackforward/search300ms/requestdate90days/PDFonly/signeddownload retain; lengthyfilters nooverflow.
+- [x] Step 2 — RED `pnpm --filter @led-control/web test src/features/statistics` focused newassertions.
+- [x] Step 3 — Apply FilterPanel and timestampadapter, delete onlyunusedpresentation/imports notstatecalculators/datamodels, do not relabelestimateasmeasured. Keep filter dateinput/source responsibilities and report PDF/CSV workflows.
+- [x] Step 4 — GREEN statistics tests +Webtypecheck/build/ui:check +Chromium `statistics-flow.spec.ts operations-ui-comments.spec.ts` workers1 at320/390/962/1440/200%zoom with0/missing/partialstates.
 - [ ] Step 5 — Update statistics menu and commit `feat: unify statistics filters and simplify period context`; independent review.
 
 Task7 read-only readiness returned107lines/readEOF without product/test/Git/server changes. Root queued ruling keeps comment18 to selected overview two literals/unused wrapper+hasPartialData only; analysis estimate/individual KPI status/series gap-tooltip-sr-only/quality metadata and used helpers/icons remain. Comment16 period-only applies overview lines, not Heatmap date/timezone header. Existing FilterPanel public slots suffice with feature search landmark wrapper; no shared/API/DB extension. Own16194/16195 only after actual writer dispatch. Preparation complete; no extra approval question or repeated setup. Actual Task7 BASE/sole writer remains after Task6 return+fresh review.
@@ -242,6 +242,8 @@ Task7 execution handoff: SAME statistics owner01a088fa-5016-7162-99b0-a573d31739
 Task7-era integration checkpoint: main checkout is now dirty while the original Settings owner finishes separate CAD work, although branch `codex/mvp1-cloud-web` and HEAD `36a99b29` are unchanged. Root preserves all source/docs WIP and sent only ownership/completion coordination, not a task switch or our source grant. A fresh disk-only Prisma DMMF read reports generated receipt model absent; no DB connection/generation/restart occurred and this does not prove the operational table or cached client state. Before integration reconcile the actual owned committed upstream and runtime/schema boundary; do not assume a clean fast-forward or copy/stash/reset the CAD WIP. Isolated Task7 continues safely.
 
 Task7 execution recovery Ruling: native statistics delivered actual RED/134-unit/42-browser and 11-path WIP, but at contextCompaction returned to the old PDF merge task (no new human input). Its main merge was Already up to date; HEAD36a99b29 is unchanged. Root preserves WIP/evidence and hands only unfinished frozen validation/menu/commit/report to a fresh internal continuation writer, not a restarted implementation or repeated producer/setup. Original review BASE e042 stays fixed; primary stays orchestrator and fresh spec/quality review remains mandatory. Cost if wrong: one bounded continuation context and covering final evidence, not new operational scope. Native source grant is withdrawn while idle.
+
+Task7 returned ebeebdea8d5ccf7742a8478f42fd77d364daa269, exact BASEe042;12ownedpaths260+/112-/clean/16194–16195empty. Root read complete109-line report and actual final-v2 JSON47expected/skip0/flaky0/unexpected0/errors0. Native2001440→720/DPR1→2/scale1, scoped CDP capture/known-site fixture repaired only owned E2E; previous auxiliary named-red actuallyPASS is explicitly excluded as RED. All unchanged product/unit paths hash-identical to135-unit/type/build/UI0 evidence; v2fingerprintd4b9557256f7949464201e651306362f016c49d417f602c3ce1ed3d23d7245aa. Earlier overwritten initialJSON/capture limits retained. Fresh task reviewer reads review-e042ef46..ebeebdea.diff4commits108169bytes for Spec/quality; lastcheckbox/Task8writer remain pending approval. ActualDB/root/full22/nativeWebView/HIL not claimed.
 
 ### Task 8: 설정·운영 timestamp 소비 마무리
 
