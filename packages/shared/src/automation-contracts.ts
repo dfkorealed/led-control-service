@@ -199,6 +199,28 @@ export interface VehicleSensorCapabilityIngestedAckV1 {
   ingestedAt: string;
 }
 
+/** Assignment-bound transport for existing BIO qualification evidence, not live health or enablement. */
+export interface VehicleSensorCapabilityDeliveryV2 {
+  schemaVersion: 2;
+  assignmentVersion: number;
+  report: VehicleSensorCapabilityReportV2;
+}
+
+export interface VehicleSensorCapabilityIngestedAckV2 {
+  schemaVersion: 2;
+  siteId: string;
+  gatewayId: string;
+  assignmentVersion: number;
+  eventId: string;
+  meshNodeId: string;
+  capabilityRevision: number;
+  /** Canonical hash of the complete delivery envelope, including assignmentVersion. */
+  deliveryPayloadHash: `sha256:${string}`;
+  status: "applied" | "stale" | "duplicate" | "rejected";
+  errorCode: string | null;
+  ingestedAt: string;
+}
+
 const identifierSchema = z.string().uuid();
 const timestampSchema = z.string().datetime();
 const payloadHashSchema = z.string().regex(/^sha256:[a-f0-9]{64}$/);
@@ -540,3 +562,46 @@ export const vehicleSensorCapabilityIngestedAckV1Schema = z.object({
   errorCode: z.string().trim().min(1).nullable(),
   ingestedAt: z.string().datetime({ offset: true })
 }).strict();
+
+export const vehicleSensorCapabilityDeliveryV2Schema = z.object({
+  schemaVersion: z.literal(2),
+  assignmentVersion: positiveSafeIntegerSchema,
+  report: vehicleSensorCapabilityReportV2Schema
+}).strict();
+
+export const vehicleSensorCapabilityIngestedAckV2Schema = z.object({
+  schemaVersion: z.literal(2),
+  siteId: identifierSchema,
+  gatewayId: identifierSchema,
+  assignmentVersion: positiveSafeIntegerSchema,
+  eventId: identifierSchema,
+  meshNodeId: identifierSchema,
+  capabilityRevision: positiveSafeIntegerSchema,
+  deliveryPayloadHash: payloadHashSchema,
+  status: z.enum(["applied", "stale", "duplicate", "rejected"]),
+  errorCode: z.string().trim().min(1).max(128).nullable(),
+  ingestedAt: z.string().datetime({ offset: true })
+}).strict();
+
+/**
+ * The consumer computes expectedDeliveryPayloadHash with its existing canonical hash
+ * helper over the current complete envelope, not the nested report alone. This pure
+ * check verifies ACK attribution only: true also covers rejected receipts and never
+ * proves applied qualification, live readiness, authenticated transport or enablement.
+ */
+export function matchesVehicleSensorCapabilityIngestedAckV2(
+  delivery: unknown,
+  acknowledgement: unknown,
+  expectedDeliveryPayloadHash: string
+): boolean {
+  const parsedDelivery = vehicleSensorCapabilityDeliveryV2Schema.safeParse(delivery);
+  const parsedAck = vehicleSensorCapabilityIngestedAckV2Schema.safeParse(acknowledgement);
+  if (!parsedDelivery.success || !parsedAck.success
+    || !payloadHashSchema.safeParse(expectedDeliveryPayloadHash).success) return false;
+  const { report, assignmentVersion } = parsedDelivery.data;
+  const ack = parsedAck.data;
+  return ack.siteId === report.siteId && ack.gatewayId === report.gatewayId
+    && ack.assignmentVersion === assignmentVersion && ack.eventId === report.eventId
+    && ack.meshNodeId === report.meshNodeId && ack.capabilityRevision === report.capabilityRevision
+    && ack.deliveryPayloadHash === expectedDeliveryPayloadHash;
+}

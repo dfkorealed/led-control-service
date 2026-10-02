@@ -1,5 +1,13 @@
 # 제어 메뉴 기능 현황
 
+## 2026-10-02 BIO 제품 연결 — 전달 계약
+
+- 구현 완료(Shared 소프트웨어·독립 검토): 기존 V1을 보존하는 BIO V2 전달 envelope와 별도 수용 ACK 계약을 추가했다. 현장/게이트웨이/배정/이벤트/센서/버전/전체 전달 hash를 대조하며 ACK 귀속 일치는 센서 건강이나 제어 활성화를 뜻하지 않는다.
+- 미구현: 실제 인증 보고 수신·영속 ACK 및 Gateway 전달, 제품 scheduler 연결과 현장 지원 전환. 유지시간10~1,800초/UI 수정 계약은 그대로다.
+- 부족하거나 개선이 필요한 기능: 빈 profile·미검증 health·제품 OFF를 유지한다. 오늘 body03의 의미와 물리 신호/광학/독립 건강은 미검증이며 APK 일반 trigger callback을 제품 승인으로 대체하지 않는다.
+- 관련 파일: `packages/shared/src/automation-contracts.ts`, `automation-contracts.test.ts`, `docs/superpowers/plans/2026-09-30-bio-sensor-pulse-event-control.md`.
+- 갱신 규칙: 계약·실제 수신·실제 제어·현장 검증을 구분하고 미연결 경로를 완료로 표기하지 않는다.
+
 ## 2026-10-02 BIO 현장 시험 준비 — 임시 진단 도구, 제품 OFF
 
 - 사용자 사후 보완: ‘같은 자리 정지’ 구간에도 몇 번 움직였다. 정지 구간 전체의 무움직임·무자극을 전제하지 않으며 원본 버튼/packet은 불변으로 보존하고 별도 operator follow-up을 남긴다. 정확한 움직임 시각/횟수는 미확정이다.

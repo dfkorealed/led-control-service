@@ -15,6 +15,9 @@ import {
   automationSnapshotV2Schema,
   vehicleEventRuleSnapshotV2Schema,
   vehicleSensorCapabilityIngestedAckV1Schema,
+  vehicleSensorCapabilityIngestedAckV2Schema,
+  vehicleSensorCapabilityDeliveryV2Schema,
+  matchesVehicleSensorCapabilityIngestedAckV2,
   vehicleSensorCapabilityReportV1Schema,
   vehicleSensorCapabilityReportV2Schema
 } from "./automation-contracts";
@@ -499,6 +502,104 @@ describe("automation shared contracts", () => {
     for (const readiness of ["shadow", "degraded", "off"]) {
       expect(vehicleSensorCapabilityReportV2Schema.parse({ ...report, readiness })).toMatchObject({ readiness });
     }
+  });
+
+  describe("BIO capability V2 delivery and receipt", () => {
+    const delivery = {
+      schemaVersion: 2 as const,
+      assignmentVersion: 3,
+      report: {
+        schemaVersion: 2 as const, eventId, siteId, gatewayId, meshNodeId: fixtureId,
+        capabilityRevision: 7, sensorProtocol: "bio-usb-pulse" as const,
+        readiness: "shadow" as const, verifiedFingerprintId: null,
+        sensorModeVerifiedAt: null, verifiedAt: occurredAt
+      }
+    };
+    const receipt = {
+      schemaVersion: 2 as const, siteId, gatewayId, assignmentVersion: 3,
+      eventId, meshNodeId: fixtureId, capabilityRevision: 7,
+      deliveryPayloadHash: payloadHash, status: "applied" as const,
+      errorCode: null, ingestedAt: occurredAt
+    };
+
+    it("accepts an assignment-bound envelope without promoting shadow evidence", () => {
+      expect(vehicleSensorCapabilityDeliveryV2Schema).toBeDefined();
+      expect(vehicleSensorCapabilityDeliveryV2Schema.parse(delivery)).toEqual(delivery);
+      expect(vehicleSensorCapabilityReportV2Schema.safeParse(delivery).success).toBe(false);
+      expect(vehicleSensorCapabilityReportV1Schema.safeParse(delivery).success).toBe(false);
+    });
+
+    it.each([0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1, undefined])(
+      "rejects an invalid delivery assignment %s", assignmentVersion => {
+        expect(vehicleSensorCapabilityDeliveryV2Schema.safeParse({ ...delivery, assignmentVersion }).success).toBe(false);
+      }
+    );
+
+    it("rejects unknown delivery fields and raw sensor material at both nesting levels", () => {
+      for (const extra of [{ unknown: true }, { nativeUuid: "001122334455" }, { innerBodyHex: "0101" }]) {
+        expect(vehicleSensorCapabilityDeliveryV2Schema.safeParse({ ...delivery, ...extra }).success).toBe(false);
+        expect(vehicleSensorCapabilityDeliveryV2Schema.safeParse({
+          ...delivery, report: { ...delivery.report, ...extra }
+        }).success).toBe(false);
+      }
+      expect(vehicleSensorCapabilityDeliveryV2Schema.safeParse({ ...delivery, schemaVersion: 1 }).success).toBe(false);
+      expect(vehicleSensorCapabilityDeliveryV2Schema.safeParse({
+        ...delivery, report: { ...delivery.report, schemaVersion: 1 }
+      }).success).toBe(false);
+      expect(vehicleSensorCapabilityDeliveryV2Schema.safeParse({
+        ...delivery, report: { ...delivery.report, readiness: "ready" }
+      }).success).toBe(false);
+    });
+
+    it.each(["applied", "duplicate", "stale", "rejected"] as const)(
+      "accepts the separate V2 %s receipt without producing a V1 acknowledgement", status => {
+        const value = { ...receipt, status, errorCode: status === "rejected" ? "capability_event_conflict" : null };
+        expect(vehicleSensorCapabilityIngestedAckV2Schema).toBeDefined();
+        expect(vehicleSensorCapabilityIngestedAckV2Schema.parse(value)).toEqual(value);
+        expect(vehicleSensorCapabilityIngestedAckV1Schema.safeParse(value).success).toBe(false);
+      }
+    );
+
+    it("rejects missing receipt identity, unbounded errors and old report-only hashes", () => {
+      for (const key of ["siteId", "gatewayId", "assignmentVersion", "eventId", "meshNodeId", "capabilityRevision", "deliveryPayloadHash"]) {
+        expect(vehicleSensorCapabilityIngestedAckV2Schema.safeParse({ ...receipt, [key]: undefined }).success).toBe(false);
+      }
+      for (const patch of [
+        { assignmentVersion: 0 }, { capabilityRevision: 0 }, { siteId: "not-a-uuid" },
+        { deliveryPayloadHash: `sha256:${"A".repeat(64)}` }, { deliveryPayloadHash: "sha256:invalid" },
+        { schemaVersion: 1 }, { status: "unknown" }, { ingestedAt: "invalid" },
+        { errorCode: "" }, { errorCode: "x".repeat(129) }, { unexpected: true },
+        { reportPayloadHash: payloadHash }, { nativeUuid: "001122334455" }, { innerBodyHex: "0101" }
+      ]) {
+        expect(vehicleSensorCapabilityIngestedAckV2Schema.safeParse({ ...receipt, ...patch }).success).toBe(false);
+      }
+      expect(vehicleSensorCapabilityIngestedAckV2Schema.parse({ ...receipt, errorCode: "x".repeat(128) }).errorCode).toHaveLength(128);
+    });
+
+    it("matches receipt attribution only, including rejected and shadow receipts", () => {
+      expect(matchesVehicleSensorCapabilityIngestedAckV2).toBeDefined();
+      expect(matchesVehicleSensorCapabilityIngestedAckV2(delivery, receipt, payloadHash)).toBe(true);
+      expect(matchesVehicleSensorCapabilityIngestedAckV2(delivery, {
+        ...receipt, status: "rejected", errorCode: "capability_event_conflict"
+      }, payloadHash)).toBe(true);
+    });
+
+    it("rejects receipt replay across any delivery identity or assignment", () => {
+      for (const patch of [
+        { siteId: fixtureId2 }, { gatewayId: fixtureId2 }, { eventId: requestId },
+        { meshNodeId: fixtureId2 }, { capabilityRevision: 8 }, { assignmentVersion: 4 },
+        { deliveryPayloadHash: `sha256:${"b".repeat(64)}` }
+      ]) {
+        expect(matchesVehicleSensorCapabilityIngestedAckV2(delivery, { ...receipt, ...patch }, payloadHash)).toBe(false);
+      }
+      expect(matchesVehicleSensorCapabilityIngestedAckV2({ ...delivery, assignmentVersion: 4 }, receipt, payloadHash)).toBe(false);
+      for (const expectedHash of ["", "sha256:invalid", `sha256:${"A".repeat(64)}`]) {
+        expect(matchesVehicleSensorCapabilityIngestedAckV2(delivery, { ...receipt, deliveryPayloadHash: expectedHash }, expectedHash)).toBe(false);
+      }
+      expect(matchesVehicleSensorCapabilityIngestedAckV2(delivery, { ...receipt, extra: true }, payloadHash)).toBe(false);
+      expect(matchesVehicleSensorCapabilityIngestedAckV2({ ...delivery, extra: true }, receipt, payloadHash)).toBe(false);
+      expect(matchesVehicleSensorCapabilityIngestedAckV2(null, null, payloadHash)).toBe(false);
+    });
   });
 
   it("strictly validates vehicle sensor capability ingested acknowledgements", () => {

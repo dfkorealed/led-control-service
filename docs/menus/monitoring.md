@@ -1,5 +1,13 @@
 # 모니터링 메뉴 기능 현황
 
+## 2026-10-02 BIO 상태 보고 전달 계약
+
+- 구현 완료(Shared 소프트웨어·독립 검토): BIO V2 report의 배정 버전 포함 전달 envelope와 exact 귀속 ACK 계약을 추가했다. 기존 V1 보고·표시는 변경하지 않았다.
+- 미구현: 이 계약의 실제 인증 수신/영속 ACK·Gateway 전송 연결 및 검증된 장비의 사용 가능 상태 발행.
+- 부족하거나 개선이 필요한 기능: 보고 수용 ACK는 live health·LED 광학 출력·이벤트 동작 성공을 의미하지 않는다. 현재 제품 gate/profile은 OFF다.
+- 관련 파일: `packages/shared/src/automation-contracts.ts`, `automation-contracts.test.ts`.
+- 갱신 규칙: 보고 계약, 저장된 관찰 상태, 실제 하드웨어 검증을 별도로 기록한다.
+
 ## 2026-10-01 BIO telemetry 소프트웨어 전달 경계
 
 - 구현 완료: 지연 수신된 첫 펄스도 snapshot 생성 당시 source node와 현재 연결을 비교해 교체 센서의 관측으로 잘못 표시하지 않는다. 이미 저장된 exact 기록은 같은 현장 재배정 뒤에도 현재 인증 근거 아래 ACK만 재발행하고 projection은 변경하지 않는다. snapshot binding은 기대 구성 근거이며 광학/센서 송신 증명은 아니다.

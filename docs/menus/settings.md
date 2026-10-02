@@ -1,5 +1,13 @@
 # 설정 메뉴 기능 현황 및 구현 설계
 
+## 2026-10-02 BIO capability 전달 배정 경계
+
+- 구현 완료(Shared 소프트웨어·독립 검토): 기존 V1과 별도인 strict V2 report 전달/ACK 계약에 assignmentVersion과 전체 전달 hash를 결속하고 모든 귀속 필드 불일치를 거부한다.
+- 미구현: 실제 인증 수신·내구 ACK 및 Gateway 전달, 여러 BIO node의 같은 capability revision을 지원하는 legacy index 보완 migration과 운영 적용.
+- 부족하거나 개선이 필요한 기능: ACK 일치를 현재 배정 인증·센서 건강·사용 가능 판정으로 승격하지 않는다. 운영 DB/장비는 불변이고 제품 gate는 OFF다.
+- 관련 파일: `packages/shared/src/automation-contracts.ts`, `automation-contracts.test.ts`, `docs/superpowers/plans/2026-09-30-bio-sensor-pulse-event-control.md`.
+- 갱신 규칙: 계약·서버 수신·migration 소스·운영 적용을 각각 확인한 단계로 기록한다.
+
 ## 2026-10-01 BIO telemetry 배정·구성 경계
 
 - 구현 완료: 새 V2 snapshot은 서버 outbox에 원래 assignment와 source Fixture→MeshNode metadata를 같은 잠금 거래에서 저장한다. 신규 API telemetry는 이를 현재 배정/연결과 event의 required assignmentVersion에 대조한다. 과거 metadata NULL snapshot과 재배정 뒤 과거 event는 상태 근거로 사용하지 않는다. 이미 commit된 exact event는 같은 현장 재배정 뒤 현재 claim·인증 근거 확인 후 원래 ACK만 재발행할 수 있다. V1 wire와 기존 구성 ACK wire는 유지한다.
