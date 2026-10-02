@@ -179,6 +179,18 @@ Task 8은 **8a Gateway/API synthetic integration·additive V2 BIO telemetry hand
 
 #### Task 9 제품 연결 보완 — 승인 설계의 미연결 경계
 
+##### 2026-10-02 사용자 승인 1~3단계 — 1시간 제한 실행
+
+시작17:01:07 KST·종료한도18:01:07 KST. 기존 완료 코드/회귀는 재구현·전체 반복하지 않는다. 실제 A/B 분류·필요한 same lab 반영은 승인됐으나 새 인증서/키 발급·무검증 profile/건강·제품ON·B 제어·머지는 제외한다. 상세 기존 설계는 변하지 않고 총괄은 이 체크리스트/상태판과 증거만 취합한다.
+
+- [ ] Backend: actual lab process/DB identity·현재 A/B/등록 완료/권한·배정 baseline 확인 → 기존 authenticated admin reconcile API를 최소 정상 경로로 반영 → exact A/B만 AuditLog와 원자 전환 → 밝기·전원·ID/연결/이력 보존·재시도 검증. 운영 rollback/승인 경계를 먼저 확정한다.
+  - [x] 읽기 전용 실제 API/DB·현재 A/B ID/밝기0/전원OFF·권한/배정/등록 graph 확인. 운영 API는 이전 main dist, DB sensor migration6개 미적용이며 B row는 discovered/confirmed다. 기존 reconcile은 B 완료 guard에서 원자 거부하므로 운영 분류·migration·API 재시작은 실행하지 않았다.
+  - [x] B 완료 뒤 accepted scan-found의 payloadHash를 저장 graph/같은 event로 재구성해 일치 확인. 생산 scan UPDATE의 완료 상태 덮어쓰기 결함을 찾아 source/test2파일에서 예방 수정했다. Genuine RED1fail/3pass→consumer120pass/기존opt-in1skip·typecheck0. 과거 terminal completed 원문은 복원하지 않았고 기존 B 상태는 바꾸지 않았다. 동일 QA의 Spec/Quality 승인·Critical0/Important0/Minor0, report/patch/source 및 evidence11개 해시 일치를 확인했다. 근거 있는 suite 중복 실행·운영 작업0이다.
+- [ ] Gateway: current exact Pi/container/identity/mapping/assignment·USB 소유·queues·DNS/TLS/MQTT fresh 점검과 이전 복원 조회 단절의 최소 원인/안전 원복 확인. 17:05 intermediate CRL 만료 확인으로 현장 실행은 HOLD, 동일 issuer/current revocation 보존 갱신 사용자 허용 대기다. 보류 원장을 근거 없이 소거하지 않는다.
+- [ ] Gateway: 승인된 signal qualification/profile와 독립 건강 supplier의 실제 입력/수명 연결 최소안 확정·필요한 RED/GREEN·집중 검증. 신호 없는 정상과 연결 불명확/단절을 구분하며 후보/alive만으로 자격을 생성하지 않는다. 반복 shadow와 시간·광학·독립 건강 근거가 실제 확보될 때만 확정한다. 현장 참여 가능은 확인됐으나 fresh START는 미수신이다.
+  - [x] 실제 factory/source·bootstrap 입력과 건강/clock 수명 gap를 읽기 전용 확인했다. 현 코드에 신뢰된 qualification reader 또는 독립 node-health 생산자가 없어 단순 factory 옵션 연결을 실제 공급 구현으로 표시하지 않는다. 승인 profile/HIL과 독립 관찰 입력이 없는 상태를 유지하고 임의 profile/healthy/ready를 생성하지 않았다.
+- [ ] 같은 QA의 변경분/운영 증거 집중 검토·영향 메뉴/status 정리·정확 변경만 별도 브랜치 보존. 시간 부족/새 보안 권한/검증 근거 부재는 완료로 바꾸지 않고 종료한도 전에 명시한다.
+
 읽기 전용 gap 검토에서 Tasks1~8의 핵심 소프트웨어와 별개로 실제 제품 연결3개가 남음을 확인했다. report SHA256=`7f4f1e2ce2c06d27bce92933c20f1fab4bd64a002d501d6ea3368ea035bc59b2`. 현장 근거 전에도 fail-closed 연결과 회귀를 구현할 수 있지만 HIL/운영 정책을 대체하지 않는다. 새 wire가 필요한 경우 총괄 승인·단일 공유 계약 담당→Gateway/API/Web 순서를 유지한다.
 
 - [x] **9a Gateway 수신/authority 수명:** 기존 단일 client의 실제 candidate 구독을 adapter 수명에 연결하고 confirmed exact identity/profile/network와 독립 health 관문을 통과한 typed pulse·권한 조회/변경·종료 철회 출구를 구현·독립 검토했다. 빈 profile/provider null을 유지하고 후보/alive 수신만으로 지원·건강을 만들지 않는다. scheduler 소비·인증 전달·제품ON은 완료가 아니다.

@@ -1,5 +1,13 @@
 # 제어 메뉴 기능 현황
 
+## 2026-10-02 1~3단계 현장 연동 점검
+
+- 구현 완료(소프트웨어·독립 검토): 재검색이 완료된 등록을 미등록 상태로 덮는 결함을 예방했다. 관련 consumer 120개 통과·기존 opt-in 1개 제외와 타입 검사·독립 검토 지적0을 확인했다. 이미 완료된 전체 회귀는 사용자 요청에 따라 반복하지 않았다.
+- 미구현: 실제 A/B의 BIO 분류 적용, 전체 복원 절차 확인, 감지 신호 승인과 독립 연결 건강 공급·제품 활성화. 현재 production factory에는 실제 자격/건강 공급자가 없고 승인 profile은 빈 목록이다.
+- 부족하거나 개선이 필요한 기능: 실제 B의 과거 등록 상태는 여전히 불완전하며 분류 API가 원자 전환을 거부한다. 시험 연결의 만료 CRL 갱신은 허용 대기이고 fresh START는 받지 않았다. 후보 패킷·주기 신호·조회 응답만으로 감지 의미나 건강을 승인하지 않는다. 10초 최소 유지시간 및 UI 수정 가능 계약은 유지한다.
+- 관련 파일: `apps/api/src/mqtt/mqtt.service.ts`, `mqtt.service.spec.ts`, `apps/gateway/src/adapters/adapter-factory.ts`, `apps/gateway/src/bio/bio-sensor-pulse-source.ts`, `docs/superpowers/plans/2026-09-30-bio-sensor-pulse-event-control.md`.
+- 갱신 규칙: 1시간 제한의 부분 성과와 운영 미적용·미확정 신호를 명시하고 실제 센서 연동 완료로 표시하지 않는다.
+
 ## 2026-10-02 BIO 제품 연결 — 전달 계약
 
 - 구현 완료(Shared 소프트웨어·독립 검토): 기존 V1을 보존하는 BIO V2 전달 envelope와 별도 수용 ACK 계약을 추가했다. 현장/게이트웨이/배정/이벤트/센서/버전/전체 전달 hash를 대조하며 ACK 귀속 일치는 센서 건강이나 제어 활성화를 뜻하지 않는다.

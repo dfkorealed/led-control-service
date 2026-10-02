@@ -1,5 +1,13 @@
 # 설정 메뉴 기능 현황 및 구현 설계
 
+## 2026-10-02 등록 완료 뒤 재검색 상태 보존
+
+- 구현 완료(소프트웨어·독립 검토): 등록 검색의 수신 거래가 이미 `provisioned`인 조명의 완료 상태와 오류 값을 보존한다. 새 조명과 일반 발견/실패 조명의 검색 동작, RSSI·펌웨어·검색 시각 갱신과 중복 수신 차단은 유지한다. Consumer120pass/기존opt-in1skip·타입 검사와 독립 검토 지적0을 확인했다.
+- 미구현: 실제 랩 배포와 과거 B 등록 상태의 감사 수복, 기존 A/B의 BIO 분류 적용. 예방 수정은 과거 기록을 소급 변경하지 않는다.
+- 부족하거나 개선이 필요한 기능: 실제 B는 완료 뒤 재검색이 상태를 덮어쓴 근거가 있으나 현재 `discovered`이므로 기존 분류 보완 API의 등록 완료 검사를 통과하지 않는다. ACK만으로 완료 상태를 만들거나 한쪽만 분류하지 않는다. 운영 API/DB는 이전 코드·스키마이며 아직 변경하지 않았다.
+- 관련 파일: `apps/api/src/mqtt/mqtt.service.ts`, `mqtt.service.spec.ts`, `apps/api/src/registration/bio-classification-reconciliation.service.ts`.
+- 갱신 규칙: 예방 코드, 과거 등록 기록 수복, 운영 배포와 센서 지원 검증을 각각 구분한다.
+
 ## 2026-10-02 BIO capability 전달 배정 경계
 
 - 구현 완료(Shared 소프트웨어·독립 검토): 기존 V1과 별도인 strict V2 report 전달/ACK 계약에 assignmentVersion과 전체 전달 hash를 결속하고 모든 귀속 필드 불일치를 거부한다.

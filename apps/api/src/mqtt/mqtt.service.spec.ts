@@ -581,7 +581,7 @@ describe("MqttService", () => {
         findFirst: jest.fn().mockResolvedValue(null),
         create: jest.fn(async ({ data }) => { markers.push(data.eventId); })
       },
-      discoveredMeshNode: { upsert: jest.fn().mockRejectedValue(new Error("database write failed")) }
+      discoveredMeshNode: { findUnique: jest.fn().mockResolvedValue(null), upsert: jest.fn().mockRejectedValue(new Error("database write failed")) }
     };
     prisma.$queryRaw = jest.fn().mockResolvedValue([]);
     prisma.$transaction = jest.fn(async (callback: (tx: any) => Promise<unknown>) => {
@@ -2190,6 +2190,45 @@ describe("MqttService", () => {
     expect(prisma.fixture.updateMany).not.toHaveBeenCalled();
   });
 
+  it.each(["provisioned", "discovered", "failed", null])("preserves completed registration while refreshing scan metadata for %s", async status => {
+    const sessionId = "11111111-1111-4111-8111-111111111111";
+    const siteId = "00000000-0000-4000-8000-000000000003";
+    const gatewayId = "00000000-0000-4000-8000-000000000004";
+    let stored: any = status === null ? null : { id: "scan-node", sessionId, deviceUuid: "device-1", status,
+      identifyState: "confirmed", meshAddress: "0x0100", pendingFixtureName: "Existing light", pendingFixtureX: 2,
+      pendingFixtureY: 3, errorMessage: status === "failed" ? "old failure" : null };
+    const before = stored && { ...stored };
+    let marker: any = null;
+    const prisma: any = {
+      provisioningSession: { findUnique: jest.fn().mockResolvedValue({ id: sessionId, siteId, gatewayId,
+        status: "active", scanStatus: "scanning", scanCorrelationId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", scanAttempt: 2 }) },
+      ...gatewayEventWatermarkMock(),
+      processedGatewayEvent: { findFirst: async () => marker, create: async ({ data }: any) => { marker = data; } },
+      discoveredMeshNode: {
+        findUnique: async () => stored,
+        upsert: async ({ create, update }: any) => { stored = stored ? { ...stored, ...update } : { status: "discovered", ...create }; }
+      },
+      $queryRaw: jest.fn().mockResolvedValue([])
+    };
+    prisma.$transaction = async (callback: (tx: any) => Promise<unknown>) => callback(prisma);
+    const service = new MqttService(prisma, createMeshGroupsMock() as never);
+    const event = { sessionId, siteId, gatewayId, scanCorrelationId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      scanAttempt: 2, eventId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", sequence: 1,
+      occurredAt: "2026-10-02T00:00:01.000Z", deviceUuid: "device-1", serialNumber: "serial-1",
+      rssi: -54, oobCapability: "static-oob", firmwareVersion: "new-firmware" };
+    const topic = `sites/${siteId}/gateways/${gatewayId}/events/provisioning/scan-found`;
+    await service.handleMessage(topic, Buffer.from(JSON.stringify(event)));
+    expect(stored).toMatchObject({ status: status === "provisioned" ? "provisioned" : "discovered", rssi: -54,
+      oobCapability: "static-oob", firmwareVersion: "new-firmware", scanCorrelationId: event.scanCorrelationId,
+      scanAttempt: 2, discoveredAt: new Date("2026-10-02T00:00:01.000Z") });
+    if (before) expect(stored).toMatchObject({ identifyState: "confirmed", meshAddress: "0x0100",
+      pendingFixtureName: "Existing light", pendingFixtureX: 2, pendingFixtureY: 3, errorMessage: null });
+    expect(marker).toMatchObject({ eventId: event.eventId, eventType: "provisioning_scan_found", scopeKey: sessionId });
+    const after = { ...stored };
+    await service.handleMessage(topic, Buffer.from(JSON.stringify({ ...event, rssi: -10 })));
+    expect(stored).toEqual(after);
+  });
+
   it("stores current scan identity for create and same-device update despite gateway clock skew", async () => {
     const prisma = {
       fixture: { update: jest.fn() },
@@ -2208,6 +2247,7 @@ describe("MqttService", () => {
       ...gatewayEventWatermarkMock(),
       processedGatewayEvent: { findFirst: jest.fn().mockResolvedValue(null), create: jest.fn() },
       discoveredMeshNode: {
+        findUnique: jest.fn().mockResolvedValue(null),
         upsert: jest.fn().mockResolvedValue(undefined)
       }
     };

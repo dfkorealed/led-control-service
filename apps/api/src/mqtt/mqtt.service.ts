@@ -841,6 +841,13 @@ export class MqttService implements OnModuleInit {
         await this.prisma.$transaction(async (tx) => {
           const session = await this.acceptCurrentScanEvent(tx, node, topicScope, "provisioning_scan_found");
           if (!session) return;
+          // acceptCurrentScanEvent holds the session lock shared with terminal
+          // completion. A later scan may refresh discovery metadata, but cannot
+          // undo server-owned provisioned/confirmed registration evidence.
+          const existing = await tx.discoveredMeshNode.findUnique({
+            where: { sessionId_deviceUuid: { sessionId: node.sessionId, deviceUuid: node.deviceUuid } },
+            select: { status: true }
+          });
           await tx.discoveredMeshNode.upsert({
             where: {
               sessionId_deviceUuid: {
@@ -860,14 +867,13 @@ export class MqttService implements OnModuleInit {
               discoveredAt: new Date(node.occurredAt)
             },
             update: {
-              status: "discovered",
+              ...(existing?.status === "provisioned" ? {} : { status: "discovered" as const, errorMessage: null }),
               rssi: node.rssi,
               oobCapability: node.oobCapability,
               firmwareVersion: node.firmwareVersion,
               scanCorrelationId: node.scanCorrelationId,
               scanAttempt: node.scanAttempt,
-              discoveredAt: new Date(node.occurredAt),
-              errorMessage: null
+              discoveredAt: new Date(node.occurredAt)
             }
           });
         });

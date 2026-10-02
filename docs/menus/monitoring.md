@@ -1,5 +1,13 @@
 # 모니터링 메뉴 기능 현황
 
+## 2026-10-02 재검색과 등록 상태 보존
+
+- 구현 완료(소프트웨어·독립 검토): 완료된 등록을 재검색 수신이 미등록 상태로 낮추지 않도록 보완했다. Consumer120pass/기존opt-in1skip·타입 검사와 독립 검토 지적0을 확인했다. 검색 메타데이터 갱신을 센서 건강이나 조명 출력 증거로 해석하지 않는다.
+- 미구현: 실제 랩 배포·과거 B 기록 수복·기존 A/B BIO 적용과 실제 독립 센서 건강 공급.
+- 부족하거나 개선이 필요한 기능: 현재 Pi Gateway는 정지 상태이고 공개 intermediate CRL이 만료됐다. 과거 healthy/heartbeat와 오늘 오전 A GET을 현재 연결·밝기 확인으로 재사용하지 않는다. 원본 복원 보류 기록은 유지한다.
+- 관련 파일: `apps/api/src/mqtt/mqtt.service.ts`, `mqtt.service.spec.ts`, `docs/superpowers/plans/2026-09-30-bio-sensor-pulse-event-control.md`.
+- 갱신 규칙: 등록 완료, 최신 연결 확인, 설정 조회와 실제 광학 관찰을 분리해 갱신한다.
+
 ## 2026-10-02 BIO 상태 보고 전달 계약
 
 - 구현 완료(Shared 소프트웨어·독립 검토): BIO V2 report의 배정 버전 포함 전달 envelope와 exact 귀속 ACK 계약을 추가했다. 기존 V1 보고·표시는 변경하지 않았다.
