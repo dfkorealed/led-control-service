@@ -42,8 +42,8 @@
 | 4 | Shell 범위·새 내부 구현 보조 | 소스·독립 물리 재검수 승인 | 9740967e + 13249728 + cf3e075c; scoped Spec✅/qualityApproved·디자이너34/34·P2두건해결·새지적0 |
 | 5 | 모니터링 담당 범위·새 실행 보조 | 구현·scoped 독립 검토 승인 | 7455d16c + 3c107e60 + 3405415d; I1/I2/I3/N1 해결·새 지적0, Task9 전체검수 대기 |
 | 6 | 제어 UI 개선 담당자(GPT-6.1 Sol/high) | 완료·독립 명세/품질 승인 | e02d00eb→4128c2de; frozen683단위/90브라우저, Spec✅/qualityApproved; M2 실제 짧은 필터 조작은 Task9 |
-| 7 | 통계 페이지 담당자 → 내부 이어쓰기 | 구현·동결 반환·독립 검토 중 | 정확 BASE e042ef46→ebeebdea;135단위/47브라우저·실제200%·UI0,12소유파일/clean; 새 Spec/품질 검토 대기 |
-| 8 | 설정 담당 → Shell 운영 담당 | 대기 | — |
+| 7 | 통계 페이지 담당자 → 내부 이어쓰기 | 완료·독립 명세/품질 승인 | e042ef46→ebeebdea;135단위/47브라우저·실제200%·UI0, Spec✅/qualityApproved; 전체검수 별도 |
+| 8 | 같은 설정 담당·5개 시각 batch | 배정 준비 | 기존 CAD1ea3fb6e 커밋/기본clean 확인; 작은 같은형태 소비자만 묶음, 본 checkpoint 뒤 exactBASE 배정 |
 | 9 | 디자이너·독립 QA·총괄 | 대기 | — |
 
 API와 공통 파일을 동시에 쓰지 않는다. Task 5는 `FloorScene`/`FloorMapViewport` 작성권을 받고, 반환·검토 후 Task 6에 넘긴다. Task 8의 설정/운영도 순차 배정한다. 소비자가 공통 계약 변경을 원하면 총괄에게 반환하고 producer가 수정·재검토한다. 개별 작업은 지정 파일과 보고서만 작성하며 다른 세션/서브에이전트를 임의 생성하지 않는다.
@@ -233,7 +233,7 @@ Task6 disposition: complete scoped source/review after root read56-line task-6-r
 - [x] Step 2 — RED `pnpm --filter @led-control/web test src/features/statistics` focused newassertions.
 - [x] Step 3 — Apply FilterPanel and timestampadapter, delete onlyunusedpresentation/imports notstatecalculators/datamodels, do not relabelestimateasmeasured. Keep filter dateinput/source responsibilities and report PDF/CSV workflows.
 - [x] Step 4 — GREEN statistics tests +Webtypecheck/build/ui:check +Chromium `statistics-flow.spec.ts operations-ui-comments.spec.ts` workers1 at320/390/962/1440/200%zoom with0/missing/partialstates.
-- [ ] Step 5 — Update statistics menu and commit `feat: unify statistics filters and simplify period context`; independent review.
+- [x] Step 5 — Update statistics menu and commit `feat: unify statistics filters and simplify period context`; independent review.
 
 Task7 read-only readiness returned107lines/readEOF without product/test/Git/server changes. Root queued ruling keeps comment18 to selected overview two literals/unused wrapper+hasPartialData only; analysis estimate/individual KPI status/series gap-tooltip-sr-only/quality metadata and used helpers/icons remain. Comment16 period-only applies overview lines, not Heatmap date/timezone header. Existing FilterPanel public slots suffice with feature search landmark wrapper; no shared/API/DB extension. Own16194/16195 only after actual writer dispatch. Preparation complete; no extra approval question or repeated setup. Actual Task7 BASE/sole writer remains after Task6 return+fresh review.
 
@@ -245,19 +245,23 @@ Task7 execution recovery Ruling: native statistics delivered actual RED/134-unit
 
 Task7 returned ebeebdea8d5ccf7742a8478f42fd77d364daa269, exact BASEe042;12ownedpaths260+/112-/clean/16194–16195empty. Root read complete109-line report and actual final-v2 JSON47expected/skip0/flaky0/unexpected0/errors0. Native2001440→720/DPR1→2/scale1, scoped CDP capture/known-site fixture repaired only owned E2E; previous auxiliary named-red actuallyPASS is explicitly excluded as RED. All unchanged product/unit paths hash-identical to135-unit/type/build/UI0 evidence; v2fingerprintd4b9557256f7949464201e651306362f016c49d417f602c3ce1ed3d23d7245aa. Earlier overwritten initialJSON/capture limits retained. Fresh task reviewer reads review-e042ef46..ebeebdea.diff4commits108169bytes for Spec/quality; lastcheckbox/Task8writer remain pending approval. ActualDB/root/full22/nativeWebView/HIL not claimed.
 
+Task7 final disposition: root read complete scoped review toEOF; Spec✅/qualityApproved/noP0–P3new, frozen raw/hashes/runner/native200/44hit/PDF bytes/ownedresources independently corroborated without suites rerun. Unchanged candidate consumers are byte-identical and existing view-model already reaches table/cards; no artificial edit required. Cannotverify operatingACL/DB/ObjectStorage/migrations/HIL/nativeWebView/manualin-app/main/root/full22 stays Task9 or out-of-scope, never considered passed. Source gate complete, next writer allowed.
+
 ### Task 8: 설정·운영 timestamp 소비 마무리
+
+Task8 batching Ruling: same Settings owner has finished separate CAD work (`1ea3fb6e61cfce8de9bd1b70a2d298eb3031f34c`, actual mainclean). Assign the five same-shape actual timestamp consumers plus owned Shell test compatibility as one small batch to that now-idle owner, instead of extra Settings/Shell implementation turns. Native Shell has documented repeated current-task compaction loss; do not return it to old work. Preserve existing CAD commit; no main source copy/merge/generation/server change by this writer. Root integrates committed upstream before final frozen Task9 and fresh combined source/quality review follows. Cost if wrong: limited extra cross-menu consumer ownership with direct tests/review, not operational scope.
 
 **Files:** Modify only actual timestamp presentation in specsection5: `apps/web/src/features/settings/security/AccountSecurityView.tsx`, `settings/users/SiteUsersView.tsx`, `features/floor-editor/FloorEditorView.tsx`, `features/operator/site-admins/SiteAdminManagementView.tsx`, `features/operator/LandingInquiriesView.tsx`, their tests, `docs/menus/settings.md`, `docs/menus/operator.md`.
 
-Test-only Shell compatibility addition: `apps/web/e2e/calm-operations-shell.spec.ts` old status-center labels/count assertions are updated by the Shell subphase using Task4 handoff. Preserve gateway aggregate/actions and transient-row assertions, no new Shell runtime code or fake durable-count fixture. Run this focused Chromium test on owned isolated fixture ports. Monitoring/control stale selectors stay their respective Task5/6 ownership.
+Test-only Shell compatibility addition: `apps/web/e2e/calm-operations-shell.spec.ts` old status-center labels/count assertions are updated by the same timestamp batch using Task4 handoff. Preserve gateway aggregate/actions and transient-row assertions, no new Shell runtime code or fake durable-count fixture. Run this focused Chromium test on owned isolated fixture ports16196/16197. Monitoring/control stale selectors stay their respective Task5/6 ownership.
 
-**Interfaces:** Consume Task3 formatTimestamp with omittedtimezone for existingdevice-display consumers; ISO storage/revision/dateonly/accountpolicy unchanged. Settingsthread receives ourworktree only, preservesownserialbranchWIP; afterreturnedreviewShellconsumesoperatorfiles.
+**Interfaces:** Consume Task3 formatTimestamp with omittedtimezone for existingdevice-display consumers; ISO storage/revision/dateonly/accountpolicy unchanged. Same Settingsthread receives ourworktree only and owns allfive small consumers; preserve committed CAD/main source, no upstream integration by this worker.
 
 - [ ] Step 1 — Add assertions login/expiry/create/update/revision secondsandformat while dateonly/recurrence remains unchanged; no removedsecuritymanagement/editactions.
 - [ ] Step 2 — RED `pnpm --filter @led-control/web test src/features/settings/security/AccountSecurityView.test.tsx src/features/settings/users/SiteUsersView.test.tsx src/features/operator/site-admins/SiteAdminManagementView.test.tsx src/features/operator/LandingInquiriesView.test.tsx` for respectiveowner's subset.
 - [ ] Step 3 — Replace displayformatter only usingsharedexport; sourcewide actualtimestamp audit reports otherconsumers before touchingthem. Nofloor-editorfeature/perftuning/installationimplementation/publiclandingdesignchange.
 - [ ] Step 4 — GREEN above +existingflooreditorunit/layout consumers +typecheck/build/ui:check; preserve existingTZ and sourceISO, report anyunmigratedactualtimestamp.
-- [ ] Step 5 — Eachownerupdatesaffectedmenu andcommitsownsubset `refactor: unify settings timestamp presentation` / `refactor: unify operator timestamp presentation`; independent combinedreview afterbothreturned.
+- [ ] Step 5 — Sameownerupdatesbothaffectedmenus andcommitsfive-consumerbatch `refactor: unify remaining timestamp presentation`; independent combinedreview afterreturn.
 
 ### Task 9: 엄격한 UI/UX 관문·실제 격리 소프트웨어·기본 브랜치 통합
 
