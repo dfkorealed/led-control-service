@@ -107,7 +107,6 @@ describe("FixtureGroupMapEditor", () => {
       value: value({ fixtureIds: existingFixtureIds, floorId: ids.floorB2, gatewayId: ids.gatewayB2 })
     });
 
-    fireEvent.click(screen.getByRole("button", { name: "영역 선택" }));
     const viewport = screen.getByRole("region", { name: "B2 도면" });
     dispatchPointer(viewport, "pointerdown", { pointerId: 1, button: 0, clientX: 50, clientY: 50 });
     dispatchPointer(viewport, "pointermove", { pointerId: 1, clientX: 150, clientY: 150 });

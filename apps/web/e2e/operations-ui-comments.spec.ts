@@ -783,3 +783,249 @@ test("operations alarm center physical native browser 200 percent keeps finite b
     await page.keyboard.press("Escape"); await expect(alarmTrigger(page)).toBeFocused();
   } finally { await context.close(); }
 });
+
+const task6Clock = { generatedAt: "2026-10-01T15:00:00Z", retainedFrom: "2026-07-01T15:00:00Z", retentionEnabled: false };
+const task6Site = "66666666-6666-4666-8666-666666666660";
+const task6Gateway = "66666666-6666-4666-8666-666666666662";
+const task6Fixture: SettingsFixture = {
+  id: "66666666-6666-4666-8666-666666666661", name: "Task6 조명", x: 500, y: 300, ratedWatt: 40,
+  brightness: 70, status: "online", health: null, rssi: -55, hopCount: 1, commandSuccessRate: 1, lastSeenAt: null,
+  gateway: { id: task6Gateway, name: "Gateway", connectionStatus: "online" }, controllable: true, controlBlockReason: null
+};
+function task6Command(index: number) {
+  return { id: `66666666-6666-4666-8666-${String(index).padStart(12, "0")}`, stage: "completed", outcome: "applied", brightness: 70,
+    totalFixtureCount: 1, completedFixtureCount: 1, createdAt: "2026-10-01T15:00:00Z", dispatchCount: 1, verificationAttemptCount: 0, errorMessage: null };
+}
+async function installTask6History(page: Page, options: { held?: "next" | "size" | "period"; outcome?: "success" | "error" | "expiry" | "end" } = {}) {
+  const api = await installSettingsApiRoutes(page, "admin", { fixtures: [task6Fixture], ids: { siteId: task6Site, floorId: "66666666-6666-4666-8666-666666666663", gatewayId: task6Gateway } });
+  let release!: () => void;
+  const pending = new Promise<void>(resolve => { release = resolve; });
+  const reads: { limit: number; cursor: string | null; from: string | null; to: string | null }[] = [];
+  let expired = false;
+  await page.route("**/api/commands?**", async route => {
+    expect(route.request().method()).toBe("GET");
+    const params = new URL(route.request().url()).searchParams;
+    const read = { limit: Number(params.get("limit")), cursor: params.get("cursor"), from: params.get("fromDate"), to: params.get("toDate") };
+    reads.push(read);
+    const held = read.limit !== 1 && (options.held === "next" && read.cursor || options.held === "size" && read.limit === 1000 || options.held === "period" && read.from);
+    if (held) await pending;
+    if (held && options.outcome === "error") return route.fulfill({ status: 503, json: { message: "unavailable" } });
+    if (held && options.outcome === "expiry") { expired = true; return route.fulfill({ status: 400, json: { code: "command_history_cursor_expired" } }); }
+    return route.fulfill({ json: { ...task6Clock, items: Array.from({ length: read.from ? 1 : read.limit }, (_, index) => task6Command(index + (read.cursor ? 1001 : 1))),
+      nextCursor: read.limit === 1 || read.from || expired || options.outcome === "end" && read.cursor ? null : "next-page" } });
+  });
+  return { api, reads, release };
+}
+
+for (const draft of ["", "42.5", "101"]) {
+  test(`Task6 invalid brightness ${draft || "empty"} blur and keyboard do not send; a separate Apply does`, async ({ page }) => {
+    const state = await installTask6History(page);
+    await page.goto(`/control?siteId=${task6Site}`);
+    await page.locator('[data-spatial-map-marker="true"]').click();
+    const input = page.getByRole("textbox", { name: "밝기 수치" });
+    await input.fill(draft);
+    const apply = page.getByRole("button", { name: "1개 조명에 밝기 적용" });
+    await expect(apply).toBeDisabled();
+    const box = (await apply.boundingBox())!;
+    await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+    expect(state.api.dimmingRequests).toHaveLength(0);
+    expect(state.api.requests.filter(request => request.startsWith("POST /commands/dimming"))).toHaveLength(0);
+    await expect(input).toHaveValue("70");
+    await expect(page.getByText(/마지막 정상 밝기 70%로 복귀/)).toBeVisible();
+    await input.fill(draft); await input.press("Enter");
+    expect(state.api.dimmingRequests).toHaveLength(0);
+    expect(state.api.requests.filter(request => request.startsWith("POST /commands/dimming"))).toHaveLength(0);
+    await expect(input).toHaveValue("70");
+    await apply.click();
+    await expect.poll(() => state.api.dimmingRequests.length).toBe(1);
+    expect(state.api.requests.filter(request => request.startsWith("POST /commands/dimming"))).toHaveLength(1);
+    expect(state.api.dimmingRequests[0].brightness).toBe(70);
+  });
+}
+
+for (const outcome of ["success", "error", "expiry", "end"] as const) {
+  for (const intent of ["pager", "period", "close", "keyboard"] as const) {
+    test(`Task6 command pager pending ${outcome} respects ${intent} focus`, async ({ page }) => {
+      const state = await installTask6History(page, { held: "next", outcome });
+      await page.goto(`/control?siteId=${task6Site}`);
+      const opener = page.getByRole("button", { name: "명령 이력 열기" });
+      await opener.click();
+      const dialog = page.getByRole("dialog", { name: "명령 이력", exact: true });
+      const body = dialog.getByRole("region", { name: "명령 이력 본문", exact: true });
+      const pager = dialog.getByRole("group", { name: "명령 이력 페이지 조작", exact: true });
+      const next = dialog.getByRole("button", { name: "다음 페이지" });
+      const close = dialog.getByRole("button", { name: "명령 이력 닫기" });
+      const period = dialog.getByRole("group", { name: "조회 기간", exact: true }).getByRole("spinbutton").first();
+      await expect(body.getByRole("button")).toHaveCount(50);
+      await next.press("Enter");
+      try {
+        await expect(pager).toBeFocused();
+        await expect(pager).not.toContainText(/현재 \d+건/);
+        await expect(body.getByRole("button")).toHaveCount(0);
+        if (intent === "period") await period.focus();
+        if (intent === "close") await close.focus();
+        if (intent === "keyboard") { await page.keyboard.press("Tab"); await expect(close).toBeFocused(); await page.keyboard.press("Shift+Tab"); await expect(body).toBeFocused(); }
+        state.release();
+        if (outcome === "error") await expect(dialog.getByRole("alert")).toBeVisible();
+        else await expect(body.getByRole("button")).toHaveCount(50);
+        if (intent === "period") await expect(period).toBeFocused();
+        else if (intent === "close") await expect(close).toBeFocused();
+        else if (intent === "keyboard") await expect(body).toBeFocused();
+        else await expect.poll(() => pager.evaluate(node => node.contains(document.activeElement))).toBe(true);
+        if (outcome === "error") await expect(pager).not.toContainText(/현재 \d+건/);
+        if (outcome === "expiry") await expect(pager).toContainText("1페이지");
+        const cursors = state.reads.filter(read => read.cursor);
+        expect(cursors).toHaveLength(1);
+        expect(state.api.dimmingRequests).toHaveLength(0);
+        expect(state.api.requests.filter(request => request.startsWith("POST /commands/dimming"))).toHaveLength(0);
+        await page.keyboard.press("Escape"); await expect(dialog).toHaveCount(0); await expect(opener).toBeFocused();
+      } finally { state.release(); }
+    });
+  }
+}
+
+for (const viewport of [{ width: 320, height: 600 }, { width: 390, height: 320 }, { width: 1024, height: 480 }, { width: 1440, height: 900 }]) {
+  test(`Task6 command history 1000 rows and calendar dates remain bounded at ${viewport.width}x${viewport.height}`, async ({ page }, testInfo) => {
+    await page.setViewportSize(viewport);
+    const state = await installTask6History(page, { held: "period" });
+    await page.goto(`/control?siteId=${task6Site}`);
+    await page.getByRole("button", { name: "명령 이력 열기" }).click();
+    const dialog = page.getByRole("dialog", { name: "명령 이력", exact: true });
+    const body = dialog.getByRole("region", { name: "명령 이력 본문", exact: true });
+    const pager = dialog.getByRole("group", { name: "명령 이력 페이지 조작", exact: true });
+    await expect(body.getByRole("button")).toHaveCount(50);
+    await dialog.getByRole("button", { name: "페이지당 항목 수" }).click();
+    await page.getByRole("option", { name: "1000개", exact: true }).click();
+    await expect(body.getByRole("button")).toHaveCount(1000);
+    await expect(dialog.getByRole("button", { name: "페이지당 항목 수" })).toBeFocused();
+    const footerBefore = (await pager.boundingBox())!;
+    const closeBefore = (await dialog.getByRole("button", { name: "명령 이력 닫기" }).boundingBox())!;
+    expect(footerBefore.y + footerBefore.height).toBeLessThanOrEqual(viewport.height);
+    expect(closeBefore.y).toBeGreaterThanOrEqual(0);
+    expect((await body.boundingBox())!.height).toBeGreaterThan(0);
+    expect(await dialog.evaluate(node => node.scrollWidth - node.clientWidth)).toBeLessThanOrEqual(1);
+    expect(await body.evaluate(node => node.scrollWidth - node.clientWidth)).toBeLessThanOrEqual(1);
+    await body.evaluate(node => { node.scrollTop = node.scrollHeight; });
+    await expect(body.getByRole("button").last()).toBeInViewport();
+    expect(await pager.boundingBox()).toEqual(footerBefore);
+    expect(await dialog.getByRole("button", { name: "명령 이력 닫기" }).boundingBox()).toEqual(closeBefore);
+    if (viewport.width === 320) {
+      const segments = dialog.getByRole("group", { name: "조회 기간", exact: true }).getByRole("spinbutton");
+      for (const offset of [0, 3]) { await segments.nth(offset + 2).fill("25"); await segments.nth(offset + 1).fill("9"); await segments.nth(offset).fill("2026"); }
+      try {
+        await expect.poll(() => state.reads.at(-1)).toEqual({ limit: 1000, cursor: null, from: "2026-09-25", to: "2026-09-25" });
+        await expect(body.getByRole("button")).toHaveCount(0); await expect(pager).not.toContainText(/현재 \d+건/);
+        state.release(); await expect(body.getByRole("button")).toHaveCount(1);
+        await dialog.getByRole("button", { name: "전체 보관 기간" }).click();
+        await expect(body.getByRole("button")).toHaveCount(1000);
+      } finally { state.release(); }
+    }
+    expect(state.api.dimmingRequests).toHaveLength(0);
+    expect(state.api.requests.filter(request => request.startsWith("POST /commands/dimming"))).toHaveLength(0);
+    await testInfo.attach("command-history-bounds", { body: JSON.stringify({ footerBefore, closeBefore, reads: state.reads }), contentType: "application/json" });
+  });
+}
+
+test("Task6 command history positive safe area protects header and pager", async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 390, height: 320 });
+  await installTask6History(page);
+  const cdp = await page.context().newCDPSession(page);
+  await cdp.send("Emulation.setSafeAreaInsetsOverride", { insets: { top: 24, bottom: 34, left: 0, right: 0 } });
+  await page.goto(`/control?siteId=${task6Site}`);
+  await page.getByRole("button", { name: "명령 이력 열기" }).click();
+  const dialog = page.getByRole("dialog", { name: "명령 이력", exact: true });
+  const close = (await dialog.getByRole("button", { name: "명령 이력 닫기" }).boundingBox())!;
+  const pager = (await dialog.getByRole("group", { name: "명령 이력 페이지 조작" }).boundingBox())!;
+  expect(close.y).toBeGreaterThanOrEqual(24);
+  expect(pager.y + pager.height).toBeLessThanOrEqual(320 - 34);
+  expect((await dialog.getByRole("region", { name: "명령 이력 본문" }).boundingBox())!.height).toBeGreaterThan(0);
+  await testInfo.attach("command-safe-area", { body: JSON.stringify({ close, pager }), contentType: "application/json" });
+});
+
+for (const width of [320, 1024, 1440]) {
+  test(`Task6 schedule full names, period, activation status and timestamp remain readable at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    const state = await installTask6History(page);
+    const names = ["긴한국어야간운영스케줄이름".repeat(5), "LongScheduleNameWithoutWhitespace".repeat(4), "적용된 스케줄"];
+    const rules = names.map((name, index) => ({ id: `schedule-${index}`, name, status: "enabled", activeFrom: "2026-09-01T03:00:00Z", activeUntil: "2026-12-01T03:00:00Z",
+      localStartTime: "18:00", localEndTime: "23:00", recurrence: { kind: "daily", weeklyDays: [], monthlyDay: null, yearlyMonth: null, yearlyDay: null },
+      action: { dimmingEnabled: true, brightnessPercent: 70 }, fixtureIds: [task6Fixture.id], gatewayId: task6Gateway, targets: [{ fixtureId: task6Fixture.id }], targetCount: 1,
+      desiredRevision: 3, appliedRevision: index === 2 ? 3 : 2, syncStatus: ["PENDING", "REJECTED", "APPLIED"][index],
+      nextOccurrence: { key: "2026-10-02", localDate: "2026-10-02", startsAt: task6Clock.generatedAt, endsAt: "2026-10-02T14:00:00Z" },
+      lastExecution: { id: `execution-${index}`, kind: "schedule_started", occurredAt: task6Clock.generatedAt, payload: null },
+      createdById: "admin", updatedById: "admin", createdAt: task6Clock.generatedAt, updatedAt: task6Clock.generatedAt }));
+    await page.route("**/api/sites/*/automation/schedules?**", route => route.fulfill({ json: { items: rules, total: 3, filteredTotal: 3,
+      siteSummary: { ruleCount: 3, syncRuleCounts: { APPLIED: 1, PENDING: 1, REJECTED: 1 } }, nextCursor: null } }));
+    await page.goto(`/control?siteId=${task6Site}&mode=schedule`);
+    await expect(page.getByText("조건에 맞는 규칙 3건", { exact: true })).toBeVisible();
+    await expect(page.getByText(/번째 묶음|현재 3건/)).toHaveCount(0);
+    const container = width < 760 ? page.getByRole("list", { name: "스케줄 카드 목록" }) : page.getByRole("table", { name: "스케줄 목록" });
+    await expect(container).toBeVisible();
+    for (const name of names.slice(0, 2)) {
+      const text = container.getByText(name, { exact: true });
+      await expect(text).toHaveText(name);
+      expect(await text.evaluate(node => ({ overflow: getComputedStyle(node).textOverflow, fits: node.scrollWidth <= node.clientWidth + 1, height: node.getBoundingClientRect().height })))
+        .toMatchObject({ fits: true });
+      expect(await text.evaluate(node => node.getBoundingClientRect().height)).toBeGreaterThan(24);
+      if (width >= 760) {
+        const bounds = await text.evaluate(node => ({ text: node.getBoundingClientRect().toJSON(), row: node.closest("tr")!.getBoundingClientRect().toJSON() }));
+        expect(bounds.text.y).toBeGreaterThanOrEqual(bounds.row.y);
+        expect(bounds.text.bottom).toBeLessThanOrEqual(bounds.row.bottom);
+      }
+    }
+    await expect(container.getByText("2026-10-02 00:00:00", { exact: true }).first()).toBeVisible();
+    await expect(container.getByText(/스케줄 시작 · 2026-10-02 00:00:00/).first()).toBeVisible();
+    await expect(container.getByText("적용 대기", { exact: true })).toBeVisible();
+    await expect(container.getByText("적용 실패", { exact: true })).toBeVisible();
+    if (width >= 760) {
+      await expect(container.getByRole("columnheader", { name: "적용 기간", exact: true })).toBeVisible();
+      await expect(container.getByRole("columnheader", { name: "Gateway 동기화", exact: true })).toHaveCount(0);
+      const row = container.getByRole("row", { name: new RegExp(names[1]) });
+      await expect(row.getByRole("cell").nth(1)).toContainText("적용 실패");
+      await expect(row.getByRole("cell").nth(0)).not.toContainText("2026");
+    } else await expect(container.getByText("적용 기간", { exact: true })).toHaveCount(3);
+    await expect(container.getByText("Gateway 동기화", { exact: true })).toHaveCount(0);
+    await expect(container.getByText("적용됨", { exact: true })).toHaveCount(0);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(1);
+    expect(state.api.dimmingRequests).toHaveLength(0);
+    await container.getByText(names[0], { exact: true }).scrollIntoViewIfNeeded();
+  });
+}
+
+test("Task6 fixture drawer positive safe area keeps close and completion bounded without selecting the first fixture", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 320 });
+  await installTask6History(page);
+  const cdp = await page.context().newCDPSession(page);
+  await cdp.send("Emulation.setSafeAreaInsetsOverride", { insets: { top: 24, bottom: 34, left: 0, right: 0 } });
+  await page.goto(`/control?siteId=${task6Site}`);
+  await page.getByRole("button", { name: "조명 목록 열기" }).click();
+  const dialog = page.getByRole("dialog", { name: "조명 목록", exact: true });
+  await expect(dialog.getByRole("checkbox")).not.toBeChecked();
+  const close = (await dialog.getByRole("button", { name: "조명 목록 닫기" }).boundingBox())!;
+  const complete = (await dialog.getByRole("button", { name: "선택 완료", exact: true }).boundingBox())!;
+  expect(close.y).toBeGreaterThanOrEqual(24);
+  expect(complete.y + complete.height).toBeLessThanOrEqual(320 - 34);
+  await dialog.getByRole("button", { name: "선택 완료", exact: true }).click();
+  await expect(page.getByRole("button", { name: "조명 목록 열기" })).toBeFocused();
+  await expect(page.getByRole("button", { name: "밝기 적용", exact: true })).toBeDisabled();
+});
+
+
+test("Task6 public NumberField metric typography and editable hit target", async ({ page }, testInfo) => {
+  await installTask6History(page);
+  await page.goto(`/control?siteId=${task6Site}`);
+  const input = page.getByRole("textbox", { name: "밝기 수치" });
+  const value = await input.evaluate(node => {
+    const style = getComputedStyle(node); const box = node.getBoundingClientRect();
+    return { fontSize: parseFloat(style.fontSize), fontWeight: parseFloat(style.fontWeight), width: box.width, height: box.height };
+  });
+  const metricSize = await page.getByRole("complementary", { name: "밝기 실행" }).getByText("%", { exact: true }).evaluate(node => parseFloat(getComputedStyle(node).fontSize));
+  const percent = (await page.getByRole("complementary", { name: "밝기 실행" }).getByText("%", { exact: true }).boundingBox())!;
+  const inputBox = (await input.boundingBox())!;
+  expect(percent.y + percent.height / 2).toBeGreaterThanOrEqual(inputBox.y);
+  expect(percent.y + percent.height / 2).toBeLessThanOrEqual(inputBox.y + inputBox.height);
+  await testInfo.attach("public-numberfield-styles", { body: JSON.stringify({ value, metricSize }), contentType: "application/json" });
+  expect(value.width).toBeGreaterThanOrEqual(44); expect(value.height).toBeGreaterThanOrEqual(44);
+  expect(value.fontWeight).toBeGreaterThanOrEqual(700);
+  expect(value.fontSize).toBeGreaterThanOrEqual(metricSize);
+});

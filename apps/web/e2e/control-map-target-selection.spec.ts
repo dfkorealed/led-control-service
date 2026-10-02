@@ -54,24 +54,21 @@ for (const flow of ["schedule", "event", "group"] as const) {
   });
 }
 
-test("final review: compact manual status and apply stay visible when collapsed and expanded at reduced height", async ({ page }) => {
+test("final review: compact manual controls follow the map and remain reachable at reduced height", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 660 });
   await installControlMapRoutes(page);
   await page.goto(`/control?siteId=${ids.site}`);
   await marker(page, "B2-L001").click();
-  const summary = page.getByRole("complementary", { name: "선택 대상 요약" });
-  const action = summary.getByRole("button", { name: "1개 조명에 밝기 적용" });
-  for (const expanded of [false, true]) {
-    if (expanded) await summary.getByRole("button", { name: "선택 대상 펼치기" }).click();
-    await expect(summary.getByText("1개 선택", { exact: true })).toBeVisible();
-    await expect(summary.getByRole("textbox", { name: "밝기 수치" })).toBeVisible();
-    // Do not scroll the action into view: its initial geometry is the fixed-action contract.
-    await expectReachableInside(action, summary);
-    const actionBox = (await action.boundingBox())!;
-    const navBox = (await page.locator('[data-shell-navigation="compact"]').boundingBox())!;
-    expect(actionBox.y + actionBox.height).toBeLessThanOrEqual(navBox.y);
-    expect(actionBox.y).toBeGreaterThanOrEqual(0);
-  }
+  const panel = page.getByRole("complementary", { name: "밝기 실행" });
+  await expect(panel.getByText("1개 선택", { exact: true })).toBeVisible();
+  await expect(panel.getByRole("textbox", { name: "밝기 수치" })).toBeVisible();
+  const action = panel.getByRole("button", { name: "1개 조명에 밝기 적용" });
+  await action.scrollIntoViewIfNeeded();
+  await expectReachableInside(action, panel);
+  const actionBox = (await action.boundingBox())!;
+  const navBox = (await page.locator('[data-shell-navigation="compact"]').boundingBox())!;
+  expect(actionBox.y + actionBox.height).toBeLessThanOrEqual(navBox.y);
+  await expectNoHorizontalOverflow(page);
 });
 
 test("final review: compact group name uses 16px text", async ({ page }) => {
@@ -233,7 +230,7 @@ test("a 404 floor map opens the list fallback", async ({ page }) => {
   await installControlMapRoutes(page, { mapStatus: 404 });
   await page.goto(`/control?siteId=${ids.site}`);
 
-  await expect(page.getByRole("heading", { name: "조명 밝기 제어", exact: true })).toBeVisible();
+  await expect(page.getByRole("region", { name: "제어 대상 지도", exact: true })).toBeVisible();
   await expect(page.getByText("등록된 도면이 없어 목록으로 선택합니다.")).toBeVisible();
   await expect(page.getByRole("dialog", { name: "조명 목록" })).toBeVisible();
   await expect(page.getByRole("checkbox", { name: "B2-L001 선택" })).toBeVisible();
@@ -252,7 +249,7 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 1024, height: 768
     await page.setViewportSize(viewport);
     await installControlMapRoutes(page, { fixtureCount: 80, groupCount: 40, historyCount: 24 });
     await page.goto(`/control?siteId=${ids.site}`);
-    await expect(page.getByRole("heading", { name: "조명 밝기 제어", exact: true })).toBeVisible();
+    await expect(page.getByRole("region", { name: "제어 대상 지도", exact: true })).toBeVisible();
 
     await page.getByRole("button", { name: "저장된 구역" }).click();
     const history = page.getByRole("region", { name: "최근 명령 이력" });
@@ -269,13 +266,16 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 1024, height: 768
     await expectReachableInside(finalGroup, detail);
     await finalGroup.click();
     await expect(finalGroup).toHaveAttribute("aria-current", "true");
-    const historyList = history.locator("[data-command-history-list]");
+    await history.getByRole("button", { name: "명령 이력 열기" }).click();
+    const historyDrawer = page.getByRole("dialog", { name: "명령 이력", exact: true });
+    const historyList = historyDrawer.getByRole("region", { name: "명령 이력 본문" });
     await expect(historyList).toHaveCSS("overflow-y", "auto");
     await expectInternalWheelScroll(page, historyList);
     const finalCommand = historyList.getByRole("button", { name: /99999999-9999-4999-8999-000000005023/ });
     await expectReachableInside(finalCommand, historyList);
     await finalCommand.click();
-    await expect(finalCommand).toHaveAttribute("aria-pressed", "true");
+    await expect(historyDrawer).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "명령 상세 닫기" })).toBeVisible();
     const documentMetrics = await page.evaluate(() => ({ clientHeight: document.documentElement.clientHeight, scrollHeight: document.documentElement.scrollHeight }));
     expect(documentMetrics.scrollHeight).toBe(documentMetrics.clientHeight);
   });
@@ -286,23 +286,13 @@ for (const viewport of [{ width: 390, height: 844 }, { width: 320, height: 740 }
     await page.setViewportSize(viewport);
     await installControlMapRoutes(page);
     await page.goto(`/control?siteId=${ids.site}`);
-    await expect(page.getByRole("heading", { name: "조명 밝기 제어", exact: true })).toBeVisible();
+    await expect(page.getByRole("region", { name: "제어 대상 지도", exact: true })).toBeVisible();
     await expectNoHorizontalOverflow(page);
-    const moveControl = page.getByRole("button", { name: "지도 이동" });
-    await moveControl.scrollIntoViewIfNeeded();
-    const moveControlOwnsCenter = await moveControl.evaluate((element) => {
-      const bounds = element.getBoundingClientRect();
-      const hit = document.elementFromPoint(bounds.left + bounds.width / 2, bounds.top + bounds.height / 2);
-      return hit === element || Boolean(hit && element.contains(hit));
-    });
-    expect(moveControlOwnsCenter).toBe(true);
+    for (const name of ["지도 이동", "조명 선택", "영역 선택"]) await expect(page.getByRole("button", { name, exact: true })).toHaveCount(0);
     await expectMinimumTouchTargetsAfterScrolling(page, "[data-control-screen]");
-
     await marker(page, "B2-L001").click();
-    await page.getByRole("button", { name: "선택 대상 펼치기" }).click();
-    await expect(page.getByRole("button", { name: "선택 대상 접기" })).toHaveAttribute("aria-expanded", "true");
     await expectMinimumTouchTargetsAfterScrolling(page, "[data-control-screen]");
-    await expectEditableFontSizes(page.getByRole("complementary", { name: "선택 대상 요약" }));
+    await expectEditableFontSizes(page.getByRole("complementary", { name: "밝기 실행" }));
     await page.getByRole("button", { name: "조명 목록 열기" }).click();
     const drawer = page.getByRole("dialog", { name: "조명 목록" });
     await expect(drawer.getByRole("searchbox", { name: "조명 검색" })).toBeVisible();
@@ -322,13 +312,13 @@ for (const viewport of [{ width: 390, height: 844 }, { width: 320, height: 740 }
   });
 }
 
-for (const mode of ["pan", "select", "area"] as const) {
-  test(`synthetic browser two-pointer pinch in ${mode} mode zooms without an area rectangle or post-lift jump (not native WebView HIL)`, async ({ page }) => {
+for (const mode of ["fixtures", "floor", "group"] as const) {
+  test(`synthetic browser two-pointer pinch for ${mode} targets zooms without an area rectangle or post-lift jump (not native WebView HIL)`, async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await installControlMapRoutes(page);
     await page.goto(`/control?siteId=${ids.site}`);
-    await expect(page.getByRole("heading", { name: "조명 밝기 제어", exact: true })).toBeVisible();
-    await page.getByRole("button", { name: mode === "pan" ? "지도 이동" : mode === "select" ? "조명 선택" : "영역 선택" }).click();
+    await expect(page.getByRole("region", { name: "제어 대상 지도", exact: true })).toBeVisible();
+    if (mode !== "fixtures") await page.getByRole("button", { name: mode === "floor" ? "층 전체" : "저장된 구역", exact: true }).click();
     const viewport = page.getByRole("region", { name: "B2 도면" });
     await expect(viewport).toBeVisible();
 
@@ -366,16 +356,120 @@ for (const mode of ["pan", "select", "area"] as const) {
   });
 }
 
+test("Task6 native mouse direct selection is additive, honors the 8px threshold and cancels with Escape", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  const api = await installControlMapRoutes(page);
+  await page.goto(`/control?siteId=${ids.site}`);
+  const viewport = page.getByTestId("target-selection-map-viewport");
+  const first = marker(page, "B2-L001");
+  const second = marker(page, "B2-L002");
+  await first.click();
+  await expect(first).toHaveAttribute("aria-pressed", "true");
+  await first.click();
+  await expect(first).toHaveAttribute("aria-pressed", "false");
+  await first.click();
+  const bounds = (await viewport.locator("[data-floor-map-surface]").boundingBox())!;
+  const blank = { x: bounds.x + bounds.width * .2, y: bounds.y + bounds.height * .7 };
+  await viewport.focus();
+  await page.mouse.move(blank.x, blank.y);
+  await page.mouse.down();
+  await page.mouse.move(blank.x + 7, blank.y);
+  await expect(page.getByTestId("map-area-selection")).toHaveCount(0);
+  await page.mouse.move(blank.x + 8, blank.y);
+  await expect(page.getByTestId("map-area-selection")).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(page.getByTestId("map-area-selection")).toHaveCount(0);
+  await page.mouse.up();
+  await expect(first).toHaveAttribute("aria-pressed", "true");
+  await expect(second).toHaveAttribute("aria-pressed", "false");
+  const pin = (await second.boundingBox())!;
+  await page.mouse.move(pin.x - 6, pin.y - 6);
+  await page.mouse.down();
+  await page.mouse.move(pin.x + pin.width + 6, pin.y + pin.height + 6, { steps: 6 });
+  await page.mouse.up();
+  await expect(first).toHaveAttribute("aria-pressed", "true");
+  await expect(second).toHaveAttribute("aria-pressed", "true");
+  const input = page.getByRole("textbox", { name: "밝기 수치" });
+  await input.focus();
+  await page.keyboard.press("Space");
+  await expect(input).toBeFocused();
+  expect(api.postRequests).toEqual([]);
+});
+
+test("Task6 native Space and middle-button drags pan without changing fixture selection", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  const api = await installControlMapRoutes(page);
+  await page.goto(`/control?siteId=${ids.site}`);
+  const viewport = page.getByTestId("target-selection-map-viewport");
+  await marker(page, "B2-L001").click();
+  for (let index = 0; index < 15; index += 1) await page.getByRole("button", { name: "지도 확대", exact: true }).click();
+  for (const kind of ["Space", "middle"] as const) {
+    await viewport.focus();
+    const point = await viewport.evaluate(element => {
+      const rect = element.getBoundingClientRect();
+      for (const x of [.3, .5, .7]) for (const y of [.3, .5, .7]) {
+        const point = { x: rect.x + rect.width * x, y: rect.y + rect.height * y };
+        const hit = document.elementFromPoint(point.x, point.y);
+        if (hit?.closest("[data-floor-map-surface]") && !hit.closest("button")) return point;
+      }
+      throw new Error("No reachable blank map point");
+    });
+    const before = await viewport.evaluate(element => ({ x: element.scrollLeft, y: element.scrollTop }));
+    await page.mouse.move(point.x, point.y);
+    if (kind === "Space") await page.keyboard.down("Space");
+    await page.mouse.down({ button: kind === "middle" ? "middle" : "left" });
+    await page.mouse.move(point.x - 40, point.y - 40, { steps: 4 });
+    await expect(page.getByTestId("map-area-selection")).toHaveCount(0);
+    await page.mouse.up({ button: kind === "middle" ? "middle" : "left" });
+    if (kind === "Space") await page.keyboard.up("Space");
+    await expect.poll(() => viewport.evaluate(element => ({ x: element.scrollLeft, y: element.scrollTop }))).not.toEqual(before);
+  }
+  await expect(marker(page, "B2-L001")).toHaveAttribute("aria-pressed", "true");
+  await expect(marker(page, "B2-L002")).toHaveAttribute("aria-pressed", "false");
+  expect(api.postRequests).toEqual([]);
+});
+
+test("Task6 synthetic touch hold cancels on a second pointer without a residual area or ghost click (not native WebView HIL)", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const api = await installControlMapRoutes(page);
+  await page.goto(`/control?siteId=${ids.site}`);
+  const viewport = page.getByTestId("target-selection-map-viewport");
+  const surface = (await viewport.locator("[data-floor-map-surface]").boundingBox())!;
+  const point = { x: surface.x + surface.width * .25, y: surface.y + surface.height * .7 };
+  await dispatchTouchPointer(page, viewport, "pointerdown", { pointerId: 11, pointerType: "touch", button: 0, buttons: 1, clientX: point.x, clientY: point.y });
+  await expect(page.getByTestId("map-area-selection")).toBeVisible();
+  await dispatchTouchPointer(page, viewport, "pointerdown", { pointerId: 12, pointerType: "touch", button: 0, buttons: 1, clientX: point.x + 30, clientY: point.y });
+  await expect(page.getByTestId("map-area-selection")).toHaveCount(0);
+  await dispatchTouchPointer(page, viewport, "pointerup", { pointerId: 12, pointerType: "touch", button: 0, buttons: 0, clientX: point.x + 30, clientY: point.y });
+  await dispatchTouchPointer(page, viewport, "pointermove", { pointerId: 11, pointerType: "touch", button: -1, buttons: 1, clientX: point.x + 40, clientY: point.y + 20 });
+  await dispatchTouchPointer(page, viewport, "pointerup", { pointerId: 11, pointerType: "touch", button: 0, buttons: 0, clientX: point.x + 40, clientY: point.y + 20 });
+  await expect(page.getByTestId("map-area-selection")).toHaveCount(0);
+  const pin = marker(page, "B2-L001");
+  await pin.evaluate(element => (element as HTMLButtonElement).click());
+  await expect(pin).toHaveAttribute("aria-pressed", "false");
+  await pin.click();
+  await expect(pin).toHaveAttribute("aria-pressed", "true");
+  expect(api.postRequests).toEqual([]);
+});
+
 async function expectInternalWheelScroll(page: Page, pane: ReturnType<Page["locator"]>) {
-  const metrics = await pane.evaluate((element) => ({ width: element.clientWidth, height: element.clientHeight, content: element.scrollHeight, top: element.scrollTop, overflow: getComputedStyle(element).overflowY }));
-  expect(metrics.width).toBeGreaterThan(0);
-  expect(metrics.height).toBeGreaterThan(0);
-  expect(metrics.content).toBeGreaterThan(metrics.height);
+  const metrics = await pane.evaluate(element => ({ width: element.clientWidth, height: element.clientHeight, content: element.scrollHeight,
+    contentWidth: element.scrollWidth, top: element.scrollTop, left: element.scrollLeft, overflow: getComputedStyle(element).overflowY }));
+  expect(metrics.width).toBeGreaterThan(0); expect(metrics.height).toBeGreaterThan(0);
   expect(metrics.overflow).toMatch(/auto|scroll/);
   await pane.hover();
-  await page.mouse.wheel(0, 10000);
-  await expect.poll(() => pane.evaluate((element) => element.scrollTop)).toBeGreaterThan(metrics.top);
-  await expect.poll(() => pane.evaluate((element) => element.scrollTop + element.clientHeight)).toBe(metrics.content);
+  if (metrics.content > metrics.height) {
+    await page.mouse.wheel(0, 10000);
+    await expect.poll(() => pane.evaluate(element => element.scrollTop)).toBeGreaterThan(metrics.top);
+    await expect.poll(() => pane.evaluate(element => element.scrollTop + element.clientHeight)).toBe(metrics.content);
+  } else {
+    // At narrow desktop group layouts, fit-by-width produces horizontal-only
+    // map overflow. Exercise that real axis rather than requiring fictitious Y overflow.
+    expect(metrics.contentWidth).toBeGreaterThan(metrics.width);
+    await page.mouse.wheel(10000, 0);
+    await expect.poll(() => pane.evaluate(element => element.scrollLeft)).toBeGreaterThan(metrics.left);
+    await expect.poll(() => pane.evaluate(element => element.scrollLeft + element.clientWidth)).toBe(metrics.contentWidth);
+  }
 }
 
 async function expectReachableInside(target: ReturnType<Page["locator"]>, pane: ReturnType<Page["locator"]>) {
@@ -480,9 +574,9 @@ async function installControlMapRoutes(page: Page, options: {
     const url = new URL(request.url());
     const path = url.pathname;
     if (request.method() === "POST") state.postRequests.push(path);
-    if (path === "/api/commands" && options.historyCount) return route.fulfill({ json: { items: history, nextCursor: null } });
+    if (path === "/api/commands" && options.historyCount) return route.fulfill({ json: { items: url.searchParams.get("limit") === "1" ? history.slice(0, 1) : history, nextCursor: null, generatedAt: "2026-09-01T00:00:00Z", retentionEnabled: false, retainedFrom: "2026-06-01T00:00:00Z" } });
     const historicalCommand = history.find((command) => path === `/api/commands/${command.id}`);
-    if (historicalCommand) return route.fulfill({ json: historicalCommand });
+    if (historicalCommand) return route.fulfill({ json: { ...historicalCommand, generatedAt: "2026-09-01T00:00:00Z", retainedFrom: "2026-06-01T00:00:00Z", retentionEnabled: false } });
     if (path === `/api/sites/${ids.site}/dashboard`) {
       return route.fulfill({ json: dashboardResponse(fixtureData, groups, options.role ?? "admin") });
     }

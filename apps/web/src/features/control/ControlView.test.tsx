@@ -391,7 +391,7 @@ describe("ControlView 대상 선택", () => {
     renderControl();
 
     fireEvent.click(await screen.findByRole("button", { name: /B2-L001/ }));
-    fireEvent.click(screen.getByRole("button", { name: "70%" }));
+    changeBrightness(70);
     fireEvent.click(within(screen.getByRole("complementary", { name: "밝기 실행" })).getByRole("button", { name: "1개 조명에 밝기 적용" }));
 
     await waitFor(() => expect(mocks.apiPost).toHaveBeenCalledWith(
@@ -493,7 +493,7 @@ describe("ControlView 대상 선택", () => {
     mocks.useCommandStatus.mockReturnValue({ data: { ...createCommandStatus(commandIds.default, "verified_not_applied"), siteId: dashboard.site.id, targetType: "floor", targetId: dashboard.floors[0].id, targetFixtureIds: [fixtureIds.b2First], brightness: 30, outcome: "not_applied", verificationAttemptCount: 1 }, error: null, isFetching: false, refetch: vi.fn() });
     renderControl();
     selectFixture("B2-L001");
-    fireEvent.click(screen.getByRole("button", { name: "100%" }));
+    changeBrightness(100);
     fireEvent.click(screen.getByRole("button", { name: "안전하게 다시 적용" }));
     await waitFor(() => expect(mocks.apiPost).toHaveBeenCalledTimes(1));
     expect(mocks.apiPost.mock.calls[0][0]).toBe("/commands/dimming");
@@ -691,10 +691,10 @@ describe("ControlView 대상 선택", () => {
     expect(screen.queryByText(/ACK/i)).not.toBeInTheDocument();
   });
 
-  it("밝기 preset과 대상 유형 action을 수동 제어 상태에 반영한다", () => {
+  it("직접 밝기 입력과 대상 유형 action을 수동 제어 상태에 반영한다", () => {
     renderControl();
 
-    fireEvent.click(screen.getByRole("button", { name: "30%" }));
+    changeBrightness(30);
     expect(screen.getByRole("slider", { name: "밝기" })).toHaveValue("30");
 
     chooseFloor("B2");
@@ -725,6 +725,30 @@ describe("ControlView 대상 선택", () => {
     expect(screen.getByRole("slider", { name: "밝기" })).toHaveValue("60");
   });
 
+  it.each(["", "42.5", "101"])("brightness_invalid_blur_apply_requires_new_click: %s", async (draft) => {
+    renderControl(); selectFixture("B2-L001");
+    const number = within(screen.getByRole("complementary", { name: "밝기 실행" })).getByRole("textbox", { name: "밝기 수치" });
+    const apply = screen.getByRole("button", { name: "1개 조명에 밝기 적용" });
+    fireEvent.input(number, { target: { value: draft } });
+    expect(apply).toBeDisabled();
+    fireEvent.pointerDown(apply); fireEvent.blur(number); fireEvent.click(apply);
+    expect(mocks.apiPost).not.toHaveBeenCalled();
+    expect(screen.getByText(/마지막 정상 밝기.*복귀/)).toBeInTheDocument();
+    expect(screen.getByRole("textbox", { name: "밝기 수치" })).toHaveValue("70");
+    await act(async () => {});
+    fireEvent.click(apply);
+    expect(mocks.apiPost).toHaveBeenCalledTimes(1);
+  });
+
+  it("renders only one direct numeric brightness and slider; editing Enter never sends", () => {
+    renderControl(); selectFixture("B2-L001");
+    for (const value of [0, 30, 70, 100]) expect(screen.queryByRole("button", { name: `${value}%` })).not.toBeInTheDocument();
+    const number = within(screen.getByRole("complementary", { name: "밝기 실행" })).getByRole("textbox", { name: "밝기 수치" });
+    fireEvent.input(number, { target: { value: "42" } }); fireEvent.keyDown(number, { key: "Enter" });
+    expect(screen.getByRole("slider", { name: "밝기" })).toHaveValue("42");
+    expect(mocks.apiPost).not.toHaveBeenCalled();
+  });
+
   it("keeps the shared brightness Slider and NumberField on one number state", () => {
     renderControl();
     const slider = screen.getByRole("slider", { name: "밝기" });
@@ -734,7 +758,7 @@ describe("ControlView 대상 선택", () => {
     fireEvent.blur(number);
     expect(slider).toHaveValue("42");
     fireEvent.change(slider, { target: { value: "35" } });
-    expect(number).toHaveValue("35");
+    expect(screen.getByRole("textbox", { name: "밝기 수치" })).toHaveValue("35");
   });
 
   it("keeps the chosen brightness for multiple light selections", () => {
@@ -744,7 +768,7 @@ describe("ControlView 대상 선택", () => {
     selectFixture("B2-L001");
     expect(brightnessSlider).toHaveValue("70");
 
-    fireEvent.click(screen.getByRole("button", { name: "30%" }));
+    changeBrightness(30);
     selectFixture("B2-L002");
     expect(brightnessSlider).toHaveValue("30");
 
@@ -755,7 +779,7 @@ describe("ControlView 대상 선택", () => {
     renderControl();
     const brightnessSlider = screen.getByRole("slider", { name: "밝기" });
 
-    fireEvent.click(screen.getByRole("button", { name: "30%" }));
+    changeBrightness(30);
     chooseFloor("B1");
     expect(brightnessSlider).toHaveValue("30");
 
@@ -768,7 +792,7 @@ describe("ControlView 대상 선택", () => {
 
     selectFixture("B2-L001");
     selectFixture("B2-L002");
-    fireEvent.click(screen.getByRole("button", { name: "30%" }));
+    changeBrightness(30);
     fireEvent.click(applyButton());
 
     await waitFor(() => expect(mocks.apiPost).toHaveBeenCalledWith("/commands/dimming", expect.objectContaining({
@@ -1050,12 +1074,12 @@ describe("ControlView 대상 선택", () => {
       mocks.useCommandStatus.mockReturnValue({ data: createCommandStatus(commandIds.default, stage), error: null, isFetching: false, refetch: vi.fn() });
       renderControl();
 
-      await waitFor(() => expect(screen.getByRole("button", { name: "상태 센터, 미해결 1건" })).toBeInTheDocument());
+      await expectScreenStatusCount(1);
       expect(within(screen.getByRole("status", { name: "명령 진행 상태" })).getAllByText(stage === "verification_required" ? "실제 상태 확인 필요" : stage === "verified_not_applied" ? "미적용 확인" : stage === "verified_partial" ? "일부 적용 확인" : stage === "partial_failed" ? "일부 조명 적용 실패" : stage === "failed" ? "명령 처리 실패" : "명령 응답 시간 초과").length).toBeGreaterThan(0);
       fireEvent.click(screen.getByRole("tab", { name: "스케줄 제어" }));
       await waitFor(() => expect(screen.getByRole("tab", { name: "스케줄 제어" })).toHaveAttribute("aria-selected", "true"));
-      fireEvent.click(screen.getByRole("button", { name: "상태 센터, 미해결 1건" }));
-      const center = screen.getByRole("dialog", { name: "현재 세션 상태" });
+      fireEvent.click(screen.getByRole("button", { name: "알람센터, 현장 미선택" }));
+      const center = screen.getByRole("dialog", { name: "알람센터" });
       fireEvent.click(within(center).getByRole("button", { name: "수동 제어로 이동" }));
 
       await waitFor(() => expect(screen.getByTestId("control-location")).toHaveTextContent("mode=manual"));
@@ -1068,12 +1092,12 @@ describe("ControlView 대상 선택", () => {
     mocks.useCommandStatus.mockReturnValue({ data: createCommandStatus(commandIds.default, "accepted"), error: null, isFetching: false, refetch: vi.fn() });
     const { rerender } = renderControl();
 
-    await waitFor(() => expect(screen.getByRole("button", { name: "상태 센터, 미해결 1건" })).toBeInTheDocument());
+    await expectScreenStatusCount(1);
     expect(within(screen.getByRole("status", { name: "명령 진행 상태" })).getByText("게이트웨이 수신 완료")).toBeInTheDocument();
     mocks.useCommandStatus.mockReturnValue({ data: createCommandStatus(commandIds.default, "completed"), error: null, isFetching: false, refetch: vi.fn() });
     rerender(controlElement(dashboard.site.id));
 
-    await waitFor(() => expect(screen.getByRole("button", { name: "상태 센터, 미해결 0건" })).toBeInTheDocument());
+    await expectScreenStatusCount(0);
     expect(within(screen.getByRole("status", { name: "명령 진행 상태" })).getByText("조명 적용 완료 · 기본 밝기로 저장됨")).toBeInTheDocument();
   });
 
@@ -1084,9 +1108,9 @@ describe("ControlView 대상 선택", () => {
     selectFixture("B2-L001");
     fireEvent.click(applyButton());
 
-    await waitFor(() => expect(screen.getByRole("button", { name: "상태 센터, 미해결 1건" })).toBeInTheDocument());
-    fireEvent.click(screen.getByRole("button", { name: "상태 센터, 미해결 1건" }));
-    const center = screen.getByRole("dialog", { name: "현재 세션 상태" });
+    await expectScreenStatusCount(1);
+    fireEvent.click(screen.getByRole("button", { name: "알람센터, 현장 미선택" }));
+    const center = screen.getByRole("dialog", { name: "알람센터" });
     expect(within(center).getByText("명령 전송 중")).toBeInTheDocument();
     expect(within(center).queryByText("명령 응답을 확인하지 못했습니다")).not.toBeInTheDocument();
     await act(async () => resolveCommand({ id: commandIds.default }));
@@ -1097,28 +1121,28 @@ describe("ControlView 대상 선택", () => {
     mocks.useCommandStatus.mockReturnValue({ data: createCommandStatus(commandIds.default, "verification_required"), error: null, isFetching: false, refetch: vi.fn() });
     renderControl();
 
-    await waitFor(() => expect(screen.getByRole("button", { name: "상태 센터, 미해결 1건" })).toBeInTheDocument());
+    await expectScreenStatusCount(1);
     fireEvent.click(screen.getByRole("button", { name: "명령 상세 닫기" }));
-    await waitFor(() => expect(screen.getByRole("button", { name: "상태 센터, 미해결 0건" })).toBeInTheDocument());
+    await expectScreenStatusCount(0);
   });
 
   it.each(["site", "user"])('resolves an open command status when the %s scope changes', async (scope) => {
     sessionStorage.setItem(activeCommandStorageKey(USER_A, dashboard.site.id), JSON.stringify({ commandId: commandIds.default }));
     mocks.useCommandStatus.mockReturnValue({ data: createCommandStatus(commandIds.default, "verification_required"), error: null, isFetching: false, refetch: vi.fn() });
     const { rerender } = renderControl();
-    await waitFor(() => expect(screen.getByRole("button", { name: "상태 센터, 미해결 1건" })).toBeInTheDocument());
+    await expectScreenStatusCount(1);
 
     if (scope === "site") {
       const nextSiteId = "00000000-0000-4000-8000-000000000099";
       rerender(controlElement(nextSiteId));
-      await waitFor(() => expect(screen.getByRole("button", { name: "상태 센터, 미해결 0건" })).toBeInTheDocument());
+      await expectScreenStatusCount(0);
       mocks.useControlDashboard.mockReturnValue({ data: { ...dashboard, site: { ...dashboard.site, id: nextSiteId } }, isLoading: false, error: null });
       rerender(controlElement(nextSiteId));
     } else {
       rerender(controlElement(dashboard.site.id, "admin", USER_B));
     }
 
-    await waitFor(() => expect(screen.getByRole("button", { name: "상태 센터, 미해결 0건" })).toBeInTheDocument());
+    await expectScreenStatusCount(0);
     expect(within(screen.getByRole("region", { name: "알림" })).queryByText("실제 상태 확인 필요")).not.toBeInTheDocument();
   });
 
@@ -1200,7 +1224,7 @@ describe("ControlView 대상 선택", () => {
 
     expect(applyButton()).toBeDisabled();
     expect(screen.getByRole("slider", { name: "밝기" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "70%" })).toBeDisabled();
+    expect(screen.getByRole("textbox", { name: "밝기 수치" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "층 전체" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "조명 목록 열기" })).toBeDisabled();
     expect(fixtureMarker("B2-L001")).toBeDisabled();
@@ -1224,7 +1248,7 @@ describe("ControlView 대상 선택", () => {
 
     selectFixture("B2-L002");
     selectFixture("B2-L001");
-    fireEvent.click(screen.getByRole("button", { name: "30%" }));
+    changeBrightness(30);
     fireEvent.click(applyButton());
 
     expect(await screen.findByRole("button", { name: "동일 요청 확인(새 제어 아님)" })).toBeEnabled();
@@ -1629,10 +1653,10 @@ describe("ControlView 대상 선택", () => {
     renderControl();
 
     expect(screen.getByRole("button", { name: "명령 상태 다시 조회" })).toBeInTheDocument();
-    await waitFor(() => expect(screen.getByRole("button", { name: "상태 센터, 미해결 1건" })).toBeInTheDocument());
+    await expectScreenStatusCount(1);
     fireEvent.click(screen.getByRole("tab", { name: "스케줄 제어" }));
-    fireEvent.click(screen.getByRole("button", { name: "상태 센터, 미해결 1건" }));
-    const center = screen.getByRole("dialog", { name: "현재 세션 상태" });
+    fireEvent.click(screen.getByRole("button", { name: "알람센터, 현장 미선택" }));
+    const center = screen.getByRole("dialog", { name: "알람센터" });
     expect(within(center).getByText(title)).toBeInTheDocument();
     expect(within(center).getByText("확인 필요")).toBeInTheDocument();
     fireEvent.click(within(center).getByRole("button", { name: "수동 제어로 이동" }));
@@ -1697,7 +1721,7 @@ describe("ControlView 대상 선택", () => {
 
     expect(screen.queryByLabelText("수동 override 종료 시각")).not.toBeInTheDocument();
     selectFixture("B2-L001");
-    fireEvent.click(screen.getByRole("button", { name: "30%" }));
+    changeBrightness(30);
     fireEvent.click(applyButton());
 
     await waitFor(() => expect(mocks.apiPost).toHaveBeenCalledTimes(1));
@@ -1962,4 +1986,18 @@ function createCommandStatus(
       results: [{ fixtureId: fixtureIds.b2First, fixtureName: "B2-L001", status: "failed" as const, errorMessage: "장비 응답 오류" }]
     }]
   };
+}
+
+function changeBrightness(value: number) {
+  const input = screen.getByRole("textbox", { name: "밝기 수치" });
+  fireEvent.input(input, { target: { value: String(value) } });
+  fireEvent.blur(input);
+}
+
+async function expectScreenStatusCount(count: number) {
+  fireEvent.click(screen.getByRole("button", { name: "알람센터, 현장 미선택" }));
+  const center = screen.getByRole("dialog", { name: "알람센터" });
+  const section = within(center).getByRole("heading", { name: "현재 화면 상태" }).closest("section")!;
+  await waitFor(() => expect(within(section).queryAllByRole("listitem")).toHaveLength(count));
+  fireEvent.click(within(center).getByRole("button", { name: "알람센터 닫기" }));
 }

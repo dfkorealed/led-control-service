@@ -18,6 +18,8 @@ import {
 } from "react";
 import { Button, IconButton, cn } from "../../components/ui";
 import {
+  MAP_DRAG_THRESHOLD_PX, MAP_LONG_PRESS_MS,
+  type MapInteractionPolicy,
   anchoredScrollPosition,
   clampMapZoom,
   mapPointFromSurface,
@@ -63,6 +65,7 @@ interface FloorMapViewportProps {
   snapshot: FloorMapSnapshot;
   ariaLabel: string;
   mode?: MapInteractionMode;
+  interactionPolicy?: MapInteractionPolicy;
   children: ReactNode;
   onAreaSelect?: (rect: MapSelectionRect) => void;
   showControls?: boolean;
@@ -101,6 +104,7 @@ export const FloorMapViewport = forwardRef<FloorMapViewportHandle, FloorMapViewp
   snapshot,
   ariaLabel,
   mode = "pan",
+  interactionPolicy = "pan",
   children,
   onAreaSelect,
   showControls = true,
@@ -123,6 +127,9 @@ export const FloorMapViewport = forwardRef<FloorMapViewportHandle, FloorMapViewp
   const pan = useRef<PanGesture | null>(null);
   const area = useRef<AreaGesture | null>(null);
   const pinch = useRef<PinchGesture | null>(null);
+  const candidate = useRef<{ pointerId: number; start: MapPoint; mapStart: MapPoint; scroll: MapPoint; kind: "area" | "pan" | "hold" | "marker"; moved: boolean } | null>(null);
+  const holdTimer = useRef<number | null>(null);
+  const spacePressed = useRef(false);
   const zoomRef = useRef(1);
   const onZoomChangeRef = useRef(onZoomChange);
   const suppressNextClick = useRef(false);
@@ -481,15 +488,35 @@ export const FloorMapViewport = forwardRef<FloorMapViewportHandle, FloorMapViewp
     }
   }
 
+  function clearHold() {
+    if (holdTimer.current !== null) window.clearTimeout(holdTimer.current);
+    holdTimer.current = null;
+  }
+
+  function cancelGesture() {
+    clearHold();
+    if (candidate.current || activePointers.current.size || area.current || pinch.current) suppressNextClick.current = true;
+    candidate.current = null; pan.current = null; area.current = null;
+    if (pinch.current) { pinch.current = null; commitZoom(); }
+    activePointers.current.clear(); spacePressed.current = false; setSelection(null);
+  }
+
+  useEffect(() => {
+    window.addEventListener("blur", cancelGesture);
+    return () => { window.removeEventListener("blur", cancelGesture); cancelGesture(); };
+  }, [interactionPolicy, mode, snapshot.floorId]);
+
   function startPinch(event: ReactPointerEvent<HTMLDivElement>) {
     const pointers = [...activePointers.current.values()];
     if (pointers.length < 2) return;
     const [left, right] = pointers;
+    clearHold(); candidate.current = null;
     const startDistance = pointerDistance(left, right);
-    if (startDistance === 0) return;
+    if (startDistance === 0) { cancelGesture(); return; }
     pan.current = null;
     area.current = null;
     setSelection(null);
+    suppressNextClick.current = true;
     const midpoint = pointerMidpoint(left, right);
     pinch.current = {
       startDistance,
@@ -503,7 +530,8 @@ export const FloorMapViewport = forwardRef<FloorMapViewportHandle, FloorMapViewp
   }
 
   function handlePointerDown(event: ReactPointerEvent<HTMLDivElement>) {
-    if (event.button > 0) return;
+    if (event.button > 0 && !(interactionPolicy === "direct-selection" && event.button === 1)) return;
+    if (activePointers.current.size === 0) suppressNextClick.current = false;
     activePointers.current.set(event.pointerId, { x: event.clientX, y: event.clientY });
 
     if (activePointers.current.size >= 2) {
@@ -513,8 +541,32 @@ export const FloorMapViewport = forwardRef<FloorMapViewportHandle, FloorMapViewp
     }
 
     // Marker buttons keep their click interaction; single-pointer gestures begin on empty map space.
-    if ((event.target as Element).closest("button")) return;
+    if ((event.target as Element).closest("button")) {
+      // A moved touch that began on a pin is no longer a tap. It cannot become
+      // an area selection or activate the pin through a synthesized click.
+      if (interactionPolicy === "direct-selection" && event.pointerType === "touch" && (event.target as Element).closest("[data-spatial-map-marker]")) {
+        candidate.current = { pointerId: event.pointerId, start: { x: event.clientX, y: event.clientY }, mapStart: mapPoint(event),
+          scroll: { x: event.currentTarget.scrollLeft, y: event.currentTarget.scrollTop }, kind: "marker", moved: false };
+      }
+      return;
+    }
     capturePointer(event);
+    if (interactionPolicy === "direct-selection") {
+      const kind = event.pointerType === "touch" ? "hold" : spacePressed.current || event.button === 1 ? "pan" : "area";
+      if (event.button === 1) event.preventDefault();
+      candidate.current = { pointerId: event.pointerId, start: { x: event.clientX, y: event.clientY }, mapStart: mapPoint(event),
+        scroll: { x: event.currentTarget.scrollLeft, y: event.currentTarget.scrollTop }, kind, moved: false };
+      if (kind === "hold") holdTimer.current = window.setTimeout(() => {
+        holdTimer.current = null;
+        const current = candidate.current;
+        if (!current || current.moved || activePointers.current.size !== 1) return;
+        current.kind = "area";
+        area.current = { pointerId: current.pointerId, start: current.mapStart };
+        setSelection(normalizeSelectionRect(current.mapStart, current.mapStart));
+        suppressNextClick.current = true;
+      }, MAP_LONG_PRESS_MS);
+      return;
+    }
     if (mode === "pan") {
       pan.current = {
         pointerId: event.pointerId,
@@ -555,6 +607,14 @@ export const FloorMapViewport = forwardRef<FloorMapViewportHandle, FloorMapViewp
       return;
     }
 
+    const current = candidate.current;
+    if (current?.pointerId === event.pointerId && !current.moved && pointerDistance(current.start, { x: event.clientX, y: event.clientY }) >= MAP_DRAG_THRESHOLD_PX) {
+      current.moved = true; clearHold(); suppressNextClick.current = true;
+      if (current.kind === "hold") current.kind = "pan";
+      if (current.kind === "pan") pan.current = { pointerId: event.pointerId, point: current.start, scroll: current.scroll };
+      else if (current.kind === "area") area.current = { pointerId: event.pointerId, start: current.mapStart };
+    }
+
     const activePan = pan.current;
     if (activePan?.pointerId === event.pointerId) {
       event.currentTarget.scrollLeft = activePan.scroll.x - (event.clientX - activePan.point.x);
@@ -569,9 +629,11 @@ export const FloorMapViewport = forwardRef<FloorMapViewportHandle, FloorMapViewp
 
   function finishPointer(event: ReactPointerEvent<HTMLDivElement>, cancelled = false) {
     const activeArea = area.current;
-    if (!cancelled && activeArea?.pointerId === event.pointerId && !pinch.current) {
+    if (cancelled) { cancelGesture(); releasePointer(event); return; }
+    if (!cancelled && activeArea?.pointerId === event.pointerId && !pinch.current && (interactionPolicy !== "direct-selection" || candidate.current?.moved)) {
       onAreaSelect?.(normalizeSelectionRect(activeArea.start, mapPoint(event)));
     }
+    clearHold(); candidate.current = null;
     activePointers.current.delete(event.pointerId);
     pan.current = null;
     area.current = null;
@@ -581,7 +643,7 @@ export const FloorMapViewport = forwardRef<FloorMapViewportHandle, FloorMapViewp
       commitZoom();
       suppressNextClick.current = true;
       if (suppressClickTimeout.current !== null) window.clearTimeout(suppressClickTimeout.current);
-      suppressClickTimeout.current = window.setTimeout(() => {
+      if (interactionPolicy !== "direct-selection") suppressClickTimeout.current = window.setTimeout(() => {
         suppressNextClick.current = false;
         suppressClickTimeout.current = null;
       }, 0);
@@ -624,7 +686,16 @@ export const FloorMapViewport = forwardRef<FloorMapViewportHandle, FloorMapViewp
         ref={viewportRef}
         className={cn("h-full min-h-0 w-full min-w-0 touch-none cursor-grab overflow-auto overscroll-contain bg-surface-inset focus-visible:outline-none focus-visible:shadow-focus active:cursor-grabbing", controlsPlacement === "footer" && "min-h-[240px] flex-1 [contain:size]")}
         data-testid={viewportTestId}
-        onKeyDown={onViewportKeyDown}
+        onKeyDown={event => {
+          if (event.target === event.currentTarget) {
+            if (event.key === "Escape") cancelGesture();
+            if (interactionPolicy === "direct-selection" && event.key === " ") { spacePressed.current = true; event.preventDefault(); }
+          }
+          onViewportKeyDown?.(event);
+        }}
+        onKeyUp={event => { if (event.target === event.currentTarget && event.key === " ") spacePressed.current = false; }}
+        onBlur={event => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) cancelGesture(); }}
+        onLostPointerCapture={event => { if (activePointers.current.has(event.pointerId)) cancelGesture(); }}
         role="region"
         aria-label={ariaLabel}
         data-zoom={zoomRef.current}
@@ -669,4 +740,4 @@ export const FloorMapViewport = forwardRef<FloorMapViewportHandle, FloorMapViewp
   );
 });
 
-export type { MapInteractionMode, MapPoint, MapSelectionRect } from "./map-gestures";
+export type { MapInteractionMode, MapInteractionPolicy, MapPoint, MapSelectionRect } from "./map-gestures";

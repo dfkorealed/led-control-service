@@ -20,6 +20,7 @@ import { isApiStatus } from "../../../api/client";
 import { authMeQueryKey, principalKey } from "../../../api/principal-cache";
 import type { Dashboard } from "../../../api/queries";
 import { Button, ConfirmDialog, FeedbackState, PageHeader, StatusBadge, Text, useSessionStatus, useSessionToast, type SessionStatusItem } from "../../../components/ui";
+import { formatControlTimestamp } from "../control-time";
 import { VehicleEventDialog } from "./VehicleEventDialog";
 import { AutomationRuleCard } from "./components/AutomationRuleCard";
 import { AutomationRuleControls } from "./components/AutomationRuleControls";
@@ -175,7 +176,7 @@ export function VehicleEventControlPanel({
   const statusItems = useMemo<SessionStatusItem[]>(() => {
     const items: SessionStatusItem[] = [];
     const lastSuccess = lastRefreshSuccess?.scope === listScopeKey
-      ? `마지막 성공: ${new Intl.DateTimeFormat("ko-KR", { dateStyle: "short", timeStyle: "short", timeZone: dashboard?.site.timeZone ?? "UTC" }).format(lastRefreshSuccess.at)}`
+      ? `마지막 성공: ${formatControlTimestamp(lastRefreshSuccess.at, dashboard?.site.timeZone ?? "UTC")}`
       : undefined;
     if (rulesQuery.data && !queryUnauthorized && (missingCursor || rulesQuery.isFetchNextPageError)) items.push({
       id: `control:event:${scopeKey}:${siteId}:${listScopeKey}:query:next`,
@@ -530,7 +531,7 @@ function EnabledBadge({ enabled }: { enabled: boolean }) {
 
 function DetectionBadge({ rule, timeZone, wrap = false }: { rule: VehicleEventRuleResponse; timeZone: string; wrap?: boolean }) {
   const label = rule.lastDetection
-    ? new Intl.DateTimeFormat("ko-KR", { dateStyle: "short", timeStyle: "short", timeZone }).format(new Date(rule.lastDetection.occurredAt))
+    ? formatControlTimestamp(rule.lastDetection.occurredAt, timeZone)
     : "최근 감지 없음";
   return <StatusBadge tone={rule.lastDetection ? "info" : "neutral"} icon={rule.lastDetection ? CarFront : Clock3} className={wrap ? "max-w-full whitespace-normal break-words" : undefined}>{label}</StatusBadge>;
 }

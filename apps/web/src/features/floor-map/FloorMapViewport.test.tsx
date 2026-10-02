@@ -17,6 +17,73 @@ const snapshot: FloorMapSnapshot = {
 describe("FloorMapViewport", () => {
   afterEach(() => cleanup());
 
+  it("cancels a pre-hold touch and a dragged marker without a ghost toggle", () => {
+    const toggle = vi.fn(); const select = vi.fn();
+    render(<FloorMapViewport snapshot={snapshot} ariaLabel="direct" interactionPolicy="direct-selection" onAreaSelect={select}><button data-spatial-map-marker onClick={toggle}>pin</button></FloorMapViewport>);
+    const viewport = screen.getByRole("region", { name: "direct" });
+    const pin = screen.getByRole("button", { name: "pin" });
+    dispatchPointer(viewport, "pointerdown", { pointerId: 1, pointerType: "touch", button: 0, clientX: 10, clientY: 10 });
+    dispatchPointer(viewport, "pointercancel", { pointerId: 1, pointerType: "touch" });
+    fireEvent.click(pin); expect(toggle).not.toHaveBeenCalled();
+    dispatchPointer(pin, "pointerdown", { pointerId: 2, pointerType: "touch", button: 0, clientX: 10, clientY: 10 });
+    dispatchPointer(pin, "pointermove", { pointerId: 2, pointerType: "touch", clientX: 18, clientY: 10 });
+    dispatchPointer(pin, "pointerup", { pointerId: 2, pointerType: "touch", clientX: 18, clientY: 10 });
+    fireEvent.click(pin); expect(toggle).not.toHaveBeenCalled(); expect(select).not.toHaveBeenCalled();
+  });
+
+  it("direct_gestures_cancel_and_never_cross_input_focus", () => {
+    const select = vi.fn();
+    render(<FloorMapViewport snapshot={snapshot} ariaLabel="direct" interactionPolicy="direct-selection" onAreaSelect={select}><input aria-label="draft" /></FloorMapViewport>);
+    const viewport = screen.getByRole("region", { name: "direct" });
+    dispatchPointer(viewport, "pointerdown", { pointerId: 1, pointerType: "mouse", button: 0, clientX: 100, clientY: 100 });
+    dispatchPointer(viewport, "pointermove", { pointerId: 1, pointerType: "mouse", clientX: 107, clientY: 100 });
+    expect(screen.queryByTestId("map-area-selection")).not.toBeInTheDocument();
+    dispatchPointer(viewport, "pointermove", { pointerId: 1, pointerType: "mouse", clientX: 108, clientY: 100 });
+    expect(screen.getByTestId("map-area-selection")).toBeInTheDocument();
+    fireEvent.keyDown(viewport, { key: "Escape" });
+    dispatchPointer(viewport, "pointerup", { pointerId: 1, pointerType: "mouse", clientX: 110, clientY: 100 });
+    expect(select).not.toHaveBeenCalled();
+    const input = screen.getByRole("textbox"); input.focus();
+    fireEvent.keyDown(input, { key: " " });
+    dispatchPointer(viewport, "pointerdown", { pointerId: 3, pointerType: "mouse", button: 0, clientX: 100, clientY: 100 });
+    dispatchPointer(viewport, "pointermove", { pointerId: 3, pointerType: "mouse", clientX: 120, clientY: 100 });
+    dispatchPointer(viewport, "pointerup", { pointerId: 3, pointerType: "mouse", clientX: 120, clientY: 100 });
+    expect(select).toHaveBeenCalledOnce();
+  });
+
+  it.each(["pointercancel", "lostpointercapture", "blur"])("cancels a direct area on %s without committing", (cancel) => {
+    const select = vi.fn();
+    render(<FloorMapViewport snapshot={snapshot} ariaLabel="direct" interactionPolicy="direct-selection" onAreaSelect={select}><span /></FloorMapViewport>);
+    const viewport = screen.getByRole("region", { name: "direct" });
+    dispatchPointer(viewport, "pointerdown", { pointerId: 1, pointerType: "mouse", button: 0, clientX: 100, clientY: 100 });
+    dispatchPointer(viewport, "pointermove", { pointerId: 1, pointerType: "mouse", clientX: 120, clientY: 100 });
+    expect(screen.getByTestId("map-area-selection")).toBeInTheDocument();
+    if (cancel === "blur") fireEvent(window, new Event("blur")); else dispatchPointer(viewport, cancel, { pointerId: 1 });
+    dispatchPointer(viewport, "pointerup", { pointerId: 1, pointerType: "mouse", clientX: 120, clientY: 100 });
+    expect(select).not.toHaveBeenCalled();
+    expect(screen.queryByTestId("map-area-selection")).not.toBeInTheDocument();
+  });
+
+  it("longpress_second_pointer_cancel_has_no_ghost_click", () => {
+    vi.useFakeTimers();
+    try {
+      const select = vi.fn(), click = vi.fn();
+      render(<FloorMapViewport snapshot={snapshot} ariaLabel="direct" interactionPolicy="direct-selection" onAreaSelect={select}><button onClick={click}>pin</button></FloorMapViewport>);
+      const viewport = screen.getByRole("region", { name: "direct" });
+      dispatchPointer(viewport, "pointerdown", { pointerId: 1, pointerType: "touch", button: 0, clientX: 100, clientY: 100 });
+      act(() => vi.advanceTimersByTime(399));
+      expect(screen.queryByTestId("map-area-selection")).not.toBeInTheDocument();
+      act(() => vi.advanceTimersByTime(1));
+      expect(screen.getByTestId("map-area-selection")).toBeInTheDocument();
+      dispatchPointer(viewport, "pointerdown", { pointerId: 2, pointerType: "touch", button: 0, clientX: 200, clientY: 100 });
+      expect(screen.queryByTestId("map-area-selection")).not.toBeInTheDocument();
+      dispatchPointer(viewport, "pointerup", { pointerId: 2, pointerType: "touch", clientX: 200, clientY: 100 });
+      dispatchPointer(viewport, "pointerup", { pointerId: 1, pointerType: "touch", clientX: 100, clientY: 100 });
+      fireEvent.click(screen.getByText("pin"));
+      expect(click).not.toHaveBeenCalled(); expect(select).not.toHaveBeenCalled();
+    } finally { cleanup(); vi.useRealTimers(); }
+  });
+
   it("can reserve a controls footer without changing the default overlay", () => {
     const view = render(<FloorMapViewport snapshot={snapshot} ariaLabel="footer camera" controlsPlacement="footer"><span /></FloorMapViewport>);
     expect(screen.getByRole("group", { name: "지도 확대 축소" })).toHaveClass("shrink-0");

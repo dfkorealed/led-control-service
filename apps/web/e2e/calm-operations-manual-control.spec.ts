@@ -48,7 +48,7 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
         id: "77777777-7777-4777-8777-777777777799", stage: "completed", outcome: "applied", brightness: 70,
         totalFixtureCount: 2, completedFixtureCount: 2, createdAt: "2026-09-12T01:00:00.000Z", dispatchCount: 1,
         errorMessage: null, verificationAttemptCount: 0
-      }], nextCursor: null, retainedFrom: "2026-06-25T01:00:00.000Z"
+      }], nextCursor: null, generatedAt: "2026-09-25T01:00:00.000Z", retentionEnabled: false, retainedFrom: "2026-06-25T01:00:00.000Z"
     } }));
     await page.goto(`/control?siteId=${ids.site}`);
     const history = page.getByRole("region", { name: "최근 명령 이력" });
@@ -95,6 +95,7 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
         return route.fulfill({ json: { dispatchId: "check-dispatch", dispatchIds: ["check-dispatch"], verificationAttempt: 1, terminalStatusUrl: `/commands/${commandId}` } });
       }
       if (url.pathname === `/api/commands/${commandId}`) return route.fulfill({ json: {
+        generatedAt: "2026-09-25T00:00:00Z", retainedFrom: "2026-06-25T00:00:00Z", retentionEnabled: false,
         ...original, stage: verified ? "verified_not_applied" : "verification_required", outcome: verified ? "not_applied" : "unknown",
         verificationAttemptCount: checking ? 1 : 0,
         dispatches: checking ? [...original.dispatches, { id: "check-dispatch", kind: "status_check", verificationAttempt: 1, status: verified ? "completed" : "accepted", gateway: { id: ids.gateway, name: "GW" }, errorMessage: null, results: [{ ...commandResult("succeeded", null), brightness: 70 }] }] : original.dispatches
@@ -113,16 +114,16 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
     await expect(drawer.getByRole("searchbox", { name: "명령 이력 검색" })).toBeVisible();
     await expect(drawer).toContainText("최근 3개월");
     await expect.poll(() => historyRequests.find((url) => url.searchParams.get("limit") === "1")?.searchParams.get("limit")).toBe("1");
-    await expect.poll(() => historyRequests.find((url) => url.searchParams.get("limit") === "4")?.searchParams.get("limit")).toBe("4");
+    await expect.poll(() => historyRequests.find((url) => url.searchParams.get("limit") === "50")?.searchParams.get("limit")).toBe("50");
     await drawer.getByRole("searchbox", { name: "명령 이력 검색" }).fill("B2");
     await expect.poll(() => historyRequests.at(-1)?.searchParams.get("query")).toBe("B2");
     await drawer.getByRole("button", { name: "명령 상태 필터" }).click();
     await page.getByRole("option", { name: "실제 상태 확인 필요" }).click();
     await expect.poll(() => historyRequests.at(-1)?.searchParams.get("stage")).toBe("verification_required");
-    await drawer.getByRole("button", { name: "다음" }).click();
+    await drawer.getByRole("button", { name: "다음 페이지" }).click();
     await expect.poll(() => historyRequests.at(-1)?.searchParams.get("cursor")).toBe("next-page");
-    await expect(drawer.getByRole("button", { name: "다음" })).toBeDisabled();
-    await drawer.getByRole("button", { name: "이전" }).click();
+    await expect(drawer.getByRole("button", { name: "다음 페이지" })).toBeDisabled();
+    await drawer.getByRole("button", { name: "이전 페이지" }).click();
     await drawer.getByRole("button", { name: new RegExp(commandId) }).click();
     const execution = await openManualExecution(page);
     await expect(execution.getByRole("button", { name: "안전하게 다시 적용" })).toHaveCount(0);
@@ -137,7 +138,8 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
     expect(api.dimmingRequests).toHaveLength(0);
     verified = true;
     await expect(page.getByRole("button", { name: "안전하게 다시 적용" })).toBeEnabled();
-    await page.getByRole("button", { name: "100%", exact: true }).click();
+    await page.getByRole("textbox", { name: "밝기 수치" }).fill("100");
+    await page.getByRole("textbox", { name: "밝기 수치" }).press("Enter");
     await page.getByRole("button", { name: "안전하게 다시 적용" }).click();
     await expect.poll(() => api.dimmingRequests.at(-1)).toMatchObject({ brightness: 30, target: { type: "fixtures", fixtureIds: [ids.fixture] } });
     await expectNoHorizontalOverflow(page);
@@ -165,7 +167,8 @@ for (const viewport of viewports) {
     await fixtureDrawer.getByRole("button", { name: "선택 완료", exact: true }).click();
     await expect(page.getByRole("button", { name: "밝기 적용" })).toBeDisabled();
     await setCheckbox(page, "B2-L01 선택", true);
-    await page.getByRole("button", { name: "30%" }).click();
+    await page.getByRole("textbox", { name: "밝기 수치" }).fill("30");
+    await page.getByRole("textbox", { name: "밝기 수치" }).press("Enter");
     await expect(page.getByLabel("수동 override 종료 시각")).toHaveCount(0);
     await page.getByRole("button", { name: "밝기 적용" }).click();
     await expect.poll(() => api.dimmingRequests.at(-1)).toMatchObject({
@@ -176,7 +179,7 @@ for (const viewport of viewports) {
     await expect(execution.getByRole("list", { name: "명령 진행" })).toContainText("장비 응답");
     await expect(page.getByRole("button", { name: "조명 목록 열기" })).toBeDisabled();
     await expect(page.getByRole("button", { name: "층 전체" })).toBeDisabled();
-    await expect(page.getByRole("button", { name: "30%" })).toBeDisabled();
+    await expect(page.getByRole("textbox", { name: "밝기 수치" })).toBeDisabled();
     await expect(page.getByRole("button", { name: "밝기 적용 중" })).toBeDisabled();
 
     await page.reload();
@@ -368,7 +371,7 @@ async function readStableControlRects(page: Page) {
     const feedback = panel?.querySelector<HTMLElement>("[role='alert']") ?? panel?.querySelector<HTMLElement>("[data-command-status-region]");
     const selectors = {
       dial: "[data-control-brightness-card]",
-      presets: "[data-control-presets]",
+      numeric: "[data-control-brightness-card] input:not([type=range])",
       submit: "[data-control-submit]"
     } as const;
     if (!panel || !badge || !body || !feedback) throw new Error("manual control layout is incomplete");
@@ -455,7 +458,7 @@ async function installManualControlFixture(
     const request = route.request();
     const url = new URL(request.url());
     if (url.pathname === "/api/commands" && request.method() === "GET") {
-      return route.fulfill({ json: { items: [], nextCursor: null } });
+      return route.fulfill({ json: { items: [], nextCursor: null, generatedAt: "2026-09-25T00:00:00Z", retainedFrom: "2026-06-25T00:00:00Z", retentionEnabled: false } });
     }
     if (url.pathname === `/api/sites/${ids.site}/fixture-groups` && request.method() === "GET") {
       return route.fulfill({ json: [savedZone] });
@@ -512,3 +515,22 @@ function dashboardResponse(
     }]
   };
 }
+
+
+test("Task6 direct brightness and command history contract", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  const api = await installManualControlFixture(page, "admin");
+  await page.goto(`/control?siteId=${ids.site}`);
+  await expect(page.getByRole("button", { name: "영역 선택", exact: true })).toHaveCount(0);
+  for (const value of [0, 30, 70, 100]) await expect(page.getByRole("button", { name: `${value}%`, exact: true })).toHaveCount(0);
+  await page.getByRole("button", { name: /^B2-L01 / }).focus();
+  await page.getByRole("button", { name: /^B2-L01 / }).press("Enter");
+  const input = page.getByRole("textbox", { name: "밝기 수치" });
+  await input.fill("42"); await input.press("Enter");
+  await expect(page.getByRole("slider", { name: "밝기" })).toHaveValue("42");
+  expect(api.dimmingRequests).toHaveLength(0);
+  await page.getByRole("button", { name: "명령 이력 열기" }).click();
+  const drawer=page.getByRole("dialog", { name: "명령 이력", exact:true });
+  await expect(drawer.getByRole("group", { name:"조회 기간" })).toBeVisible();
+  await expect(drawer.getByRole("button", { name:"페이지당 항목 수" })).toContainText("50개");
+});

@@ -92,6 +92,16 @@ describe.each(names)("%s family", (name) => {
 });
 
 describe("domain and keyboard contracts", () => {
+  it("NumberField styles its public input slot without changing shell classes or leaking the prop", () => {
+    const ref = createRef<HTMLInputElement>();
+    render(field("NumberField", { ref, value: 70, className: "w-24", inputClassName: "text-metric font-bold text-right px-1", size: "lg", variant: "ghost" }));
+    const input = control("NumberField");
+    expect(input).toHaveClass("text-metric", "font-bold", "text-right", "px-1");
+    expect(ref.current).toBe(input);
+    expect(input.closest("[data-field]")).toHaveClass("w-24");
+    expect(input.closest("[data-field]")).not.toHaveClass("text-metric");
+    expect(input.closest("[data-field]")?.querySelector("[inputclassname]")).toBeNull();
+  });
   it.each([
     { isSelected: false, isIndeterminate: false, mark: "" },
     { isSelected: true, isIndeterminate: false, mark: "✓" },

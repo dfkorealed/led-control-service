@@ -101,6 +101,8 @@ export function isSettledCommandStatus(status: CommandStatusResponse | null | un
 
 export interface CommandHistoryInput {
   siteId: string;
+  fromDate?: string;
+  toDate?: string;
   query?: string;
   stage?: CommandStage;
   cursor?: string;
@@ -116,6 +118,8 @@ export interface CommandHistoryResponse {
 
 export function listCommands(input: CommandHistoryInput) {
   const params = new URLSearchParams({ siteId: input.siteId });
+  if (input.fromDate) params.set("fromDate", input.fromDate);
+  if (input.toDate) params.set("toDate", input.toDate);
   if (input.query) params.set("query", input.query);
   if (input.stage) params.set("stage", input.stage);
   if (input.cursor) params.set("cursor", input.cursor);

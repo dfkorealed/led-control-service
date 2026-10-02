@@ -56,7 +56,7 @@ export function AutomationRuleControls({ label, filter, filteredTotal, pageIndex
     <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
       <Text as="output" role="status" aria-live="polite" variant="caption" tone="secondary">
         {filteredTotal === undefined ? "조건 결과 확인 중" : `조건에 맞는 규칙 ${filteredTotal}건`}
-        {filteredTotal !== undefined ? ` · ${pageIndex + 1}번째 묶음 · 현재 ${currentPageCount}건` : null}
+
       </Text>
       <div className="flex items-center gap-2">
         <Button type="button" variant="secondary" size="sm" disabled={!canMove || pageIndex === 0} onClick={onPrevious}>이전</Button>

@@ -12,7 +12,7 @@ describe("AutomationRuleControls", () => {
       currentPageCount={10} hasNextPage onFilterChange={vi.fn()} onPrevious={vi.fn()} onNext={vi.fn()} />);
 
     expect(screen.getByRole("status")).toHaveTextContent("조건에 맞는 규칙 35건");
-    expect(screen.getByRole("status")).toHaveTextContent("2번째 묶음 · 현재 10건");
+    expect(screen.getByRole("status")).toHaveTextContent(/^조건에 맞는 규칙 35건$/);
     expect(screen.queryByText(/2\s*\/\s*4/)).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "이전" })).toBeEnabled();
     expect(screen.getByRole("button", { name: "다음" })).toBeEnabled();

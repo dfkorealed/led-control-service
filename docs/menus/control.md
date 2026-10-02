@@ -1,10 +1,42 @@
 # 제어 메뉴 기능 현황
 
+## 2026-10-02 직접 지도 조작·밝기 입력·명령 이력 (Task 6)
+
+### 구현 완료
+
+- 직접 선택에서 조명 클릭은 선택을 토글하고 빈 지도 왼쪽 드래그는 기존 선택에 영역 내 적격 조명을 더한다. 별도 이동·개별·영역 도구 버튼을 제거했다. Space를 누른 지도 드래그와 가운데 버튼은 이동이며, 층 전체·저장 구역에서는 빈 지도 드래그가 이동이다. 터치는 조명 탭, 한 손가락 이동, 두 손가락 확대, 빈 지도 400ms 길게 누른 뒤 영역 선택을 제공한다. 이동 기준은 8 CSS px이며 두 번째 포인터·capture 손실·취소·창 blur·Escape·층/정책 변경·unmount에서 진행 중 조작과 타이머를 정리한다. 단일 Gateway·권한·offline/미배치·잠금·조명 1,000개·구역 100개 제한을 유지한다.
+- 수동 밝기는 굵은 수치 입력과 `%`, 슬라이더로 편집하며 0/30/70/100% 버튼은 제거했다. 공통 `NumberField.inputClassName`으로 실제 입력에 기존 metric·굵기·정렬·padding 토큰을 적용하고 `className`은 기존 필드 외곽을 유지한다. 비어 있거나 소수·0~100 밖인 원문 입력은 적용을 차단한다. blur/Enter는 마지막 정상 값으로 복원하고 안내하며, 같은 blur 클릭은 전송하지 않는다. 이후 별도 적용만 명령을 생성하며 입력·슬라이더·Enter는 자동 전송하지 않는다.
+- 현장 명령 이력 drawer는 기본 50건, 50/100/500/1000건과 시작·종료 날짜 조회를 제공한다. 최근 요약은 기존 1건 조회다. 검색·단계·기간·크기·사용자/현장·열림 상태 변경 시 첫 페이지로 돌아가며 A→B→A와 닫기/재열기에서도 이전 페이지를 재사용하지 않는다. 조회 중/오류의 현재 건수는 알 수 없음으로 표시하고 실제 빈 성공만 0건이다. 안정된 페이지 조작 영역은 요청 전 사용자 포커스를 보존하되 날짜·닫기·본문으로 의도적으로 이동한 포커스를 되돌리지 않는다. 기존 400 `command_history_cursor_expired` 복구, DB retention clock 거부, 상세 선택과 안전 잠금은 유지한다.
+- 스케줄 이름은 긴 한글·공백 없는 영문까지 줄바꿈한다. PC 기간은 별도 열, 모바일은 기간 필드로 유지하며 이름 아래 중복 기간과 독립 Gateway 동기화 열/필드는 제거했다. 활성 상태 옆에 적용 대기·적용 실패를 표시하며 기존 요약·필터·polling·최근 실행 결과·오류/재시도는 유지한다. 목록 건수는 `조건에 맞는 규칙 N건` 하나로 표시한다.
+- 실제 명령·진행/복구·스케줄 다음/최근 실행·차량 감지·새로고침 시각은 공통 Gregorian `yyyy-MM-dd HH:mm:ss`와 현장 시간대를 사용한다. 자정은 `00:00:00`, 잘못된 시각은 `—`이며 날짜 전용과 반복 `HH:mm`은 유지한다. 이력/조명 목록 drawer는 각각 safe-area에 opt-in하고 본문만 스크롤한다. 조명 목록은 첫 항목을 자동 선택하지 않으며 완료/닫기 뒤 opener로 포커스를 복원한다.
+
+### 미구현
+
+- 실제 모바일 WebView의 native 멀티 터치와 Gateway·조명 RF HIL 검증. 합성 PointerEvent의 두 포인터/길게 누르기 검증은 물리 터치 인증이 아니다.
+- 운영 보존 rollout 활성화 및 별도 실제 백엔드 자동화 랩 검증. Task 6는 API/DB schema·migration·하드웨어 전송 경계를 변경하지 않는다.
+
+### 부족하거나 개선이 필요한 기능
+
+- 스케줄 적용 실패의 새 Gateway 상세 사유는 현재 API에 없으므로 추가하지 않았다. 기존 mutation 오류와 최근 실행 결과를 표시한다.
+- DB가 제공하는 UTC 달력 3개월·현장 시간대 날짜 경계를 소비하며 브라우저에서 90일 cutoff를 만들지 않는다. 보존 OFF를 강제로 ON으로 변경하지 않는다.
+- 아래 날짜별 기록의 이전 수동 프리셋·지도 도구 모드·16px 수치·compact 고정 시트 설명은 당시 구현 기록이며 현재 수동 UI는 이 Task 6 및 2026-09-25의 자연스러운 실행 패널 흐름을 따른다. 자동화 editor의 반복/밝기 프리셋은 별도 기능이다.
+
+### 관련 파일
+
+- `apps/web/src/features/control/ControlView.tsx`, `CommandHistoryPanel.tsx`, `control-time.ts`, `target-selection/`, `automation/ScheduleControlPanel.tsx`, `VehicleEventControlPanel.tsx`, `automation/components/AutomationRuleCard.tsx`, `AutomationRuleControls.tsx` 및 대응 테스트.
+- `apps/web/src/features/floor-map/FloorMapViewport.tsx`, `map-gestures.ts`, `apps/web/src/api/commands.ts`, `apps/web/src/components/ui/fields/NumberField.tsx`, `fields.test.tsx`.
+- `apps/web/e2e/control-map-target-selection.spec.ts`, `calm-operations-manual-control.spec.ts`, `operations-ui-comments.spec.ts`의 Task 6 사례와 기존 `command-retention.spec.ts`.
+
+### 갱신 규칙
+
+- 직접 조작·입력 편집만으로 명령이 생성되지 않는지와 제한/잠금/복구를 함께 회귀 검증한다. 기본 pan·카메라·wheel 및 공통 NumberField 기본/ref/null/범위/disabled/invalid 계약을 유지한다.
+- 현재 건수/기간/포커스·짧은 화면·양의 safe-area의 실제 DOM/브라우저 검증과 mock API·실제 백엔드·하드웨어 증거를 구분한다. 독립 리뷰 전에는 통합 완료로 기록하지 않는다.
+
 ## 2026-10-02 명령 이력 기간·1,000건 API (Task 1)
 
 - 구현 완료: `GET /commands`에 paired `fromDate`/`toDate`(`YYYY-MM-DD`)와 1–1,000건 상한을 추가했다. 현장 범위·읽기 권한·기본 20건·검색/단계·content redaction·결과 요약을 유지한다. 종료일은 저장된 Site 시간대의 다음 날짜 시작까지 포함하며 end는 동일 transaction의 DB `generatedAt`으로 제한한다. 보존 rollout ON일 때만 DB `retainedFrom`과 하한을 교차하고 OFF에는 강제로 3개월을 적용하지 않는다.
 - 구현 완료: 새 v2 cursor는 사용자·현장·정규화 검색/단계·날짜·실효 조회 크기의 canonical SHA-256 scope와 원본 createdAt/id를 유지한다. 100자 검색어에서도 cursor 512bytes 상한을 유지하며 조건 불일치/잘못된 cursor는 400, 보존 만료는 기존 `command_history_cursor_expired`(400)다. 구 unversioned cursor는 날짜 조건 없이 기존 상한 100 이하에서만 허용하고 구 검색/단계 동작은 유지한다. 다음 cursor는 항상 v2다.
-- 미구현: 웹 일반 이력의 기본 50건·50/100/500/1000 옵션과 기간 UI는 후속 Task다. 최근 1건 조회·기존 drawer 소량 페이지는 이 API 변경만으로 확대하지 않는다.
+- 웹 소비: 기본 50건·50/100/500/1000 옵션과 기간 UI는 위 Task 6에서 구현했다. 최근 1건 조회는 유지한다. 이 API producer 변경 자체와 웹 소비 검증은 별도다.
 - 부족하거나 개선이 필요한 기능: 이번 지원은 로그 읽기 producer 계약이며 명령 상세/복구/Get/Set·worker·rollout flag를 변경하거나 운영 활성화하지 않는다. 일회용 DB opt-in 통합·독립 리뷰와 웹 소비 검증은 별도 완료 증거가 필요하다.
 - 관련 파일: `apps/api/src/retention/log-date-range.ts`, `apps/api/src/commands/command-status.service.ts`, `commands.controller.ts`와 관련 단위 테스트.
 - 갱신 규칙: API 날짜·limit·v2/legacy cursor 계약과 UI 적용 상태를 따로 기록하고, 보존 OFF/ON·인가·검색 OR의 Site 격리·동일 시각 ID tie-break·응답 요약/메타데이터를 회귀 검증한다.

@@ -75,3 +75,8 @@ export function normalizeSelectionRect(start: MapPoint, end: MapPoint): MapSelec
     bottom: Math.max(start.y, end.y)
   };
 }
+
+/** Gesture thresholds use client coordinates, independent of map zoom. */
+export const MAP_DRAG_THRESHOLD_PX = 8;
+export const MAP_LONG_PRESS_MS = 400;
+export type MapInteractionPolicy = "pan" | "direct-selection";

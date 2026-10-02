@@ -22,6 +22,7 @@ import { isApiStatus } from "../../../api/client";
 import { authMeQueryKey, principalKey } from "../../../api/principal-cache";
 import type { Dashboard } from "../../../api/queries";
 import { Button, ConfirmDialog, FeedbackState, PageHeader, StatusBadge, Text, useSessionStatus, useSessionToast, type SessionStatusItem } from "../../../components/ui";
+import { formatControlTimestamp } from "../control-time";
 import { ScheduleDialog } from "./ScheduleDialog";
 import { AutomationRuleCard } from "./components/AutomationRuleCard";
 import { AutomationRuleControls } from "./components/AutomationRuleControls";
@@ -186,7 +187,7 @@ export function ScheduleControlPanel({
   const statusItems = useMemo<SessionStatusItem[]>(() => {
     const items: SessionStatusItem[] = [];
     const lastSuccess = lastRefreshSuccess?.scope === listScopeKey
-      ? `마지막 성공: ${new Intl.DateTimeFormat("ko-KR", { dateStyle: "short", timeStyle: "short", timeZone: dashboard?.site.timeZone ?? "UTC" }).format(lastRefreshSuccess.at)}`
+      ? `마지막 성공: ${formatControlTimestamp(lastRefreshSuccess.at, dashboard?.site.timeZone ?? "UTC")}`
       : undefined;
     if (schedulesQuery.data && !queryUnauthorized && (missingCursor || schedulesQuery.isFetchNextPageError)) items.push({
       id: `control:schedule:${scopeKey}:${siteId}:${listScopeKey}:query:next`,
@@ -525,14 +526,13 @@ export function ScheduleControlPanel({
           {schedules.map((schedule) => <AutomationRuleCard
             key={schedule.id}
             name={schedule.name}
-            status={<EnabledBadge enabled={schedule.status === "enabled"} />}
+            status={<ScheduleActivation schedule={schedule} />}
             fields={[
               { label: "적용 기간", value: formatActivePeriod(schedule, dashboard?.site.timeZone ?? "UTC") },
               { label: "다음 실행", value: formatNextOccurrence(schedule, dashboard?.site.timeZone ?? "UTC") },
               { label: "반복 · 시간", value: formatRecurrence(schedule) },
               { label: "밝기", value: schedule.action.dimmingEnabled ? `${schedule.action.brightnessPercent}%` : "디밍 OFF · 100%" },
               { label: "대상", value: `${schedule.targetCount}개` },
-              { label: "Gateway 동기화", value: <SyncBadge status={schedule.syncStatus} /> },
               { label: "최근 결과", value: <LastExecutionBadge schedule={schedule} timeZone={dashboard?.site.timeZone ?? "UTC"} wrap /> }
             ]}
             actions={renderActions(schedule)}
@@ -542,11 +542,11 @@ export function ScheduleControlPanel({
               <tr>
                 <th className={automationTableHeadingClassName}>이름</th>
                 <th className={automationTableHeadingClassName}>활성</th>
+                <th className={automationTableHeadingClassName}>적용 기간</th>
                 <th className={automationTableHeadingClassName}>다음 실행</th>
                 <th className={automationTableHeadingClassName}>반복 · 시간</th>
                 <th className={automationTableHeadingClassName}>밝기</th>
                 <th className={automationTableHeadingClassName}>대상</th>
-                <th className={automationTableHeadingClassName}>Gateway 동기화</th>
                 <th className={automationTableHeadingClassName}>최근 결과</th>
                 {canManage ? <th className={automationTableHeadingClassName} aria-label="관리" /> : null}
               </tr>
@@ -556,16 +556,15 @@ export function ScheduleControlPanel({
                 const isLastRow = index === schedules.length - 1;
                 return (
                 <tr key={schedule.id}>
-                  <td className={automationTableCellClassName(isLastRow, "grid gap-1")}>
-                    <strong className="max-w-48 truncate">{schedule.name}</strong>
-                    <small className="text-content-muted">{formatActivePeriod(schedule, dashboard?.site.timeZone ?? "UTC")}</small>
+                  <td className={automationTableCellClassName(isLastRow)}>
+                    <strong className="block min-w-0 max-w-48 whitespace-normal [overflow-wrap:anywhere]">{schedule.name}</strong>
                   </td>
-                  <td className={automationTableCellClassName(isLastRow)}><EnabledBadge enabled={schedule.status === "enabled"} /></td>
+                  <td className={automationTableCellClassName(isLastRow)}><ScheduleActivation schedule={schedule} /></td>
+                  <td className={automationTableCellClassName(isLastRow)}>{formatActivePeriod(schedule, dashboard?.site.timeZone ?? "UTC")}</td>
                   <td className={automationTableCellClassName(isLastRow)}>{formatNextOccurrence(schedule, dashboard?.site.timeZone ?? "UTC")}</td>
                   <td className={automationTableCellClassName(isLastRow)}>{formatRecurrence(schedule)}</td>
                   <td className={automationTableCellClassName(isLastRow)}>{schedule.action.dimmingEnabled ? `${schedule.action.brightnessPercent}%` : "디밍 OFF · 100%"}</td>
                   <td className={automationTableCellClassName(isLastRow)}>{schedule.targetCount}개</td>
-                  <td className={automationTableCellClassName(isLastRow)}><SyncBadge status={schedule.syncStatus} /></td>
                   <td className={automationTableCellClassName(isLastRow)}><LastExecutionBadge schedule={schedule} timeZone={dashboard?.site.timeZone ?? "UTC"} /></td>
                   {canManage ? (
                     <td className={automationTableCellClassName(isLastRow)}>
@@ -621,6 +620,13 @@ export function ScheduleControlPanel({
       </ConfirmDialog>
     </div>
   );
+}
+
+function ScheduleActivation({ schedule }: { schedule: ScheduleResponse }) {
+  return <div className="flex flex-wrap items-center gap-1">
+    <EnabledBadge enabled={schedule.status === "enabled"} />
+    {schedule.syncStatus !== "APPLIED" ? <SyncBadge status={schedule.syncStatus} /> : null}
+  </div>;
 }
 
 function SyncBadge({ status }: { status: ScheduleResponse["syncStatus"] }) {
@@ -719,12 +725,5 @@ function formatDate(iso: string, timeZone: string) {
 }
 
 function formatDateTime(iso: string, timeZone: string) {
-  return new Intl.DateTimeFormat("ko-KR", {
-    timeZone,
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    hourCycle: "h23"
-  }).format(new Date(iso));
+  return formatControlTimestamp(iso, timeZone);
 }

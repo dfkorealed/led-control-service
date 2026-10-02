@@ -672,35 +672,75 @@ function DimmingExecutionControls({ compact = false, brightness, controlsLocked,
   onBrightnessChange: (value: number) => void;
   onSubmit: () => void;
 }) {
-  return <div className="grid min-h-0 flex-1 content-start gap-4 overflow-y-auto overscroll-contain" data-control-panel-body="">
+  const [invalidDraft, setInvalidDraft] = useState(false);
+  const [restored, setRestored] = useState("");
+  const [inputRevision, setInputRevision] = useState(0);
+  const rawValid = useRef(true);
+  const restoring = useRef(false);
+  const invalidApplyAttempt = useRef(false);
+  const applyRef = useRef<HTMLButtonElement>(null);
+  const lastBrightness = useRef(brightness);
+  useEffect(() => {
+    if (lastBrightness.current === brightness) return;
+    lastBrightness.current = brightness;
+    rawValid.current = true; setInvalidDraft(false); setRestored("");
+  }, [brightness]);
+
+  function captureDraft(event: React.FormEvent<HTMLDivElement>) {
+    if (!(event.target instanceof HTMLInputElement) || event.target.type === "range") return;
+    const draft = event.target.value.trim();
+    const value = Number(draft);
+    const valid = /^\d+$/.test(draft) && Number.isInteger(value) && value >= 0 && value <= 100;
+    rawValid.current = valid; setInvalidDraft(!valid); setRestored("");
+    if (valid) onBrightnessChange(value);
+  }
+
+  function restoreDraft() {
+    if (rawValid.current) return;
+    // React Aria normalizes during blur. Block that callback from replacing the
+    // last valid number with a rounded/clamped invalid draft.
+    restoring.current = true; rawValid.current = true;
+    setInvalidDraft(false); setInputRevision(value => value + 1);
+    setRestored(`마지막 정상 밝기 ${brightness}%로 복귀했습니다. 별도로 적용해 주세요.`);
+    queueMicrotask(() => { restoring.current = false; });
+  }
+
+  return <div className="grid min-h-0 flex-1 content-start gap-4 overflow-y-auto overscroll-contain" data-control-panel-body=""
+    onPointerDownCapture={event => {
+      if (event.target instanceof Element && event.target.closest("[data-control-submit]")) invalidApplyAttempt.current = !rawValid.current || restoring.current;
+    }}>
     {!compact ? <Heading as="h4" variant="card-title">밝기</Heading> : null}
     <div className="grid gap-3 rounded-panel border border-border-default bg-surface-panel p-4" data-control-brightness-card="">
-      <div className="flex items-baseline justify-between gap-3">
-        <Text as="span" variant="label">밝기</Text>
-        <Text as="strong" variant="metric">{brightness}%</Text>
-      </div>
-      <Slider label="밝기" minValue={0} maxValue={100} step={1} value={brightness} isDisabled={controlsLocked} onChange={onBrightnessChange} />
-      {!compact ? <NumberField
-        label="밝기 수치"
-        size={compact ? "lg" : "md"}
-        minValue={0}
-        maxValue={100}
-        step={1}
-        value={brightness}
-        isDisabled={controlsLocked}
-        onChange={(value) => {
-          if (value !== null && value >= 0 && value <= 100) onBrightnessChange(value);
+      <div className="flex items-baseline justify-between gap-3" onInputCapture={captureDraft} onChangeCapture={captureDraft}
+        onBlurCapture={event => {
+          if (event.target instanceof HTMLInputElement) {
+            if (!rawValid.current && event.relatedTarget === applyRef.current) invalidApplyAttempt.current = true;
+            restoreDraft();
+          }
         }}
-      /> : null}
+        onKeyDownCapture={event => {
+          if (event.target instanceof HTMLInputElement && event.key === "Enter") { event.preventDefault(); event.stopPropagation(); restoreDraft(); }
+        }}>
+        <Text as="span" variant="label">밝기</Text>
+        <div className="flex min-w-0 items-baseline gap-1">
+          <NumberField key={inputRevision} aria-label="밝기 수치" variant="ghost" size="lg"
+            className="w-24" inputClassName="px-1 text-metric font-bold text-right"
+            minValue={0} maxValue={100} step={1} value={brightness} isDisabled={controlsLocked} isInvalid={invalidDraft}
+            onChange={value => { if (rawValid.current && !restoring.current && value !== null && Number.isInteger(value) && value >= 0 && value <= 100) onBrightnessChange(value); }} />
+          <Text as="span" variant="metric" aria-hidden="true">%</Text>
+        </div>
+      </div>
+      {invalidDraft ? <Text role="alert" tone="danger">0~100 사이 정수를 입력해 주세요.</Text> : null}
+      {restored ? <Text role="status" variant="caption">{restored}</Text> : null}
+      <Slider label="밝기" minValue={0} maxValue={100} step={1} value={brightness} isDisabled={controlsLocked} onChange={value => {
+        rawValid.current = true; setInvalidDraft(false); setRestored(""); setInputRevision(revision => revision + 1); onBrightnessChange(value);
+      }} />
     </div>
-    <div className="grid grid-cols-4 gap-2" data-control-presets="">
-      {[0, 30, 70, 100].map((value) => (
-        <Button key={value} variant="secondary" type="button" className={compact ? "min-h-13" : undefined} onClick={() => onBrightnessChange(value)} disabled={controlsLocked}>
-          {value}%
-        </Button>
-      ))}
-    </div>
-    {!compact ? <Button variant="primary" type="button" onClick={onSubmit} disabled={!canSubmit} data-control-submit="">
+    {!compact ? <Button ref={applyRef} variant="primary" type="button" onClick={() => {
+      if (invalidApplyAttempt.current) { invalidApplyAttempt.current = false; return; }
+      if (!rawValid.current || restoring.current || !canSubmit) return;
+      onSubmit();
+    }} disabled={!canSubmit || invalidDraft} data-control-submit="">
       {applyLabel}
     </Button> : null}
   </div>;
