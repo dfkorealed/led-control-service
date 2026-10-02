@@ -1,5 +1,50 @@
 import { chromium, expect, test, type Page } from "@playwright/test";
 import { installSettingsApiRoutes, type SettingsFixture } from "./support/settings-api";
+import { expectNoHorizontalOverflow } from "./support/layout-assertions";
+
+for (const width of [320, 390, 962, 1440]) {
+  test(`Task7 report filters preserve lengthy URL conditions, keyboard dates and reset at ${width}px`, async ({ page }, testInfo) => {
+    await page.setViewportSize({ width, height: 900 });
+    const siteId = "77777777-7777-4777-8777-777777777777";
+    await installSettingsApiRoutes(page, "viewer", { ids: { siteId } });
+    await page.route("**/api/energy/sites/*/report-targets", route => route.fulfill({ json: {
+      siteId, timeZone: "Asia/Seoul", lastCompletedDate: "2026-09-30",
+      targets: [{ scope: "site", identityId: siteId, label: "Task7 현장" }]
+    } }));
+    const reads: string[] = [];
+    await page.route("**/api/energy/sites/*/reports?**", route => {
+      reads.push(new URL(route.request().url()).search);
+      return route.fulfill({ json: { reports: [], nextCursor: null, totalCount: 0 } });
+    });
+    const initial = new URLSearchParams({ siteId, limit: "50", query: "공백없는긴한글English".repeat(6), status: "failed", scope: "floor",
+      requestedFrom: "2026-09-01", requestedTo: "2026-09-30" });
+    await page.goto(`/statistics/reports?${initial}`);
+    const filters = page.getByRole("search", { name: "보고서 이력 필터" });
+    await expect(filters.getByRole("region", { name: "보고서 조건" })).toBeVisible();
+    await expect(filters.getByRole("button", { name: /검색: .* 조건 제거/ })).toBeVisible();
+    await expectNoHorizontalOverflow(page);
+    const search = filters.getByRole("searchbox", { name: "보고서 검색" });
+    await search.fill("  새 조건  ");
+    await expect.poll(() => new URL(page.url()).searchParams.get("query")).toBe("새 조건");
+    expect(new URL(page.url()).searchParams.get("status")).toBe("failed");
+    expect(new URL(page.url()).searchParams.get("scope")).toBe("floor");
+    expect(reads.some(read => new URLSearchParams(read).get("query") === "새 조건")).toBe(true);
+    const period = filters.getByRole("button", { name: /요청 기간 선택/ });
+    await period.focus(); await page.keyboard.press("Enter");
+    const dialog = page.getByRole("dialog", { name: "요청 기간 선택", exact: true });
+    await expect(dialog.getByRole("group", { name: "요청 기간" })).toHaveAccessibleDescription(/요청한 날짜.*본문 대상 기간과 다릅니다/);
+    await page.keyboard.press("Escape"); await expect(period).toBeFocused();
+    await page.goBack();
+    await expect(search).toHaveValue(initial.get("query")!);
+    await page.goForward(); await expect(search).toHaveValue("새 조건");
+    await filters.getByRole("button", { name: "전체 초기화" }).click();
+    await expect(search).toHaveValue("");
+    await expect.poll(() => new URL(page.url()).searchParams.toString()).toBe(new URLSearchParams({ limit: "50", siteId }).toString());
+    await expect(filters.getByRole("button", { name: "전체 초기화" })).toHaveCount(0);
+    await expectNoHorizontalOverflow(page);
+    await testInfo.attach(`Task7-report-filters-${width}`, { body: await page.screenshot({ fullPage: true }), contentType: "image/png" });
+  });
+}
 
 const alarmInstant = "2026-10-01T15:00:00.000Z";
 const alarmId = (index: number) => `11111111-1111-4111-8111-${String(index).padStart(12, "0")}`;

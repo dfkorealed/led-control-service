@@ -1,7 +1,5 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { readFile } from "node:fs/promises";
 import { useState } from "react";
-import { compile } from "tailwindcss";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ReportHistoryFilters } from "./ReportHistoryFilters";
 import type { ReportHistoryFilterState } from "./report-history-filters";
@@ -25,24 +23,13 @@ describe("ReportHistoryFilters", () => {
     expect(readState()).toEqual({ limit: 20 });
   });
 
-  it("emits the responsive CSS used by the report filter layout at the tablet breakpoint", async () => {
+  it("shares wrapping field, condition and action slots while retaining the search landmark", () => {
     render(<FilterHarness initial={{ limit: 20 }} />);
     const filters = screen.getByRole("search", { name: "보고서 이력 필터" });
-    const classes = Array.from(filters.querySelectorAll<HTMLElement>("[class]"))
-      .flatMap((element) => Array.from(element.classList));
-    const candidates = [
-      { candidate: classes.find((name) => name.includes(":grid-cols-[minmax(0,1.4fr)_")), declaration: "grid-template-columns: minmax(0,1.4fr) minmax(0,0.9fr) minmax(0,1.5fr) minmax(0,0.9fr)" },
-      { candidate: classes.find((name) => name.endsWith(":col-span-1")), declaration: "grid-column: span 1 / span 1" }
-    ];
-    const theme = await readFile("src/styles/theme.css", "utf8");
-
-    for (const { candidate, declaration } of candidates) {
-      expect(candidate).toBeDefined();
-      const compiler = await compile(`@tailwind utilities;\n${theme}`);
-      const css = compiler.build([candidate!]);
-      expect(css).toContain("@media (width >= 64rem)");
-      expect(css).toContain(declaration);
-    }
+    const panel = screen.getByRole("region", { name: "보고서 조건" });
+    expect(filters).toContainElement(panel);
+    expect(panel.firstElementChild).toHaveClass("flex-wrap", "items-end");
+    expect(screen.queryByRole("button", { name: "전체 초기화" })).not.toBeInTheDocument();
   });
 
   it("keeps active scope conditions visible without changing query state", () => {

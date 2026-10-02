@@ -4,7 +4,7 @@ import {
   type EnergyScope
 } from "@led-control/shared/energy-p2-contracts";
 import { useEffect, useRef, useState } from "react";
-import { Button, DateRangePicker, ModalDialog, SelectBox, Text, TextField, cn, type DateRangeValue } from "../../../components/ui";
+import { Button, DateRangePicker, FilterPanel, ModalDialog, SelectBox, Text, TextField, cn, type DateRangeValue } from "../../../components/ui";
 import type { ReportHistoryFilterState } from "./report-history-filters";
 
 export interface ReportHistoryFiltersProps {
@@ -65,9 +65,26 @@ export function ReportHistoryFilters({ value, onChange, className }: ReportHisto
     ...(dateRange ? [{ key: "requestedRange", label: `요청 기간: ${dateRange.start} ~ ${dateRange.end}`, remove: () => onChange(removeFilters(value, "requestedFrom", "requestedTo")) }] : [])
   ];
 
+  const activeConditions = chips.length ? <div className="flex min-w-0 flex-wrap items-center gap-2" aria-label="활성 조건">
+    <Text as="span" variant="label" tone="secondary" className="w-full compact:w-auto">활성 조건</Text>
+    {chips.map((chip) => <Button key={chip.key} type="button" size="sm" variant="ghost"
+      aria-label={`${chip.label} 조건 제거`}
+      className="h-auto min-h-11 w-full max-w-full whitespace-normal px-3 py-2 text-left compact:w-auto"
+      onClick={chip.remove}>
+      <span className="min-w-0 break-words">{chip.label}</span><span aria-hidden="true">×</span>
+    </Button>)}
+  </div> : undefined;
+  const resetAction = chips.length ? <Button type="button" size="sm" variant="secondary"
+    className="min-h-11 w-full compact:ml-auto compact:w-auto" onClick={() => {
+      setSearchInput("");
+      setDateDraft(null);
+      setDateError(null);
+      onChange(energyReportListQuerySchema.parse({ limit: value.limit }));
+    }}>전체 초기화</Button> : undefined;
+
   return (
-    <section role="search" aria-label="보고서 이력 필터" className={cn("grid min-w-0 gap-3", className)}>
-      <div className="grid min-w-0 grid-cols-1 items-end gap-3 compact:grid-cols-2 tablet:grid-cols-[minmax(0,1.4fr)_minmax(0,0.9fr)_minmax(0,1.5fr)_minmax(0,0.9fr)]">
+    <section role="search" aria-label="보고서 이력 필터" className={cn("min-w-0", className)}>
+      <FilterPanel label="보고서 조건" chips={activeConditions} actions={resetAction}>
         <TextField
           type="search"
           label="보고서 검색"
@@ -75,7 +92,7 @@ export function ReportHistoryFilters({ value, onChange, className }: ReportHisto
           maxLength={100}
           value={searchInput}
           onChange={setSearchInput}
-          className="min-w-0"
+          className="min-w-0 w-full compact:w-56"
         />
         <SelectBox
           label="상태"
@@ -84,9 +101,9 @@ export function ReportHistoryFilters({ value, onChange, className }: ReportHisto
           onSelectionChange={(status) => onChange(status
             ? updateFilterState(value, { status })
             : removeFilters(value, "status"))}
-          className="min-w-0"
+          className="min-w-0 w-full compact:w-40"
         />
-        <div className="grid min-w-0 gap-2 compact:col-span-2 tablet:col-span-1">
+        <div className="grid min-w-0 w-full gap-2 compact:w-64">
           <Text as="span" variant="label">요청 기간</Text>
           <Button ref={dateTriggerRef} type="button" variant="secondary" className="w-full min-w-0 justify-between overflow-hidden text-left"
             aria-label={`요청 기간 선택, 현재 ${dateRange ? `${dateRange.start} ~ ${dateRange.end}` : "전체 기간"}`}
@@ -102,9 +119,9 @@ export function ReportHistoryFilters({ value, onChange, className }: ReportHisto
           onSelectionChange={(scope) => onChange(scope
             ? updateFilterState(value, { scope })
             : removeFilters(value, "scope"))}
-          className="min-w-0"
+          className="min-w-0 w-full compact:w-40"
         />
-      </div>
+      </FilterPanel>
       {isDateDialogOpen ? <ModalDialog title="요청 기간 선택" closeLabel="요청 기간 선택 닫기"
         onClose={() => setIsDateDialogOpen(false)} returnFocusRef={dateTriggerRef} className="max-w-lg"
         actions={<Button type="button" variant="primary" onClick={() => setIsDateDialogOpen(false)}>완료</Button>}>
@@ -137,39 +154,6 @@ export function ReportHistoryFilters({ value, onChange, className }: ReportHisto
           className="min-w-0"
         />
       </ModalDialog> : null}
-      {chips.length ? (
-        <div className="flex min-w-0 flex-wrap items-center gap-2" aria-label="활성 조건">
-          <Text as="span" variant="label" tone="secondary" className="w-full compact:w-auto">활성 조건</Text>
-          {chips.map((chip) => (
-            <Button
-              key={chip.key}
-              type="button"
-              size="sm"
-              variant="ghost"
-              aria-label={`${chip.label} 조건 제거`}
-              className="h-auto min-h-11 w-full max-w-full whitespace-normal px-3 py-2 text-left compact:w-auto"
-              onClick={chip.remove}
-            >
-              <span className="min-w-0 break-words">{chip.label}</span>
-              <span aria-hidden="true">×</span>
-            </Button>
-          ))}
-          <Button
-            type="button"
-            size="sm"
-            variant="secondary"
-            className="min-h-11 w-full compact:ml-auto compact:w-auto"
-            onClick={() => {
-              setSearchInput("");
-              setDateDraft(null);
-              setDateError(null);
-              onChange(energyReportListQuerySchema.parse({ limit: value.limit }));
-            }}
-          >
-            전체 초기화
-          </Button>
-        </div>
-      ) : null}
     </section>
   );
 }

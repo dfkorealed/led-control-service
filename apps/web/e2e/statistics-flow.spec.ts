@@ -1,4 +1,4 @@
-import { expect, test, type Locator, type Page } from "@playwright/test";
+import { chromium, expect, test, type Locator, type Page } from "@playwright/test";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
@@ -21,6 +21,10 @@ type RendererBrowserFixtures = {
 };
 let downloadFixtureServer: Server | undefined;
 test.afterEach(async () => {
+  if (process.env.E2E_REPORT_DOWNLOAD_ORIGIN) {
+    const response = await fetch(`${process.env.E2E_REPORT_DOWNLOAD_ORIGIN}/__task7/report.pdf`, { method: "DELETE" });
+    expect(response.status).toBe(204);
+  }
   if (downloadFixtureServer) {
     downloadFixtureServer.closeAllConnections();
     await new Promise<void>((resolve, reject) => downloadFixtureServer!.close(error => error ? reject(error) : resolve()));
@@ -28,7 +32,7 @@ test.afterEach(async () => {
   }
 });
 
-test.beforeEach(async ({ page }) => {
+async function installStatisticsFixtures(page: Page) {
   await page.route("**/auth/me", (route) => route.fulfill({
     contentType: "application/json",
     body: JSON.stringify({
@@ -107,7 +111,8 @@ test.beforeEach(async ({ page }) => {
       { scope: "group", identityId: "30000000-0000-4000-8000-000000000031", label: "과거 그룹" }
     ]
   } }));
-});
+}
+test.beforeEach(async ({ page }) => installStatisticsFixtures(page));
 
 const reportSiteId = "30000000-0000-4000-8000-000000000001";
 function heatmap(url: URL) {
@@ -158,6 +163,14 @@ test("creates a PDF report, polls state, downloads actual renderer bytes, and re
   await page.clock.install();
   // Chromium's anchor downloads can bypass request interception. A loopback server
   // provides deterministic file bytes without relying on a real worker or S3 account.
+  let downloadOrigin = process.env.E2E_REPORT_DOWNLOAD_ORIGIN;
+  if (downloadOrigin) {
+    // A strict task-owned fixture can host the bytes on its already reserved
+    // loopback port. Ordinary runs retain the existing ephemeral fixture.
+    const uploaded = await fetch(`${downloadOrigin}/__task7/report.pdf`, { method: "POST", body: pdfBytes });
+    expect(uploaded.status).toBe(201);
+    downloadOrigin += "/__task7";
+  } else {
   downloadFixtureServer = createServer((_request, response) => {
     response.writeHead(200, { "content-type": "application/pdf",
       "content-disposition": "attachment; filename=\"report.pdf\"" });
@@ -166,7 +179,8 @@ test("creates a PDF report, polls state, downloads actual renderer bytes, and re
   await new Promise<void>(resolve => downloadFixtureServer!.listen(0, "127.0.0.1", resolve));
   const address = downloadFixtureServer.address();
   if (!address || typeof address === "string") throw new Error("missing fixture port");
-  const downloadOrigin = `http://127.0.0.1:${address.port}`;
+  downloadOrigin = `http://127.0.0.1:${address.port}`;
+  }
   let records: EnergyReportJob[] = [];
   let downloadRequests = 0;
   const requests: unknown[] = [];
@@ -1104,6 +1118,105 @@ test("packs the statistics report from the top in a tall viewport", async ({ pag
     layout.remainingViewportSpace,
     "intrinsic statistics content should leave proportional space below it instead of stretching to the viewport bottom"
   ).toBeGreaterThan(viewport.height * 0.1);
+});
+
+test("Task7 native Chromium 200 percent keeps statistic filters, periods and keyboard reachable", async ({}, testInfo) => {
+  const context = await chromium.launchPersistentContext("", {
+    channel: "chromium", viewport: null, deviceScaleFactor: undefined, args: ["--window-size=1440,900"]
+  });
+  try {
+    const page = await context.newPage();
+    await installStatisticsFixtures(page);
+    // This persistent page owns separate route handlers from the default test
+    // page. Complete its known shell lookup without permitting unknown API calls.
+    await page.route("**/api/sites", route => route.fulfill({ json: [dashboard(reportSiteId).site] }));
+    await page.goto(`${testInfo.project.use.baseURL}/statistics/overview?siteId=${reportSiteId}`);
+    const original = await page.evaluate(() => ({ width: innerWidth, dpr: devicePixelRatio, scale: visualViewport?.scale }));
+    const settings = await context.newPage();
+    await settings.goto("chrome://settings/appearance");
+    await settings.locator("select#zoomLevel").selectOption("2");
+    await page.bringToFront(); await page.reload();
+    const zoom = await page.evaluate(() => ({ width: innerWidth, dpr: devicePixelRatio, scale: visualViewport?.scale }));
+    expect(zoom.dpr / original.dpr).toBe(2);
+    expect(Math.abs(zoom.width * 2 - original.width)).toBeLessThanOrEqual(1);
+    expect(zoom.scale).toBe(original.scale);
+    await expect(page.getByText("핵심 절감 분석", { exact: true })).toHaveCount(0);
+    const current = page.getByRole("region", { name: "오늘 사용량과 비용" });
+    await expect(current.getByText("상태 기반 추정", { exact: true })).toHaveCount(0);
+    await expect(current.getByText("KPI 수집 공백", { exact: true })).toHaveCount(0);
+    await expect(current).toContainText("마지막 집계 2026-08-26 09:00:00");
+    const pickerButton = page.getByRole("button", { name: /완료 기간 날짜 범위 선택, 현재/ });
+    await pickerButton.focus(); await page.keyboard.press("Enter");
+    const dialog = page.getByRole("dialog", { name: "완료일 비교 기간 선택" });
+    await expect(dialog).toBeVisible();
+    await page.keyboard.press("Escape"); await expect(pickerButton).toBeFocused();
+    await expectNoHorizontalOverflow(page);
+    await page.getByRole("link", { name: "사용 분석", exact: true }).click();
+    const filters = page.getByRole("region", { name: "사용량 분석 조건" });
+    await expect(filters.getByRole("group", { name: "시작일" })).toBeVisible();
+    await expect(filters.getByRole("button", { name: /초기화/ })).toHaveCount(0);
+    await expectMinimumTouchTargetsAfterScrolling(page, '[aria-label="사용량 분석 조건"]');
+    await expectNoHorizontalOverflow(page);
+    await page.getByRole("link", { name: "보고서", exact: true }).click();
+    const historyFilters = page.getByRole("search", { name: "보고서 이력 필터" });
+    await historyFilters.getByRole("button", { name: /요청 기간 선택/ }).focus(); await page.keyboard.press("Enter");
+    await expect(page.getByRole("dialog", { name: "요청 기간 선택", exact: true })).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(historyFilters.getByRole("button", { name: /요청 기간 선택/ })).toBeFocused();
+    await expectMinimumTouchTargetsAfterScrolling(page, '[role="search"][aria-label="보고서 이력 필터"]');
+    await expectNoHorizontalOverflow(page);
+    await expect(page.getByText("현장 목록을 확인하지 못했습니다.", { exact: true })).toHaveCount(0);
+    await testInfo.attach("Task7-native-200-measurements", { body: JSON.stringify({ original, zoom }), contentType: "application/json" });
+    // Native zoom can distort full-page clipping of fixed headers; capture the
+    // real viewport surface, following the Task4 native Chromium audit.
+    const cdp = await context.newCDPSession(page);
+    const capture = await cdp.send("Page.captureScreenshot", { format: "png", fromSurface: true, captureBeyondViewport: false });
+    await cdp.detach();
+    await testInfo.attach("Task7-native-200-report", { body: Buffer.from(capture.data, "base64"), contentType: "image/png" });
+  } finally { await context.close(); }
+});
+
+test("Task7 quick periods remain independent while zero, missing and isolated chart points stay truthful", async ({ page }) => {
+  await page.route("**/energy/sites/*/summary", route => {
+    const value = summary(reportSiteId);
+    return route.fulfill({ json: { ...value,
+      today: { ...value.today, estimatedKwh: 0, estimatedCost: 0 },
+      monthToDate: { ...value.monthToDate, estimatedKwh: 0, estimatedCost: 0, knownSeconds: 0, dataStatus: "no_data" }
+    } });
+  });
+  await page.route("**/energy/sites/*/series?**", route => {
+    const params = new URL(route.request().url()).searchParams;
+    const value = series(reportSiteId, "day", params.get("from")!, params.get("to")!);
+    return route.fulfill({ json: { ...value, points: value.points.map((point, index) => ({ ...point,
+      estimatedKwh: 0, estimatedCost: 0, knownSeconds: index === 1 ? 86400 : 0,
+      unknownSeconds: index === 1 ? 0 : 86400, dataStatus: index === 1 ? "available" : "no_data"
+    })) } });
+  });
+  await page.route("**/energy/sites/*/comparisons?**", route => {
+    const preset = comparisonPreset(new URL(route.request().url()).searchParams.get("preset"));
+    const base = comparison(preset, "saving");
+    const range = preset === "last_7_days" ? { from: "2026-08-19", to: "2026-08-25", completedThrough: "2026-08-25" }
+      : preset === "current_year" ? { from: "2026-01-01", to: "2026-12-31", completedThrough: "2026-08-25" } : base.range;
+    return route.fulfill({ json: { ...base, siteId: reportSiteId, range } });
+  });
+  await page.goto(`/statistics/overview?siteId=${reportSiteId}`);
+  await expect(page.getByRole("group", { name: "오늘 전력 사용량" })).toContainText("0 kWh");
+  await expect(page.getByRole("group", { name: "이번 달 누적 전력 사용량" })).toContainText("—");
+  const chart = page.getByRole("region", { name: "상태 기반 추정 사용량" });
+  await expect(chart.getByText("2026-08-01 ~ 2026-08-31", { exact: true })).toBeVisible();
+  await expect(chart.locator(".recharts-line-dots circle")).toHaveCount(1);
+  const data = chart.getByRole("list", { name: "차트 데이터 및 수집 상태" });
+  await expect(data).toContainText("2026년 8월 26일: 0 kWh");
+  await expect(data).toContainText("2026년 8월 25일: 수집 데이터 없음");
+  await expect(chart.getByText("결측 포함", { exact: true })).toBeVisible();
+  const picker = page.getByLabel("절감 비교 기간");
+  await picker.getByRole("button", { name: "최근 7일", exact: true }).click();
+  await expect(page.getByText("2026-08-19 ~ 2026-08-25", { exact: true })).toBeVisible();
+  await expect(chart.getByText("2026-08-01 ~ 2026-08-31", { exact: true })).toBeVisible();
+  await picker.getByRole("button", { name: "올해", exact: true }).click();
+  await expect(page.getByText("2026-01-01 ~ 2026-12-31", { exact: true })).toBeVisible();
+  await expect(page.getByText("핵심 절감 분석", { exact: true })).toHaveCount(0);
+  await expectNoHorizontalOverflow(page);
 });
 
 test("keeps KPI helper ranges readable without oversized cards at 320px", async ({ page }) => {

@@ -13,7 +13,7 @@ import {
   YAxis
 } from "recharts";
 import { useEnergyComparison, useEnergyRangeComparison, useEnergySeries, useEnergySummary } from "../../api/energy";
-import { Button, Card, DateRangePicker, FeedbackState, Heading, MetricCard, ModalDialog, SidePanel, StatusBadge, Text, themeColor, type FocusableFieldHandle } from "../../components/ui";
+import { Button, Card, DateRangePicker, FeedbackState, formatTimestamp, Heading, MetricCard, ModalDialog, SidePanel, StatusBadge, Text, themeColor, type FocusableFieldHandle } from "../../components/ui";
 import { EnergyComparisonChart } from "./EnergyComparisonChart";
 import { PeriodComparisonPanel } from "./PeriodComparisonPanel";
 import { comparisonPresentation } from "./statistics-comparison";
@@ -136,8 +136,6 @@ export function StatisticsOverviewPage() {
   ) : null;
   const todayRangeLabel = formatTodayRangeLabel(summary, siteDate);
   const hasNoKnownData = summary.today.knownSeconds + summary.monthToDate.knownSeconds + summary.yearToDate.knownSeconds === 0;
-  const hasPartialData = [summary.today, summary.monthToDate, summary.yearToDate]
-    .some((period) => period.dataStatus === "partial");
   const activeSeries = granularity === "day" ? dayQuery : monthQuery;
   const seriesHasMissing = activeSeries.data?.points.some((point) => point.dataStatus === "no_data") ?? false;
   const seriesHasPartial = activeSeries.data?.points.some((point) => point.dataStatus === "partial") ?? false;
@@ -228,15 +226,9 @@ export function StatisticsOverviewPage() {
             <Heading as="h3" variant="section-title" id="statistics-current-title">오늘 사용량과 비용</Heading>
             <Text variant="body-sm" tone="secondary">
               {summary.timeZone} · {summary.lastAggregatedAt
-                ? `마지막 집계 ${formatTimestamp(summary.lastAggregatedAt, summary.timeZone)}`
-                : `마지막 집계 확인 불가 · 조회 ${formatTimestamp(summary.generatedAt, summary.timeZone)}`}
+                ? `마지막 집계 ${formatTimestamp(summary.lastAggregatedAt, { timeZone: summary.timeZone })}`
+                : `마지막 집계 확인 불가 · 조회 ${formatTimestamp(summary.generatedAt, { timeZone: summary.timeZone })}`}
             </Text>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <StatusBadge tone="info" icon={Activity}>상태 기반 추정</StatusBadge>
-            {hasPartialData ? <StatusBadge tone="warning" icon={TriangleAlert}
-              title="수집 공백이 있어 일부 기간은 추정값이 불완전할 수 있습니다."
-              aria-label="KPI 수집 공백: 일부 기간의 추정값이 불완전할 수 있습니다.">KPI 수집 공백</StatusBadge> : null}
           </div>
         </div>
       {hasNoKnownData ? (
@@ -268,7 +260,7 @@ export function StatisticsOverviewPage() {
                     ) : null}
                   </div>
                   <Text variant="caption" tone="secondary">
-                    추이 기간 {activeSeries.data?.from ?? ranges?.[granularity].from} ~ {activeSeries.data?.to ?? ranges?.[granularity].to} · {summary.timeZone} · KPI와 별개
+                    {activeSeries.data?.from ?? ranges?.[granularity].from} ~ {activeSeries.data?.to ?? ranges?.[granularity].to}
                   </Text>
                 </div>
                 <div className="flex gap-2" aria-label="사용량 조회 단위">
@@ -431,10 +423,9 @@ function ComparisonSection({
     <section className="grid gap-4" aria-labelledby="statistics-comparison-title">
       <div className="flex items-start justify-between gap-4 max-compact:flex-col max-compact:items-stretch">
         <div className="grid gap-1">
-          <Text variant="overline" tone="muted">핵심 절감 분석</Text>
           <Heading as="h3" variant="section-title" id="statistics-comparison-title">기준 대비 에너지 절감</Heading>
           {query.data && !query.isError ? <Text variant="caption" tone="secondary">
-            비교 기간 {query.data.range.from} ~ {query.data.range.to} · 완료 실적 {query.data.range.completedThrough}까지 · {query.data.timeZone} · 24시간 100% 비교 기준
+            {query.data.range.from} ~ {query.data.range.to}
           </Text> : null}
         </div>
         <div className="flex flex-wrap gap-2" aria-label="절감 비교 기간">
@@ -571,17 +562,6 @@ function formatPeriod(period: string, granularity: Granularity) {
 function formatAxisPeriod(period: string, granularity: Granularity) {
   const [, month, day] = period.split("-");
   return granularity === "day" ? `${Number(month)}/${Number(day)}` : `${Number(month)}월`;
-}
-
-function formatTimestamp(timestamp: string, timeZone: string) {
-  return new Intl.DateTimeFormat("ko-KR", {
-    timeZone,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit"
-  }).format(new Date(timestamp));
 }
 
 function formatSiteDate(timestamp: string, timeZone: string) {

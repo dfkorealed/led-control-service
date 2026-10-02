@@ -105,6 +105,11 @@ describe("StatisticsAnalysisPage", () => {
     expect(screen.getByRole("button", { name: "순위 기준" })).toBeInTheDocument();
     expect(screen.getByRole("group", { name: "시작일" })).toBeInTheDocument();
     expect(screen.getByRole("group", { name: "종료일" })).toBeInTheDocument();
+    const panel = screen.getByRole("region", { name: "사용량 분석 조건" });
+    expect(panel).toHaveClass("flex", "flex-col");
+    expect(panel.firstElementChild).toHaveClass("flex-wrap", "items-end");
+    expect(screen.queryByRole("button", { name: /초기화/ })).not.toBeInTheDocument();
+    expect(screen.getByText("상태 기반 추정", { exact: true })).toBeInTheDocument();
   });
 
   it("labels persisted ranking costs with their historical tariff basis", async () => {

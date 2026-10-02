@@ -796,7 +796,7 @@ describe("StatisticsReportsPage", () => {
     const list = screen.getByRole("list", { name: "모바일 보고서 생성 이력" });
     const completed = within(list).getByRole("listitem", { name: "대상 completed 보고서" });
     expect(screen.getByText("시각: 현장 시간대 America/Los_Angeles")).toBeInTheDocument();
-    expect(within(completed).getByTitle("2026-09-17T00:00:04.000Z")).toHaveTextContent("2026. 9. 16.");
+    expect(within(completed).getByTitle("2026-09-17T00:00:04.000Z")).toHaveTextContent("2026-09-16 17:00:04");
   });
 
   it("shares processing progress semantics and current busy state across table and mobile surfaces", () => {
