@@ -18,6 +18,22 @@ async function fixture() {
   return { path, outboxPath: join(dir, "outbox.json"), journal: new CommandJournal(path), outbox, scope: command, now: () => new Date("2026-09-30T00:00:01.000Z"), nextSequence: async () => 1 };
 }
 describe("durable BIO sensor mode commands", () => {
+  it("isolates an identity-report hook failure from the original owned mode result", async () => {
+    const f = await fixture(); const proofs: BioSensorModeCommand[] = [];
+    await handleBioSensorMode({ sensorModeOperation: async () => "sensor" }, command, { ...f,
+      onIdentityProof: async (proof: BioSensorModeCommand) => { proofs.push(proof); throw new Error("report storage unavailable"); } });
+    expect(proofs).toEqual([command]);
+    expect((await f.outbox.pending())[0].payload).toMatchObject({ modeVerified: true, status: "verified" });
+  });
+  it("does not mint a fresh identity proof from expired or restarted command replay", async () => {
+    const f = await fixture(); const proofs: BioSensorModeCommand[] = [];
+    const options = { ...f, onIdentityProof: async (proof: BioSensorModeCommand) => { proofs.push(proof); } };
+    await f.journal.accept(command.commandId, { kind: "bio_sensor_mode", command });
+    await handleBioSensorMode({ sensorModeOperation: async () => "sensor" }, command, options);
+    await handleBioSensorMode({ sensorModeOperation: async () => "sensor" }, { ...command, commandId: "10000000-0000-4000-8000-000000000099" },
+      { ...options, now: () => new Date("2026-09-30T00:00:31Z") });
+    expect(proofs).toEqual([]);
+  });
   it("serializes overlapping restart recoveries into one durable terminal event", async () => {
     const f = await fixture();
     await f.journal.accept(command.commandId, { kind: "bio_sensor_mode", command });

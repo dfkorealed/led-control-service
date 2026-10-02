@@ -27,6 +27,7 @@ import {
   automationConfigAppliedReceiptSchema,
   automationExecutionIngestedAckSchema,
   vehicleSensorCapabilityIngestedAckV1Schema,
+  vehicleSensorCapabilityIngestedAckV2Schema,
   fixtureIdentifyTopics,
   isGatewayCommandExpired,
   mqttTopicsV2,
@@ -63,6 +64,18 @@ import { LinuxBootClock, type BootClockSample } from "./commands/linux-boot-cloc
 import { handleFixturePresenceCheck, MonitoringRefreshEventPublisher } from "./commands/fixture-presence-check-handler";
 import { bioSensorModeCommandSchema, bioSensorModeTopics } from "@led-control/shared";
 import { handleBioSensorMode, recoverBioSensorModes } from "./commands/bio-sensor-mode-handler";
+import { BioCapabilityDeliveryController } from "./bio/bio-capability-delivery";
+import type { GatewayAdapters } from "./adapters/adapter-factory";
+
+/** No report is invented at boot: absent canonical identity proofs leave the
+ * journal empty. This owner cannot inject profiles, health or sensor-mode evidence. */
+export async function createBioCapabilityReporting(adapters: Pick<GatewayAdapters, "adapterKind" | "bioCapabilityIdentity">,
+  path: string, scope: () => { siteId: string; gatewayId: string; assignmentVersion: number },
+  clockTrusted: () => Promise<boolean>, now?: () => Date, onError?: (error: unknown) => void) {
+  if (adapters.adapterKind !== "bio-usb" || !adapters.bioCapabilityIdentity) return undefined;
+  const owner = new BioCapabilityDeliveryController(path, { scope, identity: adapters.bioCapabilityIdentity, clockTrusted, now, onError });
+  await owner.initialize(); return owner;
+}
 import { MonitoringRefreshJournal } from "./state/monitoring-refresh-journal";
 import { handleGatewayStatusCheck, type GatewayStatusCheckOptions } from "./commands/gateway-status-check-handler";
 import {
@@ -951,6 +964,11 @@ async function main() {
     { siteId, gatewayId },
     { onError: (error) => void reportGatewayError(error, "vehicle_sensor_capability_publish") }
   );
+  const bioCapabilityReporting = await createBioCapabilityReporting(adapters,
+    `${process.env.GATEWAY_VEHICLE_SENSOR_CAPABILITY_JOURNAL_PATH ?? "/var/lib/led-control/vehicle-sensor-capabilities.json"}.bio-v2`,
+    () => ({ siteId, gatewayId, assignmentVersion: assignment.configVersion }),
+    () => clockTrust.isTrusted(new Date()), undefined,
+    () => console.warn("Gateway BIO capability metadata unavailable"));
   let vehicleSensorController: VehicleSensorGatewayController | undefined;
   let initialVehicleSensorCapabilityRefresh: Promise<unknown> = Promise.resolve(false);
   if (adapters.vehicleSensorCloudSupported) {
@@ -1380,6 +1398,9 @@ async function main() {
           journal: sensorModeJournal, outbox: stateEventOutbox, nextSequence: () => eventSequence.next(),
           scope: { siteId, gatewayId, assignmentVersion: assignment.configVersion },
           clockTrusted: () => clockTrust.isTrusted(new Date()), signal: sensorModeAbort.signal,
+          onIdentityProof: bioCapabilityReporting ? async proof => {
+            await bioCapabilityReporting.recordIdentityProof(proof); await bioCapabilityReporting.wake();
+          } : undefined,
           onDurableReceipt: () => control?.acknowledgeDurable()
         }).finally(() => { sensorModeHandlers.delete(handling); stateEventPublisher.wake(); });
         sensorModeHandlers.add(handling);
@@ -1438,6 +1459,9 @@ async function main() {
           .catch((error) => void reportGatewayError(error, "automation_telemetry_publish"));
       },
       [mqttTopics.vehicleSensorCapabilityIngested(siteId, gatewayId)]: (payload) => {
+        if (bioCapabilityReporting) return bioCapabilityReporting.acknowledge(
+          vehicleSensorCapabilityIngestedAckV2Schema.parse(JSON.parse(payload.toString()))
+        );
         if (!vehicleSensorController) throw new Error("bio_sensor_cloud_unsupported");
         return vehicleSensorController.acknowledge(
           vehicleSensorCapabilityIngestedAckV1Schema.parse(JSON.parse(payload.toString()))
@@ -1472,6 +1496,7 @@ async function main() {
             (error) => reportGatewayError(error, "provisioning_device_terminal_retry")
           );
           await stateEventPublisher.connect((topic, state) => publish(mqttRuntime.client, topic, state));
+          await bioCapabilityReporting?.connect((topic, delivery) => publish(mqttRuntime.client, topic, delivery));
           await recoverBioSensorModes({ journal: sensorModeJournal, outbox: stateEventOutbox,
             nextSequence: () => eventSequence.next(), scope: { siteId, gatewayId, assignmentVersion: assignment.configVersion } });
           stateEventPublisher.wake();
@@ -1493,6 +1518,7 @@ async function main() {
       automationConfigRequester.disconnect();
       automationTelemetryPublisher.disconnect();
       vehicleSensorController?.disconnect();
+      bioCapabilityReporting?.disconnect();
       return health.unhealthy("mqtt_disconnected");
     },
     onBeforeStop: async () => {
@@ -1509,7 +1535,8 @@ async function main() {
       await Promise.all([
         provisioningDeviceReplay.stopAndDrain(),
         automationTelemetryPublisher.stopAndDrain(),
-        vehicleSensorController?.stopAndDrain() ?? Promise.resolve()
+        vehicleSensorController?.stopAndDrain() ?? Promise.resolve(),
+        bioCapabilityReporting?.stopAndDrain() ?? Promise.resolve()
       ]);
     },
     onError: () => health.unhealthy("mqtt_error"),
@@ -1536,13 +1563,14 @@ async function main() {
         const meshResyncDrain = meshResyncWorker.stopAndDrain();
         const targetedResyncDrain = targetedLightingResync.stopAndDrain();
         const vehicleSensorDrain = vehicleSensorController?.stopAndDrain() ?? Promise.resolve();
+        const bioCapabilityDrain = bioCapabilityReporting?.stopAndDrain() ?? Promise.resolve();
         stopAutomationFixtureStatusIntake();
         await fixturePresenceIntake.stopAndDrain();
         stopFixtureStatusIntake?.();
         automationTelemetryCoordinator.stop();
         automationStorage.headroom.stop();
         await fixtureStatusReservation.release();
-        await Promise.all([monitoringRefreshDrain, statusCheckDrain, schedulerDrain, bioPulseDrain, meshResyncDrain, targetedResyncDrain, vehicleSensorDrain]);
+        await Promise.all([monitoringRefreshDrain, statusCheckDrain, schedulerDrain, bioPulseDrain, meshResyncDrain, targetedResyncDrain, vehicleSensorDrain, bioCapabilityDrain]);
         await monitoringRefreshPublisher.stopAndDrain();
         stateEventPublisher.disconnect();
         automationAckPublisher.disconnect();

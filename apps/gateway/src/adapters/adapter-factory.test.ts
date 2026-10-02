@@ -15,6 +15,8 @@ import { createGatewayShutdownHandler, startGatewayRuntime } from "../index";
 import { BioDongleClient } from "../bio/bio-dongle-client";
 import { BioDeviceMappingStore } from "../bio/bio-device-mapping-store";
 import { BioUsbDongleAdapter } from "./bio-usb-dongle-adapter";
+import { createBioCapabilityReporting } from "../index";
+import { createHash } from "node:crypto";
 
 function sourceClientMetadata() {
   return { sensorSourceSnapshot: vi.fn(() => ({ state: "ready" as const, generation: 1, ready: true,
@@ -26,6 +28,33 @@ function sourceMappingMetadata() {
 }
 
 describe("createProductionAdapters", () => {
+  it("wires production OFF reporting through actual read-only mappings and canonical command identity", async () => {
+    const fixtureId = "11111111-1111-4111-8111-111111111111", nodeId = "22222222-2222-4222-8222-222222222222";
+    const client = new BioDongleClient({}); vi.spyOn(client, "probe").mockResolvedValue({} as never);
+    vi.spyOn(client, "sensorSourceSnapshot").mockReturnValue({ state: "ready", generation: 1, ready: true, transportConnected: true, protocolReady: true });
+    const directory = await mkdtemp(join(tmpdir(), "bio-off-factory-"));
+    const mappings = new BioDeviceMappingStore(join(directory, "mappings.json"));
+    await mappings.reserve({ fixtureId, nodeId: fixtureId, nativeUuid: "001122334455", deviceUuid: "bio:001122334455",
+      logicalAddress: 256, observedLogicalAddressBeforeAssignment: 5, commandId: "registration", firmware: "not-authority", protocol: "crc16" });
+    await mappings.confirm("bio:001122334455", 256);
+    const adapters = await createProductionAdapters({ GATEWAY_ADAPTER: "bio-usb" }, {
+      createBioClient: () => client, createBioMappingStore: () => mappings, createBioAdapter: () => ({} as never)
+    });
+    expect(adapters.bioCapabilityIdentity).toBeDefined();
+    const scope = { siteId: fixtureId, gatewayId: nodeId, assignmentVersion: 3 };
+    const controller = await createBioCapabilityReporting(adapters, join(directory, "capabilities.json"), () => scope,
+      () => Promise.resolve(true), () => new Date("2026-10-02T00:00:01Z"));
+    const deliveries: unknown[] = [];
+    try {
+      await controller!.connect(async (_topic, delivery) => { deliveries.push(delivery); }); expect(deliveries).toEqual([]);
+      await controller!.recordIdentityProof({ version: 2, commandId: "33333333-3333-4333-8333-333333333333", ...scope,
+        fixtureId, nodeId, meshAddress: "0x0100", deviceIdentityHash: createHash("sha256").update("bio:001122334455").digest("hex"),
+        operation: "query", requestedAt: "2026-10-02T00:00:00Z", expiresAt: "2026-10-02T00:00:30Z" });
+      await controller!.wake();
+      expect(deliveries).toHaveLength(1); expect(deliveries[0]).toMatchObject({ report: { meshNodeId: nodeId, readiness: "off", verifiedFingerprintId: null, sensorModeVerifiedAt: null } });
+      expect(adapters.bioPulseSource!.sourceAuthority(fixtureId)).toBeNull(); expect(adapters.vehicleSensorCloudSupported).toBe(false);
+    } finally { await controller!.stopAndDrain(); await adapters.stop(); }
+  });
   it("exposes the actual adapter configuration port with the same client and guarded operation control", async () => {
     const client = new BioDongleClient({}); vi.spyOn(client, "probe").mockResolvedValue({} as never);
     vi.spyOn(client, "scan").mockResolvedValue([{ nativeUuid: "001122334455", deviceUuid: "bio:001122334455",

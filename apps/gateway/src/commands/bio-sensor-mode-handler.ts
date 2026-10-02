@@ -7,7 +7,8 @@ import { StateEventOutbox } from "../state/state-event-outbox";
 
 type Options = { journal: CommandJournal; outbox: StateEventOutbox; nextSequence: () => Promise<number>;
   scope: { siteId: string; gatewayId: string; assignmentVersion: number }; clockTrusted?: () => Promise<boolean>;
-  now?: () => Date; timeoutMs?: number; signal?: AbortSignal; onDurableReceipt?: () => void };
+  now?: () => Date; timeoutMs?: number; signal?: AbortSignal; onDurableReceipt?: () => void;
+  onIdentityProof?: (command: BioSensorModeCommand) => Promise<void> };
 const running = new WeakMap<CommandJournal, Map<string, { command: BioSensorModeCommand; receipt: Promise<void>; promise: Promise<void> }>>();
 
 export async function handleBioSensorMode(adapter: Pick<BleMeshAdapter, "sensorModeOperation">, input: BioSensorModeCommand, options: Options) {
@@ -65,6 +66,9 @@ async function execute(adapter: Pick<BleMeshAdapter, "sensorModeOperation">, com
     else if (controller.signal.aborted) detail.errorCode = "GATEWAY_SHUTDOWN";
     else if (!adapter.sensorModeOperation) detail.errorCode = "UNSUPPORTED_ADAPTER";
     else {
+      // Reporting is not RF authority. A slow/failing metadata observer must never
+      // delay the owned mode transaction or turn its verified result into failure.
+      try { void options.onIdentityProof?.(structuredClone(command)).catch(() => undefined); } catch { /* Observer only. */ }
       const wait = new Promise<never>((_, reject) => {
         const stop = () => reject(new Error("sensor mode deadline"));
         controller.signal.addEventListener("abort", stop, { once: true });

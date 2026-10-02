@@ -7,11 +7,13 @@
 - 구현 완료(API 소프트웨어·독립 검토): 이미 BIO protocol이 확정된 node의 인증 보고를 현재 claim/배정/certificate에 대조해 qualification·ledger·별도 immutable V2 ACK를 원자 저장한다. KST timestamp·다중 node revision·재배정/변조·실제 publisher 발행 경로를 검증했다. 수용 ACK는 제어 사용 가능 판정이 아니다.
 - 구현 완료(Gateway 실행 연결 소프트웨어·독립 검토): 실제 수신 출구를 제품 scheduler/target port와 연결하고 후보 없는 제어 전 재확인·만료 복원·규칙 교체/rollback·종료 대기를 추가했다. 서로 다른 Fixture/node ID를 구분하며 복원 불확실 원장은 보존한다. 담당 전체1,680/1,680·독립166/166이 통과했으나 실제 승인 profile/권한 provider가 없어 enabled BIO는 계속 거부한다.
 - 구현 완료(신규 등록 소프트웨어·독립 검토): 정확한 V2 완료 등록 근거가 있는 새 canonical BIO node만 BIO/OFF로 분류한다. Legacy·기존 node·qualification·밝기는 보존하며 identify는 필수 조건도 완료 근거의 대체물도 아니다. 등록 회귀94/94·일회용 DB9/9을 확인했다. 분류 자체가 센서 사용 가능 판정은 아니다.
-- 미구현: 기존 A/B의 audited 분류 전환(사용자 선택 대기), Gateway 보고 전달/ACK 및 현장 지원 전환. 유지시간10~1,800초/UI 수정 계약은 그대로다.
+- 구현 완료(Gateway OFF 보고/ACK 소프트웨어·독립 검토): 실제 bootstrap의 현재 인증 sensor-mode 명령으로 canonical 조명↔node 식별 근거를 확인해 OFF/null 보고만 내구 전달한다. exact 배정/전체 hash ACK·재시작/만료/종료·양방향 binding 교체를 검증했고 미확인 pending 원본은 보존한다. 집중113/113·독립113/113을 확인했다. 식별 proof는 건강/제어 권한이 아니다.
+- 미구현: 기존 A/B의 audited 분류 전환(사용자 선택 대기), 센서 모드의 등록ID/canonicalID 비교 결함 수정, 독립 qualification/건강 provider·현장 지원 전환. 유지시간10~1,800초/UI 수정 계약은 그대로다.
 - 부족하거나 개선이 필요한 기능: 빈 profile·미검증 health·제품 OFF를 유지한다. 오늘 body03의 의미와 물리 신호/광학/독립 건강은 미검증이며 APK 일반 trigger callback을 제품 승인으로 대체하지 않는다.
 - 관련 파일: `packages/shared/src/automation-contracts.ts`, `automation-contracts.test.ts`, `docs/superpowers/plans/2026-09-30-bio-sensor-pulse-event-control.md`.
 - 관련 Gateway 파일: `apps/gateway/src/bio/bio-sensor-pulse-source.ts`, `bio-dongle-client.ts`, `bio-device-mapping-store.ts`, `apps/gateway/src/adapters/adapter-factory.ts` 및 대응 테스트.
 - 관련 실행 연결: `apps/gateway/src/automation/bio-product-pulse-controller.ts`, `bio-pulse-scheduler.ts`, `schedule-runtime.ts`, `production-bio-pulse-integration.test.ts`, `apps/gateway/src/index.ts`.
+- 관련 보고 연결: `apps/gateway/src/bio/bio-capability-delivery.ts`, `bio-capability-delivery.test.ts`, `apps/gateway/src/mesh/vehicle-sensor-capability.ts`, `apps/gateway/src/commands/bio-sensor-mode-handler.ts`.
 - 관련 API 파일: `apps/api/src/automation/automation-mqtt-consumer.service.ts`, `vehicle-sensor-capability.service.ts`, `bio-capability-delivery.integration.spec.ts`, `apps/api/prisma/migrations/20261002110000_bio_capability_node_ledger/migration.sql`.
 - 관련 등록 파일: `apps/api/src/mqtt/provisioning-device-terminal.service.ts`, `provisioning-device-terminal.service.spec.ts`, `new-bio-registration.integration.spec.ts`.
 - 갱신 규칙: 계약·실제 수신·실제 제어·현장 검증을 구분하고 미연결 경로를 완료로 표기하지 않는다.
