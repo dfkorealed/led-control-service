@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter, Outlet, Route, Routes } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { StatisticsAnalysisPage } from "./StatisticsAnalysisPage";
@@ -32,6 +32,45 @@ describe("StatisticsAnalysisPage", () => {
     expect(screen.getByRole("region", { name: "사용량 순위" })).toHaveTextContent("B1 주차장");
     expect(screen.getByRole("complementary", { name: "B1 주차장 상세" })).toHaveTextContent("12.5 kWh");
     expect(screen.getByRole("img", { name: "B1 주차장 일별 사용량 차트" })).toBeInTheDocument();
+  });
+
+  it("preserves a future year draft without contradictory picker bounds and resumes after correction", () => {
+    renderPage();
+    const year = within(screen.getByRole("group", { name: "시작일" })).getAllByRole("spinbutton")[0]!;
+    act(() => year.focus());
+    fireEvent.keyDown(year, { key: "ArrowUp" });
+    expect(year).toHaveTextContent("2027");
+    expect(screen.getByText("완료된 기간을 선택해 주세요.")).toBeInTheDocument();
+    expect(mocks.hook).toHaveBeenLastCalledWith(expect.objectContaining({ from: "2027-09-01", enabled: false }));
+    expect(mocks.heatmap).toHaveBeenLastCalledWith(expect.objectContaining({ enabled: false }));
+    fireEvent.keyDown(year, { key: "ArrowDown" });
+    expect(mocks.hook).toHaveBeenLastCalledWith(expect.objectContaining({ from: "2026-09-01", enabled: true }));
+    expect(screen.getByRole("complementary", { name: "B1 주차장 상세" })).toBeInTheDocument();
+  });
+
+  it.each(["시작일", "종료일"])("keeps an empty %s editable and disables both analysis queries", (label) => {
+    renderPage();
+    const group = screen.getByRole("group", { name: label });
+    for (const segment of within(group).getAllByRole("spinbutton")) {
+      act(() => segment.focus());
+      for (let index = 0; index < 4; index++) fireEvent.keyDown(segment, { key: "Backspace" });
+    }
+    expect(group).toBeInTheDocument();
+    expect(screen.getByText("완료된 기간을 선택해 주세요.")).toBeInTheDocument();
+    expect(mocks.hook).toHaveBeenLastCalledWith(expect.objectContaining({ enabled: false }));
+    expect(mocks.heatmap).toHaveBeenLastCalledWith(expect.objectContaining({ enabled: false }));
+  });
+
+  it("preserves a reversed completed-period draft without showing cached results", () => {
+    renderPage();
+    const year = within(screen.getByRole("group", { name: "종료일" })).getAllByRole("spinbutton")[0]!;
+    act(() => year.focus());
+    fireEvent.keyDown(year, { key: "ArrowDown" });
+    expect(year).toHaveTextContent("2025");
+    expect(mocks.hook).toHaveBeenLastCalledWith(expect.objectContaining({ to: "2025-09-08", enabled: false }));
+    expect(screen.queryByRole("region", { name: "사용량 순위" })).not.toBeInTheDocument();
+    fireEvent.keyDown(year, { key: "ArrowUp" });
+    expect(mocks.hook).toHaveBeenLastCalledWith(expect.objectContaining({ to: "2026-09-08", enabled: true }));
   });
 
   it("retains the available ranking and completed heatmap data without a redundant context strip", () => {

@@ -890,6 +890,39 @@ describe("StatisticsReportsPage", () => {
     expect(screen.getByRole("button", { name: "CSV 내보내기" })).toBeDisabled();
     fireEvent.click(screen.getByRole("button", { name: "보고서 요청" }));
     expect(reportsApi.create).not.toHaveBeenCalled();
+    expect(reportsApi.csv).not.toHaveBeenCalled();
+  });
+
+  it("keeps an out-of-domain start-year draft editable and blocks PDF and CSV until corrected", () => {
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "보고서 만들기" }));
+    const year = within(screen.getByRole("group", { name: "기간 시작" })).getAllByRole("spinbutton")[0]!;
+    act(() => year.focus());
+    fireEvent.keyDown(year, { key: "ArrowUp" });
+    expect(year).toHaveTextContent("2027");
+    expect(screen.getByRole("button", { name: "보고서 요청" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "CSV 내보내기" })).toBeDisabled();
+    expect(screen.getByText("시작일과 종료일을 마지막 완료일 이내의 순서대로 선택해 주세요.")).toBeInTheDocument();
+    expect(reportsApi.create).not.toHaveBeenCalled();
+    expect(reportsApi.csv).not.toHaveBeenCalled();
+    fireEvent.keyDown(year, { key: "ArrowDown" });
+    expectDateSegments("기간 시작", ["2026", "8", "13"]);
+    expect(screen.getByRole("button", { name: "보고서 요청" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "CSV 내보내기" })).toBeEnabled();
+  });
+
+  it("preserves a reversed report draft without PDF or CSV requests", () => {
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "보고서 만들기" }));
+    const year = within(screen.getByRole("group", { name: "기간 종료" })).getAllByRole("spinbutton")[0]!;
+    act(() => year.focus());
+    fireEvent.keyDown(year, { key: "ArrowDown" });
+    expect(year).toHaveTextContent("2025");
+    expect(screen.getByRole("button", { name: "보고서 요청" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "CSV 내보내기" })).toBeDisabled();
+    expect(screen.getByText("시작일과 종료일을 마지막 완료일 이내의 순서대로 선택해 주세요.")).toBeInTheDocument();
+    expect(reportsApi.create).not.toHaveBeenCalled();
+    expect(reportsApi.csv).not.toHaveBeenCalled();
   });
 
   it("creates one standard PDF report from a period and identity without section choices", async () => {

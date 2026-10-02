@@ -4,6 +4,7 @@
 
 ## 구현 완료
 
+- 2026-10-02 통계 상세·날짜 초안 보강: 상세 카드 내부 grid/flex의 최소 폭과 긴 대상·조명 이름의 줄바꿈을 제한해 원문 전체, 수치와 차트를 유지한다. 페이지를 가로로 숨기거나 이름을 생략하지 않으며 히트맵의 내부 스크롤은 유지한다. 분석·보고서 생성은 통계 전용 `completedDateBounds`로 완료일과 형제 날짜의 허용 범위를 일관되게 전달한다. 미래 연도·빈 값·역전 초안을 자동 보정하거나 상대 날짜를 바꾸지 않고 입력과 오류 안내를 유지하며, 분석 조회와 PDF 요청·CSV 내보내기는 유효한 기간으로 직접 고친 뒤에만 재개한다. 공통 날짜 코어의 엄격한 형식·역전 bounds 검사, 분석 1~400일, 현장 완료일·응답 일치·대상 범위·PDF/CSV 계약은 그대로다.
 - 2026-10-02 통계 표시·필터 공통화: 개요의 추이와 절감 비교는 각자 선택한 `YYYY-MM-DD ~ YYYY-MM-DD`만 기간 줄에 표시하며 빠른 비교 기간과 일별/월별 추이를 독립적으로 유지한다. `핵심 절감 분석` overline과 오늘 현황의 독립 `상태 기반 추정`·`KPI 수집 공백` 배지만 제거했다. KPI helper의 추정 출처·개별 수집 상태, 추이의 결측 안내·tooltip·스크린리더 목록, 분석의 별도 추정 안내는 유지한다. 기록된 0과 결측 `—`/`null`, 끊긴 추이선과 고립된 완전 기록 점, 비교 불가·부분 수집·오류·불일치 응답 처리도 유지한다.
 - 분석 조건과 보고서 이력 조건은 공통 `FilterPanel`의 줄바꿈 필드 슬롯을 사용한다. 분석은 기존 로컬 controlled 상태·현장 완료일·1~400일 검증을 유지하고, 보고서는 search landmark·네 조건·chip·조건이 있을 때만 보이는 전체 초기화·300ms 검색·90일 요청일 검증·URL 뒤로/앞으로·페이지 크기/cursor 정책을 유지한다. 1440px에서 필드를 한 행으로 정렬하고 좁은 화면에서는 기존 breakpoint에서 줄바꿈한다. PDF 전용 생성·상태 polling·완료 파일의 클릭 시 서명 URL·실패/만료 재생성·별도 CSV·권한 책임은 기존과 같다.
 - 개요의 마지막 집계/조회 시각과 보고서 요청/파일 만료 시각은 공통 `formatTimestamp`로 `yyyy-MM-dd HH:mm:ss`를 표시한다. 현장 시간대와 기기 시간대 분기, 자정 `00:00:00`, 잘못된 instant/시간대의 `—`, `<time>`의 원본 ISO·분수초 정밀도를 유지한다. 마지막 집계가 없으면 조회 시각과 구분한다. 날짜 전용 기간, 오늘의 진행 `HH:mm`, 히트맵 날짜·시간대와 PDF 본문의 시각 제거 결정은 유지한다.
@@ -135,6 +136,7 @@
 
 ## 부족하거나 개선이 필요한 기능
 
+- 통계 상세·날짜 초안 보강의 직접 검증은 관련 단위 144개(변경 없는 공통 날짜 코어 58개 포함)와 strict 격리 mock Chromium 회귀 13개다. 동일 긴 한국어/공백 없는 이름의 320×844·390×320·1440×900 및 실제 브라우저 설정 200%에서 페이지 가로 넘침 0, 실제 연도 ArrowUp·전체 지우기·역전 초안과 수동 복구, 잘못된 기간의 조회/POST/CSV 요청 0, 분석 400/401일 경계와 복구 후 날짜 전용 PDF/CSV 인자를 확인했다. 이번 직접 검증은 독립 디자이너의 전체 viewport 검사·최종 통합 QA·메인 반영·운영 API/DB·PDF 렌더러/저장소·실장비·native WebView 검증이 아니다.
 - 2026-10-02 표시·필터 변경의 검증은 strict 격리 API fixture와 Chromium 소프트웨어 회귀다. 실제 Chromium 설정의 200% 확대를 포함하지만 iOS/Android native WebView, 수동 in-app 시각 QA, 운영 API·사용자 DB·실계량기·Gateway·조명 HIL 검증은 별도다. 공통 필터 적용은 추정 데이터를 실측으로 바꾸지 않으며 실제 집계·생성·저장소의 운영 정확도를 보증하지 않는다.
 - PDF 전용 요청·저장소 업로드·구 이력 URL 정규화·Web 생성/재생성/다운로드와 별도 CSV 내보내기는 코드에 반영됐다. 62일 완전 fixture의 PDF 출력과 API 전체 runnable Jest/typecheck/build를 검증했다. opt-in 57 suites·655 tests와 운영 DB·운영 Object Storage 적용, 실장비·실계량기 검증은 수행하지 않았다. 기존 XLSX/PDF 동등성 테스트 결과를 새 PDF 검증으로 간주하지 않는다.
 - `20260927090000_pdf_only_energy_reports`는 기존 `EnergyReportJob` 전체를 삭제하고 PDF 단일 enum으로 바꾸는 순방향 migration이다. 삭제 트리거가 과거 XLSX/PDF 객체 키를 `EnergyReportObjectCleanup`에 보존하고 반복 정리가 회수한다. 2026-09-27 사용자 승인 후 기존 `pnpm dev` API·Web을 중지하고 영속 로컬 `localhost:5432/led_control` 및 `energy-reports`의 새 보호 백업을 기본 checkout의 ignored `.local/backups`에 확보했다. 로컬 pre/postflight는 모두 종료 코드 0, 작업 4→0건, 보존 원장 2→4건·12개 키, 원장 4건 처리·객체 2개 삭제·오류 0건이었다. 로컬 버킷 객체 2→0개와 원래 PDF·XLSX 객체의 HEAD 404를 확인했다. 기존 개발 서버는 재시작하지 않았고, 운영 DB·저장소에는 적용하지 않았다.
@@ -179,6 +181,7 @@
 
 ## 관련 파일
 
+- `apps/web/src/features/statistics/completed-date-bounds.ts`, `apps/web/src/features/statistics/completed-date-bounds.test.ts`, `apps/web/e2e/statistics-surface-regression.spec.ts` — 분석·보고서의 재사용 날짜 bounds 정책과 실제 키보드·긴 이름·브라우저 확대 회귀.
 - `apps/web/src/components/ui/FilterPanel.tsx`, `apps/web/src/components/ui/utils/formatTimestamp.ts` — 통계가 소비하는 공통 줄바꿈 필터·실제 timestamp 표시 계약.
 - `apps/web/src/features/statistics/reports/ReportHistoryFilters.test.tsx`, `apps/web/e2e/operations-ui-comments.spec.ts` — 통계 필터 슬롯·긴 URL 조건·키보드 날짜·초기화 회귀.
 - `apps/web/src/components/ui/PaginationBar.tsx`, `apps/web/src/components/ui/PaginationBar.test.tsx`, `apps/web/src/components/ui/index.ts` — 기본 옵션과 명시적 사용자 옵션의 타입 계약.
@@ -296,4 +299,4 @@
 
 ## 갱신 규칙
 
-통계 메뉴의 집계 기준, 차트, 요금 계산, 내보내기, 원장 보존·중복 방지와 보고서 정리 지표가 바뀌면 이 문서를 같은 작업 안에서 갱신한다. 보존 범위·DB 구조 변경은 DB 문서 및 영향받는 설정 메뉴와 함께 반영하고, 격리 자동 검증·실장비 검증·사용자 DB 적용 여부를 구분한다.
+통계 메뉴의 집계 기준, 차트, 요금 계산, 내보내기, 날짜 초안·완료일 제약, 긴 이름 레이아웃, 원장 보존·중복 방지와 보고서 정리 지표가 바뀌면 이 문서를 같은 작업 안에서 갱신한다. 보존 범위·DB 구조 변경은 DB 문서 및 영향받는 설정 메뉴와 함께 반영하고, 격리 자동 검증·실장비 검증·사용자 DB 적용 여부를 구분한다.

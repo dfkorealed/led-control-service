@@ -11,10 +11,10 @@ export function EnergyRankingDetailPanel({ item }: { item: EnergyRankingItem | n
   const change = item.previousPeriod?.changeRatePercent ?? null;
   const ChangeIcon = change === null || change === 0 ? Minus : change < 0 ? ArrowDownRight : ArrowUpRight;
   return (
-    <Card className="grid min-w-0 gap-2 p-4 compact:p-5" role="complementary" aria-label={`${item.name} 상세`}>
-      <header className="flex items-start justify-between gap-3">
-        <div className="grid gap-1"><Text variant="overline" tone="muted">상세 분석</Text><Heading as="h3" variant="card-title">{item.name}</Heading></div>
-        <Text as="span" variant="label" tone="primary" className="rounded-control bg-action-primary-soft px-2 py-1">#{item.rank}</Text>
+    <Card className="grid min-w-0 grid-cols-1 gap-2 p-4 compact:p-5" role="complementary" aria-label={`${item.name} 상세`}>
+      <header className="flex min-w-0 items-start justify-between gap-3">
+        <div className="grid min-w-0 flex-1 gap-1"><Text variant="overline" tone="muted">상세 분석</Text><Heading as="h3" variant="card-title" className="[overflow-wrap:anywhere]">{item.name}</Heading></div>
+        <Text as="span" variant="label" tone="primary" className="shrink-0 rounded-control bg-action-primary-soft px-2 py-1">#{item.rank}</Text>
       </header>
       <div className="grid grid-cols-3 gap-3 max-compact:grid-cols-1">
         <MetricCard className="min-w-0 gap-1 p-2.5" label="사용량" value={item.estimatedKwh === null ? "—" : formatKwh(item.estimatedKwh)} />
@@ -39,10 +39,10 @@ export function EnergyRankingDetailPanel({ item }: { item: EnergyRankingItem | n
         </ResponsiveContainer>
       </div>
       {item.fixtures.length > 0 ? (
-        <div className="grid gap-3 border-t border-border-default pt-3">
+        <div className="grid min-w-0 gap-3 border-t border-border-default pt-3">
           <Heading as="h4" variant="card-title">조명별 구성</Heading>
-          <ul className="grid list-none gap-1 p-0">{item.fixtures.slice(0, 8).map((fixture) => (
-            <li className="flex justify-between gap-3 text-body-sm text-content-secondary" key={fixture.identityId}><span>{fixture.name}</span><strong className="text-content-primary tabular-nums">{fixture.estimatedKwh === null ? "—" : formatKwh(fixture.estimatedKwh)}</strong></li>
+          <ul className="grid min-w-0 list-none gap-1 p-0">{item.fixtures.slice(0, 8).map((fixture) => (
+            <li className="flex min-w-0 justify-between gap-3 text-body-sm text-content-secondary" key={fixture.identityId}><span className="min-w-0 flex-1 [overflow-wrap:anywhere]">{fixture.name}</span><strong className="shrink-0 whitespace-nowrap text-content-primary tabular-nums">{fixture.estimatedKwh === null ? "—" : formatKwh(fixture.estimatedKwh)}</strong></li>
           ))}</ul>
         </div>
       ) : null}

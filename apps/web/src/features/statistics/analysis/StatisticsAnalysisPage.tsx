@@ -7,6 +7,7 @@ import { useOutletContext } from "react-router-dom";
 import { useEnergyObservedMeanHeatmap, useEnergyRankings, useEnergySummary } from "../../../api/energy";
 import { Button, Card, DatePicker, FeedbackState, FilterPanel, MetricCard, SelectBox, StatusBadge, StatusDetailButton, Text } from "../../../components/ui";
 import type { StatisticsOutletContext } from "../StatisticsShell";
+import { completedDateBounds } from "../completed-date-bounds";
 import { EnergyRankingDetailPanel } from "./EnergyRankingDetailPanel";
 import { EnergyHeatmap } from "./EnergyHeatmap";
 import { EnergyRankingList } from "./EnergyRankingList";
@@ -33,6 +34,7 @@ export function StatisticsAnalysisPage() {
   const from = activeOverride?.from ?? defaults?.from ?? "";
   const to = activeOverride?.to ?? defaults?.to ?? "";
   const validRange = Boolean(defaults && to <= defaults.to && energyRangeComparisonQuerySchema.safeParse({ from, to }).success);
+  const dateBounds = completedDateBounds(from, to, defaults?.to ?? "");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [heatmapMetric, setHeatmapMetric] = useState<EnergyHeatmapMetric>("energy");
   const query = useEnergyRankings({ siteId, dimension, metric, sort, from, to, limit: 20, enabled: validRange });
@@ -81,9 +83,9 @@ export function StatisticsAnalysisPage() {
         </div>
         <SelectBox className="min-w-0 w-full compact:w-40" label="순위 기준" items={metricItems} selectedKey={metric}
           onSelectionChange={(value) => value && setMetric(value)} />
-        <DatePicker className="min-w-0 w-full compact:w-48" label="시작일" value={from} maxValue={to || defaults.to}
+        <DatePicker className="min-w-0 w-full compact:w-48" label="시작일" value={from || null} {...dateBounds.start} isInvalid={!validRange}
           onChange={(value) => setRangeOverride({ siteId, from: value ?? "", to })} />
-        <DatePicker className="min-w-0 w-full compact:w-48" label="종료일" value={to} minValue={from} maxValue={defaults.to}
+        <DatePicker className="min-w-0 w-full compact:w-48" label="종료일" value={to || null} {...dateBounds.end} isInvalid={!validRange}
           onChange={(value) => setRangeOverride({ siteId, from, to: value ?? "" })} />
         <Button variant="secondary" className="w-full whitespace-nowrap compact:w-28" onClick={() => setSort((value) => value === "desc" ? "asc" : "desc")}>
           {sort === "desc" ? <ArrowDownAZ size={16} /> : <ArrowUpAZ size={16} />}{sort === "desc" ? "높은 순" : "낮은 순"}
