@@ -44,7 +44,7 @@
 | 6 | 제어 UI 개선 담당자(GPT-6.1 Sol/high) | 완료·독립 명세/품질 승인 | e02d00eb→4128c2de; frozen683단위/90브라우저, Spec✅/qualityApproved; M2 실제 짧은 필터 조작은 Task9 |
 | 7 | 통계 페이지 담당자 → 내부 이어쓰기 | 완료·독립 명세/품질 승인 | e042ef46→ebeebdea;135단위/47브라우저·실제200%·UI0, Spec✅/qualityApproved; 전체검수 별도 |
 | 8 | 같은 설정 담당·5개 시각 batch | 완료·독립 명세/품질 승인 | d014261e→5e39a29e;155단위/Seoul15/브라우저11+1·UI0, 보조 편집기3실패는 결합 Task9에서 확인 |
-| 9 | 디자이너·독립 QA·총괄 | 대기 | — |
+| 9 | 디자이너·독립 QA·총괄 | 기존 CAD 결합 완료·최종 검증 배정 | merge6591d9c8/양쪽157경로 보존; root/UI/실DB/편집기/whole-review/기본병합은 아직 |
 
 API와 공통 파일을 동시에 쓰지 않는다. Task 5는 `FloorScene`/`FloorMapViewport` 작성권을 받고, 반환·검토 후 Task 6에 넘긴다. Task 8의 설정/운영도 순차 배정한다. 소비자가 공통 계약 변경을 원하면 총괄에게 반환하고 producer가 수정·재검토한다. 개별 작업은 지정 파일과 보고서만 작성하며 다른 세션/서브에이전트를 임의 생성하지 않는다.
 
@@ -264,6 +264,8 @@ Test-only Shell compatibility addition: `apps/web/e2e/calm-operations-shell.spec
 - [x] Step 5 — Sameownerupdatesbothaffectedmenus andcommitsfive-consumerbatch `refactor: unify remaining timestamp presentation`; fresh batch review Spec✅/qualityApproved, noP0–P2; P3 color/chunk warnings carried to final review. Formatter contract is prior Task3-approved; bounded audit is not an exhaustive raw/external-library claim. Combined editor gates remain Task9.
 
 ### Task 9: 엄격한 UI/UX 관문·실제 격리 소프트웨어·기본 브랜치 통합
+
+격리 결합 `6591d9c8c9a6ec472bc79deacf0742032e5a3a46`은 정확 UI1331760f와 CAD1ea3fb6e 두 부모다. UI-only119/CAD-only32의151개는 부모blob 일치, 겹친6개는 정확 내용 보존·mismatch/extra/missing/unmerged0·clean을 확인했다. 유일한 수동 제품 해결은 공통 UI import의 양쪽 이름 union이며 테스트/문서는 양쪽 변경을 보존했다. 검증 보조의 기대값 계산 오류2번은 실제 제품 결함/통과 증거가 아니고 최종 정확 audit0과 원본 로그를 유지한다. 이 결합 뒤의 새 문서 checkpoint HEAD를 최종 QA 동결 기준으로 보내며 기본 main1ea/서버/중앙DB는 아직 변경하지 않는다. 기본 merge는 watcher/schema/client 적용 권한과 최종 검수 후 별도로 진행한다.
 
 Task8 returned `5e39a29e`, exactBASEd014261e,13ownedpaths/clean/owned16196–16197empty; independent review is pending. Extra pre-CAD42-case run had39pass/3editor-fail: compact editor heading absent and two320px settings cases `data-map-ready=false`. Root carries the exact original cases, logs and unchanged thresholds to combined-source Task9; no attribution to timestamps, inherited defect or cold Vite is made without evidence. Task8 did not run original8s performance diagnosis.
 
