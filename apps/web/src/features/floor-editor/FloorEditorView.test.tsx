@@ -1695,6 +1695,23 @@ describe("FloorEditorView", () => {
     });
   });
 
+  it.each([
+    [new Date(2026, 9, 2, 14, 5, 9).toISOString(), "2026-10-02 14:05:09"],
+    [new Date(2026, 9, 2, 0, 0, 0).toISOString(), "2026-10-02 00:00:00"],
+    ["invalid-instant", "—"]
+  ])("shows revision instants with device-zone seconds without changing the source datetime (%s)", async (timestamp, expected) => {
+    floorEditorApi.listFloorEditorRevisions.mockResolvedValueOnce({
+      items: [{ ...revision(7), createdAt: timestamp }], nextCursor: null
+    });
+    renderEditor();
+    fireEvent.click(screen.getByRole("tab", { name: "자료" }));
+
+    const time = await screen.findByText(expected);
+    expect(time).toHaveAttribute("datetime", timestamp);
+    expect(screen.getByRole("button", { name: "리비전 7 복구" })).toBeVisible();
+    expect(floorEditorApi.restoreFloorEditorRevision).not.toHaveBeenCalled();
+  });
+
   it("paginates revisions and displays actor time and total changes", async () => {
     floorEditorApi.listFloorEditorRevisions
       .mockResolvedValueOnce({

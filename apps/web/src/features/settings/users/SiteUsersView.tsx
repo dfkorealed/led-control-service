@@ -4,7 +4,7 @@ import { useNavigate } from "react-router-dom";
 import { CircleAlert, CircleCheck, Clock3, KeyRound, Pencil, Plus, Search, Trash2, UserCheck, UserX } from "lucide-react";
 import { ApiError } from "../../../api/client";
 import { siteUsersQueryKey, updateSiteUser, useSiteUsers, type SiteUserAccessLevel, type SiteUserStatus, type SiteUserSummary, type SiteUsersResponse } from "../../../api/site-users";
-import { Button, Card, FeedbackState, PageHeader, SearchField, SelectBox, StatusBadge, StatusDetailButton } from "../../../components/ui";
+import { Button, Card, FeedbackState, PageHeader, SearchField, SelectBox, StatusBadge, StatusDetailButton, formatTimestamp } from "../../../components/ui";
 import { DeleteSiteUserDialog } from "./DeleteSiteUserDialog";
 import { ResetSiteUserPasswordDialog } from "./ResetSiteUserPasswordDialog";
 import { SiteUserFormDialog } from "./SiteUserFormDialog";
@@ -212,8 +212,5 @@ function IconAction({ label, title, icon: Icon, danger = false, ...props }: Reac
 }
 
 function formatLastLogin(value: string | null) {
-  if (!value) return "로그인 기록 없음";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "-";
-  return new Intl.DateTimeFormat("ko-KR", { dateStyle: "medium", timeStyle: "short" }).format(date);
+  return value === null ? "로그인 기록 없음" : formatTimestamp(value);
 }

@@ -54,6 +54,25 @@ describe("operator landing inquiries route", () => {
   });
   afterEach(cleanup);
 
+  it.each([
+    [new Date(2026, 9, 2, 14, 5, 9).toISOString(), "2026-10-02 14:05:09"],
+    [new Date(2026, 9, 2, 0, 0, 0).toISOString(), "2026-10-02 00:00:00"],
+    ["invalid-instant", "—"]
+  ])("shows actual inquiry creation time with seconds in the device timezone (%s)", async (timestamp, expected) => {
+    vi.mocked(apiGet).mockImplementation((path: string) => {
+      if (path === "/operator/landing-mail/status") return Promise.resolve({ connected: false });
+      if (path === "/operator/landing-inquiries?limit=20") return Promise.resolve({
+        items: [{ ...inquiry("queued", "K-TIME"), createdAt: timestamp }], nextCursor: null
+      });
+      return Promise.reject(new Error(`Unexpected request: ${path}`));
+    });
+    renderRoute();
+
+    expect(await screen.findByText(expected)).toBeVisible();
+    expect(screen.getByText("K-TIME")).toBeVisible();
+    expect(screen.getByRole("button", { name: "NAVER WORKS 연결" })).toBeVisible();
+  });
+
   it("opens the protected inquiry route from the operator menu and explains all delivery states", async () => {
     renderRoute();
 

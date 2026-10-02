@@ -17,6 +17,7 @@ import { FeedbackState } from "../../../components/ui/FeedbackState";
 import { MetricCard } from "../../../components/ui/MetricCard";
 import { PageHeader } from "../../../components/ui/PageHeader";
 import { StatusBadge } from "../../../components/ui/StatusBadge";
+import { formatTimestamp } from "../../../components/ui";
 import { DeleteSiteDialog } from "./DeleteSiteDialog";
 import { ResetAdminPasswordDialog } from "./ResetAdminPasswordDialog";
 import { SiteAdminFormDialog } from "./SiteAdminFormDialog";
@@ -115,7 +116,7 @@ export function SiteAdminManagementView() {
                     <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-2 text-body-sm">
                       <dt className="font-bold text-content-secondary">관리자 이름</dt><dd className="m-0">{admin?.name ?? "관리자 미지정"}</dd>
                       <dt className="font-bold text-content-secondary">로그인 아이디</dt><dd className="m-0 break-all">{admin?.loginId ?? "-"}</dd>
-                      <dt className="font-bold text-content-secondary">최종 변경</dt><dd className="m-0">{admin ? formatUpdatedAt(admin.updatedAt) : "-"}</dd>
+                      <dt className="font-bold text-content-secondary">최종 변경</dt><dd className="m-0">{admin ? formatTimestamp(admin.updatedAt) : "-"}</dd>
                     </dl>
                     <SiteAdminActions site={site} onOpen={openDialog} />
                   </Card>
@@ -160,7 +161,7 @@ function SiteAdminRow({ site, onOpen }: { site: SiteAdminSummary; onOpen: (dialo
       <td className={`${tableCellClass} font-bold text-content-primary`}>{admin?.name ?? "관리자 미지정"}</td>
       <td className={tableCellClass}>{admin?.loginId ?? "-"}</td>
       <td className={tableCellClass}>{admin ? <StatusBadge tone={admin.status === "active" ? "success" : "danger"} icon={admin.status === "active" ? CircleCheck : CircleAlert}>{admin.status === "active" ? "활성" : "비활성"}</StatusBadge> : "-"}</td>
-      <td className={tableCellClass}>{admin ? formatUpdatedAt(admin.updatedAt) : "-"}</td>
+      <td className={tableCellClass}>{admin ? formatTimestamp(admin.updatedAt) : "-"}</td>
       <td className={tableCellClass}>
         <SiteAdminActions site={site} onOpen={onOpen} />
       </td>
@@ -187,9 +188,3 @@ function SiteAdminActions({ site, onOpen }: {
 
 const tableHeaderClass = "border-b border-border-default bg-surface-inset px-3.5 py-3 text-left align-middle text-label font-bold whitespace-nowrap text-content-secondary";
 const tableCellClass = "border-b border-border-default px-3.5 py-3 text-left align-middle whitespace-nowrap";
-
-function formatUpdatedAt(value: string) {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "-";
-  return new Intl.DateTimeFormat("ko-KR", { dateStyle: "medium", timeStyle: "short" }).format(date);
-}

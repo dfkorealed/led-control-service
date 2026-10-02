@@ -14,7 +14,7 @@ import {
   type MfaEnrollment
 } from "../../../api/auth";
 import { authSessionsQueryKey, clearPrincipalCache, hasPrincipal, principalKey } from "../../../api/principal-cache";
-import { Button, Card, ConfirmDialog, FeedbackState, PageHeader, PasswordField, StatusBadge, TextField } from "../../../components/ui";
+import { Button, Card, ConfirmDialog, FeedbackState, PageHeader, PasswordField, StatusBadge, TextField, formatTimestamp } from "../../../components/ui";
 import { PasswordChangeCard } from "./PasswordSettingsView";
 
 type MfaQueryKey = readonly ["auth", "mfa", string];
@@ -322,7 +322,7 @@ function SessionsCard({ principal, sessionsQueryKey }: { principal: string; sess
                     {session.current ? <StatusBadge tone="success" icon={CircleCheck}>현재 세션</StatusBadge> : null}
                   </div>
                   <p>{session.ipAddress || "IP 정보 없음"} · {session.rememberMe ? "자동 로그인" : "일반 로그인"} · {session.mfaVerified ? "MFA 확인" : "비밀번호 확인"}</p>
-                  <p>로그인 {formatDateTime(session.createdAt)} · 만료 {formatDateTime(session.expiresAt)}</p>
+                  <p>로그인 {formatTimestamp(session.createdAt)} · 만료 {formatTimestamp(session.expiresAt)}</p>
                 </div>
                 <Button
                   type="button"
@@ -373,10 +373,4 @@ function securityErrorMessage(error: unknown, fallback: string) {
 
 function errorStatus(error: unknown) {
   return error && typeof error === "object" && "status" in error && typeof error.status === "number" ? error.status : null;
-}
-
-function formatDateTime(value: string) {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "시각 정보 없음";
-  return new Intl.DateTimeFormat("ko-KR", { dateStyle: "medium", timeStyle: "short" }).format(date);
 }

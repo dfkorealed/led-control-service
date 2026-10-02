@@ -1,5 +1,14 @@
 # 설정 메뉴 기능 현황 및 구현 설계
 
+## 2026-10-02 실제 시각 표시 통일
+
+- 구현 완료: 계정 보안의 세션 로그인/만료, 현장 사용자 목록의 최근 로그인, 맵 편집의 버전 생성 시각을 공통 `formatTimestamp`의 `yyyy-MM-dd HH:mm:ss` 표시로 통일했다. 기존 기기 시간대를 유지하고 Gregorian/h23을 사용해 자정은 `00:00:00`, 존재하지만 잘못된 시각은 `—`로 표시한다. 최근 로그인이 null인 사용자의 `로그인 기록 없음`은 유지한다.
+- 구현 완료: 표시만 변경하며 MFA·비밀번호 변경·세션 폐기, 사용자 생성/수정/삭제/비활성화, 맵 버전 페이지 이동·복구/저장·lease·선택·카메라 계약은 유지한다. 원본 ISO 및 `<time datetime>`은 변환하거나 다시 저장하지 않는다. 날짜 전용·반복 `HH:mm`·현장 시간대 정책도 변경하지 않는다.
+- 미구현: 이번 표시 변경은 실제 고객 DB·운영 인증·하드웨어·모바일 WebView 검증을 추가하지 않는다. API·DB schema·공통 formatter·렌더링 구현과 기존 8초 편집 준비 기준은 변경하지 않는다.
+- 부족하거나 개선이 필요한 기능: 직접 화면 테스트는 UTC/Asia-Seoul의 초·자정·invalid와 null 최근 로그인을 대상으로 한다. 브라우저 검증은 알려진 HTTP fixture의 revision ISO·기기 시간대와 기존 Shell/편집기 회귀에 한정하며 운영 적용 증거가 아니다. 전체 통합·독립 검토의 최종 판정은 총괄이 별도로 수행한다.
+- 관련 파일: `settings/security/AccountSecurityView`, `settings/users/SiteUsersView`, `floor-editor/FloorEditorView` 및 직접 테스트, `apps/web/e2e/calm-operations-shell.spec.ts`. 화면 경로는 `apps/web/src/features` 하위다.
+- 갱신 규칙: 실제 시각 표시나 시간대 의미를 바꾸면 초·자정·invalid 및 원본 ISO 보존 회귀와 이 문서를 함께 갱신한다. 표시 통일을 저장/API 시간대 정책 변경으로 확대하지 않는다.
+
 ## 2026-09-27 층별 설정 대시보드 계약
 
 - 구현 완료: 기존 dashboard 응답에 활성 층의 `summary.totalFixtures`, `mapRevision`, `mapConfigured`가 추가돼 설정 개요와 맵 목록이 실제 등록 수 및 맵 구성 상태를 사용할 수 있다. 공통 맵은 현재 revision snapshot의 요소 수만 한 번에 읽으며 조명 상세를 생략하는 기본 조회에서도 이 필드는 유지된다.

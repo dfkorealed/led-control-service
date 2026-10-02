@@ -69,6 +69,22 @@ describe("SiteAdminManagementView", () => {
     vi.unstubAllGlobals();
   });
 
+  it.each([
+    [new Date(2026, 9, 2, 14, 5, 9).toISOString(), "2026-10-02 14:05:09"],
+    [new Date(2026, 9, 2, 0, 0, 0).toISOString(), "2026-10-02 00:00:00"],
+    ["invalid-instant", "—"]
+  ])("shows actual admin update time with seconds in the device timezone (%s)", async (timestamp, expected) => {
+    api.listSiteAdmins.mockResolvedValue([
+      { ...assignedSite, admin: { ...assignedSite.admin!, updatedAt: timestamp } }, unassignedSite
+    ]);
+    renderView();
+
+    const table = await screen.findByLabelText("현장 관리자 계정 표");
+    expect(await within(table).findByText(expected)).toBeVisible();
+    expect(within(table).getByRole("button", { name: "김관리 수정" })).toBeVisible();
+    expect(within(table).getByRole("button", { name: "인천 물류센터 현장 전체 삭제" })).toBeVisible();
+  });
+
   it("운영자 목록은 실제 데이터로 네 요약과 상태 표를 표시한다", async () => {
     renderView();
 

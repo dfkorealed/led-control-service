@@ -12,6 +12,7 @@ import { DataTableShell } from "../../components/ui/DataTableShell";
 import { FeedbackState } from "../../components/ui/FeedbackState";
 import { PageHeader } from "../../components/ui/PageHeader";
 import { StatusBadge } from "../../components/ui/StatusBadge";
+import { formatTimestamp } from "../../components/ui";
 
 const deliveryPresentation = {
   queued: { label: "발송 대기", tone: "neutral", icon: Clock3 },
@@ -78,7 +79,7 @@ function InquiryRow({ item }: { item: OperatorLandingInquiry }) {
   const status = deliveryPresentation[item.deliveryStatus];
   return <tr>
     <td className={`${cellClass} font-bold text-content-primary`}>{item.reference}</td>
-    <td className={cellClass}>{formatDate(item.createdAt)}</td>
+    <td className={cellClass}>{formatTimestamp(item.createdAt)}</td>
     <td className={cellClass}>{item.companyName}<br /><span className="text-content-secondary">{item.contactName}</span></td>
     <td className={cellClass}>{item.email}{item.phone ? <><br />{item.phone}</> : null}</td>
     <td className={`${cellClass} max-w-64 break-words whitespace-normal`}>{item.message}</td>
@@ -88,8 +89,3 @@ function InquiryRow({ item }: { item: OperatorLandingInquiry }) {
 
 const headerClass = "border-b border-border-default bg-surface-inset px-3.5 py-3 text-left align-middle text-label font-bold whitespace-nowrap text-content-secondary";
 const cellClass = "border-b border-border-default px-3.5 py-3 text-left align-middle whitespace-nowrap";
-
-function formatDate(value: string) {
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? "-" : new Intl.DateTimeFormat("ko-KR", { dateStyle: "medium", timeStyle: "short" }).format(date);
-}

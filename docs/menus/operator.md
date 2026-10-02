@@ -2,6 +2,15 @@
 
 기준일: 2026-09-27
 
+## 2026-10-02 실제 시각 표시 통일
+
+- 구현 완료: 현장 관리자 계정의 최종 변경 시각(표·모바일 카드)과 상담 문의 접수 시각을 기존 공통 `formatTimestamp`의 `yyyy-MM-dd HH:mm:ss`로 표시한다. 기존 기기 시간대 의미를 유지하며 Gregorian/h23·자정 `00:00:00`·잘못된 시각 `—` 계약을 사용한다. 관리자 미지정의 `-`는 시각이 없는 별도 상태로 유지한다.
+- 구현 완료: 운영자 권한·관리자 지정/생성/수정·비밀번호 재설정·현장 삭제 확인, 상담 문의 pagination·발송 상태·NAVER WORKS 연결 동작은 변경하지 않는다. source ISO·저장/API·공개 랜딩도 유지한다.
+- 미구현: 실제 운영 계정/DB·NAVER WORKS·HIL 검증은 이번 표시 작업에 포함하지 않는다.
+- 부족하거나 개선이 필요한 기능: 직접 화면 테스트는 UTC/Asia-Seoul의 초·자정·invalid 표시와 기존 관리 동작을 검증한다. 브라우저 fixture 및 자동 검사 통과를 실제 운영 인가·메일 수신 증거로 해석하지 않는다. 독립 통합 검토는 총괄의 후속 관문이다.
+- 관련 파일: `apps/web/src/features/operator/site-admins/SiteAdminManagementView.tsx`, `apps/web/src/features/operator/LandingInquiriesView.tsx` 및 직접 테스트. 공통 formatter의 기존 export만 소비한다.
+- 갱신 규칙: 시간대·접수/갱신 표시 계약을 수정할 때 직접 표시 및 기존 관리/인가 회귀를 함께 실행하고 문서를 갱신한다.
+
 ## 구현 완료
 
 - Final Atlas 운영자 셸에 상담 문의 메뉴·라우트를 함께 보존했다. 통합 전체 검증 상태는 [통합 체크리스트](../superpowers/plans/2026-09-27-atlas-landing-integration.md)를 따른다.

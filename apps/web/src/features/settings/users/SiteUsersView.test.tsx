@@ -56,6 +56,20 @@ describe("SiteUsersView", () => {
 
   afterEach(cleanup);
 
+  it.each([
+    [new Date(2026, 9, 2, 14, 5, 9).toISOString(), "2026-10-02 14:05:09"],
+    [new Date(2026, 9, 2, 0, 0, 0).toISOString(), "2026-10-02 00:00:00"],
+    ["invalid-instant", "—"]
+  ])("shows last login with seconds in the device timezone and preserves never-login (%s)", (timestamp, expected) => {
+    setQuery({ users: [{ ...users[0], lastLoginAt: timestamp }, users[1]], count: 2, limit: 100 });
+    renderView();
+
+    const table = screen.getByRole("table", { name: "현장 사용자 목록" });
+    expect(within(table).getByText(expected)).toBeVisible();
+    expect(within(table).getByText("로그인 기록 없음")).toBeVisible();
+    expect(screen.getByRole("button", { name: "김현수 수정" })).toBeVisible();
+  });
+
   it("renders loading, empty and successful list states", () => {
     api.useSiteUsers.mockReturnValueOnce(queryState(undefined, { isLoading: true }));
     renderView();

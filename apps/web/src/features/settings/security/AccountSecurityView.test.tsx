@@ -68,6 +68,22 @@ describe("AccountSecurityView", () => {
     vi.clearAllMocks();
   });
 
+  it.each([
+    [new Date(2026, 9, 2, 14, 5, 9).toISOString(), "2026-10-02 14:05:09"],
+    [new Date(2026, 9, 2, 0, 0, 0).toISOString(), "2026-10-02 00:00:00"],
+    ["invalid-instant", "—"]
+  ])("shows login and expiry instants in the device timezone with seconds (%s)", async (timestamp, expected) => {
+    vi.mocked(listAuthSessions).mockResolvedValue({
+      sessions: [{ ...sessions[0], createdAt: timestamp, expiresAt: timestamp }]
+    });
+    renderView();
+
+    const list = await screen.findByRole("list", { name: "활성 세션" });
+    expect(within(list).getByText(`로그인 ${expected} · 만료 ${expected}`)).toBeVisible();
+    expect(within(list).getByText("현재 세션")).toBeVisible();
+    expect(screen.getByRole("button", { name: "비밀번호 변경" })).toBeVisible();
+  });
+
   it("비밀번호 변경을 유지하고 MFA·활성 세션 상태를 실제 API로 불러온다", async () => {
     renderView();
 

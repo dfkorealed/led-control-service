@@ -5,7 +5,7 @@ import { type DragEvent, useCallback, useEffect, useLayoutEffect, useMemo, useRe
 import { useShallow } from "zustand/react/shallow";
 import type { AuthUser } from "../../api/auth";
 import { ApiError } from "../../api/client";
-import { Button, Checkbox, ConfirmDialog, FeedbackState, Heading, IconButton, IconTooltipButton, SelectBox, SidePanel, Text } from "../../components/ui";
+import { Button, Checkbox, ConfirmDialog, FeedbackState, Heading, IconButton, IconTooltipButton, SelectBox, SidePanel, Text, formatTimestamp } from "../../components/ui";
 import {
   listFloorEditorRevisions,
   getAppliedFloorImportOverlay,
@@ -654,7 +654,7 @@ function RevisionPanel({
               <div className="grid min-w-0 gap-0.5">
                 <Text as="strong" variant="body-sm" weight="semibold">리비전 {revision.revision}</Text>
                 <Text as="span" variant="caption" tone="secondary">{revision.actor.displayName}</Text>
-                <Text as="time" variant="caption" tone="secondary" dateTime={revision.createdAt}>{formatRevisionTime(revision.createdAt)}</Text>
+                <Text as="time" variant="caption" tone="secondary" dateTime={revision.createdAt}>{formatTimestamp(revision.createdAt)}</Text>
                 <Text as="span" variant="caption" tone="secondary">변경 {revisionChangeCount(revision.changeSummary)}건</Text>
               </div>
               {canRestore ? (
@@ -688,10 +688,6 @@ function revisionChangeCount(summary: Record<string, unknown>) {
     if (typeof value === "number") return total + value;
     return key === "floorPlanChanged" && value === true ? total + 1 : total;
   }, 0);
-}
-
-function formatRevisionTime(createdAt: string) {
-  return new Intl.DateTimeFormat("ko-KR", { dateStyle: "medium", timeStyle: "short" }).format(new Date(createdAt));
 }
 
 async function invalidateEditorQueries(queryClient: ReturnType<typeof useQueryClient>, state: FloorEditorState) {
