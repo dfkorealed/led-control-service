@@ -4,10 +4,12 @@
 
 - 구현 완료(Shared 소프트웨어·독립 검토): 기존 V1을 보존하는 BIO V2 전달 envelope와 별도 수용 ACK 계약을 추가했다. 현장/게이트웨이/배정/이벤트/센서/버전/전체 전달 hash를 대조하며 ACK 귀속 일치는 센서 건강이나 제어 활성화를 뜻하지 않는다.
 - 구현 완료(Gateway 수신·독립 검토): 실제 client 단일 후보 구독을 adapter 수명에 연결하고 exact 권한·독립 건강 관문을 통과한 typed pulse 출구와 변경/종료 철회를 추가했다. 첫 mapping 조회에서 발견한 기존 권한 잔존도 수정했다. 제품 profile은 빈 목록·provider는 null이라 실제 점등은 OFF다.
-- 미구현: 실제 인증 보고 수신·영속 ACK 및 Gateway 전달, 제품 scheduler 연결과 현장 지원 전환. 유지시간10~1,800초/UI 수정 계약은 그대로다.
+- 구현 완료(API 소프트웨어·독립 검토): 이미 BIO protocol이 확정된 node의 인증 보고를 현재 claim/배정/certificate에 대조해 qualification·ledger·별도 immutable V2 ACK를 원자 저장한다. KST timestamp·다중 node revision·재배정/변조·실제 publisher 발행 경로를 검증했다. 수용 ACK는 제어 사용 가능 판정이 아니다.
+- 미구현: 제품 등록의 BIO protocol 확정·기존 A/B 전환, Gateway 보고 전달/ACK, 제품 scheduler 연결과 현장 지원 전환. 유지시간10~1,800초/UI 수정 계약은 그대로다.
 - 부족하거나 개선이 필요한 기능: 빈 profile·미검증 health·제품 OFF를 유지한다. 오늘 body03의 의미와 물리 신호/광학/독립 건강은 미검증이며 APK 일반 trigger callback을 제품 승인으로 대체하지 않는다.
 - 관련 파일: `packages/shared/src/automation-contracts.ts`, `automation-contracts.test.ts`, `docs/superpowers/plans/2026-09-30-bio-sensor-pulse-event-control.md`.
 - 관련 Gateway 파일: `apps/gateway/src/bio/bio-sensor-pulse-source.ts`, `bio-dongle-client.ts`, `bio-device-mapping-store.ts`, `apps/gateway/src/adapters/adapter-factory.ts` 및 대응 테스트.
+- 관련 API 파일: `apps/api/src/automation/automation-mqtt-consumer.service.ts`, `vehicle-sensor-capability.service.ts`, `bio-capability-delivery.integration.spec.ts`, `apps/api/prisma/migrations/20261002110000_bio_capability_node_ledger/migration.sql`.
 - 갱신 규칙: 계약·실제 수신·실제 제어·현장 검증을 구분하고 미연결 경로를 완료로 표기하지 않는다.
 
 ## 2026-10-02 BIO 현장 시험 준비 — 임시 진단 도구, 제품 OFF

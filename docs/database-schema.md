@@ -2,6 +2,16 @@
 
 작성일: 2026-09-28
 
+## 2026-10-02 BIO capability 인증 수신·별도 V2 receipt
+
+기존 capability MQTT topic에서 strict V1 report와 strict V2 delivery를 분기한다. V2 delivery는 `assignmentVersion`과 report 전체의 canonical hash를 결속한다. 자동화 membership lock 아래 현재 site/Gateway claim, inventory 소유·활성 상태, 해당 Gateway/inventory의 활성·미폐기 MQTT 인증서 유효기간, assignment와 BIO node 소유를 검사한 뒤 qualification, node-local 원장·watermark, 별도 V2 ACK outbox를 같은 transaction에 저장한다. 인증서 UTC `timestamp`와 입력 시각은 SQL session 시간대에 영향받지 않도록 명시적으로 UTC 비교한다. 인증 근거는 broker mTLS/topic ACL과 DB metadata이며 구독자가 peer certificate serial을 직접 확인했다는 의미가 아니다.
+
+정확한 재전송도 현재 인증·배정을 먼저 확인한다. 최초 V2 ACK identity/hash/status/`ingestedAt`은 불변이고 발행 lifecycle만 재개한다. 같은 event/revision의 다른 envelope, identity 또는 재배정 hash는 충돌로 처리하며 과거 배정 receipt로 새 배정 지원을 승격하지 않는다. 기존 내부 report-only hash 이력도 덮어쓰지 않는다. V1 ACK·V2 support/config ACK·publisher wire는 변경하지 않는다. `ready` 저장이나 `applied` receipt는 qualification 근거일 뿐 live health·실장비 광학 성공·rule enabled가 아니며 제품 gate는 OFF다.
+
+`20261002110000_bio_capability_node_ledger`는 기존 `ProcessedGatewayEvent` 행을 보존하면서 V1 `vehicle_sensor_capability`와 BIO `bio_pulse_capability` 모두에 required-node CHECK와 `(gatewayId,meshNodeId,sequence,eventType)` partial unique를 적용한다. 그 외 event는 기존 `(gatewayId,sequence,eventType)` partial unique를 유지한다. 새 영속 테이블·컬럼과 retention 변경은 없다. node 귀속이 없는 기존 capability 행은 명시적 operator-remediation 진단으로 migration 전체를 rollback하며 현재 Fixture 연결을 과거 귀속으로 추론하거나 자동 보완하지 않는다. 일회용 PostgreSQL에서만 검증하며 운영 DB에는 적용하지 않는다.
+
+실제 Prisma deploy에서도 오류 ID를 보존하도록 기존 BIO migration과 같은 session-local 임시 preflight/deferred trigger로 COMMIT에서 실패한다. 진단은 첫 invalid event의 내부 서비스 ID를 최대 128자로 제한하며 device UUID·원문 packet·자격 증명을 포함하지 않는다. SQL rollback과 실패 migration 시도 원장은 별개이므로 감사 정리 후 표준 `migrate resolve --rolled-back` 절차로 재시도한다. BIO capability는 기존 retention의 알려진 V1 삭제 대상으로 추가하지 않아 현재 보존 정책을 그대로 유지한다.
+
 ## 2026-10-01 BIO V2 telemetry 영속 수신과 조회
 
 `20261001010000_bio_pulse_telemetry`는 `BioPulseTelemetryEvent` 감사 이력과 `BioPulseTelemetryProjection` 조회 상태를 추가한다. 이력은 site/Gateway/원래 assignment, event ID, sequence, snapshot revision, rule/occurrence, source/target Fixture ID, strict redacted payload와 canonical SHA-256을 보존한다. `(gatewayId,eventId)`와 `(gatewayId,assignmentVersion,sequence)`는 각각 고유하며 같은 identity의 다른 내용은 거절한다. Site/Gateway 복합 FK는 현장 경계를 유지하고 삭제 시 cascade한다. Fixture ID는 과거 snapshot 값이며 Fixture 밝기·mode·power/energy 결과 테이블의 FK나 측정값으로 승격하지 않는다.
@@ -1822,7 +1832,7 @@ DB check는 live `fixtureId`가 `NULL`이거나 `fixtureSnapshotId`와 정확히
 
 ### ProcessedGatewayEvent
 
-MQTT QoS 1 중복 및 순서 역전을 차단하는 이벤트 원장이다. `eventId`는 모든 event type에서 전역 PK다. Non-capability event는 partial unique `(gatewayId, sequence, eventType)`을 유지하고, `vehicle_sensor_capability`는 node-local partial unique `(gatewayId, meshNodeId, sequence, eventType)`을 사용하며 `meshNodeId`가 반드시 있어야 한다. 이벤트를 Fixture/Gateway snapshot에 반영하기 전에 이 테이블과 마지막 sequence를 확인한다.
+MQTT QoS 1 중복 및 순서 역전을 차단하는 이벤트 원장이다. `eventId`는 모든 event type에서 전역 PK다. Non-capability event는 partial unique `(gatewayId, sequence, eventType)`을 유지하고, `vehicle_sensor_capability`와 `bio_pulse_capability`는 node-local partial unique `(gatewayId, meshNodeId, sequence, eventType)`을 사용하며 `meshNodeId`가 반드시 있어야 한다. 이벤트를 Fixture/Gateway snapshot에 반영하기 전에 이 테이블과 마지막 sequence를 확인한다.
 
 | 컬럼 | 타입 | 필수 | 기본값/제약 | 설명 |
 | --- | --- | --- | --- | --- |

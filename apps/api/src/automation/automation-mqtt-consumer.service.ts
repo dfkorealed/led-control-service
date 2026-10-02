@@ -9,6 +9,7 @@ import {
   automationExecutionIngestedAckV1Schema,
   automationSnapshotSchema,
   mqttTopics,
+  vehicleSensorCapabilityDeliveryV2Schema,
   type AutomationConfigAppliedDelivery,
   type AutomationExecutionEventV1
 } from "@led-control/shared";
@@ -68,6 +69,15 @@ export class AutomationMqttConsumerService {
 
     if (scope.channel === CAPABILITY_CHANNEL) {
       const report = this.parseJson(payload);
+      if (typeof report === "object" && report !== null && (report as { schemaVersion?: unknown }).schemaVersion === 2) {
+        const parsed = vehicleSensorCapabilityDeliveryV2Schema.safeParse(report);
+        if (!parsed.success || parsed.data.report.siteId !== scope.siteId
+          || parsed.data.report.gatewayId !== scope.gatewayId) return;
+        await this.capability.applyBioDelivery(parsed.data, {
+          siteId: scope.siteId, gatewayId: scope.gatewayId, requireActiveClaim: true
+        });
+        return;
+      }
       if (
         typeof report !== "object" || report === null ||
         (report as { siteId?: unknown }).siteId !== scope.siteId ||

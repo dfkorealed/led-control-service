@@ -6,7 +6,10 @@ import {
   type VehicleSensorCapabilityReportV2,
   vehicleSensorCapabilityIngestedAckV1Schema,
   vehicleSensorCapabilityReportV1Schema,
-  vehicleSensorCapabilityReportV2Schema
+  vehicleSensorCapabilityReportV2Schema,
+  vehicleSensorCapabilityDeliveryV2Schema,
+  vehicleSensorCapabilityIngestedAckV2Schema,
+  matchesVehicleSensorCapabilityIngestedAckV2
 } from "@led-control/shared";
 import { Prisma, type BioPulseReadiness, type VehicleSensorProtocol } from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
@@ -41,6 +44,8 @@ interface CapabilityLedgerRow {
   eventType: string;
   payloadHash: string | null;
 }
+
+type BioCapabilityResult = { status: "applied" | "duplicate" | "stale" | "rejected"; errorCode: string | null };
 
 @Injectable()
 export class VehicleSensorCapabilityService {
@@ -122,7 +127,7 @@ export class VehicleSensorCapabilityService {
     }, { timeout: 10_000 });
   }
 
-  /** Internal only: no HTTP/MQTT route or V1 ACK. The caller must supply the
+  /** Internal qualification only: no HTTP/MQTT route or V1 ACK. The caller must supply the
    * authenticated Gateway scope; a report cannot change a node's protocol.
    * Persisted qualification is not V2 support, a mode operation result, or
    * permission to execute a BIO rule. Those remain gated in Task 5c. */
@@ -136,56 +141,132 @@ export class VehicleSensorCapabilityService {
     }
     const report = parsed.data;
     const payloadHash = canonicalPayloadHash(report);
-    const result = (status: "applied" | "duplicate" | "stale" | "rejected", errorCode: string | null = null) =>
-      ({ status, errorCode });
     return this.prisma.$transaction(async tx => {
       await this.automationSnapshot.lockMutation(tx);
-      const node = await this.lockOwnedNode(tx, report, true);
-      if (!node || node.vehicleSensorProtocol !== "bio_usb_pulse") {
+      return this.qualifyBioReport(tx, report, payloadHash);
+    }, { timeout: 10_000 });
+  }
+
+  /** Broker mTLS/topic ACL authenticates delivery. Subscribers do not receive a
+   * peer certificate; SQL rechecks current claim, assignment and certificate metadata.
+   * An applied receipt records qualification only and cannot authorize a BIO rule. */
+  async applyBioDelivery(rawDelivery: unknown,
+    scope: { siteId: string; gatewayId: string; requireActiveClaim: true }
+  ) {
+    const parsed = vehicleSensorCapabilityDeliveryV2Schema.safeParse(rawDelivery);
+    if (!parsed.success || scope?.requireActiveClaim !== true
+      || scope.siteId !== parsed.data.report.siteId || scope.gatewayId !== parsed.data.report.gatewayId) {
+      throw new BadRequestException("invalid BIO capability delivery or authenticated scope");
+    }
+    const delivery = parsed.data;
+    const deliveryPayloadHash = canonicalPayloadHash(delivery);
+    return this.prisma.$transaction(async tx => {
+      await this.automationSnapshot.lockMutation(tx);
+      const now = this.clock.now();
+      if (!Number.isFinite(now.getTime())) throw new BadRequestException("BIO capability clock unavailable");
+      // Validate current authority before looking up any replay/ACK. Old-assignment
+      // receipts may not be revived under a newly claimed Gateway authority.
+      const identities = await tx.$queryRaw<Array<{ assignmentVersion: number }>>(Prisma.sql`
+        SELECT gateway."assignmentVersion" FROM "Gateway" gateway
+        JOIN "GatewayInventory" inventory ON inventory."claimedGatewayId" = gateway."id"
+          AND inventory."claimedAt" IS NOT NULL AND inventory."disabledAt" IS NULL
+        JOIN "GatewayCertificate" certificate ON certificate."inventoryId" = inventory."id"
+          AND certificate."gatewayId" = gateway."id" AND certificate."purpose" = 'mqtt'
+          AND certificate."status" = 'active' AND certificate."revokedAt" IS NULL
+          -- Prisma DateTime columns are UTC timestamp-without-time-zone values.
+          -- Normalize the timestamptz parameter explicitly; session TimeZone must
+          -- not reject a valid certificate or admit an expired one.
+          AND certificate."notBefore" <= (${now}::timestamptz AT TIME ZONE 'UTC')
+          AND certificate."notAfter" > (${now}::timestamptz AT TIME ZONE 'UTC')
+        WHERE gateway."id" = ${scope.gatewayId} AND gateway."siteId" = ${scope.siteId}
+          AND gateway."claimedAt" IS NOT NULL
+        FOR UPDATE OF gateway, inventory, certificate
+      `);
+      if (!identities.length || identities.some(identity => identity.assignmentVersion !== delivery.assignmentVersion)) {
+        throw new BadRequestException("BIO capability current authority rejected");
+      }
+      const node = await this.lockOwnedNode(tx, delivery.report, true);
+      // V1's legacy Fixture alias remains supported by its existing path only.
+      // The V2 wire receipt must name exactly the node whose evidence is stored.
+      if (!node || node.id !== delivery.report.meshNodeId || node.vehicleSensorProtocol !== "bio_usb_pulse") {
         throw new BadRequestException("BIO capability report scope or protocol rejected");
       }
-      const revision = BigInt(report.capabilityRevision);
-      const [eventById, eventByRevision] = await Promise.all([
-        tx.processedGatewayEvent.findUnique({ where: { eventId: report.eventId } }),
-        tx.processedGatewayEvent.findFirst({ where: {
-          gatewayId: report.gatewayId, meshNodeId: node.id, sequence: revision, eventType: BIO_CAPABILITY_EVENT_TYPE
-        } })
-      ]);
-      const existing = distinctLedgerRows(eventById, eventByRevision);
-      if (existing.some(row => !sameCapabilityLedger(row, node.id, report, payloadHash, BIO_CAPABILITY_EVENT_TYPE))) {
-        return result("rejected", "capability_event_conflict");
+      const applicationAckKey = `bio-vehicle-sensor-capability:${scope.gatewayId}:${delivery.assignmentVersion}:${node.id}:${delivery.report.eventId}:${deliveryPayloadHash}`;
+      const existing = await tx.mqttOutbox.findUnique({ where: { applicationAckKey } });
+      const topic = mqttTopics.vehicleSensorCapabilityIngested(scope.siteId, scope.gatewayId);
+      if (existing) {
+        if (!matchesVehicleSensorCapabilityIngestedAckV2(delivery, existing.payload, deliveryPayloadHash)
+          || existing.gatewayId !== scope.gatewayId || existing.topic !== topic
+          || existing.automationAssignmentVersion !== delivery.assignmentVersion
+          || existing.payloadHash !== canonicalPayloadHash(existing.payload)) {
+          throw new BadRequestException("BIO capability receipt identity conflict");
+        }
+        await this.reviveAck(tx, existing.id, now);
+        return vehicleSensorCapabilityIngestedAckV2Schema.parse(existing.payload);
       }
-      if (revision === node.bioPulseCapabilityRevision && !sameBioCapabilityState(node, report)) {
-        return result("rejected", "capability_state_conflict");
-      }
-      if (existing.length > 0) return result("duplicate");
-      const ordering = await compareAndAdvanceGatewayEvent(tx, {
-        gatewayId: report.gatewayId, eventType: BIO_CAPABILITY_EVENT_TYPE, scopeKey: node.id,
-        sequence: revision, eventId: report.eventId, payloadHash, occurredAt: new Date(report.verifiedAt)
-      });
-      if (ordering === "conflict") return result("rejected", "capability_event_conflict");
-      if (ordering === "duplicate") return result("duplicate");
-      if (ordering === "stale" || revision < node.bioPulseCapabilityRevision) {
-        await this.createLedger(tx, node, report, payloadHash, BIO_CAPABILITY_EVENT_TYPE);
-        return result("stale");
-      }
-      if (revision === node.bioPulseCapabilityRevision) {
-        await this.createLedger(tx, node, report, payloadHash, BIO_CAPABILITY_EVENT_TYPE);
-        return result("duplicate");
-      }
-      if (report.readiness !== "ready" || (node.bioPulseReadiness === "ready"
-        && node.bioPulseProfileId !== report.verifiedFingerprintId)) {
-        // The DB rejects downgrading an enabled source. Disable and enqueue the
-        // new configuration in this same transaction before changing evidence.
-        await this.disableAffectedRules(tx, node, report.gatewayId);
-      }
-      await tx.meshNode.update({ where: { id: node.id }, data: {
-        bioPulseReadiness: report.readiness, bioPulseCapabilityRevision: revision,
-        bioPulseProfileId: report.verifiedFingerprintId, bioPulseVerifiedAt: new Date(report.verifiedAt)
-      } });
-      await this.createLedger(tx, node, report, payloadHash, BIO_CAPABILITY_EVENT_TYPE);
-      return result("applied");
+      const outcome = await this.qualifyBioReport(tx, delivery.report, deliveryPayloadHash, node);
+      const ack = vehicleSensorCapabilityIngestedAckV2Schema.parse({ schemaVersion: 2,
+        siteId: scope.siteId, gatewayId: scope.gatewayId, assignmentVersion: delivery.assignmentVersion,
+        eventId: delivery.report.eventId, meshNodeId: delivery.report.meshNodeId,
+        capabilityRevision: delivery.report.capabilityRevision, deliveryPayloadHash,
+        ...outcome, ingestedAt: now.toISOString() });
+      await tx.mqttOutbox.create({ data: { gatewayId: scope.gatewayId, applicationAckKey,
+        automationAssignmentVersion: delivery.assignmentVersion, revision: null,
+        payloadHash: canonicalPayloadHash(ack), topic, payload: ack } });
+      return ack;
     }, { timeout: 10_000 });
+  }
+
+  private async qualifyBioReport(
+    tx: Prisma.TransactionClient, report: VehicleSensorCapabilityReportV2,
+    payloadHash: `sha256:${string}`, lockedNode?: LockedCapabilityNode
+  ): Promise<BioCapabilityResult> {
+    const result = (status: BioCapabilityResult["status"], errorCode: string | null = null) => ({ status, errorCode });
+    const node = lockedNode ?? await this.lockOwnedNode(tx, report, true);
+    if (!node || node.vehicleSensorProtocol !== "bio_usb_pulse") {
+      throw new BadRequestException("BIO capability report scope or protocol rejected");
+    }
+    const revision = BigInt(report.capabilityRevision);
+    const [eventById, eventByRevision] = await Promise.all([
+      tx.processedGatewayEvent.findUnique({ where: { eventId: report.eventId } }),
+      tx.processedGatewayEvent.findFirst({ where: {
+        gatewayId: report.gatewayId, meshNodeId: node.id, sequence: revision, eventType: BIO_CAPABILITY_EVENT_TYPE
+      } })
+    ]);
+    const existing = distinctLedgerRows(eventById, eventByRevision);
+    if (existing.some(row => !sameCapabilityLedger(row, node.id, report, payloadHash, BIO_CAPABILITY_EVENT_TYPE))) {
+      return result("rejected", "capability_event_conflict");
+    }
+    if (revision === node.bioPulseCapabilityRevision && !sameBioCapabilityState(node, report)) {
+      return result("rejected", "capability_state_conflict");
+    }
+    if (existing.length > 0) return result("duplicate");
+    const ordering = await compareAndAdvanceGatewayEvent(tx, {
+      gatewayId: report.gatewayId, eventType: BIO_CAPABILITY_EVENT_TYPE, scopeKey: node.id,
+      sequence: revision, eventId: report.eventId, payloadHash, occurredAt: new Date(report.verifiedAt)
+    });
+    if (ordering === "conflict") return result("rejected", "capability_event_conflict");
+    if (ordering === "duplicate") return result("duplicate");
+    if (ordering === "stale" || revision < node.bioPulseCapabilityRevision) {
+      await this.createLedger(tx, node, report, payloadHash, BIO_CAPABILITY_EVENT_TYPE);
+      return result("stale");
+    }
+    if (revision === node.bioPulseCapabilityRevision) {
+      await this.createLedger(tx, node, report, payloadHash, BIO_CAPABILITY_EVENT_TYPE);
+      return result("duplicate");
+    }
+    if (report.readiness !== "ready" || (node.bioPulseReadiness === "ready"
+      && node.bioPulseProfileId !== report.verifiedFingerprintId)) {
+      // The DB rejects downgrading an enabled source. Disable and enqueue the
+      // new configuration in this same transaction before changing evidence.
+      await this.disableAffectedRules(tx, node, report.gatewayId);
+    }
+    await tx.meshNode.update({ where: { id: node.id }, data: {
+      bioPulseReadiness: report.readiness, bioPulseCapabilityRevision: revision,
+      bioPulseProfileId: report.verifiedFingerprintId, bioPulseVerifiedAt: new Date(report.verifiedAt)
+    } });
+    await this.createLedger(tx, node, report, payloadHash, BIO_CAPABILITY_EVENT_TYPE);
+    return result("applied");
   }
 
   private async disableAffectedRules(
@@ -338,29 +419,7 @@ export class VehicleSensorCapabilityService {
     const now = this.clock.now();
     if (existingOutbox) {
       const existingAck = vehicleSensorCapabilityIngestedAckV1Schema.parse(existingOutbox.payload);
-      await tx.mqttOutbox.updateMany({
-        where: {
-          id: existingOutbox.id,
-          OR: [{ leaseExpiresAt: null }, { leaseExpiresAt: { lte: now } }],
-          AND: [{
-            OR: [
-              { publishedAt: { not: null } },
-              { deadLetteredAt: { not: null } },
-              { leaseExpiresAt: { lte: now } }
-            ]
-          }]
-        },
-        data: {
-          attempts: 0,
-          nextAttemptAt: now,
-          publishedAt: null,
-          lockedBy: null,
-          lockedAt: null,
-          leaseExpiresAt: null,
-          deadLetteredAt: null,
-          lastError: null
-        }
-      });
+      await this.reviveAck(tx, existingOutbox.id, now);
       return existingAck;
     }
 
@@ -378,6 +437,17 @@ export class VehicleSensorCapabilityService {
       }
     });
     return vehicleSensorCapabilityIngestedAckV1Schema.parse(stored.payload);
+  }
+
+  private reviveAck(tx: Prisma.TransactionClient, id: string, now: Date) {
+    // Only publication lifecycle changes. The original ACK payload/hash/ingestedAt
+    // remain immutable, and an active publisher lease is never stolen.
+    return tx.mqttOutbox.updateMany({ where: { id,
+      OR: [{ leaseExpiresAt: null }, { leaseExpiresAt: { lte: now } }],
+      AND: [{ OR: [{ publishedAt: { not: null } }, { deadLetteredAt: { not: null } },
+        { leaseExpiresAt: { lte: now } }] }]
+    }, data: { attempts: 0, nextAttemptAt: now, publishedAt: null, lockedBy: null,
+      lockedAt: null, leaseExpiresAt: null, deadLetteredAt: null, lastError: null } });
   }
 }
 

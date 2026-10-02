@@ -83,6 +83,29 @@ describe("AutomationMqttConsumerService", () => {
     expect(harness.state.configuration).toMatchObject({ appliedRevision: 2, syncStatus: "PENDING" });
   });
 
+  it("routes only strict assignment-bound BIO capability deliveries on the existing topic", async () => {
+    const h = createHarness();
+    const report = { schemaVersion: 2, eventId: EVENT_ID, siteId: SITE_ID, gatewayId: GATEWAY_ID,
+      meshNodeId: MESH_NODE_ID, capabilityRevision: 1, sensorProtocol: "bio-usb-pulse",
+      readiness: "shadow", verifiedFingerprintId: null, sensorModeVerifiedAt: null, verifiedAt: NOW.toISOString() };
+    const delivery = { schemaVersion: 2, assignmentVersion: 1, report };
+    const topic = mqttTopics.vehicleSensorCapabilityReport(SITE_ID, GATEWAY_ID);
+    await h.service.handleMessage(topic, Buffer.from(JSON.stringify(delivery)));
+    expect(h.capability.applyBioDelivery).toHaveBeenCalledWith(delivery, {
+      siteId: SITE_ID, gatewayId: GATEWAY_ID, requireActiveClaim: true
+    });
+    expect(h.capability.applyReport).not.toHaveBeenCalled();
+    h.capability.applyBioDelivery.mockClear();
+    for (const invalid of [report, { ...delivery, extra: true }, { ...delivery, assignmentVersion: 0 },
+      { ...delivery, report: { ...report, siteId: OTHER_SITE_ID } },
+      { ...delivery, report: { ...report, gatewayId: OTHER_GATEWAY_ID } },
+      { ...delivery, report: { ...report, innerBodyHex: "0101" } }]) {
+      await h.service.handleMessage(topic, Buffer.from(JSON.stringify(invalid)));
+    }
+    expect(h.capability.applyBioDelivery).not.toHaveBeenCalled();
+    expect(h.capability.applyReport).not.toHaveBeenCalled();
+  });
+
   it("authenticates a current-config request and revives the exact latest full snapshot without changing APPLIED state", async () => {
     const harness = createHarness();
     const latest = harness.state.configOutboxes.at(-1)!;
@@ -492,7 +515,7 @@ function createHarness() {
     applicationAcks: []
   };
   const prisma = createPrisma(state);
-  const capability = { applyReport: jest.fn().mockResolvedValue({}) };
+  const capability = { applyReport: jest.fn().mockResolvedValue({}), applyBioDelivery: jest.fn().mockResolvedValue({}) };
   const service = new AutomationMqttConsumerService(
     prisma as never,
     capability as never,
