@@ -1,12 +1,12 @@
-import type { BioConfigurationState, BioVerifiedLampTarget } from "../bio/bio-dongle-client";
+import type { BioConfigurationState, BioVerifiedLampTarget, BioOperationControl } from "../bio/bio-dongle-client";
 import { isDeepStrictEqual } from "node:util";
 import { SerialTaskQueue } from "../runtime/serial-task-queue";
 import { bioEventConfiguration, parseBioConfigurationState, type FileAutomationStateStore,
   type PersistedBioTargetResult, type PersistedBioTargetState } from "./automation-state-store";
 
 export interface BioTargetConfigurationPort {
-  readBioState(fixtureId: string): Promise<{ target: BioVerifiedLampTarget; configuration: BioConfigurationState }>;
-  restoreBioState(fixtureId: string, target: BioVerifiedLampTarget, configuration: BioConfigurationState): Promise<BioConfigurationState>;
+  readBioState(fixtureId: string, control?: BioOperationControl): Promise<{ target: BioVerifiedLampTarget; configuration: BioConfigurationState }>;
+  restoreBioState(fixtureId: string, target: BioVerifiedLampTarget, configuration: BioConfigurationState, control?: BioOperationControl): Promise<BioConfigurationState>;
 }
 
 export interface BioTargetConfigurationRequest {

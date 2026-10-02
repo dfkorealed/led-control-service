@@ -1,4 +1,8 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import { mkdtemp, rm } from "node:fs/promises";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
+import { BioDeviceMappingStore } from "./bio-device-mapping-store";
 import { BioSensorPulseSource } from "./bio-sensor-pulse-source";
 import type { BioPulseAuthorityProvider, BioPulseInput } from "./bio-sensor-pulse-source";
 import type { BioSensorPulseCandidate } from "./bio-command-codec";
@@ -45,6 +49,7 @@ function harness() {
     sensorSourceSnapshot: () => ({ ...snapshot })
   };
   const mappings = { findByNativeUuid: async (_uuid: string) => readMapping(),
+    findByFixtureId: async (_id: string) => readMapping(),
     onChange: (listener: () => void) => { mappingListener = listener; return () => { mappingListener = undefined; }; } };
   const source = new BioSensorPulseSource({ client, mappings, authority, profiles });
   const candidate: BioSensorPulseCandidate = { kind: "sensor-status-candidate", innerOpcode: 0x09, innerBody: Buffer.from([3]),
@@ -69,6 +74,55 @@ function harness() {
 }
 
 describe("BioSensorPulseSource", () => {
+  it("joins authenticated Fixture identity through real confirmed mappings, never through a different node UUID", async () => {
+    const h = harness(); h.source.stop();
+    const directory = await mkdtemp(join(tmpdir(), "bio-source-identity-"));
+    const nodeId = "22222222-2222-4222-8222-222222222222";
+    const mappings = new BioDeviceMappingStore(join(directory, "mapping.json"));
+    await mappings.reserve({ fixtureId, nodeId, nativeUuid: "001122334455", deviceUuid: "bio:001122334455",
+      logicalAddress: 256, observedLogicalAddressBeforeAssignment: 5, commandId: "software-identity-regression",
+      firmware: "not-authority", protocol: "crc16" });
+    await mappings.confirm("bio:001122334455", 256);
+    // Only the explicit software fixture supplies qualification. A mapping/UUID alone
+    // never grants health; the real production factory still has no such provider.
+    const source = new BioSensorPulseSource({ client: h.client, mappings, authority: h.authority, profiles: h.profiles });
+    const pulses: BioPulseInput[] = []; source.subscribe(pulse => pulses.push(pulse));
+    try {
+      expect((await source.preflight({ sourceFixtureId: fixtureId, snapshotRevision: 1 }, { requireHealthy: true }))?.binding.sourceFixtureId).toBe(fixtureId);
+      expect(await source.preflight({ sourceFixtureId: nodeId, snapshotRevision: 1 }, { requireHealthy: true })).toBeNull();
+      h.emit(); await vi.waitFor(() => expect(pulses).toHaveLength(1));
+      expect(pulses[0].sourceFixtureId).toBe(fixtureId);
+      expect(source.sourceAuthority(nodeId)).toBeNull();
+    } finally { source.stop(); await rm(directory, { recursive: true, force: true }); }
+  });
+  it("preflights independent snapshot authority without any candidate and requires exact saved binding for unhealthy release", async () => {
+    const h = harness();
+    const request = { sourceFixtureId: fixtureId, snapshotRevision: 1 };
+    const healthy = await h.source.preflight(request, { requireHealthy: true });
+    expect(healthy?.binding).toMatchObject({ sourceFixtureId: fixtureId, logicalAddress: 256, snapshotRevision: 1 });
+    expect(h.pulses).toEqual([]);
+    h.setHealth("unverified"); h.authorityChanged();
+    expect(await h.source.preflight(request, { requireHealthy: true })).toBeNull();
+    expect(await h.source.preflight(request, { requireHealthy: false })).toBeNull();
+    expect((await h.source.preflight(healthy!.binding, { requireHealthy: false }))?.observation.health).toBe("unverified");
+    h.setQualified(false);
+    expect(await h.source.preflight(healthy!.binding, { requireHealthy: false })).toBeNull();
+  });
+
+  it.each(["revision", "mapping", "generation", "stop"])("cancels snapshot preflight on %s change across an await", async kind => {
+    const h = harness(); const release = h.deferMapping();
+    const pending = h.source.preflight({ sourceFixtureId: fixtureId, snapshotRevision: 1 }, { requireHealthy: true });
+    if (kind === "revision") h.setRevision(2);
+    if (kind === "mapping") h.setMapping(null);
+    if (kind === "generation") h.state({ generation: 2 });
+    if (kind === "stop") h.source.stop();
+    release(); expect(await pending).toBeNull(); expect(h.pulses).toEqual([]);
+  });
+
+  it("does not call a future monotonic healthy interval qualified snapshot health", async () => {
+    const h = harness(); h.setHealthSince(Number.MAX_SAFE_INTEGER);
+    expect(await h.source.preflight({ sourceFixtureId: fixtureId, snapshotRevision: 1 }, { requireHealthy: true })).toBeNull();
+  });
   it("emits only qualified typed receipts and preserves the original receipt across asynchronous lookup", async () => {
     const h = harness(); const release = h.deferMapping(); h.emit();
     h.candidate.innerBody[0] = 1; h.candidate.receivedMonotonicMs = 999; release(); await flush();

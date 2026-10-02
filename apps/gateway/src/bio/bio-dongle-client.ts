@@ -26,6 +26,8 @@ export type BioDongleClientOptions = Pick<BioTransportOptions, "timeoutMs" | "re
   reconnectReadyTimeoutMs?: number;
 };
 export interface BioOperationControl extends Partial<CommandWriteControl> {
+  /** Trusted local product guard, inside the owned operation immediately before RF. */
+  beforeWrite?: () => Promise<void>;
   signal?: AbortSignal;
   deadlineAt?: number;
   onWriteStarted?: () => void;
@@ -821,6 +823,8 @@ export class BioDongleClient {
     control: BioOperationControl = {},
     onAccepted?: () => void
   ): Promise<BioCommandAcceptance> {
+    throwIfOperationStopped(control);
+    if (control.beforeWrite) await control.beforeWrite();
     throwIfOperationStopped(control);
     const request = encodeBioCommand(operation, this.sequence);
     this.sequence = (this.sequence + 1) & 0xff;

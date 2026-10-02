@@ -99,6 +99,7 @@ import {
   resolveGatewayAdapterKind,
   type GatewayAdapterKind
 } from "./adapters/adapter-factory";
+import type { BioPulseSourcePort } from "./bio/bio-sensor-pulse-source";
 import { ApplianceHealth, parseHeartbeatInterval } from "./health/appliance-health";
 import type { GatewayAssignment } from "./config/assignment";
 import { MqttCertificateClient } from "./identity/mqtt-certificate-client";
@@ -297,6 +298,7 @@ export function createGatewayAutomationServices(options: {
   flushTelemetryHandoffs?: ScheduleRuntimeOptions["flushTelemetryHandoffs"];
   onError?: ScheduleRuntimeOptions["onError"];
   onDiagnostic?: ScheduleRuntimeOptions["onDiagnostic"];
+  bioProductPulse?: ScheduleRuntimeOptions["bioProductPulse"];
 }) {
   const scheduleRuntime = new ScheduleRuntime({
     store: options.stateStore,
@@ -305,6 +307,7 @@ export function createGatewayAutomationServices(options: {
     // BIO sensor mode에서는 순간 출력 밝기를 읽을 수 없으므로, 검증된 첫 수동 SET/GET 결과가
     // 자동화 상태의 최초 숫자 기준을 만들 수 있게 한다. BlueZ와 test 기본값은 계속 fail-closed다.
     allowManualStateInitialization: options.adapterKind === "bio-usb",
+    ...(options.bioProductPulse ? { bioProductPulse: options.bioProductPulse } : {}),
     ...(options.requestFixtureObservation ? { requestFixtureObservation: options.requestFixtureObservation } : {}),
     ...(options.wallClock ? { wallClock: options.wallClock } : {}),
     ...(options.monotonicClock ? { monotonicClock: options.monotonicClock } : {}),
@@ -321,9 +324,34 @@ export function createGatewayAutomationServices(options: {
     applyDesiredState: (next, previous) => scheduleRuntime.applyDesiredState(next, previous),
     onActivated: () => scheduleRuntime.commitActivation(),
     onActivationFailed: () => scheduleRuntime.rollbackActivation(),
+    ...(options.bioProductPulse ? { bioSnapshotPreflight: snapshot => scheduleRuntime.preflightBioSnapshot(snapshot) } : {}),
     ...(options.wallClock ? { now: options.wallClock } : {})
   });
   return { scheduleRuntime, automationRuntime };
+}
+
+/** Only consumes the existing owner's qualified outlet; never another USB listener.
+ * Revoke happens synchronously in ScheduleRuntime before queueing reconciliation. */
+export function connectBioPulseSource(source: BioPulseSourcePort,
+  runtime: Pick<ScheduleRuntime, "recordQualifiedBioPulse" | "setBioSourceHealth">,
+  onError: (error: unknown) => void = () => undefined) {
+  let stopped = false;
+  const pending = new Set<Promise<unknown>>();
+  const track = (operation: () => Promise<unknown>) => {
+    if (stopped) return;
+    let result: Promise<unknown>;
+    try { result = operation(); } catch (error) { try { onError(error); } catch {} return; }
+    pending.add(result);
+    void result.then(() => pending.delete(result), error => {
+      pending.delete(result); try { onError(error); } catch { /* Observer-only failure. */ }
+    });
+  };
+  const unsubscribePulse = source.subscribe(pulse => track(() => runtime.recordQualifiedBioPulse(pulse)));
+  const unsubscribeRevoke = source.onRevoked((id, reason) => track(() => runtime.setBioSourceHealth(id, "unverified", reason)));
+  return { async stopAndDrain() {
+    if (!stopped) { stopped = true; unsubscribePulse(); unsubscribeRevoke(); }
+    while (pending.size) await Promise.allSettled([...pending]);
+  } };
 }
 
 export function createManualControlCoordinator(
@@ -848,6 +876,9 @@ async function main() {
     stateStore: automationStateStore,
     scope: { siteId, gatewayId },
     adapterKind: adapters.adapterKind,
+    ...(adapters.bioPulseSource && adapters.bioTargetConfiguration ? { bioProductPulse: {
+      source: adapters.bioPulseSource, targetPort: adapters.bioTargetConfiguration, scope: { siteId, gatewayId }
+    } } : {}),
     clockTrust,
     ...(softwareAutomationSimulator ? {
       wallClock: softwareAutomationSimulator.wallClock,
@@ -880,6 +911,8 @@ async function main() {
   });
   scheduleRuntime = automationServices.scheduleRuntime;
   automationRuntime = automationServices.automationRuntime;
+  const bioPulseIntake = adapters.bioPulseSource ? connectBioPulseSource(adapters.bioPulseSource, scheduleRuntime,
+    error => { void reportGatewayError(error, "bio_pulse_input"); }) : undefined;
   try {
     await scheduleRuntime.initialize();
   } catch (error) {
@@ -1499,6 +1532,7 @@ async function main() {
         const statusCheckDrain = statusChecks.stopAndDrain();
         const monitoringRefreshDrain = monitoringRefresh.stopAndDrain();
         const schedulerDrain = scheduleRuntime.stopAndDrain();
+        const bioPulseDrain = bioPulseIntake?.stopAndDrain() ?? Promise.resolve();
         const meshResyncDrain = meshResyncWorker.stopAndDrain();
         const targetedResyncDrain = targetedLightingResync.stopAndDrain();
         const vehicleSensorDrain = vehicleSensorController?.stopAndDrain() ?? Promise.resolve();
@@ -1508,7 +1542,7 @@ async function main() {
         automationTelemetryCoordinator.stop();
         automationStorage.headroom.stop();
         await fixtureStatusReservation.release();
-        await Promise.all([monitoringRefreshDrain, statusCheckDrain, schedulerDrain, meshResyncDrain, targetedResyncDrain, vehicleSensorDrain]);
+        await Promise.all([monitoringRefreshDrain, statusCheckDrain, schedulerDrain, bioPulseDrain, meshResyncDrain, targetedResyncDrain, vehicleSensorDrain]);
         await monitoringRefreshPublisher.stopAndDrain();
         stateEventPublisher.disconnect();
         automationAckPublisher.disconnect();

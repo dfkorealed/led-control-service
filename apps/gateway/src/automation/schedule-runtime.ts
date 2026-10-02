@@ -27,7 +27,8 @@ import {
 } from "./vehicle-event-runtime";
 import type { BioSourceHealth } from "./vehicle-event-runtime";
 import { isActiveBioSourceTarget } from "./bio-source-target-guard";
-import { BioPulseScheduler, type BioPulseTestProfile } from "./bio-pulse-scheduler";
+import { BioPulseScheduler, type BioPulseTestProfile, type BioPulseControlCore } from "./bio-pulse-scheduler";
+import { BioProductPulseController, type BioProductPulseDependencies } from "./bio-product-pulse-controller";
 import {
   lifecycleTelemetryRecords,
   terminalTelemetryRecords
@@ -86,6 +87,7 @@ export interface ScheduleRuntimeOptions {
   manualOverrideSlowThresholdMs?: number;
   tickIntervalMs?: number;
   bioPulseTestProfile?: BioPulseTestProfile;
+  bioProductPulse?: BioProductPulseDependencies;
 }
 
 type SchedulerSnapshot = AutomationSnapshotV1 | AutomationSnapshotV2;
@@ -108,6 +110,7 @@ interface ActivationCheckpoint {
   snapshot: SchedulerSnapshot | null;
   state: PersistedAutomationStateV4;
   vehicleHoldDeadlines: Array<[string, number]>;
+  bioProduct?: ReturnType<BioProductPulseController["checkpoint"]>;
 }
 
 const DEFAULT_TICK_INTERVAL_MS = 1_000;
@@ -117,7 +120,8 @@ export class ScheduleRuntime {
   private readonly wallClock: () => Date;
   private readonly monotonicClock: () => number;
   private readonly vehicleRuntime: VehicleEventRuntime;
-  private readonly bio: BioPulseScheduler | null;
+  private readonly bio: BioPulseControlCore | null;
+  private readonly bioProduct: BioProductPulseController | null;
   private readonly bioArrivals = new Set<{ input: Extract<VehicleSensorInput, { type: "pulse" }>;
     activations: Map<string, number> }>();
   private snapshot: SchedulerSnapshot | null = null;
@@ -135,9 +139,12 @@ export class ScheduleRuntime {
   constructor(private readonly options: ScheduleRuntimeOptions) {
     this.wallClock = options.wallClock ?? (() => new Date());
     this.monotonicClock = options.monotonicClock ?? (() => performance.now());
-    this.bio = options.bioPulseTestProfile
+    if (options.bioPulseTestProfile && options.bioProductPulse) throw new Error("bio_pulse_dependency_conflict");
+    this.bioProduct = options.bioProductPulse ? new BioProductPulseController(options.bioProductPulse, options.store,
+      this.wallClock, this.monotonicClock, activationId => this.bioArrivalBlocksRelease(activationId)) : null;
+    this.bio = this.bioProduct ?? (options.bioPulseTestProfile
       ? new BioPulseScheduler(options.bioPulseTestProfile, options.store, this.wallClock, this.monotonicClock,
-        activationId => this.bioArrivalBlocksRelease(activationId)) : null;
+        activationId => this.bioArrivalBlocksRelease(activationId)) : null);
     this.vehicleRuntime = new VehicleEventRuntime({
       wallClock: this.wallClock,
       monotonicClock: this.monotonicClock,
@@ -177,26 +184,46 @@ export class ScheduleRuntime {
   get currentSnapshot() {
     // The synthetic seam must not masquerade as an authenticated configuration.
     // Product V2 retains its version so BlueZ peers still receive source refresh.
-    return this.bio && this.snapshot?.schemaVersion === 2 ? null : structuredClone(this.snapshot);
+    return this.options.bioPulseTestProfile && this.snapshot?.schemaVersion === 2 ? null : structuredClone(this.snapshot);
   }
 
   recompute(snapshot: SchedulerSnapshot): Promise<DesiredLightingState> {
     return this.enqueue(async () => {
       await this.ensureInitialized();
-      if (this.bio && this.snapshot?.schemaVersion === 2) throw new Error("bio_test_snapshot_change_unavailable");
+      if (this.options.bioPulseTestProfile && this.snapshot?.schemaVersion === 2) throw new Error("bio_test_snapshot_change_unavailable");
       // Protocol support is configuration ability only. Product BIO pulse
       // activation still needs the later independent authority/HIL integration.
-      if (snapshot.schemaVersion === 2 && snapshot.vehicleEventRules.some(rule =>
+      if (!this.bioProduct && snapshot.schemaVersion === 2 && snapshot.vehicleEventRules.some(rule =>
         rule.sensorProtocol === "bio-usb-pulse" && rule.status === "enabled")) {
         throw new Error("bio_pulse_control_unavailable");
       }
       if (this.activationCheckpoint) throw new Error("automation config activation is already pending");
-      this.beginActivation();
+      const bioCheckpoint = this.bioProduct?.checkpoint();
+      await this.bioProduct?.prepare(snapshot);
+      this.beginActivation(bioCheckpoint);
       const computed = await this.reconcile(snapshot);
       this.pendingActivationLifecycle = computed.lifecycleEvents;
       this.snapshot = snapshot;
       return computed.desired;
     });
+  }
+
+  async preflightBioSnapshot(snapshot: SchedulerSnapshot): Promise<void> {
+    if (!this.bioProduct || this.stopping) throw new Error("bio_pulse_control_unavailable");
+    await this.bioProduct.validate(snapshot);
+  }
+
+  recordQualifiedBioPulse(input: Extract<VehicleSensorInput, { type: "pulse" }>): Promise<void> {
+    if (!this.bioProduct || this.stopping) return Promise.reject(new Error("bio_pulse_control_unavailable"));
+    const authority = this.options.bioProductPulse!.source.sourceAuthority(input.sourceFixtureId);
+    if (!authority?.independentlyQualified || authority.observation.health !== "healthy"
+      || authority.connection.epoch !== input.receipt.connectionEpoch || authority.connection.generation !== input.receipt.connectionGeneration) {
+      return Promise.reject(new Error("bio_source_authority_unverified"));
+    }
+    // Reset the fault interval only from independently qualified source evidence,
+    // then register the original receipt before any asynchronous reconciliation.
+    this.bioProduct.setHealth(input.sourceFixtureId, "healthy", "qualified");
+    return this.recordVehicleSensorInput(input);
   }
 
   /** Local synthetic seam only. Does not accept or emit a config/ACK wire message. */
@@ -249,7 +276,19 @@ export class ScheduleRuntime {
       const checkpoint = this.activationCheckpoint;
       if (!checkpoint) return;
       try {
-        await this.options.store.updateControlState(() => structuredClone(checkpoint.state));
+        await this.options.store.updateControlState(current => {
+          const restored = structuredClone(checkpoint.state);
+          if (this.bioProduct) {
+            restored.bioActivationsByRule = current.bioActivationsByRule;
+            restored.bioTargetsByFixture = current.bioTargetsByFixture;
+            restored.bioPulseInbox = current.bioPulseInbox;
+            restored.pendingTelemetryHandoffs = current.pendingTelemetryHandoffs;
+            for (const [id, rule] of Object.entries(restored.vehicleRules)) if (rule.sensorProtocol === "bio-usb-pulse") delete restored.vehicleRules[id];
+            for (const [id, rule] of Object.entries(current.vehicleRules)) if (rule.sensorProtocol === "bio-usb-pulse") restored.vehicleRules[id] = rule;
+          }
+          return restored;
+        });
+        if (checkpoint.bioProduct) this.bioProduct?.rollback(checkpoint.bioProduct);
         this.snapshot = checkpoint.snapshot ? structuredClone(checkpoint.snapshot) : null;
         this.vehicleRuntime.restore(checkpoint.vehicleHoldDeadlines);
       } finally {
@@ -295,6 +334,7 @@ export class ScheduleRuntime {
   stopAndDrain() {
     if (this.stopPromise) return this.stopPromise;
     this.stopping = true;
+    this.bioProduct?.stop();
     if (this.timer) {
       clearInterval(this.timer);
       this.timer = null;
@@ -931,11 +971,12 @@ export class ScheduleRuntime {
     this.initialized = true;
   }
 
-  private beginActivation() {
+  private beginActivation(bioProduct?: ReturnType<BioProductPulseController["checkpoint"]>) {
     this.activationCheckpoint = {
       snapshot: this.snapshot ? structuredClone(this.snapshot) : null,
       state: this.state(),
-      vehicleHoldDeadlines: this.vehicleRuntime.checkpoint()
+      vehicleHoldDeadlines: this.vehicleRuntime.checkpoint(),
+      ...(bioProduct ? { bioProduct } : {})
     };
     this.activationSettled = new Promise<void>((resolve) => { this.settleActivation = resolve; });
   }

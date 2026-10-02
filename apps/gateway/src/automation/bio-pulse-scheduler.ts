@@ -25,18 +25,23 @@ export interface BioPulseTestProfile {
   targetPort: BioTargetConfigurationPort;
 }
 
-export class BioPulseScheduler {
-  private snapshot: AutomationSnapshotV2 | null = null;
-  private readonly bindings: Map<string, BioSourceBinding>;
+/** Local execution core, not a product qualification or configuration authority. */
+export interface BioPulseControlDependencies extends Omit<BioPulseTestProfile, "kind"> {
+  preflight?: (binding: BioSourceBinding, requireHealthy: boolean) => Promise<boolean>;
+  enabledRulesOnly?: boolean;
+}
+
+export class BioPulseControlCore {
+  protected snapshot: AutomationSnapshotV2 | null = null;
+  protected readonly bindings: Map<string, BioSourceBinding>;
   private readonly signals = new Map<string, { health: BioSourceHealth; reason: string }>();
   private readonly recoveredAt = new Map<string, number>();
   private readonly targets: BioTargetConfigurationRuntime;
   private transition: { activation: PersistedBioActivation; release: boolean } | null = null;
 
-  constructor(private readonly profile: BioPulseTestProfile, private readonly store: FileAutomationStateStore,
-    private readonly now: () => Date, private readonly monotonic: () => number,
+  constructor(protected readonly profile: BioPulseControlDependencies, protected readonly store: FileAutomationStateStore,
+    protected readonly now: () => Date, private readonly monotonic: () => number,
     private readonly automaticReleaseBlocked: (activationId: string) => boolean = () => false) {
-    if (profile.kind !== "synthetic-test-only") throw new Error("bio_pulse_control_unavailable");
     this.bindings = new Map(profile.bindings.map(raw => {
       const binding = parseBioSourceBinding(structuredClone(raw));
       if (binding.sourceFixtureId !== binding.sourceFixtureId.toLowerCase()) throw new Error("bio_source_authority_unverified");
@@ -44,7 +49,12 @@ export class BioPulseScheduler {
     }));
     if (this.bindings.size !== profile.bindings.length) throw new Error("bio_source_authority_unverified");
     this.targets = new BioTargetConfigurationRuntime(store, {
-      readBioState: id => profile.targetPort.readBioState(id),
+      readBioState: async id => {
+        await this.preflightTransition();
+        const observed = await profile.targetPort.readBioState(id, profile.preflight ? this.transitionControl() : undefined);
+        await this.preflightTransition();
+        return observed;
+      },
       restoreBioState: async (id, target, configuration) => {
         // Read again immediately before each RF call: authority may change while a
         // preceding asynchronous GET/fsync is in flight. Packet metadata is not authority.
@@ -52,9 +62,49 @@ export class BioPulseScheduler {
         if (!operation || !this.canTransition(operation.activation, operation.release)) {
           throw new Error("bio_source_authority_unverified");
         }
-        return profile.targetPort.restoreBioState(id, target, configuration);
+        await this.preflightTransition();
+        return profile.targetPort.restoreBioState(id, target, configuration,
+          profile.preflight ? this.transitionControl() : undefined);
       }
     }, now);
+  }
+
+  /** Only the production lifecycle owner may replace metadata, after old targets
+   * are fully restored. This changes no persisted outcome or telemetry evidence. */
+  protected resetConfiguration(bindings: BioSourceBinding[]): void {
+    this.snapshot = null;
+    this.bindings.clear();
+    for (const raw of bindings) {
+      const binding = parseBioSourceBinding(structuredClone(raw));
+      if (this.bindings.has(binding.sourceFixtureId)) throw new Error("bio_source_authority_unverified");
+      this.bindings.set(binding.sourceFixtureId, binding);
+    }
+    this.signals.clear();
+    this.recoveredAt.clear();
+  }
+
+  protected configurationCheckpoint() {
+    return { snapshot: structuredClone(this.snapshot), bindings: structuredClone([...this.bindings.values()]) };
+  }
+
+  protected restoreConfigurationCheckpoint(checkpoint: ReturnType<BioPulseControlCore["configurationCheckpoint"]>): void {
+    this.resetConfiguration(checkpoint.bindings);
+    this.snapshot = structuredClone(checkpoint.snapshot);
+  }
+
+  private async preflightTransition(): Promise<void> {
+    if (!this.profile.preflight) return;
+    const operation = this.transition;
+    if (!operation || !await this.profile.preflight(operation.activation.binding,
+      !(operation.release && operation.activation.releaseReason === "operator_release"))
+      || !this.canTransition(operation.activation, operation.release)) throw new Error("bio_source_authority_unverified");
+  }
+
+  private transitionControl() {
+    return { beforeWrite: () => this.preflightTransition(), mayStartWrite: () => {
+      const operation = this.transition;
+      return Boolean(operation && this.canTransition(operation.activation, operation.release));
+    } };
   }
 
   install(value: AutomationSnapshotV2) {
@@ -68,7 +118,7 @@ export class BioPulseScheduler {
     const sources = new Set(this.bindings.keys());
     const targets = new Set<string>();
     for (const rule of snapshot.vehicleEventRules) {
-      if (rule.sensorProtocol !== "bio-usb-pulse") continue;
+      if (rule.sensorProtocol !== "bio-usb-pulse" || (this.profile.enabledRulesOnly && rule.status !== "enabled")) continue;
       const binding = this.bindings.get(rule.sourceFixtureIds[0]!);
       if (rule.sourceFixtureIds.length !== 1 || !binding || binding.snapshotRevision !== snapshot.revision) {
         throw new Error("bio_source_authority_unverified");
@@ -247,7 +297,8 @@ export class BioPulseScheduler {
   }
 
   hasTarget(fixtureId: string) {
-    return this.snapshot?.vehicleEventRules.some(rule => rule.sensorProtocol === "bio-usb-pulse" && rule.targetFixtureIds.includes(fixtureId)) ?? false;
+    return this.snapshot?.vehicleEventRules.some(rule => rule.sensorProtocol === "bio-usb-pulse"
+      && (!this.profile.enabledRulesOnly || rule.status === "enabled") && rule.targetFixtureIds.includes(fixtureId)) ?? false;
   }
 
   completedRestorationCauses(alreadyCompleted: ReadonlySet<string>) {
@@ -267,6 +318,11 @@ export class BioPulseScheduler {
       if (ruleIds && !ruleIds.has(ruleId)) continue;
       if (activation.completed) continue;
       const release = activation.releaseReason !== null;
+      if (this.profile.preflight && !await this.profile.preflight(activation.binding,
+        !(release && activation.releaseReason === "operator_release"))) {
+        await this.store.updateDurable(state => { this.refreshHealth(state, ruleId); return state; });
+        continue;
+      }
       if (!this.canTransition(activation, release)) {
         await this.store.updateDurable(state => { this.refreshHealth(state, ruleId); return state; });
         continue;
@@ -330,7 +386,7 @@ export class BioPulseScheduler {
   private canTransition(activation: PersistedBioActivation, release: boolean) {
     const explicitRelease = release && activation.releaseReason === "operator_release";
     if (!this.authorized(activation.binding, !explicitRelease)) return false;
-    if (release && !explicitRelease) {
+    if (release && !explicitRelease && (!this.profile.enabledRulesOnly || activation.releaseReason === "hold_expired")) {
       if (this.automaticReleaseBlocked(activation.activationId)) return false;
       const health = this.health(activation.binding.sourceFixtureId);
       const rule = this.snapshot?.vehicleEventRules.find(rule => rule.id + ":" + activation.startedAt === activation.activationId);
@@ -369,6 +425,15 @@ export class BioPulseScheduler {
   private append(state: PersistedAutomationStateV4, records: AutomationTelemetryRecordInput[]) {
     const handoff = this.store.createTelemetryHandoff(records);
     if (handoff) state.pendingTelemetryHandoffs.push(handoff);
+  }
+}
+
+/** Preserve the explicit local synthetic seam; it is never the production factory. */
+export class BioPulseScheduler extends BioPulseControlCore {
+  constructor(profile: BioPulseTestProfile, store: FileAutomationStateStore, now: () => Date,
+    monotonic: () => number, automaticReleaseBlocked: (activationId: string) => boolean = () => false) {
+    if (profile.kind !== "synthetic-test-only") throw new Error("bio_pulse_control_unavailable");
+    super(profile, store, now, monotonic, automaticReleaseBlocked);
   }
 }
 

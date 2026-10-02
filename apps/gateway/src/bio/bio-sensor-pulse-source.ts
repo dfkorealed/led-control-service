@@ -7,24 +7,27 @@ import { BIO_SENSOR_PULSE_PROFILES, BioSensorPulseIntake } from "./bio-sensor-pu
 import type { BioSensorPulseCandidate } from "./bio-command-codec";
 import { randomUUID } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
-import { parseBioSourceBinding } from "../automation/automation-state-store";
+import { parseBioSourceBinding, type BioSourceBinding } from "../automation/automation-state-store";
 import type { BioDeviceMapping } from "./bio-device-mapping-store";
 
 export type BioPulseInput = Extract<VehicleSensorInput, { type: "pulse" }>;
 export interface BioPulseAuthorityProvider {
   /** Trusted independent evidence. Every authority/health/profile/decoder revision change
    * must also notify onChange, including changes while identity lookup is pending. */
-  read(sourceFixtureId: string, connection: { epoch: string; generation: number }): BioSourceAuthority | null;
+  read(sourceFixtureId: string, connection: { epoch: string; generation: number },
+    request?: { snapshotRevision: number; requireHealthy: boolean }): BioSourceAuthority | null;
   onChange(listener: () => void): () => void;
 }
 export interface BioPulseSourcePort {
   subscribe(listener: (pulse: BioPulseInput) => void): () => void;
   sourceAuthority(sourceFixtureId: string): BioSourceAuthority | null;
   onRevoked(listener: (sourceFixtureId: string, reason: string) => void): () => void;
+  preflight(binding: BioSourceBinding | Pick<BioSourceBinding, "sourceFixtureId" | "snapshotRevision">,
+    options: { requireHealthy: boolean }): Promise<BioSourceAuthority | null>;
 }
 interface BioPulseSourceOptions {
   client: Pick<BioDongleClient, "onSensorPulseCandidate" | "onSensorSourceState" | "sensorSourceSnapshot" | "onEvent">;
-  mappings: Pick<BioDeviceMappingStore, "findByNativeUuid" | "onChange">;
+  mappings: Pick<BioDeviceMappingStore, "findByNativeUuid" | "findByFixtureId" | "onChange">;
   /** Local trusted integration seam. Production factory never accepts profiles/providers from env. */
   authority?: BioPulseAuthorityProvider;
   profiles?: readonly BioSensorPulseProfile[];
@@ -92,11 +95,48 @@ export class BioSensorPulseSource implements BioPulseSourcePort {
     const cached = this.authorities.get(sourceFixtureId);
     if (!cached || this.stopped) return null;
     try {
-      const current = this.readAuthority(sourceFixtureId, cached.connection.generation);
+      const current = this.readAuthority(sourceFixtureId, cached.connection.generation, false, cached.binding.snapshotRevision);
       if (current && isDeepStrictEqual(current, cached)) return structuredClone(current);
     } catch { /* A throwing provider is never authority. */ }
     this.revoke("authority_changed");
     return null;
+  }
+
+  /** Snapshot/transition qualification is independent of receiving a pulse. Unhealthy
+   * identity authority can authorize only an explicit release of the exact saved binding. */
+  async preflight(raw: BioSourceBinding | Pick<BioSourceBinding, "sourceFixtureId" | "snapshotRevision">,
+    options: { requireHealthy: boolean }): Promise<BioSourceAuthority | null> {
+    const request = structuredClone(raw);
+    const requireHealthy = options.requireHealthy;
+    if (!requireHealthy && !("nativeUuid" in request)) return null;
+    const revision = this.revision;
+    const generation = this.options.client.sensorSourceSnapshot().generation;
+    let nativeUuid: string | undefined;
+    try {
+      const initial = this.readAuthority(request.sourceFixtureId, generation, requireHealthy, request.snapshotRevision);
+      if (!initial || initial.binding.snapshotRevision !== request.snapshotRevision
+        || ("nativeUuid" in request && !isDeepStrictEqual(parseBioSourceBinding(request), initial.binding))) return null;
+      nativeUuid = initial.binding.nativeUuid;
+      const nativeRevision = this.nativeRevisions.get(nativeUuid) ?? 0;
+      const current = () => this.current(revision, generation, requireHealthy)
+        && (this.nativeRevisions.get(nativeUuid!) ?? 0) === nativeRevision;
+      const first = await this.options.mappings.findByFixtureId(request.sourceFixtureId);
+      if (!current()) return null;
+      if (!first || !this.mappingMatches(first, initial)) { this.revoke("mapping_changed", nativeUuid); return null; }
+      const mapping = structuredClone(first);
+      const afterFirst = this.readAuthority(request.sourceFixtureId, generation, requireHealthy, request.snapshotRevision);
+      if (!afterFirst || !isDeepStrictEqual(initial, afterFirst)) { this.revoke("authority_changed", nativeUuid); return null; }
+      const second = await this.options.mappings.findByFixtureId(request.sourceFixtureId);
+      if (!current()) return null;
+      const final = this.readAuthority(request.sourceFixtureId, generation, requireHealthy, request.snapshotRevision);
+      if (!second || !final || !isDeepStrictEqual(mapping, second) || !this.mappingMatches(second, final)
+        || !isDeepStrictEqual(initial, final) || !current()) { this.revoke("authority_changed", nativeUuid); return null; }
+      this.authorities.set(request.sourceFixtureId, structuredClone(final));
+      return structuredClone(final);
+    } catch {
+      if (nativeUuid) this.revoke("authority_failed", nativeUuid);
+      return null;
+    }
   }
 
   stop(): void {
@@ -126,23 +166,26 @@ export class BioSensorPulseSource implements BioPulseSourcePort {
     }
   }
 
-  private current(revision: number, generation: number): boolean {
+  private current(revision: number, generation: number, requireHealthy = true): boolean {
     const state = this.options.client.sensorSourceSnapshot();
     return !this.stopped && this.revision === revision && state.generation === generation
-      && state.ready && state.transportConnected && state.protocolReady && this.decoderFaultGeneration !== generation;
+      && state.ready && state.transportConnected && state.protocolReady && (!requireHealthy || this.decoderFaultGeneration !== generation);
   }
 
-  private readAuthority(fixtureId: string, generation: number): BioSourceAuthority | null {
+  private readAuthority(fixtureId: string, generation: number, requireHealthy = true, snapshotRevision?: number): BioSourceAuthority | null {
     const revision = this.revision;
-    if (!this.current(revision, generation)) return null;
-    const supplied = this.options.authority?.read(fixtureId, { epoch: this.epoch, generation });
-    if (!this.current(revision, generation) || !supplied || !supplied.independentlyQualified) return null;
+    if (!this.current(revision, generation, requireHealthy)) return null;
+    const supplied = this.options.authority?.read(fixtureId, { epoch: this.epoch, generation },
+      snapshotRevision === undefined ? undefined : { snapshotRevision, requireHealthy });
+    if (!this.current(revision, generation, requireHealthy) || !supplied || !supplied.independentlyQualified) return null;
     const value = structuredClone(supplied);
     const binding = parseBioSourceBinding(value.binding);
     const observation = value.observation;
     if (binding.sourceFixtureId !== fixtureId || binding.capabilityRevision < 1 || binding.snapshotRevision < 1
       || value.connection.epoch !== this.epoch || value.connection.generation !== generation
-      || observation.health !== "healthy" || observation.reason !== "qualified"
+      || (requireHealthy && (observation.health !== "healthy" || observation.reason !== "qualified"))
+      || (requireHealthy && observation.healthySinceMonotonicMs > performance.now())
+      || !["healthy", "degraded", "unverified"].includes(observation.health)
       || observation.connectionEpoch !== this.epoch || observation.connectionGeneration !== generation
       || !Number.isFinite(observation.healthySinceMonotonicMs) || observation.healthySinceMonotonicMs < 0) return null;
     // An independently healthy source still has no pulse authority without an approved
@@ -160,6 +203,13 @@ export class BioSensorPulseSource implements BioPulseSourcePort {
     return this.intake.accept(candidate, { ...mapping, networkId: binding.networkId, approvedProfileId: binding.profileId,
       firmwareFingerprint: binding.firmwareFingerprint, sensorFingerprint: binding.sensorFingerprint }, this.profiles,
     { transportConnected: true, protocolReady: true, independentLivenessVerified: true, generation: authority.connection.generation }).accepted;
+  }
+
+  private mappingMatches(mapping: BioDeviceMapping, authority: BioSourceAuthority): boolean {
+    const binding = authority.binding;
+    return mapping.status === "confirmed" && mapping.fixtureId === binding.sourceFixtureId
+      && mapping.nativeUuid === binding.nativeUuid && mapping.deviceUuid === `bio:${binding.nativeUuid}`
+      && mapping.logicalAddress === binding.logicalAddress;
   }
 
   private async consume(candidate: BioSensorPulseCandidate, revision: number, nativeRevision: number): Promise<void> {

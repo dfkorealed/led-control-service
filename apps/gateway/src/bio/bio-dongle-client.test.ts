@@ -174,12 +174,24 @@ describe("BIO evidence-gated dongle client", () => {
     let release!: (value: null) => void;
     const pending = new Promise<null>(resolve => { release = resolve; });
     const source = new BioSensorPulseSource({ client: h.client,
-      mappings: { findByNativeUuid: () => pending, onChange: () => () => undefined } });
+      mappings: { findByNativeUuid: () => pending, findByFixtureId: () => pending, onChange: () => () => undefined } });
     const reading = h.client.readDeviceInfo(verifiedTarget); await flush();
     h.device.receive(Buffer.concat([encodeCrcFrame(0x12, Buffer.from("d300112233445583ff123401fe000009aabb", "hex")),
       Buffer.from("55aa1101002055", "hex"), Buffer.from(modeReportHex("001122334455", 0x1234, 0), "hex")]).toString("hex"));
     await expect(reading).resolves.toMatchObject({ kind: "control-mode-report", deviceUuid: "bio:001122334455" });
     source.stop(); release(null); await h.client.close();
+  });
+
+  it("awaits the local independent source guard before RF and rechecks a revoked SET permit afterward", async () => {
+    const h = harness(); await ready(h); const before = h.device.writes.length;
+    let release!: () => void; let allowed = true;
+    const pending = new Promise<void>(resolve => { release = resolve; });
+    const setting = h.client.setBrightness(verifiedTarget, { rawHighBrightness: 140 }, {
+      beforeWrite: () => pending, mayStartWrite: () => allowed
+    });
+    void setting.catch(() => {}); await flush(); expect(h.device.writes).toHaveLength(before);
+    allowed = false; release(); await expect(setting).rejects.toThrow();
+    expect(h.device.writes).toHaveLength(before); await h.client.close();
   });
 
   it.each([

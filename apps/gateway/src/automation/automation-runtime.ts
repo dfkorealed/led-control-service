@@ -1,7 +1,8 @@
 import {
   automationConfigAppliedSchema,
   type AutomationConfigApplied,
-  type AutomationSnapshot
+  type AutomationSnapshot,
+  type AutomationSnapshotV2
 } from "@led-control/shared";
 import { SerialTaskQueue } from "../runtime/serial-task-queue";
 import {
@@ -50,6 +51,8 @@ interface AutomationRuntimeOptions {
   onActivated?: (snapshot: AutomationSnapshot) => Promise<void>;
   onActivationFailed?: (previous: AutomationSnapshot | null) => Promise<void>;
   now?: () => Date;
+  /** Trusted bootstrap-only preflight. Default unavailable; not an env capability. */
+  bioSnapshotPreflight?: (snapshot: AutomationSnapshotV2) => Promise<void>;
 }
 
 export class AutomationRuntime {
@@ -81,6 +84,7 @@ export class AutomationRuntime {
       const recovered = await this.options.store.load();
       if (recovered) {
         this.parse(recovered);
+        await this.preflight(recovered);
         try {
           await this.activate(recovered, false);
         } catch (error) {
@@ -107,6 +111,8 @@ export class AutomationRuntime {
           return this.applied(snapshot);
         }
       }
+
+      await this.preflight(snapshot);
 
       try {
         await this.options.store.apply(snapshot);
@@ -145,7 +151,7 @@ export class AutomationRuntime {
       const snapshot = parseAutomationSnapshot(value, this.options.scope);
       // Declared V2 support confirms transport/configuration ability only.
       // Product BIO execution remains OFF until its independent authority is wired.
-      if (snapshot.schemaVersion === 2 && snapshot.vehicleEventRules.some(rule =>
+      if (!this.options.bioSnapshotPreflight && snapshot.schemaVersion === 2 && snapshot.vehicleEventRules.some(rule =>
         rule.sensorProtocol === "bio-usb-pulse" && rule.status === "enabled")) {
         throw runtimeError("bio_pulse_control_unavailable", snapshot);
       }
@@ -157,6 +163,13 @@ export class AutomationRuntime {
       }
       throw error;
     }
+  }
+
+  private async preflight(snapshot: AutomationSnapshot): Promise<void> {
+    if (snapshot.schemaVersion !== 2 || !snapshot.vehicleEventRules.some(rule => rule.sensorProtocol === "bio-usb-pulse" && rule.status === "enabled")) return;
+    try { await this.options.bioSnapshotPreflight!(snapshot); }
+    catch (cause) { throw new AutomationRuntimeError("bio_pulse_control_unavailable", "bio_pulse_control_unavailable",
+      snapshot.revision, snapshot.payloadHash, { cause }); }
   }
 
   private async activate(snapshot: AutomationSnapshot, swapBeforeRecompute: boolean) {

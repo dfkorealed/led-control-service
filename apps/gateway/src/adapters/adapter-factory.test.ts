@@ -14,6 +14,7 @@ import { TEST_BLUETOOTH_COMPANY_ID } from "../test-fixtures/vehicle-sensor-proto
 import { createGatewayShutdownHandler, startGatewayRuntime } from "../index";
 import { BioDongleClient } from "../bio/bio-dongle-client";
 import { BioDeviceMappingStore } from "../bio/bio-device-mapping-store";
+import { BioUsbDongleAdapter } from "./bio-usb-dongle-adapter";
 
 function sourceClientMetadata() {
   return { sensorSourceSnapshot: vi.fn(() => ({ state: "ready" as const, generation: 1, ready: true,
@@ -25,6 +26,29 @@ function sourceMappingMetadata() {
 }
 
 describe("createProductionAdapters", () => {
+  it("exposes the actual adapter configuration port with the same client and guarded operation control", async () => {
+    const client = new BioDongleClient({}); vi.spyOn(client, "probe").mockResolvedValue({} as never);
+    vi.spyOn(client, "scan").mockResolvedValue([{ nativeUuid: "001122334455", deviceUuid: "bio:001122334455",
+      logicalAddress: 256, networkId: 2, firmwareVersion: "1.2.3", rssi: -40 }]);
+    const configuration = { configuredHighBrightnessPercent: 30, bioMode: "sensor" as const };
+    const read = vi.spyOn(client, "readConfiguration").mockResolvedValue(configuration);
+    const restore = vi.spyOn(client, "restoreConfiguration").mockResolvedValue(configuration);
+    const mappings = new BioDeviceMappingStore(join(await mkdtemp(join(tmpdir(), "bio-target-factory-")), "mapping.json"));
+    await mappings.reserve({ fixtureId: "fixture-b", nodeId: "node-b", nativeUuid: "001122334455", deviceUuid: "bio:001122334455",
+      logicalAddress: 256, observedLogicalAddressBeforeAssignment: 5, commandId: "test", firmware: "1.2.3", protocol: "crc16" });
+    await mappings.confirm("bio:001122334455", 256);
+    const adapters = await createProductionAdapters({ GATEWAY_ADAPTER: "bio-usb" }, {
+      createBioClient: () => client, createBioMappingStore: () => mappings,
+      createBioAdapter: (ownedClient, ownedMapping) => new BioUsbDongleAdapter(ownedClient, ownedMapping)
+    });
+    const beforeWrite = vi.fn(async () => {}); const control = { beforeWrite, mayStartWrite: () => true };
+    const observed = await adapters.bioTargetConfiguration!.readBioState("fixture-b", control);
+    await adapters.bioTargetConfiguration!.restoreBioState("fixture-b", observed.target, configuration, control);
+    expect(read).toHaveBeenCalledWith({ kind: "unicast", nativeUuid: "001122334455", logicalAddress: 256, networkId: 2 }, control);
+    expect(restore.mock.calls[0][2]?.beforeWrite).toBe(beforeWrite);
+    expect(restore.mock.calls[0][2]?.mayStartWrite?.()).toBe(true);
+    expect(adapters.vehicleSensorCloudSupported).toBe(false); await adapters.stop();
+  });
   it("owns one fail-closed pulse subscription until adapter shutdown without an env profile bypass", async () => {
     const client = new BioDongleClient({});
     vi.spyOn(client, "probe").mockResolvedValue({} as never);
@@ -39,6 +63,29 @@ describe("createProductionAdapters", () => {
     expect(adapters.vehicleSensorCloudSupported).toBe(false);
     await adapters.stop();
     expect(adapters.bioPulseSource!.sourceAuthority("fixture-1")).toBeNull();
+  });
+
+  it("keeps different Fixture and node UUIDs unqualified in the actual production source factory", async () => {
+    const fixtureId = "11111111-1111-4111-8111-111111111111";
+    const nodeId = "22222222-2222-4222-8222-222222222222";
+    const client = new BioDongleClient({}); vi.spyOn(client, "probe").mockResolvedValue({} as never);
+    vi.spyOn(client, "sensorSourceSnapshot").mockReturnValue({ state: "ready", generation: 1, ready: true,
+      transportConnected: true, protocolReady: true });
+    const mappings = new BioDeviceMappingStore(join(await mkdtemp(join(tmpdir(), "bio-source-factory-ids-")), "mapping.json"));
+    await mappings.reserve({ fixtureId, nodeId, nativeUuid: "001122334455", deviceUuid: "bio:001122334455",
+      logicalAddress: 256, observedLogicalAddressBeforeAssignment: 5, commandId: "software-identity-regression",
+      firmware: "not-authority", protocol: "crc16" });
+    await mappings.confirm("bio:001122334455", 256);
+    const adapters = await createProductionAdapters({ GATEWAY_ADAPTER: "bio-usb", GATEWAY_BIO_PULSE_SUPPORTED: "true" }, {
+      createBioClient: () => client, createBioMappingStore: () => mappings, createBioAdapter: () => ({} as never)
+    });
+    try {
+      for (const id of [fixtureId, nodeId]) {
+        expect(await adapters.bioPulseSource!.preflight({ sourceFixtureId: id, snapshotRevision: 1 }, { requireHealthy: true })).toBeNull();
+        expect(adapters.bioPulseSource!.sourceAuthority(id)).toBeNull();
+      }
+      expect(adapters.vehicleSensorCloudSupported).toBe(false);
+    } finally { await adapters.stop(); }
   });
 
   it("releases the pulse observer and original client if later adapter construction fails", async () => {

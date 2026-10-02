@@ -20,6 +20,7 @@ import { BioDirectUsbConnection } from "../bio/bio-direct-usb-connection";
 import type { BioByteConnection } from "../bio/bio-byte-connection";
 import { BioSensorShadowCapture } from "../bio/bio-sensor-shadow-capture";
 import { BioSensorPulseSource, type BioPulseSourcePort } from "../bio/bio-sensor-pulse-source";
+import type { BioTargetConfigurationPort } from "../automation/bio-target-configuration";
 
 export type GatewayAdapterKind = "bluez" | "bio-usb";
 
@@ -31,6 +32,7 @@ export interface GatewayAdapters {
   vehicleSensors: VehicleSensorMeshPort;
   vehicleSensorCloudSupported: boolean;
   bioPulseSource?: BioPulseSourcePort;
+  bioTargetConfiguration?: BioTargetConfigurationPort;
   healthProbes: ApplianceHealthProbes;
   stop(): Promise<void>;
 }
@@ -178,6 +180,10 @@ async function createBioUsbAdapters(
     vehicleSensors,
     vehicleSensorCloudSupported: false,
     bioPulseSource: pulseSource,
+    bioTargetConfiguration: {
+      readBioState: (fixtureId, control) => adapter.readBioState(fixtureId, control),
+      restoreBioState: (fixtureId, target, configuration, control) => adapter.restoreBioState(fixtureId, target, configuration, control)
+    },
     healthProbes,
     stop: async () => {
       pulseSource?.stop();
