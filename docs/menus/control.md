@@ -2,9 +2,11 @@
 
 ## 2026-10-02 BIO 현장 시험 준비 — 임시 진단 도구, 제품 OFF
 
+- 사용자 사후 보완: ‘같은 자리 정지’ 구간에도 몇 번 움직였다. 정지 구간 전체의 무움직임·무자극을 전제하지 않으며 원본 버튼/packet은 불변으로 보존하고 별도 operator follow-up을 남긴다. 정확한 움직임 시각/횟수는 미확정이다.
+- 현장 종료(전체 관문 실패): 단1회 A-only09:50:50.072~09:55:50.072 KST300초와 실제 현재 기록창의 active→failed/기록 비활성을 확인했다. 사용자 행동5종·정성 밝기6건·종료 후 clock9를 별도 보존했다. A raw 복원 쓰기 미확인과 read-back timeout으로 journal unresolved/pending1·native exit1/host runner exit74다. 마지막 A GET raw140/force-off는 원본과 같지만 전체 복원 절차 PASS로 해석하지 않는다. USB/driver와 sameoriginal Gateway healthy/MQTT·새 heartbeat8·대기/새 제어0을 확인했고 B SET0/최종 B GET 미시작·제품OFF다. 시간 오차/행동 지연은 미확정이고 A 후보35/alive29를 감지 의미·독립 건강으로 확정하지 않는다. 예정 시각 대입·추가 원복·재시험·원장 소거를 자동 실행하지 않는다.
 - 구현 완료(시험 준비): 승인된 타이머/기록·원복 도구에서 날짜/식별자/경로만 바꾼 미사용 소스46개와 보호 remote stage를 준비했다. Node24·격리Node22·exact Pi image 각183/183, 독립 검토 지적0, guarded preflight PASS를 확인했다. fixture만 정리했으며 요청512MiB 메모리 제한은 강제되지 않았다. 이 결과는 실제 센서/광학 HIL 성공이 아니다.
 - 구현 완료(기록창 준비): 새8088 metadata 서버와 실제 브라우저 화면/reload에서 정상 HTML·대기/unavailable·행동/광학/clock 비활성·인증 오류0을 확인했다. START 전 대기 표시는 정상이고 자동 행동/clock POST는 없다. bootstrap 비밀은 보호된 로컬 경로에만 유지한다.
-- 미구현: 현재 조건/별도 시작 신호 뒤 A 실제 행동 전환·밝기 관찰, A 원복 및 B 사전/최종 GET 검증, 반복 shadow·독립 건강·B60/10초 시험과 제품 활성화. 오늘 native START/USB/RF는0이며 BIO gate/allowlist는 OFF다.
+- 미구현: 전체 복원 절차 PASS와 B 최종 GET 검증, 반복 shadow·독립 건강·B60/10초 시험 및 제품 활성화. 오늘 A 행동·정성 밝기 관찰과 B 사전 GET은 위 시험에서 확보했으며 새 재시험/원장 소거는 승인하지 않았다. BIO gate/allowlist는 OFF다.
 - 부족하거나 개선이 필요한 기능: T2의 첫 움직임 누락·정확한 행동 시각/광학 관찰 부족·B 최종 GET 실패는 별도 검증 대상이다. 예정 시각을 실제 행동으로 채우거나 추측성 timeout 완화/자동 retry를 하지 않는다. 시험 중 새로고침은 기록의 연속성을 깨뜨릴 수 있다.
 - 관련 파일: `.local/task9-network/trial-preparation-20261002/{READY.md,source-manifest.json,review.diff}`, `.local/task9-network/trial-stage-20261002/{summary.json,fixture-result.json,remote-stage-preflight.json,fixture-cleanup.json}`, `docs/superpowers/plans/2026-09-30-bio-sensor-pulse-event-control.md`. 원본 증거/USED 권한과 새 미사용 권한은 분리 보존한다.
 - 갱신 규칙: 소프트웨어·기록창 준비·실제 행동/광학·하드웨어 원복·제품 지원을 각각 실제 증거로 구분한다. 준비 완료를 서비스 연동 완료로 기록하지 않는다.
