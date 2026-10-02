@@ -43,7 +43,7 @@
 | 5 | 모니터링 담당 범위·새 실행 보조 | 구현·scoped 독립 검토 승인 | 7455d16c + 3c107e60 + 3405415d; I1/I2/I3/N1 해결·새 지적0, Task9 전체검수 대기 |
 | 6 | 제어 UI 개선 담당자(GPT-6.1 Sol/high) | 완료·독립 명세/품질 승인 | e02d00eb→4128c2de; frozen683단위/90브라우저, Spec✅/qualityApproved; M2 실제 짧은 필터 조작은 Task9 |
 | 7 | 통계 페이지 담당자 → 내부 이어쓰기 | 완료·독립 명세/품질 승인 | e042ef46→ebeebdea;135단위/47브라우저·실제200%·UI0, Spec✅/qualityApproved; 전체검수 별도 |
-| 8 | 같은 설정 담당·5개 시각 batch | 배정 준비 | 기존 CAD1ea3fb6e 커밋/기본clean 확인; 작은 같은형태 소비자만 묶음, 본 checkpoint 뒤 exactBASE 배정 |
+| 8 | 같은 설정 담당·5개 시각 batch | 구현 반환·독립 검토 중 | d014261e→5e39a29e;155단위/Seoul15/브라우저11+1·UI0, 보조 편집기3실패는 결합 Task9에서 확인 |
 | 9 | 디자이너·독립 QA·총괄 | 대기 | — |
 
 API와 공통 파일을 동시에 쓰지 않는다. Task 5는 `FloorScene`/`FloorMapViewport` 작성권을 받고, 반환·검토 후 Task 6에 넘긴다. Task 8의 설정/운영도 순차 배정한다. 소비자가 공통 계약 변경을 원하면 총괄에게 반환하고 producer가 수정·재검토한다. 개별 작업은 지정 파일과 보고서만 작성하며 다른 세션/서브에이전트를 임의 생성하지 않는다.
@@ -257,13 +257,15 @@ Test-only Shell compatibility addition: `apps/web/e2e/calm-operations-shell.spec
 
 **Interfaces:** Consume Task3 formatTimestamp with omittedtimezone for existingdevice-display consumers; ISO storage/revision/dateonly/accountpolicy unchanged. Same Settingsthread receives ourworktree only and owns allfive small consumers; preserve committed CAD/main source, no upstream integration by this worker.
 
-- [ ] Step 1 — Add assertions login/expiry/create/update/revision secondsandformat while dateonly/recurrence remains unchanged; no removedsecuritymanagement/editactions.
-- [ ] Step 2 — RED `pnpm --filter @led-control/web test src/features/settings/security/AccountSecurityView.test.tsx src/features/settings/users/SiteUsersView.test.tsx src/features/operator/site-admins/SiteAdminManagementView.test.tsx src/features/operator/LandingInquiriesView.test.tsx` for respectiveowner's subset.
-- [ ] Step 3 — Replace displayformatter only usingsharedexport; sourcewide actualtimestamp audit reports otherconsumers before touchingthem. Nofloor-editorfeature/perftuning/installationimplementation/publiclandingdesignchange.
-- [ ] Step 4 — GREEN above +existingflooreditorunit/layout consumers +typecheck/build/ui:check; preserve existingTZ and sourceISO, report anyunmigratedactualtimestamp.
+- [x] Step 1 — Add assertions login/expiry/create/update/revision secondsandformat while dateonly/recurrence remains unchanged; no removedsecuritymanagement/editactions.
+- [x] Step 2 — RED `pnpm --filter @led-control/web run test src/features/settings/security/AccountSecurityView.test.tsx src/features/settings/users/SiteUsersView.test.tsx src/features/operator/site-admins/SiteAdminManagementView.test.tsx src/features/operator/LandingInquiriesView.test.tsx src/features/floor-editor/FloorEditorView.test.tsx` for actual display assertions; clean DOM RED15, not launcher failures.
+- [x] Step 3 — Replace displayformatter only usingsharedexport; sourcewide actualtimestamp audit reports otherconsumers before touchingthem. Nofloor-editorfeature/perftuning/installationimplementation/publiclandingdesignchange.
+- [x] Step 4 — Frozen UTC direct/editor save-ack155/155, Seoul direct15/15, Shell11/11+Seoul revision1/1, Webtype/build/UI0. Actual timestamp audit limits retained. Auxiliary compact editor3 failures are not accepted as passes; unchanged8s gate and those cases run on final combined CAD source in Task9.
 - [ ] Step 5 — Sameownerupdatesbothaffectedmenus andcommitsfive-consumerbatch `refactor: unify remaining timestamp presentation`; independent combinedreview afterreturn.
 
 ### Task 9: 엄격한 UI/UX 관문·실제 격리 소프트웨어·기본 브랜치 통합
+
+Task8 returned `5e39a29e`, exactBASEd014261e,13ownedpaths/clean/owned16196–16197empty; independent review is pending. Extra pre-CAD42-case run had39pass/3editor-fail: compact editor heading absent and two320px settings cases `data-map-ready=false`. Root carries the exact original cases, logs and unchanged thresholds to combined-source Task9; no attribution to timestamps, inherited defect or cold Vite is made without evidence. Task8 did not run original8s performance diagnosis.
 
 Same QA담당자 completed read-only92-line readiness (no execution/Git/source/server/DB). Queued `task-9-brief.md` records ignored typed Lab facade for exact owned fixture/query/evidence, avoiding product API/original Lab helper/gate edits. Future isolated OFF/ON command profiles and clearly labeled abort/delay injections are permitted only with actual existing keys/ownedDBidentity/cleanup; operational state stays protected. Exact frozen source/execution grant still waits for Tasks1–8 approval; root/Lab built-in prepare order is preserved with no redundant external preparation.
 
