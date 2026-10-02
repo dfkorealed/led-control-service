@@ -272,9 +272,11 @@ Ruling — 하나의 순차 source repair wave: 기존 별도 제어 UI 세션(G
 Native visibility harness checkpoint — own blank-page probe1회가 .ts 설정의 CommonJS/import.meta 호환 오류로 수집/브라우저 이전691ms에 종료했다. 제품/native 조건 실패로 해석하지 않고 모든6조건은 NOT_REACHED다. 자체 child 종료·tracked/main 불변을 확인했다. 같은 QA에 own ignored harness 호환 보완 작성만 허용하고 실행은 보완·검토 후 새 동결 소스에서 따로 배정한다. 실제 알람/로그 Lab 실행 권한은 아직 없다. 운영 authoritative DB 읽기 결과는 localhost:5432/led_control/PostgreSQL16.14이며 개인 읽음 테이블/해당 migration 기록이 없다; 기존 데이터 삭제·적용·서버 재시작은 수행하지 않았다.
 
 - [x] Repair A — 같은 제어 UI 담당자: 실제 겹친 조명 중심/disabled/키보드/직접 제스처와 짧은 화면 실제 지도 높이 보완·직접 검증·두 메뉴 갱신. 반환38463e1a/허용10파일·직접234단위/12브라우저/type/UI0; 독립 검토·관련 디자이너 재검수는 아래 관문에 유지한다.
-- [ ] Repair B — 통계 담당자: 원래 긴 이름/페이지 overflow와 native 연도 입력·clear/reversed draft·무효 요청0/유효 복구, PDF/CSV 계약 보존·메뉴 갱신.
-- [ ] Repair C — 같은 모니터링 담당자: 로그 양수 inset 보완·메뉴 갱신, 상세 끝 정보의 실제 접근 검증과 필요한 경우에만 추가 보완.
+- [x] Repair B — 통계 담당자: 원래 긴 이름/페이지 overflow와 native 연도 입력·clear/reversed draft·무효 요청0/유효 복구, PDF/CSV 계약 보존·메뉴 갱신. 반환888a8200/허용9파일·직접144단위/13브라우저/type/UI0; 독립 검토·관련 재검수는 아래 관문에 유지한다.
+- [ ] Repair C — 같은 모니터링 담당자: 로그 양수 inset 보완·메뉴 갱신, 상세 끝 정보의 실제 접근 검증과 필요한 경우에만 추가 보완. 통계 clean 반환 뒤 이 문서 checkpoint를 정확 BASE로 전달한다.
 - [ ] Repair review — 보완 묶음 scoped 검토와 같은 디자이너의 원 실패/잔여 관련 재검수, 그 뒤 canonical4·실제 임시DB·ONE whole 검토.
+
+Repair B 실제 반환 — 정확93c32b94→`888a820086501dcb0985ea033df02531c46eb33e`의 허용9파일/clean이다. 원래 긴 이름·내부 grid/flex 최소폭 원인과 분석/보고서 native 연도 ArrowUp의 모순 bounds·분석 clear의 빈 문자열 파싱을 실제 RED로 확인했다(단위73통과/5실패, 브라우저2통과/11실패). 상세 내부 줄바꿈과 재사용 통계 bounds helper만 보완해 초안/상대 날짜와 공통 strict 날짜 core는 유지했다. 최종144/144(불변 날짜 core58 포함)·13/13·type/UI0, 같은 이름의320/390short/1440/실제 Chromium200%에서 scroll==client·무효 조회/POST/CSV0·직접 유효 복구·400/401 경계·PDF/CSV date-only 인자를 확인했다. 총괄은 전체 반환 문서·9파일 diff·raw identity/cleanup을 읽었고2192파일 최종 검증 해시 일치·main1ea/PID 불변·own16210/16211/프로필/child 종료를 확인했다. 독립 보완 검토·디자이너 관련24·최종 root/실DB/전체검토/병합은 아직 남아 있으며 새 모니터링 작성권만 다음 checkpoint에 넘긴다. 담당자의 마지막 정리 응답이 모델 용량 오류로 종료됐지만 이미 저장한 완료 보고서/커밋/raw 증거를 회수했으므로 재실행하지 않는다.
 
 Repair A 실제 반환 — 정확1764f51d→`38463e1a36f7f096f4fbea7917e76aebb02f5b8d`의10파일/clean이다. FloorScene coarse48의 현재 DOM 중심 거리·hover paint/disabled 포함·정확 anchor·native keyboard와8px/두 pointer/취소/blur/Escape/scope 정리를 보완했고 default20/editor/viewport producer는 변경하지 않았다. 제어 소비자는 기존 footer 옵션·자연스러운 scroll을 사용하며 최종3환경 실제 viewport240px·범례 clipping[]·가로 overflow0·밝기/이력 접근을 확인했다. 중간267px 통과 뒤 발견한 desktop 범례 잘림 RED를 추가해 수정했고, 자체 output 충돌은 원 로그를 보존한 뒤 실행별 경로의 최종12/12(17.1초·0skip/flaky/errors)로 원시 증거를 복구했다. 최종 직접5파일234/234·type/UI0·소스10해시/기본main/PID 불변/own자원 종료를 회수하고 총괄이 보고서 전체·12 raw/cleanup·desktop/tablet PNG를 읽었다. Native WebView/HIL/운영1000개 성능 인증이 아니며 같은 좌표 완전 중첩의 ID tie-break 한계를 유지한다. 통계·로그/상세 미검증·독립 승인·최종 QA/병합은 남아 있다.
 
