@@ -12,8 +12,45 @@ import {
 } from "./adapter-factory";
 import { TEST_BLUETOOTH_COMPANY_ID } from "../test-fixtures/vehicle-sensor-protocol";
 import { createGatewayShutdownHandler, startGatewayRuntime } from "../index";
+import { BioDongleClient } from "../bio/bio-dongle-client";
+import { BioDeviceMappingStore } from "../bio/bio-device-mapping-store";
+
+function sourceClientMetadata() {
+  return { sensorSourceSnapshot: vi.fn(() => ({ state: "ready" as const, generation: 1, ready: true,
+    transportConnected: true, protocolReady: true })), onSensorSourceState: vi.fn(() => () => undefined),
+    onSensorPulseCandidate: vi.fn(() => () => undefined) };
+}
+function sourceMappingMetadata() {
+  return { onChange: vi.fn(() => () => undefined), findByNativeUuid: vi.fn(async () => null) };
+}
 
 describe("createProductionAdapters", () => {
+  it("owns one fail-closed pulse subscription until adapter shutdown without an env profile bypass", async () => {
+    const client = new BioDongleClient({});
+    vi.spyOn(client, "probe").mockResolvedValue({} as never);
+    const subscribe = vi.spyOn(client, "onSensorPulseCandidate");
+    const mappings = new BioDeviceMappingStore(join(await mkdtemp(join(tmpdir(), "bio-source-factory-")), "mapping.json"));
+    const adapters = await createProductionAdapters({ GATEWAY_ADAPTER: "bio-usb", GATEWAY_BIO_PULSE_SUPPORTED: "true" }, {
+      createBioClient: () => client, createBioMappingStore: () => mappings, createBioAdapter: () => ({} as never)
+    });
+    expect(adapters.bioPulseSource).toBeDefined();
+    expect(subscribe).toHaveBeenCalledTimes(1);
+    expect(adapters.bioPulseSource!.sourceAuthority("fixture-1")).toBeNull();
+    expect(adapters.vehicleSensorCloudSupported).toBe(false);
+    await adapters.stop();
+    expect(adapters.bioPulseSource!.sourceAuthority("fixture-1")).toBeNull();
+  });
+
+  it("releases the pulse observer and original client if later adapter construction fails", async () => {
+    const client = new BioDongleClient({});
+    vi.spyOn(client, "probe").mockResolvedValue({} as never);
+    const close = vi.spyOn(client, "close"); const unsubscribe = vi.fn();
+    vi.spyOn(client, "onSensorPulseCandidate").mockReturnValue(unsubscribe);
+    const mappings = new BioDeviceMappingStore(join(await mkdtemp(join(tmpdir(), "bio-source-failure-")), "mapping.json"));
+    await expect(createProductionAdapters({ GATEWAY_ADAPTER: "bio-usb" }, { createBioClient: () => client,
+      createBioMappingStore: () => mappings, createBioAdapter: () => { throw new Error("construction failed"); } })).rejects.toThrow("construction failed");
+    expect(unsubscribe).toHaveBeenCalledOnce(); expect(close).toHaveBeenCalledOnce();
+  });
   it("fails closed when the production adapter is missing or unknown", async () => {
     for (const value of [undefined, "", "stub", "command", "hybrid"]) {
       await expect(createProductionAdapters({ GATEWAY_ADAPTER: value })).rejects.toThrow("PRODUCTION_ADAPTER_REQUIRED");
@@ -138,6 +175,7 @@ describe("createProductionAdapters", () => {
     const connection = { kind: "direct-usb" };
     const createBioConnection = vi.fn(() => connection);
     const client = {
+      ...sourceClientMetadata(),
       probe: vi.fn(async () => ({ kind: "probe" })),
       close: vi.fn(async () => undefined),
       onEvent: vi.fn(() => () => undefined),
@@ -147,7 +185,7 @@ describe("createProductionAdapters", () => {
       expect(options.connectionFactory()).toBe(connection);
       return client;
     });
-    const mappings = { validate: vi.fn(async () => undefined) };
+    const mappings = { ...sourceMappingMetadata(), validate: vi.fn(async () => undefined) };
     const createBioMappingStore = vi.fn(() => mappings);
     const adapter = {
       setBrightness: vi.fn(),
@@ -209,7 +247,7 @@ describe("createProductionAdapters", () => {
     expect(result.healthProbes).not.toHaveProperty("bluezAttached");
     await result.stop();
     expect(client.close).toHaveBeenCalledTimes(1);
-    expect(client.onEvent).not.toHaveBeenCalled();
+    expect(client.onEvent).toHaveBeenCalledOnce();
     expect(createBioSensorShadowCapture).not.toHaveBeenCalled();
   });
 
@@ -218,14 +256,18 @@ describe("createProductionAdapters", () => {
     const event = { kind: "invalid-notification" };
     let listener: ((value: typeof event) => void) | undefined;
     const client = {
+      ...sourceClientMetadata(),
       probe: vi.fn(async () => { order.push("probe"); }),
       close: vi.fn(async () => { order.push("usb-close"); }),
       setBrightness: vi.fn(),
-      onEvent: vi.fn((callback: typeof listener) => { listener = callback; order.push("subscribe"); return () => { order.push("unsubscribe"); }; }),
+      onEvent: vi.fn((callback: typeof listener) => {
+        if (listener) return () => undefined;
+        listener = callback; order.push("subscribe"); return () => { order.push("unsubscribe"); };
+      }),
       transportSnapshot: vi.fn(() => ({ transportConnected: true, protocolReady: true }))
     };
     const mapping = { nativeUuid: "001122334455", logicalAddress: 0x1234, firmware: "1.2.3", protocol: "crc16", status: "confirmed" };
-    const mappings = { validate: vi.fn(async () => { order.push("validate"); }), listConfirmed: vi.fn(async () => [mapping]) };
+    const mappings = { ...sourceMappingMetadata(), validate: vi.fn(async () => { order.push("validate"); }), listConfirmed: vi.fn(async () => [mapping]) };
     const capture = { record: vi.fn(), close: vi.fn(async () => { order.push("capture-close"); }) };
     const logs: unknown[][] = [];
     let failCapture: ((error: unknown) => void) | undefined;
@@ -321,12 +363,12 @@ describe("createProductionAdapters", () => {
     const path = "/var/lib/led-control/evidence/bio-sensor-shadow-20260923T010203Z.jsonl";
     const order: string[] = [];
     const unsubscribe = vi.fn(() => { order.push("unsubscribe"); });
-    const client = { probe: vi.fn(async () => undefined), close: vi.fn(async () => { order.push("usb-close"); }), onEvent: vi.fn(() => unsubscribe), transportSnapshot: vi.fn(() => ({ transportConnected: true, protocolReady: true })) };
+    const client = { ...sourceClientMetadata(), probe: vi.fn(async () => undefined), close: vi.fn(async () => { order.push("usb-close"); }), onEvent: vi.fn().mockReturnValueOnce(unsubscribe).mockReturnValue(() => undefined), transportSnapshot: vi.fn(() => ({ transportConnected: true, protocolReady: true })) };
     const mapping = { nativeUuid: "001122334455", logicalAddress: 1, firmware: "1", protocol: "crc16" };
     const capture = { record: vi.fn(), close: vi.fn(async () => { order.push("capture-close"); throw new Error(`EIO ${path} ${secret}`); }) };
     const result = await createProductionAdapters({ GATEWAY_ADAPTER: "bio-usb", GATEWAY_BIO_SENSOR_SHADOW_CAPTURE_NAME: "bio-sensor-shadow-20260923T010203Z.jsonl" }, {
       createBioClient: vi.fn(() => client) as never,
-      createBioMappingStore: vi.fn(() => ({ validate: vi.fn(async () => undefined), listConfirmed: vi.fn(async () => [mapping]) })) as never,
+      createBioMappingStore: vi.fn(() => ({ ...sourceMappingMetadata(), validate: vi.fn(async () => undefined), listConfirmed: vi.fn(async () => [mapping]) })) as never,
       createBioAdapter: vi.fn(() => ({})) as never,
       createBioVehicleSensors: vi.fn(() => ({})) as never,
       createBioSensorShadowCapture: vi.fn(async () => capture) as never

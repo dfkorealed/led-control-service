@@ -3,9 +3,11 @@
 ## 2026-10-02 BIO capability 전달 배정 경계
 
 - 구현 완료(Shared 소프트웨어·독립 검토): 기존 V1과 별도인 strict V2 report 전달/ACK 계약에 assignmentVersion과 전체 전달 hash를 결속하고 모든 귀속 필드 불일치를 거부한다.
+- 구현 완료(Gateway 수신·독립 검토): durable mapping 성공 변경과 client/source 종료는 즉시 권한을 철회하고, 후보의 fresh 조회에서 발견한 외부 mapping 무효화도 이전 권한을 제거한다. 후보 없는 외부 파일 편집 watcher는 없으며 후속 실제 제어 전 fresh preflight가 필요하다.
 - 미구현: 실제 인증 수신·내구 ACK 및 Gateway 전달, 여러 BIO node의 같은 capability revision을 지원하는 legacy index 보완 migration과 운영 적용.
 - 부족하거나 개선이 필요한 기능: ACK 일치를 현재 배정 인증·센서 건강·사용 가능 판정으로 승격하지 않는다. 운영 DB/장비는 불변이고 제품 gate는 OFF다.
 - 관련 파일: `packages/shared/src/automation-contracts.ts`, `automation-contracts.test.ts`, `docs/superpowers/plans/2026-09-30-bio-sensor-pulse-event-control.md`.
+- 관련 Gateway 파일: `apps/gateway/src/bio/bio-sensor-pulse-source.ts`, `bio-device-mapping-store.ts`, `bio-dongle-client.ts`, `apps/gateway/src/adapters/adapter-factory.ts`.
 - 갱신 규칙: 계약·서버 수신·migration 소스·운영 적용을 각각 확인한 단계로 기록한다.
 
 ## 2026-10-01 BIO telemetry 배정·구성 경계

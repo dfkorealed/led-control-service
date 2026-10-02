@@ -56,11 +56,25 @@ type BioMappingKeys = Pick<BioDeviceMappingInput,
  */
 export class BioDeviceMappingStore {
   private queue: Promise<unknown> = Promise.resolve();
+  private readonly changeListeners = new Set<() => void>();
 
   constructor(
     private readonly path: string,
     private readonly now: () => Date = () => new Date()
   ) {}
+
+  /** Local durable mutations only; external file changes are re-read by pulse intake. */
+  onChange(listener: () => void): () => void {
+    this.changeListeners.add(listener);
+    return () => { this.changeListeners.delete(listener); };
+  }
+
+  private notifyChange(): void {
+    for (const listener of this.changeListeners) {
+      // Observers cannot turn an already durable provisioning write into a failure.
+      try { listener(); } catch { /* Failures are confined to the observer. */ }
+    }
+  }
 
   reserve(input: BioDeviceMappingInput) {
     return this.exclusive(async () => {
@@ -84,6 +98,7 @@ export class BioDeviceMappingStore {
       };
       state.mappings.push(reserved);
       await writeJsonAtomic(this.path, state);
+      this.notifyChange();
       return { ...reserved };
     });
   }
@@ -101,6 +116,7 @@ export class BioDeviceMappingStore {
       mapping.status = "confirmed";
       mapping.updatedAt = this.now().toISOString();
       await writeJsonAtomic(this.path, state);
+      this.notifyChange();
       return { ...mapping };
     });
   }

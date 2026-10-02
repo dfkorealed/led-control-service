@@ -5,6 +5,7 @@ import type { BioByteConnection } from "./bio-byte-connection";
 import { BioDongleClient, type BioClientEvent } from "./bio-dongle-client";
 import { encodeCrcFrame } from "./bio-frame-codec";
 import type { BioOperation, BioSensorPulseCandidate } from "./bio-command-codec";
+import { BioSensorPulseSource } from "./bio-sensor-pulse-source";
 
 const fixture = JSON.parse(readFileSync(new URL("../../test/fixtures/bio-protocol-v1.json", import.meta.url), "utf8")) as {
   requests: { name: string; operation: BioOperation; sequence: number; hex: string }[];
@@ -14,6 +15,21 @@ const capturedControls = fixture.requests.filter((vector) => vector.operation.ki
 const target = { kind: "unicast", logicalAddress: 0x1234, networkId: 0 } as const;
 const verifiedTarget = { ...target, nativeUuid: "001122334455" } as const;
 const flush = async () => { for (let index = 0; index < 40; index++) await Promise.resolve(); };
+
+it("isolates source-state observers and never exposes a mutable transport snapshot", async () => {
+  const { client, device } = harness();
+  const states: string[] = [];
+  client.onSensorSourceState(() => { throw new Error("consumer failure"); });
+  const unsubscribe = client.onSensorSourceState(state => { states.push(state.state); state.generation = 999; });
+  const probe = client.probe(); void probe.catch(() => {});
+  await flush();
+  expect(device.isOpen).toBe(true);
+  expect(client.sensorSourceSnapshot().generation).toBe(1);
+  await client.close();
+  await expect(probe).rejects.toThrow();
+  expect(states).toContain("closing");
+  unsubscribe();
+});
 class Device extends EventEmitter implements BioByteConnection {
   isOpen = false;
   writes: Buffer[] = [];
@@ -152,6 +168,19 @@ async function ready(h: ReturnType<typeof harness>) {
 describe("BIO evidence-gated dongle client", () => {
   beforeEach(() => vi.useFakeTimers());
   afterEach(() => vi.useRealTimers());
+
+  it("does not let an asynchronous production source lookup block coalesced ACK/readback", async () => {
+    const h = harness(); await ready(h);
+    let release!: (value: null) => void;
+    const pending = new Promise<null>(resolve => { release = resolve; });
+    const source = new BioSensorPulseSource({ client: h.client,
+      mappings: { findByNativeUuid: () => pending, onChange: () => () => undefined } });
+    const reading = h.client.readDeviceInfo(verifiedTarget); await flush();
+    h.device.receive(Buffer.concat([encodeCrcFrame(0x12, Buffer.from("d300112233445583ff123401fe000009aabb", "hex")),
+      Buffer.from("55aa1101002055", "hex"), Buffer.from(modeReportHex("001122334455", 0x1234, 0), "hex")]).toString("hex"));
+    await expect(reading).resolves.toMatchObject({ kind: "control-mode-report", deviceUuid: "bio:001122334455" });
+    source.stop(); release(null); await h.client.close();
+  });
 
   it.each([
     ["sensor", 0, "cc1200"], ["force-on", 3, "cc1203"], ["force-off", 1, "cc1201"]

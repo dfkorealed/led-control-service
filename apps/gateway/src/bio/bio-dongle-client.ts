@@ -1,7 +1,7 @@
 import { randomInt } from "node:crypto";
 import { SerialTaskQueue } from "../runtime/serial-task-queue";
 import { bioRawToPercent, percentToBioRaw } from "./bio-brightness-table";
-import { BioUsbTransport, type BioTransportOptions } from "./bio-usb-transport";
+import { BioUsbTransport, type BioTransportOptions, type BioTransportSnapshot } from "./bio-usb-transport";
 import { BioDirectUsbConnection } from "./bio-direct-usb-connection";
 import {
   decodeBioResponse,
@@ -171,6 +171,18 @@ export class BioDongleClient {
   transportSnapshot() {
     const { transportConnected, protocolReady } = this.transport.snapshot();
     return { transportConnected, protocolReady };
+  }
+
+  /** Read-only metadata from the existing owner, not independent sensor health. */
+  sensorSourceSnapshot(): BioTransportSnapshot {
+    return { ...this.transport.snapshot() };
+  }
+
+  onSensorSourceState(listener: (state: BioTransportSnapshot) => void): () => void {
+    return this.transport.onState(state => {
+      // Never propagate a consumer fault into reconnect or the normal command queue.
+      try { listener({ ...state }); } catch { /* Observer-only failure. */ }
+    });
   }
 
   async close(): Promise<void> {
@@ -522,7 +534,7 @@ export class BioDongleClient {
     return () => { this.listeners.delete(listener); };
   }
 
-  /** Shadow-only subscription; no additional USB connection or RF command is created. */
+  /** Candidate subscription only; creates neither another USB owner nor RF commands. */
   onSensorPulseCandidate(listener: (candidate: BioSensorPulseCandidate) => void): () => void {
     this.pulseCandidateListeners.add(listener);
     return () => { this.pulseCandidateListeners.delete(listener); };
