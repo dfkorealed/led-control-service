@@ -1072,19 +1072,125 @@ describe("sensor-mode operation fresh GET authority", () => {
     expect(f.client.readBrightness).not.toHaveBeenCalled();
     expect(f.client.setOutput).not.toHaveBeenCalled();
   });
-  it("query reads a fresh mode without any SET and rejects a remapped node", async () => {
+  it("query reads a fresh mode without any SET and rejects a wrong fixture/hash", async () => {
     const f = readyForOnePresence();
     f.mappings.findByFixtureId.mockResolvedValue(confirmedMapping());
     f.client.readDeviceInfo.mockResolvedValue(modeReport("sensor"));
     const input = { fixtureId: provisioningCommand.nodeId, nodeId: provisioningCommand.nodeId, meshAddress: "0x0101",
       deviceIdentityHash: createHash("sha256").update(discovered.deviceUuid).digest("hex"), operation: "query" as const };
     expect(await f.adapter.sensorModeOperation(input, {})).toBe("sensor");
-    await expect(f.adapter.sensorModeOperation({ ...input, nodeId: "other" }, {})).rejects.toThrow();
+    await expect(f.adapter.sensorModeOperation({ ...input, fixtureId: "other" }, {})).rejects.toThrow();
     await expect(f.adapter.sensorModeOperation({ ...input, deviceIdentityHash: "a".repeat(64) }, {})).rejects.toThrow();
     expect(f.client.restoreSensorMode).not.toHaveBeenCalled();
     expect(f.client.setOutput).not.toHaveBeenCalled();
   });
+
+  it.each(["query", "ensure_sensor"] as const)("uses the authenticated Fixture binding, not the registration node ID, for %s", async operation => {
+    const f = createPhysicalControlFixture({ sensorModeReports: true });
+    try {
+      await f.client.probe();
+      f.adapter.setBioSourceTargetGuard(() => true);
+      await expect(f.adapter.sensorModeOperation(sensorModeInput(operation, "99999999-9999-4999-8999-999999999999"), {})).resolves.toBe("sensor");
+      expect(f.bodies.filter(body => body.startsWith("cc") || body.startsWith("cd")))
+        .toEqual(operation === "ensure_sensor" ? ["cc1200"] : []);
+      expect(f.bodies.filter(body => body === "4e12")).toEqual(["4e12"]);
+    } finally { await f.client.close(); }
+  });
+
+  it.each([
+    { fixtureId: "other" }, { deviceIdentityHash: "a".repeat(64) }, { meshAddress: "0x0102" }
+  ])("rejects an authenticated command with wrong target %j before SET", async mismatch => {
+    const f = createPhysicalControlFixture({ sensorModeReports: true });
+    try {
+      await f.client.probe();
+      await expect(f.adapter.sensorModeOperation({ ...sensorModeInput("ensure_sensor"), ...mismatch }, {})).rejects.toThrow();
+      expect(f.bodies).toEqual([]);
+    } finally { await f.client.close(); }
+  });
+
+  it("rejects unconfirmed mapping before SET", async () => {
+    const f = createPhysicalControlFixture({ sensorModeReports: true });
+    f.mappings.findByFixtureId.mockResolvedValue(reservedMapping());
+    try {
+      await f.client.probe();
+      await expect(f.adapter.sensorModeOperation(sensorModeInput("ensure_sensor"), {})).rejects.toThrow();
+      expect(f.bodies).toEqual([]);
+    } finally { await f.client.close(); }
+  });
+
+  it("rejects a mapping mutated during fresh discovery before sensor SET", async () => {
+    const f = readyForOnePresence();
+    const mapping = confirmedMapping();
+    f.mappings.findByFixtureId.mockResolvedValue(mapping);
+    f.client.scan.mockImplementation(async () => {
+      mapping.logicalAddress = 0x0102;
+      return [{ ...discovered, logicalAddress: 0x0102 }];
+    });
+    f.client.restoreSensorMode.mockResolvedValue(undefined);
+    f.client.readDeviceInfo.mockResolvedValue({ ...modeReport("sensor"), logicalAddress: 0x0102 });
+    await expect(f.adapter.sensorModeOperation(sensorModeInput("ensure_sensor"), {})).rejects.toThrow();
+    expect(f.client.restoreSensorMode).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { nativeUuid: "001122334455", deviceUuid: "bio:001122334455" }, { logicalAddress: 0x0102 }
+  ])("requires a fresh exact discovery before sensor SET: %j", async mismatch => {
+    const f = readyForOnePresence();
+    f.mappings.findByFixtureId.mockResolvedValue(confirmedMapping());
+    f.client.scan.mockResolvedValue([{ ...discovered, logicalAddress: 0x0101, ...mismatch }]);
+    await expect(f.adapter.sensorModeOperation(sensorModeInput("ensure_sensor"), {})).rejects.toThrow();
+    expect(f.client.restoreSensorMode).not.toHaveBeenCalled();
+  });
+
+  it("rechecks cancellation after a synchronous permit callback before native SET", async () => {
+    const f = createPhysicalControlFixture({ sensorModeReports: true });
+    const controller = new AbortController();
+    try {
+      await f.client.probe();
+      await expect(f.adapter.sensorModeOperation(sensorModeInput("ensure_sensor"), {
+        signal: controller.signal, mayStartWrite: () => {
+          if (f.bodies.includes("85")) controller.abort();
+          return true;
+        }
+      })).rejects.toThrow();
+      expect(f.bodies.filter(body => body.startsWith("cc") || body.startsWith("cd"))).toEqual([]);
+    } finally { await f.client.close(); }
+  });
+
+  it.each(["mapping", "abort", "deadline", "stop", "permit"] as const)("rechecks %s after caller beforeWrite at the actual native SET boundary", async change => {
+    const f = createPhysicalControlFixture({ sensorModeReports: true });
+    const controller = new AbortController();
+    const control = { signal: controller.signal, deadlineAt: Date.now() + 10_000,
+      mayStartWrite: () => change !== "permit", beforeWrite: async () => {
+        if (!f.bodies.includes("85")) return;
+        if (change === "mapping") f.mappings.findByFixtureId.mockResolvedValue(confirmedMapping({ nativeUuid: "001122334455", deviceUuid: "bio:001122334455" }));
+        if (change === "abort") controller.abort();
+        if (change === "deadline") vi.spyOn(Date, "now").mockReturnValue(control.deadlineAt + 1);
+        if (change === "stop") await f.client.close();
+      } };
+    try {
+      await f.client.probe();
+      await expect(f.adapter.sensorModeOperation(sensorModeInput("ensure_sensor"), control)).rejects.toThrow();
+      expect(f.bodies.filter(body => body.startsWith("cc") || body.startsWith("cd"))).toEqual([]);
+    } finally { vi.restoreAllMocks(); await f.client.close(); }
+  });
+
+  it("does not accept a positive GET after its mapping changes", async () => {
+    const f = readyForOnePresence();
+    f.mappings.findByFixtureId.mockResolvedValue(confirmedMapping());
+    f.client.readDeviceInfo.mockImplementation(async () => {
+      f.mappings.findByFixtureId.mockResolvedValue(confirmedMapping({ logicalAddress: 0x0102 }));
+      return modeReport("sensor");
+    });
+    await expect(f.adapter.sensorModeOperation(sensorModeInput("query"), {})).rejects.toThrow();
+    expect(f.client.restoreSensorMode).not.toHaveBeenCalled();
+  });
 });
+
+function sensorModeInput(operation: "query" | "ensure_sensor", nodeId = provisioningCommand.nodeId) {
+  return { fixtureId: provisioningCommand.nodeId, nodeId, meshAddress: "0x0101",
+    deviceIdentityHash: createHash("sha256").update(discovered.deviceUuid).digest("hex"), operation };
+}
 
 function createFixture(events: string[] = []) {
   const client = {
@@ -1116,7 +1222,7 @@ function createFixture(events: string[] = []) {
   };
 }
 
-function createPhysicalControlFixture(options: { failOutput?: boolean } = {}) {
+function createPhysicalControlFixture(options: { failOutput?: boolean; sensorModeReports?: boolean } = {}) {
   const events = new EventEmitter();
   const bodies: string[] = [];
   let allowed = true;
@@ -1143,6 +1249,15 @@ function createPhysicalControlFixture(options: { failOutput?: boolean } = {}) {
             Buffer.from(discovered.nativeUuid, "hex").copy(payload, 1);
             events.emit("data", encodeCrcFrame(0x12, payload));
           }
+          if (options.sensorModeReports && (body === "cc1200" || body === "4e12")) {
+            const payload = Buffer.alloc(18);
+            payload.writeInt8(-42, 0);
+            Buffer.from(discovered.nativeUuid, "hex").copy(payload, 1);
+            payload[7] = 0x83; payload[8] = 120;
+            payload.writeUInt16BE(0x0101, 9); payload.writeUInt16BE(0xc000, 11);
+            payload.set([0x4f, 0x12, 0], 15);
+            events.emit("data", encodeCrcFrame(0x12, payload));
+          }
         }
       });
     }
@@ -1151,7 +1266,7 @@ function createPhysicalControlFixture(options: { failOutput?: boolean } = {}) {
   const f = createFixture();
   f.mappings.findByFixtureId.mockResolvedValue(confirmedMapping());
   f.mappings.findByLogicalAddress.mockResolvedValue(confirmedMapping());
-  return { client, adapter: new BioUsbDongleAdapter(client, f.mappings), bodies, allowed: () => allowed };
+  return { client, adapter: new BioUsbDongleAdapter(client, f.mappings), mappings: f.mappings, bodies, allowed: () => allowed };
 }
 
 function readyForOnePresence() {

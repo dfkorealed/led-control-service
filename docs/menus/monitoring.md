@@ -8,12 +8,14 @@
 - 구현 완료(Gateway 실행 연결 소프트웨어·독립 검토): 실제 source→scheduler 소비와 권한 철회·정지/종료·만료 복원을 연결한다. 규칙 교체 실패/rollback은 이미 기록된 적용·복원 결과와 불확실 원장을 지우지 않는다. 제품 OFF이므로 실제 센서 건강·광학 관찰의 새 증거를 만든 작업은 아니다.
 - 구현 완료(신규 등록 소프트웨어·독립 검토): 신뢰된 V2 완료의 새 BIO node는 검증 전 OFF로 분류한다. 기존 node·밝기·qualification/legacy는 유지하고 등록 완료를 live health로 표시하지 않는다.
 - 구현 완료(Gateway OFF 전달 소프트웨어·독립 검토): 현재 인증 명령의 canonical ID와 confirmed mapping을 대조해 OFF/null 보고만 전송하고 exact V2 ACK를 저장한다. 교체/만료/재시작/정지 뒤 과거 보고 전송은 막고 pending 원본은 유지한다. 실제 센서 사용 가능·건강 상태를 새로 승인하지 않는다.
-- 미구현: 기존 node의 audited 분류 전환(사용자 선택 대기), 센서 모드 ID 비교 결함과 검증된 장비의 독립 qualification/건강 provider·사용 가능 상태 발행. 실제 broker/HIL 검증은 별도다.
+- 구현 완료(센서 모드 확인 소프트웨어·독립 검토): Fixture/canonical node ID가 다른 실제 command 경로도 exact native/hash/주소·fresh mapping/discovery로 GET한다. GET 뒤 연결 대상이 바뀌면 긍정 결과도 거부하며 모드 조회는 밝기 쓰기를 하지 않는다. 모의 통신 검증으로 현재 광학/건강 상태를 승인하지 않는다.
+- 미구현: 기존 node의 audited 분류 전환(사용자 선택 대기), 검증된 장비의 독립 qualification/건강 provider·사용 가능 상태 발행. 실제 broker/HIL 검증은 별도다.
 - 부족하거나 개선이 필요한 기능: 보고 수용 ACK는 live health·LED 광학 출력·이벤트 동작 성공을 의미하지 않는다. 현재 제품 gate/profile은 OFF다.
 - 관련 파일: `packages/shared/src/automation-contracts.ts`, `automation-contracts.test.ts`.
 - 관련 Gateway 파일: `apps/gateway/src/bio/bio-sensor-pulse-source.ts`, `bio-dongle-client.ts`, `bio-device-mapping-store.ts`, `apps/gateway/src/adapters/adapter-factory.ts`.
 - 관련 실행 연결: `apps/gateway/src/automation/bio-product-pulse-controller.ts`, `bio-pulse-scheduler.ts`, `schedule-runtime.ts`, `apps/gateway/src/index.ts`.
 - 관련 보고 연결: `apps/gateway/src/bio/bio-capability-delivery.ts`, `apps/gateway/src/mesh/vehicle-sensor-capability.ts`, `apps/gateway/src/commands/bio-sensor-mode-handler.ts`.
+- 관련 센서 모드 어댑터: `apps/gateway/src/adapters/bio-usb-dongle-adapter.ts`, `bio-usb-dongle-adapter.test.ts`.
 - 관련 API 파일: `apps/api/src/automation/vehicle-sensor-capability.service.ts`, `automation-mqtt-consumer.service.ts`, `bio-capability-delivery.integration.spec.ts`.
 - 관련 등록 파일: `apps/api/src/mqtt/provisioning-device-terminal.service.ts`, `new-bio-registration.integration.spec.ts`.
 - 갱신 규칙: 보고 계약, 저장된 관찰 상태, 실제 하드웨어 검증을 별도로 기록한다.

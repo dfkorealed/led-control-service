@@ -4,7 +4,7 @@
 
 ## 2026-09-30 BIO 센서 펄스형 이벤트 제어 — 관련 소프트웨어 검증 완료·실장비 시험 착수
 
-**현재 후속 진행 — 제품 연결 소프트웨어 구현:** 오늘 오프라인 분석과 ‘펌웨어 담당자’의 제조사 APK 대조를 완료했다. raw 복원 뒤 mode GET 무응답의 제품 결함은 증명되지 않아 timeout/retry/journal을 변경하지 않으며 body03 의미는 미확정이다. 실제 제품 수신/권한 수명9a·scheduler/target9b·서버 인증수신9c-2·신규 V2 등록 초기화9c-4를 구현·독립 검토하고 별도 브랜치에 커밋했다. 다음은 Gateway 인증 보고/ACK9c-3이다. 기존 A/B 분류 전환은 사용자 범위 선택 대기이며 제품 profile/health/활성화 OFF·새 현장 START/USB/RF/운영 변경0을 유지한다.
+**현재 후속 진행 — 제품 연결 소프트웨어 검증·기존 분류/현장 관문 대기:** 오늘 오프라인 분석과 ‘펌웨어 담당자’의 제조사 APK 대조를 완료했다. raw 복원 뒤 mode GET 무응답의 제품 결함은 증명되지 않아 timeout/retry/journal을 변경하지 않으며 body03 의미는 미확정이다. 실제 제품 수신/권한 수명9a·scheduler/target9b·서버 인증수신9c-2·신규 V2 등록 초기화9c-4·Gateway OFF 보고/ACK9c-3·센서 모드 ID 비교 결함9c-5를 구현·독립 검토했다. 최종 Gateway1,727/1,727·관련293/293·typecheck·검토Critical0/Important0을 확인했다. 기존 A/B 분류 전환은 사용자 범위 선택 대기이며 실제 firmware/profile·독립 자격/건강 provider·현장 관문·운영 배포는 미완료다. 제품 profile/health/활성화 OFF·새 현장 START/USB/RF/운영 변경0을 유지한다.
 
 **인증 보고 계약 완료(Shared 소프트웨어):** strict V2 전달 envelope/별도 ACK와 귀속 matcher를 구현·독립 검토했다. 배정 버전/전체 전달 hash 및 모든 identity를 결속하며 V1은 보존한다. 담당 RED14→GREEN14·Shared461/461·typecheck/build, 독립 집중14/14·no-emit typecheck·Critical0/Important0을 확인했고 기존 pnpm 경고는 보존한다. `c3c68e16` 뒤 서버 인증수신·내구 ACK와 node-local 보존 migration 소스를 `15e60482`로 구현했다. 운영 DB 적용은 하지 않았으며 현재 claim/certificate 검증을 broker의 실제 peer certificate 전달 증거로 표현하지 않는다. 제품 gate는 계속 OFF다.
 
@@ -20,7 +20,7 @@
 
 **9c-3 보완1 검토 완료:** 최초 Gateway8파일·집중109/109·전체1,707/1,707·typecheck0 뒤 독립 검토가 동일 Fixture→새 canonical node 교체 후 이전 pending 전송을 실제 재현했다. module/test2파일에서 양방향 latest binding·old proof 부활 금지·독립 다중 node 유지로 RED3→GREEN113/113·typecheck를 보완했고 동일 reviewer의 직접113/113·실제 재현 차단·typecheck·Critical0/Important0을 확인했다. 최초 전체1,707은 보완 전 증거로 보존한다. fix summary=`d7c22948bc81b28c2432af2cd04afb49adb61e8a61cb2f84e642e90731fbf8a5`, review=`df143468f954cda5a20eb8b28643834a6f3a0dc88eb80ecdb940a625c3f12a54`를 총괄이 전체 확인했다. 실제 firmware/독립 health provider·제품ON·broker/HIL은 여전히 미완료다.
 
-**센서 모드 식별자 결함 9c-5(후속 수정):** 현재 BIO sensorModeOperation은 mapping.nodeId(등록/Fixture ID)와 command.nodeId(canonical MeshNode ID)를 같은 값으로 비교해 실제 서로 다른 ID의 query/ensure를 거부한다. 실제 adapter118라인·등록 producer/API command 관계를 확인했다. 9c-3과 분리해 정확한 Fixture/native hash/주소·현재 command scope·신선한 discovery·RF guard를 유지한 최소 수정·회귀로 처리하며 임의 alias나 인증 우회는 하지 않는다.
+**센서 모드 식별자 결함 9c-5 완료(소프트웨어·독립 검토, BASE `224ad819`):** canonical MeshNode와 등록/Fixture ID를 동일시하던 query/ensure 결함을 adapter/test2파일에서 수정했다. 인증 command의 정확한 Fixture/native hash/주소·confirmed mapping·신선한 discovery와 await 전후 fresh mapping/RF guard를 유지한다. 별도 모의 통신에서 query는 GET1/SET0, ensure는 sensor SET1+별도 GET1이며 post-permit 취소·기한/연결 변경도 쓰기를 막는다. RED7/90 및 sync permit RED1/99→GREEN293/293·최종 Gateway1,727/1,727·typecheck0, 독립 직접293/293·typecheck·Critical0/Important0을 확인했다. summary=`509982f80930254b316d0b0e96aeb4633b96d5a3a44b4faa324c2fe87bdc5da0`, review=`9652114001e970a434bba086773b473e2e616559f2cc7b65669cff23389b3728`를 총괄이 전체 읽고 hash를 확인했다. 수동/그룹/source 보호·timeout/retry/journal은 유지하며 실제 장비/HIL 성공·제품 활성화를 뜻하지 않는다.
 
 **오늘 사용자 사후 보완:** ‘같은 자리 정지’ 구간에도 몇 번 움직였다고 설명했다. 해당 구간을 무움직임 조건으로 해석하지 않으며 움직인 횟수/시각 및 이번 답변에 없는 범위 밖 무자극 확인은 미확정이다. 보호 `live-run/operator-followup.json`을 원본 packet/receipt와 분리 보존한다. 자동 재시험은 없고 실패/제품OFF 판정은 유지한다.
 

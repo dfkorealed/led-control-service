@@ -44,7 +44,7 @@ const BIO_GROUP_UNICAST_CONCURRENCY = 4;
 type BioClientPort = Pick<BioDongleClient,
   "scan" | "startIdentify" | "stopIdentify" | "restoreSensorMode" | "assignAddressOnce" |
   "reconcileAddress" | "setOutput"> &
-  Partial<Pick<BioDongleClient, "readBrightness" | "readDeviceInfo" | "readConfiguration" | "restoreConfiguration">>;
+  Partial<Pick<BioDongleClient, "readBrightness" | "readDeviceInfo" | "readConfiguration" | "restoreConfiguration" | "sensorSourceSnapshot">>;
 type BioMappingPort = Pick<BioDeviceMappingStore,
   "findByDeviceUuidIncludingReserved" | "reserve" | "confirm" | "findByFixtureId" |
   "findByLogicalAddress" | "listConfirmed">;
@@ -114,24 +114,71 @@ export class BioUsbDongleAdapter implements BleMeshAdapter, ProvisioningScannerA
     // This separately authenticated, identity-checked ensure_sensor operation is
     // the sole source-mode write exception; ordinary identify/restore is guarded.
     throwIfExpired(control);
-    const mapping = await this.mappings.findByFixtureId(command.fixtureId);
-    if (!mapping || mapping.status !== "confirmed" || mapping.nodeId !== command.nodeId ||
-        mapping.logicalAddress !== parseBioMeshAddress(command.meshAddress) ||
-        createHash("sha256").update(mapping.deviceUuid).digest("hex") !== command.deviceIdentityHash) throw new Error("BIO sensor mode identity mismatch");
+    const identity = { ...command };
+    const initialTransport = this.client.sensorSourceSnapshot?.();
+    const found = await this.mappings.findByFixtureId(identity.fixtureId);
+    // The authenticated command owns the canonical MeshNode ID. Registration's
+    // mapping.nodeId is the DiscoveredMeshNode/Fixture ID, not a canonical alias.
+    // Resolve only its exact Fixture/native/address binding; never invent a join.
+    if (!found || found.status !== "confirmed" || found.fixtureId !== identity.fixtureId ||
+        !this.acceptsDeviceUuid(found.deviceUuid) || found.deviceUuid !== `bio:${found.nativeUuid}` ||
+        found.logicalAddress !== parseBioMeshAddress(identity.meshAddress) ||
+        createHash("sha256").update(found.deviceUuid).digest("hex") !== identity.deviceIdentityHash) throw new Error("BIO sensor mode identity mismatch");
+    const mapping = { ...found };
+    let generation = initialTransport?.generation;
+    const assertTransport = () => {
+      throwIfExpired(control);
+      const current = this.client.sensorSourceSnapshot?.();
+      if (current && (!current.ready || current.generation !== generation)) {
+        throw new Error("BIO sensor mode transport changed");
+      }
+    };
+    const assertMapping = async () => {
+      const current = await this.mappings.findByFixtureId(identity.fixtureId);
+      assertTransport();
+      if (!current || current.status !== "confirmed" || current.fixtureId !== mapping.fixtureId ||
+          current.nodeId !== mapping.nodeId || current.deviceUuid !== mapping.deviceUuid ||
+          current.nativeUuid !== mapping.nativeUuid || current.logicalAddress !== mapping.logicalAddress ||
+          current.firmware !== mapping.firmware || current.protocol !== mapping.protocol ||
+          current.updatedAt !== mapping.updatedAt) throw new Error("BIO sensor mode mapping changed");
+    };
     await this.refreshDiscovery(control);
+    // A client without a prior ready generation may establish it during scan;
+    // a previously ready owner must not silently move this command to a new one.
+    if (!initialTransport?.ready) generation = this.client.sensorSourceSnapshot?.().generation;
+    await assertMapping();
     const device = this.requireExactDiscoveredMapping(mapping);
     const verified = target(device, mapping.logicalAddress);
     const client = this.requireReadOnlyClient();
-    throwIfExpired(control);
-    if (command.operation === "ensure_sensor") {
+    const fencedControl: BioOperationControl = {
+      ...control,
+      beforeWrite: async () => {
+        await assertMapping();
+        await control.beforeWrite?.();
+        // Caller preflight can await filesystem/authority work. Recheck the
+        // same captured binding and generation after it, before serialization.
+        await assertMapping();
+      },
+      mayStartWrite: () => {
+        assertTransport();
+        const allowed = control.mayStartWrite?.() !== false;
+        // The synchronous permit can itself revoke/abort this owner.
+        assertTransport();
+        return allowed;
+      }
+    };
+    assertTransport();
+    if (identity.operation === "ensure_sensor") {
       // Consume the SET's own report before opening the GET response slot. An
       // accepted SET alone can still have a delayed mode report in this protocol.
-      await this.client.restoreSensorMode(device, control);
+      await this.client.restoreSensorMode(device, fencedControl);
+      await assertMapping();
     }
     // SET acceptance (or its unsolicited report) is never verification. Issue a
     // separate GET through the existing identity-checked serial USB client.
-    throwIfExpired(control);
-    const mode = await client.readDeviceInfo(verified, control);
+    await assertMapping();
+    const mode = await client.readDeviceInfo(verified, fencedControl);
+    await assertMapping();
     assertExactReadbackIdentity(mapping, device, mode);
     throwIfExpired(control);
     return mode.mode;
