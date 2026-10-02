@@ -21,6 +21,7 @@ import {
 import { useFloorEditorStore } from "./editor-store";
 import type { CadEditorSelection, EditorFixture, EditorTool, FloorEditorState, FloorMapObject, FloorMapObjectDraft } from "./editor-types";
 import { EditorFixtureNode, type EditorFixturePalette } from "./EditorFixtureNode";
+import { resolveFixtureHit } from "./editor-fixture-hit-test";
 import { FIXTURE_DRAG_TYPE, type FixturePlacementRowRegistry } from "./FixturePlacementList";
 import { FixturePlacementAction } from "./FixturePlacementAction";
 import { EditorMinimap } from "./EditorMinimap";
@@ -101,7 +102,7 @@ export function FloorEditorCanvas({
   onPlacementPointChange
 }: FloorEditorCanvasProps) {
   const container = useRef<HTMLDivElement>(null);
-  const stage = useRef<Konva.Stage>(null);
+  const stage = useRef<Konva.Stage | null>(null);
   const cadScene = useRef<CadSceneCanvasHandle>(null);
   const transformer = useRef<Konva.Transformer>(null);
   const fixtureResizeAnchor = useRef<string | null>(null);
@@ -164,6 +165,47 @@ export function FloorEditorCanvas({
   }, [state?.objects]);
   const availableSlotIndex = useMemo(() => buildAvailableCadSlotIndex(state?.lightSlots ?? []), [state?.lightSlots]);
   const placedFixtures = placedFixtureCollection.items;
+  const fixtureHitContext = useRef({ cadReviewActive, onPlacementPointChange, placedFixtureCollection });
+  fixtureHitContext.current = { cadReviewActive, onPlacementPointChange, placedFixtureCollection };
+  const restoreStageIntersection = useRef<(() => void) | null>(null);
+  const registerStage = useCallback((currentStage: Konva.Stage | null) => {
+    if (stage.current === currentStage) return;
+    restoreStageIntersection.current?.();
+    restoreStageIntersection.current = null;
+    stage.current = currentStage;
+    if (!currentStage) return;
+    const original = currentStage.getIntersection;
+    // Resolve at Konva's public input boundary, not in onClick: pointer-down
+    // must start dragging the SAME Group that later receives click/tap. This
+    // reversible instance-only adapter preserves Transformer/object priority
+    // and leaves all library dispatch, drag offsets and gesture guards intact.
+    const resolveIntersection: Konva.Stage["getIntersection"] = point => {
+      const hit = original.call(currentStage, point);
+      const current = useFloorEditorStore.getState();
+      const { cadReviewActive, onPlacementPointChange, placedFixtureCollection } = fixtureHitContext.current;
+      if (cadReviewActive || onPlacementPointChange || current.activeTool !== "select" || !current.layers.fixtures.visible
+        || hit && hit.getLayer()?.name() !== "editor-fixture-layer") return hit;
+      const camera = cameraOverride.current ?? current;
+      const world = screenToWorld(point, camera.pan, camera.zoom);
+      const nearby = queryEditorSpatialIndex(placedFixtureCollection.spatialIndex,
+        { ...world, width: 0, height: 0 }, 22 / camera.zoom);
+      const candidates = nearby.flatMap(({ id }) => {
+        const fixture = placedFixtureCollection.byId.get(id);
+        const node = nodes.current.get(id);
+        const circle = node instanceof Konva.Group ? node.findOne<Konva.Circle>("Circle") : undefined;
+        return fixture && circle?.isVisible() && circle.isListening()
+          ? [{ id, x: fixture.x, y: fixture.y, size: fixture.size ?? 20, strokeWidth: circle.strokeWidth() }] : [];
+      });
+      const chosen = resolveFixtureHit(candidates, world, camera.zoom);
+      const node = chosen ? nodes.current.get(chosen.id) : undefined;
+      return node instanceof Konva.Group ? node.findOne<Konva.Circle>("Circle") ?? hit : hit;
+    };
+    currentStage.getIntersection = resolveIntersection;
+    // react-konva can create/recreate its Stage after the parent's effects.
+    // Attach to that instance's ref lifetime, including StrictMode cleanup,
+    // rather than assuming a parent effect already has the live Stage.
+    restoreStageIntersection.current = () => { if (currentStage.getIntersection === resolveIntersection) currentStage.getIntersection = original; };
+  }, []);
   const [creation, setCreation] = useState<FloorMapObjectDraft | null>(null);
   const [marquee, setMarquee] = useState<{ x: number; y: number; width: number; height: number } | null>(null);
   const [dropPreview, setDropPreview] = useState<Point | null>(null);
@@ -866,7 +908,7 @@ export function FloorEditorCanvas({
         }}
       />
     ) : null}
-    <Stage ref={stage} className="relative z-1" width={viewport.width} height={viewport.height} onWheel={handleWheel}>
+    <Stage ref={registerStage} className="relative z-1" width={viewport.width} height={viewport.height} onWheel={handleWheel}>
       <Layer {...transform} name="editor-static-layer" listening={false}>
         <Rect width={bounds.width} height={bounds.height} fill={mapEditor?.document || cadSceneDescriptor || cadImportScene ? undefined : editorColors.panel} stroke={editorColors.border} strokeWidth={1} />
         {background && layers.background.visible && <KonvaImage image={background} width={bounds.width} height={bounds.height} />}
