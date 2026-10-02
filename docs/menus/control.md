@@ -3,6 +3,7 @@
 ## 2026-10-02 1~3단계 현장 연동 점검
 
 - 구현 완료(소프트웨어·독립 검토): 재검색이 완료된 등록을 미등록 상태로 덮는 결함을 예방했다. 관련 consumer 120개 통과·기존 opt-in 1개 제외와 타입 검사·독립 검토 지적0을 확인했다. 이미 완료된 전체 회귀는 사용자 요청에 따라 반복하지 않았다.
+- 확인 완료(현재 A 설정 조회): 17:51:17 KST exact A GET-only 단1회에서 raw140/force-off를 확인했다. 밝기 설정 GET1·mode GET1·B GET0·모든 SET0이며 driver release/close/kernel 복귀, USB 소유0·원본 Gateway 정지·mapping hash/inode/assignment/descriptor 불변을 확인했다. 이는 설정값 조회이며 실제 광학 출력·감지 신호·건강 또는 이전 복원 workflow PASS가 아니다. 기존 pending1 원장은 불변이다.
 - 미구현: 실제 A/B의 BIO 분류 적용, 전체 복원 절차 확인, 감지 신호 승인과 독립 연결 건강 공급·제품 활성화. 현재 production factory에는 실제 자격/건강 공급자가 없고 승인 profile은 빈 목록이다.
 - 부족하거나 개선이 필요한 기능: 실제 B의 과거 등록 상태는 여전히 불완전하며 분류 API가 원자 전환을 거부한다. 시험 연결의 만료 CRL 갱신은 허용 대기이고 fresh START는 받지 않았다. 후보 패킷·주기 신호·조회 응답만으로 감지 의미나 건강을 승인하지 않는다. 10초 최소 유지시간 및 UI 수정 가능 계약은 유지한다.
 - 관련 파일: `apps/api/src/mqtt/mqtt.service.ts`, `mqtt.service.spec.ts`, `apps/gateway/src/adapters/adapter-factory.ts`, `apps/gateway/src/bio/bio-sensor-pulse-source.ts`, `docs/superpowers/plans/2026-09-30-bio-sensor-pulse-event-control.md`.

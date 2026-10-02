@@ -3,6 +3,7 @@
 ## 2026-10-02 등록 완료 뒤 재검색 상태 보존
 
 - 구현 완료(소프트웨어·독립 검토): 등록 검색의 수신 거래가 이미 `provisioned`인 조명의 완료 상태와 오류 값을 보존한다. 새 조명과 일반 발견/실패 조명의 검색 동작, RSSI·펌웨어·검색 시각 갱신과 중복 수신 차단은 유지한다. Consumer120pass/기존opt-in1skip·타입 검사와 독립 검토 지적0을 확인했다.
+- 확인 완료(현재 A 설정, 운영 데이터 불변): 17:51:17 KST A의 raw140/force-off 설정을 GET만으로 확인했다. A/B Fixture/Node ID·DB 밝기/전원·등록 데이터·이전 복원 원장은 바꾸지 않았다. 격리 조회 종료 후 USB/driver를 복귀했지만 정지해 있던 원본 Gateway는 시작하지 않았다. 설정 read-back과 실제 감지 지원 승인을 구분한다.
 - 미구현: 실제 랩 배포와 과거 B 등록 상태의 감사 수복, 기존 A/B의 BIO 분류 적용. 예방 수정은 과거 기록을 소급 변경하지 않는다.
 - 부족하거나 개선이 필요한 기능: 실제 B는 완료 뒤 재검색이 상태를 덮어쓴 근거가 있으나 현재 `discovered`이므로 기존 분류 보완 API의 등록 완료 검사를 통과하지 않는다. ACK만으로 완료 상태를 만들거나 한쪽만 분류하지 않는다. 운영 API/DB는 이전 코드·스키마이며 아직 변경하지 않았다.
 - 관련 파일: `apps/api/src/mqtt/mqtt.service.ts`, `mqtt.service.spec.ts`, `apps/api/src/registration/bio-classification-reconciliation.service.ts`.

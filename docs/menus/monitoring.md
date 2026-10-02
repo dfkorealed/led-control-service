@@ -3,6 +3,7 @@
 ## 2026-10-02 재검색과 등록 상태 보존
 
 - 구현 완료(소프트웨어·독립 검토): 완료된 등록을 재검색 수신이 미등록 상태로 낮추지 않도록 보완했다. Consumer120pass/기존opt-in1skip·타입 검사와 독립 검토 지적0을 확인했다. 검색 메타데이터 갱신을 센서 건강이나 조명 출력 증거로 해석하지 않는다.
+- 확인 완료(현재 설정, 미배포): 17:51:17 KST 별도 격리 A GET-only로 raw140/force-off를 확인했고 driver 복귀·USB 소유0·원본 정지와 mapping/assignment/descriptor 불변을 확인했다. 원본 서비스의 현재 healthy를 확인한 것이 아니며 dashboard projection에 결과를 쓰지 않았다. B GET·모든 SET0, 기존 복원 pending1 유지다.
 - 미구현: 실제 랩 배포·과거 B 기록 수복·기존 A/B BIO 적용과 실제 독립 센서 건강 공급.
 - 부족하거나 개선이 필요한 기능: 현재 Pi Gateway는 정지 상태이고 공개 intermediate CRL이 만료됐다. 과거 healthy/heartbeat와 오늘 오전 A GET을 현재 연결·밝기 확인으로 재사용하지 않는다. 원본 복원 보류 기록은 유지한다.
 - 관련 파일: `apps/api/src/mqtt/mqtt.service.ts`, `mqtt.service.spec.ts`, `docs/superpowers/plans/2026-09-30-bio-sensor-pulse-event-control.md`.
