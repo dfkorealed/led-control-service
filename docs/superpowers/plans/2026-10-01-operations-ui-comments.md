@@ -225,9 +225,9 @@ Task6 execution handoff: Task5 scoped fix2 and Task4 source+physical independent
 - [ ] Step 4 — GREEN statistics tests +Webtypecheck/build/ui:check +Chromium `statistics-flow.spec.ts operations-ui-comments.spec.ts` workers1 at320/390/962/1440/200%zoom with0/missing/partialstates.
 - [ ] Step 5 — Update statistics menu and commit `feat: unify statistics filters and simplify period context`; independent review.
 
-### Task 8: 설정·운영 timestamp 소비 마무리
-
 Task7 read-only readiness returned107lines/readEOF without product/test/Git/server changes. Root queued ruling keeps comment18 to selected overview two literals/unused wrapper+hasPartialData only; analysis estimate/individual KPI status/series gap-tooltip-sr-only/quality metadata and used helpers/icons remain. Comment16 period-only applies overview lines, not Heatmap date/timezone header. Existing FilterPanel public slots suffice with feature search landmark wrapper; no shared/API/DB extension. Own16194/16195 only after actual writer dispatch. Preparation complete; no extra approval question or repeated setup. Actual Task7 BASE/sole writer remains after Task6 return+fresh review.
+
+### Task 8: 설정·운영 timestamp 소비 마무리
 
 **Files:** Modify only actual timestamp presentation in specsection5: `apps/web/src/features/settings/security/AccountSecurityView.tsx`, `settings/users/SiteUsersView.tsx`, `features/floor-editor/FloorEditorView.tsx`, `features/operator/site-admins/SiteAdminManagementView.tsx`, `features/operator/LandingInquiriesView.tsx`, their tests, `docs/menus/settings.md`, `docs/menus/operator.md`.
 
