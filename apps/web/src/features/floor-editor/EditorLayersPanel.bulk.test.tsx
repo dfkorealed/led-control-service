@@ -42,7 +42,8 @@ function Panel() { return <EditorLayersPanel readOnly={false} mapEditor={useMapE
 
 it("saves UI parent ungroup through the backend checkpoint without losing descendants, then undoes and reloads", async () => {
   render(<Panel />);
-  fireEvent.click(screen.getByRole("button", { name: "Parent 해제" }));
+  fireEvent.click(screen.getByRole("button", { name: "Parent 메뉴" }));
+  fireEvent.click(await screen.findByRole("menuitem", { name: "Parent 해제" }));
   await waitFor(() => expect(store().mapGroups.has("parent")).toBe(false));
   const operations = store().prepareSave({ leaseToken: "lease", leaseFence: 1 }).payload.documentChanges!.operations;
   expect(operations).toEqual(expect.arrayContaining([

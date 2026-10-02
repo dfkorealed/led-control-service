@@ -8,6 +8,17 @@ export const MAX_INLINE_SELECTION_BYTES = 256 * 1024;
 export interface MapSelectionStreamQuery extends MapSelectionQuery {
   filters?: readonly MapSelectionInput[];
   layers?: ReadonlyMap<string, MapLayer>;
+  excludedElementIds?: readonly string[];
+  excludedGroupIds?: readonly string[];
+}
+export function matchesMapSelectionFilter(element: MapElement, filter: MapSelectionInput, groups: MapSelectionQuery["groups"]) {
+  if (filter.groupId && !mapGroupContains(element.groupId, new Set([filter.groupId]), groups)) return false;
+  if (filter.layerId && element.layerId !== filter.layerId) return false;
+  if (filter.bounds) {
+    const b = getMapElementBounds(element), range = filter.bounds;
+    if (b.minX > range.maxX || b.maxX < range.minX || b.minY > range.maxY || b.maxY < range.minY) return false;
+  }
+  return true;
 }
 export interface MapSelectionSummary {
   count: number;
@@ -28,29 +39,21 @@ export async function* streamMapSelection(input: MapSelectionStreamQuery): Async
   const filters: readonly MapSelectionInput[] = input.filters ?? (input.filter ? [input.filter] : selection.groupIds.map(groupId => ({ groupId })));
   const changedGroups = input.operations.some(op => op.kind === "group.put" || op.kind === "group.delete");
   const explicit = new Set(selection.elementIds);
+  // Only user-toggled exclusions are resident, never IDs materialized from a query.
+  const excluded = new Set(input.excludedElementIds), excludedGroups = new Set(input.excludedGroupIds);
+  const included = (element: MapElement) => !excluded.has(element.id) && !mapGroupContains(element.groupId, excludedGroups, groups);
   const changed = new Map<string, MapElement | null>();
   for (const op of input.operations) {
     if (op.kind === "delete") changed.set(op.id, null);
     else if (op.kind === "add" || op.kind === "update") changed.set(op.element.id, op.element);
   }
-  const predicates = filters.map(filter => {
-    const selectedGroups = new Set(filter.groupId ? [filter.groupId] : []);
-    return (element: MapElement) => {
-      if (filter.groupId && !mapGroupContains(element.groupId, selectedGroups, groups)) return false;
-      if (filter.layerId && element.layerId !== filter.layerId) return false;
-      if (filter.bounds) {
-        const b = getMapElementBounds(element), range = filter.bounds;
-        if (b.minX > range.maxX || b.maxX < range.minX || b.minY > range.maxY || b.maxY < range.minY) return false;
-      }
-      return true;
-    };
-  });
+  const predicates = filters.map(filter => (element: MapElement) => matchesMapSelectionFilter(element, filter, groups));
   const explicitIds = [...explicit];
   for (let start = 0; start < explicitIds.length; start += 128) {
     signal.throwIfAborted();
     const elements = await source.getElements(document, explicitIds.slice(start, start + 128), signal);
     signal.throwIfAborted();
-    for (const element of elements) if (!changed.has(element.id)) yield element;
+    for (const element of elements) if (!changed.has(element.id) && included(element)) yield element;
   }
   for (const [index, filter] of filters.entries()) {
     let cursor: string | undefined, checkpoint: string | undefined, power = 1, distance = 0;
@@ -65,7 +68,7 @@ export async function* streamMapSelection(input: MapSelectionStreamQuery): Async
         const elements = await source.getElements(document, page.ids, signal);
         signal.throwIfAborted();
         for (const element of elements) {
-          if (changed.has(element.id) || explicit.has(element.id) || !predicates[index](element)) continue;
+          if (changed.has(element.id) || explicit.has(element.id) || !predicates[index](element) || !included(element)) continue;
           if (!predicates.slice(0, index).some(matches => matches(element))) yield element;
         }
       }
@@ -78,7 +81,7 @@ export async function* streamMapSelection(input: MapSelectionStreamQuery): Async
   }
   for (const element of changed.values()) {
     signal.throwIfAborted();
-    if (element && (explicit.has(element.id) || predicates.some(matches => matches(element)))) yield element;
+    if (element && included(element) && (explicit.has(element.id) || predicates.some(matches => matches(element)))) yield element;
   }
 }
 

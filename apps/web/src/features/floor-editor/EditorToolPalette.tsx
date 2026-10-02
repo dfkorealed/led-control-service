@@ -39,7 +39,7 @@ export function EditorToolPalette({
       {tools.map(({ type, label, icon }) => {
         const shape = type !== "select" && type !== "pan";
         const unavailable = disabled || (readOnly && shape);
-        return <IconTooltipButton key={type} icon={icon} label={label}
+        return <IconTooltipButton key={type} icon={icon} label={label} tooltip={type === "select" ? "클릭 선택 · 빈 공간 드래그 영역 선택 · Shift로 추가/해제" : type === "pan" ? "맵 이동 · Space 또는 마우스 가운데 버튼" : label}
           className={activeTool === type ? "bg-action-primary-soft" : undefined}
           aria-pressed={activeTool === type} disabled={unavailable} draggable={shape && !unavailable}
           onClick={() => { if (!unavailable) onToolChange(type); }}

@@ -26,6 +26,45 @@ beforeEach(() => {
   } as unknown as ReturnType<typeof createMapDocumentSource>);
 });
 afterEach(() => { cleanup(); vi.restoreAllMocks(); });
+it("Shift toggles one member of a streamed layer query without dropping the rest", async () => {
+  const view = renderHook(() => useMapEditor({ floorId: "floor", authScope: "user", readOnly: false }));
+  act(() => { view.result.current.toggleQuery({ layerId: "map" }, true); store().resetZoom(); });
+  await waitFor(() => expect(view.result.current.selectionCount).toBe(129));
+  const renderer = { pick: vi.fn(async () => ({ element: elements[0] })), setDraftChanges: vi.fn(), setPromotedElementIds: vi.fn() } as unknown as MapSceneCanvasHandle;
+  act(() => view.result.current.onReady(renderer));
+  await act(async () => { await view.result.current.pick({ x: 110, y: 110 }, true, true); });
+  await waitFor(() => expect(view.result.current.selectionCount).toBe(128));
+  expect(view.result.current.selection.map(e => e.id)).not.toContain("s0");
+  await act(async () => { await view.result.current.pick({ x: 110, y: 110 }, true, true); });
+  await waitFor(() => expect(view.result.current.selectionCount).toBe(129));
+});
+it.each(["layer", "fixtures"])("invalidates an in-flight renderer pick when a %s checkbox changes", async kind => {
+  const view = renderHook(() => useMapEditor({ floorId: "floor", authScope: "user", readOnly: false }));
+  let reply!: (value: { element: typeof extra }) => void;
+  const renderer = { pick: vi.fn(() => new Promise(resolve => { reply = resolve; })), setDraftChanges: vi.fn(), setPromotedElementIds: vi.fn() } as unknown as MapSceneCanvasHandle;
+  act(() => view.result.current.onReady(renderer));
+  let pending!: Promise<void>;
+  act(() => { pending = view.result.current.pick({ x: 800, y: 100 }, true, false); });
+  if (kind === "layer") act(() => view.result.current.toggleQuery({ layerId: "map" }, true));
+  else act(() => view.result.current.selectFixtureLayer(true));
+  await act(async () => { reply({ element: extra }); await pending; });
+  expect(store().mapSelection.elementIds).toEqual([]);
+  if (kind === "layer") await waitFor(() => expect(view.result.current.selectionCount).toBe(129));
+});
+it("adds and deselects complete layer queries without materializing a prefix", async () => {
+  extra.groupId = "extra-group";
+  const view = renderHook(() => useMapEditor({ floorId: "floor", authScope: "user", readOnly: false }));
+  act(() => view.result.current.toggleQuery({ layerId: "map" }, true));
+  await waitFor(() => expect(view.result.current.selectionCount).toBe(129));
+  expect(view.result.current.selection).toEqual([]);
+  act(() => view.result.current.toggleQuery({ groupId: "extra-group" }, true));
+  await waitFor(() => expect(view.result.current.selectionCount).toBe(130));
+  act(() => view.result.current.toggleQuery({ layerId: "map" }, false));
+  await waitFor(() => expect(view.result.current.selectionCount).toBe(1));
+  expect(view.result.current.selectedQueries).toEqual([{ groupId: "extra-group" }]);
+  act(() => view.result.current.toggleQuery({ groupId: "extra-group" }, false));
+  await waitFor(() => expect(view.result.current.selectionCount).toBe(0));
+});
 
 it.each(["layer", "bounds", "group"])("retains a bounded query through additive %s picking, then replaces it on plain picking", async mode => {
   extra.groupId = mode === "group" ? "extra-group" : null;

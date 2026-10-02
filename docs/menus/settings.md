@@ -1,5 +1,17 @@
 # 설정 메뉴 기능 현황 및 구현 설계
 
+## 2026-10-02 기존 맵 선택·스냅·레이어 편집 확장
+
+- 구현 완료: 선택 도구의 빈 공간 드래그는 조명과 공통 도형 영역 선택, 일반 클릭은 교체, Shift 클릭은 추가/해제다. 이동 도구·Space·가운데 버튼 팬은 유지한다. 기본 스냅 ON에서 이동 중 좌표는 자유롭게 바뀌고 종료 시 선택 전체 bbox에 한 번만 격자를 적용해 상대 간격을 보존한다. 비격자 맵 경계는 격자보다 우선한다. Resize는 회전·CAD 원점과 반대 고정 앵커를 유지하며 독립 코너는 두 경계, 회전 edge/비례 resize는 가능한 주축을 맞춘다. 단일 곡선은 실제 geometry bounds로 검사하고 0폭/0높이 선은 확대된 hit frame을 정본 크기로 취급하지 않는다. 단일 조명의 기존 중심 X/Y 입력 의미와 legacy 맵 방향키·resize는 유지한다.
+- 구현 완료: 선택 개수는 배치 조명을 포함한다. 혼합 선택은 위치와 명시적인 도형 전용 스타일만 제공하며 부적합 크기/회전은 숨긴다. 전체 삭제 확인은 도형 삭제와 조명 미배치·위치 미확인·슬롯 assignment 해제를 한 transaction/history로 적용한다. 조명 장비 행·Mesh 주소는 삭제하지 않는다. Lights-only와 streamed selection도 같은 fixtureUpdates 계약을 사용하며 undo/redo·취소·저장 및 잠금/읽기 전용 방어를 유지한다.
+- 구현 완료: 공통 레이어/그룹은 checkbox·이름·표시·잠금의 한 줄과 overflow menu를 사용한다. Checkbox는 레이어/그룹 자체가 아닌 그 안의 도형 전체 query를 가산 선택/해제하며 일부 원본만 편집하지 않는다. 조명 레이어는 전체 배치 선택만 checked, 일부는 indeterminate이며 클릭하면 나머지도 선택한다. 이름 변경은 trim·빈 이름/잠금 검증과 기존 layer.put/group.put을 사용한다. 레이어 삭제는 확인 뒤 도형을 선택한 대상 레이어로 옮기는 기존 계약을 유지한다. 레이어 탭은 연속 선택 중 자동 전환하지 않고 지연 canvas pick이 checkbox 선택을 덮지 않는다.
+- 구현 완료: 상단 도구는 기존 공통 작은 IconButton 크기를 사용하면서 실제 44px 접근 영역을 유지한다. 저장 성공/실패·편집 오류·초안 저장 경고는 공통 ToastRegion/SessionStatusProvider로 표시해 캔버스 배치를 바꾸지 않는다. 초안 복구·저장 충돌의 최신 다시 불러오기·대량 준비 취소/재시도는 상태 센터와 `편집 복구` dialog에서 유지하며 floor/user scope 종료 시 알림을 정리한다.
+- 구현 완료: 선택 스타일 편집은 Shift 제외를 유지하지만 레이어 전체 이동 후 삭제·그룹 해제는 제외 목록을 초기화해 하위 그룹을 포함한 전체 대상을 검사한다. 제외한 잠금 대상도 전체 작업을 차단하며 inline/streamed 저장 연산은 같은 참조 무결성 계약을 따른다. 단일 조명 숫자 X/Y는 크기와 무관한 중심 좌표로 해당 축만 스냅·clamp하고 슬롯 해제·undo를 한 transaction으로 처리한다. 혼합·도형 묶음의 숫자 위치 적용도 변경한 bbox 축만 보정하며 포인터 이동의 양축 bbox 스냅은 유지한다.
+- 미구현: 실제 고객 DB·하드웨어·iOS/Android WebView 검증과 50만 CAD 요소 성능 검증은 이번 Web 작업에 포함하지 않는다. Backend/shared/영속 DB/PKI/운영 서버는 변경하지 않았다.
+- 부족하거나 개선이 필요한 기능: query/bulk bbox는 전체 선택의 경량 요약이며 도형별 핸들을 모두 materialize하지 않는다. 혼합 조명 회전/비례 확대는 지원하지 않고 위치 이동 및 조명 전용 일괄 속성으로 제한한다. 독립 검토 6건을 수정·재검토했고 최종 root lint/typecheck/test/build exit0, Web 2,677 passed/3 skipped 및 UI 정책 위반0을 확인했다. 관련 Chromium은 최종 제품 소스의 기능 58건과 측정 보완 후 isolated 성능 2건이 통과했다. 조명1,000개·슬롯2,000개·요소2,000개 warm HTTP fixture 20회에서 준비 p95 1,350.4ms, frame p95 9.2ms, 배치 반영 p95 91.8ms였다. 이전 배치 반영 155.9ms·100.1ms 초과 이력은 유지하고 기준·timeout을 완화하지 않았다. 고정 화면 픽셀 대신 실제 조명 노드 화면 중심을 사용하는 측정 수정은 제품 변경이 아니다. 실제 backend/HIL·cold start·모바일 기기 성능 완료로 일반화하지 않는다.
+- 관련 파일: `apps/web/src/features/floor-editor/{use-map-editor,map-selection-transform,MapElementOverlay,MapSelectionBoundsHandle,MapElementPropertiesPanel,MapSelectionProperties,FloorEditorCanvas,FloorEditorView,EditorLayersPanel,EditorPropertiesPanel}.tsx`(helper는 `.ts`), `apps/web/src/components/ui/LayerTreeRow.tsx`, `apps/web/e2e/map-editor-bounded-extension.spec.ts`, `apps/web/e2e/support/settings-api.ts`.
+- 갱신 규칙: 선택 대상·스냅 종료 경로·배치 해제·레이어 query 또는 알림 계약을 바꾸면 단일/혼합/대량/잠금/지연 응답 회귀와 저장 후 모니터링 영향을 함께 갱신한다. 통합 root gate·독립 QA의 최종 판정은 메인의 상태판에서 관리한다.
+
 ## 2026-09-27 층별 설정 대시보드 계약
 
 - 구현 완료: 기존 dashboard 응답에 활성 층의 `summary.totalFixtures`, `mapRevision`, `mapConfigured`가 추가돼 설정 개요와 맵 목록이 실제 등록 수 및 맵 구성 상태를 사용할 수 있다. 공통 맵은 현재 revision snapshot의 요소 수만 한 번에 읽으며 조명 상세를 생략하는 기본 조회에서도 이 필드는 유지된다.
