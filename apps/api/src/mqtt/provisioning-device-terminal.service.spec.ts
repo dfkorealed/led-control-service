@@ -380,6 +380,30 @@ describe("ProvisioningDeviceTerminalService", () => {
     expect(tx.fixture.create.mock.calls[0][0].data).not.toHaveProperty("powerOn");
   });
 
+  it("initializes only a new canonical BIO node OFF from completed registration without requiring identify", async () => {
+    const { service, tx, node, event } = testContext({ deviceUuid: "bio:aabbccddeeff" });
+    node.identifyState = "none";
+
+    await service.ingest({ siteId: SITE_ID, gatewayId: GATEWAY_ID }, event, RECEIVED_AT);
+
+    expect(tx.meshNode.create).toHaveBeenCalledWith({ data: expect.objectContaining({
+      vehicleSensorProtocol: "bio_usb_pulse", bioPulseReadiness: "off",
+      bioPulseCapabilityRevision: 0n, bioPulseProfileId: null, bioPulseVerifiedAt: null,
+      vehicleSensorCapabilityStatus: "unknown", vehicleSensorCapabilityRevision: 0n,
+      vehicleSensorCapabilityVerifiedAt: null, vehicleSensorServerBound: false,
+      vehicleVendorEventModelBound: false
+    }) });
+  });
+
+  it.each(["44464b4c454401010101aabbccddeeff", "bio:AABBCCDDEEFF", "bio:aabbccddee", "xbio:aabbccddeeff"])(
+    "preserves the existing BlueZ/default create path for non-canonical identity %s", async deviceUuid => {
+      const { service, tx, event } = testContext({ deviceUuid });
+      await service.ingest({ siteId: SITE_ID, gatewayId: GATEWAY_ID }, event, RECEIVED_AT);
+      expect(tx.meshNode.create.mock.calls[0][0].data).not.toHaveProperty("vehicleSensorProtocol");
+      expect(tx.meshNode.create.mock.calls[0][0].data).not.toHaveProperty("bioPulseReadiness");
+    }
+  );
+
   it("keeps non-BIO fixtures offline until their normal state telemetry arrives", async () => {
     const { service, tx, event } = testContext();
 

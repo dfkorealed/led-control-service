@@ -6,11 +6,13 @@
 - 구현 완료(Gateway 수신·독립 검토): durable mapping 성공 변경과 client/source 종료는 즉시 권한을 철회하고, 후보의 fresh 조회에서 발견한 외부 mapping 무효화도 이전 권한을 제거한다. 후보 없는 외부 파일 편집 watcher는 없으며 후속 실제 제어 전 fresh preflight가 필요하다.
 - 구현 완료(API 소프트웨어·독립 검토): 배정/certificate 인증·exact MeshNode·재전송을 검증한 내구 V2 ACK와 여러 BIO node의 같은 capability revision을 지원하는 보존 index/CHECK migration 소스를 추가했다. 일회용 DB에서 기존 row 보존·구체 오류·전체 rollback을 확인했다.
 - 구현 완료(Gateway 실행 연결 소프트웨어·독립 검토): 실제 source/target adapter·snapshot 교체·종료 수명을 연결하고 durable mapping·배정/snapshot/건강을 제어 직전 재확인한다. Fixture ID와 MeshNode alias를 혼동하지 않으며 exact 독립 권한 없는 등록은 여전히 사용 불가다.
-- 미구현: 실제 제품 등록의 BIO protocol 확정·기존 node의 audited OFF 전환, Gateway 전달/ACK 및 운영 migration/배포. 기존 분류를 보고만으로 변경하지 않는다.
+- 구현 완료(신규 등록 소프트웨어·독립 검토): 정확한 stored command/session/node/UUID/address를 확인한 V2 completed의 진짜 신규 canonical BIO MeshNode만 BIO/OFF·revision0·profile/검증시각 NULL로 초기화한다. Legacy·기존 node·재시도·밝기·ready/supported는 보존한다. 등록 회귀94/94·일회용 DB9/9·독립94/94을 확인했으며 identify 확인은 필수도 완료 근거 대체물도 아니다.
+- 미구현: 기존 node의 audited OFF 분류 전환(사용자 선택 대기), Gateway 전달/ACK 및 운영 migration/배포. 기존 분류를 보고만으로 변경하지 않는다.
 - 부족하거나 개선이 필요한 기능: ACK 일치를 현재 배정 인증·센서 건강·사용 가능 판정으로 승격하지 않는다. 운영 DB/장비는 불변이고 제품 gate는 OFF다.
 - 관련 파일: `packages/shared/src/automation-contracts.ts`, `automation-contracts.test.ts`, `docs/superpowers/plans/2026-09-30-bio-sensor-pulse-event-control.md`.
 - 관련 Gateway 파일: `apps/gateway/src/bio/bio-sensor-pulse-source.ts`, `bio-device-mapping-store.ts`, `bio-dongle-client.ts`, `apps/gateway/src/adapters/adapter-factory.ts`.
 - 관련 API/DB 파일: `apps/api/src/automation/vehicle-sensor-capability.service.ts`, `automation-mqtt-consumer.service.ts`, `apps/api/prisma/migrations/20261002110000_bio_capability_node_ledger/migration.sql`, `docs/database-schema.md`.
+- 관련 등록 파일: `apps/api/src/mqtt/provisioning-device-terminal.service.ts`, `provisioning-device-terminal.service.spec.ts`, `new-bio-registration.integration.spec.ts`.
 - 갱신 규칙: 계약·서버 수신·migration 소스·운영 적용을 각각 확인한 단계로 기록한다.
 
 ## 2026-10-01 BIO telemetry 배정·구성 경계

@@ -2,6 +2,10 @@
 
 작성일: 2026-09-28
 
+## 2026-10-02 신규 V2 BIO 등록의 분류 초기화
+
+V2 provision completed terminal이 기존 command/session/node/UUID/address 귀속 검사를 통과한 뒤, canonical `bio:<12 lowercase hex>` 장치의 **새 MeshNode CREATE만** 서버 소유 `vehicleSensorProtocol=bio_usb_pulse`로 초기화한다. BIO readiness는 OFF, revision은 0, profile/검증 시각은 NULL이며 V1 capability는 unknown/0/NULL/false를 유지한다. Identify confirmed는 완료 근거의 대체물도 등록 필수 조건도 아니다. 기존 node·qualification·밝기·정확 terminal 재전송과 legacy 등록의 BlueZ default/online 동작은 변경하지 않는다. 기존 BIO 분류 누락 행은 이 경로로 backfill하지 않으며 별도 승인된 audited 전환이 필요하다. DB schema/migration·제품 gate는 변경하지 않고, 검증은 일회용 DB에서만 수행한다.
+
 ## 2026-10-02 BIO capability 인증 수신·별도 V2 receipt
 
 기존 capability MQTT topic에서 strict V1 report와 strict V2 delivery를 분기한다. V2 delivery는 `assignmentVersion`과 report 전체의 canonical hash를 결속한다. 자동화 membership lock 아래 현재 site/Gateway claim, inventory 소유·활성 상태, 해당 Gateway/inventory의 활성·미폐기 MQTT 인증서 유효기간, assignment와 BIO node 소유를 검사한 뒤 qualification, node-local 원장·watermark, 별도 V2 ACK outbox를 같은 transaction에 저장한다. 인증서 UTC `timestamp`와 입력 시각은 SQL session 시간대에 영향받지 않도록 명시적으로 UTC 비교한다. 인증 근거는 broker mTLS/topic ACL과 DB metadata이며 구독자가 peer certificate serial을 직접 확인했다는 의미가 아니다.

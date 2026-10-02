@@ -6,12 +6,14 @@
 - 구현 완료(Gateway 수신·독립 검토): candidate와 검증된 pulse 출구를 분리하고 연결·decoder·mapping·독립 권한 변경/종료에 따라 권한을 철회한다. 실제 관찰 건강이나 지원 상태를 새로 생성하지 않는다.
 - 구현 완료(API 소프트웨어·독립 검토): current 인증·배정/정확 node 근거로 BIO qualification·ledger·V2 수용 ACK를 같은 거래에 저장하고 과거/변조/재배정 보고를 상태 근거로 승격하지 않는다.
 - 구현 완료(Gateway 실행 연결 소프트웨어·독립 검토): 실제 source→scheduler 소비와 권한 철회·정지/종료·만료 복원을 연결한다. 규칙 교체 실패/rollback은 이미 기록된 적용·복원 결과와 불확실 원장을 지우지 않는다. 제품 OFF이므로 실제 센서 건강·광학 관찰의 새 증거를 만든 작업은 아니다.
-- 미구현: 제품 등록의 BIO protocol 근거·기존 node 전환, Gateway 전송/ACK 연결 및 검증된 장비의 사용 가능 상태 발행. 실제 broker/HIL 검증은 별도다.
+- 구현 완료(신규 등록 소프트웨어·독립 검토): 신뢰된 V2 완료의 새 BIO node는 검증 전 OFF로 분류한다. 기존 node·밝기·qualification/legacy는 유지하고 등록 완료를 live health로 표시하지 않는다.
+- 미구현: 기존 node의 audited 분류 전환(사용자 선택 대기), Gateway 전송/ACK 연결 및 검증된 장비의 사용 가능 상태 발행. 실제 broker/HIL 검증은 별도다.
 - 부족하거나 개선이 필요한 기능: 보고 수용 ACK는 live health·LED 광학 출력·이벤트 동작 성공을 의미하지 않는다. 현재 제품 gate/profile은 OFF다.
 - 관련 파일: `packages/shared/src/automation-contracts.ts`, `automation-contracts.test.ts`.
 - 관련 Gateway 파일: `apps/gateway/src/bio/bio-sensor-pulse-source.ts`, `bio-dongle-client.ts`, `bio-device-mapping-store.ts`, `apps/gateway/src/adapters/adapter-factory.ts`.
 - 관련 실행 연결: `apps/gateway/src/automation/bio-product-pulse-controller.ts`, `bio-pulse-scheduler.ts`, `schedule-runtime.ts`, `apps/gateway/src/index.ts`.
 - 관련 API 파일: `apps/api/src/automation/vehicle-sensor-capability.service.ts`, `automation-mqtt-consumer.service.ts`, `bio-capability-delivery.integration.spec.ts`.
+- 관련 등록 파일: `apps/api/src/mqtt/provisioning-device-terminal.service.ts`, `new-bio-registration.integration.spec.ts`.
 - 갱신 규칙: 보고 계약, 저장된 관찰 상태, 실제 하드웨어 검증을 별도로 기록한다.
 
 ## 2026-10-01 BIO telemetry 소프트웨어 전달 경계

@@ -391,13 +391,25 @@ export class ProvisioningDeviceTerminalService {
       return true;
     }
 
+    const bioHardwareConfirmed = BIO_DEVICE_UUID.test(event.deviceUuid);
     const meshNode = existingMeshNode ?? await tx.meshNode.create({
       data: {
         gatewayId: session.gatewayId,
         deviceUuid: event.deviceUuid,
         serialNumber: node.serialNumber,
         meshAddress: event.meshAddress,
-        firmwareVersion: event.firmwareVersion ?? node.firmwareVersion
+        firmwareVersion: event.firmwareVersion ?? node.firmwareVersion,
+        // V2 completed registration binds the stored command and exact device/address,
+        // not sensor readiness. Initialize only a genuinely new canonical BIO node.
+        // Legacy registration and existing qualifications remain unchanged; existing
+        // nodes require a separately audited reconciliation, never report backfill.
+        ...(mode === "v2" && bioHardwareConfirmed ? {
+          vehicleSensorProtocol: "bio_usb_pulse", bioPulseReadiness: "off",
+          bioPulseCapabilityRevision: 0n, bioPulseProfileId: null, bioPulseVerifiedAt: null,
+          vehicleSensorCapabilityStatus: "unknown", vehicleSensorCapabilityRevision: 0n,
+          vehicleSensorCapabilityVerifiedAt: null, vehicleSensorServerBound: false,
+          vehicleVendorEventModelBound: false
+        } : {})
       }
     });
     const existingFixture = await tx.fixture.findFirst({
@@ -417,7 +429,6 @@ export class ProvisioningDeviceTerminalService {
 
     let fixture = existingFixture;
     if (!fixture) {
-      const bioHardwareConfirmed = BIO_DEVICE_UUID.test(event.deviceUuid);
       const createdFixture = await tx.fixture.create({
         data: {
           id: node.id,

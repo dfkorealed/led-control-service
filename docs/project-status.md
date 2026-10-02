@@ -14,7 +14,7 @@
 
 **API 9c-2 완료(인증 수신 소프트웨어):** 기존 topic의 strict V2 분기, current 인증/배정→qualification/ledger/immutable ACK 원자 저장·재전송과 node-local BIO index/CHECK 보존 migration을 구현·독립 검토했다. 담당 일회용DB18/18·관련101/101·typecheck, 독립101/101·typecheck·Critical0/Important0을 확인했다. KST 인증 timestamp 비교, V2 exact MeshNode와 actual Prisma deploy 구체 preflight/전체 rollback을 검증했으며 V1과 기존 publisher 발행 경로는 유지한다. 운영 DB/장비/제품ON은0이다. 별도 필수 후속: 현재 등록은 BIO protocol을 초기화하지 않으므로 해당 intake 전제가 성립하지 않는다. 신규 등록과 기존 A/B의 검증중/OFF 분류 전환 범위를 사용자에게 확인 중이며 보고만으로 protocol을 바꾸지 않는다. Gateway 송신/ACK9c-3·scheduler9b·현장 관문은 아직 남았다.
 
-**등록 구분 보완 9c-4 구현 완료·검토 대기:** 정확한 command/session/node/UUID/address를 확인한 V2 완료 경로의 진짜 신규 MeshNode만 BIO/OFF로 초기화했다. 담당 일회용 DB9/9·등록 회귀94/94·typecheck0이며 현재 Gateway의 V2 생산 경로는 소스로 확인했다(실장비 송신 미시험). Legacy·기존 node·재시도·BlueZ·밝기/qualification은 보존하며 identify를 등록 완료의 대체·필수 조건으로 쓰지 않는다. 기존 A/B 전환 범위는 사용자 선택 대기이고 기존 행 reconciliation·새 endpoint·운영 DB 전환은 수행하지 않는다.
+**등록 구분 보완 9c-4 신규 V2 완료(소프트웨어·독립 검토):** 정확한 command/session/node/UUID/address를 확인한 V2 완료 경로의 진짜 신규 MeshNode만 BIO/OFF로 초기화했다. 담당 일회용 DB9/9·등록 회귀94/94·typecheck0, 독립94/94·typecheck·Critical0/Important0이며 현재 Gateway의 V2 생산 경로는 소스로 확인했다(실장비 송신 미시험). Legacy·기존 node·재시도·BlueZ·밝기/qualification은 보존하며 identify를 등록 완료의 대체·필수 조건으로 쓰지 않는다. 기존 A/B 전환 범위는 사용자 선택 대기이고 기존 행 reconciliation·새 endpoint·운영 DB 전환은 수행하지 않는다.
 
 **오늘 사용자 사후 보완:** ‘같은 자리 정지’ 구간에도 몇 번 움직였다고 설명했다. 해당 구간을 무움직임 조건으로 해석하지 않으며 움직인 횟수/시각 및 이번 답변에 없는 범위 밖 무자극 확인은 미확정이다. 보호 `live-run/operator-followup.json`을 원본 packet/receipt와 분리 보존한다. 자동 재시험은 없고 실패/제품OFF 판정은 유지한다.
 
