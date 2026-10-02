@@ -42,7 +42,7 @@
 | 4 | Shell 범위·새 내부 구현 보조 | 소스·독립 물리 재검수 승인 | 9740967e + 13249728 + cf3e075c; scoped Spec✅/qualityApproved·디자이너34/34·P2두건해결·새지적0 |
 | 5 | 모니터링 담당 범위·새 실행 보조 | 구현·scoped 독립 검토 승인 | 7455d16c + 3c107e60 + 3405415d; I1/I2/I3/N1 해결·새 지적0, Task9 전체검수 대기 |
 | 6 | 제어 UI 개선 담당자(GPT-6.1 Sol/high) | 읽기 준비 완료·단독 구현 배정 | 이 문서 checkpoint 후 정확한 BASE 전달; brief의 기존 계약/좁은 판단 유지 |
-| 7 | 통계 페이지 담당자 | 대기 | — |
+| 7 | 통계 페이지 담당자 | 읽기 준비 완료·구현 대기 | task-7-readiness107줄 회수; Task6 반환·독립 검토 후 정확 BASE 배정 |
 | 8 | 설정 담당 → Shell 운영 담당 | 대기 | — |
 | 9 | 디자이너·독립 QA·총괄 | 대기 | — |
 
@@ -226,6 +226,8 @@ Task6 execution handoff: Task5 scoped fix2 and Task4 source+physical independent
 - [ ] Step 5 — Update statistics menu and commit `feat: unify statistics filters and simplify period context`; independent review.
 
 ### Task 8: 설정·운영 timestamp 소비 마무리
+
+Task7 read-only readiness returned107lines/readEOF without product/test/Git/server changes. Root queued ruling keeps comment18 to selected overview two literals/unused wrapper+hasPartialData only; analysis estimate/individual KPI status/series gap-tooltip-sr-only/quality metadata and used helpers/icons remain. Comment16 period-only applies overview lines, not Heatmap date/timezone header. Existing FilterPanel public slots suffice with feature search landmark wrapper; no shared/API/DB extension. Own16194/16195 only after actual writer dispatch. Preparation complete; no extra approval question or repeated setup. Actual Task7 BASE/sole writer remains after Task6 return+fresh review.
 
 **Files:** Modify only actual timestamp presentation in specsection5: `apps/web/src/features/settings/security/AccountSecurityView.tsx`, `settings/users/SiteUsersView.tsx`, `features/floor-editor/FloorEditorView.tsx`, `features/operator/site-admins/SiteAdminManagementView.tsx`, `features/operator/LandingInquiriesView.tsx`, their tests, `docs/menus/settings.md`, `docs/menus/operator.md`.
 
