@@ -44,7 +44,7 @@
 | 6 | 제어 UI 개선 담당자(GPT-6.1 Sol/high) | 완료·독립 명세/품질 승인 | e02d00eb→4128c2de; frozen683단위/90브라우저, Spec✅/qualityApproved; M2 실제 짧은 필터 조작은 Task9 |
 | 7 | 통계 페이지 담당자 → 내부 이어쓰기 | 완료·독립 명세/품질 승인 | e042ef46→ebeebdea;135단위/47브라우저·실제200%·UI0, Spec✅/qualityApproved; 전체검수 별도 |
 | 8 | 같은 설정 담당·5개 시각 batch | 완료·독립 명세/품질 승인 | d014261e→5e39a29e;155단위/Seoul15/브라우저11+1·UI0, 보조 편집기3실패는 결합 Task9에서 확인 |
-| 9 | 디자이너·독립 QA·총괄 | App 회귀 보완 승인·전체 관문 재개 | ef33edf5 test-only/69통과/type·UI0·Spec✅/qualityApproved; 결합 소스 root/editor/Lab/디자이너/최종 검토 대기 |
+| 9 | 디자이너·독립 QA·총괄 | 전체 검사 통과·편집기 오선택 보완 | root7946통과/852skip·lint/type/build/UI0; compact3통과, 원1000대 cold/warm 오선택2실패; 실DB/UIUX/최종 검토 대기 |
 
 API와 공통 파일을 동시에 쓰지 않는다. Task 5는 `FloorScene`/`FloorMapViewport` 작성권을 받고, 반환·검토 후 Task 6에 넘긴다. Task 8의 설정/운영도 순차 배정한다. 소비자가 공통 계약 변경을 원하면 총괄에게 반환하고 producer가 수정·재검토한다. 개별 작업은 지정 파일과 보고서만 작성하며 다른 세션/서브에이전트를 임의 생성하지 않는다.
 
@@ -264,6 +264,10 @@ Test-only Shell compatibility addition: `apps/web/e2e/calm-operations-shell.spec
 - [x] Step 5 — Sameownerupdatesbothaffectedmenus andcommitsfive-consumerbatch `refactor: unify remaining timestamp presentation`; fresh batch review Spec✅/qualityApproved, noP0–P2; P3 color/chunk warnings carried to final review. Formatter contract is prior Task3-approved; bounded audit is not an exhaustive raw/external-library claim. Combined editor gates remain Task9.
 
 ### Task 9: 엄격한 UI/UX 관문·실제 격리 소프트웨어·기본 브랜치 통합
+
+Task9 resume1 actual checkpoint: frozen484f7049에서 canonical lint/typecheck/test/build exit0, 실제7946PASS/0FAIL/852SKIP, UI정책 기존·신규0이다. skip은 통과가 아니다. 원 편집기 cold/warm은 모두 조명1 중심 클릭 후 조명42가 선택되어 source131에서 실패했고 pixel/이동/저장은 도달하지 않았다; compact3은 통과했다. 원8,000ms·1000조명·실제시계·픽셀·저장 단언은 그대로다. main1ea/서버 신원·2182파일 해시 불변, 자체 서버 정리·Lab 미실행을 기록했다.
+
+Ruling — 원 편집기 최소 제품 보완: 같은 Settings/CAD 담당자의 읽기 전용 진단에서 축소된44px hit 영역이 겹쳐 마지막 조명이 앞 조명의 실제 중심을 덮는 원인을 확인했다. 해당 입력 경계5개 blob은 기존 CAD부모와 동일하므로 UI 결합 훼손으로 보지 않지만 실제 오선택을 면제하지 않는다. 같은 담당자에게 fixture hit/click/tap/drag 일관성·직접 회귀·설정 메뉴만 단일 작성권으로 배정한다. store/document/카메라 전체 재설계는 범위 밖이며 클릭만 ID를 바꿔 드래그가 다른 조명을 움직이는 수정도 금지한다. 실제 중심 우선·겹친 여백의 가까운 후보·기존 접근성/잠금/Shift/저장 정책을 보존하고 원 cold/warm 관문을 완화하지 않는다. 수정 뒤 새 scoped 검토·새 동결 소스로 남은 QA를 이어간다. QA/디자이너는 서로 다른 ignored 검수 파일 작성만 계속하며 실행은 보완 검토 뒤다.
 
 Task9 actual gate checkpoint: frozen `c7861d9a1d8a291df396d6fbd3af7c38e12d2851`에서 canonical lint/typecheck exit0, test exit1이다. 도달 합계3432통과/7실패/7skip이며 API/Gateway·후속 UI정책·build·editor·Lab는 아직 실행되지 않았다. 실패는 App.test.tsx의 선택 상세/지도 상세/옛 알람 이름/옛 프리셋 관련 총7사례이며 원본 표/로그를 유지한다. 처음에는 원인을 이전 UI 기대값으로 단정하거나 기존 실패로 면제하지 않았고, 정확한 직접 RED와 실제 compact boundary를 대조했다. 기본 브랜치·서버 불변/2182개 해시 불변/자체 리소스 미생성을 확인했다.
 
