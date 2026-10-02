@@ -114,23 +114,25 @@ export function SpatialTargetSelector({
   const sceneSelection = useMemo(() => ({ kind: "multiple" as const, selectedFixtureIds, disabledFixtureIds, disabledReasons }), [disabledFixtureIds, disabledReasons, selectedFixtureIds]);
   const group = selection.mode === "group" ? dashboard.groups.find((item) => item.id === selection.groupId) : undefined;
 
-  return <section className={`flex min-h-0 min-w-0 flex-1 flex-col gap-3 overflow-hidden ${hideEmbeddedSummary ? "max-compact:flex-none max-compact:overflow-visible" : ""}`} aria-label="공간 대상 선택" data-spatial-target-selector="">
+  return <section className={`flex ${hideEmbeddedSummary ? "min-h-min" : "min-h-0"} min-w-0 flex-1 flex-col gap-3 overflow-hidden ${hideEmbeddedSummary ? "max-compact:flex-none max-compact:overflow-visible" : ""}`} aria-label="공간 대상 선택" data-spatial-target-selector="">
     <TargetSelectionToolbar allowedModes={allowedModes} selection={selection} activeFloorId={activeFloor?.id ?? ""} floors={dashboard.floors} modeLabels={modeLabels}
       modeSelectionSemantics={modeSelectionSemantics}
       disabled={disabled} onModeChange={requestModeChange} onFloorChange={setActiveFloorId}
       onOpenList={() => setListOpen(true)} listOpenerRef={listOpenerRef} managementAction={managementAction}
       onClear={selection.mode === "fixtures" && selection.fixtureIds.length > 0 ? () => onChange({ mode: "fixtures", fixtureIds: [] }) : undefined} />
-    <div className={`grid min-h-0 min-w-0 flex-1 gap-3 overflow-y-auto overscroll-contain ${hideEmbeddedSummary ? "max-compact:flex-none max-compact:overflow-visible" : ""} ${hideEmbeddedSummary && selection.mode === "fixtures" ? "tablet:overflow-hidden" : "tablet:grid-cols-[minmax(0,1fr)_16rem] tablet:overflow-hidden"}`} data-target-selection-content="">
+    <div className={`grid ${hideEmbeddedSummary ? "min-h-min" : "min-h-0"} min-w-0 flex-1 gap-3 overflow-y-auto overscroll-contain ${hideEmbeddedSummary ? "max-compact:flex-none max-compact:overflow-visible" : ""} ${hideEmbeddedSummary && selection.mode === "fixtures" ? "tablet:overflow-hidden" : "tablet:grid-cols-[minmax(0,1fr)_16rem] tablet:overflow-hidden"}`} data-target-selection-content="">
       {/* The transparent coarse hit box stays rectangular; the shared inner
           20px marker dot retains its circular appearance. Rounded hit boxes
           lose their corners and cannot provide the required 48×48 target. */}
-      <div className="[&_[data-spatial-map-marker]]:rounded-none! relative h-64 min-h-64 min-w-0 overflow-hidden rounded-panel border border-border-default bg-surface-inset tablet:h-full tablet:min-h-0">
-        {mapQuery.data && activeFloor ? <FloorMapViewport snapshot={mapQuery.data} ariaLabel={`${activeFloor.name} 도면`} interactionPolicy={selection.mode === "fixtures" && !disabled ? "direct-selection" : "pan"} onAreaSelect={selectArea} viewportTestId="target-selection-map-viewport">
+      {/* Footer controls preserve the actual 240px map minimum. The legend has
+          its own flow row so neither can cover the other on short screens. */}
+      <div className="[&_[data-spatial-map-marker]]:rounded-none! relative flex min-h-min min-w-0 flex-1 flex-col overflow-hidden rounded-panel border border-border-default bg-surface-inset">
+        {mapQuery.data && activeFloor ? <div className="min-h-min min-w-0 flex-1"><FloorMapViewport snapshot={mapQuery.data} ariaLabel={`${activeFloor.name} 도면`} interactionPolicy={selection.mode === "fixtures" && !disabled ? "direct-selection" : "pan"} onAreaSelect={selectArea} controlsPlacement="footer" viewportTestId="target-selection-map-viewport">
           <FloorScene snapshot={mapQuery.data} fixtures={activeFloor.fixtures} interactive={false} floorName={activeFloor.name} selection={sceneSelection} coarsePointer onFixturePress={toggleFixture} />
-        </FloorMapViewport> : <div className="grid h-full place-items-center p-4"><Text tone="secondary">등록된 도면이 없어 목록으로 선택합니다.</Text></div>}
+        </FloorMapViewport></div> : <div className="grid h-full place-items-center p-4"><Text tone="secondary">등록된 도면이 없어 목록으로 선택합니다.</Text></div>}
         {mapQuery.data && mapQuery.error ? <Text className="absolute top-3 left-3 z-6 rounded-control border border-border-default bg-surface-panel px-2 py-1" role="alert" tone="danger">도면을 최신 상태로 갱신하지 못했습니다.</Text> : null}
         {group ? <Text className="pointer-events-none absolute top-3 right-3 z-6 rounded-control border border-border-default bg-surface-panel px-2 py-1" variant="caption">{group.name}</Text> : null}
-        {mapQuery.data ? <div className="pointer-events-none absolute bottom-3 left-3 z-6 flex flex-wrap gap-2 rounded-control border border-border-default bg-surface-panel px-2 py-1 text-label" aria-label="지도 조명 상태 범례">
+        {mapQuery.data ? <div className="pointer-events-none flex shrink-0 flex-wrap gap-2 border-t border-border-default bg-surface-panel px-2 py-1 text-label" aria-label="지도 조명 상태 범례">
           <span className="inline-flex items-center gap-1"><span aria-hidden="true" className="size-2 rounded-fixture-marker bg-fixture-connected" />정상</span>
           <span className="inline-flex items-center gap-1"><span aria-hidden="true" className="size-2 rounded-fixture-marker bg-fixture-fault" />장애</span>
           <span className="inline-flex items-center gap-1"><span aria-hidden="true" className="size-2 rounded-fixture-marker bg-fixture-offline" />오프라인</span>

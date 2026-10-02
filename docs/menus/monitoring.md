@@ -1,5 +1,32 @@
 # 모니터링 메뉴 기능 현황
 
+## 2026-10-02 운영 밀집 마커 판정 보완 (Task 9)
+
+### 구현 완료
+
+- 모니터링의 48×48px 운영 버튼은 현재 DOM 경계에서 중심이 가장 가까운 조명 ID를 선택한다. 겹친 정상/장애 이웃의 DOM 순서와 선택·hover·focus 우선순위가 실제 클릭 대상을 바꾸지 않는다. 기존 20px 원형 점·저장 좌표·지도 camera 계약을 유지한다.
+- ordinary/touch-capable mouse와 소프트웨어 터치에서 center±18world의 원래 5개 중심과 48px 여백 선택을 확인했다. 선택한 ID의 실제 버튼을 팝오버 anchor로 전달하며, 조명 정보 제목·위치와 Escape 뒤 해당 버튼으로의 포커스 복원을 확인했다. 키보드는 포커스된 정확한 ID를 사용한다.
+- 이동 8px 이상·두 번째 포인터·취소·capture 손실·blur·Escape·층/snapshot 변경·unmount는 진행 중 마커 선택을 취소한다. 확대·이동 뒤에는 현재 좌표를 다시 읽으며 overlay 뒤의 조명과 물리 ghost click은 활성화하지 않는다. 읽기 전용 지도와 기존 이동·확대 계약을 유지한다.
+
+### 미구현
+
+- 실제 모바일 WebView 물리 터치 및 Gateway·LED RF HIL 검증.
+
+### 부족하거나 개선이 필요한 기능
+
+- route fixture와 Chromium 소프트웨어 터치 결과이며 실제 현장 장비·도면·native safe-area 검증을 의미하지 않는다. 장비 명령 POST는 0건이다.
+- 중심이 완전히 같은 조명은 거리로 구분할 수 없어 ID 순서로 안정적으로 선택한다. 기존 조명 목록에서 개별 대상을 선택할 수 있다.
+
+### 관련 파일
+
+- `apps/web/src/features/floor-map/FloorScene.tsx`, `marker-hit.ts` 및 대응 테스트.
+- 기존 소비자 `apps/web/src/features/monitoring/FloorMap.tsx`와 `FixturePinPopover.tsx`의 계약을 사용한다.
+- `apps/web/e2e/operational-marker-control-height.spec.ts`, `e2e/support/operational-map-fixture.ts`.
+
+### 갱신 규칙
+
+- 공통 운영 마커가 바뀌면 제어 문서도 함께 갱신한다. 선택 ID·anchor·키보드·취소 및 route fixture/HIL 한계를 함께 기록한다.
+
 ## 2026-10-02 자동 PC 상세 제거 초점 보완 (Task 5 보완2)
 
 - 구현 완료: 성공한 자동 재조회에서 선택 조명이 장애·검색·배치 조건을 벗어나거나 삭제되어 PC 상세가 사라질 때, 상세 안에 있던 초점만 같은 계정·현장·층의 연결된 유효 원래 버튼 또는 모니터링 검색 도구로 스크롤 이동 없이 반환한다. 상세 밖으로 옮긴 초점은 유지하며 범위 변경·화면 종료 뒤의 지연 반환은 예약하지 않는다.

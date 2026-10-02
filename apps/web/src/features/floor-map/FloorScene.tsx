@@ -9,7 +9,8 @@ import {
   useMemo,
   useRef,
   useState,
-  type CSSProperties
+  type CSSProperties,
+  type PointerEvent as ReactPointerEvent
 } from "react";
 import { createPortal } from "react-dom";
 import { Group, Line, Rect, Stage, Text, Layer } from "react-konva";
@@ -32,6 +33,8 @@ import { useFloorMapViewportOverlay, type FloorMapCameraFrame } from "./FloorMap
 import type { ReadOnlyCadSceneRenderer } from "./cad-scene-readonly-runtime";
 import { createMapDocumentSource } from "../../api/map-document";
 import { useMapDocumentReadScope } from "../floor-editor/editor-monitoring-cache";
+import { MAP_DRAG_THRESHOLD_PX, pointerDistance } from "./map-gestures";
+import { resolveMarkerHit } from "./marker-hit";
 
 const MapSceneCanvas = lazy(() => import("../map-scene/MapSceneCanvas").then(module => ({ default: module.MapSceneCanvas })));
 
@@ -186,8 +189,103 @@ export function FloorScene({
     return [...snapshotFixtures, ...runtimeOnlyFixtures];
   }, [fixtures, snapshot.fixtures, snapshot.mapDocument]);
 
+  const sceneRef = useRef<HTMLDivElement>(null);
+  const markerAnchors = useRef(new Map<string, HTMLButtonElement>());
+  const markerPress = useRef<{ pointerId: number; id: string; x: number; y: number; cancelled: boolean } | null>(null);
+  const [hoveredMarkerId, setHoveredMarkerId] = useState<string | null>(null);
+  const markerScope = JSON.stringify([
+    snapshot.floorId, snapshot.revision, snapshot.width, snapshot.height,
+    renderedFixtures.map(({ id, x, y }) => [id, x, y]),
+    selection.kind, selection.kind === "multiple" ? [...selection.disabledFixtureIds].sort() : []
+  ]);
+
+  // Coordinates are measured at each input event, after live camera/scroll/resize
+  // changes. Paint order, focus and eligibility never determine geometric intent.
+  function markerHit(x: number, y: number) {
+    return resolveMarkerHit({ x, y }, [...markerAnchors.current].map(([id, anchor]) => {
+      const { left, top, width, height } = anchor.getBoundingClientRect();
+      return { id, left, top, width, height };
+    }));
+  }
+
+  useEffect(() => {
+    markerPress.current = null;
+    setHoveredMarkerId(null);
+    if (!coarsePointer) return;
+    const cancel = () => { markerPress.current = null; };
+    const down = (event: PointerEvent) => {
+      const press = markerPress.current;
+      if (press && press.pointerId !== event.pointerId) press.cancelled = true;
+    };
+    const move = (event: PointerEvent) => {
+      const press = markerPress.current;
+      if (press?.pointerId === event.pointerId &&
+          pointerDistance(press, { x: event.clientX, y: event.clientY }) >= MAP_DRAG_THRESHOLD_PX) press.cancelled = true;
+    };
+    const upOutside = (event: PointerEvent) => {
+      if (markerPress.current?.pointerId === event.pointerId && !sceneRef.current?.contains(event.target as Node)) cancel();
+    };
+    const escape = (event: KeyboardEvent) => { if (event.key === "Escape") cancel(); };
+    // Window capture also observes a second touch outside the scene and releases
+    // outside a marker. It never prevents the viewport's existing pinch/pan input.
+    window.addEventListener("pointerdown", down, true);
+    window.addEventListener("pointermove", move, true);
+    window.addEventListener("pointerup", upOutside, true);
+    window.addEventListener("pointercancel", cancel, true);
+    window.addEventListener("lostpointercapture", cancel, true);
+    window.addEventListener("blur", cancel);
+    window.addEventListener("keydown", escape, true);
+    return () => {
+      cancel();
+      window.removeEventListener("pointerdown", down, true);
+      window.removeEventListener("pointermove", move, true);
+      window.removeEventListener("pointerup", upOutside, true);
+      window.removeEventListener("pointercancel", cancel, true);
+      window.removeEventListener("lostpointercapture", cancel, true);
+      window.removeEventListener("blur", cancel);
+      window.removeEventListener("keydown", escape, true);
+    };
+  }, [coarsePointer, markerScope]);
+
+  function handleMarkerPointerDown(event: ReactPointerEvent<HTMLDivElement>) {
+    if (!coarsePointer || event.button !== 0 || markerPress.current) return;
+    const id = markerHit(event.clientX, event.clientY);
+    if (id) markerPress.current = { pointerId: event.pointerId, id, x: event.clientX, y: event.clientY, cancelled: false };
+  }
+
+  function handleMarkerPointerUp(event: ReactPointerEvent<HTMLDivElement>) {
+    const press = markerPress.current;
+    if (!coarsePointer || press?.pointerId !== event.pointerId) return;
+    markerPress.current = null;
+    if (press.cancelled || pointerDistance(press, { x: event.clientX, y: event.clientY }) >= MAP_DRAG_THRESHOLD_PX ||
+        markerHit(event.clientX, event.clientY) !== press.id) return;
+    const actualHit = document.elementFromPoint(event.clientX, event.clientY);
+    const anchor = markerAnchors.current.get(press.id);
+    // Clipping, a dialog or a CAD error overlay must not activate a covered pin.
+    if (!actualHit || !sceneRef.current?.contains(actualHit) ||
+        (actualHit !== sceneRef.current && !actualHit.closest("[data-spatial-map-marker]")) || !anchor || anchor.disabled) return;
+    anchor.focus({ preventScroll: true });
+    onFixturePress?.(press.id, anchor);
+  }
+
   return (
-    <div className="relative h-full w-full" data-floor-scene="" data-map-objects-interactive={interactive ? "true" : "false"}>
+    <div ref={sceneRef} className="relative h-full w-full"
+      onPointerDownCapture={handleMarkerPointerDown}
+      onPointerUpCapture={handleMarkerPointerUp}
+      onPointerMoveCapture={event => {
+        if (coarsePointer && event.pointerType !== "touch") setHoveredMarkerId(markerHit(event.clientX, event.clientY));
+      }}
+      onPointerLeave={() => setHoveredMarkerId(null)}
+      onClickCapture={event => {
+        // Physical pointer activation was resolved on pointerup, including when
+        // the browser originally hit a disabled overlapping button. detail=0
+        // keeps native Enter/Space and assistive activation on their exact pin.
+        if (coarsePointer && event.detail > 0 && (event.target as Element).closest("[data-spatial-map-marker]")) {
+          event.preventDefault();
+          event.stopPropagation();
+        }
+      }}
+      data-floor-scene="" data-map-objects-interactive={interactive ? "true" : "false"}>
       {commonMap ? <CommonMapReadOnlyLayer snapshot={snapshot} /> : null}
       {nativeCad && snapshot.cadScene
         ? <CadSceneReadOnlyLayer descriptor={snapshot.cadScene} mapRevision={snapshot.revision} />
@@ -248,7 +346,11 @@ export function FloorScene({
         return (
           <Button
             key={fixture.id}
-            ref={anchor => onFixtureAnchorChange?.(fixture.id, anchor)}
+            ref={anchor => {
+              if (anchor) markerAnchors.current.set(fixture.id, anchor);
+              else markerAnchors.current.delete(fixture.id);
+              onFixtureAnchorChange?.(fixture.id, anchor);
+            }}
             type="button"
             variant="ghost"
             size="sm"
@@ -261,7 +363,9 @@ export function FloorScene({
               selected && "z-3",
               emphasizedFixtureIds && !emphasizedFixtureIds.has(fixture.id) && "opacity-30"
             )}
-            style={markerStyle}
+            style={coarsePointer && hoveredMarkerId !== null
+              ? { ...markerStyle, zIndex: hoveredMarkerId === fixture.id ? 4 : selected ? 3 : 2 }
+              : markerStyle}
             title={markerTitle?.(fixture) ?? `${fixture.name} ${statusLabel}${unobserved ? "" : ` ${fixture.brightness}%`}`}
             aria-label={`${fixture.name} ${statusLabel}${unobserved ? "" : ` ${fixture.brightness}%`}${accessibleState ? ` ${accessibleState}` : ""}`}
             aria-current={selection.kind === "single" && selected ? "true" : undefined}

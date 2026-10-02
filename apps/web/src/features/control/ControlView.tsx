@@ -61,7 +61,9 @@ const VehicleEventControlPanel = lazy(async () => {
 });
 
 const emptySelection: ControlSelection = { mode: "fixtures", fixtureIds: [] };
-const controlScreenClassName = "grid min-h-0 min-w-0 content-start gap-4 tablet:fixed tablet:top-16 tablet:right-6 tablet:bottom-6 tablet:left-16 tablet:mt-6 tablet:ml-16 tablet:flex tablet:flex-col tablet:overflow-hidden";
+// Keep this surface in document flow. A fixed bottom edge previously shrank
+// the actual map to 69px and clipped execution controls on short tablet screens.
+const controlScreenClassName = "grid min-h-0 min-w-0 content-start gap-4 tablet:flex tablet:flex-col";
 
 export function ControlView({
   siteId,
@@ -589,8 +591,8 @@ export function ControlView({
     <section className={`${controlScreenClassName} max-compact:overflow-y-auto max-compact:overscroll-contain`} data-control-screen="">
       {modeTabs}
       <div id="control-mode-panel-manual" role="tabpanel" aria-labelledby="control-mode-manual" className="grid min-h-0 min-w-0 gap-4 tablet:flex tablet:flex-1 tablet:flex-col" data-control-manual-panel="">
-      <div className="grid min-h-0 min-w-0 flex-1 grid-cols-1 gap-4 overflow-y-auto overscroll-contain compact:grid-cols-[minmax(0,1fr)_350px] compact:grid-rows-[minmax(0,1fr)_auto] compact:overflow-hidden" data-control-layout="">
-        <Card className="flex min-h-[25rem] min-w-0 flex-col overflow-hidden p-4 max-compact:min-h-0 max-compact:overflow-visible compact:min-h-0" aria-label="제어 대상 지도" data-control-target-card="">
+      <div className="grid min-h-0 min-w-0 flex-1 grid-cols-1 gap-4 overflow-y-auto overscroll-contain compact:grid-cols-[minmax(0,1fr)_350px] compact:grid-rows-[minmax(min-content,1fr)_auto]" data-control-layout="">
+        <Card className="flex min-h-min min-w-0 flex-col overflow-hidden p-4 max-compact:overflow-visible" aria-label="제어 대상 지도" data-control-target-card="">
           <SpatialTargetSelector
             key={data.site.id}
             siteId={data.site.id}

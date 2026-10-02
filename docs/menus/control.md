@@ -1,5 +1,33 @@
 # 제어 메뉴 기능 현황
 
+## 2026-10-02 운영 밀집 마커·짧은 지도 높이 보완 (Task 9)
+
+### 구현 완료
+
+- 운영 지도는 현재 화면의 실제 48×48px 버튼 경계와 중심 거리로 포인터 대상을 결정한다. 선택·hover·focus·DOM 순서에 영향을 받지 않으며, 20px 원형 조명 점과 저장 좌표를 유지한다. 장애 중심은 정상 이웃으로 우회하지 않고 기존 비활성 사유와 native Tab 제외를 유지한다. Enter/Space는 포커스된 조명 ID를 사용한다.
+- 단일 포인터가 8 CSS px 이상 이동하거나 두 번째 포인터·취소·capture 손실·blur·Escape·snapshot/층/정책 변경·unmount가 발생하면 선택을 취소한다. 확대·이동 뒤에도 현재 DOM 좌표를 다시 측정하며 가려진 조명과 물리 ghost click을 활성화하지 않는다. 기존 영역 추가 선택·Space/가운데 버튼 이동·터치 핀치를 유지한다.
+- 수동 제어는 문서 흐름으로 스크롤하며 실제 지도 viewport 최소 240px를 유지한다. 확대·축소는 기존 공통 viewport의 footer 옵션을 사용하고 범례는 별도 행에 놓는다. 1024×480, 390×320, 1440×900 route fixture에서 실제 높이 240px, 범례/조작 영역 분리, 밝기 입력·적용·명령 이력 접근과 문서 가로 overflow 0을 확인했다. 입력·Enter·선택·지도 조작의 장비 POST는 0건이다.
+
+### 미구현
+
+- 실제 모바일 WebView의 물리 멀티 터치와 Gateway·LED RF HIL 검증.
+
+### 부족하거나 개선이 필요한 기능
+
+- 검증은 격리 Chromium route fixture 및 소프트웨어 터치 입력이다. 실제 장비 영수증·DB·현장 도면·safe-area 실측을 인증하지 않는다.
+- 완전히 같은 화면 중심을 가진 조명은 좌표만으로 구분할 수 없어 ID 순서로 안정적으로 선택한다. 별도 조명 목록에서도 개별 대상을 선택할 수 있다.
+- 기존 Task 6 완료 범위를 유지하며 운영 보존 rollout과 별도 백엔드 랩은 이번 보완 범위에 포함하지 않는다.
+
+### 관련 파일
+
+- `apps/web/src/features/floor-map/FloorScene.tsx`, `marker-hit.ts` 및 대응 테스트.
+- `apps/web/src/features/control/ControlView.tsx`, `target-selection/SpatialTargetSelector.tsx` 및 기존 직접 테스트.
+- `apps/web/e2e/operational-marker-control-height.spec.ts`, `e2e/support/operational-map-fixture.ts`.
+
+### 갱신 규칙
+
+- 공통 마커 판정이 바뀌면 모니터링 문서도 함께 갱신한다. 실제 viewport 높이·스크롤·장비 전송 경계와 fixture/HIL 한계를 함께 기록한다.
+
 ## 2026-10-02 직접 지도 조작·밝기 입력·명령 이력 (Task 6)
 
 ### 구현 완료

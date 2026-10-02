@@ -93,6 +93,64 @@ it("keeps filtered pins selectable and exposes only unknown state for unobserved
 });
 
 describe("FloorScene", () => {
+  it("resolves a native pointer received by an overlapping disabled neighbour to the current intended anchor", () => {
+    const { center, disabled, onPress } = renderOverlappingMarkers();
+    dispatchScenePointer(disabled, "pointerdown", { pointerId: 1, pointerType: "mouse", button: 0, clientX: 100, clientY: 100 });
+    dispatchScenePointer(disabled, "pointerup", { pointerId: 1, pointerType: "mouse", button: 0, clientX: 100, clientY: 100 });
+    expect(onPress).toHaveBeenCalledTimes(1);
+    expect(onPress).toHaveBeenCalledWith("center", center);
+    expect(center).toHaveFocus();
+  });
+
+  it.each(["pointercancel", "lostpointercapture", "blur", "Escape", "second-pointer", "drag8"])("cancels an overlapping operational press on %s and consumes its physical ghost click", (reason) => {
+    const { center, disabled, onPress } = renderOverlappingMarkers();
+    dispatchScenePointer(disabled, "pointerdown", { pointerId: 1, pointerType: "touch", button: 0, clientX: 100, clientY: 100 });
+    if (reason === "Escape") fireEvent.keyDown(window, { key: "Escape" });
+    else if (reason === "second-pointer") dispatchScenePointer(disabled, "pointerdown", { pointerId: 2, pointerType: "touch", button: 0, clientX: 140, clientY: 100 });
+    else if (reason === "drag8") dispatchScenePointer(disabled, "pointermove", { pointerId: 1, pointerType: "touch", clientX: 108, clientY: 100 });
+    else fireEvent(window, new Event(reason));
+    dispatchScenePointer(disabled, "pointerup", { pointerId: 1, pointerType: "touch", button: 0, clientX: 100, clientY: 100 });
+    fireEvent.click(center, { detail: 1 });
+    expect(onPress).not.toHaveBeenCalled();
+  });
+
+  it("does not promote a disabled center and retains native keyboard activation", () => {
+    const { center, disabled, onPress } = renderOverlappingMarkers();
+    dispatchScenePointer(disabled, "pointerdown", { pointerId: 1, pointerType: "mouse", button: 0, clientX: 100, clientY: 107 });
+    dispatchScenePointer(disabled, "pointerup", { pointerId: 1, pointerType: "mouse", button: 0, clientX: 100, clientY: 107 });
+    expect(onPress).not.toHaveBeenCalled();
+    fireEvent.click(center, { detail: 0 });
+    expect(onPress).toHaveBeenCalledWith("center", center);
+    expect(disabled).toBeDisabled();
+  });
+
+  it("re-measures camera geometry and rejects a press whose saved snapshot scope changed", () => {
+    const { center, disabled, onPress, rerender, fixtures, sceneSelection } = renderOverlappingMarkers();
+    vi.spyOn(center, "getBoundingClientRect").mockReturnValue(new DOMRect(276, 176, 48, 48));
+    vi.spyOn(disabled, "getBoundingClientRect").mockReturnValue(new DOMRect(276, 183, 48, 48));
+    dispatchScenePointer(disabled, "pointerdown", { pointerId: 1, pointerType: "touch", button: 0, clientX: 300, clientY: 200 });
+    dispatchScenePointer(disabled, "pointerup", { pointerId: 1, pointerType: "touch", button: 0, clientX: 300, clientY: 200 });
+    expect(onPress).toHaveBeenCalledWith("center", center);
+    onPress.mockClear();
+    dispatchScenePointer(disabled, "pointerdown", { pointerId: 2, pointerType: "touch", button: 0, clientX: 300, clientY: 200 });
+    rerender(<FloorScene snapshot={{ ...snapshot, revision: snapshot.revision + 1 }} fixtures={fixtures} selection={sceneSelection} interactive={false} coarsePointer onFixturePress={onPress} />);
+    dispatchScenePointer(disabled, "pointerup", { pointerId: 2, pointerType: "touch", button: 0, clientX: 300, clientY: 200 });
+    fireEvent.click(center, { detail: 1 });
+    expect(onPress).not.toHaveBeenCalled();
+  });
+
+  it("does not select through an overlay or revive a press after unmount", () => {
+    const { center, disabled, onPress, unmount } = renderOverlappingMarkers();
+    Object.defineProperty(document, "elementFromPoint", { configurable: true, value: () => document.body });
+    dispatchScenePointer(disabled, "pointerdown", { pointerId: 1, pointerType: "touch", button: 0, clientX: 100, clientY: 100 });
+    dispatchScenePointer(disabled, "pointerup", { pointerId: 1, pointerType: "touch", button: 0, clientX: 100, clientY: 100 });
+    expect(onPress).not.toHaveBeenCalled();
+    dispatchScenePointer(center, "pointerdown", { pointerId: 2, pointerType: "touch", button: 0, clientX: 100, clientY: 100 });
+    unmount();
+    dispatchScenePointer(center, "pointerup", { pointerId: 2, pointerType: "touch", button: 0, clientX: 100, clientY: 100 });
+    expect(onPress).not.toHaveBeenCalled();
+  });
+
   afterEach(() => {
     cleanup();
     cadRenderer.instances.length = 0;
@@ -101,6 +159,7 @@ describe("FloorScene", () => {
     cadOverrideRuntime.createCadOverrideWorker.mockClear();
     delete document.documentElement.dataset.ledControlMobileWebview;
     delete document.documentElement.dataset.ledControlNativeAppState;
+    Reflect.deleteProperty(document, "elementFromPoint");
     vi.unstubAllGlobals();
   });
 
@@ -697,4 +756,26 @@ function createSuccessfulCadFetch(cadSnapshot: FloorMapSnapshot) {
       headers: { "Content-Type": "application/json" }
     });
   });
+}
+
+function dispatchScenePointer(target: HTMLElement, type: string, init: Record<string, number | string>) {
+  const event = new Event(type, { bubbles: true, cancelable: true });
+  Object.assign(event, init);
+  fireEvent(target, event);
+}
+
+function renderOverlappingMarkers() {
+  const fixtures = [
+    { id: "center", name: "중앙", x: 600, y: 400, brightness: 70, status: "online" as const },
+    { id: "disabled", name: "장애", x: 600, y: 418, brightness: 70, status: "fault" as const }
+  ];
+  const sceneSelection = { kind: "multiple" as const, selectedFixtureIds: new Set<string>(), disabledFixtureIds: new Set(["disabled"]) };
+  const onPress = vi.fn();
+  const result = render(<FloorScene snapshot={snapshot} fixtures={fixtures} selection={sceneSelection} interactive={false} coarsePointer onFixturePress={onPress} />);
+  const center = screen.getByRole("button", { name: "중앙 정상 70%" });
+  const disabled = screen.getByRole("button", { name: /장애 장애 70% 선택 불가/ });
+  vi.spyOn(center, "getBoundingClientRect").mockReturnValue(new DOMRect(76, 76, 48, 48));
+  vi.spyOn(disabled, "getBoundingClientRect").mockReturnValue(new DOMRect(76, 83, 48, 48));
+  Object.defineProperty(document, "elementFromPoint", { configurable: true, value: () => disabled });
+  return { ...result, center, disabled, onPress, fixtures, sceneSelection };
 }
