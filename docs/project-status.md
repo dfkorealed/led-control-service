@@ -1,8 +1,14 @@
 # 메뉴 완성 작업 상태판
 
-기준일: 2026-10-01
+기준일: 2026-10-02
 
 ## 2026-09-30 BIO 센서 펄스형 이벤트 제어 — 관련 소프트웨어 검증 완료·실장비 시험 착수
+
+**2026-10-02 현재 상태 — 준비 완료, 시작 신호 대기:** 새 미사용 root `/tmp/bio-probe-20261002-timer.oWclwiS9`의 소스46개는 승인된 native+Fix1에서 식별자/경로만 갱신했다. Node24·격리Node22·exact Pi image 각각183/183·exit0, scoped 독립 검토 지적0, 보호 remote stage와 guarded preflight를 확인했다. exact fixture만 정리했고 원본 Gateway는 healthy/PID·StartedAt 불변이다. 새8088 기록창의 실제 표시와 reload도 정상 HTML·대기/unavailable·버튼 비활성·인증 오류0으로 확인했다. 요청512MiB fixture 메모리 제한은 강제되지 않았다는 한계를 기록했다. 제품OFF와 원복·matching·timeout 경계는 유지하며 오늘 native START·bridge·USB/RF·자동 행동/clock 기록은0이다. 현재 현장 조건과 별도 시작 신호 뒤 실제 시험으로 진행한다.
+
+**08:44 사전 점검 보류(준비 중 기록):** 동일 original ID/image는 running이지만 unhealthy/MQTT=false이고 마지막 게시 heartbeat는 전날18:00:21 KST였다. USB/mapping ready와 별개로 연결 원인을 확인했고 이 시점에는 STOP/재시작/USB/RF/운영 변경·시험 START가0이었다. 사용자 물리 대기는 해제했다. 아래 최소 복구 후 연결 HOLD는 해소됐다.
+
+**원인·최소 랩 복구 완료:** 서버PC 주소가 `.76`→`.59`로 바뀌었으나 Pi 두 랩 DNS 이름은 `.76`이었다. 기존 API/broker listener와 현재 주소의 strict mTLS·공개 CRL은 정상이다. 기존 승인된 Task9 범위에서 exact 백업 후 08:54:08 KST Pi/sameoriginal container의 hosts 파일 각각 두 hostname 주소 끝 두 바이트만 hot 갱신했다. inode/owner/mode·assignment·ID/image/StartedAt/PID·인증서/CRL/DB/env·조명/USB는 불변이고 재시작은 없었다. 08:55:15 KST healthy/MQTT=true·새 accepted heartbeat3·대기/새 명령/자동화0을 확인했다. CRL 만료는 오늘14:38:08 KST다. 두 hosts 파일 변경과 이후 read-only checker를 구분하며 증거 hash는 실행 계획에 기록했다. 현재 연결은 복구됐으나 실제 시험 START는 별도 신호 대기다.
 
 **현재 후속 작업 — 오프라인 분석 완료, 새 현장 검증 대기:** B 마지막 GET 뒤 약3초의 대기/종료까지 valid `0x12`/decoded-report0으로 수신한 응답을 matching이 버린 코드 결함의 근거는 없다. RF/동글/USB·부분 프레임·늦은 응답 등 구체 원인은 미확정이다. A 후보29개/`0x0c`28개, 실제 outside-again 영수증 뒤 후보0/`0x0c`12개지만 actual timing/광학/독립 건강은 미확정이며 첫 움직임 미실행을 무자극 유지로 해석하지 않는다. 두 보호 보고서와 원본 hash 불변·0700/0600을 총괄이 확인했다. SSH/USB/조명 명령/Gateway 중단·서버 변경0, 추측성 timeout 완화/자동 retry/제품 활성화 없이 기존 경계를 유지한다. 다음은 새 phase/token과 현재 참여 준비·별도 시작 신호를 확인한 교정시험이며 실제 행동 전환/밝기 기록과 B 사전·최종 GET을 확보한다. 반복 shadow/liveness/B60·10초/실제 제품 연동은 여전히 미완료다.
 

@@ -1,5 +1,14 @@
 # 제어 메뉴 기능 현황
 
+## 2026-10-02 BIO 현장 시험 준비 — 임시 진단 도구, 제품 OFF
+
+- 구현 완료(시험 준비): 승인된 타이머/기록·원복 도구에서 날짜/식별자/경로만 바꾼 미사용 소스46개와 보호 remote stage를 준비했다. Node24·격리Node22·exact Pi image 각183/183, 독립 검토 지적0, guarded preflight PASS를 확인했다. fixture만 정리했으며 요청512MiB 메모리 제한은 강제되지 않았다. 이 결과는 실제 센서/광학 HIL 성공이 아니다.
+- 구현 완료(기록창 준비): 새8088 metadata 서버와 실제 브라우저 화면/reload에서 정상 HTML·대기/unavailable·행동/광학/clock 비활성·인증 오류0을 확인했다. START 전 대기 표시는 정상이고 자동 행동/clock POST는 없다. bootstrap 비밀은 보호된 로컬 경로에만 유지한다.
+- 미구현: 현재 조건/별도 시작 신호 뒤 A 실제 행동 전환·밝기 관찰, A 원복 및 B 사전/최종 GET 검증, 반복 shadow·독립 건강·B60/10초 시험과 제품 활성화. 오늘 native START/USB/RF는0이며 BIO gate/allowlist는 OFF다.
+- 부족하거나 개선이 필요한 기능: T2의 첫 움직임 누락·정확한 행동 시각/광학 관찰 부족·B 최종 GET 실패는 별도 검증 대상이다. 예정 시각을 실제 행동으로 채우거나 추측성 timeout 완화/자동 retry를 하지 않는다. 시험 중 새로고침은 기록의 연속성을 깨뜨릴 수 있다.
+- 관련 파일: `.local/task9-network/trial-preparation-20261002/{READY.md,source-manifest.json,review.diff}`, `.local/task9-network/trial-stage-20261002/{summary.json,fixture-result.json,remote-stage-preflight.json,fixture-cleanup.json}`, `docs/superpowers/plans/2026-09-30-bio-sensor-pulse-event-control.md`. 원본 증거/USED 권한과 새 미사용 권한은 분리 보존한다.
+- 갱신 규칙: 소프트웨어·기록창 준비·실제 행동/광학·하드웨어 원복·제품 지원을 각각 실제 증거로 구분한다. 준비 완료를 서비스 연동 완료로 기록하지 않는다.
+
 ## 2026-10-01 BIO 현장 시험 기록 화면 — 임시 진단 도구
 
 - 사용자 사후 설명: T2 첫 ‘움직임 시작’은 실제 미실행, 나머지 예정 행동은 수행했다고 정정했다. 이는 정확한 버튼 시각이나 광학 관찰을 대신하지 않으며 원본 기록과 분리 보존한다. 전체 시험 미통과/제품 gate OFF는 유지한다.
