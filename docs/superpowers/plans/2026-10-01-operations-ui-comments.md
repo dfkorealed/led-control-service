@@ -41,8 +41,8 @@
 | 3 | Shell 공통 UI | 완료·독립 명세/품질 승인 | 793d126a; focused429/429, Web type/build/UI0; P3 경계1건 후속 |
 | 4 | Shell 범위·새 내부 구현 보조 | 소스·독립 물리 재검수 승인 | 9740967e + 13249728 + cf3e075c; scoped Spec✅/qualityApproved·디자이너34/34·P2두건해결·새지적0 |
 | 5 | 모니터링 담당 범위·새 실행 보조 | 구현·scoped 독립 검토 승인 | 7455d16c + 3c107e60 + 3405415d; I1/I2/I3/N1 해결·새 지적0, Task9 전체검수 대기 |
-| 6 | 제어 UI 개선 담당자(GPT-6.1 Sol/high) | 읽기 준비 완료·단독 구현 배정 | 이 문서 checkpoint 후 정확한 BASE 전달; brief의 기존 계약/좁은 판단 유지 |
-| 7 | 통계 페이지 담당자 | 읽기 준비 완료·구현 대기 | task-7-readiness107줄 회수; Task6 반환·독립 검토 후 정확 BASE 배정 |
+| 6 | 제어 UI 개선 담당자(GPT-6.1 Sol/high) | 완료·독립 명세/품질 승인 | e02d00eb→4128c2de; frozen683단위/90브라우저, Spec✅/qualityApproved; M2 실제 짧은 필터 조작은 Task9 |
+| 7 | 통계 페이지 담당자 | 단독 구현·검증 중 | 정확 BASE e042ef46; 새 단언9건 RED·통계134단위 통과는 중간 증거, 실제200%/최종 동결·반환·독립 검토 대기 |
 | 8 | 설정 담당 → Shell 운영 담당 | 대기 | — |
 | 9 | 디자이너·독립 QA·총괄 | 대기 | — |
 
@@ -238,6 +238,8 @@ Task6 disposition: complete scoped source/review after root read56-line task-6-r
 Task7 read-only readiness returned107lines/readEOF without product/test/Git/server changes. Root queued ruling keeps comment18 to selected overview two literals/unused wrapper+hasPartialData only; analysis estimate/individual KPI status/series gap-tooltip-sr-only/quality metadata and used helpers/icons remain. Comment16 period-only applies overview lines, not Heatmap date/timezone header. Existing FilterPanel public slots suffice with feature search landmark wrapper; no shared/API/DB extension. Own16194/16195 only after actual writer dispatch. Preparation complete; no extra approval question or repeated setup. Actual Task7 BASE/sole writer remains after Task6 return+fresh review.
 
 Task7 execution handoff: SAME statistics owner01a088fa-5016-7162-99b0-a573d3173995 confirmed idle, receives exact BASE `e042ef46d9a7a49d683f256ca31d60b5acc66672` after Task6 scoped approval and sole owned product writer grant. Active task-7-brief preserves returned source/map/NumberField, limits comment18 to the selected overview presentation, requires public FilterPanel/formatter and actual native200 proof, own16194/16195 failclosed/ownjournal/initialcheckpoint/sourcefreeze/menu+commit/cleanup. No currentmain/DB/hardware/preparation/approvedproducer/root gates/helpers/rootdocs. statistics-flow original is route/mock based, no RealBackendLab start; actual automation Lab remains Task9. AllfiveTask7stepspendingactualreturn+freshreview, Task8sourceWAIT.
+
+Task7-era integration checkpoint: main checkout is now dirty while the original Settings owner finishes separate CAD work, although branch `codex/mvp1-cloud-web` and HEAD `36a99b29` are unchanged. Root preserves all source/docs WIP and sent only ownership/completion coordination, not a task switch or our source grant. A fresh disk-only Prisma DMMF read reports generated receipt model absent; no DB connection/generation/restart occurred and this does not prove the operational table or cached client state. Before integration reconcile the actual owned committed upstream and runtime/schema boundary; do not assume a clean fast-forward or copy/stash/reset the CAD WIP. Isolated Task7 continues safely.
 
 ### Task 8: 설정·운영 timestamp 소비 마무리
 
