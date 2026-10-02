@@ -19,6 +19,54 @@ describe("map editor View integration controller", () => {
     store().loadMapStructures(store().mapScope!, { groups: [], layers: [layer] });
     source.getElements.mockResolvedValue([]); source.getSelection.mockResolvedValue({ generationId: "gen", revision: 1, ids: [], nextCursor: null }); });
   afterEach(cleanup);
+  it("gives a non-grid map boundary priority and snaps a move only once", async () => {
+    const initial = structuredClone(base); initial.floor.mapDocument!.width = 1204;
+    store().initialize(initial, "user"); store().loadMapStructures(store().mapScope!, { groups: [], layers: [layer] });
+    const shape = createMapElementFromDrag("rectangle", { x: 103, y: 107 }, { x: 323, y: 147 }, "shape")!;
+    source.getElements.mockResolvedValue([shape]); store().loadMapElements(store().mapScope!, [shape]); store().selectMapElements([shape.id]);
+    const view = renderHook(() => useMapEditor({ floorId: "floor", authScope: "user", readOnly: false }));
+    await waitFor(() => expect(view.result.current.shapeCount).toBe(1));
+    await act(async () => view.result.current.move({ x: 1000, y: 0 }));
+    expect(store().mapElements.get("shape")!.transform.x + 323).toBe(1204);
+  });
+  it.each([false, true])("counts and atomically removes lights-only/mixed selection (mixed=%s)", async mixed => {
+    const initial = structuredClone(base);
+    initial.fixtures = [{ id: "light", name: "Light", x: 207, y: 213, size: 20, ratedWatt: 40, brightness: 80, status: "online", placementStatus: "placed" }];
+    initial.lightSlots = [{ id: "slot", x: 207, y: 213, rotation: 0, assignedFixtureId: "light" }];
+    store().initialize(initial, "user"); store().loadMapStructures(store().mapScope!, { groups: [], layers: [layer] });
+    const shape = createMapElementFromDrag("rectangle", { x: 103, y: 107 }, { x: 183, y: 147 }, "shape")!;
+    source.getElements.mockResolvedValue([shape]);
+    store().loadMapElements(store().mapScope!, [shape]);
+    if (mixed) store().selectMapElements([shape.id]);
+    store().selectFixtures(["light"], true);
+    const { result } = renderHook(() => useMapEditor({ floorId: "floor", authScope: "user", readOnly: false }));
+    await waitFor(() => expect(result.current.selectionCount).toBe(mixed ? 2 : 1));
+    await act(async () => result.current.remove());
+    expect(store().state!.fixtures[0].placementStatus).toBe("unplaced");
+    expect(store().state!.lightSlots[0].assignedFixtureId).toBeNull();
+    expect(store().past).toHaveLength(1);
+    expect(store().mapElements.has("shape")).toBe(!mixed);
+    act(() => store().undo());
+    expect(store().state!.fixtures).toEqual(initial.fixtures);
+    expect(store().state!.lightSlots).toEqual(initial.lightSlots);
+    expect(store().mapElements.has("shape")).toBe(true);
+    act(() => store().redo());
+    expect(store().state!.fixtures[0].placementStatus).toBe("unplaced");
+  });
+  it("snaps a mixed movement by the whole bbox, preserving relative spacing", async () => {
+    const initial = structuredClone(base);
+    initial.fixtures = [{ id: "light", name: "Light", x: 207, y: 213, size: 20, ratedWatt: 40, brightness: 80, status: "online" }];
+    store().initialize(initial, "user"); store().loadMapStructures(store().mapScope!, { groups: [], layers: [layer] });
+    const shape = createMapElementFromDrag("rectangle", { x: 103, y: 107 }, { x: 183, y: 147 }, "shape")!;
+    source.getElements.mockResolvedValue([shape]); store().loadMapElements(store().mapScope!, [shape]);
+    store().selectMapElements([shape.id]); store().selectFixtures(["light"], true);
+    const { result } = renderHook(() => useMapEditor({ floorId: "floor", authScope: "user", readOnly: false }));
+    await waitFor(() => expect(result.current.bounds?.minX).toBe(103));
+    await act(async () => result.current.move({ x: 14, y: 9 }));
+    expect(store().mapElements.get("shape")!.transform).toMatchObject({ x: 17, y: 13 });
+    expect(store().state!.fixtures[0]).toMatchObject({ x: 224, y: 226 });
+    expect(store().past).toHaveLength(1);
+  });
   it("creates all eight tools through the common timeline and deletes without touching slots", async () => {
     const { result } = renderHook(() => useMapEditor({ floorId: "floor", authScope: "user", readOnly: false }));
     for (const type of ["rectangle", "triangle", "line", "text", "ellipse", "arc", "polyline", "polygon"] as const) {

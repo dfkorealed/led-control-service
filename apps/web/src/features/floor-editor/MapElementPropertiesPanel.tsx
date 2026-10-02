@@ -5,6 +5,8 @@ import { getMapElementBounds } from "@led-control/shared/map-document-geometry";
 import { Checkbox, FormField, Heading, IconTooltipButton, NumberField, Text, TextField, themeColor } from "../../components/ui";
 import type { Bounds } from "./geometry";
 import { createMapElementUpdateOps, getMapElementSize, resizeMapElement, uniqueMapSelection } from "./map-element-editing";
+import { finishSelectionResize } from "./map-selection-transform";
+import { snapValueToGrid } from "./geometry";
 
 export interface MapElementPropertiesPanelProps {
   selection: MapElement[];
@@ -14,6 +16,7 @@ export interface MapElementPropertiesPanelProps {
   /** Effective upstream layer/group lock. Element locks are also checked locally. */
   locked?: boolean;
   mapBounds?: Bounds;
+  gridSize?: number;
   onError?: (error: Error) => void;
 }
 
@@ -36,7 +39,7 @@ export function MapElementPropertiesPanel(props: MapElementPropertiesPanelProps)
 }
 
 function PropertiesForm({ selection, onChange, onDelete, readOnly = false, locked = false,
-  mapBounds, onError }: MapElementPropertiesPanelProps) {
+  mapBounds, gridSize, onError }: MapElementPropertiesPanelProps) {
   const [error, setError] = useState<string | null>(null);
   const [resetVersion, setResetVersion] = useState(0);
   const disabled = readOnly || locked || selection.some(element => element.locked);
@@ -63,6 +66,19 @@ function PropertiesForm({ selection, onChange, onDelete, readOnly = false, locke
       value={value ?? null} placeholder={value === undefined ? "혼합" : undefined}
       minValue={options.min} maxValue={options.max} formatOptions={{ maximumFractionDigits: 6 }}
       onChange={next => { if (next !== null) change(element => write(element, next)); }} />;
+  };
+  const resize = (element: MapElement, axis: "width" | "height", value: number) => {
+    const resized = resizeMapElement(element, { [axis]: value });
+    if (!mapBounds) return resized;
+    const local = getMapElementBounds({ ...element, transform: { x: 0, y: 0, scaleX: 1, scaleY: 1, rotation: 0 } });
+    // The local top-left, not transform's arbitrary CAD origin, is the inspector anchor.
+    const angle = element.transform.rotation * Math.PI / 180;
+    const dx = local.minX * (element.transform.scaleX - resized.transform.scaleX);
+    const dy = local.minY * (element.transform.scaleY - resized.transform.scaleY);
+    const next = { ...resized.transform, x: element.transform.x + dx * Math.cos(angle) - dy * Math.sin(angle),
+      y: element.transform.y + dx * Math.sin(angle) + dy * Math.cos(angle) };
+    return { ...resized, transform: finishSelectionResize(local, next, axis === "width" ? "middle-right" : "bottom-center", mapBounds, gridSize, false,
+      transform => getMapElementBounds({ ...element, transform }), element.transform) };
   };
   const renderColorField = (property: "strokeColor" | "fillColor", label: string) => {
     const value = common(selection, element => element.style[property]);
@@ -96,12 +112,12 @@ function PropertiesForm({ selection, onChange, onDelete, readOnly = false, locke
     <div key={resetVersion} className="grid min-w-0 gap-3">
       <div className="grid min-w-0 grid-cols-2 gap-2">
         {number("X 위치", element => getMapElementBounds(element).minX, (element, x) => ({ ...element,
-          transform: { ...element.transform, x: element.transform.x + x - getMapElementBounds(element).minX } }))}
+          transform: { ...element.transform, x: element.transform.x + (gridSize ? snapValueToGrid(x, gridSize) : x) - getMapElementBounds(element).minX } }))}
         {number("Y 위치", element => getMapElementBounds(element).minY, (element, y) => ({ ...element,
-          transform: { ...element.transform, y: element.transform.y + y - getMapElementBounds(element).minY } }))}
-        {number("너비", element => getMapElementSize(element).width, (element, width) => resizeMapElement(element, { width }),
+          transform: { ...element.transform, y: element.transform.y + (gridSize ? snapValueToGrid(y, gridSize) : y) - getMapElementBounds(element).minY } }))}
+        {number("너비", element => getMapElementSize(element).width, (element, width) => resize(element, "width", width),
           { disabled: selection.some(element => getMapElementSize(element).width === 0) })}
-        {number("높이", element => getMapElementSize(element).height, (element, height) => resizeMapElement(element, { height }),
+        {number("높이", element => getMapElementSize(element).height, (element, height) => resize(element, "height", height),
           { disabled: selection.some(element => getMapElementSize(element).height === 0) })}
         {number("회전", element => element.transform.rotation, (element, rotation) => ({ ...element,
           transform: { ...element.transform, rotation } }), { min: -360, max: 360 })}
@@ -146,6 +162,6 @@ function PropertiesForm({ selection, onChange, onDelete, readOnly = false, locke
           (element, fontSize) => element.type === "text" ? { ...element, geometry: { ...element.geometry, fontSize } } : element)}
       </> : null}
     </div>
-    {error ? <div role="alert" className="break-words text-caption text-status-danger-foreground">{error}</div> : null}
+    {error && !onError ? <div role="alert" className="break-words text-caption text-status-danger-foreground">{error}</div> : null}
   </aside>;
 }

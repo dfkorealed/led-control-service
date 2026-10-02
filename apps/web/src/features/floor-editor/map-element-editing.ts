@@ -4,6 +4,7 @@ import {
 } from "@led-control/shared/map-document-contracts";
 import { getMapElementBounds, transformMapPoint } from "@led-control/shared/map-document-geometry";
 import { alignRectToGuides, snapPointToGrid, type AlignmentGuide, type Bounds, type MapRect } from "./geometry";
+import { finishSelectionMove } from "./map-selection-transform";
 
 export type MapElementTransform = MapElement["transform"];
 export const MAP_ELEMENT_IDENTITY: MapElementTransform = { x: 0, y: 0, scaleX: 1, scaleY: 1, rotation: 0 };
@@ -123,7 +124,8 @@ export function moveMapSelection(
   const aligned = options.guideTargets ? alignRectToGuides(moving, options.guideTargets,
     options.mapBounds, options.guideThreshold ?? 6) : { point: moving, guides: [] };
   // Grid wins at commit; retaining a preview guide after snapping would advertise a false alignment.
-  const point = final && options.gridSize !== undefined ? snapPointToGrid(aligned.point, options.gridSize) : aligned.point;
-  return { offset: { x: point.x - box.minX, y: point.y - box.minY },
+  const offsetResult = final ? finishSelectionMove(box, { x: aligned.point.x - box.minX, y: aligned.point.y - box.minY }, options.mapBounds, options.gridSize)
+    : { x: aligned.point.x - box.minX, y: aligned.point.y - box.minY };
+  return { offset: offsetResult,
     guides: final && options.gridSize !== undefined ? [] : aligned.guides };
 }

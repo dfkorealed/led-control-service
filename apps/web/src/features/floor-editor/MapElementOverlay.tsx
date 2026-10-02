@@ -2,8 +2,10 @@ import Konva from "konva";
 import { useLayoutEffect, useMemo, useRef } from "react";
 import { Ellipse, Group, Line, Path, Rect, Shape, Transformer } from "react-konva";
 import type { MapElement, MapOp, Point } from "@led-control/shared/map-document-contracts";
+import { getMapElementBounds, transformMapPoint } from "@led-control/shared/map-document-geometry";
 import { themeColor } from "../../components/ui";
 import type { AlignmentGuide } from "./geometry";
+import { finishSelectionResize } from "./map-selection-transform";
 import {
   createMapElementUpdateOps, getMapSelectionBounds, MAP_ELEMENT_IDENTITY, moveMapSelection, transformMapSelection,
   uniqueMapSelection, type MapElementAlignmentOptions, type MapElementTransform
@@ -38,6 +40,7 @@ export interface MapElementOverlayProps extends MapElementAlignmentOptions {
   onChange: (ops: MapOp[]) => void;
   onError?: (error: Error) => void;
   onGuidesChange?: (guides: AlignmentGuide[]) => void;
+  onPick?: (point: Point, child: boolean, additive: boolean) => void;
 }
 
 /** Host preflight: use these exact visible IDs for promotion masks; on failure mask nothing
@@ -64,10 +67,12 @@ export function getMapElementOverlaySelection(selection: MapElement[]): MapEleme
 
 /** Mount inside the existing world-space Konva Layer/Group; the host supplies the camera. */
 export function MapElementOverlay({ selection, readOnly = false, locked = false, zoom, onChange,
-  onError, onGuidesChange, mapBounds, gridSize, guideTargets, guideThreshold }: MapElementOverlayProps) {
+  onError, onGuidesChange, onPick, mapBounds, gridSize, guideTargets, guideThreshold }: MapElementOverlayProps) {
   const nodeRef = useRef<Konva.Group>(null);
   const transformerRef = useRef<Konva.Transformer>(null);
   const gesture = useRef<"drag" | "transform" | null>(null);
+  const activeAnchor = useRef<string | null>(null);
+  const proportionalResize = useRef(false);
   const callbacks = useRef({ onError, onGuidesChange });
   callbacks.current = { onError, onGuidesChange };
   // Hosts commonly map selected IDs into a fresh array when guides rerender. Only changed
@@ -124,7 +129,10 @@ export function MapElementOverlay({ selection, readOnly = false, locked = false,
   const report = (cause: unknown) => callbacks.current.onError?.(
     cause instanceof Error ? cause : new Error("도형을 수정할 수 없습니다.")
   );
-  const start = (kind: "drag" | "transform") => { gesture.current = disabled ? null : kind; };
+  const start = (kind: "drag" | "transform") => {
+    gesture.current = disabled ? null : kind;
+    if (kind === "transform") activeAnchor.current = transformerRef.current?.getActiveAnchor() ?? null;
+  };
   const commit = (kind: "drag" | "transform") => {
     const node = nodeRef.current;
     if (!node) return;
@@ -138,8 +146,22 @@ export function MapElementOverlay({ selection, readOnly = false, locked = false,
         ops = transformMapSelection(originals, { ...MAP_ELEMENT_IDENTITY, ...offset }, mapBounds);
       } else {
         if (Math.abs(node.skewX()) > 1e-8 || Math.abs(node.skewY()) > 1e-8) throw new RangeError("기울임 변환은 지원하지 않습니다.");
-        const transform: MapElementTransform = { x: node.x(), y: node.y(), scaleX: node.scaleX(), scaleY: node.scaleY(),
+        const raw: MapElementTransform = { x: node.x(), y: node.y(), scaleX: node.scaleX(), scaleY: node.scaleY(),
           rotation: ((node.rotation() + 180) % 360 + 360) % 360 - 180 };
+        if ((zeroWidth || zeroHeight) && activeAnchor.current && activeAnchor.current !== "rotater") {
+          // Konva resizes the padded hit rectangle. A line's fixed endpoint belongs
+          // to its raw geometry; the synthetic zero-axis extent must not move it.
+          const anchor = activeAnchor.current;
+          const fixed = { x: anchor.includes("left") ? localBounds.maxX : anchor.includes("right") ? localBounds.minX : (localBounds.minX + localBounds.maxX) / 2,
+            y: anchor.includes("top") ? localBounds.maxY : anchor.includes("bottom") ? localBounds.minY : (localBounds.minY + localBounds.maxY) / 2 };
+          if (zeroWidth) raw.scaleX = frame.scaleX;
+          if (zeroHeight) raw.scaleY = frame.scaleY;
+          const pivot = transformMapPoint(fixed, frame), offset = transformMapPoint(fixed, { ...raw, x: 0, y: 0 });
+          raw.x = pivot.x - offset.x; raw.y = pivot.y - offset.y;
+        }
+        const transform = finishSelectionResize(localBounds, raw, activeAnchor.current, mapBounds, gridSize,
+          !single || proportionalResize.current,
+          single ? transform => getMapElementBounds({ ...originals[0], transform }) : undefined, frame);
         ops = single
           ? createMapElementUpdateOps(originals, element => ({ ...element, transform }), mapBounds)
           : transformMapSelection(originals, transform, mapBounds);
@@ -153,7 +175,9 @@ export function MapElementOverlay({ selection, readOnly = false, locked = false,
     <Group ref={nodeRef} name="map-element-overlay" {...frame} draggable={!disabled}
       onMouseDown={event => { event.cancelBubble = true; }}
       onTouchStart={event => { event.cancelBubble = true; }}
-      onDragStart={() => start("drag")} onTransformStart={() => start("transform")}
+      onClick={event => { event.cancelBubble = true; const point = event.target.getStage()?.getPointerPosition(); if (point) onPick?.(point, event.evt.detail >= 2, event.evt.shiftKey); }}
+      onTap={event => { const point = event.target.getStage()?.getPointerPosition(); if (point) onPick?.(point, false, false); }}
+      onDragStart={() => start("drag")} onTransformStart={event => { proportionalResize.current = Boolean((event.evt as MouseEvent | undefined)?.shiftKey); start("transform"); }}
       onDragMove={() => {
         const node = nodeRef.current;
         if (!node || disabled || gesture.current !== "drag") return;

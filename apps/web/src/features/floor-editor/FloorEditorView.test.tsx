@@ -9,6 +9,7 @@ import { editorDraftGeneration, saveEditorDraft } from "./editor-drafts";
 import { clearTenantCache } from "../../api/principal-cache";
 import * as spatialIndex from "./editor-spatial-index";
 import { MemoryRouter } from "react-router-dom";
+import { SessionStatusProvider, ToastRegion } from "../../components/ui";
 
 vi.mock("../map-scene/MapSceneCanvas", () => ({ MapSceneCanvas: () => <canvas data-testid="common-map-canvas" /> }));
 
@@ -135,9 +136,9 @@ function renderEditor(state: FloorEditorState = editorState, props?: Partial<Par
   };
   const result = render(
     <QueryClientProvider client={queryClient}>
-      <MemoryRouter>
+      <SessionStatusProvider><ToastRegion /><MemoryRouter>
       <FloorEditorView initialState={state} {...editorProps} />
-      </MemoryRouter>
+      </MemoryRouter></SessionStatusProvider>
     </QueryClientProvider>
   );
   return {
@@ -145,16 +146,16 @@ function renderEditor(state: FloorEditorState = editorState, props?: Partial<Par
     queryClient,
     rerenderWithProps: (nextProps: Partial<Parameters<typeof FloorEditorView>[0]>) => result.rerender(
       <QueryClientProvider client={queryClient}>
-        <MemoryRouter>
+        <SessionStatusProvider><ToastRegion /><MemoryRouter>
         <FloorEditorView initialState={state} {...editorProps} {...nextProps} />
-        </MemoryRouter>
+        </MemoryRouter></SessionStatusProvider>
       </QueryClientProvider>
     ),
     rerenderEditor: (nextState: FloorEditorState) => result.rerender(
       <QueryClientProvider client={queryClient}>
-        <MemoryRouter>
+        <SessionStatusProvider><ToastRegion /><MemoryRouter>
         <FloorEditorView initialState={nextState} {...editorProps} />
-        </MemoryRouter>
+        </MemoryRouter></SessionStatusProvider>
       </QueryClientProvider>
     )
   };
@@ -808,9 +809,13 @@ describe("FloorEditorView", () => {
     const save = deferred<FloorEditorState>();
     floorEditorApi.saveFloorEditorState.mockReturnValueOnce(save.promise);
     const { queryClient } = renderEditor(editorState, undefined, "draft-user");
-    const recover = await screen.findByRole("button", { name: "초안 복구" });
+    fireEvent.click(await screen.findByRole("button", { name: "편집 복구" }));
+    await screen.findByRole("button", { name: "초안 복구" });
+    fireEvent.click(within(screen.getByRole("dialog", { name: "편집 복구" })).getByRole("button", { name: "닫기" }));
     act(() => useFloorEditorStore.getState().updateFixture("fixture-1", { x: 222 }));
     fireEvent.click(screen.getByRole("button", { name: "저장" }));
+    fireEvent.click(screen.getByRole("button", { name: "편집 복구" }));
+    const recover = screen.getByRole("button", { name: "초안 복구" });
     expect(recover).toBeDisabled();
     fireEvent.click(recover);
     expect(useFloorEditorStore.getState().state?.fixtures[0].x).toBe(220);
@@ -1525,6 +1530,7 @@ describe("FloorEditorView", () => {
       .getByRole("button", { name: "교체 후 적용" }));
 
     expect(await screen.findByText("최신 맵과 변경사항이 충돌했습니다.")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "편집 복구" }));
     expect(screen.getByRole("button", { name: "최신 버전 다시 불러오기" })).toBeInTheDocument();
   });
 
@@ -1535,7 +1541,7 @@ describe("FloorEditorView", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "저장" }));
 
-    expect(await screen.findByText("변경분을 저장하지 못했습니다.")).toBeInTheDocument();
+    expect(await within(screen.getByRole("region", { name: "알림" })).findByText("변경분을 저장하지 못했습니다.")).toBeInTheDocument();
     expect(useFloorEditorStore.getState().state?.fixtures[0].x).toBe(220);
     expect(useFloorEditorStore.getState().isDirty).toBe(true);
   });
@@ -1550,7 +1556,9 @@ describe("FloorEditorView", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "저장" }));
 
-    const feedback = (await screen.findByText("최신 맵과 변경사항이 충돌했습니다.")).closest<HTMLElement>("[role=alert]")!;
+    await screen.findByText("최신 맵과 변경사항이 충돌했습니다.");
+    fireEvent.click(screen.getByRole("button", { name: "편집 복구" }));
+    const feedback = within(screen.getByRole("dialog", { name: "편집 복구" })).getByText("최신 맵과 변경사항이 충돌했습니다.").closest<HTMLElement>("[role=alert]")!;
     expect(feedback).toHaveTextContent("최신 맵과 변경사항이 충돌했습니다.");
     expect(feedback).toHaveTextContent("최신 버전을 다시 불러온 뒤 변경사항을 확인하세요.");
     expect(feedback).toHaveAttribute("data-tone", "danger");
@@ -1883,7 +1891,8 @@ describe("FloorEditorView", () => {
     fireEvent.click(screen.getByRole("tab", { name: "자료" }));
 
     expect(await screen.findByText("김관리")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /복구/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /리비전.*복구/ })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "편집 복구" })).toBeDisabled();
   });
 });
 

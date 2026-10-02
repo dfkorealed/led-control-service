@@ -18,6 +18,7 @@ it("adds and hides layers, groups selected shapes, then ungroups without geometr
   store().applyMapTransaction({ operations: [{ kind: "add", element }] }); store().selectMapElements(["one"]);
   function Panel() { const map = useMapEditor({ floorId: "floor", authScope: "user", readOnly: false }); return <EditorLayersPanel readOnly={false} mapEditor={map} />; }
   render(<Panel />);
+  expect(screen.getByRole("checkbox", { name: "Map 레이어 내 도형 선택" })).toBeVisible();
   fireEvent.click(screen.getByRole("button", { name: "레이어 추가" }));
   expect(store().mapLayers.size).toBe(2);
   fireEvent.click(screen.getByRole("button", { name: "Map 숨기기" }));
@@ -26,8 +27,16 @@ it("adds and hides layers, groups selected shapes, then ungroups without geometr
   await waitFor(() => expect(screen.getByRole("button", { name: "그룹 만들기" })).toBeEnabled());
   fireEvent.click(screen.getByRole("button", { name: "그룹 만들기" }));
   await waitFor(() => expect(store().mapGroups.size).toBe(1));
-  fireEvent.click(screen.getByRole("button", { name: "그룹 1 해제" }));
+  fireEvent.click(screen.getByRole("button", { name: "그룹 1 메뉴" }));
+  fireEvent.click(await screen.findByRole("menuitem", { name: "그룹 1 해제" }));
   await waitFor(() => expect(store().mapGroups.size).toBe(0));
   expect(store().mapElements.get("one")!.geometry).toEqual(element.geometry);
   expect(store().mapElements.get("one")!.groupId).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Map 메뉴" }));
+  fireEvent.click(await screen.findByRole("menuitem", { name: "이름 변경" }));
+  fireEvent.change(screen.getByLabelText("이름"), { target: { value: "  New Map  " } });
+  fireEvent.click(screen.getByRole("button", { name: "이름 저장" }));
+  expect(store().mapLayers.get("map")!.name).toBe("New Map");
+  expect(store().prepareSave({ leaseToken: "lease", leaseFence: 1 }).payload.documentChanges!.operations)
+    .toEqual(expect.arrayContaining([{ kind: "layer.put", layer: expect.objectContaining({ id: "map", name: "New Map" }) }]));
 });

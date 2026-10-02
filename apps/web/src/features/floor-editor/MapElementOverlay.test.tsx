@@ -30,6 +30,45 @@ function lastElements(onChange: ReturnType<typeof setup>["onChange"]) {
 }
 
 describe("MapElementOverlay", () => {
+  it("uses raw line geometry rather than the widened hit frame as a degenerate resize anchor", () => {
+    const element = createMapElementFromDrag("line", { x: 103, y: 107 }, { x: 103, y: 147 }, "vertical")!;
+    const { node, stage, onChange, onError } = setup([element], { gridSize: 10 });
+    vi.spyOn(stage.findOne<Konva.Transformer>(".map-element-transformer")!, "getActiveAnchor").mockReturnValue("bottom-right");
+    act(() => { node.fire("transformstart"); node.scale({ x: 1.5, y: 1.18 });
+      node.position({ x: 99 - 99 * 1.5, y: 107 - 107 * 1.18 }); node.fire("transformend"); });
+    expect(onError).not.toHaveBeenCalled();
+    const result = lastElements(onChange)[0], box = getMapElementBounds(result);
+    expect(box.minX).toBeCloseTo(103); expect(box.minY).toBeCloseTo(107);
+    expect(box.maxY).toBeCloseTo(150); expect(result.transform.scaleX).toBe(1);
+  });
+  it.each([undefined, 10])("uses actual rotated ellipse bounds for edge resizing (grid=%s)", gridSize => {
+    const element: MapElement = { ...make("ellipse"), type: "ellipse", geometry: { center: { x: 0, y: 0 }, radiusX: 50, radiusY: 5 },
+      transform: { x: 36, y: 100, scaleX: 1, scaleY: 1, rotation: 45 } };
+    const { node, stage, onChange, onError } = setup([element], { gridSize });
+    vi.spyOn(stage.findOne<Konva.Transformer>(".map-element-transformer")!, "getActiveAnchor").mockReturnValue("middle-right");
+    const fixed = transformMapPoint({ x: -50, y: 0 }, element.transform);
+    const linear = { ...element.transform, x: 0, y: 0, scaleX: 0.9 };
+    const offset = transformMapPoint({ x: -50, y: 0 }, linear);
+    act(() => { node.fire("transformstart"); node.setAttrs({ ...linear, x: fixed.x - offset.x, y: fixed.y - offset.y }); node.fire("transformend"); });
+    expect(onError).not.toHaveBeenCalled(); expect(onChange).toHaveBeenCalledTimes(1);
+    const result = lastElements(onChange)[0], box = getMapElementBounds(result);
+    expect(box.minX).toBeGreaterThanOrEqual(0);
+    expect(transformMapPoint({ x: -50, y: 0 }, result.transform).x).toBeCloseTo(fixed.x);
+    if (!gridSize) expect(result.transform.scaleX).toBeCloseTo(0.9);
+  });
+  it("snaps resize at release while keeping the opposite corner fixed", () => {
+    const element = make("rectangle");
+    const { node, stage, onChange } = setup([element], { gridSize: 10 });
+    const transformer = stage.findOne<Konva.Transformer>(".map-element-transformer")!;
+    vi.spyOn(transformer, "getActiveAnchor").mockReturnValue("bottom-right");
+    act(() => { node.fire("transformstart"); node.scale({ x: 1.17, y: 1.18 });
+      node.position({ x: 103 - 103 * 1.17, y: 107 - 107 * 1.18 }); });
+    expect(onChange).not.toHaveBeenCalled();
+    act(() => node.fire("transformend"));
+    const box = getMapElementBounds(lastElements(onChange)[0]);
+    expect(box.minX).toBeCloseTo(103); expect(box.minY).toBeCloseTo(107);
+    expect(box.maxX).toBeCloseTo(200); expect(box.maxY).toBeCloseTo(150);
+  });
   it.each(types)("renders selected %s from canonical geometry only", type => {
     const element = { ...make(type), transform: { x: 200, y: 100, scaleX: 1.2, scaleY: 0.7, rotation: 31 } };
     const { stage } = setup([element]);
@@ -166,11 +205,14 @@ describe("MapElementOverlay", () => {
     expect(node.scale()).toEqual({ x: 1, y: 1 });
   });
 
-  it("reverts a whole out-of-bounds group and leaves no dirty node transform", () => {
+  it("clamps a whole group to map bounds with one delta and leaves no dirty node transform", () => {
     const { node, onChange, onError } = setup([make("line"), make("ellipse")]);
     act(() => { node.fire("dragstart"); node.x(5000); node.fire("dragend"); });
-    expect(onChange).not.toHaveBeenCalled();
-    expect(onError).toHaveBeenCalledTimes(1);
+    expect(onChange).toHaveBeenCalledTimes(1);
+    expect(onError).not.toHaveBeenCalled();
+    const result = lastElements(onChange);
+    expect(getMapElementBounds(result[0]).maxX).toBeCloseTo(2000);
+    expect(result[0].transform.x).toBe(result[1].transform.x);
     expect(node.position()).toEqual({ x: 0, y: 0 });
   });
 

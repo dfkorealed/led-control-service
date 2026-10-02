@@ -65,6 +65,14 @@
 - 갱신 규칙: producer 지원과 웹 소비 적용을 구분하고 paired 날짜 검증·현장 시간대/DST·DB 시각·scope/조회 크기 cursor·동일 시각 ID 순서·legacy 호환 및 opt-in 실행 여부를 함께 유지한다.
 - 날짜 경계 보완: 현장 시간대에서 실제로 존재하지 않는 시작일·종료일을 선택하면 400으로 거부한다. 유효한 종료일 다음 날짜만 시간대 전환으로 사라진 경우에는 다음 실제 날짜 시작을 종료 경계로 사용하며, 보존 범위 밖의 유효한 기간은 그대로 빈 교집합이다. Pacific/Apia 역사 경계는 단위 테스트 증거이며 실제 DB 검증은 후속이다.
 
+## 2026-10-02 맵 선택 전체 삭제의 읽기 전용 소비
+
+- 구현 완료: 설정 맵의 전체 삭제는 도형을 삭제하고 선택 조명을 미배치·위치 미확인으로 전환하며 슬롯 assignment를 해제한다. 기존 원자 저장 응답과 cache 갱신을 통해 모니터링은 저장된 도형·배치만 읽고 조명 장비 자체 및 전체 등록 수는 유지한다. 모니터링에 편집/장비 삭제 UI를 추가하지 않았다.
+- 미구현: 실제 장비·고객 DB·native WebView에서의 검증은 이번 Web fixture 검증과 별개다.
+- 부족하거나 개선이 필요한 기능: 신규 혼합 삭제/슬롯 해제는 HTTP fixture 저장·reload로 검사했으며 실제 backend 원자성 보증은 기존 서버 계약과 별도 통합 QA를 따른다. 미배치 조명 수와 전체 등록 수를 같은 지표로 해석하지 않는다.
+- 관련 파일: `apps/web/src/features/floor-editor/use-map-editor.ts`, `apps/web/src/features/floor-editor/FloorEditorView.tsx`, `apps/web/e2e/support/settings-api.ts`, `apps/web/e2e/map-editor-bounded-extension.spec.ts`.
+- 갱신 규칙: 설정 배치·슬롯·저장 계약이 변경되면 모니터링의 읽기 전용 재조회와 수 집계 의미를 함께 확인한다.
+
 ## 2026-09-27 종료 명령의 연결 활동 사본 정리
 
 - 구현 완료: 내부 명령 상세 정리 helper는 성공한 후보에 연결된 raw 및 알려진 keyed command activity source를 같은 거래에서 제거한다. 늦게 생성된 활동의 별도 recordedAt 때문에 만료 명령 연결 사본이 남지 않도록 한다. 이후 단계가 실패하면 활동도 rollback한다.

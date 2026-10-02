@@ -2,6 +2,7 @@ import type { LucideIcon } from "lucide-react";
 import { forwardRef, useEffect, useId, useRef, useState, type ButtonHTMLAttributes } from "react";
 import { cva } from "class-variance-authority";
 import { cn } from "./utils/cn";
+import { IconButton } from "./IconButton";
 
 export interface IconTooltipButtonProps extends Omit<ButtonHTMLAttributes<HTMLButtonElement>, "aria-label" | "children"> {
   icon: LucideIcon;
@@ -10,6 +11,8 @@ export interface IconTooltipButtonProps extends Omit<ButtonHTMLAttributes<HTMLBu
   loadingLabel?: string;
   variant?: "default";
   isDisabled?: boolean;
+  size?: "sm" | "md";
+  tooltip?: string;
 }
 
 const tooltipButton = cva("inline-flex size-13 items-center justify-center rounded-control border-0 bg-transparent p-0 text-action-primary cursor-pointer hover:bg-action-primary-soft focus-visible:bg-action-primary-soft focus-visible:outline-none focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60", { variants: { variant: { default: "" } } });
@@ -24,6 +27,8 @@ export const IconTooltipButton = forwardRef<HTMLButtonElement, IconTooltipButton
     disabled,
     isDisabled,
     variant = "default",
+    size = "md",
+    tooltip,
     ...props
   },
   ref
@@ -82,21 +87,22 @@ export const IconTooltipButton = forwardRef<HTMLButtonElement, IconTooltipButton
         }
       }}
     >
-      <button
+      <IconButton
         ref={ref}
         type="button"
         {...props}
-        className={cn(tooltipButton({ variant }), className)}
+        size="sm"
+        className={cn(tooltipButton({ variant }), size === "sm" ? "size-11 rounded-none" : "size-13", className)}
         aria-label={accessibleLabel}
         aria-describedby={isTooltipOpen ? tooltipId : undefined}
         aria-busy={isLoading || undefined}
         disabled={disabled || isDisabled || isLoading}
       >
         <Icon size={18} aria-hidden="true" />
-      </button>
+      </IconButton>
       {isTooltipOpen ? (
         <span id={tooltipId} className="absolute top-full left-1/2 z-60 mt-2 -translate-x-1/2 rounded-control bg-surface-inverse px-2 py-1.5 text-caption font-bold whitespace-nowrap text-content-inverse shadow-popover" role="tooltip">
-          {accessibleLabel}
+          {isLoading ? accessibleLabel : tooltip ?? accessibleLabel}
         </span>
       ) : null}
     </span>

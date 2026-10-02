@@ -3,6 +3,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testi
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { FloorEditorRoute } from "./FloorEditorRoute";
+import { SessionStatusProvider, ToastRegion } from "../../../components/ui";
 import { useFloorEditorStore } from "../../floor-editor/editor-store";
 import { createMapElementFromDrag } from "../../floor-editor/map-element-tools";
 import { mapStageClient } from "../../../api/map-stages";
@@ -32,10 +33,10 @@ afterEach(() => { cleanup(); client?.clear(); vi.restoreAllMocks(); window.histo
 it.each(["save", "cancel receipt"])("keeps leave/unload guards after stage %s while the post-preview draft remains", async mode => {
   client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   client.setQueryData(["auth", "me"], { user: { id: "user", role: "admin" } });
-  render(<QueryClientProvider client={client}><MemoryRouter initialEntries={["/settings/floor-plans/floor/edit?siteId=site"]}><Routes>
+  render(<QueryClientProvider client={client}><SessionStatusProvider><ToastRegion /><MemoryRouter initialEntries={["/settings/floor-plans/floor/edit?siteId=site"]}><Routes>
     <Route path="/settings/floor-plans/:floorId/edit" element={<FloorEditorRoute capabilities={{ read: true, control: true, manage: true, commission: true }} />} />
     <Route path="/settings/floor-plans" element={<h1>Left editor</h1>} />
-  </Routes></MemoryRouter></QueryClientProvider>);
+  </Routes></MemoryRouter></SessionStatusProvider></QueryClientProvider>);
   await screen.findByRole("heading", { name: "F 맵 편집" });
   await waitFor(() => expect(store().mapScope).not.toBeNull());
   const preview = { ...ref, generationId: "preview", revision: 2, elementCount: 1 };
@@ -55,11 +56,13 @@ it.each(["save", "cancel receipt"])("keeps leave/unload guards after stage %s wh
   act(() => store().updateFixture("fixture", { name: "unsaved-after-preview" }));
   fireEvent.click(screen.getByRole("button", { name: "저장" }));
   if (mode === "cancel receipt") {
+    fireEvent.click(screen.getByRole("button", { name: "편집 복구" }));
     const cancel = screen.getByRole("button", { name: "대량 편집 취소" });
     await waitFor(() => expect(cancel).toBeEnabled()); fireEvent.click(cancel);
   }
   await waitFor(() => expect(client.getQueryData<FloorEditorState>(["floor-editor", "site", "floor"])?.floor.mapRevision).toBe(2));
   expect(store().isDirty).toBe(true);
+  if (mode === "cancel receipt") fireEvent.click(within(screen.getByRole("dialog", { name: "편집 복구" })).getByRole("button", { name: "닫기" }));
   expect(store().state!.fixtures[0].name).toBe("unsaved-after-preview");
   expect(store().initialState!.fixtures[0].name).toBe("before");
   const unload = new Event("beforeunload", { cancelable: true });

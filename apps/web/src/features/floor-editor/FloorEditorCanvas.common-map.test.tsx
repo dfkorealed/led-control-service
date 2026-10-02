@@ -6,6 +6,7 @@ import { useFloorEditorStore } from "./editor-store";
 import { useMapEditor } from "./use-map-editor";
 import { createFixturePlacementRowRegistry } from "./FixturePlacementList";
 import type { FloorEditorState } from "./editor-types";
+import { ConfirmDialog } from "../../components/ui";
 
 vi.mock("../map-scene/MapSceneCanvas", () => ({ MapSceneCanvas: () => <canvas data-testid="map-scene" /> }));
 vi.mock("../../api/map-document", () => ({ createMapDocumentSource: () => ({ scopeKey: "test",
@@ -15,12 +16,40 @@ const base: FloorEditorState = { floor: { id: "floor", siteId: "site", name: "Fl
     manifest: { assetId: "manifest", sha256: "a".repeat(64), byteSize: 1, decodedByteSize: 1 } } }, fixtures: [], objects: [], lightSlots: [] };
 const store = useFloorEditorStore.getState;
 function Canvas() { const map = useMapEditor({ floorId: "floor", authScope: "user", readOnly: false });
-  return <><input aria-label="Outside text" /><FloorEditorCanvas rowRegistry={createFixturePlacementRowRegistry()} mapEditor={map} /></>; }
+  return <><input aria-label="Outside text" /><FloorEditorCanvas rowRegistry={createFixturePlacementRowRegistry()} mapEditor={map} />
+    <ConfirmDialog isOpen={map.removeRequested} title="선택 전체 삭제" confirmLabel="전체 삭제" onClose={map.cancelRemove} onConfirm={() => { void map.confirmRemove(); }} /></>; }
 describe("actual common editor Canvas", () => {
   beforeEach(() => { store().initialize(structuredClone(base), "user");
     store().loadMapStructures(store().mapScope!, { groups: [], layers: [{ id: "map", name: "Map", order: 0, visible: true, locked: false }] });
     vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue({ x: 0, y: 0, left: 0, top: 0, right: 900, bottom: 600, width: 900, height: 600, toJSON() {} }); });
   afterEach(() => { cleanup(); vi.restoreAllMocks(); });
+  it("commits a single fixture resize with a fixed corner and one undo entry", () => {
+    const initial = structuredClone(base);
+    initial.fixtures = [{ id: "fixture", name: "Fixture", x: 103, y: 107, size: 20, ratedWatt: 40, brightness: 80, status: "online" }];
+    store().initialize(initial, "user"); store().selectFixture("fixture");
+    render(<Canvas />);
+    const stage = Konva.stages.at(-1)!, node = stage.findOne<Konva.Group>(".fixture-fixture")!;
+    const transformer = stage.findOne<Konva.Transformer>("Transformer")!;
+    expect(transformer.nodes()).toEqual([node]);
+    vi.spyOn(transformer, "getActiveAnchor").mockReturnValue("bottom-right");
+    act(() => { transformer.fire("transformstart"); node.setAttrs({ x: 106.7, y: 110.7, scaleX: 1.37, scaleY: 1.37 }); });
+    expect(store().state!.fixtures[0]).toEqual(initial.fixtures[0]);
+    act(() => node.fire("transformend"));
+    const result = store().state!.fixtures[0];
+    expect(result.x - result.size! / 2).toBeCloseTo(93); expect(result.y - result.size! / 2).toBeCloseTo(97);
+    expect(result.x + result.size! / 2).toBeCloseTo(120); expect(store().past).toHaveLength(1);
+    act(() => store().undo()); expect(store().state!.fixtures).toEqual(initial.fixtures);
+  });
+  it("keeps legacy fixture arrow movement and resize handles without a common document", async () => {
+    const initial = structuredClone(base); initial.floor.mapDocument = null;
+    initial.fixtures = [{ id: "legacy", name: "Legacy", x: 100, y: 100, size: 20, ratedWatt: 40, brightness: 80, status: "online" }];
+    store().initialize(initial, "user"); store().selectFixture("legacy");
+    render(<Canvas />);
+    fireEvent.keyDown(window, { key: "ArrowRight" });
+    expect(store().state!.fixtures[0].x).toBe(110);
+    const transformer = Konva.stages.at(-1)!.findOne<Konva.Transformer>("Transformer")!;
+    expect(transformer.nodes()).toHaveLength(1);
+  });
   it("fits once using measured dimensions and does not refit after pan", () => {
     render(<Canvas />);
     expect(store().zoom).toBeCloseTo(Math.min(852 / 16384, 552 / 13222));
@@ -202,6 +231,9 @@ describe("actual common editor Canvas", () => {
     fireEvent.keyDown(screen.getByLabelText("Outside text"), { key: "Backspace" });
     expect(store().mapElements.size).toBe(1);
     fireEvent.keyDown(window, { key: "Delete" });
+    expect(store().mapElements.size).toBe(1);
+    fireEvent.click(screen.getByRole("button", { name: "전체 삭제" }));
+    await waitFor(() => expect(store().mapElements.size).toBe(0));
     expect(store().mapElements.size).toBe(0);
     act(() => store().undo());
     expect(store().mapElements.size).toBe(1);
