@@ -44,7 +44,7 @@
 | 6 | 제어 UI 개선 담당자(GPT-6.1 Sol/high) | 완료·독립 명세/품질 승인 | e02d00eb→4128c2de; frozen683단위/90브라우저, Spec✅/qualityApproved; M2 실제 짧은 필터 조작은 Task9 |
 | 7 | 통계 페이지 담당자 → 내부 이어쓰기 | 완료·독립 명세/품질 승인 | e042ef46→ebeebdea;135단위/47브라우저·실제200%·UI0, Spec✅/qualityApproved; 전체검수 별도 |
 | 8 | 같은 설정 담당·5개 시각 batch | 완료·독립 명세/품질 승인 | d014261e→5e39a29e;155단위/Seoul15/브라우저11+1·UI0, 보조 편집기3실패는 결합 Task9에서 확인 |
-| 9 | 디자이너·독립 QA·총괄 | 루트 lint/type 통과·App 회귀7건 보완 중 | c7861d9a root test exit1(3432통과/7실패/7skip, 도달한 합계); 전용 보완·독립 검토 뒤 최종 관문 계속 |
+| 9 | 디자이너·독립 QA·총괄 | App 회귀 보완 승인·전체 관문 재개 | ef33edf5 test-only/69통과/type·UI0·Spec✅/qualityApproved; 결합 소스 root/editor/Lab/디자이너/최종 검토 대기 |
 
 API와 공통 파일을 동시에 쓰지 않는다. Task 5는 `FloorScene`/`FloorMapViewport` 작성권을 받고, 반환·검토 후 Task 6에 넘긴다. Task 8의 설정/운영도 순차 배정한다. 소비자가 공통 계약 변경을 원하면 총괄에게 반환하고 producer가 수정·재검토한다. 개별 작업은 지정 파일과 보고서만 작성하며 다른 세션/서브에이전트를 임의 생성하지 않는다.
 
@@ -265,7 +265,9 @@ Test-only Shell compatibility addition: `apps/web/e2e/calm-operations-shell.spec
 
 ### Task 9: 엄격한 UI/UX 관문·실제 격리 소프트웨어·기본 브랜치 통합
 
-Task9 actual gate checkpoint: frozen `c7861d9a1d8a291df396d6fbd3af7c38e12d2851`에서 canonical lint/typecheck exit0, test exit1이다. 도달 합계3432통과/7실패/7skip이며 API/Gateway·후속 UI정책·build·editor·Lab는 아직 실행되지 않았다. 실패는 App.test.tsx의 선택 상세4건·지도 상세2건·옛 알람 이름1건·옛 프리셋1건 중 실제 총7사례이며 원본 표/로그를 유지한다(선택 상세 관련 사례는 중복 범주로 집계하지 않는다). 원인을 이전 UI 기대값으로 단정하거나 기존 실패로 면제하지 않는다. 전용 보완은 해당 App 통합 테스트만 수정할 권한을 먼저 주고, 실제 제품 결함이면 추가 소유 승인 전 정확 원인을 반환한다. 기본 브랜치·서버 불변/2182개 해시 불변/자체 리소스 미생성을 확인했다.
+Task9 actual gate checkpoint: frozen `c7861d9a1d8a291df396d6fbd3af7c38e12d2851`에서 canonical lint/typecheck exit0, test exit1이다. 도달 합계3432통과/7실패/7skip이며 API/Gateway·후속 UI정책·build·editor·Lab는 아직 실행되지 않았다. 실패는 App.test.tsx의 선택 상세/지도 상세/옛 알람 이름/옛 프리셋 관련 총7사례이며 원본 표/로그를 유지한다. 처음에는 원인을 이전 UI 기대값으로 단정하거나 기존 실패로 면제하지 않았고, 정확한 직접 RED와 실제 compact boundary를 대조했다. 기본 브랜치·서버 불변/2182개 해시 불변/자체 리소스 미생성을 확인했다.
+
+Task9 App scoped 보완은 d6c70a74→`ef33edf540ca702dcc3b6a2efefda20f24f4659c`의 App.test.tsx 한 파일만 변경했다. 승인한 명시 선택·새 알람 개인 미읽음 수·단일 밝기 입력에 남은 옛 사용자 경로와 빠진 incident GET fixture를 고쳤으며 제품 변경은 없다. RED7→중간68통과/1실패→실제 초점 복귀 조건을 기다린69/69·Webtype0·UI0, 나머지2181파일 불변·main1ea/서버 신원 불변/clean을 확인했다. 독립 검토는 Spec✅/qualityApproved/P0–P2없음이며 Enter/배경 viewer 조작 부재 단언의 기존 coverage 한계와 Konva 경고는 최종 검토로 유지한다. Compact repair 승인이지 PC 상세·실제 unread PUT·실DB/장비/전체 UI 승인이 아니다. 같은 QA가 새 문서 checkpoint에서 canonical root lint/type/test/build→원 편집기→실제 Lab로 이어가고 마지막 Lab 준비가 끝난 뒤 같은 디자이너에게 실행을 배정한다. 별도 leaf/producer/준비의 완료 검사는 반복하지 않는다.
 
 Ruling: 기존 Shell의 반복적인 현재 업무 유실과 최종 QA의 제품 수정 금지 때문에 App 통합 회귀 진단을 fresh task-only 내부 보조1명에게 한 묶음으로 배정한다 — 승인한 명시 선택/알람 이름/입력 UX와 기존 보안·Gateway·viewer·그룹 명령 검증을 함께 보존해야 하며 별도 source writer는 없다; 비용은 작은 test-only 검토1회이고 실제 제품 결함은 자동 수정하지 않고 범위를 다시 배정한다. 완료한 producer/기존 준비는 반복하지 않는다.
 
