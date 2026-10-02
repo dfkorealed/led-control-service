@@ -19,7 +19,7 @@ export const PROVISIONING_DEVICE_TERMINAL_EVENT_TYPE = "provisioning_device_term
 const DEVICE_UUID_CONFLICT_ERROR = "device UUID is already registered by another site";
 const FIXTURE_FLOOR_CONFLICT_ERROR = "fixture is already assigned to another floor";
 const PROVISIONING_WAITING_STATE = "provisioning_waiting_state";
-const BIO_DEVICE_UUID = /^bio:[0-9a-f]{12}$/;
+export const BIO_DEVICE_UUID = /^bio:[0-9a-f]{12}$/;
 const UNKNOWN_TERMINAL_ERROR = "조명 등록 결과를 자동 확정하지 못했습니다. 장비 상태를 확인해 주세요.";
 
 type GatewayScope = { siteId: string; gatewayId: string };

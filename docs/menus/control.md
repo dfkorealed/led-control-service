@@ -9,7 +9,8 @@
 - 구현 완료(신규 등록 소프트웨어·독립 검토): 정확한 V2 완료 등록 근거가 있는 새 canonical BIO node만 BIO/OFF로 분류한다. Legacy·기존 node·qualification·밝기는 보존하며 identify는 필수 조건도 완료 근거의 대체물도 아니다. 등록 회귀94/94·일회용 DB9/9을 확인했다. 분류 자체가 센서 사용 가능 판정은 아니다.
 - 구현 완료(Gateway OFF 보고/ACK 소프트웨어·독립 검토): 실제 bootstrap의 현재 인증 sensor-mode 명령으로 canonical 조명↔node 식별 근거를 확인해 OFF/null 보고만 내구 전달한다. exact 배정/전체 hash ACK·재시작/만료/종료·양방향 binding 교체를 검증했고 미확인 pending 원본은 보존한다. 집중113/113·독립113/113을 확인했다. 식별 proof는 건강/제어 권한이 아니다.
 - 구현 완료(센서 모드 소프트웨어·독립 검토): 조명/등록 ID와 canonical MeshNode ID가 달라도 인증 Fixture/native hash/주소·confirmed mapping·fresh discovery를 확인해 query/ensure한다. 조회 SET0·ensure의 별도 GET·await후 매핑 교체/취소/기한/연결 검증과 기존 수동/그룹/source 보호를 유지한다. 최종 Gateway1,727/1,727·독립 관련293/293이 통과했으며 실장비 성공은 아니다.
-- 미구현: 기존 A/B의 audited 분류 전환(사용자 선택 대기), 독립 qualification/건강 provider·현장 지원 전환. 유지시간10~1,800초/UI 수정 계약은 그대로다.
+- 구현 완료(기존 등록 분류 보완 소프트웨어·독립 검토): 관리자 권한·현재 등록 완료/소유/배정 근거를 대조하는 명시 API로 기본 상태의 오분류만 BIO/OFF로 바꾼다. 같은 층의 최대10개 조명과 감사 기록은 원자 처리하며 실패 시 전체 취소한다. 밝기·전원·ID·그룹·이력과 이미 BIO인 검증 상태는 보존한다. DB30/30·등록115/115·타입/빌드·독립 검토 지적0을 확인했다. 실제 기존 A/B 운영 적용은 하지 않았다.
+- 미구현: 독립 qualification/건강 provider·현장 지원 전환·운영 적용. 유지시간10~1,800초/UI 수정 계약은 그대로이며 분류 전환이 이벤트 활성화 승인은 아니다.
 - 부족하거나 개선이 필요한 기능: 빈 profile·미검증 health·제품 OFF를 유지한다. 오늘 body03의 의미와 물리 신호/광학/독립 건강은 미검증이며 APK 일반 trigger callback을 제품 승인으로 대체하지 않는다.
 - 관련 파일: `packages/shared/src/automation-contracts.ts`, `automation-contracts.test.ts`, `docs/superpowers/plans/2026-09-30-bio-sensor-pulse-event-control.md`.
 - 관련 Gateway 파일: `apps/gateway/src/bio/bio-sensor-pulse-source.ts`, `bio-dongle-client.ts`, `bio-device-mapping-store.ts`, `apps/gateway/src/adapters/adapter-factory.ts` 및 대응 테스트.
@@ -18,6 +19,7 @@
 - 관련 센서 모드 어댑터: `apps/gateway/src/adapters/bio-usb-dongle-adapter.ts`, `bio-usb-dongle-adapter.test.ts`.
 - 관련 API 파일: `apps/api/src/automation/automation-mqtt-consumer.service.ts`, `vehicle-sensor-capability.service.ts`, `bio-capability-delivery.integration.spec.ts`, `apps/api/prisma/migrations/20261002110000_bio_capability_node_ledger/migration.sql`.
 - 관련 등록 파일: `apps/api/src/mqtt/provisioning-device-terminal.service.ts`, `provisioning-device-terminal.service.spec.ts`, `new-bio-registration.integration.spec.ts`.
+- 관련 기존 분류 보완: `apps/api/src/registration/bio-classification-reconciliation.service.ts`, 대응 unit/integration 테스트, `registration.controller.ts`, `registration.module.ts`, `docs/database-schema.md`.
 - 갱신 규칙: 계약·실제 수신·실제 제어·현장 검증을 구분하고 미연결 경로를 완료로 표기하지 않는다.
 
 ## 2026-10-02 BIO 현장 시험 준비 — 임시 진단 도구, 제품 OFF

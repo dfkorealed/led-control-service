@@ -9,7 +9,8 @@
 - 구현 완료(신규 등록 소프트웨어·독립 검토): 정확한 stored command/session/node/UUID/address를 확인한 V2 completed의 진짜 신규 canonical BIO MeshNode만 BIO/OFF·revision0·profile/검증시각 NULL로 초기화한다. Legacy·기존 node·재시도·밝기·ready/supported는 보존한다. 등록 회귀94/94·일회용 DB9/9·독립94/94을 확인했으며 identify 확인은 필수도 완료 근거 대체물도 아니다.
 - 구현 완료(Gateway OFF 전달 소프트웨어·독립 검토): 실제 현재 sensor-mode 명령의 canonical Fixture/node·배정/hash/주소 근거와 fresh mapping으로만 별도 V2 보고/ACK를 연결한다. boot 때 ID를 추정하지 않으며 proof 만료·교체·정지 때 전송 중단/pending 보존, old proof 부활 금지를 확인했다. V1과 실제 센서 qualification은 불변이다.
 - 구현 완료(센서 모드 식별 소프트웨어·독립 검토): canonical node ID를 등록/Fixture ID로 오인하지 않고 현재 인증 command의 Fixture/hash/주소와 confirmed mapping·신선한 discovery를 대조한다. await 전후·RF 직전 검사와 query SET0·ensure 별도 GET을 검증했다. qualification·등록 데이터·밝기를 초기화하지 않는다.
-- 미구현: 기존 node의 audited OFF 분류 전환(사용자 선택 대기), 독립 자격/건강 provider·운영 migration/배포. 기존 분류를 보고만으로 변경하지 않는다.
+- 구현 완료(기존 등록 분류 보완 소프트웨어·독립 검토): 관리자 권한의 명시 API에서 현재 등록 완료·소유/배정·유효 인증 근거가 일치하는 기본 오분류만 BIO/OFF로 원자 전환하고 필수 감사 기록을 남긴다. 보고만으로 기존 분류를 변경하지 않는다. 밝기·전원·ID·그룹·이력·기존 BIO 검증 상태는 보존한다. DB30/30·등록115/115·타입/빌드·독립 검토 지적0, schema/migration 변경0을 확인했다.
+- 미구현: 독립 자격/건강 provider·운영 migration/배포·실제 기존 A/B 운영 적용. BlueZ 전체 삭제는 이번 보완 밖이다.
 - 부족하거나 개선이 필요한 기능: ACK 일치를 현재 배정 인증·센서 건강·사용 가능 판정으로 승격하지 않는다. 운영 DB/장비는 불변이고 제품 gate는 OFF다.
 - 관련 파일: `packages/shared/src/automation-contracts.ts`, `automation-contracts.test.ts`, `docs/superpowers/plans/2026-09-30-bio-sensor-pulse-event-control.md`.
 - 관련 Gateway 파일: `apps/gateway/src/bio/bio-sensor-pulse-source.ts`, `bio-device-mapping-store.ts`, `bio-dongle-client.ts`, `apps/gateway/src/adapters/adapter-factory.ts`.
@@ -17,6 +18,7 @@
 - 관련 센서 모드 어댑터: `apps/gateway/src/adapters/bio-usb-dongle-adapter.ts`, `bio-usb-dongle-adapter.test.ts`.
 - 관련 API/DB 파일: `apps/api/src/automation/vehicle-sensor-capability.service.ts`, `automation-mqtt-consumer.service.ts`, `apps/api/prisma/migrations/20261002110000_bio_capability_node_ledger/migration.sql`, `docs/database-schema.md`.
 - 관련 등록 파일: `apps/api/src/mqtt/provisioning-device-terminal.service.ts`, `provisioning-device-terminal.service.spec.ts`, `new-bio-registration.integration.spec.ts`.
+- 관련 기존 분류 보완: `apps/api/src/registration/bio-classification-reconciliation.service.ts`, 대응 unit/integration 테스트, `registration.controller.ts`, `registration.module.ts`.
 - 갱신 규칙: 계약·서버 수신·migration 소스·운영 적용을 각각 확인한 단계로 기록한다.
 
 ## 2026-10-01 BIO telemetry 배정·구성 경계

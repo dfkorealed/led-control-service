@@ -10,6 +10,7 @@ import { AuthenticatedUser } from "../auth/auth.types";
 import { Roles } from "../access/roles.decorator";
 import { RolesGuard } from "../access/roles.guard";
 import { RegistrationService } from "./registration.service";
+import { BioClassificationReconciliationService } from "./bio-classification-reconciliation.service";
 
 interface RegisterNodeBody {
   fixtureName: string;
@@ -22,7 +23,13 @@ interface RegisterNodeBody {
 @Roles("admin")
 @Controller("registration-sessions")
 export class RegistrationController {
-  constructor(private readonly registrationService: RegistrationService) {}
+  constructor(private readonly registrationService: RegistrationService,
+    private readonly bioClassification: BioClassificationReconciliationService) {}
+
+  @Post("reconcile-bio-classification")
+  reconcileBioClassification(@Body() body: unknown, @CurrentUser() user: AuthenticatedUser) {
+    return this.bioClassification.reconcile(user, body);
+  }
 
   @Post()
   createSession(@Body() body: unknown, @CurrentUser() user: AuthenticatedUser) {

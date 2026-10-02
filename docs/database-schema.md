@@ -2,6 +2,12 @@
 
 작성일: 2026-09-28
 
+## 2026-10-02 기존 confirmed BIO 오분류의 감사 보완
+
+현장 assigned-admin/session/commission 권한의 명시 API는 같은 floor의 선택 Fixture 1..10개를 하나의 transaction에서 처리한다. Membership lock을 먼저 획득하고 현재 site/Gateway claim·inventory·assignment·유효 MQTT 인증서와 기존 등록 잠금 순서를 재사용해 canonical Fixture↔MeshNode↔완료된 discovered graph↔stored provision command의 UUID/address 귀속을 대조한다. Legacy의 server-owned provisioned/confirmed graph도 정확한 command가 남은 경우에만 감사 근거로 허용한다. V2 receipt가 있으면 strict topic/identity/hash와 terminal ledger를 추가 대조하되 ACK/hash만으로 completed 원문이나 과거 assignment를 재구성하지 않는다.
+
+BlueZ의 unknown/0/NULL/false와 기본 BIO OFF metadata만 `vehicleSensorProtocol=bio_usb_pulse`로 조건부 전환하며 AuditLog를 같은 거래에서 필수 저장한다. 감사 실패 또는 어느 선택 행의 충돌도 모두 rollback한다. 이미 BIO ready/degraded/shadow/off인 행은 현재 권한·소유 재검사 후 변경·중복 감사 없이 보존한다. Supported/기존 capability 원장·watermark 불일치/활성 event source 또는 target/완료 근거 부재는 거부하며 지원 증거나 규칙을 자동 삭제·비활성화하지 않는다. Fixture ID·밝기·전원·위치·group 및 기존 이력은 쓰지 않는다. MeshNode의 일반 `updatedAt`만 ORM의 정상 갱신 시각으로 바뀐다. 새 schema/migration/retention·제품 gate 변경은 없고 운영 DB에는 적용하지 않았다.
+
 ## 2026-10-02 신규 V2 BIO 등록의 분류 초기화
 
 V2 provision completed terminal이 기존 command/session/node/UUID/address 귀속 검사를 통과한 뒤, canonical `bio:<12 lowercase hex>` 장치의 **새 MeshNode CREATE만** 서버 소유 `vehicleSensorProtocol=bio_usb_pulse`로 초기화한다. BIO readiness는 OFF, revision은 0, profile/검증 시각은 NULL이며 V1 capability는 unknown/0/NULL/false를 유지한다. Identify confirmed는 완료 근거의 대체물도 등록 필수 조건도 아니다. 기존 node·qualification·밝기·정확 terminal 재전송과 legacy 등록의 BlueZ default/online 동작은 변경하지 않는다. 기존 BIO 분류 누락 행은 이 경로로 backfill하지 않으며 별도 승인된 audited 전환이 필요하다. DB schema/migration·제품 gate는 변경하지 않고, 검증은 일회용 DB에서만 수행한다.
