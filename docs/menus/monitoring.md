@@ -1,5 +1,29 @@
 # 모니터링 메뉴 기능 현황
 
+## 2026-10-04 갱신 시각의 현장 시간 표시 보완
+
+### 구현 완료
+
+- `마지막 갱신`의 정상·지연 snapshot 시각은 조명 상세와 같은 현장 `timeZone` 포맷터로 날짜·분 단위 시각을 표시하고 `(현장 시간)`으로 의미를 명시한다. 서버 원본 ISO는 `<time dateTime>`에 보존한다. React Query 수신 시각이나 장비 마지막 관측 시각으로 바꾸지 않는다.
+- 좁은 화면과 큰 글자에서는 갱신 시각만 자연스럽게 줄바꿈한다. 가장 오래된 fixture page 기반 freshness 및 60,000/60,001ms 경계, 미래·invalid·pending 안내, 조회·수동 장치 확인·제어 계약은 유지한다.
+- 서울의 다음 날짜/LA의 이전 날짜 경계 단위 회귀와 320/390px·실제 caption 12/24px Chromium 표시 회귀를 추가한다. 기존 상세·로그·마커·핀치·이동 터치 회귀도 유지한다.
+
+### 미구현
+
+- 실제 Android/iOS WebView의 OS 글자 확대·시간대 설정·물리 조명 HIL 검증은 이번 소프트웨어 표시 보완의 완료 범위가 아니다.
+
+### 부족하거나 개선이 필요한 기능
+
+- 200% 검사는 웹 root 글자 크기 변경으로 caption 24px을 확인한 격리 Chromium fixture 결과다. 전체 메뉴의 큰 글자 UX나 네이티브 접근성 설정을 승인하는 근거로 확대하지 않는다. 전체 브랜치 통합·출시 검토는 총괄 관문으로 유지한다.
+
+### 관련 파일
+
+- `apps/web/src/features/monitoring/MonitoringView.tsx`, `MonitoringView.test.tsx`, 기존 `monitoring-time.ts`·테스트, `apps/web/e2e/mobile-monitoring-touch.spec.ts`.
+
+### 갱신 규칙
+
+- 화면용 현장 시각과 기계용 원본 ISO를 분리해서 검증하고, 날짜 경계·freshness·예외 메타데이터·조회 전용 의미를 함께 보존한다. 기본 글자/큰 글자·fixture/실기기 검증을 구분한다.
+
 ## 2026-10-04 모바일 상세 터치 스크롤 보완
 
 ### 구현 완료
@@ -192,7 +216,7 @@
 - BIO의 첫 수동 제어는 polling에서 읽은 sensor용 high-brightness 설정을 현재 출력으로 재사용하지 않는다. Gateway가 실제 SET과 두 GET read-back을 검증한 뒤에만 force mode의 밝기·전원 상태를 자동화 기준과 `fixture-state`로 저장하므로, 등록 직후 모니터링 값이 비어 있어도 제어는 시작할 수 있고 실패한 명령이 가짜 현재 밝기를 만들지 않는다.
 - 2026-09-02 무장비 회귀 점검에서 등록 API도 Web과 동일하게 `scanStatus=completed`, non-null correlation ID와 attempt의 exact match를 강제한다. 따라서 이전 검색 시도나 identity가 없는 legacy 발견 행을 요청에 직접 넣어도 provisioning 대상으로 수락하지 않는다.
 - 조명 목록의 최초 로딩·층 전환 로딩·최초 오류를 빈 조명 0개 상태와 분리한다. 기존 데이터가 있는 갱신 실패는 지도와 KPI를 유지하면서 오류 및 재시도를 표시하고, 지도 snapshot 로딩도 `등록된 층 없음`과 구분한다. 상단의 운영 현황 제목과 자동 갱신 설명은 제거하고 `맵 선택` 문구 옆 SelectBox와 우측 끝 수동 새로고침을 제공한다.
-- P1 Task 3 Web은 dashboard, 선택 층 fixture page, map snapshot을 10분 polling·10분 staleTime·focus refetch·2회 retry로 조회한다. map snapshot이 수동 또는 background 갱신에서 최종 실패하면 해당 query만 30초 뒤 자동 복구를 시도하고, 성공하면 정상 10분 주기로 복귀한다. dashboard와 fixture page의 polling 주기는 이 복구 정책의 영향을 받지 않는다. cached dashboard/fixture/map의 background 실패는 현재 지도·층/조명 선택을 지우지 않고 persistent stale banner와 재시도로 표시한다. 지도 실패 표시는 실패 당시 같은 층의 `dataUpdatedAt`을 기준선으로 저장해 cached observer 상태 변화에는 유지하고, 더 최신 성공 응답에서 지도 경고와 지도 source의 toolbar 오류만 자동 해제한다. 다른 층의 실패 상태는 현재 층 경고에 섞지 않는다. 현장에 층이 없으면 floor fixture/map query는 비활성 상태이므로 해당 loading/error/stale 안내를 만들지 않는다. 선택 층의 모든 fixture page `generatedAt` 중 가장 오래된 유효 시각이 60초를 초과하면 stale이며, 경계 60초는 정상이다. `마지막 갱신`은 React Query 수신 시각이 아니라 그 서버 ISO를 표시하고 미래/잘못된 snapshot은 `시간 차이 확인` 또는 안전 경고로 표시한다. `provisioning_waiting_state`, gateway offline, fixture stale, command failed, Health fault/fault, online, generic offline은 공통 presenter를 통해 selector, marker 접근성 이름, badge, 상세 원인·권장 조치에서 같은 문구를 사용한다.
+- P1 Task 3 Web은 dashboard, 선택 층 fixture page, map snapshot을 10분 polling·10분 staleTime·focus refetch·2회 retry로 조회한다. map snapshot이 수동 또는 background 갱신에서 최종 실패하면 해당 query만 30초 뒤 자동 복구를 시도하고, 성공하면 정상 10분 주기로 복귀한다. dashboard와 fixture page의 polling 주기는 이 복구 정책의 영향을 받지 않는다. cached dashboard/fixture/map의 background 실패는 현재 지도·층/조명 선택을 지우지 않고 persistent stale banner와 재시도로 표시한다. 지도 실패 표시는 실패 당시 같은 층의 `dataUpdatedAt`을 기준선으로 저장해 cached observer 상태 변화에는 유지하고, 더 최신 성공 응답에서 지도 경고와 지도 source의 toolbar 오류만 자동 해제한다. 다른 층의 실패 상태는 현재 층 경고에 섞지 않는다. 현장에 층이 없으면 floor fixture/map query는 비활성 상태이므로 해당 loading/error/stale 안내를 만들지 않는다. 선택 층의 모든 fixture page `generatedAt` 중 가장 오래된 유효 시각이 60초를 초과하면 stale이며, 경계 60초는 정상이다. `마지막 갱신`은 React Query 수신 시각이 아니라 해당 서버 시각을 현장 시간대로 표시하고 원본 ISO를 `time.dateTime`에 보존한다. 미래/잘못된 snapshot은 기존 `시간 차이 확인` 또는 안전 경고로 표시한다. `provisioning_waiting_state`, gateway offline, fixture stale, command failed, Health fault/fault, online, generic offline은 공통 presenter를 통해 selector, marker 접근성 이름, badge, 상세 원인·권장 조치에서 같은 문구를 사용한다.
 - Dashboard 요약은 저장된 fixture status뿐 아니라 최신 Health Current fault를 합성한 최종 상태로 정상·장애 수를 계산한다. `includeFixtures=false` 요약도 같은 규칙을 사용하며, 주기적 freshness DB 갱신 실패는 정제된 오류 코드만 기록하고 다음 주기를 계속 실행한다.
 - 조명 등록 진행 표시는 session·scan·node 상태를 하나의 순서 상태 머신으로 파생한다. active workflow는 오류가 없는 동안 정확히 한 단계만 `aria-current="step"`이고, 선행 단계는 완료, scan/장비 등록 실패는 실제 발생 단계의 오류로 표현한다. `completed`는 전체 완료, `cancelled`는 도달 단계 이후를 pending으로 유지해 current가 없고, session-level `failed`는 도달한 실제 단계가 error가 되어 terminal session을 진행 중으로 오인하지 않는다. 서버의 `errorMessage`, 개별 등록 검증 오류와 `scanFailureMessage`는 API 값 자체를 바꾸지 않고 공통 표시 경계에서 `Gateway ACK timeout` 같은 transport 원문을 `게이트웨이 장비 응답 시간 초과`처럼 한국어로 바꾼다.
 - 390px·320px commissioning 회귀는 버튼뿐 아니라 setup/Gateway claim/조명 등록의 enabled input·select·checkbox/radio associated label을 실제 clipping·occlusion을 고려한 연속 44×44px reachable area로 검증한다. 등록 직후 기본 일괄 form의 다섯 input을 먼저 검사하고, 개별 설정으로 전환한 뒤 개별 input을 다시 검사한다. 등록 form input과 select는 최소 44px이고, 18px checkbox/radio 시각 크기는 유지하되 label hit 영역을 44px 이상 제공한다.

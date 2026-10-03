@@ -18,6 +18,7 @@ import { FixtureDetailPanel } from "./FixtureDetailPanel";
 import { resolveFixtureMapPosition } from "../floor-map/fixture-map-position";
 import { matchesMonitoringFixture, matchesMonitoringFixtureSearch, type MonitoringFixtureFilter } from "./monitoring-fixture-filter";
 import { presentFixtureStatus } from "./fixture-status-presentation";
+import { formatMonitoringTimestamp } from "./monitoring-time";
 
 const STALE_SNAPSHOT_AFTER_MS = 60_000;
 const MAX_BROWSER_TIMEOUT_MS = 2_147_483_647;
@@ -301,7 +302,9 @@ function MonitoringDashboard({ data, userRole, siteId, refreshDashboard }: Monit
           <Button ref={inspectorTriggerRef} variant="secondary" className="shrink-0" onClick={() => { setFinderDefaultOpen(false); setIsInspectorOpen(true); }}>조명 검색·상세</Button>
         </div>
         <div className="ml-auto flex flex-wrap items-center justify-end gap-2 text-content-secondary max-compact:ml-0 max-compact:w-full">
-          <Text as="small" variant="caption" tone="secondary" className="whitespace-nowrap">{formatSnapshotUpdatedAt(snapshotFreshness)}</Text>
+          <Text as="small" variant="caption" tone="secondary" className="min-w-0 max-w-full break-words text-right">
+            {formatSnapshotUpdatedAt(snapshotFreshness, data.site.timeZone)}
+          </Text>
           <Button
             ref={refreshButtonRef}
             variant="secondary"
@@ -595,9 +598,9 @@ function parseStrictIsoTimestamp(value: unknown):
   return { kind: "valid", rawGeneratedAt: value, value: timestamp };
 }
 
-function formatSnapshotUpdatedAt(snapshot: ReturnType<typeof getSnapshotFreshness>) {
+function formatSnapshotUpdatedAt(snapshot: ReturnType<typeof getSnapshotFreshness>, timeZone: string) {
   if (snapshot.metadata === "invalid") return "마지막 갱신: 서버 snapshot 시각 확인 필요";
-  if (snapshot.freshness === "pending") return "마지막 갱신: 서버 snapshot 시각 확인 중";
+  if (snapshot.freshness === "pending" || snapshot.rawGeneratedAt === undefined) return "마지막 갱신: 서버 snapshot 시각 확인 중";
   if (snapshot.metadata === "future") return `마지막 갱신: 시간 차이 확인 (${snapshot.anomalousGeneratedAt})`;
-  return `마지막 갱신: ${snapshot.rawGeneratedAt}`;
+  return <>마지막 갱신: <time dateTime={snapshot.rawGeneratedAt}>{formatMonitoringTimestamp(snapshot.rawGeneratedAt, timeZone)} (현장 시간)</time></>;
 }

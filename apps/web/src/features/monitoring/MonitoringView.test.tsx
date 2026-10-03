@@ -43,7 +43,7 @@ vi.mock("../registration/RegistrationPanel", () => ({
 }));
 
 const dashboard = {
-  site: { id: "site-1", name: "테스트 현장" },
+  site: { id: "site-1", name: "테스트 현장", timeZone: "Asia/Seoul" },
   summary: { totalFixtures: 1, onlineFixtures: 1, faultFixtures: 0, offlineFixtures: 0, averageBrightness: 70 },
   floors: [{ id: "floor-1", name: "B1", level: -1, floorPlan: null, summary: { totalFixtures: 1, onlineFixtures: 1, faultFixtures: 0, offlineFixtures: 0 }, fixtures: [] }],
   groups: [],
@@ -648,6 +648,34 @@ describe("MonitoringView refresh", () => {
     expect(within(document.querySelector("[data-monitoring-screen]") as HTMLElement).queryByText(/저장된 현황을 유지하고 있습니다/)).not.toBeInTheDocument();
   });
 
+  it.each([
+    ["Asia/Seoul", "2026-10-03T15:59:00.000Z", "2026. 10. 04. 00:59"],
+    ["America/Los_Angeles", "2026-10-03T00:30:00.000Z", "2026. 10. 02. 17:30"]
+  ])("shows the snapshot in site time across the UTC date boundary: %s", (timeZone, snapshotAt, localTime) => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(new Date(snapshotAt).getTime() + 30_000));
+    queryMocks.useDashboard.mockReturnValue({ ...queryMocks.useDashboard(), data: { ...dashboard, site: { ...dashboard.site, timeZone } } });
+    queryMocks.useFloorFixtures.mockReturnValue({ ...queryMocks.useFloorFixtures(), data: { pages: [{ items: [fixture], nextCursor: null, generatedAt: snapshotAt }] } });
+
+    render(<MonitoringView siteId="site-1" />);
+
+    const updated = screen.getByText(/마지막 갱신:/);
+    expect(updated).toHaveTextContent(localTime);
+    expect(updated).toHaveTextContent("현장 시간");
+    expect(updated).not.toHaveTextContent(snapshotAt);
+    expect(updated.querySelector("time")).toHaveAttribute("datetime", snapshotAt);
+    expect(screen.queryByText("현황 갱신이 지연되고 있습니다.")).not.toBeInTheDocument();
+    expect(refreshApi.waitForMonitoringRefresh).not.toHaveBeenCalled();
+  });
+
+  it("keeps pending snapshot metadata explicit without an invented time", () => {
+    queryMocks.useFloorFixtures.mockReturnValue({ ...queryMocks.useFloorFixtures(), data: undefined, isPending: true });
+    render(<MonitoringView siteId="site-1" />);
+    const updated = screen.getByText(/마지막 갱신:/);
+    expect(updated).toHaveTextContent("서버 snapshot 시각 확인 중");
+    expect(updated.querySelector("time")).toBeNull();
+  });
+
   it("shows a persistent stale warning after the oldest fixture page snapshot exceeds 60 seconds", () => {
     const snapshotAt = new Date(Date.now() - 60_001).toISOString();
     queryMocks.useFloorFixtures.mockReturnValue({
@@ -667,7 +695,7 @@ describe("MonitoringView refresh", () => {
 
     expect(screen.getByRole("button", { name: "상태 센터, 미해결 1건" })).toBeInTheDocument();
     expect(screen.getByRole("status")).toHaveTextContent("현황 갱신이 지연되고 있습니다.");
-    expect(screen.getByText(/마지막 갱신:/)).toHaveTextContent(snapshotAt);
+    expect(screen.getByText(/마지막 갱신:/).querySelector("time")).toHaveAttribute("datetime", snapshotAt);
   });
 
   it("keeps a future server snapshot explicit instead of presenting it as a normal relative update", () => {

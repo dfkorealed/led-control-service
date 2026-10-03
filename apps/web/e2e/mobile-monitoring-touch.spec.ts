@@ -11,8 +11,8 @@ const fixture: SettingsFixture = {
   controllable: true, controlBlockReason: null
 };
 
-async function setup(page: Page) {
-  const api = await installSettingsApiRoutes(page, "admin", { ids, fixtures: [fixture] });
+async function setup(page: Page, snapshotGeneratedAt?: string) {
+  const api = await installSettingsApiRoutes(page, "admin", { ids, fixtures: [fixture], snapshotGeneratedAt });
   await page.route("**/api/**/monitoring-activity?*", route => {
     const cursor = new URL(route.request().url()).searchParams.get("cursor");
     return route.fulfill({ json: {
@@ -75,6 +75,38 @@ async function visibleHit(target: Locator, port: Locator) {
 test.use({ hasTouch: true, isMobile: true });
 
 for (const width of [320, 390]) {
+  for (const fontScale of [1, 2]) {
+    for (const { timeZone, snapshotAt, expectedTime } of [
+      { timeZone: "Asia/Seoul", snapshotAt: "2026-10-03T15:59:00.000Z", expectedTime: "2026. 10. 04. 00:59" },
+      { timeZone: "America/Los_Angeles", snapshotAt: "2026-10-03T00:30:00.000Z", expectedTime: "2026. 10. 02. 17:30" }
+    ]) {
+      test(`${width}px snapshot site time ${timeZone} at ${fontScale * 100}% text`, async ({ page }, info) => {
+        await page.setViewportSize({ width, height: 844 });
+        await page.clock.setFixedTime(new Date(new Date(snapshotAt).getTime() + 30_000));
+        const response = page.waitForResponse(candidate => new URL(candidate.url()).pathname === `/api/sites/${ids.siteId}/dashboard`);
+        const api = await setup(page, snapshotAt);
+        const dashboard = await (await response).json();
+        // Reuse the complete existing HTTP fixture, changing only the site's
+        // supported timezone; never alter the server timestamp or state rules.
+        await page.route(url => url.pathname === `/api/sites/${ids.siteId}/dashboard`, route => route.fulfill({ json: {
+          ...dashboard, site: { ...dashboard.site, timeZone }
+        } }));
+        await page.reload();
+        if (fontScale === 2) await page.addStyleTag({ content: "html { font-size: 200%; }" });
+        const timestamp = page.locator(`time[datetime="${snapshotAt}"]`);
+        await expect(timestamp).toHaveText(expectedTime + " (현장 시간)");
+        expect(await timestamp.evaluate(node => parseFloat(getComputedStyle(node).fontSize))).toBe(12 * fontScale);
+        await timestamp.scrollIntoViewIfNeeded();
+        await expect(timestamp).toBeVisible();
+        expect(await timestamp.evaluate(node => [...node.getClientRects()].every(rect => rect.left >= 0 && rect.right <= innerWidth))).toBe(true);
+        await expectNoHorizontalOverflow(page);
+        await expect(page.getByRole("button", { name: "새로고침", exact: true })).toBeEnabled();
+        await capture(page, info, `snapshot-${timeZone.replaceAll("/", "-")}-${fontScale * 100}`);
+        expect(api.dimmingRequests).toHaveLength(0);
+      });
+    }
+  }
+
   test(`${width}px touch inspector scroll reaches final fixture information`, async ({ page }, info) => {
     await page.setViewportSize({ width, height: 480 }); const api = await setup(page);
     const cdp = await page.context().newCDPSession(page);
