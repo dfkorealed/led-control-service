@@ -273,8 +273,10 @@ Native visibility harness checkpoint — own blank-page probe1회가 .ts 설정�
 
 - [x] Repair A — 같은 제어 UI 담당자: 실제 겹친 조명 중심/disabled/키보드/직접 제스처와 짧은 화면 실제 지도 높이 보완·직접 검증·두 메뉴 갱신. 반환38463e1a/허용10파일·직접234단위/12브라우저/type/UI0; 독립 검토·관련 디자이너 재검수는 아래 관문에 유지한다.
 - [x] Repair B — 통계 담당자: 원래 긴 이름/페이지 overflow와 native 연도 입력·clear/reversed draft·무효 요청0/유효 복구, PDF/CSV 계약 보존·메뉴 갱신. 반환888a8200/허용9파일·직접144단위/13브라우저/type/UI0; 독립 검토·관련 재검수는 아래 관문에 유지한다.
-- [ ] Repair C — 같은 모니터링 담당자: 로그 양수 inset 보완·메뉴 갱신, 상세 끝 정보의 실제 접근 검증과 필요한 경우에만 추가 보완. 통계 clean 반환 뒤 이 문서 checkpoint를 정확 BASE로 전달한다.
+- [x] Repair C — 같은 모니터링 담당자: 로그 양수 inset·소비자 밀도와 상세 내부 스크롤 소유만 보완·메뉴 갱신. 반환d8a72907/허용6파일·직접19단위/2브라우저/type/UI0; 독립 검토·관련 디자이너 재검수는 아래 관문에 유지한다.
 - [ ] Repair review — 보완 묶음 scoped 검토와 같은 디자이너의 원 실패/잔여 관련 재검수, 그 뒤 canonical4·실제 임시DB·ONE whole 검토.
+
+Repair C 실제 반환 — 정확3f92fafa→`d8a72907db44357cac95757e65f20b14ced4192e`의 허용6파일/clean이다. 상세 inner0-range/overscroll-contain이 outer413px 스크롤을 막는 실제 원인을 확인하고 FixtureDetailPanel 소비자만 overflow-visible/overscroll-auto로 보완했다. 로그는 safeArea 단일 opt-in과 공개 class 슬롯의 compact 밀도만 사용하며 공통 기본/조회/보존/초점·복원 로직은 유지했다. 원래 wheel0·목록0·End deficit314·날짜 segment 입력 실패와 STOP/재개 기록은 보존했다. 최종19/19·2/2(10.1초·0skip/flaky/errors)·type/UI0이며, 실제 wheel0→80·native Tab/Home/PageDown/End·마지막 배치 정보·1023/1024/1023/1025의 비영점78/413/78/413 복원과 카메라/초점/닫기를 확인했다. 390×320의 env24/34에서는 필터56px/목록50px·44px 조작·닫기/하단 안전영역·실제50/100/500/1000행 끝·이전/다음·native 날짜 입력과 실제 GET 인자/초기화를 확인했다. 총괄이 전체 반환/직접 raw·6파일 변경·기본main1ea/PID 불변·own16212/13 및 child 종료를 회수했다. 반환은 직접 검증이지 새 독립/디자이너/실DB 승인으로 확대하지 않는다. 추적 제품 작성권을 회수하고 세 보완의 새 scoped 검토 한 회를 다음 관문으로 배정한다.
 
 Repair B 실제 반환 — 정확93c32b94→`888a820086501dcb0985ea033df02531c46eb33e`의 허용9파일/clean이다. 원래 긴 이름·내부 grid/flex 최소폭 원인과 분석/보고서 native 연도 ArrowUp의 모순 bounds·분석 clear의 빈 문자열 파싱을 실제 RED로 확인했다(단위73통과/5실패, 브라우저2통과/11실패). 상세 내부 줄바꿈과 재사용 통계 bounds helper만 보완해 초안/상대 날짜와 공통 strict 날짜 core는 유지했다. 최종144/144(불변 날짜 core58 포함)·13/13·type/UI0, 같은 이름의320/390short/1440/실제 Chromium200%에서 scroll==client·무효 조회/POST/CSV0·직접 유효 복구·400/401 경계·PDF/CSV date-only 인자를 확인했다. 총괄은 전체 반환 문서·9파일 diff·raw identity/cleanup을 읽었고2192파일 최종 검증 해시 일치·main1ea/PID 불변·own16210/16211/프로필/child 종료를 확인했다. 독립 보완 검토·디자이너 관련24·최종 root/실DB/전체검토/병합은 아직 남아 있으며 새 모니터링 작성권만 다음 checkpoint에 넘긴다. 담당자의 마지막 정리 응답이 모델 용량 오류로 종료됐지만 이미 저장한 완료 보고서/커밋/raw 증거를 회수했으므로 재실행하지 않는다.
 
