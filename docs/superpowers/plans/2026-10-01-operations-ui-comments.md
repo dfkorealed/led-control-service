@@ -274,11 +274,15 @@ Native visibility harness checkpoint — own blank-page probe1회가 .ts 설정�
 - [x] Repair A — 같은 제어 UI 담당자: 실제 겹친 조명 중심/disabled/키보드/직접 제스처와 짧은 화면 실제 지도 높이 보완·직접 검증·두 메뉴 갱신. 반환38463e1a/허용10파일·직접234단위/12브라우저/type/UI0; 독립 검토·관련 디자이너 재검수는 아래 관문에 유지한다.
 - [x] Repair B — 통계 담당자: 원래 긴 이름/페이지 overflow와 native 연도 입력·clear/reversed draft·무효 요청0/유효 복구, PDF/CSV 계약 보존·메뉴 갱신. 반환888a8200/허용9파일·직접144단위/13브라우저/type/UI0; 독립 검토·관련 재검수는 아래 관문에 유지한다.
 - [x] Repair C — 같은 모니터링 담당자: 로그 양수 inset·소비자 밀도와 상세 내부 스크롤 소유만 보완·메뉴 갱신. 반환d8a72907/허용6파일·직접19단위/2브라우저/type/UI0; 독립 검토·관련 디자이너 재검수는 아래 관문에 유지한다.
-- [ ] Repair review — 보완 묶음 scoped 검토와 같은 디자이너의 원 실패/잔여 관련 재검수, 그 뒤 canonical4·실제 임시DB·ONE whole 검토.
+- [ ] Repair review — 보완 묶음 scoped 검토와 기존 자료를 이어받은 별도 검수자의 원 실패/잔여 관련25 재검수, 그 뒤 canonical4·실제 임시DB·ONE whole 검토.
 
 Scoped 검토 c8bf6f04 — 전체 반환 보고서·원시 결과·소스 해시를 읽은 독립 검토는 Spec 부분 충족/Needs fixes/P0·P1 0/P2 2/P3 1이다. 총괄이 실제 설계 §4와 소비자 높이 체인/일반 Playwright baseURL을 대조하여 P2-A 충분한 desktop 가용 공간이 지도에 전달되지 않음(최종1440×900도240px), P2-B tracked fixture의16208 origin 고정에 따른 일반 설정 요청 차단을 확인했다. 같은 별도 제어 UI 담당자에게 두 건만 한 bounded 후속으로 배정한다. 기존 짧은 화면 최소240·자연스러운 scroll·48px/disabled/제스처와 failclosed mock은 유지하며 임의 새 숫자/공통 재설계는 금지한다. 통계·모니터링 새 P0–P2 지적은 없으나 전체 승인으로 확대하지 않는다. P3 DOM 순서 밀도 결합은 현재 실제 효과/직접 bounds를 인정하고 최종 검토에 기록한다. 11개 Declined 중 관련 디자이너/최종 root/실제 임시DB/whole/안전한 기본 적용은 다음 필수 관문, PDF 외부 저장·WebView/HIL·운영1000 성능/비정상 역사 날짜·센서/공통 편집기 전체는 한계/관련 최종 triage로 유지한다. 원 End deficit314 원인은 미확정이고 최종 실제 End 통과와 분리한다.
 
-- [ ] Repair A follow-up — 같은 제어 UI 담당자가 충분한 화면 가용 높이 전달과 configured-origin 회귀를 직접 RED/GREEN·제어 메뉴와 함께 반환한 뒤 같은 scoped 검토자가 재검토한다. 관련 디자이너24/QA runtime은 그 승인까지 CLOSED다.
+- [x] Repair A follow-up 직접 반환 — 같은 제어 UI 담당자가 충분한 화면 가용 높이 전달과 configured-origin 회귀를4336b6ac/허용5파일·제어 메뉴와 함께 반환했다. 같은 scoped 검토자의 재검토와 별도 관련25/QA는 아직 남아 있다.
+
+Repair A 후속 실제 반환 — 정확1b5b1187→`4336b6ac89da1484d9d80de412835cdd3000dc36`, 허용5파일/clean이다. 기존 tablet:h-full 높이 체인·public maintainCameraOnResize만 소비해 실제1440×900/1100 지도387/587px(증가200)·기존 짧은 두 환경240px/일반 접근·줌1.1/논리 중심·UUID121/버튼 포커스를 지켰다. configured baseURL origin을 명시 전달하고 origin guard 등록 순서도 보완해 외부 일반/알려진 API 차단과 unknown404/장비POST0을 유지했다. 원 성장0/다른 origin document 차단 RED와 StrictMode ERR_ABORTED/Chromium .Inspector suffix harness 실패를 모두 보존했다. 최종16208의5/5·16214의1/1(0skip/flaky/errors), affected leaf5/144filtered(전체149 통과가 아님), type/UI0/diff0·source5 SHA 일치/실행별 소스·main/PID 불변/own4포트·child·프로필 종료를 총괄이 전체 보고서/raw/변경5파일/새desktopPNG에서 확인했다. 작성권 반환 후 같은 독립 검토자의 재검토까지 병합/UI/실DB 승인은 보류한다.
+
+검수 담당 전환 Ruling — 기존 디자이너 세션의 별도 인간 주도 새 시안 업무를 확인하고 사용자에게 선택을 받았다. 사용자는 기존 자료를 이어받는 별도 검수 에이전트를 선택했다. 원108·원 실패·기존24 준비는 보존하며 새 담당자의 ignored3파일 작성만 회수했다(실행0/guardFALSE). P2-A의 새 영향으로 원래1440×900 제어1개를 추가한 related25=원20nonpass+year4+영향받은기존1, 제외87/총authored112는 변함없다. 총괄이 전체 반환/25ID·native 실제 여정·가용 공간 budget/900→1100→900/기존 .02 카메라·선택/범례/필수 hit helper를 읽었다. 새 source-scoped 승인을 받은 clean freeze 이후에만 related25를 직렬 실행하며 기존 디자이너의 새 시안/브라우저/서버는 변경하지 않는다.
 
 Repair C 실제 반환 — 정확3f92fafa→`d8a72907db44357cac95757e65f20b14ced4192e`의 허용6파일/clean이다. 상세 inner0-range/overscroll-contain이 outer413px 스크롤을 막는 실제 원인을 확인하고 FixtureDetailPanel 소비자만 overflow-visible/overscroll-auto로 보완했다. 로그는 safeArea 단일 opt-in과 공개 class 슬롯의 compact 밀도만 사용하며 공통 기본/조회/보존/초점·복원 로직은 유지했다. 원래 wheel0·목록0·End deficit314·날짜 segment 입력 실패와 STOP/재개 기록은 보존했다. 최종19/19·2/2(10.1초·0skip/flaky/errors)·type/UI0이며, 실제 wheel0→80·native Tab/Home/PageDown/End·마지막 배치 정보·1023/1024/1023/1025의 비영점78/413/78/413 복원과 카메라/초점/닫기를 확인했다. 390×320의 env24/34에서는 필터56px/목록50px·44px 조작·닫기/하단 안전영역·실제50/100/500/1000행 끝·이전/다음·native 날짜 입력과 실제 GET 인자/초기화를 확인했다. 총괄이 전체 반환/직접 raw·6파일 변경·기본main1ea/PID 불변·own16212/13 및 child 종료를 회수했다. 반환은 직접 검증이지 새 독립/디자이너/실DB 승인으로 확대하지 않는다. 추적 제품 작성권을 회수하고 세 보완의 새 scoped 검토 한 회를 다음 관문으로 배정한다.
 
@@ -310,7 +314,7 @@ Same QA담당자 completed read-only92-line readiness (no execution/Git/source/s
 
 **Files:** QA 증거는 ignored 계획 workspace에 기록한다. 지속 요약은 본 계획과 `docs/project-status.md`, 필요한 회귀 테스트 수정은 해당 기능 담당자에게 배정한다. QA는 제품 코드를 쓰지 않는다.
 
-**Interfaces:** Task 1–8 커밋과 단계별 읽기 전용 검토 결과를 소비한다. 디자이너는 설계의 주석 22행을 감사하고, 새 whole-branch reviewer가 기준 `36a99b29`→최종 HEAD를 확인한다. 이후 변경까지 검토했다고 확대하지 않는다. 병합 대상은 실제 저장소의 `codex/mvp1-cloud-web`이며 Git `main`이 아니다.
+**Interfaces:** Task 1–8 커밋과 단계별 읽기 전용 검토 결과를 소비한다. 검수자는 설계의 주석 22행을 감사하고, 새 whole-branch reviewer가 실제 보호된 main `1ea3fb6e`→최종 HEAD를 확인한다(`36a99b29`는 원 UI 작업 이력). 이후 변경까지 검토했다고 확대하지 않는다. 병합 대상은 실제 저장소의 `codex/mvp1-cloud-web`이며 Git `main`이 아니다.
 
 - [ ] Step 1 — 22행을 단언·시각 증거로 재현한다: 폭 320/390/768/962/1017/1023/1024/1025/1440px, 390×320/768×390/1024×480, 200% 확대, 긴 이름, 0/로딩/오류/정보 미수신/장애/오프라인. 전체 페이지 가로 overflow·필수 조작 잘림/겹침·선택 핀 가림·포커스 유실 0건을 요구한다. 표 내부 스크롤만 예외이며 제스처/키보드/scroll bounds까지 확인한다.
 - [ ] Task6 M2 required final proof —390×320 LogView의 독립 필터 scrollport를 실제 wheel/keyboard로 이동해 양쪽 날짜·검색·상태를 조작하고 각 visible hit-bounds·목록과 비중첩을 기록한다. 스크린샷만으로 접근 불가/통과 어느 쪽도 단정하지 않는다. 실제 실패면 P2로 배정해 수정·scoped 재검토한다.
