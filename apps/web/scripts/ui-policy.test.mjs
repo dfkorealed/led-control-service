@@ -12,6 +12,15 @@ const approvedLandingVariants = `@custom-variant landing-narrow (@media (max-wid
 @custom-variant landing-wide (@media (max-width: 1050px));`;
 const canonicalStyles = '@import "tailwindcss"; @import "./styles/theme.css"; @import "./styles/base.css"; @import "./styles/exceptions.css";' + "\n" + approvedLandingVariants;
 
+test("allows only the exact native safe-area ownership contract, not arbitrary root CSS", () => {
+  const source = ':root { --led-control-safe-area-bottom: env(safe-area-inset-bottom); } :root[data-led-control-native-safe-area="true"] { --led-control-safe-area-bottom: 0px; } @utility pb-shell-navigation-safe { padding-bottom: calc(var(--spacing) * 17 + var(--led-control-safe-area-bottom)); } @utility h-shell-navigation-safe { height: calc(var(--spacing) * 17 + var(--led-control-safe-area-bottom)); } @utility pb-safe-area-bottom { padding-bottom: var(--led-control-safe-area-bottom); }';
+  assert.deepEqual(inspectUiSource("src/styles/base.css", source), []);
+  for (const changed of [source.replace("0px", "4px"), source.replace("0px;", "0px; padding: 2rem;"), source + ':root { --led-control-safe-area-bottom: env(safe-area-inset-bottom); }']) {
+    assert.ok(inspectUiSource("src/styles/base.css", changed).some(v => v.rule === "css-selector"));
+  }
+  assert.ok(inspectUiSource("src/elsewhere.css", source).some(v => v.rule === "css-selector"));
+});
+
 // Reviewed role/value inventory: docs/ui-spacing.md, landing Task 1 approval.
 // Keep this frozen expectation independent of the live theme and policy anchor.
 test("landing token proposal preserves exact values", async () => {

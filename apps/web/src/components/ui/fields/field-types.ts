@@ -34,7 +34,7 @@ export interface ChoiceItem {
 }
 
 // The shell only owns layout. Controls own state styles, with no legacy CSS hook.
-export const fieldControl = cva("min-h-11 w-full rounded-control border text-content-primary outline-none focus-visible:shadow-focus data-focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60 data-disabled:cursor-not-allowed data-disabled:opacity-60 aria-invalid:border-status-danger-foreground data-invalid:border-status-danger-foreground", {
+export const fieldControl = cva("min-h-11 w-full rounded-control border text-content-primary outline-none pointer-coarse:text-body-lg focus-visible:shadow-focus data-focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60 data-disabled:cursor-not-allowed data-disabled:opacity-60 aria-invalid:border-status-danger-foreground data-invalid:border-status-danger-foreground", {
   variants: {
     variant: {
       outline: "border-border-strong bg-surface-panel",

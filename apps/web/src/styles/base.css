@@ -10,14 +10,18 @@
 }
 
 /* iOS WebView의 동적 하단 inset을 compact shell의 68px navigation 계약에 더한다. */
+:root { --led-control-safe-area-bottom: env(safe-area-inset-bottom); }
+/* Native safe-area frame already excludes the OS inset; do not count it twice.
+ * CSS is needed for environment values and native's root ownership marker. */
+:root[data-led-control-native-safe-area="true"] { --led-control-safe-area-bottom: 0px; }
 @utility pb-shell-navigation-safe {
-  padding-bottom: calc(var(--spacing) * 17 + env(safe-area-inset-bottom));
+  padding-bottom: calc(var(--spacing) * 17 + var(--led-control-safe-area-bottom));
 }
 
 @utility h-shell-navigation-safe {
-  height: calc(var(--spacing) * 17 + env(safe-area-inset-bottom));
+  height: calc(var(--spacing) * 17 + var(--led-control-safe-area-bottom));
 }
 
 @utility pb-safe-area-bottom {
-  padding-bottom: env(safe-area-inset-bottom);
+  padding-bottom: var(--led-control-safe-area-bottom);
 }
