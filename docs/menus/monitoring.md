@@ -1,5 +1,28 @@
 # 모니터링 메뉴 기능 현황
 
+## 2026-10-04 모바일 상세 터치 스크롤 보완
+
+### 구현 완료
+
+- 조명 검색·상세 드로어를 터치로 스크롤할 때, 높이 제한이 없는 내부 조명 패널이 입력 전달을 막지 않도록 해당 SidePanel 소비자에서만 `overflow-visible`·`overscroll-auto`를 적용한다. 바깥 드로어가 스크롤을 소유하며 공통 SidePanel/Dialog 기본값과 지도·장치 확인 계약은 유지한다.
+- 320/390px 터치 회귀는 실제 Chromium touch 입력으로 상세 마지막 지도 배치, 로그 마지막5건과 서버 cursor 이전/다음, 마커 탭·핀치·지도 이동을 확인한다. 모니터링에서 장비 제어 요청은 만들지 않는다.
+
+### 미구현
+
+- Android/iOS 실기기 설치·네이티브 safe-area/키보드/OS Back·GPU 성능 및 물리 조명 HIL은 이 소비자 보완의 완료 범위가 아니다. 공통 앱 복귀·native Back 연결은 모바일/웹 셸 담당의 별도 선행 작업이다.
+
+### 부족하거나 개선이 필요한 기능
+
+- 터치 회귀는 격리 API fixture와 Chromium 소프트웨어 증거다. 실제 WKWebView/Android WebView 및 장비 상태 확인 결과로 확대하지 않는다. 초기 공통 React18/19 타입 혼재는 의존성 담당이 정리했으며, 이후 웹 전체 타입 검사는 검사 당시 다른 담당의 공통 모바일 helper·설정 입력 구현 항목에 막혔다. 모니터링에서 cast/skipLibCheck로 감추지 않고 전체 브랜치 타입·통합 검증은 총괄의 별도 관문으로 유지한다.
+
+### 관련 파일
+
+- `apps/web/src/features/monitoring/FixtureDetailPanel.tsx`, `apps/web/e2e/mobile-monitoring-touch.spec.ts` 및 기존 MonitoringView/MonitoringLogDrawer/FloorMapViewport 직접 테스트.
+
+### 갱신 규칙
+
+- 상세 안팎의 실제 스크롤 범위·최종 정보 hit·터치 기본 동작을 함께 검증한다. 로그 cursor/마커 선택/장치 상태 의미를 보존하고, 공통 컴포넌트 변경은 소유 역할에 순차 배정한다. 소프트웨어·실기기·HIL 결과와 의존성/수집 오류를 각각 구분해 기록한다.
+
 ## 2026-10-02 맵 선택 전체 삭제의 읽기 전용 소비
 
 - 구현 완료: 설정 맵의 전체 삭제는 도형을 삭제하고 선택 조명을 미배치·위치 미확인으로 전환하며 슬롯 assignment를 해제한다. 기존 원자 저장 응답과 cache 갱신을 통해 모니터링은 저장된 도형·배치만 읽고 조명 장비 자체 및 전체 등록 수는 유지한다. 모니터링에 편집/장비 삭제 UI를 추가하지 않았다.

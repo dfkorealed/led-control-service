@@ -11,7 +11,10 @@ export function FixtureDetailPanel({ fixture, position, timeZone = "Asia/Seoul" 
 }) {
   const status = fixture ? presentFixtureStatus(fixture) : null;
   const brightness = fixture ? presentFixtureBrightness(fixture) : null;
-  return <SidePanel className="grid min-w-0 gap-4 border-border-default bg-surface-panel p-4 shadow-none" aria-label="선택 조명 상세" data-monitoring-detail-panel="">
+  // The inspector drawer owns scrolling. An inner zero-range scrollport with
+  // SidePanel's default containment traps native touch swipes before they reach
+  // that drawer, so this consumer stays plain content instead of another owner.
+  return <SidePanel className="grid min-w-0 gap-4 overflow-visible overscroll-auto border-border-default bg-surface-panel p-4 shadow-none" aria-label="선택 조명 상세" data-monitoring-detail-panel="">
     <div className="flex min-w-0 flex-wrap items-start justify-between gap-3">
       <Heading as="h3" variant="card-title" className="min-w-0 break-words">{fixture?.name ?? "조명 선택"}</Heading>
       <FixtureStatusBadge fixture={fixture} />
