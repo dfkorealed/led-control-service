@@ -38,9 +38,9 @@ async function nativeReach(page: Page, target: Locator) {
 
 for (const hasTouch of [false, true]) test.describe(`Operational ${hasTouch ? "touch-capable" : "ordinary"} pointer`, () => {
   test.use({ hasTouch });
-  for (const surface of ["monitoring", "control"] as const) test(`${surface} dense five true centers preserve exact IDs, anchors and disabled keyboard behavior`, async ({ page }, info) => {
+  for (const surface of ["monitoring", "control"] as const) test(`${surface} dense five true centers preserve exact IDs, anchors and disabled keyboard behavior`, async ({ page, baseURL }, info) => {
     await page.setViewportSize({ width: 1440, height: 900 });
-    const state = await installOperationalMapFixture(page);
+    const state = await installOperationalMapFixture(page, baseURL);
     await page.goto(`/${surface}?siteId=${operationalIds.siteId}`);
     await expect(marker(page, 0)).toBeVisible();
     const observations = [];
@@ -96,9 +96,9 @@ for (const hasTouch of [false, true]) test.describe(`Operational ${hasTouch ? "t
 });
 
 for (const size of [{ width: 1024, height: 480 }, { width: 390, height: 320 }, { width: 1440, height: 900 }]) {
-  test(`Control actual map and controls stay usable at ${size.width}x${size.height}`, async ({ page }, info) => {
+  test(`Control actual map and controls stay usable at ${size.width}x${size.height}`, async ({ page, baseURL }, info) => {
     await page.setViewportSize(size);
-    const state = await installOperationalMapFixture(page);
+    const state = await installOperationalMapFixture(page, baseURL);
     await page.goto(`/control?siteId=${operationalIds.siteId}`);
     const viewport = page.getByTestId("target-selection-map-viewport");
     await expect(viewport).toBeVisible();
@@ -149,9 +149,9 @@ async function clickCenter(page: Page, index: number) {
 
 test.describe("Software touch delivery", () => {
   test.use({ hasTouch: true });
-  for (const surface of ["monitoring", "control"] as const) test(`${surface} real browser taps resolve dense centers and 48px padding without hover`, async ({ page }) => {
+  for (const surface of ["monitoring", "control"] as const) test(`${surface} real browser taps resolve dense centers and 48px padding without hover`, async ({ page, baseURL }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
-    const state = await installOperationalMapFixture(page);
+    const state = await installOperationalMapFixture(page, baseURL);
     await page.goto(`/${surface}?siteId=${operationalIds.siteId}`);
     await expect(marker(page, 0)).toBeVisible();
     for (let index = 0; index < 5; index++) {
@@ -173,9 +173,9 @@ test.describe("Software touch delivery", () => {
     expect(state.equipmentPosts).toEqual([]); expect(state.api.dimmingRequests).toEqual([]);
   });
 
-  test("control moved/cancelled and two-finger browser touches never synthesize a selection", async ({ page }) => {
+  test("control moved/cancelled and two-finger browser touches never synthesize a selection", async ({ page, baseURL }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
-    const state = await installOperationalMapFixture(page);
+    const state = await installOperationalMapFixture(page, baseURL);
     await page.goto(`/control?siteId=${operationalIds.siteId}`);
     await expect(marker(page, 0)).toBeVisible();
     const client = await page.context().newCDPSession(page);
@@ -209,9 +209,9 @@ test.describe("Software touch delivery", () => {
   });
 });
 
-test("control selected neighbours, live zoom/pan and additive area retain exact target semantics", async ({ page }) => {
+test("control selected neighbours, live zoom/pan and additive area retain exact target semantics", async ({ page, baseURL }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
-  const state = await installOperationalMapFixture(page);
+  const state = await installOperationalMapFixture(page, baseURL);
   await page.goto(`/control?siteId=${operationalIds.siteId}`);
   await expect(marker(page, 0)).toBeVisible();
   for (const index of [1, 2, 3, 0]) await clickCenter(page, index);
@@ -253,9 +253,9 @@ test("control selected neighbours, live zoom/pan and additive area retain exact 
 
 test.describe("Software touch hold", () => {
   test.use({ hasTouch: true });
-  test("control native blank-touch hold selects an area after 400ms and pre-hold cancel stays inert", async ({ page }) => {
+  test("control native blank-touch hold selects an area after 400ms and pre-hold cancel stays inert", async ({ page, baseURL }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
-    const state = await installOperationalMapFixture(page);
+    const state = await installOperationalMapFixture(page, baseURL);
     await page.goto(`/control?siteId=${operationalIds.siteId}`);
     await expect(marker(page, 0)).toBeVisible();
     const point = await markerPoint(page, 0);
@@ -279,4 +279,72 @@ test.describe("Software touch hold", () => {
     await client.detach();
     expect(state.equipmentPosts).toEqual([]); expect(state.api.dimmingRequests).toEqual([]);
   });
+});
+
+
+async function controlGeometry(page: Page) {
+  return page.locator("[data-control-screen]").evaluate(root => {
+    const map = document.querySelector<HTMLElement>("[data-testid=target-selection-map-viewport]")!;
+    const scene = map.querySelector<HTMLElement>("[data-floor-scene]")!;
+    const shell = root.closest<HTMLElement>("[data-shell-content]")!;
+    const rect = (node: Element) => { const { x, y, width, height, bottom } = node.getBoundingClientRect(); return { x, y, width, height, bottom }; };
+    const viewport = rect(map), surface = rect(scene);
+    return { root: rect(root), viewport, surface, availableBottom: innerHeight - parseFloat(getComputedStyle(shell).paddingBottom),
+      zoom: map.dataset.zoom, centerXRatio: (viewport.x + viewport.width / 2 - surface.x) / surface.width,
+      centerYRatio: (viewport.y + viewport.height / 2 - surface.y) / surface.height };
+  });
+}
+
+test("Control sufficient desktop height grows the actual map and preserves a live camera on resize", async ({ page, baseURL }, info) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  const state = await installOperationalMapFixture(page, baseURL);
+  await page.goto(`/control?siteId=${operationalIds.siteId}`);
+  await expect(marker(page, 0)).toBeVisible(); await paints(page);
+  const initial = await controlGeometry(page);
+  await info.attach("desktop-900-initial", { body: await page.screenshot({ fullPage: true }), contentType: "image/png" });
+  await page.setViewportSize({ width: 1440, height: 1100 }); await paints(page);
+  const taller = await controlGeometry(page);
+  await info.attach("desktop-1100-initial", { body: await page.screenshot({ fullPage: true }), contentType: "image/png" });
+  expect.soft(Math.abs(initial.availableBottom - initial.root.bottom)).toBeLessThanOrEqual(2);
+  expect.soft(Math.abs(taller.availableBottom - taller.root.bottom)).toBeLessThanOrEqual(2);
+  expect.soft(taller.viewport.height - initial.viewport.height).toBeGreaterThanOrEqual(198);
+  expect.soft(taller.surface.height).toBeGreaterThan(initial.surface.height);
+  await clickCenter(page, 0);
+  const zoom = page.getByRole("button", { name: "지도 확대", exact: true });
+  await zoom.click(); await paints(page);
+  const beforeResize = await controlGeometry(page);
+  await page.setViewportSize({ width: 1440, height: 900 }); await paints(page);
+  const afterResize = await controlGeometry(page);
+  expect(afterResize.zoom).toBe("1.1"); expect(await selected(page)).toEqual([rows[0].id]);
+  expect.soft(afterResize.centerXRatio).toBeCloseTo(beforeResize.centerXRatio, 2);
+  expect.soft(afterResize.centerYRatio).toBeCloseTo(beforeResize.centerYRatio, 2);
+  await expect(zoom).toBeFocused();
+  await info.attach("sufficient-height-geometry", { body: JSON.stringify({ initial, taller, beforeResize, afterResize }), contentType: "application/json" });
+  expect(state.equipmentPosts).toEqual([]); expect(state.api.dimmingRequests).toEqual([]);
+});
+
+test("Operational fixture accepts its configured origin and fails closed for external and unknown routes", async ({ page, baseURL }, info) => {
+  expect(baseURL).toBeTruthy();
+  const failed: Array<{ url: string; resourceType: string; error: string | undefined }> = [];
+  page.on("requestfailed", request => failed.push({ url: request.url(), resourceType: request.resourceType(), error: request.failure()?.errorText }));
+  await expect(installOperationalMapFixture(page, undefined)).rejects.toThrow("configured baseURL");
+  const state = await installOperationalMapFixture(page, baseURL);
+  await page.goto(`/control?siteId=${operationalIds.siteId}`);
+  await expect(marker(page, 0)).toBeVisible();
+  const result = await page.evaluate(async () => ({
+    origin: location.origin,
+    unknown: (await fetch("/api/task9-followup-unknown")).status,
+    externalBlocked: await fetch("https://task9-external.invalid/probe").then(() => false, () => true),
+    externalApiBlocked: await fetch("https://task9-external.invalid/api/commands").then(() => false, () => true)
+  }));
+  await info.attach("configured-origin-proof", { body: JSON.stringify({ baseURL, result, failed }), contentType: "application/json" });
+  expect(result.origin).toBe(new URL(baseURL!).origin);
+  expect(result.unknown).toBe(404); expect(result.externalBlocked).toBe(true); expect(result.externalApiBlocked).toBe(true);
+  // React Query may cancel duplicate dev/StrictMode API reads with ERR_ABORTED.
+  // Document/static delivery and allowlist aborts are the origin contract here;
+  // retain all failures in evidence without treating a cancelled API read as it.
+  expect(failed.filter(item => new URL(item.url).origin === result.origin &&
+    (["document", "script", "stylesheet", "image"].includes(item.resourceType) || item.error?.startsWith("net::ERR_BLOCKED_BY_CLIENT")))).toEqual([]);
+  await expect.poll(() => failed.filter(item => item.url.startsWith("https://task9-external.invalid/")).map(item => item.error)).toEqual([expect.stringMatching(/^net::ERR_BLOCKED_BY_CLIENT(?:\.Inspector)?$/), expect.stringMatching(/^net::ERR_BLOCKED_BY_CLIENT(?:\.Inspector)?$/)]);
+  expect(state.equipmentPosts).toEqual([]); expect(state.api.dimmingRequests).toEqual([]);
 });

@@ -127,7 +127,7 @@ export function SpatialTargetSelector({
       {/* Footer controls preserve the actual 240px map minimum. The legend has
           its own flow row so neither can cover the other on short screens. */}
       <div className="[&_[data-spatial-map-marker]]:rounded-none! relative flex min-h-min min-w-0 flex-1 flex-col overflow-hidden rounded-panel border border-border-default bg-surface-inset">
-        {mapQuery.data && activeFloor ? <div className="min-h-min min-w-0 flex-1"><FloorMapViewport snapshot={mapQuery.data} ariaLabel={`${activeFloor.name} 도면`} interactionPolicy={selection.mode === "fixtures" && !disabled ? "direct-selection" : "pan"} onAreaSelect={selectArea} controlsPlacement="footer" viewportTestId="target-selection-map-viewport">
+        {mapQuery.data && activeFloor ? <div className="min-h-min min-w-0 flex-1"><FloorMapViewport snapshot={mapQuery.data} ariaLabel={`${activeFloor.name} 도면`} interactionPolicy={selection.mode === "fixtures" && !disabled ? "direct-selection" : "pan"} onAreaSelect={selectArea} controlsPlacement="footer" maintainCameraOnResize viewportTestId="target-selection-map-viewport">
           <FloorScene snapshot={mapQuery.data} fixtures={activeFloor.fixtures} interactive={false} floorName={activeFloor.name} selection={sceneSelection} coarsePointer onFixturePress={toggleFixture} />
         </FloorMapViewport></div> : <div className="grid h-full place-items-center p-4"><Text tone="secondary">등록된 도면이 없어 목록으로 선택합니다.</Text></div>}
         {mapQuery.data && mapQuery.error ? <Text className="absolute top-3 left-3 z-6 rounded-control border border-border-default bg-surface-panel px-2 py-1" role="alert" tone="danger">도면을 최신 상태로 갱신하지 못했습니다.</Text> : null}

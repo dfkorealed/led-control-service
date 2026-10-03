@@ -22,8 +22,11 @@ export function operationalDenseFixtures(): SettingsFixture[] {
   }));
 }
 
-export async function installOperationalMapFixture(page: Page) {
-  await page.route("**/*", route => new URL(route.request().url()).origin === "http://127.0.0.1:16208" ? route.fallback() : route.abort("blockedbyclient"));
+export async function installOperationalMapFixture(page: Page, baseURL: string | undefined) {
+  if (!baseURL) throw new Error("Operational map fixture requires the configured baseURL");
+  const configured = new URL(baseURL);
+  if (!["http:", "https:"].includes(configured.protocol)) throw new Error("Operational map fixture requires an HTTP baseURL");
+  const origin = configured.origin;
   const api = await installSettingsApiRoutes(page, "admin", {
     ids: operationalIds, fixtures: operationalDenseFixtures(), snapshotGeneratedAt: instant, gatewayHeartbeatAt: instant
   });
@@ -37,5 +40,9 @@ export async function installOperationalMapFixture(page: Page) {
     } });
     return route.fallback();
   });
+  // Register last so this guard runs before every API/static handler. Otherwise
+  // an external URL with a known /api path could bypass the origin allowlist.
+  await page.route("**/*", route => new URL(route.request().url()).origin === origin
+    ? route.fallback() : route.abort("blockedbyclient"));
   return { api, equipmentPosts };
 }

@@ -61,9 +61,10 @@ const VehicleEventControlPanel = lazy(async () => {
 });
 
 const emptySelection: ControlSelection = { mode: "fixtures", fixtureIds: [] };
-// Keep this surface in document flow. A fixed bottom edge previously shrank
-// the actual map to 69px and clipped execution controls on short tablet screens.
-const controlScreenClassName = "grid min-h-0 min-w-0 content-start gap-4 tablet:flex tablet:flex-col";
+// The tablet shell already supplies a usable content height. Fill it through
+// the existing flex chain, while min-content children keep short screens in
+// document flow instead of clipping the map to a fixed bottom edge.
+const controlScreenClassName = "grid min-h-0 min-w-0 content-start gap-4 tablet:h-full tablet:flex tablet:flex-col";
 
 export function ControlView({
   siteId,

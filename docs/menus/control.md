@@ -1,5 +1,31 @@
 # 제어 메뉴 기능 현황
 
+## 2026-10-03 가용 지도 높이·설정 origin 회귀 보완 (Task 9 P2-A/B)
+
+### 구현 완료
+
+- 기존 tablet=1024 경계에서 shell의 콘텐츠 높이를 제어 화면과 지도까지 전달한다. 최소 콘텐츠가 더 크면 문서 스크롤을 유지한다. Chromium route fixture의 1440×900/1440×1100에서 실제 지도는 387/587px로 성장하며, 1024×480·390×320은 최소 240px와 범례·줌·밝기·이력의 일반 스크롤 접근을 유지한다.
+- 기존 viewport의 resize camera 보존 옵션을 소비한다. 충분한 높이의 초기 fit이 가용 지도에 맞춰 커지고, 사용자가 확대한 뒤 resize해도 zoom·논리 중심·선택·유효 버튼 포커스를 유지한다.
+- tracked 지도 fixture는 테스트의 configured baseURL origin을 명시적으로 받는다. baseURL 누락은 실패하며 document/static/알려진 API는 해당 origin에서만 처리한다. 외부 일반 요청과 알려진 API 경로도 차단하고 unknown API는 404를 유지한다. 16208 및 별도 16214 origin의 실제 좁은 회귀와 장비 POST 0건을 확인했다.
+
+### 미구현
+
+- 실제 WebView 물리 입력·safe-area 및 Gateway·LED RF HIL 검증.
+
+### 부족하거나 개선이 필요한 기능
+
+- 이전 원시 증거와 후속 source/browser 증거를 구분한다. 넓은 화면의 240px 고정은 이번 후속으로 보완됐으며 독립 reviewer 재검토·designer·최종 통합/실DB 검증은 별도 관문이다.
+- 설정된 다른 origin의 실행 계약을 검증한 범위이며 일반 config의 전체 suite나 운영 서버 실행을 의미하지 않는다.
+
+### 관련 파일
+
+- `apps/web/src/features/control/ControlView.tsx`, `target-selection/SpatialTargetSelector.tsx`.
+- `apps/web/e2e/operational-marker-control-height.spec.ts`, `e2e/support/operational-map-fixture.ts`.
+
+### 갱신 규칙
+
+- 실제 지도 높이와 shell 가용 공간 전달이 바뀌면 충분한 화면의 성장·짧은 화면 최소 높이·일반 스크롤·camera 보존을 함께 기록한다. fixture origin 변경은 외부 차단·unknown404와 실제 port 증거를 함께 갱신한다.
+
 ## 2026-10-02 운영 밀집 마커·짧은 지도 높이 보완 (Task 9)
 
 ### 구현 완료
