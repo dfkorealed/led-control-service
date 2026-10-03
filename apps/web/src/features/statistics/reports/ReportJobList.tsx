@@ -15,6 +15,7 @@ export function ReportJobList({
   hasRefreshError = false,
   focusTargetRef,
   retryingReportId,
+  downloadingReportId,
   onRetry,
   onRegenerate,
   onDownload
@@ -27,6 +28,7 @@ export function ReportJobList({
   hasRefreshError?: boolean;
   focusTargetRef?: Ref<HTMLElement>;
   retryingReportId?: string;
+  downloadingReportId?: string;
   onRetry: (trigger: HTMLButtonElement | null) => void;
   onRegenerate: (job: EnergyReportJob) => void;
   onDownload: (job: EnergyReportJob) => void;
@@ -39,7 +41,9 @@ export function ReportJobList({
   const renderAction = (item: ReportJobRenderItem) => {
     const jobLabel = `${item.view.targetLabel} 보고서`;
     if (item.view.action === "download") {
-      return <Button className="min-w-28" variant="primary" aria-label={`${jobLabel} 다운로드`} onClick={() => onDownload(item.job)}>다운로드</Button>;
+      return <Button className="min-w-28" variant="primary" aria-label={`${jobLabel} 다운로드`}
+        disabled={Boolean(downloadingReportId)} isLoading={downloadingReportId === item.view.id} loadingLabel="파일 준비 중"
+        onClick={() => onDownload(item.job)}>다운로드</Button>;
     }
     if (item.view.action === "regenerate") {
       return <Button className="min-w-28" variant="secondary" aria-label={`${jobLabel} 다시 생성`} disabled={Boolean(retryingReportId)} isLoading={retryingReportId === item.view.id} loadingLabel="다시 생성 중" onClick={() => onRegenerate(item.job)}>다시 생성</Button>;

@@ -31,6 +31,9 @@ import {
 } from "@led-control/shared/energy-p2-contracts";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { ApiError, apiGet, apiPost } from "./client";
+import { MOBILE_FILE_MAX_BYTES, MOBILE_FILE_INACTIVITY_TIMEOUT_MS } from "@led-control/shared/mobile-webview-contracts";
+import { downloadMobileAwareFile, MobileFileExportError, type MobileFileDownloadOutcome } from "../features/mobile/file-download";
+import { getMobileEnvironment, requiresNativeBootstrap } from "../features/mobile/mobile-environment";
 
 const API_BASE_URL = "/api";
 const REPORT_POLL_INTERVAL_MS = 3_000;
@@ -216,14 +219,49 @@ export async function createEnergyReport(siteId: string, request: EnergyReportRe
   ));
 }
 
-export async function downloadEnergyReport(siteId: string, reportId: string) {
+export async function downloadEnergyReport(siteId: string, reportId: string, options?: { signal?: AbortSignal }) {
   // The endpoint creates a short-lived URL on demand; callers must not cache it.
   return energyReportDownloadResponseSchema.parse(await apiGet<unknown>(
-    `/energy/sites/${encodeURIComponent(siteId)}/reports/${encodeURIComponent(reportId)}/download`
+    `/energy/sites/${encodeURIComponent(siteId)}/reports/${encodeURIComponent(reportId)}/download`,
+    ...(options ? [options] : [])
   ));
 }
 
-export async function downloadEnergyCsv(siteId: string, request: Omit<EnergyReportRequest, "format">) {
+/** Pin the permission-bearing fetch to its original document, before the common
+ * delivery helper takes ownership. That helper cannot recover a CSV/descriptor's
+ * earlier document identity. The caller's signal covers site/principal/unmount.
+ */
+export function createEnergyFileOperation(signal?: AbortSignal) {
+  const documentId = getMobileEnvironment()?.documentId ?? null;
+  if (!documentId && requiresNativeBootstrap()) throw new MobileFileExportError("FILE_UNSUPPORTED");
+  const controller = new AbortController();
+  let documentChanged = false;
+  const assertCurrent = () => {
+    if (documentChanged || (getMobileEnvironment()?.documentId ?? null) !== documentId) {
+      throw new MobileFileExportError("FILE_DOCUMENT_CHANGED");
+    }
+  };
+  const abort = () => controller.abort();
+  const changed = () => { documentChanged = true; abort(); };
+  const receive = () => { try { assertCurrent(); } catch { changed(); } };
+  signal?.addEventListener("abort", abort, { once: true });
+  if (signal?.aborted) abort();
+  window.addEventListener("led-control:native-message", receive);
+  window.addEventListener("pagehide", changed);
+  return {
+    signal: controller.signal,
+    assertCurrent,
+    dispose() {
+      signal?.removeEventListener("abort", abort);
+      window.removeEventListener("led-control:native-message", receive);
+      window.removeEventListener("pagehide", changed);
+      abort();
+    }
+  };
+}
+
+export async function downloadEnergyCsv(siteId: string, request: Omit<EnergyReportRequest, "format">,
+  options: { signal?: AbortSignal } = {}): Promise<MobileFileDownloadOutcome> {
   const validRequest = energyCsvExportQuerySchema.parse(request);
   const parameters = new URLSearchParams({
     from: validRequest.from,
@@ -231,9 +269,24 @@ export async function downloadEnergyCsv(siteId: string, request: Omit<EnergyRepo
     scope: validRequest.scope,
     identityId: validRequest.identityId
   });
+  const url = `${API_BASE_URL}/energy/sites/${encodeURIComponent(siteId)}/exports/csv?${parameters.toString()}`;
+  if (requiresNativeBootstrap()) {
+    const operation = createEnergyFileOperation(options.signal);
+    try {
+      const blob = await fetchNativeCsvBlob(url, operation.signal);
+      operation.assertCurrent();
+      const outcome = await downloadMobileAwareFile({ blob, fileName: "energy-export.csv", mimeType: "text/csv", signal: operation.signal });
+      operation.assertCurrent();
+      return outcome;
+    } catch (error) {
+      // A document change is not an explicit user cancellation or a fetch timeout.
+      operation.assertCurrent();
+      throw error;
+    } finally { operation.dispose(); }
+  }
   const response = await fetch(
-    `${API_BASE_URL}/energy/sites/${encodeURIComponent(siteId)}/exports/csv?${parameters.toString()}`,
-    { credentials: "include" }
+    url,
+    { credentials: "include", ...(options.signal ? { signal: options.signal } : {}) }
   );
   if (!response.ok) {
     throw new ApiError(
@@ -243,7 +296,10 @@ export async function downloadEnergyCsv(siteId: string, request: Omit<EnergyRepo
     );
   }
 
-  const blobUrl = URL.createObjectURL(await response.blob());
+  options.signal?.throwIfAborted();
+  const blob = await response.blob();
+  options.signal?.throwIfAborted();
+  const blobUrl = URL.createObjectURL(blob);
   const anchor = document.createElement("a");
   anchor.href = blobUrl;
   anchor.download = "energy-export.csv";
@@ -253,6 +309,77 @@ export async function downloadEnergyCsv(siteId: string, request: Omit<EnergyRepo
   } finally {
     anchor.remove();
     URL.revokeObjectURL(blobUrl);
+  }
+  return "browser-download";
+}
+
+async function fetchNativeCsvBlob(url: string, signal?: AbortSignal) {
+  signal?.throwIfAborted();
+  const controller = new AbortController();
+  const abort = () => controller.abort();
+  signal?.addEventListener("abort", abort, { once: true });
+  let timedOut = false;
+  let timer: ReturnType<typeof setTimeout>;
+  const progress = () => {
+    clearTimeout(timer);
+    timer = setTimeout(() => { timedOut = true; controller.abort(); }, MOBILE_FILE_INACTIVITY_TIMEOUT_MS);
+  };
+  progress();
+  try {
+    // Even an unexpected API redirect must not carry authenticated fetch mode to an external origin.
+    const response = await fetch(url, { credentials: "include", redirect: "error", signal: controller.signal });
+    if (!response.ok) {
+      await response.body?.cancel();
+      throw new ApiError("Energy CSV export request failed", response.status, null);
+    }
+    return await readNativeCsvBlob(response, controller.signal, progress);
+  } catch (error) {
+    if (timedOut) throw Object.assign(new Error("FILE_TIMEOUT"), { code: "FILE_TIMEOUT" });
+    throw error;
+  } finally {
+    clearTimeout(timer!); signal?.removeEventListener("abort", abort); controller.abort();
+  }
+}
+
+/** CSV is read with existing Web auth; native never copies the session or fetches this URL. */
+async function readNativeCsvBlob(response: Response, signal?: AbortSignal, progress?: () => void): Promise<Blob> {
+  const fail = (code: "FILE_TOO_LARGE" | "FILE_INVALID_MESSAGE" | "FILE_UNSUPPORTED") =>
+    Object.assign(new Error(code), { code });
+  const declaredSize = Number(response.headers.get("content-length"));
+  if (declaredSize > MOBILE_FILE_MAX_BYTES) {
+    await response.body?.cancel();
+    throw fail("FILE_TOO_LARGE");
+  }
+  if (response.headers.get("content-type")?.split(";")[0].trim().toLowerCase() !== "text/csv") {
+    await response.body?.cancel();
+    throw fail("FILE_INVALID_MESSAGE");
+  }
+  // No unbounded response.blob fallback: missing length and streaming support must fail closed.
+  if (!response.body) throw fail("FILE_UNSUPPORTED");
+  const reader = response.body.getReader();
+  const cancel = () => { void reader.cancel().catch(() => undefined); };
+  signal?.addEventListener("abort", cancel, { once: true });
+  const parts: Uint8Array<ArrayBuffer>[] = [];
+  let size = 0;
+  try {
+    while (true) {
+      signal?.throwIfAborted();
+      const { done, value } = await reader.read();
+      signal?.throwIfAborted();
+      if (done) break;
+      progress?.();
+      size += value.byteLength;
+      if (size > MOBILE_FILE_MAX_BYTES) throw fail("FILE_TOO_LARGE");
+      parts.push(new Uint8Array(value));
+    }
+    if (!size) throw fail("FILE_INVALID_MESSAGE");
+    return new Blob(parts, { type: "text/csv" });
+  } catch (error) {
+    await reader.cancel().catch(() => undefined);
+    throw error;
+  } finally {
+    signal?.removeEventListener("abort", cancel);
+    reader.releaseLock();
   }
 }
 
@@ -268,6 +395,32 @@ const reportActionLabels: Record<EnergyReportRequestAction, { label: string; obj
 /** Maps transport and HTTP failures without exposing raw API/storage details. */
 export function energyReportRequestErrorMessage(error: unknown, action: EnergyReportRequestAction): string {
   const actionLabel = reportActionLabels[action];
+  if (error instanceof MobileFileExportError && error.code === "FILE_FETCH_FAILED") {
+    const failure = error.fetchFailure;
+    if (failure?.reason === "http") {
+      if (failure.status === 403 || failure.status === 410) {
+        return "보고서 파일 접근이 거부되었거나 주소가 만료되었습니다. 다운로드를 다시 요청해 주세요.";
+      }
+      if (failure.status === 404) return "보고서 파일이 없거나 만료되었습니다. 다시 생성해 주세요.";
+      if (failure.status >= 500) return "파일 서버에서 보고서를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.";
+    } else if (failure?.reason === "network") {
+      // Web fetch cannot distinguish CORS denial, redirect rejection and network loss.
+      return "네트워크 연결과 파일 서버 접근을 확인한 뒤 다운로드를 다시 요청해 주세요.";
+    }
+    return "보고서 파일을 불러오지 못했습니다. 다운로드를 다시 요청해 주세요.";
+  }
+  const code = error && typeof error === "object" && "code" in error ? error.code : undefined;
+  switch (code) {
+    case "FILE_TOO_LARGE": return "앱에서 공유할 수 있는 파일은 최대 20MiB입니다. 기간이나 대상을 줄여 다시 시도해 주세요.";
+    case "FILE_TRANSFER_BUSY": return "다른 파일 공유가 진행 중입니다. 공유창을 닫은 뒤 다시 시도해 주세요.";
+    case "FILE_TIMEOUT": return "파일 준비 시간이 초과되었습니다. 연결을 확인한 뒤 다시 시도해 주세요.";
+    case "FILE_WRITE_FAILED": return "파일을 준비하지 못했습니다. 네트워크 연결과 파일 서버 접근, 앱 저장 공간을 확인해 주세요.";
+    case "FILE_SHARE_FAILED": return "공유창을 열지 못했습니다. 앱에서 다시 시도해 주세요.";
+    case "FILE_INVALID_MESSAGE":
+    case "FILE_SEQUENCE_ERROR": return "파일을 정상적으로 전달하지 못했습니다. 다시 시도해 주세요.";
+    case "FILE_DOCUMENT_CHANGED": return "화면이 변경되어 파일 전달이 중단되었습니다. 현재 화면에서 다시 시도해 주세요.";
+    case "FILE_UNSUPPORTED": return "앱의 파일 공유 기능을 사용할 수 없습니다. 앱을 다시 열어 주세요.";
+  }
   if (error instanceof TypeError) {
     return `네트워크 연결을 확인한 뒤 ${actionLabel.object} 다시 시도해 주세요.`;
   }
@@ -276,6 +429,9 @@ export function energyReportRequestErrorMessage(error: unknown, action: EnergyRe
   }
   if (error.status === 400 || error.status === 422) {
     return `${actionLabel.label} 입력을 확인해 주세요. 기간·대상·지원 문자를 수정한 뒤 다시 시도해 주세요.`;
+  }
+  if (action === "download" && (error.status === 403 || error.status === 410)) {
+    return "보고서 파일 접근이 거부되었거나 주소가 만료되었습니다. 다운로드를 다시 요청해 주세요.";
   }
   if (error.status === 404) {
     if (action === "download") return "보고서 파일이 없거나 만료되었습니다. 다시 생성해 주세요.";

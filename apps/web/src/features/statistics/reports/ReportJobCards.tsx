@@ -24,7 +24,16 @@ export function ReportJobCards({
               <ReportJobStatus item={item} className="w-28 shrink-0 justify-items-end" />
             </div>
             <dl className="m-0 grid min-w-0 grid-cols-2 gap-x-3 gap-y-2 text-caption" role="group" aria-label="보고서 메타데이터">
-              <Metadata label="기간" value={item.view.rangeLabel} />
+              <div className="col-span-2 min-w-0">
+                <dt className="font-bold text-content-muted">기간</dt>
+                {/* Calendar dates are not instants: retain the API dates without
+                    timezone conversion, and wrap only between whole dates. */}
+                <dd className="m-0 flex min-w-0 flex-wrap gap-x-1 text-content-primary">
+                  <time dateTime={item.job.request.from} className="whitespace-nowrap tabular-nums">{item.job.request.from}</time>
+                  <span aria-hidden="true">~</span>
+                  <time dateTime={item.job.request.to} className="whitespace-nowrap tabular-nums">{item.job.request.to}</time>
+                </dd>
+              </div>
               <Metadata label="범위" value={item.view.scopeLabel} />
               <Metadata label="요청 시각" value={<ReportTime instant={item.view.requestedAt} />} />
               {item.view.expiresAt ? <Metadata label="파일 만료 시각" value={<ReportTime instant={item.view.expiresAt} />} /> : null}

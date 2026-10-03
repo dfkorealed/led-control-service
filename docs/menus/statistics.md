@@ -1,8 +1,14 @@
 # 통계 메뉴 기능 현황
 
-기준일: 2026-09-28
+기준일: 2026-10-04
 
 ## 구현 완료
+
+- 모바일앱 파일 전달 소비부를 공통 `downloadMobileAwareUrl`(PDF)·`downloadMobileAwareFile`(CSV)에 연결했다. PDF는 클릭마다 새 서명 주소를 요청하고 브라우저에서는 anchor 다운로드를 유지한다. CSV는 기존 인증으로 웹에서 읽고 앱에는 바이트만 전달한다. native CSV는 MIME·빈 파일·선언/실제 20MiB 상한을 검사하고 크기 헤더가 없어도 스트리밍 중 초과를 차단한다. 30초 수신 정체·명시 취소·현장/페이지 전환에서 요청을 중단하며 인증된 CSV fetch의 외부 redirect도 거부한다.
+- PDF 준비 중 표·모바일 카드의 중복 클릭을 함께 막고, CSV 요청도 동기 잠금으로 중복을 차단한다. 명시 취소는 기간·대상·이력 필터를 보존해 재시도할 수 있게 하고 이전 현장의 늦은 오류/파일 결과는 새 화면에 표시하지 않는다. 공유창 정상 반환은 `공유창을 닫았습니다.`로만 안내하며 실제 저장 완료나 OS 취소라고 추측하지 않는다. 보고서 대화상자는 내부 입력만 스크롤하고 제목·취소/요청 버튼·오류/취소 안내를 고정해 320px의 하단 잘림을 보완했다.
+- 서명 PDF 조회는 공통 helper의 웹 전용 `FILE_FETCH_FAILED`·`fetchFailure`를 소비한다. HTTP 403/410은 접근 거부·주소 만료와 다운로드 재요청, 404는 파일 없음·만료와 재생성, 5xx는 파일 서버 실패로 안내하고 네트워크/CORS/redirect 접근 실패는 원인을 단정하지 않고 함께 확인하도록 안내한다. native 쓰기/공유 오류와 구분하며 URL·서명·원시 body·OS 경로를 노출하지 않는다. shared native 9개 오류 코드는 바꾸지 않았다.
+- CSV 조회와 PDF 서명 주소 조회를 시작할 때 신뢰된 원본 문서 ID를 고정한다. 새 bootstrap·pagehide는 요청을 중단하고 전달 직전에도 동일 문서인지 검사해 이전 문서의 바이트/주소를 새 문서로 공유하지 않는다. PDF 서명 주소 GET에도 페이지의 AbortSignal을 전달해 명시 취소·현장 교체·unmount에서 실제 조회와 준비 잠금을 종료한다. 문서 전환은 사용자 취소와 구분해 `화면이 변경되어 파일 전달이 중단되었습니다`로 안내하며, 다른 현장·unmount 뒤의 늦은 결과는 표시하지 않는다. 공통 native 전달 프로토콜/PDF fetch를 통계에 복제하지 않았다.
+- 모바일 이력 카드의 기간은 전체 폭 행에서 시작·종료 날짜를 각각 온전한 `<time>` 단위로 표시하고 날짜 사이에서만 줄바꿈한다. calendar date를 현장 시간대/JS Date로 변환하지 않으며 다른 메타데이터의 줄바꿈·글자 크기는 유지한다. 2026-10-04 통계/API 단위 13 files·200/200, 독립 검토자의 CSV 원본 문서·PDF 원본 문서·descriptor 취소 재현 3/3, 320/390px strict bridge·바이트 전달·취소/필터 보존·서명 403·네트워크/20MiB 차단·browser PDF/CSV 다운로드·긴 이름/글자 200%의 날짜 단위 Chromium 9/9, Web typecheck·UI policy 위반 0을 확인했다. 이는 HTTP/native transport fixture 검증이며 실제 OS 파일 저장 완료나 native 접근성 전체 검증 증거는 아니다.
 
 - 2026-09-28 실제 메인용 격리 통합에서 Atlas의 네 기본 필터·기간 팝업/이력 카드와 PDF 전용 생성·재생성·다운로드·구 `format` URL 정규화·별도 CSV를 함께 보존했다. 관련 Web 집중 123개, PDF/API 집중 172개(환경 의존 103개 제외), 통계 mock Chromium 41개를 통과했다. 날짜 helper의 팝업 호출 오류는 첫 Chromium 실패 기록을 보존하고 최소 test-only 수정 후 RED→GREEN·관련 세 spec 전체 97/97로 재검증했다. 루트 test/lint/typecheck/build는 종료 코드 0이며 API 2,934개 통과/827개 환경 의존 제외다. 양쪽 migration 원본은 그대로이며 이번 작업에서는 DB에 적용하지 않았다. 실제 메인 반영·독립 통합 검토는 별도 단계다.
 
@@ -129,6 +135,8 @@
 
 ## 부족하거나 개선이 필요한 기능
 
+- 2026-10-04 공통 URL helper의 HTTP 원인 유실은 `FILE_FETCH_FAILED` 소비자 연결과 서명 403 회귀 통과로 해소했다. native20MiB·64KiB chunk/ack 및 PDF fetch는 공통 helper·shared 계약이 소유하며 통계 코드에서 복제하지 않는다. 실제 Object Storage CORS와 Android/iOS OS 공유·저장, 인증된 실기기 여정은 미검증이다. 네트워크와 CORS는 Web fetch 오류만으로 단정하지 않고 함께 접근 실패로 안내하며 브라우저로 몰래 우회하지 않는다. 전체 root/Web build·통합 회귀와 독립 시각 검토는 총괄 검증에 남긴다.
+
 - PDF 전용 요청·저장소 업로드·구 이력 URL 정규화·Web 생성/재생성/다운로드와 별도 CSV 내보내기는 코드에 반영됐다. 62일 완전 fixture의 PDF 출력과 API 전체 runnable Jest/typecheck/build를 검증했다. opt-in 57 suites·655 tests와 운영 DB·운영 Object Storage 적용, 실장비·실계량기 검증은 수행하지 않았다. 기존 XLSX/PDF 동등성 테스트 결과를 새 PDF 검증으로 간주하지 않는다.
 - `20260927090000_pdf_only_energy_reports`는 기존 `EnergyReportJob` 전체를 삭제하고 PDF 단일 enum으로 바꾸는 순방향 migration이다. 삭제 트리거가 과거 XLSX/PDF 객체 키를 `EnergyReportObjectCleanup`에 보존하고 반복 정리가 회수한다. 2026-09-27 사용자 승인 후 기존 `pnpm dev` API·Web을 중지하고 영속 로컬 `localhost:5432/led_control` 및 `energy-reports`의 새 보호 백업을 기본 checkout의 ignored `.local/backups`에 확보했다. 로컬 pre/postflight는 모두 종료 코드 0, 작업 4→0건, 보존 원장 2→4건·12개 키, 원장 4건 처리·객체 2개 삭제·오류 0건이었다. 로컬 버킷 객체 2→0개와 원래 PDF·XLSX 객체의 HEAD 404를 확인했다. 기존 개발 서버는 재시작하지 않았고, 운영 DB·저장소에는 적용하지 않았다.
 - PDF의 저장 전력량은 제품 상태 이벤트와 정격 전력에서 산출한 추정값이다. 계량기 실측, 청구액 또는 검증된 절감액으로 홍보하거나 표시하지 않는다. 자료 부족·결측·대상 귀속 공백과 저장 비용 부재를 0으로 보정하지 않는지 최종 PDF에서 확인해야 한다.
@@ -238,6 +246,9 @@
 - `apps/web/src/features/statistics/reports/ReportHistoryFilters.tsx`
 - `apps/web/src/features/statistics/reports/ReportJobTable.tsx`
 - `apps/web/src/features/statistics/reports/ReportJobCards.tsx`
+- `apps/web/e2e/statistics-mobile-files.spec.ts`
+- `apps/web/src/features/mobile/file-download.ts` (공통 파일 전달 소비, Shell 소유)
+- `apps/web/src/features/mobile/mobile-environment.ts`, `apps/web/src/features/mobile/mobile-runtime.ts` (신뢰된 문서 환경 소비, Shell 소유)
 - `apps/web/src/features/statistics/reports/ReportJobStatus.tsx`
 - `apps/web/src/features/statistics/reports/ReportCreateDialog.tsx`
 - `apps/web/src/features/statistics/reports/ReportJobList.tsx`
