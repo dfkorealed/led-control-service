@@ -290,16 +290,18 @@ function MonitoringDashboard({ data, userRole, siteId, refreshDashboard }: Monit
         offline={data.summary.offlineFixtures ?? null}
       /></div>
       <div className="flex items-center justify-between gap-4 max-compact:flex-col max-compact:items-stretch" role="group" aria-label="모니터링 도구">
-        <div className="flex min-w-0 items-center gap-2 max-compact:w-full">
+        {/* Compact layouts reserve the full row for the map value; the search
+            action must not squeeze the value or chevron when text is enlarged. */}
+        <div className="flex min-w-0 items-center gap-2 max-compact:w-full max-compact:flex-col max-compact:items-stretch">
           <SelectBox
             label="맵 선택"
             items={data.floors.map((item) => ({ id: item.id, label: item.name }))}
             selectedKey={floor?.id ?? null}
             isDisabled={data.floors.length === 0}
             onSelectionChange={(floorId) => floorId !== null && handleSelectFloor(floorId)}
-            className="grid min-w-0 flex-1 grid-cols-[auto_minmax(0,1fr)] items-center gap-2 max-compact:max-w-none"
+            className="grid min-w-0 flex-1 grid-cols-[auto_minmax(0,1fr)] items-center gap-2 max-compact:max-w-none max-compact:flex-none"
           />
-          <Button ref={inspectorTriggerRef} variant="secondary" className="shrink-0" onClick={() => { setFinderDefaultOpen(false); setIsInspectorOpen(true); }}>조명 검색·상세</Button>
+          <Button ref={inspectorTriggerRef} variant="secondary" className="shrink-0 max-compact:self-end" onClick={() => { setFinderDefaultOpen(false); setIsInspectorOpen(true); }}>조명 검색·상세</Button>
         </div>
         <div className="ml-auto flex flex-wrap items-center justify-end gap-2 text-content-secondary max-compact:ml-0 max-compact:w-full">
           <Text as="small" variant="caption" tone="secondary" className="min-w-0 max-w-full break-words text-right">

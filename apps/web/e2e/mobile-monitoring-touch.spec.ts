@@ -1,6 +1,6 @@
 import { expect, test, type CDPSession, type Locator, type Page, type TestInfo } from "@playwright/test";
 import { installSettingsApiRoutes, type SettingsFixture } from "./support/settings-api";
-import { expectNoHorizontalOverflow } from "./support/layout-assertions";
+import { expectMinimumTouchTargetsAfterScrolling, expectNoHorizontalOverflow } from "./support/layout-assertions";
 
 const ids = { siteId: "99999999-9999-4999-8999-000000000001", floorId: "99999999-9999-4999-8999-000000000002", gatewayId: "99999999-9999-4999-8999-000000000003" };
 const fixture: SettingsFixture = {
@@ -32,7 +32,8 @@ async function frame(page: Page) {
   await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
 }
 
-async function capture(page: Page, info: TestInfo, label: string) {
+async function capture(page: Page, info: TestInfo, label: string, center?: Locator) {
+  if (center) await center.evaluate(node => node.scrollIntoView({ block: "center", inline: "nearest" }));
   const path = info.outputPath(`${label}-${page.viewportSize()!.width}.png`);
   await page.screenshot({ path });
   await info.attach(label, { path, contentType: "image/png" });
@@ -74,8 +75,78 @@ async function visibleHit(target: Locator, port: Locator) {
 
 test.use({ hasTouch: true, isMobile: true });
 
+async function expectReadableMapChoice(selector: Locator, label: string, info: TestInfo) {
+  await selector.evaluate(node => node.scrollIntoView({ block: "center", inline: "nearest" }));
+  await expect(selector).toContainText(label);
+  const geometry = await selector.evaluate((button, label) => {
+    const value = [...button.children].find(child => child.textContent === label)!;
+    const chevron = button.querySelector('[aria-hidden="true"]')!;
+    const range = document.createRange(); range.selectNodeContents(value);
+    const text = [...range.getClientRects()].map(rect => ({ left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom }));
+    const arrow = chevron.getBoundingClientRect(), bounds = button.getBoundingClientRect();
+    const inside = (r: { left: number; right: number; top: number; bottom: number }) => r.left >= Math.max(0, bounds.left)
+      && r.right <= Math.min(innerWidth, bounds.right) && r.top >= Math.max(0, bounds.top) && r.bottom <= Math.min(innerHeight, bounds.bottom);
+    const unoccluded = (r: { left: number; right: number; top: number; bottom: number }) => [
+      [r.left + .5, r.top + .5], [r.right - .5, r.top + .5], [r.left + .5, r.bottom - .5], [r.right - .5, r.bottom - .5], [(r.left + r.right) / 2, (r.top + r.bottom) / 2]
+    ].every(([x, y]) => button.contains(document.elementFromPoint(x, y)));
+    return { width: bounds.width, height: bounds.height, text, arrow: { left: arrow.left, right: arrow.right, top: arrow.top, bottom: arrow.bottom },
+      readable: text.length > 0 && text.every(inside) && inside(arrow),
+      unoccluded: text.every(unoccluded) && unoccluded(arrow),
+      separated: text.every(r => r.right <= arrow.left || r.left >= arrow.right || r.bottom <= arrow.top || r.top >= arrow.bottom) };
+  }, label);
+  await info.attach(`map-choice-${label}`, { body: JSON.stringify(geometry), contentType: "application/json" });
+  expect(geometry.readable, `Complete selected value and chevron must fit: ${JSON.stringify(geometry)}`).toBe(true);
+  expect(geometry.separated, "Selected value must not overlap the chevron").toBe(true);
+  expect(geometry.unoccluded, "Selected value and chevron must not be covered by another surface").toBe(true);
+  expect(geometry.width).toBeGreaterThanOrEqual(44); expect(geometry.height).toBeGreaterThanOrEqual(44);
+}
+
 for (const width of [320, 390]) {
   for (const fontScale of [1, 2]) {
+    test(`${width}px map choice and search remain readable at ${fontScale * 100}% text`, async ({ page }, info) => {
+      await page.setViewportSize({ width, height: 844 });
+      const writes: string[] = [];
+      page.on("request", request => { if (request.url().includes("/api/") && request.method() !== "GET") writes.push(`${request.method()} ${new URL(request.url()).pathname}`); });
+      const dashboardResponse = page.waitForResponse(response => new URL(response.url()).pathname === `/api/sites/${ids.siteId}/dashboard`);
+      const mapResponse = page.waitForResponse(response => new URL(response.url()).pathname.endsWith(`/${ids.floorId}/map-snapshot`));
+      const fixturesResponse = page.waitForResponse(response => new URL(response.url()).pathname.endsWith(`/${ids.floorId}/fixtures`));
+      const api = await setup(page);
+      const [dashboard, map, fixtures] = await Promise.all([dashboardResponse, mapResponse, fixturesResponse].map(async response => (await response).json()));
+      const nextFloorId = "99999999-9999-4999-8999-000000000004", longName = "B1 · 동측 지하주차장";
+      const nextFixture = { ...fixture, id: "99999999-9999-4999-8999-000000000102", name: "동측 출입구 조명" };
+      const nextFloorRequests: string[] = [];
+      await page.route(url => url.pathname === `/api/sites/${ids.siteId}/dashboard`, route => route.fulfill({ json: {
+        ...dashboard, summary: { ...dashboard.summary, totalFixtures: 2, onlineFixtures: 2 },
+        floors: [dashboard.floors[0], { ...dashboard.floors[0], id: nextFloorId, name: longName, level: -1 }]
+      } }));
+      await page.route(url => url.pathname.startsWith(`/api/sites/${ids.siteId}/floors/${nextFloorId}/`), route => {
+        const path = new URL(route.request().url()).pathname; nextFloorRequests.push(path);
+        return route.fulfill({ json: path.endsWith("/fixtures") ? { ...fixtures, items: [nextFixture] } : { ...map, floorId: nextFloorId } });
+      });
+      await page.reload();
+      if (fontScale === 2) await page.addStyleTag({ content: "html { font-size: 200%; }" });
+      const url = page.url(), selector = page.getByRole("button", { name: "맵 선택", exact: true });
+      await expectReadableMapChoice(selector, "B2", info);
+      expect(await selector.evaluate(node => parseFloat(getComputedStyle(node).fontSize))).toBe(16 * fontScale);
+      await expectMinimumTouchTargetsAfterScrolling(page, '[role="group"][aria-label="모니터링 도구"]');
+      await capture(page, info, `map-choice-short-${fontScale * 100}`, selector);
+      await selector.tap(); await page.getByRole("option", { name: longName, exact: true }).tap();
+      await expect.poll(() => nextFloorRequests.filter(path => path.endsWith("/fixtures")).length).toBeGreaterThan(0);
+      await expect.poll(() => nextFloorRequests.filter(path => path.endsWith("/map-snapshot")).length).toBeGreaterThan(0);
+      await expectReadableMapChoice(selector, longName, info);
+      await expectMinimumTouchTargetsAfterScrolling(page, '[role="group"][aria-label="모니터링 도구"]');
+      await expectNoHorizontalOverflow(page); expect(page.url()).toBe(url);
+      await capture(page, info, `map-choice-long-${fontScale * 100}`, selector);
+      await page.getByRole("button", { name: "조명 검색·상세", exact: true }).tap();
+      const dialog = page.getByRole("dialog", { name: "조명 검색·상세", exact: true });
+      await dialog.getByRole("searchbox", { name: "조명 이름 또는 번호 검색", exact: true }).fill("동측");
+      await expect(dialog.getByRole("button", { name: "상세 조명 선택", exact: true })).toContainText(nextFixture.name);
+      await expect(dialog.getByRole("complementary", { name: "선택 조명 상세", exact: true })).toContainText(nextFixture.name);
+      await dialog.getByRole("button", { name: "조명 검색·상세 닫기", exact: true }).tap();
+      await expect(dialog).toHaveCount(0); await expect(selector).toContainText(longName); expect(page.url()).toBe(url);
+      expect(writes).toEqual([]); expect(api.dimmingRequests).toHaveLength(0);
+    });
+
     for (const { timeZone, snapshotAt, expectedTime } of [
       { timeZone: "Asia/Seoul", snapshotAt: "2026-10-03T15:59:00.000Z", expectedTime: "2026. 10. 04. 00:59" },
       { timeZone: "America/Los_Angeles", snapshotAt: "2026-10-03T00:30:00.000Z", expectedTime: "2026. 10. 02. 17:30" }

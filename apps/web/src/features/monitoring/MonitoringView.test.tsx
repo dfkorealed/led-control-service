@@ -1116,7 +1116,7 @@ describe("MonitoringView refresh", () => {
     expect(screen.queryByText("등록된 층이 없습니다.")).not.toBeInTheDocument();
   });
 
-  it("맵 선택을 한 줄로 표시하고 새로고침을 상단 도구의 오른쪽 끝에 둔다", () => {
+  it("맵 선택 라벨을 연결하고 새로고침을 상단 도구의 오른쪽 끝에 둔다", () => {
     render(<MonitoringView siteId="site-1" />);
 
     expect(screen.queryByRole("heading", { name: "운영 현황" })).not.toBeInTheDocument();
@@ -1132,6 +1132,30 @@ describe("MonitoringView refresh", () => {
     expect(mapSelectorField?.parentElement).toContainElement(screen.getByRole("button", { name: "조명 검색·상세" }));
     expect(screen.getByRole("group", { name: "지도 조작" })).toContainElement(screen.getByRole("button", { name: "지도 전체 보기" }));
     expect(screen.queryByRole("button", { name: "지도 화면 맞춤" })).not.toBeInTheDocument();
+  });
+
+  it("keeps a long map name and its fixture identity through search without sending a device command", async () => {
+    const longName = "B1 · 동측 지하주차장", nextFixture = { ...fixture, id: "fixture-2", name: "동측 출입구 조명" };
+    const fixturesQuery = queryMocks.useFloorFixtures(), mapQuery = queryMocks.useFloorMapSnapshot();
+    queryMocks.useDashboard.mockReturnValue({ ...queryMocks.useDashboard(), data: { ...dashboard, floors: [
+      { ...dashboard.floors[0], name: "B2" }, { ...dashboard.floors[0], id: "floor-2", name: longName }
+    ] } });
+    queryMocks.useFloorFixtures.mockImplementation((floorId: string) => floorId === "floor-2"
+      ? { ...fixturesQuery, data: { pages: [{ ...fixturesQuery.data.pages[0], items: [nextFixture] }] } } : fixturesQuery);
+    queryMocks.useFloorMapSnapshot.mockImplementation((floorId: string) => floorId === "floor-2"
+      ? { ...mapQuery, data: { ...mapSnapshot, floorId: "floor-2" } } : mapQuery);
+    render(<MonitoringView siteId="site-1" />);
+
+    await chooseSelect("맵 선택", longName);
+    expect(screen.getByRole("button", { name: "맵 선택" })).toHaveTextContent(longName);
+    const inspector = openInspector();
+    fireEvent.change(within(inspector).getByRole("searchbox", { name: "조명 이름 또는 번호 검색" }), { target: { value: "동측" } });
+    expect(within(inspector).getByRole("button", { name: "상세 조명 선택" })).toHaveTextContent(nextFixture.name);
+    expect(within(inspector).getByRole("complementary", { name: "선택 조명 상세" })).toHaveTextContent(nextFixture.name);
+    expect(within(inspector).queryByText(fixture.name)).not.toBeInTheDocument();
+    closeInspector();
+    expect(screen.getByRole("button", { name: "맵 선택" })).toHaveTextContent(longName);
+    expect(refreshApi.waitForMonitoringRefresh).not.toHaveBeenCalled();
   });
 
   it("0개 상태 필터에서 다른 조명의 상세를 숨기고 전체 목록으로 돌아간다", () => {
