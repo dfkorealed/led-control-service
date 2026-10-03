@@ -1,6 +1,6 @@
 import { runInNewContext } from 'node:vm';
 import { act, create, ReactTestRenderer } from 'react-test-renderer';
-import { AppState, BackHandler, Alert, Linking } from 'react-native';
+import { AppState, BackHandler, Alert, Linking, Platform } from 'react-native';
 import { WebShell } from './WebShell';
 jest.mock('./private-files', () => ({ createPrivateFile: jest.fn(() => { throw new Error('not requested by recovery tests'); }), sharePrivateFile: jest.fn(), cleanAbandonedShares: jest.fn() }));
 function environment(script: string) {
@@ -11,13 +11,24 @@ function environment(script: string) {
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 let tree: ReactTestRenderer;
+function findHost(name: string) { return tree.root.find(node => node.type === name); }
 function render(url?: string, injectJavaScript = jest.fn()) {
   act(() => { tree = create(<WebShell webUrl={url ?? ''} />, { createNodeMock: e => e.type === 'WebView' ? { injectJavaScript } : {} }); });
   return () => tree.root.findByProps({ testID: 'control-webview' }).props;
 }
-afterEach(() => { act(() => tree?.unmount()); jest.useRealTimers(); jest.clearAllMocks(); });
+afterEach(() => { act(() => tree?.unmount()); jest.useRealTimers(); jest.clearAllMocks(); Platform.OS = 'android'; });
 
 describe('WebShell recovery', () => {
+  it('enables Android IME overlap avoidance without applying the top safe area twice', () => {
+    render('https://control.example.com');
+    const avoidance = findHost('KeyboardAvoidingView');
+    expect(avoidance.props.behavior).toBe('height');
+    expect(avoidance.props.keyboardVerticalOffset ?? 0).toBe(0);
+  });
+  it('preserves the existing iOS keyboard padding behavior', () => {
+    Platform.OS = 'ios'; render('https://control.example.com');
+    expect(findHost('KeyboardAvoidingView').props.behavior).toBe('padding');
+  });
   it('renders a configuration recovery screen without throwing when URL is missing', () => {
     render();
     expect(tree.root.findAllByProps({ testID: 'control-webview' })).toHaveLength(0);

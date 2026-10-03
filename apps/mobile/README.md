@@ -72,6 +72,8 @@ Preview/production을 빌드할 때 `.env`의 개발 HTTP를 그대로 사용하
 
 자동 테스트의 RN/WebView/네트워크/파일 sink는 mock 또는 메모리 구현이다. JS export와 prebuild 성공은 APK/iOS build·설치·실제 WKWebView/Android WebView 동작을 증명하지 않는다.
 
+Android 키보드는 `KeyboardAvoidingView`의 실제 frame/IME 겹침 계산과 manifest `adjustResize`를 함께 사용한다. Android 10(API29) 이하에서는 `adjustResize`일 때 React Native 키보드 이벤트가 발생하지 않을 수 있어 OS의 resize 경로에 의존한다. 현재 Android36 emulator에서 확인한 결과를 구버전 전체·제조사별 키보드·iOS 실행 검증으로 확대하지 않는다. 키보드 숨김 후 viewport 복원과 OS가 이미 resize하는 환경에서 중복 축소 여부도 인수 기준이다.
+
 양 OS 실제 기기에서 다음을 확인한다.
 
 1. 정상 cold start, URL 누락/잘못된 URL, 비행기 모드, DNS 오류, top-frame HTTP503, renderer 종료 후 안내/수동 재시도.

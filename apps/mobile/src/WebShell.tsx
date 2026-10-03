@@ -82,7 +82,12 @@ function ConnectedShell({ url, origin }: { url: string; origin: string }) {
     return false;
   };
   return <SafeAreaView style={styles.container} edges={['top', 'bottom', 'left', 'right']}>
-    <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+    {/* Edge-to-edge Android delivers IME insets without resizing this root.
+        RN's height behavior uses actual frame/keyboard overlap (and hide restores
+        flex), so already-resized windows do not receive a second full IME inset.
+        SafeAreaView padding is already included in the child's layout.y;
+        adding its top inset as keyboardVerticalOffset would count it twice. */}
+    <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
       <View style={styles.container}>
         <WebView key={generation} ref={webView} testID="control-webview" source={{ uri: url }} style={styles.webview}
           sharedCookiesEnabled androidLayerType="hardware" applicationNameForUserAgent="LEDControlNative/1"
