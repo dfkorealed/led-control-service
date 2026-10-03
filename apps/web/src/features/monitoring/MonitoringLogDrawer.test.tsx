@@ -24,6 +24,17 @@ function drawer() {
 describe("MonitoringLogDrawer", () => {
   afterEach(() => { cleanup(); useMonitoringActivity.mockReset(); });
 
+  it("opts the full log into one safe-area owner without replacing its body and pager", () => {
+    useMonitoringActivity.mockReturnValue({ data: firstPage, error: null, isPending: false, isFetching: false, refetch: vi.fn() });
+    render(drawer());
+    const dialog = screen.getByRole("dialog", { name: "전체 로그" });
+    const owners = dialog.querySelectorAll("[data-dialog-safe-area]");
+    expect(owners).toHaveLength(1);
+    expect(owners[0]).toContainElement(screen.getByRole("button", { name: "전체 로그 닫기" }));
+    expect(owners[0]).toContainElement(screen.getByRole("region", { name: "운영 로그 본문" }));
+    expect(owners[0]).toContainElement(screen.getByRole("group", { name: "운영 로그 페이지 조작" }));
+  });
+
   it("requests fifty rows by default and never renders zero success while fetching", () => {
     useMonitoringActivity.mockReturnValue({ data: undefined, error: null, isPending: false, isFetching: true, refetch: vi.fn() });
     render(drawer());

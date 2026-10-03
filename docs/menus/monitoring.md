@@ -1,5 +1,28 @@
 # 모니터링 메뉴 기능 현황
 
+## 2026-10-03 상세 native 스크롤·로그 안전 영역 보완 (Task 9)
+
+### 구현 완료
+
+- 조명 상세의 내부 SidePanel은 이 소비자에서만 `overflow-visible`·`overscroll-auto`를 사용한다. 실제 PC/하단 시트의 바깥 본문이 유일한 스크롤·위치 복원 소유자이며, 스크롤 범위가 없는 내부 패널이 휠 전달을 차단하지 않는다. 공통 SidePanel 기본값·MonitoringView 복원/초점 로직·지도 카메라는 변경하지 않는다.
+- 전체 로그는 공통 Drawer의 `safeArea`를 선택적으로 사용해 상·하단 inset을 한 곳에서만 적용한다. compact 너비에서 이 호출부의 기존 spacing 토큰과 PaginationBar class 슬롯으로 간격을 줄이고 페이지 크기·이전/다음·실제 건수를 한 줄로 배치해 필터와 목록의 읽기 영역을 확보한다. 기간·보관 안내·상태·cursor·50/100/500/1000건·조회 중 초점 계약과 공통 기본값은 유지한다.
+
+### 미구현
+
+- 실제 모바일 장치/native WebView·운영 DB·실장비 HIL·배포는 이번 표적 보완에서 수행하지 않았다. 전체22건/실제 두 DB UI 세션/최종 통합 검수와 메인 병합은 별도 관문이다.
+
+### 부족하거나 개선이 필요한 기능
+
+- 검증은 격리 API fixture·Chromium의 실제 mouse wheel/Tab/Home/PageDown/End 및 CDP env top24/bottom34 소프트웨어 증거다. 원1024×480 상세에서 native wheel80·끝 정보 접근·nonzero 1023↔1024↔1025 복원/카메라/선택/초점, 원390×320 로그에서 필터56px·본문50px/44px 조작·끝50/1000·기간 양쪽 입력/reset·pager/닫기/zero-env 복원을 표적 회귀로 유지한다. 양수 inset을 실제 장치 검증으로 확대하지 않는다.
+
+### 관련 파일
+
+- `apps/web/src/features/monitoring/{FixtureDetailPanel,MonitoringLogDrawer}.tsx`, 두 직접 테스트, `apps/web/e2e/monitoring-surface-access.spec.ts`.
+
+### 갱신 규칙
+
+- 안쪽/바깥 실제 스크롤 범위와 전파 차단·키보드 대상·최종 항목·유효 초점/카메라를 함께 검증한다. 안전 영역의 단일 소유·compact 최소44px 읽기/조작 영역·실제 기간/cursor/페이지 크기와 pending/error의 진실성을 같은 변경에서 유지하며, 실패나 모의/실제 장치 증거를 구분한다.
+
 ## 2026-10-02 운영 밀집 마커 판정 보완 (Task 9)
 
 ### 구현 완료

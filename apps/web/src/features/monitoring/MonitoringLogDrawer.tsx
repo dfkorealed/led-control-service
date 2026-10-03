@@ -38,18 +38,23 @@ export function MonitoringLogDrawer({ isOpen, onClose, returnFocusRef, fallbackF
 
   return <DrawerDialog
     isOpen={isOpen}
+    safeArea
     onClose={onClose}
     returnFocusRef={returnFocusRef}
     fallbackFocusRef={fallbackFocusRef}
     title="전체 로그"
     closeLabel="전체 로그 닫기"
-    className="flex min-h-0 max-w-[var(--container-lg)] flex-col overflow-hidden"
+    // On narrow/short screens, the safe insets must not consume the log body.
+    // Only this caller compacts spacing; header/pager remain fixed and every
+    // native control keeps its shared 44px target and focus lifecycle.
+    className="flex min-h-0 max-w-[var(--container-lg)] flex-col overflow-hidden max-compact:[&_[data-dialog-safe-area]>div]:p-2 max-compact:[&_[data-dialog-header]]:mb-1.5!"
     bodyClassName="min-h-0 flex-1 overflow-hidden"
   >
-    <LogView label="운영 로그" filters={<FilterPanel label="운영 로그 필터" actions={period ? <Button variant="secondary" onClick={() => { setPeriod(null); setCursorStack([""]); }}>전체 보관 기간</Button> : undefined}>
+    <LogView label="운영 로그" className="max-compact:gap-1.5 max-compact:[&>div]:gap-1.5" filters={<FilterPanel label="운영 로그 필터" actions={period ? <Button variant="secondary" onClick={() => { setPeriod(null); setCursorStack([""]); }}>전체 보관 기간</Button> : undefined}>
       <DateRangePicker label="조회 기간" value={period} onChange={value => { setPeriod(value); setCursorStack([""]); }} description={period ? `${period.start} ~ ${period.end} · 종료일 포함` : "전체 보관 기간 · 최근 3개월"} />
     </FilterPanel>} pagination={<FocusScope><MonitoringLogPager isOpen={isOpen} scopeKey={scopeKey} pending={pending} success={success} error={query.error}>
       <PaginationBar
+        className="max-compact:flex-row max-compact:items-end max-compact:gap-2 max-compact:[&>div:first-child]:w-28 max-compact:[&>div:first-child]:shrink-0 max-compact:[&>div:last-child]:flex-1"
         mode="cursor" page={cursorStack.length} pageSize={limit} pageSizeOptions={options}
         itemCount={success ? query.data!.items.length : null} isPending={pending}
         hasPrevious={cursorStack.length > 1} hasNext={success && Boolean(query.data!.nextCursor)}
