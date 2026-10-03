@@ -1,5 +1,5 @@
 import { CircleCheck, Clock3, Eye, Layers3, TriangleAlert } from "lucide-react";
-import { lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import type { CreateDimmingCommandInput } from "@led-control/shared";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation, useNavigate } from "react-router-dom";
@@ -21,6 +21,7 @@ import { useControlDashboard } from "../../api/queries";
 import {
   clearActiveCommandId,
   clearActiveCommandRequest,
+  clearPendingCommandStatusCheck,
   clearObservedVerificationCase,
   isActiveCommandReplayRejected,
   loadActiveCommandReplayRejectedCaseId,
@@ -34,7 +35,11 @@ import {
   saveActiveCommandId,
   saveActiveCommandRequest,
   saveObservedVerificationCase,
-  saveRecentResolvedCaseId
+  saveRecentResolvedCaseId,
+  getActiveCommandStorageError,
+  subscribeActiveCommandStorage,
+  loadPendingCommandStatusCheck,
+  savePendingCommandStatusCheck
 } from "./active-command-store";
 import { controlSelectionToDimmingTarget, resolveControlSelection, type ControlSelection } from "./control-selection";
 import { humanizeDeviceResponseMessage } from "./control-copy";
@@ -86,6 +91,7 @@ export function ControlView({
     ? requestedMode
     : "manual";
   const queryClient = useQueryClient();
+  const storageError = useSyncExternalStore(subscribeActiveCommandStorage, getActiveCommandStorageError, () => null);
   const [selection, setSelection] = useState<ControlSelection>(emptySelection);
   const [brightness, setBrightness] = useState(70);
   const [message, setMessage] = useState("");
@@ -170,7 +176,7 @@ export function ControlView({
   const restorePending = Boolean(
     activeSiteId && (activeSiteId !== commandSiteId || userId !== commandUserId)
   );
-  const controlsLocked = readOnly || commandSessionBlocked || isSubmitting || restorePending || commandInProgress;
+  const controlsLocked = readOnly || commandSessionBlocked || Boolean(storageError) || isSubmitting || restorePending || commandInProgress;
   const canSubmit = Boolean(data && target && resolvedSelection?.fixtureIds.length && !blockMessage && !controlsLocked);
   const statusItems = useMemo<SessionStatusItem[]>(() => {
     // Dashboard data can lag behind a site switch. Never register a previous
@@ -258,6 +264,9 @@ export function ControlView({
     // Discard its old terminal cache before enabling the restored detail query.
     if (restoredCommandId) queryClient.removeQueries({ queryKey: ["command-status", restoredCommandId], exact: true });
     setCommandId(restoredCommandId);
+    const restoredCheck = activeSiteId && restoredCommandId
+      ? loadPendingCommandStatusCheck(userId, activeSiteId, restoredCommandId) : null;
+    setVerificationRequest(restoredCheck ? { ...restoredCheck, responseLost: !restoredCheck.dispatchIds } : null);
 
     return () => {
       if (activeScope.current.generation === generation) {
@@ -279,6 +288,7 @@ export function ControlView({
     // read must show that the previously observed blocking case is gone.
     if (!clearActiveCommandRequest(userId, activeSiteId, scopedActiveRequest.clientRequestId)) return;
     saveRecentResolvedCaseId(userId, activeSiteId, caseId);
+    if (getActiveCommandStorageError()) return;
     setRecentResolvedCaseId(caseId);
     setActiveRequest(null);
     setReplayRejected(false);
@@ -307,8 +317,10 @@ export function ControlView({
     // only case-specific evidence that the server has released its hold.
     // A standalone 404/410 or an initially empty list is never enough.
     clearActiveCommandId(userId, activeSiteId, scopedCommandId);
+    if (getActiveCommandStorageError()) return;
     clearObservedVerificationCase(userId, activeSiteId, scopedCommandId, knownVerificationCase.caseId);
     saveRecentResolvedCaseId(userId, activeSiteId, knownVerificationCase.caseId);
+    if (getActiveCommandStorageError()) return;
     setRecentResolvedCaseId(knownVerificationCase.caseId);
     setActiveRequest(null);
     setVerificationRequest(null);
@@ -321,10 +333,12 @@ export function ControlView({
   useEffect(() => {
     if (!activeSiteId || !scopedCommandId || !matchingCommandStatus || !matchingCommandIsTerminal || isSubmitting) return;
 
-    setTerminalResult({ siteId: activeSiteId, commandId: matchingCommandStatus.id });
     clearActiveCommandId(userId, activeSiteId, scopedCommandId);
+    if (getActiveCommandStorageError()) return;
     const observedCaseId = loadObservedVerificationCase(userId, activeSiteId, scopedCommandId);
     if (observedCaseId) clearObservedVerificationCase(userId, activeSiteId, scopedCommandId, observedCaseId);
+    if (getActiveCommandStorageError()) return;
+    setTerminalResult({ siteId: activeSiteId, commandId: matchingCommandStatus.id });
     setActiveRequest(null);
     setVerificationRequest(null);
     setCommandId((currentCommandId) => currentCommandId === scopedCommandId ? null : currentCommandId);
@@ -333,7 +347,7 @@ export function ControlView({
   }, [activeSiteId, isSubmitting, matchingCommandIsTerminal, matchingCommandStatus, queryClient, scopedCommandId, userId]);
 
   async function submitCommand() {
-    if (!data || !target || !canSubmit || isActiveCommandSessionBlocked(userId)) return;
+    if (!data || !target || !canSubmit || getActiveCommandStorageError() || isActiveCommandSessionBlocked(userId)) return;
 
     const request = canonicalizeDimmingCommandInput({
       siteId: data.site.id,
@@ -342,6 +356,7 @@ export function ControlView({
       brightness
     });
     saveActiveCommandRequest(userId, data.site.id, request);
+    if (getActiveCommandStorageError()) return;
     setCommandUserId(userId);
     setCommandSiteId(data.site.id);
     setActiveRequest(request);
@@ -352,7 +367,7 @@ export function ControlView({
   }
 
   function openHistoricalCommand(id: string) {
-    if (!activeSiteId || commandInProgress || isSubmitting || restorePending || commandSessionBlocked) return;
+    if (!activeSiteId || commandInProgress || isSubmitting || restorePending || commandSessionBlocked || getActiveCommandStorageError()) return;
     setTerminalResult(null);
     setMessage("");
     setVerificationError("");
@@ -378,6 +393,7 @@ export function ControlView({
     const request = canonicalizeDimmingCommandInput({ siteId: activeSiteId, clientRequestId: crypto.randomUUID(),
       target: { type: "fixtures", fixtureIds: [...targetFixtureIds] }, brightness: originalBrightness });
     saveActiveCommandRequest(userId, activeSiteId, request);
+    if (getActiveCommandStorageError()) return;
     setActiveRequest(request);
     setReplayRejected(false);
     setReconciledOriginalCommandId(null);
@@ -388,10 +404,14 @@ export function ControlView({
   async function checkActualState() {
     if (!commandQuery.isDetailCurrent()) return;
     if (!displayedStatus || displayedStatus.stage !== "verification_required" || readOnly || isSubmitting
-      || commandSessionBlocked || restorePending || !activeSiteId || isActiveCommandSessionBlocked(userId)) return;
+      || commandSessionBlocked || restorePending || getActiveCommandStorageError() || !activeSiteId || isActiveCommandSessionBlocked(userId)) return;
     if (!verificationRequest && (displayedStatus.verificationAttemptCount ?? 0) >= 3) return;
     const request = verificationRequest ?? { commandId: displayedStatus.id, clientRequestId: crypto.randomUUID() };
     const requestSiteId = activeSiteId;
+    // Persist both identities before transport; reload is never a new Get/Set.
+    saveActiveCommandId(userId, requestSiteId, request.commandId);
+    savePendingCommandStatusCheck(userId, requestSiteId, request.commandId, request.clientRequestId, request.dispatchIds);
+    if (getActiveCommandStorageError()) return;
     const generation = activeScope.current.generation;
     const controller = new AbortController();
     const commandSession = registerActiveCommandRequest(userId, controller);
@@ -401,7 +421,6 @@ export function ControlView({
     setVerificationRequest(request);
     void queryClient.invalidateQueries({ queryKey: ["command-status", request.commandId], exact: true });
     setCommandId(request.commandId);
-    saveActiveCommandId(userId, requestSiteId, request.commandId);
     const preserveInterruptedRequest = () => {
       if (!ownsRequestScope(generation, userId, requestSiteId) || activePostController.current !== controller) return;
       // Logout invalidates the session before aborting transport. Preserve only
@@ -419,12 +438,15 @@ export function ControlView({
     try {
       const response = await createCommandStatusCheck(request.commandId, request.clientRequestId, controller.signal);
       if (!ownsRequestScope(generation, userId, requestSiteId) || !ownsActiveCommandSession(userId, commandSession.generation)) return;
+      savePendingCommandStatusCheck(userId, requestSiteId, request.commandId, request.clientRequestId, response.dispatchIds);
       setVerificationRequest({ ...request, responseLost: false, dispatchIds: response.dispatchIds });
       setMessage("실제 밝기를 확인하고 있습니다.");
       await queryClient.invalidateQueries({ queryKey: ["command-status", request.commandId] });
     } catch (error) {
       if (!ownsRequestScope(generation, userId, requestSiteId) || !ownsActiveCommandSession(userId, commandSession.generation)) return;
       if (isDefinitiveCommandRejection(error)) {
+        clearPendingCommandStatusCheck(userId, requestSiteId, request.commandId, request.clientRequestId);
+        if (getActiveCommandStorageError()) return;
         setVerificationRequest(null);
         setVerificationError(error.status === 403 ? "상태 확인 권한이 없습니다." : "상태 확인 요청이 거부되었습니다. 명령 상세를 다시 조회하세요.");
         await queryClient.invalidateQueries({ queryKey: ["command-status", request.commandId] });
@@ -450,6 +472,7 @@ export function ControlView({
 
   async function sendCommand(request: CreateDimmingCommandInput, requestUserId: string) {
     if (isActiveCommandReplayRejected(requestUserId, request.siteId, request.clientRequestId)) return;
+    if (getActiveCommandStorageError()) return;
     const generation = activeScope.current.generation;
     const controller = new AbortController();
     const commandSession = registerActiveCommandRequest(requestUserId, controller);
@@ -478,6 +501,7 @@ export function ControlView({
       ) return;
       if (isDefinitiveCommandRejection(error) || isGatewayRecommissionRejection(error)) {
         clearActiveCommandRequest(requestUserId, request.siteId, request.clientRequestId);
+        if (getActiveCommandStorageError()) return;
         setActiveRequest(null);
         setCommandId(null);
         setReplayRejected(false);
@@ -620,16 +644,17 @@ export function ControlView({
             <ManualControlBadge readOnly={readOnly} canSubmit={canSubmit} blocked={Boolean(blockMessage)} />
           </div>
           <DimmingExecutionControls brightness={brightness} controlsLocked={controlsLocked} canSubmit={canSubmit}
-            applyLabel={manualApplyLabel(commandSessionBlocked, controlsLocked, readOnly, selectedFixtures.length)}
+            applyLabel={storageError ? "복구 정보 확인 필요" : manualApplyLabel(commandSessionBlocked, controlsLocked, readOnly, selectedFixtures.length)}
             onBrightnessChange={setBrightness} onSubmit={submitCommand} />
           {/* Selection warnings belong below the fixed execution controls so
               late health/capability text cannot move the dial or Apply action. */}
           {blockMessage ? <Text tone="danger" role="alert">{blockMessage}</Text> : null}
+          {storageError ? <Text tone="danger" role="alert">{storageError}</Text> : null}
           <ManualControlFeedback scopedActiveRequest={scopedActiveRequest} scopedCommandId={scopedCommandId}
             replayRejected={replayRejected}
             awaitingCaseRelease={Boolean(reconciledOriginalCommandId)} isCaseReleaseFetching={reconciledCaseRead.isFetching}
             onRefreshCaseRelease={() => void reconciledCaseRead.refetch()}
-            isSubmitting={isSubmitting} commandSessionBlocked={commandSessionBlocked} message={message} verificationError={verificationError}
+            isSubmitting={isSubmitting} commandSessionBlocked={commandSessionBlocked || Boolean(storageError)} message={message} verificationError={verificationError}
             displayedStatus={displayedStatus} onRetryPending={() => void sendCommand(scopedActiveRequest!, userId)} onCheck={() => void checkActualState()}
             onReapply={() => void safelyReapply()} readOnly={readOnly} restorePending={restorePending} verificationRequest={verificationRequest}
             commandInProgress={commandInProgress} onCloseDetail={() => setTerminalResult(null)}
@@ -639,7 +664,7 @@ export function ControlView({
         <CommandHistoryPanel key={`${userId}:${data.site.id}`} userId={userId} siteId={data.site.id}
           timeZone={data.site.timeZone}
           onSelect={openHistoricalCommand} selectedCommandId={displayedStatus?.id}
-          disabled={commandInProgress || isSubmitting || restorePending || commandSessionBlocked}
+          disabled={commandInProgress || isSubmitting || restorePending || commandSessionBlocked || Boolean(storageError)}
           onOpenVerificationCases={() => setVerificationCasesOpen(true)} verificationCasesOpenerRef={verificationCasesOpenerRef}
           verificationCaseCount={missingCommand ? exactVerificationCases.data?.items.length : undefined}
           compactDisclosure className="compact:col-span-full" />
@@ -683,6 +708,7 @@ function DimmingExecutionControls({ compact = false, brightness, controlsLocked,
       {!compact ? <NumberField
         label="밝기 수치"
         size={compact ? "lg" : "md"}
+        className="max-compact:[&_input]:text-body-lg"
         minValue={0}
         maxValue={100}
         step={1}
@@ -695,7 +721,7 @@ function DimmingExecutionControls({ compact = false, brightness, controlsLocked,
     </div>
     <div className="grid grid-cols-4 gap-2" data-control-presets="">
       {[0, 30, 70, 100].map((value) => (
-        <Button key={value} variant="secondary" type="button" className={compact ? "min-h-13" : undefined} onClick={() => onBrightnessChange(value)} disabled={controlsLocked}>
+        <Button key={value} variant="secondary" type="button" className={compact ? "min-h-13" : "max-compact:px-2 max-compact:whitespace-nowrap"} onClick={() => onBrightnessChange(value)} disabled={controlsLocked}>
           {value}%
         </Button>
       ))}

@@ -54,24 +54,24 @@ for (const flow of ["schedule", "event", "group"] as const) {
   });
 }
 
-test("final review: compact manual status and apply stay visible when collapsed and expanded at reduced height", async ({ page }) => {
+test("final review: compact manual execution and apply remain reachable at reduced height", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 660 });
   await installControlMapRoutes(page);
   await page.goto(`/control?siteId=${ids.site}`);
   await marker(page, "B2-L001").click();
-  const summary = page.getByRole("complementary", { name: "선택 대상 요약" });
-  const action = summary.getByRole("button", { name: "1개 조명에 밝기 적용" });
-  for (const expanded of [false, true]) {
-    if (expanded) await summary.getByRole("button", { name: "선택 대상 펼치기" }).click();
-    await expect(summary.getByText("1개 선택", { exact: true })).toBeVisible();
-    await expect(summary.getByRole("textbox", { name: "밝기 수치" })).toBeVisible();
-    // Do not scroll the action into view: its initial geometry is the fixed-action contract.
-    await expectReachableInside(action, summary);
-    const actionBox = (await action.boundingBox())!;
-    const navBox = (await page.locator('[data-shell-navigation="compact"]').boundingBox())!;
-    expect(actionBox.y + actionBox.height).toBeLessThanOrEqual(navBox.y);
-    expect(actionBox.y).toBeGreaterThanOrEqual(0);
-  }
+  const execution = page.getByRole("complementary", { name: "밝기 실행" });
+  const action = execution.getByRole("button", { name: "1개 조명에 밝기 적용" });
+  await expect(execution.getByText("1개 선택", { exact: true })).toBeVisible();
+  await execution.getByRole("textbox", { name: "밝기 수치" }).scrollIntoViewIfNeeded();
+  await expect(execution.getByRole("textbox", { name: "밝기 수치" })).toBeVisible();
+  // Manual control now follows map → execution → history, not a fixed sheet.
+  await action.scrollIntoViewIfNeeded();
+  await expectReachableInside(action, execution);
+  const actionBox = (await action.boundingBox())!;
+  const navBox = (await page.locator('[data-shell-navigation="compact"]').boundingBox())!;
+  expect(actionBox.y + actionBox.height).toBeLessThanOrEqual(navBox.y);
+  expect(actionBox.y).toBeGreaterThanOrEqual(0);
+  await expectNoHorizontalOverflow(page);
 });
 
 test("final review: compact group name uses 16px text", async ({ page }) => {
@@ -233,7 +233,6 @@ test("a 404 floor map opens the list fallback", async ({ page }) => {
   await installControlMapRoutes(page, { mapStatus: 404 });
   await page.goto(`/control?siteId=${ids.site}`);
 
-  await expect(page.getByRole("heading", { name: "조명 밝기 제어", exact: true })).toBeVisible();
   await expect(page.getByText("등록된 도면이 없어 목록으로 선택합니다.")).toBeVisible();
   await expect(page.getByRole("dialog", { name: "조명 목록" })).toBeVisible();
   await expect(page.getByRole("checkbox", { name: "B2-L001 선택" })).toBeVisible();
@@ -248,11 +247,11 @@ test("viewer control redirect issues no mutating request", async ({ page }) => {
 });
 
 for (const viewport of [{ width: 1440, height: 900 }, { width: 1024, height: 768 }] as const) {
-  test(`desktop control at ${viewport.width}x${viewport.height} keeps page fixed while map, history, and detail scroll internally`, async ({ page }) => {
+  test(`desktop control at ${viewport.width}x${viewport.height} keeps page fixed with internal map/detail scroll and paged history drawer`, async ({ page }) => {
     await page.setViewportSize(viewport);
     await installControlMapRoutes(page, { fixtureCount: 80, groupCount: 40, historyCount: 24 });
     await page.goto(`/control?siteId=${ids.site}`);
-    await expect(page.getByRole("heading", { name: "조명 밝기 제어", exact: true })).toBeVisible();
+    await expect(page.getByRole("tabpanel", { name: "수동 제어" })).toBeVisible();
 
     await page.getByRole("button", { name: "저장된 구역" }).click();
     const history = page.getByRole("region", { name: "최근 명령 이력" });
@@ -269,24 +268,34 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 1024, height: 768
     await expectReachableInside(finalGroup, detail);
     await finalGroup.click();
     await expect(finalGroup).toHaveAttribute("aria-current", "true");
-    const historyList = history.locator("[data-command-history-list]");
+    await history.getByRole("button", { name: "명령 이력 열기" }).click();
+    const historyDrawer = page.getByRole("dialog", { name: "명령 이력" });
+    const historyList = historyDrawer.locator("[data-command-history-list]");
     await expect(historyList).toHaveCSS("overflow-y", "auto");
-    await expectInternalWheelScroll(page, historyList);
+    // The current drawer is cursor-paged, not an unbounded embedded list.
+    for (let pageIndex = 0; pageIndex < 5; pageIndex += 1) {
+      await expect(historyDrawer.getByRole("button", { name: "다음" })).toBeEnabled();
+      await historyDrawer.getByRole("button", { name: "다음" }).click();
+      await expect(historyList.getByRole("button").first()).toContainText(/조명/);
+    }
     const finalCommand = historyList.getByRole("button", { name: /99999999-9999-4999-8999-000000005023/ });
-    await expectReachableInside(finalCommand, historyList);
+    await finalCommand.scrollIntoViewIfNeeded();
+    await expectReachableInside(finalCommand, historyDrawer);
+    await expect(historyDrawer.getByRole("button", { name: "다음" })).toBeDisabled();
     await finalCommand.click();
-    await expect(finalCommand).toHaveAttribute("aria-pressed", "true");
+    await expect(historyDrawer).not.toBeVisible();
+    await expect(page.getByRole("button", { name: "명령 상세 닫기" })).toBeVisible();
     const documentMetrics = await page.evaluate(() => ({ clientHeight: document.documentElement.clientHeight, scrollHeight: document.documentElement.scrollHeight }));
     expect(documentMetrics.scrollHeight).toBe(documentMetrics.clientHeight);
   });
 }
 
 for (const viewport of [{ width: 390, height: 844 }, { width: 320, height: 740 }] as const) {
-  test(`mobile control fits ${viewport.width}x${viewport.height} with map marker touch targets and action above compact navigation`, async ({ page }) => {
+  test(`mobile control fits ${viewport.width}x${viewport.height} with map marker touch targets and action above compact navigation`, async ({ page }, testInfo) => {
     await page.setViewportSize(viewport);
     await installControlMapRoutes(page);
     await page.goto(`/control?siteId=${ids.site}`);
-    await expect(page.getByRole("heading", { name: "조명 밝기 제어", exact: true })).toBeVisible();
+    await expect(page.getByRole("tabpanel", { name: "수동 제어" })).toBeVisible();
     await expectNoHorizontalOverflow(page);
     const moveControl = page.getByRole("button", { name: "지도 이동" });
     await moveControl.scrollIntoViewIfNeeded();
@@ -299,10 +308,8 @@ for (const viewport of [{ width: 390, height: 844 }, { width: 320, height: 740 }
     await expectMinimumTouchTargetsAfterScrolling(page, "[data-control-screen]");
 
     await marker(page, "B2-L001").click();
-    await page.getByRole("button", { name: "선택 대상 펼치기" }).click();
-    await expect(page.getByRole("button", { name: "선택 대상 접기" })).toHaveAttribute("aria-expanded", "true");
     await expectMinimumTouchTargetsAfterScrolling(page, "[data-control-screen]");
-    await expectEditableFontSizes(page.getByRole("complementary", { name: "선택 대상 요약" }));
+    await expectEditableFontSizes(page.getByRole("complementary", { name: "밝기 실행" }));
     await page.getByRole("button", { name: "조명 목록 열기" }).click();
     const drawer = page.getByRole("dialog", { name: "조명 목록" });
     await expect(drawer.getByRole("searchbox", { name: "조명 검색" })).toBeVisible();
@@ -319,6 +326,21 @@ for (const viewport of [{ width: 390, height: 844 }, { width: 320, height: 740 }
     expect(navigationBox).not.toBeNull();
     if (!actionBox || !navigationBox) return;
     expect(actionBox.y + actionBox.height).toBeLessThanOrEqual(navigationBox.y);
+    for (const value of [0, 30, 70, 100]) {
+      const preset = page.getByRole("button", { name: `${value}%`, exact: true });
+      expect(await preset.evaluate((element) => {
+        const textNodes = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+        const lines = new Set<number>();
+        for (let node = textNodes.nextNode(); node; node = textNodes.nextNode()) {
+          if (!node.textContent?.trim()) continue;
+          const text = document.createRange();
+          text.selectNodeContents(node);
+          for (const rect of text.getClientRects()) lines.add(Math.round(rect.top));
+        }
+        return lines.size;
+      })).toBe(1);
+    }
+    await page.screenshot({ path: testInfo.outputPath(`mobile-control-${viewport.width}-execution.png`) });
   });
 }
 
@@ -327,7 +349,7 @@ for (const mode of ["pan", "select", "area"] as const) {
     await page.setViewportSize({ width: 390, height: 844 });
     await installControlMapRoutes(page);
     await page.goto(`/control?siteId=${ids.site}`);
-    await expect(page.getByRole("heading", { name: "조명 밝기 제어", exact: true })).toBeVisible();
+    await expect(page.getByRole("tabpanel", { name: "수동 제어" })).toBeVisible();
     await page.getByRole("button", { name: mode === "pan" ? "지도 이동" : mode === "select" ? "조명 선택" : "영역 선택" }).click();
     const viewport = page.getByRole("region", { name: "B2 도면" });
     await expect(viewport).toBeVisible();
@@ -480,9 +502,16 @@ async function installControlMapRoutes(page: Page, options: {
     const url = new URL(request.url());
     const path = url.pathname;
     if (request.method() === "POST") state.postRequests.push(path);
-    if (path === "/api/commands" && options.historyCount) return route.fulfill({ json: { items: history, nextCursor: null } });
+    if (path === "/api/commands") {
+      const offset = Number(url.searchParams.get("cursor") ?? 0);
+      const limit = Number(url.searchParams.get("limit") ?? 4);
+      return route.fulfill({ json: { items: history.slice(offset, offset + limit),
+        nextCursor: offset + limit < history.length ? String(offset + limit) : null,
+        generatedAt: "2026-09-25T00:00:00.000Z", retainedFrom: "2026-06-25T00:00:00.000Z" } });
+    }
     const historicalCommand = history.find((command) => path === `/api/commands/${command.id}`);
-    if (historicalCommand) return route.fulfill({ json: historicalCommand });
+    if (historicalCommand) return route.fulfill({ json: { ...historicalCommand,
+      generatedAt: "2026-09-25T00:00:00.000Z", retainedFrom: "2026-06-25T00:00:00.000Z" } });
     if (path === `/api/sites/${ids.site}/dashboard`) {
       return route.fulfill({ json: dashboardResponse(fixtureData, groups, options.role ?? "admin") });
     }

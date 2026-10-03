@@ -1224,7 +1224,7 @@ describe("App", () => {
         },
         brightness: 30,
         clientRequestId: expect.any(String)
-      }), { signal: expect.any(AbortSignal) })
+      }), { signal: expect.any(AbortSignal), timeoutMs: 30_000 })
     );
     expect(await screen.findByText("명령을 전송했습니다. 장비 응답을 기다리는 중입니다.")).toBeInTheDocument();
   });
@@ -1275,7 +1275,7 @@ describe("App", () => {
       },
       brightness: 70,
       clientRequestId: expect.any(String)
-    }), { signal: expect.any(AbortSignal) }));
+    }), { signal: expect.any(AbortSignal), timeoutMs: 30_000 }));
     expect(await screen.findByText("일부 조명 적용 실패", { selector: "[data-command-progress-card] strong" }, { timeout: 3000 })).toBeInTheDocument();
     expect(screen.getByText("2 / 2 처리")).toBeInTheDocument();
     expect(screen.getByText("B2-L02: 장비 응답 오류")).toBeInTheDocument();
@@ -1431,7 +1431,7 @@ describe("App", () => {
       await waitFor(() => expect(apiPost).toHaveBeenCalledWith(
         "/commands/dimming",
         expect.anything(),
-        { signal: expect.any(AbortSignal) }
+        { signal: expect.any(AbortSignal), timeoutMs: 30_000 }
       ));
       const commandSignal = vi.mocked(apiPost).mock.calls[0][2]?.signal;
       const recoveryKey = activeCommandStorageKey("user-1", mockDashboard.site.id);
@@ -1482,7 +1482,7 @@ describe("App", () => {
     await waitFor(() => expect(apiPost).toHaveBeenCalledWith(
       "/commands/dimming",
       expect.anything(),
-      { signal: expect.any(AbortSignal) }
+      { signal: expect.any(AbortSignal), timeoutMs: 30_000 }
     ));
 
     fireEvent.click(screen.getByRole("button", { name: "로그아웃" }));
@@ -1521,7 +1521,7 @@ describe("App", () => {
     await waitFor(() => expect(apiPost).toHaveBeenCalledWith(
       "/commands/dimming",
       expect.anything(),
-      { signal: expect.any(AbortSignal) }
+      { signal: expect.any(AbortSignal), timeoutMs: 30_000 }
     ));
 
     fireEvent.click(screen.getByRole("button", { name: "로그아웃" }));

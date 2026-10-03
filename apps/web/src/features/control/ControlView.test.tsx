@@ -9,6 +9,7 @@ import type { Dashboard } from "../../api/queries";
 import { SessionStatusCenter, SessionStatusProvider, ToastRegion } from "../../components/ui";
 import { detailRetainedFrom } from "../../api/detail-retention";
 import { ControlView } from "./ControlView";
+import * as commandStore from "./active-command-store";
 import { activeCommandStorageKey, loadObservedVerificationCase, saveObservedVerificationCase,
   saveActiveCommandRequest, markActiveCommandReplayRejected, markActiveCommandCaseReconciled } from "./active-command-store";
 
@@ -179,6 +180,80 @@ describe("ControlView 대상 선택", () => {
     vi.useRealTimers();
     cleanup();
     sessionStorage.clear();
+    localStorage.clear();
+    vi.restoreAllMocks();
+    commandStore.configureActiveCommandPersistence(false);
+  });
+
+  it("restores a mobile response-loss request after cold start without automatically posting it", async () => {
+    commandStore.configureActiveCommandPersistence(true);
+    const request = { siteId: dashboard.site.id, clientRequestId: commandIds.retry,
+      target: { type: "fixtures" as const, fixtureIds: [fixtureIds.b2First] }, brightness: 37 };
+    localStorage.setItem(`led-control:active-command:mobile:v1:${USER_A}:${dashboard.site.id}`, JSON.stringify({ request }));
+    renderControl();
+    const retry = await screen.findByRole("button", { name: "동일 요청 확인(새 제어 아님)" });
+    expect(retry).toBeEnabled();
+    expect(screen.getByRole("slider", { name: "밝기" })).toBeDisabled();
+    expect(mocks.apiPost).not.toHaveBeenCalled();
+    fireEvent.click(retry);
+    await waitFor(() => expect(mocks.apiPost).toHaveBeenCalledWith("/commands/dimming", request, expect.any(Object)));
+  });
+
+  it("does not POST dimming when the mobile recovery record cannot be saved", async () => {
+    commandStore.configureActiveCommandPersistence(true);
+    renderControl();
+    selectFixture("B2-L001");
+    vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => { throw new DOMException("full", "QuotaExceededError"); });
+    fireEvent.click(screen.getByRole("button", { name: "1개 조명에 밝기 적용" }));
+    await waitFor(() => expect(screen.getByText(/복구 정보를 저장하거나 읽을 수 없어/)).toHaveAttribute("role", "alert"));
+    expect(mocks.apiPost).not.toHaveBeenCalled();
+    expect(screen.getByRole("slider", { name: "밝기" })).toBeDisabled();
+  });
+
+  it("does not unlock or overwrite an unreadable mobile record during initial recovery", async () => {
+    commandStore.configureActiveCommandPersistence(true);
+    const getItem = Storage.prototype.getItem;
+    vi.spyOn(Storage.prototype, "getItem").mockImplementation(function (this: Storage, key) {
+      if (this === localStorage) throw new DOMException("blocked", "SecurityError");
+      return getItem.call(this, key);
+    });
+    renderControl();
+    await waitFor(() => expect(screen.getByText(/복구 정보를 저장하거나 읽을 수 없어/)).toHaveAttribute("role", "alert"));
+    expect(screen.getByRole("slider", { name: "밝기" })).toBeDisabled();
+    expect(mocks.apiPost).not.toHaveBeenCalled();
+  });
+
+  it("restores a lost manual Get request after remount and explicitly checks the same UUID", async () => {
+    commandStore.configureActiveCommandPersistence(true);
+    commandStore.saveActiveCommandId(USER_A, dashboard.site.id, commandIds.default);
+    mocks.useCommandStatus.mockReturnValue({ data: { ...createCommandStatus(commandIds.default, "verification_required"), verificationAttemptCount: 2 }, error: null, isFetching: false, refetch: vi.fn() });
+    mocks.apiPost.mockRejectedValueOnce(new Error("lost")).mockResolvedValueOnce({ dispatchId: "check", dispatchIds: ["check"], verificationAttempt: 3 });
+    const mounted = renderControl();
+    fireEvent.click(screen.getByRole("button", { name: "실제 상태 확인" }));
+    await screen.findByRole("button", { name: "동일 상태 확인 요청 조회" });
+    const original = mocks.apiPost.mock.calls[0][1];
+    mounted.unmount();
+    sessionStorage.clear();
+    renderControl();
+    const retry = await screen.findByRole("button", { name: "동일 상태 확인 요청 조회" });
+    expect(mocks.apiPost).toHaveBeenCalledTimes(1);
+    fireEvent.click(retry);
+    await waitFor(() => expect(mocks.apiPost).toHaveBeenCalledTimes(2));
+    expect(mocks.apiPost.mock.calls[1][0]).toBe(`/commands/${commandIds.default}/status-checks`);
+    expect(mocks.apiPost.mock.calls[1][1]).toEqual(original);
+  });
+
+  it("keeps mobile controls locked when a terminal result cannot remove its recovery identity", async () => {
+    commandStore.configureActiveCommandPersistence(true);
+    commandStore.saveActiveCommandId(USER_A, dashboard.site.id, commandIds.default);
+    mocks.useCommandStatus.mockReturnValue({ data: createCommandStatus(commandIds.default, "completed"), error: null, isFetching: false, refetch: vi.fn() });
+    vi.spyOn(Storage.prototype, "removeItem").mockImplementation(() => { throw new DOMException("blocked", "SecurityError"); });
+    renderControl();
+    expect(await screen.findByText(/복구 정보를 저장하거나 읽을 수 없어/)).toHaveAttribute("role", "alert");
+    expect(screen.getByRole("slider", { name: "밝기" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "복구 정보 확인 필요" })).toBeDisabled();
+    expect(localStorage.getItem(`led-control:active-command:mobile:v1:${USER_A}:${dashboard.site.id}`)).toContain(commandIds.default);
+    expect(mocks.apiPost).not.toHaveBeenCalled();
   });
 
   it.each([401, 403, 404, 410, 500])("discards an open terminal result after refetch %s without replay", async (status) => {
@@ -328,7 +403,7 @@ describe("ControlView 대상 선택", () => {
     expect(screen.queryByRole("button", { name: "선택 대상 펼치기" })).not.toBeInTheDocument();
   });
 
-  it("keeps submitted command progress and outcome actions inside the expanded compact summary", async () => {
+  it("keeps submitted command progress and outcome actions inside the compact execution panel", async () => {
     const verificationRequired = createCommandStatus(commandIds.default, "verification_required");
     mocks.useCommandStatus.mockReturnValue({ data: undefined, error: null, isFetching: false, refetch: vi.fn() });
     const { rerender } = renderControl();
@@ -346,7 +421,7 @@ describe("ControlView 대상 선택", () => {
     expect(within(outcomeSurface).getByRole("button", { name: "실제 상태 확인" })).toBeEnabled();
   });
 
-  it("keeps lost-command retry inside the expanded compact summary", async () => {
+  it("keeps lost-command retry inside the compact execution panel", async () => {
     mocks.apiPost.mockRejectedValueOnce(new Error("response lost")).mockResolvedValueOnce({ id: commandIds.retry, dispatchCount: 1 });
     renderControl();
     selectFixture("B2-L001");
@@ -359,7 +434,7 @@ describe("ControlView 대상 선택", () => {
     await waitFor(() => expect(mocks.apiPost).toHaveBeenCalledTimes(2));
   });
 
-  it("keeps command status refresh inside the expanded compact summary", () => {
+  it("keeps command status refresh inside the compact execution panel", () => {
     const refetch = vi.fn();
     sessionStorage.setItem(activeCommandStorageKey(USER_A, dashboard.site.id), JSON.stringify({ commandId: commandIds.expected }));
     mocks.useCommandStatus.mockReturnValue({
@@ -440,7 +515,7 @@ describe("ControlView 대상 선택", () => {
     const { rerender } = renderControl();
     expect(screen.queryByRole("button", { name: "안전하게 다시 적용" })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "실제 상태 확인" }));
-    await waitFor(() => expect(mocks.apiPost).toHaveBeenCalledWith(`/commands/${commandIds.default}/status-checks`, { clientRequestId: expect.any(String) }, { signal: expect.any(AbortSignal) }));
+    await waitFor(() => expect(mocks.apiPost).toHaveBeenCalledWith(`/commands/${commandIds.default}/status-checks`, { clientRequestId: expect.any(String) }, { signal: expect.any(AbortSignal), timeoutMs: 30_000 }));
     expect(screen.getByRole("slider", { name: "밝기" })).toBeDisabled();
     mocks.useCommandStatus.mockReturnValue({ data: { ...unknown, verificationAttemptCount: 1, dispatches: [{ ...unknown.dispatches[0], id: "status-check", kind: "status_check", verificationAttempt: 1, status: "accepted" }] }, error: null, isFetching: false, refetch: vi.fn() });
     rerender(controlElement(dashboard.site.id));
@@ -714,7 +789,7 @@ describe("ControlView 대상 선택", () => {
       clientRequestId: expect.any(String),
       target: { type: "fixture", fixtureId: fixtureIds.b2First },
       brightness: 70
-    }), { signal: expect.any(AbortSignal) }));
+    }), { signal: expect.any(AbortSignal), timeoutMs: 30_000 }));
   });
 
   it("syncs brightness from the fixture when exactly one light is selected", () => {
@@ -776,7 +851,7 @@ describe("ControlView 대상 선택", () => {
       clientRequestId: expect.any(String),
       target: { type: "fixtures", fixtureIds: [fixtureIds.b2First, fixtureIds.b2Second] },
       brightness: 30
-    }), { signal: expect.any(AbortSignal) }));
+    }), { signal: expect.any(AbortSignal), timeoutMs: 30_000 }));
     expect(screen.getByText("2개 선택")).toBeInTheDocument();
   });
 
@@ -791,7 +866,7 @@ describe("ControlView 대상 선택", () => {
       clientRequestId: expect.any(String),
       target: { type: "floor", floorId: dashboard.floors[1].id },
       brightness: 70
-    }), { signal: expect.any(AbortSignal) }));
+    }), { signal: expect.any(AbortSignal), timeoutMs: 30_000 }));
 
     mocks.useCommandStatus.mockReturnValue({
       data: createCommandStatus(commandIds.default, "completed"),
@@ -809,7 +884,7 @@ describe("ControlView 대상 선택", () => {
       clientRequestId: expect.any(String),
       target: { type: "group", groupId: dashboard.groups[0].id },
       brightness: 70
-    }), { signal: expect.any(AbortSignal) }));
+    }), { signal: expect.any(AbortSignal), timeoutMs: 30_000 }));
   });
 
   it("does not expose configuring or failed mesh groups as selectable control targets", () => {
@@ -1706,7 +1781,7 @@ describe("ControlView 대상 선택", () => {
       clientRequestId: expect.any(String),
       target: { type: "fixture", fixtureId: fixtureIds.b2First },
       brightness: 30
-    }), { signal: expect.any(AbortSignal) });
+    }), { signal: expect.any(AbortSignal), timeoutMs: 30_000 });
     expect(mocks.apiPost.mock.calls[0][1]).not.toHaveProperty("overrideUntil");
     expect(mocks.apiPost.mock.calls[0][1]).not.toHaveProperty("overrideRemainingMs");
   });

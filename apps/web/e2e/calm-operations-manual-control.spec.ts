@@ -48,7 +48,7 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
         id: "77777777-7777-4777-8777-777777777799", stage: "completed", outcome: "applied", brightness: 70,
         totalFixtureCount: 2, completedFixtureCount: 2, createdAt: "2026-09-12T01:00:00.000Z", dispatchCount: 1,
         errorMessage: null, verificationAttemptCount: 0
-      }], nextCursor: null, retainedFrom: "2026-06-25T01:00:00.000Z"
+      }], nextCursor: null, generatedAt: "2026-09-25T01:00:00.000Z", retainedFrom: "2026-06-25T01:00:00.000Z"
     } }));
     await page.goto(`/control?siteId=${ids.site}`);
     const history = page.getByRole("region", { name: "최근 명령 이력" });
@@ -59,7 +59,9 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
     expect(historyBox).not.toBeNull();
     expect(executionBox).not.toBeNull();
     expect(historyBox!.y).toBeGreaterThanOrEqual(executionBox!.y + executionBox!.height);
-    expect(historyBox!.height).toBeLessThanOrEqual(viewport.width >= 760 ? 72 : 112);
+    // Mobile wraps the actions into a second row with 52px touch targets.
+    // Include the 44px summary row, 16px vertical padding and 2px border.
+    expect(historyBox!.height).toBeLessThanOrEqual(viewport.width >= 760 ? 72 : 44 + 52 + 16 + 2);
     await history.getByRole("button", { name: "명령 이력 열기" }).click();
     await expect(page.getByRole("dialog", { name: "명령 이력" })).toContainText("최근 3개월");
     await expectNoHorizontalOverflow(page);
@@ -95,6 +97,7 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
         return route.fulfill({ json: { dispatchId: "check-dispatch", dispatchIds: ["check-dispatch"], verificationAttempt: 1, terminalStatusUrl: `/commands/${commandId}` } });
       }
       if (url.pathname === `/api/commands/${commandId}`) return route.fulfill({ json: {
+        generatedAt: "2026-09-25T00:00:00.000Z", retainedFrom: "2026-06-25T00:00:00.000Z",
         ...original, stage: verified ? "verified_not_applied" : "verification_required", outcome: verified ? "not_applied" : "unknown",
         verificationAttemptCount: checking ? 1 : 0,
         dispatches: checking ? [...original.dispatches, { id: "check-dispatch", kind: "status_check", verificationAttempt: 1, status: verified ? "completed" : "accepted", gateway: { id: ids.gateway, name: "GW" }, errorMessage: null, results: [{ ...commandResult("succeeded", null), brightness: 70 }] }] : original.dispatches
@@ -276,6 +279,7 @@ for (const viewport of viewports) {
       timeoutApi.setCommandStatus({ stage: "timed_out", results: [commandResult("timed_out", "Gateway ACK timeout")] });
       await expect(timeoutExecution.getByText("게이트웨이 장비 응답 시간 초과")).toBeVisible();
       await expect(timeoutPage.getByText("Gateway ACK timeout", { exact: true })).toHaveCount(0);
+      await expect(timeoutExecution.getByText("1개 선택", { exact: true })).toBeVisible();
       await expect(timeoutPage.getByRole("button", { name: "밝기 적용" })).toBeEnabled();
     } finally {
       await timeoutPage.close();
