@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { chmodSync, copyFileSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -37,7 +37,7 @@ function auditMetadata(vulnerabilities, dependencies = 10) {
   };
 }
 
-function runLivePolicy(t, report, auditExitCode) {
+function runLivePolicy(t, report, auditExitCode, args = []) {
   const directory = mkdtempSync(path.join(tmpdir(), "led-audit-command-"));
   t.after(() => rmSync(directory, { recursive: true, force: true }));
   const fakePnpmPath = path.join(directory, "pnpm");
@@ -46,11 +46,27 @@ function runLivePolicy(t, report, auditExitCode) {
     `#!/usr/bin/env node\nprocess.stdout.write(${JSON.stringify(JSON.stringify(report))});\nprocess.exitCode = ${auditExitCode};\n`
   );
   chmodSync(fakePnpmPath, 0o755);
-  return spawnSync(process.execPath, [scriptPath], {
+  return spawnSync(process.execPath, [scriptPath, ...args], {
     cwd: projectRoot,
     encoding: "utf8",
     env: { ...process.env, PATH: `${directory}:${process.env.PATH}` }
   });
+}
+
+function createLegacyPatchedRoot(t) {
+  const directory = mkdtempSync(path.join(tmpdir(), "led-audit-legacy-patched-"));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  // The historical exception must not depend on the current Expo manifest,
+  // whose graph no longer uses image-size. Preserve its exact mitigation.
+  writeFileSync(path.join(directory, "package.json"), JSON.stringify({
+    pnpm: { patchedDependencies: { "image-size@1.2.1": "patches/image-size@1.2.1.patch" } }
+  }));
+  for (const relativePath of ["patches/image-size@1.2.1.patch", "scripts/image-size-security.test.mjs"]) {
+    const destination = path.join(directory, relativePath);
+    mkdirSync(path.dirname(destination), { recursive: true });
+    copyFileSync(path.join(projectRoot, relativePath), destination);
+  }
+  return directory;
 }
 
 test("production audit JSON을 advisory별 package, severity, 경로와 patched floor로 정규화한다", (t) => {
@@ -195,7 +211,8 @@ test("image-size exception은 exact advisory와 repository patch/regression이 �
     metadata: auditMetadata({ high: 2 }, 40)
   };
 
-  const accepted = runPolicy(t, report);
+  const patchedRoot = createLegacyPatchedRoot(t);
+  const accepted = runPolicy(t, report, ["--project-root", patchedRoot]);
   assert.equal(accepted.status, 0, accepted.stderr);
   assert.match(accepted.stdout, /EXCEPTION GHSA-w3rx-r6r6-pgpr image-size@1\.2\.1 high/);
   assert.match(accepted.stdout, /EXCEPTION GHSA-5p2g-fcmc-qvqq image-size@1\.2\.1 high/);
@@ -209,6 +226,23 @@ test("image-size exception은 exact advisory와 repository patch/regression이 �
   assert.equal(rejected.status, 1);
   assert.match(rejected.stdout, /UNEXPECTED GHSA-w3rx-r6r6-pgpr/);
   assert.match(rejected.stdout, /mitigation-missing=patches\/image-size@1\.2\.1\.patch/);
+
+  const withoutSelector = createLegacyPatchedRoot(t);
+  writeFileSync(path.join(withoutSelector, "package.json"), JSON.stringify({ pnpm: { patchedDependencies: {} } }));
+  const selectorRejected = runPolicy(t, report, ["--project-root", withoutSelector]);
+  assert.equal(selectorRejected.status, 1);
+  assert.match(selectorRejected.stdout, /mitigation-missing=package\.json#image-size@1\.2\.1/);
+  assert.doesNotMatch(selectorRejected.stdout, /EXCEPTION/);
+
+  const changedFloor = runPolicy(t, {
+    ...report,
+    advisories: Object.fromEntries(Object.entries(report.advisories).map(([key, value]) => [key, {
+      ...value, patched_versions: ">=2.0.3"
+    }]))
+  }, ["--project-root", patchedRoot]);
+  assert.equal(changedFloor.status, 1);
+  assert.match(changedFloor.stdout, /UNEXPECTED GHSA-w3rx-r6r6-pgpr/);
+  assert.match(changedFloor.stdout, /patched=>=2\.0\.3/);
 });
 
 test("pnpm audit error envelope와 누락·malformed report는 fail-closed한다", (t) => {
@@ -285,7 +319,7 @@ test("실제 audit command의 error envelope는 실패하고 vulnerability exit 
     },
     metadata: auditMetadata({ high: 1 }, 30)
   };
-  const acceptedVulnerabilityReport = runLivePolicy(t, allowedAdvisory, 1);
+  const acceptedVulnerabilityReport = runLivePolicy(t, allowedAdvisory, 1, ["--project-root", createLegacyPatchedRoot(t)]);
   assert.equal(acceptedVulnerabilityReport.status, 0, acceptedVulnerabilityReport.stderr);
   assert.match(acceptedVulnerabilityReport.stdout, /EXCEPTION GHSA-w3rx-r6r6-pgpr image-size@1\.2\.1 high/);
 });
