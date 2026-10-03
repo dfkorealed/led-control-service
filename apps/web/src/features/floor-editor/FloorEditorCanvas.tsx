@@ -823,7 +823,7 @@ export function FloorEditorCanvas({
     : selectedObjectType === "line"
       ? ["middle-left", "middle-right"]
       : ["top-left", "top-center", "top-right", "middle-left", "middle-right", "bottom-left", "bottom-center", "bottom-right"];
-  return <div ref={container} className={`relative h-full min-h-0 w-full overflow-hidden bg-surface-canvas ${backgroundUrl ? "has-plan" : "grid-only"} ${activeTool === "pan" ? isPanning ? "cursor-grabbing" : "cursor-grab" : ""}`}
+  return <div ref={container} className={`relative h-full min-h-0 w-full touch-none overflow-hidden bg-surface-canvas ${backgroundUrl ? "has-plan" : "grid-only"} ${activeTool === "pan" ? isPanning ? "cursor-grabbing" : "cursor-grab" : ""}`}
     aria-label={`${state.floor.name} 편집 캔버스`} aria-disabled={readOnly} data-testid="floor-editor-canvas" data-floor-id={state.floor.id} data-camera-render-version={cameraRenderVersion} data-zoom={renderedZoom} data-pan-x={renderedPan.x} data-pan-y={renderedPan.y}
     data-map-ready={mapEditor?.ready ?? false} data-map-selection-count={mapEditor?.selectionCount ?? 0} data-promoted-count={mapEditor?.promotedIds.length ?? 0}
     data-snap={snap} data-grid-size={floorPlan?.gridSize ?? 10} data-active-guides=""
@@ -960,9 +960,9 @@ export function FloorEditorCanvas({
         </Label>}
       </Layer>
     </Stage>
-    {backgroundStatus === "error" ? <div className="absolute inset-x-3 top-3 z-5 flex items-center justify-between gap-3 border border-status-danger-border bg-surface-panel p-3 shadow-panel" role="alert">
-      <span className="text-body-sm font-semibold text-status-danger-foreground">CAD 도면을 표시하지 못했습니다.</span>
-      <Button size="sm" variant="secondary" onClick={retryBackground}>도면 다시 시도</Button>
+    {backgroundStatus === "error" ? <div className="absolute inset-x-3 top-3 z-5 flex flex-col gap-1 border border-status-danger-border bg-surface-panel p-1.5 shadow-panel compact:flex-row compact:items-center compact:justify-between compact:gap-3 compact:p-3" role="alert">
+      <span className="min-w-0 break-keep text-body-sm font-semibold text-status-danger-foreground">CAD 도면을 표시하지 못했습니다.</span>
+      <Button size="sm" variant="secondary" className="min-w-11 shrink-0 self-end whitespace-nowrap compact:self-auto" onClick={retryBackground}>도면 다시 시도</Button>
     </div> : null}
     {!cadReviewActive ? <FixturePlacementAction readOnly={readOnly} rowRegistry={rowRegistry} /> : null}
     {!cadReviewActive && !onPlacementPointChange ? <EditorMinimap /> : null}

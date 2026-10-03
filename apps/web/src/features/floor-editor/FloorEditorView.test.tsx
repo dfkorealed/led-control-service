@@ -5,11 +5,12 @@ import { ApiError } from "../../api/client";
 import { FloorEditorView } from "./FloorEditorView";
 import type { FloorEditorState, FloorImportApplyResult } from "./editor-types";
 import { useFloorEditorStore } from "./editor-store";
-import { editorDraftGeneration, saveEditorDraft } from "./editor-drafts";
+import { editorDraftGeneration, loadEditorDraft, saveEditorDraft } from "./editor-drafts";
 import { clearTenantCache } from "../../api/principal-cache";
 import * as spatialIndex from "./editor-spatial-index";
 import { MemoryRouter } from "react-router-dom";
 import { SessionStatusProvider, ToastRegion } from "../../components/ui";
+import { handleMobileBack } from "../mobile/mobile-back";
 
 vi.mock("../map-scene/MapSceneCanvas", () => ({ MapSceneCanvas: () => <canvas data-testid="common-map-canvas" /> }));
 
@@ -495,6 +496,31 @@ describe("FloorEditorView", () => {
     expect(screen.getByRole("checkbox", { name: "격자 스냅" }).closest("[data-field]")).toBeInTheDocument();
   });
 
+  it.each([
+    ["background", false], ["hidden", false], ["background", true], ["hidden", true]
+  ] as const)("flushes a pending dirty draft immediately on %s (common map %s) without server save", (transition, common) => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      const initial = common ? readyMobileMap(structuredClone(editorState)) : editorState;
+      renderEditor(initial, undefined, "mobile-admin");
+      const scope = `mobile-admin:${editorDraftGeneration()}:admin`;
+      act(() => useFloorEditorStore.getState().updateFixture("fixture-1", { x: 550 }));
+      expect(loadEditorDraft(scope, initial)).toBeNull();
+      act(() => window.dispatchEvent(new CustomEvent("led-control:webview-lifecycle", { detail: { state: "inactive" } })));
+      expect(loadEditorDraft(scope, initial)).toBeNull();
+      act(() => {
+        if (transition === "hidden") {
+          vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden");
+          document.dispatchEvent(new Event("visibilitychange"));
+        } else window.dispatchEvent(new CustomEvent("led-control:webview-lifecycle", { detail: { state: "background" } }));
+      });
+      expect(loadEditorDraft(scope, initial)?.fixtures[0].x).toBe(550);
+      if (common) expect(loadEditorDraft(scope, initial)?.commonMapDraft?.scope).toMatchObject({ authScope: scope, floorId: "floor-b2", generationId: "mobile-map" });
+      expect(useFloorEditorStore.getState().isDirty).toBe(true);
+      expect(floorEditorApi.saveFloorEditorState).not.toHaveBeenCalled();
+    } finally { cleanup(); vi.clearAllTimers(); vi.useRealTimers(); }
+  });
+
   it("모바일에서 미배치 조명을 선택하고 맵을 다시 탭해 위치를 확인한 뒤 저장 대기로 둔다", () => {
     vi.stubGlobal("matchMedia", () => ({ matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn() }));
     const state = readyMobileMap(structuredClone(editorState));
@@ -522,6 +548,25 @@ describe("FloorEditorView", () => {
     expect(useFloorEditorStore.getState().state?.fixtures[0]).toEqual(expect.objectContaining({ placementStatus: "placed", x: 240, y: 260 }));
     expect(useFloorEditorStore.getState().isDirty).toBe(true);
     expect(screen.getByRole("button", { name: "저장" })).toBeEnabled();
+  });
+
+  it("native back closes the narrow panel before the latest route guard and unregisters on unmount", () => {
+    vi.stubGlobal("matchMedia", () => ({ matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn() }));
+    const initialBack = vi.fn(() => true), latestBack = vi.fn(() => true);
+    const view = renderEditor(readyMobileMap(structuredClone(editorState)), { onNativeBack: initialBack });
+    const tools = screen.getByRole("button", { name: "도구 및 조명 패널" });
+    fireEvent.click(tools);
+    act(() => { expect(handleMobileBack().handled).toBe(true); });
+    expect(tools).toHaveAttribute("aria-expanded", "false");
+    expect(initialBack).not.toHaveBeenCalled();
+    view.rerenderWithProps({ onNativeBack: latestBack });
+    act(() => { expect(handleMobileBack().handled).toBe(true); });
+    expect(latestBack).toHaveBeenCalledTimes(1);
+    expect(initialBack).not.toHaveBeenCalled();
+    view.unmount();
+    window.history.replaceState({ idx: 0 }, "");
+    expect(handleMobileBack().handled).toBe(false);
+    expect(latestBack).toHaveBeenCalledTimes(1);
   });
 
   it("맵 문서가 준비되지 않은 층에서는 모바일 조명 배치를 시작하지 않는다", () => {
