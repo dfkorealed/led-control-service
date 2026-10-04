@@ -5,6 +5,7 @@ import { runSiteUserTransaction } from "../access/site-user-policy";
 import { AuditService } from "../audit/audit.service";
 import { AuthenticatedUser } from "../auth/auth.types";
 import { PrismaService } from "../prisma/prisma.service";
+import { utcTimestampSql } from "../prisma/utc-timestamp-sql";
 import { encodeIncidentCursor, incidentReadReceiptResponseSchema, incidentReadStateSchema, parseIncidentMutation,
   parseIncidentQuery, parseIncidentReadTarget, parseMonitoringPolicy } from "./monitoring-incidents.dto";
 import { isMonitoringConditionActive } from "./monitoring-conditions";
@@ -53,7 +54,7 @@ export class MonitoringIncidentsService {
         SELECT "id" FROM "MonitoringIncident" WHERE "siteId" = ${siteId}
         ${query.status === "all" ? Prisma.empty : Prisma.sql`AND "status" = ${query.status}::"MonitoringIncidentStatus"`}
         ${query.type ? Prisma.sql`AND "type" = ${query.type}::"MonitoringIncidentType"` : Prisma.empty}
-        ${query.cursor ? Prisma.sql`AND ("resolvedAt" IS NULL, "openedAt", "id") < (${query.cursor.active}, ${query.cursor.openedAt}, ${query.cursor.id})` : Prisma.empty}
+        ${query.cursor ? Prisma.sql`AND ("resolvedAt" IS NULL, "openedAt", "id") < (${query.cursor.active}, ${utcTimestampSql(query.cursor.openedAt)}, ${query.cursor.id})` : Prisma.empty}
         ORDER BY ("resolvedAt" IS NULL) DESC, "openedAt" DESC, "id" DESC LIMIT ${query.limit + 1}
       `);
       const pageIds = rows.slice(0, query.limit).map((row) => row.id);

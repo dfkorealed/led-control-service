@@ -1,5 +1,12 @@
 # 제어 메뉴 기능 현황
 
+## 2026-10-04 PostgreSQL session 시간대에 독립적인 제어 freshness
+
+- 구현 완료: persisted Fixture.status를 갱신하는 raw heartbeat/fixture cutoff Date 바인딩을 UTC timestamp로 정규화한다. 고정90초/20분·정확 경계·Gateway 장애 우선·수동 확인 실패·provisioning 제외·Site→Gateway→Fixture→Incident 잠금·activity/idempotence는 변경하지 않는다. 모니터링 현장별 정책으로 제어 안전 기준을 대체하거나 개인 읽음으로 장비 명령을 보내지 않는다.
+- 부족하거나 개선이 필요한 기능: UTC·Asia/Seoul·America/New_York 겨울/여름의 자기 소유 임시 PostgreSQL 회귀는 운영 적용·실장비/HIL 증거가 아니다. 운영 DB/role/session TZ 변경과 기존 timestamp/data 복구는 수행하지 않는다.
+- 관련 파일: `apps/api/src/fixtures/fixture-freshness.service.ts`, `apps/api/src/prisma/utc-timestamp-sql.ts`, `apps/api/src/monitoring-incidents/monitoring-incidents.integration.spec.ts`.
+- 갱신 규칙: 고정 제어 freshness와 사용자 모니터링 정책·개인 읽음·장비 명령·임시 DB/운영 검증을 구분하고 실제 session·상태/reason·activity·명령/outbox 불변 회귀를 함께 유지한다.
+
 ## 2026-10-03 가용 지도 높이·설정 origin 회귀 보완 (Task 9 P2-A/B)
 
 ### 구현 완료

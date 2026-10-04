@@ -1,6 +1,7 @@
 import { Injectable } from "@nestjs/common";
 import { Prisma, type MonitoringIncidentType } from "@prisma/client";
 import { isMonitoringConditionActive, type MonitoringPolicy } from "./monitoring-conditions";
+import { utcTimestampSql } from "../prisma/utc-timestamp-sql";
 
 @Injectable()
 export class MonitoringIncidentReconcilerService {
@@ -38,7 +39,7 @@ export class MonitoringIncidentReconcilerService {
       // Raw SQL intentionally bypasses Prisma @updatedAt. Observations do not
       // invalidate the operator's revision, acknowledgement or assignment.
       await tx.$executeRaw(Prisma.sql`
-        UPDATE "MonitoringIncident" SET "lastObservedAt" = GREATEST("lastObservedAt", ${now})
+        UPDATE "MonitoringIncident" SET "lastObservedAt" = GREATEST("lastObservedAt", ${utcTimestampSql(now)})
         WHERE "siteId" = ${site.id} AND "activeKey" IN (${Prisma.join(activeKeys)})
       `);
       // Site locking serializes cooperating writers. The unique activeKey is an
@@ -48,8 +49,8 @@ export class MonitoringIncidentReconcilerService {
     await tx.$executeRaw(Prisma.sql`
       UPDATE "MonitoringIncident"
       SET "status" = 'resolved', "activeKey" = NULL, "resolutionKind" = 'automatic_recovery',
-          "resolvedAt" = GREATEST(${now}, "openedAt", "lastObservedAt", "acknowledgedAt"),
-          "updatedAt" = GREATEST(${now}, "updatedAt" + INTERVAL '1 millisecond')
+          "resolvedAt" = GREATEST(${utcTimestampSql(now)}, "openedAt", "lastObservedAt", "acknowledgedAt"),
+          "updatedAt" = GREATEST(${utcTimestampSql(now)}, "updatedAt" + INTERVAL '1 millisecond')
       WHERE "siteId" = ${site.id} AND "activeKey" IS NOT NULL
       ${activeKeys.length ? Prisma.sql`AND "activeKey" NOT IN (${Prisma.join(activeKeys)})` : Prisma.empty}
     `);

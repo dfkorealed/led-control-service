@@ -120,6 +120,9 @@
 
 ## 2026-10-02 계정별 영속 알람 읽음 API (Task 2)
 
+- 시각 경계 보완(2026-10-04): incident raw SQL의 cursor·관측·자동 회복·revision Date 바인딩과 freshness의 heartbeat/fixture cutoff를 UTC timestamp로 명시적으로 정규화한다. 저장 column·active-first/id tie 정렬·index·GREATEST·revision +1ms·권한 잠금·최초 개인 읽음은 유지하며 운영 DB/role/session TimeZone이나 기존 데이터를 변경하지 않는다.
+- 검증 범위: 자기 소유 임시 PostgreSQL/Prisma6.19.3에서 UTC·Asia/Seoul·America/New_York 겨울/여름 session을 직접 확인하고 tied cursor·관측/역행/회복·receipt 격리·고정 제어 freshness와 activity/idempotence를 회귀 검증한다. 운영 DB 적용·과거 비정상 timestamp 복구·실장비/HIL은 별도 관문이며 임시 DB 결과로 완료를 주장하지 않는다.
+
 - 구현 완료: 기존 incident GET의 `incidents[]`에 현재 계정의 `isRead`·`readAt|null`과 현장 전체 `unreadCount`를 추가했다. 해결된 미읽음도 집계하고 상태/유형/커서/현재 페이지와 독립이다. 기존 정렬·커서·`activeCount`는 보존하며 GET는 receipt를 쓰지 않는다.
 - 구현 완료: `PUT /sites/:siteId/monitoring-incidents/:incidentId/read`는 서버 인증 actor의 개인 읽음을 기록하고 최초 DB UTC `readAt`을 중복·동시 PUT에도 유지한다. read-only viewer도 허용하고 활성 계정·멤버십·현장 소속을 같은 transaction에서 잠금 후 재검증한다. actor/시각/revision body 지정은 400이며 operational acknowledge/resolve와 incident revision을 변경하지 않는다.
 - 구현 완료: receipt는 incident/User 삭제 cascade이며 별도 TTL이나 incident 3개월 purge는 없다. 같은 ID polling은 읽음 유지, 회복 후 재발의 새 ID는 새 미읽음이다. 실제 자기 소유 임시 PostgreSQL에서 전체 migration과 계정 격리·권한/삭제 경쟁·cascade, Task 1 날짜·1,000행 커서를 확인했다. 사용자 DB 적용·장비/HIL 증거는 아니다.
