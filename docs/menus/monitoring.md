@@ -3,7 +3,8 @@
 ## 2026-10-04 주석 수정 최종 소프트웨어 검증
 
 - 구현 완료: 공통 필터/시각/로그와 실제 상태 범례·원형 조명·반응형 지도·명시 선택 상세를 구현했다. 계정별 알람 확인은 실제 R1–R6/R7 UI/HTTP/SQL 두 사례PASS로, 모니터링 로그는 M1 완료 하위 단계 및 M2/M3 실제 여정으로 확인했다. 50/100/500/1000·기간·층 변경·opaque cursor·부분 보관일·실제410 안내/최신 기록 복구를 검증했다.
-- 미구현: 실장비/HIL·native WebView·전체 서비스 성능 검증은 이번 작업에 포함하지 않는다. 기본 개발 브랜치/알람 테이블/로컬 앱 적용은 아직 대기한다.
+- 구현 완료(로컬 반영): 기본 개발 `codex/mvp1-cloud-web`에099로 fast-forward했고 알람 읽음 테이블 하나와 main Prisma Client6.19.3을 반영했다. 새 API와 기존 웹의 재개·TLS live200·monitoring200·비인증 proxy401을 확인했다. 원 빈 watcher는 정지 보존하고 새 API는 별도 소유 세션으로 유지한다.
+- 미구현: 실장비/HIL·native WebView·전체 서비스 성능 검증은 이번 작업에 포함하지 않는다. 10:06:37 UTC startup readiness 단일 관측은503/MQTT down·다른 네 의존성up이며 이후 재측정·지속성·원인은 미확인이다. 실제 계정 로그인·장비 연결 복구는 수행하지 않았다.
 - 부족하거나 개선이 필요한 기능: 기존 실패와 검증 제외를 보존하며 새6사례 전체PASS로 합산하지 않는다. year0/BCE 표시·compact DOM 결합·과거 skewed timestamp 등 기존 한계는 남긴다.
 - 관련 파일: [22행 구현·검증 계획](../superpowers/plans/2026-10-01-operations-ui-comments.md), `apps/web/src/features/monitoring/MonitoringView.tsx`, `MonitoringLogDrawer.tsx`, `apps/api/src/monitoring-incidents`, `apps/api/src/prisma/utc-timestamp-sql.ts`.
 - 갱신 규칙: 실제 DB/소프트웨어/운영 적용/HIL 결과와 적용 전후 상태를 구분한다. 사용자 확인과 장애 해제는 별개로 유지하며 조회·화면 밖 항목을 확인 처리하지 않는다.

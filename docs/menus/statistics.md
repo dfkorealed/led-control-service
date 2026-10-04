@@ -5,7 +5,8 @@
 ## 운영 주석 수정 최종 검증 checkpoint
 
 - 구현 완료: 주석16–20의 지정 문구/배지 제거와 분석·보고서 공통 필터, 긴 이름/날짜 초안/200% 화면 회귀를 독립 검수했다. 기존 결측·0·추정·기간/응답 일치·CSV/PDF/URL 계약을 유지한다. 전체 소스 검토 및 변경 없는 canonical 경계의 검증 결과를 회수했다.
-- 미구현: 실제 외부 PDF 저장소·전체 고객 데이터·HIL/native WebView 검증은 추가하지 않는다. 기본 브랜치와 로컬 앱 반영은 아직 대기한다.
+- 구현 완료(로컬 반영): 기본 개발 브랜치099로 fast-forward했고 새 API/기존 웹 재개·TLS live200·Web200·비인증 proxy401을 확인했다. 실제 로그인·전체 통계 재계산 또는 외부 PDF 저장소 검증으로 확대하지 않는다.
+- 미구현: 실제 외부 PDF 저장소·전체 고객 데이터·HIL/native WebView 검증은 추가하지 않는다. 10:06:37 UTC startup readiness 단일 관측은503/MQTT down·나머지4 up이며 이후 재측정·지속성·원인은 미확인이다.
 - 부족하거나 개선이 필요한 기능: 과거 실패·852skip·번들/기존 보안 지적을 통과로 표시하지 않는다. 이번 UI 검증을 계량기 실측 또는 새로운 통계 계산 인증으로 확대하지 않는다.
 - 관련 파일: [22행 구현·검증 계획](../superpowers/plans/2026-10-01-operations-ui-comments.md), `apps/web/src/features/statistics/analysis/StatisticsAnalysisPage.tsx`, `apps/web/src/features/statistics/reports/StatisticsReportsPage.tsx`, `apps/web/src/components/ui/FilterPanel.tsx`, 공통 날짜 UI.
 - 갱신 규칙: 기록된 크기·배율·software fixture의 실제 입력 결과와 운영 배포/외부 저장소 검증을 구분하고 추정/결측 의미를 유지한다.

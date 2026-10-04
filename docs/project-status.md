@@ -2,13 +2,15 @@
 
 기준일: 2026-10-04
 
-## 2026-10-01 운영 화면 주석 22건·공통 UI — 검증 완료·병합/로컬 반영 대기
+## 2026-10-01 운영 화면 주석 22건·공통 UI — 로컬 병합·반영 완료
 
-- 제품 검증 소스 `88a20299`; 기본 개발 브랜치는 `codex/mvp1-cloud-web`/`fc9e7440`이며 아직 병합하지 않았다. 주석22행과 공통 필터·시각·로그·상세·알람 경험의 대응표는 [구현 계획](superpowers/plans/2026-10-01-operations-ui-comments.md)에 기록한다.
+- 제품 검증 소스 `88a20299`와 문서 체크포인트 `099dae7c`를 기본 개발 브랜치 `codex/mvp1-cloud-web`에 `fc9e7440`→`099dae7c` 로컬 fast-forward했다. 뒤의 최종 인계 커밋은 문서만 변경한다. 주석22행과 공통 필터·시각·로그·상세·알람 경험의 대응표는 [구현 계획](superpowers/plans/2026-10-01-operations-ui-comments.md)에 기록한다.
 - canonical `a2f61cd1` lint/typecheck/test/build exit0·8,199통과/0실패/852skip·UI정책0을 변경 없는 경계에 유지한다. 이후 실제 Prisma/PG UTC·Seoul·NY 시간대 보완은 영향69통과/0실패·API lint/type0·scoped 승인, 현재 소스의 원 소프트웨어 automation1PASS·98.087초로 확인했다. 편집기 cold/warm2와 별도 R21-only1 등 실제 화면 증거는 기록된 범위로만 인정한다.
 - 실제 DB 알람 두 사례R1–R6/R7 및 M1 완료 하위 단계를 보존하고, 남은 C1 OFF·공개 API OFF→ON/M2C2·M3·C3는 새4PASS/0FAIL/0skip·retry0·151.715초로 완료했다. 정상 자원 정리와 소스·기본 브랜치·기존 서버 불변도 확인했다. 원 실행2PASS/1FAIL/3미실행을 새6PASS로 바꾸지 않는다. C3는 실제400 전달과 자동 첫 페이지 복구만 입증했고 안내 문구는 미관측이다.
-- 사용자 승인에 따라 최종 Ready 후 개별 로컬 앱만 잠시 멈추고 fast-forward 병합→알람 확인 테이블 하나와 main Prisma client 생성→새 API 준비 확인→웹 복귀 순서로 반영한다. 기존 DB/시간대/데이터·Gateway/센서·다른 migration·원격 저장소는 변경하지 않는다. HIL·native WebView·외부 저장소·기존 High2 보안 지적은 이번 완료 범위가 아니다.
-- 최종 독립 판정은88a Spec PASS/Quality Approved/Source Ready Yes이며 E1/E2가 닫혔다. E3 실제 로컬 반영은 대기한다. 기존 공통도면 편집기 더블클릭의 배열 첫 hit 선택 위험은 fc9부터 동일하고 이번 운영 지도/단일 클릭 검증 범위 밖이므로 별도 후속으로 유지한다.
+- 사용자 승인대로 알람 확인 테이블의 단일 additive migration `20261001100000_monitoring_incident_read_receipts`만 적용하고 기본 폴더의 Prisma Client6.19.3을 생성했다. 실제 테이블/완료 기록과 client 모델을 확인했다. DB 초기화·기존 데이터/시간대 변경·다른 migration 재실행·Gateway/센서/broker 조작·원격 push는 하지 않았다.
+- 새 기본 폴더 API는 통합 담당자가 소유한 세션31035에서 compiler0으로 기동했다. 이 도구 세션은 부모에게 직접 이전 가능한 handle이 아니며 이후 확인은 실제 PID/HTTP 또는 소유 담당자의 poll로 한다. 기존 빈 API watcher71896은 중복 기동을 막기 위해 일시 정지한 채 보존하고, 기존 supervisor/launcher/broker는 유지했다. 새 owner61523→pnpm61568→watch61580→API61980과 재개한 Web71947/esbuild71953이 실행 중이다. 원 supervisor의 API 감시 구조를 복원했다고 주장하지 않는다.
+- 로컬 Web `/`·`/login`·`/monitoring` HTTP200, TLS API `/health/live`200, Web proxy `/api/auth/me`401(비인증 요청의 정상 거부)를 확인했다. 실제 계정 로그인은 시도하지 않았다. 10:06:37 UTC startup readiness 단일 관측은503/MQTT down·postgres/redis/objectStorage/cadConverter 네 항목up이다. 이후 readiness 재측정·지속성·원인은 미확인이다. 장비 연결을 고치거나 TLS를 우회하지 않고 웹을 재개했으며 전체 readiness 통과·실장비 정상 상태로 표현하지 않는다.
+- 최종 독립 소스 판정은88a Spec PASS/Quality Approved/Source Ready Yes이며 E1/E2가 닫혔다. E3는 위 제한을 명시한 로컬 소스·DB·앱 반영으로 완료했다. 최종 문서 검토도Approved이며 startup 관측의 시점/원인 표현P2를 정정·재검토해ADDRESSED/신규P0–P2없음을 확인했다. HIL·native WebView·외부 저장소·기존 High2 보안 지적은 이번 완료 범위가 아니다. 기존 공통도면 편집기 더블클릭의 배열 첫 hit 선택 위험은 fc9부터 동일하고 이번 운영 지도/단일 클릭 검증 범위 밖이므로 별도 후속으로 유지한다.
 
 ### 이전 진행 이력
 

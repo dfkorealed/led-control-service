@@ -18,9 +18,9 @@
 - 검증 제품 소스는 `88a20299`다. canonical `a2f61cd1`의 lint/typecheck/test/build exit0·8,199통과/0실패/852skip·UI정책0을 변경 없는 경계에 한해 유지한다. 이후 API 시간대 보완은 영향 회귀69통과/0실패와 API lint/typecheck0, 같은 검토자의 Spec PASS/Quality Approved로 별도 확인했다. cold/warm 편집기2건·원 automation 실제 소프트웨어1건·native 숨김/복귀·R21-only 실제 스크롤도 통과했다. 제외·원 실패는 보존하며 전체108/112·관련25·편집기8건을 새 전체 통과로 합산하지 않는다.
 - 실제 DB 검증은 합성 증거임을 명시한다. `receipt-summary`의 알람 R1–R6/R7 두 사례 및 afterEach는 통과했고 M1 모니터링 로그 하위 단계도 완료했다. 해당 실행 전체는2통과/1실패/3미실행 그대로다. 권한 전환 후 목표 현장으로 먼저 이동하는 테스트 절차와 오류 보존만 보완한 `remaining-logs`는 C1 OFF·공개 API OFF→ON/M2/C2·M3·C3 네 사례4통과/0실패/0skip·retry0·151.715초다. 정상 public cleanup/소유 자원 부재/소스·기본 브랜치·보호 서버 불변까지 확인했다. 새6사례 전체 통과로 표현하지 않는다.
 - 실제 API startup DSN의 새 동일 Prisma6.19.3 연결과 psql은 `Asia/Seoul`이다(기존 live pool은 직접 관찰하지 않음). `88a20299`는 incident4개와 고정 freshness3개 Date SQL 바인딩만 UTC timestamp 의미로 정규화했다. 실제 KST RED3·복구 RED1 후 UTC/KST/New York 겨울·여름 matrix16통과, 영향69통과를 확인했다. DB/role/session 시간대·스키마·기존 데이터는 바꾸지 않았고 과거 skewed timestamp도 복구하지 않았다. 영향받은 원 automation은 이 소스에서 실제1통과/0실패·98.087초로 새로 확인했다.
-- 사용자는 알람 읽음 테이블 추가와 로컬 Web/API 잠시 중지·재개를 명시 승인했다. 전체 검증·Ready 판정 후 기본 개발 `codex/mvp1-cloud-web`에 fast-forward하고 정확히 하나의 pending receipt migration/client만 반영한다. 기존 migration checksum 불일치는 동일 allowlist로 기록하되 reset/재실행/metadata rewrite하지 않는다.
+- 사용자가 승인한 알람 읽음 테이블 추가와 로컬 Web/API 반영을 완료했다. 기본 개발 `codex/mvp1-cloud-web`을 `fc9e7440`→`099dae7c` fast-forward하고 정확히 하나의 pending receipt migration과 main Prisma Client6.19.3만 반영했다. 기존 migration checksum 불일치는 그대로 보존했으며 reset/재실행/metadata rewrite하지 않았다.
 - Task9 체크박스는 최종 실제 증거가 돌아오기 전 완료로 바꾸지 않는다. root 문서 patch 문맥 불일치2회는 수정 없이 종료한 조율 오류이며 제품 RED/GREEN 증거가 아니다.
-- 최종 독립 판정은 `88a20299` 기준 Spec PASS / Quality Approved / Source Ready Yes, E1·E2 닫힘이다. E3는 사용자 승인된 개별 앱 중지·단일 migration/client·새 runtime 확인 순서로만 진행하며 실제 적용은 아직 대기한다.
+- 최종 독립 판정은 `88a20299` 기준 Spec PASS / Quality Approved / Source Ready Yes, E1·E2 닫힘이다. E3 로컬 적용은 완료했다. 새 API compiler0·TLS live200·Web/login/monitoring200·proxy 비인증401을 확인했다. 10:06:37 UTC startup readiness 단일 관측은503/MQTT down·나머지 네 의존성up이며 이후 재측정·지속성·원인은 미확인이다. 기존 빈 watcher는 정지 보존하고 별도 소유 API/watch 세션을 유지하며, 원 supervisor API 구조 복원·전체 readiness 통과·실장비 정상으로 확대하지 않는다.
 
 ## Global Constraints
 
@@ -53,11 +53,11 @@
 | 2 | Shell backend: 개인 알람 읽음 | 완료·독립 명세/품질 승인 | bdb2d9e1; focused97/97(실제DB56 포함) |
 | 3 | Shell 공통 UI | 완료·독립 명세/품질 승인 | 793d126a; focused429/429, Web type/build/UI0; P3 경계1건 후속 |
 | 4 | Shell 범위·새 내부 구현 보조 | 소스·독립 물리 재검수 승인 | 9740967e + 13249728 + cf3e075c; scoped Spec✅/qualityApproved·디자이너34/34·P2두건해결·새지적0 |
-| 5 | 모니터링 담당 범위·새 실행 보조 | 구현·scoped 독립 검토 승인 | 7455d16c + 3c107e60 + 3405415d; I1/I2/I3/N1 해결·새 지적0, Task9 전체검수 대기 |
+| 5 | 모니터링 담당 범위·새 실행 보조 | 완료·통합 소스/화면·실제 DB 검증 회수 | 7455d16c + 3c107e60 + 3405415d 및 후속; I1/I2/I3/N1 해결, Task9 최종 승인·로컬 반영 |
 | 6 | 제어 UI 개선 담당자(GPT-6.1 Sol/high) | 완료·독립 명세/품질 승인 | e02d00eb→4128c2de; frozen683단위/90브라우저, Spec✅/qualityApproved; M2 실제 짧은 필터 조작은 Task9 |
 | 7 | 통계 페이지 담당자 → 내부 이어쓰기 | 완료·독립 명세/품질 승인 | e042ef46→ebeebdea;135단위/47브라우저·실제200%·UI0, Spec✅/qualityApproved; 전체검수 별도 |
 | 8 | 같은 설정 담당·5개 시각 batch | 완료·독립 명세/품질 승인 | d014261e→5e39a29e;155단위/Seoul15/브라우저11+1·UI0, 보조 편집기3실패는 결합 Task9에서 확인 |
-| 9 | 별도 UI/UX 검수자·같은 독립 QA·총괄 | 통합·보완 scoped 승인; 최종 결합 검증 진행 | 기존 모바일 main fc9를 eb530으로 보존 통합; a90 상세 높이 보완 승인·e0ea 문서 정정; 독립 관련6·새 root/실제 Lab/전체검토·기본 병합 대기 |
+| 9 | 별도 UI/UX 검수자·같은 독립 QA·총괄 | 검증·소스 승인·로컬 병합/반영 완료 | 제품88a·canonical carry/영향69/원automation1/알람2+M1/남은로그4; main fc9→099 FF·단일 receipt/client·새 API/Web, MQTT down 한계 유지 |
 
 API와 공통 파일을 동시에 쓰지 않는다. Task 5는 `FloorScene`/`FloorMapViewport` 작성권을 받고, 반환·검토 후 Task 6에 넘긴다. Task 8의 설정/운영도 순차 배정한다. 소비자가 공통 계약 변경을 원하면 총괄에게 반환하고 producer가 수정·재검토한다. 개별 작업은 지정 파일과 보고서만 작성하며 다른 세션/서브에이전트를 임의 생성하지 않는다.
 
@@ -332,11 +332,18 @@ Same QA담당자 completed read-only92-line readiness (no execution/Git/source/s
 
 - [x] Step 1 — 22행 소스·화면 및 실제 DB 증거를 회수했다. 기록된320/390/768/962/1017/1023/1024/1025/1440px·짧은3환경·200%·긴 이름·0/로딩/오류/미수신/장애/오프라인을 대상으로 전체 페이지 넘침·필수 조작 잘림/겹침·선택 핀/초점의 확정 결함을 보완하고 native 제스처·키보드·scroll bounds를 검수했다. 새 전체108/112 실행 또는 모든 viewport 인증은 아니다.
 - [x] Task6 M2 required final proof —390×320 실제 wheel/keyboard로 양쪽 날짜·검색·상태·50/100/500/1000·끝 행·이전/다음·닫기와44px visible hit-bounds/목록 비중첩을 확인했다. 실제 입력 증거를 사용하며 스크린샷만으로 판정하지 않았다.
-- [x] Step 2 — 담당자 RED/GREEN·독립 scoped 검토와 하나의 whole-branch 검토를 회수했다. 최종88a Spec PASS/Quality Approved/Source Ready Yes, E1/E2닫힘; E3 실제 안전 적용만 대기한다. 새로 도입된 미해결P0/P1/P2는 없으며 아래 기존 한계는 명시 유지한다.
+- [x] Step 2 — 담당자 RED/GREEN·독립 scoped 검토와 하나의 whole-branch 검토를 회수했다. 최종88a Spec PASS/Quality Approved/Source Ready Yes, E1/E2닫힘; E3 로컬 소스/DB/앱 적용은 아래 실제 결과와 한계로 기록했다. 새로 도입된 미해결P0/P1/P2는 없으며 아래 기존 한계는 명시 유지한다.
 - [x] Step 3 — 순차 root lint/typecheck/test/build exit0·canonical8,199PASS/852skip·UI0, 이후 영향69PASS/API lint/type0·원automation1PASS·실제알람2PASS/M1완료 하위 단계/남은로그4PASS를 회수했다. 변경 없는 경계는 carry하며 새 전체6PASS로 합산하지 않는다. 실제 검증은 소유 disposable DB/Gateway 소프트웨어이고 운영 DB/실장비 테스트가 아니다.
 - [x] Step 4 — 확정 결함을 담당자의 원RED/GREEN과 scoped 재검토로 닫았다. 원 편집기8초/첫ID/픽셀/저장을 그대로 유지한 cold/warm2PASS, 제외·원 실패·기존High2 release gate와 inherited common-document 더블클릭 한계를 아래 기록한다. 검증 한도나 정책을 완화하지 않았다.
-- [ ] Step 5 — 완료표·상태판·4메뉴를 갱신했다. 기본 `codex/mvp1-cloud-web`/fc9 clean과 계보를 확인한 뒤 사용자 승인된 정확 앱 중지·fast-forward·단일 additive migration/main client·새 API 검증·Web 복귀를 수행한다. reset/stash drop/다른WIP/push/전체 supervisor·broker·장비 재시작은 하지 않는다. 실제 적용 전 완료로 표시하지 않으며 인계까지 브랜치/보고서를 보존한다.
-- [ ] Step 6 — 실제 병합 SHA·단일 테이블/client·새 API/Web 결과를 회수한 뒤 완료 보고한다. HIL·외부 배포·기존 데이터 복구·보안 release gate는 별도로 남긴다. 기존 데이터 삭제·DB 초기화·장비 변경은 수행하지 않는다.
+- [x] Step 5 — 완료표·상태판·4메뉴·DB 문서를 최신화하고 기본 `codex/mvp1-cloud-web`/fc9 clean·계보 확인 후099로 fast-forward했다. 승인된 단일 additive receipt migration/main client 생성과 새 API compiler0/실제 모델·TLS live200/Web 복귀를 확인했다. 기존 빈 watcher71896은 정지 보존하고 별도 owned session31035 API를 유지한다. reset/stash drop/다른WIP/push/전체 supervisor·broker·장비 재시작은 하지 않았다. 브랜치/실패/보고서는 보존한다.
+- [x] Step 6 — 실제 병합099·단일 테이블/client·새 API/Web 결과를 회수했다. 최종 문서·증거 검토는Approved이며 startup 관측의 지속성/원인 표현P2를 정정·재검토해ADDRESSED/신규P0–P2없음으로 닫았다. 문서 전용 인계에 실제 결과와 제한을 기록한다. 10:06:37 UTC 단일 readiness503/MQTT down·이후 재측정/원인 미확인·실제 로그인 미검증을 명시하며 HIL·외부 배포·기존 데이터 복구·보안 release gate는 별도로 남긴다. 기존 데이터 삭제·DB 초기화·장비 변경은 수행하지 않았다.
+
+### E3 실제 로컬 반영 결과
+
+- 2026-10-04 09:18:52 UTC 기본 브랜치를099로 fast-forward했다. receipt migration deploy와 Prisma generate는 각각exit0이다. 실제 receipt 완료 기록1건·적용 단계1과 테이블/PK/FK/인덱스를 확인했다. client의 형식·FloorAsset index 선언 순서 차이는 raw schema byte equality가 아닌 별도 모델 의미 확인으로 판정했고 원 guard 실패는 보존했다.
+- 기존 watcher의 여러 제한된 재개/변경 알림 시도는 새 API를 만들지 못했다. 모든 실패를 보존하며 기존 API84376은 승인된 graceful TERM 한 번 뒤 종료했다. supervisor/launcher를 종료하지 않았고 broker/Gateway/센서는 변경하지 않았다.
+- 10:06:14 UTC 기존 빈 watcher71896만정지하고 준비된 기존 환경의 값을 노출하지 않은 별도 owned API 세션31035를 시작했다. owner61523→pnpm61568→watch61580→API61980, main099 API cwd, compiler0·포트4000·UTC helper/mainclient를 확인했다. 이 서버는 인계 뒤에도 유지한다. 세션31035는 통합 담당자 범위라 부모 직접 poll은Unknownprocessid였고 소유 담당자의 poll은running/빈 출력이었다. 이후 인계는 실제 PID/HTTP와 담당자 소유 handle을 구분하며 기존 watcher를 자동 재개하지 않는다.
+- 10:11:43 UTC 기존 esbuild71953/Web71947만재개했다. Web root/login/monitoring200·TLS API live200·proxy auth401을 실제 확인했다. 자격증명 로그인이나 알람/명령 쓰기는 실행하지 않았다. 10:06:37 UTC startup readiness 단일 관측503/MQTT down·나머지4 up을 보존하고 이후 재측정·지속성·원인은 미확인으로 남긴다. 이번 UI/로컬 반영 완료를 전체 의존성 또는 실장비 정상 인증과 구분한다.
 
 ## 주석 22행 최종 구현·검증 대응표
 

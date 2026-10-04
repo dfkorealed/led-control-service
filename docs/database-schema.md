@@ -1,6 +1,12 @@
 # 데이터베이스 테이블 구조
 
-작성일: 2026-10-02
+작성일: 2026-10-04
+
+## 2026-10-04 로컬 중앙 DB 알람 읽음 테이블 반영
+
+사용자 승인 후 기본 개발 브랜치099에서 `20261001100000_monitoring_incident_read_receipts` 하나만 기존 API가 사용하는 PostgreSQL에 적용했다. `prisma migrate deploy` exit0, 해당 migration 완료 기록1건·적용 단계1·미완료/추가 pending0과 실제 `MonitoringIncidentReadReceipt`의 필수3필드·복합 PK·두 cascade FK·사용자 인덱스·UTC 기본값을 확인했다. 기본 폴더의 Prisma Client6.19.3 생성exit0과 실제 receipt 모델도 확인했다.
+
+기존 데이터 삭제·DB 초기화·시간대/role 설정 변경·읽음 backfill·다른 migration 재실행/metadata 수정은 하지 않았다. 기존 `20260918090000_floor_light_slots_map_reset`의 DB/source checksum 차이는 그대로 보존했다. 아래 Task2의 ‘사용자 DB 미적용’은 당시 격리 검증 이력이며, 이번 단일 테이블의 실제 로컬 적용과 구분한다. 새 API는 이 client와 테이블을 사용해 기동했다. 10:06:37 UTC startup readiness의503/MQTT down·다른4 up 단일 관측은 이후 재측정·지속성·원인 미확인으로 남기며 실장비 정상 상태나 원격 운영 배포를 인증하지 않는다.
 
 ## 2026-10-02 계정별 알람 읽음 (운영 UI Task 2)
 
