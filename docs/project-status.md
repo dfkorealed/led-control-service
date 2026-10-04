@@ -2,13 +2,20 @@
 
 기준일: 2026-10-04
 
-## 2026-10-04 iOS 최종 연결 — 별도 브랜치 진행 중
+## 2026-10-04 iOS 최종 연결 — 이 Mac Simulator 설치·실제 서비스 연결 완료
 
-- [x] 사용자 iOS까지 최종 연결·별도 브랜치 지시로 `fc9e7440` 기준 `codex/ios-service-connection-20261004`를 기존 격리 모바일 checkout에 준비했다. 기본 `codex/mvp1-cloud-web`는 그대로 유지한다.
-- [x] [실행 체크리스트](superpowers/plans/2026-10-04-ios-service-connection.md)에 전체 Xcode·Simulator, URL 연결·Pods/native build, 실제 설치/UX와 독립 검토 관문을 기록하고 담당별로 배정했다.
-- [x] 사용자 최종 대상은 이 Mac의 iOS 시뮬레이터다. 개발 iOS 설정 생성·CocoaPods1.17.0/98Pods 설치·로컬 웹GET200/auth401·mobile51/51/typecheck·iOS Hermes export를 확인했다. README의 variant/Pods cwd/DEVELOPER_DIR/unsigned simulator 실행 절차를 보완했다. 제품 source/Android 생성물은 유지한다.
-- [x] 독립 WebKit portable15/15(unsupported CDP전용3개 별도), 제품699파일hash불변·소유QA프로세스정리를 확인했다. 준비문서의 Expo상호배타옵션 Important1은 원함수RED→GREEN 보정·독립 재검토 인수로 해소됐다(준비품 Critical/Important/Minor0). 검토동일 README만 `97bcfd6e`로 별도 브랜치에 커밋했다.
-- [ ] OS 호환 stable Xcode/runtime 설치·iOS native build/설치와 실제 서비스 진입을 검증한다. App Store 최신 Xcode는 현 macOS보다 높은 버전을 요구하여 실제 설치가 차단됐다. 사용자가 Apple Developer 로그인 완료를 알렸으며 공식 호환 Xcode26.6(17F113)를 사용자 폴더에 설치하고 archive/app Apple 서명을 확인했다. SDK조회는 약관미동의로69이며 열린 Xcode창에서 사용자 직접Agree/필요한OS인증을 요청했다. Ruby/CocoaPods와 development iOS 연결 절차는 준비했다. sudo 자동 실행은 불가하며 운영 URL은 비동기 확인 중이며 local127.0.0.1:5173를 기준으로 준비한다. Xcode 준비 후 Pods의 CLT 경고 경계를 재검증한다.
+- [x] 사용자 지시에 따라 `fc9e7440` 기준 별도 브랜치 `codex/ios-service-connection-20261004`와 기존 격리 checkout을 사용한다. 기본 `codex/mvp1-cloud-web`는 변경하지 않았다. [실행 체크리스트](superpowers/plans/2026-10-04-ios-service-connection.md)를 유지한다.
+- [x] Apple 서명을 검증한 Xcode26.6(17F113)를 사용자 폴더에 설치했다. 사용자 직접 설치 후 SDK26.5와 약관 관문 해소, scoped CocoaPods1.17.0/98Pods, iOS26.5 runtime과 전용 iPhone17 Simulator 부팅을 확인했다. 실제 QA runtime은23F77이며 사용자 기존 기기·developer path는 보존한다.
+- [x] unsigned iOS Debug native build exit0/BUILD SUCCEEDED, 개발 bundle ID·minimum16.4·SDK26.5·arm64/x86_64와 앱74파일 manifest를 확인했다. 제품 source/Android 생성물은 유지한다. 준비 mobile51/51·types·Hermes export 및 독립 WebKit portable15/15도 통과했다(CDP전용3개 미지원 제외).
+- [x] 실제 앱 설치와 로컬5173 서비스 로그인 화면 진입, 입력·소프트웨어 키보드 닫기·background/active·cold restart를 확인했다. Metro의 IPv6 전용 binding 문제는 process-scoped IPv4 우선 DNS 설정으로 해결했다. 실제127loopback listener/bundle GET과 기존NODE_OPTIONS 보존을 독립 검토했다. README 준비/수정은 `97bcfd6e`, `e75fbd73`로 별도 브랜치에 커밋했다(준비 검토 Critical/Important/Minor0).
+- [x] 별도 iOS fixture의 native bootstrap/new document·64KiB CSV OS 공유창 반환·임시 파일0·명시적 cancel·HTTP503 안내→직접 재시도→새 문서 복구를 확인했다. 실제 저장/PDF/renderer 종료 시험은 별도 미검증이다.
+- [x] 가려진 활성 입력의 전체 테두리와 포커스 ring을 한 번 노출하는 재사용 iOS helper를 적용했다. 중복 inset/고정 offset 없이 사용자 제스처/문서 교체/키보드 닫힘/앱 비활성화는 예약 보정을 취소한다. 뒤늦은 viewport shrink의 미처리 코드 반례를 RED→GREEN으로 보완했으며 임시 관찰 코드를 모두 제거했다. 최종 기본 Mobile9 suites/109tests·typecheck·Hermes export exit0, 독립 코드 검토 C0/I0/M0·독립109/109·types0이다. 네 메뉴 문서와 README도 같은 작업에서 갱신했다.
+- [x] 실제5173 서비스 연결을 IPv4 Metro로 복원하고 final bundle GET200·정식 helper 포함·fixture/observer 없음·restoreRequired=false를 확인했다. 실제 공개 로그인의 가짜 입력/비밀번호 마스킹·Next/reopen·CTA scroll·가로/세로·foreground/coldrestart를 검증했다. 최종 observer 없는 coldID2회/별도coldPWfirst/reopen/사용자scroll보존/Done은 PNG46~52에서 통과했고 빈 세로·keyboard hidden·실제loginready로 유지한다. 이전 PNG34 ring 가림 이력은 보존하며 새 조건의 결과와 구분한다.
+- [x] UI/UX 디자이너가 실제 최종 원본7개(PNG46~52)를 직접 확인해 지정 Simulator 조건의 V-06/P2를 닫았다. 추가 필수 시각 지적0이며 ID2의2pt 여유를 다른 기기/큰 글자까지 일반화하지 않는다. 네 메뉴의 이전 모바일 협업과 이번 공통 helper 보완을 함께 유지한다.
+- [x] 독립 최종 검토에서 source10·실제 PNG·원본 보존·README/메뉴·앱 ZIP74파일·메타데이터가 일치했고 추가 지적0이다. 현재 기본 checkout은 clean `fc9e7440`이며 사용자 기존 서버/기기를 보존한다.
+- [x] 검토된 제품/문서10경로를 별도 브랜치의 `b1b2e01e`로 scoped commit했다. 이 상태판/계획2문서는 별도 정리 커밋으로 기록한다. 마지막 diff check·기본 clean `fc9e7440`·실제5173 Metro helper 확인을 완료했으며 기본 checkout에 병합하거나 push하지 않는다. 격리 checkout과 ignored 도구/검증 증거는 보존한다.
+- 사용자 Simulator Debug 앱: `/Users/kim-jh/Documents/led 조명 관제 서비스/outputs/mobile/led-control-ios-simulator-development.app.zip`(35,595,560bytes, SHA256 `e4de6e91c02832060df9c5a79029ed437a4da39291d6b524dbe9808b7b5ef8c1`). 현재 `LED Control iOS QA 20261004`에서 실제 로그인 화면/keyboard hidden으로 열려 있고 Metro를 유지한다. 재실행 절차는 [개발 실행 안내](../apps/mobile/README.md)를 따른다.
+- 실제 계정 로그인·인증된 메뉴/통계 PDF·실제 파일 저장·물리 iPhone/조명 HIL·운영 signing/스토어 제출은 완료 범위가 아니다. 앱은 Metro가 필요한 Simulator Debug 산출물이다. 기존 production audit High2의 출시 게이트도 유지한다.
 
 ## 2026-10-03 Android·iOS WebView 앱 — 구현·로컬 반영 완료
 
