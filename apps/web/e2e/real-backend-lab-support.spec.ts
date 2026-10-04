@@ -14,6 +14,7 @@ import { createRequire } from "node:module";
 import { dirname, join, resolve } from "node:path";
 import type { MqttClient } from "mqtt";
 import { createApiHttpsOptions } from "../../api/src/api-tls-options";
+import { mqttTlsServernameOption } from "../../api/src/mqtt/mqtt-tls-identity";
 import * as labSupport from "./support/real-backend-lab";
 
 const { connectMqttForLab, RealBackendLab, selectDfkScanCandidates } = labSupport;
@@ -186,6 +187,25 @@ for (const source of ["parent process", "dotenv"] as const) {
     expect(() => createApiHttpsOptions(env)).not.toThrow();
     expect(createApiHttpsOptions(env)).toEqual({});
   });
+
+  test(`격리 MQTT lab API는 ${source}의 local-app profile을 사용하지 않는다`, () => {
+    const lab = new RealBackendLab({ ports: { mqtt: 18883 } });
+    const internal = lab as unknown as { apiEnv: () => NodeJS.ProcessEnv; pkiDir: string };
+    const externalProfile = { DEV_LOCAL_APP_ONLY: "1", LAB_MQTT_DNS: "local-app.example.invalid" };
+    const env: NodeJS.ProcessEnv = { ...(source === "parent process" ? externalProfile : {}), ...internal.apiEnv() };
+    const { populate } = createRequire(join(ROOT, "apps/api/package.json"))("dotenv");
+    if (source === "dotenv") populate(env, externalProfile);
+
+    // Exercise the production identity guard without starting a broker/API.
+    // The lab owns a separate mTLS endpoint, not local-app's reserved 8883 identity.
+    expect(() => mqttTlsServernameOption(env, env.MQTT_URL!)).not.toThrow();
+    expect(mqttTlsServernameOption(env, env.MQTT_URL!)).toEqual({});
+    expect(env.MQTT_URL).toBe("mqtts://localhost:18883");
+    expect(env.MQTT_PUBLIC_URL).toBe("mqtts://localhost:18883");
+    expect(env.MQTT_CA_PATH).toBe(join(internal.pkiDir, "ca.crt"));
+    expect(env.MQTT_CLIENT_CERT_PATH).toBe(join(internal.pkiDir, "api.crt"));
+    expect(env.MQTT_CLIENT_KEY_PATH).toBe(join(internal.pkiDir, "api.key"));
+  });
 }
 
 test("scan simulator는 shared DFK identity parser로 타사 UUID를 제외한다", () => {
@@ -224,6 +244,7 @@ test("최초 MQTT 연결 오류는 ownership 전달 전에 reconnect와 client�
   await expect(connection).rejects.toThrow("injected TLS failure");
   expect(Date.now() - startedAt).toBeLessThan(200);
   expect(connectionOptions.reconnectPeriod).toBe(0);
+  expect(connectionOptions.rejectUnauthorized).toBe(true);
   expect(forceEndCalls).toEqual([true]);
   expect(client.listenerCount("connect")).toBe(0);
   expect(client.listenerCount("error")).toBe(0);

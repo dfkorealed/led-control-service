@@ -1990,6 +1990,9 @@ export class RealBackendLab {
     return {
       DATABASE_URL: `postgresql://led:led@localhost:${this.ports.postgres}/led_control?host=${socket}&schema=public`,
       REDIS_URL: `redis://127.0.0.1:${this.ports.redis}`,
+      // Own the lab's separate mTLS profile: an inherited local-app flag or
+      // later dotenv load must not impose the reserved loopback/8883 identity.
+      DEV_LOCAL_APP_ONLY: "0",
       MQTT_URL: `mqtts://localhost:${this.ports.mqtt}`,
       MQTT_PUBLIC_URL: `mqtts://localhost:${this.ports.mqtt}`,
       MQTT_CA_PATH: join(this.pkiDir, "ca.crt"), MQTT_CLIENT_CERT_PATH: join(this.pkiDir, "api.crt"),
