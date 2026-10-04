@@ -1,5 +1,13 @@
 # 제어 메뉴 기능 현황
 
+## 2026-10-04 주석 수정 최종 소프트웨어 검증
+
+- 구현 완료: 직접 선택 제스처·단일 밝기 입력/슬라이더·명시적 적용·스케줄 이름/기간/건수와 공통 명령 이력 UI를 구현했다. 실제 C1 OFF/C2 ON의50/100/500/1000·날짜·페이지·현장 scope400·S1복귀·명령POST0와 C3 자연 만료400/자동GET200·빈 첫 페이지 복구를 확인했다. 현재 소스 원 automation1PASS는 독립 실제 프로토콜/DB 적용 증거를 포함한다.
+- 미구현: 실제 RF/센서/조명 출력·native WebView·운영 retention rollout은 이번 UI 검증의 범위가 아니다. 로컬 앱/기본 브랜치 적용은 아직 대기한다.
+- 부족하거나 개선이 필요한 기능: C3 안내 문구는 관측하지 못했으며 자동 복구를 안내 렌더의 증거로 대신하지 않는다. 단일 테스트 membership 순차 전환은 동시 현장 선택 인증이 아니다. 기존 command rollout/recovery/purge 및 권한·명령 안전성은 강제로 변경하지 않는다.
+- 관련 파일: [22행 구현·검증 계획](../superpowers/plans/2026-10-01-operations-ui-comments.md), `apps/web/src/features/control/ControlView.tsx`, `automation/ScheduleControlPanel.tsx`, `CommandHistoryPanel.tsx`, `apps/api/src/fixtures/fixture-freshness.service.ts`.
+- 갱신 규칙: mock/native 입력/소프트웨어 Gateway/실장비 결과와 DB 시각·보관 기한을 구분한다. 이력 열기·필터·선택·Enter가 장비 명령을 자동 실행하지 않는 회귀를 유지한다.
+
 ## 2026-10-04 PostgreSQL session 시간대에 독립적인 제어 freshness
 
 - 구현 완료: persisted Fixture.status를 갱신하는 raw heartbeat/fixture cutoff Date 바인딩을 UTC timestamp로 정규화한다. 고정90초/20분·정확 경계·Gateway 장애 우선·수동 확인 실패·provisioning 제외·Site→Gateway→Fixture→Incident 잠금·activity/idempotence는 변경하지 않는다. 모니터링 현장별 정책으로 제어 안전 기준을 대체하거나 개인 읽음으로 장비 명령을 보내지 않는다.

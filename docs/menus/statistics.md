@@ -2,6 +2,14 @@
 
 기준일: 2026-10-04
 
+## 운영 주석 수정 최종 검증 checkpoint
+
+- 구현 완료: 주석16–20의 지정 문구/배지 제거와 분석·보고서 공통 필터, 긴 이름/날짜 초안/200% 화면 회귀를 독립 검수했다. 기존 결측·0·추정·기간/응답 일치·CSV/PDF/URL 계약을 유지한다. 전체 소스 검토 및 변경 없는 canonical 경계의 검증 결과를 회수했다.
+- 미구현: 실제 외부 PDF 저장소·전체 고객 데이터·HIL/native WebView 검증은 추가하지 않는다. 기본 브랜치와 로컬 앱 반영은 아직 대기한다.
+- 부족하거나 개선이 필요한 기능: 과거 실패·852skip·번들/기존 보안 지적을 통과로 표시하지 않는다. 이번 UI 검증을 계량기 실측 또는 새로운 통계 계산 인증으로 확대하지 않는다.
+- 관련 파일: [22행 구현·검증 계획](../superpowers/plans/2026-10-01-operations-ui-comments.md), `apps/web/src/features/statistics/analysis/StatisticsAnalysisPage.tsx`, `apps/web/src/features/statistics/reports/StatisticsReportsPage.tsx`, `apps/web/src/components/ui/FilterPanel.tsx`, 공통 날짜 UI.
+- 갱신 규칙: 기록된 크기·배율·software fixture의 실제 입력 결과와 운영 배포/외부 저장소 검증을 구분하고 추정/결측 의미를 유지한다.
+
 ## 구현 완료
 
 - 2026-10-02 통계 상세·날짜 초안 보강: 상세 카드 내부 grid/flex의 최소 폭과 긴 대상·조명 이름의 줄바꿈을 제한해 원문 전체, 수치와 차트를 유지한다. 페이지를 가로로 숨기거나 이름을 생략하지 않으며 히트맵의 내부 스크롤은 유지한다. 분석·보고서 생성은 통계 전용 `completedDateBounds`로 완료일과 형제 날짜의 허용 범위를 일관되게 전달한다. 미래 연도·빈 값·역전 초안을 자동 보정하거나 상대 날짜를 바꾸지 않고 입력과 오류 안내를 유지하며, 분석 조회와 PDF 요청·CSV 내보내기는 유효한 기간으로 직접 고친 뒤에만 재개한다. 공통 날짜 코어의 엄격한 형식·역전 bounds 검사, 분석 1~400일, 현장 완료일·응답 일치·대상 범위·PDF/CSV 계약은 그대로다.

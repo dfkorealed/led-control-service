@@ -15,11 +15,12 @@
 - 기본 main `fc9e7440`의 기존 모바일 작업을 `eb530b16`으로 통합하고, 실제 PC 상세 본문35px 압축을 소비자 높이 두 class만 보완한 `a90f1e84`로 수정했다. 직접 native 입력·본문349px/마지막 전체 행70px·현재 스크롤 범위·카메라/초점·명령POST0 증거를 회수했다. 원 실패와 17px 페이지 노출 설정 실패는 보존한다.
 - scoped 검토는 Critical/Important 0·Approved다. 제거된 프리셋을 설명하던 Minor 문서1건은 `e0ea5122` 한 문장으로 정정했다. 기존 편집기8건 통과는 과거 증거이며 새 모바일 편집기 변경이 있으므로 영향8건을 새 소스에서 확인한다.
 - 격리 Node22/pnpm9.15 frozen install 한 번만 실행해 Expo/shared/TS 의존성을 준비했다. 소스·기본 HEAD/PID는 불변이며 Prisma 자동 생성은 차단했다. install은 테스트·DB 적용 완료가 아니다.
-- 현재 소스 `a3216572`는 canonical `a2f61cd1` 이후 제품 변경 없이 테스트·Lab 환경만 보완했다. canonical lint/typecheck/test/build exit0·8,199통과/0실패/852skip·UI정책0, 현재 cold/warm 편집기2건과 원 automation 실제 소프트웨어1건 통과를 회수했다. 원 실패와 제외 건은 보존한다. 별도 native 숨김/복귀와 마지막 R21 실제 스크롤도 통과했으며 전체108/관련25를 새 전체 통과로 합산하지 않는다.
-- UTC 격리 Lab의 실제 알람 R1–R6 한 사례는 통과했다. R7은 admin 설치 상태 gate의 기존 문구와 테스트 기대가 달라 실패했고 최소 기대 두 곳만 보완한다. 남은 R7·DB 로그/기간/커서·OFF→ON은 아직 미실행이다. 원 automation은 통과한 증거를 보존하고 반복하지 않는다.
-- 실제 API startup DSN의 새 동일 Prisma6.19.3 연결과 psql은 `Asia/Seoul`이다. 기존 raw incident Date/cursor SQL의 UTC 세션 의존성을 운영 적용 차단으로 판정했다. 기존 DB 시간대·데이터는 바꾸지 않고 incident cursor/observation/resolution의 작은 SQL 경계만 보완한다. 현재 소스의 실제 KST RED → UTC/KST/음수 offset 세션 GREEN, 첫 읽음·정렬·단조 시각 보존과 scoped 검토를 같은 담당자에게 배정한 뒤 남은 Lab를 이어간다. 기존 API pool 자체 세션 시간대는 직접 관찰하지 않았다.
+- 검증 제품 소스는 `88a20299`다. canonical `a2f61cd1`의 lint/typecheck/test/build exit0·8,199통과/0실패/852skip·UI정책0을 변경 없는 경계에 한해 유지한다. 이후 API 시간대 보완은 영향 회귀69통과/0실패와 API lint/typecheck0, 같은 검토자의 Spec PASS/Quality Approved로 별도 확인했다. cold/warm 편집기2건·원 automation 실제 소프트웨어1건·native 숨김/복귀·R21-only 실제 스크롤도 통과했다. 제외·원 실패는 보존하며 전체108/112·관련25·편집기8건을 새 전체 통과로 합산하지 않는다.
+- 실제 DB 검증은 합성 증거임을 명시한다. `receipt-summary`의 알람 R1–R6/R7 두 사례 및 afterEach는 통과했고 M1 모니터링 로그 하위 단계도 완료했다. 해당 실행 전체는2통과/1실패/3미실행 그대로다. 권한 전환 후 목표 현장으로 먼저 이동하는 테스트 절차와 오류 보존만 보완한 `remaining-logs`는 C1 OFF·공개 API OFF→ON/M2/C2·M3·C3 네 사례4통과/0실패/0skip·retry0·151.715초다. 정상 public cleanup/소유 자원 부재/소스·기본 브랜치·보호 서버 불변까지 확인했다. 새6사례 전체 통과로 표현하지 않는다.
+- 실제 API startup DSN의 새 동일 Prisma6.19.3 연결과 psql은 `Asia/Seoul`이다(기존 live pool은 직접 관찰하지 않음). `88a20299`는 incident4개와 고정 freshness3개 Date SQL 바인딩만 UTC timestamp 의미로 정규화했다. 실제 KST RED3·복구 RED1 후 UTC/KST/New York 겨울·여름 matrix16통과, 영향69통과를 확인했다. DB/role/session 시간대·스키마·기존 데이터는 바꾸지 않았고 과거 skewed timestamp도 복구하지 않았다. 영향받은 원 automation은 이 소스에서 실제1통과/0실패·98.087초로 새로 확인했다.
 - 사용자는 알람 읽음 테이블 추가와 로컬 Web/API 잠시 중지·재개를 명시 승인했다. 전체 검증·Ready 판정 후 기본 개발 `codex/mvp1-cloud-web`에 fast-forward하고 정확히 하나의 pending receipt migration/client만 반영한다. 기존 migration checksum 불일치는 동일 allowlist로 기록하되 reset/재실행/metadata rewrite하지 않는다.
 - Task9 체크박스는 최종 실제 증거가 돌아오기 전 완료로 바꾸지 않는다. root 문서 patch 문맥 불일치2회는 수정 없이 종료한 조율 오류이며 제품 RED/GREEN 증거가 아니다.
+- 최종 독립 판정은 `88a20299` 기준 Spec PASS / Quality Approved / Source Ready Yes, E1·E2 닫힘이다. E3는 사용자 승인된 개별 앱 중지·단일 migration/client·새 runtime 확인 순서로만 진행하며 실제 적용은 아직 대기한다.
 
 ## Global Constraints
 
@@ -287,7 +288,7 @@ Native visibility harness checkpoint — own blank-page probe1회가 .ts 설정�
 - [x] Repair B — 통계 담당자: 원래 긴 이름/페이지 overflow와 native 연도 입력·clear/reversed draft·무효 요청0/유효 복구, PDF/CSV 계약 보존·메뉴 갱신. 반환888a8200/허용9파일·직접144단위/13브라우저/type/UI0; 독립 검토·관련 재검수는 아래 관문에 유지한다.
 - [x] Repair C — 같은 모니터링 담당자: 로그 양수 inset·소비자 밀도와 상세 내부 스크롤 소유만 보완·메뉴 갱신. 반환d8a72907/허용6파일·직접19단위/2브라우저/type/UI0; 독립 검토·관련 디자이너 재검수는 아래 관문에 유지한다.
 - [x] Repair review — 보완 묶음 scoped 검토와 기존 자료를 이어받은 별도 검수자의 관련25·잔여 native·최종 R21을 회수했다. 최초25는22/3, 최종 통합6은5/1이고 별도 R21-only1통과로 해당 미검증을 닫았다. 전체 재실행/합산 통과로 표현하지 않는다. canonical4와 ONE whole source 검토 완료; 최종 실제 DB·운영 호환성 verdict는 아래 관문이다.
-- [ ] Repair D — 기존 통합 담당자 단일 작성: 설치된 Prisma의 KST 실제 RED로 incident tuple cursor와 reconciler observation/resolution Date 바인딩만 UTC TIMESTAMP 저장 의미에 맞게 보완한다. UTC/KST/음수 offset 실제 세션·관측/해결·단조 revision·동일 timestamp cursor 순서·첫 readAt 불변과 메뉴를 검증한다. 스키마/DB 시간대/기존 행/권한/명령/보존/자동화 코드는 변경하지 않는다. 새 scoped 검토 뒤 원 automation/native/canonical의 변경 없는 경계만 명시 carry하고 남은 receipt/log Lab를 실행한다.
+- [x] Repair D — 기존 통합 담당자 `88a20299`: 재사용 parameter-only UTC SQL helper로 incident4/freshness3 바인딩을 보완했다. 실제 KST RED3/복구RED1→UTC/KST/NY 겨울·여름 matrix16 및 영향69통과, API lint/type0·두 메뉴 갱신·scoped Spec PASS/Quality Approved를 회수했다. 단조 revision/동일 timestamp cursor/첫 readAt/상태·reason·activity/idempotence/명령 불변을 검증했다. 스키마·DB 시간대·기존 행·권한·보존·자동화 로직은 바꾸지 않았으며 현재 소스의 원 automation1PASS와 남은 실제 로그4PASS를 별도로 회수했다.
 
 Scoped 검토 c8bf6f04 — 전체 반환 보고서·원시 결과·소스 해시를 읽은 독립 검토는 Spec 부분 충족/Needs fixes/P0·P1 0/P2 2/P3 1이다. 총괄이 실제 설계 §4와 소비자 높이 체인/일반 Playwright baseURL을 대조하여 P2-A 충분한 desktop 가용 공간이 지도에 전달되지 않음(최종1440×900도240px), P2-B tracked fixture의16208 origin 고정에 따른 일반 설정 요청 차단을 확인했다. 같은 별도 제어 UI 담당자에게 두 건만 한 bounded 후속으로 배정한다. 기존 짧은 화면 최소240·자연스러운 scroll·48px/disabled/제스처와 failclosed mock은 유지하며 임의 새 숫자/공통 재설계는 금지한다. 통계·모니터링 새 P0–P2 지적은 없으나 전체 승인으로 확대하지 않는다. P3 DOM 순서 밀도 결합은 현재 실제 효과/직접 bounds를 인정하고 최종 검토에 기록한다. 11개 Declined 중 관련 디자이너/최종 root/실제 임시DB/whole/안전한 기본 적용은 다음 필수 관문, PDF 외부 저장·WebView/HIL·운영1000 성능/비정상 역사 날짜·센서/공통 편집기 전체는 한계/관련 최종 triage로 유지한다. 원 End deficit314 원인은 미확정이고 최종 실제 End 통과와 분리한다.
 
@@ -329,13 +330,50 @@ Same QA담당자 completed read-only92-line readiness (no execution/Git/source/s
 
 **Interfaces:** Task 1–8 커밋과 단계별 읽기 전용 검토 결과를 소비한다. 검수자는 설계의 주석 22행을 감사하고, 새 whole-branch reviewer가 실제 보호된 main `1ea3fb6e`→최종 HEAD를 확인한다(`36a99b29`는 원 UI 작업 이력). 이후 변경까지 검토했다고 확대하지 않는다. 병합 대상은 실제 저장소의 `codex/mvp1-cloud-web`이며 Git `main`이 아니다.
 
-- [ ] Step 1 — 22행을 단언·시각 증거로 재현한다: 폭 320/390/768/962/1017/1023/1024/1025/1440px, 390×320/768×390/1024×480, 200% 확대, 긴 이름, 0/로딩/오류/정보 미수신/장애/오프라인. 전체 페이지 가로 overflow·필수 조작 잘림/겹침·선택 핀 가림·포커스 유실 0건을 요구한다. 표 내부 스크롤만 예외이며 제스처/키보드/scroll bounds까지 확인한다.
-- [ ] Task6 M2 required final proof —390×320 LogView의 독립 필터 scrollport를 실제 wheel/keyboard로 이동해 양쪽 날짜·검색·상태를 조작하고 각 visible hit-bounds·목록과 비중첩을 기록한다. 스크린샷만으로 접근 불가/통과 어느 쪽도 단정하지 않는다. 실제 실패면 P2로 배정해 수정·scoped 재검토한다.
-- [ ] Step 2 — 디자이너가 P0/P1/P2와 증거 경로를 보고하면 총괄이 기능 담당자에게 수정·재검증을 배정한다. 가장 역량 높은 모델의 새 whole-branch reviewer가 전체 spec/plan/diff/보고서로 요구·보안·API 호환성을 검토한다. 중복 검토자나 구체적 의심 없는 전체 suite 재실행은 만들지 않는다.
-- [ ] Step 3 — fresh root `pnpm lint`, `pnpm typecheck`, `pnpm test`, `pnpm build`를 순차 실행하고 UI 정책 위반 0을 확인한다. 관련 disposable DB migration/integration 뒤 one-worker RealBackendLab에서 실제 읽음 저장/로그 필터를 검증한다. 운영 DB/실제 Gateway는 쓰지 않는다. skip/외부 도구 부재는 미검증이지 통과가 아니다.
-- [ ] Step 4 — 새 P0/P1/P2·변경 영향 회귀는 병합 차단이다. 담당자의 RED/GREEN과 scoped 재검토를 거친다. 기존 편집기 1000개/8초 실패와 production audit High 2건은 별도 보고하고 한도/예외를 바꾸지 않는다. 기준 비교로 동일한 기존 실패만 구분하며 조용히 skip하지 않는다.
-- [ ] Step 5 — 22행 완료표·체크박스·상태판·한계를 실제 증거로 갱신한다. 기본 branch/HEAD와 clean 상태를 확인하고 그대로면 일반 fast-forward 병합, 변경됐으면 통합 담당자가 검토된 커밋만 조정·재검증한다. 사용자가 별도 브랜치 후 병합을 요청했으므로 추가 병합 승인 대기는 없다. reset/stash drop/다른 WIP cherry-pick/push/서버 재시작은 하지 않는다. 인계까지 브랜치/보고서를 보존한다.
-- [ ] Step 6 — 구현 결과·병합 SHA·실제 테스트 수와 한계, 운영 DB migration 미적용/HIL 미실행을 보고한다. 필요한 증거를 복구 가능하게 보존한 뒤에만 작업공간을 정리하며 현재 5173 서버에 새 schema가 적용됐다고 주장하지 않는다.
+- [x] Step 1 — 22행 소스·화면 및 실제 DB 증거를 회수했다. 기록된320/390/768/962/1017/1023/1024/1025/1440px·짧은3환경·200%·긴 이름·0/로딩/오류/미수신/장애/오프라인을 대상으로 전체 페이지 넘침·필수 조작 잘림/겹침·선택 핀/초점의 확정 결함을 보완하고 native 제스처·키보드·scroll bounds를 검수했다. 새 전체108/112 실행 또는 모든 viewport 인증은 아니다.
+- [x] Task6 M2 required final proof —390×320 실제 wheel/keyboard로 양쪽 날짜·검색·상태·50/100/500/1000·끝 행·이전/다음·닫기와44px visible hit-bounds/목록 비중첩을 확인했다. 실제 입력 증거를 사용하며 스크린샷만으로 판정하지 않았다.
+- [x] Step 2 — 담당자 RED/GREEN·독립 scoped 검토와 하나의 whole-branch 검토를 회수했다. 최종88a Spec PASS/Quality Approved/Source Ready Yes, E1/E2닫힘; E3 실제 안전 적용만 대기한다. 새로 도입된 미해결P0/P1/P2는 없으며 아래 기존 한계는 명시 유지한다.
+- [x] Step 3 — 순차 root lint/typecheck/test/build exit0·canonical8,199PASS/852skip·UI0, 이후 영향69PASS/API lint/type0·원automation1PASS·실제알람2PASS/M1완료 하위 단계/남은로그4PASS를 회수했다. 변경 없는 경계는 carry하며 새 전체6PASS로 합산하지 않는다. 실제 검증은 소유 disposable DB/Gateway 소프트웨어이고 운영 DB/실장비 테스트가 아니다.
+- [x] Step 4 — 확정 결함을 담당자의 원RED/GREEN과 scoped 재검토로 닫았다. 원 편집기8초/첫ID/픽셀/저장을 그대로 유지한 cold/warm2PASS, 제외·원 실패·기존High2 release gate와 inherited common-document 더블클릭 한계를 아래 기록한다. 검증 한도나 정책을 완화하지 않았다.
+- [ ] Step 5 — 완료표·상태판·4메뉴를 갱신했다. 기본 `codex/mvp1-cloud-web`/fc9 clean과 계보를 확인한 뒤 사용자 승인된 정확 앱 중지·fast-forward·단일 additive migration/main client·새 API 검증·Web 복귀를 수행한다. reset/stash drop/다른WIP/push/전체 supervisor·broker·장비 재시작은 하지 않는다. 실제 적용 전 완료로 표시하지 않으며 인계까지 브랜치/보고서를 보존한다.
+- [ ] Step 6 — 실제 병합 SHA·단일 테이블/client·새 API/Web 결과를 회수한 뒤 완료 보고한다. HIL·외부 배포·기존 데이터 복구·보안 release gate는 별도로 남긴다. 기존 데이터 삭제·DB 초기화·장비 변경은 수행하지 않는다.
+
+## 주석 22행 최종 구현·검증 대응표
+
+아래는 기능·소스 및 기록된 화면/실제 DB 증거의 대응표다. 모든 화면 크기·기기·실장비 또는 새 전체108/112 실행의 인증이 아니다. 기본 브랜치 병합·로컬 적용은 Step5/6의 실제 결과로 별도 기록한다.
+
+| 주석 | 구현 결과 | 검증 근거 |
+| --- | --- | --- |
+| 1 | 실제 상태 기반 범례를 이전 드래그 안내 위치로 이동 | 상태 producer/지도 회귀·독립 화면 검수 |
+| 2 | 지도 표시 대수 overlay 제거, KPI·empty state 유지 | 소스·지도 회귀·화면 검수 |
+| 3 | 가용 높이 전달·최소 지도·짧은 화면의 페이지 접근 | 실제387→587→387px 및 짧은 화면 검수 |
+| 4 | 공통 Gregorian24h `yyyy-MM-dd HH:mm:ss` 표시 | 공통/소비자 회귀·UTC/Seoul, 날짜 전용 의미 유지 |
+| 5 | 계정별 읽음 저장·실제로 본 항목만 확인 후 미읽음 집계 | 실제R1–R6/R7 UI·HTTP·SQL·두 세션 검증 |
+| 6 | 원형 조명·상태 테두리·별도 선택·48px hit 영역 | 밀집 native 포인터/Enter/Escape 검수 |
+| 7 | 알람센터 명칭·내구적 알람과 현재 화면 상태 분리 | Shell 회귀·실제R1–R7 |
+| 8 | 공통 로그·50/100/500/1000·기간·커서·보관 경계 | M1 완료 하위 단계+새C1/M2C2/M3/C3 실제PASS |
+| 9 | 모드 선택 제거·직접 단일/다중 선택·이동 제스처 | 제스처 회귀·native 입력·자동POST0 |
+| 10 | 중복 밝기 수치 입력 제거 | 단위·브라우저·원 소프트웨어 제어 |
+| 11 | 큰 직접 입력+슬라이더, 명시적 적용만 실행 | 정수 초안/무효/Enter/blur·명령 회귀 |
+| 12 | 실제 필터 결과 건수만 표시, 페이지 기능 유지 | 스케줄 단위·화면 검수 |
+| 13 | 긴 스케줄 이름 줄바꿈·좁은 화면 카드 | 긴 이름·table/card 검수 |
+| 14 | 기간 별도 컬럼/모바일 명시 영역 | 스케줄 소스·화면 검수 |
+| 15 | 독립 Gateway 동기화 컬럼 제거, 안전 상태 유지 | 82단위·실제APPLIED/ACK/hash/restart 여정 |
+| 16 | 통계 기간 줄에 선택 기간만 표시 | 통계 회귀·화면 검수 |
+| 17 | 지정 overline 제거, 계산/카드 유지 | 통계 회귀·화면 검수 |
+| 18 | 지정 배지 제거, 결측·0·추정 의미 보존 | 통계/추이 회귀·화면 검수 |
+| 19 | 분석 공통 필터·안전한 날짜 초안 | 400/401일·무효 요청0·short/native200% |
+| 20 | 보고서 공통 필터·기존 URL/CSV/PDF 계약 유지 | 긴 이름·날짜·short/native200% 회귀 |
+| 21 | PC 비모달 상세·모바일 sheet·공통 내용과 초점 | R21-only1PASS·전체 마지막 행·nonzero 스크롤 복원 |
+| 22 | 명시적으로 선택한 ID만 표시, 범위 변경 시 비움 | 선택/무효화/초점·독립 화면 검수 |
+
+### 유지하는 한계
+
+- canonical852skip과 이전 실패/제외는 통과가 아니다. HIL·실제 센서/RF·native WebView·외부 PDF 저장소·전체 서비스 성능·새 production security audit은 수행하지 않았다. 기존 High2 보안 지적은 별도 release gate다.
+- C의 권한 전환은 단일 membership을 순차 변경한 실제 재로그인 여정이며 동시 현장 선택 증거가 아니다. 늦은 응답은 실제 브라우저 aborted/disposed로 관찰됐고 handler fulfill을 실제 소비로 대체하지 않았다.
+- C3 실제400 전달·자동GET200/빈 첫 페이지는 확인했지만 안내 문구 렌더는 관측하지 못했다. M3 실제410의 안내와 최신 기록 복구는 관측했다.
+- year0/BCE formatter·compact child DOM 결합·fixture 중복 key 경고·bundle 경고·기존 skewed timestamp는 별도 한계로 유지한다. 기존 floor-reset migration checksum 차이는 고치거나 재실행하지 않는다.
+- 기존 공통도면 편집기의 더블클릭은 `use-map-editor.ts` 배열 첫 hit를 선택해 겹친 hit 영역에서 다른 조명을 선택할 수 있는 inherited P2-class 위험이다. fc9부터 동일한 경로이며 이번 Stage 단일 클릭/운영 지도 검증으로 닫히지 않는다. 별도 common-document 더블클릭/body/nearest/Shift/drag 회귀·타기팅 통합 후속을 남기며 전체 편집기 hit 정책이 해결됐다고 주장하지 않는다.
 
 ## 계획 자기 검토
 

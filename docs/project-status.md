@@ -2,7 +2,17 @@
 
 기준일: 2026-10-04
 
-## 2026-10-01 운영 화면 주석 22건·공통 UI — 통합 회귀 보완·최종 검수 진행
+## 2026-10-01 운영 화면 주석 22건·공통 UI — 검증 완료·병합/로컬 반영 대기
+
+- 제품 검증 소스 `88a20299`; 기본 개발 브랜치는 `codex/mvp1-cloud-web`/`fc9e7440`이며 아직 병합하지 않았다. 주석22행과 공통 필터·시각·로그·상세·알람 경험의 대응표는 [구현 계획](superpowers/plans/2026-10-01-operations-ui-comments.md)에 기록한다.
+- canonical `a2f61cd1` lint/typecheck/test/build exit0·8,199통과/0실패/852skip·UI정책0을 변경 없는 경계에 유지한다. 이후 실제 Prisma/PG UTC·Seoul·NY 시간대 보완은 영향69통과/0실패·API lint/type0·scoped 승인, 현재 소스의 원 소프트웨어 automation1PASS·98.087초로 확인했다. 편집기 cold/warm2와 별도 R21-only1 등 실제 화면 증거는 기록된 범위로만 인정한다.
+- 실제 DB 알람 두 사례R1–R6/R7 및 M1 완료 하위 단계를 보존하고, 남은 C1 OFF·공개 API OFF→ON/M2C2·M3·C3는 새4PASS/0FAIL/0skip·retry0·151.715초로 완료했다. 정상 자원 정리와 소스·기본 브랜치·기존 서버 불변도 확인했다. 원 실행2PASS/1FAIL/3미실행을 새6PASS로 바꾸지 않는다. C3는 실제400 전달과 자동 첫 페이지 복구만 입증했고 안내 문구는 미관측이다.
+- 사용자 승인에 따라 최종 Ready 후 개별 로컬 앱만 잠시 멈추고 fast-forward 병합→알람 확인 테이블 하나와 main Prisma client 생성→새 API 준비 확인→웹 복귀 순서로 반영한다. 기존 DB/시간대/데이터·Gateway/센서·다른 migration·원격 저장소는 변경하지 않는다. HIL·native WebView·외부 저장소·기존 High2 보안 지적은 이번 완료 범위가 아니다.
+- 최종 독립 판정은88a Spec PASS/Quality Approved/Source Ready Yes이며 E1/E2가 닫혔다. E3 실제 로컬 반영은 대기한다. 기존 공통도면 편집기 더블클릭의 배열 첫 hit 선택 위험은 fc9부터 동일하고 이번 운영 지도/단일 클릭 검증 범위 밖이므로 별도 후속으로 유지한다.
+
+### 이전 진행 이력
+
+아래 미완료/차단 표현은 당시 기록이며 위 최신 검증 결과와 별도로 보존한다.
 
 - 최신 통합 관문: 격리 소스`a3216572`/기본`fc9e7440`은 clean이고 아직 병합하지 않았다. canonical 제품`a2f61cd1`의 lint/typecheck/test/build는 exit0·8,199통과/0실패/852skip·UI정책0이며 이후 제품 변경 없이 테스트/Lab 환경 보완만 했다. 현재 cold/warm 편집기2건·원 automation 실제 소프트웨어1건·native 숨김/복귀·별도 최종 R21 스크롤이 통과했다. 원 실패와 제외 수치는 보존한다. UTC 임시 DB 알람 R1–R6 한 사례 통과 뒤 R7 admin gate의 테스트 문구 불일치를 보완 중이며 실제 로그/기간/커서와 최종 Ready는 남아 있다. 실제 로컬 동일 Prisma 연결은Asia/Seoul이라 기존 incident raw SQL의 시간대 의존성을 별도 적용 차단으로 확인했다. DB 설정/데이터를 바꾸지 않고 작은 SQL 경계와 실제 다중 시간대 회귀를 기존 담당자에게 배정한다. 사용자는 단일 알람 읽음 테이블 추가와 Web/API 잠시 중지·재개를 승인했으며, 호환성/남은 Lab/최종 검토 후 기본 개발 브랜치에 안전하게 반영한다. 기존 migration checksum 불일치는 reset/재실행하지 않는다.
 
