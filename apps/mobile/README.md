@@ -122,7 +122,8 @@ Preview/production을 빌드할 때 `.env`의 개발 HTTP를 그대로 사용하
 - native가 safe-area를 소유하고 Android resize/iOS keyboard avoidance를 제공한다. 웹의 font scaling/pinch를 강제로 비활성화하지 않는다.
 - 설정된 origin만 WebView에서 실행한다. 모든 URL을 앱 policy로 검사한 뒤 허용된 외부 HTTPS/tel/mailto는 사용자 확인 후 OS로 보낸다. 임의 scheme, file, data, javascript, 외부 HTTP는 차단한다.
 - Android Back은 ready 문서의 overlay/초안/라우터 처리를 기다리고 명시적인 최상위 응답에서만 앱을 종료한다. 응답 누락/지연은 native history 이동으로 우회하지 않는다.
-- 초기 정적 스크립트는 모바일·safe-area 표시만 주입한다. 문서 ID와 유효한 환경은 현재 문서의 `onLoadEnd`에서 전달하고 웹은 그 환경까지 첫 mount를 기다린다. 새 페이지를 열 때 이전 환경을 초기 주입으로 재사용하지 않는다. Android의 로드 완료 상태 SPA history 알림은 동일 문서의 ID와 ready 상태를 유지한다.
+- 초기 정적 스크립트는 모바일·safe-area 표시와 iOS main frame의 포커스 보정 리스너를 설치한다. 문서 ID와 유효한 환경은 현재 문서의 `onLoadEnd`에서 전달하고 웹은 그 환경까지 첫 mount를 기다린다. 반복 bootstrap은 기존 포커스·제스처 상태를 유지하며, 새 페이지를 열 때 이전 환경을 초기 주입으로 재사용하지 않는다. Android의 로드 완료 상태 SPA history 알림은 동일 문서의 ID와 ready 상태를 유지한다.
+- iOS는 키보드 표시, 열린 키보드에서 새 입력 포커스, 뒤늦은 viewport 크기 변경 후 두 animation frame을 기다린 다음 현재 origin·문서·포커스를 재확인한다. 가려진 입력과 focus ring에만 현재 포커스/키보드 열림 시도당 중앙 스크롤을 한 번 적용하고, 이미 충분히 보이거나 보정한 입력은 이동하지 않는다. 사용자 touchmove/wheel/pointerdown, 키보드 숨김, 앱 비활성화, 오류·문서 교체·화면 해제는 대기 보정을 취소한다. 입력 값·selection을 읽거나 포커스·CSS·native inset을 바꾸지 않는다.
 - 파싱 실패한 메시지는 raw 문자·UTF-8 크기를 먼저 제한하고 독립적인 envelope의 문서·요청 ID가 현재 파일 소유자와 일치할 때만 실패 처리한다. 오래된 문서/다른 요청/깨진 JSON/과대 메시지는 현재 전송을 취소할 수 없다.
 - 새 문서/retry/renderer 종료는 이전 documentId와 callback·부분 파일을 폐기한다. 공유 sheet가 열려 있으면 OS 반환까지 파일 소유권을 유지하고 이전 문서에 늦은 결과를 전달하지 않는다.
 - native 메시지 주입은 origin과 현재 웹 문서 ID를 함께 확인한다. 이전 문서에서 대기하던 메시지가 새 문서의 bootstrap 전이나 다른 ID로 도착하면 dispatch하지 않는다.
@@ -131,6 +132,8 @@ Preview/production을 빌드할 때 `.env`의 개발 HTTP를 그대로 사용하
 ## 기기 인수 절차와 검증 한계
 
 자동 테스트의 RN/WebView/네트워크/파일 sink는 mock 또는 메모리 구현이다. JS export와 prebuild 성공은 APK/iOS build·설치·실제 WKWebView/Android WebView 동작을 증명하지 않는다.
+
+iOS는 이 Mac의 iOS26.5 Simulator에서 unsigned Debug 앱 빌드·설치와 실제 서비스 공개 로그인 화면, synthetic 브리지·CSV 흐름을 확인했다. 늦은 viewport 축소의 자동 회귀와 observer 없는 실제 로그인 화면의 ID 최초 포커스 cold start 2회, Next, 별도 cold start의 비밀번호 최초 포커스·재포커스, 사용자 스크롤 유지와 Done 복원을 확인했다. 인증된 메뉴·PDF·구형 iOS·실제 iPhone·조명 연동은 미검증이다.
 
 Android 키보드는 `KeyboardAvoidingView`의 실제 frame/IME 겹침 계산과 manifest `adjustResize`를 함께 사용한다. Android 10(API29) 이하에서는 `adjustResize`일 때 React Native 키보드 이벤트가 발생하지 않을 수 있어 OS의 resize 경로에 의존한다. 현재 Android36 emulator에서 확인한 결과를 구버전 전체·제조사별 키보드·iOS 실행 검증으로 확대하지 않는다. 키보드 숨김 후 viewport 복원과 OS가 이미 resize하는 환경에서 중복 축소 여부도 인수 기준이다.
 

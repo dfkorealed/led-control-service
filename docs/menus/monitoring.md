@@ -186,6 +186,8 @@
 
 ## 구현 완료
 
+- 2026-10-04: 공통 iOS WebView 셸이 가려진 텍스트 입력의 포커스 테두리까지 확인하여 현재 포커스/키보드 열림 시도당 중앙으로 한 번 스크롤한다. 뒤늦은 viewport 크기 변경도 아직 보정하지 않은 입력만 다시 확인하며, 이미 충분히 보이거나 보정한 입력은 이동하지 않는다. 사용자 스크롤 제스처, 키보드 숨김, 앱 비활성화, 오류와 문서 교체 시 대기 중인 보정을 취소한다. Android와 메뉴 업무 로직은 변경하지 않는다.
+
 - 2026-09-29 탐색 개선 구현: 선택 층 KPI는 접근 가능한 상태 필터 버튼으로 연결하고 현장 KPI는 읽기 전용 집계를 유지한다. 목록 필터와 지도 강조는 서버 DTO 상태 기준이며 배치 위치는 설정 snapshot을 우선한다. 추가 페이지 실패 시 자동 재요청을 멈추고 부분 조회 안내·수동 재시도를 제공한다. 모든 페이지 조회가 끝난 뒤 등록 수와 집계가 다르면 확인 시점 차이를 안내하며 검색 결과 수나 부분 페이지 수로 KPI를 덮어쓰지 않는다.
 - 조명 핀/상세는 상태·확인된 밝기·마지막 확인 시각·권장 조치·배치 여부만 제공한다. 기술 정보와 상태 확인 결과 별도 UI는 제공하지 않으며 기존 수동 장치 확인·실패 안내는 유지한다. 미조회 핀은 확인 전으로 표시한다.
 - 전체 보기는 아이콘 전용이며 공통 지도 인스턴스를 유지한다. 닫기 시 지도 높이를 바꾸지 않고 연결된 마커에 preventScroll 초점을 복귀한다. 사용자·현장·층·맵 generation/크기별 카메라 기억은 30일·사용자당50개·300ms 지연 저장이며 저장소 실패 시 현재 세션 메모리만 사용한다. 브라우저 통합 검증은 진행 중이며 실장비 검증을 뜻하지 않는다.
@@ -364,6 +366,8 @@
 
 ## 부족하거나 개선이 필요한 기능
 
+- 2026-10-04 iOS 검증 경계: 공개 로그인 화면과 synthetic WebView 브리지·CSV 동작만 검증했다. 포커스 보정의 정식 셸 연결과 늦은 viewport 축소는 자동 회귀를 통과했다. 이 Mac의 iOS26.5 Simulator에서 observer 없이 실제 로그인 화면의 ID 최초 포커스 cold start 2회, Next, 별도 cold start의 비밀번호 최초 포커스·재포커스, 사용자 스크롤 유지와 Done 복원을 확인했다. 인증된 해당 메뉴, PDF, 구형 iOS와 실장비 조명 연동은 미검증이다.
+
 - 실제 Dashboard API 응답과 계약 테스트에는 현장 `offlineFixtures`, 층별 `summary`, `mapRevision`, `mapConfigured`가 필수다. 다만 Web의 `Dashboard` TypeScript 타입은 제어·셸·설치 화면 등의 기존 typed 테스트 fixture가 이 필드를 아직 빠뜨려 일시적으로 optional이다. 런타임 응답에서 층별 집계나 현장 오프라인 집계가 누락되면 모니터링은 `0`을 만들지 않고 `집계 준비 중`으로 표시한다. 해당 fixture를 전수 이관한 뒤 Web 타입도 required로 승격해야 한다.
 - Final Atlas 모니터링 웹은 shared response schema, API cursor/`retainedFrom`, 조회 오류와 `410`을 소비한다. 모니터링·공통 지도·App/셸 focused Vitest 232개와 Chromium route fixture 42개(1440·1378·1024·390·320px 포함)는 통과했지만, 브라우저 fixture 기록을 실제 현장에 이미 보존된 활동이라고 해석하지 않는다. 고객 DB에 신규 migration을 적용한 뒤 생산자·3개월 물리 삭제 sweep·권한·현장 시간대 표시를 운영 환경에서 통합 점검해야 한다. 과거 3개월 기록의 소급 backfill은 제공하지 않는다.
 - 수동 장치 확인의 물리 BIO USB 동글·조명 2대 연결 증거가 없어 이번 작업의 HIL은 미수행이다. 후속 현장 절차는 두 대 online → 한 대 실제 전원 차단 → 새로고침 → `정상 1 / 오프라인 1` → 전원 복구 → 새로고침 → `정상 2 / 오프라인 0`이며 Gateway 버전/API revision·가린 장비 identity·시각·결과를 기록해야 한다. 자동 unit/Chromium route fixture와 lab 발행 terminal은 실제 two-pass RF/USB 검증을 증명하지 않는다.
@@ -403,6 +407,8 @@
 - scan lifecycle 자동 테스트는 mock MQTT와 scanner adapter를 사용한다. 실제 host Mosquitto mTLS negative ACL integration에서 Gateway CN certificate의 `acks/state-ingested`, `acks/provisioning/scan-terminal-ingested` publish 거부를 확인했다. 2026-09-18 Task 7에서는 Docker broker persistence 재시작과 운영·개발 ACL 검증 3/3을 통과해 과거 Docker daemon 부재로 인한 skip 상태를 갱신했다. 이는 소프트웨어 broker 검증이며 실제 Raspberry Pi BlueZ adapter의 scan timeout, broker/Pi/API 재시작을 가로지르는 terminal application ACK 재전달, ESP32-H2 자사 UUID 필터와 terminal event 전달은 HIL에서 별도로 확인해야 한다.
 
 ## 관련 파일
+
+- `apps/mobile/src/ios-focus-visibility.ts`, `apps/mobile/src/ios-focus-visibility.test.ts`, `apps/mobile/src/WebShell.tsx`, `apps/mobile/src/WebShell.ios-focus.test.tsx`, `apps/mobile/README.md`: 공통 iOS 입력 가시성 보정과 회귀·실행 안내.
 
 - `apps/web/src/features/floor-map/{map-camera,fixture-map-position}.ts`
 - `apps/web/src/features/monitoring/{FixtureDetailPanel,FixtureStatusBadge}.tsx`

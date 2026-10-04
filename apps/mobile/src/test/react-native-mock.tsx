@@ -16,3 +16,12 @@ export const BackHandler = { addEventListener: jest.fn((_event: string, listener
 export const StyleSheet = { create<T>(styles: T) { return styles; }, absoluteFill: { position: 'absolute', inset: 0 } };
 const listeners = new Set<(state: string) => void>();
 export const AppState = { currentState: 'active', addEventListener(_event: string, listener: (state: string) => void) { listeners.add(listener); return { remove: () => listeners.delete(listener) }; }, emit(state: string) { this.currentState = state; listeners.forEach(l => l(state)); }, setCurrentState(state: string) { this.currentState = state; } };
+const keyboardListeners = new Map<string, Set<() => void>>();
+export const Keyboard = {
+  addListener: jest.fn((event: string, listener: () => void) => {
+    const listeners = keyboardListeners.get(event) ?? new Set<() => void>();
+    keyboardListeners.set(event, listeners); listeners.add(listener);
+    return { remove: () => listeners.delete(listener) };
+  }),
+  emit(event: string) { keyboardListeners.get(event)?.forEach(listener => listener()); },
+};

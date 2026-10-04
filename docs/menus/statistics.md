@@ -4,6 +4,8 @@
 
 ## 구현 완료
 
+- 2026-10-04: 공통 iOS WebView 셸이 가려진 텍스트 입력의 포커스 테두리까지 확인하여 현재 포커스/키보드 열림 시도당 중앙으로 한 번 스크롤한다. 뒤늦은 viewport 크기 변경도 아직 보정하지 않은 입력만 다시 확인하며, 이미 충분히 보이거나 보정한 입력은 이동하지 않는다. 사용자 스크롤 제스처, 키보드 숨김, 앱 비활성화, 오류와 문서 교체 시 대기 중인 보정을 취소한다. Android와 메뉴 업무 로직은 변경하지 않는다.
+
 - 모바일앱 파일 전달 소비부를 공통 `downloadMobileAwareUrl`(PDF)·`downloadMobileAwareFile`(CSV)에 연결했다. PDF는 클릭마다 새 서명 주소를 요청하고 브라우저에서는 anchor 다운로드를 유지한다. CSV는 기존 인증으로 웹에서 읽고 앱에는 바이트만 전달한다. native CSV는 MIME·빈 파일·선언/실제 20MiB 상한을 검사하고 크기 헤더가 없어도 스트리밍 중 초과를 차단한다. 30초 수신 정체·명시 취소·현장/페이지 전환에서 요청을 중단하며 인증된 CSV fetch의 외부 redirect도 거부한다.
 - PDF 준비 중 표·모바일 카드의 중복 클릭을 함께 막고, CSV 요청도 동기 잠금으로 중복을 차단한다. 명시 취소는 기간·대상·이력 필터를 보존해 재시도할 수 있게 하고 이전 현장의 늦은 오류/파일 결과는 새 화면에 표시하지 않는다. 공유창 정상 반환은 `공유창을 닫았습니다.`로만 안내하며 실제 저장 완료나 OS 취소라고 추측하지 않는다. 보고서 대화상자는 내부 입력만 스크롤하고 제목·취소/요청 버튼·오류/취소 안내를 고정해 320px의 하단 잘림을 보완했다.
 - 서명 PDF 조회는 공통 helper의 웹 전용 `FILE_FETCH_FAILED`·`fetchFailure`를 소비한다. HTTP 403/410은 접근 거부·주소 만료와 다운로드 재요청, 404는 파일 없음·만료와 재생성, 5xx는 파일 서버 실패로 안내하고 네트워크/CORS/redirect 접근 실패는 원인을 단정하지 않고 함께 확인하도록 안내한다. native 쓰기/공유 오류와 구분하며 URL·서명·원시 body·OS 경로를 노출하지 않는다. shared native 9개 오류 코드는 바꾸지 않았다.
@@ -135,6 +137,8 @@
 
 ## 부족하거나 개선이 필요한 기능
 
+- 2026-10-04 iOS 검증 경계: 공개 로그인 화면과 synthetic WebView 브리지·CSV 동작만 검증했다. 포커스 보정의 정식 셸 연결과 늦은 viewport 축소는 자동 회귀를 통과했다. 이 Mac의 iOS26.5 Simulator에서 observer 없이 실제 로그인 화면의 ID 최초 포커스 cold start 2회, Next, 별도 cold start의 비밀번호 최초 포커스·재포커스, 사용자 스크롤 유지와 Done 복원을 확인했다. 인증된 해당 메뉴, PDF, 구형 iOS와 실장비 조명 연동은 미검증이다.
+
 - 2026-10-04 공통 URL helper의 HTTP 원인 유실은 `FILE_FETCH_FAILED` 소비자 연결과 서명 403 회귀 통과로 해소했다. native20MiB·64KiB chunk/ack 및 PDF fetch는 공통 helper·shared 계약이 소유하며 통계 코드에서 복제하지 않는다. 실제 Object Storage CORS와 Android/iOS OS 공유·저장, 인증된 실기기 여정은 미검증이다. 네트워크와 CORS는 Web fetch 오류만으로 단정하지 않고 함께 접근 실패로 안내하며 브라우저로 몰래 우회하지 않는다. 전체 root/Web build·통합 회귀와 독립 시각 검토는 총괄 검증에 남긴다.
 
 - PDF 전용 요청·저장소 업로드·구 이력 URL 정규화·Web 생성/재생성/다운로드와 별도 CSV 내보내기는 코드에 반영됐다. 62일 완전 fixture의 PDF 출력과 API 전체 runnable Jest/typecheck/build를 검증했다. opt-in 57 suites·655 tests와 운영 DB·운영 Object Storage 적용, 실장비·실계량기 검증은 수행하지 않았다. 기존 XLSX/PDF 동등성 테스트 결과를 새 PDF 검증으로 간주하지 않는다.
@@ -179,6 +183,8 @@
 - 실제 전력계 측정값이 아니라 BLE Mesh 상태 수신 이력과 정격 전력을 이용한 추정치다. 180초를 넘는 통신 공백은 사용량을 추정하지 않고 `partial`로 노출한다.
 
 ## 관련 파일
+
+- `apps/mobile/src/ios-focus-visibility.ts`, `apps/mobile/src/ios-focus-visibility.test.ts`, `apps/mobile/src/WebShell.tsx`, `apps/mobile/src/WebShell.ios-focus.test.tsx`, `apps/mobile/README.md`: 공통 iOS 입력 가시성 보정과 회귀·실행 안내.
 
 - `apps/api/src/retention/gateway-event-watermark.ts`, `apps/api/src/retention/gateway-event-watermark.integration.spec.ts`
 - `apps/api/src/retention/data-retention.service.ts`, `apps/api/src/retention/data-retention.integration.spec.ts`, `apps/api/src/retention/retention.module.ts`

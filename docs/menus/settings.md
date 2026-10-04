@@ -185,6 +185,8 @@
 
 ## 구현 완료
 
+- 2026-10-04: 공통 iOS WebView 셸이 가려진 텍스트 입력의 포커스 테두리까지 확인하여 현재 포커스/키보드 열림 시도당 중앙으로 한 번 스크롤한다. 뒤늦은 viewport 크기 변경도 아직 보정하지 않은 입력만 다시 확인하며, 이미 충분히 보이거나 보정한 입력은 이동하지 않는다. 사용자 스크롤 제스처, 키보드 숨김, 앱 비활성화, 오류와 문서 교체 시 대기 중인 보정을 취소한다. Android와 메뉴 업무 로직은 변경하지 않는다.
+
 - 2026-09-29 로그인·계정 보안 경계는 단말 또는 Mac의 IP가 바뀌어도 exact IP/User-Agent 동일성을 요구하지 않는다. 비밀번호 단계와 MFA 완료 단계가 다른 네트워크여도 사용자 row version, 만료, 일회성 Redis challenge, TOTP replay·recovery code 규칙을 통과하면 완료 시점 IP/User-Agent로 session·rate limit·감사를 생성한다. nginx를 통한 browser IP는 기존 `LANDING_INGRESS_SECRET`과 `X-Web-Ingress-Secret`·`X-Web-Client-IP`가 함께 유효할 때만 신뢰하고, 전역 proxy trust와 장비 9443 header trust는 허용하지 않는다. 로컬 API/Web 전용 `DEV_LOCAL_APP_ONLY=1`은 내부 loopback 연결에서도 기존 Lab DNS로 TLS를 검증하며 Gateway/HIL 완료를 의미하지 않는다.
 
 - 2026-09-25 설정·초기 설치 UI 단위: 관리자 입력 2열/모바일 1열, viewer 대기 단계, 개요 설치 CTA, 층·구역 병렬 관리, 맵 목록의 실제 층 요약/빈 상태, 등록 제목 단일 표시 회귀, 유저 행 44px 관리 대상. 실장비 및 모바일 WebView 검증은 완료 범위에 포함하지 않는다.
@@ -563,6 +565,8 @@ DB 모델이 실제 변경되는 작업에서는 `docs/database-schema.md`를 �
 
 ## 부족하거나 개선이 필요한 기능
 
+- 2026-10-04 iOS 검증 경계: 공개 로그인 화면과 synthetic WebView 브리지·CSV 동작만 검증했다. 포커스 보정의 정식 셸 연결과 늦은 viewport 축소는 자동 회귀를 통과했다. 이 Mac의 iOS26.5 Simulator에서 observer 없이 실제 로그인 화면의 ID 최초 포커스 cold start 2회, Next, 별도 cold start의 비밀번호 최초 포커스·재포커스, 사용자 스크롤 유지와 Done 복원을 확인했다. 인증된 해당 메뉴, PDF, 구형 iOS와 실장비 조명 연동은 미검증이다.
+
 - IP 비종속 인증의 단위·통합·브라우저·운영 Compose 계약은 자동 검증했지만 실제 공인 DNS/TLS 전환, CDN/LB가 추가된 topology, 고객망 간 접속, Raspberry Pi/Gateway와 ESP32-H2 HIL은 아직 검증하지 않았다. 양산 전에는 canonical Host 정상 로그인, 잘못된 Host 로그인 POST의 redirect 없는 421, secret 동시 교체, DNS rollback과 장비 bootstrap을 staging에서 확인해야 한다.
 
 - dashboard의 표시 전용 `mapConfigured`는 현재 MapDocument revision snapshot의 경량 `elementCount > 0` 또는 기존 floor plan/CAD/맵 객체로 판정하며, generation의 기준 수나 `snapshotSha256` 검증 결과가 아니다. 편집기의 `currentRef`는 별도로 snapshot hash를 검증한다. 모든 요소가 숨김인 경우에도 설정 완료로 보일 수 있으므로 표시 가능한 요소 수를 별도로 확정하는 계약이 필요하다. 층의 `summary.totalFixtures`는 등록 조명 수이며 실제 맵에 배치된 핀 수가 아니다.
@@ -614,6 +618,8 @@ DB 모델이 실제 변경되는 작업에서는 `docs/database-schema.md`를 �
   - https://www.lutron.com/us/en/controls/systems/vive
 
 ## 관련 파일
+
+- `apps/mobile/src/ios-focus-visibility.ts`, `apps/mobile/src/ios-focus-visibility.test.ts`, `apps/mobile/src/WebShell.tsx`, `apps/mobile/src/WebShell.ios-focus.test.tsx`, `apps/mobile/README.md`: 공통 iOS 입력 가시성 보정과 회귀·실행 안내.
 
 - `apps/web/src/features/setup/SetupWizard.tsx`, `apps/web/src/features/settings/SettingsView.tsx`, `apps/web/src/features/settings/site/SiteOperationsView.tsx`, `apps/web/src/features/settings/floor-plans/FloorPlanSettingsView.tsx`, `apps/web/src/features/settings/users/SiteUsersView.tsx`
 
