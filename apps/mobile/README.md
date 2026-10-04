@@ -1,6 +1,6 @@
 # Android·iOS LED 관제 앱
 
-기존 관제 웹을 Expo SDK 57 / React Native 0.86.3 / React 19.2.3 WebView에서 실행한다. Android 7(API24) 이상, iOS16.4 이상이며 앱 ID `com.ledcontrol.mobile`은 개발용 기본값이다. 회사의 등록된 상용 ID로 확인된 값이 아니다.
+기존 관제 웹을 Expo SDK 57 / React Native 0.86.3 / React 19.2.3 WebView에서 실행한다. Android 7(API24) 이상, iOS16.4 이상이며 앱 ID는 production에서 `com.ledcontrol.mobile`, development에서 `com.ledcontrol.mobile.development`를 사용한다. 두 ID는 회사의 등록된 상용 ID로 확인된 값이 아니다.
 
 ## 개발 실행
 
@@ -38,6 +38,62 @@ pnpm --filter @led-control/mobile run prebuild
 ```
 
 `prebuild`는 CNG로 `apps/mobile/android`, `apps/mobile/ios`를 재생성하며 이 폴더는 Git에서 제외한다. 앱 설정/플러그인/lockfile이 정본이다. native 수동 변경은 재생성에서 유실될 수 있어 source config/plugin으로 옮겨야 한다. `--no-install`로 CocoaPods 실행 없이 생성만 검증한다. OS 실행 명령은 해당 native toolchain과 의존성 설치를 추가로 요구한다.
+
+## iOS 로컬 서비스 연결
+
+Expo SDK 57은 full Xcode 26.4 이상과 iOS 16.4 이상을 요구한다([Expo SDK 기준](https://docs.expo.dev/versions/v57.0.0/)). Command Line Tools만으로는 iOS 앱을 빌드하거나 Simulator에서 실행할 수 없다. Xcode의 iOS Simulator runtime과 CocoaPods를 먼저 준비한다. CocoaPods는 시스템 Ruby 대신 별도로 설치한 최신 Ruby 사용을 권장한다([설치 안내](https://guides.cocoapods.org/using/getting-started.html)).
+
+각 iOS 실행 터미널에서 `DEVELOPER_DIR`를 설치된 full Xcode 경로로 지정하고 버전을 확인한다. 아래는 `/Applications`에 설치한 경우의 예시이며, 사용자 폴더 등 다른 위치에 설치했다면 실제 경로로 바꾼다. 이 설정은 현재 터미널과 그 자식 프로세스에만 적용한다.
+
+```sh
+export DEVELOPER_DIR="/Applications/Xcode.app/Contents/Developer"
+xcodebuild -version
+```
+
+Mac에서 서비스가 실행 중이면 iOS Simulator는 `http://127.0.0.1:5173`로 접근할 수 있다. 아래 개발 연결값은 명령 범위에만 적용하며 앱의 기본 URL을 만들지 않는다. 웹 GET 200과 `/api/auth/me`의 미인증 401을 먼저 확인한다. 기존 서버가 실행 중이라면 재시작할 필요가 없다.
+
+```sh
+curl --fail --silent --output /dev/null --write-out '%{http_code}\n' http://127.0.0.1:5173/login
+curl --silent --output /dev/null --write-out '%{http_code}\n' http://127.0.0.1:5173/api/auth/me
+
+# 저장소 루트; Node 22와 준비한 CocoaPods가 PATH에 있어야 한다.
+(
+  set -e
+  export APP_VARIANT=development
+  export EXPO_PUBLIC_WEB_URL=http://127.0.0.1:5173
+  export EXPO_NO_TYPESCRIPT_SETUP=1
+  pnpm --filter @led-control/mobile exec expo prebuild --platform ios --clean --no-install
+  # Podfile의 Node 의존성 조회가 앱 경로에서 이루어지도록 cwd를 맞춘다.
+  cd apps/mobile/ios
+  pod install
+)
+```
+
+`--platform ios --clean`은 생성된 iOS 폴더만 재생성한다. 기존 Android 생성물은 유지한다. 개발 variant를 바꿀 때 재생성이 필요하다. `Debug` 빌드 설정만 바꾸면 이전 production native 설정이 그대로 남을 수 있다. 개발 생성물은 bundle ID `com.ledcontrol.mobile.development`와 개발 HTTP 허용 설정을 사용한다.
+
+생성된 workspace의 scheme이 `LED`인지 확인한 뒤 서명 계정 없이 Simulator용 Debug 앱을 빌드할 수 있다. 결과 `.app`은 `.local/ios-finalization/DerivedData/Build/Products/Debug-iphonesimulator/LED.app`에 생성되며, Debug 앱은 실행 중인 Metro가 필요하다.
+
+```sh
+xcodebuild -list -workspace apps/mobile/ios/LED.xcworkspace
+APP_VARIANT=development EXPO_PUBLIC_WEB_URL=http://127.0.0.1:5173 EXPO_NO_TYPESCRIPT_SETUP=1 \
+  xcodebuild -workspace apps/mobile/ios/LED.xcworkspace -scheme LED \
+  -configuration Debug -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' \
+  -derivedDataPath .local/ios-finalization/DerivedData CODE_SIGNING_ALLOWED=NO
+```
+
+아래 첫 명령은 Metro를 유지하고, 다른 터미널에서 두 번째 명령으로 Simulator에 설치·실행한다. CLI가 같은 프로젝트의 기존 Metro를 재사용하도록 양쪽 명령의 `--port`를 일치시킨다. 이때 `--no-bundler`와 `--port`를 함께 지정하면 CLI가 거부한다. 기존 프로세스와 충돌하면 비어 있는 Metro 포트를 선택한다.
+
+```sh
+APP_VARIANT=development EXPO_PUBLIC_WEB_URL=http://127.0.0.1:5173 EXPO_NO_TYPESCRIPT_SETUP=1 \
+  pnpm --filter @led-control/mobile exec expo start --dev-client --localhost --port 8081
+# 다른 터미널; 기기 선택 화면에서 iOS Simulator를 선택한다.
+APP_VARIANT=development EXPO_PUBLIC_WEB_URL=http://127.0.0.1:5173 EXPO_NO_TYPESCRIPT_SETUP=1 \
+  pnpm --filter @led-control/mobile exec expo run:ios --configuration Debug --device --no-install --port 8081
+```
+
+앱에서 실제 서비스 로그인 화면, 키보드 열기·닫기, 수동 재시도와 앱 복귀를 확인한다. 로그인 화면의 연결 확인은 인증된 계정·조명 제어 검증을 대신하지 않는다. 실제 iPhone의 `127.0.0.1`은 폰 자체이므로 Mac의 주소를 대신하지 않는다. 실제 기기는 신뢰된 개발 HTTPS 주소와 기기 서명이 별도로 필요하다.
+
+Preview/production은 실제 공개 HTTPS 서비스 주소를 명시하고 `APP_VARIANT=production`으로 iOS를 다시 생성한다. 이때 bundle ID는 `com.ledcontrol.mobile`, HTTP 허용은 꺼진다. JS의 private HTTP 허용도 `__DEV__`에 한정되므로 development variant의 Release 앱에 HTTP 주소를 넣어 연결할 수 없다. 운영 URL·회사 signing identity·스토어 제출은 별도 입력과 검증이 필요하다.
 
 ## 로컬 build
 
