@@ -10,6 +10,14 @@
 
 **Spec:** `docs/superpowers/specs/2026-10-01-operations-ui-comments-design.md` 전체. 사용자 ‘계획 작성하고 바로 진행’ 지시로 추가 계획 승인 대기는 생략한다.
 
+## 최신 Task 9 checkpoint — 2026-10-04
+
+- 기본 main `fc9e7440`의 기존 모바일 작업을 `eb530b16`으로 통합하고, 실제 PC 상세 본문35px 압축을 소비자 높이 두 class만 보완한 `a90f1e84`로 수정했다. 직접 native 입력·본문349px/마지막 전체 행70px·현재 스크롤 범위·카메라/초점·명령POST0 증거를 회수했다. 원 실패와 17px 페이지 노출 설정 실패는 보존한다.
+- scoped 검토는 Critical/Important 0·Approved다. 제거된 프리셋을 설명하던 Minor 문서1건은 `e0ea5122` 한 문장으로 정정했다. 기존 편집기8건 통과는 과거 증거이며 새 모바일 편집기 변경이 있으므로 영향8건을 새 소스에서 확인한다.
+- 격리 Node22/pnpm9.15 frozen install 한 번만 실행해 Expo/shared/TS 의존성을 준비했다. 소스·기본 HEAD/PID는 불변이며 Prisma 자동 생성은 차단했다. install은 테스트·DB 적용 완료가 아니다.
+- 남은 실행 순서: 실제 native 숨김/포커스 작은 검증 → 독립 관련6·최소 receipt harness 연결 → 동결된 전체 lint/type/test/build/UI0·원 편집기8·원 automation/읽음/로그 임시DB → ONE 최신 main→최종 전체검토 → 안전한 기본 브랜치 병합. 현재 서버의 알람 테이블 추가·서버 적용은 별도 사용자 응답 대기이며 코드 병합 권한과 혼동하지 않는다.
+- Task9 체크박스는 최종 실제 증거가 돌아오기 전 완료로 바꾸지 않는다. root 문서 patch 문맥 불일치2회는 수정 없이 종료한 조율 오류이며 제품 RED/GREEN 증거가 아니다.
+
 ## Global Constraints
 
 - 기준 `36a99b2910a03ca9a3b55237a7b24d85a247b7cf`, branch `codex/operations-ui-comments-20261001`, worktree `/Users/kim-jh/Documents/led-control-service/.worktrees/operations-ui-comments-20261001`만 사용한다.
@@ -44,7 +52,7 @@
 | 6 | 제어 UI 개선 담당자(GPT-6.1 Sol/high) | 완료·독립 명세/품질 승인 | e02d00eb→4128c2de; frozen683단위/90브라우저, Spec✅/qualityApproved; M2 실제 짧은 필터 조작은 Task9 |
 | 7 | 통계 페이지 담당자 → 내부 이어쓰기 | 완료·독립 명세/품질 승인 | e042ef46→ebeebdea;135단위/47브라우저·실제200%·UI0, Spec✅/qualityApproved; 전체검수 별도 |
 | 8 | 같은 설정 담당·5개 시각 batch | 완료·독립 명세/품질 승인 | d014261e→5e39a29e;155단위/Seoul15/브라우저11+1·UI0, 보조 편집기3실패는 결합 Task9에서 확인 |
-| 9 | 디자이너·독립 QA·총괄 | 실제 화면 검수 Needs fixes·담당자 순차 보완 | 원108 중 중복 제거88통과/20미통과·확정P1 2/P2 3; 지도 오선택·제어 높이→통계 날짜/긴 이름→로그 inset 순차 보완; 관련 재검수·최종 root/DB/검토/병합 대기 |
+| 9 | 별도 UI/UX 검수자·같은 독립 QA·총괄 | 통합·보완 scoped 승인; 최종 결합 검증 진행 | 기존 모바일 main fc9를 eb530으로 보존 통합; a90 상세 높이 보완 승인·e0ea 문서 정정; 독립 관련6·새 root/실제 Lab/전체검토·기본 병합 대기 |
 
 API와 공통 파일을 동시에 쓰지 않는다. Task 5는 `FloorScene`/`FloorMapViewport` 작성권을 받고, 반환·검토 후 Task 6에 넘긴다. Task 8의 설정/운영도 순차 배정한다. 소비자가 공통 계약 변경을 원하면 총괄에게 반환하고 producer가 수정·재검토한다. 개별 작업은 지정 파일과 보고서만 작성하며 다른 세션/서브에이전트를 임의 생성하지 않는다.
 
