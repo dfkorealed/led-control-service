@@ -2,6 +2,14 @@
 
 기준일: 2026-10-04
 
+## 2026-10-04 iOS 최종 연결 — 별도 브랜치 진행 중
+
+- [x] 사용자 iOS까지 최종 연결·별도 브랜치 지시로 `fc9e7440` 기준 `codex/ios-service-connection-20261004`를 기존 격리 모바일 checkout에 준비했다. 기본 `codex/mvp1-cloud-web`는 그대로 유지한다.
+- [x] [실행 체크리스트](superpowers/plans/2026-10-04-ios-service-connection.md)에 전체 Xcode·Simulator, URL 연결·Pods/native build, 실제 설치/UX와 독립 검토 관문을 기록하고 담당별로 배정했다.
+- [x] 사용자 최종 대상은 이 Mac의 iOS 시뮬레이터다. 개발 iOS 설정 생성·CocoaPods1.17.0/98Pods 설치·로컬 웹GET200/auth401·mobile51/51/typecheck·iOS Hermes export를 확인했다. README의 variant/Pods cwd/DEVELOPER_DIR/unsigned simulator 실행 절차를 보완했다. 제품 source/Android 생성물은 유지한다.
+- [x] 독립 WebKit portable15/15(unsupported CDP전용3개 별도), 제품699파일hash불변·소유QA프로세스정리를 확인했다. 준비문서의 Expo상호배타옵션 Important1은 원함수RED→GREEN 보정·독립 재검토 인수로 해소됐다(준비품 Critical/Important/Minor0). 검토동일 README만 `97bcfd6e`로 별도 브랜치에 커밋했다.
+- [ ] OS 호환 stable Xcode/runtime 설치·iOS native build/설치와 실제 서비스 진입을 검증한다. App Store 최신 Xcode는 현 macOS보다 높은 버전을 요구하여 실제 설치가 차단됐다. 사용자가 Apple Developer 로그인 완료를 알렸으며 공식 호환 Xcode26.6(17F113)를 사용자 폴더에 설치하고 archive/app Apple 서명을 확인했다. SDK조회는 약관미동의로69이며 열린 Xcode창에서 사용자 직접Agree/필요한OS인증을 요청했다. Ruby/CocoaPods와 development iOS 연결 절차는 준비했다. sudo 자동 실행은 불가하며 운영 URL은 비동기 확인 중이며 local127.0.0.1:5173를 기준으로 준비한다. Xcode 준비 후 Pods의 CLT 경고 경계를 재검증한다.
+
 ## 2026-10-03 Android·iOS WebView 앱 — 구현·로컬 반영 완료
 
 - [x] 기존 UI/UX 디자이너·Shell·모니터링·제어·통계·설정 담당 채팅과 협업하여 React Native/Expo WebView 앱과 네 메뉴의 모바일 UX를 구현했다. [설계 명세](superpowers/specs/2026-10-03-mobile-app-design.md), [실행 체크리스트와 최종 증거](superpowers/plans/2026-10-03-mobile-app.md), [개발 실행 안내](../apps/mobile/README.md)를 유지한다.
