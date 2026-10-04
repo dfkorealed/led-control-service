@@ -74,6 +74,7 @@ async function camera(viewport: Locator) {
 test('monitoring detail native wheel keyboard last information and nonzero breakpoint restoration', async ({ page }, info) => {
   await page.setViewportSize({ width: 1024, height: 480 }); const state = await install(page);
   await page.goto(`/monitoring?siteId=${ids.siteId}`);
+  expect(await page.evaluate(() => fetch('/api/task9-finish-unknown').then(response => response.status))).toBe(404);
   const viewport = page.getByTestId('monitoring-map-viewport'), originalMarker = page.locator('[data-spatial-map-marker][title="Task9 조명 1"]');
   await page.getByRole('button', { name: '지도 확대', exact: true }).click();
   // Query the literal original fixture, never a first-hit replacement.
@@ -90,31 +91,56 @@ test('monitoring detail native wheel keyboard last information and nonzero break
   const observations: unknown[] = [];
   try {
     await body.scrollIntoViewIfNeeded(); await paints(page);
+    // Expose the surface's trailing chrome with one ordinary page-gutter
+    // wheel before measuring detail input. Never scroll the final row itself.
+    const gutter = await page.locator('[data-shell-content]').evaluate(node => {
+      const rect = node.getBoundingClientRect(), point = { x: rect.left + 2, y: Math.min(innerHeight / 2, rect.bottom - 2) }, target = document.elementFromPoint(point.x, point.y);
+      return { point, pageTarget: Boolean(target && node.contains(target) && !target.closest('[data-monitoring-layout],button,nav,header')), target: target?.outerHTML.slice(0, 160), before: scrollY };
+    });
+    expect(gutter.pageTarget).toBe(true);
+    await page.mouse.move(gutter.point.x, gutter.point.y); await page.mouse.wheel(0, 80);
+    await expect.poll(() => page.evaluate(() => scrollY)).toBe(await page.evaluate(() => document.scrollingElement!.scrollHeight - innerHeight));
+    observations.push({ step: 'native-page-gutter-exposure', gutter, after: await page.evaluate(() => scrollY) });
     const point = await hit(body); expect(point.reachable).toBe(true); const before = await metrics(body);
+    const wheelPageOrigin = await page.evaluate(() => ({ x: scrollX, y: scrollY }));
     await page.mouse.move(point.point.x, point.point.y); await page.mouse.wheel(0, 80);
     await expect.soft.poll(() => body.evaluate(node => node.scrollTop)).toBeGreaterThan(0);
+    expect.soft(await page.evaluate(() => ({ x: scrollX, y: scrollY }))).toEqual(wheelPageOrigin);
     observations.push({ step: 'native-wheel-before-capture', before, hit: point, after: await metrics(body), camera: await camera(viewport) });
     // Native click and keys are measured independently. No scripted focus or
     // scrollTop writes can manufacture successful browser-default movement.
     await page.mouse.click(point.point.x, point.point.y);
+    const tabSteps = await nativeTabTo(page, body);
+    await expect(body).toBeFocused();
+    await paints(page);
+    const pageOrigin = await page.evaluate(() => ({ x: scrollX, y: scrollY }));
     for (const key of ['Home', 'PageDown', 'End']) {
       const beforeKey = await metrics(body); await page.keyboard.press(key); await paints(page);
+      if (key === 'Home') await expect.poll(() => body.evaluate(node => node.scrollTop)).toBe(0);
+      if (key === 'PageDown') await expect.poll(() => body.evaluate(node => node.scrollTop)).toBeGreaterThan(0);
+      if (key === 'End') await expect.poll(() => body.evaluate(node => Math.abs(node.scrollTop + node.clientHeight - node.scrollHeight))).toBeLessThanOrEqual(1);
+      await expect(body).toBeFocused();
+      expect.soft(await page.evaluate(() => ({ x: scrollX, y: scrollY }))).toEqual(pageOrigin);
       observations.push({ step: `native-${key}`, before: beforeKey, after: await metrics(body) });
-    }
-    // Inspect the actual native Tab route separately from click focus. This
-    // does not assign tabindex, focus an element via script, or waive wheel RED.
-    for (let step = 0; step < 8; step++) {
-      await page.keyboard.press('Tab'); await paints(page);
-      observations.push({ step: `native-Tab-${step}`, after: await metrics(body) });
-      if (await body.evaluate(node => node === document.activeElement || node.contains(document.activeElement))) break;
-    }
-    for (const key of ['Home', 'PageDown', 'End']) {
-      await page.keyboard.press(key); await paints(page);
-      observations.push({ step: `native-tab-route-${key}`, after: await metrics(body) });
     }
     const last = body.getByText('배치됨', { exact: true });
     await expect.soft.poll(() => body.evaluate(node => Math.abs(node.scrollTop + node.clientHeight - node.scrollHeight))).toBeLessThanOrEqual(1);
     expect.soft((await hit(last, body)).reachable).toBe(true);
+    const readable = await body.evaluate(node => {
+      const body = node.getBoundingClientRect(), row = node.querySelector('dl')!.lastElementChild!.getBoundingClientRect();
+      const values = [...node.querySelector('dl')!.lastElementChild!.querySelectorAll('dt,dd')].map(element => ({ text: element.textContent, rect: element.getBoundingClientRect().toJSON() }));
+      return { body: body.toJSON(), row: row.toJSON(), values, page: { x: scrollX, y: scrollY } };
+    });
+    observations.push({ step: 'full-final-information-readability', tabSteps, readable });
+    // A positive viewport or hittable text sliver is insufficient. The natural
+    // map minimum must leave space for a complete semantic detail row, and End
+    // must show both its label and full value within the actual visible clip.
+    expect.soft(readable.body.height).toBeGreaterThanOrEqual(readable.row.height);
+    for (const value of readable.values) {
+      expect.soft(value.rect.top).toBeGreaterThanOrEqual(Math.max(0, readable.body.top));
+      expect.soft(value.rect.bottom).toBeLessThanOrEqual(Math.min(480, readable.body.bottom));
+    }
+    expect.soft(readable.page).toEqual(pageOrigin);
     const saved = await body.evaluate(node => node.scrollTop); expect.soft(saved).toBeGreaterThan(0);
     for (const width of [1023, 1024, 1023, 1025]) {
       await page.setViewportSize({ width, height: 480 }); await paints(page);
@@ -127,7 +153,13 @@ test('monitoring detail native wheel keyboard last information and nonzero break
       observations.push({ step: `crossing-${width}`, expected, body: await metrics(body), camera: current });
     }
     await page.getByRole('button', { name: '조명 상세 닫기', exact: true }).click(); await expect(originalMarker).toBeFocused();
+    const shortMap = (await viewport.boundingBox())!;
+    expect(shortMap.height).toBeGreaterThanOrEqual(240);
+    await page.setViewportSize({ width: 1025, height: 900 }); await paints(page);
+    await expect.poll(async () => (await viewport.boundingBox())!.height).toBeGreaterThan(shortMap.height);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth - innerWidth)).toBeLessThanOrEqual(1);
     expect(state.api.dimmingRequests).toHaveLength(0);
+    expect(state.api.requests.filter(request => !request.startsWith('GET '))).toEqual([]);
   } finally {
     await attach(info, 'native-detail-input-before-screenshot', { observations, events: await page.evaluate(() => (window as unknown as { monitoringNativeEvents: unknown[] }).monitoringNativeEvents), requests: state.api.requests });
     await info.attach('native-detail-final', { body: await page.screenshot({ fullPage: true }), contentType: 'image/png' });

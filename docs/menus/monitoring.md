@@ -1,5 +1,28 @@
 # 모니터링 메뉴 기능 현황
 
+## 2026-10-04 짧은 PC 화면 상세 읽기 영역 보완 (Task 9 최종 통합)
+
+### 구현 완료
+
+- 기존 tablet 경계(1024px)부터 지도·상세 grid는 자연 최소 콘텐츠 높이를 유지한다. 상세 aside는 선호 높이 0과 행 전체의 최소 높이를 사용해 긴 상세 내용 자체가 행 크기를 결정하지 않도록 하고, 지도 쪽의 기존 240px 최소 viewport·도구·ticker가 결정한 행을 채운다. 짧은 화면은 페이지 스크롤로 접근하며 충분한 높이에서는 남는 공간만큼 지도가 계속 자란다. 새 고정 pixel 높이·breakpoint·공통 overlay 변경은 없다.
+- 원래 두 조명의 1024×480 fixture에서 실제 상세 읽기 영역 349px/콘텐츠450px/범위101px을 확인했다. 일반 페이지 gutter 휠로 남은 chrome을 노출한 뒤 내부 wheel80·native Tab/Home/PageDown/End가 문서 위치를 유지하고, 마지막 의미 행의 라벨과 값 전체를 보인다. 1023↔1024↔1023↔1025에서 현재 범위에 맞춘 nonzero 복원·같은 선택·카메라·현재 surface 초점 및 닫기 후 원래 marker 반환을 검증한다.
+
+### 미구현
+
+- 실제 Android/iOS WebView·운영 DB·장비 HIL·배포 및 전체 브랜치 최종 검수는 이 소비자 보완의 완료 범위가 아니다.
+
+### 부족하거나 개선이 필요한 기능
+
+- 이전 35/37px 읽기 영역·잘린 마지막 값 실패와, 단순 grid 최소 높이만 적용해 범위가 0이 된 중간 실패는 보존한다. 435px 전체 aside와 sticky header가 동시에 480px 안에 모두 들어온다는 주장은 하지 않는다. 실제 읽기 영역과 최종 라벨·값의 clip/hit, native input 안정성을 판정하며 Chromium 소프트웨어 증거를 실기기 승인으로 확대하지 않는다.
+
+### 관련 파일
+
+- `apps/web/src/features/monitoring/MonitoringView.tsx`, `apps/web/e2e/monitoring-surface-access.spec.ts`. 기존 FixtureDetailPanel·공통 DetailSheet·지도/복원/초점 로직은 재사용하며 수정하지 않는다.
+
+### 갱신 규칙
+
+- 자연 높이와 실제 스크롤 범위·원래 마지막 라벨/값 전체·문서 안정성·native 휠/Tab/키보드·nonzero breakpoint 복원·카메라·원래 초점·명령 POST0을 함께 검증한다. 공통 정책이나 읽기 단언을 완화해 통과시키지 않는다.
+
 ## 2026-10-03 상세 native 스크롤·로그 안전 영역 보완 (Task 9)
 
 ### 구현 완료
@@ -141,7 +164,7 @@
 
 ### 구현 완료
 
-- `마지막 갱신`의 정상·지연 snapshot 시각은 조명 상세와 같은 현장 `timeZone` 포맷터로 날짜·분 단위 시각을 표시하고 `(현장 시간)`으로 의미를 명시한다. 서버 원본 ISO는 `<time dateTime>`에 보존한다. React Query 수신 시각이나 장비 마지막 관측 시각으로 바꾸지 않는다.
+- `마지막 갱신`의 정상·지연 snapshot 시각은 최종 통합에서 조명 상세와 같은 현장 `timeZone` 공통 포맷터의 날짜·초 단위 시각을 표시하고 `(현장 시간)`으로 의미를 명시한다. 서버 원본 ISO는 `<time dateTime>`에 보존한다. React Query 수신 시각이나 장비 마지막 관측 시각으로 바꾸지 않는다.
 - 좁은 화면과 큰 글자에서는 갱신 시각만 자연스럽게 줄바꿈한다. 가장 오래된 fixture page 기반 freshness 및 60,000/60,001ms 경계, 미래·invalid·pending 안내, 조회·수동 장치 확인·제어 계약은 유지한다.
 - 서울의 다음 날짜/LA의 이전 날짜 경계 단위 회귀와 320/390px·실제 caption 12/24px Chromium 표시 회귀를 추가한다. 기존 상세·로그·마커·핀치·이동 터치 회귀도 유지한다.
 

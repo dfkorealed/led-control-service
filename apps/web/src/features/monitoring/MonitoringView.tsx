@@ -412,7 +412,9 @@ function MonitoringDashboard({ data, userRole, siteId, refreshDashboard }: Monit
         offline={floor.summary?.offlineFixtures ?? null}
       /> : null}
 
-      <div className={cn("grid min-h-0 min-w-0 flex-1 gap-4", isDesktop && isDetailOpen && selectedFixtureId && "tablet:grid-cols-[minmax(0,1fr)_minmax(0,22rem)]")} data-monitoring-layout="">
+      {/* Keep the desktop detail's reading region as tall as the map's natural
+          minimum; short screens scroll the page instead of shrinking the row. */}
+      <div className={cn("grid min-h-0 min-w-0 flex-1 gap-4 tablet:min-h-min", isDesktop && isDetailOpen && selectedFixtureId && "tablet:grid-cols-[minmax(0,1fr)_minmax(0,22rem)]")} data-monitoring-layout="">
         <div className={cn("flex h-full min-h-min min-w-0 flex-col gap-5", !workspaceFocus.active && "max-compact:pb-shell-navigation-safe")} data-monitoring-map-panel="">
           <div className="min-h-min min-w-0 flex-1">
           {data.summary.totalFixtures === 0 ? (
@@ -458,7 +460,9 @@ function MonitoringDashboard({ data, userRole, siteId, refreshDashboard }: Monit
             triggerRef={logTriggerRef}
           /> : null}
         </div>
-        {isDesktop && isDetailOpen && selectedFixtureId ? <aside ref={detailRef} tabIndex={-1} aria-label="조명 상세" className="flex min-h-0 min-w-0 flex-col rounded-panel border border-border-default bg-surface-panel p-4" onKeyDown={event => { if (event.key === "Escape" && !event.defaultPrevented) { event.preventDefault(); closeDetail(); } }}>
+        {/* Zero preferred height excludes the scrollable detail content from
+            the row's intrinsic size; its minimum then fills the map-led row. */}
+        {isDesktop && isDetailOpen && selectedFixtureId ? <aside ref={detailRef} tabIndex={-1} aria-label="조명 상세" className="flex h-0 min-h-full min-w-0 flex-col rounded-panel border border-border-default bg-surface-panel p-4" onKeyDown={event => { if (event.key === "Escape" && !event.defaultPrevented) { event.preventDefault(); closeDetail(); } }}>
           <div className="flex shrink-0 items-start justify-between gap-3"><Heading as="h2" variant="card-title">조명 상세</Heading><Button variant="ghost" className="min-h-13" onClick={closeDetail} aria-label="조명 상세 닫기">닫기</Button></div>
           <div ref={detailBodyRef} onScroll={event => rememberDetailScroll(event.currentTarget.scrollTop)} data-monitoring-detail-scroll="" className="min-h-0 flex-1 overflow-y-auto"><FixtureDetailPanel fixture={selectedFixture ?? null} selectedName={selectedPin?.name} position={selectedPin ? { kind: "placed", point: { x: selectedPin.x, y: selectedPin.y } } : resolveFixtureMapPosition(mapSnapshot, selectedFixture)} timeZone={data.site.timeZone} /></div>
         </aside> : null}
