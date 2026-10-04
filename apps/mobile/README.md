@@ -83,10 +83,14 @@ APP_VARIANT=development EXPO_PUBLIC_WEB_URL=http://127.0.0.1:5173 EXPO_NO_TYPESC
 
 아래 첫 명령은 Metro를 유지하고, 다른 터미널에서 두 번째 명령으로 Simulator에 설치·실행한다. CLI가 같은 프로젝트의 기존 Metro를 재사용하도록 양쪽 명령의 `--port`를 일치시킨다. 이때 `--no-bundler`와 `--port`를 함께 지정하면 CLI가 거부한다. 기존 프로세스와 충돌하면 비어 있는 Metro 포트를 선택한다.
 
+`localhost`가 IPv6 `::1`로 먼저 해석되는 환경에서는 Metro가 IPv6에만 열리고 iOS 앱 로더의 `127.0.0.1` 요청이 실패할 수 있다. 아래 Node DNS 옵션은 해당 실행 프로세스의 localhost 해석을 IPv4 우선으로 맞추며, Metro를 loopback에 유지한다([Node DNS 기준](https://nodejs.org/download/release/v22.18.0/docs/api/dns.html)).
+
 ```sh
+NODE_OPTIONS="${NODE_OPTIONS:+$NODE_OPTIONS }--dns-result-order=ipv4first" \
 APP_VARIANT=development EXPO_PUBLIC_WEB_URL=http://127.0.0.1:5173 EXPO_NO_TYPESCRIPT_SETUP=1 \
   pnpm --filter @led-control/mobile exec expo start --dev-client --localhost --port 8081
 # 다른 터미널; 기기 선택 화면에서 iOS Simulator를 선택한다.
+NODE_OPTIONS="${NODE_OPTIONS:+$NODE_OPTIONS }--dns-result-order=ipv4first" \
 APP_VARIANT=development EXPO_PUBLIC_WEB_URL=http://127.0.0.1:5173 EXPO_NO_TYPESCRIPT_SETUP=1 \
   pnpm --filter @led-control/mobile exec expo run:ios --configuration Debug --device --no-install --port 8081
 ```
