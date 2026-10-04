@@ -15,13 +15,17 @@
 - 기본 main `fc9e7440`의 기존 모바일 작업을 `eb530b16`으로 통합하고, 실제 PC 상세 본문35px 압축을 소비자 높이 두 class만 보완한 `a90f1e84`로 수정했다. 직접 native 입력·본문349px/마지막 전체 행70px·현재 스크롤 범위·카메라/초점·명령POST0 증거를 회수했다. 원 실패와 17px 페이지 노출 설정 실패는 보존한다.
 - scoped 검토는 Critical/Important 0·Approved다. 제거된 프리셋을 설명하던 Minor 문서1건은 `e0ea5122` 한 문장으로 정정했다. 기존 편집기8건 통과는 과거 증거이며 새 모바일 편집기 변경이 있으므로 영향8건을 새 소스에서 확인한다.
 - 격리 Node22/pnpm9.15 frozen install 한 번만 실행해 Expo/shared/TS 의존성을 준비했다. 소스·기본 HEAD/PID는 불변이며 Prisma 자동 생성은 차단했다. install은 테스트·DB 적용 완료가 아니다.
-- 남은 실행 순서: 실제 native 숨김/포커스 작은 검증 → 독립 관련6·최소 receipt harness 연결 → 동결된 전체 lint/type/test/build/UI0·원 편집기8·원 automation/읽음/로그 임시DB → ONE 최신 main→최종 전체검토 → 안전한 기본 브랜치 병합. 현재 서버의 알람 테이블 추가·서버 적용은 별도 사용자 응답 대기이며 코드 병합 권한과 혼동하지 않는다.
+- 현재 소스 `a3216572`는 canonical `a2f61cd1` 이후 제품 변경 없이 테스트·Lab 환경만 보완했다. canonical lint/typecheck/test/build exit0·8,199통과/0실패/852skip·UI정책0, 현재 cold/warm 편집기2건과 원 automation 실제 소프트웨어1건 통과를 회수했다. 원 실패와 제외 건은 보존한다. 별도 native 숨김/복귀와 마지막 R21 실제 스크롤도 통과했으며 전체108/관련25를 새 전체 통과로 합산하지 않는다.
+- UTC 격리 Lab의 실제 알람 R1–R6 한 사례는 통과했다. R7은 admin 설치 상태 gate의 기존 문구와 테스트 기대가 달라 실패했고 최소 기대 두 곳만 보완한다. 남은 R7·DB 로그/기간/커서·OFF→ON은 아직 미실행이다. 원 automation은 통과한 증거를 보존하고 반복하지 않는다.
+- 실제 API startup DSN의 새 동일 Prisma6.19.3 연결과 psql은 `Asia/Seoul`이다. 기존 raw incident Date/cursor SQL의 UTC 세션 의존성을 운영 적용 차단으로 판정했다. 기존 DB 시간대·데이터는 바꾸지 않고 incident cursor/observation/resolution의 작은 SQL 경계만 보완한다. 현재 소스의 실제 KST RED → UTC/KST/음수 offset 세션 GREEN, 첫 읽음·정렬·단조 시각 보존과 scoped 검토를 같은 담당자에게 배정한 뒤 남은 Lab를 이어간다. 기존 API pool 자체 세션 시간대는 직접 관찰하지 않았다.
+- 사용자는 알람 읽음 테이블 추가와 로컬 Web/API 잠시 중지·재개를 명시 승인했다. 전체 검증·Ready 판정 후 기본 개발 `codex/mvp1-cloud-web`에 fast-forward하고 정확히 하나의 pending receipt migration/client만 반영한다. 기존 migration checksum 불일치는 동일 allowlist로 기록하되 reset/재실행/metadata rewrite하지 않는다.
 - Task9 체크박스는 최종 실제 증거가 돌아오기 전 완료로 바꾸지 않는다. root 문서 patch 문맥 불일치2회는 수정 없이 종료한 조율 오류이며 제품 RED/GREEN 증거가 아니다.
 
 ## Global Constraints
 
 - 기준 `36a99b2910a03ca9a3b55237a7b24d85a247b7cf`, branch `codex/operations-ui-comments-20261001`, worktree `/Users/kim-jh/Documents/led-control-service/.worktrees/operations-ui-comments-20261001`만 사용한다.
 - 기본 checkout·현재 서버·센서/설치 WIP·사용자 DB·실장비를 변경하지 않는다. 운영 migration/DB 초기화/flash/배포/원격 push는 수행하지 않는다.
+- 최종 적용 예외: 사용자가 승인한 읽음 테이블의 단일 additive migration과 로컬 Web/API의 정확한 개별 프로세스 중지·재개만 허용한다. 검증 완료 전 watcher가 있는 기본 checkout은 병합하지 않는다. DB 시간대·기존 데이터·다른 migration·전체 supervisor/broker/센서·Gateway는 변경하지 않는다.
 - 같은 공유 파일·API·Prisma에는 한 작성자만 둔다. 사용자가 지정한 기존 담당 세션을 재사용하며 새 제어 세션만 `gpt-6.1-sol` / `high`다. 기존 센서 제어 세션에는 UI 업무를 보내지 않는다.
 - 기존 React Aria·공통 UI·theme 토큰을 재사용한다. `phone-wide=360`, `compact=760`, `tablet=1024` 유지. 962/1017px 전용 분기·새 임의 색/z-index·정책 검사 우회·새 의존성은 추가하지 않는다.
 - 실제 timestamp는 `yyyy-MM-dd HH:mm:ss`, Gregorian, `hourCycle: h23`, 자정 `00:00:00`, 잘못된 값 `—`다. 현장/기기/계정 시간대 의미, ISO 정밀도, 날짜 전용·반복 `HH:mm`·PDF 시각 제거 결정은 유지한다.
@@ -282,7 +286,8 @@ Native visibility harness checkpoint — own blank-page probe1회가 .ts 설정�
 - [x] Repair A — 같은 제어 UI 담당자: 실제 겹친 조명 중심/disabled/키보드/직접 제스처와 짧은 화면 실제 지도 높이 보완·직접 검증·두 메뉴 갱신. 반환38463e1a/허용10파일·직접234단위/12브라우저/type/UI0; 독립 검토·관련 디자이너 재검수는 아래 관문에 유지한다.
 - [x] Repair B — 통계 담당자: 원래 긴 이름/페이지 overflow와 native 연도 입력·clear/reversed draft·무효 요청0/유효 복구, PDF/CSV 계약 보존·메뉴 갱신. 반환888a8200/허용9파일·직접144단위/13브라우저/type/UI0; 독립 검토·관련 재검수는 아래 관문에 유지한다.
 - [x] Repair C — 같은 모니터링 담당자: 로그 양수 inset·소비자 밀도와 상세 내부 스크롤 소유만 보완·메뉴 갱신. 반환d8a72907/허용6파일·직접19단위/2브라우저/type/UI0; 독립 검토·관련 디자이너 재검수는 아래 관문에 유지한다.
-- [ ] Repair review — 보완 묶음 scoped 검토와 기존 자료를 이어받은 별도 검수자의 원 실패/잔여 관련25 재검수, 그 뒤 canonical4·실제 임시DB·ONE whole 검토.
+- [x] Repair review — 보완 묶음 scoped 검토와 기존 자료를 이어받은 별도 검수자의 관련25·잔여 native·최종 R21을 회수했다. 최초25는22/3, 최종 통합6은5/1이고 별도 R21-only1통과로 해당 미검증을 닫았다. 전체 재실행/합산 통과로 표현하지 않는다. canonical4와 ONE whole source 검토 완료; 최종 실제 DB·운영 호환성 verdict는 아래 관문이다.
+- [ ] Repair D — 기존 통합 담당자 단일 작성: 설치된 Prisma의 KST 실제 RED로 incident tuple cursor와 reconciler observation/resolution Date 바인딩만 UTC TIMESTAMP 저장 의미에 맞게 보완한다. UTC/KST/음수 offset 실제 세션·관측/해결·단조 revision·동일 timestamp cursor 순서·첫 readAt 불변과 메뉴를 검증한다. 스키마/DB 시간대/기존 행/권한/명령/보존/자동화 코드는 변경하지 않는다. 새 scoped 검토 뒤 원 automation/native/canonical의 변경 없는 경계만 명시 carry하고 남은 receipt/log Lab를 실행한다.
 
 Scoped 검토 c8bf6f04 — 전체 반환 보고서·원시 결과·소스 해시를 읽은 독립 검토는 Spec 부분 충족/Needs fixes/P0·P1 0/P2 2/P3 1이다. 총괄이 실제 설계 §4와 소비자 높이 체인/일반 Playwright baseURL을 대조하여 P2-A 충분한 desktop 가용 공간이 지도에 전달되지 않음(최종1440×900도240px), P2-B tracked fixture의16208 origin 고정에 따른 일반 설정 요청 차단을 확인했다. 같은 별도 제어 UI 담당자에게 두 건만 한 bounded 후속으로 배정한다. 기존 짧은 화면 최소240·자연스러운 scroll·48px/disabled/제스처와 failclosed mock은 유지하며 임의 새 숫자/공통 재설계는 금지한다. 통계·모니터링 새 P0–P2 지적은 없으나 전체 승인으로 확대하지 않는다. P3 DOM 순서 밀도 결합은 현재 실제 효과/직접 bounds를 인정하고 최종 검토에 기록한다. 11개 Declined 중 관련 디자이너/최종 root/실제 임시DB/whole/안전한 기본 적용은 다음 필수 관문, PDF 외부 저장·WebView/HIL·운영1000 성능/비정상 역사 날짜·센서/공통 편집기 전체는 한계/관련 최종 triage로 유지한다. 원 End deficit314 원인은 미확정이고 최종 실제 End 통과와 분리한다.
 
