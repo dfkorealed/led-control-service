@@ -96,7 +96,10 @@ test("admin creates and executes schedule and vehicle event rules", async ({ bro
   await lab.startAutomationGateway({ targetName, sensorName });
   await lab.waitForVehicleSensorCapability(sensorName);
   await lab.waitForAutomationProtocolConvergence("first-connect", firstConnect.evidenceCursor);
-  await expect(syncRow(admin, "Task 19 상시 스케줄")).toContainText("적용됨", { timeout: 20_000 });
+  // The schedule omits its applied badge; protocol convergence above proves
+  // Gateway application. Exact activation-cell text also rejects pending/failure UI.
+  await expect(syncRow(admin, "Task 19 상시 스케줄").getByRole("cell").nth(1))
+    .toHaveText("활성", { timeout: 20_000 });
   await lab.waitForFixtureBrightness(targetName, 40);
 
   await admin.getByRole("tab", { name: "이벤트 제어" }).click();
@@ -216,7 +219,10 @@ test("admin creates and executes schedule and vehicle event rules", async ({ bro
   await lab.startApi();
   await lab.waitForAutomationProtocolConvergence("api-restart-ack", apiRestart.evidenceCursor);
   await admin.reload();
-  await expect(syncRow(admin, "Task 19 상시 스케줄")).toContainText("적용됨", { timeout: 20_000 });
+  // The schedule omits its applied badge; protocol convergence above proves
+  // Gateway application. Exact activation-cell text also rejects pending/failure UI.
+  await expect(syncRow(admin, "Task 19 상시 스케줄").getByRole("cell").nth(1))
+    .toHaveText("활성", { timeout: 20_000 });
   await lab.assertAutomationConvergenceEvidence();
   await lab.writeEvidence(testInfo);
 });
