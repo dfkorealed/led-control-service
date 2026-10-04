@@ -5,6 +5,9 @@ import { MemoryRouter, Outlet, Route, Routes, useLocation, useNavigate } from "r
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "../../../api/client";
 import { StatisticsReportsPage } from "./StatisticsReportsPage";
+import * as fileDelivery from "../../mobile/file-download";
+import { initializeMobileRuntime } from "../../mobile/mobile-runtime";
+import { Blob as NodeBlob } from "node:buffer";
 
 const reportsApi = vi.hoisted(() => ({
   create: vi.fn(),
@@ -68,7 +71,7 @@ describe("StatisticsReportsPage", () => {
     });
     vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => undefined);
   });
-  afterEach(() => { cleanup(); vi.restoreAllMocks(); });
+  afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
   it("drops a legacy XLSX URL and restores the first PDF history page", async () => {
     renderPage({ initialEntry: "/statistics/reports?siteId=" + siteId + "&format=xlsx&scope=site" });
@@ -954,7 +957,7 @@ describe("StatisticsReportsPage", () => {
 
     await waitFor(() => expect(reportsApi.csv).toHaveBeenCalledWith(siteId, expect.objectContaining({
       scope: "floor", identityId: dashboard.floors[0].id
-    })));
+    }), expect.objectContaining({ signal: expect.any(AbortSignal) })));
   });
 
   it("blocks fixture report actions while target data is loading instead of using the site identity", async () => {
@@ -1009,7 +1012,7 @@ describe("StatisticsReportsPage", () => {
     const requestedAt = within(list).getAllByTitle("2026-09-10T00:00:00.000Z")[0];
     expect(requestedAt).toHaveAttribute("datetime", "2026-09-10T00:00:00.000Z");
     fireEvent.click(within(list).getByRole("button", { name: "대상 completed 보고서 다운로드" }));
-    await waitFor(() => expect(reportsApi.download).toHaveBeenCalledWith(siteId, reports[2].reportId));
+    await waitFor(() => expect(reportsApi.download).toHaveBeenCalledWith(siteId, reports[2].reportId, { signal: expect.any(AbortSignal) }));
     expect(within(list).getByRole("button", { name: "대상 failed 보고서 다시 생성" })).toBeInTheDocument();
     expect(within(list).getByRole("button", { name: "대상 expired 보고서 다시 생성" })).toBeInTheDocument();
   });
@@ -1035,6 +1038,206 @@ describe("StatisticsReportsPage", () => {
 
     expect(await screen.findByRole("alert")).toHaveTextContent("보고서 다운로드를 완료하지 못했습니다.");
     expect(screen.getByRole("region", { name: "요청한 보고서" })).toBeInTheDocument();
+  });
+
+  it("blocks duplicate PDF downloads on both history surfaces while preparing the file", async () => {
+    const pending = deferred<{ downloadUrl: string }>();
+    reportsApi.download.mockReturnValueOnce(pending.promise);
+    renderPage();
+    const buttons = screen.getAllByRole("button", { name: "대상 completed 보고서 다운로드" });
+    fireEvent.click(buttons[0]);
+    try {
+      expect(buttons).toHaveLength(2);
+      for (const button of buttons) expect(button).toBeDisabled();
+      expect(buttons[0]).toHaveAttribute("aria-busy", "true");
+      fireEvent.click(buttons[1]);
+      expect(reportsApi.download).toHaveBeenCalledOnce();
+      expect(screen.getByRole("search", { name: "보고서 이력 필터" })).toBeInTheDocument();
+    } finally {
+      await act(async () => pending.resolve({ downloadUrl: "https://reports.example.test/fresh.pdf" }));
+    }
+    await waitFor(() => expect(buttons[0]).toBeEnabled());
+  });
+
+  it("ignores a late PDF download failure after the selected site changes", async () => {
+    const pending = deferred<{ downloadUrl: string }>();
+    reportsApi.download.mockReturnValueOnce(pending.promise);
+    const client = new QueryClient();
+    const view = renderPage({ queryClient: client });
+    fireEvent.click(within(screen.getByRole("list", { name: "모바일 보고서 생성 이력" }))
+      .getByRole("button", { name: "대상 completed 보고서 다운로드" }));
+
+    view.rerender(pageTree("30000000-0000-4000-8000-000000000099", client));
+    await act(async () => pending.reject(new TypeError("Failed to fetch")));
+
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "요청한 보고서" })).toBeInTheDocument();
+    expect(HTMLAnchorElement.prototype.click).not.toHaveBeenCalled();
+  });
+
+  it("rejects a PDF descriptor from the previous native document before file delivery", async () => {
+    installNativeEnvironment();
+    vi.stubGlobal("Blob", NodeBlob);
+    const sent: Array<Record<string, unknown>> = [];
+    vi.stubGlobal("ReactNativeWebView", { postMessage: (raw: string) => {
+      const message = JSON.parse(raw) as Record<string, unknown>;
+      sent.push(message);
+      const reply = message.type === "file.begin" ? { type: "file.ack", nextIndex: 0, receivedBytes: 0 }
+        : message.type === "file.chunk" ? { type: "file.ack", nextIndex: 1, receivedBytes: 8 }
+        : message.type === "file.end" ? { type: "file.result", status: "handoff" } : null;
+      if (reply) queueMicrotask(() => window.dispatchEvent(new CustomEvent("led-control:native-message", {
+        detail: { version: 1, documentId: message.documentId, requestId: message.requestId, ...reply }
+      })));
+    } });
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("%PDF-1.7", { headers: { "content-type": "application/pdf" } })));
+    const cleanupRuntime = initializeMobileRuntime();
+    const pending = deferred<{ downloadUrl: string }>();
+    reportsApi.download.mockReturnValueOnce(pending.promise);
+    renderPage();
+    fireEvent.click(screen.getAllByRole("button", { name: "대상 completed 보고서 다운로드" })[0]);
+    try {
+      window.__LED_CONTROL_NATIVE_DOCUMENT_ID__ = "pdf-new-document";
+      window.dispatchEvent(new CustomEvent("led-control:native-message", { detail: {
+        version: 1, type: "mobile.bootstrap", documentId: "pdf-new-document", requestId: "pdf-new-bootstrap",
+        mobile: true, state: "active", online: true
+      } }));
+      await act(async () => pending.resolve({ downloadUrl: "https://reports.example.test/old-document.pdf" }));
+      expect(fetch).not.toHaveBeenCalled();
+      expect(sent.filter(message => message.type === "file.begin")).toEqual([]);
+      expect(await screen.findByRole("alert")).toHaveTextContent("화면이 변경되어");
+      expect(screen.queryByText("공유창을 닫았습니다.")).not.toBeInTheDocument();
+    } finally { cleanupRuntime(); }
+  });
+
+  it.each(["cancel", "site", "unmount", "document"] as const)("aborts the actual PDF descriptor GET on %s before any file delivery", async (change) => {
+    installNativeEnvironment();
+    const energy = await vi.importActual<typeof import("../../../api/energy")>("../../../api/energy");
+    reportsApi.download.mockImplementation(energy.downloadEnergyReport);
+    const cleanupRuntime = initializeMobileRuntime();
+    let descriptorSignal: AbortSignal | undefined;
+    vi.stubGlobal("fetch", vi.fn((_url: string, options: RequestInit) => new Promise((_resolve, reject) => {
+      descriptorSignal = options.signal ?? undefined;
+      descriptorSignal?.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")), { once: true });
+    })));
+    const client = new QueryClient();
+    const view = renderPage({ queryClient: client });
+    fireEvent.click(screen.getAllByRole("button", { name: "대상 completed 보고서 다운로드" })[0]);
+    try {
+      await waitFor(() => expect(fetch).toHaveBeenCalledOnce());
+      if (change === "cancel") fireEvent.click(screen.getByRole("button", { name: "파일 준비 취소" }));
+      else if (change === "site") view.rerender(pageTree("30000000-0000-4000-8000-000000000099", client));
+      else if (change === "unmount") view.unmount();
+      else {
+        window.__LED_CONTROL_NATIVE_DOCUMENT_ID__ = "descriptor-new-document";
+        window.dispatchEvent(new CustomEvent("led-control:native-message", { detail: {
+          version: 1, type: "mobile.bootstrap", documentId: "descriptor-new-document", requestId: "descriptor-bootstrap",
+          mobile: true, state: "active", online: true
+        } }));
+      }
+      expect(descriptorSignal?.aborted).toBe(true);
+      await waitFor(() => expect(screen.queryByRole("button", { name: "파일 준비 취소" })).not.toBeInTheDocument());
+      expect(fetch).toHaveBeenCalledOnce();
+      expect(HTMLAnchorElement.prototype.click).not.toHaveBeenCalled();
+      if (change === "document") expect(await screen.findByRole("alert")).toHaveTextContent("화면이 변경되어");
+      else if (change === "cancel") expect(screen.getByText("파일 공유를 취소했습니다.")).toHaveAttribute("role", "status");
+      else expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    } finally { view.unmount(); cleanupRuntime(); client.clear(); }
+  });
+
+  it("shows native PDF CORS failures without opening a browser or exposing the signed URL", async () => {
+    installNativeEnvironment();
+    const fetchFile = vi.fn().mockRejectedValue(new TypeError("Failed to fetch"));
+    vi.stubGlobal("fetch", fetchFile);
+    renderPage();
+    fireEvent.click(within(screen.getByRole("list", { name: "모바일 보고서 생성 이력" }))
+      .getByRole("button", { name: "대상 completed 보고서 다운로드" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("네트워크 연결");
+    expect(fetchFile).toHaveBeenCalledWith("https://reports.example.test/signed.pdf", expect.objectContaining({
+      credentials: "omit"
+    }));
+    expect(HTMLAnchorElement.prototype.click).not.toHaveBeenCalled();
+    expect(screen.getByRole("region", { name: "요청한 보고서" })).toBeInTheDocument();
+    expect(screen.queryByText(/reports\.example\.test/)).not.toBeInTheDocument();
+  });
+
+  it("announces a PDF handoff without claiming the file was saved", async () => {
+    vi.spyOn(fileDelivery, "downloadMobileAwareUrl").mockResolvedValueOnce("handoff");
+    renderPage();
+    fireEvent.click(screen.getAllByRole("button", { name: "대상 completed 보고서 다운로드" })[0]);
+    expect(await screen.findByText("공유창을 닫았습니다.")).toHaveAttribute("role", "status");
+    expect(screen.queryByText(/저장 완료/)).not.toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: "대상 completed 보고서 다운로드" })[0]).toBeEnabled();
+  });
+
+  it("keeps CSV selections and the dialog after explicit cancellation", async () => {
+    reportsApi.csv.mockResolvedValueOnce("cancelled");
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "보고서 만들기" }));
+    const dialog = screen.getByRole("dialog");
+    fireEvent.click(within(dialog).getByRole("button", { name: "CSV 내보내기" }));
+    expect(await within(dialog).findByText("파일 공유를 취소했습니다.")).toHaveAttribute("role", "status");
+    expect(within(dialog).getByRole("button", { name: "CSV 내보내기" })).toBeEnabled();
+    expect(within(dialog).getByRole("button", { name: "대상" })).toHaveTextContent("서울 물류센터");
+  });
+
+  it("aborts CSV preparation on cancel and prevents duplicate export requests", async () => {
+    const pending = deferred<string>();
+    reportsApi.csv.mockReturnValueOnce(pending.promise);
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "보고서 만들기" }));
+    const dialog = screen.getByRole("dialog");
+    const button = within(dialog).getByRole("button", { name: "CSV 내보내기" });
+    fireEvent.click(button); fireEvent.click(button);
+    expect(reportsApi.csv).toHaveBeenCalledOnce();
+    const signal = reportsApi.csv.mock.calls[0][2]?.signal;
+    expect(signal?.aborted).toBe(false);
+    fireEvent.click(within(dialog).getByRole("button", { name: "파일 준비 취소" }));
+    expect(signal?.aborted).toBe(true);
+    await act(async () => pending.resolve("cancelled"));
+    expect(await within(dialog).findByText("파일 공유를 취소했습니다.")).toBeInTheDocument();
+  });
+
+  it("aborts pending PDF delivery when switching sites and ignores its late result", async () => {
+    const pending = deferred<fileDelivery.MobileFileDownloadOutcome>();
+    const exportFile = vi.spyOn(fileDelivery, "downloadMobileAwareUrl").mockReturnValueOnce(pending.promise);
+    const client = new QueryClient();
+    const view = renderPage({ queryClient: client });
+    fireEvent.click(screen.getAllByRole("button", { name: "대상 completed 보고서 다운로드" })[0]);
+    await waitFor(() => expect(exportFile).toHaveBeenCalled());
+    const signal = exportFile.mock.calls[0][0].signal;
+    view.rerender(pageTree("30000000-0000-4000-8000-000000000099", client));
+    expect(signal?.aborted).toBe(true);
+    await act(async () => pending.resolve("handoff"));
+    expect(screen.queryByText("공유창을 닫았습니다.")).not.toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("does not label a late PDF handoff as success after explicit cancellation", async () => {
+    const pending = deferred<fileDelivery.MobileFileDownloadOutcome>();
+    const exportFile = vi.spyOn(fileDelivery, "downloadMobileAwareUrl").mockReturnValueOnce(pending.promise);
+    renderPage();
+    fireEvent.click(screen.getAllByRole("button", { name: "대상 completed 보고서 다운로드" })[0]);
+    await waitFor(() => expect(exportFile).toHaveBeenCalled());
+    fireEvent.click(screen.getByRole("button", { name: "파일 준비 취소" }));
+    await act(async () => pending.resolve("handoff"));
+    expect(await screen.findByText("파일 공유를 취소했습니다.")).toHaveAttribute("role", "status");
+    expect(screen.queryByText("공유창을 닫았습니다.")).not.toBeInTheDocument();
+  });
+
+  it("aborts CSV on dialog replacement and keeps late errors out of the new site", async () => {
+    const pending = deferred<fileDelivery.MobileFileDownloadOutcome>();
+    reportsApi.csv.mockReturnValueOnce(pending.promise);
+    const client = new QueryClient();
+    const view = renderPage({ queryClient: client });
+    fireEvent.click(screen.getByRole("button", { name: "보고서 만들기" }));
+    fireEvent.click(screen.getByRole("button", { name: "CSV 내보내기" }));
+    const signal = reportsApi.csv.mock.calls[0][2].signal;
+    view.rerender(pageTree("30000000-0000-4000-8000-000000000099", client));
+    expect(signal.aborted).toBe(true);
+    await act(async () => pending.reject(new Error("old native file failure")));
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
   });
 
   it("keeps the report list available and reports a retry failure", async () => {
@@ -1205,6 +1408,16 @@ function inheritedCursorStack() {
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
-  const promise = new Promise<T>((complete) => { resolve = complete; });
-  return { promise, resolve };
+  let reject!: (error: unknown) => void;
+  const promise = new Promise<T>((complete, fail) => { resolve = complete; reject = fail; });
+  return { promise, resolve, reject };
+}
+
+function installNativeEnvironment() {
+  vi.stubGlobal("__LED_CONTROL_NATIVE_DOCUMENT_ID__", "statistics-document");
+  vi.stubGlobal("__LED_CONTROL_NATIVE_ENVIRONMENT__", {
+    version: 1, type: "mobile.bootstrap", documentId: "statistics-document", requestId: "bootstrap",
+    mobile: true, state: "active", online: true
+  });
+  vi.stubGlobal("ReactNativeWebView", { postMessage: vi.fn() });
 }

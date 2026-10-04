@@ -2,11 +2,12 @@ import type { EnergyReportJob, EnergyReportListResponse, EnergyReportRequest } f
 import { FileText } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { createEnergyReport, downloadEnergyCsv, downloadEnergyReport, energyReportRequestErrorMessage, useEnergyReports, useEnergyReportTargets } from "../../../api/energy";
+import { createEnergyFileOperation, createEnergyReport, downloadEnergyCsv, downloadEnergyReport, energyReportRequestErrorMessage, useEnergyReports, useEnergyReportTargets } from "../../../api/energy";
 import { Button, Card, Heading, PageHeader, PaginationBar, Text, type DefaultPaginationPageSize } from "../../../components/ui";
 import { useLocation, useOutletContext, useSearchParams } from "react-router-dom";
 import type { StatisticsOutletContext } from "../StatisticsShell";
 import { ReportCreateDialog } from "./ReportCreateDialog";
+import { downloadMobileAwareUrl, MobileFileExportError } from "../../mobile/file-download";
 import { ReportHistoryFilters } from "./ReportHistoryFilters";
 import { ReportJobList } from "./ReportJobList";
 import { parseReportHistorySearchParams, serializeReportHistorySearchParams, type ReportHistoryFilterState } from "./report-history-filters";
@@ -47,6 +48,9 @@ export function StatisticsReportsPage() {
   const queryClient = useQueryClient();
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [downloadError, setDownloadError] = useState("");
+  const [fileNotice, setFileNotice] = useState("");
+  const [downloadingReportId, setDownloadingReportId] = useState<string>();
+  const downloadOperationRef = useRef<AbortController | null>(null);
   const [retryError, setRetryError] = useState("");
   const [retryingReportId, setRetryingReportId] = useState<string>();
   const retainedPageRef = useRef<RetainedReportPage>();
@@ -59,6 +63,14 @@ export function StatisticsReportsPage() {
   const siteIdRef = useRef(siteId);
   siteIdRef.current = siteId;
   const scopeKey = reportScopeKey(siteId, filters);
+
+  useEffect(() => {
+    setDownloadError("");
+    setFileNotice("");
+    setDownloadingReportId(undefined);
+    // A late file response belongs to the old site/document, never the new page.
+    return () => { downloadOperationRef.current?.abort(); downloadOperationRef.current = null; };
+  }, [siteId]);
 
   useEffect(() => {
     if (!reportLocation.needsNormalization) return;
@@ -189,18 +201,41 @@ export function StatisticsReportsPage() {
     await invalidation;
   }
   async function download(job: EnergyReportJob) {
-    if (!siteId) return;
+    if (!siteId || downloadOperationRef.current) return;
+    const requestSiteId = siteId;
+    const operation = new AbortController();
+    downloadOperationRef.current = operation;
+    const isCurrent = () => downloadOperationRef.current === operation && siteIdRef.current === requestSiteId;
     setDownloadError("");
+    setFileNotice("");
+    setDownloadingReportId(job.reportId);
+    let scope: ReturnType<typeof createEnergyFileOperation> | undefined;
     try {
-      const response = await downloadEnergyReport(siteId, job.reportId);
-      const anchor = document.createElement("a");
-      anchor.href = response.downloadUrl;
-      anchor.download = "";
-      document.body.append(anchor);
-      anchor.click();
-      anchor.remove();
+      scope = createEnergyFileOperation(operation.signal);
+      const response = await downloadEnergyReport(requestSiteId, job.reportId, { signal: scope.signal });
+      if (!isCurrent()) return;
+      scope.assertCurrent();
+      if (operation.signal.aborted) { setFileNotice("파일 공유를 취소했습니다."); return; }
+      const outcome = await downloadMobileAwareUrl({ url: response.downloadUrl,
+        fileName: `energy-report_${job.request.from}_${job.request.to}_${job.reportId}.pdf`,
+        mimeType: "application/pdf", signal: scope.signal });
+      scope.assertCurrent();
+      if (isCurrent()) setFileNotice(operation.signal.aborted || outcome === "cancelled" ? "파일 공유를 취소했습니다."
+        : outcome === "handoff" ? "공유창을 닫았습니다." : "");
     } catch (error) {
-      setDownloadError(energyReportRequestErrorMessage(error, "download"));
+      if (isCurrent()) {
+        try { scope?.assertCurrent(); } catch (scopeError) { error = scopeError; }
+        if (error instanceof MobileFileExportError && error.code === "FILE_DOCUMENT_CHANGED") {
+          setDownloadError(energyReportRequestErrorMessage(error, "download"));
+        } else if (operation.signal.aborted) setFileNotice("파일 공유를 취소했습니다.");
+        else setDownloadError(energyReportRequestErrorMessage(error, "download"));
+      }
+    } finally {
+      scope?.dispose();
+      if (isCurrent()) {
+        downloadOperationRef.current = null;
+        setDownloadingReportId(undefined);
+      }
     }
   }
   async function regenerate(job: EnergyReportJob) {
@@ -228,7 +263,7 @@ export function StatisticsReportsPage() {
         isLoading={(reports.isLoading || reports.isPlaceholderData || !siteId) && !displayedPage}
         isError={Boolean(reports.isError && !displayedPage)} hasRefreshError={hasRefreshError}
         isBusy={reports.isFetching}
-        retryingReportId={retryingReportId} onRetry={retryList} onRegenerate={(job) => void regenerate(job)} onDownload={(job) => void download(job)} />
+        retryingReportId={retryingReportId} downloadingReportId={downloadingReportId} onRetry={retryList} onRegenerate={(job) => void regenerate(job)} onDownload={(job) => void download(job)} />
       <PaginationBar
         page={displayedPage?.pageState.page ?? activePageState.page}
         pageSize={filters.limit}
@@ -245,10 +280,13 @@ export function StatisticsReportsPage() {
         onPageSizeChange={(limit: DefaultPaginationPageSize) => resetToFirstPage({ ...filters, limit })}
       />
     </Card>
+    {downloadingReportId ? <Button variant="secondary" onClick={() => downloadOperationRef.current?.abort()}>파일 준비 취소</Button> : null}
+    {fileNotice ? <Text role="status">{fileNotice}</Text> : null}
     {downloadError ? <Text tone="danger" role="alert">{downloadError}</Text> : null}
     {retryError ? <Text tone="danger" role="alert">{retryError}</Text> : null}
     {isDialogOpen && siteId ? <ReportCreateDialog key={siteId} siteId={siteId} targetData={targets.data} onClose={() => setIsDialogOpen(false)}
-      isTargetsLoading={targets.isLoading} isTargetsError={targets.isError} onCreate={create} onExportCsv={(request) => downloadEnergyCsv(siteId, request)} /> : null}
+      isTargetsLoading={targets.isLoading} isTargetsError={targets.isError} onCreate={create}
+      onFileNotice={setFileNotice} onExportCsv={(request, signal) => downloadEnergyCsv(siteId, request, { signal })} /> : null}
   </section>;
 }
 

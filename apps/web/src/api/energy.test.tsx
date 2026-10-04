@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, renderHook, waitFor } from "@testing-library/react";
+import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 import type { PropsWithChildren } from "react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   createEnergyReport,
   downloadEnergyReport,
@@ -18,6 +18,9 @@ import {
   useEnergySummary
 } from "./energy";
 import { ApiError } from "./client";
+import { Blob as NodeBlob } from "node:buffer";
+import { MobileFileExportError } from "../features/mobile/file-download";
+import { initializeMobileRuntime } from "../features/mobile/mobile-runtime";
 
 const { apiGet, apiPost } = vi.hoisted(() => ({ apiGet: vi.fn(), apiPost: vi.fn() }));
 
@@ -33,7 +36,21 @@ function wrapperFor(client: QueryClient) {
   };
 }
 
+function installNativeCsvEnvironment() {
+  vi.stubGlobal("Blob", NodeBlob);
+  vi.stubGlobal("URL", class extends URL {
+    static createObjectURL() { return "blob:unexpected-browser"; }
+    static revokeObjectURL() { /* External browser resource double. */ }
+  });
+  vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => undefined);
+  vi.stubGlobal("__LED_CONTROL_NATIVE_DOCUMENT_ID__", "csv-document");
+  vi.stubGlobal("__LED_CONTROL_NATIVE_ENVIRONMENT__", { version: 1, type: "mobile.bootstrap",
+    documentId: "csv-document", requestId: "csv-bootstrap", mobile: true, state: "active", online: true });
+  vi.stubGlobal("ReactNativeWebView", { postMessage: vi.fn() });
+}
+
 describe("energy queries", () => {
+  afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
   beforeEach(() => {
     apiGet.mockReset();
     apiPost.mockReset();
@@ -192,6 +209,156 @@ describe("energy queries", () => {
       if (createDescriptor) Object.defineProperty(URL, "createObjectURL", createDescriptor); else Reflect.deleteProperty(URL, "createObjectURL");
       if (revokeDescriptor) Object.defineProperty(URL, "revokeObjectURL", revokeDescriptor); else Reflect.deleteProperty(URL, "revokeObjectURL");
     }
+  });
+
+  it("rejects a native CSV over 20 MiB before reading bytes or starting a download", async () => {
+    installNativeCsvEnvironment();
+    const blob = vi.fn().mockResolvedValue(new Blob(["csv"]));
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true,
+      headers: new Headers({ "content-type": "text/csv", "content-length": "20971521" }), blob }));
+    const { format: _format, ...request } = reportJob.request;
+    await expect(downloadEnergyCsv(reportJob.siteId, request)).rejects.toMatchObject({ code: "FILE_TOO_LARGE" });
+    expect(blob).not.toHaveBeenCalled();
+    expect(window.ReactNativeWebView?.postMessage).not.toHaveBeenCalled();
+  });
+
+  it("stops a native CSV stream that exceeds the limit even without Content-Length", async () => {
+    installNativeCsvEnvironment();
+    const cancel = vi.spyOn(ReadableStreamDefaultReader.prototype, "cancel");
+    const body = new ReadableStream<Uint8Array>({ start(controller) {
+      controller.enqueue(new Uint8Array(20971520)); controller.enqueue(new Uint8Array([1])); controller.close();
+    } });
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(body, { headers: { "content-type": "text/csv" } })));
+    const { format: _format, ...request } = reportJob.request;
+    await expect(downloadEnergyCsv(reportJob.siteId, request)).rejects.toMatchObject({ code: "FILE_TOO_LARGE" });
+    expect(cancel).toHaveBeenCalled();
+    expect(window.ReactNativeWebView?.postMessage).not.toHaveBeenCalled();
+  });
+
+  it("rejects non-CSV and empty native responses without an anchor fallback", async () => {
+    installNativeCsvEnvironment();
+    const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => undefined);
+    const { format: _format, ...request } = reportJob.request;
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("<html>login</html>", {
+      headers: { "content-type": "text/html" }
+    })));
+    await expect(downloadEnergyCsv(reportJob.siteId, request)).rejects.toMatchObject({ code: "FILE_INVALID_MESSAGE" });
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("", { headers: { "content-type": "text/csv" } })));
+    await expect(downloadEnergyCsv(reportJob.siteId, request)).rejects.toMatchObject({ code: "FILE_INVALID_MESSAGE" });
+    expect(click).not.toHaveBeenCalled();
+  });
+
+  it("sends authenticated native CSV bytes and returns handoff without a browser anchor", async () => {
+    installNativeCsvEnvironment();
+    const messages: Array<Record<string, unknown>> = [];
+    vi.stubGlobal("ReactNativeWebView", { postMessage: (raw: string) => {
+      const message = JSON.parse(raw) as Record<string, unknown>;
+      messages.push(message);
+      const reply = message.type === "file.begin" ? { type: "file.ack", nextIndex: 0, receivedBytes: 0 }
+        : message.type === "file.chunk" ? { type: "file.ack", nextIndex: 1, receivedBytes: 7 }
+        : message.type === "file.end" ? { type: "file.result", status: "handoff" } : null;
+      if (reply) queueMicrotask(() => window.dispatchEvent(new CustomEvent("led-control:native-message", {
+        detail: { version: 1, documentId: message.documentId, requestId: message.requestId, ...reply }
+      })));
+    } });
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("x,y\n0,1", { headers: { "content-type": "text/csv; charset=utf-8" } })));
+    const { format: _format, ...request } = reportJob.request;
+    expect(await downloadEnergyCsv(reportJob.siteId, request)).toBe("handoff");
+    expect(fetch).toHaveBeenCalledWith(expect.stringContaining("/exports/csv?"), { credentials: "include", redirect: "error", signal: expect.any(AbortSignal) });
+    expect(messages[0]).toMatchObject({ type: "file.begin", fileName: "energy-export.csv", mimeType: "text/csv", byteLength: 7 });
+    expect(messages[1]).toMatchObject({ type: "file.chunk", index: 0, dataBase64: "eCx5CjAsMQ==" });
+    expect(HTMLAnchorElement.prototype.click).not.toHaveBeenCalled();
+  });
+
+  it("rejects CSV fetched under an old document before beginning a new-document transfer", async () => {
+    installNativeCsvEnvironment();
+    const sent: Array<Record<string, unknown>> = [];
+    vi.stubGlobal("ReactNativeWebView", { postMessage: (raw: string) => {
+      const message = JSON.parse(raw) as Record<string, unknown>;
+      sent.push(message);
+      const reply = message.type === "file.begin" ? { type: "file.ack", nextIndex: 0, receivedBytes: 0 }
+        : message.type === "file.chunk" ? { type: "file.ack", nextIndex: 1, receivedBytes: 7 }
+        : message.type === "file.end" ? { type: "file.result", status: "handoff" } : null;
+      if (reply) queueMicrotask(() => window.dispatchEvent(new CustomEvent("led-control:native-message", {
+        detail: { version: 1, documentId: message.documentId, requestId: message.requestId, ...reply }
+      })));
+    } });
+    const cleanupRuntime = initializeMobileRuntime();
+    let resolveFetch!: (response: Response) => void;
+    let requestSignal: AbortSignal | undefined;
+    vi.stubGlobal("fetch", vi.fn((_url, options: RequestInit) => {
+      requestSignal = options.signal as AbortSignal;
+      return new Promise<Response>(resolve => { resolveFetch = resolve; });
+    }));
+    const { format: _format, ...request } = reportJob.request;
+    const result = downloadEnergyCsv(reportJob.siteId, request).then(value => ({ value }), error => ({ error }));
+    try {
+      window.__LED_CONTROL_NATIVE_DOCUMENT_ID__ = "new-document";
+      window.dispatchEvent(new CustomEvent("led-control:native-message", { detail: {
+        version: 1, type: "mobile.bootstrap", documentId: "new-document", requestId: "new-bootstrap",
+        mobile: true, state: "active", online: true
+      } }));
+      resolveFetch(new Response("x,y\n0,1", { headers: { "content-type": "text/csv" } }));
+      expect(await result).toMatchObject({ error: { code: "FILE_DOCUMENT_CHANGED" } });
+      expect(requestSignal?.aborted).toBe(true);
+      expect(sent.filter(message => message.type === "file.begin")).toEqual([]);
+    } finally { cleanupRuntime(); }
+  });
+
+  it.each([
+    ["FILE_TOO_LARGE", "20MiB"], ["FILE_TRANSFER_BUSY", "진행 중"], ["FILE_TIMEOUT", "시간"],
+    ["FILE_SHARE_FAILED", "공유"], ["FILE_INVALID_MESSAGE", "파일"], ["FILE_DOCUMENT_CHANGED", "화면"],
+    ["FILE_UNSUPPORTED", "앱"]
+  ])("maps %s without exposing native paths", (code, message) => {
+    const error = Object.assign(new Error("/private/native/file.pdf?signature=secret"), { code });
+    expect(energyReportRequestErrorMessage(error, "download")).toContain(message);
+    expect(energyReportRequestErrorMessage(error, "download")).not.toContain("secret");
+  });
+
+  it.each([403, 410])("explains an inaccessible PDF descriptor HTTP %s without raw details", status => {
+    expect(energyReportRequestErrorMessage(new ApiError("secret signature", status, null), "download")).toContain("만료");
+  });
+
+  it.each([
+    [403, "주소가 만료", "다시 요청"],
+    [410, "주소가 만료", "다시 요청"],
+    [404, "파일이 없거나 만료", "다시 생성"],
+    [500, "파일 서버", "잠시 후"],
+    [503, "파일 서버", "잠시 후"]
+  ])("maps signed file HTTP %s to recovery without confusing it with native writes", (status, reason, recovery) => {
+    const error = new MobileFileExportError("FILE_FETCH_FAILED", { reason: "http", status });
+    const message = energyReportRequestErrorMessage(error, "download");
+    expect(message).toContain(reason);
+    expect(message).toContain(recovery);
+    expect(message).not.toContain("앱 저장 공간");
+  });
+
+  it("maps an opaque signed file network failure without asserting that CORS caused it", () => {
+    const error = new MobileFileExportError("FILE_FETCH_FAILED", { reason: "network" });
+    const message = energyReportRequestErrorMessage(error, "download");
+    expect(message).toContain("네트워크 연결");
+    expect(message).toContain("파일 서버 접근");
+    expect(message).not.toContain("만료");
+    expect(message).not.toContain("앱 저장 공간");
+  });
+
+  it("times out a stalled native CSV fetch and does not share or download it", async () => {
+    installNativeCsvEnvironment(); vi.useFakeTimers();
+    const controller = new AbortController();
+    let requestSignal: AbortSignal | undefined;
+    vi.stubGlobal("fetch", vi.fn((_url, options: RequestInit) => new Promise((_resolve, reject) => {
+      requestSignal = options.signal as AbortSignal;
+      requestSignal.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")), { once: true });
+    })));
+    const { format: _format, ...request } = reportJob.request;
+    const pending = downloadEnergyCsv(reportJob.siteId, request, { signal: controller.signal });
+    const observed = pending.catch(error => error);
+    try {
+      await vi.advanceTimersByTimeAsync(30000);
+      expect(requestSignal?.aborted).toBe(true);
+      expect(await observed).toMatchObject({ code: "FILE_TIMEOUT" });
+      expect(window.ReactNativeWebView?.postMessage).not.toHaveBeenCalled();
+    } finally { controller.abort(); await observed; vi.useRealTimers(); }
   });
 
   it("preserves the CSV response status as an ApiError", async () => {

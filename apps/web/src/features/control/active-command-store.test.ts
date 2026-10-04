@@ -1,4 +1,5 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import * as commandStore from "./active-command-store";
 import {
   activeCommandStorageKey,
   clearActiveCommandRequest,
@@ -37,6 +38,130 @@ const REQUEST = {
   },
   brightness: 30
 };
+
+// The native bootstrap, not an unvalidated window flag, owns this opt-in.
+const mobileKey = `led-control:active-command:mobile:v1:${USER_A}:${REQUEST.siteId}`;
+describe("mobile durable command recovery", () => {
+  beforeEach(() => {
+    commandStore.configureActiveCommandPersistence(true);
+    sessionStorage.clear();
+    localStorage.clear();
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+    commandStore.configureActiveCommandPersistence(false);
+    sessionStorage.clear();
+    localStorage.clear();
+  });
+
+  it("keeps the original canonical request and returned identity when the session is lost", () => {
+    saveActiveCommandRequest(USER_A, REQUEST.siteId, REQUEST);
+    saveActiveCommandId(USER_A, REQUEST.siteId, COMMAND_ID);
+    sessionStorage.clear();
+    expect(localStorage.getItem(mobileKey)).not.toBeNull();
+    expect(loadActiveCommandId(USER_A, REQUEST.siteId)).toBe(COMMAND_ID);
+    expect(loadActiveCommandRequest(USER_A, REQUEST.siteId)).toEqual({ ...REQUEST,
+      target: { type: "fixtures", fixtureIds: ["00000000-0000-4000-8000-000000000005", "00000000-0000-4000-8000-000000000006"] } });
+    expect(loadActiveCommandRequest(USER_B, REQUEST.siteId)).toBeNull();
+    expect(loadActiveCommandRequest(USER_A, "another-site")).toBeNull();
+  });
+
+  it("does not switch browser persistence based on the legacy mobile flag", () => {
+    commandStore.configureActiveCommandPersistence(false);
+    vi.stubGlobal("__LED_CONTROL_MOBILE_WEBVIEW__", true);
+    saveActiveCommandRequest(USER_A, REQUEST.siteId, REQUEST);
+    expect(sessionStorage.getItem(activeCommandStorageKey(USER_A, REQUEST.siteId))).not.toBeNull();
+    expect(localStorage.getItem(mobileKey)).toBeNull();
+    vi.unstubAllGlobals();
+  });
+
+  it("preserves an unreadable existing record and prevents replacement instead of treating it as absent", () => {
+    const raw = JSON.stringify({ request: REQUEST });
+    localStorage.setItem(mobileKey, raw);
+    const getItem = Storage.prototype.getItem;
+    vi.spyOn(Storage.prototype, "getItem").mockImplementation(function (this: Storage, key) {
+      if (this === localStorage) throw new DOMException("blocked", "SecurityError");
+      return getItem.call(this, key);
+    });
+    expect(loadActiveCommandRequest(USER_A, REQUEST.siteId)).toBeNull();
+    expect(commandStore.getActiveCommandStorageError()).toBeTruthy();
+    expect(saveActiveCommandRequest(USER_A, REQUEST.siteId, { ...REQUEST, brightness: 90 })).toBe(false);
+    expect(getItem.call(localStorage, mobileKey)).toBe(raw);
+  });
+
+  it("fails closed on corrupt native records without deleting or overwriting them", () => {
+    localStorage.setItem(mobileKey, "{");
+    expect(loadActiveCommandId(USER_A, REQUEST.siteId)).toBeNull();
+    expect(commandStore.getActiveCommandStorageError()).toBeTruthy();
+    expect(saveActiveCommandRequest(USER_A, REQUEST.siteId, REQUEST)).toBe(false);
+    expect(localStorage.getItem(mobileKey)).toBe("{");
+  });
+
+  it("reports durable write failure before a request can be sent", () => {
+    vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => { throw new DOMException("full", "QuotaExceededError"); });
+    expect(saveActiveCommandRequest(USER_A, REQUEST.siteId, REQUEST)).toBe(false);
+    expect(commandStore.getActiveCommandStorageError()).toBeTruthy();
+  });
+
+  it.each(["request", "command", "status-check"] as const)("locks native control when an invalid %s cannot be persisted", (kind) => {
+    saveActiveCommandRequest(USER_A, REQUEST.siteId, REQUEST);
+    const original = localStorage.getItem(mobileKey);
+    const saved = kind === "request"
+      ? saveActiveCommandRequest(USER_A, REQUEST.siteId, { ...REQUEST, brightness: 101 })
+      : kind === "command"
+      ? saveActiveCommandId(USER_A, REQUEST.siteId, "invalid-command-id")
+      : commandStore.savePendingCommandStatusCheck(USER_A, REQUEST.siteId, COMMAND_ID, "invalid-check-id");
+    expect(saved).toBe(false);
+    expect(commandStore.getActiveCommandStorageError()).toBeTruthy();
+    expect(localStorage.getItem(mobileKey)).toBe(original);
+  });
+
+  it("keeps the same manual status-check key across session loss and clears it only by matching identity", () => {
+    commandStore.savePendingCommandStatusCheck(USER_A, REQUEST.siteId, COMMAND_ID, CLIENT_REQUEST_ID);
+    sessionStorage.clear();
+    expect(commandStore.loadPendingCommandStatusCheck(USER_A, REQUEST.siteId, COMMAND_ID)).toEqual({ commandId: COMMAND_ID, clientRequestId: CLIENT_REQUEST_ID });
+    expect(commandStore.loadPendingCommandStatusCheck(USER_B, REQUEST.siteId, COMMAND_ID)).toBeNull();
+    expect(commandStore.clearPendingCommandStatusCheck(USER_A, REQUEST.siteId, COMMAND_ID, OTHER_COMMAND_ID)).toBe(false);
+    expect(commandStore.clearPendingCommandStatusCheck(USER_A, REQUEST.siteId, COMMAND_ID, CLIENT_REQUEST_ID)).toBe(true);
+    expect(commandStore.loadPendingCommandStatusCheck(USER_A, REQUEST.siteId, COMMAND_ID)).toBeNull();
+  });
+
+  it("clears both command namespaces at auth boundaries without removing unrelated storage", () => {
+    saveActiveCommandRequest(USER_A, REQUEST.siteId, REQUEST);
+    localStorage.setItem("unrelated-preference", "keep");
+    sessionStorage.setItem(`led-control:active-command:${USER_B}:site-b`, JSON.stringify({ commandId: OTHER_COMMAND_ID }));
+    commandStore.clearAllActiveCommands();
+    expect(localStorage.getItem(mobileKey)).toBeNull();
+    expect(sessionStorage.getItem(`led-control:active-command:${USER_B}:site-b`)).toBeNull();
+    expect(localStorage.getItem("unrelated-preference")).toBe("keep");
+  });
+
+  it("retains a durable record and latches a safety error when auth cleanup cannot remove it", () => {
+    saveActiveCommandRequest(USER_A, REQUEST.siteId, REQUEST);
+    vi.spyOn(Storage.prototype, "removeItem").mockImplementation(() => { throw new DOMException("blocked", "SecurityError"); });
+    commandStore.clearAllActiveCommands();
+    expect(commandStore.getActiveCommandStorageError()).toBeTruthy();
+    expect(localStorage.getItem(mobileKey)).not.toBeNull();
+  });
+
+  it("does not overwrite an unreadable or corrupt pending manual Get identity", () => {
+    const checkKey = `${mobileKey}:command-check:${COMMAND_ID}`;
+    localStorage.setItem(checkKey, "{");
+    expect(commandStore.savePendingCommandStatusCheck(USER_A, REQUEST.siteId, COMMAND_ID, CLIENT_REQUEST_ID)).toBe(false);
+    expect(commandStore.getActiveCommandStorageError()).toBeTruthy();
+    expect(localStorage.getItem(checkKey)).toBe("{");
+  });
+
+  it("removes the matching manual Get record when a resolved command is cleared", () => {
+    saveActiveCommandId(USER_A, REQUEST.siteId, COMMAND_ID);
+    commandStore.savePendingCommandStatusCheck(USER_A, REQUEST.siteId, COMMAND_ID, CLIENT_REQUEST_ID, ["check-dispatch"]);
+    expect(commandStore.loadPendingCommandStatusCheck(USER_A, REQUEST.siteId, COMMAND_ID)).toEqual({ commandId: COMMAND_ID, clientRequestId: CLIENT_REQUEST_ID, dispatchIds: ["check-dispatch"] });
+    expect(clearActiveCommandId(USER_A, REQUEST.siteId, COMMAND_ID)).toBe(true);
+    sessionStorage.clear();
+    expect(loadActiveCommandId(USER_A, REQUEST.siteId)).toBeNull();
+    expect(commandStore.loadPendingCommandStatusCheck(USER_A, REQUEST.siteId, COMMAND_ID)).toBeNull();
+  });
+});
 
 describe("active command store", () => {
   beforeEach(() => {

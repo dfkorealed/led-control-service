@@ -59,7 +59,7 @@ vi.mock("../registration/RegistrationPanel", () => ({
 }));
 
 const dashboard = {
-  site: { id: "site-1", name: "테스트 현장" },
+  site: { id: "site-1", name: "테스트 현장", timeZone: "Asia/Seoul" },
   summary: { totalFixtures: 1, onlineFixtures: 1, faultFixtures: 0, offlineFixtures: 0, averageBrightness: 70 },
   floors: [{ id: "floor-1", name: "B1", level: -1, floorPlan: null, summary: { totalFixtures: 1, onlineFixtures: 1, faultFixtures: 0, offlineFixtures: 0 }, fixtures: [] }],
   groups: [],
@@ -858,6 +858,34 @@ describe("MonitoringView refresh", () => {
     expect(within(document.querySelector("[data-monitoring-screen]") as HTMLElement).queryByText(/저장된 현황을 유지하고 있습니다/)).not.toBeInTheDocument();
   });
 
+  it.each([
+    ["Asia/Seoul", "2026-10-03T15:59:00.000Z", "2026-10-04 00:59:00"],
+    ["America/Los_Angeles", "2026-10-03T00:30:00.000Z", "2026-10-02 17:30:00"]
+  ])("shows the snapshot in site time across the UTC date boundary: %s", (timeZone, snapshotAt, localTime) => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(new Date(snapshotAt).getTime() + 30_000));
+    queryMocks.useDashboard.mockReturnValue({ ...queryMocks.useDashboard(), data: { ...dashboard, site: { ...dashboard.site, timeZone } } });
+    queryMocks.useFloorFixtures.mockReturnValue({ ...queryMocks.useFloorFixtures(), data: { pages: [{ items: [fixture], nextCursor: null, generatedAt: snapshotAt }] } });
+
+    render(<MonitoringView siteId="site-1" />);
+
+    const updated = screen.getByText(/마지막 갱신:/);
+    expect(updated).toHaveTextContent(localTime);
+    expect(updated).toHaveTextContent("현장 시간");
+    expect(updated).not.toHaveTextContent(snapshotAt);
+    expect(updated.querySelector("time")).toHaveAttribute("datetime", snapshotAt);
+    expect(screen.queryByText("현황 갱신이 지연되고 있습니다.")).not.toBeInTheDocument();
+    expect(refreshApi.waitForMonitoringRefresh).not.toHaveBeenCalled();
+  });
+
+  it("keeps pending snapshot metadata explicit without an invented time", () => {
+    queryMocks.useFloorFixtures.mockReturnValue({ ...queryMocks.useFloorFixtures(), data: undefined, isPending: true });
+    render(<MonitoringView siteId="site-1" />);
+    const updated = screen.getByText(/마지막 갱신:/);
+    expect(updated).toHaveTextContent("서버 snapshot 시각 확인 중");
+    expect(updated.querySelector("time")).toBeNull();
+  });
+
   it("shows a persistent stale warning after the oldest fixture page snapshot exceeds 60 seconds", () => {
     const snapshotAt = new Date(Date.now() - 60_001).toISOString();
     queryMocks.useFloorFixtures.mockReturnValue({
@@ -878,6 +906,7 @@ describe("MonitoringView refresh", () => {
     expect(screen.getByRole("status")).toHaveTextContent("현황 갱신이 지연되고 있습니다.");
     expect(openCurrentStatus()).toHaveTextContent("현황 갱신이 지연되고 있습니다.");
     expect(screen.getByText(/마지막 갱신:/)).not.toHaveTextContent(snapshotAt);
+    expect(screen.getByText(/마지막 갱신:/).querySelector("time")).toHaveAttribute("datetime", snapshotAt);
   });
 
   it("keeps a future server snapshot explicit instead of presenting it as a normal relative update", () => {
@@ -1301,7 +1330,7 @@ describe("MonitoringView refresh", () => {
     expect(screen.queryByText("등록된 층이 없습니다.")).not.toBeInTheDocument();
   });
 
-  it("맵 선택을 한 줄로 표시하고 새로고침을 상단 도구의 오른쪽 끝에 둔다", () => {
+  it("맵 선택 라벨을 연결하고 새로고침을 상단 도구의 오른쪽 끝에 둔다", () => {
     render(<MonitoringView siteId="site-1" />);
 
     expect(screen.queryByRole("heading", { name: "운영 현황" })).not.toBeInTheDocument();
@@ -1317,6 +1346,35 @@ describe("MonitoringView refresh", () => {
     expect(mapSelectorField?.parentElement).toContainElement(screen.getByRole("button", { name: "조명 검색·상세" }));
     expect(screen.getByRole("group", { name: "지도 조작" })).toContainElement(screen.getByRole("button", { name: "지도 전체 보기" }));
     expect(screen.queryByRole("button", { name: "지도 화면 맞춤" })).not.toBeInTheDocument();
+  });
+
+  it("keeps a long map name and its fixture identity through search without sending a device command", async () => {
+    const longName = "B1 · 동측 지하주차장", nextFixture = { ...fixture, id: "fixture-2", name: "동측 출입구 조명" };
+    const fixturesQuery = queryMocks.useFloorFixtures(), mapQuery = queryMocks.useFloorMapSnapshot();
+    queryMocks.useDashboard.mockReturnValue({ ...queryMocks.useDashboard(), data: { ...dashboard, floors: [
+      { ...dashboard.floors[0], name: "B2" }, { ...dashboard.floors[0], id: "floor-2", name: longName }
+    ] } });
+    queryMocks.useFloorFixtures.mockImplementation((floorId: string) => floorId === "floor-2"
+      ? { ...fixturesQuery, data: { pages: [{ ...fixturesQuery.data.pages[0], items: [nextFixture] }] } } : fixturesQuery);
+    queryMocks.useFloorMapSnapshot.mockImplementation((floorId: string) => floorId === "floor-2"
+      ? { ...mapQuery, data: { ...mapSnapshot, floorId: "floor-2" } } : mapQuery);
+    render(<MonitoringView siteId="site-1" />);
+
+    await chooseSelect("맵 선택", longName);
+    expect(screen.getByRole("button", { name: "맵 선택" })).toHaveTextContent(longName);
+    const inspector = openInspector();
+    fireEvent.change(within(inspector).getByRole("searchbox", { name: "조명 이름 또는 번호 검색" }), { target: { value: "동측" } });
+    expect(within(inspector).getByRole("button", { name: "상세 조명 선택" })).toHaveTextContent("Select an item");
+    await chooseSelect("상세 조명 선택", `${nextFixture.name} · 장애`);
+    expect(within(inspector).getByRole("button", { name: "상세 조명 선택" })).toHaveTextContent(nextFixture.name);
+    expect(within(inspector).queryByRole("complementary", { name: "선택 조명 상세" })).not.toBeInTheDocument();
+    fireEvent.click(within(inspector).getByRole("button", { name: "상세 보기" }));
+    const detail = screen.getByRole("dialog", { name: "조명 상세" });
+    expect(within(detail).getByRole("complementary", { name: "선택 조명 상세" })).toHaveTextContent(nextFixture.name);
+    expect(within(detail).queryByText(fixture.name)).not.toBeInTheDocument();
+    closeInspector();
+    expect(screen.getByRole("button", { name: "맵 선택" })).toHaveTextContent(longName);
+    expect(refreshApi.waitForMonitoringRefresh).not.toHaveBeenCalled();
   });
 
   it("0개 상태 필터에서 다른 조명의 상세를 숨기고 전체 목록으로 돌아간다", () => {

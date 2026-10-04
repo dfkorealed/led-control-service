@@ -123,6 +123,17 @@ describe("SiteUsersView", () => {
     expect(screen.getByText("야간 당직")).toBeVisible();
   });
 
+  it("keeps mobile keyboard correction off for login ID without disabling Korean name input", () => {
+    renderView();
+    fireEvent.click(screen.getByRole("button", { name: "사용자 추가" }));
+    const dialog = screen.getByRole("dialog", { name: "사용자 추가" });
+    const login = within(dialog).getByLabelText("로그인 아이디");
+    expect(login).toHaveAttribute("autocapitalize", "none");
+    expect(login).toHaveAttribute("autocorrect", "off");
+    expect(login).toHaveAttribute("spellcheck", "false");
+    expect(within(dialog).getByLabelText("이름")).not.toHaveAttribute("autocapitalize", "none");
+  });
+
   it("validates creation, sends the selected control permission and never re-shows the password", async () => {
     const queryClient = renderView();
     fireEvent.click(screen.getByRole("button", { name: "사용자 추가" }));

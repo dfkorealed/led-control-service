@@ -56,10 +56,17 @@ const entryImports = new Set(["tailwindcss", "./styles/theme.css", "./styles/bas
 const testPath = /(?:^|\/)(?:test|tests|__tests__|e2e)(?:\/|$)|\.(?:test|spec)\.[^.]+$|(?:\.smoke\.ts|-smoke\.tsx|\.golden\.ts)$/;
 const nativeFormElements = new Set(["input", "select", "textarea", "button"]);
 const reviewedUtilities = new Map([
-  ["pb-shell-navigation-safe", "padding-bottom: calc(var(--spacing) * 17 + env(safe-area-inset-bottom));"],
-  ["h-shell-navigation-safe", "height: calc(var(--spacing) * 17 + env(safe-area-inset-bottom));"],
-  ["pb-safe-area-bottom", "padding-bottom: env(safe-area-inset-bottom);"],
+  ["pb-shell-navigation-safe", "padding-bottom: calc(var(--spacing) * 17 + var(--led-control-safe-area-bottom));"],
+  ["h-shell-navigation-safe", "height: calc(var(--spacing) * 17 + var(--led-control-safe-area-bottom));"],
+  ["pb-safe-area-bottom", "padding-bottom: var(--led-control-safe-area-bottom);"],
   ["pt-safe-area-top", "padding-top: env(safe-area-inset-top);"]
+]);
+// The native frame owns insets, whereas an ordinary browser uses CSS env().
+// These two exact declarations are runtime geometry, not new design tokens or
+// general permission for root CSS. Extra properties and duplicates still fail.
+const reviewedNativeInsetRules = new Map([
+  [":root", "--led-control-safe-area-bottom: env(safe-area-inset-bottom);"],
+  [':root[data-led-control-native-safe-area="true"]', "--led-control-safe-area-bottom: 0px;"]
 ]);
 // These preserve the inclusive boundaries of the reviewed landing CSS. They
 // are exact contracts, not permission for arbitrary custom media variants.
@@ -546,6 +553,7 @@ export function inspectUiSource(path, source) {
   if (path.endsWith(".css")) {
     if (!approvedCss.has(path)) add("css-file", path);
     const selectorPattern = /(?:^|[{};])\s*([^{};]+)\{/g;
+    const nativeInsetCounts = new Map();
     let m;
     while ((m = selectorPattern.exec(text))) {
       const selector = m[1].trim().replace(/\s+/g, " ");
@@ -575,7 +583,11 @@ export function inspectUiSource(path, source) {
         continue;
       }
       if (selector.startsWith("@")) continue;
-      const baseAllowed = path === "src/styles/base.css" && ["html", "body", "button, input, select, textarea", ":focus-visible"].includes(selector);
+      const insetCount = (nativeInsetCounts.get(selector) ?? 0) + 1;
+      nativeInsetCounts.set(selector, insetCount);
+      const body = text.slice(selectorPattern.lastIndex, text.indexOf("}", selectorPattern.lastIndex)).trim().replace(/\s+/g, " ");
+      const nativeInsetAllowed = insetCount === 1 && reviewedNativeInsetRules.get(selector) === body;
+      const baseAllowed = path === "src/styles/base.css" && (nativeInsetAllowed || ["html", "body", "button, input, select, textarea", ":focus-visible"].includes(selector));
       if (!baseAllowed) add("css-selector", selector, m.index);
       if (/(?:^|[\s,>+~])(?:input|select|textarea|button)(?=[\s.#[:>+~,]|$)/.test(selector) && !baseAllowed) add("raw-form-style", selector, m.index);
     }

@@ -1,6 +1,6 @@
 # 메뉴 완성 작업 상태판
 
-기준일: 2026-10-03
+기준일: 2026-10-04
 
 ## 2026-10-01 운영 화면 주석 22건·공통 UI — 통합 회귀 보완·최종 검수 진행
 
@@ -118,6 +118,15 @@
 - [ ] 공통 UI, 알람센터, 모니터링, 신설 제어 UI, 통계, 설정/운영 시각을 구현하고 단계별 독립 검토를 통과한다. 메뉴 현황·스키마 문서는 해당 기능과 같은 커밋에서 갱신한다.
 - [ ] 구현 후 화면 폭 320/390/768/962/1017/1024/1440px와 1023/1025px 경계, 짧은 높이·200% 확대·키보드·터치 및 데이터/권한/명령 안전 회귀를 검증한다. 독립 UI/UX·코드 검토의 미해결 P0–P2가 없어야 기본 개발 브랜치에 병합한다. 실제 HIL·운영 배포·사용자 DB 초기화·원격 push는 포함하지 않는다.
 
+## 2026-10-03 Android·iOS WebView 앱 — 구현·로컬 반영 완료
+
+- [x] 기존 UI/UX 디자이너·Shell·모니터링·제어·통계·설정 담당 채팅과 협업하여 React Native/Expo WebView 앱과 네 메뉴의 모바일 UX를 구현했다. [설계 명세](superpowers/specs/2026-10-03-mobile-app-design.md), [실행 체크리스트와 최종 증거](superpowers/plans/2026-10-03-mobile-app.md), [개발 실행 안내](../apps/mobile/README.md)를 유지한다.
+- [x] strict shared bridge·safe-area·키보드·로딩/오류/수동 재시도·앱 복귀·Android back·PDF/CSV OS 공유를 적용했다. 제어 원본 요청키를 보존하여 복귀 시 새 제어 POST 자동 재전송을 막고, 설정 초안·lease 복구·터치 편집을 보완했다. 각 메뉴 문서를 최신화했다.
+- [x] 독립 검토의 stale 문서/공유/부팅 및 통계 문서 scope·descriptor 취소 지적을 해결·재검토했다. 디자이너 V01~V05 작은 화면/큰 글자 지적과 실제 Android IME 가림도 수정했다. 검토 범위 내 미해결 Critical/Important0, 제공 화면/조건의 확정 시각 지적0이다.
+- [x] 최종 제품 `59a80670` canonical root lint/typecheck/test/build 모두 exit0. Mobile51, Web2798/3skip, UI policy66/66·위반0, 최종 관련 Chromium118/118(skipped/unexpected/flaky0). Root 전체의 기존 환경 제외834는 통과에 포함하지 않는다. 제품 hash 검사 전후 변경0.
+- [x] Android 최종 개발 서명 APK 빌드·설치·부팅, 실제 WebView fixture/현재 공개 로그인 및 IME reopen/hide2회 검증을 완료했다. 사용자 산출물은 `/Users/kim-jh/Documents/led 조명 관제 서비스/outputs/mobile/led-control-android-development.apk`(70,492,024bytes, SHA256 `0e84661dcb523eafd0ebc59cbe64ad7fd4b807703db36e7463bd62c3b338871a`). 양 플랫폼 prebuild/Hermes export도 통과했다.
+- [x] 깨끗한 기존 `codex/mvp1-cloud-web`에 제품 소스를 로컬 fast-forward했다. 실제 기본 checkout의 frozen install·Prisma client 생성·canonical root typecheck exit0, 웹 shell/모바일 bootstrap GET200·auth/me401 확인. 기존 서버·DB·장비는 변경하지 않았고 push하지 않았다. 검토 checkout/증거는 보존한다.
+- 제공 APK는 URL 미설정 연결 준비 안내이며 실제 웹 주소 설정 후 재빌드해야 한다. 전체 Xcode 부재로 iOS native build/설치, 고객 계정·OS별 실제 저장·구형/OEM Android·실제 조명 HIL·운영 signing/스토어/배포는 미검증이다. Fresh production audit는 기존 node-forge/braces High2로 exit1이며 예외나 정책 완화 없이 출시 게이트 미통과로 남긴다. 기존 Web chunk 경고도 유지한다.
 
 ## 2026-10-02 맵 편집 스냅·다중 선택·레이어 UX — 구현·자동 검증 완료
 

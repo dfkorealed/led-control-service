@@ -35,6 +35,7 @@ import type { CadImportReviewState, FloorEditorState, FloorImportApplyResult } f
 import { snapPointToGridWithinBounds, type Point } from "./geometry";
 
 import { useCadImportScene } from "./CadImportSceneCanvas";
+import { registerMobileBackGuard } from "../mobile/mobile-back";
 
 interface FloorEditorViewProps {
   initialState: FloorEditorState;
@@ -46,6 +47,7 @@ interface FloorEditorViewProps {
   onSaved: (state: FloorEditorState) => void | Promise<void>;
   onReload: () => void | Promise<void>;
   onDirtyChange?: (dirty: boolean) => void;
+  onNativeBack?: () => boolean;
   floors?: Array<{ id: string; name: string }>;
   onFloorChange?: (floorId: string) => void;
 }
@@ -62,6 +64,7 @@ export function FloorEditorView({
   onSaved,
   onReload,
   onDirtyChange,
+  onNativeBack,
   floors,
   onFloorChange
 }: FloorEditorViewProps) {
@@ -120,6 +123,17 @@ export function FloorEditorView({
     else setCollapsedPanels((current) => ({ ...current, [panel]: true }));
     (panel === "tools" ? toolsToggle : informationToggle).current?.focus();
   }
+  const nativeBack = useRef<() => boolean>(() => false);
+  nativeBack.current = () => {
+    // One registration owns panel → route ordering; separate LIFO guards could
+    // open the dirty dialog before closing a panel after a state update.
+    if (isNarrowLayout && openPanel) {
+      if (!panelDragSource.current) closePanel(openPanel);
+      return true;
+    }
+    return onNativeBack?.() ?? false;
+  };
+  useEffect(() => registerMobileBackGuard(() => nativeBack.current()), []);
   useEffect(() => {
     if (openPanel) (openPanel === "tools" ? toolsPanel : informationPanel).current?.focus();
   }, [openPanel]);
@@ -241,9 +255,24 @@ export function FloorEditorView({
       }
       else timer = setTimeout(persist, 300);
     });
-    window.addEventListener("pagehide", persist);
-    window.addEventListener("beforeunload", persist);
-    return () => { clearTimeout(timer); persist(); unsubscribe(); window.removeEventListener("pagehide", persist); window.removeEventListener("beforeunload", persist); };
+    const flush = () => { clearTimeout(timer); persist(); };
+    const handleVisibility = () => { if (document.visibilityState === "hidden") flush(); };
+    const handleLifecycle = (event: Event) => {
+      // A native picker can temporarily report inactive; only suspension flushes
+      // the pending local draft. Neither path submits a server mutation.
+      if ((event as CustomEvent<{ state?: unknown }>).detail?.state === "background") flush();
+    };
+    window.addEventListener("pagehide", flush);
+    window.addEventListener("beforeunload", flush);
+    window.addEventListener("led-control:webview-lifecycle", handleLifecycle);
+    document.addEventListener("visibilitychange", handleVisibility);
+    return () => {
+      flush(); unsubscribe();
+      window.removeEventListener("pagehide", flush);
+      window.removeEventListener("beforeunload", flush);
+      window.removeEventListener("led-control:webview-lifecycle", handleLifecycle);
+      document.removeEventListener("visibilitychange", handleVisibility);
+    };
   }, [userId, draftScope, baseline, floorId, siteId]);
 
   useEffect(() => {

@@ -28,6 +28,7 @@ export function MapSelectionBoundsHandle({ selectionKey, bounds, mapBounds, zoom
     fill="transparent" stroke={themeColor("fixture-editor-selected")} strokeWidth={1 / zoom} dash={[6 / zoom, 4 / zoom]}
     draggable={!locked} onDragStart={() => { started.current = selectionKey; }}
     onClick={event => { event.cancelBubble = true; const point = event.target.getStage()?.getPointerPosition(); if (point) onPick?.(point, event.evt.detail >= 2, event.evt.shiftKey); }}
+    onTap={event => { event.cancelBubble = true; const point = event.target.getStage()?.getPointerPosition(); if (point) onPick?.(point, false, false); }}
     onDragEnd={event => {
       const point = event.target.position();
       const delta = { x: point.x - bounds.minX, y: point.y - bounds.minY };

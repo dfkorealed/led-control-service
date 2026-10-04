@@ -21,7 +21,7 @@ export function useDialogFocus({ open, dialogRef, returnFocusElement, fallbackFo
     const dialog = dialogRef.current;
     if (!open || !dialog) return;
     const token = {};
-    const unregister = registerOverlay(token);
+    const unregister = registerOverlay(token, () => latest.current.onClose());
     const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     (initialFocusRef?.current ?? dialog).focus();
     const onFocus = (event: FocusEvent) => {

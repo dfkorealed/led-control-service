@@ -59,7 +59,9 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
     expect(historyBox).not.toBeNull();
     expect(executionBox).not.toBeNull();
     expect(historyBox!.y).toBeGreaterThanOrEqual(executionBox!.y + executionBox!.height);
-    expect(historyBox!.height).toBeLessThanOrEqual(viewport.width >= 760 ? 72 : 112);
+    // Mobile wraps the actions into a second row with 52px touch targets.
+    // Include the 44px summary row, 16px vertical padding and 2px border.
+    expect(historyBox!.height).toBeLessThanOrEqual(viewport.width >= 760 ? 72 : 44 + 52 + 16 + 2);
     await history.getByRole("button", { name: "명령 이력 열기" }).click();
     await expect(page.getByRole("dialog", { name: "명령 이력" })).toContainText("최근 3개월");
     await expectNoHorizontalOverflow(page);
@@ -279,6 +281,7 @@ for (const viewport of viewports) {
       timeoutApi.setCommandStatus({ stage: "timed_out", results: [commandResult("timed_out", "Gateway ACK timeout")] });
       await expect(timeoutExecution.getByText("게이트웨이 장비 응답 시간 초과")).toBeVisible();
       await expect(timeoutPage.getByText("Gateway ACK timeout", { exact: true })).toHaveCount(0);
+      await expect(timeoutExecution.getByText("1개 선택", { exact: true })).toBeVisible();
       await expect(timeoutPage.getByRole("button", { name: "밝기 적용" })).toBeEnabled();
     } finally {
       await timeoutPage.close();

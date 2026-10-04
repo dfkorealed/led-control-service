@@ -9,6 +9,13 @@
     "dist"
   ],
   "exports": {
+    "./mobile-webview-contracts": {
+      "types": "./dist/esm/mobile-webview-contracts.d.ts",
+      "browser": "./dist/esm/mobile-webview-contracts.js",
+      "require": "./dist/mobile-webview-contracts.js",
+      "import": "./dist/esm/mobile-webview-contracts.js",
+      "default": "./dist/mobile-webview-contracts.js"
+    },
     ".": {
       "types": "./dist/index.d.ts",
       "require": "./dist/index.js",

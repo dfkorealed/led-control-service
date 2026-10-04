@@ -1,6 +1,7 @@
 import { forwardRef } from "react";
 import { Button, DateRangePicker as AriaDateRangePicker, Dialog, Group, I18nProvider, Popover, RangeCalendar } from "react-aria-components";
 import { FormField, fieldAria } from "../fields/FormField";
+import { RegisteredPopoverContent } from "../overlays/RegisteredPopoverContent";
 import { cn } from "../utils/cn";
 import { CalendarContent } from "./Calendar";
 import { calendarTriggerClass, datePopoverClass } from "./DatePicker";
@@ -22,7 +23,7 @@ export const DateRangePicker = /* @__PURE__ */ forwardRef<FocusableFieldHandle, 
       value={parseDateRange(value)}
       onChange={(next) => onChange(next === null ? null : { start: formatIsoDate(next.start), end: formatIsoDate(next.end) })}
       {...parseBounds(minValue, maxValue, parseIsoDate)}>
-      <Group id={attributes.id} ref={focus.element} aria-controls={props["aria-controls"]} className={cn(attributes.className, "flex min-w-0 items-center justify-between gap-1 px-1 py-0")}>
+      {({ isOpen, state }) => <><Group id={attributes.id} ref={focus.element} aria-controls={props["aria-controls"]} className={cn(attributes.className, "flex min-w-0 items-center justify-between gap-1 px-1 py-0")}>
         <div className="flex min-w-0 flex-wrap items-center gap-1">
           <SegmentedInput slot="start" firstSegment={focus.firstSegment} className="flex min-w-0 items-center" />
           <span aria-hidden="true">–</span>
@@ -31,7 +32,7 @@ export const DateRangePicker = /* @__PURE__ */ forwardRef<FocusableFieldHandle, 
         <Button className={calendarTriggerClass}><span aria-hidden="true">▦</span></Button>
       </Group>
       {/* Match DatePicker's 4px viewport inset so seven 44px cells fit at 320px. */}
-      <Popover containerPadding={4} className={datePopoverClass}><Dialog className="outline-none"><RangeCalendar className="flex flex-col gap-2"><CalendarContent /></RangeCalendar></Dialog></Popover>
+      <Popover containerPadding={4} className={datePopoverClass}><RegisteredPopoverContent isActive={isOpen} onBack={() => state.close()}><Dialog className="outline-none"><RangeCalendar className="flex flex-col gap-2"><CalendarContent /></RangeCalendar></Dialog></RegisteredPopoverContent></Popover></>}
     </AriaDateRangePicker>}
   </FormField></I18nProvider>;
 });

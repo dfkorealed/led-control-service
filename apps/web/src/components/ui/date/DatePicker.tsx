@@ -1,6 +1,7 @@
 import { forwardRef } from "react";
 import { Button, Calendar, DatePicker as AriaDatePicker, Dialog, Group, I18nProvider, Popover } from "react-aria-components";
 import { FormField, fieldAria } from "../fields/FormField";
+import { RegisteredPopoverContent } from "../overlays/RegisteredPopoverContent";
 import { cn } from "../utils/cn";
 import { CalendarContent } from "./Calendar";
 import { formatIsoDate, parseBounds, parseIsoDate } from "./date-adapters";
@@ -23,13 +24,13 @@ export const DatePicker = /* @__PURE__ */ forwardRef<FocusableFieldHandle, DateP
     {(attributes) => <AriaDatePicker {...props} {...fieldAria(attributes, props)} className="contents"
       value={value === null ? null : parseIsoDate(value)} onChange={(next) => onChange(next === null ? null : formatIsoDate(next))}
       {...parseBounds(minValue, maxValue, parseIsoDate)}>
-      <Group id={attributes.id} ref={focus.element} aria-controls={props["aria-controls"]} className={cn(attributes.className, "flex min-w-0 items-center justify-between gap-1 px-1 py-0")}>
+      {({ isOpen, state }) => <><Group id={attributes.id} ref={focus.element} aria-controls={props["aria-controls"]} className={cn(attributes.className, "flex min-w-0 items-center justify-between gap-1 px-1 py-0")}>
         <SegmentedInput firstSegment={focus.firstSegment} className="flex min-w-0 items-center" />
         <Button className={calendarTriggerClass}><span aria-hidden="true">▦</span></Button>
       </Group>
       {/* Seven 44px cells plus borders need 310px. The default 12px viewport
           inset would push the calendar beyond 320px; use the approved 4px inset. */}
-      <Popover containerPadding={4} className={datePopoverClass}><Dialog className="outline-none"><Calendar className="flex flex-col gap-2"><CalendarContent /></Calendar></Dialog></Popover>
+      <Popover containerPadding={4} className={datePopoverClass}><RegisteredPopoverContent isActive={isOpen} onBack={() => state.close()}><Dialog className="outline-none"><Calendar className="flex flex-col gap-2"><CalendarContent /></Calendar></Dialog></RegisteredPopoverContent></Popover></>}
     </AriaDatePicker>}
   </FormField></I18nProvider>;
 });

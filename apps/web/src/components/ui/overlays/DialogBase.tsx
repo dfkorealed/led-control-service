@@ -61,10 +61,10 @@ function DialogContent({ title, description, children, actions, onClose, isPendi
   const manager = useFocusManager();
   const token = useRef({});
   const opener = useRef(document.activeElement instanceof HTMLElement ? document.activeElement : null);
-  const latest = useRef({ returnFocusRef, fallbackFocusRef, returnFocusElement, fallbackFocusElement });
-  latest.current = { returnFocusRef, fallbackFocusRef, returnFocusElement, fallbackFocusElement };
+  const latest = useRef({ returnFocusRef, fallbackFocusRef, returnFocusElement, fallbackFocusElement, onClose, isPending });
+  latest.current = { returnFocusRef, fallbackFocusRef, returnFocusElement, fallbackFocusElement, onClose, isPending };
   useLayoutEffect(() => {
-    const unregister = registerOverlay(token.current);
+    const unregister = registerOverlay(token.current, () => { if (!latest.current.isPending) latest.current.onClose(); });
     return () => {
       if (!unregister()) return;
       // React removes sibling triggers after layout cleanup; refs stay live so

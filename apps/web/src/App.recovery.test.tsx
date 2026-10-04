@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AppRoot as App } from "./AppRoot";
 import { authMeQueryKey } from "./api/principal-cache";
 import { activeCommandStorageKey } from "./features/control/active-command-store";
+import * as commandStore from "./features/control/active-command-store";
 
 const user = { id: "operator-new", organizationId: "provider-new", organizationType: "service_provider", loginId: "operator_new", name: "운영자", role: "operator", status: "active", mustChangePassword: false };
 let client: QueryClient;
@@ -38,9 +39,31 @@ beforeEach(() => {
   requests = [];
   window.history.replaceState({}, "", "/operator/site-admins");
 });
-afterEach(() => { cleanup(); client.clear(); sessionStorage.clear(); onlineManager.setOnline(true); vi.useRealTimers(); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
+afterEach(() => { cleanup(); client.clear(); sessionStorage.clear(); localStorage.clear(); commandStore.configureActiveCommandPersistence(false); onlineManager.setOnline(true); vi.useRealTimers(); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
 describe("app auth recovery (real client and shells)", () => {
+  it.each([401, 403])("cleans mobile durable recovery on initial auth rejection %s without deleting preferences", async (status) => {
+    commandStore.configureActiveCommandPersistence(true);
+    const key = "led-control:active-command:mobile:v1:unknown-old-user:old-site";
+    localStorage.setItem(key, JSON.stringify({ commandId: "00000000-0000-4000-8000-000000009001" }));
+    localStorage.setItem("unrelated-preference", "keep");
+    mount(async () => response(status));
+    await screen.findByRole("heading", { name: status === 401 ? "킨다 로그인" : "다시 로그인이 필요합니다" });
+    expect(localStorage.getItem(key)).toBeNull();
+    expect(localStorage.getItem("unrelated-preference")).toBe("keep");
+    expect(requests.some((path) => path.startsWith("/api/commands"))).toBe(false);
+  });
+
+  it("preserves mobile pending identity through initial authenticated cold start without issuing command POST", async () => {
+    commandStore.configureActiveCommandPersistence(true);
+    const key = "led-control:active-command:mobile:v1:operator-new:old-site";
+    const raw = JSON.stringify({ commandId: "00000000-0000-4000-8000-000000009001" });
+    localStorage.setItem(key, raw);
+    mount(async () => response(200, { user }));
+    await screen.findByRole("heading", { name: "현장 관리자 계정" });
+    expect(localStorage.getItem(key)).toBe(raw);
+    expect(requests.some((path) => path.startsWith("/api/commands"))).toBe(false);
+  });
   it("catches initial pending/paused auth becoming a zero-request login instead of offline recovery", async () => {
     onlineManager.setOnline(false);
     mount(async () => response(200, { user }));

@@ -59,15 +59,18 @@ test("final review: compact manual controls follow the map and remain reachable 
   await installControlMapRoutes(page);
   await page.goto(`/control?siteId=${ids.site}`);
   await marker(page, "B2-L001").click();
-  const panel = page.getByRole("complementary", { name: "밝기 실행" });
-  await expect(panel.getByText("1개 선택", { exact: true })).toBeVisible();
-  await expect(panel.getByRole("textbox", { name: "밝기 수치" })).toBeVisible();
-  const action = panel.getByRole("button", { name: "1개 조명에 밝기 적용" });
+  const execution = page.getByRole("complementary", { name: "밝기 실행" });
+  const action = execution.getByRole("button", { name: "1개 조명에 밝기 적용" });
+  await expect(execution.getByText("1개 선택", { exact: true })).toBeVisible();
+  await execution.getByRole("textbox", { name: "밝기 수치" }).scrollIntoViewIfNeeded();
+  await expect(execution.getByRole("textbox", { name: "밝기 수치" })).toBeVisible();
+  // Manual control now follows map → execution → history, not a fixed sheet.
   await action.scrollIntoViewIfNeeded();
-  await expectReachableInside(action, panel);
+  await expectReachableInside(action, execution);
   const actionBox = (await action.boundingBox())!;
   const navBox = (await page.locator('[data-shell-navigation="compact"]').boundingBox())!;
   expect(actionBox.y + actionBox.height).toBeLessThanOrEqual(navBox.y);
+  expect(actionBox.y).toBeGreaterThanOrEqual(0);
   await expectNoHorizontalOverflow(page);
 });
 
@@ -245,7 +248,7 @@ test("viewer control redirect issues no mutating request", async ({ page }) => {
 });
 
 for (const viewport of [{ width: 1440, height: 900 }, { width: 1024, height: 768 }] as const) {
-  test(`desktop control at ${viewport.width}x${viewport.height} keeps page fixed while map, history, and detail scroll internally`, async ({ page }) => {
+  test(`desktop control at ${viewport.width}x${viewport.height} keeps page fixed with internal map/detail scroll and paged history drawer`, async ({ page }) => {
     await page.setViewportSize(viewport);
     await installControlMapRoutes(page, { fixtureCount: 80, groupCount: 40, historyCount: 24 });
     await page.goto(`/control?siteId=${ids.site}`);
@@ -270,9 +273,12 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 1024, height: 768
     const historyDrawer = page.getByRole("dialog", { name: "명령 이력", exact: true });
     const historyList = historyDrawer.getByRole("region", { name: "명령 이력 본문" });
     await expect(historyList).toHaveCSS("overflow-y", "auto");
+    // The default 50-row operations page contains these 24 fixture records.
     await expectInternalWheelScroll(page, historyList);
     const finalCommand = historyList.getByRole("button", { name: /99999999-9999-4999-8999-000000005023/ });
-    await expectReachableInside(finalCommand, historyList);
+    await finalCommand.scrollIntoViewIfNeeded();
+    await expectReachableInside(finalCommand, historyDrawer);
+    await expect(historyDrawer.getByRole("button", { name: "다음" })).toBeDisabled();
     await finalCommand.click();
     await expect(historyDrawer).toHaveCount(0);
     await expect(page.getByRole("button", { name: "명령 상세 닫기" })).toBeVisible();
@@ -282,7 +288,7 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 1024, height: 768
 }
 
 for (const viewport of [{ width: 390, height: 844 }, { width: 320, height: 740 }] as const) {
-  test(`mobile control fits ${viewport.width}x${viewport.height} with map marker touch targets and action above compact navigation`, async ({ page }) => {
+  test(`mobile control fits ${viewport.width}x${viewport.height} with map marker touch targets and action above compact navigation`, async ({ page }, testInfo) => {
     await page.setViewportSize(viewport);
     await installControlMapRoutes(page);
     await page.goto(`/control?siteId=${ids.site}`);
@@ -309,6 +315,13 @@ for (const viewport of [{ width: 390, height: 844 }, { width: 320, height: 740 }
     expect(navigationBox).not.toBeNull();
     if (!actionBox || !navigationBox) return;
     expect(actionBox.y + actionBox.height).toBeLessThanOrEqual(navigationBox.y);
+    // The integrated operations control has one metric input and slider.
+    // Preserve mobile numeric editing and command safety through that entry.
+    const brightness = page.getByRole("textbox", { name: "밝기 수치", exact: true });
+    await brightness.fill("42"); await brightness.press("Enter");
+    await expect(page.getByRole("slider", { name: "밝기", exact: true })).toHaveValue("42");
+    await expect(page.locator("[data-control-presets]")).toHaveCount(0);
+    await page.screenshot({ path: testInfo.outputPath(`mobile-control-${viewport.width}-execution.png`) });
   });
 }
 
@@ -574,7 +587,12 @@ async function installControlMapRoutes(page: Page, options: {
     const url = new URL(request.url());
     const path = url.pathname;
     if (request.method() === "POST") state.postRequests.push(path);
-    if (path === "/api/commands" && options.historyCount) return route.fulfill({ json: { items: url.searchParams.get("limit") === "1" ? history.slice(0, 1) : history, nextCursor: null, generatedAt: "2026-09-01T00:00:00Z", retentionEnabled: false, retainedFrom: "2026-06-01T00:00:00Z" } });
+    if (path === "/api/commands" && options.historyCount) {
+      const offset = Number(url.searchParams.get("cursor") ?? 0);
+      const limit = Number(url.searchParams.get("limit") ?? 50);
+      return route.fulfill({ json: { items: history.slice(offset, offset + limit), nextCursor: offset + limit < history.length ? String(offset + limit) : null,
+        generatedAt: "2026-09-01T00:00:00Z", retentionEnabled: false, retainedFrom: "2026-06-01T00:00:00Z" } });
+    }
     const historicalCommand = history.find((command) => path === `/api/commands/${command.id}`);
     if (historicalCommand) return route.fulfill({ json: { ...historicalCommand, generatedAt: "2026-09-01T00:00:00Z", retainedFrom: "2026-06-01T00:00:00Z", retentionEnabled: false } });
     if (path === `/api/sites/${ids.site}/dashboard`) {

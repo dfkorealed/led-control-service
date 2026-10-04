@@ -193,6 +193,16 @@ const rootRequireSmoke = requireSmoke.replace(
   "@led-control/shared/automation-contracts",
   "@led-control/shared"
 );
+const mobileBridgeSmoke = `
+  const { webToMobileMessageSchema, MobileFileTransferGuard } =
+    await import("@led-control/shared/mobile-webview-contracts");
+  const envelope = { version: 1, documentId: "document-1", requestId: "request-1" };
+  const guard = new MobileFileTransferGuard();
+  guard.begin({ ...envelope, type: "file.begin", action: "share", fileName: "report.csv", mimeType: "text/csv", byteLength: 2 }, 0);
+  const progress = guard.chunk({ ...envelope, type: "file.chunk", index: 0, dataBase64: "AQI=" }, 1);
+  if (progress.receivedBytes !== 2 || progress.nextIndex !== 1) throw new Error("wrong mobile progress");
+  if (webToMobileMessageSchema.safeParse({ ...envelope, type: "file.begin", url: "https://evil.example" }).success) throw new Error("unsafe mobile input");
+`;
 const dimmingCommandImportSmoke = `
   const { createDimmingCommandSchema: schema } = await import("@led-control/shared/dimming-command");
   const result = schema.safeParse({
@@ -469,6 +479,14 @@ describe("shared package exports", () => {
     await expect(execFile(process.execPath, ["--eval", energyP2RequireSmoke], {
       cwd: consumerDirectory
     })).resolves.toMatchObject({ stderr: "" });
+    for (const args of [
+      ["--input-type=module", "--eval", mobileBridgeSmoke],
+      ["--conditions=browser", "--input-type=module", "--eval", mobileBridgeSmoke],
+      ["--eval", mobileBridgeSmoke.replace('await import("@led-control/shared/mobile-webview-contracts")', 'require("@led-control/shared/mobile-webview-contracts")')]
+    ]) {
+      await expect(execFile(process.execPath, args, { cwd: consumerDirectory })).resolves.toMatchObject({ stderr: "" });
+    }
+    await expect(access(join(installedPackageDirectory, packageJson.exports["./mobile-webview-contracts"].types))).resolves.toBeUndefined();
   }, 30_000);
 });
 

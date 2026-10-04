@@ -8,6 +8,7 @@ import {
   createCaseStatusCheck,
   reconcileCommandCase,
   createCommandStatusCheck,
+  createDimmingCommand,
   type CommandStatusResponse
 } from "./commands";
 
@@ -56,7 +57,31 @@ describe("getCommandStatusRefetchInterval", () => {
 });
 
 describe("command recovery API", () => {
-  afterEach(() => vi.unstubAllGlobals());
+  afterEach(() => { vi.unstubAllGlobals(); vi.useRealTimers(); });
+  it("bounds an unresponsive dimming HTTP request without automatically retrying Set", async () => {
+    vi.useFakeTimers();
+    const fetch = vi.fn().mockImplementation(() => new Promise(() => {}));
+    vi.stubGlobal("fetch", fetch);
+    const result = createDimmingCommand({ siteId: "site", clientRequestId: "original-request",
+      target: { type: "fixtures", fixtureIds: ["fixture"] }, brightness: 37 }).catch((error) => error);
+    await vi.advanceTimersByTimeAsync(30_000);
+    const error = await result;
+    expect(error.name).toBe("ApiTimeoutError");
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(fetch.mock.calls[0][1].body).clientRequestId).toBe("original-request");
+  }, 1000);
+
+  it("preserves caller cancellation through the bounded status-check transport", async () => {
+    const fetch = vi.fn().mockImplementation(() => new Promise(() => {}));
+    vi.stubGlobal("fetch", fetch);
+    const controller = new AbortController();
+    const result = createCommandStatusCheck("id", "same-request", controller.signal).catch((error) => error);
+    controller.abort();
+    const error = await result;
+    expect(error.name).toBe("AbortError");
+    expect(fetch.mock.calls[0][1].signal.aborted).toBe(true);
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
   it("encodes history search, stage and opaque cursor without losing their scope", async () => {
     const fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ items: [], nextCursor: null, generatedAt: "2026-09-25T00:00:00.000Z", retainedFrom: "2026-06-25T00:00:00.000Z" }) });
     vi.stubGlobal("fetch", fetch);
@@ -102,8 +127,8 @@ describe("command recovery API", () => {
     await createCommandStatusCheck("id", "same-request", controller.signal);
     await createCommandStatusCheck("id", "same-request", controller.signal);
     expect(fetch.mock.calls.map(([url, init]) => [url, JSON.parse(init.body), init.signal])).toEqual([
-      ["/api/commands/id/status-checks", { clientRequestId: "same-request" }, controller.signal],
-      ["/api/commands/id/status-checks", { clientRequestId: "same-request" }, controller.signal]
+      ["/api/commands/id/status-checks", { clientRequestId: "same-request" }, expect.any(AbortSignal)],
+      ["/api/commands/id/status-checks", { clientRequestId: "same-request" }, expect.any(AbortSignal)]
     ]);
   });
 });
