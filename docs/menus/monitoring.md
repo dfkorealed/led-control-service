@@ -1,5 +1,32 @@
 # 모니터링 메뉴 기능 현황
 
+## 2026-10-05 맵 공간·공통 조회 필터 보완 (추가 운영 UI Task 5)
+
+### 구현 완료
+
+- 현장 전체 집계는 Task 4의 Shell 헤더가 소유하고 본문의 중복 현장 요약만 제거한다. 맵 이름·전체/정상/점검/오프라인 수치·현재 표시 상태는 본문에 남기고 상태 조회는 공통 FilterPanel Popover로 옮긴다. 기존 목록 열기와 onSelect·null/집계 준비 중 표현을 유지하며 조명을 자동 선택하지 않는다. 현장·맵 기본 선택과 기존 조명 검색 입력은 Popover 밖에 유지한다.
+- 전체 로그의 기간과 50/100/500/1000 항목 수 선택을 공통 Popover에 배치한다. 기본 50·기간 null·최근 3개월·종료일 포함·opaque cursor·범위별 조회는 유지한다. Popover 닫기/재열기는 부모 소유 부분 날짜와 현재 페이지를 보존하며 부분·역전 날짜는 요청하지 않는다. 초기화는 기간과 크기/페이지를 기본값으로 되돌리고, 방문한 페이지의 cursor400만 첫 페이지로 복구한다. 기존 로그 검색 계약은 없어 가짜 검색이나 API 필드를 추가하지 않는다.
+- 공통 Dialog는 내부 ref를 안정화해 중첩 필터의 날짜 입력·부모 재렌더·외부 object/callback ref 교체 시 초점을 유지하고 외부 ref 교체/닫힘 정리를 보존한다. 초기 초점·pending·Back·safe-area 정책은 변경하지 않는다.
+- 격리 Chromium에서 320/390/768/1023/1024/1287/1440px의 상태 필터·기존 검색·44px 조작·가로 넘침 0, 휠/키보드 끝 로그·실제 소프트웨어 터치 pinch/swipe·고유 임시 프로필의 브라우저 200% 확대, 카메라의 1023↔1024/전체 보기 복귀, 늦은 이전 층 로그의 격리를 직접 검증한다. 제어 POST는 0이다.
+
+### 미구현
+
+- 실제 모바일 native WebView·물리 LED/Gateway HIL·운영 DB·DDL·배포 및 브랜치 최종 통합 검수는 이 작업의 완료 범위가 아니다.
+
+### 부족하거나 개선이 필요한 기능
+
+- 원래 두 조명의 1287×1226/390×320/1440×600 bounds에서 footer·범례는 맵/frame 안에 있었고 짧은 화면은 문서 스크롤로 접근됐다. 확대 surface의 부분 표시는 정상 카메라 동작이므로 재현되지 않은 잘림에 대한 높이/CSS 수정은 하지 않았다.
+- 오래된 fixture 시각의 지연 알림 toast가 390×320의 footer hit를 가린 원래 실패와 스크린샷을 보존한다. 명시적으로 알림을 닫은 뒤의 접근 PASS는 알림이 보이는 동안 겹침 0의 증거가 아니다. loading/error/toast 동시 표시의 최종 겹침 검수는 Task 9에서 별도로 판정한다. Chromium/CDP 터치·inset 증거를 실기기 승인으로 확대하지 않는다.
+
+### 관련 파일
+
+- `apps/web/src/features/monitoring/{MonitoringView,MonitoringSummary,MonitoringLogDrawer}.tsx`와 인접 시험, `apps/web/e2e/monitoring-surface-access.spec.ts`.
+- 공통 좁은 보완: `apps/web/src/components/ui/overlays/{DialogBase.tsx,overlays.test.tsx}`. 기존 FloorMap/viewport/camera와 조회 hook/API는 변경하지 않는다.
+
+### 갱신 규칙
+
+- 원 실패와 source/timestamp별 실제 bounds·scroll·입력·ref 정리·초점·카메라·cursor/기간·scope 격리·POST0을 함께 보존한다. mock/실제 운영/native/HIL 증거와 알림 표시/닫힘 상태를 구분하며 중첩 입력의 초점·draft 단언을 약화하지 않는다.
+
 ## 2026-10-05 현장 헤더·개인 알람 숨김 웹 소비 (추가 운영 UI Task 4)
 
 - 구현 완료: Shell의 기존 authorized dashboard query로 `현장 전체`와 현장 이름·전체/온라인/장애/오프라인 집계를 헤더에 표시한다. 계정·현장·모니터링 경로를 검사하고 이전 현장의 값은 거부한다. 미확인/null·로딩·오류를 0으로 만들지 않는다. 본문의 중복 현장 요약 제거는 Task 5에서 소비한다.

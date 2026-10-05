@@ -356,13 +356,6 @@ function MonitoringDashboard({ data, userRole, siteId, refreshDashboard }: Monit
         onRefresh={() => void handleRefresh()}
         onMapRetry={() => void handleMapRetry()}
       />
-      <div hidden={workspaceFocus.active} className={workspaceFocus.active ? "hidden" : "contents"}><MonitoringSummary
-        scope="site"
-        total={data.summary.totalFixtures}
-        online={data.summary.onlineFixtures}
-        fault={data.summary.faultFixtures}
-        offline={data.summary.offlineFixtures ?? null}
-      /></div>
       <div className="flex items-center justify-between gap-4 max-compact:flex-col max-compact:items-stretch" role="group" aria-label="모니터링 도구">
         {/* Compact layouts reserve the full row for the map value; the search
             action must not squeeze the value or chevron when text is enlarged. */}
@@ -404,6 +397,7 @@ function MonitoringDashboard({ data, userRole, siteId, refreshDashboard }: Monit
 
       {floor ? <MonitoringSummary
         scope="floor"
+        mapName={floor.name}
         filter={fixtureFilter}
         onSelect={filter => { clearSelection(); setFixtureSearch(""); setFixtureFilter(filter); setFinderDefaultOpen(true); setIsInspectorOpen(true); }}
         total={floor.summary?.totalFixtures ?? null}

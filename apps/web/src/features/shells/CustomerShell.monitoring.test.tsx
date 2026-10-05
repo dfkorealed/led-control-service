@@ -100,7 +100,7 @@ describe("customer shell monitoring details", () => {
     expect(screen.getByRole("button", { name: "장치 상태 확인 중" })).toBeDisabled();
     blocked = false;
     release();
-    await waitFor(() => expect(within(screen.getByRole("region", { name: "선택 층 조명 현황" })).getByRole("button", { name: "오프라인" })).toHaveTextContent("1"));
+    await waitFor(() => expect(within(screen.getByRole("region", { name: "선택 층 조명 현황" })).getByRole("group", { name: "오프라인" })).toHaveTextContent("1"));
     expect(fetchMock.mock.calls.filter(([path]) => path === "/api/sites/site-1/floors/floor-1/monitoring-refreshes")).toHaveLength(1);
     const inspector = await openFixtureInspector();
     expect(within(inspector).getByRole("complementary", { name: "선택 조명 상세" })).toHaveTextContent("상태 수신 지연");
@@ -113,7 +113,7 @@ describe("customer shell monitoring details", () => {
     mount();
     const refresh = await screen.findByRole("button", { name: "새로고침" });
     fireEvent.click(refresh);
-    await waitFor(() => expect(within(screen.getByRole("region", { name: "선택 층 조명 현황" })).getByRole("button", { name: "오프라인" })).toHaveTextContent("1"));
+    await waitFor(() => expect(within(screen.getByRole("region", { name: "선택 층 조명 현황" })).getByRole("group", { name: "오프라인" })).toHaveTextContent("1"));
     const inspector = await openFixtureInspector();
     expect(within(inspector).getByRole("complementary", { name: "선택 조명 상세" })).toHaveTextContent("상태 수신 지연");
     expect(refresh).toBeEnabled();

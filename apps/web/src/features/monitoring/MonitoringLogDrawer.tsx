@@ -1,7 +1,8 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import { FocusScope, useFocusManager } from "react-aria";
 import { isApiStatus } from "../../api/client";
-import { Button, DateRangePicker, DrawerDialog, FilterPanel, LogView, PaginationBar, Text, type DateRangeValue } from "../../components/ui";
+import { Button, DateRangePicker, DrawerDialog, FilterPanel, LogView, PageSizeSelect, PaginationBar, Text, useDateRangeDraft, type DateRangeValue } from "../../components/ui";
+import { draftToDate, isEmptyDateDraft } from "../../components/ui/date/useDateDraft";
 import { formatMonitoringActivity } from "./monitoring-activity-presentation";
 import { formatMonitoringTimestamp } from "./monitoring-time";
 import { useMonitoringActivity } from "./useMonitoringActivity";
@@ -24,17 +25,30 @@ export function MonitoringLogDrawer({ isOpen, onClose, returnFocusRef, fallbackF
   const setCursorStack = (change: string[] | ((stack: string[]) => string[])) => setNavigation({ scopeKey, cursors: typeof change === "function" ? change(cursorStack) : change });
   const [limit, setLimit] = useState<50 | 100 | 500 | 1000>(50);
   const [period, setPeriod] = useState<DateRangeValue | null>(null);
+  // The drawer, not its transient filter Popover, owns incomplete raw dates.
+  const dateDraft = useDateRangeDraft(scopeKey, period);
+  const hasDateDraft = !isEmptyDateDraft(dateDraft.draft.start) || !isEmptyDateDraft(dateDraft.draft.end);
+  const startDate = draftToDate(dateDraft.draft.start), endDate = draftToDate(dateDraft.draft.end);
+  const invalidDates = hasDateDraft && (!startDate || !endDate || startDate > endDate);
+  const datesCommitted = !hasDateDraft ? period === null : period?.start === startDate && period?.end === endDate;
   const cursor = cursorStack.at(-1) ?? "";
-  const query = useMonitoringActivity({ principal: isOpen ? principal : null, siteId, floorId, cursor, limit, fromDate: period?.start, toDate: period?.end });
+  const query = useMonitoringActivity({ principal: isOpen && !invalidDates && datesCommitted ? principal : null, siteId, floorId, cursor, limit, fromDate: period?.start, toDate: period?.end });
   const expired = isApiStatus(query.error, 410);
-  const pending = query.isPending || query.isFetching || query.isPaused;
-  const success = !pending && !query.error && Boolean(query.data);
+  const pending = !invalidDates && (query.isPending || query.isFetching || query.isPaused);
+  const success = !invalidDates && datesCommitted && !pending && !query.error && Boolean(query.data);
   const options = [50, 100, 500, 1000] as const;
 
   // The derived first-render guard prevents a stale cursor request, while this
   // discards the old stack so returning to that scope cannot revive page two.
   useEffect(() => { setNavigation(current => current.scopeKey === scopeKey ? current : { scopeKey, cursors: [""] }); }, [scopeKey]);
   useEffect(() => { if (isOpen && isApiStatus(query.error, 401)) onClose(); }, [isOpen, query.error, onClose]);
+  // A cursor can be invalidated by the server's scoped query contract. Only a
+  // non-first-page 400 recovers automatically; first-page errors stay visible.
+  useEffect(() => { if (isOpen && cursor && isApiStatus(query.error, 400)) setNavigation({ scopeKey, cursors: [""] }); }, [isOpen, cursor, query.error, scopeKey]);
+
+  function resetFilters() {
+    setPeriod(null); dateDraft.reset(null); setLimit(50); setCursorStack([""]);
+  }
 
   return <DrawerDialog
     isOpen={isOpen}
@@ -50,11 +64,18 @@ export function MonitoringLogDrawer({ isOpen, onClose, returnFocusRef, fallbackF
     className="flex min-h-0 max-w-[var(--container-lg)] flex-col overflow-hidden max-compact:[&_[data-dialog-safe-area]>div]:p-2 max-compact:[&_[data-dialog-header]]:mb-1.5!"
     bodyClassName="min-h-0 flex-1 overflow-hidden"
   >
-    <LogView label="운영 로그" className="max-compact:gap-1.5 max-compact:[&>div]:gap-1.5" filters={<FilterPanel label="운영 로그 필터" actions={period ? <Button variant="secondary" onClick={() => { setPeriod(null); setCursorStack([""]); }}>전체 보관 기간</Button> : undefined}>
-      <DateRangePicker label="조회 기간" value={period} onChange={value => { setPeriod(value); setCursorStack([""]); }} description={period ? `${period.start} ~ ${period.end} · 종료일 포함` : "전체 보관 기간 · 최근 3개월"} />
+    <LogView label="운영 로그" className="max-compact:gap-1.5 max-compact:[&>div]:gap-1.5" filters={<FilterPanel label="운영 로그 필터" mode="popover" variant="compact"
+      activeFilterCount={Number(hasDateDraft) + Number(limit !== 50)}
+      summary={hasDateDraft || limit !== 50 ? <Text variant="caption">{invalidDates ? "기간 입력 확인 필요" : period ? `${period.start} ~ ${period.end} · 종료일 포함` : "전체 보관 기간"} · 페이지당 {limit}개</Text> : undefined}
+      filterReset={hasDateDraft || limit !== 50 ? <Button variant="secondary" onClick={resetFilters}>필터 초기화</Button> : undefined}>
+      <DateRangePicker label="조회 기간" value={period} draftController={dateDraft} isInvalid={invalidDates}
+        errorMessage={invalidDates ? "시작일과 종료일을 모두 입력하고 날짜 순서를 확인하세요." : undefined}
+        onChange={value => { setPeriod(value); setCursorStack([""]); }} description={period ? `${period.start} ~ ${period.end} · 종료일 포함` : "전체 보관 기간 · 최근 3개월"} />
+      <PageSizeSelect value={limit} options={options} isDisabled={pending} onChange={value => { setLimit(value); setCursorStack([""]); }} />
     </FilterPanel>} pagination={<FocusScope><MonitoringLogPager isOpen={isOpen} scopeKey={scopeKey} pending={pending} success={success} error={query.error}>
       <PaginationBar
-        className="max-compact:flex-row max-compact:items-end max-compact:gap-2 max-compact:[&>div:first-child]:w-28 max-compact:[&>div:first-child]:shrink-0 max-compact:[&>div:last-child]:flex-1"
+        className="max-compact:flex-row max-compact:items-end max-compact:gap-2 max-compact:[&>div]:flex-1"
+        showPageSizeSelector={false}
         mode="cursor" page={cursorStack.length} pageSize={limit} pageSizeOptions={options}
         itemCount={success ? query.data!.items.length : null} isPending={pending}
         hasPrevious={cursorStack.length > 1} hasNext={success && Boolean(query.data!.nextCursor)}
@@ -65,7 +86,7 @@ export function MonitoringLogDrawer({ isOpen, onClose, returnFocusRef, fallbackF
     </MonitoringLogPager></FocusScope>} status={<>
       <Text variant="body-sm" tone="secondary">선택 층의 최근 3개월 운영 활동 기록입니다. 3개월 이전 기록은 보관되지 않습니다.</Text>
       {success ? <Text variant="caption" tone="secondary">보관 시작: {formatMonitoringTimestamp(query.data!.retainedFrom, timeZone)}</Text> : null}
-      {expired ? <section role="status" className="grid gap-3">
+      {invalidDates ? <Text role="status">시작일과 종료일을 모두 입력하고 날짜 순서를 확인하세요.</Text> : expired ? <section role="status" className="grid gap-3">
         <Text>보관 기간이 지나 이 페이지를 볼 수 없습니다.</Text>
         <Button variant="secondary" onClick={() => setCursorStack([""])}>최신 기록 보기</Button>
       </section> : pending ? <Text role="status">운영 활동을 불러오는 중</Text>

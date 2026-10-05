@@ -1,4 +1,5 @@
-import { expect, test, type Locator, type Page, type TestInfo } from '@playwright/test';
+import { existsSync } from 'node:fs';
+import { chromium, expect, test, type CDPSession, type Locator, type Page, type TestInfo } from '@playwright/test';
 import { installSettingsApiRoutes, type SettingsFixture } from './support/settings-api';
 
 // These are the original Task9 two-fixture inputs, not denser or taller data
@@ -70,6 +71,156 @@ async function camera(viewport: Locator) {
     return { zoom: node.getAttribute('data-zoom'), x: (v.x + v.width / 2 - s.x) / s.width, y: (v.y + v.height / 2 - s.y) / s.height };
   });
 }
+
+async function swipe(cdp: CDPSession, page: Page, x: number, fromY: number, toY: number) {
+  const point = (y: number) => ({ x, y, id: 1, radiusX: 2, radiusY: 2, force: 1 });
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [point(fromY)] });
+  for (let step = 1; step <= 8; step++) {
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [point(fromY + (toY - fromY) * step / 8)] });
+    await paints(page);
+  }
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] }); await paints(page);
+}
+
+async function assert44px(target: Locator) {
+  await target.scrollIntoViewIfNeeded(); const box = (await target.boundingBox())!;
+  expect(box.width).toBeGreaterThanOrEqual(44); expect(box.height).toBeGreaterThanOrEqual(44);
+  expect((await hit(target)).reachable).toBe(true);
+}
+
+async function mapBounds(page: Page) {
+  return page.evaluate(() => {
+    const selectors = { shell: '[data-app-shell]', header: '[data-shell-topbar]', monitoring: '[data-monitoring-screen]', frame: '[data-monitoring-map-panel]', map: '[data-monitoring-map-shell]', viewport: '[data-testid="monitoring-map-viewport"]', surface: '[data-floor-map-surface]', footer: '[aria-label="지도 조작"]', legend: '[aria-label="조명 상태 범례"]', log: '[data-monitoring-log-ticker]', nav: '[data-shell-navigation="compact"]' };
+    const surface = document.querySelector('[data-floor-map-surface]')?.getBoundingClientRect(), viewport = document.querySelector('[data-testid="monitoring-map-viewport"]')?.getBoundingClientRect();
+    const meaningfulSurface = surface && viewport ? {
+      width: Math.max(0, Math.min(surface.right, viewport.right, innerWidth) - Math.max(surface.left, viewport.left, 0)),
+      height: Math.max(0, Math.min(surface.bottom, viewport.bottom, innerHeight) - Math.max(surface.top, viewport.top, 0)),
+      viewportHeight: Math.max(0, Math.min(surface.bottom, viewport.bottom) - Math.max(surface.top, viewport.top))
+    } : null;
+    return { pageY: scrollY, height: innerHeight, width: innerWidth, meaningfulSurface, document: { clientHeight: document.documentElement.clientHeight, scrollHeight: document.documentElement.scrollHeight, horizontalOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth }, nodes: Object.fromEntries(Object.entries(selectors).map(([key, selector]) => {
+      const node = document.querySelector<HTMLElement>(selector);
+      return [key, node ? { rect: node.getBoundingClientRect().toJSON(), clientHeight: node.clientHeight, scrollHeight: node.scrollHeight, scrollTop: node.scrollTop, overflowY: getComputedStyle(node).overflowY } : null];
+    })) };
+  });
+}
+
+for (const size of [{width:1287,height:1226},{width:390,height:320},{width:1440,height:600}]) {
+  test(`task5 original map bounds ${size.width}x${size.height}`, async ({page}, info) => {
+    await page.setViewportSize(size); const state = await install(page);
+    await page.goto(`/monitoring?siteId=${ids.siteId}`);
+    await expect(page.getByTestId('monitoring-map-viewport')).toBeVisible();
+    await expect(page.getByRole('group',{name:'전체 조명',exact:true})).toBeVisible();
+    await page.evaluate(() => document.fonts.ready); await paints(page);
+    await attach(info, 'original-map-bounds', await mapBounds(page));
+    await page.screenshot({path:info.outputPath('original-map.png'),fullPage:true});
+    await page.getByRole('button',{name:'지도 확대',exact:true}).click(); await paints(page);
+    await attach(info,'zoomed-map-bounds',await mapBounds(page));
+    await page.screenshot({path:info.outputPath('zoomed-map.png'),fullPage:true});
+    expect(state.api.dimmingRequests).toHaveLength(0);
+  });
+}
+
+for (const size of [{width:1287,height:1226},{width:390,height:320},{width:1440,height:600}]) {
+  test(`task5 map footer remains reachable without resetting camera after header relocation ${size.width}x${size.height}`, async ({page}, info) => {
+    await page.setViewportSize(size); const state = await install(page);
+    await page.goto(`/monitoring?siteId=${ids.siteId}`);
+    const viewport = page.getByTestId('monitoring-map-viewport');
+    await expect(page.getByRole('group',{name:'전체 조명',exact:true})).toBeVisible();
+    await page.evaluate(() => document.fonts.ready); await paints(page);
+    expect(await page.locator('[data-monitoring-screen] [data-monitoring-site-summary]').count()).toBe(0);
+    await expect(page.getByText('B2 · 조명 현황',{exact:true})).toBeVisible();
+    await expect(page.locator('[data-shell-topbar]')).toContainText('현장 전체');
+    await expect(page.locator('[aria-label="조명 상세"]')).toHaveCount(0);
+    const observations: unknown[] = [{step:'initial',bounds:await mapBounds(page)}];
+    const containChrome = async () => {
+      const bounds = await mapBounds(page), nodes = bounds.nodes;
+      expect(nodes.viewport!.rect.height).toBeGreaterThanOrEqual(240);
+      expect(nodes.viewport!.rect.bottom).toBeLessThanOrEqual(nodes.footer!.rect.top);
+      expect(nodes.footer!.rect.bottom).toBeLessThanOrEqual(nodes.legend!.rect.top);
+      expect(nodes.legend!.rect.bottom).toBeLessThanOrEqual(nodes.map!.rect.bottom);
+      expect(nodes.map!.rect.bottom).toBeLessThanOrEqual(nodes.log!.rect.top);
+      expect(nodes.log!.rect.bottom).toBeLessThanOrEqual(nodes.frame!.rect.bottom);
+      expect(bounds.meaningfulSurface!.viewportHeight).toBeGreaterThanOrEqual(190);
+    };
+    await containChrome();
+    // The unchanged October 1 fixture is intentionally stale at the run date.
+    // Dismiss its real transient alert through the UI before measuring input;
+    // keep its initial screen/bounds evidence above rather than hiding CSS.
+    const alertClose = page.getByRole('button', { name: '알림 닫기', exact: true });
+    if (await alertClose.count()) await alertClose.click();
+    await viewport.scrollIntoViewIfNeeded();
+    const wheelHit = await hit(viewport); expect(wheelHit.reachable).toBe(true);
+    await page.mouse.move(wheelHit.point.x,wheelHit.point.y); await page.mouse.wheel(0,-80);
+    await expect(viewport).toHaveAttribute('data-zoom','1.1'); await paints(page);
+    const userCamera = await camera(viewport);
+    for (const width of [1023,1024,size.width]) {
+      await page.setViewportSize({width,height:size.height}); await paints(page);
+      const current = await camera(viewport);
+      expect(current.zoom).toBe(userCamera.zoom);
+      expect(Math.abs(current.x-userCamera.x)).toBeLessThan(.02); expect(Math.abs(current.y-userCamera.y)).toBeLessThan(.02);
+      observations.push({step:`resize-${width}`,camera:current,bounds:await mapBounds(page)});
+      await containChrome();
+    }
+    // Ordinary wheel in the content gutter scrolls the document, not the map.
+    const gutter = await page.locator('[data-shell-content]').evaluate(node => ({x:node.getBoundingClientRect().left+2,y:innerHeight/2}));
+    await page.mouse.move(gutter.x,gutter.y); await page.mouse.wheel(0,1600); await paints(page);
+    const controls = page.getByRole('group',{name:'지도 조작',exact:true});
+    const legend = page.getByRole('list',{name:'조명 상태 범례'});
+    for (const name of ['지도 축소','지도 확대','지도 전체 보기']) {
+      const control = controls.getByRole('button',{name,exact:true}); await control.scrollIntoViewIfNeeded();
+      const point = await hit(control); expect(point.reachable).toBe(true);
+      const box=(await control.boundingBox())!; expect(box.width).toBeGreaterThanOrEqual(44); expect(box.height).toBeGreaterThanOrEqual(44);
+    }
+    await legend.scrollIntoViewIfNeeded();
+    // The legend is deliberately pointer-events:none: verify the complete
+    // reading bounds and the underlying map owner rather than a clickable hit.
+    expect(await legend.evaluate(node => {
+      const r = node.getBoundingClientRect(), owner = node.closest('[data-monitoring-map-shell]')!;
+      const at = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
+      return r.top >= 0 && r.bottom <= innerHeight && Boolean(at && owner.contains(at));
+    })).toBe(true);
+    expect((await camera(viewport)).zoom).toBe(userCamera.zoom);
+    await controls.getByRole('button',{name:'지도 전체 보기',exact:true}).click(); await paints(page);
+    await expect(page.getByRole('button',{name:'전체 보기 종료',exact:true})).toBeVisible();
+    await page.getByRole('button',{name:'전체 보기 종료',exact:true}).click(); await paints(page);
+    const restored=await camera(viewport); expect(restored.zoom).toBe(userCamera.zoom);
+    expect(Math.abs(restored.x-userCamera.x)).toBeLessThan(.02); expect(Math.abs(restored.y-userCamera.y)).toBeLessThan(.02);
+    observations.push({step:'fullview-roundtrip',camera:restored,bounds:await mapBounds(page)});
+    expect(await page.locator('html').evaluate(node=>node.scrollWidth-node.clientWidth)).toBe(0);
+    expect(state.api.dimmingRequests).toHaveLength(0);
+    await attach(info,'task5-map-access',observations); await page.screenshot({path:info.outputPath('map-access.png'),fullPage:true});
+  });
+}
+
+test('task5 log filter close preserves partial dates and scoped cursor without a request', async ({ page }, info) => {
+  await page.setViewportSize({ width: 390, height: 320 }); const state = await install(page);
+  await page.goto(`/monitoring?siteId=${ids.siteId}`);
+  await page.getByRole('region', { name: '최근 운영 로그', exact: true }).getByRole('button', { name: '전체 보기', exact: true }).click();
+  const drawer = page.getByRole('dialog', { name: '전체 로그', exact: true });
+  await expect(drawer.getByRole('listitem')).toHaveCount(50);
+  await drawer.getByRole('button', { name: '다음 페이지', exact: true }).click();
+  await expect(drawer.getByText('2페이지', { exact: true })).toBeVisible();
+  const trigger = drawer.getByRole('button', { name: /운영 로그 필터 상세 필터/ });
+  await trigger.click();
+  const filter = page.getByRole('dialog', { name: '운영 로그 필터', exact: true });
+  const year = filter.getByRole('spinbutton').first();
+  await year.click(); await page.keyboard.press('ArrowUp');
+  const rawYear = await year.getAttribute('aria-valuenow'); expect(rawYear).not.toBeNull();
+  const readCount = state.reads.length;
+  await paints(page); await expect(filter).toBeVisible(); await expect(year).toBeFocused();
+  // RAC's iOS announcement workaround refocuses after 500ms. Observe beyond
+  // that library boundary so a transiently correct child focus cannot pass.
+  await page.waitForTimeout(550); await expect(year).toBeFocused();
+  await filter.getByRole('button', { name: '필터 닫기', exact: true }).click();
+  await expect(trigger).toBeFocused(); await trigger.click();
+  await expect(filter.getByRole('spinbutton').first()).toHaveAttribute('aria-valuenow', rawYear!);
+  expect(await filter.getByRole('spinbutton').nth(1).getAttribute('aria-valuenow')).toBeNull();
+  expect(state.reads).toHaveLength(readCount);
+  await filter.getByRole('button', { name: '필터 닫기', exact: true }).click();
+  await expect(drawer.getByText('2페이지', { exact: true })).toBeVisible();
+  await attach(info, 'partial-date-cursor', { rawYear, reads: state.reads });
+  expect(state.api.dimmingRequests).toHaveLength(0);
+});
 
 test('monitoring detail native wheel keyboard last information and nonzero breakpoint restoration', async ({ page }, info) => {
   await page.setViewportSize({ width: 1024, height: 480 }); const state = await install(page);
@@ -188,14 +339,19 @@ test('monitoring log positive env24/34 owns insets and native list controls stay
     // 44px interaction/reading band in each independently scrolling region.
     expect(positive.filter.height).toBeGreaterThanOrEqual(44); expect(positive.list.height).toBeGreaterThanOrEqual(44);
     await info.attach('log-positive-env-viewport', { body: await page.screenshot(), contentType: 'image/png' });
-    for (const control of ['전체 로그 닫기', '페이지당 항목 수', '이전 페이지', '다음 페이지']) {
+    for (const control of ['전체 로그 닫기', '운영 로그 필터 상세 필터, 활성 조건 0개', '이전 페이지', '다음 페이지']) {
       const target = dialog.getByRole('button', { name: control, exact: true }), rect = (await target.boundingBox())!;
       expect(rect.height).toBeGreaterThanOrEqual(44); expect(rect.width).toBeGreaterThanOrEqual(44);
       expect((await hit(target, dialog)).reachable).toBe(true);
     }
     const list = dialog.getByRole('region', { name: '운영 로그 본문', exact: true });
     for (const size of [50, 100, 500, 1000]) {
-      if (size !== 50) { await dialog.getByRole('button', { name: '페이지당 항목 수' }).click(); await page.getByRole('option', { name: `${size}개`, exact: true }).click(); }
+      if (size !== 50) {
+        await dialog.getByRole('button', { name: /운영 로그 필터 상세 필터/ }).click();
+        await page.getByRole('button', { name: '페이지당 항목 수' }).click();
+        await page.getByRole('option', { name: `${size}개`, exact: true }).click();
+        await page.getByRole('button', { name: '필터 닫기', exact: true }).click();
+      }
       await expect(list.locator('li')).toHaveCount(size);
       const point = await hit(list); expect(point.reachable).toBe(true);
       await page.mouse.click(point.point.x, point.point.y);
@@ -212,12 +368,13 @@ test('monitoring log positive env24/34 owns insets and native list controls stay
     await dialog.getByRole('button', { name: '다음 페이지', exact: true }).click(); await expect(dialog.getByText('2페이지', { exact: true })).toBeVisible();
     await dialog.getByRole('button', { name: '이전 페이지', exact: true }).click(); await expect(dialog.getByText('1페이지', { exact: true })).toBeVisible();
     const filters = dialog.getByRole('region', { name: '운영 로그 필터·상태', exact: true });
-    await filters.click(); await nativeTabTo(page, filters); await page.keyboard.press('Home');
-    const dates = filters.getByRole('spinbutton'); await expect(dates).toHaveCount(6);
+    await filters.getByRole('button', { name: /운영 로그 필터 상세 필터/ }).click();
+    const filterDialog = page.getByRole('dialog', { name: '운영 로그 필터', exact: true });
+    const dates = filterDialog.getByRole('spinbutton'); await expect(dates).toHaveCount(6);
     for (const offset of [0, 3]) for (const [index, text] of [[2, '25'], [1, '9'], [0, '2026']] as const) {
       const segment = dates.nth(offset + index);
       await nativeTabTo(page, segment);
-      const segmentHit = await hit(segment, filters); expect(segmentHit.reachable).toBe(true);
+      const segmentHit = await hit(segment, filterDialog); expect(segmentHit.reachable).toBe(true);
       records.push({ step: 'native-date-input', offset, index, segmentHit });
       // Numeric segments advance as soon as their value is complete. Insert
       // the selected segment's entire value (native paste/IME input), rather
@@ -225,10 +382,11 @@ test('monitoring log positive env24/34 owns insets and native list controls stay
       await page.keyboard.press('ControlOrMeta+A'); await page.keyboard.insertText(text);
     }
     await page.keyboard.press('Tab'); await expect.poll(() => state.reads.some(r => r.fromDate === '2026-09-25' && r.toDate === '2026-09-25' && r.limit === '1000')).toBe(true);
-    const periodReset = filters.getByRole('button', { name: '전체 보관 기간', exact: true });
-    await nativeTabTo(page, periodReset); expect((await hit(periodReset, filters)).reachable).toBe(true);
+    const periodReset = filterDialog.getByRole('button', { name: '필터 초기화', exact: true });
+    await nativeTabTo(page, periodReset); expect((await hit(periodReset, filterDialog)).reachable).toBe(true);
     await page.keyboard.press('Enter');
     await expect.poll(() => state.reads.at(-1)?.fromDate).toBeUndefined();
+    await page.getByRole('button', { name: '필터 닫기', exact: true }).click();
     await dialog.getByRole('button', { name: '전체 로그 닫기' }).click(); await expect(trigger).toBeFocused();
     await cdp.send('Emulation.setSafeAreaInsetsOverride', { insets: { top: 0, bottom: 0, left: 0, right: 0 } });
     await trigger.click(); dialog = page.getByRole('dialog', { name: '전체 로그', exact: true }); const reset = await bounds(dialog);
@@ -239,5 +397,186 @@ test('monitoring log positive env24/34 owns insets and native list controls stay
     await attach(info, 'log-positive-safe-area-input', records);
     await info.attach('log-positive-safe-area', { body: await page.screenshot({ fullPage: true }), contentType: 'image/png' });
     await cdp.send('Emulation.setSafeAreaInsetsOverride', { insets: { top: 0, bottom: 0, left: 0, right: 0 } }); await cdp.detach();
+  }
+});
+
+test('task5 invalid date input makes no request and cursor400 recovers only the visited page', async ({ page }, info) => {
+  const state = await install(page); let failCursor = false;
+  await page.route('**/api/**/monitoring-activity?**', route => {
+    const params = new URL(route.request().url()).searchParams;
+    if (failCursor && params.get('cursor')) return route.fulfill({ status: 400, json: { message: 'Invalid scoped cursor' } });
+    return route.fallback();
+  });
+  await page.goto(`/monitoring?siteId=${ids.siteId}`);
+  await page.getByRole('region', { name: '최근 운영 로그', exact: true }).getByRole('button', { name: '전체 보기', exact: true }).click();
+  const drawer = page.getByRole('dialog', { name: '전체 로그', exact: true });
+  await expect(drawer.getByRole('listitem')).toHaveCount(50);
+  await drawer.getByRole('button', { name: /운영 로그 필터 상세 필터/ }).click();
+  const filter = page.getByRole('dialog', { name: '운영 로그 필터', exact: true }), dates = filter.getByRole('spinbutton');
+  const before = state.reads.length;
+  // Complete both valid individual dates in reverse order. A paired period
+  // remains invalid and must never reach the existing GET contract.
+  for (const [offset, day] of [[0, '25'], [3, '24']] as const) for (const [index, value] of [[2, day], [1, '9'], [0, '2026']] as const) {
+    await dates.nth(offset + index).click(); await page.keyboard.press('ControlOrMeta+A'); await page.keyboard.insertText(value);
+  }
+  await page.keyboard.press('Tab'); await paints(page);
+  await expect(filter).toContainText('날짜 순서를 확인하세요.');
+  expect(state.reads).toHaveLength(before);
+  await filter.getByRole('button', { name: '필터 닫기', exact: true }).click();
+  await expect(drawer.getByRole('listitem')).toHaveCount(0);
+  await expect(drawer.getByRole('button', { name: '다음 페이지', exact: true })).toBeDisabled();
+  await drawer.getByRole('button', { name: /운영 로그 필터 상세 필터/ }).click();
+  await filter.getByRole('button', { name: '필터 초기화', exact: true }).click();
+  await filter.getByRole('button', { name: '필터 닫기', exact: true }).click();
+  await expect(drawer.getByRole('listitem')).toHaveCount(50);
+  failCursor = true;
+  await drawer.getByRole('button', { name: '다음 페이지', exact: true }).click();
+  await expect(drawer.getByText('1페이지', { exact: true })).toBeVisible();
+  await expect(drawer.getByRole('listitem')).toHaveCount(50);
+  await attach(info, 'invalid-period-and-cursor400', { before, reads: state.reads });
+  expect(state.api.dimmingRequests).toHaveLength(0);
+});
+
+test('task5 late prior floor log response never replaces the current floor', async ({ page }, info) => {
+  const state = await install(page), otherFloor = id(4);
+  const plan = { imageUrl: '/demo/floor-b2.svg', sourceType: 'image', originalFileUrl: '/demo/floor-b2.svg', renderedImageUrl: '/demo/floor-b2.svg', width: 1200, height: 800, version: 1 };
+  await page.route('**/api/**/dashboard*', route => route.fulfill({ json: {
+    generatedAt: instant, monitoringPolicy: { gatewayOfflineAfterSeconds: 90, fixtureStaleAfterSeconds: 180 },
+    capabilities: { read: true, control: true, manage: true, commission: true },
+    site: { id: ids.siteId, name: 'Task5 두 맵 현장', customerName: '고객사', installationStatus: 'installed', address: '서울', tariffKwhRate: 160, timeZone: 'Asia/Seoul' },
+    summary: { totalFixtures: 2, onlineFixtures: 2, faultFixtures: 0, offlineFixtures: 0, averageBrightness: 70 },
+    floors: [{ id: ids.floorId, name: 'B2', level: -2, summary: { totalFixtures: 2, onlineFixtures: 2, faultFixtures: 0, offlineFixtures: 0 } },
+      { id: otherFloor, name: 'B3', level: -3, summary: { totalFixtures: 0, onlineFixtures: 0, faultFixtures: 0, offlineFixtures: 0 } }]
+      .map(floor => ({ ...floor, mapRevision: 0, mapConfigured: true, floorPlan: plan, meshControlGroups: [], fixtures: [] })), groups: [], gateways: []
+  } }));
+  let release!: () => void, entered = false, lateOutcome = '';
+  const deferred = new Promise<void>(resolve => { release = resolve; });
+  await page.route('**/api/**', async route => {
+    const url = new URL(route.request().url());
+    if (url.pathname.endsWith(`/${otherFloor}/fixtures`)) return route.fulfill({ json: { generatedAt: instant, items: [], nextCursor: null } });
+    if (url.pathname.endsWith(`/${otherFloor}/map-snapshot`)) return route.fulfill({ json: { floorId: otherFloor, revision: 0, width: 1200, height: 800, floorPlan: plan, objects: [] } });
+    if (!url.pathname.endsWith('/monitoring-activity') || url.searchParams.get('limit') !== '50') return route.fallback();
+    const prior = url.pathname.includes(`/${ids.floorId}/`);
+    if (prior) { entered = true; await deferred; }
+    try {
+      await route.fulfill({ json: { generatedAt: instant, retainedFrom: '2026-07-01T15:00:00Z', items: [{ id: id(prior ? 30001 : 30002), kind: 'fixture_online', recordedAt: instant, displayName: prior ? '늦은 B2 기록' : '현재 B3 기록' }], nextCursor: null } });
+      if (prior) lateOutcome = 'fulfilled';
+    } catch (error) { if (!prior) throw error; lateOutcome = `cancelled: ${String(error)}`; }
+  });
+  try {
+    await page.goto(`/monitoring?siteId=${ids.siteId}`);
+    const open = page.getByRole('region', { name: '최근 운영 로그', exact: true }).getByRole('button', { name: '전체 보기', exact: true });
+    await open.click(); await expect.poll(() => entered).toBe(true);
+    await page.getByRole('button', { name: '전체 로그 닫기', exact: true }).click();
+    await page.getByRole('button', { name: '맵 선택', exact: true }).click();
+    await page.getByRole('option', { name: 'B3', exact: true }).click();
+    await expect(page.getByText('B3 · 조명 현황', { exact: true })).toBeVisible();
+    await open.click(); const drawer = page.getByRole('dialog', { name: '전체 로그', exact: true });
+    await expect(drawer).toContainText('현재 B3 기록'); release();
+    await expect.poll(() => lateOutcome).not.toBe(''); await paints(page);
+    await expect(drawer).toContainText('현재 B3 기록'); await expect(drawer).not.toContainText('늦은 B2 기록');
+    await expect(drawer.getByText('1페이지', { exact: true })).toBeVisible();
+    expect(state.api.dimmingRequests).toHaveLength(0);
+  } finally { release(); await attach(info, 'late-floor-scope', { entered, lateOutcome, requests: state.api.requests }); }
+});
+
+for (const width of [320, 390, 768, 1023, 1024, 1287, 1440]) {
+  test(`task5 map filter and visible search preserve context at ${width}px`, async ({ page }, info) => {
+    await page.setViewportSize({ width, height: 800 }); const state = await install(page);
+    await page.goto(`/monitoring?siteId=${ids.siteId}`);
+    const trigger = page.getByRole('button', { name: /맵 조명 상태 필터 상세 필터/ });
+    await assert44px(trigger); await trigger.click();
+    const filter = page.getByRole('dialog', { name: '맵 조명 상태 필터', exact: true });
+    for (const name of ['전체 조명', '정상', '점검 필요', '오프라인', '필터 닫기']) await assert44px(filter.getByRole('button', { name, exact: true }));
+    await filter.getByRole('button', { name: '점검 필요', exact: true }).click();
+    const finder = page.getByRole('dialog', { name: '조명 검색·상세', exact: true });
+    await expect(finder.getByRole('searchbox', { name: '조명 이름 또는 번호 검색' })).toBeVisible();
+    await expect(finder).toContainText('점검 필요 조명이 없습니다.');
+    await finder.getByRole('button', { name: '조명 검색·상세 닫기', exact: true }).click();
+    await expect(page.getByText('표시 상태: 점검 필요', { exact: true })).toBeVisible();
+    await expect(trigger).toHaveAccessibleName('맵 조명 상태 필터 상세 필터, 활성 조건 1개');
+    await expect(page.locator('[aria-label="조명 상세"]')).toHaveCount(0);
+    await page.getByRole('button', { name: '필터 초기화', exact: true }).click();
+    await page.getByRole('dialog', { name: '조명 검색·상세', exact: true }).getByRole('button', { name: '조명 검색·상세 닫기', exact: true }).click();
+    await expect(trigger).toHaveAccessibleName('맵 조명 상태 필터 상세 필터, 활성 조건 0개');
+    expect(await page.locator('html').evaluate(node => node.scrollWidth - node.clientWidth)).toBe(0);
+    expect(state.api.dimmingRequests).toHaveLength(0);
+    await attach(info, 'filter-context-bounds', await mapBounds(page));
+  });
+}
+
+test.describe('task5 actual touch', () => {
+  test.use({ hasTouch: true });
+  test('map pinch and log swipe retain precise selection and last record', async ({ page }, info) => {
+    await page.setViewportSize({ width: 390, height: 720 }); const state = await install(page);
+    await page.goto(`/monitoring?siteId=${ids.siteId}`);
+    const cdp = await page.context().newCDPSession(page);
+    try {
+      const alertClose = page.getByRole('button', { name: '알림 닫기', exact: true });
+      if (await alertClose.count()) await alertClose.tap();
+      await page.getByRole('button', { name: '지도 전체 보기', exact: true }).tap();
+      const viewport = page.getByTestId('monitoring-map-viewport'); const before = await camera(viewport);
+      const box = (await viewport.boundingBox())!, x = box.x + box.width / 2, y = box.y + box.height / 2;
+      const point = (id: number, offset: number) => ({ id, x: x + offset, y, radiusX: 2, radiusY: 2, force: 1 });
+      await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [point(1, -35), point(2, 35)] });
+      for (let step = 1; step <= 6; step++) { await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [point(1, -35 - step * 5), point(2, 35 + step * 5)] }); await paints(page); }
+      await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+      await expect.poll(async () => Number(await viewport.getAttribute('data-zoom'))).toBeGreaterThan(Number(before.zoom));
+      const marker = page.locator('[data-spatial-map-marker][title="Task9 조명 1"]');
+      await marker.tap(); await expect(marker).toHaveAttribute('data-selected', 'true');
+      await expect(page.getByRole('dialog', { name: 'Task9 조명 1 조명 정보', exact: true })).toBeVisible();
+      await marker.tap(); await page.getByRole('button', { name: '전체 보기 종료', exact: true }).tap();
+      const userZoom = await viewport.getAttribute('data-zoom');
+      await page.getByRole('region', { name: '최근 운영 로그', exact: true }).getByRole('button', { name: '전체 보기', exact: true }).tap();
+      const drawer = page.getByRole('dialog', { name: '전체 로그', exact: true }), list = drawer.getByRole('region', { name: '운영 로그 본문', exact: true });
+      await expect(list.getByRole('listitem')).toHaveCount(50); const initial = await metrics(list);
+      for (let step = 0; step < 24 && !(await hit(list.getByRole('listitem').last(), list)).reachable; step++) {
+        const r = (await list.boundingBox())!; await swipe(cdp, page, r.x + r.width / 2, r.y + r.height - 12, r.y + 12);
+      }
+      expect((await metrics(list)).top).toBeGreaterThan(initial.top);
+      expect((await hit(list.getByRole('listitem').last(), list)).reachable).toBe(true);
+      await drawer.getByRole('button', { name: '다음 페이지', exact: true }).tap(); await expect(list.getByRole('listitem').last()).toContainText('Task9 운영 기록 100');
+      await drawer.getByRole('button', { name: '전체 로그 닫기', exact: true }).tap();
+      await expect(viewport).toHaveAttribute('data-zoom', userZoom!); expect(state.api.dimmingRequests).toHaveLength(0);
+      await attach(info, 'native-touch-results', { before, userZoom, initial, reads: state.reads });
+      await info.attach('native-touch-map', { body: await page.screenshot({ fullPage: true }), contentType: 'image/png' });
+    } finally { await cdp.detach(); }
+  });
+});
+
+test('task5 genuine browser 200 percent retains map and log filters', async ({ baseURL }, info) => {
+  const context = await chromium.launchPersistentContext('', { channel: 'chromium', viewport: null, deviceScaleFactor: undefined, baseURL, args: ['--window-size=1440,900', '--enable-automation'] });
+  let profile: string | undefined;
+  try {
+    const page = await context.newPage(), cdp = await context.newCDPSession(page);
+    const argv = await cdp.send('Browser.getBrowserCommandLine'); profile = argv.arguments.find(arg => arg.startsWith('--user-data-dir='))?.slice('--user-data-dir='.length);
+    expect(profile && existsSync(profile)).toBeTruthy(); await cdp.detach();
+    const state = await install(page); await page.goto(`/monitoring?siteId=${ids.siteId}`);
+    const geometry = () => page.evaluate(() => ({ width: innerWidth, height: innerHeight, dpr: devicePixelRatio, scale: visualViewport!.scale }));
+    const before = await geometry(), settings = await context.newPage();
+    await settings.goto('chrome://settings/appearance'); await settings.locator('select#zoomLevel').selectOption('2'); await expect(settings.locator('select#zoomLevel')).toHaveValue('2'); await settings.close();
+    await page.bringToFront(); await page.reload(); const after = await geometry();
+    expect(after.dpr / before.dpr).toBe(2); expect(Math.abs(after.width * 2 - before.width)).toBeLessThanOrEqual(1); expect(after.scale).toBe(1);
+    await page.getByRole('button', { name: /맵 조명 상태 필터 상세 필터/ }).click();
+    const mapFilter = page.getByRole('dialog', { name: '맵 조명 상태 필터', exact: true });
+    await assert44px(mapFilter.getByRole('button', { name: '필터 닫기', exact: true })); await mapFilter.getByRole('button', { name: '필터 닫기', exact: true }).click();
+    await page.getByRole('region', { name: '최근 운영 로그', exact: true }).getByRole('button', { name: '전체 보기', exact: true }).click();
+    await page.getByRole('button', { name: /운영 로그 필터 상세 필터/ }).click();
+    const logFilter = page.getByRole('dialog', { name: '운영 로그 필터', exact: true });
+    await expect(logFilter.getByRole('spinbutton')).toHaveCount(6);
+    await assert44px(logFilter.getByRole('button', { name: '페이지당 항목 수', exact: true }));
+    await assert44px(logFilter.getByRole('button', { name: '필터 닫기', exact: true }));
+    expect(await page.locator('html').evaluate(node => node.scrollWidth - node.clientWidth)).toBe(0);
+    await attach(info, 'genuine-browser-200', { before, after, argv, profile, bounds: await mapBounds(page) });
+    await page.bringToFront(); await paints(page);
+    await info.attach('genuine-browser-200-filter', { body: await page.screenshot(), contentType: 'image/png' });
+    // Browser-level zoom can make Playwright's emulated screenshot surface
+    // blank. Also retain the native compositor viewport without changing zoom.
+    const capture = await context.newCDPSession(page);
+    const native = await capture.send('Page.captureScreenshot', { format: 'png', fromSurface: false, captureBeyondViewport: false });
+    await info.attach('genuine-browser-200-native-viewport', { body: Buffer.from(native.data, 'base64'), contentType: 'image/png' }); await capture.detach();
+    expect(state.api.dimmingRequests).toHaveLength(0);
+  } finally {
+    await context.close(); await attach(info, 'browser-profile-cleanup', { profile, exists: profile ? existsSync(profile) : null }); expect(profile && !existsSync(profile)).toBeTruthy();
   }
 });

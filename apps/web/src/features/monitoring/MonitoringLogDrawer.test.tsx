@@ -1,5 +1,5 @@
 import type { MonitoringActivityItem, MonitoringActivityResponse } from "@led-control/shared";
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "../../api/client";
 import { MonitoringLogDrawer } from "./MonitoringLogDrawer";
@@ -23,6 +23,39 @@ function drawer() {
 
 describe("MonitoringLogDrawer", () => {
   afterEach(() => { cleanup(); useMonitoringActivity.mockReset(); });
+
+  it("log filter close preserves partial dates and scoped cursor without applying a query", async () => {
+    useMonitoringActivity.mockReturnValue({ data: firstPage, error: null, isPending: false, isFetching: false, isPaused: false, refetch: vi.fn() });
+    render(drawer());
+    fireEvent.click(screen.getByRole("button", { name: "다음 페이지" }));
+    const filter = screen.getByRole("button", { name: /운영 로그 필터 상세 필터/ });
+    act(() => filter.focus());
+    fireEvent.click(filter);
+    // Allow the nested dialog's initial focus to settle before date input.
+    await waitFor(() => expect(screen.getByRole("dialog", { name: "운영 로그 필터" })).toHaveFocus());
+    await act(async () => { await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))); });
+    const year = screen.getAllByRole("spinbutton")[0]!;
+    act(() => year.focus()); fireEvent.keyDown(year, { key: "ArrowUp", code: "ArrowUp" });
+    const partialYear = year.getAttribute("aria-valuenow");
+    expect(partialYear).not.toBeNull();
+    await waitFor(() => expect(useMonitoringActivity).toHaveBeenLastCalledWith(expect.objectContaining({ principal: null, cursor: "page-2" })));
+    fireEvent.click(screen.getByRole("button", { name: "필터 닫기" }));
+    expect(filter).toHaveAttribute("aria-expanded", "false");
+    fireEvent.click(filter);
+    expect(screen.getAllByRole("spinbutton")[0]).toHaveAttribute("aria-valuenow", partialYear);
+    expect(screen.getAllByRole("spinbutton")[1]).not.toHaveAttribute("aria-valuenow");
+    expect(useMonitoringActivity).toHaveBeenLastCalledWith(expect.objectContaining({ principal: null, cursor: "page-2", fromDate: undefined, toDate: undefined }));
+  });
+
+  it("recovers an invalid scoped cursor at page one without recovering unrelated first-page errors", async () => {
+    useMonitoringActivity.mockImplementation(({ cursor }: { cursor: string }) => ({ data: cursor ? undefined : firstPage,
+      error: cursor ? new ApiError("Invalid cursor", 400, {}) : null, isPending: false, isFetching: false, refetch: vi.fn() }));
+    render(drawer());
+    fireEvent.click(screen.getByRole("button", { name: "다음 페이지" }));
+    await waitFor(() => expect(screen.getByText("1페이지")).toBeVisible());
+    expect(useMonitoringActivity).toHaveBeenLastCalledWith(expect.objectContaining({ cursor: "", limit: 50 }));
+    expect(screen.getByText(/B-0/)).toBeVisible();
+  });
 
   it("opts the full log into one safe-area owner without replacing its body and pager", () => {
     useMonitoringActivity.mockReturnValue({ data: firstPage, error: null, isPending: false, isFetching: false, refetch: vi.fn() });
@@ -48,9 +81,11 @@ describe("MonitoringLogDrawer", () => {
     render(drawer());
     fireEvent.click(screen.getByRole("button", { name: "다음 페이지" }));
     expect(useMonitoringActivity).toHaveBeenLastCalledWith(expect.objectContaining({ cursor: "page-2", limit: 50 }));
+    fireEvent.click(screen.getByRole("button", { name: /운영 로그 필터 상세 필터/ }));
     fireEvent.click(screen.getByRole("button", { name: "페이지당 항목 수" }));
     fireEvent.click(await screen.findByRole("option", { name: "1000개" }));
     expect(useMonitoringActivity).toHaveBeenLastCalledWith(expect.objectContaining({ cursor: "", limit: 1000 }));
+    fireEvent.click(screen.getByRole("button", { name: "필터 닫기" }));
     expect(screen.getByRole("button", { name: "이전 페이지" })).toBeDisabled();
     expect(screen.getByText("1페이지")).toBeVisible();
   });
@@ -103,6 +138,7 @@ describe("MonitoringLogDrawer", () => {
     expect(next.isConnected).toBe(true);
     expect(screen.getByRole("button", { name: "다음 페이지" })).toBe(next);
     expect(next).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: /운영 로그 필터 상세 필터/ }));
     expect(screen.getByRole("button", { name: "페이지당 항목 수" })).toBeDisabled();
     expect(screen.queryByText(/현재 0건|현재 5건|기록이 없습니다/)).not.toBeInTheDocument();
   });
@@ -127,7 +163,7 @@ describe("MonitoringLogDrawer", () => {
     next.focus(); fireEvent.click(next);
     useMonitoringActivity.mockReturnValue({ data: undefined, error: new ApiError("Expired", 410, {}), isPending: false, isFetching: false, refetch: vi.fn() });
     view.rerender(drawer());
-    expect(screen.getByRole("button", { name: "페이지당 항목 수" })).toHaveFocus();
+    expect(screen.getByRole("button", { name: "이전 페이지" })).toHaveFocus();
     const body = screen.getByRole("region", { name: "운영 로그 본문" });
     body.focus();
     useMonitoringActivity.mockReturnValue({ data: firstPage, error: null, isPending: false, isFetching: false, refetch: vi.fn() });

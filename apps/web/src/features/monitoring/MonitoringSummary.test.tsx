@@ -5,15 +5,29 @@ import { MonitoringSummary } from "./MonitoringSummary";
 describe("MonitoringSummary", () => {
   afterEach(() => cleanup());
 
+  it("keeps map counts visible while changing status only through the shared filter popover", async () => {
+    const onSelect = vi.fn();
+    render(<MonitoringSummary scope="floor" mapName="B1" total={62} online={57} fault={3} offline={null} filter="all" onSelect={onSelect} />);
+    const summary = screen.getByRole("region", { name: "선택 층 조명 현황" });
+    expect(within(summary).getByRole("group", { name: "전체 조명" })).toHaveTextContent("62");
+    expect(within(summary).queryByRole("button", { name: "정상" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /맵 조명 상태 필터 상세 필터/ }));
+    fireEvent.click(await screen.findByRole("button", { name: "정상" }));
+    expect(onSelect).toHaveBeenCalledWith("online");
+    expect(screen.queryByRole("button", { name: "정상" })).not.toBeInTheDocument();
+    expect(screen.getByText("B1 · 조명 현황")).toBeVisible();
+  });
+
   it("makes floor metrics interactive but keeps site metrics read-only", () => {
     const onSelect = vi.fn();
     render(<><MonitoringSummary scope="site" total={2} online={2} fault={0} offline={0} onSelect={onSelect} />
       <MonitoringSummary scope="floor" total={2} online={2} fault={0} offline={null} filter="fault" onSelect={onSelect} /></>);
     const floor = screen.getByRole("region", { name: "선택 층 조명 현황" });
-    fireEvent.click(within(floor).getByRole("button", { name: "점검 필요" }));
+    fireEvent.click(within(floor).getByRole("button", { name: /맵 조명 상태 필터 상세 필터/ }));
+    expect(screen.getByRole("button", { name: "점검 필요" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "오프라인" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "점검 필요" }));
     expect(onSelect).toHaveBeenCalledWith("fault");
-    expect(within(floor).getByRole("button", { name: "점검 필요" })).toHaveAttribute("aria-pressed", "true");
-    expect(within(floor).getByRole("button", { name: "오프라인" })).toBeDisabled();
     expect(within(screen.getByRole("region", { name: "현장 전체 조명 현황" })).queryByRole("button")).toBeNull();
   });
 
