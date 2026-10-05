@@ -3,7 +3,8 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testi
 import { MemoryRouter, useLocation } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { logout, type AuthUser } from "../../api/auth";
-import { apiGet } from "../../api/client";
+import { apiGet, apiPost } from "../../api/client";
+import { detailRetainedFrom } from "../../api/detail-retention";
 import type { Dashboard } from "../../api/queries";
 import { CustomerShell } from "./CustomerShell";
 import { useFloorEditorStore } from "../floor-editor/editor-store";
@@ -11,12 +12,17 @@ import { isActiveCommandSessionBlocked } from "../control/active-command-session
 
 vi.mock("../settings/floor-plans/FloorEditorRoute", () => ({ FloorEditorRoute: () => <p>맵 편집 화면</p> }));
 vi.mock("../monitoring/MonitoringView", () => ({ MonitoringView: () => <p>모니터링 화면</p> }));
-vi.mock("../control/ControlView", () => ({ ControlView: () => <p>제어 화면</p> }));
+const controlConsumer = vi.hoisted(() => ({ actual: false }));
+vi.mock("../control/ControlView", async original => {
+  const actual = await original<typeof import("../control/ControlView")>();
+  return { ControlView: (props: Parameters<typeof actual.ControlView>[0]) => controlConsumer.actual ? <actual.ControlView {...props} /> : <p>제어 화면</p> };
+});
 vi.mock("../statistics/StatisticsOverviewPage", () => ({ StatisticsOverviewPage: () => <p>통계 화면</p> }));
 vi.mock("../statistics/reports/StatisticsReportsPage", () => ({ StatisticsReportsPage: () => <p>보고서 화면</p> }));
 vi.mock("../../api/client", async (original) => ({
   ...await original<typeof import("../../api/client")>(),
-  apiGet: vi.fn()
+  apiGet: vi.fn(),
+  apiPost: vi.fn()
 }));
 vi.mock("../../api/auth", async (original) => ({
   ...await original<typeof import("../../api/auth")>(),
@@ -41,6 +47,8 @@ const sitesState = vi.hoisted(() => ({
 vi.mock("../../api/queries", async (original) => ({
   ...await original<typeof import("../../api/queries")>(),
   useDashboard: () => dashboardState.current,
+  useControlDashboard: () => dashboardState.current,
+  useFloorMapSnapshot: () => ({ data: undefined, isLoading: false, error: null, isFetching: false }),
   useSites: () => sitesState.current
 }));
 
@@ -89,6 +97,8 @@ function renderShell(path: string, user: AuthUser = adminUser) {
 
 describe("customer shell site context", () => {
   beforeEach(() => {
+    controlConsumer.actual = false;
+    vi.mocked(apiPost).mockReset();
     useFloorEditorStore.getState().reset();
     vi.mocked(logout).mockReset().mockResolvedValue({ ok: true });
     vi.mocked(apiGet).mockReset().mockImplementation(async (path) => path.includes("monitoring-incidents")
@@ -99,6 +109,33 @@ describe("customer shell site context", () => {
     vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() })));
   });
   afterEach(() => { cleanup(); vi.clearAllMocks(); vi.unstubAllGlobals(); });
+
+  it("forwards the existing navigation breakpoint to the real Control close action without resetting details", async () => {
+    controlConsumer.actual = true;
+    let onChange: ((event: MediaQueryListEvent) => void) | undefined;
+    vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: true,
+      addEventListener: (_type: string, listener: typeof onChange) => { onChange = listener; }, removeEventListener: vi.fn() })));
+    const generatedAt = new Date().toISOString();
+    const retainedFrom = new Date(detailRetainedFrom(Date.parse(generatedAt))).toISOString();
+    const status = { id: "00000000-0000-4000-8000-000000009977", siteId: "site", stage: "verified_applied", outcome: "applied", createdAt: generatedAt, generatedAt, retainedFrom,
+      dispatchCount: 0, completedFixtureCount: 0, totalFixtureCount: 0, errorMessage: null, dispatches: [] };
+    vi.mocked(apiGet).mockImplementation(async path => path.startsWith("/commands?") ? { items: [status], nextCursor: null, generatedAt, retainedFrom }
+      : path.startsWith("/commands/requiring-verification") ? { items: [], nextCursor: null, generatedAt }
+      : path.startsWith("/commands/") ? status
+        : path.includes("monitoring-incidents") ? { incidents: [], activeCount: 0, unreadCount: 0, nextCursor: null } : { users: [], count: 0, limit: 100 });
+    renderShell("/control?siteId=site");
+    fireEvent.click(await screen.findByRole("button", { name: new RegExp(status.id) }));
+    fireEvent.click(await screen.findByRole("button", { name: "상세 보기" }));
+    const detail = screen.getByRole("region", { name: "최근 결과 상세" });
+    expect(detail).toContainElement(screen.getByRole("button", { name: "명령 상세 닫기" }));
+    act(() => onChange?.({ matches: false } as MediaQueryListEvent));
+    expect(screen.getByRole("region", { name: "최근 결과 상세" })).toBe(detail);
+    expect(detail).not.toContainElement(screen.getByRole("button", { name: "명령 상세 닫기" }));
+    act(() => onChange?.({ matches: true } as MediaQueryListEvent));
+    expect(detail).toContainElement(screen.getByRole("button", { name: "명령 상세 닫기" }));
+    expect(screen.getAllByRole("button", { name: "명령 상세 닫기" })).toHaveLength(1);
+    expect(apiPost).not.toHaveBeenCalled();
+  });
 
   it("stale summary is rejected across scope transition", async () => {
     sitesState.current.data.push({ id: "site-2", name: "새 현장", customerName: "고객사" });

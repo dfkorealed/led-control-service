@@ -1,5 +1,31 @@
 # 제어 메뉴 기능 현황
 
+## 2026-10-06 Control 가용 높이·완전한 적용 버튼 접근 보완
+
+### 구현 완료
+
+- 권한이 있는 일반 `/control` 경로의 Shell 콘텐츠 행이 남은 높이를 전달한다. 충분한 화면의 실제 지도는 1440×900의 387px에서 1440×1100의 587px로 성장하고, 확대 후 실제 resize에서도 논리 중심·선택·유효 초점을 유지한다. 다른 경로·권한 gate·모니터링·editor·전체 화면 분기 정책은 변경하지 않는다.
+- 실행 입력은 전체 고유 높이를 예약하고 결과 피드백만 잔여 공간을 사용한다. fresh 1024×480·390×320·1440×900에서 최소 지도 240px, 자연 스크롤, 범례·footer와 완전한 44px 적용 버튼 접근을 확인했다. 클릭 가능한 중심만으로 43.5px 잘림을 통과시키지 않으며 실제 clipping ancestor와 native wheel을 측정한다. 입력·Enter·지도·이력 조작의 추가 장비 POST는 0이다.
+- 두 열 상세는 크기 query container인 실제 피드백의 잔여 높이와 기존 16rem 상한 중 작은 값으로 제한한다. 같은 펼침 조건·handler·잠금의 명령 상세 닫기는 두 열에서 바깥 피드백 형제, 단일 열에서는 기존 안쪽 상세의 실제 action tail로 유지한다. Shell의 기존 759px 경계만 전달하고 닫기 DOM은 하나만 마운트한다. 전환 직전 닫기에 있던 초점만 preventScroll로 보존하며 다른 입력 초점·접기/재열기·현장/명령 scope를 빼앗지 않는다. 실제 9개 화면에서 native wheel/End 후 040 hit를 확인했으며, 두 열 잔여 피드백/상세는 실제 59·111·120px로 일치한다. 1024×768에서는 별도 native outer wheel 119px 뒤 전체 44px 닫기 clip/hit·클릭·원 상세 제거와 POST 0을 확인했다. 바깥 경고·안전 조작 스크롤은 유지한다.
+
+### 미구현
+
+- 실제 native WebView·물리 멀티 터치·Gateway/LED/센서 HIL 및 운영 API/DB 적용은 포함하지 않는다.
+
+### 부족하거나 개선이 필요한 기능
+
+- 원 전체 mock의 Apply·높이·dense 선택 실패와 후속 Monitoring Escape 실패, 앞선 91 PASS/3 FAIL 및 90 PASS/4 FAIL을 보존한다. 가벼운 첫 zoom 계측도 eligible121의 cached/input/current 중심과 정상 선택만 관측하여 반복된 원 실패의 인과는 미확정이다. 별도 승인된 테스트 입력 계약으로 기존 이동·두 paint 뒤 marker의 현재 중심을 한 번 재측정해 native click에 사용한다. 실제 소스 함수의 결정적 A→B/A→A·순서 검증을 RED→GREEN으로 확인했지만, 이는 원 과거 실패 원인의 해결 증거가 아니다. gesture/selection producer·disabled125·기존 단언/threshold는 변경하지 않는다.
+- 현재 직접 Shell/Control 유닛 177 PASS에는 실제 Shell 전달·두 배치/단일 닫기·양방향 초점·관련 없는 초점·접기 및 현장/명령 scope 회귀가 포함된다. 9개 원 inline body의 040 hit·POST0 및 실제 잔여 상세/닫기 증거와 앞선 높이·Apply covering 4 PASS는 실행 시점별로 구분한다. 최신 타입/UI/94개 영향 검증의 실제 결과·source hash·일반 PNG·cleanup은 `.superpowers/sdd/2026-10-04-operations-ui-refinement/task-9-control-fix-report.md`의 최종 기록으로 확인하며 독립 검토/최종 통합은 별도다. whole-Web/root/build·native·zoom 검증은 재실행하지 않는다.
+
+### 관련 파일
+
+- `apps/web/src/features/shells/CustomerShell.tsx`, `apps/web/src/features/control/ControlView.tsx` 및 기존 인접 테스트.
+- `apps/web/e2e/operational-marker-control-height.spec.ts`의 실제 native 스크롤 도달성 측정과 현 좌표 클릭 입력 계약; 기존 exact-ID·선택·camera·무전송 단언은 유지한다.
+
+### 갱신 규칙
+
+- Shell 전달 높이와 실행/결과 할당이 바뀌면 실제 resize 성장·카메라·짧은 화면 최소 높이·전체 44px clipping/hit·native wheel·가로 넘침 0을 함께 기록한다. UUID·고정 대상·잠금·명령 의미를 레이아웃 검증으로 대체하지 않으며 원 실패·계측 비재현·후속 covering의 시점을 구분한다.
+
 - 2026-10-05 공통 초기 초점 안정성 보완: Dialog 내부 ref를 안정화해 중첩 Popover가 열린 동안 부모 재렌더·외부 object/callback ref 교체가 사용자 초점을 빼앗지 않으며 이전 ref 정리와 닫힘 시 정리는 유지한다. 직접 공통 회귀와 격리 Chromium 검증 범위이며 실제 native WebView·HIL 및 최종 통합 승인을 뜻하지 않는다.
 - 2026-10-05 고객 알림 배치 보완: CustomerShell은 sticky 헤더 뒤·본문 앞의 단일 flow 알림 영역에 표시 중인 메시지의 실제 높이만 예약한다. 알림이 없으면 빈 간격은 없고 닫기·만료·revision·aria와 제어 요청 정책은 유지한다. 공통 기본 overlay는 변경하지 않는다. 직접 Shell/제어 회귀와 모니터링 격리 Chromium 범위이며 제어의 전체 상태 조합·native/HIL·최종 통합 승인은 별도다.
 

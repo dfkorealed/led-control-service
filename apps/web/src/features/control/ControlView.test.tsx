@@ -630,19 +630,93 @@ describe("ControlView 대상 선택", () => {
     expect(mocks.apiPost.mock.calls[0][1].clientRequestId).not.toBe(oldRequest.clientRequestId);
   });
 
-  it("reopens historical detail after closing without issuing physical control", async () => {
+  it.each([false, true])("reopens historical detail with one close action in single-column=%s without issuing physical control", async (singleColumnLayout) => {
     const status = { ...createCommandStatus(commandIds.terminal, "verified_applied"), siteId: dashboard.site.id, outcome: "applied" };
     mocks.apiGet.mockResolvedValue({ items: [status], nextCursor: null });
     mocks.useCommandStatus.mockImplementation((id) => ({ data: id === status.id ? status : undefined, error: null, isFetching: false, refetch: vi.fn() }));
-    renderControl();
+    renderControl("admin", dashboard.site.id, USER_A, undefined, singleColumnLayout);
     const row = await screen.findByRole("button", { name: new RegExp(commandIds.terminal) });
     fireEvent.click(row);
     expect(await screen.findByText("요청한 밝기가 이미 적용되어 있습니다.")).toBeInTheDocument();
     expandRecentDetails();
-    fireEvent.click(screen.getByRole("button", { name: "명령 상세 닫기" }));
+    const detail = screen.getByRole("region", { name: "최근 결과 상세" });
+    const close = screen.getByRole("button", { name: "명령 상세 닫기" });
+    expect(screen.getAllByRole("button", { name: "명령 상세 닫기" })).toHaveLength(1);
+    if (singleColumnLayout) expect(detail).toContainElement(close);
+    else expect(detail).not.toContainElement(close);
+    expect(close.closest("[data-control-panel-feedback]")).toBe(detail.parentElement);
+    expect(close).toBeEnabled();
+    fireEvent.click(close);
     expect(screen.queryByText("요청한 밝기가 이미 적용되어 있습니다.")).not.toBeInTheDocument();
     fireEvent.click(await screen.findByRole("button", { name: new RegExp(commandIds.terminal) }));
     expect(await screen.findByText("요청한 밝기가 이미 적용되어 있습니다.")).toBeInTheDocument();
+    expect(mocks.apiPost).not.toHaveBeenCalled();
+  });
+
+  it.each([false, true])("preserves only the focused close action across single-column=%s transitions", async (singleColumnLayout) => {
+    const status = { ...createCommandStatus(commandIds.terminal, "verified_applied"), siteId: dashboard.site.id, outcome: "applied" };
+    mocks.apiGet.mockResolvedValue({ items: [status], nextCursor: null });
+    mocks.useCommandStatus.mockImplementation(id => ({ data: id === status.id ? status : undefined, error: null, isFetching: false, refetch: vi.fn() }));
+    const { rerender } = renderControl("admin", dashboard.site.id, USER_A, undefined, singleColumnLayout);
+    fireEvent.click(await screen.findByRole("button", { name: new RegExp(status.id) }));
+    expandRecentDetails();
+    const oldClose = screen.getByRole("button", { name: "명령 상세 닫기" });
+    oldClose.focus();
+    const focus = vi.spyOn(HTMLElement.prototype, "focus");
+    rerender(controlElement(dashboard.site.id, "admin", USER_A, undefined, !singleColumnLayout));
+    const close = screen.getByRole("button", { name: "명령 상세 닫기" });
+    expect(screen.getAllByRole("button", { name: "명령 상세 닫기" })).toHaveLength(1);
+    expect(close).toHaveFocus();
+    expect(focus).toHaveBeenCalledWith({ preventScroll: true });
+    expect(screen.getByRole("button", { name: "상세 접기" })).toHaveAttribute("aria-expanded", "true");
+    const brightness = screen.getByRole("textbox", { name: "밝기 수치" });
+    brightness.focus();
+    rerender(controlElement(dashboard.site.id, "admin", USER_A, undefined, singleColumnLayout));
+    expect(brightness).toHaveFocus();
+    screen.getByRole("button", { name: "명령 상세 닫기" }).focus();
+    fireEvent.click(screen.getByRole("button", { name: "상세 접기" }));
+    expect(screen.queryByRole("button", { name: "명령 상세 닫기" })).not.toBeInTheDocument();
+    expandRecentDetails();
+    brightness.focus();
+    rerender(controlElement(dashboard.site.id, "admin", USER_A, undefined, !singleColumnLayout));
+    expect(brightness).toHaveFocus();
+    expect(mocks.apiPost).not.toHaveBeenCalled();
+    focus.mockRestore();
+  });
+
+  it("clears close focus intent when command detail becomes unavailable before reopening", async () => {
+    const status = { ...createCommandStatus(commandIds.terminal, "verified_applied"), siteId: dashboard.site.id, outcome: "applied" };
+    mocks.apiGet.mockResolvedValue({ items: [status], nextCursor: null });
+    mocks.useCommandStatus.mockImplementation(id => ({ data: id === status.id ? status : undefined, error: null, isFetching: false, refetch: vi.fn() }));
+    const { rerender } = renderControl();
+    fireEvent.click(await screen.findByRole("button", { name: new RegExp(status.id) }));
+    expandRecentDetails();
+    screen.getByRole("button", { name: "명령 상세 닫기" }).focus();
+    mocks.useCommandStatus.mockReturnValue({ data: createCommandStatus(commandIds.different, "verified_applied"), error: null, isFetching: false, refetch: vi.fn() });
+    rerender(controlElement(dashboard.site.id, "admin", USER_A, undefined, true));
+    expect(screen.queryByRole("button", { name: "명령 상세 닫기" })).not.toBeInTheDocument();
+    mocks.useCommandStatus.mockReturnValue({ data: status, error: null, isFetching: false, refetch: vi.fn() });
+    rerender(controlElement(dashboard.site.id, "admin", USER_A));
+    expect(screen.getByRole("button", { name: "명령 상세 닫기" })).not.toHaveFocus();
+    expect(mocks.apiPost).not.toHaveBeenCalled();
+  });
+
+  it("does not transfer a historical close focus intent into another site", async () => {
+    const status = { ...createCommandStatus(commandIds.terminal, "verified_applied"), siteId: dashboard.site.id, outcome: "applied" };
+    mocks.apiGet.mockResolvedValue({ items: [status], nextCursor: null });
+    mocks.useCommandStatus.mockImplementation(id => ({ data: id === status.id ? status : undefined, error: null, isFetching: false, refetch: vi.fn() }));
+    const { rerender } = renderControl();
+    fireEvent.click(await screen.findByRole("button", { name: new RegExp(status.id) }));
+    expandRecentDetails();
+    screen.getByRole("button", { name: "명령 상세 닫기" }).focus();
+    const nextSiteId = "00000000-0000-4000-8000-000000000099";
+    mocks.useControlDashboard.mockReturnValue({ data: { ...dashboard, site: { ...dashboard.site, id: nextSiteId } }, isLoading: false, error: null });
+    rerender(controlElement(nextSiteId, "admin", USER_A, undefined, true));
+    expect(screen.queryByRole("button", { name: "명령 상세 닫기" })).not.toBeInTheDocument();
+    const brightness = screen.getByRole("textbox", { name: "밝기 수치" });
+    brightness.focus();
+    rerender(controlElement(nextSiteId, "admin", USER_A));
+    expect(brightness).toHaveFocus();
     expect(mocks.apiPost).not.toHaveBeenCalled();
   });
 
@@ -1957,9 +2031,10 @@ function renderControl(
   role: "operator" | "admin" | "viewer" = "admin",
   siteId = dashboard.site.id,
   userId = USER_A,
-  initialEntry = `/control?siteId=${siteId}`
+  initialEntry = `/control?siteId=${siteId}`,
+  singleColumnLayout = false
 ) {
-  return render(controlElement(siteId, role, userId, initialEntry));
+  return render(controlElement(siteId, role, userId, initialEntry, singleColumnLayout));
 }
 
 function selectOption(label: string, option: string) {
@@ -2006,7 +2081,8 @@ function controlElement(
   siteId: string,
   role: "operator" | "admin" | "viewer" = "admin",
   userId = USER_A,
-  initialEntry = `/control?siteId=${siteId}`
+  initialEntry = `/control?siteId=${siteId}`,
+  singleColumnLayout = false
 ) {
   return (
     <QueryClientProvider client={new QueryClient()}>
@@ -2014,7 +2090,7 @@ function controlElement(
         <MemoryRouter initialEntries={[initialEntry]}>
           <SessionStatusCenter />
           <ToastRegion />
-          <ControlView siteId={siteId} userId={userId} userRole={role} />
+          <ControlView siteId={siteId} userId={userId} userRole={role} singleColumnLayout={singleColumnLayout} />
           <ControlLocation />
         </MemoryRouter>
       </SessionStatusProvider>

@@ -11,26 +11,67 @@ async function selected(page: Page) {
 }
 async function nativeReach(page: Page, target: Locator) {
   for (let attempt = 0; attempt < 12; attempt++) {
-    const box = (await target.boundingBox())!;
-    const point = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
-    const hit = await target.evaluate((node, point) => {
+    const measured = await target.evaluate(node => {
+      const telemetry = window as Window & { controlReachWheels?: { trusted: boolean; x: number; y: number; deltaY: number; bodyY: number | undefined; documentY: number }[] };
+      if (!telemetry.controlReachWheels) {
+        telemetry.controlReachWheels = [];
+        window.addEventListener("wheel", event => {
+          telemetry.controlReachWheels!.push({ trusted: event.isTrusted, x: event.clientX, y: event.clientY, deltaY: event.deltaY,
+            bodyY: document.querySelector<HTMLElement>("[data-control-panel-body]")?.scrollTop, documentY: scrollY });
+        }, { capture: true, passive: true });
+      }
+      const box = node.getBoundingClientRect();
+      const header = document.querySelector("main > header")?.getBoundingClientRect();
+      const nav = document.querySelector('[data-shell-navigation="compact"]')?.getBoundingClientRect();
+      const viewport = { left: 0, top: header?.bottom ?? 0, right: innerWidth, bottom: nav?.top ?? innerHeight };
+      const clip = { ...viewport };
+      let scroll: { point: { x: number; y: number }; delta: number; before: number; label: string } | undefined;
+      for (let parent = node.parentElement; parent; parent = parent.parentElement) {
+        const style = getComputedStyle(parent), bounds = parent.getBoundingClientRect();
+        const inner = { left: bounds.left + parseFloat(style.borderLeftWidth), top: bounds.top + parseFloat(style.borderTopWidth),
+          right: bounds.right - parseFloat(style.borderRightWidth), bottom: bounds.bottom - parseFloat(style.borderBottomWidth) };
+        if (["auto", "scroll", "hidden", "clip"].includes(style.overflowX)) {
+          clip.left = Math.max(clip.left, inner.left); clip.right = Math.min(clip.right, inner.right);
+        }
+        if (["auto", "scroll", "hidden", "clip"].includes(style.overflowY)) {
+          clip.top = Math.max(clip.top, inner.top); clip.bottom = Math.min(clip.bottom, inner.bottom);
+        }
+        // Window visibility alone misses a button clipped by its own auto-Y
+        // ancestor. Wheel that actual owner, never the map or a scripted scroll.
+        const delta = box.bottom > inner.bottom ? Math.ceil(box.bottom - inner.bottom)
+          : box.top < inner.top ? Math.floor(box.top - inner.top) : 0;
+        if (!scroll && ["auto", "scroll"].includes(style.overflowY) && delta &&
+          (delta > 0 ? parent.scrollTop + parent.clientHeight < parent.scrollHeight : parent.scrollTop > 0)) {
+          const left = Math.max(viewport.left, inner.left), right = Math.min(viewport.right, inner.right);
+          const top = Math.max(viewport.top, inner.top), bottom = Math.min(viewport.bottom, inner.bottom);
+          const point = { x: (left + right) / 2, y: (top + bottom) / 2 };
+          const hit = document.elementFromPoint(point.x, point.y);
+          if (right > left && bottom > top && hit && parent.contains(hit)) {
+            scroll = { point, delta, before: parent.scrollTop, label: parent.getAttribute("data-control-panel-body") !== null ? "execution-body" : parent.tagName };
+          }
+        }
+      }
+      const visibleWidth = Math.max(0, Math.min(box.right, clip.right) - Math.max(box.left, clip.left));
+      const visibleHeight = Math.max(0, Math.min(box.bottom, clip.bottom) - Math.max(box.top, clip.top));
+      const point = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
       const hit = document.elementFromPoint(point.x, point.y);
-      return Boolean(hit && (hit === node || node.contains(hit)));
-    }, point);
-    if (hit) return point;
-    // Move the real pointer over the appropriate scrollport and use native
-    // wheel input. No forceclick, scripted scrollTop, clocks or CSS zoom.
-    // The map consumes wheels for its own camera. Use the page gutter, outside
-    // that inner scrollport, when reaching document-flow controls on mobile.
+      return { point, box: box.toJSON(), clip, visibleWidth, visibleHeight, hit: Boolean(hit && (hit === node || node.contains(hit))), scroll,
+        documentY: scrollY, bodyY: document.querySelector<HTMLElement>("[data-control-panel-body]")?.scrollTop,
+        wheels: [...telemetry.controlReachWheels], disabled: node instanceof HTMLButtonElement ? node.disabled : false };
+    });
+    // A center hit alone accepted a 43.5px clipped Apply in R68. Require a full
+    // real 44px region without rounding the measured intersection upward.
+    if (measured.hit && measured.visibleWidth >= 44 && measured.visibleHeight >= 44) {
+      await test.info().attach(`native-reach-${await target.getAttribute("aria-label") ?? "apply"}`, { body: JSON.stringify(measured), contentType: "application/json" });
+      return measured.point;
+    }
     const size = page.viewportSize()!;
-    await page.mouse.move(size.width - 8, Math.min(Math.max(point.y, 110), size.height - 90));
-    const header = await page.locator("main > header").boundingBox();
-    const nav = page.getByRole("navigation", { name: "모바일 주 메뉴", exact: true });
-    const navigation = await nav.count() ? await nav.boundingBox() : null;
-    const top = header ? Math.max(0, header.y + header.height) + 12 : 130;
-    const bottom = navigation ? navigation.y - 12 : size.height - 12;
-    const desiredY = Math.max(top, Math.min(point.y, bottom));
-    await page.mouse.wheel(0, Math.max(-180, Math.min(180, point.y - desiredY)));
+    const delta = measured.scroll?.delta ?? (measured.box.bottom > measured.clip.bottom
+      ? Math.ceil(measured.box.bottom - measured.clip.bottom) : Math.floor(measured.box.top - measured.clip.top));
+    const wheelPoint = measured.scroll?.point ?? { x: size.width - 8, y: Math.min(Math.max(measured.point.y, measured.clip.top + 12), measured.clip.bottom - 12) };
+    await test.info().attach(`native-reach-attempt-${attempt}`, { body: JSON.stringify({ measured, wheelPoint, delta }), contentType: "application/json" });
+    await page.mouse.move(wheelPoint.x, wheelPoint.y);
+    await page.mouse.wheel(0, Math.max(-180, Math.min(180, delta)));
     await paints(page);
   }
   throw new Error(`Control is not reachable with bounded native scrolling: ${await target.getAttribute("aria-label")}`);
@@ -144,7 +185,10 @@ async function markerPoint(page: Page, index: number, dx = 0, dy = 0) {
 async function clickCenter(page: Page, index: number) {
   const point = await markerPoint(page, index);
   await page.mouse.move(point.x, point.y); await paints(page);
-  await page.mouse.click(point.x, point.y); await paints(page);
+  // Zoom anchoring may move the marker during the existing hover/paint phase.
+  // Activate this marker's current center, not a pre-paint screen coordinate.
+  const currentPoint = await markerPoint(page, index);
+  await page.mouse.click(currentPoint.x, currentPoint.y); await paints(page);
 }
 
 test.describe("Software touch delivery", () => {

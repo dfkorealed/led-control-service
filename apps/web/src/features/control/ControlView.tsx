@@ -76,12 +76,14 @@ export function ControlView({
   siteId,
   userId,
   userRole,
-  commandSessionBlocked = false
+  commandSessionBlocked = false,
+  singleColumnLayout = false
 }: {
   siteId?: string;
   userId: AuthUser["id"];
   userRole: AuthUser["role"];
   commandSessionBlocked?: boolean;
+  singleColumnLayout?: boolean;
 }) {
   const location = useLocation();
   const navigate = useNavigate();
@@ -654,7 +656,7 @@ export function ControlView({
               late health/capability text cannot move the dial or Apply action. */}
           {blockMessage ? <Text tone="danger" role="alert">{blockMessage}</Text> : null}
           {storageError ? <Text tone="danger" role="alert">{storageError}</Text> : null}
-          <ManualControlFeedback scopedActiveRequest={scopedActiveRequest} scopedCommandId={scopedCommandId}
+          <ManualControlFeedback singleColumnLayout={singleColumnLayout} scopedActiveRequest={scopedActiveRequest} scopedCommandId={scopedCommandId}
             replayRejected={replayRejected}
             awaitingCaseRelease={Boolean(reconciledOriginalCommandId)} isCaseReleaseFetching={reconciledCaseRead.isFetching}
             onRefreshCaseRelease={() => void reconciledCaseRead.refetch()}
@@ -734,7 +736,11 @@ function DimmingExecutionControls({ compact = false, brightness, controlsLocked,
     queueMicrotask(() => { restoring.current = false; });
   }
 
-  return <div className="grid min-h-0 flex-1 content-start gap-4 overflow-y-auto overscroll-contain" data-control-panel-body=""
+  // The complete execution form reserves its intrinsic height. Sharing flex-1
+  // with feedback split short panes into fractional scrollports and clipped the
+  // final Apply even at maximum scroll. Feedback alone takes the remaining
+  // space; the existing workspace minimum keeps short screens in document flow.
+  return <div className="grid min-h-0 flex-none content-start gap-4 overflow-y-auto overscroll-contain" data-control-panel-body=""
     onPointerDownCapture={event => {
       if (event.target instanceof Element && event.target.closest("[data-control-submit]")) invalidApplyAttempt.current = !rawValid.current || restoring.current;
     }}>
@@ -781,10 +787,11 @@ function manualApplyLabel(commandSessionBlocked: boolean, controlsLocked: boolea
   return selectedFixtureCount ? `${selectedFixtureCount}개 조명에 밝기 적용` : "밝기 적용";
 }
 
-function ManualControlFeedback({ compact = false, scopedActiveRequest, scopedCommandId, replayRejected, awaitingCaseRelease, isCaseReleaseFetching, onRefreshCaseRelease, isSubmitting, commandSessionBlocked, message, verificationError,
+function ManualControlFeedback({ compact = false, singleColumnLayout = false, scopedActiveRequest, scopedCommandId, replayRejected, awaitingCaseRelease, isCaseReleaseFetching, onRefreshCaseRelease, isSubmitting, commandSessionBlocked, message, verificationError,
   displayedStatus, onRetryPending, onCheck, onReapply, readOnly, restorePending, verificationRequest, commandInProgress, onCloseDetail,
   hasMismatchedCommandStatus, missingCommand, matchingCommandIsTerminal, commandError, detailCommandId, retentionExpired, isCommandFetching, onRefreshStatus }: {
   compact?: boolean;
+  singleColumnLayout?: boolean;
   scopedActiveRequest: CreateDimmingCommandInput | null;
   scopedCommandId: string | null;
   replayRejected: boolean;
@@ -815,6 +822,24 @@ function ManualControlFeedback({ compact = false, scopedActiveRequest, scopedCom
 }) {
   const [details, setDetails] = useState<{ id: string; open: boolean } | null>(null);
   const detailsOpen = details?.id === displayedStatus?.id && details?.open === true;
+  const closeRef = useRef<HTMLButtonElement>(null);
+  const closeOwnedFocus = useRef(false);
+  const previousDetailLayout = useRef({ singleColumnLayout, id: displayedStatus?.id, open: detailsOpen });
+  useLayoutEffect(() => {
+    const previous = previousDetailLayout.current;
+    // Only this focused action changes parents at the Shell's existing
+    // breakpoint. Removal does not emit blur; restore its replacement without
+    // scrolling, but never steal focus or carry intent into a new detail scope.
+    if (previous.singleColumnLayout !== singleColumnLayout && previous.id === displayedStatus?.id
+      && previous.open && detailsOpen && closeOwnedFocus.current && document.activeElement === document.body) {
+      closeRef.current?.focus({ preventScroll: true });
+    }
+    if (!detailsOpen || previous.id !== displayedStatus?.id) closeOwnedFocus.current = false;
+    previousDetailLayout.current = { singleColumnLayout, id: displayedStatus?.id, open: detailsOpen };
+  }, [singleColumnLayout, displayedStatus?.id, detailsOpen]);
+  const closeAction = <Button ref={closeRef} variant="secondary" type="button" disabled={commandInProgress || isSubmitting}
+    onFocus={() => { closeOwnedFocus.current = true; }} onBlur={() => { closeOwnedFocus.current = false; }}
+    onClick={onCloseDetail}>명령 상세 닫기</Button>;
   const result = presentRecentCommandResult(displayedStatus);
   // The two-column workspace reserves space for execution controls above.
   // Contain only desktop feedback sizing so long results cannot enlarge that
@@ -822,7 +847,10 @@ function ManualControlFeedback({ compact = false, scopedActiveRequest, scopedCom
   // pane. Single-column layouts retain their original natural document flow.
   // Max-content rows prevent the status actions shrinking under inline details;
   // overflow is handled by the pane, never by overlapping or clipping buttons.
-  return <div className="grid min-h-0 min-w-0 flex-none content-start gap-3 compact:auto-rows-max compact:flex-1 compact:overflow-y-auto compact:overscroll-contain compact:[contain:size]" data-control-panel-feedback="">
+  // Size-query units give the nested detail the actual residual pane height,
+  // not its max-content grid row height. The outer pane still scrolls all
+  // warnings/actions; the inner viewport must fit wholly inside that pane.
+  return <div className="grid min-h-0 min-w-0 flex-none content-start gap-3 compact:auto-rows-max compact:flex-1 compact:overflow-y-auto compact:overscroll-contain compact:[container-type:size]" data-control-panel-feedback="">
     <Heading as="h4" variant={compact ? "label" : "card-title"}>최근 결과</Heading>
     <div className="grid min-h-px gap-3 empty:min-h-0" role="status" aria-label="명령 진행 상태" aria-live="polite" data-command-status-region="">
       {scopedActiveRequest && !scopedCommandId && !replayRejected ? <Button variant="secondary" type="button" onClick={onRetryPending} disabled={isSubmitting || commandSessionBlocked}>
@@ -846,10 +874,15 @@ function ManualControlFeedback({ compact = false, scopedActiveRequest, scopedCom
           onClick={() => setDetails({ id: displayedStatus.id, open: !detailsOpen })}>{detailsOpen ? "상세 접기" : "상세 보기"}</Button>
       </> : null}
     </div>
-    {displayedStatus && detailsOpen ? <section id="recent-command-details" aria-label="최근 결과 상세" className="grid max-h-64 min-h-0 min-w-0 content-start gap-3 overflow-y-auto overscroll-contain" tabIndex={0}>
+    {displayedStatus && detailsOpen ? <>
+      <section id="recent-command-details" aria-label="최근 결과 상세" className="grid max-h-64 min-h-0 min-w-0 content-start gap-3 overflow-y-auto overscroll-contain compact:max-h-[min(16rem,100cqh)]" tabIndex={0}>
       <CommandProgress status={displayedStatus} />
-      <Button variant="secondary" type="button" disabled={commandInProgress || isSubmitting} onClick={onCloseDetail}>명령 상세 닫기</Button>
-    </section> : null}
+      {/* Preserve the real action tail below results in natural single-column
+          flow; desktop's residual scrollport must not include that 44px tail. */}
+      {singleColumnLayout ? closeAction : null}
+      </section>
+      {!singleColumnLayout ? closeAction : null}
+    </> : null}
     {hasMismatchedCommandStatus && !missingCommand ? <div className="grid gap-2" role="alert">
       <Text tone="danger">명령 상태 응답의 식별자가 일치하지 않습니다. 안전을 위해 제어 잠금을 유지합니다.</Text>
       <Button variant="secondary" type="button" onClick={onRefreshStatus} disabled={isCommandFetching}>

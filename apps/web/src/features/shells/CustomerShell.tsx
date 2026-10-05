@@ -262,6 +262,7 @@ export function CustomerShell({ user }: { user: AuthUser }) {
     gate = <Navigate to={`/settings${settingsSearch}`} replace />;
   }
 
+  const isControlWorkspace = location.pathname === "/control" && Boolean(capabilities?.control) && !gate;
   const summaryScope: CustomerShellScope | null = isMonitoringRoute && authorizedSelectedSiteId
     ? { principalKey: principalKey(user), siteId: authorizedSelectedSiteId, pathname: "/monitoring" } : null;
   const summaryValue: CustomerSiteSummary | null = summaryScope ? {
@@ -328,7 +329,11 @@ export function CustomerShell({ user }: { user: AuthUser }) {
             scrolls normally when live notice height exceeds the viewport. */}
         {/* Editor minima may exceed a short viewport. Keep ordinary document
             scrolling through both grids instead of clipping the workspace. */}
-        <div data-shell-content className={`m-0! min-w-0 flex-1 ${focus.active ? `min-h-0 ${isMonitoringRoute ? "" : "overflow-hidden"} p-2 compact:p-3` : isEditorRoute ? "grid min-h-min grid-rows-[auto_minmax(min-content,1fr)] gap-2 p-2 compact:p-3 [&>section:last-child]:h-full [&>section:last-child]:min-h-min [&>section:last-child]:grid-rows-[auto_minmax(min-content,1fr)] [&>section:last-child]:gap-2 [&>section:last-child>div]:min-h-min" : isMonitoringRoute ? "flex min-h-0 flex-col p-6 max-compact:p-3.5" : "grid content-start gap-5 p-6 max-compact:p-3.5"}`}>
+        {/* Only an authorized Control workspace needs the available grid row,
+            not an intrinsic content-start row. Its min-content floor keeps a
+            short viewport in document flow; account/gate and other routes keep
+            their existing composition and scrolling policy. */}
+        <div data-shell-content className={`m-0! min-w-0 flex-1 ${focus.active ? `min-h-0 ${isMonitoringRoute ? "" : "overflow-hidden"} p-2 compact:p-3` : isEditorRoute ? "grid min-h-min grid-rows-[auto_minmax(min-content,1fr)] gap-2 p-2 compact:p-3 [&>section:last-child]:h-full [&>section:last-child]:min-h-min [&>section:last-child]:grid-rows-[auto_minmax(min-content,1fr)] [&>section:last-child]:gap-2 [&>section:last-child>div]:min-h-min" : isMonitoringRoute ? "flex min-h-0 flex-col p-6 max-compact:p-3.5" : isControlWorkspace ? "grid grid-rows-[minmax(min-content,1fr)] gap-5 p-6 max-compact:p-3.5" : "grid content-start gap-5 p-6 max-compact:p-3.5"}`}>
           {/* The eager account region stays outside the lazy route boundary so
               failed settings chunks and installation/permission gates retain
               the same logout controller, confirmation and initiating ref. */}
@@ -345,6 +350,7 @@ export function CustomerShell({ user }: { user: AuthUser }) {
                   userId={user.id}
                   userRole={user.role}
                   commandSessionBlocked={isLoggingOut}
+                  singleColumnLayout={isCompactNavigation}
                 />
               ) : <Navigate to={`/monitoring${location.search}`} replace />}
             />
