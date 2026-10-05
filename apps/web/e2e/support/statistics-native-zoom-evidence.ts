@@ -150,11 +150,23 @@ export class StatisticsNativeZoomEvidence {
       await evidence.persist();
       return evidence;
     } catch (error) {
-      preflight.error = { stage: preflight.stage, utc: new Date().toISOString(), message: String(error) }; await persist();
-      try { await cdp.detach(); preflight.pageSessionDetachedAt = new Date().toISOString(); }
-      catch (cleanupError) { preflight.pageSessionCleanupError = String(cleanupError); }
-      await persist();
-      throw new Error(`NEEDS_CONTEXT: native preflight ${String(preflight.stage)}: ${String(error)}`);
+      preflight.error = { stage: preflight.stage, utc: new Date().toISOString(), message: String(error) };
+      const persistenceErrors: Array<{ stage: string; utc: string; message: string }> = [];
+      preflight.persistenceErrors = persistenceErrors;
+      const preserveFailure = async (stage: string) => {
+        try { await persist(); }
+        catch (persistenceError) { persistenceErrors.push({ stage, utc: new Date().toISOString(), message: String(persistenceError) }); }
+      };
+      // Evidence IO can fail for the same reason as the original preflight.
+      // Detach independently, and never replace that original error with an
+      // error-record or cleanup failure; retain secondary errors if IO recovers.
+      try { await preserveFailure("error-record"); }
+      finally {
+        try { await cdp.detach(); preflight.pageSessionDetachedAt = new Date().toISOString(); }
+        catch (cleanupError) { preflight.pageSessionCleanupError = String(cleanupError); }
+      }
+      await preserveFailure("cleanup-record");
+      throw new Error(`NEEDS_CONTEXT: native preflight ${String(preflight.stage)}: ${String(error)}`, { cause: error });
     }
   }
 

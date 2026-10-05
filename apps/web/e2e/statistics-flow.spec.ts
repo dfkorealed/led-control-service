@@ -206,6 +206,56 @@ for (const scenario of ["ordered single pending candidate", "wrong pixels remain
 
 // Controlled public protocol responses characterize metadata collection only:
 // these cases create no browser/zoom/frame and never qualify native evidence.
+for (const scenario of ["initial persistence failure", "error-record persistence failure", "error-record persistence and detach failure"] as const) {
+  unconfiguredTest(`native create IO ${scenario} preserves original failure and independent cleanup`, async ({}, info) => {
+    const blocked = info.outputPath("blocked-preflight-directory"); await mkdir(blocked);
+    const initialFailure = scenario === "initial persistence failure";
+    const original = new Error("Controlled original Browser.getVersion failure");
+    let blockWrites = initialFailure, pageDetached = 0, contextClosed = 0, queries = 0;
+    const events: string[] = [];
+    const context = {
+      newCDPSession: async () => ({
+        send: async (method: string) => {
+          queries++; expect(method).toBe("Browser.getVersion");
+          blockWrites = true; throw original;
+        },
+        detach: async () => {
+          pageDetached++; events.push("page-detach");
+          // Restore this fixture's real output only after detach is attempted,
+          // so the final evidence write can retain the earlier actual EISDIR.
+          if (!initialFailure) blockWrites = false;
+          if (scenario === "error-record persistence and detach failure") throw new Error("Controlled Page detach failure");
+        }
+      }),
+      close: async () => { contextClosed++; events.push("context-close"); }
+    } as unknown as BrowserContext;
+    const evidenceInfo = { ...info, outputPath: (...segments: string[]) =>
+      segments[0] === "native-zoom-preflight.json" && blockWrites ? blocked : info.outputPath(...segments)
+    } as TestInfo;
+    let native: StatisticsNativeZoomEvidence | undefined;
+    let failure: (Error & { cause?: Error & { code?: string } }) | undefined;
+    try { native = await StatisticsNativeZoomEvidence.create(context, {} as Page, evidenceInfo); }
+    catch (error) { failure = error as typeof failure; }
+    finally { try { await native?.stop(); } finally { await context.close(); } }
+    expect(pageDetached).toBe(1); expect(contextClosed).toBe(1);
+    expect(events).toEqual(["page-detach", "context-close"]);
+    expect(native).toBeUndefined(); expect(failure?.message).toContain("NEEDS_CONTEXT");
+    expect(queries).toBe(initialFailure ? 0 : 1);
+    if (initialFailure) {
+      expect(failure?.cause?.code).toBe("EISDIR");
+      expect(failure?.message).toContain("EISDIR");
+    } else {
+      expect(failure?.cause).toBe(original);
+      expect(failure?.message).toContain("Controlled original Browser.getVersion failure");
+      const raw = JSON.parse(await readFile(info.outputPath("native-zoom-preflight.json"), "utf8"));
+      expect(raw.error).toMatchObject({ stage: "Browser.getVersion", message: "Error: Controlled original Browser.getVersion failure" });
+      expect(raw.persistenceErrors).toEqual([expect.objectContaining({ stage: "error-record", message: expect.stringContaining("EISDIR") })]);
+      if (scenario === "error-record persistence and detach failure") expect(raw.pageSessionCleanupError).toContain("Controlled Page detach failure");
+      else expect(raw.pageSessionDetachedAt).toBeTruthy();
+    }
+  });
+}
+
 for (const scenario of ["actual command string", "unsupported", "empty command", "ambiguous profile"] as const) {
   unconfiguredTest(`native preflight preserves staged evidence for ${scenario}`, async ({}, info) => {
     const profile = info.outputPath("synthetic-profile"); await mkdir(profile, { recursive: true });
