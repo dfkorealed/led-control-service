@@ -42,7 +42,7 @@
 - [x] 이 구현 계획 검토·승인 회수: 2026-10-05 사용자의 “진행해줘”로 승인됐다.
 - [x] 개인 숨김용 신규 additive DDL과 마지막 로컬 서버 반영의 명시적 승인 회수: 새 두 테이블 추가·Web/API 잠시 중지/재시작을 함께 설명한 확인에 2026-10-05 사용자가 승인했다. 이전 읽음 테이블 승인으로 대체하지 않는다.
 
-현재 실행: Task 1~3은 독립 검토와 해당 검증을 완료했다. Task 4 Shell 헤더·설정 계정·알람 소비를 원 자료와 승인 계약을 이어받는 새 내부 UI 담당자에게 단독 배정한다. Tasks 5~10은 아직 미실행이며, 사용자 DB/현재 서버 반영과 기본 브랜치 병합은 최종 검수 뒤 Task 10에서만 수행한다.
+현재 실행: Task 1~4는 독립 검토와 해당 검증을 완료했다. Task 5 지도 하단 잘림·맵 요약·로그 필터 소비를 기존 모니터링 담당 세션에 배정한다. Tasks 6~10은 아직 미실행이며, 사용자 DB/현재 서버 반영과 기본 브랜치 병합은 최종 검수 뒤 Task 10에서만 수행한다.
 
 Task 1의 이전 중간 기록: 설치/격리 Prisma/준비 완료, 원 baseline exit 1과 CAD spool·bulk-map·Gateway 분석 CLI의 기존 실패를 보존했다. 원 소스 단독 확인은 각각 8/8·7/7·24/24 PASS이며 전체 baseline 통과로 치환하지 않는다. 당시 UI RED 26실패/20통과와 공통 UI 부분 수정본을 남겼고 GREEN/커밋은 아직 없었다. 담당 세션 압축 뒤 범위 이탈은 작성권 회수·보고/idle 감사로 정리했으며, 기본 checkout/서버/DB/장비 변경은 없었다. 기존 담당에게 정확한 brief/인계 보고로 작성권을 다시 배정했고 이후 완료/보완 결과는 Task 1 하단에 기록했다. 디자이너의 읽기 전용 검수 방법 준비는 실제 Task 9 화면 검증과 구분한다.
 
@@ -209,7 +209,7 @@ Task 3 완료 `9a7c82ec`: 실제PG18PASS/0skip·최종production source hash 일
 
 ### Task 4: Shell 현장 헤더·설정 계정·알람 소비
 
-**Files:** 생성 `apps/web/src/features/shells/CustomerHeaderSummarySlot.tsx`, `CustomerAccountContext.tsx`, `CustomerAccountPanel.tsx`, `CustomerRouteErrorBoundary.tsx`와 인접 시험; 수정 `CustomerShell.tsx`, `features/settings/SettingsShell.tsx`, `api/monitoring-incidents.ts`, `components/ui/session-status/useMonitoringIncidents.ts`, `SessionStatusCenter.tsx`와 기존 시험. 생성 `components/ui/session-status/monitoring-dismissal-request.ts`와 `.test.ts`는 요청키 저장만 담당한다. 공통 Grid 소비는 `features/operator/LandingInquiriesView.tsx`, `features/operator/site-admins/SiteAdminManagementView.tsx`와 해당 시험; 문서는 `docs/menus/{monitoring,settings,operator}.md`다.
+**Files:** 생성 `apps/web/src/features/shells/CustomerHeaderSummarySlot.tsx`, `CustomerAccountContext.tsx`, `CustomerAccountPanel.tsx`, `CustomerRouteErrorBoundary.tsx`와 인접 시험; 수정 `CustomerShell.tsx`, `features/settings/SettingsShell.tsx`, `api/monitoring-incidents.ts`, `components/ui/session-status/useMonitoringIncidents.ts`, `SessionStatusCenter.tsx`와 기존 시험. 생성 `components/ui/session-status/monitoring-dismissal-request.ts`와 `.test.ts`는 요청키 저장만 담당한다. 공통 Grid 소비는 `features/operator/LandingInquiriesView.tsx`, `features/operator/site-admins/SiteAdminManagementView.tsx`와 해당 시험; 문서는 `docs/menus/{monitoring,settings,operator}.md`다. Step 4의 모의 browser 회귀 수정 범위는 `apps/web/e2e/{ui-overlays,app-shell-recovery,calm-operations-shell}.spec.ts`로 명시한다. `apps/web/src/App.test.tsx`의 새 헤더/설정 로그아웃 동선·strict personal 응답 fixture 호환과 `features/shells/CustomerShell.monitoring.test.tsx`의 personal URL 기대도 Task 4에 앞당겨 단독 소유를 부여한다. 명령 잠금/취소·복구/동일 요청·추가 POST 금지 assertion은 모두 유지하며 runtime/auth/제어 정책은 바꾸지 않는다. 다른 공통 fixture 파일은 정확한 경로/필요 변경을 총괄에게 확인한 뒤 소유를 추가한다.
 
 **Interfaces:** Task 1/3을 소비한다. 헤더 값은 Shell의 기존 authorized dashboard query에서 직접 생산하고 자식 등록 context는 추가하지 않는다.
 
@@ -225,13 +225,23 @@ useCustomerAccount(): CustomerAccountContextValue;
 
 현장 band는 `현장 전체`와 현장 이름을 표기하고 값/null/오류를 그대로 표현한다. 계정 panel은 eager이며 admin/viewer/no-site/loading/error/lazy 실패에서 제공한다. 기존 Shell logout controller만 사용하고 dirty 취소/실패 반환 ref·command block/unblock/cache를 유지한다. OperatorShell 인증/관리/MFA gate는 바꾸지 않는다.
 
+총괄 Ruling: 실제 SettingsShell은 기존 lazy 경계를 유지한다. 계정 context/controller와 설정 경로의 단일 eager panel은 route Suspense/ErrorBoundary 바깥에서 살아 있고, 초기 권한/설치/no-site gate에도 계정 탈출을 제공한다. SettingsShell의 선택적 accountSlot 공개 계약은 유지·직접 검증하되 live Shell에서 동일 계정 panel을 중복 넣거나 lazy 본문이 panel 수명을 소유하게 하지 않는다. 모든 return 경로에서 provider/관련 확인·초점 controller를 유지하고 이 예외의 이유를 코드/메뉴 문서에 설명한다.
+
+Task 4 중간 검증: 직접 covering 8파일152PASS/exit0, 타입/UI exit0다. 전체 Web을 한 번 실행한 결과는 3112PASS/12FAIL/기존3skip(223파일)로 보존한다. 기존 App의 헤더 로그아웃 동선·중복 현장 이름·strict 알람 fixture와 Shell monitoring의 personal URL 기대를 위 소유 범위에서 이관한다. 보완 후 직접 App/Shell covering만 재실행하고 마지막 fresh root는 Task 9에 유지한다. 모의 browser 9건 중 8PASS/1FAIL의 인증 요청3대4는 개발 StrictMode의 초기 observer 취소1개와 실제503응답3개가 혼합된 계수로 진단됐다. 최종 genuine StrictMode 시험은 초기 ERR_ABORTED1개가 첫503보다 앞선다는 조건과 전체 시작=완료응답+취소 관계를 별도로 단언하고, 기존 완료응답3회/수동복구후4회·keyboard/동일문서 복구를 유지한다. 합성 Fragment 진단은 원인 분리 증거일 뿐 최종 검증에 쓰지 않으며 auth/retry production은 바꾸지 않는다. 최종 보완 결과/원로그 감사는 아직이다.
+
+Task 4 구현 반환 `38b6b3d1`: 최종 직접 10파일227PASS·타입/UI0·genuine StrictMode 선택browser9PASS다. 실제 Node22/exitmetadata·소유28파일/커밋·원로그를 대조했다. 최종 단위/타입의28hashes는 커밋과 전부 일치하며 browser/UI 이후 변경은 App 테스트의 지원하지 않는 옵션 제거뿐이다. 원 전체Web3112PASS/12FAIL/기존3skip과 중간 타입8오류/fixture 실패·wrapper transient hash 실패는 보존했다. 사용자DB/runtime/장비는 불변이고 자체 자원은 종료됐다. 독립 task Spec/quality는 아직 검토 중이므로 다음 소비자/완료 체크는 대기한다.
+
+Task 4 독립 검토는 Spec❌/품질Needs fixes·Critical0/Important1/Minor2다. I1은 대·소문자 동등 UUID 저장키와 DB canonical bulk 응답의 strict 문자열 비교 불일치다. 같은 담당자에게 valid UUID 비교·원 저장키 재시도/정확한 제거/다른 키 보존의 좁은 RED→fix와 fallback의 “설정의 내 계정” 안내 보완만 배정했다. API의 siteId도 DB 예약의 canonical UUID를 반환하므로 같은 비교 계약을 확인한다. 새 요청키/target 확장·auth/제어/공유 producer 변경은 없다. 경고 지적은 최종 검토에 보존하며 원 전체Web 실패나 이전227/9 결과를 보완 소스의 fresh 전체통과로 재사용하지 않는다.
+
+Task 4 fix round1 반환 `2ba94c06`: 실제 RED5/60PASS와 생산자 허용 UUID 형식 RED2/40PASS를 확인했다. 최종 covering6파일120PASS/0skip·타입/UI0·Node22/exitmetadata 및 커밋7파일 hashes 일치를 대조했다. 원 대문자 키로 실패/새로고침/명시적 재시도를 수행하고 성공 후 그 정확한 저장 항목만 제거하며 다른 철자/키/현장/설정을 보존한다. 오류 안내는 설정의 계정 위치를 명시한다. 새 브라우저/서버/전체Web/root 실행은 없고 기존 결과를 새 전체통과로 재사용하지 않는다. 좁은 재검토 결과는 아직 대기 중이다.
+
 alarm API client에 `view`, strict 응답 parser 및 `dismissMonitoringIncident(siteId, incidentId, options)`/`dismissAllMonitoringIncidents(siteId, clientRequestId, options)`를 추가한다. hook/query key는 principal/site/personal/조건으로 묶는다. 실패/응답 불명에 낙관적 삭제는 없으며 성공 뒤 이전 scope 요청을 취소하고 첫 페이지/badge를 재조회한다. 화면에 실제 보인 항목만 읽음 처리한다. 전체 확인에는 페이지/필터 밖도 포함하는 선택 현장 범위를 알린다.
 
 bulk UUID는 첫 POST **전에** 계정·현장별 브라우저 저장소에 기록하고, 성공 확인 전 재시도/재열기/새로고침에도 그대로 사용한다. 저장은 비밀/토큰/target IDs 없이 요청키만 기록한다. 복수 탭의 key 유실을 막도록 각 `(userId, siteId, clientRequestId)`를 독립 저장 항목으로 둔다. 남은 key는 명시적 결과 확인/재시도에서 각각 소비하고 자동 POST/새 key 교체를 금지한다. 저장 실패는 전체 지우기 POST 전에 안내하고 중지한다. 완료 key만 제거하고 다른 계정/현장의 key는 건드리지 않는다.
 
 요청 저장 모듈의 공개 계약은 `DismissalRequestScope={userId:string;siteId:string}`, `listPendingDismissalRequestIds(scope, storage):readonly string[]`, `storePendingDismissalRequest(scope, clientRequestId, storage):void`, `removePendingDismissalRequest(scope, clientRequestId, storage):void`다. storage는 `Pick<Storage,"length"|"key"|"getItem"|"setItem"|"removeItem">`이며 UUID/scope/version을 검증한다. 사용자별 요청키는 숨김 실패 복구용이지 명령 recovery나 인증 storage와 합치지 않는다.
 
-- [ ] **Step 1:** RED `stale summary is rejected across scope transition`, `account escape remains available for viewer admin no site pending and lazy failure`, `dirty cancel preserves draft and logout failure restores initiating focus`, `bulk retry preserves request key across reload and ignores late scope responses`를 작성한다. 값의 거짓 0 치환·숨김의 읽음 변경·추가 제어 POST는 0, 실패 목록은 보존한다. 저장 실패 시 POST 0, 복수 pending key/다른 scope 보존도 단언한다. 운영자 Grid에는 넓은 window/좁은 container에서 cards와 모든 필드/권한 보존 시험을 추가한다.
+- [x] **Step 1:** RED `stale summary is rejected across scope transition`, `account escape remains available for viewer admin no site pending and lazy failure`, `dirty cancel preserves draft and logout failure restores initiating focus`, `bulk retry preserves request key across reload and ignores late scope responses`를 작성한다. 값의 거짓 0 치환·숨김의 읽음 변경·추가 제어 POST는 0, 실패 목록은 보존한다. 저장 실패 시 POST 0, 복수 pending key/다른 scope 보존도 단언한다. 운영자 Grid에는 넓은 window/좁은 container에서 cards와 모든 필드/권한 보존 시험을 추가한다.
 
 ```ts
 const scope = { userId: "00000000-0000-4000-8000-000000000001", siteId: "00000000-0000-4000-8000-000000000002" };
@@ -239,11 +249,13 @@ const key = "00000000-0000-4000-8000-000000000003";
 storePendingDismissalRequest(scope, key, localStorage);
 expect(listPendingDismissalRequestIds(scope, localStorage)).toContain(key);
 ```
-- [ ] **Step 2:** 인접 Vitest에서 의도한 RED를 확인한다.
-- [ ] **Step 3:** 공개 계약과 기존 handler/overlay로 구현한다. 계정/ref는 route 오류에서도 owner 수명을 유지한다. 숨김은 서버 정본만 반영한다. 운영자 표는 DataGrid/중앙 헤더를 소비하며 조회·메일·관리 API는 그대로다.
-- [ ] **Step 4:** Shell/API/parser/hook/센터/설정/운영자 회귀·web typecheck/UI 및 격리 `ui-overlays.spec.ts`, `app-shell-recovery.spec.ts`, `calm-operations-shell.spec.ts`를 GREEN으로 기록한다. 명시적인 UI case만 선택하고 사용자 서버의 계정·알람은 조작하지 않는다.
-- [ ] **Step 5:** 영향 3개 메뉴를 실제 소유 변경과 일치하게 갱신한다.
-- [ ] **Step 6:** `feat(shell): unify site context account and alarm actions`로 소유 파일을 커밋 후 독립 검토받는다. Monitoring 본문 현장 요약 제거는 다음 Task 5의 소비 범위다.
+- [x] **Step 2:** 인접 Vitest에서 의도한 RED를 확인한다.
+- [x] **Step 3:** 공개 계약과 기존 handler/overlay로 구현한다. 계정/ref는 route 오류에서도 owner 수명을 유지한다. 숨김은 서버 정본만 반영한다. 운영자 표는 DataGrid/중앙 헤더를 소비하며 조회·메일·관리 API는 그대로다.
+- [x] **Step 4:** Shell/API/parser/hook/센터/설정/운영자 회귀·web typecheck/UI 및 격리 `ui-overlays.spec.ts`, `app-shell-recovery.spec.ts`, `calm-operations-shell.spec.ts`를 GREEN으로 기록한다. 명시적인 UI case만 선택하고 사용자 서버의 계정·알람은 조작하지 않는다.
+- [x] **Step 5:** 영향 3개 메뉴를 실제 소유 변경과 일치하게 갱신한다.
+- [x] **Step 6:** `feat(shell): unify site context account and alarm actions`로 소유 파일을 커밋 후 독립 검토받는다. Monitoring 본문 현장 요약 제거는 다음 Task 5의 소비 범위다.
+
+Task 4 완료: `38b6b3d1`+`2ba94c06`, 원 task review의 I1/M1은 scoped 재검토 ADDRESSED·새Critical/Important/Minor0으로 닫혔다. 원 나머지 Spec✅ 판정과 합쳐 요구/품질 gate를 승인했다. 최종 보완 covering120PASS/타입/UI0는 이전227단위/9선택browser 및 원 전체Web12실패와 구분한다. 원 소스-only principal cache guard를 확인했고 전체폭/200%/실DB/현재runtime은 Task9/10에 명시 배정돼 있다. M2·기존 task의 launcher/color/schedule/Konva/fault-injection 경고는 최종 whole-branch triage에 남기며 무해/해결로 선언하지 않는다. 소유 소스clean/자체명령 종료를 확인하고 기존 모니터링 담당자에게 Task5만 넘긴다.
 
 ### Task 5: 모니터링 높이·맵 요약·로그 필터
 
@@ -318,7 +330,7 @@ expect(energyRangeComparisonQuerySchema.safeParse({ from: "2026-09-02", to: "202
 
 **Files:** `apps/web/src/features/settings/users/SiteUsersView.tsx`/`.test.tsx`, `features/floor-editor/CadImportPanel.tsx`와 기존 시험, `e2e/site-user-management.spec.ts`, `e2e/settings-floor-editor.spec.ts`, `docs/menus/settings.md`.
 
-**Interfaces:** 사용자 목록은 DataGrid+FilterPanel을 사용한다. 검색 외부, 권한 all/read/control·상태 all/active/disabled는 상세 Popover, 활성 수 0~2와 검색을 유지하는 reset이다. 100명 한도·비활성화/영구 삭제/권한/확인은 부모 소유다. CAD 후보 page-size는 검색 없는 FilterPanel/PageSizeSelect와 기본20·옵션10/20/50/100을 사용하며 이전/다음은 남긴다. 등록 층/게이트웨이·현장 관리 층·CAD 영역 선택은 primary 입력이므로 숨기지 않는다. 계정/logout은 Task 4의 SettingsShell accountSlot을 이미 소비하며 owner를 복제하지 않는다.
+**Interfaces:** 사용자 목록은 DataGrid+FilterPanel을 사용한다. 검색 외부, 권한 all/read/control·상태 all/active/disabled는 상세 Popover, 활성 수 0~2와 검색을 유지하는 reset이다. 100명 한도·비활성화/영구 삭제/권한/확인은 부모 소유다. CAD 후보 page-size는 검색 없는 FilterPanel/PageSizeSelect와 기본20·옵션10/20/50/100을 사용하며 이전/다음은 남긴다. 등록 층/게이트웨이·현장 관리 층·CAD 영역 선택은 primary 입력이므로 숨기지 않는다. 계정/logout은 Task 4의 단일 eager 계정 영역을 소비하며 owner를 복제하지 않는다. SettingsShell accountSlot 공개 API의 예외적인 live 배치는 Task 4 Ruling에 따른다.
 
 - [ ] **Step 1:** RED `user detail reset preserves search and pending permissions`, `user grid switches by container without losing mutation controls`, `CAD page size is a filter while region selection stays visible`를 작성한다. scope 전환 시 열린 옛 행 menu의 요청 0, 삭제 확인/초점 복귀·페이지 크기 검증을 단언한다.
 
