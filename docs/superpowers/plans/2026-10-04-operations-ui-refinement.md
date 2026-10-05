@@ -155,9 +155,9 @@ expect(cameraFromTransform({ pan: { x: 0, y: 0 }, zoom: 1 }, { width: 0, height:
 - [x] **Step 3:** 순수 변환/표시 기반과 기존 export 호환 adapter를 구현한다. pointer policy·hit-test 순서·lease/undo/revision/CAD/ACK를 변경하지 않는다. 기존 공통 문서 더블클릭 첫 hit 후속은 이번 변경으로 고쳤다고 주장하지 않는다.
 - [x] **Step 4:** 위 시험과 FloorMapViewport/편집 기하·canvas·use-map-editor 회귀, web typecheck/UI를 GREEN으로 확인한다. cold/warm 원 1000대 정확 ID·픽셀·X50·저장·실제시계 `<8000ms`는 Task 9에서도 원본 기준을 유지한다.
 - [x] **Step 5:** settings 메뉴에 실제 공유 범위/한계를 기록한다.
-- [ ] **Step 6:** `refactor(map): share camera geometry and controls`로 소유 파일을 커밋 후 독립 검토받는다. 운영/제어 소비자 작성권은 아직 주지 않는다.
+- [x] **Step 6:** `refactor(map): share camera geometry and controls`로 소유 파일을 커밋 후 독립 검토받는다. 운영/제어 소비자 작성권은 아직 주지 않는다.
 
-Task 2 구현 `7d13ba95`/소유13파일 반환. 최종56파일819PASS/0skip·type/UIexit0를 원로그와 대조했으며 독립 task review 대기다. 원1000/8초와 실제browser/200%는 미실행으로 Task9에 유지한다.
+Task 2 완료 `7d13ba95`, 독립Spec✅/qualityApproved·Critical0/Important0. 최종56파일819PASS/0skip·type/UI0와 소스 불변 추가wholeWeb3087PASS/0FAIL/기존3skip/63.60s/exit0를 구분해 확인했다. 원1000/8초와 실제browser/200%는 미실행으로 Task9에 유지한다. 기존 예상경고는 최종 wholebranch 검토에 이관한다.
 
 ### Task 3: 개인 알람 숨김과 영속 전체 대상 snapshot
 
