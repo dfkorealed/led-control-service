@@ -2,6 +2,25 @@
 
 작성일: 2026-10-04
 
+## 2026-10-05 개인 알람 숨김과 영속 요청 원장 (추가 운영 UI Task 3)
+
+`20261004100000_monitoring_incident_dismissals`는 기존 읽음·장애 모델을 바꾸지 않고 아래 두 테이블을 추가한다. 이 작업의 적용 대상은 소유권과 빈 public schema를 확인한 자기 소유 임시 PostgreSQL뿐이다. 사용자 DB와 실행 중 서버의 반영은 최종 검수 이후 Task 10에서 수행한다.
+
+| 모델 | 필드·제약 | 수명 |
+| --- | --- | --- |
+| `MonitoringIncidentDismissal` | `incidentId,userId` 복합 PK, `userId` 인덱스, incident/User cascade FK, 필수 UTC `dismissedAt` | incident 또는 사용자 삭제까지 |
+| `MonitoringIncidentDismissalRequest` | `siteId,userId,clientRequestId` 복합 PK(UUID 요청키), `userId` 인덱스, Site/User cascade FK, 필수 UTC `snapshotAt`, 필수 `targetIncidentIds text[]`, nullable `dismissedCount,completedAt` | 현장 또는 사용자 삭제까지 |
+
+SQL CHECK는 pending의 count/완료 시각이 모두 null, completed의 완료 시각과 count가 모두 nonnull이며 count ≥ 0인 경우만 허용한다. 완료 분기의 `count IS NOT NULL`을 명시하여 SQL NULL 논리로 제약을 우회할 수 없다. 세 시각은 UTC naive `TIMESTAMP(3)`이고 DB 기본값/SQL 쓰기는 `AT TIME ZONE 'UTC'`를 사용한다.
+
+개별 `PUT /sites/:siteId/monitoring-incidents/:incidentId/dismiss`는 strict 빈 body를 받고 최초 `dismissedAt`을 재사용한다. 전체 `POST /sites/:siteId/monitoring-incidents/dismiss-all`은 strict `{clientRequestId: UUID}`만 받는다. 인증 actor와 선택 현장에 대해 기존 advisory gate → Site → User/멤버십 순서로 잠금·재인가하며 read-only viewer도 개인 조작을 허용한다.
+
+전체 숨김의 수락 경계는 **최초 durable reservation commit**이다. 첫 ReadCommitted transaction에서 한 materialized SQL snapshot의 아직 숨기지 않은 모든 현장 incident ID를 pending 원장으로 원자 저장한다. 페이지·상태·유형 필터는 적용하지 않는다. 별도 ReadCommitted transaction에서 같은 잠금·인가를 다시 수행하고 요청 행을 `FOR UPDATE`한 뒤, 저장 ID 중 여전히 같은 현장에 존재하는 대상만 숨긴다. 실제 새 insert 수와 완료 시각은 숨김 효과와 함께 commit한다. 단계 사이 권한 철회·실패는 pending 원장을 남기며 동일 키 재시도는 저장 ID만 사용한다. 완료 재시도는 저장 응답을 반환한다. 삭제/다른 요청과 겹친 ID는 count에서 제외하지만 원 집합을 변경하지 않는다. 최초 freeze rollback은 미수락이며 효과와 원장이 없다.
+
+`GET .../monitoring-incidents?view=all|personal`은 기본 `all`에서 기존 운용 목록·미읽음 의미를 유지한다. `personal`만 현재 계정의 숨김을 목록과 전체 개인 미읽음 수에서 제외한다. 두 view의 `activeCount`는 현장 전체이며 행에 `isDismissed,dismissedAt|null`을 추가한다. 새 cursor v2는 계정/현장/view/상태/유형/active/발생 시각/ID를 포함하고, 기존 v1은 all에서만 허용한다.
+
+숨김은 receipt 생성·읽음 시각·incident 상태/revision·다른 계정·기존 3개월 활동 로그 보관에 쓰지 않는다. 같은 ID 갱신은 숨김을 유지하고 새 ID 재발은 새 미읽음이다. 요청 원장에는 독립 TTL/worker/lease가 없어 사용량에 따라 영속 ID 배열과 행 수가 증가한다. 자동 청소나 재수락은 제공하지 않으며 보관 정책 변경에는 별도 멱등 계약 설계가 필요하다. 합성/임시 DB 검증은 사용자 DB 적용이나 실장비 검증을 의미하지 않는다.
+
 ## 2026-10-04 로컬 중앙 DB 알람 읽음 테이블 반영
 
 사용자 승인 후 기본 개발 브랜치099에서 `20261001100000_monitoring_incident_read_receipts` 하나만 기존 API가 사용하는 PostgreSQL에 적용했다. `prisma migrate deploy` exit0, 해당 migration 완료 기록1건·적용 단계1·미완료/추가 pending0과 실제 `MonitoringIncidentReadReceipt`의 필수3필드·복합 PK·두 cascade FK·사용자 인덱스·UTC 기본값을 확인했다. 기본 폴더의 Prisma Client6.19.3 생성exit0과 실제 receipt 모델도 확인했다.

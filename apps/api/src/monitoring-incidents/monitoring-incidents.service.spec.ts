@@ -39,7 +39,8 @@ describe("account-scoped incident read receipts", () => {
           return receipts.get(key)!;
         }),
         findMany: jest.fn(async ({ where }: { where: { userId: string } }) => [...receipts.values()].filter(row => row.userId === where.userId))
-      }
+      },
+      monitoringIncidentDismissal: { findMany: async () => [] }
     };
     const prisma = { $transaction: async (operation: (tx: unknown) => unknown) => operation(tx), site: tx.site } as unknown as PrismaService;
     const service = new MonitoringIncidentsService(prisma, new SiteAccessService(prisma), {} as AuditService);

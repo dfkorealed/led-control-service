@@ -401,6 +401,8 @@ model User {
   assignedIncidents        MonitoringIncident[]  @relation("IncidentAssignedTo")
   resolvedIncidents        MonitoringIncident[]  @relation("IncidentResolvedBy")
   monitoringIncidentReadReceipts MonitoringIncidentReadReceipt[]
+  monitoringIncidentDismissals MonitoringIncidentDismissal[]
+  monitoringIncidentDismissalRequests MonitoringIncidentDismissalRequest[]
   requestedMonitoringRefreshes MonitoringRefresh[]
   monitoringRefreshRequests    MonitoringRefreshRequest[]
   createdAt                DateTime              @default(now())
@@ -443,6 +445,7 @@ model Site {
   energyGroupIdentities      EnergyGroupIdentity[]
   energyReportJobs           EnergyReportJob[]
   monitoringIncidents        MonitoringIncident[]
+  monitoringIncidentDismissalRequests MonitoringIncidentDismissalRequest[]
   monitoringRefreshes        MonitoringRefresh[]
   monitoringRefreshRequests  MonitoringRefreshRequest[]
   monitoringActivities       MonitoringActivity[]
@@ -583,6 +586,7 @@ model MonitoringIncident {
   assignedTo           User?                             @relation("IncidentAssignedTo", fields: [assignedToUserId], references: [id], onDelete: SetNull)
   resolvedBy           User?                             @relation("IncidentResolvedBy", fields: [resolvedByUserId], references: [id], onDelete: SetNull)
   readReceipts         MonitoringIncidentReadReceipt[]
+  dismissals           MonitoringIncidentDismissal[]
   createdAt            DateTime                          @default(now())
   updatedAt            DateTime                          @updatedAt
 
@@ -602,6 +606,32 @@ model MonitoringIncidentReadReceipt {
   user       User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@id([incidentId, userId])
+  @@index([userId])
+}
+
+model MonitoringIncidentDismissal {
+  incidentId String
+  userId String
+  dismissedAt DateTime @default(dbgenerated("(CURRENT_TIMESTAMP AT TIME ZONE 'UTC')"))
+  incident MonitoringIncident @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([incidentId, userId])
+  @@index([userId])
+}
+
+model MonitoringIncidentDismissalRequest {
+  siteId String
+  userId String
+  clientRequestId String @db.Uuid
+  snapshotAt DateTime @default(dbgenerated("(CURRENT_TIMESTAMP AT TIME ZONE 'UTC')"))
+  targetIncidentIds String[]
+  dismissedCount Int?
+  completedAt DateTime?
+  site Site @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([siteId, userId, clientRequestId])
   @@index([userId])
 }
 

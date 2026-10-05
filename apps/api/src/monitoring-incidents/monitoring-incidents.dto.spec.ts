@@ -41,7 +41,7 @@ describe("monitoring incident strict inputs", () => {
     expect(() => parseIncidentMutation({ expectedUpdatedAt: timestamp, ...action })).toThrow(expect.objectContaining({ status: 400 }));
   });
   it("bounds query limits and binds cursor to site and filters", () => {
-    expect(parseIncidentQuery({}, siteId)).toEqual({ limit: 25, status: "all" });
+    expect(parseIncidentQuery({}, siteId)).toEqual({ limit: 25, status: "all", view: "all" });
     const cursor = encodeIncidentCursor({ siteId, status: "all", active: true, openedAt: new Date(timestamp), id: siteId });
     expect(parseIncidentQuery({ cursor, limit: "100" }, siteId)).toMatchObject({ limit: 100, cursor: { active: true, id: siteId } });
     for (const query of [{ limit: "101" }, { limit: "0" }, { limit: ["10"] }, { cursor: "x".repeat(1025) }, { cursor, status: "resolved" }, { cursor, type: "fixture_fault" }, { status: "active" }, { type: "other" }, { unknown: 1 }]) {
