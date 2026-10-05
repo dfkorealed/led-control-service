@@ -1,6 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
 import { writeFileSync } from "node:fs";
-import { join } from "node:path";
 import { chromium, expect, test, type Browser, type Page, type Route } from "@playwright/test";
 import { installMockApiBoundary } from "./support/mock-api-boundary";
 import { expectMinimumTouchTargets, expectMinimumTouchTargetsAfterScrolling, expectNoHorizontalOverflow } from "./support/layout-assertions";
@@ -126,7 +125,7 @@ test("Task8 native 200 user long names and row menu remain reachable", async ({}
         clips };
     }, `${name} 작업`);
     const content = await observeContent();
-    writeFileSync(join(process.env.TASK8_OUTPUT!, "native-user-content-setup.json"), JSON.stringify(content, null, 2));
+    writeFileSync(info.outputPath("native-user-content-setup.json"), JSON.stringify(content, null, 2));
     await expectNoHorizontalOverflow(page);
     const contentObservations: Awaited<ReturnType<typeof observeContent>>[] = [];
     const observeState = async (requireName: boolean) => {
@@ -134,7 +133,7 @@ test("Task8 native 200 user long names and row menu remain reachable", async ({}
         await expect(page.getByRole("dialog", { name: "사용자 목록", exact: true })).not.toBeVisible();
         const finalContent = await observeContent();
         contentObservations.push(finalContent);
-        writeFileSync(join(process.env.TASK8_OUTPUT!, "native-user-content-observations.json"), JSON.stringify(contentObservations, null, 2));
+        writeFileSync(info.outputPath("native-user-content-observations.json"), JSON.stringify(contentObservations, null, 2));
         if (requireName) expect(finalContent.readable, "Actual long name must be readable above fixed overlays").toBe(true);
         expect(api.updatedRequests).toEqual([]); expect(api.users).toHaveLength(1);
         // Observation timestamps belong to evidence, not the unchanged UI state comparison.

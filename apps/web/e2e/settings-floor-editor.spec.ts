@@ -184,7 +184,7 @@ test("Task8 native 200 CAD page size keeps primary region selection", async ({},
         return { utc: new Date().toISOString(), name: element.textContent, rect: rect.toJSON(), clips, readable, scrollY, innerWidth, innerHeight };
       });
       nameObservations.push(observation);
-      writeFileSync(join(process.env.TASK8_OUTPUT!, "native-cad-name-observations.json"), JSON.stringify(nameObservations, null, 2));
+      writeFileSync(info.outputPath("native-cad-name-observations.json"), JSON.stringify(nameObservations, null, 2));
       expect(observation.readable, "Actual CAD region name must be unclipped and above fixed navigation").toBe(true);
       const { utc: _observedAt, ...content } = observation;
       return content;
