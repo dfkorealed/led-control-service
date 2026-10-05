@@ -1,7 +1,9 @@
 import { chromium, expect, test as unconfiguredTest, type BrowserContext, type Locator, type Page, type TestInfo } from "@playwright/test";
-import { execFileSync } from "node:child_process";
+import childProcess, { execFileSync } from "node:child_process";
+import { mock } from "node:test";
+import { syncBuiltinESMExports } from "node:module";
 import { createHash } from "node:crypto";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile, unlink } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { createServer, type Server } from "node:http";
 import { energyReportListResponseSchema, type EnergyReportJob } from "@led-control/shared/energy-p2-contracts";
@@ -45,6 +47,156 @@ for (const invalid of [
 unconfiguredTest("native PNG validator accepts a fresh full viewport original PNG", async () => {
   expect(() => validateNativePngContent(syntheticWitness)).not.toThrow();
 });
+
+// Public create() keeps real filesystem/Git behavior; only browser metadata is
+// controlled. This never launches or qualifies an actual native browser.
+async function sourceGuardContext(info: TestInfo) {
+  const profile = info.outputPath("source-guard-profile"); await mkdir(profile, { recursive: true });
+  const detached = { page: 0, browser: 0 };
+  const context = {
+    newCDPSession: async () => ({ send: async (method: string) => {
+      if (method === "Browser.getVersion") return { product: "Chromium/Test", protocolVersion: "1.3", revision: "controlled", userAgent: "controlled", jsVersion: "controlled" };
+      if (method === "Target.getTargetInfo") return { targetInfo: { targetId: "source-guard-target" } };
+      if (method === "Page.getFrameTree") return { frameTree: { frame: { id: "source-guard-target", loaderId: "controlled" } } };
+      throw new Error(`Unexpected source-guard protocol: ${method}`);
+    }, detach: async () => { detached.page++; } }),
+    browser: () => ({ newBrowserCDPSession: async () => ({
+      send: async (method: string) => {
+        if (method !== "SystemInfo.getInfo") throw new Error(`Unexpected source-guard browser protocol: ${method}`);
+        return { commandLine: `chromium --user-data-dir="${profile}"` };
+      }, detach: async () => { detached.browser++; }
+    }) })
+  } as unknown as BrowserContext;
+  return { context, detached };
+}
+
+unconfiguredTest("native source guard public create observes real Git and batches every ordered entry", async ({}, info) => {
+  const cwd = info.outputPath("source-guard-inputs"); await mkdir(cwd);
+  const files = ["first.txt", "공백 이름.txt", "--option-like", "line\nbreak.txt", "last.txt"];
+  const sourceHashes: Record<string, string | null> = {};
+  for (const [index, file] of files.entries()) {
+    await writeFile(`${cwd}/${file}`, `distinct source ${index}`);
+    sourceHashes[file] = execFileSync("git", ["hash-object", "--", file], { cwd, encoding: "utf8" }).trim();
+  }
+  sourceHashes["missing.txt"] = null;
+  const sourcePath = info.outputPath("source-guard-manifest.json");
+  await writeFile(sourcePath, JSON.stringify({ cwd, sourceHashes }));
+  const originalMetadata = process.env.TASK7_SOURCE_METADATA;
+  const { context, detached } = await sourceGuardContext(info);
+  const spy = mock.method(childProcess, "execFileSync");
+  syncBuiltinESMExports();
+  let native: StatisticsNativeZoomEvidence | undefined;
+  try {
+    process.env.TASK7_SOURCE_METADATA = sourcePath;
+    native = await StatisticsNativeZoomEvidence.create(context, {} as Page, info);
+    const calls = spy.mock.calls.filter(call => call.arguments[0] === "git");
+    const args = calls.map(call => call.arguments[1]);
+    // Prove this spy intercepts the transformed helper's actual builtin calls
+    // BEFORE trusting the deterministic count. Expected hashes were real Git
+    // calls made outside the spy, so zero intercepted calls cannot false-pass.
+    expect(calls.length).toBeGreaterThan(0);
+    expect(args.flatMap(argv => Array.isArray(argv) ? argv.slice(2) : [])).toEqual(files);
+    await info.attach("source-guard-real-invocations", { body: JSON.stringify({ sourceHashes, count: calls.length, args }), contentType: "application/json" });
+    expect(calls).toHaveLength(1);
+  } finally {
+    try { await native?.stop(); } finally {
+      spy.mock.restore(); syncBuiltinESMExports();
+      if (originalMetadata === undefined) delete process.env.TASK7_SOURCE_METADATA;
+      else process.env.TASK7_SOURCE_METADATA = originalMetadata;
+    }
+  }
+  expect(detached).toEqual({ page: 1, browser: 1 });
+});
+
+for (const scenario of ["empty", "all null", "first drift", "middle drift", "last drift", "deleted", "expected null created", "multiple drift", "earlier drift before later read error", "actual read error", "malformed batch", "truncated batch", "reordered batch", "batch process limit"] as const) {
+  unconfiguredTest(`native source guard preserves ordered reference for ${scenario}`, async ({}, info) => {
+    const cwd = info.outputPath("ordered-inputs"); await mkdir(cwd);
+    const files = ["first.txt", "middle.txt", "last.txt"];
+    const hashes: Record<string, string | null> = {};
+    for (const [index, file] of files.entries()) {
+      await writeFile(`${cwd}/${file}`, `reference ${index}`);
+      hashes[file] = execFileSync("git", ["hash-object", "--", file], { cwd, encoding: "utf8" }).trim();
+    }
+    let sourceHashes = { ...hashes };
+    if (scenario === "empty") sourceHashes = {};
+    if (scenario === "all null") sourceHashes = { "absent-first": null, "absent-last": null };
+    const driftIndex = scenario === "first drift" ? 0 : scenario === "middle drift" ? 1 : scenario === "last drift" ? 2 : -1;
+    if (driftIndex >= 0) await writeFile(`${cwd}/${files[driftIndex]}`, "changed");
+    if (scenario === "deleted") await unlink(`${cwd}/middle.txt`);
+    if (scenario === "expected null created") {
+      sourceHashes = { "created.txt": null, ...sourceHashes }; await writeFile(`${cwd}/created.txt`, "new");
+    }
+    if (scenario === "multiple drift") {
+      await writeFile(`${cwd}/middle.txt`, "earlier changed"); await writeFile(`${cwd}/last.txt`, "later changed");
+    }
+    if (scenario.includes("read error")) {
+      await mkdir(`${cwd}/unhashable-directory`); sourceHashes["unhashable-directory"] = hashes["last.txt"]!;
+      if (scenario.startsWith("earlier drift")) await writeFile(`${cwd}/first.txt`, "first changed before directory");
+    }
+    // This is the previous ordered implementation, exercised on real own files
+    // independently of the candidate and outside its counted dependency calls.
+    let referenceError: unknown;
+    try {
+      for (const [file, expected] of Object.entries(sourceHashes)) {
+        const actual = existsSync(`${cwd}/${file}`) ? execFileSync("git", ["hash-object", "--", file], { cwd, encoding: "utf8" }).trim() : null;
+        if (actual !== expected) throw new Error(`Unfrozen source: ${file}`);
+      }
+    } catch (error) { referenceError = error; }
+    const sourcePath = info.outputPath("ordered-manifest.json"); await writeFile(sourcePath, JSON.stringify({ cwd, sourceHashes }));
+    const originalMetadata = process.env.TASK7_SOURCE_METADATA;
+    const { context, detached } = await sourceGuardContext(info);
+    const realExec = childProcess.execFileSync;
+    let injected = false;
+    const spy = mock.method(childProcess, "execFileSync", (...args: Parameters<typeof execFileSync>) => {
+      const argv = args[1];
+      if (Array.isArray(argv) && argv.length > 3 && /batch/.test(scenario)) {
+        injected = true;
+        if (scenario === "batch process limit") throw Object.assign(new Error("Controlled batch argv limit"), { code: "E2BIG" });
+        const output = String(realExec(...args)).trim().split("\n");
+        return scenario === "malformed batch" ? "not-a-git-object\n" : `${(scenario === "truncated batch" ? output.slice(1) : output.reverse()).join("\n")}\n`;
+      }
+      return realExec(...args);
+    });
+    syncBuiltinESMExports();
+    let native: StatisticsNativeZoomEvidence | undefined, failure: unknown;
+    try {
+      process.env.TASK7_SOURCE_METADATA = sourcePath;
+      try { native = await StatisticsNativeZoomEvidence.create(context, {} as Page, info); }
+      catch (error) { failure = error; }
+    } finally {
+      try { await native?.stop(); } finally {
+        spy.mock.restore(); syncBuiltinESMExports();
+        if (originalMetadata === undefined) delete process.env.TASK7_SOURCE_METADATA;
+        else process.env.TASK7_SOURCE_METADATA = originalMetadata;
+      }
+    }
+    const calls = spy.mock.calls.filter(call => call.arguments[0] === "git");
+    await info.attach("ordered-reference-and-invocations", { body: JSON.stringify({ scenario, sourceHashes, referenceError: String(referenceError), failure: String(failure), injected, calls: calls.map(call => ({ args: call.arguments[1], error: String(call.error) })), detached }), contentType: "application/json" });
+    expect(detached).toEqual({ page: 1, browser: 1 });
+    if (referenceError === undefined) expect(failure).toBeUndefined();
+    else {
+      expect(failure).toBeInstanceOf(Error);
+      const cause = (failure as Error).cause;
+      expect(String(cause)).toBe(String(referenceError));
+      if (scenario === "actual read error") {
+        const originalCall = [...calls].reverse().find(call => Array.isArray(call.arguments[1]) && call.arguments[1].length === 3 && call.error);
+        expect(originalCall).toBeTruthy(); expect(cause).toBe(originalCall!.error);
+      }
+    }
+    if (/batch/.test(scenario)) {
+      expect(injected).toBe(true);
+      // Invalid batch output/argv failure never earns trust: all three real
+      // ordered hashes must be re-read before a stable source is accepted.
+      expect(calls).toHaveLength(4);
+      expect(calls.slice(1).map(call => call.arguments[1])).toEqual(files.map(file => ["hash-object", "--", file]));
+    }
+    if (scenario === "empty" || scenario === "all null") expect(calls).toHaveLength(0);
+    if (scenario === "earlier drift before later read error") {
+      expect(String((failure as Error).cause)).toBe("Error: Unfrozen source: first.txt");
+      expect(calls.filter(call => Array.isArray(call.arguments[1]) && call.arguments[1].length === 3).map(call => call.arguments[1])).toEqual([["hash-object", "--", "first.txt"]]);
+    }
+  });
+}
 
 // R43/R45 stream clocks are retired for the separately approved R46 primary;
 // their original failure/RED/GREEN bytes remain immutable historical evidence.
@@ -134,9 +286,12 @@ for (const scenario of ["ordered single pending candidate", "wrong pixels remain
     if (scenario === "persistence failure detaches") await mkdir(blockedFramePath);
     const evidenceInfo = scenario === "persistence failure detaches"
       ? { ...info, attach: info.attach.bind(info), outputPath: (...segments: string[]) => segments[0] === "synthetic-protocol-original.png" ? blockedFramePath : info.outputPath(...segments) } as TestInfo : info;
-    const native = await StatisticsNativeZoomEvidence.create(context, controlledPage, evidenceInfo);
+    const sourceSpy = scenario === "ordered single pending candidate" ? mock.method(childProcess, "execFileSync") : undefined;
+    if (sourceSpy) syncBuiltinESMExports();
+    let native: StatisticsNativeZoomEvidence | undefined;
     let failure: unknown, stopFailure: unknown;
     try {
+      native = await StatisticsNativeZoomEvidence.create(context, controlledPage, evidenceInfo);
       await native.global200(context);
       const capturing = native.capture("synthetic-protocol", trigger, async () => {
         await expect(dialog).toBeVisible();
@@ -159,10 +314,19 @@ for (const scenario of ["ordered single pending candidate", "wrong pixels remain
       }
       await capturing;
     } catch (error) { failure = error; } finally {
-      try { await native.stop(); } catch (error) { stopFailure = error; }
-      process.env.TASK7_SOURCE_METADATA = originalSourceMetadata;
+      try { await native?.stop(); } catch (error) { stopFailure = error; }
+      sourceSpy?.mock.restore(); if (sourceSpy) syncBuiltinESMExports();
+      if (originalSourceMetadata === undefined) delete process.env.TASK7_SOURCE_METADATA;
+      else process.env.TASK7_SOURCE_METADATA = originalSourceMetadata;
     }
     const raw = JSON.parse(await readFile(info.outputPath("native-zoom-provenance.json"), "utf8"));
+    if (sourceSpy) {
+      const sourceCalls = sourceSpy.mock.calls.filter(call => call.arguments[0] === "git");
+      const files = Object.keys(raw.source.sourceHashes).filter(file => existsSync(`${raw.source.cwd}/${file}`));
+      expect(sourceCalls).toHaveLength(2);
+      for (const call of sourceCalls) expect(call.arguments[1]).toEqual(["hash-object", "--", ...files]);
+      await info.attach("full-source-both-boundaries", { body: JSON.stringify({ manifestEntries: Object.keys(raw.source.sourceHashes).length, existingEntries: files.length, calls: sourceCalls.map(call => ({ args: call.arguments[1], cwd: call.arguments[2]?.cwd })) }), contentType: "application/json" });
+    }
     const screenshotCalls = calls.filter(call => call.method === "Page.captureScreenshot");
     expect(calls.filter(call => /Screencast|screencastFrameAck/.test(call.method))).toEqual([]);
     const forbiddenRequest = scenario === "focus restored dialog open" || openDraft;
@@ -435,16 +599,20 @@ function browserReport(
     from: "2026-09-01", to: "2026-09-07", scope: "site", identityId: reportSiteId, format: "pdf"
   }
 ): EnergyReportJob {
-  return { reportId: "30000000-0000-4000-8000-000000000041", siteId: reportSiteId,
+  const common = { reportId: "30000000-0000-4000-8000-000000000041", siteId: reportSiteId,
     request, status,
     progressPercent: status === "processing" ? 40 : status === "completed" || status === "expired" ? 100 : 0,
     createdAt: generatedAt, startedAt: status === "queued" ? null : generatedAt,
     completedAt: status === "completed" || status === "expired" ? generatedAt : null,
-    expiresAt: status === "completed" || status === "expired" ? "2026-09-19T00:00:00.000Z" : null,
-    failureCode: status === "failed" ? "REPORT_GENERATION_FAILED" : null,
+    expiresAt: status === "completed" || status === "expired" ? "2026-09-19T00:00:00.000Z" : null };
+  const targetAndRequest = {
     target: { scope: request.scope, identityId: request.identityId, label: request.scope === "site" ? "보고서 현장" : `${request.scope} 이력 대상` },
-    requestedAt: generatedAt,
-    failure: status === "failed" ? { code: "generation_failed", message: "보고서를 생성하지 못했습니다.", action: "잠시 후 다시 생성해 주세요." } : null };
+    requestedAt: generatedAt };
+  // Keep the correlated failure union and original serialized field order.
+  return status === "failed"
+    ? { ...common, failureCode: "REPORT_GENERATION_FAILED", ...targetAndRequest,
+      failure: { code: "generation_failed", message: "보고서를 생성하지 못했습니다.", action: "잠시 후 다시 생성해 주세요." } }
+    : { ...common, failureCode: null, ...targetAndRequest, failure: null };
 }
 
 test("creates a PDF report, polls state, downloads actual renderer bytes, and retries", async ({ page }, info) => {

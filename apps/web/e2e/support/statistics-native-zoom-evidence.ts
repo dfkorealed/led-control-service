@@ -63,6 +63,23 @@ export type NativeFinalStateExpectation = {
 };
 type SourceManifest = { cwd: string; sourceHashes: Record<string, string | null> };
 function verifySourceFrozen(source: SourceManifest) {
+  try {
+    const entries = Object.entries(source.sourceHashes);
+    const present = entries.filter(([file]) => existsSync(`${source.cwd}/${file}`)).map(([file]) => file);
+    // argv after -- preserves spaces, Unicode, newlines and option-like paths
+    // without shell/stdin path parsing. Git retains its filter/object-format
+    // semantics. Each boundary hashes afresh; no previous result is cached.
+    const hashes = present.length ? execFileSync("git", ["hash-object", "--", ...present], { cwd: source.cwd, encoding: "utf8" }).trim().split("\n") : [];
+    if (hashes.length !== present.length || hashes.some(hash => !/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(hash))) throw new Error("Invalid source hash batch");
+    const actual = new Map(present.map((file, index) => [file, hashes[index]!]));
+    for (const [file, expected] of entries) if ((actual.get(file) ?? null) !== expected) throw new Error(`Unfrozen source: ${file}`);
+    return;
+  } catch {
+    // Exceptional batch I/O/argv/output failures and mismatches use the exact
+    // original ordered verifier below. This preserves an earlier drift before
+    // a later unreadable file and the original Git error/cause, rather than
+    // trusting partial/reordered output or replacing it with a batch error.
+  }
   for (const [file, expected] of Object.entries(source.sourceHashes)) {
     const actual = existsSync(`${source.cwd}/${file}`) ? execFileSync("git", ["hash-object", "--", file], { cwd: source.cwd, encoding: "utf8" }).trim() : null;
     if (actual !== expected) throw new Error(`Unfrozen source: ${file}`);
