@@ -1,5 +1,16 @@
 # 운영 UI 추가 주석 14건 Implementation Plan
 
+## 최신 실행 결정 — 사용자 요청에 따른 마무리 단순화 (2026-10-05 23:28 UTC)
+
+이 절이 아래 과거 검수 절차보다 우선한다. 사용자가 검수 지연을 지적하고 최대한 단순하게 진행하도록 요청했다. 구현 Task1~8 및 현재 소스의 lint/typecheck/test/build 통과는 유지한다. 특수 200% 캡처·추가 수집기 검증(R83 포함)은 중단하며 미검증 한계로만 남긴다.
+
+- [x] 남은 두 확인된 문제를 f1484e9c 한 묶음으로 보완: 보고서 이력의 무효 날짜 초안 요청 차단, 데스크톱 완료결과 E2E의 닫기 버튼 scope.
+- [x] 관련 단위/브라우저 회귀와 Web 타입 검사, 독립 일반 화면 검수(C0/I0/M1), 변경6파일 최종 코드 검토(Spec✅/QualityApproved·C0/I0/M0)를 확인했다. 전체 소스 검토의 I1/I2를 해결했으며 추가 필수 수정은 없다.
+- [ ] 승인된 두 신규 테이블만 반영하고 로컬 기본 브랜치에 병합한다. 병합 후 기본 전체 테스트는 한 번만 실행하고 Web/API를 재시작한다.
+- [ ] 최종 상태/메뉴/DB 문서를 맞추고 병합·실행 결과를 보고한다. 원 실패와 로그는 보존하며 확대/HIL 미검증을 통과로 주장하지 않는다.
+
+기존 UI/UX 세션 재개는 도구 thread limit으로 실패해, 현재 QA 세션을 소스 작성과 분리된 읽기 전용 UI/UX 검수 역할로 전환했다. 추가 세션 생성·전체 검수 재실행·절차 확장은 하지 않는다.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** 새 주석 14건을 수정하고 검색 외 필터·목록 Grid·지도 기반을 공통화하여 검증 후 별도 브랜치를 병합한다.
@@ -54,7 +65,7 @@
 - [x] 이 구현 계획 검토·승인 회수: 2026-10-05 사용자의 “진행해줘”로 승인됐다.
 - [x] 개인 숨김용 신규 additive DDL과 마지막 로컬 서버 반영의 명시적 승인 회수: 새 두 테이블 추가·Web/API 잠시 중지/재시작을 함께 설명한 확인에 2026-10-05 사용자가 승인했다. 이전 읽음 테이블 승인으로 대체하지 않는다.
 
-현재 실행: Task1~7의 각 독립 검토 및 scoped 보완 gate는 완료했다. Task8은 기존 설정 담당자가 사용자/CAD 공통 UI를 적용한 뒤 320×740 편집 작업 영역0px와 실제200% 사진의 의도 내용 누락을 발견해 최소 수정 범위를 판정 중이다. Whole Web71FAIL/CAD66미수집은 별도 모듈 초기화 조사 대상으로 보존한다. 각 과거 시험과 후속 covering의 소스/시점을 구분하며 Tasks9~10 최종 통합검수·사용자 DB/서버 반영·기본 병합은 미실행이다.
+현재 실행(2026-10-05 23:39UTC): Task1~8, 제어528815b3 및 소스가드8a624fa1의 독립 검토를 완료했다. 실제 격리 알람/원1000대, 제어177단위/원94회귀,8a 기본 lint/typecheck/test/build0을 확인했다. 전체 소스 검토의 두 지적은 f1484e9c에서 관련110단위·추가4직접시험/원완료결과3/이력1/타입0과 최종 독립6파일 검토(C0/I0/M0)로 해결했다. 일반 UI10원본 승인과 총괄의 신규 이력3·완료결과3원본 직접 확인을 합쳐 Task9를 사용자 단순화 범위로 승인했다. 과거 원실패/원인 미확정·특수200%/HIL 한계를 보존한다. Task10 읽기전용 준비(main32e7 clean/신규2테이블없음/앱전용기동) 완료, 실제 DB 반영·병합·재시작은 아직이다.
 
 Task7 추가 상태(2026-10-05 12:17UTC): 공유 FilterPanel `841a714d`와 날짜 `8cf3a728`의 당시 scoped gate는 승인됐다. 후속 consumer153PASS/타입0·selected mock79PASS1FAIL은 원로그로 유지하며 새 전체 통과가 아니다. 마지막 original101행 기간 입력에서 cold 첫 start-day8이 자동 초점 이동 전 publication되지 않고 복원에 지워지는 genuine producer counterexample를 독립1FAIL1PASS 및 public native timeline로 확인했다. 세 cause/다섯 variant 뒤 추가 가드 시도를 멈추고 Ruling39의 read-only GPT6Astra high 아키텍처 검토로 pending-edit/publication/hydration 계약을 먼저 확정한다. 원 입력순서·1~3·impossible20 보호·clear1/calendar/readonly/publicAPI/기준을 유지하며 정확 producer fix·새 독립 gate와 첫 실제200 PNG가 필요하다. 아직 Task7 최종/8–10·병합/사용자 환경 반영 완료가 아니다.
 
@@ -462,6 +473,10 @@ expect(screen.getByRole("button", { name: /페이지당 항목 수/ })).toBeVisi
 
 진행 시작: Task8 full/scoped관문과root문서e50236a5 clean 뒤 readonlyREADY QA에게 단독GO를 배정한다. 최초수행은exact신규2E2E/typedLab지원의RED→GREEN, 이후harnesscommit과actual소스동결/단독canonical4종각1회·자체Lab·14행7폭/short/actual200/1000대, 총괄원본직검·새UIUX/wholebranch검토다. 제품수정·기준완화·사용자서비스/DB/장비변경권한은 없다. 원71FAIL/CAD66미수집과M1노이즈를명시적으로새원로그에서검증한다. 아직검증완료/Task10/병합아니다.
 
+현재22:15UTC: 제어528815b3 독립 Spec✅/qualityApproved(C0/I0/M1)·177단위/원94회귀/typeUI0은 승인됐다. 같은 QA owner의 두 검증 파일 소스가드8a624fa1은 actual RED5→GREEN1/47계약·fixture85동일성/엄격타입0,2071drift0/자기20PID·16629정리를 회수했고 fresh 독립 검토 중이다. R79/R80 타입 보완은 실제 AST 재구성으로 이전47 소스와 구분한다. 기존 mobile/desktop close·현재 좌표 계약은 보존하며 옛 dense/Escape 원인을 해결했다고 주장하지 않는다. 최종 새5native/14행·fresh canonical/UIUX/whole-branch·Task10/병합은 아직이다.
+
+이전21:23UTC 기록: canonical c6596e28 lint/type/build0, root test1(Gateway5초timeout1/API중단)을 보존한다. 별도 원API3042통과879기존제외·unchanged Gateway 단독1604ms1통과는 전체 통과/원인 해결이 아니다. Lab113d76a3 원HTTP/PG여정1통과·원1000cold/warm2통과/정리 완료. a735 원284=271통과13실패/잔여0·actual native1 HOLD selector예외는 보존한다. R70~75 제어 높이/적용44·nested outer59/inner256을 실제59로 제한해 desktop040/별도close44를 확인했다. 중간 관련94=90통과4실패(새mobile040hit3/원firstzoom121누락1),단위171/typeUI0/2075drift0·67자기PID/2포트/profile정리는 당시 소스의 부분 증거다. R76/R77 one-shot 관측은 비재현이며 과거 원인은 미확정으로 남긴다.
+
 Task9 Ruling30: 미래단독harness writer에기존real-backend-lab.ts 및필요한real-backend-lab-support.spec.ts exactpath의최소public typed alarmfixture/oracle만추가허용한다. Ownstart/installation/clusteridentity뒤자기DB 두actor/두site/incident/read/예약·효과상태를다루며arbitrarySQL/secret/socket/env공개/privatecast·skipbuild/timeout/제품/보안변경0이다. 7/8gate뒤만실행하고실두browserHTTP·실PGoracle/독립최종검토를유지한다. 이유·오판비용은ledger에기록한다.
 
 Root Ruling27: 미래단독RealBackendLab에기존publicisolatedCadStorage:true를써외부storage/PKI/proxyfallback을차단한다. ownrunId/label MinIO/mc/privatebucket/Docker동적loopback여섯째포트/CADtemp·development worker·partialcleanup까지Lab소유에포함한다. exactlocal2이미지읽기확인은완료됐지만실실행/ready/PASS아니며--pull=never/usercontainer·imageprune/다운로드0·원label재확인/portrelease를요구한다. 7/8gate/동결/단독build인계후만소비하며helper추가소유와현재사용자반영은이결정범위밖이다.
@@ -470,11 +485,11 @@ Root Ruling27: 미래단독RealBackendLab에기존publicisolatedCadStorage:true�
 
 **Interfaces:** Tasks 1~8의 동결 HEAD와 보고서/review package를 소비한다. mock UI는 전체 `/api/**`를 명시적으로 가로채고 사용자 서버를 호출하지 않는다. 실제 저장은 자기 소유 RealBackendLab/임시 DB·두 계정 browser로 별도 검증한다. 주석 매핑은 1→Task5, 2→3/4, 3/4/5/6/7/8/9/10/11/14→6, 12→4/5, 13→4; 공통 filter 후속은5/7/8, 공통 map은2/5/6이다.
 
-- [ ] **Step 1:** QA가 동결 HEAD/clean·단독 build owner를 확인하고 `pnpm lint`, `pnpm typecheck`, `pnpm test`, `pnpm build`를 canonical root gate로 실행한다. fresh 통과/실패/skip/UI 위반 수와 원로그를 보고하며 옛 숫자를 붙이지 않는다.
-- [ ] **Step 2:** 시각/개인 숨김 disposable PG 및 real-backend 두 계정 여정을 실행한다. 전체 범위·동일 key/신규 알람/다른 현장·계정/새 ID 재발/권한 거부/원 read·incident 불변을 확인한다. Lab은 자신의 독립 PG/Redis/MQTT/API/Web 포트만 쓰며 현재 서버와 공유하지 않는다. 기존 지원 env `E2E_LAB_POSTGRES_PORT`, `E2E_LAB_REDIS_PORT`, `E2E_LAB_MQTT_PORT`, `E2E_LAB_API_PORT`, `E2E_LAB_WEB_PORT`로 선택하고 사용 가능 여부를 선검사한다.
-- [ ] **Step 3:** UI/UX 디자이너가 7폭·2short·실제 200%·장문/빈/로딩/오류에서 primary/모든 filter·row menu/inline 상세·지도 bounds를 실제 입력으로 검수한다. 문서/Grid/Popover/상세 가로 넘침0·44px/운영map48px·도구/범례/닫기 겹침0·keyboard/touch/Back/focus를 판정한다. 원 1000대 편집기 cold/warm8초·정확 ID/픽셀/저장 관문은 수정 없이 확인한다. 합성 Android Back은 실제 native 검증과 구분한다.
-- [ ] **Step 4:** 총괄이 지도 하단/좁은 Grid/실제 200%/최근 결과 끝/설정 계정/알람의 원 PNG와 14행 증거를 직접 검토한다. Needs fixes는 소유자에게 한 수정 묶음으로 돌리고 변경 코드의 표적 검증/scoped 재검토만 수행한다.
-- [ ] **Step 5:** 가장 강한 가용 모델의 새 whole-branch reviewer가 32e7a45→동결 HEAD의 diff package/명세/계획/보고서/원 실패·잔여 지적에서 Spec PASS/품질 Approved/미해결 P0–P2 0을 판정한다. 구현자 self-review는 대체 불가다. 통과 뒤 Task10으로 넘기고 증거/커밋/자원 정리를 두 상태 기록에 함께 반영한다.
+- [x] **Step 1:** 8a624fa1에서 실제 default `pnpm lint`, `pnpm typecheck`, `pnpm test`, `pnpm build` 각 한 번을 실행해 모두 exit0을 확인했다. 실제8,420PASS/기존886SKIP/0FAIL·UI67PASS/위반0. API worker force-exit 경고 원인은 미확정으로 보존한다. 마지막 소비자 수정은 표적 검증 후 병합 소스의 기본 test 한 번으로 별도 확인한다.
+- [x] **Step 2:** 시각/개인 숨김 disposable PG 및 real-backend 두 계정 여정을 실행한다. 113d76a3 실제1통과/51원witness로 전체 범위·동일 key/신규 알람/다른 현장·계정/새 ID 재발/권한 거부/원 read·incident 불변을 확인했다. 원2fixture/login 실패는 별도로 보존했다. Lab은 자신의 독립 PG/Redis/MQTT/API/Web 포트와 격리 storage만 썼고 자기PID·6포트·컨테이너·임시폴더 정리를 확인했다. 사용자 DB/장비는 불변이며 전체 UI/병합 완료를 뜻하지 않는다.
+- [x] **Step 3(사용자 단순화 반영):** 기존 디자이너 기준을 이어받은 독립 QA가 일반 원본10장을 실제 확인해 C0/I0/M1로 승인했다(`task-9-ui-review.md`). 최신9화면 회귀/45일반원본과 기존 원94회귀, 실제 알람 Lab, 원1000cold/warm2PASS를 해당 소스별 증거로 유지한다. 특수200%/HIL 및 사진에 없는 열린 메뉴·inline 끝·명령 필터는 새 시각 인증으로 주장하지 않으며 기존 동작 검증/최종 관련 테스트와 구분한다.
+- [x] **Step 4(사용자 단순화 반영):** 총괄이 기존 지도/좁은 Grid/계정/알람 원본과 신규 이력3·완료결과3 원PNG를 직접 확인했다. 성공의 실제 바깥 닫기와 부분성공/실패의 마지막040정보가 inline으로 읽힌다. 특수200%/HIL은 인증하지 않는다. 확인된 두 문제는 한 수정 묶음과 표적 검증으로 해결했다.
+- [x] **Step 5(사용자 단순화 반영):** 독립 Astra whole-branch source pass는 전체21,688행을 읽고 I1/I2 두 건만 지적했다. f1484e9c의6파일 수정은 별도 독립 scoped 검토 Spec✅/QualityApproved·새C0/I0/M0로 해결을 승인했다. 일반 UI 검수 M1 장문 마지막 한 글자 줄바꿈은 비차단으로 유지한다. Task10 승인된 로컬 통합으로 넘긴다.
 
 ### Task 10: 명시적 승인 범위의 로컬 반영·병합·인계
 
@@ -482,8 +497,8 @@ Root Ruling27: 미래단독RealBackendLab에기존publicisolatedCadStorage:true�
 
 **Interfaces:** 별도 브랜치 후 병합 권한과 Task9 승인, 기본 HEAD/dirty·현재 서비스 owner·Prisma/migration identity를 소비한다. 허용 DDL은 새 `20261004100000_monitoring_incident_dismissals`의 두 모델/제약/index/FK 추가뿐이다. 원 데이터/시간대/기존 migration·장비를 변경하지 않는다.
 
-- [ ] **Step 1:** 계획 승인과 구분하여 명시된 두 숨김 테이블 추가·로컬 서버 잠시 중지/재실행 승인을 확인한다. 승인이 없으면 이 외부 반영 앞에서만 멈춘다.
-- [ ] **Step 2:** 기본 checkout의 clean·기준 HEAD/브랜치, API의 실제 PID/시작 identity·프로세스 그룹과 DB 정체성을 비밀 출력 없이 확인한다. 옛 watcher를 무심코 재개하거나 다른 세션의 numeric tool handle을 재사용하지 않는다.
+- [x] **Step 1:** 개인 숨김 두 신규 테이블 추가와 로컬 Web/API 중지·재실행은 사용자가 명시 승인했다. 별도 브랜치 로컬 병합 권한도 확인했으며 추가 승인을 반복 요청하지 않는다.
+- [x] **Step 2:** 읽기전용 준비에서 main32e7a45 clean,Web71947/5173·API4000없음/기존Nest71896,PG16.14 led_control/public/led,신규두테이블·migration없음을 확인했다. 실제 실행 직전 다시 확인하며 별도 broker41900을 건드리지 않는다. 앱전용 실행으로 재기동해 전체 migration/PKI/broker 준비를 재사용하지 않는다.
 - [ ] **Step 3:** 단독 owner가 확인된 Web/API만 잠시 멈춘다. Gateway/센서/broker는 멈추거나 재설정하지 않는다.
 - [ ] **Step 4:** 동결 migration을 사용자 DB에 한 번만 additive 적용한다. 기존 checksum 불일치를 전체 migrate deploy/resolve/reset으로 치료하지 않는다. 기존 migration 기록은 변경하지 않고 새 migration 식별자만 기록한다.
 - [ ] **Step 5:** 새 migration 완료 기록·두 테이블·shape CHECK/FK/index를 읽기 전용으로 확인한다. 확인 실패 시 병합/새 서버 시작 전 원인을 보고한다.
