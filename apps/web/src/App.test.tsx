@@ -149,7 +149,7 @@ vi.mock("./api/client", async (importOriginal) => ({
         objects: []
       });
     }
-    if (path === "/commands/command-created-1" && apiState.commandStatus) return Promise.resolve({ generatedAt: "2026-09-27T00:00:00.000Z", retainedFrom: "2026-06-27T00:00:00.000Z", retentionEnabled: false, ...apiState.commandStatus as object });
+    if (apiState.commandStatus && path === `/commands/${(apiState.commandStatus as { id: string }).id}`) return Promise.resolve({ generatedAt: "2026-09-27T00:00:00.000Z", retainedFrom: "2026-06-27T00:00:00.000Z", retentionEnabled: false, ...apiState.commandStatus as object });
     const floorEditorMatch = path.match(/^\/floors\/(.+)\/editor-state$/);
     if (floorEditorMatch) {
       const dashboard = (apiState.dashboard ?? mockDashboard) as typeof mockDashboard;
@@ -360,6 +360,15 @@ function manualApplyAction() {
   const action = document.querySelector<HTMLButtonElement>("[data-control-submit]");
   if (!action) throw new Error("Manual dimming apply action is not rendered.");
   return action;
+}
+
+async function requestLogoutThroughSettings() {
+  // Logout now belongs to the eager account region. The real route transition
+  // may abort the Control transport, but its durable request must survive until
+  // the single Shell owner finishes logout; returning tests that same recovery.
+  fireEvent.click(screen.getByRole("link", { name: "설정" }));
+  const account = await screen.findByRole("region", { name: "내 계정" });
+  fireEvent.click(within(account).getByRole("button", { name: "로그아웃" }));
 }
 
 describe("App", () => {
@@ -621,7 +630,7 @@ describe("App", () => {
       </QueryClientProvider>
     );
 
-    expect(await screen.findByText("물류센터")).toBeInTheDocument();
+    expect(within(await screen.findByRole("region", { name: "현장 전체" })).getByText("물류센터")).toBeInTheDocument();
     expect(apiGet).toHaveBeenCalledWith("/sites/site-2/dashboard");
   });
 
@@ -634,7 +643,7 @@ describe("App", () => {
       </QueryClientProvider>
     );
 
-    await screen.findByText("물류센터");
+    await screen.findByRole("region", { name: "현장 전체" });
 
     await waitFor(() => {
       expect(apiGet).toHaveBeenCalledWith(
@@ -717,12 +726,14 @@ describe("App", () => {
     const siteBadge = await screen.findByTestId("active-site-badge");
     const topbar = siteBadge.closest<HTMLElement>("header");
 
-    expect(siteBadge).toHaveTextContent("Demo Underground Parking");
+    await waitFor(() => expect(siteBadge).toHaveTextContent("Demo Underground Parking"));
     expect(siteBadge).not.toHaveTextContent("B2 주차장");
     expect(topbar).not.toBeNull();
     expect(within(topbar!).queryByText(/게이트웨이 (정상|오프라인|미등록)/)).not.toBeInTheDocument();
     expect(topbar?.querySelector(".eyebrow")).not.toBeInTheDocument();
-    expect(within(topbar!).getByRole("button", { name: "로그아웃" }).querySelector("svg")).toBeInTheDocument();
+    expect(within(topbar!).queryByRole("button", { name: "로그아웃" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("link", { name: "설정" }));
+    expect(within(await screen.findByRole("region", { name: "내 계정" })).getByRole("button", { name: "로그아웃" }).querySelector("svg")).toBeInTheDocument();
   });
 
   it("redirects a pending admin from monitoring to initial settings while preserving siteId", async () => {
@@ -990,7 +1001,7 @@ describe("App", () => {
         resolutionKind: null, resolutionNote: null,
         createdAt: "2026-10-01T00:00:00.000Z", updatedAt: "2026-10-01T00:00:00.000Z",
         target: { kind: "fixture", id: mockDashboard.floors[0].fixtures[0].id, name: "B2-L01", floorId: mockDashboard.floors[0].id },
-        isRead: true, readAt: "2026-10-01T01:00:00.000Z"
+        isRead: true, readAt: "2026-10-01T01:00:00.000Z", isDismissed: false, dismissedAt: null
       }], unreadCount: 0, activeCount: 1, nextCursor: null
     };
     const queryClient = new QueryClient();
@@ -1004,7 +1015,7 @@ describe("App", () => {
     expect(topbar).not.toBeNull();
     expect(within(topbar!).queryByTestId("gateway-status-badge")).not.toBeInTheDocument();
     const statusTrigger = await within(topbar!).findByRole("button", { name: "알람센터, 미읽음 0건" });
-    expect(apiGet).toHaveBeenCalledWith(`/sites/${mockDashboard.site.id}/monitoring-incidents?limit=1`, { signal: expect.any(AbortSignal) });
+    expect(apiGet).toHaveBeenCalledWith(`/sites/${mockDashboard.site.id}/monitoring-incidents?limit=1&view=personal`, { signal: expect.any(AbortSignal) });
     expect(apiPut).not.toHaveBeenCalled();
     fireEvent.click(statusTrigger);
     const statusDrawer = await screen.findByRole("dialog", { name: "알람센터" });
@@ -1494,7 +1505,7 @@ describe("App", () => {
       const commandSignal = vi.mocked(apiPost).mock.calls[0][2]?.signal;
       const recoveryKey = activeCommandStorageKey("user-1", mockDashboard.site.id);
 
-      fireEvent.click(screen.getByRole("button", { name: "로그아웃" }));
+      await requestLogoutThroughSettings();
 
       expect(commandSignal?.aborted).toBe(true);
       expect(sessionStorage.getItem(recoveryKey)).toContain("clientRequestId");
@@ -1543,7 +1554,8 @@ describe("App", () => {
       { signal: expect.any(AbortSignal), timeoutMs: 30_000 }
     ));
 
-    fireEvent.click(screen.getByRole("button", { name: "로그아웃" }));
+    await requestLogoutThroughSettings();
+    fireEvent.click(screen.getByRole("link", { name: "제어" }));
 
     const retryButton = await screen.findByRole("button", { name: "동일 요청 확인(새 제어 아님)" });
     expect(retryButton).toBeDisabled();
@@ -1582,7 +1594,9 @@ describe("App", () => {
       { signal: expect.any(AbortSignal), timeoutMs: 30_000 }
     ));
 
-    fireEvent.click(screen.getByRole("button", { name: "로그아웃" }));
+    await requestLogoutThroughSettings();
+    const account = screen.getByRole("region", { name: "내 계정" });
+    fireEvent.click(screen.getByRole("link", { name: "제어" }));
     expect(await screen.findByRole("button", { name: "동일 요청 확인(새 제어 아님)" })).toBeDisabled();
 
     await act(async () => {
@@ -1590,9 +1604,12 @@ describe("App", () => {
       await Promise.resolve();
     });
 
-    expect((await screen.findByText(/로그아웃에 실패했습니다/)).closest('[role="alert"]')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("link", { name: "설정" }));
+    expect(await within(await screen.findByRole("region", { name: "내 계정" })).findByRole("alert")).toHaveTextContent("로그아웃에 실패했습니다");
+    expect(account).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("link", { name: "제어" }));
     expect(apiGet).toHaveBeenCalledWith("/auth/me", { timeoutMs: 8_000 });
-    const retryButton = screen.getByRole("button", { name: "동일 요청 확인(새 제어 아님)" });
+    const retryButton = await screen.findByRole("button", { name: "동일 요청 확인(새 제어 아님)" });
     expect(retryButton).toBeEnabled();
     fireEvent.click(retryButton);
 
@@ -1603,7 +1620,9 @@ describe("App", () => {
   });
 
   it.each(["success", "failure", "abort"])("recovers the third status-check after failed logout with transport result %s", async (lateResult) => {
-    const commandId = "command-created-1";
+    // A Settings→Control remount restores durable identities, whose production
+    // contract is RFC4122 UUID rather than the old mounted-only fake ID.
+    const commandId = "00000000-0000-4000-8000-000000000041";
     const unknown = {
       id: commandId, stage: "verification_required", outcome: "unknown", verificationAttemptCount: 2,
       dispatchCount: 1, completedFixtureCount: 1, totalFixtureCount: 1, errorMessage: null, dispatches: []
@@ -1639,7 +1658,8 @@ describe("App", () => {
     await selectMapFixture("B2-L01");
     fireEvent.click(manualApplyAction());
     fireEvent.click(await screen.findByRole("button", { name: "실제 상태 확인" }));
-    fireEvent.click(screen.getByRole("button", { name: "로그아웃" }));
+    await requestLogoutThroughSettings();
+    fireEvent.click(screen.getByRole("link", { name: "제어" }));
     expect(checkSignal?.aborted).toBe(true);
     apiState.commandStatus = { ...unknown, verificationAttemptCount: 3, dispatches: [{ id: "third-check", kind: "status_check", verificationAttempt: 3, status: "timed_out", gateway: { id: "gw", name: "GW" }, results: [], errorMessage: null }] };
     await act(async () => {

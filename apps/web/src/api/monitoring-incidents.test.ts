@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { listMonitoringIncidents, markMonitoringIncidentRead } from "./monitoring-incidents";
+import { dismissAllMonitoringIncidents, dismissMonitoringIncident, listMonitoringIncidents, markMonitoringIncidentRead } from "./monitoring-incidents";
 
 const incidentId = "11111111-1111-4111-8111-111111111111";
 const siteId = "22222222-2222-4222-8222-222222222222";
@@ -10,12 +10,50 @@ const incident = {
   acknowledgedAt: null, acknowledgedByUserId: null, assignedToUserId: null, resolvedAt: null,
   resolvedByUserId: null, resolutionKind: null, resolutionNote: null, createdAt: instant, updatedAt: instant,
   acknowledgedBy: null, assignedTo: null, resolvedBy: null,
-  target: { kind: "gateway", id: "gateway-1", name: "입구 Gateway" }, isRead: false, readAt: null
+  target: { kind: "gateway", id: "gateway-1", name: "입구 Gateway" }, isRead: false, readAt: null,
+  isDismissed: false, dismissedAt: null
 };
 const response = { incidents: [incident], activeCount: 1, unreadCount: 7, nextCursor: "cursor_2" };
 afterEach(() => vi.unstubAllGlobals());
 
 describe("monitoring incident API", () => {
+  it("sends strict independent dismissal bodies and validates the server result identity", async () => {
+    const clientRequestId = "00000000-0000-4000-8000-000000000003";
+    const fetch = vi.fn().mockResolvedValueOnce(Response.json({ incidentId, isDismissed: true, dismissedAt: instant }))
+      .mockResolvedValueOnce(Response.json({ siteId, clientRequestId, snapshotAt: instant, dismissedCount: 42 }));
+    vi.stubGlobal("fetch", fetch);
+    expect(await dismissMonitoringIncident(siteId, incidentId)).toEqual({ incidentId, isDismissed: true, dismissedAt: instant });
+    expect(fetch.mock.calls[0][0]).toBe(`/api/sites/${siteId}/monitoring-incidents/${incidentId}/dismiss`);
+    expect(fetch.mock.calls[0][1]).toMatchObject({ method: "PUT", body: "{}" });
+    expect(await dismissAllMonitoringIncidents(siteId, clientRequestId)).toEqual({ siteId, clientRequestId, snapshotAt: instant, dismissedCount: 42 });
+    expect(fetch.mock.calls[1][0]).toBe(`/api/sites/${siteId}/monitoring-incidents/dismiss-all`);
+    expect(fetch.mock.calls[1][1]).toMatchObject({ method: "POST", body: JSON.stringify({ clientRequestId }) });
+  });
+  it.each([
+    { siteId: "other" }, { clientRequestId: "other" }, { dismissedCount: -1 }, { dismissedCount: 0.5 },
+    { snapshotAt: "invalid" }, { isRead: true }
+  ])("rejects a wrong-scope malformed or extra-field bulk result", async change => {
+    const clientRequestId = "00000000-0000-4000-8000-000000000003";
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ siteId, clientRequestId, snapshotAt: instant, dismissedCount: 1, ...change })));
+    await expect(dismissAllMonitoringIncidents(siteId, clientRequestId)).rejects.toThrow("Invalid monitoring incident dismissal result");
+  });
+  it("requests personal view explicitly without changing read or incident state", async () => {
+    const fetch = vi.fn().mockResolvedValue(Response.json(response));
+    vi.stubGlobal("fetch", fetch);
+    await listMonitoringIncidents(siteId, { view: "personal" });
+    expect(fetch.mock.calls[0][0]).toBe(`/api/sites/${siteId}/monitoring-incidents?view=personal`);
+    expect(fetch.mock.calls[0][1].method).toBeUndefined();
+  });
+
+  it.each([
+    { ...incident, isDismissed: undefined },
+    { ...incident, isDismissed: true, dismissedAt: null },
+    { ...incident, isDismissed: false, dismissedAt: instant },
+    { ...incident, isDismissed: true, dismissedAt: "invalid" }
+  ])("rejects malformed dismissal state instead of accepting an old row shape", async row => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ ...response, incidents: [row] })));
+    await expect(listMonitoringIncidents(siteId)).rejects.toThrow("Invalid monitoring incidents response");
+  });
   it("validates the actual incidents envelope and keeps canonical unread count independent of the page", async () => {
     const fetch = vi.fn().mockResolvedValue(Response.json(response));
     vi.stubGlobal("fetch", fetch);

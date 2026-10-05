@@ -1,8 +1,31 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page, type Request } from "@playwright/test";
 import { installSettingsApiRoutes } from "./support/settings-api";
 import { expectMinimumTouchTargets, expectNoHorizontalOverflow } from "./support/layout-assertions";
 
 const secret = "synthetic-private-tenant-url-stack";
+
+test.beforeEach(async ({ page, baseURL }) => {
+  await page.route("**/*", route => {
+    const url = new URL(route.request().url());
+    if (url.origin !== new URL(baseURL!).origin) return route.abort("blockedbyclient");
+    if (url.pathname.startsWith("/api/")) return route.fulfill({ status: 404, json: { message: "unconfigured mock API" } });
+    return route.continue();
+  });
+});
+
+test("lazy settings failure keeps eager account escape and the single logout owner", async ({ page }) => {
+  const api = await installSettingsApiRoutes(page, "viewer");
+  await page.route("**/src/features/settings/SettingsShell.tsx*", route => route.abort("failed"));
+  await page.goto("/settings?siteId=site-1");
+  await expect(page.getByText("화면을 불러오지 못했습니다.", { exact: true })).toBeVisible();
+  const account = page.getByRole("region", { name: "내 계정" });
+  await expect(account).toBeVisible();
+  expect(api.logoutRequests).toBe(0);
+  await account.getByRole("button", { name: "로그아웃", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "킨다 로그인" })).toBeVisible();
+  expect(api.logoutRequests).toBe(1);
+  expect(api.requests.filter(request => /commands.*POST|POST .*commands/.test(request))).toHaveLength(0);
+});
 
 test("browser offline at boot shows recovery and resumes the real shell when connectivity returns", async ({ page, context }) => {
   const api = await installSettingsApiRoutes(page, "admin");
@@ -39,14 +62,40 @@ for (const width of [1440, 1024, 390, 320]) {
     await installSettingsApiRoutes(page, "admin");
     let available = false;
     let authRequests = 0;
-    await page.route("**/api/auth/me", async (route) => {
+    const starts: Request[] = [];
+    const completions: Array<{ request: Request; status: number; order: number }> = [];
+    const failures: Array<{ request: Request; error: string | undefined; order: number }> = [];
+    let eventOrder = 0;
+    page.on("request", request => { if (request.url().endsWith("/api/auth/me")) starts.push(request); });
+    page.on("response", response => {
+      if (!response.url().endsWith("/api/auth/me")) return;
       authRequests++;
+      completions.push({ request: response.request(), status: response.status(), order: eventOrder++ });
+    });
+    page.on("requestfailed", request => {
+      if (request.url().endsWith("/api/auth/me")) failures.push({ request, error: request.failure()?.errorText, order: eventOrder++ });
+    });
+    const expectOnlyStrictModeBootCancellation = () => {
+      // Genuine dev StrictMode cancels the first observer transport before its
+      // response, then remounts. Count completed retry responses separately;
+      // every raw start must still be explained, never discarded from budget.
+      expect(failures).toHaveLength(1);
+      expect(failures[0].error).toBe("net::ERR_ABORTED");
+      expect(failures[0].request).toBe(starts[0]);
+      expect(failures[0].order).toBeLessThan(completions[0].order);
+      expect(completions[0].status).toBe(503);
+      expect(starts).toHaveLength(authRequests + failures.length);
+      expect(starts.every(request => request.method() === "GET")).toBe(true);
+    };
+    await page.route("**/api/auth/me", async (route) => {
       if (available) return route.fallback();
       return route.fulfill({ status: 503, json: { message: secret } });
     });
     await page.goto("/monitoring?siteId=site-1");
     await expectRecovery(page, "서비스에 연결할 수 없습니다");
     expect(authRequests).toBe(3);
+    expect(completions.map(item => item.status)).toEqual([503, 503, 503]);
+    expectOnlyStrictModeBootCancellation();
     await expect(page.getByRole("heading", { name: "킨다 로그인" })).toHaveCount(0);
     available = true;
     await page.keyboard.press("Tab");
@@ -54,6 +103,8 @@ for (const width of [1440, 1024, 390, 320]) {
     await page.keyboard.press("Enter");
     await expect(page.getByRole("button", { name: "맵 선택" })).toBeVisible();
     expect(authRequests).toBe(4);
+    expect(completions.map(item => item.status)).toEqual([503, 503, 503, 200]);
+    expectOnlyStrictModeBootCancellation();
     await expect(page.getByRole("alert")).toHaveCount(0);
   });
 }

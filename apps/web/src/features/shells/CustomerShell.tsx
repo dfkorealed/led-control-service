@@ -1,5 +1,5 @@
-import { forwardRef, lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
-import { Activity, BarChart3, CircleAlert, LoaderCircle, LogOut, SlidersHorizontal } from "lucide-react";
+import { forwardRef, lazy, Suspense, useEffect, useMemo, useRef, useState, type RefObject } from "react";
+import { Activity, BarChart3, CircleAlert, LoaderCircle, SlidersHorizontal } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { matchPath, Navigate, NavLink, Route, Routes, useLocation } from "react-router-dom";
 import { logout, type AuthUser } from "../../api/auth";
@@ -11,7 +11,6 @@ import {
   ConfirmDialog,
   FeedbackState,
   Heading,
-  IconTooltipButton,
   SessionStatusCenter,
   SessionStatusProvider,
   WorkspaceFocusProvider,
@@ -33,6 +32,10 @@ import { SiteSwitcher } from "../sites/SiteSwitcher";
 import { useGuardedSiteSelection } from "../sites/useGuardedSiteSelection";
 import { deriveGatewayAggregate } from "./gateway-status";
 import { primaryNavigationClass, SettingsNavigationItem } from "./SettingsNavigationItem";
+import { CustomerAccountContext } from "./CustomerAccountContext";
+import { CustomerAccountPanel } from "./CustomerAccountPanel";
+import { CustomerHeaderSummarySlot, type CustomerSiteSummary, type CustomerShellScope } from "./CustomerHeaderSummarySlot";
+import { CustomerRouteErrorBoundary } from "./CustomerRouteErrorBoundary";
 
 const MonitoringView = lazy(() => import("../monitoring/MonitoringView").then((module) => ({ default: module.MonitoringView })));
 const ControlView = lazy(() => import("../control/ControlView").then((module) => ({ default: module.ControlView })));
@@ -92,7 +95,8 @@ export function CustomerShell({ user }: { user: AuthUser }) {
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [isLogoutConfirmationOpen, setIsLogoutConfirmationOpen] = useState(false);
   const [logoutError, setLogoutError] = useState("");
-  const logoutButtonRef = useRef<HTMLButtonElement>(null);
+  const logoutButtonRef = useRef<RefObject<HTMLButtonElement | null>>({ current: null });
+  const logoutInFlightRef = useRef(false);
   const siteSwitcherRef = useRef<HTMLButtonElement>(null);
   const restoreLogoutFocusAfterFailureRef = useRef(false);
   const siteId = new URLSearchParams(location.search).get("siteId") ?? undefined;
@@ -176,11 +180,12 @@ export function CustomerShell({ user }: { user: AuthUser }) {
   useEffect(() => {
     if (isLoggingOut || !logoutError || !restoreLogoutFocusAfterFailureRef.current) return;
     restoreLogoutFocusAfterFailureRef.current = false;
-    logoutButtonRef.current?.focus();
+    logoutButtonRef.current.current?.focus();
   }, [isLoggingOut, logoutError]);
 
   async function performLogout() {
-    if (isLoggingOut) return;
+    if (logoutInFlightRef.current) return;
+    logoutInFlightRef.current = true;
     setLogoutError("");
     setIsLoggingOut(true);
     blockActiveCommandSession(user.id);
@@ -191,37 +196,38 @@ export function CustomerShell({ user }: { user: AuthUser }) {
       queryClient.setQueryData(authMeQueryKey, null);
     } catch {
       unblockActiveCommandSession(user.id);
+      logoutInFlightRef.current = false;
       setIsLoggingOut(false);
       setLogoutError("로그아웃에 실패했습니다. 연결을 확인한 뒤 다시 시도하세요.");
     }
   }
 
-  function handleLogout() {
-    if (isLoggingOut) return;
+  function handleLogout(returnFocusRef: RefObject<HTMLButtonElement | null>) {
+    if (logoutInFlightRef.current) return;
+    logoutButtonRef.current = returnFocusRef;
     if (isEditorDirty || hasDirtyEditorSentinel()) {
       setIsLogoutConfirmationOpen(true);
       return;
     }
-    restoreLogoutFocusAfterFailureRef.current = false;
+    restoreLogoutFocusAfterFailureRef.current = true;
     void performLogout();
   }
 
   const isAdmin = user.role === "admin";
   const installationStatus = dashboard?.site.installationStatus;
   const capabilities = dashboard?.capabilities;
+  let gate = null;
 
   // Installation state remains the first admin gate because setup child routes
   // must not mount while its dashboard request is pending.
   if (isAdmin && !installationStatus) {
     if (isDashboardLoading) {
-      return (
+      gate = (
         <section className="grid min-h-screen place-items-center bg-surface-canvas p-6" aria-live="polite">
           <FeedbackState tone="info" icon={LoaderCircle} title="설치 상태를 확인하는 중입니다." />
         </section>
       );
-    }
-
-    return (
+    } else gate = (
       <section className="grid min-h-screen place-items-center bg-surface-canvas p-6" aria-live="polite">
         <FeedbackState tone="danger" icon={CircleAlert} title="설치 상태를 확인하지 못했습니다. 네트워크 상태를 확인한 뒤 다시 시도하세요." action={
           <Button type="button" onClick={() => void refetchDashboard()}>다시 시도</Button>
@@ -232,16 +238,14 @@ export function CustomerShell({ user }: { user: AuthUser }) {
 
   // Fail closed until the server-provided site capability matrix is known.
   // This prevents a read-only user from briefly mounting protected route trees.
-  if (!capabilities) {
+  if (!gate && !capabilities) {
     if (isDashboardLoading) {
-      return (
+      gate = (
         <section className="grid min-h-screen place-items-center bg-surface-canvas p-6" aria-live="polite">
           <FeedbackState tone="info" icon={LoaderCircle} title="현장 권한을 확인하는 중입니다." />
         </section>
       );
-    }
-
-    return (
+    } else gate = (
       <section className="grid min-h-screen place-items-center bg-surface-canvas p-6" aria-live="polite">
         <FeedbackState tone="danger" icon={CircleAlert} title="현장 권한을 확인하지 못했습니다. 네트워크 상태를 확인한 뒤 다시 시도하세요." action={
           <Button type="button" onClick={() => void refetchDashboard()}>다시 시도</Button>
@@ -253,17 +257,30 @@ export function CustomerShell({ user }: { user: AuthUser }) {
   const mustCompleteInstallation = isAdmin
     && installationStatus === "pending"
     && location.pathname !== "/settings";
-  if (mustCompleteInstallation) {
+  if (!gate && mustCompleteInstallation) {
     const settingsSearch = selectedSiteId ? `?siteId=${encodeURIComponent(selectedSiteId)}` : location.search;
-    return <Navigate to={`/settings${settingsSearch}`} replace />;
+    gate = <Navigate to={`/settings${settingsSearch}`} replace />;
   }
 
+  const summaryScope: CustomerShellScope | null = isMonitoringRoute && authorizedSelectedSiteId
+    ? { principalKey: principalKey(user), siteId: authorizedSelectedSiteId, pathname: "/monitoring" } : null;
+  const summaryValue: CustomerSiteSummary | null = summaryScope ? {
+    scope: summaryScope,
+    siteName: sitesQuery.data!.find(site => site.id === summaryScope.siteId)!.name,
+    ...(dashboardError ? { state: "error" as const } : dashboard?.site.id !== summaryScope.siteId || isDashboardLoading ? { state: "loading" as const } : {
+      state: "ready" as const,
+      counts: { totalFixtures: dashboard.summary.totalFixtures ?? null, onlineFixtures: dashboard.summary.onlineFixtures ?? null,
+        faultFixtures: dashboard.summary.faultFixtures ?? null, offlineFixtures: dashboard.summary.offlineFixtures ?? null }
+    })
+  } : null;
+
   return (
+    <CustomerAccountContext.Provider value={{ user, isLoggingOut, logoutError: logoutError || null, requestLogout: handleLogout }}>
     <WorkspaceFocusProvider scope={JSON.stringify([principalKey(user), selectedSiteId, location.pathname])}>{focus =>
     <SessionStatusProvider>
       <ShellStatusRegistration items={shellStatusItems} />
       <div className={`bg-surface-canvas ${focus.active || isEditorRoute ? "flex h-dvh min-h-0 overflow-hidden" : isMonitoringRoute ? "flex h-dvh min-h-0" : "min-h-screen"} ${isCompactNavigation && !focus.active && !isMonitoringRoute ? "pb-shell-navigation-safe" : "flex"}`} data-app-shell data-workspace-full-view={focus.active}>
-      {isCompactNavigation ? (
+      {capabilities && !gate ? isCompactNavigation ? (
         <nav hidden={focus.active} className={focus.active ? "hidden" : "fixed inset-x-0 bottom-0 z-20 grid h-shell-navigation-safe grid-cols-4 gap-1 border-t border-border-default bg-surface-panel px-1.5 pt-1 pb-safe-area-bottom"} aria-label="모바일 주 메뉴" data-shell-navigation="compact">
           <PrimaryNavigation capabilities={capabilities} search={location.search} />
         </nav>
@@ -274,7 +291,7 @@ export function CustomerShell({ user }: { user: AuthUser }) {
             <PrimaryNavigation capabilities={capabilities} search={location.search} />
           </nav>
         </aside>
-      )}
+      ) : null}
       <main className={`flex min-w-0 flex-1 flex-col ${focus.active || isEditorRoute ? "min-h-0 overflow-hidden" : isMonitoringRoute ? "min-h-0" : ""}`}>
         <header hidden={focus.active} className={focus.active ? "hidden" : "sticky top-0 z-10 grid min-h-16 min-w-0 shrink-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-2 gap-y-2 border-b border-border-default bg-surface-panel px-3.5 py-2 compact:grid-cols-[minmax(0,1fr)_minmax(0,auto)_auto] compact:gap-x-4 compact:px-7"} data-shell-topbar>
           <div className="col-start-1 row-start-1 min-w-0">
@@ -296,25 +313,22 @@ export function CustomerShell({ user }: { user: AuthUser }) {
               key={JSON.stringify([user.id, authorizedSelectedSiteId])}
               userId={user.id}
               siteId={authorizedSelectedSiteId}
-              timeZone={dashboard?.site.id === authorizedSelectedSiteId ? dashboard.site.timeZone : undefined}
+              timeZone={dashboard && dashboard.site.id === authorizedSelectedSiteId ? dashboard.site.timeZone : undefined}
               contextItems={gatewayContextItems}
             />
-            <IconTooltipButton
-              ref={logoutButtonRef}
-              className="size-13"
-              icon={LogOut}
-              label="로그아웃"
-              loadingLabel="로그아웃 중"
-              isLoading={isLoggingOut}
-              onClick={handleLogout}
-            />
           </div>
+          {summaryScope ? <CustomerHeaderSummarySlot currentScope={summaryScope} value={summaryValue} className="col-span-full" /> : null}
         </header>
         {/* Monitoring needs a finite flex height to grow its map into available
             space. Its overflow stays visible so short screens can scroll the
             page rather than clip the minimum-height map or small log ticker.
             Other normal routes keep their existing document scroll policy. */}
-        <div data-shell-content className={`m-0! min-w-0 flex-1 ${focus.active ? "min-h-0 overflow-hidden p-2 compact:p-3" : isEditorRoute ? "min-h-0 overflow-hidden p-2 compact:p-3 [&>section]:h-full [&>section]:min-h-0 [&>section]:grid-rows-[auto_minmax(0,1fr)] [&>section]:gap-2 [&>section>div]:min-h-0" : isMonitoringRoute ? "flex min-h-0 flex-col p-6 max-compact:p-3.5" : "p-6 max-compact:p-3.5"}`}>
+        <div data-shell-content className={`m-0! min-w-0 flex-1 ${focus.active ? "min-h-0 overflow-hidden p-2 compact:p-3" : isEditorRoute ? "grid min-h-0 grid-rows-[auto_minmax(0,1fr)] gap-2 overflow-hidden p-2 compact:p-3 [&>section:last-child]:h-full [&>section:last-child]:min-h-0 [&>section:last-child]:grid-rows-[auto_minmax(0,1fr)] [&>section:last-child]:gap-2 [&>section:last-child>div]:min-h-0" : isMonitoringRoute ? "flex min-h-0 flex-col p-6 max-compact:p-3.5" : "grid content-start gap-5 p-6 max-compact:p-3.5"}`}>
+          {/* The eager account region stays outside the lazy route boundary so
+              failed settings chunks and installation/permission gates retain
+              the same logout controller, confirmation and initiating ref. */}
+          {location.pathname.startsWith("/settings") || gate ? <CustomerAccountPanel /> : null}
+          {gate ?? (capabilities ? <CustomerRouteErrorBoundary scope={JSON.stringify([principalKey(user), selectedSiteId, location.pathname])}>
           <Suspense fallback={<RouteLoadingState />}>
             <Routes>
             <Route path="/monitoring" element={<MonitoringView userRole={user.role} siteId={siteId} />} />
@@ -370,6 +384,7 @@ export function CustomerShell({ user }: { user: AuthUser }) {
             <Route path="*" element={<Navigate to={`/monitoring${location.search}`} replace />} />
             </Routes>
           </Suspense>
+          </CustomerRouteErrorBoundary> : null)}
         </div>
       </main>
       <ConfirmDialog
@@ -388,7 +403,7 @@ export function CustomerShell({ user }: { user: AuthUser }) {
         title="로그아웃 확인"
         confirmLabel="로그아웃"
         tone="danger"
-        returnFocusRef={logoutButtonRef}
+        returnFocusRef={logoutButtonRef.current}
         onCancel={() => setIsLogoutConfirmationOpen(false)}
         onConfirm={() => {
           setIsLogoutConfirmationOpen(false);
@@ -403,6 +418,7 @@ export function CustomerShell({ user }: { user: AuthUser }) {
       </div>
     </SessionStatusProvider>
     }</WorkspaceFocusProvider>
+    </CustomerAccountContext.Provider>
   );
 }
 

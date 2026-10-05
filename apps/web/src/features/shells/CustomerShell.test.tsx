@@ -1,11 +1,13 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter, useLocation } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { logout, type AuthUser } from "../../api/auth";
 import { apiGet } from "../../api/client";
 import type { Dashboard } from "../../api/queries";
 import { CustomerShell } from "./CustomerShell";
+import { useFloorEditorStore } from "../floor-editor/editor-store";
+import { isActiveCommandSessionBlocked } from "../control/active-command-session";
 
 vi.mock("../settings/floor-plans/FloorEditorRoute", () => ({ FloorEditorRoute: () => <p>맵 편집 화면</p> }));
 vi.mock("../monitoring/MonitoringView", () => ({ MonitoringView: () => <p>모니터링 화면</p> }));
@@ -87,6 +89,7 @@ function renderShell(path: string, user: AuthUser = adminUser) {
 
 describe("customer shell site context", () => {
   beforeEach(() => {
+    useFloorEditorStore.getState().reset();
     vi.mocked(logout).mockReset().mockResolvedValue({ ok: true });
     vi.mocked(apiGet).mockReset().mockImplementation(async (path) => path.includes("monitoring-incidents")
       ? { incidents: [], activeCount: 0, unreadCount: 0, nextCursor: null }
@@ -96,6 +99,50 @@ describe("customer shell site context", () => {
     vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() })));
   });
   afterEach(() => { cleanup(); vi.clearAllMocks(); vi.unstubAllGlobals(); });
+
+  it("stale summary is rejected across scope transition", async () => {
+    sitesState.current.data.push({ id: "site-2", name: "새 현장", customerName: "고객사" });
+    dashboardState.current.data!.summary = { totalFixtures: 17, onlineFixtures: 12, faultFixtures: 2, averageBrightness: 50 };
+    renderShell("/monitoring?siteId=site");
+    const band = screen.getByRole("region", { name: "현장 전체" });
+    expect(band).toHaveTextContent("17");
+    expect(band).toHaveTextContent("—");
+    fireEvent.click(screen.getByRole("button", { name: /현장 선택/ }));
+    fireEvent.click(screen.getByRole("option", { name: "고객사 · 새 현장" }));
+    await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent("siteId=site-2"));
+    expect(screen.getByRole("region", { name: "현장 전체" })).not.toHaveTextContent("17");
+    expect(screen.getByRole("region", { name: "현장 전체" })).toHaveTextContent("새 현장");
+  });
+
+  it.each(["viewer", "admin", "no-site", "pending", "loading", "error"])("account escape remains available for %s", async state => {
+    const user = state === "viewer" ? { ...adminUser, role: "viewer" as const } : adminUser;
+    if (state === "no-site") sitesState.current.data = [];
+    if (state === "pending") dashboardState.current.data!.site.installationStatus = "pending";
+    if (state === "loading" || state === "error" || state === "no-site") dashboardState.current = { data: undefined, isLoading: state === "loading", error: state === "error" ? new Error("private") : null, refetch: vi.fn() };
+    renderShell("/settings?siteId=site", user);
+    const account = screen.getByRole("region", { name: "내 계정" });
+    expect(within(account).getByRole("button", { name: "로그아웃" })).toBeEnabled();
+    expect(account).toHaveTextContent(user.name);
+    expect(account).toHaveTextContent(user.loginId);
+  });
+
+  it("dirty cancel preserves draft and logout failure restores initiating focus", async () => {
+    useFloorEditorStore.setState({ isDirty: true });
+    renderShell("/settings?siteId=site");
+    const trigger = within(screen.getByRole("region", { name: "내 계정" })).getByRole("button", { name: "로그아웃" });
+    fireEvent.click(trigger);
+    fireEvent.click(within(screen.getByRole("alertdialog", { name: "로그아웃 확인" })).getByRole("button", { name: "취소" }));
+    await waitFor(() => expect(trigger).toHaveFocus());
+    expect(useFloorEditorStore.getState().isDirty).toBe(true);
+    expect(logout).not.toHaveBeenCalled();
+    expect(screen.getByTestId("location")).toHaveTextContent("siteId=site");
+    vi.mocked(logout).mockRejectedValueOnce(new Error("private"));
+    act(() => useFloorEditorStore.setState({ isDirty: false }));
+    fireEvent.click(trigger);
+    await waitFor(() => expect(screen.getByRole("region", { name: "내 계정" })).toHaveTextContent("로그아웃에 실패했습니다"));
+    await waitFor(() => expect(trigger).toHaveFocus());
+    expect(isActiveCommandSessionBlocked(adminUser.id)).toBe(false);
+  });
 
   it("데스크톱 셸에 킨다 관제 센터 브랜드를 표시한다", () => {
     renderShell("/monitoring?siteId=site");
@@ -168,7 +215,7 @@ describe("customer shell site context", () => {
   });
 
   it("logs out immediately when there is no dirty editor state", async () => {
-    renderShell("/monitoring?siteId=site");
+    renderShell("/settings?siteId=site");
     fireEvent.click(screen.getByRole("button", { name: "로그아웃" }));
     expect(screen.queryByRole("alertdialog", { name: "로그아웃 확인" })).not.toBeInTheDocument();
     await waitFor(() => expect(logout).toHaveBeenCalledOnce());
@@ -224,7 +271,7 @@ describe("customer shell site context", () => {
 
     const settingsShell = (await screen.findByRole("navigation", { name: "설정 메뉴" })).closest("section");
     expect(settingsShell).not.toBeNull();
-    expect(settingsShell?.parentElement).toHaveClass("[&>section]:grid-rows-[auto_minmax(0,1fr)]");
+    expect(settingsShell?.parentElement).toHaveClass("[&>section:last-child]:grid-rows-[auto_minmax(0,1fr)]");
     expect(settingsShell?.parentElement).not.toHaveClass("[&>section]:grid-rows-[auto_auto_minmax(0,1fr)]");
   });
 

@@ -1,5 +1,14 @@
 # 운영자 상담 문의 메뉴 기능 현황
 
+## 2026-10-05 공통 컨테이너 기반 목록 표시 (추가 운영 UI Task 4)
+
+- 구현 완료: 상담 문의와 현장 관리자 목록은 동일 공통 DataGrid를 소비한다. window가 넓어도 실제 목록 컨테이너 폭이 부족하면 라벨이 붙은 카드로 전환하고, 넓으면 중앙 TH의 HTML table/caption을 제공한다. 이름·시각·메일·문의·상태·기존 작업 버튼은 두 surface에서 동일하게 제공하고 긴 값은 줄바꿈한다.
+- 구현 완료: 문의 cursor/메일 연결·관리자 생성/지정/수정/비밀번호/삭제 확인 API와 운영자 Shell 인증·권한/MFA gate는 유지한다. 기존 화면에 검색/상세 필터가 없으므로 가짜 검색이나 새 조회 조건을 만들지 않는다.
+- 미구현: 실제 운영 계정/DB·NAVER WORKS OAuth/수신·native/HIL·전체 폭/200% 최종 통합 검증은 별도 관문이다.
+- 부족하거나 개선이 필요한 기능: narrow-container 단위 회귀는 데이터·행동 보존 및 mutation 미발생을 검증하며 실제 운영 권한/메일 전송 증거가 아니다. 최종 실제 bounds/overflow 검수는 Task 9에서 수행한다.
+- 관련 파일: `apps/web/src/features/operator/LandingInquiriesView.tsx`, `site-admins/SiteAdminManagementView.tsx`와 직접 테스트; 공통 `apps/web/src/components/ui/DataGrid.tsx`는 기존 승인 계약만 소비한다.
+- 갱신 규칙: table/card 전환·장문·모든 필드·권한·행동·페이지 이동을 함께 검증하며 기존 API/인가와 표시 변경의 증거를 분리한다.
+
 기준일: 2026-09-27
 
 ## 2026-10-02 실제 시각 표시 통일

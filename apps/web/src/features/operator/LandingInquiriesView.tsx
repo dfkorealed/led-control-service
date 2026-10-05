@@ -8,7 +8,7 @@ import {
 } from "../../api/landing-inquiries";
 import { Button } from "../../components/ui/Button";
 import { Card } from "../../components/ui/Card";
-import { DataTableShell } from "../../components/ui/DataTableShell";
+import { DataGrid, type DataGridColumn } from "../../components/ui/DataGrid";
 import { FeedbackState } from "../../components/ui/FeedbackState";
 import { PageHeader } from "../../components/ui/PageHeader";
 import { StatusBadge } from "../../components/ui/StatusBadge";
@@ -60,13 +60,8 @@ export function LandingInquiriesView() {
       <h2 className="text-card-title font-bold text-content-primary">최근 상담 문의</h2>
       {inquiries.isPending ? <FeedbackState tone="neutral" icon={Clock3} title="문의 목록을 불러오는 중입니다." /> : null}
       {inquiries.isError ? <FeedbackState tone="danger" icon={CircleAlert} title="문의 목록을 불러오지 못했습니다." description="연결을 확인한 뒤 다시 시도하세요." action={<Button type="button" onClick={() => void inquiries.refetch()}>다시 시도</Button>} /> : null}
-      {inquiries.isSuccess ? <DataTableShell caption="최근 상담 문의 표">
-        <thead><tr>{["접수번호", "접수일", "회사 / 담당자", "회신 정보", "문의 내용", "메일 상태"].map((label) => <th key={label} scope="col" className={headerClass}>{label}</th>)}</tr></thead>
-        <tbody>
-          {inquiries.data.items.map((item) => <InquiryRow key={item.reference} item={item} />)}
-          {inquiries.data.items.length === 0 ? <tr><td colSpan={6} className={`${cellClass} py-10 text-center text-content-secondary`}>접수된 상담 문의가 없습니다.</td></tr> : null}
-        </tbody>
-      </DataTableShell> : null}
+      {inquiries.isSuccess ? <DataGrid caption="최근 상담 문의 표" rows={inquiries.data.items} columns={inquiryColumns}
+        getRowKey={item => item.reference} emptyState="접수된 상담 문의가 없습니다." /> : null}
       <div className="flex justify-end gap-2">
         {cursorHistory.length > 0 ? <Button type="button" onClick={() => setCursorHistory((history) => history.slice(0, -1))}>이전 문의</Button> : null}
         {inquiries.isSuccess && inquiries.data.nextCursor ? <Button type="button" onClick={() => setCursorHistory((history) => [...history, inquiries.data.nextCursor!])}>다음 문의</Button> : null}
@@ -75,17 +70,14 @@ export function LandingInquiriesView() {
   </section>;
 }
 
-function InquiryRow({ item }: { item: OperatorLandingInquiry }) {
-  const status = deliveryPresentation[item.deliveryStatus];
-  return <tr>
-    <td className={`${cellClass} font-bold text-content-primary`}>{item.reference}</td>
-    <td className={cellClass}>{formatTimestamp(item.createdAt)}</td>
-    <td className={cellClass}>{item.companyName}<br /><span className="text-content-secondary">{item.contactName}</span></td>
-    <td className={cellClass}>{item.email}{item.phone ? <><br />{item.phone}</> : null}</td>
-    <td className={`${cellClass} max-w-64 break-words whitespace-normal`}>{item.message}</td>
-    <td className={cellClass}><StatusBadge tone={status.tone} icon={status.icon}>{status.label}</StatusBadge></td>
-  </tr>;
-}
-
-const headerClass = "border-b border-border-default bg-surface-inset px-3.5 py-3 text-left align-middle text-label font-bold whitespace-nowrap text-content-secondary";
-const cellClass = "border-b border-border-default px-3.5 py-3 text-left align-middle whitespace-nowrap";
+const inquiryColumns: readonly DataGridColumn<OperatorLandingInquiry>[] = [
+  { id: "reference", header: "접수번호", minWidth: 140, renderCell: item => item.reference },
+  { id: "createdAt", header: "접수일", minWidth: 180, renderCell: item => formatTimestamp(item.createdAt) },
+  { id: "contact", header: "회사 / 담당자", minWidth: 160, renderCell: item => <>{item.companyName}<br /><span className="text-content-secondary">{item.contactName}</span></> },
+  { id: "reply", header: "회신 정보", minWidth: 180, renderCell: item => <>{item.email}{item.phone ? <><br />{item.phone}</> : null}</> },
+  { id: "message", header: "문의 내용", minWidth: 200, renderCell: item => item.message },
+  { id: "delivery", header: "메일 상태", minWidth: 150, align: "center", renderCell: item => {
+    const status = deliveryPresentation[item.deliveryStatus];
+    return <StatusBadge tone={status.tone} icon={status.icon}>{status.label}</StatusBadge>;
+  } }
+];

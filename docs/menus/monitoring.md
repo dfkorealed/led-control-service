@@ -1,5 +1,15 @@
 # 모니터링 메뉴 기능 현황
 
+## 2026-10-05 현장 헤더·개인 알람 숨김 웹 소비 (추가 운영 UI Task 4)
+
+- 구현 완료: Shell의 기존 authorized dashboard query로 `현장 전체`와 현장 이름·전체/온라인/장애/오프라인 집계를 헤더에 표시한다. 계정·현장·모니터링 경로를 검사하고 이전 현장의 값은 거부한다. 미확인/null·로딩·오류를 0으로 만들지 않는다. 본문의 중복 현장 요약 제거는 Task 5에서 소비한다.
+- 구현 완료: 알람센터는 actor/site/personal/조회 조건별 목록과 개인 미읽음 배지를 사용한다. 개별 지우기는 빈 PUT, 전체 지우기는 UUID만 담은 POST이며 페이지·필터 밖을 포함하는 선택 현장 범위를 확인 안내에 표시한다. 실패/미확정은 목록·배지를 보존하고 성공 뒤 이전 GET를 취소해 첫 페이지·정본 수치를 재조회한다. 실제 가시 행의 독립 읽음 정책과 현재 화면의 안전 경고는 유지한다.
+- 구현 완료: 전체 요청마다 독립 브라우저 저장 항목을 POST 전에 검증·기록한다. 계정·현장·UUID·version만 저장하며 token/대상 ID를 넣지 않는다. 새로고침/재열기·복수 탭의 미확정 요청은 각각 명시적 결과 확인/동일키 재시도로 복구하며 자동 POST·새키 대체는 없다. 저장 실패는 POST 전에 중지하고 완료 확인된 키만 삭제한다.
+- 미구현: 사용자 DB migration·현재 서버 적용·실장비·native WebView·실제 두 세션/최종 전체 UI 관문은 Task 9/10의 별도 범위다. 알람 push 동기화와 요청 원장의 TTL은 추가하지 않았다.
+- 부족하거나 개선이 필요한 기능: 단위 및 격리 mock Chromium 증거는 실제 MVCC snapshot이나 운영 적용 증거가 아니다. 브라우저 저장소가 손상되거나 차단되면 전체 지우기는 안내와 함께 중지한다. 독립 검토·최종 통합 관문은 총괄이 판정한다.
+- 관련 파일: `apps/web/src/features/shells/{CustomerShell,CustomerHeaderSummarySlot}.tsx`, `apps/web/src/api/monitoring-incidents.ts`, `apps/web/src/components/ui/session-status/{useMonitoringIncidents,monitoring-dismissal-request}.ts`, `SessionStatusCenter.tsx`와 직접 테스트, `apps/web/e2e/{ui-overlays,app-shell-recovery,calm-operations-shell}.spec.ts`.
+- 갱신 규칙: 개인 숨김·읽음·운용 상태를 구분하고 strict 서버 shape·scope 전환·실패 목록 보존·durable 저장 실패 POST0·복수키/같은키 복구·정본 첫 페이지/배지 재조회 및 mock/실제/운영 증거를 함께 기록한다.
+
 ## 2026-10-04 주석 수정 최종 소프트웨어 검증
 
 - 구현 완료: 공통 필터/시각/로그와 실제 상태 범례·원형 조명·반응형 지도·명시 선택 상세를 구현했다. 계정별 알람 확인은 실제 R1–R6/R7 UI/HTTP/SQL 두 사례PASS로, 모니터링 로그는 M1 완료 하위 단계 및 M2/M3 실제 여정으로 확인했다. 50/100/500/1000·기간·층 변경·opaque cursor·부분 보관일·실제410 안내/최신 기록 복구를 검증했다.
@@ -132,7 +142,7 @@
 - 구현 완료: strict 빈 body의 개별 dismiss PUT와 UUID 요청키만 받는 dismiss-all POST를 추가했다. 인증 계정·선택 현장에만 적용하고 읽기 전용 viewer도 허용한다. 기존 읽음과 같은 advisory/Site/User/멤버십 잠금·재인가를 사용하며 읽음 기록·장애 상태/revision·현장 전체 activeCount는 변경하지 않는다.
 - 구현 완료: 전체 숨김은 페이지·목록 필터 밖의 모든 미숨김 ID를 한 SQL snapshot으로 pending 원장에 먼저 commit한다. 이것이 최초 수락 경계다. 별도 transaction에서 재인가 후 숨김 효과와 실제 신규 insert 수/완료 시각을 함께 commit한다. 실패·권한 철회·늦게 commit한 과거 시각 알람·동일 키 동시 요청에도 저장 집합을 넓히지 않는다. 삭제/겹친 대상은 실제 삽입 수에서 제외하며 완료 재시도 응답은 고정한다.
 - 구현 완료: GET의 기본 all은 기존 운용 목록과 미읽음 의미를 유지하고, personal만 개인 숨김을 목록/미읽음 수에서 제외한다. 행에 `isDismissed,dismissedAt`을 반환하며 cursor v2는 actor/site/view/filter에 바인딩한다. v1은 all에서만 소비한다. 같은 ID 갱신은 계속 숨김이며 새 ID 재발은 미읽음이다.
-- 미구현: 웹 알람센터의 개인 숨김 소비는 후속 Task 4다. 사용자 DB migration/서버 반영은 최종 검수 뒤 Task 10이며 이 Backend 작업에서 수행하지 않았다.
+- 미구현: 사용자 DB migration/서버 반영은 최종 검수 뒤 Task 10이며 이 Backend 작업에서 수행하지 않았다. 웹 알람센터의 개인 숨김 소비는 위 Task 4 항목에서 구현하며 Backend/웹의 별도 검증 경계를 유지한다.
 - 부족하거나 개선이 필요한 기능: 요청 원장과 frozen ID 배열은 부모 수명까지 보관하므로 계속 증가한다. 독립 TTL·worker/lease·자동 청소는 제공하지 않는다. 검증은 자기 소유 빈 임시 PostgreSQL과 API 자동 테스트이며 운영 배포/native/HIL 증거가 아니다. 독립 검토와 최종 전체 통합 관문은 별도로 남는다.
 - 관련 파일: `apps/api/prisma/schema.prisma`, `apps/api/prisma/migrations/20261004100000_monitoring_incident_dismissals/migration.sql`, `apps/api/src/monitoring-incidents/{monitoring-incident-dismissal.service.ts,monitoring-incident-personal-access.ts,monitoring-incidents.dto.ts,monitoring-incidents.service.ts,monitoring-incidents.controller.ts,monitoring-incidents.module.ts}` 및 인접 단위/실제 PostgreSQL 테스트, `docs/database-schema.md`.
 - 갱신 규칙: 개인 숨김·개인 읽음·운용 상태를 구분하고 durable 예약 전/후 실패, 권한 철회, 동일 키 재시도, 페이지/필터 밖 범위, UTC/Seoul/New_York, cascade와 count CHECK를 같은 작업에서 검증한다. 사용자 DB 적용 여부를 임시 DB 결과와 분리한다.

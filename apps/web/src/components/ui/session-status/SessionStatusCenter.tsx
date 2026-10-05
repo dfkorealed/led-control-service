@@ -1,6 +1,7 @@
 import { Bell, CircleAlert, CircleCheck, Info } from "lucide-react";
 import { forwardRef, useEffect, useId, useImperativeHandle, useRef, useState } from "react";
 import { Button } from "../Button";
+import { ConfirmDialog } from "../ConfirmDialog";
 import { DrawerDialog } from "../DrawerDialog";
 import { StatusBadge, type StatusTone } from "../StatusBadge";
 import { Heading, Text } from "../Typography";
@@ -32,6 +33,8 @@ export interface SessionStatusCenterProps {
 export const SessionStatusCenter = forwardRef<SessionStatusCenterHandle, SessionStatusCenterProps>(function SessionStatusCenter({ className, contextItems = [], userId, siteId, timeZone }, ref) {
   const { statuses } = useSessionStatusState();
   const [isOpen, setIsOpen] = useState(false);
+  const [confirmBulk, setConfirmBulk] = useState(false);
+  const bulkTriggerRef = useRef<HTMLButtonElement>(null);
   const alarms = useMonitoringIncidents(userId, siteId, isOpen);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const dialogRef = useRef<HTMLElement>(null);
@@ -68,6 +71,7 @@ export const SessionStatusCenter = forwardRef<SessionStatusCenterHandle, Session
 
   useEffect(() => {
     setIsOpen(false);
+    setConfirmBulk(false);
   }, [userId, siteId]);
 
   useEffect(() => {
@@ -130,6 +134,15 @@ export const SessionStatusCenter = forwardRef<SessionStatusCenterHandle, Session
       <div className="grid gap-5">
         <section className="grid gap-2" aria-labelledby={alarmHeadingId}>
           <Heading id={alarmHeadingId} as="h3" variant="card-title">현장 알람</Heading>
+          {alarms.enabled ? <Button ref={bulkTriggerRef} type="button" variant="secondary" className="justify-self-start"
+            isDisabled={alarms.bulkPending || alarms.dismissalPending.size > 0 || alarms.pendingDismissalRequestIds.length > 0}
+            onClick={() => setConfirmBulk(true)}>전체 지우기</Button> : null}
+          {alarms.bulkError ? <Text role="status" tone="secondary">{alarms.bulkError}</Text> : null}
+          {alarms.pendingDismissalRequestIds.map(id => <div key={id} className="grid min-w-0 gap-2">
+            <Text variant="body-sm" tone="secondary" className="wrap-anywhere">완료 확인이 필요한 요청: {id}</Text>
+            <Button type="button" variant="secondary" isDisabled={alarms.bulkPending || alarms.dismissalPending.size > 0}
+              aria-label={`결과 확인 및 다시 시도 ${id}`} onClick={() => void alarms.dismissAll(id)}>결과 확인 및 다시 시도</Button>
+          </div>)}
           {!alarms.enabled ? <Text tone="secondary">현장을 선택하면 알람을 확인할 수 있습니다.</Text> : null}
           {alarms.isLoading ? <Text role="status" tone="secondary">알람 확인 중…</Text> : null}
           {alarms.error ? <div className="grid gap-2" role="status">
@@ -152,6 +165,9 @@ export const SessionStatusCenter = forwardRef<SessionStatusCenterHandle, Session
               </div>
               <Text variant="body-sm" tone="secondary">발생 {formatTimestamp(item.openedAt, { timeZone })}</Text>
               <StatusBadge icon={item.isRead ? CircleCheck : Bell} tone={item.isRead ? "neutral" : "info"}>{item.isRead ? "읽음" : "미읽음"}</StatusBadge>
+              <Button type="button" size="sm" variant="secondary" className="justify-self-start"
+                isDisabled={alarms.bulkPending || alarms.dismissalPending.has(item.id)} onClick={() => void alarms.dismiss(item.id)}>지우기</Button>
+              {alarms.dismissalFailures.has(item.id) ? <Text role="status" variant="body-sm" tone="secondary">알람을 지우지 못했습니다. 다시 시도하세요.</Text> : null}
               {alarms.readFailures.has(item.id) ? <div className="grid gap-2" role="status">
                 <Text variant="body-sm" tone="secondary">읽음 저장 실패</Text>
                 <Button type="button" size="sm" variant="secondary" className="justify-self-start"
@@ -203,6 +219,10 @@ export const SessionStatusCenter = forwardRef<SessionStatusCenterHandle, Session
         </section>
       </div>
     </DrawerDialog>
+    <ConfirmDialog isOpen={confirmBulk} title="전체 알람 지우기" role="alertdialog" confirmLabel="전체 지우기" returnFocusRef={bulkTriggerRef}
+      onCancel={() => setConfirmBulk(false)} onConfirm={() => { setConfirmBulk(false); void alarms.dismissAll(); }}>
+      현재 계정의 선택 현장 알람을 페이지와 목록 필터 밖까지 모두 개인 목록에서 숨깁니다. 원본 장애와 읽음 상태는 유지됩니다. 처리 시작 뒤 도착한 새 알람은 남습니다.
+    </ConfirmDialog>
   </div>;
 });
 

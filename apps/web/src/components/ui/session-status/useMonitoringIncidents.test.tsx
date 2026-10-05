@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SessionStatusCenter } from "./SessionStatusCenter";
 import { SessionStatusProvider, useSessionStatus } from "./SessionStatusProvider";
 import { useMonitoringIncidents } from "./useMonitoringIncidents";
+import { listPendingDismissalRequestIds, storePendingDismissalRequest } from "./monitoring-dismissal-request";
 
 const instant = "2026-10-01T15:00:00.000Z";
 const firstId = "11111111-1111-4111-8111-111111111111";
@@ -17,7 +18,8 @@ function incident(id: string, site = siteId, isRead = false) {
     acknowledgedByUserId: null, assignedToUserId: null, resolvedAt: null, resolvedByUserId: null,
     resolutionKind: null, resolutionNote: null, createdAt: instant, updatedAt: instant,
     acknowledgedBy: null, assignedTo: null, resolvedBy: null,
-    target: { kind: "gateway", id, name: `Gateway ${id.slice(0, 4)}` }, isRead, readAt: isRead ? instant : null };
+    target: { kind: "gateway", id, name: `Gateway ${id.slice(0, 4)}` }, isRead, readAt: isRead ? instant : null,
+    isDismissed: false, dismissedAt: null };
 }
 let client: QueryClient;
 let fetchSpy: ReturnType<typeof vi.fn>;
@@ -43,6 +45,7 @@ class Observer {
 }
 const wrapper = ({ children }: PropsWithChildren) => <QueryClientProvider client={client}>{children}</QueryClientProvider>;
 beforeEach(() => {
+  localStorage.clear();
   client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
   unread = 3; receipts = new Set(); failRead = false; failGet = false; active = true; visible = true; observers.length = 0;
   vi.stubGlobal("IntersectionObserver", Observer);
@@ -72,14 +75,122 @@ function center() {
 }
 
 describe("persistent alarm center", () => {
+  it("stops before bulk POST if durable storage fails", async () => {
+    const user = "00000000-0000-4000-8000-000000000001";
+    const { result } = renderHook(() => useMonitoringIncidents(user, siteId, true), { wrapper });
+    await waitFor(() => expect(result.current.incidents).toHaveLength(2));
+    vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => { throw new Error("quota"); });
+    await act(async () => { await result.current.dismissAll(); });
+    expect(result.current.bulkError).toContain("저장하지 못했습니다");
+    expect(fetchSpy.mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(0);
+    expect(result.current.incidents).toHaveLength(2);
+    expect(result.current.unreadCount).toBe(3);
+    expect(receipts.size).toBe(0);
+  });
+
+  it("recovers multiple independent pending keys explicitly and isolates a late bulk response", async () => {
+    const user = "00000000-0000-4000-8000-000000000001";
+    const scope = { userId: user, siteId };
+    const key = "00000000-0000-4000-8000-000000000003";
+    const otherKey = "00000000-0000-4000-8000-000000000004";
+    const otherSite = "00000000-0000-4000-8000-000000000005";
+    storePendingDismissalRequest(scope, key, localStorage);
+    storePendingDismissalRequest(scope, otherKey, localStorage);
+    storePendingDismissalRequest({ ...scope, siteId: otherSite }, key, localStorage);
+    let resolve!: (response: Response) => void;
+    const original = fetchSpy.getMockImplementation()!;
+    fetchSpy.mockImplementation((path, init) => init?.method === "POST" ? new Promise<Response>(done => { resolve = done; }) : original(path, init));
+    const { result, rerender } = renderHook(({ site }) => useMonitoringIncidents(user, site, true), { wrapper, initialProps: { site: siteId } });
+    await waitFor(() => expect(result.current.pendingDismissalRequestIds).toEqual([key, otherKey]));
+    expect(fetchSpy.mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(0);
+    let pending!: Promise<unknown>;
+    act(() => { pending = result.current.dismissAll(key); });
+    await waitFor(() => expect(result.current.bulkPending).toBe(true));
+    rerender({ site: otherSite });
+    await waitFor(() => expect(result.current.incidents[0]?.siteId).toBe(otherSite));
+    const calls = fetchSpy.mock.calls.length;
+    await act(async () => { resolve(Response.json({ siteId, clientRequestId: key, snapshotAt: instant, dismissedCount: 2 })); await pending; });
+    expect(result.current.incidents).toHaveLength(2);
+    expect(result.current.unreadCount).toBe(3);
+    expect(result.current.pendingDismissalRequestIds).toEqual([key]);
+    // The caller's abort makes the old response unconfirmed; its key must
+    // remain recoverable even when the synthetic server completed the work.
+    expect(listPendingDismissalRequestIds(scope, localStorage)).toEqual([key, otherKey]);
+    expect(fetchSpy.mock.calls).toHaveLength(calls);
+    expect(receipts.size).toBe(0);
+  });
+
+  it("requeries first page and badge only after confirmed individual hiding", async () => {
+    const { result } = renderHook(() => useMonitoringIncidents("user-1", siteId, true), { wrapper });
+    await waitFor(() => expect(result.current.incidents).toHaveLength(2));
+    await act(async () => { await result.current.fetchNextPage(); });
+    await waitFor(() => expect(result.current.incidents).toHaveLength(3));
+    let hidden = false;
+    fetchSpy.mockImplementation(async (path, init) => {
+      if (init?.method === "PUT") { hidden = true; return Response.json({ incidentId: firstId, isDismissed: true, dismissedAt: instant }); }
+      return Response.json({ incidents: hidden ? [incident(secondId)] : [incident(firstId), incident(secondId)], unreadCount: hidden ? 2 : 3, activeCount: 3, nextCursor: null });
+    });
+    await act(async () => { await result.current.dismiss(firstId); });
+    await waitFor(() => expect(result.current.incidents.map(row => row.id)).toEqual([secondId]));
+    expect(result.current.unreadCount).toBe(2);
+    expect(receipts.size).toBe(0);
+    expect(puts()).toHaveLength(1);
+    expect(puts()[0][0]).toContain(`/${firstId}/dismiss`);
+  });
+  it("personal hiding preserves unread rows on failure and never invokes read or control", async () => {
+    render(center(), { wrapper });
+    fireEvent.click(await screen.findByRole("button", { name: "알람센터, 미읽음 3건" }));
+    const row = (await screen.findByText("Gateway 1111")).closest("li")!;
+    fetchSpy.mockImplementation(async (path: string) => path.endsWith("/dismiss")
+      ? Response.json({}, { status: 503 })
+      : Response.json({ incidents: [incident(firstId), incident(secondId)], unreadCount: 3, activeCount: 3, nextCursor: null }));
+    fireEvent.click(within(row).getByRole("button", { name: "지우기" }));
+    expect(await within(row).findByText(/지우지 못했습니다/)).toBeVisible();
+    expect(row).toHaveTextContent("미읽음");
+    expect(receipts.size).toBe(0);
+    expect(puts().every(([path]) => path.endsWith("/dismiss"))).toBe(true);
+    expect(fetchSpy.mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(0);
+  });
+
+  it("bulk retry preserves request key across reload and ignores late scope responses", async () => {
+    const user = "00000000-0000-4000-8000-000000000001";
+    const first = render(<SessionStatusProvider><SessionStatusCenter userId={user} siteId={siteId} /></SessionStatusProvider>, { wrapper });
+    fireEvent.click(await screen.findByRole("button", { name: "알람센터, 미읽음 3건" }));
+    await screen.findByText("Gateway 1111");
+    const original = fetchSpy.getMockImplementation()!;
+    fetchSpy.mockImplementation(async (path: string, init: RequestInit = {}) => {
+      if (path.endsWith("/dismiss-all")) {
+        expect(localStorage.length).toBeGreaterThan(0);
+        return Response.json({}, { status: 503 });
+      }
+      return original(path, init);
+    });
+    fireEvent.click(screen.getByRole("button", { name: "전체 지우기" }));
+    const confirm = screen.getByRole("alertdialog", { name: "전체 알람 지우기" });
+    expect(confirm).toHaveTextContent(/페이지.*필터/);
+    fireEvent.click(within(confirm).getByRole("button", { name: "전체 지우기" }));
+    await screen.findByText(/전체 지우기 결과를 확인하지 못했습니다/);
+    const posts = () => fetchSpy.mock.calls.filter(([, init]) => init?.method === "POST");
+    expect(posts()).toHaveLength(1);
+    const key = JSON.parse(posts()[0][1].body as string).clientRequestId;
+    first.unmount(); client.clear();
+    render(<SessionStatusProvider><SessionStatusCenter userId={user} siteId={siteId} /></SessionStatusProvider>, { wrapper });
+    fireEvent.click(await screen.findByRole("button", { name: "알람센터, 미읽음 3건" }));
+    await screen.findByText("Gateway 1111");
+    expect(posts()).toHaveLength(1);
+    fireEvent.click(screen.getByRole("button", { name: /결과 확인.*다시 시도/ }));
+    await waitFor(() => expect(posts()).toHaveLength(2));
+    expect(JSON.parse(posts()[1][1].body as string)).toEqual({ clientRequestId: key });
+    expect(receipts.size).toBe(0);
+  });
   it("closed_hidden_next_page_alarms_are_not_read", async () => {
     render(center(), { wrapper });
     const trigger = await screen.findByRole("button", { name: "알람센터, 미읽음 3건" });
-    expect(fetchSpy.mock.calls[0][0]).toBe(`/api/sites/${siteId}/monitoring-incidents?limit=1`);
+    expect(fetchSpy.mock.calls[0][0]).toBe(`/api/sites/${siteId}/monitoring-incidents?limit=1&view=personal`);
     expect(puts()).toHaveLength(0);
     fireEvent.click(trigger);
     await screen.findByText("Gateway 1111");
-    expect(fetchSpy.mock.calls.some(([path]) => path === `/api/sites/${siteId}/monitoring-incidents?limit=25`)).toBe(true);
+    expect(fetchSpy.mock.calls.some(([path]) => path === `/api/sites/${siteId}/monitoring-incidents?limit=25&view=personal`)).toBe(true);
     show(firstId, false); show(thirdId);
     expect(puts()).toHaveLength(0);
     visible = false;
@@ -165,7 +276,7 @@ describe("persistent alarm center", () => {
     let summarySignal!: AbortSignal;
     const original = fetchSpy.getMockImplementation()!;
     fetchSpy.mockImplementation((path: string, init: RequestInit = {}) => {
-      if (path.endsWith("?limit=1")) {
+      if (path.endsWith("?limit=1&view=personal")) {
         summarySignal = init.signal!;
         return new Promise<Response>(resolve => { resolveSummary = resolve; });
       }
@@ -192,7 +303,7 @@ describe("persistent alarm center", () => {
     let listSignal!: AbortSignal;
     const original = fetchSpy.getMockImplementation()!;
     fetchSpy.mockImplementation((path: string, init: RequestInit = {}) => {
-      if (path.endsWith("?limit=25")) {
+      if (path.endsWith("?limit=25&view=personal")) {
         listSignal = init.signal!;
         return new Promise<Response>(resolve => { resolveList = resolve; });
       }
@@ -241,12 +352,12 @@ describe("persistent alarm center", () => {
     await waitFor(() => expect(result.current.incidents).toHaveLength(2));
     let resolveSummary!: (response: Response) => void;
     const original = fetchSpy.getMockImplementation()!;
-    fetchSpy.mockImplementation((path: string, init: RequestInit = {}) => path.endsWith("?limit=1")
+    fetchSpy.mockImplementation((path: string, init: RequestInit = {}) => path.endsWith("?limit=1&view=personal")
       ? new Promise<Response>(resolve => { resolveSummary = resolve; }) : original(path, init));
     let refresh!: Promise<unknown>;
     // Keep both real query functions: independently refreshing an existing
     // cached mode must not give its older request authority by finishing last.
-    act(() => { refresh = client.fetchQuery({ queryKey: ["monitoring-incidents", "user-1", siteId, "summary"] }); });
+    act(() => { refresh = client.fetchQuery({ queryKey: ["monitoring-incidents", "user-1", siteId, "personal", "all", null, "summary"] }); });
     await waitFor(() => expect(resolveSummary).toBeTypeOf("function"));
     receipts.add(firstId); unread = 2;
     await act(async () => { await result.current.refetch(); });
@@ -299,7 +410,7 @@ describe("persistent alarm center", () => {
     await waitFor(() => expect(result.current.hasNextPage).toBe(true));
     await act(async () => { await result.current.fetchNextPage(); });
     await waitFor(() => expect(result.current.incidents).toHaveLength(3));
-    expect(fetchSpy.mock.calls.some(([path]) => path === `/api/sites/${siteId}/monitoring-incidents?limit=25&cursor=next_page`)).toBe(true);
+    expect(fetchSpy.mock.calls.some(([path]) => path === `/api/sites/${siteId}/monitoring-incidents?limit=25&cursor=next_page&view=personal`)).toBe(true);
     expect(puts()).toHaveLength(0);
   });
 

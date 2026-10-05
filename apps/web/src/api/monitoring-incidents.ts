@@ -1,4 +1,4 @@
-import { apiGet, apiPut, type ApiRequestOptions } from "./client";
+import { apiGet, apiPost, apiPut, type ApiRequestOptions } from "./client";
 
 export type MonitoringIncidentType = "gateway_offline" | "fixture_stale" | "fixture_fault" | "command_failed";
 export type MonitoringIncidentStatus = "open" | "acknowledged" | "resolved";
@@ -13,6 +13,7 @@ export interface MonitoringIncident {
   createdAt: string; updatedAt: string;
   target: { kind: "fixture"; id: string; name: string; floorId: string } | { kind: "gateway"; id: string; name: string };
   isRead: boolean; readAt: string | null;
+  isDismissed: boolean; dismissedAt: string | null;
 }
 export interface MonitoringIncidentsResponse {
   incidents: MonitoringIncident[];
@@ -22,12 +23,15 @@ export interface MonitoringIncidentsResponse {
 }
 export interface MonitoringIncidentsInput {
   limit?: number; cursor?: string; status?: MonitoringIncidentStatus | "all"; type?: MonitoringIncidentType;
+  view?: "all" | "personal";
 }
 export interface MonitoringIncidentReadReceipt { incidentId: string; isRead: true; readAt: string }
+export interface MonitoringIncidentDismissal { incidentId: string; isDismissed: true; dismissedAt: string }
+export interface MonitoringIncidentDismissalResult { siteId: string; clientRequestId: string; snapshotAt: string; dismissedCount: number }
 
 export async function listMonitoringIncidents(siteId: string, input: MonitoringIncidentsInput = {}, options: ApiRequestOptions = {}): Promise<MonitoringIncidentsResponse> {
   const query = new URLSearchParams();
-  for (const field of ["limit", "cursor", "status", "type"] as const) {
+  for (const field of ["limit", "cursor", "status", "type", "view"] as const) {
     if (input[field] !== undefined) query.set(field, String(input[field]));
   }
   const body = await apiGet<unknown>(`${path(siteId)}${query.size ? `?${query}` : ""}`, options);
@@ -39,6 +43,21 @@ export async function listMonitoringIncidents(siteId: string, input: MonitoringI
   }
   return body as unknown as MonitoringIncidentsResponse;
 }
+export async function dismissMonitoringIncident(siteId: string, incidentId: string, options: ApiRequestOptions = {}): Promise<MonitoringIncidentDismissal> {
+  const body = await apiPut<unknown>(`${path(siteId)}/${encodeURIComponent(incidentId)}/dismiss`, {}, options);
+  if (!isObject(body) || !exactKeys(body, ["incidentId", "isDismissed", "dismissedAt"]) || body.incidentId !== incidentId || body.isDismissed !== true || !isInstant(body.dismissedAt)) {
+    throw new Error("Invalid monitoring incident dismissal");
+  }
+  return body as unknown as MonitoringIncidentDismissal;
+}
+export async function dismissAllMonitoringIncidents(siteId: string, clientRequestId: string, options: ApiRequestOptions = {}): Promise<MonitoringIncidentDismissalResult> {
+  const body = await apiPost<unknown>(`${path(siteId)}/dismiss-all`, { clientRequestId }, options);
+  if (!isObject(body) || !exactKeys(body, ["siteId", "clientRequestId", "snapshotAt", "dismissedCount"]) || body.siteId !== siteId || body.clientRequestId !== clientRequestId
+    || !isInstant(body.snapshotAt) || !isCount(body.dismissedCount)) throw new Error("Invalid monitoring incident dismissal result");
+  return body as unknown as MonitoringIncidentDismissalResult;
+}
+
+function exactKeys(value: Record<string, unknown>, keys: readonly string[]) { return Object.keys(value).length === keys.length && keys.every(key => Object.hasOwn(value, key)); }
 export async function markMonitoringIncidentRead(siteId: string, incidentId: string, options: ApiRequestOptions = {}): Promise<MonitoringIncidentReadReceipt> {
   const body = await apiPut<unknown>(`${path(siteId)}/${encodeURIComponent(incidentId)}/read`, {}, options);
   if (!isObject(body) || body.incidentId !== incidentId || body.isRead !== true || !isInstant(body.readAt)) {
@@ -73,7 +92,8 @@ function isIncident(row: unknown, siteId: string) {
     || !["fixtureId", "gatewayId", "acknowledgedByUserId", "assignedToUserId", "resolvedByUserId", "resolutionNote"].every(key => isNullableString(row[key]))
     || !["acknowledgedBy", "assignedTo", "resolvedBy"].every(key => isActor(row[key]))
     || !(row.resolutionKind === null || isEnum(row.resolutionKind, ["automatic_recovery", "operator_confirmed"]))
-    || typeof row.isRead !== "boolean" || row.isRead !== (row.readAt !== null)) return false;
+    || typeof row.isRead !== "boolean" || row.isRead !== (row.readAt !== null)
+    || typeof row.isDismissed !== "boolean" || !isNullableInstant(row.dismissedAt) || row.isDismissed !== (row.dismissedAt !== null)) return false;
   const target = row.target;
   if (!isObject(target) || !isIdentifier(target.id) || typeof target.name !== "string") return false;
   return target.kind === "fixture" ? isIdentifier(target.floorId) && target.id === row.fixtureId

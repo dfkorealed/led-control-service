@@ -35,6 +35,16 @@ describe("SettingsShell", () => {
     vi.restoreAllMocks();
   });
 
+  it("renders an optional account slot without changing the routed settings content", () => {
+    render(<MemoryRouter initialEntries={["/settings"]}><Routes>
+      <Route path="/settings" element={<SettingsShell capabilities={manageCapabilities} accountSlot={<section aria-label="내 계정">계정 표시</section>} />}>
+        <Route index element={<h2>설정 내용</h2>} />
+      </Route>
+    </Routes></MemoryRouter>);
+    expect(screen.getByRole("region", { name: "내 계정" })).toHaveTextContent("계정 표시");
+    expect(screen.getByRole("heading", { name: "설정 내용" })).toBeVisible();
+  });
+
   it("renders settings sections as top tabs with the routed content", () => {
     render(
       <MemoryRouter initialEntries={["/settings/floor-plans?siteId=site-1#map"]}>

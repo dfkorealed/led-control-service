@@ -5,6 +5,15 @@ import {
 } from "./support/layout-assertions";
 import { installSettingsApiRoutes } from "./support/settings-api";
 
+test.beforeEach(async ({ page, baseURL }) => {
+  await page.route("**/*", route => {
+    const url = new URL(route.request().url());
+    if (url.origin !== new URL(baseURL!).origin) return route.abort("blockedbyclient");
+    if (url.pathname.startsWith("/api/")) return route.fulfill({ status: 404, json: { message: "unconfigured mock API" } });
+    return route.continue();
+  });
+});
+
 const responsiveViewports = [
   { width: 1440, height: 900 },
   { width: 1378, height: 1237 },
@@ -53,20 +62,7 @@ for (const viewport of responsiveViewports) {
       expect(Math.abs(logoCenter - railCenter), "로고와 사이드바 중심선의 거리").toBeLessThanOrEqual(0.5);
       expect(Math.abs(logoCenter - navigationCenter), "로고와 탐색 항목 중심선의 거리").toBeLessThanOrEqual(0.5);
 
-      const logout = page.getByRole("button", { name: "로그아웃", exact: true });
-      await logout.hover();
-      const tooltip = page.getByRole("tooltip", { name: "로그아웃" });
-      await expect(tooltip).toBeVisible();
-      await tooltip.hover();
-      await expect(tooltip).toBeVisible();
-      await page.keyboard.press("Escape");
-      await expect(tooltip).toHaveCount(0);
-
-      await page.mouse.move(0, 0);
-      await logout.focus();
-      await expect(tooltip).toBeVisible();
-      await page.keyboard.press("Escape");
-      await expect(tooltip).toHaveCount(0);
+      await expect(topbar.getByRole("button", { name: "로그아웃", exact: true })).toHaveCount(0);
     } else {
       await expect(rail).toHaveCount(0);
       await expect(bottomNav).toBeVisible();
@@ -77,18 +73,8 @@ for (const viewport of responsiveViewports) {
       await expectMinimumTouchTargets(page, '[data-shell-navigation="compact"]');
       await expectMinimumTouchTargets(page, "[data-shell-actions]");
 
-      const logoutBounds = await page.getByRole("button", { name: "로그아웃", exact: true }).boundingBox();
-      expect(logoutBounds, "로그아웃 버튼의 실제 경계 상자").not.toBeNull();
-      expect(logoutBounds!.width, "로그아웃 버튼 너비").toBeGreaterThanOrEqual(44);
-      expect(logoutBounds!.height, "로그아웃 버튼 높이").toBeGreaterThanOrEqual(44);
-
-      const logout = page.getByRole("button", { name: "로그아웃", exact: true });
-      await logout.focus();
-      const tooltip = page.getByRole("tooltip", { name: "로그아웃" });
-      await expect(tooltip).toBeVisible();
+      await expect(topbar.getByRole("button", { name: "로그아웃", exact: true })).toHaveCount(0);
       await expectNoHorizontalOverflow(page);
-      await page.keyboard.press("Escape");
-      await expect(tooltip).toHaveCount(0);
 
       const navigationHeight = (await bottomNav.boundingBox())?.height ?? 0;
       // The finite monitoring map panel owns the navigation reservation;
@@ -113,6 +99,13 @@ for (const viewport of responsiveViewports) {
     await expect(statusDrawer.getByRole("region", { name: "현재 화면 상태" })).toContainText("Gateway 연결");
     await statusDrawer.getByRole("button", { name: "알람센터 닫기" }).click();
     await expect(statusTrigger).toBeFocused();
+    await expectNoHorizontalOverflow(page);
+    await expect(page.getByRole("region", { name: "현장 전체", exact: true })).toContainText("고객사 B2 현장");
+    await page.goto("/settings?siteId=site-1");
+    const account = page.getByRole("region", { name: "내 계정" });
+    await expect(account).toBeVisible();
+    await expectMinimumTouchTargets(page, '[aria-label="내 계정"]');
+    await expect(account.getByRole("button", { name: "로그아웃", exact: true })).toBeEnabled();
     await expectNoHorizontalOverflow(page);
   });
 }
