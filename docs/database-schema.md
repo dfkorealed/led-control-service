@@ -4,7 +4,7 @@
 
 ## 2026-10-05 개인 알람 숨김과 영속 요청 원장 (추가 운영 UI Task 3)
 
-`20261004100000_monitoring_incident_dismissals`는 기존 읽음·장애 모델을 바꾸지 않고 아래 두 테이블을 추가한다. 이 작업의 적용 대상은 소유권과 빈 public schema를 확인한 자기 소유 임시 PostgreSQL뿐이다. 사용자 DB와 실행 중 서버의 반영은 최종 검수 이후 Task 10에서 수행한다.
+`20261004100000_monitoring_incident_dismissals`는 기존 읽음·장애 모델을 바꾸지 않고 아래 두 테이블을 추가한다. Task 3 검증은 소유권과 빈 public schema를 확인한 자기 소유 임시 PostgreSQL에서 수행했다. 이후 사용자 승인으로 2026-10-06 08:43 KST(2026-10-05 23:43 UTC), Task 10에서 로컬 `localhost:5432/led_control`의 두 테이블과 신규 migration 완료 기록만 한 additive transaction으로 반영했다. 실제 필드·복합 PK·4개 cascade FK·두 사용자 인덱스·완료 CHECK·UTC 기본값과 신규 테이블 0행을 확인했다. SQL SHA256은 `a1db886f2977a7005e30caf55748c052278ed509c40251bf599a174410130fae`, 적용 단계는 1이다. 기존 migration 기록 126행(과거 rolled-back 기록 포함)과 기존 `20260918090000_floor_light_slots_map_reset`의 DB/source checksum 불일치는 그대로 보존했고, 전체 migrate deploy/resolve/reset·기존 데이터 변경·원격 배포는 하지 않았다. 이 사실은 로컬 schema 반영이며 실장비 검증을 의미하지 않는다.
 
 | 모델 | 필드·제약 | 수명 |
 | --- | --- | --- |
