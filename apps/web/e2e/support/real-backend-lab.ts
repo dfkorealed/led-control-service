@@ -528,8 +528,7 @@ export class RealBackendLab {
     const secondarySiteId = randomUUID(), secondaryFloorId = randomUUID();
     await this.sql(`BEGIN;
       INSERT INTO "Site" (id,"organizationId",name,"updatedAt") VALUES (${sqlString(secondarySiteId)},${sqlString(admin.organizationId)},'Task9 other site',now());
-      INSERT INTO "Floor" (id,"siteId",name,level,"updatedAt") VALUES (${sqlString(secondaryFloorId)},${sqlString(secondarySiteId)},'Other floor',1,now());
-      INSERT INTO "SiteMembership" (id,"siteId","userId","createdAt") VALUES (${sqlString(randomUUID())},${sqlString(secondarySiteId)},${sqlString(viewerId)},now()); COMMIT;`);
+      INSERT INTO "Floor" (id,"siteId",name,level,"updatedAt") VALUES (${sqlString(secondaryFloorId)},${sqlString(secondarySiteId)},'Other floor',1,now()); COMMIT;`);
     this.alarmScope = { primarySiteId: installation.siteId, primaryFloorId: installation.floorId,
       secondarySiteId, secondaryFloorId, adminId: admin.id, viewerId };
     return { ...this.alarmScope };

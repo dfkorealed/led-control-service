@@ -90,13 +90,27 @@ test("real alarm persistence, frozen bulk targets, replay and account/site isola
     };
     const original = await database("before-any-center-open-or-read");
     expect(original.reads).toEqual([]); expect(original.dismissals).toEqual([]);
+    // Both actors are assigned only to the primary site. The production schema
+    // permits one membership per viewer, so cross-site isolation is a real 404
+    // plus complete database invariance, never an impossible second membership.
+    const assertSecondaryDenied = async (stage: string) => {
+      for (const [actor, page] of [["admin", admin], ["viewer", viewer]] as const) {
+        const baseline = await database(`${stage}-${actor}-before-secondary-denials`);
+        await response(`${stage}-${actor}-secondary-get`, await page.request.get(`${path(scope.secondarySiteId)}?view=personal&status=all`), 404);
+        expect(await database(`${stage}-${actor}-after-secondary-get`)).toEqual(baseline);
+        await response(`${stage}-${actor}-secondary-dismiss`, await page.request.put(`${path(scope.secondarySiteId)}/${other}/dismiss`, { data: {} }), 404);
+        expect(await database(`${stage}-${actor}-after-secondary-dismiss`)).toEqual(baseline);
+        await response(`${stage}-${actor}-secondary-bulk`, await page.request.post(`${path(scope.secondarySiteId)}/dismiss-all`, { data: { clientRequestId: randomUUID() } }), 404);
+        expect(await database(`${stage}-${actor}-after-secondary-bulk`)).toEqual(baseline);
+      }
+    };
+    await assertSecondaryDenied("before-primary-dismissals");
     await response("admin-individual", await admin.request.put(`${path()}/${ids[0]}/dismiss`, { data: {} }), 200);
     const individual = await database("after-api-individual");
     expect(individual.incidents).toEqual(original.incidents); expect(individual.reads).toEqual(original.reads);
     expect(individual.dismissals).toEqual([expect.objectContaining({ incidentId: ids[0], userId: scope.adminId })]);
     expect((await list(admin)).incidents.map(i => i.id)).not.toContain(ids[0]);
     expect((await list(viewer)).incidents.map(i => i.id)).toContain(ids[0]);
-    expect((await list(viewer, scope.secondarySiteId)).incidents.map(i => i.id)).toEqual([other]);
     await lab.updateAlarmIncident(ids[0]);
     expect((await list(admin)).incidents.map(i => i.id)).not.toContain(ids[0]);
     const recurrence = await lab.seedAlarmIncident();
@@ -136,7 +150,7 @@ test("real alarm persistence, frozen bulk targets, replay and account/site isola
       snapshotAt: reservation.snapshotAt, targetIncidentIds: reservation.targetIncidentIds, dismissedCount: frozenIds.length, completedAt: expect.any(String)
     });
     expect((await list(viewer)).incidents.map(i => i.id).sort()).toEqual([late.id, newId].sort());
-    expect((await list(viewer, scope.secondarySiteId)).incidents.map(i => i.id)).toEqual([other]);
+    await assertSecondaryDenied("after-primary-replay");
     expect((await list(admin)).incidents.map(i => i.id)).toContain(recurrence);
 
     // UI auto-read is intentional and captured separately from hide-only API
