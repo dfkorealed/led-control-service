@@ -52,12 +52,19 @@ export async function dismissMonitoringIncident(siteId: string, incidentId: stri
 }
 export async function dismissAllMonitoringIncidents(siteId: string, clientRequestId: string, options: ApiRequestOptions = {}): Promise<MonitoringIncidentDismissalResult> {
   const body = await apiPost<unknown>(`${path(siteId)}/dismiss-all`, { clientRequestId }, options);
-  if (!isObject(body) || !exactKeys(body, ["siteId", "clientRequestId", "snapshotAt", "dismissedCount"]) || body.siteId !== siteId || body.clientRequestId !== clientRequestId
+  if (!isObject(body) || !exactKeys(body, ["siteId", "clientRequestId", "snapshotAt", "dismissedCount"]) || !sameUuid(body.siteId, siteId) || !sameUuid(body.clientRequestId, clientRequestId)
     || !isInstant(body.snapshotAt) || !isCount(body.dismissedCount)) throw new Error("Invalid monitoring incident dismissal result");
   return body as unknown as MonitoringIncidentDismissalResult;
 }
 
 function exactKeys(value: Record<string, unknown>, keys: readonly string[]) { return Object.keys(value).length === keys.length && keys.every(key => Object.hasOwn(value, key)); }
+function sameUuid(received: unknown, requested: string): boolean {
+  // Match the producer's zod3 UUID shape, without extra version/variant rules.
+  const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  // PostgreSQL returns canonical UUID spelling, including replayed reservations.
+  // Compare validated identity only; keep the original request/storage key intact.
+  return typeof received === "string" && uuid.test(received) && uuid.test(requested) && received.toLowerCase() === requested.toLowerCase();
+}
 export async function markMonitoringIncidentRead(siteId: string, incidentId: string, options: ApiRequestOptions = {}): Promise<MonitoringIncidentReadReceipt> {
   const body = await apiPut<unknown>(`${path(siteId)}/${encodeURIComponent(incidentId)}/read`, {}, options);
   if (!isObject(body) || body.incidentId !== incidentId || body.isRead !== true || !isInstant(body.readAt)) {

@@ -75,6 +75,46 @@ function center() {
 }
 
 describe("persistent alarm center", () => {
+  it("recovers an alphabetic uppercase saved UUID across reload and removes only its original durable entry", async () => {
+    const scope = { userId: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee", siteId };
+    const savedKey = "ABCDEFAB-CDEF-4ABC-8DEF-ABCDEFABCDEF";
+    const aliasKey = "abcdefab-cdef-4abc-8def-abcdefabcdef";
+    const otherKey = "bbbbbbbb-cccc-4ddd-8eee-ffffffffffff";
+    const otherScope = { ...scope, siteId: "cccccccc-dddd-4eee-8fff-aaaaaaaaaaaa" };
+    storePendingDismissalRequest(scope, savedKey, localStorage);
+    storePendingDismissalRequest(scope, aliasKey, localStorage);
+    storePendingDismissalRequest(scope, otherKey, localStorage);
+    storePendingDismissalRequest(otherScope, savedKey, localStorage);
+    localStorage.setItem("unrelated-preference", "keep");
+    const original = fetchSpy.getMockImplementation()!;
+    let available = false;
+    fetchSpy.mockImplementation(async (path, init) => init?.method === "POST"
+      ? available ? Response.json({ siteId, clientRequestId: "abcdefab-cdef-4abc-8def-abcdefabcdef", snapshotAt: instant, dismissedCount: 2 }) : Response.json({}, { status: 503 })
+      : original(path, init));
+    const first = renderHook(() => useMonitoringIncidents(scope.userId, siteId, true), { wrapper });
+    await waitFor(() => expect(first.result.current.pendingDismissalRequestIds).toContain(savedKey));
+    const posts = () => fetchSpy.mock.calls.filter(([, init]) => init?.method === "POST");
+    expect(posts()).toHaveLength(0);
+    await act(async () => { await first.result.current.dismissAll(savedKey); });
+    expect(first.result.current.bulkError).toContain("결과를 확인하지 못했습니다");
+    expect(listPendingDismissalRequestIds(scope, localStorage)).toContain(savedKey);
+    first.unmount(); client.clear();
+    available = true;
+    const reloaded = renderHook(() => useMonitoringIncidents(scope.userId, siteId, true), { wrapper });
+    await waitFor(() => expect(reloaded.result.current.pendingDismissalRequestIds).toContain(savedKey));
+    expect(posts()).toHaveLength(1);
+    await act(async () => { await reloaded.result.current.dismissAll(savedKey); });
+    expect(reloaded.result.current.bulkError).toBe("");
+    expect(reloaded.result.current.pendingDismissalRequestIds).toEqual([aliasKey, otherKey]);
+    expect(listPendingDismissalRequestIds(scope, localStorage)).toEqual([aliasKey, otherKey]);
+    expect(listPendingDismissalRequestIds(otherScope, localStorage)).toEqual([savedKey]);
+    expect(localStorage.getItem("unrelated-preference")).toBe("keep");
+    expect(posts()).toHaveLength(2);
+    expect(posts().map(([, init]) => JSON.parse(init!.body as string))).toEqual([{ clientRequestId: savedKey }, { clientRequestId: savedKey }]);
+    expect(posts().every(([path]) => path === `/api/sites/${siteId}/monitoring-incidents/dismiss-all`)).toBe(true);
+    expect(puts()).toHaveLength(0);
+    expect(receipts.size).toBe(0);
+  });
   it("stops before bulk POST if durable storage fails", async () => {
     const user = "00000000-0000-4000-8000-000000000001";
     const { result } = renderHook(() => useMonitoringIncidents(user, siteId, true), { wrapper });

@@ -5,6 +5,7 @@
 - 구현 완료: Shell의 기존 authorized dashboard query로 `현장 전체`와 현장 이름·전체/온라인/장애/오프라인 집계를 헤더에 표시한다. 계정·현장·모니터링 경로를 검사하고 이전 현장의 값은 거부한다. 미확인/null·로딩·오류를 0으로 만들지 않는다. 본문의 중복 현장 요약 제거는 Task 5에서 소비한다.
 - 구현 완료: 알람센터는 actor/site/personal/조회 조건별 목록과 개인 미읽음 배지를 사용한다. 개별 지우기는 빈 PUT, 전체 지우기는 UUID만 담은 POST이며 페이지·필터 밖을 포함하는 선택 현장 범위를 확인 안내에 표시한다. 실패/미확정은 목록·배지를 보존하고 성공 뒤 이전 GET를 취소해 첫 페이지·정본 수치를 재조회한다. 실제 가시 행의 독립 읽음 정책과 현재 화면의 안전 경고는 유지한다.
 - 구현 완료: 전체 요청마다 독립 브라우저 저장 항목을 POST 전에 검증·기록한다. 계정·현장·UUID·version만 저장하며 token/대상 ID를 넣지 않는다. 새로고침/재열기·복수 탭의 미확정 요청은 각각 명시적 결과 확인/동일키 재시도로 복구하며 자동 POST·새키 대체는 없다. 저장 실패는 POST 전에 중지하고 완료 확인된 키만 삭제한다.
+- 구현 완료: 영문 hex가 있는 대문자/혼합 UUID 복구도 서버의 정규화된 현장·요청 UUID와 검증 후 같은 identity로 비교한다. 전송과 저장 키의 원래 표기는 보존하며 완료한 정확한 항목만 제거한다. 다른 요청·계정·현장과 별도 대소문자 표기의 저장 항목을 함께 삭제하지 않는다.
 - 미구현: 사용자 DB migration·현재 서버 적용·실장비·native WebView·실제 두 세션/최종 전체 UI 관문은 Task 9/10의 별도 범위다. 알람 push 동기화와 요청 원장의 TTL은 추가하지 않았다.
 - 부족하거나 개선이 필요한 기능: 단위 및 격리 mock Chromium 증거는 실제 MVCC snapshot이나 운영 적용 증거가 아니다. 브라우저 저장소가 손상되거나 차단되면 전체 지우기는 안내와 함께 중지한다. 독립 검토·최종 통합 관문은 총괄이 판정한다.
 - 관련 파일: `apps/web/src/features/shells/{CustomerShell,CustomerHeaderSummarySlot}.tsx`, `apps/web/src/api/monitoring-incidents.ts`, `apps/web/src/components/ui/session-status/{useMonitoringIncidents,monitoring-dismissal-request}.ts`, `SessionStatusCenter.tsx`와 직접 테스트, `apps/web/e2e/{ui-overlays,app-shell-recovery,calm-operations-shell}.spec.ts`.

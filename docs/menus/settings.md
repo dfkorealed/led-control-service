@@ -5,6 +5,7 @@
 - 구현 완료: 일반 고객의 헤더 로그아웃을 설정 경로의 eager `내 계정` 영역으로 이동했다. admin/viewer·현장 없음·설치 pending·권한/설치 조회 로딩·오류와 실제 lazy 설정 실패에도 계정 표시와 로그아웃을 제공한다. 초기 gate는 보호된 route body를 계속 차단한다.
 - 구현 완료: logout handler·동기 중복 잠금·명령 block/unblock·cache 정리·미저장 확인은 CustomerShell의 단일 owner다. 시작한 계정 버튼 ref로 취소/실패 초점을 반환하며 dirty 취소는 초안·현장을 보존한다. 실패는 계정에 오류/재시도를 제공하고 physical 명령을 취소했다고 안내하지 않는다.
 - 구현 완료: SettingsShell의 선택적 `accountSlot` 계약을 지원한다. 실제 계정 영역은 lazy Shell/route Suspense/ErrorBoundary 밖에 한 번만 배치한다. 총괄 Ruling에 따라 lazy 실패가 계정 탈출과 controller 수명을 소유하지 않도록 한 예외이며 SettingsShell의 기존 lazy 경계는 유지한다.
+- 구현 완료: 고객 route 오류 안내는 계정 영역이 없는 모니터링·제어·통계에서도 실제 위치인 `설정의 내 계정`을 안내한다. 기존 탐색과 화면 새로고침을 유지하며 별도 로그아웃 owner나 자동 이동을 추가하지 않는다.
 - 미구현: 실제 인증 서버·현재 사용자 계정/DB·운영 배포·native/HIL 검증은 수행하지 않는다. 기존 관리자 보안·MFA·관리 권한은 이 이동의 확장 범위가 아니다.
 - 부족하거나 개선이 필요한 기능: 웹 자동 테스트와 격리 mock browser 결과를 실제 cookie 폐기·physical 명령 중단 증거로 해석하지 않는다. 최종 전체 크기/200%/편집기 성능 검수는 Task 9다.
 - 관련 파일: `apps/web/src/features/shells/{CustomerShell,CustomerAccountContext,CustomerAccountPanel,CustomerRouteErrorBoundary}.tsx`, `apps/web/src/features/settings/SettingsShell.tsx`와 직접 테스트, `apps/web/e2e/{app-shell-recovery,calm-operations-shell}.spec.ts`.

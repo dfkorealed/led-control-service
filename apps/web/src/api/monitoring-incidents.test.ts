@@ -17,6 +17,38 @@ const response = { incidents: [incident], activeCount: 1, unreadCount: 7, nextCu
 afterEach(() => vi.unstubAllGlobals());
 
 describe("monitoring incident API", () => {
+  it.each([
+    ["aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee", "ABCDEFAB-CDEF-4ABC-8DEF-ABCDEFABCDEF"],
+    ["AaAaAaAa-bBbB-4CcC-8dDd-EeEeEeEeEeEe", "AbCdEfAb-cDeF-4aBc-8DeF-aBcDeFaBcDeF"]
+  ])("accepts canonical UUID bulk identity while sending the original saved spelling", async (requestedSite, savedKey) => {
+    const canonical = { siteId: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee", clientRequestId: "abcdefab-cdef-4abc-8def-abcdefabcdef", snapshotAt: instant, dismissedCount: 2 };
+    const fetch = vi.fn().mockResolvedValue(Response.json(canonical));
+    vi.stubGlobal("fetch", fetch);
+    await expect(dismissAllMonitoringIncidents(requestedSite, savedKey)).resolves.toEqual(canonical);
+    expect(fetch.mock.calls[0][0]).toBe(`/api/sites/${requestedSite}/monitoring-incidents/dismiss-all`);
+    expect(fetch.mock.calls[0][1]).toMatchObject({ method: "POST", body: JSON.stringify({ clientRequestId: savedKey }) });
+  });
+  it.each([
+    { siteId: "aaaaaaaa-bbbb-4ccc-8ddd-ffffffffffff" },
+    { clientRequestId: "abcdefab-cdef-4abc-8def-ffffffffffff" },
+    { siteId: "AAAAAAAA-BBBB-4CCC-8DDD-EEEEEEEEEEEZ" },
+    { clientRequestId: "ABCDEFAB-CDEF-4ABC-8DEF-ABCDEFABCDEZ" }
+  ])("rejects different or malformed UUID identity rather than broadly case-folding identifiers", async change => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ siteId: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee", clientRequestId: "abcdefab-cdef-4abc-8def-abcdefabcdef", snapshotAt: instant, dismissedCount: 2, ...change })));
+    await expect(dismissAllMonitoringIncidents("AAAAAAAA-BBBB-4CCC-8DDD-EEEEEEEEEEEE", "ABCDEFAB-CDEF-4ABC-8DEF-ABCDEFABCDEF")).rejects.toThrow("Invalid monitoring incident dismissal result");
+  });
+  it("rejects matching non-UUID bulk identities", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ siteId: "SYNTHETIC-SITE", clientRequestId: "SYNTHETIC-KEY", snapshotAt: instant, dismissedCount: 2 })));
+    await expect(dismissAllMonitoringIncidents("SYNTHETIC-SITE", "SYNTHETIC-KEY")).rejects.toThrow("Invalid monitoring incident dismissal result");
+  });
+  it.each([
+    ["ABCDEFAB-CDEF-7ABC-CDEF-ABCDEFABCDEF", "abcdefab-cdef-7abc-cdef-abcdefabcdef"],
+    ["00000000-0000-0000-0000-000000000000", "00000000-0000-0000-0000-000000000000"]
+  ])("matches the producer UUID shape without imposing extra version or variant restrictions", async (requested, canonical) => {
+    const body = { siteId: canonical, clientRequestId: canonical, snapshotAt: instant, dismissedCount: 0 };
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json(body)));
+    await expect(dismissAllMonitoringIncidents(requested, requested)).resolves.toEqual(body);
+  });
   it("sends strict independent dismissal bodies and validates the server result identity", async () => {
     const clientRequestId = "00000000-0000-4000-8000-000000000003";
     const fetch = vi.fn().mockResolvedValueOnce(Response.json({ incidentId, isDismissed: true, dismissedAt: instant }))

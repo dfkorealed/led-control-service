@@ -10,6 +10,6 @@ export class CustomerRouteErrorBoundary extends Component<{ children: ReactNode;
   }
   render() {
     return this.state.failed ? <FeedbackState tone="danger" icon={CircleAlert} title="화면을 불러오지 못했습니다."
-      description="내 계정에서 로그아웃하거나 화면을 새로고침하세요." action={<Button type="button" onClick={() => window.location.reload()}>화면 새로고침</Button>} /> : this.props.children;
+      description="설정의 내 계정에서 로그아웃하거나 화면을 새로고침하세요." action={<Button type="button" onClick={() => window.location.reload()}>화면 새로고침</Button>} /> : this.props.children;
   }
 }
