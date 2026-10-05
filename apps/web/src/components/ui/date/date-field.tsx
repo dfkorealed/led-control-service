@@ -28,13 +28,15 @@ export interface DateDraftBinding {
   onDraftChange(draft: DateSegmentDraft): void;
   restoring: MutableRefObject<boolean>;
   valueKey: string;
+  /** Range fields share a canonical null and may reset an untouched sibling. */
+  preserveUnedited?: boolean;
 }
 const dateParts = ["year", "month", "day"] as const;
 function equalDraft(a: DateSegmentDraft, b: DateSegmentDraft) {
   return dateParts.every(part => a[part] === b[part]);
 }
 
-function DraftBridge({ binding, blurRevision }: { binding: DateDraftBinding; blurRevision: number }) {
+function DraftBridge({ binding, blurRevision, editedPart }: { binding: DateDraftBinding; blurRevision: number; editedPart: MutableRefObject<typeof dateParts[number] | null> }) {
   const state = useContext(DateFieldStateContext);
   const target = useRef(binding.draft);
   const revision = useRef(blurRevision);
@@ -61,6 +63,20 @@ function DraftBridge({ binding, blurRevision }: { binding: DateDraftBinding; blu
       return segment?.isPlaceholder ? null : segment?.value ?? null;
     };
     const raw: DateSegmentDraft = { year: readPart("year"), month: readPart("month"), day: readPart("day") };
+    if (binding.preserveUnedited && !hydrating.current && !equalDraft(raw, binding.draft)) {
+      const part = editedPart.current;
+      editedPart.current = null;
+      if (part && raw[part] !== binding.draft[part]) {
+        // Only the actual edited segment is authoritative. RAC may constrain
+        // another segment or clear a sibling when the range value stays null.
+        const next = { ...binding.draft, [part]: raw[part] };
+        target.current = next;
+        binding.onDraftChange(next);
+        return;
+      }
+      hydrating.current = true;
+      binding.restoring.current = true;
+    }
     if (hydrating.current) {
       const difference = dateParts.find(part => raw[part] !== binding.draft[part]);
       if (difference) {
@@ -72,6 +88,7 @@ function DraftBridge({ binding, blurRevision }: { binding: DateDraftBinding; blu
       }
       hydrating.current = false;
       binding.restoring.current = false;
+      editedPart.current = null;
     } else if (!equalDraft(raw, binding.draft)) {
       target.current = raw; // This is our own edit, not an external reset.
       binding.onDraftChange(raw);
@@ -81,7 +98,7 @@ function DraftBridge({ binding, blurRevision }: { binding: DateDraftBinding; blu
 }
 
 const editableSegmentClass = "inline-flex min-h-13 min-w-13 items-center justify-center rounded-control tabular-nums text-content-primary outline-none focus:bg-action-primary-soft focus:shadow-focus data-disabled:opacity-60";
-function RegisteredSegment({ segment, firstSegment, binding, blurRevision }: { segment: DateSegmentProps["segment"]; firstSegment?: Ref<HTMLDivElement>; binding?: DateDraftBinding; blurRevision: number }) {
+function RegisteredSegment({ segment, firstSegment, binding, blurRevision, editedPart }: { segment: DateSegmentProps["segment"]; firstSegment?: Ref<HTMLDivElement>; binding?: DateDraftBinding; blurRevision: number; editedPart: MutableRefObject<typeof dateParts[number] | null> }) {
   const dateState = useContext(DateFieldStateContext);
   const timeState = useContext(TimeFieldStateContext);
   // Derive registration from React Aria's locale segment order on every render.
@@ -90,7 +107,7 @@ function RegisteredSegment({ segment, firstSegment, binding, blurRevision }: { s
   const part = dateParts.find(item => item === segment.type);
   const presentRaw = binding && part && (dateState?.isDisabled || dateState?.isReadOnly);
   const raw = binding && part ? binding.draft[part] : null;
-  return <>{binding && segment.type === firstType && <DraftBridge binding={binding} blurRevision={blurRevision} />}
+  return <>{binding && segment.type === firstType && <DraftBridge binding={binding} blurRevision={blurRevision} editedPart={editedPart} />}
     {/* Static text preserves partial/impossible raw values while RAC correctly
         refuses restoration. It stays inside the labelled/described DateInput
         group, includes the locale's part label for assistive technology, and
@@ -104,15 +121,50 @@ function RegisteredSegment({ segment, firstSegment, binding, blurRevision }: { s
 }
 export const SegmentedInput = /* @__PURE__ */ forwardRef<HTMLDivElement, Omit<DateInputProps, "children"> & { firstSegment?: Ref<HTMLDivElement>; draftBinding?: DateDraftBinding }>(function SegmentedInput({ firstSegment, draftBinding, ...props }, ref) {
   const [blurRevision, setBlurRevision] = useState(0);
+  const editedPart = useRef<typeof dateParts[number] | null>(null);
+  const editSurface = useRef<HTMLDivElement>(null);
+  const currentBinding = useRef(draftBinding);
+  currentBinding.current = draftBinding;
+  const markEdit = (target: EventTarget | null) => {
+    if (!currentBinding.current?.preserveUnedited) return;
+    const part = target instanceof HTMLElement ? dateParts.find(part => part === target.dataset.type) : undefined;
+    if (part) {
+      editedPart.current = part;
+    }
+  };
+  useLayoutEffect(() => {
+    const element = editSurface.current;
+    // RAC consumes native beforeinput for text insertion (including mobile
+    // keyboards/paste), so no input event need follow. Observe, never cancel it.
+    const beforeInput = (event: Event) => markEdit(event.target);
+    const blur = (event: FocusEvent) => {
+      const binding = currentBinding.current;
+      if (binding?.preserveUnedited && !element?.contains(event.relatedTarget as Node | null)) {
+        // Native blur precedes React's focusout-backed onBlurCapture. RAC can
+        // normalize the previous impossible display after an input auto-advance
+        // in that interval; protect the newly published raw range first.
+        binding.restoring.current = true;
+        setBlurRevision(current => current + 1);
+      }
+    };
+    element?.addEventListener("beforeinput", beforeInput, true);
+    element?.addEventListener("blur", blur, true);
+    return () => {
+      element?.removeEventListener("beforeinput", beforeInput, true);
+      element?.removeEventListener("blur", blur, true);
+    };
+  }, []);
   // DateInput's public DOM props intentionally exclude capture handlers. A
   // box-less native ancestor owns capture; DateInput's public ref stays intact.
-  return <div className="contents" onBlurCapture={event => {
-    if (draftBinding && !event.currentTarget.contains(event.relatedTarget as Node | null)) {
+  return <div ref={editSurface} className="contents" onInputCapture={event => markEdit(event.target)} onKeyDownCapture={event => {
+    if (/^\d$/.test(event.key) || ["ArrowUp", "ArrowDown", "Home", "End", "PageUp", "PageDown", "Backspace", "Delete"].includes(event.key)) markEdit(event.target);
+  }} onBlurCapture={event => {
+    if (draftBinding && !draftBinding.preserveUnedited && !event.currentTarget.contains(event.relatedTarget as Node | null)) {
       // React Aria confirms/constrains invalid full dates on field blur. Preserve
       // the caller's raw draft and suppress that normalization without stopping
       // focus propagation or replacing/mutating the public DateField state.
       draftBinding.restoring.current = true;
       setBlurRevision(current => current + 1);
     }
-  }}><DateInput {...props} ref={ref}>{(segment) => <RegisteredSegment segment={segment} firstSegment={firstSegment} binding={draftBinding} blurRevision={blurRevision} />}</DateInput></div>;
+  }}><DateInput {...props} ref={ref}>{(segment) => <RegisteredSegment segment={segment} firstSegment={firstSegment} binding={draftBinding} blurRevision={blurRevision} editedPart={editedPart} />}</DateInput></div>;
 });

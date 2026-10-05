@@ -3,6 +3,104 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-libra
 import { afterEach, expect, it, vi } from "vitest";
 import * as UI from "../index";
 afterEach(cleanup);
+
+it("publishes the actual insertText day before auto-advance blur can constrain the previous impossible day", () => {
+  const change = vi.fn();
+  function Editing() {
+    const controller = UI.useDateRangeDraft("range", null);
+    const [open, setOpen] = useState(false);
+    return <><button onClick={() => { controller.onDraftChange({ start: { year: 2026, month: 2, day: 31 }, end: { year: 2026, month: 9, day: 21 } }); setOpen(true); }}>편집</button>
+      <output aria-label="원문">{JSON.stringify(controller.draft)}</output>
+      {open && <UI.DateRangePicker label="기간" value={null} draftController={controller} onChange={change} validationBehavior="aria" />}</>;
+  }
+  render(<Editing />); fireEvent.click(screen.getByRole("button", { name: "편집" }));
+  const day = screen.getAllByRole("spinbutton")[2]; act(() => day.focus());
+  fireEvent(day, new InputEvent("beforeinput", { bubbles: true, cancelable: true, inputType: "insertText", data: "20" }));
+  expect(change.mock.calls).toEqual([[{ start: "2026-02-20", end: "2026-09-21" }]]);
+  expect(screen.getByRole("status", { name: "원문" })).toHaveTextContent('{"start":{"year":2026,"month":2,"day":20},"end":{"year":2026,"month":9,"day":21}}');
+  expect(screen.getAllByRole("spinbutton")[2]).toHaveAttribute("aria-valuenow", "20");
+});
+
+it.each(["pointer", "keyboard"])("keeps public %s calendar selection and both raw endpoints atomic", mode => {
+  const change = vi.fn();
+  function Editing() {
+    const controller = UI.useDateRangeDraft("range", { start: "2026-09-01", end: "2026-09-02" });
+    return <><output aria-label="원문">{JSON.stringify(controller.draft)}</output>
+      <UI.DateRangePicker label="기간" value={null} draftController={controller} onChange={change} /></>;
+  }
+  render(<Editing />); fireEvent.click(screen.getByRole("button"));
+  for (const name of [/2026년 9월 3일/, /2026년 9월 4일/]) {
+    const cell = screen.getByRole("button", { name });
+    if (mode === "pointer") fireEvent.click(cell);
+    else { act(() => cell.focus()); fireEvent.keyDown(cell, { key: "Enter", code: "Enter" }); fireEvent.keyUp(cell, { key: "Enter", code: "Enter" }); }
+  }
+  expect(change.mock.calls).toEqual([[{ start: "2026-09-03", end: "2026-09-04" }]]);
+  expect(screen.getByRole("status", { name: "원문" })).toHaveTextContent('{"start":{"year":2026,"month":9,"day":3},"end":{"year":2026,"month":9,"day":4}}');
+});
+
+it("does not interpret navigation or focus changes as endpoint edits", () => {
+  const change = vi.fn();
+  function Editing() {
+    const controller = UI.useDateRangeDraft("range", { start: "2026-09-01", end: "2026-09-21" });
+    return <><button>외부</button><output aria-label="원문">{JSON.stringify(controller.draft)}</output>
+      <UI.DateRangePicker label="기간" value={null} draftController={controller} onChange={change} /></>;
+  }
+  render(<Editing />); const year = screen.getAllByRole("spinbutton")[0];
+  act(() => year.focus()); fireEvent.keyDown(year, { key: "ArrowRight", code: "ArrowRight" });
+  fireEvent.keyDown(document.activeElement!, { key: "Tab", code: "Tab" });
+  act(() => screen.getByRole("button", { name: "외부" }).focus());
+  expect(change).not.toHaveBeenCalled();
+  expect(screen.getByRole("status", { name: "원문" })).toHaveTextContent('{"start":{"year":2026,"month":9,"day":1},"end":{"year":2026,"month":9,"day":21}}');
+});
+it.each([
+  { endpoint: "start" as const, name: "partial", raw: { year: 2026, month: null, day: 15 }, expected: ["2026", null, "15", "2026", "9", "1"] },
+  { endpoint: "end" as const, name: "partial", raw: { year: 2026, month: null, day: 15 }, expected: ["2026", "9", "1", "2026", null, "15"] },
+  { endpoint: "start" as const, name: "impossible", raw: { year: 2026, month: 2, day: 31 }, expected: ["2026", "2", "31", "2026", "9", "1"] },
+  { endpoint: "end" as const, name: "impossible", raw: { year: 2026, month: 2, day: 31 }, expected: ["2026", "9", "1", "2026", "2", "31"] }
+])("retains editable cold $endpoint $name raw range through blur and remount", async ({ endpoint, raw, expected }) => {
+  const change = vi.fn();
+  const draft = { start: { year: 2026, month: 9, day: 1 }, end: { year: 2026, month: 9, day: 1 }, [endpoint]: raw };
+  function PublicRange() {
+    const controller = UI.useDateRangeDraft("public-range", null);
+    const [open, setOpen] = useState(false);
+    return <><button onClick={() => controller.onDraftChange(draft)}>초기 raw</button>
+      <button onClick={() => setOpen(current => !current)}>기간 표시</button>
+      <output aria-label="공개 raw">{JSON.stringify(controller.draft)}</output>
+      {open && <UI.DateRangePicker label="공개 기간" value={null} draftController={controller} onChange={change} validationBehavior="aria" />}</>;
+  }
+  render(<PublicRange />);
+  fireEvent.click(screen.getByRole("button", { name: "초기 raw" }));
+  fireEvent.click(screen.getByRole("button", { name: "기간 표시" }));
+  await waitFor(() => expect(screen.getAllByRole("spinbutton").map(field => field.getAttribute("aria-valuenow"))).toEqual(expected));
+  act(() => screen.getAllByRole("spinbutton")[endpoint === "start" ? 0 : 3].focus());
+  act(() => screen.getByRole("button", { name: "기간 표시" }).focus());
+  fireEvent.click(screen.getByRole("button", { name: "기간 표시" }));
+  fireEvent.click(screen.getByRole("button", { name: "기간 표시" }));
+  expect(screen.getByRole("status", { name: "공개 raw" })).toHaveTextContent(JSON.stringify(draft));
+  expect(screen.getAllByRole("spinbutton").map(field => field.getAttribute("aria-valuenow"))).toEqual(expected);
+  expect(change).not.toHaveBeenCalled();
+});
+
+it("retains the untouched endpoint after a valid range becomes partial and is blurred and remounted", () => {
+  const change = vi.fn();
+  function PublicRange() {
+    const controller = UI.useDateRangeDraft("site", { start: "2026-09-01", end: "2026-09-21" });
+    const [open, setOpen] = useState(true);
+    return <><button onClick={() => setOpen(current => !current)}>기간 표시</button>
+      <output aria-label="공개 raw">{JSON.stringify(controller.draft)}</output>
+      {open && <UI.DateRangePicker label="공개 기간" value={null} draftController={controller} onChange={change} />}</>;
+  }
+  render(<PublicRange />);
+  const month = screen.getAllByRole("spinbutton")[1];
+  act(() => month.focus()); fireEvent.keyDown(month, { key: "Backspace", code: "Backspace" });
+  act(() => screen.getAllByRole("spinbutton")[3].focus());
+  act(() => screen.getByRole("button", { name: "기간 표시" }).focus());
+  fireEvent.click(screen.getByRole("button", { name: "기간 표시" }));
+  fireEvent.click(screen.getByRole("button", { name: "기간 표시" }));
+  expect(screen.getByRole("status", { name: "공개 raw" })).toHaveTextContent('{"start":{"year":2026,"month":null,"day":1},"end":{"year":2026,"month":9,"day":21}}');
+  expect(screen.getAllByRole("spinbutton").map(field => field.getAttribute("aria-valuenow"))).toEqual(["2026", null, "1", "2026", "9", "21"]);
+  expect(change).not.toHaveBeenCalled();
+});
 it.each([
   { flag: "isDisabled" as const, endpoint: "start" as const, raw: { year: 2055, month: null, day: 15 } },
   { flag: "isReadOnly" as const, endpoint: "start" as const, raw: { year: 2055, month: null, day: 15 } },

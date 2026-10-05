@@ -55,10 +55,10 @@ export const DateRangePicker = /* @__PURE__ */ forwardRef<FocusableFieldHandle, 
       {({ isOpen, state }) => <><Group id={attributes.id} ref={focus.element} aria-controls={props["aria-controls"]} className={cn(attributes.className, "flex min-w-0 items-center justify-between gap-1 px-1 py-0")}>
         <div className="flex min-w-0 flex-wrap items-center gap-1">
           <SegmentedInput slot="start" firstSegment={focus.firstSegment} className="flex min-w-0 items-center"
-            draftBinding={draftController && { draft: draftController.draft.start, onDraftChange: draft => changeEndpoint("start", draft), restoring: startRestoring, valueKey }} />
+            draftBinding={draftController && { draft: draftController.draft.start, onDraftChange: draft => changeEndpoint("start", draft), restoring: startRestoring, valueKey, preserveUnedited: true }} />
           <span aria-hidden="true">–</span>
           <SegmentedInput slot="end" className="flex min-w-0 items-center"
-            draftBinding={draftController && { draft: draftController.draft.end, onDraftChange: draft => changeEndpoint("end", draft), restoring: endRestoring, valueKey }} />
+            draftBinding={draftController && { draft: draftController.draft.end, onDraftChange: draft => changeEndpoint("end", draft), restoring: endRestoring, valueKey, preserveUnedited: true }} />
         </div>
         <Button className={calendarTriggerClass}><span aria-hidden="true">▦</span></Button>
       </Group>
