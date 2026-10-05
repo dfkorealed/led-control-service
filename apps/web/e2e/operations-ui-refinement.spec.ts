@@ -16,7 +16,7 @@ const matrix = [
 ];
 
 test.describe.configure({ mode: "serial" });
-test.use({ trace: "off", screenshot: "only-on-failure" });
+test.use({ trace: "off", screenshot: process.env.E2E_TASK9_NATIVE === "1" ? "off" : "only-on-failure" });
 
 // Strict comment mapping: 1 map bounds; 2 real alarm companion; 3 original
 // control-map-target-selection contracts; 4 inline results; 5/6/8/9/10/11
@@ -87,7 +87,6 @@ for (const state of ["empty", "loading", "error"] as const) test(`Task9 automati
 });
 
 test.describe("owned native originals", () => {
-test.use({ screenshot: "off" });
 test("Task9 own native 200 original map, grid, inline end and account", async ({ baseURL }, info) => {
   test.skip(process.env.E2E_TASK9_NATIVE !== "1", "Explicit owned native200 run after the source freeze; no emulation fallback.");
   test.setTimeout(240_000);
