@@ -37,12 +37,28 @@
 
 ## 상태·실행 방식·파일 소유
 
+- 최신 checkpoint(2026-10-05 16:43:40 UTC): R47 focused8GREEN/ONE실제second1PASS의7원본을 rootDIRECT 승인했고16:41:53 독립644소스/7원SHA-lossless/4artifact/정리 issues0을 확인했다. ONLYSurface9d285/helper0f9507/Flow56619b/dateFilter제품 불변. SAME writer finalmenu/selfreview/consumercommit→freshTask7package47385..HEAD gate 순서로 진행한다. 장문 filter-area photos/full44matrix/nativeHIL 미인증·원FAIL/89시점 한계 보존. Tasks8–10·병합 아직이다.
+
+- 최신 checkpoint(2026-10-05 16:27UTC): R46 second Surface1FAIL의 guard는 literal aria-label/공개 접근성 이름 혼동이다. FULLreport369–401/5원본 직접 검수·644소스/원response/정리 독립 대조 완료, 후속 보고서 입력/POST/CSV는 미실행. Ruling47으로 SAME writer의 기존 Surface 시험 한 파일만 semantic guard와 원trigger 즉시 centered-scroll/실제unoccluded44 검증을 보완한다. FocusedREDGREEN/freeze→ONE 원second→모든새원PNG rootDIRECT 후 소비자commit/독립gate; 제품/helper/Flow/date/Filter/launch/입력·기준 불변. Tasks8–10·병합 미완료.
+
+- 최신 checkpoint(2026-10-05 16:09:22UTC): R46 first PRIMARY 실제200% Flow1PASS와 원PNG41733B1440×813/닫힌보고서필터·초점을 root직접 승인했다. FULLreport321–EOF/29GREEN/type0 및 독립644소스·원response/4artifactSHA/자기정리를 대조했다. 같은 원secondSurface/모든원본 개별시각검수만 재개하며 helper/date/Filter/제품/launch/원입력·기준 동결이다. Universalpaint/fullmatrix/HIL/최종Task7/8–10·병합은 아직이며 consumercommit 전 second원본rootgate가 필요하다.
+
+- 날짜 producer fix `6c3af085`(8cf3 기준 정확3파일250+/31−)의 원자료/77사전해시/커밋 일치·295후test-only2추가→29·physical12/타입UI0·자기자원0/idle를 확인해 fresh scoped 요구/품질 gate를 배정했다. cold8/20→28/consumed-key/ref·no-op·reset 수명 요구를 함께 검토한다. Gate 전 native200/소비자commit/다음페이지/병합을 진행하지 않는다.
+
+- Ruling41(12:50UTC): fresh 아키텍처 검토의 공개 render/span/ref 계약을 확인해 같은 세 producer 파일의 range-only 키 완료를 공급 public DOM handler 정상 반환 뒤 정확 token에만 합성하도록 원writer 재개했다. 원23/2실패 및 새 no-op/repeat/reset/cleanup/ref 증거·기존 affected/physical 검증, 별도 fixcommit/fresh gate 필요. Private API/타이머/새경로/이벤트취소는 없으며 실제200·최종통계/설정/QA/병합은 아직이다. 이유·오판비용은 ledger와 producer brief에 기록했다.
+
+- 진행 체크포인트(12:45UTC): R40 첫 검증23중21PASS/Backspace2FAIL, 완료 아님. 원writer는 제품 재시도·commit 없이 중단/진단 계측 제거·자기16627 종료를 보고했다. Exact RAC1.21.1 DateSegment 공개 target 핸들러 결합 순서를 읽기 전용 아키텍처 검토로 확인한 뒤만 같은 세 파일 보완을 재개한다. Consumer freeze/실제200 첫 원PNG·Task7 최종gate/Tasks8–10·병합은 남아 있다.
+
 - [x] 사용자 주석 14건 및 공통화 범위 확인, 6개 기존 담당 세션 준비 검토 회수.
 - [x] 별도 브랜치·격리 작업 공간 준비, 서면 명세 승인 회수.
 - [x] 이 구현 계획 검토·승인 회수: 2026-10-05 사용자의 “진행해줘”로 승인됐다.
 - [x] 개인 숨김용 신규 additive DDL과 마지막 로컬 서버 반영의 명시적 승인 회수: 새 두 테이블 추가·Web/API 잠시 중지/재시작을 함께 설명한 확인에 2026-10-05 사용자가 승인했다. 이전 읽음 테이블 승인으로 대체하지 않는다.
 
-현재 실행: Task 1~6은 각 독립 검토와 보완 scoped gate를 완료했다. Task6 `16eefc19`+`999d7db6`의 I1/I2/M2 ADDRESSED·새C/I/M0를 확인했다. 원whole-Web/브라우저 실패와 후속176단위+강화날짜3·타입/UI0/browser79기존PASS+boundary1PASS의 시간적 범위를 구분한다. 통계 담당자의 Task7 공통 필터·보고서 Grid 소비를 다음 단독 작업으로 넘긴다. Tasks8~10과 strictvisual200·최종전체검수·사용자 DB/서버 반영·기본 병합은 아직이며 Task10 전에 임의 반영하지 않는다.
+현재 실행: Task 1~6은 각 독립 검토와 보완 scoped gate를 완료했다. Task6 `16eefc19`+`999d7db6`의 I1/I2/M2 ADDRESSED·새C/I/M0를 확인했다. 원whole-Web/브라우저 실패와 후속176단위+강화날짜3·타입/UI0/browser79기존PASS+boundary1PASS의 시간적 범위를 구분한다. Task7은native통계압축뒤과거PDF업무이탈을회수/전체인계·idle감사후원4시험WIP를이어받는fresh내부GPT6.1Solhigh가sameBASE47385에서단독복구한다. Tasks8~10과 strictvisual200·최종전체검수·사용자 DB/서버 반영·기본 병합은 아직이며 Task10 전에 임의 반영하지 않는다.
+
+Task7 추가 상태(2026-10-05 12:17UTC): 공유 FilterPanel `841a714d`와 날짜 `8cf3a728`의 당시 scoped gate는 승인됐다. 후속 consumer153PASS/타입0·selected mock79PASS1FAIL은 원로그로 유지하며 새 전체 통과가 아니다. 마지막 original101행 기간 입력에서 cold 첫 start-day8이 자동 초점 이동 전 publication되지 않고 복원에 지워지는 genuine producer counterexample를 독립1FAIL1PASS 및 public native timeline로 확인했다. 세 cause/다섯 variant 뒤 추가 가드 시도를 멈추고 Ruling39의 read-only GPT6Astra high 아키텍처 검토로 pending-edit/publication/hydration 계약을 먼저 확정한다. 원 입력순서·1~3·impossible20 보호·clear1/calendar/readonly/publicAPI/기준을 유지하며 정확 producer fix·새 독립 gate와 첫 실제200 PNG가 필요하다. 아직 Task7 최종/8–10·병합/사용자 환경 반영 완료가 아니다.
+
+아키텍처 checkpoint 회수(12:23UTC): exact locked 두 module/map의 공개 setter→focus 순서와 partial/complete publication 경계가 수명 분리 설계를 뒷받침했다. Root가 FULL 보고를 읽고 Ruling40으로 같은3파일의 pending/accepted/restoration 보완을 원writer에게 재개했다. Native blur fence 유지·hydration만미저장edit와분리·기존두발행경로의동기ack, 명시적post-handler commit/no-op/reset/remount/cleanup proof를요구한다. 표현불가면named context반환/추가guard0, 정확3fixcommit·freshgate 전native/다음소비자0. Recommendation은실행통과가아니다.
 
 Task 1의 이전 중간 기록: 설치/격리 Prisma/준비 완료, 원 baseline exit 1과 CAD spool·bulk-map·Gateway 분석 CLI의 기존 실패를 보존했다. 원 소스 단독 확인은 각각 8/8·7/7·24/24 PASS이며 전체 baseline 통과로 치환하지 않는다. 당시 UI RED 26실패/20통과와 공통 UI 부분 수정본을 남겼고 GREEN/커밋은 아직 없었다. 담당 세션 압축 뒤 범위 이탈은 작성권 회수·보고/idle 감사로 정리했으며, 기본 checkout/서버/DB/장비 변경은 없었다. 기존 담당에게 정확한 brief/인계 보고로 작성권을 다시 배정했고 이후 완료/보완 결과는 Task 1 하단에 기록했다. 디자이너의 읽기 전용 검수 방법 준비는 실제 Task 9 화면 검증과 구분한다.
 
@@ -57,6 +73,7 @@ Task 1의 이전 중간 기록: 설치/격리 Prisma/준비 완료, 원 baseline
 | 5 | 원 모니터링 자료/WIP를 이어받는 내부 담당자 | `features/monitoring`: 높이·현장/맵 요약 구분·로그 필터 |
 | 6 | 원 제어 자료/WIP를 이어받는 별도 내부 GPT6.1 Sol high 담당자 | 수동 결과/지도/이력·스케줄/이벤트의 공통 표시 소비. 기존 센서 세션 보호 |
 | 7 | 통계 페이지 담당자 | 개요/분석/히트맵/보고서 필터와 보고서 Grid 소비 |
+| 7 인계 | 원 통계 4시험 WIP를 이어받는 내부 GPT6.1 Sol high | native 압축 뒤 과거 PDF 업무 이탈의 단독 복구, 같은 consumer 소유/BASE 유지 |
 | 8 | 설정 페이지 담당자 | 사용자 Grid/필터·CAD 후보 목록 페이지 크기 소비 |
 | 9 | QA 역할 + UI/UX 디자이너 | 최종 root/임시 DB·브라우저·14건 화면 검수. 읽기 전용 판정 |
 | 10 | 총괄 + 단독 통합 역할 | 신규 DDL 로컬 반영·브랜치 병합·runtime 인계·문서 완료 |
@@ -340,7 +357,55 @@ Task6 fixround1 회수: `999d7db6e6d3c8042ad9267766804a18f6951fc7` parent16eef·
 
 ### Task 7: 통계 조회 필터·보고서 Grid 소비
 
+Task7 완료 gate(2026-10-05 17:33UTC): full9f13소비자 검토의 I1을85372913 create-error cleanup2파일 보완/fresh29-line scoped 재검토로 닫았다. Spec✅/QualityApproved·새C/I/M0. Root FULL최종보고481–523/RED3→GREEN32/helpertype0/ALL642및12원artifact 일치·소유자원 종료를 확인했다. Successfulcapture unchanged/staticmethodreuse승인과 oldhelperactualpixels는 별도이며 미래8/9 모든 원본직검은필수다. 원whole6FAIL/89temporal/실제장문/14행·nativeHIL·M1pnpm/color는최종9/10에정확히남긴다. root2docs만별도커밋뒤기존설정담당Task8, 아직병합0.
+
+현재 최종 gate: 9f13d511의 fresh combined 검토 FULL66lines는 Spec❌/QualityNeedsfixes C0/I1/M1이다. 소비자 요구에는 새 blocker가 없고, test-only helper.create의 errorpersist 실패가 Page detach를 건너뛰는 I1만 exacthelper+ownedFlow2파일로 동일 담당자에게 fixround1 반환한다. Initial/error-record IO의 genuineRED→GREEN·기존29contracts/helpertype·2filecommit/scoped I1+newbreakage review가 필요하다. Successfulcapture/제품/date/Filter/layout 불변, originalnative/whole/build/3spec 재실행0이며 옛 원본은 원hash의 역사적 개별승인으로 유지한다. M1package/colornoise는 finalTask9triage. 근거/오판비용ledger48, 설정/통합검수/병합미완료.
+
+Ruling46 primarysnapshot: R45focused25/type0뒤 actualfirst1FAIL은정적stream의lastswap.783066<finalstate.808로8s후후보없음이다. RootFULLreport/independent644hash·37원bytes·4artifacts/cleanup읽었고, FULL68-line별도공개계약검토+exactChrome149schema가PNGsurface현재화면요청을지원함을확인했다. Existingtest3paths만ONEprimaryPage.captureScreenshot request afterfinalDOM/focus로분리수집하며nostream/no timeoutfallback/oldframe승격/hosttimestamp조작0이다. 실제1440×813/원입력·launch/zoom·state/date/API/hit/source·8s정리 유지,개별원본root직검pending. FocusedRED→Green/type/freeze→samefirst1→root원PNG/fullraw전second/reuse/commit0. 새방법unsupported/blank/wrongsize/drift면STOP/no tuningloop. 원인·오판비용ledger46,Task7/8–10/merge未完成。
+
+Ruling45 scoped: FULL94-line freshreadonlyarchitecture로기존timestamp-only최종상태승인은불충분함을확정했다. Exacttest-onlyhelper+ownedFlow+ownedSurface3파일만 caller의원최종DOM/초점관측뒤 strict later candidate·개별root원PNG시각승인 pending을분리한다. 기존8s/noeligible실패·모든원bytes/ACK/44/X0/입력·launch/제품은불변;기준완화/새paint/input/methodloop0. Genuinewrong-state negatives와persistFrames실패시detach-finally회귀→helpertype/sourcefreeze→samefirstoriginal1→root직검뒤second. 이전89회귀는시간/소스별보존,새전체반복0;finalTask9longnamevisual은별도. 원인·오판비용ledger45;Task7/8–10/merge未完成。
+
+Ruling44 현재: 두 번째original1PASS의7원PNG를root직접검수한결과 genuine-native-200은Escape완료/초점검사와달리OPEN필터를보였다. Frame1791212036.790017>dispatchSTART.790만으로입력렌더완료를증명할수없어 universal final-state method승인/reuse를다시열었다. 현89nonnative시험종료→정리/IDLE만허용,새native/helper/consumercommit0. ExactreadonlyAstra공개계약/원raw아키텍처검토뒤만다음범위를결정하며원첫Flow/58bytes/7PNGs·과거실패는보존한다. 제품/날짜/Filter/flags/입력·44/X0/viewport는불변,단순시간가드/추가입력·repaint/fallback0. 원인·오판비용은ledger44,Task7/8–10/merge未完成。
+
+현재 native 방법은 root 원본 직접 검수로 승인됐다. 두 번째 original surface의 첫1FAIL은 fixed bottom nav가 trigger를 가린 physical setup이며 원52PNG·실패를 보존했다. Owned E2E가 기존 Flow의 공개 centered-scroll/unoccluded44 검사를 소비하는 최소 보완만 수행하고 실제 노출/원입력·단언을 유지한다. 동일 second/remaining3spec·메뉴/consumercommit/독립gate는 아직 진행 중이다. 실제 스크롤로 노출 불가능하면 제품 실패를 보고한다; helper/date/Filter/제품/launch 변경이나 강제 클릭/기준완화0이다.
+
+Root Ruling43: R42 metadata11PASS/helpertype0/sourcefreeze644 뒤 ONE originalnativeflow는 public100→200/같은target·geometry·실입력까지 실행됐지만 최종 검사 완료(.739) 뒤 frame을 요구해 마지막 실제frame(.719140)을 거부하고 원bytes도 실패경로에 유실했다. Test-only 기존zoomhelper+ownedFlow 정확2파일만 마지막 실제 pointer/key dispatch 시작·완료·검사완료를 분리하고 strict 마지막입력 후 최신frame/모든원bytes 보존으로 보완한다. 원flags/launch/stream/8s/전체viewport/PNG/입력·44/X0는 불변; capture-start/tolerance/추가입력/repaint/fallback0. Focused RED→GREEN/helpertype/sourcefreeze 뒤 동일 첫flow 딱1회/root 원PNG·fullraw 직검 전 second/8–10/병합0. 이전1FAIL·lostbytes/diagnostic은 보존하고 이유·오판비용 ledger43에 기록한다.
+
+Ruling42 metadata-only: 최종src type/helpertype/productionbuild PASS 뒤 first nativeflow1FAIL/exit1은 globalzoom/PNGstream 이전의 getBrowserCommandLine 조건부제약이었다. 기존test-only zoomhelper+ownedFlow focusedpreflight만 ownpublicBrowser-session/SystemInfo.getInfo actualcommandLine·단계별version/error/profile즉시저장으로보완한다. 공식API·원metadata/diagnosticPNG한계를보존하고launchflags/viewport/capturePNG/threshold/경로·제품·dateproducer변경0이다. 동일PNG방법의첫실qualification 1회/rootdirect原PNG/fullraw 뒤second/reuse하며일반whole/unit/build반복0·필요helperTDD/type/sourcefreeze만수행한다. 원인·오판비용ledger42에기록; native200/최종Task7/8–10/병합は未完成。
+
+날짜 producer 최종 gate ACCEPTED: `f3d50c2e` fresh scoped rereview I1/stale-clear ADDRESSED·Spec✅/QualityApproved 새 C/I/M0. Root FULL보고서·429proof 및커밋/실77hash를대조했다. 원6c3 cold8/actual20/consumed-key 해결과결합하되원301/preannotation과final33/typeUI/browser12는별도증거다. Shared3파일은동결/read-only; 같은원writer의remainingconsumer 최종type/helpertype/build·ALLsourcefreeze→첫originalnative200flow R25/R38→root직접원PNG/fullraw판정 뒤second/후속소비만허용한다. 최종Task7/8–10/병합은미완료다.
+
+현재 scoped fix round1: `6c3af085`의 독립 검토는 원 cold8/actual20/consumed-key ADDRESSED, Spec❌/QualityNeedsfixes다. 동일 빈 raw/canonical-null·같은 mount에서 pending 입력이 새 현장 callback으로 재결합되는 I1 하나를 원 writer의 정확 producer3파일에 반환했다. 기존 guarded callback의 발행 소유권을 유지하고 equal-null A→B 및 A→B→A nested-focus RED→GREEN/새 현장의 다음 정상입력·형제값 보존을 증명한다. 일반 callback identity를 숨은 epoch로 해석하거나 새API/hook/path를 추가하지 않는다. 별도 exact3fixcommit와 I1+new-breakage scoped rereview 뒤에만 최종 consumerfreeze·실제200%로 진행한다. 최종Task7/8–10/병합은 미완료다.
+
+R36/37 producer8cf3 independent gate ACCEPTED: FULLreview Spec✅/QualityApproved C0/I0/M3이며rawrange lifecycle/실입력20/원publication/calendar/blocked/single/cleanup과동일source21·136·65·88/physical10+direct1경계를확인했다. 원실패·pnpm/color/expectednondateZod진단은최종9triage에유지,추가product/tooling권한0. Samewriter remainingconsumer/helperGreen→sourcefreeze→R25첫actual200/root원PNGqualification를진행한다. 최종Task7/8–10 완료는아니다.
+
+Root Ruling38: 신규test-only support/statistics-native-zoom-evidence.ts 한 파일로기존two-native200의공개CDP/원PNG·provenance·cleanup을공통화한다. 이미ownedflow의purevalidator RED→GREEN와원case계약을유지하며dateproducergate/전체sourcefreeze뒤첫flowbounded1회/root원PNG·fullrawqualification→same surface/8/9재사용이다. Syntheticvalidator≠actual200,지원실패NEEDS_CONTEXT/실UIFAIL·원44/X0/전체viewport기준불변;capturefallback/flag/profiletabloop/emulation/JPEG변환0. 원인·오판비용ledger와brief기록.
+
+Root Ruling37: immutable trusted 입력20→원canonical20→암묵blur28→focusout28을직접확인해 R36동일3파일 range-only nativeancestorblur capture로기존raw보호시점만앞당긴다. 실제첫입력/원publication·달력·fullclear·single/readOnly/disabled/초점전파불변, parser/private상태/이벤트차단/timeout/추가경로0. Event-order RED→GREEN·실입력/cleanup/기존date관문필수이며실패하면다음guard변형이아니라exactarchitecturecontext를반환한다. 원인·오판비용ledger/producerbrief참조.
+
+Root Ruling36: URL seed/sync를 배제한 공개 cold range 재현에서도 untouched endpoint가null로 사라져 shared producer 결함을 확인했다. 기존 DateRangePicker.tsx/date-field.tsx/DateRangePicker.test.tsx 정확3파일만 최소 raw 수명 보완·별도commit/fresh scoped producer gate를 추가한다. 원clear null1회/complete·reversed/calendar/disabled·readonly/single·time/소비자·실URL/GET0/repair·200 기준 불변, 공개API/hook/adapter/private상태·bridge복제0. 원RED1/15명시적선택제외 및실browser실패를보존하며원인·오판비용은ledger/별도producerbrief에기록한다.
+
+Root Rulings33–35: 기존 첫 시작 날짜 초점은 Overview의 공개 autoFocus로 보존한다. Test-only 기존 layout-assertions.ts/spec의 HTML viewport-root clip 좌표만 정확히 보완하고 원44/ordinary/fixed/occlusion 기준·전체 negative suite를 유지한다. 초기 보고서 날짜-invalid URL은 소유 소비자 안에서 rawURL/draft/error·모든 자동/수동 요청0·명시적 유효 복구를 보장하며 parser/schema/API hook·비날짜 거부·독립 생성/CSV 계약은 그대로다. RED2→focused39PASS는 부분 증거이며 전체 helper/복구/200%/최종 독립 gate는 남아 있다. 이유·오판비용은 ledger와 task7 brief에 기록한다.
+
+별도 producer `841a714d`의 독립 gate는 Spec✅/qualityApproved·C0/I0/M1로 승인됐다. Root가 unchanged keyboard/disabled/pending 코드 및helperBASE=commit=working을연결했고pre-run helperhash미포함/노이즈는정확한한계로Task9에남긴다. Samewriter가남은consumer회귀/actual200를진행하며Task7최종독립gate는별도다.
+
+Ruling32 producer `841a714d`를 별도 회수하고 root가 FULL보고/9단위·실브라우저3·타입/UI0·소유자원종료 및두실sourcehash를 독립대조했다. Fresh GPT6.1Solmedium의 scoped 요구/품질 gate를 배정했으며 아직 consumer/actual200/Task7완료가 아니다. 앞선 원focusedbrowser6의2setupFAIL와defaultwhole6FAIL는 보존한다.
+
+Task7 Ruling32: narrow에서 공통 필터 trigger의 실제 연속44×44 hit 부족을 확인해 기존 FilterPanel.tsx/test 두 파일만 최소 min-w16로 보완한다. 기존125/44/X0·공개API·일반버튼·조회/초안은 유지하고 별도 생산자 commit/독립 scoped gate 뒤 소비자 작업을 승인한다. Default whole3178PASS/6FAIL/3SKIP·exit1과 첫selected mock50PASS13FAIL은 원로그로 보존하며 전체 재실행/외부 실패 임의수정은 없다. 원인·오판비용은ledger와 별도hit brief/report에 남긴다.
+
+Task7 Ruling31: 기존Atlas analysis filterCard<125를유지하며public FilterPanel compact variant를소비해44hit/전체요약/reset과간결함을함께보존한다. Heatmap metric→loading의filterunmount는실초점/overlay수명검증으로판별하고실consumer결함이면같은소유범위에서원query/pending/로딩의미를유지해보완한다. 단순selector교체/threshold완화/공통·도메인변경0이며근거와오판비용은ledger에기록한다.
+
+Task7 Ruling29: 기존두actual-file시험의ownedephemeral loopback PDF byteserver만해당시험수명/최대동시1로허용한다. assignedport/정확URL GET·원byteLength/SHA/manifest/PDF/CSV단언과close/socket0를보존하고새middleware/helper·다른origin/unknownAPI허용·외부API/DB/S3/장비0이다. 원경로를가짜download로대체하지않으며이유·오판비용은ledger에기록한다.
+
+Task7 Ruling28: 기존persistent-contextactual200두case만선택mock실행에서명시적분리한다. 정확argv/제외수와미실행상태를보존하며skip·삭제·단언완화·전체세spec통과표시0이다. sourcefreeze뒤Ruling25최초원PNG/root판정후같은방법으로기존두case의실입력/초점/기간/장문/API0조건을회수해야한다. 방법실패는NEEDS_CONTEXT·실UIFAIL을구분하고Task7gate/Task9전체matrix완료로바꾸지않는다. 이유·오판비용은ledger에기록했다.
+
 Task6 완료 gate: 총괄이 FULLtask-6-rereview를 읽어 I1/I2/M2 모두ADDRESSED·새Critical/Important/Minor0·open0을 확인하고 원 broad 검토의 다른요구충족 판정과 합쳐 Task6 소비gate를 승인했다. M1원noise·wholefresh·strict200/fullmatrix/nativeHIL은Task9에명시적으로남긴다. 다음통계담당은기존scope/보고/기준을소비하며이전제어결과를새전체통과로재사용하지않는다.
+
+Task7 배정: 기존통계담당01a088fa/local GPT6.1Solhigh, BASE47385f86 clean·단독consumerwriter/own16627. Root Ruling25는Task7 소스동결후 publicglobal100→200/settings read-back·samepage directPNG screencast의bounded1가설만허용한다. actualflags/version/source/전체viewportgeometry/freshframe·원PNG·실pointer/key를root직접판정하기전성공또는8/9재사용0; 실패/모호함NEEDS_CONTEXT·UI결함FAIL. 원실패와7폭/2short/14행/nativeHIL분리기준은그대로이다. 전체근거/오판비용은ignoredledger에보존한다.
+
+Task7 native인계 Ruling26: 4시험WIP를남긴후contextCompaction01a10b65에서과거PDF업무로전환해496.420s turn을완료했다. Rootexactcommandinventory/응답과기본32e7clean/Web71947/API4000none을확인했고범위밖PDFff-only명령은Alreadyup-to-date·HEAD변경0이다. 현재UI완료로인정하지않고STOP/작성권회수·전체handoff/ownresources0/idle확인후fresh내부GPT6.1Solhigh가sameBASE47385와4시험·원자료만이어받는다. 원제품/featurecommit/RED0을인계에서확정하며준비/기본서버/옛baseline재실행0·사용자sidebar새task0·Files/검수기준불변이다.
+
+Task7 recovery 시작: FULLhandoff의4시험WIP71+/1−/4hash를root독립대조하고nativeSTOPturn305.197s completed/idle·active0를확인했다. Fresh /root/ui_refinement_statistics_recovery에게원未실행runner/WIP·같은BASE·소유Files/Root25를넘겼으며설정오류는scratch내최소보완·원로그보존후첫 genuineRED로구분한다. Root는plan/status/ledger만집계하며writercommit에서제외한다.
 
 **Files:** `apps/web/src/features/statistics/StatisticsOverviewPage.tsx`, `analysis/{StatisticsAnalysisPage,EnergyHeatmap}.tsx`, `reports/{ReportHistoryFilters,ReportJobList,ReportJobTable,ReportJobCards,StatisticsReportsPage}.tsx`와 기존 시험; `apps/web/e2e/statistics-flow.spec.ts`, `statistics-surface-regression.spec.ts`, `statistics-mobile-files.spec.ts`; `docs/menus/statistics.md`.
 
@@ -348,18 +413,18 @@ Task6 완료 gate: 총괄이 FULLtask-6-rereview를 읽어 I1/I2/M2 모두ADDRES
 
 기간 조회 Modal은 필터 Popover 내 필드로 옮기되 개요의 기존 명시적 기간 적용은 유지한다. 보고서 생성 폼/비조회 상세 dialog는 유지한다. 검색 300ms·limit20/기존 허용 값·URL/history/cursor/site·90일 요청 기간·PDF/CSV·파일 취소/실패·pending과 실제 0/결측/추정 표현을 보존한다. 분석 기본 기간은 기존 completedSiteMonth이며 1~400 완료일 검증/이름 줄바꿈·차트 gap은 바꾸지 않는다.
 
-- [ ] **Step 1:** RED `separate comparison and trend filter scopes without invented search`, `preserves partial single and range dates across popover lifetime`, `report grid adapts to actual container and retains failed expired actions`를 추가한다. invalid 기간의 조회/생성/CSV 0, 상세 reset의 검색 유지, 실제 0과 null 구분을 단언한다.
+- [x] **Step 1:** RED `separate comparison and trend filter scopes without invented search`, `preserves partial single and range dates across popover lifetime`, `report grid adapts to actual container and retains failed expired actions`를 추가한다. invalid 기간의 조회/생성/CSV 0, 상세 reset의 검색 유지, 실제 0과 null 구분을 단언한다.
 
 입력 거부 회귀에는 기존 계약의 역전 기간 검증과 실제 요청 spy 0을 함께 둔다.
 
 ```ts
 expect(energyRangeComparisonQuerySchema.safeParse({ from: "2026-09-02", to: "2026-09-01" }).success).toBe(false);
 ```
-- [ ] **Step 2:** Overview/Analysis/EnergyHeatmap/ReportHistoryFilters/ReportJobList Vitest의 RED를 확인한다. report table/cards의 중복 표시·window-only 기대만 새 container 계약으로 고친다.
-- [ ] **Step 3:** 공통 표시/초안 API를 소비하고 기간 Modal의 기존 apply 행동은 Popover에 옮긴다. 날짜 자동 보정·불완전 draft의 URL 쓰기/API 조회는 금지한다. ReportJobTable/Cards의 미사용 표시 복제만 이관 후 제거한다.
-- [ ] **Step 4:** GREEN 단위/type/UI와 세 statistics browser 회귀를 실제 200%/장문/320폭/short·nested calendar/Escape/Back·URL 뒤로가기·invalid 수동 복구로 확인한다. 400일/PDF 전용/파일 수명/cursor 초점 기준은 낮추지 않는다.
-- [ ] **Step 5:** 통계 메뉴를 실제 필터/표 소비와 일치하게 갱신한다.
-- [ ] **Step 6:** `refactor(statistics): consume shared filter and grid surfaces`로 커밋 후 독립 검토받는다.
+- [x] **Step 2:** Overview/Analysis/EnergyHeatmap/ReportHistoryFilters/ReportJobList Vitest의 RED를 확인한다. report table/cards의 중복 표시·window-only 기대만 새 container 계약으로 고친다.
+- [x] **Step 3:** 공통 표시/초안 API를 소비하고 기간 Modal의 기존 apply 행동은 Popover에 옮긴다. 날짜 자동 보정·불완전 draft의 URL 쓰기/API 조회는 금지한다. ReportJobTable/Cards의 미사용 표시 복제만 이관 후 제거한다.
+- [x] **Step 4:** GREEN 단위/type/UI와 세 statistics browser 회귀를 실제 200%/장문/320폭/short·nested calendar/Escape/Back·URL 뒤로가기·invalid 수동 복구로 확인한다. 원89/301/33 및 actual2cases는 각 소스/시점의 증거로 구분하며 현재32는 helper 직접 covering이다. 실제 장문 표시/전체14행·whole6FAIL은Task9에서확인한다. 400일/PDF 전용/파일 수명/cursor 초점 기준은 낮추지 않는다.
+- [x] **Step 5:** 통계 메뉴를 실제 필터/표 소비와 일치하게 갱신한다.
+- [x] **Step 6:** `refactor(statistics): consume shared filter and grid surfaces`9f13 및 scopedfix85372913을 커밋하고 full/scoped 독립 gate를 통과했다. M1은Task9triage로명시한다.
 
 ### Task 8: 설정 목록 필터/Grid와 CAD 페이지 크기 소비
 
@@ -380,6 +445,10 @@ expect(screen.getByRole("button", { name: /페이지당 항목 수/ })).toBeVisi
 - [ ] **Step 6:** `refactor(settings): share list filters and responsive grids`로 커밋 후 독립 검토받는다.
 
 ### Task 9: 동결 소스의 엄격한 통합/UI 검수
+
+Task9 Ruling30: 미래단독harness writer에기존real-backend-lab.ts 및필요한real-backend-lab-support.spec.ts exactpath의최소public typed alarmfixture/oracle만추가허용한다. Ownstart/installation/clusteridentity뒤자기DB 두actor/두site/incident/read/예약·효과상태를다루며arbitrarySQL/secret/socket/env공개/privatecast·skipbuild/timeout/제품/보안변경0이다. 7/8gate뒤만실행하고실두browserHTTP·실PGoracle/독립최종검토를유지한다. 이유·오판비용은ledger에기록한다.
+
+Root Ruling27: 미래단독RealBackendLab에기존publicisolatedCadStorage:true를써외부storage/PKI/proxyfallback을차단한다. ownrunId/label MinIO/mc/privatebucket/Docker동적loopback여섯째포트/CADtemp·development worker·partialcleanup까지Lab소유에포함한다. exactlocal2이미지읽기확인은완료됐지만실실행/ready/PASS아니며--pull=never/usercontainer·imageprune/다운로드0·원label재확인/portrelease를요구한다. 7/8gate/동결/단독build인계후만소비하며helper추가소유와현재사용자반영은이결정범위밖이다.
 
 **Files:** 검수자는 제품을 수정하지 않는다. 필요한 harness 작성 범위는 생성 `apps/web/e2e/operations-ui-refinement.spec.ts`, `monitoring-alarm-dismissals-real.spec.ts`, 기존 표적 E2E/`src/App.test.tsx`의 승인된 표시 기대 변경이다. 기존 보안/권한/명령 시험을 낮추지 않는다. 결과/원로그는 이 계획의 전용 ignored workspace, 상태는 총괄이 본 계획과 `docs/project-status.md`에 동시 반영한다.
 
