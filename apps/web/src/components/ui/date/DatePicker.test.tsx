@@ -40,6 +40,61 @@ describe("DatePicker draft bridge", () => {
     fireEvent.click(screen.getByRole("button", { name: "전환" })); fireEvent.click(screen.getByRole("button", { name: "전환" }));
     expect(screen.getAllByRole("spinbutton")[2]).toHaveAttribute("aria-valuenow", "30");
   });
+  it.each([
+    { flag: "isDisabled" as const, raw: { year: 2055, month: null, day: 15 } },
+    { flag: "isReadOnly" as const, raw: { year: 2055, month: null, day: 15 } },
+    { flag: "isDisabled" as const, raw: { year: 2026, month: 2, day: 30 } },
+    { flag: "isReadOnly" as const, raw: { year: 2026, month: 2, day: 30 } }
+  ])("keeps cold $flag raw $raw visible through reopen and later editability", ({ flag, raw }) => {
+    const change = vi.fn();
+    function Prohibited({ blocked }: { blocked: boolean }) {
+      const controller = UI.useDateDraft("site", null);
+      const [open, setOpen] = useState(false);
+      return <><button onClick={() => controller.onDraftChange(raw)}>초안</button>
+        <button onClick={() => setOpen(value => !value)}>전환</button>
+        <output aria-label="원문">{JSON.stringify(controller.draft)}</output>
+        {open && <UI.DatePicker label="날짜" value={null} draftController={controller} onChange={change}
+          {...{ [flag]: blocked }} isInvalid errorMessage="입력 확인" />}</>;
+    }
+    const view = render(<Prohibited blocked />);
+    fireEvent.click(screen.getByRole("button", { name: "초안" }));
+    const expectPreserved = () => {
+      const parts = ["year", "month", "day"] as const;
+      parts.forEach(part => {
+        const segment = view.container.querySelector(`[data-type="${part}"]`)!;
+        expect(segment).toBeVisible();
+        const label = { year: "연도", month: "월", day: "일" }[part];
+        expect(segment).toHaveTextContent(new RegExp(`^${raw[part] === null ? "월" : `${label} ${raw[part]}`}$`));
+        if (raw[part] === null) expect(segment).toHaveAttribute("data-placeholder", "true");
+        else expect(segment).not.toHaveAttribute("data-placeholder");
+        expect(segment).toHaveAttribute(flag === "isDisabled" ? "data-disabled" : "data-readonly", "true");
+        expect(segment.closest('[role="group"]')).toHaveAccessibleName(/날짜/);
+        expect(segment.closest('[role="group"]')).toHaveAccessibleDescription(/입력 확인/);
+        expect(segment.closest('[aria-hidden="true"]')).toBeNull();
+        expect(segment).not.toHaveAttribute("contenteditable", "true");
+        fireEvent.keyDown(segment, { key: "ArrowUp" });
+        fireEvent.keyDown(segment, { key: "Backspace" });
+      });
+      expect(screen.getByRole("alert")).toHaveTextContent("입력 확인");
+      expect(screen.getByRole("alert")).toHaveAttribute("id");
+      expect(view.container.querySelector('[aria-describedby]')?.getAttribute("aria-describedby")).toContain(screen.getByRole("alert").id);
+      expect(screen.getByRole("status", { name: "원문" })).toHaveTextContent(JSON.stringify(raw));
+      expect(change).not.toHaveBeenCalled();
+    };
+    fireEvent.click(screen.getByRole("button", { name: "전환" }));
+    expectPreserved();
+    fireEvent.click(screen.getByRole("button", { name: "전환" }));
+    fireEvent.click(screen.getByRole("button", { name: "전환" }));
+    expectPreserved();
+    view.rerender(<Prohibited blocked={false} />);
+    expect(screen.getAllByRole("spinbutton").map(node => node.getAttribute("aria-valuenow"))).toEqual(
+      [String(raw.year), raw.month === null ? null : String(raw.month), String(raw.day)]);
+    expect(screen.getByRole("alert")).toHaveTextContent("입력 확인");
+    expect(screen.getByRole("status", { name: "원문" })).toHaveTextContent(JSON.stringify(raw));
+    expect(change).not.toHaveBeenCalled();
+    view.rerender(<Prohibited blocked />);
+    expectPreserved();
+  });
   it("retains a real partial keyboard edit through canonical value clearing and remount", async () => {
     const change = vi.fn();
     function Editing() {

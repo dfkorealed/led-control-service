@@ -49,6 +49,13 @@ function DraftBridge({ binding, blurRevision }: { binding: DateDraftBinding; blu
   }
   useLayoutEffect(() => {
     if (!state) return;
+    // RAC prohibits public segment writes in these states. Keep the raw parent
+    // draft authoritative and hydrate only after editing becomes permitted.
+    if (state.isDisabled || state.isReadOnly) {
+      hydrating.current = true;
+      binding.restoring.current = true;
+      return;
+    }
     const readPart = (part: typeof dateParts[number]) => {
       const segment = state.segments.find(item => item.type === part);
       return segment?.isPlaceholder ? null : segment?.value ?? null;
@@ -59,10 +66,8 @@ function DraftBridge({ binding, blurRevision }: { binding: DateDraftBinding; blu
       if (difference) {
         // Public setters capture this render's display value. Applying all three
         // in one effect would overwrite earlier segments with stale state.
-        if (!state.isDisabled && !state.isReadOnly) {
-          const value = binding.draft[difference];
-          if (value === null) state.clearSegment(difference); else state.setSegment(difference, value);
-        }
+        const value = binding.draft[difference];
+        if (value === null) state.clearSegment(difference); else state.setSegment(difference, value);
         return;
       }
       hydrating.current = false;
@@ -75,15 +80,27 @@ function DraftBridge({ binding, blurRevision }: { binding: DateDraftBinding; blu
   return null;
 }
 
+const editableSegmentClass = "inline-flex min-h-13 min-w-13 items-center justify-center rounded-control tabular-nums text-content-primary outline-none focus:bg-action-primary-soft focus:shadow-focus data-disabled:opacity-60";
 function RegisteredSegment({ segment, firstSegment, binding, blurRevision }: { segment: DateSegmentProps["segment"]; firstSegment?: Ref<HTMLDivElement>; binding?: DateDraftBinding; blurRevision: number }) {
   const dateState = useContext(DateFieldStateContext);
   const timeState = useContext(TimeFieldStateContext);
   // Derive registration from React Aria's locale segment order on every render.
   // A closure counter would lose the ref when DateInput rerenders independently.
   const firstType = (dateState ?? timeState)?.segments.find((item) => item.isEditable)?.type;
+  const part = dateParts.find(item => item === segment.type);
+  const presentRaw = binding && part && (dateState?.isDisabled || dateState?.isReadOnly);
+  const raw = binding && part ? binding.draft[part] : null;
   return <>{binding && segment.type === firstType && <DraftBridge binding={binding} blurRevision={blurRevision} />}
-    <DateSegment segment={segment} ref={segment.type === firstType ? firstSegment : undefined}
-      className={segment.type === "literal" ? "text-content-primary" : "inline-flex min-h-13 min-w-13 items-center justify-center rounded-control tabular-nums text-content-primary outline-none focus:bg-action-primary-soft focus:shadow-focus data-disabled:opacity-60"} /></>;
+    {/* Static text preserves partial/impossible raw values while RAC correctly
+        refuses restoration. It stays inside the labelled/described DateInput
+        group, includes the locale's part label for assistive technology, and
+        has no editable DOM or handlers. Never fake an editable upstream state. */}
+    {presentRaw ? <span data-type={segment.type} data-disabled={dateState?.isDisabled || undefined}
+      data-readonly={dateState?.isReadOnly || undefined} data-invalid={dateState?.isInvalid || undefined}
+      data-placeholder={raw === null || undefined} className={editableSegmentClass}>
+      {raw !== null && <span className="sr-only">{segment.placeholder} </span>}{raw ?? segment.placeholder}
+    </span> : <DateSegment segment={segment} ref={segment.type === firstType ? firstSegment : undefined}
+      className={segment.type === "literal" ? "text-content-primary" : editableSegmentClass} />}</>;
 }
 export const SegmentedInput = /* @__PURE__ */ forwardRef<HTMLDivElement, Omit<DateInputProps, "children"> & { firstSegment?: Ref<HTMLDivElement>; draftBinding?: DateDraftBinding }>(function SegmentedInput({ firstSegment, draftBinding, ...props }, ref) {
   const [blurRevision, setBlurRevision] = useState(0);
