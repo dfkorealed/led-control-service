@@ -2,7 +2,17 @@
 
 기준일: 2026-10-06
 
-## 2026-10-04 운영 UI 추가 주석 14건 — 승인된 계획 실행 시작
+## 2026-10-04 운영 UI 추가 주석 14건 — UI 적용·로컬 병합 완료
+
+최종 상태(2026-10-06 08:57 KST)가 아래 과거 실행 이력보다 우선한다.
+
+- 주석14건 및 검색 외 공통 필터 Popover·반응형 Grid·지도 공통화 적용, 일반 UI/최종 변경 코드 독립 검수 승인. 제품f1484e9c,DB문서 포함 통합beb2b3ae를 기본 `codex/mvp1-cloud-web`에 ff-only 병합했다. 네 메뉴 기능 문서와 `database-schema.md`를 갱신했다.
+- 개인 알람 지우기 신규두테이블/완료기록만 실제 로컬 DB에 추가했고 원126개 migration 이력/기존 데이터는 보존했다. Prisma6.19.3 생성 및 신규두모델조회 성공.
+- Web/API 복구 완료: Web58125/5173·API58193/4000,Node22 앱전용 launcher57956. 컴파일0오류,네메뉴HTML200/TLS live200/미인증직접·프록시401 확인. root가 원 HTTP/model 로그·실제 listener/main상태를 다시 확인했다.
+- 검증 한계: 최신main 전체 test는 Web3235PASS/기존3SKIP,Gateway1407PASS/5000ms timeout2로 exit1. API 완료요약/UI-policy후속은 미완료이며 전체PASS로 주장하지 않는다. Gateway/engine 수정0이고 API/공유/스크립트는 이전8a 전체PASS 이후 불변이나 timeout원인은 미확정이다. readiness 단일관측503(MQTTdown),특수200%/HIL/장비·배포 미검증. 이를 고치기 위한 추가 범위 확장은 하지 않았다.
+- 최종 상태/계획 문서만 별도 커밋·추가 병합한다. 별도 작업 브랜치/worktree와 원 로그를 보존하고 원격 push/배포는 하지 않는다.
+
+- 2026-10-05 23:53 UTC: 신규 두 테이블/완료 migration 반영(원126행 불변), DB문서beb2b3ae까지 기본 브랜치 ff-only 병합, main Prisma generate0을 완료했다. 병합 후 전체 test 한 번은 Web3235PASS/3SKIP와 Gateway1407PASS/2개의5000ms timeout으로 exit1; API 완료요약/UI-policy후속은 미완료다. Gateway/automation-engine 코드 수정0,API/공유/스크립트는 이전8a 전체PASS 이후 불변이다. 실패 원인을 확정하거나 전체 PASS로 바꾸지 않는다. 사용자 승인된 Web/API 복구는 별도로 진행 중이며 Gateway 수정·테스트 재실행·장비/센서 조작은 하지 않는다.
 
 - 2026-10-05 23:39 UTC 최종 UI/코드 검수 승인: f1484e9c의 확인된 두 오류 보완은 관련 단위/브라우저/타입과 독립6파일 검토로 승인됐다(Spec✅/QualityApproved·C0/I0/M0). 독립 QA 일반 원본10장 C0/I0/M1 및 총괄 신규 이력3/inline완료결과3원본 확인을 완료했다. 이전8a 전체 검증과 최신 표적 검증의 소스/시점을 구분한다. 승인된 로컬 통합 준비가 끝났으며 두 테이블 반영·기본 병합·병합 후 test 한 번·Web/API 재시작만 남았다. 특수200%/HIL은 완료로 주장하지 않는다.
 

@@ -2,12 +2,16 @@
 
 ## 최신 실행 결정 — 사용자 요청에 따른 마무리 단순화 (2026-10-05 23:28 UTC)
 
+최종 인계(2026-10-06 08:57 KST): 주석14건/공통화·일반 UI/최종코드검수·신규두테이블반영·기본브랜치병합·Web/API재시작을 완료했다. 앱전용 launcher57956,Web58125/5173,API58193/4000. 컴파일0오류,네메뉴HTML200/TLS live200/미인증직접·프록시401,신규Prisma두모델SELECT정상. root가 실제 원결과/프로세스/listener/main상태를 확인했다. main 전체 test의 Gateway timeout2/API incomplete/UI-policy미실행과 단일 readiness503(MQTTdown)은 미해결로 보존한다. 이전8a 전체PASS와 최신main FAIL을 섞지 않는다. 특수200%/HIL/장비·배포는 인증하지 않는다. 아래 과거 checkpoint보다 이 최종 인계와 위 사용자 단순화 결정이 우선한다.
+
+로컬 통합 checkpoint(23:53UTC): 신규 두 테이블/완료 migration 기록을 원126행 불변인 한 transaction으로 반영하고 DB문서beb2b3ae까지 main에 ff-only 병합했다. Prisma6.19.3 generate0. 병합 후 기본 `pnpm test` 한 번은 Web3235PASS/3SKIP·Gateway1407PASS/2개의 원5000ms timeout으로 exit1이었다. API 최종요약/UI-policy 후속은 미완료이며 전체 PASS로 기록하지 않는다. root는 원로그와 source diff를 확인했다: Gateway/automation-engine은 최초기준32e7 이후 불변이고 API/Gateway/packages/scripts/lock은 이전 전체PASS8a 이후 불변이다. 원인은 미확정이며 Gateway 수정/재실행/시간 증가를 하지 않는다. 사용자 승인된 UI 로컬 반영을 마무리하기 위해 Web/API 재시작은 이 별도 테스트 실패와 구분해 진행한다. 실패가 없어졌다는 판정이 아니다.
+
 이 절이 아래 과거 검수 절차보다 우선한다. 사용자가 검수 지연을 지적하고 최대한 단순하게 진행하도록 요청했다. 구현 Task1~8 및 현재 소스의 lint/typecheck/test/build 통과는 유지한다. 특수 200% 캡처·추가 수집기 검증(R83 포함)은 중단하며 미검증 한계로만 남긴다.
 
 - [x] 남은 두 확인된 문제를 f1484e9c 한 묶음으로 보완: 보고서 이력의 무효 날짜 초안 요청 차단, 데스크톱 완료결과 E2E의 닫기 버튼 scope.
 - [x] 관련 단위/브라우저 회귀와 Web 타입 검사, 독립 일반 화면 검수(C0/I0/M1), 변경6파일 최종 코드 검토(Spec✅/QualityApproved·C0/I0/M0)를 확인했다. 전체 소스 검토의 I1/I2를 해결했으며 추가 필수 수정은 없다.
-- [ ] 승인된 두 신규 테이블만 반영하고 로컬 기본 브랜치에 병합한다. 병합 후 기본 전체 테스트는 한 번만 실행하고 Web/API를 재시작한다.
-- [ ] 최종 상태/메뉴/DB 문서를 맞추고 병합·실행 결과를 보고한다. 원 실패와 로그는 보존하며 확대/HIL 미검증을 통과로 주장하지 않는다.
+- [x] 승인된 두 신규 테이블만 반영하고 로컬 기본 브랜치에 병합했다. 병합 후 기본 전체 테스트는 한 번만 실행해 원 timeout2/미완료를 기록하고 Web/API를 별도 승인 범위에서 재시작했다.
+- [x] 최종 상태/메뉴/DB 문서를 맞췄다. 최종 문서만 추가 병합하며 원 실패/로그·확대/HIL 한계를 보존한다. 원격 push/배포나 Gateway 테스트 수리는 하지 않았다.
 
 기존 UI/UX 세션 재개는 도구 thread limit으로 실패해, 현재 QA 세션을 소스 작성과 분리된 읽기 전용 UI/UX 검수 역할로 전환했다. 추가 세션 생성·전체 검수 재실행·절차 확장은 하지 않는다.
 
@@ -499,15 +503,15 @@ Root Ruling27: 미래단독RealBackendLab에기존publicisolatedCadStorage:true�
 
 - [x] **Step 1:** 개인 숨김 두 신규 테이블 추가와 로컬 Web/API 중지·재실행은 사용자가 명시 승인했다. 별도 브랜치 로컬 병합 권한도 확인했으며 추가 승인을 반복 요청하지 않는다.
 - [x] **Step 2:** 읽기전용 준비에서 main32e7a45 clean,Web71947/5173·API4000없음/기존Nest71896,PG16.14 led_control/public/led,신규두테이블·migration없음을 확인했다. 실제 실행 직전 다시 확인하며 별도 broker41900을 건드리지 않는다. 앱전용 실행으로 재기동해 전체 migration/PKI/broker 준비를 재사용하지 않는다.
-- [ ] **Step 3:** 단독 owner가 확인된 Web/API만 잠시 멈춘다. Gateway/센서/broker는 멈추거나 재설정하지 않는다.
-- [ ] **Step 4:** 동결 migration을 사용자 DB에 한 번만 additive 적용한다. 기존 checksum 불일치를 전체 migrate deploy/resolve/reset으로 치료하지 않는다. 기존 migration 기록은 변경하지 않고 새 migration 식별자만 기록한다.
-- [ ] **Step 5:** 새 migration 완료 기록·두 테이블·shape CHECK/FK/index를 읽기 전용으로 확인한다. 확인 실패 시 병합/새 서버 시작 전 원인을 보고한다.
-- [ ] **Step 6:** 검증 브랜치를 기본 `codex/mvp1-cloud-web`에 non-destructive 병합한다. 기본 HEAD가 예상대로이면 `git merge --ff-only codex/operations-ui-refinement-20261004`를 사용한다. 새로운 사용자 변경은 보존하고 충돌/호환성을 먼저 검토한다. 원격 push/PR/배포는 하지 않는다.
-- [ ] **Step 7:** 기본 폴더에서 `pnpm --filter @led-control/api prisma:generate`를 실행한다. 이 단계가 완료되기 전 새 API를 시작하지 않는다.
-- [ ] **Step 8:** 승인된 Web/API만 단독 owner로 재실행하고 runtime 소유권을 기록한다.
-- [ ] **Step 9:** compiler·Web route·TLS health/live·미인증 정상401·실제 schema/model을 확인한다. readiness의 MQTT 관측은 현재 시점 사실만 보고하고 장비 연결을 고치지 않는다. 실제 사용자 알람 숨김/장비 명령을 smoke 목적으로 보내지 않는다.
-- [ ] **Step 10:** 병합 SHA/clean·검증 범위/미실행 native·HIL·runtime 한계를 완료 상태 문서에 기록한다. 사용자가 받은 최종 보고는 실제 14건 적용/공통화·검수·병합 결과다. 원로그와 이전 업무 worktree/자료는 삭제하지 않는다.
-- [ ] **Step 11:** 검증한 완료 상태 문서만 커밋하고 최종 HEAD/작업 공간 상태를 확인한다.
+- [x] **Step 3:** 기존 Web/API의 확인된 앱 PID만 종료했다. stopped 상태 Nest에는 같은 정체성 확인 후 SIGKILL로 종료를 마쳤다. 별도 broker41900·Gateway·센서는 미접촉이다.
+- [x] **Step 4:** 23:43:22UTC 새 두 테이블과 신규 완료 migration 기록만 한 additive transaction으로 반영했다. 기존 checksum 불일치1/rolled-back1과 원126행 전체가 동일하다. 전체 migrate deploy/resolve/reset은 미실행이다.
+- [x] **Step 5:** 새 checksum·완료 기록 및10필드/2PK/4cascadeFK/2사용자index/완료CHECK/UTC timestamp(3)를 확인했다. 신규 두 테이블은 각0행이다.
+- [x] **Step 6:** DB문서만 추가한beb2b3ae까지 `codex/mvp1-cloud-web`에 ff-only 병합했다. 최초 기준32e7→beb2,원격 push/PR/배포0. 기존 사용자 변경을 덮지 않았다.
+- [x] **Step 7:** main의 Node22/Prisma6.19.3 `prisma:generate` exit0을 확인했다. 기본 전체 test 한 번은 위 timeout2로 exit1이며 재실행하지 않았다. 자기601관측PID drain 완료 후 승인된 앱 복구를 별도 진행한다.
+- [x] **Step 8:** 23:54:03UTC app-only Node22/pnpm으로 Web/API를 재시작했다. launcher/PGID57956,Web58125/5173,API58193/4000 유지. 기존 broker41900·장비/센서는 미접촉이다.
+- [x] **Step 9:** 컴파일0오류,네메뉴HTML200/TLS live200/auth직접·프록시401와 신규Prisma2모델SELECT0행을 확인했다. readiness503은 단일시점 MQTTdown/나머지4up이며 고치거나 정상으로 주장하지 않는다. 로그인/사용자알람/장비 POST는 미실행이다.
+- [x] **Step 10:** 제품f148/통합beb2와 검증 소스·시점,원 mainFAIL/Gatewaytimeout2/API incomplete/UI-policy미실행,특수200%/HIL/readiness 한계를 기록했다. 원 로그/별도브랜치/worktree를 보존하며 원격배포는 하지 않았다.
+- [x] **Step 11:** 최종 상태/계획 두 문서만 별도 커밋해 기본 브랜치에 추가 ff-only 병합한다. 제품 코드는 통합beb2와 동일하며 최종 Git HEAD/clean·두 listener를 다시 확인한다.
 
 ## 계획 자체 검토와 인계
 
