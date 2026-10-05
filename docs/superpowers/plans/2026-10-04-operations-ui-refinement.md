@@ -123,7 +123,7 @@ expect(result.current.draft).toEqual({ year: null, month: null, day: null });
 - [x] **Step 4:** 인접 전체 시험·web typecheck·UI policy를 GREEN 확인한다. 부분 날짜 close/reopen·resize, nested Escape/Back·닫힌 overlay 등록0, page-size generic 호환, header/body 정렬을 검증한다.
 - [ ] **Step 5:** 소유 파일만 `feat(ui): add shared filter and responsive grid contracts`로 커밋하고 BASE/HEAD·원 RED/GREEN 로그·우려를 보고한다. 독립 task spec/quality 승인 뒤 Task 2로 넘긴다.
 
-Task 1 구현 커밋 `8962da09`; 최종 Web 3060PASS/기존3skip·타입/빌드0·UI0·정책67PASS. 독립 task review 배정 완료, 판정 대기. canonical 원 baseline은 UI 전 기존3실패로 exit1이며 해당 원 소스 focused8/7/24PASS만 확인했다. cold disabled/readOnly 부분 초안의 시각 복원 한계는 독립 검토 대상이다.
+Task 1 구현 커밋 `8962da09`; 최종 Web 3060PASS/기존3skip·타입/빌드0·UI0·정책67PASS. 독립 task review Spec❌/quality Needs fixes: cold disabled/readOnly 부분·불가능 날짜 표시 누락 I1. 같은 담당 round1 보완·재검토 전 최종 gate는 미완료다. canonical 원 baseline은 UI 전 기존3실패로 exit1이며 원 소스 focused8/7/24PASS만 확인했다. inherited warning·실제browser·downstream 경계는 최종 검수에 유지한다.
 
 ### Task 2: 공통 지도 기하·툴바와 편집 adapter
 
