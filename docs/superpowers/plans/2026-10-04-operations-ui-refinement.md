@@ -121,9 +121,9 @@ expect(result.current.draft).toEqual({ year: null, month: null, day: null });
 - [x] **Step 2:** `pnpm --filter @led-control/web exec vitest run src/components/ui/FilterPanel.test.tsx src/components/ui/DataGrid.test.tsx src/components/ui/date/useDateDraft.test.tsx src/components/ui/date/useDateRangeDraft.test.tsx src/components/ui/RowActions.test.tsx`로 의도한 RED를 확인한다.
 - [x] **Step 3:** 위 API와 공개 segment bridge를 최소 구현한다. UI wrapper가 query/validation/reset 정책을 갖지 않게 한다.
 - [x] **Step 4:** 인접 전체 시험·web typecheck·UI policy를 GREEN 확인한다. 부분 날짜 close/reopen·resize, nested Escape/Back·닫힌 overlay 등록0, page-size generic 호환, header/body 정렬을 검증한다.
-- [ ] **Step 5:** 소유 파일만 `feat(ui): add shared filter and responsive grid contracts`로 커밋하고 BASE/HEAD·원 RED/GREEN 로그·우려를 보고한다. 독립 task spec/quality 승인 뒤 Task 2로 넘긴다.
+- [x] **Step 5:** 소유 파일만 `feat(ui): add shared filter and responsive grid contracts`로 커밋하고 BASE/HEAD·원 RED/GREEN 로그·우려를 보고한다. 독립 task spec/quality 승인 뒤 Task 2로 넘긴다.
 
-Task 1 구현 커밋 `8962da09`; 해당 소스 Web3060PASS/기존3skip·타입/빌드0·UI0·정책67PASS. 독립 review의 cold disabled/readOnly 날짜 표시 누락 I1은 원 담당 재이탈/idle 뒤 새 내부 GPT6.1 Sol high가 `04765c7d`로 보완했다. RED12실패→최종 날짜86PASS·타입/UI0, scoped 독립 재검토 대기다. canonical 원 baseline은 UI 전 기존3실패로 exit1이며 원 소스 focused8/7/24PASS만 확인했다. inherited warning·실제browser·downstream 경계는 최종 검수에 유지하고 보완 뒤 전체 gate를 이전 수치로 대체하지 않는다.
+Task 1 완료: 구현 `8962da09`와 I1 보완 `04765c7d`, 원 task review+scoped 재검토 승인(ADDRESSED/새 지적0). 원 구현 Web3060PASS/기존3skip·타입/빌드0·UI0·정책67PASS와 보완 후 날짜86PASS·타입/UI0를 구분한다. canonical 원 baseline은 UI 전 기존3실패/exit1이며 원 소스 focused8/7/24PASS만 확인했다. inherited warning·실제browser·downstream·freshfullgates는 최종 검수에 유지하고 이전 수치로 대체하지 않는다.
 
 ### Task 2: 공통 지도 기하·툴바와 편집 adapter
 
