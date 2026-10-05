@@ -42,7 +42,7 @@
 - [x] 이 구현 계획 검토·승인 회수: 2026-10-05 사용자의 “진행해줘”로 승인됐다.
 - [x] 개인 숨김용 신규 additive DDL과 마지막 로컬 서버 반영의 명시적 승인 회수: 새 두 테이블 추가·Web/API 잠시 중지/재시작을 함께 설명한 확인에 2026-10-05 사용자가 승인했다. 이전 읽음 테이블 승인으로 대체하지 않는다.
 
-현재 실행: Task 1~4는 독립 검토와 해당 검증을 완료했다. Task 5 지도 하단 잘림·맵 요약·로그 필터 소비를 기존 모니터링 담당 세션에 배정한다. Tasks 6~10은 아직 미실행이며, 사용자 DB/현재 서버 반영과 기본 브랜치 병합은 최종 검수 뒤 Task 10에서만 수행한다.
+현재 실행: Task 1~5는 독립 검토와 해당 검증을 완료했다. Task 5의 `7b773e4a`+`13ecfac6` 및 보완 `54400893`은 원 I1/I2 모두 ADDRESSED·새C/I/M0의 scoped 재검토로 닫혔다. 제어 담당자의 idle를 확인했고 Task6 공통 Grid/필터·지도 입력·inline 결과만 이어 배정한다. Tasks 7~10은 아직 미실행이며, 사용자 DB/현재 서버 반영과 기본 브랜치 병합은 최종 검수 뒤 Task10에서만 수행한다.
 
 Task 1의 이전 중간 기록: 설치/격리 Prisma/준비 완료, 원 baseline exit 1과 CAD spool·bulk-map·Gateway 분석 CLI의 기존 실패를 보존했다. 원 소스 단독 확인은 각각 8/8·7/7·24/24 PASS이며 전체 baseline 통과로 치환하지 않는다. 당시 UI RED 26실패/20통과와 공통 UI 부분 수정본을 남겼고 GREEN/커밋은 아직 없었다. 담당 세션 압축 뒤 범위 이탈은 작성권 회수·보고/idle 감사로 정리했으며, 기본 checkout/서버/DB/장비 변경은 없었다. 기존 담당에게 정확한 brief/인계 보고로 작성권을 다시 배정했고 이후 완료/보완 결과는 Task 1 하단에 기록했다. 디자이너의 읽기 전용 검수 방법 준비는 실제 Task 9 화면 검증과 구분한다.
 
@@ -54,7 +54,7 @@ Task 1의 이전 중간 기록: 설치/격리 Prisma/준비 완료, 원 baseline
 | 2 | 설정 페이지 담당자 | `features/floor-map` 순수 기하, `components/ui/maps` 툴바, 편집기의 adapter. 지도 생산자 |
 | 3 | 원 자료를 이어받는 내부 Backend 담당자 | `apps/api` 개인 숨김 모델/API·인가/멱등·DB 문서. Backend 생산자 |
 | 4 | 원 자료를 이어받는 내부 Shell 담당자 | Shell의 header/account·알람 API/hook/센터, 운영자 Grid 소비 |
-| 5 | 모니터링 페이지 담당자 | `features/monitoring`: 높이·현장/맵 요약 구분·로그 필터 |
+| 5 | 원 모니터링 자료/WIP를 이어받는 내부 담당자 | `features/monitoring`: 높이·현장/맵 요약 구분·로그 필터 |
 | 6 | 제어 페이지 담당자 | 수동 결과/지도/이력·스케줄/이벤트의 공통 표시 소비 |
 | 7 | 통계 페이지 담당자 | 개요/분석/히트맵/보고서 필터와 보고서 Grid 소비 |
 | 8 | 설정 페이지 담당자 | 사용자 Grid/필터·CAD 후보 목록 페이지 크기 소비 |
@@ -261,21 +261,37 @@ Task 4 완료: `38b6b3d1`+`2ba94c06`, 원 task review의 I1/M1은 scoped 재검�
 
 **Files:** `apps/web/src/features/monitoring/{MonitoringView,FloorMap,MonitoringSummary,MonitoringLogDrawer}.tsx` 및 각 인접 시험, `apps/web/e2e/monitoring-surface-access.spec.ts`, `docs/menus/monitoring.md`.
 
+**추가 소유(총괄 Ruling11):** `components/ui/overlays/DialogBase.tsx`와 기존 `overlays.test.tsx`의 stable dialog ref/공개 forwarded ref/중첩 초점 회귀만. Drawer 내부 날짜 초안 rerender의 실제 stack과 설치된 React Aria의 ref 의존 focus effect를 확인했다. 브라우저 통과로 실패한 단위 회귀를 삭제하지 않고 별도 공통 보완 커밋·직접 RED-GREEN·Task5 독립 검토를 거친다. 영향받는 `docs/menus/{monitoring,control,statistics,settings,operator}.md`에는 공통 초기초점 수명 보완·검증 한계만 함께 기록한다. 기존 디자인/pending/Back/safe-area/조회·명령 정책과 다른 공통 소스는 소유 범위 밖이다.
+
+**추가 시험 소유(총괄 Ruling12):** `App.test.tsx:897`과 `CustomerShell.monitoring.test.tsx:102/116`의 네 실패 사례는 button→group 표시 selector만 이관한다. 원 존재/집계/상세/refresh POST/권한/명령 assertion은 유지하고 직접 두 파일을 확인한다. 원 전체Web4FAIL/3137PASS/3skip은 보존하며 반복하지 않는다. 다른 App/인증/제어 소스나 시험 의미는 변경하지 않는다.
+
+**추가 소유(총괄 Ruling13 / fix round1):** 공통 `ui/session-status/{ToastRegion.tsx,session-status.test.tsx}`와 `features/shells/{CustomerShell.tsx,CustomerShell.monitoring.test.tsx}`의 알림 배치/높이 예약/짧은 모니터링 자연 스크롤 및 직접 회귀만 추가한다. `placement?: "overlay" | "flow"` 기본 overlay로 기존 소비자는 보존하고 CustomerShell은 sticky header 밖·content 앞에 단일 flow band를 소비한다. 실제 알림 높이를 정상 흐름으로 예약하고 표시 중 bounds/hit·복수 장문·전체보기/camera를 확인한다. 다른 공통 소스/더 넓은 구조가 필요하면 정확한 근거를 반환한다. Provider/타이머/알림·ARIA/읽음·숨김/권한/Back/pending/명령 정책은 변경하지 않는다. 영향 모니터링·제어·통계·설정 메뉴에 배치·검증 한계만 기록하며, I2 reset 검색 보존과 함께 covering/scoped 재검토하고 전체Web은 반복하지 않는다.
+
+**시험 입력 보정(총괄 Ruling14 / 같은 fix round1):** native detail gutter의 옛 allocated ShellContent bottom45 기반 좌표는 실제 고정 header를 겨냥했다(events=[]·wheel 이전 실패). detail의 실제 보이는 중간 높이에서 문서 배경 여백을 elementFromPoint로 확인하고 header/nav/map/detail/dialog/interactive를 제외한다. 원 wheel80→문서 끝·내부 입력 page 고정·전체 마지막 의미 행·breakpoint scroll/camera/focus·POST0 단언은 모두 유지하며 새 실제 좌표/target/events를 기록한다. 제품 CSS·programmatic scroll/focus·threshold 완화는 하지 않는다.
+
 **Interfaces:** Task 1의 FilterPanel mode=popover/PageSizeSelect/DateRangeDraft, Task 2의 FloorMapViewport/MapCameraControls, Task 4의 Shell 소유 헤더를 소비한다. FloorMap camera/reset/policy callbacks의 기존 타입/뜻을 유지한다. MonitoringSummary의 site 사용만 제거하고 선택 맵의 filter/onSelect·null 표현은 유지한다.
 
-- [ ] **Reproduction 1:** 격리 fixture의 1287×1226/390×320/1440×600에서 Shell→Monitoring→frame→viewport→surface→footer/범례의 실제 bounds/scrollHeight를 기록해 원 잘림을 재현한다.
-- [ ] **Step 1:** RED `map footer remains reachable without resetting camera after header relocation`, `log filter close preserves partial dates and scoped cursor`를 추가한다.
+- [x] **Reproduction 1:** 격리 fixture의 1287×1226/390×320/1440×600에서 Shell→Monitoring→frame→viewport→surface→footer/범례의 실제 bounds/scrollHeight를 기록했다. 이 원 fixture에서는 viewport 잘림이 재현되지 않아 높이 CSS를 억지로 변경하지 않았다. 짧은 화면의 자연스러운 세로 스크롤과 확대 도면 부분 표시를 구분했다.
+- [x] **Step 1:** RED `map footer remains reachable without resetting camera after header relocation`, `log filter close preserves partial dates and scoped cursor`를 추가한다.
 
 browser의 가로 넘침 단언은 아래와 같으며, 별도로 footer/범례의 실제 bounds와 입력 접근을 검증한다.
 
 ```ts
 expect(await page.locator("html").evaluate(el => el.scrollWidth - el.clientWidth)).toBe(0);
 ```
-- [ ] **Step 2:** `pnpm --filter @led-control/web exec vitest run src/features/monitoring/MonitoringView.test.tsx src/features/monitoring/FloorMap.test.tsx src/features/monitoring/MonitoringLogDrawer.test.tsx`와 표적 browser RED를 확인한다. 확대 surface의 정상 부분 표시를 viewport 잘림으로 오판하지 않는다.
-- [ ] **Step 3:** 입증된 높이/overflow 경계만 수정하고 본문 site 요약을 제거한다. 맵 요약은 맵 이름·선택 필터로 헤더 현장 밴드와 구별한다. 로그 검색은 외부, 기간/limit는 Popover로 이동한다. 기본 limit 50, 옵션 50/100/500/1000, 기간 null, 3개월 보관, cursor400 첫 페이지 복구는 보존한다.
-- [ ] **Step 4:** GREEN unit/type/UI와 실제 browser wheel/keyboard 끝 항목·camera1023↔1024/전체보기·로그 끝/44px 필터·scope 변경의 늦은 응답을 확인한다. 헤더/로그/도구/범례 겹침 0, 선택하지 않은 조명 상세 0, 추가 제어 POST 0이다.
-- [ ] **Step 5:** 메뉴에 실제 구현 범위/검증 한계를 기록한다.
-- [ ] **Step 6:** `fix(monitoring): preserve map space and shared log filters`로 소유 파일을 커밋 후 독립 검토받는다.
+- [x] **Step 2:** `pnpm --filter @led-control/web exec vitest run src/features/monitoring/MonitoringView.test.tsx src/features/monitoring/FloorMap.test.tsx src/features/monitoring/MonitoringLogDrawer.test.tsx`와 표적 browser RED를 확인한다. 확대 surface의 정상 부분 표시를 viewport 잘림으로 오판하지 않는다.
+- [x] **Step 3:** 입증된 높이/overflow 경계만 수정하고 본문 site 요약을 제거한다. 맵 요약은 맵 이름·선택 필터로 헤더 현장 밴드와 구별하고 상태 조회 조작은 공통 FilterPanel Popover로 연결한다. 기존 로그에는 검색 계약이 없으므로 가짜 검색을 만들지 않으며, 기간/limit를 Popover로 이동한다. 기본 limit 50, 옵션 50/100/500/1000, 기간 null, 3개월 보관, cursor400 첫 페이지 복구는 보존한다.
+- [x] **Step 4:** GREEN unit/type/UI와 실제 browser wheel/keyboard 끝 항목·camera1023↔1024/전체보기·로그 끝/44px 필터·scope 변경의 늦은 응답을 확인한다. 헤더/로그/도구/범례 겹침 0, 선택하지 않은 조명 상세 0, 추가 제어 POST 0이다. 표시 수명 중 알림은 flow 정상 스크롤로 위에 벗어날 수 있으며 실제 footer 시점 visible0을 기록한다. 임의 초장문·전체 상태 조합의 통합 검수는 Task9 범위로 유지한다.
+- [x] **Step 5:** 메뉴에 실제 구현 범위/검증 한계를 기록한다.
+- [x] **Step 6:** `fix(monitoring): preserve map space and shared log filters`로 소유 파일을 커밋 후 독립 검토받는다.
+
+Task 5 중간 회수: `7b773e4a` 공통 ref 수명 보완을 먼저 커밋하고 `13ecfac6` 모니터링 소비를 커밋했다. 직접312PASS·타입/UI0·20모의browserPASS와 후속 capture1/표시호환75PASS는 실제 Node22/exit metadata·원로그로 확인했다. 전체Web 한 번의3137PASS/4FAIL/3skip은 뒤의 네 selector 이관 전 실패이며 전체통과로 바꾸지 않는다. 원 알림 표시 중 footer 입력 가림 및 최종 상태·폭 matrix는 미승인으로 Step4를 열어두고 독립 검토에서 판정한다. 실제200%는 headless 브라우저 확대와 CDP fromSurface:false compositor PNG 한 사례이며 빈 Playwright PNG는 보존하고 headed/native/HIL/최종시각 승인으로 확대하지 않는다. 총괄은 16파일 committed/working/verified blob 일치를 별도로 대조했다.
+
+Task 5 독립 gate: 전체 `task-5-review.md`를 회수해 Spec❌/Needs fixes·Critical0/Important2/Minor1을 확인했다. I1은 실제 알림 표시 중 footer 입력 가림, I2는 새 외부 reset이 기존 `onSelect("all")`의 검색 삭제까지 호출하는 문제다. 같은 구현 담당자에게 FIX_BASE13ecfac6의 논리 보완 round1을 배정했다. I2는 별도 reset callback·원 선택 의미 유지, I1은 공통 알림/쉘 배치의 최소 소유 제안 후 승인 범위만 수정한다. 재현을 닫기 전 PASS로 바꾸지 않으며 직접 covering 재검증·scoped 재검토 전 Task6로 넘기지 않는다. M1 경고는 기존 owner/최종검토 triage에 유지한다.
+
+Task 5 보완 회수: `54400893` 13파일·원/full append 보고·원로그·별도 blob 대조를 확인했다. 현재 생산 소스는593PASS, 보완된3시험은105PASS에 각각 일치하고 타입/UI0다. 원23browser의22PASS/1FAIL은 보존하며, 후속 atomic알림2PASS·native상세1PASS·finalE2E타입0를 별도 기록한다. flow 알림은 표시 수명/DOM을 유지한 채 자연 문서 스크롤로 위에 벗어날 수 있으며 해당 footer 시점 visible0을 명시했다. 원/수정PNG 및 현재 headless 실제200% compositorPNG를 직접 확인했으나 최종 headed/장문·상태/native/HIL은 미검증이다. 독립 scoped 재검토에서 I1/I2 및 새 보완 부작용을 판정 중이며 Step4/6은 아직 열려 있다.
+
+Task 5 완료: 전체 `task-5-rereview.md`를 회수했다. I1/I2 모두 ADDRESSED·새Critical0/Important0/Minor0이며 원 나머지 broad Spec✅와 결합해 요구/품질 gate를 승인했다. 원23 및 전체Web 실패 경계는 그대로 두고, 직접593/105·타입/UI0·affected 알림2/상세1·13파일 hash를 실제 검증 소스에 연결했다. 기존 M1/noise와 headed/native/HIL/전체 상태·폭·사용자runtime은 Task9/10에 유지한다. 소유 sourceclean/자체자원 종료·idle를 확인하고 제어 담당자에게 Task6만 넘긴다.
 
 ### Task 6: 제어의 공통 Grid/필터·지도 입력·inline 결과
 
