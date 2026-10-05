@@ -155,6 +155,13 @@ describe("actual common editor Canvas", () => {
     act(() => store().setViewport({ width: 800, height: 500 }));
     expect(store().pan).toEqual({ x: 40, y: 50 });
   });
+  it("waits for viewport measurement without resetting an existing user camera", () => {
+    vi.mocked(HTMLElement.prototype.getBoundingClientRect).mockReturnValue({ x: 0, y: 0, left: 0, top: 0, right: 0, bottom: 0, width: 0, height: 0, toJSON() {} });
+    store().setZoom(1.5); store().setPan({ x: 40, y: 50 });
+    render(<Canvas />);
+    expect(store().zoom).toBe(1.5);
+    expect(store().pan).toEqual({ x: 40, y: 50 });
+  });
   it("commits wheel zoom once after the gesture instead of updating Zustand per wheel event", async () => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     try {

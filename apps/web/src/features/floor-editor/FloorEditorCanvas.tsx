@@ -5,6 +5,7 @@ import { Circle, Image as KonvaImage, Label, Layer, Line, Rect, Shape, Stage, Ta
 import { Button, FeedbackState, Text as UiText, themeColor } from "../../components/ui";
 import { TriangleAlert } from "lucide-react";
 import { FloorMapObjectNode, trianglePoints } from "../floor-map/FloorScene";
+import { cameraFromTransform, fitMapTransform, mapViewportBounds } from "../floor-map/map-camera-geometry";
 import {
   alignRectToGuides,
   clampEditorZoom,
@@ -47,6 +48,8 @@ import type { MapEditorController } from "./use-map-editor";
 import { isEditorTextTarget } from "./map-editor-selection";
 import { createMapElementFromDrag, createMapPathDraft, appendMapPathPoint, finishMapPathDraft, type MapPathDraft } from "./map-element-tools";
 
+// Camera fit reserves 48 CSS px in the measured viewport, not document padding.
+const FIT_VIEWPORT_PADDING = 24;
 const TOOL_DRAG_TYPE = "application/x-floor-editor-tool";
 const drawingTools = new Set<EditorTool>(["rectangle", "triangle", "line", "text", "ellipse", "arc", "polyline", "polygon"]);
 type Gesture = { kind: "pan" | "marquee" | "draw"; start: Point; screen: Point; pan: Point; additive: boolean; moved: boolean };
@@ -231,12 +234,11 @@ export function FloorEditorCanvas({
   const renderedCamera = cameraOverride.current;
   const renderedPan = renderedCamera?.pan ?? pan;
   const renderedZoom = renderedCamera?.zoom ?? zoom;
-  const viewportBounds = {
-    x: -renderedPan.x / renderedZoom,
-    y: -renderedPan.y / renderedZoom,
-    width: viewport.width / renderedZoom,
-    height: viewport.height / renderedZoom
-  };
+  const renderedTransform = { pan: renderedPan, zoom: renderedZoom };
+  const worldBounds = mapViewportBounds(renderedTransform, viewport);
+  // Spatial-index rectangles use x/y, while shared camera geometry uses left/top.
+  const viewportBounds = { x: worldBounds.left, y: worldBounds.top, width: worldBounds.width, height: worldBounds.height };
+  const renderedSceneCamera = cameraFromTransform(renderedTransform, viewport);
   const applyImperativeCamera = useCallback((nextPan: Point, nextZoom: number, refreshVirtualizedView = false) => {
     cameraOverride.current = { pan: nextPan, zoom: nextZoom };
     container.current?.setAttribute("data-zoom", String(nextZoom));
@@ -245,13 +247,8 @@ export function FloorEditorCanvas({
     const transform = { x: nextPan.x, y: nextPan.y, scaleX: nextZoom, scaleY: nextZoom };
     stage.current?.getLayers().forEach((layer) => layer.setAttrs(transform));
     const currentMap = mapEditorRef.current;
-    currentMap?.handle.current?.setCamera({
-      centerX: (viewport.width / 2 - nextPan.x) / nextZoom,
-      centerY: (viewport.height / 2 - nextPan.y) / nextZoom,
-      zoom: nextZoom,
-      viewportWidth: viewport.width,
-      viewportHeight: viewport.height
-    });
+    const camera = cameraFromTransform({ pan: nextPan, zoom: nextZoom }, viewport);
+    if (camera) currentMap?.handle.current?.setCamera(camera);
     if (refreshVirtualizedView) setCameraRenderVersion((version) => version + 1);
   }, [viewport.height, viewport.width]);
   const commitCamera = useCallback(() => {
@@ -280,13 +277,8 @@ export function FloorEditorCanvas({
     container.current?.setAttribute("data-zoom", String(current.zoom));
     container.current?.setAttribute("data-pan-x", String(current.pan.x));
     container.current?.setAttribute("data-pan-y", String(current.pan.y));
-    mapEditorRef.current?.handle.current?.setCamera({
-      centerX: (viewport.width / 2 - current.pan.x) / current.zoom,
-      centerY: (viewport.height / 2 - current.pan.y) / current.zoom,
-      zoom: current.zoom,
-      viewportWidth: viewport.width,
-      viewportHeight: viewport.height
-    });
+    const camera = cameraFromTransform({ pan: current.pan, zoom: current.zoom }, viewport);
+    if (camera) mapEditorRef.current?.handle.current?.setCamera(camera);
   }, [viewport.height, viewport.width]);
   const visibleFixtures = useMemo(() => {
     if (cadReviewActive) return [];
@@ -318,13 +310,15 @@ export function FloorEditorCanvas({
       : mapEditor?.document ? `${state?.floor.id}:${mapEditor.document.generationId}:${target.width}:${target.height}`
       : `${state?.floor.id}:${cadSceneDescriptor?.id ?? cadBackgroundUrl ?? "empty"}:${target.width}:${target.height}`;
     const current = useFloorEditorStore.getState();
+    if (!current.state) return;
     const previous = lastAutoFitCamera.current;
     // The first layout can precede the route/panel's final height. Follow
     // measured layout until the user changes the camera, then preserve it.
     if (lastAutoFitKey.current === key && previous && (current.zoom !== previous.zoom || current.pan.x !== previous.pan.x || current.pan.y !== previous.pan.y)) return;
+    const fitted = fitMapTransform({ bounds: { left: 0, top: 0, width: target.width, height: target.height }, viewport, padding: FIT_VIEWPORT_PADDING, minZoom: 0.001, maxZoom: 2 });
+    if (!fitted) return;
     lastAutoFitKey.current = key;
-    current.fit(false, target);
-    const fitted = useFloorEditorStore.getState();
+    useFloorEditorStore.setState(fitted);
     lastAutoFitCamera.current = { zoom: fitted.zoom, pan: fitted.pan };
   }, [measured, state?.floor.id, cadImportScene?.jobId, cadImportScene?.manifest, mapEditor?.document, cadBackgroundUrl,
     cadViewport, cadSceneDescriptor, floorPlan?.width, floorPlan?.height, viewport.width, viewport.height]);
@@ -877,10 +871,9 @@ export function FloorEditorCanvas({
     onMouseDown={begin} onMouseMove={move} onMouseUp={finish} onMouseLeave={(e) => { if (gesture.current?.kind === "pan") finish(e); else { cancelPointerMove(); gesture.current = null; creationDraft.current = null; mapCreationDraft.current = null; marqueeDraft.current = null; setCreation(null); setMapCreation(null); setMarquee(null); setIsPanning(false); } }}
     onPointerDown={beginTouch} onPointerMove={moveTouch} onPointerUp={finishTouch} onPointerCancel={(event) => finishTouch(event, true)}
     onDragOver={dragOver} onDragLeave={() => { cancelPointerMove(); setDropPreview(null); setHighlightedSlotId(null); }} onDrop={drop}>
-    {!cadReviewActive && mapEditor?.document && measured ? <MapSceneCanvas
+    {!cadReviewActive && mapEditor?.document && measured && renderedSceneCamera ? <MapSceneCanvas
       source={mapEditor.source} documentRef={mapEditor.document}
-      camera={{ centerX: (viewport.width / 2 - renderedPan.x) / renderedZoom, centerY: (viewport.height / 2 - renderedPan.y) / renderedZoom,
-        zoom: renderedZoom, viewportWidth: viewport.width, viewportHeight: viewport.height }}
+      camera={renderedSceneCamera}
       readOnly={mapEditor.readOnly} platform={viewport.width < 768 ? "mobile" : "desktop"}
       promotedElementIds={mapEditor.promotedIds} onReady={mapEditor.onReady} onManifest={mapEditor.onManifest}
       onError={mapEditor.reportError} onDegraded={() => mapEditor.reportError(new Error("맵 표시 자원이 부족합니다. 화면을 좁혀 다시 시도해주세요."))}

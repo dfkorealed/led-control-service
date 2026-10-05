@@ -33,6 +33,7 @@ import {
 } from "./map-gestures";
 import type { CadSceneCamera } from "../cad-scene/cad-scene-camera";
 import { cameraFromBounds, isMapViewportCamera, type MapViewportCamera } from "./map-camera";
+import { cameraFromTransform, screenToMapWorld } from "./map-camera-geometry";
 
 export interface FloorMapViewportHandle {
   getCamera(): MapViewportCamera | null;
@@ -206,19 +207,16 @@ export const FloorMapViewport = forwardRef<FloorMapViewportHandle, FloorMapViewp
       const width = right - left;
       const height = bottom - top;
       if (width > 0 && height > 0 && contentWidth > 0 && contentHeight > 0) {
+        // The measured content scale already includes fitScale * relative zoom,
+        // excluding the border. The overlay camera uses the clipped screen origin.
         const scale = contentWidth / snapshot.width;
-        frame = {
+        const camera = cameraFromTransform({ pan: { x: contentLeft - left, y: contentTop - top }, zoom: scale }, { width, height });
+        if (camera) frame = {
           left: left - contentLeft,
           top: top - contentTop,
           width,
           height,
-          camera: {
-            centerX: ((left + right) / 2 - contentLeft) / scale,
-            centerY: ((top + bottom) / 2 - contentTop) / scale,
-            zoom: scale,
-            viewportWidth: width,
-            viewportHeight: height
-          }
+          camera
         };
       }
     }
@@ -430,10 +428,7 @@ export const FloorMapViewport = forwardRef<FloorMapViewportHandle, FloorMapViewp
       });
     }
     const scale = metrics.fitScale * zoomRef.current;
-    return {
-      x: (client.x - (bounds?.left ?? 0)) / scale,
-      y: (client.y - (bounds?.top ?? 0)) / scale
-    };
+    return screenToMapWorld(client, { pan: { x: bounds?.left ?? 0, y: bounds?.top ?? 0 }, zoom: scale });
   }
 
   function scheduleMapAnchor(input: {

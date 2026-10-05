@@ -1,5 +1,14 @@
 # 설정 메뉴 기능 현황 및 구현 설계
 
+## 2026-10-05 공통 지도 기하·카메라 도구 (Task 2)
+
+- 구현 완료: 화면/맵 좌표 왕복, 실제 배율의 카메라 변환, viewport의 맵 경계, 화면 맞춤 계산을 공통 순수 기하로 분리했다. 운영 viewport의 실제 표시 영역과 편집기의 카메라·공간 인덱스·클릭 좌표·최초 자동 맞춤이 이를 소비한다. 운영 상대 배율과 편집 실제 배율은 별도로 유지하며 미측정 viewport의 카메라/맞춤은 대기한다.
+- 구현 완료: 공통 `MapCameraControls`를 편집 툴바에 연결했다. 100% 초기화, 맵 맞춤, 선택 맞춤은 각각 기존 callback을 사용한다. 편집 줌 0.001~4와 자동 맞춤 상한 2, 기존 카메라의 지연 커밋, undo/redo·저장·패널 소유권을 유지한다. 버튼은 기존 44px 공통 컴포넌트를 사용하고 줌 경계와 외부 disabled 조건을 표시한다.
+- 미구현: 운영·제어 화면의 공통 툴바 소비 변경, 후속 브라우저 200%/실제 입력·레이아웃 검증 및 Task 9 원 1,000조명 cold/warm 성능 관문은 아직 진행하지 않았다. 실제 WebView·실장비·사용자 DB·서버 적용은 이번 작업에 포함하지 않는다.
+- 부족하거나 개선이 필요한 기능: 운영 0.1~4 상대 줌, 드래그 8 CSS px·터치 400ms·운영 조명 48px·편집 hit 여유 22px와 renderer·lease/revision/CAD/저장 ACK는 기존 경계를 유지한다. 공통 문서 더블클릭의 배열 첫 hit 위험은 이번 추출로 해결하지 않았다. 최종 단위/인접 회귀는 56파일·819통과·실패/skip 0이며 타입 검사와 UI 정책 위반 0을 확인했다. 오류 주입 테스트의 Konva/Nest 경고는 원 로그에 보존한다. 독립 검토와 Task 9 브라우저/성능 판정은 별도이며 과거 성능 통과를 새 소스의 통과로 재사용하지 않는다.
+- 관련 파일: `apps/web/src/features/floor-map/map-camera-geometry.ts`, `FloorMapViewport.tsx`, `apps/web/src/components/ui/maps/MapCameraControls.tsx`, `apps/web/src/features/floor-editor/{geometry,use-map-editor}.ts`, `FloorEditorCanvas.tsx`, `FloorEditorView.tsx`와 직접 테스트.
+- 갱신 규칙: 공유 기하 변경 시 실제 배율/상대 배율, viewport 미측정 대기, reset/fit 분리, 사용자 카메라 보존 및 편집 입력·저장 회귀를 함께 검증한다. 브라우저 성능·실기기/HIL·운영 반영은 별도 실행 증거로 기록한다.
+
 ## 2026-10-04 운영 공통 시각·편집기 최종 검증 checkpoint
 
 - 구현 완료: 공통 초 단위 시각 소비자와 기존 편집기 보존을 독립 검토했다. 보완된 cold/warm 원1,000조명 회귀2는3.132/2.562초에 원8초·첫ID·단일 클릭·픽셀·X50 저장 조건을 그대로 통과했다. 변경 없는 포인터/compact 증거는 별도로 유지한다.

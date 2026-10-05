@@ -14,7 +14,7 @@ import { inspectMapSelection, matchesMapSelectionFilter, streamMapSelection, typ
 import { finishSelectionMove, fitSelectionCamera, selectionFixtureBounds, transformSelectedFixtures } from "./map-selection-transform";
 import type { MapEditorTransaction } from "./editor-store";
 import { addMapPolygonHole, removeMapPolygonHole } from "./map-element-tools";
-import { snapPointToGridWithinBounds } from "./geometry";
+import { screenToWorld, snapPointToGridWithinBounds } from "./geometry";
 
 export type MapEditorController = ReturnType<typeof useMapEditor>;
 const EMPTY_SELECTION: MapSelectionSummary = { count: 0, bounds: null, inline: [], locked: false };
@@ -322,14 +322,14 @@ export function useMapEditor({ floorId, authScope, readOnly, lease }: { floorId:
     try {
       // Promoted originals are deliberately masked out of renderer picking.
       const store = useFloorEditorStore.getState();
-      const worldPoint = { x: (point.x - store.pan.x) / store.zoom, y: (point.y - store.pan.y) / store.zoom };
+      const worldPoint = screenToWorld(point, store.pan, store.zoom);
       const light = store.layers.fixtures.visible ? store.state?.fixtures.find(f => f.placementStatus !== "unplaced" &&
         Math.hypot(f.x - worldPoint.x, f.y - worldPoint.y) <= Math.max((f.size ?? 20) / 2, 22 / store.zoom)) : null;
       if (light) { selectFixture(light.id, additive); return; }
       // Resolve child entry against the exact selected canonical geometries.
       if (promotedIds.length) {
         const current = useFloorEditorStore.getState();
-        const world = { x: (point.x - current.pan.x) / current.zoom, y: (point.y - current.pan.y) / current.zoom };
+        const world = screenToWorld(point, current.pan, current.zoom);
         const local = selection.filter(element => promotedIds.includes(element.id) && element.visible)
           .sort((a, b) => (layers.get(b.layerId)?.order ?? 0) - (layers.get(a.layerId)?.order ?? 0) || b.zIndex - a.zIndex)
           .find(element => hitMapElement(element, world, 4 / current.zoom, current.zoom));

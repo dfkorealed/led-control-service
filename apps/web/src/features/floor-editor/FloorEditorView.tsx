@@ -1,11 +1,12 @@
 import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { Bell, CircleCheck, PanelLeft, PanelRight, RotateCcw, Save, TriangleAlert, Undo2, Redo2, ZoomIn, ZoomOut, Maximize, Focus, X } from "lucide-react";
+import { Bell, CircleCheck, PanelLeft, PanelRight, RotateCcw, Save, TriangleAlert, Undo2, Redo2, X } from "lucide-react";
 import { type DragEvent, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import type { AuthUser } from "../../api/auth";
 import { ApiError } from "../../api/client";
 import { Button, Checkbox, ConfirmDialog, FeedbackState, Heading, IconButton, IconTooltipButton, ModalDialog, SelectBox, SidePanel, Text, formatTimestamp, useSessionStatus, useSessionToast, type SessionStatusItem } from "../../components/ui";
+import { MapCameraControls } from "../../components/ui/maps/MapCameraControls";
 import {
   listFloorEditorRevisions,
   getAppliedFloorImportOverlay,
@@ -491,11 +492,10 @@ export function FloorEditorView({
           <IconTooltipButton size="sm" ref={toolsToggle} icon={PanelLeft} label="도구 및 조명 패널" aria-expanded={toolsVisible} aria-controls="editor-tools-panel" onClick={() => togglePanel("tools")} />
           <IconTooltipButton size="sm" icon={Undo2} label="실행 취소" disabled={isSaveOrRestoreBlocked || !past.length} onClick={() => void map.history("undo")} />
           <IconTooltipButton size="sm" icon={Redo2} label="다시 실행" disabled={isSaveOrRestoreBlocked || !future.length} onClick={() => void map.history("redo")} />
-          <IconTooltipButton size="sm" icon={ZoomOut} label="축소" onClick={() => setZoom(zoom / 1.1)} />
-          <Button variant="secondary" className="h-11 w-16 shrink-0 px-1" aria-label="100%" title="100%" onClick={resetZoom}>{Math.round(zoom * 100)}%</Button>
-          <IconTooltipButton size="sm" icon={ZoomIn} label="확대" onClick={() => setZoom(zoom * 1.1)} />
-          <IconTooltipButton size="sm" icon={Maximize} label="맵 맞춤" onClick={() => useFloorEditorStore.getState().fit(false, visibleCadViewport ?? undefined)} />
-          <IconTooltipButton size="sm" icon={Focus} label="선택 맞춤" onClick={() => map.document ? map.fitSelection() : useFloorEditorStore.getState().fit(true)} />
+          <MapCameraControls zoomPercent={Math.round(zoom * 100)} onZoomOut={() => setZoom(zoom / 1.1)} onZoomIn={() => setZoom(zoom * 1.1)}
+            onResetZoom={resetZoom} onFit={() => useFloorEditorStore.getState().fit(false, visibleCadViewport ?? undefined)}
+            onFitSelection={() => map.document ? map.fitSelection() : useFloorEditorStore.getState().fit(true)}
+            canZoomOut={zoom > 0.001} canZoomIn={zoom < 4} fitLabel="맵 맞춤" />
           <IconTooltipButton size="sm" ref={informationToggle} icon={PanelRight} label="편집 정보 패널" aria-expanded={informationVisible} aria-controls="editor-information-panel" onClick={() => togglePanel("information")} />
           <IconTooltipButton size="sm" icon={Bell} label="편집 복구" disabled={!notices.some(item => item.action)} onClick={() => setFeedbackOpen(true)} />
         </div>

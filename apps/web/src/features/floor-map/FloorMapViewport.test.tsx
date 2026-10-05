@@ -197,6 +197,31 @@ describe("FloorMapViewport", () => {
     } finally { cleanup(); request.mockRestore(); }
   });
 
+  it("publishes a clipped physical camera independently of the stored relative zoom", () => {
+    const pending: FrameRequestCallback[] = [];
+    const request = vi.spyOn(globalThis, "requestAnimationFrame").mockImplementation(callback => pending.push(callback));
+    const onFrame = vi.fn();
+    const ref = createRef<import("./FloorMapViewport").FloorMapViewportHandle>();
+    function Observer() {
+      const overlay = useFloorMapViewportOverlay();
+      useEffect(() => overlay?.subscribe(onFrame), [overlay]);
+      return null;
+    }
+    try {
+      render(<FloorMapViewport ref={ref} snapshot={snapshot} ariaLabel="physical camera"><Observer /></FloorMapViewport>);
+      const viewport = screen.getByRole("region", { name: "physical camera" });
+      const surface = document.querySelector<HTMLElement>("[data-floor-map-surface]")!;
+      vi.spyOn(viewport, "getBoundingClientRect").mockReturnValue(rect(0, 0, 200, 150));
+      // 600 world units rendered into 300 CSS px means physical scale .5.
+      vi.spyOn(surface, "getBoundingClientRect").mockReturnValue(rect(-60, -10, 300, 200));
+      act(() => ref.current!.restoreCamera({ centerXRatio: .5, centerYRatio: .5, zoom: 2 }));
+      act(() => pending.splice(0).forEach(callback => callback(0)));
+      expect(ref.current!.getCamera()?.zoom).toBe(2);
+      expect(onFrame).toHaveBeenLastCalledWith({ left: 60, top: 10, width: 200, height: 150,
+        camera: { centerX: 320, centerY: 170, zoom: .5, viewportWidth: 200, viewportHeight: 150 } });
+    } finally { cleanup(); request.mockRestore(); }
+  });
+
   it("gives two-pointer pinch precedence over area selection and prevents a jump", () => {
     render(<ViewportHarness mode="area" />);
     const viewport = screen.getByRole("region", { name: "테스트 지도" });

@@ -16,6 +16,11 @@ describe("floor editor geometry", () => {
     expect(screenToWorld({ x: 260, y: 140 }, { x: 20, y: 40 }, 2)).toEqual({ x: 120, y: 50 });
   });
 
+  it("preserves the legacy unset scale fallback and the small physical editor scale", () => {
+    expect(screenToWorld({ x: 260, y: 140 }, { x: 20, y: 40 }, 0)).toEqual({ x: 240, y: 100 });
+    expect(screenToWorld({ x: 50, y: 70 }, { x: 10, y: 10 }, 0.001)).toEqual({ x: 40000, y: 60000 });
+  });
+
   it("clamps points inside the floor plan bounds", () => {
     expect(clampPoint({ x: -8, y: 920 }, { width: 1200, height: 800 })).toEqual({ x: 0, y: 800 });
     expect(clampPoint({ x: 560, y: 240 }, { width: 1200, height: 800 })).toEqual({ x: 560, y: 240 });
