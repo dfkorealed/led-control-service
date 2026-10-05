@@ -1,4 +1,6 @@
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { useState } from "react";
+import { closeTopOverlay } from "./overlays/overlay-stack";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import * as UI from "./index";
 
@@ -10,6 +12,77 @@ function panel() {
 afterEach(cleanup);
 
 describe("FilterPanel", () => {
+  it("supports compact inline density while preserving the legacy default", () => {
+    const view = render(<UI.FilterPanel label="밀도" variant="compact"><span>조건</span></UI.FilterPanel>);
+    expect(screen.getByRole("region", { name: "밀도" })).toHaveClass("gap-2");
+    view.rerender(<UI.FilterPanel label="밀도"><span>조건</span></UI.FilterPanel>);
+    expect(screen.getByRole("region", { name: "밀도" })).toHaveClass("gap-3");
+  });
+  it("legacy filter panel remains inline", () => {
+    render(<UI.FilterPanel label="기존"><UI.TextField label="조건" /></UI.FilterPanel>);
+    expect(screen.getByRole("textbox", { name: "조건" })).toBeVisible();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button")).not.toBeInTheDocument();
+  });
+  it("keeps search and logical summary outside and preserves search on filter reset", async () => {
+    function Example() {
+      const [query, setQuery] = useState("조명"); const [filtered, setFiltered] = useState(true);
+      return <UI.FilterPanel label="목록" mode="popover" activeFilterCount={filtered ? 1 : 0}
+        search={<UI.SearchField label="검색" value={query} onChange={setQuery} />}
+        summary={<span>기간 한 쌍</span>} chips={<span>중복 요약</span>}
+        filterReset={<UI.Button onClick={() => setFiltered(false)}>필터 초기화</UI.Button>}>
+        <UI.TextField label="시작일" />
+      </UI.FilterPanel>;
+    }
+    render(<Example />);
+    expect(screen.getByRole("searchbox", { name: "검색" })).toHaveValue("조명");
+    expect(screen.queryByRole("textbox", { name: "시작일" })).not.toBeInTheDocument();
+    expect(screen.queryByText("중복 요약")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "필터 초기화" }));
+    expect(screen.getByRole("searchbox", { name: "검색" })).toHaveValue("조명");
+    const trigger = screen.getByRole("button", { name: /목록 상세 필터/ });
+    trigger.focus(); fireEvent.click(trigger);
+    expect(await screen.findByRole("dialog", { name: "목록" })).toHaveTextContent("필터 초기화");
+    fireEvent.click(screen.getByRole("button", { name: "필터 닫기" }));
+    await waitFor(() => expect(trigger).toHaveFocus());
+    expect(closeTopOverlay()).toBe(false);
+  });
+  it("nested select back closes topmost first and leaves closed collections unregistered", async () => {
+    render(<UI.FilterPanel label="중첩" mode="popover"><UI.SelectBox label="상태" items={[{ id: "all", label: "전체" }]} selectedKey="all" /></UI.FilterPanel>);
+    expect(closeTopOverlay()).toBe(false);
+    const trigger = screen.getByRole("button", { name: /중첩 상세 필터/ }); trigger.focus(); fireEvent.click(trigger);
+    fireEvent.click(await screen.findByRole("button", { name: "상태" }));
+    await screen.findByRole("listbox");
+    act(() => expect(closeTopOverlay()).toBe(true));
+    await waitFor(() => expect(screen.queryByRole("listbox")).not.toBeInTheDocument());
+    expect(screen.getByRole("dialog", { name: "중첩" })).toBeInTheDocument();
+    act(() => expect(closeTopOverlay()).toBe(true));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(closeTopOverlay()).toBe(false);
+  });
+  it("retains controlled open state and pending dismissal locks", () => {
+    const change = vi.fn();
+    render(<UI.FilterPanel label="잠금" mode="popover" isOpen isDismissDisabled onOpenChange={change}><UI.TextField label="입력" /></UI.FilterPanel>);
+    const dialog = screen.getByRole("dialog", { name: "잠금" });
+    fireEvent.keyDown(dialog, { key: "Escape" });
+    act(() => closeTopOverlay());
+    fireEvent.click(screen.getByRole("button", { name: "필터 닫기" }));
+    expect(change).not.toHaveBeenCalled(); expect(dialog).toBeInTheDocument();
+  });
+  it("nested calendar Escape closes topmost first and returns final focus to the filter trigger", async () => {
+    render(<UI.FilterPanel label="날짜 필터" mode="popover"><UI.DatePicker label="날짜" value="2026-02-28" onChange={() => {}} /></UI.FilterPanel>);
+    const trigger = screen.getByRole("button", { name: /날짜 필터 상세 필터/ });
+    act(() => trigger.focus()); fireEvent.click(trigger);
+    fireEvent.click(await screen.findByRole("button", { name: /달력/ }));
+    const calendar = await screen.findByRole("grid");
+    fireEvent.keyDown(calendar, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("grid")).not.toBeInTheDocument());
+    expect(screen.getByRole("dialog", { name: "날짜 필터" })).toBeInTheDocument();
+    fireEvent.keyDown(screen.getByRole("dialog", { name: "날짜 필터" }), { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    await waitFor(() => expect(trigger).toHaveFocus());
+    expect(closeTopOverlay()).toBe(false);
+  });
   it("preserves field labels, errors, descriptions, callbacks and slot DOM order", () => {
     const FilterPanel = panel();
     const change = vi.fn(); const reset = vi.fn();

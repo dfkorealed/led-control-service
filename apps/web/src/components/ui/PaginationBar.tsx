@@ -1,6 +1,6 @@
 import type { ReactElement } from "react";
 import { Button } from "./Button";
-import { SelectBox } from "./fields/SelectBox";
+import { PageSizeSelect, validatePageSize } from "./PageSizeSelect";
 import { Text } from "./Typography";
 import { cn } from "./utils/cn";
 
@@ -17,6 +17,7 @@ interface PaginationCommonProps<TPageSize extends PaginationPageSize> {
   onNext: () => void;
   onPageSizeChange: (pageSize: NoInfer<TPageSize>) => void;
   className?: string;
+  showPageSizeSelector?: boolean;
 }
 
 type PaginationCountProps =
@@ -52,10 +53,10 @@ function PaginationContent<TPageSize extends PaginationPageSize>(props: CustomPa
     onPrevious,
     onNext,
     onPageSizeChange,
-    className
+    className,
+    showPageSizeSelector = true
   } = props;
-  if (!pageSizeOptions.includes(pageSize)) throw new RangeError("pageSize must belong to pageSizeOptions");
-  const items = pageSizeOptions.map(id => ({ id, label: `${id}개` }));
+  validatePageSize(pageSize, pageSizeOptions);
   let countLabel: string;
   let nextDisabled = !hasNext;
   if (props.mode === "cursor") {
@@ -74,17 +75,13 @@ function PaginationContent<TPageSize extends PaginationPageSize>(props: CustomPa
 
   return (
     <nav aria-label="페이지 이동" className={cn("flex min-w-0 flex-col gap-3 tablet:flex-row tablet:items-end tablet:justify-between", className)}>
-      <SelectBox
-        label="페이지당 항목 수"
-        size="sm"
+      {showPageSizeSelector && <PageSizeSelect
         className="w-full tablet:max-w-40 tablet:flex-none"
-        items={items}
-        selectedKey={pageSize}
+        options={pageSizeOptions}
+        value={pageSize}
         isDisabled={isPending}
-        onSelectionChange={(value) => {
-          if (!isPending && value !== null) onPageSizeChange(value);
-        }}
-      />
+        onChange={onPageSizeChange}
+      />}
       <div className="flex min-w-0 items-center gap-2 tablet:w-auto">
         <Button type="button" size="sm" className="min-w-11 shrink-0" aria-label="이전 페이지" disabled={isPending || !hasPrevious} onClick={onPrevious}>
           이전

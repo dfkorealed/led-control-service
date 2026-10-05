@@ -21,6 +21,21 @@ function paginationTypeContract() {
 void paginationTypeContract;
 
 describe("PaginationBar", () => {
+  it("moves only page size selection out when opted in and retains page navigation", () => {
+    render(<PaginationBar mode="cursor" page={2} pageSize={50} pageSizeOptions={[50, 100, 500, 1000] as const} itemCount={17}
+      showPageSizeSelector={false} hasPrevious hasNext onPrevious={() => {}} onNext={() => {}} onPageSizeChange={() => {}} />);
+    expect(screen.queryByRole("button", { name: "페이지당 항목 수" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "이전 페이지" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "다음 페이지" })).toBeEnabled();
+    expect(screen.getByRole("status")).toHaveTextContent("2페이지현재 17건");
+  });
+  it("validates duplicate options even while the page size selector is hidden", () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      expect(() => render(<PaginationBar mode="cursor" page={1} pageSize={50} pageSizeOptions={[50, 50] as const} itemCount={0}
+        showPageSizeSelector={false} hasPrevious={false} hasNext={false} onPrevious={() => {}} onNext={() => {}} onPageSizeChange={() => {}} />)).toThrow(RangeError);
+    } finally { error.mockRestore(); }
+  });
   afterEach(cleanup);
 
   const cursorProps = {
