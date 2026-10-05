@@ -229,9 +229,12 @@ async function inlineResult(page: Page, info: TestInfo, save = true, outcome = "
   await expect(page.getByRole("dialog", { name: /명령 상세|최근 결과/ })).toHaveCount(0);
   await detail.hover(); await page.mouse.wheel(0, 10000);
   await detail.focus(); await page.keyboard.press("End");
-  const last = outcome === "applied" ? detail.getByRole("button", { name: "명령 상세 닫기", exact: true }) : detail.getByText(/Task9 마지막 조명 040/);
+  // Desktop keeps the one real close action outside the inner result scrollport.
+  const owner = outcome === "applied" ? page.locator("[data-control-panel-feedback]") : detail;
+  const last = outcome === "applied" ? owner.getByRole("button", { name: "명령 상세 닫기", exact: true }) : detail.getByText(/Task9 마지막 조명 040/);
+  if (outcome === "applied") { await expect(last).toHaveCount(1); await target44(last); }
   await expect(last).toBeVisible();
-  const d = (await detail.boundingBox())!, l = (await last.boundingBox())!;
+  const d = (await owner.boundingBox())!, l = (await last.boundingBox())!;
   expect(l.y).toBeGreaterThanOrEqual(d.y); expect(l.y + l.height).toBeLessThanOrEqual(d.y + d.height);
   expect(await detail.evaluate(element => element.scrollWidth - element.clientWidth)).toBe(0);
   await zeroX(page); if (save) await screenshot(page, info, "inline-final-row");

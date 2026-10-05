@@ -76,6 +76,29 @@ describe("StatisticsReportsPage", () => {
   afterEach(() => { cleanup(); vi.useRealTimers(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
   it.each([
+    ["partial", 0, "Backspace"], ["reversed", 0, "ArrowUp"],
+    ["over 90 days", 3, "ArrowUp"], ["impossible", 1, "ArrowUp"]
+  ])("blocks local %s history drafts without publishing, and recovers on reset", async (_name, index, key) => {
+    const retry = vi.fn();
+    reportsApi.reports.mockReturnValue({ data: undefined, isLoading: false, isError: true, isFetching: false, refetch: retry });
+    const from = _name === "impossible" ? "2026-01-31" : "2026-09-01";
+    const to = _name === "impossible" ? "2026-02-15" : "2026-09-15";
+    renderPage({ initialEntry: `/statistics/reports?siteId=${siteId}&requestedFrom=${from}&requestedTo=${to}` });
+    const original = screen.getByTestId("location-search").textContent;
+    fireEvent.click(screen.getByRole("button", { name: /보고서 조건 상세 필터/ }));
+    const fields = within(screen.getByRole("group", { name: "요청 기간" })).getAllByRole("spinbutton");
+    fireEvent.keyDown(fields[Number(index)], { key });
+    await waitFor(() => expect(reportsApi.reports).toHaveBeenLastCalledWith(undefined, { limit: 20, requestedFrom: from, requestedTo: to }));
+    fireEvent.click(screen.getByRole("button", { name: "필터 닫기" }));
+    const retryButton = screen.getByRole("button", { name: "다시 시도" });
+    expect(retryButton).toBeDisabled(); fireEvent.click(retryButton); expect(retry).not.toHaveBeenCalled();
+    expect(screen.getByTestId("location-search")).toHaveTextContent(original!);
+    fireEvent.click(screen.getByRole("button", { name: /보고서 조건 상세 필터/ }));
+    fireEvent.click(screen.getByRole("button", { name: "필터 초기화" }));
+    await waitFor(() => expect(reportsApi.reports).toHaveBeenLastCalledWith(siteId, { limit: 20 }));
+  });
+
+  it.each([
     ["requestedFrom=2026-09-20&requestedTo=2026-09-01", ["2026", "9", "20", "2026", "9", "1"]],
     ["requestedFrom=2026-02-31&requestedTo=2026-09-01", ["2026", "2", "31", "2026", "9", "1"]],
     ["requestedFrom=2026-09-01", ["2026", "9", "1", "연도", "월", "일"]]

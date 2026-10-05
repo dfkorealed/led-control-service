@@ -108,6 +108,50 @@ async function install(page: Page, baseURL: string) {
   return { requests, errors };
 }
 
+test("local invalid report history blocks retry and repairs without blocking independent creation", async ({ page, baseURL }, info) => {
+  const state = await install(page, baseURL!);
+  let failedResponses = 0;
+  // Reports owns one automatic retry (two completed HTTP failures), unlike
+  // command history's default QueryClient retry count.
+  const terminalFailure = page.waitForResponse(response => response.url().includes("/reports?") && response.status() === 503 && ++failedResponses === 2);
+  let fail = true;
+  await page.route("**/api/energy/**/reports?**", route => route.fulfill(fail ? { status: 503, json: { message: "Owned history failure" } } : { json: { reports: [], nextCursor: null, totalCount: 0 } }));
+  await page.goto(`${path("reports")}&requestedFrom=2026-09-01&requestedTo=2026-09-15`);
+  await terminalFailure;
+  await expect(page.getByRole("button", { name: "다시 시도", exact: true })).toBeEnabled();
+  const originalUrl = page.url();
+  const trigger = page.getByRole("button", { name: /보고서 조건 상세 필터/ });
+  await trigger.click();
+  const fields = page.getByRole("group", { name: "요청 기간", exact: true }).getByRole("spinbutton");
+  await fields.nth(0).focus(); await page.keyboard.press("ArrowUp");
+  await expect(fields.nth(0)).toHaveText("2027");
+  await page.keyboard.press("Escape");
+  await expect(page.getByText("요청 기간을 완성하거나 필터를 초기화한 뒤 이력을 조회하세요.")).toBeVisible();
+  const before = failedResponses;
+  const retries = page.getByRole("button", { name: "다시 시도", exact: true });
+  if (await retries.count()) await expect(retries).toBeDisabled();
+  expect(page.url()).toBe(originalUrl);
+  await page.screenshot({ path: info.outputPath("history-invalid.png") });
+  await trigger.click(); await expect(fields.nth(0)).toHaveText("2027");
+  await page.keyboard.press("Escape");
+  await page.getByRole("button", { name: "보고서 만들기", exact: true }).click();
+  const create = page.getByRole("dialog", { name: "에너지 사용량 보고서 만들기", exact: true });
+  await expect(create.getByRole("button", { name: "보고서 요청", exact: true })).toBeEnabled();
+  await expect(create.getByRole("button", { name: "CSV 내보내기", exact: true })).toBeEnabled();
+  await page.screenshot({ path: info.outputPath("independent-create.png") });
+  await page.keyboard.press("Escape");
+  expect(page.url()).toBe(originalUrl); expect(failedResponses).toBe(before);
+  fail = false;
+  const recovery = page.waitForResponse(response => response.url().includes("/reports?") && response.status() === 200);
+  await trigger.click(); await fields.nth(0).focus(); await page.keyboard.press("ArrowDown");
+  await recovery; await page.keyboard.press("Escape");
+  await expect(page.getByRole("region", { name: "요청한 보고서", exact: true })).toBeVisible();
+  await expect(page.getByText("요청 기간을 완성하거나 필터를 초기화한 뒤 이력을 조회하세요.")).toHaveCount(0);
+  await page.screenshot({ path: info.outputPath("history-repaired.png") });
+  expect(state.requests.filter(request => request.method === "POST" || request.path.endsWith("/exports/csv"))).toEqual([]);
+  expect(state.errors).toEqual([]);
+});
+
 async function evidence(page: Page, info: TestInfo, label: string, value: unknown, invalidRequestBoundary?: { requests: Request[]; before: number }) {
   await info.attach(label, { body: JSON.stringify(value, null, 2), contentType: "application/json" });
   const native = nativeEvidence.get(page);

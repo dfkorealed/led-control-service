@@ -3,10 +3,10 @@ import {
   type EnergyReportStatus,
   type EnergyScope
 } from "@led-control/shared/energy-p2-contracts";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Button, DateRangePicker, FilterPanel, SelectBox, Text, TextField, cn, useDateRangeDraft, type DateRangeValue } from "../../../components/ui";
 import type { ReportHistoryFilterState } from "./report-history-filters";
-import type { DateSegmentDraft } from "../../../components/ui/date/useDateDraft";
+import { draftToDate, isEmptyDateDraft, type DateSegmentDraft } from "../../../components/ui/date/useDateDraft";
 
 export interface InvalidRequestedRange { start: string | null; end: string | null }
 export type ReportFilterIntent = "filter" | "dates" | "reset";
@@ -17,6 +17,7 @@ export interface ReportHistoryFiltersProps {
   className?: string;
   scopeKey?: string;
   invalidRequestedRange?: InvalidRequestedRange;
+  onInvalidDraftChange?: (invalid: boolean) => void;
 }
 
 const statusItems: ReadonlyArray<{ id: EnergyReportStatus | ""; label: string }> = [
@@ -35,7 +36,7 @@ const scopeItems: ReadonlyArray<{ id: EnergyScope | ""; label: string }> = [
   { id: "group", label: "그룹" }
 ];
 
-export function ReportHistoryFilters({ value, onChange, className, scopeKey = "reports", invalidRequestedRange }: ReportHistoryFiltersProps) {
+export function ReportHistoryFilters({ value, onChange, className, scopeKey = "reports", invalidRequestedRange, onInvalidDraftChange }: ReportHistoryFiltersProps) {
   const [searchInput, setSearchInput] = useState(value.query ?? "");
   const [dateDraft, setDateDraft] = useState<DateRangeValue | null>(() => reportDateRange(value));
   const [dateError, setDateError] = useState<string | null>(null);
@@ -43,11 +44,19 @@ export function ReportHistoryFilters({ value, onChange, className, scopeKey = "r
   const scopeEpoch = useRef({ key: scopeKey, epoch: {} });
   if (scopeEpoch.current.key !== scopeKey) scopeEpoch.current = { key: scopeKey, epoch: {} };
   const epoch = scopeEpoch.current.epoch;
+  const start = draftToDate(rangeDraft.draft.start), end = draftToDate(rangeDraft.draft.end);
+  const empty = isEmptyDateDraft(rangeDraft.draft.start) && isEmptyDateDraft(rangeDraft.draft.end);
+  // Like command history, query validity follows raw segments, not the last
+  // accepted canonical range. Notify before passive automatic query effects.
+  const invalidDraft = !empty && (!start || !end || !safeUpdateFilterState(value, { requestedFrom: start, requestedTo: end }).success);
+  useLayoutEffect(() => {
+    if (scopeEpoch.current.epoch === epoch) onInvalidDraftChange?.(invalidDraft);
+  }, [epoch, invalidDraft, onInvalidDraftChange]);
   // Scope epochs distinguish A→B→A, so a retained callback cannot publish into a later visit to A.
   const isCurrentScope = () => scopeEpoch.current.epoch === epoch;
   const publish = (next: ReportHistoryFilterState, intent?: ReportFilterIntent) => {
     if (!isCurrentScope()) return;
-    if (invalidRequestedRange) onChange(next, intent); else onChange(next);
+    if (invalidRequestedRange || onInvalidDraftChange) onChange(next, intent); else onChange(next);
   };
   const valueRef = useRef(value);
   const onChangeRef = useRef(onChange);
@@ -153,8 +162,8 @@ export function ReportHistoryFilters({ value, onChange, className, scopeKey = "r
           value={dateDraft}
           draftController={rangeDraft}
           validationBehavior="aria"
-          isInvalid={dateError !== null}
-          errorMessage={dateError}
+          isInvalid={invalidDraft || dateError !== null}
+          errorMessage={dateError ?? (invalidDraft ? "요청 기간을 올바르게 완성해 주세요." : null)}
           onChange={(range) => {
             if (scopeEpoch.current.epoch !== epoch) return;
             // Keep an invalid range editable locally; only validated dates belong in URL/query state.
