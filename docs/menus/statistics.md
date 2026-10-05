@@ -1,5 +1,7 @@
 # 통계 메뉴 기능 현황
 
+- 2026-10-05 공통 초기 초점 안정성 보완: Dialog 내부 ref를 안정화해 중첩 Popover가 열린 동안 부모 재렌더·외부 object/callback ref 교체가 사용자 초점을 빼앗지 않으며 이전 ref 정리와 닫힘 시 정리는 유지한다. 직접 공통 회귀와 격리 Chromium 검증 범위이며 실제 native WebView·HIL 및 최종 통합 승인을 뜻하지 않는다.
+
 기준일: 2026-10-04
 
 ## 운영 주석 수정 최종 검증 checkpoint

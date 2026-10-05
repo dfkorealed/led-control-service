@@ -1,6 +1,6 @@
 import { X } from "lucide-react";
-import { forwardRef, useEffect, useId, useLayoutEffect, useRef, type Ref } from "react";
-import { mergeRefs, useFocusManager } from "react-aria";
+import { forwardRef, useEffect, useId, useImperativeHandle, useLayoutEffect, useRef, type Ref } from "react";
+import { useFocusManager } from "react-aria";
 import { Dialog, Heading, Modal, ModalOverlay } from "react-aria-components";
 import { Button } from "../Button";
 import type { ModalDialogProps } from "../ModalDialog";
@@ -57,6 +57,11 @@ function DialogContent({ title, description, children, actions, onClose, isPendi
 }: Omit<DialogBaseProps, "isOpen" | "open"> & { rootRef: Ref<HTMLElement> }) {
   const descriptionId = useId();
   const dialog = useRef<HTMLElement>(null);
+  // Keep RAC's internal ref identity stable: replacing a merged callback reruns
+  // its initial-focus effect and steals focus from a portalled child. Forward
+  // the live physical root separately; React cleans/reassigns external refs
+  // when their identity changes without restarting the dialog focus contract.
+  useImperativeHandle(rootRef, () => dialog.current!, []);
   const body = useRef<HTMLDivElement>(null);
   const manager = useFocusManager();
   const token = useRef({});
@@ -98,7 +103,7 @@ function DialogContent({ title, description, children, actions, onClose, isPendi
     <div ref={body} className={cn("min-w-0 break-words", isSheet && "min-h-0 flex-1 overflow-y-auto pb-4.5", bodyClassName)} data-dialog-body="">{children}</div>
     {actions ? <footer className={cn("mt-5! flex! flex-wrap! justify-end! gap-2!", isSheet && "shrink-0 pb-4.5")} data-dialog-actions="">{actions}</footer> : null}
   </>;
-  return <Dialog ref={mergeRefs(dialog, rootRef)} role={role} aria-describedby={description ? descriptionId : undefined} data-dialog-surface="" data-dialog-variant={surface}
+  return <Dialog ref={dialog} role={role} aria-describedby={description ? descriptionId : undefined} data-dialog-surface="" data-dialog-variant={surface}
     render={(domProps) => <section {...domProps} aria-modal="true" />}
     className={cn(surfaceClass[surface], className, safeArea && "p-0! compact:p-0!")}>
     {/* The opt-in wrapper or legacy sheet wrapper owns the insets, never both.

@@ -1,7 +1,7 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { createRef, useRef, useState } from "react";
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { createRef, useRef, useState, type Ref } from "react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ModalDialog } from "../ModalDialog";
 import { ConfirmDialog, type ConfirmDialogProps } from "../ConfirmDialog";
@@ -131,6 +131,43 @@ describe("overlay migration contracts", () => {
     userEvent.click(trigger); expect(screen.getByRole("button", { name: "취소" })).toHaveFocus();
     userEvent.keyboard("{Escape}"); await waitFor(() => expect(trigger).toHaveFocus());
     expect(screen.getByRole("dialog", { name: "부모 시트" })).toBeVisible();
+  });
+
+  it("keeps portalled child input focus when its parent draft rerenders the physical dialog", async () => {
+    const root = createRef<HTMLElement>();
+    render(<DraftInNestedFilter root={root} />);
+    const original = root.current;
+    userEvent.click(screen.getByRole("button", { name: /중첩 필터 상세 필터/ }));
+    await act(async () => { await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))); });
+    const input = screen.getByRole("textbox", { name: "원시 입력" });
+    userEvent.click(input); fireEvent.change(input, { target: { value: "2026" } });
+    await act(async () => { await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))); });
+    expect(root.current).toBe(original);
+    expect(screen.getByRole("dialog", { name: "중첩 필터" })).toBeVisible();
+    expect(input).toHaveValue("2026"); expect(input).toHaveFocus();
+  });
+
+  it.each(["object", "callback"] as const)("replaces and cleans the forwarded %s ref without refocusing over a portalled child", async kind => {
+    const oldObject = createRef<HTMLElement>(), newObject = createRef<HTMLElement>();
+    const oldCallback = vi.fn(), newCallback = vi.fn();
+    const oldRef = kind === "object" ? oldObject : oldCallback;
+    const newRef = kind === "object" ? newObject : newCallback;
+    const view = render(<DraftInNestedFilter root={oldRef} />);
+    const original = screen.getByRole("dialog", { name: "부모 원시 입력" });
+    if (kind === "object") expect(oldObject.current).toBe(original);
+    else expect(oldCallback).toHaveBeenLastCalledWith(original);
+    userEvent.click(screen.getByRole("button", { name: /중첩 필터 상세 필터/ }));
+    await act(async () => { await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))); });
+    const input = screen.getByRole("textbox", { name: "원시 입력" }); userEvent.click(input);
+    view.rerender(<DraftInNestedFilter root={newRef} />);
+    await act(async () => { await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))); });
+    expect(screen.getByRole("dialog", { name: "부모 원시 입력", hidden: true })).toBe(original);
+    if (kind === "object") { expect(oldObject.current).toBeNull(); expect(newObject.current).toBe(original); }
+    else { expect(oldCallback).toHaveBeenLastCalledWith(null); expect(newCallback).toHaveBeenLastCalledWith(original); }
+    expect(screen.getByRole("dialog", { name: "중첩 필터" })).toBeVisible(); expect(input).toHaveFocus();
+    view.unmount();
+    if (kind === "object") expect(newObject.current).toBeNull();
+    else expect(newCallback).toHaveBeenLastCalledWith(null);
   });
 
   it("focuses the sheet root when no body field is focusable, with no actions required", () => {
@@ -354,6 +391,15 @@ describe("overlay migration contracts", () => {
     expect(close).toHaveBeenCalledTimes(1);
   });
 });
+
+function DraftInNestedFilter({ root }: { root: Ref<HTMLElement> }) {
+  const [draft, setDraft] = useState("");
+  return <UI.DrawerDialog ref={root} title="부모 원시 입력" onClose={() => {}}>
+    <UI.FilterPanel label="중첩 필터" mode="popover">
+      <input aria-label="원시 입력" value={draft} onChange={event => setDraft(event.target.value)} />
+    </UI.FilterPanel>
+  </UI.DrawerDialog>;
+}
 
 function LegacyParent({ close }: { close(): void }) {
   const dialog = useRef<HTMLDivElement>(null); const initial = useRef<HTMLButtonElement>(null);
