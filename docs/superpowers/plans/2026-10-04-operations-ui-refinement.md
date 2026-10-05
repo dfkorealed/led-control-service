@@ -460,6 +460,8 @@ expect(screen.getByRole("button", { name: /페이지당 항목 수/ })).toBeVisi
 
 ### Task 9: 동결 소스의 엄격한 통합/UI 검수
 
+진행 시작: Task8 full/scoped관문과root문서e50236a5 clean 뒤 readonlyREADY QA에게 단독GO를 배정한다. 최초수행은exact신규2E2E/typedLab지원의RED→GREEN, 이후harnesscommit과actual소스동결/단독canonical4종각1회·자체Lab·14행7폭/short/actual200/1000대, 총괄원본직검·새UIUX/wholebranch검토다. 제품수정·기준완화·사용자서비스/DB/장비변경권한은 없다. 원71FAIL/CAD66미수집과M1노이즈를명시적으로새원로그에서검증한다. 아직검증완료/Task10/병합아니다.
+
 Task9 Ruling30: 미래단독harness writer에기존real-backend-lab.ts 및필요한real-backend-lab-support.spec.ts exactpath의최소public typed alarmfixture/oracle만추가허용한다. Ownstart/installation/clusteridentity뒤자기DB 두actor/두site/incident/read/예약·효과상태를다루며arbitrarySQL/secret/socket/env공개/privatecast·skipbuild/timeout/제품/보안변경0이다. 7/8gate뒤만실행하고실두browserHTTP·실PGoracle/독립최종검토를유지한다. 이유·오판비용은ledger에기록한다.
 
 Root Ruling27: 미래단독RealBackendLab에기존publicisolatedCadStorage:true를써외부storage/PKI/proxyfallback을차단한다. ownrunId/label MinIO/mc/privatebucket/Docker동적loopback여섯째포트/CADtemp·development worker·partialcleanup까지Lab소유에포함한다. exactlocal2이미지읽기확인은완료됐지만실실행/ready/PASS아니며--pull=never/usercontainer·imageprune/다운로드0·원label재확인/portrelease를요구한다. 7/8gate/동결/단독build인계후만소비하며helper추가소유와현재사용자반영은이결정범위밖이다.
