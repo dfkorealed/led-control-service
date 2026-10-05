@@ -54,7 +54,7 @@
 - [x] 이 구현 계획 검토·승인 회수: 2026-10-05 사용자의 “진행해줘”로 승인됐다.
 - [x] 개인 숨김용 신규 additive DDL과 마지막 로컬 서버 반영의 명시적 승인 회수: 새 두 테이블 추가·Web/API 잠시 중지/재시작을 함께 설명한 확인에 2026-10-05 사용자가 승인했다. 이전 읽음 테이블 승인으로 대체하지 않는다.
 
-현재 실행: Task 1~6은 각 독립 검토와 보완 scoped gate를 완료했다. Task6 `16eefc19`+`999d7db6`의 I1/I2/M2 ADDRESSED·새C/I/M0를 확인했다. 원whole-Web/브라우저 실패와 후속176단위+강화날짜3·타입/UI0/browser79기존PASS+boundary1PASS의 시간적 범위를 구분한다. Task7은native통계압축뒤과거PDF업무이탈을회수/전체인계·idle감사후원4시험WIP를이어받는fresh내부GPT6.1Solhigh가sameBASE47385에서단독복구한다. Tasks8~10과 strictvisual200·최종전체검수·사용자 DB/서버 반영·기본 병합은 아직이며 Task10 전에 임의 반영하지 않는다.
+현재 실행: Task1~7의 각 독립 검토 및 scoped 보완 gate는 완료했다. Task8은 기존 설정 담당자가 사용자/CAD 공통 UI를 적용한 뒤 320×740 편집 작업 영역0px와 실제200% 사진의 의도 내용 누락을 발견해 최소 수정 범위를 판정 중이다. Whole Web71FAIL/CAD66미수집은 별도 모듈 초기화 조사 대상으로 보존한다. 각 과거 시험과 후속 covering의 소스/시점을 구분하며 Tasks9~10 최종 통합검수·사용자 DB/서버 반영·기본 병합은 미실행이다.
 
 Task7 추가 상태(2026-10-05 12:17UTC): 공유 FilterPanel `841a714d`와 날짜 `8cf3a728`의 당시 scoped gate는 승인됐다. 후속 consumer153PASS/타입0·selected mock79PASS1FAIL은 원로그로 유지하며 새 전체 통과가 아니다. 마지막 original101행 기간 입력에서 cold 첫 start-day8이 자동 초점 이동 전 publication되지 않고 복원에 지워지는 genuine producer counterexample를 독립1FAIL1PASS 및 public native timeline로 확인했다. 세 cause/다섯 variant 뒤 추가 가드 시도를 멈추고 Ruling39의 read-only GPT6Astra high 아키텍처 검토로 pending-edit/publication/hydration 계약을 먼저 확정한다. 원 입력순서·1~3·impossible20 보호·clear1/calendar/readonly/publicAPI/기준을 유지하며 정확 producer fix·새 독립 gate와 첫 실제200 PNG가 필요하다. 아직 Task7 최종/8–10·병합/사용자 환경 반영 완료가 아니다.
 
@@ -428,21 +428,35 @@ expect(energyRangeComparisonQuerySchema.safeParse({ from: "2026-09-02", to: "202
 
 ### Task 8: 설정 목록 필터/Grid와 CAD 페이지 크기 소비
 
+완료 gate:575e7886+cd0949b5, fullSpec✅와 fresh scoped I1ADDRESSED·새C/I/M0/미해결fix0을 총괄이 FULL읽고 합쳐 승인했다. 제품247/브라우저28와 후속helper31/엄격type/native3원본직검/출력path3의소스·시간을 분리한다. 변경되지 않은 생산자는 앞Task1/2/7gate에 연결하며 freshwhole71FAIL/CAD66미수집·노이즈·전체matrix/ownnative/실Lab·HIL·로컬반영은 Task9/10에 남긴다. 미래QA의 readonly준비READY를 받은 뒤 root문서커밋·clean을 확보하고 단독GO로 실행한다.
+
+독립 full gate575e7886: Spec✅/QualityNeedsfixes C0I1M1. I1은 기존2E2E의 native sidecar3곳에 추가된 미문서 TASK8_OUTPUT 의존이다. Ruling55로 SAME소유자의3출력식만 public TestInfo.outputPath로 고치고 실제 출력경로 RED/GREEN·동일엄격타입·소유2파일커밋 뒤 scoped 재검토한다. 제품/공통helper/소스가드·실제200 방식/원증거는 불변이며 캡처·전체suite·build 반복0. M1 노이즈와 whole71FAIL/CAD66미수집은 최종Task9에서 명시 검증한다.
+
+최신 R54 총괄 직검: 실제200% 원본3개(CAD 영역 이름·선택, 실제 사용자 장문, 별도 자연스크롤의 행 작업 닫힘·초점)를 각각 승인했다. exact722 source/current 일치와 lossless/상태·기하·target/frame 일치, 타입0/helper31/타입-erasure동일/자체 정리를 대조했다. 소유14경로 커밋과 독립 gate를 진행하며 원 전체71FAIL/CAD66미수집은 Task9 fresh 관문에 남긴다. 과거 미승인/실패를 소급 통과로 바꾸지 않는다.
+
+Task8 배정 준비: Task7 독립 gate/4204f1ed clean 뒤 기존 설정 담당019f1d62/local의 freshwait0=inactive/completed를 확인했다. 같은 담당에게 task-8-dispatch.md/brief의 exactfiles·단독writer/own16628·현재readonlyhelper/source/OWN원본직검·원권한/payload 보존 계약으로만 배정한다. 이전Task2/기본checkout/사용자runtime로 전환0, root2docs는작업commit제외. 실행/검증/완료gate는아직이다.
+
+Task8 진행: focused92PASS와 wholeonce3085PASS/71FAIL/3SKIP+CAD66미수집은 별도 결과다. Ruling50의 ONE CAD320×740 정상 자료 클릭 진단은 원30초 실패를 재현했고 header343px/workspace0px를 계측했다. 공통 카메라 도구 소비 배치의 최소 수정과 native 장문 내용 검증 보완은 독립 원인 분석 뒤에만 배정한다. 의도 사용자 이름 없는 기존 native 원본은 REJECTED이며 새 helper/부모 실패 판정으로 바꾸지 않는다. 구현 완료/독립 gate/병합은 아직이다.
+
+Ruling53 보완 범위: 원인 분석 뒤 FloorEditorView.tsx·FloorEditorRoute.tsx·CustomerShell.tsx의 editor-route 레이아웃과 각각 기존 시험만 추가한다. 카메라 도구 소비 nowrap/minimum을 기존 공개 className으로 조정하고 map≥240·짧은 화면 자연 문서 스크롤·충분한 화면 채움을 유지하며 계정/카메라/lease/save owner는 바꾸지 않는다. 사용자 native 시험은 실제 장문 내용·44px 행 작업에 맞는 안전한 최종 입력으로 검증 범위만 고친다. ONE 원config focused 비교163PASS는 whole71FAIL을 대체하지 않으며 최종Task9에서 다시 검증한다. 상세 요구/오판 비용은 ignored brief/ledger에 보존한다.
+
+Ruling54 후속: 직접247/브라우저28·Web타입/UI0를 회수했다. 별도 엄격 E2E 타입의 공통 layout-assertions.ts229 오류만 type-only Element 배열로 보완하고 기존 helper-spec/타입·erasure 동등성을 검증한다. 실제200 CAD 원본은 닫힌 필터/기본20 범위만 승인되며 실제 영역 이름은 별도 자연스크롤 상태로 입증한다. 긴 카드의 이름과 행 작업은 동시에 한 viewport에 있어야 한다는 추가 기준을 만들지 않고 각각 실제 접근·내용으로 검증한다. helper 방법/제품/저장·권한/기준은 그대로이며 native 원본별 총괄 직검 전 완료 커밋·독립 gate는 보류한다.
+
 **Files:** `apps/web/src/features/settings/users/SiteUsersView.tsx`/`.test.tsx`, `features/floor-editor/CadImportPanel.tsx`와 기존 시험, `e2e/site-user-management.spec.ts`, `e2e/settings-floor-editor.spec.ts`, `docs/menus/settings.md`.
 
 **Interfaces:** 사용자 목록은 DataGrid+FilterPanel을 사용한다. 검색 외부, 권한 all/read/control·상태 all/active/disabled는 상세 Popover, 활성 수 0~2와 검색을 유지하는 reset이다. 100명 한도·비활성화/영구 삭제/권한/확인은 부모 소유다. CAD 후보 page-size는 검색 없는 FilterPanel/PageSizeSelect와 기본20·옵션10/20/50/100을 사용하며 이전/다음은 남긴다. 등록 층/게이트웨이·현장 관리 층·CAD 영역 선택은 primary 입력이므로 숨기지 않는다. 계정/logout은 Task 4의 단일 eager 계정 영역을 소비하며 owner를 복제하지 않는다. SettingsShell accountSlot 공개 API의 예외적인 live 배치는 Task 4 Ruling에 따른다.
 
-- [ ] **Step 1:** RED `user detail reset preserves search and pending permissions`, `user grid switches by container without losing mutation controls`, `CAD page size is a filter while region selection stays visible`를 작성한다. scope 전환 시 열린 옛 행 menu의 요청 0, 삭제 확인/초점 복귀·페이지 크기 검증을 단언한다.
+- [x] **Step 1:** RED `user detail reset preserves search and pending permissions`, `user grid switches by container without losing mutation controls`, `CAD page size is a filter while region selection stays visible`를 작성한다. scope 전환 시 열린 옛 행 menu의 요청 0, 삭제 확인/초점 복귀·페이지 크기 검증을 단언한다.
 
 ```ts
 render(<PageSizeSelect value={50} options={[50, 100, 500, 1000]} onChange={vi.fn()} />);
 expect(screen.getByRole("button", { name: /페이지당 항목 수/ })).toBeVisible();
 ```
-- [ ] **Step 2:** SiteUsers/CadImportPanel 인접 Vitest의 RED를 확인한다.
-- [ ] **Step 3:** 공통 표시를 소비하고 편집/관리 writer guard·후보 선택 payload·lease/revision 수명을 보존한다. 페이지 크기 변경만 기존 첫 페이지 reset을 호출한다.
-- [ ] **Step 4:** GREEN unit/type/UI와 사용자 관리·CAD 후보의 모의 browser case를 keyboard/touch/44px·장문·container/short/200%로 확인한다. 실제 등록/장비/현재 계정 삭제는 시도하지 않는다.
-- [ ] **Step 5:** 메뉴에 공통화/미검증 native/HIL 범위를 기록한다.
-- [ ] **Step 6:** `refactor(settings): share list filters and responsive grids`로 커밋 후 독립 검토받는다.
+- [x] **Step 2:** SiteUsers/CadImportPanel 인접 Vitest의 RED를 확인한다.
+- [x] **Step 3:** 공통 표시를 소비하고 편집/관리 writer guard·후보 선택 payload·lease/revision 수명을 보존한다. 페이지 크기 변경만 기존 첫 페이지 reset을 호출한다.
+- [x] **Step 4:** GREEN unit/type/UI와 사용자 관리·CAD 후보의 모의 browser case를 keyboard/touch/44px·장문·container/short/200%로 확인한다. 실제 등록/장비/현재 계정 삭제는 시도하지 않는다. 제품247/브라우저28와 후속helper31/엄격타입·실제200 원본3승인·출력경로3은 각 소스의 별도 증거다. 원 whole71FAIL/CAD66미수집은 Task9에서 검증한다.
+- [x] **Step 5:** 메뉴에 공통화/미검증 native/HIL 범위를 기록한다.
+- [x] **Step 6:** `refactor(settings): share list filters and responsive grids`575e7886 및 출력path보완cd0949b5를 커밋 후 full/scoped 독립 검토를 통과했다. M1은 Task9 triage에 남긴다.
 
 ### Task 9: 동결 소스의 엄격한 통합/UI 검수
 
