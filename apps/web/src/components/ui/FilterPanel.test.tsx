@@ -12,6 +12,13 @@ function panel() {
 afterEach(cleanup);
 
 describe("FilterPanel", () => {
+  it("reserves a 64px-wide trigger while keeping the 44px height for its rounded continuous hit area", () => {
+    render(<UI.FilterPanel label="실제 hit" mode="popover"><UI.TextField label="조건" /></UI.FilterPanel>);
+    const trigger = screen.getByRole("button", { name: "실제 hit 상세 필터, 활성 조건 0개" });
+    // Geometry/hit testing belongs to Chromium; this fixes the public spacing-token contract.
+    expect(trigger).toHaveClass("min-w-16", "min-h-11");
+    expect(trigger).not.toHaveClass("min-w-11");
+  });
   it("supports compact inline density while preserving the legacy default", () => {
     const view = render(<UI.FilterPanel label="밀도" variant="compact"><span>조건</span></UI.FilterPanel>);
     expect(screen.getByRole("region", { name: "밀도" })).toHaveClass("gap-2");
