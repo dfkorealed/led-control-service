@@ -6,7 +6,7 @@ import { cn } from "../utils/cn";
 import { CalendarContent } from "./Calendar";
 import { calendarTriggerClass, datePopoverClass } from "./DatePicker";
 import { formatIsoDate, parseBounds, parseDateRange, parseIsoDate, type DateRangeValue } from "./date-adapters";
-import { SegmentedInput, useSegmentedField, type DateFieldOptions, type FocusableFieldHandle } from "./date-field";
+import { SegmentedInput, useSegmentedField, type DateFieldOptions, type FocusableFieldHandle, type RangeDraftEdit } from "./date-field";
 import { dateToDraft, draftToDate, isEmptyDateDraft, type DateSegmentDraft } from "./useDateDraft";
 import type { DateRangeDraftController } from "./useDateRangeDraft";
 
@@ -25,6 +25,16 @@ export const DateRangePicker = /* @__PURE__ */ forwardRef<FocusableFieldHandle, 
   const endRestoring = useRef(!!draftController);
   const latestDraft = useRef(draftController?.draft);
   latestDraft.current = draftController?.draft;
+  const empty = dateToDraft(null);
+  const startEdit = useRef<RangeDraftEdit>({ accepted: draftController?.draft.start ?? empty, pending: null, restoreRequested: true });
+  const endEdit = useRef<RangeDraftEdit>({ accepted: draftController?.draft.end ?? empty, pending: null, restoreRequested: true });
+  const acceptEndpoint = (endpoint: "start" | "end", draft: DateSegmentDraft) => {
+    const edit = endpoint === "start" ? startEdit : endEdit;
+    edit.current.accepted = draft;
+    edit.current.pending = null;
+    edit.current.restoreRequested = true;
+    (endpoint === "start" ? startRestoring : endRestoring).current = true;
+  };
   const start = draftController ? draftToDate(draftController.draft.start) : null;
   const end = draftController ? draftToDate(draftController.draft.end) : null;
   const canonical = draftController ? (start && end ? { start, end } : null) : value;
@@ -37,6 +47,7 @@ export const DateRangePicker = /* @__PURE__ */ forwardRef<FocusableFieldHandle, 
     // synchronous draft rather than losing the first endpoint's edit.
     const wasEmpty = isEmptyDateDraft(latestDraft.current.start) && isEmptyDateDraft(latestDraft.current.end);
     latestDraft.current = { ...latestDraft.current, [endpoint]: draft };
+    acceptEndpoint(endpoint, draft);
     draftController.onDraftChange(latestDraft.current);
     // As with the single picker, a fully cleared raw range must notify even
     // though its incomplete predecessor already had canonical value null.
@@ -48,17 +59,26 @@ export const DateRangePicker = /* @__PURE__ */ forwardRef<FocusableFieldHandle, 
       onChange={(next) => {
         if (draftController && (startRestoring.current || endRestoring.current)) return;
         const iso = next === null ? null : { start: formatIsoDate(next.start), end: formatIsoDate(next.end) };
-        draftController?.onDraftChange({ start: dateToDraft(iso?.start ?? null), end: dateToDraft(iso?.end ?? null) });
+        if (draftController) {
+          const nextDraft = { start: dateToDraft(iso?.start ?? null), end: dateToDraft(iso?.end ?? null) };
+          // RAC accepts complete edits/calendar selection synchronously, before
+          // input auto-advance. Retire the same pending edit used by raw input
+          // before a later blur can normalize an older display snapshot.
+          latestDraft.current = nextDraft;
+          acceptEndpoint("start", nextDraft.start);
+          acceptEndpoint("end", nextDraft.end);
+          draftController.onDraftChange(nextDraft);
+        }
         onChange(iso);
       }}
       {...parseBounds(minValue, maxValue, parseIsoDate)}>
       {({ isOpen, state }) => <><Group id={attributes.id} ref={focus.element} aria-controls={props["aria-controls"]} className={cn(attributes.className, "flex min-w-0 items-center justify-between gap-1 px-1 py-0")}>
         <div className="flex min-w-0 flex-wrap items-center gap-1">
           <SegmentedInput slot="start" firstSegment={focus.firstSegment} className="flex min-w-0 items-center"
-            draftBinding={draftController && { draft: draftController.draft.start, onDraftChange: draft => changeEndpoint("start", draft), restoring: startRestoring, valueKey, preserveUnedited: true }} />
+            draftBinding={draftController && { draft: draftController.draft.start, onDraftChange: draft => changeEndpoint("start", draft), restoring: startRestoring, valueKey, preserveUnedited: true, rangeEdit: startEdit }} />
           <span aria-hidden="true">–</span>
           <SegmentedInput slot="end" className="flex min-w-0 items-center"
-            draftBinding={draftController && { draft: draftController.draft.end, onDraftChange: draft => changeEndpoint("end", draft), restoring: endRestoring, valueKey, preserveUnedited: true }} />
+            draftBinding={draftController && { draft: draftController.draft.end, onDraftChange: draft => changeEndpoint("end", draft), restoring: endRestoring, valueKey, preserveUnedited: true, rangeEdit: endEdit }} />
         </div>
         <Button className={calendarTriggerClass}><span aria-hidden="true">▦</span></Button>
       </Group>
