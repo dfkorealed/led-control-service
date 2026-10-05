@@ -1,17 +1,218 @@
-import { expect, test } from "@playwright/test";
+import { chromium, expect, test, type Page } from "@playwright/test";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import {
   expectMinimumTouchTargets,
   expectMinimumTouchTargetsAfterScrolling,
   expectNoHorizontalOverflow
 } from "./support/layout-assertions";
 import { installSettingsApiRoutes } from "./support/settings-api";
+import { installMockApiBoundary } from "./support/mock-api-boundary";
+import { StatisticsNativeZoomEvidence } from "./support/statistics-native-zoom-evidence";
+
+test.beforeEach(async ({ context, baseURL }) => { await installMockApiBoundary(context, baseURL); });
+
+async function installCadRegionList(page: Page) {
+  const api = await installSettingsApiRoutes(page, "admin", { readyMapDocument: true });
+  const jobId = "00000000-0000-4000-8000-000000000020";
+  const job = { jobId, floorId: "floor-1", sourceAssetId: "00000000-0000-4000-8000-000000000010",
+    renderedAssetId: null, sourceFormat: "dxf", status: "region_selection_required", stage: "region_selection_required",
+    progressPercent: 70, attemptCount: 0, parserVersion: "cad-core/1", detectorVersion: null, failureCode: null,
+    sourceAssetPath: "/api/floors/floor-1/assets/source/content", renderedAssetPath: null, renderedViewport: null,
+    startedAt: null, reviewRequiredAt: null, appliedAt: null, completedAt: null, failedAt: null, cancelledAt: null,
+    createdAt: "2026-09-17T00:00:00.000Z", updatedAt: "2026-09-17T00:00:00.000Z" };
+  const regions = { jobId, selectionStatus: "selection_required", selectedRegionId: null, excludedRegionPrimitiveCount: 0,
+    regions: Array.from({ length: 65 }, (_, index) => ({ regionId: `region-${index + 1}`,
+      bounds: { minX: 0, minY: 0, maxX: 2000, maxY: 1000 }, primitiveCount: 1200, textCount: 20,
+      lightCandidateCount: 12, area: 2000000, preview: { assetId: `00000000-0000-4000-8000-${String(50 + index).padStart(12, "0")}`,
+        width: 640, height: 320, byteSize: 1024, sha256: "c".repeat(64) } })) };
+  const mutationRequests: string[] = [];
+  await page.route("**/api/floors/floor-1/import-jobs/**", route => {
+    if (route.request().method() !== "GET") { mutationRequests.push(route.request().url()); return route.fulfill({ status: 404 }); }
+    const path = new URL(route.request().url()).pathname;
+    if (path.endsWith("/active")) return route.fulfill({ json: { job } });
+    if (path.endsWith(`/${jobId}/regions`)) return route.fulfill({ json: regions });
+    return route.fulfill({ status: 404 });
+  });
+  // A controlled image response, never an uploaded customer file or external URL.
+  await page.route("**/api/floors/floor-1/assets/*/content", route => route.fulfill({
+    contentType: "image/svg+xml", body: '<svg xmlns="http://www.w3.org/2000/svg" width="640" height="320"><rect x="10" y="10" width="620" height="300" fill="white" stroke="black"/></svg>'
+  }));
+  return { api, mutationRequests };
+}
+
+async function showCadPanel(page: Page) {
+  await expect(page.getByRole("heading", { name: "B2 맵 편집" })).toBeVisible();
+  // Region review is available before scene compilation; it does not depend
+  // on the previous map's WebGL readiness. The radiogroup is the ready boundary.
+  const information = page.getByRole("complementary", { name: "맵 편집 정보" });
+  if (!await information.isVisible()) await page.getByRole("button", { name: "편집 정보 패널" }).click();
+  await expect.poll(() => page.getByTestId("floor-editor-layout").evaluate(element => element.clientHeight)).toBeGreaterThanOrEqual(242);
+  await expect.poll(() => page.locator('[data-testid="floor-editor-layout"] > main').evaluate(element => element.clientHeight)).toBeGreaterThanOrEqual(240);
+  // Explicitly authorized one-case diagnostics only: inspect public layout
+  // before the unchanged user click, without scrolling or changing the DOM.
+  if (process.env.TASK8_CAD_GEOMETRY === "1") {
+    const output = process.env.TASK8_OUTPUT;
+    if (!output) throw new Error("TASK8_OUTPUT is required for CAD geometry evidence");
+    mkdirSync(join(output, "originals"), { recursive: true });
+    const geometry = await information.getByRole("tab", { name: "자료" }).evaluate(tab => {
+      const describe = (element: Element | null) => {
+        if (!element) return null;
+        const rect = element.getBoundingClientRect();
+        const style = getComputedStyle(element);
+        const node = element as HTMLElement;
+        return {
+          tag: element.tagName, id: element.id, role: element.getAttribute("role"), label: element.getAttribute("aria-label"),
+          className: element.getAttribute("class"), rect: rect.toJSON(),
+          display: style.display, position: style.position, zIndex: style.zIndex,
+          overflowX: style.overflowX, overflowY: style.overflowY,
+          height: style.height, minHeight: style.minHeight, maxHeight: style.maxHeight,
+          gridTemplateRows: style.gridTemplateRows, padding: style.padding, flex: style.flex,
+          clientWidth: node.clientWidth, clientHeight: node.clientHeight,
+          scrollWidth: node.scrollWidth, scrollHeight: node.scrollHeight,
+          scrollLeft: node.scrollLeft, scrollTop: node.scrollTop
+        };
+      };
+      const rect = tab.getBoundingClientRect();
+      const points = [
+        ["center", rect.x + rect.width / 2, rect.y + rect.height / 2],
+        ["topLeft", rect.left + 1, rect.top + 1], ["topRight", rect.right - 1, rect.top + 1],
+        ["bottomLeft", rect.left + 1, rect.bottom - 1], ["bottomRight", rect.right - 1, rect.bottom - 1]
+      ] as const;
+      const ancestors = [];
+      for (let parent = tab.parentElement; parent; parent = parent.parentElement) ancestors.push(describe(parent));
+      const shellContent = document.querySelector("[data-shell-content]");
+      return {
+        utc: new Date().toISOString(), url: location.href,
+        viewport: { outerWidth, outerHeight, innerWidth, innerHeight, dpr: devicePixelRatio, scrollX, scrollY,
+          visual: visualViewport ? { width: visualViewport.width, height: visualViewport.height,
+            scale: visualViewport.scale, offsetLeft: visualViewport.offsetLeft, offsetTop: visualViewport.offsetTop,
+            pageLeft: visualViewport.pageLeft, pageTop: visualViewport.pageTop } : null },
+        targets: {
+          tab: describe(tab), panel: describe(document.querySelector("#editor-information-panel")),
+          workspace: describe(document.querySelector('[data-testid="floor-editor-layout"]')),
+          editorMain: describe(document.querySelector('[data-testid="floor-editor-layout"] > main')),
+          main: describe(shellContent?.closest("main") ?? null), shellContent: describe(shellContent),
+          account: describe(document.querySelector('[aria-label="내 계정"]')),
+          header: describe(document.querySelector("[data-shell-topbar]")),
+          editorHeader: describe(document.querySelector('[data-testid="editor-toolbar"]')),
+          bottomNav: describe(document.querySelector('[data-shell-navigation="compact"]'))
+        }, ancestors,
+        hits: points.map(([name, x, y]) => {
+          const hit = document.elementFromPoint(x, y);
+          return { name, x, y, tabReceivesPointer: Boolean(hit && (hit === tab || tab.contains(hit))),
+            hit: describe(hit), stack: document.elementsFromPoint(x, y).map(describe) };
+        })
+      };
+    });
+    writeFileSync(join(output, "geometry.json"), JSON.stringify(geometry, null, 2));
+    await page.screenshot({ path: join(output, "originals", "cad-preclick-original.png"), type: "png", fullPage: false });
+  }
+  await information.getByRole("tab", { name: "자료" }).evaluate(element => element.scrollIntoView({ block: "center" }));
+  await expectMinimumTouchTargets(page, '[aria-label="편집 패널"]');
+  await information.getByRole("tab", { name: "자료" }).click();
+  return page.getByRole("region", { name: "CAD 가져오기", exact: true });
+}
+
+for (const viewport of [
+  { width: 320, height: 740 }, { width: 390, height: 844 }, { width: 768, height: 900 },
+  { width: 1023, height: 900 }, { width: 1024, height: 900 }, { width: 1287, height: 900 },
+  { width: 1440, height: 900 }, { width: 390, height: 320 }, { width: 1440, height: 600 }
+]) test(`Task8 CAD primary region and searchless page size at ${viewport.width}x${viewport.height}`, async ({ page }) => {
+  await page.setViewportSize(viewport);
+  const { mutationRequests } = await installCadRegionList(page);
+  await page.goto("/settings/floor-plans/floor-1/edit?siteId=site-1");
+  const panel = await showCadPanel(page);
+  await expect(panel.getByRole("radio")).toHaveCount(20);
+  const trigger = panel.getByRole("button", { name: /도면 영역 목록 상세 필터/ });
+  await panel.getByRole("button", { name: "다음 페이지" }).click();
+  await panel.getByRole("radio", { name: /^도면 영역 21 ·/ }).locator("xpath=ancestor::label").click();
+  await trigger.focus(); await page.keyboard.press("Enter");
+  const detail = page.getByRole("dialog", { name: "도면 영역 목록", exact: true });
+  await expect(detail.getByRole("searchbox")).toHaveCount(0);
+  await detail.getByRole("button", { name: /페이지당 항목 수/ }).click();
+  await expect(page.getByRole("option")).toHaveText(["10개", "20개", "50개", "100개"]);
+  await page.getByRole("option", { name: "50개", exact: true }).click();
+  await expectMinimumTouchTargetsAfterScrolling(page, '[role="dialog"][aria-label="도면 영역 목록"]');
+  await page.keyboard.press("Escape"); await expect(trigger).toBeFocused();
+  await expect(panel.getByRole("radio")).toHaveCount(50);
+  await expect(panel.getByText("1~50 / 65건", { exact: true })).toBeVisible();
+  await expect(panel.getByRole("radio", { name: /^도면 영역 21 ·/ })).toBeChecked();
+  await expect(panel.getByRole("button", { name: "선택 영역으로 장면 만들기" })).toBeEnabled();
+  expect(mutationRequests).toEqual([]);
+  await expectMinimumTouchTargetsAfterScrolling(page, '[aria-label="CAD 가져오기"]');
+  await expectNoHorizontalOverflow(page);
+});
+
+test("Task8 native 200 CAD page size keeps primary region selection", async ({}, info) => {
+  test.setTimeout(60000);
+  const context = await chromium.launchPersistentContext("", {
+    channel: "chromium", viewport: null, deviceScaleFactor: undefined, args: ["--window-size=1440,900"]
+  });
+  let native: StatisticsNativeZoomEvidence | undefined;
+  try {
+    const page = context.pages()[0]!;
+    await installMockApiBoundary(context, info.project.use.baseURL);
+    const { mutationRequests } = await installCadRegionList(page);
+    await page.goto(`${info.project.use.baseURL}/settings/floor-plans/floor-1/edit?siteId=site-1`);
+    native = await StatisticsNativeZoomEvidence.create(context, page, info);
+    await native.global200(context);
+    const panel = await showCadPanel(page);
+    const trigger = panel.getByRole("button", { name: /도면 영역 목록 상세 필터/ });
+    await trigger.focus(); await page.keyboard.press("Enter");
+    const detail = page.getByRole("dialog", { name: "도면 영역 목록", exact: true });
+    await expect(detail).toBeVisible(); await expect(detail.getByRole("searchbox")).toHaveCount(0);
+    await page.keyboard.press("Escape"); await expect(trigger).toBeFocused();
+    const region = panel.getByRole("radio", { name: /^도면 영역 1 ·/ });
+    await region.evaluate(element => element.scrollIntoView({ block: "center" }));
+    const nameObservations: unknown[] = [];
+    const observeRegion = async () => {
+      const observation = await panel.getByText("도면 영역 1", { exact: true }).evaluate(element => {
+        const rect = element.getBoundingClientRect();
+        const header = document.querySelector("[data-shell-topbar]")?.getBoundingClientRect();
+        const nav = document.querySelector('[data-shell-navigation="compact"]')?.getBoundingClientRect();
+        const clips = [...function* () { for (let node = element.parentElement; node; node = node.parentElement) yield node; }()].map(node => ({
+          rect: node.getBoundingClientRect().toJSON(), overflowX: getComputedStyle(node).overflowX,
+          overflowY: getComputedStyle(node).overflowY, clientWidth: node.clientWidth, clientHeight: node.clientHeight,
+          clientLeft: node.clientLeft, clientTop: node.clientTop
+        }));
+        const hit = document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2);
+        const readable = rect.top >= (header?.bottom ?? 0) && rect.bottom <= (nav?.top ?? innerHeight)
+          && rect.left >= 0 && rect.right <= innerWidth && Boolean(hit && (hit === element || element.contains(hit)))
+          && clips.every(c => (!/auto|hidden|clip|scroll/.test(c.overflowX) || (rect.left >= c.rect.left + c.clientLeft && rect.right <= c.rect.left + c.clientLeft + c.clientWidth))
+            && (!/auto|hidden|clip|scroll/.test(c.overflowY) || (rect.top >= c.rect.top + c.clientTop && rect.bottom <= c.rect.top + c.clientTop + c.clientHeight)));
+        return { utc: new Date().toISOString(), name: element.textContent, rect: rect.toJSON(), clips, readable, scrollY, innerWidth, innerHeight };
+      });
+      nameObservations.push(observation);
+      writeFileSync(join(process.env.TASK8_OUTPUT!, "native-cad-name-observations.json"), JSON.stringify(nameObservations, null, 2));
+      expect(observation.readable, "Actual CAD region name must be unclipped and above fixed navigation").toBe(true);
+      const { utc: _observedAt, ...content } = observation;
+      return content;
+    };
+    await observeRegion();
+    await native.capture("Task8-CAD-region-name", region, async () => {
+      await expect(region).toBeChecked();
+    }, [], {
+      description: "실제 도면 영역 1 이름·선택 표시, 기본 20개·CAD mutation 0",
+      observe: async () => {
+        await expect(page.getByRole("dialog", { name: "도면 영역 목록", exact: true })).not.toBeVisible();
+        await expect(panel.getByRole("radio")).toHaveCount(20);
+        await expect(panel.getByRole("radiogroup", { name: "가져올 도면 영역" })).toBeVisible();
+        expect(mutationRequests).toEqual([]);
+        await expect(region).toBeChecked();
+        return { radios: await panel.getByRole("radio").count(), mutations: mutationRequests.length, expanded: await trigger.getAttribute("aria-expanded"), selected: await region.isChecked(), content: await observeRegion() };
+      }
+    });
+    await expectMinimumTouchTargetsAfterScrolling(page, '[aria-label="CAD 가져오기"]');
+  } finally { try { await native?.stop(); } finally { await context.close(); await native?.recordContextCleanup(); } }
+});
 
 for (const width of [1024, 390]) test(`U13 common monitoring saved revision reload at ${width}px (HTTP fixture)`, async ({ page }, testInfo) => {
   await page.setViewportSize({ width, height: 900 });
   await page.addInitScript(({ mobile }) => {
-    if (mobile) document.addEventListener("DOMContentLoaded", () => {
-      document.documentElement.dataset.ledControlMobileWebview = "true";
-      document.documentElement.dataset.ledControlNativeAppState = "active";
+    if (mobile) window.document.addEventListener("DOMContentLoaded", () => {
+      window.document.documentElement.dataset.ledControlMobileWebview = "true";
+      window.document.documentElement.dataset.ledControlNativeAppState = "active";
     });
   }, { mobile: width < 768 });
   await installSettingsApiRoutes(page, "admin");
@@ -378,7 +579,7 @@ test("dirty editor logout keeps the draft on cancel and logs out only after conf
 
   const xInput = await changeSelectedFixtureX(page, "260");
 
-  await page.getByLabel("로그아웃", { exact: true }).click();
+  await page.getByRole("region", { name: "내 계정" }).getByRole("button", { name: "로그아웃", exact: true }).click();
   let logoutDialog = page.getByRole("alertdialog", { name: "로그아웃 확인" });
   await expect(logoutDialog).toContainText("저장하지 않은 변경사항");
   await logoutDialog.getByRole("button", { name: "취소" }).click();
@@ -388,7 +589,7 @@ test("dirty editor logout keeps the draft on cancel and logs out only after conf
   expect(api.logoutRequests).toBe(0);
   await expect.poll(async () => page.evaluate(async () => (await fetch("/api/auth/me")).status)).toBe(200);
 
-  await page.getByLabel("로그아웃", { exact: true }).click();
+  await page.getByRole("region", { name: "내 계정" }).getByRole("button", { name: "로그아웃", exact: true }).click();
   logoutDialog = page.getByRole("alertdialog", { name: "로그아웃 확인" });
   await logoutDialog.getByRole("button", { name: "로그아웃" }).click();
 
@@ -550,6 +751,27 @@ for (const viewport of responsiveViewports.filter(({ width }) => width <= 760)) 
   });
 }
 
+test("Task8 editor resize across 1023 and 1024 keeps renderer and draft identity", async ({ page }) => {
+  await page.setViewportSize({ width: 1023, height: 900 });
+  const api = await installSettingsApiRoutes(page, "admin", { readyMapDocument: true });
+  await page.goto("/settings/floor-plans/floor-1/edit?siteId=site-1");
+  const canvas = page.getByLabel("B2 편집 캔버스");
+  await expect(canvas).toHaveAttribute("data-map-ready", "true");
+  const original = await canvas.elementHandle();
+  await changeSelectedFixtureX(page, "240");
+  for (const width of [1024, 1023]) {
+    await page.setViewportSize({ width, height: 900 });
+    await expect(canvas).toHaveAttribute("data-map-ready", "true");
+    expect(await canvas.evaluate((element, prior) => element === prior, original)).toBe(true);
+    await expect(page.getByRole("button", { name: "저장", exact: true })).toBeEnabled();
+    await expect.poll(() => canvas.evaluate(element => element.clientHeight)).toBeGreaterThanOrEqual(240);
+    await expectNoHorizontalOverflow(page);
+  }
+  expect(api.atomicSavePayloads).toEqual([]);
+  await page.getByRole("button", { name: "저장", exact: true }).click();
+  await expect.poll(() => api.fixtureUpdates).toEqual([{ id: "fixture-1", x: 240 }]);
+});
+
 for (const viewport of responsiveViewports) {
   test(`floor editor keeps its workspace contract at ${viewport.width}px`, async ({ page }) => {
     await page.setViewportSize(viewport);
@@ -573,8 +795,13 @@ for (const viewport of responsiveViewports) {
     expect(stage).not.toBeNull();
     if (stage) {
       expect(stage.width).toBeGreaterThan(200);
-      expect(stage.height).toBeGreaterThan(120);
-      expect(stage.y + stage.height).toBeLessThanOrEqual(viewport.height - (viewport.width <= 760 ? 68 : 0));
+      expect(stage.height).toBeGreaterThanOrEqual(240);
+      await canvas.evaluate(element => element.scrollIntoView({ block: "center" }));
+      const visibleStage = await canvas.boundingBox();
+      expect(visibleStage).not.toBeNull();
+      // A short screen scrolls the full-size map; sufficient-height screens
+      // still expose it above the fixed navigation without shrinking it.
+      if (visibleStage && viewport.height >= 740) expect(visibleStage.y + visibleStage.height).toBeLessThanOrEqual(viewport.height - (viewport.width <= 760 ? 68 : 0));
     }
     await expectNoHorizontalOverflow(page);
     if (viewport.width <= 760) {

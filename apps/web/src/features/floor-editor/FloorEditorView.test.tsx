@@ -466,6 +466,15 @@ describe("FloorEditorView", () => {
     useFloorEditorStore.setState({ initialState: null, state: null, isDirty: false, activeTool: "select", zoom: 1, pan: { x: 0, y: 0 }, selection: null });
   });
 
+  it("preserves an intrinsic workspace minimum without wrapping camera controls", () => {
+    renderEditor();
+    expect(screen.getByRole("group", { name: "지도 확대 축소" })).toHaveClass("shrink-0", "flex-nowrap");
+    const workspace = screen.getByTestId("floor-editor-layout");
+    expect(workspace).toHaveClass("min-h-[242px]");
+    expect(workspace.parentElement).toHaveClass("min-h-min");
+    expect(workspace.parentElement).not.toHaveClass("overflow-hidden");
+  });
+
   it("renders toolbar canvas properties save and cancel controls", () => {
     renderEditor(editorState, {
       floors: [{ id: "floor-b2", name: "B2" }, { id: "floor-b1", name: "B1" }],

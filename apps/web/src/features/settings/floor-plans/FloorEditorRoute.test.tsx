@@ -162,6 +162,14 @@ describe("FloorEditorRoute", () => {
     useFloorEditorStore.setState({ initialState: null, state: null, isDirty: false, selection: null });
   });
 
+  it("propagates the editor intrinsic minimum through the route wrapper", async () => {
+    getFloorEditorState.mockResolvedValue(editorState);
+    renderRoute("admin");
+    const editor = (await screen.findByRole("heading", { name: "B2 맵 편집" })).closest("section");
+    expect(editor?.parentElement).toHaveClass("min-h-min", "[&>section]:min-h-min");
+    expect(editor?.parentElement).not.toHaveClass("overflow-hidden", "min-h-0");
+  });
+
   it("locks background editing and preserves the dirty leave guard until fresh foreground acquisition", async () => {
     getFloorEditorState.mockResolvedValue(editorState);
     renderRoute("admin");

@@ -221,7 +221,7 @@ export async function expectMinimumTouchTargets(
       );
       if (!visibleRect) return null;
 
-      const ancestors = [...generateAncestors(element)];
+      const ancestors: Element[] = [...generateAncestors(element)];
       // Descendants of a viewport-fixed overlay escape document clipping too.
       // Retain clipping inside the overlay and all transformed containing blocks.
       const viewportFixedRoot = [element, ...ancestors].find((candidate) => getComputedStyle(candidate).position === "fixed"

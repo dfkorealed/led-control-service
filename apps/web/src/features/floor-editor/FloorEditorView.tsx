@@ -475,7 +475,7 @@ export function FloorEditorView({
   }
 
   return (
-    <section className="flex h-full min-h-0 min-w-0 flex-col gap-2 overflow-hidden">
+    <section className="flex h-full min-h-min min-w-0 flex-col gap-2">
       <header className="shrink-0 [&_[role=tooltip]]:pointer-events-none" data-testid="editor-toolbar">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="min-w-0">
@@ -492,7 +492,7 @@ export function FloorEditorView({
           <IconTooltipButton size="sm" ref={toolsToggle} icon={PanelLeft} label="도구 및 조명 패널" aria-expanded={toolsVisible} aria-controls="editor-tools-panel" onClick={() => togglePanel("tools")} />
           <IconTooltipButton size="sm" icon={Undo2} label="실행 취소" disabled={isSaveOrRestoreBlocked || !past.length} onClick={() => void map.history("undo")} />
           <IconTooltipButton size="sm" icon={Redo2} label="다시 실행" disabled={isSaveOrRestoreBlocked || !future.length} onClick={() => void map.history("redo")} />
-          <MapCameraControls zoomPercent={Math.round(zoom * 100)} onZoomOut={() => setZoom(zoom / 1.1)} onZoomIn={() => setZoom(zoom * 1.1)}
+          <MapCameraControls className="shrink-0 flex-nowrap" zoomPercent={Math.round(zoom * 100)} onZoomOut={() => setZoom(zoom / 1.1)} onZoomIn={() => setZoom(zoom * 1.1)}
             onResetZoom={resetZoom} onFit={() => useFloorEditorStore.getState().fit(false, visibleCadViewport ?? undefined)}
             onFitSelection={() => map.document ? map.fitSelection() : useFloorEditorStore.getState().fit(true)}
             canZoomOut={zoom > 0.001} canZoomIn={zoom < 4} fitLabel="맵 맞춤" />
@@ -545,7 +545,9 @@ export function FloorEditorView({
 
       {/* Canvas errors must stay actionable above an open narrow panel. Bound
           that notice to 80px and reserve 96px including its existing top inset. */}
-      <div className={`relative flex min-h-0 min-w-0 flex-1 gap-3 overflow-hidden ${isNarrowLayout ? "[&:has(main_[role=alert])>#editor-tools-panel]:top-16 [&:has(main_[role=alert])>#editor-tools-panel]:mt-8 [&:has(main_[role=alert])>#editor-information-panel]:top-16 [&:has(main_[role=alert])>#editor-information-panel]:mt-8" : ""}`} data-testid="floor-editor-layout" onDrop={finishPanelDrag}>
+      {/* Preserve 240px of canvas content plus its two border pixels. This
+          intrinsic minimum must flow through the route to document scrolling. */}
+      <div className={`relative flex min-h-[242px] min-w-0 flex-1 gap-3 overflow-hidden ${isNarrowLayout ? "[&:has(main_[role=alert])>#editor-tools-panel]:top-16 [&:has(main_[role=alert])>#editor-tools-panel]:mt-8 [&:has(main_[role=alert])>#editor-information-panel]:top-16 [&:has(main_[role=alert])>#editor-information-panel]:mt-8" : ""}`} data-testid="floor-editor-layout" onDrop={finishPanelDrag}>
         {/* Keep panels mounted while collapsed: import jobs, form drafts and the
             fixture drag registry must outlive a layout-only visibility change. */}
         {/* Opacity/pointer-events expose the drop surface without removing or
