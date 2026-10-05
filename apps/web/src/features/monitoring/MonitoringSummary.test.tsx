@@ -31,6 +31,13 @@ describe("MonitoringSummary", () => {
     expect(within(screen.getByRole("region", { name: "현장 전체 조명 현황" })).queryByRole("button")).toBeNull();
   });
 
+  it("uses a distinct status-reset callback instead of invoking ordinary status selection", () => {
+    const onSelect = vi.fn(), onReset = vi.fn();
+    render(<MonitoringSummary scope="floor" total={2} online={2} fault={0} offline={0} filter="online" onSelect={onSelect} onReset={onReset} />);
+    fireEvent.click(screen.getByRole("button", { name: "필터 초기화" }));
+    expect(onReset).toHaveBeenCalledOnce(); expect(onSelect).not.toHaveBeenCalled();
+  });
+
   it("separates authoritative site and floor scopes", () => {
     render(<>
       <MonitoringSummary scope="site" total={248} online={237} fault={7} offline={4} />

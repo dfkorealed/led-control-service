@@ -7,6 +7,8 @@
 - 현장 전체 집계는 Task 4의 Shell 헤더가 소유하고 본문의 중복 현장 요약만 제거한다. 맵 이름·전체/정상/점검/오프라인 수치·현재 표시 상태는 본문에 남기고 상태 조회는 공통 FilterPanel Popover로 옮긴다. 기존 목록 열기와 onSelect·null/집계 준비 중 표현을 유지하며 조명을 자동 선택하지 않는다. 현장·맵 기본 선택과 기존 조명 검색 입력은 Popover 밖에 유지한다.
 - 전체 로그의 기간과 50/100/500/1000 항목 수 선택을 공통 Popover에 배치한다. 기본 50·기간 null·최근 3개월·종료일 포함·opaque cursor·범위별 조회는 유지한다. Popover 닫기/재열기는 부모 소유 부분 날짜와 현재 페이지를 보존하며 부분·역전 날짜는 요청하지 않는다. 초기화는 기간과 크기/페이지를 기본값으로 되돌리고, 방문한 페이지의 cursor400만 첫 페이지로 복구한다. 기존 로그 검색 계약은 없어 가짜 검색이나 API 필드를 추가하지 않는다.
 - 공통 Dialog는 내부 ref를 안정화해 중첩 필터의 날짜 입력·부모 재렌더·외부 object/callback ref 교체 시 초점을 유지하고 외부 ref 교체/닫힘 정리를 보존한다. 초기 초점·pending·Back·safe-area 정책은 변경하지 않는다.
+- 상태 초기화는 일반 상태 선택과 별도 callback을 사용해 기존 검색 입력을 보존한다. 검색 창을 닫은 뒤 초기화해도 자동 재열기·조명 선택·카메라 초기화·제어 요청은 없으며 명시적으로 다시 열면 입력을 유지한다.
+- 고객 Shell의 알림은 sticky 헤더 뒤·본문 앞의 단일 자연 높이 영역에서 표시해 지도 조작부를 덮지 않는다. 알림이 없으면 영역을 만들지 않고 긴/복수 알림은 필요한 높이만 예약한다. 모니터링 전체 보기에서도 기존 지도 최소 240px와 일반 문서 스크롤을 유지한다. 공통 ToastRegion의 기본 overlay 배치와 메시지·revision·만료·닫기·aria 정책은 그대로다.
 - 격리 Chromium에서 320/390/768/1023/1024/1287/1440px의 상태 필터·기존 검색·44px 조작·가로 넘침 0, 휠/키보드 끝 로그·실제 소프트웨어 터치 pinch/swipe·고유 임시 프로필의 브라우저 200% 확대, 카메라의 1023↔1024/전체 보기 복귀, 늦은 이전 층 로그의 격리를 직접 검증한다. 제어 POST는 0이다.
 
 ### 미구현
@@ -16,12 +18,13 @@
 ### 부족하거나 개선이 필요한 기능
 
 - 원래 두 조명의 1287×1226/390×320/1440×600 bounds에서 footer·범례는 맵/frame 안에 있었고 짧은 화면은 문서 스크롤로 접근됐다. 확대 surface의 부분 표시는 정상 카메라 동작이므로 재현되지 않은 잘림에 대한 높이/CSS 수정은 하지 않았다.
-- 오래된 fixture 시각의 지연 알림 toast가 390×320의 footer hit를 가린 원래 실패와 스크린샷을 보존한다. 명시적으로 알림을 닫은 뒤의 접근 PASS는 알림이 보이는 동안 겹침 0의 증거가 아니다. loading/error/toast 동시 표시의 최종 겹침 검수는 Task 9에서 별도로 판정한다. Chromium/CDP 터치·inset 증거를 실기기 승인으로 확대하지 않는다.
+- 오래된 fixture 시각의 지연 알림이 390×320 footer hit를 가린 원 실패와 닫기 후의 기존 결과를 보존한다. 후속 flow 배치는 닫기/자연 만료 전 설명이 줄바꿈되는 실제 지연 알림 및 기존 경고 2개의 bounds·hit·최소 지도 높이·일반 스크롤/전체 보기/카메라 복귀를 격리 Chromium에서 직접 검사한다. 작은 화면의 알림과 footer가 항상 동시에 viewport 안에 있다는 뜻은 아니다. 임의의 초장문 알림과 최종 loading/error 상태 조합·headed 200%·native/HIL 통합 검수는 Task 9의 별도 관문이다.
 
 ### 관련 파일
 
 - `apps/web/src/features/monitoring/{MonitoringView,MonitoringSummary,MonitoringLogDrawer}.tsx`와 인접 시험, `apps/web/e2e/monitoring-surface-access.spec.ts`.
 - 공통 좁은 보완: `apps/web/src/components/ui/overlays/{DialogBase.tsx,overlays.test.tsx}`. 기존 FloorMap/viewport/camera와 조회 hook/API는 변경하지 않는다.
+- 알림 배치 보완: `apps/web/src/components/ui/session-status/{ToastRegion.tsx,session-status.test.tsx}`, `apps/web/src/features/shells/{CustomerShell.tsx,CustomerShell.monitoring.test.tsx}`. provider·상태 producer·계정 탈출·명령 owner는 변경하지 않는다.
 
 ### 갱신 규칙
 

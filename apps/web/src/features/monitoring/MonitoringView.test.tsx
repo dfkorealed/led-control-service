@@ -251,6 +251,22 @@ describe("MonitoringView refresh", () => {
     expect(within(finder).getByRole("button", { name: "상세 조명 선택" })).toHaveTextContent("B1-L001");
   });
 
+  it("map status reset preserves a nonempty finder search across close and reopen", () => {
+    render(<MonitoringView siteId="site-1" />);
+    selectStatusFilter("정상");
+    const finder = screen.getByRole("dialog", { name: "조명 검색·상세" });
+    fireEvent.change(within(finder).getByRole("searchbox", { name: "조명 이름 또는 번호 검색" }), { target: { value: "B1-L001" } });
+    closeInspector();
+    fireEvent.click(screen.getByRole("button", { name: "필터 초기화" }));
+    const reopened = screen.queryByRole("dialog", { name: "조명 검색·상세" }) ?? openInspector();
+    expect(within(reopened).getByRole("searchbox", { name: "조명 이름 또는 번호 검색" })).toHaveValue("B1-L001");
+    expect(within(reopened).queryByRole("complementary", { name: "선택 조명 상세" })).not.toBeInTheDocument();
+    expect(refreshApi.waitForMonitoringRefresh).not.toHaveBeenCalled();
+    closeInspector();
+    expect(screen.getByText("표시 상태: 전체 조명")).toBeVisible();
+    expect(document.querySelector('[data-spatial-map-marker]')).toHaveAttribute("data-selected", "false");
+  });
+
   it("clears a deleted selection without substituting the remaining runtime row", () => {
     const second = { ...fixture, id: "fixture-2", name: "B1-L002" };
     const view = render(<MonitoringView siteId="site-1" />);

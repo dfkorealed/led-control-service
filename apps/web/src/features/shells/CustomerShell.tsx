@@ -279,7 +279,7 @@ export function CustomerShell({ user }: { user: AuthUser }) {
     <WorkspaceFocusProvider scope={JSON.stringify([principalKey(user), selectedSiteId, location.pathname])}>{focus =>
     <SessionStatusProvider>
       <ShellStatusRegistration items={shellStatusItems} />
-      <div className={`bg-surface-canvas ${focus.active || isEditorRoute ? "flex h-dvh min-h-0 overflow-hidden" : isMonitoringRoute ? "flex h-dvh min-h-0" : "min-h-screen"} ${isCompactNavigation && !focus.active && !isMonitoringRoute ? "pb-shell-navigation-safe" : "flex"}`} data-app-shell data-workspace-full-view={focus.active}>
+      <div className={`bg-surface-canvas ${isMonitoringRoute ? "flex h-dvh min-h-0" : focus.active || isEditorRoute ? "flex h-dvh min-h-0 overflow-hidden" : "min-h-screen"} ${isCompactNavigation && !focus.active && !isMonitoringRoute ? "pb-shell-navigation-safe" : "flex"}`} data-app-shell data-workspace-full-view={focus.active}>
       {capabilities && !gate ? isCompactNavigation ? (
         <nav hidden={focus.active} className={focus.active ? "hidden" : "fixed inset-x-0 bottom-0 z-20 grid h-shell-navigation-safe grid-cols-4 gap-1 border-t border-border-default bg-surface-panel px-1.5 pt-1 pb-safe-area-bottom"} aria-label="모바일 주 메뉴" data-shell-navigation="compact">
           <PrimaryNavigation capabilities={capabilities} search={location.search} />
@@ -292,7 +292,7 @@ export function CustomerShell({ user }: { user: AuthUser }) {
           </nav>
         </aside>
       ) : null}
-      <main className={`flex min-w-0 flex-1 flex-col ${focus.active || isEditorRoute ? "min-h-0 overflow-hidden" : isMonitoringRoute ? "min-h-0" : ""}`}>
+      <main className={`flex min-w-0 flex-1 flex-col ${isMonitoringRoute ? "min-h-0" : focus.active || isEditorRoute ? "min-h-0 overflow-hidden" : ""}`}>
         <header hidden={focus.active} className={focus.active ? "hidden" : "sticky top-0 z-10 grid min-h-16 min-w-0 shrink-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-2 gap-y-2 border-b border-border-default bg-surface-panel px-3.5 py-2 compact:grid-cols-[minmax(0,1fr)_minmax(0,auto)_auto] compact:gap-x-4 compact:px-7"} data-shell-topbar>
           <div className="col-start-1 row-start-1 min-w-0">
             <Heading as="h1" variant="page-title" className="truncate" data-testid="shell-current-menu">{titleForPath(location.pathname)}</Heading>
@@ -319,11 +319,14 @@ export function CustomerShell({ user }: { user: AuthUser }) {
           </div>
           {summaryScope ? <CustomerHeaderSummarySlot currentScope={summaryScope} value={summaryValue} className="col-span-full" /> : null}
         </header>
+        <ToastRegion placement="flow" />
         {/* Monitoring needs a finite flex height to grow its map into available
             space. Its overflow stays visible so short screens can scroll the
             page rather than clip the minimum-height map or small log ticker.
             Other normal routes keep their existing document scroll policy. */}
-        <div data-shell-content className={`m-0! min-w-0 flex-1 ${focus.active ? "min-h-0 overflow-hidden p-2 compact:p-3" : isEditorRoute ? "grid min-h-0 grid-rows-[auto_minmax(0,1fr)] gap-2 overflow-hidden p-2 compact:p-3 [&>section:last-child]:h-full [&>section:last-child]:min-h-0 [&>section:last-child]:grid-rows-[auto_minmax(0,1fr)] [&>section:last-child]:gap-2 [&>section:last-child>div]:min-h-0" : isMonitoringRoute ? "flex min-h-0 flex-col p-6 max-compact:p-3.5" : "grid content-start gap-5 p-6 max-compact:p-3.5"}`}>
+        {/* Short monitoring fullview preserves the map's natural minimum and
+            scrolls normally when live notice height exceeds the viewport. */}
+        <div data-shell-content className={`m-0! min-w-0 flex-1 ${focus.active ? `min-h-0 ${isMonitoringRoute ? "" : "overflow-hidden"} p-2 compact:p-3` : isEditorRoute ? "grid min-h-0 grid-rows-[auto_minmax(0,1fr)] gap-2 overflow-hidden p-2 compact:p-3 [&>section:last-child]:h-full [&>section:last-child]:min-h-0 [&>section:last-child]:grid-rows-[auto_minmax(0,1fr)] [&>section:last-child]:gap-2 [&>section:last-child>div]:min-h-0" : isMonitoringRoute ? "flex min-h-0 flex-col p-6 max-compact:p-3.5" : "grid content-start gap-5 p-6 max-compact:p-3.5"}`}>
           {/* The eager account region stays outside the lazy route boundary so
               failed settings chunks and installation/permission gates retain
               the same logout controller, confirmation and initiating ref. */}
@@ -414,7 +417,6 @@ export function CustomerShell({ user }: { user: AuthUser }) {
       >
         저장하지 않은 변경사항이 있습니다. 로그아웃하시겠습니까?
       </ConfirmDialog>
-      <ToastRegion />
       </div>
     </SessionStatusProvider>
     }</WorkspaceFocusProvider>

@@ -51,14 +51,14 @@ function ScreenStatusObserver() {
   return <output data-testid="screen-status-count">{statuses.length}</output>;
 }
 
-function ToastHarness() {
+function ToastHarness({ placement }: { placement?: "overlay" | "flow" }) {
   const toast = useSessionToast();
   return <>
     <button onClick={() => toast.publish({ dedupeKey: "save", tone: "success", title: "저장 완료" })}>저장 알림</button>
     <button onClick={() => toast.publish({ dedupeKey: "save", tone: "warning", title: "저장 지연" })}>저장 갱신</button>
     {(["하나", "둘", "셋", "넷"] as const).map((title) => <button key={title} onClick={() => toast.publish({ dedupeKey: title, tone: "info", title })}>{title}</button>)}
     <button onClick={() => toast.publish({ dedupeKey: "danger", tone: "danger", title: "연결 실패" })}>위험</button>
-    <ToastRegion />
+    <ToastRegion placement={placement} />
   </>;
 }
 
@@ -72,6 +72,26 @@ function ImperativeOpenHarness() {
 }
 
 describe("session status feedback", () => {
+  it("flow placement reserves only visible notices and preserves revision expiry and dismissal", async () => {
+    vi.useFakeTimers();
+    render(<SessionStatusProvider><ToastHarness placement="flow" /></SessionStatusProvider>);
+    expect(screen.queryByRole("region", { name: "알림" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "저장 알림" }));
+    const region = screen.getByRole("region", { name: "알림" });
+    expect(region).not.toHaveClass("fixed"); expect(region).toHaveClass("shrink-0");
+    await act(async () => { await vi.advanceTimersByTimeAsync(4_000); });
+    fireEvent.click(screen.getByRole("button", { name: "저장 갱신" }));
+    await act(async () => { await vi.advanceTimersByTimeAsync(4_999); });
+    expect(within(region).getByRole("status")).toHaveTextContent("저장 지연");
+    await act(async () => { await vi.advanceTimersByTimeAsync(1); });
+    expect(screen.queryByRole("region", { name: "알림" })).not.toBeInTheDocument();
+    expect(vi.getTimerCount()).toBe(0);
+    fireEvent.click(screen.getByRole("button", { name: "위험" }));
+    expect(screen.getByRole("alert")).toHaveTextContent("연결 실패");
+    fireEvent.click(screen.getByRole("button", { name: "알림 닫기" }));
+    expect(screen.queryByRole("region", { name: "알림" })).not.toBeInTheDocument();
+  });
+
   it("does not treat a transient query issue as a durable alarm count", () => {
     render(<SessionStatusProvider><QueryStatusHarness fingerprint="1" /></SessionStatusProvider>);
     expect(screen.getByRole("button", { name: "알람센터, 현장 미선택" })).toBeVisible();

@@ -30,7 +30,7 @@ async function install(page: Page) {
     // is its last branch, never a proxy fallback to an actual API process.
     return route.fallback();
   });
-  return { api, reads };
+  return { api, reads, fixtures };
 }
 async function paints(page: Page) {
   await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
@@ -104,6 +104,108 @@ async function mapBounds(page: Page) {
   });
 }
 
+async function liveNoticeGeometry(notice: Locator, control?: Locator) {
+  // Capture live notice count, geometric overlap and the actual hit in one
+  // browser task so expiry between independent measurements cannot fake PASS.
+  return (control ?? notice).evaluate((node, isControl) => {
+    const region = document.querySelector('[aria-label="알림"]')!, footer = document.querySelector('[aria-label="지도 조작"]')!;
+    const band = region.getBoundingClientRect(), f = footer.getBoundingClientRect(), c = node.getBoundingClientRect();
+    const articles = [...region.querySelectorAll('article')].map(article => {
+      const r = article.getBoundingClientRect();
+      return { text: article.textContent, rect: r.toJSON(), visibleViewportHeight: Math.max(0, Math.min(r.bottom, innerHeight) - Math.max(r.top, 0)),
+        display: getComputedStyle(article).display, visibility: getComputedStyle(article).visibility,
+        overlapArea: Math.max(0, Math.min(r.right, c.right) - Math.max(r.left, c.left)) * Math.max(0, Math.min(r.bottom, c.bottom) - Math.max(r.top, c.top)) };
+    });
+    const left = Math.max(0, c.left), right = Math.min(innerWidth, c.right), top = Math.max(0, c.top), bottom = Math.min(innerHeight, c.bottom);
+    const point = { x: (left + right) / 2, y: (top + bottom) / 2 }, target = document.elementFromPoint(point.x, point.y);
+    return { capturedAt: Date.now(), count: articles.length, band: band.toJSON(), footer: f.toJSON(), position: getComputedStyle(region).position, articles,
+      overlapArea: Math.max(0, Math.min(band.right, f.right) - Math.max(band.left, f.left)) * Math.max(0, Math.min(band.bottom, f.bottom) - Math.max(band.top, f.top)),
+      hit: isControl ? { point, reachable: right > left && bottom > top && (node === target || node.contains(target)), target: target?.outerHTML.slice(0, 250), rect: c.toJSON() } : null,
+      pageY: scrollY, documentHeight: document.documentElement.scrollHeight };
+  }, Boolean(control));
+}
+
+test('task5 live toast never covers map footer at 390x320 without dismissal', async ({ page }, info) => {
+  await page.setViewportSize({ width: 390, height: 320 }); const state = await install(page);
+  await page.goto(`/monitoring?siteId=${ids.siteId}`);
+  const notice = page.getByRole('region', { name: '알림', exact: true }), toast = notice.locator('article');
+  await expect(toast).toHaveCount(1);
+  const observedAt = Date.now();
+  const observation = async (step: string, control?: Locator) => ({ step, geometry: await liveNoticeGeometry(notice, control), bounds: await mapBounds(page) });
+  const initial = await observation('initial-live-toast'); expect(initial.geometry.count).toBe(1); expect(initial.geometry.articles[0].visibleViewportHeight).toBeGreaterThan(0);
+  const records: unknown[] = [initial];
+  const controls = page.getByRole('group', { name: '지도 조작', exact: true });
+  try {
+    await page.mouse.move(2, 180); await page.mouse.wheel(0, 1600); await paints(page);
+    for (const name of ['지도 축소', '지도 확대', '지도 전체 보기']) {
+      const control = controls.getByRole('button', { name, exact: true }); await control.scrollIntoViewIfNeeded();
+      const record = await observation(name, control); records.push(record);
+      expect(record.geometry.count).toBe(1); expect(record.geometry.hit!.reachable).toBe(true);
+      expect(record.geometry.articles.map(article => article.overlapArea)).toEqual([0]);
+      expect(record.geometry.capturedAt - observedAt).toBeLessThan(5000);
+    }
+    expect(await page.locator('html').evaluate(node => node.scrollWidth - node.clientWidth)).toBe(0);
+    expect(state.api.dimmingRequests).toHaveLength(0);
+  } finally { await attach(info, 'live-toast-footer', records); await info.attach('live-toast-footer-screen', { body: await page.screenshot(), contentType: 'image/png' }); }
+});
+
+test('task5 long multiple live notices preserve natural scroll fullview camera and footer hits', async ({ page }, info) => {
+  await page.setViewportSize({ width: 390, height: 320 }); const state = await install(page);
+  const plan = { imageUrl: '/demo/floor-b2.svg', sourceType: 'image', originalFileUrl: '/demo/floor-b2.svg', renderedImageUrl: '/demo/floor-b2.svg', width: 1200, height: 800, version: 1 };
+  await page.route('**/api/**/dashboard*', route => route.fulfill({ json: {
+    generatedAt: instant, monitoringPolicy: { gatewayOfflineAfterSeconds: 90, fixtureStaleAfterSeconds: 180 }, capabilities: { read: true, control: true, manage: true, commission: true },
+    site: { id: ids.siteId, name: 'Task5 알림 현장', customerName: '고객사', installationStatus: 'installed', address: null, tariffKwhRate: 160, timeZone: 'Asia/Seoul' },
+    summary: { totalFixtures: 2, onlineFixtures: 0, faultFixtures: 0, offlineFixtures: 2, averageBrightness: 70 },
+    floors: [{ id: ids.floorId, name: 'B2', level: -2, summary: { totalFixtures: 2, onlineFixtures: 0, faultFixtures: 0, offlineFixtures: 2 }, mapRevision: 0, mapConfigured: true, floorPlan: plan, meshControlGroups: [], fixtures: [] }], groups: [],
+    gateways: [{ id: ids.gatewayId, name: 'Task5 Gateway', serialNumber: 'GW-MOCK', firmwareVersion: 'mock', lastHeartbeatAt: instant, connectionStatus: 'offline' }]
+  } }));
+  await page.route('**/api/**/fixtures?**', route => route.fulfill({ json: { generatedAt: new Date(Date.now() + 120_000).toISOString(), nextCursor: null,
+    items: state.fixtures.map(fixture => ({ ...fixture, status: 'offline', statusReason: 'gateway_offline', gateway: { ...fixture.gateway, connectionStatus: 'offline' }, controllable: false, controlBlockReason: 'gateway_offline' })) } }));
+  await page.goto(`/monitoring?siteId=${ids.siteId}`);
+  const notice = page.getByRole('region', { name: '알림', exact: true }), articles = notice.locator('article'), viewport = page.getByTestId('monitoring-map-viewport');
+  await expect(articles).toHaveCount(2); await expect(notice).toContainText('시간 차이 확인');
+  const records: unknown[] = [], observedAt = Date.now();
+  async function record(step: string, control?: Locator) {
+    await expect(articles).toHaveCount(2);
+    const evidence = await liveNoticeGeometry(notice, control);
+    expect(evidence.count).toBe(2); expect(evidence.capturedAt - observedAt).toBeLessThan(5000);
+    expect(evidence.position).toBe('static'); expect(evidence.overlapArea).toBe(0);
+    expect(evidence.articles.every(article => article.display !== 'none' && article.visibility === 'visible')).toBe(true);
+    expect(evidence.band.height).toBeGreaterThanOrEqual(evidence.articles.reduce((sum, article) => sum + article.rect.height, 0));
+    if (evidence.hit) expect(evidence.hit.reachable).toBe(true);
+    expect((await viewport.boundingBox())!.height).toBeGreaterThanOrEqual(240);
+    records.push({ step, evidence, camera: await camera(viewport) });
+  }
+  try {
+    await notice.scrollIntoViewIfNeeded(); await paints(page); await record('notice-reading');
+    await page.mouse.move(2, 180); await page.mouse.wheel(0, 1800); await paints(page);
+    const zoom = page.getByRole('button', { name: '지도 확대', exact: true }); await zoom.scrollIntoViewIfNeeded(); await record('normal-footer', zoom); await zoom.click(); await paints(page);
+    const userCamera = await camera(viewport);
+    await page.getByRole('button', { name: '지도 전체 보기', exact: true }).click(); await paints(page);
+    const exit = page.getByRole('button', { name: '전체 보기 종료', exact: true }); await exit.scrollIntoViewIfNeeded(); await record('fullview-footer', exit);
+    await exit.click(); await paints(page);
+    const restored = await camera(viewport); expect(restored.zoom).toBe(userCamera.zoom); expect(Math.abs(restored.x - userCamera.x)).toBeLessThan(.02); expect(Math.abs(restored.y - userCamera.y)).toBeLessThan(.02);
+    expect(Date.now() - observedAt).toBeLessThan(5000); await expect(articles).toHaveCount(2);
+    expect(await page.locator('html').evaluate(node => node.scrollWidth - node.clientWidth)).toBe(0); expect(state.api.dimmingRequests).toHaveLength(0);
+  } finally { await attach(info, 'multiple-live-notice-fullview', records); await info.attach('multiple-live-notice-screen', { body: await page.screenshot(), contentType: 'image/png' }); }
+});
+
+test('task5 map reset preserves typed search and camera without automatic selection or controls', async ({ page }, info) => {
+  await page.setViewportSize({ width: 390, height: 720 }); const state = await install(page); await page.goto(`/monitoring?siteId=${ids.siteId}`);
+  const viewport = page.getByTestId('monitoring-map-viewport'); await page.getByRole('button', { name: '지도 확대', exact: true }).click(); const before = await camera(viewport);
+  await page.getByRole('button', { name: /맵 조명 상태 필터 상세 필터/ }).click(); await page.getByRole('button', { name: '점검 필요', exact: true }).click();
+  const finder = page.getByRole('dialog', { name: '조명 검색·상세', exact: true }), search = finder.getByRole('searchbox', { name: '조명 이름 또는 번호 검색' });
+  await search.fill('Task9 조명 1'); await finder.getByRole('button', { name: '조명 검색·상세 닫기', exact: true }).click();
+  await page.getByRole('button', { name: '필터 초기화', exact: true }).click(); await expect(finder).toHaveCount(0);
+  await page.getByRole('button', { name: '조명 검색·상세', exact: true }).click(); await expect(search).toHaveValue('Task9 조명 1');
+  await expect(finder.locator('[aria-label="선택 조명 상세"]')).toHaveCount(0);
+  await finder.getByRole('button', { name: '조명 검색·상세 닫기', exact: true }).click();
+  await expect(page.getByText('표시 상태: 전체 조명', { exact: true })).toBeVisible();
+  const after = await camera(viewport); expect(after.zoom).toBe(before.zoom); expect(Math.abs(after.x - before.x)).toBeLessThan(.02); expect(Math.abs(after.y - before.y)).toBeLessThan(.02);
+  await expect(page.locator('[data-spatial-map-marker][data-selected="true"]')).toHaveCount(0); expect(state.api.dimmingRequests).toHaveLength(0);
+  await attach(info, 'search-reset-camera', { before, after, search: 'Task9 조명 1', reads: state.reads });
+});
+
 for (const size of [{width:1287,height:1226},{width:390,height:320},{width:1440,height:600}]) {
   test(`task5 original map bounds ${size.width}x${size.height}`, async ({page}, info) => {
     await page.setViewportSize(size); const state = await install(page);
@@ -143,11 +245,7 @@ for (const size of [{width:1287,height:1226},{width:390,height:320},{width:1440,
       expect(bounds.meaningfulSurface!.viewportHeight).toBeGreaterThanOrEqual(190);
     };
     await containChrome();
-    // The unchanged October 1 fixture is intentionally stale at the run date.
-    // Dismiss its real transient alert through the UI before measuring input;
-    // keep its initial screen/bounds evidence above rather than hiding CSS.
-    const alertClose = page.getByRole('button', { name: '알림 닫기', exact: true });
-    if (await alertClose.count()) await alertClose.click();
+    // Live notices reserve normal-flow height; footer access needs no dismiss.
     await viewport.scrollIntoViewIfNeeded();
     const wheelHit = await hit(viewport); expect(wheelHit.reachable).toBe(true);
     await page.mouse.move(wheelHit.point.x,wheelHit.point.y); await page.mouse.wheel(0,-80);
@@ -245,9 +343,17 @@ test('monitoring detail native wheel keyboard last information and nonzero break
     // Expose the surface's trailing chrome with one ordinary page-gutter
     // wheel before measuring detail input. Never scroll the final row itself.
     const gutter = await page.locator('[data-shell-content]').evaluate(node => {
-      const rect = node.getBoundingClientRect(), point = { x: rect.left + 2, y: Math.min(innerHeight / 2, rect.bottom - 2) }, target = document.elementFromPoint(point.x, point.y);
-      return { point, pageTarget: Boolean(target && node.contains(target) && !target.closest('[data-monitoring-layout],button,nav,header')), target: target?.outerHTML.slice(0, 160), before: scrollY };
+      const rect = node.getBoundingClientRect(), detail = document.querySelector('[data-monitoring-detail-scroll]')!.getBoundingClientRect();
+      // The finite flex allocation may end above its naturally overflowing
+      // children. Sample the visible detail's adjacent document gutter, not
+      // the allocation bottom (which can now coincide with the sticky header).
+      const point = { x: rect.left + 2, y: (Math.max(0, detail.top) + Math.min(innerHeight, detail.bottom)) / 2 }, target = document.elementFromPoint(point.x, point.y);
+      const documentBackground = target === document.documentElement || target === document.body || Boolean(target && node.contains(target));
+      const excluded = '[data-monitoring-layout],[data-monitoring-detail-scroll],[data-floor-map-surface],[data-testid="monitoring-map-viewport"],[role="dialog"],[role="alertdialog"],button,[role="button"],a,input,select,textarea,label,form,nav,header,[contenteditable]:not([contenteditable="false"])';
+      return { point, rect: rect.toJSON(), pageTarget: documentBackground && Boolean(target && !target.closest(excluded)), target: target?.outerHTML.slice(0, 160), before: scrollY,
+        detail: detail.toJSON(), main: node.closest('main')!.getBoundingClientRect().toJSON() };
     });
+    observations.push({ step: 'page-gutter-target-before-input', gutter });
     expect(gutter.pageTarget).toBe(true);
     await page.mouse.move(gutter.point.x, gutter.point.y); await page.mouse.wheel(0, 80);
     await expect.poll(() => page.evaluate(() => scrollY)).toBe(await page.evaluate(() => document.scrollingElement!.scrollHeight - innerHeight));
@@ -497,6 +603,7 @@ for (const width of [320, 390, 768, 1023, 1024, 1287, 1440]) {
     await expect(trigger).toHaveAccessibleName('맵 조명 상태 필터 상세 필터, 활성 조건 1개');
     await expect(page.locator('[aria-label="조명 상세"]')).toHaveCount(0);
     await page.getByRole('button', { name: '필터 초기화', exact: true }).click();
+    await page.getByRole('button', { name: '조명 검색·상세', exact: true }).click();
     await page.getByRole('dialog', { name: '조명 검색·상세', exact: true }).getByRole('button', { name: '조명 검색·상세 닫기', exact: true }).click();
     await expect(trigger).toHaveAccessibleName('맵 조명 상태 필터 상세 필터, 활성 조건 0개');
     expect(await page.locator('html').evaluate(node => node.scrollWidth - node.clientWidth)).toBe(0);
@@ -512,8 +619,6 @@ test.describe('task5 actual touch', () => {
     await page.goto(`/monitoring?siteId=${ids.siteId}`);
     const cdp = await page.context().newCDPSession(page);
     try {
-      const alertClose = page.getByRole('button', { name: '알림 닫기', exact: true });
-      if (await alertClose.count()) await alertClose.tap();
       await page.getByRole('button', { name: '지도 전체 보기', exact: true }).tap();
       const viewport = page.getByTestId('monitoring-map-viewport'); const before = await camera(viewport);
       const box = (await viewport.boundingBox())!, x = box.x + box.width / 2, y = box.y + box.height / 2;

@@ -63,6 +63,27 @@ async function openFixtureInspector() {
 }
 
 describe("customer shell monitoring details", () => {
+  it("reserves a single flow notice band outside the sticky header and keeps monitoring fullview naturally scrollable", async () => {
+    const normalFetch = fetchMock.getMockImplementation()!;
+    fetchMock.mockImplementation(async (path: string) => {
+      const response = await normalFetch(path);
+      if (!String(path).includes('/fixtures?')) return response;
+      return Response.json({ ...await response.json(), generatedAt: new Date(Date.now() - 120_000).toISOString() });
+    });
+    mount();
+    const notice = await screen.findByRole("region", { name: "알림" });
+    expect(await within(notice).findByRole("status")).toHaveTextContent("현황 갱신이 지연");
+    const main = screen.getByRole("main"), header = main.querySelector('[data-shell-topbar]')!, content = main.querySelector('[data-shell-content]')!;
+    expect(main).toContainElement(notice); expect(header).not.toContainElement(notice);
+    expect(header.nextElementSibling).toBe(notice); expect(notice.nextElementSibling).toBe(content);
+    expect(notice).not.toHaveClass("fixed");
+    fireEvent.click(screen.getByRole("button", { name: "지도 전체 보기" }));
+    expect(main.parentElement).toHaveAttribute("data-workspace-full-view", "true");
+    expect(main.parentElement).not.toHaveClass("overflow-hidden"); expect(main).not.toHaveClass("overflow-hidden"); expect(content).not.toHaveClass("overflow-hidden");
+    expect(screen.getAllByRole("region", { name: "알림" })).toHaveLength(1);
+    expect(fetchMock.mock.calls.filter(([path]) => String(path).includes('monitoring-refreshes'))).toHaveLength(0);
+  });
+
   it.each([false, true])("gives monitoring a definite flex height without clipping short-height page overflow (compact %s)", async (compact) => {
     vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: compact, addEventListener: vi.fn(), removeEventListener: vi.fn() })));
     mount();

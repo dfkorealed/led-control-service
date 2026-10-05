@@ -400,6 +400,7 @@ function MonitoringDashboard({ data, userRole, siteId, refreshDashboard }: Monit
         mapName={floor.name}
         filter={fixtureFilter}
         onSelect={filter => { clearSelection(); setFixtureSearch(""); setFixtureFilter(filter); setFinderDefaultOpen(true); setIsInspectorOpen(true); }}
+        onReset={() => { clearSelection(); setFixtureFilter("all"); }}
         total={floor.summary?.totalFixtures ?? null}
         online={floor.summary?.onlineFixtures ?? null}
         fault={floor.summary?.faultFixtures ?? null}

@@ -1,6 +1,7 @@
 # 통계 메뉴 기능 현황
 
 - 2026-10-05 공통 초기 초점 안정성 보완: Dialog 내부 ref를 안정화해 중첩 Popover가 열린 동안 부모 재렌더·외부 object/callback ref 교체가 사용자 초점을 빼앗지 않으며 이전 ref 정리와 닫힘 시 정리는 유지한다. 직접 공통 회귀와 격리 Chromium 검증 범위이며 실제 native WebView·HIL 및 최종 통합 승인을 뜻하지 않는다.
+- 2026-10-05 고객 알림 배치 보완: CustomerShell은 sticky 헤더 뒤·본문 앞의 단일 flow 알림 영역에 표시 중인 메시지의 실제 높이만 예약한다. 알림이 없으면 빈 간격은 없고 닫기·만료·revision·aria와 조회/내보내기 정책은 유지한다. 공통 기본 overlay는 변경하지 않는다. 직접 Shell 회귀와 모니터링 격리 Chromium 범위이며 통계의 전체 상태 조합·native/HIL·최종 통합 승인은 별도다.
 
 기준일: 2026-10-04
 
