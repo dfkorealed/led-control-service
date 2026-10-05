@@ -203,10 +203,18 @@ test("real alarm persistence, frozen bulk targets, replay and account/site isola
 });
 
 async function login(page: Page, loginId: string, password: string) {
+  const heading = page.getByRole("heading", { name: "킨다 로그인", exact: true });
+  await expect(heading).toBeVisible();
   await page.getByLabel("아이디", { exact: true }).fill(loginId);
   await page.getByLabel("비밀번호", { exact: true }).fill(password);
+  // The submit button changes its accessible name while pending. Only actual
+  // login completion and the authenticated AuthView transition prove readiness.
+  const completed = page.waitForResponse(result => new URL(result.url()).pathname === "/api/auth/login" && result.request().method() === "POST");
   await page.getByRole("button", { name: "로그인", exact: true }).click();
-  await expect(page.getByRole("button", { name: "로그인", exact: true })).toHaveCount(0);
+  const response = await completed;
+  expect(response.status()).toBe(201);
+  expect(await response.finished()).toBeNull();
+  await expect(heading).toHaveCount(0);
 }
 
 async function unused(port: number) {
