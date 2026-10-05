@@ -42,7 +42,7 @@
 - [x] 이 구현 계획 검토·승인 회수: 2026-10-05 사용자의 “진행해줘”로 승인됐다.
 - [x] 개인 숨김용 신규 additive DDL과 마지막 로컬 서버 반영의 명시적 승인 회수: 새 두 테이블 추가·Web/API 잠시 중지/재시작을 함께 설명한 확인에 2026-10-05 사용자가 승인했다. 이전 읽음 테이블 승인으로 대체하지 않는다.
 
-현재 실행: Task 1/2는 독립 검토와 해당 검증을 완료했다. Task 3 개인 알람 Backend는 `9a7c82ec`로 구현·소유 검증을 인계받아 강한 독립 요구/품질 검토 중이다. Tasks 4~10은 아직 미실행이며, 사용자 DB/현재 서버 반영과 기본 브랜치 병합은 최종 검수 뒤 Task 10에서만 수행한다.
+현재 실행: Task 1~3은 독립 검토와 해당 검증을 완료했다. Task 4 Shell 헤더·설정 계정·알람 소비를 원 자료와 승인 계약을 이어받는 새 내부 UI 담당자에게 단독 배정한다. Tasks 5~10은 아직 미실행이며, 사용자 DB/현재 서버 반영과 기본 브랜치 병합은 최종 검수 뒤 Task 10에서만 수행한다.
 
 Task 1의 이전 중간 기록: 설치/격리 Prisma/준비 완료, 원 baseline exit 1과 CAD spool·bulk-map·Gateway 분석 CLI의 기존 실패를 보존했다. 원 소스 단독 확인은 각각 8/8·7/7·24/24 PASS이며 전체 baseline 통과로 치환하지 않는다. 당시 UI RED 26실패/20통과와 공통 UI 부분 수정본을 남겼고 GREEN/커밋은 아직 없었다. 담당 세션 압축 뒤 범위 이탈은 작성권 회수·보고/idle 감사로 정리했으며, 기본 checkout/서버/DB/장비 변경은 없었다. 기존 담당에게 정확한 brief/인계 보고로 작성권을 다시 배정했고 이후 완료/보완 결과는 Task 1 하단에 기록했다. 디자이너의 읽기 전용 검수 방법 준비는 실제 Task 9 화면 검증과 구분한다.
 
@@ -203,9 +203,9 @@ expect((await prisma.monitoringIncident.findUniqueOrThrow({ where: { id: inciden
 - [x] **Step 3:** additive schema/SQL/API를 구현하고 이 checkout의 Prisma Client만 생성한다. 기존 migration 재작성/resolve/reset/사용자 DB 적용은 하지 않는다. 두 단계 각각 actor/membership를 재검증한다.
 - [x] **Step 4:** unit/DTO·실제 PG의 전체 페이지/필터 밖/두 계정/두 현장·중간 실패/동일 key·shape CHECK/FK/index/cascade·세 시간대·cursor 거부를 GREEN으로 기록한다. 모든 migration deploy는 자신의 빈 임시 DB에서만 실행한다.
 - [x] **Step 5:** DB/모니터링 문서에 모델·수락 경계·영속 ledger 증가와 운용 한계를 기록한다.
-- [ ] **Step 6:** `feat(api): persist account-scoped alarm dismissals`로 커밋하고 가장 강한 읽기 전용 리뷰에 넘긴다. 사용자 DB/서버는 아직 불변이다.
+- [x] **Step 6:** `feat(api): persist account-scoped alarm dismissals`로 커밋하고 가장 강한 읽기 전용 리뷰에 넘긴다. 사용자 DB/서버는 아직 불변이다.
 
-Task 3 구현 인계 `9a7c82ec`: 실제PG18PASS/0skip·최종production source hash 일치, 단위84PASS/91opt-in skip·타입0이다. 기본 전체API3042PASS/877skip/exit0는 UUID 표기 보완 전이며 그 뒤 실제PG RED1→GREEN18·covering unit/type로 확인했다. 원 실패/launcher 경고는 보존했고 임시cluster/명령 종료·소유15파일 clean을 회수했다. 강한 독립 task review와 현재 사용자DB/서버 적용은 아직 완료되지 않았다.
+Task 3 완료 `9a7c82ec`: 실제PG18PASS/0skip·최종production source hash 일치, 단위84PASS/91opt-in skip·타입0이다. 기본 전체API3042PASS/877skip/exit0는 UUID 표기 보완 전이며 그 뒤 실제PG RED1→GREEN18·covering unit/type로 확인했다. 강한 독립 Spec✅/품질Approved·Critical0/Important0/Minor2를 회수했다. 원 실패/launcher 및 console/logger 경고는 최종 whole-branch 검토에 보존했고 임시cluster/명령 종료·소유15파일 clean을 확인했다. 웹 소비/브라우저/native/HIL·현재 사용자DB/서버 반영은 Task4/9/10의 미실행 범위이며 이 완료로 대체하지 않는다.
 
 ### Task 4: Shell 현장 헤더·설정 계정·알람 소비
 
