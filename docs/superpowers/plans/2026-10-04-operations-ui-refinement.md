@@ -42,7 +42,7 @@
 - [x] 이 구현 계획 검토·승인 회수: 2026-10-05 사용자의 “진행해줘”로 승인됐다.
 - [x] 개인 숨김용 신규 additive DDL과 마지막 로컬 서버 반영의 명시적 승인 회수: 새 두 테이블 추가·Web/API 잠시 중지/재시작을 함께 설명한 확인에 2026-10-05 사용자가 승인했다. 이전 읽음 테이블 승인으로 대체하지 않는다.
 
-현재 실행: Task 1~5는 독립 검토와 해당 검증을 완료했다. Task 5의 `7b773e4a`+`13ecfac6` 및 보완 `54400893`은 원 I1/I2 모두 ADDRESSED·새C/I/M0의 scoped 재검토로 닫혔다. 제어 담당자의 idle를 확인했고 Task6 공통 Grid/필터·지도 입력·inline 결과만 이어 배정한다. Tasks 7~10은 아직 미실행이며, 사용자 DB/현재 서버 반영과 기본 브랜치 병합은 최종 검수 뒤 Task10에서만 수행한다.
+현재 실행: Task 1~6은 각 독립 검토와 보완 scoped gate를 완료했다. Task6 `16eefc19`+`999d7db6`의 I1/I2/M2 ADDRESSED·새C/I/M0를 확인했다. 원whole-Web/브라우저 실패와 후속176단위+강화날짜3·타입/UI0/browser79기존PASS+boundary1PASS의 시간적 범위를 구분한다. 통계 담당자의 Task7 공통 필터·보고서 Grid 소비를 다음 단독 작업으로 넘긴다. Tasks8~10과 strictvisual200·최종전체검수·사용자 DB/서버 반영·기본 병합은 아직이며 Task10 전에 임의 반영하지 않는다.
 
 Task 1의 이전 중간 기록: 설치/격리 Prisma/준비 완료, 원 baseline exit 1과 CAD spool·bulk-map·Gateway 분석 CLI의 기존 실패를 보존했다. 원 소스 단독 확인은 각각 8/8·7/7·24/24 PASS이며 전체 baseline 통과로 치환하지 않는다. 당시 UI RED 26실패/20통과와 공통 UI 부분 수정본을 남겼고 GREEN/커밋은 아직 없었다. 담당 세션 압축 뒤 범위 이탈은 작성권 회수·보고/idle 감사로 정리했으며, 기본 checkout/서버/DB/장비 변경은 없었다. 기존 담당에게 정확한 brief/인계 보고로 작성권을 다시 배정했고 이후 완료/보완 결과는 Task 1 하단에 기록했다. 디자이너의 읽기 전용 검수 방법 준비는 실제 Task 9 화면 검증과 구분한다.
 
@@ -55,7 +55,7 @@ Task 1의 이전 중간 기록: 설치/격리 Prisma/준비 완료, 원 baseline
 | 3 | 원 자료를 이어받는 내부 Backend 담당자 | `apps/api` 개인 숨김 모델/API·인가/멱등·DB 문서. Backend 생산자 |
 | 4 | 원 자료를 이어받는 내부 Shell 담당자 | Shell의 header/account·알람 API/hook/센터, 운영자 Grid 소비 |
 | 5 | 원 모니터링 자료/WIP를 이어받는 내부 담당자 | `features/monitoring`: 높이·현장/맵 요약 구분·로그 필터 |
-| 6 | 제어 페이지 담당자 | 수동 결과/지도/이력·스케줄/이벤트의 공통 표시 소비 |
+| 6 | 원 제어 자료/WIP를 이어받는 별도 내부 GPT6.1 Sol high 담당자 | 수동 결과/지도/이력·스케줄/이벤트의 공통 표시 소비. 기존 센서 세션 보호 |
 | 7 | 통계 페이지 담당자 | 개요/분석/히트맵/보고서 필터와 보고서 Grid 소비 |
 | 8 | 설정 페이지 담당자 | 사용자 Grid/필터·CAD 후보 목록 페이지 크기 소비 |
 | 9 | QA 역할 + UI/UX 디자이너 | 최종 root/임시 DB·브라우저·14건 화면 검수. 읽기 전용 판정 |
@@ -295,6 +295,14 @@ Task 5 완료: 전체 `task-5-rereview.md`를 회수했다. I1/I2 모두 ADDRESS
 
 ### Task 6: 제어의 공통 Grid/필터·지도 입력·inline 결과
 
+Task6 인계(총괄 Ruling15): 기존 제어 세션의 turn01a10ac4 압축 이후 과거 센서 질문 응답을 새 업무로 해석했다. UI 보류/센서 재개 질문만 발생했고 장비 실행은 시작하지 않았다. 작성권을 회수한 후 중지 turn01a10ad0 completed/idle·전체 `task-6-handoff.md`를 확인했다. 제품 구현/커밋0, 소유6시험 WIP와 원RED25FAIL/297name-filtered·exit1/Node22/06:39:43..47UTC를 보존한다. 범위 밖 센서 문서·thread·기본 Git 읽기를 명시하고 서버/DB/장비 쓰기·시그널·CUA0/소유active0을 회수했다. 총괄은 main32e7a45/clean·Web71947지속·API4000nolisten을 대조했으며 원인/복구를 추정하지 않았다. 기존 센서 세션을 재사용하지 않고 fresh 내부 GPT6.1 Sol high가 같은 brief·BASE1850c0f6·원자료와 남은 작업만 이어받는다. 준비/원RED/기본서버 반복·새 사용자 sidebar세션·센서권한 확장은 없다.
+
+Task6 총괄 Rulings16~18: 소유E2E의 map400×240는 실제 interactive viewport에 적용하고 fitted inner도면 visibility·원ID/48hit·nativeclick은 유지한다. dense목표는 원fixture와 기존 실제 확대controls 뒤 중심hit/가림0/선택을 증명한다. ordinary natural-flow의 문서높이0 대리 단언은 명명된 popup/Drawer의 실제bounds·내부끝접근·실wheel/key의 background scrollY보존으로만 정정하고 모든X0/안전기준을 유지한다. Shell/group/overlay 제품 또는fixed-height 변경은 없다. 자기새profile의 최소권한tinyextension public tabs.setZoom/getZoom은 viewportnull/metrics0·실flags/환경·원100↔200 독립geometry/DPR/실입력/nonblankPNG가 있을 때만 genuine200으로 인정하며 Task9/headed/native/HIL까지 확대하지 않는다. 원 실패/covering/hash/독립gate를 요구하고 판단오류비용은 작업ledger에 전부 남긴다.
+
+Task6 총괄 Ruling19: populated40개의 상세행이2084px intrinsic크기로 auto grid행과 전체 지도/문서를 늘리는 실제desktop 결함은 테스트 변경으로 숨기지 않는다. owned SpatialTargetSelector의 표시상세 scrollport에만 tablet:[contain:size]/예외주석을 추가해 기존 mapmin240/footer/legend가 행 크기를 정하도록 하고 원overflowauto/min-h0·selection/camera/command/48hit를 유지한다. internalwheel/end040/pagefixed/mapminimum/X0/안전 단언을 그대로 새GREEN 증명해야 하며 Shell/group/fixed-offset/hide 변경은 없다. 판단오류 시 다른상태/배치·camera 회귀를 되돌리고 UI/단위 검수를 반복하는 비용을 ledger에 기록했다.
+
+Task6 총괄 Rulings20~23: 자기freshprofile의 public chrome://settings global200+reload 단일 비교는 기존blank/nonqual 원로그와 함께 보존하되 geometry/input/traceJPEG를 strictvisualPNG 승인으로 바꾸지 않는다. 소유 ManualControlFeedback만 실제compact47.5rem 가용높이 scrollport와 auto-rows로 보완하고 고정입력/Apply·접힘밖 경고/안전행동·UUID/targets/잠금을 유지한다. 새1440×600의 마지막 width-only 문서높이 proxy만 승인명세의 short natural-flow 실제 wheel/key·지도/footer/범례/끝안전조작 hit·clip겹침0/minmap240/X0으로 정정하고 기존desktop pagefixed/internalwheel은 유지한다. App.test.tsx named partial polling1348 직전 명시적 상세 click 한 줄만 추가 소유로 주며 원POST70%/2targets/clientRequestId와세detail단언을 유지한다. 원whole-Web3171PASS/1FAIL/3SKIP·exit1은 보존하고 직접covering/typeUI/affectedbrowser만 재확인한다. 전체판단근거/오판비용은 ledger에 기록됐고 Task9 실제200·14PNG/독립gate는 아직 남아 있다.
+
 **Files:** `apps/web/src/features/control/ControlView.tsx`, `CommandHistoryPanel.tsx`, `target-selection/SpatialTargetSelector.tsx`, `automation/{ScheduleControlPanel,VehicleEventControlPanel}.tsx`, `automation/components/{AutomationRuleControls,AutomationRuleTable,AutomationRuleCard}.tsx`와 인접 시험; 생성 `command-result-presentation.ts`/`.test.ts`; 수정 `e2e/calm-operations-automation.spec.ts`, `calm-operations-manual-control.spec.ts`, `control-map-target-selection.spec.ts`; `docs/menus/control.md`.
 
 **Interfaces:** Task 1의 DataGrid columns/getRowKey/RowActions를 소비하고 window 기반 useCompactAutomationList/AutomationRuleTable 중복을 제거한다. 활성 토글은 별도 44px icon, 수정/삭제는 RowActions의 typed items/onAction/ref로 전달한다. DateRangeDraft/PageSizeSelect는 popup 밖 부모 소유다.
@@ -309,19 +317,30 @@ completed/verified_applied+applied→성공, partial_failed/verified_partial+par
 
 스케줄 brightness는 표/카드 표시만 제거하고 이벤트 brightness는 유지한다. 두 AutomationWorkspaceSummary 호출만 제거하며 timezone/동기화 대기·실패·센서/대상/유지 시간·다음 실행은 행/편집에서 보존한다. 기본 필터는 status=all/sync=all/limit10, 상세 reset은 검색을 유지한다. 명령 이력은 검색 300ms 외부, period/stage/limit는 Popover로 이동한다. 기본 null/빈 stage/50과 옵션 50/100/500/1000을 보존한다. Task 2 viewport의 wheelZoomWithoutModifier=true를 소비하며 다중 선택은 빈 지도의 직접 선택 policy에서 추가한다.
 
-- [ ] **Step 1:** RED `removes overview and schedule brightness without changing save payload`, `preserves event brightness and synchronization states in table and cards`, `collapsing inline details preserves unresolved command ownership`, `preserves partial date draft across filter close`를 작성한다. 단계/outcome 진리표와 처리 건수만으로 성공을 확정하지 않는다고 단언한다.
+- [x] **Step 1:** RED `removes overview and schedule brightness without changing save payload`, `preserves event brightness and synchronization states in table and cards`, `collapsing inline details preserves unresolved command ownership`, `preserves partial date draft across filter close`를 작성한다. 단계/outcome 진리표와 처리 건수만으로 성공을 확정하지 않는다고 단언한다.
 
 ```ts
 expect(presentRecentCommandResult({ id: "command-1", stage: "completed", outcome: "unknown", dispatchCount: 1,
   completedFixtureCount: 1, totalFixtureCount: 1, errorMessage: null, dispatches: [] })).toEqual({ kind: "unknown" });
 ```
-- [ ] **Step 2:** control/automation 인접 Vitest 및 원 browser 8px/Space/middle-pointer case의 RED를 확인한다. 기존 drag 로직의 실제 실패 원인과 wheel 옵션 누락을 구분한다.
-- [ ] **Step 3:** 공유 인터페이스로 목록·필터·지도·최근 결과를 구현한다. 상세는 명시적 inline 펼침과 세로 스크롤, 새 dialog/Drawer 0이다. 미확정 경고/안전 행동은 접힌 상세 밖에도 남긴다. AutomationRuleCard는 DataGrid 카드로 이관 후 미사용이면 제거한다.
-- [ ] **Step 4:** 관련 회귀/type/UI와 실제 pointer anchor·7/8px·400ms/핀치·capture/blur/Escape·disabled·줌/이동 뒤 정확 ID·추가 선택·44px 더보기/삭제 확인/초점·내부 가로 넘침 0·inline 끝 정보를 GREEN 확인한다. resize/filter/details의 추가 제어 POST·UUID/targets/소유 잠금 변경은 0이다.
-- [ ] **Step 5:** 제어 메뉴에 실제 구현·검증 범위를 기록한다.
-- [ ] **Step 6:** `feat(control): unify automation grids and inline results`로 커밋, 독립 검토 뒤 Task 7로 넘긴다. 실제 장비 명령/센서 테스트는 하지 않는다.
+- [x] **Step 2:** control/automation 인접 Vitest 및 원 browser 8px/Space/middle-pointer case의 RED를 확인한다. 기존 drag 로직의 실제 실패 원인과 wheel 옵션 누락을 구분한다.
+- [x] **Step 3:** 공유 인터페이스로 목록·필터·지도·최근 결과를 구현한다. 상세는 명시적 inline 펼침과 세로 스크롤, 새 dialog/Drawer 0이다. 미확정 경고/안전 행동은 접힌 상세 밖에도 남긴다. AutomationRuleCard는 DataGrid 카드로 이관 후 미사용이면 제거한다.
+- [x] **Step 4:** 관련 회귀/type/UI와 실제 pointer anchor·7/8px·400ms/핀치·capture/blur/Escape·disabled·줌/이동 뒤 정확 ID·추가 선택·44px 더보기/삭제 확인/초점·내부 가로 넘침 0·inline 끝 정보를 GREEN 확인한다. resize/filter/details의 추가 제어 POST·UUID/targets/소유 잠금 변경은 0이다. 원79browser의77PASS/2FAIL 후 affectedautomation8/short1PASS만 새소스에 연결하며 fresh전체79/whole-Web PASS로 바꾸지 않는다. strictvisual200·전체폭/상태·native/HIL은 Task9에 미검증으로 유지한다.
+- [x] **Step 5:** 제어 메뉴에 실제 구현·검증 범위를 기록한다.
+- [x] **Step 6:** `feat(control): unify automation grids and inline results`로 커밋, 독립 검토 뒤 Task 7로 넘긴다. 실제 장비 명령/센서 테스트는 하지 않는다.
+
+Task6 구현 회수: `16eefc1957ebac120e9d9ca3945b3a27277a0402` 단일21파일커밋/parent1850c0f6·전체최종보고 및 source-freeze/cleanup을 읽었다. 실제350/App69/typeUI0/automation8/short1 원stdout·UTC/Node22/exit와 21 committed=working=실제metadata hashes를 독립대조했다. 원whole1FAIL/3SKIP 및79browser77PASS/2FAIL, 이후scoped 범위·actual200 PNG/flags 미검증은 그대로 유지한다. 소유16626/PID0·프로필recoverable archive/원자료보존·작성자idle를 확인하고 freshGPT6.1Solhigh의 독립 요구/품질 gate를 배정했다. 아직 Step6/Task7/최종검수/병합은 미완료다.
+
+Task6 독립 gate: FULLtask-6-review76줄을 읽었으며 Spec❌/품질Needsfixes·C0/I2/M2이다. I1은 invaliddraft의 자동조회enabled가 manualrefetch를 막지 않아 이전valid 기간을 다시 조회하는 경로다. I2는 세 E2E denyfallback와두 automation단위 measurement/menuhelper의 새복제다. Root는 exactnamed경계만 검증하고 같은작성자 FIX_BASE16eef fixround1을 재개했다. Ruling24로 test-only `e2e/support/mock-api-boundary.ts`, `src/test/automation-list.ts`와필요한동명인접.test.ts만 추가소유를 주며 fixture순서/404외부abort/원기하/assertions·명령은 유지한다. M2의 실제open/close callback0도 함께 추가하고 M1원noise는Task9namedtriage로 남긴다. whole/root/zoom 반복없이 직접covering/typeUI/affected3browser·sourcefreeze/scoped재검토 전 다음소비자는 시작하지 않는다.
+
+- [x] **Fix round1 I1:** historyerror→partial/impossible/reversed draft→닫기/재열기보존·manualretry 추가GET0→valid correction 정상조회 RED/GREEN, UI/handler 둘다guard.
+- [x] **Fix round1 I2/M2:** 테스트지원 로직 공통화/fixture순서·경계·원assertions 보존, 필터 actualopen/close callback0, directcovering/typeUI/affectedbrowser/sourcefreeze/scoped검토.
+
+Task6 fixround1 회수: `999d7db6e6d3c8042ad9267766804a18f6951fc7` parent16eef·소유11파일150+/52−, all23 cumulative committed=working=actualmetadata MATCH를 총괄이 독립 대조했다. Intended RED2FAIL/reversed1PASS→같은test GREEN3, direct176PASS 및강화final날짜3PASS/typeUI0, affected3browser80raw79기존PASS/신규1FAIL→정정boundary1PASS의원metadata·출력을 읽었다. 원전체1FAIL/3SKIP·visual200미검증은보존한다. Own16626/PID0·recoverableprofiles·idle를확인하고 I1/I2/M2와fixdiff만freshGPT6.1Solhigh scoped재검토에넘겼다. 다음소비자는승인후시작한다.
 
 ### Task 7: 통계 조회 필터·보고서 Grid 소비
+
+Task6 완료 gate: 총괄이 FULLtask-6-rereview를 읽어 I1/I2/M2 모두ADDRESSED·새Critical/Important/Minor0·open0을 확인하고 원 broad 검토의 다른요구충족 판정과 합쳐 Task6 소비gate를 승인했다. M1원noise·wholefresh·strict200/fullmatrix/nativeHIL은Task9에명시적으로남긴다. 다음통계담당은기존scope/보고/기준을소비하며이전제어결과를새전체통과로재사용하지않는다.
 
 **Files:** `apps/web/src/features/statistics/StatisticsOverviewPage.tsx`, `analysis/{StatisticsAnalysisPage,EnergyHeatmap}.tsx`, `reports/{ReportHistoryFilters,ReportJobList,ReportJobTable,ReportJobCards,StatisticsReportsPage}.tsx`와 기존 시험; `apps/web/e2e/statistics-flow.spec.ts`, `statistics-surface-regression.spec.ts`, `statistics-mobile-files.spec.ts`; `docs/menus/statistics.md`.
 
