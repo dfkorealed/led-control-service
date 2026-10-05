@@ -8,6 +8,7 @@ import { authMeQueryKey } from "../../../api/principal-cache";
 import type { Dashboard } from "../../../api/queries";
 import { SessionStatusCenter, SessionStatusProvider, ToastRegion } from "../../../components/ui";
 import { ScheduleControlPanel } from "./ScheduleControlPanel";
+import { chooseRowAction, measureAutomationContainer } from "../../../test/automation-list";
 
 const mocks = vi.hoisted(() => ({
   createSchedule: vi.fn(),
@@ -1554,18 +1555,4 @@ async function expectScreenStatusCount(count: number) {
   const section = within(center).getByRole("heading", { name: "현재 화면 상태" }).closest("section")!;
   await waitFor(() => expect(within(section).queryAllByRole("listitem")).toHaveLength(count), { timeout: 4500 });
   if (!alreadyOpen) fireEvent.click(within(center).getByRole("button", { name: "알람센터 닫기" }));
-}
-
-function measureAutomationContainer(width: number) {
-  vi.stubGlobal("ResizeObserver", class {
-    constructor(private readonly callback: ResizeObserverCallback) {}
-    observe(target: Element) { this.callback([{ target, contentRect: { width } } as ResizeObserverEntry], this as unknown as ResizeObserver); }
-    unobserve() {}
-    disconnect() {}
-  });
-}
-
-function chooseRowAction(name: string, action: "수정" | "삭제") {
-  fireEvent.click(screen.getByRole("button", { name: `${name} 작업` }));
-  fireEvent.click(screen.getByRole("menuitem", { name: action }));
 }

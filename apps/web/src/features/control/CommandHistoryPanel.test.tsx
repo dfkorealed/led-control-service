@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { CommandHistoryPanel } from "./CommandHistoryPanel";
 
@@ -16,6 +16,59 @@ function command(id: string) {
 }
 
 describe("CommandHistoryPanel", () => {
+  it.each([
+    { kind: "partial", raw: [2026, null, null, null, null, null] },
+    { kind: "impossible", raw: [2026, 2, 30, 2026, 3, 1] },
+    { kind: "reversed", raw: [2026, 3, 2, 2026, 3, 1] }
+  ])("blocks manual retry after a history error while the $kind draft survives filter reopen, then reads a valid correction", async ({ kind, raw }) => {
+    const fullHistoryReads: URL[] = [];
+    const fetch = vi.fn().mockImplementation(async (url: string) => {
+      const parsed = new URL(url, "http://localhost");
+      if (parsed.searchParams.get("limit") !== "1") fullHistoryReads.push(parsed);
+      if (parsed.searchParams.get("limit") !== "1" && !parsed.searchParams.has("fromDate")) {
+        return { ok: false, status: 503, json: async () => ({ message: "history unavailable" }) };
+      }
+      return { ok: true, json: async () => ({ generatedAt: "2026-09-25T00:00:00Z", retainedFrom: "2026-06-25T00:00:00Z", retentionEnabled: false,
+        items: parsed.searchParams.get("limit") === "1" ? [command("latest")] : [command("corrected-period")], nextCursor: null }) };
+    });
+    vi.stubGlobal("fetch", fetch); renderHistory();
+    const recent = await screen.findByRole("region", { name: "최근 명령 이력" });
+    await within(recent).findByRole("button", { name: /latest/ });
+    fireEvent.click(screen.getByRole("button", { name: "명령 이력 열기" }));
+    await screen.findByText("명령 이력을 불러오지 못했습니다.");
+    expect(fullHistoryReads).toHaveLength(1);
+    openHistoryFilters();
+    // Real segment keyboard edits keep the date component/controller real.
+    // Set the day before month so an impossible raw date is not pre-constrained.
+    for (const index of [3, 5, 4, 0, 2, 1]) {
+      if (raw[index] !== null) editHistoryDateSegment(index, raw[index]!);
+    }
+    expect(screen.getAllByRole("spinbutton").map(element => element.getAttribute("aria-valuenow"))).toEqual(raw.map(value => value === null ? null : String(value)));
+    expect(screen.getByRole("group", { name: "조회 기간" })).toHaveAccessibleDescription(/올바른 순서로 완성/);
+    const readsBeforeRetry = fullHistoryReads.length;
+    expect(readsBeforeRetry).toBe(1);
+    fireEvent.click(screen.getByRole("button", { name: "필터 닫기" }));
+    // A reversed complete range changes the committed query key and has no
+    // prior error on that key. Partial/impossible drafts retain the failed key.
+    const retry = screen.queryByRole("button", { name: "이력 다시 조회" });
+    if (kind === "reversed") expect(retry).not.toBeInTheDocument();
+    else expect(retry).toBeInTheDocument();
+    if (retry) fireEvent.click(retry);
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)); });
+    expect(fullHistoryReads).toHaveLength(readsBeforeRetry);
+    if (retry) expect(retry).toBeDisabled();
+    openHistoryFilters();
+    expect(screen.getAllByRole("spinbutton").map(element => element.getAttribute("aria-valuenow"))).toEqual(raw.map(value => value === null ? null : String(value)));
+    for (const [index, value] of [2026, 3, 1, 2026, 3, 2].entries()) editHistoryDateSegment(index, value);
+    fireEvent.click(screen.getByRole("button", { name: "필터 닫기" }));
+    await screen.findByRole("button", { name: /corrected-period/ });
+    expect(fullHistoryReads.at(-1)?.searchParams.get("fromDate")).toBe("2026-03-01");
+    expect(fullHistoryReads.at(-1)?.searchParams.get("toDate")).toBe("2026-03-02");
+    expect(recent).toHaveTextContent("latest");
+    expect(screen.getByRole("dialog", { name: "명령 이력" })).toHaveTextContent("최근 3개월");
+    expect(fetch.mock.calls.every(([, init]) => (init?.method ?? "GET") === "GET")).toBe(true);
+  });
+
   it("preserves partial date draft across filter close", async () => {
     const fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ generatedAt: "2026-09-25T00:00:00Z", retainedFrom: "2026-06-25T00:00:00Z", retentionEnabled: false, items: [], nextCursor: null }) });
     vi.stubGlobal("fetch", fetch); renderHistory();
@@ -324,6 +377,13 @@ describe("CommandHistoryPanel", () => {
     expect(within(drawer).getByRole("alert")).toBeInTheDocument();
   });
 });
+
+function editHistoryDateSegment(index: number, value: number) {
+  const segment = screen.getAllByRole("spinbutton")[index];
+  act(() => segment.focus());
+  for (let clear = 0; clear < 4; clear += 1) fireEvent.keyDown(segment, { key: "Backspace", code: "Backspace" });
+  for (const key of String(value)) fireEvent(segment, new InputEvent("beforeinput", { bubbles: true, cancelable: true, data: key, inputType: "insertText" }));
+}
 
 function openHistoryFilters() {
   if (!screen.queryByRole("button", { name: "필터 닫기" })) fireEvent.click(screen.getByRole("button", { name: /명령 이력 필터 상세 필터/ }));

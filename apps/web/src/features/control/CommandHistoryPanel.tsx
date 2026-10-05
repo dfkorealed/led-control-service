@@ -84,6 +84,13 @@ export function CommandHistoryPanel({ userId, siteId, onSelect, disabled = false
   const latestItem = latestUnauthorized ? undefined : latest.data?.pages[0]?.items[0];
   const page = historyUnauthorized ? undefined : history.data?.pages[pageIndex];
   const pending = history.isPending || history.isFetching || history.isPaused;
+  const canRetryHistory = !pending && !periodError;
+  function retryHistory() {
+    // Explicit refetch ignores the query's enabled flag. The same raw-period
+    // validity must guard both the visible retry and this manual request path.
+    if (!canRetryHistory) return;
+    void history.refetch();
+  }
   const success = !periodError && !pending && !history.error && Boolean(page);
   const retainedFrom = (historyUnauthorized ? undefined : history.data?.pages[0]?.retainedFrom)
     ?? (latestUnauthorized ? undefined : latest.data?.pages[0]?.retainedFrom);
@@ -164,7 +171,7 @@ export function CommandHistoryPanel({ userId, siteId, onSelect, disabled = false
         <Text variant="caption" tone="secondary">{retainedFrom ? `최근 3개월 · ${formatControlTimestamp(retainedFrom, timeZone)} (${timeZone})부터` : "이력 보관 기간을 확인할 수 없습니다."}</Text>
         {pending ? <Text role="status">명령 이력을 불러오는 중입니다.</Text> : null}
         {success && !page!.items.length ? <Text>{query || stage || period ? "조건에 맞는 명령이 없습니다." : "명령 이력이 없습니다."}</Text> : null}
-        {history.error ? <div className="grid gap-2" role="alert"><Text tone="danger">{cursorExpired ? "이력 범위가 변경되었습니다. 첫 페이지를 다시 조회합니다." : "명령 이력을 불러오지 못했습니다."}</Text><Button variant="secondary" type="button" disabled={pending} onClick={() => void history.refetch()}>이력 다시 조회</Button></div> : null}
+        {history.error ? <div className="grid gap-2" role="alert"><Text tone="danger">{cursorExpired ? "이력 범위가 변경되었습니다. 첫 페이지를 다시 조회합니다." : "명령 이력을 불러오지 못했습니다."}</Text><Button variant="secondary" type="button" disabled={!canRetryHistory} onClick={retryHistory}>이력 다시 조회</Button></div> : null}
       </>}>
         <div className="grid content-start gap-2" aria-label="명령 이력 목록" data-command-history-list="">
           {success ? page!.items.map(item => <CommandRow key={item.id} item={item} selected={selectedCommandId === item.id} disabled={disabled} timeZone={timeZone} onSelect={id => { onSelect(id); setOpen(false); }} />) : null}

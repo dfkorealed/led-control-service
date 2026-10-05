@@ -1,16 +1,11 @@
 import { expect, test, type Page } from "@playwright/test";
 import { expectNoHorizontalOverflow } from "./support/layout-assertions";
 import { installSettingsApiRoutes, type SettingsFixture } from "./support/settings-api";
+import { installMockApiBoundary } from "./support/mock-api-boundary";
 
 
-// A fixture gap cannot escape this mock lab to an API or another origin.
 test.beforeEach(async ({ context, baseURL }) => {
-  await context.route("**/*", route => {
-    const url = new URL(route.request().url());
-    if (url.origin !== baseURL) return route.abort();
-    if (url.pathname.startsWith("/api/")) return route.fulfill({ status: 404, json: { message: "unconfigured mock route" } });
-    return route.continue();
-  });
+  await installMockApiBoundary(context, baseURL);
 });
 
 const ids = {
@@ -37,6 +32,35 @@ const viewports = [
   { width: 390, height: 844 },
   { width: 320, height: 740 }
 ] as const;
+
+test("Task6 shared mock boundary keeps later fixture precedence, unknown API 404 and external abort", async ({ page }) => {
+  // Before domain fixtures are registered, the shared deny fallback owns gaps.
+  const boundaryResponse = await page.goto("/api/__task6_unconfigured_boundary");
+  expect(boundaryResponse?.status()).toBe(404);
+  expect(await boundaryResponse?.json()).toEqual({ message: "unconfigured mock route" });
+  await installAutomationFixture(page);
+  await page.goto(`/control?siteId=${ids.site}`);
+  const fixtureResponse = await page.evaluate(async site => {
+    const response = await fetch(`/api/sites/${site}/automation/schedules`);
+    return { status: response.status, body: await response.json() };
+  }, ids.site);
+  expect(fixtureResponse.status).toBe(200);
+  expect(fixtureResponse.body.items.map((item: { name: string }) => item.name)).toEqual(["대기 스케줄", "적용 스케줄", "실패 스케줄"]);
+  const unknown = await page.evaluate(async () => {
+    const response = await fetch("/api/__task6_unconfigured_boundary");
+    return { status: response.status, body: await response.json() };
+  });
+  // The existing broad settings fixture claims API gaps after registration.
+  // Its own 404 wins; moving the boundary above it would invalidate precedence.
+  expect(unknown).toEqual({ status: 404, body: { message: "site not found" } });
+  // Interception aborts before the synthetic external origin can reach a host.
+  const externalURL = "https://task6-external.invalid/never-reached";
+  const failed = page.waitForEvent("requestfailed", { predicate: request => request.url() === externalURL });
+  expect(await page.evaluate(async url => {
+    try { await fetch(url); return false; } catch { return true; }
+  }, externalURL)).toBe(true);
+  expect((await failed).failure()?.errorText).toBe("net::ERR_FAILED");
+});
 
 for (const viewport of viewports) {
   test(`${viewport.width}px 자동화 목록과 편집기는 상태와 스크롤 계약을 유지한다`, async ({ page }) => {

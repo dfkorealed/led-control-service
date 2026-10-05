@@ -1,6 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import { expectMinimumTouchTargetsAfterScrolling, expectNoHorizontalOverflow } from "./support/layout-assertions";
 import { installSettingsApiRoutes, type SettingsFixture, type SettingsRole } from "./support/settings-api";
+import { installMockApiBoundary } from "./support/mock-api-boundary";
 
 const ids = {
   site: "99999999-9999-4999-8999-999999999901",
@@ -24,14 +25,8 @@ const fixtures: SettingsFixture[] = [
 
 test.use({ timezoneId: "Asia/Seoul" });
 
-// This lab never reaches a backend or another origin, even for missing fixtures.
 test.beforeEach(async ({ context, baseURL }) => {
-  await context.route("**/*", route => {
-    const url = new URL(route.request().url());
-    if (url.origin !== baseURL) return route.abort();
-    if (url.pathname.startsWith("/api/")) return route.fulfill({ status: 404, json: { message: "unconfigured mock route" } });
-    return route.continue();
-  });
+  await installMockApiBoundary(context, baseURL);
 });
 
 test("Task6 unmodified wheel zoom preserves the pointer anchor without a control POST", async ({ page }) => {
