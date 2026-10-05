@@ -16,6 +16,26 @@ function command(id: string) {
 }
 
 describe("CommandHistoryPanel", () => {
+  it("preserves partial date draft across filter close", async () => {
+    const fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ generatedAt: "2026-09-25T00:00:00Z", retainedFrom: "2026-06-25T00:00:00Z", retentionEnabled: false, items: [], nextCursor: null }) });
+    vi.stubGlobal("fetch", fetch); renderHistory();
+    fireEvent.click(screen.getByRole("button", { name: "명령 이력 열기" }));
+    await within(screen.getByRole("dialog", { name: "명령 이력" })).findByText("명령 이력이 없습니다.");
+    expect(screen.queryByRole("group", { name: "조회 기간" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /명령 이력 필터 상세 필터/ }));
+    const year = screen.getAllByRole("spinbutton")[0];
+    fireEvent.keyDown(year, { key: "ArrowUp" });
+    const raw = year.textContent;
+    const requests = fetch.mock.calls.length;
+    fireEvent.click(screen.getByRole("button", { name: "필터 닫기" }));
+    fireEvent.click(screen.getByRole("button", { name: /명령 이력 필터 상세 필터/ }));
+    expect(screen.getAllByRole("spinbutton")[0]).toHaveTextContent(raw!);
+    expect(screen.getByRole("group", { name: "조회 기간" })).toHaveAccessibleDescription(/시작일과 종료일을 올바른 순서로 완성해 주세요/);
+    expect(fetch.mock.calls.length).toBe(requests);
+    fireEvent.click(screen.getByRole("button", { name: "필터 초기화" }));
+    expect(screen.getAllByRole("spinbutton")[0]).not.toHaveTextContent(raw!);
+  });
+
   it("keeps a stable unknown pager during an initial full-history read", async () => {
     let release!: (value: unknown) => void;
     const fetch = vi.fn().mockImplementation((url: string) => url.includes("limit=1")
@@ -25,9 +45,12 @@ describe("CommandHistoryPanel", () => {
     fireEvent.click(screen.getByRole("button", { name: "명령 이력 열기" }));
     const drawer = screen.getByRole("dialog", { name: "명령 이력" });
     const pager = within(drawer).getByRole("navigation", { name: "페이지 이동" });
-    expect(within(pager).getByRole("button", { name: "페이지당 항목 수" })).toHaveTextContent("50개");
-    expect(within(pager).getByRole("status")).not.toHaveTextContent("현재 0건");
-    expect(within(drawer).getByRole("group", { name: "조회 기간" })).toBeInTheDocument();
+    expect(within(pager).queryByRole("button", { name: "페이지당 항목 수" })).not.toBeInTheDocument();
+    openHistoryFilters();
+    expect(screen.getByRole("button", { name: "페이지당 항목 수" })).toHaveTextContent("50개");
+    expect(pager).not.toHaveTextContent("현재 0건");
+    expect(screen.getByRole("group", { name: "조회 기간" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "필터 닫기" }));
     release({ ok: true, json: async () => ({ generatedAt: "2026-09-25T00:00:00Z", retentionEnabled: false, items: [], nextCursor: null }) });
     await waitFor(() => expect(pager).toHaveTextContent("현재 0건"));
     expect(within(drawer).getByRole("navigation", { name: "페이지 이동" })).toBe(pager);
@@ -74,8 +97,10 @@ describe("CommandHistoryPanel", () => {
     await waitFor(() => expect(within(drawer).getByRole("button", { name: "다음 페이지" })).toBeEnabled());
     fireEvent.click(within(drawer).getByRole("button", { name: "다음 페이지" }));
     await waitFor(() => expect(within(within(drawer).getByRole("navigation", { name: "페이지 이동" })).getByRole("status")).toHaveTextContent("2페이지"));
-    fireEvent.click(within(drawer).getByRole("button", { name: "페이지당 항목 수" }));
+    openHistoryFilters();
+    fireEvent.click(screen.getByRole("button", { name: "페이지당 항목 수" }));
     fireEvent.click(screen.getByRole("option", { name: "1000개" }));
+    fireEvent.click(screen.getByRole("button", { name: "필터 닫기" }));
     await waitFor(() => expect(fetch.mock.calls.some(([url]) => String(url).includes("limit=1000") && !String(url).includes("cursor="))).toBe(true));
     expect(within(within(drawer).getByRole("navigation", { name: "페이지 이동" })).getByRole("status")).toHaveTextContent("1페이지");
   });
@@ -177,6 +202,7 @@ describe("CommandHistoryPanel", () => {
     await screen.findByText("명령 이력이 없습니다.");
     fireEvent.click(screen.getByRole("button", { name: "명령 이력 열기" }));
     expect(screen.getByRole("searchbox", { name: "명령 이력 검색" }).closest("[data-field]")).not.toBeNull();
+    openHistoryFilters();
     expect(screen.getByRole("button", { name: "명령 상태 필터" })).toBeInTheDocument();
   });
 
@@ -192,8 +218,10 @@ describe("CommandHistoryPanel", () => {
     expect(fetch).toHaveBeenCalledTimes(2);
     await waitFor(() => expect(fetch).toHaveBeenCalledTimes(3));
     expect(fetch.mock.calls[2][0]).toContain("query=%EC%9E%85%EA%B5%AC");
+    openHistoryFilters();
     fireEvent.click(screen.getByRole("button", { name: "명령 상태 필터" }));
     fireEvent.click(screen.getByRole("option", { name: "실제 상태 확인 필요" }));
+    fireEvent.click(screen.getByRole("button", { name: "필터 닫기" }));
     await waitFor(() => expect(fetch).toHaveBeenCalledTimes(4));
     expect(fetch.mock.calls[3][0]).toContain("stage=verification_required");
     expect(fetch.mock.calls[3][0]).not.toContain("cursor=");
@@ -258,8 +286,10 @@ describe("CommandHistoryPanel", () => {
     const next = within(drawer).getByRole("button", { name: "다음 페이지" });
     await waitFor(() => expect(next).toBeEnabled());
     fireEvent.click(next);
-    fireEvent.click(within(drawer).getByRole("button", { name: "명령 상태 필터" }));
+    openHistoryFilters();
+    fireEvent.click(screen.getByRole("button", { name: "명령 상태 필터" }));
     fireEvent.click(screen.getByRole("option", { name: "실제 상태 확인 필요" }));
+    fireEvent.click(screen.getByRole("button", { name: "필터 닫기" }));
     expect(await within(drawer).findByRole("button", { name: /filtered-command/ })).toBeInTheDocument();
     finishOldPage({ ok: true, json: async () => ({ generatedAt: "2026-09-25T00:00:00.000Z", retainedFrom: "2026-06-25T00:00:00.000Z", retentionEnabled: false, items: [command("stale-command")], nextCursor: null }) });
     await waitFor(() => expect(next).toBeDisabled());
@@ -294,3 +324,7 @@ describe("CommandHistoryPanel", () => {
     expect(within(drawer).getByRole("alert")).toBeInTheDocument();
   });
 });
+
+function openHistoryFilters() {
+  if (!screen.queryByRole("button", { name: "필터 닫기" })) fireEvent.click(screen.getByRole("button", { name: /명령 이력 필터 상세 필터/ }));
+}

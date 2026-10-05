@@ -24,6 +24,40 @@ const fixtures: SettingsFixture[] = [
 
 test.use({ timezoneId: "Asia/Seoul" });
 
+// This lab never reaches a backend or another origin, even for missing fixtures.
+test.beforeEach(async ({ context, baseURL }) => {
+  await context.route("**/*", route => {
+    const url = new URL(route.request().url());
+    if (url.origin !== baseURL) return route.abort();
+    if (url.pathname.startsWith("/api/")) return route.fulfill({ status: 404, json: { message: "unconfigured mock route" } });
+    return route.continue();
+  });
+});
+
+test("Task6 unmodified wheel zoom preserves the pointer anchor without a control POST", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  const api = await installControlMapRoutes(page);
+  await page.goto(`/control?siteId=${ids.site}`);
+  const viewport = page.getByTestId("target-selection-map-viewport");
+  await expect(viewport).toBeVisible();
+  for (let index = 0; index < 10; index += 1) await page.getByRole("button", { name: "지도 확대", exact: true }).click();
+  const before = await viewport.getAttribute("data-zoom");
+  const box = (await viewport.boundingBox())!;
+  const point = { x: box.x + box.width * .5, y: box.y + box.height * .5 };
+  const surface = viewport.locator("[data-floor-map-surface]");
+  const initialSurface = (await surface.boundingBox())!;
+  const anchor = { x: (point.x - initialSurface.x) / initialSurface.width, y: (point.y - initialSurface.y) / initialSurface.height };
+  await page.mouse.move(point.x, point.y);
+  await page.mouse.wheel(0, -120);
+  await expect.poll(() => viewport.getAttribute("data-zoom")).not.toBe(before);
+  await expect.poll(async () => { const after = (await surface.boundingBox())!; return Math.abs(after.x + anchor.x * after.width - point.x); }).toBeLessThan(2);
+  await expect.poll(async () => { const after = (await surface.boundingBox())!; return Math.abs(after.y + anchor.y * after.height - point.y); }).toBeLessThan(2);
+  await marker(page, "B2-L002").click();
+  await expect(marker(page, "B2-L002")).toHaveAttribute("aria-pressed", "true");
+  await expect(marker(page, "B2-L001")).toHaveAttribute("aria-pressed", "false");
+  expect(api.postRequests).toEqual([]);
+});
+
 for (const flow of ["schedule", "event", "group"] as const) {
   test(`final review: ${flow} dialog provides a usable desktop map and marker selection`, async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
@@ -43,8 +77,11 @@ for (const flow of ["schedule", "event", "group"] as const) {
     const dialog = page.getByRole("dialog");
     const surface = dialog.locator("[data-floor-map-surface]");
     await expect(surface).toBeVisible();
-    await expect.poll(async () => (await surface.boundingBox())!.width).toBeGreaterThanOrEqual(400);
-    await expect.poll(async () => (await surface.boundingBox())!.height).toBeGreaterThanOrEqual(240);
+    if (flow === "group") await test.info().attach("group-map-geometry", { contentType: "application/json", body: JSON.stringify(await dialog.evaluate(element => [...element.querySelectorAll<HTMLElement>("[data-fixture-group-map-editor], [data-target-selection-content], [data-floor-map-surface], [data-testid='target-selection-map-viewport']")].map(node => ({ tag: node.tagName, rect: node.getBoundingClientRect().toJSON(), className: node.className, attrs: Object.fromEntries([...node.attributes].filter(attr => attr.name.startsWith("data-")).map(attr => [attr.name, attr.value])) }))), null, 2) });
+    const interactiveViewport = dialog.getByTestId("target-selection-map-viewport");
+    // A fitted image may be smaller than its usable interactive viewport.
+    await expect.poll(async () => (await interactiveViewport.boundingBox())!.width).toBeGreaterThanOrEqual(400);
+    await expect.poll(async () => (await interactiveViewport.boundingBox())!.height).toBeGreaterThanOrEqual(240);
     const target = marker(dialog, flow === "event" ? "B2-SENSOR-001" : "B2-L001");
     await expectReachableInside(target, dialog);
     await target.click();
@@ -115,6 +152,7 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 1366, height: 768
     const editor = dialog.getByTestId("fixture-group-map-editor");
     const content = editor.locator("[data-target-selection-content]");
     await expect.poll(async () => content.evaluate((element) => element.clientHeight)).toBeGreaterThanOrEqual(240);
+    await test.info().attach("dense-marker-hit-geometry", { contentType: "application/json", body: JSON.stringify(await editor.evaluate(element => ["B2-L055", "B2-L066"].map(name => { const node = element.querySelector<HTMLElement>(`[data-spatial-map-marker][aria-label^='${name}']`)!; const rect = node.getBoundingClientRect(); return { name, rect: rect.toJSON(), centerHit: document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2)?.getAttribute("aria-label") }; })), null, 2) });
     await editor.getByRole("button", { name: "선택 비우기" }).click();
 
     const changes = editor.locator('[aria-label="구역 구성 변경"]');
@@ -127,7 +165,17 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 1366, height: 768
     await expectInternalWheelScroll(page, changes);
     await expectReachableInside(changes.getByText("제거 예정: B2-L100", { exact: true }), changes);
     await expect.poll(async () => content.evaluate((element) => element.clientHeight)).toBeGreaterThanOrEqual(240);
-    await marker(editor, "B2-L055").click();
+    for (let index = 0; index < 20; index += 1) await editor.getByRole("button", { name: "지도 확대", exact: true }).click();
+    const preciseTarget = marker(editor, "B2-L055");
+    const hit = await preciseTarget.evaluate(element => { const rect = element.getBoundingClientRect(); return document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2)?.closest("[data-spatial-map-marker]")?.getAttribute("aria-label"); });
+    expect(hit).toMatch(/^B2-L055 /);
+    const a = (await preciseTarget.boundingBox())!, b = (await marker(editor, "B2-L066").boundingBox())!;
+    expect(a.width).toBe(48); expect(a.height).toBe(48);
+    const overlapX = Math.max(0, Math.min(a.x + a.width, b.x + b.width) - Math.max(a.x, b.x));
+    const overlapY = Math.max(0, Math.min(a.y + a.height, b.y + b.height) - Math.max(a.y, b.y));
+    expect(overlapX * overlapY).toBe(0);
+    await expectReachableInside(preciseTarget, editor.getByTestId("target-selection-map-viewport"));
+    await preciseTarget.click();
     await expect(marker(editor, "B2-L055")).toHaveAttribute("aria-pressed", "true");
   });
 }
@@ -255,13 +303,18 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 1024, height: 768
     await expect(page.getByRole("region", { name: "제어 대상 지도", exact: true })).toBeVisible();
 
     await page.getByRole("button", { name: "저장된 구역" }).click();
+    console.info("TASK6_GROUP_LAYOUT_INITIAL", JSON.stringify(await page.evaluate(() => [...document.querySelectorAll<HTMLElement>("[data-app-shell], [data-shell-content], [data-control-screen], [data-control-layout], [data-control-target-card], [data-spatial-target-selector], [data-target-selection-toolbar], [data-target-selection-content], [data-target-selection-detail-panel], [data-testid='target-selection-map-viewport'], [aria-label='지도 조작'], [aria-label='지도 확대 축소'], [aria-label='지도 조명 상태 범례']")].map(element => ({ label: element.getAttribute("aria-label") || element.getAttribute("data-testid"), data: [...element.attributes].filter(attr => attr.name.startsWith("data-")).map(attr => attr.name), rect: element.getBoundingClientRect().toJSON(), client: [element.clientWidth, element.clientHeight], scroll: [element.scrollWidth, element.scrollHeight], overflow: getComputedStyle(element).overflow, display: getComputedStyle(element).display })))));
     const history = page.getByRole("region", { name: "최근 명령 이력" });
     // Use real zoom controls and populated route data to create overflow in
     // each pane; CSS overflow declarations alone cannot prove scrollability.
     for (let index = 0; index < 20; index += 1) await page.getByRole("button", { name: "지도 확대", exact: true }).click();
     const map = page.getByRole("region", { name: "B2 도면" });
     await expect.poll(async () => Number(await map.getAttribute("data-zoom"))).toBeGreaterThan(2);
-    await expectInternalWheelScroll(page, map);
+    // Control intentionally consumes unmodified wheel as camera zoom, not map overflow scrolling.
+    const beforeWheelZoom = Number(await map.getAttribute("data-zoom"));
+    await map.hover();
+    await page.mouse.wheel(0, 100);
+    await expect.poll(async () => Number(await map.getAttribute("data-zoom"))).toBeLessThan(beforeWheelZoom);
     const detail = page.locator("[data-target-selection-detail-panel]");
     await expect(detail).toHaveCSS("overflow-y", "auto");
     await expectInternalWheelScroll(page, detail);
@@ -281,7 +334,9 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 1024, height: 768
     await expect(historyDrawer.getByRole("button", { name: "다음" })).toBeDisabled();
     await finalCommand.click();
     await expect(historyDrawer).toHaveCount(0);
+    await page.getByRole("button", { name: "상세 보기", exact: true }).click();
     await expect(page.getByRole("button", { name: "명령 상세 닫기" })).toBeVisible();
+    console.info("TASK6_INLINE_LAYOUT", JSON.stringify(await page.evaluate(() => [...document.querySelectorAll<HTMLElement>("[data-control-layout], [data-control-screen], [data-control-panel], [data-control-panel-feedback], [data-command-status-region], #recent-command-details")].map(element => ({ attrs: [...element.attributes].filter(attr => attr.name.startsWith("data-") || attr.name === "id").map(attr => attr.name + "=" + attr.value), rect: element.getBoundingClientRect().toJSON(), client: [element.clientWidth, element.clientHeight], scroll: [element.scrollWidth, element.scrollHeight], overflow: getComputedStyle(element).overflow, flex: getComputedStyle(element).flex })))));
     const documentMetrics = await page.evaluate(() => ({ clientHeight: document.documentElement.clientHeight, scrollHeight: document.documentElement.scrollHeight }));
     expect(documentMetrics.scrollHeight).toBe(documentMetrics.clientHeight);
   });
@@ -465,10 +520,56 @@ test("Task6 synthetic touch hold cancels on a second pointer without a residual 
   expect(api.postRequests).toEqual([]);
 });
 
+test("Task6 native pointer capture loss and keyboard blur cancel an area without selecting or posting", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  const api = await installControlMapRoutes(page);
+  await page.goto(`/control?siteId=${ids.site}`);
+  const viewport = page.getByTestId("target-selection-map-viewport");
+  await expect(viewport).toBeVisible();
+  await marker(page, "B2-L001").click();
+  for (const cancel of ["capture", "keyboard-blur"] as const) {
+    await viewport.focus();
+    const point = await viewport.evaluate(element => {
+      const rect = element.getBoundingClientRect();
+      for (const x of [.3, .5, .7]) for (const y of [.3, .5, .7]) {
+        const point = { x: rect.x + rect.width * x, y: rect.y + rect.height * y };
+        const hit = document.elementFromPoint(point.x, point.y);
+        if (hit?.closest("[data-floor-map-surface]") && !hit.closest("button")) return point;
+      }
+      throw new Error("No reachable blank map point");
+    });
+    await viewport.evaluate(element => element.addEventListener("pointerdown", event => {
+      element.setAttribute("data-test-pointer-id", String((event as PointerEvent).pointerId));
+    }, { once: true }));
+    await page.mouse.move(point.x, point.y); await page.mouse.down();
+    await page.mouse.move(point.x + 12, point.y + 12);
+    await expect(page.getByTestId("map-area-selection")).toBeVisible();
+    if (cancel === "capture") {
+      await viewport.evaluate(element => {
+        const id = Number(element.getAttribute("data-test-pointer-id"));
+        if (!element.hasPointerCapture(id)) throw new Error("Native pointer was not captured");
+        element.releasePointerCapture(id);
+      });
+      await page.mouse.move(point.x + 13, point.y + 13);
+    } else {
+      // A Tab onto a marker is still inside the viewport and must NOT cancel.
+      // Continue real Tab navigation until focus crosses the viewport boundary.
+      for (let index = 0; index < 20 && await viewport.evaluate(element => element.contains(document.activeElement)); index += 1) await page.keyboard.press("Tab");
+      expect(await viewport.evaluate(element => element.contains(document.activeElement))).toBe(false);
+    }
+    await expect(page.getByTestId("map-area-selection")).toHaveCount(0);
+    await page.mouse.up();
+    await expect(marker(page, "B2-L001")).toHaveAttribute("aria-pressed", "true");
+    await expect(marker(page, "B2-L002")).toHaveAttribute("aria-pressed", "false");
+  }
+  expect(api.postRequests).toEqual([]);
+});
+
 async function expectInternalWheelScroll(page: Page, pane: ReturnType<Page["locator"]>) {
   const metrics = await pane.evaluate(element => ({ width: element.clientWidth, height: element.clientHeight, content: element.scrollHeight,
     contentWidth: element.scrollWidth, top: element.scrollTop, left: element.scrollLeft, overflow: getComputedStyle(element).overflowY }));
   expect(metrics.width).toBeGreaterThan(0); expect(metrics.height).toBeGreaterThan(0);
+  console.info("TASK6_INTERNAL_SCROLL_GEOMETRY", JSON.stringify({ metrics, pane: await pane.boundingBox(), layout: await page.locator("[data-control-layout]").boundingBox(), screen: await page.locator("[data-control-screen]").boundingBox(), page: await page.evaluate(() => ({ scrollY, innerWidth, innerHeight, documentHeight: document.documentElement.scrollHeight })) }));
   expect(metrics.overflow).toMatch(/auto|scroll/);
   await pane.hover();
   if (metrics.content > metrics.height) {
@@ -476,6 +577,17 @@ async function expectInternalWheelScroll(page: Page, pane: ReturnType<Page["loca
     await expect.poll(() => pane.evaluate(element => element.scrollTop)).toBeGreaterThan(metrics.top);
     await expect.poll(() => pane.evaluate(element => element.scrollTop + element.clientHeight)).toBe(metrics.content);
   } else {
+    const beforeY = await page.evaluate(() => scrollY);
+    await pane.evaluate(element => {
+      element.setAttribute("data-wheel-trusted", "0");
+      element.addEventListener("wheel", event => { if (event.isTrusted) element.setAttribute("data-wheel-trusted", "1"); }, { once: true });
+    });
+    const bounds = (await pane.boundingBox())!;
+    const point = { x: bounds.x + bounds.width / 2, y: (Math.max(80, bounds.y) + Math.min(page.viewportSize()!.height - 10, bounds.y + bounds.height)) / 2 };
+    const hit = await page.evaluate(({ x, y }) => document.elementFromPoint(x, y)?.outerHTML.slice(0, 300), point);
+    await page.mouse.move(point.x, point.y); await page.mouse.wheel(0, 100);
+    await expect(pane).toHaveAttribute("data-wheel-trusted", "1");
+    console.info("TASK6_DETAIL_WHEEL_EFFECT", JSON.stringify({ beforeY, afterY: await page.evaluate(() => scrollY), point, hit, afterScrollTop: await pane.evaluate(element => element.scrollTop) }));
     // At narrow desktop group layouts, fit-by-width produces horizontal-only
     // map overflow. Exercise that real axis rather than requiring fictitious Y overflow.
     expect(metrics.contentWidth).toBeGreaterThan(metrics.width);

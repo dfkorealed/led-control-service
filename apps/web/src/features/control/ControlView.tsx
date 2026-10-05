@@ -48,6 +48,7 @@ import { ControlModeTabs, type ControlPageMode } from "./automation/ControlModeT
 import { CommandHistoryPanel, COMMAND_STAGE_LABELS, isClockRefusal } from "./CommandHistoryPanel";
 import { CommandVerificationCases } from "./CommandVerificationCases";
 import { CommandOutcomeActions } from "./CommandOutcomeActions";
+import { presentRecentCommandResult } from "./command-result-presentation";
 import {
   isActiveCommandSessionBlocked,
   ownsActiveCommandSession,
@@ -812,7 +813,16 @@ function ManualControlFeedback({ compact = false, scopedActiveRequest, scopedCom
   isCommandFetching: boolean;
   onRefreshStatus: () => void;
 }) {
-  return <div className={compact ? "grid gap-3" : "grid min-h-0 max-h-28 flex-none content-start gap-3 overflow-y-auto overscroll-contain"} data-control-panel-feedback="">
+  const [details, setDetails] = useState<{ id: string; open: boolean } | null>(null);
+  const detailsOpen = details?.id === displayedStatus?.id && details?.open === true;
+  const result = presentRecentCommandResult(displayedStatus);
+  // The two-column workspace reserves space for execution controls above.
+  // Contain only desktop feedback sizing so long results cannot enlarge that
+  // row; all warnings/actions remain reachable by scrolling this positive-height
+  // pane. Single-column layouts retain their original natural document flow.
+  // Max-content rows prevent the status actions shrinking under inline details;
+  // overflow is handled by the pane, never by overlapping or clipping buttons.
+  return <div className="grid min-h-0 min-w-0 flex-none content-start gap-3 compact:auto-rows-max compact:flex-1 compact:overflow-y-auto compact:overscroll-contain compact:[contain:size]" data-control-panel-feedback="">
     <Heading as="h4" variant={compact ? "label" : "card-title"}>최근 결과</Heading>
     <div className="grid min-h-px gap-3 empty:min-h-0" role="status" aria-label="명령 진행 상태" aria-live="polite" data-command-status-region="">
       {scopedActiveRequest && !scopedCommandId && !replayRejected ? <Button variant="secondary" type="button" onClick={onRetryPending} disabled={isSubmitting || commandSessionBlocked}>
@@ -826,13 +836,20 @@ function ManualControlFeedback({ compact = false, scopedActiveRequest, scopedCom
       {message ? <Text tone={message.startsWith("명령을 전송") ? "success" : "danger"}>{message}</Text> : null}
       {verificationError ? <Text tone="danger" role="alert">{verificationError}</Text> : null}
       {displayedStatus ? <>
-        <CommandProgress status={displayedStatus} />
+        {result.kind === "completed" ? <StatusBadge icon={result.result === "success" ? CircleCheck : TriangleAlert} tone={result.result === "success" ? "success" : result.result === "partial" ? "warning" : "danger"}>{result.label}</StatusBadge>
+          : <Text tone={result.kind === "pending" ? "secondary" : "warning"}>{result.kind === "pending" ? "명령 처리 중" : result.kind === "verification" ? "실제 상태 확인 필요" : "결과 미확정 · 실제 상태를 확인해 주세요."}</Text>}
+        {/* Safety actions retain the command owner even while display details are collapsed. */}
         <CommandOutcomeActions status={displayedStatus} onCheck={onCheck} onRetry={onReapply}
           checkResponseLost={verificationRequest?.responseLost}
           disabled={readOnly || commandSessionBlocked || isSubmitting || restorePending || Boolean(verificationRequest?.dispatchIds)} />
-        <Button variant="secondary" type="button" disabled={commandInProgress || isSubmitting} onClick={onCloseDetail}>명령 상세 닫기</Button>
+        <Button variant="secondary" type="button" aria-expanded={detailsOpen} aria-controls="recent-command-details"
+          onClick={() => setDetails({ id: displayedStatus.id, open: !detailsOpen })}>{detailsOpen ? "상세 접기" : "상세 보기"}</Button>
       </> : null}
     </div>
+    {displayedStatus && detailsOpen ? <section id="recent-command-details" aria-label="최근 결과 상세" className="grid max-h-64 min-h-0 min-w-0 content-start gap-3 overflow-y-auto overscroll-contain" tabIndex={0}>
+      <CommandProgress status={displayedStatus} />
+      <Button variant="secondary" type="button" disabled={commandInProgress || isSubmitting} onClick={onCloseDetail}>명령 상세 닫기</Button>
+    </section> : null}
     {hasMismatchedCommandStatus && !missingCommand ? <div className="grid gap-2" role="alert">
       <Text tone="danger">명령 상태 응답의 식별자가 일치하지 않습니다. 안전을 위해 제어 잠금을 유지합니다.</Text>
       <Button variant="secondary" type="button" onClick={onRefreshStatus} disabled={isCommandFetching}>
@@ -875,11 +892,13 @@ function CommandProgress({ status }: { status: NonNullable<ReturnType<typeof use
   );
   const isFailure = status.stage === "partial_failed" || status.stage === "failed" || status.stage === "timed_out";
   return (
-    <div className="grid gap-2 rounded-panel border border-border-default bg-surface-panel p-4" data-command-progress-card="">
+    <div className="grid min-w-0 gap-2 rounded-panel border border-border-default bg-surface-panel p-4" data-command-progress-card="">
+      <Text variant="caption" className="wrap-anywhere">명령 ID: {status.id}</Text>
+      <Text variant="caption" className="wrap-anywhere">원래 밝기: {status.brightness == null ? "미확인" : `${status.brightness}%`} · 원래 대상: {status.targetFixtureIds?.join(", ") || "미확인"}</Text>
       <Text as="span" variant="overline" tone="muted">최근 명령 상태</Text>
       <Text as="strong" weight="semibold">{status.stage === "completed" ? "조명 적용 완료 · 기본 밝기로 저장됨" : commandStageLabel(status.stage)}</Text>
       <Text variant="caption">{status.completedFixtureCount} / {status.totalFixtureCount} 처리</Text>
-      <ProgressSteps label="명령 진행" steps={commandSteps(status)} />
+      <ProgressSteps label="명령 진행" steps={commandSteps(status)} className="flex-wrap" />
       {failedResults.map((result) => (
         <Text variant="caption" tone={isFailure ? "danger" : "primary"} key={`${result.dispatchId}:${result.fixtureId}`}>
           {result.fixtureName}: {humanizeDeviceResponseMessage(result.errorMessage ?? (result.status === "timed_out" ? "응답 시간 초과" : "적용 실패"))}

@@ -148,6 +148,14 @@ describe("SpatialTargetSelector", () => {
     expect(screen.getByRole("dialog", { name: "조명 목록" })).toBeInTheDocument();
   });
 
+  it("keeps an initial loading map in place without opening an error fallback", () => {
+    floorMapQuery.mockReturnValue({ data: undefined, error: null, isLoading: true, isFetching: true });
+    renderSelector();
+    expect(screen.getByText("등록된 도면이 없어 목록으로 선택합니다.")).toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: "조명 목록" })).not.toBeInTheDocument();
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
   it("highlights group members without rendering a persisted boundary", () => {
     renderSelector({ selection: { mode: "group", groupId } });
     expect(screen.getAllByRole("button", { pressed: true })).toHaveLength(2);

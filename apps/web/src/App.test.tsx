@@ -1345,6 +1345,7 @@ describe("App", () => {
       brightness: 70,
       clientRequestId: expect.any(String)
     }), { signal: expect.any(AbortSignal), timeoutMs: 30_000 }));
+    fireEvent.click(await screen.findByRole("button", { name: "상세 보기" }));
     expect(await screen.findByText("일부 조명 적용 실패", { selector: "[data-command-progress-card] strong" }, { timeout: 3000 })).toBeInTheDocument();
     expect(screen.getByText("2 / 2 처리")).toBeInTheDocument();
     expect(screen.getByText("B2-L02: 장비 응답 오류")).toBeInTheDocument();

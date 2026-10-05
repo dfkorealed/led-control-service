@@ -7,6 +7,16 @@ const filter: AutomationListFilter = { query: "", status: "all", syncStatus: "al
 describe("AutomationRuleControls", () => {
   afterEach(cleanup);
 
+  it("resets detail filters while preserving search and never changes filters on open", () => {
+    const onFilterChange = vi.fn();
+    render(<AutomationRuleControls label="스케줄" filter={{ query: "입구_%", status: "disabled", syncStatus: "REJECTED", limit: 50 }}
+      filteredTotal={35} pageIndex={1} currentPageCount={10} hasNextPage onFilterChange={onFilterChange} onPrevious={vi.fn()} onNext={vi.fn()} />);
+    expect(screen.getByRole("searchbox", { name: "스케줄 검색" })).toHaveValue("입구_%");
+    expect(screen.queryByRole("button", { name: "활성 상태" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "필터 초기화" }));
+    expect(onFilterChange).toHaveBeenCalledWith({ query: "입구_%", status: "all", syncStatus: "all", limit: 10 });
+  });
+
   it("shows server-wide filtered count without inventing a total page count", () => {
     render(<AutomationRuleControls label="스케줄" filter={filter} filteredTotal={35} pageIndex={1}
       currentPageCount={10} hasNextPage onFilterChange={vi.fn()} onPrevious={vi.fn()} onNext={vi.fn()} />);

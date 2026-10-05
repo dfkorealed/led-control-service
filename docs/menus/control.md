@@ -3,6 +3,36 @@
 - 2026-10-05 공통 초기 초점 안정성 보완: Dialog 내부 ref를 안정화해 중첩 Popover가 열린 동안 부모 재렌더·외부 object/callback ref 교체가 사용자 초점을 빼앗지 않으며 이전 ref 정리와 닫힘 시 정리는 유지한다. 직접 공통 회귀와 격리 Chromium 검증 범위이며 실제 native WebView·HIL 및 최종 통합 승인을 뜻하지 않는다.
 - 2026-10-05 고객 알림 배치 보완: CustomerShell은 sticky 헤더 뒤·본문 앞의 단일 flow 알림 영역에 표시 중인 메시지의 실제 높이만 예약한다. 알림이 없으면 빈 간격은 없고 닫기·만료·revision·aria와 제어 요청 정책은 유지한다. 공통 기본 overlay는 변경하지 않는다. 직접 Shell/제어 회귀와 모니터링 격리 Chromium 범위이며 제어의 전체 상태 조합·native/HIL·최종 통합 승인은 별도다.
 
+## 2026-10-05 공통 Grid·상세 필터·inline 결과 (operations-ui-refinement Task 6)
+
+### 구현 완료
+
+- 스케줄·차량 이벤트는 실제 목록 컨테이너 너비를 측정하는 공통 DataGrid의 표/카드를 사용한다. 활성 토글은 별도 44px 버튼이며 수정·삭제는 typed RowActions 더보기와 기존 확인·초점 복귀 경로를 사용한다. 중복 overview를 제거하고 스케줄 밝기는 목록 표시에서만 제거한다. 저장 payload, 이벤트 밝기·센서·유지 시간·대상, 현장 시간대·다음 실행·Gateway 적용 상태·최근 결과·실패/재시도는 유지한다.
+- 검색은 상세 필터 밖에 남고 비검색 조건은 공통 Popover로 모은다. 자동화 기본 전체/전체/10건, 이력 기본 빈 기간·단계/50건과 50·100·500·1000 옵션, 300ms 검색, 사용자/현장 cursor 복구·보관 시각 계약은 유지한다. 날짜 원문은 부모가 소유하므로 부분·역순·존재하지 않는 날짜는 닫아도 보존하며 잘못된 조회를 보내지 않는다. 상세 초기화는 검색을 지우지 않는다. 실행 대상·층·선택 방식·밝기는 조회 필터가 아니다.
+- 최근 결과 요약은 stage와 outcome이 일치하는 성공·일부 성공·실패만 확정한다. 처리 건수만 찼거나 outcome 모순·시간 초과·검증 필요·진행/불명인 결과는 성공으로 추정하지 않는다. 상세는 명시적 inline 펼침과 세로 스크롤이며 새 dialog/Drawer를 만들지 않는다. 미확정 안내·실제 상태 확인·안전 재적용은 접힘 바깥에 유지하고 원본 UUID·고정 대상·잠금·복구 owner를 변경하지 않는다.
+- 제어 지도는 공통 viewport의 modifier 없는 wheel 확대 옵션을 소비한다. 기존 8px 영역 추가 선택, Space/가운데 버튼 이동, 터치 길게 누르기·핀치·취소와 정확 대상 판정은 유지한다. 데스크톱의 긴 층/구역 목록은 실제 지도 행 안에서 스크롤하도록 크기 containment를 적용하며 지도 최소 높이·footer·범례·48px hit와 카메라를 유지한다.
+- 두 열 실행 패널에서는 최근 결과만 양의 높이를 가진 내부 스크롤로 유지하며 고정 입력·적용과 접힘 바깥 안전 조작을 보존한다. 760·768·1023·1024 경계와 짧은 화면에서 실제 wheel/End·040번째 결과·안전 버튼 도달성을 확인했다. 1440×600 자연 문서 흐름에서는 실제 wheel/key 후 지도 최소 240px·44px footer hit·범례 clip/겹침 0을 확인했고, 원래 넓은 화면의 페이지 고정·40행 내부 스크롤 계약은 유지한다.
+
+### 미구현
+
+- 실제 Gateway·LED·센서·RF 및 native WebView 물리 입력/HIL, 운영 API/DB 적용·배포·retention rollout은 이 작업 범위가 아니다.
+
+### 부족하거나 개선이 필요한 기능
+
+- 현재 검증은 격리 Node 22/Chromium mock lab 범위다. 합성 두-pointer/hold와 실제 Chromium mouse/wheel/key 입력을 구분하며 실제 모바일 멀티 터치 인증으로 쓰지 않는다. genuine browser 200%의 숫자/입력 관측과 비어 있는 이미지 문제는 분리해서 보고하며 비어 있는 캡처를 시각 검증 성공으로 기록하지 않는다.
+- 직접 covering 350개와 App 69개, typecheck 및 UI 정책 실제 0개 위반을 확인했다. 기본 whole-Web는 한 번만 실행하여 3171 PASS/1 FAIL/3 SKIP였고, 실패한 기존 App 상세 단언은 명시적 펼침 한 줄 수정 후 App covering으로 확인했다. 격리 browser 원 79개 중 77 PASS/2 FAIL 뒤 해당 자동화 8개와 짧은 화면 1개 covering이 통과했다. 전체 suite를 수정 후 다시 실행했다고 주장하지 않으며 독립 검토·최종 통합/Task9 시각 관문은 별도다. 아래 기록도 당시 범위이며 실제 장비 완료로 확대하지 않는다.
+
+### 관련 파일
+
+- `apps/web/src/features/control/{ControlView,CommandHistoryPanel}.tsx`, `command-result-presentation.ts`, `target-selection/SpatialTargetSelector.tsx` 및 인접 테스트.
+- `automation/{ScheduleControlPanel,VehicleEventControlPanel}.tsx`, `automation/components/{AutomationRuleControls,AutomationRuleTable}.tsx`; 별도 AutomationRuleCard는 공통 DataGrid 카드로 이관했다.
+- `apps/web/e2e/{calm-operations-automation,calm-operations-manual-control,control-map-target-selection}.spec.ts`.
+- `apps/web/src/App.test.tsx`의 기존 partial polling 케이스는 상세 펼침 뒤 기존 70%·두 대상·UUID 및 결과 단언을 유지한다.
+
+### 갱신 규칙
+
+- 조회/표시 변경과 장비 명령 owner 변경을 구분하고 펼침·필터·resize의 추가 제어 POST 0, 원본 UUID·대상·잠금, 더보기 삭제 초점, 정확 지도 ID·내부 넘침/스크롤 끝을 함께 회귀 검증한다. 단계/outcome 확정 표와 API/DB/HIL·mock·headless·genuine zoom의 실제 증거 경계를 유지한다.
+
 ## 2026-10-04 주석 수정 최종 소프트웨어 검증
 
 - 구현 완료: 직접 선택 제스처·단일 밝기 입력/슬라이더·명시적 적용·스케줄 이름/기간/건수와 공통 명령 이력 UI를 구현했다. 실제 C1 OFF/C2 ON의50/100/500/1000·날짜·페이지·현장 scope400·S1복귀·명령POST0와 C3 자연 만료400/자동GET200·빈 첫 페이지 복구를 확인했다. 현재 소스 원 automation1PASS는 독립 실제 프로토콜/DB 적용 증거를 포함한다.

@@ -92,6 +92,7 @@ const dashboard: Dashboard = {
 
 describe("ScheduleControlPanel", () => {
   beforeEach(() => {
+    measureAutomationContainer(1440);
     mocks.createSchedule.mockReset();
     mocks.deleteSchedule.mockReset();
     mocks.listSchedules.mockReset();
@@ -112,14 +113,25 @@ describe("ScheduleControlPanel", () => {
     vi.unstubAllEnvs();
   });
 
+  it("removes overview and schedule brightness without changing save payload", async () => {
+    renderPanel("admin");
+    await screen.findByText("야간 운영");
+    expect(screen.queryByRole("group", { name: "스케줄 요약" })).not.toBeInTheDocument();
+    const list = screen.getByRole("region", { name: "자동화 목록" });
+    expect(within(list).queryByText("밝기")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "야간 운영 작업" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "수정" }));
+    const dialog = screen.getByRole("dialog", { name: "스케줄 수정" });
+    fireEvent.change(within(dialog).getByLabelText("밝기"), { target: { value: "42" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "변경 저장" }));
+    await waitFor(() => expect(mocks.updateSchedule).toHaveBeenCalledWith(siteId, schedule().id, expect.objectContaining({ action: expect.objectContaining({ brightnessPercent: 42 }) })));
+  });
+
   it("atlas schedule surface shows the existing server total but labels gateway counts as loaded rows only", async () => {
     mocks.listSchedules.mockResolvedValue({ items: [schedule()], total: 27, nextCursor: "next-page" });
     renderPanel("admin");
-    const overview = await screen.findByRole("group", { name: "스케줄 요약" });
-    expect(overview).toHaveTextContent("Asia/Seoul");
-    expect(overview).toHaveTextContent("현장 전체 규칙 27건");
-    expect(overview).toHaveTextContent("불러온 1건 기준");
-    expect(overview).toHaveTextContent("확인 필요 1건");
+    await screen.findByText("야간 운영");
+    expect(screen.queryByRole("group", { name: "스케줄 요약" })).not.toBeInTheDocument();
     const list = screen.getByRole("region", { name: "자동화 목록" });
     expect(list).toContainElement(screen.getByRole("table", { name: "스케줄 목록" }));
     expect(list.querySelector("[data-automation-list-scroll]")).toBeInTheDocument();
@@ -134,9 +146,8 @@ describe("ScheduleControlPanel", () => {
       : { items: [first], total: 120, filteredTotal: 35, siteSummary: summary, nextCursor: "opaque-v2" });
     renderPanel("admin");
 
-    const overview = await screen.findByRole("group", { name: "스케줄 요약" });
-    expect(overview).toHaveTextContent("현장 전체 규칙 120건");
-    expect(overview).toHaveTextContent("적용 완료 20건 · 적용 대기 90건 · 적용 실패 10건");
+    await screen.findByText("첫 스케줄");
+    expect(screen.queryByRole("group", { name: "스케줄 요약" })).not.toBeInTheDocument();
     expect(screen.getByRole("status")).toHaveTextContent("조건에 맞는 규칙 35건");
     expect(screen.getByText("첫 스케줄")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "다음" }));
@@ -203,7 +214,7 @@ describe("ScheduleControlPanel", () => {
     await new Promise((resolve) => setTimeout(resolve, 3250));
     expect(mocks.listSchedules).toHaveBeenCalledTimes(4);
     expect(mocks.listSchedules).toHaveBeenLastCalledWith(siteId, { limit: 10, cursor: "page-3" });
-    expect(screen.getByRole("group", { name: "스케줄 요약" })).toHaveTextContent("현장 전체 규칙 31건");
+    expect(screen.queryByRole("group", { name: "스케줄 요약" })).not.toBeInTheDocument();
     expect(within(screen.getByRole("region", { name: "스케줄 목록 조건" })).getByRole("status")).toHaveTextContent("조건에 맞는 규칙 31건");
   });
 
@@ -273,20 +284,20 @@ describe("ScheduleControlPanel", () => {
   });
 
   it("shows every schedule operation field and working management actions in the compact card", async () => {
-    vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn() })));
+    measureAutomationContainer(320);
     mocks.listSchedules.mockResolvedValue(page([schedule({
       lastExecution: actionResultExecution(schedule().id, ["succeeded"])
     })]));
     renderPanel("admin");
 
-    const list = await screen.findByRole("list", { name: "스케줄 카드 목록" });
+    const list = await screen.findByRole("list", { name: "스케줄 목록" });
     const card = within(list).getByRole("listitem");
     expect(screen.queryByRole("table", { name: "스케줄 목록" })).not.toBeInTheDocument();
-    for (const label of ["야간 운영", "활성", "적용 기간", "다음 실행", "반복 · 시간", "밝기", "대상", "최근 결과"]) {
+    for (const label of ["야간 운영", "활성", "적용 기간", "다음 실행", "반복 · 시간", "대상", "최근 결과"]) {
       expect(card).toHaveTextContent(label);
     }
     expect(card).toHaveTextContent("매일 · 18:00~23:00");
-    expect(card).toHaveTextContent("70%");
+    expect(card).not.toHaveTextContent("70%");
     expect(card).toHaveTextContent("1개");
     expect(card).toHaveTextContent("적용 대기");
     expect(card).toHaveTextContent("모두 성공 · 성공 1개");
@@ -294,14 +305,14 @@ describe("ScheduleControlPanel", () => {
     expect(within(card).getByText(/2026.*09.*30/)).toBeInTheDocument();
     fireEvent.click(within(card).getByRole("button", { name: "야간 운영 비활성화" }));
     await waitFor(() => expect(mocks.updateSchedule).toHaveBeenCalledWith(siteId, schedule().id, { status: "disabled" }));
-    fireEvent.click(within(card).getByRole("button", { name: "야간 운영 수정" }));
+    chooseRowAction("야간 운영", "수정");
     expect(screen.getByRole("dialog", { name: "스케줄 수정" })).toBeInTheDocument();
   });
 
   it("keeps compact schedule cards read-only for viewers", async () => {
-    vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn() })));
+    measureAutomationContainer(320);
     renderPanel("viewer");
-    const card = within(await screen.findByRole("list", { name: "스케줄 카드 목록" })).getByRole("listitem");
+    const card = within(await screen.findByRole("list", { name: "스케줄 목록" })).getByRole("listitem");
     expect(within(card).queryAllByRole("button")).toHaveLength(0);
   });
 
@@ -423,7 +434,7 @@ describe("ScheduleControlPanel", () => {
     renderPanel("viewer");
 
     expect((await screen.findAllByText("적용 대기"))[0].closest("[data-tone]")).toHaveAttribute("data-tone", "warning");
-    expect(screen.queryByText("적용됨")).not.toBeInTheDocument();
+    expect(screen.getByText("적용됨")).toBeInTheDocument();
     expect(screen.getAllByText("활성").some(element => element.closest("[data-tone=success]"))).toBe(true);
     expect(screen.getAllByText("적용 실패").find((element) => element.closest("[data-tone]"))?.closest("[data-tone]"))
       .toHaveAttribute("data-tone", "danger");
@@ -446,8 +457,8 @@ describe("ScheduleControlPanel", () => {
     renderPanel("viewer");
 
     const table = await screen.findByRole("table", { name: "스케줄 목록" });
-    expect(table.closest("[data-automation-table-wrap]")).not.toBeNull();
-    expect(screen.queryByText("적용됨")).not.toBeInTheDocument();
+    expect(table).toHaveClass("table-fixed");
+    expect(screen.getByText("적용됨")).toBeInTheDocument();
     expect(screen.getAllByText("활성").some(element => element.closest("[data-tone=success]"))).toBe(true);
     expect(screen.getByText("적용 대기").closest("[data-tone]")).toHaveAttribute("data-tone", "warning");
     expect(screen.getByText("적용 실패").closest("[data-tone]")).toHaveAttribute("data-tone", "danger");
@@ -634,7 +645,7 @@ describe("ScheduleControlPanel", () => {
       await queryClient.invalidateQueries({ queryKey: scheduleQueryKey(siteId) });
     });
 
-    fireEvent.click(await screen.findByRole("button", { name: "연간 야간 운영 수정" }));
+    chooseRowAction("연간 야간 운영", "수정");
     fireEvent.click(screen.getByRole("button", { name: "변경 저장" }));
 
     await waitFor(() => expect(mocks.updateSchedule).toHaveBeenCalledWith(
@@ -670,7 +681,7 @@ describe("ScheduleControlPanel", () => {
     renderPanel("admin");
     await screen.findByText("야간 운영");
 
-    fireEvent.click(screen.getByRole("button", { name: "야간 운영 수정" }));
+    chooseRowAction("야간 운영", "수정");
     const dialog = screen.getByRole("dialog", { name: "스케줄 수정" });
     expect(within(dialog).getByRole("group", { name: "제어 대상" })).toHaveTextContent("1개 확인 필요");
     fireEvent.click(within(dialog).getByRole("button", { name: "변경 저장" }));
@@ -689,8 +700,7 @@ describe("ScheduleControlPanel", () => {
       status: "disabled"
     }));
 
-    const deleteButton = screen.getByRole("button", { name: "야간 운영 삭제" });
-    fireEvent.click(deleteButton);
+    chooseRowAction("야간 운영", "삭제");
     expect(screen.getByRole("dialog", { name: "스케줄 삭제" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "삭제" }));
 
@@ -702,7 +712,7 @@ describe("ScheduleControlPanel", () => {
     renderPanel("admin");
     await screen.findByText("야간 운영");
 
-    fireEvent.click(screen.getByRole("button", { name: "야간 운영 삭제" }));
+    chooseRowAction("야간 운영", "삭제");
     const dialog = screen.getByRole("dialog", { name: "스케줄 삭제" });
     fireEvent.click(within(dialog).getByRole("button", { name: "삭제" }));
 
@@ -792,6 +802,11 @@ describe("ScheduleControlPanel", () => {
   });
 
   it("keeps next-page and refresh failures as separate recoverable statuses", async () => {
+    // A refetch can visit both cached cursor pages. The fallback must model
+    // distinct server rows instead of returning page one's ID for every cursor.
+    mocks.listSchedules.mockImplementation(async (_siteId, options) => options?.cursor
+      ? { items: [schedule({ id: "next-1", name: "두 번째 페이지" })], total: 2, nextCursor: null }
+      : { items: [schedule()], total: 2, nextCursor: "cursor-2" });
     mocks.listSchedules.mockResolvedValueOnce({ items: [schedule()], total: 2, nextCursor: "cursor-2" }).mockRejectedValueOnce(new Error("next page failed"));
     const { queryClient } = renderPanel("admin");
     await screen.findByText("야간 운영");
@@ -814,7 +829,8 @@ describe("ScheduleControlPanel", () => {
     await waitFor(() => expect(within(center).queryByRole("button", { name: "다음 페이지 다시 시도" })).not.toBeInTheDocument());
     expect(within(center).getByRole("button", { name: "상태 다시 조회" })).toBeInTheDocument();
     expect(within(screen.getByRole("region", { name: "알림", hidden: true })).getAllByRole("status", { hidden: true })).toHaveLength(1);
-    mocks.listSchedules.mockResolvedValueOnce({ items: [schedule()], total: 2, nextCursor: "cursor-2" }).mockResolvedValueOnce({ items: [schedule({ id: "next-1", name: "두 번째 페이지" })], total: 2, nextCursor: null });
+    // Refresh now targets the visible cursor page; the cursor-aware fallback
+    // above supplies that page instead of a queued first-page response.
     fireEvent.click(within(center).getByRole("button", { name: "상태 다시 조회" }));
     await waitFor(() => expect(center).toHaveTextContent("현재 확인할 상태가 없습니다."));
   });
@@ -830,7 +846,7 @@ describe("ScheduleControlPanel", () => {
     });
 
     await expectScreenStatusCount(1);
-    expect(screen.queryByText("적용됨")).not.toBeInTheDocument();
+    expect(screen.getByText("적용됨")).toBeInTheDocument();
     expect(screen.getAllByText("활성").length).toBeGreaterThan(0);
     fireEvent.click(screen.getByRole("button", { name: "알람센터, 현장 미선택" }));
     expect(screen.getByRole("dialog", { name: "알람센터" })).toHaveTextContent("Gateway 적용 상태를 새로고침하지 못했습니다.");
@@ -967,7 +983,8 @@ describe("ScheduleControlPanel", () => {
     fireEvent.click(await screen.findByRole("button", { name: "야간 운영 비활성화" }));
     await expectScreenStatusCount(1);
     const statusButton = screen.getByRole("button", { name: "알람센터, 현장 미선택" });
-    fireEvent.click(screen.getByRole("button", { name: operation === "add" ? "스케줄 추가" : "주간 운영 수정" }));
+    if (operation === "add") fireEvent.click(screen.getByRole("button", { name: "스케줄 추가" }));
+    else chooseRowAction("주간 운영", "수정");
     const dialog = screen.getByRole("dialog", { name: operation === "add" ? "스케줄 추가" : "스케줄 수정" });
     expect(statusButton).toHaveAttribute("aria-label", "알람센터, 현장 미선택");
     expect(within(dialog).queryByRole("alert")).not.toBeInTheDocument();
@@ -1022,7 +1039,7 @@ describe("ScheduleControlPanel", () => {
     fireEvent.click(screen.getByRole("button", { name: "주간 운영 비활성화" }));
     await expectScreenStatusCount(2);
 
-    fireEvent.click(screen.getByRole("button", { name: "야간 운영 삭제" }));
+    chooseRowAction("야간 운영", "삭제");
     fireEvent.click(within(screen.getByRole("dialog", { name: "스케줄 삭제" })).getByRole("button", { name: "삭제" }));
     await waitFor(() => expect(mocks.deleteSchedule).toHaveBeenCalledWith(siteId, schedule().id));
     await expectScreenStatusCount(1);
@@ -1042,24 +1059,24 @@ describe("ScheduleControlPanel", () => {
     fireEvent.click(await screen.findByRole("button", { name: "야간 운영 비활성화" }));
     await expectScreenStatusCount(1);
 
-    fireEvent.click(screen.getByRole("button", { name: "주간 운영 수정" }));
+    chooseRowAction("주간 운영", "수정");
     fireEvent.click(within(screen.getByRole("dialog", { name: "스케줄 수정" })).getByRole("button", { name: "변경 저장" }));
     await waitFor(() => expect(mocks.updateSchedule).toHaveBeenCalledWith(siteId, "rule-b", expect.objectContaining({ name: "주간 운영" })));
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "스케줄 수정" })).not.toBeInTheDocument());
     await expectScreenStatusCount(1);
 
-    fireEvent.click(screen.getByRole("button", { name: "주간 운영 삭제" }));
+    chooseRowAction("주간 운영", "삭제");
     fireEvent.click(within(screen.getByRole("dialog", { name: "스케줄 삭제" })).getByRole("button", { name: "삭제" }));
     await waitFor(() => expect(mocks.deleteSchedule).toHaveBeenCalledWith(siteId, "rule-b"));
     await expectScreenStatusCount(1);
 
-    fireEvent.click(screen.getByRole("button", { name: "야간 운영 삭제" }));
+    chooseRowAction("야간 운영", "삭제");
     const dialog = screen.getByRole("dialog", { name: "스케줄 삭제" });
     fireEvent.click(within(dialog).getByRole("button", { name: "삭제" }));
     expect(await within(dialog).findByRole("alert")).toBeInTheDocument();
     fireEvent.click(within(dialog).getByRole("button", { name: "취소" }));
     await expectScreenStatusCount(1);
-    fireEvent.click(screen.getByRole("button", { name: "야간 운영 삭제" }));
+    chooseRowAction("야간 운영", "삭제");
     fireEvent.click(within(screen.getByRole("dialog", { name: "스케줄 삭제" })).getByRole("button", { name: "삭제" }));
     await expectScreenStatusCount(0);
   });
@@ -1196,7 +1213,7 @@ describe("ScheduleControlPanel", () => {
   it("closes an open schedule editor on cached-list 401 and focuses recovery", async () => {
     const { queryClient } = renderPanel("admin");
     await screen.findByText("야간 운영");
-    fireEvent.click(screen.getByRole("button", { name: "야간 운영 수정" }));
+    chooseRowAction("야간 운영", "수정");
     expect(screen.getByRole("dialog", { name: "스케줄 수정" })).toBeInTheDocument();
     mocks.listSchedules.mockRejectedValueOnce(new ApiError("unauthorized", 401, null));
     await act(async () => { await queryClient.refetchQueries({ queryKey: scheduleQueryKey(siteId) }); });
@@ -1210,7 +1227,7 @@ describe("ScheduleControlPanel", () => {
   it("closes an open schedule deletion on cached-list 401 without deleting", async () => {
     const { queryClient } = renderPanel("admin");
     await screen.findByText("야간 운영");
-    fireEvent.click(screen.getByRole("button", { name: "야간 운영 삭제" }));
+    chooseRowAction("야간 운영", "삭제");
     const confirm = within(screen.getByRole("dialog", { name: "스케줄 삭제" })).getByRole("button", { name: "삭제" });
     mocks.listSchedules.mockRejectedValueOnce(new ApiError("unauthorized", 401, null));
     await act(async () => { await queryClient.refetchQueries({ queryKey: scheduleQueryKey(siteId) }); });
@@ -1229,7 +1246,7 @@ describe("ScheduleControlPanel", () => {
     await screen.findByText("야간 운영");
     expect(screen.getByRole("region", { name: "스케줄 목록 조건" })).toHaveTextContent("조건에 맞는 규칙 2건");
     expect(screen.getByRole("button", { name: "다음" })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "야간 운영 수정" }));
+    chooseRowAction("야간 운영", "수정");
     const submit = within(screen.getByRole("dialog", { name: "스케줄 수정" })).getByRole("button", { name: "변경 저장" });
     mocks.listSchedules.mockRejectedValueOnce(new ApiError("site access lost", status, null));
     await act(async () => { await queryClient.refetchQueries({ queryKey: scheduleQueryKey(siteId) }); });
@@ -1246,7 +1263,7 @@ describe("ScheduleControlPanel", () => {
   it.each([403, 404])("closes cached schedule deletion without POST after list %i", async (status) => {
     const { queryClient } = renderPanel("admin");
     await screen.findByText("야간 운영");
-    fireEvent.click(screen.getByRole("button", { name: "야간 운영 삭제" }));
+    chooseRowAction("야간 운영", "삭제");
     const confirm = within(screen.getByRole("dialog", { name: "스케줄 삭제" })).getByRole("button", { name: "삭제" });
     mocks.listSchedules.mockRejectedValueOnce(new ApiError("site access lost", status, null));
     await act(async () => { await queryClient.refetchQueries({ queryKey: scheduleQueryKey(siteId) }); });
@@ -1266,7 +1283,7 @@ describe("ScheduleControlPanel", () => {
     await screen.findByText("야간 운영");
     fireEvent.click(screen.getByRole("button", { name: "다음" }));
     await screen.findByText("두 번째 스케줄");
-    fireEvent.click(screen.getByRole("button", { name: "두 번째 스케줄 수정" }));
+    chooseRowAction("두 번째 스케줄", "수정");
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "스케줄 수정" })).not.toBeInTheDocument(), { timeout: 4500 });
     expect(screen.queryByText("두 번째 스케줄")).not.toBeInTheDocument();
     expect(screen.queryByRole("region", { name: "스케줄 목록 조건" })).not.toBeInTheDocument();
@@ -1282,7 +1299,7 @@ describe("ScheduleControlPanel", () => {
     await screen.findByText("야간 운영");
     fireEvent.click(screen.getByRole("button", { name: "다음" }));
     await screen.findByText("두 번째 스케줄");
-    fireEvent.click(screen.getByRole("button", { name: "두 번째 스케줄 삭제" }));
+    chooseRowAction("두 번째 스케줄", "삭제");
     const confirm = within(screen.getByRole("dialog", { name: "스케줄 삭제" })).getByRole("button", { name: "삭제" });
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "스케줄 삭제" })).not.toBeInTheDocument(), { timeout: 4500 });
     fireEvent.click(confirm);
@@ -1298,7 +1315,7 @@ describe("ScheduleControlPanel", () => {
     await waitFor(() => expect(screen.queryByText("야간 운영")).not.toBeInTheDocument());
     fireEvent.click(screen.getByRole("button", { name: "상태 다시 조회" }));
     await screen.findByText("야간 운영");
-    expect(screen.getByRole("button", { name: "야간 운영 수정" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "야간 운영 작업" })).toBeInTheDocument();
   });
 
   it.each([401, 403, 404])("gives a new list %i priority over an older visible-page 503", async (status) => {
@@ -1537,4 +1554,18 @@ async function expectScreenStatusCount(count: number) {
   const section = within(center).getByRole("heading", { name: "현재 화면 상태" }).closest("section")!;
   await waitFor(() => expect(within(section).queryAllByRole("listitem")).toHaveLength(count), { timeout: 4500 });
   if (!alreadyOpen) fireEvent.click(within(center).getByRole("button", { name: "알람센터 닫기" }));
+}
+
+function measureAutomationContainer(width: number) {
+  vi.stubGlobal("ResizeObserver", class {
+    constructor(private readonly callback: ResizeObserverCallback) {}
+    observe(target: Element) { this.callback([{ target, contentRect: { width } } as ResizeObserverEntry], this as unknown as ResizeObserver); }
+    unobserve() {}
+    disconnect() {}
+  });
+}
+
+function chooseRowAction(name: string, action: "수정" | "삭제") {
+  fireEvent.click(screen.getByRole("button", { name: `${name} 작업` }));
+  fireEvent.click(screen.getByRole("menuitem", { name: action }));
 }

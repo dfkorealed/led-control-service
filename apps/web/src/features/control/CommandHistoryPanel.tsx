@@ -4,7 +4,8 @@ import { FocusScope, useFocusManager } from "react-aria";
 import { useQueryClient } from "@tanstack/react-query";
 import { useCommandHistory, type CommandStage, type CommandStatusResponse } from "../../api/commands";
 import { ApiError } from "../../api/client";
-import { Button, Card, DateRangePicker, DrawerDialog, FilterPanel, Heading, LogView, PaginationBar, SearchField, SelectBox, StatusBadge, Text, cn, type DateRangeValue } from "../../components/ui";
+import { Button, Card, DateRangePicker, DrawerDialog, FilterPanel, Heading, LogView, PageSizeSelect, PaginationBar, SearchField, SelectBox, StatusBadge, Text, cn, useDateRangeDraft, type DateRangeValue } from "../../components/ui";
+import { draftToDate, isEmptyDateDraft } from "../../components/ui/date/useDateDraft";
 import { formatControlTimestamp } from "./control-time";
 
 export const COMMAND_STAGE_LABELS: Record<CommandStage, string> = {
@@ -48,6 +49,15 @@ export function CommandHistoryPanel({ userId, siteId, onSelect, disabled = false
   const [stage, setStage] = useState<CommandStage | "">("");
   const [limit, setLimit] = useState<50 | 100 | 500 | 1000>(50);
   const [period, setPeriod] = useState<DateRangeValue | null>(null);
+  const periodDraft = useDateRangeDraft(JSON.stringify([userId, siteId]), period);
+  const draftStart = draftToDate(periodDraft.draft.start);
+  const draftEnd = draftToDate(periodDraft.draft.end);
+  const emptyPeriodDraft = isEmptyDateDraft(periodDraft.draft.start) && isEmptyDateDraft(periodDraft.draft.end);
+  const periodError = !emptyPeriodDraft && (!draftStart || !draftEnd || draftStart > draftEnd)
+    ? "시작일과 종료일을 올바른 순서로 완성해 주세요." : "";
+  function resetFilters() {
+    setPeriod(null); periodDraft.reset(null); setStage(""); setLimit(50);
+  }
   const input = { siteId, query, ...(stage ? { stage } : {}), limit, fromDate: period?.start, toDate: period?.end };
   const scopeKey = JSON.stringify([userId, input, open]);
   const [navigation, setNavigation] = useState({ scopeKey, index: 0 });
@@ -68,13 +78,13 @@ export function CommandHistoryPanel({ userId, siteId, onSelect, disabled = false
   }, [scopeKey]);
 
   const latest = useCommandHistory(userId, { siteId, limit: 1 });
-  const history = useCommandHistory(userId, input, open);
+  const history = useCommandHistory(userId, input, open && !periodError);
   const latestUnauthorized = latest.error instanceof ApiError && [401, 403].includes(latest.error.status);
   const historyUnauthorized = history.error instanceof ApiError && [401, 403].includes(history.error.status);
   const latestItem = latestUnauthorized ? undefined : latest.data?.pages[0]?.items[0];
   const page = historyUnauthorized ? undefined : history.data?.pages[pageIndex];
   const pending = history.isPending || history.isFetching || history.isPaused;
-  const success = !pending && !history.error && Boolean(page);
+  const success = !periodError && !pending && !history.error && Boolean(page);
   const retainedFrom = (historyUnauthorized ? undefined : history.data?.pages[0]?.retainedFrom)
     ?? (latestUnauthorized ? undefined : latest.data?.pages[0]?.retainedFrom);
   const cursorExpired = history.error instanceof ApiError && history.error.status === 400
@@ -125,14 +135,18 @@ export function CommandHistoryPanel({ userId, siteId, onSelect, disabled = false
     </Card>
     <DrawerDialog isOpen={open} safeArea title="명령 이력" description="현장의 최근 명령을 조회합니다." closeLabel="명령 이력 닫기" onClose={() => setOpen(false)} returnFocusRef={openerRef}
       className="flex min-h-0 max-w-status-drawer flex-col overflow-hidden" bodyClassName="min-h-0 flex-1 overflow-hidden">
-      <LogView label="명령 이력" filters={<FilterPanel label="명령 이력 필터" actions={period ? <Button variant="secondary" onClick={() => setPeriod(null)}>전체 보관 기간</Button> : undefined}>
-        <DateRangePicker label="조회 기간" value={period} onChange={setPeriod} description={period ? `${period.start} ~ ${period.end} · 종료일 포함` : "전체 보관 기간 · 최근 3개월"} />
-        <div className="grid gap-2 compact:grid-cols-2">
-          <SearchField label={<span className="sr-only">명령 이력 검색</span>} placeholder="명령 ID 또는 조명 이름" maxLength={100} value={search} onChange={setSearch} />
+      <LogView label="명령 이력" filters={<FilterPanel label="명령 이력 필터" mode="popover"
+        search={<SearchField label={<span className="sr-only">명령 이력 검색</span>} placeholder="명령 ID 또는 조명 이름" maxLength={100} value={search} onChange={setSearch} />}
+        activeFilterCount={Number(!emptyPeriodDraft) + Number(Boolean(stage)) + Number(limit !== 50)}
+        summary={<Text variant="caption" tone={periodError ? "danger" : "secondary"}>{periodError || (period ? `${period.start} ~ ${period.end} · 종료일 포함` : "전체 보관 기간 · 최근 3개월")} · {stage ? COMMAND_STAGE_LABELS[stage] : "전체 상태"} · 페이지당 {limit}개</Text>}
+        filterReset={<Button variant="secondary" type="button" onClick={resetFilters}>필터 초기화</Button>}>
+        <DateRangePicker label="조회 기간" value={period} onChange={setPeriod} draftController={periodDraft}
+          isInvalid={Boolean(periodError)} errorMessage={periodError} description={period ? `${period.start} ~ ${period.end} · 종료일 포함` : "전체 보관 기간 · 최근 3개월"} />
           <SelectBox label={<span className="sr-only">명령 상태 필터</span>} items={commandStageItems} selectedKey={stage} onSelectionChange={(key) => setStage((key ?? "") as CommandStage | "")} />
-        </div>
+          <PageSizeSelect value={limit} options={[50, 100, 500, 1000] as const} onChange={setLimit} />
       </FilterPanel>} pagination={<FocusScope><CommandHistoryPager open={open} scopeKey={JSON.stringify([userId, siteId, open])} pending={pending} success={success} error={history.error}>
         {preserveFocus => <PaginationBar mode="cursor" page={pageIndex + 1} pageSize={limit} pageSizeOptions={[50, 100, 500, 1000] as const}
+          showPageSizeSelector={false}
           className="phone-wide:flex-row phone-wide:items-end [&>[data-field]]:phone-wide:w-28 [&>[data-field]]:phone-wide:shrink-0"
           itemCount={success ? page!.items.length : null} isPending={pending} hasPrevious={pageIndex > 0} hasNext={success && Boolean(page?.nextCursor)}
           onPrevious={() => { preserveFocus(); setPageIndex(pageIndex - 1); }}

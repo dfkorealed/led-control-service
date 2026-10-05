@@ -1,5 +1,5 @@
 import { useInfiniteQuery, useMutation, useQueryClient, type InfiniteData } from "@tanstack/react-query";
-import { CarFront, CircleCheck, Clock3, Eye, Pencil, Power, PowerOff, Trash2, TriangleAlert } from "lucide-react";
+import { CarFront, CircleCheck, Clock3, Eye, Power, PowerOff, TriangleAlert } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import {
   automationListAccessErrorMessage,
@@ -22,17 +22,12 @@ import type { Dashboard } from "../../../api/queries";
 import { Button, ConfirmDialog, FeedbackState, PageHeader, StatusBadge, Text, useSessionStatus, useSessionToast, type SessionStatusItem } from "../../../components/ui";
 import { formatControlTimestamp } from "../control-time";
 import { VehicleEventDialog } from "./VehicleEventDialog";
-import { AutomationRuleCard } from "./components/AutomationRuleCard";
 import { AutomationRuleControls } from "./components/AutomationRuleControls";
-import { AutomationRuleWorkspace, AutomationWorkspaceSummary } from "./components/AutomationWorkspaceSurface";
+import { AutomationRuleWorkspace } from "./components/AutomationWorkspaceSurface";
 import { automationListRequest, useAutomationListState } from "./components/useAutomationListState";
 import { useAutomationVisiblePagePoll } from "./components/useAutomationVisiblePagePoll";
-import {
-  AutomationRuleTable,
-  automationTableCellClassName,
-  automationTableHeadingClassName,
-  useCompactAutomationList
-} from "./components/AutomationRuleTable";
+import { AutomationRuleActions, AutomationRuleTable } from "./components/AutomationRuleTable";
+import type { DataGridColumn } from "../../../components/ui";
 
 export function VehicleEventControlPanel({
   siteId,
@@ -68,7 +63,6 @@ export function VehicleEventControlPanel({
   const [lastRefreshSuccess, setLastRefreshSuccess] = useState<{ scope: string; at: number } | null>(null);
   const [visiblePollFailure, setVisiblePollFailure] = useState<{ scope: string; error: unknown } | null>(null);
   const canManage = role === "admin";
-  const isCompactList = useCompactAutomationList();
   const { filter, appliedQuery, pageIndex, isSearchPending, changeFilter, changePage } = useAutomationListState(operationScopeKey);
   const listScopeKey = JSON.stringify([operationScopeKey, appliedQuery, filter.status, filter.syncStatus, filter.limit]);
   const currentListScope = useRef(listScopeKey);
@@ -435,24 +429,31 @@ export function VehicleEventControlPanel({
 
   function renderActions(rule: VehicleEventRuleResponse) {
     if (!canManage) return null;
-    return <div className="grid grid-cols-3 gap-1.5" data-schedule-row-actions="">
-      <Button variant="ghost" className="w-11 p-0" type="button" aria-label={`${rule.name} ${rule.status === "enabled" ? "비활성화" : "활성화"}`} title={rule.status === "enabled" ? "비활성화" : "활성화"} disabled={isMutating} onClick={() => toggle(rule)}>{rule.status === "enabled" ? <PowerOff size={15} aria-hidden="true" /> : <Power size={15} aria-hidden="true" />}</Button>
-      <Button variant="ghost" className="w-11 p-0" type="button" aria-label={`${rule.name} 수정`} title="수정" disabled={isMutating} onClick={(event) => beginEdit(rule, event.currentTarget)}><Pencil size={15} aria-hidden="true" /></Button>
-      <Button variant="danger" className="w-11 p-0" type="button" aria-label={`${rule.name} 삭제`} title="삭제" disabled={isMutating} onClick={(event) => { setDeleteCandidate(rule); deleteReturnFocusRef.current = event.currentTarget; setMutationError(""); }}><Trash2 size={15} aria-hidden="true" /></Button>
-    </div>;
+    return <AutomationRuleActions name={rule.name} enabled={rule.status === "enabled"} disabled={isMutating || isAuthBlocked}
+      onToggle={() => toggle(rule)} onEdit={opener => beginEdit(rule, opener)}
+      onDelete={opener => { deleteReturnFocusRef.current = opener; setDeleteCandidate(rule); setMutationError(""); }} />;
   }
 
+  const columns: DataGridColumn<VehicleEventRuleResponse>[] = [
+    { id: "name", header: "이름", minWidth: 150, renderCell: row => <strong className="wrap-anywhere">{row.name}</strong> },
+    { id: "activation", header: "활성", minWidth: 90, align: "center", renderCell: row => <EnabledBadge enabled={row.status === "enabled"} /> },
+    { id: "sources", header: "감지 센서", minWidth: 80, align: "right", renderCell: row => `${row.sourceCount}개` },
+    { id: "targets", header: "제어 조명", minWidth: 80, align: "right", renderCell: row => `${row.targetCount}개` },
+    { id: "brightness", header: "밝기", minWidth: 100, align: "right", renderCell: row => row.action.dimmingEnabled ? `${row.action.brightnessPercent}%` : "디밍 OFF · 100%" },
+    { id: "hold", header: "유지", minWidth: 70, align: "right", renderCell: row => `${row.holdSeconds}초` },
+    { id: "sync", header: "Gateway 동기화", minWidth: 110, align: "center", renderCell: row => <SyncBadge status={row.syncStatus} /> },
+    { id: "detection", header: "최근 감지", minWidth: 150, renderCell: row => <><DetectionBadge rule={row} timeZone={dashboard?.site.timeZone ?? "UTC"} wrap /><Text variant="caption" tone="secondary">{dashboard?.site.timeZone ?? "UTC"}</Text></> }
+  ];
+  if (canManage) columns.push({ id: "actions", header: "관리", minWidth: 116, align: "center", renderCell: renderActions });
+
   return (
-    <div id="control-mode-panel-event" className="grid min-w-0 content-start gap-4 tablet:min-h-0 tablet:flex-1 tablet:flex-col tablet:overflow-hidden" role="tabpanel" aria-labelledby="control-mode-event" data-control-automation-panel="event">
+    <div id="control-mode-panel-event" className="grid min-w-0 content-start gap-4 tablet:flex tablet:min-h-0 tablet:flex-1 tablet:flex-col tablet:overflow-hidden" role="tabpanel" aria-labelledby="control-mode-event" data-control-automation-panel="event">
       <PageHeader
         title="이벤트 제어"
         headingLevel={3}
         status={!canManage ? <StatusBadge tone="neutral" icon={Eye}>조회 전용</StatusBadge> : undefined}
         actions={canManage && !isAuthBlocked ? <Button ref={addButtonRef} variant="primary" type="button" onClick={beginAdd} disabled={isMutating || !dashboard}><CarFront size={16} aria-hidden="true" /> 이벤트 추가</Button> : undefined}
       />
-      <AutomationWorkspaceSummary label="이벤트 요약" timeZone={dashboard?.site.timeZone} total={firstPage?.total} siteSummary={firstPage?.siteSummary}
-        loadedStatuses={rules.map((rule) => rule.syncStatus)}
-        state={rulesQuery.isLoading ? "loading" : isAuthBlocked || rulesQuery.isLoadingError ? "error" : "ready"} />
       {hasGlobalContract && !isAuthBlocked ? <AutomationRuleControls label="이벤트" filter={filter}
         filteredTotal={isSearchPending ? undefined : firstPage?.filteredTotal}
         pageIndex={currentPageIndex} currentPageCount={isSearchPending ? 0 : rules.length}
@@ -464,40 +465,7 @@ export function VehicleEventControlPanel({
       {isSearchPending ? <FeedbackState icon={Clock3} title="검색 조건을 적용 중입니다." /> : null}
       {queryFailure && !isNonBlockingQueryFailure ? <QueryError message={queryFailure.message} onRetry={() => void queryFailure.retry()} label={queryFailure.retryLabel} buttonRef={authRetryRef} /> : null}
       {!rulesQuery.isLoading && !rulesQuery.isLoadingError && !isAuthBlocked && !isSearchPending ? (
-        rules.length > 0 ? isCompactList ? <div role="list" aria-label="차량 이벤트 카드 목록" className="grid min-w-0 gap-3">
-          {rules.map((rule) => <AutomationRuleCard
-            key={rule.id}
-            name={rule.name}
-            status={<EnabledBadge enabled={rule.status === "enabled"} />}
-            fields={[
-              { label: "감지 센서", value: `${rule.sourceCount}개` },
-              { label: "제어 조명", value: `${rule.targetCount}개` },
-              { label: "밝기", value: rule.action.dimmingEnabled ? `${rule.action.brightnessPercent}%` : "디밍 OFF · 100%" },
-              { label: "유지", value: `${rule.holdSeconds}초` },
-              { label: "Gateway 동기화", value: <SyncBadge status={rule.syncStatus} /> },
-              { label: "최근 감지", value: <DetectionBadge rule={rule} timeZone={dashboard?.site.timeZone ?? "UTC"} wrap /> }
-            ]}
-            actions={renderActions(rule)}
-          />)}
-        </div> : <AutomationRuleTable label="차량 이벤트 목록">
-            <thead><tr><th className={automationTableHeadingClassName}>이름</th><th className={automationTableHeadingClassName}>활성</th><th className={automationTableHeadingClassName}>감지 센서</th><th className={automationTableHeadingClassName}>제어 조명</th><th className={automationTableHeadingClassName}>밝기</th><th className={automationTableHeadingClassName}>유지</th><th className={automationTableHeadingClassName}>Gateway 동기화</th><th className={automationTableHeadingClassName}>최근 감지</th>{canManage ? <th className={automationTableHeadingClassName} aria-label="관리" /> : null}</tr></thead>
-            <tbody>
-              {rules.map((rule, index) => {
-                const isLastRow = index === rules.length - 1;
-                return <tr key={rule.id}>
-                <td className={automationTableCellClassName(isLastRow)}><strong className="block max-w-48 truncate">{rule.name}</strong></td>
-                <td className={automationTableCellClassName(isLastRow)}><EnabledBadge enabled={rule.status === "enabled"} /></td>
-                <td className={automationTableCellClassName(isLastRow)}>{rule.sourceCount}개</td>
-                <td className={automationTableCellClassName(isLastRow)}>{rule.targetCount}개</td>
-                <td className={automationTableCellClassName(isLastRow)}>{rule.action.dimmingEnabled ? `${rule.action.brightnessPercent}%` : "디밍 OFF · 100%"}</td>
-                <td className={automationTableCellClassName(isLastRow)}>{rule.holdSeconds}초</td>
-                <td className={automationTableCellClassName(isLastRow)}><SyncBadge status={rule.syncStatus} /></td>
-                <td className={automationTableCellClassName(isLastRow)}><DetectionBadge rule={rule} timeZone={dashboard?.site.timeZone ?? "UTC"} /></td>
-                {canManage ? <td className={automationTableCellClassName(isLastRow)}>{renderActions(rule)}</td> : null}
-              </tr>;
-              })}
-            </tbody>
-        </AutomationRuleTable> : <FeedbackState icon={CarFront}
+        rules.length > 0 ? <AutomationRuleTable caption="차량 이벤트 목록" rows={rules} columns={columns} getRowKey={row => row.id} /> : <FeedbackState icon={CarFront}
           title={hasGlobalContract && firstPage?.total !== 0 ? "조건에 맞는 이벤트 규칙이 없습니다." : "등록된 이벤트 규칙이 없습니다."}
           description={hasGlobalContract && firstPage?.total !== 0 ? "검색이나 필터 조건을 바꿔 다시 확인해 주세요." : "감지 센서와 제어 조명을 연결해 차량 이벤트 대응을 시작할 수 있습니다."} />
       ) : null}

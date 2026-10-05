@@ -1,36 +1,29 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useRef } from "react";
+import { Power, PowerOff } from "lucide-react";
+import { Button, DataGrid, RowActions } from "../../../../components/ui";
 
-export const automationTableHeadingClassName = "border-b border-border-default bg-action-primary-soft p-3 text-left align-middle text-overline font-black whitespace-nowrap text-content-muted";
+// One measured container owns both surfaces; automation has no viewport breakpoint.
+export const AutomationRuleTable = DataGrid;
 
-const automationTableCellBaseClassName = "h-14 p-3 text-left align-middle text-caption whitespace-nowrap";
-
-export function automationTableCellClassName(isLastRow: boolean, className = "") {
-  return `${automationTableCellBaseClassName} ${isLastRow ? "border-b-0" : "border-b border-border-default"} ${className}`.trim();
-}
-
-export function AutomationRuleTable({ label, children }: { label: string; children: ReactNode }) {
-  return (
-    <div className="min-w-0 overflow-x-auto overscroll-x-contain bg-surface-panel" data-automation-table-wrap="">
-      <table className="w-full min-w-296 border-collapse text-caption" aria-label={label}>
-        {children}
-      </table>
-    </div>
-  );
-}
-
-const compactAutomationQuery = "(max-width: 47.5rem)";
-
-export function useCompactAutomationList() {
-  const [isCompact, setIsCompact] = useState(() => window.matchMedia?.(compactAutomationQuery).matches ?? false);
-
-  useEffect(() => {
-    const media = window.matchMedia?.(compactAutomationQuery);
-    if (!media) return;
-    const update = () => setIsCompact(media.matches);
-    media.addEventListener("change", update);
-    update();
-    return () => media.removeEventListener("change", update);
-  }, []);
-
-  return isCompact;
+export function AutomationRuleActions({ name, enabled, disabled, editDisabled = false, onToggle, onEdit, onDelete }: {
+  name: string;
+  enabled: boolean;
+  disabled: boolean;
+  editDisabled?: boolean;
+  onToggle(): void;
+  onEdit(opener: HTMLButtonElement): void;
+  onDelete(opener: HTMLButtonElement): void;
+}) {
+  const opener = useRef<HTMLButtonElement>(null);
+  return <div className="flex flex-wrap justify-center gap-2" data-schedule-row-actions="">
+    <Button variant="ghost" className="min-w-11 p-0" type="button" aria-label={`${name} ${enabled ? "비활성화" : "활성화"}`}
+      disabled={disabled} onClick={onToggle}>{enabled ? <PowerOff size={16} aria-hidden="true" /> : <Power size={16} aria-hidden="true" />}</Button>
+    <RowActions<"edit" | "delete"> ref={opener} rowLabel={name} isDisabled={disabled}
+      items={[{ id: "edit", label: "수정", isDisabled: editDisabled }, { id: "delete", label: "삭제" }]}
+      onAction={key => {
+        if (!opener.current || disabled) return;
+        if (key === "edit" && !editDisabled) onEdit(opener.current);
+        if (key === "delete") onDelete(opener.current);
+      }} />
+  </div>;
 }
