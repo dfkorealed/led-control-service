@@ -103,12 +103,12 @@ Popover는 기존 React Aria/RegisteredPopoverContent를 사용한다. `summary 
 
 Grid는 실제 content width를 ResizeObserver로 측정한다. 미측정/0폭은 cards, `width >= sum(columns.minWidth)`이면 table이며 행 작업도 폭 계산에 포함한다. header center/body left 기본, body align은 컬럼별이다. 변경되지 않은 raw DataTableShell 소비자는 다음 담당 Task까지 legacy 호환이며 최종에 모두 이관한다. RowActions는 기존 typed DropdownMenu+Ellipsis와 ref를 재사용하고 확인/권한을 소유하지 않는다. PageSizeSelect의 허용 값은 10/20/50/100/500/1000, 기본 Pagination 옵션은 10/20/50/100이다. 빈/중복/집합 밖 options 또는 value 불일치는 RangeError, 숨김 상태에도 검증한다.
 
-- [ ] **Setup 1:** 이 checkout의 Git identity·Node22/pnpm9.15 및 Prisma 생성 출력 경로가 격리 범위 안인지 확인한다. 다른 checkout의 node_modules symlink를 재사용하지 않는다.
-- [ ] **Setup 2:** `pnpm install --frozen-lockfile`을 이 checkout에서 실행한다. lockfile 변경 0이어야 한다.
-- [ ] **Setup 3:** 이 checkout에서 `pnpm --filter @led-control/api prisma:generate`를 실행한다. 현재 기본 폴더의 client는 수정하지 않는다.
-- [ ] **Setup 4:** `pnpm workspace:prepare`로 leaf 검증의 의존 build를 준비한다.
-- [ ] **Setup 5:** canonical `pnpm test` baseline의 실제 실패/skip을 기록한다. 실패하면 작업 원인과 기존 원인을 먼저 분리한다.
-- [ ] **Step 1:** RED `legacy filter panel remains inline`, `restoring a draft emits no domain change`, `drops stale draft writes across A B A scopes`, `container width selects cards independently of viewport`, `row actions preserve numeric keys and focus`, `removed row trigger closes menu without stealing new scope focus`를 작성한다. 검색 reset 보존·placeholder 미저장·부분 연/월/일/오류·0폭→넓은 폭·column 누락0·numeric key 0/문자열 "0" 구분을 단언한다. 새 초안 hook의 핵심 stale 단언은 다음과 같다.
+- [x] **Setup 1:** 이 checkout의 Git identity·Node22/pnpm9.15 및 Prisma 생성 출력 경로가 격리 범위 안인지 확인한다. 다른 checkout의 node_modules symlink를 재사용하지 않는다.
+- [x] **Setup 2:** `pnpm install --frozen-lockfile`을 이 checkout에서 실행한다. lockfile 변경 0이어야 한다.
+- [x] **Setup 3:** 이 checkout에서 `pnpm --filter @led-control/api prisma:generate`를 실행한다. 현재 기본 폴더의 client는 수정하지 않는다.
+- [x] **Setup 4:** `pnpm workspace:prepare`로 leaf 검증의 의존 build를 준비한다.
+- [x] **Setup 5:** canonical `pnpm test` baseline의 실제 실패/skip을 기록한다. 실패하면 작업 원인과 기존 원인을 먼저 분리한다.
+- [x] **Step 1:** RED `legacy filter panel remains inline`, `restoring a draft emits no domain change`, `drops stale draft writes across A B A scopes`, `container width selects cards independently of viewport`, `row actions preserve numeric keys and focus`, `removed row trigger closes menu without stealing new scope focus`를 작성한다. 검색 reset 보존·placeholder 미저장·부분 연/월/일/오류·0폭→넓은 폭·column 누락0·numeric key 0/문자열 "0" 구분을 단언한다. 새 초안 hook의 핵심 stale 단언은 다음과 같다.
 
 ```ts
 const { result, rerender } = renderHook(({ scope }) => useDateDraft(scope, null), { initialProps: { scope: "A" } });
@@ -118,10 +118,12 @@ act(() => staleWrite({ year: 2055, month: null, day: 15 }));
 expect(result.current.draft).toEqual({ year: null, month: null, day: null });
 ```
 
-- [ ] **Step 2:** `pnpm --filter @led-control/web exec vitest run src/components/ui/FilterPanel.test.tsx src/components/ui/DataGrid.test.tsx src/components/ui/date/useDateDraft.test.tsx src/components/ui/date/useDateRangeDraft.test.tsx src/components/ui/RowActions.test.tsx`로 의도한 RED를 확인한다.
-- [ ] **Step 3:** 위 API와 공개 segment bridge를 최소 구현한다. UI wrapper가 query/validation/reset 정책을 갖지 않게 한다.
-- [ ] **Step 4:** 인접 전체 시험·web typecheck·UI policy를 GREEN 확인한다. 부분 날짜 close/reopen·resize, nested Escape/Back·닫힌 overlay 등록0, page-size generic 호환, header/body 정렬을 검증한다.
+- [x] **Step 2:** `pnpm --filter @led-control/web exec vitest run src/components/ui/FilterPanel.test.tsx src/components/ui/DataGrid.test.tsx src/components/ui/date/useDateDraft.test.tsx src/components/ui/date/useDateRangeDraft.test.tsx src/components/ui/RowActions.test.tsx`로 의도한 RED를 확인한다.
+- [x] **Step 3:** 위 API와 공개 segment bridge를 최소 구현한다. UI wrapper가 query/validation/reset 정책을 갖지 않게 한다.
+- [x] **Step 4:** 인접 전체 시험·web typecheck·UI policy를 GREEN 확인한다. 부분 날짜 close/reopen·resize, nested Escape/Back·닫힌 overlay 등록0, page-size generic 호환, header/body 정렬을 검증한다.
 - [ ] **Step 5:** 소유 파일만 `feat(ui): add shared filter and responsive grid contracts`로 커밋하고 BASE/HEAD·원 RED/GREEN 로그·우려를 보고한다. 독립 task spec/quality 승인 뒤 Task 2로 넘긴다.
+
+Task 1 구현 커밋 `8962da09`; 최종 Web 3060PASS/기존3skip·타입/빌드0·UI0·정책67PASS. 독립 task review 배정 완료, 판정 대기. canonical 원 baseline은 UI 전 기존3실패로 exit1이며 해당 원 소스 focused8/7/24PASS만 확인했다. cold disabled/readOnly 부분 초안의 시각 복원 한계는 독립 검토 대상이다.
 
 ### Task 2: 공통 지도 기하·툴바와 편집 adapter
 
