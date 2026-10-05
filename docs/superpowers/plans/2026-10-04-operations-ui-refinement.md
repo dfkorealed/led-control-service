@@ -145,17 +145,19 @@ MapCameraControls(props: MapCameraControlsProps): ReactElement;
 
 미측정/비유효 viewport의 camera/fit은 null로 대기한다. 운영 relative zoom은 fitScale와 합성해 순수 변환에 넣고 저장된 center ratio는 기존 camera adapter가 소유한다. editor의 기존 100% reset과 fit(false/true)는 별개 callback으로 유지한다. MapCameraControls는 store를 읽지 않으며 undo/redo/save/패널은 기존 툴바에 남긴다. 공통 기하를 실제 운영·편집 camera/좌표 경로 양쪽에서 소비하여 이름만 공통인 복제를 만들지 않는다.
 
-- [ ] **Step 1:** RED `round trips physical transforms without changing relative camera`, `unmeasured viewport waits without resetting user camera`, `reset zoom is distinct from fit`를 작성한다. world↔screen 왕복, editor/운영 배율 경계, callback별 1회 호출·다른 행동0을 단언한다.
+- [x] **Step 1:** RED `round trips physical transforms without changing relative camera`, `unmeasured viewport waits without resetting user camera`, `reset zoom is distinct from fit`를 작성한다. world↔screen 왕복, editor/운영 배율 경계, callback별 1회 호출·다른 행동0을 단언한다.
 
 ```ts
 expect(screenToMapWorld({ x: 50, y: 70 }, { pan: { x: 10, y: 10 }, zoom: 2 })).toEqual({ x: 20, y: 30 });
 expect(cameraFromTransform({ pan: { x: 0, y: 0 }, zoom: 1 }, { width: 0, height: 0 })).toBeNull();
 ```
-- [ ] **Step 2:** `pnpm --filter @led-control/web exec vitest run src/features/floor-map/map-camera-geometry.test.ts src/components/ui/maps/MapCameraControls.test.tsx`의 RED를 확인한다.
-- [ ] **Step 3:** 순수 변환/표시 기반과 기존 export 호환 adapter를 구현한다. pointer policy·hit-test 순서·lease/undo/revision/CAD/ACK를 변경하지 않는다. 기존 공통 문서 더블클릭 첫 hit 후속은 이번 변경으로 고쳤다고 주장하지 않는다.
-- [ ] **Step 4:** 위 시험과 FloorMapViewport/편집 기하·canvas·use-map-editor 회귀, web typecheck/UI를 GREEN으로 확인한다. cold/warm 원 1000대 정확 ID·픽셀·X50·저장·실제시계 `<8000ms`는 Task 9에서도 원본 기준을 유지한다.
-- [ ] **Step 5:** settings 메뉴에 실제 공유 범위/한계를 기록한다.
+- [x] **Step 2:** `pnpm --filter @led-control/web exec vitest run src/features/floor-map/map-camera-geometry.test.ts src/components/ui/maps/MapCameraControls.test.tsx`의 RED를 확인한다.
+- [x] **Step 3:** 순수 변환/표시 기반과 기존 export 호환 adapter를 구현한다. pointer policy·hit-test 순서·lease/undo/revision/CAD/ACK를 변경하지 않는다. 기존 공통 문서 더블클릭 첫 hit 후속은 이번 변경으로 고쳤다고 주장하지 않는다.
+- [x] **Step 4:** 위 시험과 FloorMapViewport/편집 기하·canvas·use-map-editor 회귀, web typecheck/UI를 GREEN으로 확인한다. cold/warm 원 1000대 정확 ID·픽셀·X50·저장·실제시계 `<8000ms`는 Task 9에서도 원본 기준을 유지한다.
+- [x] **Step 5:** settings 메뉴에 실제 공유 범위/한계를 기록한다.
 - [ ] **Step 6:** `refactor(map): share camera geometry and controls`로 소유 파일을 커밋 후 독립 검토받는다. 운영/제어 소비자 작성권은 아직 주지 않는다.
+
+Task 2 구현 `7d13ba95`/소유13파일 반환. 최종56파일819PASS/0skip·type/UIexit0를 원로그와 대조했으며 독립 task review 대기다. 원1000/8초와 실제browser/200%는 미실행으로 Task9에 유지한다.
 
 ### Task 3: 개인 알람 숨김과 영속 전체 대상 snapshot
 
