@@ -3,6 +3,9 @@ import { installSettingsApiRoutes } from "./support/settings-api";
 import { expectNoHorizontalOverflow } from "./support/layout-assertions";
 import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
+import { installMockApiBoundary } from "./support/mock-api-boundary";
+
+test.beforeEach(async ({ page, baseURL }) => installMockApiBoundary(page.context(), baseURL!));
 
 const siteId = "99999999-9999-4999-8999-000000000001";
 const reportId = "99999999-9999-4999-8999-000000000041";
@@ -83,8 +86,8 @@ for (const width of [320, 390]) {
   test(`${width}px report dates remain whole with long names and 200 percent text`, async ({ page }, info) => {
     await page.setViewportSize({ width, height: 740 });
     await setup(page, true, "매우 긴 통계 대상 현장 이름 입구 물류센터 조명 관리 구역");
-    const card = page.getByRole("list", { name: "모바일 보고서 생성 이력" }).getByRole("listitem");
-    await expect(card.getByRole("heading")).toContainText("매우 긴 통계 대상");
+    const card = page.getByRole("list", { name: "보고서 생성 이력" }).getByRole("listitem");
+    await expect(card.locator("dt").filter({ hasText: /^대상$/ }).locator("..").locator("dd")).toContainText("매우 긴 통계 대상");
     const period = card.locator("dt").filter({ hasText: /^기간$/ }).locator("..").locator("dd");
     const initialFontSize = await period.evaluate(node => parseFloat(getComputedStyle(node).fontSize));
     for (const scale of [100, 200]) {
@@ -116,7 +119,7 @@ for (const width of [320, 390]) {
   test(`${width}px PDF native bytes stay pending until handoff without browser download`, async ({ page }, info) => {
     await page.setViewportSize({ width, height: 740 }); const api = await setup(page);
     const browserDownloads: string[] = []; page.on("download", download => browserDownloads.push(download.suggestedFilename()));
-    const button = page.getByRole("list", { name: "모바일 보고서 생성 이력" }).getByRole("button", { name: "모바일 통계 현장 보고서 다운로드" });
+    const button = page.getByRole("list", { name: "보고서 생성 이력" }).getByRole("button", { name: "모바일 통계 현장 보고서 다운로드" });
     await button.tap();
     await expect.poll(async () => (await messages(page)).at(-1)?.type).toBe("file.end");
     await expect(button).toBeDisabled();
@@ -178,7 +181,7 @@ for (const width of [320, 390]) {
 test("signed PDF expiry remains distinguishable from native write errors", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 740 }); await setup(page);
   await page.route(signedUrl, route => route.fulfill({ status: 403, headers: { "access-control-allow-origin": "*" }, body: "expired signature" }));
-  await page.getByRole("list", { name: "모바일 보고서 생성 이력" }).getByRole("button", { name: "모바일 통계 현장 보고서 다운로드" }).tap();
+  await page.getByRole("list", { name: "보고서 생성 이력" }).getByRole("button", { name: "모바일 통계 현장 보고서 다운로드" }).tap();
   await expect(page.getByRole("alert")).toContainText("만료");
   expect(await messages(page)).toEqual([]);
   await expect(page.getByText(/not-for-ui|expired signature/)).toHaveCount(0);
@@ -187,14 +190,14 @@ test("signed PDF expiry remains distinguishable from native write errors", async
 test("native PDF network failure and size overflow never silently download in a browser", async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 740 }); await setup(page);
   await page.route(signedUrl, route => route.abort("failed"));
-  const button = page.getByRole("list", { name: "모바일 보고서 생성 이력" }).getByRole("button", { name: "모바일 통계 현장 보고서 다운로드" });
+  const button = page.getByRole("list", { name: "보고서 생성 이력" }).getByRole("button", { name: "모바일 통계 현장 보고서 다운로드" });
   await button.tap(); await expect(page.getByRole("alert")).toContainText("네트워크");
   await page.route(signedUrl, route => route.fulfill({ headers: { "content-length": "20971521", "access-control-allow-origin": "*" }, contentType: "application/pdf", body: "oversized" }));
   await button.tap(); await expect(page.getByRole("alert")).toContainText("20MiB");
   expect(await messages(page)).toEqual([]); await expectNoHorizontalOverflow(page);
 });
 
-test("ordinary browsers still download PDF and CSV bytes through their original paths", async ({ page }) => {
+test("ordinary browsers still download PDF and CSV bytes through their original paths", async ({ page }, info) => {
   const bytes = Buffer.from("%PDF-1.7\nbrowser-transport-fixture");
   const server = createServer((_request, response) => {
     response.writeHead(200, { "content-type": "application/pdf", "content-disposition": "attachment; filename=report.pdf" });
@@ -204,12 +207,15 @@ test("ordinary browsers still download PDF and CSV bytes through their original 
   try {
     const address = server.address();
     if (!address || typeof address === "string") throw new Error("Missing file fixture port");
+    const downloadUrl = `http://127.0.0.1:${address.port}/report.pdf`;
+    await info.attach("owned-file-fixture-start", { body: JSON.stringify({ port: address.port, downloadUrl, pid: process.pid, utc: new Date().toISOString() }), contentType: "application/json" });
+    await page.route(downloadUrl, route => route.request().method() === "GET" ? route.continue() : route.abort("blockedbyclient"));
     await page.setViewportSize({ width: 390, height: 740 }); await setup(page, false);
     await page.route("**/energy/sites/*/reports/*/download", route => route.fulfill({ json: {
-      reportId, format: "pdf", downloadUrl: `http://127.0.0.1:${address.port}/report.pdf`, expiresInSeconds: 300
+      reportId, format: "pdf", downloadUrl, expiresInSeconds: 300
     } }));
     const pdf = page.waitForEvent("download");
-    await page.getByRole("list", { name: "모바일 보고서 생성 이력" }).getByRole("button", { name: "모바일 통계 현장 보고서 다운로드" }).tap();
+    await page.getByRole("list", { name: "보고서 생성 이력" }).getByRole("button", { name: "모바일 통계 현장 보고서 다운로드" }).tap();
     const pdfPath = await (await pdf).path();
     if (!pdfPath) throw new Error("Missing PDF download");
     expect(await readFile(pdfPath)).toEqual(bytes);
@@ -223,5 +229,8 @@ test("ordinary browsers still download PDF and CSV bytes through their original 
   } finally {
     server.closeAllConnections();
     await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
+    const connections = await new Promise<number>((resolve, reject) => server.getConnections((error, count) => error ? reject(error) : resolve(count)));
+    await info.attach("owned-file-fixture-cleanup", { body: JSON.stringify({ pid: process.pid, utc: new Date().toISOString(), listening: server.listening, connections }), contentType: "application/json" });
+    expect(server.listening).toBe(false); expect(connections).toBe(0);
   }
 });

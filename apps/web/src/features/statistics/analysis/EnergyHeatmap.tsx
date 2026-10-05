@@ -2,7 +2,7 @@ import type { EnergyHeatmapMetric } from "@led-control/shared/energy-p2-contract
 import type { EnergyObservedMeanResponse } from "@led-control/shared/energy-observed-mean-contracts";
 import { Activity, Grid3X3, TriangleAlert } from "lucide-react";
 import { Fragment, useRef, useState } from "react";
-import { Button, Card, FeedbackState, Heading, Text } from "../../../components/ui";
+import { Button, Card, FeedbackState, FilterPanel, Heading, Text } from "../../../components/ui";
 
 const weekdays = ["일요일", "월요일", "화요일", "수요일", "목요일", "금요일", "토요일"];
 
@@ -24,29 +24,33 @@ export function EnergyHeatmap({
   const [selectedIndex, setSelectedIndex] = useState(0);
   const cellRefs = useRef<Array<HTMLButtonElement | null>>([]);
 
-  if (isLoading) {
-    return <Card className="p-4"><FeedbackState icon={Activity} title="시간대별 사용량을 계산하는 중" /></Card>;
-  }
-  if (isError || !data) {
-    return <Card className="p-4"><FeedbackState tone="danger" icon={TriangleAlert} title="시간대별 사용량을 불러오지 못했습니다."
-      action={onRetry ? <Button variant="secondary" onClick={onRetry}>다시 시도</Button> : undefined} /></Card>;
-  }
-  if (data.cells.every((cell) => cell.value === null)) {
-    return <Card className="p-4"><FeedbackState icon={Grid3X3} title="표시할 수집 데이터가 없습니다."
-      description={`${data.range.from} ~ ${data.range.to}의 완전히 관측된 시간대가 없어 평균을 산정할 수 없습니다. 부분 수집은 0으로 간주하지 않습니다.`} /></Card>;
-  }
-
-  const selected = data.cells[selectedIndex] ?? data.cells[0];
-  const maximum = Math.max(...data.cells.flatMap((cell) => cell.value === null ? [] : [cell.value]), 0);
+  // Keep the metric overlay/trigger mounted while its query changes; replacing the whole
+  // card during loading would destroy the active focus scope and its restore target.
+  const feedback = isLoading
+    ? <FeedbackState icon={Activity} title="시간대별 사용량을 계산하는 중" />
+    : isError || !data
+      ? <FeedbackState tone="danger" icon={TriangleAlert} title="시간대별 사용량을 불러오지 못했습니다."
+        action={onRetry ? <Button variant="secondary" onClick={onRetry}>다시 시도</Button> : undefined} />
+      : data.cells.every(cell => cell.value === null)
+        ? <FeedbackState icon={Grid3X3} title="표시할 수집 데이터가 없습니다."
+          description={`${data.range.from} ~ ${data.range.to}의 완전히 관측된 시간대가 없어 평균을 산정할 수 없습니다. 부분 수집은 0으로 간주하지 않습니다.`} />
+        : null;
+  const selected = data?.cells[selectedIndex] ?? data?.cells[0];
+  const maximum = Math.max(...(data?.cells.flatMap(cell => cell.value === null ? [] : [cell.value]) ?? []), 0);
   return (
-    <Card className="grid min-w-0 max-w-full gap-4 overflow-hidden p-4 compact:p-6" aria-label="시간대별 사용량">
+    <Card className="grid min-w-0 max-w-full gap-4 overflow-hidden p-4 compact:p-6" aria-label={feedback ? undefined : "시간대별 사용량"}>
       <header className="flex items-start justify-between gap-4 max-compact:flex-col max-compact:items-stretch">
-        <div className="grid gap-1"><Text variant="overline" tone="muted">시간대 패턴</Text><Heading as="h3" variant="card-title">선택 항목 시간대별 평균</Heading><Text variant="body-sm" tone="secondary">선택한 완료 기간 {data.range.from} ~ {data.range.to} · 현장 시간대 {data.timeZone}</Text></div>
-        <div className="flex gap-2" aria-label="히트맵 지표">
+        <div className="grid gap-1"><Text variant="overline" tone="muted">시간대 패턴</Text><Heading as="h3" variant="card-title">선택 항목 시간대별 평균</Heading>{data && <Text variant="body-sm" tone="secondary">선택한 완료 기간 {data.range.from} ~ {data.range.to} · 현장 시간대 {data.timeZone}</Text>}</div>
+        <FilterPanel label="히트맵 지표" mode="popover" activeFilterCount={Number(metric !== "energy")}
+          summary={<Text variant="caption">{metric === "energy" ? "에너지" : "밝기"}</Text>}
+          filterReset={<Button size="sm" variant="secondary" onClick={() => onMetricChange("energy")}>필터 초기화</Button>}>
+        <div className="flex gap-2" aria-label="히트맵 지표 선택">
           <Button size="sm" variant={metric === "energy" ? "primary" : "secondary"} aria-pressed={metric === "energy"} className="h-13 min-h-13 min-w-13 max-compact:flex-1" onClick={() => onMetricChange("energy")}>에너지</Button>
           <Button size="sm" variant={metric === "brightness" ? "primary" : "secondary"} aria-pressed={metric === "brightness"} className="h-13 min-h-13 min-w-13 max-compact:flex-1" onClick={() => onMetricChange("brightness")}>밝기</Button>
         </div>
+        </FilterPanel>
       </header>
+      {feedback ?? (data && <>
       <div className="flex flex-wrap items-center gap-2 text-caption font-bold text-content-muted" aria-label="히트맵 범례">
         <span className="rounded-control border border-chart-heatmap-1 bg-chart-heatmap-empty px-2 py-1">{metric === "energy" ? "0 kWh" : "0%"}</span>
         <span>낮음</span><span className="inline-grid grid-cols-5 gap-1" aria-hidden="true">
@@ -89,6 +93,7 @@ export function EnergyHeatmap({
         </div>
       </div>
       <Text variant="body-sm" weight="bold" role="status" className="tabular-nums">{selected ? cellLabel(selected, metric) : "선택한 시간대가 없습니다."}</Text>
+      </>)}
     </Card>
   );
 }

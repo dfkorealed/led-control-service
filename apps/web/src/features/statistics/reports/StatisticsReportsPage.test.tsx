@@ -4,6 +4,7 @@ import type { ComponentProps } from "react";
 import { MemoryRouter, Outlet, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "../../../api/client";
+import { measureAutomationContainer } from "../../../test/automation-list";
 import { StatisticsReportsPage } from "./StatisticsReportsPage";
 import * as fileDelivery from "../../mobile/file-download";
 import { initializeMobileRuntime } from "../../mobile/mobile-runtime";
@@ -52,6 +53,7 @@ const reports = [
 
 describe("StatisticsReportsPage", () => {
   beforeEach(() => {
+    measureAutomationContainer(400);
     dashboardState.data = dashboard;
     dashboardState.isLoading = false;
     targetState.data = targets;
@@ -71,7 +73,77 @@ describe("StatisticsReportsPage", () => {
     });
     vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => undefined);
   });
-  afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
+  afterEach(() => { cleanup(); vi.useRealTimers(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
+
+  it.each([
+    ["requestedFrom=2026-09-20&requestedTo=2026-09-01", ["2026", "9", "20", "2026", "9", "1"]],
+    ["requestedFrom=2026-02-31&requestedTo=2026-09-01", ["2026", "2", "31", "2026", "9", "1"]],
+    ["requestedFrom=2026-09-01", ["2026", "9", "1", "연도", "월", "일"]]
+  ])("retains date-invalid initial URL %s without fetching, normalizing or showing retained reports", async (dates, segments) => {
+    const initialSearch = `?siteId=${siteId}&query=%EC%84%9C%EC%9A%B8&limit=50&${dates}`;
+    expect(() => renderPage({ initialEntry: `/statistics/reports${initialSearch}` })).not.toThrow();
+    expect(screen.getByTestId("location-search")).toHaveTextContent(initialSearch);
+    const rawDates = new URLSearchParams(dates);
+    expect(screen.getByText(`URL 요청 기간: ${rawDates.get("requestedFrom")} ~ ${rawDates.get("requestedTo") ?? "미입력"}`)).toBeVisible();
+    expect(screen.getByText("URL의 요청 기간을 직접 수정하거나 필터를 초기화해 주세요.")).toBeVisible();
+    expect(screen.queryByRole("region", { name: "요청한 보고서" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("navigation", { name: "페이지 이동" })).not.toBeInTheDocument();
+    expect(screen.queryByText("보고서가 없습니다.")).not.toBeInTheDocument();
+    expect(reportsApi.reports).toHaveBeenLastCalledWith(undefined, { limit: 50, query: "서울" });
+    fireEvent.click(screen.getByRole("button", { name: /보고서 조건 상세 필터/ }));
+    expectDateSegments("요청 기간", segments);
+    fireEvent.click(screen.getByRole("button", { name: "필터 닫기" }));
+    fireEvent.click(screen.getByRole("button", { name: /보고서 조건 상세 필터/ }));
+    expectDateSegments("요청 기간", segments);
+    expect(screen.getByTestId("location-search")).toHaveTextContent(initialSearch);
+    fireEvent.click(screen.getByRole("button", { name: "필터 초기화" }));
+    await waitFor(() => expect(reportsApi.reports).toHaveBeenLastCalledWith(siteId, { limit: 20, query: "서울" }));
+    expect(screen.getByTestId("location-search")).not.toHaveTextContent("requestedFrom");
+    fireEvent.click(screen.getByRole("button", { name: "필터 닫기" }));
+    expect(screen.getByRole("region", { name: "요청한 보고서" })).toBeInTheDocument();
+    expect(reportsApi.create).not.toHaveBeenCalled(); expect(reportsApi.csv).not.toHaveBeenCalled();
+  });
+
+  it("does not replay an invalid-URL search or partial date across A→B→A", () => {
+    vi.useFakeTimers();
+    const initialEntry = `/statistics/reports?siteId=${siteId}&query=서울&requestedFrom=2026-09-20&requestedTo=2026-09-01`;
+    const client = new QueryClient();
+    const view = renderPage({ initialEntry, queryClient: client });
+    const originalSearch = screen.getByTestId("location-search").textContent;
+    fireEvent.change(screen.getByRole("searchbox"), { target: { value: "이전 A의 초안" } });
+    fireEvent.click(screen.getByRole("button", { name: /보고서 조건 상세 필터/ }));
+    fireEvent.keyDown(within(screen.getByRole("group", { name: "요청 기간" })).getAllByRole("spinbutton")[0], { key: "Backspace" });
+    fireEvent.click(screen.getByRole("button", { name: "필터 닫기" }));
+    view.rerender(pageTree("new-site", client, initialEntry));
+    view.rerender(pageTree(siteId, client, initialEntry));
+    act(() => vi.advanceTimersByTime(300));
+    expect(screen.getByRole("searchbox")).toHaveValue("서울");
+    expect(screen.getByTestId("location-search")).toHaveTextContent(originalSearch!);
+    expect(reportsApi.reports).toHaveBeenLastCalledWith(undefined, { limit: 20, query: "서울" });
+    fireEvent.click(screen.getByRole("button", { name: /보고서 조건 상세 필터/ }));
+    expectDateSegments("요청 기간", ["2026", "9", "20", "2026", "9", "1"]);
+    vi.useRealTimers();
+  });
+
+  it.each(["status=unknown", "scope=unknown", "limit=500"])("still rejects non-date initial URL %s even with invalid dates", (condition) => {
+    expect(() => renderPage({ initialEntry: `/statistics/reports?${condition}&requestedFrom=2026-09-20&requestedTo=2026-09-01` })).toThrow();
+  });
+
+  it("keeps valid report creation independent of invalid history without normalizing its URL", async () => {
+    const initialSearch = `?siteId=${siteId}&requestedFrom=2026-09-20&requestedTo=2026-09-01`;
+    renderPage({ initialEntry: `/statistics/reports${initialSearch}` });
+    fireEvent.click(screen.getByRole("button", { name: "보고서 만들기" }));
+    const dialog = screen.getByRole("dialog", { name: "에너지 사용량 보고서 만들기" });
+    expectDateSegments("기간 시작", ["2026", "8", "13"]);
+    expect(within(dialog).getByRole("button", { name: "보고서 요청" })).toBeEnabled();
+    expect(within(dialog).getByRole("button", { name: "CSV 내보내기" })).toBeEnabled();
+    fireEvent.click(within(dialog).getByRole("button", { name: "보고서 요청" }));
+    await waitFor(() => expect(reportsApi.create).toHaveBeenCalledWith(siteId, { from: "2026-08-13", to: "2026-09-11", scope: "site", identityId: siteId, format: "pdf" }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "에너지 사용량 보고서 만들기" })).not.toBeInTheDocument());
+    expect(screen.getByTestId("location-search")).toHaveTextContent(initialSearch);
+    expect(reportsApi.reports).toHaveBeenLastCalledWith(undefined, { limit: 20 });
+    expect(screen.getByText("URL의 요청 기간을 직접 수정하거나 필터를 초기화해 주세요.")).toBeVisible();
+  });
 
   it("drops a legacy XLSX URL and restores the first PDF history page", async () => {
     renderPage({ initialEntry: "/statistics/reports?siteId=" + siteId + "&format=xlsx&scope=site" });
@@ -88,8 +160,7 @@ describe("StatisticsReportsPage", () => {
     expect(within(dialog).queryByRole("button", { name: "파일 형식" })).not.toBeInTheDocument();
     expect(within(dialog).getByRole("button", { name: "CSV 내보내기" })).toBeEnabled();
     fireEvent.click(within(dialog).getByRole("button", { name: "닫기" }));
-    expect(screen.getByRole("table", { name: "보고서 생성 이력" })).not.toHaveTextContent("형식");
-    expect(screen.getByRole("list", { name: "모바일 보고서 생성 이력" })).not.toHaveTextContent("형식");
+    expect(screen.getByRole("list", { name: "보고서 생성 이력" })).not.toHaveTextContent("형식");
   });
 
   it("keeps the page header concise and omits the static result preview", () => {
@@ -101,14 +172,16 @@ describe("StatisticsReportsPage", () => {
     expect(screen.getByRole("button", { name: "보고서 만들기" })).toBeEnabled();
   });
 
-  it("frames the four always-visible PDF filters as one panel", () => {
+  it("frames external search and the PDF condition popover as one panel", () => {
     renderPage();
 
     const filters = screen.getByRole("search", { name: "보고서 이력 필터" });
     expect(filters.closest('[data-variant="default"]')).toBeInTheDocument();
     expect(within(filters).getByRole("searchbox", { name: "보고서 검색" })).toBeVisible();
     expect(within(filters).queryByRole("button", { name: "파일 형식" })).not.toBeInTheDocument();
-    expect(within(filters).getByRole("button", { name: "범위" })).toBeVisible();
+    expect(within(filters).getByRole("button", { name: /보고서 조건 상세 필터/ })).toBeVisible();
+    fireEvent.click(within(filters).getByRole("button", { name: /보고서 조건 상세 필터/ }));
+    expect(screen.getByRole("dialog", { name: "보고서 조건" })).toHaveTextContent("범위");
   });
 
   it("keeps the job list and paging in one history card with cost context in the request dialog", () => {
@@ -128,7 +201,7 @@ describe("StatisticsReportsPage", () => {
     dashboardState.data = { ...dashboard, floors: [{ ...dashboard.floors[0], fixtures: [] }] };
     renderPage();
     fireEvent.click(screen.getByRole("button", { name: "보고서 만들기" }));
-    await chooseSelect("범위", "조명");
+    await chooseSelect("범위", "조명", screen.getByRole("dialog", { name: "에너지 사용량 보고서 만들기" }));
     expect(screen.getByRole("button", { name: "대상" })).toHaveTextContent("A-01 이력");
     fireEvent.click(screen.getByRole("button", { name: "보고서 요청" }));
     await waitFor(() => expect(reportsApi.create).toHaveBeenCalledWith(siteId, expect.objectContaining({ identityId: targets.targets[1].identityId })));
@@ -164,8 +237,9 @@ describe("StatisticsReportsPage", () => {
     }));
     const search = screen.getByTestId("location-search").textContent;
     const calls = reportsApi.reports.mock.calls.length;
+    fireEvent.click(screen.getByRole("button", { name: /보고서 조건 상세 필터/ }));
     expect(screen.getByRole("button", { name: "범위" })).toHaveTextContent("층");
-    expect(screen.queryByRole("button", { name: /상세 필터/ })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "필터 닫기" }));
 
     expect(screen.getByText("2페이지")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "이전 페이지" })).toBeEnabled();
@@ -268,7 +342,7 @@ describe("StatisticsReportsPage", () => {
     });
     const queryClient = new QueryClient();
     const view = render(pageTree(siteId, queryClient));
-    await waitFor(() => expect(screen.getAllByText("대상 1")).toHaveLength(2));
+    await waitFor(() => expect(screen.getAllByText("대상 1")).toHaveLength(1));
 
     fireEvent.click(screen.getByRole("button", { name: "다음 페이지" }));
     await waitFor(() => expect(screen.getByRole("region", { name: "요청한 보고서" })).toHaveAttribute("aria-busy", "true"));
@@ -278,7 +352,7 @@ describe("StatisticsReportsPage", () => {
     const refreshNotice = await screen.findByRole("button", { name: "목록 갱신 실패 안내" });
     expect(refreshNotice).toHaveClass("border-status-danger-border");
     expect(screen.queryByText("보고서 목록을 새로 불러오지 못했습니다. 기존 결과를 표시합니다.")).not.toBeInTheDocument();
-    expect(screen.getAllByText("대상 1")).toHaveLength(2);
+    expect(screen.getAllByText("대상 1")).toHaveLength(1);
     expect(screen.getByText("1~20 / 101건")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "이전 페이지" })).toBeEnabled();
     expect(document.body).not.toHaveTextContent("raw-next-page-secret");
@@ -305,14 +379,14 @@ describe("StatisticsReportsPage", () => {
       : reportQueryResult(pageJobs(1, 20), { nextCursor: "cursor-20", totalCount: 101, refetch: retry }));
     const queryClient = new QueryClient();
     const view = render(pageTree(siteId, queryClient));
-    await waitFor(() => expect(screen.getAllByText("대상 1")).toHaveLength(2));
+    await waitFor(() => expect(screen.getAllByText("대상 1")).toHaveLength(1));
 
     backgroundFailed = true;
     view.rerender(pageTree(siteId, queryClient));
 
     const refreshNotice = await screen.findByRole("button", { name: "목록 갱신 실패 안내" });
     expect(screen.queryByText("보고서 목록을 새로 불러오지 못했습니다. 기존 결과를 표시합니다.")).not.toBeInTheDocument();
-    expect(screen.getAllByText("대상 1")).toHaveLength(2);
+    expect(screen.getAllByText("대상 1")).toHaveLength(1);
     expect(screen.getByText("1~20 / 101건")).toBeInTheDocument();
     expect(document.body).not.toHaveTextContent("raw-background-secret");
     fireEvent.click(refreshNotice);
@@ -400,7 +474,7 @@ describe("StatisticsReportsPage", () => {
         });
     const queryClient = new QueryClient();
     const view = render(pageTree(siteId, queryClient));
-    await waitFor(() => expect(screen.getAllByText("대상 1")).toHaveLength(2));
+    await waitFor(() => expect(screen.getAllByText("대상 1")).toHaveLength(1));
 
     activeScope = "failed";
     if (scope === "site") {
@@ -728,7 +802,7 @@ describe("StatisticsReportsPage", () => {
     const invalidate = vi.spyOn(queryClient, "invalidateQueries");
     renderPage({ queryClient });
 
-    const list = screen.getByRole("list", { name: "모바일 보고서 생성 이력" });
+    const list = screen.getByRole("list", { name: "보고서 생성 이력" });
     fireEvent.click(within(list).getByRole("button", { name: "대상 failed 보고서 다시 생성" }));
     await waitFor(() => expect(reportsApi.create).toHaveBeenCalledOnce());
     await chooseSelect("상태", "완료");
@@ -759,36 +833,23 @@ describe("StatisticsReportsPage", () => {
     expect(reportsApi.reports).toHaveBeenLastCalledWith(nextSiteId, { limit: 20 });
   });
 
-  it("renders a semantic desktop table and a separate mobile list with headings and metadata", () => {
+  it.each([400, 1440])("renders one measured report surface with all labeled metadata at container %ipx", (width) => {
+    measureAutomationContainer(width);
     renderPage();
-
-    const table = screen.getByRole("table", { name: "보고서 생성 이력", hidden: true });
-    expect(table.closest("div.hidden")).toHaveClass("desktop:block");
-    expect(within(table).getAllByRole("columnheader", { hidden: true }).map((header) => header.textContent)).toEqual([
-      "대상", "기간", "상태", "요청 시각", "파일 만료 시각", "작업"
-    ]);
-
-    const list = screen.getByRole("list", { name: "모바일 보고서 생성 이력" });
-    expect(list).toHaveClass("desktop:hidden");
-    expect(within(list).getAllByRole("heading")).toHaveLength(reports.length);
-    expect(within(list).getAllByRole("term").length).toBeGreaterThan(0);
-  });
-
-  it("exposes a completed file expiry as labeled and machine-readable table and card metadata", () => {
-    renderPage();
-    const table = screen.getByRole("table", { name: "보고서 생성 이력", hidden: true });
-    const completedRow = within(table).getAllByRole("row", { hidden: true })
-      .find((row) => row.textContent?.includes("대상 completed"));
-    expect(completedRow).toBeDefined();
-    expect(within(completedRow!).getByTitle("2026-09-17T00:00:04.000Z")).toHaveAttribute("datetime", "2026-09-17T00:00:04.000Z");
-
-    const cards = screen.getByRole("list", { name: "모바일 보고서 생성 이력" });
-    const completedCard = within(cards).getByRole("listitem", { name: "대상 completed 보고서" });
-    const expiryTerm = within(completedCard).getByText("파일 만료 시각");
-    expect(expiryTerm.nextElementSibling?.querySelector("time")).toHaveAttribute("datetime", "2026-09-17T00:00:04.000Z");
-    for (const status of ["queued", "failed"] as const) {
-      const card = within(cards).getByRole("listitem", { name: `대상 ${status} 보고서` });
-      expect(within(card).queryByText("파일 만료 시각")).not.toBeInTheDocument();
+    const surface = screen.getByRole(width === 1440 ? "table" : "list", { name: "보고서 생성 이력" });
+    expect(screen.queryByRole(width === 1440 ? "list" : "table", { name: "보고서 생성 이력" })).not.toBeInTheDocument();
+    const labels = width === 1440 ? within(surface).getAllByRole("columnheader") : within(surface).getAllByRole("term").slice(0, 7);
+    expect(labels.map(label => label.textContent)).toEqual(["대상", "범위", "기간", "상태", "요청 시각", "파일 만료 시각", "작업"]);
+    expect(within(surface).getAllByTitle("2026-09-17T00:00:04.000Z")[0]).toHaveAttribute("datetime", "2026-09-17T00:00:04.000Z");
+    if (width === 1440) expect(within(surface).getAllByRole("columnheader").every(header => header.classList.contains("text-center"))).toBe(true);
+    else {
+      const completed = within(surface).getByText("대상 completed").closest("li")!;
+      const expiry = within(completed).getByText("파일 만료 시각");
+      expect(expiry.nextElementSibling?.querySelector("time")).toHaveAttribute("datetime", "2026-09-17T00:00:04.000Z");
+      for (const status of ["queued", "failed"]) {
+        const card = within(surface).getByText(`대상 ${status}`).closest("li")!;
+        expect(within(card).getByText("파일 만료 시각").nextElementSibling).toHaveTextContent("—");
+      }
     }
   });
 
@@ -796,41 +857,32 @@ describe("StatisticsReportsPage", () => {
     targetState.data = { ...targets, timeZone: "America/Los_Angeles" };
     renderPage();
 
-    const list = screen.getByRole("list", { name: "모바일 보고서 생성 이력" });
-    const completed = within(list).getByRole("listitem", { name: "대상 completed 보고서" });
+    const list = screen.getByRole("list", { name: "보고서 생성 이력" });
+    const completed = within(list).getByText("대상 completed", { exact: true }).closest("li")!;
     expect(screen.getByText("시각: 현장 시간대 America/Los_Angeles")).toBeInTheDocument();
     expect(within(completed).getByTitle("2026-09-17T00:00:04.000Z")).toHaveTextContent("2026-09-16 17:00:04");
   });
 
-  it("shares processing progress semantics and current busy state across table and mobile surfaces", () => {
+  it.each([400, 1440])("keeps processing progress and busy semantics on the measured %ipx surface", (width) => {
+    measureAutomationContainer(width);
     reportsApi.reports.mockReturnValue({
       data: { reports, nextCursor: null, totalCount: reports.length },
-      isLoading: false,
-      isError: false,
-      isFetching: true,
-      isPlaceholderData: false,
-      refetch: vi.fn()
+      isLoading: false, isError: false, isFetching: true, isPlaceholderData: false, refetch: vi.fn()
     });
     renderPage();
-
     const history = screen.getByRole("region", { name: "요청한 보고서" });
-    const mobile = screen.getByRole("list", { name: "모바일 보고서 생성 이력" });
-    const table = screen.getByRole("table", { name: "보고서 생성 이력", hidden: true });
     expect(history).toHaveAttribute("aria-busy", "true");
-    expect(mobile).toHaveAttribute("aria-busy", "true");
-    expect(table.parentElement).toHaveAttribute("aria-busy", "true");
-    const progress = screen.getAllByRole("progressbar", { name: "대상 processing 보고서 생성 진행률", hidden: true });
-    expect(progress).toHaveLength(2);
-    for (const indicator of progress) {
-      expect(indicator).toHaveAttribute("aria-valuenow", "36");
-      expect(indicator).toHaveAttribute("aria-valuemin", "0");
-      expect(indicator).toHaveAttribute("aria-valuemax", "100");
-    }
+    const surface = screen.getByRole(width === 1440 ? "table" : "list", { name: "보고서 생성 이력" });
+    expect(surface.closest("[aria-busy]")).toHaveAttribute("aria-busy", "true");
+    const progress = within(surface).getByRole("progressbar", { name: "대상 processing 보고서 생성 진행률" });
+    expect(progress).toHaveAttribute("aria-valuenow", "36");
+    expect(progress).toHaveAttribute("aria-valuemin", "0");
+    expect(progress).toHaveAttribute("aria-valuemax", "100");
   });
 
   it("discloses only the sanitized failure message and action with linked ARIA state", () => {
     renderPage();
-    const list = screen.getByRole("list", { name: "모바일 보고서 생성 이력" });
+    const list = screen.getByRole("list", { name: "보고서 생성 이력" });
     const toggle = within(list).getByRole("button", { name: "대상 failed 실패 상세 보기" });
     const panelId = toggle.getAttribute("aria-controls");
 
@@ -998,7 +1050,7 @@ describe("StatisticsReportsPage", () => {
 
   it("renders every report state and uses a fresh signed download only for completed reports", async () => {
     renderPage();
-    const list = screen.getByRole("list", { name: "모바일 보고서 생성 이력" });
+    const list = screen.getByRole("list", { name: "보고서 생성 이력" });
 
     expect(within(list).getByText("대기 중")).toBeInTheDocument();
     expect(within(list).getByText("생성 중 36%")).toBeInTheDocument();
@@ -1007,7 +1059,7 @@ describe("StatisticsReportsPage", () => {
     expect(within(list).getByText("만료됨")).toBeInTheDocument();
     expect(within(list).getByText("대상 completed")).toBeInTheDocument();
     expect(within(list).getAllByText("요청 시각")).toHaveLength(5);
-    expect(within(list).getAllByText("파일 만료 시각")).toHaveLength(2);
+    expect(within(list).getAllByText("파일 만료 시각")).toHaveLength(5);
     expect(within(list).getByRole("button", { name: "대상 failed 실패 상세 보기" })).toHaveAttribute("aria-expanded", "false");
     const requestedAt = within(list).getAllByTitle("2026-09-10T00:00:00.000Z")[0];
     expect(requestedAt).toHaveAttribute("datetime", "2026-09-10T00:00:00.000Z");
@@ -1020,13 +1072,13 @@ describe("StatisticsReportsPage", () => {
   it("keeps report metadata and actions in separate wrapping regions", () => {
     renderPage();
 
-    const list = screen.getByRole("list", { name: "모바일 보고서 생성 이력" });
-    const completed = within(list).getByRole("listitem", { name: "대상 completed 보고서" });
-    const metadata = within(completed).getByRole("group", { name: "보고서 메타데이터" });
+    const list = screen.getByRole("list", { name: "보고서 생성 이력" });
+    const completed = within(list).getByText("대상 completed", { exact: true }).closest("li")!;
+    const metadata = completed.querySelector("dl")!;
     expect(metadata).not.toHaveTextContent("형식");
     expect(metadata).toHaveTextContent("범위현장");
     expect(metadata).toHaveTextContent("요청 시각");
-    expect(within(completed).getByRole("group", { name: "보고서 작업" })).toContainElement(
+    expect(within(completed).getByRole("button", { name: "대상 completed 보고서 다운로드" }).closest("dd")).toContainElement(
       within(completed).getByRole("button", { name: "대상 completed 보고서 다운로드" })
     );
   });
@@ -1034,23 +1086,24 @@ describe("StatisticsReportsPage", () => {
   it("keeps the report list available when a signed download request fails", async () => {
     reportsApi.download.mockRejectedValueOnce(new Error("download failed"));
     renderPage();
-    fireEvent.click(within(screen.getByRole("list", { name: "모바일 보고서 생성 이력" })).getByRole("button", { name: "대상 completed 보고서 다운로드" }));
+    fireEvent.click(within(screen.getByRole("list", { name: "보고서 생성 이력" })).getByRole("button", { name: "대상 completed 보고서 다운로드" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent("보고서 다운로드를 완료하지 못했습니다.");
     expect(screen.getByRole("region", { name: "요청한 보고서" })).toBeInTheDocument();
   });
 
-  it("blocks duplicate PDF downloads on both history surfaces while preparing the file", async () => {
+  it.each([400, 1440])("blocks duplicate PDF downloads on the measured %ipx history surface while preparing the file", async (width) => {
+    measureAutomationContainer(width);
     const pending = deferred<{ downloadUrl: string }>();
     reportsApi.download.mockReturnValueOnce(pending.promise);
     renderPage();
     const buttons = screen.getAllByRole("button", { name: "대상 completed 보고서 다운로드" });
     fireEvent.click(buttons[0]);
     try {
-      expect(buttons).toHaveLength(2);
+      expect(buttons).toHaveLength(1);
       for (const button of buttons) expect(button).toBeDisabled();
       expect(buttons[0]).toHaveAttribute("aria-busy", "true");
-      fireEvent.click(buttons[1]);
+      fireEvent.click(buttons[0]);
       expect(reportsApi.download).toHaveBeenCalledOnce();
       expect(screen.getByRole("search", { name: "보고서 이력 필터" })).toBeInTheDocument();
     } finally {
@@ -1064,7 +1117,7 @@ describe("StatisticsReportsPage", () => {
     reportsApi.download.mockReturnValueOnce(pending.promise);
     const client = new QueryClient();
     const view = renderPage({ queryClient: client });
-    fireEvent.click(within(screen.getByRole("list", { name: "모바일 보고서 생성 이력" }))
+    fireEvent.click(within(screen.getByRole("list", { name: "보고서 생성 이력" }))
       .getByRole("button", { name: "대상 completed 보고서 다운로드" }));
 
     view.rerender(pageTree("30000000-0000-4000-8000-000000000099", client));
@@ -1149,7 +1202,7 @@ describe("StatisticsReportsPage", () => {
     const fetchFile = vi.fn().mockRejectedValue(new TypeError("Failed to fetch"));
     vi.stubGlobal("fetch", fetchFile);
     renderPage();
-    fireEvent.click(within(screen.getByRole("list", { name: "모바일 보고서 생성 이력" }))
+    fireEvent.click(within(screen.getByRole("list", { name: "보고서 생성 이력" }))
       .getByRole("button", { name: "대상 completed 보고서 다운로드" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent("네트워크 연결");
@@ -1243,7 +1296,7 @@ describe("StatisticsReportsPage", () => {
   it("keeps the report list available and reports a retry failure", async () => {
     reportsApi.create.mockRejectedValueOnce(new Error("retry failed"));
     renderPage();
-    fireEvent.click(within(screen.getByRole("list", { name: "모바일 보고서 생성 이력" })).getByRole("button", { name: "대상 failed 보고서 다시 생성" }));
+    fireEvent.click(within(screen.getByRole("list", { name: "보고서 생성 이력" })).getByRole("button", { name: "대상 failed 보고서 다시 생성" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent("보고서 다시 생성을 완료하지 못했습니다.");
     expect(screen.getByRole("region", { name: "요청한 보고서" })).toBeInTheDocument();
@@ -1261,7 +1314,7 @@ describe("StatisticsReportsPage", () => {
       fireEvent.click(screen.getByRole("button", { name: "보고서 만들기" }));
       fireEvent.click(screen.getByRole("button", { name: action === "create" ? "보고서 요청" : "CSV 내보내기" }));
     } else {
-      fireEvent.click(within(screen.getByRole("list", { name: "모바일 보고서 생성 이력" })).getByRole("button", {
+      fireEvent.click(within(screen.getByRole("list", { name: "보고서 생성 이력" })).getByRole("button", {
         name: action === "download" ? "대상 completed 보고서 다운로드" : "대상 failed 보고서 다시 생성"
       }));
     }
@@ -1313,11 +1366,14 @@ function HistoryControls() {
 }
 
 async function chooseSelect(label: string, option: string, container: HTMLElement = document.body) {
-  const trigger = within(container).getByRole("button", { name: label });
+  const historyFilter = container === document.body;
+  if (historyFilter && !screen.queryByRole("dialog", { name: "보고서 조건" })) fireEvent.click(screen.getByRole("button", { name: /보고서 조건 상세 필터/ }));
+  const trigger = within(container).getByRole("button", { name: label === "페이지당 항목 수" ? "페이지 크기" : label });
   fireEvent.keyDown(trigger, { key: "ArrowDown" });
   const choice = await screen.findByRole("option", { name: option });
   fireEvent.keyDown(choice, { key: "Enter" });
   fireEvent.keyUp(document.activeElement!, { key: "Enter" });
+  if (historyFilter) fireEvent.click(screen.getByRole("button", { name: "필터 닫기" }));
 }
 
 function expectDateSegments(label: string, expected: string[]) {

@@ -5,7 +5,8 @@ import { Activity, ArrowDownAZ, ArrowUpAZ, BarChart3, TriangleAlert } from "luci
 import { useEffect, useState } from "react";
 import { useOutletContext } from "react-router-dom";
 import { useEnergyObservedMeanHeatmap, useEnergyRankings, useEnergySummary } from "../../../api/energy";
-import { Button, Card, DatePicker, FeedbackState, FilterPanel, MetricCard, SelectBox, StatusBadge, StatusDetailButton, Text } from "../../../components/ui";
+import { Button, Card, DatePicker, FeedbackState, FilterPanel, MetricCard, SelectBox, StatusBadge, StatusDetailButton, Text, useDateDraft } from "../../../components/ui";
+import { draftToDate } from "../../../components/ui/date/useDateDraft";
 import type { StatisticsOutletContext } from "../StatisticsShell";
 import { completedDateBounds } from "../completed-date-bounds";
 import { EnergyRankingDetailPanel } from "./EnergyRankingDetailPanel";
@@ -29,10 +30,12 @@ export function StatisticsAnalysisPage() {
   const [dimension, setDimension] = useState<EnergyRankingDimension>("floor");
   const [metric, setMetric] = useState<EnergyRankingMetric>("usage");
   const [sort, setSort] = useState<EnergyRankingSort>("desc");
-  const [rangeOverride, setRangeOverride] = useState<{ siteId: string; from: string; to: string } | null>(null);
-  const activeOverride = rangeOverride?.siteId === siteId ? rangeOverride : null;
-  const from = activeOverride?.from ?? defaults?.from ?? "";
-  const to = activeOverride?.to ?? defaults?.to ?? "";
+  const dateScope = `${siteId}|${defaults?.from ?? ""}|${defaults?.to ?? ""}`;
+  const startDraft = useDateDraft(dateScope, defaults?.from ?? null);
+  const endDraft = useDateDraft(dateScope, defaults?.to ?? null);
+  // Query validity follows raw parent drafts even while the popover is unmounted.
+  const from = draftToDate(startDraft.draft) ?? "";
+  const to = draftToDate(endDraft.draft) ?? "";
   const validRange = Boolean(defaults && to <= defaults.to && energyRangeComparisonQuerySchema.safeParse({ from, to }).success);
   const dateBounds = completedDateBounds(from, to, defaults?.to ?? "");
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -61,7 +64,7 @@ export function StatisticsAnalysisPage() {
     setSelectedId(null);
   }, [dimension, metric, from, to]);
 
-  useEffect(() => { setRangeOverride(null); setSelectedId(null); }, [siteId]);
+  useEffect(() => { setSelectedId(null); }, [siteId]);
 
   if (summary.isError) {
     return <section className="grid min-w-0 gap-6"><FeedbackState tone="danger" icon={TriangleAlert}
@@ -73,7 +76,13 @@ export function StatisticsAnalysisPage() {
   return (
     <section className="grid min-w-0 gap-5" aria-label="사용량 분석 결과">
       <Card className="min-w-0 p-4">
-      <FilterPanel label="사용량 분석 조건">
+      <FilterPanel label="사용량 분석 조건" mode="popover" variant="compact"
+        activeFilterCount={Number(dimension !== "floor") + Number(metric !== "usage") + Number(sort !== "desc") + Number(from !== defaults.from || to !== defaults.to)}
+        summary={<Text variant="body-sm">{dimensions.find(item => item.value === dimension)?.label} · {metricItems.find(item => item.id === metric)?.label} · {from || "시작일 미완성"} ~ {to || "종료일 미완성"} · {sort === "desc" ? "높은 순" : "낮은 순"}</Text>}
+        filterReset={<Button size="sm" variant="secondary" onClick={() => {
+          setDimension("floor"); setMetric("usage"); setSort("desc");
+          startDraft.reset(defaults.from); endDraft.reset(defaults.to);
+        }}>필터 초기화</Button>}>
         <div className="grid min-w-0 w-full gap-2 compact:w-56" role="group" aria-label="분석 단위">
           <Text as="span" variant="label">분석 단위</Text>
           <div className="flex min-w-0 gap-2">
@@ -83,10 +92,10 @@ export function StatisticsAnalysisPage() {
         </div>
         <SelectBox className="min-w-0 w-full compact:w-40" label="순위 기준" items={metricItems} selectedKey={metric}
           onSelectionChange={(value) => value && setMetric(value)} />
-        <DatePicker className="min-w-0 w-full compact:w-48" label="시작일" value={from || null} {...dateBounds.start} isInvalid={!validRange}
-          onChange={(value) => setRangeOverride({ siteId, from: value ?? "", to })} />
-        <DatePicker className="min-w-0 w-full compact:w-48" label="종료일" value={to || null} {...dateBounds.end} isInvalid={!validRange}
-          onChange={(value) => setRangeOverride({ siteId, from, to: value ?? "" })} />
+        <DatePicker className="min-w-0 w-full" label="시작일" value={from || null} draftController={startDraft} {...dateBounds.start} isInvalid={!validRange}
+          onChange={() => {}} />
+        <DatePicker className="min-w-0 w-full" label="종료일" value={to || null} draftController={endDraft} {...dateBounds.end} isInvalid={!validRange}
+          onChange={() => {}} />
         <Button variant="secondary" className="w-full whitespace-nowrap compact:w-28" onClick={() => setSort((value) => value === "desc" ? "asc" : "desc")}>
           {sort === "desc" ? <ArrowDownAZ size={16} /> : <ArrowUpAZ size={16} />}{sort === "desc" ? "높은 순" : "낮은 순"}
         </Button>

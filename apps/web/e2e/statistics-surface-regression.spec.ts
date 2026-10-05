@@ -1,7 +1,11 @@
 import { chromium, expect, test, type Page, type TestInfo } from "@playwright/test";
-import { existsSync } from "node:fs";
 import type { EnergyReportRequest } from "@led-control/shared/energy-p2-contracts";
 import { installSettingsApiRoutes } from "./support/settings-api";
+import { installMockApiBoundary } from "./support/mock-api-boundary";
+import { StatisticsNativeZoomEvidence } from "./support/statistics-native-zoom-evidence";
+import { expectMinimumTouchTargets, expectMinimumTouchTargetsAfterScrolling } from "./support/layout-assertions";
+
+const nativeEvidence = new WeakMap<Page, StatisticsNativeZoomEvidence>();
 
 // These are the unchanged names/date from the physical Task9 overflow/crash.
 // All responses are in-memory browser fixtures, never backend/HIL evidence.
@@ -12,10 +16,68 @@ const names = ["긴 한국어 현장 조명 및 야간 운영 스케줄 이름 "
 type Request = { method: string; path: string; params: Record<string, string>; body: unknown };
 const path = (name: string) => `/statistics/${name}?siteId=${siteId}`;
 
+for (const naming of ["literal", "title"] as const) for (const name of ["사용량 분석 조건", "에너지 사용량 보고서 만들기"]) {
+  test(`native Surface setup recognizes ${naming} ${name}`, async ({ page }, info) => {
+    await page.setContent(`<div role="dialog" ${naming === "literal" ? `aria-label="${name}"` : 'aria-labelledby="draft-title"'}>
+      <h2 id="draft-title">${name}</h2><span role="spinbutton" tabindex="0">2027</span><span role="spinbutton" tabindex="0">10</span></div>`);
+    const observed: unknown[] = [];
+    nativeEvidence.set(page, { capture: async (_label, trigger, action, keys, expected) => {
+      await trigger.click(); await action();
+      for (const key of keys) await page.keyboard.press(key);
+      await expect(trigger).toBeFocused(); observed.push(await expected.observe());
+      return {} as Awaited<ReturnType<StatisticsNativeZoomEvidence["capture"]>>;
+    } } as StatisticsNativeZoomEvidence);
+    try {
+      await evidence(page, info, "controlled-draft-name", {}, { requests: [], before: 0 });
+      expect(observed).toEqual([{ dialogName: name, visible: true, rawValues: ["2027", "10"], invalidRequests: [] }]);
+      await expect(page.getByRole("dialog", { name, exact: true })).toBeVisible();
+    } finally { nativeEvidence.delete(page); }
+  });
+}
+for (const scenario of ["unexpected", "duplicate", "mixed"] as const) test(`native Surface setup rejects ${scenario} dialogs`, async ({ page }, info) => {
+  const dialogs = scenario === "unexpected" ? ["다른 dialog"] : scenario === "duplicate" ? ["사용량 분석 조건", "사용량 분석 조건"] : ["사용량 분석 조건", "다른 dialog"];
+  await page.setContent(dialogs.map(name => `<div role="dialog" aria-label="${name}"><span role="spinbutton" tabindex="0">2027</span></div>`).join(""));
+  let requests = 0;
+  nativeEvidence.set(page, { capture: async () => { requests++; return {} as Awaited<ReturnType<StatisticsNativeZoomEvidence["capture"]>>; } } as StatisticsNativeZoomEvidence);
+  try {
+    await expect(evidence(page, info, "controlled-rejected-name", {}, { requests: [], before: 0 })).rejects.toThrow();
+    expect(requests).toBe(0); await expect(page.getByRole("dialog")).toHaveCount(dialogs.length);
+  } finally { nativeEvidence.delete(page); }
+});
+
+test("native Surface setup centers original trigger after broader sticky-header controls", async ({ page }, info) => {
+  await page.setViewportSize({ width: 720, height: 406 });
+  await page.setContent(`<style>body{margin:0}header{position:fixed;inset:0 0 auto;height:120px;background:white;z-index:10}section{position:relative;height:1800px}button{position:absolute;left:31px;width:64px;height:44px}#original{top:400px}#last{top:500px}</style>
+    <header>sticky header</header><section aria-label="사용량 분석 조건">
+    <button id="original" aria-label="사용량 분석 조건 상세 필터" aria-expanded="false">조건</button><button id="last">초기화</button></section>
+    <div role="dialog" aria-label="사용량 분석 조건" hidden>조건 내용</div>`);
+  await page.evaluate(() => {
+    const trigger = document.querySelector<HTMLButtonElement>("#original")!, dialog = document.querySelector<HTMLElement>('[role="dialog"]')!;
+    trigger.addEventListener("click", () => { dialog.hidden = false; trigger.setAttribute("aria-expanded", "true"); });
+    document.addEventListener("keydown", event => { if (event.key === "Escape") { dialog.hidden = true; trigger.setAttribute("aria-expanded", "false"); trigger.focus(); } });
+  });
+  let bounds: { x: number; y: number; width: number; height: number } | null = null;
+  nativeEvidence.set(page, { capture: async (_label, trigger, action, keys, expected) => {
+    await trigger.scrollIntoViewIfNeeded();
+    // This original target, not the previously centered last sibling, must have
+    // the unchanged complete unoccluded44 area BEFORE its real pointer dispatch.
+    await expectMinimumTouchTargets(page, "#original"); bounds = await trigger.boundingBox();
+    await page.mouse.click(bounds!.x + bounds!.width / 2, bounds!.y + bounds!.height / 2);
+    await action(); for (const key of keys) await page.keyboard.press(key);
+    await expect(trigger).toBeFocused(); expect(await expected.observe()).toEqual({ dialogName: "사용량 분석 조건", visible: false, expanded: "false" });
+    return {} as Awaited<ReturnType<StatisticsNativeZoomEvidence["capture"]>>;
+  } } as StatisticsNativeZoomEvidence);
+  try {
+    await evidence(page, info, "controlled-original-trigger", {});
+    expect(bounds).not.toBeNull(); expect(bounds!.y).toBeGreaterThanOrEqual(120);
+    await expect(page.getByRole("dialog")).toHaveCount(0); await expect(page.locator("#original")).toBeFocused();
+  } finally { nativeEvidence.delete(page); }
+});
+
 async function install(page: Page, baseURL: string) {
   const requests: Request[] = [], errors: string[] = [];
   page.on("pageerror", error => errors.push(error.message));
-  await page.route("**/*", route => new URL(route.request().url()).origin === new URL(baseURL).origin ? route.fallback() : route.abort("blockedbyclient"));
+  await installMockApiBoundary(page.context(), baseURL);
   await installSettingsApiRoutes(page, "viewer", { ids: { siteId } });
   await page.route("**/api/energy/**", async route => {
     const req = route.request(), url = new URL(req.url()), params = url.searchParams;
@@ -46,9 +108,75 @@ async function install(page: Page, baseURL: string) {
   return { requests, errors };
 }
 
-async function evidence(page: Page, info: TestInfo, label: string, value: unknown) {
+async function evidence(page: Page, info: TestInfo, label: string, value: unknown, invalidRequestBoundary?: { requests: Request[]; before: number }) {
   await info.attach(label, { body: JSON.stringify(value, null, 2), contentType: "application/json" });
-  await info.attach(`${label}-screen`, { body: await page.screenshot({ path: info.outputPath(`${label}.png`), fullPage: true }), contentType: "image/png" });
+  const native = nativeEvidence.get(page);
+  if (!native) {
+    await info.attach(`${label}-screen`, { body: await page.screenshot({ path: info.outputPath(`${label}.png`), fullPage: true }), contentType: "image/png" });
+    return;
+  }
+  const dialog = page.getByRole("dialog");
+  if (await dialog.count()) {
+    // Navigation-only keyboard input preserves the actual invalid draft and
+    // keeps its Popover/create dialog open for the original following checks.
+    // Modal titles use RAC's public Heading/aria-labelledby route, whereas the
+    // filter Popover uses aria-label. Recognize the exact accessible role/name
+    // contract without treating either naming mechanism as the only valid one.
+    const draftNames = ["사용량 분석 조건", "에너지 사용량 보고서 만들기"] as const;
+    const matches = await Promise.all(draftNames.map(name => page.getByRole("dialog", { name, exact: true }).count()));
+    if (await dialog.count() !== 1 || matches.reduce((total, count) => total + count, 0) !== 1) throw new Error("Unexpected or ambiguous native draft dialog");
+    const dialogName = draftNames[matches.findIndex(count => count === 1)]!;
+    if (!invalidRequestBoundary) throw new Error("Missing native invalid-request boundary");
+    const namedDialog = page.getByRole("dialog", { name: dialogName, exact: true });
+    await info.attach(`${label}-native-dialog-identity`, { body: JSON.stringify({ utc: new Date().toISOString(), dialogName,
+      literalAriaLabel: await namedDialog.getAttribute("aria-label"), labelledBy: await namedDialog.getAttribute("aria-labelledby"), headings: await namedDialog.getByRole("heading").allTextContents() }, null, 2), contentType: "application/json" });
+    const segments = namedDialog.getByRole("spinbutton"), rawValues = await segments.allTextContents();
+    const invalidRequests = () => invalidRequestBoundary.requests.slice(invalidRequestBoundary.before)
+      .filter(request => request.method === "POST" || /\/rankings$|\/heatmap\/observed-mean$|\/exports\/csv$/.test(request.path));
+    expect(invalidRequests()).toEqual([]);
+    await native.capture(label, segments.first(), async () => {}, ["Tab", "Shift+Tab"], {
+      description: `${dialogName} remains open with unchanged invalid date segments, zero invalid requests and original segment focus`,
+      observe: async () => {
+        await expect(namedDialog).toBeVisible();
+        await expect(segments).toHaveText(rawValues);
+        expect(invalidRequests()).toEqual([]);
+        return { dialogName, visible: await namedDialog.isVisible(), rawValues: await segments.allTextContents(), invalidRequests: invalidRequests() };
+      }
+    });
+  } else {
+    const trigger = page.getByRole("button", { name: /(?:사용량 분석 조건|보고서 조건) 상세 필터/ });
+    // Viewport intersection alone can leave the trigger behind compact Shell's
+    // fixed bottom navigation. Consume the same public centered-scroll/actual
+    // unoccluded44 contract as Flow before dispatching the original pointer.
+    const scope = await trigger.getAttribute("aria-label");
+    await expectMinimumTouchTargetsAfterScrolling(page, scope?.startsWith("보고서 조건")
+      ? '[role="search"][aria-label="보고서 이력 필터"]'
+      : 'section[aria-label="사용량 분석 조건"]');
+    // The section-wide loop finishes on its last control. Center and measure
+    // THIS original trigger immediately, so a sticky header cannot occlude its
+    // complete44 area even while the center pointer alone would still hit it.
+    await trigger.evaluate(element => { element.scrollIntoView({ block: "center", inline: "center" }); element.setAttribute("data-e2e-native-original-trigger", "true"); });
+    try {
+      await expectMinimumTouchTargets(page, '[data-e2e-native-original-trigger="true"]');
+      await info.attach(`${label}-native-original-trigger-hit`, { body: JSON.stringify({ utc: new Date().toISOString(),
+        scope, completeUnoccluded44: true, measurement: await trigger.evaluate(element => {
+          const rect = element.getBoundingClientRect();
+          const points = [[rect.left + 1, rect.top + 1], [rect.right - 1, rect.top + 1], [rect.left + 1, rect.bottom - 1], [rect.right - 1, rect.bottom - 1], [rect.left + rect.width / 2, rect.top + rect.height / 2]];
+          return { bounds: { x: rect.x, y: rect.y, width: rect.width, height: rect.height }, scrollX, scrollY,
+            hits: points.map(([x, y]) => { const hit = document.elementFromPoint(x!, y!); return { x, y, reachesOriginal: hit === element || Boolean(hit && element.contains(hit)) }; }) };
+        }) }, null, 2), contentType: "application/json" });
+    } finally { await trigger.evaluate(element => element.removeAttribute("data-e2e-native-original-trigger")); }
+    const dialogName = scope?.startsWith("보고서 조건") ? "보고서 조건" : "사용량 분석 조건";
+    const namedDialog = page.getByRole("dialog", { name: dialogName, exact: true });
+    await native.capture(label, trigger, async () => { await expect(namedDialog).toBeVisible(); }, ["Escape"], {
+      description: `${dialogName} dialog closed, trigger collapsed and focused`,
+      observe: async () => {
+        await expect(namedDialog).not.toBeVisible();
+        await expect(trigger).toHaveAttribute("aria-expanded", "false");
+        return { dialogName, visible: await namedDialog.isVisible(), expanded: await trigger.getAttribute("aria-expanded") };
+      }
+    });
+  }
 }
 async function geometry(page: Page) {
   return page.evaluate(() => ({ client: document.documentElement.clientWidth, scroll: document.documentElement.scrollWidth, width: innerWidth, dpr: devicePixelRatio, scale: visualViewport?.scale }));
@@ -90,19 +218,23 @@ async function enterDate(page: Page, label: string, values: string[]) {
 const mutations = ["future", "clear-start", "clear-end", "reversed"] as const;
 async function analysisDraft(page: Page, info: TestInfo, state: Awaited<ReturnType<typeof install>>, mutation: typeof mutations[number]) {
   await expect(page.getByRole("region", { name: "사용량 순위" })).toBeVisible();
+  await page.getByRole("button", { name: /사용량 분석 조건 상세 필터/ }).click();
   const before = state.requests.length;
   if (mutation === "future") await keyYear(page, "시작일", "ArrowUp");
   else if (mutation === "reversed") await keyYear(page, "종료일", "ArrowDown");
   else await clear(page, mutation === "clear-start" ? "시작일" : "종료일");
-  await evidence(page, info, `${mutation}-draft`, { errors: state.errors, requests: state.requests.slice(before) });
+  await evidence(page, info, `${mutation}-draft`, { errors: state.errors, requests: state.requests.slice(before) }, { requests: state.requests, before });
   expect(state.errors).toEqual([]);
+  await page.getByRole("button", { name: "필터 닫기" }).click();
   await expect(page.getByText("완료된 기간을 선택해 주세요.")).toBeVisible();
+  await page.getByRole("button", { name: /사용량 분석 조건 상세 필터/ }).click();
   if (mutation === "future") await expect(page.getByRole("group", { name: "시작일", exact: true }).getByRole("spinbutton").first()).toHaveText("2027");
   if (mutation === "reversed") await expect(page.getByRole("group", { name: "종료일", exact: true }).getByRole("spinbutton").first()).toHaveText("2025");
   expect(state.requests.slice(before).filter(r => /\/rankings$|\/heatmap\/observed-mean$/.test(r.path))).toEqual([]);
   if (mutation === "future") await keyYear(page, "시작일", "ArrowDown");
   else if (mutation === "reversed") await keyYear(page, "종료일", "ArrowUp");
   else await enterDate(page, mutation === "clear-start" ? "시작일" : "종료일", ["2026", "10", "1"]);
+  await page.getByRole("button", { name: "필터 닫기" }).click();
   await expect(page.getByRole("region", { name: "사용량 순위" })).toBeVisible();
   await expect(page.getByRole("region", { name: "시간대별 사용량" })).toBeVisible();
   for (const kind of ["/rankings", "/heatmap/observed-mean"]) expect(state.requests.filter(r => r.path.endsWith(kind)).at(-1)?.params).toMatchObject({ from: "2026-10-01", to: "2026-10-01" });
@@ -115,7 +247,7 @@ async function reportDraft(page: Page, info: TestInfo, state: Awaited<ReturnType
   if (mutation === "future") await keyYear(page, "기간 시작", "ArrowUp");
   else if (mutation === "reversed") await keyYear(page, "기간 종료", "ArrowDown");
   else await clear(page, mutation === "clear-start" ? "기간 시작" : "기간 종료");
-  await evidence(page, info, `report-${mutation}-draft`, { errors: state.errors, requests: state.requests.slice(before) });
+  await evidence(page, info, `report-${mutation}-draft`, { errors: state.errors, requests: state.requests.slice(before) }, { requests: state.requests, before });
   expect(state.errors).toEqual([]);
   const dialog = page.getByRole("dialog", { name: "에너지 사용량 보고서 만들기" });
   if (mutation === "future") await expect(dialog.getByRole("group", { name: "기간 시작", exact: true }).getByRole("spinbutton").first()).toHaveText("2027");
@@ -151,29 +283,33 @@ for (const mutation of mutations) {
 test("analysis inclusive 400 days remains valid but 401 emits no query", async ({ page, baseURL }, info) => {
   const state = await install(page, baseURL!); await page.goto(path("analysis"));
   await expect(page.getByRole("region", { name: "사용량 순위" })).toBeVisible();
+  await page.getByRole("button", { name: /사용량 분석 조건 상세 필터/ }).click();
   await enterDate(page, "시작일", ["2025", "8", "28"]);
+  await page.getByRole("button", { name: "필터 닫기" }).click();
   await expect(page.getByRole("region", { name: "사용량 순위" })).toBeVisible();
   expect(state.requests.filter(r => r.path.endsWith("/rankings")).at(-1)?.params).toMatchObject({ from: "2025-08-28", to: "2026-10-01" });
   const before = state.requests.length;
+  await page.getByRole("button", { name: /사용량 분석 조건 상세 필터/ }).click();
   const day = page.getByRole("group", { name: "시작일", exact: true }).getByRole("spinbutton").nth(2); await day.focus(); await page.keyboard.press("ArrowDown");
+  await page.getByRole("button", { name: "필터 닫기" }).click();
   await expect(page.getByText("완료된 기간을 선택해 주세요.")).toBeVisible();
   expect(state.requests.slice(before).filter(r => /\/rankings$|\/heatmap\/observed-mean$/.test(r.path))).toEqual([]);
   await evidence(page, info, "400-401-query-boundary", { requests: state.requests, errors: state.errors });
   expect(state.errors).toEqual([]);
 });
 test("genuine native browser200 keeps long names and both future drafts safe", async ({ baseURL }, info) => {
+  test.setTimeout(90000);
   const context = await chromium.launchPersistentContext("", { channel: "chromium", viewport: null, deviceScaleFactor: undefined, baseURL, args: ["--window-size=1440,900", "--enable-automation"] });
-  let profile: string | undefined;
+  let native: StatisticsNativeZoomEvidence | undefined;
   try {
-    const page = await context.newPage(), cdp = await context.newCDPSession(page);
-    const argv = await cdp.send("Browser.getBrowserCommandLine"); profile = argv.arguments.find(arg => arg.startsWith("--user-data-dir="))?.slice("--user-data-dir=".length);
-    expect(profile && existsSync(profile)).toBeTruthy(); await cdp.detach();
-    const state = await install(page, baseURL!); await page.goto(path("analysis")); const before = await geometry(page);
-    const settings = await context.newPage(); await settings.goto("chrome://settings/appearance"); await settings.locator("select#zoomLevel").selectOption("2"); await expect(settings.locator("select#zoomLevel")).toHaveValue("2");
-    await page.bringToFront(); await page.reload(); const after = await geometry(page);
-    expect(after.dpr / before.dpr).toBe(2); expect(Math.abs(after.width * 2 - before.width)).toBeLessThanOrEqual(1); expect(after.scale).toBe(1);
-    await evidence(page, info, "genuine-native-200", { before, after, argv, profile, settingsValue: 2 });
+    const page = context.pages()[0]!;
+    const state = await install(page, baseURL!); await page.goto(path("analysis"));
+    native = await StatisticsNativeZoomEvidence.create(context, page, info);
+    const { before, after } = await native.global200(context); nativeEvidence.set(page, native);
+    await evidence(page, info, "genuine-native-200", { before, after, settingsValue: 2 });
     await longNameSurface(page, info); await analysisDraft(page, info, state, "future");
     await page.goto(path("reports")); await reportDraft(page, info, state, "future");
-  } finally { await context.close(); await info.attach("native-profile-cleanup", { body: JSON.stringify({ profile, exists: profile ? existsSync(profile) : null }), contentType: "application/json" }); expect(profile && !existsSync(profile)).toBeTruthy(); }
+  } finally {
+    try { await native?.stop(); } finally { await context.close(); await native?.recordContextCleanup(); }
+  }
 });

@@ -1,9 +1,8 @@
 import type { EnergyReportJob } from "@led-control/shared/energy-p2-contracts";
 import { CircleAlert, FileWarning, LoaderCircle } from "lucide-react";
 import { useState, type Ref } from "react";
-import { Button, FeedbackState, StatusDetailButton, Text } from "../../../components/ui";
-import { ReportJobCards } from "./ReportJobCards";
-import { ReportJobTable } from "./ReportJobTable";
+import { Button, DataGrid, FeedbackState, StatusDetailButton, Text, type DataGridColumn } from "../../../components/ui";
+import { ReportJobStatus } from "./ReportJobStatus";
 import { reportJobViewModel, type ReportJobRenderItem } from "./report-job-view-model";
 
 export function ReportJobList({
@@ -74,6 +73,19 @@ export function ReportJobList({
       </div> : null}
     </div>;
   };
+  const columns: DataGridColumn<ReportJobRenderItem>[] = [
+    { id: "target", header: "대상", minWidth: 180, renderCell: item => <Text weight="bold" className="wrap-anywhere">{item.view.targetLabel}</Text> },
+    { id: "scope", header: "범위", minWidth: 70, align: "center", renderCell: item => item.view.scopeLabel },
+    { id: "range", header: "기간", minWidth: 130, renderCell: item => <span className="flex min-w-0 flex-wrap gap-x-1">
+      {/* Calendar dates retain their API values without timezone conversion. */}
+      <time dateTime={item.job.request.from} className="tabular-nums">{item.job.request.from}</time><span>~</span>
+      <time dateTime={item.job.request.to} className="tabular-nums">{item.job.request.to}</time>
+    </span> },
+    { id: "status", header: "상태", minWidth: 150, align: "center", renderCell: (item, surface) => <div className="grid min-w-0 justify-items-center gap-2"><ReportJobStatus item={item} />{renderFailure(item, surface)}</div> },
+    { id: "requested", header: "요청 시각", minWidth: 140, renderCell: item => <ReportTime instant={item.view.requestedAt} /> },
+    { id: "expires", header: "파일 만료 시각", minWidth: 140, renderCell: item => item.view.expiresAt ? <ReportTime instant={item.view.expiresAt} /> : "—" },
+    { id: "actions", header: "작업", minWidth: 140, align: "center", renderCell: renderAction }
+  ];
 
   return <section ref={focusTargetRef} tabIndex={-1} className="grid min-w-0 gap-3" aria-label="요청한 보고서" aria-busy={isBusy || undefined}>
     {isLoading ? <FeedbackState icon={LoaderCircle} title="보고서 목록을 불러오는 중" /> : null}
@@ -85,9 +97,10 @@ export function ReportJobList({
       <Text variant="caption" tone="secondary">시각: {timeZone ? "현장" : "기기"} 시간대 {timeZone ?? Intl.DateTimeFormat().resolvedOptions().timeZone}</Text>
       {refreshNotice}
     </div> : null}
-    {items.length ? <>
-      <ReportJobTable items={items} isBusy={isBusy} renderAction={renderAction} renderFailure={renderFailure} />
-      <ReportJobCards items={items} isBusy={isBusy} renderAction={renderAction} renderFailure={renderFailure} />
-    </> : null}
+    {items.length ? <DataGrid caption="보고서 생성 이력" rows={items} columns={columns} getRowKey={item => item.view.id} isBusy={isBusy} variant="compact" /> : null}
   </section>;
+}
+
+function ReportTime({ instant }: { instant: ReportJobRenderItem["view"]["requestedAt"] }) {
+  return <time dateTime={instant.iso} title={instant.iso} className="tabular-nums wrap-anywhere">{instant.label}</time>;
 }

@@ -232,7 +232,11 @@ export async function expectMinimumTouchTargets(
         const clipsX = ["auto", "hidden", "clip", "scroll"].includes(style.overflowX);
         const clipsY = ["auto", "hidden", "clip", "scroll"].includes(style.overflowY);
         if (!clipsX && !clipsY) continue;
-        const bounds = ancestor.getBoundingClientRect();
+        // The root clips to the viewport, not its scrolled document box. RAC
+        // scroll lock can leave that box at a negative top after a Popover opens.
+        const bounds = ancestor === document.documentElement
+          ? { top: 0, left: 0 }
+          : ancestor.getBoundingClientRect();
         const clipRect = {
           top: clipsY ? bounds.top + ancestor.clientTop : visibleRect.top,
           right: clipsX ? bounds.left + ancestor.clientLeft + ancestor.clientWidth : visibleRect.right,
