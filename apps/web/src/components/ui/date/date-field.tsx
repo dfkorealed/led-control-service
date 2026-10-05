@@ -36,7 +36,7 @@ const dateParts = ["year", "month", "day"] as const;
 /** Internal range ownership: a publication fence does not authorize hydration. */
 export interface RangeDraftEdit {
   accepted: DateSegmentDraft;
-  pending: { part: typeof dateParts[number]; baseline: number | null; event: Event; element: HTMLElement; lifetime: object; finished: boolean } | null;
+  pending: { part: typeof dateParts[number]; baseline: number | null; event: Event; element: HTMLElement; lifetime: object; publish(draft: DateSegmentDraft): void; finished: boolean } | null;
   restoreRequested: boolean;
 }
 function equalDraft(a: DateSegmentDraft, b: DateSegmentDraft) {
@@ -90,7 +90,9 @@ function DraftBridge({ binding, blurRevision }: { binding: DateDraftBinding; blu
         range.pending = null;
         if (raw[pending.part] !== pending.baseline) {
           const next = { ...range.accepted, [pending.part]: raw[pending.part] };
-          binding.onDraftChange(next);
+          // Keep the event with its originating owner's guarded publication.
+          // Equal raw props do not identify a same-mounted scope's lifetime.
+          pending.publish(next);
           return;
         }
       }
@@ -167,7 +169,7 @@ export const SegmentedInput = /* @__PURE__ */ forwardRef<HTMLDivElement, Omit<Da
     const part = target instanceof HTMLElement ? dateParts.find(part => part === target.dataset.type) : undefined;
     if (part) {
       const range = binding.rangeEdit.current;
-      range.pending = { part, baseline: range.accepted[part], event, element: target, lifetime: lifetime.current, finished: false };
+      range.pending = { part, baseline: range.accepted[part], event, element: target, lifetime: lifetime.current, publish: binding.onDraftChange, finished: false };
     }
   };
   const finishEdit = (event: Event) => {

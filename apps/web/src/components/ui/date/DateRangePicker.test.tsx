@@ -1,8 +1,88 @@
-import { createRef, StrictMode, useRef, useState } from "react";
+import { createRef, StrictMode, useLayoutEffect, useRef, useState } from "react";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import * as UI from "../index";
 afterEach(cleanup);
+
+it.each(["A→B", "A→B→A"])("rejects an origin input across equal-empty same-mounted scope %s and accepts later current-owner edits", transition => {
+  const change = vi.fn(); const committedScopes: string[] = [];
+  function Editing() {
+    const [scope, setScope] = useState("A"); const armed = useRef(false);
+    const controller = UI.useDateRangeDraft(scope, null);
+    useLayoutEffect(() => { committedScopes.push(scope); if (scope === "B" && transition === "A→B→A") setScope("A"); }, [scope]);
+    return <div onFocusCapture={() => { if (armed.current) { armed.current = false; setScope("B"); } }}>
+      <button onClick={() => { armed.current = true; }}>전환 준비</button>
+      <output aria-label="현장">{scope}</output><output aria-label="원문">{JSON.stringify(controller.draft)}</output>
+      <UI.DateRangePicker label="기간" value={null} draftController={controller} onChange={change} /></div>;
+  }
+  render(<Editing />);
+  const startDay = screen.getAllByRole("spinbutton")[2]; act(() => startDay.focus());
+  fireEvent.click(screen.getByRole("button", { name: "전환 준비" }));
+  fireEvent(startDay, new InputEvent("beforeinput", { bubbles: true, cancelable: true, inputType: "insertText", data: "8" }));
+  expect(screen.getByRole("status", { name: "현장" })).toHaveTextContent(transition === "A→B" ? "B" : "A");
+  expect(committedScopes).toEqual(transition === "A→B" ? ["A", "B"] : ["A", "B", "A"]);
+  expect(screen.getByRole("status", { name: "원문" })).toHaveTextContent('{"start":{"year":null,"month":null,"day":null},"end":{"year":null,"month":null,"day":null}}');
+  expect(startDay).toHaveAttribute("data-placeholder", "true");
+  const endDay = screen.getAllByRole("spinbutton")[5]; act(() => endDay.focus());
+  fireEvent(endDay, new InputEvent("beforeinput", { bubbles: true, cancelable: true, inputType: "insertText", data: "9" }));
+  expect(screen.getByRole("status", { name: "원문" })).toHaveTextContent('{"start":{"year":null,"month":null,"day":null},"end":{"year":null,"month":null,"day":9}}');
+  act(() => startDay.focus());
+  fireEvent(startDay, new InputEvent("beforeinput", { bubbles: true, cancelable: true, inputType: "insertText", data: "8" }));
+  expect(screen.getByRole("status", { name: "원문" })).toHaveTextContent('{"start":{"year":null,"month":null,"day":8},"end":{"year":null,"month":null,"day":9}}');
+  expect(change).not.toHaveBeenCalled();
+});
+
+it("does not emit a stale canonical clear when the originating partial owner rejects publication", () => {
+  const change = vi.fn();
+  const initial: UI.DateRangeDraft = { start: { year: null, month: null, day: 8 }, end: { year: null, month: null, day: null } };
+  function Editing() {
+    const [owner, setOwner] = useState({ scope: "A", epoch: {}, draft: initial });
+    const epoch = owner.epoch;
+    return <><button onClick={() => setOwner({ scope: "B", epoch: {}, draft: initial })}>현장 B</button>
+      <output aria-label="현장">{owner.scope}</output><output aria-label="원문">{JSON.stringify(owner.draft)}</output>
+      <UI.DateRangePicker label="기간" value={null} onChange={change} draftController={{
+        draft: owner.draft,
+        onDraftChange: draft => setOwner(current => current.epoch === epoch ? { ...current, draft } : current),
+        reset: () => setOwner(current => ({ ...current, epoch: {}, draft: initial }))
+      }} /></>;
+  }
+  const view = render(<Editing />);
+  const transition = () => fireEvent.click(screen.getByRole("button", { name: "현장 B" }));
+  view.container.addEventListener("beforeinput", transition, { once: true });
+  const startDay = screen.getAllByRole("spinbutton")[2]; act(() => startDay.focus());
+  fireEvent(startDay, new InputEvent("beforeinput", { bubbles: true, cancelable: true, inputType: "deleteContentBackward" }));
+  expect(screen.getByRole("status", { name: "현장" })).toHaveTextContent("B");
+  expect(screen.getByRole("status", { name: "원문" })).toHaveTextContent('{"start":{"year":null,"month":null,"day":8},"end":{"year":null,"month":null,"day":null}}');
+  expect(change).not.toHaveBeenCalled();
+  expect(startDay).toHaveAttribute("aria-valuenow", "8");
+  const endDay = screen.getAllByRole("spinbutton")[5]; act(() => endDay.focus());
+  fireEvent(endDay, new InputEvent("beforeinput", { bubbles: true, cancelable: true, inputType: "insertText", data: "9" }));
+  expect(screen.getByRole("status", { name: "원문" })).toHaveTextContent('{"start":{"year":null,"month":null,"day":8},"end":{"year":null,"month":null,"day":9}}');
+  expect(change).not.toHaveBeenCalled();
+});
+
+it("accepts an origin edit through an ordinary nested callback refresh and retains the latest sibling", () => {
+  const change = vi.fn();
+  function Editing() {
+    const controller = UI.useDateRangeDraft("same-owner", null); const armed = useRef(false);
+    const [revision, setRevision] = useState(0);
+    return <div onFocusCapture={() => { if (armed.current) { armed.current = false; setRevision(value => value + 1); } }}>
+      <button onClick={() => { armed.current = true; }}>새로 표시</button><output aria-label="표시">{revision}</output>
+      <output aria-label="원문">{JSON.stringify(controller.draft)}</output>
+      <UI.DateRangePicker label="기간" value={null} onChange={change}
+        draftController={{ ...controller, onDraftChange: draft => controller.onDraftChange(draft) }} /></div>;
+  }
+  render(<Editing />);
+  const startDay = screen.getAllByRole("spinbutton")[2]; act(() => startDay.focus());
+  fireEvent.click(screen.getByRole("button", { name: "새로 표시" }));
+  fireEvent(startDay, new InputEvent("beforeinput", { bubbles: true, cancelable: true, inputType: "insertText", data: "8" }));
+  expect(screen.getByRole("status", { name: "표시" })).toHaveTextContent("1");
+  expect(screen.getByRole("status", { name: "원문" })).toHaveTextContent('{"start":{"year":null,"month":null,"day":8},"end":{"year":null,"month":null,"day":null}}');
+  const endDay = screen.getAllByRole("spinbutton")[5]; act(() => endDay.focus());
+  fireEvent(endDay, new InputEvent("beforeinput", { bubbles: true, cancelable: true, inputType: "insertText", data: "9" }));
+  expect(screen.getByRole("status", { name: "원문" })).toHaveTextContent('{"start":{"year":null,"month":null,"day":8},"end":{"year":null,"month":null,"day":9}}');
+  expect(change).not.toHaveBeenCalled();
+});
 
 it("retires consumed no-op input before blur drift and still accepts a later real edit", () => {
   const change = vi.fn(); const publication = vi.fn();
