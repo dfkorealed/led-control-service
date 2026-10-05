@@ -49,6 +49,21 @@ type Installation = { siteId: string; floorId: string; timeZone: string };
 type ScanCandidate = { serialNumber: string; deviceUuid: string };
 type Actor = "operator" | "admin" | "viewer";
 type LabPorts = typeof defaultPorts;
+export type AlarmFixtureScope = {
+  primarySiteId: string; secondarySiteId: string; adminId: string; viewerId: string;
+  primaryFloorId: string; secondaryFloorId: string;
+};
+export type AlarmIncidentEvidence = { id: string; siteId: string; fixtureId: string; type: string; status: string;
+  activeKey: string | null; openedAt: string; lastObservedAt: string; resolvedAt: string | null;
+  resolutionKind: string | null; createdAt: string; updatedAt: string };
+export type AlarmDatabaseEvidence = {
+  incidents: AlarmIncidentEvidence[];
+  reads: Array<{ incidentId: string; userId: string; readAt: string }>;
+  dismissals: Array<{ incidentId: string; userId: string; dismissedAt: string }>;
+  reservations: Array<{ siteId: string; userId: string; clientRequestId: string; snapshotAt: string;
+    targetIncidentIds: string[]; dismissedCount: number | null; completedAt: string | null }>;
+};
+export type DeferredAlarmIncident = { id: string; commit: () => Promise<void>; rollback: () => Promise<void> };
 type AutomationFixture = { fixtureId: string; meshNodeId: string; name: string };
 type NetworkEvidence = {
   id: number;
@@ -349,6 +364,9 @@ export class RealBackendLab {
   private readonly backgroundTasks = new Set<Promise<void>>();
   private backgroundError: unknown;
   private started = false;
+  private alarmScope?: AlarmFixtureScope;
+  private readonly alarmFailureFunction = `alarm_effect_${randomBytes(12).toString("hex")}`;
+  private alarmEffectFailureEnabled = false;
   private stopping?: Promise<void>;
   private cleanupTimeoutMs: number;
   readonly isolatedCadStorage: boolean;
@@ -487,6 +505,136 @@ export class RealBackendLab {
       INSERT INTO "SiteMembership" (id,"userId","siteId","createdAt")
       VALUES (${sqlString(randomUUID())},${sqlString(userId)},${sqlString(installation.siteId)},now());
     `);
+  }
+
+  private async assertAlarmLab() {
+    if (!this.started || this.stopping) throw new Error("Alarm fixtures require a started lab");
+    this.requireInstallation();
+    // Every fixture boundary rechecks the actual owned cluster; callers never
+    // receive a connection string, raw SQL function or an external DB fallback.
+    const dataDirectory = await this.scalar("SHOW data_directory");
+    if (resolve(dataDirectory) !== resolve(this.labDir, "postgres")) throw new Error("Alarm fixture cluster identity mismatch");
+    if (await this.scalar("SELECT current_database()") !== "led_control") throw new Error("Alarm fixture database identity mismatch");
+  }
+
+  async seedAlarmFixtures(): Promise<AlarmFixtureScope> {
+    await this.assertAlarmLab();
+    if (this.alarmScope) throw new Error("Alarm fixtures already seeded");
+    const installation = this.requireInstallation();
+    const admin = await this.queryJson<{ id: string; organizationId: string }>(`SELECT json_build_object('id',u.id,'organizationId',u."organizationId")
+      FROM "User" u JOIN "Site" s ON s."adminUserId"=u.id WHERE s.id=${sqlString(installation.siteId)} AND u."loginId"=${sqlString(this.admin.loginId)}`);
+    await this.seedViewerAccount();
+    const viewerId = await this.scalar(`SELECT id FROM "User" WHERE "loginId"=${sqlString(this.viewer.loginId)}`);
+    const secondarySiteId = randomUUID(), secondaryFloorId = randomUUID();
+    await this.sql(`BEGIN;
+      INSERT INTO "Site" (id,"organizationId",name,"updatedAt") VALUES (${sqlString(secondarySiteId)},${sqlString(admin.organizationId)},'Task9 other site',now());
+      INSERT INTO "Floor" (id,"siteId",name,level,"updatedAt") VALUES (${sqlString(secondaryFloorId)},${sqlString(secondarySiteId)},'Other floor',1,now());
+      INSERT INTO "SiteMembership" (id,"siteId","userId","createdAt") VALUES (${sqlString(randomUUID())},${sqlString(secondarySiteId)},${sqlString(viewerId)},now()); COMMIT;`);
+    this.alarmScope = { primarySiteId: installation.siteId, primaryFloorId: installation.floorId,
+      secondarySiteId, secondaryFloorId, adminId: admin.id, viewerId };
+    return { ...this.alarmScope };
+  }
+
+  private requireAlarmScope() {
+    if (!this.alarmScope) throw new Error("Alarm fixtures must be seeded first");
+    return this.alarmScope;
+  }
+
+  private alarmInsert(input: { site?: "primary" | "secondary"; status?: "open" | "resolved"; backdated?: boolean }, id: string) {
+    const scope = this.requireAlarmScope();
+    const siteId = input.site === "secondary" ? scope.secondarySiteId : scope.primarySiteId;
+    const floorId = input.site === "secondary" ? scope.secondaryFloorId : scope.primaryFloorId;
+    const fixtureId = randomUUID(), status = input.status ?? "resolved";
+    const stamp = input.backdated ? "TIMESTAMP '2000-01-01 00:00:00'" : "(CURRENT_TIMESTAMP AT TIME ZONE 'UTC')";
+    return `INSERT INTO "Fixture" (id,"siteId","floorId",name,"ratedWatt",x,y,"updatedAt")
+      VALUES (${sqlString(fixtureId)},${sqlString(siteId)},${sqlString(floorId)},${sqlString(`Task9 alarm ${id}`)},20,0,0,${stamp});
+      INSERT INTO "MonitoringIncident" (id,"siteId","fixtureId",type,status,"targetKey","activeKey","openedAt","lastObservedAt","resolvedAt","resolutionKind","createdAt","updatedAt")
+      VALUES (${sqlString(id)},${sqlString(siteId)},${sqlString(fixtureId)},'fixture_stale',${sqlString(status)},${sqlString(`fixture:${fixtureId}`)},
+      ${status === "open" ? sqlString(`${siteId}:fixture_stale:fixture:${fixtureId}`) : "NULL"},${stamp},${stamp},
+      ${status === "resolved" ? stamp : "NULL"},${status === "resolved" ? "'automatic_recovery'" : "NULL"},${stamp},${stamp});`;
+  }
+
+  async seedAlarmIncident(input: { site?: "primary" | "secondary"; status?: "open" | "resolved"; backdated?: boolean } = {}) {
+    await this.assertAlarmLab();
+    const id = randomUUID();
+    await this.sql(`BEGIN; ${this.alarmInsert(input, id)} COMMIT;`);
+    return id;
+  }
+
+  async updateAlarmIncident(id: string) {
+    await this.assertAlarmLab();
+    const scope = this.requireAlarmScope();
+    await this.sql(`UPDATE "MonitoringIncident" SET "lastObservedAt"=CURRENT_TIMESTAMP AT TIME ZONE 'UTC',"updatedAt"=CURRENT_TIMESTAMP AT TIME ZONE 'UTC'
+      WHERE id=${sqlString(id)} AND "siteId" IN (${sqlString(scope.primarySiteId)},${sqlString(scope.secondarySiteId)})`);
+  }
+
+  async setAlarmViewerAccess(enabled: boolean) {
+    await this.assertAlarmLab();
+    const scope = this.requireAlarmScope();
+    if (enabled) await this.sql(`INSERT INTO "SiteMembership" (id,"siteId","userId","createdAt")
+      VALUES (${sqlString(randomUUID())},${sqlString(scope.primarySiteId)},${sqlString(scope.viewerId)},now()) ON CONFLICT ("siteId","userId") DO NOTHING`);
+    else await this.sql(`DELETE FROM "SiteMembership" WHERE "siteId"=${sqlString(scope.primarySiteId)} AND "userId"=${sqlString(scope.viewerId)}`);
+  }
+
+  async setAlarmEffectFailure(enabled: boolean) {
+    await this.assertAlarmLab();
+    this.requireAlarmScope();
+    if (this.alarmEffectFailureEnabled === enabled) return;
+    const name = this.alarmFailureFunction;
+    if (enabled) await this.sql(`BEGIN; CREATE FUNCTION ${name}() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN
+      RAISE EXCEPTION 'Task9 owned alarm effect fixture'; END $$;
+      CREATE TRIGGER ${name} BEFORE UPDATE ON "MonitoringIncidentDismissalRequest" FOR EACH ROW
+      WHEN (NEW."completedAt" IS NOT NULL) EXECUTE FUNCTION ${name}(); COMMIT;`);
+    else await this.sql(`BEGIN; DROP TRIGGER ${name} ON "MonitoringIncidentDismissalRequest"; DROP FUNCTION ${name}(); COMMIT;`);
+    this.alarmEffectFailureEnabled = enabled;
+  }
+
+  async beginDeferredAlarmIncident(): Promise<DeferredAlarmIncident> {
+    await this.assertAlarmLab();
+    const id = randomUUID(), statement = this.alarmInsert({ backdated: true }, id);
+    // BEGIN occurs before reservation, but insertion waits until explicitly
+    // released: inserting earlier would hold the Site FK and block its lock.
+    const child = spawn("psql", ["-h", this.postgresSocketDir, "-p", String(this.ports.postgres), "-U", "led", "-d", "led_control", "-At", "-v", "ON_ERROR_STOP=1"], { detached: true, stdio: ["pipe", "pipe", "pipe"] });
+    let output = "", errors = "", finished = false;
+    child.stderr.on("data", data => { errors += data.toString(); });
+    const completion = new Promise<void>((resolvePromise, reject) => {
+      child.once("error", reject);
+      child.once("close", code => code === 0 ? resolvePromise() : reject(new Error(`Deferred alarm transaction failed: ${errors}`)));
+    });
+    void completion.catch(() => undefined);
+    const ready = new Promise<void>((resolvePromise, reject) => {
+      child.stdout.on("data", data => { output += data.toString(); if (output.includes("task9-alarm-ready")) resolvePromise(); });
+      child.once("error", reject); child.once("close", () => reject(new Error("Deferred alarm transaction closed before ready")));
+    });
+    const finish = async (commit: boolean) => {
+      if (!finished) { finished = true; child.stdin.end(commit ? `${statement}\nCOMMIT;\n` : "ROLLBACK;\n"); }
+      const settled = await settleWithin([completion], this.cleanupTimeoutMs, "deferred alarm transaction cleanup");
+      const failures = rejectedReasons(settled);
+      if (failures.length) {
+        // This fixture owns a separate process group. A timed-out psql must
+        // release its transaction before the caller tears down the owned Lab.
+        try { await stopProcessGroup(child, this.cleanupTimeoutMs); } catch (error) { failures.push(error); }
+        throw new AggregateError(failures, "Deferred alarm transaction cleanup failed");
+      }
+    };
+    child.stdin.write("BEGIN; SELECT 'task9-alarm-ready';\n");
+    try {
+      const settled = await settleWithin([ready], this.cleanupTimeoutMs, "deferred alarm transaction ready");
+      const failures = rejectedReasons(settled);
+      if (failures.length) throw new AggregateError(failures, "Deferred alarm transaction not ready");
+    } catch (error) { await finish(false); throw error; }
+    return { id, commit: () => finish(true), rollback: () => finish(false) };
+  }
+
+  async readAlarmEvidence(): Promise<AlarmDatabaseEvidence> {
+    await this.assertAlarmLab();
+    const scope = this.requireAlarmScope();
+    const sites = `${sqlString(scope.primarySiteId)},${sqlString(scope.secondarySiteId)}`;
+    return this.queryJson<AlarmDatabaseEvidence>(`SELECT json_build_object(
+      'incidents',(SELECT coalesce(json_agg(i ORDER BY i.id),'[]') FROM "MonitoringIncident" i WHERE i."siteId" IN (${sites})),
+      'reads',(SELECT coalesce(json_agg(r ORDER BY r."incidentId",r."userId"),'[]') FROM "MonitoringIncidentReadReceipt" r JOIN "MonitoringIncident" i ON i.id=r."incidentId" WHERE i."siteId" IN (${sites})),
+      'dismissals',(SELECT coalesce(json_agg(d ORDER BY d."incidentId",d."userId"),'[]') FROM "MonitoringIncidentDismissal" d JOIN "MonitoringIncident" i ON i.id=d."incidentId" WHERE i."siteId" IN (${sites})),
+      'reservations',(SELECT coalesce(json_agg(r ORDER BY r."siteId",r."userId",r."clientRequestId"),'[]') FROM "MonitoringIncidentDismissalRequest" r WHERE r."siteId" IN (${sites})))`);
   }
 
   assertOperatorNetworkIsolation() {
