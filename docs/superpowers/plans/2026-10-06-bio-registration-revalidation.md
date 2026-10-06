@@ -8,7 +8,7 @@
 
 **Tech Stack:** 기존 Node 22, pnpm 9.15.0, TypeScript, Zod, NestJS, Prisma/PostgreSQL, MQTT QoS 1, Gateway CommandJournal/StateEventOutbox, Jest/Vitest. 의존성 추가 없음.
 
-**Spec:** `docs/superpowers/specs/2026-10-06-bio-registration-revalidation-design.md` — 2026-10-06 사용자 상세 설계·실행 승인. **소프트웨어 구현 진행 중이다. 과도한 테스트 없이 변경 기능과 직접 회귀만 검증하며 운영 DB·장비 변경은 아직 실행하지 않는다.**
+**Spec:** `docs/superpowers/specs/2026-10-06-bio-registration-revalidation-design.md` — 2026-10-06 사용자 상세 설계·실행 승인. **Tasks1~6 소프트웨어 구현·집중 검증·독립 최종 검토 완료. 최종 신규 DB108/108·직접 회귀5/5·API/Gatewaytypecheck/build0, 새C0/I0/M0·기존 pnpm 경고M1. 운영 DB·실제 B 수복·감지/독립 건강 공급은 미완료이며 제품 OFF를 유지한다.**
 
 ## Global Constraints
 
@@ -170,7 +170,7 @@
 
 ## Task 6: 제한 통합·최종 검토·인계 — backend/독립 QA, 총괄 취합
 
-**상태:** 통합 작성·집중 검증 `e83ed3f3` 완료, Task6 scoped Spec✅/QualityApproved·C0/I0/M1(기존 경고); 현재 요청 전체 최종 검토/인계는 진행 중. 새 API↔Gateway 통합3개 첫GREEN(인위적 RED 없음)·최종 신규 일회용 DB108/108PASS·skip0·migration deploy0·기존 직접5/5PASS·API/Gateway typecheck/build0. 실제 broker/조명은 사용하지 않았다.
+**상태:** 완료(소프트웨어 검증/문서 인계). 통합 `e83ed3f3`, Task6 scoped와 전체 요청 최종 검토 Approved·새C0/I0/M0·기존M1. 새 API↔Gateway 통합3개 첫GREEN(인위적 RED 없음)·최종 신규 일회용 DB108/108PASS·skip0·migration deploy0·기존 직접5/5PASS·API/Gateway typecheck/build0. 실제 broker/조명은 사용하지 않았으며 별도 브랜치를 보존한다.
 
 **Files:** backend가 신규 API 통합 spec에 fake Gateway end-to-end를 추가한다. 총괄은 영향 메뉴3/status/기존 BIO 계획/이 계획만 결과를 취합해 갱신한다. QA는 읽기 전용 검토하며 코드 지적 수정은 원 소유 역할에 반환한다.
 
@@ -179,8 +179,8 @@
 - [x] **Step 1: 통합 RED 작성.** create→durable command→fake single adapter query→result outbox→API ingest/ACK→apply→A/B classification. force-off도 fresh observed이며 query/repair 자체는 Fixture output/qualification 변화0; ACK 전달 중단/duplicate/restart가 기존 event/기한을 보존한다. legacy Gateway는 result 없음/timeout, 기존 legacy ACK로 새 성공 없음.
 - [x] **Step 2: RED 실행.** 신규 DB spec `-t 'end-to-end|legacy gateway|restart delivery'`; integration 연결 누락의 FAIL을 기록하고 Task 소유 역할이 최소 연결을 수정한다. 완성된 경로가 처음부터 통과하면 임의 결함을 넣어 RED를 만들지 않고 GREEN 증거로 기록한다.
 - [x] **Step 3: 최종 집중 검증 한 번.** `BIO_REGISTRATION_REVALIDATION_DISPOSABLE_POSTGRES=1 pnpm --filter @led-control/api exec jest test/bio-registration-revalidation.integration.spec.ts --runInBand` → 전체 신규 DB 실제 PASS/skip0; 기존 sensor-mode/terminal/classification과 Gateway journal/outbox/adapter 직접 영향 회귀만 함께 실행한다. API/Gateway typecheck/build 및 `git diff --check` exit0. 무관 Web/root 전체 suite·benchmark/HIL 반복 없음. 실패는 baseline이라고 추정하지 말고 exact 결과/범위를 남긴다.
-- [ ] **Step 4: 독립 QA 검토.** spec·diff·command logs·새 wire compatibility/시각/권한/원자성/SET0·문서 일치; Critical/Important 수정 후 같은 reviewer 재검토. 실장비 증거 없는 healthy/지원/PASS 표기가 있으면 제거한다.
-- [ ] **Step 5: 상태 인계·commit.** 소프트웨어 구현/검증만 완료 표시하고 실제 B 조회/apply/A/B 분류는 미완료로 유지. `docs: record BIO registration revalidation software verification`.
+- [x] **Step 4: 독립 QA 검토.** spec·diff·command logs·새 wire compatibility/시각/권한/원자성/SET0·문서 일치; Critical/Important 수정 후 같은 reviewer 재검토. 실장비 증거 없는 healthy/지원/PASS 표기가 있으면 제거한다.
+- [x] **Step 5: 상태 인계·commit.** 소프트웨어 구현/검증만 완료 표시하고 실제 B 조회/apply/A/B 분류는 미완료로 유지. `docs: record BIO registration revalidation software verification`.
 
 ## 이후 현장 관문 — 이 소프트웨어 구현 완료와 별개
 
@@ -198,3 +198,32 @@
 - [x] Review Focus 다섯 항목을 담당 task의 실제 테스트 assertions/경계 사례에 배치했다.
 - [x] 함수 본문 대신 경계·signature·핵심 assertions만 남겼고 독립 provider/고객 UI/BlueZ 제거를 추가하지 않았다.
 - [x] 사용자 실행 계획 승인으로 Tasks1~6 시작. 이미 합의된 역할별 서브에이전트 순차 구현/총괄 취합 방식 유지.
+
+## 최종 소프트웨어 인계 기록
+
+최종 독립 검토 범위는 `b86cdc4bfc0cd8b4c7ced04d619512dfe7932961..1fbce40190d97c81e2f6370efafa2ef0b7f32ff7`다. Tasks1~6 소프트웨어 인계는 Approved이며 새 Critical/Important/Minor는 0/0/0이다. 기존 pnpm 설정 경고 M1은 남아 있다. 이전 센서 브랜치 전체 변경이나 운영 준비성을 검토한 것은 아니므로 **전체 브랜치 머지 준비 승인 또는 실제 센서 연동 완료를 뜻하지 않는다**. 운영 migration/배포/실제 B 조회·apply·A/B 분류와 머지는 실행하지 않았다.
+
+| 구현 | 소스 커밋 | 최종 근거 |
+| --- | --- | --- |
+| 엄격한 조회 전용 계약 | `e902a393` | 신규32+직접6 PASS, Shared typecheck/build |
+| 요청·현재 바인딩·DB 원장 | `04e8c31b` | 신규41+직접55 PASS, Prisma generate/typecheck |
+| 결과 수용·정확 ACK·publish | `9d650aba`, `d93eaf40` | 고유54+지연 회귀1 PASS, 수정 재검토 승인 |
+| 감사와 원자 apply·분류 근거 | `1fde5c3c` | 실제 PG 경합/rollback/상태 보존; 최종 신규23 포함 |
+| Gateway GET 전용·내구 원장·복구 | `efdc84d2`, `34e16704` | 실제 fsync fault RED→GREEN, 변경39 PASS, 수정 재검토 승인 |
+| 제한 API↔Gateway 통합 | `e83ed3f3` | 최종 신규 일회용 PG108/108 PASS·skip0, 기존 직접5/5 PASS |
+
+최종 신규 DB108은 한 번 실행했고 소요36.314초다. 과거 단계별 숫자를 여기에 합산하지 않는다. API/Gateway typecheck/build 및 API emit 경로 확인은 exit0이다. USB/MQTT는 통합 테스트 경계에서 대체했으며 실제 broker opt-in 시험은 skip1, 구문/ACL 정적 검토만 수행했다. Node24.19.0/pnpm9.15.0에서 검증했으며 Node22 런타임 동등성, 실제 RF·mTLS·전원 차단 HIL, 무관 Web/root 전체 회귀는 주장하지 않는다. 운영 DB 대신 자체 일회용 PG를 사용했다.
+
+실제 승인된 움직임 profile registry와 독립 link-health producer는 아직 없다. 운영 DB clock attestor와 배포 Gateway clock의 실제 근거도 이번 검증으로 대체할 수 없다. 이미 구현된 typed 소비/철회 경계에 항상 null인 미사용 조합기나 가짜 provider를 추가하지 않았다. 이러한 입력 확보 및 위 현장 관문 전까지 제품 OFF를 유지하며 전체 센서 목표는 미완료다. 임시 검토자료는 아래 판단과 검증을 문서에 취합한 뒤 이번 계획의 scratch 디렉터리만 정리한다. 코드·별도 브랜치·기존 현장 증거는 보존한다.
+
+### Rulings I made — 작업 중 판단과 잘못됐을 때의 비용
+
+1. 준비된 worktree를 재사용하고 무관 전체 baseline/install은 생략했다. 사용자 요청대로 변경 기능 집중 검증만 수행했다. 비용: 무관한 기존 실패나 저장소 전체 정상 여부를 인증할 수 없다.
+2. 새 schema 작성 후 DB GREEN 전에 Prisma Client를 생성했다. 미생성 client 오류를 기능 RED로 취급하지 않았다. 비용: 생성물이 schema와 다르면 DB 검증 근거가 무효가 된다.
+3. 현재 권한 상실 결과는 거부하고, 현재 인증된 scope의 binding 변경 결과만 immutable stale 감사로 보관했다. 비용: 경계를 잘못 판단하면 잘못된 proof 수용 또는 정상 수복 거부가 발생한다.
+4. 이미 applied된 재시도는 현재 권한·동일 graph를 확인해 기존 결과만 반환한다. 만료를 이유로 새 apply를 하지 않는다. 비용: graph 변경을 놓치면 과거 proof 재사용이 가능하므로 변경 시 거부가 필수다.
+5. 기존 pnpm 설정 경고 M1은 도구 후속 항목으로 보존하고 dependency 범위를 확장하지 않았다. 비용: 경고 없는 검증 또는 완전한 dependency 검증이라고 주장할 수 없다.
+6. apply 잠금은 Floor 선점→현재 Gateway/cert 권한→기존 binding helper 재진입 순서로 맞췄다. 비용: Floor 선점 누락 시 기존 분류 경로와 잠금 역전·교착 위험이 있다.
+7. 등록 경합은 현재 상태·scan·다른 미완결 provision으로 판단한다. terminal 이후 잔존 pending metadata나 원 outbox의 unpublished만으로 차단하지 않는다. 비용: 실제 진행 작업을 놓칠 수 있으므로 잠금 안의 상태/outbox 검사가 필수다.
+8. 최종 요청 검토는 계획 시작 커밋 이후로 제한하고 이전159개 역사적 변경은 이번 검토 범위에서 제외했다. 비용: 전체 분기와 기본 브랜치 병합 준비성은 인증하지 못한다.
+9. 최종 검토가 유보한 이전 전체 merge, 실제 B/현장 보존, 실제 profile/독립 health, 운영 clock attestor, 실제 broker/mTLS/RF/전원 차단 HIL/CRL, Node22/dependency/무관 전체 회귀, 운영 migration/배포는 별도 미완료 관문으로 유지했다. 비용: 이를 software PASS와 섞으면 근거 없는 센서 활성화나 운영 변경을 허용할 수 있다.

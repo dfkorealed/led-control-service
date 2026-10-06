@@ -2,7 +2,7 @@
 
 기준일: 2026-10-06
 
-## 2026-10-06 BIO 후속 1·3번 — 소프트웨어 구현 진행 중, 실제 적용 보류
+## 2026-10-06 BIO 후속 1·3번 — 등록 재검증 소프트웨어 완료, 실제 센서 연동·적용 미완료
 
 - **실행 승인:** 사용자가 센서 쪽 남은 구현 전체와 빠른 집중 검증을 지시했다. 새 실행 계획 Tasks1~6을 역할별로 순차 구현하고, Task9의 감지/독립 건강 공급 경계도 병행 읽기 전용 대조한다. 문서 승인 단계에서 더 대기하지 않는다. 변경 기능 RED/GREEN·직접 회귀·독립 검토만 실행하며 운영 DB/장비/배포/머지·무검증 profile/healthy·제품 ON은 실행하지 않는다.
 - **Shared 계약 완료:** `e902a393`에 registration 전용 strict query/result/전체 hash ACK를 추가했다. 신규32+기존 sensor-mode6=38PASS·Shared typecheck/build·consumer 준비0, 독립 Spec✅/Quality Approved·C0/I0/M0. Node24 사용과 기존 pnpm warning은 보존하며 Node22/실장비 검증으로 확대하지 않는다. API/DB/Gateway 소비는 다음 단계다.
@@ -10,14 +10,14 @@
 - **API 결과/전달 완료:** Task3의 결과 수용/publisher·내구 ACK·MQTT 연결과 종료 대기를 `9d650aba`에 구현하고 마지막 DB 권한 확인 지연을 budget에 포함하도록 `d93eaf40`에서 보완했다. 고유 집중54+fix1PASS·typecheck/diffcheck0, 독립 I1 수정 후 재검토 승인·새C0/I0/M0.
 - **API 감사 apply/분류 완료:** Task4 `1fde5c3c`, 집중22/직접61PASS·retained metadata/다른 provision 경계 RED2→GREEN2·unknown1GREEN·typecheck0, 독립 Spec✅/QualityApproved·새C0/I0/M0. 실제 PG 경합/감사 rollback/재시도 쓰기0을 확인했으며 ID·출력·이력은 보존한다. 최종 신규23개 함께 실행은 통합 단계에서 한다. 운영 B 수복은 실행하지 않았다.
 - **Gateway 조회 전용 완료:** Task5 `efdc84d2`와 내구 receipt 보완 `34e16704`, 집중68+adapter21+runtime38+ACL2PASS·actual fsync fault RED1→GREEN1·변경39PASS·typecheck/build0. 독립 I1 수정 재검토 승인·새C0/I0/M0. 신규 purpose/journal/전체 hash ACK·runtime/ACL 소프트웨어만 반영했고 실제 broker matrix는 opt-in1SKIP다.
-- **최종 집중 통합 검증:** Task6 `e83ed3f3`, 새 API↔Gateway 경로3개 첫GREEN·전체 신규 일회용 DB108/108PASS/skip0·기존 직접5/5PASS·API/Gatewaytypecheck/build0. Task6 독립 Spec✅/QualityApproved·C0/I0/M1(기존 pnpm 경고), 현재 요청 전체 변경의 최종 검토를 진행한다. RF/broker/TLS·실제 B·감지/건강을 검증한 결과는 아니다.
+- **최종 집중 통합 검증/인계 완료:** Task6 `e83ed3f3`, 새 API↔Gateway 경로3개 첫GREEN·전체 신규 일회용 DB108/108PASS/skip0·기존 직접5/5PASS·API/Gatewaytypecheck/build0. Task6 독립 및 전체 요청 최종 검토 Approved·새C0/I0/M0·기존 pnpm 경고M1. 계획/DB/메뉴3/기존 BIO 계획을 같은 작업에서 최신화하고 `codex/bio-pulse-event-integration`에 보존했다. RF/broker/TLS·실제 B·감지/건강 성공은 아니며 센서 전체 목표와 운영/머지는 미완료다.
 - **센서 실제 공급 한계:** 감지 공급 조사에서는 기존 소비·철회는 구현됐으나 실제 독립 profile/health producer 근거가 없음을 재확인했다. 서버 ACK를 독립 승인으로 대체하거나 효과 없는 항상-null 조합기만 더해 완료로 표시하지 않는다.
 
 - **설계 결정(2026-10-06):** 삭제 없는 현재 장치 재검증 수복의 상세 설계와 실행 계획은 승인됐다. Shared→API/DB→Gateway→집중 통합/독립 검토 순서와 현재 장치 확인·감사 수복을 구분한다. 기존 역할별 서브에이전트/총괄 취합 방식을 유지하며 서버/Gateway 시각 근거의 실제 공급이 없으면 수복을 허용하지 않는다. 실제 B 수복과 3번 현장 신호/건강 판정은 아직 완료하지 않았다.
 - 새 사용자 요청은 A/B 등록 상태 정리와 감지 신호·독립 연결 판정 연결이다. 옛 UI Task6 권한이나 현장 시작 신호를 재사용하지 않는다. 인증 정보 갱신과 B 점등 시험은 이번 요청에서 자동 실행하지 않는다.
 - 백엔드·Gateway 두 역할의 로컬 읽기 전용 조사로 차단을 확인했다. B 재검색 덮어쓰기 예방은 구현돼 있으나 과거 terminal 원문은 조사한 보관 자료에 없다. ACK/hash만으로 `completed`를 합성하지 않으며 기존 terminal의 중복 재생도 ACK만 반환하므로 수복이 아니다. 현재 장치 재검증·감사 수복 경로의 상세 설계/구현 관문은 위 최신 결정에 따른다.
 - `BioPulseAuthorityProvider` 소비와 scheduler 연결은 이미 구현됐다. actual 승인 profile은 빈 목록, 권한/독립 건강 공급은 없으며 보호된 행동·광학 기록도 시각 오차와 독립 liveness를 검증하지 못했다. 더미 provider 또는 후보/alive만으로 지원·healthy를 만드는 변경은 하지 않았다. 현재 통신·장비 상태와 좁은 현장 검증 범위를 먼저 확정해야 한다.
-- 센서 HEAD `8ec4c4f1`과 현재 기본 브랜치 `f74fc94f`는 분기돼 있다. 필요한 BIO 계약·6개 migration의 통합/배포 전 현재 UI·DB 변경을 보존해야 하며 센서 worktree의 산출물로 현재 서버를 덮지 않는다. 10월 2일 DB/CRL 관측을 오늘 상태로 대입하지 않는다.
+- 조사 시작 당시 센서 HEAD `8ec4c4f1`과 기본 `f74fc94f`는 분기돼 있었다. 기존 BIO migration6개에 이번 등록 재검증 migration1개를 추가했으며 필요한 계약/DB 통합·배포 전 현재 UI·DB 변경을 보존해야 한다. 이 검토는 승인 계획 시작 `b86cdc4b` 이후 변화만 대상으로 전체 역사적 분기 병합을 인증하지 않는다. 센서 worktree 산출물로 현재 서버를 덮거나 10월 2일 DB/CRL 관측을 오늘 상태로 대입하지 않는다.
 - 구현 전 조사 기록: source/evidence 읽기와 문서 최신화만 수행했고 루프백 HTTP readiness 요청 한 번은 empty reply/HTTP000·exit52였다. TLS/API·DB·MQTT의 현재 상태를 입증하지 않는다. 그 조사 당시 새 테스트/build·DB mutation·SSH/USB/RF·인증 갱신·서버 재시작·제품 ON·병합은 0이었다. 이후 소프트웨어 구현·집중 검증의 최신 상태는 위 실행 항목을 따르며 운영/센서 전체 완료로 표시하지 않는다.
 
 ## 2026-09-30 BIO 센서 펄스형 이벤트 제어 — 관련 소프트웨어 검증 완료·실장비 시험 착수

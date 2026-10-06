@@ -1,6 +1,6 @@
 # 기존 BIO 조명 등록의 현재 장치 재검증·감사 수복 설계안
 
-기준일: 2026-10-06. **사용자가 삭제 없는 현재 장치 재검증 방향·상세 설계와 실행 계획을 승인했다. `docs/superpowers/plans/2026-10-06-bio-registration-revalidation.md`의 소프트웨어 구현 진행 중이며 구현·운영 적용 완료 문서가 아니다.**
+기준일: 2026-10-06. **사용자가 승인한 삭제 없는 현재 장치 재검증의 소프트웨어 Tasks1~6 구현·집중 검증·독립 검토는 완료했다. 최종 신규 DB108/108·직접 회귀5/5·API/Gatewaytypecheck/build0이며 운영 적용·실제 B 수복·센서 감지/독립 건강 공급 완료는 아니다. 결과와 미완료 관문은 `docs/superpowers/plans/2026-10-06-bio-registration-revalidation.md`를 따른다.**
 
 ## 목적과 범위
 
