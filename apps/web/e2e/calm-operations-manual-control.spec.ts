@@ -3,8 +3,14 @@ import type { FixtureGroupMetadata } from "@led-control/shared";
 import type { CommandStatusResponse } from "../src/api/commands";
 import { expectNoHorizontalOverflow } from "./support/layout-assertions";
 import { installSettingsApiRoutes, type SettingsFixture } from "./support/settings-api";
+import { installMockApiBoundary } from "./support/mock-api-boundary";
 
 test.use({ timezoneId: "Asia/Seoul" });
+
+test.beforeEach(async ({ context, baseURL }) => {
+  await installMockApiBoundary(context, baseURL);
+});
+
 
 const ids = {
   site: "77777777-7777-4777-8777-777777777701",
@@ -48,7 +54,7 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
         id: "77777777-7777-4777-8777-777777777799", stage: "completed", outcome: "applied", brightness: 70,
         totalFixtureCount: 2, completedFixtureCount: 2, createdAt: "2026-09-12T01:00:00.000Z", dispatchCount: 1,
         errorMessage: null, verificationAttemptCount: 0
-      }], nextCursor: null, generatedAt: "2026-09-25T01:00:00.000Z", retainedFrom: "2026-06-25T01:00:00.000Z"
+      }], nextCursor: null, generatedAt: "2026-09-25T01:00:00.000Z", retentionEnabled: false, retainedFrom: "2026-06-25T01:00:00.000Z"
     } }));
     await page.goto(`/control?siteId=${ids.site}`);
     const history = page.getByRole("region", { name: "최근 명령 이력" });
@@ -68,8 +74,8 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
   });
 }
 
-for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) {
-  test(`${viewport.width}px 명령 이력 상태 확인과 원래 대상 안전 재적용`, async ({ page }) => {
+for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 }, { width: 760, height: 768 }, { width: 768, height: 768 }, { width: 1023, height: 768 }, { width: 1024, height: 768 }, { width: 390, height: 320 }, { width: 1440, height: 600 }]) {
+  test(`${viewport.width}x${viewport.height}px 명령 이력 상태 확인과 원래 대상 안전 재적용`, async ({ page }) => {
     await page.setViewportSize(viewport);
     const api = await installManualControlFixture(page, "admin");
     const commandId = "77777777-7777-4777-8777-777777777799";
@@ -97,7 +103,7 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
         return route.fulfill({ json: { dispatchId: "check-dispatch", dispatchIds: ["check-dispatch"], verificationAttempt: 1, terminalStatusUrl: `/commands/${commandId}` } });
       }
       if (url.pathname === `/api/commands/${commandId}`) return route.fulfill({ json: {
-        generatedAt: "2026-09-25T00:00:00.000Z", retainedFrom: "2026-06-25T00:00:00.000Z",
+        generatedAt: "2026-09-25T00:00:00Z", retainedFrom: "2026-06-25T00:00:00Z", retentionEnabled: false,
         ...original, stage: verified ? "verified_not_applied" : "verification_required", outcome: verified ? "not_applied" : "unknown",
         verificationAttemptCount: checking ? 1 : 0,
         dispatches: checking ? [...original.dispatches, { id: "check-dispatch", kind: "status_check", verificationAttempt: 1, status: verified ? "completed" : "accepted", gateway: { id: ids.gateway, name: "GW" }, errorMessage: null, results: [{ ...commandResult("succeeded", null), brightness: 70 }] }] : original.dispatches
@@ -107,6 +113,7 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
     await page.goto(`/control?siteId=${ids.site}`);
     await expect(page.getByRole("region", { name: "제어 대상 지도" })).toBeVisible();
     await expect(page.getByRole("complementary", { name: "밝기 실행" })).toBeVisible();
+    expect((await page.getByTestId("target-selection-map-viewport").boundingBox())!.height).toBeGreaterThanOrEqual(240);
     const history = page.getByRole("region", { name: "최근 명령 이력" });
     await expect(history.getByRole("button", { name: new RegExp(commandId) })).toBeVisible();
     const openHistory = history.getByRole("button", { name: "명령 이력 열기" });
@@ -116,23 +123,36 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
     await expect(drawer.getByRole("searchbox", { name: "명령 이력 검색" })).toBeVisible();
     await expect(drawer).toContainText("최근 3개월");
     await expect.poll(() => historyRequests.find((url) => url.searchParams.get("limit") === "1")?.searchParams.get("limit")).toBe("1");
-    await expect.poll(() => historyRequests.find((url) => url.searchParams.get("limit") === "4")?.searchParams.get("limit")).toBe("4");
+    await expect.poll(() => historyRequests.find((url) => url.searchParams.get("limit") === "50")?.searchParams.get("limit")).toBe("50");
     await drawer.getByRole("searchbox", { name: "명령 이력 검색" }).fill("B2");
     await expect.poll(() => historyRequests.at(-1)?.searchParams.get("query")).toBe("B2");
-    await drawer.getByRole("button", { name: "명령 상태 필터" }).click();
+    await drawer.getByRole("button", { name: /명령 이력 필터 상세 필터/ }).click();
+    await page.getByRole("button", { name: "명령 상태 필터" }).click();
     await page.getByRole("option", { name: "실제 상태 확인 필요" }).click();
+    await page.getByRole("button", { name: "필터 닫기" }).click();
     await expect.poll(() => historyRequests.at(-1)?.searchParams.get("stage")).toBe("verification_required");
-    await drawer.getByRole("button", { name: "다음" }).click();
+    await drawer.getByRole("button", { name: "다음 페이지" }).click();
     await expect.poll(() => historyRequests.at(-1)?.searchParams.get("cursor")).toBe("next-page");
-    await expect(drawer.getByRole("button", { name: "다음" })).toBeDisabled();
-    await drawer.getByRole("button", { name: "이전" }).click();
+    await expect(drawer.getByRole("button", { name: "다음 페이지" })).toBeDisabled();
+    await drawer.getByRole("button", { name: "이전 페이지" }).click();
     await drawer.getByRole("button", { name: new RegExp(commandId) }).click();
     const execution = await openManualExecution(page);
     await expect(execution.getByRole("button", { name: "안전하게 다시 적용" })).toHaveCount(0);
+    await expandRecentDetails(page);
     await execution.getByRole("button", { name: "명령 상세 닫기" }).click();
     await expect(execution.getByRole("button", { name: "명령 상세 닫기" })).toHaveCount(0);
     await history.getByRole("button", { name: new RegExp(commandId) }).click();
-    await page.getByRole("button", { name: "실제 상태 확인", exact: true }).click();
+    const safetyCheck = page.getByRole("button", { name: "실제 상태 확인", exact: true });
+    await safetyCheck.hover();
+    const feedback = page.locator("[data-control-panel-feedback]");
+    expect(await feedback.evaluate(element => element.clientHeight)).toBeGreaterThan(0);
+    expect(await feedback.evaluate(element => element.scrollWidth - element.clientWidth)).toBe(0);
+    expect(await safetyCheck.evaluate(element => {
+      const rect = element.getBoundingClientRect();
+      const hit = document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2);
+      return element === hit || element.contains(hit);
+    })).toBe(true);
+    await safetyCheck.click();
     await page.getByRole("button", { name: "동일 상태 확인 요청 조회" }).click();
     await expect(page.getByRole("button", { name: "실제 상태 확인 중" })).toBeDisabled();
     await expect(page.getByRole("slider", { name: "밝기" })).toBeDisabled();
@@ -140,11 +160,75 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
     expect(api.dimmingRequests).toHaveLength(0);
     verified = true;
     await expect(page.getByRole("button", { name: "안전하게 다시 적용" })).toBeEnabled();
-    await page.getByRole("button", { name: "100%", exact: true }).click();
+    await page.getByRole("textbox", { name: "밝기 수치" }).fill("100");
+    await page.getByRole("textbox", { name: "밝기 수치" }).press("Enter");
     await page.getByRole("button", { name: "안전하게 다시 적용" }).click();
     await expect.poll(() => api.dimmingRequests.at(-1)).toMatchObject({ brightness: 30, target: { type: "fixtures", fixtureIds: [ids.fixture] } });
     await expectNoHorizontalOverflow(page);
-    if (viewport.width > 1120) {
+    if (viewport.width === 1440 && viewport.height === 600) {
+      // Short workspaces intentionally use natural page flow. Prove native end
+      // reachability instead of treating document height as a fixed-page proxy.
+      const originalRequest = structuredClone(api.dimmingRequests[0]);
+      await page.evaluate(() => {
+        (window as typeof window & { task6ShortWheel?: number }).task6ShortWheel = 0;
+        window.addEventListener("wheel", event => {
+          if (event.isTrusted) (window as typeof window & { task6ShortWheel: number }).task6ShortWheel += 1;
+        }, { capture: true });
+      });
+      await page.mouse.move(viewport.width - 2, viewport.height / 2);
+      await page.mouse.wheel(0, -10_000);
+      await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(0);
+      await page.mouse.click(viewport.width - 2, viewport.height / 2);
+      await page.mouse.wheel(0, 10_000);
+      await page.keyboard.press("End");
+      await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(0);
+      const map = page.getByTestId("target-selection-map-viewport");
+      expect((await map.boundingBox())!.height).toBeGreaterThanOrEqual(240);
+      const reachable = [];
+      for (const [index, element] of [page.getByRole("button", { name: "지도 화면 맞춤" }), page.getByLabel("지도 조명 상태 범례")].entries()) {
+        if (index === 0) await element.hover();
+        else {
+          // pointer-events:none makes the legend a visual label, not a hover
+          // target. Move the real pointer to its measured visible center.
+          const rect = (await element.boundingBox())!;
+          await page.mouse.move(rect.x + rect.width / 2, rect.y + rect.height / 2);
+        }
+        const evidence = await element.evaluate(element => {
+          const rect = element.getBoundingClientRect();
+          const hit = document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2);
+          const clips = [];
+          for (let parent = element.parentElement; parent; parent = parent.parentElement) {
+            const style = getComputedStyle(parent);
+            if (/(hidden|clip|auto|scroll)/.test(`${style.overflowX} ${style.overflowY}`)) {
+              const bounds = parent.getBoundingClientRect();
+              clips.push({ tag: parent.tagName, bounds: bounds.toJSON(), contains: rect.left >= bounds.left && rect.right <= bounds.right && rect.top >= bounds.top && rect.bottom <= bounds.bottom });
+            }
+          }
+          return { rect: rect.toJSON(), visible: rect.top >= 0 && rect.bottom <= innerHeight && rect.left >= 0 && rect.right <= innerWidth,
+            clips, hit: element === hit || element.contains(hit), hitWithinMap: Boolean(element.closest("[data-spatial-target-selector]")?.contains(hit)), hitTag: hit?.tagName, pageY: scrollY };
+        });
+        expect(evidence.visible).toBe(true);
+        expect(evidence.clips.every(clip => clip.contains)).toBe(true);
+        // The non-interactive legend deliberately passes pointer events through
+        // to its own map frame; the footer control itself must be the native hit.
+        reachable.push(evidence);
+      }
+      expect(reachable[0].hit).toBe(true);
+      expect(reachable[0].rect.width).toBeGreaterThanOrEqual(44);
+      expect(reachable[0].rect.height).toBeGreaterThanOrEqual(44);
+      expect(reachable[1].hitWithinMap).toBe(true);
+      expect(reachable[1].rect.height).toBeGreaterThanOrEqual(16);
+      expect(reachable[0].rect.bottom).toBeLessThanOrEqual(reachable[1].rect.top);
+      const mapRect = (await map.boundingBox())!;
+      expect(mapRect.y + mapRect.height).toBeLessThanOrEqual(reachable[0].rect.top);
+      expect(await page.evaluate(() => (window as typeof window & { task6ShortWheel: number }).task6ShortWheel)).toBeGreaterThanOrEqual(2);
+      expect(api.dimmingRequests).toHaveLength(1);
+      expect(api.dimmingRequests[0]).toEqual(originalRequest);
+      await expect(page.getByRole("slider", { name: "밝기" })).toBeDisabled();
+      await expectNoHorizontalOverflow(page);
+      console.log("TASK6_SHORT_NATURAL_FLOW", JSON.stringify({ reachable, originalRequest,
+        scroll: await page.evaluate(() => ({ y: scrollY, height: document.documentElement.scrollHeight, wheel: (window as typeof window & { task6ShortWheel: number }).task6ShortWheel })) }));
+    } else if (viewport.width > 1120) {
       const documentHeight = await page.evaluate(() => document.documentElement.scrollHeight);
       expect(documentHeight).toBeLessThanOrEqual(viewport.height + 1);
     }
@@ -168,7 +252,8 @@ for (const viewport of viewports) {
     await fixtureDrawer.getByRole("button", { name: "선택 완료", exact: true }).click();
     await expect(page.getByRole("button", { name: "밝기 적용" })).toBeDisabled();
     await setCheckbox(page, "B2-L01 선택", true);
-    await page.getByRole("button", { name: "30%" }).click();
+    await page.getByRole("textbox", { name: "밝기 수치" }).fill("30");
+    await page.getByRole("textbox", { name: "밝기 수치" }).press("Enter");
     await expect(page.getByLabel("수동 override 종료 시각")).toHaveCount(0);
     await page.getByRole("button", { name: "밝기 적용" }).click();
     await expect.poll(() => api.dimmingRequests.at(-1)).toMatchObject({
@@ -176,14 +261,17 @@ for (const viewport of viewports) {
     });
     expect(api.dimmingRequests.at(-1)).not.toHaveProperty("overrideUntil");
     expect(api.dimmingRequests.at(-1)).not.toHaveProperty("overrideRemainingMs");
+    await expandRecentDetails(page);
+    expect((await page.getByTestId("target-selection-map-viewport").boundingBox())!.height).toBeGreaterThanOrEqual(240);
     await expect(execution.getByRole("list", { name: "명령 진행" })).toContainText("장비 응답");
     await expect(page.getByRole("button", { name: "조명 목록 열기" })).toBeDisabled();
     await expect(page.getByRole("button", { name: "층 전체" })).toBeDisabled();
-    await expect(page.getByRole("button", { name: "30%" })).toBeDisabled();
+    await expect(page.getByRole("textbox", { name: "밝기 수치" })).toBeDisabled();
     await expect(page.getByRole("button", { name: "밝기 적용 중" })).toBeDisabled();
 
     await page.reload();
     const restoredExecution = await openManualExecution(page);
+    await expandRecentDetails(page);
     await expect(restoredExecution.getByRole("list", { name: "명령 진행" })).toBeVisible();
     api.setCommandStatus({ stage: "partial_failed", results: [commandResult("failed", "게이트웨이 ACK를 확인하지 못했습니다.")] });
     await expect(restoredExecution.getByText("게이트웨이 장비 응답을 확인하지 못했습니다.")).toBeVisible();
@@ -266,7 +354,8 @@ for (const viewport of viewports) {
     await page.getByRole("button", { name: "밝기 적용" }).click();
     await expect.poll(() => successApi.commandStatusRequests.length).toBeGreaterThan(0);
     successApi.setCommandStatus({ stage: "completed", results: [commandResult("succeeded", null)] });
-    await expect(execution.getByRole("status", { name: "명령 진행 상태" }).getByText("조명 적용 완료 · 기본 밝기로 저장됨")).toBeVisible();
+    await expandRecentDetails(page);
+    await expect(execution.getByRole("region", { name: "최근 결과 상세" }).getByText("조명 적용 완료 · 기본 밝기로 저장됨")).toBeVisible();
 
     const timeoutPage = await page.context().newPage({ viewport });
     try {
@@ -277,6 +366,7 @@ for (const viewport of viewports) {
       await timeoutPage.getByRole("button", { name: "밝기 적용" }).click();
       await expect.poll(() => timeoutApi.commandStatusRequests.length).toBeGreaterThan(0);
       timeoutApi.setCommandStatus({ stage: "timed_out", results: [commandResult("timed_out", "Gateway ACK timeout")] });
+      await expandRecentDetails(timeoutPage);
       await expect(timeoutExecution.getByText("게이트웨이 장비 응답 시간 초과")).toBeVisible();
       await expect(timeoutPage.getByText("Gateway ACK timeout", { exact: true })).toHaveCount(0);
       await expect(timeoutExecution.getByText("1개 선택", { exact: true })).toBeVisible();
@@ -372,7 +462,7 @@ async function readStableControlRects(page: Page) {
     const feedback = panel?.querySelector<HTMLElement>("[role='alert']") ?? panel?.querySelector<HTMLElement>("[data-command-status-region]");
     const selectors = {
       dial: "[data-control-brightness-card]",
-      presets: "[data-control-presets]",
+      numeric: "[data-control-brightness-card] input:not([type=range])",
       submit: "[data-control-submit]"
     } as const;
     if (!panel || !badge || !body || !feedback) throw new Error("manual control layout is incomplete");
@@ -459,7 +549,7 @@ async function installManualControlFixture(
     const request = route.request();
     const url = new URL(request.url());
     if (url.pathname === "/api/commands" && request.method() === "GET") {
-      return route.fulfill({ json: { items: [], nextCursor: null } });
+      return route.fulfill({ json: { items: [], nextCursor: null, generatedAt: "2026-09-25T00:00:00Z", retainedFrom: "2026-06-25T00:00:00Z", retentionEnabled: false } });
     }
     if (url.pathname === `/api/sites/${ids.site}/fixture-groups` && request.method() === "GET") {
       return route.fulfill({ json: [savedZone] });
@@ -516,3 +606,126 @@ function dashboardResponse(
     }]
   };
 }
+
+
+test("Task6 direct brightness and command history contract", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  const api = await installManualControlFixture(page, "admin");
+  await page.goto(`/control?siteId=${ids.site}`);
+  await expect(page.getByRole("button", { name: "영역 선택", exact: true })).toHaveCount(0);
+  for (const value of [0, 30, 70, 100]) await expect(page.getByRole("button", { name: `${value}%`, exact: true })).toHaveCount(0);
+  await page.getByRole("button", { name: /^B2-L01 / }).focus();
+  await page.getByRole("button", { name: /^B2-L01 / }).press("Enter");
+  const input = page.getByRole("textbox", { name: "밝기 수치" });
+  await input.fill("42"); await input.press("Enter");
+  await expect(page.getByRole("slider", { name: "밝기" })).toHaveValue("42");
+  expect(api.dimmingRequests).toHaveLength(0);
+  await page.getByRole("button", { name: "명령 이력 열기" }).click();
+  const drawer=page.getByRole("dialog", { name: "명령 이력", exact:true });
+  await expect(drawer.getByRole("group", { name: "조회 기간" })).toHaveCount(0);
+  await drawer.getByRole("button", { name: /명령 이력 필터 상세 필터/ }).click();
+  await expect(page.getByRole("group", { name: "조회 기간" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "페이지당 항목 수" })).toContainText("50개");
+});
+
+async function expandRecentDetails(page: Page) {
+  const toggle = page.getByRole("button", { name: "상세 보기", exact: true });
+  await expect(toggle).toBeVisible();
+  await toggle.click();
+}
+
+for (const viewport of [{ width: 320, height: 740 }, { width: 390, height: 844 }, { width: 760, height: 768 }, { width: 768, height: 768 }, { width: 1023, height: 768 }, { width: 1024, height: 768 }, { width: 1440, height: 900 }, { width: 390, height: 320 }, { width: 1440, height: 600 }]) {
+  test(`Task6 ${viewport.width}x${viewport.height} inline result scroll reaches the final failed fixture without a new command`, async ({ page }) => {
+    await page.setViewportSize(viewport);
+    const api = await installManualControlFixture(page, "admin");
+    const commandId = "77777777-7777-4777-8777-777777777799";
+    const status: CommandStatusResponse = {
+      id: commandId, siteId: ids.site, stage: "failed", outcome: "not_applied", brightness: 30,
+      targetFixtureIds: [ids.fixture], totalFixtureCount: 40, completedFixtureCount: 40,
+      dispatchCount: 1, errorMessage: null, createdAt: "2026-09-12T01:00:00.000Z",
+      dispatches: [{ id: "failed-dispatch", kind: "dimming", status: "failed", gateway: { id: ids.gateway, name: "Gateway B2" }, errorMessage: null,
+        results: Array.from({ length: 40 }, (_, index) => ({ ...commandResult("failed", "적용 실패"), fixtureId: `failed-${index}`, fixtureName: `실패 조명 ${String(index + 1).padStart(3, "0")}` })) }]
+    };
+    await page.route("**/api/commands**", route => {
+      const url = new URL(route.request().url());
+      if (url.pathname === "/api/commands") return route.fulfill({ json: { items: [status], nextCursor: null, generatedAt: "2026-09-25T00:00:00Z", retainedFrom: "2026-06-25T00:00:00Z", retentionEnabled: false } });
+      if (url.pathname === `/api/commands/${commandId}`) return route.fulfill({ json: { ...status, generatedAt: "2026-09-25T00:00:00Z", retainedFrom: "2026-06-25T00:00:00Z", retentionEnabled: false } });
+      return route.fallback();
+    });
+    await page.goto(`/control?siteId=${ids.site}`);
+    await page.getByRole("region", { name: "최근 명령 이력" }).getByRole("button", { name: new RegExp(commandId) }).click();
+    await expandRecentDetails(page);
+    const feedback = page.locator("[data-control-panel-feedback]");
+    const feedbackMetrics = await feedback.evaluate(element => ({ height: element.clientHeight, content: element.scrollHeight, width: element.clientWidth, contentWidth: element.scrollWidth }));
+    expect(feedbackMetrics.height).toBeGreaterThan(0);
+    expect(feedbackMetrics.contentWidth).toBe(feedbackMetrics.width);
+    if (viewport.width >= 760 && feedbackMetrics.content > feedbackMetrics.height) {
+      // Scroll the actual outer feedback pane first, not document/script offsets.
+      const heading = feedback.getByRole("heading", { name: "최근 결과" });
+      await heading.hover(); await page.mouse.wheel(0, 10000);
+      await expect.poll(() => feedback.evaluate(element => element.scrollTop)).toBeGreaterThan(0);
+    }
+    const detail = page.getByRole("region", { name: "최근 결과 상세" });
+    const before = await detail.evaluate(element => ({ top: element.scrollTop, height: element.clientHeight, content: element.scrollHeight }));
+    expect(before.content).toBeGreaterThan(before.height);
+    await detail.hover(); await page.mouse.wheel(0, 10000);
+    await expect.poll(() => detail.evaluate(element => element.scrollTop)).toBeGreaterThan(before.top);
+    await detail.focus(); await page.keyboard.press("End");
+    const last = detail.getByText("실패 조명 040: 적용 실패", { exact: true });
+    await expect(last).toBeVisible();
+    const [outer, end] = await Promise.all([detail.boundingBox(), last.boundingBox()]);
+    expect(end!.y).toBeGreaterThanOrEqual(outer!.y);
+    expect(end!.y + end!.height).toBeLessThanOrEqual(outer!.y + outer!.height);
+    const reachable = await last.evaluate(element => {
+      const rect = element.getBoundingClientRect();
+      const hit = document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2);
+      return element === hit || element.contains(hit);
+    });
+    expect(reachable).toBe(true);
+    expect(await detail.evaluate(element => element.scrollWidth - element.clientWidth)).toBe(0);
+    await page.getByRole("button", { name: "상세 접기", exact: true }).click();
+    await expect(detail).toHaveCount(0);
+    expect(api.dimmingRequests).toEqual([]);
+    await expectNoHorizontalOverflow(page);
+  });
+}
+
+test("Task6 in-flight inline/filter/resize keeps the original UUID, targets and lock without another POST", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  const api = await installManualControlFixture(page, "admin");
+  await page.goto(`/control?siteId=${ids.site}`);
+  await setCheckbox(page, "B2-L01 선택", true);
+  const input = page.getByRole("textbox", { name: "밝기 수치" });
+  await input.fill("30"); await input.press("Enter");
+  await page.getByRole("button", { name: "1개 조명에 밝기 적용", exact: true }).click();
+  await expect.poll(() => api.commandStatusRequests.length).toBeGreaterThan(0);
+  const originalRequest = structuredClone(api.dimmingRequests[0]);
+  // The mock status has no historical target fields by default. Supply the
+  // captured request, not current controls, for this original-target proof.
+  await page.route(`**/api/commands/${api.commandStatusRequests[0]}`, route => route.fulfill({ json: {
+    id: api.commandStatusRequests[0], siteId: ids.site, stage: "accepted", outcome: "pending",
+    brightness: originalRequest.brightness, targetFixtureIds: [ids.fixture], dispatchCount: 1,
+    totalFixtureCount: 1, completedFixtureCount: 0, errorMessage: null,
+    generatedAt: "2026-09-25T00:00:00Z", retainedFrom: "2026-06-25T00:00:00Z", retentionEnabled: false,
+    dispatches: [{ id: "original-dispatch", kind: "dimming", status: "accepted", gateway: { id: ids.gateway, name: "Gateway B2" }, errorMessage: null, results: [] }]
+  } }));
+  const originalStorage = await page.evaluate(() => JSON.stringify(Object.entries(sessionStorage)));
+  await expect(input).toBeDisabled();
+  await expandRecentDetails(page);
+  await expect(page.getByRole("region", { name: "최근 결과 상세" })).toContainText("30%");
+  await expect(page.getByRole("region", { name: "최근 결과 상세" })).toContainText(ids.fixture);
+  await page.getByRole("button", { name: "상세 접기" }).click();
+  await page.getByRole("button", { name: "명령 이력 열기" }).click();
+  await page.getByRole("button", { name: /명령 이력 필터 상세 필터/ }).click();
+  await page.getByRole("button", { name: "필터 초기화" }).click();
+  await page.getByRole("button", { name: "필터 닫기" }).click();
+  await page.getByRole("button", { name: "명령 이력 닫기" }).click();
+  for (const width of [1023, 1024, 390, 1440]) {
+    await page.setViewportSize({ width, height: 900 });
+    await expect(input).toBeDisabled();
+    await expect(page.getByRole("button", { name: /^B2-L01 / })).toHaveAttribute("aria-pressed", "true");
+    await expectNoHorizontalOverflow(page);
+  }
+  expect(api.dimmingRequests).toEqual([originalRequest]);
+  expect(await page.evaluate(() => JSON.stringify(Object.entries(sessionStorage)))).toBe(originalStorage);
+});

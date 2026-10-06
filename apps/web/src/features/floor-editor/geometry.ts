@@ -1,4 +1,5 @@
 import type { EditorTool, FloorMapObjectDraft } from "./editor-types";
+import { screenToMapWorld } from "../floor-map/map-camera-geometry";
 
 // A 32,768-unit CAD map must fit even on a narrow mobile viewport.
 export function clampEditorZoom(zoom: number): number {
@@ -28,11 +29,8 @@ interface Delta {
 }
 
 export function screenToWorld(point: Point, pan: Point, zoom: number): Point {
-  const safeZoom = zoom || 1;
-  return {
-    x: (point.x - pan.x) / safeZoom,
-    y: (point.y - pan.y) / safeZoom
-  };
+  // Keep the legacy unset/zero-scale fallback at this compatibility boundary.
+  return screenToMapWorld(point, { pan, zoom: zoom || 1 });
 }
 
 export function clampPoint(point: Point, bounds: Bounds): Point {

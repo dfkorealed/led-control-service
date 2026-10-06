@@ -1,5 +1,5 @@
 import type { FloorMapSnapshot } from "@led-control/shared";
-import { CircleCheck, CircleX, Clock3, Hand, Maximize, Minimize, TriangleAlert } from "lucide-react";
+import { CircleCheck, CircleX, Clock3, Maximize, Minimize, TriangleAlert } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { Dashboard } from "../../api/queries";
 import { IconButton, Text, cn } from "../../components/ui";
@@ -20,17 +20,18 @@ interface FloorMapProps {
   focusRequest?: { requestId: number; fixtureId: string };
   onFocusResult?: (requestId: number, result: "focused" | "unplaced" | "unknown") => void;
   onPinOpenChange?: (open: boolean) => void;
-  onShowDetails?: (fixtureId: string) => void;
+  onShowDetails?: (fixtureId: string, trigger?: HTMLElement) => void;
   emphasizedFixtureIds?: ReadonlySet<string>;
   fullView?: boolean;
   onToggleFullView?: (trigger: HTMLButtonElement) => void;
   activeFilter?: string;
   cameraScope?: MonitoringCameraScope | null;
+  detailOpen?: boolean;
 }
 
 const MAP_PAN_STEP_PX = 80;
 
-export function FloorMap({ floor, snapshot, selectedFixtureId, onSelectFixture, timeZone = "Asia/Seoul", focusRequest, onFocusResult, onPinOpenChange, onShowDetails, emphasizedFixtureIds, fullView = false, onToggleFullView, activeFilter, cameraScope = null }: FloorMapProps) {
+export function FloorMap({ floor, snapshot, selectedFixtureId, onSelectFixture, timeZone = "Asia/Seoul", focusRequest, onFocusResult, onPinOpenChange, onShowDetails, emphasizedFixtureIds, fullView = false, onToggleFullView, activeFilter, cameraScope = null, detailOpen = false }: FloorMapProps) {
   const [zoom, setZoom] = useState(1);
   const shellRef = useRef<HTMLDivElement>(null);
   const viewportRef = useRef<FloorMapViewportHandle>(null);
@@ -46,26 +47,19 @@ export function FloorMap({ floor, snapshot, selectedFixtureId, onSelectFixture, 
   useEffect(() => {
     const closed = previousOpenFixture.current !== null && openFixtureId === null;
     previousOpenFixture.current = openFixtureId;
-    if (!closed) return;
+    if (!closed || detailOpen) return;
     // Run after the overlay's own FocusScope teardown, which may restore focus in a frame.
     const frame = requestAnimationFrame(() => {
       if (markerRef.current?.isConnected) markerRef.current.focus({ preventScroll: true });
     });
     return () => cancelAnimationFrame(frame);
-  }, [openFixtureId]);
+  }, [openFixtureId, detailOpen]);
+  useEffect(() => { if (detailOpen) setOpenFixtureId(null); }, [detailOpen]);
   const selectedRuntimeFixture = floor.fixtures.find((fixture) => fixture.id === openFixtureId) ?? null;
   const savedFixture = snapshot.fixtures?.find((fixture) => fixture.id === openFixtureId) ?? null;
   const openFixtureName = savedFixture?.name ?? selectedRuntimeFixture?.name ?? "조명";
-  const savedFixtureIds = new Set(snapshot.fixtures?.map((fixture) => fixture.id) ?? []);
-  // Legacy maps can draw runtime-only placements alongside saved pins. A paged
-  // runtime list cannot prove the complete displayed count, so show no number.
-  const hasLegacyRuntimeOnlyPin = !snapshot.mapDocument && floor.fixtures.some((fixture) =>
-    fixture.placementStatus !== "unplaced" && !savedFixtureIds.has(fixture.id)
-  );
-  const mapCount = snapshot.fixtures === undefined || hasLegacyRuntimeOnlyPin
-    ? null : snapshot.fixtures.length;
   useEffect(() => { setOpenFixtureId(null); }, [floor.id, snapshot.revision]);
-  useEffect(() => { setOpenFixtureId(null); }, [activeFilter]);
+  useEffect(() => { if (selectedFixtureId === null) setOpenFixtureId(null); }, [activeFilter, selectedFixtureId]);
   useEffect(() => {
     if (openFixtureId !== null && selectedFixtureId !== null && openFixtureId !== selectedFixtureId) setOpenFixtureId(null);
   }, [openFixtureId, selectedFixtureId]);
@@ -140,12 +134,27 @@ export function FloorMap({ floor, snapshot, selectedFixtureId, onSelectFixture, 
   }));
   const observedFixtureIds = new Set(floor.fixtures.map(fixture => fixture.id));
   const unobservedFixtureIds = new Set(snapshot.fixtures?.filter(pin => !observedFixtureIds.has(pin.id)).map(pin => pin.id));
+  const savedIds = new Set(snapshot.fixtures?.map(pin => pin.id));
+  const displayed = sceneFixtures.filter(fixture => savedIds.has(fixture.id) || (!snapshot.mapDocument && fixture.placementStatus !== "unplaced"));
+  const presentStates = new Set<string>(displayed.map(fixture => fixture.statusPresentation.mapState));
+  if (unobservedFixtureIds.size) presentStates.add("unknown");
+  const legend = [
+    { state: "online", label: "정상", Icon: CircleCheck, color: "text-fixture-connected" },
+    { state: "fault", label: "장애", Icon: TriangleAlert, color: "text-fixture-fault" },
+    { state: "offline", label: "오프라인", Icon: CircleX, color: "text-fixture-offline" },
+    { state: "waiting", label: "상태 확인 대기", Icon: Clock3, color: "text-fixture-inspection" },
+    { state: "unknown", label: "조명 정보 확인 전", Icon: Clock3, color: "text-fixture-inspection" }
+  ].filter(item => presentStates.has(item.state));
 
   return (
-    <div ref={shellRef} className={cn("relative h-[340px] w-full min-w-0 overflow-hidden rounded-panel border border-border-default bg-surface-inset max-phone-wide:h-[300px] tablet:h-full tablet:min-h-0", fullView && "h-full! min-h-0!")} role="region" aria-label="층 도면" data-monitoring-map-shell="" data-zoom={zoom}>
+    <div ref={shellRef} className="relative flex h-full min-h-min w-full min-w-0 flex-col overflow-hidden rounded-panel border border-border-default bg-surface-inset" role="region" aria-label="층 도면" data-monitoring-map-shell="" data-zoom={zoom}>
+      {/* The CAD surface's aspect ratio must not contribute an intrinsic page
+          height; the containing flex map defines its available viewport. */}
+      <div className="min-h-min min-w-0 flex-1">
       <FloorMapViewport
         ref={viewportRef}
         maintainCameraOnResize
+        controlsPlacement="footer"
         wheelZoomWithoutModifier
         showFitControl={false}
         resetControlFits
@@ -172,29 +181,23 @@ export function FloorMap({ floor, snapshot, selectedFixtureId, onSelectFixture, 
           unobservedFixtureIds={unobservedFixtureIds}
         />
       </FloorMapViewport>
+      </div>
       <FixturePinPopover
         name={openFixtureName}
         fixture={selectedRuntimeFixture}
         position={savedFixture ? { x: savedFixture.x, y: savedFixture.y } : null}
         triggerRef={markerRef}
-        open={openFixtureId !== null}
-        onShowDetails={openFixtureId && onShowDetails ? () => onShowDetails(openFixtureId) : undefined}
+        open={openFixtureId !== null && !detailOpen}
+        onShowDetails={openFixtureId && onShowDetails ? () => onShowDetails(openFixtureId, markerRef.current ?? undefined) : undefined}
         onOpenChange={(open) => {
           if (open) return;
           setOpenFixtureId(null);
         }}
         timeZone={timeZone}
       />
-      <Text as="span" variant="overline" className="pointer-events-none absolute top-3 left-3 z-6 rounded-control border border-border-default bg-surface-panel px-2.5 py-1.5 text-content-secondary" data-monitoring-map-count="">
-        {mapCount === null ? "지도 배치 정보 확인 불가" : `지도 표시 ${mapCount}대`}
-      </Text>
-      <ul className="pointer-events-none absolute bottom-12 left-3 z-6 m-0 flex max-w-[calc(100%-1.5rem)] list-none flex-wrap justify-start gap-x-3 gap-y-1.5 rounded-control border border-border-default bg-surface-panel p-2 max-compact:bottom-16 max-compact:-translate-y-2.5" aria-label="조명 상태 범례">
-        <li className="inline-flex items-center gap-1 whitespace-nowrap text-fixture-connected"><CircleCheck size={14} aria-hidden="true" /><Text as="span" variant="overline" className="text-fixture-connected">정상</Text></li>
-        <li className="inline-flex items-center gap-1 whitespace-nowrap text-fixture-fault"><TriangleAlert size={14} aria-hidden="true" /><Text as="span" variant="overline" className="text-fixture-fault">장애</Text></li>
-        <li className="inline-flex items-center gap-1 whitespace-nowrap text-fixture-offline"><CircleX size={14} aria-hidden="true" /><Text as="span" variant="overline" className="text-fixture-offline">오프라인</Text></li>
-        <li className="inline-flex items-center gap-1 whitespace-nowrap text-fixture-inspection"><Clock3 size={14} aria-hidden="true" /><Text as="span" variant="overline" className="text-fixture-inspection">상태 확인 대기</Text></li>
-      </ul>
-      <Text as="span" variant="overline" tone="inverse" className="pointer-events-none absolute bottom-3 left-3 z-6 inline-flex items-center gap-1.5 rounded-control bg-surface-inverse px-2.5 py-1.5 max-compact:hidden" data-monitoring-map-pan-hint=""><Hand size={14} aria-hidden="true" />드래그로 이동 · 휠로 확대/축소</Text>
+      {legend.length ? <ul className="pointer-events-none m-0 flex shrink-0 list-none flex-wrap gap-x-3 gap-y-1.5 border-t border-border-default bg-surface-panel px-3 py-2" aria-label="조명 상태 범례">
+        {legend.map(({ state, label, Icon, color }) => <li key={state} className={cn("inline-flex items-center gap-1", color)}><Icon size={14} aria-hidden="true" /><Text as="span" variant="overline" className={color}>{label}</Text></li>)}
+      </ul> : null}
     </div>
   );
 }

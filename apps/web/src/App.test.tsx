@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ApiError, ApiTimeoutError, apiGet, apiPost } from "./api/client";
+import { ApiError, ApiTimeoutError, apiGet, apiPost, apiPut } from "./api/client";
 import type { InitialSiteSetupRequest } from "./api/setup";
 import { dirtyEditorSentinelKey } from "./features/floor-editor/dirty-editor-history";
 import { useFloorEditorStore } from "./features/floor-editor/editor-store";
@@ -55,6 +55,7 @@ const apiState = vi.hoisted(() => ({
   dashboard: null as null | unknown,
   dashboardResponses: [] as Array<() => Promise<unknown>>,
   registrationSession: null as null | RegistrationSession,
+  monitoringIncidents: null as null | unknown,
   commandStatus: null as null | unknown
 }));
 
@@ -118,6 +119,11 @@ vi.mock("./api/client", async (importOriginal) => ({
       const fixtures = dashboard.floors.find((floor) => floor.id === fixturePageMatch[2])?.fixtures ?? [];
       return Promise.resolve({ items: fixtures, nextCursor: null });
     }
+    if (/^\/sites\/[^/]+\/monitoring-incidents\?/.test(path)) {
+      return Promise.resolve(apiState.monitoringIncidents ?? {
+        incidents: [], unreadCount: 0, activeCount: 0, nextCursor: null
+      });
+    }
     const mapSnapshotMatch = path.match(/^\/sites\/([^/]+)\/floors\/([^/]+)\/map-snapshot$/);
     if (mapSnapshotMatch) {
       const dashboard = (apiState.dashboard ?? mockDashboard) as typeof mockDashboard;
@@ -143,7 +149,7 @@ vi.mock("./api/client", async (importOriginal) => ({
         objects: []
       });
     }
-    if (path === "/commands/command-created-1" && apiState.commandStatus) return Promise.resolve({ generatedAt: "2026-09-27T00:00:00.000Z", retainedFrom: "2026-06-27T00:00:00.000Z", retentionEnabled: false, ...apiState.commandStatus as object });
+    if (apiState.commandStatus && path === `/commands/${(apiState.commandStatus as { id: string }).id}`) return Promise.resolve({ generatedAt: "2026-09-27T00:00:00.000Z", retainedFrom: "2026-06-27T00:00:00.000Z", retentionEnabled: false, ...apiState.commandStatus as object });
     const floorEditorMatch = path.match(/^\/floors\/(.+)\/editor-state$/);
     if (floorEditorMatch) {
       const dashboard = (apiState.dashboard ?? mockDashboard) as typeof mockDashboard;
@@ -313,7 +319,8 @@ vi.mock("./api/client", async (importOriginal) => ({
     if (path === "/commands/dimming") return Promise.resolve({ id: "command-created-1", dispatchCount: 1 });
     return Promise.resolve({ status: "accepted" });
   }),
-  apiRequest: vi.fn(() => Promise.resolve({}))
+  apiRequest: vi.fn(() => Promise.resolve({})),
+  apiPut: vi.fn(() => Promise.reject(new Error("Unexpected read receipt write")))
 }));
 
 async function chooseSelect(label: string, option: string) {
@@ -327,6 +334,14 @@ async function chooseSelect(label: string, option: string) {
 async function openMonitoringInspector() {
   fireEvent.click(await screen.findByRole("button", { name: "조명 검색·상세" }));
   return screen.findByRole("dialog", { name: "조명 검색·상세" });
+}
+
+async function openSelectedMonitoringDetail() {
+  const inspector = await openMonitoringInspector();
+  fireEvent.click(within(inspector).getByRole("button", { name: "상세 보기" }));
+  // matchMedia above makes the default App harness compact: details use a sheet.
+  const sheet = await screen.findByRole("dialog", { name: "조명 상세" });
+  return within(sheet).getByRole("complementary", { name: "선택 조명 상세" });
 }
 
 async function selectMapFixture(name: string) {
@@ -347,6 +362,15 @@ function manualApplyAction() {
   return action;
 }
 
+async function requestLogoutThroughSettings() {
+  // Logout now belongs to the eager account region. The real route transition
+  // may abort the Control transport, but its durable request must survive until
+  // the single Shell owner finishes logout; returning tests that same recovery.
+  fireEvent.click(screen.getByRole("link", { name: "설정" }));
+  const account = await screen.findByRole("region", { name: "내 계정" });
+  fireEvent.click(within(account).getByRole("button", { name: "로그아웃" }));
+}
+
 describe("App", () => {
   afterEach(() => {
     authState.user = {
@@ -362,6 +386,7 @@ describe("App", () => {
     apiState.dashboard = null;
     apiState.dashboardResponses = [];
     apiState.registrationSession = null;
+    apiState.monitoringIncidents = null;
     apiState.commandStatus = null;
     window.sessionStorage.clear();
     window.history.replaceState({}, "", "/monitoring");
@@ -605,7 +630,7 @@ describe("App", () => {
       </QueryClientProvider>
     );
 
-    expect(await screen.findByText("물류센터")).toBeInTheDocument();
+    expect(within(await screen.findByRole("region", { name: "현장 전체" })).getByText("물류센터")).toBeInTheDocument();
     expect(apiGet).toHaveBeenCalledWith("/sites/site-2/dashboard");
   });
 
@@ -618,7 +643,7 @@ describe("App", () => {
       </QueryClientProvider>
     );
 
-    await screen.findByText("물류센터");
+    await screen.findByRole("region", { name: "현장 전체" });
 
     await waitFor(() => {
       expect(apiGet).toHaveBeenCalledWith(
@@ -701,12 +726,14 @@ describe("App", () => {
     const siteBadge = await screen.findByTestId("active-site-badge");
     const topbar = siteBadge.closest<HTMLElement>("header");
 
-    expect(siteBadge).toHaveTextContent("Demo Underground Parking");
+    await waitFor(() => expect(siteBadge).toHaveTextContent("Demo Underground Parking"));
     expect(siteBadge).not.toHaveTextContent("B2 주차장");
     expect(topbar).not.toBeNull();
     expect(within(topbar!).queryByText(/게이트웨이 (정상|오프라인|미등록)/)).not.toBeInTheDocument();
     expect(topbar?.querySelector(".eyebrow")).not.toBeInTheDocument();
-    expect(within(topbar!).getByRole("button", { name: "로그아웃" }).querySelector("svg")).toBeInTheDocument();
+    expect(within(topbar!).queryByRole("button", { name: "로그아웃" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("link", { name: "설정" }));
+    expect(within(await screen.findByRole("region", { name: "내 계정" })).getByRole("button", { name: "로그아웃" }).querySelector("svg")).toBeInTheDocument();
   });
 
   it("redirects a pending admin from monitoring to initial settings while preserving siteId", async () => {
@@ -867,9 +894,14 @@ describe("App", () => {
     );
 
     expect(await screen.findByRole("button", { name: "맵 선택" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "전체 조명" })).toBeInTheDocument();
+    expect(screen.getByRole("group", { name: "전체 조명" })).toBeVisible();
     const inspector = await openMonitoringInspector();
-    expect(within(inspector).getByRole("complementary", { name: "선택 조명 상세" })).toBeInTheDocument();
+    expect(screen.queryByRole("complementary", { name: "선택 조명 상세" })).not.toBeInTheDocument();
+    expect(within(inspector).queryByRole("button", { name: "상세 보기" })).not.toBeInTheDocument();
+    await chooseSelect("상세 조명 선택", "B2-L01 · 정상");
+    fireEvent.click(within(inspector).getByRole("button", { name: "상세 보기" }));
+    const detailSheet = await screen.findByRole("dialog", { name: "조명 상세" });
+    expect(within(detailSheet).getByRole("complementary", { name: "선택 조명 상세" })).toHaveTextContent("B2-L01");
     expect(screen.getAllByText("관제 센터").length).toBeGreaterThan(0);
   });
 
@@ -893,11 +925,10 @@ describe("App", () => {
     );
 
     fireEvent.click(await screen.findByRole("button", { name: /^B2-L11 / }));
-    const inspector = await openMonitoringInspector();
-    const detail = within(inspector).getByRole("complementary", { name: "선택 조명 상세" });
+    const detail = await openSelectedMonitoringDetail();
     expect(detail).toHaveTextContent("B2-L11");
     expect(detail).toHaveTextContent("현재 밝기");
-    expect(detail).not.toHaveTextContent(/조명 전용 게이트웨이|RSSI|Hop|Health|정격 전력|명령 성공률/);
+    expect(detail).not.toHaveTextContent(/조명 전용 게이트웨이|gateway-fixture-a|RSSI|Hop|Health|정격 전력|명령 성공률/);
   });
 
   it("disables control and explains the server-provided block reason", async () => {
@@ -958,6 +989,21 @@ describe("App", () => {
       ...mockDashboard,
       gateways: []
     };
+    // One already-read open incident proves the badge uses personal unread,
+    // independently of the unresolved incident count or Gateway context.
+    apiState.monitoringIncidents = {
+      incidents: [{
+        id: "incident-read-1", siteId: mockDashboard.site.id, type: "fixture_stale", status: "open",
+        targetKey: "fixture:read-1", fixtureId: mockDashboard.floors[0].fixtures[0].id, gatewayId: null,
+        openedAt: "2026-10-01T00:00:00.000Z", lastObservedAt: "2026-10-01T00:00:00.000Z",
+        acknowledgedAt: null, resolvedAt: null, acknowledgedByUserId: null, assignedToUserId: null,
+        resolvedByUserId: null, acknowledgedBy: null, assignedTo: null, resolvedBy: null,
+        resolutionKind: null, resolutionNote: null,
+        createdAt: "2026-10-01T00:00:00.000Z", updatedAt: "2026-10-01T00:00:00.000Z",
+        target: { kind: "fixture", id: mockDashboard.floors[0].fixtures[0].id, name: "B2-L01", floorId: mockDashboard.floors[0].id },
+        isRead: true, readAt: "2026-10-01T01:00:00.000Z", isDismissed: false, dismissedAt: null
+      }], unreadCount: 0, activeCount: 1, nextCursor: null
+    };
     const queryClient = new QueryClient();
     render(
       <QueryClientProvider client={queryClient}>
@@ -968,11 +1014,19 @@ describe("App", () => {
     const topbar = (await screen.findByRole("heading", { name: "모니터링" })).closest<HTMLElement>("header");
     expect(topbar).not.toBeNull();
     expect(within(topbar!).queryByTestId("gateway-status-badge")).not.toBeInTheDocument();
-    const statusTrigger = within(topbar!).getByRole("button", { name: "상태 센터, 미해결 0건" });
+    const statusTrigger = await within(topbar!).findByRole("button", { name: "알람센터, 미읽음 0건" });
+    expect(apiGet).toHaveBeenCalledWith(`/sites/${mockDashboard.site.id}/monitoring-incidents?limit=1&view=personal`, { signal: expect.any(AbortSignal) });
+    expect(apiPut).not.toHaveBeenCalled();
     fireEvent.click(statusTrigger);
-    const statusDrawer = await screen.findByRole("dialog", { name: "현재 세션 상태" });
-    expect(statusDrawer).toHaveTextContent("Gateway 연결");
-    expect(statusDrawer).toHaveTextContent("게이트웨이 미등록");
+    const statusDrawer = await screen.findByRole("dialog", { name: "알람센터" });
+    const connectionSummary = within(statusDrawer).getByRole("list", { name: "현재 연결 요약" });
+    expect(connectionSummary).toHaveTextContent("Gateway 연결");
+    expect(connectionSummary).toHaveTextContent("게이트웨이 미등록");
+    const alarmList = within(statusDrawer).getByRole("list", { name: "현장 알람 목록" });
+    expect(await within(alarmList).findByText("B2-L01")).toBeInTheDocument();
+    expect(within(alarmList).getByText("미해결")).toBeInTheDocument();
+    expect(statusTrigger).toHaveAccessibleName("알람센터, 미읽음 0건");
+    expect(apiPut).not.toHaveBeenCalled();
     fireEvent.keyDown(statusDrawer, { key: "Escape" });
     await waitFor(() => expect(statusTrigger).toHaveFocus());
 
@@ -1034,14 +1088,21 @@ describe("App", () => {
       </QueryClientProvider>
     );
 
-    await screen.findByRole("button", { name: "맵 선택" });
+    fireEvent.click(await screen.findByRole("button", { name: "B2-L02 정상 65%" }));
+    expect(await openSelectedMonitoringDetail()).toHaveTextContent("B2-L02");
+    fireEvent.click(screen.getByRole("button", { name: "조명 상세 닫기" }));
+    // Finish the sheet's deferred focus return before keyboard floor selection.
+    await waitFor(() => expect(screen.getByRole("button", { name: "조명 검색·상세" })).toHaveFocus());
     await chooseSelect("맵 선택", "B1");
     expect(await screen.findByRole("button", { name: "B1-L01 정상 50%" })).toBeInTheDocument();
+    expect(screen.queryByRole("complementary", { name: "선택 조명 상세" })).not.toBeInTheDocument();
+    const unselectedInspector = await openMonitoringInspector();
+    expect(within(unselectedInspector).queryByRole("button", { name: "상세 보기" })).not.toBeInTheDocument();
+    fireEvent.click(within(unselectedInspector).getByRole("button", { name: "조명 검색·상세 닫기" }));
 
     fireEvent.click(screen.getByRole("button", { name: "B1-L02 정상 55%" }));
-    const inspector = await openMonitoringInspector();
-    expect(await within(inspector).findByRole("heading", { name: "B1-L02" })).toBeInTheDocument();
-    const detail = within(inspector).getByRole("complementary", { name: "선택 조명 상세" });
+    const detail = await openSelectedMonitoringDetail();
+    expect(within(detail).getByRole("heading", { name: "B1-L02" })).toBeInTheDocument();
     expect(detail).toHaveTextContent("55%");
     expect(detail).toHaveTextContent("조치 불필요");
     expect(detail).not.toHaveTextContent(/-56 dBm|99%|RSSI|명령 성공률/);
@@ -1091,10 +1152,11 @@ describe("App", () => {
     );
 
     expect(screen.queryByRole("heading", { name: "점검 큐" })).not.toBeInTheDocument();
-    await openMonitoringInspector();
+    const inspector = await openMonitoringInspector();
     await chooseSelect("상세 조명 선택", "B2-L-OFFLINE · 오프라인");
-
-    expect(await screen.findByRole("heading", { name: "B2-L-OFFLINE" })).toBeInTheDocument();
+    fireEvent.click(within(inspector).getByRole("button", { name: "상세 보기" }));
+    const sheet = await screen.findByRole("dialog", { name: "조명 상세" });
+    expect(within(sheet).getByRole("heading", { name: "B2-L-OFFLINE" })).toBeInTheDocument();
   });
 
   it("does not expose floor editing from monitoring to viewers", async () => {
@@ -1117,8 +1179,8 @@ describe("App", () => {
 
     expect(await screen.findByRole("button", { name: "맵 선택" })).toBeInTheDocument();
     expect(screen.getByRole("region", { name: "층 도면" })).toBeInTheDocument();
-    const inspector = await openMonitoringInspector();
-    expect(within(inspector).getByRole("complementary", { name: "선택 조명 상세" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "B2-L02 정상 65%" }));
+    expect(await openSelectedMonitoringDetail()).toHaveTextContent("B2-L02");
     expect(screen.queryByRole("button", { name: "맵 편집" })).not.toBeInTheDocument();
   });
 
@@ -1212,7 +1274,13 @@ describe("App", () => {
 
     fireEvent.click(await screen.findByRole("link", { name: "제어" }));
     await selectSavedGroup("B2 Entrance Zone");
-    fireEvent.click(screen.getByRole("button", { name: "30%" }));
+    const brightnessInput = screen.getByRole("textbox", { name: "밝기 수치" });
+    expect(screen.getAllByRole("textbox", { name: "밝기 수치" })).toHaveLength(1);
+    fireEvent.input(brightnessInput, { target: { value: "30" } });
+    fireEvent.blur(brightnessInput);
+    expect(screen.getByRole("slider", { name: "밝기" })).toHaveValue("30");
+    expect(vi.mocked(apiPost).mock.calls.filter(([path]) => path === "/commands/dimming")).toHaveLength(0);
+    expect(manualApplyAction()).toBeEnabled();
     fireEvent.click(manualApplyAction());
 
     await waitFor(() =>
@@ -1227,6 +1295,7 @@ describe("App", () => {
       }), { signal: expect.any(AbortSignal), timeoutMs: 30_000 })
     );
     expect(await screen.findByText("명령을 전송했습니다. 장비 응답을 기다리는 중입니다.")).toBeInTheDocument();
+    expect(vi.mocked(apiPost).mock.calls.filter(([path]) => path === "/commands/dimming")).toHaveLength(1);
   });
 
   it("shows fixture-level partial failure from command status polling", async () => {
@@ -1276,6 +1345,7 @@ describe("App", () => {
       brightness: 70,
       clientRequestId: expect.any(String)
     }), { signal: expect.any(AbortSignal), timeoutMs: 30_000 }));
+    fireEvent.click(await screen.findByRole("button", { name: "상세 보기" }));
     expect(await screen.findByText("일부 조명 적용 실패", { selector: "[data-command-progress-card] strong" }, { timeout: 3000 })).toBeInTheDocument();
     expect(screen.getByText("2 / 2 처리")).toBeInTheDocument();
     expect(screen.getByText("B2-L02: 장비 응답 오류")).toBeInTheDocument();
@@ -1436,7 +1506,7 @@ describe("App", () => {
       const commandSignal = vi.mocked(apiPost).mock.calls[0][2]?.signal;
       const recoveryKey = activeCommandStorageKey("user-1", mockDashboard.site.id);
 
-      fireEvent.click(screen.getByRole("button", { name: "로그아웃" }));
+      await requestLogoutThroughSettings();
 
       expect(commandSignal?.aborted).toBe(true);
       expect(sessionStorage.getItem(recoveryKey)).toContain("clientRequestId");
@@ -1485,7 +1555,8 @@ describe("App", () => {
       { signal: expect.any(AbortSignal), timeoutMs: 30_000 }
     ));
 
-    fireEvent.click(screen.getByRole("button", { name: "로그아웃" }));
+    await requestLogoutThroughSettings();
+    fireEvent.click(screen.getByRole("link", { name: "제어" }));
 
     const retryButton = await screen.findByRole("button", { name: "동일 요청 확인(새 제어 아님)" });
     expect(retryButton).toBeDisabled();
@@ -1524,7 +1595,9 @@ describe("App", () => {
       { signal: expect.any(AbortSignal), timeoutMs: 30_000 }
     ));
 
-    fireEvent.click(screen.getByRole("button", { name: "로그아웃" }));
+    await requestLogoutThroughSettings();
+    const account = screen.getByRole("region", { name: "내 계정" });
+    fireEvent.click(screen.getByRole("link", { name: "제어" }));
     expect(await screen.findByRole("button", { name: "동일 요청 확인(새 제어 아님)" })).toBeDisabled();
 
     await act(async () => {
@@ -1532,9 +1605,12 @@ describe("App", () => {
       await Promise.resolve();
     });
 
-    expect((await screen.findByText(/로그아웃에 실패했습니다/)).closest('[role="alert"]')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("link", { name: "설정" }));
+    expect(await within(await screen.findByRole("region", { name: "내 계정" })).findByRole("alert")).toHaveTextContent("로그아웃에 실패했습니다");
+    expect(account).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("link", { name: "제어" }));
     expect(apiGet).toHaveBeenCalledWith("/auth/me", { timeoutMs: 8_000 });
-    const retryButton = screen.getByRole("button", { name: "동일 요청 확인(새 제어 아님)" });
+    const retryButton = await screen.findByRole("button", { name: "동일 요청 확인(새 제어 아님)" });
     expect(retryButton).toBeEnabled();
     fireEvent.click(retryButton);
 
@@ -1545,7 +1621,9 @@ describe("App", () => {
   });
 
   it.each(["success", "failure", "abort"])("recovers the third status-check after failed logout with transport result %s", async (lateResult) => {
-    const commandId = "command-created-1";
+    // A Settings→Control remount restores durable identities, whose production
+    // contract is RFC4122 UUID rather than the old mounted-only fake ID.
+    const commandId = "00000000-0000-4000-8000-000000000041";
     const unknown = {
       id: commandId, stage: "verification_required", outcome: "unknown", verificationAttemptCount: 2,
       dispatchCount: 1, completedFixtureCount: 1, totalFixtureCount: 1, errorMessage: null, dispatches: []
@@ -1581,7 +1659,8 @@ describe("App", () => {
     await selectMapFixture("B2-L01");
     fireEvent.click(manualApplyAction());
     fireEvent.click(await screen.findByRole("button", { name: "실제 상태 확인" }));
-    fireEvent.click(screen.getByRole("button", { name: "로그아웃" }));
+    await requestLogoutThroughSettings();
+    fireEvent.click(screen.getByRole("link", { name: "제어" }));
     expect(checkSignal?.aborted).toBe(true);
     apiState.commandStatus = { ...unknown, verificationAttemptCount: 3, dispatches: [{ id: "third-check", kind: "status_check", verificationAttempt: 3, status: "timed_out", gateway: { id: "gw", name: "GW" }, results: [], errorMessage: null }] };
     await act(async () => {

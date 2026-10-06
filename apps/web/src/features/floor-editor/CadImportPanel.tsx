@@ -19,7 +19,7 @@ import {
 } from "../../api/floor-editor";
 import { listFloorImportRegions, selectFloorImportRegion } from "../../api/queries";
 import { ApiError } from "../../api/client";
-import { Button, Checkbox, ConfirmDialog, FeedbackState, FileField, Heading, IconButton, PaginationBar, Popover, Text, type PaginationPageSize } from "../../components/ui";
+import { Button, Checkbox, ConfirmDialog, FeedbackState, FileField, FilterPanel, Heading, IconButton, PageSizeSelect, PaginationBar, Popover, Text, type DefaultPaginationPageSize } from "../../components/ui";
 import type {
   CadImportReviewState,
   CadMapResetSummary,
@@ -99,7 +99,7 @@ export function CadImportPanel({
   const [confirmApply, setConfirmApply] = useState(false);
   const [regions, setRegions] = useState<FloorImportRegionListResponse | null>(null);
   const [regionPage, setRegionPage] = useState(1);
-  const [regionPageSize, setRegionPageSize] = useState<PaginationPageSize>(20);
+  const [regionPageSize, setRegionPageSize] = useState<DefaultPaginationPageSize>(20);
   const [selectedRegionId, setSelectedRegionId] = useState<string | null>(null);
   const [activePreviewRegionId, setActivePreviewRegionId] = useState<string | null>(null);
   const [progressHighWater, setProgressHighWater] = useState(0);
@@ -734,6 +734,13 @@ export function CadImportPanel({
       </div> : null}
 
       {needsRegionSelection ? <>
+        <FilterPanel label="도면 영역 목록" mode="popover" variant="compact" activeFilterCount={Number(regionPageSize !== 20)}
+          summary={<Text variant="caption">페이지당 {regionPageSize}개</Text>}
+          filterReset={<Button type="button" variant="ghost" size="sm"
+            onClick={() => { setRegionPageSize(20); setRegionPage(1); }}>필터 초기화</Button>}>
+          <PageSizeSelect value={regionPageSize} options={[10, 20, 50, 100]} isDisabled={disabled || isDirty || action !== "idle"}
+            onChange={size => { setRegionPageSize(size); setRegionPage(1); }} />
+        </FilterPanel>
         <div className="grid max-h-[28rem] gap-2 overflow-y-auto pr-1" role="radiogroup" aria-label="가져올 도면 영역">
           {pageRegions.map((region, pageIndex) => {
             const index = regionOffset + pageIndex;
@@ -776,7 +783,8 @@ export function CadImportPanel({
             </div>;
           })}
         </div>
-        {rankedRegions.length > 20 ? <PaginationBar page={currentRegionPage} pageSize={regionPageSize}
+        {rankedRegions.length > 10 ? <PaginationBar page={currentRegionPage} pageSize={regionPageSize} showPageSizeSelector={false}
+          className="[&_button]:min-h-13 [&_button]:min-w-13"
           totalCount={rankedRegions.length} hasPrevious={currentRegionPage > 1}
           hasNext={regionOffset + regionPageSize < rankedRegions.length}
           onPrevious={() => setRegionPage(currentRegionPage - 1)} onNext={() => setRegionPage(currentRegionPage + 1)}

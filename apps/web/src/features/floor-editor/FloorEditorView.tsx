@@ -1,11 +1,12 @@
 import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { Bell, CircleCheck, PanelLeft, PanelRight, RotateCcw, Save, TriangleAlert, Undo2, Redo2, ZoomIn, ZoomOut, Maximize, Focus, X } from "lucide-react";
+import { Bell, CircleCheck, PanelLeft, PanelRight, RotateCcw, Save, TriangleAlert, Undo2, Redo2, X } from "lucide-react";
 import { type DragEvent, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import type { AuthUser } from "../../api/auth";
 import { ApiError } from "../../api/client";
-import { Button, Checkbox, ConfirmDialog, FeedbackState, Heading, IconButton, IconTooltipButton, ModalDialog, SelectBox, SidePanel, Text, useSessionStatus, useSessionToast, type SessionStatusItem } from "../../components/ui";
+import { Button, Checkbox, ConfirmDialog, FeedbackState, Heading, IconButton, IconTooltipButton, ModalDialog, SelectBox, SidePanel, Text, formatTimestamp, useSessionStatus, useSessionToast, type SessionStatusItem } from "../../components/ui";
+import { MapCameraControls } from "../../components/ui/maps/MapCameraControls";
 import {
   listFloorEditorRevisions,
   getAppliedFloorImportOverlay,
@@ -474,7 +475,7 @@ export function FloorEditorView({
   }
 
   return (
-    <section className="flex h-full min-h-0 min-w-0 flex-col gap-2 overflow-hidden">
+    <section className="flex h-full min-h-min min-w-0 flex-col gap-2">
       <header className="shrink-0 [&_[role=tooltip]]:pointer-events-none" data-testid="editor-toolbar">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="min-w-0">
@@ -491,11 +492,10 @@ export function FloorEditorView({
           <IconTooltipButton size="sm" ref={toolsToggle} icon={PanelLeft} label="도구 및 조명 패널" aria-expanded={toolsVisible} aria-controls="editor-tools-panel" onClick={() => togglePanel("tools")} />
           <IconTooltipButton size="sm" icon={Undo2} label="실행 취소" disabled={isSaveOrRestoreBlocked || !past.length} onClick={() => void map.history("undo")} />
           <IconTooltipButton size="sm" icon={Redo2} label="다시 실행" disabled={isSaveOrRestoreBlocked || !future.length} onClick={() => void map.history("redo")} />
-          <IconTooltipButton size="sm" icon={ZoomOut} label="축소" onClick={() => setZoom(zoom / 1.1)} />
-          <Button variant="secondary" className="h-11 w-16 shrink-0 px-1" aria-label="100%" title="100%" onClick={resetZoom}>{Math.round(zoom * 100)}%</Button>
-          <IconTooltipButton size="sm" icon={ZoomIn} label="확대" onClick={() => setZoom(zoom * 1.1)} />
-          <IconTooltipButton size="sm" icon={Maximize} label="맵 맞춤" onClick={() => useFloorEditorStore.getState().fit(false, visibleCadViewport ?? undefined)} />
-          <IconTooltipButton size="sm" icon={Focus} label="선택 맞춤" onClick={() => map.document ? map.fitSelection() : useFloorEditorStore.getState().fit(true)} />
+          <MapCameraControls className="shrink-0 flex-nowrap" zoomPercent={Math.round(zoom * 100)} onZoomOut={() => setZoom(zoom / 1.1)} onZoomIn={() => setZoom(zoom * 1.1)}
+            onResetZoom={resetZoom} onFit={() => useFloorEditorStore.getState().fit(false, visibleCadViewport ?? undefined)}
+            onFitSelection={() => map.document ? map.fitSelection() : useFloorEditorStore.getState().fit(true)}
+            canZoomOut={zoom > 0.001} canZoomIn={zoom < 4} fitLabel="맵 맞춤" />
           <IconTooltipButton size="sm" ref={informationToggle} icon={PanelRight} label="편집 정보 패널" aria-expanded={informationVisible} aria-controls="editor-information-panel" onClick={() => togglePanel("information")} />
           <IconTooltipButton size="sm" icon={Bell} label="편집 복구" disabled={!notices.some(item => item.action)} onClick={() => setFeedbackOpen(true)} />
         </div>
@@ -545,7 +545,9 @@ export function FloorEditorView({
 
       {/* Canvas errors must stay actionable above an open narrow panel. Bound
           that notice to 80px and reserve 96px including its existing top inset. */}
-      <div className={`relative flex min-h-0 min-w-0 flex-1 gap-3 overflow-hidden ${isNarrowLayout ? "[&:has(main_[role=alert])>#editor-tools-panel]:top-16 [&:has(main_[role=alert])>#editor-tools-panel]:mt-8 [&:has(main_[role=alert])>#editor-information-panel]:top-16 [&:has(main_[role=alert])>#editor-information-panel]:mt-8" : ""}`} data-testid="floor-editor-layout" onDrop={finishPanelDrag}>
+      {/* Preserve 240px of canvas content plus its two border pixels. This
+          intrinsic minimum must flow through the route to document scrolling. */}
+      <div className={`relative flex min-h-[242px] min-w-0 flex-1 gap-3 overflow-hidden ${isNarrowLayout ? "[&:has(main_[role=alert])>#editor-tools-panel]:top-16 [&:has(main_[role=alert])>#editor-tools-panel]:mt-8 [&:has(main_[role=alert])>#editor-information-panel]:top-16 [&:has(main_[role=alert])>#editor-information-panel]:mt-8" : ""}`} data-testid="floor-editor-layout" onDrop={finishPanelDrag}>
         {/* Keep panels mounted while collapsed: import jobs, form drafts and the
             fixture drag registry must outlive a layout-only visibility change. */}
         {/* Opacity/pointer-events expose the drop surface without removing or
@@ -709,7 +711,7 @@ function RevisionPanel({
               <div className="grid min-w-0 gap-0.5">
                 <Text as="strong" variant="body-sm" weight="semibold">리비전 {revision.revision}</Text>
                 <Text as="span" variant="caption" tone="secondary">{revision.actor.displayName}</Text>
-                <Text as="time" variant="caption" tone="secondary" dateTime={revision.createdAt}>{formatRevisionTime(revision.createdAt)}</Text>
+                <Text as="time" variant="caption" tone="secondary" dateTime={revision.createdAt}>{formatTimestamp(revision.createdAt)}</Text>
                 <Text as="span" variant="caption" tone="secondary">변경 {revisionChangeCount(revision.changeSummary)}건</Text>
               </div>
               {canRestore ? (
@@ -743,10 +745,6 @@ function revisionChangeCount(summary: Record<string, unknown>) {
     if (typeof value === "number") return total + value;
     return key === "floorPlanChanged" && value === true ? total + 1 : total;
   }, 0);
-}
-
-function formatRevisionTime(createdAt: string) {
-  return new Intl.DateTimeFormat("ko-KR", { dateStyle: "medium", timeStyle: "short" }).format(new Date(createdAt));
 }
 
 async function invalidateEditorQueries(queryClient: ReturnType<typeof useQueryClient>, state: FloorEditorState) {

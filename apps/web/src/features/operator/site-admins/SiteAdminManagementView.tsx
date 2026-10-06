@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { CircleAlert, CircleCheck, Clock3, KeyRound, Pencil, Plus, Trash2, UserPlus, UsersRound } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import {
   assignSiteAdmin,
   createSiteAdmin,
@@ -12,11 +12,12 @@ import {
   type SiteAdminSummary
 } from "../../../api/operator-site-admins";
 import { Button } from "../../../components/ui/Button";
-import { Card } from "../../../components/ui/Card";
+import { DataGrid, type DataGridColumn } from "../../../components/ui/DataGrid";
 import { FeedbackState } from "../../../components/ui/FeedbackState";
 import { MetricCard } from "../../../components/ui/MetricCard";
 import { PageHeader } from "../../../components/ui/PageHeader";
 import { StatusBadge } from "../../../components/ui/StatusBadge";
+import { formatTimestamp } from "../../../components/ui";
 import { DeleteSiteDialog } from "./DeleteSiteDialog";
 import { ResetAdminPasswordDialog } from "./ResetAdminPasswordDialog";
 import { SiteAdminFormDialog } from "./SiteAdminFormDialog";
@@ -28,19 +29,12 @@ type DialogState =
   | { type: "reset"; admin: NonNullable<SiteAdminSummary["admin"]> }
   | { type: "delete"; site: SiteAdminSummary };
 
-const compactCollectionQuery = "(max-width: 759px)";
-
 export function SiteAdminManagementView() {
   const queryClient = useQueryClient();
   const [dialog, setDialog] = useState<DialogState | null>(null);
   const [returnFocusElement, setReturnFocusElement] = useState<HTMLElement | null>(null);
   const createCommandRef = useRef<HTMLButtonElement>(null);
   const [notice, setNotice] = useState("");
-  const [isCompactCollection, setIsCompactCollection] = useState(() => (
-    typeof window !== "undefined" && typeof window.matchMedia === "function"
-      ? window.matchMedia(compactCollectionQuery).matches
-      : false
-  ));
   const siteAdmins = useQuery({ queryKey: operatorSiteAdminsQueryKey, queryFn: listSiteAdmins });
   const summaries = useMemo(() => [
     { label: "운영 현장", value: siteAdmins.data?.length ?? 0, tone: "primary" as const, icon: UsersRound },
@@ -48,14 +42,6 @@ export function SiteAdminManagementView() {
     { label: "관리자 계정", value: siteAdmins.data?.filter((site) => site.admin).length ?? 0, tone: "neutral" as const, icon: UserPlus },
     { label: "확인 필요", value: siteAdmins.data?.filter((site) => site.installationStatus !== "installed" || !site.admin || site.admin.status !== "active").length ?? 0, tone: "warning" as const, icon: CircleAlert }
   ], [siteAdmins.data]);
-
-  useEffect(() => {
-    if (typeof window.matchMedia !== "function") return;
-    const media = window.matchMedia(compactCollectionQuery);
-    const update = (event: MediaQueryListEvent) => setIsCompactCollection(event.matches);
-    media.addEventListener("change", update);
-    return () => media.removeEventListener("change", update);
-  }, []);
 
   function openDialog(next: DialogState, trigger: HTMLElement) {
     setNotice("");
@@ -71,6 +57,17 @@ export function SiteAdminManagementView() {
     setNotice(message);
     await queryClient.invalidateQueries({ queryKey: operatorSiteAdminsQueryKey });
   }
+
+  const columns: readonly DataGridColumn<SiteAdminSummary>[] = [
+    { id: "customer", header: "고객사", minWidth: 140, renderCell: site => site.customerName },
+    { id: "site", header: "현장", minWidth: 160, renderCell: site => site.siteName },
+    { id: "installation", header: "설치 상태", minWidth: 110, align: "center", renderCell: site => <StatusBadge tone={site.installationStatus === "installed" ? "success" : "warning"} icon={site.installationStatus === "installed" ? CircleCheck : Clock3}>{site.installationStatus === "installed" ? "설치 완료" : "설치 대기"}</StatusBadge> },
+    { id: "name", header: "관리자 이름", minWidth: 130, renderCell: site => site.admin?.name ?? "관리자 미지정" },
+    { id: "login", header: "로그인 아이디", minWidth: 150, renderCell: site => site.admin?.loginId ?? "-" },
+    { id: "status", header: "계정 상태", minWidth: 110, align: "center", renderCell: site => site.admin ? <StatusBadge tone={site.admin.status === "active" ? "success" : "danger"} icon={site.admin.status === "active" ? CircleCheck : CircleAlert}>{site.admin.status === "active" ? "활성" : "비활성"}</StatusBadge> : "-" },
+    { id: "updated", header: "최종 변경", minWidth: 180, renderCell: site => site.admin ? formatTimestamp(site.admin.updatedAt) : "-" },
+    { id: "actions", header: "작업", minWidth: 250, align: "center", renderCell: site => <SiteAdminActions site={site} onOpen={openDialog} /> }
+  ];
 
   return (
     <section className="grid gap-5" aria-label="현장 관리자 계정">
@@ -94,52 +91,8 @@ export function SiteAdminManagementView() {
       {siteAdmins.error ? (
         <FeedbackState tone="danger" icon={CircleAlert} title="현장 관리자 목록을 불러오지 못했습니다." action={<Button type="button" onClick={() => void siteAdmins.refetch()}>다시 시도</Button>} />
       ) : null}
-      {!siteAdmins.isLoading && !siteAdmins.error ? (
-        isCompactCollection ? (
-          <ul className="m-0 grid list-none gap-3 p-0" aria-label="현장 관리자 계정 카드 목록">
-            {siteAdmins.data?.map((site) => {
-              const admin = site.admin;
-              return (
-                <li key={site.siteId}>
-                  <Card className="grid gap-4 p-4">
-                    <div className="grid gap-1">
-                      <span className="text-label font-bold text-content-secondary">{site.customerName}</span>
-                      <h2 className="m-0 text-card-title font-bold text-content-primary">{site.siteName}</h2>
-                    </div>
-                    <div className="flex flex-wrap gap-2">
-                      <StatusBadge tone={site.installationStatus === "installed" ? "success" : "warning"} icon={site.installationStatus === "installed" ? CircleCheck : Clock3}>
-                        {site.installationStatus === "installed" ? "설치 완료" : "설치 대기"}
-                      </StatusBadge>
-                      {admin ? <StatusBadge tone={admin.status === "active" ? "success" : "danger"} icon={admin.status === "active" ? CircleCheck : CircleAlert}>{admin.status === "active" ? "활성" : "비활성"}</StatusBadge> : null}
-                    </div>
-                    <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-2 text-body-sm">
-                      <dt className="font-bold text-content-secondary">관리자 이름</dt><dd className="m-0">{admin?.name ?? "관리자 미지정"}</dd>
-                      <dt className="font-bold text-content-secondary">로그인 아이디</dt><dd className="m-0 break-all">{admin?.loginId ?? "-"}</dd>
-                      <dt className="font-bold text-content-secondary">최종 변경</dt><dd className="m-0">{admin ? formatUpdatedAt(admin.updatedAt) : "-"}</dd>
-                    </dl>
-                    <SiteAdminActions site={site} onOpen={openDialog} />
-                  </Card>
-                </li>
-              );
-            })}
-            {siteAdmins.data?.length === 0 ? <li><Card className="p-6 text-center text-content-secondary">관리할 현장이 없습니다.</Card></li> : null}
-          </ul>
-        ) : (
-          <Card className="overflow-x-auto" tabIndex={0} aria-label="현장 관리자 계정 표">
-            <table className="w-full min-w-5xl border-collapse text-body-sm">
-              <thead>
-                <tr>
-                  {['고객사', '현장', '설치 상태', '관리자 이름', '로그인 아이디', '계정 상태', '최종 변경', '작업'].map((column) => <th className={tableHeaderClass} key={column} scope="col">{column}</th>)}
-                </tr>
-              </thead>
-              <tbody>
-                {siteAdmins.data?.map((site) => <SiteAdminRow key={site.siteId} site={site} onOpen={openDialog} />)}
-                {siteAdmins.data?.length === 0 ? <tr><td colSpan={8} className={`${tableCellClass} h-40 text-center text-content-secondary`}>관리할 현장이 없습니다.</td></tr> : null}
-              </tbody>
-            </table>
-          </Card>
-        )
-      ) : null}
+      {!siteAdmins.isLoading && !siteAdmins.error ? <DataGrid caption="현장 관리자 계정 표" rows={siteAdmins.data ?? []} columns={columns}
+        getRowKey={site => site.siteId} emptyState="관리할 현장이 없습니다." /> : null}
 
       {dialog?.type === "create" ? <SiteAdminFormDialog mode="create" returnFocusElement={returnFocusElement} fallbackFocusElement={createCommandRef.current} onCreate={createSiteAdmin} onAssign={assignSiteAdmin} onUpdate={updateSiteAdmin} onSuccess={complete} onClose={closeDialog} /> : null}
       {dialog?.type === "assign" ? <SiteAdminFormDialog mode="assign" site={dialog.site} returnFocusElement={returnFocusElement} fallbackFocusElement={createCommandRef.current} onCreate={createSiteAdmin} onAssign={assignSiteAdmin} onUpdate={updateSiteAdmin} onSuccess={complete} onClose={closeDialog} /> : null}
@@ -147,24 +100,6 @@ export function SiteAdminManagementView() {
       {dialog?.type === "reset" ? <ResetAdminPasswordDialog admin={dialog.admin} returnFocusElement={returnFocusElement} fallbackFocusElement={createCommandRef.current} onReset={resetSiteAdminPassword} onSuccess={() => complete("관리자 비밀번호를 재설정했습니다.")} onClose={closeDialog} /> : null}
       {dialog?.type === "delete" ? <DeleteSiteDialog site={dialog.site} returnFocusElement={returnFocusElement} fallbackFocusElement={createCommandRef.current} onDelete={deleteSiteAdmin} onSuccess={() => complete("현장과 관련 데이터를 영구 삭제했습니다.")} onClose={closeDialog} /> : null}
     </section>
-  );
-}
-
-function SiteAdminRow({ site, onOpen }: { site: SiteAdminSummary; onOpen: (dialog: DialogState, trigger: HTMLElement) => void }) {
-  const admin = site.admin;
-  return (
-    <tr>
-      <td className={`${tableCellClass} font-bold text-content-primary`}>{site.customerName}</td>
-      <td className={`${tableCellClass} font-bold text-content-primary`}>{site.siteName}</td>
-      <td className={tableCellClass}><StatusBadge tone={site.installationStatus === "installed" ? "success" : "warning"} icon={site.installationStatus === "installed" ? CircleCheck : Clock3}>{site.installationStatus === "installed" ? "설치 완료" : "설치 대기"}</StatusBadge></td>
-      <td className={`${tableCellClass} font-bold text-content-primary`}>{admin?.name ?? "관리자 미지정"}</td>
-      <td className={tableCellClass}>{admin?.loginId ?? "-"}</td>
-      <td className={tableCellClass}>{admin ? <StatusBadge tone={admin.status === "active" ? "success" : "danger"} icon={admin.status === "active" ? CircleCheck : CircleAlert}>{admin.status === "active" ? "활성" : "비활성"}</StatusBadge> : "-"}</td>
-      <td className={tableCellClass}>{admin ? formatUpdatedAt(admin.updatedAt) : "-"}</td>
-      <td className={tableCellClass}>
-        <SiteAdminActions site={site} onOpen={onOpen} />
-      </td>
-    </tr>
   );
 }
 
@@ -183,13 +118,4 @@ function SiteAdminActions({ site, onOpen }: {
       <Button className="max-compact:min-h-12" size="sm" variant="danger" type="button" aria-label={`${site.siteName} 현장 전체 삭제`} onClick={(event) => onOpen({ type: "delete", site }, event.currentTarget)}><Trash2 size={15} aria-hidden="true" /> 현장 전체 삭제</Button>
     </div>
   );
-}
-
-const tableHeaderClass = "border-b border-border-default bg-surface-inset px-3.5 py-3 text-left align-middle text-label font-bold whitespace-nowrap text-content-secondary";
-const tableCellClass = "border-b border-border-default px-3.5 py-3 text-left align-middle whitespace-nowrap";
-
-function formatUpdatedAt(value: string) {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "-";
-  return new Intl.DateTimeFormat("ko-KR", { dateStyle: "medium", timeStyle: "short" }).format(date);
 }

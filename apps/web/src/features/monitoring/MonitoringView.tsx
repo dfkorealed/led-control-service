@@ -6,7 +6,7 @@ import { useDashboard, useFloorFixtures, useFloorMapSnapshot, type Dashboard } f
 import { useCurrentUser } from "../../api/auth";
 import { principalKey } from "../../api/principal-cache";
 import { waitForMonitoringRefresh, type MonitoringRefreshResult } from "../../api/monitoring-refresh";
-import { Button, DrawerDialog, FeedbackState, Heading, SelectBox, Text, cn, useWorkspaceFocus, useSessionStatus, type SessionStatusItem } from "../../components/ui";
+import { Button, DetailSheet, DrawerDialog, FeedbackState, Heading, SelectBox, Text, cn, useWorkspaceFocus, useSessionStatus, type SessionStatusItem } from "../../components/ui";
 import { InstallationPending } from "../setup/SetupWizard";
 import { FloorMap } from "./FloorMap";
 import { MonitoringFixtureFinder } from "./MonitoringFixtureFinder";
@@ -77,6 +77,16 @@ function MonitoringDashboard({ data, userRole, siteId, refreshDashboard }: Monit
   const [freshnessRevision, setFreshnessRevision] = useState(0);
   const [isLogDrawerOpen, setIsLogDrawerOpen] = useState(false);
   const [isInspectorOpen, setIsInspectorOpen] = useState(false);
+  const [isDetailOpen, setIsDetailOpen] = useState(false);
+  const [isDesktop, setIsDesktop] = useState(() => window.matchMedia?.("(min-width: 1024px)").matches ?? false);
+  const detailReturnRef = useRef<HTMLElement | null>(null);
+  const detailScopeRef = useRef<string | null>(null);
+  const detailRef = useRef<HTMLElement | null>(null);
+  const detailBodyRef = useRef<HTMLDivElement | null>(null);
+  const sheetDetailRef = useRef<HTMLElement | null>(null);
+  const sheetDetailBodyRef = useRef<HTMLDivElement | null>(null);
+  const detailScrollRef = useRef(0);
+  const detailScrollRestoringRef = useRef(false);
   const [finderDefaultOpen, setFinderDefaultOpen] = useState(false);
   const [isPinOpen, setIsPinOpen] = useState(false);
   const workspaceFocus = useWorkspaceFocus();
@@ -89,6 +99,7 @@ function MonitoringDashboard({ data, userRole, siteId, refreshDashboard }: Monit
   const inspectorTriggerRef = useRef<HTMLButtonElement>(null);
   const refreshButtonRef = useRef<HTMLButtonElement>(null);
   const floor = data.floors.find((item) => item.id === selectedFloorId) ?? data.floors[0];
+  const detailScope = JSON.stringify([principal, siteId ?? data.site.id, floor?.id]);
   const activityQuery = useMonitoringActivity({ principal, siteId: siteId ?? data.site.id, floorId: floor?.id });
   const fixtureQuery = useFloorFixtures(floor?.id, siteId ?? data.site.id);
   const mapQuery = useFloorMapSnapshot(floor?.id, siteId ?? data.site.id);
@@ -103,10 +114,9 @@ function MonitoringDashboard({ data, userRole, siteId, refreshDashboard }: Monit
   const normalizedSearch = fixtureSearch.trim().toLocaleLowerCase("ko-KR");
   const filteredFixtures = fixtures.filter(fixture => matchesMonitoringFixtureSearch(fixture, normalizedSearch)
     && matchesMonitoringFixture(fixture, fixtureFilter, resolveFixtureMapPosition(mapSnapshot, fixture)));
-  // A KPI filter must never leave an unrelated fixture in the selector, map selection, or detail panel.
-  const selectedFixture = selectedFixtureId === null
-    ? filteredFixtures[0]
-    : filteredFixtures.find((fixture) => fixture.id === selectedFixtureId) ?? (fixtureFilter === "all" && !normalizedSearch ? undefined : filteredFixtures[0]);
+  const selectedFixture = selectedFixtureId === null ? undefined : filteredFixtures.find(fixture => fixture.id === selectedFixtureId);
+  const selectedRuntimeFixture = selectedFixtureId === null ? undefined : fixtures.find(fixture => fixture.id === selectedFixtureId);
+  const selectedPin = mapSnapshot?.fixtures?.find(pin => pin.id === selectedFixtureId);
   const emphasizedFixtureIds = fixtureFilter === "all" && !normalizedSearch ? undefined : new Set(filteredFixtures.map(fixture => fixture.id));
   const snapshotFreshness = useMemo(
     // A newly arrived server response must be compared with this render's wall clock, not a
@@ -127,7 +137,64 @@ function MonitoringDashboard({ data, userRole, siteId, refreshDashboard }: Monit
       refreshAbortRef.current = null;
     };
   }, [floor?.id, siteId]);
-  useEffect(() => { setIsLogDrawerOpen(false); setIsInspectorOpen(false); setFixtureFilter("all"); setFixtureSearch(""); setFocusRequest(undefined); pinDetailsFixtureRef.current = null; }, [floor?.id, principal]);
+  useEffect(() => { setSelectedFixtureId(null); setIsLogDrawerOpen(false); setIsInspectorOpen(false); setIsDetailOpen(false); setFixtureFilter("all"); setFixtureSearch(""); setFocusRequest(undefined); pinDetailsFixtureRef.current = null; }, [floor?.id, principal]);
+  useEffect(() => {
+    const media = window.matchMedia?.("(min-width: 1024px)");
+    if (!media) return;
+    const update = () => {
+      // Surface remounts at the breakpoint; retain its body scroll, while the
+      // stable map viewport keeps camera state through its resize observer.
+      // CSS can clamp the old surface during resize before this event runs.
+      // Keep the last user offset, not that temporary smaller maximum.
+      detailScrollRestoringRef.current = true;
+      detailScrollRef.current = Math.max(detailScrollRef.current, detailBodyRef.current?.scrollTop ?? 0, sheetDetailBodyRef.current?.scrollTop ?? 0);
+      setIsDesktop(media.matches);
+    };
+    media.addEventListener("change", update);
+    return () => media.removeEventListener("change", update);
+  }, []);
+  useEffect(() => { detailScrollRef.current = 0; }, [selectedFixtureId]);
+  useEffect(() => {
+    if (!isDetailOpen) return;
+    detailScrollRestoringRef.current = true;
+    let releaseFrame: number | undefined;
+    const frame = requestAnimationFrame(() => {
+      // Keep refs separate: the outgoing sheet's delayed portal cleanup must
+      // not clear the incoming aside's ref at the responsive boundary.
+      const body = isDesktop ? detailBodyRef.current : sheetDetailBodyRef.current;
+      if (body) body.scrollTop = detailScrollRef.current;
+      if (isDesktop && !detailRef.current?.contains(document.activeElement)) detailRef.current?.focus({ preventScroll: true });
+      releaseFrame = requestAnimationFrame(() => { detailScrollRestoringRef.current = false; });
+    });
+    return () => { cancelAnimationFrame(frame); if (releaseFrame !== undefined) cancelAnimationFrame(releaseFrame); };
+  }, [isDesktop, isDetailOpen, selectedFixtureId]);
+
+  function clearSelection() {
+    // Automatic runtime exclusion/deletion can remove a focused nonmodal aside.
+    // Return only its own current-scope focus, before removal: no deferred job
+    // may steal outside focus after an account/site/floor change or unmount.
+    // Compact DetailSheet retains its shared portal return lifecycle.
+    if (isDesktop && isDetailOpen && detailScopeRef.current === detailScope && detailRef.current?.contains(document.activeElement)) {
+      const opener = detailReturnRef.current;
+      const target = opener?.isConnected && opener.tabIndex >= 0 && !detailRef.current.contains(opener) && !("disabled" in opener && opener.disabled)
+        ? opener : inspectorTriggerRef.current;
+      target?.focus({ preventScroll: true });
+    }
+    setSelectedFixtureId(null); setIsDetailOpen(false); setFocusRequest(undefined); pinDetailsFixtureRef.current = null;
+  }
+  function openDetail(id: string, trigger?: HTMLElement) {
+    if (selectedFixtureId !== id) detailScrollRef.current = 0;
+    detailReturnRef.current = trigger ?? (document.activeElement instanceof HTMLElement ? document.activeElement : null);
+    detailScopeRef.current = detailScope;
+    setSelectedFixtureId(id); setIsInspectorOpen(false); setIsDetailOpen(true);
+  }
+  function rememberDetailScroll(scrollTop: number) {
+    if (!detailScrollRestoringRef.current) detailScrollRef.current = scrollTop;
+  }
+  function closeDetail() {
+    setIsDetailOpen(false);
+    requestAnimationFrame(() => (detailReturnRef.current?.isConnected ? detailReturnRef.current : inspectorTriggerRef.current)?.focus({ preventScroll: true }));
+  }
 
   function closeInspector() {
     const returnToPin = pinDetailsFixtureRef.current;
@@ -155,13 +222,20 @@ function MonitoringDashboard({ data, userRole, siteId, refreshDashboard }: Monit
   useEffect(() => {
     if (!floor) return;
     setSelectedFloorId((current) => current ?? floor.id);
-    setSelectedFixtureId((current) => {
-      // Saved pins can arrive before their paged runtime row. Keep that explicit
-      // selection without presenting another fixture's telemetry as its detail.
-      if (current && (fixtures.some((fixture) => fixture.id === current) || mapSnapshot?.fixtures?.some((fixture) => fixture.id === current))) return current;
-      return fixtures.find((fixture) => fixture.status === "fault")?.id ?? fixtures[0]?.id ?? null;
-    });
-  }, [floor?.id, fixtures, mapSnapshot?.fixtures]);
+    // A confirmed runtime row leaving the current search/filter is invalid,
+    // unlike a saved pin whose runtime row has not arrived in paged results.
+    // Placement exclusion additionally needs a successful map observation.
+    const runtimeConfirmed = hasFixtureData && !fixtureQuery.isFetching && !fixtureQuery.error;
+    const placementConfirmed = fixtureFilter !== "unplaced" || Boolean(mapSnapshot && !mapQuery.isFetching && !mapQuery.error);
+    if (selectedRuntimeFixture && runtimeConfirmed && placementConfirmed && !selectedFixture) {
+      clearSelection();
+      return;
+    }
+    // Only a complete successful pair of sources can establish deletion.
+    // A saved pin before its runtime row remains an explicit loading selection.
+    if (selectedFixtureId && hasFixtureData && mapSnapshot && !fixtureQuery.isFetching && !mapQuery.isFetching && !fixtureQuery.hasNextPage
+      && !fixtureQuery.error && !mapQuery.error && !fixtures.some(fixture => fixture.id === selectedFixtureId) && !selectedPin) clearSelection();
+  }, [floor?.id, fixtures, mapSnapshot, hasFixtureData, selectedFixtureId, selectedFixture, selectedRuntimeFixture, selectedPin, fixtureFilter, fixtureQuery.isFetching, fixtureQuery.hasNextPage, fixtureQuery.error, mapQuery.isFetching, mapQuery.error]);
 
   useEffect(() => {
     if (!mapRefreshFailure || mapRefreshFailure.floorId !== floor?.id) return;
@@ -185,9 +259,8 @@ function MonitoringDashboard({ data, userRole, siteId, refreshDashboard }: Monit
     setIsManualRefreshing(false);
     setHardwareRefreshFailure(null);
     setManualRefreshFailureSources([]);
-    const nextFloor = data.floors.find((item) => item.id === floorId);
     setSelectedFloorId(floorId);
-    setSelectedFixtureId(nextFloor?.fixtures.find((fixture) => fixture.status === "fault")?.id ?? nextFloor?.fixtures[0]?.id ?? null);
+    clearSelection();
   }
 
   async function refetchMonitoringSources(signal: AbortSignal, initialFixtureRequest?: Promise<unknown>) {
@@ -265,11 +338,12 @@ function MonitoringDashboard({ data, userRole, siteId, refreshDashboard }: Monit
   }
 
   return (
-    <section className={cn("grid min-w-0 gap-4 tablet:flex tablet:h-[calc(100dvh-7.25rem)] tablet:min-h-0 tablet:overflow-hidden tablet:flex-col", workspaceFocus.active && "flex! h-full! min-h-0! flex-col! overflow-hidden! gap-2!")} data-monitoring-screen="" onKeyDown={event => {
-      if (event.key !== "Escape" || event.defaultPrevented || isPinOpen || isInspectorOpen || isLogDrawerOpen || !workspaceFocus.active) return;
+    <section className={cn("flex h-full min-h-0 min-w-0 flex-1 flex-col gap-4", workspaceFocus.active && "h-full! gap-2!")} data-monitoring-screen="" onKeyDown={event => {
+      if (event.key !== "Escape" || event.defaultPrevented || isPinOpen || isInspectorOpen || isDetailOpen || isLogDrawerOpen || !workspaceFocus.active) return;
       event.preventDefault(); workspaceFocus.exit();
     }}>
       <MonitoringSessionStatuses
+        timeZone={data.site.timeZone ?? "Asia/Seoul"}
         siteId={siteId ?? data.site.id}
         floorId={floor?.id}
         hasFixtureData={hasFixtureData}
@@ -282,13 +356,6 @@ function MonitoringDashboard({ data, userRole, siteId, refreshDashboard }: Monit
         onRefresh={() => void handleRefresh()}
         onMapRetry={() => void handleMapRetry()}
       />
-      <div hidden={workspaceFocus.active} className={workspaceFocus.active ? "hidden" : "contents"}><MonitoringSummary
-        scope="site"
-        total={data.summary.totalFixtures}
-        online={data.summary.onlineFixtures}
-        fault={data.summary.faultFixtures}
-        offline={data.summary.offlineFixtures ?? null}
-      /></div>
       <div className="flex items-center justify-between gap-4 max-compact:flex-col max-compact:items-stretch" role="group" aria-label="모니터링 도구">
         {/* Compact layouts reserve the full row for the map value; the search
             action must not squeeze the value or chevron when text is enlarged. */}
@@ -305,7 +372,7 @@ function MonitoringDashboard({ data, userRole, siteId, refreshDashboard }: Monit
         </div>
         <div className="ml-auto flex flex-wrap items-center justify-end gap-2 text-content-secondary max-compact:ml-0 max-compact:w-full">
           <Text as="small" variant="caption" tone="secondary" className="min-w-0 max-w-full break-words text-right">
-            {formatSnapshotUpdatedAt(snapshotFreshness, data.site.timeZone)}
+            {formatSnapshotUpdatedAt(snapshotFreshness, data.site.timeZone ?? "Asia/Seoul")}
           </Text>
           <Button
             ref={refreshButtonRef}
@@ -330,34 +397,39 @@ function MonitoringDashboard({ data, userRole, siteId, refreshDashboard }: Monit
 
       {floor ? <MonitoringSummary
         scope="floor"
+        mapName={floor.name}
         filter={fixtureFilter}
-        onSelect={filter => { setFixtureSearch(""); setFixtureFilter(filter); setFinderDefaultOpen(true); setIsInspectorOpen(true); }}
+        onSelect={filter => { clearSelection(); setFixtureSearch(""); setFixtureFilter(filter); setFinderDefaultOpen(true); setIsInspectorOpen(true); }}
+        onReset={() => { clearSelection(); setFixtureFilter("all"); }}
         total={floor.summary?.totalFixtures ?? null}
         online={floor.summary?.onlineFixtures ?? null}
         fault={floor.summary?.faultFixtures ?? null}
         offline={floor.summary?.offlineFixtures ?? null}
       /> : null}
 
-      <div className="min-h-0 min-w-0 flex-1" data-monitoring-layout="">
-        <div className="flex h-full min-h-0 min-w-0 flex-col gap-5 overflow-hidden" data-monitoring-map-panel="">
-          <div className="min-h-0 flex-1">
+      {/* Keep the desktop detail's reading region as tall as the map's natural
+          minimum; short screens scroll the page instead of shrinking the row. */}
+      <div className={cn("grid min-h-0 min-w-0 flex-1 gap-4 tablet:min-h-min", isDesktop && isDetailOpen && selectedFixtureId && "tablet:grid-cols-[minmax(0,1fr)_minmax(0,22rem)]")} data-monitoring-layout="">
+        <div className={cn("flex h-full min-h-min min-w-0 flex-col gap-5", !workspaceFocus.active && "max-compact:pb-shell-navigation-safe")} data-monitoring-map-panel="">
+          <div className="min-h-min min-w-0 flex-1">
           {data.summary.totalFixtures === 0 ? (
             <EmptyFixtureGuidance userRole={userRole} siteId={data.site.id} />
-          ) : !hasFixtureData ? null : floor && mapSnapshot ? (
+          ) : floor && mapSnapshot && (hasFixtureData || Boolean(mapSnapshot.fixtures?.length)) ? (
             <>
-              <FloorMap floor={{ ...floor, fixtures }} snapshot={mapSnapshot} selectedFixtureId={fixtureFilter === "all" && !normalizedSearch ? selectedFixtureId ?? selectedFixture?.id ?? null : selectedFixture?.id ?? null} onSelectFixture={id => { setFixtureSearch(""); setFixtureFilter("all"); setSelectedFixtureId(id); }} timeZone={data.site.timeZone}
+              <FloorMap floor={{ ...floor, fixtures }} snapshot={mapSnapshot} selectedFixtureId={selectedFixtureId} onSelectFixture={id => { setFixtureSearch(""); setFixtureFilter("all"); setSelectedFixtureId(id); }} timeZone={data.site.timeZone}
                 focusRequest={focusRequest} emphasizedFixtureIds={emphasizedFixtureIds}
                 fullView={workspaceFocus.active}
                 activeFilter={`${fixtureFilter}:${normalizedSearch}`}
                 onToggleFullView={trigger => workspaceFocus.active ? workspaceFocus.exit() : workspaceFocus.enter(trigger)}
                 cameraScope={principal ? { principal, siteId: siteId ?? data.site.id, floorId: floor.id } : null}
                 onPinOpenChange={setIsPinOpen}
-                onShowDetails={id => { pinDetailsFixtureRef.current = id; setSelectedFixtureId(id); setFinderDefaultOpen(false); setIsInspectorOpen(true); }}
+                detailOpen={isDetailOpen}
+                onShowDetails={(id, trigger) => openDetail(id, trigger)}
                 onFocusResult={(_id, result) => { if (result !== "focused") setIsInspectorOpen(true); }}
               />
               {fixtures.length > 0 && !hasPlacedFixtures && <FeedbackState icon={Clock3} title="배치된 조명이 없습니다" description={`등록된 조명 ${fixtures.length}개는 목록에서 조회하고 제어할 수 있습니다.`} action={userRole === "admin" ? <Link to={`/settings/floor-plans/${encodeURIComponent(floor.id)}/edit?siteId=${encodeURIComponent(data.site.id)}`}>설정에서 조명 배치</Link> : undefined} />}
             </>
-          ) : floor && (mapQuery.error || mapRefreshFailed) ? (
+          ) : !hasFixtureData ? null : floor && (mapQuery.error || mapRefreshFailed) ? (
             <FeedbackState
               tone="danger"
               icon={TriangleAlert}
@@ -383,6 +455,12 @@ function MonitoringDashboard({ data, userRole, siteId, refreshDashboard }: Monit
             triggerRef={logTriggerRef}
           /> : null}
         </div>
+        {/* Zero preferred height excludes the scrollable detail content from
+            the row's intrinsic size; its minimum then fills the map-led row. */}
+        {isDesktop && isDetailOpen && selectedFixtureId ? <aside ref={detailRef} tabIndex={-1} aria-label="조명 상세" className="flex h-0 min-h-full min-w-0 flex-col rounded-panel border border-border-default bg-surface-panel p-4" onKeyDown={event => { if (event.key === "Escape" && !event.defaultPrevented) { event.preventDefault(); closeDetail(); } }}>
+          <div className="flex shrink-0 items-start justify-between gap-3"><Heading as="h2" variant="card-title">조명 상세</Heading><Button variant="ghost" className="min-h-13" onClick={closeDetail} aria-label="조명 상세 닫기">닫기</Button></div>
+          <div ref={detailBodyRef} onScroll={event => rememberDetailScroll(event.currentTarget.scrollTop)} data-monitoring-detail-scroll="" className="min-h-0 flex-1 overflow-y-auto"><FixtureDetailPanel fixture={selectedFixture ?? null} selectedName={selectedPin?.name} position={selectedPin ? { kind: "placed", point: { x: selectedPin.x, y: selectedPin.y } } : resolveFixtureMapPosition(mapSnapshot, selectedFixture)} timeZone={data.site.timeZone} /></div>
+        </aside> : null}
       </div>
       <DrawerDialog
         isOpen={isInspectorOpen}
@@ -414,7 +492,7 @@ function MonitoringDashboard({ data, userRole, siteId, refreshDashboard }: Monit
               if (position.kind === "placed") {
                 setIsInspectorOpen(false);
                 setFocusRequest({ requestId: ++focusSequence.current, fixtureId: id });
-              }
+              } else openDetail(id);
             }}
             hasNextPage={Boolean(fixtureQuery.hasNextPage)}
             isFetchingNextPage={fixtureQuery.isFetchingNextPage}
@@ -425,17 +503,21 @@ function MonitoringDashboard({ data, userRole, siteId, refreshDashboard }: Monit
             placedFixtureIds={placedFixtureIds}
             snapshot={mapSnapshot}
             filter={fixtureFilter}
-            onFilterChange={filter => { pinDetailsFixtureRef.current = null; setFixtureFilter(filter); }}
+            onFilterChange={filter => { clearSelection(); setFixtureFilter(filter); }}
             search={fixtureSearch}
-            onSearchChange={search => { pinDetailsFixtureRef.current = null; setFixtureSearch(search); }}
+            onSearchChange={search => { clearSelection(); setFixtureSearch(search); }}
             defaultOpen={finderDefaultOpen}
             nextPageError={fixtureQuery.isFetchNextPageError}
             expectedTotal={floor.summary?.totalFixtures}
           />
         </div> : null}
-        {(fixtureFilter === "all" && !normalizedSearch) || filteredFixtures.length > 0
-          ? <FixtureDetailPanel fixture={selectedFixture ?? null} position={resolveFixtureMapPosition(mapSnapshot, selectedFixture)} timeZone={data.site.timeZone} /> : null}
+        {selectedFixtureId ? <Button variant="secondary" onClick={() => openDetail(selectedFixtureId)}>상세 보기</Button> : null}
       </DrawerDialog>
+      <DetailSheet ref={sheetDetailRef} isOpen={!isDesktop && isDetailOpen && selectedFixtureId !== null} onClose={closeDetail} title="조명 상세" closeLabel="조명 상세 닫기" returnFocusRef={detailReturnRef} fallbackFocusRef={inspectorTriggerRef} bodyClassName="flex min-h-0 flex-col overflow-hidden">
+        <div ref={sheetDetailBodyRef} onScroll={event => rememberDetailScroll(event.currentTarget.scrollTop)} data-monitoring-detail-scroll="" className="min-h-0 flex-1 overflow-y-auto">
+        <FixtureDetailPanel fixture={selectedFixture ?? null} selectedName={selectedPin?.name} position={selectedPin ? { kind: "placed", point: { x: selectedPin.x, y: selectedPin.y } } : resolveFixtureMapPosition(mapSnapshot, selectedFixture)} timeZone={data.site.timeZone} />
+        </div>
+      </DetailSheet>
       <MonitoringLogDrawer
         isOpen={isLogDrawerOpen}
         onClose={() => setIsLogDrawerOpen(false)}
@@ -490,9 +572,11 @@ function FixtureQueryFeedback({
 type SnapshotFreshness = ReturnType<typeof getSnapshotFreshness>;
 
 function MonitoringSessionStatuses({
+  timeZone,
   siteId, floorId, hasFixtureData, fixtureError, hasMapSnapshot, mapError,
   snapshotFreshness, refreshError, hardwareRefreshFailure, onRefresh, onMapRetry
 }: {
+  timeZone: string;
   siteId: string;
   floorId: string | undefined;
   hasFixtureData: boolean;
@@ -517,7 +601,7 @@ function MonitoringSessionStatuses({
         : "현황 갱신이 지연되고 있습니다.";
     const description = [
       fixtureError ? "조명 상태 갱신 실패" : null,
-      snapshotFreshness.metadata === "future" ? `시간 차이 확인: ${anomalousGeneratedAt}` : null,
+      snapshotFreshness.metadata === "future" ? `시간 차이 확인: ${formatMonitoringTimestamp(anomalousGeneratedAt!, timeZone)}` : null,
       snapshotFreshness.freshness === "stale" ? "가장 오래된 선택 층 snapshot이 60초를 초과했습니다." : null,
       snapshotFreshness.metadata === "invalid" ? "서버가 유효한 generatedAt ISO 시각을 반환하지 않았습니다." : null
     ].filter(Boolean).join(" · ");
@@ -527,7 +611,7 @@ function MonitoringSessionStatuses({
       source: "query", tone: "warning", title, description,
       action: { label: fixtureError ? "조명 상태 다시 시도" : "다시 시도", onAction: () => actions.current.onRefresh() }
     }];
-  }, [anomalousGeneratedAt, fixtureError, floorId, hasFixtureData, scope, snapshotFreshness.freshness, snapshotFreshness.metadata]);
+  }, [anomalousGeneratedAt, fixtureError, floorId, hasFixtureData, scope, snapshotFreshness.freshness, snapshotFreshness.metadata, timeZone]);
   const mapItems = useMemo<SessionStatusItem[]>(() => floorId && hasMapSnapshot && mapError ? [{
     id: `query:monitoring:${scope}:map`, fingerprint: "map-refresh-failed", source: "query", tone: "warning",
     title: "저장된 지도를 유지하고 있습니다. 지도 갱신에 실패했습니다.",
@@ -603,6 +687,6 @@ function parseStrictIsoTimestamp(value: unknown):
 function formatSnapshotUpdatedAt(snapshot: ReturnType<typeof getSnapshotFreshness>, timeZone: string) {
   if (snapshot.metadata === "invalid") return "마지막 갱신: 서버 snapshot 시각 확인 필요";
   if (snapshot.freshness === "pending" || snapshot.rawGeneratedAt === undefined) return "마지막 갱신: 서버 snapshot 시각 확인 중";
-  if (snapshot.metadata === "future") return `마지막 갱신: 시간 차이 확인 (${snapshot.anomalousGeneratedAt})`;
+  if (snapshot.metadata === "future") return `마지막 갱신: 시간 차이 확인 (${formatMonitoringTimestamp(snapshot.anomalousGeneratedAt!, timeZone)})`;
   return <>마지막 갱신: <time dateTime={snapshot.rawGeneratedAt}>{formatMonitoringTimestamp(snapshot.rawGeneratedAt, timeZone)} (현장 시간)</time></>;
 }

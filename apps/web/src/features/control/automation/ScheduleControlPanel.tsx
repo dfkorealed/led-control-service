@@ -1,6 +1,6 @@
 import { useInfiniteQuery, useMutation, useQueryClient, type InfiniteData } from "@tanstack/react-query";
 import { automationExecutionActionResultPayloadV1Schema } from "@led-control/shared/automation-contracts";
-import { CalendarPlus, CircleCheck, Clock3, Eye, Pencil, Power, PowerOff, Trash2, TriangleAlert } from "lucide-react";
+import { CalendarPlus, CircleCheck, Clock3, Eye, Power, PowerOff, TriangleAlert } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   automationListAccessErrorMessage,
@@ -22,18 +22,14 @@ import { isApiStatus } from "../../../api/client";
 import { authMeQueryKey, principalKey } from "../../../api/principal-cache";
 import type { Dashboard } from "../../../api/queries";
 import { Button, ConfirmDialog, FeedbackState, PageHeader, StatusBadge, Text, useSessionStatus, useSessionToast, type SessionStatusItem } from "../../../components/ui";
+import { formatControlTimestamp } from "../control-time";
 import { ScheduleDialog } from "./ScheduleDialog";
-import { AutomationRuleCard } from "./components/AutomationRuleCard";
 import { AutomationRuleControls } from "./components/AutomationRuleControls";
-import { AutomationRuleWorkspace, AutomationWorkspaceSummary } from "./components/AutomationWorkspaceSurface";
+import { AutomationRuleWorkspace } from "./components/AutomationWorkspaceSurface";
 import { automationListRequest, useAutomationListState } from "./components/useAutomationListState";
 import { useAutomationVisiblePagePoll } from "./components/useAutomationVisiblePagePoll";
-import {
-  AutomationRuleTable,
-  automationTableCellClassName,
-  automationTableHeadingClassName,
-  useCompactAutomationList
-} from "./components/AutomationRuleTable";
+import { AutomationRuleActions, AutomationRuleTable } from "./components/AutomationRuleTable";
+import type { DataGridColumn } from "../../../components/ui";
 
 export function ScheduleControlPanel({
   siteId,
@@ -72,7 +68,6 @@ export function ScheduleControlPanel({
   const [lastRefreshSuccess, setLastRefreshSuccess] = useState<{ scope: string; at: number } | null>(null);
   const [visiblePollFailure, setVisiblePollFailure] = useState<{ scope: string; error: unknown } | null>(null);
   const canManage = role === "admin";
-  const isCompactList = useCompactAutomationList();
   const { filter, appliedQuery, pageIndex, isSearchPending, changeFilter, changePage } = useAutomationListState(operationScopeKey);
   const listScopeKey = JSON.stringify([operationScopeKey, appliedQuery, filter.status, filter.syncStatus, filter.limit]);
   const currentListScope = useRef(listScopeKey);
@@ -186,7 +181,7 @@ export function ScheduleControlPanel({
   const statusItems = useMemo<SessionStatusItem[]>(() => {
     const items: SessionStatusItem[] = [];
     const lastSuccess = lastRefreshSuccess?.scope === listScopeKey
-      ? `마지막 성공: ${new Intl.DateTimeFormat("ko-KR", { dateStyle: "short", timeStyle: "short", timeZone: dashboard?.site.timeZone ?? "UTC" }).format(lastRefreshSuccess.at)}`
+      ? `마지막 성공: ${formatControlTimestamp(lastRefreshSuccess.at, dashboard?.site.timeZone ?? "UTC")}`
       : undefined;
     if (schedulesQuery.data && !queryUnauthorized && (missingCursor || schedulesQuery.isFetchNextPageError)) items.push({
       id: `control:schedule:${scopeKey}:${siteId}:${listScopeKey}:query:next`,
@@ -448,27 +443,26 @@ export function ScheduleControlPanel({
 
   function renderActions(schedule: ScheduleResponse) {
     if (!canManage) return null;
-    return <div className="grid grid-cols-3 gap-1.5" data-schedule-row-actions="">
-      <Button variant="ghost" className="w-11 p-0" type="button" aria-label={`${schedule.name} ${schedule.status === "enabled" ? "비활성화" : "활성화"}`} title={schedule.status === "enabled" ? "비활성화" : "활성화"} disabled={isMutating} onClick={() => toggle(schedule)}>
-        {schedule.status === "enabled" ? <PowerOff size={16} aria-hidden="true" /> : <Power size={16} aria-hidden="true" />}
-      </Button>
-      <Button variant="ghost" className="w-11 p-0" type="button" aria-label={`${schedule.name} 수정`} title="수정" disabled={isMutating || !dashboard} onClick={(event) => beginEdit(schedule, event.currentTarget)}>
-        <Pencil size={16} aria-hidden="true" />
-      </Button>
-      <Button variant="danger" className="w-11 p-0" type="button" aria-label={`${schedule.name} 삭제`} title="삭제" disabled={isMutating} onClick={(event) => {
-        deleteReturnFocusRef.current = event.currentTarget;
-        setDeleteCandidate(schedule);
-        setMutationError("");
-      }}>
-        <Trash2 size={16} aria-hidden="true" />
-      </Button>
-    </div>;
+    return <AutomationRuleActions name={schedule.name} enabled={schedule.status === "enabled"} disabled={isMutating || isAuthBlocked}
+      editDisabled={!dashboard} onToggle={() => toggle(schedule)} onEdit={opener => beginEdit(schedule, opener)}
+      onDelete={opener => { deleteReturnFocusRef.current = opener; setDeleteCandidate(schedule); setMutationError(""); }} />;
   }
+
+  const columns: DataGridColumn<ScheduleResponse>[] = [
+    { id: "name", header: "이름", minWidth: 150, renderCell: row => <strong className="wrap-anywhere">{row.name}</strong> },
+    { id: "activation", header: "활성 · Gateway 동기화", minWidth: 150, align: "center", renderCell: row => <ScheduleActivation schedule={row} /> },
+    { id: "period", header: "적용 기간", minWidth: 160, renderCell: row => <>{formatActivePeriod(row, dashboard?.site.timeZone ?? "UTC")}<Text variant="caption" tone="secondary">{dashboard?.site.timeZone ?? "UTC"}</Text></> },
+    { id: "next", header: "다음 실행", minWidth: 140, renderCell: row => formatNextOccurrence(row, dashboard?.site.timeZone ?? "UTC") },
+    { id: "recurrence", header: "반복 · 시간", minWidth: 130, renderCell: row => formatRecurrence(row) },
+    { id: "targets", header: "대상", minWidth: 70, align: "right", renderCell: row => `${row.targetCount}개` },
+    { id: "result", header: "최근 결과", minWidth: 150, renderCell: row => <LastExecutionBadge schedule={row} timeZone={dashboard?.site.timeZone ?? "UTC"} wrap /> }
+  ];
+  if (canManage) columns.push({ id: "actions", header: "관리", minWidth: 116, align: "center", renderCell: renderActions });
 
   return (
     <div
       id="control-mode-panel-schedule"
-      className="grid min-w-0 content-start gap-4 tablet:min-h-0 tablet:flex-1 tablet:flex-col tablet:overflow-hidden"
+      className="grid min-w-0 content-start gap-4 tablet:flex tablet:min-h-0 tablet:flex-1 tablet:flex-col tablet:overflow-hidden"
       role="tabpanel"
       aria-labelledby="control-mode-schedule"
       data-control-automation-panel="schedule"
@@ -490,10 +484,6 @@ export function ScheduleControlPanel({
           </Button>
         ) : undefined}
       />
-
-      <AutomationWorkspaceSummary label="스케줄 요약" timeZone={dashboard?.site.timeZone} total={firstPage?.total} siteSummary={firstPage?.siteSummary}
-        loadedStatuses={schedules.map((schedule) => schedule.syncStatus)}
-        state={schedulesQuery.isLoading ? "loading" : isAuthBlocked || schedulesQuery.isLoadingError ? "error" : "ready"} />
 
       {hasGlobalContract && !isAuthBlocked ? <AutomationRuleControls label="스케줄" filter={filter}
         filteredTotal={isSearchPending ? undefined : firstPage?.filteredTotal}
@@ -521,62 +511,7 @@ export function ScheduleControlPanel({
       ) : null}
 
       {!schedulesQuery.isLoading && !schedulesQuery.isLoadingError && !isAuthBlocked && !isSearchPending ? (
-        schedules.length > 0 ? isCompactList ? <div role="list" aria-label="스케줄 카드 목록" className="grid min-w-0 gap-3">
-          {schedules.map((schedule) => <AutomationRuleCard
-            key={schedule.id}
-            name={schedule.name}
-            status={<EnabledBadge enabled={schedule.status === "enabled"} />}
-            fields={[
-              { label: "적용 기간", value: formatActivePeriod(schedule, dashboard?.site.timeZone ?? "UTC") },
-              { label: "다음 실행", value: formatNextOccurrence(schedule, dashboard?.site.timeZone ?? "UTC") },
-              { label: "반복 · 시간", value: formatRecurrence(schedule) },
-              { label: "밝기", value: schedule.action.dimmingEnabled ? `${schedule.action.brightnessPercent}%` : "디밍 OFF · 100%" },
-              { label: "대상", value: `${schedule.targetCount}개` },
-              { label: "Gateway 동기화", value: <SyncBadge status={schedule.syncStatus} /> },
-              { label: "최근 결과", value: <LastExecutionBadge schedule={schedule} timeZone={dashboard?.site.timeZone ?? "UTC"} wrap /> }
-            ]}
-            actions={renderActions(schedule)}
-          />)}
-        </div> : <AutomationRuleTable label="스케줄 목록">
-            <thead>
-              <tr>
-                <th className={automationTableHeadingClassName}>이름</th>
-                <th className={automationTableHeadingClassName}>활성</th>
-                <th className={automationTableHeadingClassName}>다음 실행</th>
-                <th className={automationTableHeadingClassName}>반복 · 시간</th>
-                <th className={automationTableHeadingClassName}>밝기</th>
-                <th className={automationTableHeadingClassName}>대상</th>
-                <th className={automationTableHeadingClassName}>Gateway 동기화</th>
-                <th className={automationTableHeadingClassName}>최근 결과</th>
-                {canManage ? <th className={automationTableHeadingClassName} aria-label="관리" /> : null}
-              </tr>
-            </thead>
-            <tbody>
-              {schedules.map((schedule, index) => {
-                const isLastRow = index === schedules.length - 1;
-                return (
-                <tr key={schedule.id}>
-                  <td className={automationTableCellClassName(isLastRow, "grid gap-1")}>
-                    <strong className="max-w-48 truncate">{schedule.name}</strong>
-                    <small className="text-content-muted">{formatActivePeriod(schedule, dashboard?.site.timeZone ?? "UTC")}</small>
-                  </td>
-                  <td className={automationTableCellClassName(isLastRow)}><EnabledBadge enabled={schedule.status === "enabled"} /></td>
-                  <td className={automationTableCellClassName(isLastRow)}>{formatNextOccurrence(schedule, dashboard?.site.timeZone ?? "UTC")}</td>
-                  <td className={automationTableCellClassName(isLastRow)}>{formatRecurrence(schedule)}</td>
-                  <td className={automationTableCellClassName(isLastRow)}>{schedule.action.dimmingEnabled ? `${schedule.action.brightnessPercent}%` : "디밍 OFF · 100%"}</td>
-                  <td className={automationTableCellClassName(isLastRow)}>{schedule.targetCount}개</td>
-                  <td className={automationTableCellClassName(isLastRow)}><SyncBadge status={schedule.syncStatus} /></td>
-                  <td className={automationTableCellClassName(isLastRow)}><LastExecutionBadge schedule={schedule} timeZone={dashboard?.site.timeZone ?? "UTC"} /></td>
-                  {canManage ? (
-                    <td className={automationTableCellClassName(isLastRow)}>
-                      {renderActions(schedule)}
-                    </td>
-                  ) : null}
-                </tr>
-                );
-              })}
-            </tbody>
-        </AutomationRuleTable> : <FeedbackState
+        schedules.length > 0 ? <AutomationRuleTable caption="스케줄 목록" rows={schedules} columns={columns} getRowKey={row => row.id} /> : <FeedbackState
           icon={CalendarPlus}
           title={hasGlobalContract && firstPage?.total !== 0 ? "조건에 맞는 스케줄이 없습니다." : "등록된 스케줄이 없습니다."}
           description={hasGlobalContract && firstPage?.total !== 0 ? "검색이나 필터 조건을 바꿔 다시 확인해 주세요." : "반복 밝기 규칙을 추가하면 Gateway 적용 상태와 최근 결과를 여기서 확인할 수 있습니다."}
@@ -621,6 +556,13 @@ export function ScheduleControlPanel({
       </ConfirmDialog>
     </div>
   );
+}
+
+function ScheduleActivation({ schedule }: { schedule: ScheduleResponse }) {
+  return <div className="flex flex-wrap items-center gap-1">
+    <EnabledBadge enabled={schedule.status === "enabled"} />
+    <SyncBadge status={schedule.syncStatus} />
+  </div>;
 }
 
 function SyncBadge({ status }: { status: ScheduleResponse["syncStatus"] }) {
@@ -719,12 +661,5 @@ function formatDate(iso: string, timeZone: string) {
 }
 
 function formatDateTime(iso: string, timeZone: string) {
-  return new Intl.DateTimeFormat("ko-KR", {
-    timeZone,
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    hourCycle: "h23"
-  }).format(new Date(iso));
+  return formatControlTimestamp(iso, timeZone);
 }

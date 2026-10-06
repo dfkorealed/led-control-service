@@ -1,6 +1,7 @@
 import { act, cleanup, createEvent, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import Konva from "konva";
+import { StrictMode } from "react";
 import { FloorEditorCanvas } from "./FloorEditorCanvas";
 import { useFloorEditorStore } from "./editor-store";
 import { useMapEditor } from "./use-map-editor";
@@ -15,14 +16,111 @@ const base: FloorEditorState = { floor: { id: "floor", siteId: "site", name: "Fl
   mapDocument: { formatVersion: 1, generationId: "gen", revision: 1, width: 16384, height: 13222, gridSize: 10, elementCount: 0,
     manifest: { assetId: "manifest", sha256: "a".repeat(64), byteSize: 1, decodedByteSize: 1 } } }, fixtures: [], objects: [], lightSlots: [] };
 const store = useFloorEditorStore.getState;
-function Canvas() { const map = useMapEditor({ floorId: "floor", authScope: "user", readOnly: false });
-  return <><input aria-label="Outside text" /><FloorEditorCanvas rowRegistry={createFixturePlacementRowRegistry()} mapEditor={map} />
+function Canvas({ readOnly = false }: { readOnly?: boolean } = {}) { const map = useMapEditor({ floorId: "floor", authScope: "user", readOnly });
+  return <><input aria-label="Outside text" /><FloorEditorCanvas rowRegistry={createFixturePlacementRowRegistry()} mapEditor={map} readOnly={readOnly} />
     <ConfirmDialog isOpen={map.removeRequested} title="선택 전체 삭제" confirmLabel="전체 삭제" onClose={map.cancelRemove} onConfirm={() => { void map.confirmRemove(); }} /></>; }
 describe("actual common editor Canvas", () => {
   beforeEach(() => { store().initialize(structuredClone(base), "user");
     store().loadMapStructures(store().mapScope!, { groups: [], layers: [{ id: "map", name: "Map", order: 0, visible: true, locked: false }] });
     vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue({ x: 0, y: 0, left: 0, top: 0, right: 900, bottom: 600, width: 900, height: 600, toJSON() {} }); });
   afterEach(() => { cleanup(); vi.restoreAllMocks(); });
+  function denseCanvas(readOnly = false) {
+    const initial = structuredClone(base);
+    initial.floor.mapDocument = null;
+    initial.floor.floorPlan = { imageUrl: "", sourceType: "none", width: 1200, height: 800, gridSize: 10, version: 1 };
+    initial.fixtures = [[20, 20], [49, 20], [20, 50], [49, 50]].map(([x, y], index) => ({
+      id: `dense-${index}`, name: `Dense ${index}`, x, y, size: 20, ratedWatt: 40, brightness: 70, status: "online"
+    }));
+    store().initialize(initial, "user");
+    render(<StrictMode><Canvas readOnly={readOnly} /></StrictMode>);
+    act(() => { store().setZoom(0.38375); store().setPan({ x: 0, y: 0 }); store().setSnap(false); });
+    const stage = Konva.stages.at(-1)!;
+    Object.defineProperties(stage.content, { clientWidth: { value: 900 }, clientHeight: { value: 600 } });
+    const fixtureLayer = stage.findOne<Konva.Layer>(".editor-fixture-layer")!;
+    const groups = initial.fixtures.map(fixture => stage.findOne<Konva.Group>(`.fixture-${fixture.id}`)!);
+    // JSDOM has no raster hit buffer. Supply only the overlapping last-painted
+    // fixture hit from the actual browser trace; Stage dispatch stays real.
+    vi.spyOn(fixtureLayer, "getIntersection").mockImplementation(() => fixtureLayer.isVisible() && fixtureLayer.isListening() ? groups[3].findOne<Konva.Circle>("Circle")! : null);
+    const mouse = (type: "mouseDown" | "mouseUp", x: number, y: number, shiftKey = false) => {
+      fireEvent[type](stage.content, { clientX: x * store().zoom, clientY: y * store().zoom, button: 0, shiftKey });
+    };
+    const click = (x: number, y: number, shift = false) => { mouse("mouseDown", x, y, shift); mouse("mouseUp", x, y, shift); };
+    return { stage, groups, click, mouse, initial };
+  }
+  it.each([0, 1, 2, 3])("picks dense fixture %s at its actual center instead of the overlapping painted hit", index => {
+    const { click, initial } = denseCanvas();
+    click(initial.fixtures[index].x, initial.fixtures[index].y);
+    expect(store().selectedFixtureIds).toEqual([`dense-${index}`]);
+  });
+  it("picks the nearest padded candidate and uses draw order only for equal distances", () => {
+    const { click } = denseCanvas();
+    click(68, 20);
+    expect(store().selectedFixtureIds).toEqual(["dense-1"]);
+    click(34.5, 20);
+    expect(store().selectedFixtureIds).toEqual(["dense-1"]);
+  });
+  it("keeps Shift selection on the resolved dense fixture", () => {
+    const { click } = denseCanvas();
+    act(() => store().selectFixture("dense-0"));
+    click(49, 20, true);
+    expect(store().selectedFixtureIds).toEqual(["dense-0", "dense-1"]);
+  });
+  it("dispatches a real Konva tap to the resolved fixture", () => {
+    const { stage } = denseCanvas();
+    const touch = { identifier: 1, clientX: 20 * store().zoom, clientY: 20 * store().zoom };
+    fireEvent.touchStart(stage.content, { touches: [touch], changedTouches: [touch] });
+    fireEvent.touchEnd(stage.content, { touches: [], changedTouches: [touch] });
+    expect(store().selectedFixtureIds).toEqual(["dense-0"]);
+  });
+  it("drags the resolved node and stores only that fixture movement", async () => {
+    const { groups, mouse, initial } = denseCanvas();
+    mouse("mouseDown", 20, 20);
+    fireEvent.mouseMove(window, { clientX: 90 * store().zoom, clientY: 20 * store().zoom, buttons: 1 });
+    expect(groups[0].isDragging()).toBe(true);
+    expect(groups[3].isDragging()).toBe(false);
+    mouse("mouseUp", 90, 20);
+    await waitFor(() => expect(store().state!.fixtures[0].x).toBeCloseTo(90));
+    expect(store().state!.fixtures.slice(1)).toEqual(initial.fixtures.slice(1));
+    expect(store().past).toHaveLength(1);
+    act(() => store().undo());
+    expect(store().state!.fixtures).toEqual(initial.fixtures);
+  });
+  it("does not drag through a locked visible body into its unlocked neighbour", () => {
+    const { groups, mouse, initial } = denseCanvas();
+    act(() => useFloorEditorStore.setState({ lockedFixtureIds: ["dense-0"] }));
+    mouse("mouseDown", 20, 20);
+    fireEvent.mouseMove(window, { clientX: 50 * store().zoom, clientY: 20 * store().zoom, buttons: 1 });
+    expect(groups.every(group => !group.isDragging())).toBe(true);
+    mouse("mouseUp", 50, 20);
+    expect(store().state!.fixtures).toEqual(initial.fixtures);
+  });
+  it("preserves the hidden layer and read-only movement guards", () => {
+    const { groups, mouse, click, initial } = denseCanvas(true);
+    mouse("mouseDown", 20, 20);
+    fireEvent.mouseMove(window, { clientX: 50 * store().zoom, clientY: 20 * store().zoom, buttons: 1 });
+    mouse("mouseUp", 50, 20);
+    expect(groups.every(group => !group.isDragging())).toBe(true);
+    expect(store().state!.fixtures).toEqual(initial.fixtures);
+    act(() => { store().clearSelection(); useFloorEditorStore.setState({ layers: { ...store().layers, fixtures: { ...store().layers.fixtures, visible: false } } }); });
+    click(20, 20);
+    expect(store().selectedFixtureIds).toEqual([]);
+  });
+  it("uses the pending imperative wheel camera rather than the settled store camera for hits", () => {
+    const { stage } = denseCanvas();
+    const canvas = screen.getByTestId("floor-editor-canvas");
+    fireEvent.wheel(stage.content, { clientX: 250, clientY: 200, deltaY: -100 });
+    const zoom = Number(canvas.dataset.zoom), pan = { x: Number(canvas.dataset.panX), y: Number(canvas.dataset.panY) };
+    expect(zoom).not.toBe(store().zoom);
+    fireEvent.mouseDown(stage.content, { clientX: pan.x + 20 * zoom, clientY: pan.y + 20 * zoom, button: 0 });
+    fireEvent.mouseUp(stage.content, { clientX: pan.x + 20 * zoom, clientY: pan.y + 20 * zoom, button: 0 });
+    expect(store().selectedFixtureIds).toEqual(["dense-0"]);
+  });
+  it("does not reintroduce unplaced fixture nodes into padded picking", () => {
+    const { stage } = denseCanvas();
+    act(() => store().unplaceFixture("dense-0"));
+    expect(stage.findOne(".fixture-dense-0")).toBeUndefined();
+    expect(stage.getIntersection({ x: 20 * store().zoom, y: 20 * store().zoom })?.getParent()?.name()).not.toBe("fixture-dense-0");
+  });
   it("commits a single fixture resize with a fixed corner and one undo entry", () => {
     const initial = structuredClone(base);
     initial.fixtures = [{ id: "fixture", name: "Fixture", x: 103, y: 107, size: 20, ratedWatt: 40, brightness: 80, status: "online" }];
@@ -55,6 +153,13 @@ describe("actual common editor Canvas", () => {
     expect(store().zoom).toBeCloseTo(Math.min(852 / 16384, 552 / 13222));
     act(() => store().setPan({ x: 40, y: 50 }));
     act(() => store().setViewport({ width: 800, height: 500 }));
+    expect(store().pan).toEqual({ x: 40, y: 50 });
+  });
+  it("waits for viewport measurement without resetting an existing user camera", () => {
+    vi.mocked(HTMLElement.prototype.getBoundingClientRect).mockReturnValue({ x: 0, y: 0, left: 0, top: 0, right: 0, bottom: 0, width: 0, height: 0, toJSON() {} });
+    store().setZoom(1.5); store().setPan({ x: 40, y: 50 });
+    render(<Canvas />);
+    expect(store().zoom).toBe(1.5);
     expect(store().pan).toEqual({ x: 40, y: 50 });
   });
   it("commits wheel zoom once after the gesture instead of updating Zustand per wheel event", async () => {

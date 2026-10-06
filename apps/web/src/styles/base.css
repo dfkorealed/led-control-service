@@ -25,3 +25,7 @@
 @utility pb-safe-area-bottom {
   padding-bottom: var(--led-control-safe-area-bottom);
 }
+
+@utility pt-safe-area-top {
+  padding-top: env(safe-area-inset-top);
+}

@@ -1,4 +1,5 @@
 import Konva from "konva";
+import { CircleX, Clock3, TriangleAlert } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   lazy,
@@ -8,7 +9,8 @@ import {
   useMemo,
   useRef,
   useState,
-  type CSSProperties
+  type CSSProperties,
+  type PointerEvent as ReactPointerEvent
 } from "react";
 import { createPortal } from "react-dom";
 import { Group, Line, Rect, Stage, Text, Layer } from "react-konva";
@@ -31,6 +33,8 @@ import { useFloorMapViewportOverlay, type FloorMapCameraFrame } from "./FloorMap
 import type { ReadOnlyCadSceneRenderer } from "./cad-scene-readonly-runtime";
 import { createMapDocumentSource } from "../../api/map-document";
 import { useMapDocumentReadScope } from "../floor-editor/editor-monitoring-cache";
+import { MAP_DRAG_THRESHOLD_PX, pointerDistance } from "./map-gestures";
+import { resolveMarkerHit } from "./marker-hit";
 
 const MapSceneCanvas = lazy(() => import("../map-scene/MapSceneCanvas").then(module => ({ default: module.MapSceneCanvas })));
 
@@ -62,7 +66,7 @@ export interface SceneFixture {
   status: "online" | "offline" | "fault";
   statusReason?: string | null;
   placementStatus?: "unplaced" | "placed";
-  statusPresentation?: { label: string; state: string };
+  statusPresentation?: { label: string; state: string; mapState?: "online" | "fault" | "offline" | "waiting" };
 }
 
 export interface SceneMapObject {
@@ -185,8 +189,103 @@ export function FloorScene({
     return [...snapshotFixtures, ...runtimeOnlyFixtures];
   }, [fixtures, snapshot.fixtures, snapshot.mapDocument]);
 
+  const sceneRef = useRef<HTMLDivElement>(null);
+  const markerAnchors = useRef(new Map<string, HTMLButtonElement>());
+  const markerPress = useRef<{ pointerId: number; id: string; x: number; y: number; cancelled: boolean } | null>(null);
+  const [hoveredMarkerId, setHoveredMarkerId] = useState<string | null>(null);
+  const markerScope = JSON.stringify([
+    snapshot.floorId, snapshot.revision, snapshot.width, snapshot.height,
+    renderedFixtures.map(({ id, x, y }) => [id, x, y]),
+    selection.kind, selection.kind === "multiple" ? [...selection.disabledFixtureIds].sort() : []
+  ]);
+
+  // Coordinates are measured at each input event, after live camera/scroll/resize
+  // changes. Paint order, focus and eligibility never determine geometric intent.
+  function markerHit(x: number, y: number) {
+    return resolveMarkerHit({ x, y }, [...markerAnchors.current].map(([id, anchor]) => {
+      const { left, top, width, height } = anchor.getBoundingClientRect();
+      return { id, left, top, width, height };
+    }));
+  }
+
+  useEffect(() => {
+    markerPress.current = null;
+    setHoveredMarkerId(null);
+    if (!coarsePointer) return;
+    const cancel = () => { markerPress.current = null; };
+    const down = (event: PointerEvent) => {
+      const press = markerPress.current;
+      if (press && press.pointerId !== event.pointerId) press.cancelled = true;
+    };
+    const move = (event: PointerEvent) => {
+      const press = markerPress.current;
+      if (press?.pointerId === event.pointerId &&
+          pointerDistance(press, { x: event.clientX, y: event.clientY }) >= MAP_DRAG_THRESHOLD_PX) press.cancelled = true;
+    };
+    const upOutside = (event: PointerEvent) => {
+      if (markerPress.current?.pointerId === event.pointerId && !sceneRef.current?.contains(event.target as Node)) cancel();
+    };
+    const escape = (event: KeyboardEvent) => { if (event.key === "Escape") cancel(); };
+    // Window capture also observes a second touch outside the scene and releases
+    // outside a marker. It never prevents the viewport's existing pinch/pan input.
+    window.addEventListener("pointerdown", down, true);
+    window.addEventListener("pointermove", move, true);
+    window.addEventListener("pointerup", upOutside, true);
+    window.addEventListener("pointercancel", cancel, true);
+    window.addEventListener("lostpointercapture", cancel, true);
+    window.addEventListener("blur", cancel);
+    window.addEventListener("keydown", escape, true);
+    return () => {
+      cancel();
+      window.removeEventListener("pointerdown", down, true);
+      window.removeEventListener("pointermove", move, true);
+      window.removeEventListener("pointerup", upOutside, true);
+      window.removeEventListener("pointercancel", cancel, true);
+      window.removeEventListener("lostpointercapture", cancel, true);
+      window.removeEventListener("blur", cancel);
+      window.removeEventListener("keydown", escape, true);
+    };
+  }, [coarsePointer, markerScope]);
+
+  function handleMarkerPointerDown(event: ReactPointerEvent<HTMLDivElement>) {
+    if (!coarsePointer || event.button !== 0 || markerPress.current) return;
+    const id = markerHit(event.clientX, event.clientY);
+    if (id) markerPress.current = { pointerId: event.pointerId, id, x: event.clientX, y: event.clientY, cancelled: false };
+  }
+
+  function handleMarkerPointerUp(event: ReactPointerEvent<HTMLDivElement>) {
+    const press = markerPress.current;
+    if (!coarsePointer || press?.pointerId !== event.pointerId) return;
+    markerPress.current = null;
+    if (press.cancelled || pointerDistance(press, { x: event.clientX, y: event.clientY }) >= MAP_DRAG_THRESHOLD_PX ||
+        markerHit(event.clientX, event.clientY) !== press.id) return;
+    const actualHit = document.elementFromPoint(event.clientX, event.clientY);
+    const anchor = markerAnchors.current.get(press.id);
+    // Clipping, a dialog or a CAD error overlay must not activate a covered pin.
+    if (!actualHit || !sceneRef.current?.contains(actualHit) ||
+        (actualHit !== sceneRef.current && !actualHit.closest("[data-spatial-map-marker]")) || !anchor || anchor.disabled) return;
+    anchor.focus({ preventScroll: true });
+    onFixturePress?.(press.id, anchor);
+  }
+
   return (
-    <div className="relative h-full w-full" data-floor-scene="" data-map-objects-interactive={interactive ? "true" : "false"}>
+    <div ref={sceneRef} className="relative h-full w-full"
+      onPointerDownCapture={handleMarkerPointerDown}
+      onPointerUpCapture={handleMarkerPointerUp}
+      onPointerMoveCapture={event => {
+        if (coarsePointer && event.pointerType !== "touch") setHoveredMarkerId(markerHit(event.clientX, event.clientY));
+      }}
+      onPointerLeave={() => setHoveredMarkerId(null)}
+      onClickCapture={event => {
+        // Physical pointer activation was resolved on pointerup, including when
+        // the browser originally hit a disabled overlapping button. detail=0
+        // keeps native Enter/Space and assistive activation on their exact pin.
+        if (coarsePointer && event.detail > 0 && (event.target as Element).closest("[data-spatial-map-marker]")) {
+          event.preventDefault();
+          event.stopPropagation();
+        }
+      }}
+      data-floor-scene="" data-map-objects-interactive={interactive ? "true" : "false"}>
       {commonMap ? <CommonMapReadOnlyLayer snapshot={snapshot} /> : null}
       {nativeCad && snapshot.cadScene
         ? <CadSceneReadOnlyLayer descriptor={snapshot.cadScene} mapRevision={snapshot.revision} />
@@ -216,7 +315,8 @@ export function FloorScene({
         const unobserved = unobservedFixtureIds?.has(fixture.id) ?? false;
         // FloorMap injects the monitoring presenter result. Editor callers omit it and retain
         // their compact legacy status label without owning monitoring cause precedence.
-        const awaitingState = fixture.statusPresentation?.state === "provisioning_waiting_state" || fixture.statusReason === "provisioning_waiting_state";
+        const mapState = unobserved ? "unknown" : fixture.statusPresentation?.mapState ?? (fixture.statusReason === "provisioning_waiting_state" ? "waiting" : fixture.status);
+        const awaitingState = mapState === "waiting";
         const statusLabel = unobserved ? "조명 정보 확인 전" : fixture.statusPresentation?.label ?? (awaitingState ? "상태 확인 대기" : fixtureStatusLabels[fixture.status]);
         const brightnessLevel = fixtureBrightnessLevel(fixture.brightness);
         // Marker position is stored in map coordinates and must scale with the live snapshot.
@@ -227,16 +327,12 @@ export function FloorScene({
           left: coarsePointer ? "clamp(1.5rem, var(--fixture-left), calc(100% - 1.5rem))" : "clamp(1rem, var(--fixture-left), calc(100% - 1rem))",
           top: coarsePointer ? "clamp(1.5rem, var(--fixture-top), calc(100% - 1.5rem))" : "clamp(1rem, var(--fixture-top), calc(100% - 1rem))"
         } satisfies FixtureMarkerStyle;
-        const markerStateClass = unobserved ? "bg-surface-inset shadow-none" : awaitingState
+        const markerStateClass = unobserved ? "border-2! border-dotted! border-fixture-inspection-border! bg-surface-inset shadow-none" : awaitingState
           ? "border-2! border-dotted! border-fixture-inspection-border! bg-fixture-inspection-background shadow-none"
-          : fixture.status === "offline"
+          : mapState === "offline"
             ? "border-2! border-dashed! border-fixture-offline-border! bg-fixture-offline-background shadow-none"
-            : fixtureBrightnessClasses[brightnessLevel];
-        const badgeClass = awaitingState || unobserved
-          ? "bg-fixture-inspection"
-          : fixture.status === "offline"
-            ? "bg-fixture-offline"
-            : fixture.status === "fault" ? "bg-fixture-fault" : "bg-fixture-connected";
+            : cn(fixtureBrightnessClasses[brightnessLevel], mapState === "fault" ? "border-2! border-fixture-fault!" : "border-2! border-fixture-connected!");
+        const StatusIcon = mapState === "fault" ? TriangleAlert : mapState === "offline" ? CircleX : awaitingState || unobserved ? Clock3 : null;
         const selected = selection.kind !== "none" && selection.selectedFixtureIds.has(fixture.id);
         const disabled = selection.kind === "multiple" && selection.disabledFixtureIds.has(fixture.id);
         const disabledReason = selection.kind === "multiple" ? selection.disabledReasons?.get(fixture.id) : undefined;
@@ -250,20 +346,26 @@ export function FloorScene({
         return (
           <Button
             key={fixture.id}
-            ref={anchor => onFixtureAnchorChange?.(fixture.id, anchor)}
+            ref={anchor => {
+              if (anchor) markerAnchors.current.set(fixture.id, anchor);
+              else markerAnchors.current.delete(fixture.id);
+              onFixtureAnchorChange?.(fixture.id, anchor);
+            }}
             type="button"
             variant="ghost"
             size="sm"
             data-spatial-map-marker="true"
             data-brightness-level={brightnessLevel}
             className={cn(
-              "absolute z-2 block! -translate-x-1/2 -translate-y-1/2 cursor-pointer rounded-fixture-marker! border-0! bg-transparent! p-0! transition-[background-color,box-shadow] duration-150 motion-reduce:duration-[0.01ms] hover:z-4 focus-visible:z-4 focus-visible:outline-3 focus-visible:outline-offset-4 focus-visible:outline-fixture-selected",
+              "absolute z-2 block! -translate-x-1/2 -translate-y-1/2 cursor-pointer rounded-pill! border-0! bg-transparent! p-0! transition-[background-color,box-shadow] duration-150 motion-reduce:duration-[0.01ms] hover:z-4 focus-visible:z-4 focus-visible:outline-3 focus-visible:outline-offset-4 focus-visible:outline-fixture-selected",
               // Leave a pixel-rounding buffer beyond the 44px coarse-pointer minimum so every edge remains reachable in browser layout.
               coarsePointer ? "size-12! min-h-12!" : "size-5! min-h-5!",
               selected && "z-3",
               emphasizedFixtureIds && !emphasizedFixtureIds.has(fixture.id) && "opacity-30"
             )}
-            style={markerStyle}
+            style={coarsePointer && hoveredMarkerId !== null
+              ? { ...markerStyle, zIndex: hoveredMarkerId === fixture.id ? 4 : selected ? 3 : 2 }
+              : markerStyle}
             title={markerTitle?.(fixture) ?? `${fixture.name} ${statusLabel}${unobserved ? "" : ` ${fixture.brightness}%`}`}
             aria-label={`${fixture.name} ${statusLabel}${unobserved ? "" : ` ${fixture.brightness}%`}${accessibleState ? ` ${accessibleState}` : ""}`}
             aria-current={selection.kind === "single" && selected ? "true" : undefined}
@@ -275,8 +377,8 @@ export function FloorScene({
             onClick={(event) => onFixturePress?.(fixture.id, event.currentTarget)}
           >
             {/* The marker dot stays 20px; only its transparent button target expands for coarse pointers. */}
-            <span data-spatial-map-marker-dot="true" className={cn("pointer-events-none absolute left-1/2 top-1/2 block size-5 -translate-x-1/2 -translate-y-1/2 rounded-fixture-marker! border! border-fixture-offline! transition-[background-color,box-shadow] duration-150 motion-reduce:duration-[0.01ms]", markerStateClass, selected && "outline-3 outline-offset-4 outline-fixture-selected")}>
-              <span aria-hidden="true" className={cn("pointer-events-none absolute -top-1.5 -right-1.5 size-2 rounded-pill border-2 border-surface-panel shadow-panel", badgeClass)} />
+            <span data-spatial-map-marker-dot="true" className={cn("pointer-events-none absolute left-1/2 top-1/2 grid size-5 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-pill! border! border-fixture-offline! transition-[background-color,box-shadow] duration-150 motion-reduce:duration-[0.01ms]", markerStateClass, selected && "outline-3 outline-offset-4 outline-fixture-selected")}>
+              {StatusIcon ? <StatusIcon size={12} aria-hidden="true" className="text-content-primary" /> : null}
             </span>
           </Button>
         );

@@ -16,3 +16,11 @@ it("does not invent brightness for unobserved fixtures", () => {
   render(<FixtureDetailPanel fixture={null} position={{ kind: "unknown" }} />);
   expect(screen.getByRole("complementary")).not.toHaveTextContent("0%");
 });
+it("leaves native scrolling to the containing detail body without trapping its wheel chain", () => {
+  render(<div data-testid="detail-body"><FixtureDetailPanel fixture={fixture} position={{ kind: "unplaced" }} /></div>);
+  const detail = screen.getByRole("complementary", { name: "선택 조명 상세" });
+  expect(detail).toHaveClass("overflow-visible", "overscroll-auto");
+  expect(detail).not.toHaveClass("overflow-y-auto", "overscroll-contain");
+  expect(detail).toHaveTextContent("지도 배치");
+  expect(detail).toHaveTextContent("미배치");
+});

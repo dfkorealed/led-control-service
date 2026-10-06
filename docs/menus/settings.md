@@ -1,5 +1,74 @@
 # 설정 메뉴 기능 현황 및 구현 설계
 
+## 2026-10-06 사용자 목록·CAD 목록 공통화 (Task 8 구현·직접 검수 완료)
+
+- 구현 완료: 유저 관리의 검색은 목록 밖에 유지하고 권한·상태는 공통 상세 필터로 제공한다. 활성 조건은 0~2개이며 초기화는 검색어를 보존한다. 공통 DataGrid가 실제 컨테이너 폭에 따라 표/카드로 전환하고, 중앙 정렬 헤더·전체 데이터와 행 작업 메뉴를 유지한다. 현장 변경 시 기존 메뉴/대화상자/필터는 종료하며 늦은 상태 변경 응답이 새 현장의 재시도나 안내를 유발하지 않는다. 상태 변경 중 추가 및 행 작업을 잠근다.
+- 구현 완료: CAD 영역 선택은 주 입력으로 계속 표시하고 검색 없는 상세 필터에 페이지 크기만 넣었다. 기본 20개·10/20/50/100 옵션, 크기 변경 후 첫 페이지 이동, 선택한 영역 보존 및 이전/다음 이동을 유지한다. 후보 선택·적용 요청 payload와 lease/revision/ACK는 변경하지 않았다. 계정/로그아웃은 기존 eager 단일 owner를 소비한다.
+- 구현 완료: 편집기의 공통 카메라 도구가 내부에서 줄바꿈·축소되지 않도록 소비자 배치를 수정했다. 맵 내용 높이 최소 240px를 편집기→라우트→쉘로 전달하고, 좁거나 짧은 화면은 일반 문서 세로 스크롤로 도구와 패널에 접근한다. 충분한 높이는 기존 채움 방식이며 다른 메뉴의 배치·단일 계정 영역·저장·lease·카메라 계약은 유지한다.
+- 미구현: 이번 작업의 담당 구현·실제200% 원본 직접 검수는 완료했다. 최종 통합 전체 테스트·빌드와 독립 품질 관문은 Task 9에 남긴다. 실계정·사용자 DB·Gateway·PKI·조명·WebView HIL은 변경하거나 검증하지 않았다. 기존 미구현 계획은 유지한다.
+- 부족하거나 개선이 필요한 기능: 집중 단위 92개(유저26/CAD66)는 통과했으나 DEFAULT 웹 전체 단독 실행은 222파일/3,085개 통과, 2파일 실패/71개 실패, 1파일/3개 skip이다. CAD 파일은 `ApiError is not a constructor`로 수집이 실패했고 이벤트 패널 71개도 `ApiError` 초기화 오류로 실패했다. 원 로그와 소스 identity를 보존하며 원인·무해성은 미확정이다. 전체 테스트를 재실행하거나 통과로 합산하지 않았다.
+- 부족하거나 개선이 필요한 기능: 제품 배치 수정 시 직접 단위 247개와 격리 Chromium 28개가 통과했다. CAD 9개 화면 크기·정상 자료 탭/44px hit·최소 맵 높이, 사용자 9개 크기/컨테이너 전환, 1023↔1024px 전환의 캔버스 동일성/초안/저장, dirty logout 및 공통 4종 도형 저장→모니터링 픽셀 검증을 포함한다. 과거 320×740 탭 실패와 선 픽셀 실패는 원 로그로 보존하며 최신 회귀가 모든 옛 원인의 확정 진단이나 전체 통과를 뜻하지 않는다. 별도 엄격 E2E 타입 오류는 공통 helper의 조상 배열 타입 선언만 Element[]로 보완하여 같은 검사에서 통과했고, 변경 전후 JavaScript 출력 동일성과 기존 레이아웃 helper 31개 회귀를 확인했다. 제품 247/28개 증거와 후속 테스트 선언 변경의 시점은 구분한다.
+- 부족하거나 개선이 필요한 기능: 과거 사용자 native 200% 원본은 장문 이름이 보이지 않아 거절되었다. 앞선 CAD 원본은 필터 닫힘·초점·20개 안내만 직접 승인되었고 도면 영역 내용은 미승인으로 보존한다. 후속 실제200% 검증은 도면 영역 1 이름/선택, 사용자 장문 이름, 행 메뉴 접근/닫힘/초점의 계획된 원본 3개를 각각 한 번 저장하여 자동 통과했고 총괄이 원해상도 원본을 직접 검수하여 각 의도 상태를 승인했다. 실제 이름의 clip/하단 메뉴 가림과 요청0을 관측하고 자연스크롤로 이름과 먼 행 작업을 별도 상태로 검증했다. 전체 카드가 짧은 화면에 동시에 들어오는 조건을 제품 요구로 추가하지 않았다. 행 작업 원본은 이름 증거가 아니며 원 metadata를 변경하거나 소프트웨어 증거를 실제 WebView/HIL 완료로 해석하지 않는다.
+- 관련 파일: `apps/web/src/features/settings/users/SiteUsersView.tsx`, `apps/web/src/features/floor-editor/{CadImportPanel,FloorEditorView}.tsx`, `apps/web/src/features/settings/floor-plans/FloorEditorRoute.tsx`, `apps/web/src/features/shells/CustomerShell.tsx`와 직접 테스트, `apps/web/e2e/site-user-management.spec.ts`, `apps/web/e2e/settings-floor-editor.spec.ts`.
+- 갱신 규칙: 필터 초기화·현장 전환·pending 잠금·100명/삭제 확인/초점·container/card·CAD 선택 보존·실제 44×44 hit를 같은 변경에서 검증한다. 단위/모의 브라우저/native 원본/실기기 및 전체 실패를 분리하고, 작은 화면에서 가려지는 접근 실패를 '기존 기능'이라는 이유로 제외하지 않는다.
+
+- 2026-10-05 공통 초기 초점 안정성 보완: Dialog 내부 ref를 안정화해 중첩 Popover가 열린 동안 부모 재렌더·외부 object/callback ref 교체가 사용자 초점을 빼앗지 않으며 이전 ref 정리와 닫힘 시 정리는 유지한다. 직접 공통 회귀와 격리 Chromium 검증 범위이며 실제 native WebView·HIL 및 최종 통합 승인을 뜻하지 않는다.
+- 2026-10-05 고객 알림 배치 보완: CustomerShell은 sticky 헤더 뒤·본문 앞의 단일 flow 알림 영역에 표시 중인 메시지의 실제 높이만 예약한다. 알림이 없으면 빈 간격은 없고 닫기·만료·revision·aria와 eager 내 계정/로그아웃·dirty/pending 정책은 유지한다. 공통 기본 overlay는 변경하지 않는다. 직접 Shell/계정 회귀와 모니터링 격리 Chromium 범위이며 편집기·설정 전체 상태 조합·native/HIL·최종 통합 승인은 별도다.
+
+## 2026-10-05 공통 내 계정·로그아웃 이동 (추가 운영 UI Task 4)
+
+- 구현 완료: 일반 고객의 헤더 로그아웃을 설정 경로의 eager `내 계정` 영역으로 이동했다. admin/viewer·현장 없음·설치 pending·권한/설치 조회 로딩·오류와 실제 lazy 설정 실패에도 계정 표시와 로그아웃을 제공한다. 초기 gate는 보호된 route body를 계속 차단한다.
+- 구현 완료: logout handler·동기 중복 잠금·명령 block/unblock·cache 정리·미저장 확인은 CustomerShell의 단일 owner다. 시작한 계정 버튼 ref로 취소/실패 초점을 반환하며 dirty 취소는 초안·현장을 보존한다. 실패는 계정에 오류/재시도를 제공하고 physical 명령을 취소했다고 안내하지 않는다.
+- 구현 완료: SettingsShell의 선택적 `accountSlot` 계약을 지원한다. 실제 계정 영역은 lazy Shell/route Suspense/ErrorBoundary 밖에 한 번만 배치한다. 총괄 Ruling에 따라 lazy 실패가 계정 탈출과 controller 수명을 소유하지 않도록 한 예외이며 SettingsShell의 기존 lazy 경계는 유지한다.
+- 구현 완료: 고객 route 오류 안내는 계정 영역이 없는 모니터링·제어·통계에서도 실제 위치인 `설정의 내 계정`을 안내한다. 기존 탐색과 화면 새로고침을 유지하며 별도 로그아웃 owner나 자동 이동을 추가하지 않는다.
+- 미구현: 실제 인증 서버·현재 사용자 계정/DB·운영 배포·native/HIL 검증은 수행하지 않는다. 기존 관리자 보안·MFA·관리 권한은 이 이동의 확장 범위가 아니다.
+- 부족하거나 개선이 필요한 기능: 웹 자동 테스트와 격리 mock browser 결과를 실제 cookie 폐기·physical 명령 중단 증거로 해석하지 않는다. 최종 전체 크기/200%/편집기 성능 검수는 Task 9다.
+- 관련 파일: `apps/web/src/features/shells/{CustomerShell,CustomerAccountContext,CustomerAccountPanel,CustomerRouteErrorBoundary}.tsx`, `apps/web/src/features/settings/SettingsShell.tsx`와 직접 테스트, `apps/web/e2e/{app-shell-recovery,calm-operations-shell}.spec.ts`.
+- 갱신 규칙: 역할·no-site/pending/error/lazy 탈출과 dirty 취소·로그아웃 실패 초점·명령/cache 보호·단일 controller·선택적 slot 회귀를 같은 기능 변경에서 유지한다.
+
+## 2026-10-05 공통 지도 기하·카메라 도구 (Task 2)
+
+- 구현 완료: 화면/맵 좌표 왕복, 실제 배율의 카메라 변환, viewport의 맵 경계, 화면 맞춤 계산을 공통 순수 기하로 분리했다. 운영 viewport의 실제 표시 영역과 편집기의 카메라·공간 인덱스·클릭 좌표·최초 자동 맞춤이 이를 소비한다. 운영 상대 배율과 편집 실제 배율은 별도로 유지하며 미측정 viewport의 카메라/맞춤은 대기한다.
+- 구현 완료: 공통 `MapCameraControls`를 편집 툴바에 연결했다. 100% 초기화, 맵 맞춤, 선택 맞춤은 각각 기존 callback을 사용한다. 편집 줌 0.001~4와 자동 맞춤 상한 2, 기존 카메라의 지연 커밋, undo/redo·저장·패널 소유권을 유지한다. 버튼은 기존 44px 공통 컴포넌트를 사용하고 줌 경계와 외부 disabled 조건을 표시한다.
+- 미구현: 운영·제어 화면의 공통 툴바 소비 변경, 후속 브라우저 200%/실제 입력·레이아웃 검증 및 Task 9 원 1,000조명 cold/warm 성능 관문은 아직 진행하지 않았다. 실제 WebView·실장비·사용자 DB·서버 적용은 이번 작업에 포함하지 않는다.
+- 부족하거나 개선이 필요한 기능: 운영 0.1~4 상대 줌, 드래그 8 CSS px·터치 400ms·운영 조명 48px·편집 hit 여유 22px와 renderer·lease/revision/CAD/저장 ACK는 기존 경계를 유지한다. 공통 문서 더블클릭의 배열 첫 hit 위험은 이번 추출로 해결하지 않았다. 최종 단위/인접 회귀는 56파일·819통과·실패/skip 0이며 타입 검사와 UI 정책 위반 0을 확인했다. 오류 주입 테스트의 Konva/Nest 경고는 원 로그에 보존한다. 독립 검토와 Task 9 브라우저/성능 판정은 별도이며 과거 성능 통과를 새 소스의 통과로 재사용하지 않는다.
+- 관련 파일: `apps/web/src/features/floor-map/map-camera-geometry.ts`, `FloorMapViewport.tsx`, `apps/web/src/components/ui/maps/MapCameraControls.tsx`, `apps/web/src/features/floor-editor/{geometry,use-map-editor}.ts`, `FloorEditorCanvas.tsx`, `FloorEditorView.tsx`와 직접 테스트.
+- 갱신 규칙: 공유 기하 변경 시 실제 배율/상대 배율, viewport 미측정 대기, reset/fit 분리, 사용자 카메라 보존 및 편집 입력·저장 회귀를 함께 검증한다. 브라우저 성능·실기기/HIL·운영 반영은 별도 실행 증거로 기록한다.
+
+## 2026-10-04 운영 공통 시각·편집기 최종 검증 checkpoint
+
+- 구현 완료: 공통 초 단위 시각 소비자와 기존 편집기 보존을 독립 검토했다. 보완된 cold/warm 원1,000조명 회귀2는3.132/2.562초에 원8초·첫ID·단일 클릭·픽셀·X50 저장 조건을 그대로 통과했다. 변경 없는 포인터/compact 증거는 별도로 유지한다.
+- 구현 완료(로컬 반영): 기본 개발 브랜치099로 fast-forward했고 새 API/기존 웹 재개·TLS live200·Web200·비인증 proxy401을 확인했다. 기존 도면/등록 데이터·Gateway/센서·장비 설정은 변경하지 않았다.
+- 미구현: 실기기 WebView·하드웨어·전체 고객 도면 성능을 추가 인증하지 않는다. 10:06:37 UTC startup readiness 단일 관측은503/MQTT down·나머지4 up이며 이후 재측정·지속성·원인은 미확인이다. 기존 공통도면 편집기 더블클릭의 배열 첫 hit 선택 위험은 별도 후속으로 유지한다.
+- 부족하거나 개선이 필요한 기능: 원 cold 실패를 보존하고 fresh8/8로 합산하지 않는다. year0/BCE 공통 formatter 한계와 이후 레이아웃 변경의 별도 회귀 필요성을 남긴다.
+- 관련 파일: [22행 구현·검증 계획](../superpowers/plans/2026-10-01-operations-ui-comments.md), `monitoring-1000.spec.ts`, 설정 시각 소비자·공통 formatter.
+- 갱신 규칙: source/단위/native 입력/실기기 검증과 원 예산·실패를 구분하고 제품이 바뀌지 않은 테스트 측정 보완을 별도로 기록한다.
+
+## 2026-10-04 통합 편집기 준비 측정 보완
+
+- 구현 완료: 1,000조명 브라우저 회귀는 편집 권한과 현재 캔버스·Konva 크기·맞춤 카메라가 실제 두 연속 프레임에서 일치한 뒤 첫 조명의 화면 중심을 계산한다. 초기 레이아웃 변경 중 새 DOM 원점과 이전 카메라를 섞던 테스트 측정만 보완하며 제품 렌더링·입력·카메라는 변경하지 않는다.
+- 미구현: 실제 고객 DB·조명 하드웨어·iOS/Android WebView 성능 검증은 추가하지 않는다.
+- 부족하거나 개선이 필요한 기능: 통합 소스의 보완 전 cold는 첫 조명 대신 L0021을 클릭하여 실패했고 warm·포인터3·compact3은 통과했다. 이 원 실패를 보존한 뒤 보완된 cold·warm 집중 회귀 2개가 각각 3.132초·2.562초에 통과했다(전체 케이스 시간). 시작 전부터 측정하는 원래 8초 예산·실제 단일 클릭·L0001·픽셀·X50 저장 단언은 그대로 통과했으며 클릭 재시도는 없다. 웹 lint·타입·직접 E2E 타입·UI 정책도 통과했지만 독립 검토와 최종 병합 판정은 별도다. 프레임 간 일치가 이후 모든 레이아웃 변경을 막는 보장은 아니다.
+- 관련 파일: `apps/web/e2e/monitoring-1000.spec.ts`. 제품 `FloorEditorCanvas`·store·hit resolver는 변경하지 않는다.
+- 갱신 규칙: 준비 측정 변경은 실제 cold·warm 결과와 원 실패를 함께 기록하며 고정 대기·prewarm·클릭 재시도·준비 시계 재시작으로 통과시키지 않는다. 자동 fixture 결과를 실기기/HIL 완료로 표현하지 않는다.
+
+## 2026-10-02 밀집 조명 선택 대상 보완
+
+- 구현 완료: 축소된 맵에서 조명의 44px 입력 영역이 겹칠 때 실제 보이는 조명 몸체를 우선하며, 몸체 밖에서는 화면상 가장 가까운 조명을 선택한다. 같은 거리면 기존 그리기 순서를 따른다. Konva의 Stage 입력 경계에서 실제 노드를 결정해 클릭·터치·드래그가 동일한 조명을 사용한다.
+- 구현 완료: 현재 확대/이동 카메라와 기존 공간 인덱스를 재사용한다. 숨김·미배치·잠금·읽기 전용·Shift 선택 정책과 도형/크기 조절 핸들/배치 해제 버튼의 입력 우선순위는 유지한다. Stage 생성·재생성·정리 시 연결을 복원하며 공통 맵 저장 계약·문서·controller·store는 변경하지 않는다.
+- 미구현: 이번 보완은 실제 고객 DB·실장비·iOS/Android WebView 검증을 추가하지 않는다. 전체 통합 테스트·빌드·배포 및 독립 리뷰는 별도 작업이다.
+- 부족하거나 개선이 필요한 기능: 관련 단위 회귀 52개와 Chromium 브라우저 회귀 8개를 통과했다. 원본을 변경하지 않은 1,000조명/실제 시계/8초 준비 기준은 cold·warm 모두 통과했고 실제 첫 조명 선택·픽셀·X50 저장을 확인했다. 밀집 중심 4개, 가장 가까운 입력 영역, Shift 추가/해제, 실제 노드 드래그/저장, 터치와 compact 3개도 검사했다. 선택된 조명의 DOM 버튼이나 resize 핸들이 이웃을 가리는 경우 기존 UI 입력 우선순위를 유지하므로 이 보완을 모든 겹침 UI의 해결로 일반화하지 않는다.
+- 관련 파일: `apps/web/src/features/floor-editor/FloorEditorCanvas.tsx`, `editor-fixture-hit-test.ts`와 직접 테스트, `FloorEditorCanvas.common-map.test.tsx`, `apps/web/e2e/floor-editor-hit-targets.spec.ts`. 원본 관문은 `apps/web/e2e/monitoring-1000.spec.ts`다.
+- 갱신 규칙: 입력 영역이나 카메라 연결을 변경하면 실제 중심/입력 영역/Shift/터치와 동일 노드 드래그·잠금·숨김·읽기 전용 회귀를 함께 유지한다. 원본 준비 시간·픽셀·저장 검증을 완화하거나 소프트웨어 증거를 양산 HIL 완료로 표현하지 않는다.
+
+## 2026-10-02 실제 시각 표시 통일
+
+- 구현 완료: 계정 보안의 세션 로그인/만료, 현장 사용자 목록의 최근 로그인, 맵 편집의 버전 생성 시각을 공통 `formatTimestamp`의 `yyyy-MM-dd HH:mm:ss` 표시로 통일했다. 기존 기기 시간대를 유지하고 Gregorian/h23을 사용해 자정은 `00:00:00`, 존재하지만 잘못된 시각은 `—`로 표시한다. 최근 로그인이 null인 사용자의 `로그인 기록 없음`은 유지한다.
+- 구현 완료: 표시만 변경하며 MFA·비밀번호 변경·세션 폐기, 사용자 생성/수정/삭제/비활성화, 맵 버전 페이지 이동·복구/저장·lease·선택·카메라 계약은 유지한다. 원본 ISO 및 `<time datetime>`은 변환하거나 다시 저장하지 않는다. 날짜 전용·반복 `HH:mm`·현장 시간대 정책도 변경하지 않는다.
+- 미구현: 이번 표시 변경은 실제 고객 DB·운영 인증·하드웨어·모바일 WebView 검증을 추가하지 않는다. API·DB schema·공통 formatter·렌더링 구현과 기존 8초 편집 준비 기준은 변경하지 않는다.
+- 부족하거나 개선이 필요한 기능: 직접 화면 테스트는 UTC/Asia-Seoul의 초·자정·invalid와 null 최근 로그인을 대상으로 한다. 브라우저 검증은 알려진 HTTP fixture의 revision ISO·기기 시간대와 기존 Shell/편집기 회귀에 한정하며 운영 적용 증거가 아니다. 전체 통합·독립 검토의 최종 판정은 총괄이 별도로 수행한다.
+- 관련 파일: `settings/security/AccountSecurityView`, `settings/users/SiteUsersView`, `floor-editor/FloorEditorView` 및 직접 테스트, `apps/web/e2e/calm-operations-shell.spec.ts`. 화면 경로는 `apps/web/src/features` 하위다.
+- 갱신 규칙: 실제 시각 표시나 시간대 의미를 바꾸면 초·자정·invalid 및 원본 ISO 보존 회귀와 이 문서를 함께 갱신한다. 표시 통일을 저장/API 시간대 정책 변경으로 확대하지 않는다.
 ## 2026-10-04 모바일 편집 입력·초안·권한 복귀
 
 - 구현 완료: 맵 편집 캔버스에만 브라우저 기본 터치 제스처를 차단하고 기존 터치 이동·핀치 처리를 유지한다. 캔버스 밖 패널과 페이지의 스크롤은 차단하지 않는다. 전체 선택 테두리의 터치 탭으로 개별 요소를 선택할 수 있고 드래그 종료는 탭 선택으로 처리하지 않는다.
@@ -186,6 +255,7 @@
 ## 구현 완료
 
 - 2026-10-04: 공통 iOS WebView 셸이 가려진 텍스트 입력의 포커스 테두리까지 확인하여 현재 포커스/키보드 열림 시도당 중앙으로 한 번 스크롤한다. 뒤늦은 viewport 크기 변경도 아직 보정하지 않은 입력만 다시 확인하며, 이미 충분히 보이거나 보정한 입력은 이동하지 않는다. 사용자 스크롤 제스처, 키보드 숨김, 앱 비활성화, 오류와 문서 교체 시 대기 중인 보정을 취소한다. Android와 메뉴 업무 로직은 변경하지 않는다.
+- 2026-10-02 공통 페이지 크기 타입 호환: `CadImportPanel` 도면 영역의 페이지 크기 state는 `DefaultPaginationPageSize`(10/20/50/100)에 연결했다. 기본 20·기존 네 옵션과 영역 선택/페이지 초기화·CAD 업로드/변환/검토/적용 정책은 그대로다. 공통 로그용 500/1000 확장은 CAD 영역 조회 수를 늘리지 않는다. 이 변경은 타입-only 연결이며 설정 화면에 새 `FilterPanel`/`LogView`/`DetailSheet`를 적용하거나 실제 viewport/safe-area·장비 검증을 완료한 것이 아니다.
 
 - 2026-09-29 로그인·계정 보안 경계는 단말 또는 Mac의 IP가 바뀌어도 exact IP/User-Agent 동일성을 요구하지 않는다. 비밀번호 단계와 MFA 완료 단계가 다른 네트워크여도 사용자 row version, 만료, 일회성 Redis challenge, TOTP replay·recovery code 규칙을 통과하면 완료 시점 IP/User-Agent로 session·rate limit·감사를 생성한다. nginx를 통한 browser IP는 기존 `LANDING_INGRESS_SECRET`과 `X-Web-Ingress-Secret`·`X-Web-Client-IP`가 함께 유효할 때만 신뢰하고, 전역 proxy trust와 장비 9443 header trust는 허용하지 않는다. 로컬 API/Web 전용 `DEV_LOCAL_APP_ONLY=1`은 내부 loopback 연결에서도 기존 Lab DNS로 TLS를 검증하며 Gateway/HIL 완료를 의미하지 않는다.
 
@@ -620,6 +690,7 @@ DB 모델이 실제 변경되는 작업에서는 `docs/database-schema.md`를 �
 ## 관련 파일
 
 - `apps/mobile/src/ios-focus-visibility.ts`, `apps/mobile/src/ios-focus-visibility.test.ts`, `apps/mobile/src/WebShell.tsx`, `apps/mobile/src/WebShell.ios-focus.test.tsx`, `apps/mobile/README.md`: 공통 iOS 입력 가시성 보정과 회귀·실행 안내.
+- `apps/web/src/features/floor-editor/CadImportPanel.tsx`, `apps/web/src/components/ui/PaginationBar.tsx`, `apps/web/src/components/ui/PaginationBar.test.tsx`, `apps/web/src/components/ui/index.ts` — 기존 CAD 영역 조회 수의 기본 옵션 타입 연결.
 
 - `apps/web/src/features/setup/SetupWizard.tsx`, `apps/web/src/features/settings/SettingsView.tsx`, `apps/web/src/features/settings/site/SiteOperationsView.tsx`, `apps/web/src/features/settings/floor-plans/FloorPlanSettingsView.tsx`, `apps/web/src/features/settings/users/SiteUsersView.tsx`
 

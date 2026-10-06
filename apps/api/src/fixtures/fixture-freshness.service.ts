@@ -3,6 +3,7 @@ import { Prisma } from "@prisma/client";
 import { FIXTURE_OPERATIONAL_FRESHNESS_MS, gatewayHeartbeatFreshSince } from "@led-control/shared";
 import { MonitoringIncidentReconcilerService } from "../monitoring-incidents/monitoring-incident-reconciler.service";
 import { PrismaService } from "../prisma/prisma.service";
+import { utcTimestampSql } from "../prisma/utc-timestamp-sql";
 
 @Injectable()
 export class FixtureFreshnessService implements OnModuleInit, OnModuleDestroy {
@@ -94,13 +95,13 @@ export class FixtureFreshnessService implements OnModuleInit, OnModuleDestroy {
           return Number(result.changed);
         };
         const gatewayOffline = await applyOffline(Prisma.sql`
-          (g."lastHeartbeatAt" < ${gatewayCutoff} OR g."lastHeartbeatAt" IS NULL)
+          (g."lastHeartbeatAt" < ${utcTimestampSql(gatewayCutoff)} OR g."lastHeartbeatAt" IS NULL)
         `, "gateway_offline");
         // A recovered gateway can leave an already-offline fixture stale. Compare
         // receipt clocks, not a wall cutoff, for manual verification failures.
         const fixtureStale = await applyOffline(Prisma.sql`
-          g."lastHeartbeatAt" >= ${gatewayCutoff} AND (
-            f."lastSeenAt" < ${fixtureCutoff} OR f."lastSeenAt" IS NULL OR
+          g."lastHeartbeatAt" >= ${utcTimestampSql(gatewayCutoff)} AND (
+            f."lastSeenAt" < ${utcTimestampSql(fixtureCutoff)} OR f."lastSeenAt" IS NULL OR
             f."lastUnreachableAt" > f."lastSeenAt"
           )
         `, "fixture_stale");

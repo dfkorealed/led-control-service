@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import type { MobileFileDownloadOutcome } from "../../mobile/file-download";
 import { energyReportRequestErrorMessage, type EnergyReportRequestAction } from "../../../api/energy";
 import { Button, DatePicker, formatIsoDate, ModalDialog, parseIsoDate, SelectBox, Text } from "../../../components/ui";
+import { completedDateBounds } from "../completed-date-bounds";
 
 const scopeItems: Array<{ id: EnergyScope; label: string }> = [
   { id: "site", label: "현장" },
@@ -55,7 +56,9 @@ export function ReportCreateDialog({
   const targetMessage = isTargetsLoading ? "대상을 불러오는 중입니다."
     : isTargetsError || !targetData ? "대상 정보를 불러오지 못했습니다."
     : !targets.length ? "선택한 범위에 등록된 대상이 없습니다." : "";
-  const canSubmit = hasValidTarget && !targetMessage && Boolean(from && to && from <= to && to <= completedDate);
+  const validPeriod = Boolean(from && to && from <= to && to <= completedDate);
+  const dateBounds = completedDateBounds(from, to, completedDate);
+  const canSubmit = hasValidTarget && !targetMessage && validPeriod;
 
   function setReportScope(nextScope: EnergyScope) {
     setScope(nextScope);
@@ -111,14 +114,15 @@ export function ReportCreateDialog({
       <div className="grid min-w-0 grid-cols-2 gap-3 max-compact:grid-cols-1">
         <Text variant="body-sm" tone="secondary" className="col-span-full">보고서 대상 기간은 현장 시간대의 마지막 완료일까지 선택할 수 있습니다.</Text>
         <Text variant="body-sm" tone="muted" className="col-span-full">보고서와 CSV 비용은 당시 적용 단가의 저장 비용입니다.</Text>
-        <DatePicker className={reportDatePickerClass} label="기간 시작" value={from || null} maxValue={to && to < completedDate ? to : completedDate || undefined}
+        <DatePicker className={reportDatePickerClass} label="기간 시작" value={from || null} {...dateBounds.start} isInvalid={Boolean(completedDate) && !validPeriod}
           onChange={setFrom} />
-        <DatePicker className={reportDatePickerClass} label="기간 종료" value={to || null} minValue={from || undefined} maxValue={completedDate || undefined}
+        <DatePicker className={reportDatePickerClass} label="기간 종료" value={to || null} {...dateBounds.end} isInvalid={Boolean(completedDate) && !validPeriod}
           onChange={setTo} />
         <SelectBox label="범위" items={scopeItems} selectedKey={scope} onSelectionChange={(value) => value && setReportScope(value)} />
         <SelectBox label="대상" items={targets.map((target) => ({ id: target.identityId, label: target.label }))}
           selectedKey={hasValidTarget ? identityId : null} isDisabled={Boolean(targetMessage)} onSelectionChange={(value) => value && setIdentityId(value)} />
         {targetMessage ? <Text role="status" variant="body-sm" tone="secondary" className="col-span-full">{targetMessage}</Text> : null}
+        {completedDate && !validPeriod ? <Text role="alert" variant="body-sm" tone="danger" className="col-span-full">시작일과 종료일을 마지막 완료일 이내의 순서대로 선택해 주세요.</Text> : null}
       </div>
     </ModalDialog>
   );

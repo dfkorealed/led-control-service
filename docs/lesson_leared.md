@@ -1,5 +1,11 @@
 # 프로젝트 오답 노트 (Lessons Learned)
 
+## 2026-10-01 / 격리 검증은 실행 경로를 매번 강제 확인한다
+
+- **발생한 문제**: deeply nested ignored 준비 스크립트에서 저장소 경로를 상대 부모 수로 계산해 기본 checkout의 검증을 격리 worktree의 baseline처럼 보고했다. 통과 수와 로그가 있어도 대상 경로가 틀리면 해당 브랜치 증거가 아니다.
+- **예방**: 실행 전 지정 절대 경로·`process.cwd()`·`git rev-parse --show-toplevel`·`git branch --show-current`를 대조하고 하나라도 다르면 명령 시작 전에 중단한다. 보고서에 실제 실행 root/HEAD를 기록하고, 잘못된 범위의 로그는 원본을 보존하되 유효 baseline과 분리한다. 기본 산출물을 추정 삭제하거나 서버를 재시작해 복구하지 않는다.
+- **검증 한계**: 이번 격리 재실행의 root test는 변경 전 Gateway 분석 CLI timeout 1건으로 exit1이었다. 기본 폴더 실행의 exit0으로 이를 덮거나, 후행 API/정책 단계까지 통과했다고 추정하지 않는다. 실패 케이스의 focused 실행과 최종 fresh 전체 gate를 별도로 확인한다.
+
 ## 2026-10-02 / 맵 스냅·query 선택·알림은 종료 경로와 실제 UI 계약까지 검사한다
 
 - **발생한 문제**: 이동 delta를 controller와 transform에서 두 번 스냅해 비격자 맵 경계 1204가 1200으로 되돌아갔다. 회전 타원의 실제 곡선 대신 local bbox 모서리로 clamp해 유효한 snap OFF resize도 거부했다. 0폭/0높이 선은 0 나눗셈뿐 아니라 확대된 hit frame 때문에 고정 끝점이 2px 이동했다. 공통 문서 없는 조명도 controller로 보내 legacy 방향키가 무시됐고 지연 canvas pick이 이후 checkbox 선택을 덮었다.

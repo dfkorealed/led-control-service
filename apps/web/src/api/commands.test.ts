@@ -89,6 +89,15 @@ describe("command recovery API", () => {
     expect(response.retainedFrom).toBe("2026-06-25T00:00:00.000Z");
     expect(fetch.mock.calls[0][0]).toBe("/api/commands?siteId=site&query=B2+%EC%A1%B0%EB%AA%85%26&stage=verification_required&cursor=a%2Bb%2F%3D&limit=20");
   });
+  it("encodes command history calendar dates and 1000 size in the request scope", async () => {
+    const fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ items: [], nextCursor: null, generatedAt: "2026-09-25T00:00:00.000Z", retainedFrom: "2026-06-25T00:00:00.000Z" }) });
+    vi.stubGlobal("fetch", fetch);
+    await listCommands({ siteId: "site", fromDate: "2026-08-01", toDate: "2026-09-25", limit: 1000 });
+    const url = new URL(fetch.mock.calls[0][0], "http://localhost");
+    expect(url.searchParams.get("fromDate")).toBe("2026-08-01");
+    expect(url.searchParams.get("toDate")).toBe("2026-09-25");
+    expect(url.searchParams.get("limit")).toBe("1000");
+  });
   it("reads requiring verification cases through the static route without issuing control", async () => {
     const fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ items: [], nextCursor: null, generatedAt: "2026-09-25T00:00:00.000Z" }) });
     vi.stubGlobal("fetch", fetch);

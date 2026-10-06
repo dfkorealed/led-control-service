@@ -3,7 +3,31 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { EnergyHeatmap } from "./EnergyHeatmap";
 
 describe("EnergyHeatmap", () => {
+  it("retains the live metric filter across loading and error transitions", () => {
+    const props = { metric: "energy" as const, onMetricChange: vi.fn(), data: heatmapResponse };
+    const view = render(<EnergyHeatmap {...props} />);
+    fireEvent.click(screen.getByRole("button", { name: /히트맵 지표 상세 필터/ }));
+    view.rerender(<EnergyHeatmap {...props} data={undefined} isLoading />);
+    expect(screen.getByRole("dialog", { name: "히트맵 지표" })).toBeInTheDocument();
+    expect(screen.getByText("시간대별 사용량을 계산하는 중")).toBeInTheDocument();
+    view.rerender(<EnergyHeatmap {...props} data={undefined} isError onRetry={vi.fn()} />);
+    expect(screen.getByRole("dialog", { name: "히트맵 지표" })).toBeInTheDocument();
+    expect(screen.getByText("시간대별 사용량을 불러오지 못했습니다.")).toBeInTheDocument();
+    view.rerender(<EnergyHeatmap {...props} />);
+    fireEvent.click(screen.getByRole("button", { name: "필터 닫기" }));
+    expect(screen.getByRole("group", { name: "시간대별 에너지 사용량" })).toBeInTheDocument();
+    expect(props.onMetricChange).not.toHaveBeenCalled();
+  });
   afterEach(cleanup);
+  it("changes the independent heatmap metric only inside its filter popover", async () => {
+    const change = vi.fn();
+    render(<EnergyHeatmap data={heatmapResponse} metric="energy" onMetricChange={change} />);
+    expect(screen.queryByRole("button", { name: "밝기" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /히트맵 지표 상세 필터/ }));
+    fireEvent.click(await screen.findByRole("button", { name: "밝기" }));
+    expect(change).toHaveBeenCalledOnce();
+    expect(change).toHaveBeenCalledWith("brightness");
+  });
   it("renders an independently operable 7 by 24 button group and distinguishes actual zero from unavailable data", () => {
     render(<EnergyHeatmap data={heatmapResponse} metric="energy" onMetricChange={vi.fn()} />);
 
@@ -86,7 +110,9 @@ describe("EnergyHeatmap", () => {
     fireEvent.keyDown(monday02, { key: "Enter" });
     expect(monday02).toHaveAttribute("aria-pressed", "true");
     expect(monday02).toHaveAttribute("tabindex", "0");
+    fireEvent.click(screen.getByRole("button", { name: /히트맵 지표 상세 필터/ }));
     fireEvent.click(screen.getByRole("button", { name: "밝기" }));
+    fireEvent.click(screen.getByRole("button", { name: "필터 닫기" }));
     rerender(<EnergyHeatmap data={{ ...heatmapResponse, metric: "brightness" }} metric="brightness" onMetricChange={onMetricChange} />);
 
     expect(onMetricChange).toHaveBeenCalledWith("brightness");

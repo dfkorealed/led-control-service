@@ -5,6 +5,15 @@ import {
 } from "./support/layout-assertions";
 import { installSettingsApiRoutes } from "./support/settings-api";
 
+test.beforeEach(async ({ page, baseURL }) => {
+  await page.route("**/*", route => {
+    const url = new URL(route.request().url());
+    if (url.origin !== new URL(baseURL!).origin) return route.abort("blockedbyclient");
+    if (url.pathname.startsWith("/api/")) return route.fulfill({ status: 404, json: { message: "unconfigured mock API" } });
+    return route.continue();
+  });
+});
+
 const responsiveViewports = [
   { width: 1440, height: 900 },
   { width: 1378, height: 1237 },
@@ -53,20 +62,7 @@ for (const viewport of responsiveViewports) {
       expect(Math.abs(logoCenter - railCenter), "로고와 사이드바 중심선의 거리").toBeLessThanOrEqual(0.5);
       expect(Math.abs(logoCenter - navigationCenter), "로고와 탐색 항목 중심선의 거리").toBeLessThanOrEqual(0.5);
 
-      const logout = page.getByRole("button", { name: "로그아웃", exact: true });
-      await logout.hover();
-      const tooltip = page.getByRole("tooltip", { name: "로그아웃" });
-      await expect(tooltip).toBeVisible();
-      await tooltip.hover();
-      await expect(tooltip).toBeVisible();
-      await page.keyboard.press("Escape");
-      await expect(tooltip).toHaveCount(0);
-
-      await page.mouse.move(0, 0);
-      await logout.focus();
-      await expect(tooltip).toBeVisible();
-      await page.keyboard.press("Escape");
-      await expect(tooltip).toHaveCount(0);
+      await expect(topbar.getByRole("button", { name: "로그아웃", exact: true })).toHaveCount(0);
     } else {
       await expect(rail).toHaveCount(0);
       await expect(bottomNav).toBeVisible();
@@ -77,22 +73,14 @@ for (const viewport of responsiveViewports) {
       await expectMinimumTouchTargets(page, '[data-shell-navigation="compact"]');
       await expectMinimumTouchTargets(page, "[data-shell-actions]");
 
-      const logoutBounds = await page.getByRole("button", { name: "로그아웃", exact: true }).boundingBox();
-      expect(logoutBounds, "로그아웃 버튼의 실제 경계 상자").not.toBeNull();
-      expect(logoutBounds!.width, "로그아웃 버튼 너비").toBeGreaterThanOrEqual(44);
-      expect(logoutBounds!.height, "로그아웃 버튼 높이").toBeGreaterThanOrEqual(44);
-
-      const logout = page.getByRole("button", { name: "로그아웃", exact: true });
-      await logout.focus();
-      const tooltip = page.getByRole("tooltip", { name: "로그아웃" });
-      await expect(tooltip).toBeVisible();
+      await expect(topbar.getByRole("button", { name: "로그아웃", exact: true })).toHaveCount(0);
       await expectNoHorizontalOverflow(page);
-      await page.keyboard.press("Escape");
-      await expect(tooltip).toHaveCount(0);
 
       const navigationHeight = (await bottomNav.boundingBox())?.height ?? 0;
-      const paddingBottom = await page.locator("[data-app-shell]").evaluate((shell) => {
-        const styles = getComputedStyle(shell);
+      // The finite monitoring map panel owns the navigation reservation;
+      // ordinary settings routes still reserve it on the app shell below.
+      const paddingBottom = await page.locator("[data-monitoring-map-panel]").evaluate((panel) => {
+        const styles = getComputedStyle(panel);
         return Number.parseFloat(styles.paddingBottom);
       });
       expect(paddingBottom).toBe(68 + safeAreaBottom);
@@ -105,12 +93,19 @@ for (const viewport of responsiveViewports) {
     await expect(page.getByTestId("active-floor-badge")).toHaveCount(0);
     await expect(page.getByRole("button", { name: /게이트웨이 .*상태 센터 열기/ })).toHaveCount(0);
     await expect(topbar.getByText(/게이트웨이 (정상|오프라인|미등록)/)).toHaveCount(0);
-    const statusTrigger = page.getByRole("button", { name: /상태 센터, 미해결/ });
+    const statusTrigger = page.getByRole("button", { name: /알람센터,/ });
     await statusTrigger.click();
-    const statusDrawer = page.getByRole("dialog", { name: "현재 세션 상태" });
-    await expect(statusDrawer).toContainText("Gateway 연결");
-    await statusDrawer.getByRole("button", { name: "상태 센터 닫기" }).click();
+    const statusDrawer = page.getByRole("dialog", { name: "알람센터" });
+    await expect(statusDrawer.getByRole("region", { name: "현재 화면 상태" })).toContainText("Gateway 연결");
+    await statusDrawer.getByRole("button", { name: "알람센터 닫기" }).click();
     await expect(statusTrigger).toBeFocused();
+    await expectNoHorizontalOverflow(page);
+    await expect(page.getByRole("region", { name: "현장 전체", exact: true })).toContainText("고객사 B2 현장");
+    await page.goto("/settings?siteId=site-1");
+    const account = page.getByRole("region", { name: "내 계정" });
+    await expect(account).toBeVisible();
+    await expectMinimumTouchTargets(page, '[aria-label="내 계정"]');
+    await expect(account.getByRole("button", { name: "로그아웃", exact: true })).toBeEnabled();
     await expectNoHorizontalOverflow(page);
   });
 }
@@ -131,6 +126,24 @@ test("shell navigation updates when the viewport crosses the compact breakpoint"
   const compactNavigation = page.locator('[data-shell-navigation="compact"]');
   await expect(compactNavigation).toBeVisible();
   await expect(compactNavigation.getByRole("link")).toHaveCount(4);
+});
+
+test("editor revision timestamp retains device timezone, seconds and source ISO (HTTP fixture)", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  const api = await installSettingsApiRoutes(page, "admin", { readyMapDocument: true });
+  const source = "2026-07-12T00:00:00.000Z";
+  const expected = await page.evaluate(value => {
+    const date = new Date(value);
+    const pad = (part: number) => String(part).padStart(2, "0");
+    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
+  }, source);
+  await page.goto("/settings/floor-plans/floor-1/edit?siteId=site-1");
+  await page.getByRole("tab", { name: "자료" }).click();
+  const time = page.getByTestId("editor-revision-list").locator("time");
+  await expect(time).toHaveText(expected);
+  await expect(time).toHaveAttribute("datetime", source);
+  await expect(page.getByRole("button", { name: "리비전 7 복구" })).toBeEnabled();
+  expect(api.atomicSavePayloads).toHaveLength(0);
 });
 
 test("shell titles follow the current customer route", async ({ page }) => {

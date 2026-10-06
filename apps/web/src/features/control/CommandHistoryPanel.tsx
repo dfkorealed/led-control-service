@@ -1,9 +1,11 @@
 import { Clock3, TriangleAlert } from "lucide-react";
-import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from "react";
+import { FocusScope, useFocusManager } from "react-aria";
 import { useQueryClient } from "@tanstack/react-query";
 import { useCommandHistory, type CommandStage, type CommandStatusResponse } from "../../api/commands";
 import { ApiError } from "../../api/client";
-import { Button, Card, DrawerDialog, Heading, SearchField, SelectBox, StatusBadge, Text, cn } from "../../components/ui";
+import { Button, Card, DateRangePicker, DrawerDialog, FilterPanel, Heading, LogView, PageSizeSelect, PaginationBar, SearchField, SelectBox, StatusBadge, Text, cn, useDateRangeDraft, type DateRangeValue } from "../../components/ui";
+import { draftToDate, isEmptyDateDraft } from "../../components/ui/date/useDateDraft";
 import { formatControlTimestamp } from "./control-time";
 
 export const COMMAND_STAGE_LABELS: Record<CommandStage, string> = {
@@ -45,25 +47,51 @@ export function CommandHistoryPanel({ userId, siteId, onSelect, disabled = false
   const [search, setSearch] = useState("");
   const [query, setQuery] = useState("");
   const [stage, setStage] = useState<CommandStage | "">("");
-  const [pageIndex, setPageIndex] = useState(0);
+  const [limit, setLimit] = useState<50 | 100 | 500 | 1000>(50);
+  const [period, setPeriod] = useState<DateRangeValue | null>(null);
+  const periodDraft = useDateRangeDraft(JSON.stringify([userId, siteId]), period);
+  const draftStart = draftToDate(periodDraft.draft.start);
+  const draftEnd = draftToDate(periodDraft.draft.end);
+  const emptyPeriodDraft = isEmptyDateDraft(periodDraft.draft.start) && isEmptyDateDraft(periodDraft.draft.end);
+  const periodError = !emptyPeriodDraft && (!draftStart || !draftEnd || draftStart > draftEnd)
+    ? "시작일과 종료일을 올바른 순서로 완성해 주세요." : "";
+  function resetFilters() {
+    setPeriod(null); periodDraft.reset(null); setStage(""); setLimit(50);
+  }
+  const input = { siteId, query, ...(stage ? { stage } : {}), limit, fromDate: period?.start, toDate: period?.end };
+  const scopeKey = JSON.stringify([userId, input, open]);
+  const [navigation, setNavigation] = useState({ scopeKey, index: 0 });
+  // Guard the first render and discard navigation across scopes, including A→B→A.
+  const pageIndex = navigation.scopeKey === scopeKey ? navigation.index : 0;
+  const setPageIndex = (index: number) => setNavigation({ scopeKey, index });
   const openerRef = useRef<HTMLButtonElement>(null);
   const cursorResetRef = useRef(false);
   const paginationGeneration = useRef(0);
-  const previousButtonRef = useRef<HTMLButtonElement>(null);
-  const nextButtonRef = useRef<HTMLButtonElement>(null);
   const queryClient = useQueryClient();
   useEffect(() => {
     const timer = window.setTimeout(() => setQuery(search.trim()), 300);
     return () => window.clearTimeout(timer);
   }, [search]);
-  useLayoutEffect(() => { paginationGeneration.current += 1; setPageIndex(0); }, [query, stage, siteId, userId, open]);
+  useLayoutEffect(() => {
+    paginationGeneration.current += 1;
+    setNavigation(current => current.scopeKey === scopeKey ? current : { scopeKey, index: 0 });
+  }, [scopeKey]);
 
   const latest = useCommandHistory(userId, { siteId, limit: 1 });
-  const history = useCommandHistory(userId, { siteId, query, ...(stage ? { stage } : {}), limit: 4 }, open);
+  const history = useCommandHistory(userId, input, open && !periodError);
   const latestUnauthorized = latest.error instanceof ApiError && [401, 403].includes(latest.error.status);
   const historyUnauthorized = history.error instanceof ApiError && [401, 403].includes(history.error.status);
   const latestItem = latestUnauthorized ? undefined : latest.data?.pages[0]?.items[0];
   const page = historyUnauthorized ? undefined : history.data?.pages[pageIndex];
+  const pending = history.isPending || history.isFetching || history.isPaused;
+  const canRetryHistory = !pending && !periodError;
+  function retryHistory() {
+    // Explicit refetch ignores the query's enabled flag. The same raw-period
+    // validity must guard both the visible retry and this manual request path.
+    if (!canRetryHistory) return;
+    void history.refetch();
+  }
+  const success = !periodError && !pending && !history.error && Boolean(page);
   const retainedFrom = (historyUnauthorized ? undefined : history.data?.pages[0]?.retainedFrom)
     ?? (latestUnauthorized ? undefined : latest.data?.pages[0]?.retainedFrom);
   const cursorExpired = history.error instanceof ApiError && history.error.status === 400
@@ -77,12 +105,12 @@ export function CommandHistoryPanel({ userId, siteId, onSelect, disabled = false
     // A cursor can cross the retention boundary while the drawer is open.
     // Start a fresh read rather than retaining a stale page as current.
     setPageIndex(0);
-    void queryClient.resetQueries({ queryKey: ["command-history", userId, { siteId, query, ...(stage ? { stage } : {}), limit: 4 }], exact: true });
-  }, [cursorExpired, queryClient, query, siteId, stage, userId]);
+    void queryClient.resetQueries({ queryKey: ["command-history", userId, input], exact: true });
+  }, [cursorExpired, queryClient, scopeKey]);
 
   return <>
     <Card className={cn(compactDisclosure
-      ? "grid min-h-0 min-w-0 grid-cols-[auto_minmax(0,1fr)] items-center gap-x-2 gap-y-0 overflow-hidden px-3 py-2 compact:grid-cols-[auto_minmax(0,1fr)_auto]"
+      ? "grid min-h-0 min-w-0 grid-cols-[auto_minmax(0,1fr)] items-center gap-x-2 gap-y-0 overflow-hidden px-3 py-1.5 compact:grid-cols-[auto_minmax(0,1fr)_auto]"
       : "flex min-h-0 min-w-0 flex-col gap-3 overflow-hidden p-4", className)} aria-label="최근 명령 이력" data-command-history-panel="">
       {compactDisclosure ? <>
         <Heading as="h3" variant="card-title" className="whitespace-nowrap text-label!">최근 이력</Heading>
@@ -112,39 +140,49 @@ export function CommandHistoryPanel({ userId, siteId, onSelect, disabled = false
         <Text variant="caption" tone="secondary">{retainedFrom ? `최근 3개월 이력 · ${formatControlTimestamp(retainedFrom, timeZone)} (${timeZone})부터` : "이력 보관 기간을 확인할 수 없습니다."}</Text>
       </>}
     </Card>
-    <DrawerDialog isOpen={open} title="명령 이력" description="서버에 보관된 명령을 조회합니다. 확인이 필요한 만료 명령은 별도로 관리합니다." closeLabel="명령 이력 닫기" onClose={() => setOpen(false)} returnFocusRef={openerRef}
-      className="grid! h-dvh! w-full! max-w-status-drawer! grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden!" bodyClassName="grid min-h-0 overflow-hidden"
-      actions={<div className="flex items-center justify-between gap-2 pb-safe-area-bottom"><Button ref={previousButtonRef} type="button" variant="secondary" disabled={pageIndex === 0 || history.isFetching} onClick={() => { setPageIndex((index) => index - 1); if (pageIndex === 1) nextButtonRef.current?.focus(); }}>이전</Button><Button ref={nextButtonRef} type="button" variant="secondary" disabled={!page?.nextCursor || history.isFetching} onClick={() => {
-        const generation = paginationGeneration.current;
-        const nextIndex = pageIndex + 1;
-        const showNext = (hasNextCursor: boolean) => {
-          if (paginationGeneration.current !== generation) return;
-          setPageIndex((current) => current === pageIndex ? nextIndex : current);
-          if (!hasNextCursor) queueMicrotask(() => previousButtonRef.current?.focus());
-        };
-        const cached = history.data?.pages[nextIndex];
-        if (cached) showNext(Boolean(cached.nextCursor));
-        else void history.fetchNextPage().then((result) => { const nextPage = result.data?.pages[nextIndex]; if (!result.isError && nextPage) showNext(Boolean(nextPage.nextCursor)); });
-      }}>다음</Button></div>}>
-      <div className="grid h-full min-h-0 grid-rows-[auto_auto_minmax(0,1fr)] gap-3">
-        <Text variant="caption" tone="secondary">{retainedFrom ? `최근 3개월 · ${formatControlTimestamp(retainedFrom, timeZone)} (${timeZone})부터` : "이력 보관 기간을 확인할 수 없습니다."}</Text>
-        <div className="grid gap-2 compact:grid-cols-2">
-          <SearchField label={<span className="sr-only">명령 이력 검색</span>} placeholder="명령 ID 또는 조명 이름" maxLength={100} value={search} onChange={setSearch} />
+    <DrawerDialog isOpen={open} safeArea title="명령 이력" description="현장의 최근 명령을 조회합니다." closeLabel="명령 이력 닫기" onClose={() => setOpen(false)} returnFocusRef={openerRef}
+      className="flex min-h-0 max-w-status-drawer flex-col overflow-hidden" bodyClassName="min-h-0 flex-1 overflow-hidden">
+      <LogView label="명령 이력" filters={<FilterPanel label="명령 이력 필터" mode="popover"
+        search={<SearchField label={<span className="sr-only">명령 이력 검색</span>} placeholder="명령 ID 또는 조명 이름" maxLength={100} value={search} onChange={setSearch} />}
+        activeFilterCount={Number(!emptyPeriodDraft) + Number(Boolean(stage)) + Number(limit !== 50)}
+        summary={<Text variant="caption" tone={periodError ? "danger" : "secondary"}>{periodError || (period ? `${period.start} ~ ${period.end} · 종료일 포함` : "전체 보관 기간 · 최근 3개월")} · {stage ? COMMAND_STAGE_LABELS[stage] : "전체 상태"} · 페이지당 {limit}개</Text>}
+        filterReset={<Button variant="secondary" type="button" onClick={resetFilters}>필터 초기화</Button>}>
+        <DateRangePicker label="조회 기간" value={period} onChange={setPeriod} draftController={periodDraft}
+          isInvalid={Boolean(periodError)} errorMessage={periodError} description={period ? `${period.start} ~ ${period.end} · 종료일 포함` : "전체 보관 기간 · 최근 3개월"} />
           <SelectBox label={<span className="sr-only">명령 상태 필터</span>} items={commandStageItems} selectedKey={stage} onSelectionChange={(key) => setStage((key ?? "") as CommandStage | "")} />
+          <PageSizeSelect value={limit} options={[50, 100, 500, 1000] as const} onChange={setLimit} />
+      </FilterPanel>} pagination={<FocusScope><CommandHistoryPager open={open} scopeKey={JSON.stringify([userId, siteId, open])} pending={pending} success={success} error={history.error}>
+        {preserveFocus => <PaginationBar mode="cursor" page={pageIndex + 1} pageSize={limit} pageSizeOptions={[50, 100, 500, 1000] as const}
+          showPageSizeSelector={false}
+          className="phone-wide:flex-row phone-wide:items-end [&>[data-field]]:phone-wide:w-28 [&>[data-field]]:phone-wide:shrink-0"
+          itemCount={success ? page!.items.length : null} isPending={pending} hasPrevious={pageIndex > 0} hasNext={success && Boolean(page?.nextCursor)}
+          onPrevious={() => { preserveFocus(); setPageIndex(pageIndex - 1); }}
+          onNext={() => {
+            preserveFocus();
+            const generation = paginationGeneration.current;
+            const nextIndex = pageIndex + 1;
+            if (history.data?.pages[nextIndex]) { setPageIndex(nextIndex); return; }
+            void history.fetchNextPage().then(result => {
+              if (paginationGeneration.current === generation && !result.isError && result.data?.pages[nextIndex]) setPageIndex(nextIndex);
+            });
+          }}
+          onPageSizeChange={value => { preserveFocus(); setLimit(value); }} />}
+      </CommandHistoryPager></FocusScope>} status={<>
+        <Text variant="caption" tone="secondary">{retainedFrom ? `최근 3개월 · ${formatControlTimestamp(retainedFrom, timeZone)} (${timeZone})부터` : "이력 보관 기간을 확인할 수 없습니다."}</Text>
+        {pending ? <Text role="status">명령 이력을 불러오는 중입니다.</Text> : null}
+        {success && !page!.items.length ? <Text>{query || stage || period ? "조건에 맞는 명령이 없습니다." : "명령 이력이 없습니다."}</Text> : null}
+        {history.error ? <div className="grid gap-2" role="alert"><Text tone="danger">{cursorExpired ? "이력 범위가 변경되었습니다. 첫 페이지를 다시 조회합니다." : "명령 이력을 불러오지 못했습니다."}</Text><Button variant="secondary" type="button" disabled={!canRetryHistory} onClick={retryHistory}>이력 다시 조회</Button></div> : null}
+      </>}>
+        <div className="grid content-start gap-2" aria-label="명령 이력 목록" data-command-history-list="">
+          {success ? page!.items.map(item => <CommandRow key={item.id} item={item} selected={selectedCommandId === item.id} disabled={disabled} timeZone={timeZone} onSelect={id => { onSelect(id); setOpen(false); }} />) : null}
         </div>
-        <div className="relative grid min-h-0 content-start gap-2 overflow-y-auto overscroll-contain" aria-label="명령 이력 목록" data-command-history-list="">
-          {history.isPending ? <Text role="status">명령 이력을 불러오는 중입니다.</Text> : null}
-          {!history.isPending && !history.error && !page?.items.length ? <Text>{query || stage ? "조건에 맞는 명령이 없습니다." : "명령 이력이 없습니다."}</Text> : null}
-          {page?.items.map((item) => <CommandRow key={item.id} item={item} selected={selectedCommandId === item.id} disabled={disabled} timeZone={timeZone} onSelect={(id) => { onSelect(id); setOpen(false); }} />)}
-          {history.error ? <div className="grid gap-2" role="alert"><Text tone="danger">{cursorExpired ? "이력 범위가 변경되었습니다. 첫 페이지를 다시 조회합니다." : "명령 이력을 불러오지 못했습니다."}</Text><Button variant="secondary" type="button" disabled={history.isFetching} onClick={() => void history.refetch()}>이력 다시 조회</Button></div> : null}
-        </div>
-      </div>
+      </LogView>
     </DrawerDialog>
   </>;
 }
 
 function CompactCommandSummary({ item, selected, disabled, timeZone, onSelect }: { item: Omit<CommandStatusResponse, "dispatches">; selected: boolean; disabled: boolean; timeZone: string; onSelect: (id: string) => void }) {
-  const time = item.createdAt ? new Intl.DateTimeFormat("ko-KR", { timeZone, hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(new Date(item.createdAt)) : "시각 미확인";
+  const time = item.createdAt ? formatControlTimestamp(item.createdAt, timeZone) : "시각 미확인";
   const refusal = isClockRefusal(item);
   const summary = refusal
     ? `시각 확인 실패 · 조명 전송 전 거부 · ${time} · ${item.totalFixtureCount}개 · ${item.brightness ?? "—"}%`
@@ -156,9 +194,49 @@ function CompactCommandSummary({ item, selected, disabled, timeZone, onSelect }:
 
 function CommandRow({ item, selected, disabled, timeZone, onSelect }: { item: Omit<CommandStatusResponse, "dispatches">; selected: boolean; disabled: boolean; timeZone: string; onSelect: (id: string) => void }) {
   return <Button variant="secondary" type="button" className="grid h-auto min-h-11 w-full grid-cols-[minmax(0,1fr)_auto] justify-items-start gap-1 px-3 py-2 text-left" disabled={disabled} aria-pressed={selected} onClick={() => onSelect(item.id)}>
-    <span className="min-w-0 max-w-full truncate font-semibold">{item.id}</span>
-    <span>{item.brightness ?? "—"}% · {item.totalFixtureCount}개 조명{item.createdAt ? ` · ${formatControlTimestamp(item.createdAt, timeZone)}` : ""}</span>
+    <span className="col-span-2 min-w-0 max-w-full truncate font-semibold">{item.id}</span>
+    <span className="col-span-2 whitespace-normal break-words">{item.brightness ?? "—"}% · {item.totalFixtureCount}개 조명{item.createdAt ? ` · ${formatControlTimestamp(item.createdAt, timeZone)}` : ""}</span>
     <StatusBadge tone={item.stage === "verification_required" ? "warning" : "neutral"} icon={item.stage === "verification_required" ? TriangleAlert : Clock3}>{COMMAND_STAGE_LABELS[item.stage]}</StatusBadge>
     {isClockRefusal(item) ? <Text as="span" variant="caption" tone="danger" className="col-span-2 text-left">{clockRefusalExplanation}</Text> : null}
   </Button>;
+}
+
+function CommandHistoryPager({ open, scopeKey, pending, success, error, children }: {
+  open: boolean; scopeKey: string; pending: boolean; success: boolean; error: unknown;
+  children: (preserveFocus: () => void) => ReactNode;
+}) {
+  const pagerRef = useRef<HTMLDivElement>(null);
+  const lease = useRef<{ scopeKey: string; control: HTMLButtonElement } | null>(null);
+  const focusManager = useFocusManager();
+  function preserveFocus() {
+    const pager = pagerRef.current;
+    const intent = lease.current;
+    if (intent?.scopeKey === scopeKey && pager && intent.control.isConnected) pager.focus({ preventScroll: true });
+  }
+  useLayoutEffect(() => {
+    function restore() {
+      const intent = lease.current;
+      const pager = pagerRef.current;
+      if (!open || intent?.scopeKey !== scopeKey) { lease.current = null; return; }
+      if (!pager || !intent.control.isConnected) return;
+      const active = document.activeElement;
+      const dialog = pager.closest('[role="dialog"]');
+      if (active && active !== document.body && active !== dialog && !pager.contains(active)) return;
+      if (pending) pager.focus({ preventScroll: true });
+      else if (!intent.control.disabled) intent.control.focus({ preventScroll: true });
+      else if (!focusManager?.focusFirst({ tabbable: true })) pager.focus({ preventScroll: true });
+    }
+    restore();
+    // SelectBox closes its portal after the layout pass. Recheck the live lease,
+    // without overriding a deliberate move to dates, body, or the close action.
+    const frame = requestAnimationFrame(restore);
+    return () => cancelAnimationFrame(frame);
+  }, [open, scopeKey, pending, success, error, focusManager]);
+  return <div ref={pagerRef} role="group" aria-label="명령 이력 페이지 조작" aria-busy={pending || undefined} tabIndex={-1}
+    onFocusCapture={event => { if (event.target instanceof HTMLButtonElement && event.currentTarget.contains(event.target)) lease.current = { scopeKey, control: event.target }; }}
+    onBlurCapture={event => {
+      const next = event.relatedTarget;
+      if (next instanceof Element && !event.currentTarget.contains(next) && !next.closest('[role="listbox"]') &&
+        !(event.target instanceof Element && event.target.closest('[role="listbox"]') && next.getAttribute("role") === "dialog")) lease.current = null;
+    }}>{children(preserveFocus)}</div>;
 }

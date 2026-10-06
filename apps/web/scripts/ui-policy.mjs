@@ -58,7 +58,8 @@ const nativeFormElements = new Set(["input", "select", "textarea", "button"]);
 const reviewedUtilities = new Map([
   ["pb-shell-navigation-safe", "padding-bottom: calc(var(--spacing) * 17 + var(--led-control-safe-area-bottom));"],
   ["h-shell-navigation-safe", "height: calc(var(--spacing) * 17 + var(--led-control-safe-area-bottom));"],
-  ["pb-safe-area-bottom", "padding-bottom: var(--led-control-safe-area-bottom);"]
+  ["pb-safe-area-bottom", "padding-bottom: var(--led-control-safe-area-bottom);"],
+  ["pt-safe-area-top", "padding-top: env(safe-area-inset-top);"]
 ]);
 // The native frame owns insets, whereas an ordinary browser uses CSS env().
 // These two exact declarations are runtime geometry, not new design tokens or

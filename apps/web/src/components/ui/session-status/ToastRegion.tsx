@@ -5,10 +5,15 @@ import { Text } from "../Typography";
 import { cn } from "../utils/cn";
 import { useSessionStatusState, type SessionToast } from "./SessionStatusProvider";
 
-export function ToastRegion({ className }: { className?: string }) {
+export function ToastRegion({ className, placement = "overlay" }: { className?: string; placement?: "overlay" | "flow" }) {
   const { toasts, dismiss } = useSessionStatusState();
+  // Flow consumers reserve each visible article's real height, with no empty
+  // band after expiry. Standalone callers retain the legacy overlay default.
+  if (placement === "flow" && toasts.length === 0) return null;
   return (
-    <section aria-label="알림" className={cn("pointer-events-none fixed inset-x-3 top-3 z-1000 grid justify-items-end gap-2 compact:left-auto compact:right-4 compact:w-80", className)}>
+    <section aria-label="알림" data-toast-placement={placement} className={cn(placement === "flow"
+      ? "grid min-w-0 shrink-0 gap-2 px-3.5 py-2 compact:px-7"
+      : "pointer-events-none fixed inset-x-3 top-3 z-1000 grid justify-items-end gap-2 compact:left-auto compact:right-4 compact:w-80", className)}>
       {toasts.map((toast) => <ToastMessage key={toast.id} toast={toast} onDismiss={dismiss} />)}
     </section>
   );

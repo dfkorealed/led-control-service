@@ -120,12 +120,45 @@ test("1,000대 편집기는 실제 프레임 시계에서 8초 안에 준비되�
   const canvas = page.getByTestId("floor-editor-canvas");
   // 편집기는 최초 화면 맞춤을 수행하므로 지도 좌표를 실제 카메라 좌표로 변환한다.
   // 고정 (20,20) 픽셀은 조명이 아니라 화면 맞춤으로 생긴 빈 여백을 검사한다.
-  const markerPoint = await page.evaluate(() => {
-    const element = document.querySelector("[data-testid='floor-editor-canvas']")!;
-    const bounds = element.getBoundingClientRect();
-    return { x: bounds.left + 20 * Number(element.getAttribute("data-zoom")) + Number(element.getAttribute("data-pan-x")),
-      y: bounds.top + 20 * Number(element.getAttribute("data-zoom")) + Number(element.getAttribute("data-pan-y")) };
-  });
+  // Lease 응답은 ResizeObserver와 맞춤 카메라의 commit 완료를 뜻하지 않는다.
+  // 새 DOM 원점과 이전 카메라를 섞지 않도록 실제 두 연속 프레임의 일치를
+  // 원래 8초 예산 안에서 확인한다. 선택이나 카메라는 테스트에서 변경하지 않는다.
+  const markerPointHandle = await page.waitForFunction(async () => {
+    const readFittedFrame = () => {
+      const element = document.querySelector<HTMLElement>("[data-testid='floor-editor-canvas']");
+      if (!element || element.getAttribute("aria-disabled") !== "false") return null;
+      const bounds = element.getBoundingClientRect();
+      const zoom = Number(element.dataset.zoom), panX = Number(element.dataset.panX), panY = Number(element.dataset.panY);
+      const mapWidth = Number(element.dataset.mapWidth), mapHeight = Number(element.dataset.mapHeight);
+      if (![bounds.width, bounds.height, zoom, panX, panY, mapWidth, mapHeight].every(Number.isFinite)
+        || bounds.width <= 0 || bounds.height <= 0 || zoom <= 0 || mapWidth <= 0 || mapHeight <= 0) return null;
+      const content = element.querySelector<HTMLElement>(".konvajs-content");
+      const layers = [...element.querySelectorAll<HTMLCanvasElement>(".konvajs-content canvas")];
+      // CSS subpixel/backing-store rounding may differ by at most one CSS pixel.
+      const matchesBounds = (rect: DOMRect) => [rect.left - bounds.left, rect.top - bounds.top,
+        rect.width - bounds.width, rect.height - bounds.height].every(delta => Math.abs(delta) < 0.5);
+      if (!content || !matchesBounds(content.getBoundingClientRect()) || !layers.length
+        || layers.some(layer => !matchesBounds(layer.getBoundingClientRect())
+          || Math.abs(layer.width / devicePixelRatio - bounds.width) > 1
+          || Math.abs(layer.height / devicePixelRatio - bounds.height) > 1)) return null;
+      // Initial fit's existing 48px margin/zoom limits, using current map bounds.
+      // Stage dimensions alone can commit before the separate camera-fit effect.
+      const fittedZoom = Math.min(2, Math.max(0.001, Math.min((bounds.width - 48) / mapWidth, (bounds.height - 48) / mapHeight)));
+      const fittedPanX = (bounds.width - mapWidth * fittedZoom) / 2;
+      const fittedPanY = (bounds.height - mapHeight * fittedZoom) / 2;
+      if (Math.abs(zoom - fittedZoom) > 0.000001 || Math.abs(panX - fittedPanX) > 0.000001
+        || Math.abs(panY - fittedPanY) > 0.000001) return null;
+      return { tuple: [bounds.left, bounds.top, bounds.width, bounds.height, zoom, panX, panY, mapWidth, mapHeight],
+        point: { x: bounds.left + 20 * zoom + panX, y: bounds.top + 20 * zoom + panY } };
+    };
+    await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+    const first = readFittedFrame();
+    await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+    const second = readFittedFrame();
+    return first && second && first.tuple.every((value, index) => value === second.tuple[index]) ? second.point : false;
+  }, undefined, { polling: "raf", timeout: remainingEditorBudget(editorStartedAt) });
+  const markerPoint = await markerPointHandle.jsonValue() as { x: number; y: number };
+  await markerPointHandle.dispose();
   await page.mouse.click(markerPoint.x, markerPoint.y);
   const properties = page.getByRole("complementary", { name: "속성 패널" });
   await expect(properties.getByRole("heading", { name: "B2-L0001" })).toBeVisible({ timeout: remainingEditorBudget(editorStartedAt) });

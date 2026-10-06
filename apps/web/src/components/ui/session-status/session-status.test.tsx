@@ -1,5 +1,8 @@
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import type { ReactElement, PropsWithChildren } from "react";
+import { useSessionStatusState } from "./SessionStatusProvider";
 import { useMemo, useRef, useState } from "react";
-import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render as renderUI, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   SessionStatusCenter,
@@ -11,12 +14,22 @@ import {
   type SessionStatusItem
 } from "../index";
 
+const clients = new Set<QueryClient>();
+function render(ui: ReactElement) {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity } } });
+  clients.add(client);
+  const wrapper = ({ children }: PropsWithChildren) => <QueryClientProvider client={client}>{children}</QueryClientProvider>;
+  return renderUI(ui, { wrapper });
+}
+
 afterEach(() => {
+  clients.forEach(client => client.clear());
+  clients.clear();
   cleanup();
   vi.useRealTimers();
 });
 
-function QueryStatusHarness({ fingerprint, revision = 0 }: { fingerprint: string | null; revision?: number }) {
+function QueryStatusProducer({ fingerprint, revision = 0 }: { fingerprint: string | null; revision?: number }) {
   const items = useMemo<SessionStatusItem[]>(() => fingerprint ? [{
     id: "query:dashboard:site-1",
     fingerprint,
@@ -26,17 +39,26 @@ function QueryStatusHarness({ fingerprint, revision = 0 }: { fingerprint: string
     description: `revision ${fingerprint}`
   }] : [], [fingerprint, revision]);
   useSessionStatus("dashboard:site-1", items);
-  return <><SessionStatusCenter /><ToastRegion /></>;
+  return null;
 }
 
-function ToastHarness() {
+function QueryStatusHarness(props: { fingerprint: string | null; revision?: number }) {
+  return <><QueryStatusProducer {...props} /><ScreenStatusObserver /><SessionStatusCenter /><ToastRegion /></>;
+}
+
+function ScreenStatusObserver() {
+  const { statuses } = useSessionStatusState();
+  return <output data-testid="screen-status-count">{statuses.length}</output>;
+}
+
+function ToastHarness({ placement }: { placement?: "overlay" | "flow" }) {
   const toast = useSessionToast();
   return <>
     <button onClick={() => toast.publish({ dedupeKey: "save", tone: "success", title: "저장 완료" })}>저장 알림</button>
     <button onClick={() => toast.publish({ dedupeKey: "save", tone: "warning", title: "저장 지연" })}>저장 갱신</button>
     {(["하나", "둘", "셋", "넷"] as const).map((title) => <button key={title} onClick={() => toast.publish({ dedupeKey: title, tone: "info", title })}>{title}</button>)}
     <button onClick={() => toast.publish({ dedupeKey: "danger", tone: "danger", title: "연결 실패" })}>위험</button>
-    <ToastRegion />
+    <ToastRegion placement={placement} />
   </>;
 }
 
@@ -50,6 +72,32 @@ function ImperativeOpenHarness() {
 }
 
 describe("session status feedback", () => {
+  it("flow placement reserves only visible notices and preserves revision expiry and dismissal", async () => {
+    vi.useFakeTimers();
+    render(<SessionStatusProvider><ToastHarness placement="flow" /></SessionStatusProvider>);
+    expect(screen.queryByRole("region", { name: "알림" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "저장 알림" }));
+    const region = screen.getByRole("region", { name: "알림" });
+    expect(region).not.toHaveClass("fixed"); expect(region).toHaveClass("shrink-0");
+    await act(async () => { await vi.advanceTimersByTimeAsync(4_000); });
+    fireEvent.click(screen.getByRole("button", { name: "저장 갱신" }));
+    await act(async () => { await vi.advanceTimersByTimeAsync(4_999); });
+    expect(within(region).getByRole("status")).toHaveTextContent("저장 지연");
+    await act(async () => { await vi.advanceTimersByTimeAsync(1); });
+    expect(screen.queryByRole("region", { name: "알림" })).not.toBeInTheDocument();
+    expect(vi.getTimerCount()).toBe(0);
+    fireEvent.click(screen.getByRole("button", { name: "위험" }));
+    expect(screen.getByRole("alert")).toHaveTextContent("연결 실패");
+    fireEvent.click(screen.getByRole("button", { name: "알림 닫기" }));
+    expect(screen.queryByRole("region", { name: "알림" })).not.toBeInTheDocument();
+  });
+
+  it("does not treat a transient query issue as a durable alarm count", () => {
+    render(<SessionStatusProvider><QueryStatusHarness fingerprint="1" /></SessionStatusProvider>);
+    expect(screen.getByRole("button", { name: "알람센터, 현장 미선택" })).toBeVisible();
+    expect(screen.getByTestId("screen-status-count")).toHaveTextContent("1");
+    expect(screen.queryByTestId("alarm-unread-badge")).not.toBeInTheDocument();
+  });
   it("shows gateway context in the drawer without counting it as unresolved", () => {
     render(
       <SessionStatusProvider>
@@ -61,19 +109,20 @@ describe("session status feedback", () => {
         }]} />
       </SessionStatusProvider>
     );
-    const trigger = screen.getByRole("button", { name: "상태 센터, 미해결 0건" });
-    expect(within(trigger).queryByTestId("status-unresolved-badge")).not.toBeInTheDocument();
+    const trigger = screen.getByRole("button", { name: "알람센터, 현장 미선택" });
+    expect(within(trigger).queryByTestId("alarm-unread-badge")).not.toBeInTheDocument();
     fireEvent.click(trigger);
-    const drawer = screen.getByRole("dialog", { name: "현재 세션 상태" });
+    const drawer = screen.getByRole("dialog", { name: "알람센터" });
     expect(drawer).toHaveTextContent("게이트웨이 2/2대 연결");
-    expect(drawer).toHaveTextContent("읽지 않은 알림 수가 아니라 현재 해결이 필요한 상태 수입니다.");
+    expect(drawer).toHaveTextContent("화면에 보인 알람만 읽음으로 저장하며 장애 처리 상태는 유지됩니다.");
   });
 
-  it("uses one unresolved count for the bell label and visible badge", () => {
+  it("keeps transient statuses available without inventing an alarm badge", () => {
     render(<SessionStatusProvider><QueryStatusHarness fingerprint="1" /></SessionStatusProvider>);
-    const trigger = screen.getByRole("button", { name: "상태 센터, 미해결 1건" });
-    expect(trigger).toHaveAttribute("title", "상태 센터, 미해결 1건");
-    expect(within(trigger).getByTestId("status-unresolved-badge")).toHaveTextContent("1");
+    const trigger = screen.getByRole("button", { name: "알람센터, 현장 미선택" });
+    expect(trigger).toHaveAttribute("title", "알람센터, 현장 미선택");
+    expect(within(trigger).queryByTestId("alarm-unread-badge")).not.toBeInTheDocument();
+    expect(screen.getByTestId("screen-status-count")).toHaveTextContent("1");
   });
 
   it("deduplicates a current query issue, resolves it, and announces a later episode again", async () => {
@@ -82,21 +131,24 @@ describe("session status feedback", () => {
     const region = await screen.findByRole("region", { name: "알림" });
     expect(within(region).getAllByRole("status")).toHaveLength(1);
     expect(within(region).getByRole("status")).toHaveTextContent("revision 1");
-    expect(screen.getByRole("button", { name: "상태 센터, 미해결 1건" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "알람센터, 현장 미선택" })).toBeVisible();
 
     rerender(<SessionStatusProvider><QueryStatusHarness fingerprint="1" /></SessionStatusProvider>);
     expect(within(region).getAllByRole("status")).toHaveLength(1);
+    expect(screen.getByTestId("screen-status-count")).toHaveTextContent("1");
 
     rerender(<SessionStatusProvider><QueryStatusHarness fingerprint="2" /></SessionStatusProvider>);
     expect(await within(region).findByText("revision 2")).toBeVisible();
     expect(within(region).getAllByRole("status")).toHaveLength(1);
+    expect(screen.getByTestId("screen-status-count")).toHaveTextContent("1");
 
     rerender(<SessionStatusProvider><QueryStatusHarness fingerprint={null} /></SessionStatusProvider>);
     await waitFor(() => expect(within(region).queryByRole("status")).not.toBeInTheDocument());
-    expect(screen.getByRole("button", { name: "상태 센터, 미해결 0건" })).toBeVisible();
+    expect(screen.getByTestId("screen-status-count")).toHaveTextContent("0");
 
     rerender(<SessionStatusProvider><QueryStatusHarness fingerprint="2" /></SessionStatusProvider>);
     expect(await within(region).findByRole("status")).toHaveTextContent("revision 2");
+    expect(screen.getByTestId("screen-status-count")).toHaveTextContent("1");
   });
 
   it("does not announce a sustained id and fingerprint again when polling creates a new items array", async () => {
@@ -108,7 +160,7 @@ describe("session status feedback", () => {
 
     rerender(<SessionStatusProvider><QueryStatusHarness fingerprint="1" revision={2} /></SessionStatusProvider>);
 
-    expect(screen.getByRole("button", { name: "상태 센터, 미해결 1건" })).toBeVisible();
+    expect(screen.getByTestId("screen-status-count")).toHaveTextContent("1");
     expect(within(region).queryByRole("status")).not.toBeInTheDocument();
   });
 
@@ -146,21 +198,21 @@ describe("session status feedback", () => {
 
   it("opens the status center as a named dialog and returns focus after Escape", async () => {
     render(<SessionStatusProvider><QueryStatusHarness fingerprint="1" /></SessionStatusProvider>);
-    const trigger = screen.getByRole("button", { name: "상태 센터, 미해결 1건" });
+    const trigger = screen.getByRole("button", { name: "알람센터, 현장 미선택" });
     expect(trigger).toHaveClass("min-h-13", "min-w-13");
     fireEvent.click(trigger);
 
-    const dialog = await screen.findByRole("dialog", { name: "현재 세션 상태" });
+    const dialog = await screen.findByRole("dialog", { name: "알람센터" });
     expect(trigger).toHaveAttribute("aria-expanded", "true");
     expect(dialog).toHaveTextContent("현장 정보를 갱신하지 못했습니다.");
     fireEvent.keyDown(dialog, { key: "Escape" });
 
-    await waitFor(() => expect(screen.queryByRole("dialog", { name: "현재 세션 상태" })).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "알람센터" })).not.toBeInTheDocument());
     await waitFor(() => expect(trigger).toHaveFocus());
     expect(trigger).toHaveAttribute("aria-expanded", "false");
 
     fireEvent.click(trigger);
-    const reopened = await screen.findByRole("dialog", { name: "현재 세션 상태" });
+    const reopened = await screen.findByRole("dialog", { name: "알람센터" });
     fireEvent.click(within(reopened).getByRole("button", { name: "닫기" }));
     await waitFor(() => expect(trigger).toHaveFocus());
     expect(trigger).toHaveAttribute("aria-expanded", "false");
@@ -171,23 +223,36 @@ describe("session status feedback", () => {
     const source = screen.getByRole("button", { name: "게이트웨이 상태" });
 
     fireEvent.click(source);
-    const dialog = await screen.findByRole("dialog", { name: "현재 세션 상태" });
+    const dialog = await screen.findByRole("dialog", { name: "알람센터" });
     fireEvent.keyDown(dialog, { key: "Escape" });
 
     await waitFor(() => expect(dialog).not.toBeInTheDocument());
     await waitFor(() => expect(source).toHaveFocus());
   });
 
+  it("keeps alarm close controls outside a bounded independently scrolling body", () => {
+    render(<SessionStatusProvider><QueryStatusHarness fingerprint="1" /></SessionStatusProvider>);
+    fireEvent.click(screen.getByRole("button", { name: "알람센터, 현장 미선택" }));
+    const dialog = screen.getByRole("dialog", { name: "알람센터" });
+    const body = dialog.querySelector("[data-dialog-body]")!;
+    expect(dialog).toHaveClass("h-dvh", "flex", "min-h-0", "overflow-hidden");
+    expect(dialog).not.toHaveClass("overflow-y-auto");
+    expect(body).toHaveClass("min-h-0", "flex-1", "overflow-y-auto");
+    expect(body).toContainElement(screen.getByRole("region", { name: "현재 화면 상태" }));
+    expect(body).not.toContainElement(screen.getByRole("button", { name: "알람센터 닫기" }));
+    expect(body).not.toContainElement(screen.getByRole("button", { name: "닫기" }));
+  });
+
   it("unregisters source items when their producer unmounts", async () => {
     function Toggle() {
       const [visible, setVisible] = useState(true);
-      return <><button onClick={() => setVisible(false)}>producer 제거</button>{visible ? <QueryStatusHarness fingerprint="1" /> : <><SessionStatusCenter /><ToastRegion /></>}</>;
+      return <><button onClick={() => setVisible(false)}>producer 제거</button>{visible ? <QueryStatusProducer fingerprint="1" /> : null}<ScreenStatusObserver /><SessionStatusCenter /><ToastRegion /></>;
     }
     render(<SessionStatusProvider><Toggle /></SessionStatusProvider>);
-    expect(await screen.findByRole("button", { name: "상태 센터, 미해결 1건" })).toBeVisible();
+    expect(screen.getByTestId("screen-status-count")).toHaveTextContent("1");
     fireEvent.click(screen.getByRole("button", { name: "producer 제거" }));
 
-    await waitFor(() => expect(screen.getByRole("button", { name: "상태 센터, 미해결 0건" })).toBeVisible());
+    await waitFor(() => expect(screen.getByTestId("screen-status-count")).toHaveTextContent("0"));
     expect(within(screen.getByRole("region", { name: "알림" })).queryByRole("status")).not.toBeInTheDocument();
   });
 });

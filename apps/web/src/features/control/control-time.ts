@@ -1,5 +1,5 @@
-export function formatControlTimestamp(value: string, timeZone: string): string {
-  return new Intl.DateTimeFormat("ko-KR", {
-    timeZone, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23"
-  }).format(new Date(value));
+import { formatTimestamp } from "../../components/ui";
+
+export function formatControlTimestamp(value: string | number | Date, timeZone: string): string {
+  return formatTimestamp(typeof value === "number" ? new Date(value) : value, { timeZone });
 }

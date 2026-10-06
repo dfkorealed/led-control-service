@@ -83,18 +83,30 @@ for (const width of [1440, 1024, 390, 320]) {
     expect(focusedBounds!.x).toBeGreaterThanOrEqual(0);
     expect(focusedBounds!.x + focusedBounds!.width).toBeLessThanOrEqual(width);
     await page.getByRole("button", { name: "상세 보기", exact: true }).click();
-    await expect(drawer).toBeVisible();
-    const detail = drawer.getByRole("complementary", { name: "선택 조명 상세" });
+    const surface = width >= 1024 ? page.getByRole("complementary", { name: "조명 상세", exact: true }) : page.getByRole("dialog", { name: "조명 상세", exact: true });
+    await expect(surface).toBeVisible();
+    await expect(focusedPin).toHaveCount(0);
+    const detail = surface.getByRole("complementary", { name: "선택 조명 상세" });
     await expect(detail).toContainText("B2-L2");
     await expect(detail).not.toContainText(/RSSI|Hop|Health|정격 전력|지도 좌표|명령 성공률/);
-    await expectMinimumTouchTargetsAfterScrolling(page, "[data-dialog-variant='drawer']");
-    await drawer.getByRole("button", { name: "조명 검색·상세 닫기" }).click();
-    await expect(focusedPin).toBeVisible();
-    const returnedBounds = await focusedPin.boundingBox();
+    if (width >= 1024) {
+      const close = surface.getByRole("button", { name: "조명 상세 닫기" });
+      const boundary = await close.evaluate(button => ({
+        closeBottom: button.getBoundingClientRect().bottom,
+        bodyTop: button.parentElement!.nextElementSibling!.getBoundingClientRect().top
+      }));
+      expect(boundary.bodyTop).toBeGreaterThanOrEqual(boundary.closeBottom);
+    }
+    await expectMinimumTouchTargetsAfterScrolling(page, width >= 1024 ? "aside[aria-label='조명 상세']" : "[data-dialog-variant='sheet']");
+    await surface.getByRole("button", { name: "조명 상세 닫기" }).click();
+    await expect(focusedPin).toHaveCount(0);
+    const returnedMarker = page.getByRole("button", { name: "B2-L2 명령 처리 실패 70%", exact: true });
+    await expect(returnedMarker).toBeFocused();
+    const returnedBounds = await returnedMarker.boundingBox();
     expect(returnedBounds!.x).toBeGreaterThanOrEqual(0);
     expect(returnedBounds!.x + returnedBounds!.width).toBeLessThanOrEqual(width);
     if (width === 320) {
-      const markerBounds = await page.getByRole("button", { name: "B2-L2 명령 처리 실패 70%", exact: true }).boundingBox();
+      const markerBounds = await returnedMarker.boundingBox();
       const navigationBounds = await page.locator('[data-shell-navigation="compact"]').boundingBox();
       expect(markerBounds!.y + markerBounds!.height).toBeLessThan(navigationBounds!.y - 8);
       expect(returnedBounds!.y + returnedBounds!.height).toBeLessThan(navigationBounds!.y - 8);
@@ -129,7 +141,8 @@ test("맵 안의 일반 휠은 포인터 기준으로 확대하고 수평 휠 �
     return { canceled: !node.dispatchEvent(event), zoom: node.getAttribute("data-zoom") };
   });
   expect(horizontal).toEqual({ canceled: true, zoom: "1.1" });
-  await expect(page.getByText("드래그로 이동 · 휠로 확대/축소")).toBeVisible();
+  await expect(page.getByText("드래그로 이동 · 휠로 확대/축소")).toHaveCount(0);
+  await expect(page.getByRole("list", { name: "조명 상태 범례" })).toContainText("장애");
 });
 test("0개 상태 KPI는 이전 조명의 선택·상세를 보여주지 않는다", async ({ page }) => {
   await setup(page);
@@ -145,6 +158,8 @@ test("상세에서 다른 조명을 선택하면 원래 핀 정보로 돌아가�
   await setup(page);
   await page.getByRole("button", { name: "B2-L2 명령 처리 실패 70%", exact: true }).click();
   await page.getByRole("dialog", { name: "B2-L2 조명 정보" }).getByRole("button", { name: "상세 보기" }).click();
+  await page.getByRole("button", { name: "조명 상세 닫기" }).click();
+  await page.getByRole("button", { name: "조명 검색·상세", exact: true }).click();
   const drawer = page.getByRole("dialog", { name: "조명 검색·상세", exact: true });
   await drawer.getByRole("button", { name: "상세 조명 선택" }).click();
   await page.getByRole("option", { name: "B2-L1 · 정상" }).click();

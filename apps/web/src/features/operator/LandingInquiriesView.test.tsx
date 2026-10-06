@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter, useLocation } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AuthUser } from "../../api/auth";
@@ -53,6 +53,41 @@ describe("operator landing inquiries route", () => {
     vi.mocked(apiPost).mockReset();
   });
   afterEach(cleanup);
+
+  it("keeps every inquiry field in cards in a narrow container on a wide window", async () => {
+    vi.stubGlobal("ResizeObserver", class {
+      constructor(private callback: ResizeObserverCallback) {}
+      observe(target: Element) { this.callback([{ target, contentRect: { width: 320 } } as ResizeObserverEntry], this as unknown as ResizeObserver); }
+      disconnect() {}
+    });
+    renderRoute();
+    const cards = await screen.findByRole("list", { name: "최근 상담 문의 표" });
+    expect(window.innerWidth).toBeGreaterThan(320);
+    const row = within(cards).getByText("K-QUEUED").closest("li")!;
+    for (const field of ["접수번호", "접수일", "회사 / 담당자", "회신 정보", "문의 내용", "메일 상태", "담당자", "reply@example.com", "조명 문의", "발송 대기"]) expect(row).toHaveTextContent(field);
+    expect(screen.queryByRole("table", { name: "최근 상담 문의 표" })).not.toBeInTheDocument();
+    expect(apiPost).not.toHaveBeenCalled();
+    vi.unstubAllGlobals();
+  });
+
+  it.each([
+    [new Date(2026, 9, 2, 14, 5, 9).toISOString(), "2026-10-02 14:05:09"],
+    [new Date(2026, 9, 2, 0, 0, 0).toISOString(), "2026-10-02 00:00:00"],
+    ["invalid-instant", "—"]
+  ])("shows actual inquiry creation time with seconds in the device timezone (%s)", async (timestamp, expected) => {
+    vi.mocked(apiGet).mockImplementation((path: string) => {
+      if (path === "/operator/landing-mail/status") return Promise.resolve({ connected: false });
+      if (path === "/operator/landing-inquiries?limit=20") return Promise.resolve({
+        items: [{ ...inquiry("queued", "K-TIME"), createdAt: timestamp }], nextCursor: null
+      });
+      return Promise.reject(new Error(`Unexpected request: ${path}`));
+    });
+    renderRoute();
+
+    expect(await screen.findByText(expected)).toBeVisible();
+    expect(screen.getByText("K-TIME")).toBeVisible();
+    expect(screen.getByRole("button", { name: "NAVER WORKS 연결" })).toBeVisible();
+  });
 
   it("opens the protected inquiry route from the operator menu and explains all delivery states", async () => {
     renderRoute();

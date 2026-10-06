@@ -255,6 +255,21 @@ test("a control inside a viewport-fixed overlay escapes scrolled document clippi
   await expectMinimumTouchTargets(page, "#root");
 });
 
+test("an absolute popover retains real viewport hit area after document root scroll lock", async ({ page }, info) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.setContent(`<!doctype html><style>body { height: 1700px; margin: 0; }</style>
+    <section id="root" role="dialog" aria-label="필터" style="position: absolute; top: 1100px; left: 24px; padding: 16px; overflow: auto">
+      <button style="width: 80px; height: 48px">필터 닫기</button>
+    </section>`);
+  await page.evaluate(() => { window.scrollTo(0, 750); document.documentElement.style.overflow = "hidden"; });
+  await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(750);
+  await info.attach("scrolled-root-geometry", { body: JSON.stringify(await page.evaluate(() => ({ utc: new Date().toISOString(), scrollY, clientHeight: document.documentElement.clientHeight, root: document.documentElement.getBoundingClientRect().toJSON(), button: document.querySelector("button")!.getBoundingClientRect().toJSON() }))), contentType: "application/json" });
+  await expectMinimumTouchTargets(page, "#root");
+  await expectMinimumTouchTargetsAfterScrolling(page, "#root");
+  await page.getByRole("button", { name: "필터 닫기" }).click();
+  await expect(page.getByRole("button", { name: "필터 닫기" })).toBeFocused();
+});
+
 test("scrolling touch target helper inspects an undersized target below the viewport", async ({ page }) => {
   await page.setContent(`
     <main id="root" style="height: 60px; overflow-y: auto">

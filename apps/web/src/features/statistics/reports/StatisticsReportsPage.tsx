@@ -1,14 +1,14 @@
-import type { EnergyReportJob, EnergyReportListResponse, EnergyReportRequest } from "@led-control/shared/energy-p2-contracts";
+import { energyReportListQuerySchema, type EnergyReportJob, type EnergyReportListResponse, type EnergyReportRequest } from "@led-control/shared/energy-p2-contracts";
 import { FileText } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { createEnergyFileOperation, createEnergyReport, downloadEnergyCsv, downloadEnergyReport, energyReportRequestErrorMessage, useEnergyReports, useEnergyReportTargets } from "../../../api/energy";
-import { Button, Card, Heading, PageHeader, PaginationBar, Text, type PaginationPageSize } from "../../../components/ui";
+import { Button, Card, Heading, PageHeader, PaginationBar, Text } from "../../../components/ui";
 import { useLocation, useOutletContext, useSearchParams } from "react-router-dom";
 import type { StatisticsOutletContext } from "../StatisticsShell";
 import { ReportCreateDialog } from "./ReportCreateDialog";
 import { downloadMobileAwareUrl, MobileFileExportError } from "../../mobile/file-download";
-import { ReportHistoryFilters } from "./ReportHistoryFilters";
+import { ReportHistoryFilters, type InvalidRequestedRange, type ReportFilterIntent } from "./ReportHistoryFilters";
 import { ReportJobList } from "./ReportJobList";
 import { parseReportHistorySearchParams, serializeReportHistorySearchParams, type ReportHistoryFilterState } from "./report-history-filters";
 
@@ -37,14 +37,38 @@ export function StatisticsReportsPage() {
     () => readReportLocation(searchParams, location.state, siteId),
     [location.state, searchKey, siteId]
   );
-  const filters = reportLocation.filters;
+  const invalidRequestedRange = reportLocation.invalidRequestedRange;
+  const draftScope = `${siteId ?? ""}|${location.key}|${searchKey}`;
+  const [storedInvalidFilters, setStoredInvalidFilters] = useState({ scope: draftScope, filters: reportLocation.filters });
+  let invalidFilters = storedInvalidFilters;
+  if (invalidFilters.scope !== draftScope) {
+    invalidFilters = { scope: draftScope, filters: reportLocation.filters };
+    setStoredInvalidFilters(invalidFilters);
+  }
+  const filters = invalidRequestedRange ? invalidFilters.filters : reportLocation.filters;
+  const draftEpochRef = useRef({ scope: draftScope, epoch: {} });
+  if (draftEpochRef.current.scope !== draftScope) draftEpochRef.current = { scope: draftScope, epoch: {} };
+  const draftEpoch = draftEpochRef.current.epoch;
+  const [localDraft, setLocalDraft] = useState({ epoch: draftEpoch, invalid: false });
+  const localInvalid = localDraft.epoch === draftEpoch && localDraft.invalid;
+  const historyBlocked = Boolean(invalidRequestedRange) || localInvalid;
+  const invalidHistoryRef = useRef(historyBlocked);
+  invalidHistoryRef.current = historyBlocked;
+  const onInvalidDraftChange = useCallback((invalid: boolean) => {
+    // An old A callback cannot acquire the later A visit's ownership.
+    if (draftEpochRef.current.epoch !== draftEpoch) return;
+    invalidHistoryRef.current = Boolean(invalidRequestedRange) || invalid;
+    setLocalDraft(current => current.epoch === draftEpoch && current.invalid === invalid ? current : { epoch: draftEpoch, invalid });
+  }, [draftEpoch, invalidRequestedRange]);
   const activePageState = reportLocation.pageState;
   const [isForwardPending, setIsForwardPending] = useState(false);
   const filtersRef = useRef(filters);
   filtersRef.current = filters;
   const query = activePageState.currentCursor ? { ...filters, cursor: activePageState.currentCursor } : filters;
   const targets = useEnergyReportTargets(siteId);
-  const reports = useEnergyReports(siteId, query);
+  // Keep the existing hook/schema strict. An invalid URL has no executable
+  // history query; the validated placeholder is never displayed or refetched.
+  const reports = useEnergyReports(historyBlocked ? undefined : siteId, query);
   const queryClient = useQueryClient();
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [downloadError, setDownloadError] = useState("");
@@ -84,7 +108,8 @@ export function StatisticsReportsPage() {
     if (!reports.isFetching && !reports.isPlaceholderData) setIsForwardPending(false);
   }, [reports.isFetching, reports.isPlaceholderData, activePageState.currentCursor]);
 
-  const currentPage = reports.data && !reports.isError && !reports.isPlaceholderData
+  if (invalidRequestedRange) retainedPageRef.current = undefined;
+  const currentPage = !historyBlocked && reports.data && !reports.isError && !reports.isPlaceholderData
     ? { scopeKey, data: reports.data, pageState: activePageState }
     : undefined;
   if (currentPage) retainedPageRef.current = currentPage;
@@ -129,7 +154,7 @@ export function StatisticsReportsPage() {
   }, [currentPage, hasRefreshError, reports.isError, reports.isFetching, requestKey]);
 
   function retryList(trigger: HTMLButtonElement | null) {
-    if (reports.isFetching || retryRequestKeyRef.current === requestKey) return;
+    if (draftEpochRef.current.epoch !== draftEpoch || invalidHistoryRef.current || reports.isFetching || retryRequestKeyRef.current === requestKey) return;
     retryRequestKeyRef.current = requestKey;
     retryFocusKeyRef.current = requestKey;
     retryFocusOriginRef.current = trigger ?? undefined;
@@ -157,12 +182,34 @@ export function StatisticsReportsPage() {
   }
 
   function resetToFirstPage(nextFilters: ReportHistoryFilterState) {
+    if (invalidHistoryRef.current) return;
     const normalized = withoutCursor(nextFilters);
     setIsForwardPending(false);
     syncLocation(normalized, firstReportPage);
   }
 
+  function changeFilters(nextFilters: ReportHistoryFilterState, intent: ReportFilterIntent = "filter") {
+    if (draftEpochRef.current.epoch !== draftEpoch) return;
+    if (!invalidRequestedRange) {
+      if (intent === "dates" || intent === "reset") {
+        setIsForwardPending(false);
+        syncLocation(withoutCursor(nextFilters), firstReportPage);
+      } else resetToFirstPage(nextFilters);
+      return;
+    }
+    if (storedInvalidFilters.scope !== draftScope) return;
+    if (intent === "dates" || intent === "reset") {
+      setIsForwardPending(false);
+      syncLocation(withoutCursor(nextFilters), firstReportPage);
+    } else {
+      // Search still debounces and other controls remain editable, but no raw
+      // invalid date is silently removed from the URL by an unrelated change.
+      setStoredInvalidFilters(current => current.scope === draftScope ? { ...current, filters: nextFilters } : current);
+    }
+  }
+
   function nextPage() {
+    if (draftEpochRef.current.epoch !== draftEpoch || invalidHistoryRef.current) return;
     const nextCursor = currentPage?.data.nextCursor;
     const nextPageNumber = activePageState.page + 1;
     if (isForwardPending
@@ -181,6 +228,7 @@ export function StatisticsReportsPage() {
   }
 
   function previousPage() {
+    if (draftEpochRef.current.epoch !== draftEpoch || invalidHistoryRef.current) return;
     if (!activePageState.previousCursors.length) return;
     const previousCursor = activePageState.previousCursors.at(-1);
     const previousPageState: ReportCursorPageState = {
@@ -197,11 +245,11 @@ export function StatisticsReportsPage() {
     const requestSiteId = siteId;
     await createEnergyReport(requestSiteId, request);
     const invalidation = queryClient.invalidateQueries({ queryKey: ["energy-reports", requestSiteId] });
-    if (siteIdRef.current === requestSiteId) resetToFirstPage(filtersRef.current);
+    if (siteIdRef.current === requestSiteId && !invalidHistoryRef.current) resetToFirstPage(filtersRef.current);
     await invalidation;
   }
   async function download(job: EnergyReportJob) {
-    if (!siteId || downloadOperationRef.current) return;
+    if (invalidHistoryRef.current || !siteId || downloadOperationRef.current) return;
     const requestSiteId = siteId;
     const operation = new AbortController();
     downloadOperationRef.current = operation;
@@ -239,7 +287,7 @@ export function StatisticsReportsPage() {
     }
   }
   async function regenerate(job: EnergyReportJob) {
-    if (retryingReportId || !siteId) return;
+    if (invalidHistoryRef.current || retryingReportId || !siteId) return;
     setRetryError("");
     setRetryingReportId(job.reportId);
     try {
@@ -255,10 +303,13 @@ export function StatisticsReportsPage() {
     <PageHeader title="보고서" status={undefined}
       actions={<Button variant="primary" onClick={() => setIsDialogOpen(true)}><FileText size={16} />보고서 만들기</Button>} />
     <Card className="min-w-0 p-4 compact:p-5">
-      <ReportHistoryFilters value={filters} onChange={resetToFirstPage} />
+      <ReportHistoryFilters scopeKey={draftScope} value={filters} invalidRequestedRange={invalidRequestedRange} onChange={changeFilters} onInvalidDraftChange={onInvalidDraftChange} />
     </Card>
     <Card className="grid min-w-0 gap-4 p-4 compact:p-5" aria-label="보고서 이력">
       <Heading as="h3" variant="card-title">요청한 보고서</Heading>
+      {invalidRequestedRange ? <Text role="alert" tone="danger">URL의 요청 기간을 직접 수정하거나 필터를 초기화해 주세요.</Text> : <>
+      {localInvalid ? <Text role="alert" tone="danger">요청 기간을 완성하거나 필터를 초기화한 뒤 이력을 조회하세요.</Text> : null}
+      <fieldset disabled={localInvalid} className="contents">
       <ReportJobList reports={displayedPage?.data.reports} timeZone={targets.data?.timeZone} focusTargetRef={reportListRef}
         isLoading={(reports.isLoading || reports.isPlaceholderData || !siteId) && !displayedPage}
         isError={Boolean(reports.isError && !displayedPage)} hasRefreshError={hasRefreshError}
@@ -277,8 +328,11 @@ export function StatisticsReportsPage() {
           && validNextPageCursor(currentPage?.data.nextCursor, activePageState)}
         onPrevious={previousPage}
         onNext={nextPage}
-        onPageSizeChange={(limit: PaginationPageSize) => resetToFirstPage({ ...filters, limit })}
+        showPageSizeSelector={false}
+        onPageSizeChange={limit => resetToFirstPage({ ...filters, limit })}
       />
+      </fieldset>
+      </>}
     </Card>
     {downloadingReportId ? <Button variant="secondary" onClick={() => downloadOperationRef.current?.abort()}>파일 준비 취소</Button> : null}
     {fileNotice ? <Text role="status">{fileNotice}</Text> : null}
@@ -299,11 +353,26 @@ function readReportLocation(params: URLSearchParams, state: unknown, siteId: str
   filters: ReportHistoryFilterState;
   pageState: ReportCursorPageState;
   needsNormalization: boolean;
+  invalidRequestedRange?: InvalidRequestedRange;
 } {
   const filterParams = new URLSearchParams(params);
   const hasLegacyPageState = legacyReportLocationParams.some((key) => filterParams.has(key));
   for (const key of legacyReportLocationParams) filterParams.delete(key);
-  const filters = withoutCursor(parseReportHistorySearchParams(filterParams));
+  let filters: ReportHistoryFilterState;
+  try {
+    filters = withoutCursor(parseReportHistorySearchParams(filterParams));
+  } catch (error) {
+    const start = filterParams.get("requestedFrom");
+    const end = filterParams.get("requestedTo");
+    const dates = energyReportListQuerySchema.safeParse({ limit: 20,
+      ...(start !== null ? { requestedFrom: start } : {}), ...(end !== null ? { requestedTo: end } : {}) });
+    if (dates.success) throw error;
+    const withoutDates = new URLSearchParams(filterParams);
+    withoutDates.delete("requestedFrom"); withoutDates.delete("requestedTo");
+    try { filters = withoutCursor(parseReportHistorySearchParams(withoutDates)); }
+    catch { throw error; } // Non-date validation failures retain the original rejection.
+    return { filters, pageState: firstReportPage, needsNormalization: false, invalidRequestedRange: { start, end } };
+  }
   const storedPageState = hasLegacyPageState ? null : readReportLocationState(state, siteId, filters);
   return {
     filters,
