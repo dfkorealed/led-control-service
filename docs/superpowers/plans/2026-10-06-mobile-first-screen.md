@@ -34,7 +34,7 @@
 - [x] Task2 모니터링·제어 구현/검토 — 3c868c0b, 독립 Spec✅/QualityApproved·C0/I0.
 - [x] Task3 통계 구현/검토 — ffda1fa9 + e6a42750, full review C0/I1 뒤 scoped I1 ADDRESSED·새 C/I/M0.
 - [x] Task4 최종 검증·디자이너·전체 코드 검토 — 9b89e8d0 whole-branch SpecCompliant/QualityApproved·C0/I0/M0.
-- [ ] 총괄이 최종 상태 문서·로컬 메인 병합과 병합 후 검증을 완료한다.
+- [x] 총괄이 최종 상태 문서·로컬 메인 병합과 병합 후 검증을 완료했다. 926f7400 ff병합 후 기본체크아웃 Web3250PASS/3SKIP·typecheck/build0. 이후 문서 완료기록만 별도브랜치에서 추가 ff병합한다.
 
 ---
 
@@ -112,4 +112,6 @@
 - [x] **Step3: 디자이너 기존 채팅 검토.** 최종320/390/430 및 desktop 정상 원본·실제 기존 크기를 전달하고 확인된 지적을 같은 소유 담당자에게 최소 보완으로 반환한다.
 - [x] **Step4: report·필요한 검증 코드 scoped commit.** 전체 실행 결과·known warning/한계·자기 생성 자원 정리를 보고한다. 총괄 whole-branch 독립 review 후 로컬 메인 병합·병합 후 Web 검증을 수행한다.
 
-최종 실행 증거: bbb4dd75 준비/types/build/UI67·0위반/Mobile109types·browser26·원본20/자연스크롤sanity3, Web3237PASS/8FAIL/3SKIP은 원기록 보존. 9b89e8d0 stable provider scope 보완으로 소비자 DOM/로그아웃 초점·제어 owner를 유지하고 stale callback/timer/첫 layout격리를 검증했다. App69/Control139/Schedule83/Vehicle71·provider7/header4/typesUI, 확장461PASS1cold lazy timeout은 변경없이단독7PASS와 별도로 보존. 변경후 전체Web3250PASS/3SKIP·types/build0, 디자이너정상20원본 C0/I0/M0. 스타일불변이므로 원본은 bbb의 증거이며 후속 기능 수정통과 증거로 재표시하지 않는다. 9b89e8d0 whole-branch 독립 SpecCompliant/QualityApproved·C0/I0/M0 승인. 로컬병합·병합후검증은 다음 단계다.
+최종 실행 증거: bbb4dd75 준비/types/build/UI67·0위반/Mobile109types·browser26·원본20/자연스크롤sanity3, Web3237PASS/8FAIL/3SKIP은 원기록 보존. 9b89e8d0 stable provider scope 보완으로 소비자 DOM/로그아웃 초점·제어 owner를 유지하고 stale callback/timer/첫 layout격리를 검증했다. App69/Control139/Schedule83/Vehicle71·provider7/header4/typesUI, 확장461PASS1cold lazy timeout은 변경없이단독7PASS와 별도로 보존. 변경후 전체Web3250PASS/3SKIP·types/build0, 디자이너정상20원본 C0/I0/M0. 스타일불변이므로 원본은 bbb의 증거이며 후속 기능 수정통과 증거로 재표시하지 않는다. 9b89e8d0 whole-branch 독립 SpecCompliant/QualityApproved·C0/I0/M0 승인. 로컬병합926f7400과 기본체크아웃 병합후 Web3250PASS/3SKIP·types/build0을 완료했다. 완료기록은 제품불변 문서만 추가한다.
+
+최종 자료는 `/Users/kim-jh/Documents/led 조명 관제 서비스/outputs/mobile/mobile-first-screen-final`의 보고서·원본·manifest·raw logs에 보존한다. 작업용 SDD 자료는 이 폴더의 development-evidence로 원본 복사/해시 검증 후 정리한다. 기존 격리 checkout은 이전 iOS 도구·Metro 재현 자료를 포함하므로 유지한다. UI 검토용 loopback63915는 해당 원본 index를 제공하며 서비스/API 포트와 별개다.
