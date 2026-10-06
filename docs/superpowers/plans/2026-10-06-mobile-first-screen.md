@@ -30,7 +30,7 @@
 
 - [x] 사용자 A안·기존 컨트롤 크기 유지·별도 브랜치 후 병합 승인(2026-10-06).
 - [x] preview 기록 ce20af4e 보존 후 최신 메인 f74fc94f를 efd3820a에서 통합. 제품 충돌0, 메뉴 문서 충돌은 양쪽 scope별 기록을 보존.
-- [ ] Task1 Shell·알림·계정 구현/검토.
+- [x] Task1 Shell·알림·계정 구현/검토 — aba7a268 + cd0f44d0, full review C0/I1 후 scoped I1 ADDRESSED·새 C/I0.
 - [ ] Task2 모니터링·제어 구현/검토.
 - [ ] Task3 통계 구현/검토.
 - [ ] Task4 최종 검증·디자이너·전체 코드 검토.
@@ -51,11 +51,11 @@
 - Consumes: 현재 `useSessionToast().publish/dismiss`, `useSessionStatus`, `useMonitoringIncidents`, guarded SiteContextControl, CustomerAccountContext, WorkspaceFocus.
 - Produces: 기존 소비 API 호환을 유지한 최근 알림 상태/읽음 API; Shell compact 한 행과 전체보기 센터 접근. 추가 API 이름/타입을 report에 명시하며 Task2/3는 기존 Shell 레이아웃만 소비한다.
 
-- [ ] **Step1: baseline·변경 전 회귀 확인.** Node22/pnpm9.15, 준비된 workspace dependency 확인 후 기존 SessionStatus/Shell/Account tests와 Mobile 기존 focus tests를 실행한다. 실제 소스 기준 값·명령·결과를 보고서에 기록한다.
-- [ ] **Step2: 의미있는 실패 회귀 작성·RED 확인.** mobile toast 시각 영역없음/최근 알림 유지, fingerprint polling 미읽음 불변·변경 후 증가, 읽음≠resolved, 최대50·scope/late callback 격리, timer후 desktop 오래된toast없음, 서버count불명≠0, 현장 shared/dirty cancel, compact 현장·bell 한 행, all-role/logout 복구 접근을 검증한다.
-- [ ] **Step3: 구현.** 명세의 최근 알림 lifecycle·compact 한 행·펼침 현장 요약·기존 eager 계정 재사용·전체보기 접근을 구현한다. desktop toast/서버 알람 persistence를 유지한다. timer를 시각 toast mount 수명에만 종속시키지 않는다.
-- [ ] **Step4: 검증·문서.** 영향받는 tests/typecheck와 공통 e2e를 실행하고 네 메뉴에 세션 최근 알림/서버 알람 차이·한계·관련 파일을 기록한다. 기존 suite를 매 edit마다 반복하지 않는다.
-- [ ] **Step5: scoped commit·self review·report.** 해당 파일만 commit하고 테스트 명령/결과·변경 인터페이스·warnings/미검증을 report에 기록한다. 총괄 task review 승인 뒤 다음 작업으로 간다.
+- [x] **Step1: baseline·변경 전 회귀 확인.** Web baseline63, 변경하지 않은 Mobile focus58 회귀. Node22/pnpm9.15/기존 준비된 의존성 사용, 명령·소스 시점은 task-1-report.md에 기록했다.
+- [x] **Step2: 의미있는 실패 회귀 작성·RED 확인.** 새 recent tests2FAIL→GREEN. fingerprint/read/cap50/old callback와 기존 status/API 계약을 검증했다. 독립 gate가 실제 coverage를 확인한다.
+- [x] **Step3: 구현.** aba7a268의 scoped history/provider-owned timer/compact header·집계 펼침·기존 eager 계정/단일 center 전체보기 접근을 구현했다. desktop와 서버 알람을 유지한다.
+- [x] **Step4: 검증·문서.** 확장99(최종 sr-only 보완 전)·최종14·browser5·types/UI policy와 네 메뉴 문서를 보고했다. 전체 Web/Mobile·디자이너 최종 원본은 Task4다.
+- [x] **Step5: scoped commit·self review·report.** aba7a268, task-1-report.md. 독립 full review와 cd0f44d0 fix1 scoped 재검토 승인. StrictMode RED1→GREEN42/typecheck, 실제 재발 의미 보존. 명령 remount 런타임은 Task2 필수 후속이다.
 
 ### Task 2: 모니터링·제어 도면 우선 배치
 
