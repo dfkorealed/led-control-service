@@ -1,5 +1,5 @@
 import "reflect-metadata";
-import { GUARDS_METADATA } from "@nestjs/common/constants";
+import { GUARDS_METADATA, PATH_METADATA } from "@nestjs/common/constants";
 import { RolesGuard } from "../access/roles.guard";
 import { rolesMetadataKey } from "../access/roles.decorator";
 import { SessionAuthGuard } from "../auth/session-auth.guard";
@@ -7,6 +7,16 @@ import type { AuthenticatedUser } from "../auth/auth.types";
 import { RegistrationController } from "./registration.controller";
 
 describe("RegistrationController", () => {
+  it("registers static BIO create/get paths before the generic session lookup", async () => {
+    const controller = new (RegistrationController as any)({} as never, {} as never,
+      { create: async () => ({ commandId: "created" }), get: async () => ({ commandId: "queried" }) });
+    expect(Reflect.getMetadata(PATH_METADATA, controller.createBioRevalidation)).toBe("bio-revalidations");
+    expect(Reflect.getMetadata(PATH_METADATA, controller.getBioRevalidation)).toBe("bio-revalidations/:commandId");
+    const methods = Object.getOwnPropertyNames(RegistrationController.prototype);
+    expect(methods.indexOf("getBioRevalidation")).toBeLessThan(methods.indexOf("getSession"));
+    await expect(controller.createBioRevalidation({}, {})).resolves.toEqual({ commandId: "created" });
+    await expect(controller.getBioRevalidation("id", {})).resolves.toEqual({ commandId: "queried" });
+  });
   it("requires the assigned admin role for every registration route", () => {
     expect(Reflect.getMetadata(GUARDS_METADATA, RegistrationController)).toEqual(
       expect.arrayContaining([SessionAuthGuard, RolesGuard])
@@ -16,7 +26,7 @@ describe("RegistrationController", () => {
 
   it("exposes only an authenticated explicit BIO classification reconciliation entrypoint", async () => {
     const reconcile = jest.fn().mockResolvedValue({ changedFixtureIds: [], unchangedFixtureIds: [] });
-    const controller = new RegistrationController({} as never, { reconcile } as never);
+    const controller = new RegistrationController({} as never, { reconcile } as never, {} as never);
     expect(typeof controller.reconcileBioClassification).toBe("function");
     const actor = { id: "actor", role: "admin" } as AuthenticatedUser;
     const input = { siteId: "site", gatewayId: "gateway", fixtureIds: ["fixture"], expectedAssignmentVersion: 2, requestId: "request" };
@@ -26,7 +36,7 @@ describe("RegistrationController", () => {
 
   it("passes a validated batch registration request to the service", async () => {
     const registerBatch = jest.fn().mockResolvedValue({ items: [] });
-    const controller = new RegistrationController({ registerBatch } as never, {} as never);
+    const controller = new RegistrationController({ registerBatch } as never, {} as never, {} as never);
     const user = { id: "00000000-0000-4000-8000-000000000002", role: "operator" } as AuthenticatedUser;
     const body = {
       mode: "batch",
@@ -47,7 +57,7 @@ describe("RegistrationController", () => {
 
   it("delegates scan retry to the lifecycle service", async () => {
     const retryScan = jest.fn().mockResolvedValue({ id: "11111111-1111-4111-8111-111111111111" });
-    const controller = new RegistrationController({ retryScan } as never, {} as never);
+    const controller = new RegistrationController({ retryScan } as never, {} as never, {} as never);
     const user = { id: "00000000-0000-4000-8000-000000000002", role: "operator" } as AuthenticatedUser;
 
     await controller.retryScan("11111111-1111-4111-8111-111111111111", user);
@@ -57,7 +67,7 @@ describe("RegistrationController", () => {
 
   it("accepts only an empty identify body and delegates without client timing controls", async () => {
     const identifyNode = jest.fn().mockResolvedValue({ status: "accepted", operationId: "op-1" });
-    const controller = new RegistrationController({ identifyNode } as never, {} as never);
+    const controller = new RegistrationController({ identifyNode } as never, {} as never, {} as never);
     const user = { id: "00000000-0000-4000-8000-000000000002", role: "admin" } as AuthenticatedUser;
 
     await expect(controller.identifyNode("session-1", "node-1", {}, user))
@@ -69,7 +79,7 @@ describe("RegistrationController", () => {
 
   it("delegates active session lookup with the requested site", async () => {
     const listActiveSessions = jest.fn().mockResolvedValue([]);
-    const controller = new RegistrationController({ listActiveSessions } as never, {} as never);
+    const controller = new RegistrationController({ listActiveSessions } as never, {} as never, {} as never);
     const user = { id: "00000000-0000-4000-8000-000000000002", role: "admin" } as AuthenticatedUser;
 
     await expect(controller.listActiveSessions("00000000-0000-4000-8000-000000000003", user))
@@ -84,7 +94,7 @@ describe("RegistrationController", () => {
   it("delegates reconciliation exclusion and session cancellation", async () => {
     const excludeNode = jest.fn().mockResolvedValue({ id: "node-1", status: "failed" });
     const cancelSession = jest.fn().mockResolvedValue({ id: "session-1", status: "cancelled", discoveredNodes: [] });
-    const controller = new RegistrationController({ excludeNode, cancelSession } as never, {} as never);
+    const controller = new RegistrationController({ excludeNode, cancelSession } as never, {} as never, {} as never);
     const user = { id: "00000000-0000-4000-8000-000000000002", role: "admin" } as AuthenticatedUser;
 
     await expect(controller.excludeNode("session-1", "node-1", user))

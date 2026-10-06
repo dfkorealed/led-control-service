@@ -11,6 +11,7 @@ import { Roles } from "../access/roles.decorator";
 import { RolesGuard } from "../access/roles.guard";
 import { RegistrationService } from "./registration.service";
 import { BioClassificationReconciliationService } from "./bio-classification-reconciliation.service";
+import { BioRegistrationRevalidationService } from "./bio-registration-revalidation.service";
 
 interface RegisterNodeBody {
   fixtureName: string;
@@ -24,7 +25,18 @@ interface RegisterNodeBody {
 @Controller("registration-sessions")
 export class RegistrationController {
   constructor(private readonly registrationService: RegistrationService,
-    private readonly bioClassification: BioClassificationReconciliationService) {}
+    private readonly bioClassification: BioClassificationReconciliationService,
+    private readonly bioRevalidation: BioRegistrationRevalidationService) {}
+
+  @Post("bio-revalidations")
+  createBioRevalidation(@Body() body: unknown, @CurrentUser() user: AuthenticatedUser) {
+    return this.bioRevalidation.create(user, body);
+  }
+
+  @Get("bio-revalidations/:commandId")
+  getBioRevalidation(@Param("commandId") commandId: string, @CurrentUser() user: AuthenticatedUser) {
+    return this.bioRevalidation.get(user, commandId);
+  }
 
   @Post("reconcile-bio-classification")
   reconcileBioClassification(@Body() body: unknown, @CurrentUser() user: AuthenticatedUser) {

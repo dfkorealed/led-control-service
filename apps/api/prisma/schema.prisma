@@ -566,6 +566,7 @@ model AuditLog {
   ipAddress      String?
   userAgent      String?
   createdAt      DateTime @default(now())
+  bioRegistrationRevalidations BioRegistrationRevalidationOperation[]
 
   @@index([siteId, createdAt])
   @@index([actorId, createdAt])
@@ -1260,6 +1261,7 @@ model Fixture {
   processedStateEvents       ProcessedGatewayEvent[]
   commandResults             CommandFixtureResult[]
   sensorModeOperations       SensorModeOperation[]
+  bioRegistrationRevalidations BioRegistrationRevalidationOperation[]
   lightingScheduleTargets    LightingScheduleFixture[]
   vehicleEventSources        VehicleEventSource[]
   vehicleEventTargets        VehicleEventTarget[]
@@ -1692,6 +1694,53 @@ model SensorModeOperation {
   requeries           SensorModeOperation[] @relation("SensorModeRequery")
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt
+
+  @@unique([siteId, requestedById, clientRequestId])
+  @@index([status, nextAttemptAt, leaseExpiresAt])
+  @@index([fixtureId, supersededAt])
+}
+
+// Current-device proof is independent of historical registration completion.
+model BioRegistrationRevalidationOperation {
+  commandId                    String   @id @default(uuid())
+  siteId                       String
+  gatewayId                    String
+  floorId                      String
+  fixtureId                    String
+  nodeId                       String
+  sessionId                    String
+  discoveredNodeId             String
+  originalProvisionCommandId   String
+  originalProvisionPayloadHash String
+  requestedById                String
+  clientRequestId              String
+  assignmentVersion            Int
+  deviceIdentityHash           String
+  meshAddress                  String
+  bindingSnapshot              Json
+  bindingHash                  String
+  payload                      Json
+  payloadHash                  String
+  requestedAt                  DateTime
+  expiresAt                    DateTime
+  applyDeadlineAt              DateTime
+  status                       String   @default("pending")
+  result                       Json?
+  resultHash                   String?
+  resultEventId                String?  @unique
+  proofAcceptedAt              DateTime?
+  supersededAt                 DateTime?
+  appliedAt                    DateTime?
+  auditId                      String?  @unique
+  publishedAt                  DateTime?
+  attempts                     Int      @default(0)
+  nextAttemptAt                DateTime @default(now())
+  lockedBy                     String?
+  leaseExpiresAt               DateTime?
+  fixture                      Fixture  @relation(fields: [fixtureId, siteId], references: [id, siteId], onDelete: Cascade, onUpdate: Restrict)
+  audit                        AuditLog? @relation(fields: [auditId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  createdAt                    DateTime @default(now())
+  updatedAt                    DateTime @updatedAt
 
   @@unique([siteId, requestedById, clientRequestId])
   @@index([status, nextAttemptAt, leaseExpiresAt])

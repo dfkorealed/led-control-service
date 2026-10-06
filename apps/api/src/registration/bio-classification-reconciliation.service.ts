@@ -11,6 +11,7 @@ import type { AuthenticatedUser } from "../auth/auth.types";
 import { BIO_DEVICE_UUID, PROVISIONING_DEVICE_TERMINAL_EVENT_TYPE } from "../mqtt/provisioning-device-terminal.service";
 import { PrismaService } from "../prisma/prisma.service";
 import { lockRegistrationDeviceUuids, lockRegistrationDomain } from "./registration-domain-locks";
+import { authorizeBioRegistrationGateway } from "./bio-registration-revalidation-binding";
 
 export const reconcileBioClassificationInputSchema = z.object({
   siteId: z.string().uuid(), gatewayId: z.string().uuid(),
@@ -43,7 +44,7 @@ export class BioClassificationReconciliationService {
       const floorId = initial[0].floorId;
       await tx.$queryRaw`SELECT "id" FROM "Floor" WHERE "id" = ${floorId} FOR UPDATE`;
       await tx.$queryRaw`SELECT "id" FROM "Gateway" WHERE "id" = ${input.gatewayId} FOR UPDATE`;
-      await this.authorizeGateway(tx, input);
+      await authorizeBioRegistrationGateway(tx, input, this.clock.now());
       const transitions = initial.filter(row => row.meshNode?.vehicleSensorProtocol !== "bio_usb_pulse");
       // Optimistic proof lookup supplies only lock IDs. Re-read every relation
       // below after the existing registration-domain locks are held.
@@ -106,28 +107,6 @@ export class BioClassificationReconciliationService {
   private fixtures(tx: Prisma.TransactionClient, input: Input) {
     return tx.fixture.findMany({ where: { id: { in: input.fixtureIds }, siteId: input.siteId, gatewayId: input.gatewayId },
       include: { meshNode: true } });
-  }
-
-  private async authorizeGateway(tx: Prisma.TransactionClient, input: Input) {
-    const now = this.clock.now();
-    if (!Number.isFinite(now.getTime())) throw new ConflictException("BIO authorization clock unavailable");
-    // Broker mTLS/ACL and current DB metadata are the boundary, not a claim
-    // that an HTTP request inspected a hardware peer certificate serial.
-    const owned = await tx.$queryRaw<Array<{ assignmentVersion: number }>>(Prisma.sql`
-      SELECT gateway."assignmentVersion" FROM "Gateway" gateway
-      JOIN "GatewayInventory" inventory ON inventory."claimedGatewayId"=gateway."id"
-        AND inventory."claimedAt" IS NOT NULL AND inventory."disabledAt" IS NULL
-      JOIN "GatewayCertificate" certificate ON certificate."inventoryId"=inventory."id"
-        AND certificate."gatewayId"=gateway."id" AND certificate."purpose"='mqtt'
-        AND certificate."status"='active' AND certificate."revokedAt" IS NULL
-        AND certificate."notBefore" <= (${now}::timestamptz AT TIME ZONE 'UTC')
-        AND certificate."notAfter" > (${now}::timestamptz AT TIME ZONE 'UTC')
-      WHERE gateway."id"=${input.gatewayId} AND gateway."siteId"=${input.siteId} AND gateway."claimedAt" IS NOT NULL
-      FOR UPDATE OF gateway, inventory, certificate
-    `);
-    if (!owned.length || owned.some(row => row.assignmentVersion !== input.expectedAssignmentVersion)) {
-      throw new ConflictException("BIO current Gateway authority mismatch");
-    }
   }
 
   private async registrationEvidence(tx: Prisma.TransactionClient, input: Input,

@@ -2,6 +2,16 @@
 
 작성일: 2026-09-28
 
+## 2026-10-06 BIO 등록 현재 재검증 요청 보관
+
+`20261006120000_bio_registration_revalidation`은 독립 `BioRegistrationRevalidationOperation`을 추가한다. 서버 소유 commandId, site/Gateway/floor/Fixture/canonical node, 등록 session·후보·원 provision command와 그 canonical hash, 요청자/clientRequestId, assignment·native identity hash·unicast 주소, binding snapshot/hash와 strict query payload/hash를 보존한다. native UUID 원문을 새 명령이나 관리자 조회에 노출하지 않는다. `requestedAt`은 기존 `CommandDbClockHealth`가 검증한 UTC DB 시각이고 TTL은 30초, apply 기한은 120초로 고정한다. production에 실제 clock attestor가 없으면 요청과 조회는 거부하며 합성 provider를 DI에 등록하지 않는다.
+
+상태는 `pending | observed | unknown | timed_out`이며 immutable result/hash/event, `proofAcceptedAt`, `supersededAt`, `appliedAt`/`auditId`, publisher lease·시도 수를 갖는다. SQL CHECK는 결과/hash/event의 동시 존재, observed의 mode GET·시간·identity 일치, applied/audit 동시 존재, 양수 assignment·hash/주소 형식·고정 기한을 강제한다. `(siteId,requestedById,clientRequestId)`, resultEventId, auditId는 고유하다. 명령/binding/기한·이미 저장한 결과/proof·소비 감사/시각·supersede 시각은 UPDATE trigger로 불변이다. Fixture/site 복합 FK는 기존 SensorModeOperation처럼 삭제 cascade/갱신 restrict이며 AuditLog 참조는 삭제/갱신 restrict다. operation 삭제가 기존 감사 삭제를 유발하지 않는다. Gateway·원 provision ID는 당시 binding 이력 값으로 보관해 과거 row가 정상 재배정을 막지 않는다.
+
+현재 commission→Floor/Gateway/session/후보/outbox→native advisory→MeshNode/Fixture→operation 순으로 잠근 뒤 정확 graph·confirmed·canonical BIO UUID·주소·저장 provision command·현재 claim/inventory/assignment·유효 MQTT 인증서를 검사한다. 과거 receipt가 있으면 topic/identity/hash/ledger를 대조하지만 completed plaintext를 추론하지 않는다. 현 프로토콜이 BlueZ 기본인 기존 BIO graph도 요청 대상이다. 동일 요청 retry는 현재 권한과 binding을 다시 검증하고 원래 command/기한을 반환한다. 신규 요청은 같은 Fixture의 미소비 row만 supersede한다. create/get은 기존 Fixture 출력·node qualification·등록 후보/session/명령/이력을 쓰지 않는다.
+
+새 schema와 migration은 opt-in 일회용 PostgreSQL에서만 deploy·검증했다. 결과 ingest/publisher·명시 apply·Gateway 실행과 실제 B 수복은 후속 단계이며 운영 migration은 실행하지 않았다.
+
 ## 2026-10-02 기존 confirmed BIO 오분류의 감사 보완
 
 현장 assigned-admin/session/commission 권한의 명시 API는 같은 floor의 선택 Fixture 1..10개를 하나의 transaction에서 처리한다. Membership lock을 먼저 획득하고 현재 site/Gateway claim·inventory·assignment·유효 MQTT 인증서와 기존 등록 잠금 순서를 재사용해 canonical Fixture↔MeshNode↔완료된 discovered graph↔stored provision command의 UUID/address 귀속을 대조한다. Legacy의 server-owned provisioned/confirmed graph도 정확한 command가 남은 경우에만 감사 근거로 허용한다. V2 receipt가 있으면 strict topic/identity/hash와 terminal ledger를 추가 대조하되 ACK/hash만으로 completed 원문이나 과거 assignment를 재구성하지 않는다.
