@@ -1,4 +1,4 @@
-import { act, cleanup, render, screen, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as UI from "./index";
 
@@ -7,8 +7,8 @@ let observed: Element;
 const disconnect = vi.fn();
 beforeEach(() => {
   vi.stubGlobal("ResizeObserver", class {
-    constructor(callback: ResizeObserverCallback) { resize = callback; }
-    observe(target: Element) { observed = target; }
+    constructor(private callback: ResizeObserverCallback) {}
+    observe(target: Element) { if (target.tagName === "SECTION") { observed = target; resize = this.callback; } }
     unobserve() {}
     disconnect = disconnect;
   });
@@ -23,6 +23,59 @@ const columns = [
   { id: "action", header: "작업", minWidth: 100, align: "center" as const, renderCell: () => <button>상세</button> }
 ];
 describe("DataGrid", () => {
+  it.each([
+    { values: ["조명10", "조명2", "가나다", "ABC", "abc"], ascending: ["2", "1", "0", "3", "4"], descending: ["3", "4", "0", "1", "2"] },
+    { values: [10, null, 2, 2, undefined, NaN, Infinity], ascending: ["2", "3", "0", "1", "4", "5", "6"], descending: ["0", "2", "3", "1", "4", "5", "6"] },
+    { values: [new Date("2026-10-02"), new Date("invalid"), new Date("2026-10-01"), null], ascending: ["2", "0", "1", "3"], descending: ["0", "2", "1", "3"] },
+    { values: [true, false, true, null], ascending: ["1", "0", "2", "3"], descending: ["0", "2", "1", "3"] }
+  ])("sorts typed values stably and keeps missing/invalid values last: $values", ({ values, ascending, descending }) => {
+    const rows = Object.freeze(values.map((value, index) => Object.freeze({ id: String(index), value })));
+    render(<UI.DataGrid caption="정렬 목록" rows={rows} columns={[
+      { id: "value", header: "값", minWidth: 100, sortValue: row => row.value, renderCell: row => row.id },
+      { id: "actions", header: "작업", minWidth: 100, renderCell: () => <button>상세</button> }
+    ]} getRowKey={row => row.id} />);
+    measure(400);
+    const order = () => within(screen.getByRole("table")).getAllByRole("row").slice(1).map(row => within(row).getAllByRole("cell")[0].textContent);
+    const header = screen.getByRole("columnheader", { name: /값/ });
+    const sort = within(header).getByRole("button", { name: "값 오름차순 정렬" });
+    expect(within(screen.getByRole("columnheader", { name: "작업" })).queryByRole("button")).not.toBeInTheDocument();
+    fireEvent.click(sort);
+    expect(order()).toEqual(ascending);
+    expect(header).toHaveAttribute("aria-sort", "ascending");
+    expect(sort).toHaveAccessibleName("값 내림차순 정렬");
+    fireEvent.click(sort);
+    expect(order()).toEqual(descending);
+    expect(header).toHaveAttribute("aria-sort", "descending");
+    expect(rows.map(row => row.id)).toEqual(values.map((_, index) => String(index)));
+  });
+
+  it("shares card/table sorting, re-sorts refreshed rows, and clears unavailable columns", async () => {
+    const actions = vi.fn();
+    const sortable: UI.DataGridColumn<{ id: string; amount: number }>[] = [
+      { id: "amount", header: "수량", minWidth: 100, sortValue: row => row.amount, renderCell: row => row.id },
+      { id: "actions", header: "작업", minWidth: 100, renderCell: row => <button onClick={() => actions(row.id)}>상세 {row.id}</button> }
+    ];
+    const rows = [{ id: "ten", amount: 10 }, { id: "two", amount: 2 }];
+    const { rerender } = render(<UI.DataGrid caption="목록" rows={rows} columns={sortable} getRowKey={row => row.id} />);
+    fireEvent.click(screen.getByRole("button", { name: /정렬 기준/ }));
+    expect(screen.queryByRole("option", { name: "작업" })).not.toBeInTheDocument();
+    fireEvent.click(await screen.findByRole("option", { name: "수량", exact: true }));
+    const order = () => within(screen.getByRole("list", { name: "목록" })).getAllByRole("listitem").map(row => within(row).getAllByRole("definition")[0].textContent);
+    expect(order()).toEqual(["two", "ten"]);
+    fireEvent.click(screen.getByRole("button", { name: "내림차순으로 변경" }));
+    expect(order()).toEqual(["ten", "two"]);
+    measure(400);
+    expect(screen.getByRole("columnheader", { name: /수량/ })).toHaveAttribute("aria-sort", "descending");
+    fireEvent.click(screen.getByRole("button", { name: "상세 ten" }));
+    expect(actions).toHaveBeenCalledWith("ten");
+    const refreshed = [{ id: "one", amount: 1 }, ...rows];
+    rerender(<UI.DataGrid caption="목록" rows={refreshed} columns={[...sortable]} getRowKey={row => row.id} />);
+    measure(100);
+    expect(order()).toEqual(["ten", "two", "one"]);
+    rerender(<UI.DataGrid caption="목록" rows={refreshed} columns={sortable.map(({ sortValue: _sortValue, ...column }) => column)} getRowKey={row => row.id} />);
+    expect(order()).toEqual(["one", "ten", "two"]);
+    expect(screen.queryByRole("button", { name: /정렬 기준/ })).not.toBeInTheDocument();
+  });
   it("container width selects cards independently of viewport and retains every column", () => {
     expect(UI.DataGrid).toBeTypeOf("function");
     render(<UI.DataGrid caption="조명 목록" rows={[{ id: "A", name: "긴 조명 이름" }]} columns={columns} getRowKey={row => row.id} className="consumer-grid" />);

@@ -59,13 +59,13 @@ export function SiteAdminManagementView() {
   }
 
   const columns: readonly DataGridColumn<SiteAdminSummary>[] = [
-    { id: "customer", header: "고객사", minWidth: 140, renderCell: site => site.customerName },
-    { id: "site", header: "현장", minWidth: 160, renderCell: site => site.siteName },
-    { id: "installation", header: "설치 상태", minWidth: 110, align: "center", renderCell: site => <StatusBadge tone={site.installationStatus === "installed" ? "success" : "warning"} icon={site.installationStatus === "installed" ? CircleCheck : Clock3}>{site.installationStatus === "installed" ? "설치 완료" : "설치 대기"}</StatusBadge> },
-    { id: "name", header: "관리자 이름", minWidth: 130, renderCell: site => site.admin?.name ?? "관리자 미지정" },
-    { id: "login", header: "로그인 아이디", minWidth: 150, renderCell: site => site.admin?.loginId ?? "-" },
-    { id: "status", header: "계정 상태", minWidth: 110, align: "center", renderCell: site => site.admin ? <StatusBadge tone={site.admin.status === "active" ? "success" : "danger"} icon={site.admin.status === "active" ? CircleCheck : CircleAlert}>{site.admin.status === "active" ? "활성" : "비활성"}</StatusBadge> : "-" },
-    { id: "updated", header: "최종 변경", minWidth: 180, renderCell: site => site.admin ? formatTimestamp(site.admin.updatedAt) : "-" },
+    { id: "customer", header: "고객사", minWidth: 140, sortValue: site => site.customerName, renderCell: site => site.customerName },
+    { id: "site", header: "현장", minWidth: 160, sortValue: site => site.siteName, renderCell: site => site.siteName },
+    { id: "installation", header: "설치 상태", minWidth: 110, align: "center", sortValue: site => site.installationStatus === "installed" ? "설치 완료" : "설치 대기", renderCell: site => <StatusBadge tone={site.installationStatus === "installed" ? "success" : "warning"} icon={site.installationStatus === "installed" ? CircleCheck : Clock3}>{site.installationStatus === "installed" ? "설치 완료" : "설치 대기"}</StatusBadge> },
+    { id: "name", header: "관리자 이름", minWidth: 130, sortValue: site => site.admin?.name, renderCell: site => site.admin?.name ?? "관리자 미지정" },
+    { id: "login", header: "로그인 아이디", minWidth: 150, sortValue: site => site.admin?.loginId, renderCell: site => site.admin?.loginId ?? "-" },
+    { id: "status", header: "계정 상태", minWidth: 110, align: "center", sortValue: site => site.admin ? site.admin.status === "active" ? "활성" : "비활성" : null, renderCell: site => site.admin ? <StatusBadge tone={site.admin.status === "active" ? "success" : "danger"} icon={site.admin.status === "active" ? CircleCheck : CircleAlert}>{site.admin.status === "active" ? "활성" : "비활성"}</StatusBadge> : "-" },
+    { id: "updated", header: "최종 변경", minWidth: 180, sortValue: site => site.admin ? new Date(site.admin.updatedAt) : null, renderCell: site => site.admin ? formatTimestamp(site.admin.updatedAt) : "-" },
     { id: "actions", header: "작업", minWidth: 250, align: "center", renderCell: site => <SiteAdminActions site={site} onOpen={openDialog} /> }
   ];
 

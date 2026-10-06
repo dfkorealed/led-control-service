@@ -71,12 +71,12 @@ export function LandingInquiriesView() {
 }
 
 const inquiryColumns: readonly DataGridColumn<OperatorLandingInquiry>[] = [
-  { id: "reference", header: "접수번호", minWidth: 140, renderCell: item => item.reference },
-  { id: "createdAt", header: "접수일", minWidth: 180, renderCell: item => formatTimestamp(item.createdAt) },
-  { id: "contact", header: "회사 / 담당자", minWidth: 160, renderCell: item => <>{item.companyName}<br /><span className="text-content-secondary">{item.contactName}</span></> },
-  { id: "reply", header: "회신 정보", minWidth: 180, renderCell: item => <>{item.email}{item.phone ? <><br />{item.phone}</> : null}</> },
-  { id: "message", header: "문의 내용", minWidth: 200, renderCell: item => item.message },
-  { id: "delivery", header: "메일 상태", minWidth: 150, align: "center", renderCell: item => {
+  { id: "reference", header: "접수번호", minWidth: 140, sortValue: item => item.reference, renderCell: item => item.reference },
+  { id: "createdAt", header: "접수일", minWidth: 180, sortValue: item => new Date(item.createdAt), renderCell: item => formatTimestamp(item.createdAt) },
+  { id: "contact", header: "회사 / 담당자", minWidth: 160, sortValue: item => `${item.companyName} ${item.contactName}`, renderCell: item => <>{item.companyName}<br /><span className="text-content-secondary">{item.contactName}</span></> },
+  { id: "reply", header: "회신 정보", minWidth: 180, sortValue: item => `${item.email} ${item.phone ?? ""}`, renderCell: item => <>{item.email}{item.phone ? <><br />{item.phone}</> : null}</> },
+  { id: "message", header: "문의 내용", minWidth: 200, sortValue: item => item.message, renderCell: item => item.message },
+  { id: "delivery", header: "메일 상태", minWidth: 150, align: "center", sortValue: item => deliveryPresentation[item.deliveryStatus].label, renderCell: item => {
     const status = deliveryPresentation[item.deliveryStatus];
     return <StatusBadge tone={status.tone} icon={status.icon}>{status.label}</StatusBadge>;
   } }

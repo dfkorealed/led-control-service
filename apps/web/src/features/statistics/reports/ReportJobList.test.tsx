@@ -36,6 +36,10 @@ describe("ReportJobList", () => {
     measure(1440);
     expect(screen.queryByRole("list", { name: "보고서 생성 이력" })).not.toBeInTheDocument();
     const table = screen.getByRole("table", { name: "보고서 생성 이력" });
+    fireEvent.click(within(table).getByRole("button", { name: "대상 오름차순 정렬" }));
+    expect(within(table).getAllByRole("row")[1]).toHaveTextContent("expired 긴 대상명");
+    fireEvent.click(within(table).getByRole("button", { name: "대상 내림차순 정렬" }));
+    expect(within(table).getAllByRole("row")[1]).toHaveTextContent("failed 긴 대상명");
     expect(within(table).getAllByRole("columnheader").every(header => header.classList.contains("text-center"))).toBe(true);
     expect(table).toHaveTextContent("층");
     fireEvent.click(within(table).getByRole("button", { name: "expired 긴 대상명 보고서 다시 생성" }));

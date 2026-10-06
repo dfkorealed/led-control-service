@@ -166,13 +166,13 @@ function SiteUsersWorkspace({ siteId }: { siteId?: string }) {
   }
 
   const columns: DataGridColumn<SiteUserSummary>[] = [
-    { id: "name", header: "이름", minWidth: 150, renderCell: user => <strong>{user.name}</strong> },
-    { id: "login", header: "로그인 아이디", minWidth: 180, renderCell: user => user.loginId },
-    { id: "access", header: "권한", minWidth: 100, align: "center", renderCell: user =>
+    { id: "name", header: "이름", minWidth: 150, sortValue: user => user.name, renderCell: user => <strong>{user.name}</strong> },
+    { id: "login", header: "로그인 아이디", minWidth: 180, sortValue: user => user.loginId, renderCell: user => user.loginId },
+    { id: "access", header: "권한", minWidth: 100, align: "center", sortValue: user => user.accessLevel === "control" ? "제어" : "조회", renderCell: user =>
       <StatusBadge tone={user.accessLevel === "control" ? "info" : "neutral"} icon={user.accessLevel === "control" ? CircleCheck : UserCheck}>{user.accessLevel === "control" ? "제어" : "조회"}</StatusBadge> },
-    { id: "status", header: "상태", minWidth: 100, align: "center", renderCell: user =>
+    { id: "status", header: "상태", minWidth: 100, align: "center", sortValue: user => user.status === "active" ? "활성" : "비활성", renderCell: user =>
       <StatusBadge tone={user.status === "active" ? "success" : "danger"} icon={user.status === "active" ? CircleCheck : CircleAlert}>{user.status === "active" ? "활성" : "비활성"}</StatusBadge> },
-    { id: "lastLogin", header: "최근 로그인", minWidth: 190, renderCell: user => formatLastLogin(user.lastLoginAt) },
+    { id: "lastLogin", header: "최근 로그인", minWidth: 190, sortValue: user => user.lastLoginAt ? new Date(user.lastLoginAt) : null, renderCell: user => formatLastLogin(user.lastLoginAt) },
     { id: "actions", header: "관리", minWidth: 80, align: "center", renderCell: user =>
       <RowActions rowLabel={user.name} className="size-13 min-h-13 min-w-13"
         ref={node => { if (node) rowTriggers.current.set(user.id, node); else rowTriggers.current.delete(user.id); }}

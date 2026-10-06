@@ -74,16 +74,16 @@ export function ReportJobList({
     </div>;
   };
   const columns: DataGridColumn<ReportJobRenderItem>[] = [
-    { id: "target", header: "대상", minWidth: 180, renderCell: item => <Text weight="bold" className="wrap-anywhere">{item.view.targetLabel}</Text> },
-    { id: "scope", header: "범위", minWidth: 70, align: "center", renderCell: item => item.view.scopeLabel },
-    { id: "range", header: "기간", minWidth: 130, renderCell: item => <span className="flex min-w-0 flex-wrap gap-x-1">
+    { id: "target", header: "대상", minWidth: 180, sortValue: item => item.view.targetLabel, renderCell: item => <Text weight="bold" className="wrap-anywhere">{item.view.targetLabel}</Text> },
+    { id: "scope", header: "범위", minWidth: 70, align: "center", sortValue: item => item.view.scopeLabel, renderCell: item => item.view.scopeLabel },
+    { id: "range", header: "기간", minWidth: 130, sortValue: item => item.job.request.from, renderCell: item => <span className="flex min-w-0 flex-wrap gap-x-1">
       {/* Calendar dates retain their API values without timezone conversion. */}
       <time dateTime={item.job.request.from} className="tabular-nums">{item.job.request.from}</time><span>~</span>
       <time dateTime={item.job.request.to} className="tabular-nums">{item.job.request.to}</time>
     </span> },
-    { id: "status", header: "상태", minWidth: 150, align: "center", renderCell: (item, surface) => <div className="grid min-w-0 justify-items-center gap-2"><ReportJobStatus item={item} />{renderFailure(item, surface)}</div> },
-    { id: "requested", header: "요청 시각", minWidth: 140, renderCell: item => <ReportTime instant={item.view.requestedAt} /> },
-    { id: "expires", header: "파일 만료 시각", minWidth: 140, renderCell: item => item.view.expiresAt ? <ReportTime instant={item.view.expiresAt} /> : "—" },
+    { id: "status", header: "상태", minWidth: 150, align: "center", sortValue: item => item.view.status.label, renderCell: (item, surface) => <div className="grid min-w-0 justify-items-center gap-2"><ReportJobStatus item={item} />{renderFailure(item, surface)}</div> },
+    { id: "requested", header: "요청 시각", minWidth: 140, sortValue: item => new Date(item.job.requestedAt), renderCell: item => <ReportTime instant={item.view.requestedAt} /> },
+    { id: "expires", header: "파일 만료 시각", minWidth: 140, sortValue: item => item.job.expiresAt ? new Date(item.job.expiresAt) : null, renderCell: item => item.view.expiresAt ? <ReportTime instant={item.view.expiresAt} /> : "—" },
     { id: "actions", header: "작업", minWidth: 140, align: "center", renderCell: renderAction }
   ];
 

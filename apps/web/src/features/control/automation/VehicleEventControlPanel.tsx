@@ -435,14 +435,14 @@ export function VehicleEventControlPanel({
   }
 
   const columns: DataGridColumn<VehicleEventRuleResponse>[] = [
-    { id: "name", header: "이름", minWidth: 150, renderCell: row => <strong className="wrap-anywhere">{row.name}</strong> },
-    { id: "activation", header: "활성", minWidth: 90, align: "center", renderCell: row => <EnabledBadge enabled={row.status === "enabled"} /> },
-    { id: "sources", header: "감지 센서", minWidth: 80, align: "right", renderCell: row => `${row.sourceCount}개` },
-    { id: "targets", header: "제어 조명", minWidth: 80, align: "right", renderCell: row => `${row.targetCount}개` },
-    { id: "brightness", header: "밝기", minWidth: 100, align: "right", renderCell: row => row.action.dimmingEnabled ? `${row.action.brightnessPercent}%` : "디밍 OFF · 100%" },
-    { id: "hold", header: "유지", minWidth: 70, align: "right", renderCell: row => `${row.holdSeconds}초` },
-    { id: "sync", header: "Gateway 동기화", minWidth: 110, align: "center", renderCell: row => <SyncBadge status={row.syncStatus} /> },
-    { id: "detection", header: "최근 감지", minWidth: 150, renderCell: row => <><DetectionBadge rule={row} timeZone={dashboard?.site.timeZone ?? "UTC"} wrap /><Text variant="caption" tone="secondary">{dashboard?.site.timeZone ?? "UTC"}</Text></> }
+    { id: "name", header: "이름", minWidth: 150, sortValue: row => row.name, renderCell: row => <strong className="wrap-anywhere">{row.name}</strong> },
+    { id: "activation", header: "활성", minWidth: 90, align: "center", sortValue: row => row.status === "enabled" ? "활성" : "비활성", renderCell: row => <EnabledBadge enabled={row.status === "enabled"} /> },
+    { id: "sources", header: "감지 센서", minWidth: 80, align: "right", sortValue: row => row.sourceCount, renderCell: row => `${row.sourceCount}개` },
+    { id: "targets", header: "제어 조명", minWidth: 80, align: "right", sortValue: row => row.targetCount, renderCell: row => `${row.targetCount}개` },
+    { id: "brightness", header: "밝기", minWidth: 100, align: "right", sortValue: row => row.action.dimmingEnabled ? row.action.brightnessPercent : 100, renderCell: row => row.action.dimmingEnabled ? `${row.action.brightnessPercent}%` : "디밍 OFF · 100%" },
+    { id: "hold", header: "유지", minWidth: 70, align: "right", sortValue: row => row.holdSeconds, renderCell: row => `${row.holdSeconds}초` },
+    { id: "sync", header: "Gateway 동기화", minWidth: 110, align: "center", sortValue: row => ({ APPLIED: "적용됨", PENDING: "적용 대기", REJECTED: "적용 실패" })[row.syncStatus], renderCell: row => <SyncBadge status={row.syncStatus} /> },
+    { id: "detection", header: "최근 감지", minWidth: 150, sortValue: row => row.lastDetection ? new Date(row.lastDetection.occurredAt) : null, renderCell: row => <><DetectionBadge rule={row} timeZone={dashboard?.site.timeZone ?? "UTC"} wrap /><Text variant="caption" tone="secondary">{dashboard?.site.timeZone ?? "UTC"}</Text></> }
   ];
   if (canManage) columns.push({ id: "actions", header: "관리", minWidth: 116, align: "center", renderCell: renderActions });
 

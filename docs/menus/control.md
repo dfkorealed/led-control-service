@@ -1,5 +1,15 @@
 # 제어 메뉴 기능 현황
 
+## 2026-10-06 공통 Grid 현재 목록 정렬
+
+- 구현 완료: 스케줄·이벤트 목록의 이름·활성/동기화·날짜·반복·대상 수·밝기·유지·최근 결과/감지에 의미에 맞는 정렬 값을 연결했다. 적용 기간은 시작 시각, 최근 결과는 발생 시각으로 정렬하고 관리 작업은 정렬에서 제외한다.
+- 구현 완료: 기존 HTML table/caption/중앙 TH와 컨테이너 기반 카드 전환을 유지한다. 표 헤더의 공통 Button/Enter/Space, 활성 TH의 aria-sort/방향 아이콘과 카드의 공통 React Aria SelectBox/방향 버튼이 동일 상태를 소비한다. 한글·numeric 문자열, 숫자·날짜·boolean, 동일값 안정 순서와 누락/잘못된 날짜·비유한 숫자의 양방향 마지막 배치를 지원한다. 원본 행 배열을 변경하지 않고 데이터 갱신·정렬 컬럼 제거에도 유효한 상태만 사용한다.
+- 미구현: 서버 커서 전체 정렬/API 정렬은 제공하지 않는다. 화면의 '현재 목록 안에서 정렬'은 전달받은 현재 행만 의미하며 기존 조회·필터·커서 계약을 유지한다.
+- 부족하거나 개선이 필요한 기능: 격리 Chromium에서 스케줄·이벤트 2개가 1706×1226 표의 Enter/Space 오름·내림차순, 390×844 카드의 동일 상태·기준/방향 변경·44×44 hit·가로 넘침 없음·기존 수정 dialog와 자동화 쓰기 0을 통과했다. 공통/여섯 소비자의 표적 단위 235개와 정렬 브라우저 2개는 software fixture 범위다. 전체 Web 검증·독립 최종 검수는 총괄 관문이며 실제 native WebView·센서·Gateway·LED HIL의 증거가 아니다.
+- 관련 파일: 공통 `apps/web/src/components/ui/DataGrid.tsx` 및 대응 테스트, `apps/web/src/features/control/automation/{ScheduleControlPanel,VehicleEventControlPanel}.tsx`, `apps/web/e2e/calm-operations-automation.spec.ts`.
+- 갱신 규칙: 정렬 접근자/헤더/카드 변경 시 현재 목록 범위·표/카드 상태·동일값/누락값·원본 불변·행 작업·기존 pagination 회귀와 실제 키보드/44px 접근을 함께 확인한다.
+
+
 ## 2026-10-06 Control 가용 높이·완전한 적용 버튼 접근 보완
 
 ### 구현 완료

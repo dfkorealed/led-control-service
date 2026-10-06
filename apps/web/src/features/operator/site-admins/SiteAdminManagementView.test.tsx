@@ -74,6 +74,18 @@ describe("SiteAdminManagementView", () => {
     vi.unstubAllGlobals();
   });
 
+  it("sorts admins by site and keeps missing admins last without losing actions", async () => {
+    renderView();
+    const table = await screen.findByRole("table", { name: "현장 관리자 계정 표" });
+    fireEvent.click(within(table).getByRole("button", { name: "현장 오름차순 정렬" }));
+    expect(within(table).getAllByRole("row")[1]).toHaveTextContent("강남 주차장");
+    for (const direction of ["오름차순", "내림차순"]) {
+      fireEvent.click(within(table).getByRole("button", { name: `관리자 이름 ${direction} 정렬` }));
+      expect(within(table).getAllByRole("row")[1]).toHaveTextContent("김관리");
+    }
+    expect(within(table).getByRole("button", { name: "강남 주차장 관리자 지정" })).toBeEnabled();
+  });
+
   it("keeps every admin field and existing permitted action in narrow container cards on a wide window", async () => {
     vi.stubGlobal("ResizeObserver", class {
       constructor(private callback: ResizeObserverCallback) {}

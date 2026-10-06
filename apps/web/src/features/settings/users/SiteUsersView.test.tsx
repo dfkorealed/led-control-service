@@ -46,6 +46,18 @@ let gridWidth = 1200;
 const observers = new Map<Element, ResizeObserverCallback>();
 
 describe("SiteUsersView", () => {
+  it("sorts displayed users while keeping null logins last in both directions", () => {
+    renderView();
+    const table = screen.getByRole("table", { name: "현장 사용자 목록" });
+    fireEvent.click(within(table).getByRole("button", { name: "이름 오름차순 정렬" }));
+    fireEvent.click(within(table).getByRole("button", { name: "이름 내림차순 정렬" }));
+    expect(within(table).getAllByRole("row")[1]).toHaveTextContent("야간 당직");
+    for (const direction of ["오름차순", "내림차순"]) {
+      fireEvent.click(within(table).getByRole("button", { name: `최근 로그인 ${direction} 정렬` }));
+      expect(within(table).getAllByRole("row")[1]).toHaveTextContent("김현수");
+    }
+    expect(within(table).getByRole("button", { name: "야간 당직 작업" })).toBeEnabled();
+  });
   it("resets detail conditions without clearing search or sending mutations", async () => {
     renderView();
     fireEvent.change(screen.getByLabelText("사용자 검색"), { target: { value: "night" } });

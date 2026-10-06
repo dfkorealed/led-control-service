@@ -54,6 +54,21 @@ describe("operator landing inquiries route", () => {
   });
   afterEach(cleanup);
 
+  it("sorts the supplied inquiry page by reference", async () => {
+    vi.stubGlobal("ResizeObserver", class {
+      constructor(private callback: ResizeObserverCallback) {}
+      observe(target: Element) { this.callback([{ target, contentRect: { width: 1800 } } as ResizeObserverEntry], this as unknown as ResizeObserver); }
+      disconnect() {}
+    });
+    renderRoute();
+    const table = await screen.findByRole("table", { name: "최근 상담 문의 표" });
+    fireEvent.click(within(table).getByRole("button", { name: "접수번호 오름차순 정렬" }));
+    expect(within(table).getAllByRole("row")[1]).toHaveTextContent("K-ACCEPTED");
+    fireEvent.click(within(table).getByRole("button", { name: "접수번호 내림차순 정렬" }));
+    expect(within(table).getAllByRole("row")[1]).toHaveTextContent("K-UNCERTAIN");
+    vi.unstubAllGlobals();
+  });
+
   it("keeps every inquiry field in cards in a narrow container on a wide window", async () => {
     vi.stubGlobal("ResizeObserver", class {
       constructor(private callback: ResizeObserverCallback) {}

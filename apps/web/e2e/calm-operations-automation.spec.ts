@@ -33,6 +33,60 @@ const viewports = [
   { width: 320, height: 740 }
 ] as const;
 
+for (const mode of ["schedule", "event"] as const) {
+  test(`${mode} 현재 목록 정렬은 키보드와 좁은 카드에서도 같은 순서를 유지한다`, async ({ page }, testInfo) => {
+    await page.setViewportSize({ width: 1706, height: 1226 });
+    await installAutomationFixture(page, {
+      schedules: [schedule("조명10", "PENDING"), schedule("조명2", "APPLIED"), schedule("가나다", "REJECTED")],
+      events: [eventRule("조명10", "enabled"), eventRule("조명2", "disabled")]
+    });
+    const writes: string[] = [];
+    page.on("request", request => { if (/\/automation\//.test(request.url()) && request.method() !== "GET") writes.push(request.method()); });
+    await page.goto(`/control?siteId=${ids.site}&mode=${mode}`);
+    const caption = mode === "schedule" ? "스케줄 목록" : "차량 이벤트 목록";
+    const table = page.getByRole("table", { name: caption });
+    await expect(table).toBeVisible();
+    const order = () => table.locator("tbody tr td:first-child").allTextContents();
+    const ascending = mode === "schedule" ? ["가나다", "조명2", "조명10"] : ["조명2", "조명10"];
+    const descending = mode === "schedule" ? ["조명10", "조명2", "가나다"] : ["조명10", "조명2"];
+    const header = table.getByRole("columnheader", { name: /이름/ });
+    const trigger = header.getByRole("button");
+    const hit = (await trigger.boundingBox())!;
+    expect(hit.width).toBeGreaterThanOrEqual(44); expect(hit.height).toBeGreaterThanOrEqual(44);
+    await trigger.focus(); await trigger.press("Enter");
+    await expect(header).toHaveAttribute("aria-sort", "ascending");
+    expect(await order()).toEqual(ascending);
+    await page.screenshot({ path: testInfo.outputPath(`${mode}-table-ascending.png`), fullPage: true });
+    await trigger.press("Space");
+    await expect(header).toHaveAttribute("aria-sort", "descending");
+    expect(await order()).toEqual(descending);
+    await page.screenshot({ path: testInfo.outputPath(`${mode}-table-descending.png`), fullPage: true });
+    await page.setViewportSize({ width: 390, height: 844 });
+    const cards = page.getByRole("list", { name: caption });
+    await expect(cards).toBeVisible();
+    const cardOrder = () => cards.locator("li dd:first-of-type strong").allTextContents();
+    expect(await cardOrder()).toEqual(descending);
+    const sortRegion = cards.locator("..");
+    await expect(sortRegion.getByRole("button", { name: "정렬 기준" })).toContainText("이름");
+    await sortRegion.getByRole("button", { name: "오름차순으로 변경" }).click();
+    expect(await cardOrder()).toEqual(ascending);
+    await sortRegion.getByRole("button", { name: "정렬 기준" }).click();
+    await expect(page.getByRole("option", { name: "관리", exact: true })).toHaveCount(0);
+    await page.getByRole("option", { name: "이름", exact: true }).click();
+    for (const control of [sortRegion.getByRole("button", { name: "정렬 기준" }), sortRegion.getByRole("button", { name: "내림차순으로 변경" })]) {
+      const bounds = (await control.boundingBox())!;
+      expect(bounds.width).toBeGreaterThanOrEqual(44); expect(bounds.height).toBeGreaterThanOrEqual(44);
+    }
+    await page.screenshot({ path: testInfo.outputPath(`${mode}-cards-ascending.png`), fullPage: true });
+    await expectNoHorizontalOverflow(page);
+    await expectNoCardHorizontalOverflow(cards);
+    await cards.getByRole("button", { name: "조명10 작업" }).click();
+    await page.getByRole("menuitem", { name: "수정", exact: true }).click();
+    await expect(page.getByRole("dialog", { name: mode === "schedule" ? "스케줄 수정" : "이벤트 수정", exact: true })).toBeVisible();
+    expect(writes).toEqual([]);
+  });
+}
+
 test("Task6 shared mock boundary keeps later fixture precedence, unknown API 404 and external abort", async ({ page }) => {
   // Before domain fixtures are registered, the shared deny fallback owns gaps.
   const boundaryResponse = await page.goto("/api/__task6_unconfigured_boundary");

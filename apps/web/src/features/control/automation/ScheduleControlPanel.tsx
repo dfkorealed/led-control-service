@@ -449,13 +449,13 @@ export function ScheduleControlPanel({
   }
 
   const columns: DataGridColumn<ScheduleResponse>[] = [
-    { id: "name", header: "이름", minWidth: 150, renderCell: row => <strong className="wrap-anywhere">{row.name}</strong> },
-    { id: "activation", header: "활성 · Gateway 동기화", minWidth: 150, align: "center", renderCell: row => <ScheduleActivation schedule={row} /> },
-    { id: "period", header: "적용 기간", minWidth: 160, renderCell: row => <>{formatActivePeriod(row, dashboard?.site.timeZone ?? "UTC")}<Text variant="caption" tone="secondary">{dashboard?.site.timeZone ?? "UTC"}</Text></> },
-    { id: "next", header: "다음 실행", minWidth: 140, renderCell: row => formatNextOccurrence(row, dashboard?.site.timeZone ?? "UTC") },
-    { id: "recurrence", header: "반복 · 시간", minWidth: 130, renderCell: row => formatRecurrence(row) },
-    { id: "targets", header: "대상", minWidth: 70, align: "right", renderCell: row => `${row.targetCount}개` },
-    { id: "result", header: "최근 결과", minWidth: 150, renderCell: row => <LastExecutionBadge schedule={row} timeZone={dashboard?.site.timeZone ?? "UTC"} wrap /> }
+    { id: "name", header: "이름", minWidth: 150, sortValue: row => row.name, renderCell: row => <strong className="wrap-anywhere">{row.name}</strong> },
+    { id: "activation", header: "활성 · Gateway 동기화", minWidth: 150, align: "center", sortValue: row => `${row.status === "enabled" ? "활성" : "비활성"} ${row.syncStatus}`, renderCell: row => <ScheduleActivation schedule={row} /> },
+    { id: "period", header: "적용 기간", minWidth: 160, sortValue: row => new Date(row.activeFrom), renderCell: row => <>{formatActivePeriod(row, dashboard?.site.timeZone ?? "UTC")}<Text variant="caption" tone="secondary">{dashboard?.site.timeZone ?? "UTC"}</Text></> },
+    { id: "next", header: "다음 실행", minWidth: 140, sortValue: row => row.nextOccurrence ? new Date(row.nextOccurrence.startsAt) : null, renderCell: row => formatNextOccurrence(row, dashboard?.site.timeZone ?? "UTC") },
+    { id: "recurrence", header: "반복 · 시간", minWidth: 130, sortValue: row => formatRecurrence(row), renderCell: row => formatRecurrence(row) },
+    { id: "targets", header: "대상", minWidth: 70, align: "right", sortValue: row => row.targetCount, renderCell: row => `${row.targetCount}개` },
+    { id: "result", header: "최근 결과", minWidth: 150, sortValue: row => row.lastExecution ? new Date(row.lastExecution.occurredAt) : null, renderCell: row => <LastExecutionBadge schedule={row} timeZone={dashboard?.site.timeZone ?? "UTC"} wrap /> }
   ];
   if (canManage) columns.push({ id: "actions", header: "관리", minWidth: 116, align: "center", renderCell: renderActions });
 
