@@ -67,9 +67,11 @@
 - [x] **Step 2: RED 실행.** `pnpm --filter @led-control/shared exec vitest run src/bio-registration-revalidation-contracts.test.ts` → 신규 export/schema 부재로 FAIL.
 - [x] **Step 3: 계약 구현.** command/result 공통 identity는 설계 그대로이며 실패 errorCode는 기존 고정 집합 `MODE_GET_UNCONFIRMED|COMMAND_EXPIRED|GATEWAY_RESTART|UNSUPPORTED_ADAPTER|GATEWAY_SHUTDOWN|GATEWAY_CLOCK_UNTRUSTED`. ACK는 version2/purpose/full identity/eventId/sequence/`payloadHash`/`ingestedAt`/status=`ingested|duplicate|stale_checkpoint` strict 객체다. result에는 requestedAt/expiresAt 없이 occurredAt을 사용한다.
 - [x] **Step 4: GREEN.** 동일 신규 테스트 + `pnpm --filter @led-control/shared exec vitest run src/bio-sensor-mode-contracts.test.ts` 및 Shared typecheck/build → exit0. export를 독립 검토하고 consumer용 `pnpm workspace:prepare`를 실행한다.
-- [x] **Step 5: 검토 승인 후 commit.** 정확 Shared 파일만 stage, `feat(shared): add BIO registration revalidation contracts`.
+- [x] **Step 5: commit·독립 검토.** 정확 Shared 파일만 stage, `feat(shared): add BIO registration revalidation contracts`. 소스 커밋의 독립 검토 승인 뒤에만 API 소비 구현을 시작했다.
 
 ## Task 2: additive DB와 관리자 요청/현재 binding — 담당 backend
+
+**상태:** 완료(backend 요청/조회 소프트웨어), `04e8c31b`. 신규 DB35+unit6=41PASS·직접 회귀55PASS·Prisma generate/typecheck/diffcheck0, 독립 Spec✅/Quality Approved·C0/I0/M1(기존 pnpm config 경고). 운영 DB가 아닌 일회용 PostgreSQL로만 신규 schema/create/get을 검증했다. clock attestor 미연결은 거부하며 실제 운영 수복은 아직 실행하지 않았다.
 
 **Files:** DB, binding/service, controller/module 책임 파일; `apps/api/test/bio-registration-revalidation.integration.spec.ts` 첫 DB·create/get 사례; 기존 classification 인증 helper 소비 변경.
 
@@ -80,18 +82,18 @@
 - `BioRegistrationRevalidationService.create(user: AuthenticatedUser, input: unknown): Promise<BioRegistrationRevalidationView>`와 `get(user: AuthenticatedUser, commandId: string): Promise<BioRegistrationRevalidationView>`.
 - `BioRegistrationRevalidationView`은 `{ commandId, siteId, gatewayId, fixtureId, status: "pending"|"observed"|"unknown"|"timed_out", observedMode: "sensor"|"force-on"|"force-off"|null, requestedAt, expiresAt, applyDeadlineAt, supersededAt, appliedAt }`; 시간 값은 UTC string/nullable, raw binding/native/cert/payload 노출 없음.
 
-- [ ] **Step 1: RED DB/create/get 테스트.** 일회용 DB에 기존 B형 graph를 seed하는 테스트 내부 `seedRegisteredGraph({status, fixtureNodeIdsDiffer})` 사용. ID가 다른 정상 node로 create → pending, TTL30000ms/apply120000ms, immutable command/snapshot 확인. 다른 actor/site, authority 만료·미개시·폐기, 잘못된 배정/hash/address/identify command·unconfirmed·진행 중 상충 등록은 거부한다. 동일 actor/clientRequestId·동일 입력은 같은 command/원기한, 다른 입력은 conflict; 새 요청은 미소비 이전 row만 supersede한다. foreign requester GET 및 동적 `:sessionId` 오매칭은 거부한다.
+- [x] **Step 1: RED DB/create/get 테스트.** 일회용 DB에 기존 B형 graph를 seed하는 테스트 내부 `seedRegisteredGraph({status, fixtureNodeIdsDiffer})` 사용. ID가 다른 정상 node로 create → pending, TTL30000ms/apply120000ms, immutable command/snapshot 확인. 다른 actor/site, authority 만료·미개시·폐기, 잘못된 배정/hash/address/identify command·unconfirmed·진행 중 상충 등록은 거부한다. 동일 actor/clientRequestId·동일 입력은 같은 command/원기한, 다른 입력은 conflict; 새 요청은 미소비 이전 row만 supersede한다. foreign requester GET 및 동적 `:sessionId` 오매칭은 거부한다.
   ```ts
   expect(created.commandId).toBe((await service.create(admin, sameRequest)).commandId);
   expect(row.applyDeadlineAt.getTime() - row.requestedAt.getTime()).toBe(120_000);
   expect(await readProtectedFixtureState()).toEqual(before);
   ```
   `readProtectedFixtureState()`는 같은 DB에서 Fixture/Node/후보와 명령·그룹·이력을 읽는 테스트 내부 snapshot 함수다.
-- [ ] **Step 2: RED 실행.** `BIO_REGISTRATION_REVALIDATION_DISPOSABLE_POSTGRES=1 pnpm --filter @led-control/api exec jest test/bio-registration-revalidation.integration.spec.ts --runInBand -t 'schema|create|get'` → 새 model/service/route 부재 FAIL. opt-in 시 PostgreSQL tools 부재는 SKIP 아닌 실패.
-- [ ] **Step 3: DB·binding 구현.** 새 operation row는 설계 필드 전부, 추가 `proofAcceptedAt: Date|null`, `auditId: string|null`를 갖는다. status CHECK, result/hash/event 동시 null 또는 동시 존재, observed는 proofAcceptedAt/result/evidence 일치, appliedAt/auditId 동시 존재, assignment>0·hash/주소 형식·UTC 기한 및 유일성 제약. Fixture/site 복합 FK의 cascade/restrict는 SensorModeOperation을 따른다. auditId는 감사 삭제를 유발하지 않는 참조로 결속한다. `docs/database-schema.md` 갱신. migration은 새 SQL만 작성해 disposable cluster에서 deploy; 운영 `prisma:migrate` 실행 금지.
-- [ ] **Step 4: create/get 구현.** 현재 commission과 membership→Site→registration domain→native advisory→canonical node/Fixture→operation lock 순서. Gateway/cert authorization 잠금은 Floor 잠금 이후에만 획득한다. create는 기존 `CommandDbClockHealth.assertHealthy(tx): Promise<Date>`를 사용해 서버 소유 requestedAt을 얻고 기한을 고정한다. 실제 provider가 없으면 fail-closed로 거부하며 local clock을 신뢰 근거로 대체하지 않는다. get도 현재 귀속/commission/requester를 검사하며 applied row의 현재 provisioned 상태는 허용한다. 관측 mode는 proofAcceptedAt이 있는 경우에만 공개한다. 정적 POST/GET 경로와 단일 DI provider 연결. requester 중복 retry는 현재 권한/binding 재검증 후 기존 row 반환, 기한 연장 없음.
-- [ ] **Step 5: GREEN.** 같은 DB 선택 + `pnpm --filter @led-control/api prisma:generate`, API typecheck, binding/service/controller spec → exit0; migrate deploy 성공과 필수 DB 사례 실제 실행 수 기록. classification 기존 인증 경계 회귀도 실행한다.
-- [ ] **Step 6: 독립 검토·commit.** API/DB·DB 문서와 해당 메뉴/상태를 함께 반영, `feat(api): persist read-only BIO registration revalidation requests`.
+- [x] **Step 2: RED 실행.** `BIO_REGISTRATION_REVALIDATION_DISPOSABLE_POSTGRES=1 pnpm --filter @led-control/api exec jest test/bio-registration-revalidation.integration.spec.ts --runInBand -t 'schema|create|get'` → 새 model/service/route 부재 FAIL. opt-in 시 PostgreSQL tools 부재는 SKIP 아닌 실패.
+- [x] **Step 3: DB·binding 구현.** 새 operation row는 설계 필드 전부, 추가 `proofAcceptedAt: Date|null`, `auditId: string|null`를 갖는다. status CHECK, result/hash/event 동시 null 또는 동시 존재, observed는 proofAcceptedAt/result/evidence 일치, appliedAt/auditId 동시 존재, assignment>0·hash/주소 형식·UTC 기한 및 유일성 제약. Fixture/site 복합 FK의 cascade/restrict는 SensorModeOperation을 따른다. auditId는 감사 삭제를 유발하지 않는 참조로 결속한다. `docs/database-schema.md` 갱신. migration은 새 SQL만 작성해 disposable cluster에서 deploy; 운영 `prisma:migrate` 실행 금지.
+- [x] **Step 4: create/get 구현.** 현재 commission과 membership→Site→registration domain→native advisory→canonical node/Fixture→operation lock 순서. Gateway/cert authorization 잠금은 Floor 잠금 이후에만 획득한다. create는 기존 `CommandDbClockHealth.assertHealthy(tx): Promise<Date>`를 사용해 서버 소유 requestedAt을 얻고 기한을 고정한다. 실제 provider가 없으면 fail-closed로 거부하며 local clock을 신뢰 근거로 대체하지 않는다. get도 현재 귀속/commission/requester를 검사하며 applied row의 현재 provisioned 상태는 허용한다. 관측 mode는 proofAcceptedAt이 있는 경우에만 공개한다. 정적 POST/GET 경로와 단일 DI provider 연결. requester 중복 retry는 현재 권한/binding 재검증 후 기존 row 반환, 기한 연장 없음.
+- [x] **Step 5: GREEN.** 같은 DB 선택 + `pnpm --filter @led-control/api prisma:generate`, API typecheck, binding/service/controller spec → exit0; migrate deploy 성공과 필수 DB 사례 실제 실행 수 기록. classification 기존 인증 경계 회귀도 실행한다.
+- [x] **Step 6: 독립 검토·commit.** API/DB·DB 문서와 해당 메뉴/상태를 함께 반영, `feat(api): persist read-only BIO registration revalidation requests`.
 
 ## Task 3: fresh 결과 수용·내구 ACK와 publisher — 담당 backend
 
