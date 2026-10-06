@@ -1,5 +1,13 @@
 # 제어 메뉴 기능 현황
 
+## 2026-10-06 A/B 시험용 센서 알림 연동 — 코드만 구현, 실장비 미실행
+
+- 구현 완료(시험 스크립트): 제품 소비 경로 밖의 고정 A/B opt-in pilot가 A의 정확한 시험 알림 후보로 B 설정60%를 GET 확인하고, 추가 알림은 같은 발생의 유지시간만 갱신한다. 정상 만료는 독립 A mode GET·identity/generation 응답 뒤 B 원본 raw/mode를 복원한다. 취소/300초 종료는 독립 복구 예산으로 A/B 원복을 확인하며 불명확 pending은 보존한다.
+- 미구현: 이번 코드의 실제 장비 검증·제품 지원 전환. 제품 profile/qualification/health provider와 기존 활성화 관문은 변경하지 않았다.
+- 부족하거나 개선이 필요한 기능: 수용 후보는 시험 알림일 뿐 motion/clear 의미가 아니다. A는 sensor 모드 자율 점등, 이벤트 밝기 쓰기는 B만이다. 단절/decoder/GET 실패 뒤 침묵 복원·새 activation은 차단한다.
+- 관련 파일: `apps/gateway/scripts/bio-sensor-event-pilot.ts`, `bio-sensor-event-pilot-runtime.ts`, `bio-sensor-event-pilot.test.ts`.
+- 갱신 규칙: 코드/모의 검증과 실장비·광학 증거를 분리한다. 운영 실행 전 원본 Gateway 정지·USB 독점의 별도 승인 launcher가 필요하며 이번 작업에서 실행하지 않았다.
+
 ## 2026-10-06 기존 BIO 등록 현재 재검증 — 소프트웨어 완료·운영 미적용
 
 - 구현 완료(Task 2 소프트웨어): 독립 관리자 create/get·DB 보관이 현재 권한/binding을 검증하고 출력·센서 qualification을 보존한다. 실제 query 전달·B 수복·센서 지원 완료가 아니다.

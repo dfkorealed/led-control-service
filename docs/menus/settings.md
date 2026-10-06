@@ -1,5 +1,13 @@
 # 설정 메뉴 기능 현황 및 구현 설계
 
+## 2026-10-06 A/B 시험용 센서 알림 연동 — 제품 설정 변경 없음
+
+- 구현 완료(시험 스크립트): 고정 A/B만 대상으로 opt-in 명령 하나와 CLI 유지시간10~1,800초(기본60초)를 제공한다. 시험 상한300초와 hold는 monotonic 기준이다. 첫 쓰기 전 실제 GET 원본·pending을 소유자 전용 보호 원장에 fsync한다.
+- 미구현: 이번 pilot의 실장비 검증·서비스 UI에 시험 실행 기능 추가. 기존 서비스 유지시간 편집 범위/UI는 그대로이며 재구현하지 않았다.
+- 부족하거나 개선이 필요한 기능: generic target·임의 밝기 쓰기·mapping 변경은 허용하지 않는다. 기본 실행/인자 오류/읽기 전용 mapping preflight는 USB/GET/SET0이다. 실제 실행은 별도 운영 guard와 사용자 안내 후 진행해야 한다.
+- 관련 파일: `apps/gateway/package.json`, `apps/gateway/scripts/bio-sensor-event-pilot.ts`, `bio-sensor-event-pilot-runtime.ts`.
+- 갱신 규칙: 시험 명령과 제품 지원 상태를 구분하고 보호 원장/불확실 pending을 삭제하거나 재사용하지 않는다.
+
 ## 2026-10-06 기존 BIO 등록 현재 재검증 — 소프트웨어 완료·운영 미적용
 
 - 구현 완료(Task 2 소프트웨어): commission 관리자 전용 create/get과 독립 operation migration을 추가했다. 현재 graph·원 provision command·claim/인증서·배정을 검사하고 원래 30초/120초 기한을 보존한다. 일회용 DB에서만 검증했으며 실제 B 수복 완료가 아니다.

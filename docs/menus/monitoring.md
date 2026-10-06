@@ -1,5 +1,13 @@
 # 모니터링 메뉴 기능 현황
 
+## 2026-10-06 A/B 시험용 센서 알림 연동 — 모니터링 상태 승격 없음
+
+- 구현 완료(시험 스크립트): 기존 단일 CRC BIO client의 시험 후보 구독을 B 적용/유지/원복에 연결한다. raw body/native identity/원복 원장은 opt-in 보호 파일에만 보관하고 일반 출력은 고정 redacted 상태 코드다.
+- 미구현: 이번 pilot의 실장비·광학 검증, 브라우저 기록 UI·MQTT 공급자/대시보드 연동. 제품 지원/건강 표시는 변경하지 않았다.
+- 부족하거나 개선이 필요한 기능: exact A GET은 node-link와 sensor mode 설정만 확인한다. PIR 회로 건강·감지 능력·motion/clear를 증명하지 않으며 alive 후보/다른 node·network·generation·unknown body·replay/짧은 중복으로 B 쓰기/hold를 갱신하지 않는다.
+- 관련 파일: `apps/gateway/scripts/bio-sensor-event-pilot.ts`, `bio-sensor-event-pilot-runtime.ts`, `bio-sensor-event-pilot.test.ts`.
+- 갱신 규칙: 보호된 시험 증거와 제품 telemetry를 구분한다. 실제 장비 검증 전에는 코드 검증만 완료로 기록한다.
+
 ## 2026-10-06 기존 BIO 등록 현재 재검증 — 소프트웨어 완료·운영 미적용
 
 - 구현 완료(Task 2 소프트웨어): 현재 commission/requester·binding을 재검증하는 최소 작업 상태 GET과 독립 operation 보관을 추가했다. dashboard/telemetry/운영 데이터 변경은 없다.
