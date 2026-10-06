@@ -145,6 +145,8 @@
 
 ## Task 5: Gateway query-only 소비·복구·정확 ACK — 담당 gateway
 
+**상태:** 완료(Gateway 조회 전용 소프트웨어), `efdc84d2`·내구 receipt 보완 `34e16704`. 집중68+adapter21+runtime38+ACL2PASS, actual fsync fault RED1→GREEN1·변경39PASS·typecheck/build0. I1 수정 재검토 승인·새C0/I0/M0, 기존 pnpm 경고 보존. actual broker matrix는 구문검사·optin1SKIP이며 Node22 parity/실장비는 미검증이다.
+
 **Files:** Gateway·Broker 소프트웨어 책임에 열거한 파일. Tasks1~4 승인 커밋 이후만 시작하며 Shared/API 변경 금지.
 
 **Interfaces:**
@@ -153,18 +155,18 @@
 - `recoverBioRegistrationRevalidations(options: BioRegistrationRevalidationHandlerOptions): Promise<void>`, `CommandJournal.pendingBioRegistrationRevalidations()` 및 `markBioRegistrationRevalidationHandedOff(commandId: string): Promise<void>`.
 - StateEventOutbox의 신규 result union/목적 우선 parsing·topic routing, `acknowledge(value: unknown): Promise<boolean>`은 신규 ACK의 전체 hash matcher를 사용하며 기존 ACK 의미는 바꾸지 않는다.
 
-- [ ] **Step 1: RED 단일 소유·SET0 테스트.** 세 mode GET 성공 observed, Fixture≠node ID 정상매핑, single client 사용/query만 전달, 모든 SET·capability observer0. in-flight same ID는 GET1/event1, 다른 payload는 conflict. deadline≤8초/TTL, clock false 및 GET 후 clock 철회, transport identity/generation 교체, abort/종료/restart는 observed0. durable journal/outbox write fault·재시작 retry는 원장 보존/새 GET0, 기존 terminal은 같은 event로 재전송한다.
+- [x] **Step 1: RED 단일 소유·SET0 테스트.** 세 mode GET 성공 observed, Fixture≠node ID 정상매핑, single client 사용/query만 전달, 모든 SET·capability observer0. in-flight same ID는 GET1/event1, 다른 payload는 conflict. deadline≤8초/TTL, clock false 및 GET 후 clock 철회, transport identity/generation 교체, abort/종료/restart는 observed0. durable journal/outbox write fault·재시작 retry는 원장 보존/새 GET0, 기존 terminal은 같은 event로 재전송한다.
   ```ts
   expect(adapter.sensorModeOperation).toHaveBeenCalledWith(expect.objectContaining({ operation: "query" }), expect.anything());
   expect(setWrites).toHaveLength(0);
   expect(capabilityObserver).not.toHaveBeenCalled();
   ```
   adapter fake는 기존 실제 query의 fresh discovery/confirmed/native/address/transport 검증을 별도 유지하고, malformed response/실패를 성공 mode로 바꾸지 않는다. exact ACK만 제거, legacy/state ACK·변경hash/site/assignment/node/sequence는 pending 유지. 기존 sensor-mode journal/recovery/ACK가 신규 kind를 처리하지 않는 회귀 포함.
-- [ ] **Step 2: RED 실행.** `pnpm --filter @led-control/gateway exec vitest run src/commands/bio-registration-revalidation-handler.test.ts src/commands/command-journal.test.ts src/state/state-event-outbox.test.ts --maxWorkers=1 --minWorkers=1` → 신규 소비/ACK 기능 부재 FAIL.
-- [ ] **Step 3: handler/journal/outbox 구현.** `kind: "bio_registration_revalidation"`와 별도 journal path `GATEWAY_BIO_REGISTRATION_REVALIDATION_JOURNAL_PATH`(기본 `/var/lib/led-control/bio-registration-revalidation-journal.json`). query command를 기존 sensorModeOperation의 query DTO로 명시적 변환한다. 같은 journal/in-flight 소유, 8초/remaining 작은 deadline, GET 전후 clock/abort/TTL 검사, 실패 고정 code. restart pending은 unknown/GATEWAY_RESTART만 만들며 새 GET 없음. terminal→outbox handoff 완료 뒤에만 handedOff 기록; fsync/복구 실패 시 원장 삭제/거짓 durable receipt 금지.
-- [ ] **Step 4: runtime/ACL 연결.** index inbound handler·독립 ACK 구독·reconnect 복구·현재 assignment scope·stop/drain 연결. 신규 목적에서 `onIdentityProof` 호출 경로 없음. api-service 신규 command write/result read/ACK write, Gateway own scoped command read/result write/ACK read만 허용; 다른 Gateway/역방향 권한 금지. dev ACL renderer/test와 production template의 동일 계약을 수정하되 실제 환경 reload 없음.
-- [ ] **Step 5: GREEN.** 동일 신규 suite + 기존 bio-sensor-mode-handler/adapter query/runtime routing/ACL 렌더 회귀, Gateway typecheck/build → exit0. 과거 Shared/API 계약 변경 요청이 필요하면 총괄로 반환하고 병렬 수정하지 않는다.
-- [ ] **Step 6: 독립 검토·commit.** 영향 메뉴/status 갱신, `feat(gateway): handle read-only BIO registration revalidation with exact acknowledgements`.
+- [x] **Step 2: RED 실행.** `pnpm --filter @led-control/gateway exec vitest run src/commands/bio-registration-revalidation-handler.test.ts src/commands/command-journal.test.ts src/state/state-event-outbox.test.ts --maxWorkers=1 --minWorkers=1` → 신규 소비/ACK 기능 부재 FAIL.
+- [x] **Step 3: handler/journal/outbox 구현.** `kind: "bio_registration_revalidation"`와 별도 journal path `GATEWAY_BIO_REGISTRATION_REVALIDATION_JOURNAL_PATH`(기본 `/var/lib/led-control/bio-registration-revalidation-journal.json`). query command를 기존 sensorModeOperation의 query DTO로 명시적 변환한다. 같은 journal/in-flight 소유, 8초/remaining 작은 deadline, GET 전후 clock/abort/TTL 검사, 실패 고정 code. restart pending은 unknown/GATEWAY_RESTART만 만들며 새 GET 없음. terminal→outbox handoff 완료 뒤에만 handedOff 기록; fsync/복구 실패 시 원장 삭제/거짓 durable receipt 금지.
+- [x] **Step 4: runtime/ACL 연결.** index inbound handler·독립 ACK 구독·reconnect 복구·현재 assignment scope·stop/drain 연결. 신규 목적에서 `onIdentityProof` 호출 경로 없음. api-service 신규 command write/result read/ACK write, Gateway own scoped command read/result write/ACK read만 허용; 다른 Gateway/역방향 권한 금지. dev ACL renderer/test와 production template의 동일 계약을 수정하되 실제 환경 reload 없음.
+- [x] **Step 5: GREEN.** 동일 신규 suite + 기존 bio-sensor-mode-handler/adapter query/runtime routing/ACL 렌더 회귀, Gateway typecheck/build → exit0. 과거 Shared/API 계약 변경 요청이 필요하면 총괄로 반환하고 병렬 수정하지 않는다.
+- [x] **Step 6: 독립 검토·commit.** 영향 메뉴/status 갱신, `feat(gateway): handle read-only BIO registration revalidation with exact acknowledgements`.
 
 ## Task 6: 제한 통합·최종 검토·인계 — backend/독립 QA, 총괄 취합
 
