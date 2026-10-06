@@ -8,7 +8,8 @@
 - 계약 완료(Shared): registration 전용 query/result/전체 hash ACK `e902a393`, 관련38PASS·독립 검토 승인. Gateway 실제 조회·감사 수복은 후속이다.
 - 관련 API/DB 파일: `apps/api/src/registration/bio-registration-revalidation.service.ts`, `bio-registration-revalidation-binding.ts`, `apps/api/prisma/migrations/20261006120000_bio_registration_revalidation/migration.sql`, `docs/database-schema.md`.
 - 구현 완료(Task 5 Gateway 소프트웨어): 기존 단일 adapter의 query만 사용하는 별도 handler/journal/result/전체 hash ACK와 runtime/ACL 계약을 추가했다. 재시작은 새 GET 없이 unknown으로 처리하고 최초 terminal을 재전송한다. rename 뒤 fsync 불확실 재수신은 원장 내구 barrier 성공 전 receipt를 거부한다. 관련 집중 검증·독립 수정 재검토를 통과했으며 실제 broker matrix는 opt-in1SKIP다.
-- 미구현: 실제 B 현재 조회·감사 수복·운영 적용과 실제 감지 profile/독립 건강 공급. API↔Gateway 최종 소프트웨어 통합 검증은 진행 중이며 현재 운영 데이터·조명은 변경하지 않았다.
+- 검증 완료(Task 6 소프트웨어): API 요청→Gateway GET-only→immutable 결과/정확 ACK→명시 apply→별도 A/B 분류, ACK 유실·재시작·구 Gateway 무응답을 연결했다. 최종 신규 일회용 DB108/108·직접 API5/5·API/Gatewaytypecheck/build0, 독립 통합 Spec/Quality 승인 후 전체 변경 최종 검토 중이다. 가짜 USB/MQTT 경계이며 실제 RF/TLS/broker 성공은 아니다.
+- 미구현: 실제 B 현재 조회·감사 수복·운영 적용과 실제 감지 profile/독립 건강 공급. 현재 운영 데이터·조명은 변경하지 않았다.
 - 관련 전달 파일: `apps/api/src/mqtt/bio-registration-revalidation-publisher.service.ts`, `mqtt.service.ts`, `mqtt.module.ts`, `mqtt-shutdown-coordinator.service.ts`.
 - 부족하거나 개선이 필요한 기능: 실제 DB clock attestor가 없으므로 production 요청·조회는 거부한다. 과거 completed terminal을 합성하지 않으며 session 전체 완료·Fixture/Node ID·밝기·전원·그룹·이력은 변경하지 않는다. 수복과 기존 A/B 원자 BIO 분류는 구분한다.
 - 관련 파일: `docs/superpowers/specs/2026-10-06-bio-registration-revalidation-design.md`, `docs/superpowers/plans/2026-10-06-bio-registration-revalidation.md`, 기존 `apps/api/src/registration/bio-classification-reconciliation.service.ts`.

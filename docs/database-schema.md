@@ -10,7 +10,9 @@
 
 현재 commission→Floor/Gateway/session/후보/outbox→native advisory→MeshNode/Fixture→operation 순으로 잠근 뒤 정확 graph·confirmed·canonical BIO UUID·주소·저장 provision command·현재 claim/inventory/assignment·유효 MQTT 인증서를 검사한다. 과거 receipt가 있으면 topic/identity/hash/ledger를 대조하지만 completed plaintext를 추론하지 않는다. 현 프로토콜이 BlueZ 기본인 기존 BIO graph도 요청 대상이다. 동일 요청 retry는 현재 권한과 binding을 다시 검증하고 원래 command/기한을 반환한다. 신규 요청은 같은 Fixture의 미소비 row만 supersede한다. create/get은 기존 Fixture 출력·node qualification·등록 후보/session/명령/이력을 쓰지 않는다.
 
-새 schema와 migration은 opt-in 일회용 PostgreSQL에서만 deploy·검증했다. 결과 ingest/publisher·명시 apply·Gateway 실행과 실제 B 수복은 후속 단계이며 운영 migration은 실행하지 않았다.
+결과 ingest와 publisher는 strict 신규 목적·전체 identity/hash·현재 권한을 재검증하고 immutable result와 전용 ACK outbox를 같은 transaction에 저장한다. stale 원문은 보관만 하며 `proofAcceptedAt` 없이 성공 proof가 되지 않는다. explicit apply는 현재 귀속·120초 미소비 proof를 다시 검증하고 후보 status와 필수 `bio_registration_current_revalidated` 감사·operation 소비를 함께 기록한다. 적용된 작업의 retry는 원 감사/기한을 보존하며 분류 evidence는 `current_device_revalidation`으로 구분한다. Fixture 출력·ID·그룹·등록 session/terminal/이력은 변경하지 않는다.
+
+새 schema와 migration은 opt-in 일회용 PostgreSQL에서만 deploy·검증했다. 최종 신규 DB108/108·직접 API 회귀5/5·API/Gateway typecheck/build0이며 Gateway 소비도 소프트웨어로 구현했다. 독립 최종 검토를 진행 중이고 actual DB clock 공급·운영 migration·실제 B 조회/수복/분류는 별도 미완료다.
 
 ## 2026-10-02 기존 confirmed BIO 오분류의 감사 보완
 

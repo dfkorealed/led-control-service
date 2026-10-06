@@ -170,13 +170,15 @@
 
 ## Task 6: 제한 통합·최종 검토·인계 — backend/독립 QA, 총괄 취합
 
+**상태:** 통합 작성·집중 검증 `e83ed3f3` 완료, Task6 scoped Spec✅/QualityApproved·C0/I0/M1(기존 경고); 현재 요청 전체 최종 검토/인계는 진행 중. 새 API↔Gateway 통합3개 첫GREEN(인위적 RED 없음)·최종 신규 일회용 DB108/108PASS·skip0·migration deploy0·기존 직접5/5PASS·API/Gateway typecheck/build0. 실제 broker/조명은 사용하지 않았다.
+
 **Files:** backend가 신규 API 통합 spec에 fake Gateway end-to-end를 추가한다. 총괄은 영향 메뉴3/status/기존 BIO 계획/이 계획만 결과를 취합해 갱신한다. QA는 읽기 전용 검토하며 코드 지적 수정은 원 소유 역할에 반환한다.
 
 **Interfaces:** Tasks1~5 public 계약/서비스/handler만 소비. API 통합에서 Gateway import는 기존 sensor-mode integration처럼 runtime-only require를 사용해 API emit root를 바꾸지 않는다.
 
-- [ ] **Step 1: 통합 RED 작성.** create→durable command→fake single adapter query→result outbox→API ingest/ACK→apply→A/B classification. force-off도 fresh observed이며 query/repair 자체는 Fixture output/qualification 변화0; ACK 전달 중단/duplicate/restart가 기존 event/기한을 보존한다. legacy Gateway는 result 없음/timeout, 기존 legacy ACK로 새 성공 없음.
-- [ ] **Step 2: RED 실행.** 신규 DB spec `-t 'end-to-end|legacy gateway|restart delivery'`; integration 연결 누락의 FAIL을 기록하고 Task 소유 역할이 최소 연결을 수정한다. 완성된 경로가 처음부터 통과하면 임의 결함을 넣어 RED를 만들지 않고 GREEN 증거로 기록한다.
-- [ ] **Step 3: 최종 집중 검증 한 번.** `BIO_REGISTRATION_REVALIDATION_DISPOSABLE_POSTGRES=1 pnpm --filter @led-control/api exec jest test/bio-registration-revalidation.integration.spec.ts --runInBand` → 전체 신규 DB 실제 PASS/skip0; 기존 sensor-mode/terminal/classification과 Gateway journal/outbox/adapter 직접 영향 회귀만 함께 실행한다. API/Gateway typecheck/build 및 `git diff --check` exit0. 무관 Web/root 전체 suite·benchmark/HIL 반복 없음. 실패는 baseline이라고 추정하지 말고 exact 결과/범위를 남긴다.
+- [x] **Step 1: 통합 RED 작성.** create→durable command→fake single adapter query→result outbox→API ingest/ACK→apply→A/B classification. force-off도 fresh observed이며 query/repair 자체는 Fixture output/qualification 변화0; ACK 전달 중단/duplicate/restart가 기존 event/기한을 보존한다. legacy Gateway는 result 없음/timeout, 기존 legacy ACK로 새 성공 없음.
+- [x] **Step 2: RED 실행.** 신규 DB spec `-t 'end-to-end|legacy gateway|restart delivery'`; integration 연결 누락의 FAIL을 기록하고 Task 소유 역할이 최소 연결을 수정한다. 완성된 경로가 처음부터 통과하면 임의 결함을 넣어 RED를 만들지 않고 GREEN 증거로 기록한다.
+- [x] **Step 3: 최종 집중 검증 한 번.** `BIO_REGISTRATION_REVALIDATION_DISPOSABLE_POSTGRES=1 pnpm --filter @led-control/api exec jest test/bio-registration-revalidation.integration.spec.ts --runInBand` → 전체 신규 DB 실제 PASS/skip0; 기존 sensor-mode/terminal/classification과 Gateway journal/outbox/adapter 직접 영향 회귀만 함께 실행한다. API/Gateway typecheck/build 및 `git diff --check` exit0. 무관 Web/root 전체 suite·benchmark/HIL 반복 없음. 실패는 baseline이라고 추정하지 말고 exact 결과/범위를 남긴다.
 - [ ] **Step 4: 독립 QA 검토.** spec·diff·command logs·새 wire compatibility/시각/권한/원자성/SET0·문서 일치; Critical/Important 수정 후 같은 reviewer 재검토. 실장비 증거 없는 healthy/지원/PASS 표기가 있으면 제거한다.
 - [ ] **Step 5: 상태 인계·commit.** 소프트웨어 구현/검증만 완료 표시하고 실제 B 조회/apply/A/B 분류는 미완료로 유지. `docs: record BIO registration revalidation software verification`.
 
