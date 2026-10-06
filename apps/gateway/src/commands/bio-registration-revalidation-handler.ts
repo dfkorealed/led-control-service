@@ -50,6 +50,7 @@ async function execute(adapter: Pick<BleMeshAdapter, "sensorModeOperation">,
   let previous = await options.journal.get(command.commandId);
   if (!previous && !await options.journal.accept(command.commandId, wrapper)) previous = await options.journal.get(command.commandId);
   if (previous && !isDeepStrictEqual(previous.command, wrapper)) throw new Error("registration revalidation command identity conflict");
+  if (previous) await options.journal.ensureBioRegistrationRevalidationDurable(command.commandId);
   options.onDurableReceipt?.();
   if (previous?.state === "completed") return handoff(bioRegistrationRevalidationResultSchema.parse(previous.result), options);
   const now = options.now ?? (() => new Date());

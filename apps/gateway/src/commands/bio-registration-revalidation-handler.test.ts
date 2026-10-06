@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, open, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -7,6 +7,7 @@ import { CommandJournal } from "./command-journal";
 import { StateEventOutbox } from "../state/state-event-outbox";
 import { handleBioRegistrationRevalidation, recoverBioRegistrationRevalidations } from "./bio-registration-revalidation-handler";
 import { recoverBioSensorModes } from "./bio-sensor-mode-handler";
+import * as meshStoreFile from "../mesh/mesh-store-file";
 
 const command: BioRegistrationRevalidationCommand = {
   version: 2, purpose: "bio_registration_revalidation", operation: "query",
@@ -19,6 +20,7 @@ const command: BioRegistrationRevalidationCommand = {
 const directories: string[] = [];
 afterEach(async () => {
   vi.useRealTimers();
+  vi.restoreAllMocks();
   await Promise.all(directories.splice(0).map(directory => rm(directory, { recursive: true, force: true })));
 });
 async function fixture() {
@@ -30,6 +32,44 @@ async function fixture() {
     now: () => new Date("2026-10-06T00:00:01.000Z") };
 }
 describe("read-only BIO registration revalidation", () => {
+  it("withholds durable receipts for rename-visible accepted work until the parent fsync barrier recovers", async () => {
+    const f = await fixture(), adapter = { sensorModeOperation: vi.fn() }, receipts = vi.fn();
+    let failing = true;
+    const syncParentDirectory = vi.fn(async (directory: string) => {
+      if (failing) throw new Error("injected parent fsync failure after rename");
+      const handle = await open(directory, "r");
+      try { await handle.sync(); } finally { await handle.close(); }
+    });
+    const writeJsonAtomic = meshStoreFile.writeJsonAtomic;
+    // Keep the actual write/file fsync/rename/readback machinery; only the final
+    // directory barrier fails, so the rejected accepted record remains readable.
+    vi.spyOn(meshStoreFile, "writeJsonAtomic").mockImplementation((path, value, options) =>
+      writeJsonAtomic(path, value, path === f.path ? { syncParentDirectory } : options));
+    const options = { ...f, onDurableReceipt: receipts };
+    await expect(handleBioRegistrationRevalidation(adapter, command, options)).rejects.toBeInstanceOf(meshStoreFile.AtomicJsonCommitUncertainError);
+    expect(syncParentDirectory).toHaveBeenCalledTimes(2);
+    const accepted = JSON.parse(await readFile(f.path, "utf8"));
+    expect(accepted.records[command.commandId]).toMatchObject({ state: "accepted", command: { kind: "bio_registration_revalidation", command } });
+    expect(receipts).not.toHaveBeenCalled(); expect(adapter.sensorModeOperation).not.toHaveBeenCalled();
+    for (const retry of [() => handleBioRegistrationRevalidation(adapter, command, options), () => recoverBioRegistrationRevalidations(options)]) {
+      await expect(retry()).rejects.toBeInstanceOf(meshStoreFile.AtomicJsonCommitUncertainError);
+      expect(receipts).not.toHaveBeenCalled(); expect(adapter.sensorModeOperation).not.toHaveBeenCalled();
+      expect(JSON.parse(await readFile(f.path, "utf8"))).toEqual(accepted);
+      expect(await f.outbox.pending()).toEqual([]); expect(f.nextSequence).not.toHaveBeenCalled();
+    }
+    expect(syncParentDirectory).toHaveBeenCalledTimes(6);
+    failing = false;
+    await Promise.all([handleBioRegistrationRevalidation(adapter, command, options), recoverBioRegistrationRevalidations(options)]);
+    expect(receipts).toHaveBeenCalledTimes(2); expect(adapter.sensorModeOperation).not.toHaveBeenCalled();
+    expect(f.nextSequence).toHaveBeenCalledTimes(1);
+    const terminal = (await f.outbox.pending())[0].payload;
+    expect(terminal).toMatchObject({ status: "unknown", errorCode: "GATEWAY_RESTART", sequence: 1 });
+    expect((await new CommandJournal(f.path).get(command.commandId))?.result).toEqual(terminal);
+    expect(await f.journal.pendingBioRegistrationRevalidations()).toEqual([]);
+    await handleBioRegistrationRevalidation(adapter, command, options);
+    expect((await f.outbox.pending()).map(row => row.payload)).toEqual([terminal]);
+    expect(f.nextSequence).toHaveBeenCalledTimes(1); expect(adapter.sensorModeOperation).not.toHaveBeenCalled();
+  });
   it.each(["sensor", "force-on", "force-off"] as const)("observes %s with an explicit query DTO and preserves separate Fixture/node identity", async mode => {
     const f = await fixture(); const setWrites: unknown[] = [];
     const adapter = { sensorModeOperation: vi.fn(async (input: { operation: string }) => {

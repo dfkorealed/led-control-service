@@ -277,6 +277,18 @@ export class CommandJournal {
       isBioRegistrationRevalidationWrapper(record.command) && !record.bioRegistrationRevalidationHandedOff);
   }
 
+  async ensureBioRegistrationRevalidationDurable(commandId: string) {
+    await this.enqueue(async () => {
+      const data = await this.readData();
+      const record = data.records[commandId];
+      if (!record || !isBioRegistrationRevalidationWrapper(record.command)) throw new Error("registration revalidation record missing");
+      // A rename-visible record may come from an uncertain parent fsync, even
+      // after restarting this journal object. Re-persist the exact data before
+      // acknowledging a replay; keep the original record and error on failure.
+      await this.writeData(data);
+    });
+  }
+
   async markBioRegistrationRevalidationHandedOff(commandId: string) {
     await this.enqueue(async () => {
       const data = await this.readData();
