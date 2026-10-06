@@ -2,6 +2,12 @@
 
 기준일: 2026-10-06
 
+## 2026-10-06 모니터링 Popover·Grid 정렬 — 진행 중
+
+- 기존 clean worktree를 재사용하고 `codex/monitoring-popover-grid-sort-20261006`을 BASE `f74fc94f`에서 생성했다. 모니터링 담당과 검색/상세/상태 필터 통합 및 헤더 잘림을, 별도 웹 담당과 공통 Grid 정렬을 진행한다.
+- UI 프레임워크는 React Aria이며 현재 DataGrid는 프레임워크 Table이 아닌 공통 HTML table/card 컴포넌트다. 기존 구조·의존성을 유지해 접근자 기반 현재 목록 정렬을 적용한다.
+- 실행 체크리스트: [모니터링 Popover·Grid 정렬](superpowers/plans/2026-10-06-monitoring-popover-grid-sort.md). 검증·병합은 미완료이며 사용자 서비스/DB/장비는 건드리지 않는다.
+
 ## 2026-10-04 운영 UI 추가 주석 14건 — UI 적용·로컬 병합 완료
 
 최종 상태(2026-10-06 08:57 KST)가 아래 과거 실행 이력보다 우선한다.
