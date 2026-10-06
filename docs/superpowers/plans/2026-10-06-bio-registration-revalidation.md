@@ -121,6 +121,8 @@
 
 ## Task 4: 명시적 원자 apply와 분류 evidence 구분 — 담당 backend
 
+**상태:** 완료(명시적 감사 apply/분류 소프트웨어), `1fde5c3c`, 독립 Spec✅/QualityApproved·새C0/I0/M0. 집중22/직접회귀61PASS·retained metadata/다른 미완결 provision 경계 RED2→GREEN2·unknown1GREEN·typecheck/diffcheck0. 실제 PostgreSQL scan/register 양방향 barrier·감사 실패 rollback·재시도 쓰기0을 확인했고 최종 신규23개 일괄 실행은 Task6에서 한다. 실제 A/B에는 아직 적용하지 않는다.
+
 **Files:** service/controller 및 해당 spec; 기존 classification service/spec/integration spec; Task2 신규 통합 spec apply 사례.
 
 **Interfaces:**
@@ -128,18 +130,18 @@
 - `BioRegistrationRevalidationService.apply(user: AuthenticatedUser, commandId: string): Promise<BioRegistrationRevalidationView>`와 `POST /registration-sessions/bio-revalidations/:commandId/apply`.
 - classification의 기존 Evidence union에 `evidenceKind: "current_device_revalidation"`, `revalidationCommandId`, `revalidationResultHash`, `repairAuditId`를 추가한다. 기존 historical 두 evidenceKind 및 guard는 그대로다.
 
-- [ ] **Step 1: RED apply/분류 테스트.** fresh observed를 apply하면 후보 status=provisioned, mandatory audit1/appliedAt1, 나머지 snapshot 동일. 같은 operation 반복은 현재 auth/binding 재검사 뒤 UPDATE/감사/GET0. unknown/superseded/기한120000ms 경계/다른 requester/current 권한철회·cert 만료·graph 교체는 거부한다. AuditLog insert fault는 상태·appliedAt 모두 rollback. scan/등록이 먼저 잠근 경우와 apply가 먼저 잠근 경우를 두 DB transaction barrier로 검증하고 두 apply race audit1/수복1을 고정한다.
+- [x] **Step 1: RED apply/분류 테스트.** fresh observed를 apply하면 후보 status=provisioned, mandatory audit1/appliedAt1, 나머지 snapshot 동일. 같은 operation 반복은 현재 auth/binding 재검사 뒤 UPDATE/감사/GET0. unknown/superseded/기한120000ms 경계/다른 requester/current 권한철회·cert 만료·graph 교체는 거부한다. AuditLog insert fault는 상태·appliedAt 모두 rollback. scan/등록이 먼저 잠근 경우와 apply가 먼저 잠근 경우를 두 DB transaction barrier로 검증하고 두 apply race audit1/수복1을 고정한다.
   ```ts
   await expect(applyWithAuditFault()).rejects.toThrow();
   expect((await readCandidate()).status).toBe("discovered");
   expect(await repairAuditCount()).toBe(0);
   ```
   수복 뒤 A/B 분류는 B evidenceKind=current_device_revalidation이며 BIO/OFF만 변경; 두 번째 fixture 부적격이면 A 변경/분류 감사도 rollback. applied 수복 이력이 있는데 현재 binding/result/audit가 불일치하면 historical evidence로 fallback하지 않는다.
-- [ ] **Step 2: RED 실행.** 새 DB 선택 `-t 'apply|race|rollback|classification'` + `BIO_CLASSIFICATION_RECONCILIATION_TEST=1 pnpm --filter @led-control/api exec jest src/registration/bio-classification-reconciliation.integration.spec.ts --runInBand`. 새 apply 기능 부재 FAIL이 필요하며 unrelated 기존 실패를 RED로 쓰지 않는다.
-- [ ] **Step 3: apply 구현.** trusted DB 현재 시각<applyDeadlineAt, 권한/귀속/원 command/confirmed·discovered/등록 경합을 canonical lock 안에서 확인. 후보 조건부 UPDATE1 + 감사 action=`bio_registration_current_revalidated`, evidenceKind=`current_device_revalidation`, old/new status·binding/hash·원 provision ID·operation/result hash 저장 + operation 소비를 같은 transaction에 수행. 기존 applied row의 retry는 현재 binding 검사를 유지하되 후보 provisioned를 허용한다. session/terminal/processed ledger 수정0.
-- [ ] **Step 4: classification evidence 구현.** provisioned/confirmed/current ownership를 기존처럼 먼저 확인한 다음 적용된 revalidation row/audit의 exact binding을 검사해 current evidence로 기록한다. 이력이 없는 기존 graph는 원래 historical 경로를 그대로 사용한다. 재분류된 정상 qualification은 낮추지 않고 기존 A/B transaction 경계를 유지한다.
-- [ ] **Step 5: GREEN.** 동일 신규 DB 선택과 기존 classification/registration domain lock 회귀, API typecheck → exit0. 실제 race barrier·rollback·protected state 동일성 증거를 보고한다.
-- [ ] **Step 6: 독립 검토·commit.** 영향 메뉴/status 갱신, `feat(api): audit atomic BIO registration repair without changing fixture state`.
+- [x] **Step 2: RED 실행.** 새 DB 선택 `-t 'apply|race|rollback|classification'` + `BIO_CLASSIFICATION_RECONCILIATION_TEST=1 pnpm --filter @led-control/api exec jest src/registration/bio-classification-reconciliation.integration.spec.ts --runInBand`. 새 apply 기능 부재 FAIL이 필요하며 unrelated 기존 실패를 RED로 쓰지 않는다.
+- [x] **Step 3: apply 구현.** trusted DB 현재 시각<applyDeadlineAt, 권한/귀속/원 command/confirmed·discovered/등록 경합을 canonical lock 안에서 확인. 후보 조건부 UPDATE1 + 감사 action=`bio_registration_current_revalidated`, evidenceKind=`current_device_revalidation`, old/new status·binding/hash·원 provision ID·operation/result hash 저장 + operation 소비를 같은 transaction에 수행. 기존 applied row의 retry는 현재 binding 검사를 유지하되 후보 provisioned를 허용한다. session/terminal/processed ledger 수정0.
+- [x] **Step 4: classification evidence 구현.** provisioned/confirmed/current ownership를 기존처럼 먼저 확인한 다음 적용된 revalidation row/audit의 exact binding을 검사해 current evidence로 기록한다. 이력이 없는 기존 graph는 원래 historical 경로를 그대로 사용한다. 재분류된 정상 qualification은 낮추지 않고 기존 A/B transaction 경계를 유지한다.
+- [x] **Step 5: GREEN.** 동일 신규 DB 선택과 기존 classification/registration domain lock 회귀, API typecheck → exit0. 실제 race barrier·rollback·protected state 동일성 증거를 보고한다.
+- [x] **Step 6: 독립 검토·commit.** 영향 메뉴/status 갱신, `feat(api): audit atomic BIO registration repair without changing fixture state`.
 
 ## Task 5: Gateway query-only 소비·복구·정확 ACK — 담당 gateway
 

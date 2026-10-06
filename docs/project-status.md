@@ -7,7 +7,8 @@
 - **실행 승인:** 사용자가 센서 쪽 남은 구현 전체와 빠른 집중 검증을 지시했다. 새 실행 계획 Tasks1~6을 역할별로 순차 구현하고, Task9의 감지/독립 건강 공급 경계도 병행 읽기 전용 대조한다. 문서 승인 단계에서 더 대기하지 않는다. 변경 기능 RED/GREEN·직접 회귀·독립 검토만 실행하며 운영 DB/장비/배포/머지·무검증 profile/healthy·제품 ON은 실행하지 않는다.
 - **Shared 계약 완료:** `e902a393`에 registration 전용 strict query/result/전체 hash ACK를 추가했다. 신규32+기존 sensor-mode6=38PASS·Shared typecheck/build·consumer 준비0, 독립 Spec✅/Quality Approved·C0/I0/M0. Node24 사용과 기존 pnpm warning은 보존하며 Node22/실장비 검증으로 확대하지 않는다. API/DB/Gateway 소비는 다음 단계다.
 - **API 요청/조회 완료:** Task2의 additive DB·현재 binding·관리자 create/get은 `04e8c31b`에 구현하고 독립 Spec✅/Quality Approved·C0/I0/M1을 확인했다. 신규 DB35+unit6=41PASS·직접 회귀55PASS·Prisma generate/typecheck/diffcheck0, local self-owned PostgreSQL helper만 사용했으며 operating migration/DB mutation은 없다. M1은 기존 pnpm config 경고로 별도 도구 후속 사항이다.
-- **API 결과/전달 완료:** Task3의 결과 수용/publisher·내구 ACK·MQTT 연결과 종료 대기를 `9d650aba`에 구현하고 마지막 DB 권한 확인 지연을 budget에 포함하도록 `d93eaf40`에서 보완했다. 고유 집중54+fix1PASS·typecheck/diffcheck0, 독립 I1 수정 후 재검토 승인·새C0/I0/M0. 명시적 감사 apply/분류 evidence 구현을 이어가며 Gateway는 그다음이다.
+- **API 결과/전달 완료:** Task3의 결과 수용/publisher·내구 ACK·MQTT 연결과 종료 대기를 `9d650aba`에 구현하고 마지막 DB 권한 확인 지연을 budget에 포함하도록 `d93eaf40`에서 보완했다. 고유 집중54+fix1PASS·typecheck/diffcheck0, 독립 I1 수정 후 재검토 승인·새C0/I0/M0.
+- **API 감사 apply/분류 완료:** Task4 `1fde5c3c`, 집중22/직접61PASS·retained metadata/다른 provision 경계 RED2→GREEN2·unknown1GREEN·typecheck0, 독립 Spec✅/QualityApproved·새C0/I0/M0. 실제 PG 경합/감사 rollback/재시도 쓰기0을 확인했으며 ID·출력·이력은 보존한다. 최종 신규23개 함께 실행은 통합 단계에서 하고 Gateway 조회 전용 소비를 이어 구현한다. 운영 B 수복은 실행하지 않았다.
 - **센서 실제 공급 한계:** 감지 공급 조사에서는 기존 소비·철회는 구현됐으나 실제 독립 profile/health producer 근거가 없음을 재확인했다. 서버 ACK를 독립 승인으로 대체하거나 효과 없는 항상-null 조합기만 더해 완료로 표시하지 않는다.
 
 - **설계 결정(2026-10-06):** 삭제 없는 현재 장치 재검증 수복의 상세 설계와 실행 계획은 승인됐다. Shared→API/DB→Gateway→집중 통합/독립 검토 순서와 현재 장치 확인·감사 수복을 구분한다. 기존 역할별 서브에이전트/총괄 취합 방식을 유지하며 서버/Gateway 시각 근거의 실제 공급이 없으면 수복을 허용하지 않는다. 실제 B 수복과 3번 현장 신호/건강 판정은 아직 완료하지 않았다.
