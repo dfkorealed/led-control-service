@@ -6,6 +6,7 @@ import type { AuthUser } from "../../api/auth";
 import { apiGet, apiPost } from "../../api/client";
 import { requestLandingMailAuthorization } from "../../api/landing-inquiries";
 import { OperatorShell } from "./OperatorShell";
+import { LandingInquiriesView } from "./LandingInquiriesView";
 
 vi.mock("../../api/client", async (original) => ({
   ...await original<typeof import("../../api/client")>(),
@@ -60,7 +61,10 @@ describe("operator landing inquiries route", () => {
       observe(target: Element) { this.callback([{ target, contentRect: { width: 1800 } } as ResizeObserverEntry], this as unknown as ResizeObserver); }
       disconnect() {}
     });
-    renderRoute();
+    // This regression owns page sorting; cold lazy-route compilation belongs
+    // to the separate route tests and can exceed their async UI query budget.
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(<QueryClientProvider client={queryClient}><LandingInquiriesView /></QueryClientProvider>);
     const table = await screen.findByRole("table", { name: "최근 상담 문의 표" });
     fireEvent.click(within(table).getByRole("button", { name: "접수번호 오름차순 정렬" }));
     expect(within(table).getAllByRole("row")[1]).toHaveTextContent("K-ACCEPTED");

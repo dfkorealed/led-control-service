@@ -59,7 +59,7 @@ describe("DataGrid", () => {
     const { rerender } = render(<UI.DataGrid caption="목록" rows={rows} columns={sortable} getRowKey={row => row.id} />);
     fireEvent.click(screen.getByRole("button", { name: /정렬 기준/ }));
     expect(screen.queryByRole("option", { name: "작업" })).not.toBeInTheDocument();
-    fireEvent.click(await screen.findByRole("option", { name: "수량", exact: true }));
+    fireEvent.click(await screen.findByRole("option", { name: "수량" }));
     const order = () => within(screen.getByRole("list", { name: "목록" })).getAllByRole("listitem").map(row => within(row).getAllByRole("definition")[0].textContent);
     expect(order()).toEqual(["two", "ten"]);
     fireEvent.click(screen.getByRole("button", { name: "내림차순으로 변경" }));

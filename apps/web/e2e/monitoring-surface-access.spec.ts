@@ -95,7 +95,7 @@ for (const size of [{ width: 1706, height: 1226 }, { width: 390, height: 844 }, 
       return [...node.querySelectorAll('dt,dd,h2')].map(element => {
         const range = document.createRange(); range.selectNodeContents(element);
         const text = range.getBoundingClientRect(), style = getComputedStyle(element);
-        return { text: element.textContent, rect: text.toJSON(), parent: parent.toJSON(), lineHeight: style.lineHeight, fontSize: style.fontSize };
+        return { text: element.textContent, rect: text.toJSON(), element: element.getBoundingClientRect().toJSON(), parent: parent.toJSON(), lineHeight: style.lineHeight, fontSize: style.fontSize };
       });
     });
     for (const item of bounds) {
@@ -103,7 +103,11 @@ for (const size of [{ width: 1706, height: 1226 }, { width: 390, height: 844 }, 
       expect(item.rect.bottom).toBeLessThanOrEqual(item.parent.bottom);
       expect(item.rect.left).toBeGreaterThanOrEqual(item.parent.left);
       expect(item.rect.right).toBeLessThanOrEqual(item.parent.right);
-      expect(parseFloat(item.lineHeight)).toBeGreaterThanOrEqual(parseFloat(item.fontSize) * 1.5);
+      // Semantic heading/body tokens use different ratios. Verify real text
+      // fits its own line box instead of requiring a blanket line-height ratio.
+      expect(item.rect.top).toBeGreaterThanOrEqual(item.element.top);
+      expect(item.rect.bottom).toBeLessThanOrEqual(item.element.bottom);
+      expect(item.rect.height).toBeLessThanOrEqual(parseFloat(item.lineHeight));
     }
     expect(await page.locator('html').evaluate(node => node.scrollWidth - node.clientWidth)).toBe(0);
     expect(state.api.dimmingRequests).toHaveLength(0);
