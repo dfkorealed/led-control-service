@@ -18,9 +18,9 @@ function openInspector() {
   return screen.getByRole("dialog", { name: "조명 검색·상세" });
 }
 
-function selectStatusFilter(name: string) {
-  fireEvent.click(screen.getByRole("button", { name: /맵 조명 상태 필터 상세 필터/ }));
-  fireEvent.click(screen.getByRole("button", { name }));
+async function selectStatusFilter(name: string) {
+  if (!screen.queryByRole("dialog", { name: "조명 검색·상세" })) openInspector();
+  await chooseSelect("상태 필터", name === "전체 조명" ? "전체" : name);
 }
 
 function closeInspector() {
@@ -140,6 +140,17 @@ describe("MonitoringView refresh", () => {
     vi.unstubAllGlobals();
   });
 
+  it("combines status and search in one anchored popover without opening an unselected detail", () => {
+    render(<MonitoringView siteId="site-1" />);
+    expect(screen.queryByRole("button", { name: /맵 조명 상태 필터 상세 필터/ })).not.toBeInTheDocument();
+    expect(screen.queryByText(/표시 상태:/)).not.toBeInTheDocument();
+    const finder = openInspector();
+    expect(finder.closest("[data-placement]")).not.toBeNull();
+    expect(within(finder).getByRole("button", { name: "상태 필터" })).toBeVisible();
+    expect(within(finder).getByRole("searchbox", { name: "조명 이름 또는 번호 검색" })).toBeVisible();
+    expect(within(finder).queryByRole("button", { name: "상세 보기" })).not.toBeInTheDocument();
+  });
+
   async function openDesktopCondition(condition: "fault" | "search" | "placement" | "deletion", focusOpener = true) {
     vi.stubGlobal("matchMedia", vi.fn((media: string) => ({ matches: media === "(min-width: 1024px)", media, addEventListener: vi.fn(), removeEventListener: vi.fn() })));
     queryMocks.useFloorFixtures().data.pages[0].items = [{ ...fixture, status: "fault", placementStatus: condition === "placement" ? "unplaced" : "placed" }];
@@ -231,39 +242,39 @@ describe("MonitoringView refresh", () => {
     expect(within(finder).getByRole("button", { name: "상세 조명 선택" })).not.toHaveTextContent("B1-L001");
   });
 
-  it("clears explicit selection on an external KPI filter instead of selecting the first result", async () => {
+  it("clears explicit selection on a status filter instead of selecting the first result", async () => {
     render(<MonitoringView siteId="site-1" />);
     fireEvent.click(screen.getByRole("button", { name: /B1-L001/ }));
     await screen.findByRole("dialog", { name: "B1-L001 조명 정보" });
-    selectStatusFilter("전체 조명");
+    await selectStatusFilter("정상");
     expect(document.querySelector('[data-spatial-map-marker]')).toHaveAttribute("data-selected", "false");
     expect(screen.queryByRole("complementary", { name: "선택 조명 상세" })).not.toBeInTheDocument();
   });
 
-  it("retains an explicitly clicked pin while clearing its previous KPI filter atomically", () => {
+  it("retains an explicitly clicked pin while clearing its previous status filter atomically", async () => {
     render(<MonitoringView siteId="site-1" />);
-    selectStatusFilter("오프라인");
+    await selectStatusFilter("오프라인");
     closeInspector();
     fireEvent.click(screen.getByRole("button", { name: /B1-L001/ }));
     expect(document.querySelector('[data-spatial-map-marker]')).toHaveAttribute("data-selected", "true");
-    expect(screen.getByText("표시 상태: 전체 조명")).toBeVisible();
     const finder = openInspector();
+    expect(within(finder).getByRole("button", { name: "상태 필터" })).toHaveTextContent("전체");
     expect(within(finder).getByRole("button", { name: "상세 조명 선택" })).toHaveTextContent("B1-L001");
   });
 
-  it("map status reset preserves a nonempty finder search across close and reopen", () => {
+  it("map status reset preserves a nonempty finder search across close and reopen", async () => {
     render(<MonitoringView siteId="site-1" />);
-    selectStatusFilter("정상");
+    await selectStatusFilter("정상");
     const finder = screen.getByRole("dialog", { name: "조명 검색·상세" });
     fireEvent.change(within(finder).getByRole("searchbox", { name: "조명 이름 또는 번호 검색" }), { target: { value: "B1-L001" } });
     closeInspector();
+    const reopened = openInspector();
     fireEvent.click(screen.getByRole("button", { name: "필터 초기화" }));
-    const reopened = screen.queryByRole("dialog", { name: "조명 검색·상세" }) ?? openInspector();
     expect(within(reopened).getByRole("searchbox", { name: "조명 이름 또는 번호 검색" })).toHaveValue("B1-L001");
     expect(within(reopened).queryByRole("complementary", { name: "선택 조명 상세" })).not.toBeInTheDocument();
     expect(refreshApi.waitForMonitoringRefresh).not.toHaveBeenCalled();
+    expect(within(reopened).getByRole("button", { name: "상태 필터" })).toHaveTextContent("전체");
     closeInspector();
-    expect(screen.getByText("표시 상태: 전체 조명")).toBeVisible();
     expect(document.querySelector('[data-spatial-map-marker]')).toHaveAttribute("data-selected", "false");
   });
 
@@ -789,6 +800,7 @@ describe("MonitoringView refresh", () => {
     fireEvent.click(screen.getByRole("button", { name: "상세 보기" }));
     expect(within(screen.getByRole("complementary", { name: "선택 조명 상세" })).getByRole("heading", { name: "B1-L002" })).toBeVisible();
     closeInspector();
+    await waitFor(() => expect(screen.getByRole("button", { name: "조명 검색·상세" })).toHaveFocus());
     openInspector();
     await chooseSelect("상세 조명 선택", "B1-L001 · 장애");
     fireEvent.click(screen.getByRole("button", { name: "상세 보기" }));
@@ -1399,9 +1411,9 @@ describe("MonitoringView refresh", () => {
     expect(refreshApi.waitForMonitoringRefresh).not.toHaveBeenCalled();
   });
 
-  it("0개 상태 필터에서 다른 조명의 상세를 숨기고 전체 목록으로 돌아간다", () => {
+  it("0개 상태 필터에서 다른 조명의 상세를 숨기고 전체 목록으로 돌아간다", async () => {
     render(<MonitoringView siteId="site-1" />);
-    selectStatusFilter("오프라인");
+    await selectStatusFilter("오프라인");
     const inspector = screen.getByRole("dialog", { name: "조명 검색·상세" });
     expect(within(inspector).getByText("오프라인 조명이 없습니다.")).toBeVisible();
     expect(within(inspector).queryByRole("button", { name: "상세 조명 선택" })).not.toBeInTheDocument();

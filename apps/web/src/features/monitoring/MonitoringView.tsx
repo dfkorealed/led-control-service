@@ -6,7 +6,7 @@ import { useDashboard, useFloorFixtures, useFloorMapSnapshot, type Dashboard } f
 import { useCurrentUser } from "../../api/auth";
 import { principalKey } from "../../api/principal-cache";
 import { waitForMonitoringRefresh, type MonitoringRefreshResult } from "../../api/monitoring-refresh";
-import { Button, DetailSheet, DrawerDialog, FeedbackState, Heading, SelectBox, Text, cn, useWorkspaceFocus, useSessionStatus, type SessionStatusItem } from "../../components/ui";
+import { Button, DetailSheet, Popover, FeedbackState, Heading, SelectBox, Text, cn, useWorkspaceFocus, useSessionStatus, type SessionStatusItem } from "../../components/ui";
 import { InstallationPending } from "../setup/SetupWizard";
 import { FloorMap } from "./FloorMap";
 import { MonitoringFixtureFinder } from "./MonitoringFixtureFinder";
@@ -87,7 +87,6 @@ function MonitoringDashboard({ data, userRole, siteId, refreshDashboard }: Monit
   const sheetDetailBodyRef = useRef<HTMLDivElement | null>(null);
   const detailScrollRef = useRef(0);
   const detailScrollRestoringRef = useRef(false);
-  const [finderDefaultOpen, setFinderDefaultOpen] = useState(false);
   const [isPinOpen, setIsPinOpen] = useState(false);
   const workspaceFocus = useWorkspaceFocus();
   const [fixtureFilter, setFixtureFilter] = useState<MonitoringFixtureFilter>("all");
@@ -200,8 +199,8 @@ function MonitoringDashboard({ data, userRole, siteId, refreshDashboard }: Monit
     const returnToPin = pinDetailsFixtureRef.current;
     pinDetailsFixtureRef.current = null;
     setIsInspectorOpen(false);
-    // Dialog focus restoration targets the toolbar. Revisit the originating pin
-    // after the drawer closes so compact navigation cannot cover the map target.
+    // Popover focus restoration targets the toolbar. Revisit the originating pin
+    // after it closes so compact navigation cannot cover the map target.
     if (returnToPin) window.requestAnimationFrame(() => setFocusRequest({ requestId: ++focusSequence.current, fixtureId: returnToPin }));
   }
 
@@ -357,18 +356,18 @@ function MonitoringDashboard({ data, userRole, siteId, refreshDashboard }: Monit
         onMapRetry={() => void handleMapRetry()}
       />
       <div className="flex items-center justify-between gap-4 max-compact:flex-col max-compact:items-stretch" role="group" aria-label="모니터링 도구">
-        {/* Compact layouts reserve the full row for the map value; the search
-            action must not squeeze the value or chevron when text is enlarged. */}
-        <div className="flex min-w-0 items-center gap-2 max-compact:w-full max-compact:flex-col max-compact:items-stretch">
+        {/* Allow wrapping under enlarged text instead of clipping map names or
+            the single search action. At ordinary mobile widths they share a row. */}
+        <div className="flex min-w-0 flex-wrap items-center gap-2 max-compact:w-full">
           <SelectBox
             label="맵 선택"
             items={data.floors.map((item) => ({ id: item.id, label: item.name }))}
             selectedKey={floor?.id ?? null}
             isDisabled={data.floors.length === 0}
             onSelectionChange={(floorId) => floorId !== null && handleSelectFloor(floorId)}
-            className="grid min-w-0 flex-1 grid-cols-[auto_minmax(0,1fr)] items-center gap-2 max-compact:max-w-none max-compact:flex-none"
+            className="grid min-w-0 flex-1 grid-cols-[auto_minmax(0,1fr)] items-center gap-2 max-compact:max-w-none"
           />
-          <Button ref={inspectorTriggerRef} variant="secondary" className="shrink-0 max-compact:self-end" onClick={() => { setFinderDefaultOpen(false); setIsInspectorOpen(true); }}>조명 검색·상세</Button>
+          <Button ref={inspectorTriggerRef} variant="secondary" className="shrink-0" aria-haspopup="dialog" aria-expanded={isInspectorOpen} onClick={() => setIsInspectorOpen(true)}>조명 검색·상세</Button>
         </div>
         <div className="ml-auto flex flex-wrap items-center justify-end gap-2 text-content-secondary max-compact:ml-0 max-compact:w-full">
           <Text as="small" variant="caption" tone="secondary" className="min-w-0 max-w-full break-words text-right">
@@ -398,9 +397,6 @@ function MonitoringDashboard({ data, userRole, siteId, refreshDashboard }: Monit
       {floor ? <MonitoringSummary
         scope="floor"
         mapName={floor.name}
-        filter={fixtureFilter}
-        onSelect={filter => { clearSelection(); setFixtureSearch(""); setFixtureFilter(filter); setFinderDefaultOpen(true); setIsInspectorOpen(true); }}
-        onReset={() => { clearSelection(); setFixtureFilter("all"); }}
         total={floor.summary?.totalFixtures ?? null}
         online={floor.summary?.onlineFixtures ?? null}
         fault={floor.summary?.faultFixtures ?? null}
@@ -462,15 +458,19 @@ function MonitoringDashboard({ data, userRole, siteId, refreshDashboard }: Monit
           <div ref={detailBodyRef} onScroll={event => rememberDetailScroll(event.currentTarget.scrollTop)} data-monitoring-detail-scroll="" className="min-h-0 flex-1 overflow-y-auto"><FixtureDetailPanel fixture={selectedFixture ?? null} selectedName={selectedPin?.name} position={selectedPin ? { kind: "placed", point: { x: selectedPin.x, y: selectedPin.y } } : resolveFixtureMapPosition(mapSnapshot, selectedFixture)} timeZone={data.site.timeZone} /></div>
         </aside> : null}
       </div>
-      <DrawerDialog
+      <Popover
         isOpen={isInspectorOpen}
-        onClose={closeInspector}
-        returnFocusRef={inspectorTriggerRef}
-        fallbackFocusRef={refreshButtonRef}
-        title="조명 검색·상세"
-        closeLabel="조명 검색·상세 닫기"
-        bodyClassName="grid min-w-0 gap-4"
+        onOpenChange={open => { if (!open) closeInspector(); }}
+        triggerRef={inspectorTriggerRef}
+        label="조명 검색·상세"
+        placement="bottom end"
+        className="w-96 min-w-0 max-h-[min(36rem,var(--available-height))]"
       >
+        <div className="grid min-w-0 gap-4">
+        <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
+          <Heading as="h2" variant="card-title">조명 검색·상세</Heading>
+          <Button variant="ghost" onClick={closeInspector} aria-label="조명 검색·상세 닫기">닫기</Button>
+        </div>
         {hasFixtureData && filteredFixtures.length > 0 ? <div data-monitoring-fixture-selector="">
           <SelectBox
             label="상세 조명 선택"
@@ -506,13 +506,14 @@ function MonitoringDashboard({ data, userRole, siteId, refreshDashboard }: Monit
             onFilterChange={filter => { clearSelection(); setFixtureFilter(filter); }}
             search={fixtureSearch}
             onSearchChange={search => { clearSelection(); setFixtureSearch(search); }}
-            defaultOpen={finderDefaultOpen}
             nextPageError={fixtureQuery.isFetchNextPageError}
             expectedTotal={floor.summary?.totalFixtures}
           />
         </div> : null}
+        {fixtureFilter !== "all" ? <Button variant="secondary" onClick={() => { clearSelection(); setFixtureFilter("all"); }}>필터 초기화</Button> : null}
         {selectedFixtureId ? <Button variant="secondary" onClick={() => openDetail(selectedFixtureId)}>상세 보기</Button> : null}
-      </DrawerDialog>
+        </div>
+      </Popover>
       <DetailSheet ref={sheetDetailRef} isOpen={!isDesktop && isDetailOpen && selectedFixtureId !== null} onClose={closeDetail} title="조명 상세" closeLabel="조명 상세 닫기" returnFocusRef={detailReturnRef} fallbackFocusRef={inspectorTriggerRef} bodyClassName="flex min-h-0 flex-col overflow-hidden">
         <div ref={sheetDetailBodyRef} onScroll={event => rememberDetailScroll(event.currentTarget.scrollTop)} data-monitoring-detail-scroll="" className="min-h-0 flex-1 overflow-y-auto">
         <FixtureDetailPanel fixture={selectedFixture ?? null} selectedName={selectedPin?.name} position={selectedPin ? { kind: "placed", point: { x: selectedPin.x, y: selectedPin.y } } : resolveFixtureMapPosition(mapSnapshot, selectedFixture)} timeZone={data.site.timeZone} />

@@ -32,6 +32,117 @@ async function install(page: Page) {
   });
   return { api, reads, fixtures };
 }
+
+for (const size of [{ width: 1706, height: 1226 }, { width: 390, height: 844 }, { width: 390, height: 480 }]) {
+  test(`monitoring unified search popover ${size.width}x${size.height}`, async ({ page }, info) => {
+    await page.setViewportSize(size);
+    const state = await install(page);
+    await page.goto(`/monitoring?siteId=${ids.siteId}`);
+    const trigger = page.getByRole('button', { name: '조명 검색·상세', exact: true });
+    const map = page.getByRole('button', { name: '맵 선택', exact: true });
+    await expect(map).toContainText('B2');
+    const mapBox = (await map.boundingBox())!, triggerBox = (await trigger.boundingBox())!;
+    expect(triggerBox.x).toBeGreaterThanOrEqual(mapBox.x + mapBox.width);
+    expect(Math.abs(triggerBox.y - mapBox.y)).toBeLessThan(4);
+    await expect(page.getByRole('button', { name: /맵 조명 상태 필터 상세 필터/ })).toHaveCount(0);
+    await expect(page.getByText(/표시 상태:/)).toHaveCount(0);
+    await trigger.click();
+    const finder = page.getByRole('dialog', { name: '조명 검색·상세', exact: true });
+    await expect(finder.locator('xpath=ancestor::*[@data-placement]')).toHaveCount(1);
+    await expect(finder.getByRole('button', { name: '상세 보기', exact: true })).toHaveCount(0);
+    await finder.getByRole('button', { name: '상태 필터', exact: true }).click();
+    await page.keyboard.press('Escape');
+    await expect(finder).toBeVisible();
+    await expect(finder.getByRole('button', { name: '상태 필터', exact: true })).toBeFocused();
+    await finder.getByRole('button', { name: '상태 필터', exact: true }).click();
+    await page.getByRole('option', { name: '오프라인', exact: true }).click();
+    await expect(finder).toContainText('오프라인 조명이 없습니다.');
+    await expect(finder.getByRole('button', { name: '상세 조명 선택', exact: true })).toHaveCount(0);
+    const search = finder.getByRole('searchbox', { name: '조명 이름 또는 번호 검색' });
+    await search.fill('Task9 조명 1');
+    await page.keyboard.press('Escape');
+    await expect(finder).toHaveCount(0); await expect(trigger).toBeFocused();
+    await page.keyboard.press('Enter');
+    await expect(search).toHaveValue('Task9 조명 1');
+    await finder.getByRole('button', { name: '필터 초기화', exact: true }).click();
+    await expect(search).toHaveValue('Task9 조명 1');
+    await expect(finder.getByRole('button', { name: '상태 필터', exact: true })).toContainText('전체');
+    await finder.getByRole('button', { name: '상세 조명 선택', exact: true }).click();
+    await page.getByRole('option', { name: 'Task9 조명 1 · 정상', exact: true }).click();
+    const detailAction = finder.getByRole('button', { name: '상세 보기', exact: true });
+    await assert44px(detailAction); await nativeTabTo(page, detailAction);
+    await attach(info, 'popover-scroll-end', await detailAction.evaluate(node => {
+      const popover = node.closest('[data-placement]')!;
+      return { scrollTop: popover.scrollTop, clientHeight: popover.clientHeight, scrollHeight: popover.scrollHeight, action: node.getBoundingClientRect().toJSON(), popover: popover.getBoundingClientRect().toJSON() };
+    }));
+    const openScreenshot = info.outputPath('unified-popover-open.png');
+    await page.screenshot({ path: openScreenshot });
+    await info.attach('unified-popover-open', { path: openScreenshot, contentType: 'image/png' });
+    await page.keyboard.press('Enter');
+    const detail = page.getByRole(size.width >= 1024 ? 'complementary' : 'dialog', { name: '조명 상세', exact: true }); await expect(detail).toContainText('Task9 조명 1');
+    await detail.getByRole('button', { name: '조명 상세 닫기', exact: true }).click();
+    await trigger.click(); await expect(finder).toBeVisible();
+    // Short viewports flip the popover over the header. Use a real viewport
+    // corner outside the popover, not a header point that may now be inside it.
+    const popupBox = (await finder.locator('xpath=ancestor::*[@data-placement]').boundingBox())!;
+    expect(popupBox.x).toBeGreaterThan(1);
+    await page.mouse.click(1, 1);
+    await expect(finder).toHaveCount(0);
+    await expect(trigger).toBeFocused();
+    const header = page.getByRole('region', { name: '현장 전체', exact: true });
+    const bounds = await header.evaluate(node => {
+      const parent = node.getBoundingClientRect();
+      return [...node.querySelectorAll('dt,dd,h2')].map(element => {
+        const range = document.createRange(); range.selectNodeContents(element);
+        const text = range.getBoundingClientRect(), style = getComputedStyle(element);
+        return { text: element.textContent, rect: text.toJSON(), parent: parent.toJSON(), lineHeight: style.lineHeight, fontSize: style.fontSize };
+      });
+    });
+    for (const item of bounds) {
+      expect(item.rect.top).toBeGreaterThanOrEqual(item.parent.top);
+      expect(item.rect.bottom).toBeLessThanOrEqual(item.parent.bottom);
+      expect(item.rect.left).toBeGreaterThanOrEqual(item.parent.left);
+      expect(item.rect.right).toBeLessThanOrEqual(item.parent.right);
+      expect(parseFloat(item.lineHeight)).toBeGreaterThanOrEqual(parseFloat(item.fontSize) * 1.5);
+    }
+    expect(await page.locator('html').evaluate(node => node.scrollWidth - node.clientWidth)).toBe(0);
+    expect(state.api.dimmingRequests).toHaveLength(0);
+    await attach(info, 'unified-popover-header-bounds', { mapBox, triggerBox, bounds });
+    const screenScreenshot = info.outputPath('unified-popover-screen.png');
+    await page.screenshot({ path: screenScreenshot, fullPage: true });
+    await info.attach('unified-popover-screen', { path: screenScreenshot, contentType: 'image/png' });
+  });
+}
+
+for (const size of [{ width: 1706, height: 1226 }, { width: 390, height: 844 }]) {
+  test(`monitoring header CSS 200 percent glyph bounds ${size.width}x${size.height}`, async ({ page }, info) => {
+    await page.setViewportSize(size); await install(page);
+    await page.route('**/api/sites', route => route.fulfill({ json: [{ id: ids.siteId, name: '동측 지하주차장 B1·B2 통합 조명 운영 현장', customerName: '고객사' }] }));
+    await page.goto(`/monitoring?siteId=${ids.siteId}`);
+    const header = page.getByRole('region', { name: '현장 전체', exact: true });
+    await expect(header.getByText('2대').first()).toBeVisible();
+    await page.evaluate(() => { document.body.style.zoom = '2'; });
+    await paints(page);
+    const bounds = await header.evaluate(node => {
+      const parent = node.getBoundingClientRect();
+      return [...node.querySelectorAll('h2,p,dt,dd')].map(element => {
+        const range = document.createRange(); range.selectNodeContents(element);
+        return { text: element.textContent, rects: [...range.getClientRects()].map(rect => rect.toJSON()), parent: parent.toJSON() };
+      });
+    });
+    for (const item of bounds) for (const rect of item.rects) {
+      expect(rect.top).toBeGreaterThanOrEqual(item.parent.top);
+      expect(rect.bottom).toBeLessThanOrEqual(item.parent.bottom);
+      expect(rect.left).toBeGreaterThanOrEqual(item.parent.left);
+      expect(rect.right).toBeLessThanOrEqual(item.parent.right);
+    }
+    expect(await page.locator('html').evaluate(node => node.scrollWidth - node.clientWidth)).toBe(0);
+    await attach(info, 'CSS-zoom-header-bounds', bounds);
+    const screenshot = info.outputPath('CSS-zoom-header.png');
+    await page.screenshot({ path: screenshot });
+    await info.attach('CSS-zoom-header', { path: screenshot, contentType: 'image/png' });
+  });
+}
 async function paints(page: Page) {
   await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
 }
@@ -193,14 +304,16 @@ test('task5 long multiple live notices preserve natural scroll fullview camera a
 test('task5 map reset preserves typed search and camera without automatic selection or controls', async ({ page }, info) => {
   await page.setViewportSize({ width: 390, height: 720 }); const state = await install(page); await page.goto(`/monitoring?siteId=${ids.siteId}`);
   const viewport = page.getByTestId('monitoring-map-viewport'); await page.getByRole('button', { name: '지도 확대', exact: true }).click(); const before = await camera(viewport);
-  await page.getByRole('button', { name: /맵 조명 상태 필터 상세 필터/ }).click(); await page.getByRole('button', { name: '점검 필요', exact: true }).click();
+  await page.getByRole('button', { name: '조명 검색·상세', exact: true }).click();
+  await page.getByRole('button', { name: '상태 필터', exact: true }).click(); await page.getByRole('option', { name: '점검 필요', exact: true }).click();
   const finder = page.getByRole('dialog', { name: '조명 검색·상세', exact: true }), search = finder.getByRole('searchbox', { name: '조명 이름 또는 번호 검색' });
   await search.fill('Task9 조명 1'); await finder.getByRole('button', { name: '조명 검색·상세 닫기', exact: true }).click();
-  await page.getByRole('button', { name: '필터 초기화', exact: true }).click(); await expect(finder).toHaveCount(0);
   await page.getByRole('button', { name: '조명 검색·상세', exact: true }).click(); await expect(search).toHaveValue('Task9 조명 1');
+  await finder.getByRole('button', { name: '필터 초기화', exact: true }).click(); await expect(search).toHaveValue('Task9 조명 1');
+  await expect(finder.getByRole('button', { name: '상태 필터', exact: true })).toContainText('전체');
   await expect(finder.locator('[aria-label="선택 조명 상세"]')).toHaveCount(0);
   await finder.getByRole('button', { name: '조명 검색·상세 닫기', exact: true }).click();
-  await expect(page.getByText('표시 상태: 전체 조명', { exact: true })).toBeVisible();
+  await expect(page.getByText(/표시 상태:/)).toHaveCount(0);
   const after = await camera(viewport); expect(after.zoom).toBe(before.zoom); expect(Math.abs(after.x - before.x)).toBeLessThan(.02); expect(Math.abs(after.y - before.y)).toBeLessThan(.02);
   await expect(page.locator('[data-spatial-map-marker][data-selected="true"]')).toHaveCount(0); expect(state.api.dimmingRequests).toHaveLength(0);
   await attach(info, 'search-reset-camera', { before, after, search: 'Task9 조명 1', reads: state.reads });
@@ -590,22 +703,25 @@ for (const width of [320, 390, 768, 1023, 1024, 1287, 1440]) {
   test(`task5 map filter and visible search preserve context at ${width}px`, async ({ page }, info) => {
     await page.setViewportSize({ width, height: 800 }); const state = await install(page);
     await page.goto(`/monitoring?siteId=${ids.siteId}`);
-    const trigger = page.getByRole('button', { name: /맵 조명 상태 필터 상세 필터/ });
+    const trigger = page.getByRole('button', { name: '조명 검색·상세', exact: true });
     await assert44px(trigger); await trigger.click();
-    const filter = page.getByRole('dialog', { name: '맵 조명 상태 필터', exact: true });
-    for (const name of ['전체 조명', '정상', '점검 필요', '오프라인', '필터 닫기']) await assert44px(filter.getByRole('button', { name, exact: true }));
-    await filter.getByRole('button', { name: '점검 필요', exact: true }).click();
     const finder = page.getByRole('dialog', { name: '조명 검색·상세', exact: true });
+    await assert44px(finder.getByRole('button', { name: '상태 필터', exact: true }));
+    await finder.getByRole('button', { name: '상태 필터', exact: true }).click();
+    for (const name of ['전체', '정상', '점검 필요', '오프라인', '미배치']) await assert44px(page.getByRole('option', { name, exact: true }));
+    await page.getByRole('option', { name: '점검 필요', exact: true }).click();
     await expect(finder.getByRole('searchbox', { name: '조명 이름 또는 번호 검색' })).toBeVisible();
     await expect(finder).toContainText('점검 필요 조명이 없습니다.');
     await finder.getByRole('button', { name: '조명 검색·상세 닫기', exact: true }).click();
-    await expect(page.getByText('표시 상태: 점검 필요', { exact: true })).toBeVisible();
-    await expect(trigger).toHaveAccessibleName('맵 조명 상태 필터 상세 필터, 활성 조건 1개');
+    await expect(page.getByText(/표시 상태:/)).toHaveCount(0);
     await expect(page.locator('[aria-label="조명 상세"]')).toHaveCount(0);
-    await page.getByRole('button', { name: '필터 초기화', exact: true }).click();
-    await page.getByRole('button', { name: '조명 검색·상세', exact: true }).click();
+    await trigger.click();
+    await expect(finder.getByRole('button', { name: '상태 필터', exact: true })).toContainText('점검 필요');
+    await assert44px(finder.getByRole('button', { name: '필터 초기화', exact: true }));
+    await finder.getByRole('button', { name: '필터 초기화', exact: true }).click();
+    await expect(finder.getByRole('button', { name: '상태 필터', exact: true })).toContainText('전체');
     await page.getByRole('dialog', { name: '조명 검색·상세', exact: true }).getByRole('button', { name: '조명 검색·상세 닫기', exact: true }).click();
-    await expect(trigger).toHaveAccessibleName('맵 조명 상태 필터 상세 필터, 활성 조건 0개');
+    await expect(trigger).toBeFocused();
     expect(await page.locator('html').evaluate(node => node.scrollWidth - node.clientWidth)).toBe(0);
     expect(state.api.dimmingRequests).toHaveLength(0);
     await attach(info, 'filter-context-bounds', await mapBounds(page));
@@ -662,9 +778,9 @@ test('task5 genuine browser 200 percent retains map and log filters', async ({ b
     await settings.goto('chrome://settings/appearance'); await settings.locator('select#zoomLevel').selectOption('2'); await expect(settings.locator('select#zoomLevel')).toHaveValue('2'); await settings.close();
     await page.bringToFront(); await page.reload(); const after = await geometry();
     expect(after.dpr / before.dpr).toBe(2); expect(Math.abs(after.width * 2 - before.width)).toBeLessThanOrEqual(1); expect(after.scale).toBe(1);
-    await page.getByRole('button', { name: /맵 조명 상태 필터 상세 필터/ }).click();
-    const mapFilter = page.getByRole('dialog', { name: '맵 조명 상태 필터', exact: true });
-    await assert44px(mapFilter.getByRole('button', { name: '필터 닫기', exact: true })); await mapFilter.getByRole('button', { name: '필터 닫기', exact: true }).click();
+    await page.getByRole('button', { name: '조명 검색·상세', exact: true }).click();
+    const mapFilter = page.getByRole('dialog', { name: '조명 검색·상세', exact: true });
+    await assert44px(mapFilter.getByRole('button', { name: '조명 검색·상세 닫기', exact: true })); await mapFilter.getByRole('button', { name: '조명 검색·상세 닫기', exact: true }).click();
     await page.getByRole('region', { name: '최근 운영 로그', exact: true }).getByRole('button', { name: '전체 보기', exact: true }).click();
     await page.getByRole('button', { name: /운영 로그 필터 상세 필터/ }).click();
     const logFilter = page.getByRole('dialog', { name: '운영 로그 필터', exact: true });

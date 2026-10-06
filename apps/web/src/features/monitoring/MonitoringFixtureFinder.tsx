@@ -66,14 +66,15 @@ export function MonitoringFixtureFinder({
       onSearchChange?.(value);
       setIsOpen(true);
     }} placeholder="조명 이름 또는 번호" className="min-w-0" />
+    <SelectBox label="상태 필터" items={filterOptions} selectedKey={filter} onSelectionChange={(key) => {
+        setLocalFilter(key ?? "all");
+        onFilterChange?.(key ?? "all");
+        setIsOpen(true);
+      }} />
     <Button variant="ghost" aria-controls={listId} aria-expanded={isOpen} onClick={() => setIsOpen((current) => !current)}>
       {isOpen ? "조명 목록 닫기" : "조명 목록 보기"}
     </Button>
     {isOpen ? <div id={listId} className="grid min-w-0 gap-2">
-      <SelectBox label="상태 필터" items={filterOptions} selectedKey={filter} onSelectionChange={(key) => {
-        setLocalFilter(key ?? "all");
-        onFilterChange?.(key ?? "all");
-      }} />
       <ul className="m-0 grid max-h-48 min-w-0 list-none gap-1 overflow-y-auto p-0" aria-label="조명 목록">
         {visibleFixtures.map((fixture) => <li key={fixture.id} className="min-w-0">
           <Button variant="ghost" className="w-full min-w-0 justify-between text-left" aria-pressed={fixture.id === selectedFixtureId} onClick={() => {

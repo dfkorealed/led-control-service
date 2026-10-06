@@ -1,41 +1,17 @@
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { cleanup, render, screen, within } from "@testing-library/react";
+import { afterEach, describe, expect, it } from "vitest";
 import { MonitoringSummary } from "./MonitoringSummary";
 
 describe("MonitoringSummary", () => {
   afterEach(() => cleanup());
 
-  it("keeps map counts visible while changing status only through the shared filter popover", async () => {
-    const onSelect = vi.fn();
-    render(<MonitoringSummary scope="floor" mapName="B1" total={62} online={57} fault={3} offline={null} filter="all" onSelect={onSelect} />);
+  it("keeps map counts read-only without a second filter entry point", () => {
+    render(<MonitoringSummary scope="floor" mapName="B1" total={62} online={57} fault={3} offline={null} />);
     const summary = screen.getByRole("region", { name: "선택 층 조명 현황" });
     expect(within(summary).getByRole("group", { name: "전체 조명" })).toHaveTextContent("62");
-    expect(within(summary).queryByRole("button", { name: "정상" })).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: /맵 조명 상태 필터 상세 필터/ }));
-    fireEvent.click(await screen.findByRole("button", { name: "정상" }));
-    expect(onSelect).toHaveBeenCalledWith("online");
-    expect(screen.queryByRole("button", { name: "정상" })).not.toBeInTheDocument();
+    expect(within(summary).queryByRole("button")).not.toBeInTheDocument();
+    expect(within(summary).getByRole("group", { name: "오프라인" })).toHaveTextContent("집계 준비 중");
     expect(screen.getByText("B1 · 조명 현황")).toBeVisible();
-  });
-
-  it("makes floor metrics interactive but keeps site metrics read-only", () => {
-    const onSelect = vi.fn();
-    render(<><MonitoringSummary scope="site" total={2} online={2} fault={0} offline={0} onSelect={onSelect} />
-      <MonitoringSummary scope="floor" total={2} online={2} fault={0} offline={null} filter="fault" onSelect={onSelect} /></>);
-    const floor = screen.getByRole("region", { name: "선택 층 조명 현황" });
-    fireEvent.click(within(floor).getByRole("button", { name: /맵 조명 상태 필터 상세 필터/ }));
-    expect(screen.getByRole("button", { name: "점검 필요" })).toHaveAttribute("aria-pressed", "true");
-    expect(screen.getByRole("button", { name: "오프라인" })).toBeDisabled();
-    fireEvent.click(screen.getByRole("button", { name: "점검 필요" }));
-    expect(onSelect).toHaveBeenCalledWith("fault");
-    expect(within(screen.getByRole("region", { name: "현장 전체 조명 현황" })).queryByRole("button")).toBeNull();
-  });
-
-  it("uses a distinct status-reset callback instead of invoking ordinary status selection", () => {
-    const onSelect = vi.fn(), onReset = vi.fn();
-    render(<MonitoringSummary scope="floor" total={2} online={2} fault={0} offline={0} filter="online" onSelect={onSelect} onReset={onReset} />);
-    fireEvent.click(screen.getByRole("button", { name: "필터 초기화" }));
-    expect(onReset).toHaveBeenCalledOnce(); expect(onSelect).not.toHaveBeenCalled();
   });
 
   it("separates authoritative site and floor scopes", () => {
