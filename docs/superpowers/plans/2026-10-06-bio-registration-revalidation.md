@@ -47,6 +47,8 @@
 
 ## Task 1: 독립 Shared wire 계약 — 담당 backend
 
+**상태:** 완료(Shared 소프트웨어), `e902a393`, 신규32+기존6=38PASS·typecheck/build/consumer 준비0, 독립 Spec✅/Quality Approved·C0/I0/M0. Node24 검증이며 Node22 parity/실장비는 확인하지 않았다. 아래 단계는 모두 이 증거로 완료했다.
+
 **Files:** Shared 책임에 열거한 새 2개 파일과 `packages/shared/src/index.ts`.
 
 **Interfaces:**
@@ -55,17 +57,17 @@
 - `bioRegistrationRevalidationCanonicalJson(value: unknown): string`는 객체 key 재귀 정렬·배열 순서 보존 JSON. API/Gateway는 이 문자열의 SHA-256로 `sha256:<64 lowercase hex>` hash를 만든다. `deviceIdentityHash`만 prefix 없는 64 hex다.
 - `matchesBioRegistrationRevalidationAck(result: BioRegistrationRevalidationResult, ack: BioRegistrationRevalidationAck, resultPayloadHash: string): boolean` — 전체 scope/identity/sequence/hash 비교. 기존 state ACK와 교환 불가.
 
-- [ ] **Step 1: RED 테스트 작성.** `it.each(["sensor", "force-on", "force-off"])`에서 observed parse 성공; query 외 operation/다른 purpose/brightness/modeVerified/native UUID/unknown key, TTL0·30001ms, unicast0·0x8000, unsafe sequence는 실패한다.
+- [x] **Step 1: RED 테스트 작성.** `it.each(["sensor", "force-on", "force-off"])`에서 observed parse 성공; query 외 operation/다른 purpose/brightness/modeVerified/native UUID/unknown key, TTL0·30001ms, unicast0·0x8000, unsafe sequence는 실패한다.
   ```ts
   expect(commandSchema.safeParse({ ...validCommand, operation: "ensure_sensor" }).success).toBe(false);
   expect(commandSchema.safeParse(withTtl(validCommand, 30_000)).success).toBe(true);
   expect(matches(result, { ...ack, payloadHash: otherHash }, hash)).toBe(false);
   ```
   테스트 alias는 위 export를 import하며 `withTtl(command, ms)`는 테스트 내부 UTC 시간 fixture 함수다. ACK의 모든 identity 필드를 한 개씩 바꾸는 table test, key 순서만 다른 payload의 canonical JSON 동일성도 고정한다.
-- [ ] **Step 2: RED 실행.** `pnpm --filter @led-control/shared exec vitest run src/bio-registration-revalidation-contracts.test.ts` → 신규 export/schema 부재로 FAIL.
-- [ ] **Step 3: 계약 구현.** command/result 공통 identity는 설계 그대로이며 실패 errorCode는 기존 고정 집합 `MODE_GET_UNCONFIRMED|COMMAND_EXPIRED|GATEWAY_RESTART|UNSUPPORTED_ADAPTER|GATEWAY_SHUTDOWN|GATEWAY_CLOCK_UNTRUSTED`. ACK는 version2/purpose/full identity/eventId/sequence/`payloadHash`/`ingestedAt`/status=`ingested|duplicate|stale_checkpoint` strict 객체다. result에는 requestedAt/expiresAt 없이 occurredAt을 사용한다.
-- [ ] **Step 4: GREEN.** 동일 신규 테스트 + `pnpm --filter @led-control/shared exec vitest run src/bio-sensor-mode-contracts.test.ts` 및 Shared typecheck/build → exit0. export를 독립 검토하고 consumer용 `pnpm workspace:prepare`를 실행한다.
-- [ ] **Step 5: 검토 승인 후 commit.** 정확 Shared 파일만 stage, `feat(shared): add BIO registration revalidation contracts`.
+- [x] **Step 2: RED 실행.** `pnpm --filter @led-control/shared exec vitest run src/bio-registration-revalidation-contracts.test.ts` → 신규 export/schema 부재로 FAIL.
+- [x] **Step 3: 계약 구현.** command/result 공통 identity는 설계 그대로이며 실패 errorCode는 기존 고정 집합 `MODE_GET_UNCONFIRMED|COMMAND_EXPIRED|GATEWAY_RESTART|UNSUPPORTED_ADAPTER|GATEWAY_SHUTDOWN|GATEWAY_CLOCK_UNTRUSTED`. ACK는 version2/purpose/full identity/eventId/sequence/`payloadHash`/`ingestedAt`/status=`ingested|duplicate|stale_checkpoint` strict 객체다. result에는 requestedAt/expiresAt 없이 occurredAt을 사용한다.
+- [x] **Step 4: GREEN.** 동일 신규 테스트 + `pnpm --filter @led-control/shared exec vitest run src/bio-sensor-mode-contracts.test.ts` 및 Shared typecheck/build → exit0. export를 독립 검토하고 consumer용 `pnpm workspace:prepare`를 실행한다.
+- [x] **Step 5: 검토 승인 후 commit.** 정확 Shared 파일만 stage, `feat(shared): add BIO registration revalidation contracts`.
 
 ## Task 2: additive DB와 관리자 요청/현재 binding — 담당 backend
 
