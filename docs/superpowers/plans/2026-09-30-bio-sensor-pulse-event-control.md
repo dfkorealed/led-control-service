@@ -293,5 +293,7 @@ Task 8은 **8a Gateway/API synthetic integration·additive V2 BIO telemetry hand
 - [x] Task 7 — Web UI (`139916c3`, `7631e40f`; BIO/핀치와 unit/타입/빌드 독립 검토 통과, 기존 수동 모바일 Playwright 2건 Task8 잔여)
 - [x] Task 8 — 사용자 지정 BIO 관련 software 검증·독립 검토 완료, 전체 저장소 실패 수정은 이번 범위에서 제외하고 기록 유지, 제품 OFF
 - [ ] Task 9 — 랩 연결/시험 도구 검증 및 T2 오프라인 분석 완료, A 원복·Gateway 정상 복귀 확인. B 최종 GET의 valid 수신 부재 원인과 실제 행동 시각·광학·독립 건강은 미확정이므로 관문 미통과. 현재 참여 준비/새 교정시험 시작 신호, 반복 shadow/liveness/B60·10초/제품 연동 검증은 남음.
+  - [x] 2026-10-06 사용자 실제 연동 요청 후 현재 연결 사전 확인(07:55~07:58 UTC): strict SSH·같은 Pi Gateway container/image healthy·USB/protocol/mapping/MQTT 정상·최신 heartbeat, confirmed A256/B259의 기존 Fixture ID 유지. 실제 API/scoped READ ONLY DB에서 A/B2·assignment1·claimed/동일 site, 저장 brightness0/powerOff·현재 enabled event/schedule0·inflight command/pending MQTT0 확인. Gateway 저장 자동화 pending/occurrence/rule 등0. 제품/장비 변경·새 START·테스트 재실행은 없다.
+  - [ ] 현재 현장 참여와 중단/원복 범위 확인 후 최소 필요한 신호 구분·독립 node-link 조회·B 유지/복원 검증. 실제 profile/authority 공급은 빈 상태이며 GET 응답은 센서 감지 회로 건강으로 표현하지 않는다. A sensor 자체 점등/B 제어의 승인된 범위를 유지한다.
 
 현재 이 계획은 **BIO 관련 소프트웨어 검증 완료 후 실제 장비 검증 착수 상태**다. 전체 저장소 실패는 별도 기록으로 유지하며, 소프트웨어 통과를 현장 시험·제품 지원 완료로 표현하지 않는다. 총괄은 각 상태 변경을 `docs/project-status.md`와 동기화한다.

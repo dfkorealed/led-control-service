@@ -2,6 +2,14 @@
 
 기준일: 2026-10-06
 
+## 2026-10-06 실제 BIO 센서 연동 — 현재 환경 사전 확인
+
+- 사용자가 실제 센서 연동 진행을 요청했다. 기존 승인 설계의 A sensor 모드 자체 점등·B 이벤트 제어·UI 유지시간 최소10초를 유지하며, A에 서버 밝기 명령을 쓰는 source/target 겸용으로 확장하지 않는다. 제품 활성화에 필요한 실제 profile·독립 링크 관측 공급은 아직 미완료다.
+- 07:55~07:58 UTC 읽기 전용 확인: 기존 Pi에 strict host-key SSH 연결, 같은 원본 Gateway container/image 실행·healthy, USB transport/protocol/mapping 정상, MQTT=true와 최신 heartbeat를 확인했다. 현재 confirmed mapping4개 중 기존 A(address256)와 B(address259)의 Fixture ID는 유지돼 있다. 동글을 여는 별도 client는 만들지 않았다.
+- 현재 운영 API process와 scoped READ ONLY DB transaction에서 기존 A/B2개·claimed/assignmentVersion1·동일 site를 확인했다. 저장 밝기0/powerOff, enabled 이벤트0·현재 유효 enabled 스케줄0·inflight command0·pending MQTT0이다. Gateway 저장 자동화의 occurrence/manual pending/suppression/vehicle rule/미검증 desired/telemetry handoff/sensor inbox도 모두0이다. 이는 해당 시점의 사전 상태이지 실물 광학 출력이나 이후 실행 승인 근거가 아니다.
+- Gateway/firmware 읽기 전용 검토에서 production factory의 authority 공급 부재와 빈 profile registry를 확인했다. 기존 정확한 node GET은 감지 pulse와 독립적인 **링크 응답**으로 사용할 수 있지만 센서 감지 회로 정상의 증거는 아니다. 기존 `0x0c`도 센서 자체 건강으로 승격하지 않는다. 과거 `01`/`03` body의 해석은 아직 미확정이다.
+- 현재 약5분 현장 참여 가능 여부를 사용자에게 확인 중이다. 아직 START·모드/밝기 SET·Gateway 중단/배포·운영 DB 변경·인증서 변경·머지를 실행하지 않았다. 다음 장비 변경 전 현재 범위 밖/타인 부재와 중단·원복 범위를 확인한다. 과거 시작 신호/시험 자료로 현재 실행 권한을 대신하지 않는다.
+
 ## 2026-10-06 BIO 후속 1·3번 — 등록 재검증 소프트웨어 완료, 실제 센서 연동·적용 미완료
 
 - **실행 승인:** 사용자가 센서 쪽 남은 구현 전체와 빠른 집중 검증을 지시했다. 새 실행 계획 Tasks1~6을 역할별로 순차 구현하고, Task9의 감지/독립 건강 공급 경계도 병행 읽기 전용 대조한다. 문서 승인 단계에서 더 대기하지 않는다. 변경 기능 RED/GREEN·직접 회귀·독립 검토만 실행하며 운영 DB/장비/배포/머지·무검증 profile/healthy·제품 ON은 실행하지 않는다.
