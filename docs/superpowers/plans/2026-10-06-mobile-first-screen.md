@@ -33,7 +33,7 @@
 - [x] Task1 Shell·알림·계정 구현/검토 — aba7a268 + cd0f44d0, full review C0/I1 후 scoped I1 ADDRESSED·새 C/I0.
 - [x] Task2 모니터링·제어 구현/검토 — 3c868c0b, 독립 Spec✅/QualityApproved·C0/I0.
 - [x] Task3 통계 구현/검토 — ffda1fa9 + e6a42750, full review C0/I1 뒤 scoped I1 ADDRESSED·새 C/I/M0.
-- [ ] Task4 최종 검증·디자이너·전체 코드 검토.
+- [x] Task4 최종 검증·디자이너·전체 코드 검토 — 9b89e8d0 whole-branch SpecCompliant/QualityApproved·C0/I0/M0.
 - [ ] 총괄이 최종 상태 문서·로컬 메인 병합과 병합 후 검증을 완료한다.
 
 ---
@@ -107,7 +107,9 @@
 - Consumes: 앞 세 task 승인 commit·최종 소스/브라우저 fixture.
 - Produces: 최종 Web test/typecheck/build/UI policy, Mobile 기존109회귀 등 현재 실제 suites, 3개모바일/desktop 캡처·클릭·가시성·독립 UI/코드 review 근거.
 
-- [ ] **Step1: 최종 suite 한 번.** `pnpm workspace:prepare`, `pnpm --filter @led-control/web typecheck`, `pnpm --filter @led-control/web test`, `pnpm --filter @led-control/web build`, Web `test:ui-policy`/`ui:check`, Mobile `test`/`typecheck`를 순차 실행한다. unrelated Gateway/root timeout을 무작정 확장·반복하지 않는다.
-- [ ] **Step2: 관련 Playwright·최종 캡처.** `mobile-first-screen.spec.ts`와 영향받는 Shell/monitoring/control/statistics/settings flows를 필요한 범위로 실행한다. mock API인지 native인지 증거를 구분한다. renderer/input/페이지 조작으로 만든 원본을 보존한다.
-- [ ] **Step3: 디자이너 기존 채팅 검토.** 최종320/390/430 및 desktop 정상 원본·실제 기존 크기를 전달하고 확인된 지적을 같은 소유 담당자에게 최소 보완으로 반환한다.
-- [ ] **Step4: report·필요한 검증 코드 scoped commit.** 전체 실행 결과·known warning/한계·자기 생성 자원 정리를 보고한다. 총괄 whole-branch 독립 review 후 로컬 메인 병합·병합 후 Web 검증을 수행한다.
+- [x] **Step1: 최종 suite 한 번.** `pnpm workspace:prepare`, `pnpm --filter @led-control/web typecheck`, `pnpm --filter @led-control/web test`, `pnpm --filter @led-control/web build`, Web `test:ui-policy`/`ui:check`, Mobile `test`/`typecheck`를 순차 실행한다. unrelated Gateway/root timeout을 무작정 확장·반복하지 않는다.
+- [x] **Step2: 관련 Playwright·최종 캡처.** `mobile-first-screen.spec.ts`와 영향받는 Shell/monitoring/control/statistics/settings flows를 필요한 범위로 실행한다. mock API인지 native인지 증거를 구분한다. renderer/input/페이지 조작으로 만든 원본을 보존한다.
+- [x] **Step3: 디자이너 기존 채팅 검토.** 최종320/390/430 및 desktop 정상 원본·실제 기존 크기를 전달하고 확인된 지적을 같은 소유 담당자에게 최소 보완으로 반환한다.
+- [x] **Step4: report·필요한 검증 코드 scoped commit.** 전체 실행 결과·known warning/한계·자기 생성 자원 정리를 보고한다. 총괄 whole-branch 독립 review 후 로컬 메인 병합·병합 후 Web 검증을 수행한다.
+
+최종 실행 증거: bbb4dd75 준비/types/build/UI67·0위반/Mobile109types·browser26·원본20/자연스크롤sanity3, Web3237PASS/8FAIL/3SKIP은 원기록 보존. 9b89e8d0 stable provider scope 보완으로 소비자 DOM/로그아웃 초점·제어 owner를 유지하고 stale callback/timer/첫 layout격리를 검증했다. App69/Control139/Schedule83/Vehicle71·provider7/header4/typesUI, 확장461PASS1cold lazy timeout은 변경없이단독7PASS와 별도로 보존. 변경후 전체Web3250PASS/3SKIP·types/build0, 디자이너정상20원본 C0/I0/M0. 스타일불변이므로 원본은 bbb의 증거이며 후속 기능 수정통과 증거로 재표시하지 않는다. 9b89e8d0 whole-branch 독립 SpecCompliant/QualityApproved·C0/I0/M0 승인. 로컬병합·병합후검증은 다음 단계다.

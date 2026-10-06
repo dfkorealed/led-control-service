@@ -7,10 +7,10 @@
 - [x] 사용자 A안 진행·기존 탭/버튼/입력 크기 유지·별도 브랜치 작업 후 로컬 병합을 승인했다. [명세](superpowers/specs/2026-10-06-mobile-first-screen.md), [실행 체크리스트](superpowers/plans/2026-10-06-mobile-first-screen.md)를 따른다.
 - [x] 기존 `codex/mobile-first-screen-20261004`와 격리 checkout을 재사용하고 preview 기록 `ce20af4e`를 보존했다. 최신 메인 `f74fc94f`를 `efd3820a`에서 먼저 통합했으며 제품 충돌0, 메뉴 문서는 iOS 보완과 최신 운영 UI 기록을 함께 보존했다. 기본 checkout·실제 서버/DB/장비는 변경하지 않았다.
 - 최신 메인에는 공통 현장 선택·설정 eager 계정/로그아웃과 서버 미읽음 알람이 이미 존재한다. 재작성하지 않고 compact 표현과 기존 toast의 세션 최근 알림을 연결한다. 알림 종류 수와 장애 수는 다르며 새 DB/API를 추가하지 않는다.
-- [x] Task1 공통 헤더·모바일 알림센터/배지·계정 회귀: aba7a268 + cd0f44d0. 독립 full review C0/I1 후 StrictMode 등록 재생 중복을 RED1→GREEN42/typecheck로 보완했고 scoped 재검토 I1 ADDRESSED·새 C/I0. 앞선 baseline63/확장99·최종14/브라우저5/UI policy/Mobile58는 각 소스의 증거다. ancestor remount 중 명령 UUID/자동재전송 없음은 Task2/4에서 런타임 확인한다.
+- [x] Task1 공통 헤더·모바일 알림센터/배지·계정 회귀: aba7a268 + cd0f44d0. 독립 full review C0/I1 후 StrictMode 등록 재생 중복을 RED1→GREEN42/typecheck로 보완했고 scoped 재검토 I1 ADDRESSED·새 C/I0. 앞선 baseline63/확장99·최종14/브라우저5/UI policy/Mobile58는 각 소스의 증거다. Task2의 실제 unmount 복구와 최종9b stable-scope owner props 회귀에서 원명령 UUID/자동재전송 없음/늦은응답격리를 확인했다.
 - [x] Task2 모니터링·제어 도면 우선 배치: 3c868c0b 독립 Spec✅/QualityApproved·C0/I0. 단위284+최종98/browser15와 기존controlmap28/types/UI0. 정상 지도viewport 모니터링173/240/240·제어240/240/240px; CAD원본 자체높이와전체현장핏은 별도다. pending/uncertain keyed현장복귀 원UUID/자동POST0 확인. 기존직접KPI legacy2실패는 BASE도FilterPanel인증거로 보존, 전체브라우저PASS로 주장하지 않는다.
 - [x] Task3 통계 그래프·순위·최근 파일 우선: ffda1fa9+e6a42750, full C0/I1후 기준설명 보완/scoped I1 ADDRESSED·새 C/I/M0. 최종 통계187/첫화면12/날짜계약11·파일5·invalidhistory1, fix25/개요4. 개요143/256/256px·순위185/328/328px·파일버튼44px. 기존크기/단일기준설명/날짜·null·파일계약 유지.
-- [ ] Task4 최종 Web/Mobile·관련 브라우저·디자이너·전체 코드 검토 뒤 로컬 메인 병합과 병합 후 검증.
+- [x] Task4 구현·통합·디자이너·전체브랜치검토 완료, 로컬병합·병합 후 검증 대기. whole-branch 9b89e8d0 SpecCompliant/QualityApproved·C0/I0/M0. 9b89e8d0는 provider `scope`로 알림 저장소만 격리해 소비자 DOM/명령 owner를 유지하며 늦은 현장응답 중 로그아웃원trigger초점과 stale callback/timer/첫layout격리를 보완했다. 변경후 전체Web3250PASS/3SKIP·types/build0; 기존Mobile109/types·UI67/위반0, 정상browser26/자연스크롤sanity3·원본20/디자이너 C0/I0/M0. 최초Web8FAIL과 중간coldlazytimeout/단독7PASS는 각 원로그에 보존한다. 원본은 bbb4dd75 시각증거이고 후속9b는 스타일불변이다.
 - Task1 담당자에게 baseline 확인 후 구현을 배정했고 기존 UI/UX 디자이너 채팅에 읽기 전용 토큰/정보 우선순위 검토를 요청했다. 이전 메인 Gateway timeout/전체 test 한계와 실장비/HIL·실제 계정 native 메뉴 미검증은 이번 UI 통과로 바꾸지 않는다.
 
 ## 2026-10-04 운영 UI 추가 주석 14건 — UI 적용·로컬 병합 완료
