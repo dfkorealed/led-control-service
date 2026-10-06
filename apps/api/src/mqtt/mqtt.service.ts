@@ -59,8 +59,9 @@ import { CommandLateSetAckService } from "../commands/command-late-set-ack.servi
 import { CommandLegacyGetAckService } from "../commands/command-legacy-get-ack.service";
 import { CommandClockResponderService } from "./command-clock-responder.service";
 import { mqttTlsServernameOption } from "./mqtt-tls-identity";
-import { bioSensorModeTopics } from "@led-control/shared";
+import { bioSensorModeTopics, bioRegistrationRevalidationTopics, type BioRegistrationRevalidationAck } from "@led-control/shared";
 import { SensorModeOperationsService } from "../commands/sensor-mode-operations.service";
+import { BioRegistrationRevalidationService } from "../registration/bio-registration-revalidation.service";
 
 const MQTT_BACKGROUND_PUBLISH_TIMEOUT_MS = 10_000;
 const MQTT_CLOSE_TIMEOUT_MS = 5_000;
@@ -71,6 +72,7 @@ function isDurableFixtureObservationTopic(topic: string) {
   const scope = parseGatewayTopic(topic);
   return topic.endsWith("/state/fixtures") || topic.endsWith("/state/fixture-presence") ||
     Boolean(scope && topic === bioSensorModeTopics.result(scope.siteId, scope.gatewayId)) ||
+    Boolean(scope && topic === bioRegistrationRevalidationTopics.result(scope.siteId, scope.gatewayId)) ||
     Boolean(scope && topic === mqttTopicsV2.fixtureUnreachable(scope.siteId, scope.gatewayId));
 }
 
@@ -162,7 +164,8 @@ export class MqttService implements OnModuleInit {
     @Optional() private readonly lateSetAcks?: CommandLateSetAckService,
     @Optional() private readonly legacyGetAcks?: CommandLegacyGetAckService,
     @Optional() private readonly commandClockResponder?: CommandClockResponderService,
-    @Optional() private readonly sensorModeOperations?: SensorModeOperationsService
+    @Optional() private readonly sensorModeOperations?: SensorModeOperationsService,
+    @Optional() private readonly bioRegistrationRevalidations?: BioRegistrationRevalidationService
   ) {
     this.fixtureStateIngestion = fixtureStateIngestion ?? new FixtureStateIngestionService(prisma);
     this.fixturePresenceIngestion = fixturePresenceIngestion ?? new FixturePresenceIngestionService(prisma);
@@ -181,6 +184,7 @@ export class MqttService implements OnModuleInit {
           "sites/+/gateways/+/events/fixture-presence-check-completed",
           mqttTopicsV2.fixtureUnreachable("+", "+"),
           bioSensorModeTopics.result("+", "+"),
+          bioRegistrationRevalidationTopics.result("+", "+"),
           "sites/+/gateways/+/events/provisioning/scan-completed",
           "sites/+/gateways/+/events/provisioning/scan-failed",
           "sites/+/gateways/+/events/provisioning/device-terminal",
@@ -733,6 +737,11 @@ export class MqttService implements OnModuleInit {
 
   private async ingestFixtureObservationPacket(topic: string, payload: Buffer, receivedAt: Date) {
     const scope = parseGatewayTopic(topic);
+    if (scope && topic === bioRegistrationRevalidationTopics.result(scope.siteId, scope.gatewayId)) {
+      if (!this.bioRegistrationRevalidations) throw new Error("BIO registration result consumer unavailable");
+      const acknowledgement = await this.bioRegistrationRevalidations.ingest(topic, JSON.parse(payload.toString()), receivedAt);
+      return { scope, acknowledgement };
+    }
     if (scope && topic === bioSensorModeTopics.result(scope.siteId, scope.gatewayId)) {
       if (!this.sensorModeOperations) throw new Error("sensor mode result consumer unavailable");
       const result = await this.sensorModeOperations.ingest(topic, JSON.parse(payload.toString()), receivedAt);
@@ -750,10 +759,11 @@ export class MqttService implements OnModuleInit {
   private publishFixtureStateAcknowledgement(
     siteId: string,
     gatewayId: string,
-    acknowledgement: ApplicationStateIngestedAckV2
+    acknowledgement: ApplicationStateIngestedAckV2 | BioRegistrationRevalidationAck
   ) {
     return this.publishTopic(
-      mqttTopicsV2.stateIngestedAck(siteId, gatewayId),
+      "purpose" in acknowledgement && acknowledgement.purpose === "bio_registration_revalidation"
+        ? bioRegistrationRevalidationTopics.ack(siteId, gatewayId) : mqttTopicsV2.stateIngestedAck(siteId, gatewayId),
       acknowledgement,
       { timeoutMs: MQTT_BACKGROUND_PUBLISH_TIMEOUT_MS }
     );

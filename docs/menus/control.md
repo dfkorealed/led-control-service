@@ -3,9 +3,10 @@
 ## 2026-10-06 기존 BIO 등록 현재 재검증 — 상세 설계 승인·실행 계획
 
 - 구현 완료(Task 2 소프트웨어): 독립 관리자 create/get·DB 보관이 현재 권한/binding을 검증하고 출력·센서 qualification을 보존한다. 실제 query 전달·B 수복·센서 지원 완료가 아니다.
+- 구현 완료(Task 3 소프트웨어): 서버 조회 발행·fresh 결과·전용 durable ACK 경로를 추가했다. 짧은 lease와 현재 권한/binding/시계 재검증 뒤 최대2초 MQTT 발행을 transaction 밖에서 수행하며 원 payload/hash로 재시도한다. 출력·등록 이력·qualification·heartbeat는 변경하지 않는다.
 - 계약 완료(Shared): registration 전용 query/result/전체 hash ACK `e902a393`, 관련38PASS·독립 검토 승인. Gateway 실행·실제 수복은 후속이다.
 - 관련 요청 파일: `apps/api/src/registration/bio-registration-revalidation.service.ts`, `bio-registration-revalidation-binding.ts`, `registration.controller.ts`.
-- 미구현: 독립 등록 query 전달/result 수용·durable proof·감사 수복과 실제 B 적용. 기존 sensor-mode의 verified 의미·BIO-only 조건은 그대로다.
+- 미구현: Gateway 전용 실제 query 소비·명시적 감사 수복과 실제 B 적용. 기존 sensor-mode의 verified 의미·BIO-only 조건은 그대로다.
 - 부족하거나 개선이 필요한 기능: force-off 설정 GET 성공을 과거 등록 완료·센서 감지/연결 건강으로 사용하지 않는다. 새 조회도 밝기/mode SET0이어야 하며 기존 ID·밝기·전원·이력을 보존한다. 감지 profile/독립 건강과 제품 활성화는 별도 관문이다.
 - 관련 파일: `docs/superpowers/specs/2026-10-06-bio-registration-revalidation-design.md`, `docs/superpowers/plans/2026-10-06-bio-registration-revalidation.md`, 기존 `apps/api/src/commands/sensor-mode-operations.service.ts`, `apps/gateway/src/adapters/bio-usb-dongle-adapter.ts`.
 - 갱신 규칙: 상세 설계 승인·소프트웨어 구현·현장 조회/수복·BIO 분류·센서 활성화를 각각 실제 증거로 구분한다.

@@ -3,9 +3,11 @@
 ## 2026-10-06 기존 BIO 등록 현재 재검증 — 상세 설계 승인·실행 계획
 
 - 구현 완료(Task 2 소프트웨어): commission 관리자 전용 create/get과 독립 operation migration을 추가했다. 현재 graph·원 provision command·claim/인증서·배정을 검사하고 원래 30초/120초 기한을 보존한다. 일회용 DB에서만 검증했으며 실제 B 수복 완료가 아니다.
-- 계약 완료(Shared): registration 전용 query/result/전체 hash ACK `e902a393`, 관련38PASS·독립 검토 승인. create/get 이후 전달·수복은 후속이다.
+- 구현 완료(Task 3 소프트웨어): 현재 관리자/claim/인증서·배정과 정확 binding을 재검증하는 조회 발행, 세 mode의 fresh 결과 보관과 독립 durable ACK를 추가했다. 동일 결과 재전달은 원문을 보존하며 ACK만 재전송하고, 변경된 binding/늦은 결과/불신뢰 시계는 proof 없이 감사용으로 보관한다. MQTT PUBACK은 관찰 성공이 아니다.
+- 계약 완료(Shared): registration 전용 query/result/전체 hash ACK `e902a393`, 관련38PASS·독립 검토 승인. Gateway 실제 조회·감사 수복은 후속이다.
 - 관련 API/DB 파일: `apps/api/src/registration/bio-registration-revalidation.service.ts`, `bio-registration-revalidation-binding.ts`, `apps/api/prisma/migrations/20261006120000_bio_registration_revalidation/migration.sql`, `docs/database-schema.md`.
-- 미구현: query 전달·fresh result 수용·proof 단일 소비·등록 후보 status와 감사의 원자 수복. 실제 등록 데이터와 운영 DB는 변경하지 않았다.
+- 미구현: Gateway의 전용 query 소비·proof 단일 소비·등록 후보 status와 감사의 원자 수복. 실제 등록 데이터와 운영 DB는 변경하지 않았다.
+- 관련 전달 파일: `apps/api/src/mqtt/bio-registration-revalidation-publisher.service.ts`, `mqtt.service.ts`, `mqtt.module.ts`, `mqtt-shutdown-coordinator.service.ts`.
 - 부족하거나 개선이 필요한 기능: 실제 DB clock attestor가 없으므로 production 요청·조회는 거부한다. 과거 completed terminal을 합성하지 않으며 session 전체 완료·Fixture/Node ID·밝기·전원·그룹·이력은 변경하지 않는다. 수복과 기존 A/B 원자 BIO 분류는 구분한다.
 - 관련 파일: `docs/superpowers/specs/2026-10-06-bio-registration-revalidation-design.md`, `docs/superpowers/plans/2026-10-06-bio-registration-revalidation.md`, 기존 `apps/api/src/registration/bio-classification-reconciliation.service.ts`.
 - 갱신 규칙: 새 schema/계약 구현 시 DB 문서를 함께 갱신하며, 현재 장치 확인과 과거 등록 완료 기록을 구분한다.

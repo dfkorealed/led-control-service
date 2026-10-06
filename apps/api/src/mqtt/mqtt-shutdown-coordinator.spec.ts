@@ -14,8 +14,19 @@ import { LegacyStatusCheckPublisherService } from "./legacy-status-check-publish
 import { RecoveryOutboxPublisherService } from "./recovery-outbox-publisher.service";
 import { ProvisioningDeviceOutboxPublisherService } from "./provisioning-device-outbox-publisher.service";
 import { ProvisioningScanOutboxPublisherService } from "./provisioning-scan-outbox-publisher.service";
+import { BioRegistrationRevalidationPublisherService } from "./bio-registration-revalidation-publisher.service";
+import { SensorModePublisherService } from "./sensor-mode-publisher.service";
 
 describe("MqttShutdownCoordinator", () => {
+  it("drains BIO registration revalidation publish and inbound before closing MQTT", async () => {
+    const publishing = deferred<void>(), inbound = deferred<void>(); let closed = false;
+    const drain = { stopAndDrain: async () => {} };
+    const coordinator = new (MqttShutdownCoordinator as any)(drain, drain, drain, drain, drain, drain,
+      { stopInboundAndDrain: () => inbound.promise, close: async () => { closed = true; } }, undefined, undefined,
+      { stopAndDrain: () => publishing.promise });
+    const closing = coordinator.onModuleDestroy(); inbound.resolve(); await waitForTurn(); expect(closed).toBe(false);
+    publishing.resolve(); await closing; expect(closed).toBe(true);
+  });
   it("waits for parent-free recovery Get before closing the shared connection", async () => {
     const recovery = deferred<void>();
     let closed = false;
@@ -238,12 +249,19 @@ describe("MqttShutdownCoordinator", () => {
     const scanWorker = moduleRef.get(ProvisioningScanOutboxPublisherService);
     const deviceWorker = moduleRef.get(ProvisioningDeviceOutboxPublisherService);
     const automationWorker = moduleRef.get(AutomationOutboxPublisherService);
+    const bioRegistrationWorker = moduleRef.get(BioRegistrationRevalidationPublisherService);
+    const sensorModeWorker = moduleRef.get(SensorModePublisherService);
     const commandTimeout = moduleRef.get(CommandTimeoutService);
     (mqtt as any).client = client;
     jest.spyOn(commandWorker, "claimBatch").mockResolvedValue([]);
     jest.spyOn(legacyGetWorker, "claimBatch").mockResolvedValue([]);
     jest.spyOn(scanWorker, "claimBatch").mockResolvedValue([]);
     jest.spyOn(deviceWorker, "claimBatch").mockResolvedValue([]);
+    // This module test exercises real shared shutdown. DB query workers have
+    // independent integration tests and cannot run on this mesh-only DB double.
+    jest.spyOn(deviceWorker, "processBatch").mockResolvedValue(undefined);
+    jest.spyOn(sensorModeWorker, "processBatch").mockResolvedValue(undefined);
+    jest.spyOn(bioRegistrationWorker, "processBatch").mockResolvedValue(undefined);
     jest.spyOn(automationWorker, "claimConfigBatch").mockResolvedValue([]);
     jest.spyOn(automationWorker, "claimApplicationAckBatch").mockResolvedValue([]);
     jest.spyOn(commandTimeout, "closeExpired").mockResolvedValue({ timedOut: 0 });

@@ -17,6 +17,7 @@ const enabled = process.env.BIO_REGISTRATION_REVALIDATION_DISPOSABLE_POSTGRES ==
   const request = () => ({ siteId: ids.site, gatewayId: ids.gateway, fixtureId: ids.fixture,
     expectedAssignmentVersion: 2, clientRequestId: randomUUID() });
   const operations = () => (db as any).bioRegistrationRevalidationOperation;
+  let clock: CommandDbClockHealth;
   beforeAll(async () => {
     cluster = await disposablePostgres(); const url = cluster.database();
     const deployed = cluster.deploy(url);
@@ -26,7 +27,7 @@ const enabled = process.env.BIO_REGISTRATION_REVALIDATION_DISPOSABLE_POSTGRES ==
     db = new PrismaClient({ datasourceUrl: url });
     const { BioRegistrationRevalidationService } = require("../src/registration/bio-registration-revalidation.service");
     // Synthetic evidence exists only in this self-owned DB test, never in DI.
-    const clock = new CommandDbClockHealth({ read: async () => {
+    clock = new CommandDbClockHealth({ read: async () => {
       const [row] = await db.$queryRaw<any[]>`SELECT clock_timestamp() AS now, pg_postmaster_start_time() AS started,
         inet_server_addr()::text AS address, inet_server_port() AS port`;
       return { issuedAt: row.now, offsetMs: 0, stepGeneration: 0, clearedStepGeneration: 0,
@@ -179,6 +180,151 @@ const enabled = process.env.BIO_REGISTRATION_REVALIDATION_DISPOSABLE_POSTGRES ==
       resultHash: hash(result), resultEventId: result.eventId, proofAcceptedAt: acceptedAt } });
     return { row, result, acceptedAt };
   }
+  async function pendingResult(mode = "force-off") {
+    const created = await service.create(user, request());
+    const row = await operations().findUniqueOrThrow({ where: { commandId: created.commandId } });
+    const { requestedAt: _requested, expiresAt: _expires, ...identity } = row.payload;
+    return { row, result: { ...identity, eventId: randomUUID(), sequence: 7, occurredAt: row.requestedAt.toISOString(),
+      status: "observed", evidence: "mode_get", observedMode: mode },
+      topic: `sites/${ids.site}/gateways/${ids.gateway}/events/bio-registration-revalidation-result` };
+  }
+  it.each(["sensor", "force-on", "force-off"])("ingest accepts fresh %s and atomically retains the exact ACK without projection writes", async mode => {
+    const { row, result, topic } = await pendingResult(mode); const before = await readProtectedFixtureState();
+    const receivedAt = new Date(row.requestedAt.getTime() + 100);
+    const ack = await service.ingest(topic, result, receivedAt);
+    expect(ack).toMatchObject({ purpose: "bio_registration_revalidation", status: "ingested", eventId: result.eventId, payloadHash: hash(result) });
+    const stored = await operations().findUniqueOrThrow({ where: { commandId: row.commandId } });
+    expect(stored).toMatchObject({ status: "observed", result, resultHash: hash(result), resultEventId: result.eventId, proofAcceptedAt: receivedAt });
+    expect(await service.get(user, row.commandId)).toMatchObject({ observedMode: mode });
+    const receipt = await db.mqttOutbox.findUniqueOrThrow({ where: { applicationAckKey: `bio-registration-revalidation:${ids.gateway}:${row.commandId}:${result.eventId}` } });
+    expect(receipt.payload).toEqual(ack); expect(receipt.payloadHash).toBe(hash(ack));
+    expect(receipt.topic).toBe(`sites/${ids.site}/gateways/${ids.gateway}/acks/bio-registration-revalidation-result`);
+    expect(await readProtectedFixtureState()).toEqual(before);
+  });
+  it.each(["sensor", "force-on", "force-off"].flatMap(mode => ["before", "after", "future", "receipt", "superseded", "binding", "timed-out", "clock"].map(reason => [mode, reason])))
+  ("ingest stores %s %s as immutable stale audit with no exposed proof", async (mode, reason) => {
+    const { row, result, topic } = await pendingResult(mode); let receivedAt = new Date(row.requestedAt.getTime() + 100);
+    if (reason === "before") result.occurredAt = new Date(row.requestedAt.getTime() - 1).toISOString();
+    if (reason === "after") result.occurredAt = new Date(row.expiresAt.getTime() + 1).toISOString();
+    if (reason === "future") result.occurredAt = new Date(receivedAt.getTime() + 1001).toISOString();
+    if (reason === "receipt") receivedAt = row.expiresAt;
+    if (reason === "superseded") await service.create(user, request());
+    if (reason === "binding") await db.meshNode.update({ where: { id: ids.node }, data: { meshAddress: "0x0101" } });
+    if (reason === "timed-out") await service.expire(row.expiresAt);
+    const { BioRegistrationRevalidationService } = require("../src/registration/bio-registration-revalidation.service");
+    const ingest = reason === "clock" ? new BioRegistrationRevalidationService(db, new SiteAccessService(db as never), new CommandDbClockHealth()) : service;
+    const before = await readProtectedFixtureState();
+    expect(await ingest.ingest(topic, result, receivedAt)).toMatchObject({ status: "stale_checkpoint" });
+    const stored = await operations().findUniqueOrThrow({ where: { commandId: row.commandId } });
+    expect(stored.result).toEqual(result); expect(stored.proofAcceptedAt).toBeNull(); expect(stored.status).not.toBe("observed");
+    if (reason !== "binding") expect(await service.get(user, row.commandId)).toMatchObject({ observedMode: null });
+    expect(await readProtectedFixtureState()).toEqual(before);
+  });
+  it("ingest accepts exact duplicate only; altered full hash or event preserves original and revives ACK", async () => {
+    const { row, result, topic } = await pendingResult(); const received = new Date(row.requestedAt.getTime() + 100);
+    await service.ingest(topic, result, received);
+    const original = await operations().findUniqueOrThrow({ where: { commandId: row.commandId } });
+    const key = `bio-registration-revalidation:${ids.gateway}:${row.commandId}:${result.eventId}`;
+    await db.mqttOutbox.update({ where: { applicationAckKey: key }, data: { publishedAt: new Date(), deadLetteredAt: new Date(), attempts: 10 } });
+    expect(await service.ingest(topic, result, row.expiresAt)).toMatchObject({ status: "duplicate", payloadHash: hash(result) });
+    for (const changed of [{ ...result, observedMode: "sensor" }, { ...result, eventId: randomUUID() }]) {
+      await expect(service.ingest(topic, changed, received)).rejects.toThrow();
+    }
+    expect(await operations().findUniqueOrThrow({ where: { commandId: row.commandId } })).toEqual(original);
+    expect(await db.mqttOutbox.findUniqueOrThrow({ where: { applicationAckKey: key } })).toMatchObject({ publishedAt: null, deadLetteredAt: null, attempts: 0 });
+  });
+  it.each(["assignment", "cert", "requester", "purpose", "topic", "identity", "old-ack"])("ingest rejects current %s before result or ACK writes", async reason => {
+    const { row, result, topic } = await pendingResult(); let value: any = result; let channel = topic;
+    if (reason === "assignment") await db.gateway.update({ where: { id: ids.gateway }, data: { assignmentVersion: 3 } });
+    if (reason === "cert") await db.gatewayCertificate.update({ where: { id: ids.cert }, data: { revokedAt: new Date() } });
+    if (reason === "requester") {
+      await db.site.update({ where: { id: ids.site }, data: { adminUserId: null } });
+      await db.user.update({ where: { id: ids.actor }, data: { status: "disabled" } });
+    }
+    if (reason === "purpose") value = { ...result, purpose: "sensor_mode" };
+    if (reason === "topic") channel = topic.replace("bio-registration-revalidation-result", "bio-sensor-mode-result");
+    if (reason === "identity") value = { ...result, nodeId: randomUUID() };
+    if (reason === "old-ack") value = { fixtureId: ids.fixture, eventId: result.eventId, sequence: 7, status: "ingested" };
+    await expect(service.ingest(channel, value, new Date(row.requestedAt.getTime() + 100))).rejects.toThrow();
+    expect((await operations().findUniqueOrThrow({ where: { commandId: row.commandId } })).resultHash).toBeNull();
+    expect(await db.mqttOutbox.count({ where: { gatewayId: ids.gateway } })).toBe(0);
+  });
+  it("ingest ACK insert failure rolls back proof, and cross-command event collision rolls back everything", async () => {
+    const { row, result, topic } = await pendingResult();
+    const key = `bio-registration-revalidation:${ids.gateway}:${row.commandId}:${result.eventId}`;
+    // A preexisting unrelated key is an integrity collision, never permission to overwrite its ACK.
+    await db.mqttOutbox.create({ data: { gatewayId: ids.gateway, applicationAckKey: key, topic: "wrong", payload: {}, payloadHash: hash({}) } });
+    await expect(service.ingest(topic, result, new Date(row.requestedAt.getTime() + 100))).rejects.toThrow();
+    expect((await operations().findUniqueOrThrow({ where: { commandId: row.commandId } })).resultHash).toBeNull();
+    await db.mqttOutbox.delete({ where: { applicationAckKey: key } });
+    await service.ingest(topic, result, new Date(row.requestedAt.getTime() + 100));
+    const second = await pendingResult(); second.result.eventId = result.eventId;
+    await expect(service.ingest(topic, second.result, new Date(second.row.requestedAt.getTime() + 100))).rejects.toMatchObject({ code: "P2002" });
+    expect((await operations().findUniqueOrThrow({ where: { commandId: second.row.commandId } })).resultHash).toBeNull();
+    expect(await db.mqttOutbox.count({ where: { gatewayId: ids.gateway } })).toBe(1);
+  });
+  it("expiry makes only pending operations timed_out without synthetic result or audit", async () => {
+    const { row } = await pendingResult(); const before = await readProtectedFixtureState();
+    await service.expire(new Date(row.expiresAt.getTime() - 1));
+    expect((await operations().findUniqueOrThrow({ where: { commandId: row.commandId } })).status).toBe("pending");
+    await service.expire(row.expiresAt);
+    expect(await operations().findUniqueOrThrow({ where: { commandId: row.commandId } })).toMatchObject({ status: "timed_out", resultHash: null, resultEventId: null, proofAcceptedAt: null });
+    expect(await readProtectedFixtureState()).toEqual(before);
+  });
+  function publisher(publishTopic: (...args: any[]) => Promise<void>, selectedClock = clock) {
+    const { BioRegistrationRevalidationPublisherService } = require("../src/mqtt/bio-registration-revalidation-publisher.service");
+    return new BioRegistrationRevalidationPublisherService(db, { publishTopic }, service, selectedClock);
+  }
+  it("publish commits canonical validation before network, retries identical payload, and PUBACK never observes", async () => {
+    const { row } = await pendingResult(); const before = await readProtectedFixtureState(); const sent: any[] = [];
+    const worker = publisher(async (topic, payload, options) => {
+      // A separate transaction must acquire the domain/operation rows during network I/O.
+      await db.$transaction(async tx => {
+        await tx.$executeRawUnsafe("SET LOCAL lock_timeout = '500ms'");
+        await tx.$queryRaw`SELECT "id" FROM "Floor" WHERE "id"=${ids.floor} FOR UPDATE`;
+        await tx.$queryRaw`SELECT "commandId" FROM "BioRegistrationRevalidationOperation" WHERE "commandId"=${row.commandId} FOR UPDATE`;
+      });
+      sent.push({ topic, payload, options }); if (sent.length === 1) throw new Error("PUBACK lost");
+    });
+    await worker.processBatch();
+    let stored = await operations().findUniqueOrThrow({ where: { commandId: row.commandId } });
+    expect(stored).toMatchObject({ status: "pending", resultHash: null, publishedAt: null, lockedBy: null, attempts: 1 });
+    await operations().update({ where: { commandId: row.commandId }, data: { nextAttemptAt: new Date(0) } });
+    await worker.processBatch(); stored = await operations().findUniqueOrThrow({ where: { commandId: row.commandId } });
+    expect(stored).toMatchObject({ status: "pending", proofAcceptedAt: null, resultHash: null, attempts: 2 }); expect(stored.publishedAt).not.toBeNull();
+    expect(sent).toHaveLength(2); expect(sent[0].payload).toEqual(row.payload); expect(sent[1].payload).toEqual(row.payload);
+    expect(sent[0].topic).toBe(`sites/${ids.site}/gateways/${ids.gateway}/commands/bio-registration-revalidation`);
+    expect(sent[0].options.timeoutMs).toBeLessThanOrEqual(2000); expect(sent[0].options.retain).toBe(false);
+    expect(await readProtectedFixtureState()).toEqual(before);
+  });
+  it.each(["requester", "cert", "assignment", "binding", "clock", "expired", "superseded"])("publish refuses current %s and leaves no proof", async reason => {
+    const { row } = await pendingResult(); let selectedClock = clock;
+    if (reason === "requester") {
+      await db.site.update({ where: { id: ids.site }, data: { adminUserId: null } });
+      await db.user.update({ where: { id: ids.actor }, data: { status: "disabled" } });
+    }
+    if (reason === "cert") await db.gatewayCertificate.update({ where: { id: ids.cert }, data: { notAfter: new Date(0) } });
+    if (reason === "assignment") await db.gateway.update({ where: { id: ids.gateway }, data: { assignmentVersion: 3 } });
+    if (reason === "binding") await db.meshNode.update({ where: { id: ids.node }, data: { meshAddress: "0x0101" } });
+    if (reason === "clock") selectedClock = new CommandDbClockHealth();
+    if (reason === "expired") await service.expire(row.expiresAt);
+    if (reason === "superseded") await service.create(user, request());
+    let sends = 0; await publisher(async () => { sends++; }, selectedClock).processBatch();
+    expect(sends).toBe(reason === "superseded" ? 1 : 0); // Only the replacement command is eligible.
+    const stored = await operations().findUniqueOrThrow({ where: { commandId: row.commandId } });
+    expect(stored.proofAcceptedAt).toBeNull(); expect(stored.publishedAt).toBeNull();
+    if (!["superseded", "expired"].includes(reason)) expect(stored.status).toBe("unknown");
+  });
+  it("publish lease replacement fences old completion and concurrent workers cannot both own one query", async () => {
+    const { row } = await pendingResult(); let sends = 0;
+    const worker = publisher(async () => {
+      sends++; await publisher(async () => { sends++; }).processBatch();
+      await operations().update({ where: { commandId: row.commandId }, data: { lockedBy: "successor", leaseExpiresAt: new Date(Date.now() + 10_000) } });
+    });
+    await worker.processBatch();
+    expect(sends).toBe(1);
+    expect(await operations().findUniqueOrThrow({ where: { commandId: row.commandId } })).toMatchObject({ lockedBy: "successor", publishedAt: null, attempts: 1 });
+  });
   it("get permits the current provisioned graph for an applied row; new create retains the consumed operation/audit", async () => {
     const input = request(); const created = await service.create(user, input);
     const { acceptedAt } = await persistObserved(created.commandId);

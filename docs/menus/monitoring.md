@@ -3,6 +3,7 @@
 ## 2026-10-06 기존 BIO 등록 현재 재검증 — 상세 설계 승인·실행 계획
 
 - 구현 완료(Task 2 소프트웨어): 현재 commission/requester·binding을 재검증하는 최소 작업 상태 GET과 독립 operation 보관을 추가했다. dashboard/telemetry/운영 데이터 변경은 없다.
+- 구현 완료(Task 3 소프트웨어): 세 설정 mode의 동일 시간 경계를 적용한 결과 수용·immutable 감사 보관·내구 ACK와 shutdown drain을 추가했다. stale/unknown/만료 결과는 observedMode를 공개하지 않으며 Fixture 출력·센서 qualification·heartbeat를 갱신하지 않는다. 생산 DB 시계 attestor가 없으면 query/proof를 거부한다.
 - 계약 완료(Shared만): registration 전용 query/result/전체 hash ACK `e902a393`, 관련38PASS·독립 검토 승인. 상태 조회·readiness·실장비 확인으로 승격하지 않는다.
 - 관련 조회 파일: `apps/api/src/registration/bio-registration-revalidation.service.ts`, `registration.controller.ts`.
 - 미구현: 실제 B 현재 조회와 등록 수복. 감지 신호 승인·독립 연결 건강 공급도 별도 미완료다.

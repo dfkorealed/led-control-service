@@ -32,6 +32,7 @@ import { CommandDbClockHealth } from "./command-db-clock-health.service";
 import { CommandPublishEpochService } from "./command-publish-epoch.service";
 import { CommandPublishQuiesceService } from "./command-publish-quiesce.service";
 import { BioRegistrationRevalidationService } from "../registration/bio-registration-revalidation.service";
+import { BioRegistrationRevalidationPublisherService } from "./bio-registration-revalidation-publisher.service";
 
 @Module({
   imports: [PrismaModule, AccessModule, MeshControlGroupModule, AutomationRuntimeModule, MonitoringIncidentsModule],
@@ -39,6 +40,7 @@ import { BioRegistrationRevalidationService } from "../registration/bio-registra
     MqttService,
     SensorModeOperationsService,
     BioRegistrationRevalidationService,
+    BioRegistrationRevalidationPublisherService,
     SensorModePublisherService,
     CommandSetMqttService,
     FixtureStateIngestionService,
