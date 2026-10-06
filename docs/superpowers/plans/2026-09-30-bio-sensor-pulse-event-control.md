@@ -301,6 +301,11 @@ Task 8은 **8a Gateway/API synthetic integration·additive V2 BIO telemetry hand
   - [ ] 현재 행동/광학 시각 관문: 중간 Mac UTC 약+1.94초 보정 흔적과 transfer clockFailed latch로 실제 UI stale/기록 disabled. bridge225copy/closed·native300초 수집은 완료됐지만 local 행동은 outside2/moving1/still1, 이후 행동/광학/clock0·native human markers[]라 전체 물리 시험으로 인정하지 않는다. 250ms guard를 완화하거나 기록·예정 행동을 합성하지 않았으며 새 field START는 자동 실행하지 않는다.
   - [x] 사용자 사후 정성 관찰 보존: 중단 전 정지60초 무움직임·A 높은 밝기 확인. 실시간 광학 영수증/정량/물리 시각 확인과 구분하며 정지 보고를 새 motion으로 단정하지 않는다.
   - [x] 이번 원문 읽기 전용 분석·총괄 대조: exact A 후보20=05 body10/01 body10, 예정 outside0/move1 9/still6/move2 5/outside0·A0x0c28. 새05/정지 보고와 최대22.328초 공백의 의미는 미확정이므로 motion-only profile/hold10 광학 동등성을 승인하지 않는다. Mac 시각 보정과 UI 보호 latch 경로는 일치하나 내부 latch 로그 부재로 직접 확정하지 않는다. 추가 코드/시험/장비 실행0, 제품 gateOFF 유지.
+  - [x] 최신 사용자 정정 반영: 정지 중 간헐적 소규모 움직임이 있었다. 앞선 완전 무움직임 확인을 정정하며 still구간은 무자극 근거에서 제외한다. 실제 원문/높은 밝기 정성 관찰은 보존한다. 해당 후보만으로 motion-only 가설을 기각하지 않고 추가 정지시험도 자동 요구하지 않는다. 구현 요청과 profile/독립 링크 qualification 완료는 구분한다.
+  - [x] 사용자 승인 A/B 한정 opt-in pilot 코드 구현(`3aec92e9`·`d680f226`): 기존 단일 client/정확 identity·target state 원복을 사용해01/05 시험 알림→B60%/hold10..1800초·후속 갱신·독립 node-link GET 확인 때만 만료한다. A 자율 sensor를 유지하고 B 원본 raw/mode를 보호 내구 저장·복원하며 product gate/qualification은 OFF다. queue 독립 monotonic300초 상한·매쓰기 fence·독립30초 복구·불확실 pending/비정상 종료를 보완했다. 새 제품/wire/DB 계약·운영/장비 조작0.
+  - [x] 신규 pilot 검증·독립 최종 재검토: 초기 집중13/13, Important2건 재현 RED4실패/13통과→보완 집중17/17·scripts/Gateway typecheck·diffcheck0, 영향3메뉴 갱신과 총괄 검증 기록/소스 hash 대조 완료. 독립 보완 재검토 I1/I2 해결·Critical0/Important0/Minor0·코드 전용 승인. 전체 저장소/무관 suite와 이미 완료된 Tasks1~8 재실행은 제외한다. 실제 PIR/광학/driver·Node22 동등성은 미검증이며 운영 launcher/USB 독점/START 관문이 없어 현장 실행은 승인되지 않았다. 기존 bundle은 보완 전 artifact로 미실행 보존하며 후속 최신 실행용으로 쓰지 않는다.
+  - [ ] pilot 실제 B 적용/갱신/만료/종료 원복 검증: 구현 이후 현재 A/B binding/대기 작업·USB 독점/원본 서비스·fresh 준비/중단 승인·별도 START를 확인하고 한 번만 진행한다. 소프트웨어 통과를 실제 점등/제품 지원으로 표시하지 않는다.
+    - 사용자 최신 한도: 이번에는 코드/로컬 검증/인계만 진행한다. remote stage·장비 검증은 시작하지 않고 코드 구현 완료를 먼저 알린다.
   - [ ] 현재 현장 참여와 중단/원복 범위 확인 후 최소 필요한 신호 구분·독립 node-link 조회·B 유지/복원 검증. 실제 profile/authority 공급은 빈 상태이며 GET 응답은 센서 감지 회로 건강으로 표현하지 않는다. A sensor 자체 점등/B 제어의 승인된 범위를 유지한다.
 
-현재 이 계획은 **BIO 관련 소프트웨어 검증 완료 후 실제 장비 검증 착수 상태**다. 전체 저장소 실패는 별도 기록으로 유지하며, 소프트웨어 통과를 현장 시험·제품 지원 완료로 표현하지 않는다. 총괄은 각 상태 변경을 `docs/project-status.md`와 동기화한다.
+현재 이 계획은 **A/B 시험용 연동 코드를 먼저 구현하고 실장비 실행 전에 인계하는 상태**다. 제품 profile/독립 공급·운영 연결·현장 검증은 미완료/OFF이며, 이번 작업에서는 원격 준비나 장비 실행을 하지 않는다. 전체 저장소 실패는 별도 기록으로 유지하며, 소프트웨어 통과를 현장 시험·제품 지원 완료로 표현하지 않는다. 총괄은 각 상태 변경을 `docs/project-status.md`와 동기화한다.
