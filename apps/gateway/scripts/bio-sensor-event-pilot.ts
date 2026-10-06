@@ -45,8 +45,13 @@ export async function openPilotJournal(directory: string) {
   const path = resolve(directory), info = await lstat(path);
   if (!info.isDirectory() || info.isSymbolicLink() || (info.mode & 0o777) !== 0o700 || info.uid !== process.getuid?.() || await realpath(path) !== path) throw Error("PILOT_PRIVATE_DIRECTORY");
   const file = await open(join(path, "pilot-journal.jsonl"), "wx", 0o600);
-  const dir = await open(path, "r");
-  await dir.sync(); await dir.close();
+  try {
+    const dir = await open(path, "r");
+    try { await dir.sync(); } finally { await dir.close(); }
+  } catch (error) {
+    try { await file.close(); } catch (closeError) { throw new AggregateError([error, closeError], "PILOT_JOURNAL_OPEN_FAILED"); }
+    throw error;
+  }
   return {
     write: async (state: PilotState) => { await file.writeFile(JSON.stringify({ ...state, trialIdentity: pair, fingerprint: "5.5.8/12889/2/1/0/3" }) + "\n"); await file.sync(); },
     close: () => file.close()
@@ -77,7 +82,9 @@ export function createPilotSession(journal: (state: PilotState) => Promise<void>
     const state = client.sensorSourceSnapshot();
     if (!state.transportConnected || !state.protocolReady || state.generation !== generation) throw Error("PILOT_GENERATION_CHANGED");
   };
-  const fenced = (control: BioOperationControl): BioOperationControl => ({ ...control, beforeWrite: assertCurrent });
+  const fenced = (control: BioOperationControl): BioOperationControl => ({ ...control, beforeWrite: async () => {
+    await control.beforeWrite?.(); await assertCurrent(); await control.beforeWrite?.();
+  } });
   const readOriginal = async (name: "A" | "B", control: BioOperationControl): Promise<PilotOriginal> => {
     const read = await adapter.readBioState(pair[name].fixture, control), member = pair[name];
     if (read.target.nativeUuid !== member.native || read.target.logicalAddress !== member.address || read.target.networkId !== 0) throw Error("PILOT_TARGET_CHANGED");
@@ -132,6 +139,32 @@ export function createPilotSession(journal: (state: PilotState) => Promise<void>
   return runtime;
 }
 
+/** Cleanup errors cannot overwrite one another or skip closing the private journal. */
+export async function runPilotLifecycle(
+  create: () => PilotRuntime,
+  closeJournal: () => Promise<void>,
+  observe: (runtime: PilotRuntime) => Promise<void> = async runtime => {
+    await runtime.start(); console.log("PILOT_TRIAL_NOTIFICATION_ONLY_STARTED");
+    while (!runtime.closed) { await new Promise(resolve => setTimeout(resolve, 200)); await runtime.tick(); }
+  }
+) {
+  let runtime: PilotRuntime | undefined;
+  const errors: unknown[] = [];
+  const cancel = () => { void runtime?.stop().catch(() => {}); };
+  try {
+    runtime = create(); process.once("SIGINT", cancel); process.once("SIGTERM", cancel);
+    await observe(runtime);
+  } catch (error) { errors.push(error); }
+  finally {
+    try { await runtime?.stop(); } catch (error) { errors.push(error); }
+    finally {
+      process.removeListener("SIGINT", cancel); process.removeListener("SIGTERM", cancel);
+      try { await closeJournal(); } catch (error) { errors.push(error); }
+    }
+  }
+  if (errors.length) throw new AggregateError(errors, "PILOT_LIFECYCLE_FAILED");
+}
+
 export async function main(args = process.argv.slice(2)) {
   const options = parsePilotArgs(args);
   if (!options.run) {
@@ -141,15 +174,7 @@ export async function main(args = process.argv.slice(2)) {
   // Operational launcher must separately verify stopped original Gateway/exclusive USB.
   // This script never stops/restarts a service, writes mappings, or supplies product health.
   const journal = await openPilotJournal(options.journalDirectory!);
-  const runtime = createPilotSession(journal.write, options.holdSeconds);
-  const cancel = () => { void runtime.stop().catch(() => {}); };
-  process.once("SIGINT", cancel); process.once("SIGTERM", cancel);
-  try {
-    await runtime.start(); console.log("PILOT_TRIAL_NOTIFICATION_ONLY_STARTED");
-    while (!runtime.closed) { await new Promise(resolve => setTimeout(resolve, 200)); await runtime.tick(); }
-  } finally {
-    await runtime.stop(); process.removeListener("SIGINT", cancel); process.removeListener("SIGTERM", cancel); await journal.close();
-  }
+  await runPilotLifecycle(() => createPilotSession(journal.write, options.holdSeconds), journal.close);
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
   main().catch(() => { console.error("PILOT_FAILED_PRIVATE_JOURNAL_REQUIRED"); process.exitCode = 1; });

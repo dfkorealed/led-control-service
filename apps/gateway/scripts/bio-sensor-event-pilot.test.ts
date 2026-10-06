@@ -1,8 +1,8 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { PilotRuntime, type PilotOriginal, type PilotPort, type PilotState } from "./bio-sensor-event-pilot-runtime";
 import type { BioSensorPulseCandidate } from "../src/bio/bio-command-codec";
 import type { BioOperationControl } from "../src/bio/bio-dongle-client";
-import { main, parsePilotArgs, openPilotJournal } from "./bio-sensor-event-pilot";
+import { main, parsePilotArgs, openPilotJournal, runPilotLifecycle } from "./bio-sensor-event-pilot";
 import { mkdtemp, readFile, stat, realpath } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -63,7 +63,7 @@ describe("A/B opt-in pilot boundaries", () => {
   });
   it("does no sensor SET when durable capture fails", async () => {
     const f = fixture(); const runtime = new PilotRuntime({ holdSeconds: 10, monotonic: () => 0, port: f.port, journal: async () => { throw Error("fsync failed"); } });
-    await expect(runtime.start()).rejects.toThrow(); expect(f.calls).not.toContain("sensor-A"); await runtime.stop();
+    await expect(runtime.start()).rejects.toThrow(); expect(f.calls).not.toContain("sensor-A"); await expect(runtime.stop()).rejects.toThrow("PILOT_STOP_UNCERTAIN");
   });
   it("stop cancels an in-flight B apply and uses independent recovery signal before closing", async () => {
     const f = fixture(); await f.runtime.start(); let enter!: () => void;
@@ -76,7 +76,7 @@ describe("A/B opt-in pilot boundaries", () => {
   it("preserves pending when recovery fails and never retries automatically", async () => {
     const f = fixture(); await f.runtime.start(); await f.runtime.pulse(f.pulse());
     f.port.restore = async name => { f.calls.push("restore-" + name); if (name === "B") throw Error("unknown"); };
-    await f.runtime.stop(); expect(f.states.at(-1)?.pending).toEqual(["B"]);
+    await expect(f.runtime.stop()).rejects.toThrow("PILOT_STOP_UNCERTAIN"); expect(f.states.at(-1)?.pending).toEqual(["B"]);
     expect(f.calls.filter(x => x === "restore-B")).toHaveLength(1);
   });
   it("uses monotonic trial end even if UTC steps", async () => {
@@ -117,5 +117,52 @@ describe("A/B opt-in pilot boundaries", () => {
     expect(JSON.parse((await readFile(join(directory, "pilot-journal.jsonl"), "utf8")).trim()).pending).toEqual(["A", "B"]);
     await expect(openPilotJournal(directory)).rejects.toThrow();
     await expect(openPilotJournal(join(directory, "missing"))).rejects.toThrow();
+  });
+  it("caps a blocked apply without queue/tick progress and forbids its late SET", async () => {
+    vi.useFakeTimers();
+    try {
+      const f = fixture(); await f.runtime.start(); f.setNow(299000); let entered!: () => void;
+      const waiting = new Promise<void>(resolve => { entered = resolve; });
+      f.port.applyB = control => new Promise((_resolve, reject) => {
+        entered(); control.signal!.addEventListener("abort", () => {
+          expect(control.mayStartWrite?.()).toBe(false); reject(Error("cap abort"));
+        }, { once: true });
+      });
+      const apply = f.runtime.pulse(f.pulse()); await waiting; f.setNow(300001);
+      await vi.advanceTimersByTimeAsync(100); await apply; await f.runtime.stop();
+      expect(f.calls).not.toContain("apply-B-60"); expect(f.calls).toContain("restore-B");
+    } finally { vi.useRealTimers(); }
+  });
+  it("fences expiry restore if slow positive GET crosses cap before watchdog fires", async () => {
+    const f = fixture(); let activeSignal: AbortSignal | undefined, normalRestoreSeen = false;
+    f.port.applyB = async control => { activeSignal = control.signal; };
+    await f.runtime.start(); await f.runtime.pulse(f.pulse()); f.setNow(299999);
+    f.port.link = async () => { f.setNow(300001); return true; };
+    f.port.restore = async (name, _original, control) => {
+      if (control.signal === activeSignal) normalRestoreSeen = true;
+      // Normal expiry must not run here; only separate recovery permits writes.
+      expect(control.signal?.aborted).toBe(false); expect(control.mayStartWrite?.()).toBe(true); f.calls.push("restore-" + name);
+    };
+    await f.runtime.tick(); await f.runtime.stop();
+    expect(normalRestoreSeen).toBe(false);
+    expect(f.calls.filter(x => x === "restore-B")).toHaveLength(1);
+  });
+  it("rejects journal failure after restore and retains pending rather than reporting success", async () => {
+    const f = fixture(); let fail = false; const states: PilotState[] = [];
+    const runtime = new PilotRuntime({ holdSeconds: 10, monotonic: () => 0, port: f.port, journal: async state => {
+      if (fail) throw Error("fsync"); states.push(structuredClone(state));
+    } });
+    await runtime.start(); await runtime.pulse(f.pulse()); fail = true;
+    await expect(runtime.stop()).rejects.toThrow("PILOT_STOP_UNCERTAIN");
+    expect(states.at(-1)?.pending).toEqual(["A", "B"]); expect(f.calls.at(-1)).toBe("close");
+  });
+  it("journal close still runs after session construction, stop and transport close errors", async () => {
+    let closes = 0;
+    await expect(runPilotLifecycle(() => { throw Error("construct"); }, async () => { closes++; })).rejects.toThrow();
+    const f = fixture(); f.port.close = async () => { throw Error("transport close"); };
+    await expect(runPilotLifecycle(() => f.runtime, async () => { closes++; throw Error("journal close"); }, async () => {
+      await f.runtime.start(); await f.runtime.stop();
+    })).rejects.toThrow("PILOT_LIFECYCLE_FAILED");
+    expect(closes).toBe(2);
   });
 });

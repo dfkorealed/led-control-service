@@ -21,14 +21,29 @@ export class PilotRuntime {
   private generation = -1;
   private startedAt = 0;
   private started = false;
+  private watchdog?: ReturnType<typeof setInterval>;
+  private readonly journalErrors: unknown[] = [];
   private last?: { sequence: number; body: string; at: number };
   constructor(private readonly options: PilotOptions) {
     if (!Number.isInteger(options.holdSeconds) || options.holdSeconds < 10 || options.holdSeconds > 1800) throw Error("PILOT_HOLD_RANGE");
   }
   get closed() { return this.stopping; }
   private run(job: () => Promise<void>) { const next = this.queue.then(job); this.queue = next.catch(() => {}); return next; }
-  private control(): BioOperationControl { return { signal: this.active.signal, mayStartWrite: () => !this.stopping && !this.degraded }; }
-  private save() { return this.options.journal(structuredClone(this.state)); }
+  private capReached() {
+    if (!this.started || this.options.monotonic() - this.startedAt < 300000) return false;
+    // Abort synchronously, independently of the serial queue currently waiting on GET.
+    if (!this.stopping) void this.stop().catch(() => {}); return true;
+  }
+  private mayWrite() { return !this.capReached() && !this.stopping && !this.degraded; }
+  private control(): BioOperationControl {
+    return { signal: this.active.signal, mayStartWrite: () => this.mayWrite(), beforeWrite: async () => {
+      if (!this.mayWrite()) throw Error("PILOT_NORMAL_WRITE_STOPPED");
+    } };
+  }
+  private async save() {
+    try { await this.options.journal(structuredClone(this.state)); }
+    catch (error) { this.journalErrors.push(error); throw error; }
+  }
   async start() {
     return this.run(async () => {
       if (this.state.phase !== "new" || this.stopping) throw Error("PILOT_ONE_USE");
@@ -41,6 +56,8 @@ export class PilotRuntime {
         await this.options.port.sensor(this.control());
         if (this.stopping || this.degraded) throw Error("PILOT_STOPPED");
         this.startedAt = this.options.monotonic(); this.started = true; this.state.phase = "observing"; await this.save();
+        this.watchdog = setInterval(() => { this.capReached(); }, 100);
+        this.watchdog.unref();
       } catch (error) { this.fault(); throw error; }
     });
   }
@@ -63,7 +80,7 @@ export class PilotRuntime {
           this.state.pending.push("B"); this.state.occurrence++;
           this.state.deadlineMonotonicMs = at + this.options.holdSeconds * 1000; await this.save();
           await this.options.port.applyB(this.control());
-          if (this.stopping || this.degraded) return;
+          if (!this.mayWrite()) return;
         } else this.state.deadlineMonotonicMs = at + this.options.holdSeconds * 1000;
         await this.save();
       } catch { this.fault(); await this.save().catch(() => {}); }
@@ -76,7 +93,7 @@ export class PilotRuntime {
       try {
         // This separate GET proves node/link response only, never PIR capability.
         if (!await this.options.port.link(this.control())) throw Error("PILOT_NODE_LINK_UNKNOWN");
-        if (this.stopping || this.degraded) return;
+        if (!this.mayWrite()) return;
         await this.options.port.restore("B", this.state.originals!.B, this.control());
         this.state.pending = this.state.pending.filter(x => x !== "B"); this.state.deadlineMonotonicMs = null; await this.save();
       } catch { this.fault(); await this.save().catch(() => {}); }
@@ -86,23 +103,30 @@ export class PilotRuntime {
   stop(): Promise<void> {
     if (this.stopPromise) return this.stopPromise;
     this.stopping = true; this.active.abort();
+    if (this.watchdog) clearInterval(this.watchdog);
     this.stopPromise = this.run(async () => {
       const recovery = new AbortController();
       const timer = setTimeout(() => recovery.abort(), 30000);
       const control: BioOperationControl = { signal: recovery.signal, mayStartWrite: () => !recovery.signal.aborted };
+      const errors: unknown[] = [];
       try {
-        this.state.phase = "recovering"; await this.save().catch(() => {});
+        this.state.phase = "recovering"; await this.save().catch(error => { errors.push(error); });
         for (const name of ["B", "A"] as const) {
           if (!this.state.pending.includes(name) || !this.state.originals) continue;
           try {
             await this.options.port.restore(name, this.state.originals[name], control);
-            this.state.pending = this.state.pending.filter(x => x !== name); await this.save();
-          } catch { /* Unknown recovery is durable pending, never an automatic retry. */ }
+            const before = [...this.state.pending];
+            this.state.pending = this.state.pending.filter(x => x !== name);
+            try { await this.save(); } catch (error) { this.state.pending = before; throw error; }
+          } catch (error) { errors.push(error); /* Pending is retained; no automatic retry. */ }
         }
       } finally {
         clearTimeout(timer); this.state.phase = this.state.pending.length ? "restore-pending" : "closed";
-        await this.save().catch(() => {}); await this.options.port.close();
+        await this.save().catch(error => { errors.push(error); });
+        await this.options.port.close().catch(error => { errors.push(error); });
       }
+      errors.push(...this.journalErrors);
+      if (errors.length || this.state.pending.length) throw new AggregateError(errors, "PILOT_STOP_UNCERTAIN");
     });
     return this.stopPromise;
   }
