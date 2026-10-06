@@ -1,6 +1,35 @@
 # 통계 메뉴 기능 현황
 
 
+## 2026-10-06 모바일 첫 화면 통계 우선 배치 (Task 3)
+
+### 구현 완료
+
+- 기존 개요/사용 분석/보고서 밑줄 탭과 44px 조작, 입력·타이포그래피·카드 토큰을 유지한다. 760px 미만에서 통계 간격과 중복 제목만 압축한다.
+- 개요는 선택 기간·상태 기반 추정/24시간 100% 기준 사용량·절감 의미·수집 공백/데이터 없음 요약 다음 실제 비교 차트를 표시한다. 상세 비교 KPI·동기간 비교와 오늘 사용량/비용/추이는 모두 아래에서 접근한다. null/결측과 선 끊김은 기존 데이터 의미를 유지한다.
+- 사용 분석은 단위·기준·완료 기간·정렬·상태 기반 추정 조건 요약 다음 기존 순위 막대/선택을 표시한다. 현장 KPI와 저장 비용 기준·그룹 중복/과거 이력 제외 상세는 뒤에서 접근하며 순위 상세와 히트맵도 유지한다. 필터 초기화는 기존 조건 popover 안에서 명시적으로 접근한다.
+- 보고서는 최근 요청 이력을 조건보다 먼저 표시하고 모바일 카드에서 원본 대상·상태·기존 다운로드/다시 생성 작업을 먼저 표시한다. 기간·요청/만료 시각과 조건·페이지 이동은 아래에서 접근한다. 생성 dialog, PDF 서명 URL/문서 ID, CSV bytes/취소·재시도 계약은 유지한다.
+
+### 미구현
+
+- 새 API·DB·실장비 연동과 새로운 통계 그래프/계산은 추가하지 않는다. 보고서에는 비교용 가짜 그래프를 넣지 않는다.
+
+### 부족하거나 개선이 필요한 기능
+
+- 첫 화면 검증은 브라우저 HTTP fixture의 정상 100%·scroll0 320×568/390×844/430×932와 desktop 1280×900 범위다. 오류·긴 이름·큰 글자와 적은 순위 항목에서는 자연 높이와 스크롤을 허용하며 실장비/native/HIL 완료를 뜻하지 않는다.
+- 4개 순위 항목 fixture의 실제 순위 목록과 개요 chart 표시 교차 높이를 하단 메뉴를 제외해 측정한다. 실제 데이터 항목 수에 따라 순위 목록 높이는 달라질 수 있다. 전체 Web/Mobile/build 및 최종 디자인 승인은 Task 4에서 확인한다.
+
+### 관련 파일
+
+- `apps/web/src/features/statistics/{StatisticsShell,StatisticsOverviewPage}.tsx`
+- `apps/web/src/features/statistics/analysis/StatisticsAnalysisPage.tsx`
+- `apps/web/src/features/statistics/reports/{StatisticsReportsPage,ReportJobList}.tsx`
+- `apps/web/e2e/mobile-first-screen.spec.ts`, `apps/web/e2e/support/first-screen-statistics.ts`
+
+### 갱신 규칙
+
+- 통계 기간/조건·차트/순위·보고서 파일 작업의 위치 또는 의미를 바꾸면 이 절과 해당 회귀·원본 캡처를 함께 갱신한다. 임시 fixture 증거를 native/실장비 증거로 승격하지 않는다.
+
 ## 2026-10-06 공통 모바일 헤더·최근 알림 (Task 1)
 
 ### 구현 완료

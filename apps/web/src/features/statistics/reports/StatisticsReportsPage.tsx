@@ -299,10 +299,10 @@ export function StatisticsReportsPage() {
     }
   }
 
-  return <section className="grid min-w-0 gap-6" aria-label="에너지 보고서">
-    <PageHeader title="보고서" status={undefined}
+  return <section className="grid min-w-0 gap-6 max-compact:gap-2" aria-label="에너지 보고서">
+    <PageHeader title="보고서" status={undefined} className="max-compact:flex-row max-compact:items-center max-compact:[&>div:last-child]:w-auto"
       actions={<Button variant="primary" onClick={() => setIsDialogOpen(true)}><FileText size={16} />보고서 만들기</Button>} />
-    <Card className="min-w-0 p-4 compact:p-5">
+    <Card className="min-w-0 p-4 compact:p-5 max-compact:order-1">
       <ReportHistoryFilters scopeKey={draftScope} value={filters} invalidRequestedRange={invalidRequestedRange} onChange={changeFilters} onInvalidDraftChange={onInvalidDraftChange} />
     </Card>
     <Card className="grid min-w-0 gap-4 p-4 compact:p-5" aria-label="보고서 이력">

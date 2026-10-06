@@ -1,3 +1,4 @@
+import { installFirstScreenStatisticsFixtures, browserReport } from "./support/first-screen-statistics";
 import { expect, test } from "@playwright/test";
 import { installSettingsApiRoutes } from "./support/settings-api";
 import { expectNoHorizontalOverflow } from "./support/layout-assertions";
@@ -108,3 +109,45 @@ test("compact selection/execution disclosure and resize preserve pending command
   expect(api.dimmingRequests[0].clientRequestId).toBe(uuid);
   expect(posts).toEqual(["/api/commands/dimming"]);
 });
+
+for (const [width, height] of [[320, 568], [390, 844], [430, 932], [1280, 900]]) {
+  for (const menu of ["overview", "analysis", "reports"]) test(`statistics ${menu} first screen at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height });
+    await installSettingsApiRoutes(page, "admin", { ids: { siteId: "30000000-0000-4000-8000-000000000001" } });
+    await installFirstScreenStatisticsFixtures(page);
+    await page.route("**/energy/sites/*/reports?**", route => route.fulfill({ json: { reports: [browserReport("completed")], nextCursor: null, totalCount: 1 } }));
+    await page.goto(`/statistics/${menu}?siteId=30000000-0000-4000-8000-000000000001`);
+    const graphic = menu === "overview" ? page.getByRole("img", { name: "기준 대비 에너지 사용량 비교 차트" })
+      : menu === "analysis" ? page.getByRole("region", { name: "사용량 순위", exact: true }).locator("ol")
+      : page.getByRole("button", { name: /PDF.*다운로드|다운로드/ }).first();
+    await expect(graphic).toBeVisible();
+    const box = (await graphic.boundingBox())!;
+    const nav = width < 760 ? await page.locator('[data-shell-navigation="compact"]').boundingBox() : null;
+    const header = (await page.locator("[data-shell-topbar]").boundingBox())!;
+    const visible = Math.max(0, Math.min(box.y + box.height, nav?.y ?? height) - Math.max(header.y + header.height, box.y));
+    console.log(JSON.stringify({ menu, width, height, box, nav, header, visible }));
+    expect(visible).toBeGreaterThanOrEqual(menu === "reports" ? 44 : width === 320 ? 120 : 240);
+    expect(await page.evaluate(() => window.scrollY)).toBe(0);
+    await expectNoHorizontalOverflow(page);
+    if (menu === "analysis" && width < 760) {
+      const conditions = page.getByRole("region", { name: "사용량 분석 조건", exact: true });
+      const triggerBox = (await conditions.getByRole("button", { name: /상세 필터/ }).boundingBox())!;
+      const summaryBox = (await conditions.getByText(/층 · 사용량/).boundingBox())!;
+      expect(summaryBox.x).toBeGreaterThanOrEqual(triggerBox.x + triggerBox.width);
+    }
+    const tab = page.getByRole("navigation", { name: "통계 메뉴" }).getByRole("link").first();
+    expect((await tab.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+    const typography = await tab.evaluate(element => ({ fontSize: getComputedStyle(element).fontSize, lineHeight: getComputedStyle(element).lineHeight }));
+    expect(typography).toEqual({ fontSize: "13px", lineHeight: "20px" });
+    console.log(JSON.stringify({ menu, width, typography }));
+    // Recharts' existing entry animation lasts 1.5s; preserve the settled original graphic.
+    if (menu === "overview") await page.waitForTimeout(1600);
+    await page.screenshot({ path: `../../.superpowers/sdd/2026-10-06-mobile-first-screen/task-3-${menu}-${width}.png` });
+    if (menu === "analysis") {
+      const second = graphic.getByRole("button").nth(1);
+      await second.click();
+      await expect(second).toHaveAttribute("aria-pressed", "true");
+      await expect(page.getByRole("complementary", { name: "B1 주차장 2 상세", exact: true })).toBeVisible();
+    }
+  });
+}

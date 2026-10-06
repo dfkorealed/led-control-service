@@ -346,9 +346,10 @@ function ComparisonSection({
     const savingsPrefix = presentation.tone === "danger" ? "기준 초과" : "예상 절감";
 
     content = (
-      <>
+      <div className="grid min-w-0 gap-4 max-compact:gap-2">
+        <Text variant="caption" tone="secondary" className="compact:hidden">상태 기반 추정 {query.data.summary.estimatedKwh === null ? "산정 대기" : formatKwh(query.data.summary.estimatedKwh)} · 기준 {formatKwh(query.data.summary.baselineKwh)} · {presentation.label}{query.data.points.some(point => point.dataStatus === "partial") ? " · 수집 공백 있음" : query.data.points.some(point => point.dataStatus === "no_data") ? " · 수집 데이터 없음" : ""}</Text>
         {isAvailable ? (
-          <div className="grid grid-cols-4 gap-3 tablet:grid-cols-4 max-compact:grid-cols-1">
+          <div className="grid grid-cols-4 gap-3 tablet:grid-cols-4 max-compact:grid-cols-1 max-compact:order-2">
             <div className="min-w-0">
               <MetricCard
                 label={presentation.label}
@@ -391,7 +392,7 @@ function ComparisonSection({
             </div>
           </div>
         ) : (
-          <div className="grid grid-cols-2 gap-3 max-compact:grid-cols-1">
+          <div className="grid grid-cols-2 gap-3 max-compact:grid-cols-1 max-compact:order-2">
             <div className="min-w-0">
               <MetricCard
                 label="기준 사용량"
@@ -406,29 +407,29 @@ function ComparisonSection({
         <div className="grid min-w-0 grid-cols-[minmax(0,2fr)_minmax(16rem,1fr)] gap-4 max-compact:grid-cols-1" role="group" aria-label="기준 및 동기간 비교">
           <Card className="grid min-w-0 gap-4 p-4 compact:p-6" aria-label="기준 대비 사용량 비교">
             <div className="grid gap-1">
-              <Text variant="overline" tone="muted">기준 대비 추세</Text>
+              <Text variant="overline" tone="muted" className="max-compact:hidden">기준 대비 추세</Text>
               <Heading as="h3" variant="card-title">완료 기간 추정·예상 사용량 비교</Heading>
             </div>
             <EnergyComparisonChart comparison={query.data} />
           </Card>
           <PeriodComparisonPanel comparisons={query.data.priorComparisons} />
         </div>
-      </>
+      </div>
     );
   }
 
   return (
-    <section className="grid gap-4" aria-labelledby="statistics-comparison-title">
-      <div className="flex items-start justify-between gap-4 max-compact:flex-col max-compact:items-stretch">
-        <div className="grid gap-1">
+    <section className="grid min-w-0 gap-4 max-compact:gap-2" aria-labelledby="statistics-comparison-title">
+      <div className="flex min-w-0 items-start justify-between gap-4">
+        <div className="grid gap-1 max-compact:sr-only">
           <Heading as="h3" variant="section-title" id="statistics-comparison-title">기준 대비 에너지 절감</Heading>
           {query.data && !query.isError ? <Text variant="caption" tone="secondary">
             {query.data.range.from} ~ {query.data.range.to}
           </Text> : null}
         </div>
-        <FilterPanel label="절감 비교 기간" mode="popover" isOpen={isOpen} onOpenChange={onOpenChange}
+        <FilterPanel label="절감 비교 기간" mode="popover" className="max-compact:w-full max-compact:flex-row max-compact:items-center max-compact:[&>div:first-child]:shrink-0 max-compact:[&>div:nth-child(2)]:flex-1" isOpen={isOpen} onOpenChange={onOpenChange}
           activeFilterCount={Number(customActive || preset !== "current_month")} summary={<Text variant="caption">{currentRangeLabel}</Text>}
-          filterReset={<Button size="sm" variant="secondary" onClick={onReset}>필터 초기화</Button>}>
+          >
         <div className="flex flex-wrap gap-2" role="group" aria-label="절감 비교 프리셋">
           {comparisonPresetOptions.map((option) => (
             <Button
@@ -445,6 +446,7 @@ function ComparisonSection({
           ))}
         </div>
         {customPicker}
+        <Button size="sm" variant="secondary" onClick={onReset}>필터 초기화</Button>
         </FilterPanel>
       </div>
       {content}

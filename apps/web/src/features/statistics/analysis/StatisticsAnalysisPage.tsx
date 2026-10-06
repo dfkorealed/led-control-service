@@ -74,15 +74,16 @@ export function StatisticsAnalysisPage() {
     return <section className="grid min-w-0 gap-6"><FeedbackState icon={Activity} title="사용량 순위를 계산하는 중" /></section>;
   }
   return (
-    <section className="grid min-w-0 gap-5" aria-label="사용량 분석 결과">
+    <section className="grid min-w-0 gap-5 max-compact:gap-2" aria-label="사용량 분석 결과">
       <Card className="min-w-0 p-4">
-      <FilterPanel label="사용량 분석 조건" mode="popover" variant="compact"
+      <FilterPanel label="사용량 분석 조건" mode="popover" variant="compact" className="max-compact:flex-row max-compact:items-center max-compact:[&>div:first-child]:shrink-0 max-compact:[&>div:nth-child(2)]:flex-1"
         activeFilterCount={Number(dimension !== "floor") + Number(metric !== "usage") + Number(sort !== "desc") + Number(from !== defaults.from || to !== defaults.to)}
-        summary={<Text variant="body-sm">{dimensions.find(item => item.value === dimension)?.label} · {metricItems.find(item => item.id === metric)?.label} · {from || "시작일 미완성"} ~ {to || "종료일 미완성"} · {sort === "desc" ? "높은 순" : "낮은 순"}</Text>}
-        filterReset={<Button size="sm" variant="secondary" onClick={() => {
+        summary={<Text variant="body-sm"><span className="compact:hidden">상태 기반 추정 · </span>{dimensions.find(item => item.value === dimension)?.label} · {metricItems.find(item => item.id === metric)?.label} · {from || "시작일 미완성"} ~ {to || "종료일 미완성"} · {sort === "desc" ? "높은 순" : "낮은 순"}</Text>}
+        >
+        <Button size="sm" variant="secondary" onClick={() => {
           setDimension("floor"); setMetric("usage"); setSort("desc");
           startDraft.reset(defaults.from); endDraft.reset(defaults.to);
-        }}>필터 초기화</Button>}>
+        }}>필터 초기화</Button>
         <div className="grid min-w-0 w-full gap-2 compact:w-56" role="group" aria-label="분석 단위">
           <Text as="span" variant="label">분석 단위</Text>
           <div className="flex min-w-0 gap-2">
@@ -109,12 +110,12 @@ export function StatisticsAnalysisPage() {
       {validRange && query.isError ? <FeedbackState tone="danger" icon={TriangleAlert} title="사용량 분석을 불러오지 못했습니다."
         action={<Button variant="secondary" onClick={() => query.refetch()}>다시 시도</Button>} /> : null}
       {ranking ? <>
-      <div className="grid grid-cols-3 gap-3 max-compact:grid-cols-1">
+      <div className="grid grid-cols-3 gap-3 max-compact:grid-cols-1 max-compact:order-1">
         <MetricCard label="현장 사용량" value={ranking.siteTotalKwh.toLocaleString("ko-KR")} unit="kWh" tone="primary" />
         <MetricCard label="저장 비용" value={Math.round(ranking.siteTotalCost).toLocaleString("ko-KR")} unit="원" />
         <MetricCard label="분석 대상" value={ranking.ranked.length} unit="개" />
       </div>
-      <div className="flex min-w-0 flex-wrap items-center gap-2 rounded-control border border-status-info-border bg-status-info-background px-3 py-2" aria-label="분석 상태">
+      <div className="flex min-w-0 flex-wrap items-center gap-2 rounded-control border border-status-info-border bg-status-info-background px-3 py-2 max-compact:order-1" aria-label="분석 상태">
         <StatusBadge tone="info" icon={BarChart3}>상태 기반 추정</StatusBadge>
         <Text variant="body-sm" tone="secondary">비용 합계와 순위는 당시 적용 단가의 저장 비용입니다.</Text>
         {ranking.overlappingMemberships ? <StatusDetailButton label="그룹 중복" description="그룹 중복 소속 조명은 각 그룹에 포함됩니다. 그룹 합계는 현장 총계와 다를 수 있습니다." /> : null}

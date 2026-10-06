@@ -7,7 +7,7 @@ export interface StatisticsOutletContext {
 
 export function StatisticsShell({ siteId }: StatisticsOutletContext) {
   return (
-    <section className="grid min-w-0 content-start gap-6" aria-label="통계">
+    <section className="grid min-w-0 content-start gap-6 max-compact:gap-2" aria-label="통계">
       <StatisticsSubnavigation />
       <Outlet context={{ siteId } satisfies StatisticsOutletContext} />
     </section>
