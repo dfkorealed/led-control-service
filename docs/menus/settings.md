@@ -2,7 +2,7 @@
 
 ## 2026-10-06 기존 BIO 등록 현재 재검증 — 상세 설계 승인·실행 계획
 
-- 구현 완료: 없음. 기존 B 삭제 없는 현재 장치 재검증 상세 설계가 승인됐다. 실행 계획을 작성했으며 사용자 계획 검토 대기다.
+- 구현 완료: 없음. 기존 B 삭제 없는 현재 장치 재검증 상세 설계·실행이 승인돼 소프트웨어 구현 진행 중이다.
 - 미구현: commission 관리자 전용 현재 조회·fresh proof 단일 소비·등록 후보 status와 감사의 원자 수복. 실제 등록 데이터와 운영 DB는 변경하지 않았다.
 - 부족하거나 개선이 필요한 기능: 과거 completed terminal을 합성하지 않으며 session 전체 완료·Fixture/Node ID·밝기·전원·그룹·이력은 변경하지 않는다. 수복과 기존 A/B 원자 BIO 분류는 구분한다.
 - 관련 파일: `docs/superpowers/specs/2026-10-06-bio-registration-revalidation-design.md`, `docs/superpowers/plans/2026-10-06-bio-registration-revalidation.md`, 기존 `apps/api/src/registration/bio-classification-reconciliation.service.ts`.

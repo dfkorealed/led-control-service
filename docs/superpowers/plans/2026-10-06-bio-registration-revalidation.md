@@ -8,7 +8,7 @@
 
 **Tech Stack:** 기존 Node 22, pnpm 9.15.0, TypeScript, Zod, NestJS, Prisma/PostgreSQL, MQTT QoS 1, Gateway CommandJournal/StateEventOutbox, Jest/Vitest. 의존성 추가 없음.
 
-**Spec:** `docs/superpowers/specs/2026-10-06-bio-registration-revalidation-design.md` — 2026-10-06 사용자 상세 설계 승인. **현재는 이 실행 계획의 사용자 검토 대기이며 코드·DB·장비 실행 전이다.**
+**Spec:** `docs/superpowers/specs/2026-10-06-bio-registration-revalidation-design.md` — 2026-10-06 사용자 상세 설계·실행 승인. **소프트웨어 구현 진행 중이다. 과도한 테스트 없이 변경 기능과 직접 회귀만 검증하며 운영 DB·장비 변경은 아직 실행하지 않는다.**
 
 ## Global Constraints
 
@@ -185,4 +185,4 @@
 - [x] task 간 타입/메서드 이름·purpose/topic/TTL/ACK hash/시간 비교·잠금 순서 일치를 대조했다.
 - [x] Review Focus 다섯 항목을 담당 task의 실제 테스트 assertions/경계 사례에 배치했다.
 - [x] 함수 본문 대신 경계·signature·핵심 assertions만 남겼고 독립 provider/고객 UI/BlueZ 제거를 추가하지 않았다.
-- [ ] 사용자 실행 계획 검토 후 Tasks1~6 시작. 이미 합의된 역할별 서브에이전트 순차 구현/총괄 취합 방식 유지.
+- [x] 사용자 실행 계획 승인으로 Tasks1~6 시작. 이미 합의된 역할별 서브에이전트 순차 구현/총괄 취합 방식 유지.
