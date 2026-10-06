@@ -23,6 +23,23 @@ const columns = [
   { id: "action", header: "작업", minWidth: 100, align: "center" as const, renderCell: () => <button>상세</button> }
 ];
 describe("DataGrid", () => {
+  it("keeps compact card sorting in one accessible control row without a separate label", async () => {
+    render(<UI.DataGrid variant="compact" caption="작은 목록" rows={[{ id: "ten", amount: 10 }, { id: "two", amount: 2 }]} columns={[
+      { id: "amount", header: "수량", minWidth: 200, sortValue: row => row.amount, renderCell: row => row.id },
+      { id: "actions", header: "작업", minWidth: 200, renderCell: row => <button>상세 {row.id}</button> }
+    ]} getRowKey={row => row.id} />);
+    expect(screen.queryByText("정렬 기준")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /정렬 기준.*현재 목록 안에서 정렬/ }));
+    expect(screen.queryByRole("option", { name: "작업" })).not.toBeInTheDocument();
+    fireEvent.click(await screen.findByRole("option", { name: "수량" }));
+    const order = () => within(screen.getByRole("list", { name: "작은 목록" })).getAllByRole("listitem").map(row => within(row).getAllByRole("definition")[0].textContent);
+    expect(order()).toEqual(["two", "ten"]);
+    fireEvent.click(screen.getByRole("button", { name: "내림차순으로 변경" }));
+    expect(order()).toEqual(["ten", "two"]);
+    expect(screen.getByRole("button", { name: "상세 two" })).toBeInTheDocument();
+    measure(500);
+    expect(screen.getByRole("columnheader", { name: /수량/ })).toHaveAttribute("aria-sort", "descending");
+  });
   it.each([
     { values: ["조명10", "조명2", "가나다", "ABC", "abc"], ascending: ["2", "1", "0", "3", "4"], descending: ["3", "4", "0", "1", "2"] },
     { values: [10, null, 2, 2, undefined, NaN, Infinity], ascending: ["2", "3", "0", "1", "4", "5", "6"], descending: ["0", "2", "3", "1", "4", "5", "6"] },

@@ -137,6 +137,11 @@ describe("SiteUsersView", () => {
     expect(cards).toHaveTextContent("hyunsu.kim");
     expect(cards).toHaveTextContent("로그인 기록 없음");
     expect(within(cards).getAllByRole("term")).toHaveLength(12);
+    fireEvent.click(screen.getByRole("button", { name: /정렬 기준.*현재 목록 안에서 정렬/ }));
+    expect(screen.queryByRole("option", { name: "관리" })).not.toBeInTheDocument();
+    fireEvent.click(await screen.findByRole("option", { name: "이름" }));
+    fireEvent.click(screen.getByRole("button", { name: "내림차순으로 변경" }));
+    expect(within(cards).getAllByRole("listitem")[0]).toHaveTextContent("야간 당직");
     fireEvent.click(within(cards).getByRole("button", { name: "김현수 작업" }));
     expect(await screen.findAllByRole("menuitem")).toHaveLength(4);
     expect(api.updateSiteUser).not.toHaveBeenCalled();

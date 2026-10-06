@@ -67,6 +67,7 @@ export function DataGrid<T>({ caption, rows, columns, getRowKey, isBusy = false,
   }
   const minimumWidth = columns.reduce((total, column) => total + column.minWidth, 0);
   const table = width > 0 && width >= minimumWidth;
+  const compactCards = variant === "compact" && !table;
   const cellClass = cn("min-w-0 wrap-anywhere whitespace-normal", variant === "compact" ? "px-3 py-2" : "px-4 py-3");
   const empty = emptyState ?? (isBusy ? "불러오는 중" : "항목이 없습니다.");
   const rowKey = (row: T) => { const key = getRowKey(row); return `${typeof key}:${key}`; };
@@ -74,10 +75,11 @@ export function DataGrid<T>({ caption, rows, columns, getRowKey, isBusy = false,
   const sortableColumns = columns.filter(column => column.sortValue);
   const toggleSort = (columnId: string) => setSort(current => ({ columnId, direction: current?.columnId === columnId && current.direction === "ascending" ? "descending" : "ascending" }));
   return <Card ref={container} className={cn("min-w-0", className)} aria-busy={isBusy || undefined}>
-    {sortableColumns.length ? <div className="grid min-w-0 gap-2 border-b border-border-default p-3">
-      <p className="m-0 text-caption text-content-secondary">현재 목록 안에서 정렬</p>
+    {sortableColumns.length ? <div className={cn("grid min-w-0 gap-2 border-b border-border-default", compactCards ? "p-2" : "p-3")}>
+      {/* Compact cards keep the same controls in one row so their first action remains reachable. */}
+      <p className={cn("m-0 text-caption text-content-secondary", compactCards && "sr-only")}>현재 목록 안에서 정렬</p>
       {!table ? <div className="flex min-w-0 flex-wrap items-end gap-2">
-        <SelectBox label="정렬 기준" className="min-w-0 flex-1" placeholder="기본 순서" selectedKey={sortColumn?.id ?? null}
+        <SelectBox label={compactCards ? undefined : "정렬 기준"} aria-label={compactCards ? "정렬 기준 · 현재 목록 안에서 정렬" : undefined} className="min-w-0 flex-1" placeholder="기본 순서" selectedKey={sortColumn?.id ?? null}
           items={sortableColumns.map(column => ({ id: column.id, label: column.header }))}
           onSelectionChange={columnId => setSort(columnId === null ? null : { columnId, direction: "ascending" })} />
         <Button type="button" size="sm" disabled={!sortColumn} aria-label={sort?.direction === "ascending" ? "내림차순으로 변경" : "오름차순으로 변경"}

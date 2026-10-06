@@ -97,8 +97,8 @@ export function ReportJobList({
       <Text variant="caption" tone="secondary">시각: {timeZone ? "현장" : "기기"} 시간대 {timeZone ?? Intl.DateTimeFormat().resolvedOptions().timeZone}</Text>
       {refreshNotice}
     </div> : null}
-    {/* Compact cards lead with the document target/status and its existing file action; all original fields remain accessible. */}
-    {items.length ? <DataGrid caption="보고서 생성 이력" rows={items} columns={columns} getRowKey={item => item.view.id} isBusy={isBusy} variant="compact" className="max-compact:[&_dl>div:first-child]:-order-3 max-compact:[&_dl>div:nth-child(4)]:-order-2 max-compact:[&_dl>div:last-child]:-order-1" /> : null}
+    {/* Compact cards prioritize target/file action before status to keep downloads in the first screen; all original fields remain accessible. */}
+    {items.length ? <DataGrid caption="보고서 생성 이력" rows={items} columns={columns} getRowKey={item => item.view.id} isBusy={isBusy} variant="compact" className="max-compact:[&_dl>div:first-child]:-order-3 max-compact:[&_dl>div:last-child]:-order-2 max-compact:[&_dl>div:nth-child(4)]:-order-1" /> : null}
   </section>;
 }
 
