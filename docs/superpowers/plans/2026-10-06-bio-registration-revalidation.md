@@ -97,6 +97,8 @@
 
 ## Task 3: fresh 결과 수용·내구 ACK와 publisher — 담당 backend
 
+**상태:** 완료(결과 수용/내구 전달 소프트웨어), `9d650aba`·제한 시간 보완 `d93eaf40`. 고유 집중54+fix1PASS·API typecheck/diffcheck0, 독립 검토 I1 수정 뒤 재검토 승인·새C0/I0/M0(기존 pnpm 경고 보존). 신규 결과/ACK와 기존 MQTT 종료 경계만 검증했고 Task2 전체는 반복하지 않았다. 실제 DB clock 공급/장비 조회는 별도 관문이다.
+
 **Files:** service, 신규 publisher, MQTT module/consumer/shutdown 및 해당 spec; Task2 통합 spec에 ingest/publish 사례 추가.
 
 **Interfaces:**
@@ -105,17 +107,17 @@
 - `BioRegistrationRevalidationService.expire(now?: Date): Promise<void>`은 pending만 terminal timed_out로 만들며 result/감사를 합성하지 않는다.
 - `BioRegistrationRevalidationPublisherService.processBatch(): Promise<void>`, `stopAndDrain(): Promise<void>`; 기존 MqttService `publishTopic`와 MqttOutbox 원자 ACK 저장/재전송을 소비한다.
 
-- [ ] **Step 1: RED 수용/전달 테스트.** 세 mode 모두 엄격 시간/identity 확인 뒤만 observed, Fixture/qualification/heartbeat 변경0. occurredAt=requestedAt−1ms·expiresAt+1ms·receivedAt+1001ms, receipt=expiresAt, supersede·binding 변경·이미 timed_out·server clock 불신뢰는 immutable 감사 결과만 저장하고 `stale_checkpoint`, proofAcceptedAt=null로 남긴다. 동일 command/event/fullhash 재전달은 duplicate/동일 row, 다른 hash/event는 conflict/원본 보존. old-purpose/result ACK는 실패. result 저장/ACK outbox 원자 rollback, 중복 PUBACK·lease 교체·publish 실패 재시도·shutdown drain도 고정한다.
+- [x] **Step 1: RED 수용/전달 테스트.** 세 mode 모두 엄격 시간/identity 확인 뒤만 observed, Fixture/qualification/heartbeat 변경0. occurredAt=requestedAt−1ms·expiresAt+1ms·receivedAt+1001ms, receipt=expiresAt, supersede·binding 변경·이미 timed_out·server clock 불신뢰는 immutable 감사 결과만 저장하고 `stale_checkpoint`, proofAcceptedAt=null로 남긴다. 동일 command/event/fullhash 재전달은 duplicate/동일 row, 다른 hash/event는 conflict/원본 보존. old-purpose/result ACK는 실패. result 저장/ACK outbox 원자 rollback, 중복 PUBACK·lease 교체·publish 실패 재시도·shutdown drain도 고정한다.
   ```ts
   expect(await service.ingest(topic, lateObserved, expiresAt)).toMatchObject({ status: "stale_checkpoint" });
   expect((await readOperation()).proofAcceptedAt).toBeNull();
   expect(await readProtectedFixtureState()).toEqual(before);
   ```
-- [ ] **Step 2: RED 실행.** Task2 DB 명령의 `-t 'ingest|publish|expiry|ack'` 및 `pnpm --filter @led-control/api exec jest src/mqtt/bio-registration-revalidation-publisher.service.spec.ts --runInBand` → 새 기능 부재/회귀 FAIL.
-- [ ] **Step 3: ingest 구현.** exact topic→strict result→현재 authority/binding→operation lock→fullhash 검증. observed 수용에는 `CommandDbClockHealth.assertHealthy(tx)`의 UTC 기준을 요구한다. 실패/stale 보관은 proof로 승격하지 않으며 result는 최초 한 번만 저장한다. event unique 충돌도 전체 rollback. ACK를 같은 transaction의 MqttOutbox에 `bio-registration-revalidation:<gatewayId>:<commandId>:<eventId>` key로 저장하고 신규 ACK topic으로 보낸다. 일반 state ACK parser와 topic에 넣지 않는다.
-- [ ] **Step 4: publisher/shutdown 구현.** 짧은 lease claim commit 후 canonical 잠금 순서로 현재 requester/commission/cert/assignment/binding/clock/TTL을 재검증한다. MQTT publish만 최대2초 bounded이며 USB/결과를 기다리지 않는다. 같은 payload/hash 재시도·lease fencing, authority/clock 불명확 시 query publish0 및 unknown; PUBACK으로 observed 금지. 새 result를 durable inbound 관찰 topic에 등록하고 저장 실패 시 inbound PUBACK 성공을 만들지 않는다. shutdown은 publisher/inbound drain 뒤 MQTT를 닫는다.
-- [ ] **Step 5: GREEN.** 동일 신규 선택 + 기존 `mqtt-shutdown-coordinator.spec.ts`, `mqtt.service.spec.ts` 관련 routing/ack 회귀, API typecheck → exit0. 시간 경계 사례와 모든 mode 실행 수를 기록한다.
-- [ ] **Step 6: 독립 검토·commit.** 영향 메뉴/status 갱신, `feat(api): ingest fresh BIO revalidation proof with durable acknowledgements`.
+- [x] **Step 2: RED 실행.** Task2 DB 명령의 `-t 'ingest|publish|expiry|ack'` 및 `pnpm --filter @led-control/api exec jest src/mqtt/bio-registration-revalidation-publisher.service.spec.ts --runInBand` → 새 기능 부재/회귀 FAIL.
+- [x] **Step 3: ingest 구현.** exact topic→strict result→현재 authority/binding→operation lock→fullhash 검증. observed 수용에는 `CommandDbClockHealth.assertHealthy(tx)`의 UTC 기준을 요구한다. 실패/stale 보관은 proof로 승격하지 않으며 result는 최초 한 번만 저장한다. event unique 충돌도 전체 rollback. ACK를 같은 transaction의 MqttOutbox에 `bio-registration-revalidation:<gatewayId>:<commandId>:<eventId>` key로 저장하고 신규 ACK topic으로 보낸다. 일반 state ACK parser와 topic에 넣지 않는다.
+- [x] **Step 4: publisher/shutdown 구현.** 짧은 lease claim commit 후 canonical 잠금 순서로 현재 requester/commission/cert/assignment/binding/clock/TTL을 재검증한다. MQTT publish만 최대2초 bounded이며 USB/결과를 기다리지 않는다. 같은 payload/hash 재시도·lease fencing, authority/clock 불명확 시 query publish0 및 unknown; PUBACK으로 observed 금지. 새 result를 durable inbound 관찰 topic에 등록하고 저장 실패 시 inbound PUBACK 성공을 만들지 않는다. shutdown은 publisher/inbound drain 뒤 MQTT를 닫는다.
+- [x] **Step 5: GREEN.** 동일 신규 선택 + 기존 `mqtt-shutdown-coordinator.spec.ts`, `mqtt.service.spec.ts` 관련 routing/ack 회귀, API typecheck → exit0. 시간 경계 사례와 모든 mode 실행 수를 기록한다.
+- [x] **Step 6: 독립 검토·commit.** 영향 메뉴/status 갱신, `feat(api): ingest fresh BIO revalidation proof with durable acknowledgements`.
 
 ## Task 4: 명시적 원자 apply와 분류 evidence 구분 — 담당 backend
 
