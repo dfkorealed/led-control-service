@@ -58,6 +58,7 @@ const SessionStatusContext = createContext<SessionStatusContextValue | null>(nul
 export function SessionStatusProvider({ children }: { children: ReactNode }) {
   const sources = useRef(new Map<string, readonly SessionStatusItem[]>());
   const sequence = useRef(0);
+  const pendingUnregistrations = useRef(new Map<string, object>());
   const [sourceRevision, setSourceRevision] = useState(0);
   const [toasts, setToasts] = useState<SessionToast[]>([]);
 
@@ -85,6 +86,7 @@ export function SessionStatusProvider({ children }: { children: ReactNode }) {
   useEffect(() => () => { for (const entry of timers.current.values()) window.clearTimeout(entry.timer); timers.current.clear(); }, []);
 
   const register = useCallback((sourceId: string, items: readonly SessionStatusItem[]) => {
+    pendingUnregistrations.current.delete(sourceId);
     const before = aggregateStatuses(sources.current);
     sources.current.set(sourceId, items);
     const after = aggregateStatuses(sources.current);
@@ -97,13 +99,23 @@ export function SessionStatusProvider({ children }: { children: ReactNode }) {
 
   const unregister = useCallback((sourceId: string) => {
     if (!sources.current.has(sourceId)) return;
-    const before = aggregateStatuses(sources.current);
-    sources.current.delete(sourceId);
-    const after = aggregateStatuses(sources.current);
-    setSourceRevision((revision) => revision + 1);
-    const activeIds = new Set(after.map((item) => item.id));
-    const resolvedIds = new Set(before.filter((item) => !activeIds.has(item.id)).map((item) => item.id));
-    if (resolvedIds.size > 0) setToasts((current) => current.filter((toast) => !toast.statusId || !resolvedIds.has(toast.statusId)));
+    const removal = {};
+    pendingUnregistrations.current.set(sourceId, removal);
+    // StrictMode replays cleanup/setup synchronously. Keep the previous source
+    // until that replay can renew it, rather than treating replay as resolution.
+    // Actual empty-item updates still resolve immediately; a real unmount loses
+    // its source at the microtask boundary, so later recurrence remains new.
+    queueMicrotask(() => {
+      if (pendingUnregistrations.current.get(sourceId) !== removal) return;
+      pendingUnregistrations.current.delete(sourceId);
+      const before = aggregateStatuses(sources.current);
+      sources.current.delete(sourceId);
+      const after = aggregateStatuses(sources.current);
+      setSourceRevision((revision) => revision + 1);
+      const activeIds = new Set(after.map((item) => item.id));
+      const resolvedIds = new Set(before.filter((item) => !activeIds.has(item.id)).map((item) => item.id));
+      if (resolvedIds.size > 0) setToasts((current) => current.filter((toast) => !toast.statusId || !resolvedIds.has(toast.statusId)));
+    });
   }, []);
 
   const publish = useCallback((input: SessionToastInput) => {
