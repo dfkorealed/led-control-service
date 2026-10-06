@@ -1042,6 +1042,12 @@
 - **예방**: 지도 높이는 선택 전후 동일하게 유지하고 닫을 때 카메라·scroll을 바꾸지 않는다. 연결된 마커 초점은 preventScroll로 복귀한다. 목록 위치 이동은 scroll 적용과 Drawer teardown 이후 팝업을 열고 프레임을 취소 가능하게 관리한다. 상/하 배치의 가로 경계 보정을 사용한다.
 - **검증**: 1440/1024/390/320px에서 닫기 전후 지도 높이·문서/지도 scroll·배율·중심을 비교한다. 초기 핀, KPI 위치 이동, 상세 닫기 후 복귀의 팝업 x/right 경계를 모두 검사한다. 전체 보기 전후 같은 지도/renderer 수명, 저장 카메라의 사용자·현장·맵 범위, StrictMode cleanup 후 복원 재시도도 검증한다. fixture 브라우저 검증은 실제 조명/HIL 증거와 구분한다.
 
+## 2026-10-06 / 장비 시험 코드의 읽기 권한은 실제 컨테이너 UID로 검증한다
+
+- **문제**: source 해시와 host-side preflight는 맞았지만 A 센서 시험 native bundle을 host UID1000/0600으로 stage해 container UID999가 읽지 못했다. Gateway를 중단한 뒤 Node entry import 전 EACCES로 시험이 종료됐다. 해당 진단의 USB/GET/SET 및 센서 관측은 실행되지 않았으며 원본 Gateway는 정상 재시작됐다.
+- **원인**: 비밀·증거 파일의 보호 권한을 nonsecret 실행 코드에도 일괄 적용했다. 호스트 root의 파일 존재·checksum 검사는 실행 사용자에게 읽기 권한이 있는지를 증명하지 않는다.
+- **예방**: credentials·bootstrap·evidence는 기존0700/0600을 유지하고, 명시적인 nonsecret native 코드 한 파일만 read-only 전달에 맞는 권한으로 stage한다. 원본 Gateway 중단 전에 exact image·같은 UID/GID·같은 파일 bind mount를 사용한 network-none/no-device/no-secret software-only `fs.access(R_OK)` 및 `node --check`를 확인한다. 전체 source 디렉터리 권한을 넓히거나 root/privileged로 실행해 우회하지 않는다. 실패 phase·원복 로그는 보존하고 새 시험에는 현재 원본 수명과 새 시작 신호를 사용한다.
+
 ## 2026-09-27 / 실연동 여정의 화면 selector와 MQTT ACL probe를 제품 계약에 맞춘다
 
 - **문제**: 설치 여정이 사라진 `층 자동 생성` 버튼을 기다렸고, Gateway read 권한 검사에서 API 인증서로 임의 `review-probe` topic을 발행해 `Not authorized`로 중단됐다. 자동화 여정의 lab Gateway는 누락된 journal 경로 때문에 운영 기본값 `/var/lib/led-control`에 쓰려다 권한 오류로 종료됐다.
