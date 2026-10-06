@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none" role="img" aria-labelledby="kinda-mark-title">
+  <title id="kinda-mark-title">킨다 스위치 플립 마크</title>
+  <g id="switch-flip-artwork" transform="translate(2 5)">
+    <rect id="operation-frame" x="7" y="7" width="40" height="40" rx="10" fill="none" stroke="#15324A" stroke-width="7"/>
+    <g id="raised-tile" transform="rotate(12 32 23)">
+      <rect id="digital-depth" x="25" y="8" width="22" height="22" rx="5" fill="#256FA1"/>
+      <rect id="lit-tile" x="30" y="3" width="22" height="22" rx="5" fill="#FF7A5C"/>
+    </g>
+  </g>
+</svg>
