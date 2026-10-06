@@ -8,7 +8,8 @@
 - UI 프레임워크는 React Aria이며 현재 DataGrid는 프레임워크 Table이 아닌 공통 HTML table/card 컴포넌트다. 기존 구조·의존성을 유지해 접근자 기반 현재 목록 정렬을 적용한다.
 - 모니터링 제품 `9b4f2113`: 단일 검색·상태 Popover 및 헤더 글씨 보완, 단위106PASS·표적 브라우저13PASS, 독립 코드 C0/I0 및 UI/UX 원 PNG8장 검수 승인/차단0. Grid는 별도 담당 구현 중이며 전체 Web 검증·병합은 아직 남아 있다.
 - 실행 체크리스트: [모니터링 Popover·Grid 정렬](superpowers/plans/2026-10-06-monitoring-popover-grid-sort.md). 검증·병합은 미완료이며 사용자 서비스/DB/장비는 건드리지 않는다.
-## 2026-10-06 모바일 첫 화면 적용 — A안 승인·구현 진행
+
+## 2026-10-06 모바일 첫 화면 적용 — 완료·로컬 병합
 
 - [x] 사용자 A안 진행·기존 탭/버튼/입력 크기 유지·별도 브랜치 작업 후 로컬 병합을 승인했다. [명세](superpowers/specs/2026-10-06-mobile-first-screen.md), [실행 체크리스트](superpowers/plans/2026-10-06-mobile-first-screen.md)를 따른다.
 - [x] 기존 `codex/mobile-first-screen-20261004`와 격리 checkout을 재사용하고 preview 기록 `ce20af4e`를 보존했다. 최신 메인 `f74fc94f`를 `efd3820a`에서 먼저 통합했으며 제품 충돌0, 메뉴 문서는 iOS 보완과 최신 운영 UI 기록을 함께 보존했다. 기본 checkout·실제 서버/DB/장비는 변경하지 않았다.
@@ -16,8 +17,11 @@
 - [x] Task1 공통 헤더·모바일 알림센터/배지·계정 회귀: aba7a268 + cd0f44d0. 독립 full review C0/I1 후 StrictMode 등록 재생 중복을 RED1→GREEN42/typecheck로 보완했고 scoped 재검토 I1 ADDRESSED·새 C/I0. 앞선 baseline63/확장99·최종14/브라우저5/UI policy/Mobile58는 각 소스의 증거다. Task2의 실제 unmount 복구와 최종9b stable-scope owner props 회귀에서 원명령 UUID/자동재전송 없음/늦은응답격리를 확인했다.
 - [x] Task2 모니터링·제어 도면 우선 배치: 3c868c0b 독립 Spec✅/QualityApproved·C0/I0. 단위284+최종98/browser15와 기존controlmap28/types/UI0. 정상 지도viewport 모니터링173/240/240·제어240/240/240px; CAD원본 자체높이와전체현장핏은 별도다. pending/uncertain keyed현장복귀 원UUID/자동POST0 확인. 기존직접KPI legacy2실패는 BASE도FilterPanel인증거로 보존, 전체브라우저PASS로 주장하지 않는다.
 - [x] Task3 통계 그래프·순위·최근 파일 우선: ffda1fa9+e6a42750, full C0/I1후 기준설명 보완/scoped I1 ADDRESSED·새 C/I/M0. 최종 통계187/첫화면12/날짜계약11·파일5·invalidhistory1, fix25/개요4. 개요143/256/256px·순위185/328/328px·파일버튼44px. 기존크기/단일기준설명/날짜·null·파일계약 유지.
-- [x] Task4 구현·통합·디자이너·전체브랜치검토 완료, 로컬병합·병합 후 검증 대기. whole-branch 9b89e8d0 SpecCompliant/QualityApproved·C0/I0/M0. 9b89e8d0는 provider `scope`로 알림 저장소만 격리해 소비자 DOM/명령 owner를 유지하며 늦은 현장응답 중 로그아웃원trigger초점과 stale callback/timer/첫layout격리를 보완했다. 변경후 전체Web3250PASS/3SKIP·types/build0; 기존Mobile109/types·UI67/위반0, 정상browser26/자연스크롤sanity3·원본20/디자이너 C0/I0/M0. 최초Web8FAIL과 중간coldlazytimeout/단독7PASS는 각 원로그에 보존한다. 원본은 bbb4dd75 시각증거이고 후속9b는 스타일불변이다.
-- Task1 담당자에게 baseline 확인 후 구현을 배정했고 기존 UI/UX 디자이너 채팅에 읽기 전용 토큰/정보 우선순위 검토를 요청했다. 이전 메인 Gateway timeout/전체 test 한계와 실장비/HIL·실제 계정 native 메뉴 미검증은 이번 UI 통과로 바꾸지 않는다.
+- [x] Task4 구현·통합·디자이너·전체브랜치검토와 로컬병합·병합 후 검증 완료. 926f7400 기본체크아웃에서 fresh Web3250PASS/3SKIP·types/build0, 제품9b→926차이0/clean을 확인했다. whole-branch 9b89e8d0 SpecCompliant/QualityApproved·C0/I0/M0. 9b89e8d0는 provider `scope`로 알림 저장소만 격리해 소비자 DOM/명령 owner를 유지하며 늦은 현장응답 중 로그아웃원trigger초점과 stale callback/timer/첫layout격리를 보완했다. 변경후 전체Web3250PASS/3SKIP·types/build0; 기존Mobile109/types·UI67/위반0, 정상browser26/자연스크롤sanity3·원본20/디자이너 C0/I0/M0. 최초Web8FAIL과 중간coldlazytimeout/단독7PASS는 각 원로그에 보존한다. 원본은 bbb4dd75 시각증거이고 후속9b는 스타일불변이다.
+- 각 담당자 구현·독립 코드 관문과 기존 UI/UX 디자이너 정상 원본20장 검토를 완료했다. 이전 메인 Gateway timeout/전체 test 한계와 실장비/HIL·실제 계정 native 메뉴 미검증은 이번 UI 통과로 바꾸지 않는다.
+
+- 기본 `codex/mvp1-cloud-web`에 `codex/mobile-first-screen-20261004`를 ff-only 로컬 병합했다. 완료기록만 추가하며 원격 push/배포·DB·장비·서버 재시작은 하지 않았다. 기존 Web58125/5173·API58193/4000 유지, 네 메뉴HTML200/API HTTPS live·ready200의 읽기 전용 관측. 격리 checkout은 이전iOS도구/재현자료로 보존한다.
+- 결과: 모바일상단 시각toast 대신 최근알림/합계배지, 공통현장·설정계정, 기존크기의 탭·입력·버튼과 도면/비교그래프/순위/파일 우선배치를 적용했다. 최종 원본·보고서·raw logs는 `/Users/kim-jh/Documents/led 조명 관제 서비스/outputs/mobile/mobile-first-screen-final`에 보존하고 정상 원본은bbb, 후속알림lifecycle제품은9b로 구분한다. 실제인증native메뉴/물리기기/HIL·운영배포는 이번 browser/software 판정 범위 밖이다.
 
 ## 2026-10-04 운영 UI 추가 주석 14건 — UI 적용·로컬 병합 완료
 
