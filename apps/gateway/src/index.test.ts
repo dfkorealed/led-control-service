@@ -18,6 +18,7 @@ import {
   createDurableAutomationTerminalHandoff,
   executeAutomationWithBestEffortTelemetry,
   gatewayDeferredPubackTopics,
+  gatewayCommandTopics,
   enqueueAutomationFixtureStates,
   createManualControlCoordinator,
   enqueueFixturePresence,
@@ -251,6 +252,7 @@ describe("Gateway command clock MQTT runtime", () => {
 
 it("defers QoS1 PUBACK for commands whose durable journal must commit first", () => {
   expect(gatewayDeferredPubackTopics(scopedSiteId, scopedGatewayId)).toEqual([
+    `sites/${scopedSiteId}/gateways/${scopedGatewayId}/commands/bio-registration-revalidation`,
     `sites/${scopedSiteId}/gateways/${scopedGatewayId}/commands/bio-sensor-mode`,
     `sites/${scopedSiteId}/gateways/${scopedGatewayId}/commands/dimming`,
     `sites/${scopedSiteId}/gateways/${scopedGatewayId}/commands/status-check`,
@@ -2139,7 +2141,7 @@ describe("startGatewayRuntime", () => {
     expect(() => parseGatewayHeartbeatInterval("0")).toThrow("positive finite integer");
   });
 
-  it("subscribes existing topics for a new session and adds sensor mode to a resumed session", () => {
+  it("subscribes existing topics and adds registration revalidation command/ACK to a resumed session", () => {
     const subscribe = vi.fn((_topics, _options, callback?: (error?: Error) => void) => callback?.());
     const client = { subscribe };
 
@@ -2147,9 +2149,14 @@ describe("startGatewayRuntime", () => {
     subscribeGatewayCommands(client as never, assignment, true);
 
     expect(subscribe).toHaveBeenCalledTimes(2);
-    expect(subscribe).toHaveBeenLastCalledWith(["sites/site-27/gateways/gateway-27/commands/bio-sensor-mode"], { qos: 1 }, expect.any(Function));
+    expect(subscribe).toHaveBeenLastCalledWith([
+      "sites/site-27/gateways/gateway-27/commands/bio-sensor-mode",
+      "sites/site-27/gateways/gateway-27/commands/bio-registration-revalidation",
+      "sites/site-27/gateways/gateway-27/acks/bio-registration-revalidation-result"
+    ], { qos: 1 }, expect.any(Function));
     expect(subscribe).toHaveBeenCalledWith(
       [
+        "sites/site-27/gateways/gateway-27/commands/bio-registration-revalidation",
         "sites/site-27/gateways/gateway-27/commands/bio-sensor-mode",
         "sites/site-27/gateways/gateway-27/commands/identify",
         "sites/site-27/gateways/gateway-27/commands/dimming",
@@ -2160,6 +2167,7 @@ describe("startGatewayRuntime", () => {
         "sites/site-27/gateways/gateway-27/commands/provisioning/provision-device",
         "sites/site-27/gateways/gateway-27/commands/automation/config-sync",
         "sites/site-27/gateways/gateway-27/commands/mesh-group/subscription-sync",
+        "sites/site-27/gateways/gateway-27/acks/bio-registration-revalidation-result",
         "sites/site-27/gateways/gateway-27/events/clock/response",
         "sites/site-27/gateways/gateway-27/commands/drain/request",
         "sites/site-27/gateways/gateway-27/commands/mesh-group/resync-ack",
@@ -2184,6 +2192,7 @@ describe("startGatewayRuntime", () => {
 
     expect(subscribe).toHaveBeenCalledWith(
       [
+        "sites/site-27/gateways/gateway-27/acks/bio-registration-revalidation-result",
         "sites/site-27/gateways/gateway-27/events/clock/response",
         "sites/site-27/gateways/gateway-27/commands/drain/request",
         "sites/site-27/gateways/gateway-27/commands/mesh-group/resync-ack",
@@ -2198,6 +2207,14 @@ describe("startGatewayRuntime", () => {
       { qos: 1 },
       expect.any(Function)
     );
+  });
+
+  it("keeps the new ACK subscribed on a resumed quiesced session and removes only its command intake", async () => {
+    const subscribe = vi.fn((_topics, _options, callback?: (error?: Error) => void) => callback?.());
+    await subscribeGatewayAcknowledgements({ subscribe } as never, assignment, true);
+    expect(subscribe).toHaveBeenCalledWith(["sites/site-27/gateways/gateway-27/acks/bio-registration-revalidation-result"], { qos: 1 }, expect.any(Function));
+    expect(gatewayCommandTopics("site-27", "gateway-27")).toContain("sites/site-27/gateways/gateway-27/commands/bio-registration-revalidation");
+    expect(gatewayCommandTopics("site-27", "gateway-27")).not.toContain("sites/site-27/gateways/gateway-27/acks/bio-registration-revalidation-result");
   });
 
   it("does not publish fixture-state for a command result without fixture observation", () => {

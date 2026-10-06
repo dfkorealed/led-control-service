@@ -320,6 +320,7 @@ function checksumOf(content) {
 // monitoring refresh, mesh sync and automation outbox producers. Never grant
 // api-service sites/#: cutover removes only the two legacy dimming writes.
 const API_READ_SUFFIXES = [
+  "events/bio-registration-revalidation-result",
   "events/bio-sensor-mode-result",
   "acks/acceptance", "acks/device-status", "state/fixtures", "state/fixture-presence", "state/heartbeat",
   "events/provisioning/scan-found", "events/provisioning/scan-completed", "events/provisioning/scan-failed",
@@ -330,6 +331,7 @@ const API_READ_SUFFIXES = [
   "events/automation/execution", "events/automation/vehicle-sensor-capability", "commands/clock/request", "events/drain/response"
 ];
 const API_WRITE_SUFFIXES = [
+  "commands/bio-registration-revalidation", "acks/bio-registration-revalidation-result",
   "commands/bio-sensor-mode",
   "commands/status-check", "commands/identify", "commands/fixture-presence-check",
   "commands/provisioning/scan-start", "commands/provisioning/scan-stop", "commands/provisioning/identify-device",
@@ -371,6 +373,7 @@ export function renderMosquittoAcl(gatewayIds, { setGeneration } = {}) {
       `topic read sites/+/gateways/${gatewayId}/events/clock/response`,
       `topic write sites/+/gateways/${gatewayId}/commands/clock/request`,
       `topic read sites/+/gateways/${gatewayId}/acks/state-ingested`,
+      `topic read sites/+/gateways/${gatewayId}/acks/bio-registration-revalidation-result`,
       `topic read sites/+/gateways/${gatewayId}/acks/fixture-presence-check-completed`,
       `topic read sites/+/gateways/${gatewayId}/acks/provisioning/scan-terminal-ingested`,
       `topic read sites/+/gateways/${gatewayId}/acks/provisioning/device-terminal-ingested`,

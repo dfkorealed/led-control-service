@@ -1058,6 +1058,20 @@ describe("BioUsbDongleAdapter", () => {
 });
 
 describe("sensor-mode operation fresh GET authority", () => {
+  it.each(["generation", "identity", "malformed"])("query rejects a positive GET after transport/readback %s changes without any SET", async change => {
+    const f = readyForOnePresence(); let generation = 1;
+    Object.assign(f.client, { sensorSourceSnapshot: () => ({ state: "ready", generation, ready: true, transportConnected: true, protocolReady: true }) });
+    f.mappings.findByFixtureId.mockResolvedValue(confirmedMapping());
+    f.client.readDeviceInfo.mockImplementation(async () => {
+      if (change === "generation") generation = 2;
+      return { ...modeReport("sensor"), ...(change === "identity" ? { nativeUuid: "001122334455", deviceUuid: "bio:001122334455" } : {}),
+        ...(change === "malformed" ? { logicalAddress: 0x0102 } : {}) };
+    });
+    await expect(f.adapter.sensorModeOperation(sensorModeInput("query", "99999999-9999-4999-8999-999999999999"), {})).rejects.toThrow();
+    expect(f.client.scan).toHaveBeenCalledTimes(1);
+    expect(f.client.readDeviceInfo).toHaveBeenCalledTimes(1);
+    expect(f.client.restoreSensorMode).not.toHaveBeenCalled(); expect(f.client.setOutput).not.toHaveBeenCalled();
+  });
   it("does a separate mode GET after sensor SET, with no brightness IO", async () => {
     const f = readyForOnePresence();
     f.adapter.setBioSourceTargetGuard(() => true);

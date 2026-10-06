@@ -2,7 +2,8 @@ import { chmod, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { mqttTopicsV2, type FixturePresenceV2, type FixtureStateV2 } from "@led-control/shared";
+import { bioRegistrationRevalidationCanonicalJson, bioRegistrationRevalidationTopics, mqttTopicsV2, type BioRegistrationRevalidationResult, type FixturePresenceV2, type FixtureStateV2 } from "@led-control/shared";
+import { createHash } from "node:crypto";
 import {
   StateEventCapacityGate,
   StateEventOutbox,
@@ -23,6 +24,44 @@ afterEach(async () => {
 });
 
 describe("StateEventOutbox", () => {
+  it("restores registration results by purpose and requires the full result hash for ACK", async () => {
+    const path = await outboxPath();
+    const result: BioRegistrationRevalidationResult = { ...scope, version: 2, purpose: "bio_registration_revalidation", operation: "query",
+      commandId: "11111111-1111-4111-8111-111111111111", eventId: "33333333-3333-4333-8333-333333333333",
+      fixtureId: "66666666-6666-4666-8666-666666666666", nodeId: "77777777-7777-4777-8777-777777777777",
+      assignmentVersion: 3, deviceIdentityHash: "a".repeat(64), meshAddress: "0x0001", sequence: 5,
+      occurredAt: "2026-10-06T00:00:01Z", status: "observed", observedMode: "force-off", evidence: "mode_get" };
+    await new StateEventOutbox(path, scope).enqueue(result);
+    const restored = new StateEventOutbox(path, scope);
+    expect((await restored.pending())[0]).toMatchObject({ topic: bioRegistrationRevalidationTopics.result(scope.siteId, scope.gatewayId), payload: result });
+    const { occurredAt: _time, evidence: _evidence, observedMode: _mode, ...identity } = result;
+    const ack = { ...identity, status: "ingested", ingestedAt: result.occurredAt,
+      payloadHash: `sha256:${createHash("sha256").update(bioRegistrationRevalidationCanonicalJson(result)).digest("hex")}` };
+    const legacy = { eventId: result.eventId, fixtureId: result.fixtureId, sequence: result.sequence, status: "ingested", ingestedAt: result.occurredAt };
+    expect(await restored.acknowledge(legacy)).toBe(false);
+    for (const changed of [{ payloadHash: `sha256:${"b".repeat(64)}` }, { siteId: result.nodeId }, { gatewayId: result.nodeId },
+      { fixtureId: result.nodeId }, { nodeId: result.fixtureId }, { assignmentVersion: 4 }, { sequence: 6 },
+      { deviceIdentityHash: "b".repeat(64) }, { meshAddress: "0x0002" }, { commandId: result.nodeId }, { eventId: result.nodeId }]) {
+      expect(await restored.acknowledge({ ...ack, ...changed })).toBe(false);
+      expect(await restored.pending()).toHaveLength(1);
+    }
+    const altered = { ...result, observedMode: "sensor" };
+    expect(await restored.acknowledge({ ...ack, payloadHash: `sha256:${createHash("sha256").update(bioRegistrationRevalidationCanonicalJson(altered)).digest("hex")}` })).toBe(false);
+    expect(await restored.acknowledge(ack)).toBe(true);
+    expect(await new StateEventOutbox(path, scope).pending()).toEqual([]);
+  });
+
+  it("rejects a registration result stored under the legacy sensor-mode topic", async () => {
+    const path = await outboxPath(); const outbox = new StateEventOutbox(path, scope); await outbox.initialize();
+    const payload = { ...scope, version: 2, purpose: "bio_registration_revalidation", operation: "query",
+      commandId: "11111111-1111-4111-8111-111111111111", eventId: "33333333-3333-4333-8333-333333333333",
+      fixtureId: "66666666-6666-4666-8666-666666666666", nodeId: "77777777-7777-4777-8777-777777777777",
+      assignmentVersion: 3, deviceIdentityHash: "a".repeat(64), meshAddress: "0x0001", sequence: 5,
+      occurredAt: "2026-10-06T00:00:01Z", status: "unknown", errorCode: "GATEWAY_RESTART" };
+    const payloadBytes = Buffer.byteLength(JSON.stringify(payload));
+    await writeFile(path, JSON.stringify({ version: 1, scope, records: [{ topic: `sites/${scope.siteId}/gateways/${scope.gatewayId}/events/bio-sensor-mode-result`, payload, payloadBytes, enqueuedAt: payload.occurredAt }], totalPayloadBytes: payloadBytes }), { mode: 0o600 });
+    await expect(new StateEventOutbox(path, scope).initialize()).rejects.toThrow("invalid state event outbox");
+  });
   it("restores unreachable events and accepts only exact fixture-scoped application ACK", async () => {
     const path = await outboxPath();
     const event = { ...scope, eventId: "11111111-1111-4111-8111-111111111111", sequence: 3,

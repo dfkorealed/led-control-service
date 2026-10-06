@@ -131,13 +131,16 @@ test("stock broker restart with restored ACL/CRL revives retired publish and pre
 });
 
 // Independent inventory from API publish producers and MqttService subscriptions.
-const API_WRITE = ["commands/bio-sensor-mode", "commands/status-check", "commands/identify", "commands/fixture-presence-check",
+const REVALIDATION_COMMAND = "commands/bio-registration-revalidation";
+const REVALIDATION_RESULT = "events/bio-registration-revalidation-result";
+const REVALIDATION_ACK = "acks/bio-registration-revalidation-result";
+const API_WRITE = [REVALIDATION_COMMAND, REVALIDATION_ACK, "commands/bio-sensor-mode", "commands/status-check", "commands/identify", "commands/fixture-presence-check",
   "commands/provisioning/scan-start", "commands/provisioning/scan-stop", "commands/provisioning/identify-device",
   "commands/provisioning/provision-device", "commands/mesh-group/subscription-sync", "commands/mesh-group/resync-ack",
   "commands/automation/config-sync", "events/clock/response", "commands/drain/request", "acks/state-ingested",
   "acks/fixture-presence-check-completed", "acks/provisioning/scan-terminal-ingested", "acks/provisioning/device-terminal-ingested",
   "acks/automation/config-applied-ingested", "acks/automation/execution-ingested", "acks/automation/vehicle-sensor-capability-ingested"];
-const API_READ = ["events/bio-sensor-mode-result", "acks/acceptance", "acks/device-status", "state/fixtures", "state/fixture-presence", "state/heartbeat",
+const API_READ = [REVALIDATION_RESULT, "events/bio-sensor-mode-result", "acks/acceptance", "acks/device-status", "state/fixtures", "state/fixture-presence", "state/heartbeat",
   "events/provisioning/scan-found", "events/provisioning/scan-completed", "events/provisioning/scan-failed",
   "events/provisioning/device-terminal", "events/provisioning-completed", "events/provisioning-failed",
   "events/identify-result", "events/fixture-presence-check-completed", "events/fixture-unreachable",
@@ -189,15 +192,27 @@ test("Set cutover denies legacy/retired identities including deferred QoS1 after
     await assert.rejects(send(active, "sites/health/production-probe"), /not authorized/i);
     await assert.rejects(send(active, scoped("commands/status-check")), /not authorized/i);
     await assert.rejects(send(api, scoped("commands/unknown")), /not authorized/i);
-    for (const suffix of API_WRITE) await send(api, scoped(suffix));
     const unlisted = client("removed"); await connected(unlisted);
     await assert.rejects(send(unlisted, `sites/site/gateways/${REMOVED_ID}/state/heartbeat`), /not authorized/i);
     const received = new Set(); api.on("message", (topic) => received.add(topic));
-    await api.subscribeAsync(API_READ.map(scoped), { qos: 1 });
+    const gatewayReceived = new Set(), otherReceived = new Set();
+    gateway.on("message", topic => gatewayReceived.add(topic));
+    unlisted.on("message", topic => otherReceived.add(topic));
+    // Mosquitto can grant SUBACK without read permission. Assert actual delivery
+    // alongside PUBACK denial, rather than treating SUBACK as read authority.
+    await api.subscribeAsync([...API_READ, REVALIDATION_COMMAND, REVALIDATION_ACK].map(scoped), { qos: 1 });
+    await gateway.subscribeAsync([REVALIDATION_COMMAND, REVALIDATION_ACK, REVALIDATION_RESULT].map(scoped), { qos: 1 });
+    await unlisted.subscribeAsync([REVALIDATION_COMMAND, REVALIDATION_ACK, REVALIDATION_RESULT].map(scoped), { qos: 1 });
+    await assert.rejects(send(api, scoped(REVALIDATION_RESULT)), /not authorized/i);
+    for (const suffix of [REVALIDATION_COMMAND, REVALIDATION_ACK]) await assert.rejects(send(gateway, scoped(suffix)), /not authorized/i);
+    for (const suffix of [REVALIDATION_COMMAND, REVALIDATION_ACK, REVALIDATION_RESULT]) await assert.rejects(send(unlisted, scoped(suffix)), /not authorized/i);
+    for (const suffix of API_WRITE) await send(api, scoped(suffix));
     for (const suffix of API_READ) await send(gateway, scoped(suffix));
     const deadline = Date.now() + 3000;
-    while (received.size < API_READ.length && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 20));
+    while ((received.size < API_READ.length || gatewayReceived.size < 2) && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 20));
     assert.deepEqual([...received].sort(), API_READ.map(scoped).sort());
+    assert.deepEqual([...gatewayReceived].sort(), [REVALIDATION_COMMAND, REVALIDATION_ACK].map(scoped).sort());
+    assert.deepEqual([...otherReceived], []);
     const deferred = client("set7", true);
     const packet = send(deferred, scoped("commands/dimming"));
     // The application timeout has already elapsed. The actual QoS1 packet stays

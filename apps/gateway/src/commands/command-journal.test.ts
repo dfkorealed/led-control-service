@@ -5,6 +5,32 @@ import { describe, expect, it } from "vitest";
 import { CommandJournal, CommandJournalAutomationCapacityError } from "./command-journal";
 
 describe("CommandJournal", () => {
+  it("retains registration revalidation across expiry and capacity until its own durable handoff", async () => {
+    const path = join(await mkdtemp(join(tmpdir(), "command-revalidation-")), "journal.json");
+    let now = new Date("2026-10-06T00:00:00Z");
+    const options = { now: () => now, ttlMs: 100, maxRecords: 1 };
+    const journal = new CommandJournal(path, options);
+    await journal.accept("revalidation", { kind: "bio_registration_revalidation", command: { expiresAt: "2026-10-06T00:00:30Z" } });
+    now = new Date("2026-10-07T00:00:00Z"); await journal.accept("other", {});
+    expect(await new CommandJournal(path, options).get("revalidation")).toMatchObject({ state: "accepted" });
+    expect(await journal.pendingSensorModeOperations()).toEqual([]);
+    expect(await journal.pendingBioRegistrationRevalidations()).toHaveLength(1);
+    await expect(journal.markSensorModeHandedOff("revalidation")).rejects.toThrow("sensor mode terminal missing");
+    await journal.complete("revalidation", { status: "unknown", errorCode: "GATEWAY_RESTART" });
+    expect(await journal.pendingBioRegistrationRevalidations()).toHaveLength(1);
+    await journal.markBioRegistrationRevalidationHandedOff("revalidation");
+    expect(await new CommandJournal(path, options).pendingBioRegistrationRevalidations()).toEqual([]);
+  });
+
+  it("refuses new registration work when its protected journal is full without pruning accepted work", async () => {
+    const path = join(await mkdtemp(join(tmpdir(), "command-revalidation-full-")), "journal.json");
+    const journal = new CommandJournal(path, { maxRecords: 1 });
+    const wrapper = { kind: "bio_registration_revalidation", command: { expiresAt: "2026-10-06T00:00:30Z" } };
+    await journal.accept("first", wrapper);
+    await expect(journal.accept("second", wrapper)).rejects.toThrow("capacity");
+    expect(await journal.get("first")).toMatchObject({ state: "accepted" });
+    expect(await journal.get("second")).toBeNull();
+  });
   it("retains abort intent across TTL/capacity pruning until exact durable acknowledgement", async () => {
     const path = join(await mkdtemp(join(tmpdir(), "command-abort-")), "journal.json");
     let now = new Date("2026-09-26T00:00:00Z");

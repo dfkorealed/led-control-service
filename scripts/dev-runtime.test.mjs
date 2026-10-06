@@ -1007,6 +1007,37 @@ test("host Mosquitto 설정은 mTLS와 gateway-scoped ACL을 강제한다", () =
   assert.doesNotMatch(gatewayAcl, /topic write .*\/acks\/(?:state-ingested|provisioning\/scan-terminal-ingested)/);
 });
 
+test("BIO registration revalidation ACL permits only API producer/ACK and own Gateway consumer/result", () => {
+  const gateway = "00000000-0000-4000-8000-000000000004", other = "00000000-0000-4000-8000-000000000005";
+  const sources = [renderMosquittoAcl([gateway, other]), readFileSync(new URL("../infra/mosquitto.acl.example", import.meta.url), "utf8")];
+  const allowed = (source, user, direction, topic) => {
+    let owner;
+    return source.split("\n").some(line => {
+      const [kind, access, filter] = line.trim().split(/\s+/);
+      if (kind === "user") { owner = access; return false; }
+      if ((kind !== "topic" || owner !== user) && kind !== "pattern") return false;
+      if (access !== direction && access !== "readwrite") return false;
+      const segments = filter.replaceAll("%u", user).split("/"), target = topic.split("/");
+      return segments.every((segment, i) => segment === "#" || segment === "+" && i < target.length || segment === target[i]) &&
+        (segments.at(-1) === "#" || segments.length === target.length);
+    });
+  };
+  for (const source of sources) {
+    const prefix = `sites/site/gateways/${gateway}/`;
+    for (const [suffix, api, gw] of [
+      ["commands/bio-registration-revalidation", "write", "read"],
+      ["events/bio-registration-revalidation-result", "read", "write"],
+      ["acks/bio-registration-revalidation-result", "write", "read"]
+    ]) {
+      assert.equal(allowed(source, "api-service", api, prefix + suffix), true);
+      assert.equal(allowed(source, gateway, gw, prefix + suffix), true);
+      assert.equal(allowed(source, "api-service", api === "read" ? "write" : "read", prefix + suffix), false);
+      assert.equal(allowed(source, gateway, gw === "read" ? "write" : "read", prefix + suffix), false);
+      assert.equal(allowed(source, other, gw, prefix + suffix), false);
+    }
+  }
+});
+
 test("기본 pnpm dev는 실제 장비 시험을 위해 mock gateway를 실행하지 않는다", () => {
   assert.deepEqual(resolveDevAppFilters([]), ["@led-control/api", "@led-control/web"]);
 });

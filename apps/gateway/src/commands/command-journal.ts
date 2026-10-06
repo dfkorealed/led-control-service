@@ -7,6 +7,12 @@ function isSensorModeWrapper(value: unknown): value is { kind: "bio_sensor_mode"
     "expiresAt" in value.command && typeof value.command.expiresAt === "string";
 }
 
+function isBioRegistrationRevalidationWrapper(value: unknown): value is { kind: "bio_registration_revalidation"; command: { expiresAt: string } } {
+  return !!value && typeof value === "object" && "kind" in value && value.kind === "bio_registration_revalidation" &&
+    "command" in value && !!value.command && typeof value.command === "object" &&
+    "expiresAt" in value.command && typeof value.command.expiresAt === "string";
+}
+
 interface JournalRecord {
   state: "accepted" | "completed";
   command: unknown;
@@ -15,6 +21,7 @@ interface JournalRecord {
   automationAbort?: "pending" | "completed";
   executionPhase?: "pre_rf" | "may_have_written";
   sensorModeHandedOff?: boolean;
+  bioRegistrationRevalidationHandedOff?: boolean;
   updatedAt: string;
 }
 
@@ -74,7 +81,7 @@ export class CommandJournal {
   async get(idempotencyKey: string) {
     const data = await this.readData();
     const record = data.records[idempotencyKey];
-    if (!record || (!isPendingAutomationRecovery(record) && !this.retainSensorMode(record) && this.isExpired(record))) return null;
+    if (!record || (!isPendingAutomationRecovery(record) && !this.retainModeOperation(record) && this.isExpired(record))) return null;
     return {
       state: record.state,
       command: record.command,
@@ -94,8 +101,8 @@ export class CommandJournal {
       const data = await this.readData();
       this.prune(data);
       if (data.records[idempotencyKey]) return false;
-      if (isSensorModeWrapper(command) && Object.values(data.records).filter((record) => this.retainSensorMode(record)).length >= this.maxRecords) {
-        throw new Error("sensor mode journal capacity exceeded");
+      if ((isSensorModeWrapper(command) || isBioRegistrationRevalidationWrapper(command)) && Object.values(data.records).filter((record) => this.retainModeOperation(record)).length >= this.maxRecords) {
+        throw new Error("mode operation journal capacity exceeded");
       }
       const terminal = options.terminalResult !== undefined;
       if (!terminal && isManualCommandWrapper(command)) this.assertAutomationCapacity(data);
@@ -236,10 +243,10 @@ export class CommandJournal {
 
   private prune(data: JournalData) {
     for (const [key, record] of Object.entries(data.records)) {
-      if (!isPendingAutomationRecovery(record) && !this.retainSensorMode(record) && this.isExpired(record)) delete data.records[key];
+      if (!isPendingAutomationRecovery(record) && !this.retainModeOperation(record) && this.isExpired(record)) delete data.records[key];
     }
     const overflow = Object.entries(data.records)
-      .filter(([, record]) => !isPendingAutomationRecovery(record) && !this.retainSensorMode(record))
+      .filter(([, record]) => !isPendingAutomationRecovery(record) && !this.retainModeOperation(record))
       .sort(([, left], [, right]) => left.updatedAt.localeCompare(right.updatedAt));
     while (overflow.length > this.maxRecords) {
       const oldest = overflow.shift();
@@ -265,7 +272,27 @@ export class CommandJournal {
     });
   }
 
-  private retainSensorMode(record: JournalRecord) {
+  async pendingBioRegistrationRevalidations() {
+    return Object.values((await this.readData()).records).filter((record) =>
+      isBioRegistrationRevalidationWrapper(record.command) && !record.bioRegistrationRevalidationHandedOff);
+  }
+
+  async markBioRegistrationRevalidationHandedOff(commandId: string) {
+    await this.enqueue(async () => {
+      const data = await this.readData();
+      const record = data.records[commandId];
+      if (!record || record.state !== "completed" || !isBioRegistrationRevalidationWrapper(record.command)) {
+        throw new Error("registration revalidation terminal missing");
+      }
+      record.bioRegistrationRevalidationHandedOff = true;
+      await this.writeData(data);
+    });
+  }
+
+  private retainModeOperation(record: JournalRecord) {
+    if (isBioRegistrationRevalidationWrapper(record.command)) {
+      return !record.bioRegistrationRevalidationHandedOff || Date.parse(record.command.command.expiresAt) >= this.now().getTime();
+    }
     if (!isSensorModeWrapper(record.command)) return false;
     // Preserve a pending outbox handoff indefinitely; preserve the SET identity
     // through its delivery window even under capacity pressure to prevent replay.

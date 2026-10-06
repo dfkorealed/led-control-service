@@ -26,6 +26,7 @@ topic read sites/+/gateways/+/events/provisioning-completed
 topic read sites/+/gateways/+/events/provisioning-failed
 topic read sites/+/gateways/+/events/identify-result
 topic read sites/+/gateways/+/events/bio-sensor-mode-result
+topic read sites/+/gateways/+/events/bio-registration-revalidation-result
 topic read sites/+/gateways/+/events/fixture-presence-check-completed
 topic read sites/+/gateways/+/events/fixture-unreachable
 topic read sites/+/gateways/+/events/mesh-group/resync-request
@@ -40,6 +41,8 @@ topic read sites/+/gateways/+/commands/clock/request
 topic read sites/+/gateways/+/events/drain/response
 topic write sites/+/gateways/+/commands/status-check
 topic write sites/+/gateways/+/commands/bio-sensor-mode
+topic write sites/+/gateways/+/commands/bio-registration-revalidation
+topic write sites/+/gateways/+/acks/bio-registration-revalidation-result
 topic write sites/+/gateways/+/commands/identify
 topic write sites/+/gateways/+/commands/fixture-presence-check
 topic write sites/+/gateways/+/commands/provisioning/scan-start
@@ -67,6 +70,7 @@ pattern read sites/+/gateways/%u/commands/#
 pattern read sites/+/gateways/%u/events/clock/response
 pattern write sites/+/gateways/%u/commands/clock/request
 pattern read sites/+/gateways/%u/acks/state-ingested
+pattern read sites/+/gateways/%u/acks/bio-registration-revalidation-result
 pattern read sites/+/gateways/%u/acks/fixture-presence-check-completed
 pattern read sites/+/gateways/%u/acks/provisioning/scan-terminal-ingested
 pattern read sites/+/gateways/%u/acks/provisioning/device-terminal-ingested
