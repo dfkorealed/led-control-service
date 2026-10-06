@@ -3,7 +3,7 @@ import { act, cleanup, fireEvent, render, renderHook, screen, waitFor, within } 
 import { type PropsWithChildren, StrictMode, useMemo } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SessionStatusCenter } from "./SessionStatusCenter";
-import { SessionStatusProvider, useSessionStatus } from "./SessionStatusProvider";
+import { SessionStatusProvider, useSessionStatus, useSessionToast } from "./SessionStatusProvider";
 import { useMonitoringIncidents } from "./useMonitoringIncidents";
 import { listPendingDismissalRequestIds, storePendingDismissalRequest } from "./monitoring-dismissal-request";
 
@@ -521,4 +521,26 @@ describe("persistent alarm center", () => {
     expect(screen.queryByRole("button", { name: "읽음 저장 다시 시도" })).not.toBeInTheDocument();
     expect(puts()).toHaveLength(1);
   });
+});
+
+function RecentPublish() {
+  const toast = useSessionToast();
+  return <button onClick={() => toast.publish({ title: "작업 저장", tone: "success" })}>최근 알림 추가</button>;
+}
+it("sums mobile server and recent unread while reading recent does not resolve incidents", async () => {
+  render(<SessionStatusProvider><RecentPublish /><SessionStatusCenter compact userId="user-1" siteId={siteId} /></SessionStatusProvider>, { wrapper });
+  await screen.findByRole("button", { name: "알람센터, 미읽음 3건 (현장 알람과 최근 알림)" });
+  fireEvent.click(screen.getByText("최근 알림 추가"));
+  fireEvent.click(screen.getByRole("button", { name: "알람센터, 미읽음 4건 (현장 알람과 최근 알림)" }));
+  fireEvent.click(screen.getByRole("button", { name: "읽음으로 표시" }));
+  expect(screen.getByLabelText("알람센터, 미읽음 3건 (현장 알람과 최근 알림)" )).toBeInTheDocument();
+  await screen.findByText("Gateway 1111");
+  expect(puts()).toHaveLength(0); expect(screen.getAllByText("미해결")).toHaveLength(2);
+});
+it("does not replace unknown server count with local unread zero", async () => {
+  failGet = true;
+  render(<SessionStatusProvider><RecentPublish /><SessionStatusCenter compact userId="user-1" siteId={siteId} /></SessionStatusProvider>, { wrapper });
+  fireEvent.click(screen.getByText("최근 알림 추가"));
+  const trigger = await screen.findByRole("button", { name: "알람센터, 확인 불가" });
+  expect(within(trigger).getByTestId("alarm-unread-badge")).toHaveTextContent("?");
 });

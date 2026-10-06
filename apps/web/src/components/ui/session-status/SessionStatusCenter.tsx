@@ -23,6 +23,7 @@ export interface SessionStatusContextItem {
 }
 
 export interface SessionStatusCenterProps {
+  compact?: boolean;
   className?: string;
   contextItems?: readonly SessionStatusContextItem[];
   userId?: string;
@@ -30,8 +31,8 @@ export interface SessionStatusCenterProps {
   timeZone?: string;
 }
 
-export const SessionStatusCenter = forwardRef<SessionStatusCenterHandle, SessionStatusCenterProps>(function SessionStatusCenter({ className, contextItems = [], userId, siteId, timeZone }, ref) {
-  const { statuses } = useSessionStatusState();
+export const SessionStatusCenter = forwardRef<SessionStatusCenterHandle, SessionStatusCenterProps>(function SessionStatusCenter({ className, compact = false, contextItems = [], userId, siteId, timeZone }, ref) {
+  const { statuses, recentNotifications, recentUnreadCount, markRecentRead } = useSessionStatusState();
   const [isOpen, setIsOpen] = useState(false);
   const [confirmBulk, setConfirmBulk] = useState(false);
   const bulkTriggerRef = useRef<HTMLButtonElement>(null);
@@ -45,9 +46,11 @@ export const SessionStatusCenter = forwardRef<SessionStatusCenterHandle, Session
   const statusItemRefs = useRef(new Map<string, HTMLLIElement>());
   const unresolvedHeadingId = useId();
   const alarmHeadingId = useId();
+  // Unknown server counts stay unknown even if the local history is empty.
+  const unreadCount = alarms.unreadCount === undefined ? undefined : alarms.unreadCount + (compact ? recentUnreadCount : 0);
   const accessibleLabel = `알람센터, ${!alarms.enabled ? "현장 미선택" : alarms.unreadCount === undefined
     ? alarms.error ? "확인 불가" : "확인 중"
-    : `미읽음 ${alarms.unreadCount}건${alarms.isStale ? ", 갱신 실패" : ""}`}`;
+    : `미읽음 ${unreadCount}건${compact ? " (현장 알람과 최근 알림)" : ""}${alarms.isStale ? ", 갱신 실패" : ""}`}`;
   const updateOpenState = (open: boolean) => {
     if (open) returnFocusTargetRef.current ??= triggerRef.current;
     setIsOpen(open);
@@ -112,11 +115,11 @@ export const SessionStatusCenter = forwardRef<SessionStatusCenterHandle, Session
       }}
     >
       <Bell size={20} aria-hidden="true" />
-      {alarms.enabled && alarms.unreadCount !== 0 ? <span
+      {alarms.enabled && unreadCount !== 0 ? <span
         data-testid="alarm-unread-badge"
         aria-hidden="true"
         className="absolute right-1 top-1 grid min-h-4 min-w-4 place-items-center rounded-pill bg-status-danger-foreground px-1 text-overline text-content-inverse"
-      >{alarms.unreadCount ?? "?"}</span> : null}
+      >{unreadCount ?? "?"}</span> : null}
     </Button>
     <DrawerDialog
       ref={dialogRef}
@@ -132,6 +135,19 @@ export const SessionStatusCenter = forwardRef<SessionStatusCenterHandle, Session
       actions={<Button type="button" variant="secondary" onClick={() => updateOpenState(false)}>닫기</Button>}
     >
       <div className="grid gap-5">
+        <section className="grid gap-2" aria-label="최근 알림">
+          <Heading as="h3" variant="card-title">최근 알림</Heading>
+          <Text variant="body-sm" tone="secondary">이 세션의 최근 50개 알림입니다. 읽음은 장애 해결이나 작업 실행을 의미하지 않습니다. 현장·계정 변경 시 초기화됩니다.</Text>
+          {recentNotifications.length === 0 ? <Text tone="secondary">최근 알림이 없습니다.</Text> : null}
+          <ul className="m-0 grid list-none gap-2 p-0" aria-label="최근 알림 목록">
+            {[...recentNotifications].reverse().map(item => <li key={item.id} className="grid gap-2 rounded-control border border-border-default p-3">
+              <Text weight="bold">{item.title}</Text>
+              {item.description ? <Text variant="body-sm" tone="secondary">{item.description}</Text> : null}
+              <StatusBadge icon={item.isRead ? CircleCheck : Bell} tone={item.isRead ? "neutral" : "info"}>{item.isRead ? "읽음" : "미읽음"}</StatusBadge>
+              {!item.isRead ? <Button type="button" size="sm" variant="secondary" className="justify-self-start" onClick={() => markRecentRead(item.id)}>읽음으로 표시</Button> : null}
+            </li>)}
+          </ul>
+        </section>
         <section className="grid gap-2" aria-labelledby={alarmHeadingId}>
           <Heading id={alarmHeadingId} as="h3" variant="card-title">현장 알람</Heading>
           {alarms.enabled ? <Button ref={bulkTriggerRef} type="button" variant="secondary" className="justify-self-start"

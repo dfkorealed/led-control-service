@@ -1,5 +1,33 @@
 # 통계 메뉴 기능 현황
 
+
+## 2026-10-06 공통 모바일 헤더·최근 알림 (Task 1)
+
+### 구현 완료
+
+- 760px 미만 헤더는 기존 현장 선택·알람센터를 한 행에 표시한다. 중복 메뉴 제목은 화면 읽기용으로 유지하고 모니터링 현장 전체 집계는 명시적으로 펼쳐 확인한다. 기존 현장 변경 가드·최소 44px 조작·계정/로그아웃 controller와 설정 eager 접근을 유지한다.
+- 모바일 toast는 화면 읽기 알림만 유지한다. 공통 provider가 독립적으로 만료시켜 desktop으로 전환해도 지난 toast를 다시 표시하지 않는다. desktop toast와 서버 현장 알람 저장·지우기는 기존 계약을 유지한다.
+- 같은 알람센터의 최근 알림은 세션 메모리에 최대 50개를 보관한다. 상태 fingerprint 변경/새 작업은 미읽음이며 같은 polling은 추가하지 않는다. 최근 읽음과 toast 만료는 장애 해결·명령 실행·서버 알람 읽음/지우기와 분리한다.
+- 모바일 배지는 서버 현장 알람 미읽음과 최근 알림 미읽음 합계이며 고유 장애 수가 아니다. 서버 수가 불명인 경우 `?`를 유지한다. 계정/허가된 현장 변경 시 provider를 분리해 과거 callback을 격리한다. 전체보기에서도 동일 센터를 여는 독립 행 버튼이 접근 가능하다.
+
+### 미구현
+
+- 최근 알림은 새 문서·로그아웃·다른 기기로 동기화하지 않는다. 별도 서버 API/DB/저장소와 실제 장비 HIL은 추가하지 않는다.
+
+### 부족하거나 개선이 필요한 기능
+
+- 브라우저 HTTP fixture 검증과 세션 단위 검증이며 실제 native 장비/HIL 완료를 의미하지 않는다. 큰 글자·긴 내용은 자연 스크롤을 허용한다.
+
+### 관련 파일
+
+- `apps/web/src/features/shells/CustomerShell.tsx`, `CustomerHeaderSummarySlot.tsx`
+- `apps/web/src/components/ui/session-status/{SessionStatusProvider,SessionStatusCenter,ToastRegion}.tsx`
+- `apps/web/e2e/mobile-first-screen.spec.ts`
+
+### 갱신 규칙
+
+- 공통 헤더·알림 의미와 세션 수명 변경 시 네 메뉴 문서를 함께 갱신한다.
+
 - 2026-10-05 공통 초기 초점 안정성 보완: Dialog 내부 ref를 안정화해 중첩 Popover가 열린 동안 부모 재렌더·외부 object/callback ref 교체가 사용자 초점을 빼앗지 않으며 이전 ref 정리와 닫힘 시 정리는 유지한다. 직접 공통 회귀와 격리 Chromium 검증 범위이며 실제 native WebView·HIL 및 최종 통합 승인을 뜻하지 않는다.
 - 2026-10-05 고객 알림 배치 보완: CustomerShell은 sticky 헤더 뒤·본문 앞의 단일 flow 알림 영역에 표시 중인 메시지의 실제 높이만 예약한다. 알림이 없으면 빈 간격은 없고 닫기·만료·revision·aria와 조회/내보내기 정책은 유지한다. 공통 기본 overlay는 변경하지 않는다. 직접 Shell 회귀와 모니터링 격리 Chromium 범위이며 통계의 전체 상태 조합·native/HIL·최종 통합 승인은 별도다.
 
