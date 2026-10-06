@@ -32,7 +32,7 @@
 - [x] preview 기록 ce20af4e 보존 후 최신 메인 f74fc94f를 efd3820a에서 통합. 제품 충돌0, 메뉴 문서 충돌은 양쪽 scope별 기록을 보존.
 - [x] Task1 Shell·알림·계정 구현/검토 — aba7a268 + cd0f44d0, full review C0/I1 후 scoped I1 ADDRESSED·새 C/I0.
 - [x] Task2 모니터링·제어 구현/검토 — 3c868c0b, 독립 Spec✅/QualityApproved·C0/I0.
-- [ ] Task3 통계 구현/검토.
+- [x] Task3 통계 구현/검토 — ffda1fa9 + e6a42750, full review C0/I1 뒤 scoped I1 ADDRESSED·새 C/I/M0.
 - [ ] Task4 최종 검증·디자이너·전체 코드 검토.
 - [ ] 총괄이 최종 상태 문서·로컬 메인 병합과 병합 후 검증을 완료한다.
 
@@ -89,10 +89,12 @@
 - Consumes: 기존 UnderlineNavigation·FilterPanel·DatePicker/DateRangePicker·scoped query·차트·report 목록/파일 계약, Task1 compact Shell.
 - Produces: 개요 comparison/ranking/report action의 첫 화면 배치. 새 계산·필터 상태·탭 컴포넌트 API를 만들지 않는다.
 
-- [ ] **Step1: RED·기존 계약 확인.** 기존 1열 KPI가 그래프를 미는 것을 3개 크기에서 단언하고 ranking 첫 행/리포트 첫파일 작업 접근을 확인한다. null/partial/gap와 invalid 날짜 초안·scope 변경 회귀는 실제 data contract로 확인한다.
-- [ ] **Step2: 구현.** 핵심 요약을 기존 토큰으로 압축 배치하고 비교 그래프/순위/최근 리포트를 올린다. 상세 KPI/조건·히트맵/파일 작업은 모두 명시적으로 접근 가능하다. 기존 밑줄 탭/입력 크기와 API 의미·기간 범위를 유지한다.
-- [ ] **Step3: GREEN 검증.** focused units/typecheck·3크기 첫graphic·desktop·날짜/filter/report 취소 관련 회귀를 실행한다. PDF/CSV 기능·null을 가짜 통과값으로 대체하지 않는다.
-- [ ] **Step4: 메뉴 문서·scoped commit·self review·report.** 명령/결과와 소스가 맞는 원본 캡처, 데이터/파일/실장비 한계를 보고한다.
+- [x] **Step1: RED·기존 계약 확인.** 기존 1열 KPI가 그래프를 미는 것을 3개 크기에서 단언하고 ranking 첫 행/리포트 첫파일 작업 접근을 확인한다. null/partial/gap와 invalid 날짜 초안·scope 변경 회귀는 실제 data contract로 확인한다.
+- [x] **Step2: 구현.** 핵심 요약을 기존 토큰으로 압축 배치하고 비교 그래프/순위/최근 리포트를 올린다. 상세 KPI/조건·히트맵/파일 작업은 모두 명시적으로 접근 가능하다. 기존 밑줄 탭/입력 크기와 API 의미·기간 범위를 유지한다.
+- [x] **Step3: GREEN 검증.** focused units/typecheck·3크기 첫graphic·desktop·날짜/filter/report 취소 관련 회귀를 실행한다. PDF/CSV 기능·null을 가짜 통과값으로 대체하지 않는다.
+- [x] **Step4: 메뉴 문서·scoped commit·self review·report.** 명령/결과와 소스가 맞는 원본 캡처, 데이터/파일/실장비 한계를 보고한다.
+
+담당자 증거: ffda1fa9, 최종 unit187/browser 첫화면12·계약11·files5·invalidhistory1/types/UI0. 개요143/256/256px, 실제ranking185/328/328px, download44px. ReportJobList 기존card순서 최소scope추가승인, sharedGrid불변. 독립 review C0/I1 뒤 e6a42750 그래프 앞 기준 의미(24시간100% 출력) 보완 RED1→GREEN25/browser4, scoped I1 ADDRESSED·새 C/I/M0 승인.
 
 ### Task 4: 최종 통합 검증과 인계
 
