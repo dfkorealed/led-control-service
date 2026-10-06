@@ -280,7 +280,7 @@ export function CustomerShell({ user }: { user: AuthUser }) {
   return (
     <CustomerAccountContext.Provider value={{ user, isLoggingOut, logoutError: logoutError || null, requestLogout: handleLogout }}>
     <WorkspaceFocusProvider scope={JSON.stringify([principalKey(user), selectedSiteId, location.pathname])}>{focus =>
-    <SessionStatusProvider key={JSON.stringify([principalKey(user), authorizedSelectedSiteId])}>
+    <SessionStatusProvider scope={JSON.stringify([principalKey(user), authorizedSelectedSiteId])}>
       <ShellStatusRegistration items={shellStatusItems} />
       <div className={`bg-surface-canvas ${isMonitoringRoute ? "flex h-dvh min-h-0" : focus.active ? "flex h-dvh min-h-0 overflow-hidden" : isEditorRoute ? "flex min-h-dvh" : "min-h-screen"} ${isCompactNavigation && !focus.active && !isMonitoringRoute ? "pb-shell-navigation-safe" : "flex"}`} data-app-shell data-workspace-full-view={focus.active}>
       {capabilities && !gate ? isCompactNavigation ? (

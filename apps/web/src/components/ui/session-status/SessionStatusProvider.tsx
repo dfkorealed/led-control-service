@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction, type ReactNode } from "react";
 
 export type SessionStatusTone = "info" | "warning" | "danger";
 export type SessionToastTone = "info" | "success" | "warning" | "danger";
@@ -55,21 +55,27 @@ const DEFAULT_TOAST_DURATION_MS = 5_000;
 const MAX_VISIBLE_TOASTS = 3;
 const SessionStatusContext = createContext<SessionStatusContextValue | null>(null);
 
-export function SessionStatusProvider({ children }: { children: ReactNode }) {
-  const sources = useRef(new Map<string, readonly SessionStatusItem[]>());
+// Each scope owns its mutable registration/timer maps. Replacing this store
+// during render resets notifications before child effects re-register, while
+// leaving consumer DOM and command owners mounted. Old closures retain only
+// their old maps; scoped setters reject their asynchronous writes.
+export function SessionStatusProvider({ children, scope }: { children: ReactNode; scope?: string }) {
+  const generation = useMemo(() => ({
+    sources: { current: new Map<string, readonly SessionStatusItem[]>() },
+    pendingUnregistrations: { current: new Map<string, object>() },
+    timers: { current: new Map<string, { revision: number; timer: number }>() }
+  }), [scope]);
+  const { sources, pendingUnregistrations, timers } = generation;
   const sequence = useRef(0);
-  const pendingUnregistrations = useRef(new Map<string, object>());
-  const [sourceRevision, setSourceRevision] = useState(0);
-  const [toasts, setToasts] = useState<SessionToast[]>([]);
-
-  const [recentNotifications, setRecentNotifications] = useState<SessionRecentNotification[]>([]);
-  const timers = useRef(new Map<string, { revision: number; timer: number }>());
+  const [sourceRevision, setSourceRevision] = useScopedState(generation, 0);
+  const [toasts, setToasts] = useScopedState<SessionToast[]>(generation, []);
+  const [recentNotifications, setRecentNotifications] = useScopedState<SessionRecentNotification[]>(generation, []);
   const remember = useCallback((events: readonly SessionToast[]) => {
     setRecentNotifications(current => [...current, ...events.map(event => ({ ...event, id: `recent:${event.revision}`, isRead: false }))].slice(-50));
-  }, []);
+  }, [setRecentNotifications]);
   const markRecentRead = useCallback((id: string) => {
     setRecentNotifications(current => current.map(item => item.id === id ? { ...item, isRead: true } : item));
-  }, []);
+  }, [setRecentNotifications]);
   // Expiry belongs to the provider, so hiding/unmounting the visual toast region
   // cannot revive old notices after a breakpoint change. Preserve other timers.
   useEffect(() => {
@@ -82,8 +88,8 @@ export function SessionStatusProvider({ children }: { children: ReactNode }) {
       const timer = window.setTimeout(() => setToasts(current => current.filter(item => item.id !== toast.id || item.revision !== toast.revision)), toast.durationMs);
       timers.current.set(toast.id, { revision: toast.revision, timer });
     }
-  }, [toasts]);
-  useEffect(() => () => { for (const entry of timers.current.values()) window.clearTimeout(entry.timer); timers.current.clear(); }, []);
+  }, [toasts, timers, setToasts]);
+  useEffect(() => () => { for (const entry of timers.current.values()) window.clearTimeout(entry.timer); timers.current.clear(); }, [timers]);
 
   const register = useCallback((sourceId: string, items: readonly SessionStatusItem[]) => {
     pendingUnregistrations.current.delete(sourceId);
@@ -95,7 +101,7 @@ export function SessionStatusProvider({ children }: { children: ReactNode }) {
     remember(events);
     const activeIds = new Set(after.map(item => item.id));
     setToasts(current => events.reduce(upsertToast, current.filter(toast => !toast.statusId || activeIds.has(toast.statusId))));
-  }, [remember]);
+  }, [remember, sources, pendingUnregistrations, setSourceRevision, setToasts]);
 
   const unregister = useCallback((sourceId: string) => {
     if (!sources.current.has(sourceId)) return;
@@ -116,7 +122,7 @@ export function SessionStatusProvider({ children }: { children: ReactNode }) {
       const resolvedIds = new Set(before.filter((item) => !activeIds.has(item.id)).map((item) => item.id));
       if (resolvedIds.size > 0) setToasts((current) => current.filter((toast) => !toast.statusId || !resolvedIds.has(toast.statusId)));
     });
-  }, []);
+  }, [sources, pendingUnregistrations, setSourceRevision, setToasts]);
 
   const publish = useCallback((input: SessionToastInput) => {
     const id = input.id ?? input.dedupeKey ?? `toast-${++sequence.current}`;
@@ -133,15 +139,27 @@ export function SessionStatusProvider({ children }: { children: ReactNode }) {
     remember([toast]);
     setToasts(current => upsertToast(current, toast));
     return id;
-  }, [remember]);
+  }, [remember, setToasts]);
 
   const dismiss = useCallback((id: string) => {
     setToasts((current) => current.filter((toast) => toast.id !== id));
-  }, []);
+  }, [setToasts]);
 
-  const statuses = useMemo(() => aggregateStatuses(sources.current), [sourceRevision]);
+  const statuses = useMemo(() => aggregateStatuses(sources.current), [sourceRevision, sources]);
   const value = useMemo<SessionStatusContextValue>(() => ({ statuses, toasts, recentNotifications, recentUnreadCount: recentNotifications.filter(item => !item.isRead).length, markRecentRead, register, unregister, publish, dismiss }), [dismiss, publish, register, statuses, toasts, unregister, recentNotifications, markRecentRead]);
   return <SessionStatusContext.Provider value={value}>{children}</SessionStatusContext.Provider>;
+}
+
+function useScopedState<T>(generation: object, initial: T): [T, Dispatch<SetStateAction<T>>] {
+  const [state, setState] = useState(() => ({ generation, value: initial }));
+  if (state.generation !== generation) setState({ generation, value: initial });
+  const update = useCallback<Dispatch<SetStateAction<T>>>(next => {
+    setState(current => current.generation !== generation ? current : {
+      generation,
+      value: typeof next === "function" ? (next as (previous: T) => T)(current.value) : next
+    });
+  }, [generation]);
+  return [state.generation === generation ? state.value : initial, update];
 }
 
 export function useSessionStatus(sourceId: string, items: readonly SessionStatusItem[]) {

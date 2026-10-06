@@ -1017,7 +1017,7 @@ describe("ScheduleControlPanel", () => {
     await expectScreenStatusCount(2);
     fireEvent.click(screen.getByRole("button", { name: "알람센터, 현장 미선택" }));
     const center = screen.getByRole("dialog", { name: "알람센터" });
-    const statuses = within(center).getAllByRole("listitem");
+    const statuses = within(within(center).getByRole("region", { name: "현재 화면 상태" })).getAllByRole("listitem");
     expect(statuses).toHaveLength(2);
     expect(statuses[0]).toHaveTextContent("야간 운영");
     expect(statuses[1]).toHaveTextContent("주간 운영");
@@ -1026,9 +1026,10 @@ describe("ScheduleControlPanel", () => {
     fireEvent.click(screen.getByRole("button", { name: "주간 운영 비활성화" }));
     await expectScreenStatusCount(1);
     fireEvent.click(screen.getByRole("button", { name: "알람센터, 현장 미선택" }));
-    const remaining = within(screen.getByRole("dialog", { name: "알람센터" })).getByRole("listitem");
+    const remaining = within(screen.getByRole("region", { name: "현재 화면 상태" })).getByRole("listitem");
     expect(remaining).toHaveTextContent("야간 운영");
     expect(remaining).not.toHaveTextContent("주간 운영");
+    expect(screen.getByRole("list", { name: "최근 알림 목록" })).toHaveTextContent("주간 운영");
   });
 
   it("clears only the deleted schedule's toggle failure after deletion succeeds", async () => {
@@ -1045,9 +1046,10 @@ describe("ScheduleControlPanel", () => {
     await waitFor(() => expect(mocks.deleteSchedule).toHaveBeenCalledWith(siteId, schedule().id));
     await expectScreenStatusCount(1);
     fireEvent.click(screen.getByRole("button", { name: "알람센터, 현장 미선택" }));
-    const remaining = within(screen.getByRole("dialog", { name: "알람센터" })).getByRole("listitem");
+    const remaining = within(screen.getByRole("region", { name: "현재 화면 상태" })).getByRole("listitem");
     expect(remaining).toHaveTextContent("주간 운영");
     expect(remaining).not.toHaveTextContent("야간 운영");
+    expect(screen.getByRole("list", { name: "최근 알림 목록" })).toHaveTextContent("야간 운영");
   });
 
   it("keeps schedule A's toggle failure through another deletion and its own failed deletion", async () => {
