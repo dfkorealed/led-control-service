@@ -1,11 +1,11 @@
 # 모니터링 메뉴 기능 현황
 
-## 2026-10-06 기존 BIO 등록 현재 재검증 — 상세 설계안
+## 2026-10-06 기존 BIO 등록 현재 재검증 — 상세 설계 승인·실행 계획
 
-- 구현 완료: 없음. 등록 현재 재검증 설계 방향만 승인됐으며 dashboard/telemetry/운영 데이터 변경은 없다.
+- 구현 완료: 없음. 등록 현재 재검증 상세 설계가 승인됐고 실행 계획의 사용자 검토 대기다. dashboard/telemetry/운영 데이터 변경은 없다.
 - 미구현: 실제 B 현재 조회와 등록 수복. 감지 신호 승인·독립 연결 건강 공급도 별도 미완료다.
 - 부족하거나 개선이 필요한 기능: 새 mode GET은 현재 identity/address의 설정 관찰이며 광학 출력·전력·센서 건강이 아니다. 이를 heartbeat·readiness·모니터링 정상 상태로 승격하지 않는 설계다.
-- 관련 파일: `docs/superpowers/specs/2026-10-06-bio-registration-revalidation-design.md`, `docs/superpowers/plans/2026-09-30-bio-sensor-pulse-event-control.md`.
+- 관련 파일: `docs/superpowers/specs/2026-10-06-bio-registration-revalidation-design.md`, `docs/superpowers/plans/2026-10-06-bio-registration-revalidation.md`, `docs/superpowers/plans/2026-09-30-bio-sensor-pulse-event-control.md`.
 - 갱신 규칙: 등록 수복·BIO/OFF 분류·실제 감지/건강·대시보드 표시의 완료 조건을 분리한다.
 
 ## 2026-10-02 재검색과 등록 상태 보존

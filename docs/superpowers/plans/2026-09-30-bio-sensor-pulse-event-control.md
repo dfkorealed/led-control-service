@@ -158,7 +158,8 @@ Task 8은 **8a Gateway/API synthetic integration·additive V2 BIO telemetry hand
 
 - [x] **1번 원인/수복 계약 조사:** Backend가 기존 덮어쓰기/hash 결속과 completed graph를 대조했다. 조사한 보관 자료에 실제 completed terminal 원문은 없다. 기존 replay는 ACK만 반환하고 새 등록은 기존 native UUID를 거부하므로 둘 다 B 수복 경로가 아니다. 추정 terminal 합성·session 완료 표시·등록 조건 완화는 하지 않는다.
 - [x] **1번 다음 설계 선택:** 사용자가 삭제 없는 현재 장치 재검증·감사 수복 방향을 승인했다. 현재 mode query는 BIO-only이며 force-off의 mismatch는 성공 proof가 아니므로, low-level 단일 client GET만 재사용하는 별도 등록 목적의 상세 설계안을 `docs/superpowers/specs/2026-10-06-bio-registration-revalidation-design.md`에 기록했다. historical completion 복원과 current verification을 구분하고 기존 분류 API의 원자적 A/B 검증은 유지한다.
-- [ ] **1번 상세 설계/실행 계획 검토:** 독립 registration 목적의 strict 계약·새 durable operation·감사 수복 경계를 검토한 뒤 구현 계획/실행 방법을 확정한다. 설계 방향 승인을 새 wire/schema 구현 또는 실제 장비 실행 완료로 해석하지 않는다.
+- [x] **1번 상세 설계 승인/실행 계획 작성:** 사용자가 상세 설계안을 승인했다. `docs/superpowers/plans/2026-10-06-bio-registration-revalidation.md`에 Shared→API/DB→Gateway→집중 통합의 실행 계획과 테스트/독립 검토 경계를 작성·자체 대조했다. 기존 역할별 서브에이전트 순차 구현/총괄 취합 방식을 유지한다.
+- [ ] **1번 실행 계획 검토:** 작성한 실행 계획의 사용자 검토 후 소프트웨어 구현을 시작한다. 상세 설계 승인을 새 wire/schema 구현 또는 실제 장비 실행 완료로 해석하지 않는다.
 - [ ] **1번 구현/집중 검증:** 공유 계약→API/DB→Gateway 순서, 새 실패 테스트/가짜 단일 동글 SET0/일회용 DB·감사 원자성과 기존 계약 회귀·독립 검토. 이후 운영 적용·실제 B 현재 조회/수복/기존 A/B 분류는 별도 관문이다.
 - [x] **3번 실제 공급 gap 조사:** Gateway가 단일 client source→scheduler 연결과 null authority/빈 profile, 독립 센서 health 입력 부재를 확인했다. `0x09` body01/03 후보·`0x0c` 주기 관찰·USB/GET_NWK readiness·설정 mode GET은 각각 수신/통신/설정 관찰일 뿐 승인 신호·독립 건강을 대신하지 않는다.
 - [ ] **3번 다음 현장 범위:** 현재 귀속/원본 서비스/미확정 원장을 읽기 전용 재확인하고, 실제 행동·출력과 body별 신호의 반복 상관 및 시각 오차, pulse와 분리된 링크 건강/장애·복구 관찰을 위한 좁은 시험 범위를 사용자와 확정한다. 현재 참여 준비와 별도 시작 신호는 아직 없다. 신뢰된 profile/독립 공급 근거가 생기기 전에는 제품 OFF다.

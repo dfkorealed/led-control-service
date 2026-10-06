@@ -4,7 +4,7 @@
 
 ## 2026-10-06 BIO 후속 1·3번 — 원인 조사 완료, 실제 적용 보류
 
-- **최신 결정(2026-10-06):** 사용자가 삭제 없는 현재 장치 재검증 수복 방향을 승인했다. 상세 설계안은 `docs/superpowers/specs/2026-10-06-bio-registration-revalidation-design.md`이며, 독립 등록 목적의 query/result와 durable proof로 기존 sensor-mode 계약을 분리한다. 이번에는 상세 설계 작성까지만 진행했으며 문서/구현 계획 검토는 아직이다. 새 wire/schema 구현·장비 조회·B 수복은 하지 않았다. 3번은 별도의 현장 신호/건강 판정 작업으로 남는다.
+- **최신 결정(2026-10-06):** 사용자가 삭제 없는 현재 장치 재검증 수복 방향과 상세 설계안 `docs/superpowers/specs/2026-10-06-bio-registration-revalidation-design.md`를 승인했다. 실행 계획은 `docs/superpowers/plans/2026-10-06-bio-registration-revalidation.md`이며 Shared→API/DB→Gateway→집중 통합/독립 검토 순서와 현재 장치 확인·감사 수복을 구분했다. 현재 사용자 실행 계획 검토 대기다. 기존 역할별 서브에이전트/총괄 취합 방식을 유지하며 새 wire/schema 구현·장비 조회·B 수복은 하지 않았다. 서버/Gateway 시각 근거의 실제 공급이 없으면 수복을 허용하지 않는다. 3번은 별도의 현장 신호/건강 판정 작업으로 남는다.
 - 새 사용자 요청은 A/B 등록 상태 정리와 감지 신호·독립 연결 판정 연결이다. 옛 UI Task6 권한이나 현장 시작 신호를 재사용하지 않는다. 인증 정보 갱신과 B 점등 시험은 이번 요청에서 자동 실행하지 않는다.
 - 백엔드·Gateway 두 역할의 로컬 읽기 전용 조사로 차단을 확인했다. B 재검색 덮어쓰기 예방은 구현돼 있으나 과거 terminal 원문은 조사한 보관 자료에 없다. ACK/hash만으로 `completed`를 합성하지 않으며 기존 terminal의 중복 재생도 ACK만 반환하므로 수복이 아니다. 현재 장치 재검증·감사 수복 경로의 상세 설계/구현 관문은 위 최신 결정에 따른다.
 - `BioPulseAuthorityProvider` 소비와 scheduler 연결은 이미 구현됐다. actual 승인 profile은 빈 목록, 권한/독립 건강 공급은 없으며 보호된 행동·광학 기록도 시각 오차와 독립 liveness를 검증하지 못했다. 더미 provider 또는 후보/alive만으로 지원·healthy를 만드는 변경은 하지 않았다. 현재 통신·장비 상태와 좁은 현장 검증 범위를 먼저 확정해야 한다.
