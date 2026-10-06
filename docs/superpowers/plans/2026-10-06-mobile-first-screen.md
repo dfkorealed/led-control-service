@@ -14,7 +14,7 @@
 
 - 동일 웹의 기존 compact `<760px`를 모바일 범위로 한다. Android/iOS WebView와 모바일 브라우저가 같은 화면을 소비한다. 새 라이브러리·API·DB·네이티브 셸 변경은 필요하지 않다.
 - 기존 탭 종류, 높이, 글자 크기, 버튼·SelectBox·카드 토큰을 유지한다. 별도의 시안용 통계 Select 탭을 제품에 추가하지 않는다. 모바일 조작 영역은 기존 최소 44px를 유지한다.
-- 정상 100% 글자 크기의 320×568/390×844/430×932에서 첫 진입 scroll0에 모니터링·수동 제어의 실제 도면, 통계 개요 비교 그래프·분석 순위가 보인다. 그래픽의 유효 표시 높이는 320에서 최소120px, 390/430에서 최소240px를 목표/검증 기준으로 한다. 큰 글자·오류·긴 이름은 자연 스크롤을 허용하며 잘라서 맞추지 않는다. 실제 현장 전체를 한 화면에 항상 넣는다는 보장은 아니다.
+- 정상 100% 글자 크기의 320×568/390×844/430×932에서 첫 진입 scroll0에 모니터링·수동 제어의 실제 도면, 통계 개요 비교 그래프·분석 순위가 보인다. 그래픽의 유효 표시 높이는 320에서 최소120px, 390/430에서 최소240px를 목표/검증 기준으로 한다. 큰 글자·오류·긴 이름은 자연 스크롤을 허용하며 잘라서 맞추지 않는다. 실제 현장 전체를 한 화면에 항상 넣는다는 보장은 아니다. 도면의 표시 높이는 로드된 floor surface를 렌더하는 interactive map viewport와 viewport/하단 메뉴/clip의 교차를 측정한다. 카드 wrapper·빈 placeholder는 제외한다. 원본 CAD 비율에 따른 이미지 픽셀 자체 높이와 여백은 별도로 기록하며 강제 확대나 fixture 비율 변경으로 기준을 맞추지 않는다.
 - 최근 알림은 세션 메모리에 최대50개 보관한다. 같은 상태 fingerprint polling은 새 알림이 아니며 새 상태·변경 내용·별도 작업 알림은 읽지 않음으로 표시한다. toast 종료는 최근 알림 읽음/삭제가 아니다. 읽음은 장애 해결·명령 실행·지우기가 아니다.
 - 데이터 집계/API payload/명령 UUID/날짜·문서 취소 계약·최신 메인 알람 개인 지우기·모바일 iOS focus helper를 보존한다. 제품·소유 경계는 순차 작업하며 각 담당자는 다른 agent를 생성하지 않는다.
 
@@ -31,7 +31,7 @@
 - [x] 사용자 A안·기존 컨트롤 크기 유지·별도 브랜치 후 병합 승인(2026-10-06).
 - [x] preview 기록 ce20af4e 보존 후 최신 메인 f74fc94f를 efd3820a에서 통합. 제품 충돌0, 메뉴 문서 충돌은 양쪽 scope별 기록을 보존.
 - [x] Task1 Shell·알림·계정 구현/검토 — aba7a268 + cd0f44d0, full review C0/I1 후 scoped I1 ADDRESSED·새 C/I0.
-- [ ] Task2 모니터링·제어 구현/검토.
+- [x] Task2 모니터링·제어 구현/검토 — 3c868c0b, 독립 Spec✅/QualityApproved·C0/I0.
 - [ ] Task3 통계 구현/검토.
 - [ ] Task4 최종 검증·디자이너·전체 코드 검토.
 - [ ] 총괄이 최종 상태 문서·로컬 메인 병합과 병합 후 검증을 완료한다.
@@ -70,10 +70,12 @@
 - Consumes: Task1 compact Shell, 기존 map/selection/WorkspaceFocus/DetailSheet, 기존 command owner/복구 저장.
 - Produces: 기존 기능/props 호환, 정상 첫 도면 우선 레이아웃; 실제 map의 bounds 측정을 위한 기존 data attribute 또는 의미있는 region.
 
-- [ ] **Step1: 실패 재현·RED.** 3개 크기 scroll0 실제map/nav bounds를 비교해 명세 최소 가시성을 단언한다. 현장/맵 변경·카메라/선택·drawer 닫힘·명령 진행/불확정·원본 UUID 회귀를 현재 계약에서 정의한다. desktop 기준을 보존한다.
-- [ ] **Step2: 구현.** selected-map 상태·도면 우선, 반복 현장 집계/검색/상세/실행 설정을 기존 펼침·drawer로 이동한다. 컨트롤 크기를 줄이지 않는다. 상태 owner는 계속 mounted이며 실행 중/unknown과 retry는 닫힌 상세 때문에 사라지지 않는다.
-- [ ] **Step3: GREEN 검증.** focused units·3개 크기 가시성/터치/전체보기 및 관련 기존 monitoring/control browser 회귀를 실행한다. 레이아웃·drawer·resize로 command/refresh POST가 새로 발생하지 않는지 확인한다.
-- [ ] **Step4: 메뉴 문서·scoped commit·self review·report.** 원본 로그/캡처/명령·결과·부분 노출/실장비 한계를 기록하고 총괄 review를 받는다.
+- [x] **Step1: 실패 재현·RED.** 3개 크기 scroll0 실제map/nav bounds를 비교해 명세 최소 가시성을 단언한다. 현장/맵 변경·카메라/선택·drawer 닫힘·명령 진행/불확정·원본 UUID 회귀를 현재 계약에서 정의한다. desktop 기준을 보존한다.
+- [x] **Step2: 구현.** selected-map 상태·도면 우선, 반복 현장 집계/검색/상세/실행 설정을 기존 펼침·drawer로 이동한다. 컨트롤 크기를 줄이지 않는다. 상태 owner는 계속 mounted이며 실행 중/unknown과 retry는 닫힌 상세 때문에 사라지지 않는다.
+- [x] **Step3: GREEN 검증.** focused units·3개 크기 가시성/터치/전체보기 및 관련 기존 monitoring/control browser 회귀를 실행한다. 레이아웃·drawer·resize로 command/refresh POST가 새로 발생하지 않는지 확인한다.
+- [x] **Step4: 메뉴 문서·scoped commit·self review·report.** 원본 로그/캡처/명령·결과·부분 노출/실장비 한계를 기록하고 총괄 review를 받는다.
+
+담당자 증거: 3c868c0b, 단위284·최종20px 복원후98, 최종browser15/기존control-map28, typecheck·policy67/위반0. 정상 map viewport 모니터링173/240/240·제어240/240/240, fitted CAD 자체 높이는 별도. keyed pending/uncertain A→B→A 원UUID/늦은응답격리/자동POST0. 기존 main FilterPanel과 불일치한 legacy직접KPI2실패·중단9는 전체browserPASS로 바꾸지 않는다. 독립 Spec✅/QualityApproved·C0/I0 승인, 기존 tool warning만 Minor. native/HIL은 범위 밖이며 최종 정상화면·자연스크롤 검증은 Task4다.
 
 ### Task 3: 통계 그래프·순위·최근 리포트 우선
 
