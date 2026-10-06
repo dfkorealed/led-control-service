@@ -3,12 +3,13 @@ import { Prisma, type BioRegistrationRevalidationOperation } from "@prisma/clien
 import { randomUUID } from "node:crypto";
 import { bioRegistrationRevalidationRequestSchema, bioRegistrationRevalidationCommandSchema,
   bioRegistrationRevalidationResultSchema, bioRegistrationRevalidationAckSchema, bioRegistrationRevalidationTopics,
-  type BioRegistrationRevalidationAck } from "@led-control/shared";
+  provisioningDeviceCommandV2Schema, type BioRegistrationRevalidationAck } from "@led-control/shared";
 import { SiteAccessService } from "../access/site-access.service";
 import type { AuthenticatedUser } from "../auth/auth.types";
 import { CommandDbClockHealth } from "../mqtt/command-db-clock-health.service";
 import { PrismaService } from "../prisma/prisma.service";
-import { authorizeBioRegistrationGateway, bioRegistrationRevalidationHash, loadLockedBioRegistrationBinding } from "./bio-registration-revalidation-binding";
+import { authorizeBioRegistrationGateway, bioRegistrationRevalidationHash, loadLockedBioRegistrationBinding,
+  type BioRegistrationBinding } from "./bio-registration-revalidation-binding";
 import { lockRegistrationDeviceUuids, lockRegistrationDomain } from "./registration-domain-locks";
 
 export interface BioRegistrationRevalidationView {
@@ -88,6 +89,65 @@ export class BioRegistrationRevalidationService {
       await tx.bioRegistrationRevalidationOperation.updateMany({ where: { status: "pending", expiresAt: { lte: at } },
         data: { status: "timed_out", lockedBy: null, leaseExpiresAt: null } });
     });
+  }
+
+  async apply(user: AuthenticatedUser, commandId: string): Promise<BioRegistrationRevalidationView> {
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(commandId)) {
+      throw new BadRequestException("invalid BIO revalidation command ID");
+    }
+    return this.prisma.$transaction(async tx => {
+      await tx.$executeRaw`SELECT "lock_automation_membership_mutation"()`;
+      const initial = await tx.bioRegistrationRevalidationOperation.findUnique({ where: { commandId } });
+      if (!initial || initial.requestedById !== user.id) throw new NotFoundException("BIO revalidation request not found");
+      await this.access.assertCommissionInTransaction(tx, user, initial.siteId);
+      const scope = { siteId: initial.siteId, gatewayId: initial.gatewayId, fixtureId: initial.fixtureId,
+        expectedAssignmentVersion: initial.assignmentVersion };
+      // Certificate authority precedes Session/candidate/outbox locks. The
+      // reviewed binding helper then reacquires Floor/Gateway reentrantly.
+      await tx.$queryRaw`SELECT "id" FROM "Floor" WHERE "id"=${initial.floorId} FOR UPDATE`;
+      await authorizeBioRegistrationGateway(tx, scope, await this.clock.assertHealthy(tx));
+      // A competing apply may have completed while we waited for the domain.
+      const serialized = await tx.bioRegistrationRevalidationOperation.findUniqueOrThrow({ where: { commandId } });
+      const binding = await loadLockedBioRegistrationBinding(tx, scope, serialized.appliedAt ? "provisioned" : "discovered",
+        await this.clock.assertHealthy(tx));
+      await tx.$queryRaw`SELECT "commandId" FROM "BioRegistrationRevalidationOperation" WHERE "commandId"=${commandId} FOR UPDATE`;
+      const row = await tx.bioRegistrationRevalidationOperation.findUniqueOrThrow({ where: { commandId } });
+      assertBioRegistrationRevalidationProof(row, binding);
+      const now = await this.clock.assertHealthy(tx);
+      await authorizeBioRegistrationGateway(tx, scope, now);
+      if (row.appliedAt) {
+        await assertBioRegistrationRepairAudit(tx, row);
+        // Consumption time is immutable: an authorized exact retry remains
+        // readable after its original two-minute deadline, with no new writes.
+        return view(row);
+      }
+      if (now >= row.applyDeadlineAt || now < row.proofAcceptedAt!) throw new ConflictException("BIO repair proof expired");
+      const pendingScan = await tx.provisioningSession.findFirst({ where: { gatewayId: row.gatewayId, status: "active",
+        scanStatus: { in: ["pending", "scanning"] } } });
+      const pending = await tx.discoveredMeshNode.findUniqueOrThrow({ where: { id: row.discoveredNodeId } });
+      const otherQueued = await tx.provisioningDeviceOutbox.findMany({ where: { nodeId: row.discoveredNodeId,
+        id: { not: row.originalProvisionCommandId }, publishedAt: null, deadLetteredAt: null } });
+      // Completed registration deliberately retains pendingFixture* metadata.
+      // Neither those values nor the original command's PUBACK timestamp prove
+      // an active registration; separate queued provision work remains a conflict.
+      if (pendingScan || otherQueued.some(command => {
+        const parsed = provisioningDeviceCommandV2Schema.safeParse(command.payload);
+        return !parsed.success || parsed.data.operation !== "identify";
+      })) {
+        throw new ConflictException("BIO current registration operation conflict");
+      }
+      const updated = await tx.discoveredMeshNode.updateMany({ where: { id: row.discoveredNodeId, sessionId: row.sessionId,
+        status: "discovered", identifyState: "confirmed", deviceUuid: pending.deviceUuid, meshAddress: row.meshAddress },
+        data: { status: "provisioned" } });
+      if (updated.count !== 1) throw new ConflictException("BIO registration changed concurrently");
+      // Mandatory audit and consumption share this transaction; insert failure
+      // must roll back the candidate UPDATE rather than leave an unaudited repair.
+      const audit = await tx.auditLog.create({ data: { siteId: row.siteId, organizationId: user.organizationId,
+        actorId: user.id, action: "bio_registration_current_revalidated", targetType: "DiscoveredMeshNode",
+        targetId: row.discoveredNodeId, outcome: "changed", metadata: repairAuditMetadata(row, now) } });
+      return view(await tx.bioRegistrationRevalidationOperation.update({ where: { commandId },
+        data: { appliedAt: now, auditId: audit.id } }));
+    }, { timeout: 10_000 });
   }
 
   /** Shared canonical recheck for result ingestion and the query publisher.
@@ -189,6 +249,46 @@ export class BioRegistrationRevalidationService {
         payloadHash: bioRegistrationRevalidationHash(ack), nextAttemptAt: receivedAt } });
       return ack;
     }, { timeout: 10_000 });
+  }
+}
+
+/** Current repair evidence never stands in for a historical completed terminal. */
+export function assertBioRegistrationRevalidationProof(row: BioRegistrationRevalidationOperation, binding: BioRegistrationBinding): void {
+  const command = bioRegistrationRevalidationCommandSchema.safeParse(row.payload);
+  const result = bioRegistrationRevalidationResultSchema.safeParse(row.result);
+  if (!command.success || !result.success || result.data.status !== "observed" || row.status !== "observed" ||
+      !row.proofAcceptedAt || row.supersededAt || row.bindingHash !== bioRegistrationRevalidationHash(binding) ||
+      row.bindingHash !== bioRegistrationRevalidationHash(row.bindingSnapshot) ||
+      Object.entries(binding).some(([key, value]) => row[key as keyof typeof row] !== value) ||
+      row.payloadHash !== bioRegistrationRevalidationHash(command.data) || row.resultHash !== bioRegistrationRevalidationHash(result.data) ||
+      row.resultEventId !== result.data.eventId || row.applyDeadlineAt.getTime() !== row.requestedAt.getTime() + 120_000 ||
+      row.expiresAt.getTime() !== row.requestedAt.getTime() + 30_000 ||
+      row.proofAcceptedAt < row.requestedAt || row.proofAcceptedAt >= row.expiresAt ||
+      Date.parse(result.data.occurredAt) < row.requestedAt.getTime() || Date.parse(result.data.occurredAt) > row.expiresAt.getTime() ||
+      Date.parse(result.data.occurredAt) > row.proofAcceptedAt.getTime() + 1_000 ||
+      (["commandId", "siteId", "gatewayId", "fixtureId", "nodeId", "assignmentVersion", "deviceIdentityHash", "meshAddress"] as const)
+        .some(key => command.data[key] !== row[key] || result.data[key] !== row[key]) ||
+      command.data.requestedAt !== row.requestedAt.toISOString() || command.data.expiresAt !== row.expiresAt.toISOString()) {
+    throw new ConflictException("BIO current revalidation proof mismatch");
+  }
+}
+
+function repairAuditMetadata(row: BioRegistrationRevalidationOperation, appliedAt: Date): Prisma.InputJsonObject {
+  return { evidenceKind: "current_device_revalidation", beforeStatus: "discovered", afterStatus: "provisioned",
+    bindingHash: row.bindingHash, bindingSnapshot: row.bindingSnapshot as Prisma.InputJsonValue,
+    originalProvisionCommandId: row.originalProvisionCommandId, originalProvisionPayloadHash: row.originalProvisionPayloadHash,
+    revalidationCommandId: row.commandId, revalidationPayloadHash: row.payloadHash,
+    revalidationResultHash: row.resultHash, resultEventId: row.resultEventId,
+    proofAcceptedAt: row.proofAcceptedAt!.toISOString(), appliedAt: appliedAt.toISOString() };
+}
+
+export async function assertBioRegistrationRepairAudit(tx: Prisma.TransactionClient, row: BioRegistrationRevalidationOperation): Promise<void> {
+  const audit = row.auditId && await tx.auditLog.findUnique({ where: { id: row.auditId } });
+  if (!row.appliedAt || !audit || row.appliedAt < row.proofAcceptedAt! || row.appliedAt >= row.applyDeadlineAt ||
+      audit.siteId !== row.siteId || audit.actorId !== row.requestedById || audit.targetId !== row.discoveredNodeId ||
+      audit.action !== "bio_registration_current_revalidated" || audit.targetType !== "DiscoveredMeshNode" || audit.outcome !== "changed" ||
+      bioRegistrationRevalidationHash(audit.metadata) !== bioRegistrationRevalidationHash(repairAuditMetadata(row, row.appliedAt))) {
+    throw new ConflictException("BIO current repair audit mismatch");
   }
 }
 

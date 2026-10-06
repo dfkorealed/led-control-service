@@ -43,6 +43,11 @@ export class RegistrationController {
     return this.bioClassification.reconcile(user, body);
   }
 
+  @Post("bio-revalidations/:commandId/apply")
+  applyBioRevalidation(@Param("commandId") commandId: string, @CurrentUser() user: AuthenticatedUser) {
+    return this.bioRevalidation.apply(user, commandId);
+  }
+
   @Post()
   createSession(@Body() body: unknown, @CurrentUser() user: AuthenticatedUser) {
     return this.registrationService.createSession(user, createRegistrationSessionSchema.parse(body));

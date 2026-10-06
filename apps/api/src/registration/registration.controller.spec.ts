@@ -7,15 +7,18 @@ import type { AuthenticatedUser } from "../auth/auth.types";
 import { RegistrationController } from "./registration.controller";
 
 describe("RegistrationController", () => {
-  it("registers static BIO create/get paths before the generic session lookup", async () => {
+  it("registers static BIO create/get/apply paths before the generic session lookup", async () => {
     const controller = new (RegistrationController as any)({} as never, {} as never,
-      { create: async () => ({ commandId: "created" }), get: async () => ({ commandId: "queried" }) });
+      { create: async () => ({ commandId: "created" }), get: async () => ({ commandId: "queried" }), apply: async () => ({ commandId: "applied" }) });
     expect(Reflect.getMetadata(PATH_METADATA, controller.createBioRevalidation)).toBe("bio-revalidations");
     expect(Reflect.getMetadata(PATH_METADATA, controller.getBioRevalidation)).toBe("bio-revalidations/:commandId");
+    expect(Reflect.getMetadata(PATH_METADATA, controller.applyBioRevalidation)).toBe("bio-revalidations/:commandId/apply");
     const methods = Object.getOwnPropertyNames(RegistrationController.prototype);
     expect(methods.indexOf("getBioRevalidation")).toBeLessThan(methods.indexOf("getSession"));
+    expect(methods.indexOf("applyBioRevalidation")).toBeLessThan(methods.indexOf("getSession"));
     await expect(controller.createBioRevalidation({}, {})).resolves.toEqual({ commandId: "created" });
     await expect(controller.getBioRevalidation("id", {})).resolves.toEqual({ commandId: "queried" });
+    await expect(controller.applyBioRevalidation("id", {})).resolves.toEqual({ commandId: "applied" });
   });
   it("requires the assigned admin role for every registration route", () => {
     expect(Reflect.getMetadata(GUARDS_METADATA, RegistrationController)).toEqual(

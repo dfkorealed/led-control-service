@@ -52,7 +52,8 @@ const enabled = process.env.BIO_REGISTRATION_REVALIDATION_DISPOSABLE_POSTGRES ==
     await db.gatewayCertificate.create({ data: { id: ids.cert, inventoryId: ids.inventory, gatewayId: ids.gateway,
       purpose: "mqtt", certificateSerial: ids.cert, fingerprint: ids.cert, issuer: "test-only", status: "active",
       notBefore: new Date(now.getTime() - 60_000), notAfter: new Date(now.getTime() + 600_000) } });
-    await db.provisioningSession.create({ data: { id: ids.session, siteId: ids.site, floorId: ids.floor, gatewayId: ids.gateway, requestedBy: ids.actor } });
+    await db.provisioningSession.create({ data: { id: ids.session, siteId: ids.site, floorId: ids.floor, gatewayId: ids.gateway,
+      requestedBy: ids.actor, scanStatus: "completed" } });
     await db.discoveredMeshNode.create({ data: { id: ids.fixture, sessionId: ids.session, deviceUuid: "bio:aabbccddeeff",
       serialNumber: "test-only", rssi: -60, oobCapability: "none", firmwareVersion: "test", status: status as never,
       identifyState: "confirmed", meshAddress: "0x0100" } });
@@ -188,6 +189,282 @@ const enabled = process.env.BIO_REGISTRATION_REVALIDATION_DISPOSABLE_POSTGRES ==
       status: "observed", evidence: "mode_get", observedMode: mode },
       topic: `sites/${ids.site}/gateways/${ids.gateway}/events/bio-registration-revalidation-result` };
   }
+  async function observedOperation() {
+    const pending = await pendingResult();
+    await service.ingest(pending.topic, pending.result, new Date(pending.row.requestedAt.getTime() + 10));
+    return pending.row.commandId;
+  }
+  function classification() {
+    const { BioClassificationReconciliationService } = require("../src/registration/bio-classification-reconciliation.service");
+    const { AuditService } = require("../src/audit/audit.service");
+    return new BioClassificationReconciliationService(db, new SiteAccessService(db as never), new AuditService(db), { now: () => new Date() });
+  }
+  const classificationRequest = (fixtureIds = [ids.fixture]) => ({ siteId: ids.site, gatewayId: ids.gateway,
+    expectedAssignmentVersion: 2, fixtureIds, requestId: randomUUID() });
+  async function trackRepairWrites() {
+    await db.$executeRawUnsafe('CREATE TABLE "BioRepairWriteTest" (kind text NOT NULL)');
+    await db.$executeRawUnsafe(`CREATE FUNCTION count_repair_writes() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN
+      IF TG_TABLE_NAME = 'AuditLog' THEN
+        IF NEW.action='bio_registration_current_revalidated' THEN INSERT INTO "BioRepairWriteTest" VALUES (TG_TABLE_NAME); END IF;
+      ELSE INSERT INTO "BioRepairWriteTest" VALUES (TG_TABLE_NAME); END IF; RETURN NEW; END $$`);
+    for (const table of ["DiscoveredMeshNode", "BioRegistrationRevalidationOperation", "AuditLog"]) {
+      await db.$executeRawUnsafe(`CREATE TRIGGER count_repair_writes BEFORE ${table === "AuditLog" ? "INSERT" : "UPDATE"}
+        ON "${table}" FOR EACH ROW EXECUTE FUNCTION count_repair_writes()`);
+    }
+    return {
+      counts: () => db.$queryRaw<Array<{ kind: string; count: number }>>`SELECT kind, count(*)::int AS count FROM "BioRepairWriteTest" GROUP BY kind ORDER BY kind`,
+      async stop() {
+        for (const table of ["DiscoveredMeshNode", "BioRegistrationRevalidationOperation", "AuditLog"]) {
+          await db.$executeRawUnsafe(`DROP TRIGGER count_repair_writes ON "${table}"`);
+        }
+        await db.$executeRawUnsafe('DROP FUNCTION count_repair_writes()'); await db.$executeRawUnsafe('DROP TABLE "BioRepairWriteTest"');
+      }
+    };
+  }
+  it("apply atomically changes candidate status only, and expired retry retains original completion with no writes", async () => {
+    const commandId = await observedOperation(); const before = await readProtectedFixtureState();
+    const tracker = await trackRepairWrites(); const beforeAckCount = await db.mqttOutbox.count();
+    try {
+    const applied = await service.apply(user, commandId);
+    const row = await operations().findUniqueOrThrow({ where: { commandId } });
+    const after = await readProtectedFixtureState();
+    expect(after.candidate).toEqual({ ...before.candidate, status: "provisioned", updatedAt: after.candidate!.updatedAt });
+    expect({ ...after, candidate: before.candidate, audits: before.audits }).toEqual(before);
+    expect(row.appliedAt).not.toBeNull(); expect(row.auditId).not.toBeNull();
+    expect(after.audits).toHaveLength(1);
+    expect(after.audits[0]).toMatchObject({ action: "bio_registration_current_revalidated", targetId: ids.fixture,
+      metadata: { evidenceKind: "current_device_revalidation", bindingHash: row.bindingHash,
+        bindingSnapshot: row.bindingSnapshot, revalidationCommandId: commandId, revalidationResultHash: row.resultHash,
+        originalProvisionCommandId: ids.command, beforeStatus: "discovered", afterStatus: "provisioned" } });
+    const sample = jest.spyOn(clock, "assertHealthy").mockResolvedValue(new Date(row.applyDeadlineAt.getTime() + 1));
+    try { expect(await service.apply(user, commandId)).toEqual(applied); } finally { sample.mockRestore(); }
+    expect(await operations().findUniqueOrThrow({ where: { commandId } })).toEqual(row);
+    expect(await readProtectedFixtureState()).toEqual(after);
+    expect(await tracker.counts()).toEqual([{ kind: "AuditLog", count: 1 }, { kind: "BioRegistrationRevalidationOperation", count: 1 },
+      { kind: "DiscoveredMeshNode", count: 1 }]);
+    expect(await db.mqttOutbox.count()).toBe(beforeAckCount);
+    } finally { await tracker.stop(); }
+  });
+  it.each(["unknown", "superseded", "deadline", "requester", "permission", "cert", "assignment", "graph", "scan", "pending-registration", "clock"])
+  ("apply rejects %s without repair/audit/operation consumption", async reason => {
+    const unknown = reason === "unknown" ? await pendingResult() : null;
+    const commandId = unknown?.row.commandId ?? await observedOperation();
+    if (unknown) {
+      const { evidence: _evidence, observedMode: _mode, ...identity } = unknown.result;
+      await service.ingest(unknown.topic, { ...identity, status: "unknown", errorCode: "MODE_GET_UNCONFIRMED" },
+        new Date(unknown.row.requestedAt.getTime() + 10));
+      expect((await operations().findUniqueOrThrow({ where: { commandId } })).status).toBe("unknown");
+    }
+    let actor = user; let selectedService = service; let sample: jest.SpyInstance | undefined;
+    if (reason === "superseded") await service.create(user, request());
+    if (reason === "deadline") {
+      const row = await operations().findUniqueOrThrow({ where: { commandId } });
+      sample = jest.spyOn(clock, "assertHealthy").mockResolvedValue(row.applyDeadlineAt);
+    }
+    if (reason === "requester") actor = { ...user, id: randomUUID() };
+    if (reason === "permission") await db.site.update({ where: { id: ids.site }, data: { adminUserId: null } });
+    if (reason === "cert") await db.gatewayCertificate.update({ where: { id: ids.cert }, data: { notAfter: new Date(0) } });
+    if (reason === "assignment") await db.gateway.update({ where: { id: ids.gateway }, data: { assignmentVersion: 3 } });
+    if (reason === "graph") await db.meshNode.update({ where: { id: ids.node }, data: { meshAddress: "0x0101" } });
+    if (reason === "scan") await db.provisioningSession.update({ where: { id: ids.session }, data: { scanStatus: "pending" } });
+    if (reason === "pending-registration") {
+      const original = await db.provisioningDeviceOutbox.findUniqueOrThrow({ where: { id: ids.command } });
+      const id = randomUUID();
+      await db.provisioningDeviceOutbox.create({ data: { id, sessionId: ids.session, nodeId: ids.fixture,
+        topic: original.topic, payload: { ...(original.payload as object), commandId: id }, createdAt: new Date(0) } });
+    }
+    if (reason === "clock") {
+      const { BioRegistrationRevalidationService } = require("../src/registration/bio-registration-revalidation.service");
+      selectedService = new BioRegistrationRevalidationService(db, new SiteAccessService(db as never), new CommandDbClockHealth());
+    }
+    const before = await readProtectedFixtureState(); const row = await operations().findUniqueOrThrow({ where: { commandId } });
+    try { await expect(selectedService.apply(actor, commandId)).rejects.toThrow(); } finally { sample?.mockRestore(); }
+    expect(await readProtectedFixtureState()).toEqual(before);
+    expect(await operations().findUniqueOrThrow({ where: { commandId } })).toEqual(row);
+  });
+  it("apply preserves retained completed registration metadata and accepts its original unpublished provision command", async () => {
+    await db.discoveredMeshNode.update({ where: { id: ids.fixture }, data: { pendingFixtureName: "Retained historical name",
+      pendingFixtureX: 10, pendingFixtureY: 20, pendingFixtureSize: 24, pendingRatedWatt: 40 } });
+    // Completed terminal can arrive before PUBACK persistence; original command
+    // dispatch metadata alone cannot turn this exact confirmed graph into busy.
+    await db.provisioningDeviceOutbox.update({ where: { id: ids.command }, data: { publishedAt: null } });
+    const commandId = await observedOperation(); const before = await readProtectedFixtureState();
+    await expect(service.apply(user, commandId)).resolves.toMatchObject({ appliedAt: expect.any(String) });
+    const after = await readProtectedFixtureState();
+    expect(after.candidate).toEqual({ ...before.candidate, status: "provisioned", updatedAt: after.candidate!.updatedAt });
+    expect({ ...after, candidate: before.candidate, audits: before.audits }).toEqual(before);
+    expect(after.audits).toHaveLength(1);
+  });
+  it("apply mandatory audit insert fault rolls back candidate and operation", async () => {
+    const commandId = await observedOperation(); const before = await readProtectedFixtureState();
+    const row = await operations().findUniqueOrThrow({ where: { commandId } });
+    await db.$executeRawUnsafe(`CREATE FUNCTION fail_repair_audit() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN
+      IF NEW.action='bio_registration_current_revalidated' THEN RAISE EXCEPTION 'injected repair audit failure'; END IF; RETURN NEW; END $$`);
+    await db.$executeRawUnsafe('CREATE TRIGGER fail_repair_audit BEFORE INSERT ON "AuditLog" FOR EACH ROW EXECUTE FUNCTION fail_repair_audit()');
+    try { await expect(service.apply(user, commandId)).rejects.toThrow("injected repair audit failure"); }
+    finally { await db.$executeRawUnsafe('DROP TRIGGER fail_repair_audit ON "AuditLog"'); await db.$executeRawUnsafe('DROP FUNCTION fail_repair_audit()'); }
+    expect(await readProtectedFixtureState()).toEqual(before);
+    expect(await operations().findUniqueOrThrow({ where: { commandId } })).toEqual(row);
+  });
+  it("apply race consumes the same operation once and emits one mandatory repair audit", async () => {
+    const commandId = await observedOperation();
+    const tracker = await trackRepairWrites();
+    const first = instrumentedClient("bio-apply-race-first", true); const second = instrumentedClient("bio-apply-race-second");
+    try {
+    const firstResult = applyService(first.client).apply(user, commandId);
+    await first.entered.promise;
+    const secondResult = applyService(second.client).apply(user, commandId);
+    try { await awaitActualBlockedTransaction("bio-apply-race-second"); } finally { first.release.resolve(); }
+    const results = await Promise.all([firstResult, secondResult]); expect(results[0]).toEqual(results[1]);
+    expect((await db.discoveredMeshNode.findUniqueOrThrow({ where: { id: ids.fixture } })).status).toBe("provisioned");
+    expect(await db.auditLog.count({ where: { action: "bio_registration_current_revalidated" } })).toBe(1);
+    expect(await tracker.counts()).toEqual([{ kind: "AuditLog", count: 1 }, { kind: "BioRegistrationRevalidationOperation", count: 1 },
+      { kind: "DiscoveredMeshNode", count: 1 }]);
+    } finally { first.release.resolve(); await tracker.stop(); }
+  });
+  it("classification records applied current device evidence, preserving output/qualification and repair audit", async () => {
+    const commandId = await observedOperation(); await service.apply(user, commandId);
+    const before = await readProtectedFixtureState();
+    expect(await classification().reconcile(user, classificationRequest())).toEqual({ changedFixtureIds: [ids.fixture], unchangedFixtureIds: [] });
+    const after = await readProtectedFixtureState();
+    expect(after.node).toEqual({ ...before.node, vehicleSensorProtocol: "bio_usb_pulse", updatedAt: after.node!.updatedAt });
+    expect({ ...after, node: before.node, audits: before.audits }).toEqual(before);
+    const row = await operations().findUniqueOrThrow({ where: { commandId } });
+    expect(after.audits.find(audit => audit.action === "bio_classification_reconciled")?.metadata).toMatchObject({
+      evidenceKind: "current_device_revalidation", revalidationCommandId: commandId,
+      revalidationResultHash: row.resultHash, repairAuditId: row.auditId });
+  });
+  it("classification rejects malformed applied audit without falling back to historical graph evidence", async () => {
+    const commandId = await observedOperation(); await service.apply(user, commandId);
+    const row = await operations().findUniqueOrThrow({ where: { commandId } });
+    await db.auditLog.update({ where: { id: row.auditId }, data: { metadata: { evidenceKind: "legacy_completed_graph_command" } } });
+    const before = await readProtectedFixtureState();
+    await expect(classification().reconcile(user, classificationRequest())).rejects.toThrow();
+    expect(await readProtectedFixtureState()).toEqual(before);
+  });
+  async function additionalHistoricalFixture() {
+    const fixtureId = randomUUID(), nodeId = randomUUID(), commandId = randomUUID(), deviceUuid = "bio:001122334455";
+    await db.discoveredMeshNode.create({ data: { id: fixtureId, sessionId: ids.session, deviceUuid,
+      serialNumber: "A", rssi: -60, oobCapability: "none", firmwareVersion: "test", status: "provisioned",
+      identifyState: "confirmed", meshAddress: "0x0101" } });
+    await db.meshNode.create({ data: { id: nodeId, gatewayId: ids.gateway, deviceUuid, meshAddress: "0x0101", firmwareVersion: "test" } });
+    await db.fixture.create({ data: { id: fixtureId, meshNodeId: nodeId, floorId: ids.floor, name: "A", ratedWatt: 40,
+      brightness: 73, powerOn: false, x: 5, y: 8 } });
+    await db.provisioningDeviceOutbox.create({ data: { id: commandId, sessionId: ids.session, nodeId: fixtureId,
+      topic: `sites/${ids.site}/gateways/${ids.gateway}/commands/provisioning/provision-device`, publishedAt: new Date(),
+      payload: { siteId: ids.site, gatewayId: ids.gateway, commandId, sessionId: ids.session,
+        nodeId: fixtureId, deviceUuid, meshAddress: "0x0101", requestedAt: new Date().toISOString() } } });
+    return { fixtureId, nodeId };
+  }
+  it.each([false, true])("classification A/B remains atomic with invalid second row=%s and separate repair history", async invalid => {
+    const a = await additionalHistoricalFixture(); const commandId = await observedOperation(); await service.apply(user, commandId);
+    if (invalid) await db.discoveredMeshNode.update({ where: { id: ids.fixture }, data: { identifyState: "idle" } });
+    const beforeNodes = await db.meshNode.findMany({ orderBy: { id: "asc" } });
+    const beforeFixtures = await db.fixture.findMany({ orderBy: { id: "asc" } });
+    const input = classificationRequest([a.fixtureId, ids.fixture]);
+    if (invalid) {
+      await expect(classification().reconcile(user, input)).rejects.toThrow();
+      expect(await db.meshNode.findMany({ orderBy: { id: "asc" } })).toEqual(beforeNodes);
+      expect(await db.auditLog.count({ where: { action: "bio_classification_reconciled" } })).toBe(0);
+    } else {
+      expect(await classification().reconcile(user, input)).toEqual({ changedFixtureIds: input.fixtureIds, unchangedFixtureIds: [] });
+      expect(await db.meshNode.findMany({ orderBy: { id: "asc" } })).toEqual(beforeNodes.map(node => ({ ...node,
+        vehicleSensorProtocol: "bio_usb_pulse", updatedAt: expect.any(Date) })));
+      const audits = await db.auditLog.findMany({ where: { action: "bio_classification_reconciled" } });
+      expect(audits).toHaveLength(2);
+      expect(audits.find(audit => audit.targetId === a.nodeId)?.metadata).toMatchObject({ evidenceKind: "legacy_completed_graph_command" });
+      expect(audits.find(audit => audit.targetId === ids.node)?.metadata).toMatchObject({ evidenceKind: "current_device_revalidation" });
+    }
+    expect(await db.fixture.findMany({ orderBy: { id: "asc" } })).toEqual(beforeFixtures);
+    expect(await db.auditLog.count({ where: { action: "bio_registration_current_revalidated" } })).toBe(1);
+  });
+
+  function deferred() {
+    let resolve!: () => void; const promise = new Promise<void>(done => { resolve = done; });
+    return { promise, resolve };
+  }
+  function instrumentedClient(label: string, holdFloor = false) {
+    const entered = deferred(), release = deferred(); const queries: string[] = []; let held = false;
+    const client = new Proxy(db, { get(target, key) {
+      if (key === "$transaction") return (callback: (tx: Prisma.TransactionClient) => Promise<unknown>, options: object) =>
+        target.$transaction(async tx => {
+          await tx.$executeRaw`SELECT set_config('application_name', ${label}, true)`;
+          const instrumented = new Proxy(tx, { get(transaction, property) {
+            if (property === "$queryRaw") return async (...args: any[]) => {
+              const text = Array.isArray(args[0]) ? args[0].join(" ") : args[0].sql;
+              queries.push(text);
+              const result = await (transaction.$queryRaw as any)(...args);
+              if (holdFloor && !held && text.includes('FROM "Floor"') && text.includes("FOR UPDATE")) {
+                held = true; entered.resolve(); await release.promise;
+              }
+              return result;
+            };
+            const value = (transaction as any)[property]; return typeof value === "function" ? value.bind(transaction) : value;
+          } });
+          return callback(instrumented);
+        }, options);
+      const value = (target as any)[key]; return typeof value === "function" ? value.bind(target) : value;
+    } });
+    return { client, entered, release, queries };
+  }
+  async function awaitActualBlockedTransaction(label: string) {
+    const deadline = Date.now() + 3_000;
+    do {
+      const rows = await db.$queryRaw<Array<{ blocked: boolean }>>`SELECT cardinality(pg_blocking_pids(pid))>0 AS blocked
+        FROM pg_stat_activity WHERE application_name=${label} AND wait_event_type='Lock'`;
+      if (rows.some(row => row.blocked)) return;
+      await new Promise(resolve => setTimeout(resolve, 10));
+    } while (Date.now() < deadline);
+    throw new Error(`no actual PostgreSQL lock wait observed for ${label}`);
+  }
+  function applyService(client: any) {
+    const { BioRegistrationRevalidationService } = require("../src/registration/bio-registration-revalidation.service");
+    return new BioRegistrationRevalidationService(client, new SiteAccessService(client), clock);
+  }
+  function registrationService(client: any) {
+    const { RegistrationService } = require("../src/registration/registration.service");
+    const { RegistrationAllocationService } = require("../src/registration/registration-allocation.service");
+    const { MeshControlGroupService } = require("../src/mesh-control-groups/mesh-control-group.service");
+    return new RegistrationService(client, {}, new SiteAccessService(client), new RegistrationAllocationService(), new MeshControlGroupService());
+  }
+  it.each(["scan", "registration"].flatMap(operation => ["domain-first", "apply-first"].map(order => [operation, order])))
+  ("apply race barrier serializes actual %s %s transactions", async (operation, order) => {
+    const correlation = randomUUID();
+    await db.provisioningSession.update({ where: { id: ids.session }, data: { scanCorrelationId: correlation, scanAttempt: 1 } });
+    await db.discoveredMeshNode.update({ where: { id: ids.fixture }, data: { scanCorrelationId: correlation, scanAttempt: 1 } });
+    const commandId = await observedOperation(); const before = await readProtectedFixtureState();
+    const first = instrumentedClient(`bio-${operation}-${order}-first`, true);
+    const secondLabel = `bio-${operation}-${order}-second`; const second = instrumentedClient(secondLabel);
+    const domainOperation = (client: any) => {
+      const registration = registrationService(client);
+      return operation === "scan" ? registration.retryScan(user, ids.session) : registration.registerNode(user, ids.session, ids.fixture,
+        { fixtureName: "replacement", x: 10, y: 10 });
+    };
+    const settled = (promise: Promise<any>) => promise.then(value => ({ value }), error => ({ error }));
+    const firstResult = settled(order === "apply-first" ? applyService(first.client).apply(user, commandId) : domainOperation(first.client));
+    await first.entered.promise;
+    const secondResult = settled(order === "apply-first" ? domainOperation(second.client) : applyService(second.client).apply(user, commandId));
+    try { await awaitActualBlockedTransaction(secondLabel); } finally { first.release.resolve(); }
+    const [one, two]: any[] = await Promise.all([firstResult, secondResult]);
+    if (operation === "scan" && order === "domain-first") {
+      expect(one.error).toBeUndefined(); expect(two.error).toBeDefined();
+      expect((await operations().findUniqueOrThrow({ where: { commandId } })).appliedAt).toBeNull();
+      expect(await db.auditLog.count()).toBe(0);
+      expect((await db.discoveredMeshNode.findUniqueOrThrow({ where: { id: ids.fixture } })).status).toBe("discovered");
+    } else {
+      const applyResult = order === "apply-first" ? one : two; expect(applyResult.error).toBeUndefined();
+      expect(await db.auditLog.count({ where: { action: "bio_registration_current_revalidated" } })).toBe(1);
+      expect((await db.discoveredMeshNode.findUniqueOrThrow({ where: { id: ids.fixture } })).status).toBe("provisioned");
+    }
+    expect(await db.fixture.findUnique({ where: { id: ids.fixture } })).toEqual(before.fixture);
+    expect(await db.meshNode.findUnique({ where: { id: ids.node } })).toEqual(before.node);
+    expect(await db.provisioningDeviceOutbox.findMany({ where: { sessionId: ids.session } })).toEqual(before.commands);
+    const applyQueries = order === "apply-first" ? first.queries : second.queries;
+    expect(applyQueries.findIndex(query => query.includes('FROM "Floor"'))).toBeLessThan(
+      applyQueries.findIndex(query => query.includes('JOIN "GatewayCertificate"')));
+    expect(applyQueries.findIndex(query => query.includes('JOIN "GatewayCertificate"'))).toBeLessThan(
+      applyQueries.findIndex(query => query.includes('FROM "ProvisioningSession"')));
+  });
   it.each(["sensor", "force-on", "force-off"])("ingest accepts fresh %s and atomically retains the exact ACK without projection writes", async mode => {
     const { row, result, topic } = await pendingResult(mode); const before = await readProtectedFixtureState();
     const receivedAt = new Date(row.requestedAt.getTime() + 100);

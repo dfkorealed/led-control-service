@@ -1,6 +1,7 @@
 import { BadRequestException, ConflictException, Injectable } from "@nestjs/common";
 import { Prisma, type MeshNode } from "@prisma/client";
 import { z } from "zod";
+import { createHash } from "node:crypto";
 import { applicationProvisioningDeviceTerminalIngestedAckV2Schema, mqttTopicsV2,
   provisioningDeviceCommandV2Schema } from "@led-control/shared";
 import { SiteAccessService } from "../access/site-access.service";
@@ -11,7 +12,8 @@ import type { AuthenticatedUser } from "../auth/auth.types";
 import { BIO_DEVICE_UUID, PROVISIONING_DEVICE_TERMINAL_EVENT_TYPE } from "../mqtt/provisioning-device-terminal.service";
 import { PrismaService } from "../prisma/prisma.service";
 import { lockRegistrationDeviceUuids, lockRegistrationDomain } from "./registration-domain-locks";
-import { authorizeBioRegistrationGateway } from "./bio-registration-revalidation-binding";
+import { authorizeBioRegistrationGateway, bioRegistrationRevalidationHash } from "./bio-registration-revalidation-binding";
+import { assertBioRegistrationRepairAudit, assertBioRegistrationRevalidationProof } from "./bio-registration-revalidation.service";
 
 export const reconcileBioClassificationInputSchema = z.object({
   siteId: z.string().uuid(), gatewayId: z.string().uuid(),
@@ -20,8 +22,9 @@ export const reconcileBioClassificationInputSchema = z.object({
 }).strict().refine(value => new Set(value.fixtureIds).size === value.fixtureIds.length,
   { path: ["fixtureIds"], message: "fixtureIds must be unique" });
 type Input = z.infer<typeof reconcileBioClassificationInputSchema>;
-type Evidence = { evidenceKind: "legacy_completed_graph_command" | "v2_completed_graph_command_receipt";
-  sessionId: string; discoveredNodeId: string; commandId: string; terminalEventId?: string };
+type Evidence = { evidenceKind: "legacy_completed_graph_command" | "v2_completed_graph_command_receipt" | "current_device_revalidation";
+  sessionId: string; discoveredNodeId: string; commandId: string; terminalEventId?: string;
+  revalidationCommandId?: string; revalidationResultHash?: string; repairAuditId?: string };
 
 @Injectable()
 export class BioClassificationReconciliationService {
@@ -131,8 +134,23 @@ export class BioClassificationReconciliationService {
       || parsed.data.deviceUuid !== node.deviceUuid || parsed.data.meshAddress !== node.meshAddress) {
       throw new ConflictException("BIO stored provision command mismatch");
     }
-    const evidence: Evidence = { evidenceKind: "legacy_completed_graph_command", sessionId: proof.sessionId,
+    let evidence: Evidence = { evidenceKind: "legacy_completed_graph_command", sessionId: proof.sessionId,
       discoveredNodeId: proof.id, commandId: command.id };
+    // Any retained applied repair must validate as current-device evidence.
+    // A malformed history cannot silently fall back to historical completion.
+    const repair = await tx.bioRegistrationRevalidationOperation.findFirst({ where: { fixtureId, appliedAt: { not: null } },
+      orderBy: [{ appliedAt: "desc" }, { commandId: "desc" }] });
+    if (repair) {
+      await tx.$queryRaw`SELECT "commandId" FROM "BioRegistrationRevalidationOperation" WHERE "commandId"=${repair.commandId} FOR UPDATE`;
+      const row = await tx.bioRegistrationRevalidationOperation.findUniqueOrThrow({ where: { commandId: repair.commandId } });
+      assertBioRegistrationRevalidationProof(row, { siteId: input.siteId, gatewayId: input.gatewayId, floorId, fixtureId,
+        nodeId: node.id, sessionId: proof.sessionId, discoveredNodeId: proof.id, originalProvisionCommandId: command.id,
+        originalProvisionPayloadHash: bioRegistrationRevalidationHash(command.payload), assignmentVersion: input.expectedAssignmentVersion,
+        deviceIdentityHash: createHash("sha256").update(node.deviceUuid!).digest("hex"), meshAddress: node.meshAddress });
+      await assertBioRegistrationRepairAudit(tx, row);
+      evidence = { ...evidence, evidenceKind: "current_device_revalidation", revalidationCommandId: row.commandId,
+        revalidationResultHash: row.resultHash!, repairAuditId: row.auditId! };
+    }
     const receipt = await tx.mqttOutbox.findUnique({ where: {
       applicationAckKey: `provisioning-device-terminal:${input.gatewayId}:${command.id}` } });
     if (!receipt) return evidence;
@@ -151,7 +169,8 @@ export class BioClassificationReconciliationService {
       || ledger.sequence !== BigInt(ack.data.sequence) || !ledger.payloadHash || !/^sha256:[0-9a-f]{64}$/.test(ledger.payloadHash)) {
       throw new ConflictException("BIO terminal ledger identity mismatch");
     }
-    return { ...evidence, evidenceKind: "v2_completed_graph_command_receipt", terminalEventId: ledger.eventId };
+    return evidence.evidenceKind === "current_device_revalidation" ? evidence :
+      { ...evidence, evidenceKind: "v2_completed_graph_command_receipt", terminalEventId: ledger.eventId };
   }
 }
 
