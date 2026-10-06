@@ -152,6 +152,19 @@ Task 8은 **8a Gateway/API synthetic integration·additive V2 BIO telemetry hand
 
 ### Task 9: 별도 현장 운영 관문 — shadow, MQTT, B-only
 
+#### 2026-10-06 사용자 후속 1·3번 — 읽기 전용 조사 및 다음 결정
+
+이번 범위는 기존 A/B 등록 상태 정리와 실제 감지 신호/독립 연결 판정 연결이다. 별도 인증 갱신·B 점등·제품 ON을 자동 실행하지 않는다. 현재 상태 요약은 `docs/project-status.md`의 같은 날짜 항목을 따른다.
+
+- [x] **1번 원인/수복 계약 조사:** Backend가 기존 덮어쓰기/hash 결속과 completed graph를 대조했다. 조사한 보관 자료에 실제 completed terminal 원문은 없다. 기존 replay는 ACK만 반환하고 새 등록은 기존 native UUID를 거부하므로 둘 다 B 수복 경로가 아니다. 추정 terminal 합성·session 완료 표시·등록 조건 완화는 하지 않는다.
+- [x] **1번 다음 설계 선택:** 사용자가 삭제 없는 현재 장치 재검증·감사 수복 방향을 승인했다. 현재 mode query는 BIO-only이며 force-off의 mismatch는 성공 proof가 아니므로, low-level 단일 client GET만 재사용하는 별도 등록 목적의 상세 설계안을 `docs/superpowers/specs/2026-10-06-bio-registration-revalidation-design.md`에 기록했다. historical completion 복원과 current verification을 구분하고 기존 분류 API의 원자적 A/B 검증은 유지한다.
+- [ ] **1번 상세 설계/실행 계획 검토:** 독립 registration 목적의 strict 계약·새 durable operation·감사 수복 경계를 검토한 뒤 구현 계획/실행 방법을 확정한다. 설계 방향 승인을 새 wire/schema 구현 또는 실제 장비 실행 완료로 해석하지 않는다.
+- [ ] **1번 구현/집중 검증:** 공유 계약→API/DB→Gateway 순서, 새 실패 테스트/가짜 단일 동글 SET0/일회용 DB·감사 원자성과 기존 계약 회귀·독립 검토. 이후 운영 적용·실제 B 현재 조회/수복/기존 A/B 분류는 별도 관문이다.
+- [x] **3번 실제 공급 gap 조사:** Gateway가 단일 client source→scheduler 연결과 null authority/빈 profile, 독립 센서 health 입력 부재를 확인했다. `0x09` body01/03 후보·`0x0c` 주기 관찰·USB/GET_NWK readiness·설정 mode GET은 각각 수신/통신/설정 관찰일 뿐 승인 신호·독립 건강을 대신하지 않는다.
+- [ ] **3번 다음 현장 범위:** 현재 귀속/원본 서비스/미확정 원장을 읽기 전용 재확인하고, 실제 행동·출력과 body별 신호의 반복 상관 및 시각 오차, pulse와 분리된 링크 건강/장애·복구 관찰을 위한 좁은 시험 범위를 사용자와 확정한다. 현재 참여 준비와 별도 시작 신호는 아직 없다. 신뢰된 profile/독립 공급 근거가 생기기 전에는 제품 OFF다.
+- [ ] **현재 기본 브랜치 적용 계획:** sensor `8ec4c4f1`과 기본 `f74fc94f`의 분기를 보존하고 필요한 Shared/API/Gateway/Web·BIO migration6개를 현재 제품과 통합하는 경계·검증/backup/preflight를 확정한다. 운영 DB/서비스에 옛 전체 산출물을 덮지 않는다. 2026-10-02 CRL/DB 상태는 과거 증거이며 현재 상태가 아니다.
+- [x] **진행·중단 사실 보존:** source/evidence 읽기 외 새 테스트/build/DB·SSH/USB/RF·인증 갱신·서비스 변경·제품 ON·병합은 하지 않았다. HTTP loopback readiness 한 번의 empty reply/HTTP000·exit52는 정상 상태의 증거가 아니다. 이번 요청은 두 조사 결과를 취합한 상태이고 기능 완료/HIL PASS가 아니다.
+
 **2026-10-01 착수:** 사용자가 남은 실제 A/B 시험·서비스 연동을 진행하도록 지시했다. 이 지시를 현장 작업의 승인으로 기록하고, 매 행동 시작 때는 실제 참여 준비만 확인한다. 기존 상태를 백업한 최소 랩 연결 복구를 완료했고 펌웨어 담당자의 패킷/광학/liveness 반복 관찰 기준을 받았다. 오늘 전용 A 예비 시험 도구를 준비·검토하며 실제 START는 아직 실행하지 않았다.
 
 **Files:** Update `docs/project-status.md` and relevant `docs/menus/{control,settings,monitoring}.md` only as each real gate completes; create diagnostic evidence under `docs/diagnostics/bio-sensor-motion-<date>/` only after authorized HIL. Do not modify production DNS, DB, credentials or certificate material as part of this task.

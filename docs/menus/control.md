@@ -1,5 +1,13 @@
 # 제어 메뉴 기능 현황
 
+## 2026-10-06 기존 BIO 등록 현재 재검증 — 상세 설계안
+
+- 구현 완료: 없음. 삭제 없는 현재 장치 재검증 방향의 사용자 승인과 상세 설계 작성 단계이며, B 수복·센서 지원 완료가 아니다.
+- 미구현: 독립 등록 query/result·durable proof·감사 수복과 실제 B 적용. 기존 sensor-mode의 verified 의미·BIO-only 조건은 그대로다.
+- 부족하거나 개선이 필요한 기능: force-off 설정 GET 성공을 과거 등록 완료·센서 감지/연결 건강으로 사용하지 않는다. 새 조회도 밝기/mode SET0이어야 하며 기존 ID·밝기·전원·이력을 보존한다. 감지 profile/독립 건강과 제품 활성화는 별도 관문이다.
+- 관련 파일: `docs/superpowers/specs/2026-10-06-bio-registration-revalidation-design.md`, 기존 `apps/api/src/commands/sensor-mode-operations.service.ts`, `apps/gateway/src/adapters/bio-usb-dongle-adapter.ts`.
+- 갱신 규칙: 상세 설계 승인·소프트웨어 구현·현장 조회/수복·BIO 분류·센서 활성화를 각각 실제 증거로 구분한다.
+
 ## 2026-10-02 1~3단계 현장 연동 점검
 
 - 구현 완료(소프트웨어·독립 검토): 재검색이 완료된 등록을 미등록 상태로 덮는 결함을 예방했다. 관련 consumer 120개 통과·기존 opt-in 1개 제외와 타입 검사·독립 검토 지적0을 확인했다. 이미 완료된 전체 회귀는 사용자 요청에 따라 반복하지 않았다.

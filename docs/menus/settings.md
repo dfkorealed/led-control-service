@@ -1,5 +1,13 @@
 # 설정 메뉴 기능 현황 및 구현 설계
 
+## 2026-10-06 기존 BIO 등록 현재 재검증 — 상세 설계안
+
+- 구현 완료: 없음. 기존 B 삭제 없이 현재 장치를 재확인하는 수복 방향이 승인됐고 상세 설계안만 작성했다.
+- 미구현: commission 관리자 전용 현재 조회·fresh proof 단일 소비·등록 후보 status와 감사의 원자 수복. 실제 등록 데이터와 운영 DB는 변경하지 않았다.
+- 부족하거나 개선이 필요한 기능: 과거 completed terminal을 합성하지 않으며 session 전체 완료·Fixture/Node ID·밝기·전원·그룹·이력은 변경하지 않는다. 수복과 기존 A/B 원자 BIO 분류는 구분한다.
+- 관련 파일: `docs/superpowers/specs/2026-10-06-bio-registration-revalidation-design.md`, 기존 `apps/api/src/registration/bio-classification-reconciliation.service.ts`.
+- 갱신 규칙: 새 schema/계약 구현 시 DB 문서를 함께 갱신하며, 현재 장치 확인과 과거 등록 완료 기록을 구분한다.
+
 ## 2026-10-02 등록 완료 뒤 재검색 상태 보존
 
 - 구현 완료(소프트웨어·독립 검토): 등록 검색의 수신 거래가 이미 `provisioned`인 조명의 완료 상태와 오류 값을 보존한다. 새 조명과 일반 발견/실패 조명의 검색 동작, RSSI·펌웨어·검색 시각 갱신과 중복 수신 차단은 유지한다. Consumer120pass/기존opt-in1skip·타입 검사와 독립 검토 지적0을 확인했다.
