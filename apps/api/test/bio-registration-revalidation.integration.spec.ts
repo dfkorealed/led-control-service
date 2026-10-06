@@ -325,6 +325,32 @@ const enabled = process.env.BIO_REGISTRATION_REVALIDATION_DISPOSABLE_POSTGRES ==
     expect(sends).toBe(1);
     expect(await operations().findUniqueOrThrow({ where: { commandId: row.commandId } })).toMatchObject({ lockedBy: "successor", publishedAt: null, attempts: 1 });
   });
+  it("publish refuses when final authorization delay exceeds the remaining lease budget", async () => {
+    const { row } = await pendingResult(); let sends = 0; let clockSamples = 0; let finalSampleReached = false;
+    const binding = require("../src/registration/bio-registration-revalidation-binding");
+    const realAuthorize = binding.authorizeBioRegistrationGateway;
+    const realClock = clock.assertHealthy.bind(clock);
+    const clockSpy = jest.spyOn(clock, "assertHealthy").mockImplementation(async tx => {
+      const now = await realClock(tx);
+      if (++clockSamples !== 2) return now;
+      const claimed = await tx.bioRegistrationRevalidationOperation.findUniqueOrThrow({ where: { commandId: row.commandId } });
+      finalSampleReached = true;
+      // Synthetic trusted sample: 100ms of the actual claimed lease remains.
+      // Its command TTL remains longer, so the smaller lease budget must govern.
+      return new Date(claimed.leaseExpiresAt!.getTime() - 100);
+    });
+    const authorizationSpy = jest.spyOn(binding, "authorizeBioRegistrationGateway").mockImplementation(async (...args: unknown[]) => {
+      await realAuthorize(...args);
+      // Keep real authority checks; emulate the last SQL round trip taking
+      // longer than the budget, without sleeping through a 10-second lease.
+      if (finalSampleReached) await new Promise(resolve => setTimeout(resolve, 150));
+    });
+    try {
+      await publisher(async () => { sends++; }).processBatch();
+      expect(sends).toBe(0);
+      expect(await operations().findUniqueOrThrow({ where: { commandId: row.commandId } })).toMatchObject({ publishedAt: null, resultHash: null, proofAcceptedAt: null });
+    } finally { authorizationSpy.mockRestore(); clockSpy.mockRestore(); }
+  });
   it("get permits the current provisioned graph for an applied row; new create retains the consumed operation/audit", async () => {
     const input = request(); const created = await service.create(user, input);
     const { acceptedAt } = await persistObserved(created.commandId);

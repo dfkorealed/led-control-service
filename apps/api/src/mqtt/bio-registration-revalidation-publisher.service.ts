@@ -61,6 +61,9 @@ export class BioRegistrationRevalidationPublisherService implements OnModuleInit
           await tx.$queryRaw`SELECT "commandId" FROM "BioRegistrationRevalidationOperation" WHERE "commandId"=${claim.commandId} FOR UPDATE`;
           const row = await tx.bioRegistrationRevalidationOperation.findUniqueOrThrow({ where: { commandId: claim.commandId } });
           // Sample trusted time after canonical locks: queued DB work cannot prolong TTL.
+          // Anchor before the sample: subtracting the entire clock/authorization/
+          // commit round trip is conservative even when the DB samples time later.
+          const checkedAt = performance.now();
           const dispatchAt = await this.clock.assertHealthy(tx);
           await authorizeBioRegistrationGateway(tx, { siteId: row.siteId, gatewayId: row.gatewayId,
             expectedAssignmentVersion: row.assignmentVersion }, dispatchAt);
@@ -68,7 +71,7 @@ export class BioRegistrationRevalidationPublisherService implements OnModuleInit
             row.expiresAt <= dispatchAt || !row.leaseExpiresAt || row.leaseExpiresAt <= dispatchAt) return null;
           const command = bioRegistrationRevalidationCommandSchema.parse(row.payload);
           if (row.payloadHash !== bioRegistrationRevalidationHash(command)) throw new Error("BIO publication payload changed");
-          return { command, checkedAt: performance.now(), remainingMs: Math.min(row.expiresAt.getTime(), row.leaseExpiresAt.getTime()) - dispatchAt.getTime() };
+          return { command, checkedAt, remainingMs: Math.min(row.expiresAt.getTime(), row.leaseExpiresAt.getTime()) - dispatchAt.getTime() };
         }, { timeout: 10_000 });
       } catch {
         // Failed validation is terminal unknown; a successor lease/result is never overwritten.
