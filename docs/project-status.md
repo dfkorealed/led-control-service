@@ -2,12 +2,12 @@
 
 기준일: 2026-10-06
 
-## 2026-10-06 모니터링 Popover·Grid 정렬 — 진행 중
+## 2026-10-06 모니터링 Popover·Grid 정렬 — 완료·로컬 병합
 
-- 기존 clean worktree를 재사용하고 `codex/monitoring-popover-grid-sort-20261006`을 BASE `f74fc94f`에서 생성했다. 모니터링 담당과 검색/상세/상태 필터 통합 및 헤더 잘림을, 별도 웹 담당과 공통 Grid 정렬을 진행한다.
-- UI 프레임워크는 React Aria이며 현재 DataGrid는 프레임워크 Table이 아닌 공통 HTML table/card 컴포넌트다. 기존 구조·의존성을 유지해 접근자 기반 현재 목록 정렬을 적용한다.
-- 모니터링 제품 `9b4f2113`: 단일 검색·상태 Popover 및 헤더 글씨 보완, 단위106PASS·표적 브라우저13PASS, 독립 코드 C0/I0 및 UI/UX 원 PNG8장 검수 승인/차단0. Grid는 별도 담당 구현 중이며 전체 Web 검증·병합은 아직 남아 있다.
-- 실행 체크리스트: [모니터링 Popover·Grid 정렬](superpowers/plans/2026-10-06-monitoring-popover-grid-sort.md). 검증·병합은 미완료이며 사용자 서비스/DB/장비는 건드리지 않는다.
+- 기존 모니터링 담당 세션, 별도 Grid 담당, 독립 코드 검수·UI/UX 디자이너와 분담했다. `codex/monitoring-popover-grid-sort-20261006`의 별도 작업에서 검색·상태·선택 상세를 맵 선택 오른쪽 단일 Popover에 모으고 중복 상태 문구·헤더 글씨 잘림을 보완했다.
+- UI 프레임워크는 React Aria이며 DataGrid는 프레임워크 Table이 아닌 공통 HTML table/card 컴포넌트다. 기존 구조·의존성을 유지해 여섯 소비자에 컬럼 오름/내림차순, 카드 기준/방향, aria-sort/키보드·안정 정렬·누락값 마지막을 적용했다. 현재 전달된 목록만 정렬하며 API 커서 전체 정렬은 추가하지 않았다.
+- 최신 기본 브랜치 모바일/iOS 완료분 `2e78b51f`를 보존 통합한 최종 제품 `1c600eda`에서 Web3258PASS·0FAIL·기존3SKIP, 타입/빌드/UI정책0, 관련33브라우저33PASS 및 독립 코드·UI/UX 차단0을 확인했다. 첫 통합32PASS/보고서320px1FAIL은 compact 한행 정렬·파일 작업 우선으로 최소 보완했으며 원 실패·경고·PNG와 CSS 확대/native/HIL 한계를 보존했다.
+- 로컬 `codex/mvp1-cloud-web`에 ff-only 병합하고 기본 checkout 표적118PASS·타입0, 실제 localhost 모니터링 Popover·집계와 스케줄 이름 aria-sort=ascending을 재확인했다. 기존 Web/API는 유지하고 자기 격리 검증 서버만 종료했다. [실행 체크리스트](superpowers/plans/2026-10-06-monitoring-popover-grid-sort.md) 및 관련 메뉴 문서를 완료로 갱신했다. 원격push·DB·장비·별도 센서 브랜치 변경은 없다.
 
 ## 2026-10-06 모바일 첫 화면 적용 — 완료·로컬 병합
 

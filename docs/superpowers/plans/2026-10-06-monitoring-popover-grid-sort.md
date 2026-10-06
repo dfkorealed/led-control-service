@@ -57,6 +57,10 @@
 
 ### Task 3: 총괄 검수·병합
 
-- [ ] 담당 에이전트 결과와 변경 diff를 취합하고 독립 코드·UI/UX 검수로 주석 3건 및 정렬 계약을 확인한다.
-- [ ] 현재 소스에서 Web 전체 단위 테스트·typecheck·build·UI 정책과 관련 브라우저 회귀를 실행해 실제 결과를 기록한다.
-- [ ] 검수 차단 오류를 보완한 뒤 기본 브랜치에 로컬 병합하고 사용자 화면 반영 및 상태판/체크리스트를 완료로 갱신한다. 원격 push·DB/장비 변경은 하지 않는다.
+- [x] 담당 에이전트 결과와 변경 diff를 취합하고 독립 코드·UI/UX 검수로 주석 3건 및 정렬 계약을 확인한다.
+- [x] 현재 소스에서 Web 전체 단위 테스트·typecheck·build·UI 정책과 관련 브라우저 회귀를 실행해 실제 결과를 기록한다.
+- [x] 검수 차단 오류를 보완한 뒤 기본 브랜치에 로컬 병합하고 사용자 화면 반영 및 상태판/체크리스트를 완료로 갱신한다. 원격 push·DB/장비 변경은 하지 않는다.
+
+최종 취합(제품 `1c600eda`): 최신 기본 브랜치 `2e78b51f`의 모바일/iOS 완료분을 보존 통합했다. 첫 통합 관련33회귀의32PASS/보고서320px 1FAIL은 정렬 도구의 선행 높이 때문이었으며 compact 공통 한행 정렬·보고서 파일 작업 우선 배치로 최소 보완했다. 원 실패·PNG/trace를 보존하고 변경 소스의 전체 Web226파일/3261테스트=3258PASS·0FAIL·기존3SKIP, typecheck/build/UI-policy0, 관련33브라우저33PASS를 fresh 실행했다. 독립 코드 whole-branch C0/I0/M1의 옛 모바일 검색 배치 문장은 완료문서에서 수정했고, 최소 보완 scoped C0/I0/M0·UI/UX 대표6장+보완2장 차단0을 회수했다.
+
+로컬 `codex/mvp1-cloud-web`은 `2e78b51f→1c600eda` ff-only 병합했고 제품 트리가 검증 후보와 일치한다. 기본 checkout에서 표적118PASS·typecheck0을 재확인했다. 실행 중인 localhost5173의 단일 검색/상태 Popover와 헤더, 스케줄 표의 이름 정렬/aria-sort=ascending을 실제 사용자 탭에서 확인·캡처했다. 기존 Web58125/API58193은 유지했고 자기 격리Vite53146만 종료했다. 별도 센서 브랜치·API/DB/장비·원격push·물리 native/HIL·genuine zoom 및 과거 Gateway timeout은 이번 완료 범위가 아니다. 재사용 worktree/브랜치와 ignored 검증 증거는 보존한다.
