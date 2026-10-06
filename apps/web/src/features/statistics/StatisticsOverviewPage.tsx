@@ -347,7 +347,7 @@ function ComparisonSection({
 
     content = (
       <div className="grid min-w-0 gap-4 max-compact:gap-2">
-        <Text variant="caption" tone="secondary" className="compact:hidden">상태 기반 추정 {query.data.summary.estimatedKwh === null ? "산정 대기" : formatKwh(query.data.summary.estimatedKwh)} · 기준 {formatKwh(query.data.summary.baselineKwh)} · {presentation.label}{query.data.points.some(point => point.dataStatus === "partial") ? " · 수집 공백 있음" : query.data.points.some(point => point.dataStatus === "no_data") ? " · 수집 데이터 없음" : ""}</Text>
+        <Text variant="caption" tone="secondary" className="compact:hidden">상태 기반 추정 {query.data.summary.estimatedKwh === null ? "산정 대기" : formatKwh(query.data.summary.estimatedKwh)} · 24시간 100% 출력 기준 {formatKwh(query.data.summary.baselineKwh)} · {presentation.label}{query.data.points.some(point => point.dataStatus === "partial") ? " · 수집 공백 있음" : query.data.points.some(point => point.dataStatus === "no_data") ? " · 수집 데이터 없음" : ""}</Text>
         {isAvailable ? (
           <div className="grid grid-cols-4 gap-3 tablet:grid-cols-4 max-compact:grid-cols-1 max-compact:order-2">
             <div className="min-w-0">
