@@ -517,7 +517,7 @@ describe("VehicleEventControlPanel", () => {
     await expectScreenStatusCount(2);
     fireEvent.click(screen.getByRole("button", { name: "알람센터, 현장 미선택" }));
     const center = screen.getByRole("dialog", { name: "알람센터" });
-    const statuses = within(center).getAllByRole("listitem");
+    const statuses = within(within(center).getByRole("region", { name: "현재 화면 상태" })).getAllByRole("listitem");
     expect(statuses).toHaveLength(2);
     expect(statuses[0]).toHaveTextContent("입구 차량 감지");
     expect(statuses[1]).toHaveTextContent("출구 차량 감지");
@@ -526,9 +526,10 @@ describe("VehicleEventControlPanel", () => {
     fireEvent.click(screen.getByRole("button", { name: "출구 차량 감지 비활성화" }));
     await expectScreenStatusCount(1);
     fireEvent.click(screen.getByRole("button", { name: "알람센터, 현장 미선택" }));
-    const remaining = within(screen.getByRole("dialog", { name: "알람센터" })).getByRole("listitem");
+    const remaining = within(screen.getByRole("region", { name: "현재 화면 상태" })).getByRole("listitem");
     expect(remaining).toHaveTextContent("입구 차량 감지");
     expect(remaining).not.toHaveTextContent("출구 차량 감지");
+    expect(screen.getByRole("list", { name: "최근 알림 목록" })).toHaveTextContent("출구 차량 감지");
   });
 
   it("clears only the deleted event rule's toggle failure after deletion succeeds", async () => {
@@ -545,9 +546,10 @@ describe("VehicleEventControlPanel", () => {
     await waitFor(() => expect(mocks.deleteVehicleEventRule).toHaveBeenCalledWith(siteId, rule().id));
     await expectScreenStatusCount(1);
     fireEvent.click(screen.getByRole("button", { name: "알람센터, 현장 미선택" }));
-    const remaining = within(screen.getByRole("dialog", { name: "알람센터" })).getByRole("listitem");
+    const remaining = within(screen.getByRole("region", { name: "현재 화면 상태" })).getByRole("listitem");
     expect(remaining).toHaveTextContent("출구 차량 감지");
     expect(remaining).not.toHaveTextContent("입구 차량 감지");
+    expect(screen.getByRole("list", { name: "최근 알림 목록" })).toHaveTextContent("입구 차량 감지");
   });
 
   it("keeps event rule A's toggle failure through another deletion and its own failed deletion", async () => {

@@ -18,6 +18,10 @@
   padding-bottom: calc(var(--spacing) * 17 + var(--led-control-safe-area-bottom));
 }
 
+@utility scroll-mb-shell-navigation-safe {
+  scroll-margin-bottom: calc(var(--spacing) * 17 + var(--led-control-safe-area-bottom));
+}
+
 @utility h-shell-navigation-safe {
   height: calc(var(--spacing) * 17 + var(--led-control-safe-area-bottom));
 }

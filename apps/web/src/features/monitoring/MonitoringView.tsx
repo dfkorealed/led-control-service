@@ -355,10 +355,11 @@ function MonitoringDashboard({ data, userRole, siteId, refreshDashboard }: Monit
         onRefresh={() => void handleRefresh()}
         onMapRetry={() => void handleMapRetry()}
       />
-      <div className="flex items-center justify-between gap-4 max-compact:flex-col max-compact:items-stretch" role="group" aria-label="모니터링 도구">
-        {/* Allow wrapping under enlarged text instead of clipping map names or
-            the single search action. At ordinary mobile widths they share a row. */}
-        <div className="flex min-w-0 flex-wrap items-center gap-2 max-compact:w-full">
+      <div className="flex items-center justify-between gap-4 max-compact:contents" role="group" aria-label="모니터링 도구">
+        {/* Keep the one search action beside map selection while compact order
+            puts read-only status and the actual map before refresh. Wrapping
+            preserves existing control sizes when text is enlarged. */}
+        <div className="flex min-w-0 flex-wrap items-center gap-2 max-compact:w-full max-compact:order-1">
           <SelectBox
             label="맵 선택"
             items={data.floors.map((item) => ({ id: item.id, label: item.name }))}
@@ -369,7 +370,7 @@ function MonitoringDashboard({ data, userRole, siteId, refreshDashboard }: Monit
           />
           <Button ref={inspectorTriggerRef} variant="secondary" className="shrink-0" aria-haspopup="dialog" aria-expanded={isInspectorOpen} onClick={() => setIsInspectorOpen(true)}>조명 검색·상세</Button>
         </div>
-        <div className="ml-auto flex flex-wrap items-center justify-end gap-2 text-content-secondary max-compact:ml-0 max-compact:w-full">
+        <div className="ml-auto flex flex-wrap items-center justify-end gap-2 text-content-secondary max-compact:ml-0 max-compact:w-full max-compact:order-4">
           <Text as="small" variant="caption" tone="secondary" className="min-w-0 max-w-full break-words text-right">
             {formatSnapshotUpdatedAt(snapshotFreshness, data.site.timeZone ?? "Asia/Seoul")}
           </Text>
@@ -405,7 +406,7 @@ function MonitoringDashboard({ data, userRole, siteId, refreshDashboard }: Monit
 
       {/* Keep the desktop detail's reading region as tall as the map's natural
           minimum; short screens scroll the page instead of shrinking the row. */}
-      <div className={cn("grid min-h-0 min-w-0 flex-1 gap-4 tablet:min-h-min", isDesktop && isDetailOpen && selectedFixtureId && "tablet:grid-cols-[minmax(0,1fr)_minmax(0,22rem)]")} data-monitoring-layout="">
+      <div className={cn("grid min-h-0 min-w-0 flex-1 gap-4 tablet:min-h-min max-compact:order-3", isDesktop && isDetailOpen && selectedFixtureId && "tablet:grid-cols-[minmax(0,1fr)_minmax(0,22rem)]")} data-monitoring-layout="">
         <div className={cn("flex h-full min-h-min min-w-0 flex-col gap-5", !workspaceFocus.active && "max-compact:pb-shell-navigation-safe")} data-monitoring-map-panel="">
           <div className="min-h-min min-w-0 flex-1">
           {data.summary.totalFixtures === 0 ? (

@@ -53,6 +53,7 @@ const authState = vi.hoisted(() => ({
 }));
 const apiState = vi.hoisted(() => ({
   dashboard: null as null | unknown,
+  sitesGate: null as Promise<void> | null,
   dashboardResponses: [] as Array<() => Promise<unknown>>,
   registrationSession: null as null | RegistrationSession,
   monitoringIncidents: null as null | unknown,
@@ -90,7 +91,7 @@ vi.mock("./api/client", async (importOriginal) => ({
       return authState.user ? Promise.resolve({ user: authState.user }) : Promise.reject(new ApiError("Unauthorized", 401, null));
     }
     if (path === "/sites") {
-      return Promise.resolve([
+      return Promise.resolve(apiState.sitesGate).then(() => [
         { id: mockDashboard.site.id, name: mockDashboard.site.name, customerName: "고객사 A" },
         { id: "site-2", name: "물류센터", customerName: "고객사 B" }
       ]);
@@ -383,6 +384,7 @@ describe("App", () => {
       status: "active",
       mustChangePassword: false
     };
+    apiState.sitesGate = null;
     apiState.dashboard = null;
     apiState.dashboardResponses = [];
     apiState.registrationSession = null;
@@ -723,10 +725,11 @@ describe("App", () => {
       </QueryClientProvider>
     );
 
-    const siteBadge = await screen.findByTestId("active-site-badge");
+    await waitFor(() => expect(screen.getByTestId("active-site-badge")).toHaveTextContent("Demo Underground Parking"));
+    const siteBadge = screen.getByTestId("active-site-badge");
     const topbar = siteBadge.closest<HTMLElement>("header");
 
-    await waitFor(() => expect(siteBadge).toHaveTextContent("Demo Underground Parking"));
+    expect(siteBadge).toHaveTextContent("Demo Underground Parking");
     expect(siteBadge).not.toHaveTextContent("B2 주차장");
     expect(topbar).not.toBeNull();
     expect(within(topbar!).queryByText(/게이트웨이 (정상|오프라인|미등록)/)).not.toBeInTheDocument();
@@ -1375,6 +1378,8 @@ describe("App", () => {
   });
 
   it("confirms dirty editor logout before revoking the session", async () => {
+    let releaseSites!: () => void;
+    apiState.sitesGate = new Promise<void>(resolve => { releaseSites = resolve; });
     window.history.replaceState({}, "", "/settings?siteId=site-2");
     window.history.pushState({}, "", "/settings/floor-plans/floor-b2/edit?siteId=site-2");
     window.history.pushState({ [dirtyEditorSentinelKey]: "dirty-editor" }, "", window.location.href);
@@ -1390,6 +1395,10 @@ describe("App", () => {
     fireEvent.click(trigger);
 
     const dialog = await screen.findByRole("alertdialog", { name: "로그아웃 확인" });
+    await act(async () => { releaseSites(); });
+    apiState.sitesGate = null;
+    await waitFor(() => expect(screen.getByTestId("active-site-badge")).toHaveTextContent("물류센터"));
+    expect(trigger.isConnected).toBe(true);
     expect(within(dialog).getByText("저장하지 않은 변경사항이 있습니다. 로그아웃하시겠습니까?")).toBeVisible();
     fireEvent.click(within(dialog).getByRole("button", { name: "취소" }));
     await waitFor(() => expect(screen.queryByRole("alertdialog", { name: "로그아웃 확인" })).not.toBeInTheDocument());
@@ -1421,6 +1430,8 @@ describe("App", () => {
 
   it("restores the logout trigger after a confirmed dirty logout request fails", async () => {
     vi.mocked(apiPost).mockRejectedValueOnce(new Error("logout unavailable"));
+    let releaseSites!: () => void;
+    apiState.sitesGate = new Promise<void>(resolve => { releaseSites = resolve; });
     window.history.replaceState({}, "", "/settings?siteId=site-2");
     window.history.pushState({}, "", "/settings/floor-plans/floor-b2/edit?siteId=site-2");
     window.history.pushState({ [dirtyEditorSentinelKey]: "dirty-editor" }, "", window.location.href);
@@ -1435,6 +1446,10 @@ describe("App", () => {
     const trigger = await screen.findByRole("button", { name: "로그아웃" });
     fireEvent.click(trigger);
     const dialog = await screen.findByRole("alertdialog", { name: "로그아웃 확인" });
+    await act(async () => { releaseSites(); });
+    apiState.sitesGate = null;
+    await waitFor(() => expect(screen.getByTestId("active-site-badge")).toHaveTextContent("물류센터"));
+    expect(trigger.isConnected).toBe(true);
     fireEvent.click(within(dialog).getByRole("button", { name: "로그아웃" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent("로그아웃에 실패했습니다");

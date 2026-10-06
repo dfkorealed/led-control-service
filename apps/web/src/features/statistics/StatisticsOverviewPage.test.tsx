@@ -106,6 +106,14 @@ describe("StatisticsOverviewPage", () => {
 
   afterEach(cleanup);
 
+  it("explains the full-output baseline in the compact estimate before the actual comparison graphic", () => {
+    renderView();
+    const context = screen.getByText(/상태 기반 추정.*24시간 100% 출력 기준/);
+    expect(context).toHaveTextContent("24시간 100% 출력 기준 100 kWh");
+    const chart = screen.getByRole("img", { name: "기준 대비 에너지 사용량 비교 차트" });
+    expect(context.compareDocumentPosition(chart) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
   it("separates comparison and trend popover scopes without invented search", async () => {
     renderView();
     expect(screen.queryByRole("searchbox")).not.toBeInTheDocument();

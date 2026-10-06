@@ -10,6 +10,62 @@
 - 갱신 규칙: 정렬 접근자/헤더/카드 변경 시 현재 목록 범위·표/카드 상태·동일값/누락값·원본 불변·행 작업·기존 pagination 회귀와 실제 키보드/44px 접근을 함께 확인한다.
 
 
+## 2026-10-06 모바일 첫 화면 통계 우선 배치 (Task 3)
+
+### 구현 완료
+
+- 기존 개요/사용 분석/보고서 밑줄 탭과 44px 조작, 입력·타이포그래피·카드 토큰을 유지한다. 760px 미만에서 통계 간격과 중복 제목만 압축한다.
+- 개요는 선택 기간·상태 기반 추정/24시간 100% 기준 사용량·절감 의미·수집 공백/데이터 없음 요약 다음 실제 비교 차트를 표시한다. 상세 비교 KPI·동기간 비교와 오늘 사용량/비용/추이는 모두 아래에서 접근한다. null/결측과 선 끊김은 기존 데이터 의미를 유지한다.
+- 사용 분석은 단위·기준·완료 기간·정렬·상태 기반 추정 조건 요약 다음 기존 순위 막대/선택을 표시한다. 현장 KPI와 저장 비용 기준·그룹 중복/과거 이력 제외 상세는 뒤에서 접근하며 순위 상세와 히트맵도 유지한다. 필터 초기화는 기존 조건 popover 안에서 명시적으로 접근한다.
+- 보고서는 최근 요청 이력을 조건보다 먼저 표시하고 모바일 카드에서 원본 대상·상태·기존 다운로드/다시 생성 작업을 먼저 표시한다. 기간·요청/만료 시각과 조건·페이지 이동은 아래에서 접근한다. 생성 dialog, PDF 서명 URL/문서 ID, CSV bytes/취소·재시도 계약은 유지한다.
+
+### 미구현
+
+- 새 API·DB·실장비 연동과 새로운 통계 그래프/계산은 추가하지 않는다. 보고서에는 비교용 가짜 그래프를 넣지 않는다.
+
+### 부족하거나 개선이 필요한 기능
+
+- 첫 화면 검증은 브라우저 HTTP fixture의 정상 100%·scroll0 320×568/390×844/430×932와 desktop 1280×900 범위다. 오류·긴 이름·큰 글자와 적은 순위 항목에서는 자연 높이와 스크롤을 허용하며 실장비/native/HIL 완료를 뜻하지 않는다.
+- 4개 순위 항목 fixture의 실제 순위 목록과 개요 chart 표시 교차 높이를 하단 메뉴를 제외해 측정한다. 실제 데이터 항목 수에 따라 순위 목록 높이는 달라질 수 있다. 전체 Web/Mobile/build 및 최종 디자인 승인은 Task 4에서 확인한다.
+
+### 관련 파일
+
+- `apps/web/src/features/statistics/{StatisticsShell,StatisticsOverviewPage}.tsx`
+- `apps/web/src/features/statistics/analysis/StatisticsAnalysisPage.tsx`
+- `apps/web/src/features/statistics/reports/{StatisticsReportsPage,ReportJobList}.tsx`
+- `apps/web/e2e/mobile-first-screen.spec.ts`, `apps/web/e2e/support/first-screen-statistics.ts`
+
+### 갱신 규칙
+
+- 통계 기간/조건·차트/순위·보고서 파일 작업의 위치 또는 의미를 바꾸면 이 절과 해당 회귀·원본 캡처를 함께 갱신한다. 임시 fixture 증거를 native/실장비 증거로 승격하지 않는다.
+
+## 2026-10-06 공통 모바일 헤더·최근 알림 (Task 1)
+
+### 구현 완료
+
+- 760px 미만 헤더는 기존 현장 선택·알람센터를 한 행에 표시한다. 중복 메뉴 제목은 화면 읽기용으로 유지하고 모니터링 현장 전체 집계는 명시적으로 펼쳐 확인한다. 기존 현장 변경 가드·최소 44px 조작·계정/로그아웃 controller와 설정 eager 접근을 유지한다.
+- 모바일 toast는 화면 읽기 알림만 유지한다. 공통 provider가 독립적으로 만료시켜 desktop으로 전환해도 지난 toast를 다시 표시하지 않는다. desktop toast와 서버 현장 알람 저장·지우기는 기존 계약을 유지한다.
+- 같은 알람센터의 최근 알림은 세션 메모리에 최대 50개를 보관한다. 상태 fingerprint 변경/새 작업은 미읽음이며 같은 polling은 추가하지 않는다. 최근 읽음과 toast 만료는 장애 해결·명령 실행·서버 알람 읽음/지우기와 분리한다.
+- 모바일 배지는 서버 현장 알람 미읽음과 최근 알림 미읽음 합계이며 고유 장애 수가 아니다. 서버 수가 불명인 경우 `?`를 유지한다. 계정/허가된 현장 변경 시 provider의 scope 저장소·타이머·callback만 분리한다. 소비자와 계정 버튼 DOM은 유지해 초기 현장 조회 중 열린 로그아웃 확인의 취소/실패 포커스를 보존한다. 전체보기에서도 동일 센터를 여는 독립 행 버튼이 접근 가능하다.
+
+### 미구현
+
+- 최근 알림은 새 문서·로그아웃·다른 기기로 동기화하지 않는다. 별도 서버 API/DB/저장소와 실제 장비 HIL은 추가하지 않는다.
+
+### 부족하거나 개선이 필요한 기능
+
+- 브라우저 HTTP fixture 검증과 세션 단위 검증이며 실제 native 장비/HIL 완료를 의미하지 않는다. 큰 글자·긴 내용은 자연 스크롤을 허용한다.
+
+### 관련 파일
+
+- `apps/web/src/features/shells/CustomerShell.tsx`, `CustomerHeaderSummarySlot.tsx`
+- `apps/web/src/components/ui/session-status/{SessionStatusProvider,SessionStatusCenter,ToastRegion}.tsx`
+- `apps/web/e2e/mobile-first-screen.spec.ts`
+
+### 갱신 규칙
+
+- 공통 헤더·알림 의미와 세션 수명 변경 시 네 메뉴 문서를 함께 갱신한다.
+
 - 2026-10-05 공통 초기 초점 안정성 보완: Dialog 내부 ref를 안정화해 중첩 Popover가 열린 동안 부모 재렌더·외부 object/callback ref 교체가 사용자 초점을 빼앗지 않으며 이전 ref 정리와 닫힘 시 정리는 유지한다. 직접 공통 회귀와 격리 Chromium 검증 범위이며 실제 native WebView·HIL 및 최종 통합 승인을 뜻하지 않는다.
 - 2026-10-05 고객 알림 배치 보완: CustomerShell은 sticky 헤더 뒤·본문 앞의 단일 flow 알림 영역에 표시 중인 메시지의 실제 높이만 예약한다. 알림이 없으면 빈 간격은 없고 닫기·만료·revision·aria와 조회/내보내기 정책은 유지한다. 공통 기본 overlay는 변경하지 않는다. 직접 Shell 회귀와 모니터링 격리 Chromium 범위이며 통계의 전체 상태 조합·native/HIL·최종 통합 승인은 별도다.
 
@@ -29,6 +85,8 @@
 - 갱신 규칙: 기록된 크기·배율·software fixture의 실제 입력 결과와 운영 배포/외부 저장소 검증을 구분하고 추정/결측 의미를 유지한다.
 
 ## 구현 완료
+
+- 2026-10-04: 공통 iOS WebView 셸이 가려진 텍스트 입력의 포커스 테두리까지 확인하여 현재 포커스/키보드 열림 시도당 중앙으로 한 번 스크롤한다. 뒤늦은 viewport 크기 변경도 아직 보정하지 않은 입력만 다시 확인하며, 이미 충분히 보이거나 보정한 입력은 이동하지 않는다. 사용자 스크롤 제스처, 키보드 숨김, 앱 비활성화, 오류와 문서 교체 시 대기 중인 보정을 취소한다. Android와 메뉴 업무 로직은 변경하지 않는다.
 
 - 2026-10-06 보고서 이력의 로컬 요청일 초안도 명령 이력과 같은 raw 유효성 기준으로 조회를 잠근다. 부분·불가능 날짜, 역순·90일 초과 기간은 마지막 정상 날짜로 자동조회/수동 재시도/페이지 이동하지 않고 URL을 발행하지 않는다. 팝오버 닫기·재열기는 초안을 유지하고 유효한 수정/초기화로 복구한다. 현장·URL scope epoch가 바뀌면 이전 callback은 거부하며 독립 보고서 생성/CSV 폼은 계속 사용할 수 있다. 관련 단위 회귀와 일반 mock Chromium 복구 흐름으로 확인했으며 native 200%·실장비·실제 API 검증은 아니다.
 
@@ -171,6 +229,8 @@
 
 ## 부족하거나 개선이 필요한 기능
 
+- 2026-10-04 iOS 검증 경계: 공개 로그인 화면과 synthetic WebView 브리지·CSV 동작만 검증했다. 포커스 보정의 정식 셸 연결과 늦은 viewport 축소는 자동 회귀를 통과했다. 이 Mac의 iOS26.5 Simulator에서 observer 없이 실제 로그인 화면의 ID 최초 포커스 cold start 2회, Next, 별도 cold start의 비밀번호 최초 포커스·재포커스, 사용자 스크롤 유지와 Done 복원을 확인했다. 인증된 해당 메뉴, PDF, 구형 iOS와 실장비 조명 연동은 미검증이다.
+
 - Task7 공통 소비자 단위 회귀 153개와 타입/UI·production build 증거는 해당 실행 소스에 연결해 보존한다. 격리 mock Chromium의 최신 비native covering은 세 통계 spec에서 기존 native 두 제목만 명시적으로 제외한 89 PASS이며, 이후 test-only 수집기/Surface setup 변경의 focused 검증과 원 native 두 사례는 별도 시점의 증거다. 이 숫자를 합쳐 전체 세 spec PASS라고 표시하지 않는다. 기본 전체 Web 실행은 정확히 한 번 수행해 3,178 PASS·6 FAIL·3 SKIP, exit1을 보존했고, 변경 없는 다섯 실패 파일의 직렬 covering 115 PASS도 전체 통과를 뜻하지 않는다. 최종 Task7 독립 패키지 검토와 Task9 통합 검증은 별도다.
 - Task7의 실제 Chromium 전역 설정 100→200%·동일 페이지 reload에서 원 Flow 사례와 원 Surface 사례를 각각 실행했다. 최종 DOM/초점 확인 뒤 공개 `Page.captureScreenshot` PNG 요청의 원본을 보존했고 root가 첫 원본과 두 번째 사례의 일곱 원본을 직접 확인해 사례별 닫힘/열린 2027 날짜 초안·초점 픽셀을 승인했다. 이는 모든 프레임의 paint 보장, 전체 44px 조합, 실제 native WebView/HIL 또는 DB/외부 저장소 승인이 아니다. 긴 이름으로 라벨링한 필터 영역 사진은 데이터·geometry 증거일 뿐 이름 원문을 보여 주는 시각 증거가 아니므로 Task9의 실제 긴 이름 캡처는 남아 있다. 이전 수집 실패·잘못된 시점의 열린 화면·유실된 stream bytes를 최종 원본으로 소급 승인하지 않는다.
 
@@ -221,6 +281,7 @@
 
 ## 관련 파일
 
+- `apps/mobile/src/ios-focus-visibility.ts`, `apps/mobile/src/ios-focus-visibility.test.ts`, `apps/mobile/src/WebShell.tsx`, `apps/mobile/src/WebShell.ios-focus.test.tsx`, `apps/mobile/README.md`: 공통 iOS 입력 가시성 보정과 회귀·실행 안내.
 - `apps/web/src/features/statistics/completed-date-bounds.ts`, `apps/web/src/features/statistics/completed-date-bounds.test.ts`, `apps/web/e2e/statistics-surface-regression.spec.ts` — 분석·보고서의 재사용 날짜 bounds 정책과 실제 키보드·긴 이름·브라우저 확대 회귀.
 - `apps/web/src/components/ui/FilterPanel.tsx`, `apps/web/src/components/ui/utils/formatTimestamp.ts` — 통계가 소비하는 공통 줄바꿈 필터·실제 timestamp 표시 계약.
 - `apps/web/src/features/statistics/reports/ReportHistoryFilters.test.tsx`, `apps/web/e2e/operations-ui-comments.spec.ts` — 통계 필터 슬롯·긴 URL 조건·키보드 날짜·초기화 회귀.

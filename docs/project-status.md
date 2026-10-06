@@ -8,6 +8,16 @@
 - UI 프레임워크는 React Aria이며 현재 DataGrid는 프레임워크 Table이 아닌 공통 HTML table/card 컴포넌트다. 기존 구조·의존성을 유지해 접근자 기반 현재 목록 정렬을 적용한다.
 - 모니터링 제품 `9b4f2113`: 단일 검색·상태 Popover 및 헤더 글씨 보완, 단위106PASS·표적 브라우저13PASS, 독립 코드 C0/I0 및 UI/UX 원 PNG8장 검수 승인/차단0. Grid는 별도 담당 구현 중이며 전체 Web 검증·병합은 아직 남아 있다.
 - 실행 체크리스트: [모니터링 Popover·Grid 정렬](superpowers/plans/2026-10-06-monitoring-popover-grid-sort.md). 검증·병합은 미완료이며 사용자 서비스/DB/장비는 건드리지 않는다.
+## 2026-10-06 모바일 첫 화면 적용 — A안 승인·구현 진행
+
+- [x] 사용자 A안 진행·기존 탭/버튼/입력 크기 유지·별도 브랜치 작업 후 로컬 병합을 승인했다. [명세](superpowers/specs/2026-10-06-mobile-first-screen.md), [실행 체크리스트](superpowers/plans/2026-10-06-mobile-first-screen.md)를 따른다.
+- [x] 기존 `codex/mobile-first-screen-20261004`와 격리 checkout을 재사용하고 preview 기록 `ce20af4e`를 보존했다. 최신 메인 `f74fc94f`를 `efd3820a`에서 먼저 통합했으며 제품 충돌0, 메뉴 문서는 iOS 보완과 최신 운영 UI 기록을 함께 보존했다. 기본 checkout·실제 서버/DB/장비는 변경하지 않았다.
+- 최신 메인에는 공통 현장 선택·설정 eager 계정/로그아웃과 서버 미읽음 알람이 이미 존재한다. 재작성하지 않고 compact 표현과 기존 toast의 세션 최근 알림을 연결한다. 알림 종류 수와 장애 수는 다르며 새 DB/API를 추가하지 않는다.
+- [x] Task1 공통 헤더·모바일 알림센터/배지·계정 회귀: aba7a268 + cd0f44d0. 독립 full review C0/I1 후 StrictMode 등록 재생 중복을 RED1→GREEN42/typecheck로 보완했고 scoped 재검토 I1 ADDRESSED·새 C/I0. 앞선 baseline63/확장99·최종14/브라우저5/UI policy/Mobile58는 각 소스의 증거다. Task2의 실제 unmount 복구와 최종9b stable-scope owner props 회귀에서 원명령 UUID/자동재전송 없음/늦은응답격리를 확인했다.
+- [x] Task2 모니터링·제어 도면 우선 배치: 3c868c0b 독립 Spec✅/QualityApproved·C0/I0. 단위284+최종98/browser15와 기존controlmap28/types/UI0. 정상 지도viewport 모니터링173/240/240·제어240/240/240px; CAD원본 자체높이와전체현장핏은 별도다. pending/uncertain keyed현장복귀 원UUID/자동POST0 확인. 기존직접KPI legacy2실패는 BASE도FilterPanel인증거로 보존, 전체브라우저PASS로 주장하지 않는다.
+- [x] Task3 통계 그래프·순위·최근 파일 우선: ffda1fa9+e6a42750, full C0/I1후 기준설명 보완/scoped I1 ADDRESSED·새 C/I/M0. 최종 통계187/첫화면12/날짜계약11·파일5·invalidhistory1, fix25/개요4. 개요143/256/256px·순위185/328/328px·파일버튼44px. 기존크기/단일기준설명/날짜·null·파일계약 유지.
+- [x] Task4 구현·통합·디자이너·전체브랜치검토 완료, 로컬병합·병합 후 검증 대기. whole-branch 9b89e8d0 SpecCompliant/QualityApproved·C0/I0/M0. 9b89e8d0는 provider `scope`로 알림 저장소만 격리해 소비자 DOM/명령 owner를 유지하며 늦은 현장응답 중 로그아웃원trigger초점과 stale callback/timer/첫layout격리를 보완했다. 변경후 전체Web3250PASS/3SKIP·types/build0; 기존Mobile109/types·UI67/위반0, 정상browser26/자연스크롤sanity3·원본20/디자이너 C0/I0/M0. 최초Web8FAIL과 중간coldlazytimeout/단독7PASS는 각 원로그에 보존한다. 원본은 bbb4dd75 시각증거이고 후속9b는 스타일불변이다.
+- Task1 담당자에게 baseline 확인 후 구현을 배정했고 기존 UI/UX 디자이너 채팅에 읽기 전용 토큰/정보 우선순위 검토를 요청했다. 이전 메인 Gateway timeout/전체 test 한계와 실장비/HIL·실제 계정 native 메뉴 미검증은 이번 UI 통과로 바꾸지 않는다.
 
 ## 2026-10-04 운영 UI 추가 주석 14건 — UI 적용·로컬 병합 완료
 
@@ -279,6 +289,32 @@
 - 기존 Shell 담당에게 Task3 공통 UI와 디자이너의 준비 검토를 이어 전달한다. 기존 total 페이지·modal/drawer는 보존하고 로그 cursor·하단 시트·초 단위 formatter를 별도 책임으로 확장한다. 페이지별 URL/검색/기간 정책은 공통 컴포넌트 안으로 옮기지 않는다.
 - [ ] 공통 UI, 알람센터, 모니터링, 신설 제어 UI, 통계, 설정/운영 시각을 구현하고 단계별 독립 검토를 통과한다. 메뉴 현황·스키마 문서는 해당 기능과 같은 커밋에서 갱신한다.
 - [ ] 구현 후 화면 폭 320/390/768/962/1017/1024/1440px와 1023/1025px 경계, 짧은 높이·200% 확대·키보드·터치 및 데이터/권한/명령 안전 회귀를 검증한다. 독립 UI/UX·코드 검토의 미해결 P0–P2가 없어야 기본 개발 브랜치에 병합한다. 실제 HIL·운영 배포·사용자 DB 초기화·원격 push는 포함하지 않는다.
+
+## 2026-10-04 모바일 첫 화면·공통 헤더 — 브라우저 시안 검토 완료, 사용자 승인 대기
+
+- [x] 사용자 요구를 수집했다: 모바일 상단 알람 팝업을 알람센터 배지/내용 조회로 전환, 현장 선택을 공통 헤더로 이동해 모든 메뉴에 적용, 로그아웃을 설정 계정 영역으로 이동, 모니터링·제어 도면과 통계 그래프를 첫 화면에 배치한다.
+- [x] 완료된 iOS 브랜치 `23198604`와 기본 checkout을 보존하고 기존 격리 폴더에서 새 `codex/mobile-first-screen-20261004` 브랜치를 만들었다. 실제 서비스/Metro/Simulator는 유지한다.
+- [x] UI/UX 디자이너에게 승인용 HTML 예시를, Shell·모니터링·제어·통계·설정 담당 채팅에 읽기 전용 소비 계약/배치 검토를 배정했다. 예시와 담당 결과는 ignored `.local/mobile-first-screen-preview`에 유지한다.
+- [x] Shell·모니터링·제어·통계·설정 다섯 담당자의 소스 검토를 디자이너 A/B 시안 `mobile-layout-v4.html`에 반영했다. 기존 현장 선택은 이미 공통 헤더이며 새 선택 상태를 만들지 않고 헤더를 압축하는 제안이다. 시안 독립 소스 검토의 현장별 상태 목록 불일치를 수정·재검토했다(C0/I0/M0, 제품 검토 결과와 구분).
+- [x] 실제 브라우저에서 A/B×320×568/390×844/430×932×3메뉴의 18프레임을 확인했다. 본문 scroll0·가로 overflow0이며 모든 첫 화면에서 도면/비교 그래프가 노출된다. 390/430은 예시 그래픽 전체가 보이고 320은 A제어170/220px·A통계216/220px·B제어198/220px로 부분 노출된다. 실제 제품 도면·큰 글자·실기기 결과로 일반화하지 않는다.
+- [x] v4 브라우저에서 현장 변경의 세 프레임 동기화, 새 알림 배지3→4·센터 내역·읽음4→3(현재 상태 해결과 구분), 조회 담당자 설정의 내 계정/로그아웃 위치를 확인했다. 캡처는 사용자 `outputs/mobile/mobile-layout-preview-A-320.jpg`, 원본 치수/동작 증거는 ignored `.local/mobile-first-screen-preview/root-browser-{bounds,interactions}.json`에 보존한다. 디자이너 자동 클릭 실행은 선택자 오류로 중단됐으며 전체 통과로 취급하지 않는다.
+- [ ] 사용자가 브라우저 배치 예시를 승인한 뒤 실제 구현과 검증 계획을 확정한다. 배지 숫자 기준은 사용자에게 읽지 않은 알림 수/현재 해결 필요 상태 수 중 선택을 요청했으며 아직 확정하지 않았다.
+- 현재 제품 기능은 변경하지 않았다. 예시 데이터/상호작용은 디자인 검토용이며 실제 로그인·제어·통계·알람 처리 구현 완료가 아니다. 페이지 적용 시 영향받는 네 메뉴 문서를 같은 작업에서 갱신한다.
+
+## 2026-10-04 iOS 최종 연결 — 이 Mac Simulator 설치·실제 서비스 연결 완료
+
+- [x] 사용자 지시에 따라 `fc9e7440` 기준 별도 브랜치 `codex/ios-service-connection-20261004`와 기존 격리 checkout을 사용한다. 기본 `codex/mvp1-cloud-web`는 변경하지 않았다. [실행 체크리스트](superpowers/plans/2026-10-04-ios-service-connection.md)를 유지한다.
+- [x] Apple 서명을 검증한 Xcode26.6(17F113)를 사용자 폴더에 설치했다. 사용자 직접 설치 후 SDK26.5와 약관 관문 해소, scoped CocoaPods1.17.0/98Pods, iOS26.5 runtime과 전용 iPhone17 Simulator 부팅을 확인했다. 실제 QA runtime은23F77이며 사용자 기존 기기·developer path는 보존한다.
+- [x] unsigned iOS Debug native build exit0/BUILD SUCCEEDED, 개발 bundle ID·minimum16.4·SDK26.5·arm64/x86_64와 앱74파일 manifest를 확인했다. 제품 source/Android 생성물은 유지한다. 준비 mobile51/51·types·Hermes export 및 독립 WebKit portable15/15도 통과했다(CDP전용3개 미지원 제외).
+- [x] 실제 앱 설치와 로컬5173 서비스 로그인 화면 진입, 입력·소프트웨어 키보드 닫기·background/active·cold restart를 확인했다. Metro의 IPv6 전용 binding 문제는 process-scoped IPv4 우선 DNS 설정으로 해결했다. 실제127loopback listener/bundle GET과 기존NODE_OPTIONS 보존을 독립 검토했다. README 준비/수정은 `97bcfd6e`, `e75fbd73`로 별도 브랜치에 커밋했다(준비 검토 Critical/Important/Minor0).
+- [x] 별도 iOS fixture의 native bootstrap/new document·64KiB CSV OS 공유창 반환·임시 파일0·명시적 cancel·HTTP503 안내→직접 재시도→새 문서 복구를 확인했다. 실제 저장/PDF/renderer 종료 시험은 별도 미검증이다.
+- [x] 가려진 활성 입력의 전체 테두리와 포커스 ring을 한 번 노출하는 재사용 iOS helper를 적용했다. 중복 inset/고정 offset 없이 사용자 제스처/문서 교체/키보드 닫힘/앱 비활성화는 예약 보정을 취소한다. 뒤늦은 viewport shrink의 미처리 코드 반례를 RED→GREEN으로 보완했으며 임시 관찰 코드를 모두 제거했다. 최종 기본 Mobile9 suites/109tests·typecheck·Hermes export exit0, 독립 코드 검토 C0/I0/M0·독립109/109·types0이다. 네 메뉴 문서와 README도 같은 작업에서 갱신했다.
+- [x] 실제5173 서비스 연결을 IPv4 Metro로 복원하고 final bundle GET200·정식 helper 포함·fixture/observer 없음·restoreRequired=false를 확인했다. 실제 공개 로그인의 가짜 입력/비밀번호 마스킹·Next/reopen·CTA scroll·가로/세로·foreground/coldrestart를 검증했다. 최종 observer 없는 coldID2회/별도coldPWfirst/reopen/사용자scroll보존/Done은 PNG46~52에서 통과했고 빈 세로·keyboard hidden·실제loginready로 유지한다. 이전 PNG34 ring 가림 이력은 보존하며 새 조건의 결과와 구분한다.
+- [x] UI/UX 디자이너가 실제 최종 원본7개(PNG46~52)를 직접 확인해 지정 Simulator 조건의 V-06/P2를 닫았다. 추가 필수 시각 지적0이며 ID2의2pt 여유를 다른 기기/큰 글자까지 일반화하지 않는다. 네 메뉴의 이전 모바일 협업과 이번 공통 helper 보완을 함께 유지한다.
+- [x] 독립 최종 검토에서 source10·실제 PNG·원본 보존·README/메뉴·앱 ZIP74파일·메타데이터가 일치했고 추가 지적0이다. 현재 기본 checkout은 clean `fc9e7440`이며 사용자 기존 서버/기기를 보존한다.
+- [x] 검토된 제품/문서10경로를 별도 브랜치의 `b1b2e01e`로 scoped commit했다. 이 상태판/계획2문서는 별도 정리 커밋으로 기록한다. 마지막 diff check·기본 clean `fc9e7440`·실제5173 Metro helper 확인을 완료했으며 기본 checkout에 병합하거나 push하지 않는다. 격리 checkout과 ignored 도구/검증 증거는 보존한다.
+- 사용자 Simulator Debug 앱: `/Users/kim-jh/Documents/led 조명 관제 서비스/outputs/mobile/led-control-ios-simulator-development.app.zip`(35,595,560bytes, SHA256 `e4de6e91c02832060df9c5a79029ed437a4da39291d6b524dbe9808b7b5ef8c1`). 현재 `LED Control iOS QA 20261004`에서 실제 로그인 화면/keyboard hidden으로 열려 있고 Metro를 유지한다. 재실행 절차는 [개발 실행 안내](../apps/mobile/README.md)를 따른다.
+- 실제 계정 로그인·인증된 메뉴/통계 PDF·실제 파일 저장·물리 iPhone/조명 HIL·운영 signing/스토어 제출은 완료 범위가 아니다. 앱은 Metro가 필요한 Simulator Debug 산출물이다. 기존 production audit High2의 출시 게이트도 유지한다.
 
 ## 2026-10-03 Android·iOS WebView 앱 — 구현·로컬 반영 완료
 

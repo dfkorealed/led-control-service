@@ -66,6 +66,7 @@ for (const flow of ["schedule", "event", "group"] as const) {
       await page.getByRole("button", { name: "이벤트 추가" }).click();
       await page.getByRole("button", { name: "감지 센서 선택", exact: true }).click();
     } else {
+      await openCompactTools(page);
       await page.getByRole("button", { name: "구역 관리" }).click();
       await page.getByRole("button", { name: "새 구역" }).click();
     }
@@ -92,6 +93,7 @@ test("final review: compact manual controls follow the map and remain reachable 
   await page.goto(`/control?siteId=${ids.site}`);
   await marker(page, "B2-L001").click();
   const execution = page.getByRole("complementary", { name: "밝기 실행" });
+  await openCompactExecution(page);
   const action = execution.getByRole("button", { name: "1개 조명에 밝기 적용" });
   await expect(execution.getByText("1개 선택", { exact: true })).toBeVisible();
   await execution.getByRole("textbox", { name: "밝기 수치" }).scrollIntoViewIfNeeded();
@@ -110,6 +112,7 @@ test("final review: compact group name uses 16px text", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await installControlMapRoutes(page);
   await page.goto(`/control?siteId=${ids.site}`);
+  await openCompactTools(page);
   await page.getByRole("button", { name: "구역 관리" }).click();
   await page.getByRole("button", { name: "새 구역" }).click();
   expect(await page.getByRole("textbox", { name: "구역 이름" }).evaluate((element) => Number.parseFloat(getComputedStyle(element).fontSize))).toBeGreaterThanOrEqual(16);
@@ -120,6 +123,7 @@ for (const viewport of [{ width: 390, height: 660 }, { width: 320, height: 740 }
     await page.setViewportSize(viewport);
     await installControlMapRoutes(page);
     await page.goto(`/control?siteId=${ids.site}`);
+    await openCompactTools(page);
     await page.getByRole("button", { name: "구역 관리" }).click();
     await page.getByRole("button", { name: "새 구역" }).click();
 
@@ -140,6 +144,7 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 1366, height: 768
     await page.setViewportSize(viewport);
     await installControlMapRoutes(page, { fixtureCount: 100, groupMemberCount: 100 });
     await page.goto(`/control?siteId=${ids.site}`);
+    await openCompactTools(page);
     await page.getByRole("button", { name: "구역 관리" }).click();
     await page.getByRole("button", { name: "B2 입구 수정" }).click();
 
@@ -256,6 +261,7 @@ test("event group target authoring sends sorted current target fixture IDs", asy
 test("creating a group renders its configuring Mesh lifecycle", async ({ page }) => {
   await installControlMapRoutes(page);
   await page.goto(`/control?siteId=${ids.site}`);
+  await openCompactTools(page);
   await page.getByRole("button", { name: "구역 관리" }).click();
   await page.getByRole("button", { name: "새 구역" }).click();
   const dialog = page.getByRole("dialog", { name: "구역 생성" });
@@ -348,7 +354,9 @@ for (const viewport of [{ width: 390, height: 844 }, { width: 320, height: 740 }
     await expectMinimumTouchTargetsAfterScrolling(page, "[data-control-screen]");
     await marker(page, "B2-L001").click();
     await expectMinimumTouchTargetsAfterScrolling(page, "[data-control-screen]");
+    await openCompactExecution(page);
     await expectEditableFontSizes(page.getByRole("complementary", { name: "밝기 실행" }));
+    await openCompactTools(page);
     await page.getByRole("button", { name: "조명 목록 열기" }).click();
     const drawer = page.getByRole("dialog", { name: "조명 목록" });
     await expect(drawer.getByRole("searchbox", { name: "조명 검색" })).toBeVisible();
@@ -357,6 +365,7 @@ for (const viewport of [{ width: 390, height: 844 }, { width: 320, height: 740 }
     await expectNoHorizontalOverflow(page);
     await drawer.getByRole("button", { name: "선택 완료", exact: true }).click();
     await expectNoHorizontalOverflow(page);
+    await openCompactExecution(page);
     const action = page.getByRole("button", { name: /밝기 적용/ });
     const navigation = page.locator('[data-shell-navigation="compact"]');
     await action.scrollIntoViewIfNeeded();
@@ -381,6 +390,7 @@ for (const mode of ["fixtures", "floor", "group"] as const) {
     await installControlMapRoutes(page);
     await page.goto(`/control?siteId=${ids.site}`);
     await expect(page.getByRole("region", { name: "제어 대상 지도", exact: true })).toBeVisible();
+    if (mode !== "fixtures") await openCompactTools(page);
     if (mode !== "fixtures") await page.getByRole("button", { name: mode === "floor" ? "층 전체" : "저장된 구역", exact: true }).click();
     const viewport = page.getByRole("region", { name: "B2 도면" });
     await expect(viewport).toBeVisible();
@@ -771,4 +781,19 @@ function dashboardResponse(fixtureData: SettingsFixture[], groups: Array<Record<
     groups,
     gateways: [{ id: ids.gateway, name: "Gateway B2", serialNumber: "GW-E2E-001", firmwareVersion: "e2e", lastHeartbeatAt: "2026-09-01T00:00:00.000Z", connectionStatus: "online" }]
   };
+}
+
+async function openCompactTools(page: Page) {
+  const trigger = page.getByRole("button", { name: "선택 도구 열기", exact: true });
+  if ((page.viewportSize()?.width ?? 1280) < 760) {
+    const expanded = page.getByRole("button", { name: "선택 도구 접기", exact: true });
+    if (!await expanded.isVisible()) await trigger.click();
+  }
+}
+async function openCompactExecution(page: Page) {
+  const trigger = page.getByRole("button", { name: "밝기 실행 설정 열기", exact: true });
+  if ((page.viewportSize()?.width ?? 1280) < 760) {
+    const expanded = page.getByRole("button", { name: "밝기 실행 설정 접기", exact: true });
+    if (!await expanded.isVisible()) await trigger.click();
+  }
 }

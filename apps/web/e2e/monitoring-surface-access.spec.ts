@@ -90,6 +90,9 @@ for (const size of [{ width: 1706, height: 1226 }, { width: 390, height: 844 }, 
     await expect(finder).toHaveCount(0);
     await expect(trigger).toBeFocused();
     const header = page.getByRole('region', { name: '현장 전체', exact: true });
+    await expect(header).toBeVisible();
+    const aggregateDisclosure = header.getByRole('button', { name: '현장 전체 보기', exact: true });
+    if (await aggregateDisclosure.count()) await aggregateDisclosure.click();
     const bounds = await header.evaluate(node => {
       const parent = node.getBoundingClientRect();
       return [...node.querySelectorAll('dt,dd,h2')].map(element => {
@@ -124,6 +127,9 @@ for (const size of [{ width: 1706, height: 1226 }, { width: 390, height: 844 }])
     await page.route('**/api/sites', route => route.fulfill({ json: [{ id: ids.siteId, name: '동측 지하주차장 B1·B2 통합 조명 운영 현장', customerName: '고객사' }] }));
     await page.goto(`/monitoring?siteId=${ids.siteId}`);
     const header = page.getByRole('region', { name: '현장 전체', exact: true });
+    await expect(header).toBeVisible();
+    const aggregateDisclosure = header.getByRole('button', { name: '현장 전체 보기', exact: true });
+    if (await aggregateDisclosure.count()) await aggregateDisclosure.click();
     await expect(header.getByText('2대').first()).toBeVisible();
     await page.evaluate(() => { document.body.style.zoom = '2'; });
     await paints(page);

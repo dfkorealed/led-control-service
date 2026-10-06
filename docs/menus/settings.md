@@ -10,6 +10,33 @@
 - 갱신 규칙: 정렬 접근자/헤더/카드 변경 시 현재 목록 범위·표/카드 상태·동일값/누락값·원본 불변·행 작업·기존 pagination 회귀와 실제 키보드/44px 접근을 함께 확인한다.
 
 
+## 2026-10-06 공통 모바일 헤더·최근 알림 (Task 1)
+
+### 구현 완료
+
+- 760px 미만 헤더는 기존 현장 선택·알람센터를 한 행에 표시한다. 중복 메뉴 제목은 화면 읽기용으로 유지하고 모니터링 현장 전체 집계는 명시적으로 펼쳐 확인한다. 기존 현장 변경 가드·최소 44px 조작·계정/로그아웃 controller와 설정 eager 접근을 유지한다.
+- 모바일 toast는 화면 읽기 알림만 유지한다. 공통 provider가 독립적으로 만료시켜 desktop으로 전환해도 지난 toast를 다시 표시하지 않는다. desktop toast와 서버 현장 알람 저장·지우기는 기존 계약을 유지한다.
+- 같은 알람센터의 최근 알림은 세션 메모리에 최대 50개를 보관한다. 상태 fingerprint 변경/새 작업은 미읽음이며 같은 polling은 추가하지 않는다. 최근 읽음과 toast 만료는 장애 해결·명령 실행·서버 알람 읽음/지우기와 분리한다.
+- 모바일 배지는 서버 현장 알람 미읽음과 최근 알림 미읽음 합계이며 고유 장애 수가 아니다. 서버 수가 불명인 경우 `?`를 유지한다. 계정/허가된 현장 변경 시 provider의 scope 저장소·타이머·callback만 분리한다. 소비자와 계정 버튼 DOM은 유지해 초기 현장 조회 중 열린 로그아웃 확인의 취소/실패 포커스를 보존한다. 전체보기에서도 동일 센터를 여는 독립 행 버튼이 접근 가능하다.
+
+### 미구현
+
+- 최근 알림은 새 문서·로그아웃·다른 기기로 동기화하지 않는다. 별도 서버 API/DB/저장소와 실제 장비 HIL은 추가하지 않는다.
+
+### 부족하거나 개선이 필요한 기능
+
+- 브라우저 HTTP fixture 검증과 세션 단위 검증이며 실제 native 장비/HIL 완료를 의미하지 않는다. 큰 글자·긴 내용은 자연 스크롤을 허용한다.
+
+### 관련 파일
+
+- `apps/web/src/features/shells/CustomerShell.tsx`, `CustomerHeaderSummarySlot.tsx`
+- `apps/web/src/components/ui/session-status/{SessionStatusProvider,SessionStatusCenter,ToastRegion}.tsx`
+- `apps/web/e2e/mobile-first-screen.spec.ts`
+
+### 갱신 규칙
+
+- 공통 헤더·알림 의미와 세션 수명 변경 시 네 메뉴 문서를 함께 갱신한다.
+
 ## 2026-10-06 사용자 목록·CAD 목록 공통화 (Task 8 구현·직접 검수 완료)
 
 - 구현 완료: 유저 관리의 검색은 목록 밖에 유지하고 권한·상태는 공통 상세 필터로 제공한다. 활성 조건은 0~2개이며 초기화는 검색어를 보존한다. 공통 DataGrid가 실제 컨테이너 폭에 따라 표/카드로 전환하고, 중앙 정렬 헤더·전체 데이터와 행 작업 메뉴를 유지한다. 현장 변경 시 기존 메뉴/대화상자/필터는 종료하며 늦은 상태 변경 응답이 새 현장의 재시도나 안내를 유발하지 않는다. 상태 변경 중 추가 및 행 작업을 잠근다.
@@ -264,6 +291,7 @@
 
 ## 구현 완료
 
+- 2026-10-04: 공통 iOS WebView 셸이 가려진 텍스트 입력의 포커스 테두리까지 확인하여 현재 포커스/키보드 열림 시도당 중앙으로 한 번 스크롤한다. 뒤늦은 viewport 크기 변경도 아직 보정하지 않은 입력만 다시 확인하며, 이미 충분히 보이거나 보정한 입력은 이동하지 않는다. 사용자 스크롤 제스처, 키보드 숨김, 앱 비활성화, 오류와 문서 교체 시 대기 중인 보정을 취소한다. Android와 메뉴 업무 로직은 변경하지 않는다.
 - 2026-10-02 공통 페이지 크기 타입 호환: `CadImportPanel` 도면 영역의 페이지 크기 state는 `DefaultPaginationPageSize`(10/20/50/100)에 연결했다. 기본 20·기존 네 옵션과 영역 선택/페이지 초기화·CAD 업로드/변환/검토/적용 정책은 그대로다. 공통 로그용 500/1000 확장은 CAD 영역 조회 수를 늘리지 않는다. 이 변경은 타입-only 연결이며 설정 화면에 새 `FilterPanel`/`LogView`/`DetailSheet`를 적용하거나 실제 viewport/safe-area·장비 검증을 완료한 것이 아니다.
 
 - 2026-09-29 로그인·계정 보안 경계는 단말 또는 Mac의 IP가 바뀌어도 exact IP/User-Agent 동일성을 요구하지 않는다. 비밀번호 단계와 MFA 완료 단계가 다른 네트워크여도 사용자 row version, 만료, 일회성 Redis challenge, TOTP replay·recovery code 규칙을 통과하면 완료 시점 IP/User-Agent로 session·rate limit·감사를 생성한다. nginx를 통한 browser IP는 기존 `LANDING_INGRESS_SECRET`과 `X-Web-Ingress-Secret`·`X-Web-Client-IP`가 함께 유효할 때만 신뢰하고, 전역 proxy trust와 장비 9443 header trust는 허용하지 않는다. 로컬 API/Web 전용 `DEV_LOCAL_APP_ONLY=1`은 내부 loopback 연결에서도 기존 Lab DNS로 TLS를 검증하며 Gateway/HIL 완료를 의미하지 않는다.
@@ -644,6 +672,8 @@ DB 모델이 실제 변경되는 작업에서는 `docs/database-schema.md`를 �
 
 ## 부족하거나 개선이 필요한 기능
 
+- 2026-10-04 iOS 검증 경계: 공개 로그인 화면과 synthetic WebView 브리지·CSV 동작만 검증했다. 포커스 보정의 정식 셸 연결과 늦은 viewport 축소는 자동 회귀를 통과했다. 이 Mac의 iOS26.5 Simulator에서 observer 없이 실제 로그인 화면의 ID 최초 포커스 cold start 2회, Next, 별도 cold start의 비밀번호 최초 포커스·재포커스, 사용자 스크롤 유지와 Done 복원을 확인했다. 인증된 해당 메뉴, PDF, 구형 iOS와 실장비 조명 연동은 미검증이다.
+
 - IP 비종속 인증의 단위·통합·브라우저·운영 Compose 계약은 자동 검증했지만 실제 공인 DNS/TLS 전환, CDN/LB가 추가된 topology, 고객망 간 접속, Raspberry Pi/Gateway와 ESP32-H2 HIL은 아직 검증하지 않았다. 양산 전에는 canonical Host 정상 로그인, 잘못된 Host 로그인 POST의 redirect 없는 421, secret 동시 교체, DNS rollback과 장비 bootstrap을 staging에서 확인해야 한다.
 
 - dashboard의 표시 전용 `mapConfigured`는 현재 MapDocument revision snapshot의 경량 `elementCount > 0` 또는 기존 floor plan/CAD/맵 객체로 판정하며, generation의 기준 수나 `snapshotSha256` 검증 결과가 아니다. 편집기의 `currentRef`는 별도로 snapshot hash를 검증한다. 모든 요소가 숨김인 경우에도 설정 완료로 보일 수 있으므로 표시 가능한 요소 수를 별도로 확정하는 계약이 필요하다. 층의 `summary.totalFixtures`는 등록 조명 수이며 실제 맵에 배치된 핀 수가 아니다.
@@ -696,6 +726,7 @@ DB 모델이 실제 변경되는 작업에서는 `docs/database-schema.md`를 �
 
 ## 관련 파일
 
+- `apps/mobile/src/ios-focus-visibility.ts`, `apps/mobile/src/ios-focus-visibility.test.ts`, `apps/mobile/src/WebShell.tsx`, `apps/mobile/src/WebShell.ios-focus.test.tsx`, `apps/mobile/README.md`: 공통 iOS 입력 가시성 보정과 회귀·실행 안내.
 - `apps/web/src/features/floor-editor/CadImportPanel.tsx`, `apps/web/src/components/ui/PaginationBar.tsx`, `apps/web/src/components/ui/PaginationBar.test.tsx`, `apps/web/src/components/ui/index.ts` — 기존 CAD 영역 조회 수의 기본 옵션 타입 연결.
 
 - `apps/web/src/features/setup/SetupWizard.tsx`, `apps/web/src/features/settings/SettingsView.tsx`, `apps/web/src/features/settings/site/SiteOperationsView.tsx`, `apps/web/src/features/settings/floor-plans/FloorPlanSettingsView.tsx`, `apps/web/src/features/settings/users/SiteUsersView.tsx`

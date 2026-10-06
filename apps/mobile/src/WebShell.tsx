@@ -1,10 +1,11 @@
-import { useEffect, useRef, useState } from 'react';
-import { Alert, AppState, BackHandler, KeyboardAvoidingView, Linking, Platform, StyleSheet, View } from 'react-native';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { Alert, AppState, BackHandler, Keyboard, KeyboardAvoidingView, Linking, Platform, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { getNetworkStateAsync, addNetworkStateListener } from 'expo-network';
 import { WebView } from 'react-native-webview';
 import { RecoveryState } from './components/RecoveryState';
 import { createMobileWebViewBootstrapScript, createMobileWebViewPreloadScript, createNativeMessageScript, navigationDecision, resolveWebConfiguration } from './runtime';
+import { createIosFocusVisibilityPreloadScript, createIosFocusVisibilitySignalScript, type IosFocusVisibilitySignal } from './ios-focus-visibility';
 import { NativeBridge } from './native-bridge';
 import { createPrivateFile, sharePrivateFile } from './private-files';
 
@@ -39,10 +40,21 @@ function ConnectedShell({ url, origin }: { url: string; origin: string }) {
     bridgeRef.current.onBackTimeout = () => Alert.alert('뒤로가기를 처리하지 못했습니다', '현재 화면의 변경사항을 확인한 뒤 다시 시도해 주세요.');
   }
   const bridge = bridgeRef.current;
-  const bootstrapScript = () => createMobileWebViewBootstrapScript(origin, appState.current, online.current, documentId.current, bridge.bootstrap(appState.current, online.current));
+  const focusPreload = Platform.OS === 'ios' ? createIosFocusVisibilityPreloadScript(origin) : '';
+  const signalFocus = (signal: IosFocusVisibilitySignal) => {
+    if (Platform.OS === 'ios' && documentLoaded.current) {
+      // Injection can execute after navigation. Its browser-side epoch/origin
+      // checks must remain live through both animation frames.
+      webView.current?.injectJavaScript(createIosFocusVisibilitySignalScript(origin, documentId.current, signal));
+    }
+  };
+  const bootstrapScript = () => createMobileWebViewBootstrapScript(origin, appState.current, online.current, documentId.current, bridge.bootstrap(appState.current, online.current)) + focusPreload;
   const injectBootstrap = () => { if (!failed.current && documentLoaded.current) webView.current?.injectJavaScript(bootstrapScript()); };
   const currentCallback = () => activeGeneration.current === generation;
 
+  // Layout cleanup runs before the child WebView ref is detached, so queued
+  // browser work is cancelled while this document can still receive commands.
+  useLayoutEffect(() => () => signalFocus('dispose'), [origin]);
   useEffect(() => {
     let disposed = false;
     const updateOnline = (connected?: boolean, reachable?: boolean | null) => {
@@ -51,9 +63,17 @@ function ConnectedShell({ url, origin }: { url: string; origin: string }) {
     };
     void getNetworkStateAsync().then(s => updateOnline(s.isConnected, s.isInternetReachable)).catch(() => {});
     const network = addNetworkStateListener(s => updateOnline(s.isConnected, s.isInternetReachable));
-    const state = AppState.addEventListener('change', s => { appState.current = s; injectBootstrap(); bridge.lifecycle(s, online.current); });
+    const state = AppState.addEventListener('change', s => {
+      if (s !== 'active') signalFocus('cancel');
+      appState.current = s; injectBootstrap(); bridge.lifecycle(s, online.current);
+    });
+    const keyboard = Platform.OS === 'ios' ? [
+      Keyboard.addListener('keyboardDidShow', () => { if (!failed.current && appState.current === 'active') signalFocus('show'); }),
+      Keyboard.addListener('keyboardWillHide', () => signalFocus('hide')),
+      Keyboard.addListener('keyboardDidHide', () => signalFocus('hide')),
+    ] : [];
     const back = Platform.OS === 'android' ? BackHandler.addEventListener('hardwareBackPress', () => { bridge.back(); return true; }) : undefined;
-    return () => { disposed = true; network.remove(); state.remove(); back?.remove(); bridge.reset(''); };
+    return () => { disposed = true; keyboard.forEach(subscription => subscription.remove()); network.remove(); state.remove(); back?.remove(); bridge.reset(''); };
   }, [origin]);
   useEffect(() => {
     if (!loading) return;
@@ -61,8 +81,9 @@ function ConnectedShell({ url, origin }: { url: string; origin: string }) {
     return () => clearTimeout(timer);
   }, [loading, generation]);
 
-  const fail = (message: string) => { bridge.reset(''); failed.current = true; documentLoaded.current = false; setLoading(false); setError(message); };
+  const fail = (message: string) => { signalFocus('cancel'); bridge.reset(''); failed.current = true; documentLoaded.current = false; setLoading(false); setError(message); };
   const retry = () => {
+    signalFocus('cancel');
     failed.current = false; loaded.current = false; documentLoaded.current = false; currentUrl.current = url;
     documentId.current = createDocumentId(); firstDocument.current = true; bridge.reset(documentId.current); activeGeneration.current++;
     setError(null); setLoading(true); setSlow(false); setGeneration(g => g + 1);
@@ -94,7 +115,7 @@ function ConnectedShell({ url, origin }: { url: string; origin: string }) {
           // Capture all schemes ourselves; a narrow whitelist delegates outside URLs to the OS before our policy runs.
           originWhitelist={['*']} onShouldStartLoadWithRequest={r => requestNavigation(r.url, r.isTopFrame)}
           onOpenWindow={e => requestNavigation(e.nativeEvent.targetUrl, true)}
-          injectedJavaScriptBeforeContentLoaded={createMobileWebViewPreloadScript(origin)}
+          injectedJavaScriptBeforeContentLoaded={createMobileWebViewPreloadScript(origin) + focusPreload}
           onLoadStart={e => {
             if (!currentCallback()) return;
             if (navigationDecision(e.nativeEvent.url, origin) !== 'internal') { webView.current?.stopLoading(); fail('허용되지 않은 주소로 연결할 수 없습니다.'); return; }
@@ -102,6 +123,7 @@ function ConnectedShell({ url, origin }: { url: string; origin: string }) {
             // completed document's pushState/popstate changes its URL, not its
             // JS realm, so keep its ready/file/back ownership intact.
             if (Platform.OS === 'android' && e.nativeEvent.loading === false && documentLoaded.current) { currentUrl.current = e.nativeEvent.url; return; }
+            signalFocus('cancel');
             documentLoaded.current = false;
             if (firstDocument.current) firstDocument.current = false;
             else { documentId.current = createDocumentId(); bridge.reset(documentId.current); }

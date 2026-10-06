@@ -10,6 +10,59 @@
 - 갱신 규칙: 정렬 접근자/헤더/카드 변경 시 현재 목록 범위·표/카드 상태·동일값/누락값·원본 불변·행 작업·기존 pagination 회귀와 실제 키보드/44px 접근을 함께 확인한다.
 
 
+## 2026-10-06 모바일 도면 우선 배치 (Task 2)
+
+### 구현 완료
+
+- 760px 미만 수동 제어는 기존 방식 탭 → 표시 층·현재 선택 방식/선택 수 → 도면 순서를 우선한다. 대상 선택 방식·목록·구역 관리는 `선택 도구 열기`, 밝기 입력/적용은 `밝기 실행 설정 열기`로 확인한다. desktop은 기존 도구와 실행 설정을 펼쳐 표시한다.
+- 접힘은 표시만 바꾸고 명령 owner와 frozen request/원본 UUID를 유지한다. 진행·불확정·실패 복구는 접힘 밖에 남는다. 현장 A→B→A는 provider scope와 명령 owner props를 갱신하며 기존 복구 저장을 이용한다. 실제 unmount 복구도 유지하며 닫기·resize·현장 복귀는 자동 제어 POST를 만들지 않는다. 적용 버튼 스크롤 여백은 기존 68px + safe-area 계산을 재사용한다.
+
+### 미구현
+
+- 실제 native WebView·장비/HIL의 첫 도면 가시성 보장은 별도 검증이다.
+
+### 부족하거나 개선이 필요한 기능
+
+- 320×568/390×844/430×932 정상 100% 첫 진입 기준은 실제 도면을 렌더하는 interactive viewport의 헤더·clip·하단 메뉴 제외 가시 높이 120/240/240px이다. CAD 원본 비율과 camera fit 때문에 도면 이미지 자체가 이 높이를 채우거나 현장 전체를 항상 표시한다는 의미는 아니다. 긴 이름·오류·큰 글자는 자연 스크롤로 확인한다.
+
+### 관련 파일
+
+- `apps/web/src/features/control/ControlView.tsx`, `target-selection/{SpatialTargetSelector,TargetSelectionToolbar}.tsx`
+- `apps/web/e2e/mobile-first-screen.spec.ts`, `control-map-target-selection.spec.ts`
+
+### 갱신 규칙
+
+- 첫 도면 배치·접힘·선택/카메라·복구 수명을 변경하면 해당 동작과 한계를 같은 작업에서 갱신한다.
+
+
+
+## 2026-10-06 공통 모바일 헤더·최근 알림 (Task 1)
+
+### 구현 완료
+
+- 760px 미만 헤더는 기존 현장 선택·알람센터를 한 행에 표시한다. 중복 메뉴 제목은 화면 읽기용으로 유지하고 모니터링 현장 전체 집계는 명시적으로 펼쳐 확인한다. 기존 현장 변경 가드·최소 44px 조작·계정/로그아웃 controller와 설정 eager 접근을 유지한다.
+- 모바일 toast는 화면 읽기 알림만 유지한다. 공통 provider가 독립적으로 만료시켜 desktop으로 전환해도 지난 toast를 다시 표시하지 않는다. desktop toast와 서버 현장 알람 저장·지우기는 기존 계약을 유지한다.
+- 같은 알람센터의 최근 알림은 세션 메모리에 최대 50개를 보관한다. 상태 fingerprint 변경/새 작업은 미읽음이며 같은 polling은 추가하지 않는다. 최근 읽음과 toast 만료는 장애 해결·명령 실행·서버 알람 읽음/지우기와 분리한다.
+- 모바일 배지는 서버 현장 알람 미읽음과 최근 알림 미읽음 합계이며 고유 장애 수가 아니다. 서버 수가 불명인 경우 `?`를 유지한다. 계정/허가된 현장 변경 시 provider의 scope 저장소·타이머·callback만 분리한다. 소비자와 계정 버튼 DOM은 유지해 초기 현장 조회 중 열린 로그아웃 확인의 취소/실패 포커스를 보존한다. 전체보기에서도 동일 센터를 여는 독립 행 버튼이 접근 가능하다.
+
+### 미구현
+
+- 최근 알림은 새 문서·로그아웃·다른 기기로 동기화하지 않는다. 별도 서버 API/DB/저장소와 실제 장비 HIL은 추가하지 않는다.
+
+### 부족하거나 개선이 필요한 기능
+
+- 브라우저 HTTP fixture 검증과 세션 단위 검증이며 실제 native 장비/HIL 완료를 의미하지 않는다. 큰 글자·긴 내용은 자연 스크롤을 허용한다.
+
+### 관련 파일
+
+- `apps/web/src/features/shells/CustomerShell.tsx`, `CustomerHeaderSummarySlot.tsx`
+- `apps/web/src/components/ui/session-status/{SessionStatusProvider,SessionStatusCenter,ToastRegion}.tsx`
+- `apps/web/e2e/mobile-first-screen.spec.ts`
+
+### 갱신 규칙
+
+- 공통 헤더·알림 의미와 세션 수명 변경 시 네 메뉴 문서를 함께 갱신한다.
+
 ## 2026-10-06 Control 가용 높이·완전한 적용 버튼 접근 보완
 
 ### 구현 완료
@@ -205,6 +258,8 @@
 기준일: 2026-09-24
 
 ## 구현 완료
+
+- 2026-10-04: 공통 iOS WebView 셸이 가려진 텍스트 입력의 포커스 테두리까지 확인하여 현재 포커스/키보드 열림 시도당 중앙으로 한 번 스크롤한다. 뒤늦은 viewport 크기 변경도 아직 보정하지 않은 입력만 다시 확인하며, 이미 충분히 보이거나 보정한 입력은 이동하지 않는다. 사용자 스크롤 제스처, 키보드 숨김, 앱 비활성화, 오류와 문서 교체 시 대기 중인 보정을 취소한다. Android와 메뉴 업무 로직은 변경하지 않는다.
 
 - 2026-10-04 모바일 제어 복구: strict native bootstrap이 React mount 전에 명시적으로 선택한 환경에서만 사용자·현장별 `led-control:active-command:mobile:v1:` localStorage에 원본 요청 ID·대상·밝기, commandId, 안전 거부/해소 marker와 미완료 수동 상태 확인 요청 ID를 보존한다. 일반 웹은 기존 sessionStorage를 유지하며 단순 mobile window flag로 저장 방식을 바꾸지 않는다. 앱 재시작은 저장된 원본의 상태 조회와 사용자가 누른 동일 요청 확인만 허용하고, 새 Set이나 재적용을 자동 실행하지 않는다. 수동 상태 확인 응답이 유실된 후에도 같은 확인 UUID로 명시적으로 확인하며 새 확인 시도로 대체하지 않는다.
 - 모바일 복구 저장소의 읽기·쓰기·정리 실패나 오염은 기록이 없는 것으로 간주하지 않고 해당 문서의 제어를 잠그며 실행 영역에 이유를 표시한다. POST 전 원본 정보 저장이 실패하면 명령을 보내지 않는다. 최초 정상 인증 부팅은 복구를 보존하고, 인증 거부/로그아웃/계정 변경은 기존 인증 정리 경로에서 웹·모바일 명령 namespace를 함께 정리한다. 무관한 저장값과 인증 cookie/token은 복구 기록에 넣거나 지우지 않는다. 종결 결과에 따른 명령 정리에는 해당 상태 확인 기록도 포함한다.
@@ -530,6 +585,8 @@
 
 ## 부족하거나 개선이 필요한 기능
 
+- 2026-10-04 iOS 검증 경계: 공개 로그인 화면과 synthetic WebView 브리지·CSV 동작만 검증했다. 포커스 보정의 정식 셸 연결과 늦은 viewport 축소는 자동 회귀를 통과했다. 이 Mac의 iOS26.5 Simulator에서 observer 없이 실제 로그인 화면의 ID 최초 포커스 cold start 2회, Next, 별도 cold start의 비밀번호 최초 포커스·재포커스, 사용자 스크롤 유지와 Done 복원을 확인했다. 인증된 해당 메뉴, PDF, 구형 iOS와 실장비 조명 연동은 미검증이다.
+
 - 모바일 제어 durable 복구는 OS가 해당 WebView origin의 localStorage를 보존하는 범위다. 앱 데이터 삭제·origin 변경·저장소 손상에서 원본이 복구된다고 보장하지 않는다. 실제 Android/iOS 강제 종료·renderer 재생성·세션 만료·계정 전환·네트워크 단절과 원본 명령 결과 확인은 실기기 검증이 필요하다. storage 오류의 해당 문서 잠금은 성공적인 상태 조회만으로 해제하지 않으며 자동 저장값 삭제/새 Set으로 복구하지 않는다. 공통 native bootstrap·focus/online 재조회 연계는 Shell writer 소유이며 제어에서 별도 lifecycle listener를 복제하지 않는다.
 
 - Set epoch 발행 경계는 활성 세대·등록 worker·동일 DB primary의 시각 증거를 claim/prepare/attempt/publish마다 재확인하고, MQTT 전 `CommandPublishAttempt`에 절대 만료를 기록한다. Quiesce의 member ACK는 로컬 중지만 뜻하며 응답 없는 member를 시간 경과로 안전 처리하지 않는다. 원본 Command의 UTC rolling 3개월 cutoff와 Set 전용 permit을 적용하며, legacy status-check Get은 quiesce와 분리한다.
@@ -583,6 +640,8 @@
 - Task 20 Fix Round 4에서 temp directory는 fixed lock의 owner/coordination 상태가 아닌 publish 후보로 유지하되, cleanup은 원본 temp를 같은 parent의 unique quarantine path로 먼저 atomic rename해 소유권을 확보한 뒤 quarantine 내부만 정리한다. quarantine 내부가 empty directory이거나 exact regular `.owner.<token>` marker 하나만 가진 경우에만 삭제하고, publisher가 먼저 temp를 fixed lock으로 rename하면 cleaner는 원본 temp `ENOENT`로 중단한다. cleaner가 먼저 quarantine하면 publisher는 `ENOENT` 후 같은 token으로 새 temp를 만들어 retry한다. fixed lock directory 자체는 quarantine하지 않는다. temp/quarantine symlink·non-directory·marker symlink·multi-entry·외부 sentinel은 따라가거나 삭제하지 않고 fixed lock 획득을 막지 않는다. fixed lock은 계속 token/PID/`ps` process-start identity를 exact marker로 확인해 active owner wait, stale/PID reuse takeover, unknown identity fail-closed, exact release, successor ABA 보호와 same-output 직렬화를 유지한다. production `scripts/esp32-h2-build.sh`는 Bluetooth SIG 자사 Company ID와 signed manufacturing approval이 없는 현재 `unprovisioned` policy에서 의도적으로 fail-closed한다. 이는 HIL 실패나 HIL 완료 증거가 아니다.
 
 ## 관련 파일
+
+- `apps/mobile/src/ios-focus-visibility.ts`, `apps/mobile/src/ios-focus-visibility.test.ts`, `apps/mobile/src/WebShell.tsx`, `apps/mobile/src/WebShell.ios-focus.test.tsx`, `apps/mobile/README.md`: 공통 iOS 입력 가시성 보정과 회귀·실행 안내.
 
 - 모바일 제어 복구: `apps/web/src/features/control/active-command-store.ts`, `active-command-store.test.ts`, `ControlView.tsx`, `ControlView.test.tsx`, `apps/web/src/api/commands.ts`, `commands.test.ts`, `apps/web/src/AppRoot.tsx`(기존 정리 경로), `App.recovery.test.tsx`, `App.test.tsx`, `apps/web/e2e/control-map-target-selection.spec.ts`, `calm-operations-manual-control.spec.ts`.
 

@@ -1,5 +1,5 @@
 import { forwardRef, lazy, Suspense, useEffect, useMemo, useRef, useState, type RefObject } from "react";
-import { Activity, BarChart3, CircleAlert, LoaderCircle, SlidersHorizontal } from "lucide-react";
+import { Activity, Bell, BarChart3, CircleAlert, LoaderCircle, SlidersHorizontal } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { matchPath, Navigate, NavLink, Route, Routes, useLocation } from "react-router-dom";
 import { logout, type AuthUser } from "../../api/auth";
@@ -17,6 +17,7 @@ import {
   Text,
   ToastRegion,
   useSessionStatus,
+  type SessionStatusCenterHandle,
   type SessionStatusContextItem,
   type SessionStatusItem
 } from "../../components/ui";
@@ -97,6 +98,7 @@ export function CustomerShell({ user }: { user: AuthUser }) {
   const [logoutError, setLogoutError] = useState("");
   const logoutButtonRef = useRef<RefObject<HTMLButtonElement | null>>({ current: null });
   const logoutInFlightRef = useRef(false);
+  const statusCenterRef = useRef<SessionStatusCenterHandle>(null);
   const siteSwitcherRef = useRef<HTMLButtonElement>(null);
   const restoreLogoutFocusAfterFailureRef = useRef(false);
   const siteId = new URLSearchParams(location.search).get("siteId") ?? undefined;
@@ -278,7 +280,7 @@ export function CustomerShell({ user }: { user: AuthUser }) {
   return (
     <CustomerAccountContext.Provider value={{ user, isLoggingOut, logoutError: logoutError || null, requestLogout: handleLogout }}>
     <WorkspaceFocusProvider scope={JSON.stringify([principalKey(user), selectedSiteId, location.pathname])}>{focus =>
-    <SessionStatusProvider>
+    <SessionStatusProvider scope={JSON.stringify([principalKey(user), authorizedSelectedSiteId])}>
       <ShellStatusRegistration items={shellStatusItems} />
       <div className={`bg-surface-canvas ${isMonitoringRoute ? "flex h-dvh min-h-0" : focus.active ? "flex h-dvh min-h-0 overflow-hidden" : isEditorRoute ? "flex min-h-dvh" : "min-h-screen"} ${isCompactNavigation && !focus.active && !isMonitoringRoute ? "pb-shell-navigation-safe" : "flex"}`} data-app-shell data-workspace-full-view={focus.active}>
       {capabilities && !gate ? isCompactNavigation ? (
@@ -295,10 +297,10 @@ export function CustomerShell({ user }: { user: AuthUser }) {
       ) : null}
       <main className={`flex min-w-0 flex-1 flex-col ${isMonitoringRoute ? "min-h-0" : focus.active ? "min-h-0 overflow-hidden" : isEditorRoute ? "min-h-min" : ""}`}>
         <header hidden={focus.active} className={focus.active ? "hidden" : "sticky top-0 z-10 grid min-h-16 min-w-0 shrink-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-2 gap-y-2 border-b border-border-default bg-surface-panel px-3.5 py-2 compact:grid-cols-[minmax(0,1fr)_minmax(0,auto)_auto] compact:gap-x-4 compact:px-7"} data-shell-topbar>
-          <div className="col-start-1 row-start-1 min-w-0">
+          <div className="sr-only compact:not-sr-only compact:col-start-1 compact:row-start-1 compact:min-w-0">
             <Heading as="h1" variant="page-title" className="truncate" data-testid="shell-current-menu">{titleForPath(location.pathname)}</Heading>
           </div>
-          <div className="col-span-2 row-start-2 flex min-w-0 items-center gap-2 compact:col-span-1 compact:col-start-2 compact:row-start-1" aria-label="현장 정보" data-shell-context>
+          <div className="col-start-1 row-start-1 flex min-w-0 items-center gap-2 compact:col-span-1 compact:col-start-2 compact:row-start-1" aria-label="현장 정보" data-shell-context>
             <SiteContextControl
               ref={siteSwitcherRef}
               sites={sitesQuery.data}
@@ -311,6 +313,8 @@ export function CustomerShell({ user }: { user: AuthUser }) {
           </div>
           <div className="col-start-2 row-start-1 flex min-w-0 items-center justify-end gap-2 compact:col-start-3" data-shell-actions>
             <SessionStatusCenter
+              ref={statusCenterRef}
+              compact={isCompactNavigation}
               key={JSON.stringify([user.id, authorizedSelectedSiteId])}
               userId={user.id}
               siteId={authorizedSelectedSiteId}
@@ -318,9 +322,10 @@ export function CustomerShell({ user }: { user: AuthUser }) {
               contextItems={gatewayContextItems}
             />
           </div>
-          {summaryScope ? <CustomerHeaderSummarySlot currentScope={summaryScope} value={summaryValue} className="col-span-full" /> : null}
+          {summaryScope ? <CustomerHeaderSummarySlot currentScope={summaryScope} value={summaryValue} compact={isCompactNavigation} className="col-span-full" /> : null}
         </header>
-        <ToastRegion placement="flow" />
+        {focus.active ? <div className="shrink-0 self-start px-2 pt-2"><Button type="button" variant="secondary" onClick={event => statusCenterRef.current?.open(event.currentTarget)}><Bell size={18} aria-hidden="true" />알람센터</Button></div> : null}
+        <ToastRegion placement="flow" suppressVisual={isCompactNavigation} />
         {/* Monitoring needs a finite flex height to grow its map into available
             space. Its overflow stays visible so short screens can scroll the
             page rather than clip the minimum-height map or small log ticker.
