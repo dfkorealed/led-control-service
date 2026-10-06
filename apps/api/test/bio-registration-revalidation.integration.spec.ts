@@ -6,6 +6,14 @@ import { CommandDbClockHealth } from "../src/mqtt/command-db-clock-health.servic
 import type { AuthenticatedUser } from "../src/auth/auth.types";
 import { bioRegistrationRevalidationCanonicalJson } from "@led-control/shared";
 import { canonicalPayloadHash } from "../src/automation/automation-payload-hash";
+import { mkdtemp, realpath, rm } from "node:fs/promises";
+import { join } from "node:path";
+
+// Runtime-only Gateway imports preserve the API emit root, as in the existing
+// sensor-mode integration test. USB/MQTT transport alone is replaced below.
+const { CommandJournal } = require("../../gateway/src/commands/command-journal");
+const { StateEventOutbox, StateEventOutboxPublisher } = require("../../gateway/src/state/state-event-outbox");
+const { handleBioRegistrationRevalidation } = require("../../gateway/src/commands/bio-registration-revalidation-handler");
 
 const enabled = process.env.BIO_REGISTRATION_REVALIDATION_DISPOSABLE_POSTGRES === "1";
 (enabled ? describe : describe.skip)("BIO registration revalidation schema/create/get", () => {
@@ -552,6 +560,157 @@ const enabled = process.env.BIO_REGISTRATION_REVALIDATION_DISPOSABLE_POSTGRES ==
     const { BioRegistrationRevalidationPublisherService } = require("../src/mqtt/bio-registration-revalidation-publisher.service");
     return new BioRegistrationRevalidationPublisherService(db, { publishTopic }, service, selectedClock);
   }
+  async function fakeGateway(command: any) {
+    const directory = await mkdtemp(join(await realpath("/tmp"), "bio-revalidation-integration-"));
+    const journalPath = join(directory, "journal.json"), outboxPath = join(directory, "outbox.json");
+    const journal = new CommandJournal(journalPath), outbox = new StateEventOutbox(outboxPath, command);
+    await outbox.initialize();
+    const queries: any[] = [], writes: any[] = []; let sequences = 0;
+    const adapter = { sensorModeOperation: async (query: any, control: any) => {
+      queries.push({ query, deadlineAt: control.deadlineAt, enteredAt: Date.now(), observer: control.onIdentityProof });
+      if (query.operation !== "query") { writes.push(query); throw new Error("unexpected mode SET"); }
+      return "force-off";
+    } };
+    const options = { journal, outbox, scope: command, clockTrusted: async () => true,
+      nextSequence: async () => ++sequences };
+    return { journalPath, outboxPath, journal, outbox, adapter, options, queries, writes,
+      sequenceCount: () => sequences, close: () => rm(directory, { recursive: true, force: true }) };
+  }
+  it("end-to-end force-off query repairs B only on apply, then classifies A/B with sensor support OFF", async () => {
+    const a = await additionalHistoricalFixture(); const input = request();
+    const before = await readProtectedFixtureState();
+    const beforeFixtures = await db.fixture.findMany({ orderBy: { id: "asc" } });
+    const beforeNodes = await db.meshNode.findMany({ orderBy: { id: "asc" } });
+    const created = await service.create(user, input);
+    const row = await operations().findUniqueOrThrow({ where: { commandId: created.commandId } });
+    const gateway = await fakeGateway(row.payload); const commands: any[] = [];
+    const worker = publisher(async (topic, command) => {
+      commands.push({ topic, command });
+      await handleBioRegistrationRevalidation(gateway.adapter, command, gateway.options);
+    });
+    const delivery = new StateEventOutboxPublisher(gateway.outbox);
+    try {
+      await worker.processBatch();
+      expect(commands).toEqual([{ topic: `sites/${ids.site}/gateways/${ids.gateway}/commands/bio-registration-revalidation`, command: row.payload }]);
+      expect(gateway.queries).toHaveLength(1); expect(gateway.writes).toEqual([]);
+      const { purpose: _purpose, ...query } = row.payload;
+      expect(gateway.queries[0].query).toEqual(query);
+      expect(ids.fixture).not.toBe(ids.node);
+      expect(gateway.queries[0].deadlineAt).toBeLessThanOrEqual(Date.parse(row.payload.expiresAt));
+      expect(gateway.queries[0].deadlineAt).toBeLessThanOrEqual(gateway.queries[0].enteredAt + 8_000);
+      expect(gateway.queries[0].observer).toBeUndefined();
+      const [event] = await gateway.outbox.pending();
+      expect(event.payload).toMatchObject({ status: "observed", observedMode: "force-off", evidence: "mode_get", fixtureId: ids.fixture, nodeId: ids.node });
+      expect(await service.get(user, row.commandId)).toMatchObject({ status: "pending", observedMode: null, appliedAt: null });
+      let ack: any;
+      await delivery.connect(async (topic: string, result: any) => { ack = await service.ingest(topic, result, new Date()); });
+      delivery.disconnect();
+      expect(ack).toMatchObject({ purpose: "bio_registration_revalidation", status: "ingested", payloadHash: hash(event.payload),
+        commandId: row.commandId, eventId: event.payload.eventId, sequence: event.payload.sequence, fixtureId: ids.fixture, nodeId: ids.node });
+      const receipt = await db.mqttOutbox.findUniqueOrThrow({ where: { applicationAckKey: `bio-registration-revalidation:${ids.gateway}:${row.commandId}:${event.payload.eventId}` } });
+      expect(receipt.topic).toBe(`sites/${ids.site}/gateways/${ids.gateway}/acks/bio-registration-revalidation-result`);
+      expect(receipt.payload).toEqual(ack); expect(receipt.payloadHash).toBe(hash(ack));
+      expect(await delivery.acknowledge(receipt.payload)).toBe(true);
+      expect(await gateway.outbox.pending()).toEqual([]);
+      expect(await service.get(user, row.commandId)).toMatchObject({ status: "observed", observedMode: "force-off", appliedAt: null });
+      expect(await readProtectedFixtureState()).toEqual(before);
+      expect(await db.fixture.findMany({ orderBy: { id: "asc" } })).toEqual(beforeFixtures);
+      expect(await db.meshNode.findMany({ orderBy: { id: "asc" } })).toEqual(beforeNodes);
+      await expect(classification().reconcile(user, classificationRequest([a.fixtureId, ids.fixture]))).rejects.toThrow();
+      expect(await db.meshNode.findMany({ orderBy: { id: "asc" } })).toEqual(beforeNodes);
+      expect(await db.auditLog.count()).toBe(0);
+
+      await service.apply(user, row.commandId);
+      const repaired = await readProtectedFixtureState();
+      expect(repaired.candidate).toEqual({ ...before.candidate, status: "provisioned", updatedAt: repaired.candidate!.updatedAt });
+      expect({ ...repaired, candidate: before.candidate, audits: before.audits }).toEqual(before);
+      expect(repaired.audits).toHaveLength(1);
+      const applied = await operations().findUniqueOrThrow({ where: { commandId: row.commandId } });
+      expect(applied.result).toEqual(event.payload); expect(applied.resultHash).toBe(hash(event.payload));
+      expect(applied.requestedAt).toEqual(row.requestedAt); expect(applied.expiresAt).toEqual(row.expiresAt);
+      expect(applied.applyDeadlineAt).toEqual(row.applyDeadlineAt);
+      expect(repaired.audits[0]).toMatchObject({ action: "bio_registration_current_revalidated", metadata: {
+        evidenceKind: "current_device_revalidation", originalProvisionCommandId: ids.command, revalidationResultHash: hash(event.payload) } });
+
+      const classificationInput = classificationRequest([a.fixtureId, ids.fixture]);
+      expect(await classification().reconcile(user, classificationInput)).toEqual({ changedFixtureIds: classificationInput.fixtureIds, unchangedFixtureIds: [] });
+      const classified = await readProtectedFixtureState();
+      expect({ ...classified, node: repaired.node, audits: repaired.audits }).toEqual(repaired);
+      expect(await db.fixture.findMany({ orderBy: { id: "asc" } })).toEqual(beforeFixtures);
+      const nodes = await db.meshNode.findMany({ orderBy: { id: "asc" } });
+      expect(nodes).toEqual(beforeNodes.map(node => ({ ...node, vehicleSensorProtocol: "bio_usb_pulse", updatedAt: expect.any(Date) })));
+      for (const node of nodes) expect(node).toMatchObject({ bioPulseReadiness: "off", bioPulseProfileId: null, bioPulseVerifiedAt: null,
+        vehicleSensorCapabilityStatus: "unknown", vehicleSensorCapabilityVerifiedAt: null, vehicleSensorServerBound: false, vehicleVendorEventModelBound: false });
+      expect(classified.audits).toHaveLength(3);
+      expect(classified.audits.find(audit => audit.targetId === a.nodeId)?.metadata).toMatchObject({ evidenceKind: "legacy_completed_graph_command" });
+      expect(classified.audits.find(audit => audit.targetId === ids.node)?.metadata).toMatchObject({ evidenceKind: "current_device_revalidation",
+        revalidationCommandId: row.commandId, repairAuditId: applied.auditId });
+      expect(gateway.queries).toHaveLength(1); expect(gateway.sequenceCount()).toBe(1); expect(gateway.writes).toEqual([]);
+      expect(await gateway.journal.latestFixtureSnapshots()).toEqual([]);
+    } finally { delivery.disconnect(); await worker.stopAndDrain(); await gateway.close(); }
+  });
+  it("restart delivery retains the same event and deadlines after interrupted ACK and duplicate command", async () => {
+    const input = request(); const created = await service.create(user, input);
+    const row = await operations().findUniqueOrThrow({ where: { commandId: created.commandId } });
+    const before = await readProtectedFixtureState(); const gateway = await fakeGateway(row.payload);
+    const worker = publisher(async (_topic, command) => handleBioRegistrationRevalidation(gateway.adapter, command, gateway.options));
+    const firstDelivery = new StateEventOutboxPublisher(gateway.outbox); let resumedDelivery: any;
+    try {
+      await worker.processBatch(); const [original] = await gateway.outbox.pending();
+      await firstDelivery.connect(async (topic: string, result: any) => { await service.ingest(topic, result, new Date()); });
+      firstDelivery.disconnect(); // API committed, but application ACK never reaches Gateway.
+      const accepted = await operations().findUniqueOrThrow({ where: { commandId: row.commandId } });
+      const key = `bio-registration-revalidation:${ids.gateway}:${row.commandId}:${original.payload.eventId}`;
+      const receipt = await db.mqttOutbox.findUniqueOrThrow({ where: { applicationAckKey: key } });
+      await db.mqttOutbox.update({ where: { applicationAckKey: key }, data: { publishedAt: new Date() } });
+      const restartedOutbox = new StateEventOutbox(gateway.outboxPath, row.payload);
+      const restartedJournal = new CommandJournal(gateway.journalPath);
+      await handleBioRegistrationRevalidation(gateway.adapter, row.payload, { ...gateway.options, journal: restartedJournal, outbox: restartedOutbox });
+      expect(await restartedOutbox.pending()).toEqual([original]);
+      expect((await restartedJournal.get(row.commandId)).result).toEqual(original.payload);
+      expect(gateway.queries).toHaveLength(1); expect(gateway.sequenceCount()).toBe(1); expect(gateway.writes).toEqual([]);
+      resumedDelivery = new StateEventOutboxPublisher(restartedOutbox); let duplicate: any;
+      await resumedDelivery.connect(async (topic: string, result: any) => {
+        expect(result).toEqual(original.payload); duplicate = await service.ingest(topic, result, new Date());
+      });
+      resumedDelivery.disconnect();
+      expect(duplicate).toMatchObject({ status: "duplicate", eventId: original.payload.eventId, payloadHash: hash(original.payload) });
+      const revived = await db.mqttOutbox.findUniqueOrThrow({ where: { applicationAckKey: key } });
+      expect(revived).toMatchObject({ payload: receipt.payload, payloadHash: receipt.payloadHash, publishedAt: null, attempts: 0 });
+      expect(await resumedDelivery.acknowledge({ eventId: original.payload.eventId, sequence: original.payload.sequence,
+        fixtureId: ids.fixture, status: "ingested", ingestedAt: new Date().toISOString() })).toBe(false);
+      expect(await resumedDelivery.acknowledge({ ...duplicate, payloadHash: hash({ ...original.payload, observedMode: "sensor" }) })).toBe(false);
+      expect(await restartedOutbox.pending()).toEqual([original]);
+      expect(await resumedDelivery.acknowledge(revived.payload)).toBe(true);
+      expect(await new StateEventOutbox(gateway.outboxPath, row.payload).pending()).toEqual([]);
+      await service.create(user, input);
+      expect(await operations().findUniqueOrThrow({ where: { commandId: row.commandId } })).toEqual(accepted);
+      expect(await db.mqttOutbox.count({ where: { gatewayId: ids.gateway } })).toBe(1);
+      expect(await readProtectedFixtureState()).toEqual(before);
+    } finally { firstDelivery.disconnect(); resumedDelivery?.disconnect(); await worker.stopAndDrain(); await gateway.close(); }
+  });
+  it("legacy gateway silence expires without proof and old ACK cannot create registration success", async () => {
+    const created = await service.create(user, request());
+    const row = await operations().findUniqueOrThrow({ where: { commandId: created.commandId } });
+    const before = await readProtectedFixtureState(); const deliveries: any[] = [];
+    // An old Gateway does not subscribe to/handle the new purpose; broker
+    // acceptance alone leaves the durable operation without any device result.
+    const worker = publisher(async (topic, command) => { deliveries.push({ topic, command }); });
+    try {
+      await worker.processBatch(); expect(deliveries).toHaveLength(1);
+      expect(await service.get(user, row.commandId)).toMatchObject({ status: "pending", observedMode: null, appliedAt: null });
+      const oldAck = { fixtureId: ids.fixture, eventId: randomUUID(), sequence: 1, status: "ingested", ingestedAt: new Date().toISOString() };
+      await expect(service.ingest(`sites/${ids.site}/gateways/${ids.gateway}/events/bio-registration-revalidation-result`, oldAck, new Date())).rejects.toThrow();
+      await service.expire(row.expiresAt); await worker.processBatch();
+      expect(deliveries).toHaveLength(1);
+      expect(await service.get(user, row.commandId)).toMatchObject({ status: "timed_out", observedMode: null, appliedAt: null });
+      await expect(service.apply(user, row.commandId)).rejects.toThrow();
+      expect(await operations().findUniqueOrThrow({ where: { commandId: row.commandId } })).toMatchObject({ result: null,
+        resultHash: null, resultEventId: null, proofAcceptedAt: null, auditId: null, expiresAt: row.expiresAt, applyDeadlineAt: row.applyDeadlineAt });
+      expect(await db.mqttOutbox.count({ where: { gatewayId: ids.gateway } })).toBe(0);
+      expect(await readProtectedFixtureState()).toEqual(before);
+    } finally { await worker.stopAndDrain(); }
+  });
   it("publish commits canonical validation before network, retries identical payload, and PUBACK never observes", async () => {
     const { row } = await pendingResult(); const before = await readProtectedFixtureState(); const sent: any[] = [];
     const worker = publisher(async (topic, payload, options) => {
