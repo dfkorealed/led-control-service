@@ -1,5 +1,29 @@
 # 모니터링 메뉴 기능 현황
 
+## 2026-10-06 모바일 도면 우선 배치 (Task 2)
+
+### 구현 완료
+
+- 760px 미만에서 맵 선택 → 선택 맵 이름·핵심 상태 → 실제 도면을 우선한다. 선택 맵 수치(기존 card-title 20px), 상태 이름과 집계 준비 중/null 의미를 유지한다. 검색·상세 및 수동 새로고침은 도면 뒤 도구로 접근하며 desktop 도구/카메라/전체보기·상세 drawer는 유지한다.
+
+### 미구현
+
+- 실제 native WebView·장비/HIL의 첫 도면 가시성 보장은 별도 검증이다.
+
+### 부족하거나 개선이 필요한 기능
+
+- 320×568/390×844/430×932 정상 100% 첫 진입 기준은 실제 도면을 렌더하는 interactive viewport의 헤더·clip·하단 메뉴 제외 가시 높이 120/240/240px이다. CAD 원본 비율과 camera fit 때문에 도면 이미지 자체가 이 높이를 채우거나 현장 전체를 항상 표시한다는 의미는 아니다. 긴 이름·오류·큰 글자는 자연 스크롤로 확인한다.
+
+### 관련 파일
+
+- `apps/web/src/features/monitoring/MonitoringView.tsx`, `MonitoringSummary.tsx`
+- `apps/web/e2e/mobile-first-screen.spec.ts`, `monitoring-navigation-confidence.spec.ts`
+
+### 갱신 규칙
+
+- 첫 도면 배치·접힘·선택/카메라·복구 수명을 변경하면 해당 동작과 한계를 같은 작업에서 갱신한다.
+
+
 
 ## 2026-10-06 공통 모바일 헤더·최근 알림 (Task 1)
 

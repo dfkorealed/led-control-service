@@ -1,5 +1,30 @@
 # 제어 메뉴 기능 현황
 
+## 2026-10-06 모바일 도면 우선 배치 (Task 2)
+
+### 구현 완료
+
+- 760px 미만 수동 제어는 기존 방식 탭 → 표시 층·현재 선택 방식/선택 수 → 도면 순서를 우선한다. 대상 선택 방식·목록·구역 관리는 `선택 도구 열기`, 밝기 입력/적용은 `밝기 실행 설정 열기`로 확인한다. desktop은 기존 도구와 실행 설정을 펼쳐 표시한다.
+- 접힘은 표시만 바꾸고 명령 owner와 frozen request/원본 UUID를 유지한다. 진행·불확정·실패 복구는 접힘 밖에 남는다. 현장 A→B→A의 provider remount도 기존 복구 저장을 이용하며 닫기·resize·현장 복귀는 자동 제어 POST를 만들지 않는다. 적용 버튼 스크롤 여백은 기존 68px + safe-area 계산을 재사용한다.
+
+### 미구현
+
+- 실제 native WebView·장비/HIL의 첫 도면 가시성 보장은 별도 검증이다.
+
+### 부족하거나 개선이 필요한 기능
+
+- 320×568/390×844/430×932 정상 100% 첫 진입 기준은 실제 도면을 렌더하는 interactive viewport의 헤더·clip·하단 메뉴 제외 가시 높이 120/240/240px이다. CAD 원본 비율과 camera fit 때문에 도면 이미지 자체가 이 높이를 채우거나 현장 전체를 항상 표시한다는 의미는 아니다. 긴 이름·오류·큰 글자는 자연 스크롤로 확인한다.
+
+### 관련 파일
+
+- `apps/web/src/features/control/ControlView.tsx`, `target-selection/{SpatialTargetSelector,TargetSelectionToolbar}.tsx`
+- `apps/web/e2e/mobile-first-screen.spec.ts`, `control-map-target-selection.spec.ts`
+
+### 갱신 규칙
+
+- 첫 도면 배치·접힘·선택/카메라·복구 수명을 변경하면 해당 동작과 한계를 같은 작업에서 갱신한다.
+
+
 
 ## 2026-10-06 공통 모바일 헤더·최근 알림 (Task 1)
 

@@ -1588,6 +1588,40 @@ describe("ControlView 대상 선택", () => {
     expect(mocks.apiPost).not.toHaveBeenCalled();
   });
 
+  it.each(["pending", "uncertain"])("retains original UUID through keyed site A→B→A remount for %s request", async (state) => {
+    let finish: (value: unknown) => void = () => undefined;
+    let fail: (error: unknown) => void = () => undefined;
+    mocks.apiPost.mockImplementationOnce(() => new Promise((resolve, reject) => { finish = resolve; fail = reject; }));
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const tree = (siteId: string) => <QueryClientProvider client={client}>
+      <SessionStatusProvider key={`${USER_A}:${siteId}`}>
+        <MemoryRouter initialEntries={[`/control?siteId=${siteId}`]}>
+          <ControlView siteId={siteId} userId={USER_A} userRole="admin" />
+        </MemoryRouter>
+      </SessionStatusProvider>
+    </QueryClientProvider>;
+    const mounted = render(tree(dashboard.site.id));
+    selectFixture("B2-L001"); fireEvent.click(applyButton());
+    const original = mocks.apiPost.mock.calls[0][1];
+    const signal = mocks.apiPost.mock.calls[0][2].signal as AbortSignal;
+    if (state === "uncertain") {
+      await act(async () => fail(new Error("response lost")));
+      expect(await screen.findByRole("button", { name: "동일 요청 확인(새 제어 아님)" })).toBeVisible();
+    }
+    const siteB = "00000000-0000-4000-8000-000000000099";
+    mocks.useControlDashboard.mockReturnValue({ data: { ...dashboard, site: { ...dashboard.site, id: siteB } }, isLoading: false });
+    mounted.rerender(tree(siteB));
+    if (state === "pending") expect(signal.aborted).toBe(true);
+    if (state === "pending") await act(async () => finish({ id: commandIds.siteA }));
+    expect(screen.queryByRole("button", { name: "동일 요청 확인(새 제어 아님)" })).not.toBeInTheDocument();
+    expect(sessionStorage.getItem(activeCommandStorageKey(USER_A, siteB))).toBeNull();
+    mocks.useControlDashboard.mockReturnValue({ data: dashboard, isLoading: false });
+    mounted.rerender(tree(dashboard.site.id));
+    expect(await screen.findByRole("button", { name: "동일 요청 확인(새 제어 아님)" })).toBeVisible();
+    expect(JSON.parse(sessionStorage.getItem(activeCommandStorageKey(USER_A, dashboard.site.id))!).request.clientRequestId).toBe(original.clientRequestId);
+    expect(mocks.apiPost).toHaveBeenCalledTimes(1);
+  });
+
   it("does not restore another user's pending request for the same site", async () => {
     sessionStorage.setItem(activeCommandStorageKey(USER_A, dashboard.site.id), JSON.stringify({
       request: {
@@ -1871,7 +1905,7 @@ describe("ControlView 대상 선택", () => {
     fireEvent.click(screen.getByRole("tab", { name: "스케줄 제어" }));
     fireEvent.click(screen.getByRole("button", { name: "알람센터, 현장 미선택" }));
     const center = screen.getByRole("dialog", { name: "알람센터" });
-    expect(within(center).getByText(title)).toBeInTheDocument();
+    expect(within(within(center).getByRole("region", { name: "현재 화면 상태" })).getByText(title)).toBeInTheDocument();
     expect(within(center).getByText("확인 필요")).toBeInTheDocument();
     fireEvent.click(within(center).getByRole("button", { name: "수동 제어로 이동" }));
 

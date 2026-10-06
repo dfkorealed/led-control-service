@@ -28,7 +28,7 @@ export function MonitoringSummary({ scope, mapName, total, online, fault, offlin
   ];
 
   return <section
-    className="grid min-w-0 gap-2"
+    className="grid min-w-0 gap-2 max-compact:order-2"
     role="region"
     aria-label={site ? "현장 전체 조명 현황" : "선택 층 조명 현황"}
     data-monitoring-summary={site ? undefined : ""}
@@ -47,7 +47,10 @@ export function MonitoringSummary({ scope, mapName, total, online, fault, offlin
         </div>
       </FilterPanel>
     </div> : !site && mapName ? <Heading as="h2" variant="label" className="break-words">{mapName} · 조명 현황</Heading> : null}
-    <div className="grid grid-cols-2 gap-0.5 overflow-hidden rounded-panel border border-border-default bg-border-default phone-wide:grid-cols-4">
+    {!site ? <div className="flex min-w-0 flex-wrap gap-x-3 gap-y-1 compact:hidden" aria-label="선택 맵 핵심 상태">
+      {metrics.map(metric => <Text key={metric.id} variant="label" className="inline-flex items-baseline gap-1">{metric.label} · <strong className="text-card-title">{display(metric.value)}</strong></Text>)}
+    </div> : null}
+    <div className={`grid grid-cols-2 gap-0.5 overflow-hidden rounded-panel border border-border-default bg-border-default phone-wide:grid-cols-4 ${!site ? "max-compact:hidden" : ""}`}>
     {metrics.map(metric => {
       const props = { className: CARD_CLASS_NAME, label: metric.label, value: display(metric.value), tone: metric.tone };
       return <MetricCard key={metric.id} {...props} />;

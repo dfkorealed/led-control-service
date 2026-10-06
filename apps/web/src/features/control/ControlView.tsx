@@ -100,6 +100,7 @@ export function ControlView({
   const storageError = useSyncExternalStore(subscribeActiveCommandStorage, getActiveCommandStorageError, () => null);
   const [selection, setSelection] = useState<ControlSelection>(emptySelection);
   const [brightness, setBrightness] = useState(70);
+  const [executionOpen, setExecutionOpen] = useState(false);
   const [message, setMessage] = useState("");
   const [verificationError, setVerificationError] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -649,9 +650,15 @@ export function ControlView({
             <Text as="strong" variant="label" aria-live="polite" aria-atomic="true">{selectedFixtures.length}개 선택</Text>
             <ManualControlBadge readOnly={readOnly} canSubmit={canSubmit} blocked={Boolean(blockMessage)} />
           </div>
-          <DimmingExecutionControls brightness={brightness} controlsLocked={controlsLocked} canSubmit={canSubmit}
-            applyLabel={storageError ? "복구 정보 확인 필요" : manualApplyLabel(commandSessionBlocked, controlsLocked, readOnly, selectedFixtures.length)}
-            onBrightnessChange={setBrightness} onSubmit={submitCommand} />
+          {/* Collapse presentation only: the command owner, frozen request and recovery actions stay mounted outside this region. */}
+          <div className="min-h-0 flex-none" data-control-execution-disclosure="">
+            <Button type="button" variant="secondary" className="compact:hidden" aria-controls="manual-execution-settings" aria-expanded={executionOpen} onClick={() => setExecutionOpen(!executionOpen)}>밝기 실행 설정 {executionOpen ? "접기" : "열기"}</Button>
+            <div id="manual-execution-settings" className={executionOpen ? "mt-3 compact:mt-0" : "max-compact:hidden"}>
+              <DimmingExecutionControls brightness={brightness} controlsLocked={controlsLocked} canSubmit={canSubmit}
+                applyLabel={storageError ? "복구 정보 확인 필요" : manualApplyLabel(commandSessionBlocked, controlsLocked, readOnly, selectedFixtures.length)}
+                onBrightnessChange={setBrightness} onSubmit={submitCommand} />
+            </div>
+          </div>
           {/* Selection warnings belong below the fixed execution controls so
               late health/capability text cannot move the dial or Apply action. */}
           {blockMessage ? <Text tone="danger" role="alert">{blockMessage}</Text> : null}
@@ -771,7 +778,7 @@ function DimmingExecutionControls({ compact = false, brightness, controlsLocked,
         rawValid.current = true; setInvalidDraft(false); setRestored(""); setInputRevision(revision => revision + 1); onBrightnessChange(value);
       }} />
     </div>
-    {!compact ? <Button ref={applyRef} variant="primary" type="button" onClick={() => {
+    {!compact ? <Button ref={applyRef} variant="primary" type="button" className="max-compact:scroll-mb-shell-navigation-safe" onClick={() => {
       if (invalidApplyAttempt.current) { invalidApplyAttempt.current = false; return; }
       if (!rawValid.current || restoring.current || !canSubmit) return;
       onSubmit();

@@ -116,10 +116,11 @@ export function SpatialTargetSelector({
 
   return <section className={`flex ${hideEmbeddedSummary ? "min-h-min" : "min-h-0"} min-w-0 flex-1 flex-col gap-3 overflow-hidden ${hideEmbeddedSummary ? "max-compact:flex-none max-compact:overflow-visible" : ""}`} aria-label="공간 대상 선택" data-spatial-target-selector="">
     <TargetSelectionToolbar allowedModes={allowedModes} selection={selection} activeFloorId={activeFloor?.id ?? ""} floors={dashboard.floors} modeLabels={modeLabels}
-      modeSelectionSemantics={modeSelectionSemantics}
+      compactDisclosure={hideEmbeddedSummary} modeSelectionSemantics={modeSelectionSemantics}
       disabled={disabled} onModeChange={requestModeChange} onFloorChange={setActiveFloorId}
       onOpenList={() => setListOpen(true)} listOpenerRef={listOpenerRef} managementAction={managementAction}
       onClear={selection.mode === "fixtures" && selection.fixtureIds.length > 0 ? () => onChange({ mode: "fixtures", fixtureIds: [] }) : undefined} />
+    {hideEmbeddedSummary ? <Text className="compact:hidden" variant="caption">{resolved.fixtureIds.length}개 선택 · {selection.mode === "fixtures" ? "개별 조명" : selection.mode === "floor" ? "층 전체" : "저장된 구역"}</Text> : null}
     <div className={`grid ${hideEmbeddedSummary ? "min-h-min" : "min-h-0"} min-w-0 flex-1 gap-3 overflow-y-auto overscroll-contain ${hideEmbeddedSummary ? "max-compact:flex-none max-compact:overflow-visible" : ""} ${hideEmbeddedSummary && selection.mode === "fixtures" ? "tablet:overflow-hidden" : "tablet:grid-cols-[minmax(0,1fr)_16rem] tablet:overflow-hidden"}`} data-target-selection-content="">
       {/* The transparent coarse hit box stays rectangular; the shared inner
           20px marker dot retains its circular appearance. Rounded hit boxes

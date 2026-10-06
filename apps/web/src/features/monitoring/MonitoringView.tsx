@@ -356,21 +356,22 @@ function MonitoringDashboard({ data, userRole, siteId, refreshDashboard }: Monit
         onRefresh={() => void handleRefresh()}
         onMapRetry={() => void handleMapRetry()}
       />
-      <div className="flex items-center justify-between gap-4 max-compact:flex-col max-compact:items-stretch" role="group" aria-label="모니터링 도구">
-        {/* Compact layouts reserve the full row for the map value; the search
-            action must not squeeze the value or chevron when text is enlarged. */}
-        <div className="flex min-w-0 items-center gap-2 max-compact:w-full max-compact:flex-col max-compact:items-stretch">
+      <div className="flex items-center justify-between gap-4 max-compact:contents" role="group" aria-label="모니터링 도구">
+        {/* Compact contents retain the desktop tool row while allowing only the
+            map selector above the map; search and refresh follow it in natural
+            page flow. Controls keep their existing size when text is enlarged. */}
+        <div className="flex min-w-0 items-center gap-2 max-compact:w-full max-compact:contents">
           <SelectBox
             label="맵 선택"
             items={data.floors.map((item) => ({ id: item.id, label: item.name }))}
             selectedKey={floor?.id ?? null}
             isDisabled={data.floors.length === 0}
             onSelectionChange={(floorId) => floorId !== null && handleSelectFloor(floorId)}
-            className="grid min-w-0 flex-1 grid-cols-[auto_minmax(0,1fr)] items-center gap-2 max-compact:max-w-none max-compact:flex-none"
+            className="grid min-w-0 flex-1 grid-cols-[auto_minmax(0,1fr)] items-center gap-2 max-compact:max-w-none max-compact:flex-none max-compact:order-1"
           />
-          <Button ref={inspectorTriggerRef} variant="secondary" className="shrink-0 max-compact:self-end" onClick={() => { setFinderDefaultOpen(false); setIsInspectorOpen(true); }}>조명 검색·상세</Button>
+          <Button ref={inspectorTriggerRef} variant="secondary" className="shrink-0 max-compact:self-end max-compact:order-4" onClick={() => { setFinderDefaultOpen(false); setIsInspectorOpen(true); }}>조명 검색·상세</Button>
         </div>
-        <div className="ml-auto flex flex-wrap items-center justify-end gap-2 text-content-secondary max-compact:ml-0 max-compact:w-full">
+        <div className="ml-auto flex flex-wrap items-center justify-end gap-2 text-content-secondary max-compact:ml-0 max-compact:w-full max-compact:order-4">
           <Text as="small" variant="caption" tone="secondary" className="min-w-0 max-w-full break-words text-right">
             {formatSnapshotUpdatedAt(snapshotFreshness, data.site.timeZone ?? "Asia/Seoul")}
           </Text>
@@ -409,7 +410,7 @@ function MonitoringDashboard({ data, userRole, siteId, refreshDashboard }: Monit
 
       {/* Keep the desktop detail's reading region as tall as the map's natural
           minimum; short screens scroll the page instead of shrinking the row. */}
-      <div className={cn("grid min-h-0 min-w-0 flex-1 gap-4 tablet:min-h-min", isDesktop && isDetailOpen && selectedFixtureId && "tablet:grid-cols-[minmax(0,1fr)_minmax(0,22rem)]")} data-monitoring-layout="">
+      <div className={cn("grid min-h-0 min-w-0 flex-1 gap-4 tablet:min-h-min max-compact:order-3", isDesktop && isDetailOpen && selectedFixtureId && "tablet:grid-cols-[minmax(0,1fr)_minmax(0,22rem)]")} data-monitoring-layout="">
         <div className={cn("flex h-full min-h-min min-w-0 flex-col gap-5", !workspaceFocus.active && "max-compact:pb-shell-navigation-safe")} data-monitoring-map-panel="">
           <div className="min-h-min min-w-0 flex-1">
           {data.summary.totalFixtures === 0 ? (
