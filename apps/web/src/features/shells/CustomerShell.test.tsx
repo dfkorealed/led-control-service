@@ -96,6 +96,45 @@ function renderShell(path: string, user: AuthUser = adminUser) {
 }
 
 describe("customer shell site context", () => {
+  it.each([[759.5, true], [760, false], [760.5, false]] as const)("publishes the strict CSS media contract at controlled width %s", (_width, compact) => {
+    // Chromium rounds CSS iframe viewports to integer pixels. This controlled
+    // media owner covers the requested fractional API boundary separately from
+    // the real 759/760/761px browser tests; it is not a real-browser claim.
+    vi.stubGlobal("matchMedia", vi.fn((query: string) => ({ matches: query === "(width < 760px)" ? compact : false, addEventListener: vi.fn(), removeEventListener: vi.fn() })));
+    renderShell("/control?siteId=site");
+    expect(screen.queryByRole("navigation", { name: "모바일 주 메뉴" }) !== null).toBe(compact);
+    expect(window.matchMedia).toHaveBeenCalledWith("(width < 760px)");
+  });
+  it.each(["ready", "loading", "error", "empty"])("keeps mobile brand and both action owners available with %s sites", state => {
+    vi.stubGlobal("matchMedia", vi.fn((query: string) => ({ matches: query === "(width < 760px)", addEventListener: vi.fn(), removeEventListener: vi.fn() })));
+    if (state === "loading") sitesState.current.isLoading = true;
+    if (state === "error") sitesState.current.error = new Error("unavailable");
+    if (state === "empty") sitesState.current.data = [];
+    renderShell("/settings?siteId=site");
+    const header = document.querySelector("[data-shell-topbar]") as HTMLElement;
+    expect(within(header).getByRole("img", { name: "킨다" })).toBeVisible();
+    expect(within(header).getByRole("button", { name: "다크 모드로 변경" })).toBeEnabled();
+    expect(within(header).getByRole("button", { name: /^알람센터/ })).toBeEnabled();
+    const siteName = state === "ready" ? /현장 선택/ : state === "loading" ? "현장 목록 확인 중" : state === "error" ? "현장 목록 확인 불가" : "접근 가능한 현장 없음";
+    expect(within(header).getByRole("button", { name: siteName })).toBeVisible();
+  });
+  it.each(["/monitoring", "/control", "/statistics/overview", "/settings"])("keeps server aggregate always visible on %s", async path => {
+    renderShell(`${path}?siteId=site`);
+    expect(screen.getByRole("region", { name: "현장 전체" })).toHaveTextContent("0대");
+    expect(screen.queryByRole("button", { name: /현장 전체 보기/ })).not.toBeInTheDocument();
+    await screen.findByTestId("shell-current-menu");
+  });
+  it("collapses the wide sidebar without remounting its route", async () => {
+    vi.stubGlobal("matchMedia", vi.fn((query: string) => ({ matches: query === "(min-width: 1024px)", addEventListener: vi.fn(), removeEventListener: vi.fn() })));
+    renderShell("/control?siteId=site");
+    const route = await screen.findByText("제어 화면");
+    fireEvent.click(screen.getByRole("button", { name: "사이드바 접기" }));
+    expect(screen.getByRole("button", { name: "사이드바 펼치기" })).toHaveAttribute("aria-expanded", "false");
+    expect(screen.getByText("제어 화면")).toBe(route);
+    fireEvent.click(screen.getByRole("button", { name: "사이드바 펼치기" }));
+    expect(screen.getByRole("button", { name: "사이드바 접기" })).toHaveAttribute("aria-expanded", "true");
+    expect(apiPost).not.toHaveBeenCalled();
+  });
   it("changes customer theme without remounting the route or clearing queries or sending commands", async () => {
     const client = new QueryClient(); const sentinel = { identity: "unchanged" };
     client.setQueryData(["theme-identity"], sentinel);
@@ -129,8 +168,8 @@ describe("customer shell site context", () => {
   it("forwards the existing navigation breakpoint to the real Control close action without resetting details", async () => {
     controlConsumer.actual = true;
     let onChange: ((event: MediaQueryListEvent) => void) | undefined;
-    vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: true,
-      addEventListener: (_type: string, listener: typeof onChange) => { onChange = listener; }, removeEventListener: vi.fn() })));
+    vi.stubGlobal("matchMedia", vi.fn((query: string) => ({ matches: query === "(width < 760px)",
+      addEventListener: (_type: string, listener: typeof onChange) => { if (query === "(width < 760px)") onChange = listener; }, removeEventListener: vi.fn() })));
     const generatedAt = new Date().toISOString();
     const retainedFrom = new Date(detailRetainedFrom(Date.parse(generatedAt))).toISOString();
     const status = { id: "00000000-0000-4000-8000-000000009977", siteId: "site", stage: "verified_applied", outcome: "applied", createdAt: generatedAt, generatedAt, retainedFrom,

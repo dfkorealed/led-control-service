@@ -14,7 +14,7 @@ function renderSettings(gatewayCount: number, fixtureCount: number, role: "admin
   dashboard.summary.totalFixtures = fixtureCount;
   vi.mocked(useDashboard).mockReturnValue({ data: dashboard } as ReturnType<typeof useDashboard>);
   render(<MemoryRouter initialEntries={[entry ?? `/settings?siteId=${dashboard.site.id}`]}>
-    <SettingsView userRole={role} siteId={dashboard.site.id} />
+    <SettingsView userRole={role} siteId={dashboard.site.id} capabilities={{ read: true, control: role === "admin", manage: role === "admin", commission: role === "admin" }} />
   </MemoryRouter>);
   return dashboard.site.id;
 }
@@ -55,7 +55,7 @@ describe("SettingsView 설치 이어가기", () => {
       { ...dashboard.floors[0], id: "floor-reset", name: "B1", floorPlan: null, mapRevision: 3, mapConfigured: false }
     ];
     vi.mocked(useDashboard).mockReturnValue({ data: dashboard } as ReturnType<typeof useDashboard>);
-    render(<MemoryRouter><SettingsView userRole="admin" siteId={dashboard.site.id} /></MemoryRouter>);
+    render(<MemoryRouter><SettingsView userRole="admin" siteId={dashboard.site.id} capabilities={{ read: true, control: true, manage: true, commission: true }} /></MemoryRouter>);
     expect(screen.getByRole("group", { name: "층·도면" })).toHaveTextContent("2개 층");
     expect(screen.getByRole("group", { name: "층·도면" })).toHaveTextContent("맵 설정 1개");
   });

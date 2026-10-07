@@ -1,5 +1,29 @@
 # 통계 메뉴 기능 현황
 
+## 2026-10-07 ATLAS 공통 shell·모바일 브랜드 (Task 4)
+
+### 구현 완료
+
+- 고객 모바일 첫 행에 실제 킨다 mark·현장 선택·알람센터·테마 버튼을 표시한다. dark는 실제 reversed mark를 사용하고 공개/default/landing/concept 브랜드는 그대로다. 현장 선택은 360px 미만 128px, 그 이상 모바일 144px이며 44px 조작 높이·전체 option 이름·기존 선택 callback/ref와 실패/로딩/없음 상태를 보존한다.
+- 네 고객 메뉴 헤더의 두 번째 행은 서버 dashboard 현장 집계를 항상 표시한다. 0과 미확인 `—`·로딩·오류를 구분하고 principal/site/route stale guard를 유지한다. 핀에서 현장 집계를 재계산하지 않는다.
+- 760–1023px는 80px rail, 넓은 화면은 220px 펼침/80px 접기를 전환한다. 동일 route link·접근성 이름·keyboard tooltip과 eager 계정/로그아웃·full-view·권한 gate 소유권을 유지한다. 고객 primary 버튼은 독립 foreground token을 사용한다.
+
+### 미구현
+
+- 페이지별 ATLAS 재배치, 지도/차트의 새 palette 소비와 실제 native/HIL 검증은 후속 범위다. API·DB·명령 계약·장비는 변경하지 않는다.
+
+### 부족하거나 개선이 필요한 기능
+
+- 이번 근거는 Web 단위·UI 정책·격리 Chromium 회귀이며 물리 모바일/실장비 완료로 확대하지 않는다. 별도 명령 실행/선택 disclosure는 이번 작업에서 바꾸지 않는다.
+
+### 관련 파일
+
+- `apps/web/src/features/shells/{CustomerShell,CustomerHeaderSummarySlot,SettingsNavigationItem}.tsx`, `apps/web/src/components/brand/KindaLogo.tsx`, `apps/web/src/components/ui/{Button.tsx,fields/SelectBox.tsx,utils/cn.ts}`, 대응 테스트 및 `apps/web/e2e/mobile-first-screen.spec.ts`.
+
+### 갱신 규칙
+
+- 고객/비고객 브랜드 경계·양 theme·현장 선택 width와 touch target·0/null 집계·route/query/명령 identity·계정 복구를 함께 검증한다. 별도 task의 페이지 변경과 HIL 한계는 그 실제 증거로 갱신한다.
+
 ## 2026-10-07 ATLAS 고객 공통 테마 경계 (Task 3)
 
 ### 구현 완료

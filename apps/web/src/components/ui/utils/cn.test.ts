@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { cn } from "./cn";
 
+it("replaces default width with approved customer geometry without losing responsive widths", () => {
+  expect(cn("w-full", "w-customer-site-small phone-wide:w-customer-site compact:w-64")).toBe("w-customer-site-small phone-wide:w-customer-site compact:w-64");
+  expect(cn("w-customer-sidebar", "w-customer-rail")).toBe("w-customer-rail");
+  expect(cn("w-customer-site", "w-full")).toBe("w-full");
+});
+
 describe("approved landing typography composition", () => {
   it("keeps semantic size and foreground color together", () => {
     expect(cn("text-body text-landing-button", "text-brand-navy")).toBe("text-landing-button text-brand-navy");

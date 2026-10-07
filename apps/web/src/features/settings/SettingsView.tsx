@@ -1,12 +1,12 @@
 import { Building2, CircleCheck, CircleDashed, Layers3, Network, ShieldCheck, WifiOff } from "lucide-react";
 import { Link, useLocation } from "react-router-dom";
-import { useDashboard } from "../../api/queries";
+import { useDashboard, type SiteCapabilities } from "../../api/queries";
 import { Card, PageHeader, StatusBadge } from "../../components/ui";
 import { InstallationPending, SetupWizard } from "../setup/SetupWizard";
 import { TestDataToolsPanel } from "./TestDataToolsPanel";
 import { settingsActionLinkClass } from "./settings-action-link";
 
-export function SettingsView({ userRole, siteId }: { userRole: "operator" | "admin" | "viewer"; siteId?: string }) {
+export function SettingsView({ userRole, siteId }: { userRole: "operator" | "admin" | "viewer"; siteId?: string; capabilities: SiteCapabilities }) {
   const { data } = useDashboard(siteId);
   const location = useLocation();
 

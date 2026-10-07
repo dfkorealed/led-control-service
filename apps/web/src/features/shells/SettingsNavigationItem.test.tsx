@@ -49,6 +49,16 @@ function renderSettingsItem({
 }
 
 describe("SettingsNavigationItem", () => {
+  it("shows a keyboard rail tooltip, dismisses it with Escape, and keeps link focus", () => {
+    mockMatchMedia();
+    render(<MemoryRouter><SettingsNavigationItem capabilities={readCapabilities} search="?siteId=site" layout="rail" /></MemoryRouter>);
+    const link = screen.getByRole("link", { name: "설정" });
+    link.focus(); fireEvent.focus(link);
+    expect(screen.getByRole("tooltip")).toHaveTextContent("설정");
+    fireEvent.keyDown(link, { key: "Escape" });
+    expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
+    expect(link).toHaveFocus();
+  });
   afterEach(() => {
     cleanup();
     vi.restoreAllMocks();

@@ -1,13 +1,14 @@
-import { forwardRef, lazy, Suspense, useEffect, useMemo, useRef, useState, type RefObject } from "react";
-import { Activity, Bell, BarChart3, CircleAlert, LoaderCircle, SlidersHorizontal } from "lucide-react";
+import { forwardRef, lazy, Suspense, useEffect, useId, useMemo, useRef, useState, type RefObject } from "react";
+import { Activity, Bell, BarChart3, CircleAlert, LoaderCircle, PanelLeftClose, PanelLeftOpen, SlidersHorizontal } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
-import { matchPath, Navigate, NavLink, Route, Routes, useLocation } from "react-router-dom";
+import { matchPath, Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { logout, type AuthUser } from "../../api/auth";
 import { authMeQueryKey, clearTenantCache, principalKey } from "../../api/principal-cache";
 import { useDashboard, useSites, type SiteCapabilities } from "../../api/queries";
 import { KindaLogo } from "../../components/brand/KindaLogo";
 import {
   Button,
+  IconTooltipButton,
   ConfirmDialog,
   CustomerThemeProvider,
   ThemeToggle,
@@ -34,7 +35,7 @@ import { useFloorEditorStore } from "../floor-editor/editor-store";
 import { SiteSwitcher } from "../sites/SiteSwitcher";
 import { useGuardedSiteSelection } from "../sites/useGuardedSiteSelection";
 import { deriveGatewayAggregate } from "./gateway-status";
-import { primaryNavigationClass, SettingsNavigationItem } from "./SettingsNavigationItem";
+import { PrimaryNavigationLink, SettingsNavigationItem, type NavigationLayout } from "./SettingsNavigationItem";
 import { CustomerAccountContext } from "./CustomerAccountContext";
 import { CustomerAccountPanel } from "./CustomerAccountPanel";
 import { CustomerHeaderSummarySlot, type CustomerSiteSummary, type CustomerShellScope } from "./CustomerHeaderSummarySlot";
@@ -61,28 +62,20 @@ const items = [
   { path: "/control", destination: "/control", label: "제어", icon: SlidersHorizontal },
   { path: "/statistics", destination: "/statistics/overview", label: "통계", icon: BarChart3 }
 ] as const;
-const compactNavigationQuery = "(max-width: 759px)";
+const compactNavigationQuery = "(width < 760px)";
+const wideNavigationQuery = "(min-width: 1024px)";
 
-function PrimaryNavigation({ capabilities, search }: { capabilities: SiteCapabilities; search: string }) {
+function PrimaryNavigation({ capabilities, search, layout = "mobile" }: { capabilities: SiteCapabilities; search: string; layout?: NavigationLayout }) {
   const location = useLocation();
   return (
     <>
       {items.filter((item) => item.path !== "/control" || capabilities.control).map((item) => {
-        const Icon = item.icon;
         return (
-          <NavLink
-            aria-current={item.path === "/statistics" && location.pathname.startsWith("/statistics") ? "page" : undefined}
-            className={({ isActive }) => primaryNavigationClass(isActive || (item.path === "/statistics" && location.pathname.startsWith("/statistics")))}
-            data-shell-navigation-item
-            key={item.path}
-            to={`${item.destination}${search}`}
-          >
-            <Icon size={18} />
-            <span>{item.label}</span>
-          </NavLink>
+          <PrimaryNavigationLink key={item.path} to={`${item.destination}${search}`} icon={item.icon} label={item.label} layout={layout}
+            active={item.path === "/statistics" && location.pathname.startsWith("/statistics")} />
         );
       })}
-      <SettingsNavigationItem capabilities={capabilities} search={search} />
+      <SettingsNavigationItem capabilities={capabilities} search={search} layout={layout} />
     </>
   );
 }
@@ -96,6 +89,10 @@ export function CustomerShell({ user }: { user: AuthUser }) {
 function CustomerShellContent({ user }: { user: AuthUser }) {
   const location = useLocation();
   const [isCompactNavigation, setIsCompactNavigation] = useState(() => window.matchMedia(compactNavigationQuery).matches);
+  const [isWideNavigation, setIsWideNavigation] = useState(() => window.matchMedia(wideNavigationQuery).matches);
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  const isSidebarExpanded = isWideNavigation && !isSidebarCollapsed;
+  const desktopNavigationId = useId();
   const isEditorRoute = Boolean(matchPath("/settings/floor-plans/:floorId/edit", location.pathname));
   const isMonitoringRoute = location.pathname === "/monitoring";
   const queryClient = useQueryClient();
@@ -186,6 +183,12 @@ function CustomerShellContent({ user }: { user: AuthUser }) {
     media.addEventListener("change", updateNavigation);
     return () => media.removeEventListener("change", updateNavigation);
   }, []);
+  useEffect(() => {
+    const media = window.matchMedia(wideNavigationQuery);
+    const update = (event: MediaQueryListEvent) => setIsWideNavigation(event.matches);
+    media.addEventListener("change", update);
+    return () => media.removeEventListener("change", update);
+  }, []);
 
   useEffect(() => {
     if (isLoggingOut || !logoutError || !restoreLogoutFocusAfterFailureRef.current) return;
@@ -273,8 +276,8 @@ function CustomerShellContent({ user }: { user: AuthUser }) {
   }
 
   const isControlWorkspace = location.pathname === "/control" && Boolean(capabilities?.control) && !gate;
-  const summaryScope: CustomerShellScope | null = isMonitoringRoute && authorizedSelectedSiteId
-    ? { principalKey: principalKey(user), siteId: authorizedSelectedSiteId, pathname: "/monitoring" } : null;
+  const summaryScope: CustomerShellScope | null = authorizedSelectedSiteId
+    ? { principalKey: principalKey(user), siteId: authorizedSelectedSiteId, pathname: location.pathname } : null;
   const summaryValue: CustomerSiteSummary | null = summaryScope ? {
     scope: summaryScope,
     siteName: sitesQuery.data!.find(site => site.id === summaryScope.siteId)!.name,
@@ -296,19 +299,23 @@ function CustomerShellContent({ user }: { user: AuthUser }) {
           <PrimaryNavigation capabilities={capabilities} search={location.search} />
         </nav>
       ) : (
-        <aside hidden={focus.active} className={focus.active ? "hidden" : `sticky top-0 z-20 ${isEditorRoute ? "h-full" : "h-screen"} w-shell-rail shrink-0 border-r border-border-default bg-surface-panel px-2 py-4`} data-shell-navigation="desktop">
-          <KindaLogo context="관제 센터" compact />
-          <nav className="grid w-full gap-2" aria-label="주 메뉴">
-            <PrimaryNavigation capabilities={capabilities} search={location.search} />
+        <aside hidden={focus.active} className={focus.active ? "hidden" : `sticky top-0 z-20 ${isEditorRoute ? "h-full" : "h-screen"} ${isSidebarExpanded ? "w-customer-sidebar" : "w-customer-rail"} shrink-0 border-r border-border-default bg-surface-panel px-2 py-4`} data-shell-navigation="desktop">
+          <div className={`mb-4 flex min-w-0 items-center gap-1 px-1 ${isSidebarExpanded ? "justify-between" : "flex-col justify-center"}`}>
+            <KindaLogo presentation="workspace" context="관제 센터" compact={!isSidebarExpanded} />
+            {isWideNavigation ? <IconTooltipButton size="sm" icon={isSidebarExpanded ? PanelLeftClose : PanelLeftOpen} label={isSidebarExpanded ? "사이드바 접기" : "사이드바 펼치기"} aria-expanded={isSidebarExpanded} aria-controls={desktopNavigationId} onClick={() => setIsSidebarCollapsed(value => !value)} /> : null}
+          </div>
+          <nav id={desktopNavigationId} className="grid w-full gap-2" aria-label="주 메뉴">
+            <PrimaryNavigation capabilities={capabilities} search={location.search} layout={isSidebarExpanded ? "expanded" : "rail"} />
           </nav>
         </aside>
       ) : null}
       <main className={`flex min-w-0 flex-1 flex-col ${isMonitoringRoute ? "min-h-0" : focus.active ? "min-h-0 overflow-hidden" : isEditorRoute ? "min-h-min" : ""}`}>
-        <header hidden={focus.active} className={focus.active ? "hidden" : "sticky top-0 z-10 grid min-h-16 min-w-0 shrink-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-2 gap-y-2 border-b border-border-default bg-surface-panel px-3.5 py-2 compact:grid-cols-[minmax(0,1fr)_minmax(0,auto)_auto] compact:gap-x-4 compact:px-7"} data-shell-topbar>
+        <header hidden={focus.active} className={focus.active ? "hidden" : "sticky top-0 z-10 grid min-h-16 min-w-0 shrink-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-1 gap-y-1 border-b border-border-default bg-surface-panel px-2 py-1 compact:grid-cols-[minmax(0,1fr)_minmax(0,auto)_auto] compact:gap-x-4 compact:px-7 compact:py-2"} data-shell-topbar>
           <div className="sr-only compact:not-sr-only compact:col-start-1 compact:row-start-1 compact:min-w-0">
             <Heading as="h1" variant="page-title" className="truncate" data-testid="shell-current-menu">{titleForPath(location.pathname)}</Heading>
           </div>
-          <div className="col-start-1 row-start-1 flex min-w-0 items-center gap-2 compact:col-span-1 compact:col-start-2 compact:row-start-1" aria-label="현장 정보" data-shell-context>
+          <div className="col-start-1 row-start-1 flex min-w-0 items-center gap-1 compact:col-span-1 compact:col-start-2 compact:row-start-1" aria-label="현장 정보" data-shell-context>
+            {isCompactNavigation ? <KindaLogo presentation="header" /> : null}
             <SiteContextControl
               ref={siteSwitcherRef}
               sites={sitesQuery.data}
@@ -320,7 +327,6 @@ function CustomerShellContent({ user }: { user: AuthUser }) {
             <span className="sr-only" data-testid="active-site-badge">{dashboard?.site.name || "현장 미등록"}</span>
           </div>
           <div className="col-start-2 row-start-1 flex min-w-0 items-center justify-end gap-2 compact:col-start-3" data-shell-actions>
-            <ThemeToggle />
             <SessionStatusCenter
               ref={statusCenterRef}
               compact={isCompactNavigation}
@@ -330,6 +336,7 @@ function CustomerShellContent({ user }: { user: AuthUser }) {
               timeZone={dashboard && dashboard.site.id === authorizedSelectedSiteId ? dashboard.site.timeZone : undefined}
               contextItems={gatewayContextItems}
             />
+            <ThemeToggle />
           </div>
           {summaryScope ? <CustomerHeaderSummarySlot currentScope={summaryScope} value={summaryValue} compact={isCompactNavigation} className="col-span-full" /> : null}
         </header>
@@ -376,7 +383,7 @@ function CustomerShellContent({ user }: { user: AuthUser }) {
               <Route path="*" element={<StatisticsIndexRedirect />} />
             </Route>
             <Route path="/settings" element={<SettingsShell capabilities={capabilities} />}>
-              <Route index element={<SettingsView userRole={user.role} siteId={siteId} />} />
+              <Route index element={<SettingsView userRole={user.role} siteId={siteId} capabilities={capabilities} />} />
               <Route
                 path="site"
                 element={capabilities.manage
@@ -458,19 +465,20 @@ interface SiteContextControlProps {
   hasError: boolean;
   onSelectionChange(siteId: string): void;
 }
+const siteControlClass = "min-w-0 w-customer-site-small shrink-0 phone-wide:w-customer-site compact:w-64";
 
 const SiteContextControl = forwardRef<HTMLButtonElement, SiteContextControlProps>(function SiteContextControl(
   { sites, selectedSiteId, isLoading, hasError, onSelectionChange },
   ref
 ) {
   if (isLoading) {
-    return <Button ref={ref} type="button" className="min-w-0 flex-1 overflow-hidden compact:w-64 compact:flex-none" isDisabled>현장 목록 확인 중</Button>;
+    return <Button ref={ref} type="button" className={siteControlClass} isDisabled><span className="truncate">현장 목록 확인 중</span></Button>;
   }
   if (hasError) {
-    return <Button ref={ref} type="button" className="min-w-0 flex-1 overflow-hidden compact:w-64 compact:flex-none" isDisabled>현장 목록 확인 불가</Button>;
+    return <Button ref={ref} type="button" className={siteControlClass} isDisabled><span className="truncate">현장 목록 확인 불가</span></Button>;
   }
   if (!sites?.length) {
-    return <Button ref={ref} type="button" className="min-w-0 flex-1 overflow-hidden compact:w-64 compact:flex-none" isDisabled>접근 가능한 현장 없음</Button>;
+    return <Button ref={ref} type="button" className={siteControlClass} isDisabled><span className="truncate">접근 가능한 현장 없음</span></Button>;
   }
   return (
     <SiteSwitcher
@@ -478,7 +486,7 @@ const SiteContextControl = forwardRef<HTMLButtonElement, SiteContextControlProps
       sites={sites}
       selectedSiteId={selectedSiteId}
       onSelectionChange={onSelectionChange}
-      className="min-w-0 flex-1 compact:w-64 compact:flex-none"
+      className={siteControlClass}
     />
   );
 });

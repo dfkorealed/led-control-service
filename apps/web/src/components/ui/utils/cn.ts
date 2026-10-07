@@ -45,6 +45,7 @@ const merge = extendTailwindMerge({
         "landing-inset-surface", "landing-compact-choice-control",
       ],
       spacing: [
+        "customer-sidebar", "customer-rail", "customer-site-small", "customer-site",
         "shell-rail", "landing-anchor-anchor-offset", "landing-skip-link-top", "landing-button-inset",
         "landing-brand-mark-inset", "landing-navigation-gap", "landing-hero-orbit-near-right", "landing-hero-orbit-far-right",
         "landing-hero-frame-gap", "landing-hero-frame-block-inset", "landing-hero-heading-margin", "landing-hero-actions-gap",

@@ -1,5 +1,29 @@
 # 설정 메뉴 기능 현황 및 구현 설계
 
+## 2026-10-07 ATLAS 공통 shell·모바일 브랜드 (Task 4)
+
+### 구현 완료
+
+- 고객 모바일 첫 행은 실제 킨다 mark·현장 선택·알람센터·테마 버튼을 표시하며 dark는 reversed asset을 쓴다. 공개/default/landing/concept 브랜드를 보존한다. 현장 선택은 360px 미만 128px, 그 이상 모바일 144px과 44px hit·전체 option 이름·기존 callback/ref·로딩/오류/없음을 보존한다.
+- 네 고객 메뉴는 서버 dashboard 현장 집계를 항상 표시하며 0/null·로딩/오류와 principal/site/route stale guard를 유지한다. 760–1023px는 80px rail, 넓은 화면은 220px 펼침/80px 접기·동일 route와 keyboard tooltip을 쓴다. 고객 primary foreground·eager 계정/로그아웃·full-view·권한 gate 소유권을 유지한다.
+- SettingsView의 `capabilities: SiteCapabilities`는 필수이며 고객 shell이 실제 조회 capability를 전달한다. 기존 개요 카드/설치·계정 흐름 재구성은 후속 설정 task에서 이 prop을 소비한다.
+
+### 미구현
+
+- 설정 페이지 ATLAS 재배치·지도/차트 palette 소비·native/HIL은 후속 범위다. API·DB·명령 계약·장비를 바꾸지 않는다.
+
+### 부족하거나 개선이 필요한 기능
+
+- Web 단위·UI 정책·격리 Chromium 회귀는 물리 모바일/실장비 증거가 아니다. 명령 선택/실행 disclosure도 이번에는 바꾸지 않는다.
+
+### 관련 파일
+
+- `apps/web/src/features/shells/{CustomerShell,CustomerHeaderSummarySlot,SettingsNavigationItem}.tsx`, `apps/web/src/features/settings/SettingsView.tsx`, `apps/web/src/components/brand/KindaLogo.tsx`, `apps/web/src/components/ui/{Button.tsx,fields/SelectBox.tsx,utils/cn.ts}` 및 대응 테스트·`apps/web/e2e/mobile-first-screen.spec.ts`.
+
+### 갱신 규칙
+
+- 고객/비고객 브랜드·양 theme·현장 width/44px hit·서버0/null 집계·route/query/명령 identity·계정 복구를 함께 검증하고 후속 페이지/HIL은 실제 범위로 기록한다.
+
 ## 2026-10-07 ATLAS 고객 공통 테마 경계 (Task 3)
 
 ### 구현 완료

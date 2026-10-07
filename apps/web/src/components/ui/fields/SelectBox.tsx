@@ -35,7 +35,7 @@ export const SelectBox = forwardRef(function SelectBox<T extends FieldKey>(
       {/* Select renders this function with isOpen=false while collecting options,
           without a trigger context. Only the live owner may register an overlay. */}
       {({ isOpen }) => <><Button id={attributes.id} ref={ref} data-invalid={props.isInvalid || undefined} aria-labelledby={fieldAria(attributes, props)["aria-labelledby"]} className={cn(attributes.className, "flex items-center justify-between gap-2 text-left")}>
-        <SelectValue /><span aria-hidden="true">▾</span>
+        <SelectValue className="min-w-0 flex-1 truncate" /><span className="shrink-0" aria-hidden="true">▾</span>
       </Button>
       <SelectionOptions items={items} isOpen={isOpen} /></>}
     </Select>}

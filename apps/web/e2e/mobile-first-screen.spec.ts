@@ -24,14 +24,12 @@ for (const width of [320, 390, 430, 1280]) test(`common header and eager account
   await expectNoHorizontalOverflow(page);
 });
 
-test("monitoring compact disclosure and single center during full view", async ({ page }) => {
+test("monitoring always-visible aggregate and single center during full view", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await installSettingsApiRoutes(page, "admin", { readyMapDocument: true });
   await page.goto("/monitoring?siteId=site-1");
-  const disclosure = page.getByRole("button", { name: "현장 전체 보기", exact: true });
-  await expect(disclosure).toHaveAttribute("aria-expanded", "false");
-  await disclosure.click(); await expect(page.getByRole("button", { name: "현장 전체 접기", exact: true })).toHaveAttribute("aria-expanded", "true");
-  await page.getByRole("button", { name: "현장 전체 접기", exact: true }).click();
+  await expect(page.getByRole("region", { name: "현장 전체", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "현장 전체 보기", exact: true })).toHaveCount(0);
   await page.getByRole("button", { name: "지도 전체 보기", exact: true }).click();
   await expect(page.locator("[data-shell-topbar]")).toBeHidden();
   await expect(page.getByRole("button", { name: "전체 보기 종료", exact: true })).toBeVisible();
@@ -41,6 +39,80 @@ test("monitoring compact disclosure and single center during full view", async (
   await page.getByRole("button", { name: "전체 보기 종료", exact: true }).click();
   await expect(page.locator("[data-shell-topbar]")).toBeVisible();
   await expectNoHorizontalOverflow(page);
+});
+
+for (const width of [320, 390, 562]) for (const theme of ["light", "dark"]) test(`keeps real header branding and bounded site control in both themes: ${width}/${theme}`, async ({ page }) => {
+  await page.setViewportSize({ width, height: 844 });
+  await page.addInitScript(value => localStorage.setItem("led-control.customer-theme.v1", value), theme);
+  await installSettingsApiRoutes(page, "viewer", { readyMapDocument: true });
+  await page.goto("/settings?siteId=site-1");
+  const header = page.locator("[data-shell-topbar]");
+  const logo = header.getByRole("img", { name: "킨다", exact: true });
+  await expect(logo).toBeVisible();
+  await expect(logo.locator("img")).toHaveAttribute("src", theme === "dark" ? "/brand/kinda-mark-reversed.svg" : "/brand/kinda-mark.svg");
+  const site = header.getByRole("button", { name: /현장 선택/ });
+  const bounds = (await site.boundingBox())!;
+  expect(bounds.width).toBe(width < 360 ? 128 : 144); expect(bounds.height).toBeGreaterThanOrEqual(44);
+  console.log(JSON.stringify({ width, theme, site: bounds }));
+  await site.click(); await expect(page.getByRole("option", { name: "고객사 · 고객사 B2 현장", exact: true })).toBeVisible();
+  await page.keyboard.press("Escape"); await expect(site).toBeFocused();
+  const toggle = header.getByRole("button", { name: theme === "light" ? "다크 모드로 변경" : "라이트 모드로 변경" });
+  await toggle.focus(); await page.keyboard.press("Enter");
+  await expect(page.locator("html")).toHaveAttribute("data-customer-theme", theme === "light" ? "dark" : "light");
+  await page.keyboard.press("Space"); await expect(page.locator("html")).toHaveAttribute("data-customer-theme", theme);
+  await expect(header.getByRole("button", { name: /^알람센터/ })).toBeVisible();
+  await expectNoHorizontalOverflow(page);
+});
+
+test("wide customer rail preserves keyboard labels and actual dark primary foreground", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await installSettingsApiRoutes(page, "admin", { readyMapDocument: true });
+  const posts: string[] = [];
+  page.on("request", request => { if (request.method() === "POST") posts.push(new URL(request.url()).pathname); });
+  await page.goto("/control?siteId=site-1");
+  const rail = page.locator('[data-shell-navigation="desktop"]');
+  expect((await rail.boundingBox())!.width).toBe(220);
+  await page.getByRole("button", { name: "사이드바 접기" }).click();
+  expect((await rail.boundingBox())!.width).toBe(80);
+  const settings = rail.getByRole("link", { name: "설정", exact: true });
+  await settings.focus(); await expect(rail.getByRole("tooltip", { name: "설정", exact: true })).toBeVisible();
+  await page.keyboard.press("Escape"); await expect(rail.getByRole("tooltip", { name: "설정", exact: true })).toHaveCount(0);
+  await expect(settings).toBeFocused();
+  await page.getByRole("button", { name: "다크 모드로 변경" }).click();
+  const apply = page.getByRole("button", { name: "밝기 적용", exact: true });
+  await expect(apply).toBeVisible(); expect(await apply.evaluate(element => getComputedStyle(element).color)).toBe("rgb(15, 23, 36)");
+  await page.setViewportSize({ width: 1023, height: 900 });
+  expect((await rail.boundingBox())!.width).toBe(80);
+  await expect(page.getByRole("button", { name: "사이드바 펼치기" })).toHaveCount(0);
+  expect(posts.filter(path => path.includes("dimming"))).toEqual([]);
+  await expectNoHorizontalOverflow(page);
+});
+
+for (const [width, compact] of [[759, true], [760, false], [761, false]] as const) test(`customer navigation uses the real integer viewport ${width}`, async ({ page }) => {
+  await page.setViewportSize({ width, height: 900 });
+  await installSettingsApiRoutes(page, "viewer", { readyMapDocument: true });
+  await page.goto("/settings?siteId=site-1");
+  console.log(JSON.stringify(await page.evaluate(() => ({ innerWidth, clientWidth: document.documentElement.clientWidth, compact: matchMedia("(width < 760px)").matches }))));
+  await expect(page.locator(`[data-shell-navigation="${compact ? "compact" : "desktop"}"]`)).toBeVisible();
+  await expect(page.locator(`[data-shell-navigation="${compact ? "desktop" : "compact"}"]`)).toHaveCount(0);
+});
+
+for (const width of [760, 760.5]) test(`records Chromium normalized iframe viewport requested ${width}`, async ({ page, baseURL }) => {
+  await installSettingsApiRoutes(page, "viewer", { readyMapDocument: true });
+  await page.goto("/settings?siteId=site-1");
+  // Playwright viewport sizes are integers; a real iframe provides a fractional
+  // CSS viewport while keeping the same application/React/media-query owner.
+  await page.evaluate(({ width, url }) => {
+    const frame = document.createElement("iframe"); frame.title = "fractional customer viewport";
+    frame.style.width = `${width}px`; frame.style.height = "900px"; frame.style.border = "0"; frame.src = url; document.body.append(frame);
+  }, { width, url: `${baseURL}/settings?siteId=site-1` });
+  const frame = page.frameLocator('iframe[title="fractional customer viewport"]');
+  await expect(frame.getByRole("heading", { name: "설정 개요", exact: true })).toBeVisible();
+  const actual = await frame.locator("html").evaluate(() => ({ innerWidth, clientWidth: document.documentElement.clientWidth, compact: matchMedia("(width < 760px)").matches }));
+  console.log(JSON.stringify({ requested: width, actual }));
+  expect(actual.innerWidth).toBeGreaterThanOrEqual(760); expect(actual.compact).toBe(false);
+  await expect(frame.locator('[data-shell-navigation="desktop"]')).toBeVisible();
+  await expect(frame.locator('[data-shell-navigation="compact"]')).toHaveCount(0);
 });
 
 for (const [width, height] of [[320, 568], [390, 844], [430, 932], [1280, 900]]) {

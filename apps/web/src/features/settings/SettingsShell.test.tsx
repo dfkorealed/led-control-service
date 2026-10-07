@@ -93,7 +93,7 @@ describe("SettingsShell", () => {
         <MemoryRouter initialEntries={["/settings?siteId=site-1#fragment"]}>
           <Routes>
             <Route path="/settings" element={<SettingsShell capabilities={manageCapabilities} />}>
-              <Route index element={<SettingsView siteId="site-1" userRole="admin" />} />
+              <Route index element={<SettingsView siteId="site-1" userRole="admin" capabilities={manageCapabilities} />} />
             </Route>
           </Routes>
         </MemoryRouter>

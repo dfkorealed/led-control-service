@@ -3,8 +3,16 @@ import { render, screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { KindaLogo } from "./KindaLogo";
 import { Button, StatusBadge } from "../ui";
+import { CustomerThemeProvider } from "../ui/theme/CustomerThemeProvider";
 
 describe("KindaLogo", () => {
+  it.each(["light", "dark"])("uses the real customer header mark in %s without changing default branding", theme => {
+    localStorage.setItem("led-control.customer-theme.v1", theme);
+    const view = render(<CustomerThemeProvider><KindaLogo presentation="header" /><KindaLogo presentation="workspace" context="작업 공간" /></CustomerThemeProvider>);
+    expect(screen.getByRole("img", { name: "킨다" }).querySelector("img")).toHaveAttribute("src", theme === "dark" ? "/brand/kinda-mark-reversed.svg" : "/brand/kinda-mark.svg");
+    expect(within(screen.getByRole("img", { name: "킨다 작업 공간" })).getByText("킨다")).toHaveClass("text-content-primary");
+    view.unmount(); localStorage.removeItem("led-control.customer-theme.v1");
+  });
   it("마크와 한글 브랜드명을 하나의 접근성 이름으로 조합한다", () => {
     render(<KindaLogo context="관제 센터" />);
     const logo = screen.getByRole("img", { name: "킨다 관제 센터" });

@@ -1,7 +1,8 @@
-import { forwardRef, useRef, type ButtonHTMLAttributes, type ReactNode } from "react";
+import { forwardRef, useContext, useRef, type ButtonHTMLAttributes, type ReactNode } from "react";
 import type { ButtonProps as AriaButtonProps } from "react-aria-components";
 import { cva } from "class-variance-authority";
 import { cn } from "./utils/cn";
+import { CustomerThemeContext } from "./theme/CustomerThemeProvider";
 
 export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement>, Pick<AriaButtonProps, "isDisabled" | "onPress"> {
   variant?: "landingConceptDismiss" | "landingConceptSubmit" | "landingConceptHeaderContact" | "landingConceptHeroContact" | "landingConceptReplay" | "landingReportFormat" | "landingMapTool" | "landingMapCancel" | "landingMapMarker" | "landingReplay" | "landingFixture" | "primary" | "secondary" | "ghost" | "danger" | "link" | "landingCta" | "landingHeaderContact" | "landingHeroContact" | "landingPlanPrimary" | "landingPlanSecondary";
@@ -50,11 +51,14 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
   ref
 ) {
   const activation = useRef<{ key?: string; pointerType?: "mouse" | "touch" | "pen" }>({});
+  const customerTheme = useContext(CustomerThemeContext);
   // Keep native button submission and activation semantics. The adapter only
   // observes the browser click origin and never synthesizes a second action.
   // Public landing variants own their exact frame independently of app control density.
   const classes = button({ variant, size: variant.startsWith("landing") ? null : size });
-  return <button ref={ref} {...props} disabled={disabled || isDisabled || isLoading} aria-busy={isLoading || props["aria-busy"]} data-variant={variant} className={cn(classes, className)}
+  // The customer palette has an independent primary foreground. Public/auth
+  // controls keep their existing inverse foreground and landing variants.
+  return <button ref={ref} {...props} disabled={disabled || isDisabled || isLoading} aria-busy={isLoading || props["aria-busy"]} data-variant={variant} className={cn(classes, customerTheme && variant === "primary" && "text-action-primary-foreground", className)}
     onKeyDown={(event) => {
       onKeyDown?.(event);
       if (!event.defaultPrevented && (event.key === "Enter" || event.key === " ")) activation.current = { key: event.key };

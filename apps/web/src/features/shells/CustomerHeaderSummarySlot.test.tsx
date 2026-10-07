@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, expect, it } from "vitest";
 import { CustomerHeaderSummarySlot, type CustomerShellScope, type CustomerSiteSummary } from "./CustomerHeaderSummarySlot";
 const scope: CustomerShellScope = { principalKey: "account-a", siteId: "site-a", pathname: "/monitoring" };
@@ -22,10 +22,9 @@ it("preserves unknown counts separately from actual zero, loading and errors", (
   expect(screen.getByRole("status")).toHaveTextContent("확인 불가");
 });
 
-it("keeps compact aggregate collapsed until explicit disclosure", () => {
+it("keeps compact aggregate visible without a disclosure and preserves zero and unknown", () => {
   render(<CustomerHeaderSummarySlot compact currentScope={scope} value={ready} />);
-  expect(screen.getByText("0대")).not.toBeVisible();
-  fireEvent.click(screen.getByRole("button", { name: "현장 전체 보기" }));
   expect(screen.getByText("0대")).toBeVisible();
-  expect(screen.getByRole("button", { name: "현장 전체 접기" })).toHaveAttribute("aria-expanded", "true");
+  expect(screen.getAllByText("—").every(item => !item.closest("[hidden]"))).toBe(true);
+  expect(screen.queryByRole("button", { name: /현장 전체/ })).not.toBeInTheDocument();
 });

@@ -18,8 +18,16 @@ import {
   UnderlineNavigation,
   UnderlineNavigationLabel
 } from ".";
+import { CustomerThemeProvider } from "./theme/CustomerThemeProvider";
 
 describe("Calm Operations UI primitives", () => {
+  it("uses the separate primary foreground only in the customer boundary", () => {
+    const view = render(<CustomerThemeProvider><Button variant="primary">고객 저장</Button></CustomerThemeProvider>);
+    expect(screen.getByRole("button", { name: "고객 저장" })).toHaveClass("text-action-primary-foreground");
+    expect(screen.getByRole("button", { name: "고객 저장" })).not.toHaveClass("text-content-inverse");
+    view.unmount(); render(<Button variant="primary">기본 저장</Button>);
+    expect(screen.getByRole("button", { name: "기본 저장" })).toHaveClass("text-content-inverse");
+  });
   afterEach(cleanup);
 
   it.each(["primary", "secondary", "ghost", "danger", "link"] as const)("supports the %s button variant and merges caller padding", (variant) => {
