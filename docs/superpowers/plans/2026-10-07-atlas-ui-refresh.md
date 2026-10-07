@@ -10,7 +10,7 @@
 
 **Spec:** [다크 포함 설계 명세](../specs/2026-10-07-atlas-ui-refresh-design.md)
 
-상태: **실행 승인·Tasks 1–3 완료, Task 4 공통 UI·모바일 헤더 진행 중**. 2026-10-07 사용자가 페이지 및 기능 담당 에이전트 세션에 지시하여 진행하도록 승인했다. 사용자가 선택한 실행 방식은 **페이지별 에이전트 분담, 메인 오케스트레이션, 별도 브랜치 후 로컬 병합**이며 다시 선택을 요구하지 않는다. 완료 표시는 독립 검토와 실제 증거를 회수한 뒤 갱신한다.
+상태: **실행 승인·Tasks 1–4 완료, Task 5 공유 지도·operations 표현 진행 중**. 2026-10-07 사용자가 페이지 및 기능 담당 에이전트 세션에 지시하여 진행하도록 승인했다. 사용자가 선택한 실행 방식은 **페이지별 에이전트 분담, 메인 오케스트레이션, 별도 브랜치 후 로컬 병합**이며 다시 선택을 요구하지 않는다. 완료 표시는 독립 검토와 실제 증거를 회수한 뒤 갱신한다.
 
 ## Global Constraints
 
@@ -95,11 +95,11 @@
 
 **Interfaces:** KindaLogo의 `presentation`에 `"header"|"workspace"`를 추가하고 접근성 이름을 보존한다. 고객 sidebar/workspace 글자는 content-primary를 사용하며 기본/landing/concept는 그대로다. 공통 SelectBox/SiteSwitcher의 기존 ref/onSelectionChange 계약은 유지한다. SettingsView에 필수 `capabilities: SiteCapabilities`를 추가하고 CustomerShell이 실제 capability를 전달한다. 페이지 담당은 이 prop을 재추론하지 않는다.
 
-- [ ] Step 1 — `keeps real header branding and bounded site control in both themes`를 작성한다. 320/390/562px에서 logo와 trigger visible, trigger128/144px·hit44px·전체 option 이름·오류/없음/로딩, status center/theme 모두 접근 가능을 단언한다. desktop rail tooltip/keyboard/collapse, theme 버튼 Enter/Space activation 1회, overlay ESC/return focus도 추가한다.
-- [ ] Step 2 — `pnpm --filter @led-control/web exec vitest run src/components/brand/KindaLogo.test.tsx src/features/sites/SiteSwitcher.test.tsx src/features/shells/CustomerShell.test.tsx src/components/ui/ui-primitives.test.tsx`로 새 계약 RED를 확인한다.
-- [ ] Step 3 — 기존 primitives를 semantic alias로 통일한다. primary button은 별도 foreground token을 쓴다. 고객 logo의 헤더 mark·dark reversed asset은 실제 brand asset을 사용하고 landing/concept/default 표현을 보존한다. 필요한 component density는 고객 경계로 한정한다. native form·새 page-local card/button을 추가하지 않는다.
-- [ ] Step 4 — 모바일 첫 행 logo/select/알림/theme, 두 번째 행 서버 현장 집계, 기존 eager 계정 영역을 유지한다. 760–1023px rail 기본, 넓은 화면220/80px 전환과 접근성 이름/tooltip, 중복 부제/현장 안내 정리를 구현한다. safe-area·focus/fullview·account/logout·권한 gate 수명은 유지한다. SettingsView capability 전달을 여기서 확정한다.
-- [ ] Step 5 — above units, fields/FilterPanel/DataGrid/overlays·CustomerShell.monitoring 기존 unit, typecheck·ui:check와 `e2e/mobile-first-screen.spec.ts`, `e2e/app-shell-recovery.spec.ts`를 실행한다. 두 theme·비고객 기본 표현을 독립 검토하고 `feat(ui): unify ATLAS shell and shared controls`로 커밋한다.
+- [x] Step 1 — `keeps real header branding and bounded site control in both themes`를 작성한다. 320/390/562px에서 logo와 trigger visible, trigger128/144px·hit44px·전체 option 이름·오류/없음/로딩, status center/theme 모두 접근 가능을 단언한다. desktop rail tooltip/keyboard/collapse, theme 버튼 Enter/Space activation 1회, overlay ESC/return focus도 추가한다.
+- [x] Step 2 — `pnpm --filter @led-control/web exec vitest run src/components/brand/KindaLogo.test.tsx src/features/sites/SiteSwitcher.test.tsx src/features/shells/CustomerShell.test.tsx src/components/ui/ui-primitives.test.tsx`로 새 계약 RED를 확인한다.
+- [x] Step 3 — 기존 primitives를 semantic alias로 통일한다. primary button은 별도 foreground token을 쓴다. 고객 logo의 헤더 mark·dark reversed asset은 실제 brand asset을 사용하고 landing/concept/default 표현을 보존한다. 필요한 component density는 고객 경계로 한정한다. native form·새 page-local card/button을 추가하지 않는다.
+- [x] Step 4 — 모바일 첫 행 logo/select/알림/theme, 두 번째 행 서버 현장 집계, 기존 eager 계정 영역을 유지한다. 760–1023px rail 기본, 넓은 화면220/80px 전환과 접근성 이름/tooltip, 중복 부제/현장 안내 정리를 구현한다. safe-area·focus/fullview·account/logout·권한 gate 수명은 유지한다. SettingsView capability 전달을 여기서 확정한다.
+- [x] Step 5 — above units, fields/FilterPanel/DataGrid/overlays·CustomerShell.monitoring 기존 unit, typecheck·ui:check와 `e2e/mobile-first-screen.spec.ts`, `e2e/app-shell-recovery.spec.ts`를 실행한다. 두 theme·비고객 기본 표현을 독립 검토하고 `feat(ui): unify ATLAS shell and shared controls`로 커밋한다.
 
 ### Task 5: 공통 operations 표현·지도 도구·테마 repaint
 
