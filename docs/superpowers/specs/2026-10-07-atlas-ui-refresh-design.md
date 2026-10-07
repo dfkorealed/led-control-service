@@ -67,6 +67,8 @@ React Aria 기반 입력·버튼·오버레이, Tailwind semantic token, 기존 
 
 hover/focus/disabled, 상태 badge·feedback, chart/heatmap와 fixture editor UI 역할도 토큰 전수 매핑의 대상이다. `content-inverse`를 다크 primary 글자 역할로 바꾸지 않고 `action-primary-foreground`를 독립 역할로 추가한다. 원본 CAD·도형 색상은 테마 팔레트에서 제외한다. 두 root selector는 정확한 선언 집합·개수로 검토하며 일반 selector/style 예외를 허용하지 않는다.
 
+Task11 실제 포커스 검사에서 기존 고정 반투명 `shadow-focus`의 고객dark 대비1.3116:1 미달을 발견했다. 기존 기본shadow와579선언을 보존하고, 이미 승인된 고객 `border-focus` light/dark 색을 쓰는3px 불투명 고객shadow2를 추가한다. 공통컨트롤의 기존 `shadow-focus` 소비는 바꾸지 않고 정확두customer root에서만 shadowalias를 연결한다. 토큰 전용/독립검토 뒤 실제hash anchor 회전과 closed정책을 적용하며 기본·brand/landing/login/operator는 그대로다. 현재는 수리 관문이며 새shadow GREEN·전체focus/모든surface/physicalnative 완료를 뜻하지 않는다.
+
 간격은 기존 승인 스케일을 재사용한다. 반복 section·panel 간격, typography, control 반경과 focus ring은 공통 컴포넌트가 소유한다. 목업의 숫자와 색상을 소비자에 literal로 복사하지 않는다. 새로운 layout 치수와 typography 역할은 소비 목적을 문서화해 승인 토큰으로 추가한다.
 
 기존 정책은 승인 앵커 `7b2617b173618d376e7b3a90ec31e1392c3b7bc0`의 375개 역할을 고정한다. 변경 순서는 역할 매핑 검토 → 토큰 전용 커밋 → 별도 정책 앵커 회전 검토·문서 갱신 → 전체 정책 검사 → 공통 컴포넌트 → 메뉴 소비자다. 중간 토큰 커밋의 예상 정책 실패를 전체 통과로 표시하지 않는다. 빈 baseline, Git object 누락 시 차단, 금지 literal·selector·native form 규칙은 유지한다.
