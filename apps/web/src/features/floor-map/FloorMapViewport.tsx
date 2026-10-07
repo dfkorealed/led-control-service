@@ -325,6 +325,10 @@ export const FloorMapViewport = forwardRef<FloorMapViewportHandle, FloorMapViewp
   }
   function restoreCamera(camera: MapViewportCamera) {
     if (!isMapViewportCamera(camera)) return;
+    // An explicit fit/restore takes precedence before its next camera frame
+    // publishes: resize must not restore the previous settled camera instead.
+    lastLogicalCamera.current = { ...camera };
+    resizeCamera.current = null;
     zoomRef.current = camera.zoom;
     pendingZoom.current = camera.zoom;
     applySurfaceZoom(camera.zoom);
