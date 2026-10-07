@@ -10,7 +10,7 @@
 
 **Spec:** [다크 포함 설계 명세](../specs/2026-10-07-atlas-ui-refresh-design.md)
 
-상태: **실행 승인·Task 1 완료, Task 2 공통 정책 진행 중**. 2026-10-07 사용자가 페이지 및 기능 담당 에이전트 세션에 지시하여 진행하도록 승인했다. 사용자가 선택한 실행 방식은 **페이지별 에이전트 분담, 메인 오케스트레이션, 별도 브랜치 후 로컬 병합**이며 다시 선택을 요구하지 않는다. 완료 표시는 독립 검토와 실제 증거를 회수한 뒤 갱신한다.
+상태: **실행 승인·Tasks 1–2 완료, Task 3 공통 테마 전환 진행 중**. 2026-10-07 사용자가 페이지 및 기능 담당 에이전트 세션에 지시하여 진행하도록 승인했다. 사용자가 선택한 실행 방식은 **페이지별 에이전트 분담, 메인 오케스트레이션, 별도 브랜치 후 로컬 병합**이며 다시 선택을 요구하지 않는다. 완료 표시는 독립 검토와 실제 증거를 회수한 뒤 갱신한다.
 
 ## Global Constraints
 
@@ -72,10 +72,10 @@
 
 **Interfaces:** Task 1 palette를 기존 semantic 역할에 alias한다. selector는 `:root[data-customer-theme="light"]` / `:root[data-customer-theme="dark"]` 각각 1회, `color-scheme`도 해당 값이다. 새 css 파일/import·일반 selector allowlist를 추가하지 않는다. 승인 sourceRef는 Task 1의 실제 토큰 전용 commit이다.
 
-- [ ] Step 1 — `accepts only the complete reviewed customer bindings`와 `rejects missing duplicate mutated or extra customer binding`을 작성한다. 추가 selector/unknown alias/literal/중복/하나 빠짐은 각각 거부, 비고객 computed 기본값은 기존과 같다는 단언을 넣는다. `pnpm --filter @led-control/web test:ui-policy`로 새 정상 binding 거부 RED를 확인한다.
-- [ ] Step 2 — 검토된 두 정확한 alias 선언 집합만 base에 추가하고 scanner가 정확한 selector·property→token 값·개수·두 selector 필수 존재를 검사하도록 한다. token anchor/ref와 빈 baseline을 함께 회전한다. 임의 customer property·우회 stylesheet/selector/native form은 계속 차단한다.
-- [ ] Step 3 — `pnpm --filter @led-control/web test:ui-policy`, `pnpm --filter @led-control/web ui:check`, focused theme contract를 실행한다. 생성 CSS에서 고객 dark action foreground가 `#0F1724`, 기본 foreground는 `#FFFFFF`, theme 제거 후 기본 surface 복원을 확인한다.
-- [ ] Step 4 — 실제 anchor object/sourceRef·production 부채 0·기존 landing variant 경계를 독립 검토하고 `feat(ui): bind customer themes with fail-closed policy`로 커밋한다. 이 단계까지도 고객 테마 런타임은 아직 활성화하지 않는다.
+- [x] Step 1 — `accepts only the complete reviewed customer bindings`와 `rejects missing duplicate mutated or extra customer binding`을 작성한다. 추가 selector/unknown alias/literal/중복/하나 빠짐은 각각 거부, 비고객 computed 기본값은 기존과 같다는 단언을 넣는다. `pnpm --filter @led-control/web test:ui-policy`로 새 정상 binding 거부 RED를 확인한다.
+- [x] Step 2 — 검토된 두 정확한 alias 선언 집합만 base에 추가하고 scanner가 정확한 selector·property→token 값·개수·두 selector 필수 존재를 검사하도록 한다. token anchor/ref와 빈 baseline을 함께 회전한다. 임의 customer property·우회 stylesheet/selector/native form은 계속 차단한다.
+- [x] Step 3 — `pnpm --filter @led-control/web test:ui-policy`, `pnpm --filter @led-control/web ui:check`, focused theme contract를 실행한다. 생성 CSS에서 고객 dark action foreground가 `#0F1724`, 기본 foreground는 `#FFFFFF`, theme 제거 후 기본 surface 복원을 확인한다.
+- [x] Step 4 — 실제 anchor object/sourceRef·production 부채 0·기존 landing variant 경계를 독립 검토하고 `feat(ui): bind customer themes with fail-closed policy`로 커밋한다. 이 단계까지도 고객 테마 런타임은 아직 활성화하지 않는다.
 
 ### Task 3: 안정된 테마 provider·저장·전환·portal
 

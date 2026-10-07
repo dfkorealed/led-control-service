@@ -2,13 +2,14 @@
 
 기준일: 2026-10-07
 
-## 2026-10-07 ATLAS 라이트·다크 실제 서비스 UI 적용 — Task 1 완료·공통 정책 진행
+## 2026-10-07 ATLAS 라이트·다크 실제 서비스 UI 적용 — Tasks 1–2 완료·공통 테마 전환 진행
 
 - 승인된 compact 목업과 모바일 헤더 로고·현장 선택 너비 의견을 실제 고객 서비스에 적용하는 [설계 명세](superpowers/specs/2026-10-07-atlas-ui-refresh-design.md)를 작성했다. 공통 디자인/컴포넌트 → 공유 지도 → 모니터링·제어·통계·설정 페이지 담당 → 독립 검증 → 로컬 병합 순서다.
-- `codex/atlas-ui-refresh-20261007`의 격리 worktree를 `codex/mvp1-cloud-web` `5e173fb4`에서 만들었다. 기존 공통·제어/지도·통계 세션과 별도 모니터링·설정 담당을 배정했다. 공통 담당이 task-owned Node 22.20.0과 pnpm 9.15.0으로 격리 frozen install을 마쳤고 토큰 소비 계약 RED·canonical baseline을 기록 중이다. cold 설치의 Prisma Client 미생성 실패를 보존하고 생성 준비 후 재검사한다. 서버 조작·로컬 병합은 미착수다.
+- `codex/atlas-ui-refresh-20261007`의 격리 worktree를 `codex/mvp1-cloud-web` `5e173fb4`에서 만들었다. 기존 공통·제어/지도·통계 세션과 별도 모니터링·설정 담당을 배정했다. task-owned Node 22.20.0과 pnpm 9.15.0으로 격리 frozen install·Prisma Client 생성 준비와 canonical baseline을 회수했다. cold 설치의 미생성 실패도 보존한다. 기존 서버 조작·로컬 병합은 미착수다.
 - 사용자가 다크 포함 [최종 실행 체크리스트](superpowers/plans/2026-10-07-atlas-ui-refresh.md)의 페이지·기능 담당 에이전트 실행을 승인했다. Task 1의 두 테마 역할·토큰과 기준 검증부터 진행한다. 구현 담당과 독립 검수 담당을 분리하며, 완료 체크는 검토와 실제 증거 회수 뒤 표시한다. 기본 light, 브라우저 선호 저장, 고객 root/portal scope와 reactive palette를 사용하고 페이지/renderer/명령 owner는 재마운트하지 않는다.
 - 기존 API·권한·명령 UUID/복구·선택 전체 차단 정책과 실제 통계 의미를 보존한다. 목업 가상 시나리오·센서 이벤트·가짜 보고서를 이식하지 않는다. 다크 지도/차트 repaint·원본 CAD 색 보존·저장 실패/다른 탭·미저장 초안/MFA/PDF 수명 회귀를 계획에 포함했다.
 - Task 1 토큰 전용 `1d65472d`를 독립 designer·spec/quality reviewer가 Approved(C0/I0)로 검토했다. 기존375 기본값을 보존하고 고객98색×2·독립 기본4역할·geometry4역할을 추가했다. 실제 CSS 파서/utility 계약 RED2→GREEN2, Typography24·전체Web3258PASS/기존3SKIP·Web타입/빌드0을 회수했고 메인도 계약2PASS·commit 범위/clean을 확인했다. heatmap 낮은 fill은 필수 경계와 분리해 Task9/11에서 확인한다(M1 후속). Task2 alias/승인 anchor 회전을 시작한다.
+- Task 2 exact root alias·승인 anchor·fail-closed 정책은 `390695ec`와 두 수정 `2674959a`·`71f0ab59`에서 독립 검수했다. CSS 함수 공백·escaped 보호 역할·CSS-invalid NBSP/vertical-tab 예외를 실제 Tailwind→Chromium RED로 확인하고 보완했다. 최종 Spec✅/Quality Approved C0/I0/M0, 정책74/74·CSS소비자5/5·부채0·웹타입/빌드0이다. 수정1 wholeWeb3258PASS/기존3SKIP는 해당 소스의 별도 증거로 남긴다. Task3 stable provider·저장/portal/cleanup을 이어간다.
 - 준비된 canonical baseline은 lint0/typecheck0/test1/build0이다. 제품 변경 전 API 대량 도면 처리·Gateway refresh journal의 5000ms timeout 각1건을 원 소스/로그로 보존한다. Task1의 구 정책 62PASS/5FAIL·UI404는 승인 기준 회전 전 예상 중간 실패이며 전체 gate PASS가 아니다. API/Gateway·timeout/skip 기준을 변경하지 않는다.
 - 기본 checkout의 모니터링/제어 메뉴 문서에 남은 2026-10-07 목업 이력은 보존한다. 모바일 로고/테마의 제품 적용·제품 통합 검증·병합은 아직 완료하지 않았다. 요청한 페이지별 에이전트 방식으로 공통 기반부터 배정한다. 이전 mock/제품 검사 결과를 이번 실제 구현 통과로 표시하지 않는다.
 
