@@ -29,6 +29,19 @@ test("customer and map color utilities remain closed to reviewed token names", (
   for (const candidate of ["bg-map-unknown", "text-customer-dark-unknown"]) assert.ok(inspectUiSource("src/Probe.tsx", `const c = "${candidate}";`).some(v => v.rule === "unapproved-color"));
 });
 
+test("rejects whitespace splitting a customer var function without rejecting argument whitespace", () => {
+  assert.ok(inspectUiSource("src/styles/base.css", customerBindings.replace("var(--color-customer-dark-action-primary-foreground)", "var (--color-customer-dark-action-primary-foreground)")).some(v => v.rule === "customer-theme-binding"));
+  assert.deepEqual(inspectUiSource("src/styles/base.css", customerBindings.replaceAll("var(", "var( /* approved argument comment */ ").replaceAll(");", " );")), []);
+});
+
+test("rejects escaped protected declarations and palette references", () => {
+  for (const extra of [
+    String.raw`body { --color-\73 urface-canvas: var(--color-content-primary); }`,
+    String.raw`body { --unrelated: var(--color-\63 ustomer-dark-content-primary); }`,
+    String.raw`body { --color-surfa\63 e-canvas: var(--color-content-primary); }`
+  ]) assert.ok(inspectUiSource("src/styles/base.css", customerBindings + extra).some(v => v.rule === "customer-theme-binding"), extra);
+});
+
 test("rejects missing duplicate mutated or extra customer binding", () => {
   const declaration = "--color-surface-canvas: var(--color-customer-light-surface-canvas);";
   for (const changed of [

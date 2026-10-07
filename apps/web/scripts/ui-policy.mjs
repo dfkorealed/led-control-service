@@ -34,6 +34,10 @@ function inspectCustomerBindings(source, required = false) {
   const rules = [];
   root.walkRules(rule => { if (customerSelectors.has(rule.selector)) rules.push(rule); });
   root.walkDecls(node => {
+    // This closed base boundary uses only canonical unescaped declarations.
+    // CSS escapes can spell protected properties/references differently from
+    // PostCSS's raw strings; reject them rather than authorize decoded aliases.
+    if (node.prop.includes("\\") || node.value.includes("\\")) fail(`escaped base declaration: ${node.prop}`, node.source.start.offset);
     if (!customerSelectors.has(node.parent.selector) && (node.prop.startsWith("--color-customer-") || customerRoles.some(role => node.prop === `--color-${role}`) || node.value.includes("--color-customer-"))) {
       fail(`binding outside reviewed root: ${node.prop}`, node.source.start.offset);
     }
@@ -48,7 +52,11 @@ function inspectCustomerBindings(source, required = false) {
     let valid = rule.parent === root;
     for (const node of rule.nodes) {
       if (node.type === "comment") continue;
-      if (node.type !== "decl" || node.important || seen.has(node.prop) || expected.get(node.prop) !== normalizeThemeValue(node.value)) valid = false;
+      // Whitespace inside var() arguments is harmless; whitespace between the
+      // function identifier and '(' changes CSS tokenization and must survive.
+      const reference = node.type === "decl" ? node.value.match(/^var\(\s*(--[\w-]+)\s*\)$/) : null;
+      const value = node.prop === "color-scheme" ? node.value.trim() : reference ? `var(${reference[1]})` : null;
+      if (node.type !== "decl" || node.important || seen.has(node.prop) || expected.get(node.prop) !== value) valid = false;
       seen.add(node.prop);
     }
     if (seen.size !== expected.size || [...expected.keys()].some(prop => !seen.has(prop))) valid = false;

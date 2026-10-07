@@ -13,6 +13,30 @@ const proposal = JSON.parse(readFileSync(new URL("docs/assets/atlas-ui-refresh-2
 const source = readFileSync(new URL("../src/styles/theme.css", import.meta.url), "utf8");
 const anchor = "7b2617b173618d376e7b3a90ec31e1392c3b7bc0";
 
+test("real CSS parser rejects admitted invalid functions and escaped override payloads", async () => {
+  const { inspectUiSource } = await import("./ui-policy.mjs");
+  const base = readFileSync(new URL("../src/styles/base.css", import.meta.url), "utf8");
+  const attacks = [
+    { css: base.replace("var(--color-customer-dark-action-primary-foreground)", "var (--color-customer-dark-action-primary-foreground)"), property: "color", candidate: "text-action-primary-foreground", dark: "rgb(255, 255, 255)" },
+    { css: base + String.raw`body { --color-\73 urface-canvas: var(--color-content-primary); }`, property: "backgroundColor", candidate: "bg-surface-canvas", initial: "rgb(21, 50, 74)", dark: "rgb(234, 241, 250)" },
+    { css: base + String.raw`body { --unrelated: var(--color-\63 ustomer-dark-content-primary); }`, property: "color", candidate: "text-action-primary-foreground", style: "color:var(--unrelated)", dark: "rgb(234, 241, 250)" }
+  ];
+  const { chromium } = await import("@playwright/test");
+  const browser = await chromium.launch();
+  try {
+    const page = await browser.newPage();
+    for (const attack of attacks) {
+      const compiler = await compile(`${source}\n${attack.css}\n@tailwind utilities;`);
+      const css = compiler.build([attack.candidate]);
+      await page.setContent(`<style>${css}</style><div id="probe" class="${attack.candidate}" style="${attack.style ?? ""}"></div>`);
+      if (attack.initial) assert.equal(await page.evaluate(property => { delete document.documentElement.dataset.customerTheme; return getComputedStyle(document.getElementById("probe"))[property]; }, attack.property), attack.initial, "escaped property overrides the non-customer default in real CSS");
+      const dark = await page.evaluate(property => { document.documentElement.dataset.customerTheme = "dark"; return getComputedStyle(document.getElementById("probe"))[property]; }, attack.property);
+      assert.equal(dark, attack.dark, "actual generated CSS demonstrates why this payload must be rejected");
+      assert.ok(inspectUiSource("src/styles/base.css", attack.css).some(v => v.rule === "customer-theme-binding"), "unsafe CSS cannot be admitted even when its encoding differs");
+    }
+  } finally { await browser.close(); }
+});
+
 test("generated CSS restores non-customer defaults and resolves customer light/dark foreground", async () => {
   const base = readFileSync(new URL("../src/styles/base.css", import.meta.url), "utf8");
   const compiler = await compile(`${source}\n${base}\n@tailwind utilities;`);
