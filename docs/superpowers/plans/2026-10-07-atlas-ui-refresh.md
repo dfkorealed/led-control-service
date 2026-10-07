@@ -10,7 +10,7 @@
 
 **Spec:** [다크 포함 설계 명세](../specs/2026-10-07-atlas-ui-refresh-design.md)
 
-상태: **실행 승인·Tasks 1–10 구현·독립 검토 완료, Task 11 통합 QA 진행**. 2026-10-07 사용자가 페이지 및 기능 담당 에이전트 세션에 지시하여 진행하도록 승인했다. 사용자가 선택한 실행 방식은 **페이지별 에이전트 분담, 메인 오케스트레이션, 별도 브랜치 후 로컬 병합**이며 다시 선택을 요구하지 않는다. 완료 표시는 독립 검토와 실제 증거를 회수한 뒤 갱신한다. 역사적 웹 모듈 실패의 원인과 통합 브라우저 검증은 Task11 관문에 남아 있어 전체 완료·병합을 뜻하지 않는다.
+상태: **실행 승인·Tasks 1–10 구현·독립 검토 완료, Task 11 PC 스크롤 검증 재설계 방향 확인 대기·Task 12 병합 보류**. 2026-10-07 사용자가 페이지 및 기능 담당 에이전트 세션에 지시하여 진행하도록 승인했다. 사용자가 선택한 실행 방식은 **페이지별 에이전트 분담, 메인 오케스트레이션, 별도 브랜치 후 로컬 병합**이며 다시 선택을 요구하지 않는다. 완료 표시는 독립 검토와 실제 증거를 회수한 뒤 갱신한다. 역사적 웹 모듈 실패의 원인과 통합 브라우저 검증은 Task11 관문에 남아 있어 전체 완료·병합을 뜻하지 않는다.
 
 ## Global Constraints
 
@@ -229,6 +229,9 @@ Lab3의 수동 성공문구는 Task7의 실제 기본접힘 상세 안에 보존
 - Focus 공통 보완 `1912b280` 정확10파일은 scoped WITHCONCERNS다. 진짜정책RED→CSS-only기본복원/명시다른hover색·100%alpha 포함85contract/341units·typeUIbuild0·양팔레트40/4variant를 확인했고 원firstdark390의 같은 실제site focus8.009>=3까지 통과했다. 후속alarm에서 원atlas RGB-only 색parser가 실제반투명oklab을해석하지못해 testcase1FAIL이므로 전체firstcase/Task11 승인아님을 유지한다. 원atlasowner는 한파일local decoder의 실제RGBA/alpha조상stack·unknownfail·원4.5/3기준/geometry를 보존하는 최소제안만 준비한다. 원failures/859source/archive/QA3/protected734 모두 유지하며 별도sourcefixedfirst1→PDF2→full149→관련17/RealLab/canonical/wholegate가 남아 있다.
 
 - 최신 source별 관측(2026-10-08 KST): strict numeric Oklab/정확 alpha decoder 뒤 원 firstdark390 ONE1PASS와 명시적 header-sent/body-pending PDF2PASS를 회수했다. 원753 body timeout 인과와 pre-header640FAIL은 보존하며 헤더 이전 대기·실물PDF 검증으로 확대하지 않는다. 실제 desktop logo는 sidebar, RAC checkbox는 실제 associated label, 모바일 wheel은 visible header padding의 document owner로 검사한다. Ghost 숫자 입력의 투명 edge 대신 실제 값/키보드 focus를 측정해 원320 focused1PASS(값13.892617/focus8.009080)다. 기존 decoder27/734/QA3/4.5·3/default30/859전수와 원실패는 유지한다. 같은884소스 전체149는70PASS/1FAIL/78미실행으로 멈췄다. 원760PC `<canvas>`142<240 검사는 Task7의 실제 조작 viewport240과 다른 대상으로, 기존 `operational-marker-control-height`의 실제 selector/실측을 확인했다. 승인 최소240은 실제 viewport/client 영역에서 검사하고 내부 CAD맞춤 canvas의 실제 표시·DOM/count/camera/zoom 보존은 별도로 유지한다. 제품/CAD/카메라/일반 소비자/높이 기준을 바꾸지 않는 한파일 검사 대상 교정 뒤 원760→새전체149→같은hash 관련17/분리RealLab19→canonical4/UI→독립whole를 진행한다. 부분 PASS/진단은 합산하지 않으며 Task11 체크와 병합은 아직 보류다.
+
+- 최신 전체 실행과 후속 PC 검사(2026-10-08 KST): viewport 검사 대상 교정 뒤 동일899소스 전체149는82PASS/1FAIL/66미실행으로 멈췄다(R79). 첫 PC 안전 사례는 명령 이력 미도달이며, 원QA·root의 retention 소스 검토 뒤 기존 coherent clock tuple/원retentionfalse와 실제GET 관측만 교정했다. 이후 PC48 단일 실행은 R80 0/1/47, wheel witness 수리 R81 0/1/47, R82 16/1/31, R83 0/1/47이다. 서로 다른 source의 부분 PASS는 합산하지 않는다. 원 전체149/각 실패의 raw·source freeze·PNG와 미도달 범위를 보존한다.
+- 현재 HOLD(R83): 최종 atlas blob `a62d746564db66ec28aaf3a93305720dd657647d`의 PC48은 type/UI0·고유list48 뒤0PASS/1FAIL/47미실행이다. 실제 trusted wheel에서 같은 부모 scrollTop0→75·documentY0·zoom1→1은 기록됐지만, 이벤트가 부모 자체 대신 하위 toolbar DIV로 전달돼 `directOwnerDelivery` 단언에서 실패했다. 후속 자체 이동/배율 단언·UUID 선택/상세·정상 PNG·대비는 도달하지 않았다. Root는 완전 보고서·859/보호858 read-only verifier exit0·실제 raw terminal/JSON/실패 PNG를 독립 대조했다. 같은 PC witness 수리가 세 차례 실패했으므로 네 번째 수정 전 사용자에게 검증 구조 재설계 후 계속할지 물었고, 답변 전 원작성자·원QA의 수정/추가 실행을 중지했다. 제품/44px·UUID·배율 계약을 완화하지 않으며 전체149 재실행·관련17·RealLab·canonical·whole review·커밋/병합은 별도 승인과 실제 통과 전까지 보류한다. 아래 Task11/12 체크는 미완료로 유지한다.
 
 - [ ] Step 1 — 각 Task 3–10 test의 보존 경계를 통합 E2E에 연결한다. 양 theme에서 `scrollWidth <= clientWidth`, 표준 PC manual `document.scrollingElement.scrollHeight <= window.innerHeight`, 짧은 PC 내부 scroll·모든 safety action reachable, mobile logo/select/hit44를 단언한다. theme 전환 중 same canvas/camera/UUID·draft/PDF/MFA·추가 mutation0도 단언한다.
 - [ ] Step 2 — 폭/높이 매트릭스 `320×740,390×844,562×1229,759.5/760/760.5×768,1024×600,1024×768,1304×1229,1440×900`에서 light/dark를 실제 CSS·renderer로 확인한다. phase 단위 정상 PNG·실패 원본·raw logs를 격리 산출물에 보존한다. 본문4.5:1·큰 글자/필수 UI3:1·focus/색 외 상태 라벨과 열린 portal를 대조한다.
