@@ -55,3 +55,13 @@ it("does not drop a supplied zero-valued status node", () => {
   render(<Ticker {...props} items={[{ id: "zero", timestampLabel: "10:00", content: "확인", status: 0 }]} />);
   expect(screen.getByText("0")).toBeInTheDocument();
 });
+it("announces a dialog destination only when its adapter opts in", () => {
+  const view = render(<Ticker {...props} />);
+  expect(screen.getByRole("button", { name: "전체 보기" })).not.toHaveAttribute("aria-haspopup");
+  view.rerender(<Ticker {...props} triggerHasPopup="dialog" />);
+  expect(screen.getByRole("button", { name: "전체 보기" })).toHaveAttribute("aria-haspopup", "dialog");
+  fireEvent.click(screen.getByRole("button", { name: "전체 보기" }));
+  expect(props.onOpen).toHaveBeenCalled();
+  view.rerender(<Ticker {...props} />);
+  expect(screen.getByRole("button", { name: "전체 보기" })).not.toHaveAttribute("aria-haspopup");
+});

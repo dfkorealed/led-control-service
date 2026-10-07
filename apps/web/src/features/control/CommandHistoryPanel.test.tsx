@@ -1,9 +1,9 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { onlineManager, QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { CommandHistoryPanel } from "./CommandHistoryPanel";
 
-afterEach(() => { cleanup(); vi.useRealTimers(); vi.unstubAllGlobals(); });
+afterEach(() => { cleanup(); onlineManager.setOnline(true); vi.useRealTimers(); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
 function renderHistory(onSelect = vi.fn(), compactDisclosure = false, onOpenVerificationCases?: () => void) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -16,6 +16,151 @@ function command(id: string) {
 }
 
 describe("CommandHistoryPanel", () => {
+  it("keeps the five-second clock and current row through one-second parent renders with fresh hook arrays and callbacks", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    const fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => ({
+      generatedAt: "2026-09-25T00:00:00Z", retainedFrom: "2026-06-25T00:00:00Z", retentionEnabled: false,
+      items: [command("first-uuid"), command("second-uuid")], nextCursor: null
+    }) });
+    vi.stubGlobal("fetch", fetch);
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const callbacks = [vi.fn(), vi.fn(), vi.fn(), vi.fn(), vi.fn(), vi.fn()];
+    const tree = (tick: number, disabled = false, selectedCommandId: string | null = null) =>
+      <QueryClientProvider client={client}><CommandHistoryPanel userId="user" siteId="site"
+        onSelect={id => callbacks[tick](id)} disabled={disabled} selectedCommandId={selectedCommandId} /></QueryClientProvider>;
+    const view = render(tree(0));
+    await screen.findByRole("button", { name: /최근 명령 상세: first-uuid/ });
+    for (let tick = 1; tick <= 4; tick += 1) {
+      act(() => vi.advanceTimersByTime(1000));
+      view.rerender(tree(tick));
+      expect(screen.getByRole("button", { name: /최근 명령 상세: first-uuid/ })).toBeInTheDocument();
+    }
+    act(() => vi.advanceTimersByTime(999));
+    expect(screen.queryByRole("button", { name: /최근 명령 상세: second-uuid/ })).not.toBeInTheDocument();
+    act(() => vi.advanceTimersByTime(1));
+    expect(screen.getByRole("button", { name: /최근 명령 상세: second-uuid/ })).toBeInTheDocument();
+    // Interaction state must stay live without becoming ticker reset identity.
+    view.rerender(tree(5, true, "second-uuid"));
+    const locked = screen.getByRole("button", { name: /최근 명령 상세: second-uuid/ });
+    expect(locked).toBeDisabled(); expect(locked).toHaveAttribute("aria-pressed", "true");
+    fireEvent.click(locked); expect(callbacks.every(callback => callback.mock.calls.length === 0)).toBe(true);
+    view.rerender(tree(5, false, "first-uuid"));
+    const current = screen.getByRole("button", { name: /최근 명령 상세: second-uuid/ });
+    expect(current).toHaveAttribute("aria-pressed", "false");
+    fireEvent.click(current); expect(callbacks[5]).toHaveBeenCalledWith("second-uuid");
+    expect(callbacks.slice(0, 5).every(callback => callback.mock.calls.length === 0)).toBe(true);
+    expect(fetch.mock.calls.every(([, init]) => (init?.method ?? "GET") === "GET")).toBe(true);
+    view.unmount(); client.clear(); expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("resets rotation for actual recent content and user/site scope changes, not equivalent reconstructed rows", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    const response = { generatedAt: "2026-09-25T00:00:00Z", retainedFrom: "2026-06-25T00:00:00Z", retentionEnabled: false,
+      items: [command("first-uuid"), command("second-uuid")], nextCursor: null };
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: async () => response }));
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const tree = (userId = "user", siteId = "site", timeZone = "UTC") => <QueryClientProvider client={client}>
+      <CommandHistoryPanel userId={userId} siteId={siteId} timeZone={timeZone} onSelect={() => undefined} /></QueryClientProvider>;
+    const view = render(tree());
+    await screen.findByRole("button", { name: /최근 명령 상세: first-uuid/ });
+    act(() => vi.advanceTimersByTime(5000));
+    expect(screen.getByRole("button", { name: /최근 명령 상세: second-uuid/ })).toBeInTheDocument();
+    view.rerender(tree());
+    expect(screen.getByRole("button", { name: /최근 명령 상세: second-uuid/ })).toBeInTheDocument();
+    act(() => client.setQueryData(["command-history", "user", { siteId: "site", limit: 5 }], (data: { pages: typeof response[]; pageParams: unknown[] } | undefined) => data && ({
+      ...data, pages: data.pages.map(page => ({ ...page, items: page.items.map(item => ({ ...item, brightness: 30 })) }))
+    })));
+    expect(await screen.findByRole("button", { name: /최근 명령 상세: first-uuid/ })).toHaveTextContent("30%");
+    act(() => vi.advanceTimersByTime(4999));
+    expect(screen.queryByRole("button", { name: /최근 명령 상세: second-uuid/ })).not.toBeInTheDocument();
+    act(() => vi.advanceTimersByTime(1));
+    expect(screen.getByRole("button", { name: /최근 명령 상세: second-uuid/ })).toBeInTheDocument();
+    view.rerender(tree("other-user", "other-site"));
+    await screen.findByRole("button", { name: /최근 명령 상세: first-uuid/ });
+    act(() => vi.advanceTimersByTime(4999));
+    expect(screen.queryByRole("button", { name: /최근 명령 상세: second-uuid/ })).not.toBeInTheDocument();
+    act(() => vi.advanceTimersByTime(1));
+    expect(screen.getByRole("button", { name: /최근 명령 상세: second-uuid/ })).toBeInTheDocument();
+    view.rerender(tree("other-user", "other-site", "Asia/Seoul"));
+    expect(screen.getByRole("button", { name: /최근 명령 상세: first-uuid/ })).toHaveAccessibleName(/2026-09-12 10:00:00/);
+    view.unmount(); client.clear();
+  });
+
+  it("preserves adapter hover and focus pauses while unrelated parents reconstruct the same recent commands", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: async () => ({
+      generatedAt: "2026-09-25T00:00:00Z", retainedFrom: "2026-06-25T00:00:00Z", retentionEnabled: false,
+      items: [command("first-uuid"), command("second-uuid")], nextCursor: null
+    }) }));
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const tree = () => <QueryClientProvider client={client}><CommandHistoryPanel userId="user" siteId="site" onSelect={() => undefined} /></QueryClientProvider>;
+    const view = render(tree()); await screen.findByRole("button", { name: /최근 명령 상세: first-uuid/ });
+    act(() => vi.advanceTimersByTime(5000));
+    const ticker = screen.getByRole("region", { name: "최근 이력" });
+    fireEvent.mouseEnter(ticker); view.rerender(tree());
+    act(() => vi.advanceTimersByTime(10000));
+    expect(screen.getByRole("button", { name: /최근 명령 상세: second-uuid/ })).toBeInTheDocument();
+    fireEvent.mouseLeave(ticker); fireEvent.focus(screen.getByRole("button", { name: "전체 보기" }));
+    view.rerender(tree()); act(() => vi.advanceTimersByTime(10000));
+    expect(screen.getByRole("button", { name: /최근 명령 상세: second-uuid/ })).toBeInTheDocument();
+    fireEvent.blur(ticker, { relatedTarget: document.body });
+    act(() => vi.advanceTimersByTime(4999));
+    expect(screen.getByRole("button", { name: /최근 명령 상세: second-uuid/ })).toBeInTheDocument();
+    act(() => vi.advanceTimersByTime(1));
+    expect(screen.getByRole("button", { name: /최근 명령 상세: first-uuid/ })).toBeInTheDocument();
+    view.unmount(); client.clear(); expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("hides cached ticker commands while a requested read is paused offline", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: async () => ({
+      generatedAt: "2026-09-25T00:00:00Z", retainedFrom: "2026-06-25T00:00:00Z", retentionEnabled: false,
+      items: [command("cached-uuid")], nextCursor: null
+    }) }));
+    const { client } = renderHistory();
+    await screen.findByRole("button", { name: /최근 명령 상세: cached-uuid/ });
+    onlineManager.setOnline(false);
+    void client.refetchQueries({ queryKey: ["command-history", "user", { siteId: "site", limit: 5 }], exact: true });
+    await waitFor(() => expect(screen.queryByRole("button", { name: /최근 명령 상세:/ })).not.toBeInTheDocument());
+    expect(client.getQueryState(["command-history", "user", { siteId: "site", limit: 5 }])?.fetchStatus).toBe("paused");
+    client.clear();
+  });
+
+  it.each([401, 403, 503])("does not retain a ticker command during a live refetch or after its %s failure", async status => {
+    let resolveRead!: (response: unknown) => void;
+    const fetch = vi.fn().mockResolvedValueOnce({ ok: true, json: async () => ({
+      generatedAt: "2026-09-25T00:00:00Z", retainedFrom: "2026-06-25T00:00:00Z", retentionEnabled: false,
+      items: [command("cached-uuid"), command("second-uuid")], nextCursor: null
+    }) }).mockImplementation(() => new Promise(resolve => { resolveRead = resolve; }));
+    vi.stubGlobal("fetch", fetch); const { client, onSelect } = renderHistory();
+    await screen.findByRole("button", { name: /최근 명령 상세: cached-uuid/ });
+    const refetch = client.refetchQueries({ queryKey: ["command-history", "user", { siteId: "site", limit: 5 }], exact: true });
+    await waitFor(() => expect(screen.queryByRole("button", { name: /최근 명령 상세:/ })).not.toBeInTheDocument());
+    resolveRead({ ok: false, status, headers: { get: () => "application/json" }, json: async () => ({ message: "history unavailable" }) });
+    await refetch;
+    expect(await screen.findByText("최근 명령을 불러오지 못했습니다.")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /최근 명령 상세:/ })).not.toBeInTheDocument();
+    expect(onSelect).not.toHaveBeenCalled(); client.clear();
+  });
+
+  it("drops retention-expired ticker content before the expiry revalidation finishes", async () => {
+    let elapsed = 0;
+    vi.spyOn(performance, "now").mockImplementation(() => elapsed);
+    const fetch = vi.fn().mockResolvedValueOnce({ ok: true, json: async () => ({
+      generatedAt: "2026-09-25T00:00:00Z", retainedFrom: "2026-06-25T00:00:00Z", retentionEnabled: true,
+      items: [{ ...command("expiring-uuid"), createdAt: "2026-06-25T00:00:02Z" }, command("retained-uuid")], nextCursor: null
+    }) }).mockImplementation(() => new Promise(() => undefined));
+    vi.stubGlobal("fetch", fetch);
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const tree = () => <QueryClientProvider client={client}><CommandHistoryPanel userId="user" siteId="site" onSelect={() => undefined} /></QueryClientProvider>;
+    const view = render(tree());
+    await screen.findByRole("button", { name: /최근 명령 상세: expiring-uuid/ });
+    elapsed = 2001; view.rerender(tree());
+    expect(screen.queryByRole("button", { name: /최근 명령 상세: expiring-uuid/ })).not.toBeInTheDocument();
+    await waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
+    expect(screen.queryByRole("button", { name: /최근 명령 상세:/ })).not.toBeInTheDocument();
+    view.unmount(); client.clear();
+  });
+
   it("reads five real recent commands and rotates after exactly five seconds while retaining full history", async () => {
     vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
     const fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => ({

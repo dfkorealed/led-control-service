@@ -10,10 +10,11 @@ export interface RecentActivityTickerProps {
   onOpen: () => void;
   onRetry?: () => void;
   triggerRef?: Ref<HTMLButtonElement>;
+  triggerHasPopup?: "dialog";
 }
 
 /** Presentation only: adapters retain date/cursor/query/error and dialog ownership. */
-export function RecentActivityTicker({ scopeKey, items, emptyContent, onOpen, onRetry, triggerRef }: RecentActivityTickerProps) {
+export function RecentActivityTicker({ scopeKey, items, emptyContent, onOpen, onRetry, triggerRef, triggerHasPopup }: RecentActivityTickerProps) {
   const [index, setIndex] = useState(0);
   const [hovered, setHovered] = useState(false);
   const [focused, setFocused] = useState(false);
@@ -39,6 +40,6 @@ export function RecentActivityTicker({ scopeKey, items, emptyContent, onOpen, on
         {row.status != null ? <div className="shrink-0 text-body-sm">{row.status}</div> : null}</> : emptyContent}
     </div>
     {onRetry ? <Button type="button" variant="ghost" onClick={onRetry}>다시 조회</Button> : null}
-    <Button ref={triggerRef} type="button" variant="ghost" onClick={onOpen}>전체 보기</Button>
+    <Button ref={triggerRef} type="button" variant="ghost" aria-haspopup={triggerHasPopup} onClick={onOpen}>전체 보기</Button>
   </div>;
 }

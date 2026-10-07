@@ -1,5 +1,5 @@
 import { Clock3, TriangleAlert } from "lucide-react";
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
+import { createContext, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
 import { FocusScope, useFocusManager } from "react-aria";
 import { useQueryClient } from "@tanstack/react-query";
 import { useCommandHistory, type CommandStage, type CommandStatusResponse } from "../../api/commands";
@@ -28,6 +28,19 @@ export interface CommandHistoryPanelProps {
   verificationCasesOpenerRef?: RefObject<HTMLButtonElement>;
   verificationCaseCount?: number;
   timeZone?: string;
+}
+
+const RecentCommandInteraction = createContext<Pick<CommandHistoryPanelProps, "onSelect" | "disabled" | "selectedCommandId"> | null>(null);
+type RecentCommandPresentation = { id: string; timestampLabel: string; content: string; status: string };
+
+function RecentCommandButton({ row }: { row: RecentCommandPresentation }) {
+  const interaction = useContext(RecentCommandInteraction);
+  return <Button variant="ghost" type="button" className="min-h-11! min-w-11 max-w-full justify-start! overflow-hidden px-0! text-left! font-normal!"
+    disabled={interaction?.disabled} aria-pressed={interaction?.selectedCommandId === row.id}
+    aria-label={`최근 명령 상세: ${row.id} · ${row.timestampLabel} · ${row.content} · ${row.status}`}
+    onClick={() => { if (interaction && !interaction.disabled) interaction.onSelect(row.id); }}>
+    <span className="truncate"><span className="compact:hidden">{row.status} · </span>{row.content}</span>
+  </Button>;
 }
 
 export function CommandHistoryPanel({ userId, siteId, onSelect, disabled = false, selectedCommandId, compactDisclosure = false, className, onOpenVerificationCases, verificationCasesOpenerRef, verificationCaseCount, timeZone = "UTC" }: CommandHistoryPanelProps) {
@@ -70,16 +83,20 @@ export function CommandHistoryPanel({ userId, siteId, onSelect, disabled = false
   const latestUnauthorized = latest.error instanceof ApiError && [401, 403].includes(latest.error.status);
   const historyUnauthorized = history.error instanceof ApiError && [401, 403].includes(history.error.status);
   const latestItems = latestUnauthorized ? undefined : latest.data?.pages[0]?.items;
-  const tickerRows = useMemo(() => commandHistoryRows(latestItems ?? [], timeZone).map(row => ({ ...row,
+  // The retention-filtering hook reconstructs arrays on every render. Compare
+  // only the actual visible/accessibility content, never callback/lock identity:
+  // unchanged command polling must not restart the shared five-second clock.
+  // Undefined fail-closed data still becomes [], and actual expiry/content resets.
+  const recentPresentation = JSON.stringify(commandHistoryRows(latestItems ?? [], timeZone).map(row => ({
+    id: row.id, timestampLabel: row.timestampLabel, content: String(row.content), status: String(row.status)
+  })));
+  const tickerRows = useMemo(() => (JSON.parse(recentPresentation) as RecentCommandPresentation[]).map(row => ({ ...row,
     // The one-line mobile row reserves a real 44px command target. Full date,
     // UUID and actual result remain in its accessible name and history dialog.
     timestampLabel: row.timestampLabel.split(" ")[1] ?? row.timestampLabel,
-    content: <Button variant="ghost" type="button" className="min-h-11! min-w-11 max-w-full justify-start! overflow-hidden px-0! text-left! font-normal!"
-      disabled={disabled} aria-pressed={selectedCommandId === row.id}
-      aria-label={`최근 명령 상세: ${row.id} · ${row.timestampLabel} · ${row.content} · ${row.status}`}
-      onClick={() => onSelect(row.id)}><span className="truncate"><span className="compact:hidden">{row.status} · </span>{row.content}</span></Button>,
+    content: <RecentCommandButton row={row} />,
     status: <span className="hidden max-w-40 truncate compact:block" title={String(row.status)}>{row.status}</span>
-  })), [latestItems, timeZone, disabled, selectedCommandId, onSelect]);
+  })), [recentPresentation, timeZone]);
   const page = historyUnauthorized ? undefined : history.data?.pages[pageIndex];
   const pending = history.isPending || history.isFetching || history.isPaused;
   const canRetryHistory = !pending && !periodError;
@@ -109,12 +126,14 @@ export function CommandHistoryPanel({ userId, siteId, onSelect, disabled = false
   return <>
     <Card className={cn("flex min-h-13 min-w-0 shrink-0 items-center gap-1", compactDisclosure ? "border-0! bg-transparent! p-0!" : "p-3", className)} aria-label="최근 명령 이력" data-command-history-panel="">
       <div className="min-w-0 flex-1">
-        <RecentActivityTicker scopeKey={JSON.stringify([userId, siteId])} items={tickerRows}
-          emptyContent={latest.isPending ? <Text role="status">최근 명령을 불러오는 중입니다.</Text>
-            : latest.error ? <Text role="alert" tone="danger">최근 명령을 불러오지 못했습니다.</Text>
-            : <Text>명령 이력이 없습니다.</Text>}
-          onOpen={() => setOpen(true)} triggerRef={openerRef}
-          onRetry={latest.error ? () => void latest.refetch() : undefined} />
+        <RecentCommandInteraction.Provider value={{ onSelect, disabled, selectedCommandId }}>
+          <RecentActivityTicker scopeKey={JSON.stringify([userId, siteId])} items={tickerRows}
+            emptyContent={latest.isPending ? <Text role="status">최근 명령을 불러오는 중입니다.</Text>
+              : latest.error ? <Text role="alert" tone="danger">최근 명령을 불러오지 못했습니다.</Text>
+              : <Text>명령 이력이 없습니다.</Text>}
+            onOpen={() => setOpen(true)} triggerRef={openerRef} triggerHasPopup="dialog"
+            onRetry={latest.error ? () => void latest.refetch() : undefined} />
+        </RecentCommandInteraction.Provider>
       </div>
       {/* Keep uncertain-case recovery reachable independently of history fetching or dimming locks. */}
       {onOpenVerificationCases ? <Button ref={verificationCasesOpenerRef} type="button" variant="ghost" className="min-h-13! min-w-13! px-2!" aria-label="확인 필요한 명령" onClick={onOpenVerificationCases}><TriangleAlert size={16} aria-hidden="true" />{verificationCaseCount ? <span aria-hidden="true">{verificationCaseCount}</span> : null}</Button> : null}

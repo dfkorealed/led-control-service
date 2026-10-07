@@ -9,6 +9,7 @@
 - 표시 층의 서버 `DashboardFloor.summary`를 공통 14px 라벨·16px 수치로 표시한다. 실제 0은 0, 누락은 `—`이며 현장 집계·선택 수·일부 로딩한 fixture로 대체하지 않는다. 도면 층 전환은 기존 선택 대상/도구/카메라 owner를 유지한다. embedded 기본 표현과 제스처는 변경하지 않는다.
 - `ManualExecutionPanel`은 기존 raw 정수 0~100 유효성·blur 복원·첫 Apply 오클릭 차단 refs를 보존한 표현 경계다. 0/30/70/100% 빠른 값·수치·슬라이더·Enter는 초안만 변경하며 별도 Apply만 명령을 발행한다. frozen UUID·canonical payload·ACK·원래 대상·명령 owner·재진입/복구·전체 선택 차단은 기존 실제 정책을 유지한다. 부적격 조명을 제외한 부분 실행 목업 정책은 이식하지 않는다.
 - 실제 최근 명령 GET limit을 1에서 5로 바꾸고 실제 UUID/시각/대상 수/밝기/상태·시각 거부를 공통 5초 ticker로 표시한다. 전체 보기의 검색·날짜 raw draft·상태·50/100/500/1000개·커서·retention·UUID 상세·확인 사례·초점 복귀와 원래 대상 안전 재적용은 기존 owner/query를 유지한다.
+- Task 7 독립 검토 I1 보완: 같은 최근 내용의 새 filtered 배열·callback과 일반 부모/1초 명령 polling 렌더는 5초 순환을 초기화하지 않는다. 실제 표시/접근성 내용·순서·시간대·사용자/현장 변경은 초기화하며 최신 선택·잠금·상세 callback은 표현 전용 Context로 즉시 반영한다. 조회 중/paused/오류/retention 만료는 기존 hook의 fail-closed 결과를 그대로 소비해 과거 행으로 감추지 않는다. M1 보완으로 제어 이력의 전체 보기만 `aria-haspopup="dialog"`를 명시하고 다른 ticker 소비자의 기본 의미는 유지한다.
 
 ### 미구현
 
@@ -17,10 +18,12 @@
 ### 부족하거나 개선이 필요한 기능
 
 - 격리 Node/Chromium software fixture 결과만 검증한다. 실제 물리 모바일·native frame·브라우저 fractional viewport·운영 장비 성공을 주장하지 않는다. 원 실패 로그와 최종 검증은 `.superpowers/sdd/2026-10-07-atlas-ui-refresh/task-7-report.md`에 분리한다. 기존 전체 Web `ApiError` module-binding 문제는 Task 11 후속이며 timeout/skip/assertion을 줄여 숨기지 않는다.
+- I1/M1의 원 독립 지적·RED·보완 소스의 fresh 검증은 `task-7-fix1-report.md`에 별도로 남긴다. 이전 전체 Web 통과만으로 일반 polling 수명의 순환 정확성을 증명하지 않으며, 보완 후에도 독립 재검토·Task 11/HIL 관문은 별개다.
 
 ### 관련 파일
 
 - `apps/web/src/features/control/{ControlView,ManualExecutionPanel,CommandHistoryPanel}.tsx`, `command-history-presentation.ts`, `target-selection/SpatialTargetSelector.tsx` 및 대응 시험, 공통 owner의 `apps/web/src/features/shells/CustomerShell.tsx`, `apps/web/e2e/{calm-operations-manual-control,operational-marker-control-height,command-retention}.spec.ts`.
+- 선택적 dialog trigger 의미: `apps/web/src/components/ui/operations/RecentActivityTicker.tsx` 및 대응 시험. Generic ticker의 timer/pause/scope 계약은 변경하지 않는다.
 
 ### 갱신 규칙
 

@@ -135,6 +135,7 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
     await expect(history.getByRole("button", { name: new RegExp(commandId) })).toBeVisible();
     const openHistory = history.getByRole("button", { name: "전체 보기" });
     await expect(openHistory).toBeVisible();
+    await expect(openHistory).toHaveAttribute("aria-haspopup", "dialog");
     await openHistory.click();
     const drawer = page.getByRole("dialog", { name: "명령 이력" });
     await expect(drawer.getByRole("searchbox", { name: "명령 이력 검색" })).toBeVisible();

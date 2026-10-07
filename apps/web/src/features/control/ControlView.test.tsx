@@ -496,12 +496,50 @@ describe("ControlView 대상 선택", () => {
     renderControl();
     const execution = screen.getByRole("complementary", { name: "밝기 실행" });
     const historyDisclosure = screen.getByRole("button", { name: "전체 보기" });
+    expect(historyDisclosure).toHaveAttribute("aria-haspopup", "dialog");
     expect(execution).toContainElement(within(execution).getByRole("slider", { name: "밝기" }));
     expect(execution).toContainElement(within(execution).getByRole("textbox", { name: "밝기 수치" }));
     expect(execution).toContainElement(within(execution).getByRole("button", { name: "밝기 적용" }));
     expect(within(execution).queryByRole("heading", { name: "최근 결과" })).not.toBeInTheDocument();
     expect(execution.compareDocumentPosition(historyDisclosure) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(screen.queryByRole("button", { name: "선택 대상 펼치기" })).not.toBeInTheDocument();
+  });
+
+  it("rotates recent history during repeated live command polling renders without replacing its frozen request", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    mocks.apiGet.mockResolvedValue({ items: [
+      { ...createCommandStatus(commandIds.terminal, "completed"), createdAt: "2026-09-12T01:00:00Z", brightness: 70 },
+      { ...createCommandStatus(commandIds.different, "failed"), createdAt: "2026-09-12T00:00:00Z", brightness: 30 }
+    ], nextCursor: null });
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const tree = () => <QueryClientProvider client={client}><SessionStatusProvider><MemoryRouter>
+      <ControlView siteId={dashboard.site.id} userId={USER_A} userRole="admin" />
+    </MemoryRouter></SessionStatusProvider></QueryClientProvider>;
+    const view = render(tree());
+    await screen.findByRole("button", { name: new RegExp(`최근 명령 상세: ${commandIds.terminal}`) });
+    selectFixture("B2-L001"); changeBrightness(30); fireEvent.click(applyButton());
+    await waitFor(() => expect(mocks.apiPost).toHaveBeenCalledTimes(1));
+    const frozenRequest = structuredClone(mocks.apiPost.mock.calls[0][1]);
+    expect(commandStore.loadActiveCommandRequest(USER_A, dashboard.site.id)).toEqual(frozenRequest);
+    const currentStatus = { ...createCommandStatus(commandIds.default, "accepted"), siteId: dashboard.site.id };
+    mocks.useCommandStatus.mockReturnValue({ data: currentStatus, error: null, isFetching: false, refetch: vi.fn() });
+    view.rerender(tree());
+    for (let tick = 1; tick <= 4; tick += 1) {
+      act(() => vi.advanceTimersByTime(1000));
+      mocks.useCommandStatus.mockReturnValue({ data: { ...currentStatus }, error: null, isFetching: tick % 2 === 1, refetch: vi.fn() });
+      view.rerender(tree());
+    }
+    act(() => vi.advanceTimersByTime(999));
+    expect(screen.getByRole("button", { name: new RegExp(`최근 명령 상세: ${commandIds.terminal}`) })).toBeDisabled();
+    act(() => vi.advanceTimersByTime(1));
+    const second = screen.getByRole("button", { name: new RegExp(`최근 명령 상세: ${commandIds.different}`) });
+    expect(second).toBeDisabled(); fireEvent.click(second);
+    expect(mocks.apiPost).toHaveBeenCalledTimes(1);
+    expect(mocks.apiPost.mock.calls[0][1]).toEqual(frozenRequest);
+    expect(commandStore.loadActiveCommandRequest(USER_A, dashboard.site.id)).toEqual(frozenRequest);
+    expect(frozenRequest.clientRequestId).toBeTruthy();
+    expect(applyButton()).toBeDisabled();
+    view.unmount(); client.clear();
   });
 
   it("keeps submitted command progress and outcome actions inside the compact execution panel", async () => {
