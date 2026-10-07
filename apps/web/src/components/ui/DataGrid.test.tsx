@@ -23,6 +23,16 @@ const columns = [
   { id: "action", header: "작업", minWidth: 100, align: "center" as const, renderCell: () => <button>상세</button> }
 ];
 describe("DataGrid", () => {
+  it("keeps table sort headers rectangular without changing ordinary or card buttons", () => {
+    render(<><UI.Button>일반 버튼</UI.Button><UI.DataGrid caption="조작 영역" rows={[{ id: "one", value: 1 }]} columns={[
+      { id: "value", header: "값", minWidth: 100, sortValue: row => row.value, renderCell: row => row.id }
+    ]} getRowKey={row => row.id} /></>);
+    expect(screen.getByRole("button", { name: "오름차순으로 변경" })).toHaveClass("rounded-control");
+    measure(100);
+    // JSDOM checks the emitted geometry declaration; native continuous44 is a browser contract.
+    expect(screen.getByRole("button", { name: "값 오름차순 정렬" })).toHaveClass("rounded-none", "min-w-11", "max-w-full", "px-0");
+    expect(screen.getByRole("button", { name: "일반 버튼" })).toHaveClass("rounded-control");
+  });
   it("keeps compact card sorting in one accessible control row without a separate label", async () => {
     render(<UI.DataGrid variant="compact" caption="작은 목록" rows={[{ id: "ten", amount: 10 }, { id: "two", amount: 2 }]} columns={[
       { id: "amount", header: "수량", minWidth: 200, sortValue: row => row.amount, renderCell: row => row.id },

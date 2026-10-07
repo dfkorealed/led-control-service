@@ -1116,3 +1116,11 @@
 - 미구현·한계: 실제 모바일 장비/HIL 및 전체 Task9 통합 완료를 뜻하지 않는다. 일반 Button/IconButton·공개/인증/운영자 기본 크기와 토큰은 변경하지 않았다.
 - 관련 파일: `apps/web/src/components/ui/theme/ThemeToggle.tsx`, `CustomerThemeProvider.test.tsx`, `apps/web/e2e/support/layout-assertions.ts`, `apps/web/e2e/statistics-flow.spec.ts`.
 - 갱신 규칙: 공통 헤더의 frame·조작 영역 변경 시 영향받는 네 메뉴의 검증 범위와 실제 장비 한계를 함께 갱신한다.
+
+## 2026-10-07 공통 Grid 정렬 헤더 조작 영역 보완
+
+- 구현 완료: 공통 DataGrid의 표 정렬 헤더만 기존 `rounded-none`을 사용한다. 내용 너비·44px 높이의 버튼에서 둥근 모서리가 연속44px hit 영역을 깎지 않도록 한 국소 예외이며 일반 Button/IconButton·카드 방향 버튼·토큰은 유지한다.
+- 미구현: 서버 전체 정렬·새 API·실제 장비 기능을 추가하지 않는다. 정렬은 전달된 현재 목록 범위다.
+- 부족하거나 개선이 필요한 기능: 단위 소비 회귀와 격리1023px Chromium은 소프트웨어 fixture 검증이며 전체 반응형 행렬·native200%·실제 모바일/HIL 완료를 뜻하지 않는다. 실제 hit 결과는 같은 작업 보고서에 기록한다.
+- 관련 파일: `apps/web/src/components/ui/DataGrid.tsx`, `DataGrid.test.tsx`, `docs/ui-spacing.md`.
+- 갱신 규칙: 헤더 radius·높이·너비 변경 시 실제 연속44px hit 및 표/카드·키보드·현재 목록 안정 정렬·행 작업과 API 쓰기0을 함께 회귀 검증한다.

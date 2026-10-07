@@ -93,7 +93,8 @@ export function DataGrid<T>({ caption, rows, columns, getRowKey, isBusy = false,
       {/* Percent widths are runtime column geometry, not spacing/design tokens. */}
       <colgroup>{columns.map(column => <col key={column.id} style={{ width: `${column.minWidth / minimumWidth * 100}%` }} />)}</colgroup>
       <thead><tr>{columns.map(column => <DataTableHeaderCell key={column.id} aria-sort={sortColumn?.id === column.id ? sort?.direction : undefined} className={variant === "compact" ? "px-3 py-2" : undefined}>
-        {column.sortValue ? <Button type="button" variant="ghost" size="sm" className="min-w-11 max-w-full border-transparent bg-transparent px-0 font-semibold text-content-secondary whitespace-normal"
+        {/* Content-width headers need square corners to retain a continuous44px hit area at44px height. */}
+        {column.sortValue ? <Button type="button" variant="ghost" size="sm" className="rounded-none min-w-11 max-w-full border-transparent bg-transparent px-0 font-semibold text-content-secondary whitespace-normal"
           aria-label={`${column.header} ${sortColumn?.id === column.id && sort?.direction === "ascending" ? "내림차순" : "오름차순"} 정렬`} onClick={() => toggleSort(column.id)}>
           <span className="min-w-0 wrap-anywhere">{column.header}</span>
           {sortColumn?.id === column.id ? sort?.direction === "ascending" ? <ArrowUp size={16} className="shrink-0" aria-hidden="true" /> : <ArrowDown size={16} className="shrink-0" aria-hidden="true" /> : <ArrowUpDown size={16} className="shrink-0" aria-hidden="true" />}

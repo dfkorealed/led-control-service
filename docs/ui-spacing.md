@@ -55,6 +55,8 @@
 
 ## 반응형과 예외
 
+- 공통 DataGrid의 표 정렬 헤더만 `rounded-none`을 사용한다. 내용 너비·44px 높이의 ghost 버튼은 기본10px radius가 연속44px hit 영역을 깎으므로 사각 hit-shape를 유지한다. 일반 Button/IconButton·카드 정렬 방향 버튼·기본 토큰·표 컬럼/컨테이너 전환 geometry는 변경하지 않는다. 설정 사용자·자동화 규칙·보고서·운영자 목록 소비자에도 같은 국소 예외를 적용하며 실제 Chromium hit 검사와 소비 회귀를 함께 유지한다.
+
 - 공개 랜딩 전환에는 canonical `styles.css`의 `landing-narrow:`, `landing-stack:`, `landing-wide:`만 사용한다. 각각 `@media (max-width: 430px)`, `720px`, `1050px`로 기존 경계를 포함하며 430.5/720.5/1050.5px은 해당 variant에서 제외한다. 세 선언의 이름·값·중복·누락과 네 번째 custom variant를 정책으로 검사한다. 기존 `max-compact`의 미만 조건과 구분한다.
 
 - 신규 utility는 `p-6 max-compact:p-4`처럼 쓴다. `compact=47.5rem`(기본 16px 기준 760px), `tablet=64rem`이며 `max-compact`는 **760px 미만**이다. 기존 compatibility CSS의 `max-width: 760px`는 경계값을 포함하므로 페이지 전환 시 760px 경계도 확인한다. 섹션 간 24px 리듬은 유지한다.
