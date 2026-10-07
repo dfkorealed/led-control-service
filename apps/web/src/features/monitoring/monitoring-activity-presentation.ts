@@ -1,4 +1,5 @@
-import type { MonitoringActivityItem } from "@led-control/shared";
+import type { MonitoringActivityItem } from "@led-control/shared/monitoring-activity-contracts";
+import type { RecentActivityRow } from "../../components/ui";
 import { formatMonitoringTimestamp } from "./monitoring-time";
 
 const statusLabel = { online: "정상", offline: "오프라인", fault: "점검 필요" } as const;
@@ -15,8 +16,7 @@ const refreshStatusLabel = {
   expired: "응답 시간 만료"
 } as const;
 
-export function formatMonitoringActivity(item: MonitoringActivityItem, timeZone: string) {
-  const recordedAt = formatMonitoringTimestamp(item.recordedAt, timeZone);
+function monitoringActivityContent(item: MonitoringActivityItem) {
   const name = item.displayName ?? "조명";
   const brightness = item.brightnessPercent === undefined ? "" : ` · 밝기 ${item.brightnessPercent}%`;
   const status = item.status === undefined ? "" : ` · ${statusLabel[item.status]}`;
@@ -31,5 +31,14 @@ export function formatMonitoringActivity(item: MonitoringActivityItem, timeZone:
       case "monitoring_refresh_result": return `장치 상태 확인 · ${item.refreshStatus ? refreshStatusLabel[item.refreshStatus] : "결과 확인 불가"}`;
     }
   })();
-  return `${recordedAt} · ${content}`;
+  return content;
+}
+
+export function formatMonitoringActivity(item: MonitoringActivityItem, timeZone: string) {
+  return `${formatMonitoringTimestamp(item.recordedAt, timeZone)} · ${monitoringActivityContent(item)}`;
+}
+
+/** Keep the recorded event's actual meaning; the shared ticker never owns query/retention. */
+export function monitoringActivityRows(items: readonly MonitoringActivityItem[], timeZone: string): readonly RecentActivityRow[] {
+  return items.map(item => ({ id: item.id, timestampLabel: formatMonitoringTimestamp(item.recordedAt, timeZone), content: monitoringActivityContent(item) }));
 }

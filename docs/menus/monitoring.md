@@ -1,5 +1,52 @@
 # 모니터링 메뉴 기능 현황
 
+## 2026-10-07 ATLAS 모니터링 페이지 적용 (Task 6)
+
+### 구현 완료
+
+- 모니터링 제목·기존 맵 선택/단일 검색 Popover·서버 갱신 시각/실제 새로고침 동작을 유지하며 공통 `OperationMapPanel` chrome 안에 선택 층 `InlineStatusSummary`를 표시한다. 집계는 서버 `floor.summary`를 사용하며 로딩된 pin 수와 구분하고 `null → —`, 실제 `0 → 0`을 유지한다.
+- 초기 공통 `body-sm/body` 소비는 실제 브라우저에서 13/14px로 확인되어 아래 Task 5의 최초 14/16px 완료 주장과 구분한다. 공통 원 소유자의 보완 `a835fde6`가 기존 `body/body-lg` 의미 토큰으로 실제 14/16px를 복구했다. 모바일 마지막 새로고침 행은 기존 하단 navigation safe-space를 소유하여 조작 가림을 방지한다.
+- 기존 운영 활동 formatter를 보존 확장한 `monitoringActivityRows` adapter로 실제 online/offline/fault·명령 outcome·refreshStatus를 공통 5초 ticker에 연결한다. hover/focus/문서 hidden 정지·범위/행 변경 초기화와 항상 보이는 전체 보기·오류 재조회를 공통 표현에서 제공한다.
+- 기존 pin 선택·테마 전환·전체 보기·카메라 복원, 서버 timestamp/시간대·반복 refresh 잠금/층 취소, 날짜 초안·50/100/500/1000 조회·retention/cursor 복구·권한·safe-area/focus는 변경하지 않는다. Drawer는 이미 공통 LogView/FilterPanel을 사용하므로 표현 source를 다시 수정하지 않고 회귀 검증한다.
+
+### 미구현
+
+- 새 API/필터·전역 정렬·장비/DB 계약은 추가하지 않는다. 실제 native WebView·Gateway·LED HIL은 검증하지 않았다.
+
+### 부족하거나 개선이 필요한 기능
+
+- 격리 mock Chromium 및 Web 단위 검증 범위다. 공통 glyph/notice 및 이전 화면 계약의 원 실패를 Task 6 보고서에 분리 보존하며 모든 브라우저가 통과했다고 표시하지 않는다. legacy 도면 revision 변경 뒤 카메라 100% 초기화는 현재 실행 실패·BASE 통과로 미해결이며 후행 검증이 필요하다. 알람센터의 해결된 현재 상태와 최근 50개 알림 이력은 별도로 유지한다.
+
+### 관련 파일
+
+- `apps/web/src/features/monitoring/{MonitoringView,MonitoringSummary,FloorMap,MonitoringLogTicker,monitoring-activity-presentation}.tsx` (adapter는 `.ts`), 대응 단위 시험, 기존 Drawer/query/camera 회귀 시험 및 `apps/web/e2e/{monitoring-surface-access,calm-operations-monitoring}.spec.ts`.
+
+### 갱신 규칙
+
+- 표현 변경은 서버 집계와 loaded pin·null/0·실제 timestamp·검색/상태 필터·선택/카메라·전체 이력 기간/cursor 의미를 함께 검증하고 기존 실패와 실제 장비 미검증을 구분하여 기록한다.
+
+## 2026-10-07 디자인 검토 목업 한 줄 집계 수정
+
+### 구현 완료
+
+- 로컬 ATLAS 목업의 도면 상태는 별도 카드 없이 맵 상단 한 줄로 표시한다. PC 레이블 14px·수치 16px로 기존 한 줄 표시보다 조금 키웠다. 수동 제어도 같은 집계 표현을 사용한다.
+
+### 미구현
+
+- 실제 서비스 적용·API·장비 연동은 하지 않았다. 아래 제품 구현 이력과 구분되는 목업 전용 수정이다.
+
+### 부족하거나 개선이 필요한 기능
+
+- 모바일 320/390px에서는 좁은 폭에 맞춰 집계 글씨와 간격을 조정한다. 실제 휴대폰/HIL은 검증하지 않았다.
+
+### 관련 파일
+
+- `.superpowers/brainstorm/40560-1791327706/content/atlas-operations.css`, `atlas-operations.js`, `atlas-prototype-v2-compact.html` (Git 제외 로컬 목업).
+
+### 갱신 규칙
+
+- 목업 변경과 제품 반영을 구분하며 도면 상태·반응형 배치 변경 시 제어 메뉴 문서도 함께 갱신한다.
+
 ## 2026-10-07 공통 작업 표현·지도 테마 repaint (Task 5)
 
 ### 구현 완료

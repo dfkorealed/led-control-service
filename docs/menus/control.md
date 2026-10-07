@@ -5,6 +5,7 @@
 ### 구현 완료
 
 - 공통 인라인 상태(라벨 14px·수치 16px, 0/null 구분), 한 줄 5초 이력 ticker와 표현 전용 도면 chrome을 제공한다. ticker의 전체 보기·재조회는 기존 메뉴 query/상세 owner에 위임한다.
+- Task 6 실제 브라우저 검증에서 최초 `body-sm/body` 소비가 13/14px였음을 확인했다. 공통 원 소유자의 보완 `a835fde6`는 기존 `body/body-lg` 의미 토큰으로 실제 14/16px를 제공하며 새 token이나 소비 wrapper를 추가하지 않았다. 최초 구현의 글꼴 완료 주장과 이 보완 증거를 구분한다.
 - `SpatialTargetSelector.presentation="manual-workspace"`에서 이동·개별 선택·영역 선택을 도면 상단에 항상 표시하고 `FloorMapViewport.toolModePolicy="explicit"`로 실제 gesture 정책을 연결한다. 이동은 pin 선택을 차단하고 개별 선택은 영역 드래그를 실행하지 않는다. 층/구역 또는 잠긴 선택에서는 선택 도구만 차단하고 이동을 보존한다.
 - 기존 embedded·interaction-default는 그대로다. Space/중간 버튼, touch hold/pinch/cancel/ghost click과 전체 선택의 gateway/부적격 차단 계약은 유지한다.
 

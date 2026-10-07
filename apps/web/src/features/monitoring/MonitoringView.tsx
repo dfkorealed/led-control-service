@@ -6,7 +6,7 @@ import { useDashboard, useFloorFixtures, useFloorMapSnapshot, type Dashboard } f
 import { useCurrentUser } from "../../api/auth";
 import { principalKey } from "../../api/principal-cache";
 import { waitForMonitoringRefresh, type MonitoringRefreshResult } from "../../api/monitoring-refresh";
-import { Button, DetailSheet, Popover, FeedbackState, Heading, SelectBox, Text, cn, useWorkspaceFocus, useSessionStatus, type SessionStatusItem } from "../../components/ui";
+import { Button, DetailSheet, Popover, FeedbackState, Heading, OperationMapPanel, SelectBox, Text, cn, useWorkspaceFocus, useSessionStatus, type SessionStatusItem } from "../../components/ui";
 import { InstallationPending } from "../setup/SetupWizard";
 import { FloorMap } from "./FloorMap";
 import { MonitoringFixtureFinder } from "./MonitoringFixtureFinder";
@@ -356,6 +356,7 @@ function MonitoringDashboard({ data, userRole, siteId, refreshDashboard }: Monit
         onMapRetry={() => void handleMapRetry()}
       />
       <div className="flex items-center justify-between gap-4 max-compact:contents" role="group" aria-label="모니터링 도구">
+        <Heading as="h2" variant="page-title" className="hidden max-compact:block max-compact:order-0">모니터링</Heading>
         {/* Keep the one search action beside map selection while compact order
             puts read-only status and the actual map before refresh. Wrapping
             preserves existing control sizes when text is enlarged. */}
@@ -370,7 +371,9 @@ function MonitoringDashboard({ data, userRole, siteId, refreshDashboard }: Monit
           />
           <Button ref={inspectorTriggerRef} variant="secondary" className="shrink-0" aria-haspopup="dialog" aria-expanded={isInspectorOpen} onClick={() => setIsInspectorOpen(true)}>조명 검색·상세</Button>
         </div>
-        <div className="ml-auto flex flex-wrap items-center justify-end gap-2 text-content-secondary max-compact:ml-0 max-compact:w-full max-compact:order-4">
+        {/* Compact refresh is the final flow row, so it—not the earlier map—
+            owns clearance from the fixed navigation. Full view hides the nav. */}
+        <div className={cn("ml-auto flex flex-wrap items-center justify-end gap-2 text-content-secondary max-compact:ml-0 max-compact:w-full max-compact:order-4", !workspaceFocus.active && "max-compact:pb-shell-navigation-safe")}>
           <Text as="small" variant="caption" tone="secondary" className="min-w-0 max-w-full break-words text-right">
             {formatSnapshotUpdatedAt(snapshotFreshness, data.site.timeZone ?? "Asia/Seoul")}
           </Text>
@@ -395,20 +398,16 @@ function MonitoringDashboard({ data, userRole, siteId, refreshDashboard }: Monit
         onRetry={() => void fixtureQuery.refetch()}
       />
 
-      {floor ? <MonitoringSummary
-        scope="floor"
-        mapName={floor.name}
-        total={floor.summary?.totalFixtures ?? null}
-        online={floor.summary?.onlineFixtures ?? null}
-        fault={floor.summary?.faultFixtures ?? null}
-        offline={floor.summary?.offlineFixtures ?? null}
-      /> : null}
-
       {/* Keep the desktop detail's reading region as tall as the map's natural
           minimum; short screens scroll the page instead of shrinking the row. */}
-      <div className={cn("grid min-h-0 min-w-0 flex-1 gap-4 tablet:min-h-min max-compact:order-3", isDesktop && isDetailOpen && selectedFixtureId && "tablet:grid-cols-[minmax(0,1fr)_minmax(0,22rem)]")} data-monitoring-layout="">
-        <div className={cn("flex h-full min-h-min min-w-0 flex-col gap-5", !workspaceFocus.active && "max-compact:pb-shell-navigation-safe")} data-monitoring-map-panel="">
-          <div className="min-h-min min-w-0 flex-1">
+      {/* Natural compact flow must include the map's real minimum canvas and
+          ticker; shrinking this row lets its children cover the refresh row. */}
+      <div className={cn("grid min-h-0 min-w-0 flex-1 gap-4 tablet:min-h-min max-compact:order-3", !workspaceFocus.active && "max-compact:min-h-min max-compact:flex-none", isDesktop && isDetailOpen && selectedFixtureId && "tablet:grid-cols-[minmax(0,1fr)_minmax(0,22rem)]")} data-monitoring-layout="">
+        <div className="flex h-full min-h-min min-w-0 flex-col gap-5" data-monitoring-map-panel="">
+          <OperationMapPanel className="min-h-min" title={<Heading as="h2" variant="label" className="break-words">{floor ? `${floor.name} · 조명 현황` : "층 도면"}</Heading>}
+            status={floor ? <MonitoringSummary scope="floor" mapName={floor.name}
+              total={floor.summary?.totalFixtures ?? null} online={floor.summary?.onlineFixtures ?? null}
+              fault={floor.summary?.faultFixtures ?? null} offline={floor.summary?.offlineFixtures ?? null} /> : undefined}>
           {data.summary.totalFixtures === 0 ? (
             <EmptyFixtureGuidance userRole={userRole} siteId={data.site.id} />
           ) : floor && mapSnapshot && (hasFixtureData || Boolean(mapSnapshot.fixtures?.length)) ? (
@@ -438,8 +437,9 @@ function MonitoringDashboard({ data, userRole, siteId, refreshDashboard }: Monit
           ) : (
             <FeedbackState icon={Clock3} title="등록된 층이 없습니다." />
           )}
-          </div>
+          </OperationMapPanel>
           {floor ? <MonitoringLogTicker
+            scopeKey={detailScope}
             items={activityQuery.data?.items ?? []}
             generatedAt={activityQuery.data?.generatedAt ?? null}
             retainedFrom={activityQuery.data?.retainedFrom ?? null}

@@ -15,33 +15,57 @@ function ticker(overrides: Partial<Parameters<typeof MonitoringLogTicker>[0]> = 
 describe("MonitoringLogTicker", () => {
   afterEach(() => { cleanup(); vi.useRealTimers(); });
 
-  it("rotates fetched events every three seconds and pauses while hovered", () => {
+  it("rotates fetched events every five seconds and pauses while hovered", () => {
     vi.useFakeTimers();
     render(ticker());
     const region = screen.getByRole("region", { name: "최근 운영 로그" });
     expect(region).toHaveTextContent("B-04");
-    act(() => vi.advanceTimersByTime(3_000));
+    act(() => vi.advanceTimersByTime(4_999));
+    expect(region).toHaveTextContent("B-04");
+    act(() => vi.advanceTimersByTime(1));
     expect(region).toHaveTextContent("B-05");
-    fireEvent.mouseEnter(region);
+    fireEvent.mouseEnter(screen.getByRole("region", { name: "최근 이력" }));
     act(() => vi.advanceTimersByTime(6_000));
     expect(region).toHaveTextContent("B-05");
-    fireEvent.mouseLeave(region);
-    act(() => vi.advanceTimersByTime(3_000));
+    fireEvent.mouseLeave(screen.getByRole("region", { name: "최근 이력" }));
+    act(() => vi.advanceTimersByTime(5_000));
     expect(region).toHaveTextContent("B-04");
     expect(screen.getByRole("button", { name: "전체 보기" })).toBeInTheDocument();
+  });
+
+  it("pauses for focus and document inactivity, resets scope and cleans its timer", () => {
+    vi.useFakeTimers();
+    const { rerender, unmount } = render(ticker({ scopeKey: "floor-a" }));
+    const region = screen.getByRole("region", { name: "최근 운영 로그" });
+    act(() => vi.advanceTimersByTime(5_000));
+    expect(region).toHaveTextContent("B-05");
+    const trigger = screen.getByRole("button", { name: "전체 보기" });
+    fireEvent.focus(trigger);
+    act(() => vi.advanceTimersByTime(10_000));
+    expect(region).toHaveTextContent("B-05");
+    fireEvent.blur(trigger, { relatedTarget: document.body });
+    vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden");
+    fireEvent(document, new Event("visibilitychange"));
+    act(() => vi.advanceTimersByTime(10_000));
+    expect(region).toHaveTextContent("B-05");
+    rerender(ticker({ scopeKey: "floor-b" }));
+    expect(region).toHaveTextContent("B-04");
+    unmount();
+    expect(vi.getTimerCount()).toBe(0);
+    vi.restoreAllMocks();
   });
 
   it("keeps true empty, first error and cached refetch error distinct", () => {
     const { rerender } = render(ticker({ items: [], generatedAt: "2026-09-25T00:02:00.000Z" }));
     expect(screen.getByText("최근 3개월의 운영 활동 기록이 없습니다.")).toBeVisible();
     expect(screen.queryByText("3개월 이전 기록은 보관되지 않습니다.")).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "전체 보기" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "전체 보기" })).toBeVisible();
     rerender(ticker({ items: [], generatedAt: null, error: new Error("offline") }));
     expect(screen.getByText("운영 활동을 불러오지 못했습니다.")).toBeVisible();
-    expect(screen.getByRole("button", { name: "다시 시도" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "다시 조회" })).toBeVisible();
     rerender(ticker({ error: new Error("offline"), isRefetchError: true }));
     expect(screen.getByText(/갱신에 실패/)).toBeVisible();
     expect(screen.queryByText(/B-04/)).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "다시 시도" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "다시 조회" })).toBeVisible();
   });
 });

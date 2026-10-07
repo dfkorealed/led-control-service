@@ -1,6 +1,7 @@
 import { existsSync } from 'node:fs';
 import { chromium, expect, test, type CDPSession, type Locator, type Page, type TestInfo } from '@playwright/test';
 import { installSettingsApiRoutes, type SettingsFixture } from './support/settings-api';
+import { expectNoHorizontalOverflow } from './support/layout-assertions';
 
 // These are the original Task9 two-fixture inputs, not denser or taller data
 // chosen to make native scrolling pass. All API activity remains software-only.
@@ -31,6 +32,58 @@ async function install(page: Page) {
     return route.fallback();
   });
   return { api, reads, fixtures };
+}
+
+for (const size of [{ width: 320, height: 740 }, { width: 562, height: 1229 }, { width: 1304, height: 1229 }]) {
+  for (const theme of ['light', 'dark']) test(`ATLAS monitoring server24 loaded2 theme camera ${theme} ${size.width}px`, async ({ page }, info) => {
+    await page.setViewportSize(size);
+    await page.addInitScript(value => localStorage.setItem('led-control.customer-theme.v1', value), theme);
+    const state = await install(page);
+    await page.route('**/api/**/dashboard*', route => route.fulfill({ json: {
+      generatedAt: instant, monitoringPolicy: { gatewayOfflineAfterSeconds: 90, fixtureStaleAfterSeconds: 180 },
+      capabilities: { read: true, control: true, manage: true, commission: true },
+      site: { id: ids.siteId, name: 'ATLAS 현장', customerName: '고객사', installationStatus: 'installed', address: '서울', tariffKwhRate: 160, timeZone: 'Asia/Seoul' },
+      summary: { totalFixtures: 48, onlineFixtures: 40, faultFixtures: 0, offlineFixtures: 8, averageBrightness: 70 },
+      floors: [{ id: ids.floorId, name: 'B2', level: -2, summary: { totalFixtures: 24, onlineFixtures: 20, faultFixtures: 0, offlineFixtures: 4 }, mapRevision: 0,
+        mapConfigured: true, floorPlan: { imageUrl: '/demo/floor-b2.svg', width: 1200, height: 800, version: 1 }, meshControlGroups: [], fixtures: [] }], groups: [], gateways: []
+    } }));
+    await page.goto(`/monitoring?siteId=${ids.siteId}`);
+    await expect(page.getByRole('heading', { level: 1, name: '모니터링', exact: true })).toHaveCount(1);
+    const pageTitle = page.getByRole('group', { name: '모니터링 도구' }).locator('h2');
+    if (size.width < 760) await expect(pageTitle).toBeVisible();
+    else await expect(pageTitle).toBeHidden();
+    const summary = page.getByRole('region', { name: '선택 층 조명 현황', exact: true });
+    await expect(summary.getByText('전체 조명', { exact: true }).locator('..')).toContainText('24');
+    await expect(summary.getByText('점검 필요', { exact: true }).locator('..')).toContainText('0');
+    await expect(page.locator('[data-spatial-map-marker]')).toHaveCount(2);
+    await expect(page.locator('html')).toHaveAttribute('data-customer-theme', theme);
+    await expect(page.locator('[data-operation-map-chrome]')).toContainText('B2 · 조명 현황');
+    const timestamp = page.locator('[aria-label="모니터링 도구"] time');
+    await expect(timestamp).toHaveAttribute('datetime', instant);
+    await expect(timestamp).toContainText('2026-10-02 00:00:00');
+    const viewport = page.getByTestId('monitoring-map-viewport');
+    await viewport.scrollIntoViewIfNeeded();
+    await page.getByRole('button', { name: '지도 확대', exact: true }).click();
+    const pin = page.getByRole('button', { name: 'Task9 조명 1 정상 70%', exact: true });
+    await pin.click();
+    await expect(page.getByRole('dialog', { name: 'Task9 조명 1 조명 정보', exact: true })).toBeVisible();
+    await page.keyboard.press('Escape');
+    const node = await viewport.elementHandle();
+    const initialZoom = await viewport.getAttribute('data-zoom');
+    await page.getByRole('button', { name: theme === 'light' ? '다크 모드로 변경' : '라이트 모드로 변경' }).click();
+    await expect(page.locator('html')).toHaveAttribute('data-customer-theme', theme === 'light' ? 'dark' : 'light');
+    await expect(pin).toHaveAttribute('aria-current', 'true');
+    await expect(viewport).toHaveAttribute('data-zoom', initialZoom!);
+    expect(await node!.evaluate(element => element.isConnected)).toBe(true);
+    await page.getByRole('button', { name: '지도 전체 보기', exact: true }).click();
+    await expect(page.locator('[data-shell-topbar]')).toBeHidden();
+    await page.getByRole('button', { name: '전체 보기 종료', exact: true }).click();
+    await expect(viewport).toHaveAttribute('data-zoom', initialZoom!);
+    await expect(pin).toHaveAttribute('aria-current', 'true');
+    expect(state.api.dimmingRequests).toHaveLength(0);
+    await expectNoHorizontalOverflow(page);
+    await info.attach(`atlas-monitoring-${theme}-${size.width}`, { body: await page.screenshot({ fullPage: true }), contentType: 'image/png' });
+  });
 }
 
 for (const size of [{ width: 1706, height: 1226 }, { width: 390, height: 844 }, { width: 390, height: 480 }]) {
@@ -93,14 +146,18 @@ for (const size of [{ width: 1706, height: 1226 }, { width: 390, height: 844 }, 
     await expect(header).toBeVisible();
     const aggregateDisclosure = header.getByRole('button', { name: '현장 전체 보기', exact: true });
     if (await aggregateDisclosure.count()) await aggregateDisclosure.click();
+    await expectHeaderReadingSemantics(header, '고객사 B2 현장');
     const bounds = await header.evaluate(node => {
       const parent = node.getBoundingClientRect();
-      return [...node.querySelectorAll('dt,dd,h2')].map(element => {
+      // Task4 compact h2/site-name are screen-reader-only, not painted glyphs.
+      return [...node.querySelectorAll('dt,dd,h2')].filter(element => !element.closest('.sr-only')).map(element => {
         const range = document.createRange(); range.selectNodeContents(element);
         const text = range.getBoundingClientRect(), style = getComputedStyle(element);
         return { text: element.textContent, rect: text.toJSON(), element: element.getBoundingClientRect().toJSON(), parent: parent.toJSON(), lineHeight: style.lineHeight, fontSize: style.fontSize };
       });
     });
+    expect(bounds.filter(item => item.text === '전체')).toHaveLength(1);
+    expect(bounds.filter(item => item.text?.endsWith('대'))).toHaveLength(4);
     for (const item of bounds) {
       expect(item.rect.top).toBeGreaterThanOrEqual(item.parent.top);
       expect(item.rect.bottom).toBeLessThanOrEqual(item.parent.bottom);
@@ -130,16 +187,19 @@ for (const size of [{ width: 1706, height: 1226 }, { width: 390, height: 844 }])
     await expect(header).toBeVisible();
     const aggregateDisclosure = header.getByRole('button', { name: '현장 전체 보기', exact: true });
     if (await aggregateDisclosure.count()) await aggregateDisclosure.click();
+    await expectHeaderReadingSemantics(header, '동측 지하주차장 B1·B2 통합 조명 운영 현장');
     await expect(header.getByText('2대').first()).toBeVisible();
     await page.evaluate(() => { document.body.style.zoom = '2'; });
     await paints(page);
     const bounds = await header.evaluate(node => {
       const parent = node.getBoundingClientRect();
-      return [...node.querySelectorAll('h2,p,dt,dd')].map(element => {
+      return [...node.querySelectorAll('h2,p,dt,dd')].filter(element => !element.closest('.sr-only')).map(element => {
         const range = document.createRange(); range.selectNodeContents(element);
         return { text: element.textContent, rects: [...range.getClientRects()].map(rect => rect.toJSON()), parent: parent.toJSON() };
       });
     });
+    expect(bounds.filter(item => item.text === '전체')).toHaveLength(1);
+    expect(bounds.filter(item => item.text?.endsWith('대'))).toHaveLength(4);
     for (const item of bounds) for (const rect of item.rects) {
       expect(rect.top).toBeGreaterThanOrEqual(item.parent.top);
       expect(rect.bottom).toBeLessThanOrEqual(item.parent.bottom);
@@ -152,6 +212,12 @@ for (const size of [{ width: 1706, height: 1226 }, { width: 390, height: 844 }])
     await page.screenshot({ path: screenshot });
     await info.attach('CSS-zoom-header', { path: screenshot, contentType: 'image/png' });
   });
+}
+async function expectHeaderReadingSemantics(header: Locator, fullSiteName: string) {
+  await expect(header.getByRole('heading', { name: '현장 전체', exact: true })).toHaveCount(1);
+  await expect(header.locator('p.sr-only')).toHaveText(fullSiteName);
+  await expect(header.locator('dt')).toHaveText(['전체', '온라인', '장애', '오프라인']);
+  await expect(header.locator('dd')).toHaveCount(4);
 }
 async function paints(page: Page) {
   await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
@@ -334,7 +400,7 @@ for (const size of [{width:1287,height:1226},{width:390,height:320},{width:1440,
     await page.setViewportSize(size); const state = await install(page);
     await page.goto(`/monitoring?siteId=${ids.siteId}`);
     await expect(page.getByTestId('monitoring-map-viewport')).toBeVisible();
-    await expect(page.getByRole('group',{name:'전체 조명',exact:true})).toBeVisible();
+    await expect(page.getByRole('region',{name:'선택 층 조명 현황',exact:true}).getByText('전체 조명',{exact:true}).locator('..')).toContainText('2');
     await page.evaluate(() => document.fonts.ready); await paints(page);
     await attach(info, 'original-map-bounds', await mapBounds(page));
     await page.screenshot({path:info.outputPath('original-map.png'),fullPage:true});
@@ -350,7 +416,7 @@ for (const size of [{width:1287,height:1226},{width:390,height:320},{width:1440,
     await page.setViewportSize(size); const state = await install(page);
     await page.goto(`/monitoring?siteId=${ids.siteId}`);
     const viewport = page.getByTestId('monitoring-map-viewport');
-    await expect(page.getByRole('group',{name:'전체 조명',exact:true})).toBeVisible();
+    await expect(page.getByRole('region',{name:'선택 층 조명 현황',exact:true}).getByText('전체 조명',{exact:true}).locator('..')).toContainText('2');
     await page.evaluate(() => document.fonts.ready); await paints(page);
     expect(await page.locator('[data-monitoring-screen] [data-monitoring-site-summary]').count()).toBe(0);
     await expect(page.getByText('B2 · 조명 현황',{exact:true})).toBeVisible();
@@ -377,6 +443,7 @@ for (const size of [{width:1287,height:1226},{width:390,height:320},{width:1440,
     for (const width of [1023,1024,size.width]) {
       await page.setViewportSize({width,height:size.height}); await paints(page);
       const current = await camera(viewport);
+      await attach(info, `camera-resize-${width}`, { userCamera, current, bounds: await mapBounds(page) });
       expect(current.zoom).toBe(userCamera.zoom);
       expect(Math.abs(current.x-userCamera.x)).toBeLessThan(.02); expect(Math.abs(current.y-userCamera.y)).toBeLessThan(.02);
       observations.push({step:`resize-${width}`,camera:current,bounds:await mapBounds(page)});

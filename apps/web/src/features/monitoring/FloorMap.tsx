@@ -147,7 +147,7 @@ export function FloorMap({ floor, snapshot, selectedFixtureId, onSelectFixture, 
   ].filter(item => presentStates.has(item.state));
 
   return (
-    <div ref={shellRef} className="relative flex h-full min-h-min w-full min-w-0 flex-col overflow-hidden rounded-panel border border-border-default bg-surface-inset" role="region" aria-label="층 도면" data-monitoring-map-shell="" data-zoom={zoom}>
+    <div ref={shellRef} className="relative flex h-full min-h-min w-full min-w-0 flex-1 flex-col overflow-hidden bg-surface-inset" role="region" aria-label="층 도면" data-monitoring-map-shell="" data-zoom={zoom}>
       {/* The CAD surface's aspect ratio must not contribute an intrinsic page
           height; the containing flex map defines its available viewport. */}
       <div className="min-h-min min-w-0 flex-1">

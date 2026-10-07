@@ -897,7 +897,9 @@ describe("App", () => {
     );
 
     expect(await screen.findByRole("button", { name: "맵 선택" })).toBeInTheDocument();
-    expect(screen.getByRole("group", { name: "전체 조명" })).toBeVisible();
+    const floorSummary = screen.getByRole("region", { name: "선택 층 조명 현황" });
+    expect(within(floorSummary).getByRole("group")).toBeVisible();
+    expect(within(floorSummary).getByText("전체 조명").parentElement).toBeVisible();
     const inspector = await openMonitoringInspector();
     expect(screen.queryByRole("complementary", { name: "선택 조명 상세" })).not.toBeInTheDocument();
     expect(within(inspector).queryByRole("button", { name: "상세 보기" })).not.toBeInTheDocument();
