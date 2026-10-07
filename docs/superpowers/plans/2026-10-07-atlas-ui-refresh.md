@@ -10,7 +10,7 @@
 
 **Spec:** [다크 포함 설계 명세](../specs/2026-10-07-atlas-ui-refresh-design.md)
 
-상태: **실행 승인·Tasks 1–4 완료, Task 5 공유 지도·operations 표현 진행 중**. 2026-10-07 사용자가 페이지 및 기능 담당 에이전트 세션에 지시하여 진행하도록 승인했다. 사용자가 선택한 실행 방식은 **페이지별 에이전트 분담, 메인 오케스트레이션, 별도 브랜치 후 로컬 병합**이며 다시 선택을 요구하지 않는다. 완료 표시는 독립 검토와 실제 증거를 회수한 뒤 갱신한다.
+상태: **실행 승인·Tasks 1–6 구현·독립 검토 완료, Task 7 수동 제어 진행**. 2026-10-07 사용자가 페이지 및 기능 담당 에이전트 세션에 지시하여 진행하도록 승인했다. 사용자가 선택한 실행 방식은 **페이지별 에이전트 분담, 메인 오케스트레이션, 별도 브랜치 후 로컬 병합**이며 다시 선택을 요구하지 않는다. 완료 표시는 독립 검토와 실제 증거를 회수한 뒤 갱신한다. 전체 웹 모듈 실패와 통합 브라우저 검증은 Task11 관문에 남아 있어 전체 완료·병합을 뜻하지 않는다.
 
 ## Global Constraints
 
@@ -117,18 +117,26 @@
 
 **Files:** Modify `src/features/monitoring/MonitoringView.tsx`, `src/features/monitoring/MonitoringSummary.tsx`, `src/features/monitoring/FloorMap.tsx`, `src/features/monitoring/MonitoringLogTicker.tsx`와 기존 `.test.tsx`, 기존 `src/features/monitoring/monitoring-activity-presentation.ts`·`.test.ts`, `docs/menus/monitoring.md`; `docs/menus/control.md`는 Task5 공통 집계 글씨의 실제 body/body-lg=14/16 보완 기록만 갱신한다; Audit `src/features/monitoring/MonitoringLogDrawer.tsx`·`.test.tsx`의 기존 공통 LogView/FilterPanel/DateRangeDraft·cursor/retention/권한·safe-area/focus 계약을 회귀 검사로 확인하며 이미 충족하면 불필요한 source 변경을 하지 않는다; extend `e2e/monitoring-surface-access.spec.ts`, `e2e/calm-operations-monitoring.spec.ts`.
 
+**Consumer test handoff:** `src/App.test.tsx`와 `src/features/shells/CustomerShell.monitoring.test.tsx`의 기존 개별 MetricCard group locator만 실제 선택층 region의 single read-only inline group/label-value로 갱신한다. 전체 웹 검사에서 확인한 4개 locator 실패를 focused 회귀로 해결하고 실제 hardware POST1·query·선택 상세·lock·가시성/값 단언은 보존한다. 제품 App/CustomerShell source는 이 handoff에서 변경하지 않는다.
+
+**I1 shared camera handoff:** 독립 검수의 legacy revision100 reset 실패는 `src/features/monitoring/FloorMap.test.tsx`의 실제 FloorMap/memory/viewport controlled regression으로 원인을 증명한다. 검증된 fit/restore 뒤 camera frame 발행 전 크기 변경이 이전120 camera를 복원하므로 공통 지도 owner가 `src/features/floor-map/FloorMapViewport.tsx`의 validated restoreCamera snapshot/queued resize cache만 순차 보완한다. geometry/RAF/clock/tolerance/API/key/default gestures는 보존한다. Page owner는 새 regression/기존 shared consumers·원 browser/타입/UI/build를 취합하고 모니터링·제어·설정 문서에 이 공통 카메라 보완과 검증 한계만 같은 작업에서 기록한다. 공통 patch 중 page source·시험·stage는 동결한다.
+
 **Interfaces:** MonitoringSummary 기존 `scope/mapName/total/online/fault/offline` 계약 유지. adapter `monitoringActivityRows(items: readonly MonitoringActivityItem[], timeZone:string): readonly RecentActivityRow[]`는 기존 `src/features/monitoring/monitoring-activity-presentation.ts`·`.test.ts`를 보존 확장한다. 기존 formatter/분류 함수는 덮어쓰거나 중복 생성하지 않는다. MonitoringActivityItem은 기존 `@led-control/shared/monitoring-activity-contracts`, RecentActivityRow는 Task 5의 UI barrel export를 import한다. useMonitoringActivity의 조회/retention 계약은 그대로다.
 
-- [ ] Step 1 — `uses server floor counts rather than loaded pins in both themes`, `does not advance server update time after failed refresh`, `keeps selected pin during theme change`를 작성한다. 서버 total24/loaded2·null/0, actual timestamp/timezone·반복 클릭 잠금·층 변경 취소, 5초/pause·retention/cursor recovery를 단언한다.
-- [ ] Step 2 — `pnpm --filter @led-control/web exec vitest run src/features/monitoring/MonitoringView.test.tsx src/features/monitoring/MonitoringSummary.test.tsx src/features/monitoring/MonitoringLogTicker.test.tsx`로 새로운 표시/주기 RED를 확인한다.
-- [ ] Step 3 — common inline/chrome/ticker를 연결하고 중복 도움말을 정리한다. 제목·서버 갱신·실제 refresh action·층 선택/검색/상세/목록·최근 활동을 배치한다. adapter는 실제 online/offline/fault·outcome/refreshStatus를 보존한다. 날짜/count/cursor 이외의 새 API 필터는 만들지 않는다.
-- [ ] Step 4 — 위 units와 기존 FloorMap/LogDrawer/useMonitoringActivity/useMonitoringCameraMemory, 두 monitoring E2E를 실행한다. light/dark·selection/fullview/camera·집계/refresh를 검토하고 기본 checkout의 해당 목업 이력도 보존하여 `feat(monitoring): apply shared ATLAS monitoring layout`로 커밋한다.
+- [x] Step 1 — `uses server floor counts rather than loaded pins in both themes`, `does not advance server update time after failed refresh`, `keeps selected pin during theme change`를 작성한다. 서버 total24/loaded2·null/0, actual timestamp/timezone·반복 클릭 잠금·층 변경 취소, 5초/pause·retention/cursor recovery를 단언한다.
+- [x] Step 2 — `pnpm --filter @led-control/web exec vitest run src/features/monitoring/MonitoringView.test.tsx src/features/monitoring/MonitoringSummary.test.tsx src/features/monitoring/MonitoringLogTicker.test.tsx`로 새로운 표시/주기 RED를 확인한다.
+- [x] Step 3 — common inline/chrome/ticker를 연결하고 중복 도움말을 정리한다. 제목·서버 갱신·실제 refresh action·층 선택/검색/상세/목록·최근 활동을 배치한다. adapter는 실제 online/offline/fault·outcome/refreshStatus를 보존한다. 날짜/count/cursor 이외의 새 API 필터는 만들지 않는다.
+- [x] Step 4 — 위 units와 기존 FloorMap/LogDrawer/useMonitoringActivity/useMonitoringCameraMemory, 두 monitoring E2E를 실행한다. light/dark·selection/fullview/camera·집계/refresh를 검토하고 기본 checkout의 해당 목업 이력도 보존하여 `feat(monitoring): apply shared ATLAS monitoring layout`로 커밋한다.
+
+Task6 승인 범위: 구현 `aa28dfab`와 카메라 수정 `01afab05`/`916acc58`, 독립 원 검토와 I1 scoped 재검토로 새 C/I0. 수정 소스 related234·editor62·원 browser7·타입/UI/build는 통과했다. 원 두 E2E 마지막71/5와 전체Web3327/4/3·수정 뒤3179/87/3 및66 미수집·unhandled1은 보존한다. 실패3파일 focused224PASS는 별도 결과이며 ApiError 전체 실행 원인은 아직 미확립이다. Task11 canonical/전체 브랜치 관문을 대체하지 않는다.
 
 ### Task 7: 수동 제어·가용 높이·안전한 결과와 이력
 
 **Files:** Modify `src/features/control/ControlView.tsx`, `src/features/control/CommandHistoryPanel.tsx`와 대응 테스트, `docs/menus/control.md`; Create `src/features/control/ManualExecutionPanel.tsx`·`.test.tsx`, `src/features/control/command-history-presentation.ts`·`.test.ts`; extend `e2e/calm-operations-manual-control.spec.ts`, `e2e/operational-marker-control-height.spec.ts`. 공통 shell 높이는 공통 소유자가 별도 순차 patch로 `src/features/shells/CustomerShell.tsx`·테스트에 반영한다.
 
 **Interfaces:** ManualExecutionPanel은 현재 DimmingExecutionControls의 `brightness:number; controlsLocked:boolean; canSubmit:boolean; applyLabel:string; onBrightnessChange(value:number):void; onSubmit():void`를 받는 표현 경계다. 기존 invalid raw/restore refs는 이 컴포넌트 안에 보존하고 command owner는 ControlView에 남긴다. `commandHistoryRows(items: readonly Omit<CommandStatusResponse,"dispatches">[], timeZone:string): readonly RecentActivityRow[]`는 Task 5 타입을 소비한다. 최근 useCommandHistory limit은 기존1→5, 전체 이력 query는 그대로다.
+
+**Shell handoff:** ControlView가 optional `onManualWorkspaceActiveChange?: (active:boolean)=>void`를 먼저 제공한다. resolved manual mode·canControl·실제 dashboard/site 일치만 layout effect로 보고하고 cleanup에서 false를 보낸다. fetching/canSubmit/명령 잠금에 연동하지 않는다. 그 후 공통 소유자가 CustomerShell+tests에 stable callback/state 연결과 desktop remaining-height 표현을 순차 적용한다. Shell은 URL·권한을 다시 해석하지 않고 기존 route/gate/fullview 및 `<760px` 자연 흐름을 유지한다. owner/provider/subtree/key와 명령 수명은 바꾸지 않는다.
 
 - [ ] Step 1 — `theme resize and tool changes preserve the frozen uncertain command without another POST`, `invalid blur then Apply never sends`, `all recovery actions remain reachable in short desktop`를 작성한다. UUID/canonical payload·lock·A→B→A/remount·원래 대상 재적용, empty/decimal/range 입력, storage/404/410/긴 safety text·추가 POST0을 단언한다.
 - [ ] Step 2 — `pnpm --filter @led-control/web exec vitest run src/features/control/ControlView.test.tsx src/features/control/CommandHistoryPanel.test.tsx src/features/control/ManualExecutionPanel.test.tsx`로 새 disclosure/height/ticker 계약 RED를 확인한다.
