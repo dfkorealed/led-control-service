@@ -24,6 +24,9 @@
 
 - Task10 공통 정렬 보완 `54398e16`·설정 `7ff7ad9f` 전체25파일을 독립 Spec✅/Quality Approved C0/I0/M0로 검토해 완료했다. 실제 capability/설치 완료 query guard·서버 count null0/mapConfigured/첫 Gateway 정보, 단일 mobile home Link와 query/hash·미저장 확인·MFA/editor 수명을 보존했다. Audit5는 불필요한 재작성 없이 BASE 불변/소비 회귀로 확인했다. 공통 정렬 버튼의 자체 둥근 모서리만 제거해 기존 열 geometry와 generic 기본을 유지했고 실제1023 양테마 연속44를 확인했다. 로그인 fixture 한 줄과 native tall-card 첫 스크롤 준비만 보완해 final exact4 30PASS·별도focused native1PASS·전체Web3423PASS/기존opt-in3SKIP·fresh타입/UI/build0·source848 불변을 회수했다. Root와 독립 reviewer가4개 native PRIMARY 원본/실제 source·input/state·target·cleanup을 대조했다. 원17/2/11·25/1/4·collection0·공통 관찰경계 위반/원경고와 물리OS/WebView/HIL 한계는 보존한다. Task11 통합 QA·전체 브랜치 검토·로컬 병합은 아직이며 기존 서버를 조작하지 않았다.
 
+- Task11 현재 소비 회귀: 실제 causal3에서 첫 StrictMode 취소와 completed/refusal 요청을 분리해 원auth budget·manual retry·tenant/logout503 후속까지 focused3PASS다. 최초401/403/network FAIL과 중단된18-suite 원본은 보존하며 auth 제품/fixture/timeout 변경은 없다. 승인된 항상-visible 제어UI 소비만 `ca4b2207`에서 이행해 focused6PASS·원48hit/선택/draft42/POST0을 유지했다. 이 결과를 전체 mock18 완료로 합산하지 않는다.
+- Task11 실제320 PNG의 한글 한 글자씩 줄바꿈 결함은 공통 원 owner가 `90f732b3`에서 no-row 모바일 flow만 보완했다. 원wordRange RED→같은사례 GREEN, message22.1875→210px·동일glyph/font·retry/open44px·관련305PASS·fresh타입/UI/build0이다. loaded5초/desktop inline/handler/ref·기존 오류와 별도검증 행동은 보존한다. 조회 실패 원인/status는 미확정이며 원PNG/로그/archives를 유지한다. 별도 acceptance author가 새 atlas E2E만 맡고 실제10 viewport×2theme·requested fractional6/first-visible RAF/실제대비·44/short NONMANAGER frozen uncertain를 검증한다. 이후 원QA의 mock18·분리RealLab/canonical과 독립 whole-branch review를 통과하기 전 병합하지 않는다. 역사적 childNode24 관측은 보존하고 새 실행은 실제 taskNode22+existingpnpm9.15 CLI로 고정한다.
+
 ## 2026-10-06 모니터링 Popover·Grid 정렬 — 완료·로컬 병합
 
 - 기존 모니터링 담당 세션, 별도 Grid 담당, 독립 코드 검수·UI/UX 디자이너와 분담했다. `codex/monitoring-popover-grid-sort-20261006`의 별도 작업에서 검색·상태·선택 상세를 맵 선택 오른쪽 단일 Popover에 모으고 중복 상태 문구·헤더 글씨 잘림을 보완했다.
