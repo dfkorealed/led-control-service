@@ -2,7 +2,7 @@
 
 기준일: 2026-10-07
 
-## 2026-10-07 ATLAS 라이트·다크 실제 서비스 UI 적용 — Tasks 1–9 검토 완료·설정 진행
+## 2026-10-07 ATLAS 라이트·다크 실제 서비스 UI 적용 — Tasks 1–10 검토 완료·통합 QA 진행
 
 - 승인된 compact 목업과 모바일 헤더 로고·현장 선택 너비 의견을 실제 고객 서비스에 적용하는 [설계 명세](superpowers/specs/2026-10-07-atlas-ui-refresh-design.md)를 작성했다. 공통 디자인/컴포넌트 → 공유 지도 → 모니터링·제어·통계·설정 페이지 담당 → 독립 검증 → 로컬 병합 순서다.
 - `codex/atlas-ui-refresh-20261007`의 격리 worktree를 `codex/mvp1-cloud-web` `5e173fb4`에서 만들었다. 기존 공통·제어/지도·통계 세션과 별도 모니터링·설정 담당을 배정했다. task-owned Node 22.20.0과 pnpm 9.15.0으로 격리 frozen install·Prisma Client 생성 준비와 canonical baseline을 회수했다. cold 설치의 미생성 실패도 보존한다. 기존 서버 조작·로컬 병합은 미착수다.
@@ -21,6 +21,8 @@
 - Task 7 공통 shell 연결 `167d06d6`·수동 제어 `da235187`와 회귀 수정 `16025b44`를 독립 검토해 완료했다. 직접 지도 도구·14/16px 인라인 상태·항상 노출된 밝기 draft/Apply·PC remaining-height/짧은 내부 scroll·모바일 자연 flow를 실제 검사하고 기존 전체 선택 차단·UUID/복구·raw 입력을 보존했다. 독립 발견 I1 polling의 ticker reset과 M1 dialog hint 소실은 원 owner가 semantic rows/최신 표현 Context·선택적 annotation으로 보완해 scoped Spec✅/Quality Approved·새C0/I0/M0를 확인했다. 최종 관련501/15files·정확3E2E71PASS·전체Web3371PASS/기존3SKIP·타입/UI/build0, 원RED/중간FAIL은 별도 유지한다. Task8 자동 제어·실제 그룹/구역 공통화로 이어가며 Task11 전체 canonical·native/non-manager/첫paint/portal/hit 검증과 로컬 병합은 아직이다.
 - Task 8 자동 제어·그룹 공통화 `8070f997`와 inset 보완 `3f1b605d`를 독립 검토해 완료했다. 기존 group API/query/editor·현재 권한 및 명령/storage handler guard·사용자/현장 pending 격리와 URL/hash/키보드를 보존했다. 새tab Card 여백 M1은 기존 p-4로만 보완해 scoped Spec✅/Quality Approved·새C0/I0/M0·열린0이다. 수정 소스 관련192/4·실제 Lab5 전체 protocol/groupCRUD1PASS·6phase 양테마16px/동일editor/draft/추가writes0·전체Web3391PASS/기존3SKIP·타입/UI/build0을 확인했다. 원Lab1–3 실패/Lab4 PASS/EOF-only source 및 수치attach 미저장·HIL/native/역사적ApiError원인 한계는 보존하고 통계 Task9로 이어간다. 전체 통합·로컬 병합 완료는 아직 아니다.
 - Task9 공통 `5cc324c0`·제어 소비 검사 `0a724f6b`·통계 `b8650f29`의 전체18파일을 독립 Spec✅/Quality Approved C0/I0/M0로 검토해 완료했다. 실제 품질/수집 시각·null/0·차트 palette·PDF/CSV 상태를 보존했고 이미 공통화된10소스는 Audit/소비 회귀로 확인했다. 히트맵은44px/168셀/2px 간격과 모바일 native scroll을 유지하며 desktop weekday16px/padding0으로 끝 열과 연속44px hit를 확인했다. 공통 테마 버튼만52px frame으로 보완했고 네 메뉴 기록과 기존 기본 primitive를 보존했다. 최종138/관련271·정확3browser131PASS·전체Web3402PASS/기존3SKIP·타입/UI/build0·동결842hash/12SHA를 확인했다. 원32/99·후속2/129·타입9/검증순서 overlap·control 선택0 오류는 보존하며 실제native200 두 사례와 첫paint/대비/portal/fractional/native/HIL 한계는 Task11로 전달한다. 설정 Task10을 이어가며 전체 통합·로컬 병합은 아직이다.
+
+- Task10 공통 정렬 보완 `54398e16`·설정 `7ff7ad9f` 전체25파일을 독립 Spec✅/Quality Approved C0/I0/M0로 검토해 완료했다. 실제 capability/설치 완료 query guard·서버 count null0/mapConfigured/첫 Gateway 정보, 단일 mobile home Link와 query/hash·미저장 확인·MFA/editor 수명을 보존했다. Audit5는 불필요한 재작성 없이 BASE 불변/소비 회귀로 확인했다. 공통 정렬 버튼의 자체 둥근 모서리만 제거해 기존 열 geometry와 generic 기본을 유지했고 실제1023 양테마 연속44를 확인했다. 로그인 fixture 한 줄과 native tall-card 첫 스크롤 준비만 보완해 final exact4 30PASS·별도focused native1PASS·전체Web3423PASS/기존opt-in3SKIP·fresh타입/UI/build0·source848 불변을 회수했다. Root와 독립 reviewer가4개 native PRIMARY 원본/실제 source·input/state·target·cleanup을 대조했다. 원17/2/11·25/1/4·collection0·공통 관찰경계 위반/원경고와 물리OS/WebView/HIL 한계는 보존한다. Task11 통합 QA·전체 브랜치 검토·로컬 병합은 아직이며 기존 서버를 조작하지 않았다.
 
 ## 2026-10-06 모니터링 Popover·Grid 정렬 — 완료·로컬 병합
 
