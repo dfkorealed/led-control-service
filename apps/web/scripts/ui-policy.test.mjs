@@ -12,6 +12,57 @@ const approvedLandingVariants = `@custom-variant landing-narrow (@media (max-wid
 @custom-variant landing-wide (@media (max-width: 1050px));`;
 const canonicalStyles = '@import "tailwindcss"; @import "./styles/theme.css"; @import "./styles/base.css"; @import "./styles/exceptions.css";' + "\n" + approvedLandingVariants;
 
+const customerRoles = Object.keys(JSON.parse(await readFile(new URL("../../../docs/assets/atlas-ui-refresh-2026-10-07/customer-theme-roles.json", import.meta.url), "utf8")).colors);
+const customerBindings = ["light", "dark"].map(theme => `:root[data-customer-theme="${theme}"] { color-scheme: ${theme}; ${customerRoles.map(role => `--color-${role}: var(--color-customer-${theme}-${role});`).join(" ")} }`).join("\n");
+async function writeReviewedBase(root) {
+  await mkdir(join(root, "src/styles"), { recursive: true });
+  await writeFile(join(root, "src/styles/base.css"), customerBindings);
+}
+
+test("accepts only the complete reviewed customer bindings", () => {
+  assert.equal(customerRoles.length, 98);
+  assert.deepEqual(inspectUiSource("src/styles/base.css", customerBindings), []);
+});
+
+test("customer and map color utilities remain closed to reviewed token names", () => {
+  assert.deepEqual(inspectUiSource("src/Probe.tsx", 'const c = "bg-map-background text-map-line text-customer-dark-content-primary";'), []);
+  for (const candidate of ["bg-map-unknown", "text-customer-dark-unknown"]) assert.ok(inspectUiSource("src/Probe.tsx", `const c = "${candidate}";`).some(v => v.rule === "unapproved-color"));
+});
+
+test("rejects missing duplicate mutated or extra customer binding", () => {
+  const declaration = "--color-surface-canvas: var(--color-customer-light-surface-canvas);";
+  for (const changed of [
+    customerBindings.replace(declaration, ""),
+    customerBindings.replace(declaration, `${declaration} ${declaration}`),
+    customerBindings.replace(declaration, "--color-surface-canvas: var(--color-customer-dark-surface-canvas);"),
+    customerBindings.replace(declaration, `${declaration} --color-surprise: var(--color-customer-light-surface-canvas);`),
+    customerBindings.replace(declaration, "--color-surface-canvas: #F4F7FB;"),
+    customerBindings.replace(declaration, `${declaration.slice(0, -1)} !important;`),
+    customerBindings.replace("color-scheme: light", "color-scheme: dark"),
+    customerBindings.split("\n")[0],
+    customerBindings + customerBindings,
+    `@media (min-width: 1px) { ${customerBindings} }`,
+    customerBindings + " body { --color-surface-canvas: var(--color-customer-dark-surface-canvas); }",
+    customerBindings + " html { --unexpected: var(--color-customer-dark-surface-canvas); }"
+  ]) assert.ok(inspectUiSource("src/styles/base.css", changed).some(v => v.rule === "customer-theme-binding"), changed);
+  assert.ok(inspectUiSource("src/forged.css", customerBindings).some(v => v.rule === "css-selector"));
+});
+
+test("workspace requires both customer bindings even if base is empty or absent", async () => {
+  const root = await mkdtemp(join(tmpdir(), "led-customer-bindings-"));
+  try {
+    await mkdir(join(root, "src"));
+    await writeFile(join(root, "src/App.tsx"), 'import "./styles.css";');
+    await writeFile(join(root, "src/styles.css"), canonicalStyles);
+    assert.ok((await inspectWorkspace({ root })).violations.some(v => v.rule === "customer-theme-binding"));
+    await writeReviewedBase(root);
+    await writeFile(join(root, "src/styles/base.css"), "");
+    assert.ok((await inspectWorkspace({ root })).violations.some(v => v.rule === "customer-theme-binding"));
+    await writeReviewedBase(root);
+    assert.deepEqual((await inspectWorkspace({ root })).violations, []);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
 test("allows only the exact native safe-area ownership contract, not arbitrary root CSS", () => {
   const source = ':root { --led-control-safe-area-bottom: env(safe-area-inset-bottom); } :root[data-led-control-native-safe-area="true"] { --led-control-safe-area-bottom: 0px; } @utility pb-shell-navigation-safe { padding-bottom: calc(var(--spacing) * 17 + var(--led-control-safe-area-bottom)); } @utility h-shell-navigation-safe { height: calc(var(--spacing) * 17 + var(--led-control-safe-area-bottom)); } @utility pb-safe-area-bottom { padding-bottom: var(--led-control-safe-area-bottom); }';
   assert.deepEqual(inspectUiSource("src/styles/base.css", source), []);
@@ -841,7 +892,7 @@ test("workspace skips CAD fixtures without admitting their production HTML entri
   const root = await mkdtemp(join(tmpdir(), "led-ui-cad-fixtures-"));
   const fixtures = ["scene.smoke.ts", "scene-smoke.tsx", "scene.golden.ts"];
   try {
-    await mkdir(join(root, "src"));
+    await mkdir(join(root, "src")); await writeReviewedBase(root);
     await writeFile(join(root, "src/App.tsx"), 'import "./styles.css";');
     await writeFile(join(root, "src/styles.css"), canonicalStyles);
     for (const fixture of fixtures) {
@@ -897,11 +948,12 @@ test("I4 CLI rejects every production DOM query with a zero baseline", async () 
   const run = () => spawnSync(process.execPath, [new URL("./ui-policy.mjs", import.meta.url).pathname, "--root", root], { encoding: "utf8" });
   try {
     await mkdir(join(root, "src"));
+    await writeReviewedBase(root);
     await mkdir(join(root, "src/components"));
     await mkdir(join(root, "scripts"));
     await writeFile(join(root, "src/App.tsx"), 'import "./styles.css";');
     await writeFile(join(root, "src/styles.css"), canonicalStyles);
-    await writeFile(join(root, "scripts/ui-policy-baseline.json"), JSON.stringify({ version: 1, sourceRef: "7b2617b173618d376e7b3a90ec31e1392c3b7bc0", files: {} }));
+    await writeFile(join(root, "scripts/ui-policy-baseline.json"), JSON.stringify({ version: 1, sourceRef: "1d65472d9619bd87cce1d9ddec5d38cd56c47313", files: {} }));
     await writeFile(join(root, "src/components/ConfirmDialog.tsx"), 'dialogElement.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR);');
     assert.equal(run().status, 1);
     await writeFile(join(root, "src/components/ConfirmDialog.tsx"), 'const unused = 1;\ndialogElement.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR);');
@@ -920,12 +972,12 @@ test("CLI inventories only production src and rejects any policy debt", async ()
   const cli = new URL("./ui-policy.mjs", import.meta.url);
   const run = () => spawnSync(process.execPath, [cli.pathname, "--root", root], { encoding: "utf8" });
   try {
-    await mkdir(join(root, "src"));
+    await mkdir(join(root, "src")); await writeReviewedBase(root);
     await mkdir(join(root, "scripts"));
     await writeFile(join(root, "src/App.tsx"), 'import "./styles.css";');
     await writeFile(join(root, "src/styles.css"), canonicalStyles);
     await writeFile(join(root, "src/ignored.test.tsx"), '"p-[15px]"');
-    await writeFile(join(root, "scripts/ui-policy-baseline.json"), JSON.stringify({ version: 1, sourceRef: "7b2617b173618d376e7b3a90ec31e1392c3b7bc0", files: {} }));
+    await writeFile(join(root, "scripts/ui-policy-baseline.json"), JSON.stringify({ version: 1, sourceRef: "1d65472d9619bd87cce1d9ddec5d38cd56c47313", files: {} }));
     assert.equal(run().status, 0);
     await writeFile(join(root, "src/App.tsx"), 'import "./new.css";');
     assert.equal(run().status, 1);
@@ -941,7 +993,7 @@ test("CLI inventories only production src and rejects any policy debt", async ()
 test("workspace closes skipped-module, entry HTML and public CSS scan gaps", async () => {
   const root = await mkdtemp(join(tmpdir(), "led-ui-graph-policy-"));
   try {
-    await mkdir(join(root, "src"));
+    await mkdir(join(root, "src")); await writeReviewedBase(root);
     await mkdir(join(root, "public"));
     await writeFile(join(root, "src/App.tsx"), 'import "./styles.css"; import "./hidden.test"; import "./hidden.spec?raw";');
     await writeFile(join(root, "src/styles.css"), canonicalStyles);
@@ -964,7 +1016,7 @@ test("workspace requires every canonical CSS import exactly once", async () => {
   const root = await mkdtemp(join(tmpdir(), "led-ui-css-inventory-"));
   const canonical = canonicalStyles;
   try {
-    await mkdir(join(root, "src"));
+    await mkdir(join(root, "src")); await writeReviewedBase(root);
     await writeFile(join(root, "src/App.tsx"), 'import "./styles.css";');
     await writeFile(join(root, "src/styles.css"), canonical);
     assert.deepEqual((await inspectWorkspace({ root, baseline: {} })).violations, []);
@@ -1006,7 +1058,7 @@ test("workspace rejects extensionless bare imports only when package metadata ex
   const root = await mkdtemp(join(tmpdir(), "led-ui-package-css-"));
   const canonical = canonicalStyles;
   try {
-    await mkdir(join(root, "src"));
+    await mkdir(join(root, "src")); await writeReviewedBase(root);
     await mkdir(join(root, "node_modules/@vendor/theme"), { recursive: true });
     await mkdir(join(root, "node_modules/@vendor/runtime"), { recursive: true });
     await writeFile(join(root, "src/App.tsx"), 'import "./styles.css"; import "@vendor/theme"; import "@vendor/theme/tokens"; import "@vendor/runtime";');
@@ -1036,7 +1088,7 @@ test("workspace resolves overlapping package export patterns by Node specificity
   const root = await mkdtemp(join(tmpdir(), "led-ui-package-pattern-"));
   const canonical = canonicalStyles;
   try {
-    await mkdir(join(root, "src"));
+    await mkdir(join(root, "src")); await writeReviewedBase(root);
     await mkdir(join(root, "node_modules/@vendor/patterns"), { recursive: true });
     await mkdir(join(root, "node_modules/@vendor/reversed"), { recursive: true });
     await writeFile(join(root, "src/App.tsx"), [
@@ -1084,12 +1136,12 @@ test("baseline must preserve the approved Git anchor and an empty violation map"
   const root = await mkdtemp(join(tmpdir(), "led-ui-baseline-integrity-"));
   const run = () => spawnSync(process.execPath, [new URL("./ui-policy.mjs", import.meta.url).pathname, "--root", root], { encoding: "utf8" });
   try {
-    await mkdir(join(root, "src"));
+    await mkdir(join(root, "src")); await writeReviewedBase(root);
     await mkdir(join(root, "scripts"));
     await writeFile(join(root, "scripts/ui-policy-baseline.json"), JSON.stringify({ version: 1, sourceRef: "0000000000000000000000000000000000000000", files: {} }));
     assert.equal(run().status, 1, "an edited sourceRef must fail even without current violations");
     await writeFile(join(root, "src/App.tsx"), 'const clean = true;');
-    await writeFile(join(root, "scripts/ui-policy-baseline.json"), JSON.stringify({ version: 1, sourceRef: "7b2617b173618d376e7b3a90ec31e1392c3b7bc0", files: { "src/App.tsx": { "css-import": { count: 2, matches: { "./styles.css": 2 } } } } }));
+    await writeFile(join(root, "scripts/ui-policy-baseline.json"), JSON.stringify({ version: 1, sourceRef: "1d65472d9619bd87cce1d9ddec5d38cd56c47313", files: { "src/App.tsx": { "css-import": { count: 2, matches: { "./styles.css": 2 } } } } }));
     assert.equal(run().status, 1, "non-empty debt allowances must fail even with clean source");
   } finally {
     await rm(root, { recursive: true, force: true });
@@ -1158,11 +1210,11 @@ test("approved landing policy rejects mutated variant or anchor", async () => {
   const canonical = await readFile(new URL("../src/styles.css", import.meta.url), "utf8");
   const run = () => spawnSync(process.execPath, [new URL("./ui-policy.mjs", import.meta.url).pathname, "--root", root], { encoding: "utf8" });
   try {
-    await mkdir(join(root, "src"));
+    await mkdir(join(root, "src")); await writeReviewedBase(root);
     await mkdir(join(root, "scripts"));
     await writeFile(join(root, "src/App.tsx"), 'import "./styles.css";');
     await writeFile(join(root, "src/styles.css"), canonical);
-    await writeFile(join(root, "scripts/ui-policy-baseline.json"), JSON.stringify({ version: 1, sourceRef: "7b2617b173618d376e7b3a90ec31e1392c3b7bc0", files: {} }));
+    await writeFile(join(root, "scripts/ui-policy-baseline.json"), JSON.stringify({ version: 1, sourceRef: "1d65472d9619bd87cce1d9ddec5d38cd56c47313", files: {} }));
     assert.equal(run().status, 0, "reviewed immutable ref and empty baseline");
     for (const width of [430, 720, 1050]) {
       await writeFile(join(root, "src/styles.css"), canonical.replace(new RegExp(`@custom-variant [^;]+${width}px[^;]+;`), ""));

@@ -888,4 +888,14 @@ Task 5에서 검토한 `--background-image-landing-brightness-track` 역할은 �
 
 ### Task 6 작은 버튼 행간 승인 ref 회전
 
+<!-- 아래 단락은 당시 승인 기록이며 현재 ATLAS anchor는 마지막 항목을 참조한다. -->
+
 토큰 전용 `7b2617b173618d376e7b3a90ec31e1392c3b7bc0`의 독립 검토는 Spec PASS·Quality Approved·findings0이다. scanner/baseline 및 실제 fixture의 승인 ref를 이 검토된375역할 커밋으로 회전한다. 이전 `b1b50079`·374역할은 당시 기록이다. `files: {}`·기존 거부 규칙·포함형 custom variant와 runtime 예외는 변경하지 않는다. 실제 named leading 소비자의10px/12px·중간 motion·포커스·화면 검증은 Task 6 소비자 작업에서 확인한다.
+
+### ATLAS 고객 alias와 승인 anchor 회전 (Task 2)
+
+독립 검토 Spec PASS·Quality Approved·C0/I0인 토큰 전용 커밋 `1d65472d9619bd87cce1d9ddec5d38cd56c47313`을 scanner와 빈 baseline의 정확한 승인 sourceRef로 소비한다. 기존375 선언과 추가204 선언은 모두 이 immutable Git 원본으로 검사한다. 상태 문서 HEAD는 신뢰 anchor가 아니다.
+
+`base.css`의 루트 `:root[data-customer-theme="light"]`와 `:root[data-customer-theme="dark"]`에 각각98 semantic 역할을 `var(--color-customer-{light|dark}-{role})`로 alias하고, `color-scheme`도 해당 값으로 지정한다. property·token·값·개수·각 selector 1회와 두 selector의 필수 존재를 CSS AST로 검증한다. 누락·중복·변조·추가 property, nested selector, `!important`, 다른 root 밖의 customer palette 참조는 거부한다. 일반 selector 허용이나 새 CSS 파일·import·native form·literal 예외를 추가하지 않는다.
+
+marker가 없으면 기본 색이 그대로이며 light/dark 전환·제거를 실제 생성 CSS의 Chromium computed 값으로 검사한다. 기본 surface `#F4F8FA`와 primary foreground `#FFFFFF`, 고객 dark foreground `#0F1724`를 확인한다. CustomerShell marker 적용·저장·cleanup 런타임은 후속 Task 3 범위이고 이 단계에서는 활성화하지 않는다. landing inclusive430/720/1050 경계와 production 정책 부채0·`files: {}`를 유지한다. scoped local commit 뒤 전체 독립 검수 gate를 거쳐 후속 작업으로 넘긴다.

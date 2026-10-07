@@ -3,9 +3,10 @@ import { dirname, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import ts from "typescript";
 import { execFileSync } from "node:child_process";
+import { createRequire } from "node:module";
 
 // Updating this reviewed trust anchor is a policy change, never a baseline edit.
-const approvedSourceRef = "7b2617b173618d376e7b3a90ec31e1392c3b7bc0";
+const approvedSourceRef = "1d65472d9619bd87cce1d9ddec5d38cd56c47313";
 const webRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 function approvedSource(path) {
   return execFileSync("git", ["show", `${approvedSourceRef}:apps/web/${path}`], { cwd: webRoot, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
@@ -17,6 +18,45 @@ const approvedThemeValues = new Map([...maskComments(approvedSource("src/styles/
 // Previously reviewed additions are now covered by the immutable token commit.
 const themeValues = approvedThemeValues;
 const themeTokens = new Set(themeValues.keys());
+const require = createRequire(import.meta.url);
+const postcss = createRequire(require.resolve("vite"))("postcss");
+const customerRoles = Object.keys(JSON.parse(execFileSync("git", ["show", `${approvedSourceRef}:docs/assets/atlas-ui-refresh-2026-10-07/customer-theme-roles.json`], { cwd: webRoot, encoding: "utf8" })).colors);
+const customerSelectors = new Map(["light", "dark"].map(theme => [`:root[data-customer-theme="${theme}"]`, theme]));
+
+// Only these reviewed root bindings can override semantic defaults. Parse real
+// CSS so nesting, duplicate declarations and !important cannot evade the gate.
+function inspectCustomerBindings(source, required = false) {
+  const violations = [];
+  const allowed = new Set();
+  const fail = (match, index = 0) => violations.push({ rule: "customer-theme-binding", path: "src/styles/base.css", match, index });
+  let root;
+  try { root = postcss.parse(source); } catch { fail("invalid CSS"); return { violations, allowed }; }
+  const rules = [];
+  root.walkRules(rule => { if (customerSelectors.has(rule.selector)) rules.push(rule); });
+  root.walkDecls(node => {
+    if (!customerSelectors.has(node.parent.selector) && (node.prop.startsWith("--color-customer-") || customerRoles.some(role => node.prop === `--color-${role}`) || node.value.includes("--color-customer-"))) {
+      fail(`binding outside reviewed root: ${node.prop}`, node.source.start.offset);
+    }
+  });
+  if (!required && rules.length === 0) return { violations, allowed };
+  for (const [selector, theme] of customerSelectors) {
+    const matches = rules.filter(rule => rule.selector === selector);
+    if (matches.length !== 1) { fail(`${selector}: expected one rule, got ${matches.length}`); continue; }
+    const rule = matches[0];
+    const expected = new Map([["color-scheme", theme], ...customerRoles.map(role => [`--color-${role}`, `var(--color-customer-${theme}-${role})`])]);
+    const seen = new Set();
+    let valid = rule.parent === root;
+    for (const node of rule.nodes) {
+      if (node.type === "comment") continue;
+      if (node.type !== "decl" || node.important || seen.has(node.prop) || expected.get(node.prop) !== normalizeThemeValue(node.value)) valid = false;
+      seen.add(node.prop);
+    }
+    if (seen.size !== expected.size || [...expected.keys()].some(prop => !seen.has(prop))) valid = false;
+    if (valid) allowed.add(selector);
+    else fail(`${selector}: incomplete or changed declarations`, rule.source.start.offset);
+  }
+  return { violations, allowed };
+}
 
 // These values are runtime geometry/data consumed by Konva or Recharts, not
 // document spacing or palette CSS. exceptions.css records why each path cannot
@@ -314,6 +354,8 @@ export function inspectUiSource(path, source) {
   const violations = [];
   const add = (rule, match, index = 0) => violations.push({ rule, path, match, index });
   let text = maskComments(source, path);
+  const customerBindings = path === "src/styles/base.css" ? inspectCustomerBindings(text) : { violations: [], allowed: new Set() };
+  violations.push(...customerBindings.violations);
   // Only declarations inside the canonical @theme block own raw palette and
   // typed scale values. Ordinary rules in this file still pass through policy.
   if (path === "src/styles/theme.css") {
@@ -358,11 +400,11 @@ export function inspectUiSource(path, source) {
     const name = m[0].replace(/^(?:max-|min-)/, "").slice(0, -1);
     if (!approvedLandingVariants.has(name) && !themeTokens.has(`--breakpoint-${name}`)) add("unapproved-breakpoint", m[0], m.index);
   });
-  scan(/(?<![\w-])(?:bg|text|border(?:-[trblxyse])?|ring(?:-offset)?|outline|fill|stroke|decoration|accent|caret|from|via|to)-((?:brand|surface|content|border|action|status|chart|fixture)-[\w-]+)/g, m => {
+  scan(/(?<![\w-])(?:bg|text|border(?:-[trblxyse])?|ring(?:-offset)?|outline|fill|stroke|decoration|accent|caret|from|via|to)-((?:brand|surface|content|border|action|status|chart|fixture|map|customer)-[\w-]+)/g, m => {
     if (!themeTokens.has(`--color-${m[1]}`)) add("unapproved-color", m[0], m.index);
   });
   scan(/(?<![\w-])text-([a-z][\w-]*)(?![\w-]|\s*:)/g, m => {
-    if (!themeTokens.has(`--text-${m[1]}`) && !/^(?:brand|surface|content|border|action|status|chart|fixture|red|blue|green|gray|slate|zinc|neutral|stone|amber|orange|yellow|purple|pink|rose|indigo|cyan|teal|emerald|lime|sky|violet|fuchsia)-/.test(m[1]) && !/^(?:xs|sm|base|lg|xl|black|white|left|right|center|start|end|justify|wrap|nowrap|balance|pretty|ellipsis|clip)$/.test(m[1])) add("unapproved-typography", m[0], m.index);
+    if (!themeTokens.has(`--text-${m[1]}`) && !/^(?:brand|surface|content|border|action|status|chart|fixture|map|customer|red|blue|green|gray|slate|zinc|neutral|stone|amber|orange|yellow|purple|pink|rose|indigo|cyan|teal|emerald|lime|sky|violet|fuchsia)-/.test(m[1]) && !/^(?:xs|sm|base|lg|xl|black|white|left|right|center|start|end|justify|wrap|nowrap|balance|pretty|ellipsis|clip)$/.test(m[1])) add("unapproved-typography", m[0], m.index);
   });
   scan(/(?<![\w-])(rounded|shadow)-([a-z][\w-]*)/g, m => {
     if (m[2] !== "none" && !themeTokens.has(`--${m[1] === "rounded" ? "radius" : "shadow"}-${m[2]}`)) add("unapproved-theme-utility", m[0], m.index);
@@ -588,7 +630,7 @@ export function inspectUiSource(path, source) {
       nativeInsetCounts.set(selector, insetCount);
       const body = text.slice(selectorPattern.lastIndex, text.indexOf("}", selectorPattern.lastIndex)).trim().replace(/\s+/g, " ");
       const nativeInsetAllowed = insetCount === 1 && reviewedNativeInsetRules.get(selector) === body;
-      const baseAllowed = path === "src/styles/base.css" && (nativeInsetAllowed || ["html", "body", "button, input, select, textarea", ":focus-visible"].includes(selector));
+      const baseAllowed = path === "src/styles/base.css" && (customerBindings.allowed.has(selector) || nativeInsetAllowed || ["html", "body", "button, input, select, textarea", ":focus-visible"].includes(selector));
       if (!baseAllowed) add("css-selector", selector, m.index);
       if (/(?:^|[\s,>+~])(?:input|select|textarea|button)(?=[\s.#[:>+~,]|$)/.test(selector) && !baseAllowed) add("raw-form-style", selector, m.index);
     }
@@ -626,6 +668,12 @@ export async function inspectWorkspace({ root = webRoot, baseline = {} } = {}) {
   }
 
   const manifestCache = new Map();
+  // Fragment inspection remains useful for existing reset/utility contracts;
+  // a complete workspace must always contain both reviewed theme bindings.
+  const bindingContract = inspectCustomerBindings(maskComments(sources.get("src/styles/base.css") ?? "", "base.css"), true);
+  for (const violation of bindingContract.violations) {
+    if (!violations.some(existing => existing.rule === violation.rule && existing.path === violation.path && existing.match === violation.match)) violations.push(violation);
+  }
   for (const [path, source] of sources) {
     if (path.endsWith(".css") || testPath.test(path)) continue;
     for (const { specifier } of moduleSpecifiers(source, path)) {

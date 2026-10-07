@@ -13,6 +13,49 @@ const proposal = JSON.parse(readFileSync(new URL("docs/assets/atlas-ui-refresh-2
 const source = readFileSync(new URL("../src/styles/theme.css", import.meta.url), "utf8");
 const anchor = "7b2617b173618d376e7b3a90ec31e1392c3b7bc0";
 
+test("generated CSS restores non-customer defaults and resolves customer light/dark foreground", async () => {
+  const base = readFileSync(new URL("../src/styles/base.css", import.meta.url), "utf8");
+  const compiler = await compile(`${source}\n${base}\n@tailwind utilities;`);
+  const css = compiler.build(["bg-surface-canvas", "text-action-primary-foreground"]);
+  const { chromium } = await import("@playwright/test");
+  const browser = await chromium.launch();
+  try {
+    const page = await browser.newPage();
+    await page.setContent(`<style>${css}</style><div id="probe" class="bg-surface-canvas text-action-primary-foreground"></div>`);
+    const observed = await page.evaluate(() => {
+      const read = () => { const style = getComputedStyle(document.getElementById("probe")); return [style.backgroundColor, style.color]; };
+      const values = [read()];
+      document.documentElement.dataset.customerTheme = "light"; values.push(read());
+      document.documentElement.dataset.customerTheme = "dark"; values.push(read());
+      delete document.documentElement.dataset.customerTheme; values.push(read());
+      return values;
+    });
+    assert.deepEqual(observed, [["rgb(244, 248, 250)", "rgb(255, 255, 255)"], ["rgb(244, 247, 251)", "rgb(255, 255, 255)"], ["rgb(15, 23, 36)", "rgb(15, 23, 36)"], ["rgb(244, 248, 250)", "rgb(255, 255, 255)"]]);
+    // Tailwind's namespace reset (--color-*) is compiler syntax, not a CSS
+    // custom property; only actual named colors have browser consumers.
+    const defaults = Object.fromEntries([...declarations(execFileSync("git", ["show", "1d65472d9619bd87cce1d9ddec5d38cd56c47313:apps/web/src/styles/theme.css"], { cwd: repository, encoding: "utf8" }))].filter(([name]) => name.startsWith("--color-") && !name.includes("*") && !name.startsWith("--color-customer-")));
+    const mismatches = await page.evaluate(({ defaults, palettes }) => {
+      const probe = document.getElementById("probe");
+      const reference = document.createElement("div"); document.body.append(reference);
+      const differences = [];
+      for (const mode of [null, "light", "dark", null]) {
+        if (mode) document.documentElement.dataset.customerTheme = mode;
+        else delete document.documentElement.dataset.customerTheme;
+        for (const [property, original] of Object.entries(defaults)) {
+          const role = property.slice("--color-".length);
+          probe.style.color = `var(${property})`;
+          reference.style.color = mode && palettes[role] ? palettes[role][mode] : original;
+          const actual = getComputedStyle(probe).color;
+          const expected = getComputedStyle(reference).color;
+          if (actual !== expected) differences.push({ mode, property, actual, expected });
+        }
+      }
+      return differences;
+    }, { defaults, palettes: proposal.colors });
+    assert.deepEqual(mismatches, [], "all semantic colors resolve, excluded brand/operator defaults remain unchanged, and removal restores every original");
+  } finally { await browser.close(); }
+});
+
 function declarations(css) {
   const root = postcss.parse(css);
   const blocks = [];
