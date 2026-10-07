@@ -29,25 +29,38 @@ test("canonical customer focus shadows add exactly two roles while preserving al
   } });
 });
 
-test("compiled direct customer focus tokens meet contrast on field button option and menu surfaces without changing default shadow", async () => {
+test("compiled customer root focus bindings meet contrast on field button option and menu surfaces and restore default shadow", async () => {
   const base = readFileSync(new URL("../src/styles/base.css", import.meta.url), "utf8");
   const surfaces = ["surface-canvas", "surface-panel", "surface-elevated", "surface-inset", "action-primary-soft"];
   const classes = ["outline-none", "border", "border-border-strong", "bg-surface-panel", "shadow-focus",
     ...surfaces.map(role => `bg-${role}`),
-    ...["light", "dark"].flatMap(theme => [`focus-visible:shadow-customer-${theme}-focus`, `data-focus-visible:shadow-customer-${theme}-focus`])];
+    "focus:shadow-focus", "focus-visible:shadow-focus", "data-focus-visible:shadow-focus", "shadow-action-primary-hover", "ring-2", "ring-offset-2", "opacity-60"];
   const compiler = await compile(`${source}\n${base}\n@tailwind utilities;`);
   const css = compiler.build(classes);
+  const generated = postcss.parse(css);
+  const rules = [];
+  generated.walkRules(rule => { if (rule.selector.includes("shadow-focus")) rules.push(rule); });
+  for (const variant of [".shadow-focus", ".focus\\:shadow-focus:focus", ".focus-visible\\:shadow-focus:focus-visible", ".data-focus-visible\\:shadow-focus[data-focus-visible]"]) {
+    const stock = rules.find(rule => rule.selector === variant);
+    const guarded = rules.find(rule => rule.selector === `${variant}:where(:root[data-customer-theme="light"] *, :root[data-customer-theme="dark"] *)`);
+    assert.ok(stock && guarded, `${variant}: stock and customer guard both exist`);
+    assert.ok(rules.indexOf(stock) < rules.indexOf(guarded), "customer supplement wins at equal specificity");
+    assert.equal(stock.nodes.find(node => node.prop === "box-shadow").value, "var(--tw-inset-shadow), var(--tw-inset-ring-shadow), var(--tw-ring-offset-shadow), var(--tw-ring-shadow), var(--tw-shadow)");
+    assert.equal(guarded.nodes.length, 1);
+    assert.equal(guarded.nodes[0].prop, "--tw-shadow");
+    assert.equal(guarded.nodes[0].value, "0 0 0 3px var(--tw-shadow-color, var(--color-border-focus))");
+  }
   const { chromium } = await import("@playwright/test");
   const browser = await chromium.launch();
   const observations = [];
   try {
     const page = await browser.newPage();
     for (const theme of ["light", "dark"]) {
-      // Direct token utilities intentionally do not emulate the still-unmodified
-      // product --shadow-focus root alias or React Aria's focus state ownership.
-      const native = `outline-none border border-border-strong bg-surface-panel focus-visible:shadow-customer-${theme}-focus`;
-      const aria = `outline-none border border-border-strong bg-surface-panel data-focus-visible:shadow-customer-${theme}-focus`;
-      await page.setContent(`<style>${css}</style><div id="default" class="shadow-focus"></div>${surfaces.map((surface, index) => `<section class="bg-${surface}"><input id="field-${index}" class="${native}" aria-label="field"><button id="button-${index}" class="${native}">button</button><div id="option-${index}" tabindex="0" role="option" class="${aria}">option</div><div id="menu-${index}" tabindex="0" role="menuitem" class="${aria}">menu</div></section>`).join("")}`);
+      // Real compiled root aliases drive the shared utility. This isolated
+      // state fixture does not emulate React Aria's event/lifecycle ownership.
+      const native = "outline-none border border-border-strong bg-surface-panel focus-visible:shadow-focus";
+      const aria = "outline-none border border-border-strong bg-surface-panel data-focus-visible:shadow-focus";
+      await page.setContent(`<style>${css}</style><div id="default" class="shadow-focus"></div>${surfaces.map((surface, index) => `<section class="bg-${surface}" style="padding:12px;display:flex;gap:12px"><input id="field-${index}" class="${native}" aria-label="field"><button id="button-${index}" class="${native}">button</button><div id="option-${index}" tabindex="0" role="option" class="${aria}">option</div><div id="menu-${index}" tabindex="0" role="menuitem" class="${aria}">menu</div></section>`).join("")}`);
       await page.evaluate(theme => { document.documentElement.dataset.customerTheme = theme; }, theme);
       for (const [index, surface] of surfaces.entries()) for (const kind of ["field", "button", "option", "menu"]) {
         const control = page.locator(`#${kind}-${index}`);
@@ -67,7 +80,11 @@ test("compiled direct customer focus tokens meet contrast on field button option
           const composite = foreground.slice(0, 3).map((value, index) => value * foreground[3] + background[index] * (1 - foreground[3]));
           const luminance = channels => channels.map(value => { const c = value / 255; return c <= .04045 ? c / 12.92 : ((c + .055) / 1.055) ** 2.4; }).reduce((sum, value, index) => sum + value * [.2126, .7152, .0722][index], 0);
           const levels = [luminance(composite), luminance(background.slice(0, 3))].sort((a, b) => b - a);
-          return { border: style.borderTopColor, shadow: style.boxShadow, color, background: bg, ratio: (levels[0] + .05) / (levels[1] + .05), focused: document.activeElement === node, focusVisible: node.matches(":focus-visible"), outlineStyle: style.outlineStyle };
+          const rect = node.getBoundingClientRect(), parent = node.parentElement.getBoundingClientRect();
+          const center = document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2);
+          return { border: style.borderTopColor, shadow: style.boxShadow, color, background: bg, ratio: (levels[0] + .05) / (levels[1] + .05), focused: document.activeElement === node, focusVisible: node.matches(":focus-visible"), outlineStyle: style.outlineStyle,
+            noClip: rect.left - 3 >= parent.left && rect.right + 3 <= parent.right && rect.top - 3 >= parent.top && rect.bottom + 3 <= parent.bottom && getComputedStyle(node.parentElement).overflow === "visible",
+            unoccluded: center === node || node.contains(center) };
         });
         assert.equal(focused.focused, true);
         assert.equal(focused.focusVisible, true);
@@ -75,7 +92,10 @@ test("compiled direct customer focus tokens meet contrast on field button option
         assert.equal(focused.outlineStyle, "none");
         assert.equal(focused.color, theme === "light" ? "rgb(36, 95, 232)" : "rgb(148, 185, 255)");
         assert.ok(focused.ratio >= 3, `${theme}/${surface}/${kind} effective focus3: ${focused.ratio}`);
+        assert.equal(focused.noClip, true, "public fixture focus extent is not clipped");
+        assert.equal(focused.unoccluded, true, "public fixture center is not occluded");
         observations.push({ theme, surface, kind, ...focused });
+        console.log(JSON.stringify({ customerFocusObservation: { theme, surface, kind, ...focused } }));
         await control.evaluate(node => { node.removeAttribute("data-focus-visible"); node.blur(); });
         assert.equal(await control.evaluate(node => getComputedStyle(node).boxShadow), "none", "blur removes the direct focus indicator");
       }
@@ -84,9 +104,53 @@ test("compiled direct customer focus tokens meet contrast on field button option
         const themed = read(); delete document.documentElement.dataset.customerTheme; return [themed, read()];
       });
       const unchanged = "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(37, 111, 161, 0.28) 0px 0px 0px 3px";
-      assert.deepEqual(defaultStates, [unchanged, unchanged], "root binding remains old in token-only stage; marker removal preserves default");
+      const themedColor = theme === "light" ? "rgb(36, 95, 232)" : "rgb(148, 185, 255)";
+      assert.deepEqual(defaultStates, [unchanged.replace("rgba(37, 111, 161, 0.28)", themedColor), unchanged], "customer root binds the new shadow and marker removal restores the exact default");
+      await page.evaluate(theme => {
+        document.documentElement.dataset.customerTheme = theme;
+        const fixture = document.createElement("section");
+        fixture.innerHTML = '<button id="composition" class="shadow-focus shadow-action-primary-hover ring-2 ring-offset-2">composition</button><button id="focus-only" class="focus:shadow-focus">focus</button><button id="disabled" disabled class="focus-visible:shadow-focus opacity-60">disabled</button>';
+        document.body.append(fixture);
+      }, theme);
+      const composed = await page.locator("#composition").evaluate(node => {
+        node.style.setProperty("--tw-inset-shadow", "inset 0px 0px 1px 1px rgb(1, 2, 3)");
+        const style = getComputedStyle(node);
+        const finalColor = style.boxShadow.match(/(?:rgba?|oklab|color)\([^)]+\)/g)?.at(-1);
+        const reference = document.createElement("span");
+        // Copy the independently approved role, not the actual shadow modifier:
+        // Tailwind's registered --tw-shadow-color intentionally does not inherit.
+        reference.style.color = `color-mix(in oklab, ${style.getPropertyValue("--color-action-primary-hover")} 100%, transparent)`;
+        document.body.append(reference);
+        const expectedColor = getComputedStyle(reference).color;
+        const canvas = document.createElement("canvas"); canvas.width = canvas.height = 1;
+        const context = canvas.getContext("2d");
+        const channels = value => { context.clearRect(0, 0, 1, 1); context.fillStyle = value; context.fillRect(0, 0, 1, 1); return [...context.getImageData(0, 0, 1, 1).data]; };
+        const actualChannels = channels(finalColor), expectedChannels = channels(expectedColor);
+        reference.style.color = style.getPropertyValue("--color-border-focus");
+        const fallbackChannels = channels(getComputedStyle(reference).color);
+        reference.remove();
+        return { shadow: style.boxShadow, color: style.getPropertyValue("--tw-shadow-color"), borderFocus: style.getPropertyValue("--color-border-focus"), finalColor, expectedColor, actualChannels, expectedChannels, fallbackChannels };
+      });
+      console.log(JSON.stringify({ customerFocusComposition: { theme, ...composed } }));
+      assert.ok(composed.shadow.includes("inset"), "inset slot survives focus supplement");
+      assert.ok(composed.shadow.includes("4px"), "2px ring plus 2px ring-offset survives");
+      assert.equal(composed.finalColor, composed.expectedColor, "explicit modifier matches independently resolved approved hover role");
+      assert.deepEqual(composed.actualChannels, composed.expectedChannels);
+      assert.notDeepEqual(composed.actualChannels, composed.fallbackChannels, "fallback-only recipe cannot satisfy explicit modifier contract");
+      assert.equal(composed.actualChannels[3], 255, "explicit modifier retains 100% alpha");
+      assert.ok(composed.shadow.endsWith("0px 0px 0px 3px"), "outer focus geometry remains 3px");
+      const focusOnly = page.locator("#focus-only");
+      assert.equal(await focusOnly.evaluate(node => getComputedStyle(node).boxShadow), "none");
+      await focusOnly.focus();
+      assert.ok((await focusOnly.evaluate(node => getComputedStyle(node).boxShadow)).includes(themedColor));
+      await focusOnly.evaluate(node => node.blur());
+      assert.equal(await focusOnly.evaluate(node => getComputedStyle(node).boxShadow), "none");
+      await page.locator("#composition").focus();
+      await page.locator("#composition").evaluate(node => node.blur());
+      assert.equal(await page.locator("#composition").evaluate(node => getComputedStyle(node).boxShadow), composed.shadow, "plain selection shadow persists blur");
+      assert.deepEqual(await page.locator("#disabled").evaluate(node => ({ disabled: node.disabled, opacity: getComputedStyle(node).opacity, shadow: getComputedStyle(node).boxShadow })), { disabled: true, opacity: "0.6", shadow: "none" });
     }
-    console.log(JSON.stringify({ directTokenOnly: true, observations }));
+    console.log(JSON.stringify({ customerRootBindings: true, observations }));
   } finally { await browser.close(); }
 });
 

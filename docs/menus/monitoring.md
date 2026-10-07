@@ -1,5 +1,31 @@
 # 모니터링 메뉴 기능 현황
 
+## 2026-10-07 고객 공통 키보드 포커스 합성 보완 (Task 11)
+
+### 구현 완료
+
+- 고객 light/dark root의 승인 border-focus 역할을 공통 `shadow-focus`의 고객 전용 compiler supplement에 연결한다. stock shadow·명시 shadow-color·다섯 inset/ring/offset/outer 슬롯과 3px geometry를 보존하고 고객 marker 제거 시 비고객 기본 표현을 복원한다. 선언적 shadow2/root alias를 utility가 동적으로 읽는다고 주장하지 않는다.
+- exact base-only PostCSS 구조와 CSS 공백만 허용하는 경계 검증으로 utility1/rule1/declaration1을 제한한다. NBSP/VT·중복·변조·escape·외부 override를 거부하며 canonical734/승인 anchor `fac0d214`·빈 baseline을 유지한다.
+- 현재 공통 소스의 compiled 계약85개·기존 공통 소비자341개, fresh Web 타입/UI 정책/빌드가 통과했다. public fixture의 양 팔레트40개 focus 대비·border 보존·합성/default/blur와 원 dark390 현장 선택의 실제 focus8.009:1 도달 경계를 확인했다.
+
+### 미구현
+
+- 전체 Task11 화면 매트릭스·후속 alarm/body/PDF 검증과 브랜치 병합은 완료하지 않았다. 새로운 API·장비 제어 기능을 추가하지 않았다.
+
+### 부족하거나 개선이 필요한 기능
+
+- 원 dark390 testcase는 포커스 관문 뒤 QA 색상 parser가 `oklab(0 0 0 / 0.5)`를 해석하지 못해 1FAIL이다. 공통 포커스의 scoped GREEN을 전체 testcase PASS로 확대하지 않는다. 원1.3116 focus 실패 및 중간82/1·83/1 로그는 보존한다.
+- public CSS fixture와 Chromium software 검증이며 forced-colors·실제 OS/native WebView·Gateway/Mesh/조명 HIL 검증을 대체하지 않는다. 목업 이력과 실제 서비스 결과를 구분한다.
+
+### 관련 파일
+
+- `apps/web/src/styles/base.css`, `apps/web/scripts/ui-policy.mjs`, `apps/web/scripts/ui-policy.test.mjs`, `apps/web/scripts/ui-policy-baseline.json`, `apps/web/scripts/customer-theme-contract.test.mjs`, `docs/ui-spacing.md`.
+
+### 갱신 규칙
+
+- compiler recipe·기본 token·고객 경계·명시 색상/ring 합성과 실제 포커스 관문을 함께 검증한다. 원 QA parser 수리·후속 화면·물리 검증은 각각 실제 소스와 결과를 회수한 뒤 별도로 기록한다.
+
+
 ## 2026-10-07 공통 이력 empty/error 읽기 보완 (Task 11)
 
 ### 구현 완료

@@ -100,6 +100,7 @@
   --color-map-background: var(--color-customer-light-map-background);
   --color-map-line: var(--color-customer-light-map-line);
   --color-map-room: var(--color-customer-light-map-room);
+  --shadow-focus: var(--shadow-customer-light-focus);
 }
 
 :root[data-customer-theme="dark"] {
@@ -202,6 +203,7 @@
   --color-map-background: var(--color-customer-dark-map-background);
   --color-map-line: var(--color-customer-dark-map-line);
   --color-map-room: var(--color-customer-dark-map-room);
+  --shadow-focus: var(--shadow-customer-dark-focus);
 }
 
 @layer base {
@@ -238,4 +240,12 @@
 
 @utility pt-safe-area-top {
   padding-top: env(safe-area-inset-top);
+}
+
+/* Named shadows are compiler-inlined: preserve stock/color/ring composition
+ * while only customer descendants receive the approved opaque focus fallback. */
+@utility shadow-focus {
+  &:where(:root[data-customer-theme="light"] *, :root[data-customer-theme="dark"] *) {
+    --tw-shadow: 0 0 0 3px var(--tw-shadow-color, var(--color-border-focus));
+  }
 }

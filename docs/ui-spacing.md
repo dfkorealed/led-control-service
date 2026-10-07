@@ -2,6 +2,13 @@
 
 기준일: 2026-09-28
 
+## 2026-10-07 고객 포커스 compiler supplement (Task 11)
+
+- 승인 token anchor는 `fac0d214653c03cc277993887c0e0c40e440b20d`다. 기존732 선언 전체 값과 고객 palette98/layout4를 그대로 보존하고 승인 shadow2로734를 유지한다. 선언적 두 root는 각각100개 선언이며 비고객 기본/brand/landing 값은 변경하지 않는다.
+- Tailwind4.3.3의 named shadow는 canonical 값을 인라인하므로 root shadow alias만으로 paint를 바꾸지 못한다. `base.css`의 최상위 `@utility shadow-focus` 정확1개 안에서 `&:where(:root[data-customer-theme="light"] *, :root[data-customer-theme="dark"] *)`와 `--tw-shadow: 0 0 0 3px var(--tw-shadow-color, var(--color-border-focus));`만 보완한다. stock 다섯-slot box-shadow·명시 색상 override·3px geometry와 고객 scope 밖 기본 fallback을 보존한다.
+- 일반 selector/utility/literal/native 허용을 넓히지 않는다. PostCSS로 정확 utility1/rule1/declaration1을 검증한 범위만 lexical 검사에서 제외하며 CSS 공백만 정상화한다. JS trim의 NBSP/VT 양끝 우회8변형을 거부하고 중복/변조/escape/important/wrapper/외부 shadow override 및 exact anchor·빈 baseline 경계를 유지한다.
+- fresh 계약85PASS/공통 소비자341PASS·Web 타입/UI 정책/빌드0, public fixture 양팔레트40 포커스·독립 hover modifier/100%alpha·ring/inset/default/blur 검증은 해당 소스의 scoped 증거다. 원 dark390 실제 현장 포커스8.009:1은 통과했으나 이후 QA parser의 `oklab(0 0 0 / 0.5)` 예외로 원 testcase1FAIL이다. 원1.3116/중간82–1·83–1 로그를 보존하고 후속 alarm/body/matrix/PDF·whole Task11/병합을 완료로 표시하지 않는다. forced-colors/실제 OS/native/HIL은 미검증이다.
+
 ## 목적과 적용 범위
 
 이 문서는 Web UI의 간격·색상·타이포그래피 토큰과 정책 검사 기준이다. `apps/web/src/styles/theme.css`의 CSS-first `@theme static`이 단일 토큰 원천이며 JavaScript Tailwind config는 만들지 않는다. Task 12에서 공통 컴포넌트와 모니터링·제어·통계·설정 화면을 승인 utility로 전환하고 legacy selector를 제거했다.

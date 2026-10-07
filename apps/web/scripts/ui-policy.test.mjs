@@ -13,15 +13,78 @@ const approvedLandingVariants = `@custom-variant landing-narrow (@media (max-wid
 const canonicalStyles = '@import "tailwindcss"; @import "./styles/theme.css"; @import "./styles/base.css"; @import "./styles/exceptions.css";' + "\n" + approvedLandingVariants;
 
 const customerRoles = Object.keys(JSON.parse(await readFile(new URL("../../../docs/assets/atlas-ui-refresh-2026-10-07/customer-theme-roles.json", import.meta.url), "utf8")).colors);
-const customerBindings = ["light", "dark"].map(theme => `:root[data-customer-theme="${theme}"] { color-scheme: ${theme}; ${customerRoles.map(role => `--color-${role}: var(--color-customer-${theme}-${role});`).join(" ")} }`).join("\n");
+const customerBindings = ["light", "dark"].map(theme => `:root[data-customer-theme="${theme}"] { color-scheme: ${theme}; ${customerRoles.map(role => `--color-${role}: var(--color-customer-${theme}-${role});`).join(" ")} --shadow-focus: var(--shadow-customer-${theme}-focus); }`).join("\n");
+const focusUtility = '@utility shadow-focus { &:where(:root[data-customer-theme="light"] *, :root[data-customer-theme="dark"] *) { --tw-shadow: 0 0 0 3px var(--tw-shadow-color, var(--color-border-focus)); } }';
+
+test("customer focus utility rejects non-CSS whitespace at selector and value edges", () => {
+  for (const char of ["\u00a0", "\u000b"]) for (const mutated of [
+    focusUtility.replace('&:where(', `${char}&:where(`),
+    focusUtility.replace('*) {', `*)${char} {`),
+    focusUtility.replace('--tw-shadow: 0', `--tw-shadow: ${char}0`),
+    focusUtility.replace('var(--color-border-focus));', `var(--color-border-focus))${char};`)
+  ]) assert.ok(inspectUiSource("src/styles/base.css", customerBindings + mutated).some(v => v.rule === "customer-focus-utility"), JSON.stringify(mutated));
+  for (const char of [" ", "\t", "\n", "\f", "\r"]) assert.deepEqual(inspectUiSource("src/styles/base.css", customerBindings + focusUtility.replace('&:where(', `${char}&:where(`).replace('--tw-shadow: 0', `--tw-shadow: ${char}0`)), []);
+  assert.deepEqual(inspectUiSource("src/styles/base.css", customerBindings + focusUtility.replace('--tw-shadow:', '/*safe comment*/ --tw-shadow:')), []);
+});
+
+test("customer focus utility admits only the exact base structure and rejects shadow escape routes", () => {
+  assert.deepEqual(inspectUiSource("src/styles/base.css", customerBindings + focusUtility), []);
+  for (const changed of [
+    focusUtility + focusUtility,
+    `@media (min-width: 1px) { ${focusUtility} }`,
+    focusUtility.replace('shadow-focus', 'shadow-other'),
+    focusUtility.replace(' *)', ', body)'),
+    focusUtility.replace('3px', '4px'),
+    focusUtility.replace('var(', 'var ('),
+    focusUtility.replace('var(', 'var(\u00a0'),
+    focusUtility.replace('var(', 'var(\u000b'),
+    focusUtility.replace('--tw-shadow:', '--tw-shadow: none; --tw-shadow:'),
+    focusUtility.replace(';', ' !important;'),
+    focusUtility.replace('--tw-shadow:', String.raw`--tw-\73 hadow:`),
+    focusUtility.replace('shadow-focus', String.raw`shadow-\66 ocus`),
+    focusUtility.replace(' *)', ' > *)'),
+    focusUtility.replace(';', '; box-shadow: none;'),
+    'body { --tw-shadow: 0 0 0 3px var(--color-border-focus); }'
+  ]) assert.ok(inspectUiSource("src/styles/base.css", customerBindings + changed).length > 0, changed);
+  assert.ok(inspectUiSource("src/elsewhere.css", focusUtility).length > 0);
+});
 async function writeReviewedBase(root) {
   await mkdir(join(root, "src/styles"), { recursive: true });
-  await writeFile(join(root, "src/styles/base.css"), customerBindings);
+  await writeFile(join(root, "src/styles/base.css"), customerBindings + focusUtility);
 }
 
 test("accepts only the complete reviewed customer bindings", () => {
   assert.equal(customerRoles.length, 98);
   assert.deepEqual(inspectUiSource("src/styles/base.css", customerBindings), []);
+});
+
+test("closes customer focus shadow definitions and references outside reviewed roots", () => {
+  for (const source of [
+    "body { --shadow-focus: var(--shadow-popover); }",
+    "body { --shadow-customer-dark-focus: var(--shadow-popover); }",
+    "body { --unrelated: var(--shadow-customer-dark-focus); }",
+    "body { --unrelated: var(--shadow-focus); }"
+  ]) assert.ok(inspectUiSource("src/styles/base.css", source).some(v => v.rule === "customer-theme-binding"), source);
+});
+
+test("rejects missing duplicate mutated extra and invalid-syntax customer focus shadows", () => {
+  assert.deepEqual(inspectUiSource("src/styles/base.css", customerBindings), []);
+  const declaration = "--shadow-focus: var(--shadow-customer-dark-focus);";
+  for (const changed of [
+    customerBindings.replace(declaration, ""),
+    customerBindings.replace(declaration, `${declaration} ${declaration}`),
+    customerBindings.replace(declaration, "--shadow-focus: var(--shadow-customer-light-focus);"),
+    customerBindings.replace(declaration, `${declaration} --shadow-other: var(--shadow-customer-dark-focus);`),
+    customerBindings.replace(declaration, "--shadow-focus: var (--shadow-customer-dark-focus);"),
+    customerBindings.replace(declaration, "--shadow-focus: var(\u00a0--shadow-customer-dark-focus);"),
+    customerBindings.replace(declaration, "--shadow-focus: var(\u000b--shadow-customer-dark-focus);"),
+    customerBindings.replace(declaration, "--shadow-focus: var(--shadow-customer-dark-focus, none);"),
+    customerBindings.replace(declaration, declaration.replace(";", " !important;")),
+    customerBindings.replace(declaration, String.raw`--shadow-\66 ocus: var(--shadow-customer-dark-focus);`),
+    customerBindings + String.raw`body { --unrelated: var(--shadow-\63 ustomer-dark-focus); }`,
+    `@media (min-width: 1px) { ${customerBindings} }`
+  ]) assert.ok(inspectUiSource("src/styles/base.css", changed).some(v => v.rule === "customer-theme-binding"), changed);
+  for (const space of [" ", "\t", "\n", "\f", "\r"]) assert.deepEqual(inspectUiSource("src/styles/base.css", customerBindings.replace(declaration, `--shadow-focus: var(${space}--shadow-customer-dark-focus${space});`)), []);
 });
 
 test("customer and map color utilities remain closed to reviewed token names", () => {
@@ -972,7 +1035,7 @@ test("I4 CLI rejects every production DOM query with a zero baseline", async () 
     await mkdir(join(root, "scripts"));
     await writeFile(join(root, "src/App.tsx"), 'import "./styles.css";');
     await writeFile(join(root, "src/styles.css"), canonicalStyles);
-    await writeFile(join(root, "scripts/ui-policy-baseline.json"), JSON.stringify({ version: 1, sourceRef: "1d65472d9619bd87cce1d9ddec5d38cd56c47313", files: {} }));
+    await writeFile(join(root, "scripts/ui-policy-baseline.json"), JSON.stringify({ version: 1, sourceRef: "fac0d214653c03cc277993887c0e0c40e440b20d", files: {} }));
     await writeFile(join(root, "src/components/ConfirmDialog.tsx"), 'dialogElement.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR);');
     assert.equal(run().status, 1);
     await writeFile(join(root, "src/components/ConfirmDialog.tsx"), 'const unused = 1;\ndialogElement.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR);');
@@ -996,7 +1059,7 @@ test("CLI inventories only production src and rejects any policy debt", async ()
     await writeFile(join(root, "src/App.tsx"), 'import "./styles.css";');
     await writeFile(join(root, "src/styles.css"), canonicalStyles);
     await writeFile(join(root, "src/ignored.test.tsx"), '"p-[15px]"');
-    await writeFile(join(root, "scripts/ui-policy-baseline.json"), JSON.stringify({ version: 1, sourceRef: "1d65472d9619bd87cce1d9ddec5d38cd56c47313", files: {} }));
+    await writeFile(join(root, "scripts/ui-policy-baseline.json"), JSON.stringify({ version: 1, sourceRef: "fac0d214653c03cc277993887c0e0c40e440b20d", files: {} }));
     assert.equal(run().status, 0);
     await writeFile(join(root, "src/App.tsx"), 'import "./new.css";');
     assert.equal(run().status, 1);
@@ -1160,7 +1223,7 @@ test("baseline must preserve the approved Git anchor and an empty violation map"
     await writeFile(join(root, "scripts/ui-policy-baseline.json"), JSON.stringify({ version: 1, sourceRef: "0000000000000000000000000000000000000000", files: {} }));
     assert.equal(run().status, 1, "an edited sourceRef must fail even without current violations");
     await writeFile(join(root, "src/App.tsx"), 'const clean = true;');
-    await writeFile(join(root, "scripts/ui-policy-baseline.json"), JSON.stringify({ version: 1, sourceRef: "1d65472d9619bd87cce1d9ddec5d38cd56c47313", files: { "src/App.tsx": { "css-import": { count: 2, matches: { "./styles.css": 2 } } } } }));
+    await writeFile(join(root, "scripts/ui-policy-baseline.json"), JSON.stringify({ version: 1, sourceRef: "fac0d214653c03cc277993887c0e0c40e440b20d", files: { "src/App.tsx": { "css-import": { count: 2, matches: { "./styles.css": 2 } } } } }));
     assert.equal(run().status, 1, "non-empty debt allowances must fail even with clean source");
   } finally {
     await rm(root, { recursive: true, force: true });
@@ -1233,7 +1296,7 @@ test("approved landing policy rejects mutated variant or anchor", async () => {
     await mkdir(join(root, "scripts"));
     await writeFile(join(root, "src/App.tsx"), 'import "./styles.css";');
     await writeFile(join(root, "src/styles.css"), canonical);
-    await writeFile(join(root, "scripts/ui-policy-baseline.json"), JSON.stringify({ version: 1, sourceRef: "1d65472d9619bd87cce1d9ddec5d38cd56c47313", files: {} }));
+    await writeFile(join(root, "scripts/ui-policy-baseline.json"), JSON.stringify({ version: 1, sourceRef: "fac0d214653c03cc277993887c0e0c40e440b20d", files: {} }));
     assert.equal(run().status, 0, "reviewed immutable ref and empty baseline");
     for (const width of [430, 720, 1050]) {
       await writeFile(join(root, "src/styles.css"), canonical.replace(new RegExp(`@custom-variant [^;]+${width}px[^;]+;`), ""));
