@@ -52,9 +52,10 @@ function inspectCustomerBindings(source, required = false) {
     let valid = rule.parent === root;
     for (const node of rule.nodes) {
       if (node.type === "comment") continue;
-      // Whitespace inside var() arguments is harmless; whitespace between the
-      // function identifier and '(' changes CSS tokenization and must survive.
-      const reference = node.type === "decl" ? node.value.match(/^var\(\s*(--[\w-]+)\s*\)$/) : null;
+      // Only CSS whitespace is harmless inside var() arguments. JavaScript's
+      // \s also includes NBSP/vertical tab, which change CSS tokenization.
+      // Preserve the immediate function identifier/'(' boundary as well.
+      const reference = node.type === "decl" ? node.value.match(/^var\([\t\n\f\r ]*(--[\w-]+)[\t\n\f\r ]*\)$/) : null;
       const value = node.prop === "color-scheme" ? node.value.trim() : reference ? `var(${reference[1]})` : null;
       if (node.type !== "decl" || node.important || seen.has(node.prop) || expected.get(node.prop) !== value) valid = false;
       seen.add(node.prop);

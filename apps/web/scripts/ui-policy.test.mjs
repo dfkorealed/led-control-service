@@ -42,6 +42,12 @@ test("rejects escaped protected declarations and palette references", () => {
   ]) assert.ok(inspectUiSource("src/styles/base.css", customerBindings + extra).some(v => v.rule === "customer-theme-binding"), extra);
 });
 
+test("customer var arguments accept CSS whitespace but reject NBSP and vertical tab", () => {
+  const token = "--color-customer-dark-action-primary-foreground";
+  for (const space of [" ", "\t", "\n", "\f", "\r"]) assert.deepEqual(inspectUiSource("src/styles/base.css", customerBindings.replace(`var(${token})`, `var(${space}${token}${space})`)), []);
+  for (const invalid of ["\u00a0", "\u000b"]) assert.ok(inspectUiSource("src/styles/base.css", customerBindings.replace(`var(${token})`, `var(${invalid}${token})`)).some(v => v.rule === "customer-theme-binding"));
+});
+
 test("rejects missing duplicate mutated or extra customer binding", () => {
   const declaration = "--color-surface-canvas: var(--color-customer-light-surface-canvas);";
   for (const changed of [

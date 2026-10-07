@@ -13,6 +13,28 @@ const proposal = JSON.parse(readFileSync(new URL("docs/assets/atlas-ui-refresh-2
 const source = readFileSync(new URL("../src/styles/theme.css", import.meta.url), "utf8");
 const anchor = "7b2617b173618d376e7b3a90ec31e1392c3b7bc0";
 
+test("actual CSS distinguishes approved argument whitespace from NBSP and vertical tab", async () => {
+  const { inspectUiSource } = await import("./ui-policy.mjs");
+  const base = readFileSync(new URL("../src/styles/base.css", import.meta.url), "utf8");
+  const token = "--color-customer-dark-action-primary-foreground";
+  const { chromium } = await import("@playwright/test");
+  const browser = await chromium.launch();
+  try {
+    const page = await browser.newPage();
+    for (const space of [" ", "\t", "\n", "\f", "\r", "\u00a0", "\u000b"]) {
+      const valid = [" ", "\t", "\n", "\f", "\r"].includes(space);
+      const candidate = base.replace(`var(${token})`, `var(${space}${token})`);
+      const compiler = await compile(`${source}\n${candidate}\n@tailwind utilities;`);
+      await page.setContent(`<style>${compiler.build(["text-action-primary-foreground"])}</style><div id="probe" class="text-action-primary-foreground"></div>`);
+      const color = await page.evaluate(() => { document.documentElement.dataset.customerTheme = "dark"; return getComputedStyle(document.getElementById("probe")).color; });
+      assert.equal(color, valid ? "rgb(15, 23, 36)" : "rgb(255, 255, 255)", `real CSS U+${space.codePointAt(0).toString(16)}`);
+      const violations = inspectUiSource("src/styles/base.css", candidate);
+      if (valid) assert.deepEqual(violations, []);
+      else assert.ok(violations.some(v => v.rule === "customer-theme-binding"), "CSS-invalid whitespace must not be admitted");
+    }
+  } finally { await browser.close(); }
+});
+
 test("real CSS parser rejects admitted invalid functions and escaped override payloads", async () => {
   const { inspectUiSource } = await import("./ui-policy.mjs");
   const base = readFileSync(new URL("../src/styles/base.css", import.meta.url), "utf8");
