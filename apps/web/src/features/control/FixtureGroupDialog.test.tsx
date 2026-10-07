@@ -73,6 +73,60 @@ describe("FixtureGroupDialog", () => {
 
   afterEach(cleanup);
 
+  it("blocks a form already open when command storage locks or management permission changes", async () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const props = { open: true, siteId: ids.site, dashboard, canManage: true, onClose: vi.fn(), mutationsBlocked: false };
+    const view = render(<QueryClientProvider client={client}><FixtureGroupDialog {...props} /></QueryClientProvider>);
+    await screen.findByText("B2 입구");
+    fireEvent.click(screen.getByRole("button", { name: "B2 입구 수정" }));
+    view.rerender(<QueryClientProvider client={client}><FixtureGroupDialog {...props} mutationsBlocked /></QueryClientProvider>);
+    expect(screen.getByRole("button", { name: "변경 저장" })).toBeDisabled();
+    fireEvent.submit(screen.getByLabelText("구역 이름").closest("form")!);
+    expect(mocks.updateFixtureGroup).not.toHaveBeenCalled();
+    view.rerender(<QueryClientProvider client={client}><FixtureGroupDialog {...props} canManage={false} /></QueryClientProvider>);
+    expect(screen.getByRole("button", { name: "변경 저장" })).toBeDisabled();
+    fireEvent.submit(screen.getByLabelText("구역 이름").closest("form")!);
+    expect(mocks.updateFixtureGroup).not.toHaveBeenCalled();
+  });
+
+  it("stops the closed query and resets its open form without creating a second owner", async () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } });
+    const props = { siteId: ids.site, dashboard, canManage: true, onClose: vi.fn() };
+    const view = render(<QueryClientProvider client={client}><FixtureGroupDialog {...props} open={false} /></QueryClientProvider>);
+    expect(mocks.listFixtureGroups).not.toHaveBeenCalled();
+    view.rerender(<QueryClientProvider client={client}><FixtureGroupDialog {...props} open /></QueryClientProvider>);
+    await screen.findByText("B2 입구");
+    fireEvent.click(screen.getByRole("button", { name: "새 구역" }));
+    fireEvent.change(screen.getByLabelText("구역 이름"), { target: { value: "닫힌 초안" } });
+    view.rerender(<QueryClientProvider client={client}><FixtureGroupDialog {...props} open={false} /></QueryClientProvider>);
+    await client.invalidateQueries({ queryKey: ["fixture-groups", ids.site] });
+    expect(mocks.listFixtureGroups).toHaveBeenCalledTimes(1);
+    view.rerender(<QueryClientProvider client={client}><FixtureGroupDialog {...props} open /></QueryClientProvider>);
+    expect(screen.queryByLabelText("구역 이름")).not.toBeInTheDocument();
+    expect(screen.getByText("B2 입구")).toBeInTheDocument();
+  });
+
+  it("does not apply an old-site pending completion to the next site's form or cache", async () => {
+    let resolve!: (group: FixtureGroupMetadata) => void;
+    mocks.resyncFixtureGroup.mockImplementation(() => new Promise<FixtureGroupMetadata>((done) => { resolve = done; }));
+    const nextSite = "00000000-0000-4000-8000-000000000201";
+    const nextGroup = { ...failedGroup, id: "00000000-0000-4000-8000-000000000206", name: "새 현장 구역" };
+    mocks.listFixtureGroups.mockImplementation(async (site: string) => site === ids.site ? [failedGroup] : [nextGroup]);
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const props = { open: true, siteId: ids.site, dashboard, canManage: true, onClose: vi.fn() };
+    const view = render(<QueryClientProvider client={client}><FixtureGroupDialog {...props} /></QueryClientProvider>);
+    await screen.findByText("B2 입구");
+    fireEvent.click(screen.getByRole("button", { name: "B2 입구 재동기화" }));
+    await waitFor(() => expect(mocks.resyncFixtureGroup).toHaveBeenCalledWith(ids.site, ids.group));
+    view.rerender(<QueryClientProvider client={client}><FixtureGroupDialog {...props} siteId={nextSite} dashboard={{ ...dashboard, site: { ...dashboard.site, id: nextSite } }} /></QueryClientProvider>);
+    await screen.findByText("새 현장 구역");
+    resolve({ ...failedGroup, meshControlGroup: { status: "configuring", version: 3, error: null } });
+    await waitFor(() => expect(screen.getByRole("button", { name: "새 현장 구역 재동기화" })).toBeEnabled());
+    expect(screen.queryByText("Mesh 재동기화를 시작했습니다.")).not.toBeInTheDocument();
+    expect(client.getQueryData(["fixture-groups", nextSite])).toEqual([nextGroup]);
+    await waitFor(() => expect(client.getQueryData<FixtureGroupMetadata[]>(["fixture-groups", ids.site])?.[0].meshControlGroup?.version).toBe(3));
+  });
+
   it("submits full replacement membership from the map editor", async () => {
     renderDialog(true);
 

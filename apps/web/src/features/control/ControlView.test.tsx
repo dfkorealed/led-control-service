@@ -16,6 +16,7 @@ import { activeCommandStorageKey, loadObservedVerificationCase, saveObservedVeri
 const mocks = vi.hoisted(() => ({
   apiPost: vi.fn(),
   apiGet: vi.fn(),
+  apiRequest: vi.fn(),
   useControlDashboard: vi.fn(),
   useFloorMapSnapshot: vi.fn(),
   useCommandStatus: vi.fn()
@@ -24,8 +25,11 @@ const mocks = vi.hoisted(() => ({
 vi.mock("../../api/client", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../api/client")>()),
   apiPost: mocks.apiPost,
-  apiGet: async (...args: unknown[]) => ({ generatedAt: "2026-09-25T00:00:00.000Z", retainedFrom: "2026-06-25T00:00:00.000Z", retentionEnabled: false, ...await mocks.apiGet(...args) }),
-  apiRequest: vi.fn()
+  apiGet: async (...args: unknown[]) => {
+    const result = await mocks.apiGet(...args);
+    return Array.isArray(result) ? result : { generatedAt: "2026-09-25T00:00:00.000Z", retainedFrom: "2026-06-25T00:00:00.000Z", retentionEnabled: false, ...result };
+  },
+  apiRequest: mocks.apiRequest
 }));
 vi.mock("../../api/queries", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../api/queries")>()),
@@ -158,7 +162,7 @@ describe("ControlView 대상 선택", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     sessionStorage.clear();
-    mocks.apiGet.mockResolvedValue({ items: [], nextCursor: null });
+    mocks.apiGet.mockImplementation(async (path: string) => path.includes("fixture-groups") ? dashboard.groups : { items: [], nextCursor: null });
     mocks.apiPost.mockResolvedValue({
       id: commandIds.default,
       dispatchCount: 1,
@@ -2138,6 +2142,180 @@ describe("ControlView 대상 선택", () => {
     expect(await screen.findByText(`이벤트 패널 ${dashboard.site.id}`)).toBeInTheDocument();
   });
 
+  it("control-capable user can read groups but cannot mutate", async () => {
+    mocks.useControlDashboard.mockReturnValue({ data: { ...dashboard, capabilities: { ...dashboard.capabilities, manage: false } }, isLoading: false, error: null });
+    mocks.apiGet.mockImplementation(async (path: string) => path.includes("fixture-groups") ? dashboard.groups : { items: [], nextCursor: null });
+    renderControl("viewer", dashboard.site.id, USER_A, `/control?siteId=${dashboard.site.id}&mode=group`);
+    expect(screen.getByRole("tab", { name: "그룹/구역" })).toHaveAttribute("aria-selected", "true");
+    const panel = screen.getByRole("tabpanel", { name: "그룹/구역" });
+    expect(await within(panel).findByText(dashboard.groups[0].name)).toBeInTheDocument();
+    expect(within(panel).queryByRole("button", { name: "새 구역" })).not.toBeInTheDocument();
+    expect(within(panel).queryByRole("button", { name: /수정|삭제|재동기화/ })).not.toBeInTheDocument();
+    expect(mocks.apiPost).not.toHaveBeenCalled(); expect(mocks.apiRequest).not.toHaveBeenCalled();
+  });
+
+  it("group URL and roving focus survive back forward and theme", async () => {
+    mocks.apiGet.mockImplementation(async (path: string) => path.includes("fixture-groups") ? dashboard.groups : { items: [], nextCursor: null });
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const tree = <QueryClientProvider client={client}><CustomerThemeProvider><SessionStatusProvider>
+      <MemoryRouter initialEntries={[`/control?siteId=${dashboard.site.id}&mode=manual&keep=literal%25#section`]}>
+        <ControlView siteId={dashboard.site.id} userId={USER_A} userRole="admin" /><ControlLocation /><Task8ThemeButton />
+      </MemoryRouter></SessionStatusProvider></CustomerThemeProvider></QueryClientProvider>;
+    render(tree);
+    const manual = screen.getByRole("tab", { name: "수동 제어" });
+    manual.focus(); fireEvent.keyDown(manual, { key: "End" });
+    const group = screen.getByRole("tab", { name: "그룹/구역" });
+    expect(group).toHaveFocus(); expect(group).toHaveAttribute("aria-controls", "control-mode-panel-group");
+    expect(await screen.findByRole("tabpanel", { name: "그룹/구역" })).toBeInTheDocument();
+    expect(screen.getByTestId("control-location")).toHaveTextContent(`?siteId=${dashboard.site.id}&mode=group&keep=literal%25#section`);
+    fireEvent.click(screen.getByRole("button", { name: "Task8 테마 변경" }));
+    expect(group).toHaveAttribute("aria-selected", "true");
+    fireEvent.click(screen.getByRole("button", { name: "브라우저 뒤로" }));
+    expect(await screen.findByRole("tab", { name: "수동 제어" })).toHaveAttribute("aria-selected", "true");
+    fireEvent.click(screen.getByRole("button", { name: "브라우저 앞으로" }));
+    expect(await screen.findByRole("tab", { name: "그룹/구역" })).toHaveAttribute("tabindex", "0");
+    expect(screen.getByTestId("control-location")).toHaveTextContent("#section");
+    expect(mocks.apiPost).not.toHaveBeenCalled(); client.clear();
+  });
+
+  it.each(["schedule", "event"])("non-manager automation URL normalizes to manual preserving query: %s", async mode => {
+    mocks.useControlDashboard.mockReturnValue({ data: { ...dashboard, capabilities: { ...dashboard.capabilities, manage: false } }, isLoading: false, error: null });
+    renderControl("viewer", dashboard.site.id, USER_A, `/control?siteId=${dashboard.site.id}&mode=${mode}&keep=value#section`);
+    await waitFor(() => expect(screen.getByTestId("control-location")).toHaveTextContent(`?siteId=${dashboard.site.id}&mode=manual&keep=value#section`));
+    expect(screen.queryByRole("tab", { name: mode === "schedule" ? "스케줄 제어" : "이벤트 제어" })).not.toBeInTheDocument();
+    expect(mocks.apiPost).not.toHaveBeenCalled();
+  });
+
+  it("group tab cannot bypass an unresolved command mutation lock", async () => {
+    mocks.apiGet.mockImplementation(async (path: string) => path.includes("fixture-groups") ? dashboard.groups : { items: [], nextCursor: null });
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(<QueryClientProvider client={client}><SessionStatusProvider><MemoryRouter>
+      <ControlView siteId={dashboard.site.id} userId={USER_A} userRole="admin" />
+    </MemoryRouter></SessionStatusProvider></QueryClientProvider>);
+    selectFixture("B2-L001"); changeBrightness(30); fireEvent.click(applyButton());
+    await waitFor(() => expect(mocks.apiPost).toHaveBeenCalledTimes(1));
+    const frozen = commandStore.loadActiveCommandRequest(USER_A, dashboard.site.id);
+    expect(frozen?.clientRequestId).toBeTruthy();
+    fireEvent.click(screen.getByRole("tab", { name: "그룹/구역" }));
+    const panel = screen.getByRole("tabpanel", { name: "그룹/구역" });
+    await within(panel).findByText(dashboard.groups[0].name);
+    expect(within(panel).getByRole("button", { name: "새 구역" })).toBeDisabled();
+    for (const button of within(panel).getAllByRole("button", { name: /수정|삭제|재동기화/ })) {
+      expect(button).toBeDisabled(); fireEvent.click(button);
+    }
+    expect(mocks.apiPost).toHaveBeenCalledTimes(1); expect(mocks.apiRequest).not.toHaveBeenCalled();
+    expect(commandStore.loadActiveCommandRequest(USER_A, dashboard.site.id)).toEqual(frozen);
+    fireEvent.click(screen.getByRole("tab", { name: "수동 제어" }));
+    expect(applyButton()).toBeDisabled(); client.clear();
+  });
+
+  it("group tab preserves a restored original request and cannot mutate while fresh detail is pending", async () => {
+    const request = { siteId: dashboard.site.id, clientRequestId: commandIds.retry,
+      target: { type: "fixtures" as const, fixtureIds: [fixtureIds.b2First] }, brightness: 37 };
+    saveActiveCommandRequest(USER_A, dashboard.site.id, request);
+    commandStore.saveActiveCommandId(USER_A, dashboard.site.id, commandIds.restored);
+    renderControl("admin", dashboard.site.id, USER_A, `/control?siteId=${dashboard.site.id}&mode=group`);
+    const panel = screen.getByRole("tabpanel", { name: "그룹/구역" });
+    await within(panel).findByText(dashboard.groups[0].name);
+    expect(within(panel).getByRole("button", { name: "새 구역" })).toBeDisabled();
+    expect(mocks.useCommandStatus).toHaveBeenLastCalledWith(commandIds.restored);
+    expect(commandStore.loadActiveCommandRequest(USER_A, dashboard.site.id)).toEqual(request);
+    expect(mocks.apiPost).not.toHaveBeenCalled(); expect(mocks.apiRequest).not.toHaveBeenCalled();
+  });
+
+  it("group tab fails closed on native storage corruption without overwriting the record", async () => {
+    commandStore.configureActiveCommandPersistence(true);
+    const key = `led-control:active-command:mobile:v1:${USER_A}:${dashboard.site.id}`;
+    localStorage.setItem(key, "{");
+    try {
+      renderControl("admin", dashboard.site.id, USER_A, `/control?siteId=${dashboard.site.id}&mode=group`);
+      const panel = screen.getByRole("tabpanel", { name: "그룹/구역" });
+      await within(panel).findByText(dashboard.groups[0].name);
+      expect(commandStore.getActiveCommandStorageError()).toBeTruthy();
+      expect(within(panel).getByRole("button", { name: "새 구역" })).toBeDisabled();
+      for (const button of within(panel).getAllByRole("button", { name: /수정|삭제|재동기화/ })) {
+        expect(button).toBeDisabled(); fireEvent.click(button);
+      }
+      expect(localStorage.getItem(key)).toBe("{");
+      expect(mocks.apiPost).not.toHaveBeenCalled(); expect(mocks.apiRequest).not.toHaveBeenCalled();
+    } finally { commandStore.configureActiveCommandPersistence(false); }
+  });
+
+  it("group tab cannot bypass a session-level command lock", async () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(<QueryClientProvider client={client}><SessionStatusProvider>
+      <MemoryRouter initialEntries={[`/control?siteId=${dashboard.site.id}&mode=group`]}>
+        <ControlView siteId={dashboard.site.id} userId={USER_A} userRole="admin" commandSessionBlocked />
+      </MemoryRouter></SessionStatusProvider></QueryClientProvider>);
+    const panel = screen.getByRole("tabpanel", { name: "그룹/구역" });
+    await within(panel).findByText(dashboard.groups[0].name);
+    expect(within(panel).getByRole("button", { name: "새 구역" })).toBeDisabled();
+    expect(mocks.apiPost).not.toHaveBeenCalled(); expect(mocks.apiRequest).not.toHaveBeenCalled();
+    client.clear();
+  });
+
+  it("isolates same-site group drafts and old pending completions across principal A→B→A without keying theme or commands", async () => {
+    let complete!: (value: unknown) => void;
+    mocks.apiRequest.mockImplementation(() => new Promise(resolve => { complete = resolve; }));
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    function tree(userId: string) {
+      return <QueryClientProvider client={client}><CustomerThemeProvider><SessionStatusProvider>
+        <MemoryRouter initialEntries={[`/control?siteId=${dashboard.site.id}&mode=group`]}>
+          <ControlView siteId={dashboard.site.id} userId={userId} userRole="admin" /><Task8ThemeButton />
+        </MemoryRouter></SessionStatusProvider></CustomerThemeProvider></QueryClientProvider>;
+    }
+    const view = render(tree(USER_A));
+    await screen.findByText(dashboard.groups[0].name);
+    fireEvent.click(screen.getByRole("button", { name: `${dashboard.groups[0].name} 수정` }));
+    const editor = screen.getByTestId("fixture-group-map-editor");
+    fireEvent.change(screen.getByLabelText("구역 이름"), { target: { value: "이전 A 초안" } });
+    fireEvent.click(screen.getByRole("button", { name: "Task8 테마 변경" }));
+    expect(screen.getByLabelText("구역 이름")).toHaveValue("이전 A 초안");
+    expect(screen.getByTestId("fixture-group-map-editor")).toBe(editor);
+    fireEvent.click(screen.getByRole("button", { name: "변경 저장" }));
+    await waitFor(() => expect(mocks.apiRequest).toHaveBeenCalledTimes(1));
+    view.rerender(tree(USER_B));
+    await screen.findByRole("button", { name: "새 구역" });
+    expect(screen.queryByLabelText("구역 이름")).not.toBeInTheDocument();
+    expect(client.getQueryCache().find({ queryKey: ["fixture-groups", dashboard.site.id] })?.getObserversCount()).toBe(1);
+    view.rerender(tree(USER_A));
+    fireEvent.click(await screen.findByRole("button", { name: "새 구역" }));
+    fireEvent.change(screen.getByLabelText("구역 이름"), { target: { value: "현재 A 초안" } });
+    await act(async () => complete({ ...dashboard.groups[0], name: "이전 A 저장됨" }));
+    await waitFor(() => expect(client.getQueryData<Array<{ name: string }>>(["fixture-groups", dashboard.site.id])?.some(group => group.name === "이전 A 저장됨")).toBe(true));
+    expect(screen.getByLabelText("구역 이름")).toHaveValue("현재 A 초안");
+    expect(screen.queryByText("구역을 저장했습니다.")).not.toBeInTheDocument();
+    expect(mocks.apiPost).not.toHaveBeenCalled();
+    expect(mocks.apiRequest).toHaveBeenCalledTimes(1);
+    view.unmount();
+    expect(client.getQueryCache().find({ queryKey: ["fixture-groups", dashboard.site.id] })?.getObserversCount()).toBe(0);
+    client.clear();
+  });
+
+  it("preserves the original frozen UUID through group theme and same-site principal round trips without another POST", async () => {
+    const request = { siteId: dashboard.site.id, clientRequestId: commandIds.retry,
+      target: { type: "fixtures" as const, fixtureIds: [fixtureIds.b2First] }, brightness: 37 };
+    saveActiveCommandRequest(USER_A, dashboard.site.id, request);
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    function tree(userId: string) {
+      return <QueryClientProvider client={client}><CustomerThemeProvider><SessionStatusProvider>
+        <MemoryRouter initialEntries={[`/control?siteId=${dashboard.site.id}&mode=group`]}>
+          <ControlView siteId={dashboard.site.id} userId={userId} userRole="admin" /><Task8ThemeButton />
+        </MemoryRouter></SessionStatusProvider></CustomerThemeProvider></QueryClientProvider>;
+    }
+    const view = render(tree(USER_A));
+    expect(await screen.findByRole("button", { name: "새 구역" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "Task8 테마 변경" }));
+    view.rerender(tree(USER_B));
+    expect(await screen.findByRole("button", { name: "새 구역" })).toBeEnabled();
+    view.rerender(tree(USER_A));
+    expect(await screen.findByRole("button", { name: "새 구역" })).toBeDisabled();
+    expect(commandStore.loadActiveCommandRequest(USER_A, dashboard.site.id)).toEqual(request);
+    expect(commandStore.loadActiveCommandRequest(USER_B, dashboard.site.id)).toBeNull();
+    expect(mocks.apiPost).not.toHaveBeenCalled(); expect(mocks.apiRequest).not.toHaveBeenCalled();
+    client.clear();
+  });
+
   it("submits the selected target and brightness without expiry UI or fields", async () => {
     renderControl();
 
@@ -2162,26 +2340,28 @@ describe("ControlView 대상 선택", () => {
     const manualTab = screen.getByRole("tab", { name: "수동 제어" });
     const scheduleTab = screen.getByRole("tab", { name: "스케줄 제어" });
     const eventTab = screen.getByRole("tab", { name: "이벤트 제어" });
+    const groupTab = screen.getByRole("tab", { name: "그룹/구역" });
 
     expect(manualTab).toHaveAttribute("tabindex", "0");
     expect(scheduleTab).toHaveAttribute("tabindex", "-1");
     expect(eventTab).toHaveAttribute("tabindex", "-1");
+    expect(groupTab).toHaveAttribute("tabindex", "-1");
 
     manualTab.focus();
     fireEvent.keyDown(manualTab, { key: "ArrowLeft" });
-    await waitFor(() => expect(screen.getByTestId("control-location")).toHaveTextContent("mode=event"));
-    expect(eventTab).toHaveFocus();
-    expect(eventTab).toHaveAttribute("aria-selected", "true");
+    await waitFor(() => expect(screen.getByTestId("control-location")).toHaveTextContent("mode=group"));
+    expect(groupTab).toHaveFocus();
+    expect(groupTab).toHaveAttribute("aria-selected", "true");
 
-    fireEvent.keyDown(eventTab, { key: "Home" });
+    fireEvent.keyDown(groupTab, { key: "Home" });
     await waitFor(() => expect(screen.getByTestId("control-location")).toHaveTextContent("mode=manual"));
     expect(manualTab).toHaveFocus();
 
     fireEvent.keyDown(manualTab, { key: "End" });
-    await waitFor(() => expect(screen.getByTestId("control-location")).toHaveTextContent("mode=event"));
-    expect(eventTab).toHaveFocus();
+    await waitFor(() => expect(screen.getByTestId("control-location")).toHaveTextContent("mode=group"));
+    expect(groupTab).toHaveFocus();
 
-    fireEvent.keyDown(eventTab, { key: "ArrowRight" });
+    fireEvent.keyDown(groupTab, { key: "ArrowRight" });
     await waitFor(() => expect(screen.getByTestId("control-location")).toHaveTextContent("mode=manual"));
     expect(manualTab).toHaveFocus();
   });
@@ -2313,11 +2493,16 @@ function ControlLocation() {
   const navigate = useNavigate();
   return (
     <>
-      <output data-testid="control-location">{`${location.pathname}${location.search}`}</output>
+      <output data-testid="control-location">{`${location.pathname}${location.search}${location.hash}`}</output>
       <button type="button" onClick={() => void navigate(-1)}>브라우저 뒤로</button>
       <button type="button" onClick={() => void navigate(1)}>브라우저 앞으로</button>
     </>
   );
+}
+
+function Task8ThemeButton() {
+  const { theme, setTheme } = useCustomerTheme();
+  return <button type="button" onClick={() => setTheme(theme === "light" ? "dark" : "light")}>Task8 테마 변경</button>;
 }
 
 function createFixture(

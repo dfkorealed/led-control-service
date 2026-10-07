@@ -1,4 +1,4 @@
-import { expect, test, type Locator, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page, type TestInfo } from "@playwright/test";
 import { RealBackendLab } from "./support/real-backend-lab";
 
 test.describe.configure({ mode: "serial" });
@@ -32,14 +32,15 @@ test("admin creates and executes schedule and vehicle event rules", async ({ bro
   await operator.goto("/monitoring");
   await login(operator, lab.operator.loginId, lab.operator.password);
   await operator.getByRole("button", { name: "현장 및 관리자 생성" }).click();
-  await operator.getByLabel("고객사명").fill("Task 19 고객사");
-  await operator.getByLabel("현장명").fill("Task 19 지하주차장");
-  await operator.getByLabel("관리자 이름").fill(lab.admin.name);
-  await operator.getByLabel("로그인 아이디").fill(lab.admin.loginId);
-  await operator.getByLabel("초기 비밀번호").fill(lab.admin.password);
+  const siteDialog = operator.getByRole("dialog", { name: "현장 및 관리자 생성", exact: true });
+  await siteDialog.getByRole("textbox", { name: "고객사명", exact: true }).fill("Task 19 고객사");
+  await siteDialog.getByRole("textbox", { name: "현장명", exact: true }).fill("Task 19 지하주차장");
+  await siteDialog.getByRole("textbox", { name: "관리자 이름", exact: true }).fill(lab.admin.name);
+  await siteDialog.getByRole("textbox", { name: "로그인 아이디", exact: true }).fill(lab.admin.loginId);
+  await siteDialog.getByLabel("초기 비밀번호", { exact: true }).fill(lab.admin.password);
   const createSite = operator.waitForResponse((response) =>
     response.url().endsWith("/api/operator/site-admins") && response.request().method() === "POST");
-  await operator.getByRole("button", { name: "생성", exact: true }).click();
+  await siteDialog.getByRole("button", { name: "생성", exact: true }).click();
   const created = await (await createSite).json() as { siteId: string };
   await operator.close();
 
@@ -96,10 +97,12 @@ test("admin creates and executes schedule and vehicle event rules", async ({ bro
   await lab.startAutomationGateway({ targetName, sensorName });
   await lab.waitForVehicleSensorCapability(sensorName);
   await lab.waitForAutomationProtocolConvergence("first-connect", firstConnect.evidenceCursor);
-  // The schedule omits its applied badge; protocol convergence above proves
-  // Gateway application. Exact activation-cell text also rejects pending/failure UI.
-  await expect(syncRow(admin, "Task 19 상시 스케줄").getByRole("cell").nth(1))
-    .toHaveText("활성", { timeout: 20_000 });
+  // Both measured grid surfaces expose actual enabled and APPLIED badges;
+  // this exact field rejects disabled, pending and rejected state independently of protocol proof.
+  const activation = syncRow(admin, "Task 19 상시 스케줄").getByRole("cell")
+    .or(syncRow(admin, "Task 19 상시 스케줄").getByRole("definition"))
+    .filter({ has: admin.getByText("활성", { exact: true }) });
+  await expect(activation).toHaveText(/^활성\s*적용됨$/, { timeout: 20_000 });
   await lab.waitForFixtureBrightness(targetName, 40);
 
   await admin.getByRole("tab", { name: "이벤트 제어" }).click();
@@ -108,7 +111,7 @@ test("admin creates and executes schedule and vehicle event rules", async ({ bro
     source: sensorName,
     target: targetName,
   });
-  await expect(syncRow(admin, "Task 19 차량 이벤트")).toContainText("적용됨", { timeout: 20_000 });
+  await expect(syncRow(admin, "Task 19 차량 이벤트", "차량 이벤트 목록")).toContainText("적용됨", { timeout: 20_000 });
   await lab.injectSensorEdge(sensorName, "detected");
   await lab.waitForFixtureBrightness(targetName, 80);
   await expectFixtureBrightness(admin, created.siteId, targetName, "80%");
@@ -117,7 +120,10 @@ test("admin creates and executes schedule and vehicle event rules", async ({ bro
   await selectFixtureFromList(admin, admin, targetName);
   await admin.getByRole("slider", { name: "밝기" }).fill("60");
   await admin.getByRole("button", { name: "밝기 적용" }).click();
-  await expect(admin.getByText("조명 적용 완료 · 기본 밝기로 저장됨", { exact: true })).toBeVisible();
+  await admin.getByRole("status", { name: "명령 진행 상태", exact: true })
+    .getByRole("button", { name: "상세 보기", exact: true }).click();
+  await expect(admin.getByRole("region", { name: "최근 결과 상세", exact: true })
+    .getByText("조명 적용 완료 · 기본 밝기로 저장됨", { exact: true })).toBeVisible();
   await lab.waitForFixtureBrightness(targetName, 60);
   await expectFixtureBrightness(admin, created.siteId, targetName, "60%");
 
@@ -200,7 +206,8 @@ test("admin creates and executes schedule and vehicle event rules", async ({ bro
   const deletedScheduleId = await lab.readScheduleId("Task 19 상시 스케줄");
   await lab.stopAutomationGateway();
   await admin.goto(`/control?siteId=${created.siteId}&mode=schedule`);
-  await admin.getByRole("button", { name: "Task 19 상시 스케줄 삭제" }).click();
+  await admin.getByRole("button", { name: "Task 19 상시 스케줄 작업" }).click();
+  await admin.getByRole("menuitem", { name: "삭제", exact: true }).click();
   const deleteDialog = admin.getByRole("dialog", { name: "스케줄 삭제" });
   await deleteDialog.getByRole("button", { name: "삭제", exact: true }).click();
   await expect(syncRow(admin, "Task 19 상시 스케줄")).toHaveCount(0);
@@ -219,13 +226,76 @@ test("admin creates and executes schedule and vehicle event rules", async ({ bro
   await lab.startApi();
   await lab.waitForAutomationProtocolConvergence("api-restart-ack", apiRestart.evidenceCursor);
   await admin.reload();
-  // The schedule omits its applied badge; protocol convergence above proves
-  // Gateway application. Exact activation-cell text also rejects pending/failure UI.
-  await expect(syncRow(admin, "Task 19 상시 스케줄").getByRole("cell").nth(1))
-    .toHaveText("활성", { timeout: 20_000 });
+  // Exact enabled+APPLIED field remains required after actual API/Gateway recovery.
+  const recoveredActivation = syncRow(admin, "Task 19 상시 스케줄").getByRole("cell")
+    .or(syncRow(admin, "Task 19 상시 스케줄").getByRole("definition"))
+    .filter({ has: admin.getByText("활성", { exact: true }) });
+  await expect(recoveredActivation).toHaveText(/^활성\s*적용됨$/, { timeout: 20_000 });
   await lab.assertAutomationConvergenceEvidence();
+  await exerciseSavedGroupWorkspace(admin, created.siteId, testInfo);
   await lab.writeEvidence(testInfo);
 });
+
+async function exerciseSavedGroupWorkspace(page: Page, siteId: string, testInfo: TestInfo) {
+  const requests: Array<{ url: string; method: string }> = [];
+  page.on("request", request => {
+    if (request.method() !== "GET") requests.push({ url: request.url(), method: request.method() });
+  });
+  await page.goto(`/control?siteId=${siteId}&mode=manual&keep=literal%25#groups`);
+  const manual = page.getByRole("tab", { name: "수동 제어" });
+  await manual.focus();
+  await manual.press("End");
+  const group = page.getByRole("tab", { name: "그룹/구역" });
+  await expect(group).toBeFocused();
+  await expect(group).toHaveAttribute("aria-controls", "control-mode-panel-group");
+  await expect(page).toHaveURL(url => url.searchParams.get("siteId") === siteId
+    && url.searchParams.get("mode") === "group" && url.searchParams.get("keep") === "literal%" && url.hash === "#groups");
+  const panel = page.getByRole("tabpanel", { name: "그룹/구역" });
+  await expect(panel).toBeVisible();
+  await page.getByRole("button", { name: "다크 모드로 변경" }).click();
+  await expect(group).toHaveAttribute("aria-selected", "true");
+  await page.screenshot({ path: testInfo.outputPath("task-8-groups-dark.png"), fullPage: true });
+  await page.getByRole("button", { name: "라이트 모드로 변경" }).click();
+  await page.goBack();
+  await expect(manual).toHaveAttribute("aria-selected", "true");
+  await page.goForward();
+  await expect(group).toHaveAttribute("aria-selected", "true");
+  expect(requests.filter(request => request.method === "POST" && request.url.includes("/api/commands/dimming"))).toHaveLength(0);
+
+  await panel.getByRole("button", { name: "새 구역" }).click();
+  await panel.getByLabel("구역 이름").fill("Task 8 저장 구역");
+  await selectFixtureFromList(page, panel, targetName);
+  const createdResponse = page.waitForResponse(response => response.request().method() === "POST"
+    && response.url().endsWith(`/sites/${siteId}/fixture-groups`));
+  await panel.getByRole("button", { name: "구역 만들기" }).click();
+  const created = await createdResponse;
+  expect(created.status()).toBe(201);
+  const payload = created.request().postDataJSON() as { fixtureIds: string[]; floorId: string; gatewayId: string };
+  expect(payload.fixtureIds).toHaveLength(1);
+  expect(payload.floorId).toBeTruthy(); expect(payload.gatewayId).toBeTruthy();
+  await expect(panel.getByText("Task 8 저장 구역", { exact: true })).toBeVisible();
+  await panel.getByRole("button", { name: "Task 8 저장 구역 수정" }).click();
+  await panel.getByLabel("구역 이름").fill("Task 8 저장 구역 수정됨");
+  const updatedResponse = page.waitForResponse(response => response.request().method() === "PATCH"
+    && response.url().includes(`/sites/${siteId}/fixture-groups/`));
+  await panel.getByRole("button", { name: "변경 저장" }).click();
+  const updated = await updatedResponse;
+  expect(updated.ok()).toBe(true);
+  expect(updated.request().postDataJSON().fixtureIds).toEqual(payload.fixtureIds);
+  await expect(panel.getByText("Task 8 저장 구역 수정됨", { exact: true })).toBeVisible();
+  await page.screenshot({ path: testInfo.outputPath("task-8-groups-light.png"), fullPage: true });
+  await panel.getByRole("button", { name: "Task 8 저장 구역 수정됨 삭제" }).click();
+  const confirmation = page.getByRole("dialog", { name: "구역 삭제 확인" });
+  await confirmation.getByRole("button", { name: "취소", exact: true }).click();
+  await expect(panel.getByRole("button", { name: "Task 8 저장 구역 수정됨 삭제" })).toBeFocused();
+  await panel.getByRole("button", { name: "Task 8 저장 구역 수정됨 삭제" }).click();
+  const deletedResponse = page.waitForResponse(response => response.request().method() === "DELETE"
+    && response.url().includes(`/sites/${siteId}/fixture-groups/`));
+  await confirmation.getByRole("button", { name: "삭제 확인", exact: true }).click();
+  expect((await deletedResponse).ok()).toBe(true);
+  await expect(confirmation).toBeHidden();
+  expect(requests.filter(request => request.method === "POST" && request.url.includes("/api/commands/dimming"))).toHaveLength(0);
+}
 
 async function login(page: Page, loginId: string, password: string) {
   await page.getByLabel("아이디").fill(loginId);
@@ -306,8 +376,10 @@ async function selectFixtureFromList(page: Page, scope: Page | Locator, fixtureN
   await expect(drawer).toBeHidden();
 }
 
-function syncRow(page: Page, name: string): Locator {
-  return page.getByRole("row").filter({ hasText: name });
+function syncRow(page: Page, name: string, caption: "스케줄 목록" | "차량 이벤트 목록" = "스케줄 목록"): Locator {
+  const namedRule = page.getByText(name, { exact: true });
+  return page.getByRole("table", { name: caption, exact: true }).getByRole("row").filter({ has: namedRule })
+    .or(page.getByRole("list", { name: caption, exact: true }).getByRole("listitem").filter({ has: namedRule }));
 }
 
 async function expectFixtureBrightness(

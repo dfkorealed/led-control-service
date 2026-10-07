@@ -44,6 +44,7 @@ import {
 import { controlSelectionToDimmingTarget, resolveControlSelection, type ControlSelection } from "./control-selection";
 import { humanizeDeviceResponseMessage } from "./control-copy";
 import { FixtureGroupDialog } from "./FixtureGroupDialog";
+import { FixtureGroupsPanel } from "./groups/FixtureGroupsPanel";
 import { ControlModeTabs, type ControlPageMode } from "./automation/ControlModeTabs";
 import { CommandHistoryPanel, COMMAND_STAGE_LABELS, isClockRefusal } from "./CommandHistoryPanel";
 import { CommandVerificationCases } from "./CommandVerificationCases";
@@ -96,7 +97,7 @@ export function ControlView({
   const canControl = capabilities?.control === true;
   const canManage = capabilities?.manage === true;
   const mode: ControlPageMode = isControlPageMode(requestedMode)
-    && (requestedMode === "manual" || canManage)
+    && (requestedMode === "manual" || (requestedMode === "group" ? canControl : canManage))
     ? requestedMode
     : "manual";
   const queryClient = useQueryClient();
@@ -241,8 +242,8 @@ export function ControlView({
     if (requestedMode === mode) return;
     const search = new URLSearchParams(location.search);
     search.set("mode", mode);
-    void navigate({ pathname: location.pathname, search: `?${search.toString()}` }, { replace: true });
-  }, [capabilities, location.pathname, location.search, mode, navigate, requestedMode]);
+    void navigate({ pathname: location.pathname, search: `?${search.toString()}`, hash: location.hash }, { replace: true });
+  }, [capabilities, location.pathname, location.search, location.hash, mode, navigate, requestedMode]);
 
   useEffect(() => {
     if (mode !== "manual") {
@@ -561,10 +562,11 @@ export function ControlView({
   function selectMode(nextMode: ControlPageMode) {
     const search = new URLSearchParams(location.search);
     search.set("mode", nextMode);
-    void navigate({ pathname: location.pathname, search: `?${search.toString()}` });
+    void navigate({ pathname: location.pathname, search: `?${search.toString()}`, hash: location.hash });
   }
 
-  const modeTabs = <ControlModeTabs mode={mode} onChange={selectMode} allowAutomation={canManage} />;
+  const modeTabs = <ControlModeTabs mode={mode} onChange={selectMode} allowAutomation={canManage} allowGroups={canControl} />;
+  const groupMutationsBlocked = isSubmitting || restorePending || commandInProgress || commandSessionBlocked || Boolean(storageError);
 
   if (capabilities && mode === "event") {
     const eventSiteId = data?.site.id ?? siteId;
@@ -626,6 +628,15 @@ export function ControlView({
     return <section className={controlScreenClassName} data-control-screen="">{modeTabs}<Text tone="muted" role="status">제어 대상 데이터가 없습니다.</Text></section>;
   }
 
+  if (mode === "group") {
+    return <section className={controlScreenClassName} data-control-screen="">
+      {modeTabs}
+      <div id="control-mode-panel-group" role="tabpanel" aria-labelledby="control-mode-group" className="grid min-h-0 min-w-0 flex-1">
+        <FixtureGroupsPanel key={`${userId}:${data.site.id}`} siteId={data.site.id} dashboard={data} canManage={canManage} mutationsBlocked={groupMutationsBlocked} />
+      </div>
+    </section>;
+  }
+
   return (
     <section className={controlScreenClassName} data-control-screen="">
       {modeTabs}
@@ -643,7 +654,7 @@ export function ControlView({
             hideEmbeddedSummary
             presentation="manual-workspace"
             managementAction={<Button ref={groupDialogOpenerRef} variant="secondary" type="button" onClick={() => setGroupDialogOpen(true)}
-              disabled={commandSessionBlocked || isSubmitting || restorePending || commandInProgress}>
+              disabled={groupMutationsBlocked}>
               <Layers3 size={16} aria-hidden="true" /> {canManage ? "구역 관리" : "구역 현황"}
             </Button>}
             onChange={(nextSelection) => {
@@ -696,6 +707,7 @@ export function ControlView({
         siteId={data.site.id}
         dashboard={data}
         canManage={canManage}
+        mutationsBlocked={groupMutationsBlocked}
         returnFocusRef={groupDialogOpenerRef}
         onClose={() => setGroupDialogOpen(false)}
       />
@@ -843,7 +855,7 @@ function ManualControlBadge({ readOnly, canSubmit, blocked }: { readOnly: boolea
 }
 
 function isControlPageMode(value: string | null): value is ControlPageMode {
-  return value === "manual" || value === "schedule" || value === "event";
+  return value === "manual" || value === "schedule" || value === "event" || value === "group";
 }
 
 function CommandProgress({ status }: { status: NonNullable<ReturnType<typeof useCommandStatus>["data"]> }) {

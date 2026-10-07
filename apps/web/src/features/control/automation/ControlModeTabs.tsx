@@ -1,13 +1,14 @@
-import { CalendarClock, CarFront, SlidersHorizontal } from "lucide-react";
+import { CalendarClock, CarFront, Layers3, SlidersHorizontal } from "lucide-react";
 import { useRef, type KeyboardEvent } from "react";
 import { Button, UnderlineNavigation, UnderlineNavigationLabel } from "../../../components/ui";
 
-export type ControlPageMode = "manual" | "schedule" | "event";
+export type ControlPageMode = "manual" | "schedule" | "event" | "group";
 
 const allModes = [
   { value: "manual", label: "수동 제어", icon: SlidersHorizontal },
   { value: "schedule", label: "스케줄 제어", icon: CalendarClock },
-  { value: "event", label: "이벤트 제어", icon: CarFront }
+  { value: "event", label: "이벤트 제어", icon: CarFront },
+  { value: "group", label: "그룹/구역", icon: Layers3 }
 ] as const;
 
 const controlModeTabClassName = (isActive: boolean) => `min-w-28 shrink-0 rounded-none border-x-0 border-t-0 border-b-2 bg-transparent px-3 text-body-sm whitespace-nowrap ${isActive
@@ -17,14 +18,17 @@ const controlModeTabClassName = (isActive: boolean) => `min-w-28 shrink-0 rounde
 export function ControlModeTabs({
   mode,
   onChange,
-  allowAutomation
+  allowAutomation,
+  allowGroups
 }: {
   mode: ControlPageMode;
   onChange: (mode: ControlPageMode) => void;
   allowAutomation: boolean;
+  allowGroups: boolean;
 }) {
   const tabRefs = useRef<Array<HTMLButtonElement | null>>([]);
-  const modes = allowAutomation ? allModes : allModes.slice(0, 1);
+  const modes = allModes.filter((item) => item.value === "manual"
+    || (item.value === "group" ? allowGroups : allowAutomation));
 
   function selectFromKeyboard(event: KeyboardEvent<HTMLButtonElement>, currentIndex: number) {
     let nextIndex: number | null = null;
