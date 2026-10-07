@@ -2,7 +2,7 @@
 
 기준일: 2026-10-07
 
-## 2026-10-07 ATLAS 라이트·다크 실제 서비스 UI 적용 — Tasks 1–6 검토 완료·제어 진행
+## 2026-10-07 ATLAS 라이트·다크 실제 서비스 UI 적용 — Tasks 1–7 검토 완료·자동 제어 진행
 
 - 승인된 compact 목업과 모바일 헤더 로고·현장 선택 너비 의견을 실제 고객 서비스에 적용하는 [설계 명세](superpowers/specs/2026-10-07-atlas-ui-refresh-design.md)를 작성했다. 공통 디자인/컴포넌트 → 공유 지도 → 모니터링·제어·통계·설정 페이지 담당 → 독립 검증 → 로컬 병합 순서다.
 - `codex/atlas-ui-refresh-20261007`의 격리 worktree를 `codex/mvp1-cloud-web` `5e173fb4`에서 만들었다. 기존 공통·제어/지도·통계 세션과 별도 모니터링·설정 담당을 배정했다. task-owned Node 22.20.0과 pnpm 9.15.0으로 격리 frozen install·Prisma Client 생성 준비와 canonical baseline을 회수했다. cold 설치의 미생성 실패도 보존한다. 기존 서버 조작·로컬 병합은 미착수다.
@@ -18,6 +18,7 @@
 - Task 6 모니터링 구현 `aa28dfab`는 실제 서버 집계·갱신 시각·공통 인라인 상태와 활동 ticker를 연결했다. 독립 검토 I1의 legacy revision100 맞춤 뒤 이전120 복원은 실제 컴포넌트 controlled RED로 재현하고 `01afab05`/`916acc58`에서 최소 보완했다. Related234·editor62·원 browser7·타입/UI/build 통과와 독립 scoped I1 ADDRESSED·새C0/I0/M0를 확인해 Task6 구현 관문을 완료했다. 기본 모니터링 목업22줄과 원 API/선택/명령 수명을 보존했고 수동 제어 Task7을 이어간다. 전체 통합·병합 완료는 아니다.
 - Task 6의 원 exact2 마지막71PASS/5FAIL, 최초 전체Web3327PASS/4FAIL/기존3SKIP와 이전 실패 원본은 유지한다. 수정 뒤 전체Web1회는3179PASS/87FAIL/3SKIP·CadImport66 미수집·unhandled1이며 ApiError 전체 runtime binding 원인 미확립이다. 실패3파일 focused224PASS는 별도 결과로, baseline/flaky/카메라와 무관하다고 분류하지 않았다. 후속 표시 locator76·cached retry1과 BASE notice2/native1 MATCH, cached DIFFERENT, legacy BASEPASS/currentFAIL도 원 기록을 유지한다. ApiError·이전 camera 관측 timing·pnpm 실제 graph·bundle 비용은 Task11 canonical/전체 브랜치 관문으로 전달하며 전체 PASS로 합산하지 않는다.
 - 기본 checkout의 모니터링/제어 메뉴 문서에 남은 2026-10-07 목업 이력은 보존한다. 공통 모바일 로고/테마 기반은 Tasks3–4에서 적용했지만 각 페이지 적용·제품 통합 검증·병합은 아직 완료하지 않았다. 요청한 페이지별 에이전트 방식으로 승인된 공통 기반을 소비한다. 이전 mock/제품 검사 결과를 이번 실제 구현 통과로 표시하지 않는다.
+- Task 7 공통 shell 연결 `167d06d6`·수동 제어 `da235187`와 회귀 수정 `16025b44`를 독립 검토해 완료했다. 직접 지도 도구·14/16px 인라인 상태·항상 노출된 밝기 draft/Apply·PC remaining-height/짧은 내부 scroll·모바일 자연 flow를 실제 검사하고 기존 전체 선택 차단·UUID/복구·raw 입력을 보존했다. 독립 발견 I1 polling의 ticker reset과 M1 dialog hint 소실은 원 owner가 semantic rows/최신 표현 Context·선택적 annotation으로 보완해 scoped Spec✅/Quality Approved·새C0/I0/M0를 확인했다. 최종 관련501/15files·정확3E2E71PASS·전체Web3371PASS/기존3SKIP·타입/UI/build0, 원RED/중간FAIL은 별도 유지한다. Task8 자동 제어·실제 그룹/구역 공통화로 이어가며 Task11 전체 canonical·native/non-manager/첫paint/portal/hit 검증과 로컬 병합은 아직이다.
 
 ## 2026-10-06 모니터링 Popover·Grid 정렬 — 완료·로컬 병합
 

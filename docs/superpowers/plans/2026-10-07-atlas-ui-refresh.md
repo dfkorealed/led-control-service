@@ -10,7 +10,7 @@
 
 **Spec:** [다크 포함 설계 명세](../specs/2026-10-07-atlas-ui-refresh-design.md)
 
-상태: **실행 승인·Tasks 1–6 구현·독립 검토 완료, Task 7 수동 제어 진행**. 2026-10-07 사용자가 페이지 및 기능 담당 에이전트 세션에 지시하여 진행하도록 승인했다. 사용자가 선택한 실행 방식은 **페이지별 에이전트 분담, 메인 오케스트레이션, 별도 브랜치 후 로컬 병합**이며 다시 선택을 요구하지 않는다. 완료 표시는 독립 검토와 실제 증거를 회수한 뒤 갱신한다. 전체 웹 모듈 실패와 통합 브라우저 검증은 Task11 관문에 남아 있어 전체 완료·병합을 뜻하지 않는다.
+상태: **실행 승인·Tasks 1–7 구현·독립 검토 완료, Task 8 자동 제어·그룹/구역 진행**. 2026-10-07 사용자가 페이지 및 기능 담당 에이전트 세션에 지시하여 진행하도록 승인했다. 사용자가 선택한 실행 방식은 **페이지별 에이전트 분담, 메인 오케스트레이션, 별도 브랜치 후 로컬 병합**이며 다시 선택을 요구하지 않는다. 완료 표시는 독립 검토와 실제 증거를 회수한 뒤 갱신한다. 전체 웹 모듈 실패와 통합 브라우저 검증은 Task11 관문에 남아 있어 전체 완료·병합을 뜻하지 않는다.
 
 ## Global Constraints
 
@@ -132,17 +132,23 @@ Task6 승인 범위: 구현 `aa28dfab`와 카메라 수정 `01afab05`/`916acc58`
 
 ### Task 7: 수동 제어·가용 높이·안전한 결과와 이력
 
-**Files:** Modify `src/features/control/ControlView.tsx`, `src/features/control/CommandHistoryPanel.tsx`와 대응 테스트, `docs/menus/control.md`; Create `src/features/control/ManualExecutionPanel.tsx`·`.test.tsx`, `src/features/control/command-history-presentation.ts`·`.test.ts`; extend `e2e/calm-operations-manual-control.spec.ts`, `e2e/operational-marker-control-height.spec.ts`. 공통 shell 높이는 공통 소유자가 별도 순차 patch로 `src/features/shells/CustomerShell.tsx`·테스트에 반영한다.
+**Files:** Modify `src/features/control/ControlView.tsx`, `src/features/control/CommandHistoryPanel.tsx`, `src/features/control/target-selection/SpatialTargetSelector.tsx`와 대응 테스트, `docs/menus/control.md`; Create `src/features/control/ManualExecutionPanel.tsx`·`.test.tsx`, `src/features/control/command-history-presentation.ts`·`.test.ts`; extend `e2e/calm-operations-manual-control.spec.ts`, `e2e/operational-marker-control-height.spec.ts`. 공통 shell 높이는 공통 소유자가 별도 순차 patch로 `src/features/shells/CustomerShell.tsx`·테스트에 반영한다. 독립 검토의 dialog-trigger 의미 복원은 원 operations 공통 owner가 `src/components/ui/operations/RecentActivityTicker.tsx`·`.test.tsx` 두 파일에 기본 소비자 의미를 보존하는 선택적 prop으로 반영한다.
 
 **Interfaces:** ManualExecutionPanel은 현재 DimmingExecutionControls의 `brightness:number; controlsLocked:boolean; canSubmit:boolean; applyLabel:string; onBrightnessChange(value:number):void; onSubmit():void`를 받는 표현 경계다. 기존 invalid raw/restore refs는 이 컴포넌트 안에 보존하고 command owner는 ControlView에 남긴다. `commandHistoryRows(items: readonly Omit<CommandStatusResponse,"dispatches">[], timeZone:string): readonly RecentActivityRow[]`는 Task 5 타입을 소비한다. 최근 useCommandHistory limit은 기존1→5, 전체 이력 query는 그대로다.
 
+**Review fix handoff:** 일반 parent/명령 polling 렌더에서 history 훅이 새 배열을 반환해도 실제 최근 내용·scope가 같으면5초 순환이 유지돼야 한다. 최신 click guard/callback·disabled/selected/retention/error는 현재 값을 유지하고 실제 내용·scope 변경은 원 ticker reset 계약을 유지한다. adapter의 실제 표현 tuple/순서/시간대 기준으로 row identity를 안정화하고, private unkeyed presentation Context는 최신 disabled/selectedCommandId/onSelect만 전달한다. 이 Context는 state/query/UUID/request/command/theme owner를 소유·이동하지 않고 data undefined/error/fetching/retention을 이전 rows로 감추지 않는다. 공통 ticker의 선택적 `triggerHasPopup?: "dialog"`는 그대로 Button의 aria-haspopup에 전달하며 생략한 소비자는 기존 의미를 유지한다. 제어 adapter만 dialog를 명시하고 실제 opener 소비 회귀를 복원한다. 신규 reset identity/API가 필요하면 먼저 인터페이스 범위를 승인받는다.
+
 **Shell handoff:** ControlView가 optional `onManualWorkspaceActiveChange?: (active:boolean)=>void`를 먼저 제공한다. resolved manual mode·canControl·실제 dashboard/site 일치만 layout effect로 보고하고 cleanup에서 false를 보낸다. fetching/canSubmit/명령 잠금에 연동하지 않는다. 그 후 공통 소유자가 CustomerShell+tests에 stable callback/state 연결과 desktop remaining-height 표현을 순차 적용한다. Shell은 URL·권한을 다시 해석하지 않고 기존 route/gate/fullview 및 `<760px` 자연 흐름을 유지한다. owner/provider/subtree/key와 명령 수명은 바꾸지 않는다.
 
-- [ ] Step 1 — `theme resize and tool changes preserve the frozen uncertain command without another POST`, `invalid blur then Apply never sends`, `all recovery actions remain reachable in short desktop`를 작성한다. UUID/canonical payload·lock·A→B→A/remount·원래 대상 재적용, empty/decimal/range 입력, storage/404/410/긴 safety text·추가 POST0을 단언한다.
-- [ ] Step 2 — `pnpm --filter @led-control/web exec vitest run src/features/control/ControlView.test.tsx src/features/control/CommandHistoryPanel.test.tsx src/features/control/ManualExecutionPanel.test.tsx`로 새 disclosure/height/ticker 계약 RED를 확인한다.
-- [ ] Step 3 — manual-workspace opt-in으로 지도 도구/inline 상태/aside 시작선·직접 노출 brightness/Apply와 0/30/70/100% 값 선택을 적용한다. 빠른 값 선택은 draft만 바꾸며 POST는 발행하지 않는다. 정적 설명/range 끝 라벨·명령이 한 번도 없는 빈 결과만 제거한다. owner/frozen request/recovery는 같은 subtree에 계속 mounted 상태로 둔다. 기존 전체 선택 차단을 유지한다.
-- [ ] Step 4 — authorized manual shell/viewport를 remaining-height 구조로 연결한다. 충분한 PC는 도면+aside+한 줄 이력, 짧은 PC는240px map 최소를 보존하는 내부 workspace scroll, 긴 결과는 aside 내부 scroll로 모든 safety action에 접근시킨다. mobile 자연 스크롤/safe-area는 유지한다. limit5 adapter만 추가하고 전체 이력/확인 사례 UUID 선택은 보존한다.
-- [ ] Step 5 — 새 units와 active-command-store/session, control-selection, OutcomeActions/VerificationCases 기존 회귀·두 E2E·command-retention을 실행한다. 기본 checkout 목업 문서 이력을 보존하고 독립 safety/height 검토 후 `feat(control): apply ATLAS manual workspace safely`로 커밋한다.
+**Displayed map summary handoff:** 현재 도면 층은 SpatialTargetSelector의 activeFloor가 소유하므로 수동 제어 인라인 상태는 이 컴포넌트의 manual-workspace 표현에서 기존 OperationMapPanel.status에 전달한다. 기존 DashboardFloor.summary의 totalFixtures/onlineFixtures/faultFixtures/offlineFixtures를 사용하고 누락은 null→`—`, 실제0은 `0`으로 유지한다. 현장 전체·선택 수·로딩된 fixtures로 대체 집계하지 않는다. 원 공유 지도 owner가 selector/test 두 파일만 순차 수정하며 신규 public prop/query·camera/gesture/key·embedded 표현은 변경하지 않는다. 짧은 PC의 실제 지도 chrome wheel이 내부 workspace로 전달되도록 같은 manual-workspace 조건의 content에만 `compact:overscroll-auto`를 적용한다. 모바일·기본 embedded의 `overscroll-contain`을 유지하고 실제 trusted wheel/owner scroll·camera 불변 및 기존 gesture를 검증한다.
+
+- [x] Step 1 — `theme resize and tool changes preserve the frozen uncertain command without another POST`, `invalid blur then Apply never sends`, `all recovery actions remain reachable in short desktop`를 작성한다. UUID/canonical payload·lock·A→B→A/remount·원래 대상 재적용, empty/decimal/range 입력, storage/404/410/긴 safety text·추가 POST0을 단언한다.
+- [x] Step 2 — `pnpm --filter @led-control/web exec vitest run src/features/control/ControlView.test.tsx src/features/control/CommandHistoryPanel.test.tsx src/features/control/ManualExecutionPanel.test.tsx`로 새 disclosure/height/ticker 계약 RED를 확인한다.
+- [x] Step 3 — manual-workspace opt-in으로 지도 도구/inline 상태/aside 시작선·직접 노출 brightness/Apply와 0/30/70/100% 값 선택을 적용한다. 빠른 값 선택은 draft만 바꾸며 POST는 발행하지 않는다. 정적 설명/range 끝 라벨·명령이 한 번도 없는 빈 결과만 제거한다. owner/frozen request/recovery는 같은 subtree에 계속 mounted 상태로 둔다. 기존 전체 선택 차단을 유지한다.
+- [x] Step 4 — authorized manual shell/viewport를 remaining-height 구조로 연결한다. 충분한 PC는 도면+aside+한 줄 이력, 짧은 PC는240px map 최소를 보존하는 내부 workspace scroll, 긴 결과는 aside 내부 scroll로 모든 safety action에 접근시킨다. mobile 자연 스크롤/safe-area는 유지한다. limit5 adapter만 추가하고 전체 이력/확인 사례 UUID 선택은 보존한다.
+- [x] Step 5 — 새 units와 active-command-store/session, control-selection, OutcomeActions/VerificationCases 기존 회귀·두 E2E·command-retention을 실행한다. 기본 checkout 목업 문서 이력을 보존하고 독립 safety/height 검토 후 `feat(control): apply ATLAS manual workspace safely`로 커밋한다.
+
+- Task 7 구현은 공통 shell `167d06d6`·수동 제어 `da235187`와 회귀 수정 `16025b44`를 독립 검토해 완료했다. 실제 polling의5초 순환·최신 잠금/콜백·fail-closed 이력과 선택적 dialog annotation을 보완했고 scoped Spec✅/Quality Approved·새C0/I0/M0·열린지적0이다. 수정 최종소스 관련501/15files·지정3E2E71PASS·전체Web3371PASS/기존3SKIP·타입/UI/build0을 확인했다. 원RED/중간FAIL/각source 증거와 Task6 runtime·Task11 native/firstpaint/portal/hit/non-manager 관문은 별도로 유지한다.
 
 ### Task 8: 자동 제어·그룹/구역 탭
 
