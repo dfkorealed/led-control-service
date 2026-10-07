@@ -345,6 +345,8 @@
   --shadow-panel: 0 8px 24px rgb(30 64 175 / 0.06);
   --shadow-popover: 0 18px 40px rgb(15 23 42 / 0.18);
   --shadow-focus: 0 0 0 3px rgb(37 111 161 / 0.28);
+  --shadow-customer-light-focus: 0 0 0 3px var(--color-customer-light-border-focus);
+  --shadow-customer-dark-focus: 0 0 0 3px var(--color-customer-dark-border-focus);
   --shadow-fixture-brightness-1: 0 0 0 0 color-mix(in srgb, var(--color-fixture-on) 0%, transparent), inset 0 0 0 1px color-mix(in srgb, var(--color-content-inverse) 24%, transparent);
   --shadow-fixture-brightness-2: 0 0 2px 0.5px color-mix(in srgb, var(--color-fixture-on) 4%, transparent), inset 0 0 0 1px color-mix(in srgb, var(--color-content-inverse) 24%, transparent);
   --shadow-fixture-brightness-3: 0 0 3.5px 1px color-mix(in srgb, var(--color-fixture-on) 8%, transparent), inset 0 0 0 1px color-mix(in srgb, var(--color-content-inverse) 24%, transparent);

@@ -393,6 +393,12 @@
       "dark": "#1C2C43"
     }
   },
+  "shadows": {
+    "focus": {
+      "light": "0 0 0 3px var(--color-customer-light-border-focus)",
+      "dark": "0 0 0 3px var(--color-customer-dark-border-focus)"
+    }
+  },
   "layouts": {
     "--spacing-customer-sidebar": "13.75rem",
     "--spacing-customer-rail": "5rem",

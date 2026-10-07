@@ -13,6 +13,83 @@ const proposal = JSON.parse(readFileSync(new URL("docs/assets/atlas-ui-refresh-2
 const source = readFileSync(new URL("../src/styles/theme.css", import.meta.url), "utf8");
 const anchor = "7b2617b173618d376e7b3a90ec31e1392c3b7bc0";
 
+test("canonical customer focus shadows add exactly two roles while preserving all 732 declarations", () => {
+  const before = declarations(execFileSync("git", ["show", "1d65472d9619bd87cce1d9ddec5d38cd56c47313:apps/web/src/styles/theme.css"], { cwd: repository, encoding: "utf8" }));
+  const after = declarations(source);
+  assert.equal(before.size, 732);
+  for (const [name, value] of before) assert.equal(after.get(name), value, `existing canonical ${name}`);
+  for (const theme of ["light", "dark"]) {
+    assert.equal(after.get(`--shadow-customer-${theme}-focus`), `0 0 0 3px var(--color-customer-${theme}-border-focus)`);
+  }
+  assert.equal(after.size, 734);
+  assert.deepEqual([...after.keys()].filter(name => !before.has(name)).sort(), ["--shadow-customer-dark-focus", "--shadow-customer-light-focus"]);
+  assert.deepEqual(proposal.shadows, { focus: {
+    light: "0 0 0 3px var(--color-customer-light-border-focus)",
+    dark: "0 0 0 3px var(--color-customer-dark-border-focus)"
+  } });
+});
+
+test("compiled direct customer focus tokens meet contrast on field button option and menu surfaces without changing default shadow", async () => {
+  const base = readFileSync(new URL("../src/styles/base.css", import.meta.url), "utf8");
+  const surfaces = ["surface-canvas", "surface-panel", "surface-elevated", "surface-inset", "action-primary-soft"];
+  const classes = ["outline-none", "border", "border-border-strong", "bg-surface-panel", "shadow-focus",
+    ...surfaces.map(role => `bg-${role}`),
+    ...["light", "dark"].flatMap(theme => [`focus-visible:shadow-customer-${theme}-focus`, `data-focus-visible:shadow-customer-${theme}-focus`])];
+  const compiler = await compile(`${source}\n${base}\n@tailwind utilities;`);
+  const css = compiler.build(classes);
+  const { chromium } = await import("@playwright/test");
+  const browser = await chromium.launch();
+  const observations = [];
+  try {
+    const page = await browser.newPage();
+    for (const theme of ["light", "dark"]) {
+      // Direct token utilities intentionally do not emulate the still-unmodified
+      // product --shadow-focus root alias or React Aria's focus state ownership.
+      const native = `outline-none border border-border-strong bg-surface-panel focus-visible:shadow-customer-${theme}-focus`;
+      const aria = `outline-none border border-border-strong bg-surface-panel data-focus-visible:shadow-customer-${theme}-focus`;
+      await page.setContent(`<style>${css}</style><div id="default" class="shadow-focus"></div>${surfaces.map((surface, index) => `<section class="bg-${surface}"><input id="field-${index}" class="${native}" aria-label="field"><button id="button-${index}" class="${native}">button</button><div id="option-${index}" tabindex="0" role="option" class="${aria}">option</div><div id="menu-${index}" tabindex="0" role="menuitem" class="${aria}">menu</div></section>`).join("")}`);
+      await page.evaluate(theme => { document.documentElement.dataset.customerTheme = theme; }, theme);
+      for (const [index, surface] of surfaces.entries()) for (const kind of ["field", "button", "option", "menu"]) {
+        const control = page.locator(`#${kind}-${index}`);
+        const before = await control.evaluate(node => ({ border: getComputedStyle(node).borderTopColor, shadow: getComputedStyle(node).boxShadow }));
+        assert.equal(before.shadow, "none", "normal control has no focus shadow");
+        if (kind === "option" || kind === "menu") await control.evaluate(node => { node.setAttribute("data-focus-visible", "true"); });
+        await control.focus();
+        const focused = await control.evaluate(node => {
+          const style = getComputedStyle(node), bg = getComputedStyle(node.parentElement).backgroundColor;
+          const color = style.boxShadow.match(/rgba?\([^)]+\)/g)?.at(-1);
+          const parse = value => {
+            const match = value.match(/^rgba?\(\s*([\d.]+)[, ]+([\d.]+)[, ]+([\d.]+)(?:\s*[,/]\s*([\d.]+))?\s*\)$/);
+            if (!match) throw Error(`Unresolved computed color ${value}`);
+            return [Number(match[1]), Number(match[2]), Number(match[3]), match[4] === undefined ? 1 : Number(match[4])];
+          };
+          const foreground = parse(color ?? "rgba(0,0,0,0)"), background = parse(bg);
+          const composite = foreground.slice(0, 3).map((value, index) => value * foreground[3] + background[index] * (1 - foreground[3]));
+          const luminance = channels => channels.map(value => { const c = value / 255; return c <= .04045 ? c / 12.92 : ((c + .055) / 1.055) ** 2.4; }).reduce((sum, value, index) => sum + value * [.2126, .7152, .0722][index], 0);
+          const levels = [luminance(composite), luminance(background.slice(0, 3))].sort((a, b) => b - a);
+          return { border: style.borderTopColor, shadow: style.boxShadow, color, background: bg, ratio: (levels[0] + .05) / (levels[1] + .05), focused: document.activeElement === node, focusVisible: node.matches(":focus-visible"), outlineStyle: style.outlineStyle };
+        });
+        assert.equal(focused.focused, true);
+        assert.equal(focused.focusVisible, true);
+        assert.equal(focused.border, before.border, "ordinary border is not credited as a focus change");
+        assert.equal(focused.outlineStyle, "none");
+        assert.equal(focused.color, theme === "light" ? "rgb(36, 95, 232)" : "rgb(148, 185, 255)");
+        assert.ok(focused.ratio >= 3, `${theme}/${surface}/${kind} effective focus3: ${focused.ratio}`);
+        observations.push({ theme, surface, kind, ...focused });
+        await control.evaluate(node => { node.removeAttribute("data-focus-visible"); node.blur(); });
+        assert.equal(await control.evaluate(node => getComputedStyle(node).boxShadow), "none", "blur removes the direct focus indicator");
+      }
+      const defaultStates = await page.evaluate(() => {
+        const read = () => getComputedStyle(document.getElementById("default")).boxShadow;
+        const themed = read(); delete document.documentElement.dataset.customerTheme; return [themed, read()];
+      });
+      const unchanged = "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(37, 111, 161, 0.28) 0px 0px 0px 3px";
+      assert.deepEqual(defaultStates, [unchanged, unchanged], "root binding remains old in token-only stage; marker removal preserves default");
+    }
+    console.log(JSON.stringify({ directTokenOnly: true, observations }));
+  } finally { await browser.close(); }
+});
+
 test("actual CSS distinguishes approved argument whitespace from NBSP and vertical tab", async () => {
   const { inspectUiSource } = await import("./ui-policy.mjs");
   const base = readFileSync(new URL("../src/styles/base.css", import.meta.url), "utf8");
@@ -132,7 +209,7 @@ test("matches both customer palettes without changing approved defaults", () => 
   assert.equal(after.get("--color-map-room"), "#F7F9FC");
   for (const [name, value] of Object.entries(proposal.layouts)) assert.equal(after.get(name), value, name);
   const extras = [...after.keys()].filter(name => !before.has(name)).sort();
-  const expected = [...Object.keys(proposal.colors).flatMap(role => ["light", "dark"].map(theme => `--color-customer-${theme}-${role}`)), ...Object.keys(proposal.layouts), "--color-action-primary-foreground", "--color-map-background", "--color-map-line", "--color-map-room"].sort();
+  const expected = [...Object.keys(proposal.colors).flatMap(role => ["light", "dark"].map(theme => `--color-customer-${theme}-${role}`)), ...Object.keys(proposal.shadows ?? {}).flatMap(role => ["light", "dark"].map(theme => `--shadow-customer-${theme}-${role}`)), ...Object.keys(proposal.layouts), "--color-action-primary-foreground", "--color-map-background", "--color-map-line", "--color-map-room"].sort();
   assert.deepEqual(extras, expected, "only the reviewed additions are canonical");
 });
 

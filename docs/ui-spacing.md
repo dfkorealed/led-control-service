@@ -27,6 +27,13 @@
 
 ## 간격 스케일
 
+### 2026-10-07 고객 focus shadow 역할 — token-only 중간 단계
+
+- 실제 canonical PostCSS AST 수는 출발 anchor528개(색102·기타426), ATLAS anchor/current732개(색302·기타430)다. 출발528의 변경/누락 없이204개를 추가한 관계이며 이전375/579 표기는 canonical 전수 개수가 아니다. 이번에는 기존732 이름→값 전부를 유지하고 고객 shadow2개만 추가해734개가 된다.
+- `--shadow-customer-light-focus` / `--shadow-customer-dark-focus`는 각각 `0 0 0 3px var(--color-customer-light-border-focus)` / dark counterpart다. JSON `shadows.focus.light|dark`의 typed 집합에 기록한다. 기존 light#245FE8/dark#94B9FF를 재사용하며 새 색상·spacing·컨트롤 geometry 역할은 만들지 않는다. 일반 `--shadow-focus`의 반투명 기본값,98 customer색·layout4와 brand/landing 값은 그대로다.
+- token 직접 소비 검증은 필드·버튼·option/menuitem의 normal/focus 상태와 양palette surface에서 실제 generated CSS를 평가한다. 이것은 React Aria 제품 focus 수명이나 고객 root의 기존 `shadow-focus` 대비를 고친 증거가 아니다. 아직 `base.css`의 root alias·provider·공통control과 정책 anchor를 수정하지 않는다. 고객 marker가 없어도 일반 shadow 기본값이 보존된다.
+- 역할 디자인 승인과 실제 token-only 커밋 독립 검토를 거친 뒤에만 별도 단계에서 정확한 두 root shadow alias와 해당 tokencommit anchor를 회전한다. 이 중간 단계의 기존 immutable anchor 정책 실패는 예상된 FAIL로 보존하며 baseline부채/selector/literal/nativeform 허용을 늘려 통과시키지 않는다. 원dark390 focus1.3116:1 실패 및 전체Task11/native/HIL 미검증은 유지한다.
+
 허용 간격은 아래 16개 값이다. Tailwind의 `--spacing: 4px` 곱셈 기능은 임의 숫자도 생성하므로 `ui:check`가 이 목록을 별도로 강제한다. `0`은 간격 초기화 예외이며 승인값 개수에 포함하지 않는다.
 
 | 값 | utility 예시 | 용도 |
