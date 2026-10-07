@@ -65,3 +65,41 @@ it("announces a dialog destination only when its adapter opts in", () => {
   view.rerender(<Ticker {...props} />);
   expect(screen.getByRole("button", { name: "전체 보기" })).not.toHaveAttribute("aria-haspopup");
 });
+it.each([
+  { label: "empty", message: "최근 이력이 없습니다.", role: undefined },
+  { label: "pending", message: "최근 명령을 불러오는 중입니다.", role: "status" },
+  { label: "long error", message: "최근 명령을 불러오지 못했습니다. 연결을 확인하고 다시 조회해 주세요.", role: "alert" }
+])("reserves the full message line before actions for $label without clipping or squeezing it", ({ message, role }) => {
+  render(<Ticker {...props} items={[]} emptyContent={<p role={role}>{message}</p>} onRetry={() => undefined} />);
+  const ticker = screen.getByRole("region", { name: "최근 이력" });
+  // This is a declaration of the empty-flow boundary, not a JSDOM pixel proof.
+  // The native original320 scenario separately checks actual glyph line boxes.
+  expect(ticker).toHaveClass("flex-wrap");
+  expect(screen.getByText(message).parentElement).toHaveClass("w-full");
+  expect(screen.getByText(message).parentElement).not.toHaveClass("overflow-hidden");
+  expect(screen.getByRole("button", { name: "다시 조회" })).toBeEnabled();
+  expect(screen.getByRole("button", { name: "전체 보기" })).toBeEnabled();
+  expect(vi.getTimerCount()).toBe(0);
+});
+it("keeps the same full-view ref and latest retry/open callbacks when empty content changes to loaded rows", () => {
+  const triggerRef = createRef<HTMLButtonElement>();
+  const firstOpen = vi.fn(), firstRetry = vi.fn(), currentOpen = vi.fn(), currentRetry = vi.fn();
+  const view = render(<Ticker {...props} items={[]} emptyContent={<p role="alert">조회 실패</p>}
+    triggerRef={triggerRef} onOpen={firstOpen} onRetry={firstRetry} />);
+  const opener = screen.getByRole("button", { name: "전체 보기" });
+  view.rerender(<Ticker {...props} items={[]} emptyContent={<p role="status">다시 조회 중</p>}
+    triggerRef={triggerRef} onOpen={currentOpen} onRetry={currentRetry} />);
+  expect(triggerRef.current).toBe(opener);
+  fireEvent.click(screen.getByRole("button", { name: "다시 조회" }));
+  fireEvent.click(opener);
+  expect(firstOpen).not.toHaveBeenCalled(); expect(firstRetry).not.toHaveBeenCalled();
+  expect(currentOpen).toHaveBeenCalledOnce(); expect(currentRetry).toHaveBeenCalledOnce();
+  view.rerender(<Ticker {...props} triggerRef={triggerRef} onOpen={currentOpen} />);
+  expect(triggerRef.current).toBe(opener);
+  expect(screen.getByRole("region", { name: "최근 이력" })).not.toHaveClass("flex-wrap");
+  expect(screen.getByText("첫 명령").parentElement).toHaveClass("overflow-hidden");
+  act(() => vi.advanceTimersByTime(4999));
+  expect(screen.queryByText("다음 명령")).not.toBeInTheDocument();
+  act(() => vi.advanceTimersByTime(1));
+  expect(screen.getByText("다음 명령")).toBeInTheDocument();
+});

@@ -1,5 +1,29 @@
 # 제어 메뉴 기능 현황
 
+## 2026-10-07 공통 이력 empty/error 읽기 보완 (Task 11)
+
+### 구현 완료
+
+- 공통 `RecentActivityTicker`의 행이 없는 모바일 상태에서는 empty/pending/error 문구가 먼저 전체 너비를 사용하고 기존 다시 조회·전체 보기 버튼은 다음 행의 자연 흐름을 사용한다. 한 줄 로드된 명령·timestamp/상태·5초 순환과 PC 인라인 흐름, 원래 버튼/ref·조회/이력 owner는 유지한다.
+- 기존 320×740 제어 사례에 실제 공개 오류 문구 `최근 명령을 불러오지 못했습니다.`의 첫 두 글자 Range 줄 위치를 추가했다. 원본 오류/fixture와 모든 기존 선택·42% 초안·touch·navigation·추가 POST 0 검증을 유지한 RED→GREEN에서 문구 너비 22.19→210px, 두 글자 y=402/424→577/577과 기존 재조회/전체 보기 각 높이 44px을 확인했다. 오류를 숨기거나 성공 fixture로 대체하지 않았다.
+- 공통·제어 이력·실제 ControlView·모니터링 소비 단위 305개가 통과했다. retry/full history/확인 필요한 명령·초점 복귀, fail-closed 오류·retention/cursor·loaded 순환의 기존 기준을 보존한다. 확인 필요한 명령 버튼의 크기와 실제 명령 UUID/payload/owner source는 변경하지 않았다.
+
+### 미구현
+
+- 전체 Web·전체 E2E/폭/테마 매트릭스·실제 Backend Lab·물리 모바일/native frame·Gateway/LED HIL은 이번 국소 수정의 검증 범위가 아니다.
+
+### 부족하거나 개선이 필요한 기능
+
+- 새 실제 읽기 검증은 격리 mock Chromium의 320×740/light 한 사례다. 단위 flow 클래스 검증은 JSDOM 픽셀 증거가 아니며 pending/긴 오류 문구·PC/dark·모니터링 native 읽기와 전체 대비 승인으로 확대하지 않는다. 최근 이력 조회 오류의 실제 URL/status/code 원인은 여전히 미판정이다. 원래 6개 통과/첫 word-wrap 실패·PNG·후속 GREEN은 `task-11-ticker-error-report.md`에 별도로 보존한다.
+
+### 관련 파일
+
+- `apps/web/src/components/ui/operations/RecentActivityTicker.tsx`와 대응 시험, `apps/web/src/features/control/CommandHistoryPanel.test.tsx`, `apps/web/e2e/control-map-target-selection.spec.ts`, `docs/ui-spacing.md`.
+
+### 갱신 규칙
+
+- 오류 상태를 없애거나 문구·폰트·조작 크기를 줄여 읽기 문제를 숨기지 않는다. empty/error와 loaded 표현 경계, 최신 callback/ref·5초 수명·조회/명령 안전을 함께 검사하고 아래 기존 목업 23줄과 원 실패 증거를 그대로 보존한다.
+
 ## 2026-10-07 실제 수동 UI 소비 QA 이행 (Task 11)
 
 ### 구현 완료

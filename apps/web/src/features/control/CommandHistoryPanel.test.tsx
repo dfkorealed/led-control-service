@@ -16,6 +16,41 @@ function command(id: string) {
 }
 
 describe("CommandHistoryPanel", () => {
+  it("keeps failed recent-history text in its own flow while retry, full history and verification remain separate read-only actions", async () => {
+    let failRecent = true;
+    const fetch = vi.fn().mockImplementation(async (url: string) => {
+      const recent = new URL(url, "http://localhost").searchParams.get("limit") === "5";
+      return recent && failRecent
+        ? { ok: false, status: 503, headers: { get: () => "application/json" }, json: async () => ({ message: "history unavailable" }) }
+        : { ok: true, json: async () => ({ generatedAt: "2026-09-25T00:00:00Z", retainedFrom: "2026-06-25T00:00:00Z", retentionEnabled: false, items: [], nextCursor: null }) };
+    });
+    vi.stubGlobal("fetch", fetch);
+    const onVerify = vi.fn();
+    const { onSelect, client } = renderHistory(vi.fn(), true, onVerify);
+    const recent = screen.getByRole("region", { name: "최근 명령 이력" });
+    const error = await within(recent).findByRole("alert");
+    expect(error).toHaveTextContent("최근 명령을 불러오지 못했습니다.");
+    expect(error.parentElement).toHaveClass("w-full");
+    expect(error.parentElement).not.toHaveClass("overflow-hidden");
+    const opener = within(recent).getByRole("button", { name: "전체 보기" });
+    expect(opener).toHaveAttribute("aria-haspopup", "dialog");
+    fireEvent.click(within(recent).getByRole("button", { name: "확인 필요한 명령" }));
+    expect(onVerify).toHaveBeenCalledOnce();
+    failRecent = false;
+    fireEvent.click(within(recent).getByRole("button", { name: "다시 조회" }));
+    await within(recent).findByText("명령 이력이 없습니다.");
+    expect(within(recent).queryByRole("alert")).not.toBeInTheDocument();
+    expect(within(recent).queryByRole("button", { name: "다시 조회" })).not.toBeInTheDocument();
+    expect(within(recent).getByRole("button", { name: "전체 보기" })).toBe(opener);
+    opener.focus(); fireEvent.click(opener);
+    const drawer = screen.getByRole("dialog", { name: "명령 이력" });
+    await within(drawer).findByText("명령 이력이 없습니다.");
+    fireEvent.click(within(drawer).getByRole("button", { name: "명령 이력 닫기" }));
+    await waitFor(() => expect(opener).toHaveFocus());
+    expect(onSelect).not.toHaveBeenCalled();
+    expect(fetch.mock.calls.every(([, init]) => (init?.method ?? "GET") === "GET")).toBe(true);
+    client.clear();
+  });
   it("keeps the five-second clock and current row through one-second parent renders with fresh hook arrays and callbacks", async () => {
     vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
     const fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => ({

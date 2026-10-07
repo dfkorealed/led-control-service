@@ -1,5 +1,28 @@
 # 모니터링 메뉴 기능 현황
 
+## 2026-10-07 공통 이력 empty/error 읽기 보완 (Task 11)
+
+### 구현 완료
+
+- 공통 `RecentActivityTicker`의 no-row 모바일 문구는 전체 너비의 첫 행을 사용하고 기존 다시 조회·전체 보기는 다음 행으로 자연스럽게 흐른다. 운영 활동이 있는 한 줄 ticker·timestamp/상태·5초 순환과 PC 인라인 흐름은 유지한다. 공통 Button·색/폰트·query/retention·onRetry/onOpen/trigger ref 계약은 바꾸지 않는다.
+- 기존 `MonitoringLogTicker`의 true empty/최초 오류/cached 갱신 오류 안내·stale 시각과 재조회, 실제 `MonitoringView` 소비 회귀를 포함한 관련 단위 305개를 확인했다. monitoring adapter/source는 수정하지 않았다.
+
+### 미구현
+
+- 모니터링 native 폭/양 테마 matrix·실제 Backend Lab·물리 모바일/WebView·Gateway/LED HIL은 이번 국소 검증에 포함하지 않는다.
+
+### 부족하거나 개선이 필요한 기능
+
+- 실제 Range/PNG RED→GREEN은 같은 공통 표현을 사용하는 제어의 320×740/light 오류 사례만 측정했다. 모니터링 단위 통과나 flow 선언을 모니터링 native 픽셀/대비/터치 전체 통과로 바꾸지 않는다. 원 오류 상태와 모든 이전 로그/실패 증거는 보존하며 후속 통합 QA는 별개다.
+
+### 관련 파일
+
+- `apps/web/src/components/ui/operations/RecentActivityTicker.tsx`와 대응 시험, 변경하지 않은 `apps/web/src/features/monitoring/{MonitoringLogTicker,MonitoringView}.tsx`/대응 시험, `docs/ui-spacing.md`, `.superpowers/sdd/2026-10-07-atlas-ui-refresh/task-11-ticker-error-report.md`.
+
+### 갱신 규칙
+
+- 공통 이력 표현을 바꿀 때 empty/error/loaded·순환/pause/ref·실제 query/권한·retention 의미와 영향 메뉴를 함께 기록하고 단위/software/native/HIL 증거를 구분한다.
+
 ## 2026-10-07 ATLAS 모니터링 페이지 적용 (Task 6)
 
 ### 구현 완료

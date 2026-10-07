@@ -31,10 +31,13 @@ export function RecentActivityTicker({ scopeKey, items, emptyContent, onOpen, on
     return () => window.clearInterval(timer);
   }, [scopeKey, items, hovered, focused, hidden]);
   const row = items[index] ?? items[0];
-  return <div role="region" aria-label="최근 이력" className="flex min-w-0 shrink-0 items-center gap-2 rounded-control border border-border-default bg-surface-panel px-3"
+  // Without a command row, narrow error/pending copy needs its own line:
+  // retry/open must not consume its width down to a single glyph. Keep the
+  // loaded single-line row and desktop flow, buttons, refs and clock unchanged.
+  return <div role="region" aria-label="최근 이력" className={`flex min-w-0 shrink-0 items-center gap-2 rounded-control border border-border-default bg-surface-panel px-3 ${row ? "" : "flex-wrap py-2 compact:flex-nowrap compact:py-0"}`}
     onMouseEnter={() => setHovered(true)} onMouseLeave={() => setHovered(false)}
     onFocusCapture={() => setFocused(true)} onBlurCapture={event => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setFocused(false); }}>
-    <div className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden">
+    <div className={row ? "flex min-w-0 flex-1 items-center gap-2 overflow-hidden" : "min-w-0 w-full compact:w-auto compact:flex-1"}>
       {row ? <><Text as="time" variant="body-sm" tone="secondary" className="shrink-0">{row.timestampLabel}</Text>
         <div className="min-w-0 truncate text-body-sm text-content-primary">{row.content}</div>
         {row.status != null ? <div className="shrink-0 text-body-sm">{row.status}</div> : null}</> : emptyContent}

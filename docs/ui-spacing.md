@@ -9,6 +9,12 @@
 - 적용 범위: 공통 shell/auth/operator UI와 모니터링·제어·통계·설정 메뉴, 공개 랜딩·주요 기능·요금제 및 field-day 시안
 - 간격을 변경한 메뉴는 해당 `docs/menus/*.md`에 적용 범위와 검증 결과를 같이 기록한다.
 
+## 2026-10-07 공통 이력 no-row 자연 흐름 (Task 11)
+
+- `RecentActivityTicker`의 empty/pending/error는 760px 미만에서 문구에 전체 너비를 주고 기존 재조회/전체 보기 버튼을 다음 행으로 흐르게 한다. 승인 `gap-2`/`py-2`/기존 `px-3`를 사용하며 고정 높이·임의 폭·새 breakpoint·font/색 토큰·공통 Button 변경 없이 한글 한 글자 폭으로 좁아지는 flex 경쟁을 제거한다. 760px 이상은 인라인 흐름과 세로 padding0을 유지한다.
+- 데이터가 있는 timestamp/content/status 한 줄과 5초 timer·pause·scope·ref는 동일하다. no-row 문구는 loaded 행의 `overflow-hidden`/truncate를 사용하지 않는다. 오류를 성공/빈 기록으로 바꾸거나 word-break만으로 문제를 숨기지 않는다. recovery action의 크기는 축소하지 않는다.
+- 단위 flow 선언과 consumer 보존 회귀는 실제 픽셀 증거가 아니다. 기존 320×740/light 제어 mock 시나리오의 원 오류를 유지한 Range RED→GREEN은 문구 너비22.19→210px, 첫 ‘최근’ 두 글자의 동일 행과 원 버튼44px/POST0을 확인했다. 원본 PNG/metrics는 `task-11-ticker-error-report.md`에 보존한다. 전체 PC/mobile/dark/모니터링 native 대비·HIL matrix는 별도 QA 관문이다.
+
 ## 2026-10-07 ATLAS 고객 두 팔레트 토큰 (Task 1)
 
 - 독립 디자인 검토로 승인한 [고객 역할 inventory](assets/atlas-ui-refresh-2026-10-07/customer-theme-roles.json)의 98개 색 역할을 `--color-customer-light-{role}` / `--color-customer-dark-{role}`로 canonical `@theme static`에 추가한다. hover/focus/disabled/feedback/chart/heatmap/fixture editor UI 역할을 포함하고 brand·landing·운영자 inquiry 전용 역할은 제외한다.

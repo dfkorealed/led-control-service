@@ -390,6 +390,34 @@ for (const viewport of [{ width: 390, height: 844 }, { width: 320, height: 740 }
     await expect(page.locator("[data-control-presets]")).toHaveCount(0);
     expect(api.postRequests).toEqual([]);
     await page.screenshot({ path: testInfo.outputPath(`mobile-control-${viewport.width}-execution.png`) });
+    if (viewport.width === 320) {
+      const history = page.getByRole("region", { name: "최근 명령 이력", exact: true });
+      const error = history.getByRole("alert");
+      await expect(error).toHaveText("최근 명령을 불러오지 못했습니다.");
+      const metrics = await error.evaluate(element => {
+        const text = element.firstChild;
+        if (!text || text.nodeType !== Node.TEXT_NODE || !text.textContent?.startsWith("최근")) throw new Error("Expected the real public recent-history error text");
+        const glyph = (offset: number) => {
+          const range = document.createRange();
+          range.setStart(text, offset); range.setEnd(text, offset + 1);
+          const bounds = range.getBoundingClientRect();
+          return { x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height };
+        };
+        const bounds = element.getBoundingClientRect();
+        const ticker = element.closest('[aria-label="최근 이력"]');
+        const buttons = ticker ? [...ticker.querySelectorAll("button")].map(button => {
+          const rect = button.getBoundingClientRect();
+          return { label: button.textContent, x: rect.x, y: rect.y, width: rect.width, height: rect.height };
+        }) : [];
+        return { viewport: { width: window.innerWidth, height: window.innerHeight }, theme: document.documentElement.getAttribute("data-customer-theme"),
+          message: element.textContent, messageWidth: bounds.width, first: glyph(0), second: glyph(1), buttons };
+      });
+      console.log("TASK11_TICKER_ERROR_READABILITY", JSON.stringify(metrics));
+      await testInfo.attach("ticker-error-readability", { body: JSON.stringify(metrics, null, 2), contentType: "application/json" });
+      // Preserve the fixture's actual error: a readable first word must not
+      // depend on hiding that state, reducing font size or truncating it.
+      expect(metrics.second.y).toBe(metrics.first.y);
+    }
   });
 }
 
