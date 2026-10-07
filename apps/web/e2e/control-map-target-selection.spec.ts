@@ -89,7 +89,7 @@ for (const flow of ["schedule", "event", "group"] as const) {
 
 test("final review: compact manual controls follow the map and remain reachable at reduced height", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 660 });
-  await installControlMapRoutes(page);
+  const api = await installControlMapRoutes(page);
   await page.goto(`/control?siteId=${ids.site}`);
   await marker(page, "B2-L001").click();
   const execution = page.getByRole("complementary", { name: "밝기 실행" });
@@ -106,16 +106,18 @@ test("final review: compact manual controls follow the map and remain reachable 
   expect(actionBox.y + actionBox.height).toBeLessThanOrEqual(navBox.y);
   expect(actionBox.y).toBeGreaterThanOrEqual(0);
   await expectNoHorizontalOverflow(page);
+  expect(api.postRequests).toEqual([]);
 });
 
 test("final review: compact group name uses 16px text", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
-  await installControlMapRoutes(page);
+  const api = await installControlMapRoutes(page);
   await page.goto(`/control?siteId=${ids.site}`);
   await openCompactTools(page);
   await page.getByRole("button", { name: "구역 관리" }).click();
   await page.getByRole("button", { name: "새 구역" }).click();
   expect(await page.getByRole("textbox", { name: "구역 이름" }).evaluate((element) => Number.parseFloat(getComputedStyle(element).fontSize))).toBeGreaterThanOrEqual(16);
+  expect(api.postRequests).toEqual([]);
 });
 
 for (const viewport of [{ width: 390, height: 660 }, { width: 320, height: 740 }] as const) {
@@ -323,7 +325,7 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 1024, height: 768
     await expectReachableInside(finalGroup, detail);
     await finalGroup.click();
     await expect(finalGroup).toHaveAttribute("aria-current", "true");
-    await history.getByRole("button", { name: "명령 이력 열기" }).click();
+    await history.getByRole("button", { name: "전체 보기", exact: true }).click();
     const historyDrawer = page.getByRole("dialog", { name: "명령 이력", exact: true });
     const historyList = historyDrawer.getByRole("region", { name: "명령 이력 본문" });
     await expect(historyList).toHaveCSS("overflow-y", "auto");
@@ -346,11 +348,17 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 1024, height: 768
 for (const viewport of [{ width: 390, height: 844 }, { width: 320, height: 740 }] as const) {
   test(`mobile control fits ${viewport.width}x${viewport.height} with map marker touch targets and action above compact navigation`, async ({ page }, testInfo) => {
     await page.setViewportSize(viewport);
-    await installControlMapRoutes(page);
+    const api = await installControlMapRoutes(page);
     await page.goto(`/control?siteId=${ids.site}`);
     await expect(page.getByRole("region", { name: "제어 대상 지도", exact: true })).toBeVisible();
     await expectNoHorizontalOverflow(page);
-    for (const name of ["지도 이동", "조명 선택", "영역 선택"]) await expect(page.getByRole("button", { name, exact: true })).toHaveCount(0);
+    for (const name of ["지도 이동", "조명 선택"]) await expect(page.getByRole("button", { name, exact: true })).toHaveCount(0);
+    const tools = page.getByRole("region", { name: "제어 대상 지도", exact: true }).getByRole("group", { name: "지도 선택 도구", exact: true });
+    for (const name of ["이동", "개별 선택", "영역 선택"]) {
+      const tool = tools.getByRole("button", { name, exact: true });
+      await expect(tool).toHaveCount(1);
+      await expect(tool).toBeVisible();
+    }
     await expectMinimumTouchTargetsAfterScrolling(page, "[data-control-screen]");
     await marker(page, "B2-L001").click();
     await expectMinimumTouchTargetsAfterScrolling(page, "[data-control-screen]");
@@ -380,6 +388,7 @@ for (const viewport of [{ width: 390, height: 844 }, { width: 320, height: 740 }
     await brightness.fill("42"); await brightness.press("Enter");
     await expect(page.getByRole("slider", { name: "밝기", exact: true })).toHaveValue("42");
     await expect(page.locator("[data-control-presets]")).toHaveCount(0);
+    expect(api.postRequests).toEqual([]);
     await page.screenshot({ path: testInfo.outputPath(`mobile-control-${viewport.width}-execution.png`) });
   });
 }
@@ -784,16 +793,25 @@ function dashboardResponse(fixtureData: SettingsFixture[], groups: Array<Record<
 }
 
 async function openCompactTools(page: Page) {
-  const trigger = page.getByRole("button", { name: "선택 도구 열기", exact: true });
   if ((page.viewportSize()?.width ?? 1280) < 760) {
-    const expanded = page.getByRole("button", { name: "선택 도구 접기", exact: true });
-    if (!await expanded.isVisible()) await trigger.click();
+    // Manual tools are always mounted in map chrome; preparation must not
+    // change tool/selection state or recreate the removed disclosure behavior.
+    const map = page.getByRole("region", { name: "제어 대상 지도", exact: true });
+    await expect(map.getByRole("group", { name: "대상 선택 방식", exact: true })).toBeVisible();
+    const tools = map.getByRole("group", { name: "지도 선택 도구", exact: true });
+    await expect(tools).toBeVisible();
+    for (const name of ["이동", "개별 선택", "영역 선택"]) await expect(tools.getByRole("button", { name, exact: true })).toBeVisible();
+    for (const name of ["선택 도구 열기", "선택 도구 접기"]) await expect(map.getByRole("button", { name, exact: true })).toHaveCount(0);
   }
 }
 async function openCompactExecution(page: Page) {
-  const trigger = page.getByRole("button", { name: "밝기 실행 설정 열기", exact: true });
   if ((page.viewportSize()?.width ?? 1280) < 760) {
-    const expanded = page.getByRole("button", { name: "밝기 실행 설정 접기", exact: true });
-    if (!await expanded.isVisible()) await trigger.click();
+    // Visibility is not viewport reach: callers keep their real scrolling and
+    // hit checks. Readiness must not edit the draft, focus/blur it or Apply.
+    const execution = page.getByRole("complementary", { name: "밝기 실행", exact: true });
+    await expect(execution.getByRole("textbox", { name: "밝기 수치", exact: true })).toBeVisible();
+    await expect(execution.getByRole("slider", { name: "밝기", exact: true })).toBeVisible();
+    await expect(execution.locator("[data-control-submit]")).toBeVisible();
+    for (const name of ["밝기 실행 설정 열기", "밝기 실행 설정 접기"]) await expect(page.getByRole("button", { name, exact: true })).toHaveCount(0);
   }
 }
