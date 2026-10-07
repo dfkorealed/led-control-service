@@ -64,7 +64,7 @@
 - [x] Step 2 — 모든 customer 소비 color/hover/focus/disabled/feedback/chart/editor UI 역할을 JSON에 매핑하고 독립 designer가 값을 검토한다. spec의 두 palette 값을 그대로 쓰며 기존 CAD 지정색·brand/landing은 제외한다. 새 `action-primary-foreground`의 기본값은 `#FFFFFF`; 고객 light/dark는 `#FFFFFF`/`#0F1724`다. 독립 designer는 98색·4 layout을 Spec/Quality Approved(C0/I0/M1 후속 heatmap 경계 주의)로 승인했고, 별도 지도 3역할 추가도 명세에 맞춰 승인했다.
 - [ ] Step 3 — `matches both customer palettes without changing approved defaults`를 작성한다. 핵심 단언은 `colors["action-primary"].dark === "#94B9FF"`, light 화면 `#F4F7FB`, dark 화면 `#0F1724`, canonical palette 선언 각 1회, 이전 anchor의 기본 name→value 불변이다. `node --test apps/web/scripts/customer-theme-contract.test.mjs`로 신규 palette 부재 RED를 확인한다.
 - [ ] Step 4 — 검토된 JSON에 대응하는 `--color-customer-{light|dark}-{role}`와 위 select/sidebar 역할만 canonical theme에 추가하고 color inventory를 갱신한다. scanner/ref/baseline/CSS binding/화면 코드는 아직 바꾸지 않는다.
-- [ ] Step 5 — 같은 focused Node 검사와 `pnpm --filter @led-control/web exec vitest run src/components/ui/Typography.test.tsx`의 GREEN을 확인한다. 구 anchor 기준 전체 정책의 예상 FAIL을 별도 기록한다. 토큰 diff를 독립 검토한 뒤 `feat(ui): add reviewed ATLAS light and dark roles`로 커밋하고 실제 hash를 Task 2에 전달한다.
+- [ ] Step 5 — 같은 focused Node 검사와 `pnpm --filter @led-control/web exec vitest run src/components/ui/Typography.test.tsx`의 GREEN을 확인한다. 구 anchor 기준 전체 정책의 예상 FAIL을 별도 기록한다. `feat(ui): add reviewed ATLAS light and dark roles` 토큰 전용 로컬 커밋을 만든 뒤 BASE→HEAD 전체 토큰 diff를 독립 검토하고, 검수 승인한 실제 hash만 Task 2에 전달한다.
 
 ### Task 2: 정확한 customer alias와 정책 anchor 회전
 
