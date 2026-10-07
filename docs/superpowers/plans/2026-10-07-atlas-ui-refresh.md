@@ -10,7 +10,7 @@
 
 **Spec:** [다크 포함 설계 명세](../specs/2026-10-07-atlas-ui-refresh-design.md)
 
-상태: **실행 승인·Task 1 공통 기반 진행 중**. 2026-10-07 사용자가 페이지 및 기능 담당 에이전트 세션에 지시하여 진행하도록 승인했다. 사용자가 선택한 실행 방식은 **페이지별 에이전트 분담, 메인 오케스트레이션, 별도 브랜치 후 로컬 병합**이며 다시 선택을 요구하지 않는다. 완료 표시는 독립 검토와 실제 증거를 회수한 뒤 갱신한다.
+상태: **실행 승인·Task 1 완료, Task 2 공통 정책 진행 중**. 2026-10-07 사용자가 페이지 및 기능 담당 에이전트 세션에 지시하여 진행하도록 승인했다. 사용자가 선택한 실행 방식은 **페이지별 에이전트 분담, 메인 오케스트레이션, 별도 브랜치 후 로컬 병합**이며 다시 선택을 요구하지 않는다. 완료 표시는 독립 검토와 실제 증거를 회수한 뒤 갱신한다.
 
 ## Global Constraints
 
@@ -60,11 +60,11 @@
 
 **Interfaces:** `colors: Record<string, { light: string; dark: string }>`는 기존 semantic 역할별 새 customer token 값, `layouts: Record<string,string>`는 고객 geometry다. layout 역할은 `--spacing-customer-sidebar:13.75rem`, `--spacing-customer-rail:5rem`, `--spacing-customer-site-small:8rem`, `--spacing-customer-site:9rem`이다. 인라인14/16px는 기존 body/body-lg typography를 사용한다. 기존 역할은 삭제/덮어쓰지 않는다. `themeColorTokens`/`ThemeColorToken`은 새 canonical color 선언과 정확히 일치해야 한다.
 
-- [ ] Step 1 — 승인 checkout/branch/dirty files와 Node 22·pnpm 9.15.0을 확인한다. 기존 설치를 재사용할 수 없으면 격리 checkout에만 frozen install하고 `pnpm workspace:prepare`를 수행한다. canonical baseline `pnpm lint`, `pnpm typecheck`, `pnpm test`, `pnpm build`를 순차 기록한다. 실패가 있으면 원 로그·소스를 보존하고 범위 영향을 판정한 뒤 진행한다.
+- [x] Step 1 — 승인 checkout/branch/dirty files와 Node 22·pnpm 9.15.0을 확인한다. 기존 설치를 재사용할 수 없으면 격리 checkout에만 frozen install하고 `pnpm workspace:prepare`를 수행한다. canonical baseline `pnpm lint`, `pnpm typecheck`, `pnpm test`, `pnpm build`를 순차 기록한다. 실패가 있으면 원 로그·소스를 보존하고 범위 영향을 판정한 뒤 진행한다.
 - [x] Step 2 — 모든 customer 소비 color/hover/focus/disabled/feedback/chart/editor UI 역할을 JSON에 매핑하고 독립 designer가 값을 검토한다. spec의 두 palette 값을 그대로 쓰며 기존 CAD 지정색·brand/landing은 제외한다. 새 `action-primary-foreground`의 기본값은 `#FFFFFF`; 고객 light/dark는 `#FFFFFF`/`#0F1724`다. 독립 designer는 98색·4 layout을 Spec/Quality Approved(C0/I0/M1 후속 heatmap 경계 주의)로 승인했고, 별도 지도 3역할 추가도 명세에 맞춰 승인했다.
-- [ ] Step 3 — `matches both customer palettes without changing approved defaults`를 작성한다. 핵심 단언은 `colors["action-primary"].dark === "#94B9FF"`, light 화면 `#F4F7FB`, dark 화면 `#0F1724`, canonical palette 선언 각 1회, 이전 anchor의 기본 name→value 불변이다. `node --test apps/web/scripts/customer-theme-contract.test.mjs`로 신규 palette 부재 RED를 확인한다.
-- [ ] Step 4 — 검토된 JSON에 대응하는 `--color-customer-{light|dark}-{role}`와 위 select/sidebar 역할만 canonical theme에 추가하고 color inventory를 갱신한다. scanner/ref/baseline/CSS binding/화면 코드는 아직 바꾸지 않는다.
-- [ ] Step 5 — 같은 focused Node 검사와 `pnpm --filter @led-control/web exec vitest run src/components/ui/Typography.test.tsx`의 GREEN을 확인한다. 구 anchor 기준 전체 정책의 예상 FAIL을 별도 기록한다. `feat(ui): add reviewed ATLAS light and dark roles` 토큰 전용 로컬 커밋을 만든 뒤 BASE→HEAD 전체 토큰 diff를 독립 검토하고, 검수 승인한 실제 hash만 Task 2에 전달한다.
+- [x] Step 3 — `matches both customer palettes without changing approved defaults`를 작성한다. 핵심 단언은 `colors["action-primary"].dark === "#94B9FF"`, light 화면 `#F4F7FB`, dark 화면 `#0F1724`, canonical palette 선언 각 1회, 이전 anchor의 기본 name→value 불변이다. `node --test apps/web/scripts/customer-theme-contract.test.mjs`로 신규 palette 부재 RED를 확인한다.
+- [x] Step 4 — 검토된 JSON에 대응하는 `--color-customer-{light|dark}-{role}`와 위 select/sidebar 역할만 canonical theme에 추가하고 color inventory를 갱신한다. scanner/ref/baseline/CSS binding/화면 코드는 아직 바꾸지 않는다.
+- [x] Step 5 — 같은 focused Node 검사와 `pnpm --filter @led-control/web exec vitest run src/components/ui/Typography.test.tsx`의 GREEN을 확인한다. 구 anchor 기준 전체 정책의 예상 FAIL을 별도 기록한다. `feat(ui): add reviewed ATLAS light and dark roles` 토큰 전용 로컬 커밋을 만든 뒤 BASE→HEAD 전체 토큰 diff를 독립 검토하고, 검수 승인한 실제 hash만 Task 2에 전달한다.
 
 ### Task 2: 정확한 customer alias와 정책 anchor 회전
 
