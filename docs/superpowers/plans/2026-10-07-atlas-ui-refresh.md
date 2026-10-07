@@ -10,7 +10,7 @@
 
 **Spec:** [다크 포함 설계 명세](../specs/2026-10-07-atlas-ui-refresh-design.md)
 
-상태: **실행 승인·Tasks 1–7 구현·독립 검토 완료, Task 8 자동 제어·그룹/구역 진행**. 2026-10-07 사용자가 페이지 및 기능 담당 에이전트 세션에 지시하여 진행하도록 승인했다. 사용자가 선택한 실행 방식은 **페이지별 에이전트 분담, 메인 오케스트레이션, 별도 브랜치 후 로컬 병합**이며 다시 선택을 요구하지 않는다. 완료 표시는 독립 검토와 실제 증거를 회수한 뒤 갱신한다. 전체 웹 모듈 실패와 통합 브라우저 검증은 Task11 관문에 남아 있어 전체 완료·병합을 뜻하지 않는다.
+상태: **실행 승인·Tasks 1–8 구현·독립 검토 완료, Task 9 통계 진행**. 2026-10-07 사용자가 페이지 및 기능 담당 에이전트 세션에 지시하여 진행하도록 승인했다. 사용자가 선택한 실행 방식은 **페이지별 에이전트 분담, 메인 오케스트레이션, 별도 브랜치 후 로컬 병합**이며 다시 선택을 요구하지 않는다. 완료 표시는 독립 검토와 실제 증거를 회수한 뒤 갱신한다. 역사적 웹 모듈 실패의 원인과 통합 브라우저 검증은 Task11 관문에 남아 있어 전체 완료·병합을 뜻하지 않는다.
 
 ## Global Constraints
 
@@ -152,14 +152,28 @@ Task6 승인 범위: 구현 `aa28dfab`와 카메라 수정 `01afab05`/`916acc58`
 
 ### Task 8: 자동 제어·그룹/구역 탭
 
-**Files:** Modify `src/features/control/ControlView.tsx`, `src/features/control/automation/ControlModeTabs.tsx`, `src/features/control/automation/ScheduleControlPanel.tsx`, `src/features/control/automation/VehicleEventControlPanel.tsx`, `src/features/control/automation/components/AutomationRuleTable.tsx`, `src/features/control/automation/components/AutomationWorkspaceSurface.tsx`, `src/features/control/FixtureGroupDialog.tsx`와 기존 대응 테스트; Create `src/features/control/groups/FixtureGroupsPanel.tsx`·`.test.tsx`; update `docs/menus/control.md`, `e2e/automation-control-flow.spec.ts`.
+**Files:** Modify `src/features/control/ControlView.tsx`, `src/features/control/automation/ControlModeTabs.tsx`, `src/features/control/FixtureGroupDialog.tsx`와 기존 대응 테스트; Create `src/features/control/groups/FixtureGroupsPanel.tsx`·`.test.tsx`, 같은 domain의 private `useFixtureGroupsWorkspace.ts`·`FixtureGroupsContent.tsx`와 필요한 covering tests; Audit `src/features/control/automation/ScheduleControlPanel.tsx`, `src/features/control/automation/VehicleEventControlPanel.tsx`, `src/features/control/automation/components/AutomationRuleTable.tsx`, `src/features/control/automation/components/AutomationWorkspaceSurface.tsx`와 대응 소비 회귀(이미 공통 semantic 계약을 충족하면 불필요한 source rewrite 없이 파일별 근거를 보고한다); update `docs/menus/control.md`, `e2e/automation-control-flow.spec.ts`.
 
 **Interfaces:** `ControlPageMode = "manual"|"schedule"|"event"|"group"`; ControlModeTabs는 기존 `mode/onChange`와 분리된 `allowAutomation:boolean; allowGroups:boolean`를 받는다. `FixtureGroupsPanel({siteId,dashboard,canManage,isActive=true,mutationsBlocked=false}: {siteId:string;dashboard:Dashboard;canManage:boolean;isActive?:boolean;mutationsBlocked?:boolean})`은 기존 Dialog의 내용·map editor를 재사용한다. Dialog는 isActive=open으로 기존 닫힘 시 query 정지·form reset을 보존한다. tab은 실제 isSubmitting/restorePending/commandInProgress/commandSessionBlocked/storageError를 mutationsBlocked로 전달한다. Dashboard는 `src/api/queries.ts`의 기존 타입을 import한다.
 
-- [ ] Step 1 — `control-capable user can read groups but cannot mutate`, `group URL and roving focus survive back forward and theme`, `non-manager automation URL normalizes to manual preserving query`, `group tab cannot bypass an unresolved command mutation lock`를 작성한다. `mode=group`, siteId/hash·Arrow/Home/End·aria panel IDs, canManage=false/잠금 CRUD 차단·그룹 mutation0·UUID 보존, 닫힌 Dialog query 정지/reset을 단언한다. schedule/event pending/failed/retry·차량 필드를 유지하는 회귀를 넣는다.
-- [ ] Step 2 — `pnpm --filter @led-control/web exec vitest run src/features/control/automation/ControlModeTabs.test.tsx src/features/control/ControlView.test.tsx src/features/control/FixtureGroupDialog.test.tsx`로 group URL의 기존 manual 정규화 RED를 확인한다.
-- [ ] Step 3 — parser/type/tab/render·normalization을 함께 확장한다. manual/group 조회는 control-capable, schedule/event는 manage, group mutation은 canManage이고 command/storage 잠금이 없어야 한다. UI와 mutation handler 모두 guard한다. 실제 구역 CRUD/content를 독립 panel로 분리해 Dialog와 tab에서 공유한다. 기존 dialog 호출/닫힘·target/editor·configuring/retiring/resync guard는 유지한다.
-- [ ] Step 4 — 자동 제어 surface/table/filter를 공통 표현에 맞추고 actual fields·timezone·정렬·활성 전환·실패/재시도를 보존한다. 신규 센서 계약을 만들지 않는다. above units와 Schedule/VehicleEvent/group editor·automation E2E를 GREEN으로 검토하고 `feat(control): align automation and saved-group surfaces`로 커밋한다.
+**Extraction handoff:** Panel의 public props는 그대로 유지한다. 기존 Dialog의 동적 form title/class/body·pending-close·return focus는 wrapper가 계속 소유할 수 있도록 같은 groups domain의 private hook과 내용 component를 공유한다. Dialog는 hook에 isActive=open을 전달하며 tab Panel은 같은 hook/content를 사용한다. public Panel을 Dialog가 직접 렌더링하도록 강제하지 않는다. 동시 활성 query/poller·중복 form/editor owner를 만들지 않고 기존 site query/cache/membership·닫힘 reset·현재 권한/실행/storage handler guards를 유지한다. 새 common/public callback·presentation bridge/provider·command/theme/query scope key는 추가하지 않는다.
+
+**Principal handoff:** 새 그룹 탭 consumer의 `FixtureGroupsPanel`만 기존 automation과 같은 `key={`${userId}:${data.site.id}`}`로 실제 사용자·현장 경계를 격리한다. Panel public props/query key/API는 그대로며 command owner인 ControlView·theme/provider는 재마운트하지 않는다. theme/mode/선택/잠금/반복 query는 key에 포함하지 않는다. 같은 현장의 실제 userId 변경·A→B→A와 이전 pending completion에서 draft/message/editor 표현 격리, 현재 권한/잠금 handler·query/poller cleanup을 회귀로 확인한다. 기존 Dialog는 원 parent의 user/site 변경 시 닫힘/reset 계약을 보존한다.
+
+**Validation handoff:** 지정 automation-control-flow는 기존 RealBackendLab suite다. 현재 설치된 binary만 사용하고 실제 free15174·명시된 자체 infra ports, unique worktree lab dir/private socket/test DB/PKI/process 범위에서 기존 harness를 직렬 실행한다. 기존 migrations/seed는 새 lab-owned DB에만 적용한다. 실제 서비스/DB·실장비·API/schema/harness/config·설치를 변경하지 않는다. 없는 prerequisite/startup 실패는 body 미실행과 구분해 원로그로 보존하며 skip/mock 대체하지 않는다. 자신의 검증 자원만 정리하고 실제 listener 종료를 확인한다.
+
+첫 Lab은 startup 후 기존 non-exact label이 실제 관리자 textbox와 숨은 Grid sort select를 함께 찾으며 site 생성 전에 실패했다. 원 실패를 보존하고 기존 생성 dialog의 정확한 입력/버튼으로만 locator를 제한한 추가 Lab 1회를 승인했다. 원 payload/network/단언/timeout/helper/harness/config는 그대로다. 숨은 select 접근이름은 이 교정으로 해결됐다고 주장하지 않으며 Task11에 관찰을 전달한다.
+
+Lab2는 first-connect protocol convergence 후 카드 목록에서 기존 table-only selector가 실패했다. 실제 DataGrid의 표/카드 공통 규칙 locator와 두 스케줄 활성 단언만 정확한 활성+APPLIED 상태로 교정한 Lab3 단일 실행을 승인했다. 원20초·실제 명령/프로토콜/삭제/재시작 기대와 실패 기록을 보존하고 제품 반응형 정책이나 harness를 바꾸지 않는다.
+
+Lab3의 수동 성공문구는 Task7의 실제 기본접힘 상세 안에 보존돼 있었다. 현재 명령 status의 상세 보기 조작 후 최근 결과 상세 region에서 원 exact 완료·저장 문구를 같은15초로 검사하는 Lab4 단일 실행을 승인했다. 실제60%/후속protocol/UUID/network 기대와 앞선 실패는 유지하며 성공badge로 대체하지 않는다.
+
+- [x] Step 1 — `control-capable user can read groups but cannot mutate`, `group URL and roving focus survive back forward and theme`, `non-manager automation URL normalizes to manual preserving query`, `group tab cannot bypass an unresolved command mutation lock`를 작성한다. `mode=group`, siteId/hash·Arrow/Home/End·aria panel IDs, canManage=false/잠금 CRUD 차단·그룹 mutation0·UUID 보존, 닫힌 Dialog query 정지/reset을 단언한다. schedule/event pending/failed/retry·차량 필드를 유지하는 회귀를 넣는다.
+- [x] Step 2 — `pnpm --filter @led-control/web exec vitest run src/features/control/automation/ControlModeTabs.test.tsx src/features/control/ControlView.test.tsx src/features/control/FixtureGroupDialog.test.tsx`로 group URL의 기존 manual 정규화 RED를 확인한다.
+- [x] Step 3 — parser/type/tab/render·normalization을 함께 확장한다. manual/group 조회는 control-capable, schedule/event는 manage, group mutation은 canManage이고 command/storage 잠금이 없어야 한다. UI와 mutation handler 모두 guard한다. 실제 구역 CRUD/content를 독립 panel로 분리해 Dialog와 tab에서 공유한다. 기존 dialog 호출/닫힘·target/editor·configuring/retiring/resync guard는 유지한다.
+- [x] Step 4 — 자동 제어 surface/table/filter를 공통 표현에 맞추고 actual fields·timezone·정렬·활성 전환·실패/재시도를 보존한다. 신규 센서 계약을 만들지 않는다. above units와 Schedule/VehicleEvent/group editor·automation E2E를 GREEN으로 검토하고 `feat(control): align automation and saved-group surfaces`로 커밋한다.
+
+- Task 8 구현 `8070f997`와 여백 보완 `3f1b605d`를 독립 검토해 완료했다. 정확한 public Panel/private 공유 owner·현재 권한/command/storage handler guard·실제 user/site 격리·URL/hash/키보드를 보존했고, M1 tab inset은 기존 p-4만 적용해 scoped Spec✅/Quality Approved·새C0/I0/M0·열린0이다. 수정 최종소스 관련192/4files·실제 Lab5 전체 자동화+group 여정1PASS·6phase 양테마 inset/동일editor/draft/추가writes0·전체Web3391PASS/기존3SKIP·타입/UI/build0을 확인했다. 원Lab1–3 실패/Lab4 PASS/EOF-only source 경계·수치attach 미저장과 native/HIL/Task11 carry는 별도 보존한다.
 
 ### Task 9: 통계 개요·분석·보고서의 두 테마와 실제 정보
 
