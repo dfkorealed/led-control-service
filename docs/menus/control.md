@@ -6,6 +6,7 @@
 
 - 실제 제어 방식 URL에 `mode=group`을 추가했다. 수동/그룹 조회는 제어 capability, 스케줄/이벤트 노출은 manage capability를 따른다. 기존 siteId·다른 query·hash와 뒤로/앞으로 이동, Arrow/Home/End 순환 초점 및 tab/panel 연결을 보존한다. 테마·탭 변경은 dimming 명령을 발행하지 않는다.
 - 기존 구역 Dialog의 query·CRUD·membership·map editor를 private workspace hook/content로 공유하는 그룹/구역 panel을 제공한다. 별도 가상 저장소나 API는 없다. Dialog의 동적 생성/수정 제목·레이아웃, pending 닫힘 차단, 중첩 삭제 확인과 초점 복귀를 유지하며 닫힌 Dialog·비활성 panel은 조회를 멈추고 초안을 초기화한다.
+- 독립 검토 M1 보완으로 그룹 탭의 외곽 Card에 기존 승인 `p-4` inset을 적용했다. 공통 Card 기본값·Dialog 여백·private form/query/editor owner는 바꾸지 않는다. 목록·편집·저장 피드백의 PC light/dark에서 실제 16px 여백과 자식 좌우 경계를 확인했고 테마 전환 중 동일 편집기·초안·선택 및 추가 변경 요청 없음도 유지한다.
 - 그룹 변경은 최신 canManage와 실제 제출·복구 대기·진행 명령·세션·storage 잠금을 UI와 handler 양쪽에서 확인한다. 조회 전용 사용자의 Mesh 준비 상태 조회는 유지한다. 원 요청 UUID·payload·ACK·복구 저장소와 전체 선택 안전 정책은 변경하지 않았다.
 - configuring/retiring/failed-resync, 1~100개 중복 없는 전체 membership 교체와 고정 층/Gateway 경계를 보존한다. 이전 현장의 비동기 완료는 원래 현장 캐시에 반영하고 현재 현장 form/메시지를 덮지 않는다.
 - 새 그룹 consumer만 실제 userId/siteId 경계로 구분한다. 같은 현장의 사용자 전환·A→B→A에서 초안/편집기/이전 pending 완료 표현을 격리하고, theme/잠금/반복 query는 이 identity에 포함하지 않는다. ControlView 명령 owner와 공통 provider는 재생성하지 않는다.
@@ -20,6 +21,7 @@
 - 자동화 화면 노출의 dashboard manage capability와 기존 mutation의 admin role 경계는 이번 표현 작업에서 임의로 통합하거나 권한을 확대하지 않는다. 관련 단위/실제 격리 Lab 및 후속 QA 증거는 `task-8-report.md`에 구분한다.
 - 실제 자동화 browser suite는 새 테스트 DB/PKI/Postgres/Redis/MQTT/API와 simulated Gateway를 사용하는 기존 RealBackendLab이다. 운영 DB·기존 서비스·실장비 성공의 증거가 아니며 startup 실패와 body 검증 결과를 구분한다. 기존 전체 Web ApiError module-binding 원인 검수는 Task 11 carry로 남는다.
 - Task 8 관련 단위 517개와 기존 retention 8개, 최종 격리 Lab의 스케줄·차량 이벤트·수동 기준 밝기·삭제/재시작 프로토콜 및 그룹 CRUD/URL/테마 흐름을 확인했다. 앞선 세 browser 실패(생성 Dialog label 범위, responsive 활성/APPLIED 필드, 수동 상세 펼침)는 원로그와 실제 UI에 맞춘 한정 locator 보완으로 구분해 보존한다. 숨겨진 공통 Grid 정렬 select의 복합 접근 이름 자체는 이 작업에서 고치지 않았으며 Task 11 carry다. 그룹 native 캡처는 PC 1280×720의 light/dark 목록 상태이며 별도 모바일·물리 장비 검수를 대체하지 않는다.
+- M1 보완의 genuine 표현 RED→관련 192개 통과와 별도 Lab5 전체 시나리오·세 상태/양 테마 원본 6장은 `task-8-fix1-report.md`에 분리한다. 여백 단위 선언 검증은 JSDOM 픽셀 증거가 아니며 실제 inset 검증도 전체 contrast·연속 44px hit·모바일/native/HIL 승인을 대체하지 않는다. 이전 Lab1–4와 전체 Web 결과/소스 경계는 그대로 보존한다.
 
 ### 관련 파일
 

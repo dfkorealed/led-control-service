@@ -252,8 +252,18 @@ async function exerciseSavedGroupWorkspace(page: Page, siteId: string, testInfo:
     && url.searchParams.get("mode") === "group" && url.searchParams.get("keep") === "literal%" && url.hash === "#groups");
   const panel = page.getByRole("tabpanel", { name: "그룹/구역" });
   await expect(panel).toBeVisible();
+  await assertSavedGroupInset(page, panel, testInfo, "empty-list", [
+    panel.getByText("자주 함께 제어할 조명을 구역으로 저장합니다.", { exact: true }),
+    panel.getByRole("heading", { name: "현재 저장 구역", exact: true }),
+    panel.getByText("0개", { exact: true }), panel.getByRole("button", { name: "새 구역", exact: true })
+  ]);
   await page.getByRole("button", { name: "다크 모드로 변경" }).click();
   await expect(group).toHaveAttribute("aria-selected", "true");
+  await assertSavedGroupInset(page, panel, testInfo, "empty-list", [
+    panel.getByText("자주 함께 제어할 조명을 구역으로 저장합니다.", { exact: true }),
+    panel.getByRole("heading", { name: "현재 저장 구역", exact: true }),
+    panel.getByText("0개", { exact: true }), panel.getByRole("button", { name: "새 구역", exact: true })
+  ]);
   await page.screenshot({ path: testInfo.outputPath("task-8-groups-dark.png"), fullPage: true });
   await page.getByRole("button", { name: "라이트 모드로 변경" }).click();
   await page.goBack();
@@ -265,6 +275,20 @@ async function exerciseSavedGroupWorkspace(page: Page, siteId: string, testInfo:
   await panel.getByRole("button", { name: "새 구역" }).click();
   await panel.getByLabel("구역 이름").fill("Task 8 저장 구역");
   await selectFixtureFromList(page, panel, targetName);
+  const editor = await panel.locator("[data-fixture-group-map-editor]").elementHandle();
+  expect(editor).not.toBeNull();
+  const writesBeforeEditorTheme = requests.length;
+  await assertSavedGroupInset(page, panel, testInfo, "active-editor", [panel.locator("form"), panel.locator("[data-fixture-group-map-editor]")]);
+  await page.getByRole("button", { name: "다크 모드로 변경" }).click();
+  await expect(panel.getByLabel("구역 이름")).toHaveValue("Task 8 저장 구역");
+  await expect(panel.getByText("1 / 100개", { exact: true })).toBeVisible();
+  expect(await editor!.evaluate(node => node === document.querySelector("#control-mode-panel-group [data-fixture-group-map-editor]"))).toBe(true);
+  await assertSavedGroupInset(page, panel, testInfo, "active-editor", [panel.locator("form"), panel.locator("[data-fixture-group-map-editor]")]);
+  await page.getByRole("button", { name: "라이트 모드로 변경" }).click();
+  await expect(panel.getByLabel("구역 이름")).toHaveValue("Task 8 저장 구역");
+  await expect(panel.getByText("1 / 100개", { exact: true })).toBeVisible();
+  expect(await editor!.evaluate(node => node === document.querySelector("#control-mode-panel-group [data-fixture-group-map-editor]"))).toBe(true);
+  expect(requests.length).toBe(writesBeforeEditorTheme);
   const createdResponse = page.waitForResponse(response => response.request().method() === "POST"
     && response.url().endsWith(`/sites/${siteId}/fixture-groups`));
   await panel.getByRole("button", { name: "구역 만들기" }).click();
@@ -283,6 +307,17 @@ async function exerciseSavedGroupWorkspace(page: Page, siteId: string, testInfo:
   expect(updated.ok()).toBe(true);
   expect(updated.request().postDataJSON().fixtureIds).toEqual(payload.fixtureIds);
   await expect(panel.getByText("Task 8 저장 구역 수정됨", { exact: true })).toBeVisible();
+  const savedFeedback = panel.getByRole("status").filter({ hasText: /^구역을 저장했습니다\./ });
+  const savedMessage = await savedFeedback.textContent();
+  const writesBeforeSavedTheme = requests.length;
+  await assertSavedGroupInset(page, panel, testInfo, "saved-feedback", [panel.getByRole("heading", { name: "현재 저장 구역", exact: true }), savedFeedback]);
+  await page.getByRole("button", { name: "다크 모드로 변경" }).click();
+  await expect(savedFeedback).toHaveText(savedMessage!);
+  await expect(panel.getByText("Task 8 저장 구역 수정됨", { exact: true })).toBeVisible();
+  await assertSavedGroupInset(page, panel, testInfo, "saved-feedback", [panel.getByRole("heading", { name: "현재 저장 구역", exact: true }), savedFeedback]);
+  await page.getByRole("button", { name: "라이트 모드로 변경" }).click();
+  await expect(savedFeedback).toHaveText(savedMessage!);
+  expect(requests.length).toBe(writesBeforeSavedTheme);
   await page.screenshot({ path: testInfo.outputPath("task-8-groups-light.png"), fullPage: true });
   await panel.getByRole("button", { name: "Task 8 저장 구역 수정됨 삭제" }).click();
   const confirmation = page.getByRole("dialog", { name: "구역 삭제 확인" });
@@ -295,6 +330,31 @@ async function exerciseSavedGroupWorkspace(page: Page, siteId: string, testInfo:
   expect((await deletedResponse).ok()).toBe(true);
   await expect(confirmation).toBeHidden();
   expect(requests.filter(request => request.method === "POST" && request.url.includes("/api/commands/dimming"))).toHaveLength(0);
+}
+
+async function assertSavedGroupInset(page: Page, panel: Locator, testInfo: TestInfo, phase: string, children: Locator[]) {
+  const surface = panel.locator(':scope > section[data-variant="default"]');
+  const frame = await surface.evaluate(element => {
+    const box = element.getBoundingClientRect();
+    const style = getComputedStyle(element);
+    return { left: box.left, right: box.right, top: box.top, bottom: box.bottom,
+      padding: [style.paddingTop, style.paddingRight, style.paddingBottom, style.paddingLeft].map(parseFloat),
+      borderLeft: parseFloat(style.borderLeftWidth), borderRight: parseFloat(style.borderRightWidth) };
+  });
+  // Native computed geometry verifies the existing p-4 inset, not continuous hit/contrast safety.
+  expect(frame.padding).toEqual([16, 16, 16, 16]);
+  const bounds = [];
+  for (const child of children) {
+    await expect(child).toBeVisible();
+    const box = await child.boundingBox();
+    expect(box).not.toBeNull();
+    expect(box!.x).toBeGreaterThanOrEqual(frame.left + frame.borderLeft + frame.padding[3]);
+    expect(box!.x + box!.width).toBeLessThanOrEqual(frame.right - frame.borderRight - frame.padding[1]);
+    bounds.push(box);
+  }
+  const theme = await page.locator("html").getAttribute("data-customer-theme");
+  await testInfo.attach(`group-inset-${phase}-${theme}`, { body: JSON.stringify({ phase, theme, frame, children: bounds }, null, 2), contentType: "application/json" });
+  await page.screenshot({ path: testInfo.outputPath(`task-8-fix1-${phase}-${theme}.png`), fullPage: true });
 }
 
 async function login(page: Page, loginId: string, password: string) {

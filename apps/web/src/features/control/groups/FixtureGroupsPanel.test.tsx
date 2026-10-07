@@ -63,6 +63,16 @@ describe("FixtureGroupsPanel", () => {
     const view = render(<QueryClientProvider client={client}><FixtureGroupsPanel {...props} /></QueryClientProvider>);
     return { ...view, client, props };
   }
+  it("keeps the approved common surface inset around list and the same active editor", async () => {
+    mount();
+    await screen.findByText("B2 입구");
+    const surface = screen.getByRole("heading", { name: "현재 저장 구역" }).closest("section[data-variant]");
+    // This asserts the approved spacing declaration, not JSDOM pixel geometry.
+    expect(surface).toHaveClass("p-4");
+    fireEvent.click(screen.getByRole("button", { name: "B2 입구 수정" }));
+    expect(screen.getByLabelText("구역 이름").closest("section[data-variant]")).toBe(surface);
+    expect(surface).toHaveClass("p-4");
+  });
   it("reads the actual failed Mesh state without exposing mutations for a control-only user", async () => {
     mount(false);
     await screen.findByText("B2 입구");
