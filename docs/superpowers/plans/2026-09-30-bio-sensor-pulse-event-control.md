@@ -310,6 +310,8 @@ Task 8은 **8a Gateway/API synthetic integration·additive V2 BIO telemetry hand
     - [x] 관련 검증/독립 검토: 초기38/38 뒤 검토I1~I3와 총괄 source 대조의 canonical/local ID 회귀I4를 보완했다. command/취소RED4실패·ID RED1실패→최종launcher29+pilot17=46/46·명시6-script/Gateway typecheck·syntax/diffcheck0. 독립 재검토 I1~I4 해결·추가Critical0/Important0/Minor0·코드 전용 인계 승인. 메뉴3/기존 runbook도 같은 작업에 갱신했다. 원격/image fixture/장비 검증은 이번 실행에서 제외하며 초기38PASS는 결함 해결 근거가 아니다.
     - [x] 총괄 source3/bundle2/보호검증 기록을 대조하고 상태판/체크리스트를 동기화했다. 최신 미실행 artifact는 `.local/task9-network/bio-event-pilot-launcher-code-20261007/review-fix1`(launcher hash2729a138e77a195877e3eb14aaa8de47c3b5eea9ac0399d02b5a0e5f5c939377)이며 보완 전 artifact는 보존/미재사용이다. 실제 sudo/Linux 회수·잠금·UID999 image probe·USB/driver·광학/원복/현재DB/API 입력은 미검증으로 인계한다. 현재 현장 준비·중단 승인·별도 START 없이는 실행하지 않으며 제품은 OFF다.
   - [ ] pilot 실제 B 적용/갱신/만료/종료 원복 검증: 구현 이후 현재 A/B binding/대기 작업·USB 독점/원본 서비스·fresh 준비/중단 승인·별도 START를 확인하고 한 번만 진행한다. 소프트웨어 통과를 실제 점등/제품 지원으로 표시하지 않는다.
+    - [x] 10월7일 코드 인계 후 후속 요청의 읽기 전용 사전 조사: 원본 ID/image/StartedAt 유지·unhealthy/mqtt_error/heartbeat stale, host/container DNS의 이전172.30.1.91 TCP EHOSTUNREACH와 현재 Mac172.30.1.17의8883 TCP 접속 성공을 확인했다. device intermediate CRL은10월2일 만료, MQTT intermediate는10월8일까지다. MQTT CONNECT/USB/RF/STOP·재시작/운영 파일 변경0이며 이전 hardcoded 준비/refresh 스크립트는 실행하지 않았다.
+    - [ ] 환경 복구 승인·현재 주소 반영/동일 issuer·폐기 내역 public CRL 갱신 후 건강·TLS/API 확인. 이어 fresh A/B binding/8counts0·USB/현장 참여·중단 승인·별도 START를 확인하며 현재 사전 조사만으로 trial 시작을 승인하지 않는다.
     - 사용자 최신 한도: 이번에는 코드/로컬 검증/인계만 진행한다. remote stage·장비 검증은 시작하지 않고 코드 구현 완료를 먼저 알린다.
   - [ ] 현재 현장 참여와 중단/원복 범위 확인 후 최소 필요한 신호 구분·독립 node-link 조회·B 유지/복원 검증. 실제 profile/authority 공급은 빈 상태이며 GET 응답은 센서 감지 회로 건강으로 표현하지 않는다. A sensor 자체 점등/B 제어의 승인된 범위를 유지한다.
 

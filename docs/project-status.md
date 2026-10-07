@@ -2,6 +2,13 @@
 
 기준일: 2026-10-07
 
+## 2026-10-07 후속 실장비 사전 확인 — 환경 복구 승인 대기
+
+- 코드 인계 뒤 사용자의 `진행해줘`에 따라 SSH·컨테이너 inspect/기존 health·로그·공개 CRL 날짜·DNS/TCP만 읽기 전용으로 확인했다. 원본 full ID/image와 StartedAt `2026-10-06T08:34:14.425457104Z`는 유지되지만 현재 `unhealthy`, `reason=mqtt_error`, `mqtt=false`, `heartbeatFresh=false`다. `transportConnected/protocolReady/mappingValid=true`는 센서 시험 성공을 뜻하지 않는다.
+- 실제 원인은 이전 서버 주소의 잔류다. Pi host와 원본 컨테이너의 `api.led.lan/mqtt.led.lan`은 `172.30.1.91`로 해석되고 해당 MQTT TCP는 `EHOSTUNREACH`였다. Mac 현재 en0 IP는 `172.30.1.17`이며 원본 컨테이너에서 이 주소의8883 TCP 연결은 성공했다. TCP probe는 MQTT CONNECT나 RF를 보내지 않았으며 TLS/API 정상 인증을 입증하지 않는다.
+- 별도 사전 조건: 현재 public `device.crl` intermediate의 nextUpdate는 `2026-10-02T05:38:08Z`로 만료됐다. `mqtt-client.crl` intermediate는 `2026-10-08T05:56:46Z`, 두 root CRL은 `2026-10-27T05:37:20Z`다. CRL 날짜만 확인했으며 새 issuer/인증서/폐기 상태를 발급·변경하거나 기존 refresh 스크립트를 실행하지 않았다.
+- 다음은 정확한 기존 host/container DNS 경로의 백업·현재 주소 반영과 동일 issuer/폐기 내역 public CRL의 안전한 갱신·필요 reload에 대한 사용자 승인이다. 복구 후 fresh healthy/MQTT/heartbeat·TLS/API·binding/8counts0·USB 독점 관문을 다시 확인한다. 현재 참여/중단 승인·새 START는 아직 없으며 시험 stage/STOP/restart/조명 GET·SET/제품 ON/DB mutation/머지는0이다. 실제 B 적용·유지시간·원복 검증은 계속 미완료다.
+
 ## 2026-10-07 A/B 센서 pilot 안전 실행 준비 — 로컬 코드만 진행
 
 - 사용자의 후속 진행 요청을 기존 Task9 시험 실행 절차의 보완으로 처리한다. 최신 사용자 한도인 코드 우선/실장비 전에 알림을 유지하며 SSH·원격 stage·USB/RF·Gateway 중단·운영 DB·브라우저 시험·제품 ON·머지는 실행하지 않는다.
