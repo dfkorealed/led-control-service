@@ -4,6 +4,7 @@
 
 - 구현 완료(시험용 코드): host lifecycle·exact Docker 결과·pilot durable final journal을 보호 evidence에 보존하고 설정/close 불확실과 postflight 실패를 nonzero로 보고한다. CLI timeout만으로 diagnostic 수명을 판단하지 않고 exact no-such-object 오류와 독립 inventory 또는 exact terminal 상태를 확인한다.
 - 미구현: 실제 Pi/image/USB/driver/MQTT postflight 실행·브라우저 기록 UI·제품 모니터링/건강 공급자 연동.
+- 검토 보완(코드): timeout/취소 CLI를 TERM/KILL로 회수하는 것은 소유한 CLI 프로세스 경계이며 컨테이너 forcekill이 아니다. late create/start·CLI 회수 불확실을 부재로 축약하지 않고 lifetime unknown·보호 lock/evidence를 유지한다. recovery/postflight inspect도 잔여 monotonic 예산을 사용한다.
 - 부족하거나 개선이 필요한 기능: 원본 healthy/MQTT/USB/mapping postflight는 서비스 복구 관문이며 PIR 감지 회로 건강이나 시험 알림 의미를 증명하지 않는다. settings 불확실이면 terminal/freeUSB 뒤 서비스 복구는 가능하지만 성공 표시/새 base 재캡처를 위해 lock을 해제하지 않는다.
 - 관련 파일: `apps/gateway/scripts/bio-sensor-event-pilot-launcher.ts`, `bio-sensor-event-pilot-launcher-host.ts`, `bio-sensor-event-pilot-launcher.test.ts`.
 - 갱신 규칙: fixture와 실제 장비 증거를 분리하고 보호 로그의 원시 identity/body/token을 일반 로그·Git에 내보내지 않는다.

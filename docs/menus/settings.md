@@ -4,6 +4,7 @@
 
 - 구현 완료(시험용 코드): 무인자/import/인자 오류는 host/Docker/USB/STOP0이다. 보호된 fresh operator receipt를 명시 prepare하여 새0700 runroot/0600 manifest·bootstrap·one-use START를 만든다. runtime code 한 파일은0444, evidence는999 소유0700으로 분리한다.
 - 미구현: 실제 실행 승인·Pi staging·실장비 확인. API/DB/broker 조회 공급자나 제품 qualification/provider를 추가하지 않는다.
+- 검토 보완(코드): canonical server MeshNode는 trusted receipt 귀속에만 사용하고 local mapping.nodeId와 조인하지 않는다. mapping은 exact Fixture/native/address/deviceUuid/status와 전체 SHA로 고정하며 local ID를 변경하지 않는다. 취소 후 diagnostic create/start는 금지한다.
 - 부족하거나 개선이 필요한 기능: fresh receipt TTL120초·exact A/B binding/assignment/8counts0·mapping/source/artifact hash가 필요하며 갱신 없는 과거 입력은 거절한다. 기존 UI hold 범위와 제품 OFF는 그대로다. 대기/불확실 원복 뒤 lock은 임의 삭제하지 않는다.
 - 관련 파일: `apps/gateway/scripts/bio-sensor-event-pilot-launcher.ts`, `bio-sensor-event-pilot-launcher-host.ts`, `docs/runbooks/raspberry-pi-gateway-appliance.md`.
 - 갱신 규칙: trusted operator 입력·코드 검증·실제 운영 확인을 구분하고 사용자에게 실장비 단계 전에 알린다.

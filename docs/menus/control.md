@@ -4,6 +4,7 @@
 
 - 구현 완료(시험용 코드): 새 보호 runroot/phase·one-use START, fresh exact 원본 ID/image/StartedAt, mapping/source/artifact hash·A/B binding·assignment·8개 대기0 관문을 연결한다. UID999 no-device/network-none read/syntax probe가 STOP보다 먼저다. diagnostic은 create ownership label+full ID 뒤 start/TERM하며 수명 unknown/alive면 competing 원본 재시작을 금지한다.
 - 미구현: 이번 launcher의 실제 Pi/image/USB/RF 실행·장비 검증·제품 활성화. trusted operator receipt의 API/DB 현재성은 별도 운영자의 읽기 전용 확인이며 코드가 조회하거나 증명하지 않는다.
+- 검토 보완(코드): 모든 host CLI에 bounded budget/취소·회수를 적용하고 cleanup은 독립 제어/예산을 사용한다. create/start 직전과 await 후 취소를 재검사하며 원본도 exact-ID TERM 뒤 terminal 증명만 허용한다. Docker stop의 자동 SIGKILL·컨테이너 forcekill은 없다.
 - 부족하거나 개선이 필요한 기능: terminal·USB FD 해제·physical/driver 복귀가 확인되면 exact 원본 서비스를 복구하되 settings/pending/fsync/close 불확실은 nonzero·bio lock/evidence 보존이다. forcekill/USB reset/자동 retry는 없다.
 - 관련 파일: `apps/gateway/scripts/bio-sensor-event-pilot-launcher.ts`, `bio-sensor-event-pilot-launcher-host.ts`, `bio-sensor-event-pilot-launcher.test.ts`, `docs/runbooks/raspberry-pi-gateway-appliance.md`.
 - 갱신 규칙: fixture 성공과 실제 UID999/장비 확인을 분리한다. 과거10월6일 lifetime/phase/token/evidence/bundle을 재사용하지 않는다.

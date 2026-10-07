@@ -11,6 +11,7 @@ export interface OriginalState { id: string; image: string; startedAt: string; r
 export type DiagnosticState = "absent" | "terminal" | "running" | "unknown";
 export interface LauncherPort {
   acquire(): Promise<void>; release(): Promise<void>; preserve(): Promise<void>;
+  beginCleanup?(): void;
   verifyFiles(): Promise<void>; softwareProbe(): Promise<void>; original(): Promise<OriginalState>;
   diagnostic(): Promise<DiagnosticState>; consumeStart(): Promise<void>;
   stopOriginal(): Promise<void>; usbReleased(): Promise<void>;
@@ -54,8 +55,8 @@ export async function runLauncher(approval: Approval, port: LauncherPort, option
   const errors: unknown[] = []; let locked = false, stopAttempted = false, safeRelease = true, diagnosticAttempted = false;
   const refuseCancelled = () => { if (options.signal?.aborted) throw Error("PILOT_CANCELLED"); };
   const current = async () => {
-    validateApproval(approval, options.now()); refuseCancelled(); await port.verifyFiles();
-    const actual = await port.original();
+    validateApproval(approval, options.now()); refuseCancelled(); await port.verifyFiles(); refuseCancelled();
+    const actual = await port.original(); refuseCancelled();
     if (!sameOriginal(actual, approval.original) || !actual.running || actual.status !== "running") throw Error("PILOT_ORIGINAL_CHANGED");
   };
   try {
@@ -63,14 +64,15 @@ export async function runLauncher(approval: Approval, port: LauncherPort, option
     if (await port.diagnostic() !== "absent") throw Error("PILOT_DIAGNOSTIC_EXISTS");
     // Software-only UID999 access/syntax probe must complete before STOP or USB handover.
     await port.softwareProbe(); await current(); await port.consumeStart(); await current();
-    stopAttempted = true; await port.evidence("stop-pending"); await port.stopOriginal();
+    stopAttempted = true; await port.evidence("stop-pending"); refuseCancelled(); await port.stopOriginal();
     const stopped = await port.original();
     if (!sameOriginal(stopped, approval.original) || stopped.running || !["exited", "dead"].includes(stopped.status)) throw Error("PILOT_STOP_UNCONFIRMED");
-    await port.usbReleased(); refuseCancelled(); await port.verifyFiles();
-    diagnosticAttempted = true; await port.evidence("diagnostic-pending"); await port.startDiagnostic();
+    await port.usbReleased(); refuseCancelled(); await port.verifyFiles(); refuseCancelled();
+    diagnosticAttempted = true; await port.evidence("diagnostic-pending"); refuseCancelled(); await port.startDiagnostic();
     const exit = await port.waitDiagnostic(); if (exit !== 0) throw Error("PILOT_DIAGNOSTIC_NONZERO");
   } catch (error) { errors.push(error); }
   finally {
+    port.beginCleanup?.(); // Independent command controls; normal cancellation cannot cancel recovery.
     if (stopAttempted) {
       try {
         let state = await port.diagnostic();
@@ -83,8 +85,8 @@ export async function runLauncher(approval: Approval, port: LauncherPort, option
         const actual = await port.original();
         if (!sameOriginal(actual, approval.original)) throw Error("PILOT_ORIGINAL_CHANGED_DURING_TRIAL");
         if (actual.running) {
-          // Failed STOP may leave the unchanged original alive; never start a second lifetime.
-          if (diagnosticAttempted) throw Error("PILOT_OWNERSHIP_UNKNOWN");
+          // TERM did not establish terminal. Keep evidence/lock; no force kill or trial.
+          throw Error("PILOT_ORIGINAL_STILL_LIVE");
         } else {
           await port.usbReleased();
           if (diagnosticAttempted) {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { validateApproval, parseLauncherArgs, runLauncher, type Approval, type LauncherPort, type DiagnosticState } from "./bio-sensor-event-pilot-launcher";
-import { classifyDiagnostic, createHostPort, prepareRun, type CommandResult } from "./bio-sensor-event-pilot-launcher-host";
+import { classifyDiagnostic, createHostPort, prepareRun, boundedCommand, verifyLocalBindings, type CommandResult } from "./bio-sensor-event-pilot-launcher-host";
 import { mkdtemp, realpath, readFile, writeFile, chmod, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -140,5 +140,69 @@ describe("fixed A/B host pilot launcher", () => {
     await port.consumeStart(); await expect(port.consumeStart()).rejects.toThrow();
     const second = await prepareRun(approvalPath); expect(second).not.toBe(root);
     await chmod(approvalPath, 0o644); await expect(prepareRun(approvalPath)).rejects.toThrow();
+  });
+  it("cancel during post-STOP hash verification never creates/starts a diagnostic", async () => {
+    const f = fixture(), controller = new AbortController(); let checks = 0;
+    f.port.verifyFiles = async () => { if (++checks === 4) controller.abort(); };
+    await expect(runLauncher(f.approval, f.port, { now: f.now, signal: controller.signal })).rejects.toThrow();
+    expect(f.calls).not.toContain("start-diagnostic");
+  });
+  it("actual host adapter abort during ownership inspect never starts created container", async () => {
+    const f = fixture(), root = await realpath(await mkdtemp(join(tmpdir(), "pilot-abort-fixture-"))), controller = new AbortController();
+    const commands: string[][] = [], id = "7".repeat(64), phase = "a".repeat(32);
+    const port = createHostPort(f.approval, root, phase, "b".repeat(64), async (cmd, args) => {
+      commands.push([cmd, ...args]);
+      if (args.includes("create")) return { code: 0, stdout: id + "\n", stderr: "" };
+      controller.abort(); return { code: 0, stdout: JSON.stringify({ Id: id, Name: `/bio-event-pilot-${phase}`, Image: f.approval.original.image,
+        Config: { Labels: { "io.led-control.bio.pilot": phase } }, HostConfig: { RestartPolicy: { Name: "no" } }, State: { Running: false, Status: "created" } }), stderr: "" };
+    }, controller.signal);
+    await expect(port.startDiagnostic()).rejects.toThrow(); expect(commands.some(c => c.includes("start"))).toBe(false);
+  });
+  it("real command deadline reaps a stopped CLI fixture and marks result uncertain", async () => {
+    const result = await boundedCommand(process.execPath, ["-e", "process.on('SIGTERM',()=>{});console.log(process.pid);setInterval(()=>{},1000)"], { budgetMs: 100 });
+    expect(result.code).not.toBe(0); expect(result.uncertain).toBe(true); expect(result.reaped).toBe(true);
+    const pid = Number(result.stdout.trim()); if (pid) expect(() => process.kill(pid, 0)).toThrow();
+  });
+  it("pre-aborted command never spawns; cancel reaps a waiting CLI rather than leaves race loser", async () => {
+    const controller = new AbortController(); controller.abort();
+    const result = await boundedCommand(process.execPath, ["-e", "throw Error('must not start')"], { budgetMs: 100, signal: controller.signal });
+    expect(result.stdout).toBe(""); expect(result.reaped).toBe(true); expect(result.code).not.toBe(0);
+    const running = new AbortController(); const timer = setTimeout(() => running.abort(), 50);
+    try {
+      const cancelled = await boundedCommand(process.execPath, ["-e", "setInterval(()=>{},1000)"], { budgetMs: 10000, signal: running.signal });
+      expect(cancelled.reaped).toBe(true); expect(cancelled.uncertain).toBe(true);
+    } finally { clearTimeout(timer); }
+  });
+  it("canonical server node and registration-local mapping node remain distinct identities", () => {
+    const f = fixture(); const state = { version: 2, mappings: f.approval.bindings.map(b => ({
+      fixtureId: b.fixtureId, nativeUuid: b.nativeUuid, deviceUuid: `bio:${b.nativeUuid}`, logicalAddress: b.address, status: "confirmed", nodeId: b.fixtureId
+    })) };
+    expect(() => verifyLocalBindings(state, f.approval.bindings)).not.toThrow();
+    const conflict = structuredClone(state); conflict.mappings.push({ ...state.mappings[0], fixtureId: "other", nativeUuid: "other", deviceUuid: "bio:other" });
+    expect(() => verifyLocalBindings(conflict, f.approval.bindings)).toThrow();
+  });
+  it("original handover uses exact-ID TERM and positive terminal inspect, never Docker stop/forcekill", async () => {
+    const f = fixture(), root = await realpath(await mkdtemp(join(tmpdir(), "pilot-term-fixture-"))), commands: string[][] = [];
+    const port = createHostPort(f.approval, root, "a".repeat(32), "b".repeat(64), async (cmd, args, control) => {
+      expect(control.budgetMs).toBeGreaterThan(0); expect(control.budgetMs).toBeLessThanOrEqual(25000); commands.push([cmd, ...args]);
+      return { code: 0, stderr: "", stdout: args.includes("inspect") ? JSON.stringify({ Id: f.approval.original.id, Image: f.approval.original.image,
+        State: { Running: false, Status: "exited", StartedAt: f.approval.original.startedAt }, Mounts: [{ Destination: "/data/mesh", Source: "/opt/led-control/gateway/data-admin4/mesh" }] }) : "" };
+    });
+    await port.stopOriginal(); expect(commands[0]).toContain("--signal=SIGTERM"); expect(commands[0]).toContain(f.approval.original.id);
+    expect(commands.flat()).not.toContain("stop"); expect(commands.flat()).not.toContain("--signal=SIGKILL");
+  });
+  it("late or interrupted create stays unknown even if a later inspect/inventory looks absent", async () => {
+    const f = fixture(), root = await realpath(await mkdtemp(join(tmpdir(), "pilot-late-create-fixture-"))), phase = "a".repeat(32);
+    const port = createHostPort(f.approval, root, phase, "b".repeat(64), async (_cmd, args) => {
+      if (args.includes("create")) return { code: 124, stdout: "", stderr: "interrupted", uncertain: true, reaped: true };
+      if (args.includes("inspect")) return { code: 1, stdout: "\n", stderr: `Error: No such object: bio-event-pilot-${phase}\n` };
+      return { code: 0, stdout: "", stderr: "" };
+    });
+    await expect(port.startDiagnostic()).rejects.toThrow(); port.beginCleanup!(); expect(await port.diagnostic()).toBe("unknown");
+  });
+  it("original TERM still-live refuses trial/restart and preserves lock", async () => {
+    const f = fixture(); f.port.stopOriginal = async () => { throw Error("TERM has not reached terminal"); };
+    await expect(runLauncher(f.approval, f.port, { now: f.now })).rejects.toThrow();
+    expect(f.calls).not.toContain("start-diagnostic"); expect(f.calls).not.toContain("restart-exact"); expect(f.calls).toContain("lock-preserved");
   });
 });
