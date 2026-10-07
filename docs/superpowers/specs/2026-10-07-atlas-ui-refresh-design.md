@@ -67,7 +67,9 @@ React Aria 기반 입력·버튼·오버레이, Tailwind semantic token, 기존 
 
 hover/focus/disabled, 상태 badge·feedback, chart/heatmap와 fixture editor UI 역할도 토큰 전수 매핑의 대상이다. `content-inverse`를 다크 primary 글자 역할로 바꾸지 않고 `action-primary-foreground`를 독립 역할로 추가한다. 원본 CAD·도형 색상은 테마 팔레트에서 제외한다. 두 root selector는 정확한 선언 집합·개수로 검토하며 일반 selector/style 예외를 허용하지 않는다.
 
-Task11 실제 포커스 검사에서 기존 고정 반투명 `shadow-focus`의 고객dark 대비1.3116:1 미달을 발견했다. 기존 기본shadow와현재732선언 전수를 보존하고, 이미 승인된 고객 `border-focus` light/dark 색을 쓰는3px 불투명 고객shadow2를 추가해734선언이 된다. 공통컨트롤의 기존 `shadow-focus` 소비는 바꾸지 않고 정확두customer root에서만 shadowalias를 연결한다. 토큰 전용/독립검토 뒤 실제hash anchor 회전과 closed정책을 적용하며 기본·brand/landing/login/operator는 그대로다. 현재는 수리 관문이며 새shadow GREEN·전체focus/모든surface/physicalnative 완료를 뜻하지 않는다.
+Task11 실제 포커스 검사에서 기존 고정 반투명 `shadow-focus`의 고객dark 대비1.3116:1 미달을 발견했다. 기존 기본shadow와현재732선언 전수를 보존하고, 이미 승인된 고객 `border-focus` light/dark 색을 쓰는3px 불투명 고객shadow2를 추가해734선언이 된다. 공통컨트롤의 기존 `shadow-focus` 소비는 바꾸지 않고 정확두customer root에서만 shadowalias를 연결한다. 토큰 전용 `fac0d214`의 독립검토 C0/I0/M0 후 해당 exacthash anchor와 closed정책을 적용한다. 두shadow/rootalias는 선언적 token 계약이며 아래 compiler 보완과 구별한다. 현재는 수리 관문이며 실제제품 GREEN·전체focus/모든surface/physicalnative 완료를 뜻하지 않는다.
+
+설치된 Tailwind4.3.3은 named `shadow-focus`를 고정 rgba recipe로 인라인해 rootalias를 동적으로 읽지 않는다. 실제 compiled 소비82PASS/1FAIL과 생성CSS로 이를 확인했다. 독립 설계/메모리 내 단1회 compile 검토 C0/I0/M0가 승인한 보완은 `base.css` 최상위의 정확한 `@utility shadow-focus` 한 개다. 내부에는 `&:where(:root[data-customer-theme="light"] *, :root[data-customer-theme="dark"] *)` 한 rule과 `--tw-shadow: 0 0 0 3px var(--tw-shadow-color, var(--color-border-focus))` 한 선언만 둔다. 실제 고객 fallback은 border-focus alias를 소비하며 stock 색상 override·다섯 ring/inset/offset/shadow 슬롯·기본/brand/landing/login/operator와734선언 값은 보존한다. 일반 selector/literal/native 예외가 아닌 exact base path/AST 구조를 닫힌 정책으로 검사하고 mutation/escape/중복/누락·외부 shadow 우회를 거부한다. 네 변형의 실제paint/cleanup/합성·기존회귀/fresh관문/원firstdark390 성공은 구현 후 검증 사항이다.
 
 간격은 기존 승인 스케일을 재사용한다. 반복 section·panel 간격, typography, control 반경과 focus ring은 공통 컴포넌트가 소유한다. 목업의 숫자와 색상을 소비자에 literal로 복사하지 않는다. 새로운 layout 치수와 typography 역할은 소비 목적을 문서화해 승인 토큰으로 추가한다.
 

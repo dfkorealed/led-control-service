@@ -29,6 +29,8 @@
 
 - Task11 새149declared acceptance의 firstdark390는 actualkeyboardfocus shadow1.3116:1<3에서1FAIL/0PASS로 멈췄다. Webtype/UI0/listEXACT1·첫positiveRAFdark/실제logo/header·openedoption본문9.468/필수경계3.671/44는 해당단계만 관측했고 alarm/최종ready/나머지148는 미실행이다. Root는 원858/857 source·raw/2normalPNG를 직접 대조했다. 원공통 DS owner는 실제current732선언 전수·컬러/geometry/공통컨트롤을 유지하고 고객shadow2→독립token검토→exactalias/anchor/closed정책으로 수리한다. 역할값/3px 독립디자인 C0/I0/M1 Approved이며 M1의375/579 count 오기를 실제AST old528/current732 및old528변경0/add204로 정정했다. 이 수리 후에는734선언이며 축소count를전수보존 근거로쓰지 않는다. 현재수리GREEN/전체matrix/최종QA/병합은 아직이다. PDF는 processingjob과 실제descriptor/fileGET 전달을 구분해 원2사례 내 같은URL/요청/34byte 보존 검사를 후속범위로 준비했다. 기본timeout·native/HIL 한계를 낮추지 않는다.
 
+- Task11 focus 후속: token-only `fac0d214` 정확4파일/기존732전수동일+2→734·contract7PASS/direct40을 독립 C0/I0/M0로 승인했다. alias/policy 최소5파일의 compiled gate는82PASS/1FAIL로 STOP했으며 실제 firstdark390는 재실행하지 않았다. 설치된 Tailwind4.3.3의 고정 shadow recipe 인라인이 원인임을 생성CSS로 확인했고 customer-only nested utility1 설계/네변형의 단1회 메모리 compile은 독립 C0/I0/M0다. 같은 base/policy/contract/메뉴 scope 내에서 canonical/default·색modifier/다섯 ring/inset 슬롯을 보존하는 최소 보완과 닫힌 정책을 구현한다. 생성CSS feasibility는 실제paint/clip/첫case 성공이 아니며 전체Task11/병합은 아직이다. 원858은 역할JSON을 목록에 포함하지 않았으므로 후속859에는 이를 명시하고 과거 snapshot을 현재완전목록으로 재사용하지 않는다.
+
 ## 2026-10-06 모니터링 Popover·Grid 정렬 — 완료·로컬 병합
 
 - 기존 모니터링 담당 세션, 별도 Grid 담당, 독립 코드 검수·UI/UX 디자이너와 분담했다. `codex/monitoring-popover-grid-sort-20261006`의 별도 작업에서 검색·상태·선택 상세를 맵 선택 오른쪽 단일 Popover에 모으고 중복 상태 문구·헤더 글씨 잘림을 보완했다.
