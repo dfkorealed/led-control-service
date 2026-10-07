@@ -115,7 +115,7 @@
 
 ### Task 6: 모니터링 페이지 적용
 
-**Files:** Modify `src/features/monitoring/MonitoringView.tsx`, `src/features/monitoring/MonitoringSummary.tsx`, `src/features/monitoring/FloorMap.tsx`, `src/features/monitoring/MonitoringLogTicker.tsx`, `src/features/monitoring/MonitoringLogDrawer.tsx`와 기존 `.test.tsx`, 기존 `src/features/monitoring/monitoring-activity-presentation.ts`·`.test.ts`, `docs/menus/monitoring.md`; extend `e2e/monitoring-surface-access.spec.ts`, `e2e/calm-operations-monitoring.spec.ts`.
+**Files:** Modify `src/features/monitoring/MonitoringView.tsx`, `src/features/monitoring/MonitoringSummary.tsx`, `src/features/monitoring/FloorMap.tsx`, `src/features/monitoring/MonitoringLogTicker.tsx`와 기존 `.test.tsx`, 기존 `src/features/monitoring/monitoring-activity-presentation.ts`·`.test.ts`, `docs/menus/monitoring.md`; `docs/menus/control.md`는 Task5 공통 집계 글씨의 실제 body/body-lg=14/16 보완 기록만 갱신한다; Audit `src/features/monitoring/MonitoringLogDrawer.tsx`·`.test.tsx`의 기존 공통 LogView/FilterPanel/DateRangeDraft·cursor/retention/권한·safe-area/focus 계약을 회귀 검사로 확인하며 이미 충족하면 불필요한 source 변경을 하지 않는다; extend `e2e/monitoring-surface-access.spec.ts`, `e2e/calm-operations-monitoring.spec.ts`.
 
 **Interfaces:** MonitoringSummary 기존 `scope/mapName/total/online/fault/offline` 계약 유지. adapter `monitoringActivityRows(items: readonly MonitoringActivityItem[], timeZone:string): readonly RecentActivityRow[]`는 기존 `src/features/monitoring/monitoring-activity-presentation.ts`·`.test.ts`를 보존 확장한다. 기존 formatter/분류 함수는 덮어쓰거나 중복 생성하지 않는다. MonitoringActivityItem은 기존 `@led-control/shared/monitoring-activity-contracts`, RecentActivityRow는 Task 5의 UI barrel export를 import한다. useMonitoringActivity의 조회/retention 계약은 그대로다.
 

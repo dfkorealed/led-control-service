@@ -2,7 +2,7 @@
 
 기준일: 2026-10-07
 
-## 2026-10-07 ATLAS 라이트·다크 실제 서비스 UI 적용 — Tasks 1–5 완료·모니터링 페이지 진행
+## 2026-10-07 ATLAS 라이트·다크 실제 서비스 UI 적용 — Tasks 1–5 완료·모니터링 진행
 
 - 승인된 compact 목업과 모바일 헤더 로고·현장 선택 너비 의견을 실제 고객 서비스에 적용하는 [설계 명세](superpowers/specs/2026-10-07-atlas-ui-refresh-design.md)를 작성했다. 공통 디자인/컴포넌트 → 공유 지도 → 모니터링·제어·통계·설정 페이지 담당 → 독립 검증 → 로컬 병합 순서다.
 - `codex/atlas-ui-refresh-20261007`의 격리 worktree를 `codex/mvp1-cloud-web` `5e173fb4`에서 만들었다. 기존 공통·제어/지도·통계 세션과 별도 모니터링·설정 담당을 배정했다. task-owned Node 22.20.0과 pnpm 9.15.0으로 격리 frozen install·Prisma Client 생성 준비와 canonical baseline을 회수했다. cold 설치의 미생성 실패도 보존한다. 기존 서버 조작·로컬 병합은 미착수다.
@@ -13,6 +13,7 @@
 - Task 3 stable 고객 provider·저장·cross-tab·portal palette·ownership-aware cleanup은 `aae5eafb`에서 독립 Spec✅/Quality Approved C0/I0로 승인했다. 표적118/전체Web3269PASS·기존3SKIP, 정책74/부채0·타입/빌드0이며 route/cache/명령 owner와 추가POST0을 검사했다. 겹침 cleanup의 stale marker를 RED로 보완했다. 실제 브라우저 첫 paint/열린 overlay/전체 대비와 canvas·chart 구독은 후속Task5/9/11에서 검증한다. 기존 경고·비웹 baseline을 보존하고 Task4 공통 UI·모바일 헤더를 이어간다.
 - Task 4 `e1d4400c`는 독립 Spec✅/Quality Approved C0/I0다. 고객-only 버튼 전경색·실제 로고·항상 보이는 서버 집계·모바일 현장 선택128/144×44px·wide sidebar220/80px·실제 SettingsView capability 전달을 적용했다. approved geometry를 기존 cn registry에 등록하고 기존 primitive는 불필요한 변경 없이 audit/소비 회귀로 확인했다. scoped390/전체Web3286PASS·기존3SKIP·타입/UI/빌드0, 지정E2E46PASS/3FAIL이다(모바일38PASS, 복구8PASS/BASE동일3FAIL). auth 소스/기대값은 변경하지 않았다. fractional 요청은 실제760/761로 정규화돼 controlled strict 경계 단위와 actual759/760/761 결과를 분리 기록한다. 실제 fractional PASS·전체E2E PASS로 확대하지 않으며 동시 검사 notice1FAIL/동일source isolatedPASS·기존경고도 최종검수로 전달한다. Task5 지도/인라인 상태/공통ticker를 이어간다.
 - 준비된 canonical baseline은 lint0/typecheck0/test1/build0이다. 제품 변경 전 API 대량 도면 처리·Gateway refresh journal의 5000ms timeout 각1건을 원 소스/로그로 보존한다. Task1의 구 정책 62PASS/5FAIL·UI404는 승인 기준 회전 전 예상 중간 실패이며 전체 gate PASS가 아니다. API/Gateway·timeout/skip 기준을 변경하지 않는다.
+- Task6 실제 브라우저 실측이 공통 집계의 기존 `body-sm/body`가 13/14px임을 검출했다(PC3 원FAIL); 앞선 Task5 승인에서 14/16px로 해석한 클래스 계약만으로 실제 크기를 증명하지 못했다. 공통font-only `a835fde6`는 기존 `body/body-lg`(14/16px)만 보완하고 scoped독립 findingADDRESSED·새C0/I0/M0를 확인했다. RED1→공통36PASS·타입/UI0, 실제PC1440/1378/1024의14/16/nowrap 단언을 통과했지만 후속상세패널overflow3FAIL(exit1)을 보존한다. Task6 새소스finalgate는 별도이며 새토큰/기본값 변경·기준완화는 없다. 신규모니터링6브라우저PASS와 원exact2 53PASS/23FAIL도 이전 source 증거로 보존하고 Task6 담당의 상세scroll·mobile refresh safearea·visibleglyph 계약 보완을 재개한다.
 - Task 5 공통 operations·map chrome·explicit manual opt-in·reactive map/editor palette는 `0a5e0dc0`에서 독립 Spec✅/Quality Approved C0/I0다. 실제 캔버스/노드와 camera·저장 도형 색·미저장 draft·기본 gesture 수명을 단위 경계에서 유지한다. 최종 related1111/전체Web3308PASS·기존3SKIP·타입/UI/빌드0, 지정3E2E59PASS/14FAIL이며 BASE exactfocused14의 assertion fingerprints가 모두 같다(제품단언13·native manifest 전제1). 전체 브라우저 PASS가 아니며 높이·상태 탐색·settings hitarea/입력·native 전제와 실제 GPU/firstpaint/portal 대비는 후행 담당·QA로 추적한다. RED guide/slot attribution 사실 정정과 기존 warning 후속도 보존한다. Task6 실제 서버 집계·갱신·활동 adapter 적용을 이어간다.
 - 기본 checkout의 모니터링/제어 메뉴 문서에 남은 2026-10-07 목업 이력은 보존한다. 공통 모바일 로고/테마 기반은 Tasks3–4에서 적용했지만 각 페이지 적용·제품 통합 검증·병합은 아직 완료하지 않았다. 요청한 페이지별 에이전트 방식으로 승인된 공통 기반을 소비한다. 이전 mock/제품 검사 결과를 이번 실제 구현 통과로 표시하지 않는다.
 
