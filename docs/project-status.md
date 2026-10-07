@@ -1,6 +1,17 @@
 # 메뉴 완성 작업 상태판
 
-기준일: 2026-10-06
+기준일: 2026-10-07
+
+## 2026-10-07 A/B 센서 pilot 안전 실행 준비 — 로컬 코드만 진행
+
+- 사용자의 후속 진행 요청을 기존 Task9 시험 실행 절차의 보완으로 처리한다. 최신 사용자 한도인 코드 우선/실장비 전에 알림을 유지하며 SSH·원격 stage·USB/RF·Gateway 중단·운영 DB·브라우저 시험·제품 ON·머지는 실행하지 않는다.
+- 기존 검토된 host launcher의 exact original identity/lifetime·diagnostic 수명·USB release·driver 복귀·원본 재시작 경계를 새 A/B pilot에 연결한다. 사용된10월6일 phase/START/path와 수정 전 bundle을 재사용하지 않는다. fresh 원본 StartedAt·mapping/hash·현재 binding/대기 확인·별도 START가 없으면 실행은 거부하며 기본 호출은 장비/서비스에 접촉하지 않는다.
+- Gateway 담당1명의 `c24b7338`에 launcher guard/host adapter/행동 테스트3파일·메뉴3·기존 runbook 보완을 구현했다. 기본/인자오류·fresh TTL/identity/hash·UID999 software probe 선행·immutable diagnostic ID·단절/원복/잠금 경계를 다룬다. 원복 불확실 시 terminal/free USB에서 원본 서비스만 복구하고 nonzero·BIO lock/evidence를 보존한다. trusted operator receipt는 현재 API/DB 조회 결과를 대신 공급하지 않으며 직접 조회 구현은 추가하지 않았다.
+- 초기 RED16실패와 원복 불확실 잠금 경계 RED2실패 뒤 launcher21+기존 pilot17=38/38·명시 scripts/Gateway typecheck·syntax·diffcheck0을 확인했다. 초기 bundle/증거는 `.local/task9-network/bio-event-pilot-launcher-code-20261007`에 미실행 보존했다. 초기 launcher는 아래 보완 전 artifact이며 최신 실행용으로 사용하지 않는다. 전체 suite·추가 현장 실험은 제외했다.
+- 초기 독립 검토 Critical0/Important3/Minor0은 코드 완료도 승인 보류였다. 실제 host 명령 무제한 대기/남은 wait child, await 중 취소 후 diagnostic start, 원본 `docker stop --time15`의 자동 SIGKILL 가능성이 원인이다. 총괄의 기존 adapter 대조에서는 canonical 서버 MeshNode ID와 registration-local mapping ID의 동일시 회귀(I4)도 확인했다. 초기38PASS를 이 결함의 해결 근거로 사용하지 않는다.
+- **최종 보완/코드 전용 인계 완료:** `ac59ea70`에 I1~I4를 보완했다. CLI 명령은 monotonic budget·취소·자식 회수를 갖고 복구는 독립120초/단계45초 예산을 사용한다. 권한 오류/회수·daemon mutation 불확실은 성공/부재로 승격하지 않는다. 취소 후 신규 create/start를 fence하고 원본도 SIGTERM-only/25초 exact terminal 확인으로 처리한다. mapping은 exact Fixture/native/address/deviceUuid/status·전체 파일 hash로 고정하며 canonical ID와 local ID를 조인하거나 변경하지 않는다. I1/I2 RED4실패·I4 RED1실패→최종 launcher29+pilot17=46/46·명시6-script/Gateway typecheck·syntax/diffcheck0, 독립 재검토 I1~I4 해결·추가Critical0/Important0/Minor0·코드 전용 인계를 승인했다. 총괄도 검증 기록과3소스/2bundle hash를 대조했다.
+- 최신 미실행 artifact/기록은 `.local/task9-network/bio-event-pilot-launcher-code-20261007/review-fix1`에 보호 보존했다. launcher SHA256=`2729a138e77a195877e3eb14aaa8de47c3b5eea9ac0399d02b5a0e5f5c939377`, pilot=`03c4c21e10c230fc078a031754322fecf8ca466f57ba3be44e5ac8358b678240`, 검증 기록=`806c6be24031597d14a1751f3d6398014cc55a807f7d41f524927b4ad17ac852`다. 현재 branch/worktree를 보존하며 merge/push는 하지 않았다.
+- **실장비 전 잔여 관문:** fresh trusted operator의 실제 API/DB binding/assignment/대기0 확인, 현재 원본/image/StartedAt·mapping·USB/helper/artifact 준비, 실제 Linux sudo/CLI 회수/shared lock·UID999 no-device probe·physical FD/driver·실제 A/B 출력/원복/postflight는 미검증이다. 독립 검토가 이를 판단하지 않은 것은 사용자 code-only 한도에 따른 것이며 실물 성공으로 보완하지 않는다. 현장 실행은 승인되지 않았고 제품 profile/qualification/authority 공급은 미완료/OFF다. 사용자에게 먼저 구현 결과를 알리며 현재 현장 준비·중단 승인·새 START 전에는 시작하지 않는다.
 
 ## 2026-10-06 실제 BIO 센서 연동 — A 관측·원복 완료, 행동 기록 중단
 
