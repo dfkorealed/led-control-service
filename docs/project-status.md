@@ -2,6 +2,13 @@
 
 기준일: 2026-10-07
 
+## 2026-10-07 A/B 센서 시험 준비 — 참여·중단 가능 확인, START 대기
+
+- 사용자가 현재 현장 참여와 시험·원복 중 Gateway 제어 약6~8분 중단 가능 여부에 `가능해`로 답했다. 준비 단계만 진행하며 별도 `지금 시작` 전에는 STOP/USB/RF/조명 GET·SET을 하지 않는다. A 범위 밖·다른 사람/움직이는 물체 없음은 현재 답변을 별도로 확인한다.
+- Gateway 담당1명이 검토된 최신 artifact와 새 보호 staging·checksum/권한·현재 binding/대기/identity·정확 image의 no-network/no-USB 읽기·소프트웨어 준비를 확인한다. receipt TTL120초는 실제 관찰 시각으로만 만들며 오래된 준비/토큰/원본밝기·센서 모드를 재사용하지 않는다. 새로운 현장 참여 응답을 제품 활성화나 준비 전 자동 START로 해석하지 않는다.
+- **정적 준비/소프트웨어 확인 완료:** 새 Pi stage `/var/tmp/bio-event-pilot-staging-20261007-fc2630b0ac14a6edcbb39e91`(0700/UID1000)에 최신 pilot·launcher bundle2와 source2/기존 USB helper만 배치했다. bundle SHA03c4c21e…8240/2729a138…9377 및 source/helper3개를 총괄도 대조했다. 원본 exact image·UID999·network-none/no-device/no production mount에서 import+`main([])` 단1회 exit0/`PILOT_OPT_IN_REQUIRED_NO_USB`를 확인하고 probe exact 부재/inventory·원본 무중단을 확인했다. staging의06:36:57Z healthy/MQTT/heartbeat/원본ID·image·StartedAt·mapping 불변,06:37:02Z READ ONLY actual8counts0/config12APPLIED·assignment1·eligible schedule/event0이다. 준비 증거 `.local/task9-network/bio-event-pilot-preparation-20261007/evidence-wdp6Dr/summary.json` SHA256=`a81f3036f488e6639f79743bb36d7e62835ca4a34ca55279f755d62cc2dcd14f`를 대조했다. 신규 승인 receipt/phase/manifest/bootstrap/START는 아직 생성·사용하지 않았고 STOP/USB/RF/GET·SET0이다. 실제 시작 직전 새 관찰로 TTL120초 receipt를 만들며 테스트는 기존 B60%/hold60초/관측300초다.
+- 실제 A→B 반응·연장·정상 만료·종료 원복은 아직 미검증이고 서비스 profile/qualification/운영 DB 적용은 계속 미완료/OFF다. 준비 후 필요한 최소 행동 안내와 명시적 시작 신호를 받는다.
+
 ## 2026-10-07 후속 실장비 사전 확인 — 연결 환경 복구 확인
 
 - **후속 승인:** 사용자가 `진행해`로 기존 설정 백업·서버 주소·만료된 CRL 복구를 승인했다. Gateway 담당1명이 현재 identity·경로·내용을 재확인하고 보호 백업 뒤 exact host/container DNS 주소만 반영, 동일 issuer/폐기 내역 public CRL 갱신과 필요한 consumer reload를 검증한다. 새 인증서·키/폐기·제품 ON/DB mutation/센서 START/조명 변경은 범위 밖이다. 아래 사전 조사/승인 대기 기록은 복구 전 이력으로 보존한다.
