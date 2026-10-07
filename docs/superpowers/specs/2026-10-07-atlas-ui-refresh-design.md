@@ -167,6 +167,7 @@ PC 수동 제어는 shell 아래 남는 높이를 flex/grid로 배분한다. 외
 - 라이트·다크 실제 UI와 새로고침/다른 탭/저장 실패/고객 scope cleanup을 확인한다. 열린 Popover/Dialog/Drawer, 지도·차트·축·입력·상태·focus까지 같은 테마여야 한다. 실제 색상 대비는 본문 4.5:1, 큰 글자/필수 UI 경계 3:1을 기준으로 검토하고 색만으로 상태를 전달하지 않는다. 공개/로그인/운영자 소비자의 기존 디자인이 의도치 않게 바뀌지 않았는지 확인한다.
 - 실제 computed CSS 색의 직렬화가 rgb/rgba 또는 oklab이어도 동일한 RGBA 의미·반투명 조상 background stack으로 대비를 계산한다. 색 형식 해석 실패는 성공이나 palette 추정으로 대체하지 않으며 원본/unknown-color 오류·기준을 보존한다. Task11의 실제 site 포커스8.009 도달과 후속 반투명oklab parser1FAIL은 별개의 경계다; local 검사 보완 뒤 원firstcase와 후속화면을 실제로 검증한다.
 - 기존 1000대 지도 성능·정확한 pin 선택 등 관련 회귀를 유지한다. 실제 브라우저 정상 화면 원본을 확인하며 CSS/브라우저 결과를 native·HIL 완료로 확대하지 않는다.
+- 일반 browser PDF는 descriptor 준비 대기와 실제 파일 본문 전달 대기를 구분한다. Cross-origin anchor에서 attachment header 자체를 막으면 브라우저의 pending navigation 때문에 공개 theme locator가 대기하는 실제 실패가 관측됐다. 파일 전달 중 테마 수명 검사는 existing attachment header를 먼저 알리고 원34byte 본문만 대기시키는 명시적 경계에서 한다. 원Request/body/finished·정확URL/GET1·real buddy/원 DOM·기간/processing job·추가쓰기0·같은 Download 최종바이트/CSV를 유지한다. 원 pre-header 및753 timeout 기록은 보존하며, 원753의 미확정 인과를 이 경계 전환으로 해결했다고 주장하지 않는다. 제품의 anchor target·native helper·fixture clock·기본 timeout을 바꾸지 않고 header 이전 교착/OS native/HIL 전체 검증으로 확대하지 않는다.
 - 검증 완료 주장에는 실행 소스·명령·exit code·실패/skip·화면 증거를 연결한다. 과거 목업 31개 검사 결과나 이전 제품 test 결과를 이번 제품 통과 근거로 재사용하지 않는다.
 
 ## 7. 브랜치·문서·병합
