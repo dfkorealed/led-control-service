@@ -1,18 +1,19 @@
 import type { SiteCapabilities } from "../../api/queries";
 
 export interface SettingsSection {
+  id: "overview" | "site" | "users" | "registration" | "floor-plans" | "security";
   label: string;
   path: string;
   requiredCapability: "read" | "manage";
 }
 
 export const settingsSections: SettingsSection[] = [
-  { label: "설정 개요", path: "/settings", requiredCapability: "read" },
-  { label: "현장 관리", path: "/settings/site", requiredCapability: "manage" },
-  { label: "유저 관리", path: "/settings/users", requiredCapability: "manage" },
-  { label: "조명 등록", path: "/settings/registration", requiredCapability: "manage" },
-  { label: "맵 관리", path: "/settings/floor-plans", requiredCapability: "read" },
-  { label: "계정 보안", path: "/settings/security", requiredCapability: "read" }
+  { id: "overview", label: "설정 개요", path: "/settings", requiredCapability: "read" },
+  { id: "site", label: "현장 관리", path: "/settings/site", requiredCapability: "manage" },
+  { id: "users", label: "유저 관리", path: "/settings/users", requiredCapability: "manage" },
+  { id: "registration", label: "조명 등록", path: "/settings/registration", requiredCapability: "manage" },
+  { id: "floor-plans", label: "맵 관리", path: "/settings/floor-plans", requiredCapability: "read" },
+  { id: "security", label: "계정 보안", path: "/settings/security", requiredCapability: "read" }
 ];
 
 export function settingsSectionsFor(capabilities: SiteCapabilities) {

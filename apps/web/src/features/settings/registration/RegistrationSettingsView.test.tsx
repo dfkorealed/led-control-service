@@ -16,12 +16,12 @@ describe("RegistrationSettingsView 다음 단계", () => {
     const dashboard = structuredClone(mockDashboard);
     dashboard.summary.totalFixtures = 1;
     vi.mocked(useDashboard).mockReturnValue({ data: dashboard } as ReturnType<typeof useDashboard>);
-    render(<MemoryRouter initialEntries={["/settings/registration?siteId=old-site"]}>
+    render(<MemoryRouter initialEntries={["/settings/registration?siteId=old-site&keep=value#draft"]}>
       <RegistrationSettingsView siteId={dashboard.site.id} />
     </MemoryRouter>);
 
     expect(screen.getByText("등록 패널")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "맵에서 조명 배치하기" })).toHaveAttribute("href", `/settings/floor-plans?siteId=${dashboard.site.id}`);
+    expect(screen.getByRole("link", { name: "맵에서 조명 배치하기" })).toHaveAttribute("href", `/settings/floor-plans?siteId=${dashboard.site.id}&keep=value#draft`);
   });
 
   it("오프라인 게이트웨이의 연결 상태를 바로 다시 확인할 수 있다", () => {

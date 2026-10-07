@@ -80,7 +80,7 @@ test("MFA 로그인 후 계정 보안에서 MFA 등록과 세션 종료를 완�
     return { status: 404, json: { message: `Unhandled fixture route: ${method} ${path}` } };
   });
 
-  await page.goto("/");
+  await page.goto("/login");
   await page.getByLabel("아이디").fill(operator.loginId);
   await page.getByLabel("비밀번호").fill(secrets.password);
   await page.getByRole("button", { name: "로그인" }).click();

@@ -21,7 +21,7 @@ export function SettingsSubnavigation({ capabilities }: { capabilities: SiteCapa
 
   return (
     <UnderlineNavigation
-      className="w-full"
+      className="w-full max-compact:hidden"
       trackClassName="min-w-max"
       aria-label="설정 메뉴"
     >

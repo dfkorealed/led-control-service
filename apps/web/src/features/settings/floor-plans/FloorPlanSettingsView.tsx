@@ -2,6 +2,7 @@ import { FileImage, LoaderCircle, LockKeyhole, TriangleAlert } from "lucide-reac
 import { Link, useLocation } from "react-router-dom";
 import { useDashboard, type SiteCapabilities } from "../../../api/queries";
 import { Card, FeedbackState, PageHeader, StatusBadge } from "../../../components/ui";
+import { settingsActionLinkClass } from "../settings-action-link";
 
 interface FloorPlanSettingsViewProps {
   siteId?: string;
@@ -41,8 +42,8 @@ export function FloorPlanSettingsView({ siteId, capabilities }: FloorPlanSetting
               </div>
               {canEdit ? (
                 <Link
-                  className="inline-flex min-h-11 items-center justify-center gap-2 self-start rounded-control border border-border-default bg-action-secondary px-4 py-0 text-body font-bold text-action-primary focus-visible:outline-none focus-visible:shadow-focus"
-                  to={`/settings/floor-plans/${floor.id}/edit${location.search}`}
+                  className={settingsActionLinkClass}
+                  to={{ pathname: `/settings/floor-plans/${floor.id}/edit`, search: location.search, hash: location.hash }}
                   aria-label={`${floor.name} ${actionLabel}`}
                 >
                   {actionLabel}

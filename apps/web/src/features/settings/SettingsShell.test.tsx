@@ -28,6 +28,7 @@ vi.mock("../../api/queries", () => ({
 }));
 vi.mock("../registration/RegistrationPanel", () => ({ RegistrationPanel: () => <section aria-label="조명 등록 패널">조명 등록 패널</section> }));
 vi.mock("../setup/GatewayClaimPanel", () => ({ GatewayClaimPanel: () => null }));
+vi.mock("../../api/site-users", () => ({ useSiteUsers: () => ({ data: { users: [], count: 0, limit: 100 } }) }));
 
 describe("SettingsShell", () => {
   afterEach(() => {
@@ -86,7 +87,7 @@ describe("SettingsShell", () => {
     expect(within(tabs).queryByRole("link", { name: "조명 등록" })).not.toBeInTheDocument();
   });
 
-  it("설정 개요는 실제 데이터와 route action으로 네 카드를 표시한다", () => {
+  it("설정 홈은 실제 데이터와 route action으로 다섯 카드를 표시한다", () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     render(
       <QueryClientProvider client={queryClient}>
@@ -100,13 +101,11 @@ describe("SettingsShell", () => {
       </QueryClientProvider>
     );
 
-    expect(screen.getByRole("heading", { name: "설정 개요" })).toBeInTheDocument();
-    const site = screen.getByRole("group", { name: "현장 정보" });
-    expect(site).toHaveTextContent(mockDashboard.site.customerName);
-    expect(site).toHaveTextContent(mockDashboard.site.address!);
-    expect(site).toHaveTextContent(mockDashboard.site.timeZone);
+    expect(screen.getByRole("heading", { name: "설정" })).toBeInTheDocument();
+    const site = screen.getByRole("group", { name: "현장 관리" });
+    expect(site).toHaveTextContent(mockDashboard.site.name);
 
-    const floors = screen.getByRole("group", { name: "층·도면" });
+    const floors = screen.getByRole("group", { name: "맵 관리" });
     expect(floors).toHaveTextContent(`${mockDashboard.floors.length}개 층`);
     expect(floors).toHaveTextContent(`맵 설정 ${mockDashboard.floors.length}개`);
     expect(within(floors).getByRole("link", { name: "맵 관리 열기" })).toHaveAttribute(
@@ -114,13 +113,25 @@ describe("SettingsShell", () => {
       "/settings/floor-plans?siteId=site-1#fragment"
     );
 
-    expect(screen.getByRole("group", { name: "Gateway 상태" })).toHaveTextContent(/정상|오프라인|미등록/);
-    const security = screen.getByRole("group", { name: "계정·보안" });
+    expect(screen.getByRole("group", { name: "조명 등록" })).toHaveTextContent(`등록 조명 ${mockDashboard.summary.totalFixtures}개`);
+    expect(screen.getByRole("group", { name: "유저 관리" })).toHaveTextContent("사용자 0명");
+    const security = screen.getByRole("group", { name: "계정 보안" });
     expect(within(security).getByRole("link", { name: "계정 보안 열기" })).toHaveAttribute(
       "href",
       "/settings/security?siteId=site-1#fragment"
     );
     expect(screen.queryByRole("region", { name: "조명 등록 패널" })).not.toBeInTheDocument();
+  });
+
+  it.each(["site", "users", "registration", "floor-plans", "security", "floor-plans/floor-1/edit"])("provides exactly one mobile home Link preserving query/hash from %s", (path) => {
+    render(<MemoryRouter initialEntries={[`/settings/${path}?siteId=site-1&keep=value#draft`]}><Routes>
+      <Route path="/settings" element={<SettingsShell capabilities={manageCapabilities} />}>
+        <Route path="*" element={<h2>현재 설정 내용</h2>} />
+      </Route>
+    </Routes></MemoryRouter>);
+    const links = screen.getAllByRole("link", { name: "설정으로 돌아가기" });
+    expect(links).toHaveLength(1);
+    expect(links[0]).toHaveAttribute("href", "/settings?siteId=site-1&keep=value#draft");
   });
 
   it("uses explicit refs for active-tab scrolling", () => {

@@ -1,5 +1,35 @@
 # 설정 메뉴 기능 현황 및 구현 설계
 
+## 2026-10-07 ATLAS 설정 홈·모바일 탐색 (Task 10)
+
+### 구현 완료
+
+- 공통 DataGrid 표 정렬 헤더만 기존 rounded-none을 사용해 내용 너비·44px 높이에서 연속44px 조작 영역을 보존한다. 일반 Button/IconButton·카드 방향 버튼·토큰·컬럼 geometry는 유지한다. 실제1023×900 사용자 목록의 라이트/다크에서48.5×44px/radius0·모서리 누락0·continuous44true, 기존 필터/초점복귀/행 작업·사용자 쓰기0을 확인했다. 표적 단위239PASS(85+154),타입/UI0; 전체Task10/native200/실장비/HIL 완료가 아니다. 관련 파일 DataGrid.tsx/DataGrid.test.tsx 및 task-10-common-sort-hit-fix-report.md. 헤더 geometry 변경 시 실제 hit와 표/카드·키보드·현재 목록 정렬·행 작업·API쓰기0을 회귀한다.
+- 설정 홈 제목을 `설정`으로 단순화하고 현장 관리·유저 관리·조명 등록·맵 관리·계정 보안의 실제 경로, 아이콘과 요약을 공통 Card로 표시한다. 기존 section capability 경계를 재사용하며 계정 role로 관리 권한을 추정하지 않는다.
+- 조명 등록 카드 요약에는 기존 첫 Gateway의 실제 이름·시리얼·정상/오프라인, 없으면 미등록을 함께 보존한다. Gateway 전체 집계나 추가 여섯 번째 카드로 바꾸지 않으며 긴 이름·시리얼은 자연스럽게 줄바꿈한다.
+- 사용자 수는 관리 capability와 설치 완료를 모두 만족한 실제 현장의 query에서 읽는다. 미조회는 `사용자 수 확인 중`, 실제 0은 `사용자 0명`이며 페이지에 로딩된 사용자/조명 배열을 전체 집계로 사용하지 않는다. 맵 설정은 `mapConfigured` true/false/unknown을 구분하고 MFA 조회 전 켜짐/꺼짐을 만들지 않는다.
+- 760px 미만에서는 설정 탭을 숨기고 공통 SettingsShell이 모든 하위 화면에 `설정으로 돌아가기` Link를 한 번만 제공한다. 기존 query/hash·같은 origin 미저장 확인·단일 eager 계정/로그아웃 영역을 유지한다. 등록 후 맵 이동과 맵 편집 Link도 hash를 보존한다.
+- 현장/사용자/보안/비밀번호 화면은 이미 적용된 공통 입력·Card·FilterPanel·DataGrid·semantic theme를 그대로 소비한다. API·관리 권한·principal/site scope·MFA 등록/복구 코드·비밀번호 draft·편집 lease/fence/저장 ACK 계약은 바꾸지 않는다.
+
+### 미구현
+
+- 새로운 API·MFA 홈 상태 조회·가상 사용자 email/admin 권한·장비 명령은 추가하지 않는다. 기존 실장비 시운전·CAD 변환기·운영 보안 한계는 아래 기록을 유지한다.
+
+### 부족하거나 개선이 필요한 기능
+
+- 실제 native200 사용자 카드 회귀의 첫 이름 상태는 이름과 필터 초기화 버튼의 실제 union 및 고정 header/nav를 측정하고 일반 휠 입력 한 번으로 함께 노출하도록 준비한다. 이름+행 작업은 더 높으므로 기존 별도 두 상태와 엄격 가독성·초점·쓰기0 검사를 유지한다. 앞선 25 PASS/1 FAIL/4 미실행에서 이름이 nav 아래였고 PNG 요청 전 실패한 사실을 보존하며, 준비 보완 자체를 제품 접근성·캡처 성공·물리 장비/HIL 검증으로 보지 않는다. 실제 결과와 원본은 Task10 보고서를 따른다.
+- Task 10은 실제 소스의 단위·격리 HTTP fixture 브라우저 회귀 대상이다. 전체 Task 11 화면/첫 프레임/portal 대비·연속 44px hit 최종 검수, 물리 WebView와 LED HIL 및 최종 병합은 별도다. 이전 실패 기록은 이번 변경으로 해소됐다고 주장하지 않는다.
+
+### 관련 파일
+
+- `apps/web/src/features/settings/{SettingsView,SettingsShell,SettingsSubnavigation}.tsx`, `settings-sections.ts`, `settings-card-model.ts`와 대응 테스트.
+- `apps/web/src/features/settings/{registration/RegistrationSettingsView,floor-plans/FloorPlanSettingsView}.tsx`, 기존 `site/SiteOperationsView.tsx`, `users/SiteUsersView.tsx`, `security/{AccountSecurityView,PasswordSettingsView}.tsx`.
+- `apps/web/e2e/{settings-operations,settings-mobile-lifecycle,account-security,site-user-management}.spec.ts`.
+
+### 갱신 규칙
+
+- 카드/탐색 변경 시 capability와 설치 완료 query guard, null/0·mapConfigured, search/hash·미저장 확인, theme 전환 시 MFA/비밀번호/편집 draft 수명과 추가 쓰기 0을 함께 검증한다. 과거 task별 상태는 해당 시점이며 최신 설정 적용 상태는 이 항목을 따른다.
+
 ## 2026-10-07 공통 도면 편집기 palette repaint (Task 5)
 
 ### 구현 완료

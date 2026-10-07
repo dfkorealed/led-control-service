@@ -40,7 +40,7 @@ export function RegistrationSettingsView({ siteId }: { siteId?: string }) {
           <span className="text-body-sm text-content-secondary">등록한 조명의 위치는 층별 맵에서 배치할 수 있습니다.</span>
           <Link
             className={settingsActionLinkClass}
-            to={{ pathname: "/settings/floor-plans", search: mapSearch.toString() }}
+            to={{ pathname: "/settings/floor-plans", search: mapSearch.toString(), hash: location.hash }}
           >맵에서 조명 배치하기</Link>
         </div>
       ) : null}

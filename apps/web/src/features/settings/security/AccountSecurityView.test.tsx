@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { StrictMode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
@@ -15,6 +15,8 @@ import {
 } from "../../../api/auth";
 import { authMeQueryKey } from "../../../api/principal-cache";
 import { AccountSecurityView } from "./AccountSecurityView";
+import { CustomerThemeProvider } from "../../../components/ui/theme/CustomerThemeProvider";
+import { ThemeToggle } from "../../../components/ui/theme/ThemeToggle";
 
 vi.mock("../../../api/auth", async (original) => ({
   ...await original<typeof import("../../../api/auth")>(),
@@ -65,7 +67,44 @@ describe("AccountSecurityView", () => {
 
   afterEach(() => {
     cleanup();
+    localStorage.removeItem("led-control.customer-theme.v1");
     vi.clearAllMocks();
+  });
+
+  it("theme preserves MFA enrollment and recovery codes without new requests", async () => {
+    vi.mocked(startMfaEnrollment).mockResolvedValue({ enrollmentToken: "theme-enrollment", secret: "THEMESECRET", otpauthUri: "otpauth://theme", expiresAt: "2026-10-07T12:10:00.000Z" });
+    vi.mocked(confirmMfaEnrollment).mockResolvedValue({ mfaEnabled: true, recoveryCodes: ["theme-recovery"] });
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    client.setQueryData(authMeQueryKey, { user: admin });
+    render(<QueryClientProvider client={client}><CustomerThemeProvider><ThemeToggle /><AccountSecurityView user={admin} /></CustomerThemeProvider></QueryClientProvider>);
+    fireEvent.change(screen.getByLabelText("현재 비밀번호"), { target: { value: "unsaved-password" } });
+    fireEvent.click(await screen.findByRole("button", { name: "2단계 인증 설정" }));
+    expect(await screen.findByText("THEMESECRET")).toBeVisible();
+    fireEvent.change(screen.getByLabelText("인증 앱 코드"), { target: { value: "123456" } });
+    fireEvent.click(screen.getByRole("button", { name: "다크 모드로 변경" }));
+    expect(document.documentElement).toHaveAttribute("data-customer-theme", "dark");
+    expect(screen.getByLabelText("인증 앱 코드")).toHaveValue("123456");
+    expect(screen.getByText("THEMESECRET")).toBeVisible();
+    expect(screen.getByLabelText("현재 비밀번호")).toHaveValue("unsaved-password");
+    expect(startMfaEnrollment).toHaveBeenCalledOnce();
+    expect(confirmMfaEnrollment).not.toHaveBeenCalled();
+    expect(listAuthSessions).toHaveBeenCalledOnce();
+    fireEvent.click(screen.getByRole("button", { name: "설정 완료" }));
+    expect(await screen.findByText("theme-recovery")).toBeVisible();
+    // Explicit enrollment confirmation refreshes the existing session query;
+    // theme changes must not add another fetch or any security write.
+    await waitFor(() => expect(listAuthSessions).toHaveBeenCalledTimes(2));
+    act(() => window.dispatchEvent(new StorageEvent("storage", { key: "led-control.customer-theme.v1", newValue: "light" })));
+    expect(document.documentElement).toHaveAttribute("data-customer-theme", "light");
+    expect(screen.getByText("theme-recovery")).toBeVisible();
+    expect(startMfaEnrollment).toHaveBeenCalledOnce();
+    expect(confirmMfaEnrollment).toHaveBeenCalledOnce();
+    expect(confirmMfaEnrollment).toHaveBeenCalledWith({ enrollmentToken: "theme-enrollment", code: "123456" });
+    expect(getMfaStatus).toHaveBeenCalledOnce();
+    expect(listAuthSessions).toHaveBeenCalledTimes(2);
+    for (const write of [disableMfa, revokeAuthSession, revokeOtherAuthSessions, changePassword]) expect(write).not.toHaveBeenCalled();
+    expect(JSON.stringify(client.getQueryCache().getAll())).not.toContain("THEMESECRET");
+    expect(JSON.stringify(client.getMutationCache().getAll())).not.toContain("theme-recovery");
   });
 
   it.each([

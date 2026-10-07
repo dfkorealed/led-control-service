@@ -150,6 +150,41 @@ test("Task8 native 200 user long names and row menu remain reachable", async ({}
       // A tall card needs two ordinary scroll states, not a test-only compact layout.
       const reset = page.getByRole("button", { name: "필터 초기화", exact: true });
       await reset.evaluate(element => element.scrollIntoView({ block: "center" }));
+      // Centering only reset in the window leaves the name behind fixed navigation.
+      // This first state fits name + reset, not the taller name + row-action union.
+      const before = { content: await observeContent(), reset: await reset.boundingBox() };
+      if (!before.reset) throw new Error("Native reset preparation target is missing");
+      const unionTop = Math.min(before.content.text.top, before.reset.y);
+      const unionBottom = Math.max(before.content.text.bottom, before.reset.y + before.reset.height);
+      expect(unionBottom - unionTop, "Name and reset must fit actual usable height").toBeLessThanOrEqual(before.content.usable.height);
+      const wheelPoint = await page.evaluate(({ top, bottom }) => {
+        for (const fraction of [0.5, 0.75, 0.25]) {
+          const x = innerWidth * fraction, y = (top + bottom) / 2;
+          const hit = document.elementFromPoint(x, y);
+          if (!hit || hit.closest('button,a,input,select,textarea,[role="button"],[role="combobox"]')) continue;
+          let owner = hit.parentElement;
+          while (owner && !(owner.scrollHeight > owner.clientHeight && /auto|scroll/.test(getComputedStyle(owner).overflowY))) owner = owner.parentElement;
+          const scrollOwner = owner ?? document.scrollingElement;
+          if (!scrollOwner) throw new Error("Native preparation scroll owner is missing");
+          return { x, y, hit: hit.tagName, owner: scrollOwner.tagName, scrollTop: scrollOwner.scrollTop };
+        }
+        throw new Error("Native preparation needs a noninteractive wheel target");
+      }, before.content.usable);
+      const deltaY = (unionTop + unionBottom) / 2 - (before.content.usable.top + before.content.usable.bottom) / 2;
+      const preparation = { before, wheelPoint, deltaY, inputStartedAt: new Date().toISOString(), inputCompletedAt: "" };
+      writeFileSync(info.outputPath("native-user-name-preparation.json"), JSON.stringify(preparation, null, 2));
+      await page.mouse.move(wheelPoint.x, wheelPoint.y);
+      await page.mouse.wheel(0, deltaY);
+      preparation.inputCompletedAt = new Date().toISOString();
+      await expect.poll(async () => {
+        const after = { content: await observeContent(), reset: await reset.boundingBox(), mutations: api.updatedRequests.length };
+        writeFileSync(info.outputPath("native-user-name-preparation.json"), JSON.stringify({ ...preparation, after }, null, 2));
+        return after.content.readable && after.reset !== null
+          && after.reset.y >= after.content.usable.top
+          && after.reset.y + after.reset.height <= after.content.usable.bottom
+          && after.reset.x >= 0 && after.reset.x + after.reset.width <= after.content.innerWidth;
+      }, { message: "Actual wheel must expose name and reset above fixed overlays" }).toBe(true);
+      expect(api.updatedRequests).toEqual([]);
       await native.capture("Task8-users-readable-name", reset, async () => { await expect(filter).toHaveAccessibleName("사용자 목록 상세 필터, 활성 조건 0개"); }, [], {
         description: "실제 장문 이름·필터 초기화 초점, 현장 사용자 1명·mutation 0", observe: () => observeState(true)
       });
@@ -313,7 +348,7 @@ test("read, control, admin의 메뉴와 직접 경로 및 수동 제어 API 권�
     await expect(read.page.getByRole("navigation", { name: "설정 메뉴" }).getByRole("link")).toHaveText(["설정 개요", "맵 관리", "계정 보안"]);
     await read.page.goto(`/settings/users?siteId=${siteId}`);
     await expect(read.page).toHaveURL(new RegExp(`/settings\\?siteId=${siteId}`));
-    await expect(read.page.getByRole("heading", { name: "설정 개요" })).toBeVisible();
+    await expect(read.page.getByRole("heading", { name: "설정", exact: true, level: 2 })).toBeVisible();
     await expect(read.page.getByRole("heading", { name: "유저 관리" })).toHaveCount(0);
     await read.page.goto(`/control?siteId=${siteId}&mode=schedule`);
     await expect(read.page).toHaveURL(new RegExp(`/monitoring\\?siteId=${siteId}`));

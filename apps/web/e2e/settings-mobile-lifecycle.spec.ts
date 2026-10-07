@@ -1,6 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import { installSettingsApiRoutes } from "./support/settings-api";
 import { expectMinimumTouchTargetsAfterScrolling, expectNoHorizontalOverflow } from "./support/layout-assertions";
+import { mockDashboard } from "../src/test/fixtures";
 
 async function worldPoint(page: Page, x: number, y: number) {
   const canvas = page.getByTestId("floor-editor-canvas");
@@ -17,6 +18,66 @@ async function nativeBack(page: Page, requestId: string) {
     const messages = (window as typeof window & { __settingsMessages: Array<Record<string, unknown>> }).__settingsMessages;
     return messages.find(message => message.type === "navigation.back.result" && message.requestId === requestId);
   }, requestId)).toEqual({ version: 1, type: "navigation.back.result", documentId: "settings-e2e", requestId, handled: true, canGoBack: true });
+}
+
+for (const width of [320, 390]) for (const theme of ["light", "dark"]) {
+  test(`ATLAS settings home and mobile return at ${width}px ${theme}`, async ({ page }, testInfo) => {
+    await page.setViewportSize({ width, height: 844 });
+    await page.addInitScript(theme => localStorage.setItem("led-control.customer-theme.v1", theme), theme);
+    const api = await installSettingsApiRoutes(page, "admin");
+    const longGatewayName = "지하주차장현장관리게이트웨이".repeat(8);
+    const longGatewaySerial = "GW-LONG-SERIAL-".repeat(8);
+    const dashboard = structuredClone(mockDashboard);
+    dashboard.site.id = "site-1";
+    dashboard.capabilities = { read: true, control: true, manage: true, commission: true };
+    dashboard.gateways = [{ ...dashboard.gateways[0], name: longGatewayName, serialNumber: longGatewaySerial, connectionStatus: "offline" }];
+    await page.route("**/api/sites/site-1/dashboard*", route => {
+      expect(route.request().method()).toBe("GET");
+      api.requests.push("GET /sites/site-1/dashboard");
+      return route.fulfill({ json: dashboard });
+    });
+    let userQueries = 0;
+    await page.route("**/api/sites/site-1/users", route => {
+      expect(route.request().method()).toBe("GET");
+      userQueries++;
+      return route.fulfill({ json: { users: [], count: 0, limit: 100 } });
+    });
+    await page.goto("/settings?siteId=site-1&keep=value#cards");
+    await expect(page.locator("html")).toHaveAttribute("data-customer-theme", theme);
+    await expect(page.getByRole("heading", { name: "설정", exact: true, level: 2 })).toBeVisible();
+    await expect(page.getByRole("navigation", { name: "설정 메뉴" })).toBeHidden();
+    await expect(page.getByRole("link", { name: "설정으로 돌아가기" })).toHaveCount(0);
+    await expect(page.getByRole("group", { name: "유저 관리", exact: true })).toContainText("사용자 0명");
+    expect(userQueries).toBe(1);
+    const registrationSummary = page.getByRole("group", { name: "조명 등록", exact: true }).locator("p");
+    await expect(registrationSummary).toContainText(longGatewayName);
+    await expect(registrationSummary).toContainText(longGatewaySerial);
+    await expect(registrationSummary).toContainText("오프라인");
+    expect(await registrationSummary.evaluate(element => {
+      const bounds = element.getBoundingClientRect();
+      const range = document.createRange(); range.selectNodeContents(element);
+      return element.scrollWidth <= element.clientWidth && [...range.getClientRects()].every(rect => rect.left >= bounds.left - 1 && rect.right <= bounds.right + 1 && rect.top >= bounds.top - 1 && rect.bottom <= bounds.bottom + 1);
+    })).toBe(true);
+    for (const label of ["현장 관리", "유저 관리", "조명 등록", "맵 관리", "계정 보안"]) {
+      const link = page.getByRole("link", { name: `${label} 열기`, exact: true });
+      await expect(link).toHaveAttribute("href", /\?siteId=site-1&keep=value#cards$/);
+      await link.scrollIntoViewIfNeeded();
+      await expect(link).toBeVisible();
+      expect((await link.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+    }
+    await expectNoHorizontalOverflow(page);
+    await page.getByRole("heading", { name: "설정", exact: true, level: 2 }).scrollIntoViewIfNeeded();
+    await page.screenshot({ path: testInfo.outputPath(`settings-home-${theme}-${width}.png`), fullPage: true });
+    await page.getByRole("link", { name: "맵 관리 열기", exact: true }).click();
+    const back = page.getByRole("link", { name: "설정으로 돌아가기", exact: true });
+    await expect(back).toHaveCount(1);
+    await expect(back).toHaveAttribute("href", "/settings?siteId=site-1&keep=value#cards");
+    await back.click();
+    await expect(page).toHaveURL(/\/settings\?siteId=site-1&keep=value#cards$/);
+    await expect(page.getByRole("heading", { name: "설정", exact: true, level: 2 })).toBeVisible();
+    expect(api.requests.filter(request => /^(POST|PATCH|DELETE) /.test(request))).toEqual([]);
+    expect(api.atomicSavePayloads).toEqual([]);
+  });
 }
 
 for (const width of [320, 390]) test(`settings real touch pan and background draft/lease at ${width}px (HTTP fixture)`, async ({ browser, baseURL }, testInfo) => {
@@ -67,6 +128,18 @@ for (const width of [320, 390]) test(`settings real touch pan and background dra
     await name.fill("모바일 초안 조명");
     const leaseCount = api.leaseRequests.length;
     const releaseCount = api.editorRequests.filter(request => request.type === "lease-release").length;
+    const cameraBeforeTheme = [await canvas.getAttribute("data-pan-x"), await canvas.getAttribute("data-pan-y"), await canvas.getAttribute("data-zoom")];
+    const urlBeforeTheme = page.url();
+    const historyBeforeTheme = await page.evaluate(() => history.state.idx);
+    await page.getByRole("button", { name: "다크 모드로 변경" }).tap();
+    await expect(page.locator("html")).toHaveAttribute("data-customer-theme", "dark");
+    await expect(name).toHaveValue("모바일 초안 조명");
+    expect([await canvas.getAttribute("data-pan-x"), await canvas.getAttribute("data-pan-y"), await canvas.getAttribute("data-zoom")]).toEqual(cameraBeforeTheme);
+    expect(page.url()).toBe(urlBeforeTheme);
+    expect(await page.evaluate(() => history.state.idx)).toBe(historyBeforeTheme);
+    expect(api.leaseRequests).toHaveLength(leaseCount);
+    expect(api.editorRequests.filter(request => request.type === "lease-release")).toHaveLength(releaseCount);
+    expect(api.atomicSavePayloads).toHaveLength(0);
     await page.evaluate(() => window.dispatchEvent(new CustomEvent("led-control:native-message", { detail: {
       version: 1, type: "mobile.lifecycle", documentId: "settings-e2e", requestId: "background", state: "background", online: true
     } })));

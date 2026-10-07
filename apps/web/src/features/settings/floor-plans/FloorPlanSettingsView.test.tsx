@@ -19,7 +19,7 @@ describe("FloorPlanSettingsView", () => {
     useDashboard.mockReturnValue({ data: dashboard, isLoading: false, error: null });
 
     render(
-      <MemoryRouter initialEntries={["/settings/floor-plans?siteId=site-2"]}>
+      <MemoryRouter initialEntries={["/settings/floor-plans?siteId=site-2&keep=value#draft"]}>
         <Routes>
           <Route path="/settings/floor-plans" element={<FloorPlanSettingsView siteId="site-2" capabilities={{ read: true, control: true, manage: true, commission: true }} />} />
           <Route path="/settings/floor-plans/:floorId/edit" element={<h2>B2 맵 편집</h2>} />
@@ -32,7 +32,7 @@ describe("FloorPlanSettingsView", () => {
     expect(screen.getByText("맵 설정됨")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "B2 맵 편집" })).toHaveAttribute(
       "href",
-      `/settings/floor-plans/${dashboard.floors[0].id}/edit?siteId=site-2`
+      `/settings/floor-plans/${dashboard.floors[0].id}/edit?siteId=site-2&keep=value#draft`
     );
 
     fireEvent.click(screen.getByRole("link", { name: "B2 맵 편집" }));

@@ -9,6 +9,9 @@ import { useFloorEditorStore } from "../../floor-editor/editor-store";
 import { SettingsNavigationItem } from "../../shells/SettingsNavigationItem";
 import { mockDashboard } from "../../../test/fixtures";
 import { FloorEditorRoute } from "./FloorEditorRoute";
+import { SettingsShell } from "../SettingsShell";
+import { CustomerThemeProvider } from "../../../components/ui/theme/CustomerThemeProvider";
+import { ThemeToggle } from "../../../components/ui/theme/ThemeToggle";
 
 const manageCapabilities = { read: true, control: true, manage: true, commission: true } as const;
 const readCapabilities = { read: true, control: false, manage: false, commission: false } as const;
@@ -68,7 +71,7 @@ const editorState: FloorEditorState = {
 
 function LocationProbe() {
   const location = useLocation();
-  return <output data-testid="location">{`${location.pathname}${location.search}`}</output>;
+  return <output data-testid="location">{`${location.pathname}${location.search}${location.hash}`}</output>;
 }
 
 function renderRoute(
@@ -160,6 +163,42 @@ describe("FloorEditorRoute", () => {
     vi.unstubAllGlobals();
     window.history.replaceState({}, "", "/");
     useFloorEditorStore.setState({ initialState: null, state: null, isDirty: false, selection: null });
+    localStorage.removeItem("led-control.customer-theme.v1");
+  });
+
+  it("mobile back preserves query hash and dirty editor confirmation", async () => {
+    getFloorEditorState.mockResolvedValue(editorState);
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    queryClient.setQueryData(["dashboard", "site-2"], { ...mockDashboard, site: { ...mockDashboard.site, id: "site-2" } });
+    render(<QueryClientProvider client={queryClient}><CustomerThemeProvider><ThemeToggle /><MemoryRouter initialEntries={["/settings/floor-plans/floor-b2/edit?siteId=site-2&keep=value#draft"]}><Routes>
+      <Route path="/settings" element={<SettingsShell capabilities={manageCapabilities} />}>
+        <Route index element={<><h2>설정 홈</h2><LocationProbe /></>} />
+        <Route path="floor-plans/:floorId/edit" element={<FloorEditorRoute capabilities={manageCapabilities} />} />
+      </Route>
+    </Routes></MemoryRouter></CustomerThemeProvider></QueryClientProvider>);
+    await waitFor(() => expect(screen.getByTestId("lease-read-only")).toHaveTextContent("false"));
+    fireEvent.click(screen.getByRole("button", { name: "수정" }));
+    const historyIndex = window.history.state?.idx;
+    const back = screen.getByRole("link", { name: "설정으로 돌아가기" });
+    expect(back).toHaveAttribute("href", "/settings?siteId=site-2&keep=value#draft");
+    fireEvent.click(back);
+    const dialog = screen.getByRole("alertdialog", { name: "맵 편집 종료" });
+    // The modal correctly hides background controls; another tab can still
+    // change the shared preference while the leave decision remains pending.
+    act(() => window.dispatchEvent(new StorageEvent("storage", { key: "led-control.customer-theme.v1", newValue: "dark" })));
+    expect(document.documentElement).toHaveAttribute("data-customer-theme", "dark");
+    expect(screen.getByRole("alertdialog", { name: "맵 편집 종료" })).toBe(dialog);
+    fireEvent.click(within(dialog).getByRole("button", { name: "취소" }));
+    expect(screen.getByTestId("location")).toHaveTextContent("/settings/floor-plans/floor-b2/edit?siteId=site-2&keep=value#draft");
+    expect(window.history.state?.idx).toBe(historyIndex);
+    expect(acquireFloorEditorLease).toHaveBeenCalledOnce();
+    expect(releaseFloorEditorLease).not.toHaveBeenCalled();
+    fireEvent.click(back);
+    fireEvent.click(within(screen.getByRole("alertdialog", { name: "맵 편집 종료" })).getByRole("button", { name: "이동" }));
+    await screen.findByRole("heading", { name: "설정 홈" });
+    expect(screen.getByTestId("location")).toHaveTextContent("/settings?siteId=site-2&keep=value#draft");
+    expect(screen.queryByRole("link", { name: "설정으로 돌아가기" })).not.toBeInTheDocument();
+    await waitFor(() => expect(releaseFloorEditorLease).toHaveBeenCalledWith("floor-b2", "test-lease-token"));
   });
 
   it("propagates the editor intrinsic minimum through the route wrapper", async () => {
