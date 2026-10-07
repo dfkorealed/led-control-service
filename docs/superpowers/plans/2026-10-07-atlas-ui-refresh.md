@@ -10,7 +10,7 @@
 
 **Spec:** [다크 포함 설계 명세](../specs/2026-10-07-atlas-ui-refresh-design.md)
 
-상태: **실행 승인·Tasks 1–2 완료, Task 3 공통 테마 전환 진행 중**. 2026-10-07 사용자가 페이지 및 기능 담당 에이전트 세션에 지시하여 진행하도록 승인했다. 사용자가 선택한 실행 방식은 **페이지별 에이전트 분담, 메인 오케스트레이션, 별도 브랜치 후 로컬 병합**이며 다시 선택을 요구하지 않는다. 완료 표시는 독립 검토와 실제 증거를 회수한 뒤 갱신한다.
+상태: **실행 승인·Tasks 1–3 완료, Task 4 공통 UI·모바일 헤더 진행 중**. 2026-10-07 사용자가 페이지 및 기능 담당 에이전트 세션에 지시하여 진행하도록 승인했다. 사용자가 선택한 실행 방식은 **페이지별 에이전트 분담, 메인 오케스트레이션, 별도 브랜치 후 로컬 병합**이며 다시 선택을 요구하지 않는다. 완료 표시는 독립 검토와 실제 증거를 회수한 뒤 갱신한다.
 
 ## Global Constraints
 
@@ -83,11 +83,11 @@
 
 **Interfaces:** `CustomerTheme = "light" | "dark"`; `parseCustomerThemePreference(value: string|null): CustomerTheme`; `ThemePalette = Readonly<Record<ThemeColorToken,string>>`; `CustomerThemeProvider({children}: {children: ReactNode})`; `useCustomerTheme(): {theme: CustomerTheme; setTheme(theme: CustomerTheme): void; palette: ThemePalette; persistence: "available"|"unavailable"}`; `useThemeColors(): ThemePalette`는 provider 밖에서도 기존 기본 palette를 읽는다. `ThemeToggle({className?}: {className?: string})`는 context만 사용한다.
 
-- [ ] Step 1 — parser 검사에 `expect(parseCustomerThemePreference("dark")).toBe("dark")`, `expect(parseCustomerThemePreference("corrupted")).toBe("light")`를 넣는다. provider 검사 `preserves in-memory dark when storage throws`, `restores only its root attributes after StrictMode and logout`, `updates an open body portal without remounting children`, `applies cross-tab clear as light`를 작성한다. route/query identity와 mount count 불변도 단언한다.
-- [ ] Step 2 — `pnpm --filter @led-control/web exec vitest run src/components/ui/theme/CustomerThemeProvider.test.tsx`로 새 계약 RED를 확인한다.
-- [ ] Step 3 — stable provider를 CustomerShell 경계에 설치한다. layout 단계에서 자신의 root attribute/color-scheme alias 적용 후 computed palette를 발행하며 ownership-aware cleanup을 한다. storage read/write/listener는 try/catch·cleanup, persistence 실패는 현재 theme를 유지한다. setTheme는 query/route/명령 저장소를 호출하지 않는다. 초기 theme 적용도 첫 paint 전에 완료한다.
-- [ ] Step 4 — 아이콘 button은 공통 IconButton·44px·정확한 동작 이름·`aria-pressed`를 사용한다. ThemePalette 변경을 구독하는 hook만 제공하고 domain identity와 canvas를 재생성하지 않는다.
-- [ ] Step 5 — 위 unit 및 `CustomerShell.test.tsx`, `src/components/ui/overlays/overlays.test.tsx`, `Typography.test.tsx`를 함께 실행한다. 저장값/throw/삭제/다른 탭·portal·cleanup GREEN과 타입/UI 정책을 독립 검토한 뒤 `feat(ui): add persistent customer theme switching`으로 커밋한다.
+- [x] Step 1 — parser 검사에 `expect(parseCustomerThemePreference("dark")).toBe("dark")`, `expect(parseCustomerThemePreference("corrupted")).toBe("light")`를 넣는다. provider 검사 `preserves in-memory dark when storage throws`, `restores only its root attributes after StrictMode and logout`, `updates an open body portal without remounting children`, `applies cross-tab clear as light`를 작성한다. route/query identity와 mount count 불변도 단언한다.
+- [x] Step 2 — `pnpm --filter @led-control/web exec vitest run src/components/ui/theme/CustomerThemeProvider.test.tsx`로 새 계약 RED를 확인한다.
+- [x] Step 3 — stable provider를 CustomerShell 경계에 설치한다. layout 단계에서 자신의 root attribute/color-scheme alias 적용 후 computed palette를 발행하며 ownership-aware cleanup을 한다. storage read/write/listener는 try/catch·cleanup, persistence 실패는 현재 theme를 유지한다. setTheme는 query/route/명령 저장소를 호출하지 않는다. 초기 theme 적용도 첫 paint 전에 완료한다.
+- [x] Step 4 — 아이콘 button은 공통 IconButton·44px·정확한 동작 이름·`aria-pressed`를 사용한다. ThemePalette 변경을 구독하는 hook만 제공하고 domain identity와 canvas를 재생성하지 않는다.
+- [x] Step 5 — 위 unit 및 `CustomerShell.test.tsx`, `src/components/ui/overlays/overlays.test.tsx`, `Typography.test.tsx`를 함께 실행한다. 저장값/throw/삭제/다른 탭·portal·cleanup GREEN과 타입/UI 정책을 독립 검토한 뒤 `feat(ui): add persistent customer theme switching`으로 커밋한다.
 
 ### Task 4: 공통 UI·모바일 로고/select·sidebar 통일
 
