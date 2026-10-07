@@ -9,6 +9,16 @@
 - 적용 범위: 공통 shell/auth/operator UI와 모니터링·제어·통계·설정 메뉴, 공개 랜딩·주요 기능·요금제 및 field-day 시안
 - 간격을 변경한 메뉴는 해당 `docs/menus/*.md`에 적용 범위와 검증 결과를 같이 기록한다.
 
+## 2026-10-07 ATLAS 고객 두 팔레트 토큰 (Task 1)
+
+- 독립 디자인 검토로 승인한 [고객 역할 inventory](assets/atlas-ui-refresh-2026-10-07/customer-theme-roles.json)의 98개 색 역할을 `--color-customer-light-{role}` / `--color-customer-dark-{role}`로 canonical `@theme static`에 추가한다. hover/focus/disabled/feedback/chart/heatmap/fixture editor UI 역할을 포함하고 brand·landing·운영자 inquiry 전용 역할은 제외한다.
+- 기존 승인 anchor의 모든 기본 이름→값은 그대로 유지한다. 독립 기본 역할 `action-primary-foreground`는 `#FFFFFF`이며 고객 light/dark는 `#FFFFFF`/`#0F1724`다. `content-inverse`를 바꾸지 않는다.
+- 지도 UI 배경·선·room의 독립 역할 `map-background`/`map-line`/`map-room`을 추가한다. 기본값은 각각 `#EDF2F7`/`#64758A`/`#F7F9FC`, 고객 dark는 `#111C2B`/`#7F95B1`/`#1C2C43`다. 지도 chrome용 역할이며 원본 CAD·저장 도형 지정색이나 사용자 색상 draft를 치환하지 않는다.
+- geometry는 `--spacing-customer-sidebar:13.75rem`(220px), `--spacing-customer-rail:5rem`(80px), `--spacing-customer-site-small:8rem`(128px), `--spacing-customer-site:9rem`(144px)다. 모바일 현장 trigger의 기존 360px phone-wide 경계에 작은/기본 폭을 적용할 후속 소비 계약이며 44px 조작 높이를 줄이지 않는다. 인라인 14/16px는 기존 body/body-lg를 소비하며 새 typography 스케일을 만들지 않는다.
+- 이번 토큰 전용 단계는 selector·alias binding·provider·화면을 수정하지 않는다. 고객 scope의 두 root alias는 별도 정책 검토 뒤 적용하며 공개/로그인/운영자 기본 appearance를 유지한다. 현재 승인 anchor는 아래 `7b2617b...`로 유지하므로 추가 204선언에 대한 정책 실패는 예상된 중간 상태다. 실제 토큰 커밋을 다음 단계의 독립 anchor 회전에서 검토하고 전체 정책 0건을 다시 검증한다. baseline allowance는 늘리지 않는다.
+- 검증은 `node --test apps/web/scripts/customer-theme-contract.test.mjs`의 실제 PostCSS AST·기존 Tailwind compile/build 소비 결과와 Typography의 typed computed-color 계약을 사용한다. 기존 anchor 기본값 불변, canonical 중복/누락/비검토 additions, 두 팔레트 및 layout utility를 검사한다.
+- 낮은 heatmap1 fill은 필수 클릭 경계색으로 재사용하지 않는다. 후속 분석 화면은 별도 `border-strong` 경계를 제공해야 한다. 이 색상을 상태 전달의 유일한 수단으로 사용하지 않는다.
+
 ## 간격 스케일
 
 허용 간격은 아래 16개 값이다. Tailwind의 `--spacing: 4px` 곱셈 기능은 임의 숫자도 생성하므로 `ui:check`가 이 목록을 별도로 강제한다. `0`은 간격 초기화 예외이며 승인값 개수에 포함하지 않는다.

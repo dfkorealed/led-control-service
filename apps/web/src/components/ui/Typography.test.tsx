@@ -1,9 +1,14 @@
 import { createRef } from "react";
 import { readFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, expectTypeOf, it } from "vitest";
 import { Heading, Text, IconButton, cn, themeColor, themeColorTokens } from ".";
 import type { ButtonProps, ThemeColorToken, TypographyVariant } from ".";
+
+// Consume the same CSS parser as Vite instead of matching source text.
+const require = createRequire(import.meta.url);
+const { parse } = createRequire(require.resolve("vite"))("postcss");
 
 afterEach(cleanup);
 
@@ -60,7 +65,10 @@ describe("typed typography and token adapters", () => {
   });
 
   it("covers every canonical color and reads current computed values without caching", () => {
-    const declared = [...readFileSync("src/styles/theme.css", "utf8").matchAll(/--color-([\w-]+):/g)].map((match) => match[1]);
+    const declared: string[] = [];
+    parse(readFileSync("src/styles/theme.css", "utf8")).walkDecls((declaration: { prop: string }) => {
+      if (declaration.prop.startsWith("--color-") && declaration.prop !== "--color-*") declared.push(declaration.prop.slice("--color-".length));
+    });
     expect([...themeColorTokens].sort()).toEqual(declared.sort());
     document.documentElement.style.setProperty("--color-chart-usage", "  rgb(37, 111, 161)  ");
     expect(themeColor("chart-usage")).toBe("rgb(37, 111, 161)");
