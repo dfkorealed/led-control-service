@@ -648,6 +648,8 @@
 - **반복 방지 체크**: 장소 이동 뒤에는 API process socket destination, `openssl x509` SAN, Pi/container `getent hosts`, 4000/8883 TCP, API·Gateway mTLS client 연결, Gateway health와 heartbeat를 순서대로 확인한 다음 HIL을 시작한다.
 - **후속 교훈(2026-10-01)**: 반복 DHCP 변경 때 유효한 기존 DNS SAN이 있으면 이전 절차를 그대로 재실행해 인증서를 발급하거나 container를 재생성하기 전에, 현재 IP와 Pi/container DNS를 대조하고 assignment의 MQTT endpoint를 검증 가능한 DNS hostname으로 맞출 수 있는지 확인한다. 이번 BIO Lab은 사전 DB 조회에서 현재 배정·동일 snapshot·미처리 RF 작업 없음과 만료된 스케줄을 확인한 뒤, 보호된 hosts/assignment 원본과 mode·owner·inode·digest를 확보하고 같은 container를 잠시 정지해 최소 수정했다. 재개 뒤 DNS→TCP→TLS/mTLS→MQTT 연결→서버가 수용한 신규 heartbeat 3건 및 identity·mapping·USB 불변을 확인했다. Container의 immutable bootstrap 환경은 이전 IP로 남아 있으며, 현재 저장된 assignment와 유효한 기존 identity가 bootstrap 조회·발급을 건너뛰는 동안만 사용되지 않는다. 향후 bootstrap·갱신 전에는 이 환경을 별도 운영 범위에서 복구해야 하며, 현재 MQTT 정상 상태로 그 제약이 해소됐다고 판단하지 않는다.
 
+- **후속 교훈(2026-10-07)**: DHCP 주소가 다시 바뀌면 Pi host와 실행 중 container hosts가 모두 같은 이전IP를 가리켜 TCP EHOSTUNREACH·MQTT offline이 재발할 수 있다. 현재 주소의 TCP→기존 DNS SAN mTLS와 공개 CRL 만료를 별도로 확인하고, 백업·exact identity/inode/lock 보호 뒤 live hosts만 수정하면 재시작 없이 복구할 수 있다. 만료된 device CRL은 이미 발행된 fresh sameissuer/samerevocations 후보와 기존 root를 검증해 atomic publish하고 정상 MQTT CRL은 바꾸지 않는다. identifyState가confirmed인 장치와 만료 없는 저장 수동설정은 queued 명령과 같지 않으므로 실제 dispatch/outbox/session 및 Gateway pending을 대조한다. DHCP·bootstrap·재시작 뒤 이름 해석의 지속성은 live 복구와 별도 검증이며 정상 MQTT만으로 해결됐다고 표시하지 않는다.
+
 ## 2026-09-04 / 실제 fsync 비동기 테스트에 수십 ms wall-clock race를 두지 않는다
 
 - **발생했던 문제/실수**: Gateway 전체 테스트를 병렬 실행할 때 journal 저장 완료를 50ms `Promise.race`로 판정한 테스트가 단독 실행에서는 통과하고 전체 실행에서 간헐적으로 실패했다.
