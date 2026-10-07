@@ -1,4 +1,9 @@
 export { Button } from "./Button";
+export { CustomerThemeProvider, useCustomerTheme } from "./theme/CustomerThemeProvider";
+export { ThemeToggle } from "./theme/ThemeToggle";
+export { useThemeColors } from "./theme/useThemeColors";
+export { parseCustomerThemePreference } from "./theme/customer-theme";
+export type { CustomerTheme, ThemePalette } from "./theme/customer-theme";
 export { Calendar } from "./date/Calendar";
 export type { CalendarProps } from "./date/Calendar";
 export { DatePicker } from "./date/DatePicker";

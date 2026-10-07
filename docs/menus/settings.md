@@ -1,5 +1,28 @@
 # 설정 메뉴 기능 현황 및 구현 설계
 
+## 2026-10-07 ATLAS 고객 공통 테마 경계 (Task 3)
+
+### 구현 완료
+
+- 고객 shell 헤더의 공통 44px 아이콘 버튼으로 라이트/다크를 전환한다. 접근 가능한 이름은 다음 동작을 알리고 aria-pressed는 현재 다크 여부를 표시한다. 저장 키 `led-control.customer-theme.v1`는 계정·현장·명령 저장소와 분리하며 기본/잘못된 값/읽기 실패는 light, 쓰기 실패는 현재 탭 테마를 유지한다. 다른 탭의 선호 변경과 삭제/clear도 반영한다.
+- 안정된 provider가 고객 화면에서만 root marker를 소유하고 승인된 CSS alias/portal 색을 사용한다. layout 경계에서 computed palette를 발행하며 StrictMode·로그아웃·재진입 cleanup은 자기 marker만 정리하고 다른 owner/native 속성·스타일을 보존한다. 페이지·route·QueryClient·명령·editor identity에 theme를 추가하지 않는다.
+
+### 미구현
+
+- 이 단계는 공통 provider·전환·저장·palette hook만 구현했다. ATLAS 메뉴별 재배치, 모바일 로고/compact 현장 선택, 지도·차트의 hook 구독과 repaint 적용은 후속 소유 task이며 완료로 표시하지 않는다.
+
+### 부족하거나 개선이 필요한 기능
+
+- 테스트는 브라우저 저장소/React 소프트웨어 fixture 검증이다. 실제 native WebView·Gateway·LED HIL을 실행하지 않았으며 전체 페이지의 다크 대비/시각 QA와 독립 통합 검수는 후속 관문이다. CSS 외 palette를 캐시하는 소비자는 hook 연결 전까지 완전한 다크 repaint를 주장하지 않는다.
+
+### 관련 파일
+
+- `apps/web/src/components/ui/theme/{customer-theme.ts,CustomerThemeProvider.tsx,ThemeToggle.tsx,useThemeColors.ts,CustomerThemeProvider.test.tsx}`, `apps/web/src/features/shells/CustomerShell.tsx` 및 대응 테스트.
+
+### 갱신 규칙
+
+- 테마 경계 변경 시 저장 읽기/쓰기 실패·cross-tab clear·root cleanup·열린 portal·draft와 route/query identity 및 추가 명령0 회귀를 함께 확인한다. 공유 palette 소비자의 후속 적용과 실장비 한계는 실제 검증 범위에 맞춰 별도로 기록한다.
+
 ## 2026-10-06 공통 Grid 현재 목록 정렬
 
 - 최종 통합 관문 완료: 제품 `1c600eda`에서 전체 Web3258PASS·기존3SKIP, 타입/빌드/UI정책0·관련33브라우저33PASS, 코드/UI 검수 차단0을 확인해 로컬 기본 브랜치에 병합했다. compact 정렬 후 기존 사용자 관리 메뉴 회귀도 유지한다. 아래 표적 증거와 실제 계정/DB/native/HIL 한계는 그대로 유지한다.

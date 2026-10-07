@@ -96,6 +96,22 @@ function renderShell(path: string, user: AuthUser = adminUser) {
 }
 
 describe("customer shell site context", () => {
+  it("changes customer theme without remounting the route or clearing queries or sending commands", async () => {
+    const client = new QueryClient(); const sentinel = { identity: "unchanged" };
+    client.setQueryData(["theme-identity"], sentinel);
+    const mounted = render(<QueryClientProvider client={client}><MemoryRouter initialEntries={["/control?siteId=site#draft"]}><CustomerShell user={adminUser} /><LocationProbe /></MemoryRouter></QueryClientProvider>);
+    const route = await screen.findByText("제어 화면");
+    const beforePosts = vi.mocked(apiPost).mock.calls.length;
+    fireEvent.click(screen.getByRole("button", { name: "다크 모드로 변경" }));
+    expect(document.documentElement).toHaveAttribute("data-customer-theme", "dark");
+    expect(screen.getByText("제어 화면")).toBe(route);
+    expect(screen.getByTestId("location")).toHaveTextContent("/control?siteId=site#draft");
+    expect(client.getQueryData(["theme-identity"])).toBe(sentinel);
+    expect(vi.mocked(apiPost).mock.calls.length).toBe(beforePosts);
+    mounted.unmount();
+    expect(document.documentElement).not.toHaveAttribute("data-customer-theme");
+    localStorage.removeItem("led-control.customer-theme.v1");
+  });
   beforeEach(() => {
     controlConsumer.actual = false;
     vi.mocked(apiPost).mockReset();

@@ -9,6 +9,8 @@ import { KindaLogo } from "../../components/brand/KindaLogo";
 import {
   Button,
   ConfirmDialog,
+  CustomerThemeProvider,
+  ThemeToggle,
   FeedbackState,
   Heading,
   SessionStatusCenter,
@@ -86,6 +88,12 @@ function PrimaryNavigation({ capabilities, search }: { capabilities: SiteCapabil
 }
 
 export function CustomerShell({ user }: { user: AuthUser }) {
+  // Keep this unkeyed boundary stable: theme updates never rebuild the domain
+  // shell or its route/query/command/editor ownership scopes.
+  return <CustomerThemeProvider><CustomerShellContent user={user} /></CustomerThemeProvider>;
+}
+
+function CustomerShellContent({ user }: { user: AuthUser }) {
   const location = useLocation();
   const [isCompactNavigation, setIsCompactNavigation] = useState(() => window.matchMedia(compactNavigationQuery).matches);
   const isEditorRoute = Boolean(matchPath("/settings/floor-plans/:floorId/edit", location.pathname));
@@ -312,6 +320,7 @@ export function CustomerShell({ user }: { user: AuthUser }) {
             <span className="sr-only" data-testid="active-site-badge">{dashboard?.site.name || "현장 미등록"}</span>
           </div>
           <div className="col-start-2 row-start-1 flex min-w-0 items-center justify-end gap-2 compact:col-start-3" data-shell-actions>
+            <ThemeToggle />
             <SessionStatusCenter
               ref={statusCenterRef}
               compact={isCompactNavigation}
