@@ -91,6 +91,7 @@ function CustomerShellContent({ user }: { user: AuthUser }) {
   const [isCompactNavigation, setIsCompactNavigation] = useState(() => window.matchMedia(compactNavigationQuery).matches);
   const [isWideNavigation, setIsWideNavigation] = useState(() => window.matchMedia(wideNavigationQuery).matches);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  const [manualWorkspaceActive, setManualWorkspaceActive] = useState(false);
   const isSidebarExpanded = isWideNavigation && !isSidebarCollapsed;
   const desktopNavigationId = useId();
   const isEditorRoute = Boolean(matchPath("/settings/floor-plans/:floorId/edit", location.pathname));
@@ -276,6 +277,9 @@ function CustomerShellContent({ user }: { user: AuthUser }) {
   }
 
   const isControlWorkspace = location.pathname === "/control" && Boolean(capabilities?.control) && !gate;
+  // The page owns resolved mode/site authorization. This stable setter is only
+  // a layout handoff: execution locks, queries and theme never define its scope.
+  const isManualDesktopWorkspace = isControlWorkspace && manualWorkspaceActive && !isCompactNavigation;
   const summaryScope: CustomerShellScope | null = authorizedSelectedSiteId
     ? { principalKey: principalKey(user), siteId: authorizedSelectedSiteId, pathname: location.pathname } : null;
   const summaryValue: CustomerSiteSummary | null = summaryScope ? {
@@ -293,7 +297,7 @@ function CustomerShellContent({ user }: { user: AuthUser }) {
     <WorkspaceFocusProvider scope={JSON.stringify([principalKey(user), selectedSiteId, location.pathname])}>{focus =>
     <SessionStatusProvider scope={JSON.stringify([principalKey(user), authorizedSelectedSiteId])}>
       <ShellStatusRegistration items={shellStatusItems} />
-      <div className={`bg-surface-canvas ${isMonitoringRoute ? "flex h-dvh min-h-0" : focus.active ? "flex h-dvh min-h-0 overflow-hidden" : isEditorRoute ? "flex min-h-dvh" : "min-h-screen"} ${isCompactNavigation && !focus.active && !isMonitoringRoute ? "pb-shell-navigation-safe" : "flex"}`} data-app-shell data-workspace-full-view={focus.active}>
+      <div className={`bg-surface-canvas ${isMonitoringRoute ? "flex h-dvh min-h-0" : focus.active ? "flex h-dvh min-h-0 overflow-hidden" : isManualDesktopWorkspace ? "flex h-dvh min-h-0" : isEditorRoute ? "flex min-h-dvh" : "min-h-screen"} ${isCompactNavigation && !focus.active && !isMonitoringRoute ? "pb-shell-navigation-safe" : "flex"}`} data-app-shell data-workspace-full-view={focus.active}>
       {capabilities && !gate ? isCompactNavigation ? (
         <nav hidden={focus.active} className={focus.active ? "hidden" : "fixed inset-x-0 bottom-0 z-20 grid h-shell-navigation-safe grid-cols-4 gap-1 border-t border-border-default bg-surface-panel px-1.5 pt-1 pb-safe-area-bottom"} aria-label="모바일 주 메뉴" data-shell-navigation="compact">
           <PrimaryNavigation capabilities={capabilities} search={location.search} />
@@ -309,7 +313,7 @@ function CustomerShellContent({ user }: { user: AuthUser }) {
           </nav>
         </aside>
       ) : null}
-      <main className={`flex min-w-0 flex-1 flex-col ${isMonitoringRoute ? "min-h-0" : focus.active ? "min-h-0 overflow-hidden" : isEditorRoute ? "min-h-min" : ""}`}>
+      <main className={`flex min-w-0 flex-1 flex-col ${isMonitoringRoute ? "min-h-0" : focus.active ? "min-h-0 overflow-hidden" : isManualDesktopWorkspace ? "min-h-0" : isEditorRoute ? "min-h-min" : ""}`}>
         <header hidden={focus.active} className={focus.active ? "hidden" : "sticky top-0 z-10 grid min-h-16 min-w-0 shrink-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-1 gap-y-1 border-b border-border-default bg-surface-panel px-2 py-1 compact:grid-cols-[minmax(0,1fr)_minmax(0,auto)_auto] compact:gap-x-4 compact:px-7 compact:py-2"} data-shell-topbar>
           <div className="sr-only compact:not-sr-only compact:col-start-1 compact:row-start-1 compact:min-w-0">
             <Heading as="h1" variant="page-title" className="truncate" data-testid="shell-current-menu">{titleForPath(location.pathname)}</Heading>
@@ -354,7 +358,10 @@ function CustomerShellContent({ user }: { user: AuthUser }) {
             not an intrinsic content-start row. Its min-content floor keeps a
             short viewport in document flow; account/gate and other routes keep
             their existing composition and scrolling policy. */}
-        <div data-shell-content className={`m-0! min-w-0 flex-1 ${focus.active ? `min-h-0 ${isMonitoringRoute ? "" : "overflow-hidden"} p-2 compact:p-3` : isEditorRoute ? "grid min-h-min grid-rows-[auto_minmax(min-content,1fr)] gap-2 p-2 compact:p-3 [&>section:last-child]:h-full [&>section:last-child]:min-h-min [&>section:last-child]:grid-rows-[auto_minmax(min-content,1fr)] [&>section:last-child]:gap-2 [&>section:last-child>div]:min-h-min" : isMonitoringRoute ? "flex min-h-0 flex-col p-6 max-compact:p-3.5" : isControlWorkspace ? "grid grid-rows-[minmax(min-content,1fr)] gap-5 p-6 max-compact:p-3.5" : "grid content-start gap-5 p-6 max-compact:p-3.5"}`}>
+        {/* Manual desktop consumes remaining space below the dynamic header
+            and flow notices. Overflow remains reachable inside this workspace,
+            rather than clipping a short-screen map or command recovery action. */}
+        <div data-shell-content className={`m-0! min-w-0 flex-1 ${focus.active ? `min-h-0 ${isMonitoringRoute ? "" : "overflow-hidden"} p-2 compact:p-3` : isManualDesktopWorkspace ? "grid min-h-0 grid-rows-[minmax(0,1fr)] overflow-auto gap-5 p-6" : isEditorRoute ? "grid min-h-min grid-rows-[auto_minmax(min-content,1fr)] gap-2 p-2 compact:p-3 [&>section:last-child]:h-full [&>section:last-child]:min-h-min [&>section:last-child]:grid-rows-[auto_minmax(min-content,1fr)] [&>section:last-child]:gap-2 [&>section:last-child>div]:min-h-min" : isMonitoringRoute ? "flex min-h-0 flex-col p-6 max-compact:p-3.5" : isControlWorkspace ? "grid grid-rows-[minmax(min-content,1fr)] gap-5 p-6 max-compact:p-3.5" : "grid content-start gap-5 p-6 max-compact:p-3.5"}`}>
           {/* The eager account region stays outside the lazy route boundary so
               failed settings chunks and installation/permission gates retain
               the same logout controller, confirmation and initiating ref. */}
@@ -372,6 +379,7 @@ function CustomerShellContent({ user }: { user: AuthUser }) {
                   userRole={user.role}
                   commandSessionBlocked={isLoggingOut}
                   singleColumnLayout={isCompactNavigation}
+                  onManualWorkspaceActiveChange={setManualWorkspaceActive}
                 />
               ) : <Navigate to={`/monitoring${location.search}`} replace />}
             />

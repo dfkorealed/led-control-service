@@ -95,6 +95,20 @@ function renderShell(path: string, user: AuthUser = adminUser) {
   );
 }
 
+function prepareRealManualConsumer() {
+  controlConsumer.actual = true;
+  const generatedAt = new Date().toISOString();
+  const retainedFrom = new Date(detailRetainedFrom(Date.parse(generatedAt))).toISOString();
+  // Real command/history consumers require their complete empty response,
+  // not this shell suite's ordinary users-list fixture.
+  vi.mocked(apiGet).mockImplementation(async path => path.startsWith("/commands/requiring-verification")
+    ? { items: [], nextCursor: null, generatedAt }
+    : path.startsWith("/commands?") ? { items: [], nextCursor: null, generatedAt, retainedFrom }
+      : path.includes("/schedules?") || path.includes("/vehicle-event-rules?") ? { items: [], total: 0, nextCursor: null }
+      : path.includes("monitoring-incidents") ? { incidents: [], activeCount: 0, unreadCount: 0, nextCursor: null }
+        : { users: [], count: 0, limit: 100 });
+}
+
 describe("customer shell site context", () => {
   it.each([[759.5, true], [760, false], [760.5, false]] as const)("publishes the strict CSS media contract at controlled width %s", (_width, compact) => {
     // Chromium rounds CSS iframe viewports to integer pixels. This controlled
@@ -189,6 +203,63 @@ describe("customer shell site context", () => {
     act(() => onChange?.({ matches: true } as MediaQueryListEvent));
     expect(detail).toContainElement(screen.getByRole("button", { name: "명령 상세 닫기" }));
     expect(screen.getAllByRole("button", { name: "명령 상세 닫기" })).toHaveLength(1);
+    expect(apiPost).not.toHaveBeenCalled();
+  });
+
+  it.each([[759.5, true], [760, false], [760.5, false]] as const)("uses the real authorized manual report for remaining height at controlled width %s", async (_width, compact) => {
+    prepareRealManualConsumer();
+    vi.stubGlobal("matchMedia", vi.fn((query: string) => ({ matches: query === "(width < 760px)" ? compact : false, addEventListener: vi.fn(), removeEventListener: vi.fn() })));
+    renderShell("/control?siteId=site&mode=manual");
+    await waitFor(() => expect(document.querySelector("[data-control-screen]")).not.toBeNull());
+    const main = screen.getByRole("main");
+    if (compact) {
+      expect(main.parentElement).toHaveClass("min-h-screen", "pb-shell-navigation-safe");
+      expect(main.parentElement).not.toHaveClass("h-dvh", "overflow-hidden");
+      expect(main.querySelector("[data-shell-content]")).not.toHaveClass("min-h-0", "overflow-auto");
+    } else {
+      await waitFor(() => expect(main.parentElement).toHaveClass("h-dvh", "min-h-0"));
+      expect(main.parentElement).not.toHaveClass("overflow-hidden");
+      expect(main).toHaveClass("min-h-0");
+      expect(main.querySelector("[data-shell-content]")).toHaveClass("grid", "min-h-0", "grid-rows-[minmax(0,1fr)]", "overflow-auto");
+      expect(document.querySelector("[data-shell-topbar]")).toHaveClass("shrink-0");
+    }
+    expect(apiPost).not.toHaveBeenCalled();
+  });
+
+  it("keeps the manual route and query identity while theme and media change its shell presentation", async () => {
+    prepareRealManualConsumer();
+    let mediaChange: ((event: MediaQueryListEvent) => void) | undefined;
+    vi.stubGlobal("matchMedia", vi.fn((query: string) => ({ matches: false,
+      addEventListener: (_type: string, listener: typeof mediaChange) => { if (query === "(width < 760px)") mediaChange = listener; }, removeEventListener: vi.fn() })));
+    const client = new QueryClient(); const sentinel = { scope: "retained" };
+    client.setQueryData(["manual-shell-identity"], sentinel);
+    render(<QueryClientProvider client={client}><MemoryRouter initialEntries={["/control?siteId=site&mode=manual#draft"]}><CustomerShell user={adminUser} /></MemoryRouter></QueryClientProvider>);
+    await waitFor(() => expect(screen.getByRole("main").parentElement).toHaveClass("h-dvh"));
+    const route = document.querySelector("[data-control-screen]");
+    fireEvent.click(screen.getByRole("button", { name: "다크 모드로 변경" }));
+    act(() => mediaChange?.({ matches: true } as MediaQueryListEvent));
+    expect(screen.getByRole("main").parentElement).toHaveClass("min-h-screen");
+    expect(document.querySelector("[data-control-screen]")).toBe(route);
+    act(() => mediaChange?.({ matches: false } as MediaQueryListEvent));
+    await waitFor(() => expect(screen.getByRole("main").parentElement).toHaveClass("h-dvh"));
+    expect(document.querySelector("[data-control-screen]")).toBe(route);
+    expect(client.getQueryData(["manual-shell-identity"])).toBe(sentinel);
+    expect(apiPost).not.toHaveBeenCalled();
+    localStorage.removeItem("led-control.customer-theme.v1");
+  });
+
+  it.each(["스케줄 제어", "이벤트 제어"])("releases manual remaining height when the real page changes to %s", async label => {
+    prepareRealManualConsumer();
+    renderShell("/control?siteId=site&mode=manual");
+    const main = screen.getByRole("main");
+    await waitFor(() => expect(main.parentElement).toHaveClass("h-dvh"));
+    fireEvent.click(screen.getByRole("tab", { name: label }));
+    await waitFor(() => expect(screen.getByRole("tab", { name: label })).toHaveAttribute("aria-selected", "true"));
+    expect(main.parentElement).toHaveClass("min-h-screen");
+    expect(main).not.toHaveClass("min-h-0", "overflow-hidden");
+    expect(main.querySelector("[data-shell-content]")).not.toHaveClass("min-h-0", "overflow-auto");
+    fireEvent.click(screen.getByRole("tab", { name: "수동 제어" }));
+    await waitFor(() => expect(main.parentElement).toHaveClass("h-dvh"));
     expect(apiPost).not.toHaveBeenCalled();
   });
 
