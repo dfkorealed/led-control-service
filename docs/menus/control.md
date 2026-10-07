@@ -8,6 +8,7 @@
 - Task 6 실제 브라우저 검증에서 최초 `body-sm/body` 소비가 13/14px였음을 확인했다. 공통 원 소유자의 보완 `a835fde6`는 기존 `body/body-lg` 의미 토큰으로 실제 14/16px를 제공하며 새 token이나 소비 wrapper를 추가하지 않았다. 최초 구현의 글꼴 완료 주장과 이 보완 증거를 구분한다.
 - `SpatialTargetSelector.presentation="manual-workspace"`에서 이동·개별 선택·영역 선택을 도면 상단에 항상 표시하고 `FloorMapViewport.toolModePolicy="explicit"`로 실제 gesture 정책을 연결한다. 이동은 pin 선택을 차단하고 개별 선택은 영역 드래그를 실행하지 않는다. 층/구역 또는 잠긴 선택에서는 선택 도구만 차단하고 이동을 보존한다.
 - 기존 embedded·interaction-default는 그대로다. Space/중간 버튼, touch hold/pinch/cancel/ghost click과 전체 선택의 gateway/부적격 차단 계약은 유지한다.
+- Task 6 I1 공통 지도 보완은 유효한 명시적 fit/restore snapshot을 resize보다 우선해 frame 이전의 이전 카메라 복귀를 방지한다. 공통 viewport·SpatialTargetSelector 회귀를 확인했으며 제어의 대상 선택·수정 권한·실제 명령 계약을 바꾸지 않는다.
 
 ### 미구현
 
@@ -16,6 +17,8 @@
 ### 부족하거나 개선이 필요한 기능
 
 - 공통 제공과 단위·격리 Chromium 증거를 실제 명령/장비 HIL 완료로 확대하지 않는다. 전체폭·dark 시각 QA와 native 입력 검수는 후속 관문이다.
+- I1 카메라 수정의 격리 회귀는 실제 장비 명령/응답이나 native WebView 검증이 아니다. 이전 실패 원본과 독립 검수 관문을 유지한다.
+- I1 후 전체 Web에서 ScheduleControlPanel 83개가 `ApiError` 생성자/instanceof 경계로 실패했다. 동일 파일 focused 83개 통과와 원 전체 실패를 분리하며 baseline/flaky나 카메라 무관으로 단정하지 않는다. 모듈 해석 원인은 Task 11 canonical QA로 넘긴다.
 
 ### 관련 파일
 

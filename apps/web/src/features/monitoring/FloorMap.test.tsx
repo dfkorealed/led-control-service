@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { FloorMap } from "./FloorMap";
 
@@ -400,6 +400,74 @@ describe("FloorMap", () => {
     );
 
     expect(screen.getByRole("region", { name: "층 도면" })).toHaveAttribute("data-zoom", "1");
+  });
+
+  it("keeps a new legacy revision fitted when resize arrives before its camera frame", () => {
+    vi.useFakeTimers();
+    const frames = new Map<number, FrameRequestCallback>();
+    let frameId = 0;
+    const request = vi.spyOn(globalThis, "requestAnimationFrame").mockImplementation(callback => { frames.set(++frameId, callback); return frameId; });
+    const cancel = vi.spyOn(globalThis, "cancelAnimationFrame").mockImplementation(id => { frames.delete(id); });
+    const observers = new Map<Element, Set<ResizeObserverCallback>>();
+    vi.stubGlobal("ResizeObserver", class {
+      constructor(private callback: ResizeObserverCallback) {}
+      observe(target: Element) { const callbacks = observers.get(target) ?? new Set(); callbacks.add(this.callback); observers.set(target, callbacks); }
+      unobserve(target: Element) { observers.get(target)?.delete(this.callback); }
+      disconnect() { for (const callbacks of observers.values()) callbacks.delete(this.callback); }
+    });
+    const fetch = vi.spyOn(globalThis, "fetch");
+    const onSelect = vi.fn();
+    const scope = { principal: "legacy-resize-test", siteId: "site-1", floorId: navigationFloor.id };
+    let width = 1010, height = 290;
+    const rect = (x: number, y: number, width: number, height: number) => ({ x, y, width, height, left: x, top: y, right: x + width, bottom: y + height, toJSON: () => null });
+    function flushFrames() {
+      act(() => { for (let round = 0; round < 5 && frames.size; round++) { const callbacks = [...frames.values()]; frames.clear(); callbacks.forEach(callback => callback(0)); } });
+    }
+    try {
+      const props = { floor: navigationFloor, selectedFixtureId: "fixture-1", onSelectFixture: onSelect, cameraScope: scope };
+      const view = render(<FloorMap {...props} snapshot={{ ...mapSnapshot, revision: 7 }} />);
+      const viewport = screen.getByTestId("monitoring-map-viewport");
+      const surface = document.querySelector<HTMLElement>("[data-floor-map-surface]")!;
+      const stage = surface.parentElement!;
+      Object.defineProperties(viewport, { clientWidth: { get: () => width }, clientHeight: { get: () => height } });
+      vi.spyOn(viewport, "getBoundingClientRect").mockImplementation(() => rect(0, 0, width, height));
+      vi.spyOn(surface, "getBoundingClientRect").mockImplementation(() => {
+        const w = parseFloat(surface.style.width) || 1200, h = parseFloat(surface.style.height) || 800;
+        return rect((parseFloat(stage.style.width) - w) / 2 - viewport.scrollLeft, (parseFloat(stage.style.height) - h) / 2 - viewport.scrollTop, w, h);
+      });
+      const resize = () => act(() => {
+        const entry: ResizeObserverEntry = {
+          target: viewport,
+          contentRect: rect(0, 0, width, height),
+          borderBoxSize: [{ inlineSize: width, blockSize: height }],
+          contentBoxSize: [{ inlineSize: width, blockSize: height }],
+          devicePixelContentBoxSize: [{ inlineSize: width, blockSize: height }]
+        };
+        for (const callback of observers.get(viewport) ?? []) callback([entry], {} as ResizeObserver);
+      });
+      resize(); flushFrames();
+      fireEvent.click(screen.getByRole("button", { name: "지도 확대" }));
+      fireEvent.click(screen.getByRole("button", { name: "지도 확대" }));
+      flushFrames();
+      expect(viewport).toHaveAttribute("data-zoom", "1.2");
+      const selectedPin = screen.getByRole("button", { name: "B1-L001 정상 70%" });
+      expect(selectedPin).toHaveAttribute("aria-current", "true");
+      // The failed notice reduces available height. A delivered new revision
+      // then fits, before its next camera frame can publish the fitted value.
+      height = 240; resize(); flushFrames();
+      view.rerender(<FloorMap {...props} snapshot={{ ...mapSnapshot, revision: 8 }} />);
+      expect(viewport).toHaveAttribute("data-zoom", "1");
+      expect(selectedPin.isConnected).toBe(true);
+      expect(screen.getByRole("button", { name: "B1-L001 정상 70%" })).toBe(selectedPin);
+      height = 290; resize(); flushFrames();
+      expect(selectedPin).toHaveAttribute("aria-current", "true");
+      expect(onSelect).not.toHaveBeenCalled();
+      expect(fetch.mock.calls.filter(([path]) => /commands|monitoring-refresh/.test(String(path)))).toHaveLength(0);
+      expect(viewport).toHaveAttribute("data-zoom", "1");
+      expect(screen.getByRole("button", { name: "지도 배율 100%" })).toBeVisible();
+    } finally {
+      cleanup(); request.mockRestore(); cancel.mockRestore(); fetch.mockRestore(); vi.unstubAllGlobals(); vi.useRealTimers(); localStorage.clear();
+    }
   });
 
   it("zooms with a modified wheel and pans by dragging the viewport", async () => {

@@ -7,6 +7,7 @@
 - 도면 편집기의 패널·가이드·선택·fixture 상태·CAD 후보/배치 슬롯·미니맵 chrome은 `useThemeColors()`의 reactive palette를 구독한다. 2D moved-CAD와 미니맵은 palette 갱신 시 기존 canvas에서 다시 그린다.
 - 원본 CAD/저장 도형의 색상·geometry와 native/common renderer session, camera, 선택 및 undo history를 보존한다. CAD 속성의 사용자 색/text draft 초기화는 기존 `[element]` 경계이며 theme를 추가하지 않는다.
 - 공유 선택 도면의 explicit 도구는 수동용 opt-in이다. 등록/스케줄/차량 이벤트/구역 편집의 embedded 정책을 유지한다.
+- Task 6 I1의 공통 `FloorMapViewport` 보완은 명시적 fit/restore snapshot과 resize의 우선순위만 수정한다. 설정 편집기의 별도 camera/store·원본 geometry·undo/save 소스는 수정하지 않았고 기존 `FloorEditorCanvas.common-map`·editor-store 회귀로 보존을 확인했다.
 
 ### 미구현
 
@@ -15,10 +16,13 @@
 ### 부족하거나 개선이 필요한 기능
 
 - 단위·격리 mock API Chromium 검증은 실제 lease/DB/CAD 변환기·native GPU·장비 HIL 증거가 아니다. 물리 모바일·전 화면 dark 시각 검수는 후속 관문이다.
+- 공통 카메라 순서 보완과 편집기 회귀 통과를 설정 페이지 ATLAS 재배치·실제 CAD/native camera 검증 완료로 확대하지 않는다. 원 실패와 독립 검수/후행 QA를 구분한다.
+- I1 후 전체 Web에서 FloorEditorView 4개 실패와 CadImportPanel `ApiError` 수집 오류로 66개 미수집이 발생했다. 해당 파일 focused 75+66개 통과는 원 전체 실패를 지우지 않으며 모듈 경계 원인·카메라 변경과의 인과관계는 미확립이다. Task 11 canonical QA에서 확인한다.
 
 ### 관련 파일
 
 - `apps/web/src/features/floor-editor/{FloorEditorCanvas,CadCandidateLayer,CadPlacementSlotLayer,EditorMinimap,CadSceneCanvas,CadElementPropertiesPanel,MapElementOverlay,CadElementOverlay,MapSelectionBoundsHandle}.tsx` 및 기존 대응 시험.
+- 공통 I1 변경은 `apps/web/src/features/floor-map/FloorMapViewport.tsx`; 설정 측 보존 검사는 `apps/web/src/features/floor-editor/{FloorEditorCanvas.common-map.test.tsx,editor-store.test.ts}`.
 
 ### 갱신 규칙
 

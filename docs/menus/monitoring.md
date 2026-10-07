@@ -8,6 +8,7 @@
 - 초기 공통 `body-sm/body` 소비는 실제 브라우저에서 13/14px로 확인되어 아래 Task 5의 최초 14/16px 완료 주장과 구분한다. 공통 원 소유자의 보완 `a835fde6`가 기존 `body/body-lg` 의미 토큰으로 실제 14/16px를 복구했다. 모바일 마지막 새로고침 행은 기존 하단 navigation safe-space를 소유하여 조작 가림을 방지한다.
 - 기존 운영 활동 formatter를 보존 확장한 `monitoringActivityRows` adapter로 실제 online/offline/fault·명령 outcome·refreshStatus를 공통 5초 ticker에 연결한다. hover/focus/문서 hidden 정지·범위/행 변경 초기화와 항상 보이는 전체 보기·오류 재조회를 공통 표현에서 제공한다.
 - 기존 pin 선택·테마 전환·전체 보기·카메라 복원, 서버 timestamp/시간대·반복 refresh 잠금/층 취소, 날짜 초안·50/100/500/1000 조회·retention/cursor 복구·권한·safe-area/focus는 변경하지 않는다. Drawer는 이미 공통 LogView/FilterPanel을 사용하므로 표현 source를 다시 수정하지 않고 회귀 검증한다.
+- Task 6 I1 보완: 공통 `FloorMapViewport.restoreCamera`는 유효한 명시적 fit/복원 카메라를 독립 snapshot으로 즉시 기록하고 이전 resize 대기를 비운다. legacy revision 변경의 100% fit 직후 frame 이전 resize가 이전 120% 카메라를 되살리던 실제 순서 회귀를 수정했다. 같은 선택 pin·scope·명령 0을 유지한 제어 회귀와 원 clock/100% 기대 및 resize `.02`·native 입력 7개 브라우저 사례를 검증했다.
 
 ### 미구현
 
@@ -15,11 +16,13 @@
 
 ### 부족하거나 개선이 필요한 기능
 
-- 격리 mock Chromium 및 Web 단위 검증 범위다. 공통 glyph/notice 및 이전 화면 계약의 원 실패를 Task 6 보고서에 분리 보존하며 모든 브라우저가 통과했다고 표시하지 않는다. legacy 도면 revision 변경 뒤 카메라 100% 초기화는 현재 실행 실패·BASE 통과로 미해결이며 후행 검증이 필요하다. 알람센터의 해결된 현재 상태와 최근 50개 알림 이력은 별도로 유지한다.
+- 격리 mock Chromium 및 Web 단위 검증 범위다. 공통 glyph/notice 및 이전 화면 계약의 원 실패를 Task 6 보고서에 분리 보존하며 모든 브라우저가 통과했다고 표시하지 않는다. legacy revision 카메라의 기존 현재 실패·BASE 통과 증거는 I1 보완의 실제 RED/GREEN과 구분해 유지한다. 독립 검수·canonical QA·실제 native/HIL은 별도 관문이다. 알람센터의 해결된 현재 상태와 최근 50개 알림 이력은 별도로 유지한다.
+- I1 이후 전체 Web 검사에서 `ApiError` 모듈 경계의 87개 실패·1개 수집 오류/미처리 오류가 남았다. 해당 3파일 focused 224개 통과는 전체 통과 증거가 아니며 원인·카메라 수정과의 인과관계가 미확립이다. 원 로그를 유지하고 Task 11 canonical QA에서 확인한다.
 
 ### 관련 파일
 
 - `apps/web/src/features/monitoring/{MonitoringView,MonitoringSummary,FloorMap,MonitoringLogTicker,monitoring-activity-presentation}.tsx` (adapter는 `.ts`), 대응 단위 시험, 기존 Drawer/query/camera 회귀 시험 및 `apps/web/e2e/{monitoring-surface-access,calm-operations-monitoring}.spec.ts`.
+- I1 공통 수정: `apps/web/src/features/floor-map/FloorMapViewport.tsx`, 실제 통합 회귀 `apps/web/src/features/monitoring/FloorMap.test.tsx`.
 
 ### 갱신 규칙
 
