@@ -10,7 +10,8 @@ import {
   XAxis,
   YAxis
 } from "recharts";
-import { StatusDetailButton, Text, themeColor } from "../../components/ui";
+import { useMemo } from "react";
+import { StatusDetailButton, Text, useThemeColors } from "../../components/ui";
 import {
   formatComparisonPeriod,
   formatCoverage,
@@ -38,7 +39,8 @@ export function comparisonChartData(points: EnergyComparisonPoint[]): Comparison
 }
 
 export function EnergyComparisonChart({ comparison }: { comparison: EnergyComparisonResponse | EnergyRangeComparisonResponse }) {
-  const data = comparisonChartData(comparison.points);
+  const palette = useThemeColors();
+  const data = useMemo(() => comparisonChartData(comparison.points), [comparison.points]);
   const hasUnavailablePeriod = data.some((point) => point.phase === "unavailable");
 
   return (
@@ -51,10 +53,12 @@ export function EnergyComparisonChart({ comparison }: { comparison: EnergyCompar
       <div className="h-80 min-w-0 max-compact:h-64" role="img" aria-label="기준 대비 에너지 사용량 비교 차트">
         <ResponsiveContainer width="100%" height="100%" minWidth={0} initialDimension={{ width: 760, height: 320 }}>
           <ComposedChart data={data} margin={{ top: 12, right: 12, left: 0, bottom: 8 }} accessibilityLayer>
-            <CartesianGrid stroke={themeColor("chart-grid")} strokeDasharray="4 4" vertical={false} />
-            <XAxis dataKey="period" tickFormatter={formatAxisPeriod} tickLine={false} />
-            <YAxis unit=" kWh" width={74} tickLine={false} axisLine={false} />
+            <CartesianGrid stroke={palette["chart-grid"]} strokeDasharray="4 4" vertical={false} />
+            <XAxis dataKey="period" tickFormatter={formatAxisPeriod} tickLine={false}
+              tick={{ fill: palette["content-secondary"] }} axisLine={{ stroke: palette["border-strong"] }} />
+            <YAxis unit=" kWh" width={74} tickLine={false} axisLine={false} tick={{ fill: palette["content-secondary"] }} />
             <Tooltip
+              cursor={{ fill: palette["surface-inset"], stroke: palette["border-strong"] }}
               content={({ active, payload }) => (
                 <ComparisonTooltip
                   active={active}
@@ -62,25 +66,25 @@ export function EnergyComparisonChart({ comparison }: { comparison: EnergyCompar
                 />
               )}
             />
-            <Bar dataKey="baselineKwh" name="기준 사용량" fill={themeColor("chart-baseline")} radius={[5, 5, 0, 0]} />
+            <Bar dataKey="baselineKwh" name="기준 사용량" fill={palette["chart-baseline"]} radius={[5, 5, 0, 0]} />
             <Line
               type="monotone"
               dataKey="observedKwh"
               name="완료 기간 추정 사용량"
-              stroke={themeColor("chart-usage")}
+              stroke={palette["chart-usage"]}
               strokeWidth={3}
-              dot={{ r: 4, fill: themeColor("chart-point"), strokeWidth: 2 }}
-              activeDot={{ r: 6 }}
+              dot={{ r: 4, fill: palette["chart-point"], stroke: palette["chart-usage"], strokeWidth: 2 }}
+              activeDot={{ r: 6, fill: palette["chart-usage"], stroke: palette["chart-point"] }}
               connectNulls={false}
             />
             <Line
               type="monotone"
               dataKey="forecastKwh"
               name="예상 사용량"
-              stroke={themeColor("chart-forecast")}
+              stroke={palette["chart-forecast"]}
               strokeWidth={3}
-              dot={{ r: 4, fill: themeColor("chart-point"), strokeWidth: 2 }}
-              activeDot={{ r: 6 }}
+              dot={{ r: 4, fill: palette["chart-point"], stroke: palette["chart-forecast"], strokeWidth: 2 }}
+              activeDot={{ r: 6, fill: palette["chart-forecast"], stroke: palette["chart-point"] }}
               {...forecastLineStyle}
             />
           </ComposedChart>

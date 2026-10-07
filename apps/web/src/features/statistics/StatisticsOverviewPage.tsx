@@ -1,7 +1,7 @@
 import type { EnergyComparisonPreset, EnergySeriesPoint, EnergySummary } from "@led-control/shared";
 import { energyRangeComparisonQuerySchema } from "@led-control/shared/energy-range-contracts";
 import { Activity, CircleCheck, CircleOff, TriangleAlert, TrendingDown, TrendingUp } from "lucide-react";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useOutletContext } from "react-router-dom";
 import {
   CartesianGrid,
@@ -13,7 +13,8 @@ import {
   YAxis
 } from "recharts";
 import { useEnergyComparison, useEnergyRangeComparison, useEnergySeries, useEnergySummary } from "../../api/energy";
-import { Button, Card, DateRangePicker, FeedbackState, FilterPanel, formatTimestamp, Heading, MetricCard, SidePanel, StatusBadge, Text, themeColor, useDateRangeDraft } from "../../components/ui";
+import { Button, Card, DateRangePicker, FeedbackState, FilterPanel, formatTimestamp, Heading, MetricCard, SidePanel, StatusBadge, Text, useThemeColors, useDateRangeDraft } from "../../components/ui";
+import { StatisticsOperationalInfo } from "./StatisticsOperationalInfo";
 import { draftToDate } from "../../components/ui/date/useDateDraft";
 import { EnergyComparisonChart } from "./EnergyComparisonChart";
 import { PeriodComparisonPanel } from "./PeriodComparisonPanel";
@@ -293,6 +294,7 @@ export function StatisticsOverviewPage() {
         </>
       )}
       </section>
+      <StatisticsOperationalInfo summary={summary} />
     </section>
   );
 }
@@ -483,9 +485,11 @@ function EnergyChart({
   points: EnergySeriesPoint[];
 }) {
   // A no-data status must never draw a zero-valued point, even if a payload includes numeric zero.
-  const chartPoints = points.map((point) => point.dataStatus === "no_data"
+  const palette = useThemeColors();
+  // Palette publication only repaints the existing chart; data/selection identity remains stable.
+  const chartPoints = useMemo(() => points.map((point) => point.dataStatus === "no_data"
     ? { ...point, estimatedKwh: null, estimatedCost: null }
-    : point);
+    : point), [points]);
   return (
     <>
       <div
@@ -495,10 +499,12 @@ function EnergyChart({
       >
         <ResponsiveContainer width="100%" height="100%" minWidth={0} initialDimension={{ width: 760, height: 300 }}>
           <LineChart data={chartPoints} margin={{ top: 12, right: 12, left: 0, bottom: 8 }} accessibilityLayer>
-            <CartesianGrid stroke={themeColor("chart-grid")} strokeDasharray="4 4" vertical={false} />
-            <XAxis dataKey="period" tickFormatter={(value: string) => formatAxisPeriod(value, granularity)} tickLine={false} />
-            <YAxis unit=" kWh" width={74} tickLine={false} axisLine={false} />
+            <CartesianGrid stroke={palette["chart-grid"]} strokeDasharray="4 4" vertical={false} />
+            <XAxis dataKey="period" tickFormatter={(value: string) => formatAxisPeriod(value, granularity)} tickLine={false}
+              tick={{ fill: palette["content-secondary"] }} axisLine={{ stroke: palette["border-strong"] }} />
+            <YAxis unit=" kWh" width={74} tickLine={false} axisLine={false} tick={{ fill: palette["content-secondary"] }} />
             <Tooltip
+              cursor={{ stroke: palette["border-strong"] }}
               content={({ active, payload }) => (
                 <EnergyTooltip
                   active={active}
@@ -511,10 +517,10 @@ function EnergyChart({
               type="monotone"
               dataKey="estimatedKwh"
               name="사용량"
-              stroke={themeColor("chart-usage")}
+              stroke={palette["chart-usage"]}
               strokeWidth={3}
-              dot={{ r: 4, fill: themeColor("chart-point"), strokeWidth: 2 }}
-              activeDot={{ r: 6 }}
+              dot={{ r: 4, fill: palette["chart-point"], stroke: palette["chart-usage"], strokeWidth: 2 }}
+              activeDot={{ r: 6, fill: palette["chart-usage"], stroke: palette["chart-point"] }}
               connectNulls={false}
             />
           </LineChart>

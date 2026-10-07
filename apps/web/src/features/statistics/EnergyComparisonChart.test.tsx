@@ -1,10 +1,36 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { EnergyComparisonChart, comparisonChartData, forecastLineStyle } from "./EnergyComparisonChart";
 import { makeEnergyComparison } from "./statistics-test-fixtures";
+import { CustomerThemeProvider } from "../../components/ui/theme/CustomerThemeProvider";
+import { ThemeToggle } from "../../components/ui/theme/ThemeToggle";
 
 describe("EnergyComparisonChart", () => {
   afterEach(cleanup);
+
+  it("repaints chart axes, grid and series without replacing the chart or gap data", async () => {
+    localStorage.removeItem("led-control.customer-theme.v1");
+    // Isolate palette repaint from Recharts' animated dash clipping using a real supported system preference.
+    vi.stubGlobal("matchMedia", (query: string) => ({ matches: query === "(prefers-reduced-motion: reduce)",
+      addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {} }));
+    const style = document.createElement("style");
+    // JSDOM cannot resolve CSS aliases; publish literal computed roles through the real provider.
+    style.textContent = ':root[data-customer-theme="light"] { --color-content-secondary: #526477; --color-chart-grid: #D8E1EC; --color-chart-usage: #245FE8; --color-chart-forecast: #946000; } :root[data-customer-theme="dark"] { --color-content-secondary: #B0BDCE; --color-chart-grid: #33465D; --color-chart-usage: #94B9FF; --color-chart-forecast: #F2C46D; }';
+    document.head.append(style);
+    try {
+      const { container } = render(<CustomerThemeProvider><ThemeToggle /><EnergyComparisonChart comparison={makeEnergyComparison()} /></CustomerThemeProvider>);
+      const chart = container.querySelector("svg.recharts-surface");
+      expect(chart).not.toBeNull();
+      await waitFor(() => expect(container.querySelector("text.recharts-cartesian-axis-tick-value")).toHaveAttribute("fill", "#526477"));
+      fireEvent.click(screen.getByRole("button", { name: "다크 모드로 변경" }));
+      expect(container.querySelector("svg.recharts-surface")).toBe(chart);
+      await waitFor(() => expect(container.querySelector("text.recharts-cartesian-axis-tick-value")).toHaveAttribute("fill", "#B0BDCE"));
+      expect(container.querySelector(".recharts-cartesian-grid-horizontal line")).toHaveAttribute("stroke", "#33465D");
+      expect(container.querySelector('path.recharts-line-curve[stroke="#94B9FF"]')).not.toBeNull();
+      expect(container.querySelector('path.recharts-line-curve[stroke="#F2C46D"]')).toHaveAttribute("stroke-dasharray", "4 4");
+      expect(screen.getByText(/2026년 9월 4일: 기준 100 kWh, 사용량 산정 불가/)).toBeInTheDocument();
+    } finally { cleanup(); style.remove(); vi.unstubAllGlobals(); localStorage.removeItem("led-control.customer-theme.v1"); }
+  });
 
   it("keeps observed, forecast and unavailable values as separate series", () => {
     const data = comparisonChartData(makeEnergyComparison().points);

@@ -2,6 +2,8 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testi
 import { MemoryRouter, Outlet, Route, Routes } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { StatisticsAnalysisPage } from "./StatisticsAnalysisPage";
+import { CustomerThemeProvider } from "../../../components/ui/theme/CustomerThemeProvider";
+import { ThemeToggle } from "../../../components/ui/theme/ThemeToggle";
 
 const mocks = vi.hoisted(() => ({ hook: vi.fn(), heatmap: vi.fn(), summary: vi.fn() }));
 vi.mock("../../../api/energy", () => ({
@@ -22,6 +24,36 @@ describe("StatisticsAnalysisPage", () => {
       isLoading: false, isError: false, refetch: vi.fn()
     }));
     mocks.heatmap.mockReturnValue({ data: heatmapResponse, isLoading: false, isError: false, refetch: vi.fn() });
+  });
+
+  it("repaints selected ranking chart while keeping dates, query identity and heatmap focus", async () => {
+    localStorage.removeItem("led-control.customer-theme.v1");
+    const style = document.createElement("style");
+    style.textContent = ':root[data-customer-theme="light"] { --color-content-secondary: #526477; --color-chart-ranking: #245FE8; } :root[data-customer-theme="dark"] { --color-content-secondary: #B0BDCE; --color-chart-ranking: #94B9FF; }';
+    document.head.append(style);
+    // Provide layout at the real ResponsiveContainer boundary, never mock Recharts or the detail panel.
+    vi.stubGlobal("ResizeObserver", class {
+      constructor(private callback: ResizeObserverCallback) {}
+      observe(target: Element) { this.callback([{ target, contentRect: { width: 760, height: 160 } } as ResizeObserverEntry], this as unknown as ResizeObserver); }
+      unobserve() {} disconnect() {}
+    });
+    try {
+      render(<CustomerThemeProvider><ThemeToggle />{analysisPage()}</CustomerThemeProvider>);
+      const detail = screen.getByRole("complementary", { name: "B1 주차장 상세" });
+      await waitFor(() => expect(detail.querySelector("text.recharts-cartesian-axis-tick-value")).toHaveAttribute("fill", "#526477"));
+      const chart = detail.querySelector("svg.recharts-surface");
+      const cells = screen.getAllByRole("button", { name: /요일 .*시/ });
+      act(() => cells[0].focus()); fireEvent.keyDown(cells[0], { key: "ArrowRight" });
+      const queryCount = mocks.hook.mock.calls.length;
+      const heatmapCount = mocks.heatmap.mock.calls.length;
+      act(() => window.dispatchEvent(new StorageEvent("storage", { key: "led-control.customer-theme.v1", newValue: "dark" })));
+      await waitFor(() => expect(detail.querySelector("text.recharts-cartesian-axis-tick-value")).toHaveAttribute("fill", "#B0BDCE"));
+      expect(detail.querySelector("svg.recharts-surface")).toBe(chart);
+      expect(detail.querySelector('path.recharts-line-curve[stroke="#94B9FF"]')).not.toBeNull();
+      expect(cells[1]).toHaveFocus(); expect(cells[1]).toHaveAttribute("aria-pressed", "true");
+      expect(mocks.hook).toHaveBeenCalledTimes(queryCount); expect(mocks.heatmap).toHaveBeenCalledTimes(heatmapCount);
+      expect(mocks.hook).toHaveBeenLastCalledWith(expect.objectContaining({ from: "2026-09-01", to: "2026-09-08" }));
+    } finally { cleanup(); style.remove(); vi.unstubAllGlobals(); localStorage.removeItem("led-control.customer-theme.v1"); }
   });
 
   it("shows ranked usage and opens a dimension detail", () => {

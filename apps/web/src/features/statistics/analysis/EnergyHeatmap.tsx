@@ -52,7 +52,7 @@ export function EnergyHeatmap({
       </header>
       {feedback ?? (data && <>
       <div className="flex flex-wrap items-center gap-2 text-caption font-bold text-content-muted" aria-label="히트맵 범례">
-        <span className="rounded-control border border-chart-heatmap-1 bg-chart-heatmap-empty px-2 py-1">{metric === "energy" ? "0 kWh" : "0%"}</span>
+        <span className="rounded-control border border-border-strong bg-chart-heatmap-empty px-2 py-1">{metric === "energy" ? "0 kWh" : "0%"}</span>
         <span>낮음</span><span className="inline-grid grid-cols-5 gap-1" aria-hidden="true">
           <i className="h-3 w-5 rounded-control bg-chart-heatmap-1" /><i className="h-3 w-5 rounded-control bg-chart-heatmap-2" />
           <i className="h-3 w-5 rounded-control bg-chart-heatmap-3" /><i className="h-3 w-5 rounded-control bg-chart-heatmap-4" />
@@ -61,7 +61,11 @@ export function EnergyHeatmap({
       </div>
       <Text variant="caption" tone="secondary">가로축 시간 (00~23시) · 세로축 요일 (일~토)</Text>
       <div className="min-w-0 max-w-full overflow-x-auto rounded-panel border border-border-default outline-none focus-visible:shadow-focus" tabIndex={0} aria-label="시간대별 사용량 표를 가로로 스크롤">
-        <div className="grid w-max grid-cols-[2rem_repeat(24,2.75rem)] gap-0.5 p-2 tablet:w-full tablet:grid-cols-[2rem_repeat(24,minmax(2.75rem,1fr))]" role="group" aria-label={`시간대별 ${metric === "energy" ? "에너지 사용량" : "밝기"}`}>
+        {/* Compact only desktop's noninteractive weekday gutter and outer padding
+          to fit all hours beside the 220px sidebar. Keep 2px separation: native
+          hit-testing at touching cell borders steals the neighboring edge pixel.
+          All cells retain 44px minimums and mobile keeps its original scroll frame. */}
+        <div className="grid w-max grid-cols-[2rem_repeat(24,2.75rem)] gap-0.5 p-2 tablet:w-full tablet:p-0 tablet:grid-cols-[1rem_repeat(24,minmax(2.75rem,1fr))]" role="group" aria-label={`시간대별 ${metric === "energy" ? "에너지 사용량" : "밝기"}`}>
           <span aria-hidden="true" />
           {Array.from({ length: 24 }, (_, hour) => <span key={hour} aria-hidden="true" className="text-center text-caption font-bold text-content-muted">{String(hour).padStart(2, "0")}</span>)}
           {data.cells.map((cell, index) => {
@@ -87,6 +91,7 @@ export function EnergyHeatmap({
                 cellRefs.current[nextIndex]?.focus();
               }}>
               <span className="sr-only">{label}</span>
+              {level === "0" || level === "missing" ? <span aria-hidden="true" className="text-caption text-content-secondary">{level === "0" ? "0" : "—"}</span> : null}
               </Button>
             </Fragment>;
           })}
@@ -130,10 +135,11 @@ function levelFor(value: number | null, maximum: number) {
 
 const heatmapLevelClass: Record<string, string> = {
   missing: "border-dashed border-border-strong bg-chart-heatmap-empty",
-  "0": "border-chart-heatmap-1 bg-chart-heatmap-empty",
-  "1": "border-chart-heatmap-1 bg-chart-heatmap-1",
-  "2": "border-chart-heatmap-2 bg-chart-heatmap-2",
-  "3": "border-chart-heatmap-3 bg-chart-heatmap-3",
-  "4": "border-chart-heatmap-4 bg-chart-heatmap-4",
-  "5": "border-chart-heatmap-5 bg-chart-heatmap-5"
+  // Scale fills communicate magnitude, never the essential click boundary (designer D1).
+  "0": "border-border-strong bg-chart-heatmap-empty",
+  "1": "border-border-strong bg-chart-heatmap-1",
+  "2": "border-border-strong bg-chart-heatmap-2",
+  "3": "border-border-strong bg-chart-heatmap-3",
+  "4": "border-border-strong bg-chart-heatmap-4",
+  "5": "border-border-strong bg-chart-heatmap-5"
 };

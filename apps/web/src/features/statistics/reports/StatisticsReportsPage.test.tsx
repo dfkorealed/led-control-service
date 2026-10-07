@@ -9,6 +9,8 @@ import { StatisticsReportsPage } from "./StatisticsReportsPage";
 import * as fileDelivery from "../../mobile/file-download";
 import { initializeMobileRuntime } from "../../mobile/mobile-runtime";
 import { Blob as NodeBlob } from "node:buffer";
+import { CustomerThemeProvider } from "../../../components/ui/theme/CustomerThemeProvider";
+import { ThemeToggle } from "../../../components/ui/theme/ThemeToggle";
 
 const reportsApi = vi.hoisted(() => ({
   create: vi.fn(),
@@ -52,6 +54,53 @@ const reports = [
 ];
 
 describe("StatisticsReportsPage", () => {
+  it("theme does not abort or duplicate in-flight PDF and preserves its fresh URL", async () => {
+    localStorage.removeItem("led-control.customer-theme.v1");
+    const pending = deferred<{ downloadUrl: string }>();
+    const clickedAnchors: HTMLAnchorElement[] = [];
+    vi.mocked(HTMLAnchorElement.prototype.click).mockImplementation(function (this: HTMLAnchorElement) {
+      clickedAnchors.push(this);
+    });
+    reportsApi.download.mockReturnValueOnce(pending.promise);
+    render(<CustomerThemeProvider><ThemeToggle />{pageTree(siteId, new QueryClient())}</CustomerThemeProvider>);
+    const download = screen.getByRole("button", { name: "대상 completed 보고서 다운로드" });
+    fireEvent.click(download);
+    await waitFor(() => expect(reportsApi.download).toHaveBeenCalledOnce());
+    const signal = reportsApi.download.mock.calls[0][2].signal as AbortSignal;
+    fireEvent.click(screen.getByRole("button", { name: "다크 모드로 변경" }));
+    expect(signal.aborted).toBe(false);
+    expect(screen.getByRole("button", { name: "대상 completed 보고서 다운로드" })).toBe(download);
+    expect(download).toBeDisabled();
+    expect(reportsApi.download).toHaveBeenCalledOnce();
+    await act(async () => pending.resolve({ downloadUrl: "https://reports.example.test/theme-fresh.pdf" }));
+    await waitFor(() => expect(download).toBeEnabled());
+    expect(HTMLAnchorElement.prototype.click).toHaveBeenCalledOnce();
+    expect(clickedAnchors[0].href).toBe("https://reports.example.test/theme-fresh.pdf");
+    localStorage.removeItem("led-control.customer-theme.v1");
+  });
+
+  it("theme does not abort or duplicate in-flight CSV or reset the dialog dates", async () => {
+    localStorage.removeItem("led-control.customer-theme.v1");
+    const pending = deferred<void>(); reportsApi.csv.mockReturnValueOnce(pending.promise);
+    render(<CustomerThemeProvider><ThemeToggle />{pageTree(siteId, new QueryClient())}</CustomerThemeProvider>);
+    fireEvent.click(screen.getByRole("button", { name: "보고서 만들기" }));
+    const dialog = await screen.findByRole("dialog", { name: "에너지 사용량 보고서 만들기" });
+    const dates = within(dialog).getAllByRole("spinbutton").map(node => node.textContent);
+    fireEvent.click(within(dialog).getByRole("button", { name: "CSV 내보내기" }));
+    await waitFor(() => expect(reportsApi.csv).toHaveBeenCalledOnce());
+    const signal = reportsApi.csv.mock.calls[0][2].signal as AbortSignal;
+    const focused = document.activeElement;
+    // A pending modal keeps the header inert; storage publication is the supported external transition.
+    act(() => window.dispatchEvent(new StorageEvent("storage", { key: "led-control.customer-theme.v1", newValue: "dark" })));
+    expect(signal.aborted).toBe(false);
+    expect(screen.getByRole("dialog", { name: "에너지 사용량 보고서 만들기" })).toBe(dialog);
+    expect(within(dialog).getAllByRole("spinbutton").map(node => node.textContent)).toEqual(dates);
+    expect(document.activeElement).toBe(focused);
+    expect(reportsApi.csv).toHaveBeenCalledOnce(); expect(reportsApi.create).not.toHaveBeenCalled();
+    await act(async () => pending.resolve());
+    await waitFor(() => expect(dialog).not.toBeInTheDocument());
+    localStorage.removeItem("led-control.customer-theme.v1");
+  });
   beforeEach(() => {
     measureAutomationContainer(400);
     dashboardState.data = dashboard;

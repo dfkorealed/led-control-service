@@ -1,5 +1,32 @@
 # 통계 메뉴 기능 현황
 
+## 2026-10-07 ATLAS 통계 두 테마·실제 운영 정보 (Task 9)
+
+### 구현 완료
+
+- 개요·비교·선택 순위 상세의 Recharts 표현이 고객 테마 palette를 구독한다. 축·tick·grid·tooltip·기준/추정/예상선·point를 기존 semantic 역할로 표시하며, 테마를 기간·조회 키·차트/페이지 identity에 추가하지 않는다. 완료 비교와 진행 중 예상, 상태 기반 추정/실측 아님, 음수 절감, 수집률, null과 수집된 0, 끊어진 선·점선 예상을 유지한다.
+- 운영 인사이트는 실제 `EnergySummary`의 오늘/이번 달 누적/올해 누적 알려진 상태시간·수집 공백(초), nullable 최근 집계와 기준 조명 수를 구분해 표시한다. 최근 집계가 없으면 `—`이며 조회 생성 시각을 수집/집계 시각으로 대체하지 않는다. API에 없는 표본·층별 절감 기여·수집 시각은 만들지 않는다.
+- 히트맵 승인 단계 fill은 유지하고 모든 셀의 필수 클릭 경계에 기존 strong border를 사용한다. 0은 숫자 `0`, 산정 불가는 점선과 `—`로 추가 구분한다. 168칸·기존 상세 접근성 이름·roving focus·선택·별도 지표/기간은 유지한다.
+- 이미 공통화된 통계 탭/필터/순위/보고서 Grid·상태·생성 dialog는 Audit 소비자로 보존한다. 실제 PDF job polling·재생성·fresh signed URL·만료/실패, CSV 원본 bytes와 site/document/unmount 취소, 날짜 raw draft·cursor history·focus 복구를 변경하지 않는다.
+- 고객 공통 헤더의 테마 전환은 승인52px frame과 shrink 방지를 사용해 둥근 모서리 안에서도 연속44px 조작 영역을 제공한다. 실제320/390 Chromium 양 테마에서 헤더 로고·현장 선택·알람과 겹침/가로 넘침 없이 확인했고 테마 전환으로 추가 API 쓰기0을 유지한다. 일반 Button/IconButton·공개/인증/운영자 기본 크기와 토큰은 변경하지 않았다. 실제 모바일 장비/HIL 및 전체 Task9 통합 완료를 뜻하지 않는다.
+
+### 미구현
+
+- 실계량기·추가 표본/센서·층별 절감 API 및 신규 집계 계약은 이 작업에 추가하지 않았다. 기존 제품의 미구현/하드웨어 한계는 아래 항목을 유지한다.
+
+### 부족하거나 개선이 필요한 기능
+
+- 단위/Chromium 검증과 실제 API·저장소·native OS 공유/저장·실장비/HIL 정확도는 별개다. 실제 양 테마의 최종 대비·전체 viewport 시각 승인은 독립 통합 Task 11에 남긴다. 승인 scale fill은 필수 경계를 대신하지 않는다.
+
+### 관련 파일
+
+- `apps/web/src/features/statistics/StatisticsOperationalInfo.tsx`, `.test.tsx`, `StatisticsOverviewPage.tsx`, `EnergyComparisonChart.tsx`, `analysis/EnergyRankingDetailPanel.tsx`, `analysis/EnergyHeatmap.tsx` 및 대응 통계/보고서 테마 회귀 테스트.
+- Audit 소비: `StatisticsShell.tsx`, `StatisticsSubnavigation.tsx`, `PeriodComparisonPanel.tsx`, `analysis/StatisticsAnalysisPage.tsx`, `analysis/EnergyRankingList.tsx`, `reports/StatisticsReportsPage.tsx`, `ReportHistoryFilters.tsx`, `ReportCreateDialog.tsx`, `ReportJobList.tsx`, `ReportJobStatus.tsx`. 소유 공통/API/모바일 파일은 수정하지 않았다.
+
+### 갱신 규칙
+
+- 품질 출처·단위·기간 구분·nullable 집계 시각, 테마 표현과 조회/파일 identity 경계가 바뀌면 이 항목과 실제 검증 증거를 갱신한다. fabricated/mock 값을 제품 완료로 기록하지 않으며 Task 9 상세 실행/실패 로그는 작업 보고서에 연결한다.
+
 ## 2026-10-07 ATLAS 공통 shell·모바일 브랜드 (Task 4)
 
 ### 구현 완료

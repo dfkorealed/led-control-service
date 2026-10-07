@@ -1,11 +1,13 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { EnergyComparisonPreset, EnergySeriesResponse, EnergySummary } from "@led-control/shared";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MemoryRouter, Outlet, Route, Routes } from "react-router-dom";
 import { StatisticsOverviewPage } from "./StatisticsOverviewPage";
 import { getEnergySeriesRanges } from "./statistics-periods";
 import { makeEnergyComparison } from "./statistics-test-fixtures";
+import { CustomerThemeProvider } from "../../components/ui/theme/CustomerThemeProvider";
+import { ThemeToggle } from "../../components/ui/theme/ThemeToggle";
 
 const mocks = vi.hoisted(() => ({
   summary: {} as ReturnType<typeof queryResult>,
@@ -73,8 +75,8 @@ const monthSeries: EnergySeriesResponse = {
   ]
 };
 
-function renderView() {
-  return render(
+function renderView(themed = false) {
+  const tree = (
     <QueryClientProvider client={new QueryClient()}>
       <MemoryRouter initialEntries={["/statistics/overview"]}>
         <Routes>
@@ -85,6 +87,7 @@ function renderView() {
       </MemoryRouter>
     </QueryClientProvider>
   );
+  return render(themed ? <CustomerThemeProvider><ThemeToggle />{tree}</CustomerThemeProvider> : tree);
 }
 
 function OutletContext({ siteId }: { siteId: string }) {
@@ -92,6 +95,42 @@ function OutletContext({ siteId }: { siteId: string }) {
 }
 
 describe("StatisticsOverviewPage", () => {
+  it("quality info preserves unknown aggregate time and collected zero", () => {
+    mocks.summary = queryResult({ ...summary, lastAggregatedAt: null,
+      today: { ...summary.today, estimatedKwh: 0, estimatedCost: 0, knownSeconds: 0, unknownSeconds: 0 },
+      baseline24Hours: { ...summary.baseline24Hours, fixtureCount: 0 } });
+    renderView();
+    const info = screen.getByRole("region", { name: "운영 인사이트" });
+    expect(within(info).getByText("최근 집계").closest("dt")?.nextElementSibling).toHaveTextContent("—");
+    expect(within(info).getByText("기준 조명 수").closest("dt")?.nextElementSibling).toHaveTextContent("0개");
+    const today = within(info).getByRole("group", { name: "오늘 수집 품질" });
+    expect(within(today).getByText(/알려진 상태시간/).closest("dt")?.nextElementSibling).toHaveTextContent("0초");
+    expect(within(today).getByText("수집 공백").closest("dt")?.nextElementSibling).toHaveTextContent("0초");
+    expect(info).not.toHaveTextContent("2026-08-26");
+  });
+
+  it("preserves selected period and incomplete date draft through a theme transition", async () => {
+    localStorage.removeItem("led-control.customer-theme.v1");
+    renderView(true);
+    fireEvent.click(screen.getByRole("button", { name: /사용량 조회 단위 상세 필터/ }));
+    fireEvent.click(await screen.findByRole("button", { name: "월별" }));
+    fireEvent.click(screen.getByRole("button", { name: "필터 닫기" }));
+    fireEvent.click(screen.getByRole("button", { name: /절감 비교 기간 상세 필터/ }));
+    const dialog = await screen.findByRole("dialog", { name: "절감 비교 기간" });
+    const year = within(dialog).getAllByRole("spinbutton")[0];
+    fireEvent.keyDown(year, { key: "Backspace" });
+    const draft = year.textContent;
+    year.focus();
+    // The modal intentionally makes background controls inert; a real cross-tab event must not reset it.
+    act(() => window.dispatchEvent(new StorageEvent("storage", { key: "led-control.customer-theme.v1", newValue: "dark" })));
+    expect(screen.getByRole("dialog", { name: "절감 비교 기간" })).toBe(dialog);
+    expect(year).toHaveTextContent(draft!);
+    expect(year).toHaveFocus();
+    expect(screen.getByRole("button", { name: "선택 기간 적용" })).toBeDisabled();
+    expect(screen.getByText(/2026년 7월: 140 kWh/)).toBeInTheDocument();
+    expect(mocks.customHook).not.toHaveBeenCalledWith(expect.any(String), expect.any(String), true);
+    localStorage.removeItem("led-control.customer-theme.v1");
+  });
   beforeEach(() => {
     mocks.summary = queryResult(summary);
     mocks.day = queryResult(daySeries);

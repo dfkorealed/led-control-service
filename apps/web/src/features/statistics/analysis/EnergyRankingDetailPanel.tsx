@@ -1,10 +1,11 @@
 import type { EnergyRankingItem } from "@led-control/shared/energy-analytics-contracts";
 import { ArrowDownRight, ArrowUpRight, Minus } from "lucide-react";
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { Card, Heading, MetricCard, Text, themeColor } from "../../../components/ui";
+import { Card, Heading, MetricCard, Text, useThemeColors } from "../../../components/ui";
 import { formatKwh, formatWon } from "../statistics-format";
 
 export function EnergyRankingDetailPanel({ item }: { item: EnergyRankingItem | null }) {
+  const palette = useThemeColors();
   if (!item) {
     return <Card className="p-4 compact:p-6" role="complementary" aria-label="순위 상세"><Text tone="muted">순위 항목을 선택해 주세요.</Text></Card>;
   }
@@ -30,11 +31,17 @@ export function EnergyRankingDetailPanel({ item }: { item: EnergyRankingItem | n
         <span className="sr-only" role="img" aria-label={`${item.name} 일별 사용량 차트`} />
         <ResponsiveContainer width="100%" height="100%">
           <LineChart data={item.dailyPoints} margin={{ top: 8, right: 10, bottom: 0, left: 0 }}>
-            <CartesianGrid stroke={themeColor("chart-grid")} strokeDasharray="3 3" vertical={false} />
-            <XAxis dataKey="period" tickFormatter={(value) => value.slice(5)} />
-            <YAxis width={96} tickMargin={8} tickFormatter={(value: number) => Number(value).toLocaleString("ko-KR")} />
-            <Tooltip formatter={(value) => [`${Number(value).toLocaleString("ko-KR")} kWh`, "사용량"]} />
-            <Line type="monotone" dataKey="estimatedKwh" stroke={themeColor("chart-ranking")} strokeWidth={2.5} connectNulls={false} dot={false} />
+            <CartesianGrid stroke={palette["chart-grid"]} strokeDasharray="3 3" vertical={false} />
+            <XAxis dataKey="period" tickFormatter={(value) => value.slice(5)} tick={{ fill: palette["content-secondary"] }}
+              tickLine={false} axisLine={{ stroke: palette["border-strong"] }} />
+            <YAxis width={96} tickMargin={8} tickFormatter={(value: number) => Number(value).toLocaleString("ko-KR")}
+              tick={{ fill: palette["content-secondary"] }} tickLine={false} axisLine={false} />
+            <Tooltip formatter={(value) => [`${Number(value).toLocaleString("ko-KR")} kWh`, "사용량"]}
+              cursor={{ stroke: palette["border-strong"] }}
+              contentStyle={{ backgroundColor: palette["surface-elevated"], borderColor: palette["border-strong"], color: palette["content-primary"] }}
+              itemStyle={{ color: palette["content-primary"] }} labelStyle={{ color: palette["content-secondary"] }} />
+            <Line type="monotone" dataKey="estimatedKwh" stroke={palette["chart-ranking"]} strokeWidth={2.5}
+              connectNulls={false} dot={false} activeDot={{ fill: palette["chart-ranking"], stroke: palette["chart-point"] }} />
           </LineChart>
         </ResponsiveContainer>
       </div>

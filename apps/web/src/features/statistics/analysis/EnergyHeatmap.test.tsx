@@ -1,8 +1,49 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { EnergyHeatmap } from "./EnergyHeatmap";
+import { CustomerThemeProvider } from "../../../components/ui/theme/CustomerThemeProvider";
+import { ThemeToggle } from "../../../components/ui/theme/ThemeToggle";
 
 describe("EnergyHeatmap", () => {
+  it("preserves 44px cell frames and all hours within the native horizontal scroller", () => {
+    render(<EnergyHeatmap data={heatmapResponse} metric="energy" onMetricChange={vi.fn()} />);
+    const scroller = screen.getByLabelText("시간대별 사용량 표를 가로로 스크롤");
+    expect(scroller).toHaveClass("overflow-x-auto");
+    // JSDOM verifies the responsive declaration only; real continuous hit and
+    // desktop end-hour visibility remain the unchanged native browser contract.
+    const grid = screen.getByRole("group", { name: "시간대별 에너지 사용량" });
+    expect(grid).toHaveClass("gap-0.5", "p-2", "grid-cols-[2rem_repeat(24,2.75rem)]",
+      "tablet:p-0", "tablet:grid-cols-[1rem_repeat(24,minmax(2.75rem,1fr))]");
+    expect(grid).not.toHaveClass("tablet:gap-0");
+    const cells = screen.getAllByRole("button", { name: /요일 .*시/ });
+    expect(cells).toHaveLength(168);
+    for (const cell of cells) {
+      expect(scroller).toContainElement(cell);
+      expect(cell).toHaveClass("h-11", "min-h-11", "min-w-11", "rounded-none", "border-border-strong");
+    }
+    expect(scroller).toContainElement(screen.getByText("23", { exact: true }));
+    cells[0].focus(); fireEvent.keyDown(cells[0], { key: "End" });
+    expect(cells[23]).toHaveFocus();
+    expect(cells[23]).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("status")).toHaveTextContent("일요일 23시");
+  });
+  it("keeps strong click boundaries, missing labels and selected roving cell through theme changes", () => {
+    localStorage.removeItem("led-control.customer-theme.v1");
+    render(<CustomerThemeProvider><ThemeToggle /><EnergyHeatmap data={heatmapResponse} metric="energy" onMetricChange={vi.fn()} /></CustomerThemeProvider>);
+    const cells = screen.getAllByRole("button", { name: /요일 .*시/ });
+    expect(cells).toHaveLength(168);
+    expect(cells[0]).toHaveClass("border-border-strong");
+    expect(cells[0]).toHaveTextContent("0");
+    expect(cells[1]).toHaveClass("border-dashed", "border-border-strong");
+    expect(cells[1]).toHaveTextContent("—");
+    cells[0].focus(); fireEvent.keyDown(cells[0], { key: "ArrowRight" });
+    expect(cells[1]).toHaveFocus();
+    fireEvent.click(screen.getByRole("button", { name: "다크 모드로 변경" }));
+    expect(screen.getAllByRole("button", { name: /요일 .*시/ })).toEqual(cells);
+    expect(cells[1]).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("status")).toHaveTextContent("일요일 01시, 평균 산정 불가");
+    localStorage.removeItem("led-control.customer-theme.v1");
+  });
   it("retains the live metric filter across loading and error transitions", () => {
     const props = { metric: "energy" as const, onMetricChange: vi.fn(), data: heatmapResponse };
     const view = render(<EnergyHeatmap {...props} />);
