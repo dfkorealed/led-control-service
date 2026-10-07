@@ -165,6 +165,7 @@ PC 수동 제어는 shell 아래 남는 높이를 flex/grid로 배분한다. 외
 - 테마 전환/지도 선택/도구 전환/밝기 draft/탭/필터/이력/레이아웃 resize만으로 추가 dimming POST가 발생하지 않아야 한다. 명시적 Apply 이후의 기존 UUID/payload/ACK·복구 계약은 유지한다.
 - ticker의 5초·pause/cleanup/scope, null과 0·페이지 일부 데이터 집계, 서버 timestamp·실패한 refresh, query 수명·cursor/권한을 검증한다.
 - 라이트·다크 실제 UI와 새로고침/다른 탭/저장 실패/고객 scope cleanup을 확인한다. 열린 Popover/Dialog/Drawer, 지도·차트·축·입력·상태·focus까지 같은 테마여야 한다. 실제 색상 대비는 본문 4.5:1, 큰 글자/필수 UI 경계 3:1을 기준으로 검토하고 색만으로 상태를 전달하지 않는다. 공개/로그인/운영자 소비자의 기존 디자인이 의도치 않게 바뀌지 않았는지 확인한다.
+- 실제 computed CSS 색의 직렬화가 rgb/rgba 또는 oklab이어도 동일한 RGBA 의미·반투명 조상 background stack으로 대비를 계산한다. 색 형식 해석 실패는 성공이나 palette 추정으로 대체하지 않으며 원본/unknown-color 오류·기준을 보존한다. Task11의 실제 site 포커스8.009 도달과 후속 반투명oklab parser1FAIL은 별개의 경계다; local 검사 보완 뒤 원firstcase와 후속화면을 실제로 검증한다.
 - 기존 1000대 지도 성능·정확한 pin 선택 등 관련 회귀를 유지한다. 실제 브라우저 정상 화면 원본을 확인하며 CSS/브라우저 결과를 native·HIL 완료로 확대하지 않는다.
 - 검증 완료 주장에는 실행 소스·명령·exit code·실패/skip·화면 증거를 연결한다. 과거 목업 31개 검사 결과나 이전 제품 test 결과를 이번 제품 통과 근거로 재사용하지 않는다.
 
