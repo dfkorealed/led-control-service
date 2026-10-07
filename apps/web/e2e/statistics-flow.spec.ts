@@ -1634,15 +1634,25 @@ for (const viewport of [
 ] as const) {
   test(`${viewport.width}px control modes use the statistics underline navigation visual with optional icons`, async ({ page }) => {
     await page.setViewportSize(viewport);
+    const dimmingPosts: string[] = [];
+    const groupWrites: string[] = [];
+    page.on("request", (request) => {
+      const path = new URL(request.url()).pathname;
+      if (request.method() === "POST" && path === "/api/commands/dimming") dimmingPosts.push(request.url());
+      if (request.method() !== "GET" && /^\/api\/sites\/[^/]+\/fixture-groups(?:\/|$)/.test(path)) groupWrites.push(request.url());
+    });
     const emptyPage = { items: [], nextCursor: null };
     await page.route("**/api/sites/*/automation/schedules**", (route) => route.fulfill({ json: emptyPage }));
     await page.route("**/api/sites/*/automation/vehicle-event-rules**", (route) => route.fulfill({ json: emptyPage }));
+    // The group reader uses an array; never let this read fixture accept mutations.
+    await page.route("**/api/sites/*/fixture-groups", (route) => route.request().method() === "GET"
+      ? route.fulfill({ json: [] }) : route.fallback());
     await page.goto("/control?siteId=site-1&mode=manual");
 
     const controlNavigation = page.getByRole("tablist", { name: "제어 방식" });
     const controlTabs = controlNavigation.getByRole("tab");
-    await expect(controlTabs).toHaveCount(3);
-    expect(await controlTabs.locator("svg").count()).toBe(3);
+    await expect(controlTabs).toHaveCount(4);
+    expect(await controlTabs.locator("svg").count()).toBe(4);
 
     const controlMetrics = await controlNavigation.evaluate((element) => ({
       clientWidth: element.clientWidth,
@@ -1659,13 +1669,17 @@ for (const viewport of [
       expect(bounds!.height).toBeGreaterThanOrEqual(44);
     }
     let controlVisual: Awaited<ReturnType<typeof underlineNavigationVisual>> | undefined;
-    for (const [mode, label] of [["manual", "수동 제어"], ["schedule", "스케줄 제어"], ["event", "이벤트 제어"]] as const) {
+    for (const [mode, label] of [["manual", "수동 제어"], ["schedule", "스케줄 제어"], ["event", "이벤트 제어"], ["group", "그룹/구역"]] as const) {
       const selectedTab = controlNavigation.getByRole("tab", { name: label });
       if (mode !== "manual") await selectedTab.click();
       await expect(page).toHaveURL(new RegExp(`[?&]mode=${mode}(?:&|$)`));
       await expect(selectedTab).toHaveAttribute("aria-selected", "true");
       const modePanel = page.locator(`#control-mode-panel-${mode}`);
       await expect(modePanel).toBeVisible();
+      if (mode === "group") {
+        await expect(selectedTab).toHaveAttribute("aria-controls", "control-mode-panel-group");
+        await expect(page.getByRole("tabpanel", { name: "그룹/구역", exact: true })).toBeVisible();
+      }
 
       const alignment = await underlineNavigationAlignment(controlNavigation);
       expect(Math.abs(alignment.wrapperHeight - alignment.trackHeight), `${mode} wrapper/track height`).toBeLessThanOrEqual(1);
@@ -1679,6 +1693,8 @@ for (const viewport of [
       controlVisual ??= await underlineNavigationVisual(controlNavigation, selectedTab);
     }
     await expectNoHorizontalOverflow(page);
+    expect(dimmingPosts).toEqual([]);
+    expect(groupWrites).toEqual([]);
 
     await page.goto("/statistics/overview?siteId=site-1#summary");
     const statisticsNavigation = page.getByRole("navigation", { name: "통계 메뉴" });
@@ -1691,6 +1707,8 @@ for (const viewport of [
     const statisticsVisual = await underlineNavigationVisual(statisticsNavigation, selectedStatisticsLink);
     expect(controlVisual).toEqual(statisticsVisual);
     await expectNoHorizontalOverflow(page);
+    expect(dimmingPosts).toEqual([]);
+    expect(groupWrites).toEqual([]);
   });
 }
 
