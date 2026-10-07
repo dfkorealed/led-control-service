@@ -27,6 +27,22 @@ function Probe() {
 }
 function mount() { return render(<CustomerThemeProvider><Probe /></CustomerThemeProvider>); }
 describe("customer theme preference", () => {
+  it("reserves a nonshrinking customer frame while preserving the native toggle identity and preference", () => {
+    mount();
+    const toggle = screen.getByRole("button", { name: "다크 모드로 변경" });
+    // JSDOM checks the approved frame declaration; real-browser continuous44
+    // and mobile header-fit evidence are recorded separately.
+    expect(toggle).toHaveClass("size-13", "shrink-0");
+    expect(toggle).toHaveAttribute("type", "button");
+    expect(toggle).toHaveAttribute("aria-pressed", "false");
+    toggle.focus();
+    fireEvent.click(toggle);
+    expect(screen.getByRole("button", { name: "라이트 모드로 변경" })).toBe(toggle);
+    expect(toggle).toHaveFocus();
+    expect(toggle).toHaveAttribute("aria-pressed", "true");
+    expect(localStorage.getItem(customerThemeStorageKey)).toBe("dark");
+    expect(toggle).toHaveClass("size-13", "shrink-0");
+  });
   it("defaults invalid and missing preferences without accepting approximate dark values", () => {
     expect(parseCustomerThemePreference("dark")).toBe("dark");
     for (const input of [null, "corrupted", "DARK", " dark", "light"]) expect(parseCustomerThemePreference(input)).toBe("light");

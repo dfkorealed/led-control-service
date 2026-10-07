@@ -940,3 +940,10 @@ DB 모델이 실제 변경되는 작업에서는 `docs/database-schema.md`를 �
 - route-backed action을 추가하거나 제거할 때 role filtering, `siteId` query와 hash fragment 보존, dirty navigation guard 회귀를 함께 갱신한다.
 - 테스트 데이터 도구의 활성화 플래그, 설치 완료 assigned admin 노출 조건, marker 기반 생성·삭제 범위가 바뀌면 이 문서와 모니터링 문서를 함께 갱신한다. DB schema/migration 변경이 없는지도 명시한다.
 - CAD 분석 결과를 갱신할 때 원본 SHA256, analyzer/converter/DXF/profile 버전과 digest, model/paper layer·block·entity·직접/nested INSERT·world 좌표·후보 통계, 제품 pipeline 자원 실측과 동일 출력 재현성을 함께 기록한다. 직접 INSERT 이름+유한 원점 비율, 지원 entity 기준 맵 기하 재현 예상, ground truth 기반 검출 지표, BLE identity 매핑을 서로 대체하지 않는다.
+
+## 2026-10-07 고객 공통 테마 전환 조작 영역 (Task9 handoff)
+
+- 구현 완료: 고객 공통 헤더의 테마 전환은 승인52px frame과 shrink 방지를 사용해 둥근 모서리 안에서도 연속44px 조작 영역을 제공한다. 실제320/390 Chromium 양 테마에서 헤더 로고·현장 선택·알람과 겹침/가로 넘침 없이 확인했고 테마 전환으로 추가 API 쓰기0을 유지한다.
+- 미구현·한계: 실제 모바일 장비/HIL 및 전체 Task9 통합 완료를 뜻하지 않는다. 일반 Button/IconButton·공개/인증/운영자 기본 크기와 토큰은 변경하지 않았다.
+- 관련 파일: `apps/web/src/components/ui/theme/ThemeToggle.tsx`, `CustomerThemeProvider.test.tsx`, `apps/web/e2e/support/layout-assertions.ts`, `apps/web/e2e/statistics-flow.spec.ts`.
+- 갱신 규칙: 공통 헤더의 frame·조작 영역 변경 시 영향받는 네 메뉴의 검증 범위와 실제 장비 한계를 함께 갱신한다.

@@ -988,3 +988,10 @@
 - 관련 파일: `apps/web/src/api/detail-retention.ts`, `apps/web/src/features/monitoring/{useMonitoringActivity,MonitoringLogDrawer,MonitoringLogTicker}`와 해당 테스트.
 - 갱신 규칙: cursor 오류·재검증·활동 보관 정책이 바뀌면 제어 메뉴 문서와 이 항목을 함께 갱신한다.
 - 검토 보완: 공통 보관 시계는 평년·윤년 2월 말의 비단조 cutoff를 날짜별로 검사한다. 3개월 뒤 월말의 첫 제외 시점을 마지막 날까지 미루지 않는다.
+
+## 2026-10-07 고객 공통 테마 전환 조작 영역 (Task9 handoff)
+
+- 구현 완료: 고객 공통 헤더의 테마 전환은 승인52px frame과 shrink 방지를 사용해 둥근 모서리 안에서도 연속44px 조작 영역을 제공한다. 실제320/390 Chromium 양 테마에서 헤더 로고·현장 선택·알람과 겹침/가로 넘침 없이 확인했고 테마 전환으로 추가 API 쓰기0을 유지한다.
+- 미구현·한계: 실제 모바일 장비/HIL 및 전체 Task9 통합 완료를 뜻하지 않는다. 일반 Button/IconButton·공개/인증/운영자 기본 크기와 토큰은 변경하지 않았다.
+- 관련 파일: `apps/web/src/components/ui/theme/ThemeToggle.tsx`, `CustomerThemeProvider.test.tsx`, `apps/web/e2e/support/layout-assertions.ts`, `apps/web/e2e/statistics-flow.spec.ts`.
+- 갱신 규칙: 공통 헤더의 frame·조작 영역 변경 시 영향받는 네 메뉴의 검증 범위와 실제 장비 한계를 함께 갱신한다.
