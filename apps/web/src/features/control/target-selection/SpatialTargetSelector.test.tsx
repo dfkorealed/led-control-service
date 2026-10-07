@@ -1,5 +1,5 @@
 import type { FloorMapSnapshot } from "@led-control/shared";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Dashboard } from "../../../api/queries";
@@ -56,8 +56,35 @@ describe("SpatialTargetSelector", () => {
 
   afterEach(cleanup);
 
+  it("manual map uses displayed server floor counts independently of selection and loaded fixtures", () => {
+    const data: Dashboard = { ...dashboard, summary: { ...dashboard.summary, totalFixtures: 999 }, floors: [
+      { ...dashboard.floors[0], fixtures: dashboard.floors[0].fixtures.slice(0, 2), summary: { totalFixtures: 24, onlineFixtures: 18, faultFixtures: 2, offlineFixtures: 4 } },
+      { ...dashboard.floors[0], id: "floor-b1", name: "B1", level: -1, fixtures: [], summary: { totalFixtures: 0, onlineFixtures: 0, faultFixtures: 0, offlineFixtures: 0 } }
+    ] };
+    renderSelector({ dashboard: data, presentation: "manual-workspace", selection: { mode: "fixtures", fixtureIds: [fixtureA] } });
+    const status = screen.getByRole("group", { name: "B2 도면 조명 상태" });
+    expect(status).toHaveTextContent("전체24정상18장애2오프라인4");
+    expect(status).not.toHaveTextContent("999");
+    const viewport = screen.getByTestId("target-selection-map-viewport");
+    fireEvent.click(screen.getByRole("button", { name: "이동" }));
+    fireEvent.click(screen.getByRole("button", { name: "표시 층" })); fireEvent.click(screen.getByRole("option", { name: "B1" }));
+    expect(screen.getByRole("group", { name: "B1 도면 조명 상태" })).toHaveTextContent("전체0정상0장애0오프라인0");
+    expect(screen.getByRole("button", { name: "이동" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByTestId("target-selection-map-viewport")).toBe(viewport);
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it("manual missing floor counts stay unknown and embedded status stays absent", () => {
+    const view = renderSelector({ presentation: "manual-workspace" });
+    const status = screen.getByRole("group", { name: "B2 도면 조명 상태" });
+    expect(within(status).getAllByText("—")).toHaveLength(4);
+    view.rerender(<SelectorHarness />);
+    expect(screen.queryByRole("group", { name: /도면 조명 상태/ })).not.toBeInTheDocument();
+  });
+
   it("opts manual workspace into always-visible chrome tools without changing the embedded default", () => {
     const view = renderSelector({ presentation: "manual-workspace", hideEmbeddedSummary: true });
+    expect(document.querySelector("[data-target-selection-content]")).toHaveClass("overscroll-contain", "compact:overscroll-auto");
     const tools = screen.getByRole("group", { name: "지도 선택 도구" });
     expect(tools).toContainElement(screen.getByRole("button", { name: "이동" }));
     expect(screen.getByRole("button", { name: "개별 선택" })).toHaveAttribute("aria-pressed", "true");
@@ -69,6 +96,8 @@ describe("SpatialTargetSelector", () => {
     expect(onChange).toHaveBeenCalledWith({ mode: "fixtures", fixtureIds: [fixtureA] });
     view.rerender(<SelectorHarness />);
     expect(screen.queryByRole("group", { name: "지도 선택 도구" })).not.toBeInTheDocument();
+    expect(document.querySelector("[data-target-selection-content]")).toHaveClass("overscroll-contain");
+    expect(document.querySelector("[data-target-selection-content]")).not.toHaveClass("compact:overscroll-auto");
   });
   it("keeps manual navigation available while aggregate selection remains immutable", () => {
     renderSelector({ presentation: "manual-workspace", selection: { mode: "floor", floorId: "floor-b2" } });

@@ -77,6 +77,51 @@ async function nativeReach(page: Page, target: Locator) {
   throw new Error(`Control is not reachable with bounded native scrolling: ${await target.getAttribute("aria-label")}`);
 }
 
+// Prepare short desktop's real scroll owner from map chrome, never from the
+// canvas (whose native wheel intentionally zooms). nativeReach stays unchanged.
+async function scrollManualChromeToEnd(page: Page, direction: "end" | "start" = "end") {
+  const workspace = page.locator("[data-control-layout]");
+  const viewport = page.getByTestId("target-selection-map-viewport");
+  const camera = await viewport.getAttribute("data-zoom");
+  const chrome = page.getByRole("button", { name: "이동", exact: true });
+  await chrome.click();
+  const wheelChrome = page.getByRole("button", { name: "구역 관리", exact: true });
+  await wheelChrome.hover();
+  await paints(page);
+  const afterHoverCamera = await viewport.getAttribute("data-zoom");
+  const hit = await wheelChrome.evaluate(element => {
+    const box = element.getBoundingClientRect();
+    const hit = document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2);
+    const ancestors = [];
+    for (let parent = element.parentElement; parent; parent = parent.parentElement) {
+      const style = getComputedStyle(parent);
+      ancestors.push({ className: parent.className, overflowY: style.overflowY, overscrollY: style.overscrollBehaviorY, height: parent.clientHeight, content: parent.scrollHeight });
+    }
+    (window as Window & { task7ChromeTrustedWheel?: number }).task7ChromeTrustedWheel = 0;
+    (window as Window & { task7ChromeEvents?: unknown[] }).task7ChromeEvents = [];
+    window.addEventListener("wheel", event => {
+      if (event.isTrusted) (window as Window & { task7ChromeTrustedWheel: number }).task7ChromeTrustedWheel += 1;
+      (window as Window & { task7ChromeEvents: unknown[] }).task7ChromeEvents.push({ trusted: event.isTrusted, x: event.clientX, y: event.clientY, target: (event.target as Element)?.outerHTML.slice(0, 200), zoom: document.querySelector<HTMLElement>("[data-testid=target-selection-map-viewport]")?.dataset.zoom });
+    }, { capture: true, passive: true });
+    const canvas = document.querySelector<HTMLElement>("[data-testid=target-selection-map-viewport]")!.getBoundingClientRect();
+    return { box: box.toJSON(), canvas: canvas.toJSON(), nativeHit: hit === element || element.contains(hit), ancestors };
+  });
+  expect(hit.nativeHit).toBe(true);
+  expect(hit.box.x + hit.box.width / 2).toBeGreaterThan(hit.canvas.right);
+  const before = await workspace.evaluate(element => element.scrollTop);
+  await page.mouse.wheel(0, direction === "end" ? 10_000 : -10_000);
+  await expect.poll(() => workspace.evaluate((element, end) => element.scrollTop - (end ? element.scrollHeight - element.clientHeight : 0), direction === "end")).toBe(0);
+  await paints(page);
+  const after = await workspace.evaluate(element => element.scrollTop);
+  expect(hit.box.x + hit.box.width / 2).toBeGreaterThan((await viewport.boundingBox())!.x + (await viewport.boundingBox())!.width);
+  console.log("Task7 native chrome scroll", JSON.stringify({ hit, before, after, camera, afterHoverCamera, afterCamera: await viewport.getAttribute("data-zoom"), events: await page.evaluate(() => (window as Window & { task7ChromeEvents: unknown[] }).task7ChromeEvents) }));
+  await test.info().attach("manual-chrome-native-wheel", { body: JSON.stringify({ hit, before, after, camera, afterCamera: await viewport.getAttribute("data-zoom"), trusted: await page.evaluate(() => (window as Window & { task7ChromeTrustedWheel: number }).task7ChromeTrustedWheel) }), contentType: "application/json" });
+  if (direction === "end") await expect.poll(() => workspace.evaluate(element => element.scrollTop)).toBeGreaterThan(0);
+  expect(await viewport.getAttribute("data-zoom")).toBe(camera);
+  expect(await page.evaluate(() => (window as Window & { task7ChromeTrustedWheel: number }).task7ChromeTrustedWheel)).toBeGreaterThan(0);
+  expect(await page.evaluate(() => window.scrollY)).toBe(0);
+}
+
 for (const hasTouch of [false, true]) test.describe(`Operational ${hasTouch ? "touch-capable" : "ordinary"} pointer`, () => {
   test.use({ hasTouch });
   for (const surface of ["monitoring", "control"] as const) test(`${surface} dense five true centers preserve exact IDs, anchors and disabled keyboard behavior`, async ({ page, baseURL }, info) => {
@@ -163,13 +208,16 @@ for (const size of [{ width: 1024, height: 480 }, { width: 390, height: 320 }, {
     await info.attach("actual-map-bounds", { body: JSON.stringify({ size, box, legendBounds, zoomBounds, legendClipping }), contentType: "application/json" });
     expect.soft(box.height).toBeGreaterThanOrEqual(240);
     await info.attach("control-initial-full-page", { body: await page.screenshot({ fullPage: true }), contentType: "image/png" });
+    if (size.width >= 760 && size.height < 600) await scrollManualChromeToEnd(page);
     const point = await nativeReach(page, page.getByRole("button", { name: "지도 확대", exact: true }));
     await page.mouse.click(point.x, point.y); await expect(viewport).toHaveAttribute("data-zoom", "1.1");
     const input = page.getByRole("textbox", { name: "밝기 수치" });
+    if (size.width >= 760 && size.height < 600) await scrollManualChromeToEnd(page, "start");
     await nativeReach(page, input); await input.fill("42"); await input.press("Enter");
     const apply = page.getByRole("button", { name: "밝기 적용", exact: true });
+    if (size.width >= 760 && size.height < 600) await scrollManualChromeToEnd(page);
     await nativeReach(page, apply); await expect(apply).toBeDisabled();
-    const opener = page.getByRole("button", { name: "명령 이력 열기", exact: true });
+    const opener = page.getByRole("button", { name: "전체 보기", exact: true });
     const historyPoint = await nativeReach(page, opener); await page.mouse.click(historyPoint.x, historyPoint.y);
     await expect(page.getByRole("dialog", { name: "명령 이력", exact: true })).toBeVisible();
     await page.keyboard.press("Escape"); await expect(opener).toBeFocused();
@@ -267,6 +315,7 @@ test("control selected neighbours, live zoom/pan and additive area retain exact 
   await page.getByRole("button", { name: "선택 비우기", exact: true }).click();
   await clickCenter(page, 0);
   const point = await markerPoint(page, 0);
+  await page.getByRole("button", { name: "영역 선택", exact: true }).click();
   await page.mouse.move(point.x - 40, point.y - 40); await page.mouse.down();
   await page.mouse.move(point.x + 40, point.y + 40);
   await expect(page.getByTestId("map-area-selection")).toBeVisible();
@@ -289,6 +338,7 @@ test("control selected neighbours, live zoom/pan and additive area retain exact 
     expect(await selected(page)).toEqual(rows.slice(0, 4).map(row => row.id));
   }
   // Re-measure after the camera moved. A stale map coordinate cache would miss.
+  await page.getByRole("button", { name: "개별 선택", exact: true }).click();
   await clickCenter(page, 0);
   expect(await selected(page)).toEqual(rows.slice(1, 4).map(row => row.id));
   expect(state.equipmentPosts).toEqual([]); expect(state.api.dimmingRequests).toEqual([]);
@@ -302,6 +352,7 @@ test.describe("Software touch hold", () => {
     const state = await installOperationalMapFixture(page, baseURL);
     await page.goto(`/control?siteId=${operationalIds.siteId}`);
     await expect(marker(page, 0)).toBeVisible();
+    await page.getByRole("button", { name: "영역 선택", exact: true }).click();
     const point = await markerPoint(page, 0);
     const client = await page.context().newCDPSession(page);
     await client.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x: point.x - 40, y: point.y - 40, id: 1 }] });
@@ -338,6 +389,67 @@ async function controlGeometry(page: Page) {
       centerYRatio: (viewport.y + viewport.height / 2 - surface.y) / surface.height };
   });
 }
+
+for (const theme of ["light", "dark"] as const) for (const size of [
+  { width: 1440, height: 900 }, { width: 1024, height: 600 }, { width: 390, height: 844 }
+]) test(`Task7 ${theme} manual real remaining height and immediate controls at ${size.width}x${size.height}`, async ({ page, baseURL }, info) => {
+  await page.setViewportSize(size);
+  await page.addInitScript(value => localStorage.setItem("led-control.customer-theme.v1", value), theme);
+  const state = await installOperationalMapFixture(page, baseURL);
+  const errors: string[] = []; page.on("pageerror", error => errors.push(error.message));
+  await page.goto(`/control?siteId=${operationalIds.siteId}`);
+  const viewport = page.getByTestId("target-selection-map-viewport");
+  await expect(viewport).toBeVisible(); await paints(page);
+  await expect(page.locator("html")).toHaveAttribute("data-customer-theme", theme);
+  await expect(page.getByRole("button", { name: "개별 선택", exact: true })).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByRole("button", { name: /밝기 실행 설정|선택 도구 열기/ })).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "최근 결과", exact: true })).toHaveCount(0);
+  const measured = await page.evaluate(() => {
+    const map = document.querySelector<HTMLElement>('[data-control-target-card] [data-operation-map-panel]')!;
+    const aside = document.querySelector<HTMLElement>('[data-control-panel]')!;
+    const history = document.querySelector<HTMLElement>('[data-command-history-panel]')!;
+    const card = document.querySelector<HTMLElement>('[data-control-target-card]')!;
+    const canvas = document.querySelector<HTMLElement>('[data-testid="target-selection-map-viewport"]')!;
+    const status = map.querySelector<HTMLElement>('[aria-label$="도면 조명 상태"]')!;
+    return { map: map.getBoundingClientRect().toJSON(), aside: aside.getBoundingClientRect().toJSON(), canvas: canvas.getBoundingClientRect().toJSON(),
+      history: history.getBoundingClientRect().toJSON(), card: card.getBoundingClientRect().toJSON(),
+      presets: [...document.querySelectorAll<HTMLElement>('[aria-label="빠른 밝기 값"] button')].map(node => {
+        const range = document.createRange(); range.selectNodeContents(node);
+        return { text: node.textContent, width: node.getBoundingClientRect().width, height: node.getBoundingClientRect().height,
+          textLines: new Set([...range.getClientRects()].map(rect => rect.top)).size };
+      }),
+      pageOverflowY: document.documentElement.scrollHeight - innerHeight, pageOverflowX: document.documentElement.scrollWidth - innerWidth,
+      labels: [...status.querySelectorAll('span > span')].map(node => getComputedStyle(node).fontSize),
+      values: [...status.querySelectorAll('strong')].map(node => getComputedStyle(node).fontSize),
+      scrollOwners: [...document.querySelectorAll<HTMLElement>('[data-shell-content],[data-control-layout],[data-control-safety-scroll]')].map(node => ({ className: node.className, overflow: getComputedStyle(node).overflowY, height: node.clientHeight, content: node.scrollHeight })) };
+  });
+  console.log(`Task7 actual geometry ${theme} ${size.width}x${size.height}: ${JSON.stringify(measured)}`);
+  await info.attach(`Task7-${theme}-${size.width}-geometry`, { body: JSON.stringify(measured), contentType: "application/json" });
+  const nativePath = info.outputPath(`Task7-${theme}-${size.width}-native.png`);
+  await page.screenshot({ path: nativePath, fullPage: true });
+  await info.attach(`Task7-${theme}-${size.width}-native`, { path: nativePath, contentType: "image/png" });
+  expect(measured.pageOverflowX).toBe(0); expect(measured.canvas.height).toBeGreaterThanOrEqual(240);
+  expect(measured.history.height).toBeGreaterThanOrEqual(44);
+  expect(measured.card.width).toBeGreaterThan(0); expect(measured.card.height).toBeGreaterThan(0);
+  for (const preset of measured.presets) { expect(preset.textLines).toBe(1); expect(preset.width).toBeGreaterThanOrEqual(44); expect(preset.height).toBeGreaterThanOrEqual(44); }
+  expect(measured.labels).toEqual(["14px", "14px", "14px", "14px"]); expect(measured.values).toEqual(["16px", "16px", "16px", "16px"]);
+  if (size.width >= 760) {
+    expect(measured.pageOverflowY).toBe(0);
+    expect(Math.abs(measured.map.y - measured.aside.y)).toBeLessThanOrEqual(2);
+    if (size.height >= 900) expect(measured.history.bottom).toBeLessThanOrEqual(size.height);
+  } else expect(measured.pageOverflowY).toBeGreaterThan(0);
+  const input = page.getByRole("textbox", { name: "밝기 수치" });
+  const inputPoint = await nativeReach(page, input); await page.mouse.click(inputPoint.x, inputPoint.y);
+  await input.fill("30"); await input.press("Enter");
+  await expect(page.getByRole("slider", { name: "밝기" })).toHaveValue("30");
+  for (const value of [0, 30, 70, 100]) await expect(page.getByRole("button", { name: `${value}%`, exact: true })).toBeVisible();
+  const opener = page.getByRole("region", { name: "최근 명령 이력", exact: true }).getByRole("button", { name: "전체 보기", exact: true });
+  if (size.width >= 760 && size.height < 900) await scrollManualChromeToEnd(page);
+  const historyPoint = await nativeReach(page, opener); await page.mouse.click(historyPoint.x, historyPoint.y);
+  await expect(page.getByRole("dialog", { name: "명령 이력", exact: true })).toBeVisible();
+  await page.keyboard.press("Escape"); await expect(opener).toBeFocused();
+  expect(errors).toEqual([]); expect(state.equipmentPosts).toEqual([]); expect(state.api.dimmingRequests).toEqual([]);
+});
 
 test("Control sufficient desktop height grows the actual map and preserves a live camera on resize", async ({ page, baseURL }, info) => {
   await page.setViewportSize({ width: 1440, height: 900 });

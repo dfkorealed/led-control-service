@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "@playwright/test";
 import type { FixtureGroupMetadata } from "@led-control/shared";
 import type { CommandStatusResponse } from "../src/api/commands";
 import { expectNoHorizontalOverflow } from "./support/layout-assertions";
@@ -11,6 +11,23 @@ test.beforeEach(async ({ context, baseURL }) => {
   await installMockApiBoundary(context, baseURL);
 });
 
+async function clickRecentCommand(target: Locator) {
+  await target.hover();
+  const measured = await target.evaluate(element => {
+    const box = element.getBoundingClientRect();
+    let left = 0, right = innerWidth, top = 0, bottom = innerHeight;
+    for (let parent = element.parentElement; parent; parent = parent.parentElement) {
+      const style = getComputedStyle(parent), bounds = parent.getBoundingClientRect();
+      if (/hidden|clip|auto|scroll/.test(style.overflowX)) { left = Math.max(left, bounds.left); right = Math.min(right, bounds.right); }
+      if (/hidden|clip|auto|scroll/.test(style.overflowY)) { top = Math.max(top, bounds.top); bottom = Math.min(bottom, bounds.bottom); }
+    }
+    const hit = document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2);
+    return { label: element.getAttribute("aria-label"), width: Math.min(right, box.right) - Math.max(left, box.left), height: Math.min(bottom, box.bottom) - Math.max(top, box.top), nativeHit: element === hit || element.contains(hit) };
+  });
+  await test.info().attach("actual-recent-command-target", { body: JSON.stringify(measured), contentType: "application/json" });
+  expect(measured.width).toBeGreaterThanOrEqual(44); expect(measured.height).toBeGreaterThanOrEqual(44); expect(measured.nativeHit).toBe(true);
+  await target.click();
+}
 
 const ids = {
   site: "77777777-7777-4777-8777-777777777701",
@@ -68,7 +85,7 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
     // Mobile wraps the actions into a second row with 52px touch targets.
     // Include the 44px summary row, 16px vertical padding and 2px border.
     expect(historyBox!.height).toBeLessThanOrEqual(viewport.width >= 760 ? 72 : 44 + 52 + 16 + 2);
-    await history.getByRole("button", { name: "명령 이력 열기" }).click();
+    await history.getByRole("button", { name: "전체 보기" }).click();
     await expect(page.getByRole("dialog", { name: "명령 이력" })).toContainText("최근 3개월");
     await expectNoHorizontalOverflow(page);
   });
@@ -116,13 +133,13 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
     expect((await page.getByTestId("target-selection-map-viewport").boundingBox())!.height).toBeGreaterThanOrEqual(240);
     const history = page.getByRole("region", { name: "최근 명령 이력" });
     await expect(history.getByRole("button", { name: new RegExp(commandId) })).toBeVisible();
-    const openHistory = history.getByRole("button", { name: "명령 이력 열기" });
-    await expect(openHistory).toHaveAttribute("aria-haspopup", "dialog");
+    const openHistory = history.getByRole("button", { name: "전체 보기" });
+    await expect(openHistory).toBeVisible();
     await openHistory.click();
     const drawer = page.getByRole("dialog", { name: "명령 이력" });
     await expect(drawer.getByRole("searchbox", { name: "명령 이력 검색" })).toBeVisible();
     await expect(drawer).toContainText("최근 3개월");
-    await expect.poll(() => historyRequests.find((url) => url.searchParams.get("limit") === "1")?.searchParams.get("limit")).toBe("1");
+    await expect.poll(() => historyRequests.find((url) => url.searchParams.get("limit") === "5")?.searchParams.get("limit")).toBe("5");
     await expect.poll(() => historyRequests.find((url) => url.searchParams.get("limit") === "50")?.searchParams.get("limit")).toBe("50");
     await drawer.getByRole("searchbox", { name: "명령 이력 검색" }).fill("B2");
     await expect.poll(() => historyRequests.at(-1)?.searchParams.get("query")).toBe("B2");
@@ -141,7 +158,7 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
     await expandRecentDetails(page);
     await execution.getByRole("button", { name: "명령 상세 닫기" }).click();
     await expect(execution.getByRole("button", { name: "명령 상세 닫기" })).toHaveCount(0);
-    await history.getByRole("button", { name: new RegExp(commandId) }).click();
+    await clickRecentCommand(history.getByRole("button", { name: new RegExp(commandId) }));
     const safetyCheck = page.getByRole("button", { name: "실제 상태 확인", exact: true });
     await safetyCheck.hover();
     const feedback = page.locator("[data-control-panel-feedback]");
@@ -166,8 +183,8 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
     await expect.poll(() => api.dimmingRequests.at(-1)).toMatchObject({ brightness: 30, target: { type: "fixtures", fixtureIds: [ids.fixture] } });
     await expectNoHorizontalOverflow(page);
     if (viewport.width === 1440 && viewport.height === 600) {
-      // Short workspaces intentionally use natural page flow. Prove native end
-      // reachability instead of treating document height as a fixed-page proxy.
+      // Manual desktop keeps the document fixed; native chrome wheels must
+      // scroll the actual workspace, not zoom the canvas or move the page.
       const originalRequest = structuredClone(api.dimmingRequests[0]);
       await page.evaluate(() => {
         (window as typeof window & { task6ShortWheel?: number }).task6ShortWheel = 0;
@@ -175,13 +192,34 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
           if (event.isTrusted) (window as typeof window & { task6ShortWheel: number }).task6ShortWheel += 1;
         }, { capture: true });
       });
-      await page.mouse.move(viewport.width - 2, viewport.height / 2);
+      const workspace = page.locator("[data-control-layout]");
+      const chrome = page.getByRole("button", { name: "이동", exact: true });
+      await chrome.hover();
+      expect(await chrome.evaluate(element => {
+        const bounds = element.getBoundingClientRect();
+        const hit = document.elementFromPoint(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2);
+        return hit === element || element.contains(hit);
+      })).toBe(true);
       await page.mouse.wheel(0, -10_000);
+      await expect.poll(() => workspace.evaluate(element => element.scrollTop)).toBe(0);
       await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(0);
-      await page.mouse.click(viewport.width - 2, viewport.height / 2);
-      await page.mouse.wheel(0, 10_000);
+      await chrome.click();
       await page.keyboard.press("End");
-      await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(0);
+      const wheelChrome = page.getByRole("button", { name: "구역 관리", exact: true });
+      await wheelChrome.hover();
+      const cameraBeforeWheel = await page.getByTestId("target-selection-map-viewport").getAttribute("data-zoom");
+      expect(await wheelChrome.evaluate(element => {
+        const bounds = element.getBoundingClientRect();
+        const map = document.querySelector<HTMLElement>("[data-testid=target-selection-map-viewport]")!.getBoundingClientRect();
+        const hit = document.elementFromPoint(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2);
+        return bounds.x + bounds.width / 2 > map.right && (hit === element || element.contains(hit));
+      })).toBe(true);
+      await page.mouse.wheel(0, 10_000);
+      await expect.poll(() => workspace.evaluate(element => element.scrollTop)).toBeGreaterThan(0);
+      await expect.poll(() => workspace.evaluate(element => element.scrollTop - (element.scrollHeight - element.clientHeight))).toBe(0);
+      expect(await page.getByTestId("target-selection-map-viewport").getAttribute("data-zoom")).toBe(cameraBeforeWheel);
+      await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(0);
+      expect(await page.evaluate(() => document.documentElement.scrollHeight - document.documentElement.clientHeight)).toBe(0);
       const map = page.getByTestId("target-selection-map-viewport");
       expect((await map.boundingBox())!.height).toBeGreaterThanOrEqual(240);
       const reachable = [];
@@ -226,7 +264,7 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
       expect(api.dimmingRequests[0]).toEqual(originalRequest);
       await expect(page.getByRole("slider", { name: "밝기" })).toBeDisabled();
       await expectNoHorizontalOverflow(page);
-      console.log("TASK6_SHORT_NATURAL_FLOW", JSON.stringify({ reachable, originalRequest,
+      console.log("TASK7_SHORT_WORKSPACE_FLOW", JSON.stringify({ reachable, originalRequest,
         scroll: await page.evaluate(() => ({ y: scrollY, height: document.documentElement.scrollHeight, wheel: (window as typeof window & { task6ShortWheel: number }).task6ShortWheel })) }));
     } else if (viewport.width > 1120) {
       const documentHeight = await page.evaluate(() => document.documentElement.scrollHeight);
@@ -608,19 +646,23 @@ function dashboardResponse(
 }
 
 
-test("Task6 direct brightness and command history contract", async ({ page }) => {
+test("Task7 immediate manual tools and draft-only brightness retain command history contract", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   const api = await installManualControlFixture(page, "admin");
   await page.goto(`/control?siteId=${ids.site}`);
-  await expect(page.getByRole("button", { name: "영역 선택", exact: true })).toHaveCount(0);
-  for (const value of [0, 30, 70, 100]) await expect(page.getByRole("button", { name: `${value}%`, exact: true })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "영역 선택", exact: true })).toBeVisible();
+  for (const value of [0, 30, 70, 100]) {
+    await page.getByRole("button", { name: `${value}%`, exact: true }).click();
+    await expect(page.getByRole("slider", { name: "밝기" })).toHaveValue(String(value));
+  }
+  expect(api.dimmingRequests).toHaveLength(0);
   await page.getByRole("button", { name: /^B2-L01 / }).focus();
   await page.getByRole("button", { name: /^B2-L01 / }).press("Enter");
   const input = page.getByRole("textbox", { name: "밝기 수치" });
   await input.fill("42"); await input.press("Enter");
   await expect(page.getByRole("slider", { name: "밝기" })).toHaveValue("42");
   expect(api.dimmingRequests).toHaveLength(0);
-  await page.getByRole("button", { name: "명령 이력 열기" }).click();
+  await page.getByRole("button", { name: "전체 보기" }).click();
   const drawer=page.getByRole("dialog", { name: "명령 이력", exact:true });
   await expect(drawer.getByRole("group", { name: "조회 기간" })).toHaveCount(0);
   await drawer.getByRole("button", { name: /명령 이력 필터 상세 필터/ }).click();
@@ -653,7 +695,7 @@ for (const viewport of [{ width: 320, height: 740 }, { width: 390, height: 844 }
       return route.fallback();
     });
     await page.goto(`/control?siteId=${ids.site}`);
-    await page.getByRole("region", { name: "최근 명령 이력" }).getByRole("button", { name: new RegExp(commandId) }).click();
+    await clickRecentCommand(page.getByRole("region", { name: "최근 명령 이력" }).getByRole("button", { name: new RegExp(commandId) }));
     await expandRecentDetails(page);
     const feedback = page.locator("[data-control-panel-feedback]");
     const feedbackMetrics = await feedback.evaluate(element => ({ height: element.clientHeight, content: element.scrollHeight, width: element.clientWidth, contentWidth: element.scrollWidth }));
@@ -690,7 +732,7 @@ for (const viewport of [{ width: 320, height: 740 }, { width: 390, height: 844 }
   });
 }
 
-test("Task6 in-flight inline/filter/resize keeps the original UUID, targets and lock without another POST", async ({ page }) => {
+test("Task7 in-flight inline/filter/theme/resize/tools keeps the original UUID, targets and lock without another POST", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   const api = await installManualControlFixture(page, "admin");
   await page.goto(`/control?siteId=${ids.site}`);
@@ -710,12 +752,18 @@ test("Task6 in-flight inline/filter/resize keeps the original UUID, targets and 
     dispatches: [{ id: "original-dispatch", kind: "dimming", status: "accepted", gateway: { id: ids.gateway, name: "Gateway B2" }, errorMessage: null, results: [] }]
   } }));
   const originalStorage = await page.evaluate(() => JSON.stringify(Object.entries(sessionStorage)));
+  const originalCamera = await page.getByTestId("target-selection-map-viewport").getAttribute("data-zoom");
+  await page.getByRole("button", { name: "다크 모드로 변경", exact: true }).click();
+  await expect(page.locator("html")).toHaveAttribute("data-customer-theme", "dark");
+  await page.getByRole("button", { name: "이동", exact: true }).click();
+  await expect(page.getByTestId("target-selection-map-viewport")).toHaveAttribute("data-zoom", originalCamera!);
+  expect(api.dimmingRequests).toEqual([originalRequest]);
   await expect(input).toBeDisabled();
   await expandRecentDetails(page);
   await expect(page.getByRole("region", { name: "최근 결과 상세" })).toContainText("30%");
   await expect(page.getByRole("region", { name: "최근 결과 상세" })).toContainText(ids.fixture);
   await page.getByRole("button", { name: "상세 접기" }).click();
-  await page.getByRole("button", { name: "명령 이력 열기" }).click();
+  await page.getByRole("button", { name: "전체 보기" }).click();
   await page.getByRole("button", { name: /명령 이력 필터 상세 필터/ }).click();
   await page.getByRole("button", { name: "필터 초기화" }).click();
   await page.getByRole("button", { name: "필터 닫기" }).click();

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { Dashboard, DashboardFixture } from "../../../api/queries";
 import { useFloorMapSnapshot } from "../../../api/queries";
-import { Button, ConfirmDialog, OperationMapPanel, Text } from "../../../components/ui";
+import { Button, ConfirmDialog, InlineStatusSummary, OperationMapPanel, Text } from "../../../components/ui";
 import { FloorScene } from "../../floor-map/FloorScene";
 import { FloorMapViewport, type MapSelectionRect } from "../../floor-map/FloorMapViewport";
 import { resolveControlSelection, toggleFixtureSelection, type ControlMode, type ControlSelection } from "../control-selection";
@@ -126,13 +126,21 @@ export function SpatialTargetSelector({
       onOpenList={() => setListOpen(true)} listOpenerRef={listOpenerRef} managementAction={managementAction}
       onClear={selection.mode === "fixtures" && selection.fixtureIds.length > 0 ? () => onChange({ mode: "fixtures", fixtureIds: [] }) : undefined} />
     {hideEmbeddedSummary ? <Text className="compact:hidden" variant="caption">{resolved.fixtureIds.length}개 선택 · {selection.mode === "fixtures" ? "개별 조명" : selection.mode === "floor" ? "층 전체" : "저장된 구역"}</Text> : null}
-    <div className={`grid ${hideEmbeddedSummary ? "min-h-min" : "min-h-0"} min-w-0 flex-1 gap-3 overflow-y-auto overscroll-contain ${hideEmbeddedSummary ? "max-compact:flex-none max-compact:overflow-visible" : ""} ${hideEmbeddedSummary && selection.mode === "fixtures" ? "tablet:overflow-hidden" : "tablet:grid-cols-[minmax(0,1fr)_16rem] tablet:overflow-hidden"}`} data-target-selection-content="">
+    {/* Manual desktop's outer workspace owns short-window scrolling. Let chrome
+        wheels chain to it; embedded/mobile panes retain their containment. */}
+    <div className={`grid ${hideEmbeddedSummary ? "min-h-min" : "min-h-0"} min-w-0 flex-1 gap-3 overflow-y-auto overscroll-contain ${manualWorkspace ? "compact:overscroll-auto" : ""} ${hideEmbeddedSummary ? "max-compact:flex-none max-compact:overflow-visible" : ""} ${hideEmbeddedSummary && selection.mode === "fixtures" ? "tablet:overflow-hidden" : "tablet:grid-cols-[minmax(0,1fr)_16rem] tablet:overflow-hidden"}`} data-target-selection-content="">
       {/* The transparent coarse hit box stays rectangular; the shared inner
           20px marker dot retains its circular appearance. Rounded hit boxes
           lose their corners and cannot provide the required 48×48 target. */}
       {/* Footer controls preserve the actual 240px map minimum. The legend has
           its own flow row so neither can cover the other on short screens. */}
       <OperationMapPanel className="[&_[data-spatial-map-marker]]:rounded-none! min-h-min"
+        status={manualWorkspace ? <InlineStatusSummary label={`${activeFloor?.name ?? "현재"} 도면 조명 상태`} items={[
+          { id: "total", label: "전체", value: activeFloor?.summary?.totalFixtures ?? null, tone: "neutral" },
+          { id: "online", label: "정상", value: activeFloor?.summary?.onlineFixtures ?? null, tone: "success" },
+          { id: "fault", label: "장애", value: activeFloor?.summary?.faultFixtures ?? null, tone: "danger" },
+          { id: "offline", label: "오프라인", value: activeFloor?.summary?.offlineFixtures ?? null, tone: "warning" }
+        ]} /> : undefined}
         tools={manualWorkspace ? <TargetMapTools mode={activeTool} selectionDisabled={selectionDisabled} onModeChange={setTool} /> : undefined}>
         {mapQuery.data && activeFloor ? <div className="min-h-min min-w-0 flex-1"><FloorMapViewport snapshot={mapQuery.data} ariaLabel={`${activeFloor.name} 도면`} interactionPolicy={selection.mode === "fixtures" && !disabled ? "direct-selection" : "pan"}
           mode={manualWorkspace ? activeTool : "pan"} toolModePolicy={manualWorkspace ? "explicit" : "interaction-default"}

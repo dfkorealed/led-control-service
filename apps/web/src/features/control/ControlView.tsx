@@ -4,7 +4,7 @@ import type { CreateDimmingCommandInput } from "@led-control/shared";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation, useNavigate } from "react-router-dom";
 import type { AuthUser } from "../../api/auth";
-import { Button, Card, Heading, NumberField, ProgressSteps, SidePanel, Slider, StatusBadge, Text, useSessionStatus, type ProgressStep, type ProgressStepState, type SessionStatusItem } from "../../components/ui";
+import { Button, Card, Heading, ProgressSteps, SidePanel, StatusBadge, Text, useSessionStatus, type ProgressStep, type ProgressStepState, type SessionStatusItem } from "../../components/ui";
 import {
   commandReadRevalidation,
   canonicalizeDimmingCommandInput,
@@ -55,6 +55,7 @@ import {
   registerActiveCommandRequest
 } from "./active-command-session";
 import { SpatialTargetSelector } from "./target-selection/SpatialTargetSelector";
+import { ManualExecutionPanel } from "./ManualExecutionPanel";
 
 const ScheduleControlPanel = lazy(async () => {
   const module = await import("./automation/ScheduleControlPanel");
@@ -77,13 +78,15 @@ export function ControlView({
   userId,
   userRole,
   commandSessionBlocked = false,
-  singleColumnLayout = false
+  singleColumnLayout = false,
+  onManualWorkspaceActiveChange
 }: {
   siteId?: string;
   userId: AuthUser["id"];
   userRole: AuthUser["role"];
   commandSessionBlocked?: boolean;
   singleColumnLayout?: boolean;
+  onManualWorkspaceActiveChange?: (active: boolean) => void;
 }) {
   const location = useLocation();
   const navigate = useNavigate();
@@ -100,7 +103,6 @@ export function ControlView({
   const storageError = useSyncExternalStore(subscribeActiveCommandStorage, getActiveCommandStorageError, () => null);
   const [selection, setSelection] = useState<ControlSelection>(emptySelection);
   const [brightness, setBrightness] = useState(70);
-  const [executionOpen, setExecutionOpen] = useState(false);
   const [message, setMessage] = useState("");
   const [verificationError, setVerificationError] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -128,6 +130,14 @@ export function ControlView({
     siteId: null
   });
   const activeSiteId = data?.site.id ?? null;
+  const manualWorkspaceActive = mode === "manual" && canControl
+    && Boolean(activeSiteId && (!siteId || activeSiteId === siteId));
+  // Report the authorized, resolved page presentation, not execution eligibility.
+  // Fetching, selection and command recovery locks must not change shell height.
+  useLayoutEffect(() => {
+    onManualWorkspaceActiveChange?.(manualWorkspaceActive);
+    return () => onManualWorkspaceActiveChange?.(false);
+  }, [manualWorkspaceActive, onManualWorkspaceActiveChange]);
   const commandScopeMatches = Boolean(
     activeSiteId && commandUserId === userId && commandSiteId === activeSiteId
   );
@@ -617,11 +627,13 @@ export function ControlView({
   }
 
   return (
-    <section className={`${controlScreenClassName} max-compact:overflow-y-auto max-compact:overscroll-contain`} data-control-screen="">
+    <section className={controlScreenClassName} data-control-screen="">
       {modeTabs}
       <div id="control-mode-panel-manual" role="tabpanel" aria-labelledby="control-mode-manual" className="grid min-h-0 min-w-0 gap-4 tablet:flex tablet:flex-1 tablet:flex-col" data-control-manual-panel="">
-      <div className="grid min-h-0 min-w-0 flex-1 grid-cols-1 gap-4 overflow-y-auto overscroll-contain compact:grid-cols-[minmax(0,1fr)_350px] compact:grid-rows-[minmax(min-content,1fr)_auto]" data-control-layout="">
-        <Card className="flex min-h-min min-w-0 flex-col overflow-hidden p-4 max-compact:overflow-visible" aria-label="제어 대상 지도" data-control-target-card="">
+      <div className="grid min-h-0 min-w-0 flex-1 grid-cols-1 gap-4 compact:overflow-y-auto compact:overscroll-contain compact:grid-cols-[minmax(0,1fr)_350px] compact:grid-rows-[auto_minmax(min-content,1fr)_auto]" data-control-layout="">
+        {/* Subgrid shares the toolbar row without reparenting the live map or
+            command owner across breakpoints; map chrome and aside start together. */}
+        <Card className="flex min-h-min min-w-0 flex-col overflow-hidden p-3 max-compact:overflow-visible compact:min-h-0 compact:grid compact:col-start-1 compact:row-start-1 compact:col-span-full compact:row-span-2 compact:grid-cols-subgrid compact:grid-rows-subgrid compact:gap-4 compact:p-0 compact:border-0 compact:bg-transparent [&_[data-spatial-target-selector]]:compact:grid [&_[data-spatial-target-selector]]:compact:col-span-full [&_[data-spatial-target-selector]]:compact:row-span-2 [&_[data-spatial-target-selector]]:compact:grid-cols-subgrid [&_[data-spatial-target-selector]]:compact:grid-rows-subgrid [&_[data-spatial-target-selector]]:compact:gap-4 [&_[data-target-selection-toolbar]]:compact:col-span-full" aria-label="제어 대상 지도" data-control-target-card="">
           <SpatialTargetSelector
             key={data.site.id}
             siteId={data.site.id}
@@ -629,6 +641,7 @@ export function ControlView({
             selection={selection}
             disabled={controlsLocked}
             hideEmbeddedSummary
+            presentation="manual-workspace"
             managementAction={<Button ref={groupDialogOpenerRef} variant="secondary" type="button" onClick={() => setGroupDialogOpen(true)}
               disabled={commandSessionBlocked || isSubmitting || restorePending || commandInProgress}>
               <Layers3 size={16} aria-hidden="true" /> {canManage ? "구역 관리" : "구역 현황"}
@@ -645,22 +658,17 @@ export function ControlView({
           />
         </Card>
 
-        <SidePanel className="flex min-h-0 w-full flex-col gap-4 p-4 compact:overflow-hidden" aria-label="밝기 실행" data-control-panel="">
+        <SidePanel className="flex min-h-0 w-full flex-col gap-3 p-3 compact:col-start-2 compact:row-start-2 compact:overflow-hidden" aria-label="밝기 실행" data-control-panel="">
           <div className="flex flex-none items-start justify-between gap-3">
             <Text as="strong" variant="label" aria-live="polite" aria-atomic="true">{selectedFixtures.length}개 선택</Text>
             <ManualControlBadge readOnly={readOnly} canSubmit={canSubmit} blocked={Boolean(blockMessage)} />
           </div>
-          {/* Collapse presentation only: the command owner, frozen request and recovery actions stay mounted outside this region. */}
-          <div className="min-h-0 flex-none" data-control-execution-disclosure="">
-            <Button type="button" variant="secondary" className="compact:hidden" aria-controls="manual-execution-settings" aria-expanded={executionOpen} onClick={() => setExecutionOpen(!executionOpen)}>밝기 실행 설정 {executionOpen ? "접기" : "열기"}</Button>
-            <div id="manual-execution-settings" className={executionOpen ? "mt-3 compact:mt-0" : "max-compact:hidden"}>
-              <DimmingExecutionControls brightness={brightness} controlsLocked={controlsLocked} canSubmit={canSubmit}
+          <ManualExecutionPanel brightness={brightness} controlsLocked={controlsLocked} canSubmit={canSubmit}
                 applyLabel={storageError ? "복구 정보 확인 필요" : manualApplyLabel(commandSessionBlocked, controlsLocked, readOnly, selectedFixtures.length)}
                 onBrightnessChange={setBrightness} onSubmit={submitCommand} />
-            </div>
-          </div>
           {/* Selection warnings belong below the fixed execution controls so
               late health/capability text cannot move the dial or Apply action. */}
+          <div className="flex min-h-0 min-w-0 flex-col gap-3 compact:flex-1 compact:overflow-y-auto compact:overscroll-contain" data-control-safety-scroll="">
           {blockMessage ? <Text tone="danger" role="alert">{blockMessage}</Text> : null}
           {storageError ? <Text tone="danger" role="alert">{storageError}</Text> : null}
           <ManualControlFeedback singleColumnLayout={singleColumnLayout} scopedActiveRequest={scopedActiveRequest} scopedCommandId={scopedCommandId}
@@ -673,6 +681,7 @@ export function ControlView({
             commandInProgress={commandInProgress} onCloseDetail={() => setTerminalResult(null)}
             hasMismatchedCommandStatus={hasMismatchedCommandStatus} missingCommand={missingCommand} matchingCommandIsTerminal={matchingCommandIsTerminal} commandError={commandQuery.error} detailCommandId={detailCommandId} retentionExpired={commandQuery.retentionExpired}
             isCommandFetching={commandQuery.isFetching} onRefreshStatus={() => void commandQuery.refetch()} />
+          </div>
         </SidePanel>
         <CommandHistoryPanel key={`${userId}:${data.site.id}`} userId={userId} siteId={data.site.id}
           timeZone={data.site.timeZone}
@@ -680,7 +689,7 @@ export function ControlView({
           disabled={commandInProgress || isSubmitting || restorePending || commandSessionBlocked || Boolean(storageError)}
           onOpenVerificationCases={() => setVerificationCasesOpen(true)} verificationCasesOpenerRef={verificationCasesOpenerRef}
           verificationCaseCount={missingCommand ? exactVerificationCases.data?.items.length : undefined}
-          compactDisclosure className="compact:col-span-full" />
+          compactDisclosure className="compact:col-span-full compact:row-start-3" />
       </div>
       <FixtureGroupDialog
         open={groupDialogOpen}
@@ -699,93 +708,6 @@ export function ControlView({
       </div>
     </section>
   );
-}
-
-function DimmingExecutionControls({ compact = false, brightness, controlsLocked, canSubmit, applyLabel, onBrightnessChange, onSubmit }: {
-  compact?: boolean;
-  brightness: number;
-  controlsLocked: boolean;
-  canSubmit: boolean;
-  applyLabel: string;
-  onBrightnessChange: (value: number) => void;
-  onSubmit: () => void;
-}) {
-  const [invalidDraft, setInvalidDraft] = useState(false);
-  const [restored, setRestored] = useState("");
-  const [inputRevision, setInputRevision] = useState(0);
-  const rawValid = useRef(true);
-  const restoring = useRef(false);
-  const invalidApplyAttempt = useRef(false);
-  const applyRef = useRef<HTMLButtonElement>(null);
-  const lastBrightness = useRef(brightness);
-  useEffect(() => {
-    if (lastBrightness.current === brightness) return;
-    lastBrightness.current = brightness;
-    rawValid.current = true; setInvalidDraft(false); setRestored("");
-  }, [brightness]);
-
-  function captureDraft(event: React.FormEvent<HTMLDivElement>) {
-    if (!(event.target instanceof HTMLInputElement) || event.target.type === "range") return;
-    const draft = event.target.value.trim();
-    const value = Number(draft);
-    const valid = /^\d+$/.test(draft) && Number.isInteger(value) && value >= 0 && value <= 100;
-    rawValid.current = valid; setInvalidDraft(!valid); setRestored("");
-    if (valid) onBrightnessChange(value);
-  }
-
-  function restoreDraft() {
-    if (rawValid.current) return;
-    // React Aria normalizes during blur. Block that callback from replacing the
-    // last valid number with a rounded/clamped invalid draft.
-    restoring.current = true; rawValid.current = true;
-    setInvalidDraft(false); setInputRevision(value => value + 1);
-    setRestored(`마지막 정상 밝기 ${brightness}%로 복귀했습니다. 별도로 적용해 주세요.`);
-    queueMicrotask(() => { restoring.current = false; });
-  }
-
-  // The complete execution form reserves its intrinsic height. Sharing flex-1
-  // with feedback split short panes into fractional scrollports and clipped the
-  // final Apply even at maximum scroll. Feedback alone takes the remaining
-  // space; the existing workspace minimum keeps short screens in document flow.
-  return <div className="grid min-h-0 flex-none content-start gap-4 overflow-y-auto overscroll-contain" data-control-panel-body=""
-    onPointerDownCapture={event => {
-      if (event.target instanceof Element && event.target.closest("[data-control-submit]")) invalidApplyAttempt.current = !rawValid.current || restoring.current;
-    }}>
-    {!compact ? <Heading as="h4" variant="card-title">밝기</Heading> : null}
-    <div className="grid gap-3 rounded-panel border border-border-default bg-surface-panel p-4" data-control-brightness-card="">
-      <div className="flex items-baseline justify-between gap-3" onInputCapture={captureDraft} onChangeCapture={captureDraft}
-        onBlurCapture={event => {
-          if (event.target instanceof HTMLInputElement) {
-            if (!rawValid.current && event.relatedTarget === applyRef.current) invalidApplyAttempt.current = true;
-            restoreDraft();
-          }
-        }}
-        onKeyDownCapture={event => {
-          if (event.target instanceof HTMLInputElement && event.key === "Enter") { event.preventDefault(); event.stopPropagation(); restoreDraft(); }
-        }}>
-        <Text as="span" variant="label">밝기</Text>
-        <div className="flex min-w-0 items-baseline gap-1">
-          <NumberField key={inputRevision} aria-label="밝기 수치" variant="ghost" size="lg"
-            className="w-24" inputClassName="px-1 text-metric font-bold text-right"
-            minValue={0} maxValue={100} step={1} value={brightness} isDisabled={controlsLocked} isInvalid={invalidDraft}
-            onChange={value => { if (rawValid.current && !restoring.current && value !== null && Number.isInteger(value) && value >= 0 && value <= 100) onBrightnessChange(value); }} />
-          <Text as="span" variant="metric" aria-hidden="true">%</Text>
-        </div>
-      </div>
-      {invalidDraft ? <Text role="alert" tone="danger">0~100 사이 정수를 입력해 주세요.</Text> : null}
-      {restored ? <Text role="status" variant="caption">{restored}</Text> : null}
-      <Slider label="밝기" minValue={0} maxValue={100} step={1} value={brightness} isDisabled={controlsLocked} onChange={value => {
-        rawValid.current = true; setInvalidDraft(false); setRestored(""); setInputRevision(revision => revision + 1); onBrightnessChange(value);
-      }} />
-    </div>
-    {!compact ? <Button ref={applyRef} variant="primary" type="button" className="max-compact:scroll-mb-shell-navigation-safe" onClick={() => {
-      if (invalidApplyAttempt.current) { invalidApplyAttempt.current = false; return; }
-      if (!rawValid.current || restoring.current || !canSubmit) return;
-      onSubmit();
-    }} disabled={!canSubmit || invalidDraft} data-control-submit="">
-      {applyLabel}
-    </Button> : null}
-  </div>;
 }
 
 function manualApplyLabel(commandSessionBlocked: boolean, controlsLocked: boolean, readOnly: boolean, selectedFixtureCount: number) {
@@ -848,6 +770,8 @@ function ManualControlFeedback({ compact = false, singleColumnLayout = false, sc
     onFocus={() => { closeOwnedFocus.current = true; }} onBlur={() => { closeOwnedFocus.current = false; }}
     onClick={onCloseDetail}>명령 상세 닫기</Button>;
   const result = presentRecentCommandResult(displayedStatus);
+  const hasFeedback = Boolean(scopedActiveRequest || scopedCommandId || isSubmitting || message || verificationError
+    || displayedStatus || hasMismatchedCommandStatus || (detailCommandId && (missingCommand || retentionExpired || commandError)));
   // The two-column workspace reserves space for execution controls above.
   // Contain only desktop feedback sizing so long results cannot enlarge that
   // row; all warnings/actions remain reachable by scrolling this positive-height
@@ -857,8 +781,8 @@ function ManualControlFeedback({ compact = false, singleColumnLayout = false, sc
   // Size-query units give the nested detail the actual residual pane height,
   // not its max-content grid row height. The outer pane still scrolls all
   // warnings/actions; the inner viewport must fit wholly inside that pane.
-  return <div className="grid min-h-0 min-w-0 flex-none content-start gap-3 compact:auto-rows-max compact:flex-1 compact:overflow-y-auto compact:overscroll-contain compact:[container-type:size]" data-control-panel-feedback="">
-    <Heading as="h4" variant={compact ? "label" : "card-title"}>최근 결과</Heading>
+  return <div className={`grid min-h-0 min-w-0 flex-none content-start gap-3 ${hasFeedback ? "compact:min-h-40" : ""} compact:auto-rows-max compact:flex-1 compact:overflow-y-auto compact:overscroll-contain compact:[container-type:size]`} data-control-panel-feedback="">
+    {hasFeedback ? <Heading as="h4" variant={compact ? "label" : "card-title"}>최근 결과</Heading> : null}
     <div className="grid min-h-px gap-3 empty:min-h-0" role="status" aria-label="명령 진행 상태" aria-live="polite" data-command-status-region="">
       {scopedActiveRequest && !scopedCommandId && !replayRejected ? <Button variant="secondary" type="button" onClick={onRetryPending} disabled={isSubmitting || commandSessionBlocked}>
         동일 요청 확인(새 제어 아님)

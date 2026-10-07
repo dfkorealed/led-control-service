@@ -1,5 +1,54 @@
 # 제어 메뉴 기능 현황
 
+## 2026-10-07 ATLAS 실제 수동 workspace·안전 실행·이력 (Task 7)
+
+### 구현 완료
+
+- 실제 수동 페이지가 해석한 manual 방식·제어 권한·실제 현장 일치를 안정적인 선택 콜백으로 shell에 보고한다. PC는 남은 높이와 내부 workspace 스크롤을 사용하고 모바일은 자연 문서 흐름을 유지한다. 조회 중·선택 없음·명령 복구 잠금은 이 높이 보고 조건이 아니다. 테마를 route/query/명령 key에 넣지 않는다.
+- 도면 상단의 이동·개별 선택·영역 선택과 밝기 수치/슬라이더/Apply를 접힘 없이 표시한다. PC toolbar는 공통 첫 행, 실제 지도 chrome과 실행 aside는 같은 다음 행이다. 실제 canvas 최소 240px, 긴 결과·복구 조작은 내부 스크롤로 보존한다. 한 번도 실행하지 않은 빈 최근 결과 제목/패널은 표시하지 않지만 실제 진행·불확정·실패·404/410·storage 오류와 복구 동작은 삭제하지 않는다.
+- 표시 층의 서버 `DashboardFloor.summary`를 공통 14px 라벨·16px 수치로 표시한다. 실제 0은 0, 누락은 `—`이며 현장 집계·선택 수·일부 로딩한 fixture로 대체하지 않는다. 도면 층 전환은 기존 선택 대상/도구/카메라 owner를 유지한다. embedded 기본 표현과 제스처는 변경하지 않는다.
+- `ManualExecutionPanel`은 기존 raw 정수 0~100 유효성·blur 복원·첫 Apply 오클릭 차단 refs를 보존한 표현 경계다. 0/30/70/100% 빠른 값·수치·슬라이더·Enter는 초안만 변경하며 별도 Apply만 명령을 발행한다. frozen UUID·canonical payload·ACK·원래 대상·명령 owner·재진입/복구·전체 선택 차단은 기존 실제 정책을 유지한다. 부적격 조명을 제외한 부분 실행 목업 정책은 이식하지 않는다.
+- 실제 최근 명령 GET limit을 1에서 5로 바꾸고 실제 UUID/시각/대상 수/밝기/상태·시각 거부를 공통 5초 ticker로 표시한다. 전체 보기의 검색·날짜 raw draft·상태·50/100/500/1000개·커서·retention·UUID 상세·확인 사례·초점 복귀와 원래 대상 안전 재적용은 기존 owner/query를 유지한다.
+
+### 미구현
+
+- Task 8 스케줄·이벤트·구역 탭 재배치와 실제 Gateway/LED/native HIL은 이번 범위가 아니다. API·공유 스키마·DB·MQTT·장비 및 기본 checkout 문서를 변경하지 않았다.
+
+### 부족하거나 개선이 필요한 기능
+
+- 격리 Node/Chromium software fixture 결과만 검증한다. 실제 물리 모바일·native frame·브라우저 fractional viewport·운영 장비 성공을 주장하지 않는다. 원 실패 로그와 최종 검증은 `.superpowers/sdd/2026-10-07-atlas-ui-refresh/task-7-report.md`에 분리한다. 기존 전체 Web `ApiError` module-binding 문제는 Task 11 후속이며 timeout/skip/assertion을 줄여 숨기지 않는다.
+
+### 관련 파일
+
+- `apps/web/src/features/control/{ControlView,ManualExecutionPanel,CommandHistoryPanel}.tsx`, `command-history-presentation.ts`, `target-selection/SpatialTargetSelector.tsx` 및 대응 시험, 공통 owner의 `apps/web/src/features/shells/CustomerShell.tsx`, `apps/web/e2e/{calm-operations-manual-control,operational-marker-control-height,command-retention}.spec.ts`.
+
+### 갱신 규칙
+
+- 실제 명령 owner 변화와 표현 변화·software/HIL 증거를 구분한다. dark/resize/도구/선택/필터의 추가 dimming POST 0과 UUID/payload 불변, raw invalid blur→Apply 차단, whole-selection 차단, 짧은 PC/모바일의 실제 canvas·44px 조작·모든 복구 버튼 도달성을 같이 검증한다. 아래 기본 checkout의 목업 전용 이력은 원문 그대로 보존한다.
+
+## 2026-10-07 디자인 검토 목업 맵 상단 도구·가용 높이 수정
+
+### 구현 완료
+
+- 로컬 ATLAS 목업의 수동 제어 집계는 모니터링과 같은 한 줄 표시(PC 레이블 14px·수치 16px)로 되돌렸다. 이동·개별 선택·영역 선택 도구는 별도 영역에서 맵 상단 바로 옮겼다.
+- PC(761px 이상)는 남은 화면 높이에 도면을 맞춰 페이지 스크롤 없이 하단 제어 이력을 유지한다. 짧은 창의 제어 패널·조명별 결과는 내부 스크롤로 모든 기능에 접근한다. 모바일은 도구·밝기 설정을 바로 표시하는 기존 목업 세로 흐름을 유지한다.
+
+### 미구현
+
+- 실제 서비스 적용·API·명령 계약·장비 연동은 하지 않았다. 아래 제품 구현 이력과 구분되는 목업 전용 수정이다.
+
+### 부족하거나 개선이 필요한 기능
+
+- 브라우저 PC 1304×1229/1440×900/1024×768에서 페이지 넘침 없음·하단 이력 노출을 확인했다. 가상 명령 성공 22/실패 0/오프라인 제외 2와 전체 이력 팝업을 확인했으며 실장비 성공의 증거는 아니다. 모바일 320/390px는 가로 넘침·한 줄 집계·44px 맵 도구를 확인했다. 매우 짧은 창·실제 휴대폰/HIL은 별도 검증이다.
+
+### 관련 파일
+
+- `.superpowers/brainstorm/40560-1791327706/content/atlas-operations.css`, `atlas-operations.js`, `atlas-prototype-v2-compact.html` (Git 제외 로컬 목업).
+
+### 갱신 규칙
+
+- 목업 변경과 제품 반영을 구분하며 도면 상태·반응형 배치 변경 시 모니터링 메뉴 문서도 함께 갱신한다.
+
 ## 2026-10-07 공통 작업 표현·수동 지도 opt-in (Task 5)
 
 ### 구현 완료
