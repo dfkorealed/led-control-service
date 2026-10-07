@@ -21,7 +21,7 @@ import type {
   CadSceneTile,
   FloorMapSnapshot
 } from "@led-control/shared";
-import { Button, Text as UiText, cn, themeColor } from "../../components/ui";
+import { Button, Text as UiText, cn, useThemeColors } from "../../components/ui";
 import {
   CAD_SCENE_MAX_MANIFEST_BYTES,
   CAD_SCENE_MAX_TILE_BYTE_SIZE,
@@ -711,6 +711,7 @@ export function FloorMapObjectNode({
   onChange?: (patch: { x?: number; y?: number }) => void;
   onTransformEnd?: (node: Konva.Node) => void;
 }) {
+  const palette = useThemeColors();
   const interactiveProps = interactive && !preview && !object.locked
     ? {
         draggable: true,
@@ -737,7 +738,7 @@ export function FloorMapObjectNode({
     rotation: object.rotation,
     opacity: preview ? 0.6 : 1
   };
-  const selectedStroke = selected ? themeColor("fixture-editor-selected") || object.strokeColor : object.strokeColor;
+  const selectedStroke = selected ? palette["fixture-editor-selected"] || object.strokeColor : object.strokeColor;
   // Konva needs a transparent fill to keep the complete object interior hit-testable in the editor.
   const hitTestableFill = object.fillColor ?? "transparent";
 

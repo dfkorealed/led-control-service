@@ -3,6 +3,8 @@ import type Konva from "konva";
 import { createRef } from "react";
 import { Layer, Stage } from "react-konva";
 import { describe, expect, it } from "vitest";
+import { CustomerThemeContext } from "../../components/ui/theme/CustomerThemeProvider";
+import { readThemePalette } from "../../components/ui/theme/customer-theme";
 import {
   buildAvailableCadSlotIndex,
   CAD_SLOT_HIT_RADIUS,
@@ -17,6 +19,20 @@ const slots = [
 const slotIndex = buildAvailableCadSlotIndex(slots);
 
 describe("CadPlacementSlotLayer", () => {
+  it("repaints the existing slot node on palette publication without changing placement geometry", () => {
+    const stageRef = createRef<Konva.Stage>();
+    const child = <Stage ref={stageRef} width={640} height={480}><Layer><CadPlacementSlotLayer slotIndex={slotIndex} zoom={2}
+      viewportBounds={{ x: 0, y: 0, width: 640, height: 480 }} highlightedSlotId="slot-free" /></Layer></Stage>;
+    const value = { theme: "light" as const, setTheme() {}, persistence: "available" as const,
+      palette: { ...readThemePalette(), "fixture-editor-selected": "#123456" } };
+    const view = render(<CustomerThemeContext.Provider value={value}>{child}</CustomerThemeContext.Provider>);
+    const marker = stageRef.current!.findOne<Konva.Circle>(".cad-placement-slot-marker")!;
+    expect(marker.stroke()).toBe("#123456");
+    view.rerender(<CustomerThemeContext.Provider value={{ ...value, theme: "dark", palette: { ...value.palette, "fixture-editor-selected": "#abcdef" } }}>{child}</CustomerThemeContext.Provider>);
+    expect(stageRef.current!.findOne(".cad-placement-slot-marker")).toBe(marker);
+    expect(marker.stroke()).toBe("#abcdef");
+    expect(marker.getParent()!.position()).toEqual({ x: 123.5, y: 247.25 });
+  });
   it("renders only unassigned slots as hollow markers with their CAD rotation", () => {
     const stageRef = createRef<Konva.Stage>();
 

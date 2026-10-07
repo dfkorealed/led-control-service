@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import type { CadElementOverridePatch } from "@led-control/shared";
-import { Button, FormField, Heading, NumberField, Text, TextField, themeColor } from "../../components/ui";
+import { Button, FormField, Heading, NumberField, Text, TextField, useThemeColors } from "../../components/ui";
 import type { CadEditorSelection } from "./editor-types";
 
 export function CadElementPropertiesPanel({
@@ -41,14 +41,17 @@ function CadElementForm({ element, readOnly, isSaving, onChange }: {
   isSaving: boolean;
   onChange: (patch: Omit<CadElementOverridePatch, "elementId">) => void;
 }) {
-  const [strokeColor, setStrokeColor] = useState(element.override?.strokeColor ?? element.strokeColor ?? themeColor("fixture-editor-label"));
-  const [fillColor, setFillColor] = useState(element.override?.fillColor ?? element.fillColor ?? themeColor("surface-panel"));
+  const palette = useThemeColors();
+  const [strokeColor, setStrokeColor] = useState(element.override?.strokeColor ?? element.strokeColor ?? palette["fixture-editor-label"]);
+  const [fillColor, setFillColor] = useState(element.override?.fillColor ?? element.fillColor ?? palette["surface-panel"]);
   const [strokeWidth, setStrokeWidth] = useState(element.override?.strokeWidth ?? element.strokeWidth);
   const [text, setText] = useState(element.override?.text ?? element.text ?? "");
 
   useEffect(() => {
-    setStrokeColor(element.override?.strokeColor ?? element.strokeColor ?? themeColor("fixture-editor-label"));
-    setFillColor(element.override?.fillColor ?? element.fillColor ?? themeColor("surface-panel"));
+    // A new canonical element may initialize the draft from the current palette;
+    // palette publication alone must never reset unsaved user color/text inputs.
+    setStrokeColor(element.override?.strokeColor ?? element.strokeColor ?? palette["fixture-editor-label"]);
+    setFillColor(element.override?.fillColor ?? element.fillColor ?? palette["surface-panel"]);
     setStrokeWidth(element.override?.strokeWidth ?? element.strokeWidth);
     setText(element.override?.text ?? element.text ?? "");
   }, [element]);
@@ -103,13 +106,14 @@ function ColorField({ label, value, disabled, onChange }: {
   disabled: boolean;
   onChange: (value: string) => void;
 }) {
+  const palette = useThemeColors();
   return (
     <FormField label={label} isDisabled={disabled}>
-      {(attributes) => <input {...attributes} type="color" value={normalizeColor(value)} onChange={(event) => onChange(event.target.value)} />}
+      {(attributes) => <input {...attributes} type="color" value={normalizeColor(value, palette["fixture-editor-label"])} onChange={(event) => onChange(event.target.value)} />}
     </FormField>
   );
 }
 
-function normalizeColor(value: string) {
-  return /^#[0-9a-f]{6}$/i.test(value) ? value : themeColor("fixture-editor-label");
+function normalizeColor(value: string, fallback: string) {
+  return /^#[0-9a-f]{6}$/i.test(value) ? value : fallback;
 }

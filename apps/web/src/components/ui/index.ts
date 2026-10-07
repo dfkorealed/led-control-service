@@ -1,4 +1,10 @@
 export { Button } from "./Button";
+export { InlineStatusSummary } from "./operations/InlineStatusSummary";
+export type { InlineStatusSummaryProps } from "./operations/InlineStatusSummary";
+export { RecentActivityTicker } from "./operations/RecentActivityTicker";
+export type { RecentActivityRow, RecentActivityTickerProps } from "./operations/RecentActivityTicker";
+export { OperationMapPanel } from "./maps/OperationMapPanel";
+export type { OperationMapPanelProps } from "./maps/OperationMapPanel";
 export { CustomerThemeProvider, useCustomerTheme } from "./theme/CustomerThemeProvider";
 export { ThemeToggle } from "./theme/ThemeToggle";
 export { useThemeColors } from "./theme/useThemeColors";

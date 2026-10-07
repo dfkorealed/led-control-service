@@ -56,6 +56,30 @@ describe("SpatialTargetSelector", () => {
 
   afterEach(cleanup);
 
+  it("opts manual workspace into always-visible chrome tools without changing the embedded default", () => {
+    const view = renderSelector({ presentation: "manual-workspace", hideEmbeddedSummary: true });
+    const tools = screen.getByRole("group", { name: "지도 선택 도구" });
+    expect(tools).toContainElement(screen.getByRole("button", { name: "이동" }));
+    expect(screen.getByRole("button", { name: "개별 선택" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.queryByRole("button", { name: /선택 도구 열기/ })).not.toBeInTheDocument();
+    const pin = screen.getByRole("button", { name: /B2-L001 정상/ });
+    fireEvent.click(screen.getByRole("button", { name: "이동" })); fireEvent.click(pin);
+    expect(onChange).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "개별 선택" })); fireEvent.click(pin);
+    expect(onChange).toHaveBeenCalledWith({ mode: "fixtures", fixtureIds: [fixtureA] });
+    view.rerender(<SelectorHarness />);
+    expect(screen.queryByRole("group", { name: "지도 선택 도구" })).not.toBeInTheDocument();
+  });
+  it("keeps manual navigation available while aggregate selection remains immutable", () => {
+    renderSelector({ presentation: "manual-workspace", selection: { mode: "floor", floorId: "floor-b2" } });
+    expect(screen.getByRole("button", { name: "이동" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "이동" })).not.toBeDisabled();
+    expect(screen.getByRole("button", { name: "개별 선택" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "영역 선택" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: /B2-L001 정상/ }));
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
   it("atlas target places the optional management action in the map toolbar and hides only the embedded summary", () => {
     renderSelector({ managementAction: <button type="button">구역 관리</button>, hideEmbeddedSummary: true });
     const toolbar = document.querySelector<HTMLElement>("[data-target-selection-toolbar]");

@@ -2,7 +2,7 @@ import Konva from "konva";
 import type { CadElementOverridePatch, CadSceneDescriptor, CadSceneState, FloorImportCandidate, FloorImportRenderedViewport } from "@led-control/shared";
 import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent, type MouseEvent, type PointerEvent } from "react";
 import { Circle, Image as KonvaImage, Label, Layer, Line, Rect, Shape, Stage, Tag, Text, Transformer } from "react-konva";
-import { Button, FeedbackState, Text as UiText, themeColor } from "../../components/ui";
+import { Button, FeedbackState, Text as UiText, useThemeColors } from "../../components/ui";
 import { TriangleAlert } from "lucide-react";
 import { FloorMapObjectNode, trianglePoints } from "../floor-map/FloorScene";
 import { cameraFromTransform, fitMapTransform, mapViewportBounds } from "../floor-map/map-camera-geometry";
@@ -104,6 +104,7 @@ export function FloorEditorCanvas({
   placementDraftPoint = null,
   onPlacementPointChange
 }: FloorEditorCanvasProps) {
+  const palette = useThemeColors();
   const container = useRef<HTMLDivElement>(null);
   const stage = useRef<Konva.Stage | null>(null);
   const cadScene = useRef<CadSceneCanvasHandle>(null);
@@ -323,26 +324,26 @@ export function FloorEditorCanvas({
   }, [measured, state?.floor.id, cadImportScene?.jobId, cadImportScene?.manifest, mapEditor?.document, cadBackgroundUrl,
     cadViewport, cadSceneDescriptor, floorPlan?.width, floorPlan?.height, viewport.width, viewport.height]);
   const editorColors = useMemo(() => ({
-    panel: themeColor("surface-panel"),
-    border: themeColor("fixture-editor-border"),
-    guide: themeColor("fixture-editor-guide"),
-    marquee: themeColor("fixture-editor-marquee"),
-    selected: themeColor("fixture-editor-selected"),
-    preview: themeColor("fixture-editor-preview"),
-    fixtureFill: themeColor("fixture-editor-fill"),
-    label: themeColor("fixture-editor-label"),
-    grid: themeColor("border-strong")
-  }), []);
+    panel: palette["surface-panel"],
+    border: palette["fixture-editor-border"],
+    guide: palette["fixture-editor-guide"],
+    marquee: palette["fixture-editor-marquee"],
+    selected: palette["fixture-editor-selected"],
+    preview: palette["fixture-editor-preview"],
+    fixtureFill: palette["fixture-editor-fill"],
+    label: palette["fixture-editor-label"],
+    grid: palette["border-strong"]
+  }), [palette]);
   const fixtureColors = useMemo<EditorFixturePalette>(() => ({
     status: {
-      online: themeColor("fixture-editor-connected"),
-      offline: themeColor("fixture-editor-offline"),
-      fault: themeColor("fixture-editor-fault")
+      online: palette["fixture-editor-connected"],
+      offline: palette["fixture-editor-offline"],
+      fault: palette["fixture-editor-fault"]
     },
-    selected: themeColor("fixture-editor-selected"),
-    border: themeColor("content-inverse"),
-    label: themeColor("fixture-editor-label")
-  }), []);
+    selected: palette["fixture-editor-selected"],
+    border: palette["content-inverse"],
+    label: palette["fixture-editor-label"]
+  }), [palette]);
 
   useEffect(() => {
     const element = container.current;

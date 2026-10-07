@@ -17,6 +17,73 @@ const snapshot: FloorMapSnapshot = {
 describe("FloorMapViewport", () => {
   afterEach(() => cleanup());
 
+  it("explicit pan suppresses pin selection while retaining drag and middle-button navigation", () => {
+    const toggle = vi.fn(), select = vi.fn();
+    const view = render(<FloorMapViewport snapshot={snapshot} ariaLabel="explicit" interactionPolicy="direct-selection" toolModePolicy="explicit" mode="pan" onAreaSelect={select}><button data-spatial-map-marker onClick={toggle}>pin</button></FloorMapViewport>);
+    const viewport = screen.getByRole("region", { name: "explicit" });
+    fireEvent.click(screen.getByText("pin")); expect(toggle).not.toHaveBeenCalled();
+    dispatchPointer(viewport, "pointerdown", { pointerId: 1, pointerType: "mouse", button: 0, clientX: 100, clientY: 100 });
+    dispatchPointer(viewport, "pointermove", { pointerId: 1, pointerType: "mouse", clientX: 120, clientY: 100 });
+    dispatchPointer(viewport, "pointerup", { pointerId: 1, pointerType: "mouse", clientX: 120, clientY: 100 });
+    expect(viewport.scrollLeft).toBe(-20); expect(select).not.toHaveBeenCalled();
+    view.rerender(<FloorMapViewport snapshot={snapshot} ariaLabel="explicit" interactionPolicy="direct-selection" toolModePolicy="explicit" mode="select" onAreaSelect={select}><button data-spatial-map-marker onClick={toggle}>pin</button></FloorMapViewport>);
+    // A fresh physical tap starts a new gesture; a click alone after a drag is
+    // deliberately suppressed by the existing ghost-click protection.
+    dispatchPointer(screen.getByText("pin"), "pointerdown", { pointerId: 4, pointerType: "mouse", button: 0, clientX: 100, clientY: 100 });
+    dispatchPointer(screen.getByText("pin"), "pointerup", { pointerId: 4, pointerType: "mouse", clientX: 100, clientY: 100 });
+    fireEvent.click(screen.getByText("pin")); expect(toggle).toHaveBeenCalledOnce();
+    dispatchPointer(viewport, "pointerdown", { pointerId: 2, pointerType: "mouse", button: 0, clientX: 100, clientY: 100 });
+    dispatchPointer(viewport, "pointermove", { pointerId: 2, pointerType: "mouse", clientX: 130, clientY: 100 });
+    dispatchPointer(viewport, "pointerup", { pointerId: 2, pointerType: "mouse", clientX: 130, clientY: 100 });
+    expect(select).not.toHaveBeenCalled();
+    dispatchPointer(viewport, "pointerdown", { pointerId: 3, pointerType: "mouse", button: 1, clientX: 100, clientY: 100 });
+    dispatchPointer(viewport, "pointermove", { pointerId: 3, pointerType: "mouse", clientX: 120, clientY: 100 });
+    dispatchPointer(viewport, "pointerup", { pointerId: 3, pointerType: "mouse", clientX: 120, clientY: 100 });
+    expect(viewport.scrollLeft).toBe(-40);
+  });
+
+  it("explicit area commits a world-space rectangle and blocks pin clicks", () => {
+    const select = vi.fn(), toggle = vi.fn();
+    render(<FloorMapViewport snapshot={snapshot} ariaLabel="explicit area" interactionPolicy="direct-selection" toolModePolicy="explicit" mode="area" onAreaSelect={select}><button data-spatial-map-marker onClick={toggle}>pin</button></FloorMapViewport>);
+    const viewport = screen.getByRole("region", { name: "explicit area" });
+    const surface = document.querySelector<HTMLElement>("[data-floor-map-surface]")!;
+    vi.spyOn(surface, "getBoundingClientRect").mockReturnValue(rect(20, 40, 300, 200));
+    dispatchPointer(viewport, "pointerdown", { pointerId: 1, pointerType: "mouse", button: 0, clientX: 70, clientY: 90 });
+    dispatchPointer(viewport, "pointermove", { pointerId: 1, pointerType: "mouse", clientX: 170, clientY: 140 });
+    dispatchPointer(viewport, "pointerup", { pointerId: 1, pointerType: "mouse", clientX: 170, clientY: 140 });
+    expect(select).toHaveBeenCalledWith({ left: 100, top: 100, right: 300, bottom: 200 });
+    fireEvent.click(screen.getByText("pin")); expect(toggle).not.toHaveBeenCalled();
+  });
+
+  it.each(["select", "area"] as const)("retains Space navigation in explicit %s without selecting", mode => {
+    const select = vi.fn();
+    render(<FloorMapViewport snapshot={snapshot} ariaLabel="explicit navigation" interactionPolicy="direct-selection" toolModePolicy="explicit" mode={mode} onAreaSelect={select}><span /></FloorMapViewport>);
+    const viewport = screen.getByRole("region", { name: "explicit navigation" });
+    fireEvent.keyDown(viewport, { key: " " });
+    dispatchPointer(viewport, "pointerdown", { pointerId: 1, pointerType: "mouse", button: 0, clientX: 100, clientY: 100 });
+    dispatchPointer(viewport, "pointermove", { pointerId: 1, pointerType: "mouse", clientX: 120, clientY: 100 });
+    dispatchPointer(viewport, "pointerup", { pointerId: 1, pointerType: "mouse", clientX: 120, clientY: 100 });
+    fireEvent.keyUp(viewport, { key: " " });
+    expect(viewport.scrollLeft).toBe(-20); expect(select).not.toHaveBeenCalled();
+  });
+
+  it("retains explicit area touch hold, pinch precedence and cancellation without a ghost commit", () => {
+    vi.useFakeTimers();
+    try {
+      const select = vi.fn();
+      render(<FloorMapViewport snapshot={snapshot} ariaLabel="explicit touch" interactionPolicy="direct-selection" toolModePolicy="explicit" mode="area" onAreaSelect={select}><span /></FloorMapViewport>);
+      const viewport = screen.getByRole("region", { name: "explicit touch" });
+      dispatchPointer(viewport, "pointerdown", { pointerId: 1, pointerType: "touch", button: 0, clientX: 100, clientY: 100 });
+      act(() => vi.advanceTimersByTime(399)); expect(screen.queryByTestId("map-area-selection")).not.toBeInTheDocument();
+      act(() => vi.advanceTimersByTime(1)); expect(screen.getByTestId("map-area-selection")).toBeInTheDocument();
+      dispatchPointer(viewport, "pointerdown", { pointerId: 2, pointerType: "touch", button: 0, clientX: 200, clientY: 100 });
+      expect(screen.queryByTestId("map-area-selection")).not.toBeInTheDocument();
+      dispatchPointer(viewport, "pointercancel", { pointerId: 2, pointerType: "touch" });
+      dispatchPointer(viewport, "pointerup", { pointerId: 1, pointerType: "touch", clientX: 100, clientY: 100 });
+      expect(select).not.toHaveBeenCalled();
+    } finally { cleanup(); vi.useRealTimers(); }
+  });
+
   it("cancels a pre-hold touch and a dragged marker without a ghost toggle", () => {
     const toggle = vi.fn(); const select = vi.fn();
     render(<FloorMapViewport snapshot={snapshot} ariaLabel="direct" interactionPolicy="direct-selection" onAreaSelect={select}><button data-spatial-map-marker onClick={toggle}>pin</button></FloorMapViewport>);

@@ -1,5 +1,29 @@
 # 설정 메뉴 기능 현황 및 구현 설계
 
+## 2026-10-07 공통 도면 편집기 palette repaint (Task 5)
+
+### 구현 완료
+
+- 도면 편집기의 패널·가이드·선택·fixture 상태·CAD 후보/배치 슬롯·미니맵 chrome은 `useThemeColors()`의 reactive palette를 구독한다. 2D moved-CAD와 미니맵은 palette 갱신 시 기존 canvas에서 다시 그린다.
+- 원본 CAD/저장 도형의 색상·geometry와 native/common renderer session, camera, 선택 및 undo history를 보존한다. CAD 속성의 사용자 색/text draft 초기화는 기존 `[element]` 경계이며 theme를 추가하지 않는다.
+- 공유 선택 도면의 explicit 도구는 수동용 opt-in이다. 등록/스케줄/차량 이벤트/구역 편집의 embedded 정책을 유지한다.
+
+### 미구현
+
+- 설정 개요/하위 페이지 ATLAS 재배치와 capability 기반 카드 정리는 후속 설정 task다. palette repaint만으로 전체 설정 UI 갱신을 완료로 표시하지 않는다.
+
+### 부족하거나 개선이 필요한 기능
+
+- 단위·격리 mock API Chromium 검증은 실제 lease/DB/CAD 변환기·native GPU·장비 HIL 증거가 아니다. 물리 모바일·전 화면 dark 시각 검수는 후속 관문이다.
+
+### 관련 파일
+
+- `apps/web/src/features/floor-editor/{FloorEditorCanvas,CadCandidateLayer,CadPlacementSlotLayer,EditorMinimap,CadSceneCanvas,CadElementPropertiesPanel,MapElementOverlay,CadElementOverlay,MapSelectionBoundsHandle}.tsx` 및 기존 대응 시험.
+
+### 갱신 규칙
+
+- palette 변경은 style memo/draw 의존성에만 연결한다. 테마 전환에서 원본 색/사용자 draft·camera/선택·renderer canvas·저장 ACK/dirty 수명을 보존하고 저장 요청을 추가하지 않는다.
+
 ## 2026-10-07 ATLAS 공통 shell·모바일 브랜드 (Task 4)
 
 ### 구현 완료

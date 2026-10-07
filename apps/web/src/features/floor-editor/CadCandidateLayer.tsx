@@ -2,7 +2,7 @@ import type { FloorImportCandidate } from "@led-control/shared";
 import Konva from "konva";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Label, Layer, Shape, Tag, Text } from "react-konva";
-import { themeColor } from "../../components/ui";
+import { useThemeColors } from "../../components/ui";
 
 interface CadCandidateLayerProps {
   candidates: FloorImportCandidate[];
@@ -102,6 +102,7 @@ export function CadCandidateLayer({
   onFocusedCandidateChange,
   onToggle
 }: CadCandidateLayerProps) {
+  const palette = useThemeColors();
   const shape = useRef<Konva.Shape>(null);
   const pointerFrame = useRef<number | null>(null);
   const latestPointer = useRef<{ x: number; y: number } | null>(null);
@@ -122,12 +123,12 @@ export function CadCandidateLayer({
     [candidates, focusedId]
   );
   const colors = useMemo(() => ({
-    accepted: themeColor("fixture-editor-selected"),
-    rejected: themeColor("fixture-editor-offline"),
-    panel: themeColor("surface-panel"),
-    border: themeColor("fixture-editor-border"),
-    text: themeColor("fixture-editor-label")
-  }), []);
+    accepted: palette["fixture-editor-selected"],
+    rejected: palette["fixture-editor-offline"],
+    panel: palette["surface-panel"],
+    border: palette["fixture-editor-border"],
+    text: palette["fixture-editor-label"]
+  }), [palette]);
   const radius = 7 / zoom;
   const listening = Boolean(onFocusedCandidateChange || onToggle);
 

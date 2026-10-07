@@ -2,7 +2,7 @@ import { useEffect, useRef } from "react";
 import type Konva from "konva";
 import { Rect, Transformer } from "react-konva";
 import type { Bounds, MapElement, Point } from "@led-control/shared/map-document-contracts";
-import { themeColor } from "../../components/ui";
+import { useThemeColors } from "../../components/ui";
 import { boundsGestureTransform, finishSelectionResize } from "./map-selection-transform";
 
 /** A whole-selection handle, never a prefix of per-element overlay nodes. */
@@ -14,6 +14,7 @@ export function MapSelectionBoundsHandle({ selectionKey, bounds, mapBounds, zoom
   onTransform: (delta: MapElement["transform"]) => void;
   onPick?: (point: Point, child: boolean, additive: boolean) => void;
 }) {
+  const palette = useThemeColors();
   const node = useRef<Konva.Rect>(null);
   const transformer = useRef<Konva.Transformer>(null);
   const started = useRef<string | null>(null);
@@ -25,7 +26,7 @@ export function MapSelectionBoundsHandle({ selectionKey, bounds, mapBounds, zoom
   }, [selectionKey, bounds, locked, translateOnly]);
   return <><Rect ref={node} name="map-selection-bounds" x={bounds.minX} y={bounds.minY}
     width={Math.max(4 / zoom, bounds.maxX - bounds.minX)} height={Math.max(4 / zoom, bounds.maxY - bounds.minY)}
-    fill="transparent" stroke={themeColor("fixture-editor-selected")} strokeWidth={1 / zoom} dash={[6 / zoom, 4 / zoom]}
+    fill="transparent" stroke={palette["fixture-editor-selected"]} strokeWidth={1 / zoom} dash={[6 / zoom, 4 / zoom]}
     draggable={!locked} onDragStart={() => { started.current = selectionKey; }}
     onClick={event => { event.cancelBubble = true; const point = event.target.getStage()?.getPointerPosition(); if (point) onPick?.(point, event.evt.detail >= 2, event.evt.shiftKey); }}
     onTap={event => { event.cancelBubble = true; const point = event.target.getStage()?.getPointerPosition(); if (point) onPick?.(point, false, false); }}

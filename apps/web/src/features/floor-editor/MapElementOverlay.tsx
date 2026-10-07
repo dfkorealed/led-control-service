@@ -3,7 +3,7 @@ import { useLayoutEffect, useMemo, useRef } from "react";
 import { Ellipse, Group, Line, Path, Rect, Shape, Transformer } from "react-konva";
 import type { MapElement, MapOp, Point } from "@led-control/shared/map-document-contracts";
 import { getMapElementBounds, transformMapPoint } from "@led-control/shared/map-document-geometry";
-import { themeColor } from "../../components/ui";
+import { useThemeColors } from "../../components/ui";
 import type { AlignmentGuide } from "./geometry";
 import { finishSelectionResize } from "./map-selection-transform";
 import {
@@ -68,6 +68,7 @@ export function getMapElementOverlaySelection(selection: MapElement[]): MapEleme
 /** Mount inside the existing world-space Konva Layer/Group; the host supplies the camera. */
 export function MapElementOverlay({ selection, readOnly = false, locked = false, zoom, onChange,
   onError, onGuidesChange, onPick, mapBounds, gridSize, guideTargets, guideThreshold }: MapElementOverlayProps) {
+  const palette = useThemeColors();
   const nodeRef = useRef<Konva.Group>(null);
   const transformerRef = useRef<Konva.Transformer>(null);
   const gesture = useRef<"drag" | "transform" | null>(null);
@@ -170,7 +171,7 @@ export function MapElementOverlay({ selection, readOnly = false, locked = false,
     } catch (cause) { report(cause); }
     finally { restore(); }
   };
-  const selectedColor = themeColor("fixture-editor-selected");
+  const selectedColor = palette["fixture-editor-selected"];
   return <>
     <Group ref={nodeRef} name="map-element-overlay" {...frame} draggable={!disabled}
       onMouseDown={event => { event.cancelBubble = true; }}
@@ -201,7 +202,7 @@ export function MapElementOverlay({ selection, readOnly = false, locked = false,
     </Group>
     {!disabled ? <Transformer ref={transformerRef} name="map-element-transformer" rotateEnabled flipEnabled={false}
       ignoreStroke keepRatio={false} borderStroke={selectedColor} anchorStroke={selectedColor}
-      anchorFill={themeColor("surface-panel")}
+      anchorFill={palette["surface-panel"]}
       enabledAnchors={["top-left", "top-center", "top-right", "middle-left", "middle-right", "bottom-left", "bottom-center", "bottom-right"]}
       boundBoxFunc={(previous, next) => Number.isFinite(next.x) && Number.isFinite(next.y) &&
         Number.isFinite(next.rotation) && Number.isFinite(next.width) && Number.isFinite(next.height) &&

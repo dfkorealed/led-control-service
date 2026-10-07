@@ -8,6 +8,10 @@ import { useMapEditor } from "./use-map-editor";
 import { createFixturePlacementRowRegistry } from "./FixturePlacementList";
 import type { FloorEditorState } from "./editor-types";
 import { ConfirmDialog } from "../../components/ui";
+import { CustomerThemeContext } from "../../components/ui/theme/CustomerThemeProvider";
+import { readThemePalette } from "../../components/ui/theme/customer-theme";
+import { CadElementPropertiesPanel } from "./CadElementPropertiesPanel";
+import { EditorMinimap } from "./EditorMinimap";
 
 vi.mock("../map-scene/MapSceneCanvas", () => ({ MapSceneCanvas: () => <canvas data-testid="map-scene" /> }));
 vi.mock("../../api/map-document", () => ({ createMapDocumentSource: () => ({ scopeKey: "test",
@@ -20,6 +24,54 @@ function Canvas({ readOnly = false }: { readOnly?: boolean } = {}) { const map =
   return <><input aria-label="Outside text" /><FloorEditorCanvas rowRegistry={createFixturePlacementRowRegistry()} mapEditor={map} readOnly={readOnly} />
     <ConfirmDialog isOpen={map.removeRequested} title="선택 전체 삭제" confirmLabel="전체 삭제" onClose={map.cancelRemove} onConfirm={() => { void map.confirmRemove(); }} /></>; }
 describe("actual common editor Canvas", () => {
+  it("repaints editor guides while retaining the actual canvas, camera, selection and undo history", () => {
+    const child = <Canvas />;
+    const value = { theme: "light" as const, setTheme() {}, persistence: "available" as const,
+      palette: { ...readThemePalette(), "fixture-editor-guide": "#123456" } };
+    const view = render(<CustomerThemeContext.Provider value={value}>{child}</CustomerThemeContext.Provider>);
+    const stage = Konva.stages.at(-1)!, canvas = stage.getLayers()[0].getCanvas()._canvas;
+    const guide = stage.findOne<Konva.Line>(".alignment-guide-vertical")!;
+    act(() => { store().setZoom(1.7); store().setPan({ x: -41, y: 29 }); });
+    const before = { pan: store().pan, zoom: store().zoom, selection: store().selection, past: store().past, state: store().state };
+    expect(guide.stroke()).toBe("#123456");
+    view.rerender(<CustomerThemeContext.Provider value={{ ...value, theme: "dark", palette: { ...value.palette, "fixture-editor-guide": "#abcdef" } }}>{child}</CustomerThemeContext.Provider>);
+    expect(guide.stroke()).toBe("#abcdef");
+    expect(Konva.stages.at(-1)).toBe(stage); expect(stage.getLayers()[0].getCanvas()._canvas).toBe(canvas);
+    expect({ pan: store().pan, zoom: store().zoom, selection: store().selection, past: store().past, state: store().state }).toEqual(before);
+  });
+
+  it("preserves a user's unsaved CAD color draft across palette publication", () => {
+    const onChange = vi.fn();
+    const element = { elementId: "cad-element-00000000000000000000000000000001", groupId: null, layerName: "WALL",
+      locator: { tileX: 0, tileY: 0, lod: 1 as const, part: 0 }, bounds: { minX: 0, minY: 0, maxX: 20, maxY: 20 },
+      points: [{ x: 0, y: 0 }, { x: 20, y: 20 }], fragments: [], closed: true, text: null, fontSize: null, textGeometry: null,
+      strokeColor: "#111111", fillColor: "#222222", strokeWidth: 1, zOrder: 0, override: null };
+    const child = <CadElementPropertiesPanel selection={{ mode: "element", targetId: element.elementId, element }} readOnly={false} isSaving={false} onChange={onChange} />;
+    const value = { theme: "light" as const, setTheme() {}, persistence: "available" as const, palette: readThemePalette() };
+    const view = render(<CustomerThemeContext.Provider value={value}>{child}</CustomerThemeContext.Provider>);
+    fireEvent.change(screen.getByLabelText("선 색상"), { target: { value: "#123456" } });
+    fireEvent.change(screen.getByLabelText("채우기 색상"), { target: { value: "#abcdef" } });
+    view.rerender(<CustomerThemeContext.Provider value={{ ...value, theme: "dark", palette: { ...value.palette, "fixture-editor-label": "#eeeeee" } }}>{child}</CustomerThemeContext.Provider>);
+    expect(screen.getByLabelText("선 색상")).toHaveValue("#123456"); expect(screen.getByLabelText("채우기 색상")).toHaveValue("#abcdef");
+    expect(onChange).not.toHaveBeenCalled(); expect(element.strokeColor).toBe("#111111");
+  });
+
+  it("redraws minimap chrome on the same canvas without changing editor camera", () => {
+    // The global JSDOM canvas proxy always reads properties as no-op functions.
+    // Supply only the missing browser 2D state; the production draw effect runs.
+    const context = { clearRect: vi.fn(), fillRect: vi.fn(), strokeRect: vi.fn(), fillStyle: "", strokeStyle: "", lineWidth: 0 };
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockImplementation((() => context) as unknown as HTMLCanvasElement["getContext"]);
+    const child = <EditorMinimap />;
+    const value = { theme: "light" as const, setTheme() {}, persistence: "available" as const,
+      palette: { ...readThemePalette(), "fixture-editor-selected": "#123456" } };
+    const view = render(<CustomerThemeContext.Provider value={value}>{child}</CustomerThemeContext.Provider>);
+    const canvas = screen.getByRole("button", { name: "미니맵" }) as HTMLCanvasElement;
+    expect(context.strokeStyle).toBe("#123456");
+    const before = { pan: store().pan, zoom: store().zoom };
+    view.rerender(<CustomerThemeContext.Provider value={{ ...value, theme: "dark", palette: { ...value.palette, "fixture-editor-selected": "#abcdef" } }}>{child}</CustomerThemeContext.Provider>);
+    expect(context.strokeStyle).toBe("#abcdef"); expect(screen.getByRole("button", { name: "미니맵" })).toBe(canvas);
+    expect({ pan: store().pan, zoom: store().zoom }).toEqual(before);
+  });
   beforeEach(() => { store().initialize(structuredClone(base), "user");
     store().loadMapStructures(store().mapScope!, { groups: [], layers: [{ id: "map", name: "Map", order: 0, visible: true, locked: false }] });
     vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue({ x: 0, y: 0, left: 0, top: 0, right: 900, bottom: 600, width: 900, height: 600, toJSON() {} }); });

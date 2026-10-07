@@ -1,5 +1,29 @@
 # 모니터링 메뉴 기능 현황
 
+## 2026-10-07 공통 작업 표현·지도 테마 repaint (Task 5)
+
+### 구현 완료
+
+- 공통 `InlineStatusSummary`는 라벨 14px·수치 16px의 인라인 표현과 `null → —`, 실제 `0 → 0`을 제공한다. 데이터나 층/현장 집계 query를 소유하지 않는다.
+- 공통 `RecentActivityTicker`는 공급된 실제 이력 행의 5초 순환·hover/focus/문서 hidden 정지·items/scope 초기화·타이머 정리를 제공한다. 전체 보기·재조회·trigger ref는 메뉴 adapter에 위임한다.
+- `OperationMapPanel`은 제목/상태/도구 chrome만 소유한다. legacy 도면의 선택 chrome은 palette를 구독하며 원본 도형 색과 카메라·common map source 수명을 유지한다.
+
+### 미구현
+
+- 모니터링 페이지의 집계/ticker adapter·전체 이력 popup·마지막 갱신 재배치는 후속 모니터링 task다. 공통 제공만으로 페이지 전환을 완료로 표시하지 않는다.
+
+### 부족하거나 개선이 필요한 기능
+
+- 이번 검증은 단위 및 격리 mock API Chromium 회귀다. 실제 native WebView/Gateway/LED HIL과 모든 화면의 dark 시각 QA는 별도 관문이며 원본 CAD 색을 테마로 바꾸지 않는다.
+
+### 관련 파일
+
+- `apps/web/src/components/ui/operations/{InlineStatusSummary,RecentActivityTicker}.tsx`, `apps/web/src/components/ui/maps/OperationMapPanel.tsx`, `apps/web/src/features/floor-map/{FloorMapViewport,FloorScene}.tsx` 및 대응 단위 시험.
+
+### 갱신 규칙
+
+- menu adapter 소비 시 서버 집계·시간대·cursor/기간/query 의미를 별도로 검증한다. 테마 변경은 source/generation/camera identity에 넣지 않고 저장 도형과 선택을 보존한다.
+
 ## 2026-10-07 ATLAS 공통 shell·모바일 브랜드 (Task 4)
 
 ### 구현 완료

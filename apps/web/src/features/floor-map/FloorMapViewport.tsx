@@ -67,6 +67,7 @@ interface FloorMapViewportProps {
   ariaLabel: string;
   mode?: MapInteractionMode;
   interactionPolicy?: MapInteractionPolicy;
+  toolModePolicy?: "interaction-default" | "explicit";
   children: ReactNode;
   onAreaSelect?: (rect: MapSelectionRect) => void;
   showControls?: boolean;
@@ -106,6 +107,7 @@ export const FloorMapViewport = forwardRef<FloorMapViewportHandle, FloorMapViewp
   ariaLabel,
   mode = "pan",
   interactionPolicy = "pan",
+  toolModePolicy = "interaction-default",
   children,
   onAreaSelect,
   showControls = true,
@@ -499,7 +501,7 @@ export const FloorMapViewport = forwardRef<FloorMapViewportHandle, FloorMapViewp
   useEffect(() => {
     window.addEventListener("blur", cancelGesture);
     return () => { window.removeEventListener("blur", cancelGesture); cancelGesture(); };
-  }, [interactionPolicy, mode, snapshot.floorId]);
+  }, [interactionPolicy, toolModePolicy, mode, snapshot.floorId]);
 
   function startPinch(event: ReactPointerEvent<HTMLDivElement>) {
     const pointers = [...activePointers.current.values()];
@@ -536,7 +538,7 @@ export const FloorMapViewport = forwardRef<FloorMapViewportHandle, FloorMapViewp
     }
 
     // Marker buttons keep their click interaction; single-pointer gestures begin on empty map space.
-    if ((event.target as Element).closest("button")) {
+    if ((event.target as Element).closest("button") && !(toolModePolicy === "explicit" && mode === "pan")) {
       // A moved touch that began on a pin is no longer a tap. It cannot become
       // an area selection or activate the pin through a synthesized click.
       if (interactionPolicy === "direct-selection" && event.pointerType === "touch" && (event.target as Element).closest("[data-spatial-map-marker]")) {
@@ -547,7 +549,12 @@ export const FloorMapViewport = forwardRef<FloorMapViewportHandle, FloorMapViewp
     }
     capturePointer(event);
     if (interactionPolicy === "direct-selection") {
-      const kind = event.pointerType === "touch" ? "hold" : spacePressed.current || event.button === 1 ? "pan" : "area";
+      // Explicit tools belong only to opt-in manual workspaces. Default direct
+      // selection still uses drag/hold area and Space/middle-button navigation.
+      const kind = toolModePolicy === "explicit"
+        ? spacePressed.current || event.button === 1 || mode === "pan" ? "pan"
+          : mode === "area" ? event.pointerType === "touch" ? "hold" : "area" : "marker"
+        : event.pointerType === "touch" ? "hold" : spacePressed.current || event.button === 1 ? "pan" : "area";
       if (event.button === 1) event.preventDefault();
       candidate.current = { pointerId: event.pointerId, start: { x: event.clientX, y: event.clientY }, mapStart: mapPoint(event),
         scroll: { x: event.currentTarget.scrollLeft, y: event.currentTarget.scrollTop }, kind, moved: false };
@@ -666,6 +673,9 @@ export const FloorMapViewport = forwardRef<FloorMapViewportHandle, FloorMapViewp
   }
 
   function handleClickCapture(event: React.MouseEvent<HTMLDivElement>) {
+    if (toolModePolicy === "explicit" && mode !== "select" && (event.target as Element).closest("[data-spatial-map-marker]")) {
+      event.preventDefault(); event.stopPropagation(); return;
+    }
     if (!suppressNextClick.current) return;
     suppressNextClick.current = false;
     if (suppressClickTimeout.current !== null) window.clearTimeout(suppressClickTimeout.current);

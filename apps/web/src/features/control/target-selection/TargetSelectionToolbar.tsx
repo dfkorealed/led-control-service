@@ -2,6 +2,19 @@ import { useState, type ReactNode, type RefObject } from "react";
 import type { Dashboard } from "../../../api/queries";
 import { Button, SelectBox } from "../../../components/ui";
 import type { ControlMode, ControlSelection } from "../control-selection";
+import type { MapInteractionMode } from "../../floor-map/map-gestures";
+
+/** Explicit manual tools remain in map chrome even on narrow screens. */
+export function TargetMapTools({ mode, selectionDisabled, onModeChange }: {
+  mode: MapInteractionMode;
+  selectionDisabled: boolean;
+  onModeChange: (mode: MapInteractionMode) => void;
+}) {
+  return <div role="group" aria-label="지도 선택 도구" className="flex flex-wrap gap-1">
+    {(["pan", "select", "area"] as const).map(tool => <Button key={tool} type="button" variant="ghost" aria-pressed={mode === tool}
+      disabled={tool !== "pan" && selectionDisabled} onClick={() => onModeChange(tool)}>{tool === "pan" ? "이동" : tool === "select" ? "개별 선택" : "영역 선택"}</Button>)}
+  </div>;
+}
 
 interface TargetSelectionToolbarProps {
   allowedModes: readonly ControlMode[];

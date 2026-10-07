@@ -24,7 +24,7 @@ import {
 import { createCadSceneWorkerClient, type CadSceneWorkerClient, type DecodedCadSceneTile } from "../cad-scene/cad-scene-worker";
 import { CadSceneMemoryBudget } from "../cad-scene/cad-scene-memory-budget";
 import { getCadSceneManifest, getCadSceneTile } from "../../api/floor-editor";
-import { themeColor } from "../../components/ui/utils/theme-color";
+import { useThemeColors, type ThemePalette } from "../../components/ui";
 import { Button, FeedbackState } from "../../components/ui";
 import {
   createCadOverrideWorker,
@@ -180,6 +180,7 @@ function CadSceneCanvasComponent({
   createWorker = createDefaultWorker,
   decodedCacheMaximumBytes = DEFAULT_EDITOR_DECODED_CACHE_BYTES
 }: CadSceneCanvasProps, ref: Ref<CadSceneCanvasHandle>) {
+  const palette = useThemeColors();
   const canvasHostRef = useRef<HTMLDivElement>(null);
   const movedCanvasRef = useRef<HTMLCanvasElement>(null);
   const rendererRef = useRef<CadSceneRendererLike | null>(null);
@@ -567,9 +568,10 @@ function CadSceneCanvasComponent({
       pan,
       zoom,
       viewport,
-      isLayerVisible
+      isLayerVisible,
+      palette
     );
-  }, [elementIndexRevision, isLayerVisible, layerVisibility, pan.x, pan.y, selection, viewport.height, viewport.width, zoom]);
+  }, [palette, elementIndexRevision, isLayerVisible, layerVisibility, pan.x, pan.y, selection, viewport.height, viewport.width, zoom]);
 
   return (
     <>
@@ -662,7 +664,8 @@ function drawPersistedElements(
   pan: Point,
   zoom: number,
   viewport: { width: number; height: number },
-  isLayerVisible: (layerName: string) => boolean
+  isLayerVisible: (layerName: string) => boolean,
+  palette: ThemePalette
 ) {
   if (!canvas) return;
   let context: CanvasRenderingContext2D | null = null;
@@ -681,12 +684,12 @@ function drawPersistedElements(
     const bounds = editableElementDisplayBounds(element);
     if (bounds.maxX * zoom + pan.x < 0 || bounds.minX * zoom + pan.x > viewport.width ||
         bounds.maxY * zoom + pan.y < 0 || bounds.minY * zoom + pan.y > viewport.height) continue;
-    drawPersistedElement(context, element);
+    drawPersistedElement(context, element, palette);
   }
   context.restore();
 }
 
-function drawPersistedElement(context: CanvasRenderingContext2D, element: CadEditableElement) {
+function drawPersistedElement(context: CanvasRenderingContext2D, element: CadEditableElement, palette: ThemePalette) {
   const override = element.override;
   const transform = override?.transform;
   if (!transform) return;
@@ -700,7 +703,7 @@ function drawPersistedElement(context: CanvasRenderingContext2D, element: CadEdi
     transform.translateX,
     transform.translateY
   );
-  context.strokeStyle = override?.strokeColor ?? element.strokeColor ?? themeColor("fixture-editor-selected");
+  context.strokeStyle = override?.strokeColor ?? element.strokeColor ?? palette["fixture-editor-selected"];
   context.fillStyle = override?.fillColor ?? element.fillColor ?? "transparent";
   context.lineWidth = override?.strokeWidth ?? element.strokeWidth;
   if (element.text !== null && element.textGeometry) {
@@ -709,7 +712,7 @@ function drawPersistedElement(context: CanvasRenderingContext2D, element: CadEdi
     context.rotate(element.textGeometry.rotation * Math.PI / 180);
     context.font = `${element.fontSize ?? element.textGeometry.height}px sans-serif`;
     context.textBaseline = "bottom";
-    context.fillStyle = override?.strokeColor ?? element.strokeColor ?? themeColor("fixture-editor-label");
+    context.fillStyle = override?.strokeColor ?? element.strokeColor ?? palette["fixture-editor-label"];
     context.fillText(override?.text ?? element.text, 0, 0, element.textGeometry.width);
     context.restore();
   } else {

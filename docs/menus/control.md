@@ -1,5 +1,29 @@
 # 제어 메뉴 기능 현황
 
+## 2026-10-07 공통 작업 표현·수동 지도 opt-in (Task 5)
+
+### 구현 완료
+
+- 공통 인라인 상태(라벨 14px·수치 16px, 0/null 구분), 한 줄 5초 이력 ticker와 표현 전용 도면 chrome을 제공한다. ticker의 전체 보기·재조회는 기존 메뉴 query/상세 owner에 위임한다.
+- `SpatialTargetSelector.presentation="manual-workspace"`에서 이동·개별 선택·영역 선택을 도면 상단에 항상 표시하고 `FloorMapViewport.toolModePolicy="explicit"`로 실제 gesture 정책을 연결한다. 이동은 pin 선택을 차단하고 개별 선택은 영역 드래그를 실행하지 않는다. 층/구역 또는 잠긴 선택에서는 선택 도구만 차단하고 이동을 보존한다.
+- 기존 embedded·interaction-default는 그대로다. Space/중간 버튼, touch hold/pinch/cancel/ghost click과 전체 선택의 gateway/부적격 차단 계약은 유지한다.
+
+### 미구현
+
+- 수동 페이지의 opt-in 소비·높이/밝기/결과 재배치·실제 명령 이력 adapter와 자동/구역 탭 재배치는 후속 제어 task다. 이번에 명령 owner/UUID/payload/ACK나 밝기 실행 정책을 변경하지 않는다.
+
+### 부족하거나 개선이 필요한 기능
+
+- 공통 제공과 단위·격리 Chromium 증거를 실제 명령/장비 HIL 완료로 확대하지 않는다. 전체폭·dark 시각 QA와 native 입력 검수는 후속 관문이다.
+
+### 관련 파일
+
+- `apps/web/src/components/ui/{operations,maps}`, `apps/web/src/features/floor-map/FloorMapViewport.tsx`, `apps/web/src/features/control/target-selection/{SpatialTargetSelector,TargetSelectionToolbar}.tsx` 및 대응 단위 시험.
+
+### 갱신 규칙
+
+- opt-in 소비마다 명시적 Apply·명령 0건 부수효과·frozen 대상/UUID·전체 선택 차단을 검증한다. 스케줄/차량 이벤트/구역 편집의 embedded 기본 제스처와 수정 권한을 함께 보존한다.
+
 ## 2026-10-07 ATLAS 공통 shell·모바일 브랜드 (Task 4)
 
 ### 구현 완료

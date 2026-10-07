@@ -6,6 +6,11 @@ import type { FloorMapSnapshot } from "@led-control/shared";
 import type { MapSceneCanvasProps } from "../map-scene/MapSceneCanvas";
 import { FloorScene } from "./FloorScene";
 import { FloorMapViewport } from "./FloorMapViewport";
+import { FloorMapObjectNode } from "./FloorScene";
+import { Layer, Stage } from "react-konva";
+import Konva from "konva";
+import { CustomerThemeContext } from "../../components/ui/theme/CustomerThemeProvider";
+import { readThemePalette } from "../../components/ui/theme/customer-theme";
 
 const scene = vi.hoisted(() => ({ props: null as MapSceneCanvasProps | null }));
 vi.mock("../map-scene/MapSceneCanvas", () => ({ MapSceneCanvas: (props: MapSceneCanvasProps) => {
@@ -44,6 +49,32 @@ afterEach(() => { cleanup(); vi.restoreAllMocks(); scene.props = null;
 });
 
 describe("common monitoring host", () => {
+  it("repaints selected legacy chrome without altering the saved object color", () => {
+    const object = { id: "object", type: "rectangle" as const, x: 10, y: 20, width: 40, height: 30,
+      rotation: 0, strokeColor: "#111111", fillColor: "#222222", strokeWidth: 1, visible: true, locked: false, zIndex: 0 };
+    const child = <Stage width={800} height={600}><Layer><FloorMapObjectNode object={object} interactive={false} selected /></Layer></Stage>;
+    const value = { theme: "light" as const, setTheme() {}, persistence: "available" as const,
+      palette: { ...readThemePalette(), "fixture-editor-selected": "#123456" } };
+    const view = render(<CustomerThemeContext.Provider value={value}>{child}</CustomerThemeContext.Provider>);
+    const node = Konva.stages.at(-1)!.findOne<Konva.Rect>(".map-object-object")!;
+    expect(node.stroke()).toBe("#123456");
+    view.rerender(<CustomerThemeContext.Provider value={{ ...value, theme: "dark", palette: { ...value.palette, "fixture-editor-selected": "#abcdef" } }}>{child}</CustomerThemeContext.Provider>);
+    expect(node.stroke()).toBe("#abcdef"); expect(node.fill()).toBe("#222222"); expect(object.strokeColor).toBe("#111111");
+  });
+
+  it("keeps the existing common surface, selected marker, source and camera across palette publication", async () => {
+    const { ui } = setup();
+    const child = ui({ ...snapshot, fixtures: [{ id: "stale", name: "L1", x: 800, y: 450, size: 20 }] });
+    const value = { theme: "light" as const, setTheme() {}, persistence: "available" as const, palette: readThemePalette() };
+    const view = render(<CustomerThemeContext.Provider value={value}>{child}</CustomerThemeContext.Provider>);
+    const canvas = await screen.findByTestId("common-canvas"), source = scene.props!.source;
+    fireEvent.click(screen.getByRole("button", { name: "지도 확대" }));
+    const camera = scene.props!.camera, pin = screen.getByRole("button", { name: "L1 정상 70%" });
+    view.rerender(<CustomerThemeContext.Provider value={{ ...value, theme: "dark", palette: { ...value.palette, "surface-panel": "#182334" } }}>{child}</CustomerThemeContext.Provider>);
+    expect(screen.getByTestId("common-canvas")).toBe(canvas); expect(scene.props!.source).toBe(source);
+    expect(scene.props!.camera).toEqual(camera); expect(screen.getByRole("button", { name: "L1 정상 70%" })).toBe(pin);
+    expect(screen.getByRole("region", { name: "map" })).toHaveAttribute("data-zoom", "1.1");
+  });
   it("uses only the read-only common renderer and the measured viewport, without reviving stale placements", async () => {
     const { ui } = setup(); render(ui());
     await screen.findByTestId("common-canvas");

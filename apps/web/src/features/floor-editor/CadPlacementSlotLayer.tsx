@@ -1,7 +1,7 @@
 import type { FloorLightSlotDto } from "@led-control/shared";
 import { useMemo } from "react";
 import { Circle, Group, Line } from "react-konva";
-import { themeColor } from "../../components/ui";
+import { useThemeColors } from "../../components/ui";
 import {
   buildEditorSpatialIndex,
   queryEditorSpatialIndex,
@@ -57,6 +57,7 @@ export function findAvailableCadSlotAtPoint(
 }
 
 export function CadPlacementSlotLayer({ slotIndex, zoom, viewportBounds, highlightedSlotId }: CadPlacementSlotLayerProps) {
+  const palette = useThemeColors();
   const visibleSlots = useMemo(() => {
     const visible = queryEditorSpatialIndex(slotIndex.spatialIndex, viewportBounds, 80 / zoom);
     if (!highlightedSlotId || visible.some((slot) => slot.id === highlightedSlotId)) return visible;
@@ -64,9 +65,9 @@ export function CadPlacementSlotLayer({ slotIndex, zoom, viewportBounds, highlig
     return highlighted ? [...visible, highlighted] : visible;
   }, [highlightedSlotId, slotIndex, viewportBounds, zoom]);
   const colors = useMemo(() => ({
-    normal: themeColor("fixture-editor-border"),
-    highlighted: themeColor("fixture-editor-selected")
-  }), []);
+    normal: palette["fixture-editor-border"],
+    highlighted: palette["fixture-editor-selected"]
+  }), [palette]);
 
   if (visibleSlots.length === 0) return null;
   return <Group name="cad-placement-slot-layer" listening={false}>

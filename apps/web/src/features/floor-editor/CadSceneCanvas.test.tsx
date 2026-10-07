@@ -11,6 +11,8 @@ import {
   type CadSceneRendererLike
 } from "./CadSceneCanvas";
 import { CadSceneMemoryBudget } from "../cad-scene/cad-scene-memory-budget";
+import { CustomerThemeContext } from "../../components/ui/theme/CustomerThemeProvider";
+import { readThemePalette } from "../../components/ui/theme/customer-theme";
 
 const descriptor: CadSceneDescriptor = {
   id: "00000000-0000-4000-8000-000000000001",
@@ -530,6 +532,9 @@ describe("CadSceneCanvas", () => {
   });
 
   it("cold-preloads only the locator tile for a moved override and renders it at the destination", async () => {
+    const context = { clearRect: vi.fn(), save: vi.fn(), restore: vi.fn(), setTransform: vi.fn(), transform: vi.fn(), beginPath: vi.fn(),
+      moveTo: vi.fn(), lineTo: vi.fn(), stroke: vi.fn(), fill: vi.fn(), closePath: vi.fn(), strokeStyle: "", fillStyle: "", lineWidth: 1 };
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockImplementation((() => context) as unknown as HTMLCanvasElement["getContext"]);
     const sourceTile = tile(0);
     const unrelatedTile = tile(7);
     const manifestWithTiles = { ...manifest, tileCount: 2, tiles: [sourceTile, unrelatedTile] };
@@ -560,15 +565,27 @@ describe("CadSceneCanvas", () => {
       }]
     };
     const ref = createRef<CadSceneCanvasHandle>();
-    render(<CadSceneCanvas ref={ref} descriptor={descriptor} sceneState={state} pan={{ x: 0, y: 0 }} zoom={1}
+    const child = <CadSceneCanvas ref={ref} descriptor={descriptor} sceneState={state} pan={{ x: 0, y: 0 }} zoom={1}
       viewport={{ width: 800, height: 600 }} selection={null} onSelectionChange={vi.fn()}
       loadManifest={vi.fn().mockResolvedValue(manifestWithTiles)} loadTile={loadTile}
-      createRenderer={() => renderer} createWorker={() => rawWorker} />);
+      createRenderer={() => renderer} createWorker={() => rawWorker} />;
+    const themeValue = { theme: "light" as const, setTheme() {}, persistence: "available" as const, palette: readThemePalette() };
+    const view = render(<CustomerThemeContext.Provider value={themeValue}>{child}</CustomerThemeContext.Provider>);
 
     await waitFor(() => expect(loadTile).toHaveBeenCalledTimes(1));
     expect(loadTile.mock.calls[0][0]).toContain("/1/0/0/0/content");
     expect(await ref.current!.pick({ x: 610, y: 110 }, "element")).toMatchObject({ mode: "element" });
     expect(loadTile.mock.calls.some(([path]) => String(path).includes("/1/7/0/0/content"))).toBe(false);
+    const movedCanvas = view.container.querySelector<HTMLCanvasElement>('[data-testid="cad-moved-elements-canvas"]')!;
+    const actualRendererCanvas = vi.mocked(renderer.mount).mock.calls[0][0];
+    context.clearRect.mockClear();
+    const cameraCalls = vi.mocked(renderer.setCamera).mock.calls.length;
+    view.rerender(<CustomerThemeContext.Provider value={{ ...themeValue, theme: "dark", palette: { ...themeValue.palette, "fixture-editor-selected": "#abcdef" } }}>{child}</CustomerThemeContext.Provider>);
+    expect(context.clearRect).toHaveBeenCalled();
+    expect(context.strokeStyle).toBe("#111111");
+    expect(view.container.contains(actualRendererCanvas)).toBe(true);
+    expect(renderer.mount).toHaveBeenCalledOnce(); expect(renderer.setCamera).toHaveBeenCalledTimes(cameraCalls);
+    expect(view.container.querySelector('[data-testid="cad-moved-elements-canvas"]')).toBe(movedCanvas);
   });
 
   it("does not draw or pick a moved element on a hidden CAD layer", async () => {

@@ -6,6 +6,8 @@ import { getMapElementBounds, transformMapPoint, type MapElement, type MapOp } f
 import { getMapElementOverlaySelection, MapElementOverlay, MapElementOverlayLimitError, MapElementOverlayTextError,
   MAX_MAP_ELEMENT_OVERLAY_ELEMENTS, MAX_MAP_ELEMENT_OVERLAY_POINTS } from "./MapElementOverlay";
 import { createMapElementFromDrag } from "./map-element-tools";
+import { CustomerThemeContext } from "../../components/ui/theme/CustomerThemeProvider";
+import { readThemePalette } from "../../components/ui/theme/customer-theme";
 
 afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 const types: MapElement["type"][] = ["line", "rectangle", "triangle", "ellipse", "arc", "polyline", "polygon", "text"];
@@ -30,6 +32,22 @@ function lastElements(onChange: ReturnType<typeof setup>["onChange"]) {
 }
 
 describe("MapElementOverlay", () => {
+  it("updates selection chrome without recoloring the saved shape or committing an edit", () => {
+    const element = make("rectangle"), onChange = vi.fn();
+    const child = <Stage width={800} height={600}><Layer><MapElementOverlay selection={[element]} zoom={1} onChange={onChange} mapBounds={{ width: 2000, height: 2000 }} /></Layer></Stage>;
+    const value = { theme: "light" as const, setTheme() {}, persistence: "available" as const,
+      palette: { ...readThemePalette(), "fixture-editor-selected": "#123456", "surface-panel": "#ffffff" } };
+    const view = render(<CustomerThemeContext.Provider value={value}>{child}</CustomerThemeContext.Provider>);
+    const stage = Konva.stages.at(-1)!, transformer = stage.findOne<Konva.Transformer>(".map-element-transformer")!;
+    const shape = stage.findOne<Konva.Group>(".map-element-selected")!.getChildren()[0];
+    const savedStyle = structuredClone(element.style), shapeStroke = shape.getAttrs().stroke;
+    expect(transformer.borderStroke()).toBe("#123456");
+    view.rerender(<CustomerThemeContext.Provider value={{ ...value, theme: "dark", palette: { ...value.palette, "fixture-editor-selected": "#abcdef" } }}>{child}</CustomerThemeContext.Provider>);
+    expect(stage.findOne(".map-element-transformer")).toBe(transformer);
+    expect(transformer.borderStroke()).toBe("#abcdef");
+    expect(shape.getAttrs().stroke).toBe(shapeStroke); expect(element.style).toEqual(savedStyle);
+    expect(onChange).not.toHaveBeenCalled();
+  });
   it("uses raw line geometry rather than the widened hit frame as a degenerate resize anchor", () => {
     const element = createMapElementFromDrag("line", { x: 103, y: 107 }, { x: 103, y: 147 }, "vertical")!;
     const { node, stage, onChange, onError } = setup([element], { gridSize: 10 });

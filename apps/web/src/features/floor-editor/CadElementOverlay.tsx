@@ -2,7 +2,7 @@ import Konva from "konva";
 import { useEffect, useRef } from "react";
 import { Group, Line, Rect, Text, Transformer } from "react-konva";
 import type { CadElementOverridePatch, CadElementTransform } from "@led-control/shared";
-import { themeColor } from "../../components/ui/utils/theme-color";
+import { useThemeColors } from "../../components/ui";
 import type { CadEditableElement } from "./cad-editor-runtime";
 
 interface CadElementOverlayProps {
@@ -21,6 +21,7 @@ const identityTransform: CadElementTransform = {
 };
 
 export function CadElementOverlay({ element, readOnly, zoom, onCommit }: CadElementOverlayProps) {
+  const palette = useThemeColors();
   const nodeRef = useRef<Konva.Group>(null);
   const transformerRef = useRef<Konva.Transformer>(null);
   const transform = element.override?.transform ?? identityTransform;
@@ -46,7 +47,7 @@ export function CadElementOverlay({ element, readOnly, zoom, onCommit }: CadElem
       }
     });
   };
-  const strokeColor = element.override?.strokeColor ?? element.strokeColor ?? themeColor("fixture-editor-selected");
+  const strokeColor = element.override?.strokeColor ?? element.strokeColor ?? palette["fixture-editor-selected"];
   const fillColor = element.override?.fillColor ?? element.fillColor ?? undefined;
   const strokeWidth = (element.override?.strokeWidth ?? element.strokeWidth) / Math.max(zoom, 0.1);
   const width = Math.max(1, element.bounds.maxX - element.bounds.minX);
