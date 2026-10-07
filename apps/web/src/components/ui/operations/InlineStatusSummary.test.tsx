@@ -11,6 +11,13 @@ it("keeps unknown counts distinct from collected zero in one inline summary", ()
   const group = screen.getByRole("group", { name: "도면 상태" });
   expect(within(group).getByText("—")).toBeInTheDocument();
   expect(within(group).getByText("0")).toBeInTheDocument();
-  expect(within(group).getByText("장애")).toHaveClass("text-body-sm");
-  expect(within(group).getByText("0")).toHaveClass("text-body");
+});
+
+it("uses the approved 14px label and 16px count text roles", () => {
+  render(<InlineStatusSummary label="도면 상태" items={[
+    { id: "normal", label: "정상", value: 2, tone: "success" }
+  ]} />);
+  const group = screen.getByRole("group", { name: "도면 상태" });
+  expect(within(group).getByText("정상")).toHaveClass("text-body");
+  expect(within(group).getByText("2")).toHaveClass("text-body-lg");
 });
