@@ -12,7 +12,7 @@ import type { BioSensorPulseCandidate } from "../bio/bio-command-codec";
 import type { BioClientEvent } from "../bio/bio-dongle-client";
 import type { BioTransportSnapshot } from "../bio/bio-usb-transport";
 import type { BioConfigurationState, BioVerifiedLampTarget } from "../bio/bio-dongle-client";
-import type { BioSourceAuthority } from "./bio-pulse-scheduler";
+import { BioPulseControlCore, type BioSourceAuthority } from "./bio-pulse-scheduler";
 
 const a = "00000000-0000-4000-8000-000000000001", b = "00000000-0000-4000-8000-000000000002";
 const rule = "00000000-0000-4000-8000-000000000003";
@@ -87,6 +87,27 @@ async function fixture(qualified = true) {
 }
 
 describe("production BIO local bootstrap/lifecycle (software qualification only)", () => {
+  it.each(["bio-usb-pulse", "bluez-stateful"] as const)("ignores disabled %s target reservations but still rejects enabled overlap", async sensorProtocol => {
+    const f = await fixture();
+    try {
+      const { payloadHash: _hash, ...body } = f.snapshot();
+      const inactive = { ...body.vehicleEventRules[0], id: "00000000-0000-4000-8000-000000000099", sensorProtocol,
+        status: "disabled" as const, sourceFixtureIds: [sensorProtocol === "bio-usb-pulse" ? a : "00000000-0000-4000-8000-000000000098"] };
+      const disabled = rehash({ ...body, vehicleEventRules: [...body.vehicleEventRules, inactive] });
+      const authority = await f.source.preflight({ sourceFixtureId: a, snapshotRevision: 4 }, { requireHealthy: true });
+      const legacyDir = await mkdtemp(join(tmpdir(), "bio-legacy-reservation-")); dirs.push(legacyDir);
+      const legacy = new BioPulseControlCore({ bindings: [authority!.binding], sourceAuthority: () => authority,
+        targetPort: f.targetPort, enabledRulesOnly: false }, new FileAutomationStateStore(join(legacyDir, "state")), () => new Date(), () => 1000);
+      expect(() => legacy.install(disabled)).toThrow("bio_target_activation_conflict");
+      await expect(f.automationRuntime.hotReload(disabled)).resolves.toMatchObject({ status: "applied", payloadHash: disabled.payloadHash });
+      f.pulse(); await vi.waitFor(() => expect(f.writes).toHaveLength(1));
+      f.advance(11000); await f.scheduleRuntime.tick(); expect(f.writes).toHaveLength(2);
+      const conflicting = rehash({ ...body, revision: 5, vehicleEventRules: [...body.vehicleEventRules, { ...inactive, status: "enabled" }] });
+      await expect(f.automationRuntime.hotReload(conflicting)).rejects.toThrow("snapshot_recompute_failed");
+      expect(f.automationRuntime.currentRevision).toBe(4); expect(f.writes).toHaveLength(2);
+    } finally { await f.connection.stopAndDrain(); f.source.stop(); }
+  });
+
   it("preserves V1 and no-BIO V2 configuration/ACK without qualified hardware", async () => {
     const f = await fixture(false);
     const v1 = automationSnapshot(1, { siteId: a, gatewayId: b });

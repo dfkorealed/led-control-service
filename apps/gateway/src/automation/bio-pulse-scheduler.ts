@@ -135,7 +135,10 @@ export class BioPulseControlCore {
       // This staged seam rejects overlapping event targets instead of guessing a base.
       for (const target of rule.targetFixtureIds) {
         if (target !== target.toLowerCase() || sources.has(target) || targets.has(target) ||
-          snapshot.vehicleEventRules.some(other => other.id !== rule.id && other.targetFixtureIds.includes(target))) {
+          snapshot.vehicleEventRules.some(other => other.id !== rule.id
+            // Product disabled rules reserve no target. The synthetic legacy
+            // seam intentionally retains its original all-rules ownership check.
+            && (!this.profile.enabledRulesOnly || other.status === "enabled") && other.targetFixtureIds.includes(target))) {
           throw new Error("bio_target_activation_conflict");
         }
         targets.add(target);
