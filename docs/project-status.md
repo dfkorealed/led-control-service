@@ -2,6 +2,21 @@
 
 기준일: 2026-10-08
 
+## 2026-10-08 공통 센서 등록·UI 설정 — 방향 확정, 설계 문서 검토 대기
+
+- 사용자는 A/B 한정 임시 연결 대신 모든 조명에 재사용 가능한 센서 설정 UI를 요구했다. 기존 A/B-only 대안은 채택하지 않고 공통 프로파일 재사용·개별 장비 자동 준비 확인·지도 기반 규칙 설정으로 방향을 변경했다.
+- 기존 Gateway 담당의 읽기 전용 확인: mapping의 firmware/protocol만으로는 센서 식별이 부족하며 현재 discovery의 deviceType·firmware/build·sensor/infrared/ambient/hardware 조합을 사용해야 한다. ensure/query와 인증 capability 전달·scheduler·원복은 재사용 가능하고 실제 profile/authority 공급이 남아 있다.
+- `docs/superpowers/specs/2026-10-08-common-bio-sensor-configuration-design.md`에 초안을 작성했다. 특정 ID/주소 하드코딩과 신규 동일 조합의 코드·배포 작업을 배제하며 센서가 없거나 미검증인 장비의 사유도 UI에 제공한다. 실제 조명 전체의 하드웨어 호환성을 확인 없이 보장하지 않는다.
+- 이번 범위는 설계 문서와 기존 실행 체크리스트의 방향 동기화다. 코드/DB/장비/배포/새 시험은 변경하지 않았으며 문서 검토 뒤 세부 실행 계획을 확정한다. 기존 생산 qualification과 실장비 운영 승인 관문은 유지한다.
+- 사용자의 별도 협업 요청으로 기존 `펌웨어 담당자` 세션의 읽기 전용 검토를 취합했다. 관측 fingerprint는 매칭 키이지 동일 하드웨어/감지 동작의 충분조건이 아니며, `toDiscoveredDevice`의 종류 정보 손실을 보완해야 한다. 기존 ensure/query·전역 직렬 GET 큐/늦은 응답 generation 폐기는 유지하고 동적 카탈로그 revision 변경과 authority 철회를 같은 수명 경계로 묶는다. 총괄도 현재 변환 함수·requestReadbackOwned를 대조해 초안에 반영했다. 펌웨어 수정·flash·장비 시험은0이다.
+
+## 2026-10-08 정식 센서 연동 요청 — 당시 A/B 한정 대안 점검, 후속 공통 설계로 대체
+
+- 사용자 `그럼 이제 연동해줘` 요청에 따라 총괄과 기존 Gateway 담당이 현재 코드/승인 명세를 읽기 전용으로 대조했다. decoder·pulse scheduler·대상 복원·V2 전달 경로는 이미 구현돼 있지만, 실제 factory는 승인 profile이 빈 목록이고 독립 authority 공급자가 없다.
+- `BioSensorPulseSource.readAuthority`, `BioPulseControlCore.authorized`, 제품 controller와 API 준비 상태 판정은 독립 qualification을 필수로 요구한다. 10월8일 단1회 pilot 통과를 `independentlyQualified=true` 또는 제품 `ready`로 승격하지 않는다.
+- 최소 대안은 기존 제품 관문을 그대로 두고 이번 exact A/B만 별도 현장 시험 실행권한으로 연결하는 것이다. 기존 hold/원복을 재사용하되 생산 qualification과 구분하는 설계 변경, 시험용 상시 연결 범위와 장애 시 담당자·확인 시간·명시적 해제 정책의 사용자 결정이 필요하다. GET는 링크 확인이고 감지 회로 건강 증거가 아니며 미검증 05 body는 허용하지 않는다.
+- 이번 확인에서는 코드/장비/DB/배포/제품 ON과 새 시험을 수행하지 않았다. 기존 현장 대기 해제는 유지하며 실제 장비 설정·서비스 재시작은 후속 범위 확인 전 실행하지 않는다. 활성 계획 Task 9c의 정식 공급/활성화는 미완료다.
+
 ## 2026-10-08 브라우저 없는 A/B 시험 — 제한된 1회 기능 시험·원복 통과, 제품 활성화 미완료
 
 - 사용자가 브라우저 없이 시험을 우선 진행하도록 요청하고 참여/시험·원복6~8분 제어 중단에 `오케이`로 답했다. 현재 `범위 밖, 다른 움직임 없음`도 확인했다. Gateway 담당 한 명이 fresh 상태/대기8종·현재원본/binding/hash/USB/locks를 확인한 뒤 새 receipt/phase로 기존 검토 launcher/native pilot만 준비한다. 지난 ifK8Jw/START와 브라우저 상태를 재사용하지 않는다.
