@@ -143,9 +143,10 @@ const profileInput = () => ({ profileId: randomUUID(), revision: 1, status: "app
       const { payloadHash, ...body } = payload; expect(canonicalPayloadHash(body)).toBe(payloadHash);
       const value: any = { stage, payload }; handoff.snapshots.push(value); return value;
     };
-    const prepare = async (index: number, renewed = false) => {
-      const fixture = commonAsset.fixtures[index]; const ordinal = renewed ? 4 : index + 1;
-      jest.setSystemTime(at(renewed ? "renewedRequested" : "requested"));
+    const prepare = async (index: number, renewed = false, unknown = false) => {
+      const fixture = commonAsset.fixtures[index]; const ordinal = unknown ? 5 : renewed ? 4 : index + 1;
+      const knownFingerprint = fixture.knownFingerprint && !unknown;
+      jest.setSystemTime(at(unknown ? "unknownRequested" : renewed ? "renewedRequested" : "requested"));
       const created = await once(3000 + ordinal, () => ownedPreparation.create(actor,
         { siteId, fixtureId: fixture.fixtureId, clientRequestId: uuid(2000 + ordinal), operation: "query" }));
       const stored = await prisma.bioSensorPreparationOperation.findUniqueOrThrow({ where: { commandId: created.commandId } });
@@ -153,22 +154,22 @@ const profileInput = () => ({ profileId: randomUUID(), revision: 1, status: "app
       expect(command.commandId).toBe(uuid(3000 + ordinal)); expect(command.nodeId).toBe(fixture.nodeId);
       expect(command.operation).toBe("query"); expect(command.fixtureId).not.toBe(command.nodeId);
       const { requestedAt: _requested, expiresAt: _expires, ...identity } = command;
-      jest.setSystemTime(at(renewed ? "renewedCommission" : "commission"));
+      jest.setSystemTime(at(unknown ? "unknownCommission" : renewed ? "renewedCommission" : "commission"));
       const report = bioSensorPreparationReportV1Schema.parse({ ...identity, eventId: uuid(4000 + ordinal), commandPayloadHash: stored.payloadHash,
-        fingerprint: fixture.knownFingerprint ? commonAsset.profile.fingerprint : { ...commonAsset.profile.fingerprint, sensorType: 99 },
-        profileKey: fixture.knownFingerprint ? `${commonAsset.profile.profileId}@1` : null,
-        connectionGeneration: 1, observedAt: new Date().toISOString(), status: fixture.knownFingerprint ? "ready" : "unverified",
+        fingerprint: knownFingerprint ? commonAsset.profile.fingerprint : { ...commonAsset.profile.fingerprint, sensorType: 99 },
+        profileKey: knownFingerprint ? `${commonAsset.profile.profileId}@1` : null,
+        connectionGeneration: 1, observedAt: new Date().toISOString(), status: knownFingerprint ? "ready" : "unverified",
         modeVerified: true, linkVerified: true, errorCode: null });
       const ack = bioSensorPreparationAckV1Schema.parse(await ownedPreparation.ingestAuthenticated(report, scope, new Date()));
       expect(ack.status).toBe("applied"); expect(ack.reportPayloadHash).toBe(canonicalPayloadHash(report));
       handoff.preparations.push({ command, commandPayloadHash: stored.payloadHash, report, reportPayloadHash: ack.reportPayloadHash, ack });
       return report;
     };
-    const live = async (index: number, revision: number, ordinal: number, modeAt: string, stage: string, expected: "applied" | "rejected") => {
+    const live = async (index: number, revision: number, ordinal: number, modeAt: string | null, stage: string, expected: "applied" | "rejected", readiness: "ready" | "off" = "ready") => {
       jest.setSystemTime(at(stage)); const node = commonAsset.fixtures[index];
       const delivery = vehicleSensorCapabilityDeliveryV2Schema.parse({ schemaVersion: 2, assignmentVersion: 1, report: {
         schemaVersion: 2, eventId: uuid(5000 + ordinal), siteId, gatewayId, meshNodeId: node.nodeId, capabilityRevision: revision,
-        sensorProtocol: "bio-usb-pulse", readiness: "ready", verifiedFingerprintId: `${commonAsset.profile.profileId}@1`,
+        sensorProtocol: "bio-usb-pulse", readiness, verifiedFingerprintId: readiness === "ready" ? `${commonAsset.profile.profileId}@1` : null,
         sensorModeVerifiedAt: modeAt, verifiedAt: new Date().toISOString() } });
       const ack = vehicleSensorCapabilityIngestedAckV2Schema.parse(await capability.applyBioDelivery(delivery, scope));
       const deliveryPayloadHash = canonicalPayloadHash(delivery);
@@ -201,14 +202,17 @@ const profileInput = () => ({ profileId: randomUUID(), revision: 1, status: "app
       expect(catalog.profiles).toEqual([commonAsset.profile]);
       await ownedProfiles.ingestCatalogAck(catalogAck, scope);
       handoff.catalog = { payload: catalog, payloadHash: catalogAck.deliveryPayloadHash, ack: catalogAck };
-      const first = await prepare(0); const second = await prepare(1); await prepare(2);
+      const first = await prepare(0); const second = await prepare(1); const third = await prepare(2);
       await consumer.onCurrentConfigRequest(scope, { schemaVersion: 2, siteId, gatewayId, requestId: uuid(6001), assignmentVersion: 1,
         declarationRevision: 1, maxSnapshotVersion: 2, requestedAt: new Date().toISOString() });
       await live(0, 1, 1, first.observedAt, "live", "applied");
       await live(1, 1, 2, second.observedAt, "live", "applied");
+      await live(2, 1, 6, third.observedAt, "live", "applied");
+      // Append additional third-identity envelopes after the original five so
+      // existing immutable semantic IDs/hash joins keep their manifest indices.
+      const thirdReady = handoff.live.pop();
       const views = await loadBioSensorEligibility(prisma as never, commonAsset.fixtures.map((f: any) => f.fixtureId), new Date());
-      expect([views.get(commonAsset.fixtures[0].fixtureId)?.status, views.get(commonAsset.fixtures[1].fixtureId)?.status, views.get(commonAsset.fixtures[2].fixtureId)?.status]).toEqual(["ready", "ready", "unverified"]);
-      expect(views.get(commonAsset.fixtures[2].fixtureId)?.blockedReasons).toContain("profile_unverified");
+      expect(commonAsset.fixtures.map((fixture: any) => views.get(fixture.fixtureId)?.status)).toEqual(["ready", "ready", "ready"]);
       jest.setSystemTime(at("snapshot"));
       for (const index of [0, 1]) await once(7001 + index, () => rules.create(siteId, actor, { name: commonAsset.fixtures[index].label,
         status: "enabled", sourceFixtureIds: [commonAsset.fixtures[index].fixtureId], targetFixtureIds: [commonAsset.fixtures[2].fixtureId],
@@ -239,6 +243,15 @@ const profileInput = () => ({ profileId: randomUUID(), revision: 1, status: "app
       await live(0, 4, 5, renewed.observedAt, "recoveredLive", "applied");
       jest.setSystemTime(at("reenabledSnapshot")); await rules.update(siteId, uuid(7001), actor, { status: "enabled" });
       await captureSnapshot("explicit_reenabled_after_current_proof");
+      handoff.live.push(thirdReady);
+      const unknown = await prepare(2, false, true);
+      expect(unknown).toMatchObject({ status: "unverified", profileKey: null });
+      await live(2, 2, 7, null, "unknownLive", "applied", "off");
+      const thirdUnavailable = (await loadBioSensorEligibility(prisma as never, [commonAsset.fixtures[2].fixtureId], new Date())).get(commonAsset.fixtures[2].fixtureId)!;
+      expect(thirdUnavailable).toMatchObject({ status: "unverified" });
+      expect(thirdUnavailable.blockedReasons).toContain("profile_unverified");
+      expect(await prisma.meshNode.findUniqueOrThrow({ where: { id: commonAsset.fixtures[2].nodeId } })).toMatchObject({ bioPulseReadiness: "off", bioPulseCapabilityRevision: 2n });
+      expect((await prisma.vehicleEventRule.findMany({ where: { gatewayId }, orderBy: { id: "asc" } })).map(rule => rule.status)).toEqual(["enabled", "enabled"]);
       jest.setSystemTime(at("revoked")); await ownedProfiles.revoke(operator, commonAsset.profile.profileId);
       const revoked = await captureSnapshot("profile_revoked_disabled");
       expect(revoked.payload.vehicleEventRules.map((rule: any) => rule.status)).toEqual(["disabled", "disabled"]);
@@ -250,6 +263,7 @@ const profileInput = () => ({ profileId: randomUUID(), revision: 1, status: "app
       }
       // Exemplar hashes must already be correct. Runtime binding never mutates
       // the immutable JSON or changes identities/statuses to match the producer.
+      expect(commonAsset.handoff.preparations).toHaveLength(5);
       expect(commonAsset.handoff.catalog).not.toBeNull();
       expect(instantiateBioSensorCommonPath(commonAsset, commonAsset.exemplarBaseInstant, canonicalPayloadHash)).toEqual(commonAsset.handoff);
       expect(handoff).toEqual(instantiateBioSensorCommonPath(commonAsset, base, canonicalPayloadHash));

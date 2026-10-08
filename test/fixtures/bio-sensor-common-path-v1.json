@@ -16,6 +16,9 @@
     "rejectedLive": 700,
     "recoveredLive": 750,
     "reenabledSnapshot": 800,
+    "unknownRequested": 825,
+    "unknownCommission": 850,
+    "unknownLive": 875,
     "revoked": 900
   },
   "scope": {
@@ -74,8 +77,8 @@
       "nodeId": "00000000-0000-4000-8000-000000000203",
       "nativeUuid": "001122334477",
       "meshAddress": "0x0102",
-      "label": "Synthetic unknown target",
-      "knownFingerprint": false
+      "label": "Synthetic common target",
+      "knownFingerprint": true
     }
   ],
   "handoff": {
@@ -312,20 +315,20 @@
               "revision": 3,
               "build": 100
             },
-            "sensorType": 99,
+            "sensorType": 1,
             "infraredType": 0,
             "ambientLightType": 0,
             "hardwareType": 2
           },
-          "profileKey": null,
+          "profileKey": "00000000-0000-4000-8000-000000000005@1",
           "connectionGeneration": 1,
           "observedAt": "2026-10-08T00:00:00.200Z",
-          "status": "unverified",
+          "status": "ready",
           "modeVerified": true,
           "linkVerified": true,
           "errorCode": null
         },
-        "reportPayloadHash": "sha256:98318f236f8ffd56f022079b9d0be9181aa2136b1f477ec9023ea24c063376d4",
+        "reportPayloadHash": "sha256:7936ef9dfaddf435edffb3ee05affc217a6e2ff891c72c81409e38873b86aed4",
         "ack": {
           "schemaVersion": 1,
           "commandId": "00000000-0000-4000-8000-000000003003",
@@ -335,7 +338,7 @@
           "nodeId": "00000000-0000-4000-8000-000000000203",
           "assignmentVersion": 1,
           "eventId": "00000000-0000-4000-8000-000000004003",
-          "reportPayloadHash": "sha256:98318f236f8ffd56f022079b9d0be9181aa2136b1f477ec9023ea24c063376d4",
+          "reportPayloadHash": "sha256:7936ef9dfaddf435edffb3ee05affc217a6e2ff891c72c81409e38873b86aed4",
           "status": "applied",
           "occurredAt": "2026-10-08T00:00:00.200Z"
         }
@@ -405,6 +408,73 @@
           "reportPayloadHash": "sha256:9fd9b358afcd77444654d56e9aa95f47906e6a6c3a7a3c53342f0b0146c70494",
           "status": "applied",
           "occurredAt": "2026-10-08T00:00:00.650Z"
+        }
+      },
+      {
+        "command": {
+          "schemaVersion": 1,
+          "commandId": "00000000-0000-4000-8000-000000003005",
+          "siteId": "00000000-0000-4000-8000-000000000002",
+          "gatewayId": "00000000-0000-4000-8000-000000000004",
+          "fixtureId": "00000000-0000-4000-8000-000000000103",
+          "nodeId": "00000000-0000-4000-8000-000000000203",
+          "assignmentVersion": 1,
+          "deviceIdentityHash": "dc06920444f50fc7d3b65a1b4b9a0944c5ba39daf5147291987e72f494f5b4c7",
+          "meshAddress": "0x0102",
+          "operation": "query",
+          "catalogRevision": 5,
+          "requestedAt": "2026-10-08T00:00:00.825Z",
+          "expiresAt": "2026-10-08T00:02:00.825Z"
+        },
+        "commandPayloadHash": "sha256:c4f6e9f8abb57e3ecedb2f4fd0f0dbeba6e6e6837594f15eb035b899fd84bf8f",
+        "report": {
+          "schemaVersion": 1,
+          "commandId": "00000000-0000-4000-8000-000000003005",
+          "siteId": "00000000-0000-4000-8000-000000000002",
+          "gatewayId": "00000000-0000-4000-8000-000000000004",
+          "fixtureId": "00000000-0000-4000-8000-000000000103",
+          "nodeId": "00000000-0000-4000-8000-000000000203",
+          "assignmentVersion": 1,
+          "deviceIdentityHash": "dc06920444f50fc7d3b65a1b4b9a0944c5ba39daf5147291987e72f494f5b4c7",
+          "meshAddress": "0x0102",
+          "operation": "query",
+          "catalogRevision": 5,
+          "eventId": "00000000-0000-4000-8000-000000004005",
+          "commandPayloadHash": "sha256:c4f6e9f8abb57e3ecedb2f4fd0f0dbeba6e6e6837594f15eb035b899fd84bf8f",
+          "fingerprint": {
+            "deviceType": 1,
+            "firmware": {
+              "major": 1,
+              "minor": 2,
+              "revision": 3,
+              "build": 100
+            },
+            "sensorType": 99,
+            "infraredType": 0,
+            "ambientLightType": 0,
+            "hardwareType": 2
+          },
+          "profileKey": null,
+          "connectionGeneration": 1,
+          "observedAt": "2026-10-08T00:00:00.850Z",
+          "status": "unverified",
+          "modeVerified": true,
+          "linkVerified": true,
+          "errorCode": null
+        },
+        "reportPayloadHash": "sha256:0947380cde6e4e69a5bed73f4b589b64c446433cfec1d2197929e5eb48c4f98f",
+        "ack": {
+          "schemaVersion": 1,
+          "commandId": "00000000-0000-4000-8000-000000003005",
+          "siteId": "00000000-0000-4000-8000-000000000002",
+          "gatewayId": "00000000-0000-4000-8000-000000000004",
+          "fixtureId": "00000000-0000-4000-8000-000000000103",
+          "nodeId": "00000000-0000-4000-8000-000000000203",
+          "assignmentVersion": 1,
+          "eventId": "00000000-0000-4000-8000-000000004005",
+          "reportPayloadHash": "sha256:0947380cde6e4e69a5bed73f4b589b64c446433cfec1d2197929e5eb48c4f98f",
+          "status": "applied",
+          "occurredAt": "2026-10-08T00:00:00.850Z"
         }
       }
     ],
@@ -572,6 +642,72 @@
           "status": "applied",
           "errorCode": null,
           "ingestedAt": "2026-10-08T00:00:00.750Z"
+        }
+      },
+      {
+        "delivery": {
+          "schemaVersion": 2,
+          "assignmentVersion": 1,
+          "report": {
+            "schemaVersion": 2,
+            "eventId": "00000000-0000-4000-8000-000000005006",
+            "siteId": "00000000-0000-4000-8000-000000000002",
+            "gatewayId": "00000000-0000-4000-8000-000000000004",
+            "meshNodeId": "00000000-0000-4000-8000-000000000203",
+            "capabilityRevision": 1,
+            "sensorProtocol": "bio-usb-pulse",
+            "readiness": "ready",
+            "verifiedFingerprintId": "00000000-0000-4000-8000-000000000005@1",
+            "sensorModeVerifiedAt": "2026-10-08T00:00:00.200Z",
+            "verifiedAt": "2026-10-08T00:00:00.300Z"
+          }
+        },
+        "deliveryPayloadHash": "sha256:5023ef681e06af2e6c1a66b91fbcb8b96b2b51b4d52d19087dae940c30c04ce5",
+        "ack": {
+          "schemaVersion": 2,
+          "siteId": "00000000-0000-4000-8000-000000000002",
+          "gatewayId": "00000000-0000-4000-8000-000000000004",
+          "assignmentVersion": 1,
+          "eventId": "00000000-0000-4000-8000-000000005006",
+          "meshNodeId": "00000000-0000-4000-8000-000000000203",
+          "capabilityRevision": 1,
+          "deliveryPayloadHash": "sha256:5023ef681e06af2e6c1a66b91fbcb8b96b2b51b4d52d19087dae940c30c04ce5",
+          "status": "applied",
+          "errorCode": null,
+          "ingestedAt": "2026-10-08T00:00:00.300Z"
+        }
+      },
+      {
+        "delivery": {
+          "schemaVersion": 2,
+          "assignmentVersion": 1,
+          "report": {
+            "schemaVersion": 2,
+            "eventId": "00000000-0000-4000-8000-000000005007",
+            "siteId": "00000000-0000-4000-8000-000000000002",
+            "gatewayId": "00000000-0000-4000-8000-000000000004",
+            "meshNodeId": "00000000-0000-4000-8000-000000000203",
+            "capabilityRevision": 2,
+            "sensorProtocol": "bio-usb-pulse",
+            "readiness": "off",
+            "verifiedFingerprintId": null,
+            "sensorModeVerifiedAt": null,
+            "verifiedAt": "2026-10-08T00:00:00.875Z"
+          }
+        },
+        "deliveryPayloadHash": "sha256:905d9fc62494dbf492237e36eb1f87226c4594ee1dda3cad623acfe199d674fc",
+        "ack": {
+          "schemaVersion": 2,
+          "siteId": "00000000-0000-4000-8000-000000000002",
+          "gatewayId": "00000000-0000-4000-8000-000000000004",
+          "assignmentVersion": 1,
+          "eventId": "00000000-0000-4000-8000-000000005007",
+          "meshNodeId": "00000000-0000-4000-8000-000000000203",
+          "capabilityRevision": 2,
+          "deliveryPayloadHash": "sha256:905d9fc62494dbf492237e36eb1f87226c4594ee1dda3cad623acfe199d674fc",
+          "status": "applied",
+          "errorCode": null,
+          "ingestedAt": "2026-10-08T00:00:00.875Z"
         }
       }
     ],
