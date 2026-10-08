@@ -2,10 +2,12 @@
 
 기준일: 2026-10-08
 
-## 2026-10-08 BIO 센서 기능 로컬 병합 — 진행
+## 2026-10-08 BIO 센서 기능 로컬 병합 — 통합 검토 완료, 기본 반영 대기
 
 - 사용자가 기본 `codex/mvp1-cloud-web` 병합과 남은 이벤트 기능 과제 보고를 요청했다. 승인 센서 `247a837d`와 기본 `5e173fb4`는 Web·문서·Shared include 13개 충돌이 예상되므로 기존 격리 worktree에서 최신 모바일/모니터링과 센서 기능을 모두 보존해 합성한다.
 - `docs/superpowers/plans/2026-10-08-bio-sensor-local-merge.md` 체크리스트로 통합·집중 검증·독립 검토 후 기본 checkout에 ff-only 반영한다. 기본의 목업 문서 2개 미커밋 변경은 사용자 소유로 따로 보존·복원한다. push/실제 DB migration/배포·장비 제어는 하지 않는다.
+- 통합 merge `943c2ab8`와 동일 환경키 중복 정리 `cd41dfc9`에서 Web384+새3/Shared105/API29+기존 다른18/Gateway64·Chromium26, 앱 타입/빌드/UI정책을 확인했다. 실제 모바일 BIO 터치 영역과 준비 상세 겹침을 보완했고 독립 검토 SpecPASS/차단0·scoped M1 ADDRESSED/newC0/I0/M0이다. 이전 전체 suite를 이번 통과로 복사하지 않으며 기존 pnpm/color/chunk 경고는 남는다.
+- 다음 필수 관문은 실제 hardware profile 최초 승인, forward migration/호환 배포·현장 장애 정책 적용, 정식 UI를 통한 짧은 실제 준비/감지/유지/원복 확인이다. 현재 catalog empty/policy OFF이며 소프트웨어 로컬 병합만으로 서비스 이벤트가 켜지지 않는다. sensor-safe source 밝기·복수 센서/대상 우선순위·BIO 장애 알림 연계와 상태형 재실 감지는 별도 확장이다.
 
 ## 2026-10-08 공통 센서 등록·UI 설정 — 소프트웨어 구현·최종 검토 완료, 운영 적용 전
 
