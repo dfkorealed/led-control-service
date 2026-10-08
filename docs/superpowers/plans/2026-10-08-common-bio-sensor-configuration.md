@@ -86,11 +86,11 @@
 - `DiscoveredMeshNode.bioDiscoveryFingerprint Json?`는 관측 데이터이며 기본null다. 별도 version parser로 검증된 현재 scan의 fingerprint만 기존 session/correlation/attempt/scope/sequence/중복 경계 안에서 저장한다. legacy/null·잘못된 scope/늦은 scan으로 새 호환/ready 증거를 생성하지 않는다. confirmed 등록 후에도 observation을 보존하고 실제 준비 query는 fresh discovery를 다시 확인한다.
 - 새 API subscriber/producer ACL을 선행 적용하는 코드 경계를 제공한다. 일반 등록 HTTP 응답/로그에 raw fingerprint를 추가하지 않는다. Task3 BIO publisher만 새 topic을 사용하고 기존 다른 adapter/legacy strict 메시지는 유지한다. Gateway 소비 구현은 Task3 소유다.
 
-- [ ] **Step 1 RED:** strict fingerprint/version/byte·legacy unchanged/null·다른 scan/scope/late event 거부 및 accepted typed observation 저장/등록 후 보존을 재현한다.
-- [ ] **Step 2 RED 확인:** Shared 신규 계약 focused Vitest, API 일회용 DB 등록 ingestion focused integration과 ACL source contract; 사용자DB 미접속.
-- [ ] **Step 3 구현:** 새 Shared 계약을 검증·먼저 커밋한 뒤 API/forward migration/ACL source를 순차 연결한다. 모드 SET/자동 센서 준비·classification/승인 seed0을 유지한다.
-- [ ] **Step 4 GREEN/문서:** 신규 Shared 계약+기존 scan 계약 focused regression/typecheck/build, API focused disposable migrations/typecheck/build·DTO redaction; 해당 schema/menu 문서 갱신.
-- [ ] **Step 5 검토·커밋:** report·독립 spec/quality 검토 후 Task3로 실제 관측 보존 계약을 넘긴다.
+- [x] **Step 1 RED:** strict fingerprint/version/byte·legacy unchanged/null·다른 scan/scope/late event 거부 및 accepted typed observation 저장/등록 후 보존을 재현한다.
+- [x] **Step 2 RED 확인:** Shared 신규5 FAIL, API nullable/V2 저장11 FAIL·subscriber/DTO2 FAIL·ACL1 FAIL을 실제 assertion으로 확인; 사용자DB 미접속.
+- [x] **Step 3 구현:** 새 Shared 계약 `c393309c`를 검증·먼저 커밋한 뒤 API/forward migration/ACL source `d6d2386e`를 순차 연결했다. 모드 SET/자동 센서 준비·classification/승인 seed0을 유지한다.
+- [x] **Step 4 GREEN/문서:** Shared75/75/typecheck/build0, disposable 등록23/23·MQTT/등록185 PASS/기존 실제broker1 opt-in SKIP·ACL2/2/APItypecheck/build0, DTO/log redaction·schema/settings/monitoring 갱신.
+- [x] **Step 5 검토·커밋:** 독립 spec/quality Approved(C0/I0); prior Tasks1/2의 기본OFF·strictwire 불변 증거와 결합해 Task3로 인계. 실제 운영 적용은 확인했다고 표현하지 않는다.
 
 ### Task 3: Gateway discovery 보존·동적 카탈로그·실제 준비/authority 공급
 
@@ -104,11 +104,12 @@
 - `BioPulseCatalogPort.snapshot()/onChange()`: immutable current scoped catalog/revision/hash를 공급한다. `FileBioSensorProfileCatalog.apply(envelope)`는 strict scope/hash·monotonic revision·durability 후 ACK, stale/duplicate/conflicting 거부. restart에는 독립 health 복구0.
 - `BioNodeLinkMonitor.start()/snapshot(fixtureId)/stopAndDrain()`: 승인 profile과 exact commission에만 기존 readDeviceInfo 전역 queue로 node mode GET, monotonic maxAge/generation 확인·연속healthySince 유지. pulse/alive로 health를 만들지 않는다. fresh probe가 health를 갱신해도 authority의 stable observation을 불필요하게 변경하지 않으며 실패/만료 시즉시철회한다.
 - `CommissionedBioPulseAuthorityProvider.read()/onChange()`는 승인 profile·현재 canonical command/binding·mode/link·카탈로그 실행정책·현재 적용/준비중 authenticated snapshot context를 합성한다. requested snapshot revision만으로 신뢰하지 않고 index/runtime에서 실제 검증된 snapshot context를 공급한다. capabilityRevision은 현재 node-local 전달 원장의 revision과 결속한다.
+- `acknowledgedCommissionProof(fixtureId)`와 `pinSnapshotBinding(validatedContext,fixtureId)`는 현재 commission/connection epoch에 속한 실제 applied/duplicate ACK 원장의 exact capability revision을 context별로 고정한다. 동일 연속 healthy epoch의 반복 GET/live 보고가 pin·healthySince·대기 receipt를 바꾸지 않는다. arbitrary 숫자 범위/요청 revision은 허용하지 않으며 reconnect/restart/degraded/catalog/identity 변경 뒤 역사 ACK만으로 pin을 복구하지 않는다. snapshot wire 확장 없이 검증된 pending/current·기존 pending 원복 context를 stage/commit/rollback으로 분리 보존한다.
 - preparation handler는 exact authenticated command/mapping·fresh discovery와 approved profile matching 뒤에만 ensure_sensor를 수행한다. query는 SET0. ready/불가사유 결과를 내구 journal에 저장하고 정확 ACK까지 재전송한다. 단순 onIdentityProof는 mode전 호출이므로 실제 별도 GET 뒤 mode/link 증거를 생산한다. canonical MeshNode와 local nodeId를 합치지 않는다.
 - command TTL은 최초 준비 결과 수용에만 사용한다. 상시 commission은 현재 confirmed binding·승인 catalog·서버의 정확 preparation applied/duplicate ACK에 결속한다. 반복 fresh GET 건강은 별도 proof로 V2 node-local revision/verifiedAt를 갱신한다. 재시작 후 저장된 건강은 복구하지 않고 새 GET 전 OFF/degraded를 유지한다.
 - dynamiccatalog/source를 한 수명 경계에서 교체하고 queued/cached receipt·authority 철회를 즉시 수행한다. 확인된 원상태/미확정 pending을 삭제하거나 profile승인을 환경변수로 주입하지 않는다. 기존 source intake/target/controller를 재사용한다.
 
-- [ ] **Step 1 RED:** 서로 다른 Fixture/native3개 동일profile매칭, 다른hardware거부, legacyunknown, serialquery/lateGET, setupmode-only, catalog교체/await중revocation, reconnect/restart·decoderfailure·healthage를 재현한다.
+- [ ] **Step 1 RED:** 서로 다른 Fixture/native3개 동일profile매칭, 다른hardware거부, legacyunknown, serialquery/lateGET, setupmode-only, catalog교체/await중revocation, reconnect/restart·decoderfailure·healthage를 재현한다. 반복 healthy probe 중 exact snapshot pin/receipt 유지, unknownrev 거부·stage 실패 rollback·degraded/reconnect 뒤 역사 ACK 부활 거부도 확인한다.
 - [ ] **Step 2 RED 확인:** 신규 Gateway tests + 기존 source/production integration focused Vitest.
 - [ ] **Step 3 구현:** discovery→mapping/준비 관측 보존, catalog/handler/monitor/provider·실제 MQTT/ACK/index wiring을 연결한다. approved 기본catalog빈상태와 BlueZ 없는 BIO경로를 유지한다.
 - [ ] **Step 4 GREEN/문서:** 집중 Gateway unit/integration·typecheck/build, control/settings 갱신. 실제 RF/장비 배포 없이 가짜 transport만 사용한다.
@@ -121,6 +122,7 @@
 
 **Interfaces:**
 - 준비report→profile/currentcatalog/assignment·mode·sitepolicy/V2지원이 모두 맞고 최신 별도 live capability 관측 verifiedAt가 profile의 maxAge 안일 때만 기존 capability V2 ready와 결합한다. 최초 준비 observedAt를 영구 링크 건강으로 사용하지 않으며 command TTL을 상시 commission TTL로 재사용하지 않는다. 보고/ACK를 독립권한으로 사용하지 않는다. 기존 ready report만으로 우회하지 못하도록 profileKey/currentpreparation 대조를 capability·rule admission·DB guard에 일관되게 적용한다.
+- profile은 현재 approved exact fingerprint의 유일한 매칭이어야 한다. 모호한 중복 매칭은 unverified다. 현장 정책 enabled 외에도 저장된 담당자가 현재 active customer/assigned admin인지 재검증하고 변경/해제로 담당자가 사라진 정책을 실제 catalog/규칙에 수렴시킨다. Gateway의 context별 exact ACK pin과 API의 최신 live verifiedAt를 혼동하지 않는다.
 - dashboard에 `bioSensorPreparation:{status,commandId,profileKey,observedAt,blockedReasons}`를 반환한다. 이유는 `profile_unverified|fingerprint_unverified|mode_unverified|link_unverified|catalog_pending|operating_policy_required|gateway_protocol_unverified|binding_changed|unsupported`이다. raw fingerprint/body/native는 일반dashboard로 보내지 않는다.
 - `vehicleEventSourceView`는 preparation과 currentqualification으로 판정하고 고정 `product_gate_off`를 조건부사유로 바꾼다. source/target보호·BIO1개source·같은gateway/10초하한은 유지한다. enabled의무조건v2_support_unverified 대신 authenticated V2support/currentconditions검사를 사용한다. snapshot applied ACK는 sync에만 사용한다.
 - 새등록은 typeddiscovery를 보존·카탈로그대조만 하고 SET0. 기존등록은 공통 준비query로 갱신한다. 철회/재배정/식별교체는 준비증거무효화·affectedruledisable/snapshot수렴을 같은 경계에서 수행한다.
