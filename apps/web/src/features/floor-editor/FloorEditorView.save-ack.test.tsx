@@ -1,4 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { SessionStatusProvider, ToastRegion } from "../../components/ui";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MemoryRouter } from "react-router-dom";
@@ -28,9 +29,9 @@ function mount(userId?: string, edit = true, initial = base) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } }); clients.push(client);
   if (userId) client.setQueryData(["auth", "me"], { user: { id: userId, role: "admin" } });
   const onSaved = vi.fn();
-  const content = (state: FloorEditorState) => <QueryClientProvider client={client}><MemoryRouter>
+  const content = (state: FloorEditorState) => <QueryClientProvider client={client}><SessionStatusProvider><ToastRegion /><MemoryRouter>
     <FloorEditorView initialState={state} userRole="admin" leaseToken="lease" leaseFence={1} onSaved={onSaved} onCancel={() => undefined} onReload={() => undefined} />
-  </MemoryRouter></QueryClientProvider>;
+  </MemoryRouter></SessionStatusProvider></QueryClientProvider>;
   const view = render(content(structuredClone(initial)));
   if (edit) act(() => {
     store().loadMapStructures(store().mapScope!, { layers: [{ id: "map", name: "Map", order: 0, visible: true, locked: false }], groups: [] });
@@ -63,6 +64,7 @@ describe("normal common save response adoption", () => {
     const history = store().past;
     fireEvent.click(screen.getByRole("button", { name: "저장" }));
     await waitFor(() => expect(mapStageClient.commit).toHaveBeenCalledTimes(1));
+    fireEvent.click(screen.getByRole("button", { name: "편집 복구" }));
     const cancel = screen.getByRole("button", { name: "대량 편집 취소" });
     await waitFor(() => expect(cancel).toBeEnabled());
     fireEvent.click(cancel);
@@ -84,6 +86,7 @@ describe("normal common save response adoption", () => {
 
   it("keeps common map size draft values visible before checkpoint Save and restores them on undo", async () => {
     mount("draft-user", false);
+    fireEvent.click(await screen.findByRole("button", { name: "편집 복구" }));
     const width = await screen.findByLabelText("맵 너비");
     fireEvent.change(width, { target: { value: "1500" } }); fireEvent.blur(width);
     fireEvent.click(screen.getByRole("button", { name: "맵 설정 적용" }));
@@ -119,6 +122,9 @@ describe("normal common save response adoption", () => {
     expect(saveEditorDraft(scope, base, store().state!, store().exportMapDraft())).toBe(true);
     store().reset();
     mount("draft-user", false);
+    const recovery = await screen.findByRole("button", { name: "편집 복구" });
+    await waitFor(() => expect(recovery).toBeEnabled());
+    fireEvent.click(recovery);
     fireEvent.click(await screen.findByRole("button", { name: "초안 삭제" }));
     expect(localStorage.getItem(editorDraftKey(scope, base))).toBeNull();
   });

@@ -1,11 +1,12 @@
 import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { CircleCheck, PanelLeft, PanelRight, RotateCcw, Save, TriangleAlert, Undo2, Redo2, ZoomIn, ZoomOut, Maximize, Focus, X } from "lucide-react";
+import { Bell, CircleCheck, PanelLeft, PanelRight, RotateCcw, Save, TriangleAlert, Undo2, Redo2, X } from "lucide-react";
 import { type DragEvent, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import type { AuthUser } from "../../api/auth";
 import { ApiError } from "../../api/client";
-import { Button, Checkbox, ConfirmDialog, FeedbackState, Heading, IconButton, IconTooltipButton, SelectBox, SidePanel, Text } from "../../components/ui";
+import { Button, Checkbox, ConfirmDialog, FeedbackState, Heading, IconButton, IconTooltipButton, ModalDialog, SelectBox, SidePanel, Text, formatTimestamp, useSessionStatus, useSessionToast, type SessionStatusItem } from "../../components/ui";
+import { MapCameraControls } from "../../components/ui/maps/MapCameraControls";
 import {
   listFloorEditorRevisions,
   getAppliedFloorImportOverlay,
@@ -35,6 +36,7 @@ import type { CadImportReviewState, FloorEditorState, FloorImportApplyResult } f
 import { snapPointToGridWithinBounds, type Point } from "./geometry";
 
 import { useCadImportScene } from "./CadImportSceneCanvas";
+import { registerMobileBackGuard } from "../mobile/mobile-back";
 
 interface FloorEditorViewProps {
   initialState: FloorEditorState;
@@ -46,6 +48,7 @@ interface FloorEditorViewProps {
   onSaved: (state: FloorEditorState) => void | Promise<void>;
   onReload: () => void | Promise<void>;
   onDirtyChange?: (dirty: boolean) => void;
+  onNativeBack?: () => boolean;
   floors?: Array<{ id: string; name: string }>;
   onFloorChange?: (floorId: string) => void;
 }
@@ -62,6 +65,7 @@ export function FloorEditorView({
   onSaved,
   onReload,
   onDirtyChange,
+  onNativeBack,
   floors,
   onFloorChange
 }: FloorEditorViewProps) {
@@ -120,6 +124,17 @@ export function FloorEditorView({
     else setCollapsedPanels((current) => ({ ...current, [panel]: true }));
     (panel === "tools" ? toolsToggle : informationToggle).current?.focus();
   }
+  const nativeBack = useRef<() => boolean>(() => false);
+  nativeBack.current = () => {
+    // One registration owns panel → route ordering; separate LIFO guards could
+    // open the dirty dialog before closing a panel after a state update.
+    if (isNarrowLayout && openPanel) {
+      if (!panelDragSource.current) closePanel(openPanel);
+      return true;
+    }
+    return onNativeBack?.() ?? false;
+  };
+  useEffect(() => registerMobileBackGuard(() => nativeBack.current()), []);
   useEffect(() => {
     if (openPanel) (openPanel === "tools" ? toolsPanel : informationPanel).current?.focus();
   }, [openPanel]);
@@ -166,6 +181,26 @@ export function FloorEditorView({
   const stageProgress = useFloorEditorStore(s => s.stageProgress);
   const fixtureLayer = useFloorEditorStore(s => s.layers.fixtures);
   const lockedFixtureIds = useFloorEditorStore(s => s.lockedFixtureIds);
+  const [feedbackOpen, setFeedbackOpen] = useState(false);
+  const toast = useSessionToast();
+  const noticeScope = `floor-editor:${draftScope}:${floorId}`;
+  const notices = useMemo<SessionStatusItem[]>(() => {
+    const items: SessionStatusItem[] = [];
+    const add = (id: string, tone: SessionStatusItem["tone"], title: string, actionable = false) => items.push({
+      id: `${noticeScope}:${id}`, fingerprint: title, source: "query", tone, title,
+      ...(actionable ? { action: { label: "편집 복구 열기", onAction: () => setFeedbackOpen(true) } } : {})
+    });
+    if (saveStatus === "error" && !map.error) add("save", "danger", "변경분을 저장하지 못했습니다.");
+    if (saveStatus === "conflict") add("conflict", "danger", "최신 맵과 변경사항이 충돌했습니다.", true);
+    if (map.error) add("map", "danger", map.error, true);
+    if (draftError) add("draft", "warning", "이 브라우저에 초안을 보관하지 못했습니다. 서버에 저장하세요.");
+    if (recovery) add("recovery", "warning", "저장하지 않은 로컬 초안이 있습니다.", true);
+    if (map.preparing || map.pendingStage || map.retryStage || stageProgress) add("stage", "info", map.preparing ? "대량 편집을 준비하고 있습니다." : map.pendingStage ? "대량 편집 준비 완료 · 저장 대기" : "대량 편집 준비가 중단되었습니다.", true);
+    if (skippedFixtureCount) add("skipped", "info", `현재 존재하지 않는 조명 ${skippedFixtureCount}개를 건너뛰었습니다.`);
+    return items;
+  }, [noticeScope, saveStatus, map.error, draftError, recovery, map.preparing, map.pendingStage, Boolean(map.retryStage), Boolean(stageProgress), skippedFixtureCount]);
+  useSessionStatus(noticeScope, notices);
+  useEffect(() => { setFeedbackOpen(false); return () => toast.dismiss(`${noticeScope}:saved`); }, [noticeScope, toast]);
 
   useLayoutEffect(() => {
     const current = useFloorEditorStore.getState();
@@ -221,9 +256,24 @@ export function FloorEditorView({
       }
       else timer = setTimeout(persist, 300);
     });
-    window.addEventListener("pagehide", persist);
-    window.addEventListener("beforeunload", persist);
-    return () => { clearTimeout(timer); persist(); unsubscribe(); window.removeEventListener("pagehide", persist); window.removeEventListener("beforeunload", persist); };
+    const flush = () => { clearTimeout(timer); persist(); };
+    const handleVisibility = () => { if (document.visibilityState === "hidden") flush(); };
+    const handleLifecycle = (event: Event) => {
+      // A native picker can temporarily report inactive; only suspension flushes
+      // the pending local draft. Neither path submits a server mutation.
+      if ((event as CustomEvent<{ state?: unknown }>).detail?.state === "background") flush();
+    };
+    window.addEventListener("pagehide", flush);
+    window.addEventListener("beforeunload", flush);
+    window.addEventListener("led-control:webview-lifecycle", handleLifecycle);
+    document.addEventListener("visibilitychange", handleVisibility);
+    return () => {
+      flush(); unsubscribe();
+      window.removeEventListener("pagehide", flush);
+      window.removeEventListener("beforeunload", flush);
+      window.removeEventListener("led-control:webview-lifecycle", handleLifecycle);
+      document.removeEventListener("visibilitychange", handleVisibility);
+    };
   }, [userId, draftScope, baseline, floorId, siteId]);
 
   useEffect(() => {
@@ -231,7 +281,7 @@ export function FloorEditorView({
   }, [isDirty, onDirtyChange]);
 
   useEffect(() => {
-    setPanelTab((current) => current === "details" ? current : "properties");
+    setPanelTab((current) => current === "details" || current === "layers" ? current : "properties");
   }, [selection?.kind, selection?.id, cadSelection?.targetId, selectedFixtureIds.length]);
 
   function isCurrentSave(principalGeneration: number) {
@@ -301,6 +351,7 @@ export function FloorEditorView({
       mutationLock.current = false;
     }
     setSaveStatus("idle");
+    toast.publish({ id: `${noticeScope}:saved`, tone: "success", title: "맵을 저장했습니다." });
   }
 
   async function handleRestore(revision: number) {
@@ -424,7 +475,7 @@ export function FloorEditorView({
   }
 
   return (
-    <section className="flex h-full min-h-0 min-w-0 flex-col gap-2 overflow-hidden">
+    <section className="flex h-full min-h-min min-w-0 flex-col gap-2">
       <header className="shrink-0 [&_[role=tooltip]]:pointer-events-none" data-testid="editor-toolbar">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="min-w-0">
@@ -433,25 +484,26 @@ export function FloorEditorView({
           </div>
           <div className="flex min-w-0 items-center gap-1">
             {floors && onFloorChange && <SelectBox label="층 선택" className="w-32 min-w-0 [&>label]:sr-only" items={floors.map((floor) => ({ id: floor.id, label: floor.name }))} selectedKey={floorId} isDisabled={isMutationPending} onSelectionChange={(key) => { if (key && !mutationLock.current) onFloorChange(key); }} />}
-            <IconTooltipButton icon={X} label="취소" onClick={onCancel} />
-            <IconTooltipButton className="bg-action-primary text-content-inverse hover:bg-action-primary-hover" icon={Save} label="저장" disabled={!isDirty || isSaveOrRestoreBlocked} isLoading={saveStatus === "saving"} loadingLabel="저장 중" onClick={handleSave} />
+            <IconTooltipButton size="sm" icon={X} label="취소" onClick={onCancel} />
+            <IconTooltipButton size="sm" className="bg-action-primary text-content-inverse hover:bg-action-primary-hover" icon={Save} label="저장" disabled={!isDirty || isSaveOrRestoreBlocked} isLoading={saveStatus === "saving"} loadingLabel="저장 중" onClick={handleSave} />
           </div>
         </div>
         <div className="flex flex-nowrap items-center gap-1 overflow-x-auto overscroll-x-contain border-b border-border-default py-1" role="toolbar" aria-label="맵 보기 도구">
-          <IconTooltipButton ref={toolsToggle} icon={PanelLeft} label="도구 및 조명 패널" aria-expanded={toolsVisible} aria-controls="editor-tools-panel" onClick={() => togglePanel("tools")} />
-          <IconTooltipButton icon={Undo2} label="실행 취소" disabled={isSaveOrRestoreBlocked || !past.length} onClick={() => void map.history("undo")} />
-          <IconTooltipButton icon={Redo2} label="다시 실행" disabled={isSaveOrRestoreBlocked || !future.length} onClick={() => void map.history("redo")} />
-          <IconTooltipButton icon={ZoomOut} label="축소" onClick={() => setZoom(zoom / 1.1)} />
-          <Button variant="secondary" className="h-11 w-16 shrink-0 px-1" aria-label="100%" title="100%" onClick={resetZoom}>{Math.round(zoom * 100)}%</Button>
-          <IconTooltipButton icon={ZoomIn} label="확대" onClick={() => setZoom(zoom * 1.1)} />
-          <IconTooltipButton icon={Maximize} label="맵 맞춤" onClick={() => useFloorEditorStore.getState().fit(false, visibleCadViewport ?? undefined)} />
-          <IconTooltipButton icon={Focus} label="선택 맞춤" onClick={() => map.document ? map.fitSelection() : useFloorEditorStore.getState().fit(true)} />
-          <IconTooltipButton ref={informationToggle} icon={PanelRight} label="편집 정보 패널" aria-expanded={informationVisible} aria-controls="editor-information-panel" onClick={() => togglePanel("information")} />
+          <IconTooltipButton size="sm" ref={toolsToggle} icon={PanelLeft} label="도구 및 조명 패널" aria-expanded={toolsVisible} aria-controls="editor-tools-panel" onClick={() => togglePanel("tools")} />
+          <IconTooltipButton size="sm" icon={Undo2} label="실행 취소" disabled={isSaveOrRestoreBlocked || !past.length} onClick={() => void map.history("undo")} />
+          <IconTooltipButton size="sm" icon={Redo2} label="다시 실행" disabled={isSaveOrRestoreBlocked || !future.length} onClick={() => void map.history("redo")} />
+          <MapCameraControls className="shrink-0 flex-nowrap" zoomPercent={Math.round(zoom * 100)} onZoomOut={() => setZoom(zoom / 1.1)} onZoomIn={() => setZoom(zoom * 1.1)}
+            onResetZoom={resetZoom} onFit={() => useFloorEditorStore.getState().fit(false, visibleCadViewport ?? undefined)}
+            onFitSelection={() => map.document ? map.fitSelection() : useFloorEditorStore.getState().fit(true)}
+            canZoomOut={zoom > 0.001} canZoomIn={zoom < 4} fitLabel="맵 맞춤" />
+          <IconTooltipButton size="sm" ref={informationToggle} icon={PanelRight} label="편집 정보 패널" aria-expanded={informationVisible} aria-controls="editor-information-panel" onClick={() => togglePanel("information")} />
+          <IconTooltipButton size="sm" icon={Bell} label="편집 복구" disabled={!notices.some(item => item.action)} onClick={() => setFeedbackOpen(true)} />
         </div>
       </header>
 
       {!map.document && !cadImportReview && <MapDocumentInitialization state={initialState} readOnly={readOnly || isDirty || saveStatus === "saving" || restoringRevision !== null || isCadImportPending} leaseToken={leaseToken} leaseFence={leaseFence} onBusyChange={handleResetBusyChange}
         onInitialized={next => { adoptBaseline(next); void invalidateEditorQueries(queryClient, next); void onSaved(next); }} />}
+      <ModalDialog isOpen={feedbackOpen} title="편집 복구" onClose={() => setFeedbackOpen(false)}>
       {saveStatus === "error" && !map.error ? (
         <FeedbackState tone="danger" icon={TriangleAlert} title="변경분을 저장하지 못했습니다." />
       ) : null}
@@ -462,6 +514,7 @@ export function FloorEditorView({
           title="최신 맵과 변경사항이 충돌했습니다."
           description="최신 버전을 다시 불러온 뒤 변경사항을 확인하세요."
           action={<Button variant="secondary" onClick={() => {
+            setFeedbackOpen(false);
             if (!isDirty) { void onReload(); return; }
             setConfirmReload(true);
           }}>최신 버전 다시 불러오기</Button>}
@@ -476,6 +529,7 @@ export function FloorEditorView({
             if (result === "stale") return;
           } else useFloorEditorStore.getState().recoverDraft(recovery);
           setRecovery(null);
+          setFeedbackOpen(false);
         } catch (error) { map.reportError(error); }
       }}>초안 복구</Button><Button disabled={isMutationPending} onClick={() => { if (userId) removeEditorDraft(draftScope, initialState); setRecovery(null); }}>초안 삭제</Button></div>} />}
       {(map.preparing || map.pendingStage || map.retryStage || stageProgress) && <FeedbackState icon={map.pendingStage ? CircleCheck : TriangleAlert}
@@ -486,15 +540,14 @@ export function FloorEditorView({
           {!map.preparing && !map.pendingStage && map.retryStage && <Button disabled={readOnly || saveStatus === "saving"} onClick={() => void map.retryStage?.()}>대량 편집 다시 시도</Button>}
           <Button disabled={readOnly || saveStatus === "saving"} onClick={() => void handleCancelStage()}>대량 편집 취소</Button>
         </div>} />}
-      {draftError && <FeedbackState icon={TriangleAlert} tone="warning" title="이 브라우저에 초안을 보관하지 못했습니다. 서버에 저장하세요." />}
-      {map.error && <FeedbackState icon={TriangleAlert} tone="danger" title={map.error} action={<Button variant="secondary" onClick={() => { if (isDirty) setConfirmReload(true); else void onReload(); }}>다시 불러오기</Button>} />}
-      {skippedFixtureCount > 0 ? (
-        <FeedbackState tone="success" icon={CircleCheck} title={`현재 존재하지 않는 조명 ${skippedFixtureCount}개를 건너뛰었습니다.`} />
-      ) : null}
+      {map.error && <FeedbackState tone="danger" icon={TriangleAlert} title={map.error} action={<Button onClick={() => { setFeedbackOpen(false); if (isDirty) setConfirmReload(true); else void onReload(); }}>다시 불러오기</Button>} />}
+      </ModalDialog>
 
       {/* Canvas errors must stay actionable above an open narrow panel. Bound
           that notice to 80px and reserve 96px including its existing top inset. */}
-      <div className={`relative flex min-h-0 min-w-0 flex-1 gap-3 overflow-hidden ${isNarrowLayout ? "[&:has(main_[role=alert])>#editor-tools-panel]:top-16 [&:has(main_[role=alert])>#editor-tools-panel]:mt-8 [&:has(main_[role=alert])>#editor-information-panel]:top-16 [&:has(main_[role=alert])>#editor-information-panel]:mt-8" : ""}`} data-testid="floor-editor-layout" onDrop={finishPanelDrag}>
+      {/* Preserve 240px of canvas content plus its two border pixels. This
+          intrinsic minimum must flow through the route to document scrolling. */}
+      <div className={`relative flex min-h-[242px] min-w-0 flex-1 gap-3 overflow-hidden ${isNarrowLayout ? "[&:has(main_[role=alert])>#editor-tools-panel]:top-16 [&:has(main_[role=alert])>#editor-tools-panel]:mt-8 [&:has(main_[role=alert])>#editor-information-panel]:top-16 [&:has(main_[role=alert])>#editor-information-panel]:mt-8" : ""}`} data-testid="floor-editor-layout" onDrop={finishPanelDrag}>
         {/* Keep panels mounted while collapsed: import jobs, form drafts and the
             fixture drag registry must outlive a layout-only visibility change. */}
         {/* Opacity/pointer-events expose the drop surface without removing or
@@ -545,11 +598,11 @@ export function FloorEditorView({
         </main>
         <SidePanel ref={informationPanel} id="editor-information-panel" tabIndex={-1} onKeyDown={(event) => { if (event.key === "Escape") { event.stopPropagation(); closePanel("information"); } }} className={`${informationVisible ? "grid" : "hidden"} ${isNarrowLayout ? "absolute inset-y-0 right-0 z-10 w-[min(320px,100%)] shadow-panel" : "w-[280px] shrink-0"} min-h-0 min-w-0 content-start gap-3 overflow-y-auto rounded-none border-0 border-l border-border-default p-0`} aria-label="맵 편집 정보">
           <div className="grid grid-cols-4 gap-1 bg-surface-inset p-1" role="tablist" aria-label="편집 패널">{[["properties", "속성"], ["placement", "배치"], ["layers", "레이어"], ["details", "자료"]].map(([value, label]) => <Button size="sm" className="h-13 min-h-13" variant={panelTab === value ? "primary" : "ghost"} role="tab" key={value} aria-selected={panelTab === value} onClick={() => setPanelTab(value)}>{label}</Button>)}</div>
-          {panelTab === "properties" && (map.selectionCount && (!map.selection.length || map.mixed)
+          {panelTab === "properties" && (map.shapeCount && (map.selectionCount > 1 || !map.selection.length)
             ? <MapSelectionProperties key={JSON.stringify([map.selectionKey, map.bounds])} editor={map} readOnly={readOnly || isMutationPending} />
             : map.selection.length
-            ? <MapElementPropertiesPanel selection={map.selection} mapBounds={map.mapBounds ?? undefined} readOnly={readOnly || isMutationPending} locked={map.locked} onChange={map.commit} onDelete={map.remove} onError={map.reportError} />
-            : map.loadingSelection ? <Text role="status">선택을 불러오는 중</Text> : <EditorPropertiesPanel readOnly={readOnly || isMutationPending} />)}
+            ? <MapElementPropertiesPanel selection={map.selection} gridSize={snap ? map.mapBounds?.gridSize : undefined} mapBounds={map.mapBounds ?? undefined} readOnly={readOnly || isMutationPending} locked={map.locked} onChange={map.commit} onDelete={map.requestRemove} onError={map.reportError} />
+            : map.loadingSelection ? <Text role="status">선택을 불러오는 중</Text> : <EditorPropertiesPanel readOnly={readOnly || isMutationPending} mapEditor={map} />)}
           {panelTab === "placement" && <EditorBatchPlacementPanel readOnly={readOnly || isMutationPending} />}
           {panelTab === "properties" && <MapPolygonControls editor={map} readOnly={readOnly || isMutationPending} onBegin={() => { if (isNarrowLayout) closePanel("information"); }} />}
           {panelTab === "layers" && <EditorLayersPanel readOnly={readOnly || isMutationPending} mapEditor={map} />}
@@ -591,6 +644,10 @@ export function FloorEditorView({
           </div>
         </SidePanel>
       </div>
+      {map.removeRequested && <ConfirmDialog open title="선택 전체 삭제" destructive confirmLabel="전체 삭제"
+        confirmDisabled={readOnly || isMutationPending || map.locked || map.loadingSelection} onCancel={map.cancelRemove} onConfirm={() => void map.confirmRemove()}>
+        <Text>{map.shapeCount}개 도형을 삭제하고 {map.fixtureCount}개 조명의 배치를 제거합니다. 조명 장비는 삭제되지 않습니다.</Text>
+      </ConfirmDialog>}
       {confirmReload ? <ConfirmDialog
         title="로컬 변경사항을 버릴까요?"
         confirmLabel="변경사항 버리기"
@@ -654,7 +711,7 @@ function RevisionPanel({
               <div className="grid min-w-0 gap-0.5">
                 <Text as="strong" variant="body-sm" weight="semibold">리비전 {revision.revision}</Text>
                 <Text as="span" variant="caption" tone="secondary">{revision.actor.displayName}</Text>
-                <Text as="time" variant="caption" tone="secondary" dateTime={revision.createdAt}>{formatRevisionTime(revision.createdAt)}</Text>
+                <Text as="time" variant="caption" tone="secondary" dateTime={revision.createdAt}>{formatTimestamp(revision.createdAt)}</Text>
                 <Text as="span" variant="caption" tone="secondary">변경 {revisionChangeCount(revision.changeSummary)}건</Text>
               </div>
               {canRestore ? (
@@ -688,10 +745,6 @@ function revisionChangeCount(summary: Record<string, unknown>) {
     if (typeof value === "number") return total + value;
     return key === "floorPlanChanged" && value === true ? total + 1 : total;
   }, 0);
-}
-
-function formatRevisionTime(createdAt: string) {
-  return new Intl.DateTimeFormat("ko-KR", { dateStyle: "medium", timeStyle: "short" }).format(new Date(createdAt));
 }
 
 async function invalidateEditorQueries(queryClient: ReturnType<typeof useQueryClient>, state: FloorEditorState) {

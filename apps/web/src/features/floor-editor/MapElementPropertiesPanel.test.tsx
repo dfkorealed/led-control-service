@@ -29,6 +29,12 @@ function lastElement(onChange: ReturnType<typeof setup>["onChange"]): MapElement
 }
 
 describe("MapElementPropertiesPanel", () => {
+  it.each(["X 위치", "Y 위치"])("snaps only the edited %s of a single off-grid shape", label => {
+    const element = createMapElementFromDrag("rectangle", { x: 103, y: 107 }, { x: 183, y: 147 }, "off-grid")!;
+    const { onChange } = setup([element], { gridSize: 10 });
+    number(label, "302");
+    expect(lastElement(onChange).transform).toMatchObject(label === "X 위치" ? { x: 197, y: 0 } : { x: 0, y: 193 });
+  });
   it.each([null, { importJobId: "job", sourceId: "source" }])("uses the same generic panel for provenance %s", provenance => {
     const { onChange, onDelete } = setup([{ ...make("rectangle"), provenance }]);
     expect(screen.getByRole("complementary", { name: "도형 속성" })).toBeInTheDocument();
@@ -114,7 +120,8 @@ describe("MapElementPropertiesPanel", () => {
     number("X 위치", "999");
     expect(onChange).not.toHaveBeenCalled();
     expect(onError).toHaveBeenCalledTimes(1);
-    expect(screen.getByRole("alert")).toHaveTextContent(/범위/);
+    expect(onError.mock.calls[0][0].message).toMatch(/범위/);
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
   it("keeps Backspace/Delete in text inputs away from parent deletion handlers", () => {

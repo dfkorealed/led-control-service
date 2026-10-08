@@ -67,22 +67,27 @@ const navigationFloor = {
 describe("FloorMap", () => {
   afterEach(() => cleanup());
 
-  it("counts saved map placements without mixing loaded, hidden or missing data", () => {
+  it("renders only present statuses and no count overlay while retaining saved pins", () => {
     const { rerender } = render(<FloorMap floor={{ ...navigationFloor, fixtures: [
       { ...navigationFloor.fixtures[0]!, placementStatus: "unplaced" },
       { ...navigationFloor.fixtures[0]!, id: "runtime-unplaced", name: "미배치 목록 조명", placementStatus: "unplaced" }
     ] }} snapshot={{ ...mapSnapshot, objects: [{ ...mapSnapshot.objects[0]!, visible: false }], fixtures: [
       { id: "saved-only", name: "지도에 저장된 조명", x: 200, y: 300, size: 20 }
     ] }} selectedFixtureId={null} onSelectFixture={vi.fn()} />);
-    expect(screen.getByText("지도 표시 1대")).toBeVisible();
+    expect(screen.queryByText(/지도 표시|지도 배치 정보 확인 불가/)).not.toBeInTheDocument();
+    expect(screen.getByRole("list", { name: "조명 상태 범례" })).toHaveTextContent("조명 정보 확인 전");
+    expect(screen.getByRole("list", { name: "조명 상태 범례" })).not.toHaveTextContent("정상");
     rerender(<FloorMap floor={navigationFloor} snapshot={{ ...mapSnapshot, fixtures: [
       { id: "saved-only", name: "지도에 저장된 조명", x: 200, y: 300, size: 20 }
     ] }} selectedFixtureId={null} onSelectFixture={vi.fn()} />);
-    expect(screen.getByText("지도 배치 정보 확인 불가")).toBeVisible();
+    expect(screen.getByRole("list", { name: "조명 상태 범례" })).toHaveTextContent("정상");
     rerender(<FloorMap floor={{ ...navigationFloor, fixtures: [] }} snapshot={{ ...mapSnapshot, fixtures: [] }} selectedFixtureId={null} onSelectFixture={vi.fn()} />);
-    expect(screen.getByText("지도 표시 0대")).toBeVisible();
+    expect(screen.queryByRole("list", { name: "조명 상태 범례" })).not.toBeInTheDocument();
     rerender(<FloorMap floor={navigationFloor} snapshot={mapSnapshot} selectedFixtureId={null} onSelectFixture={vi.fn()} />);
-    expect(screen.getByText("지도 배치 정보 확인 불가")).toBeVisible();
+    const legend = screen.getByRole("list", { name: "조명 상태 범례" });
+    expect(within(legend).getAllByRole("listitem")).toHaveLength(1);
+    expect(legend).toHaveTextContent("정상");
+    expect(screen.queryByText("드래그로 이동 · 휠로 확대/축소")).not.toBeInTheDocument();
   });
 
   it("opens user-friendly information and closes without scrolling the marker into view", async () => {
@@ -206,7 +211,7 @@ describe("FloorMap", () => {
     expect(fixtureButton).toHaveAttribute("aria-current", "true");
     expect(fixtureButton).not.toHaveAttribute("aria-pressed");
     expect(fixtureButton).toHaveTextContent("");
-    expect(fixtureButton.querySelector("span[aria-hidden='true']")).toHaveClass("bg-fixture-connected");
+    expect(fixtureButton.querySelector("[data-spatial-map-marker-dot]")).toHaveClass("border-fixture-connected!", "rounded-pill!");
     expect(fixtureButton.closest("[data-floor-scene]")).toHaveAttribute("data-map-objects-interactive", "false");
     expect(fixtureButton.closest("[data-floor-scene]")).not.toHaveAttribute("data-interactive");
     expect(fixtureButton).toHaveStyle({
@@ -340,27 +345,26 @@ describe("FloorMap", () => {
 
     const legend = screen.getByRole("list", { name: "조명 상태 범례" });
     const map = screen.getByRole("region", { name: "층 도면" });
-    const panHint = screen.getByText("드래그로 이동 · 휠로 확대/축소");
+    expect(screen.queryByText("드래그로 이동 · 휠로 확대/축소")).not.toBeInTheDocument();
     expect(map.querySelector(".floor-map-label")).not.toBeInTheDocument();
     expect(legend.parentElement).toBe(map);
-    expect(panHint.parentElement).toBe(map);
-    expect(legend.compareDocumentPosition(panHint) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     const legendItems = within(legend).getAllByRole("listitem");
-    expect(legendItems).toHaveLength(4);
-    for (const label of ["정상", "장애", "오프라인", "상태 확인 대기"]) {
+    expect(legendItems).toHaveLength(3);
+    for (const label of ["장애", "오프라인", "상태 확인 대기"]) {
       const item = within(legend).getByText(label).closest("li");
       expect(item).not.toBeNull();
       expect(item?.querySelector("svg")).not.toBeNull();
     }
 
     const faultMarker = screen.getByRole("button", { name: "B2-Fault 장애 0%" });
-    expect(faultMarker.querySelector("span[aria-hidden='true']")).toHaveClass("bg-fixture-fault");
+    expect(faultMarker.querySelector("[data-spatial-map-marker-dot]")).toHaveClass("border-fixture-fault!");
+    expect(faultMarker.querySelector("svg")).not.toBeNull();
     const offlineMarker = screen.getByRole("button", { name: "B2-Offline 오프라인 0%" });
     expect(offlineMarker.querySelector("[data-spatial-map-marker-dot]")).toHaveClass("bg-fixture-offline-background", "border-fixture-offline-border!");
-    expect(offlineMarker.querySelector("span[aria-hidden='true']")).toHaveClass("bg-fixture-offline");
+    expect(offlineMarker.querySelector("svg")).not.toBeNull();
     const awaitingMarker = screen.getByRole("button", { name: "B2-Awaiting 상태 확인 대기 0%" });
     expect(awaitingMarker.querySelector("[data-spatial-map-marker-dot]")).toHaveClass("bg-fixture-inspection-background", "border-fixture-inspection-border!");
-    expect(awaitingMarker.querySelector("span[aria-hidden='true']")).toHaveClass("bg-fixture-inspection");
+    expect(awaitingMarker.querySelector("svg")).not.toBeNull();
   });
 
   it("changes the fitted map zoom with controls and resets it to 100%", () => {

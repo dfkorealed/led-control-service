@@ -1,6 +1,12 @@
 import { expect, test, type Page } from "@playwright/test";
 import { expectNoHorizontalOverflow } from "./support/layout-assertions";
 import { installSettingsApiRoutes, type SettingsFixture } from "./support/settings-api";
+import { installMockApiBoundary } from "./support/mock-api-boundary";
+
+
+test.beforeEach(async ({ context, baseURL }) => {
+  await installMockApiBoundary(context, baseURL);
+});
 
 const ids = {
   site: "66666666-6666-4666-8666-666666666601",
@@ -27,28 +33,111 @@ const viewports = [
   { width: 320, height: 740 }
 ] as const;
 
+for (const mode of ["schedule", "event"] as const) {
+  test(`${mode} 현재 목록 정렬은 키보드와 좁은 카드에서도 같은 순서를 유지한다`, async ({ page }, testInfo) => {
+    await page.setViewportSize({ width: 1706, height: 1226 });
+    await installAutomationFixture(page, {
+      schedules: [schedule("조명10", "PENDING"), schedule("조명2", "APPLIED"), schedule("가나다", "REJECTED")],
+      events: [eventRule("조명10", "enabled"), eventRule("조명2", "disabled")]
+    });
+    const writes: string[] = [];
+    page.on("request", request => { if (/\/automation\//.test(request.url()) && request.method() !== "GET") writes.push(request.method()); });
+    await page.goto(`/control?siteId=${ids.site}&mode=${mode}`);
+    const caption = mode === "schedule" ? "스케줄 목록" : "차량 이벤트 목록";
+    const table = page.getByRole("table", { name: caption });
+    await expect(table).toBeVisible();
+    const order = () => table.locator("tbody tr td:first-child").allTextContents();
+    const ascending = mode === "schedule" ? ["가나다", "조명2", "조명10"] : ["조명2", "조명10"];
+    const descending = mode === "schedule" ? ["조명10", "조명2", "가나다"] : ["조명10", "조명2"];
+    const header = table.getByRole("columnheader", { name: /이름/ });
+    const trigger = header.getByRole("button");
+    const hit = (await trigger.boundingBox())!;
+    expect(hit.width).toBeGreaterThanOrEqual(44); expect(hit.height).toBeGreaterThanOrEqual(44);
+    await trigger.focus(); await trigger.press("Enter");
+    await expect(header).toHaveAttribute("aria-sort", "ascending");
+    expect(await order()).toEqual(ascending);
+    await page.screenshot({ path: testInfo.outputPath(`${mode}-table-ascending.png`), fullPage: true });
+    await trigger.press("Space");
+    await expect(header).toHaveAttribute("aria-sort", "descending");
+    expect(await order()).toEqual(descending);
+    await page.screenshot({ path: testInfo.outputPath(`${mode}-table-descending.png`), fullPage: true });
+    await page.setViewportSize({ width: 390, height: 844 });
+    const cards = page.getByRole("list", { name: caption });
+    await expect(cards).toBeVisible();
+    const cardOrder = () => cards.locator("li dd:first-of-type strong").allTextContents();
+    expect(await cardOrder()).toEqual(descending);
+    const sortRegion = cards.locator("..");
+    await expect(sortRegion.getByRole("button", { name: "정렬 기준" })).toContainText("이름");
+    await sortRegion.getByRole("button", { name: "오름차순으로 변경" }).click();
+    expect(await cardOrder()).toEqual(ascending);
+    await sortRegion.getByRole("button", { name: "정렬 기준" }).click();
+    await expect(page.getByRole("option", { name: "관리", exact: true })).toHaveCount(0);
+    await page.getByRole("option", { name: "이름", exact: true }).click();
+    for (const control of [sortRegion.getByRole("button", { name: "정렬 기준" }), sortRegion.getByRole("button", { name: "내림차순으로 변경" })]) {
+      const bounds = (await control.boundingBox())!;
+      expect(bounds.width).toBeGreaterThanOrEqual(44); expect(bounds.height).toBeGreaterThanOrEqual(44);
+    }
+    await page.screenshot({ path: testInfo.outputPath(`${mode}-cards-ascending.png`), fullPage: true });
+    await expectNoHorizontalOverflow(page);
+    await expectNoCardHorizontalOverflow(cards);
+    await cards.getByRole("button", { name: "조명10 작업" }).click();
+    await page.getByRole("menuitem", { name: "수정", exact: true }).click();
+    await expect(page.getByRole("dialog", { name: mode === "schedule" ? "스케줄 수정" : "이벤트 수정", exact: true })).toBeVisible();
+    expect(writes).toEqual([]);
+  });
+}
+
+test("Task6 shared mock boundary keeps later fixture precedence, unknown API 404 and external abort", async ({ page }) => {
+  // Before domain fixtures are registered, the shared deny fallback owns gaps.
+  const boundaryResponse = await page.goto("/api/__task6_unconfigured_boundary");
+  expect(boundaryResponse?.status()).toBe(404);
+  expect(await boundaryResponse?.json()).toEqual({ message: "unconfigured mock route" });
+  await installAutomationFixture(page);
+  await page.goto(`/control?siteId=${ids.site}`);
+  const fixtureResponse = await page.evaluate(async site => {
+    const response = await fetch(`/api/sites/${site}/automation/schedules`);
+    return { status: response.status, body: await response.json() };
+  }, ids.site);
+  expect(fixtureResponse.status).toBe(200);
+  expect(fixtureResponse.body.items.map((item: { name: string }) => item.name)).toEqual(["대기 스케줄", "적용 스케줄", "실패 스케줄"]);
+  const unknown = await page.evaluate(async () => {
+    const response = await fetch("/api/__task6_unconfigured_boundary");
+    return { status: response.status, body: await response.json() };
+  });
+  // The existing broad settings fixture claims API gaps after registration.
+  // Its own 404 wins; moving the boundary above it would invalidate precedence.
+  expect(unknown).toEqual({ status: 404, body: { message: "site not found" } });
+  // Interception aborts before the synthetic external origin can reach a host.
+  const externalURL = "https://task6-external.invalid/never-reached";
+  const failed = page.waitForEvent("requestfailed", { predicate: request => request.url() === externalURL });
+  expect(await page.evaluate(async url => {
+    try { await fetch(url); return false; } catch { return true; }
+  }, externalURL)).toBe(true);
+  expect((await failed).failure()?.errorText).toBe("net::ERR_FAILED");
+});
+
 for (const viewport of viewports) {
   test(`${viewport.width}px 자동화 목록과 편집기는 상태와 스크롤 계약을 유지한다`, async ({ page }) => {
     await page.setViewportSize(viewport);
     await installAutomationFixture(page);
 
     await page.goto(`/control?siteId=${ids.site}&mode=schedule`);
-    if (viewport.width <= 760) {
-      const cards = page.getByRole("list", { name: "스케줄 카드 목록" });
+    await expect(page.getByText("적용 스케줄", { exact: true })).toBeVisible();
+    if (await page.getByRole("list", { name: "스케줄 목록" }).count()) {
+      const cards = page.getByRole("list", { name: "스케줄 목록" });
       await expect(cards).toBeVisible();
       await expect(page.getByRole("table", { name: "스케줄 목록" })).toHaveCount(0);
       const card = cards.getByRole("listitem").filter({ hasText: "적용 스케줄" });
-      for (const field of ["적용 기간", "다음 실행", "반복 · 시간", "밝기", "대상", "Gateway 동기화", "최근 결과", "매일 · 18:00~23:00", "70%", "1개", "모두 성공 · 성공 1개"]) {
+      for (const field of ["적용 기간", "다음 실행", "반복 · 시간", "대상", "Gateway 동기화", "최근 결과", "매일 · 18:00~23:00", "1개", "모두 성공 · 성공 1개"]) {
         await expect(card).toContainText(field);
       }
       await expect(card.getByRole("button", { name: "적용 스케줄 비활성화" })).toBeVisible();
-      await expect(card.getByRole("button", { name: "적용 스케줄 수정" })).toBeVisible();
-      await card.getByRole("button", { name: "적용 스케줄 삭제" }).scrollIntoViewIfNeeded();
-      await expect(card.getByRole("button", { name: "적용 스케줄 삭제" })).toBeInViewport();
+      await card.getByRole("button", { name: "적용 스케줄 작업" }).scrollIntoViewIfNeeded();
+      await expect(card.getByRole("button", { name: "적용 스케줄 작업" })).toBeInViewport();
       await expectNoCardHorizontalOverflow(cards);
     } else {
       await expect(page.getByRole("table", { name: "스케줄 목록" })).toBeVisible();
-      await expectReachableColumns(page, "[data-automation-table-wrap]");
+      await expectReachableColumns(page, "[data-automation-list-scroll]");
     }
     await expect(page.getByText("적용됨")).toBeVisible();
     await expect(page.getByText("적용 대기")).toBeVisible();
@@ -56,7 +145,8 @@ for (const viewport of viewports) {
     await expect(page.getByText("모두 성공 · 성공 1개").first()).toBeVisible();
     await expectNoHorizontalOverflow(page);
 
-    await page.getByRole("button", { name: "적용 스케줄 삭제" }).click();
+    await page.getByRole("button", { name: "적용 스케줄 작업" }).click();
+    await page.getByRole("menuitem", { name: "삭제", exact: true }).click();
     const scheduleDeleteDialog = page.getByRole("dialog", { name: "스케줄 삭제" });
     await expect(scheduleDeleteDialog.getByRole("button", { name: "취소" })).toBeVisible();
     await expect(scheduleDeleteDialog.getByRole("button", { name: "삭제", exact: true })).toBeVisible();
@@ -88,13 +178,14 @@ for (const viewport of viewports) {
     await scheduleFixtureDrawer.getByLabel("B1-SENSOR-001 선택").locator("xpath=ancestor::label").click();
     await scheduleFixtureDrawer.getByRole("button", { name: "선택 완료", exact: true }).click();
     await expectDialogInsideViewport(scheduleDialog, viewport);
-    if (viewport.width > 760) await expectNoDocumentVerticalOverflow(page);
+    if (viewport.width > 760) await expectPopupScrollIsolation(page);
     await scheduleDialog.getByRole("button", { name: "선택 완료" }).click();
     await scheduleDialog.getByRole("button", { name: "스케줄 추가 닫기" }).click();
 
     await page.getByRole("tab", { name: "이벤트 제어" }).click();
-    if (viewport.width <= 760) {
-      const cards = page.getByRole("list", { name: "차량 이벤트 카드 목록" });
+    await expect(page.getByText("입구 차량 감지", { exact: true })).toBeVisible();
+    if (await page.getByRole("list", { name: "차량 이벤트 목록" }).count()) {
+      const cards = page.getByRole("list", { name: "차량 이벤트 목록" });
       await expect(cards).toBeVisible();
       await expect(page.getByRole("table", { name: "차량 이벤트 목록" })).toHaveCount(0);
       const card = cards.getByRole("listitem").filter({ hasText: "입구 차량 감지" });
@@ -102,13 +193,12 @@ for (const viewport of viewports) {
         await expect(card).toContainText(field);
       }
       await expect(card.getByRole("button", { name: "입구 차량 감지 비활성화" })).toBeVisible();
-      await expect(card.getByRole("button", { name: "입구 차량 감지 수정" })).toBeVisible();
-      await card.getByRole("button", { name: "입구 차량 감지 삭제" }).scrollIntoViewIfNeeded();
-      await expect(card.getByRole("button", { name: "입구 차량 감지 삭제" })).toBeInViewport();
+      await card.getByRole("button", { name: "입구 차량 감지 작업" }).scrollIntoViewIfNeeded();
+      await expect(card.getByRole("button", { name: "입구 차량 감지 작업" })).toBeInViewport();
       await expectNoCardHorizontalOverflow(cards);
     } else {
       await expect(page.getByRole("table", { name: "차량 이벤트 목록" })).toBeVisible();
-      await expectReachableColumns(page, "[data-automation-table-wrap]");
+      await expectReachableColumns(page, "[data-automation-list-scroll]");
     }
     await expect(page.getByText("최근 감지 없음").first()).toBeVisible();
     await expect(page.getByText("비활성")).toBeVisible();
@@ -129,7 +219,7 @@ for (const viewport of viewports) {
     await expect(sensorCheckbox).toBeVisible();
     await expect(sensorCheckbox.locator("xpath=ancestor::label")).toContainText("B1-SENSOR-001");
     await expectDialogInsideViewport(eventDialog, viewport);
-    if (viewport.width > 760) await expectNoDocumentVerticalOverflow(page);
+    if (viewport.width > 760) await expectPopupScrollIsolation(page);
   });
 }
 
@@ -158,7 +248,9 @@ test("1024px 대상 선택기는 긴 조명 목록과 더 보기를 dialog 내�
   const initialList = await list.evaluate((element) => ({ clientHeight: element.clientHeight, scrollHeight: element.scrollHeight }));
   expect(initialList.clientHeight).toBeGreaterThan(0);
   expect(initialList.scrollHeight).toBeGreaterThan(initialList.clientHeight);
-  await moreButton.scrollIntoViewIfNeeded();
+  await list.hover();
+  await page.mouse.wheel(0, 10000);
+  await expect.poll(() => list.evaluate(element => element.scrollTop)).toBeGreaterThan(0);
   await expectElementInsideViewport(moreButton, viewport);
   await moreButton.click();
   await expect(list.getByRole("checkbox")).toHaveCount(fixtures.length);
@@ -166,7 +258,8 @@ test("1024px 대상 선택기는 긴 조명 목록과 더 보기를 dialog 내�
   await expect(list.getByRole("checkbox", { name: "B1-LIGHT-100 선택" })).toHaveCount(1);
 
   const finalFixture = fixtureDrawer.getByLabel("B1-LIGHT-121 선택");
-  await finalFixture.locator("xpath=ancestor::label").scrollIntoViewIfNeeded();
+  await list.hover();
+  await page.mouse.wheel(0, 10000);
   await expect.poll(() => list.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
   await expect(finalFixture).toBeVisible();
   await expectElementInsideContainer(list, drawerContent);
@@ -176,7 +269,7 @@ test("1024px 대상 선택기는 긴 조명 목록과 더 보기를 dialog 내�
   await finalFixture.locator("xpath=ancestor::label").click();
   await expect(finalFixture).toBeChecked();
   await expectDialogInsideViewport(fixtureDrawer, viewport);
-  await expectNoDocumentVerticalOverflow(page);
+  await expectPopupScrollIsolation(page);
 });
 
 test("자동화 빈 목록과 조회 실패는 실제 추가와 재시도 동작을 제공한다", async ({ page }) => {
@@ -215,8 +308,7 @@ test("자동화 전역 목록은 현장 요약과 조건별 페이지를 분리�
   });
 
   await page.goto(`/control?siteId=${ids.site}&mode=schedule`);
-  await expect(page.getByRole("group", { name: "스케줄 요약" })).toContainText("현장 전체 규칙 22건");
-  await expect(page.getByRole("group", { name: "스케줄 요약" })).toContainText("적용 완료 5건 · 적용 대기 15건 · 적용 실패 2건");
+  await expect(page.getByRole("group", { name: "스케줄 요약" })).toHaveCount(0);
   const scheduleControls = page.getByRole("region", { name: "스케줄 목록 조건" });
   await expect(scheduleControls).toContainText("조건에 맞는 규칙 22건");
   await scheduleControls.getByRole("button", { name: "다음" }).click();
@@ -231,12 +323,71 @@ test("자동화 전역 목록은 현장 요약과 조건별 페이지를 분리�
   await page.getByRole("tab", { name: "이벤트 제어" }).click();
   const eventControls = page.getByRole("region", { name: "이벤트 목록 조건" });
   await expect(eventControls).toContainText("조건에 맞는 규칙 12건");
-  await selectBox(page, eventControls, "활성 상태", "비활성");
+  await eventControls.getByRole("button", { name: /이벤트 필터 상세 필터/ }).click();
+  await selectBox(page, page.getByRole("dialog", { name: "이벤트 필터", exact: true }), "활성 상태", "비활성");
+  await page.getByRole("button", { name: "필터 닫기" }).click();
   await expect(eventControls).toContainText("조건에 맞는 규칙 3건");
   await expect(page.getByText("비활성 이벤트")).toBeVisible();
-  await expect(page.getByRole("group", { name: "이벤트 요약" })).toContainText("현장 전체 규칙 12건");
+  await expect(page.getByRole("group", { name: "이벤트 요약" })).toHaveCount(0);
   await expectNoHorizontalOverflow(page);
 });
+
+
+test("Task6 measured automation containers retain complete rows, 44px actions and delete focus across boundary and short viewports", async ({ page }) => {
+  test.setTimeout(120_000);
+  const writes: string[] = [];
+  page.on("request", request => { if (request.url().includes("/api/") && !["GET", "HEAD"].includes(request.method())) writes.push(request.url()); });
+  const longName = "장문 스케줄 " + "동기화 상태와 다음 실행을 확인하는 운영 규칙 ".repeat(5);
+  await installAutomationFixture(page, { schedules: [{ ...schedule(longName, "APPLIED") }] });
+  await page.goto(`/control?siteId=${ids.site}&mode=schedule`);
+  for (const viewport of [
+    { width: 320, height: 740 }, { width: 390, height: 844 }, { width: 768, height: 900 },
+    { width: 1023, height: 900 }, { width: 1024, height: 768 }, { width: 1287, height: 900 },
+    { width: 1440, height: 900 }, { width: 390, height: 320 }, { width: 1440, height: 600 }
+  ]) {
+    await page.setViewportSize(viewport);
+    const action = page.getByRole("button", { name: `${longName} 작업`, exact: true });
+    // ResizeObserver legitimately replaces table/card nodes. Native locator
+    // hover re-resolves that node while scrolling/actionability settle.
+    await action.hover();
+    const toggle = page.getByRole("button", { name: `${longName} 비활성화`, exact: true });
+    for (const control of [action, toggle]) {
+      const rect = (await control.boundingBox())!;
+      expect(rect.width).toBeGreaterThanOrEqual(44); expect(rect.height).toBeGreaterThanOrEqual(44);
+    }
+    const a = (await action.boundingBox())!, b = (await toggle.boundingBox())!;
+    const overlapX = Math.max(0, Math.min(a.x + a.width, b.x + b.width) - Math.max(a.x, b.x));
+    const overlapY = Math.max(0, Math.min(a.y + a.height, b.y + b.height) - Math.max(a.y, b.y));
+    expect(overlapX * overlapY).toBe(0);
+    const surface = page.locator("[data-automation-list-scroll]");
+    expect(await surface.evaluate(element => element.scrollWidth - element.clientWidth)).toBeLessThanOrEqual(1);
+    const table = page.getByRole("table", { name: "스케줄 목록" });
+    if (await table.count()) {
+      for (const header of await table.getByRole("columnheader").all()) await expect(header).toHaveCSS("text-align", "center");
+      await expect(table).not.toContainText("70%");
+    } else {
+      const cards = page.getByRole("list", { name: "스케줄 목록" });
+      await expect(cards).toContainText(longName); await expect(cards).toContainText("Asia/Seoul");
+      await expect(cards).toContainText("다음 실행"); await expect(cards).toContainText("적용됨");
+      await expectNoCardHorizontalOverflow(cards);
+    }
+    await expectNoHorizontalOverflow(page);
+    await action.focus(); await action.press("Enter");
+    await page.getByRole("menuitem", { name: "삭제", exact: true }).click();
+    const confirm = page.getByRole("dialog", { name: "스케줄 삭제", exact: true });
+    await expect(confirm).toContainText(longName);
+    await confirm.getByRole("button", { name: "취소", exact: true }).click();
+    await expect(action).toBeFocused();
+  }
+  await page.setViewportSize({ width: 1440, height: 900 });
+  const measuredParent = page.locator("[data-automation-list-scroll]");
+  await measuredParent.evaluate(element => { (element as HTMLElement).style.maxWidth = "300px"; });
+  await expect(page.getByRole("table", { name: "스케줄 목록" })).toHaveCount(0);
+  await expect(page.getByRole("list", { name: "스케줄 목록" })).toContainText(longName);
+  await expectNoHorizontalOverflow(page);
+  expect(writes).toEqual([]);
+});
+
 
 async function installAutomationFixture(
   page: Page,
@@ -363,7 +514,8 @@ async function expectReachableColumns(page: Page, selector: string) {
     element.scrollLeft = element.scrollWidth;
   });
   const scroll = await tableWrap.evaluate((element) => ({ left: element.scrollLeft, width: element.scrollWidth, clientWidth: element.clientWidth }));
-  if (scroll.width > scroll.clientWidth) expect(scroll.left).toBeGreaterThan(0);
+  expect(scroll.width).toBeLessThanOrEqual(scroll.clientWidth + 1);
+  expect(scroll.left).toBe(0);
   const bounds = await tableWrap.evaluate((element) => {
     const lastHeader = element.querySelector("thead th:last-child");
     const lastCell = element.querySelector("tbody tr:first-child td:last-child");
@@ -392,14 +544,31 @@ async function expectNoCardHorizontalOverflow(cards: ReturnType<Page["getByRole"
   expect(dimensions.scrollWidth).toBeLessThanOrEqual(dimensions.clientWidth + 1);
 }
 
-async function expectNoDocumentVerticalOverflow(page: Page) {
-  const dimensions = await page.evaluate(() => ({
-    clientHeight: document.documentElement.clientHeight,
-    scrollHeight: document.documentElement.scrollHeight
-  }));
-  expect(dimensions.scrollHeight).toBeLessThanOrEqual(dimensions.clientHeight + 1);
+async function expectPopupScrollIsolation(page: Page) {
+  // Accepted Shell flow can be taller than the viewport. Prove the foreground
+  // popup's bounds and trusted-input scroll isolation, not a background Y proxy.
+  const dialog = page.getByRole("dialog").last();
+  const viewport = page.viewportSize()!;
+  await expectDialogInsideViewport(dialog, viewport);
+  const before = await page.evaluate(() => scrollY);
+  await dialog.evaluate(element => {
+    element.setAttribute("data-trusted-wheel-count", "0");
+    element.addEventListener("wheel", event => {
+      if (event.isTrusted) element.setAttribute("data-trusted-wheel-count", String(Number(element.getAttribute("data-trusted-wheel-count")) + 1));
+    }, { once: true });
+  });
+  const body = dialog.locator("[data-dialog-body]");
+  const box = (await body.boundingBox())!;
+  const hit = await page.evaluate(({ x, y }) => document.elementFromPoint(x, y)?.outerHTML.slice(0, 300), { x: box.x + box.width / 2, y: box.y + box.height / 2 });
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.wheel(0, 500);
+  await expect(dialog).toHaveAttribute("data-trusted-wheel-count", "1");
+  await page.keyboard.press("PageDown");
+  const after = await page.evaluate(() => scrollY);
+  console.info("TASK6_POPUP_SCROLL_ISOLATION", JSON.stringify({ before, after, body: box, viewport, hit, trustedWheelCount: await dialog.getAttribute("data-trusted-wheel-count") }));
+  expect(after).toBe(before);
+  await expectNoHorizontalOverflow(page);
 }
-
 async function expectDialogInsideViewport(dialog: ReturnType<Page["getByRole"]>, viewport: { width: number; height: number }) {
   const bounds = await dialog.boundingBox();
   expect(bounds).not.toBeNull();

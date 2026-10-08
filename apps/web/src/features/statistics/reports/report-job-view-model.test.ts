@@ -1,8 +1,9 @@
 import type { EnergyReportJob } from "@led-control/shared/energy-p2-contracts";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { reportJobViewModel } from "./report-job-view-model";
 
 describe("reportJobViewModel", () => {
+  afterEach(() => vi.unstubAllEnvs());
   it("maps a completed report into compact display labels and a download action", () => {
     const view = reportJobViewModel(reportJob("completed"));
 
@@ -23,9 +24,30 @@ describe("reportJobViewModel", () => {
     const view = reportJobViewModel(reportJob("completed"), "America/Los_Angeles");
 
     expect(view.requestedAt.iso).toBe("2026-09-10T00:00:00.000Z");
-    expect(view.requestedAt.label).toContain("2026. 9. 9.");
+    expect(view.requestedAt.label).toBe("2026-09-09 17:00:00");
     expect(view.expiresAt?.iso).toBe("2026-09-17T00:00:04.000Z");
-    expect(view.expiresAt?.label).toContain("2026. 9. 16.");
+    expect(view.expiresAt?.label).toBe("2026-09-16 17:00:04");
+  });
+
+  it("shows site midnight with seconds while retaining the original precision", () => {
+    const job = { ...reportJob("completed"), requestedAt: "2026-10-01T15:00:00.987654Z" };
+    const view = reportJobViewModel(job, "Asia/Seoul");
+    expect(view.requestedAt).toEqual({ iso: job.requestedAt, label: "2026-10-02 00:00:00" });
+    expect(view.rangeLabel).toBe("2026-09-01 ~ 2026-09-10");
+  });
+
+  it("keeps invalid instant or timezone display unavailable rather than inventing a time", () => {
+    expect(reportJobViewModel({ ...reportJob("completed"), requestedAt: "2026-02-30T00:00:00Z" }, "UTC").requestedAt.label).toBe("—");
+    expect(reportJobViewModel(reportJob("completed"), "invalid/zone").requestedAt.label).toBe("—");
+  });
+
+  it("retains the device timezone branch and the site's DST transition", () => {
+    vi.stubEnv("TZ", "America/Los_Angeles");
+    expect(reportJobViewModel(reportJob("completed")).requestedAt.label).toBe("2026-09-09 17:00:00");
+    const before = { ...reportJob("completed"), requestedAt: "2026-03-08T06:59:59Z" };
+    const after = { ...before, requestedAt: "2026-03-08T07:00:00Z" };
+    expect(reportJobViewModel(before, "America/New_York").requestedAt.label).toBe("2026-03-08 01:59:59");
+    expect(reportJobViewModel(after, "America/New_York").requestedAt.label).toBe("2026-03-08 03:00:00");
   });
 
   it("exposes only the public failure message and recovery action", () => {

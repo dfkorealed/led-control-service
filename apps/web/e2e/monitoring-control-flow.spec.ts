@@ -143,6 +143,14 @@ test.describe("모니터링-제어 브라우저 route fixture 계약 (실제 하
   test("수동 새로고침으로 현황 API를 다시 조회하고 마지막 갱신을 표시한다", async ({ page }) => {
     await page.clock.install({ time: new Date("2026-07-12T09:00:00+09:00") });
     const api = await installBrowserContractFixture(page);
+    // Server timestamps are independent from the browser clock. Keep both
+    // responses deterministic and a full second apart for the shared formatter.
+    let fixtureGeneratedAt = "2026-07-12T00:00:00.000Z";
+    await page.route(`**/api/sites/${ids.site}/floors/${ids.floor}/fixtures?*`, route => {
+      api.fixturePageRequests += 1;
+      api.fixturePageCursors.push(new URL(route.request().url()).searchParams.get("cursor"));
+      return route.fulfill({ json: { items: fixtures, nextCursor: null, generatedAt: fixtureGeneratedAt } });
+    });
     await page.goto(`/monitoring?siteId=${ids.site}`);
 
     await expect(page.getByRole("button", { name: "맵 선택" })).toBeVisible();
@@ -157,9 +165,11 @@ test.describe("모니터링-제어 브라우저 route fixture 계약 (실제 하
     };
 
     await page.clock.setSystemTime(new Date("2026-07-12T09:01:00+09:00"));
+    fixtureGeneratedAt = "2026-07-12T00:01:00.000Z";
     await page.getByRole("button", { name: "새로고침" }).click();
     await expect(page.getByRole("button", { name: "새로고침" })).toBeEnabled();
     await expect(lastUpdated).not.toHaveText(previousLastUpdated ?? "");
+    await expect(lastUpdated).toContainText("2026-07-12 09:01:00");
     expect(api.dashboardRequests).toBeGreaterThan(beforeRefresh.dashboard);
     expect(api.fixturePageRequests).toBeGreaterThan(beforeRefresh.fixtures);
     expect(api.mapSnapshotRequests).toBeGreaterThan(beforeRefresh.map);
@@ -675,10 +685,16 @@ test.describe("모니터링-제어 브라우저 route fixture 계약 (실제 하
         await expect(page.getByRole("option")).toHaveCount(fixtures.length);
         await page.getByRole("option", { name: "B2-L002 · 정상", exact: true }).click();
         await expect(fixtureSelector).toContainText("B2-L002 · 정상");
+        await inspector.getByRole("button", { name: "상세 보기", exact: true }).click();
         await expect(page.getByRole("complementary", { name: "선택 조명 상세" }).getByRole("heading", { name: "B2-L002" })).toBeVisible();
+        await page.getByRole("button", { name: "조명 상세 닫기" }).click();
+        await page.getByRole("button", { name: "조명 검색·상세", exact: true }).click();
         await fixtureSelector.click();
         await page.getByRole("option", { name: "B2-L001 · 정상", exact: true }).click();
+        await inspector.getByRole("button", { name: "상세 보기", exact: true }).click();
         await expect(page.getByRole("complementary", { name: "선택 조명 상세" }).getByRole("heading", { name: "B2-L001" })).toBeVisible();
+        await page.getByRole("button", { name: "조명 상세 닫기" }).click();
+        await page.getByRole("button", { name: "조명 검색·상세", exact: true }).click();
       }
       await inspector.getByRole("button", { name: "조명 검색·상세 닫기" }).click();
       await expect(inspector).toHaveCount(0);

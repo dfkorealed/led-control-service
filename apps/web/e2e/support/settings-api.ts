@@ -7,7 +7,7 @@ export const commandDetailClockFixture = {
   retainedFrom: "2026-04-12T00:01:00.000Z",
   retentionEnabled: true
 } as const;
-import type { MapElement, MapOp } from "@led-control/shared/map-document-contracts";
+import type { MapElement, MapGroup, MapLayer, MapOp } from "@led-control/shared/map-document-contracts";
 import { getMapElementBounds } from "@led-control/shared/map-document-geometry";
 import {
   createDimmingCommandSchema,
@@ -49,6 +49,10 @@ export interface SettingsFixture {
 
 interface InstallSettingsApiOptions {
   readyMapDocument?: boolean;
+  mapElements?: MapElement[];
+  mapLayers?: MapLayer[];
+  mapGroups?: MapGroup[];
+  lightSlots?: Array<{ id: string; x: number; y: number; rotation: number; assignedFixtureId: string | null }>;
   fixtures?: SettingsFixture[];
   mapDimensions?: { width: number; height: number };
   installationStatus?: "pending" | "installed";
@@ -89,6 +93,7 @@ interface SavePayload {
   leaseFence?: number;
   floorPlan?: unknown;
   fixtureUpdates: Array<{ id: string; x?: number; y?: number; size?: number; name?: string; ratedWatt?: number }>;
+  slotAssignments?: Array<{ slotId: string; assignedFixtureId: string | null }>;
   objectCreates: Array<Omit<SettingsMapObject, "id">>;
   objectUpdates: Array<{ id: string; patch: Partial<Omit<SettingsMapObject, "id">> }>;
   objectDeletes: string[];
@@ -180,6 +185,7 @@ export async function installSettingsApiRoutes(
   role: SettingsRole,
   {
     readyMapDocument = false,
+    mapElements = [], mapLayers = [{ id: "map", name: "Map", order: 0, visible: true, locked: false }], mapGroups = [], lightSlots = [],
     fixtures = defaultFixtures,
     mapDimensions,
     installationStatus = "installed",
@@ -206,7 +212,8 @@ export async function installSettingsApiRoutes(
   };
   const fixtureState = structuredClone(fixtures);
   const mapObjectState = structuredClone(mapObjects);
-  const mapElementState: MapElement[] = [];
+  const mapElementState = structuredClone(mapElements);
+  const layerState = structuredClone(mapLayers), groupState = structuredClone(mapGroups), slotState = structuredClone(lightSlots);
   let commandStage: FixtureCommandStage = "accepted";
   let commandResults: FixtureCommandResult[] = [];
   let commandCreated = false;
@@ -428,6 +435,7 @@ export async function installSettingsApiRoutes(
     if (path === `/floors/${ids.floorId}/editor-state`) {
       if (request.method() === "GET") return route.fulfill({ json: {
         ...editorState(runtimeFloor, fixtureState, mapObjectState, mapRevision),
+        lightSlots: slotState,
         ...(readyMapDocument ? { floor: { ...runtimeFloor, mapRevision, mapDocument: mapDocument() }, objects: [] } : {})
       } });
       if (request.method() === "PUT") {
@@ -443,6 +451,7 @@ export async function installSettingsApiRoutes(
         state.atomicSavePayloads.push(payload);
         state.fixtureUpdates.push(...payload.fixtureUpdates);
         applyFixtureUpdates(fixtureState, payload.fixtureUpdates);
+        for (const assignment of payload.slotAssignments ?? []) { const slot = slotState.find(s => s.id === assignment.slotId); if (slot) slot.assignedFixtureId = assignment.assignedFixtureId; }
         applyMapObjectUpdates(mapObjectState, payload);
         if (readyMapDocument) for (const operation of payload.documentChanges?.operations ?? []) {
           if (operation.kind === "add" || operation.kind === "update") {
@@ -452,11 +461,22 @@ export async function installSettingsApiRoutes(
           } else if (operation.kind === "delete") {
             const index = mapElementState.findIndex(element => element.id === operation.id);
             if (index >= 0) mapElementState.splice(index, 1);
+          } else if (operation.kind === "layer.put") {
+            const index = layerState.findIndex(layer => layer.id === operation.layer.id);
+            if (index < 0) layerState.push(operation.layer); else layerState[index] = operation.layer;
+          } else if (operation.kind === "group.put") {
+            const index = groupState.findIndex(group => group.id === operation.group.id);
+            if (index < 0) groupState.push(operation.group); else groupState[index] = operation.group;
+          } else if (operation.kind === "layer.delete") {
+            const index = layerState.findIndex(layer => layer.id === operation.id); if (index >= 0) layerState.splice(index, 1);
+          } else if (operation.kind === "group.delete") {
+            const index = groupState.findIndex(group => group.id === operation.id); if (index >= 0) groupState.splice(index, 1);
           }
         }
         mapRevision += 1;
         return route.fulfill({ json: {
           ...editorState(runtimeFloor, fixtureState, mapObjectState, mapRevision),
+          lightSlots: slotState,
           ...(readyMapDocument ? { floor: { ...runtimeFloor, mapRevision, mapDocument: mapDocument() }, objects: [] } : {})
         } });
       }
@@ -466,7 +486,7 @@ export async function installSettingsApiRoutes(
       const document = mapDocument();
       return route.fulfill({ json: {
         generationId: document.generationId, revision: document.revision, canonical: document.manifest,
-        groups: [], layers: [{ id: "map", name: "Map", order: 0, visible: true, locked: false }], displayLayerBindings: [],
+        groups: groupState, layers: layerState, displayLayerBindings: [],
         display: { version: 2, sceneId: "00000000-0000-4000-8000-000000000001", regionId: "manual",
           manifestAssetId: document.manifest.assetId, width: document.width, height: document.height, padding: 0,
           gridSize: document.gridSize, tileSize: 512, lodMode: "additive", primitiveCount: 0, tileCount: 0,
@@ -483,8 +503,9 @@ export async function installSettingsApiRoutes(
       return route.fulfill({ json: mapElementState.filter(element => ids.includes(element.id)) });
     }
     if (readyMapDocument && path === `/floors/${ids.floorId}/map-document/selection`) {
-      const bounds = (request.postDataJSON() as { bounds?: { minX: number; minY: number; maxX: number; maxY: number } }).bounds;
+      const { bounds, layerId, groupId } = request.postDataJSON() as { layerId?: string; groupId?: string; bounds?: { minX: number; minY: number; maxX: number; maxY: number } };
       const ids = mapElementState.filter(element => {
+        if (layerId && element.layerId !== layerId || groupId && element.groupId !== groupId) return false;
         if (!bounds) return true;
         const elementBounds = getMapElementBounds(element);
         return elementBounds.minX <= bounds.maxX && elementBounds.maxX >= bounds.minX

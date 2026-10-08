@@ -242,15 +242,23 @@ test("1000 fixtures, 2000 slots and 2000 objects become canvas-ready within 3s p
       const stage = konva?.stages.find((node) => container?.contains(node.container()));
       const fixtureLayer = stage?.findOne<Konva.Layer>(".editor-fixture-layer");
       const objectLayer = stage?.findOne<Konva.Layer>(".editor-object-layer");
+      const marker = fixtureLayer?.findOne<Konva.Group>(".fixture-f1-1");
       const canvas = fixtureLayer?.getCanvas()._canvas;
-      if (container?.getAttribute("aria-disabled") === "false" && fixtureLayer?.getChildren().length === 1000 && objectLayer?.getChildren().length === 2000 && stage?.find(".cad-placement-slot").length === 2000 && canvas && canvas.width > 0) {
-        const ratio = canvas.width / canvas.getBoundingClientRect().width;
-        const pixel = canvas.getContext("2d")!.getImageData(Math.round(20 * ratio), Math.round(20 * ratio), 1, 1).data;
-        // Count actual fixture nodes and wait for a rendered marker, not just
-        // the route, an empty Stage, or a loaded-but-unplaced fixture list.
-        if (pixel[0] === 21 && pixel[1] === 159 && pixel[2] === 129 && pixel[3] === 255) {
-          performance.mark("floor-editor-ready-1000");
-          return;
+      if (container?.getAttribute("aria-disabled") === "false" && fixtureLayer?.getChildren().length === 1000 && objectLayer?.getChildren().length === 2000 && stage?.find(".cad-placement-slot").length === 2000 && marker && canvas && canvas.width > 0 && canvas.height > 0) {
+        const rect = canvas.getBoundingClientRect(), center = marker.getAbsolutePosition();
+        // Fit/pan transforms world (20,20); sample the actual node center in the
+        // layer backing bitmap, accounting for CSS size and device pixel ratio.
+        if (rect.width > 0 && rect.height > 0) {
+          const x = Math.round(center.x * canvas.width / rect.width), y = Math.round(center.y * canvas.height / rect.height);
+          if (Number.isFinite(x) && Number.isFinite(y) && x >= 0 && y >= 0 && x < canvas.width && y < canvas.height) {
+            const pixel = canvas.getContext("2d")!.getImageData(x, y, 1, 1).data;
+            // Count actual nodes and require the same painted green marker,
+            // not just an empty Stage or a loaded-but-unplaced fixture list.
+            if (pixel[0] === 21 && pixel[1] === 159 && pixel[2] === 129 && pixel[3] === 255) {
+              performance.mark("floor-editor-ready-1000");
+              return;
+            }
+          }
         }
       }
       requestAnimationFrame(check);

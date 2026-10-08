@@ -1,32 +1,27 @@
-import React from "react";
-
-export function SafeAreaView(props: Record<string, unknown>) {
-  return React.createElement("SafeAreaView", props);
-}
-
-export function View(props: Record<string, unknown>) {
-  return React.createElement("View", props);
-}
-
-export const StyleSheet = {
-  create<T extends Record<string, unknown>>(styles: T) {
-    return styles;
-  }
-};
-
-const appStateListeners = new Set<(state: string) => void>();
-
-export const AppState = {
-  currentState: "active",
-  addEventListener(_event: "change", listener: (state: string) => void) {
-    appStateListeners.add(listener);
-    return { remove: () => appStateListeners.delete(listener) };
-  },
-  emit(state: string) {
-    this.currentState = state;
-    appStateListeners.forEach((listener) => listener(state));
-  },
-  setCurrentState(state: string) {
-    this.currentState = state;
-  }
+import React from 'react';
+const component = (name: string) => (props: Record<string, unknown>) => React.createElement(name, props);
+export const View = component('View');
+export const SafeAreaView = component('SafeAreaView');
+export const SafeAreaProvider = component('SafeAreaProvider');
+export const KeyboardAvoidingView = component('KeyboardAvoidingView');
+export const Text = component('Text');
+export const Pressable = component('Pressable');
+export const ActivityIndicator = component('ActivityIndicator');
+export const StatusBar = component('StatusBar');
+export const Platform = { OS: 'android' };
+export const Linking = { openURL: jest.fn(async () => {}) };
+export const Alert = { alert: jest.fn() };
+const backListeners = new Set<() => boolean>();
+export const BackHandler = { addEventListener: jest.fn((_event: string, listener: () => boolean) => { backListeners.add(listener); return { remove: () => backListeners.delete(listener) }; }), exitApp: jest.fn(), emit() { return [...backListeners].reverse().some(l => l()); } };
+export const StyleSheet = { create<T>(styles: T) { return styles; }, absoluteFill: { position: 'absolute', inset: 0 } };
+const listeners = new Set<(state: string) => void>();
+export const AppState = { currentState: 'active', addEventListener(_event: string, listener: (state: string) => void) { listeners.add(listener); return { remove: () => listeners.delete(listener) }; }, emit(state: string) { this.currentState = state; listeners.forEach(l => l(state)); }, setCurrentState(state: string) { this.currentState = state; } };
+const keyboardListeners = new Map<string, Set<() => void>>();
+export const Keyboard = {
+  addListener: jest.fn((event: string, listener: () => void) => {
+    const listeners = keyboardListeners.get(event) ?? new Set<() => void>();
+    keyboardListeners.set(event, listeners); listeners.add(listener);
+    return { remove: () => listeners.delete(listener) };
+  }),
+  emit(event: string) { keyboardListeners.get(event)?.forEach(listener => listener()); },
 };

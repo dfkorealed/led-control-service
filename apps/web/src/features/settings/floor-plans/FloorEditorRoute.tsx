@@ -84,7 +84,7 @@ export function FloorEditorRoute({ capabilities }: FloorEditorRouteProps) {
     setPendingLeave(action);
   }, [isDirty]);
 
-  useDirtyNavigationGuard(isDirty, navigateFromEditor, requestEditorLeave);
+  const handleNativeBack = useDirtyNavigationGuard(isDirty, navigateFromEditor, requestEditorLeave, listPath);
 
   function leaveEditor() {
     requestEditorLeave({ onConfirm: () => navigateFromEditor(listPath) });
@@ -115,7 +115,7 @@ export function FloorEditorRoute({ capabilities }: FloorEditorRouteProps) {
   const activeLease = leaseState.floorId === floorId ? leaseState.lease : { editable: false };
 
   return (
-    <div className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden [&>section]:min-h-0 [&>section]:flex-1">
+    <div className="flex h-full min-h-min min-w-0 flex-col [&>section]:min-h-min [&>section]:flex-1">
       {!activeLease.editable ? (
         <FeedbackState
           tone="warning"
@@ -140,6 +140,7 @@ export function FloorEditorRoute({ capabilities }: FloorEditorRouteProps) {
           });
         }}
         onDirtyChange={setIsDirty}
+        onNativeBack={handleNativeBack}
         onCancel={leaveEditor}
         onReload={async () => { await editorQuery.refetch(); }}
         onSaved={() => {
@@ -175,6 +176,7 @@ function useFloorEditorLease(canEdit: boolean, floorId: string | undefined) {
     setLeaseState({ floorId, lease: { editable: false } });
     let disposed = false;
     let pageHidden = false;
+    let nativeBackground = document.documentElement.dataset.ledControlNativeAppState === "background";
     let leaseLost = false;
     let acquiredToken: string | null = null;
     let heartbeat: number | null = null;
@@ -291,8 +293,8 @@ function useFloorEditorLease(canEdit: boolean, floorId: string | undefined) {
 
     const handlePageHide = () => {
       if (disposed) return;
-      // beforeunload can be cancelled. Only pagehide ends ownership, including
-      // BFCache suspension; no token is persisted or shared with another tab.
+      // beforeunload can be cancelled. Pagehide or lifecycle suspension ends
+      // ownership; no token is persisted or shared with another tab.
       pageHidden = true;
       publish({ editable: false });
       setIsAcquiring(false);
@@ -306,13 +308,35 @@ function useFloorEditorLease(canEdit: boolean, floorId: string | undefined) {
       // A restored document must reacquire, never revive its released lease.
       if (event.persisted && pageHidden) retry();
     };
+    const handleForeground = () => {
+      if (nativeBackground || document.visibilityState === "hidden" || !pageHidden) return;
+      // Background releases ownership, not the dirty editor store. Reacquire a
+      // fresh token before unlocking; a delayed pre-suspension reply cannot revive it.
+      pageHidden = false;
+      retry();
+    };
+    const handleVisibility = () => {
+      if (document.visibilityState === "hidden") handlePageHide();
+      else handleForeground();
+    };
+    const handleLifecycle = (event: Event) => {
+      const state = (event as CustomEvent<{ state?: unknown }>).detail?.state;
+      if (state === "background") { nativeBackground = true; handlePageHide(); }
+      else if (state === "active") { nativeBackground = false; handleForeground(); }
+      // inactive is focus loss (e.g. a file picker), not suspension.
+    };
     window.addEventListener("pagehide", handlePageHide);
     window.addEventListener("pageshow", handlePageShow);
-    void acquireInitialLease();
+    window.addEventListener("led-control:webview-lifecycle", handleLifecycle);
+    document.addEventListener("visibilitychange", handleVisibility);
+    if (nativeBackground || document.visibilityState === "hidden") handlePageHide();
+    else void acquireInitialLease();
     return () => {
       disposed = true;
       window.removeEventListener("pagehide", handlePageHide);
       window.removeEventListener("pageshow", handlePageShow);
+      window.removeEventListener("led-control:webview-lifecycle", handleLifecycle);
+      document.removeEventListener("visibilitychange", handleVisibility);
       stopTimers();
       const token = acquiredToken;
       acquiredToken = null;
@@ -326,7 +350,8 @@ function useFloorEditorLease(canEdit: boolean, floorId: string | undefined) {
 function useDirtyNavigationGuard(
   isDirty: boolean,
   navigateFromEditor: (to: string) => void,
-  requestEditorLeave: (action: PendingEditorLeave) => void
+  requestEditorLeave: (action: PendingEditorLeave) => void,
+  fallbackPath: string
 ) {
   const restoringSentinel = useRef(false);
   const allowNextPopState = useRef(false);
@@ -345,6 +370,7 @@ function useDirtyNavigationGuard(
 
   useEffect(() => {
     if (!isDirty) {
+      allowNextPopState.current = false;
       const sentinelToken = sentinelTokenRef.current;
       sentinelTokenRef.current = null;
       if (sentinelToken && hasDirtyEditorSentinel(sentinelToken)) window.history.back();
@@ -411,4 +437,21 @@ function useDirtyNavigationGuard(
       window.removeEventListener("popstate", handlePopState);
     };
   }, [isDirty, navigateFromEditor, requestEditorLeave]);
+
+  return useCallback(() => {
+    if (!isDirty) return false;
+    requestEditorLeave({ onConfirm: () => {
+      const token = sentinelTokenRef.current;
+      const distance = token && hasDirtyEditorSentinel(token) ? 2 : 1;
+      // Only confirmation may move history. Retire the owned sentinel first so
+      // the clean effect/unmount cannot issue a second back while go is pending.
+      sentinelTokenRef.current = null;
+      const index: unknown = window.history.state?.idx;
+      if (typeof index === "number" && Number.isInteger(index) && index >= distance) {
+        allowNextPopState.current = true;
+        window.history.go(-distance);
+      } else navigateFromEditor(fallbackPath);
+    } });
+    return true;
+  }, [isDirty, requestEditorLeave, navigateFromEditor, fallbackPath]);
 }

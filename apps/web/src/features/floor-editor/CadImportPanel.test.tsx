@@ -399,6 +399,32 @@ describe("CadImportPanel", () => {
     expect(screen.getByRole("radio", { name: /^도면 영역 21 ·/ })).toBeChecked();
   });
 
+  it("keeps region selection primary while changing page size only resets pagination", async () => {
+    floorEditorApi.getActiveFloorImportJob.mockResolvedValueOnce({ job: {
+      ...queuedJob, status: "region_selection_required", stage: "region_selection_required", parserVersion: "cad-core/1"
+    } });
+    cadRegionApi.listFloorImportRegions.mockResolvedValueOnce({ ...multipleRegions,
+      regions: Array.from({ length: 65 }, (_, index) => ({ ...firstRegion, regionId: `region-${index + 1}` }))
+    });
+    renderPanel();
+    expect(await screen.findByRole("radiogroup", { name: "가져올 도면 영역" })).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "다음 페이지" }));
+    fireEvent.click(screen.getByRole("radio", { name: /^도면 영역 21 ·/ }));
+    const trigger = screen.getByRole("button", { name: "도면 영역 목록 상세 필터, 활성 조건 0개" });
+    expect(screen.queryByRole("button", { name: /페이지당 항목 수/ })).not.toBeInTheDocument();
+    fireEvent.click(trigger);
+    expect(screen.getByRole("radiogroup", { hidden: true })).toHaveAttribute("aria-label", "가져올 도면 영역");
+    fireEvent.click(screen.getByRole("button", { name: /페이지당 항목 수/ }));
+    fireEvent.click(screen.getByRole("option", { name: "50개" }));
+    fireEvent.keyDown(screen.getByRole("dialog", { name: "도면 영역 목록" }), { key: "Escape" });
+    expect(screen.getByText("1~50 / 65건")).toBeVisible();
+    expect(screen.getAllByRole("radio")).toHaveLength(50);
+    expect(screen.getByRole("radio", { name: /^도면 영역 21 ·/ })).toBeChecked();
+    expect(cadRegionApi.selectFloorImportRegion).not.toHaveBeenCalled();
+    expect(floorEditorApi.applyFloorImportJob).not.toHaveBeenCalled();
+    expect(screen.queryByRole("searchbox")).not.toBeInTheDocument();
+  });
+
   it.each([
     ["transport loss", new TypeError("Failed to fetch")],
     ["duplicate conflict", new ApiError("conflict", 409, null)]

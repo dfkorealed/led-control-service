@@ -101,6 +101,8 @@ export function isSettledCommandStatus(status: CommandStatusResponse | null | un
 
 export interface CommandHistoryInput {
   siteId: string;
+  fromDate?: string;
+  toDate?: string;
   query?: string;
   stage?: CommandStage;
   cursor?: string;
@@ -116,6 +118,8 @@ export interface CommandHistoryResponse {
 
 export function listCommands(input: CommandHistoryInput) {
   const params = new URLSearchParams({ siteId: input.siteId });
+  if (input.fromDate) params.set("fromDate", input.fromDate);
+  if (input.toDate) params.set("toDate", input.toDate);
   if (input.query) params.set("query", input.query);
   if (input.stage) params.set("stage", input.stage);
   if (input.cursor) params.set("cursor", input.cursor);
@@ -232,7 +236,7 @@ export interface CommandCaseStatusCheckResponse {
 }
 
 export function createCaseStatusCheck(caseId: string, clientRequestId: string, signal?: AbortSignal) {
-  return apiPost<CommandCaseStatusCheckResponse>(`${commandCasePath(caseId)}/status-checks`, { clientRequestId }, { signal });
+  return apiPost<CommandCaseStatusCheckResponse>(`${commandCasePath(caseId)}/status-checks`, { clientRequestId }, { signal, timeoutMs: COMMAND_HTTP_TIMEOUT_MS });
 }
 
 export interface CommandCaseReconcileInput {
@@ -248,7 +252,7 @@ export interface CommandCaseReconcileResponse {
 }
 
 export function reconcileCommandCase(caseId: string, input: CommandCaseReconcileInput, signal?: AbortSignal) {
-  return apiPost<CommandCaseReconcileResponse>(`${commandCasePath(caseId)}/reconcile`, input, { signal });
+  return apiPost<CommandCaseReconcileResponse>(`${commandCasePath(caseId)}/reconcile`, input, { signal, timeoutMs: COMMAND_HTTP_TIMEOUT_MS });
 }
 
 export interface CommandStatusCheckResponse {
@@ -259,14 +263,18 @@ export interface CommandStatusCheckResponse {
 }
 
 export function createCommandStatusCheck(commandId: string, clientRequestId: string, signal?: AbortSignal) {
-  return apiPost<CommandStatusCheckResponse>(`/commands/${encodeURIComponent(commandId)}/status-checks`, { clientRequestId }, { signal });
+  return apiPost<CommandStatusCheckResponse>(`/commands/${encodeURIComponent(commandId)}/status-checks`, { clientRequestId }, { signal, timeoutMs: COMMAND_HTTP_TIMEOUT_MS });
 }
+
+// HTTP response wait only, not a firmware RF deadline. A timeout is unknown
+// outcome and must retain the original idempotency key, never trigger new Set.
+const COMMAND_HTTP_TIMEOUT_MS = 30_000;
 
 export function createDimmingCommand(input: CreateDimmingCommandInput, signal?: AbortSignal) {
   return apiPost<CreateDimmingCommandResponse>(
     "/commands/dimming",
     canonicalizeDimmingCommandInput(input),
-    { signal }
+    { signal, timeoutMs: COMMAND_HTTP_TIMEOUT_MS }
   );
 }
 

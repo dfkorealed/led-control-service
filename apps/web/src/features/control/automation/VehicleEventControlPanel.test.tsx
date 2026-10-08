@@ -9,6 +9,7 @@ import { vehicleEventRuleQueryKey, type VehicleEventRuleResponse } from "../../.
 import type { Dashboard } from "../../../api/queries";
 import { SessionStatusCenter, SessionStatusProvider, ToastRegion } from "../../../components/ui";
 import { VehicleEventControlPanel } from "./VehicleEventControlPanel";
+import { chooseRowAction, measureAutomationContainer } from "../../../test/automation-list";
 
 const floorMapQuery = vi.hoisted(() => vi.fn());
 
@@ -56,6 +57,7 @@ const dashboard: Dashboard = {
 
 describe("VehicleEventControlPanel", () => {
   beforeEach(() => {
+    measureAutomationContainer(1440);
     vi.clearAllMocks();
     floorMapQuery.mockReturnValue({ data: floorMapSnapshot, error: null, isLoading: false, isFetching: false });
     mocks.listVehicleEventRules.mockResolvedValue({ items: [rule()], total: 1, nextCursor: null });
@@ -151,13 +153,22 @@ describe("VehicleEventControlPanel", () => {
     expect(within(detail).queryByText("복원 성공", { exact: true })).not.toBeInTheDocument();
   });
 
+  it("preserves event brightness and synchronization states in table and cards", async () => {
+    renderPanel("admin");
+    await screen.findByText("입구 차량 감지");
+    expect(screen.queryByRole("group", { name: "이벤트 요약" })).not.toBeInTheDocument();
+    const list = screen.getByRole("region", { name: "자동화 목록" });
+    expect(list).toHaveTextContent("밝기");
+    expect(list).toHaveTextContent("80%");
+    expect(list).toHaveTextContent("적용 대기");
+    expect(screen.getByRole("button", { name: "입구 차량 감지 작업" })).toBeEnabled();
+  });
+
   it("atlas event surface separates the site total from loaded gateway status", async () => {
     mocks.listVehicleEventRules.mockResolvedValue({ items: [rule()], total: 27, nextCursor: "next-page" });
     renderPanel("admin");
-    const overview = await screen.findByRole("group", { name: "이벤트 요약" });
-    expect(overview).toHaveTextContent("현장 전체 규칙 27건");
-    expect(overview).toHaveTextContent("불러온 1건 기준");
-    expect(overview).toHaveTextContent("확인 필요 1건");
+    await screen.findByText("입구 차량 감지");
+    expect(screen.queryByRole("group", { name: "이벤트 요약" })).not.toBeInTheDocument();
     const list = screen.getByRole("region", { name: "자동화 목록" });
     expect(list).toContainElement(screen.getByRole("table", { name: "차량 이벤트 목록" }));
     expect(list.querySelector("[data-automation-list-scroll]")).toBeInTheDocument();
@@ -171,9 +182,8 @@ describe("VehicleEventControlPanel", () => {
       : { items: [rule()], total: 82, filteredTotal: 20, siteSummary: summary, nextCursor: "opaque-v2" });
     renderPanel("admin");
 
-    const overview = await screen.findByRole("group", { name: "이벤트 요약" });
-    expect(overview).toHaveTextContent("현장 전체 규칙 82건");
-    expect(overview).toHaveTextContent("적용 완료 8건 · 적용 대기 70건 · 적용 실패 4건");
+    await screen.findByText("입구 차량 감지");
+    expect(screen.queryByRole("group", { name: "이벤트 요약" })).not.toBeInTheDocument();
     expect(within(screen.getByRole("region", { name: "이벤트 목록 조건" })).getByRole("status")).toHaveTextContent("조건에 맞는 규칙 20건");
     fireEvent.click(screen.getByRole("button", { name: "다음" }));
     expect(await screen.findByText("출구 차량 감지")).toBeInTheDocument();
@@ -234,7 +244,7 @@ describe("VehicleEventControlPanel", () => {
   });
 
   it("shows every event operation field and working management actions in the compact card", async () => {
-    vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn() })));
+    measureAutomationContainer(320);
     mocks.listVehicleEventRules.mockResolvedValue({
       items: [rule({ lastDetection: {
         id: "detection-1",
@@ -251,7 +261,7 @@ describe("VehicleEventControlPanel", () => {
     });
     renderPanel("admin");
 
-    const list = await screen.findByRole("list", { name: "차량 이벤트 카드 목록" });
+    const list = await screen.findByRole("list", { name: "차량 이벤트 목록" });
     const card = within(list).getByRole("listitem");
     expect(screen.queryByRole("table", { name: "차량 이벤트 목록" })).not.toBeInTheDocument();
     for (const label of ["입구 차량 감지", "활성", "감지 센서", "제어 조명", "밝기", "유지", "Gateway 동기화", "최근 감지"]) {
@@ -260,17 +270,17 @@ describe("VehicleEventControlPanel", () => {
     expect(card).toHaveTextContent("80%");
     expect(card).toHaveTextContent("60초");
     expect(card).toHaveTextContent("적용 대기");
-    expect(card).toHaveTextContent("26. 9. 1.");
+    expect(card).toHaveTextContent("2026-09-01 19:00:00");
     fireEvent.click(within(card).getByRole("button", { name: "입구 차량 감지 비활성화" }));
     await waitFor(() => expect(mocks.updateVehicleEventRule).toHaveBeenCalledWith(siteId, rule().id, { status: "disabled" }));
-    fireEvent.click(within(card).getByRole("button", { name: "입구 차량 감지 삭제" }));
+    chooseRowAction("입구 차량 감지", "삭제");
     expect(screen.getByRole("dialog", { name: "이벤트 규칙 삭제" })).toBeInTheDocument();
   });
 
   it("keeps compact event cards read-only for viewers", async () => {
-    vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn() })));
+    measureAutomationContainer(320);
     renderPanel("viewer");
-    const card = within(await screen.findByRole("list", { name: "차량 이벤트 카드 목록" })).getByRole("listitem");
+    const card = within(await screen.findByRole("list", { name: "차량 이벤트 목록" })).getByRole("listitem");
     expect(within(card).queryAllByRole("button")).toHaveLength(0);
   });
 
@@ -358,17 +368,17 @@ describe("VehicleEventControlPanel", () => {
   it("차량 이벤트 목록은 polling 실패에도 기존 행과 retry를 유지한다", async () => {
     const { queryClient } = renderPanel("admin");
     const table = await screen.findByRole("table", { name: "차량 이벤트 목록" });
-    expect(table.closest("[data-automation-table-wrap]")).not.toBeNull();
+    expect(table).toHaveClass("table-fixed");
 
     mocks.listVehicleEventRules.mockRejectedValueOnce(new Error("poll failed"));
     await act(async () => {
       await queryClient.refetchQueries({ queryKey: vehicleEventRuleQueryKey(siteId) });
     });
 
-    expect(await screen.findByRole("button", { name: "상태 센터, 미해결 1건" })).toBeInTheDocument();
+    await expectScreenStatusCount(1);
     expect(screen.getByText("입구 차량 감지")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "상태 센터, 미해결 1건" }));
-    expect(screen.getByRole("dialog", { name: "현재 세션 상태" })).toHaveTextContent("Gateway 적용 상태를 새로고침하지 못했습니다.");
+    fireEvent.click(screen.getByRole("button", { name: "알람센터, 현장 미선택" }));
+    expect(screen.getByRole("dialog", { name: "알람센터" })).toHaveTextContent("Gateway 적용 상태를 새로고침하지 못했습니다.");
     expect(screen.getByRole("button", { name: "상태 다시 조회" })).toBeInTheDocument();
   });
 
@@ -379,8 +389,9 @@ describe("VehicleEventControlPanel", () => {
     await screen.findByText("입구 차량 감지");
     mocks.listVehicleEventRules.mockRejectedValueOnce(new Error("poll failed"));
     await act(async () => { await queryClient.refetchQueries({ queryKey: vehicleEventRuleQueryKey(siteId) }); });
-    fireEvent.click(await screen.findByRole("button", { name: "상태 센터, 미해결 1건" }));
-    expect(screen.getByRole("dialog", { name: "현재 세션 상태" })).toHaveTextContent("마지막 성공: 26. 9. 24. 오전 8:00");
+    await expectScreenStatusCount(1);
+    fireEvent.click(screen.getByRole("button", { name: "알람센터, 현장 미선택" }));
+    expect(screen.getByRole("dialog", { name: "알람센터" })).toHaveTextContent("마지막 성공: 2026-09-24 08:00:00");
   });
 
   it("keeps the last whole-list success time until a real refresh succeeds", async () => {
@@ -391,26 +402,27 @@ describe("VehicleEventControlPanel", () => {
     const loadMore = screen.getByRole("button", { name: "더 보기" });
     mocks.listVehicleEventRules.mockRejectedValueOnce(new Error("refresh failed"));
     await act(async () => { await queryClient.refetchQueries({ queryKey: vehicleEventRuleQueryKey(siteId) }); });
-    fireEvent.click(await screen.findByRole("button", { name: "상태 센터, 미해결 1건" }));
-    const center = screen.getByRole("dialog", { name: "현재 세션 상태" });
-    expect(center).toHaveTextContent("마지막 성공: 26. 9. 24. 오전 8:00");
+    await expectScreenStatusCount(1);
+    fireEvent.click(screen.getByRole("button", { name: "알람센터, 현장 미선택" }));
+    const center = screen.getByRole("dialog", { name: "알람센터" });
+    expect(center).toHaveTextContent("마지막 성공: 2026-09-24 08:00:00");
 
     clock.mockReturnValue(Date.parse("2026-09-24T01:00:00Z"));
     mocks.listVehicleEventRules.mockResolvedValueOnce({ items: [rule({ id: "next-1", name: "두 번째 이벤트" })], total: 2, nextCursor: null });
     fireEvent.click(loadMore);
     await screen.findByText("두 번째 이벤트");
-    expect(center).toHaveTextContent("마지막 성공: 26. 9. 24. 오전 8:00");
+    expect(center).toHaveTextContent("마지막 성공: 2026-09-24 08:00:00");
     await act(async () => {
       queryClient.setQueryData(vehicleEventRuleQueryKey(siteId), queryClient.getQueryData(vehicleEventRuleQueryKey(siteId)), { updatedAt: Date.parse("2026-09-24T02:00:00Z") });
     });
-    expect(center).toHaveTextContent("마지막 성공: 26. 9. 24. 오전 8:00");
+    expect(center).toHaveTextContent("마지막 성공: 2026-09-24 08:00:00");
 
     clock.mockReturnValue(Date.parse("2026-09-24T03:00:00Z"));
     await act(async () => { await queryClient.refetchQueries({ queryKey: vehicleEventRuleQueryKey(siteId) }); });
     await waitFor(() => expect(center).toHaveTextContent("현재 확인할 상태가 없습니다."));
     mocks.listVehicleEventRules.mockRejectedValueOnce(new Error("refresh failed again"));
     await act(async () => { await queryClient.refetchQueries({ queryKey: vehicleEventRuleQueryKey(siteId) }); });
-    await waitFor(() => expect(center).toHaveTextContent("마지막 성공: 26. 9. 24. 오후 12:00"));
+    await waitFor(() => expect(center).toHaveTextContent("마지막 성공: 2026-09-24 12:00:00"));
   });
 
   it.each(["user scope", "401"])("forgets the last whole-list success time after %s ends its scope", async (boundary) => {
@@ -430,11 +442,12 @@ describe("VehicleEventControlPanel", () => {
     mocks.listVehicleEventRules.mockRejectedValueOnce(new Error("refresh failed"));
     const activeQueryKey = rendered.queryClient.getQueryCache().findAll({ queryKey: vehicleEventRuleQueryKey(siteId) }).find((query) => query.getObserversCount() > 0)?.queryKey;
     await act(async () => { await rendered.queryClient.refetchQueries({ queryKey: activeQueryKey, exact: true }); });
-    fireEvent.click(await screen.findByRole("button", { name: "상태 센터, 미해결 1건" }));
-    const center = screen.getByRole("dialog", { name: "현재 세션 상태" });
+    await expectScreenStatusCount(1);
+    fireEvent.click(screen.getByRole("button", { name: "알람센터, 현장 미선택" }));
+    const center = screen.getByRole("dialog", { name: "알람센터" });
     if (boundary === "user scope") {
-      expect(center).toHaveTextContent("마지막 성공: 26. 9. 24. 오후 12:00");
-      expect(center).not.toHaveTextContent("마지막 성공: 26. 9. 24. 오전 8:00");
+      expect(center).toHaveTextContent("마지막 성공: 2026-09-24 12:00:00");
+      expect(center).not.toHaveTextContent("마지막 성공: 2026-09-24 08:00:00");
     } else {
       expect(center).not.toHaveTextContent("마지막 성공:");
     }
@@ -445,12 +458,12 @@ describe("VehicleEventControlPanel", () => {
     renderPanel("admin");
     await screen.findByText("입구 차량 감지");
     fireEvent.click(screen.getByRole("button", { name: "더 보기" }));
-    expect(await screen.findByRole("button", { name: "상태 센터, 미해결 1건" })).toBeInTheDocument();
+    await expectScreenStatusCount(1);
     expect(screen.getByText("입구 차량 감지")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "상태 센터, 미해결 1건" }));
+    fireEvent.click(screen.getByRole("button", { name: "알람센터, 현장 미선택" }));
     fireEvent.click(screen.getByRole("button", { name: "다음 페이지 다시 시도" }));
     expect(await screen.findByText("후속 이벤트")).toBeInTheDocument();
-    await waitFor(() => expect(screen.getByRole("dialog", { name: "현재 세션 상태" })).toHaveTextContent("현재 확인할 상태가 없습니다."));
+    await waitFor(() => expect(screen.getByRole("dialog", { name: "알람센터" })).toHaveTextContent("현재 확인할 상태가 없습니다."));
   });
 
   it("keeps a missing next page after a successful poll of loaded rows", async () => {
@@ -458,15 +471,15 @@ describe("VehicleEventControlPanel", () => {
     const { queryClient } = renderPanel("admin");
     await screen.findByText("입구 차량 감지");
     fireEvent.click(screen.getByRole("button", { name: "더 보기" }));
-    await screen.findByRole("button", { name: "상태 센터, 미해결 1건" });
+    await expectScreenStatusCount(1);
     mocks.listVehicleEventRules.mockResolvedValueOnce({ items: [rule()], total: 2, nextCursor: "next-page" });
     await act(async () => { await queryClient.refetchQueries({ queryKey: vehicleEventRuleQueryKey(siteId) }); await new Promise((resolve) => setTimeout(resolve, 0)); });
-    expect(screen.getByRole("button", { name: "상태 센터, 미해결 1건" })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "상태 센터, 미해결 1건" }));
+    await expectScreenStatusCount(1);
+    fireEvent.click(screen.getByRole("button", { name: "알람센터, 현장 미선택" }));
     mocks.listVehicleEventRules.mockResolvedValueOnce({ items: [rule({ id: "next-1", name: "누락된 이벤트" })], total: 2, nextCursor: null });
     fireEvent.click(screen.getByRole("button", { name: "다음 페이지 다시 시도" }));
     expect(await screen.findByText("누락된 이벤트")).toBeInTheDocument();
-    await waitFor(() => expect(screen.getByRole("dialog", { name: "현재 세션 상태" })).toHaveTextContent("현재 확인할 상태가 없습니다."));
+    await waitFor(() => expect(screen.getByRole("dialog", { name: "알람센터" })).toHaveTextContent("현재 확인할 상태가 없습니다."));
   });
 
   it("resolves a failed next-page action when refresh removes its cursor", async () => {
@@ -474,10 +487,10 @@ describe("VehicleEventControlPanel", () => {
     const { queryClient } = renderPanel("admin");
     await screen.findByText("입구 차량 감지");
     fireEvent.click(screen.getByRole("button", { name: "더 보기" }));
-    await screen.findByRole("button", { name: "상태 센터, 미해결 1건" });
+    await expectScreenStatusCount(1);
     mocks.listVehicleEventRules.mockResolvedValueOnce({ items: [rule()], total: 1, nextCursor: null });
     await act(async () => { await queryClient.refetchQueries({ queryKey: vehicleEventRuleQueryKey(siteId) }); await new Promise((resolve) => setTimeout(resolve, 0)); });
-    expect(screen.getByRole("button", { name: "상태 센터, 미해결 0건" })).toBeInTheDocument();
+    await expectScreenStatusCount(0);
     expect(screen.queryByRole("button", { name: "더 보기" })).not.toBeInTheDocument();
   });
 
@@ -491,16 +504,16 @@ describe("VehicleEventControlPanel", () => {
     const { queryClient } = renderPanel("admin");
     await screen.findByText("입구 차량 감지");
     fireEvent.click(screen.getByRole("button", { name: "더 보기" }));
-    await screen.findByRole("button", { name: "상태 센터, 미해결 1건" });
+    await expectScreenStatusCount(1);
     fireEvent.click(within(screen.getByRole("region", { name: "알림" })).getByRole("button", { name: "알림 닫기" }));
     mocks.listVehicleEventRules.mockRejectedValueOnce(new Error("refresh failed"));
     await act(async () => { await queryClient.refetchQueries({ queryKey: vehicleEventRuleQueryKey(siteId) }); await new Promise((resolve) => setTimeout(resolve, 0)); });
-    expect(screen.getByRole("button", { name: "상태 센터, 미해결 2건" })).toBeInTheDocument();
+    await expectScreenStatusCount(2);
     const alerts = within(screen.getByRole("region", { name: "알림" })).getAllByRole("status");
     expect(alerts).toHaveLength(1);
     expect(alerts[0]).toHaveTextContent("Gateway 적용 상태를 새로고침하지 못했습니다.");
-    fireEvent.click(screen.getByRole("button", { name: "상태 센터, 미해결 2건" }));
-    const center = screen.getByRole("dialog", { name: "현재 세션 상태" });
+    fireEvent.click(screen.getByRole("button", { name: "알람센터, 현장 미선택" }));
+    const center = screen.getByRole("dialog", { name: "알람센터" });
     expect(within(center).getByRole("button", { name: "다음 페이지 다시 시도" })).toBeInTheDocument();
     expect(within(center).getByRole("button", { name: "상태 다시 조회" })).toBeInTheDocument();
     fireEvent.click(within(center).getByRole("button", { name: "다음 페이지 다시 시도" }));
@@ -524,10 +537,10 @@ describe("VehicleEventControlPanel", () => {
     renderPanel("admin");
     await screen.findByText("입구 차량 감지");
     fireEvent.click(screen.getByRole("button", { name: "입구 차량 감지 비활성화" }));
-    expect(await screen.findByRole("button", { name: "상태 센터, 미해결 1건" })).toBeInTheDocument();
+    await expectScreenStatusCount(1);
     expect(within(screen.getByRole("tabpanel")).queryByRole("alert")).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "입구 차량 감지 비활성화" }));
-    await waitFor(() => expect(screen.getByRole("button", { name: "상태 센터, 미해결 0건" })).toBeInTheDocument());
+    await expectScreenStatusCount(0);
     expect(within(screen.getByRole("region", { name: "알림" })).getByText("이벤트 규칙을 비활성화했습니다.")).toBeInTheDocument();
   });
 
@@ -537,12 +550,12 @@ describe("VehicleEventControlPanel", () => {
     renderPanel("admin");
     await screen.findByText("입구 차량 감지");
     fireEvent.click(screen.getByRole("button", { name: "입구 차량 감지 비활성화" }));
-    await screen.findByRole("button", { name: "상태 센터, 미해결 1건" });
+    await expectScreenStatusCount(1);
     fireEvent.click(within(screen.getByRole("region", { name: "알림" })).getByRole("button", { name: "알림 닫기" }));
     fireEvent.click(screen.getByRole("button", { name: "입구 차량 감지 비활성화" }));
-    expect(screen.getByRole("button", { name: "상태 센터, 미해결 1건" })).toBeInTheDocument();
+    await expectScreenStatusCount(1);
     await act(async () => { retry.reject(new Error("toggle failed")); await retry.promise.catch(() => undefined); });
-    expect(screen.getByRole("button", { name: "상태 센터, 미해결 1건" })).toBeInTheDocument();
+    await expectScreenStatusCount(1);
     expect(within(screen.getByRole("region", { name: "알림" })).queryByRole("alert")).not.toBeInTheDocument();
   });
 
@@ -551,14 +564,16 @@ describe("VehicleEventControlPanel", () => {
     mocks.updateVehicleEventRule.mockRejectedValueOnce(new Error("toggle failed"));
     renderPanel("admin");
     fireEvent.click(await screen.findByRole("button", { name: "입구 차량 감지 비활성화" }));
-    const statusButton = await screen.findByRole("button", { name: "상태 센터, 미해결 1건" });
-    fireEvent.click(screen.getByRole("button", { name: operation === "add" ? "이벤트 추가" : "출구 차량 감지 수정" }));
+    await expectScreenStatusCount(1);
+    const statusButton = screen.getByRole("button", { name: "알람센터, 현장 미선택" });
+    if (operation === "add") fireEvent.click(screen.getByRole("button", { name: "이벤트 추가" }));
+    else chooseRowAction("출구 차량 감지", "수정");
     const dialog = screen.getByRole("dialog", { name: operation === "add" ? "이벤트 추가" : "이벤트 수정" });
-    expect(statusButton).toHaveAttribute("aria-label", "상태 센터, 미해결 1건");
+    expect(statusButton).toHaveAttribute("aria-label", "알람센터, 현장 미선택");
     expect(within(dialog).queryByRole("alert")).not.toBeInTheDocument();
     fireEvent.click(within(dialog).getByRole("button", { name: "취소" }));
-    fireEvent.click(screen.getByRole("button", { name: "상태 센터, 미해결 1건" }));
-    expect(screen.getByRole("dialog", { name: "현재 세션 상태" })).toHaveTextContent("입구 차량 감지");
+    fireEvent.click(screen.getByRole("button", { name: "알람센터, 현장 미선택" }));
+    expect(screen.getByRole("dialog", { name: "알람센터" })).toHaveTextContent("입구 차량 감지");
   });
 
   it("retains rule A's toggle failure after rule B succeeds", async () => {
@@ -566,12 +581,12 @@ describe("VehicleEventControlPanel", () => {
     mocks.updateVehicleEventRule.mockRejectedValueOnce(new Error("toggle failed"));
     renderPanel("admin");
     fireEvent.click(await screen.findByRole("button", { name: "입구 차량 감지 비활성화" }));
-    await screen.findByRole("button", { name: "상태 센터, 미해결 1건" });
+    await expectScreenStatusCount(1);
     fireEvent.click(screen.getByRole("button", { name: "출구 차량 감지 비활성화" }));
     await within(screen.getByRole("region", { name: "알림" })).findByText("이벤트 규칙을 비활성화했습니다.");
-    expect(screen.getByRole("button", { name: "상태 센터, 미해결 1건" })).toBeInTheDocument();
+    await expectScreenStatusCount(1);
     fireEvent.click(screen.getByRole("button", { name: "입구 차량 감지 비활성화" }));
-    await screen.findByRole("button", { name: "상태 센터, 미해결 0건" });
+    await expectScreenStatusCount(0);
   });
 
   it("keeps identical toggle failures independently identifiable by rule", async () => {
@@ -579,21 +594,24 @@ describe("VehicleEventControlPanel", () => {
     mocks.updateVehicleEventRule.mockRejectedValueOnce(new Error("toggle failed")).mockRejectedValueOnce(new Error("toggle failed"));
     renderPanel("admin");
     fireEvent.click(await screen.findByRole("button", { name: "입구 차량 감지 비활성화" }));
-    await screen.findByRole("button", { name: "상태 센터, 미해결 1건" });
+    await expectScreenStatusCount(1);
     fireEvent.click(screen.getByRole("button", { name: "출구 차량 감지 비활성화" }));
-    fireEvent.click(await screen.findByRole("button", { name: "상태 센터, 미해결 2건" }));
-    const center = screen.getByRole("dialog", { name: "현재 세션 상태" });
-    const statuses = within(center).getAllByRole("listitem");
+    await expectScreenStatusCount(2);
+    fireEvent.click(screen.getByRole("button", { name: "알람센터, 현장 미선택" }));
+    const center = screen.getByRole("dialog", { name: "알람센터" });
+    const statuses = within(within(center).getByRole("region", { name: "현재 화면 상태" })).getAllByRole("listitem");
     expect(statuses).toHaveLength(2);
     expect(statuses[0]).toHaveTextContent("입구 차량 감지");
     expect(statuses[1]).toHaveTextContent("출구 차량 감지");
     for (const status of statuses) expect(status).toHaveTextContent("이벤트 규칙 변경을 완료하지 못했습니다.");
     fireEvent.keyDown(center, { key: "Escape" });
     fireEvent.click(screen.getByRole("button", { name: "출구 차량 감지 비활성화" }));
-    fireEvent.click(await screen.findByRole("button", { name: "상태 센터, 미해결 1건" }));
-    const remaining = within(screen.getByRole("dialog", { name: "현재 세션 상태" })).getByRole("listitem");
+    await expectScreenStatusCount(1);
+    fireEvent.click(screen.getByRole("button", { name: "알람센터, 현장 미선택" }));
+    const remaining = within(screen.getByRole("region", { name: "현재 화면 상태" })).getByRole("listitem");
     expect(remaining).toHaveTextContent("입구 차량 감지");
     expect(remaining).not.toHaveTextContent("출구 차량 감지");
+    expect(screen.getByRole("list", { name: "최근 알림 목록" })).toHaveTextContent("출구 차량 감지");
   });
 
   it("clears only the deleted event rule's toggle failure after deletion succeeds", async () => {
@@ -601,17 +619,19 @@ describe("VehicleEventControlPanel", () => {
     mocks.updateVehicleEventRule.mockRejectedValueOnce(new Error("toggle failed")).mockRejectedValueOnce(new Error("toggle failed"));
     renderPanel("admin");
     fireEvent.click(await screen.findByRole("button", { name: "입구 차량 감지 비활성화" }));
-    await screen.findByRole("button", { name: "상태 센터, 미해결 1건" });
+    await expectScreenStatusCount(1);
     fireEvent.click(screen.getByRole("button", { name: "출구 차량 감지 비활성화" }));
-    await screen.findByRole("button", { name: "상태 센터, 미해결 2건" });
+    await expectScreenStatusCount(2);
 
-    fireEvent.click(screen.getByRole("button", { name: "입구 차량 감지 삭제" }));
+    chooseRowAction("입구 차량 감지", "삭제");
     fireEvent.click(within(screen.getByRole("dialog", { name: "이벤트 규칙 삭제" })).getByRole("button", { name: "삭제" }));
     await waitFor(() => expect(mocks.deleteVehicleEventRule).toHaveBeenCalledWith(siteId, rule().id));
-    fireEvent.click(await screen.findByRole("button", { name: "상태 센터, 미해결 1건" }));
-    const remaining = within(screen.getByRole("dialog", { name: "현재 세션 상태" })).getByRole("listitem");
+    await expectScreenStatusCount(1);
+    fireEvent.click(screen.getByRole("button", { name: "알람센터, 현장 미선택" }));
+    const remaining = within(screen.getByRole("region", { name: "현재 화면 상태" })).getByRole("listitem");
     expect(remaining).toHaveTextContent("출구 차량 감지");
     expect(remaining).not.toHaveTextContent("입구 차량 감지");
+    expect(screen.getByRole("list", { name: "최근 알림 목록" })).toHaveTextContent("입구 차량 감지");
   });
 
   it("keeps event rule A's toggle failure through another deletion and its own failed deletion", async () => {
@@ -622,33 +642,35 @@ describe("VehicleEventControlPanel", () => {
       .mockResolvedValueOnce({ id: rule().id, deleted: true });
     renderPanel("admin");
     fireEvent.click(await screen.findByRole("button", { name: "입구 차량 감지 비활성화" }));
-    await screen.findByRole("button", { name: "상태 센터, 미해결 1건" });
+    await expectScreenStatusCount(1);
 
-    fireEvent.click(screen.getByRole("button", { name: "출구 차량 감지 수정" }));
+    chooseRowAction("출구 차량 감지", "수정");
     fireEvent.click(within(screen.getByRole("dialog", { name: "이벤트 수정" })).getByRole("button", { name: "저장" }));
     await waitFor(() => expect(mocks.updateVehicleEventRule).toHaveBeenCalledWith(siteId, "rule-b", expect.objectContaining({ name: "출구 차량 감지" })));
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "이벤트 수정" })).not.toBeInTheDocument());
-    expect(screen.getByRole("button", { name: "상태 센터, 미해결 1건" })).toBeInTheDocument();
+    await expectScreenStatusCount(1);
 
-    fireEvent.click(screen.getByRole("button", { name: "출구 차량 감지 삭제" }));
+    chooseRowAction("출구 차량 감지", "삭제");
     fireEvent.click(within(screen.getByRole("dialog", { name: "이벤트 규칙 삭제" })).getByRole("button", { name: "삭제" }));
     await waitFor(() => expect(mocks.deleteVehicleEventRule).toHaveBeenCalledWith(siteId, "rule-b"));
-    expect(screen.getByRole("button", { name: "상태 센터, 미해결 1건" })).toBeInTheDocument();
+    await expectScreenStatusCount(1);
 
-    fireEvent.click(screen.getByRole("button", { name: "입구 차량 감지 삭제" }));
+    chooseRowAction("입구 차량 감지", "삭제");
     const dialog = screen.getByRole("dialog", { name: "이벤트 규칙 삭제" });
     fireEvent.click(within(dialog).getByRole("button", { name: "삭제" }));
     expect(await within(dialog).findByRole("alert")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "상태 센터, 미해결 1건", hidden: true })).toBeInTheDocument();
-    fireEvent.click(within(dialog).getByRole("button", { name: "삭제" }));
-    await screen.findByRole("button", { name: "상태 센터, 미해결 0건" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "취소" }));
+    await expectScreenStatusCount(1);
+    chooseRowAction("입구 차량 감지", "삭제");
+    fireEvent.click(within(screen.getByRole("dialog", { name: "이벤트 규칙 삭제" })).getByRole("button", { name: "삭제" }));
+    await expectScreenStatusCount(0);
   });
 
   it.each(["user scope", "401"])("clears rule toggle failures when %s ends their scope", async (boundary) => {
     mocks.updateVehicleEventRule.mockRejectedValueOnce(new Error("toggle failed"));
     const rendered = renderPanel("admin");
     fireEvent.click(await screen.findByRole("button", { name: "입구 차량 감지 비활성화" }));
-    await screen.findByRole("button", { name: "상태 센터, 미해결 1건" });
+    await expectScreenStatusCount(1);
     if (boundary === "user scope") {
       rendered.rerender(panelElement("admin", rendered.queryClient, siteId, "another-user"));
     } else {
@@ -656,7 +678,7 @@ describe("VehicleEventControlPanel", () => {
       await act(async () => { await rendered.queryClient.refetchQueries({ queryKey: vehicleEventRuleQueryKey(siteId) }); });
       await screen.findByText("로그인 세션이 만료되었습니다.");
     }
-    await screen.findByRole("button", { name: "상태 센터, 미해결 0건" });
+    await expectScreenStatusCount(0);
   });
 
   it("does not publish a stale toggle result after a site switch", async () => {
@@ -820,7 +842,7 @@ describe("VehicleEventControlPanel", () => {
     renderPanel("admin");
     await screen.findByText("입구 차량 감지");
 
-    fireEvent.click(screen.getByRole("button", { name: "입구 차량 감지 수정" }));
+    chooseRowAction("입구 차량 감지", "수정");
     const dialog = screen.getByRole("dialog", { name: "이벤트 수정" });
     expect(within(dialog).getByRole("group", { name: "실행할 조명" })).toHaveTextContent("1개 확인 필요");
     fireEvent.click(within(dialog).getByRole("button", { name: "저장" }));
@@ -843,7 +865,7 @@ describe("VehicleEventControlPanel", () => {
     renderPanel("admin", { dashboard: revokedDashboard });
     await screen.findByText("입구 차량 감지");
 
-    fireEvent.click(screen.getByRole("button", { name: "입구 차량 감지 수정" }));
+    chooseRowAction("입구 차량 감지", "수정");
     const dialog = screen.getByRole("dialog", { name: "이벤트 수정" });
     expect(within(dialog).getByRole("group", { name: "감지 센서" })).toHaveTextContent("확인 필요");
     expect(within(dialog).getByRole("status")).toHaveTextContent("확인 필요 감지");
@@ -895,7 +917,7 @@ describe("VehicleEventControlPanel", () => {
   it("submits the exact edit payload for custom hold and dimming-off normalization", async () => {
     renderPanel("admin");
     await screen.findByText("입구 차량 감지");
-    fireEvent.click(screen.getByRole("button", { name: "입구 차량 감지 수정" }));
+    chooseRowAction("입구 차량 감지", "수정");
     const dialog = screen.getByRole("dialog", { name: "이벤트 수정" });
 
     fireEvent.click(within(dialog).getByRole("button", { name: "직접 입력" }));
@@ -917,7 +939,7 @@ describe("VehicleEventControlPanel", () => {
   it("submits exact custom brightness and hold values while dimming stays enabled", async () => {
     renderPanel("admin");
     await screen.findByText("입구 차량 감지");
-    fireEvent.click(screen.getByRole("button", { name: "입구 차량 감지 수정" }));
+    chooseRowAction("입구 차량 감지", "수정");
     const dialog = screen.getByRole("dialog", { name: "이벤트 수정" });
 
     fireEvent.change(within(dialog).getByLabelText("밝기"), { target: { value: "63" } });
@@ -1021,7 +1043,7 @@ describe("VehicleEventControlPanel", () => {
   it("closes an open event editor on cached-list 401 and focuses recovery", async () => {
     const { queryClient } = renderPanel("admin");
     await screen.findByText("입구 차량 감지");
-    fireEvent.click(screen.getByRole("button", { name: "입구 차량 감지 수정" }));
+    chooseRowAction("입구 차량 감지", "수정");
     expect(screen.getByRole("dialog", { name: "이벤트 수정" })).toBeInTheDocument();
     mocks.listVehicleEventRules.mockRejectedValueOnce(new ApiError("unauthorized", 401, null));
     await act(async () => { await queryClient.refetchQueries({ queryKey: vehicleEventRuleQueryKey(siteId) }); });
@@ -1035,7 +1057,7 @@ describe("VehicleEventControlPanel", () => {
   it("closes an open event deletion on cached-list 401 without deleting", async () => {
     const { queryClient } = renderPanel("admin");
     await screen.findByText("입구 차량 감지");
-    fireEvent.click(screen.getByRole("button", { name: "입구 차량 감지 삭제" }));
+    chooseRowAction("입구 차량 감지", "삭제");
     const confirm = within(screen.getByRole("dialog", { name: "이벤트 규칙 삭제" })).getByRole("button", { name: "삭제" });
     mocks.listVehicleEventRules.mockRejectedValueOnce(new ApiError("unauthorized", 401, null));
     await act(async () => { await queryClient.refetchQueries({ queryKey: vehicleEventRuleQueryKey(siteId) }); });
@@ -1054,7 +1076,7 @@ describe("VehicleEventControlPanel", () => {
     await screen.findByText("입구 차량 감지");
     expect(screen.getByRole("region", { name: "이벤트 목록 조건" })).toHaveTextContent("조건에 맞는 규칙 2건");
     expect(screen.getByRole("button", { name: "다음" })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "입구 차량 감지 수정" }));
+    chooseRowAction("입구 차량 감지", "수정");
     const submit = within(screen.getByRole("dialog", { name: "이벤트 수정" })).getByRole("button", { name: "저장" });
     mocks.listVehicleEventRules.mockRejectedValueOnce(new ApiError("site access lost", status, null));
     await act(async () => { await queryClient.refetchQueries({ queryKey: vehicleEventRuleQueryKey(siteId) }); });
@@ -1071,7 +1093,7 @@ describe("VehicleEventControlPanel", () => {
   it.each([403, 404])("closes cached event deletion without POST after list %i", async (status) => {
     const { queryClient } = renderPanel("admin");
     await screen.findByText("입구 차량 감지");
-    fireEvent.click(screen.getByRole("button", { name: "입구 차량 감지 삭제" }));
+    chooseRowAction("입구 차량 감지", "삭제");
     const confirm = within(screen.getByRole("dialog", { name: "이벤트 규칙 삭제" })).getByRole("button", { name: "삭제" });
     mocks.listVehicleEventRules.mockRejectedValueOnce(new ApiError("site access lost", status, null));
     await act(async () => { await queryClient.refetchQueries({ queryKey: vehicleEventRuleQueryKey(siteId) }); });
@@ -1091,7 +1113,7 @@ describe("VehicleEventControlPanel", () => {
     await screen.findByText("입구 차량 감지");
     fireEvent.click(screen.getByRole("button", { name: "다음" }));
     await screen.findByText("출구 차량 감지");
-    fireEvent.click(screen.getByRole("button", { name: "출구 차량 감지 수정" }));
+    chooseRowAction("출구 차량 감지", "수정");
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "이벤트 수정" })).not.toBeInTheDocument(), { timeout: 4500 });
     expect(screen.queryByText("출구 차량 감지")).not.toBeInTheDocument();
     expect(screen.queryByRole("region", { name: "이벤트 목록 조건" })).not.toBeInTheDocument();
@@ -1107,7 +1129,7 @@ describe("VehicleEventControlPanel", () => {
     await screen.findByText("입구 차량 감지");
     fireEvent.click(screen.getByRole("button", { name: "다음" }));
     await screen.findByText("출구 차량 감지");
-    fireEvent.click(screen.getByRole("button", { name: "출구 차량 감지 삭제" }));
+    chooseRowAction("출구 차량 감지", "삭제");
     const confirm = within(screen.getByRole("dialog", { name: "이벤트 규칙 삭제" })).getByRole("button", { name: "삭제" });
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "이벤트 규칙 삭제" })).not.toBeInTheDocument(), { timeout: 4500 });
     fireEvent.click(confirm);
@@ -1123,7 +1145,7 @@ describe("VehicleEventControlPanel", () => {
     await waitFor(() => expect(screen.queryByText("입구 차량 감지")).not.toBeInTheDocument());
     fireEvent.click(screen.getByRole("button", { name: "상태 다시 조회" }));
     await screen.findByText("입구 차량 감지");
-    expect(screen.getByRole("button", { name: "입구 차량 감지 수정" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "입구 차량 감지 작업" })).toBeInTheDocument();
   });
 
   it.each([401, 403, 404])("gives a new event list %i priority over an older visible-page 503", async (status) => {
@@ -1137,7 +1159,7 @@ describe("VehicleEventControlPanel", () => {
     await screen.findByText("입구 차량 감지");
     fireEvent.click(screen.getByRole("button", { name: "다음" }));
     await screen.findByText("출구 차량 감지");
-    await waitFor(() => expect(screen.getByRole("button", { name: "상태 센터, 미해결 1건" })).toBeInTheDocument(), { timeout: 4500 });
+    await expectScreenStatusCount(1);
 
     mocks.listVehicleEventRules.mockRejectedValueOnce(new ApiError("site access lost", status, null));
     await act(async () => { await queryClient.refetchQueries({ queryKey: vehicleEventRuleQueryKey(siteId) }); });
@@ -1252,4 +1274,13 @@ function rule(overrides: Partial<VehicleEventRuleResponse> = {}): VehicleEventRu
     updatedAt: "2026-08-31T00:00:00.000Z",
     ...overrides
   };
+}
+
+async function expectScreenStatusCount(count: number) {
+  const alreadyOpen = screen.queryByRole("dialog", { name: "알람센터" });
+  if (!alreadyOpen) fireEvent.click(await screen.findByRole("button", { name: "알람센터, 현장 미선택" }));
+  const center = screen.getByRole("dialog", { name: "알람센터" });
+  const section = within(center).getByRole("heading", { name: "현재 화면 상태" }).closest("section")!;
+  await waitFor(() => expect(within(section).queryAllByRole("listitem")).toHaveLength(count), { timeout: 4500 });
+  if (!alreadyOpen) fireEvent.click(within(center).getByRole("button", { name: "알람센터 닫기" }));
 }

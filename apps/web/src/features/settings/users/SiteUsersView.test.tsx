@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter, useLocation } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "../../../api/client";
@@ -42,8 +42,80 @@ const users: SiteUserSummary[] = [
   }
 ];
 
+let gridWidth = 1200;
+const observers = new Map<Element, ResizeObserverCallback>();
+
 describe("SiteUsersView", () => {
+  it("sorts displayed users while keeping null logins last in both directions", () => {
+    renderView();
+    const table = screen.getByRole("table", { name: "현장 사용자 목록" });
+    fireEvent.click(within(table).getByRole("button", { name: "이름 오름차순 정렬" }));
+    fireEvent.click(within(table).getByRole("button", { name: "이름 내림차순 정렬" }));
+    expect(within(table).getAllByRole("row")[1]).toHaveTextContent("야간 당직");
+    for (const direction of ["오름차순", "내림차순"]) {
+      fireEvent.click(within(table).getByRole("button", { name: `최근 로그인 ${direction} 정렬` }));
+      expect(within(table).getAllByRole("row")[1]).toHaveTextContent("김현수");
+    }
+    expect(within(table).getByRole("button", { name: "야간 당직 작업" })).toBeEnabled();
+  });
+  it("resets detail conditions without clearing search or sending mutations", async () => {
+    renderView();
+    fireEvent.change(screen.getByLabelText("사용자 검색"), { target: { value: "night" } });
+    const trigger = screen.getByRole("button", { name: "사용자 목록 상세 필터, 활성 조건 0개" });
+    fireEvent.click(trigger);
+    fireEvent.click(screen.getByRole("button", { name: /권한 필터/ }));
+    fireEvent.click(screen.getByRole("option", { name: "조회" }));
+    fireEvent.click(screen.getByRole("button", { name: /상태 필터/ }));
+    fireEvent.click(screen.getByRole("option", { name: "비활성" }));
+    expect(trigger).toHaveAccessibleName("사용자 목록 상세 필터, 활성 조건 2개");
+    fireEvent.click(screen.getByRole("button", { name: "필터 초기화" }));
+    expect(screen.getByRole("button", { name: "필터 초기화" })).toBeEnabled();
+    expect(screen.getByLabelText("사용자 검색")).toHaveValue("night");
+    expect(trigger).toHaveAccessibleName("사용자 목록 상세 필터, 활성 조건 0개");
+    fireEvent.keyDown(screen.getByRole("dialog", { name: "사용자 목록" }), { key: "Escape" });
+    expect(screen.getByText("야간 당직")).toBeVisible();
+    expect(screen.queryByText("김현수")).not.toBeInTheDocument();
+    expect(api.updateSiteUser).not.toHaveBeenCalled();
+    expect(api.deleteSiteUser).not.toHaveBeenCalled();
+  });
+
+  it("does not allow an old row menu to mutate after switching site", async () => {
+    const { queryClient, rerender } = renderViewDetails();
+    fireEvent.click(screen.getByRole("button", { name: "김현수 작업" }));
+    const oldAction = await screen.findByRole("menuitem", { name: "김현수 비활성화" });
+    rerender(<QueryClientProvider client={queryClient}><TestRouter><SiteUsersView siteId="site-2" /></TestRouter></QueryClientProvider>);
+    fireEvent.click(oldAction);
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+    expect(api.updateSiteUser).not.toHaveBeenCalled();
+    expect(api.deleteSiteUser).not.toHaveBeenCalled();
+  });
+
+  it("locks all management entries while status is pending and drops retry after site change", async () => {
+    const pending = deferred<SiteUserSummary>();
+    api.updateSiteUser.mockReturnValueOnce(pending.promise);
+    const { queryClient, rerender } = renderViewDetails();
+    await chooseUserAction("김현수", "김현수 비활성화");
+    expect(screen.getByRole("button", { name: "사용자 추가" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "야간 당직 작업" })).toBeDisabled();
+    rerender(<QueryClientProvider client={queryClient}><TestRouter><SiteUsersView siteId="site-2" /></TestRouter></QueryClientProvider>);
+    await act(async () => { pending.reject(new ApiError("changed", 409, { code: "SITE_USER_CHANGED" })); });
+    expect(api.updateSiteUser).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("button", { name: "사용자 추가" })).toBeEnabled();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
   beforeEach(() => {
+    gridWidth = 1200;
+    observers.clear();
+    vi.stubGlobal("ResizeObserver", class {
+      constructor(private callback: ResizeObserverCallback) {}
+      observe(target: Element) {
+        observers.set(target, this.callback);
+        this.callback([{ target, contentRect: { width: gridWidth } } as ResizeObserverEntry], this as unknown as ResizeObserver);
+      }
+      unobserve(target: Element) { observers.delete(target); }
+      disconnect() {}
+    });
     vi.clearAllMocks();
     api.createSiteUser.mockResolvedValue(users[0]);
     api.updateSiteUser.mockImplementation(async (_siteId: string, userId: string, input: Record<string, unknown>) => ({
@@ -54,7 +126,40 @@ describe("SiteUsersView", () => {
     setQuery({ users, count: 2, limit: 100 });
   });
 
-  afterEach(cleanup);
+  afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
+
+  it("keeps every column and management action when container width switches to cards", async () => {
+    renderView();
+    const table = screen.getByRole("table", { name: "현장 사용자 목록" });
+    expect(within(table).getAllByRole("columnheader").every(cell => cell.classList.contains("text-center"))).toBe(true);
+    act(() => { for (const [target, callback] of observers) callback([{ target, contentRect: { width: 320 } } as ResizeObserverEntry], {} as ResizeObserver); });
+    const cards = screen.getByRole("list", { name: "현장 사용자 목록" });
+    expect(cards).toHaveTextContent("hyunsu.kim");
+    expect(cards).toHaveTextContent("로그인 기록 없음");
+    expect(within(cards).getAllByRole("term")).toHaveLength(12);
+    fireEvent.click(screen.getByRole("button", { name: /정렬 기준.*현재 목록 안에서 정렬/ }));
+    expect(screen.queryByRole("option", { name: "관리" })).not.toBeInTheDocument();
+    fireEvent.click(await screen.findByRole("option", { name: "이름" }));
+    fireEvent.click(screen.getByRole("button", { name: "내림차순으로 변경" }));
+    expect(within(cards).getAllByRole("listitem")[0]).toHaveTextContent("야간 당직");
+    fireEvent.click(within(cards).getByRole("button", { name: "김현수 작업" }));
+    expect(await screen.findAllByRole("menuitem")).toHaveLength(4);
+    expect(api.updateSiteUser).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [new Date(2026, 9, 2, 14, 5, 9).toISOString(), "2026-10-02 14:05:09"],
+    [new Date(2026, 9, 2, 0, 0, 0).toISOString(), "2026-10-02 00:00:00"],
+    ["invalid-instant", "—"]
+  ])("shows last login with seconds in the device timezone and preserves never-login (%s)", (timestamp, expected) => {
+    setQuery({ users: [{ ...users[0], lastLoginAt: timestamp }, users[1]], count: 2, limit: 100 });
+    renderView();
+
+    const table = screen.getByRole("table", { name: "현장 사용자 목록" });
+    expect(within(table).getByText(expected)).toBeVisible();
+    expect(within(table).getByText("로그인 기록 없음")).toBeVisible();
+    expect(screen.getByRole("button", { name: "김현수 작업" })).toBeVisible();
+  });
 
   it("renders loading, empty and successful list states", () => {
     api.useSiteUsers.mockReturnValueOnce(queryState(undefined, { isLoading: true }));
@@ -71,7 +176,7 @@ describe("SiteUsersView", () => {
     renderView();
     expect(screen.getByRole("table", { name: "현장 사용자 목록" })).toHaveTextContent("hyunsu.kim");
     expect(screen.getByText("2 / 100명")).toBeVisible();
-    expect(screen.getByRole("button", { name: "김현수 수정" })).toHaveClass("min-h-11", "min-w-11");
+    expect(screen.getByRole("button", { name: "김현수 작업" })).toHaveClass("min-h-13", "min-w-13");
   });
 
   it("keeps stale rows visible when a background refresh fails and supports retry", () => {
@@ -89,7 +194,7 @@ describe("SiteUsersView", () => {
     expect(refetch).toHaveBeenCalled();
   });
 
-  it("searches by name or login id and filters access and status", () => {
+  it("searches by name or login id and filters access and status", async () => {
     renderView();
 
     fireEvent.change(screen.getByLabelText("사용자 검색"), { target: { value: "night.viewer" } });
@@ -97,6 +202,7 @@ describe("SiteUsersView", () => {
     expect(screen.queryByText("김현수")).not.toBeInTheDocument();
 
     fireEvent.change(screen.getByLabelText("사용자 검색"), { target: { value: "" } });
+    fireEvent.click(screen.getByRole("button", { name: /사용자 목록 상세 필터/ }));
     fireEvent.click(screen.getByRole("button", { name: /권한 필터/ }));
     fireEvent.click(screen.getByRole("option", { name: "제어" }));
     expect(screen.getByText("김현수")).toBeVisible();
@@ -107,6 +213,17 @@ describe("SiteUsersView", () => {
     fireEvent.click(screen.getByRole("button", { name: /상태 필터/ }));
     fireEvent.click(screen.getByRole("option", { name: "비활성" }));
     expect(screen.getByText("야간 당직")).toBeVisible();
+  });
+
+  it("keeps mobile keyboard correction off for login ID without disabling Korean name input", () => {
+    renderView();
+    fireEvent.click(screen.getByRole("button", { name: "사용자 추가" }));
+    const dialog = screen.getByRole("dialog", { name: "사용자 추가" });
+    const login = within(dialog).getByLabelText("로그인 아이디");
+    expect(login).toHaveAttribute("autocapitalize", "none");
+    expect(login).toHaveAttribute("autocorrect", "off");
+    expect(login).toHaveAttribute("spellcheck", "false");
+    expect(within(dialog).getByLabelText("이름")).not.toHaveAttribute("autocapitalize", "none");
   });
 
   it("validates creation, sends the selected control permission and never re-shows the password", async () => {
@@ -137,7 +254,7 @@ describe("SiteUsersView", () => {
 
   it("updates profile with optimistic concurrency data and never renders a password field", async () => {
     renderView();
-    fireEvent.click(screen.getByRole("button", { name: "김현수 수정" }));
+    await chooseUserAction("김현수", "김현수 수정");
     const dialog = screen.getByRole("dialog", { name: "김현수 사용자 수정" });
     expect(within(dialog).queryByLabelText(/비밀번호/)).not.toBeInTheDocument();
     fireEvent.change(within(dialog).getByLabelText("이름"), { target: { value: "김수정" } });
@@ -155,7 +272,7 @@ describe("SiteUsersView", () => {
 
   it("resets a password only after confirmation and explains session revocation", async () => {
     const queryClient = renderView();
-    fireEvent.click(screen.getByRole("button", { name: "김현수 비밀번호 초기화" }));
+    await chooseUserAction("김현수", "김현수 비밀번호 초기화");
     const dialog = screen.getByRole("dialog", { name: "김현수 비밀번호 초기화" });
     expect(dialog).toHaveTextContent("모든 로그인 세션이 종료");
 
@@ -175,7 +292,7 @@ describe("SiteUsersView", () => {
 
   it("disables and re-enables a user through the profile update contract", async () => {
     renderView();
-    fireEvent.click(screen.getByRole("button", { name: "김현수 비활성화" }));
+    await chooseUserAction("김현수", "김현수 비활성화");
     await waitFor(() => expect(api.updateSiteUser).toHaveBeenCalledWith("site-1", "user-1", {
       name: "김현수",
       loginId: "hyunsu.kim",
@@ -184,7 +301,7 @@ describe("SiteUsersView", () => {
       expectedUpdatedAt: users[0].updatedAt
     }));
 
-    fireEvent.click(screen.getByRole("button", { name: "야간 당직 활성화" }));
+    await chooseUserAction("야간 당직", "야간 당직 활성화");
     await waitFor(() => expect(api.updateSiteUser).toHaveBeenCalledWith("site-1", "user-2", expect.objectContaining({ status: "active" })));
   });
 
@@ -202,7 +319,7 @@ describe("SiteUsersView", () => {
       .mockResolvedValueOnce({ ...latest, status: "disabled" });
     renderView();
 
-    fireEvent.click(screen.getByRole("button", { name: "김현수 비활성화" }));
+    await chooseUserAction("김현수", "김현수 비활성화");
 
     await waitFor(() => expect(api.updateSiteUser).toHaveBeenCalledTimes(2));
     expect(api.updateSiteUser).toHaveBeenNthCalledWith(2, "site-1", "user-1", {
@@ -216,7 +333,7 @@ describe("SiteUsersView", () => {
 
   it("enables permanent deletion only after the exact current login id is entered", async () => {
     renderView();
-    fireEvent.click(screen.getByRole("button", { name: "야간 당직 영구 삭제" }));
+    await chooseUserAction("야간 당직", "야간 당직 영구 삭제");
     const dialog = screen.getByRole("alertdialog", { name: "야간 당직 사용자 영구 삭제" });
     const confirm = within(dialog).getByRole("button", { name: "영구 삭제" });
     expect(confirm).toBeDisabled();
@@ -286,7 +403,7 @@ describe("SiteUsersView", () => {
     expect(await within(createDialog).findByRole("alert")).toHaveTextContent("최대 100명");
     fireEvent.click(within(createDialog).getByRole("button", { name: "취소" }));
     expect(screen.getByRole("button", { name: "사용자 추가" })).toBeDisabled();
-    fireEvent.click(screen.getByRole("button", { name: "야간 당직 영구 삭제" }));
+    await chooseUserAction("야간 당직", "야간 당직 영구 삭제");
     const dialog = screen.getByRole("alertdialog");
     fireEvent.change(within(dialog).getByLabelText("확인 로그인 아이디"), { target: { value: "night.viewer" } });
     fireEvent.click(within(dialog).getByRole("button", { name: "영구 삭제" }));
@@ -312,7 +429,7 @@ describe("SiteUsersView", () => {
     api.useSiteUsers.mockReturnValue(queryState({ users, count: 2, limit: 100 }, { refetch }));
     api.updateSiteUser.mockRejectedValueOnce(new ApiError("changed", 409, { code: "SITE_USER_CHANGED" }));
     renderView();
-    fireEvent.click(screen.getByRole("button", { name: "김현수 수정" }));
+    await chooseUserAction("김현수", "김현수 수정");
     fireEvent.click(screen.getByRole("button", { name: "변경사항 저장" }));
 
     await waitFor(() => expect(refetch).toHaveBeenCalledTimes(1));
@@ -325,7 +442,8 @@ describe("SiteUsersView", () => {
     api.useSiteUsers.mockReturnValue(queryState({ users, count: 2, limit: 100 }, { refetch }));
     api.updateSiteUser.mockRejectedValueOnce(new ApiError("missing", 404, { code: "SITE_USER_NOT_FOUND" }));
     renderView();
-    const button = screen.getByRole("button", { name: "야간 당직 활성화" });
+    fireEvent.click(screen.getByRole("button", { name: "야간 당직 작업" }));
+    const button = await screen.findByRole("menuitem", { name: "야간 당직 활성화" });
     fireEvent.click(button);
     fireEvent.click(button);
 
@@ -340,7 +458,7 @@ describe("SiteUsersView", () => {
     api.resetSiteUserPassword.mockRejectedValueOnce(new ApiError("missing", 404, { code: "SITE_USER_NOT_FOUND" }));
     renderView();
 
-    fireEvent.click(screen.getByRole("button", { name: "김현수 비밀번호 초기화" }));
+    await chooseUserAction("김현수", "김현수 비밀번호 초기화");
     let dialog = screen.getByRole("dialog");
     fireEvent.change(within(dialog).getByLabelText("새 임시 비밀번호"), { target: { value: "Reset-pass-123" } });
     fireEvent.change(within(dialog).getByLabelText("임시 비밀번호 확인"), { target: { value: "Reset-pass-123" } });
@@ -348,7 +466,7 @@ describe("SiteUsersView", () => {
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
 
     api.deleteSiteUser.mockRejectedValueOnce(new ApiError("changed", 409, { code: "SITE_USER_CHANGED" }));
-    fireEvent.click(screen.getByRole("button", { name: "야간 당직 영구 삭제" }));
+    await chooseUserAction("야간 당직", "야간 당직 영구 삭제");
     dialog = screen.getByRole("alertdialog");
     fireEvent.change(within(dialog).getByLabelText("확인 로그인 아이디"), { target: { value: "night.viewer" } });
     fireEvent.click(within(dialog).getByRole("button", { name: "영구 삭제" }));
@@ -391,7 +509,7 @@ describe("SiteUsersView", () => {
 
   it("rejects whitespace-only and overlong reset passwords without an API call", async () => {
     renderView();
-    fireEvent.click(screen.getByRole("button", { name: "김현수 비밀번호 초기화" }));
+    await chooseUserAction("김현수", "김현수 비밀번호 초기화");
     const dialog = screen.getByRole("dialog");
     fireEvent.change(within(dialog).getByLabelText("새 임시 비밀번호"), { target: { value: "        " } });
     fireEvent.change(within(dialog).getByLabelText("임시 비밀번호 확인"), { target: { value: "        " } });
@@ -446,4 +564,9 @@ function fillProfile(dialog: HTMLElement, values: { name: string; loginId: strin
   fireEvent.change(within(dialog).getByLabelText("이름"), { target: { value: values.name } });
   fireEvent.change(within(dialog).getByLabelText("로그인 아이디"), { target: { value: values.loginId } });
   fireEvent.change(within(dialog).getByLabelText("임시 비밀번호"), { target: { value: values.password } });
+}
+
+async function chooseUserAction(name: string, label: string) {
+  fireEvent.click(screen.getByRole("button", { name: `${name} 작업` }));
+  fireEvent.click(await screen.findByRole("menuitem", { name: label }));
 }

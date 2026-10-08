@@ -35,6 +35,23 @@
 - **발생한 문제**: 타이머 화면을 새 scratch에 복사했지만 standalone 서버의 고정 root가 이전 auth scratch여서 보호된 bootstrap 파일과 충돌했다. root를 분리한 뒤 실제 실행 준비에서는 `markers/evidence` 폴더가 없었고, 묶음 명령의 첫 검사 실패가 다음 명령을 막지 못해 bootstrap 파일을 생성한 뒤 서버가 종료됐다. 기존 화면 서버와 조명은 변경되지 않았다.
 - **예방**: export의 실제 CLI root·포트·필수 폴더·권한을 배포 소비자 관점에서 검증한다. 새 폴더와 보존된 상태의 별도 사본을 준비하고, 각 검사 exit code를 호출자가 확인한 뒤에만 기존 서버 종료와 새 서버 실행을 허용한다. 셸 기본 동작이나 단순 명령 나열을 fail-fast로 간주하지 않는다. 생성된 미사용 bootstrap도 임의 삭제·덮어쓰기하지 않고 정확한 소유 파일을 보호된 실패 기록으로 옮겨 보존한다. 키·URL을 일반 로그에 출력하지 않으며 화면 준비 실패를 하드웨어 재시험으로 해결하지 않는다.
 
+## 2026-10-01 / 격리 검증은 실행 경로를 매번 강제 확인한다
+
+- **발생한 문제**: deeply nested ignored 준비 스크립트에서 저장소 경로를 상대 부모 수로 계산해 기본 checkout의 검증을 격리 worktree의 baseline처럼 보고했다. 통과 수와 로그가 있어도 대상 경로가 틀리면 해당 브랜치 증거가 아니다.
+- **예방**: 실행 전 지정 절대 경로·`process.cwd()`·`git rev-parse --show-toplevel`·`git branch --show-current`를 대조하고 하나라도 다르면 명령 시작 전에 중단한다. 보고서에 실제 실행 root/HEAD를 기록하고, 잘못된 범위의 로그는 원본을 보존하되 유효 baseline과 분리한다. 기본 산출물을 추정 삭제하거나 서버를 재시작해 복구하지 않는다.
+- **검증 한계**: 이번 격리 재실행의 root test는 변경 전 Gateway 분석 CLI timeout 1건으로 exit1이었다. 기본 폴더 실행의 exit0으로 이를 덮거나, 후행 API/정책 단계까지 통과했다고 추정하지 않는다. 실패 케이스의 focused 실행과 최종 fresh 전체 gate를 별도로 확인한다.
+
+## 2026-10-02 / 맵 스냅·query 선택·알림은 종료 경로와 실제 UI 계약까지 검사한다
+
+- **발생한 문제**: 이동 delta를 controller와 transform에서 두 번 스냅해 비격자 맵 경계 1204가 1200으로 되돌아갔다. 회전 타원의 실제 곡선 대신 local bbox 모서리로 clamp해 유효한 snap OFF resize도 거부했다. 0폭/0높이 선은 0 나눗셈뿐 아니라 확대된 hit frame 때문에 고정 끝점이 2px 이동했다. 공통 문서 없는 조명도 controller로 보내 legacy 방향키가 무시됐고 지연 canvas pick이 이후 checkbox 선택을 덮었다.
+- **예방**: 스냅·bounds 보정은 한 종료 경로에서 한 번 적용하고 경계 우선순위를 회귀로 고정한다. 고정 앵커는 raw geometry와 회전 transform으로 계산하며 실제 shape bounds를 검증한다. 곡선의 가상 bbox 앵커는 맵 밖일 수 있으므로 유효 원본에서 clamp하고 zero axis는 synthetic hit extent와 분리한다. 공통 문서 존재 여부로 legacy 소비를 구분하고 click/query/fixture checkbox 모두 pick epoch를 무효화한다.
+- **전체 대상 계약**: query를 explicit ID prefix로 바꾸지 않는다. Shift 해제는 사용자가 지정한 exclusion만 별도로 저장하고 전체 query streaming에서 제외한다. 혼합 삭제는 도형 delete·조명 unplaced·슬롯 해제를 같은 transaction과 staged fixtureUpdates payload로 확인하고 취소·undo/redo·저장 뒤에도 대상이 누락되지 않는지 검사한다. 잠긴 일부 대상을 조용히 건너뛰어 부분 성공으로 표시하지 않는다.
+- **선택 제외와 구조 명령**: 사용자 선택용 query를 구조 편집에 spread하면 제외된 도형·하위 그룹을 옮기지 않고 layer/group을 삭제해 저장 참조 무결성이 깨진다. 선택 편집의 exclusions는 유지하되 전체 대상 editQuery에서는 두 exclusions를 초기화하고 inline/streamed 연산 모두 shared validator로 검사한다. 제외된 잠금 하위 그룹도 전체 명령에서는 다시 검증한다.
+- **숫자 좌표와 제스처**: 조명 중심 숫자를 bbox 이동 delta로 처리하면 크기별 반경 때문에 입력 의미가 달라지고 다른 off-grid 축까지 스냅한다. 중심 입력은 변경 축만 포함한 atomic fixture patch로 처리하고 혼합/도형 묶음 숫자 입력에는 변경 축 mask를 적용한다. 포인터의 전체 bbox 스냅과 분리해 크기별 X/Y·경계·snap OFF·슬롯 해제·undo·잠금 회귀를 유지한다.
+- **UI 검증**: 공통 Checkbox의 partial 상태는 native input.indeterminate로 검사하고 실제 label을 클릭한다. 레이어 탭은 checkbox 연속 선택 중 유지한다. 알림을 toast로 옮길 때 action 자체를 없애지 않고 복구 dialog를 닫은 뒤 외부 저장/이탈 버튼을 누르는 실제 흐름을 테스트한다. 단순 버튼 rect 44px가 아니라 연속 접근 가능한 44px hit 영역과 캔버스 bounding rect 불변을 확인한다.
+- **증거의 경계**: root 검증 중 수정한 source snapshot 결과와 최종 안정 source 결과를 구분한다. 실행 중 source/CPU 부하가 바뀐 성능 숫자를 최종 isolated p95로 주장하지 않고 timeout·retry를 늘려 실패를 덮지 않는다. HTTP fixture·단위 테스트는 영속 DB/PKI/HIL 완료 증거가 아니다.
+- **성능 readiness의 픽셀 정렬**: world 좌표 `(20,20)`를 고정 screen 픽셀로 검사하면 정상 fit/pan 뒤 조명이 렌더돼도 ready mark가 생기지 않을 수 있다. 실제 fixture Konva node의 absolute center를 canvas CSS 크기/해상도에 맞춰 샘플링하고 기존 녹색 RGBA·1000 조명/2000 슬롯/2000 도형 조건을 유지한다. 픽셀 정렬 재현과 실제 isolated p95 결과는 구분하며 제품 카메라·안내·성능 threshold·timeout은 바꾸지 않는다.
+
 ## 2026-09-27 / 보고서 초기화 백업은 테이블 선택과 파일 권한을 함께 확인한다
 
 - **발생한 문제**: 보고서 전용 `pg_dump -t`에서 대소문자가 섞인 테이블 이름의 SQL 인용을 빠뜨려 의도한 테이블이 선택되지 않았다. 이전 dump 중에는 권한이 `0644`인 파일도 있어 보호 백업으로 재사용할 수 없었다.

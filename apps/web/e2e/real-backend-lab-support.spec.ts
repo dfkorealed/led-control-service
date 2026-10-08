@@ -12,14 +12,26 @@ import { mkdir, readFile, rename, rm } from "node:fs/promises";
 import { createServer } from "node:net";
 import { createRequire } from "node:module";
 import { dirname, join, resolve } from "node:path";
-import type { MqttClient } from "mqtt";
+import type { IClientOptions, MqttClient } from "mqtt";
 import { createApiHttpsOptions } from "../../api/src/api-tls-options";
+import { mqttTlsServernameOption } from "../../api/src/mqtt/mqtt-tls-identity";
 import * as labSupport from "./support/real-backend-lab";
 
 const { connectMqttForLab, RealBackendLab, selectDfkScanCandidates } = labSupport;
 const ROOT = resolve(dirname(new URL(import.meta.url).pathname), "../../..");
 
 test.describe.configure({ mode: "serial" });
+
+test("alarm fixtures reject unopened labs before accessing any database", async () => {
+  const lab = new RealBackendLab({ isolatedCadStorage: true });
+  await expect(Promise.resolve().then(() => lab.seedAlarmFixtures())).rejects.toThrow("Alarm fixtures require a started lab");
+  await expect(Promise.resolve().then(() => lab.readAlarmEvidence())).rejects.toThrow("Alarm fixtures require a started lab");
+  for (const operation of [
+    () => lab.seedAlarmIncident(), () => lab.updateAlarmIncident(randomUUID()),
+    () => lab.setAlarmViewerAccess(false), () => lab.setAlarmEffectFailure(true),
+    () => lab.setAlarmEffectFailure(false), () => lab.beginDeferredAlarmIncident()
+  ]) await expect(Promise.resolve().then(async () => operation())).rejects.toThrow("Alarm fixtures require a started lab");
+});
 
 test("software transport: manual refresh converges, deduplicates and recovers through real API/MQTT", async ({ playwright }, testInfo) => {
   test.skip(process.env.E2E_REAL_BACKEND_LAB !== "1",
@@ -199,6 +211,25 @@ for (const source of ["parent process", "dotenv"] as const) {
     expect(() => createApiHttpsOptions(env)).not.toThrow();
     expect(createApiHttpsOptions(env)).toEqual({});
   });
+
+  test(`격리 MQTT lab API는 ${source}의 local-app profile을 사용하지 않는다`, () => {
+    const lab = new RealBackendLab({ ports: { mqtt: 18883 } });
+    const internal = lab as unknown as { apiEnv: () => NodeJS.ProcessEnv; pkiDir: string };
+    const externalProfile = { DEV_LOCAL_APP_ONLY: "1", LAB_MQTT_DNS: "local-app.example.invalid" };
+    const env: NodeJS.ProcessEnv = { ...(source === "parent process" ? externalProfile : {}), ...internal.apiEnv() };
+    const { populate } = createRequire(join(ROOT, "apps/api/package.json"))("dotenv");
+    if (source === "dotenv") populate(env, externalProfile);
+
+    // Exercise the production identity guard without starting a broker/API.
+    // The lab owns a separate mTLS endpoint, not local-app's reserved 8883 identity.
+    expect(() => mqttTlsServernameOption(env, env.MQTT_URL!)).not.toThrow();
+    expect(mqttTlsServernameOption(env, env.MQTT_URL!)).toEqual({});
+    expect(env.MQTT_URL).toBe("mqtts://localhost:18883");
+    expect(env.MQTT_PUBLIC_URL).toBe("mqtts://localhost:18883");
+    expect(env.MQTT_CA_PATH).toBe(join(internal.pkiDir, "ca.crt"));
+    expect(env.MQTT_CLIENT_CERT_PATH).toBe(join(internal.pkiDir, "api.crt"));
+    expect(env.MQTT_CLIENT_KEY_PATH).toBe(join(internal.pkiDir, "api.key"));
+  });
 }
 
 test("scan simulator는 shared DFK identity parser로 타사 UUID를 제외한다", () => {
@@ -222,10 +253,11 @@ test("최초 MQTT 연결 오류는 ownership 전달 전에 reconnect와 client�
     forceEndCalls.push(force);
     // callback hang도 bounded cleanup으로 빠져나와야 한다.
   };
-  let connectionOptions: Record<string, unknown> = {};
+  let connectionOptions: IClientOptions | undefined;
   const connection = connectMqttForLab(
     { host: "127.0.0.1", port: 1 },
     (_url, options) => {
+      if (!options) throw new Error("MQTT connection options were not supplied");
       connectionOptions = options;
       queueMicrotask(() => client.emit("error", new Error("injected TLS failure")));
       return client as unknown as MqttClient;
@@ -236,7 +268,9 @@ test("최초 MQTT 연결 오류는 ownership 전달 전에 reconnect와 client�
   const startedAt = Date.now();
   await expect(connection).rejects.toThrow("injected TLS failure");
   expect(Date.now() - startedAt).toBeLessThan(200);
+  if (!connectionOptions) throw new Error("MQTT connection options were not observed");
   expect(connectionOptions.reconnectPeriod).toBe(0);
+  expect(connectionOptions.rejectUnauthorized).toBe(true);
   expect(forceEndCalls).toEqual([true]);
   expect(client.listenerCount("connect")).toBe(0);
   expect(client.listenerCount("error")).toBe(0);
@@ -420,6 +454,7 @@ test("start 중간 실패는 TERM을 무시하는 descendant까지 종료하고 
 
   try {
     await expect(lab.start()).rejects.toThrow("injected startup failure");
+    if (!parent) throw new Error("Owned startup parent process was not created");
     expect(isAlive(parent.pid)).toBe(false);
     expect(isAlive(descendantPid)).toBe(false);
     expect(existsSync(internal.labDir)).toBe(false);

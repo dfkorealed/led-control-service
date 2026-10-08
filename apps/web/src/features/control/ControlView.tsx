@@ -1,5 +1,5 @@
 import { CircleCheck, Clock3, Eye, Layers3, TriangleAlert } from "lucide-react";
-import { lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import type { CreateDimmingCommandInput } from "@led-control/shared";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation, useNavigate } from "react-router-dom";
@@ -21,6 +21,7 @@ import { useControlDashboard } from "../../api/queries";
 import {
   clearActiveCommandId,
   clearActiveCommandRequest,
+  clearPendingCommandStatusCheck,
   clearObservedVerificationCase,
   isActiveCommandReplayRejected,
   loadActiveCommandReplayRejectedCaseId,
@@ -34,7 +35,11 @@ import {
   saveActiveCommandId,
   saveActiveCommandRequest,
   saveObservedVerificationCase,
-  saveRecentResolvedCaseId
+  saveRecentResolvedCaseId,
+  getActiveCommandStorageError,
+  subscribeActiveCommandStorage,
+  loadPendingCommandStatusCheck,
+  savePendingCommandStatusCheck
 } from "./active-command-store";
 import { controlSelectionToDimmingTarget, resolveControlSelection, type ControlSelection } from "./control-selection";
 import { humanizeDeviceResponseMessage } from "./control-copy";
@@ -43,6 +48,7 @@ import { ControlModeTabs, type ControlPageMode } from "./automation/ControlModeT
 import { CommandHistoryPanel, COMMAND_STAGE_LABELS, isClockRefusal } from "./CommandHistoryPanel";
 import { CommandVerificationCases } from "./CommandVerificationCases";
 import { CommandOutcomeActions } from "./CommandOutcomeActions";
+import { presentRecentCommandResult } from "./command-result-presentation";
 import {
   isActiveCommandSessionBlocked,
   ownsActiveCommandSession,
@@ -61,18 +67,23 @@ const VehicleEventControlPanel = lazy(async () => {
 });
 
 const emptySelection: ControlSelection = { mode: "fixtures", fixtureIds: [] };
-const controlScreenClassName = "grid min-h-0 min-w-0 content-start gap-4 tablet:fixed tablet:top-16 tablet:right-6 tablet:bottom-6 tablet:left-16 tablet:mt-6 tablet:ml-16 tablet:flex tablet:flex-col tablet:overflow-hidden";
+// The tablet shell already supplies a usable content height. Fill it through
+// the existing flex chain, while min-content children keep short screens in
+// document flow instead of clipping the map to a fixed bottom edge.
+const controlScreenClassName = "grid min-h-0 min-w-0 content-start gap-4 tablet:h-full tablet:flex tablet:flex-col";
 
 export function ControlView({
   siteId,
   userId,
   userRole,
-  commandSessionBlocked = false
+  commandSessionBlocked = false,
+  singleColumnLayout = false
 }: {
   siteId?: string;
   userId: AuthUser["id"];
   userRole: AuthUser["role"];
   commandSessionBlocked?: boolean;
+  singleColumnLayout?: boolean;
 }) {
   const location = useLocation();
   const navigate = useNavigate();
@@ -86,8 +97,10 @@ export function ControlView({
     ? requestedMode
     : "manual";
   const queryClient = useQueryClient();
+  const storageError = useSyncExternalStore(subscribeActiveCommandStorage, getActiveCommandStorageError, () => null);
   const [selection, setSelection] = useState<ControlSelection>(emptySelection);
   const [brightness, setBrightness] = useState(70);
+  const [executionOpen, setExecutionOpen] = useState(false);
   const [message, setMessage] = useState("");
   const [verificationError, setVerificationError] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -170,7 +183,7 @@ export function ControlView({
   const restorePending = Boolean(
     activeSiteId && (activeSiteId !== commandSiteId || userId !== commandUserId)
   );
-  const controlsLocked = readOnly || commandSessionBlocked || isSubmitting || restorePending || commandInProgress;
+  const controlsLocked = readOnly || commandSessionBlocked || Boolean(storageError) || isSubmitting || restorePending || commandInProgress;
   const canSubmit = Boolean(data && target && resolvedSelection?.fixtureIds.length && !blockMessage && !controlsLocked);
   const statusItems = useMemo<SessionStatusItem[]>(() => {
     // Dashboard data can lag behind a site switch. Never register a previous
@@ -258,6 +271,9 @@ export function ControlView({
     // Discard its old terminal cache before enabling the restored detail query.
     if (restoredCommandId) queryClient.removeQueries({ queryKey: ["command-status", restoredCommandId], exact: true });
     setCommandId(restoredCommandId);
+    const restoredCheck = activeSiteId && restoredCommandId
+      ? loadPendingCommandStatusCheck(userId, activeSiteId, restoredCommandId) : null;
+    setVerificationRequest(restoredCheck ? { ...restoredCheck, responseLost: !restoredCheck.dispatchIds } : null);
 
     return () => {
       if (activeScope.current.generation === generation) {
@@ -279,6 +295,7 @@ export function ControlView({
     // read must show that the previously observed blocking case is gone.
     if (!clearActiveCommandRequest(userId, activeSiteId, scopedActiveRequest.clientRequestId)) return;
     saveRecentResolvedCaseId(userId, activeSiteId, caseId);
+    if (getActiveCommandStorageError()) return;
     setRecentResolvedCaseId(caseId);
     setActiveRequest(null);
     setReplayRejected(false);
@@ -307,8 +324,10 @@ export function ControlView({
     // only case-specific evidence that the server has released its hold.
     // A standalone 404/410 or an initially empty list is never enough.
     clearActiveCommandId(userId, activeSiteId, scopedCommandId);
+    if (getActiveCommandStorageError()) return;
     clearObservedVerificationCase(userId, activeSiteId, scopedCommandId, knownVerificationCase.caseId);
     saveRecentResolvedCaseId(userId, activeSiteId, knownVerificationCase.caseId);
+    if (getActiveCommandStorageError()) return;
     setRecentResolvedCaseId(knownVerificationCase.caseId);
     setActiveRequest(null);
     setVerificationRequest(null);
@@ -321,10 +340,12 @@ export function ControlView({
   useEffect(() => {
     if (!activeSiteId || !scopedCommandId || !matchingCommandStatus || !matchingCommandIsTerminal || isSubmitting) return;
 
-    setTerminalResult({ siteId: activeSiteId, commandId: matchingCommandStatus.id });
     clearActiveCommandId(userId, activeSiteId, scopedCommandId);
+    if (getActiveCommandStorageError()) return;
     const observedCaseId = loadObservedVerificationCase(userId, activeSiteId, scopedCommandId);
     if (observedCaseId) clearObservedVerificationCase(userId, activeSiteId, scopedCommandId, observedCaseId);
+    if (getActiveCommandStorageError()) return;
+    setTerminalResult({ siteId: activeSiteId, commandId: matchingCommandStatus.id });
     setActiveRequest(null);
     setVerificationRequest(null);
     setCommandId((currentCommandId) => currentCommandId === scopedCommandId ? null : currentCommandId);
@@ -333,7 +354,7 @@ export function ControlView({
   }, [activeSiteId, isSubmitting, matchingCommandIsTerminal, matchingCommandStatus, queryClient, scopedCommandId, userId]);
 
   async function submitCommand() {
-    if (!data || !target || !canSubmit || isActiveCommandSessionBlocked(userId)) return;
+    if (!data || !target || !canSubmit || getActiveCommandStorageError() || isActiveCommandSessionBlocked(userId)) return;
 
     const request = canonicalizeDimmingCommandInput({
       siteId: data.site.id,
@@ -342,6 +363,7 @@ export function ControlView({
       brightness
     });
     saveActiveCommandRequest(userId, data.site.id, request);
+    if (getActiveCommandStorageError()) return;
     setCommandUserId(userId);
     setCommandSiteId(data.site.id);
     setActiveRequest(request);
@@ -352,7 +374,7 @@ export function ControlView({
   }
 
   function openHistoricalCommand(id: string) {
-    if (!activeSiteId || commandInProgress || isSubmitting || restorePending || commandSessionBlocked) return;
+    if (!activeSiteId || commandInProgress || isSubmitting || restorePending || commandSessionBlocked || getActiveCommandStorageError()) return;
     setTerminalResult(null);
     setMessage("");
     setVerificationError("");
@@ -378,6 +400,7 @@ export function ControlView({
     const request = canonicalizeDimmingCommandInput({ siteId: activeSiteId, clientRequestId: crypto.randomUUID(),
       target: { type: "fixtures", fixtureIds: [...targetFixtureIds] }, brightness: originalBrightness });
     saveActiveCommandRequest(userId, activeSiteId, request);
+    if (getActiveCommandStorageError()) return;
     setActiveRequest(request);
     setReplayRejected(false);
     setReconciledOriginalCommandId(null);
@@ -388,10 +411,14 @@ export function ControlView({
   async function checkActualState() {
     if (!commandQuery.isDetailCurrent()) return;
     if (!displayedStatus || displayedStatus.stage !== "verification_required" || readOnly || isSubmitting
-      || commandSessionBlocked || restorePending || !activeSiteId || isActiveCommandSessionBlocked(userId)) return;
+      || commandSessionBlocked || restorePending || getActiveCommandStorageError() || !activeSiteId || isActiveCommandSessionBlocked(userId)) return;
     if (!verificationRequest && (displayedStatus.verificationAttemptCount ?? 0) >= 3) return;
     const request = verificationRequest ?? { commandId: displayedStatus.id, clientRequestId: crypto.randomUUID() };
     const requestSiteId = activeSiteId;
+    // Persist both identities before transport; reload is never a new Get/Set.
+    saveActiveCommandId(userId, requestSiteId, request.commandId);
+    savePendingCommandStatusCheck(userId, requestSiteId, request.commandId, request.clientRequestId, request.dispatchIds);
+    if (getActiveCommandStorageError()) return;
     const generation = activeScope.current.generation;
     const controller = new AbortController();
     const commandSession = registerActiveCommandRequest(userId, controller);
@@ -401,7 +428,6 @@ export function ControlView({
     setVerificationRequest(request);
     void queryClient.invalidateQueries({ queryKey: ["command-status", request.commandId], exact: true });
     setCommandId(request.commandId);
-    saveActiveCommandId(userId, requestSiteId, request.commandId);
     const preserveInterruptedRequest = () => {
       if (!ownsRequestScope(generation, userId, requestSiteId) || activePostController.current !== controller) return;
       // Logout invalidates the session before aborting transport. Preserve only
@@ -419,12 +445,15 @@ export function ControlView({
     try {
       const response = await createCommandStatusCheck(request.commandId, request.clientRequestId, controller.signal);
       if (!ownsRequestScope(generation, userId, requestSiteId) || !ownsActiveCommandSession(userId, commandSession.generation)) return;
+      savePendingCommandStatusCheck(userId, requestSiteId, request.commandId, request.clientRequestId, response.dispatchIds);
       setVerificationRequest({ ...request, responseLost: false, dispatchIds: response.dispatchIds });
       setMessage("실제 밝기를 확인하고 있습니다.");
       await queryClient.invalidateQueries({ queryKey: ["command-status", request.commandId] });
     } catch (error) {
       if (!ownsRequestScope(generation, userId, requestSiteId) || !ownsActiveCommandSession(userId, commandSession.generation)) return;
       if (isDefinitiveCommandRejection(error)) {
+        clearPendingCommandStatusCheck(userId, requestSiteId, request.commandId, request.clientRequestId);
+        if (getActiveCommandStorageError()) return;
         setVerificationRequest(null);
         setVerificationError(error.status === 403 ? "상태 확인 권한이 없습니다." : "상태 확인 요청이 거부되었습니다. 명령 상세를 다시 조회하세요.");
         await queryClient.invalidateQueries({ queryKey: ["command-status", request.commandId] });
@@ -450,6 +479,7 @@ export function ControlView({
 
   async function sendCommand(request: CreateDimmingCommandInput, requestUserId: string) {
     if (isActiveCommandReplayRejected(requestUserId, request.siteId, request.clientRequestId)) return;
+    if (getActiveCommandStorageError()) return;
     const generation = activeScope.current.generation;
     const controller = new AbortController();
     const commandSession = registerActiveCommandRequest(requestUserId, controller);
@@ -478,6 +508,7 @@ export function ControlView({
       ) return;
       if (isDefinitiveCommandRejection(error) || isGatewayRecommissionRejection(error)) {
         clearActiveCommandRequest(requestUserId, request.siteId, request.clientRequestId);
+        if (getActiveCommandStorageError()) return;
         setActiveRequest(null);
         setCommandId(null);
         setReplayRejected(false);
@@ -589,8 +620,8 @@ export function ControlView({
     <section className={`${controlScreenClassName} max-compact:overflow-y-auto max-compact:overscroll-contain`} data-control-screen="">
       {modeTabs}
       <div id="control-mode-panel-manual" role="tabpanel" aria-labelledby="control-mode-manual" className="grid min-h-0 min-w-0 gap-4 tablet:flex tablet:flex-1 tablet:flex-col" data-control-manual-panel="">
-      <div className="grid min-h-0 min-w-0 flex-1 grid-cols-1 gap-4 overflow-y-auto overscroll-contain compact:grid-cols-[minmax(0,1fr)_350px] compact:grid-rows-[minmax(0,1fr)_auto] compact:overflow-hidden" data-control-layout="">
-        <Card className="flex min-h-[25rem] min-w-0 flex-col overflow-hidden p-4 max-compact:min-h-0 max-compact:overflow-visible compact:min-h-0" aria-label="제어 대상 지도" data-control-target-card="">
+      <div className="grid min-h-0 min-w-0 flex-1 grid-cols-1 gap-4 overflow-y-auto overscroll-contain compact:grid-cols-[minmax(0,1fr)_350px] compact:grid-rows-[minmax(min-content,1fr)_auto]" data-control-layout="">
+        <Card className="flex min-h-min min-w-0 flex-col overflow-hidden p-4 max-compact:overflow-visible" aria-label="제어 대상 지도" data-control-target-card="">
           <SpatialTargetSelector
             key={data.site.id}
             siteId={data.site.id}
@@ -619,17 +650,24 @@ export function ControlView({
             <Text as="strong" variant="label" aria-live="polite" aria-atomic="true">{selectedFixtures.length}개 선택</Text>
             <ManualControlBadge readOnly={readOnly} canSubmit={canSubmit} blocked={Boolean(blockMessage)} />
           </div>
-          <DimmingExecutionControls brightness={brightness} controlsLocked={controlsLocked} canSubmit={canSubmit}
-            applyLabel={manualApplyLabel(commandSessionBlocked, controlsLocked, readOnly, selectedFixtures.length)}
-            onBrightnessChange={setBrightness} onSubmit={submitCommand} />
+          {/* Collapse presentation only: the command owner, frozen request and recovery actions stay mounted outside this region. */}
+          <div className="min-h-0 flex-none" data-control-execution-disclosure="">
+            <Button type="button" variant="secondary" className="compact:hidden" aria-controls="manual-execution-settings" aria-expanded={executionOpen} onClick={() => setExecutionOpen(!executionOpen)}>밝기 실행 설정 {executionOpen ? "접기" : "열기"}</Button>
+            <div id="manual-execution-settings" className={executionOpen ? "mt-3 compact:mt-0" : "max-compact:hidden"}>
+              <DimmingExecutionControls brightness={brightness} controlsLocked={controlsLocked} canSubmit={canSubmit}
+                applyLabel={storageError ? "복구 정보 확인 필요" : manualApplyLabel(commandSessionBlocked, controlsLocked, readOnly, selectedFixtures.length)}
+                onBrightnessChange={setBrightness} onSubmit={submitCommand} />
+            </div>
+          </div>
           {/* Selection warnings belong below the fixed execution controls so
               late health/capability text cannot move the dial or Apply action. */}
           {blockMessage ? <Text tone="danger" role="alert">{blockMessage}</Text> : null}
-          <ManualControlFeedback scopedActiveRequest={scopedActiveRequest} scopedCommandId={scopedCommandId}
+          {storageError ? <Text tone="danger" role="alert">{storageError}</Text> : null}
+          <ManualControlFeedback singleColumnLayout={singleColumnLayout} scopedActiveRequest={scopedActiveRequest} scopedCommandId={scopedCommandId}
             replayRejected={replayRejected}
             awaitingCaseRelease={Boolean(reconciledOriginalCommandId)} isCaseReleaseFetching={reconciledCaseRead.isFetching}
             onRefreshCaseRelease={() => void reconciledCaseRead.refetch()}
-            isSubmitting={isSubmitting} commandSessionBlocked={commandSessionBlocked} message={message} verificationError={verificationError}
+            isSubmitting={isSubmitting} commandSessionBlocked={commandSessionBlocked || Boolean(storageError)} message={message} verificationError={verificationError}
             displayedStatus={displayedStatus} onRetryPending={() => void sendCommand(scopedActiveRequest!, userId)} onCheck={() => void checkActualState()}
             onReapply={() => void safelyReapply()} readOnly={readOnly} restorePending={restorePending} verificationRequest={verificationRequest}
             commandInProgress={commandInProgress} onCloseDetail={() => setTerminalResult(null)}
@@ -639,7 +677,7 @@ export function ControlView({
         <CommandHistoryPanel key={`${userId}:${data.site.id}`} userId={userId} siteId={data.site.id}
           timeZone={data.site.timeZone}
           onSelect={openHistoricalCommand} selectedCommandId={displayedStatus?.id}
-          disabled={commandInProgress || isSubmitting || restorePending || commandSessionBlocked}
+          disabled={commandInProgress || isSubmitting || restorePending || commandSessionBlocked || Boolean(storageError)}
           onOpenVerificationCases={() => setVerificationCasesOpen(true)} verificationCasesOpenerRef={verificationCasesOpenerRef}
           verificationCaseCount={missingCommand ? exactVerificationCases.data?.items.length : undefined}
           compactDisclosure className="compact:col-span-full" />
@@ -672,35 +710,79 @@ function DimmingExecutionControls({ compact = false, brightness, controlsLocked,
   onBrightnessChange: (value: number) => void;
   onSubmit: () => void;
 }) {
-  return <div className="grid min-h-0 flex-1 content-start gap-4 overflow-y-auto overscroll-contain" data-control-panel-body="">
+  const [invalidDraft, setInvalidDraft] = useState(false);
+  const [restored, setRestored] = useState("");
+  const [inputRevision, setInputRevision] = useState(0);
+  const rawValid = useRef(true);
+  const restoring = useRef(false);
+  const invalidApplyAttempt = useRef(false);
+  const applyRef = useRef<HTMLButtonElement>(null);
+  const lastBrightness = useRef(brightness);
+  useEffect(() => {
+    if (lastBrightness.current === brightness) return;
+    lastBrightness.current = brightness;
+    rawValid.current = true; setInvalidDraft(false); setRestored("");
+  }, [brightness]);
+
+  function captureDraft(event: React.FormEvent<HTMLDivElement>) {
+    if (!(event.target instanceof HTMLInputElement) || event.target.type === "range") return;
+    const draft = event.target.value.trim();
+    const value = Number(draft);
+    const valid = /^\d+$/.test(draft) && Number.isInteger(value) && value >= 0 && value <= 100;
+    rawValid.current = valid; setInvalidDraft(!valid); setRestored("");
+    if (valid) onBrightnessChange(value);
+  }
+
+  function restoreDraft() {
+    if (rawValid.current) return;
+    // React Aria normalizes during blur. Block that callback from replacing the
+    // last valid number with a rounded/clamped invalid draft.
+    restoring.current = true; rawValid.current = true;
+    setInvalidDraft(false); setInputRevision(value => value + 1);
+    setRestored(`마지막 정상 밝기 ${brightness}%로 복귀했습니다. 별도로 적용해 주세요.`);
+    queueMicrotask(() => { restoring.current = false; });
+  }
+
+  // The complete execution form reserves its intrinsic height. Sharing flex-1
+  // with feedback split short panes into fractional scrollports and clipped the
+  // final Apply even at maximum scroll. Feedback alone takes the remaining
+  // space; the existing workspace minimum keeps short screens in document flow.
+  return <div className="grid min-h-0 flex-none content-start gap-4 overflow-y-auto overscroll-contain" data-control-panel-body=""
+    onPointerDownCapture={event => {
+      if (event.target instanceof Element && event.target.closest("[data-control-submit]")) invalidApplyAttempt.current = !rawValid.current || restoring.current;
+    }}>
     {!compact ? <Heading as="h4" variant="card-title">밝기</Heading> : null}
     <div className="grid gap-3 rounded-panel border border-border-default bg-surface-panel p-4" data-control-brightness-card="">
-      <div className="flex items-baseline justify-between gap-3">
-        <Text as="span" variant="label">밝기</Text>
-        <Text as="strong" variant="metric">{brightness}%</Text>
-      </div>
-      <Slider label="밝기" minValue={0} maxValue={100} step={1} value={brightness} isDisabled={controlsLocked} onChange={onBrightnessChange} />
-      {!compact ? <NumberField
-        label="밝기 수치"
-        size="lg"
-        minValue={0}
-        maxValue={100}
-        step={1}
-        value={brightness}
-        isDisabled={controlsLocked}
-        onChange={(value) => {
-          if (value !== null && value >= 0 && value <= 100) onBrightnessChange(value);
+      <div className="flex items-baseline justify-between gap-3" onInputCapture={captureDraft} onChangeCapture={captureDraft}
+        onBlurCapture={event => {
+          if (event.target instanceof HTMLInputElement) {
+            if (!rawValid.current && event.relatedTarget === applyRef.current) invalidApplyAttempt.current = true;
+            restoreDraft();
+          }
         }}
-      /> : null}
+        onKeyDownCapture={event => {
+          if (event.target instanceof HTMLInputElement && event.key === "Enter") { event.preventDefault(); event.stopPropagation(); restoreDraft(); }
+        }}>
+        <Text as="span" variant="label">밝기</Text>
+        <div className="flex min-w-0 items-baseline gap-1">
+          <NumberField key={inputRevision} aria-label="밝기 수치" variant="ghost" size="lg"
+            className="w-24" inputClassName="px-1 text-metric font-bold text-right"
+            minValue={0} maxValue={100} step={1} value={brightness} isDisabled={controlsLocked} isInvalid={invalidDraft}
+            onChange={value => { if (rawValid.current && !restoring.current && value !== null && Number.isInteger(value) && value >= 0 && value <= 100) onBrightnessChange(value); }} />
+          <Text as="span" variant="metric" aria-hidden="true">%</Text>
+        </div>
+      </div>
+      {invalidDraft ? <Text role="alert" tone="danger">0~100 사이 정수를 입력해 주세요.</Text> : null}
+      {restored ? <Text role="status" variant="caption">{restored}</Text> : null}
+      <Slider label="밝기" minValue={0} maxValue={100} step={1} value={brightness} isDisabled={controlsLocked} onChange={value => {
+        rawValid.current = true; setInvalidDraft(false); setRestored(""); setInputRevision(revision => revision + 1); onBrightnessChange(value);
+      }} />
     </div>
-    <div className="grid grid-cols-4 gap-2" data-control-presets="">
-      {[0, 30, 70, 100].map((value) => (
-        <Button key={value} variant="secondary" type="button" className={compact ? "min-h-13" : undefined} onClick={() => onBrightnessChange(value)} disabled={controlsLocked}>
-          {value}%
-        </Button>
-      ))}
-    </div>
-    {!compact ? <Button variant="primary" type="button" onClick={onSubmit} disabled={!canSubmit} data-control-submit="">
+    {!compact ? <Button ref={applyRef} variant="primary" type="button" className="max-compact:scroll-mb-shell-navigation-safe" onClick={() => {
+      if (invalidApplyAttempt.current) { invalidApplyAttempt.current = false; return; }
+      if (!rawValid.current || restoring.current || !canSubmit) return;
+      onSubmit();
+    }} disabled={!canSubmit || invalidDraft} data-control-submit="">
       {applyLabel}
     </Button> : null}
   </div>;
@@ -712,10 +794,11 @@ function manualApplyLabel(commandSessionBlocked: boolean, controlsLocked: boolea
   return selectedFixtureCount ? `${selectedFixtureCount}개 조명에 밝기 적용` : "밝기 적용";
 }
 
-function ManualControlFeedback({ compact = false, scopedActiveRequest, scopedCommandId, replayRejected, awaitingCaseRelease, isCaseReleaseFetching, onRefreshCaseRelease, isSubmitting, commandSessionBlocked, message, verificationError,
+function ManualControlFeedback({ compact = false, singleColumnLayout = false, scopedActiveRequest, scopedCommandId, replayRejected, awaitingCaseRelease, isCaseReleaseFetching, onRefreshCaseRelease, isSubmitting, commandSessionBlocked, message, verificationError,
   displayedStatus, onRetryPending, onCheck, onReapply, readOnly, restorePending, verificationRequest, commandInProgress, onCloseDetail,
   hasMismatchedCommandStatus, missingCommand, matchingCommandIsTerminal, commandError, detailCommandId, retentionExpired, isCommandFetching, onRefreshStatus }: {
   compact?: boolean;
+  singleColumnLayout?: boolean;
   scopedActiveRequest: CreateDimmingCommandInput | null;
   scopedCommandId: string | null;
   replayRejected: boolean;
@@ -744,7 +827,37 @@ function ManualControlFeedback({ compact = false, scopedActiveRequest, scopedCom
   isCommandFetching: boolean;
   onRefreshStatus: () => void;
 }) {
-  return <div className={compact ? "grid gap-3" : "grid min-h-0 max-h-28 flex-none content-start gap-3 overflow-y-auto overscroll-contain"} data-control-panel-feedback="">
+  const [details, setDetails] = useState<{ id: string; open: boolean } | null>(null);
+  const detailsOpen = details?.id === displayedStatus?.id && details?.open === true;
+  const closeRef = useRef<HTMLButtonElement>(null);
+  const closeOwnedFocus = useRef(false);
+  const previousDetailLayout = useRef({ singleColumnLayout, id: displayedStatus?.id, open: detailsOpen });
+  useLayoutEffect(() => {
+    const previous = previousDetailLayout.current;
+    // Only this focused action changes parents at the Shell's existing
+    // breakpoint. Removal does not emit blur; restore its replacement without
+    // scrolling, but never steal focus or carry intent into a new detail scope.
+    if (previous.singleColumnLayout !== singleColumnLayout && previous.id === displayedStatus?.id
+      && previous.open && detailsOpen && closeOwnedFocus.current && document.activeElement === document.body) {
+      closeRef.current?.focus({ preventScroll: true });
+    }
+    if (!detailsOpen || previous.id !== displayedStatus?.id) closeOwnedFocus.current = false;
+    previousDetailLayout.current = { singleColumnLayout, id: displayedStatus?.id, open: detailsOpen };
+  }, [singleColumnLayout, displayedStatus?.id, detailsOpen]);
+  const closeAction = <Button ref={closeRef} variant="secondary" type="button" disabled={commandInProgress || isSubmitting}
+    onFocus={() => { closeOwnedFocus.current = true; }} onBlur={() => { closeOwnedFocus.current = false; }}
+    onClick={onCloseDetail}>명령 상세 닫기</Button>;
+  const result = presentRecentCommandResult(displayedStatus);
+  // The two-column workspace reserves space for execution controls above.
+  // Contain only desktop feedback sizing so long results cannot enlarge that
+  // row; all warnings/actions remain reachable by scrolling this positive-height
+  // pane. Single-column layouts retain their original natural document flow.
+  // Max-content rows prevent the status actions shrinking under inline details;
+  // overflow is handled by the pane, never by overlapping or clipping buttons.
+  // Size-query units give the nested detail the actual residual pane height,
+  // not its max-content grid row height. The outer pane still scrolls all
+  // warnings/actions; the inner viewport must fit wholly inside that pane.
+  return <div className="grid min-h-0 min-w-0 flex-none content-start gap-3 compact:auto-rows-max compact:flex-1 compact:overflow-y-auto compact:overscroll-contain compact:[container-type:size]" data-control-panel-feedback="">
     <Heading as="h4" variant={compact ? "label" : "card-title"}>최근 결과</Heading>
     <div className="grid min-h-px gap-3 empty:min-h-0" role="status" aria-label="명령 진행 상태" aria-live="polite" data-command-status-region="">
       {scopedActiveRequest && !scopedCommandId && !replayRejected ? <Button variant="secondary" type="button" onClick={onRetryPending} disabled={isSubmitting || commandSessionBlocked}>
@@ -758,13 +871,25 @@ function ManualControlFeedback({ compact = false, scopedActiveRequest, scopedCom
       {message ? <Text tone={message.startsWith("명령을 전송") ? "success" : "danger"}>{message}</Text> : null}
       {verificationError ? <Text tone="danger" role="alert">{verificationError}</Text> : null}
       {displayedStatus ? <>
-        <CommandProgress status={displayedStatus} />
+        {result.kind === "completed" ? <StatusBadge icon={result.result === "success" ? CircleCheck : TriangleAlert} tone={result.result === "success" ? "success" : result.result === "partial" ? "warning" : "danger"}>{result.label}</StatusBadge>
+          : <Text tone={result.kind === "pending" ? "secondary" : "warning"}>{result.kind === "pending" ? "명령 처리 중" : result.kind === "verification" ? "실제 상태 확인 필요" : "결과 미확정 · 실제 상태를 확인해 주세요."}</Text>}
+        {/* Safety actions retain the command owner even while display details are collapsed. */}
         <CommandOutcomeActions status={displayedStatus} onCheck={onCheck} onRetry={onReapply}
           checkResponseLost={verificationRequest?.responseLost}
           disabled={readOnly || commandSessionBlocked || isSubmitting || restorePending || Boolean(verificationRequest?.dispatchIds)} />
-        <Button variant="secondary" type="button" disabled={commandInProgress || isSubmitting} onClick={onCloseDetail}>명령 상세 닫기</Button>
+        <Button variant="secondary" type="button" aria-expanded={detailsOpen} aria-controls="recent-command-details"
+          onClick={() => setDetails({ id: displayedStatus.id, open: !detailsOpen })}>{detailsOpen ? "상세 접기" : "상세 보기"}</Button>
       </> : null}
     </div>
+    {displayedStatus && detailsOpen ? <>
+      <section id="recent-command-details" aria-label="최근 결과 상세" className="grid max-h-64 min-h-0 min-w-0 content-start gap-3 overflow-y-auto overscroll-contain compact:max-h-[min(16rem,100cqh)]" tabIndex={0}>
+      <CommandProgress status={displayedStatus} />
+      {/* Preserve the real action tail below results in natural single-column
+          flow; desktop's residual scrollport must not include that 44px tail. */}
+      {singleColumnLayout ? closeAction : null}
+      </section>
+      {!singleColumnLayout ? closeAction : null}
+    </> : null}
     {hasMismatchedCommandStatus && !missingCommand ? <div className="grid gap-2" role="alert">
       <Text tone="danger">명령 상태 응답의 식별자가 일치하지 않습니다. 안전을 위해 제어 잠금을 유지합니다.</Text>
       <Button variant="secondary" type="button" onClick={onRefreshStatus} disabled={isCommandFetching}>
@@ -807,11 +932,13 @@ function CommandProgress({ status }: { status: NonNullable<ReturnType<typeof use
   );
   const isFailure = status.stage === "partial_failed" || status.stage === "failed" || status.stage === "timed_out";
   return (
-    <div className="grid gap-2 rounded-panel border border-border-default bg-surface-panel p-4" data-command-progress-card="">
+    <div className="grid min-w-0 gap-2 rounded-panel border border-border-default bg-surface-panel p-4" data-command-progress-card="">
+      <Text variant="caption" className="wrap-anywhere">명령 ID: {status.id}</Text>
+      <Text variant="caption" className="wrap-anywhere">원래 밝기: {status.brightness == null ? "미확인" : `${status.brightness}%`} · 원래 대상: {status.targetFixtureIds?.join(", ") || "미확인"}</Text>
       <Text as="span" variant="overline" tone="muted">최근 명령 상태</Text>
       <Text as="strong" weight="semibold">{status.stage === "completed" ? "조명 적용 완료 · 기본 밝기로 저장됨" : commandStageLabel(status.stage)}</Text>
       <Text variant="caption">{status.completedFixtureCount} / {status.totalFixtureCount} 처리</Text>
-      <ProgressSteps label="명령 진행" steps={commandSteps(status)} />
+      <ProgressSteps label="명령 진행" steps={commandSteps(status)} className="flex-wrap" />
       {failedResults.map((result) => (
         <Text variant="caption" tone={isFailure ? "danger" : "primary"} key={`${result.dispatchId}:${result.fixtureId}`}>
           {result.fixtureName}: {humanizeDeviceResponseMessage(result.errorMessage ?? (result.status === "timed_out" ? "응답 시간 초과" : "적용 실패"))}

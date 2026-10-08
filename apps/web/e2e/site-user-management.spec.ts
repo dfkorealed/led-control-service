@@ -1,5 +1,9 @@
 import { createHash, randomUUID } from "node:crypto";
-import { expect, test, type Browser, type Page, type Route } from "@playwright/test";
+import { writeFileSync } from "node:fs";
+import { chromium, expect, test, type Browser, type Page, type Route } from "@playwright/test";
+import { installMockApiBoundary } from "./support/mock-api-boundary";
+import { expectMinimumTouchTargets, expectMinimumTouchTargetsAfterScrolling, expectNoHorizontalOverflow } from "./support/layout-assertions";
+import { StatisticsNativeZoomEvidence } from "./support/statistics-native-zoom-evidence";
 
 test.describe.configure({ mode: "serial" });
 test.use({ trace: "off", screenshot: "off" });
@@ -8,6 +12,157 @@ const siteId = "11111111-1111-4111-8111-111111111111";
 const floorId = "22222222-2222-4222-8222-222222222222";
 const fixtureId = "33333333-3333-4333-8333-333333333333";
 const commandId = "44444444-4444-4444-8444-444444444444";
+
+const longUserName = "지하주차장안전점검담당현장사용자".repeat(3);
+function listUser(id: string, name = longUserName): SiteUser {
+  return { id, name, loginId: `parking.${id}.` + "long".repeat(12), accessLevel: "control", status: "active",
+    lastLoginAt: null, createdAt: "2026-09-11T00:00:00.000Z", updatedAt: "2026-09-11T00:00:00.000Z" };
+}
+
+for (const viewport of [
+  { width: 320, height: 740 }, { width: 390, height: 844 }, { width: 768, height: 900 },
+  { width: 1023, height: 900 }, { width: 1024, height: 900 }, { width: 1287, height: 900 },
+  { width: 1440, height: 900 }, { width: 390, height: 320 }, { width: 1440, height: 600 }
+]) test(`Task8 user list detail reset and row controls at ${viewport.width}x${viewport.height}`, async ({ browser, baseURL }) => {
+  const context = await browser.newContext({ baseURL, viewport, hasTouch: viewport.width < 768 });
+  try {
+    const page = await context.newPage();
+    const api = await installProductApi(page, "admin");
+    api.users.push(listUser("user-long"), { ...listUser("night", "야간 담당"), accessLevel: "read", status: "disabled" });
+    await page.goto(`/settings/users?siteId=${siteId}`);
+    await expect(page.getByText(longUserName, { exact: true })).toBeVisible();
+    await expectNoHorizontalOverflow(page);
+    const grid = page.getByRole("table", { name: "현장 사용자 목록" }).or(page.getByRole("list", { name: "현장 사용자 목록" }));
+    expect(await grid.evaluate(element => element.scrollWidth <= element.clientWidth + 1)).toBe(true);
+    await page.getByRole("searchbox", { name: "사용자 검색" }).fill("parking");
+    const filter = page.getByRole("button", { name: /사용자 목록 상세 필터/ });
+    await filter.focus(); await page.keyboard.press("Enter");
+    const detail = page.getByRole("dialog", { name: "사용자 목록", exact: true });
+    await detail.getByRole("button", { name: /권한 필터/ }).click();
+    await page.getByRole("option", { name: "조회", exact: true }).click();
+    await detail.getByRole("button", { name: /상태 필터/ }).click();
+    await page.getByRole("option", { name: "비활성", exact: true }).click();
+    await expect(filter).toHaveAccessibleName("사용자 목록 상세 필터, 활성 조건 2개");
+    await expectMinimumTouchTargetsAfterScrolling(page, '[role="dialog"][aria-label="사용자 목록"]');
+    await detail.getByRole("button", { name: "필터 초기화" }).click();
+    await page.keyboard.press("Escape");
+    await expect(filter).toBeFocused();
+    await expect(page.getByRole("searchbox", { name: "사용자 검색" })).toHaveValue("parking");
+    await expect(filter).toHaveAccessibleName("사용자 목록 상세 필터, 활성 조건 0개");
+    const actions = page.getByRole("button", { name: `${longUserName} 작업` });
+    await actions.scrollIntoViewIfNeeded();
+    if (viewport.width < 768) await actions.tap(); else { await actions.focus(); await page.keyboard.press("Enter"); }
+    await expect(page.getByRole("menuitem")).toHaveCount(4);
+    await page.keyboard.press("Escape"); await expect(actions).toBeFocused();
+    await userAction(page, longUserName, `${longUserName} 영구 삭제`);
+    const deletion = page.getByRole("alertdialog");
+    await expect(deletion.getByRole("button", { name: "영구 삭제", exact: true })).toBeDisabled();
+    await page.keyboard.press("Escape"); await expect(actions).toBeFocused();
+    expect(api.updatedRequests).toEqual([]);
+    expect(api.users).toHaveLength(2);
+    await expectMinimumTouchTargetsAfterScrolling(page, '[aria-label="유저 관리"]');
+    await expectNoHorizontalOverflow(page);
+  } finally { await context.close(); }
+});
+
+test("Task8 user grid responds to container width and not window width", async ({ page }) => {
+  const api = await installProductApi(page, "admin"); api.users.push(listUser("container"));
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto(`/settings/users?siteId=${siteId}`);
+  await expect(page.getByRole("table", { name: "현장 사용자 목록" })).toBeVisible();
+  const section = page.getByRole("region", { name: "유저 관리" });
+  await section.evaluate(element => { (element as HTMLElement).style.width = "320px"; });
+  await expect(page.getByRole("list", { name: "현장 사용자 목록" })).toBeVisible();
+  await expect(page.getByText(longUserName, { exact: true })).toBeVisible();
+  await section.evaluate(element => { (element as HTMLElement).style.removeProperty("width"); });
+  await expect(page.getByRole("table", { name: "현장 사용자 목록" })).toBeVisible();
+  expect(api.updatedRequests).toEqual([]);
+});
+
+test("Task8 native 200 user long names and row menu remain reachable", async ({}, info) => {
+  test.setTimeout(60000);
+  const context = await chromium.launchPersistentContext("", {
+    channel: "chromium", viewport: null, deviceScaleFactor: undefined, args: ["--window-size=1440,900"]
+  });
+  let native: StatisticsNativeZoomEvidence | undefined;
+  try {
+    const page = context.pages()[0]!;
+    const api = await installProductApi(page, "admin"); api.users.push(listUser("native", "장문현장사용자설비안전관리담당자".repeat(2)));
+    await page.goto(`${info.project.use.baseURL}/settings/users?siteId=${siteId}`);
+    native = await StatisticsNativeZoomEvidence.create(context, page, info);
+    await native.global200(context);
+    const name = api.users[0]!.name;
+    const filter = page.getByRole("button", { name: /사용자 목록 상세 필터/ });
+    await filter.focus(); await page.keyboard.press("Enter");
+    await expect(page.getByRole("dialog", { name: "사용자 목록", exact: true })).toBeVisible();
+    await page.keyboard.press("Escape"); await expect(filter).toBeFocused();
+    const rowTrigger = page.getByRole("button", { name: `${name} 작업` });
+    await rowTrigger.focus(); await page.keyboard.press("Enter");
+    await expect(page.getByRole("menuitem")).toHaveCount(4);
+    await page.keyboard.press("Escape"); await expect(rowTrigger).toBeFocused();
+    await expectMinimumTouchTargetsAfterScrolling(page, '[aria-label="유저 관리"]');
+    await rowTrigger.evaluate(element => element.scrollIntoView({ block: "center" }));
+    const observeContent = () => page.getByText(name, { exact: true }).evaluate((element, rowLabel) => {
+      const action = [...document.querySelectorAll("button")].find(button => button.getAttribute("aria-label") === rowLabel);
+      if (!action) throw new Error("Native user row action is missing");
+      const text = element.getBoundingClientRect(), row = action.getBoundingClientRect();
+      const header = document.querySelector("[data-shell-topbar]")?.getBoundingClientRect();
+      const nav = document.querySelector('[data-shell-navigation="compact"]')?.getBoundingClientRect();
+      const top = header?.bottom ?? 0, bottom = nav?.top ?? innerHeight;
+      const clips = [...function* () { for (let node = element.parentElement; node; node = node.parentElement) yield node; }()].map(node => ({
+        tag: node.tagName, overflowX: getComputedStyle(node).overflowX, overflowY: getComputedStyle(node).overflowY,
+        rect: node.getBoundingClientRect().toJSON(), clientWidth: node.clientWidth, clientHeight: node.clientHeight,
+        clientLeft: node.clientLeft, clientTop: node.clientTop, scrollHeight: node.scrollHeight
+      }));
+      const readable = text.top >= top && text.bottom <= bottom && text.left >= 0 && text.right <= innerWidth
+        && clips.every(c => (!/auto|hidden|clip|scroll/.test(c.overflowX) || (text.left >= c.rect.left + c.clientLeft && text.right <= c.rect.left + c.clientLeft + c.clientWidth))
+          && (!/auto|hidden|clip|scroll/.test(c.overflowY) || (text.top >= c.rect.top + c.clientTop && text.bottom <= c.rect.top + c.clientTop + c.clientHeight)));
+      const centerHit = document.elementFromPoint(text.x + text.width / 2, text.y + text.height / 2);
+      return { utc: new Date().toISOString(), name: element.textContent, text: text.toJSON(), action: row.toJSON(),
+        usable: { top, bottom, height: bottom - top }, innerWidth, innerHeight, scrollY,
+        unionHeight: Math.max(text.bottom, row.bottom) - Math.min(text.top, row.top),
+        readable: readable && Boolean(centerHit && (centerHit === element || element.contains(centerHit))),
+        clips };
+    }, `${name} 작업`);
+    const content = await observeContent();
+    writeFileSync(info.outputPath("native-user-content-setup.json"), JSON.stringify(content, null, 2));
+    await expectNoHorizontalOverflow(page);
+    const contentObservations: Awaited<ReturnType<typeof observeContent>>[] = [];
+    const observeState = async (requireName: boolean) => {
+        await expect(page.getByRole("menu")).not.toBeVisible();
+        await expect(page.getByRole("dialog", { name: "사용자 목록", exact: true })).not.toBeVisible();
+        const finalContent = await observeContent();
+        contentObservations.push(finalContent);
+        writeFileSync(info.outputPath("native-user-content-observations.json"), JSON.stringify(contentObservations, null, 2));
+        if (requireName) expect(finalContent.readable, "Actual long name must be readable above fixed overlays").toBe(true);
+        expect(api.updatedRequests).toEqual([]); expect(api.users).toHaveLength(1);
+        // Observation timestamps belong to evidence, not the unchanged UI state comparison.
+        const { utc: _observedAt, ...semanticContent } = finalContent;
+        return { name, login: api.users[0]!.loginId, count: api.users.length, mutations: api.updatedRequests.length, expanded: await rowTrigger.getAttribute("aria-expanded"), content: semanticContent };
+    };
+    if (content.unionHeight <= content.usable.height) {
+      // Name and row action fit together: scroll their union into usable space.
+      await page.evaluate(({ text, action, usable }) => window.scrollBy(0, (Math.min(text.top, action.top) + Math.max(text.bottom, action.bottom)) / 2 - (usable.top + usable.bottom) / 2), content);
+      await native.capture("Task8-users-name-and-action", rowTrigger, async () => { await expect(page.getByRole("menuitem")).toHaveCount(4); }, ["Escape"], {
+        description: "실제 장문 이름과 행 작업 초점·닫힘, mutation 0", observe: () => observeState(true)
+      });
+    } else {
+      // A tall card needs two ordinary scroll states, not a test-only compact layout.
+      const reset = page.getByRole("button", { name: "필터 초기화", exact: true });
+      await reset.evaluate(element => element.scrollIntoView({ block: "center" }));
+      await native.capture("Task8-users-readable-name", reset, async () => { await expect(filter).toHaveAccessibleName("사용자 목록 상세 필터, 활성 조건 0개"); }, [], {
+        description: "실제 장문 이름·필터 초기화 초점, 현장 사용자 1명·mutation 0", observe: () => observeState(true)
+      });
+      await rowTrigger.evaluate(element => element.scrollIntoView({ block: "center" }));
+      await native.capture("Task8-users-row-action", rowTrigger, async () => { await expect(page.getByRole("menuitem")).toHaveCount(4); }, ["Escape"], {
+        description: "행 작업 4개 접근·닫힘·트리거 초점, mutation 0", observe: async () => {
+          await expectMinimumTouchTargets(page, '[aria-label="유저 관리"]');
+          return observeState(false);
+        }
+      });
+    }
+  } finally { try { await native?.stop(); } finally { await context.close(); await native?.recordContextCleanup(); } }
+});
 
 test("admin이 일반 유저의 전체 관리 여정을 완료하고 평문 비밀번호를 남기지 않는다", async ({ page }) => {
   const api = await installProductApi(page, "admin");
@@ -31,7 +186,7 @@ test("admin이 일반 유저의 전체 관리 여정을 완료하고 평문 비�
   expect(containsAnySecret(api.responseBodies, [temporaryPassword])).toBe(false);
   expect(await pageContainsAnySecret(page, [temporaryPassword])).toBe(false);
 
-  await page.getByRole("button", { name: "김현수 수정" }).click();
+  await userAction(page, "김현수", "김현수 수정");
   const editDialog = page.getByRole("dialog", { name: "김현수 사용자 수정" });
   await editDialog.getByLabel("이름").fill("김현수 수정");
   await editDialog.getByText("제어", { exact: true }).click();
@@ -47,12 +202,12 @@ test("admin이 일반 유저의 전체 관리 여정을 완료하고 평문 비�
     expectedUpdatedAt: "2026-09-11T00:00:00.000Z"
   });
 
-  await page.getByRole("button", { name: "김현수 수정 비활성화" }).click();
+  await userAction(page, "김현수 수정", "김현수 수정 비활성화");
   await expect(editedRow).toContainText("비활성");
-  await page.getByRole("button", { name: "김현수 수정 활성화" }).click();
+  await userAction(page, "김현수 수정", "김현수 수정 활성화");
   await expect(editedRow).toContainText("활성");
 
-  await page.getByRole("button", { name: "김현수 수정 비밀번호 초기화" }).click();
+  await userAction(page, "김현수 수정", "김현수 수정 비밀번호 초기화");
   const resetDialog = page.getByRole("dialog", { name: "김현수 수정 비밀번호 초기화" });
   await resetDialog.getByLabel("새 임시 비밀번호").fill(resetPassword);
   await resetDialog.getByLabel("임시 비밀번호 확인").fill(resetPassword);
@@ -62,7 +217,7 @@ test("admin이 일반 유저의 전체 관리 여정을 완료하고 평문 비�
   expect(containsAnySecret(api.responseBodies, [resetPassword])).toBe(false);
   expect(await pageContainsAnySecret(page, [resetPassword])).toBe(false);
 
-  await page.getByRole("button", { name: "김현수 수정 영구 삭제" }).click();
+  await userAction(page, "김현수 수정", "김현수 수정 영구 삭제");
   const deleteDialog = page.getByRole("alertdialog", { name: "김현수 수정 사용자 영구 삭제" });
   await expect(deleteDialog.getByRole("button", { name: "영구 삭제" })).toBeDisabled();
   await deleteDialog.getByLabel("확인 로그인 아이디").fill("user_read");
@@ -84,7 +239,7 @@ test("신규 일반 유저가 최초 로그인 비밀번호를 변경한 뒤 모
     accounts: [{ role: "read", loginId: "first_login_user", password: temporaryPassword, mustChangePassword: true }]
   });
 
-  await page.goto("/");
+  await page.goto("/login");
   await login(page, "first_login_user", temporaryPassword);
   await expect(page.getByRole("heading", { name: "비밀번호를 변경해 주세요" })).toBeVisible();
   await expect(page.getByRole("navigation")).toHaveCount(0);
@@ -191,14 +346,11 @@ test("read, control, admin의 메뉴와 직접 경로 및 수동 제어 API 권�
     await fixtureCheckbox.locator("xpath=ancestor::label[1]").click();
     await expect(fixtureCheckbox).toBeChecked();
     await fixtureDrawer.getByRole("button", { name: "선택 완료" }).click();
-    await control.page.getByRole("button", { name: "30%", exact: true }).click();
-    await control.page.getByRole("button", { name: "밝기 적용" }).click();
-    await expect(
-      control.page
-        .getByRole("status", { name: "명령 진행 상태" })
-        .locator("strong")
-        .filter({ hasText: /^조명 적용 완료/ })
-    ).toBeVisible();
+    await control.page.getByRole("textbox", { name: "밝기 수치", exact: true }).fill("30");
+    await control.page.getByRole("button", { name: "1개 조명에 밝기 적용" }).click();
+    await expect(control.page.getByRole("status", { name: "명령 진행 상태" }).getByText("성공", { exact: true })).toBeVisible();
+    await control.page.getByRole("button", { name: "상세 보기", exact: true }).click();
+    await expect(control.page.getByRole("region", { name: "최근 결과 상세" }).getByText("조명 적용 완료 · 기본 밝기로 저장됨", { exact: true })).toBeVisible();
     expect(control.api.commandRequests).toHaveLength(2);
   } finally {
     await control.page.close();
@@ -274,6 +426,7 @@ async function installProductApi(
   initialRole: ActorRole | null,
   options: { accounts?: Array<Pick<Account, "role" | "loginId" | "password" | "mustChangePassword">> } = {}
 ): Promise<ProductApiState> {
+  await installMockApiBoundary(page.context(), test.info().project.use.baseURL);
   const now = "2026-09-11T00:00:00.000Z";
   const accounts: Account[] = (options.accounts ?? [
     { role: initialRole ?? "read", loginId: `${initialRole ?? "read"}_user`, password: runtimePassword("actor"), mustChangePassword: false }
@@ -386,6 +539,13 @@ async function installProductApi(
       return respond(route, {
         id: commandId,
         stage: "completed",
+        outcome: "applied",
+        siteId,
+        createdAt: now,
+        // Match the server's three-calendar-month retention anchor; missing
+        // anchors intentionally keep the production command controller locked.
+        generatedAt: now,
+        retainedFrom: "2026-06-11T00:00:00.000Z",
         dispatchCount: 1,
         completedFixtureCount: 1,
         totalFixtureCount: 1,
@@ -397,6 +557,11 @@ async function installProductApi(
     return respond(route, { code: "NOT_FOUND", path }, 404, state);
   });
   return state;
+}
+
+async function userAction(page: Page, name: string, label: string) {
+  await page.getByRole("button", { name: `${name} 작업` }).click();
+  await page.getByRole("menuitem", { name: label, exact: true }).click();
 }
 
 function assertCreateSiteUserRequest(value: unknown): CreateSiteUserRequest {

@@ -1,7 +1,10 @@
-import { expect, test, type Locator, type Page } from "@playwright/test";
-import { execFileSync } from "node:child_process";
+import { chromium, expect, test as unconfiguredTest, type BrowserContext, type Locator, type Page, type TestInfo } from "@playwright/test";
+import childProcess, { execFileSync } from "node:child_process";
+import { mock } from "node:test";
+import { syncBuiltinESMExports } from "node:module";
 import { createHash } from "node:crypto";
-import { readFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile, unlink } from "node:fs/promises";
+import { existsSync } from "node:fs";
 import { createServer, type Server } from "node:http";
 import { energyReportListResponseSchema, type EnergyReportJob } from "@led-control/shared/energy-p2-contracts";
 import {
@@ -9,6 +12,462 @@ import {
   expectMinimumTouchTargetsAfterScrolling,
   expectNoHorizontalOverflow
 } from "./support/layout-assertions";
+import { installMockApiBoundary } from "./support/mock-api-boundary";
+import { StatisticsNativeZoomEvidence, validateNativePngContent, type NativePngContent } from "./support/statistics-native-zoom-evidence";
+import { relative } from "node:path";
+
+// Ordinary cases retain the same fixture precedence. A native persistent case
+// uses the base test so it does not also instantiate an unused second browser.
+const test = unconfiguredTest.extend({
+  page: async ({ page, baseURL }, use) => {
+    await installMockApiBoundary(page.context(), baseURL!);
+    await installStatisticsFixtures(page);
+    await use(page);
+  }
+});
+
+// Synthetic validator fixtures never count as browser zoom evidence. A missing
+// rejection could otherwise promote unrelated, stale or clipped bytes to proof.
+const syntheticPng = "iVBORw0KGgoAAAANSUhEUgAAAAIAAAABCAIAAAB7QOjdAAAAD0lEQVR4nGP4z8DAwPAfAAcAAf9+CLHQAAAAAElFTkSuQmCC";
+const syntheticPostStatePng = "iVBORw0KGgoAAAANSUhEUgAAAAIAAAABCAIAAAB7QOjdAAAAD0lEQVR4nGNg+M/w/z8DAAn9Av7Z9RhEAAAAAElFTkSuQmCC";
+const syntheticBlankPng = "iVBORw0KGgoAAAANSUhEUgAAAAIAAAABCAIAAAB7QOjdAAAAC0lEQVR4nGNgAAMAAAcAAbKGrPQAAAAASUVORK5CYII=";
+const syntheticWidePng = "iVBORw0KGgoAAAANSUhEUgAAAAMAAAABCAIAAACUgoPjAAAAEklEQVR4nGNg+M/w/z/DfwYGABX0A/2i5uhtAAAAAElFTkSuQmCC";
+const syntheticWitness: NativePngContent = {
+  data: syntheticPng, viewportWidth: 2, viewportHeight: 1
+};
+for (const invalid of [
+  { name: "malformed base64", change: { data: "not!base64" } },
+  { name: "non PNG bytes", change: { data: Buffer.from("JPEG is not PNG").toString("base64") } },
+  { name: "truncated IHDR", change: { data: Buffer.from(syntheticPng, "base64").subarray(0, 20).toString("base64") } },
+  { name: "blank original", change: { data: syntheticBlankPng } },
+  { name: "full viewport mismatch", change: { viewportWidth: 3 } }
+]) unconfiguredTest(`native PNG validator rejects ${invalid.name}`, async () => {
+  expect(() => validateNativePngContent({ ...syntheticWitness, ...invalid.change })).toThrow();
+});
+unconfiguredTest("native PNG validator accepts a fresh full viewport original PNG", async () => {
+  expect(() => validateNativePngContent(syntheticWitness)).not.toThrow();
+});
+
+// Public create() keeps real filesystem/Git behavior; only browser metadata is
+// controlled. This never launches or qualifies an actual native browser.
+async function sourceGuardContext(info: TestInfo) {
+  const profile = info.outputPath("source-guard-profile"); await mkdir(profile, { recursive: true });
+  const detached = { page: 0, browser: 0 };
+  const context = {
+    newCDPSession: async () => ({ send: async (method: string) => {
+      if (method === "Browser.getVersion") return { product: "Chromium/Test", protocolVersion: "1.3", revision: "controlled", userAgent: "controlled", jsVersion: "controlled" };
+      if (method === "Target.getTargetInfo") return { targetInfo: { targetId: "source-guard-target" } };
+      if (method === "Page.getFrameTree") return { frameTree: { frame: { id: "source-guard-target", loaderId: "controlled" } } };
+      throw new Error(`Unexpected source-guard protocol: ${method}`);
+    }, detach: async () => { detached.page++; } }),
+    browser: () => ({ newBrowserCDPSession: async () => ({
+      send: async (method: string) => {
+        if (method !== "SystemInfo.getInfo") throw new Error(`Unexpected source-guard browser protocol: ${method}`);
+        return { commandLine: `chromium --user-data-dir="${profile}"` };
+      }, detach: async () => { detached.browser++; }
+    }) })
+  } as unknown as BrowserContext;
+  return { context, detached };
+}
+
+unconfiguredTest("native source guard public create observes real Git and batches every ordered entry", async ({}, info) => {
+  const cwd = info.outputPath("source-guard-inputs"); await mkdir(cwd);
+  const files = ["first.txt", "공백 이름.txt", "--option-like", "line\nbreak.txt", "last.txt"];
+  const sourceHashes: Record<string, string | null> = {};
+  for (const [index, file] of files.entries()) {
+    await writeFile(`${cwd}/${file}`, `distinct source ${index}`);
+    sourceHashes[file] = execFileSync("git", ["hash-object", "--", file], { cwd, encoding: "utf8" }).trim();
+  }
+  sourceHashes["missing.txt"] = null;
+  const sourcePath = info.outputPath("source-guard-manifest.json");
+  await writeFile(sourcePath, JSON.stringify({ cwd, sourceHashes }));
+  const originalMetadata = process.env.TASK7_SOURCE_METADATA;
+  const { context, detached } = await sourceGuardContext(info);
+  const spy = mock.method(childProcess, "execFileSync");
+  syncBuiltinESMExports();
+  let native: StatisticsNativeZoomEvidence | undefined;
+  try {
+    process.env.TASK7_SOURCE_METADATA = sourcePath;
+    native = await StatisticsNativeZoomEvidence.create(context, {} as Page, info);
+    const calls = spy.mock.calls.filter(call => call.arguments[0] === "git");
+    const args = calls.map(call => call.arguments[1]);
+    // Prove this spy intercepts the transformed helper's actual builtin calls
+    // BEFORE trusting the deterministic count. Expected hashes were real Git
+    // calls made outside the spy, so zero intercepted calls cannot false-pass.
+    expect(calls.length).toBeGreaterThan(0);
+    expect(args.flatMap(argv => Array.isArray(argv) ? argv.slice(2) : [])).toEqual(files);
+    await info.attach("source-guard-real-invocations", { body: JSON.stringify({ sourceHashes, count: calls.length, args }), contentType: "application/json" });
+    expect(calls).toHaveLength(1);
+  } finally {
+    try { await native?.stop(); } finally {
+      spy.mock.restore(); syncBuiltinESMExports();
+      if (originalMetadata === undefined) delete process.env.TASK7_SOURCE_METADATA;
+      else process.env.TASK7_SOURCE_METADATA = originalMetadata;
+    }
+  }
+  expect(detached).toEqual({ page: 1, browser: 1 });
+});
+
+for (const scenario of ["empty", "all null", "first drift", "middle drift", "last drift", "deleted", "expected null created", "multiple drift", "earlier drift before later read error", "actual read error", "malformed batch", "truncated batch", "reordered batch", "batch process limit"] as const) {
+  unconfiguredTest(`native source guard preserves ordered reference for ${scenario}`, async ({}, info) => {
+    const cwd = info.outputPath("ordered-inputs"); await mkdir(cwd);
+    const files = ["first.txt", "middle.txt", "last.txt"];
+    const hashes: Record<string, string | null> = {};
+    for (const [index, file] of files.entries()) {
+      await writeFile(`${cwd}/${file}`, `reference ${index}`);
+      hashes[file] = execFileSync("git", ["hash-object", "--", file], { cwd, encoding: "utf8" }).trim();
+    }
+    let sourceHashes = { ...hashes };
+    if (scenario === "empty") sourceHashes = {};
+    if (scenario === "all null") sourceHashes = { "absent-first": null, "absent-last": null };
+    const driftIndex = scenario === "first drift" ? 0 : scenario === "middle drift" ? 1 : scenario === "last drift" ? 2 : -1;
+    if (driftIndex >= 0) await writeFile(`${cwd}/${files[driftIndex]}`, "changed");
+    if (scenario === "deleted") await unlink(`${cwd}/middle.txt`);
+    if (scenario === "expected null created") {
+      sourceHashes = { "created.txt": null, ...sourceHashes }; await writeFile(`${cwd}/created.txt`, "new");
+    }
+    if (scenario === "multiple drift") {
+      await writeFile(`${cwd}/middle.txt`, "earlier changed"); await writeFile(`${cwd}/last.txt`, "later changed");
+    }
+    if (scenario.includes("read error")) {
+      await mkdir(`${cwd}/unhashable-directory`); sourceHashes["unhashable-directory"] = hashes["last.txt"]!;
+      if (scenario.startsWith("earlier drift")) await writeFile(`${cwd}/first.txt`, "first changed before directory");
+    }
+    // This is the previous ordered implementation, exercised on real own files
+    // independently of the candidate and outside its counted dependency calls.
+    let referenceError: unknown;
+    try {
+      for (const [file, expected] of Object.entries(sourceHashes)) {
+        const actual = existsSync(`${cwd}/${file}`) ? execFileSync("git", ["hash-object", "--", file], { cwd, encoding: "utf8" }).trim() : null;
+        if (actual !== expected) throw new Error(`Unfrozen source: ${file}`);
+      }
+    } catch (error) { referenceError = error; }
+    const sourcePath = info.outputPath("ordered-manifest.json"); await writeFile(sourcePath, JSON.stringify({ cwd, sourceHashes }));
+    const originalMetadata = process.env.TASK7_SOURCE_METADATA;
+    const { context, detached } = await sourceGuardContext(info);
+    const realExec = childProcess.execFileSync;
+    let injected = false;
+    const spy = mock.method(childProcess, "execFileSync", (...args: Parameters<typeof execFileSync>) => {
+      const argv = args[1];
+      if (Array.isArray(argv) && argv.length > 3 && /batch/.test(scenario)) {
+        injected = true;
+        if (scenario === "batch process limit") throw Object.assign(new Error("Controlled batch argv limit"), { code: "E2BIG" });
+        const output = String(realExec(...args)).trim().split("\n");
+        return scenario === "malformed batch" ? "not-a-git-object\n" : `${(scenario === "truncated batch" ? output.slice(1) : output.reverse()).join("\n")}\n`;
+      }
+      return realExec(...args);
+    });
+    syncBuiltinESMExports();
+    let native: StatisticsNativeZoomEvidence | undefined, failure: unknown;
+    try {
+      process.env.TASK7_SOURCE_METADATA = sourcePath;
+      try { native = await StatisticsNativeZoomEvidence.create(context, {} as Page, info); }
+      catch (error) { failure = error; }
+    } finally {
+      try { await native?.stop(); } finally {
+        spy.mock.restore(); syncBuiltinESMExports();
+        if (originalMetadata === undefined) delete process.env.TASK7_SOURCE_METADATA;
+        else process.env.TASK7_SOURCE_METADATA = originalMetadata;
+      }
+    }
+    const calls = spy.mock.calls.filter(call => call.arguments[0] === "git");
+    await info.attach("ordered-reference-and-invocations", { body: JSON.stringify({ scenario, sourceHashes, referenceError: String(referenceError), failure: String(failure), injected, calls: calls.map(call => ({ args: call.arguments[1], error: String(call.error) })), detached }), contentType: "application/json" });
+    expect(detached).toEqual({ page: 1, browser: 1 });
+    if (referenceError === undefined) expect(failure).toBeUndefined();
+    else {
+      expect(failure).toBeInstanceOf(Error);
+      const cause = (failure as Error).cause;
+      expect(String(cause)).toBe(String(referenceError));
+      if (scenario === "actual read error") {
+        const originalCall = [...calls].reverse().find(call => Array.isArray(call.arguments[1]) && call.arguments[1].length === 3 && call.error);
+        expect(originalCall).toBeTruthy(); expect(cause).toBe(originalCall!.error);
+      }
+    }
+    if (/batch/.test(scenario)) {
+      expect(injected).toBe(true);
+      // Invalid batch output/argv failure never earns trust: all three real
+      // ordered hashes must be re-read before a stable source is accepted.
+      expect(calls).toHaveLength(4);
+      expect(calls.slice(1).map(call => call.arguments[1])).toEqual(files.map(file => ["hash-object", "--", file]));
+    }
+    if (scenario === "empty" || scenario === "all null") expect(calls).toHaveLength(0);
+    if (scenario === "earlier drift before later read error") {
+      expect(String((failure as Error).cause)).toBe("Error: Unfrozen source: first.txt");
+      expect(calls.filter(call => Array.isArray(call.arguments[1]) && call.arguments[1].length === 3).map(call => call.arguments[1])).toEqual([["hash-object", "--", "first.txt"]]);
+    }
+  });
+}
+
+// R43/R45 stream clocks are retired for the separately approved R46 primary;
+// their original failure/RED/GREEN bytes remain immutable historical evidence.
+// Controlled public responses exercise request ordering/retention, not actual200.
+for (const scenario of ["ordered single pending candidate", "wrong pixels remain unapproved", "focus restored dialog open", "draft value changed", "draft dialog closed", "draft request emitted", "malformed response retained", "blank response retained", "wrong size response retained", "state drift retained", "target drift retained", "loader drift retained", "URL drift retained", "geometry drift retained", "source drift retained", "persistence failure detaches", "command error detaches", "timeout late response retained", "timeout late rejection handled"] as const) {
+  unconfiguredTest(`native PNG snapshot ${scenario}`, async ({ page }, info) => {
+    const openDraft = scenario.startsWith("draft ");
+    await page.setContent(`<button id="trigger" aria-label="protocol trigger" aria-expanded="${openDraft}">Trigger</button>
+      <div role="dialog" aria-label="protocol filter" ${openDraft ? "" : "hidden"}><div role="spinbutton" tabindex="0" aria-label="invalid year">2027</div><button>Next</button></div>
+      <select id="zoomLevel"><option value="1">100%</option><option value="2">200%</option></select>
+      <script>const trigger=document.querySelector('#trigger'),dialog=document.querySelector('[role=dialog]');
+      trigger.addEventListener('click',()=>{dialog.hidden=false;trigger.setAttribute('aria-expanded','true')});
+      document.addEventListener('keydown',event=>{if(event.key==='Escape'){${scenario === "focus restored dialog open" ? "" : "dialog.hidden=true;trigger.setAttribute('aria-expanded','false');"}trigger.focus()}});</script>`);
+    const toggle = page.getByRole("button", { name: "protocol trigger" });
+    const dialog = page.getByRole("dialog", { name: "protocol filter", exact: true });
+    const trigger = openDraft ? dialog.getByRole("spinbutton", { name: "invalid year" }) : toggle;
+    const profile = info.outputPath("synthetic-profile"); await mkdir(profile, { recursive: true });
+    let detached = 0, requests = 0, responded = false, observations = 0, observationEntered = false, observationCompleted = false;
+    let releaseObservation: (() => void) | undefined;
+    const observationGate = new Promise<void>(resolve => { releaseObservation = resolve; });
+    const calls: Array<{ method: string; params: unknown }> = [];
+    let lateResolve: ((value: { data: string }) => void) | undefined, lateReject: ((reason: Error) => void) | undefined;
+    const sourceFile = info.outputPath("controlled-source.txt"), sourceMetadata = info.outputPath("controlled-source-metadata.json");
+    await writeFile(sourceFile, "unchanged controlled source");
+    const originalSourceMetadata = process.env.TASK7_SOURCE_METADATA;
+    if (scenario === "source drift retained") {
+      await writeFile(sourceMetadata, JSON.stringify({ cwd: process.cwd(), sourceHashes: { [relative(process.cwd(), sourceFile)]: execFileSync("git", ["hash-object", sourceFile], { encoding: "utf8" }).trim() } }));
+      process.env.TASK7_SOURCE_METADATA = sourceMetadata;
+    }
+    const cdp = {
+      send: async (method: string, params?: unknown) => {
+        calls.push({ method, params });
+        if (method === "Browser.getVersion") return { protocolVersion: "1.3", product: "Chromium/Test", revision: "synthetic", userAgent: "synthetic", jsVersion: "synthetic" };
+        if (method === "Target.getTargetInfo") return { targetInfo: { targetId: responded && scenario === "target drift retained" ? "other-target" : "owned-target", type: "page", title: "synthetic", url: "about:blank", attached: true, canAccessOpener: false } };
+        if (method === "Page.getFrameTree") return { frameTree: { frame: { id: "owned-target", loaderId: responded && scenario === "loader drift retained" ? "other-loader" : "loader", url: "about:blank", domainAndRegistry: "", securityOrigin: "://", mimeType: "text/html", secureContextType: "InsecureScheme", crossOriginIsolatedContextType: "NotIsolated", gatedAPIFeatures: [] } } };
+        if (method === "Page.captureScreenshot") {
+          expect(observationCompleted).toBe(true);
+          if (scenario === "command error detaches") throw new Error("Controlled unsupported snapshot");
+          if (scenario.startsWith("timeout ")) return new Promise<{ data: string }>((resolve, reject) => { lateResolve = resolve; lateReject = reject; });
+          responded = true;
+          if (scenario === "source drift retained") await writeFile(sourceFile, "changed controlled source");
+          if (scenario === "state drift retained") await page.evaluate(() => {
+            (document.querySelector('[role="dialog"]') as HTMLElement).hidden = false;
+            document.querySelector("#trigger")!.setAttribute("aria-expanded", "true");
+          });
+          return { data: scenario === "malformed response retained" ? "not!base64" : scenario === "blank response retained" ? syntheticBlankPng
+            : scenario === "wrong size response retained" ? syntheticWidePng : scenario === "wrong pixels remain unapproved" ? syntheticPng : syntheticPostStatePng };
+        }
+        if (["Page.getLayoutMetrics", "Page.startScreencast", "Page.stopScreencast", "Page.screencastFrameAck"].includes(method)) return {};
+        throw new Error(`Unexpected controlled protocol method ${method}`);
+      },
+      on: () => undefined, off: () => undefined,
+      detach: async () => {
+        detached++;
+        // Deliver while this owned controlled session is still detaching, not
+        // after close; wait for actual IO/error retention, never a paint delay.
+        if (scenario === "timeout late response retained") {
+          lateResolve?.({ data: syntheticPostStatePng });
+          await expect.poll(() => existsSync(info.outputPath("synthetic-protocol-response.json"))).toBe(true);
+        }
+        if (scenario === "timeout late rejection handled") {
+          lateReject?.(new Error("Controlled late rejection"));
+          await expect.poll(async () => {
+            try { return JSON.parse(await readFile(info.outputPath("native-zoom-provenance.json"), "utf8")).snapshotRequests[0].responseError; }
+            catch { return undefined; } // The existing manifest may be mid-write.
+          }).toContain("Controlled late rejection");
+        }
+      }
+    };
+    const controlledPage = {
+      url: () => responded && scenario === "URL drift retained" ? "about:blank#other-document" : "about:blank", bringToFront: async () => undefined, reload: async () => undefined,
+      evaluate: async () => { const zoom = Number(await page.locator("#zoomLevel").inputValue()); return { innerWidth: 2 / zoom, innerHeight: 1 / zoom,
+        outerWidth: 2, outerHeight: 1, dpr: zoom, clientWidth: 2 / zoom, clientHeight: 1 / zoom, scrollWidth: 2 / zoom, scrollHeight: 1 / zoom,
+        scrollX: responded && scenario === "geometry drift retained" ? 1 : 0, scrollY: 0, browserEpochMs: Date.now(), visual: { width: 2 / zoom, height: 1 / zoom, scale: 1, offsetLeft: 0, offsetTop: 0, pageLeft: 0, pageTop: 0 } }; },
+      mouse: { click: async (x: number, y: number) => { await page.mouse.click(x, y); } },
+      keyboard: { press: async (key: string) => {
+        await page.keyboard.press(key);
+        if (scenario === "draft value changed") await trigger.evaluate(element => { element.textContent = "2028"; });
+        if (scenario === "draft dialog closed" && key === "Shift+Tab") await dialog.evaluate(element => { (element as HTMLElement).hidden = true; });
+        if (scenario === "draft request emitted") requests++;
+      } }
+    } as unknown as Page;
+    const settings = { goto: async () => undefined, locator: () => page.locator("#zoomLevel"), bringToFront: async () => undefined, url: () => "chrome://settings/appearance" };
+    const context = { newCDPSession: async () => cdp, newPage: async () => settings,
+      browser: () => ({ newBrowserCDPSession: async () => ({ send: async () => ({ commandLine: `chromium --user-data-dir="${profile}"`, modelName: "synthetic", modelVersion: "synthetic", gpu: { devices: [], driverBugWorkarounds: [] } }), detach: async () => undefined }) }) } as unknown as BrowserContext;
+    const blockedFramePath = info.outputPath("unwritable-original-directory");
+    if (scenario === "persistence failure detaches") await mkdir(blockedFramePath);
+    const evidenceInfo = scenario === "persistence failure detaches"
+      ? { ...info, attach: info.attach.bind(info), outputPath: (...segments: string[]) => segments[0] === "synthetic-protocol-original.png" ? blockedFramePath : info.outputPath(...segments) } as TestInfo : info;
+    const sourceSpy = scenario === "ordered single pending candidate" ? mock.method(childProcess, "execFileSync") : undefined;
+    if (sourceSpy) syncBuiltinESMExports();
+    let native: StatisticsNativeZoomEvidence | undefined;
+    let failure: unknown, stopFailure: unknown;
+    try {
+      native = await StatisticsNativeZoomEvidence.create(context, controlledPage, evidenceInfo);
+      await native.global200(context);
+      const capturing = native.capture("synthetic-protocol", trigger, async () => {
+        await expect(dialog).toBeVisible();
+      }, openDraft ? ["Tab", "Shift+Tab"] : ["Escape"], {
+        description: openDraft ? "unchanged open invalid draft and zero requests" : "named filter closed and collapsed trigger",
+        observe: async () => {
+          observations++;
+          if (scenario === "ordered single pending candidate" && observations === 1) { observationEntered = true; await observationGate; }
+          expect(await dialog.isVisible()).toBe(openDraft);
+          if (openDraft) { await expect(trigger).toHaveText("2027"); expect(requests).toBe(0); }
+          else await expect(toggle).toHaveAttribute("aria-expanded", "false");
+          observationCompleted = true;
+          return { dialogVisible: openDraft, rawYear: openDraft ? await trigger.textContent() : null, requests };
+        }
+      });
+      if (scenario === "ordered single pending candidate") {
+        await expect.poll(() => observationEntered).toBe(true);
+        expect(calls.filter(call => call.method === "Page.captureScreenshot")).toEqual([]);
+        releaseObservation!();
+      }
+      await capturing;
+    } catch (error) { failure = error; } finally {
+      try { await native?.stop(); } catch (error) { stopFailure = error; }
+      sourceSpy?.mock.restore(); if (sourceSpy) syncBuiltinESMExports();
+      if (originalSourceMetadata === undefined) delete process.env.TASK7_SOURCE_METADATA;
+      else process.env.TASK7_SOURCE_METADATA = originalSourceMetadata;
+    }
+    const raw = JSON.parse(await readFile(info.outputPath("native-zoom-provenance.json"), "utf8"));
+    if (sourceSpy) {
+      const sourceCalls = sourceSpy.mock.calls.filter(call => call.arguments[0] === "git");
+      const files = Object.keys(raw.source.sourceHashes).filter(file => existsSync(`${raw.source.cwd}/${file}`));
+      expect(sourceCalls).toHaveLength(2);
+      for (const call of sourceCalls) expect(call.arguments[1]).toEqual(["hash-object", "--", ...files]);
+      await info.attach("full-source-both-boundaries", { body: JSON.stringify({ manifestEntries: Object.keys(raw.source.sourceHashes).length, existingEntries: files.length, calls: sourceCalls.map(call => ({ args: call.arguments[1], cwd: call.arguments[2]?.cwd })) }), contentType: "application/json" });
+    }
+    const screenshotCalls = calls.filter(call => call.method === "Page.captureScreenshot");
+    expect(calls.filter(call => /Screencast|screencastFrameAck/.test(call.method))).toEqual([]);
+    const forbiddenRequest = scenario === "focus restored dialog open" || openDraft;
+    expect(screenshotCalls).toHaveLength(forbiddenRequest ? 0 : 1);
+    if (!forbiddenRequest) expect(screenshotCalls[0]!.params).toEqual({ format: "png", fromSurface: true, captureBeyondViewport: false, optimizeForSpeed: false });
+    if (scenario === "ordered single pending candidate" || scenario === "wrong pixels remain unapproved") {
+      expect(failure).toBeUndefined();
+      expect(raw.captures[0].pixelApproval).toMatchObject({ status: "pending", reviewer: "root" });
+      expect(raw.captures[0].finalStateBefore.value).toEqual({ dialogVisible: false, rawYear: null, requests: 0 });
+      expect(raw.captures[0].finalStateAfter.value).toEqual(raw.captures[0].finalStateBefore.value);
+      expect(raw.captures[0].png.sha256).toBe(scenario === "wrong pixels remain unapproved"
+        ? "7ee5754129962f30174bd5178d9058ea9900e57f80dbfed6c42ae49e3890142a" : "f58942d84e1901b085e27421af6f9c2e2391dbc274d63d78998d55621ea3bb00");
+      expect(raw.lastInput.dispatches.map((dispatch: { kind: string }) => dispatch.kind)).toEqual(["pointer", "key"]);
+      expect(raw.lastInput.assertionsCompletedAt).toBeTruthy();
+      expect(raw.captures[0]).not.toHaveProperty("frame"); expect(raw.captures[0]).not.toHaveProperty("ack");
+      expect(raw.captures[0]).not.toHaveProperty("frameTimestamp");
+      expect(observations).toBe(2);
+    } else if (scenario === "persistence failure detaches") expect(String(failure)).toContain("EISDIR");
+    else if (scenario === "source drift retained") expect(String(failure)).toContain("Unfrozen source");
+    else if (["target drift retained", "loader drift retained", "URL drift retained", "geometry drift retained"].includes(scenario)) expect(String(failure)).toContain("Snapshot geometry/target/loader/URL drift");
+    else if (scenario === "malformed response retained") expect(String(failure)).toContain("Malformed PNG base64");
+    else if (scenario === "blank response retained") expect(String(failure)).toContain("Blank original PNG");
+    else if (scenario === "wrong size response retained") expect(String(failure)).toContain("PNG viewport mismatch");
+    else if (scenario === "command error detaches") expect(String(failure)).toContain("Controlled unsupported snapshot");
+    else if (scenario.startsWith("timeout ")) expect(String(failure)).toContain("NEEDS_CONTEXT: snapshot response deadline");
+    else expect(failure).toBeTruthy();
+    expect(stopFailure).toBeUndefined(); expect(detached).toBe(1);
+    if (!forbiddenRequest && scenario !== "command error detaches" && scenario !== "timeout late rejection handled") {
+      expect(typeof raw.snapshotRequests[0].rawResponsePath).toBe("string");
+      const response = JSON.parse(await readFile(raw.snapshotRequests[0].rawResponsePath, "utf8"));
+      const want = scenario === "malformed response retained" ? "not!base64" : scenario === "blank response retained" ? syntheticBlankPng
+        : scenario === "wrong size response retained" ? syntheticWidePng : scenario === "wrong pixels remain unapproved" ? syntheticPng : syntheticPostStatePng;
+      expect(response).toEqual({ data: want });
+      if (scenario !== "persistence failure detaches") {
+        expect(await readFile(raw.snapshotRequests[0].imagePath)).toEqual(Buffer.from(want, "base64"));
+      }
+    }
+    if (scenario === "timeout late rejection handled") expect(raw.snapshotRequests[0].responseError).toContain("Controlled late rejection");
+  });
+}
+
+// Controlled public protocol responses characterize metadata collection only:
+// these cases create no browser/zoom/frame and never qualify native evidence.
+for (const scenario of ["initial persistence failure", "error-record persistence failure", "error-record persistence and detach failure"] as const) {
+  unconfiguredTest(`native create IO ${scenario} preserves original failure and independent cleanup`, async ({}, info) => {
+    const blocked = info.outputPath("blocked-preflight-directory"); await mkdir(blocked);
+    const initialFailure = scenario === "initial persistence failure";
+    const original = new Error("Controlled original Browser.getVersion failure");
+    let blockWrites = initialFailure, pageDetached = 0, contextClosed = 0, queries = 0;
+    const events: string[] = [];
+    const context = {
+      newCDPSession: async () => ({
+        send: async (method: string) => {
+          queries++; expect(method).toBe("Browser.getVersion");
+          blockWrites = true; throw original;
+        },
+        detach: async () => {
+          pageDetached++; events.push("page-detach");
+          // Restore this fixture's real output only after detach is attempted,
+          // so the final evidence write can retain the earlier actual EISDIR.
+          if (!initialFailure) blockWrites = false;
+          if (scenario === "error-record persistence and detach failure") throw new Error("Controlled Page detach failure");
+        }
+      }),
+      close: async () => { contextClosed++; events.push("context-close"); }
+    } as unknown as BrowserContext;
+    const evidenceInfo = { ...info, outputPath: (...segments: string[]) =>
+      segments[0] === "native-zoom-preflight.json" && blockWrites ? blocked : info.outputPath(...segments)
+    } as TestInfo;
+    let native: StatisticsNativeZoomEvidence | undefined;
+    let failure: (Error & { cause?: Error & { code?: string } }) | undefined;
+    try { native = await StatisticsNativeZoomEvidence.create(context, {} as Page, evidenceInfo); }
+    catch (error) { failure = error as typeof failure; }
+    finally { try { await native?.stop(); } finally { await context.close(); } }
+    expect(pageDetached).toBe(1); expect(contextClosed).toBe(1);
+    expect(events).toEqual(["page-detach", "context-close"]);
+    expect(native).toBeUndefined(); expect(failure?.message).toContain("NEEDS_CONTEXT");
+    expect(queries).toBe(initialFailure ? 0 : 1);
+    if (initialFailure) {
+      expect(failure?.cause?.code).toBe("EISDIR");
+      expect(failure?.message).toContain("EISDIR");
+    } else {
+      expect(failure?.cause).toBe(original);
+      expect(failure?.message).toContain("Controlled original Browser.getVersion failure");
+      const raw = JSON.parse(await readFile(info.outputPath("native-zoom-preflight.json"), "utf8"));
+      expect(raw.error).toMatchObject({ stage: "Browser.getVersion", message: "Error: Controlled original Browser.getVersion failure" });
+      expect(raw.persistenceErrors).toEqual([expect.objectContaining({ stage: "error-record", message: expect.stringContaining("EISDIR") })]);
+      if (scenario === "error-record persistence and detach failure") expect(raw.pageSessionCleanupError).toContain("Controlled Page detach failure");
+      else expect(raw.pageSessionDetachedAt).toBeTruthy();
+    }
+  });
+}
+
+for (const scenario of ["actual command string", "unsupported", "empty command", "ambiguous profile"] as const) {
+  unconfiguredTest(`native preflight preserves staged evidence for ${scenario}`, async ({}, info) => {
+    const profile = info.outputPath("synthetic-profile"); await mkdir(profile, { recursive: true });
+    const commandLine = scenario === "empty command" ? "" : scenario === "ambiguous profile"
+      ? `chromium --user-data-dir=${profile} --user-data-dir=/another-profile`
+      : `chromium --user-data-dir="${profile}" --window-size=1440,900`;
+    let pageDetached = 0, browserDetached = 0;
+    const version = { protocolVersion: "1.3", product: "Chromium/Test", revision: "synthetic", userAgent: "synthetic", jsVersion: "synthetic" };
+    const pageSession = {
+      send: async (method: string) => {
+        if (method === "Browser.getVersion") return version;
+        if (method === "Browser.getBrowserCommandLine") throw new Error("Command line not returned because --enable-automation not set.");
+        if (method === "Target.getTargetInfo") return { targetInfo: { targetId: "owned-target", type: "page", title: "statistics", url: "http://127.0.0.1:16627/statistics", attached: true, canAccessOpener: false } };
+        if (method === "Page.getFrameTree") return { frameTree: { frame: { id: "owned-frame", loaderId: "loader", url: "http://127.0.0.1:16627/statistics", domainAndRegistry: "", securityOrigin: "http://127.0.0.1:16627", mimeType: "text/html", secureContextType: "SecureLocalhost", crossOriginIsolatedContextType: "NotIsolated", gatedAPIFeatures: [] } } };
+        throw new Error(`Unexpected page method: ${method}`);
+      }, detach: async () => { pageDetached++; }, off: () => undefined
+    };
+    const browserSession = {
+      send: async (method: string) => {
+        if (method !== "SystemInfo.getInfo") throw new Error(`Unexpected browser method: ${method}`);
+        // The version must already be on disk BEFORE this fallible query.
+        expect(existsSync(info.outputPath("native-zoom-preflight.json"))).toBe(true);
+        const partial = JSON.parse(await readFile(info.outputPath("native-zoom-preflight.json"), "utf8"));
+        expect(partial.version.product).toBe("Chromium/Test");
+        if (scenario === "unsupported") throw new Error("SystemInfo unsupported");
+        return { commandLine, modelName: "synthetic", modelVersion: "synthetic", gpu: { devices: [], driverBugWorkarounds: [] } };
+      }, detach: async () => { browserDetached++; }
+    };
+    const context = { newCDPSession: async () => pageSession, browser: () => ({ newBrowserCDPSession: async () => browserSession }) } as unknown as BrowserContext;
+    let native: StatisticsNativeZoomEvidence | undefined, failure: unknown;
+    try { native = await StatisticsNativeZoomEvidence.create(context, {} as Page, info); } catch (error) { failure = error; }
+    if (scenario === "actual command string") {
+      expect(failure).toBeUndefined();
+      const raw = JSON.parse(await readFile(info.outputPath("native-zoom-preflight.json"), "utf8"));
+      expect(raw.commandLine).toEqual({ method: "SystemInfo.getInfo", raw: commandLine });
+      expect(raw.profile).toBe(profile); expect(raw.target.targetInfo.targetId).toBe("owned-target");
+      expect(raw.frameTree.frameTree.frame.id).toBe("owned-frame");
+      await native!.stop();
+    } else {
+      expect(String(failure)).toContain("NEEDS_CONTEXT");
+      expect(existsSync(info.outputPath("native-zoom-preflight.json"))).toBe(true);
+      const raw = JSON.parse(await readFile(info.outputPath("native-zoom-preflight.json"), "utf8"));
+      expect(raw.version.product).toBe("Chromium/Test"); expect(raw.error.stage).toBe("SystemInfo.getInfo");
+      if (scenario !== "unsupported") expect(raw.systemInfo.commandLine).toBe(commandLine);
+    }
+    expect(browserDetached).toBe(1); expect(pageDetached).toBe(1);
+  });
+}
 
 const generatedAt = "2026-08-26T00:00:00.000Z";
 type RendererBrowserFixtures = {
@@ -20,15 +479,22 @@ type RendererBrowserFixtures = {
   pdf: { bytes: string; manifest: Array<{ path: string; value: unknown }> };
 };
 let downloadFixtureServer: Server | undefined;
-test.afterEach(async () => {
+test.afterEach(async ({}, info) => {
+  if (process.env.E2E_REPORT_DOWNLOAD_ORIGIN) {
+    const response = await fetch(`${process.env.E2E_REPORT_DOWNLOAD_ORIGIN}/__task7/report.pdf`, { method: "DELETE" });
+    expect(response.status).toBe(204);
+  }
   if (downloadFixtureServer) {
     downloadFixtureServer.closeAllConnections();
     await new Promise<void>((resolve, reject) => downloadFixtureServer!.close(error => error ? reject(error) : resolve()));
+    const connections = await new Promise<number>((resolve, reject) => downloadFixtureServer!.getConnections((error, count) => error ? reject(error) : resolve(count)));
+    await info.attach("owned-file-fixture-cleanup", { body: JSON.stringify({ pid: process.pid, utc: new Date().toISOString(), listening: downloadFixtureServer.listening, connections }), contentType: "application/json" });
+    expect(downloadFixtureServer.listening).toBe(false); expect(connections).toBe(0);
     downloadFixtureServer = undefined;
   }
 });
 
-test.beforeEach(async ({ page }) => {
+async function installStatisticsFixtures(page: Page) {
   await page.route("**/auth/me", (route) => route.fulfill({
     contentType: "application/json",
     body: JSON.stringify({
@@ -107,7 +573,7 @@ test.beforeEach(async ({ page }) => {
       { scope: "group", identityId: "30000000-0000-4000-8000-000000000031", label: "과거 그룹" }
     ]
   } }));
-});
+}
 
 const reportSiteId = "30000000-0000-4000-8000-000000000001";
 function heatmap(url: URL) {
@@ -133,19 +599,23 @@ function browserReport(
     from: "2026-09-01", to: "2026-09-07", scope: "site", identityId: reportSiteId, format: "pdf"
   }
 ): EnergyReportJob {
-  return { reportId: "30000000-0000-4000-8000-000000000041", siteId: reportSiteId,
+  const common = { reportId: "30000000-0000-4000-8000-000000000041", siteId: reportSiteId,
     request, status,
     progressPercent: status === "processing" ? 40 : status === "completed" || status === "expired" ? 100 : 0,
     createdAt: generatedAt, startedAt: status === "queued" ? null : generatedAt,
     completedAt: status === "completed" || status === "expired" ? generatedAt : null,
-    expiresAt: status === "completed" || status === "expired" ? "2026-09-19T00:00:00.000Z" : null,
-    failureCode: status === "failed" ? "REPORT_GENERATION_FAILED" : null,
+    expiresAt: status === "completed" || status === "expired" ? "2026-09-19T00:00:00.000Z" : null };
+  const targetAndRequest = {
     target: { scope: request.scope, identityId: request.identityId, label: request.scope === "site" ? "보고서 현장" : `${request.scope} 이력 대상` },
-    requestedAt: generatedAt,
-    failure: status === "failed" ? { code: "generation_failed", message: "보고서를 생성하지 못했습니다.", action: "잠시 후 다시 생성해 주세요." } : null };
+    requestedAt: generatedAt };
+  // Keep the correlated failure union and original serialized field order.
+  return status === "failed"
+    ? { ...common, failureCode: "REPORT_GENERATION_FAILED", ...targetAndRequest,
+      failure: { code: "generation_failed", message: "보고서를 생성하지 못했습니다.", action: "잠시 후 다시 생성해 주세요." } }
+    : { ...common, failureCode: null, ...targetAndRequest, failure: null };
 }
 
-test("creates a PDF report, polls state, downloads actual renderer bytes, and retries", async ({ page }) => {
+test("creates a PDF report, polls state, downloads actual renderer bytes, and retries", async ({ page }, info) => {
   test.setTimeout(60_000);
   const fixtures = JSON.parse(execFileSync("pnpm", ["--filter", "@led-control/api", "exec", "tsx", "test/support/render-report-browser-fixtures.ts"],
     { encoding: "utf8", maxBuffer: 30 * 1024 * 1024 })) as RendererBrowserFixtures;
@@ -158,6 +628,14 @@ test("creates a PDF report, polls state, downloads actual renderer bytes, and re
   await page.clock.install();
   // Chromium's anchor downloads can bypass request interception. A loopback server
   // provides deterministic file bytes without relying on a real worker or S3 account.
+  let downloadOrigin = process.env.E2E_REPORT_DOWNLOAD_ORIGIN;
+  if (downloadOrigin) {
+    // A strict task-owned fixture can host the bytes on its already reserved
+    // loopback port. Ordinary runs retain the existing ephemeral fixture.
+    const uploaded = await fetch(`${downloadOrigin}/__task7/report.pdf`, { method: "POST", body: pdfBytes });
+    expect(uploaded.status).toBe(201);
+    downloadOrigin += "/__task7";
+  } else {
   downloadFixtureServer = createServer((_request, response) => {
     response.writeHead(200, { "content-type": "application/pdf",
       "content-disposition": "attachment; filename=\"report.pdf\"" });
@@ -166,7 +644,8 @@ test("creates a PDF report, polls state, downloads actual renderer bytes, and re
   await new Promise<void>(resolve => downloadFixtureServer!.listen(0, "127.0.0.1", resolve));
   const address = downloadFixtureServer.address();
   if (!address || typeof address === "string") throw new Error("missing fixture port");
-  const downloadOrigin = `http://127.0.0.1:${address.port}`;
+  downloadOrigin = `http://127.0.0.1:${address.port}`;
+  }
   let records: EnergyReportJob[] = [];
   let downloadRequests = 0;
   const requests: unknown[] = [];
@@ -177,11 +656,14 @@ test("creates a PDF report, polls state, downloads actual renderer bytes, and re
       records = [job]; await route.fulfill({ status: 202, json: job });
     } else await route.fulfill({ json: { reports: records, nextCursor: null, totalCount: records.length } });
   });
-  await page.route("**/energy/sites/*/reports/*/download", route => {
+  await page.route("**/energy/sites/*/reports/*/download", async route => {
     downloadRequests++;
     const job = records[0];
+    const downloadUrl = `${downloadOrigin}/report.${job.request.format}?signature=fresh-${downloadRequests}`;
+    await page.route(downloadUrl, fileRoute => fileRoute.request().method() === "GET" ? fileRoute.continue() : fileRoute.abort("blockedbyclient"));
+    await info.attach("owned-file-fixture-start", { body: JSON.stringify({ downloadUrl, port: new URL(downloadUrl).port, pid: process.pid, utc: new Date().toISOString() }), contentType: "application/json" });
     return route.fulfill({ json: { reportId: job.reportId, format: job.request.format, expiresInSeconds: 300,
-      downloadUrl: `${downloadOrigin}/report.${job.request.format}?signature=fresh-${downloadRequests}` } });
+      downloadUrl } });
   });
   await page.goto(`/statistics/reports?siteId=${reportSiteId}`);
   await expect(page.getByText("요청한 보고서가 없습니다.")).toBeVisible();
@@ -217,6 +699,138 @@ test("creates a PDF report, polls state, downloads actual renderer bytes, and re
   }
   expect(downloadRequests).toBe(1);
   await expect(page.getByRole("navigation", { name: "통계 메뉴" }).getByRole("link")).toHaveText(["개요", "사용 분석", "보고서"]);
+});
+
+for (const scenario of [
+  { name: "reversed", dates: "requestedFrom=2026-09-20&requestedTo=2026-09-01", from: "2026-09-20", edits: [[5, "21"]] },
+  { name: "impossible", dates: "requestedFrom=2026-02-31&requestedTo=2026-09-01", from: "2026-09-20", edits: [[5, "21"], [2, "20"], [1, "9"]] },
+  { name: "partial", dates: "requestedFrom=2026-09-01", from: "2026-09-01", edits: [[5, "21"], [4, "9"], [3, "2026"]] }
+] as const) test(`Task7 ${scenario.name} initial report date URL preserves raw input and query silence until manual repair`, async ({ page }, info) => {
+  await page.clock.install();
+  const historyRequests: Array<Record<string, string>> = [];
+  const forbiddenRequests: string[] = [];
+  page.on("request", request => {
+    const url = new URL(request.url());
+    if (/\/energy\/sites\/[^/]+\/(reports|exports\/csv)(\/|$)/.test(url.pathname) && request.method() !== "GET") forbiddenRequests.push(`${request.method()} ${url.pathname}`);
+    if (url.pathname.endsWith("/exports/csv")) forbiddenRequests.push(`${request.method()} ${url.pathname}`);
+  });
+  await page.route("**/energy/sites/*/reports?**", route => {
+    historyRequests.push(Object.fromEntries(new URL(route.request().url()).searchParams));
+    return route.fulfill({ json: { reports: [browserReport("failed")], nextCursor: null, totalCount: 1 } });
+  });
+  const rawPath = `/statistics/reports?siteId=${reportSiteId}&query=original&limit=50&${scenario.dates}`;
+  await page.goto(rawPath);
+  const rawUrl = page.url();
+  await expect(page.getByText("URL의 요청 기간을 직접 수정하거나 필터를 초기화해 주세요.")).toBeVisible();
+  await expect(page.getByRole("navigation", { name: "페이지 이동" })).toHaveCount(0);
+  await expect(page.getByRole("region", { name: "요청한 보고서", exact: true })).toHaveCount(0);
+  await expect(page.getByText("보고서가 없습니다.", { exact: true })).toHaveCount(0);
+  await page.getByRole("searchbox", { name: "보고서 검색" }).fill(" repaired search ");
+  await page.clock.runFor(300);
+  const filters = page.getByRole("search", { name: "보고서 이력 필터" });
+  await chooseOption(page, filters, "상태", "생성 실패");
+  const dialog = await openFilter(page, "보고서 조건");
+  const segments = dialog.getByRole("group", { name: "요청 기간" }).getByRole("spinbutton");
+  const originalSegments = await segments.allTextContents();
+  await info.attach("raw-date-before-blur", { body: JSON.stringify({ utc: new Date().toISOString(), originalSegments, url: page.url(), historyRequests }), contentType: "application/json" });
+  await dialog.getByRole("button", { name: "필터 닫기" }).click();
+  await openFilter(page, "보고서 조건");
+  await expect(segments).toHaveText(originalSegments);
+  expect(page.url()).toBe(rawUrl); expect(historyRequests).toEqual([]); expect(forbiddenRequests).toEqual([]);
+  for (const [index, value] of scenario.edits) {
+    await segments.nth(index).fill(value);
+    await info.attach("manual-date-edit", { body: JSON.stringify({ utc: new Date().toISOString(), index, value, segments: await segments.allTextContents(), url: page.url(), historyRequests }), contentType: "application/json" });
+  }
+  await dialog.getByRole("button", { name: "필터 닫기" }).click();
+  await expect(page.getByRole("region", { name: "요청한 보고서", exact: true })).toBeVisible();
+  expect(historyRequests.length).toBeGreaterThan(0);
+  expect(historyRequests.every(query => query.requestedFrom === scenario.from && query.requestedTo === "2026-09-21")).toBe(true);
+  expect(historyRequests.at(-1)).toEqual({ limit: "50", query: "repaired search", status: "failed", requestedFrom: scenario.from, requestedTo: "2026-09-21" });
+  await page.goBack();
+  await expect(page.getByText("URL의 요청 기간을 직접 수정하거나 필터를 초기화해 주세요.")).toBeVisible();
+  expect(page.url()).toBe(rawUrl);
+  const recoveredRequests = historyRequests.length;
+  await page.clock.runFor(300);
+  expect(historyRequests).toHaveLength(recoveredRequests);
+  await page.goForward();
+  await expect(page.getByRole("region", { name: "요청한 보고서", exact: true })).toBeVisible();
+  expect(forbiddenRequests).toEqual([]);
+  await expectNoHorizontalOverflow(page);
+  await info.attach("invalid-report-url-recovery", { body: JSON.stringify({ utc: new Date().toISOString(), scenario: scenario.name, rawUrl, originalSegments, historyRequests, forbiddenRequests }), contentType: "application/json" });
+});
+
+test("Task7 valid history preserves a physically blurred partial request range without URL or query publication", async ({ page }, info) => {
+  const historyRequests: string[] = [];
+  await page.route("**/energy/sites/*/reports?**", route => {
+    historyRequests.push(route.request().url());
+    return route.fulfill({ json: { reports: [browserReport("failed")], nextCursor: null, totalCount: 1 } });
+  });
+  await page.goto(`/statistics/reports?siteId=${reportSiteId}&limit=50&requestedFrom=2026-09-01&requestedTo=2026-09-21`);
+  await expect(page.getByRole("region", { name: "요청한 보고서", exact: true })).toBeVisible();
+  const initialRequests = historyRequests.length, initialUrl = page.url();
+  let dialog = await openFilter(page, "보고서 조건");
+  let segments = dialog.getByRole("group", { name: "요청 기간" }).getByRole("spinbutton");
+  await segments.nth(0).click(); for (let index = 0; index < 4; index++) await page.keyboard.press("Backspace");
+  await segments.nth(3).click();
+  await expect(segments).toHaveText(["연도", "9", "1", "2026", "9", "21"]);
+  await dialog.getByRole("button", { name: "필터 닫기" }).click();
+  dialog = await openFilter(page, "보고서 조건");
+  segments = dialog.getByRole("group", { name: "요청 기간" }).getByRole("spinbutton");
+  await expect(segments).toHaveText(["연도", "9", "1", "2026", "9", "21"]);
+  expect(page.url()).toBe(initialUrl); expect(historyRequests).toHaveLength(initialRequests);
+  await info.attach("working-range-physical-comparison", { body: JSON.stringify({ utc: new Date().toISOString(), initialUrl, segments: await segments.allTextContents(), historyRequests }), contentType: "application/json" });
+});
+
+for (const action of ["full-clear", "reset"] as const) test(`Task7 invalid partial history recovers only after deliberate ${action}`, async ({ page }, info) => {
+  const historyRequests: Array<Record<string, string>> = [];
+  await page.route("**/energy/sites/*/reports?**", route => {
+    historyRequests.push(Object.fromEntries(new URL(route.request().url()).searchParams));
+    return route.fulfill({ json: { reports: [browserReport("failed")], nextCursor: null, totalCount: 1 } });
+  });
+  await page.goto(`/statistics/reports?siteId=${reportSiteId}&query=original&limit=50&requestedFrom=2026-09-01`);
+  const rawUrl = page.url();
+  const dialog = await openFilter(page, "보고서 조건");
+  const segments = dialog.getByRole("group", { name: "요청 기간" }).getByRole("spinbutton");
+  await expect(segments).toHaveText(["2026", "9", "1", "연도", "월", "일"]);
+  expect(page.url()).toBe(rawUrl); expect(historyRequests).toEqual([]);
+  if (action === "reset") await dialog.getByRole("button", { name: "필터 초기화" }).click();
+  else {
+    for (const [index, count] of [[0, 4], [1, 1], [2, 1]]) {
+      await segments.nth(index).click();
+      for (let key = 0; key < count; key++) await page.keyboard.press("Backspace");
+      if (index < 2) { expect(page.url()).toBe(rawUrl); expect(historyRequests).toEqual([]); }
+    }
+  }
+  await dialog.getByRole("button", { name: "필터 닫기" }).click();
+  await expect(page.getByRole("region", { name: "요청한 보고서", exact: true })).toBeVisible();
+  expect(historyRequests).toEqual([{ limit: action === "reset" ? "20" : "50", query: "original" }]);
+  const url = new URL(page.url());
+  expect(url.searchParams.has("requestedFrom")).toBe(false); expect(url.searchParams.has("requestedTo")).toBe(false);
+  await info.attach("deliberate-invalid-history-recovery", { body: JSON.stringify({ utc: new Date().toISOString(), action, rawUrl, repairedUrl: page.url(), historyRequests }), contentType: "application/json" });
+});
+
+test("Task7 independent report creation stays usable under invalid history without querying or normalizing its URL", async ({ page }, info) => {
+  const historyRequests: string[] = [], createRequests: unknown[] = [];
+  await page.route("**/energy/sites/*/reports**", route => {
+    if (route.request().method() === "POST") {
+      const request = route.request().postDataJSON(); createRequests.push(request);
+      return route.fulfill({ status: 202, json: browserReport("queued", request) });
+    }
+    historyRequests.push(route.request().url());
+    return route.fulfill({ json: { reports: [browserReport("failed")], nextCursor: null, totalCount: 1 } });
+  });
+  await page.goto(`/statistics/reports?siteId=${reportSiteId}&requestedFrom=2026-02-31&requestedTo=2026-09-01`);
+  const rawUrl = page.url();
+  await page.getByRole("button", { name: "보고서 만들기" }).click();
+  const dialog = page.getByRole("dialog", { name: "에너지 사용량 보고서 만들기" });
+  await expect(dialog.getByRole("button", { name: "보고서 요청" })).toBeEnabled();
+  await expect(dialog.getByRole("button", { name: "CSV 내보내기" })).toBeEnabled();
+  await dialog.getByRole("button", { name: "보고서 요청" }).click();
+  await expect(dialog).toHaveCount(0);
+  expect(createRequests).toEqual([{ from: "2026-08-13", to: "2026-09-11", scope: "site", identityId: reportSiteId, format: "pdf" }]);
+  expect(historyRequests).toEqual([]); expect(page.url()).toBe(rawUrl);
+  await expect(page.getByText("URL의 요청 기간을 직접 수정하거나 필터를 초기화해 주세요.")).toBeVisible();
+  await info.attach("independent-create-invalid-history", { body: JSON.stringify({ utc: new Date().toISOString(), rawUrl, createRequests, historyRequests }), contentType: "application/json" });
 });
 
 test("searches and paginates 101 server records, restores filters, and returns to page one after creation", async ({ page }) => {
@@ -296,10 +910,12 @@ test("searches and paginates 101 server records, restores filters, and returns t
   });
   await page.reload();
   await expect(filters.getByRole("searchbox", { name: "보고서 검색" })).toHaveValue("서울");
-  await expect(filters.getByRole("button", { name: "상태", exact: true })).toContainText("완료");
   await expect(filters.getByRole("button", { name: "범위: 현장 조건 제거" })).toBeVisible();
   const restoredUrl = page.url();
-  await expect(filters.getByRole("button", { name: "범위", exact: true })).toContainText("현장");
+  const restoredFilters = await openFilter(page, "보고서 조건");
+  await expect(restoredFilters.getByRole("button", { name: "상태", exact: true })).toContainText("완료");
+  await expect(restoredFilters.getByRole("button", { name: "범위", exact: true })).toContainText("현장");
+  await restoredFilters.getByRole("button", { name: "필터 닫기" }).click();
   await expect(page).toHaveURL(restoredUrl);
   await expect(pagination.getByRole("status")).toContainText("1~3 / 3건");
 
@@ -329,11 +945,13 @@ test("searches and paginates 101 server records, restores filters, and returns t
   fixture.expectNextListQuery({ limit: "100" });
   await filters.getByRole("button", { name: "전체 초기화" }).click();
   await expect(pagination.getByRole("status")).toContainText("1~100 / 101건");
-  await expect(filters.getByLabel("활성 조건")).toHaveCount(0);
+  await expect(filters.getByLabel("활성 조건", { exact: true })).toHaveCount(0);
   await expect(filters.getByRole("searchbox", { name: "보고서 검색" })).toHaveValue("");
-  await expect(filters.getByRole("button", { name: "상태", exact: true })).toContainText("전체 상태");
-  await expect(filters.getByRole("button", { name: "범위", exact: true })).toContainText("전체 범위");
-  await expect(filters.getByRole("button", { name: "요청 기간 선택, 현재 전체 기간" })).toBeVisible();
+  const resetFilters = await openFilter(page, "보고서 조건");
+  await expect(resetFilters.getByRole("button", { name: "상태", exact: true })).toContainText("전체 상태");
+  await expect(resetFilters.getByRole("button", { name: "범위", exact: true })).toContainText("전체 범위");
+  await expect(resetFilters.getByRole("group", { name: "요청 기간" })).toBeVisible();
+  await resetFilters.getByRole("button", { name: "필터 닫기" }).click();
   expect(new URL(page.url()).searchParams.get("limit")).toBe("100");
   expect([...new URL(page.url()).searchParams.keys()].sort()).toEqual(["limit", "siteId"]);
 
@@ -366,30 +984,26 @@ for (const viewport of [
     await installReportHistoryFixture(page);
     await page.goto(`/statistics/reports?siteId=${reportSiteId}&query=%EC%84%9C%EC%9A%B8&scope=site&requestedFrom=2026-09-07&requestedTo=2026-09-11`);
 
-    if (viewport.width >= 1024) {
+    const tableWidth = await page.getByRole("region", { name: "요청한 보고서" }).evaluate(element => element.clientWidth);
+    if (tableWidth >= 950) {
       await expect(page.getByRole("table", { name: "보고서 생성 이력" })).toBeVisible();
-      await expect(page.getByRole("list", { name: "모바일 보고서 생성 이력" })).toBeHidden();
+      await expect(page.getByRole("list", { name: "보고서 생성 이력" })).toBeHidden();
     } else {
-      await expect(page.getByRole("list", { name: "모바일 보고서 생성 이력" })).toBeVisible();
+      await expect(page.getByRole("list", { name: "보고서 생성 이력" })).toBeVisible();
       await expect(page.getByRole("table", { name: "보고서 생성 이력" })).toBeHidden();
     }
 
     await expectNoHorizontalOverflow(page);
     const filters = page.getByRole("search", { name: "보고서 이력 필터" });
     const pagination = page.getByRole("navigation", { name: "페이지 이동" });
-    const dateTrigger = filters.getByRole("button", { name: /요청 기간 선택, 현재/ });
-    const scopeSelect = filters.getByRole("button", { name: "범위", exact: true });
-    await expect(scopeSelect).toBeVisible();
+    const dateTrigger = filters.getByRole("button", { name: /보고서 조건 상세 필터/ });
     await expect(filters.getByRole("button", { name: "범위: 현장 조건 제거" })).toBeVisible();
-    const visibleHistory = viewport.width >= 1024
+    const visibleHistory = tableWidth >= 950
       ? page.getByRole("table", { name: "보고서 생성 이력" })
-      : page.getByRole("list", { name: "모바일 보고서 생성 이력" });
+      : page.getByRole("list", { name: "보고서 생성 이력" });
     const touchTargets = [
       filters.getByRole("searchbox", { name: "보고서 검색" }),
-      filters.getByRole("button", { name: "상태" }),
       dateTrigger,
-      scopeSelect,
-      pagination.getByRole("button", { name: "페이지당 항목 수" }),
       visibleHistory.getByRole("button", { name: /보고서 다운로드$/ }).first(),
       visibleHistory.getByRole("button", { name: /보고서 다시 생성$/ }).first(),
       visibleHistory.getByRole("button", { name: /실패 상세 보기$/ }).first(),
@@ -400,7 +1014,8 @@ for (const viewport of [
       await expectLocatorTouchTarget(target, `${viewport.width}px visible interactive target`);
     }
     await dateTrigger.click();
-    const dateDialog = page.getByRole("dialog", { name: "요청 기간 선택" });
+    const dateDialog = page.getByRole("dialog", { name: "보고서 조건" });
+    for (const label of ["상태", "범위", "페이지 크기"]) await expectLocatorTouchTarget(dateDialog.getByRole("button", { name: label, exact: true }), `${viewport.width}px ${label}`);
     await expect(dateDialog.getByRole("group", { name: "요청 기간" })).toBeVisible();
     for (const target of await dateDialog.getByRole("group", { name: "요청 기간" }).getByRole("spinbutton").all()) {
       await expectLocatorTouchTarget(target, `${viewport.width}px request-date segment`);
@@ -434,9 +1049,7 @@ test("Atlas desktop statistics surfaces keep filter rows compact and all heatmap
   const reportFilters = page.getByRole("search", { name: "보고서 이력 필터" });
   const reportControls = [
     reportFilters.getByRole("searchbox", { name: "보고서 검색" }),
-    reportFilters.getByRole("button", { name: "상태" }),
-    reportFilters.getByRole("button", { name: /요청 기간 선택, 현재/ }),
-    reportFilters.getByRole("button", { name: "범위" })
+    reportFilters.getByRole("button", { name: /보고서 조건 상세 필터/ })
   ];
   const reportRects = await Promise.all(reportControls.map((control) => control.boundingBox()));
   expect(reportRects.every(Boolean)).toBe(true);
@@ -458,14 +1071,13 @@ test("Atlas desktop statistics surfaces keep filter rows compact and all heatmap
   });
   await page.goto(`/statistics/analysis?siteId=${reportSiteId}`);
   const filterCard = page.getByRole("region", { name: "사용량 분석 조건" });
-  const dimension = filterCard.getByRole("group", { name: "분석 단위" });
-  const analysisControls = [dimension, filterCard.getByRole("button", { name: "순위 기준" }),
-    filterCard.getByRole("group", { name: "시작일" }), filterCard.getByRole("group", { name: "종료일" }),
-    filterCard.getByRole("button", { name: /높은 순|낮은 순/ })];
-  const analysisRects = await Promise.all(analysisControls.map((control) => control.boundingBox()));
-  expect(analysisRects.every(Boolean)).toBe(true);
-  expect(Math.max(...analysisRects.map((rect) => rect!.y + rect!.height)) - Math.min(...analysisRects.map((rect) => rect!.y + rect!.height)), JSON.stringify(analysisRects)).toBeLessThanOrEqual(2);
-  expect((await filterCard.boundingBox())!.height).toBeLessThan(125);
+  await expect(filterCard.getByRole("button", { name: /사용량 분석 조건 상세 필터/ })).toBeVisible();
+  const compactBounds = (await filterCard.boundingBox())!;
+  await testInfo.attach("compact-analysis-bounds", { body: JSON.stringify({ utc: new Date().toISOString(), compactBounds, summary: await filterCard.innerText() }), contentType: "application/json" });
+  expect(compactBounds.height).toBeLessThan(125);
+  const analysisFilters = await openFilter(page, "사용량 분석 조건");
+  for (const control of [analysisFilters.getByRole("group", { name: "분석 단위" }), analysisFilters.getByRole("button", { name: "순위 기준" }), analysisFilters.getByRole("group", { name: "시작일" }), analysisFilters.getByRole("group", { name: "종료일" }), analysisFilters.getByRole("button", { name: /높은 순|낮은 순/ })]) await expect(control).toBeVisible();
+  await analysisFilters.getByRole("button", { name: "필터 닫기" }).click();
 
   const detail = page.getByRole("complementary", { name: /상세$/ });
   expect((await detail.boundingBox())!.height, "desktop ranking detail should not create a large empty ranking column").toBeLessThanOrEqual(460);
@@ -570,7 +1182,9 @@ for (const viewport of [
     const missing = energyGrid.getByRole("button", { name: /일요일 01시, 평균 산정 불가/ });
     await missing.focus(); await page.keyboard.press("Enter");
     await expect(missing).toHaveAttribute("aria-pressed", "true");
-    await page.getByRole("button", { name: "밝기", exact: true }).click();
+    const heatmapFilters = await openFilter(page, "히트맵 지표");
+    await heatmapFilters.getByRole("button", { name: "밝기", exact: true }).click();
+    await heatmapFilters.getByRole("button", { name: "필터 닫기" }).click();
     const brightnessGrid = page.getByRole("group", { name: "시간대별 밝기" });
     await expect(brightnessGrid).toBeVisible();
     const cells = await brightnessGrid.getByRole("button").evaluateAll(elements => elements.map(element => {
@@ -578,12 +1192,13 @@ for (const viewport of [
     }));
     expect(cells.every(cell => cell.width >= 44 && cell.height >= 44)).toBe(true);
     await expectNoHorizontalOverflow(page);
-    await page.getByRole("button", { name: "에너지", exact: true }).scrollIntoViewIfNeeded();
-    for (const metricButton of await page.getByRole("region", { name: "시간대별 사용량" }).getByRole("button", { name: /^(에너지|밝기)$/ }).all()) {
+    await openFilter(page, "히트맵 지표");
+    for (const metricButton of await heatmapFilters.getByRole("button", { name: /^(에너지|밝기)$/ }).all()) {
       const bounds = await metricButton.boundingBox();
       expect(bounds?.width).toBeGreaterThanOrEqual(44); expect(bounds?.height).toBeGreaterThanOrEqual(44);
     }
-    await expectMinimumTouchTargets(page, "[aria-label='히트맵 지표']");
+    await expectMinimumTouchTargetsAfterScrolling(page, '[role="dialog"][aria-label="히트맵 지표"]');
+    await heatmapFilters.getByRole("button", { name: "필터 닫기" }).click();
     for (const index of [0, 23, 167]) {
       const cell = brightnessGrid.getByRole("button").nth(index);
       await cell.evaluate((element) => element.scrollIntoView({ block: "center", inline: "center" }));
@@ -606,10 +1221,10 @@ for (const viewport of [
     }
     await page.getByRole("link", { name: "보고서", exact: true }).click();
     if (width === 320) {
-      const report = page.getByRole("listitem", { name: `${narrowTargetLabel} 보고서` });
+      const report = page.getByRole("listitem").filter({ has: page.getByText(narrowTargetLabel, { exact: true }) });
       await expect(report).toBeVisible();
       await expect(report.getByRole("button", { name: `${narrowTargetLabel} 보고서 다운로드` })).toBeVisible();
-      const wrapping = await report.getByRole("group", { name: "보고서 메타데이터" }).evaluate((metadata) => {
+      const wrapping = await report.locator("dl").evaluate((metadata) => {
         const bounds = metadata.getBoundingClientRect();
         const itemBounds = Array.from(metadata.children, child => child.getBoundingClientRect());
         return {
@@ -639,6 +1254,78 @@ for (const viewport of [
   });
 }
 
+test.describe("Task7 physical filter hit and overlay lifecycle", () => {
+  test.use({ hasTouch: true });
+  for (const width of [320, 390]) test(`${width}px filter triggers retain real 44px hit, nested focus and query silence`, async ({ page }, info) => {
+    await page.setViewportSize({ width, height: 740 });
+    const queries: string[] = [];
+    page.on("request", request => { if (/\/api\/energy\//.test(request.url())) queries.push(request.url()); });
+    const measurements: unknown[] = [];
+    for (const [route, labels] of [["overview", ["절감 비교 기간", "사용량 조회 단위"]], ["analysis", ["사용량 분석 조건", "히트맵 지표"]], ["reports", ["보고서 조건"]]] as const) {
+      await page.goto(`/statistics/${route}?siteId=${reportSiteId}`);
+      if (route === "overview") await expect(page.getByRole("img", { name: /일별 상태 기반 추정/ })).toBeVisible();
+      if (route === "analysis") await expect(page.getByRole("group", { name: "시간대별 에너지 사용량" })).toBeVisible();
+      if (route === "reports") await expect(page.getByText("요청한 보고서가 없습니다.")).toBeVisible();
+      for (const label of labels) {
+        const trigger = page.getByRole("button", { name: new RegExp(`${label} 상세 필터`) });
+        await expectMinimumTouchTargetsAfterScrolling(page, `section[aria-label="${label}"]`);
+        measurements.push({ route, label, bounds: await trigger.boundingBox() });
+        const before = queries.length;
+        await trigger.tap();
+        const dialog = page.getByRole("dialog", { name: label, exact: true });
+        await expect(dialog).toBeVisible();
+        if (label === "사용량 분석 조건") {
+          await dialog.getByRole("button", { name: "순위 기준", exact: true }).click();
+          await expect(page.getByRole("listbox")).toBeVisible();
+          await page.keyboard.press("Escape");
+          await expect(page.getByRole("listbox")).toHaveCount(0);
+          await expect(dialog.getByRole("button", { name: "순위 기준", exact: true })).toBeFocused();
+          const calendar = dialog.getByRole("group", { name: "시작일", exact: true }).getByRole("button");
+          await calendar.click();
+          await expect(page.getByRole("grid")).toBeVisible();
+          await page.keyboard.press("Escape");
+          await expect(page.getByRole("grid")).toHaveCount(0);
+          await expect(calendar).toBeFocused();
+          expect(await page.evaluate(async () => {
+            const overlays = await import(/* @vite-ignore */ "/src/components/ui/overlays/overlay-stack.ts");
+            return overlays.closeTopOverlay();
+          })).toBe(true);
+        } else await page.keyboard.press("Escape");
+        await expect(dialog).toHaveCount(0);
+        await expect(trigger).toBeFocused();
+        expect(queries.length).toBe(before);
+        await expectNoHorizontalOverflow(page);
+      }
+    }
+    await info.attach("real-filter-hit-and-lifecycle", { body: JSON.stringify({ width, utc: new Date().toISOString(), measurements, queries }), contentType: "application/json" });
+  });
+});
+
+test("Task7 heatmap metric loading retains its live filter and focus", async ({ page }, info) => {
+  let release!: () => void;
+  const pending = new Promise<void>(resolve => { release = resolve; });
+  await page.route("**/energy/sites/*/heatmap/observed-mean?**", async route => {
+    const url = new URL(route.request().url());
+    if (url.searchParams.get("metric") === "brightness") await pending;
+    await route.fulfill({ json: observedMeanHeatmap(url) });
+  });
+  try {
+    await page.goto(`/statistics/analysis?siteId=${reportSiteId}`);
+    await expect(page.getByRole("group", { name: "시간대별 에너지 사용량" })).toBeVisible();
+    const filter = await openFilter(page, "히트맵 지표");
+    const metric = filter.getByRole("button", { name: "밝기", exact: true });
+    await metric.click();
+    await expect(page.getByText("시간대별 사용량을 계산하는 중", { exact: true })).toBeVisible();
+    release();
+    await expect(page.locator('[role="group"][aria-label="시간대별 밝기"]')).toBeVisible();
+    await info.attach("heatmap-loading-focus", { body: JSON.stringify(await page.evaluate(() => ({ utc: new Date().toISOString(), tag: document.activeElement?.tagName, label: document.activeElement?.getAttribute("aria-label"), text: document.activeElement?.textContent, dialog: document.activeElement?.closest('[role="dialog"]')?.getAttribute("aria-label") }))), contentType: "application/json" });
+    await expect(filter).toBeVisible();
+    await expect(metric).toBeFocused();
+    await filter.getByRole("button", { name: "필터 닫기" }).click();
+    await expect(page.getByRole("button", { name: /히트맵 지표 상세 필터/ })).toBeFocused();
+  } finally { release(); }
+});
+
 test("navigates to usage analysis and drills into fixture, floor, and group rankings", async ({ page }) => {
   await page.goto(`/statistics/overview?siteId=${reportSiteId}`);
   await page.getByRole("link", { name: "사용 분석" }).click();
@@ -648,7 +1335,9 @@ test("navigates to usage analysis and drills into fixture, floor, and group rank
   await expect(page.getByRole("complementary", { name: "B1 주차장 상세" })).toBeVisible();
 
   const groupRequest = page.waitForRequest((request) => request.url().includes("dimension=group"));
-  await page.getByRole("button", { name: "그룹" }).click();
+  const analysisFilters = await openFilter(page, "사용량 분석 조건");
+  await analysisFilters.getByRole("button", { name: "그룹", exact: true }).click();
+  await analysisFilters.getByRole("button", { name: "필터 닫기" }).click();
   await groupRequest;
   await page.getByRole("button", { name: "그룹 중복 안내" }).click();
   await expect(page.getByRole("dialog", { name: "그룹 중복 안내" })).toContainText("그룹 합계는 현장 총계와 다를 수 있습니다.");
@@ -755,15 +1444,20 @@ test("shows energy cards, daily and monthly lines, partial coverage and savings"
   await partialDot.hover();
   await expect(page.getByText("수집 공백 2시간 0분", { exact: true })).toBeVisible();
 
-  await page.getByRole("button", { name: "월별" }).click();
+  const trendFilters = await openFilter(page, "사용량 조회 단위");
+  await trendFilters.getByRole("button", { name: "월별" }).click();
   await expect(page.getByRole("button", { name: "월별" })).toHaveAttribute("aria-pressed", "true");
+  await trendFilters.getByRole("button", { name: "필터 닫기" }).click();
   await expect(page.getByRole("img", { name: /월별 상태 기반 추정/ })).toBeVisible();
   await expect(page.getByText(/2026년 7월: 140 kWh/)).toBeAttached();
 
   const comparisonRequest = page.waitForRequest((request) => request.url().includes("/comparisons?preset=last_7_days"));
-  await page.getByRole("button", { name: "최근 7일", exact: true }).click();
+  const comparisonFilters = await openFilter(page, "절감 비교 기간");
+  await comparisonFilters.getByRole("group", { name: "절감 비교 프리셋" }).getByRole("button", { name: "최근 7일", exact: true }).click();
   await comparisonRequest;
-  await expect(page.getByRole("button", { name: "최근 7일", exact: true })).toHaveAttribute("aria-pressed", "true");
+  await openFilter(page, "절감 비교 기간");
+  await expect(comparisonFilters.getByRole("group", { name: "절감 비교 프리셋" }).getByRole("button", { name: "최근 7일", exact: true })).toHaveAttribute("aria-pressed", "true");
+  await comparisonFilters.getByRole("button", { name: "필터 닫기" }).click();
   await expect(page).toHaveURL(/\/statistics\/overview\?siteId=site-1$/);
 });
 
@@ -773,21 +1467,24 @@ for (const viewport of [
   { width: 390, height: 844 },
   { width: 320, height: 740 }
 ] as const) {
-  test(`completed comparison picker and analysis range stay coherent at ${viewport.width}px`, async ({ page }) => {
+  test(`completed comparison picker and analysis range stay coherent at ${viewport.width}px`, async ({ page }, testInfo) => {
     await page.setViewportSize(viewport);
     await page.goto(`/statistics/overview?siteId=${reportSiteId}`);
-    const opener = page.getByRole("button", { name: /완료 기간 날짜 범위 선택, 현재/ });
-    await opener.click();
-    const dialog = page.getByRole("dialog", { name: "완료일 비교 기간 선택" });
+    const opener = page.getByRole("button", { name: /절감 비교 기간 상세 필터/ });
+    await opener.focus(); await page.keyboard.press("Enter");
+    const dialog = page.getByRole("dialog", { name: "절감 비교 기간" });
     await expect(dialog).toBeVisible();
     await expect(dialog.getByRole("group", { name: "완료 기간 시작일과 종료일" }).getByRole("spinbutton").first()).toBeFocused();
+    await page.keyboard.press("ArrowRight");
+    await expect(dialog.getByRole("group", { name: "완료 기간 시작일과 종료일" }).getByRole("spinbutton").nth(1)).toBeFocused();
     await dialog.getByRole("group", { name: "빠른 기간 선택" }).getByRole("button", { name: "최근 7일" }).click();
     const customRequest = page.waitForRequest((request) => request.url().includes("/comparisons/range?from=2026-08-19&to=2026-08-25"));
     await dialog.getByRole("button", { name: "선택 기간 적용" }).click();
     await customRequest;
     await expect(dialog).not.toBeVisible();
     await expect(opener).toBeFocused();
-    await expect(opener).toHaveAccessibleName("완료 기간 날짜 범위 선택, 현재 2026-08-19 ~ 2026-08-25");
+    await expect(opener).toHaveAccessibleName("절감 비교 기간 상세 필터, 활성 조건 1개");
+    await expect(page.getByRole("region", { name: "절감 비교 기간", exact: true }).getByText("2026-08-19 ~ 2026-08-25", { exact: true })).toBeVisible();
     await expect(page.getByRole("group", { name: "오늘 전력 사용량" })).toContainText("4.25 kWh");
     await expect(page.getByRole("heading", { name: "이번 달 비용 비교" })).toBeVisible();
     await expectNoHorizontalOverflow(page);
@@ -887,9 +1584,13 @@ test("hides a cached analysis after same-period refetch fails and restores it on
   await page.goto(`/statistics/analysis?siteId=${reportSiteId}`);
   const analysis = page.getByRole("region", { name: "사용량 분석 결과" });
   await expect(analysis.getByRole("group", { name: "현장 사용량" })).toContainText("20 kWh");
-  await analysis.getByRole("button", { name: "조명", exact: true }).click();
+  const analysisFilters = await openFilter(page, "사용량 분석 조건");
+  await analysisFilters.getByRole("button", { name: "조명", exact: true }).click();
+  await analysisFilters.getByRole("button", { name: "필터 닫기" }).click();
   await expect(analysis.getByRole("region", { name: "사용량 순위" })).toContainText("B1-L01");
-  await analysis.getByRole("button", { name: "층", exact: true }).click();
+  await openFilter(page, "사용량 분석 조건");
+  await analysisFilters.getByRole("button", { name: "층", exact: true }).click();
+  await analysisFilters.getByRole("button", { name: "필터 닫기" }).click();
   await expect(analysis.getByText("사용량 분석을 불러오지 못했습니다.")).toBeVisible();
   expect(floorRequests).toBe(3);
   await expect(analysis.getByRole("group", { name: "현장 사용량" })).not.toBeVisible();
@@ -914,8 +1615,8 @@ for (const mismatch of ["site", "range"] as const) {
       return route.fulfill({ json: response });
     });
     await page.goto(`/statistics/overview?siteId=${reportSiteId}`);
-    await page.getByRole("button", { name: /완료 기간 날짜 범위 선택, 현재/ }).click();
-    const dialog = page.getByRole("dialog", { name: "완료일 비교 기간 선택" });
+    await page.getByRole("button", { name: /절감 비교 기간 상세 필터/ }).click();
+    const dialog = page.getByRole("dialog", { name: "절감 비교 기간" });
     await dialog.getByRole("group", { name: "빠른 기간 선택" }).getByRole("button", { name: "최근 7일" }).click();
     await dialog.getByRole("button", { name: "선택 기간 적용" }).click();
 
@@ -1106,6 +1807,115 @@ test("packs the statistics report from the top in a tall viewport", async ({ pag
   ).toBeGreaterThan(viewport.height * 0.1);
 });
 
+unconfiguredTest("Task7 native Chromium 200 percent keeps statistic filters, periods and keyboard reachable", async ({}, testInfo) => {
+  test.setTimeout(60000);
+  const context = await chromium.launchPersistentContext("", {
+    channel: "chromium", viewport: null, deviceScaleFactor: undefined, args: ["--window-size=1440,900"]
+  });
+  let native: StatisticsNativeZoomEvidence | undefined;
+  try {
+    const page = context.pages()[0]!;
+    await installMockApiBoundary(context, testInfo.project.use.baseURL!);
+    await installStatisticsFixtures(page);
+    // This persistent page owns separate route handlers from the default test
+    // page. Complete its known shell lookup without permitting unknown API calls.
+    await page.route("**/api/sites", route => route.fulfill({ json: [dashboard(reportSiteId).site] }));
+    await page.goto(`${testInfo.project.use.baseURL}/statistics/overview?siteId=${reportSiteId}`);
+    native = await StatisticsNativeZoomEvidence.create(context, page, testInfo);
+    await native.global200(context);
+    await expect(page.getByText("핵심 절감 분석", { exact: true })).toHaveCount(0);
+    const current = page.getByRole("region", { name: "오늘 사용량과 비용" });
+    await expect(current.getByText("상태 기반 추정", { exact: true })).toHaveCount(0);
+    await expect(current.getByText("KPI 수집 공백", { exact: true })).toHaveCount(0);
+    await expect(current).toContainText("마지막 집계 2026-08-26 09:00:00");
+    const pickerButton = page.getByRole("button", { name: /절감 비교 기간 상세 필터/ });
+    await pickerButton.focus(); await page.keyboard.press("Enter");
+    const dialog = page.getByRole("dialog", { name: "절감 비교 기간" });
+    await expect(dialog).toBeVisible();
+    await expect(dialog.getByRole("group", { name: "완료 기간 시작일과 종료일" }).getByRole("spinbutton").first()).toBeFocused();
+    await page.keyboard.press("Escape"); await expect(pickerButton).toBeFocused();
+    await expectNoHorizontalOverflow(page);
+    await page.getByRole("link", { name: "사용 분석", exact: true }).click();
+    const filters = page.getByRole("region", { name: "사용량 분석 조건" });
+    const analysisTrigger = filters.getByRole("button", { name: /사용량 분석 조건 상세 필터/ });
+    await analysisTrigger.focus(); await page.keyboard.press("Enter");
+    const analysisDialog = page.getByRole("dialog", { name: "사용량 분석 조건", exact: true });
+    await expect(analysisDialog.getByRole("group", { name: "시작일", exact: true })).toBeVisible();
+    // Reset belongs inside the new public Popover, never duplicates outside it.
+    await expect(filters.getByRole("button", { name: /초기화/ })).toHaveCount(0);
+    await expectMinimumTouchTargetsAfterScrolling(page, '[role="dialog"][aria-label="사용량 분석 조건"]');
+    await page.keyboard.press("Escape"); await expect(analysisTrigger).toBeFocused();
+    await expectMinimumTouchTargetsAfterScrolling(page, '[aria-label="사용량 분석 조건"]');
+    await expectNoHorizontalOverflow(page);
+    await page.getByRole("link", { name: "보고서", exact: true }).click();
+    const historyFilters = page.getByRole("search", { name: "보고서 이력 필터" });
+    const reportTrigger = historyFilters.getByRole("button", { name: /보고서 조건 상세 필터/ });
+    await reportTrigger.focus(); await page.keyboard.press("Enter");
+    const reportDialog = page.getByRole("dialog", { name: "보고서 조건", exact: true });
+    await expect(reportDialog.getByRole("group", { name: "요청 기간", exact: true })).toBeVisible();
+    await expectMinimumTouchTargetsAfterScrolling(page, '[role="dialog"][aria-label="보고서 조건"]');
+    await page.keyboard.press("Escape");
+    await expect(reportTrigger).toBeFocused();
+    await expectMinimumTouchTargetsAfterScrolling(page, '[role="search"][aria-label="보고서 이력 필터"]');
+    await expectNoHorizontalOverflow(page);
+    await expect(page.getByText("현장 목록을 확인하지 못했습니다.", { exact: true })).toHaveCount(0);
+    await native.capture("Task7-native-200-report", reportTrigger, async () => { await expect(reportDialog).toBeVisible(); }, ["Escape"], {
+      description: "보고서 조건 dialog closed, trigger collapsed and focused",
+      observe: async () => {
+        await expect(reportDialog).not.toBeVisible();
+        await expect(reportTrigger).toHaveAttribute("aria-expanded", "false");
+        return { dialogName: "보고서 조건", visible: await reportDialog.isVisible(), expanded: await reportTrigger.getAttribute("aria-expanded") };
+      }
+    });
+  } finally {
+    try { await native?.stop(); } finally { await context.close(); await native?.recordContextCleanup(); }
+  }
+});
+
+test("Task7 quick periods remain independent while zero, missing and isolated chart points stay truthful", async ({ page }) => {
+  await page.route("**/energy/sites/*/summary", route => {
+    const value = summary(reportSiteId);
+    return route.fulfill({ json: { ...value,
+      today: { ...value.today, estimatedKwh: 0, estimatedCost: 0 },
+      monthToDate: { ...value.monthToDate, estimatedKwh: 0, estimatedCost: 0, knownSeconds: 0, dataStatus: "no_data" }
+    } });
+  });
+  await page.route("**/energy/sites/*/series?**", route => {
+    const params = new URL(route.request().url()).searchParams;
+    const value = series(reportSiteId, "day", params.get("from")!, params.get("to")!);
+    return route.fulfill({ json: { ...value, points: value.points.map((point, index) => ({ ...point,
+      estimatedKwh: 0, estimatedCost: 0, knownSeconds: index === 1 ? 86400 : 0,
+      unknownSeconds: index === 1 ? 0 : 86400, dataStatus: index === 1 ? "available" : "no_data"
+    })) } });
+  });
+  await page.route("**/energy/sites/*/comparisons?**", route => {
+    const preset = comparisonPreset(new URL(route.request().url()).searchParams.get("preset"));
+    const base = comparison(preset, "saving");
+    const range = preset === "last_7_days" ? { from: "2026-08-19", to: "2026-08-25", completedThrough: "2026-08-25" }
+      : preset === "current_year" ? { from: "2026-01-01", to: "2026-12-31", completedThrough: "2026-08-25" } : base.range;
+    return route.fulfill({ json: { ...base, siteId: reportSiteId, range } });
+  });
+  await page.goto(`/statistics/overview?siteId=${reportSiteId}`);
+  await expect(page.getByRole("group", { name: "오늘 전력 사용량" })).toContainText("0 kWh");
+  await expect(page.getByRole("group", { name: "이번 달 누적 전력 사용량" })).toContainText("—");
+  const chart = page.getByRole("region", { name: "상태 기반 추정 사용량" });
+  await expect(chart.getByText("2026-08-01 ~ 2026-08-31", { exact: true })).toBeVisible();
+  await expect(chart.locator(".recharts-line-dots circle")).toHaveCount(1);
+  const data = chart.getByRole("list", { name: "차트 데이터 및 수집 상태" });
+  await expect(data).toContainText("2026년 8월 26일: 0 kWh");
+  await expect(data).toContainText("2026년 8월 25일: 수집 데이터 없음");
+  await expect(chart.getByText("결측 포함", { exact: true })).toBeVisible();
+  const picker = (await openFilter(page, "절감 비교 기간")).getByRole("group", { name: "절감 비교 프리셋" });
+  await picker.getByRole("button", { name: "최근 7일", exact: true }).click();
+  await expect(page.getByRole("region", { name: "절감 비교 기간", exact: true }).getByText("2026-08-19 ~ 2026-08-25", { exact: true })).toBeVisible();
+  await expect(chart.getByText("2026-08-01 ~ 2026-08-31", { exact: true })).toBeVisible();
+  await openFilter(page, "절감 비교 기간");
+  await picker.getByRole("button", { name: "올해", exact: true }).click();
+  await expect(page.getByRole("region", { name: "절감 비교 기간", exact: true }).getByText("2026-01-01 ~ 2026-12-31", { exact: true })).toBeVisible();
+  await expect(page.getByText("핵심 절감 분석", { exact: true })).toHaveCount(0);
+  await expectNoHorizontalOverflow(page);
+});
+
 test("keeps KPI helper ranges readable without oversized cards at 320px", async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 740 });
   await page.goto("/statistics");
@@ -1165,8 +1975,10 @@ for (const viewport of [
     const firstAxisLabel = page.getByRole("region", { name: "상태 기반 추정 사용량" }).locator(".recharts-cartesian-axis-tick-value").first();
     await expect(firstAxisLabel).toBeVisible();
     expect(await firstAxisLabel.evaluate((element) => Number.parseFloat(getComputedStyle(element).fontSize))).toBeGreaterThanOrEqual(11);
-    await expect(page.getByRole("button", { name: "일별" })).toBeVisible();
-    await expect(page.getByRole("button", { name: "월별" })).toBeVisible();
+    const trendFilters = await openFilter(page, "사용량 조회 단위");
+    await expect(trendFilters.getByRole("button", { name: "일별" })).toBeVisible();
+    await expect(trendFilters.getByRole("button", { name: "월별" })).toBeVisible();
+    await trendFilters.getByRole("button", { name: "필터 닫기" }).click();
     await expectStatisticsSpacing(page, viewport.width <= 760);
     await expectComparisonPanelLayout(page, viewport.width <= 760);
     const comparisonOverflow = await page.getByRole("region", { name: "기준 대비 사용량 비교" }).evaluate((element) => ({
@@ -1177,8 +1989,7 @@ for (const viewport of [
     await expectNoHorizontalOverflow(page);
     if (viewport.width <= 760) {
       await page.getByRole("heading", { name: "상태 기반 추정 사용량" }).scrollIntoViewIfNeeded();
-      await expect(page.getByRole("button", { name: "일별" })).toBeInViewport();
-      await expect(page.getByRole("button", { name: "월별" })).toBeInViewport();
+      await expect(page.getByRole("button", { name: /사용량 조회 단위 상세 필터/ })).toBeInViewport();
       await expectMinimumTouchTargets(page, "[data-app-shell]");
     }
 
@@ -1231,7 +2042,7 @@ async function expectStatisticsSpacing(page: Page, compact: boolean) {
 
     const [chartTitle, chartTabs] = await Promise.all([
       page.getByRole("heading", { name: "상태 기반 추정 사용량" }).boundingBox(),
-      chartPanel.getByRole("button", { name: "일별" }).boundingBox()
+      chartPanel.getByRole("button", { name: /사용량 조회 단위 상세 필터/ }).boundingBox()
     ]);
     expect(chartTitle).not.toBeNull();
     expect(chartTabs).not.toBeNull();
@@ -1586,8 +2397,18 @@ async function gridColumnCount(page: Page) {
 }
 
 async function chooseOption(page: Page, container: Locator, label: string, option: string) {
-  await container.getByRole("button", { name: label, exact: true }).click();
+  const history = label === "페이지당 항목 수" || await container.getAttribute("aria-label") === "보고서 이력 필터";
+  const target = history ? await openFilter(page, "보고서 조건") : container;
+  await target.getByRole("button", { name: label === "페이지당 항목 수" ? "페이지 크기" : label, exact: true }).click();
   await page.getByRole("option", { name: option, exact: true }).click();
+  if (history) await target.getByRole("button", { name: "필터 닫기" }).click();
+}
+
+async function openFilter(page: Page, label: string) {
+  const dialog = page.getByRole("dialog", { name: label, exact: true });
+  if (!await dialog.isVisible()) await page.getByRole("button", { name: new RegExp(`${label} 상세 필터`) }).click();
+  await expect(dialog).toBeVisible();
+  return dialog;
 }
 
 async function expectLocatorTouchTarget(target: Locator, label: string) {
@@ -1600,16 +2421,18 @@ async function expectLocatorTouchTarget(target: Locator, label: string) {
 }
 
 async function setDatePicker(container: Locator, label: string, value: string) {
+  const analysis = label === "시작일" || label === "종료일";
+  const target = analysis ? await openFilter(container.page(), "사용량 분석 조건") : container;
   const [year, month, day] = value.split("-");
-  const segments = container.getByRole("group", { name: label }).getByRole("spinbutton");
+  const segments = target.getByRole("group", { name: label }).getByRole("spinbutton");
   await segments.nth(2).fill(String(Number(day)));
   await segments.nth(1).fill(String(Number(month)));
   await segments.nth(0).fill(year);
+  if (analysis) await target.getByRole("button", { name: "필터 닫기" }).click();
 }
 
 async function setDateRangePicker(container: Locator, label: string, start: string, end: string) {
-  await container.getByRole("button", { name: /요청 기간 선택, 현재/ }).click();
-  const dialog = container.page().getByRole("dialog", { name: "요청 기간 선택" });
+  const dialog = await openFilter(container.page(), "보고서 조건");
   const segments = dialog.getByRole("group", { name: label }).getByRole("spinbutton");
   for (const [offset, value] of [[0, start], [3, end]] as const) {
     const [year, month, day] = value.split("-");
@@ -1617,15 +2440,18 @@ async function setDateRangePicker(container: Locator, label: string, start: stri
     await segments.nth(offset + 1).fill(String(Number(month)));
     await segments.nth(offset).fill(year);
   }
-  await dialog.getByRole("button", { name: "완료", exact: true }).click();
+  await dialog.getByRole("button", { name: "필터 닫기", exact: true }).click();
 }
 
 async function expectDatePicker(container: Locator, label: string, value: string) {
+  const analysis = label === "시작일" || label === "종료일";
+  const target = analysis ? await openFilter(container.page(), "사용량 분석 조건") : container;
   const [year, month, day] = value.split("-").map(Number);
-  const segments = container.getByRole("group", { name: label }).getByRole("spinbutton");
+  const segments = target.getByRole("group", { name: label }).getByRole("spinbutton");
   await expect(segments.nth(0)).toHaveAttribute("aria-valuenow", String(year));
   await expect(segments.nth(1)).toHaveAttribute("aria-valuenow", String(month));
   await expect(segments.nth(2)).toHaveAttribute("aria-valuenow", String(day));
+  if (analysis) await target.getByRole("button", { name: "필터 닫기" }).click();
 }
 
 async function underlineNavigationVisual(container: Locator, item: Locator) {

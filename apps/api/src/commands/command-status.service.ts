@@ -1,10 +1,12 @@
 import { BadRequestException, GoneException, Injectable, NotFoundException } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import { z } from "zod";
+import { createHash } from "node:crypto";
 import { SiteAccessService } from "../access/site-access.service";
 import { AuthenticatedUser } from "../auth/auth.types";
 import { PrismaService } from "../prisma/prisma.service";
 import { commandHistoryGetReadBoundary } from "./command-history-rollout";
+import { isValidLogDateRange, LogDateRangeInput, resolveLogDateRange } from "../retention/log-date-range";
 
 type ResultStatus = "pending" | "succeeded" | "failed" | "timed_out";
 
@@ -15,9 +17,13 @@ export const commandHistoryQuerySchema = z.object({
   query: z.string().trim().max(100).optional(),
   stage: z.enum(commandStages).optional(),
   cursor: z.string().min(1).max(512).optional(),
-  limit: z.union([z.string().regex(/^\d+$/).transform(Number), z.number()]).pipe(z.number().int().min(1).max(100)).default(20)
-}).strict();
-type HistoryInput = { siteId: string; query?: string; stage?: typeof commandStages[number]; cursor?: string; limit?: number };
+  limit: z.union([z.string().regex(/^\d+$/).transform(Number), z.number()]).pipe(z.number().int().min(1).max(1000)).default(20),
+  fromDate: z.string().optional(), toDate: z.string().optional()
+}).strict().refine(isValidLogDateRange);
+type HistoryInput = LogDateRangeInput & { siteId: string; query?: string; stage?: typeof commandStages[number]; cursor?: string; limit?: number };
+const historyCursorSchema = z.object({ version: z.literal(2), scope: z.string().regex(/^[a-f0-9]{64}$/),
+  id: z.string().uuid(), createdAt: z.string().datetime() }).strict();
+const legacyHistoryCursorSchema = z.object({ id: z.string().uuid(), createdAt: z.string().datetime() }).strict();
 
 const historyInclude = {
   dispatches: { select: { kind: true, verificationAttempt: true, status: true, errorCode: true,
@@ -34,22 +40,29 @@ export class CommandStatusService {
   ) {}
 
   async listCommands(user: AuthenticatedUser, input: HistoryInput, _now = new Date()) {
-    await this.siteAccess.assert(user, input.siteId, "read");
-    const read = async (db: CommandReadDb, boundary?: { generatedAt: Date; retainedFrom: Date; retentionEnabled: boolean }) => {
-      const retainedFrom = boundary?.retentionEnabled ? boundary.retainedFrom : null;
+    const site = await this.siteAccess.assert(user, input.siteId, "read");
+    const read = async (db: CommandReadDb, boundary: { generatedAt: Date; retainedFrom: Date; retentionEnabled: boolean }) => {
+      const retainedFrom = boundary.retentionEnabled ? boundary.retainedFrom : undefined;
       const limit = input.limit ?? 20;
-      if (!Number.isInteger(limit) || limit < 1 || limit > 100 || (input.query?.length ?? 0) > 100) {
+      const query = input.query?.trim();
+      if (!Number.isInteger(limit) || limit < 1 || limit > 1000 || (query?.length ?? 0) > 100
+        || !isValidLogDateRange(input)) {
         throw new BadRequestException("invalid command history query");
       }
-      const filters: Prisma.CommandWhereInput[] = retainedFrom ? [{ createdAt: { gte: retainedFrom } }] : [];
-      const query = input.query?.trim();
+      const scope = createHash("sha256").update(JSON.stringify([
+        "command-history", user.id, input.siteId, query || null, input.stage ?? null,
+        input.fromDate ?? null, input.toDate ?? null, limit
+      ])).digest("hex");
+      const { start, end } = resolveLogDateRange(input, site?.timeZone, { generatedAt: boundary.generatedAt, retainedFrom });
+      const filters: Prisma.CommandWhereInput[] = [{ createdAt: { ...(start ? { gte: start } : {}), lt: end } }];
       if (query) filters.push({ OR: [
         { id: { startsWith: query, mode: "insensitive" } },
         { dispatches: { some: { fixtureResults: { some: { fixture: { name: { contains: query, mode: "insensitive" } } } } } } }
       ] });
       if (input.stage) filters.push(stageFilter(input.stage));
       if (input.cursor) {
-        const cursor = parseHistoryCursor(input.cursor);
+        const cursor = parseHistoryCursor(input.cursor, scope,
+          limit <= 100 && input.fromDate === undefined && input.toDate === undefined);
         if (retainedFrom && cursor.createdAt < retainedFrom) {
           throw new BadRequestException({ code: "command_history_cursor_expired" });
         }
@@ -58,7 +71,7 @@ export class CommandStatusService {
           { createdAt: cursor.createdAt, id: { lt: cursor.id } }
         ] });
       }
-      const commands = await db.command.findMany({
+      const commands = start && start >= end ? [] : await db.command.findMany({
         // Keep siteId outside all search/cursor OR predicates to prevent scope escape.
         where: { siteId: input.siteId, contentRedactedAt: null, AND: filters },
         orderBy: [{ createdAt: "desc" }, { id: "desc" }],
@@ -69,9 +82,9 @@ export class CommandStatusService {
       const last = page.at(-1);
       return {
         items: page.map(summarizeCommand),
-        ...(boundary ? { generatedAt: boundary.generatedAt.toISOString(), retainedFrom: boundary.retainedFrom.toISOString(), retentionEnabled: boundary.retentionEnabled } : {}),
+        generatedAt: boundary.generatedAt.toISOString(), retainedFrom: boundary.retainedFrom.toISOString(), retentionEnabled: boundary.retentionEnabled,
         nextCursor: commands.length > limit && last ? Buffer.from(JSON.stringify({
-          id: last.id, createdAt: last.createdAt.toISOString()
+          version: 2, scope, id: last.id, createdAt: last.createdAt.toISOString()
         })).toString("base64url") : null
       };
     };
@@ -206,11 +219,15 @@ function summarizeCommand(command: SummaryCommand) {
   };
 }
 
-function parseHistoryCursor(cursor: string) {
+function parseHistoryCursor(cursor: string, scope: string, allowLegacy: boolean) {
   try {
     if (cursor.length > 512 || !/^[A-Za-z0-9_-]+$/.test(cursor)) throw new Error("invalid encoding");
-    const parsed = z.object({ id: z.string().uuid(), createdAt: z.string().datetime() }).strict()
-      .parse(JSON.parse(Buffer.from(cursor, "base64url").toString("utf8")));
+    const value = JSON.parse(Buffer.from(cursor, "base64url").toString("utf8"));
+    const parsed = z.union([historyCursorSchema, legacyHistoryCursorSchema]).parse(value);
+    if ("version" in parsed) {
+      if (parsed.scope !== scope || new Date(parsed.createdAt).toISOString() !== parsed.createdAt
+        || Buffer.from(JSON.stringify(parsed)).toString("base64url") !== cursor) throw new Error("invalid scope");
+    } else if (!allowLegacy) throw new Error("legacy cursor outside compatible scope");
     return { id: parsed.id, createdAt: new Date(parsed.createdAt) };
   } catch {
     throw new BadRequestException("invalid command history cursor");

@@ -1,0 +1,9 @@
+.expo/
+dist/
+android/
+ios/
+.env
+.env.local
+*.apk
+*.aab
+*.ipa

@@ -112,6 +112,362 @@
 - 부족하거나 개선이 필요한 기능: 화면 검증은 synthetic 응답으로 진행했다. 독립 센서 건강, A 자체 밝기 및 B 적용·복원 광학 HIL은 미완료이고 제품 gate·allowlist는 OFF다.
 - 관련 파일: `apps/api/src/sites/vehicle-event-source-view.ts`, `apps/api/src/sites/sites.service.ts`, `apps/web/src/api/queries.ts`, `apps/web/src/features/control/automation/{VehicleEventControlPanel,BioPulseTelemetryStatus}.tsx`, `apps/web/e2e/control-map-target-selection.spec.ts`.
 - 갱신 규칙: 관찰 보고·과거 mode GET·현재 준비·실제 LED 출력을 서로 대체하지 않는다. runtime projection이 구현되면 실제 영속 증거와 화면 문서를 함께 갱신한다.
+## 2026-10-06 단일 조명 검색 Popover·헤더 집계 보완
+
+### 구현 완료
+
+- 맵 선택 바로 오른쪽의 `조명 검색·상세` 버튼에서 공통 React Aria Popover를 연다. 기존 별도 맵 상태 필터와 `표시 상태` 설명은 제거하고, 검색·전체/정상/점검 필요/오프라인/미배치 필터·목록·선택 조명 상세 진입을 이 창에 모았다. 상태 선택은 목록을 열고 선택을 비우며, 0개 결과에서 이전 상세를 표시하지 않는다.
+- 검색과 상태는 부모에서 소유하여 닫기·재열기에도 유지한다. Popover 안의 상태 초기화는 검색·카메라를 보존한다. 실제 조명을 선택하기 전에는 상세를 열지 않으며, 배치 조명 목록 선택의 지도 이동과 미배치 조명의 기존 상세 흐름을 유지한다.
+- 공통 Popover의 가용 높이와 내부 세로 스크롤을 사용한다. Escape·바깥 클릭·닫기 후 원 버튼에 초점을 반환하고 중첩 Select의 Escape는 Select만 닫는다. 좁은 화면과 확대 시 도구는 줄바꿈할 수 있다.
+- 현장 전체 헤더는 글자 축소 없이 제목/집계의 줄 높이·상하 여백·줄바꿈을 보완한다. 실제 0과 미확인 `—`·로딩·오류 및 계정/현장 범위 검사를 그대로 유지한다.
+- 최종 정책 보완: 미승인 `leading-normal` 대신 기존 `card-title`(20px/28px)·`body`(14px/22px)의 의미 토큰 행간을 사용한다. 상하 패딩·줄바꿈·글자 크기는 유지하며 한 가지 행간 비율을 강제하는 시험 대신 실제 글자 Range가 자기 줄 상자·헤더 경계 안에 들어가는지 검증한다. CSS 200% 확대 검사는 기존 긴 현장명·한글·숫자·`대` 경계와 가로 넘침 조건을 유지한다.
+- 통합 완료: 최신 모바일 첫 도면 배치·접힌 전체 집계·20px 맵 수치를 보존한 최종 제품 `1c600eda`에서 전체 Web3258PASS·기존3SKIP, 타입/빌드/UI정책0·관련33브라우저33PASS와 코드/UI 검수 차단0을 확인하고 로컬 기본 브랜치에 병합했다. 기존 localhost에서 Popover/집계를 실제 확인했으며 장비 제어는 하지 않았다.
+
+### 미구현
+
+- API·DB·장비·운영 서비스 재시작과 실제 native WebView/HIL은 포함하지 않는다.
+
+### 부족하거나 개선이 필요한 기능
+
+- Web 단위·격리 Chromium 회귀와 localhost UI 확인이 이 작업의 증거다. CSS `zoom: 2`의 헤더 검사는 실제 브라우저 페이지 확대나 물리 모바일 검증과 구분한다. 기존 문서의 이전 Task 5 상태 필터 진입점 설명은 당시 구현 이력이며 현재 UX는 이 항목을 따른다.
+
+### 관련 파일
+
+- `apps/web/src/features/monitoring/{MonitoringView,MonitoringSummary,MonitoringFixtureFinder}.tsx`와 대응 테스트.
+- `apps/web/src/features/shells/CustomerHeaderSummarySlot.tsx`, 대응 테스트, `apps/web/e2e/monitoring-surface-access.spec.ts`.
+
+### 갱신 규칙
+
+- 검색·필터·선택·초점·가용 높이·헤더 집계 변경 시 이 항목과 회귀를 함께 갱신한다. 소프트웨어/운영 적용/HIL 증거를 구분한다.
+## 2026-10-06 모바일 도면 우선 배치 (Task 2)
+
+### 구현 완료
+
+- 760px 미만에서 맵 선택과 그 오른쪽 `조명 검색·상세` Popover → 선택 맵 이름·핵심 상태 → 실제 도면을 우선한다. 선택 맵 수치(기존 card-title 20px), 상태 이름과 집계 준비 중/null 의미를 유지한다. 수동 새로고침은 도면 뒤 도구로 접근하며 desktop 도구/카메라/전체보기·상세 drawer는 유지한다.
+
+### 미구현
+
+- 실제 native WebView·장비/HIL의 첫 도면 가시성 보장은 별도 검증이다.
+
+### 부족하거나 개선이 필요한 기능
+
+- 320×568/390×844/430×932 정상 100% 첫 진입 기준은 실제 도면을 렌더하는 interactive viewport의 헤더·clip·하단 메뉴 제외 가시 높이 120/240/240px이다. CAD 원본 비율과 camera fit 때문에 도면 이미지 자체가 이 높이를 채우거나 현장 전체를 항상 표시한다는 의미는 아니다. 긴 이름·오류·큰 글자는 자연 스크롤로 확인한다.
+
+### 관련 파일
+
+- `apps/web/src/features/monitoring/MonitoringView.tsx`, `MonitoringSummary.tsx`
+- `apps/web/e2e/mobile-first-screen.spec.ts`, `monitoring-navigation-confidence.spec.ts`
+
+### 갱신 규칙
+
+- 첫 도면 배치·접힘·선택/카메라·복구 수명을 변경하면 해당 동작과 한계를 같은 작업에서 갱신한다.
+
+
+
+## 2026-10-06 공통 모바일 헤더·최근 알림 (Task 1)
+
+### 구현 완료
+
+- 760px 미만 헤더는 기존 현장 선택·알람센터를 한 행에 표시한다. 중복 메뉴 제목은 화면 읽기용으로 유지하고 모니터링 현장 전체 집계는 명시적으로 펼쳐 확인한다. 기존 현장 변경 가드·최소 44px 조작·계정/로그아웃 controller와 설정 eager 접근을 유지한다.
+- 모바일 toast는 화면 읽기 알림만 유지한다. 공통 provider가 독립적으로 만료시켜 desktop으로 전환해도 지난 toast를 다시 표시하지 않는다. desktop toast와 서버 현장 알람 저장·지우기는 기존 계약을 유지한다.
+- 같은 알람센터의 최근 알림은 세션 메모리에 최대 50개를 보관한다. 상태 fingerprint 변경/새 작업은 미읽음이며 같은 polling은 추가하지 않는다. 최근 읽음과 toast 만료는 장애 해결·명령 실행·서버 알람 읽음/지우기와 분리한다.
+- 모바일 배지는 서버 현장 알람 미읽음과 최근 알림 미읽음 합계이며 고유 장애 수가 아니다. 서버 수가 불명인 경우 `?`를 유지한다. 계정/허가된 현장 변경 시 provider의 scope 저장소·타이머·callback만 분리한다. 소비자와 계정 버튼 DOM은 유지해 초기 현장 조회 중 열린 로그아웃 확인의 취소/실패 포커스를 보존한다. 전체보기에서도 동일 센터를 여는 독립 행 버튼이 접근 가능하다.
+
+### 미구현
+
+- 최근 알림은 새 문서·로그아웃·다른 기기로 동기화하지 않는다. 별도 서버 API/DB/저장소와 실제 장비 HIL은 추가하지 않는다.
+
+### 부족하거나 개선이 필요한 기능
+
+- 브라우저 HTTP fixture 검증과 세션 단위 검증이며 실제 native 장비/HIL 완료를 의미하지 않는다. 큰 글자·긴 내용은 자연 스크롤을 허용한다.
+
+### 관련 파일
+
+- `apps/web/src/features/shells/CustomerShell.tsx`, `CustomerHeaderSummarySlot.tsx`
+- `apps/web/src/components/ui/session-status/{SessionStatusProvider,SessionStatusCenter,ToastRegion}.tsx`
+- `apps/web/e2e/mobile-first-screen.spec.ts`
+
+### 갱신 규칙
+
+- 공통 헤더·알림 의미와 세션 수명 변경 시 네 메뉴 문서를 함께 갱신한다.
+
+## 2026-10-05 맵 공간·공통 조회 필터 보완 (추가 운영 UI Task 5)
+
+### 구현 완료
+
+- 현장 전체 집계는 Task 4의 Shell 헤더가 소유하고 본문의 중복 현장 요약만 제거한다. 맵 이름·전체/정상/점검/오프라인 수치·현재 표시 상태는 본문에 남기고 상태 조회는 공통 FilterPanel Popover로 옮긴다. 기존 목록 열기와 onSelect·null/집계 준비 중 표현을 유지하며 조명을 자동 선택하지 않는다. 현장·맵 기본 선택과 기존 조명 검색 입력은 Popover 밖에 유지한다.
+- 전체 로그의 기간과 50/100/500/1000 항목 수 선택을 공통 Popover에 배치한다. 기본 50·기간 null·최근 3개월·종료일 포함·opaque cursor·범위별 조회는 유지한다. Popover 닫기/재열기는 부모 소유 부분 날짜와 현재 페이지를 보존하며 부분·역전 날짜는 요청하지 않는다. 초기화는 기간과 크기/페이지를 기본값으로 되돌리고, 방문한 페이지의 cursor400만 첫 페이지로 복구한다. 기존 로그 검색 계약은 없어 가짜 검색이나 API 필드를 추가하지 않는다.
+- 공통 Dialog는 내부 ref를 안정화해 중첩 필터의 날짜 입력·부모 재렌더·외부 object/callback ref 교체 시 초점을 유지하고 외부 ref 교체/닫힘 정리를 보존한다. 초기 초점·pending·Back·safe-area 정책은 변경하지 않는다.
+- 상태 초기화는 일반 상태 선택과 별도 callback을 사용해 기존 검색 입력을 보존한다. 검색 창을 닫은 뒤 초기화해도 자동 재열기·조명 선택·카메라 초기화·제어 요청은 없으며 명시적으로 다시 열면 입력을 유지한다.
+- 고객 Shell의 알림은 sticky 헤더 뒤·본문 앞의 단일 자연 높이 영역에서 표시해 지도 조작부를 덮지 않는다. 알림이 없으면 영역을 만들지 않고 긴/복수 알림은 필요한 높이만 예약한다. 모니터링 전체 보기에서도 기존 지도 최소 240px와 일반 문서 스크롤을 유지한다. 공통 ToastRegion의 기본 overlay 배치와 메시지·revision·만료·닫기·aria 정책은 그대로다.
+- 격리 Chromium에서 320/390/768/1023/1024/1287/1440px의 상태 필터·기존 검색·44px 조작·가로 넘침 0, 휠/키보드 끝 로그·실제 소프트웨어 터치 pinch/swipe·고유 임시 프로필의 브라우저 200% 확대, 카메라의 1023↔1024/전체 보기 복귀, 늦은 이전 층 로그의 격리를 직접 검증한다. 제어 POST는 0이다.
+
+### 미구현
+
+- 실제 모바일 native WebView·물리 LED/Gateway HIL·운영 DB·DDL·배포 및 브랜치 최종 통합 검수는 이 작업의 완료 범위가 아니다.
+
+### 부족하거나 개선이 필요한 기능
+
+- 원래 두 조명의 1287×1226/390×320/1440×600 bounds에서 footer·범례는 맵/frame 안에 있었고 짧은 화면은 문서 스크롤로 접근됐다. 확대 surface의 부분 표시는 정상 카메라 동작이므로 재현되지 않은 잘림에 대한 높이/CSS 수정은 하지 않았다.
+- 오래된 fixture 시각의 지연 알림이 390×320 footer hit를 가린 원 실패와 닫기 후의 기존 결과를 보존한다. 후속 flow 배치는 닫기/자연 만료 전 설명이 줄바꿈되는 실제 지연 알림 및 기존 경고 2개의 bounds·hit·최소 지도 높이·일반 스크롤/전체 보기/카메라 복귀를 격리 Chromium에서 직접 검사한다. 작은 화면의 알림과 footer가 항상 동시에 viewport 안에 있다는 뜻은 아니다. 임의의 초장문 알림과 최종 loading/error 상태 조합·headed 200%·native/HIL 통합 검수는 Task 9의 별도 관문이다.
+
+### 관련 파일
+
+- `apps/web/src/features/monitoring/{MonitoringView,MonitoringSummary,MonitoringLogDrawer}.tsx`와 인접 시험, `apps/web/e2e/monitoring-surface-access.spec.ts`.
+- 공통 좁은 보완: `apps/web/src/components/ui/overlays/{DialogBase.tsx,overlays.test.tsx}`. 기존 FloorMap/viewport/camera와 조회 hook/API는 변경하지 않는다.
+- 알림 배치 보완: `apps/web/src/components/ui/session-status/{ToastRegion.tsx,session-status.test.tsx}`, `apps/web/src/features/shells/{CustomerShell.tsx,CustomerShell.monitoring.test.tsx}`. provider·상태 producer·계정 탈출·명령 owner는 변경하지 않는다.
+
+### 갱신 규칙
+
+- 원 실패와 source/timestamp별 실제 bounds·scroll·입력·ref 정리·초점·카메라·cursor/기간·scope 격리·POST0을 함께 보존한다. mock/실제 운영/native/HIL 증거와 알림 표시/닫힘 상태를 구분하며 중첩 입력의 초점·draft 단언을 약화하지 않는다.
+
+## 2026-10-05 현장 헤더·개인 알람 숨김 웹 소비 (추가 운영 UI Task 4)
+
+- 구현 완료: Shell의 기존 authorized dashboard query로 `현장 전체`와 현장 이름·전체/온라인/장애/오프라인 집계를 헤더에 표시한다. 계정·현장·모니터링 경로를 검사하고 이전 현장의 값은 거부한다. 미확인/null·로딩·오류를 0으로 만들지 않는다. 본문의 중복 현장 요약 제거는 Task 5에서 소비한다.
+- 구현 완료: 알람센터는 actor/site/personal/조회 조건별 목록과 개인 미읽음 배지를 사용한다. 개별 지우기는 빈 PUT, 전체 지우기는 UUID만 담은 POST이며 페이지·필터 밖을 포함하는 선택 현장 범위를 확인 안내에 표시한다. 실패/미확정은 목록·배지를 보존하고 성공 뒤 이전 GET를 취소해 첫 페이지·정본 수치를 재조회한다. 실제 가시 행의 독립 읽음 정책과 현재 화면의 안전 경고는 유지한다.
+- 구현 완료: 전체 요청마다 독립 브라우저 저장 항목을 POST 전에 검증·기록한다. 계정·현장·UUID·version만 저장하며 token/대상 ID를 넣지 않는다. 새로고침/재열기·복수 탭의 미확정 요청은 각각 명시적 결과 확인/동일키 재시도로 복구하며 자동 POST·새키 대체는 없다. 저장 실패는 POST 전에 중지하고 완료 확인된 키만 삭제한다.
+- 구현 완료: 영문 hex가 있는 대문자/혼합 UUID 복구도 서버의 정규화된 현장·요청 UUID와 검증 후 같은 identity로 비교한다. 전송과 저장 키의 원래 표기는 보존하며 완료한 정확한 항목만 제거한다. 다른 요청·계정·현장과 별도 대소문자 표기의 저장 항목을 함께 삭제하지 않는다.
+- 미구현: 사용자 DB migration·현재 서버 적용·실장비·native WebView·실제 두 세션/최종 전체 UI 관문은 Task 9/10의 별도 범위다. 알람 push 동기화와 요청 원장의 TTL은 추가하지 않았다.
+- 부족하거나 개선이 필요한 기능: 단위 및 격리 mock Chromium 증거는 실제 MVCC snapshot이나 운영 적용 증거가 아니다. 브라우저 저장소가 손상되거나 차단되면 전체 지우기는 안내와 함께 중지한다. 독립 검토·최종 통합 관문은 총괄이 판정한다.
+- 관련 파일: `apps/web/src/features/shells/{CustomerShell,CustomerHeaderSummarySlot}.tsx`, `apps/web/src/api/monitoring-incidents.ts`, `apps/web/src/components/ui/session-status/{useMonitoringIncidents,monitoring-dismissal-request}.ts`, `SessionStatusCenter.tsx`와 직접 테스트, `apps/web/e2e/{ui-overlays,app-shell-recovery,calm-operations-shell}.spec.ts`.
+- 갱신 규칙: 개인 숨김·읽음·운용 상태를 구분하고 strict 서버 shape·scope 전환·실패 목록 보존·durable 저장 실패 POST0·복수키/같은키 복구·정본 첫 페이지/배지 재조회 및 mock/실제/운영 증거를 함께 기록한다.
+
+## 2026-10-04 주석 수정 최종 소프트웨어 검증
+
+- 구현 완료: 공통 필터/시각/로그와 실제 상태 범례·원형 조명·반응형 지도·명시 선택 상세를 구현했다. 계정별 알람 확인은 실제 R1–R6/R7 UI/HTTP/SQL 두 사례PASS로, 모니터링 로그는 M1 완료 하위 단계 및 M2/M3 실제 여정으로 확인했다. 50/100/500/1000·기간·층 변경·opaque cursor·부분 보관일·실제410 안내/최신 기록 복구를 검증했다.
+- 구현 완료(로컬 반영): 기본 개발 `codex/mvp1-cloud-web`에099로 fast-forward했고 알람 읽음 테이블 하나와 main Prisma Client6.19.3을 반영했다. 새 API와 기존 웹의 재개·TLS live200·monitoring200·비인증 proxy401을 확인했다. 원 빈 watcher는 정지 보존하고 새 API는 별도 소유 세션으로 유지한다.
+- 미구현: 실장비/HIL·native WebView·전체 서비스 성능 검증은 이번 작업에 포함하지 않는다. 10:06:37 UTC startup readiness 단일 관측은503/MQTT down·다른 네 의존성up이며 이후 재측정·지속성·원인은 미확인이다. 실제 계정 로그인·장비 연결 복구는 수행하지 않았다.
+- 부족하거나 개선이 필요한 기능: 기존 실패와 검증 제외를 보존하며 새6사례 전체PASS로 합산하지 않는다. year0/BCE 표시·compact DOM 결합·과거 skewed timestamp 등 기존 한계는 남긴다.
+- 관련 파일: [22행 구현·검증 계획](../superpowers/plans/2026-10-01-operations-ui-comments.md), `apps/web/src/features/monitoring/MonitoringView.tsx`, `MonitoringLogDrawer.tsx`, `apps/api/src/monitoring-incidents`, `apps/api/src/prisma/utc-timestamp-sql.ts`.
+- 갱신 규칙: 실제 DB/소프트웨어/운영 적용/HIL 결과와 적용 전후 상태를 구분한다. 사용자 확인과 장애 해제는 별개로 유지하며 조회·화면 밖 항목을 확인 처리하지 않는다.
+
+## 2026-10-04 짧은 PC 화면 상세 읽기 영역 보완 (Task 9 최종 통합)
+
+### 구현 완료
+
+- 기존 tablet 경계(1024px)부터 지도·상세 grid는 자연 최소 콘텐츠 높이를 유지한다. 상세 aside는 선호 높이 0과 행 전체의 최소 높이를 사용해 긴 상세 내용 자체가 행 크기를 결정하지 않도록 하고, 지도 쪽의 기존 240px 최소 viewport·도구·ticker가 결정한 행을 채운다. 짧은 화면은 페이지 스크롤로 접근하며 충분한 높이에서는 남는 공간만큼 지도가 계속 자란다. 새 고정 pixel 높이·breakpoint·공통 overlay 변경은 없다.
+- 원래 두 조명의 1024×480 fixture에서 실제 상세 읽기 영역 349px/콘텐츠450px/범위101px을 확인했다. 일반 페이지 gutter 휠로 남은 chrome을 노출한 뒤 내부 wheel80·native Tab/Home/PageDown/End가 문서 위치를 유지하고, 마지막 의미 행의 라벨과 값 전체를 보인다. 1023↔1024↔1023↔1025에서 현재 범위에 맞춘 nonzero 복원·같은 선택·카메라·현재 surface 초점 및 닫기 후 원래 marker 반환을 검증한다.
+
+### 미구현
+
+- 실제 Android/iOS WebView·운영 DB·장비 HIL·배포 및 전체 브랜치 최종 검수는 이 소비자 보완의 완료 범위가 아니다.
+
+### 부족하거나 개선이 필요한 기능
+
+- 이전 35/37px 읽기 영역·잘린 마지막 값 실패와, 단순 grid 최소 높이만 적용해 범위가 0이 된 중간 실패는 보존한다. 435px 전체 aside와 sticky header가 동시에 480px 안에 모두 들어온다는 주장은 하지 않는다. 실제 읽기 영역과 최종 라벨·값의 clip/hit, native input 안정성을 판정하며 Chromium 소프트웨어 증거를 실기기 승인으로 확대하지 않는다.
+
+### 관련 파일
+
+- `apps/web/src/features/monitoring/MonitoringView.tsx`, `apps/web/e2e/monitoring-surface-access.spec.ts`. 기존 FixtureDetailPanel·공통 DetailSheet·지도/복원/초점 로직은 재사용하며 수정하지 않는다.
+
+### 갱신 규칙
+
+- 자연 높이와 실제 스크롤 범위·원래 마지막 라벨/값 전체·문서 안정성·native 휠/Tab/키보드·nonzero breakpoint 복원·카메라·원래 초점·명령 POST0을 함께 검증한다. 공통 정책이나 읽기 단언을 완화해 통과시키지 않는다.
+
+## 2026-10-03 상세 native 스크롤·로그 안전 영역 보완 (Task 9)
+
+### 구현 완료
+
+- 조명 상세의 내부 SidePanel은 이 소비자에서만 `overflow-visible`·`overscroll-auto`를 사용한다. 실제 PC/하단 시트의 바깥 본문이 유일한 스크롤·위치 복원 소유자이며, 스크롤 범위가 없는 내부 패널이 휠 전달을 차단하지 않는다. 공통 SidePanel 기본값·MonitoringView 복원/초점 로직·지도 카메라는 변경하지 않는다.
+- 전체 로그는 공통 Drawer의 `safeArea`를 선택적으로 사용해 상·하단 inset을 한 곳에서만 적용한다. compact 너비에서 이 호출부의 기존 spacing 토큰과 PaginationBar class 슬롯으로 간격을 줄이고 페이지 크기·이전/다음·실제 건수를 한 줄로 배치해 필터와 목록의 읽기 영역을 확보한다. 기간·보관 안내·상태·cursor·50/100/500/1000건·조회 중 초점 계약과 공통 기본값은 유지한다.
+
+### 미구현
+
+- 실제 모바일 장치/native WebView·운영 DB·실장비 HIL·배포는 이번 표적 보완에서 수행하지 않았다. 전체22건/실제 두 DB UI 세션/최종 통합 검수와 메인 병합은 별도 관문이다.
+
+### 부족하거나 개선이 필요한 기능
+
+- 검증은 격리 API fixture·Chromium의 실제 mouse wheel/Tab/Home/PageDown/End 및 CDP env top24/bottom34 소프트웨어 증거다. 원1024×480 상세에서 native wheel80·끝 정보 접근·nonzero 1023↔1024↔1025 복원/카메라/선택/초점, 원390×320 로그에서 필터56px·본문50px/44px 조작·끝50/1000·기간 양쪽 입력/reset·pager/닫기/zero-env 복원을 표적 회귀로 유지한다. 양수 inset을 실제 장치 검증으로 확대하지 않는다.
+
+### 관련 파일
+
+- `apps/web/src/features/monitoring/{FixtureDetailPanel,MonitoringLogDrawer}.tsx`, 두 직접 테스트, `apps/web/e2e/monitoring-surface-access.spec.ts`.
+
+### 갱신 규칙
+
+- 안쪽/바깥 실제 스크롤 범위와 전파 차단·키보드 대상·최종 항목·유효 초점/카메라를 함께 검증한다. 안전 영역의 단일 소유·compact 최소44px 읽기/조작 영역·실제 기간/cursor/페이지 크기와 pending/error의 진실성을 같은 변경에서 유지하며, 실패나 모의/실제 장치 증거를 구분한다.
+
+## 2026-10-02 운영 밀집 마커 판정 보완 (Task 9)
+
+### 구현 완료
+
+- 모니터링의 48×48px 운영 버튼은 현재 DOM 경계에서 중심이 가장 가까운 조명 ID를 선택한다. 겹친 정상/장애 이웃의 DOM 순서와 선택·hover·focus 우선순위가 실제 클릭 대상을 바꾸지 않는다. 기존 20px 원형 점·저장 좌표·지도 camera 계약을 유지한다.
+- ordinary/touch-capable mouse와 소프트웨어 터치에서 center±18world의 원래 5개 중심과 48px 여백 선택을 확인했다. 선택한 ID의 실제 버튼을 팝오버 anchor로 전달하며, 조명 정보 제목·위치와 Escape 뒤 해당 버튼으로의 포커스 복원을 확인했다. 키보드는 포커스된 정확한 ID를 사용한다.
+- 이동 8px 이상·두 번째 포인터·취소·capture 손실·blur·Escape·층/snapshot 변경·unmount는 진행 중 마커 선택을 취소한다. 확대·이동 뒤에는 현재 좌표를 다시 읽으며 overlay 뒤의 조명과 물리 ghost click은 활성화하지 않는다. 읽기 전용 지도와 기존 이동·확대 계약을 유지한다.
+
+### 미구현
+
+- 실제 모바일 WebView 물리 터치 및 Gateway·LED RF HIL 검증.
+
+### 부족하거나 개선이 필요한 기능
+
+- route fixture와 Chromium 소프트웨어 터치 결과이며 실제 현장 장비·도면·native safe-area 검증을 의미하지 않는다. 장비 명령 POST는 0건이다.
+- 중심이 완전히 같은 조명은 거리로 구분할 수 없어 ID 순서로 안정적으로 선택한다. 기존 조명 목록에서 개별 대상을 선택할 수 있다.
+
+### 관련 파일
+
+- `apps/web/src/features/floor-map/FloorScene.tsx`, `marker-hit.ts` 및 대응 테스트.
+- 기존 소비자 `apps/web/src/features/monitoring/FloorMap.tsx`와 `FixturePinPopover.tsx`의 계약을 사용한다.
+- `apps/web/e2e/operational-marker-control-height.spec.ts`, `e2e/support/operational-map-fixture.ts`.
+
+### 갱신 규칙
+
+- 공통 운영 마커가 바뀌면 제어 문서도 함께 갱신한다. 선택 ID·anchor·키보드·취소 및 route fixture/HIL 한계를 함께 기록한다.
+
+## 2026-10-02 자동 PC 상세 제거 초점 보완 (Task 5 보완2)
+
+- 구현 완료: 성공한 자동 재조회에서 선택 조명이 장애·검색·배치 조건을 벗어나거나 삭제되어 PC 상세가 사라질 때, 상세 안에 있던 초점만 같은 계정·현장·층의 연결된 유효 원래 버튼 또는 모니터링 검색 도구로 스크롤 이동 없이 반환한다. 상세 밖으로 옮긴 초점은 유지하며 범위 변경·화면 종료 뒤의 지연 반환은 예약하지 않는다.
+- 구현 완료: 선택·내부 pin의 원자 해제, 다른 조명으로 대체하지 않기, saved-pin 조회 중 상태, 모바일 공통 DetailSheet의 기존 반환, 지도 카메라·페이지 스크롤을 보존한다. 수동 닫기와 하드웨어 호출 계약은 변경하지 않는다.
+- 미구현: 실제 운영 DB·두 계정/기기·native 확대·양수 safe-area·실장비와 최종 Task9 통합 검증은 후속 관문이다.
+- 부족하거나 개선이 필요한 기능: 격리 fixture·단위·Chromium 검증이며 독립 재검토는 별도다. 기존 편집기1000개/8초 실패와 공통 알람 Drawer 물리 보완은 이번 좁은 수정 범위 밖이다.
+- 관련 파일: `apps/web/src/features/monitoring/MonitoringView.tsx`, 직접 테스트, `apps/web/e2e/operations-ui-comments.spec.ts`의 보완2 사례.
+- 갱신 규칙: finder portal 정착 뒤 실제 자동 GET으로 상세 내부 초점·의도적 외부 초점·모바일 반환을 구분하고, 범위 변경과 카메라·스크롤·GET-only 안전 검증을 같은 기능 변경에서 유지한다.
+
+## 2026-10-02 모니터링 선택·로그 상태 검토 보완 (Task 5 보완1)
+
+- 구현 완료: 성공적으로 확인한 runtime 조명이 기존 장애·검색·배치 조건에서 제외되면 선택 ID·상세·내부 pin을 함께 해제하고 다른 조명을 대입하지 않는다. 저장 pin만 먼저 받은 상태, runtime 부분 수신·진행 중·실패는 확인된 조건 이탈과 구분하여 원래 ID와 정보 확인 중 상태를 보존한다.
+- 구현 완료: 계정·현장·층·열림 조건이 바뀔 때 로그 cursor stack 자체를 폐기한다. 첫 새 조건 요청부터 첫 페이지를 사용하며 A2→B1→A1 및 닫기→재열기에서 이전 페이지가 되살아나지 않는다. 크기·기간·410 복구와 이전 범위 응답 격리도 유지한다.
+- 구현 완료: 로그 페이지 조작은 조회 중에도 같은 controls를 유지·비활성화한다. 현재 건수를 모르는 pending/error에는 공통 PaginationBar의 nullable cursor count로 이전 건수나 가짜0을 표시하지 않는다. 실제 numeric0은 정상 빈 결과로 유지하며 기존 total 방식과 기본·사용자 지정 크기 계약은 변경하지 않는다.
+- 구현 완료: 비활성화로 native focus가 이탈하면 보이는 페이지 조작 영역에 임시 focus를 유지한다. 성공 뒤 유효한 원래 control, 마지막 페이지·오류에는 같은 영역의 활성 control로 복귀한다. 기간·본문·닫기로 사용자가 이동하면 복귀 권한을 폐기하고, background 재조회·닫힌 drawer·옛 범위는 다른 focus를 가져오지 않는다. SelectBox popup의 반환 순서와 Tab·ShiftTab·Escape를 보존한다.
+- 미구현: 실제 운영 DB·두 계정/기기·native 확대·양수 safe-area·실장비 검증과 최종 통합은 후속 Task9 관문이다.
+- 부족하거나 개선이 필요한 기능: 이번 보완은 격리 API fixture·단위·Chromium 증거이며 독립 재검토 승인과 공통 알람 Drawer 물리 보완은 별도다. 기존 편집기1000개/8초 실패는 기준·skip 변경 없이 분리하여 보고한다.
+- 관련 파일: `apps/web/src/features/monitoring/{MonitoringView,MonitoringLogDrawer}.tsx`와 직접 테스트, `apps/web/src/components/ui/PaginationBar.tsx`와 직접 테스트, `apps/web/e2e/operations-ui-comments.spec.ts`.
+- 갱신 규칙: 확인된 조건 이탈과 saved-pin 미수신, scope 왕복과 첫 요청, stable controls와 실제 native focus·명시적 이동·오류·늦은 응답을 구분하여 같은 기능 변경에서 검증·갱신한다.
+
+## 2026-10-02 지도·명시 선택·상세·전체 로그 (Task 5)
+
+- 구현 완료: 지도에 실제 표시되는 정상·장애·오프라인·상태 확인 대기·정보 확인 전 상태만 아이콘과 문구로 범례에 표시한다. 고정 이동 안내와 지도 표시 대수만 제거하며 KPI·검색 결과·로그 실제 개수는 유지한다. 시각 중심은 20px 원형, 실제 monitoring hit는 48×48 CSS px이고 상태 테두리/아이콘과 별도 선택 외곽선·키보드 초점으로 색상 외 구분을 제공한다. 기존 밝기 단계·CAD·휠·키보드·touch·Gateway/권한 제약은 유지한다.
+- 구현 완료: 선택 ID는 처음 `null`이며 검색 열기·조회 도착·0건 필터가 임의 조명을 선택하지 않는다. 명시 pin 선택은 필터 초기화와 같은 갱신에서 ID를 유지한다. 외부 검색/KPI·층·현장·계정 변경과 확인된 삭제는 선택을 해제하고 다른 조명으로 대체하지 않는다. 저장 pin이 runtime보다 먼저 도착하면 그 ID/이름과 불러오는 중 상태를 유지한다.
+- 구현 완료: 검색과 상세의 열림은 독립이다. 명시 상세 확장은 1024px 이상 비모달 aside, 그 미만 공통 DetailSheet에서 같은 조명 정보를 표시하며 팝오버를 중복 노출하지 않는다. 지도 viewport는 유지하고 상세 닫기는 연결된 원래 marker 또는 toolbar로 초점을 돌려준다. PC 닫기도 기존 52px 토큰으로 실제 연속 44px 클릭 영역을 확보한다. 모니터링 전용 유한 flex 높이는 남은 공간을 지도로 배분하며 조작 footer를 제외한 실제 지도 viewport 최소 240px와 짧은 화면의 접근 가능한 page scroll을 보존한다. zoom/full-view 조작은 모니터링에서만 별도 footer 공간을 사용해 오른쪽 아래 48px pin 클릭을 가리지 않는다. 다른 메뉴의 viewport overlay와 문서 스크롤 정책은 변경하지 않는다.
+- 구현 완료: 전체 로그는 공통 FilterPanel·LogView·PaginationBar를 소비하고 기본50/100/500/1000건, 종료일 포함 paired 기간 및 전체 보관 기간, unknown-total cursor 이동을 제공한다. 계정·현장·층·크기·기간별 query scope와 cursor 초기화를 분리하며 이전 범위의 늦은 응답은 새 화면에 섞이지 않는다. loading/error/410에는 이전 행이나 가짜0건 성공을 표시하지 않고 재시도/최신 기록 복구를 제공한다. 최근 ticker는 기존 소량5건 호출을 유지한다.
+- 구현 완료: 실제 서버 시각은 공통 formatter의 `yyyy-MM-dd HH:mm:ss`/Gregorian/h23를 사용하며 자정은 `00:00:00`, 잘못된 값은 `—`다. 현장 시간대와 ISO 원본 정밀도·freshness/retention 의미는 그대로 유지한다.
+- 미구현: 운영 DB migration·실장비·native WebView·실제 브라우저 두 세션·운영 배포 검증은 이번 변경에 포함하지 않는다.
+- 부족하거나 개선이 필요한 기능: 검증은 격리 route fixture와 scoped 자동 회귀이며 완료된 실장비 증거가 아니다. 공통 알람 Drawer/safe-area의 독립 검수 보완과 최종 통합/디자이너 검수는 총괄이 이어서 수행한다. 기존 설정 편집기1000대/8초 성능 실패는 별도로 유지하며 제한을 늘리거나 skip하지 않는다.
+- 관련 파일: `apps/web/src/features/monitoring/{MonitoringView,FloorMap,FixtureDetailPanel,MonitoringLogDrawer,monitoring-time,useMonitoringActivity,fixture-status-presentation}`, `apps/web/src/features/floor-map/{FloorScene,FloorMapViewport}`, 모니터링 전용 display 분기의 `apps/web/src/features/shells/CustomerShell.tsx`, 관련 단위·monitoring E2E 및 `operations-ui-comments.spec.ts`.
+- 갱신 규칙: 이전 날짜의 네모 marker/자동 선택/5건 drawer 설명은 당시 증거이며 현재 계약은 이 Task5 항목을 우선한다. 선택·필터·삭제·runtime 순서·breakpoint 카메라/scroll/focus·실제 footer/marker bounds·로그 기간/크기/cursor/stale/error 회귀와 이 문서를 같은 기능 변경에서 유지한다.
+
+## 2026-10-02 영속 알람센터 웹 소비 (Task 4)
+
+- 구현 완료: CustomerShell의 인증 계정·접근 가능한 선택 현장을 기준으로 기존 incident GET/개인 읽음 PUT를 소비한다. `알람센터` 배지는 서버의 현장 전체 `unreadCount`만 사용하며, 닫힌 센터는 `limit=1`, 열린 목록은 25건과 서버 cursor를 사용한다. 기존 `incidents[]`·`activeCount`·운영 상태·시각 정밀도를 검증하고 잘못된 응답을 0건으로 표시하지 않는다.
+- 구현 완료: 열린 센터·활성 문서에서 IntersectionObserver가 실제 가시성을 확인한 행만 빈 body PUT로 읽음을 저장한다. 닫힘·화면 밖·미조회 다음 페이지·숨김/비활성 문서는 읽음 요청이 없고, 스크롤과 중복 관찰은 계정·현장·ID별 in-flight 중복 방지로 보호한다. 실패한 행은 미읽음/배지를 유지하며 가시 행의 재시도를 제공한다. 성공 후 목록·배지는 정본 GET로 갱신하고 로컬 수치를 차감하지 않는다.
+- 구현 완료: 장애 목록과 `현재 화면 상태`를 별도 영역으로 제공한다. 기존 연결 안내·조회 실패·명령 진행·toast·retry/action은 유지하며 DB 미읽음 수에 합산하지 않는다. 개인 읽음은 operational acknowledge/assign/resolve나 장치 명령을 수행하지 않고, 읽은 미해결 장애도 목록에 남는다. 최초 GET 실패는 확인 불가, 마지막 성공 후 실패는 마지막 수치와 갱신 실패로 구분한다.
+- 구현 완료: 계정·현장 query key와 요청 수명·취소를 분리해 이전 범위의 늦은 응답이 새 범위를 바꾸지 않게 한다. 30초 polling과 문서 복귀/포커스의 정본 조회로 다른 기기의 읽음 상태를 동기화하고, 해당 ID의 읽음을 서버가 확인하면 이전 저장 실패도 해제한다. StrictMode 재설정·동일 incident polling·새 세션의 서버 receipt 재조회 회귀를 유지한다.
+- 구현 완료: 닫힌 요약과 열린 목록의 정본 수치는 완료 시각이 아닌 QueryClient 수명의 요청 시작 순서로 선택한다. 열기·닫기 전환은 이전 모드의 실행 중 GET를 취소하고, 개인 읽음 PUT 성공 뒤 두 모드의 이전 GET를 취소한 다음 정본을 재조회한다. 늦은 pre-read 응답이 읽음 후 수치를 되돌리지 않으며, 후속 서버 수치의 정상 증가·다른 기기의 읽음에 따른 감소·실패 시 마지막 수치와 stale 표기를 보존한다. 같은 캐시를 재사용하는 remount에서도 요청 순서를 초기화하지 않는다.
+- 구현 완료: 알람센터만 유한 높이의 독립 본문 스크롤과 선택형 `safeArea`를 사용한다. 상단 제목·닫기와 하단 닫기는 목록의 처음/스크롤/끝에서도 보이며, top/bottom inset은 공통 opt-in wrapper 한 곳에서만 반영한다. 기존 modal/drawer/sheet 기본 스크롤·포커스·여백과 셸 navigation inset은 변경하지 않는다. 긴 한글/공백 없는 영문·짧은 높이·loading/empty/조회·읽음 실패·실제 브라우저 200%·CDP top24/bottom34에서 유한 positive body, 닫기44px/경계, 마지막 행·더보기·키보드/복귀를 집중 회귀로 검증한다. CDP/env·fixture 결과는 실제 모바일 장치 인증이 아니다.
+- 미구현: 사용자/운영 DB migration·배포·실장비 HIL은 실행하지 않았다. 실제 두 브라우저 세션과 동일 계정의 DB 영속성 검증, 전체 뷰포트 물리 검수는 Task 9에 남아 있으며 mock 서버 receipt 재조회나 Chromium 결과로 대체하지 않는다.
+- 부족하거나 개선이 필요한 기능: Task 4 집중 단위 및 격리 Chromium은 소프트웨어 증거다. 독립 코드 리뷰·후속 메뉴 회귀와 최종 통합 관문은 총괄이 이어서 확인한다. 알람 push 기반 실시간 동기화는 추가하지 않았다.
+- 관련 파일: `apps/web/src/api/monitoring-incidents.ts`, `apps/web/src/components/ui/session-status/{useMonitoringIncidents.ts,SessionStatusCenter.tsx,SessionStatusProvider.tsx}`, `apps/web/src/components/ui/{ModalDialog.tsx,overlays/DialogBase.tsx}`, `apps/web/src/styles/base.css`, `apps/web/src/features/shells/CustomerShell.tsx`, 관련 API·hook·session·shell·overlay 테스트, `apps/web/e2e/operations-ui-comments.spec.ts`.
+- 갱신 규칙: durable 미읽음 수와 transient 상태, 개인 열람과 장애 처리, 실제 DB·software fixture·실장비 증거를 구분한다. closed/open/hidden/offscreen·PUT 실패·canonical count·mode/읽음 갱신 요청 역전·계정/현장 late response·transient 상태 유지/제거·키보드/스크롤 회귀를 같은 변경에서 유지한다.
+
+## 2026-10-05 개인 알람 숨김 Backend (추가 운영 UI Task 3)
+
+- 구현 완료: strict 빈 body의 개별 dismiss PUT와 UUID 요청키만 받는 dismiss-all POST를 추가했다. 인증 계정·선택 현장에만 적용하고 읽기 전용 viewer도 허용한다. 기존 읽음과 같은 advisory/Site/User/멤버십 잠금·재인가를 사용하며 읽음 기록·장애 상태/revision·현장 전체 activeCount는 변경하지 않는다.
+- 구현 완료: 전체 숨김은 페이지·목록 필터 밖의 모든 미숨김 ID를 한 SQL snapshot으로 pending 원장에 먼저 commit한다. 이것이 최초 수락 경계다. 별도 transaction에서 재인가 후 숨김 효과와 실제 신규 insert 수/완료 시각을 함께 commit한다. 실패·권한 철회·늦게 commit한 과거 시각 알람·동일 키 동시 요청에도 저장 집합을 넓히지 않는다. 삭제/겹친 대상은 실제 삽입 수에서 제외하며 완료 재시도 응답은 고정한다.
+- 구현 완료: GET의 기본 all은 기존 운용 목록과 미읽음 의미를 유지하고, personal만 개인 숨김을 목록/미읽음 수에서 제외한다. 행에 `isDismissed,dismissedAt`을 반환하며 cursor v2는 actor/site/view/filter에 바인딩한다. v1은 all에서만 소비한다. 같은 ID 갱신은 계속 숨김이며 새 ID 재발은 미읽음이다.
+- 미구현: 사용자 DB migration/서버 반영은 최종 검수 뒤 Task 10이며 이 Backend 작업에서 수행하지 않았다. 웹 알람센터의 개인 숨김 소비는 위 Task 4 항목에서 구현하며 Backend/웹의 별도 검증 경계를 유지한다.
+- 부족하거나 개선이 필요한 기능: 요청 원장과 frozen ID 배열은 부모 수명까지 보관하므로 계속 증가한다. 독립 TTL·worker/lease·자동 청소는 제공하지 않는다. 검증은 자기 소유 빈 임시 PostgreSQL과 API 자동 테스트이며 운영 배포/native/HIL 증거가 아니다. 독립 검토와 최종 전체 통합 관문은 별도로 남는다.
+- 관련 파일: `apps/api/prisma/schema.prisma`, `apps/api/prisma/migrations/20261004100000_monitoring_incident_dismissals/migration.sql`, `apps/api/src/monitoring-incidents/{monitoring-incident-dismissal.service.ts,monitoring-incident-personal-access.ts,monitoring-incidents.dto.ts,monitoring-incidents.service.ts,monitoring-incidents.controller.ts,monitoring-incidents.module.ts}` 및 인접 단위/실제 PostgreSQL 테스트, `docs/database-schema.md`.
+- 갱신 규칙: 개인 숨김·개인 읽음·운용 상태를 구분하고 durable 예약 전/후 실패, 권한 철회, 동일 키 재시도, 페이지/필터 밖 범위, UTC/Seoul/New_York, cascade와 count CHECK를 같은 작업에서 검증한다. 사용자 DB 적용 여부를 임시 DB 결과와 분리한다.
+
+## 2026-10-02 계정별 영속 알람 읽음 API (Task 2)
+
+- 시각 경계 보완(2026-10-04): incident raw SQL의 cursor·관측·자동 회복·revision Date 바인딩과 freshness의 heartbeat/fixture cutoff를 UTC timestamp로 명시적으로 정규화한다. 저장 column·active-first/id tie 정렬·index·GREATEST·revision +1ms·권한 잠금·최초 개인 읽음은 유지하며 운영 DB/role/session TimeZone이나 기존 데이터를 변경하지 않는다.
+- 검증 범위: 자기 소유 임시 PostgreSQL/Prisma6.19.3에서 UTC·Asia/Seoul·America/New_York 겨울/여름 session을 직접 확인하고 tied cursor·관측/역행/회복·receipt 격리·고정 제어 freshness와 activity/idempotence를 회귀 검증한다. 운영 DB 적용·과거 비정상 timestamp 복구·실장비/HIL은 별도 관문이며 임시 DB 결과로 완료를 주장하지 않는다.
+
+- 구현 완료: 기존 incident GET의 `incidents[]`에 현재 계정의 `isRead`·`readAt|null`과 현장 전체 `unreadCount`를 추가했다. 해결된 미읽음도 집계하고 상태/유형/커서/현재 페이지와 독립이다. 기존 정렬·커서·`activeCount`는 보존하며 GET는 receipt를 쓰지 않는다.
+- 구현 완료: `PUT /sites/:siteId/monitoring-incidents/:incidentId/read`는 서버 인증 actor의 개인 읽음을 기록하고 최초 DB UTC `readAt`을 중복·동시 PUT에도 유지한다. read-only viewer도 허용하고 활성 계정·멤버십·현장 소속을 같은 transaction에서 잠금 후 재검증한다. actor/시각/revision body 지정은 400이며 operational acknowledge/resolve와 incident revision을 변경하지 않는다.
+- 구현 완료: receipt는 incident/User 삭제 cascade이며 별도 TTL이나 incident 3개월 purge는 없다. 같은 ID polling은 읽음 유지, 회복 후 재발의 새 ID는 새 미읽음이다. 실제 자기 소유 임시 PostgreSQL에서 전체 migration과 계정 격리·권한/삭제 경쟁·cascade, Task 1 날짜·1,000행 커서를 확인했다. 사용자 DB 적용·장비/HIL 증거는 아니다.
+- 미구현: 운영 DB migration·배포와 최종 실제 두 세션 검증은 별도 관문이다. 웹 알람센터·배지 정본 조회·실제 보이는 항목 PUT 소비는 위 Task 4에 구현했으며 닫힌 센터/화면 밖 항목이나 transient 상태를 읽음/DB 알람 수에 포함하지 않는다.
+- 부족하거나 개선이 필요한 기능: 독립 검토와 최종 전체 회귀, 사용자/운영 migration·배포는 별도 관문이다. UI는 PUT 성공 ID만 반영하고 GET 재검증으로 두 기기 숫자를 동기화해야 하며 낙관 차감은 하지 않는다. HTTP 테스트는 실제 session DB guard를 사용하되 무관한 Redis login/MFA 초기화만 대체했다.
+- 관련 파일: `apps/api/prisma/schema.prisma`, `20261001100000_monitoring_incident_read_receipts/migration.sql`, `apps/api/src/monitoring-incidents/monitoring-incidents.{dto,controller,service}.ts`, 관련 단위·통합 테스트, `docs/database-schema.md`.
+- 갱신 규칙: 개인 읽음과 운영 확인/해결, producer와 웹 소비, 실제 임시 DB와 운영 적용 증거를 구분한다. filter 독립 unread·첫 시각·계정/현장 격리·revocation/cascade·실제 visible 성공 PUT 회귀를 함께 유지한다.
+
+## 2026-10-02 운영 로그 기간·1,000건 API (Task 1)
+
+- 구현 완료: 현장·선택 층 `monitoring-activity` 조회에 paired `fromDate`/`toDate`(`YYYY-MM-DD`)와 1–1,000건 상한을 추가했다. API 기본 5건은 유지한다. 현장에 저장된 시간대로 종료일을 포함하는 `[start,end)`를 계산하고, 같은 읽기 transaction의 중앙 DB `generatedAt`·3 calendar months `retainedFrom`과 교차한다. 빈 교집합은 기록 0건이며 다른 기간으로 확장하지 않는다.
+- 구현 완료: 응답은 사용자·현장·층·날짜 조건·실효 조회 크기의 canonical SHA-256 scope와 원본 recordedAt/id를 담은 v2 cursor를 발급한다. 조건 변경/잘못된 cursor는 400, 같은 scope의 보존 만료는 기존 410이다. 기존 v1은 날짜 조건 없이 기존 상한 50 이하에서만 수용하고 다음 cursor는 v2다. `items`·`nextCursor`·ISO 메타데이터와 안전한 필드 allowlist는 유지한다.
+- 구현 완료(웹 후속 Task5): 전체 로그의 50/100/500/1000 선택·기간 입력·unknown-total cursor UI를 소비한다. 최근 활동 띠의 소량5건 조회는 그대로다.
+- 부족하거나 개선이 필요한 기능: 이번 API 단위 회귀와 전체 소프트웨어 검증은 실제 사용자 DB·장비 또는 운영 적용 증거가 아니다. 일회용 PostgreSQL opt-in 통합과 독립 검토는 별도 관문으로 기록한다. 명령/incident 보존 및 기존 활동 삭제 worker를 변경하지 않는다.
+- 관련 파일: `apps/api/src/retention/log-date-range.ts`, `apps/api/src/monitoring-activity/monitoring-activity.{controller,service}.ts`, 관련 단위·통합 테스트.
+- 갱신 규칙: producer 지원과 웹 소비 적용을 구분하고 paired 날짜 검증·현장 시간대/DST·DB 시각·scope/조회 크기 cursor·동일 시각 ID 순서·legacy 호환 및 opt-in 실행 여부를 함께 유지한다.
+- 날짜 경계 보완: 현장 시간대에서 실제로 존재하지 않는 시작일·종료일을 선택하면 400으로 거부한다. 유효한 종료일 다음 날짜만 시간대 전환으로 사라진 경우에는 다음 실제 날짜 시작을 종료 경계로 사용하며, 보존 범위 밖의 유효한 기간은 그대로 빈 교집합이다. Pacific/Apia 역사 경계는 단위 테스트 증거이며 실제 DB 검증은 후속이다.
+## 2026-10-04 큰 글자의 맵 선택 가용 폭 보완
+
+### 구현 완료
+
+- compact 화면에서 맵 선택과 검색·상세 버튼을 세로로 배치해 선택값이 버튼과 폭을 경쟁하지 않도록 한다. `맵 선택` 라벨은 선택값 옆에 유지하고 검색·상세 버튼은 다음 줄 오른쪽에 둔다. 큰 화면의 기존 수평 배치와 공통 SelectBox·글자 크기·확대 동작은 변경하지 않는다.
+- 320/390px·웹 root 글자100/200%에서 `B2` 및 `B1 · 동측 지하주차장`의 전체 글자 영역과 펼침 표식의 버튼 내부 표시·서로 겹치지 않음을 검사한다. 선택/검색/새로고침 도구의 실제 clip·occlusion을 반영한 연속44×44px 접근 영역, 층 변경 후 해당 층 조회·조명 검색·현재 선택/URL 유지·명령 POST0 회귀를 추가한다.
+
+### 미구현
+
+- 실제 Android/iOS WebView의 OS 큰 글자·VoiceOver/TalkBack·고객별 모든 층명 검증은 이번 격리 Chromium 표시/조작 회귀와 별개다.
+
+### 부족하거나 개선이 필요한 기능
+
+- 기존 시각 문제는 320px200%에서 선택 버튼 폭26px과 값·표식의 버튼 경계 이탈로 재현했다. 후속 회귀는 웹 글자 확대와 현실적 긴 층명 조건을 검사하며 전체 서비스 큰 글자 UX·실기기 접근성·HIL 승인을 대신하지 않는다. 전체 브랜치 검증은 총괄이 수행한다.
+
+### 관련 파일
+
+- `apps/web/src/features/monitoring/MonitoringView.tsx`, `MonitoringView.test.tsx`, `apps/web/e2e/mobile-monitoring-touch.spec.ts`, 기존 `apps/web/e2e/support/layout-assertions.ts`(재사용만).
+
+### 갱신 규칙
+
+- 좁은 폭/큰 글자에서 전체 선택값·펼침 표식·도구 접근 영역을 함께 검증한다. label 연결·현장/층 identity·검색/URL·조회 전용 의미를 보존하고, 공통 필드나 폰트 시스템 변경은 별도 소유 역할에 배정한다.
+
+## 2026-10-04 갱신 시각의 현장 시간 표시 보완
+
+### 구현 완료
+
+- `마지막 갱신`의 정상·지연 snapshot 시각은 최종 통합에서 조명 상세와 같은 현장 `timeZone` 공통 포맷터의 날짜·초 단위 시각을 표시하고 `(현장 시간)`으로 의미를 명시한다. 서버 원본 ISO는 `<time dateTime>`에 보존한다. React Query 수신 시각이나 장비 마지막 관측 시각으로 바꾸지 않는다.
+- 좁은 화면과 큰 글자에서는 갱신 시각만 자연스럽게 줄바꿈한다. 가장 오래된 fixture page 기반 freshness 및 60,000/60,001ms 경계, 미래·invalid·pending 안내, 조회·수동 장치 확인·제어 계약은 유지한다.
+- 서울의 다음 날짜/LA의 이전 날짜 경계 단위 회귀와 320/390px·실제 caption 12/24px Chromium 표시 회귀를 추가한다. 기존 상세·로그·마커·핀치·이동 터치 회귀도 유지한다.
+
+### 미구현
+
+- 실제 Android/iOS WebView의 OS 글자 확대·시간대 설정·물리 조명 HIL 검증은 이번 소프트웨어 표시 보완의 완료 범위가 아니다.
+
+### 부족하거나 개선이 필요한 기능
+
+- 200% 검사는 웹 root 글자 크기 변경으로 caption 24px을 확인한 격리 Chromium fixture 결과다. 전체 메뉴의 큰 글자 UX나 네이티브 접근성 설정을 승인하는 근거로 확대하지 않는다. 전체 브랜치 통합·출시 검토는 총괄 관문으로 유지한다.
+
+### 관련 파일
+
+- `apps/web/src/features/monitoring/MonitoringView.tsx`, `MonitoringView.test.tsx`, 기존 `monitoring-time.ts`·테스트, `apps/web/e2e/mobile-monitoring-touch.spec.ts`.
+
+### 갱신 규칙
+
+- 화면용 현장 시각과 기계용 원본 ISO를 분리해서 검증하고, 날짜 경계·freshness·예외 메타데이터·조회 전용 의미를 함께 보존한다. 기본 글자/큰 글자·fixture/실기기 검증을 구분한다.
+
+## 2026-10-04 모바일 상세 터치 스크롤 보완
+
+### 구현 완료
+
+- 조명 검색·상세 드로어를 터치로 스크롤할 때, 높이 제한이 없는 내부 조명 패널이 입력 전달을 막지 않도록 해당 SidePanel 소비자에서만 `overflow-visible`·`overscroll-auto`를 적용한다. 바깥 드로어가 스크롤을 소유하며 공통 SidePanel/Dialog 기본값과 지도·장치 확인 계약은 유지한다.
+- 320/390px 터치 회귀는 실제 Chromium touch 입력으로 상세 마지막 지도 배치, 로그 마지막5건과 서버 cursor 이전/다음, 마커 탭·핀치·지도 이동을 확인한다. 모니터링에서 장비 제어 요청은 만들지 않는다.
+
+### 미구현
+
+- Android/iOS 실기기 설치·네이티브 safe-area/키보드/OS Back·GPU 성능 및 물리 조명 HIL은 이 소비자 보완의 완료 범위가 아니다. 공통 앱 복귀·native Back 연결은 모바일/웹 셸 담당의 별도 선행 작업이다.
+
+### 부족하거나 개선이 필요한 기능
+
+- 터치 회귀는 격리 API fixture와 Chromium 소프트웨어 증거다. 실제 WKWebView/Android WebView 및 장비 상태 확인 결과로 확대하지 않는다. 초기 공통 React18/19 타입 혼재는 의존성 담당이 정리했으며, 이후 웹 전체 타입 검사는 검사 당시 다른 담당의 공통 모바일 helper·설정 입력 구현 항목에 막혔다. 모니터링에서 cast/skipLibCheck로 감추지 않고 전체 브랜치 타입·통합 검증은 총괄의 별도 관문으로 유지한다.
+
+### 관련 파일
+
+- `apps/web/src/features/monitoring/FixtureDetailPanel.tsx`, `apps/web/e2e/mobile-monitoring-touch.spec.ts` 및 기존 MonitoringView/MonitoringLogDrawer/FloorMapViewport 직접 테스트.
+
+### 갱신 규칙
+
+- 상세 안팎의 실제 스크롤 범위·최종 정보 hit·터치 기본 동작을 함께 검증한다. 로그 cursor/마커 선택/장치 상태 의미를 보존하고, 공통 컴포넌트 변경은 소유 역할에 순차 배정한다. 소프트웨어·실기기·HIL 결과와 의존성/수집 오류를 각각 구분해 기록한다.
+
+## 2026-10-02 맵 선택 전체 삭제의 읽기 전용 소비
+
+- 구현 완료: 설정 맵의 전체 삭제는 도형을 삭제하고 선택 조명을 미배치·위치 미확인으로 전환하며 슬롯 assignment를 해제한다. 기존 원자 저장 응답과 cache 갱신을 통해 모니터링은 저장된 도형·배치만 읽고 조명 장비 자체 및 전체 등록 수는 유지한다. 모니터링에 편집/장비 삭제 UI를 추가하지 않았다.
+- 미구현: 실제 장비·고객 DB·native WebView에서의 검증은 이번 Web fixture 검증과 별개다.
+- 부족하거나 개선이 필요한 기능: 신규 혼합 삭제/슬롯 해제는 HTTP fixture 저장·reload로 검사했으며 실제 backend 원자성 보증은 기존 서버 계약과 별도 통합 QA를 따른다. 미배치 조명 수와 전체 등록 수를 같은 지표로 해석하지 않는다.
+- 관련 파일: `apps/web/src/features/floor-editor/use-map-editor.ts`, `apps/web/src/features/floor-editor/FloorEditorView.tsx`, `apps/web/e2e/support/settings-api.ts`, `apps/web/e2e/map-editor-bounded-extension.spec.ts`.
+- 갱신 규칙: 설정 배치·슬롯·저장 계약이 변경되면 모니터링의 읽기 전용 재조회와 수 집계 의미를 함께 확인한다.
 
 ## 2026-09-27 종료 명령의 연결 활동 사본 정리
 
@@ -221,6 +577,8 @@
 
 ## 구현 완료
 
+- 2026-10-04: 공통 iOS WebView 셸이 가려진 텍스트 입력의 포커스 테두리까지 확인하여 현재 포커스/키보드 열림 시도당 중앙으로 한 번 스크롤한다. 뒤늦은 viewport 크기 변경도 아직 보정하지 않은 입력만 다시 확인하며, 이미 충분히 보이거나 보정한 입력은 이동하지 않는다. 사용자 스크롤 제스처, 키보드 숨김, 앱 비활성화, 오류와 문서 교체 시 대기 중인 보정을 취소한다. Android와 메뉴 업무 로직은 변경하지 않는다.
+
 - 2026-09-29 탐색 개선 구현: 선택 층 KPI는 접근 가능한 상태 필터 버튼으로 연결하고 현장 KPI는 읽기 전용 집계를 유지한다. 목록 필터와 지도 강조는 서버 DTO 상태 기준이며 배치 위치는 설정 snapshot을 우선한다. 추가 페이지 실패 시 자동 재요청을 멈추고 부분 조회 안내·수동 재시도를 제공한다. 모든 페이지 조회가 끝난 뒤 등록 수와 집계가 다르면 확인 시점 차이를 안내하며 검색 결과 수나 부분 페이지 수로 KPI를 덮어쓰지 않는다.
 - 조명 핀/상세는 상태·확인된 밝기·마지막 확인 시각·권장 조치·배치 여부만 제공한다. 기술 정보와 상태 확인 결과 별도 UI는 제공하지 않으며 기존 수동 장치 확인·실패 안내는 유지한다. 미조회 핀은 확인 전으로 표시한다.
 - 전체 보기는 아이콘 전용이며 공통 지도 인스턴스를 유지한다. 닫기 시 지도 높이를 바꾸지 않고 연결된 마커에 preventScroll 초점을 복귀한다. 사용자·현장·층·맵 generation/크기별 카메라 기억은 30일·사용자당50개·300ms 지연 저장이며 저장소 실패 시 현재 세션 메모리만 사용한다. 브라우저 통합 검증은 진행 중이며 실장비 검증을 뜻하지 않는다.
@@ -274,7 +632,7 @@
 - BIO의 첫 수동 제어는 polling에서 읽은 sensor용 high-brightness 설정을 현재 출력으로 재사용하지 않는다. Gateway가 실제 SET과 두 GET read-back을 검증한 뒤에만 force mode의 밝기·전원 상태를 자동화 기준과 `fixture-state`로 저장하므로, 등록 직후 모니터링 값이 비어 있어도 제어는 시작할 수 있고 실패한 명령이 가짜 현재 밝기를 만들지 않는다.
 - 2026-09-02 무장비 회귀 점검에서 등록 API도 Web과 동일하게 `scanStatus=completed`, non-null correlation ID와 attempt의 exact match를 강제한다. 따라서 이전 검색 시도나 identity가 없는 legacy 발견 행을 요청에 직접 넣어도 provisioning 대상으로 수락하지 않는다.
 - 조명 목록의 최초 로딩·층 전환 로딩·최초 오류를 빈 조명 0개 상태와 분리한다. 기존 데이터가 있는 갱신 실패는 지도와 KPI를 유지하면서 오류 및 재시도를 표시하고, 지도 snapshot 로딩도 `등록된 층 없음`과 구분한다. 상단의 운영 현황 제목과 자동 갱신 설명은 제거하고 `맵 선택` 문구 옆 SelectBox와 우측 끝 수동 새로고침을 제공한다.
-- P1 Task 3 Web은 dashboard, 선택 층 fixture page, map snapshot을 10분 polling·10분 staleTime·focus refetch·2회 retry로 조회한다. map snapshot이 수동 또는 background 갱신에서 최종 실패하면 해당 query만 30초 뒤 자동 복구를 시도하고, 성공하면 정상 10분 주기로 복귀한다. dashboard와 fixture page의 polling 주기는 이 복구 정책의 영향을 받지 않는다. cached dashboard/fixture/map의 background 실패는 현재 지도·층/조명 선택을 지우지 않고 persistent stale banner와 재시도로 표시한다. 지도 실패 표시는 실패 당시 같은 층의 `dataUpdatedAt`을 기준선으로 저장해 cached observer 상태 변화에는 유지하고, 더 최신 성공 응답에서 지도 경고와 지도 source의 toolbar 오류만 자동 해제한다. 다른 층의 실패 상태는 현재 층 경고에 섞지 않는다. 현장에 층이 없으면 floor fixture/map query는 비활성 상태이므로 해당 loading/error/stale 안내를 만들지 않는다. 선택 층의 모든 fixture page `generatedAt` 중 가장 오래된 유효 시각이 60초를 초과하면 stale이며, 경계 60초는 정상이다. `마지막 갱신`은 React Query 수신 시각이 아니라 그 서버 ISO를 표시하고 미래/잘못된 snapshot은 `시간 차이 확인` 또는 안전 경고로 표시한다. `provisioning_waiting_state`, gateway offline, fixture stale, command failed, Health fault/fault, online, generic offline은 공통 presenter를 통해 selector, marker 접근성 이름, badge, 상세 원인·권장 조치에서 같은 문구를 사용한다.
+- P1 Task 3 Web은 dashboard, 선택 층 fixture page, map snapshot을 10분 polling·10분 staleTime·focus refetch·2회 retry로 조회한다. map snapshot이 수동 또는 background 갱신에서 최종 실패하면 해당 query만 30초 뒤 자동 복구를 시도하고, 성공하면 정상 10분 주기로 복귀한다. dashboard와 fixture page의 polling 주기는 이 복구 정책의 영향을 받지 않는다. cached dashboard/fixture/map의 background 실패는 현재 지도·층/조명 선택을 지우지 않고 persistent stale banner와 재시도로 표시한다. 지도 실패 표시는 실패 당시 같은 층의 `dataUpdatedAt`을 기준선으로 저장해 cached observer 상태 변화에는 유지하고, 더 최신 성공 응답에서 지도 경고와 지도 source의 toolbar 오류만 자동 해제한다. 다른 층의 실패 상태는 현재 층 경고에 섞지 않는다. 현장에 층이 없으면 floor fixture/map query는 비활성 상태이므로 해당 loading/error/stale 안내를 만들지 않는다. 선택 층의 모든 fixture page `generatedAt` 중 가장 오래된 유효 시각이 60초를 초과하면 stale이며, 경계 60초는 정상이다. `마지막 갱신`은 React Query 수신 시각이 아니라 해당 서버 시각을 현장 시간대로 표시하고 원본 ISO를 `time.dateTime`에 보존한다. 미래/잘못된 snapshot은 기존 `시간 차이 확인` 또는 안전 경고로 표시한다. `provisioning_waiting_state`, gateway offline, fixture stale, command failed, Health fault/fault, online, generic offline은 공통 presenter를 통해 selector, marker 접근성 이름, badge, 상세 원인·권장 조치에서 같은 문구를 사용한다.
 - Dashboard 요약은 저장된 fixture status뿐 아니라 최신 Health Current fault를 합성한 최종 상태로 정상·장애 수를 계산한다. `includeFixtures=false` 요약도 같은 규칙을 사용하며, 주기적 freshness DB 갱신 실패는 정제된 오류 코드만 기록하고 다음 주기를 계속 실행한다.
 - 조명 등록 진행 표시는 session·scan·node 상태를 하나의 순서 상태 머신으로 파생한다. active workflow는 오류가 없는 동안 정확히 한 단계만 `aria-current="step"`이고, 선행 단계는 완료, scan/장비 등록 실패는 실제 발생 단계의 오류로 표현한다. `completed`는 전체 완료, `cancelled`는 도달 단계 이후를 pending으로 유지해 current가 없고, session-level `failed`는 도달한 실제 단계가 error가 되어 terminal session을 진행 중으로 오인하지 않는다. 서버의 `errorMessage`, 개별 등록 검증 오류와 `scanFailureMessage`는 API 값 자체를 바꾸지 않고 공통 표시 경계에서 `Gateway ACK timeout` 같은 transport 원문을 `게이트웨이 장비 응답 시간 초과`처럼 한국어로 바꾼다.
 - 390px·320px commissioning 회귀는 버튼뿐 아니라 setup/Gateway claim/조명 등록의 enabled input·select·checkbox/radio associated label을 실제 clipping·occlusion을 고려한 연속 44×44px reachable area로 검증한다. 등록 직후 기본 일괄 form의 다섯 input을 먼저 검사하고, 개별 설정으로 전환한 뒤 개별 input을 다시 검사한다. 등록 form input과 select는 최소 44px이고, 18px checkbox/radio 시각 크기는 유지하되 label hit 영역을 44px 이상 제공한다.
@@ -320,7 +678,7 @@
 - 이미 다른 층에 매핑된 기존 fixture가 같은 device UUID로 다시 발견되면 자동 이동하지 않고 provisioning 완료를 `failed`로 종료해 현장 매핑 충돌을 드러낸다.
 - 상단 `맵 선택` SelectBox로 지하/지상 층을 전환하며 문구와 SelectBox를 한 줄에 배치한다.
 - 층별 2D 맵에 도면 이미지와 조명 위치를 표시한다.
-- 조명 점은 선택/hover/focus에서도 크기가 변하지 않는 모서리 3px의 20px 네모 marker로 표시하고 outline과 적층으로만 현재 선택을 구분한다. online은 10개 밝기 단계별 정적 fill/glow를 적용하고 실제 computed 스타일의 단조 증가와 같은 단계의 동일함을 검증한다.
+- 조명 점은 선택/hover/focus에서도 시각 크기가 변하지 않는 20px 원형이며 실제 monitoring hit는 48×48px이다. 상태 테두리·비색상 아이콘과 별도 선택/초점 outline으로 상태와 선택을 구분한다. online은 기존 10개 밝기 단계별 정적 fill/glow와 실제 computed 스타일의 단조 증가·같은 단계 동일함을 유지한다.
 - 조명 점의 접근성 라벨과 tooltip은 한국어 상태명(정상/오프라인/장애)을 사용하고, `provisioning_waiting_state`는 `상태 확인 대기`로 별도 표시한다.
 - 선택 조명 상세 패널은 확인된 밝기·마지막 확인·고객용 상태 설명·권장 조치·배치 여부만 표시한다. 좌표·정격 전력·게이트웨이·RSSI·hop count·명령 성공률·숫자 Health 코드 등 기술 정보는 제거했다.
 - 선택 층 기준 전체 조명 수, 온라인 수, 점검 필요 수와 상태 확인 대기를 포함한 오프라인 수를 상단 KPI로 표시한다.
@@ -399,6 +757,8 @@
 
 ## 부족하거나 개선이 필요한 기능
 
+- 2026-10-04 iOS 검증 경계: 공개 로그인 화면과 synthetic WebView 브리지·CSV 동작만 검증했다. 포커스 보정의 정식 셸 연결과 늦은 viewport 축소는 자동 회귀를 통과했다. 이 Mac의 iOS26.5 Simulator에서 observer 없이 실제 로그인 화면의 ID 최초 포커스 cold start 2회, Next, 별도 cold start의 비밀번호 최초 포커스·재포커스, 사용자 스크롤 유지와 Done 복원을 확인했다. 인증된 해당 메뉴, PDF, 구형 iOS와 실장비 조명 연동은 미검증이다.
+
 - 실제 Dashboard API 응답과 계약 테스트에는 현장 `offlineFixtures`, 층별 `summary`, `mapRevision`, `mapConfigured`가 필수다. 다만 Web의 `Dashboard` TypeScript 타입은 제어·셸·설치 화면 등의 기존 typed 테스트 fixture가 이 필드를 아직 빠뜨려 일시적으로 optional이다. 런타임 응답에서 층별 집계나 현장 오프라인 집계가 누락되면 모니터링은 `0`을 만들지 않고 `집계 준비 중`으로 표시한다. 해당 fixture를 전수 이관한 뒤 Web 타입도 required로 승격해야 한다.
 - Final Atlas 모니터링 웹은 shared response schema, API cursor/`retainedFrom`, 조회 오류와 `410`을 소비한다. 모니터링·공통 지도·App/셸 focused Vitest 232개와 Chromium route fixture 42개(1440·1378·1024·390·320px 포함)는 통과했지만, 브라우저 fixture 기록을 실제 현장에 이미 보존된 활동이라고 해석하지 않는다. 고객 DB에 신규 migration을 적용한 뒤 생산자·3개월 물리 삭제 sweep·권한·현장 시간대 표시를 운영 환경에서 통합 점검해야 한다. 과거 3개월 기록의 소급 backfill은 제공하지 않는다.
 - 수동 장치 확인의 물리 BIO USB 동글·조명 2대 연결 증거가 없어 이번 작업의 HIL은 미수행이다. 후속 현장 절차는 두 대 online → 한 대 실제 전원 차단 → 새로고침 → `정상 1 / 오프라인 1` → 전원 복구 → 새로고침 → `정상 2 / 오프라인 0`이며 Gateway 버전/API revision·가린 장비 identity·시각·결과를 기록해야 한다. 자동 unit/Chromium route fixture와 lab 발행 terminal은 실제 two-pass RF/USB 검증을 증명하지 않는다.
@@ -433,11 +793,13 @@
 - 1,000개 marker 조회/렌더링 기준은 자동 검증한다. 현재 이름/번호 검색은 브라우저가 이어 받아온 현재 층 fixture 페이지에 적용되며 서버 전체 검색 API는 없다. 더 큰 현장에는 공간 클러스터링과 서버 검색이 추가로 필요하다.
 - 자사 UUID 검색, batch 등록, 실제 Health Current 수집을 포함한 Raspberry Pi/ESP32-H2 실장비 HIL은 아직 실행하지 않았다. 자동 route fixture 통과를 검색·등록·상태 수집의 실기 완료로 간주하지 않는다.
 - Sensor server-send breaker는 actual patched source allocator fault harness와 fullclean target compile로 검증했다. 실제 device heap pressure, BTC queue saturation과 Sensor Status RF 전달은 HIL에서 확인해야 하며 software allocation test를 실장비 완료로 간주하지 않는다.
-- 현재 선택 로직은 첫 장애 조명 또는 첫 조명을 자동 선택하므로, 사용자가 이전에 보던 조명을 유지하는 정책을 더 정교하게 만들 수 있다.
+- 현재 선택 로직은 명시 선택 ID 또는 `null`만 사용한다. 자동 첫 장애/첫 조명 선택은 제거했으며 새 데이터와 저장 pin/runtime 도착 순서가 임의로 선택을 바꾸지 않는다.
 - 등록 패널은 `pending/scanning` 또는 provisioning 중에만 1.5초 registration session polling으로 결과를 반영한다. `reconcile_required`의 서버 상태 재조회, 명시적 제외와 세션 취소는 구현했지만 장비가 실제로 provisioned 되었는지 Gateway/BlueZ에 질의하고 자동 정리하는 기능은 없다. 현장 관리자가 장비를 확인·초기화하지 않은 채 제외하면 안 되며 이 절차는 Raspberry Pi/ESP32-H2 HIL로 검증해야 한다.
 - scan lifecycle 자동 테스트는 mock MQTT와 scanner adapter를 사용한다. 실제 host Mosquitto mTLS negative ACL integration에서 Gateway CN certificate의 `acks/state-ingested`, `acks/provisioning/scan-terminal-ingested` publish 거부를 확인했다. 2026-09-18 Task 7에서는 Docker broker persistence 재시작과 운영·개발 ACL 검증 3/3을 통과해 과거 Docker daemon 부재로 인한 skip 상태를 갱신했다. 이는 소프트웨어 broker 검증이며 실제 Raspberry Pi BlueZ adapter의 scan timeout, broker/Pi/API 재시작을 가로지르는 terminal application ACK 재전달, ESP32-H2 자사 UUID 필터와 terminal event 전달은 HIL에서 별도로 확인해야 한다.
 
 ## 관련 파일
+
+- `apps/mobile/src/ios-focus-visibility.ts`, `apps/mobile/src/ios-focus-visibility.test.ts`, `apps/mobile/src/WebShell.tsx`, `apps/mobile/src/WebShell.ios-focus.test.tsx`, `apps/mobile/README.md`: 공통 iOS 입력 가시성 보정과 회귀·실행 안내.
 
 - `apps/web/src/features/floor-map/{map-camera,fixture-map-position}.ts`
 - `apps/web/src/features/monitoring/{FixtureDetailPanel,FixtureStatusBadge}.tsx`

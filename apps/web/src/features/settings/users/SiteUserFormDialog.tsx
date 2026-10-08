@@ -111,7 +111,7 @@ export function SiteUserFormDialog({ siteId, user, returnFocusElement, fallbackF
       <form id="site-user-form" className="grid gap-5" onSubmit={handleSubmit} noValidate>
         <div className="grid gap-4 compact:grid-cols-2">
           <TextField ref={nameRef} id="site-user-name" label="이름" value={values.name} onChange={(value) => update("name", value)} isInvalid={Boolean(errors.name)} errorMessage={errors.name} />
-          <TextField id="site-user-login" label="로그인 아이디" value={values.loginId} onChange={(value) => update("loginId", value)} autoComplete="off" isInvalid={Boolean(errors.loginId)} errorMessage={errors.loginId} />
+          <TextField id="site-user-login" label="로그인 아이디" value={values.loginId} onChange={(value) => update("loginId", value)} autoComplete="off" autoCapitalize="none" autoCorrect="off" spellCheck="false" isInvalid={Boolean(errors.loginId)} errorMessage={errors.loginId} />
         </div>
         {!isEdit ? (
           <PasswordField id="site-user-password" label="임시 비밀번호" description="8~1024자로 입력하세요. 공백만 사용할 수 없으며, 사용자는 최초 로그인 후 비밀번호를 변경해야 합니다." value={values.temporaryPassword} onChange={(value) => update("temporaryPassword", value)} autoComplete="new-password" isInvalid={Boolean(errors.temporaryPassword)} errorMessage={errors.temporaryPassword} />

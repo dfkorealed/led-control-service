@@ -1,6 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import { expectMinimumTouchTargetsAfterScrolling, expectNoHorizontalOverflow } from "./support/layout-assertions";
 import { installSettingsApiRoutes, type SettingsFixture, type SettingsRole } from "./support/settings-api";
+import { installMockApiBoundary } from "./support/mock-api-boundary";
 import type { BioPulseTelemetryView } from "../src/api/automation";
 
 const ids = {
@@ -25,6 +26,33 @@ const fixtures: SettingsFixture[] = [
 
 test.use({ timezoneId: "Asia/Seoul" });
 
+test.beforeEach(async ({ context, baseURL }) => {
+  await installMockApiBoundary(context, baseURL);
+});
+
+test("Task6 unmodified wheel zoom preserves the pointer anchor without a control POST", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  const api = await installControlMapRoutes(page);
+  await page.goto(`/control?siteId=${ids.site}`);
+  const viewport = page.getByTestId("target-selection-map-viewport");
+  await expect(viewport).toBeVisible();
+  for (let index = 0; index < 10; index += 1) await page.getByRole("button", { name: "지도 확대", exact: true }).click();
+  const before = await viewport.getAttribute("data-zoom");
+  const box = (await viewport.boundingBox())!;
+  const point = { x: box.x + box.width * .5, y: box.y + box.height * .5 };
+  const surface = viewport.locator("[data-floor-map-surface]");
+  const initialSurface = (await surface.boundingBox())!;
+  const anchor = { x: (point.x - initialSurface.x) / initialSurface.width, y: (point.y - initialSurface.y) / initialSurface.height };
+  await page.mouse.move(point.x, point.y);
+  await page.mouse.wheel(0, -120);
+  await expect.poll(() => viewport.getAttribute("data-zoom")).not.toBe(before);
+  await expect.poll(async () => { const after = (await surface.boundingBox())!; return Math.abs(after.x + anchor.x * after.width - point.x); }).toBeLessThan(2);
+  await expect.poll(async () => { const after = (await surface.boundingBox())!; return Math.abs(after.y + anchor.y * after.height - point.y); }).toBeLessThan(2);
+  await marker(page, "B2-L002").click();
+  await expect(marker(page, "B2-L002")).toHaveAttribute("aria-pressed", "true");
+  await expect(marker(page, "B2-L001")).toHaveAttribute("aria-pressed", "false");
+  expect(api.postRequests).toEqual([]);
+});
 for (const viewport of [{ width: 320, height: 740 }, { width: 390, height: 844 }]) {
   test(`BIO server telemetry ${viewport.width}px stays accessible and clears on source remap without promoting readiness`, async ({ page }) => {
     await page.setViewportSize(viewport);
@@ -168,14 +196,18 @@ for (const flow of ["schedule", "event", "group"] as const) {
       await page.getByRole("button", { name: "이벤트 추가" }).click();
       await page.getByRole("button", { name: "감지 센서 선택", exact: true }).click();
     } else {
+      await openCompactTools(page);
       await page.getByRole("button", { name: "구역 관리" }).click();
       await page.getByRole("button", { name: "새 구역" }).click();
     }
     const dialog = page.getByRole("dialog");
     const surface = dialog.locator("[data-floor-map-surface]");
     await expect(surface).toBeVisible();
-    await expect.poll(async () => (await surface.boundingBox())!.width).toBeGreaterThanOrEqual(400);
-    await expect.poll(async () => (await surface.boundingBox())!.height).toBeGreaterThanOrEqual(240);
+    if (flow === "group") await test.info().attach("group-map-geometry", { contentType: "application/json", body: JSON.stringify(await dialog.evaluate(element => [...element.querySelectorAll<HTMLElement>("[data-fixture-group-map-editor], [data-target-selection-content], [data-floor-map-surface], [data-testid='target-selection-map-viewport']")].map(node => ({ tag: node.tagName, rect: node.getBoundingClientRect().toJSON(), className: node.className, attrs: Object.fromEntries([...node.attributes].filter(attr => attr.name.startsWith("data-")).map(attr => [attr.name, attr.value])) }))), null, 2) });
+    const interactiveViewport = dialog.getByTestId("target-selection-map-viewport");
+    // A fitted image may be smaller than its usable interactive viewport.
+    await expect.poll(async () => (await interactiveViewport.boundingBox())!.width).toBeGreaterThanOrEqual(400);
+    await expect.poll(async () => (await interactiveViewport.boundingBox())!.height).toBeGreaterThanOrEqual(240);
     const target = marker(dialog, flow === "event" ? "B2-SENSOR-001" : "B2-L001");
     await expectReachableInside(target, dialog);
     await target.click();
@@ -185,28 +217,32 @@ for (const flow of ["schedule", "event", "group"] as const) {
   });
 }
 
-test("final review: compact manual status and apply remain reachable at reduced height", async ({ page }) => {
+test("final review: compact manual controls follow the map and remain reachable at reduced height", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 660 });
   await installControlMapRoutes(page);
   await page.goto(`/control?siteId=${ids.site}`);
   await marker(page, "B2-L001").click();
-  const summary = page.getByRole("complementary", { name: "밝기 실행" });
-  const action = summary.getByRole("button", { name: "1개 조명에 밝기 적용" });
-    await expect(summary.getByText("1개 선택", { exact: true })).toBeVisible();
-    await expect(summary.getByRole("textbox", { name: "밝기 수치" })).toBeVisible();
-    // The current compact execution panel scrolls normally; it has no collapsed summary state.
-    await action.scrollIntoViewIfNeeded();
-    await expectReachableInside(action, summary);
-    const actionBox = (await action.boundingBox())!;
-    const navBox = (await page.locator('[data-shell-navigation="compact"]').boundingBox())!;
-    expect(actionBox.y + actionBox.height).toBeLessThanOrEqual(navBox.y);
-    expect(actionBox.y).toBeGreaterThanOrEqual(0);
+  const execution = page.getByRole("complementary", { name: "밝기 실행" });
+  await openCompactExecution(page);
+  const action = execution.getByRole("button", { name: "1개 조명에 밝기 적용" });
+  await expect(execution.getByText("1개 선택", { exact: true })).toBeVisible();
+  await execution.getByRole("textbox", { name: "밝기 수치" }).scrollIntoViewIfNeeded();
+  await expect(execution.getByRole("textbox", { name: "밝기 수치" })).toBeVisible();
+  // Manual control now follows map → execution → history, not a fixed sheet.
+  await action.scrollIntoViewIfNeeded();
+  await expectReachableInside(action, execution);
+  const actionBox = (await action.boundingBox())!;
+  const navBox = (await page.locator('[data-shell-navigation="compact"]').boundingBox())!;
+  expect(actionBox.y + actionBox.height).toBeLessThanOrEqual(navBox.y);
+  expect(actionBox.y).toBeGreaterThanOrEqual(0);
+  await expectNoHorizontalOverflow(page);
 });
 
 test("final review: compact group name uses 16px text", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await installControlMapRoutes(page);
   await page.goto(`/control?siteId=${ids.site}`);
+  await openCompactTools(page);
   await page.getByRole("button", { name: "구역 관리" }).click();
   await page.getByRole("button", { name: "새 구역" }).click();
   expect(await page.getByRole("textbox", { name: "구역 이름" }).evaluate((element) => Number.parseFloat(getComputedStyle(element).fontSize))).toBeGreaterThanOrEqual(16);
@@ -217,6 +253,7 @@ for (const viewport of [{ width: 390, height: 660 }, { width: 320, height: 740 }
     await page.setViewportSize(viewport);
     await installControlMapRoutes(page);
     await page.goto(`/control?siteId=${ids.site}`);
+    await openCompactTools(page);
     await page.getByRole("button", { name: "구역 관리" }).click();
     await page.getByRole("button", { name: "새 구역" }).click();
 
@@ -237,6 +274,7 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 1366, height: 768
     await page.setViewportSize(viewport);
     await installControlMapRoutes(page, { fixtureCount: 100, groupMemberCount: 100 });
     await page.goto(`/control?siteId=${ids.site}`);
+    await openCompactTools(page);
     await page.getByRole("button", { name: "구역 관리" }).click();
     await page.getByRole("button", { name: "B2 입구 수정" }).click();
 
@@ -244,6 +282,7 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 1366, height: 768
     const editor = dialog.getByTestId("fixture-group-map-editor");
     const content = editor.locator("[data-target-selection-content]");
     await expect.poll(async () => content.evaluate((element) => element.clientHeight)).toBeGreaterThanOrEqual(240);
+    await test.info().attach("dense-marker-hit-geometry", { contentType: "application/json", body: JSON.stringify(await editor.evaluate(element => ["B2-L055", "B2-L066"].map(name => { const node = element.querySelector<HTMLElement>(`[data-spatial-map-marker][aria-label^='${name}']`)!; const rect = node.getBoundingClientRect(); return { name, rect: rect.toJSON(), centerHit: document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2)?.getAttribute("aria-label") }; })), null, 2) });
     await editor.getByRole("button", { name: "선택 비우기" }).click();
 
     const changes = editor.locator('[aria-label="구역 구성 변경"]');
@@ -256,7 +295,17 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 1366, height: 768
     await expectInternalWheelScroll(page, changes);
     await expectReachableInside(changes.getByText("제거 예정: B2-L100", { exact: true }), changes);
     await expect.poll(async () => content.evaluate((element) => element.clientHeight)).toBeGreaterThanOrEqual(240);
-    await marker(editor, "B2-L055").click();
+    for (let index = 0; index < 20; index += 1) await editor.getByRole("button", { name: "지도 확대", exact: true }).click();
+    const preciseTarget = marker(editor, "B2-L055");
+    const hit = await preciseTarget.evaluate(element => { const rect = element.getBoundingClientRect(); return document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2)?.closest("[data-spatial-map-marker]")?.getAttribute("aria-label"); });
+    expect(hit).toMatch(/^B2-L055 /);
+    const a = (await preciseTarget.boundingBox())!, b = (await marker(editor, "B2-L066").boundingBox())!;
+    expect(a.width).toBe(48); expect(a.height).toBe(48);
+    const overlapX = Math.max(0, Math.min(a.x + a.width, b.x + b.width) - Math.max(a.x, b.x));
+    const overlapY = Math.max(0, Math.min(a.y + a.height, b.y + b.height) - Math.max(a.y, b.y));
+    expect(overlapX * overlapY).toBe(0);
+    await expectReachableInside(preciseTarget, editor.getByTestId("target-selection-map-viewport"));
+    await preciseTarget.click();
     await expect(marker(editor, "B2-L055")).toHaveAttribute("aria-pressed", "true");
   });
 }
@@ -342,6 +391,7 @@ test("event group target authoring sends sorted current target fixture IDs", asy
 test("creating a group renders its configuring Mesh lifecycle", async ({ page }) => {
   await installControlMapRoutes(page);
   await page.goto(`/control?siteId=${ids.site}`);
+  await openCompactTools(page);
   await page.getByRole("button", { name: "구역 관리" }).click();
   await page.getByRole("button", { name: "새 구역" }).click();
   const dialog = page.getByRole("dialog", { name: "구역 생성" });
@@ -362,7 +412,7 @@ test("a 404 floor map opens the list fallback", async ({ page }) => {
   await installControlMapRoutes(page, { mapStatus: 404 });
   await page.goto(`/control?siteId=${ids.site}`);
 
-  await expect(page.getByRole("tabpanel", { name: "수동 제어", exact: true })).toBeVisible();
+  await expect(page.getByRole("region", { name: "제어 대상 지도", exact: true })).toBeVisible();
   await expect(page.getByText("등록된 도면이 없어 목록으로 선택합니다.")).toBeVisible();
   await expect(page.getByRole("dialog", { name: "조명 목록" })).toBeVisible();
   await expect(page.getByRole("checkbox", { name: "B2-L001 선택" })).toBeVisible();
@@ -377,20 +427,25 @@ test("viewer control redirect issues no mutating request", async ({ page }) => {
 });
 
 for (const viewport of [{ width: 1440, height: 900 }, { width: 1024, height: 768 }] as const) {
-  test(`desktop control at ${viewport.width}x${viewport.height} scrolls map, selection detail and history drawer independently`, async ({ page }) => {
+  test(`desktop control at ${viewport.width}x${viewport.height} keeps page fixed with internal map/detail scroll and paged history drawer`, async ({ page }) => {
     await page.setViewportSize(viewport);
     await installControlMapRoutes(page, { fixtureCount: 80, groupCount: 40, historyCount: 24 });
     await page.goto(`/control?siteId=${ids.site}`);
-    await expect(page.getByRole("tabpanel", { name: "수동 제어", exact: true })).toBeVisible();
+    await expect(page.getByRole("region", { name: "제어 대상 지도", exact: true })).toBeVisible();
 
     await page.getByRole("button", { name: "저장된 구역" }).click();
+    console.info("TASK6_GROUP_LAYOUT_INITIAL", JSON.stringify(await page.evaluate(() => [...document.querySelectorAll<HTMLElement>("[data-app-shell], [data-shell-content], [data-control-screen], [data-control-layout], [data-control-target-card], [data-spatial-target-selector], [data-target-selection-toolbar], [data-target-selection-content], [data-target-selection-detail-panel], [data-testid='target-selection-map-viewport'], [aria-label='지도 조작'], [aria-label='지도 확대 축소'], [aria-label='지도 조명 상태 범례']")].map(element => ({ label: element.getAttribute("aria-label") || element.getAttribute("data-testid"), data: [...element.attributes].filter(attr => attr.name.startsWith("data-")).map(attr => attr.name), rect: element.getBoundingClientRect().toJSON(), client: [element.clientWidth, element.clientHeight], scroll: [element.scrollWidth, element.scrollHeight], overflow: getComputedStyle(element).overflow, display: getComputedStyle(element).display })))));
     const history = page.getByRole("region", { name: "최근 명령 이력" });
     // Use real zoom controls and populated route data to create overflow in
     // each pane; CSS overflow declarations alone cannot prove scrollability.
     for (let index = 0; index < 20; index += 1) await page.getByRole("button", { name: "지도 확대", exact: true }).click();
     const map = page.getByRole("region", { name: "B2 도면" });
     await expect.poll(async () => Number(await map.getAttribute("data-zoom"))).toBeGreaterThan(2);
-    await expectInternalWheelScroll(page, map);
+    // Control intentionally consumes unmodified wheel as camera zoom, not map overflow scrolling.
+    const beforeWheelZoom = Number(await map.getAttribute("data-zoom"));
+    await map.hover();
+    await page.mouse.wheel(0, 100);
+    await expect.poll(async () => Number(await map.getAttribute("data-zoom"))).toBeLessThan(beforeWheelZoom);
     const detail = page.locator("[data-target-selection-detail-panel]");
     await expect(detail).toHaveCSS("overflow-y", "auto");
     await expectInternalWheelScroll(page, detail);
@@ -399,39 +454,39 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 1024, height: 768
     await finalGroup.click();
     await expect(finalGroup).toHaveAttribute("aria-current", "true");
     await history.getByRole("button", { name: "명령 이력 열기" }).click();
-    const historyList = page.getByRole("dialog", { name: "명령 이력" }).locator("[data-command-history-list]");
+    const historyDrawer = page.getByRole("dialog", { name: "명령 이력", exact: true });
+    const historyList = historyDrawer.getByRole("region", { name: "명령 이력 본문" });
     await expect(historyList).toHaveCSS("overflow-y", "auto");
+    // The default 50-row operations page contains these 24 fixture records.
     await expectInternalWheelScroll(page, historyList);
     const finalCommand = historyList.getByRole("button", { name: /99999999-9999-4999-8999-000000005023/ });
-    await expectReachableInside(finalCommand, historyList);
+    await finalCommand.scrollIntoViewIfNeeded();
+    await expectReachableInside(finalCommand, historyDrawer);
+    await expect(historyDrawer.getByRole("button", { name: "다음" })).toBeDisabled();
     await finalCommand.click();
+    await expect(historyDrawer).toHaveCount(0);
+    await page.getByRole("button", { name: "상세 보기", exact: true }).click();
     await expect(page.getByRole("button", { name: "명령 상세 닫기" })).toBeVisible();
+    console.info("TASK6_INLINE_LAYOUT", JSON.stringify(await page.evaluate(() => [...document.querySelectorAll<HTMLElement>("[data-control-layout], [data-control-screen], [data-control-panel], [data-control-panel-feedback], [data-command-status-region], #recent-command-details")].map(element => ({ attrs: [...element.attributes].filter(attr => attr.name.startsWith("data-") || attr.name === "id").map(attr => attr.name + "=" + attr.value), rect: element.getBoundingClientRect().toJSON(), client: [element.clientWidth, element.clientHeight], scroll: [element.scrollWidth, element.scrollHeight], overflow: getComputedStyle(element).overflow, flex: getComputedStyle(element).flex })))));
     const documentMetrics = await page.evaluate(() => ({ clientHeight: document.documentElement.clientHeight, scrollHeight: document.documentElement.scrollHeight }));
     expect(documentMetrics.scrollHeight).toBe(documentMetrics.clientHeight);
   });
 }
 
 for (const viewport of [{ width: 390, height: 844 }, { width: 320, height: 740 }] as const) {
-  test(`mobile control fits ${viewport.width}x${viewport.height} with map marker touch targets and action above compact navigation`, async ({ page }) => {
+  test(`mobile control fits ${viewport.width}x${viewport.height} with map marker touch targets and action above compact navigation`, async ({ page }, testInfo) => {
     await page.setViewportSize(viewport);
     await installControlMapRoutes(page);
     await page.goto(`/control?siteId=${ids.site}`);
-    await expect(page.getByRole("tabpanel", { name: "수동 제어", exact: true })).toBeVisible();
+    await expect(page.getByRole("region", { name: "제어 대상 지도", exact: true })).toBeVisible();
     await expectNoHorizontalOverflow(page);
-    const moveControl = page.getByRole("button", { name: "지도 이동" });
-    await moveControl.scrollIntoViewIfNeeded();
-    const moveControlOwnsCenter = await moveControl.evaluate((element) => {
-      const bounds = element.getBoundingClientRect();
-      const hit = document.elementFromPoint(bounds.left + bounds.width / 2, bounds.top + bounds.height / 2);
-      return hit === element || Boolean(hit && element.contains(hit));
-    });
-    expect(moveControlOwnsCenter).toBe(true);
+    for (const name of ["지도 이동", "조명 선택", "영역 선택"]) await expect(page.getByRole("button", { name, exact: true })).toHaveCount(0);
     await expectMinimumTouchTargetsAfterScrolling(page, "[data-control-screen]");
-
     await marker(page, "B2-L001").click();
-    await expect(page.getByRole("complementary", { name: "밝기 실행" })).toContainText("1개 선택");
     await expectMinimumTouchTargetsAfterScrolling(page, "[data-control-screen]");
+    await openCompactExecution(page);
     await expectEditableFontSizes(page.getByRole("complementary", { name: "밝기 실행" }));
+    await openCompactTools(page);
     await page.getByRole("button", { name: "조명 목록 열기" }).click();
     const drawer = page.getByRole("dialog", { name: "조명 목록" });
     await expect(drawer.getByRole("searchbox", { name: "조명 검색" })).toBeVisible();
@@ -440,6 +495,7 @@ for (const viewport of [{ width: 390, height: 844 }, { width: 320, height: 740 }
     await expectNoHorizontalOverflow(page);
     await drawer.getByRole("button", { name: "선택 완료", exact: true }).click();
     await expectNoHorizontalOverflow(page);
+    await openCompactExecution(page);
     const action = page.getByRole("button", { name: /밝기 적용/ });
     const navigation = page.locator('[data-shell-navigation="compact"]');
     await action.scrollIntoViewIfNeeded();
@@ -448,16 +504,24 @@ for (const viewport of [{ width: 390, height: 844 }, { width: 320, height: 740 }
     expect(navigationBox).not.toBeNull();
     if (!actionBox || !navigationBox) return;
     expect(actionBox.y + actionBox.height).toBeLessThanOrEqual(navigationBox.y);
+    // The integrated operations control has one metric input and slider.
+    // Preserve mobile numeric editing and command safety through that entry.
+    const brightness = page.getByRole("textbox", { name: "밝기 수치", exact: true });
+    await brightness.fill("42"); await brightness.press("Enter");
+    await expect(page.getByRole("slider", { name: "밝기", exact: true })).toHaveValue("42");
+    await expect(page.locator("[data-control-presets]")).toHaveCount(0);
+    await page.screenshot({ path: testInfo.outputPath(`mobile-control-${viewport.width}-execution.png`) });
   });
 }
 
-for (const mode of ["pan", "select", "area"] as const) {
-  test(`synthetic browser two-pointer pinch in ${mode} mode zooms without an area rectangle or post-lift jump (not native WebView HIL)`, async ({ page }) => {
+for (const mode of ["fixtures", "floor", "group"] as const) {
+  test(`synthetic browser two-pointer pinch for ${mode} targets zooms without an area rectangle or post-lift jump (not native WebView HIL)`, async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await installControlMapRoutes(page);
     await page.goto(`/control?siteId=${ids.site}`);
-    await expect(page.getByRole("tabpanel", { name: "수동 제어", exact: true })).toBeVisible();
-    await page.getByRole("button", { name: mode === "pan" ? "지도 이동" : mode === "select" ? "조명 선택" : "영역 선택" }).click();
+    await expect(page.getByRole("region", { name: "제어 대상 지도", exact: true })).toBeVisible();
+    if (mode !== "fixtures") await openCompactTools(page);
+    if (mode !== "fixtures") await page.getByRole("button", { name: mode === "floor" ? "층 전체" : "저장된 구역", exact: true }).click();
     const viewport = page.getByRole("region", { name: "B2 도면" });
     await expect(viewport).toBeVisible();
 
@@ -495,16 +559,177 @@ for (const mode of ["pan", "select", "area"] as const) {
   });
 }
 
+test("Task6 native mouse direct selection is additive, honors the 8px threshold and cancels with Escape", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  const api = await installControlMapRoutes(page);
+  await page.goto(`/control?siteId=${ids.site}`);
+  const viewport = page.getByTestId("target-selection-map-viewport");
+  const first = marker(page, "B2-L001");
+  const second = marker(page, "B2-L002");
+  await first.click();
+  await expect(first).toHaveAttribute("aria-pressed", "true");
+  await first.click();
+  await expect(first).toHaveAttribute("aria-pressed", "false");
+  await first.click();
+  const bounds = (await viewport.locator("[data-floor-map-surface]").boundingBox())!;
+  const blank = { x: bounds.x + bounds.width * .2, y: bounds.y + bounds.height * .7 };
+  await viewport.focus();
+  await page.mouse.move(blank.x, blank.y);
+  await page.mouse.down();
+  await page.mouse.move(blank.x + 7, blank.y);
+  await expect(page.getByTestId("map-area-selection")).toHaveCount(0);
+  await page.mouse.move(blank.x + 8, blank.y);
+  await expect(page.getByTestId("map-area-selection")).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(page.getByTestId("map-area-selection")).toHaveCount(0);
+  await page.mouse.up();
+  await expect(first).toHaveAttribute("aria-pressed", "true");
+  await expect(second).toHaveAttribute("aria-pressed", "false");
+  const pin = (await second.boundingBox())!;
+  await page.mouse.move(pin.x - 6, pin.y - 6);
+  await page.mouse.down();
+  await page.mouse.move(pin.x + pin.width + 6, pin.y + pin.height + 6, { steps: 6 });
+  await page.mouse.up();
+  await expect(first).toHaveAttribute("aria-pressed", "true");
+  await expect(second).toHaveAttribute("aria-pressed", "true");
+  const input = page.getByRole("textbox", { name: "밝기 수치" });
+  await input.focus();
+  await page.keyboard.press("Space");
+  await expect(input).toBeFocused();
+  expect(api.postRequests).toEqual([]);
+});
+
+test("Task6 native Space and middle-button drags pan without changing fixture selection", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  const api = await installControlMapRoutes(page);
+  await page.goto(`/control?siteId=${ids.site}`);
+  const viewport = page.getByTestId("target-selection-map-viewport");
+  await marker(page, "B2-L001").click();
+  for (let index = 0; index < 15; index += 1) await page.getByRole("button", { name: "지도 확대", exact: true }).click();
+  for (const kind of ["Space", "middle"] as const) {
+    await viewport.focus();
+    const point = await viewport.evaluate(element => {
+      const rect = element.getBoundingClientRect();
+      for (const x of [.3, .5, .7]) for (const y of [.3, .5, .7]) {
+        const point = { x: rect.x + rect.width * x, y: rect.y + rect.height * y };
+        const hit = document.elementFromPoint(point.x, point.y);
+        if (hit?.closest("[data-floor-map-surface]") && !hit.closest("button")) return point;
+      }
+      throw new Error("No reachable blank map point");
+    });
+    const before = await viewport.evaluate(element => ({ x: element.scrollLeft, y: element.scrollTop }));
+    await page.mouse.move(point.x, point.y);
+    if (kind === "Space") await page.keyboard.down("Space");
+    await page.mouse.down({ button: kind === "middle" ? "middle" : "left" });
+    await page.mouse.move(point.x - 40, point.y - 40, { steps: 4 });
+    await expect(page.getByTestId("map-area-selection")).toHaveCount(0);
+    await page.mouse.up({ button: kind === "middle" ? "middle" : "left" });
+    if (kind === "Space") await page.keyboard.up("Space");
+    await expect.poll(() => viewport.evaluate(element => ({ x: element.scrollLeft, y: element.scrollTop }))).not.toEqual(before);
+  }
+  await expect(marker(page, "B2-L001")).toHaveAttribute("aria-pressed", "true");
+  await expect(marker(page, "B2-L002")).toHaveAttribute("aria-pressed", "false");
+  expect(api.postRequests).toEqual([]);
+});
+
+test("Task6 synthetic touch hold cancels on a second pointer without a residual area or ghost click (not native WebView HIL)", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const api = await installControlMapRoutes(page);
+  await page.goto(`/control?siteId=${ids.site}`);
+  const viewport = page.getByTestId("target-selection-map-viewport");
+  const surface = (await viewport.locator("[data-floor-map-surface]").boundingBox())!;
+  const point = { x: surface.x + surface.width * .25, y: surface.y + surface.height * .7 };
+  await dispatchTouchPointer(page, viewport, "pointerdown", { pointerId: 11, pointerType: "touch", button: 0, buttons: 1, clientX: point.x, clientY: point.y });
+  await expect(page.getByTestId("map-area-selection")).toBeVisible();
+  await dispatchTouchPointer(page, viewport, "pointerdown", { pointerId: 12, pointerType: "touch", button: 0, buttons: 1, clientX: point.x + 30, clientY: point.y });
+  await expect(page.getByTestId("map-area-selection")).toHaveCount(0);
+  await dispatchTouchPointer(page, viewport, "pointerup", { pointerId: 12, pointerType: "touch", button: 0, buttons: 0, clientX: point.x + 30, clientY: point.y });
+  await dispatchTouchPointer(page, viewport, "pointermove", { pointerId: 11, pointerType: "touch", button: -1, buttons: 1, clientX: point.x + 40, clientY: point.y + 20 });
+  await dispatchTouchPointer(page, viewport, "pointerup", { pointerId: 11, pointerType: "touch", button: 0, buttons: 0, clientX: point.x + 40, clientY: point.y + 20 });
+  await expect(page.getByTestId("map-area-selection")).toHaveCount(0);
+  const pin = marker(page, "B2-L001");
+  await pin.evaluate(element => (element as HTMLButtonElement).click());
+  await expect(pin).toHaveAttribute("aria-pressed", "false");
+  await pin.click();
+  await expect(pin).toHaveAttribute("aria-pressed", "true");
+  expect(api.postRequests).toEqual([]);
+});
+
+test("Task6 native pointer capture loss and keyboard blur cancel an area without selecting or posting", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  const api = await installControlMapRoutes(page);
+  await page.goto(`/control?siteId=${ids.site}`);
+  const viewport = page.getByTestId("target-selection-map-viewport");
+  await expect(viewport).toBeVisible();
+  await marker(page, "B2-L001").click();
+  for (const cancel of ["capture", "keyboard-blur"] as const) {
+    await viewport.focus();
+    const point = await viewport.evaluate(element => {
+      const rect = element.getBoundingClientRect();
+      for (const x of [.3, .5, .7]) for (const y of [.3, .5, .7]) {
+        const point = { x: rect.x + rect.width * x, y: rect.y + rect.height * y };
+        const hit = document.elementFromPoint(point.x, point.y);
+        if (hit?.closest("[data-floor-map-surface]") && !hit.closest("button")) return point;
+      }
+      throw new Error("No reachable blank map point");
+    });
+    await viewport.evaluate(element => element.addEventListener("pointerdown", event => {
+      element.setAttribute("data-test-pointer-id", String((event as PointerEvent).pointerId));
+    }, { once: true }));
+    await page.mouse.move(point.x, point.y); await page.mouse.down();
+    await page.mouse.move(point.x + 12, point.y + 12);
+    await expect(page.getByTestId("map-area-selection")).toBeVisible();
+    if (cancel === "capture") {
+      await viewport.evaluate(element => {
+        const id = Number(element.getAttribute("data-test-pointer-id"));
+        if (!element.hasPointerCapture(id)) throw new Error("Native pointer was not captured");
+        element.releasePointerCapture(id);
+      });
+      await page.mouse.move(point.x + 13, point.y + 13);
+    } else {
+      // A Tab onto a marker is still inside the viewport and must NOT cancel.
+      // Continue real Tab navigation until focus crosses the viewport boundary.
+      for (let index = 0; index < 20 && await viewport.evaluate(element => element.contains(document.activeElement)); index += 1) await page.keyboard.press("Tab");
+      expect(await viewport.evaluate(element => element.contains(document.activeElement))).toBe(false);
+    }
+    await expect(page.getByTestId("map-area-selection")).toHaveCount(0);
+    await page.mouse.up();
+    await expect(marker(page, "B2-L001")).toHaveAttribute("aria-pressed", "true");
+    await expect(marker(page, "B2-L002")).toHaveAttribute("aria-pressed", "false");
+  }
+  expect(api.postRequests).toEqual([]);
+});
+
 async function expectInternalWheelScroll(page: Page, pane: ReturnType<Page["locator"]>) {
-  const metrics = await pane.evaluate((element) => ({ width: element.clientWidth, height: element.clientHeight, content: element.scrollHeight, top: element.scrollTop, overflow: getComputedStyle(element).overflowY }));
-  expect(metrics.width).toBeGreaterThan(0);
-  expect(metrics.height).toBeGreaterThan(0);
-  expect(metrics.content).toBeGreaterThan(metrics.height);
+  const metrics = await pane.evaluate(element => ({ width: element.clientWidth, height: element.clientHeight, content: element.scrollHeight,
+    contentWidth: element.scrollWidth, top: element.scrollTop, left: element.scrollLeft, overflow: getComputedStyle(element).overflowY }));
+  expect(metrics.width).toBeGreaterThan(0); expect(metrics.height).toBeGreaterThan(0);
+  console.info("TASK6_INTERNAL_SCROLL_GEOMETRY", JSON.stringify({ metrics, pane: await pane.boundingBox(), layout: await page.locator("[data-control-layout]").boundingBox(), screen: await page.locator("[data-control-screen]").boundingBox(), page: await page.evaluate(() => ({ scrollY, innerWidth, innerHeight, documentHeight: document.documentElement.scrollHeight })) }));
   expect(metrics.overflow).toMatch(/auto|scroll/);
   await pane.hover();
-  await page.mouse.wheel(0, 10000);
-  await expect.poll(() => pane.evaluate((element) => element.scrollTop)).toBeGreaterThan(metrics.top);
-  await expect.poll(() => pane.evaluate((element) => element.scrollTop + element.clientHeight)).toBe(metrics.content);
+  if (metrics.content > metrics.height) {
+    await page.mouse.wheel(0, 10000);
+    await expect.poll(() => pane.evaluate(element => element.scrollTop)).toBeGreaterThan(metrics.top);
+    await expect.poll(() => pane.evaluate(element => element.scrollTop + element.clientHeight)).toBe(metrics.content);
+  } else {
+    const beforeY = await page.evaluate(() => scrollY);
+    await pane.evaluate(element => {
+      element.setAttribute("data-wheel-trusted", "0");
+      element.addEventListener("wheel", event => { if (event.isTrusted) element.setAttribute("data-wheel-trusted", "1"); }, { once: true });
+    });
+    const bounds = (await pane.boundingBox())!;
+    const point = { x: bounds.x + bounds.width / 2, y: (Math.max(80, bounds.y) + Math.min(page.viewportSize()!.height - 10, bounds.y + bounds.height)) / 2 };
+    const hit = await page.evaluate(({ x, y }) => document.elementFromPoint(x, y)?.outerHTML.slice(0, 300), point);
+    await page.mouse.move(point.x, point.y); await page.mouse.wheel(0, 100);
+    await expect(pane).toHaveAttribute("data-wheel-trusted", "1");
+    console.info("TASK6_DETAIL_WHEEL_EFFECT", JSON.stringify({ beforeY, afterY: await page.evaluate(() => scrollY), point, hit, afterScrollTop: await pane.evaluate(element => element.scrollTop) }));
+    // At narrow desktop group layouts, fit-by-width produces horizontal-only
+    // map overflow. Exercise that real axis rather than requiring fictitious Y overflow.
+    expect(metrics.contentWidth).toBeGreaterThan(metrics.width);
+    await page.mouse.wheel(10000, 0);
+    await expect.poll(() => pane.evaluate(element => element.scrollLeft)).toBeGreaterThan(metrics.left);
+    await expect.poll(() => pane.evaluate(element => element.scrollLeft + element.clientWidth)).toBe(metrics.contentWidth);
+  }
 }
 
 async function expectReachableInside(target: ReturnType<Page["locator"]>, pane: ReturnType<Page["locator"]>) {
@@ -625,11 +850,14 @@ async function installControlMapRoutes(page: Page, options: {
     const url = new URL(request.url());
     const path = url.pathname;
     if (request.method() === "POST") state.postRequests.push(path);
-    if (path === "/api/commands" && options.historyCount) return route.fulfill({ json: { items: history, nextCursor: null,
-      generatedAt: "2026-09-30T00:00:00.000Z", retainedFrom: "2026-06-30T00:00:00.000Z" } });
+    if (path === "/api/commands" && options.historyCount) {
+      const offset = Number(url.searchParams.get("cursor") ?? 0);
+      const limit = Number(url.searchParams.get("limit") ?? 50);
+      return route.fulfill({ json: { items: history.slice(offset, offset + limit), nextCursor: offset + limit < history.length ? String(offset + limit) : null,
+        generatedAt: "2026-09-01T00:00:00Z", retentionEnabled: false, retainedFrom: "2026-06-01T00:00:00Z" } });
+    }
     const historicalCommand = history.find((command) => path === `/api/commands/${command.id}`);
-    if (historicalCommand) return route.fulfill({ json: { ...historicalCommand,
-      generatedAt: "2026-09-30T00:00:00.000Z", retainedFrom: "2026-06-30T00:00:00.000Z" } });
+    if (historicalCommand) return route.fulfill({ json: { ...historicalCommand, generatedAt: "2026-09-01T00:00:00Z", retainedFrom: "2026-06-01T00:00:00Z", retentionEnabled: false } });
     if (path === `/api/sites/${ids.site}/dashboard`) {
       return route.fulfill({ json: dashboardResponse(fixtureData.map(item => item.id === ids.sensor && options.bioTelemetry
         ? { ...item, bioPulseTelemetry: options.bioTelemetry() } : item), groups, options.role ?? "admin") });
@@ -702,4 +930,19 @@ function dashboardResponse(fixtureData: SettingsFixture[], groups: Array<Record<
     groups,
     gateways: [{ id: ids.gateway, name: "Gateway B2", serialNumber: "GW-E2E-001", firmwareVersion: "e2e", lastHeartbeatAt: "2026-09-01T00:00:00.000Z", connectionStatus: "online" }]
   };
+}
+
+async function openCompactTools(page: Page) {
+  const trigger = page.getByRole("button", { name: "선택 도구 열기", exact: true });
+  if ((page.viewportSize()?.width ?? 1280) < 760) {
+    const expanded = page.getByRole("button", { name: "선택 도구 접기", exact: true });
+    if (!await expanded.isVisible()) await trigger.click();
+  }
+}
+async function openCompactExecution(page: Page) {
+  const trigger = page.getByRole("button", { name: "밝기 실행 설정 열기", exact: true });
+  if ((page.viewportSize()?.width ?? 1280) < 760) {
+    const expanded = page.getByRole("button", { name: "밝기 실행 설정 접기", exact: true });
+    if (!await expanded.isVisible()) await trigger.click();
+  }
 }

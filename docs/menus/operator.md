@@ -11,7 +11,39 @@
 - 관련 파일: `apps/web/src/features/operator/{OperatorShell,SensorProfilesView}.tsx`, `apps/web/src/api/automation.ts`, `apps/web/src/features/operator/{OperatorShell,SensorProfilesView}.test.tsx`.
 - 갱신 규칙: 화면 입력 검증·서비스 승인 기록·실제 장비 검증·현장 정책과 개별 준비 상태를 별도 증거로 유지한다. UI 시험용 프로파일 JSON을 운영 승인 데이터로 기록하지 않는다.
 
+## 2026-10-06 공통 Grid 현재 목록 정렬
+
+- 최종 통합 관문 완료: 제품 `1c600eda`에서 전체 Web3258PASS·기존3SKIP, 타입/빌드/UI정책0·관련33브라우저33PASS, 코드/UI 검수 차단0을 확인해 로컬 기본 브랜치에 병합했다. 아래 표적 증거와 실제 운영 계정/메일/native/HIL 한계는 그대로 유지한다.
+
+- 구현 완료: 현장 관리자 목록의 고객사·현장·설치 상태·관리자 이름/아이디/상태·최종 변경과 문의의 접수번호·접수일·회사/담당자·회신 정보·내용·메일 상태에 정렬 값을 연결했다. 관리자 미지정은 누락값으로 처리하고 작업 버튼은 정렬에서 제외한다.
+- 구현 완료: 기존 HTML table/caption/중앙 TH와 컨테이너 기반 카드 전환을 유지한다. 표 헤더의 공통 Button/Enter/Space, 활성 TH의 aria-sort/방향 아이콘과 카드의 공통 React Aria SelectBox/방향 버튼이 동일 상태를 소비한다. 한글·numeric 문자열, 숫자·날짜·boolean, 동일값 안정 순서와 누락/잘못된 날짜·비유한 숫자의 양방향 마지막 배치를 지원한다. 원본 행 배열을 변경하지 않고 데이터 갱신·정렬 컬럼 제거에도 유효한 상태만 사용한다.
+- 미구현: 서버 커서 전체 정렬/API 정렬은 제공하지 않는다. 화면의 '현재 목록 안에서 정렬'은 전달받은 현재 행만 의미하며 기존 조회·필터·커서 계약을 유지한다.
+- 부족하거나 개선이 필요한 기능: 관리자 29개·문의 13개 직접 회귀에서 정렬·관리자 미지정·기존 작업/커서/메일 경로를 확인했다. 실제 운영 계정·메일 전달 검증은 추가하지 않았다. 공통/여섯 소비자의 표적 단위 235개와 정렬 브라우저 2개는 software fixture 범위다. 전체 Web 검증·독립 최종 검수는 총괄 관문이며 실제 native WebView·센서·Gateway·LED HIL의 증거가 아니다.
+- 관련 파일: 공통 `apps/web/src/components/ui/DataGrid.tsx` 및 대응 테스트, `apps/web/src/features/operator/LandingInquiriesView.tsx`, `site-admins/SiteAdminManagementView.tsx` 및 대응 테스트.
+- 갱신 규칙: 정렬 접근자/헤더/카드 변경 시 현재 목록 범위·표/카드 상태·동일값/누락값·원본 불변·행 작업·기존 pagination 회귀와 실제 키보드/44px 접근을 함께 확인한다.
+
+
+- 2026-10-05 공통 초기 초점 안정성 보완: Dialog 내부 ref를 안정화해 중첩 Popover가 열린 동안 부모 재렌더·외부 object/callback ref 교체가 사용자 초점을 빼앗지 않으며 이전 ref 정리와 닫힘 시 정리는 유지한다. 직접 공통 회귀와 격리 Chromium 검증 범위이며 실제 native WebView·HIL 및 최종 통합 승인을 뜻하지 않는다.
+
+## 2026-10-05 공통 컨테이너 기반 목록 표시 (추가 운영 UI Task 4)
+
+- 구현 완료: 상담 문의와 현장 관리자 목록은 동일 공통 DataGrid를 소비한다. window가 넓어도 실제 목록 컨테이너 폭이 부족하면 라벨이 붙은 카드로 전환하고, 넓으면 중앙 TH의 HTML table/caption을 제공한다. 이름·시각·메일·문의·상태·기존 작업 버튼은 두 surface에서 동일하게 제공하고 긴 값은 줄바꿈한다.
+- 구현 완료: 문의 cursor/메일 연결·관리자 생성/지정/수정/비밀번호/삭제 확인 API와 운영자 Shell 인증·권한/MFA gate는 유지한다. 기존 화면에 검색/상세 필터가 없으므로 가짜 검색이나 새 조회 조건을 만들지 않는다.
+- 미구현: 실제 운영 계정/DB·NAVER WORKS OAuth/수신·native/HIL·전체 폭/200% 최종 통합 검증은 별도 관문이다.
+- 부족하거나 개선이 필요한 기능: narrow-container 단위 회귀는 데이터·행동 보존 및 mutation 미발생을 검증하며 실제 운영 권한/메일 전송 증거가 아니다. 최종 실제 bounds/overflow 검수는 Task 9에서 수행한다.
+- 관련 파일: `apps/web/src/features/operator/LandingInquiriesView.tsx`, `site-admins/SiteAdminManagementView.tsx`와 직접 테스트; 공통 `apps/web/src/components/ui/DataGrid.tsx`는 기존 승인 계약만 소비한다.
+- 갱신 규칙: table/card 전환·장문·모든 필드·권한·행동·페이지 이동을 함께 검증하며 기존 API/인가와 표시 변경의 증거를 분리한다.
+
 기준일: 2026-09-27
+
+## 2026-10-02 실제 시각 표시 통일
+
+- 구현 완료: 현장 관리자 계정의 최종 변경 시각(표·모바일 카드)과 상담 문의 접수 시각을 기존 공통 `formatTimestamp`의 `yyyy-MM-dd HH:mm:ss`로 표시한다. 기존 기기 시간대 의미를 유지하며 Gregorian/h23·자정 `00:00:00`·잘못된 시각 `—` 계약을 사용한다. 관리자 미지정의 `-`는 시각이 없는 별도 상태로 유지한다.
+- 구현 완료: 운영자 권한·관리자 지정/생성/수정·비밀번호 재설정·현장 삭제 확인, 상담 문의 pagination·발송 상태·NAVER WORKS 연결 동작은 변경하지 않는다. source ISO·저장/API·공개 랜딩도 유지한다.
+- 미구현: 실제 운영 계정/DB·NAVER WORKS·HIL 검증은 이번 표시 작업에 포함하지 않는다.
+- 부족하거나 개선이 필요한 기능: 직접 화면 테스트는 UTC/Asia-Seoul의 초·자정·invalid 표시와 기존 관리 동작을 검증한다. 브라우저 fixture 및 자동 검사 통과를 실제 운영 인가·메일 수신 증거로 해석하지 않는다. 독립 통합 검토는 총괄의 후속 관문이다.
+- 관련 파일: `apps/web/src/features/operator/site-admins/SiteAdminManagementView.tsx`, `apps/web/src/features/operator/LandingInquiriesView.tsx` 및 직접 테스트. 공통 formatter의 기존 export만 소비한다.
+- 갱신 규칙: 시간대·접수/갱신 표시 계약을 수정할 때 직접 표시 및 기존 관리/인가 회귀를 함께 실행하고 문서를 갱신한다.
 
 ## 구현 완료
 

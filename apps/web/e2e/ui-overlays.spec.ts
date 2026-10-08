@@ -74,7 +74,14 @@ test.describe("production overlay contracts", () => {
     url = `http://127.0.0.1:${address.port}`;
   });
   test.afterAll(async () => { if (server) await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve())); });
-  test.beforeEach(async ({ page }) => { await page.goto(url); await page.getByRole("button", { name: "부모 열기" }).waitFor(); });
+  test.beforeEach(async ({ page }) => {
+    await page.route("**/*", route => {
+      const target = new URL(route.request().url());
+      if (target.origin !== new URL(url).origin || target.pathname.startsWith("/api/")) return route.abort("blockedbyclient");
+      return route.continue();
+    });
+    await page.goto(url); await page.getByRole("button", { name: "부모 열기" }).waitFor();
+  });
 
   test("preserves default, compatibility and public CSS widths without narrow viewport overflow", async ({ page }) => {
     for (const [kind, width] of [["default", 512], ["confirmation", 440], ["custom", 610]] as const) {

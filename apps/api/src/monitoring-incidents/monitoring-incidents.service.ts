@@ -1,11 +1,15 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from "@nestjs/common";
 import { Prisma, type MonitoringIncident } from "@prisma/client";
 import { SiteAccessService } from "../access/site-access.service";
+import { runSiteUserTransaction } from "../access/site-user-policy";
 import { AuditService } from "../audit/audit.service";
 import { AuthenticatedUser } from "../auth/auth.types";
 import { PrismaService } from "../prisma/prisma.service";
-import { encodeIncidentCursor, parseIncidentMutation, parseIncidentQuery, parseMonitoringPolicy } from "./monitoring-incidents.dto";
+import { utcTimestampSql } from "../prisma/utc-timestamp-sql";
+import { encodeIncidentCursor, incidentReadReceiptResponseSchema, incidentReadStateSchema, parseIncidentMutation,
+  parseIncidentQuery, parseIncidentReadTarget, parseMonitoringPolicy } from "./monitoring-incidents.dto";
 import { isMonitoringConditionActive } from "./monitoring-conditions";
+import { lockIncidentPersonalAccess } from "./monitoring-incident-personal-access";
 
 const policySelect = { id: true, gatewayOfflineAfterSeconds: true, fixtureStaleAfterSeconds: true, updatedAt: true } satisfies Prisma.SiteSelect;
 const actorSelect = { id: true, name: true, loginId: true } satisfies Prisma.UserSelect;
@@ -42,16 +46,18 @@ export class MonitoringIncidentsService {
   }
 
   async list(user: AuthenticatedUser, siteId: string, input: unknown) {
-    const query = parseIncidentQuery(input, siteId);
+    const query = parseIncidentQuery(input, siteId, user.id);
     return this.prisma.$transaction(async (tx) => {
       await this.access.assertReadInTransaction(tx, user, siteId);
       // A tuple cursor keeps active incidents together while ordering both active
       // statuses by openedAt; enum sorting would incorrectly put every open first.
       const rows = await tx.$queryRaw<{ id: string }[]>(Prisma.sql`
         SELECT "id" FROM "MonitoringIncident" WHERE "siteId" = ${siteId}
+        ${query.view === "personal" ? Prisma.sql`AND NOT EXISTS (SELECT 1 FROM "MonitoringIncidentDismissal" d
+          WHERE d."incidentId"="MonitoringIncident"."id" AND d."userId"=${user.id})` : Prisma.empty}
         ${query.status === "all" ? Prisma.empty : Prisma.sql`AND "status" = ${query.status}::"MonitoringIncidentStatus"`}
         ${query.type ? Prisma.sql`AND "type" = ${query.type}::"MonitoringIncidentType"` : Prisma.empty}
-        ${query.cursor ? Prisma.sql`AND ("resolvedAt" IS NULL, "openedAt", "id") < (${query.cursor.active}, ${query.cursor.openedAt}, ${query.cursor.id})` : Prisma.empty}
+        ${query.cursor ? Prisma.sql`AND ("resolvedAt" IS NULL, "openedAt", "id") < (${query.cursor.active}, ${utcTimestampSql(query.cursor.openedAt)}, ${query.cursor.id})` : Prisma.empty}
         ORDER BY ("resolvedAt" IS NULL) DESC, "openedAt" DESC, "id" DESC LIMIT ${query.limit + 1}
       `);
       const pageIds = rows.slice(0, query.limit).map((row) => row.id);
@@ -60,13 +66,48 @@ export class MonitoringIncidentsService {
       const ordered = pageIds.map((id) => byId.get(id)!);
       const last = ordered.at(-1);
       const activeCount = await tx.monitoringIncident.count({ where: { siteId, status: { in: ["open", "acknowledged"] } } });
+      // Personal unread count includes resolved occurrences and is independent
+      // of this page/status/type/cursor. GET never creates receipts.
+      const unreadCount = await tx.monitoringIncident.count({ where: { siteId, readReceipts: { none: { userId: user.id } },
+        ...(query.view === "personal" ? { dismissals: { none: { userId: user.id } } } : {}) } });
+      const receipts = await tx.monitoringIncidentReadReceipt.findMany({
+        where: { userId: user.id, incidentId: { in: pageIds } }, select: { incidentId: true, readAt: true }
+      });
+      const readAtById = new Map(receipts.map(receipt => [receipt.incidentId, receipt.readAt]));
+      const dismissals = await tx.monitoringIncidentDismissal.findMany({
+        where: { userId: user.id, incidentId: { in: pageIds } }, select: { incidentId: true, dismissedAt: true }
+      });
+      const dismissedAtById = new Map(dismissals.map(row => [row.incidentId, row.dismissedAt]));
       return {
-        incidents: ordered.map((row) => this.summary(row)), activeCount,
+        incidents: ordered.map(row => ({ ...this.summary(row), ...incidentReadStateSchema.parse({
+          isRead: readAtById.has(row.id), readAt: readAtById.get(row.id)?.toISOString() ?? null
+        }), isDismissed: dismissedAtById.has(row.id), dismissedAt: dismissedAtById.get(row.id)?.toISOString() ?? null })), activeCount, unreadCount,
         nextCursor: rows.length > query.limit && last ? encodeIncidentCursor({
-          siteId, status: query.status, type: query.type, active: last.resolvedAt === null, openedAt: last.openedAt, id: last.id
+          siteId, status: query.status, type: query.type, active: last.resolvedAt === null, openedAt: last.openedAt, id: last.id,
+          userId: user.id, view: query.view
         }) : null
       };
     }, { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead });
+  }
+
+  async markRead(user: AuthenticatedUser, siteId: string, incidentId: string): Promise<{ incidentId: string; isRead: true; readAt: string }> {
+    parseIncidentReadTarget(siteId, incidentId);
+    await this.access.assert(user, siteId, "read");
+    // Reuse the assignment advisory gate before Site, matching site-user writes.
+    // ReadCommitted refreshes authorization after a competing revocation commits.
+    return runSiteUserTransaction(this.prisma, async tx => {
+      await lockIncidentPersonalAccess(tx, user, siteId, this.access);
+      // KEY SHARE prevents parent deletion but permits ordinary observation and
+      // operational non-key updates. Personal reads never change its revision.
+      const incidents = await tx.$queryRaw<{ id: string }[]>(Prisma.sql`
+        SELECT "id" FROM "MonitoringIncident" WHERE "id" = ${incidentId} AND "siteId" = ${siteId} FOR KEY SHARE`);
+      if (!incidents.length) throw new NotFoundException("incident not found");
+      const receipt = await tx.monitoringIncidentReadReceipt.upsert({
+        where: { incidentId_userId: { incidentId, userId: user.id } },
+        create: { incidentId, userId: user.id }, update: {}, select: { incidentId: true, readAt: true }
+      });
+      return incidentReadReceiptResponseSchema.parse({ incidentId: receipt.incidentId, isRead: true, readAt: receipt.readAt.toISOString() });
+    }, Prisma.TransactionIsolationLevel.ReadCommitted);
   }
 
   async update(user: AuthenticatedUser, siteId: string, id: string, input: unknown) {

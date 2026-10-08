@@ -22,7 +22,11 @@ function fixture(id: string, bio = true, metadata: Record<string, unknown> = {})
   } };
 }
 
-function context(fixtures = [fixture(sourceId), fixture(targetId)], existing?: Record<string, unknown>) {
+const readyEligibility = { fixtureId: sourceId, status: "ready", commandId: "synthetic-preparation",
+  profileKey: "synthetic-approved-profile@1", observedAt: now.toISOString(), blockedReasons: [] as string[], preparationCandidate: true };
+
+function context(fixtures = [fixture(sourceId), fixture(targetId)], existing?: Record<string, unknown>,
+  eligibility = readyEligibility) {
   let rule: any = existing;
   const tx = {
     fixture: { findMany: jest.fn(async ({ where }) => fixtures.filter(f =>
@@ -44,7 +48,10 @@ function context(fixtures = [fixture(sourceId), fixture(targetId)], existing?: R
       createMany: jest.fn(async ({ data }) => { rule.targets = data; }),
       deleteMany: jest.fn(async () => { rule.targets = []; })
     },
-    $queryRaw: jest.fn(async () => [])
+    // Qualification is a current SQL result, independent of advertised node
+    // readiness. All unrelated SQL stays empty rather than creating evidence.
+    $queryRaw: jest.fn(async (query: { sql: string }) => query.sql.includes("bio_sensor_blocked_reasons(")
+      ? [eligibility] : [])
   };
   const service = new VehicleEventRulesService({ $transaction: (fn: any) => fn(tx) } as never,
     { assert: async () => {}, assertManageInTransaction: async () => {} } as never,
@@ -82,21 +89,33 @@ describe("server-owned BIO rule qualification", () => {
     expect(tx.vehicleEventRule.create.mock.calls[0][0].data.sensorProtocol).toBe("bio_usb_pulse");
   });
 
-  it("rejects enabled BIO until separately authenticated V2 support exists", async () => {
-    await expect(context().service.create(siteId, actor, input({ status: "enabled" })))
-      .rejects.toMatchObject({ response: { code: "v2_support_unverified" } });
+  it("rejects enabled BIO when current SQL qualification lacks authenticated V2 support", async () => {
+    const h = context(undefined, undefined, { ...readyEligibility, blockedReasons: ["gateway_protocol_unverified"] });
+    await expect(h.service.create(siteId, actor, input({ status: "enabled" })))
+      .rejects.toMatchObject({ response: { message: "vehicle event source is unavailable", blockedReasons: ["gateway_protocol_unverified"] } });
+    expect(h.tx.vehicleEventRule.create).not.toHaveBeenCalled();
   });
 
   it.each(["off", "shadow", "degraded"])("rejects a %s BIO source even in a new draft", async readiness => {
-    await expect(context([fixture(sourceId, true, { bioPulseReadiness: readiness }), fixture(targetId)])
+    await expect(context([fixture(sourceId, true, { bioPulseReadiness: readiness }), fixture(targetId)], undefined,
+      { ...readyEligibility, status: readiness, blockedReasons: ["link_unverified"] })
       .service.create(siteId, actor, input())).rejects.toMatchObject({ status: 400 });
   });
 
   it.each([{ bioPulseCapabilityRevision: 0n }, { bioPulseProfileId: " \t" }, { bioPulseVerifiedAt: null }])(
     "rejects incomplete ready evidence %s", async metadata => {
-      await expect(context([fixture(sourceId, true, metadata), fixture(targetId)]).service.create(siteId, actor, input()))
+      await expect(context([fixture(sourceId, true, metadata), fixture(targetId)], undefined,
+        { ...readyEligibility, blockedReasons: ["profile_unverified"] }).service.create(siteId, actor, input()))
         .rejects.toMatchObject({ status: 400 });
     });
+
+  it("rejects advertised ready when current SQL qualification is blocked", async () => {
+    const h = context(undefined, undefined, { ...readyEligibility, blockedReasons: ["operating_policy_required"] });
+    await expect(h.service.create(siteId, actor, input())).rejects.toMatchObject({
+      response: { message: "vehicle event source is unavailable", blockedReasons: ["operating_policy_required"] }
+    });
+    expect(h.tx.vehicleEventRule.create).not.toHaveBeenCalled();
+  });
 
   it.each([9, 1801, 10.5])("rejects BIO hold %s", async holdSeconds => {
     await expect(context().service.create(siteId, actor, input({ holdSeconds }))).rejects.toMatchObject({ status: 400 });

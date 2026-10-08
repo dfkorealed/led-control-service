@@ -10,10 +10,12 @@ interface MonitoringActivityScope {
   floorId: string | null | undefined;
   cursor?: string;
   limit?: number;
+  fromDate?: string;
+  toDate?: string;
 }
 
-export function monitoringActivityQueryKey({ principal, siteId, floorId, cursor = "", limit = 5 }: MonitoringActivityScope) {
-  return ["monitoring-activity", principal ?? "", siteId ?? "", floorId ?? "", limit, cursor] as const;
+export function monitoringActivityQueryKey({ principal, siteId, floorId, cursor = "", limit = 5, fromDate = "", toDate = "" }: MonitoringActivityScope) {
+  return ["monitoring-activity", principal ?? "", siteId ?? "", floorId ?? "", limit, cursor, fromDate, toDate] as const;
 }
 
 export function monitoringActivityScopeKey(principal: string, siteId: string, floorId: string) {
@@ -21,7 +23,7 @@ export function monitoringActivityScopeKey(principal: string, siteId: string, fl
 }
 
 export function useMonitoringActivity(scope: MonitoringActivityScope) {
-  const { principal, siteId, floorId, cursor = "", limit = 5 } = scope;
+  const { principal, siteId, floorId, cursor = "", limit = 5, fromDate, toDate } = scope;
   const query = useQuery({
     queryKey: monitoringActivityQueryKey(scope),
     enabled: Boolean(principal && siteId && floorId),
@@ -29,6 +31,7 @@ export function useMonitoringActivity(scope: MonitoringActivityScope) {
       if (!principal || !siteId || !floorId) throw new Error("Monitoring activity scope is required");
       const search = new URLSearchParams({ limit: String(limit) });
       if (cursor) search.set("cursor", cursor);
+      if (fromDate && toDate) { search.set("fromDate", fromDate); search.set("toDate", toDate); }
       return withRetentionClock(async () => monitoringActivityResponseSchema.parse(await apiGet<unknown>(`/sites/${encodeURIComponent(siteId)}/floors/${encodeURIComponent(floorId)}/monitoring-activity?${search}`, { signal })));
     },
     staleTime: 0,

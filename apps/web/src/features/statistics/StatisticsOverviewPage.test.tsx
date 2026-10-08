@@ -106,6 +106,35 @@ describe("StatisticsOverviewPage", () => {
 
   afterEach(cleanup);
 
+  it("explains the full-output baseline in the compact estimate before the actual comparison graphic", () => {
+    renderView();
+    const context = screen.getByText(/상태 기반 추정.*24시간 100% 출력 기준/);
+    expect(context).toHaveTextContent("24시간 100% 출력 기준 100 kWh");
+    const chart = screen.getByRole("img", { name: "기준 대비 에너지 사용량 비교 차트" });
+    expect(context.compareDocumentPosition(chart) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("separates comparison and trend popover scopes without invented search", async () => {
+    renderView();
+    expect(screen.queryByRole("searchbox")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "월별" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /사용량 조회 단위 상세 필터/ }));
+    fireEvent.click(await screen.findByRole("button", { name: "월별" }));
+    expect(mocks.customHook).not.toHaveBeenCalledWith(expect.any(String), expect.any(String), true);
+    fireEvent.click(screen.getByRole("button", { name: "필터 닫기" }));
+    expect(screen.getByText(/2026년 7월: 140 kWh/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /절감 비교 기간 상세 필터/ }));
+    const date = await screen.findByRole("group", { name: "완료 기간 시작일과 종료일" });
+    const year = within(date).getAllByRole("spinbutton")[0];
+    fireEvent.keyDown(year, { key: "Backspace" });
+    expect(screen.getByRole("button", { name: "선택 기간 적용" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "필터 닫기" }));
+    fireEvent.click(screen.getByRole("button", { name: /절감 비교 기간 상세 필터/ }));
+    expect(within(screen.getByRole("group", { name: "완료 기간 시작일과 종료일" })).getAllByRole("spinbutton")[0]).not.toHaveTextContent("2026");
+    expect(screen.getByRole("button", { name: "선택 기간 적용" })).toBeDisabled();
+    expect(mocks.customHook).not.toHaveBeenCalledWith(expect.any(String), expect.any(String), true);
+  });
+
   it("derives the inclusive month and year ranges in the site timezone", () => {
     expect(getEnergySeriesRanges("2026-08-31T15:30:00.000Z", "Asia/Seoul")).toEqual({
       day: { from: "2026-09-01", to: "2026-09-30" },
@@ -124,7 +153,9 @@ describe("StatisticsOverviewPage", () => {
     expect(screen.getByText("수집 완료")).toBeInTheDocument();
     expect(screen.getAllByText("수집 공백 있음")).toHaveLength(2);
     const currentSection = screen.getByRole("region", { name: "오늘 사용량과 비용" });
-    expect(within(currentSection).getByText("KPI 수집 공백")).toBeInTheDocument();
+    expect(within(currentSection).queryByText("KPI 수집 공백")).not.toBeInTheDocument();
+    expect(within(currentSection).queryByText("상태 기반 추정", { exact: true })).not.toBeInTheDocument();
+    expect(screen.queryByText("핵심 절감 분석")).not.toBeInTheDocument();
     expect(screen.queryByText("수집 공백이 있어 일부 기간은 추정값이 불완전할 수 있습니다.")).not.toBeInTheDocument();
   });
 
@@ -134,13 +165,15 @@ describe("StatisticsOverviewPage", () => {
     expect(screen.getByRole("group", { name: "오늘 전력 사용량" })).toHaveTextContent("오늘 00:00~09:00 · 진행 중");
     expect(screen.getByRole("group", { name: "이번 달 누적 전력 사용량" })).toHaveTextContent("2026-08-01 ~ 2026-08-26");
     expect(screen.getByRole("group", { name: "올해 누적 전력 사용량" })).toHaveTextContent("2026-01-01 ~ 2026-08-26");
-    expect(screen.getByRole("region", { name: "상태 기반 추정 사용량" })).toHaveTextContent("추이 기간 2026-08-01 ~ 2026-08-31");
-    expect(screen.getByRole("region", { name: "상태 기반 추정 사용량" })).toHaveTextContent("Asia/Seoul");
-    expect(screen.getByRole("heading", { name: "기준 대비 에너지 절감" }).closest("section")).toHaveTextContent("비교 기간 2026-09-01 ~ 2026-09-30");
-    expect(screen.getByRole("heading", { name: "기준 대비 에너지 절감" }).closest("section")).toHaveTextContent("완료 실적 2026-09-09까지");
+    expect(screen.getByText("2026-08-01 ~ 2026-08-31", { exact: true })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "절감 비교 기간" })).toHaveTextContent("2026-09-01 ~ 2026-09-30");
+    expect(screen.queryByText(/완료 실적 .*까지/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/KPI와 별개/)).not.toBeInTheDocument();
 
+    fireEvent.click(screen.getByRole("button", { name: /사용량 조회 단위 상세 필터/ }));
     fireEvent.click(screen.getByRole("button", { name: "월별" }));
-    expect(screen.getByRole("region", { name: "상태 기반 추정 사용량" })).toHaveTextContent("추이 기간 2026-01-01 ~ 2026-12-01");
+    expect(screen.getByText("2026-01-01 ~ 2026-12-01", { exact: true })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "필터 닫기" }));
     expect(screen.getByRole("group", { name: "오늘 전력 사용량" })).toHaveTextContent("오늘 00:00~09:00 · 진행 중");
   });
 
@@ -149,6 +182,7 @@ describe("StatisticsOverviewPage", () => {
     renderView();
 
     expect(screen.getByText(/마지막 집계 확인 불가/)).toBeInTheDocument();
+    expect(screen.getByText("Asia/Seoul · 마지막 집계 확인 불가 · 조회 2026-08-26 09:00:00")).toBeInTheDocument();
     expect(screen.getByRole("group", { name: "오늘 전력 사용량" })).toHaveTextContent("오늘 00:00~집계 시각 확인 불가 · 진행 중");
     expect(screen.queryByText(/마지막 집계 2026/)).not.toBeInTheDocument();
   });
@@ -221,28 +255,30 @@ describe("StatisticsOverviewPage", () => {
 
     expect(screen.getByRole("group", { name: "에너지 절감률" })).toHaveTextContent("35 %");
     expect(screen.getByRole("group", { name: "예상 절감 전력" })).toHaveTextContent("35 kWh");
-    expect(screen.getByRole("button", { name: "이번 달" })).toHaveAttribute("aria-pressed", "true");
-
-    fireEvent.click(screen.getByRole("button", { name: "최근 7일" }));
-    expect(screen.getByRole("button", { name: "최근 7일" })).toHaveAttribute("aria-pressed", "true");
+    fireEvent.click(screen.getByRole("button", { name: /절감 비교 기간 상세 필터/ }));
+    const presets = within(screen.getByRole("group", { name: "절감 비교 프리셋" }));
+    expect(presets.getByRole("button", { name: "이번 달" })).toHaveAttribute("aria-pressed", "true");
+    fireEvent.click(presets.getByRole("button", { name: "최근 7일" }));
+    fireEvent.click(screen.getByRole("button", { name: /절감 비교 기간 상세 필터/ }));
+    expect(within(screen.getByRole("group", { name: "절감 비교 프리셋" })).getByRole("button", { name: "최근 7일" })).toHaveAttribute("aria-pressed", "true");
     expect(mocks.comparisonHook).toHaveBeenLastCalledWith("last_7_days", true);
   });
 
   it("switches to a completed custom period without changing independent today or forecast cards", async () => {
     renderView();
-    const opener = screen.getByRole("button", { name: /완료 기간 날짜 범위 선택, 현재/ });
+    const opener = screen.getByRole("button", { name: /절감 비교 기간 상세 필터/ });
     opener.focus();
     fireEvent.click(opener);
-    const picker = screen.getByRole("dialog", { name: "완료일 비교 기간 선택" });
+    const picker = screen.getByRole("dialog", { name: "절감 비교 기간" });
     expect(picker).toHaveTextContent("오늘 진행 중인 집계와 이번 달 비용 전망은 아래 별도 영역에 유지됩니다.");
     expect(within(picker).getByRole("group", { name: "빠른 기간 선택" })).toBeInTheDocument();
-    expect(within(picker).getAllByRole("spinbutton")[0]).toHaveFocus();
-    fireEvent.click(within(picker).getByRole("button", { name: "최근 7일" }));
+    await waitFor(() => expect(picker).toContainElement(document.activeElement as HTMLElement));
+    fireEvent.click(within(within(picker).getByRole("group", { name: "빠른 기간 선택" })).getByRole("button", { name: "최근 7일" }));
     fireEvent.click(within(picker).getByRole("button", { name: "선택 기간 적용" }));
 
-    expect(screen.queryByRole("dialog", { name: "완료일 비교 기간 선택" })).not.toBeInTheDocument();
-    expect(opener).toHaveAttribute("aria-pressed", "true");
-    expect(opener).toHaveAccessibleName("완료 기간 날짜 범위 선택, 현재 2026-08-19 ~ 2026-08-25");
+    expect(screen.queryByRole("dialog", { name: "절감 비교 기간" })).not.toBeInTheDocument();
+    expect(opener).toHaveAccessibleName("절감 비교 기간 상세 필터, 활성 조건 1개");
+    expect(screen.getByRole("region", { name: "절감 비교 기간" })).toHaveTextContent("2026-08-19 ~ 2026-08-25");
     await waitFor(() => expect(opener).toHaveFocus());
     expect(mocks.comparisonHook).toHaveBeenLastCalledWith("current_month", false);
     expect(mocks.customHook).toHaveBeenLastCalledWith("2026-08-19", "2026-08-25", true);
@@ -258,28 +294,28 @@ describe("StatisticsOverviewPage", () => {
       error: new Error("unavailable")
     }));
     renderView();
-    fireEvent.click(screen.getByRole("button", { name: /완료 기간 날짜 범위 선택, 현재/ }));
-    const picker = screen.getByRole("dialog", { name: "완료일 비교 기간 선택" });
+    fireEvent.click(screen.getByRole("button", { name: /절감 비교 기간 상세 필터/ }));
+    const picker = screen.getByRole("dialog", { name: "절감 비교 기간" });
     fireEvent.click(within(within(picker).getByRole("group", { name: "빠른 기간 선택" })).getByRole("button", { name: "최근 7일" }));
     fireEvent.click(within(picker).getByRole("button", { name: "선택 기간 적용" }));
 
     expect(screen.getByText("절감 비교를 불러오지 못했습니다.")).toBeInTheDocument();
-    expect(screen.queryByText(/비교 기간 2026-08-19 ~ 2026-08-25 · 완료 실적/)).not.toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "절감 비교 기간" })).toHaveTextContent("2026-08-19 ~ 2026-08-25");
     expect(screen.queryByRole("group", { name: "기준 및 동기간 비교" })).not.toBeInTheDocument();
     expect(screen.getByRole("group", { name: "오늘 전력 사용량" })).toHaveTextContent("4.25 kWh");
   });
 
   it("prevents applying a range that includes the site-local in-progress day and returns focus on cancel", async () => {
     renderView();
-    const opener = screen.getByRole("button", { name: /완료 기간 날짜 범위 선택, 현재/ });
+    const opener = screen.getByRole("button", { name: /절감 비교 기간 상세 필터/ });
     opener.focus();
     fireEvent.click(opener);
-    const picker = screen.getByRole("dialog", { name: "완료일 비교 기간 선택" });
+    const picker = screen.getByRole("dialog", { name: "절감 비교 기간" });
     const segments = within(picker).getByRole("group", { name: "완료 기간 시작일과 종료일" }).querySelectorAll('[role="spinbutton"]');
     fireEvent.keyDown(segments[5], { key: "ArrowUp" });
     expect(within(picker).getByRole("button", { name: "선택 기간 적용" })).toBeDisabled();
     expect(within(picker).getByRole("alert")).toHaveTextContent("완료된 1~400일");
-    fireEvent.click(within(picker).getByRole("button", { name: "취소" }));
+    fireEvent.click(within(picker).getByRole("button", { name: "필터 닫기" }));
     await waitFor(() => expect(opener).toHaveFocus());
     expect(mocks.customHook).not.toHaveBeenCalledWith(expect.any(String), expect.any(String), true);
   });
@@ -329,18 +365,21 @@ describe("StatisticsOverviewPage", () => {
       .toHaveTextContent("4.25 kWh680원 · 상태 기반 추정 · 오늘 00:00~09:00 · 진행 중수집 완료");
     expect(screen.getByRole("group", { name: "이번 달 누적 전력 사용량" }))
       .toHaveTextContent("120.5 kWh19,280원 · 상태 기반 추정 · 2026-08-01 ~ 2026-08-26수집 공백 있음");
-    expect(screen.getByText("상태 기반 추정")).toBeVisible();
+    expect(screen.queryByText("상태 기반 추정", { exact: true })).not.toBeInTheDocument();
     expect(within(chart).getByRole("img", { name: /상태 기반 추정 전력 사용량 꺾은선 차트/ })).toBeInTheDocument();
   });
 
   it("switches accessible day and month series without turning null points into zero", () => {
     renderView();
 
+    fireEvent.click(screen.getByRole("button", { name: /사용량 조회 단위 상세 필터/ }));
     expect(screen.getByRole("button", { name: "일별" })).toHaveAttribute("aria-pressed", "true");
+    fireEvent.click(screen.getByRole("button", { name: "필터 닫기" }));
     expect(screen.getByText("2026년 8월 27일: 수집 데이터 없음")).toBeInTheDocument();
     expect(screen.queryByText("2026년 8월 27일: 0 kWh")).not.toBeInTheDocument();
     expect(screen.getByText(/2026년 8월 26일: 4.25 kWh, 680원, 수집 공백 2시간 0분/)).toBeInTheDocument();
 
+    fireEvent.click(screen.getByRole("button", { name: /사용량 조회 단위 상세 필터/ }));
     fireEvent.click(screen.getByRole("button", { name: "월별" }));
     expect(screen.getByRole("button", { name: "월별" })).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByText(/2026년 7월: 140 kWh/)).toBeInTheDocument();

@@ -12,6 +12,15 @@ const approvedLandingVariants = `@custom-variant landing-narrow (@media (max-wid
 @custom-variant landing-wide (@media (max-width: 1050px));`;
 const canonicalStyles = '@import "tailwindcss"; @import "./styles/theme.css"; @import "./styles/base.css"; @import "./styles/exceptions.css";' + "\n" + approvedLandingVariants;
 
+test("allows only the exact native safe-area ownership contract, not arbitrary root CSS", () => {
+  const source = ':root { --led-control-safe-area-bottom: env(safe-area-inset-bottom); } :root[data-led-control-native-safe-area="true"] { --led-control-safe-area-bottom: 0px; } @utility pb-shell-navigation-safe { padding-bottom: calc(var(--spacing) * 17 + var(--led-control-safe-area-bottom)); } @utility h-shell-navigation-safe { height: calc(var(--spacing) * 17 + var(--led-control-safe-area-bottom)); } @utility pb-safe-area-bottom { padding-bottom: var(--led-control-safe-area-bottom); }';
+  assert.deepEqual(inspectUiSource("src/styles/base.css", source), []);
+  for (const changed of [source.replace("0px", "4px"), source.replace("0px;", "0px; padding: 2rem;"), source + ':root { --led-control-safe-area-bottom: env(safe-area-inset-bottom); }']) {
+    assert.ok(inspectUiSource("src/styles/base.css", changed).some(v => v.rule === "css-selector"));
+  }
+  assert.ok(inspectUiSource("src/elsewhere.css", source).some(v => v.rule === "css-selector"));
+});
+
 // Reviewed role/value inventory: docs/ui-spacing.md, landing Task 1 approval.
 // Keep this frozen expectation independent of the live theme and policy anchor.
 test("landing token proposal preserves exact values", async () => {
@@ -719,6 +728,18 @@ test("accepts only the reviewed 360px phone-wide token and named utilities", asy
   assert.deepEqual(inspectUiSource("src/New.tsx", 'const classes = "phone-wide:grid-cols-4 max-phone-wide:order-1";'), []);
   assert.ok(inspectUiSource(path, theme.replace(/--breakpoint-phone-wide:[^;]+;/, "")).some(v => v.rule === "missing-theme-token"));
   assert.ok(inspectUiSource(path, theme.replace(/--breakpoint-phone-wide:[^;]+;/, "--breakpoint-phone-wide: 22rem;")).some(v => v.rule === "unapproved-theme-value"));
+});
+
+test("accepts the exact reviewed top safe-area helper only at its owned base CSS path", () => {
+  const helper = "@utility pt-safe-area-top { padding-top: env(safe-area-inset-top); }";
+  assert.deepEqual(inspectUiSource("src/styles/base.css", helper), []);
+  for (const source of [
+    "@utility pt-safe-area-top { padding-top: 24px; }",
+    "@utility pt-safe-area-top { padding-top: env(safe-area-inset-top); padding-bottom: 24px; }",
+    `${helper}\n${helper}`,
+    "@utility pt-safe-area-other { padding-top: env(safe-area-inset-top); }"
+  ]) assert.ok(inspectUiSource("src/styles/base.css", source).some(violation => violation.rule === "css-utility"), source);
+  assert.ok(inspectUiSource("src/styles.css", helper).some(violation => violation.rule === "css-utility"));
 });
 
 test("accepts only the reviewed final atlas shell layout tokens", async () => {

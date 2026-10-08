@@ -7,7 +7,14 @@
     "strict": true,
     "skipLibCheck": true,
     "esModuleInterop": true,
-    "types": ["jest", "node"]
+    "types": [
+      "jest",
+      "node"
+    ]
   },
-  "include": ["App.tsx", "src"]
+  "include": [
+    "App.tsx",
+    "app.config.ts",
+    "src"
+  ]
 }

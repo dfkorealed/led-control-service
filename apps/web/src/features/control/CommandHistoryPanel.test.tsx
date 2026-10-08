@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { CommandHistoryPanel } from "./CommandHistoryPanel";
 
@@ -16,6 +16,148 @@ function command(id: string) {
 }
 
 describe("CommandHistoryPanel", () => {
+  it.each([
+    { kind: "partial", raw: [2026, null, null, null, null, null] },
+    { kind: "impossible", raw: [2026, 2, 30, 2026, 3, 1] },
+    { kind: "reversed", raw: [2026, 3, 2, 2026, 3, 1] }
+  ])("blocks manual retry after a history error while the $kind draft survives filter reopen, then reads a valid correction", async ({ kind, raw }) => {
+    const fullHistoryReads: URL[] = [];
+    const fetch = vi.fn().mockImplementation(async (url: string) => {
+      const parsed = new URL(url, "http://localhost");
+      if (parsed.searchParams.get("limit") !== "1") fullHistoryReads.push(parsed);
+      if (parsed.searchParams.get("limit") !== "1" && !parsed.searchParams.has("fromDate")) {
+        return { ok: false, status: 503, json: async () => ({ message: "history unavailable" }) };
+      }
+      return { ok: true, json: async () => ({ generatedAt: "2026-09-25T00:00:00Z", retainedFrom: "2026-06-25T00:00:00Z", retentionEnabled: false,
+        items: parsed.searchParams.get("limit") === "1" ? [command("latest")] : [command("corrected-period")], nextCursor: null }) };
+    });
+    vi.stubGlobal("fetch", fetch); renderHistory();
+    const recent = await screen.findByRole("region", { name: "최근 명령 이력" });
+    await within(recent).findByRole("button", { name: /latest/ });
+    fireEvent.click(screen.getByRole("button", { name: "명령 이력 열기" }));
+    await screen.findByText("명령 이력을 불러오지 못했습니다.");
+    expect(fullHistoryReads).toHaveLength(1);
+    openHistoryFilters();
+    // Real segment keyboard edits keep the date component/controller real.
+    // Set the day before month so an impossible raw date is not pre-constrained.
+    for (const index of [3, 5, 4, 0, 2, 1]) {
+      if (raw[index] !== null) editHistoryDateSegment(index, raw[index]!);
+    }
+    expect(screen.getAllByRole("spinbutton").map(element => element.getAttribute("aria-valuenow"))).toEqual(raw.map(value => value === null ? null : String(value)));
+    expect(screen.getByRole("group", { name: "조회 기간" })).toHaveAccessibleDescription(/올바른 순서로 완성/);
+    const readsBeforeRetry = fullHistoryReads.length;
+    expect(readsBeforeRetry).toBe(1);
+    fireEvent.click(screen.getByRole("button", { name: "필터 닫기" }));
+    // A reversed complete range changes the committed query key and has no
+    // prior error on that key. Partial/impossible drafts retain the failed key.
+    const retry = screen.queryByRole("button", { name: "이력 다시 조회" });
+    if (kind === "reversed") expect(retry).not.toBeInTheDocument();
+    else expect(retry).toBeInTheDocument();
+    if (retry) fireEvent.click(retry);
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)); });
+    expect(fullHistoryReads).toHaveLength(readsBeforeRetry);
+    if (retry) expect(retry).toBeDisabled();
+    openHistoryFilters();
+    expect(screen.getAllByRole("spinbutton").map(element => element.getAttribute("aria-valuenow"))).toEqual(raw.map(value => value === null ? null : String(value)));
+    for (const [index, value] of [2026, 3, 1, 2026, 3, 2].entries()) editHistoryDateSegment(index, value);
+    fireEvent.click(screen.getByRole("button", { name: "필터 닫기" }));
+    await screen.findByRole("button", { name: /corrected-period/ });
+    expect(fullHistoryReads.at(-1)?.searchParams.get("fromDate")).toBe("2026-03-01");
+    expect(fullHistoryReads.at(-1)?.searchParams.get("toDate")).toBe("2026-03-02");
+    expect(recent).toHaveTextContent("latest");
+    expect(screen.getByRole("dialog", { name: "명령 이력" })).toHaveTextContent("최근 3개월");
+    expect(fetch.mock.calls.every(([, init]) => (init?.method ?? "GET") === "GET")).toBe(true);
+  });
+
+  it("preserves partial date draft across filter close", async () => {
+    const fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ generatedAt: "2026-09-25T00:00:00Z", retainedFrom: "2026-06-25T00:00:00Z", retentionEnabled: false, items: [], nextCursor: null }) });
+    vi.stubGlobal("fetch", fetch); renderHistory();
+    fireEvent.click(screen.getByRole("button", { name: "명령 이력 열기" }));
+    await within(screen.getByRole("dialog", { name: "명령 이력" })).findByText("명령 이력이 없습니다.");
+    expect(screen.queryByRole("group", { name: "조회 기간" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /명령 이력 필터 상세 필터/ }));
+    const year = screen.getAllByRole("spinbutton")[0];
+    fireEvent.keyDown(year, { key: "ArrowUp" });
+    const raw = year.textContent;
+    const requests = fetch.mock.calls.length;
+    fireEvent.click(screen.getByRole("button", { name: "필터 닫기" }));
+    fireEvent.click(screen.getByRole("button", { name: /명령 이력 필터 상세 필터/ }));
+    expect(screen.getAllByRole("spinbutton")[0]).toHaveTextContent(raw!);
+    expect(screen.getByRole("group", { name: "조회 기간" })).toHaveAccessibleDescription(/시작일과 종료일을 올바른 순서로 완성해 주세요/);
+    expect(fetch.mock.calls.length).toBe(requests);
+    fireEvent.click(screen.getByRole("button", { name: "필터 초기화" }));
+    expect(screen.getAllByRole("spinbutton")[0]).not.toHaveTextContent(raw!);
+  });
+
+  it("keeps a stable unknown pager during an initial full-history read", async () => {
+    let release!: (value: unknown) => void;
+    const fetch = vi.fn().mockImplementation((url: string) => url.includes("limit=1")
+      ? Promise.resolve({ ok: true, json: async () => ({ generatedAt: "2026-09-25T00:00:00Z", retentionEnabled: false, items: [], nextCursor: null }) })
+      : new Promise(resolve => { release = resolve; }));
+    vi.stubGlobal("fetch", fetch); renderHistory();
+    fireEvent.click(screen.getByRole("button", { name: "명령 이력 열기" }));
+    const drawer = screen.getByRole("dialog", { name: "명령 이력" });
+    const pager = within(drawer).getByRole("navigation", { name: "페이지 이동" });
+    expect(within(pager).queryByRole("button", { name: "페이지당 항목 수" })).not.toBeInTheDocument();
+    openHistoryFilters();
+    expect(screen.getByRole("button", { name: "페이지당 항목 수" })).toHaveTextContent("50개");
+    expect(pager).not.toHaveTextContent("현재 0건");
+    expect(screen.getByRole("group", { name: "조회 기간" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "필터 닫기" }));
+    release({ ok: true, json: async () => ({ generatedAt: "2026-09-25T00:00:00Z", retentionEnabled: false, items: [], nextCursor: null }) });
+    await waitFor(() => expect(pager).toHaveTextContent("현재 0건"));
+    expect(within(drawer).getByRole("navigation", { name: "페이지 이동" })).toBe(pager);
+  });
+
+  it("discards navigation on A2→B1→A1 and close/reopen", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockImplementation(async (url: string) => {
+      const params = new URL(url, "http://localhost").searchParams;
+      return { ok: true, json: async () => ({ generatedAt: "2026-09-25T00:00:00Z", retainedFrom: "2026-06-25T00:00:00Z", retentionEnabled: false,
+        items: [command(`${params.get("siteId")}-${params.has("cursor") ? "second" : "first"}`)],
+        nextCursor: params.has("cursor") ? null : "next" }) };
+    }));
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const element = (siteId: string) => <QueryClientProvider client={client}><CommandHistoryPanel userId="user" siteId={siteId} onSelect={vi.fn()} /></QueryClientProvider>;
+    const view = render(element("A"));
+    fireEvent.click(screen.getByRole("button", { name: "명령 이력 열기" }));
+    const drawer = screen.getByRole("dialog", { name: "명령 이력" });
+    await within(drawer).findByRole("button", { name: /A-first/ });
+    fireEvent.click(within(drawer).getByRole("button", { name: "다음 페이지" }));
+    await within(drawer).findByRole("button", { name: /A-second/ });
+    view.rerender(element("B"));
+    expect(within(drawer).queryByRole("button", { name: /A-second/ })).not.toBeInTheDocument();
+    await within(drawer).findByRole("button", { name: /B-first/ });
+    view.rerender(element("A"));
+    expect(within(drawer).queryByRole("button", { name: /A-second/ })).not.toBeInTheDocument();
+    await within(drawer).findByRole("button", { name: /A-first/ });
+    fireEvent.click(within(drawer).getByRole("button", { name: "다음 페이지" }));
+    await within(drawer).findByRole("button", { name: /A-second/ });
+    fireEvent.click(within(drawer).getByRole("button", { name: "명령 이력 닫기" }));
+    fireEvent.click(screen.getByRole("button", { name: "명령 이력 열기" }));
+    const reopened = screen.getByRole("dialog", { name: "명령 이력" });
+    await within(reopened).findByRole("button", { name: /A-first/ });
+    expect(within(reopened).queryByRole("button", { name: /A-second/ })).not.toBeInTheDocument();
+    expect(within(within(reopened).getByRole("navigation", { name: "페이지 이동" })).getByRole("status")).toHaveTextContent("1페이지");
+  });
+
+  it("resets cursor navigation for 1000 rows and transmits the size in its query", async () => {
+    const fetch = vi.fn().mockImplementation(async (url: string) => ({ ok: true, json: async () => ({
+      generatedAt: "2026-09-25T00:00:00Z", retainedFrom: "2026-06-25T00:00:00Z", retentionEnabled: false, items: [command("row")], nextCursor: url.includes("cursor=") ? null : "next"
+    }) }));
+    vi.stubGlobal("fetch", fetch); renderHistory();
+    fireEvent.click(screen.getByRole("button", { name: "명령 이력 열기" }));
+    const drawer = screen.getByRole("dialog", { name: "명령 이력" });
+    await waitFor(() => expect(within(drawer).getByRole("button", { name: "다음 페이지" })).toBeEnabled());
+    fireEvent.click(within(drawer).getByRole("button", { name: "다음 페이지" }));
+    await waitFor(() => expect(within(within(drawer).getByRole("navigation", { name: "페이지 이동" })).getByRole("status")).toHaveTextContent("2페이지"));
+    openHistoryFilters();
+    fireEvent.click(screen.getByRole("button", { name: "페이지당 항목 수" }));
+    fireEvent.click(screen.getByRole("option", { name: "1000개" }));
+    fireEvent.click(screen.getByRole("button", { name: "필터 닫기" }));
+    await waitFor(() => expect(fetch.mock.calls.some(([url]) => String(url).includes("limit=1000") && !String(url).includes("cursor="))).toBe(true));
+    expect(within(within(drawer).getByRole("navigation", { name: "페이지 이동" })).getByRole("status")).toHaveTextContent("1페이지");
+  });
+
   it("explains an exact pre-RF clock refusal in the latest history without offering automatic execution", async () => {
     const refused = { ...command("clock-refused"), stage: "failed", outcome: "not_applied", errorCode: "GATEWAY_CLOCK_UNTRUSTED" };
     const fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ generatedAt: "2026-09-25T00:00:00.000Z", retainedFrom: "2026-06-25T00:00:00.000Z", retentionEnabled: false, items: [refused], nextCursor: null }) });
@@ -102,7 +244,7 @@ describe("CommandHistoryPanel", () => {
     expect(await within(drawer).findByText("older-command")).toBeInTheDocument();
     expect(within(drawer).getByText(/2026.*6.*25/)).toBeInTheDocument();
     expect(fetch.mock.calls.some(([url]) => String(url).includes("limit=1"))).toBe(true);
-    expect(fetch.mock.calls.some(([url]) => String(url).includes("limit=4"))).toBe(true);
+    expect(fetch.mock.calls.some(([url]) => String(url).includes("limit=50"))).toBe(true);
     expect(fetch.mock.calls.every(([url]) => String(url).includes("/api/commands?"))).toBe(true);
   });
 
@@ -113,6 +255,7 @@ describe("CommandHistoryPanel", () => {
     await screen.findByText("명령 이력이 없습니다.");
     fireEvent.click(screen.getByRole("button", { name: "명령 이력 열기" }));
     expect(screen.getByRole("searchbox", { name: "명령 이력 검색" }).closest("[data-field]")).not.toBeNull();
+    openHistoryFilters();
     expect(screen.getByRole("button", { name: "명령 상태 필터" })).toBeInTheDocument();
   });
 
@@ -128,8 +271,10 @@ describe("CommandHistoryPanel", () => {
     expect(fetch).toHaveBeenCalledTimes(2);
     await waitFor(() => expect(fetch).toHaveBeenCalledTimes(3));
     expect(fetch.mock.calls[2][0]).toContain("query=%EC%9E%85%EA%B5%AC");
+    openHistoryFilters();
     fireEvent.click(screen.getByRole("button", { name: "명령 상태 필터" }));
     fireEvent.click(screen.getByRole("option", { name: "실제 상태 확인 필요" }));
+    fireEvent.click(screen.getByRole("button", { name: "필터 닫기" }));
     await waitFor(() => expect(fetch).toHaveBeenCalledTimes(4));
     expect(fetch.mock.calls[3][0]).toContain("stage=verification_required");
     expect(fetch.mock.calls[3][0]).not.toContain("cursor=");
@@ -144,11 +289,12 @@ describe("CommandHistoryPanel", () => {
     expect(onSelect).toHaveBeenLastCalledWith("latest-command");
     fireEvent.click(screen.getByRole("button", { name: "명령 이력 열기" }));
     const drawer = screen.getByRole("dialog", { name: "명령 이력" });
-    const next = within(drawer).getByRole("button", { name: "다음" });
+    const next = within(drawer).getByRole("button", { name: "다음 페이지" });
     await waitFor(() => expect(next).toBeEnabled());
     next.focus();
     fireEvent.click(next);
-    await waitFor(() => expect(within(drawer).getByRole("button", { name: "이전" })).toHaveFocus());
+    await waitFor(() => expect(within(drawer).getByRole("button", { name: /older-command/ })).toBeInTheDocument());
+    expect(within(drawer).getByRole("group", { name: "명령 이력 페이지 조작" })).toContainElement(document.activeElement as HTMLElement);
     fireEvent.click(await within(drawer).findByRole("button", { name: /older-command/ }));
     expect(onSelect).toHaveBeenLastCalledWith("older-command");
     expect(screen.getByRole("button", { name: /latest-command/ })).toBeInTheDocument();
@@ -168,7 +314,7 @@ describe("CommandHistoryPanel", () => {
     renderHistory();
     fireEvent.click(screen.getByRole("button", { name: "명령 이력 열기" }));
     const drawer = screen.getByRole("dialog", { name: "명령 이력" });
-    const next = within(drawer).getByRole("button", { name: "다음" });
+    const next = within(drawer).getByRole("button", { name: "다음 페이지" });
     await waitFor(() => expect(next).toBeEnabled());
     fireEvent.click(next);
     await waitFor(() => expect(firstPageReads).toBe(2));
@@ -190,11 +336,13 @@ describe("CommandHistoryPanel", () => {
     renderHistory();
     fireEvent.click(screen.getByRole("button", { name: "명령 이력 열기" }));
     const drawer = screen.getByRole("dialog", { name: "명령 이력" });
-    const next = within(drawer).getByRole("button", { name: "다음" });
+    const next = within(drawer).getByRole("button", { name: "다음 페이지" });
     await waitFor(() => expect(next).toBeEnabled());
     fireEvent.click(next);
-    fireEvent.click(within(drawer).getByRole("button", { name: "명령 상태 필터" }));
+    openHistoryFilters();
+    fireEvent.click(screen.getByRole("button", { name: "명령 상태 필터" }));
     fireEvent.click(screen.getByRole("option", { name: "실제 상태 확인 필요" }));
+    fireEvent.click(screen.getByRole("button", { name: "필터 닫기" }));
     expect(await within(drawer).findByRole("button", { name: /filtered-command/ })).toBeInTheDocument();
     finishOldPage({ ok: true, json: async () => ({ generatedAt: "2026-09-25T00:00:00.000Z", retainedFrom: "2026-06-25T00:00:00.000Z", retentionEnabled: false, items: [command("stale-command")], nextCursor: null }) });
     await waitFor(() => expect(next).toBeDisabled());
@@ -213,8 +361,8 @@ describe("CommandHistoryPanel", () => {
     let drawerReads = 0;
     const fetch = vi.fn().mockImplementation(async (url: string) => {
       const limit = new URL(url, "http://localhost").searchParams.get("limit");
-      if (limit === "4") drawerReads += 1;
-      return limit === "4" && drawerReads > 1
+      if (limit === "50") drawerReads += 1;
+      return limit === "50" && drawerReads > 1
         ? { ok: false, status: 401, headers: { get: () => "application/json" }, json: async () => ({ code: "unauthorized" }) }
         : { ok: true, json: async () => ({ generatedAt: "2026-09-25T00:00:00.000Z", retainedFrom: "2026-06-25T00:00:00.000Z", retentionEnabled: false, items: [command("cached-command")], nextCursor: null }) };
     });
@@ -229,3 +377,14 @@ describe("CommandHistoryPanel", () => {
     expect(within(drawer).getByRole("alert")).toBeInTheDocument();
   });
 });
+
+function editHistoryDateSegment(index: number, value: number) {
+  const segment = screen.getAllByRole("spinbutton")[index];
+  act(() => segment.focus());
+  for (let clear = 0; clear < 4; clear += 1) fireEvent.keyDown(segment, { key: "Backspace", code: "Backspace" });
+  for (const key of String(value)) fireEvent(segment, new InputEvent("beforeinput", { bubbles: true, cancelable: true, data: key, inputType: "insertText" }));
+}
+
+function openHistoryFilters() {
+  if (!screen.queryByRole("button", { name: "필터 닫기" })) fireEvent.click(screen.getByRole("button", { name: /명령 이력 필터 상세 필터/ }));
+}

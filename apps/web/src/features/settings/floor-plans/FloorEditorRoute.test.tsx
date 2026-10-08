@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { StrictMode } from "react";
 import { BrowserRouter, Link, MemoryRouter, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -22,13 +22,14 @@ const { getFloorEditorState, acquireFloorEditorLease, releaseFloorEditorLease } 
 
 vi.mock("../../../api/floor-editor", () => floorEditorApi);
 vi.mock("../../floor-editor/FloorEditorView", () => ({
-  FloorEditorView: ({ initialState, floors, onFloorChange, onCancel, onSaved, onDirtyChange, readOnly = false }: {
+  FloorEditorView: ({ initialState, floors, onFloorChange, onCancel, onSaved, onDirtyChange, onNativeBack, readOnly = false }: {
     initialState: FloorEditorState;
     floors: Array<{ id: string; name: string }>;
     onFloorChange: (floorId: string) => void;
     onCancel: () => void;
     onSaved: (state: FloorEditorState) => void;
     onDirtyChange: (dirty: boolean) => void;
+    onNativeBack?: () => boolean;
     readOnly?: boolean;
   }) => (
     <section>
@@ -41,6 +42,7 @@ vi.mock("../../floor-editor/FloorEditorView", () => ({
         <button key={floor.id} onClick={() => onFloorChange(floor.id)}>{floor.name} 전환</button>
       ))}
       <button onClick={onCancel}>취소</button>
+      <button onClick={() => onNativeBack?.()}>네이티브 뒤로가기</button>
       <button onClick={() => { onDirtyChange(false); onSaved(initialState); }}>저장</button>
     </section>
   )
@@ -158,6 +160,111 @@ describe("FloorEditorRoute", () => {
     vi.unstubAllGlobals();
     window.history.replaceState({}, "", "/");
     useFloorEditorStore.setState({ initialState: null, state: null, isDirty: false, selection: null });
+  });
+
+  it("propagates the editor intrinsic minimum through the route wrapper", async () => {
+    getFloorEditorState.mockResolvedValue(editorState);
+    renderRoute("admin");
+    const editor = (await screen.findByRole("heading", { name: "B2 맵 편집" })).closest("section");
+    expect(editor?.parentElement).toHaveClass("min-h-min", "[&>section]:min-h-min");
+    expect(editor?.parentElement).not.toHaveClass("overflow-hidden", "min-h-0");
+  });
+
+  it("locks background editing and preserves the dirty leave guard until fresh foreground acquisition", async () => {
+    getFloorEditorState.mockResolvedValue(editorState);
+    renderRoute("admin");
+    await waitFor(() => expect(screen.getByTestId("lease-read-only")).toHaveTextContent("false"));
+    fireEvent.click(screen.getByRole("button", { name: "수정" }));
+    act(() => window.dispatchEvent(new CustomEvent("led-control:webview-lifecycle", { detail: { state: "inactive" } })));
+    expect(screen.getByTestId("lease-read-only")).toHaveTextContent("false");
+    act(() => window.dispatchEvent(new CustomEvent("led-control:webview-lifecycle", { detail: { state: "background" } })));
+    expect(screen.getByTestId("lease-read-only")).toHaveTextContent("true");
+    expect(releaseFloorEditorLease).toHaveBeenCalledWith("floor-b2", "test-lease-token", { keepalive: true });
+    let resolve!: (value: { editable: boolean; token: string }) => void;
+    acquireFloorEditorLease.mockImplementationOnce(() => new Promise(done => { resolve = done; }));
+    act(() => window.dispatchEvent(new CustomEvent("led-control:webview-lifecycle", { detail: { state: "active" } })));
+    await waitFor(() => expect(acquireFloorEditorLease).toHaveBeenCalledTimes(2));
+    expect(acquireFloorEditorLease).toHaveBeenLastCalledWith("floor-b2");
+    expect(screen.getByTestId("lease-read-only")).toHaveTextContent("true");
+    await act(async () => resolve({ editable: true, token: "foreground-token" }));
+    expect(screen.getByTestId("lease-read-only")).toHaveTextContent("false");
+    fireEvent.click(screen.getByRole("button", { name: "취소" }));
+    expect(screen.getByRole("alertdialog", { name: "맵 편집 종료" })).toBeInTheDocument();
+  });
+
+  it("asks before native back, cancels without history movement, and returns to the prior route only after confirmation", async () => {
+    getFloorEditorState.mockResolvedValue(editorState);
+    window.history.replaceState({ idx: 0 }, "", "/settings?siteId=site-2");
+    render(<QueryClientProvider client={new QueryClient()}><BrowserRouter><Routes>
+      <Route path="/settings" element={<><h2>설정 개요</h2><Link to="/settings/floor-plans/floor-b2/edit?siteId=site-2">맵 편집 열기</Link></>} />
+      <Route path="/settings/floor-plans/:floorId/edit" element={<FloorEditorRoute capabilities={manageCapabilities} />} />
+    </Routes></BrowserRouter></QueryClientProvider>);
+    fireEvent.click(screen.getByRole("link", { name: "맵 편집 열기" }));
+    await screen.findByRole("heading", { name: "B2 맵 편집" });
+    fireEvent.click(screen.getByRole("button", { name: "수정" }));
+    const go = vi.spyOn(window.history, "go");
+    const index = window.history.state.idx;
+    fireEvent.click(screen.getByRole("button", { name: "네이티브 뒤로가기" }));
+    const dialog = screen.getByRole("alertdialog", { name: "맵 편집 종료" });
+    expect(window.history.state.idx).toBe(index);
+    expect(go).not.toHaveBeenCalled();
+    fireEvent.click(within(dialog).getByRole("button", { name: "취소" }));
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+    expect(window.history.state.idx).toBe(index);
+    fireEvent.click(screen.getByRole("button", { name: "네이티브 뒤로가기" }));
+    fireEvent.click(screen.getByRole("button", { name: "이동" }));
+    await screen.findByRole("heading", { name: "설정 개요" });
+    expect(go).toHaveBeenCalledTimes(1);
+    expect(go).toHaveBeenCalledWith(-2);
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+  });
+
+  it("does not revive a background editor when an earlier initial lease response arrives", async () => {
+    getFloorEditorState.mockResolvedValue(editorState);
+    let resolve!: (value: { editable: boolean; token: string }) => void;
+    acquireFloorEditorLease.mockImplementationOnce(() => new Promise(done => { resolve = done; }));
+    renderRoute("admin");
+    await screen.findByRole("heading", { name: "B2 맵 편집" });
+    act(() => window.dispatchEvent(new CustomEvent("led-control:webview-lifecycle", { detail: { state: "background" } })));
+    await act(async () => resolve({ editable: true, token: "late-token" }));
+    expect(screen.getByTestId("lease-read-only")).toHaveTextContent("true");
+    expect(releaseFloorEditorLease).toHaveBeenCalledWith("floor-b2", "late-token", { keepalive: true });
+  });
+
+  it("waits for both document and native foreground and ignores duplicate resume notifications", async () => {
+    getFloorEditorState.mockResolvedValue(editorState);
+    renderRoute("admin");
+    await waitFor(() => expect(screen.getByTestId("lease-read-only")).toHaveTextContent("false"));
+    const visibility = vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden");
+    act(() => {
+      document.dispatchEvent(new Event("visibilitychange"));
+      window.dispatchEvent(new CustomEvent("led-control:webview-lifecycle", { detail: { state: "background" } }));
+    });
+    expect(screen.getByTestId("lease-read-only")).toHaveTextContent("true");
+    expect(releaseFloorEditorLease).toHaveBeenCalledTimes(1);
+    visibility.mockReturnValue("visible");
+    act(() => document.dispatchEvent(new Event("visibilitychange")));
+    expect(acquireFloorEditorLease).toHaveBeenCalledTimes(1);
+    act(() => {
+      window.dispatchEvent(new CustomEvent("led-control:webview-lifecycle", { detail: { state: "active" } }));
+      window.dispatchEvent(new CustomEvent("led-control:webview-lifecycle", { detail: { state: "active" } }));
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    await waitFor(() => expect(screen.getByTestId("lease-read-only")).toHaveTextContent("false"));
+    expect(acquireFloorEditorLease).toHaveBeenCalledTimes(2);
+  });
+
+  it("never acquires a lease for an initially hidden editor until it becomes visible", async () => {
+    getFloorEditorState.mockResolvedValue(editorState);
+    const visibility = vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden");
+    renderRoute("admin");
+    await screen.findByRole("heading", { name: "B2 맵 편집" });
+    expect(acquireFloorEditorLease).not.toHaveBeenCalled();
+    expect(screen.getByTestId("lease-read-only")).toHaveTextContent("true");
+    visibility.mockReturnValue("visible");
+    act(() => document.dispatchEvent(new Event("visibilitychange")));
+    await waitFor(() => expect(screen.getByTestId("lease-read-only")).toHaveTextContent("false"));
+    expect(acquireFloorEditorLease).toHaveBeenCalledTimes(1);
   });
 
   it("맵 편집기는 lease 상실 시 읽기 전용 feedback을 표시한다", async () => {

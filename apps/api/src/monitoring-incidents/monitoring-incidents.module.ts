@@ -6,11 +6,12 @@ import { PrismaModule } from "../prisma/prisma.module";
 import { MonitoringIncidentsController } from "./monitoring-incidents.controller";
 import { MonitoringIncidentsService } from "./monitoring-incidents.service";
 import { MonitoringIncidentReconcilerService } from "./monitoring-incident-reconciler.service";
+import { MonitoringIncidentDismissalService } from "./monitoring-incident-dismissal.service";
 
 @Module({
   imports: [PrismaModule, AccessModule, AuthModule, AuditModule],
   controllers: [MonitoringIncidentsController],
-  providers: [MonitoringIncidentsService, MonitoringIncidentReconcilerService],
-  exports: [MonitoringIncidentsService, MonitoringIncidentReconcilerService]
+  providers: [MonitoringIncidentsService, MonitoringIncidentReconcilerService, MonitoringIncidentDismissalService],
+  exports: [MonitoringIncidentsService, MonitoringIncidentReconcilerService, MonitoringIncidentDismissalService]
 })
 export class MonitoringIncidentsModule {}

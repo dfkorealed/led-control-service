@@ -3,12 +3,14 @@ import { z } from "zod";
 import { AuthenticatedUser } from "../auth/auth.types";
 import { CurrentUser } from "../auth/current-user.decorator";
 import { SessionAuthGuard } from "../auth/session-auth.guard";
+import { isValidLogDateRange } from "../retention/log-date-range";
 import { MonitoringActivityService } from "./monitoring-activity.service";
 
 const querySchema = z.object({
-  limit: z.string().regex(/^[1-9]\d*$/).transform(Number).pipe(z.number().int().min(1).max(50)).optional(),
-  cursor: z.string().min(1).max(512).optional()
-}).strict();
+  limit: z.string().regex(/^[1-9]\d*$/).transform(Number).pipe(z.number().int().min(1).max(1000)).optional(),
+  cursor: z.string().min(1).max(512).optional(),
+  fromDate: z.string().optional(), toDate: z.string().optional()
+}).strict().refine(isValidLogDateRange);
 
 @Controller()
 @UseGuards(SessionAuthGuard)

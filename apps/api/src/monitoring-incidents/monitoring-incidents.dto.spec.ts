@@ -1,9 +1,18 @@
-import { parseIncidentMutation, parseIncidentQuery, parseMonitoringPolicy, encodeIncidentCursor } from "./monitoring-incidents.dto";
+import { parseIncidentMutation, parseIncidentQuery, parseMonitoringPolicy, encodeIncidentCursor, parseIncidentReadBody } from "./monitoring-incidents.dto";
 
 const timestamp = "2026-09-12T00:00:00.000Z";
 const siteId = "11111111-1111-4111-8111-111111111111";
 
 describe("monitoring incident strict inputs", () => {
+  it("allows an empty read body without a client actor or revision", () => {
+    expect(parseIncidentReadBody(undefined)).toEqual({});
+    expect(parseIncidentReadBody({})).toEqual({});
+  });
+  it.each([{ userId: siteId }, { actorId: siteId }, { readAt: timestamp }, { expectedUpdatedAt: timestamp }, null, []])(
+    "rejects actor/time/revision overrides in read body %p", input => {
+      expect(() => parseIncidentReadBody(input)).toThrow(expect.objectContaining({ status: 400 }));
+    });
+
   it.each([[30, 60], [900, 3600]])("accepts inclusive threshold boundaries %i/%i", (gateway, fixture) => {
     expect(parseMonitoringPolicy({ gatewayOfflineAfterSeconds: gateway, fixtureStaleAfterSeconds: fixture, expectedUpdatedAt: timestamp }))
       .toEqual({ gatewayOfflineAfterSeconds: gateway, fixtureStaleAfterSeconds: fixture, expectedUpdatedAt: timestamp });
@@ -32,7 +41,7 @@ describe("monitoring incident strict inputs", () => {
     expect(() => parseIncidentMutation({ expectedUpdatedAt: timestamp, ...action })).toThrow(expect.objectContaining({ status: 400 }));
   });
   it("bounds query limits and binds cursor to site and filters", () => {
-    expect(parseIncidentQuery({}, siteId)).toEqual({ limit: 25, status: "all" });
+    expect(parseIncidentQuery({}, siteId)).toEqual({ limit: 25, status: "all", view: "all" });
     const cursor = encodeIncidentCursor({ siteId, status: "all", active: true, openedAt: new Date(timestamp), id: siteId });
     expect(parseIncidentQuery({ cursor, limit: "100" }, siteId)).toMatchObject({ limit: 100, cursor: { active: true, id: siteId } });
     for (const query of [{ limit: "101" }, { limit: "0" }, { limit: ["10"] }, { cursor: "x".repeat(1025) }, { cursor, status: "resolved" }, { cursor, type: "fixture_fault" }, { status: "active" }, { type: "other" }, { unknown: 1 }]) {

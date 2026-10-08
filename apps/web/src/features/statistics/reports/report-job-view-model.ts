@@ -1,5 +1,5 @@
 import type { EnergyReportJob } from "@led-control/shared/energy-p2-contracts";
-import type { StatusTone } from "../../../components/ui";
+import { formatTimestamp, type StatusTone } from "../../../components/ui";
 
 export interface FormattedInstant {
   iso: string;
@@ -58,6 +58,6 @@ function scopeLabel(scope: EnergyReportJob["request"]["scope"]) {
 function formatInstant(iso: string, timeZone?: string): FormattedInstant {
   return {
     iso,
-    label: new Intl.DateTimeFormat("ko-KR", { dateStyle: "medium", timeStyle: "short", timeZone }).format(new Date(iso))
+    label: formatTimestamp(iso, { timeZone })
   };
 }

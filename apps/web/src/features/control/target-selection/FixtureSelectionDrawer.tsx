@@ -36,10 +36,10 @@ export function FixtureSelectionDrawer({ open, dashboard, selectedFixtureIds, di
   useEffect(() => { setLimit(BATCH_SIZE); }, [search, status, floorId]);
   useEffect(() => { if (open) queueMicrotask(() => searchRef.current?.focus()); }, [open]);
 
-  return <DrawerDialog isOpen={open} title="조명 목록" description={readOnly ? "구성원을 변경하려면 직접 선택으로 전환하세요." : "목록에서 조명을 선택합니다."} closeLabel="조명 목록 닫기" onClose={onClose} returnFocusRef={returnFocusRef}
-    className="grid! h-dvh! w-full! max-w-status-drawer! grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden!"
-    bodyClassName="grid min-h-0 overflow-hidden"
-    actions={<div className="pb-safe-area-bottom"><Button type="button" variant="primary" onClick={onClose}>선택 완료</Button></div>}>
+  return <DrawerDialog isOpen={open} safeArea title="조명 목록" description={readOnly ? "구성원을 변경하려면 직접 선택으로 전환하세요." : "목록에서 조명을 선택합니다."} closeLabel="조명 목록 닫기" onClose={onClose} returnFocusRef={returnFocusRef}
+    className="flex min-h-0 h-dvh w-full max-w-status-drawer flex-col overflow-hidden"
+    bodyClassName="min-h-0 flex-1 overflow-hidden"
+    actions={<div><Button type="button" variant="primary" onClick={onClose}>선택 완료</Button></div>}>
     <div className="grid h-full min-h-0 min-w-0 grid-rows-[auto_minmax(0,1fr)] gap-3">
     <div className="grid min-w-0 gap-2 compact:grid-cols-[minmax(0,1fr)_auto_auto]">
       <SearchField ref={searchRef} size="lg" label={<span className="sr-only">조명 검색</span>} placeholder="조명 이름 검색" value={search} onChange={setSearch} />

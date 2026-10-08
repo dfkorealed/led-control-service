@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter, Outlet, Route, Routes } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { StatisticsAnalysisPage } from "./StatisticsAnalysisPage";
@@ -34,12 +34,71 @@ describe("StatisticsAnalysisPage", () => {
     expect(screen.getByRole("img", { name: "B1 주차장 일별 사용량 차트" })).toBeInTheDocument();
   });
 
+  it("preserves partial single dates across popover lifetime and blocks invalid queries", async () => {
+    renderPage();
+    expect(screen.queryByRole("searchbox")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /사용량 분석 조건 상세 필터/ }));
+    const start = await screen.findByRole("group", { name: "시작일" });
+    fireEvent.keyDown(within(start).getAllByRole("spinbutton")[0], { key: "Backspace" });
+    mocks.hook.mockClear();
+    mocks.heatmap.mockClear();
+    fireEvent.click(screen.getByRole("button", { name: "필터 닫기" }));
+    fireEvent.click(screen.getByRole("button", { name: /사용량 분석 조건 상세 필터/ }));
+    expect(within(analysisDate("시작일")).getAllByRole("spinbutton")[0]).not.toHaveTextContent("2026");
+    expect(screen.getByText("완료된 기간을 선택해 주세요.")).toBeInTheDocument();
+    expect(mocks.hook.mock.calls.some(([query]) => query.enabled)).toBe(false);
+    expect(mocks.heatmap.mock.calls.some(([query]) => query.enabled)).toBe(false);
+    fireEvent.click(screen.getByRole("button", { name: "필터 초기화" }));
+    expect(mocks.hook).toHaveBeenLastCalledWith(expect.objectContaining({ from: "2026-09-01", to: "2026-09-08", enabled: true }));
+  });
+
+  it("preserves a future year draft without contradictory picker bounds and resumes after correction", () => {
+    renderPage();
+    const year = within(analysisDate("시작일")).getAllByRole("spinbutton")[0]!;
+    act(() => year.focus());
+    fireEvent.keyDown(year, { key: "ArrowUp" });
+    expect(year).toHaveTextContent("2027");
+    expect(screen.getByText("완료된 기간을 선택해 주세요.")).toBeInTheDocument();
+    expect(mocks.hook).toHaveBeenLastCalledWith(expect.objectContaining({ from: "2027-09-01", enabled: false }));
+    expect(mocks.heatmap).toHaveBeenLastCalledWith(expect.objectContaining({ enabled: false }));
+    fireEvent.keyDown(year, { key: "ArrowDown" });
+    expect(mocks.hook).toHaveBeenLastCalledWith(expect.objectContaining({ from: "2026-09-01", enabled: true }));
+    fireEvent.click(screen.getByRole("button", { name: "필터 닫기" }));
+    expect(screen.getByRole("complementary", { name: "B1 주차장 상세" })).toBeInTheDocument();
+  });
+
+  it.each(["시작일", "종료일"])("keeps an empty %s editable and disables both analysis queries", (label) => {
+    renderPage();
+    const group = analysisDate(label);
+    for (const segment of within(group).getAllByRole("spinbutton")) {
+      act(() => segment.focus());
+      for (let index = 0; index < 4; index++) fireEvent.keyDown(segment, { key: "Backspace" });
+    }
+    expect(group).toBeInTheDocument();
+    expect(screen.getByText("완료된 기간을 선택해 주세요.")).toBeInTheDocument();
+    expect(mocks.hook).toHaveBeenLastCalledWith(expect.objectContaining({ enabled: false }));
+    expect(mocks.heatmap).toHaveBeenLastCalledWith(expect.objectContaining({ enabled: false }));
+  });
+
+  it("preserves a reversed completed-period draft without showing cached results", () => {
+    renderPage();
+    const year = within(analysisDate("종료일")).getAllByRole("spinbutton")[0]!;
+    act(() => year.focus());
+    fireEvent.keyDown(year, { key: "ArrowDown" });
+    expect(year).toHaveTextContent("2025");
+    expect(mocks.hook).toHaveBeenLastCalledWith(expect.objectContaining({ to: "2025-09-08", enabled: false }));
+    expect(screen.queryByRole("region", { name: "사용량 순위" })).not.toBeInTheDocument();
+    fireEvent.keyDown(year, { key: "ArrowUp" });
+    expect(mocks.hook).toHaveBeenLastCalledWith(expect.objectContaining({ to: "2026-09-08", enabled: true }));
+  });
+
   it("retains the available ranking and completed heatmap data without a redundant context strip", () => {
     renderPage();
 
     expect(screen.queryByText(/분석 선택 기간 2026-09-01 ~ 2026-09-10/)).not.toBeInTheDocument();
-    expect(screen.getByRole("group", { name: "시작일" })).toBeInTheDocument();
-    expect(screen.getByRole("group", { name: "종료일" })).toBeInTheDocument();
+    expect(analysisDate("시작일")).toBeInTheDocument();
+    expect(analysisDate("종료일")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "필터 닫기" }));
     expect(screen.getByRole("region", { name: "시간대별 사용량" })).toHaveTextContent("2026-09-01 ~ 2026-09-08");
     expect(screen.getByRole("complementary", { name: "B1 주차장 상세" })).toHaveTextContent("세로축 kWh");
   });
@@ -91,6 +150,7 @@ describe("StatisticsAnalysisPage", () => {
   it("changes dimension and metric through accessible controls", async () => {
     renderPage();
 
+    analysisDate("시작일");
     fireEvent.click(screen.getByRole("button", { name: "그룹" }));
     await chooseSelect("순위 기준", "조명당 평균");
 
@@ -102,9 +162,16 @@ describe("StatisticsAnalysisPage", () => {
   it("exposes ranking filters through design-system selectors and date pickers", () => {
     renderPage();
 
+    analysisDate("시작일");
     expect(screen.getByRole("button", { name: "순위 기준" })).toBeInTheDocument();
-    expect(screen.getByRole("group", { name: "시작일" })).toBeInTheDocument();
-    expect(screen.getByRole("group", { name: "종료일" })).toBeInTheDocument();
+    expect(analysisDate("시작일")).toBeInTheDocument();
+    expect(analysisDate("종료일")).toBeInTheDocument();
+    const panel = screen.getByRole("region", { name: "사용량 분석 조건", hidden: true });
+    expect(panel).toHaveClass("flex", "flex-col");
+    expect(panel.firstElementChild).toHaveClass("flex-wrap", "items-end");
+    expect(screen.getByRole("button", { name: "필터 초기화" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "필터 닫기" }));
+    expect(screen.getByText("상태 기반 추정", { exact: true })).toBeInTheDocument();
   });
 
   it("labels persisted ranking costs with their historical tariff basis", async () => {
@@ -113,6 +180,7 @@ describe("StatisticsAnalysisPage", () => {
     expect(screen.getAllByRole("group", { name: "저장 비용" })).toHaveLength(2);
     expect(screen.getByText("비용 합계와 순위는 당시 적용 단가의 저장 비용입니다.")).toBeInTheDocument();
     await chooseSelect("순위 기준", "저장 비용");
+    fireEvent.click(screen.getByRole("button", { name: "필터 닫기" }));
     expect(screen.getByRole("region", { name: "사용량 순위" })).toHaveTextContent(
       "당시 적용 단가의 저장 비용"
     );
@@ -144,6 +212,7 @@ describe("StatisticsAnalysisPage", () => {
       metric: "energy", from: "2026-09-01", to: "2026-09-08"
     })]);
     expect(mocks.hook).toHaveBeenCalledWith(expect.objectContaining({ from: "2026-09-01", to: "2026-09-08" }));
+    analysisDate("시작일");
     fireEvent.click(screen.getByRole("button", { name: "그룹" }));
     await waitFor(() => expect(mocks.heatmap).toHaveBeenLastCalledWith(expect.objectContaining({ scope: "group" })));
   });
@@ -166,6 +235,7 @@ function analysisPage() {
 }
 
 async function chooseSelect(label: string, option: string) {
+  analysisDate("시작일");
   const trigger = screen.getByRole("button", { name: label });
   fireEvent.keyDown(trigger, { key: "ArrowDown" });
   const choice = await screen.findByRole("option", { name: option });
@@ -224,3 +294,8 @@ const heatmapResponse = {
   cells: Array.from({ length: 168 }, (_, index) => ({ weekday: Math.floor(index / 24), hour: index % 24, value: 1,
     knownSeconds: 3600, expectedSeconds: 3600, observedLocalDays: 1, eligibleLocalDays: 1, coverageRate: 1 }))
 };
+
+function analysisDate(label: string) {
+  if (!screen.queryByRole("dialog", { name: "사용량 분석 조건" })) fireEvent.click(screen.getByRole("button", { name: /사용량 분석 조건 상세 필터/ }));
+  return screen.getByRole("group", { name: label });
+}

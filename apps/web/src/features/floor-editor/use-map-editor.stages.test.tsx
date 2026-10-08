@@ -6,6 +6,7 @@ import { useFloorEditorStore } from "./editor-store";
 import { createMapElementFromDrag } from "./map-element-tools";
 import type { FloorEditorState } from "./editor-types";
 import { mapStageClient } from "../../api/map-stages";
+import { transformMapSelection } from "./map-element-editing";
 
 vi.mock("../../api/map-document", () => ({ createMapDocumentSource: vi.fn() }));
 const store = useFloorEditorStore.getState;
@@ -31,6 +32,40 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 
 describe("streamed map editor controller", () => {
+  it("streams mixed whole deletion with unplacement and slot release, then cancels or saves one history entry", async () => {
+    const initial = structuredClone(base);
+    initial.lightSlots = [{ id: "slot", x: 403, y: 407, rotation: 0, assignedFixtureId: "fixture" }];
+    store().initialize(initial, "user");
+    store().loadMapStructures(store().mapScope!, { layers: [{ id: "map", name: "Map", order: 0, visible: true, locked: false }],
+      groups: [{ id: "group", name: "Group", parentId: null, visible: true, locked: false }] });
+    store().selectMapGroups(["group"]); store().selectFixtures(["fixture"], true);
+    const view = mount();
+    await waitFor(() => expect(view.result.current.selectionCount).toBe(2501));
+    const preview = { ...ref, generationId: "delete-preview", revision: 2, elementCount: 0 };
+    const stage = { id: "delete-stage", status: "ready" as const, generationId: "gen", baseRevision: 1, partCount: 1, decodedBytes: 1,
+      expiresAt: new Date(Date.now() + 60000).toISOString(), errorCode: null, result: null, preview, intent: { leaseToken: "lease", leaseFence: 1 } };
+    const deleted: string[] = [];
+    vi.spyOn(mapStageClient, "prepare").mockImplementation(async (_floor, body, operations) => {
+      expect(body.fixtureUpdates).toEqual([expect.objectContaining({ id: "fixture", x: 0, y: 0, placementStatus: "unplaced", positionVerified: false })]);
+      expect(body.slotAssignments).toEqual([{ slotId: "slot", assignedFixtureId: null }]);
+      for await (const op of operations) { expect(op.kind).toBe("delete"); if (op.kind === "delete") deleted.push(op.id); }
+      return stage;
+    });
+    vi.spyOn(mapStageClient, "cancel").mockResolvedValue({ ...stage, status: "cancelled" });
+    await act(async () => { await view.result.current.remove(); });
+    expect(deleted).toEqual(elements.map(e => e.id));
+    expect(store().past).toHaveLength(1); expect(store().mapElements.size).toBe(0);
+    expect(store().state!.fixtures[0].placementStatus).toBe("unplaced"); expect(store().state!.lightSlots[0].assignedFixtureId).toBeNull();
+    await act(async () => { await view.result.current.cancelStage(); });
+    expect(store().state!.fixtures).toEqual(initial.fixtures); expect(store().state!.lightSlots).toEqual(initial.lightSlots); expect(store().past).toHaveLength(0);
+    act(() => { store().selectMapGroups(["group"]); store().selectFixtures(["fixture"], true); });
+    await waitFor(() => expect(view.result.current.selectionCount).toBe(2501));
+    await act(async () => { await view.result.current.remove(); });
+    const saved = { ...initial, floor: { ...initial.floor, mapRevision: 2, mapDocument: preview }, fixtures: [{ ...initial.fixtures[0], x: 0, y: 0, placementStatus: "unplaced" as const }], lightSlots: [{ ...initial.lightSlots[0], assignedFixtureId: null }], history: { undo: { revision: 1 }, redo: { revision: 2 } } };
+    vi.spyOn(mapStageClient, "commit").mockResolvedValue({ ...stage, status: "committed", result: saved });
+    await act(async () => { await store().saveChanges({ leaseToken: "lease", leaseFence: 1 }); });
+    expect(store().state).toMatchObject(saved); expect(store().past).toHaveLength(1); expect(store().isDirty).toBe(false);
+  });
   it("summarizes a complete large group and streams every delete without storing all originals", async () => {
     store().selectMapGroups(["group"]);
     const view = mount();
@@ -50,7 +85,7 @@ describe("streamed map editor controller", () => {
   it("moves fixtures and common elements in one undo and fits their combined bounds", async () => {
     store().selectMapElements(["s0"]); store().selectFixtures(["fixture"], true);
     const view = mount();
-    await waitFor(() => expect(view.result.current.selectionCount).toBe(1));
+    await waitFor(() => expect(view.result.current.selectionCount).toBe(2));
     const before = store().past.length;
     await act(async () => { await view.result.current.move({ x: 10, y: 20 }); });
     expect(store().past).toHaveLength(before + 1);
@@ -69,7 +104,7 @@ describe("streamed map editor controller", () => {
   it("prepares a mixed stream with the real store then switches only the source to its private preview", async () => {
     store().selectMapGroups(["group"]); store().selectFixtures(["fixture"], true);
     const view = mount();
-    await waitFor(() => expect(view.result.current.selectionCount).toBe(2500));
+    await waitFor(() => expect(view.result.current.selectionCount).toBe(2501));
     let count = 0;
     const prepare = vi.spyOn(mapStageClient, "prepare").mockImplementation(async (_floor, body, operations) => {
       expect(body.fixtureUpdates).toEqual([expect.objectContaining({ id: "fixture", x: 413, y: 427 })]);
@@ -89,9 +124,9 @@ describe("streamed map editor controller", () => {
   it("rejects invalid full-target transforms before staging any mixed fixture changes", async () => {
     store().selectMapGroups(["group"]); store().selectFixtures(["fixture"], true);
     const view = mount();
-    await waitFor(() => expect(view.result.current.selectionCount).toBe(2500));
+    await waitFor(() => expect(view.result.current.selectionCount).toBe(2501));
     const prepare = vi.spyOn(mapStageClient, "prepare");
-    await act(async () => { await view.result.current.move({ x: -200, y: 0 }); });
+    await act(async () => { await view.result.current.editSelection(element => transformMapSelection([element], { x: -200, y: 0, scaleX: 1, scaleY: 1, rotation: 0 }, ref)); });
     expect(prepare).not.toHaveBeenCalled();
     expect(store().state?.fixtures[0].x).toBe(403);
     expect(store().isDirty).toBe(false);

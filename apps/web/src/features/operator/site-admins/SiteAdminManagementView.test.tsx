@@ -46,6 +46,11 @@ const unassignedSite: SiteAdminSummary = {
 describe("SiteAdminManagementView", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.stubGlobal("ResizeObserver", class {
+      constructor(private callback: ResizeObserverCallback) {}
+      observe(target: Element) { this.callback([{ target, contentRect: { width: 1800 } } as ResizeObserverEntry], this as unknown as ResizeObserver); }
+      disconnect() {}
+    });
     vi.stubGlobal("matchMedia", vi.fn(() => ({
       matches: false,
       media: "(max-width: 759px)",
@@ -69,6 +74,52 @@ describe("SiteAdminManagementView", () => {
     vi.unstubAllGlobals();
   });
 
+  it("sorts admins by site and keeps missing admins last without losing actions", async () => {
+    renderView();
+    const table = await screen.findByRole("table", { name: "현장 관리자 계정 표" });
+    fireEvent.click(within(table).getByRole("button", { name: "현장 오름차순 정렬" }));
+    expect(within(table).getAllByRole("row")[1]).toHaveTextContent("강남 주차장");
+    for (const direction of ["오름차순", "내림차순"]) {
+      fireEvent.click(within(table).getByRole("button", { name: `관리자 이름 ${direction} 정렬` }));
+      expect(within(table).getAllByRole("row")[1]).toHaveTextContent("김관리");
+    }
+    expect(within(table).getByRole("button", { name: "강남 주차장 관리자 지정" })).toBeEnabled();
+  });
+
+  it("keeps every admin field and existing permitted action in narrow container cards on a wide window", async () => {
+    vi.stubGlobal("ResizeObserver", class {
+      constructor(private callback: ResizeObserverCallback) {}
+      observe(target: Element) { this.callback([{ target, contentRect: { width: 320 } } as ResizeObserverEntry], this as unknown as ResizeObserver); }
+      disconnect() {}
+    });
+    renderView();
+    const cards = await screen.findByRole("list", { name: "현장 관리자 계정 표" });
+    expect(window.innerWidth).toBeGreaterThan(320);
+    for (const field of ["고객사", "현장", "설치 상태", "관리자 이름", "로그인 아이디", "계정 상태", "최종 변경", "작업", "customer_admin", "새빛 물류"]) expect(cards).toHaveTextContent(field);
+    expect(within(cards).getByRole("button", { name: "김관리 수정" })).toBeEnabled();
+    expect(within(cards).getByRole("button", { name: "김관리 비밀번호 재설정" })).toBeEnabled();
+    expect(within(cards).getByRole("button", { name: "인천 물류센터 현장 전체 삭제" })).toBeEnabled();
+    expect(within(cards).getByRole("button", { name: "강남 주차장 관리자 지정" })).toBeEnabled();
+    expect(api.updateSiteAdmin).not.toHaveBeenCalled();
+    expect(api.deleteSiteAdmin).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [new Date(2026, 9, 2, 14, 5, 9).toISOString(), "2026-10-02 14:05:09"],
+    [new Date(2026, 9, 2, 0, 0, 0).toISOString(), "2026-10-02 00:00:00"],
+    ["invalid-instant", "—"]
+  ])("shows actual admin update time with seconds in the device timezone (%s)", async (timestamp, expected) => {
+    api.listSiteAdmins.mockResolvedValue([
+      { ...assignedSite, admin: { ...assignedSite.admin!, updatedAt: timestamp } }, unassignedSite
+    ]);
+    renderView();
+
+    const table = await screen.findByRole("table", { name: "현장 관리자 계정 표" });
+    expect(await within(table).findByText(expected)).toBeVisible();
+    expect(within(table).getByRole("button", { name: "김관리 수정" })).toBeVisible();
+    expect(within(table).getByRole("button", { name: "인천 물류센터 현장 전체 삭제" })).toBeVisible();
+  });
+
   it("운영자 목록은 실제 데이터로 네 요약과 상태 표를 표시한다", async () => {
     renderView();
 
@@ -79,9 +130,9 @@ describe("SiteAdminManagementView", () => {
     expect(screen.getByRole("group", { name: "관리자 계정" })).toHaveTextContent("1");
     expect(screen.getByRole("group", { name: "확인 필요" })).toHaveTextContent("2");
     expect(screen.getByText("설치 대기")).toBeVisible();
-    expect(within(screen.getByLabelText("현장 관리자 계정 표")).getByText("설치 완료")).toBeVisible();
+    expect(within(screen.getByRole("table", { name: "현장 관리자 계정 표" })).getByText("설치 완료")).toBeVisible();
     expect(screen.getByText("활성")).toBeVisible();
-    expect(screen.getByLabelText("현장 관리자 계정 표")).toBeVisible();
+    expect(screen.getByRole("table", { name: "현장 관리자 계정 표" })).toBeVisible();
     expect(screen.getByRole("button", { name: "현장 및 관리자 생성" })).toBeVisible();
     expect(screen.getByRole("button", { name: "김관리 수정" })).toBeVisible();
     expect(screen.getByRole("button", { name: "김관리 비밀번호 재설정" })).toBeVisible();
@@ -93,14 +144,19 @@ describe("SiteAdminManagementView", () => {
     renderView();
 
     expect(screen.getByTestId("operator-summary-strip")).toHaveClass("grid-cols-2", "compact:grid-cols-4");
-    const table = await screen.findByLabelText("현장 관리자 계정 표");
+    const table = await screen.findByRole("table", { name: "현장 관리자 계정 표" });
     expect(within(table).getByText("새빛 물류")).toBeInTheDocument();
     expect(within(table).getByRole("button", { name: "김관리 수정" })).toBeInTheDocument();
-    expect(screen.queryByLabelText("현장 관리자 계정 카드 목록")).not.toBeInTheDocument();
+    expect(screen.queryByRole("list", { name: "현장 관리자 계정 표" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /활성화/ })).not.toBeInTheDocument();
   });
 
   it("renders the mobile cards from the same assigned site record", async () => {
+    vi.stubGlobal("ResizeObserver", class {
+      constructor(private callback: ResizeObserverCallback) {}
+      observe(target: Element) { this.callback([{ target, contentRect: { width: 320 } } as ResizeObserverEntry], this as unknown as ResizeObserver); }
+      disconnect() {}
+    });
     vi.mocked(window.matchMedia).mockReturnValue({
       matches: true,
       media: "(max-width: 759px)",
@@ -113,10 +169,10 @@ describe("SiteAdminManagementView", () => {
     });
     renderView();
 
-    const cards = await screen.findByLabelText("현장 관리자 계정 카드 목록");
+    const cards = await screen.findByRole("list", { name: "현장 관리자 계정 표" });
     expect(within(cards).getByText("새빛 물류")).toBeInTheDocument();
     expect(within(cards).getByRole("button", { name: "김관리 수정" })).toBeInTheDocument();
-    expect(screen.queryByLabelText("현장 관리자 계정 표")).not.toBeInTheDocument();
+    expect(screen.queryByRole("table", { name: "현장 관리자 계정 표" })).not.toBeInTheDocument();
   });
 
   it("운영자 계정 dialog는 mutation 후 초점을 복원한다", async () => {

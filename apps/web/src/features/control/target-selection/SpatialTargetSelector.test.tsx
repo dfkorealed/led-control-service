@@ -148,6 +148,14 @@ describe("SpatialTargetSelector", () => {
     expect(screen.getByRole("dialog", { name: "조명 목록" })).toBeInTheDocument();
   });
 
+  it("keeps an initial loading map in place without opening an error fallback", () => {
+    floorMapQuery.mockReturnValue({ data: undefined, error: null, isLoading: true, isFetching: true });
+    renderSelector();
+    expect(screen.getByText("등록된 도면이 없어 목록으로 선택합니다.")).toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: "조명 목록" })).not.toBeInTheDocument();
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
   it("highlights group members without rendering a persisted boundary", () => {
     renderSelector({ selection: { mode: "group", groupId } });
     expect(screen.getAllByRole("button", { pressed: true })).toHaveLength(2);
@@ -217,7 +225,7 @@ describe("SpatialTargetSelector", () => {
   });
 
   it("locks an area selection to its first eligible fixture gateway", () => {
-    renderSelector({ interactionMode: "area" });
+    renderSelector();
     const viewport = screen.getByRole("region", { name: "B2 도면" });
     dispatchPointer(viewport, "pointerdown", { pointerId: 1, button: 0, clientX: 50, clientY: 50 });
     dispatchPointer(viewport, "pointermove", { pointerId: 1, clientX: 350, clientY: 150 });
@@ -239,7 +247,7 @@ describe("SpatialTargetSelector", () => {
     const list = screen.getByRole("group", { name: "조명 목록" });
     const completion = screen.getByRole("button", { name: "선택 완료" });
     expect(dialog).toHaveAttribute("data-dialog-variant", "drawer");
-    expect(dialog).toHaveClass("h-dvh!", "overflow-hidden!");
+    expect(dialog).toHaveClass("h-dvh", "overflow-hidden");
     expect(body).toHaveClass("min-h-0", "overflow-hidden");
     expect(list).toHaveAttribute("data-fixture-selection-list", "");
     expect(list).toHaveClass("min-h-0", "overflow-y-auto", "overscroll-contain");

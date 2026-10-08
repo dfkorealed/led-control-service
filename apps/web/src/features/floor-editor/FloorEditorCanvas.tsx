@@ -5,6 +5,7 @@ import { Circle, Image as KonvaImage, Label, Layer, Line, Rect, Shape, Stage, Ta
 import { Button, FeedbackState, Text as UiText, themeColor } from "../../components/ui";
 import { TriangleAlert } from "lucide-react";
 import { FloorMapObjectNode, trianglePoints } from "../floor-map/FloorScene";
+import { cameraFromTransform, fitMapTransform, mapViewportBounds } from "../floor-map/map-camera-geometry";
 import {
   alignRectToGuides,
   clampEditorZoom,
@@ -21,6 +22,7 @@ import {
 import { useFloorEditorStore } from "./editor-store";
 import type { CadEditorSelection, EditorFixture, EditorTool, FloorEditorState, FloorMapObject, FloorMapObjectDraft } from "./editor-types";
 import { EditorFixtureNode, type EditorFixturePalette } from "./EditorFixtureNode";
+import { resolveFixtureHit } from "./editor-fixture-hit-test";
 import { FIXTURE_DRAG_TYPE, type FixturePlacementRowRegistry } from "./FixturePlacementList";
 import { FixturePlacementAction } from "./FixturePlacementAction";
 import { EditorMinimap } from "./EditorMinimap";
@@ -41,10 +43,13 @@ import type { MapElement } from "@led-control/shared/map-document-contracts";
 import { MapSceneCanvas } from "../map-scene/MapSceneCanvas";
 import { MapElementOverlay } from "./MapElementOverlay";
 import { MapSelectionBoundsHandle } from "./MapSelectionBoundsHandle";
+import { finishFixtureResize } from "./map-selection-transform";
 import type { MapEditorController } from "./use-map-editor";
 import { isEditorTextTarget } from "./map-editor-selection";
 import { createMapElementFromDrag, createMapPathDraft, appendMapPathPoint, finishMapPathDraft, type MapPathDraft } from "./map-element-tools";
 
+// Camera fit reserves 48 CSS px in the measured viewport, not document padding.
+const FIT_VIEWPORT_PADDING = 24;
 const TOOL_DRAG_TYPE = "application/x-floor-editor-tool";
 const drawingTools = new Set<EditorTool>(["rectangle", "triangle", "line", "text", "ellipse", "arc", "polyline", "polygon"]);
 type Gesture = { kind: "pan" | "marquee" | "draw"; start: Point; screen: Point; pan: Point; additive: boolean; moved: boolean };
@@ -100,9 +105,10 @@ export function FloorEditorCanvas({
   onPlacementPointChange
 }: FloorEditorCanvasProps) {
   const container = useRef<HTMLDivElement>(null);
-  const stage = useRef<Konva.Stage>(null);
+  const stage = useRef<Konva.Stage | null>(null);
   const cadScene = useRef<CadSceneCanvasHandle>(null);
   const transformer = useRef<Konva.Transformer>(null);
+  const fixtureResizeAnchor = useRef<string | null>(null);
   const nodes = useRef(new Map<string, Konva.Node>());
   const objectNodes = useRef(new Map<string, Konva.Node>());
   const objectRefCallbacks = useRef(new Map<string, (node: Konva.Node | null) => void>());
@@ -127,6 +133,7 @@ export function FloorEditorCanvas({
   const mapEditorRef = useRef(mapEditor); mapEditorRef.current = mapEditor;
   const [measured, setMeasured] = useState(false);
   const marqueeDraft = useRef<{ x: number; y: number; width: number; height: number } | null>(null);
+  const spacePan = useRef(false);
   const lastAutoFitKey = useRef<string | null>(null);
   const lastAutoFitCamera = useRef<{ zoom: number; pan: Point } | null>(null);
   const disabled = useRef(readOnly); disabled.current = readOnly;
@@ -161,6 +168,47 @@ export function FloorEditorCanvas({
   }, [state?.objects]);
   const availableSlotIndex = useMemo(() => buildAvailableCadSlotIndex(state?.lightSlots ?? []), [state?.lightSlots]);
   const placedFixtures = placedFixtureCollection.items;
+  const fixtureHitContext = useRef({ cadReviewActive, onPlacementPointChange, placedFixtureCollection });
+  fixtureHitContext.current = { cadReviewActive, onPlacementPointChange, placedFixtureCollection };
+  const restoreStageIntersection = useRef<(() => void) | null>(null);
+  const registerStage = useCallback((currentStage: Konva.Stage | null) => {
+    if (stage.current === currentStage) return;
+    restoreStageIntersection.current?.();
+    restoreStageIntersection.current = null;
+    stage.current = currentStage;
+    if (!currentStage) return;
+    const original = currentStage.getIntersection;
+    // Resolve at Konva's public input boundary, not in onClick: pointer-down
+    // must start dragging the SAME Group that later receives click/tap. This
+    // reversible instance-only adapter preserves Transformer/object priority
+    // and leaves all library dispatch, drag offsets and gesture guards intact.
+    const resolveIntersection: Konva.Stage["getIntersection"] = point => {
+      const hit = original.call(currentStage, point);
+      const current = useFloorEditorStore.getState();
+      const { cadReviewActive, onPlacementPointChange, placedFixtureCollection } = fixtureHitContext.current;
+      if (cadReviewActive || onPlacementPointChange || current.activeTool !== "select" || !current.layers.fixtures.visible
+        || hit && hit.getLayer()?.name() !== "editor-fixture-layer") return hit;
+      const camera = cameraOverride.current ?? current;
+      const world = screenToWorld(point, camera.pan, camera.zoom);
+      const nearby = queryEditorSpatialIndex(placedFixtureCollection.spatialIndex,
+        { ...world, width: 0, height: 0 }, 22 / camera.zoom);
+      const candidates = nearby.flatMap(({ id }) => {
+        const fixture = placedFixtureCollection.byId.get(id);
+        const node = nodes.current.get(id);
+        const circle = node instanceof Konva.Group ? node.findOne<Konva.Circle>("Circle") : undefined;
+        return fixture && circle?.isVisible() && circle.isListening()
+          ? [{ id, x: fixture.x, y: fixture.y, size: fixture.size ?? 20, strokeWidth: circle.strokeWidth() }] : [];
+      });
+      const chosen = resolveFixtureHit(candidates, world, camera.zoom);
+      const node = chosen ? nodes.current.get(chosen.id) : undefined;
+      return node instanceof Konva.Group ? node.findOne<Konva.Circle>("Circle") ?? hit : hit;
+    };
+    currentStage.getIntersection = resolveIntersection;
+    // react-konva can create/recreate its Stage after the parent's effects.
+    // Attach to that instance's ref lifetime, including StrictMode cleanup,
+    // rather than assuming a parent effect already has the live Stage.
+    restoreStageIntersection.current = () => { if (currentStage.getIntersection === resolveIntersection) currentStage.getIntersection = original; };
+  }, []);
   const [creation, setCreation] = useState<FloorMapObjectDraft | null>(null);
   const [marquee, setMarquee] = useState<{ x: number; y: number; width: number; height: number } | null>(null);
   const [dropPreview, setDropPreview] = useState<Point | null>(null);
@@ -186,12 +234,11 @@ export function FloorEditorCanvas({
   const renderedCamera = cameraOverride.current;
   const renderedPan = renderedCamera?.pan ?? pan;
   const renderedZoom = renderedCamera?.zoom ?? zoom;
-  const viewportBounds = {
-    x: -renderedPan.x / renderedZoom,
-    y: -renderedPan.y / renderedZoom,
-    width: viewport.width / renderedZoom,
-    height: viewport.height / renderedZoom
-  };
+  const renderedTransform = { pan: renderedPan, zoom: renderedZoom };
+  const worldBounds = mapViewportBounds(renderedTransform, viewport);
+  // Spatial-index rectangles use x/y, while shared camera geometry uses left/top.
+  const viewportBounds = { x: worldBounds.left, y: worldBounds.top, width: worldBounds.width, height: worldBounds.height };
+  const renderedSceneCamera = cameraFromTransform(renderedTransform, viewport);
   const applyImperativeCamera = useCallback((nextPan: Point, nextZoom: number, refreshVirtualizedView = false) => {
     cameraOverride.current = { pan: nextPan, zoom: nextZoom };
     container.current?.setAttribute("data-zoom", String(nextZoom));
@@ -200,13 +247,8 @@ export function FloorEditorCanvas({
     const transform = { x: nextPan.x, y: nextPan.y, scaleX: nextZoom, scaleY: nextZoom };
     stage.current?.getLayers().forEach((layer) => layer.setAttrs(transform));
     const currentMap = mapEditorRef.current;
-    currentMap?.handle.current?.setCamera({
-      centerX: (viewport.width / 2 - nextPan.x) / nextZoom,
-      centerY: (viewport.height / 2 - nextPan.y) / nextZoom,
-      zoom: nextZoom,
-      viewportWidth: viewport.width,
-      viewportHeight: viewport.height
-    });
+    const camera = cameraFromTransform({ pan: nextPan, zoom: nextZoom }, viewport);
+    if (camera) currentMap?.handle.current?.setCamera(camera);
     if (refreshVirtualizedView) setCameraRenderVersion((version) => version + 1);
   }, [viewport.height, viewport.width]);
   const commitCamera = useCallback(() => {
@@ -235,13 +277,8 @@ export function FloorEditorCanvas({
     container.current?.setAttribute("data-zoom", String(current.zoom));
     container.current?.setAttribute("data-pan-x", String(current.pan.x));
     container.current?.setAttribute("data-pan-y", String(current.pan.y));
-    mapEditorRef.current?.handle.current?.setCamera({
-      centerX: (viewport.width / 2 - current.pan.x) / current.zoom,
-      centerY: (viewport.height / 2 - current.pan.y) / current.zoom,
-      zoom: current.zoom,
-      viewportWidth: viewport.width,
-      viewportHeight: viewport.height
-    });
+    const camera = cameraFromTransform({ pan: current.pan, zoom: current.zoom }, viewport);
+    if (camera) mapEditorRef.current?.handle.current?.setCamera(camera);
   }, [viewport.height, viewport.width]);
   const visibleFixtures = useMemo(() => {
     if (cadReviewActive) return [];
@@ -273,13 +310,15 @@ export function FloorEditorCanvas({
       : mapEditor?.document ? `${state?.floor.id}:${mapEditor.document.generationId}:${target.width}:${target.height}`
       : `${state?.floor.id}:${cadSceneDescriptor?.id ?? cadBackgroundUrl ?? "empty"}:${target.width}:${target.height}`;
     const current = useFloorEditorStore.getState();
+    if (!current.state) return;
     const previous = lastAutoFitCamera.current;
     // The first layout can precede the route/panel's final height. Follow
     // measured layout until the user changes the camera, then preserve it.
     if (lastAutoFitKey.current === key && previous && (current.zoom !== previous.zoom || current.pan.x !== previous.pan.x || current.pan.y !== previous.pan.y)) return;
+    const fitted = fitMapTransform({ bounds: { left: 0, top: 0, width: target.width, height: target.height }, viewport, padding: FIT_VIEWPORT_PADDING, minZoom: 0.001, maxZoom: 2 });
+    if (!fitted) return;
     lastAutoFitKey.current = key;
-    current.fit(false, target);
-    const fitted = useFloorEditorStore.getState();
+    useFloorEditorStore.setState(fitted);
     lastAutoFitCamera.current = { zoom: fitted.zoom, pan: fitted.pan };
   }, [measured, state?.floor.id, cadImportScene?.jobId, cadImportScene?.manifest, mapEditor?.document, cadBackgroundUrl,
     cadViewport, cadSceneDescriptor, floorPlan?.width, floorPlan?.height, viewport.width, viewport.height]);
@@ -387,7 +426,10 @@ export function FloorEditorCanvas({
   }, [cancelDragMove, cancelPointerMove, commitCamera]);
 
   const register = useCallback((id: string, node: Konva.Node | null) => { if (node) nodes.current.set(id, node); else nodes.current.delete(id); }, []);
-  const onSelect = useCallback((id: string, additive: boolean) => useFloorEditorStore.getState().selectFixture(id, additive), []);
+  const onSelect = useCallback((id: string, additive: boolean) => {
+    if (mapEditorRef.current?.document) mapEditorRef.current.selectFixture(id, additive);
+    else useFloorEditorStore.getState().selectFixture(id, additive);
+  }, []);
   const renderAlignmentGuides = useCallback((guides: AlignmentGuide[]) => {
     const store = useFloorEditorStore.getState();
     const width = store.state?.floor.floorPlan?.width ?? 1200;
@@ -475,16 +517,24 @@ export function FloorEditorCanvas({
     const origin = groupDrag.current.find((f) => f.id === id);
     if (origin && isDragInteractionCurrent(token, "fixture", id)) {
       const delta = { x: node.x() - origin.x, y: node.y() - origin.y };
-      if (mapEditorRef.current?.mixed) void mapEditorRef.current.move(delta);
+      if (mapEditorRef.current?.document) void mapEditorRef.current.move(delta);
       else useFloorEditorStore.getState().moveFixtures(groupDrag.current.map((f) => f.id), delta);
     }
     cancelDragInteraction();
   }, [cancelDragInteraction, flushDragMove, isDragInteractionCurrent]);
   const onTransform = useCallback((id: string, node: Konva.Node) => {
-    const fixture = useFloorEditorStore.getState().state?.fixtures.find((f) => f.id === id);
-    const scale = Math.max(node.scaleX(), node.scaleY()); node.scale({ x: 1, y: 1 });
-    if (fixture && !disabled.current) useFloorEditorStore.getState().updateFixture(id, { x: node.x(), y: node.y(), size: Math.min(200, Math.max(4, (fixture.size ?? 20) * scale)) });
-  }, []);
+    const store = useFloorEditorStore.getState(), fixture = store.state?.fixtures.find((f) => f.id === id);
+    if (!fixture) return;
+    try {
+      if (!disabled.current && !store.layers.fixtures.locked && !store.lockedFixtureIds.includes(id)) {
+        const patch = finishFixtureResize(fixture, { x: node.x(), y: node.y(), scaleX: node.scaleX(), scaleY: node.scaleY(), rotation: 0 }, fixtureResizeAnchor.current,
+          bounds, store.snap ? store.state?.floor.floorPlan?.gridSize ?? mapEditorRef.current?.document?.gridSize ?? 10 : undefined);
+        if (mapEditorRef.current?.document) store.applyMapTransaction({ operations: [], scope: store.mapScope!, fixtureUpdates: [patch], preserveFixturePositions: true });
+        else store.updateFixture(id, patch);
+      }
+    } catch (error) { mapEditorRef.current?.reportError(error); }
+    finally { node.scale({ x: 1, y: 1 }); node.position({ x: fixture.x, y: fixture.y }); }
+  }, [bounds]);
 
   useEffect(() => {
     const selectedNode = selection?.kind === "fixture" && layers.fixtures.visible && !layers.fixtures.locked && !lockedSet.has(selection.id)
@@ -498,6 +548,7 @@ export function FloorEditorCanvas({
   useEffect(() => {
     const handleKey = (event: KeyboardEvent) => {
       if (isEditorTextTarget(event.target)) return;
+      if (event.code === "Space") { event.preventDefault(); spacePan.current = true; return; }
       const store = useFloorEditorStore.getState();
       if (event.key === "Escape") {
         cancelPointerMove();
@@ -516,14 +567,17 @@ export function FloorEditorCanvas({
         event.preventDefault();
         const step = store.snap ? mapEditorRef.current?.document?.gridSize ?? store.state?.floor.floorPlan?.gridSize ?? 10 : event.shiftKey ? 10 : 1;
         const offset = { x: delta[0] * step, y: delta[1] * step };
-        if (mapEditorRef.current?.selectionCount) void mapEditorRef.current.move(offset);
+        if (mapEditorRef.current?.document && mapEditorRef.current.selectionCount) void mapEditorRef.current.move(offset);
         else store.moveFixtures(store.selectedFixtureIds, offset);
       }
-      if ((event.key === "Delete" || event.key === "Backspace") && mapEditorRef.current?.selectionCount) { event.preventDefault(); void mapEditorRef.current.remove(); return; }
+      if ((event.key === "Delete" || event.key === "Backspace") && mapEditorRef.current?.document && mapEditorRef.current.selectionCount) { event.preventDefault(); mapEditorRef.current.requestRemove(); return; }
       if ((event.key === "Delete" || event.key === "Backspace") && store.selection?.kind === "object") { event.preventDefault(); store.removeObject(store.selection.id); }
     };
     window.addEventListener("keydown", handleKey);
-    return () => window.removeEventListener("keydown", handleKey);
+    const release = (event: KeyboardEvent) => { if (event.code === "Space") spacePan.current = false; };
+    const blur = () => { spacePan.current = false; };
+    window.addEventListener("keyup", release); window.addEventListener("blur", blur);
+    return () => { window.removeEventListener("keydown", handleKey); window.removeEventListener("keyup", release); window.removeEventListener("blur", blur); };
   }, [cancelPointerMove, readOnly, pathDraft, restoreCommittedCamera]);
 
   useEffect(() => { setPathDraft(null); setMapCreation(null); mapCreationDraft.current = null; }, [activeTool, state?.floor.id, readOnly]);
@@ -636,6 +690,13 @@ export function FloorEditorCanvas({
 
   function begin(event: MouseEvent<HTMLDivElement>) {
     if ((event.target as Element).closest("button")) return;
+    if (event.button === 1 || spacePan.current) {
+      event.preventDefault(); commitCamera();
+      const current = useFloorEditorStore.getState();
+      gesture.current = { kind: "pan", screen: screenPoint(event), pan: current.pan, start: worldPoint(event), additive: false, moved: false };
+      setIsPanning(true); return;
+    }
+    if (event.button !== 0) return;
     if (onPlacementPointChange && !readOnly && !cadReviewActive) {
       commitCamera();
       const current = useFloorEditorStore.getState();
@@ -666,8 +727,7 @@ export function FloorEditorCanvas({
       if (hit) return;
       commitCamera();
       const current = useFloorEditorStore.getState();
-      gesture.current = { kind: mapEditor?.document && !event.shiftKey ? "pan" : "marquee", screen: screenPoint(event), pan: current.pan, start: worldPoint(event), additive: event.shiftKey, moved: false };
-      if (gesture.current.kind === "pan") setIsPanning(true);
+      gesture.current = { kind: "marquee", screen: screenPoint(event), pan: current.pan, start: worldPoint(event), additive: event.shiftKey, moved: false };
       marqueeDraft.current = null;
       if (!event.shiftKey && !mapEditor?.document) useFloorEditorStore.getState().clearSelection();
     }
@@ -730,7 +790,7 @@ export function FloorEditorCanvas({
         else useFloorEditorStore.getState().selectFixtures(fixtureIds, action.additive);
       }
     }
-    if (action && !action.moved && activeTool === "select" && mapEditor?.document) void mapEditor.pick(screenPoint(event), event.detail >= 2, event.shiftKey);
+    if (action?.kind === "marquee" && !action.moved && activeTool === "select" && mapEditor?.document) void mapEditor.pick(screenPoint(event), event.detail >= 2, event.shiftKey);
     if (action?.kind === "marquee" && !action.moved && cadScene.current) {
       void cadScene.current.pick(screenPoint(event), event.detail >= 2 ? "element" : "group");
     }
@@ -799,7 +859,7 @@ export function FloorEditorCanvas({
     : selectedObjectType === "line"
       ? ["middle-left", "middle-right"]
       : ["top-left", "top-center", "top-right", "middle-left", "middle-right", "bottom-left", "bottom-center", "bottom-right"];
-  return <div ref={container} className={`relative h-full min-h-0 w-full overflow-hidden bg-surface-canvas ${backgroundUrl ? "has-plan" : "grid-only"} ${activeTool === "pan" ? isPanning ? "cursor-grabbing" : "cursor-grab" : ""}`}
+  return <div ref={container} className={`relative h-full min-h-0 w-full touch-none overflow-hidden bg-surface-canvas ${backgroundUrl ? "has-plan" : "grid-only"} ${activeTool === "pan" ? isPanning ? "cursor-grabbing" : "cursor-grab" : ""}`}
     aria-label={`${state.floor.name} 편집 캔버스`} aria-disabled={readOnly} data-testid="floor-editor-canvas" data-floor-id={state.floor.id} data-camera-render-version={cameraRenderVersion} data-zoom={renderedZoom} data-pan-x={renderedPan.x} data-pan-y={renderedPan.y}
     data-map-ready={mapEditor?.ready ?? false} data-map-selection-count={mapEditor?.selectionCount ?? 0} data-promoted-count={mapEditor?.promotedIds.length ?? 0}
     data-snap={snap} data-grid-size={floorPlan?.gridSize ?? 10} data-active-guides=""
@@ -807,13 +867,13 @@ export function FloorEditorCanvas({
     data-map-width={bounds.width} data-map-height={bounds.height}
     data-rendered-fixture-count={visibleFixtures.length} data-rendered-object-count={visibleObjects.length}
     onDoubleClick={(event) => { if (pathDraft) finishPath(); else if (activeTool === "select" && mapEditor?.document) void mapEditor.pick(screenPoint(event), true, event.shiftKey); }}
+    onMouseDownCapture={event => { if (spacePan.current || event.button === 1) { begin(event); event.stopPropagation(); } }}
     onMouseDown={begin} onMouseMove={move} onMouseUp={finish} onMouseLeave={(e) => { if (gesture.current?.kind === "pan") finish(e); else { cancelPointerMove(); gesture.current = null; creationDraft.current = null; mapCreationDraft.current = null; marqueeDraft.current = null; setCreation(null); setMapCreation(null); setMarquee(null); setIsPanning(false); } }}
     onPointerDown={beginTouch} onPointerMove={moveTouch} onPointerUp={finishTouch} onPointerCancel={(event) => finishTouch(event, true)}
     onDragOver={dragOver} onDragLeave={() => { cancelPointerMove(); setDropPreview(null); setHighlightedSlotId(null); }} onDrop={drop}>
-    {!cadReviewActive && mapEditor?.document && measured ? <MapSceneCanvas
+    {!cadReviewActive && mapEditor?.document && measured && renderedSceneCamera ? <MapSceneCanvas
       source={mapEditor.source} documentRef={mapEditor.document}
-      camera={{ centerX: (viewport.width / 2 - renderedPan.x) / renderedZoom, centerY: (viewport.height / 2 - renderedPan.y) / renderedZoom,
-        zoom: renderedZoom, viewportWidth: viewport.width, viewportHeight: viewport.height }}
+      camera={renderedSceneCamera}
       readOnly={mapEditor.readOnly} platform={viewport.width < 768 ? "mobile" : "desktop"}
       promotedElementIds={mapEditor.promotedIds} onReady={mapEditor.onReady} onManifest={mapEditor.onManifest}
       onError={mapEditor.reportError} onDegraded={() => mapEditor.reportError(new Error("맵 표시 자원이 부족합니다. 화면을 좁혀 다시 시도해주세요."))}
@@ -841,7 +901,7 @@ export function FloorEditorCanvas({
         }}
       />
     ) : null}
-    <Stage ref={stage} className="relative z-1" width={viewport.width} height={viewport.height} onWheel={handleWheel}>
+    <Stage ref={registerStage} className="relative z-1" width={viewport.width} height={viewport.height} onWheel={handleWheel}>
       <Layer {...transform} name="editor-static-layer" listening={false}>
         <Rect width={bounds.width} height={bounds.height} fill={mapEditor?.document || cadSceneDescriptor || cadImportScene ? undefined : editorColors.panel} stroke={editorColors.border} strokeWidth={1} />
         {background && layers.background.visible && <KonvaImage image={background} width={bounds.width} height={bounds.height} />}
@@ -907,12 +967,12 @@ export function FloorEditorCanvas({
       <Layer {...transform} name="editor-overlay-layer" visible={!cadReviewActive} listening={!cadReviewActive && !onPlacementPointChange}>
         <Line ref={verticalGuide} name="alignment-guide-vertical" visible={false} listening={false} stroke={editorColors.guide} strokeWidth={1 / renderedZoom} dash={[6 / renderedZoom, 4 / renderedZoom]} />
         <Line ref={horizontalGuide} name="alignment-guide-horizontal" visible={false} listening={false} stroke={editorColors.guide} strokeWidth={1 / renderedZoom} dash={[6 / renderedZoom, 4 / renderedZoom]} />
-        {mapEditor?.document && mapEditor.selectionCount > 0 && (mapEditor.promotedIds.length
-          ? <MapElementOverlay selection={mapEditor.selection} zoom={renderedZoom} mapBounds={bounds} gridSize={snap ? mapEditor.document.gridSize : undefined}
+        {mapEditor?.document && mapEditor.selectionCount > 0 && !(mapEditor.shapeCount === 0 && mapEditor.fixtureCount === 1) && (mapEditor.promotedIds.length
+          ? <MapElementOverlay selection={mapEditor.selection} zoom={renderedZoom} mapBounds={bounds} gridSize={snap ? mapEditor.document.gridSize : undefined} onPick={mapEditor.pick}
               readOnly={readOnly || mapEditor.holeActive || activeTool !== "select"} locked={mapEditor.locked} onChange={mapEditor.commit} onError={mapEditor.reportError} onGuidesChange={renderAlignmentGuides} />
-          : mapEditor.bounds ? <MapSelectionBoundsHandle selectionKey={mapEditor.selectionKey} bounds={mapEditor.bounds}
-              zoom={renderedZoom} gridSize={snap ? mapEditor.document.gridSize : undefined} translateOnly={mapEditor.mixed}
-              locked={readOnly || mapEditor.locked || activeTool !== "select"} onMove={mapEditor.move} onTransform={mapEditor.transform} onError={mapEditor.reportError} /> : null)}
+          : mapEditor.bounds ? <MapSelectionBoundsHandle selectionKey={mapEditor.selectionKey} bounds={mapEditor.bounds} mapBounds={bounds}
+              zoom={renderedZoom} gridSize={snap ? mapEditor.document.gridSize : undefined} translateOnly={mapEditor.hasFixtures}
+              locked={readOnly || mapEditor.locked || activeTool !== "select"} onMove={mapEditor.move} onTransform={mapEditor.transform} onError={mapEditor.reportError} onPick={mapEditor.pick} /> : null)}
         {mapCreation && <MapElementOverlay selection={[mapCreation]} zoom={renderedZoom} mapBounds={bounds} readOnly onChange={() => undefined} onError={mapEditor?.reportError} />}
         {pathDraft && <Line points={pathDraft.points.flatMap(point => [point.x, point.y])} stroke={editorColors.selected} strokeWidth={2 / renderedZoom} listening={false} />}
         {creation && <FloorMapObjectNode object={{ ...creation, id: "creation", zIndex: 999 }} interactive={false} preview />}
@@ -928,16 +988,16 @@ export function FloorEditorCanvas({
             onCommit={onCadOverrideCommit}
           />
         ) : null}
-        <Transformer ref={transformer} rotateEnabled={false} keepRatio={selection?.kind === "fixture"} flipEnabled={false} enabledAnchors={transformerAnchors} boundBoxFunc={(oldBox, box) => box.width < 4 || box.height < 4 ? oldBox : box} />
+        <Transformer ref={transformer} rotateEnabled={false} keepRatio={selection?.kind === "fixture"} ignoreStroke={selection?.kind === "fixture"} flipEnabled={false} enabledAnchors={transformerAnchors} onTransformStart={() => { fixtureResizeAnchor.current = transformer.current?.getActiveAnchor() ?? null; }} boundBoxFunc={(oldBox, box) => box.width < 4 || box.height < 4 ? oldBox : box} />
         {focusedFixture && focusedLabel && <Label name="selected-fixture-label" x={focusedLabel.x} y={focusedLabel.y} scaleX={focusedLabel.scaleX} scaleY={focusedLabel.scaleY} listening={false}>
           <Tag fill={editorColors.panel} stroke={editorColors.border} strokeWidth={1} cornerRadius={4} />
           <Text name="selected-fixture-name" text={focusedFixture.name} width={focusedLabel.width} height={focusedLabel.height} padding={6} fontSize={12} fontStyle="bold" fill={editorColors.label} ellipsis wrap="none" verticalAlign="middle" />
         </Label>}
       </Layer>
     </Stage>
-    {backgroundStatus === "error" ? <div className="absolute inset-x-3 top-3 z-5 flex items-center justify-between gap-3 border border-status-danger-border bg-surface-panel p-3 shadow-panel" role="alert">
-      <span className="text-body-sm font-semibold text-status-danger-foreground">CAD 도면을 표시하지 못했습니다.</span>
-      <Button size="sm" variant="secondary" onClick={retryBackground}>도면 다시 시도</Button>
+    {backgroundStatus === "error" ? <div className="absolute inset-x-3 top-3 z-5 flex flex-col gap-1 border border-status-danger-border bg-surface-panel p-1.5 shadow-panel compact:flex-row compact:items-center compact:justify-between compact:gap-3 compact:p-3" role="alert">
+      <span className="min-w-0 break-keep text-body-sm font-semibold text-status-danger-foreground">CAD 도면을 표시하지 못했습니다.</span>
+      <Button size="sm" variant="secondary" className="min-w-11 shrink-0 self-end whitespace-nowrap compact:self-auto" onClick={retryBackground}>도면 다시 시도</Button>
     </div> : null}
     {!cadReviewActive ? <FixturePlacementAction readOnly={readOnly} rowRegistry={rowRegistry} /> : null}
     {!cadReviewActive && !onPlacementPointChange ? <EditorMinimap /> : null}
