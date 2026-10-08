@@ -18,7 +18,7 @@ function harness() {
   let stateListener: ((state: BioTransportSnapshot) => void) | undefined;
   let eventListener: ((event: BioClientEvent) => void) | undefined;
   let mappingListener: (() => void) | undefined;
-  let authorityListener: (() => void) | undefined;
+  let authorityListener: ((fixtureId?: string) => void) | undefined;
   let snapshot: BioTransportSnapshot = { state: "ready", generation: 1, ready: true, transportConnected: true, protocolReady: true };
   let mapping: BioDeviceMapping | null = { fixtureId, nodeId: "node", deviceUuid: "bio:001122334455",
     nativeUuid: "001122334455", logicalAddress: 256, firmware: "not-authority", protocol: "crc16",
@@ -62,7 +62,7 @@ function harness() {
   return { source, client, mappings, authority, profiles, pulses, revocations, candidate,
     emit: () => candidateListener?.(candidate), event: (event: BioClientEvent) => eventListener?.(event),
     state: (patch: Partial<BioTransportSnapshot>) => { snapshot = { ...snapshot, ...patch }; stateListener?.(snapshot); },
-    mappingChanged: () => mappingListener?.(), authorityChanged: () => authorityListener?.(),
+    mappingChanged: () => mappingListener?.(), authorityChanged: (id?: string) => authorityListener?.(id),
     setMapping: (value: BioDeviceMapping | null) => { mapping = value; },
     deferMapping: () => { let resolve!: (value: BioDeviceMapping | null) => void;
       const pending = new Promise<BioDeviceMapping | null>(r => { resolve = r; });
@@ -74,6 +74,17 @@ function harness() {
 }
 
 describe("BioSensorPulseSource", () => {
+  it.each([true, false])("fences only the changed uncached source across pending identity reads (same=%s)", async same => {
+    const h = harness(), release = h.deferMapping();
+    const pending = h.source.preflight({ sourceFixtureId: fixtureId, snapshotRevision: 1 }, { requireHealthy: true });
+    h.emit();
+    h.authorityChanged(same ? fixtureId : "22222222-2222-4222-8222-222222222222");
+    release();
+    expect(!!await pending).toBe(!same);
+    await flush(); expect(h.pulses).toHaveLength(same ? 0 : 1);
+    h.source.stop();
+  });
+
   it("joins authenticated Fixture identity through real confirmed mappings, never through a different node UUID", async () => {
     const h = harness(); h.source.stop();
     const directory = await mkdtemp(join(tmpdir(), "bio-source-identity-"));

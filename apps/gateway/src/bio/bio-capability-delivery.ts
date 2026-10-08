@@ -41,7 +41,7 @@ export class BioCapabilityDeliveryController {
   private readonly stopMappingIntake?: () => void;
   private liveProof?: (fixtureId: string) => BioNodeLinkProof | null;
   private readonly commissionAcknowledgements = new Map<string, { row: DeliveryRecord; proof: AcknowledgedBioCommissionProof }>();
-  private readonly listeners = new Set<() => void>();
+  private readonly listeners = new Set<(fixtureId?: string) => void>();
   private readonly pinnedEvents = new Set<string>();
 
   constructor(private readonly path: string, private readonly options: Options) {
@@ -73,14 +73,17 @@ export class BioCapabilityDeliveryController {
   }
   disconnect() { this.connectionRevision++; this.publishPermits.clear(); this.publisher.disconnect(); this.invalidateCommissionProofs(); }
   setLiveProofReader(reader: (fixtureId: string) => BioNodeLinkProof | null) { this.liveProof = reader; }
-  onChange(listener: () => void) { this.listeners.add(listener); return () => { this.listeners.delete(listener); }; }
+  onChange(listener: (fixtureId?: string) => void) { this.listeners.add(listener); return () => { this.listeners.delete(listener); }; }
   invalidateCommissionProofs() { this.commissionAcknowledgements.clear(); this.pinnedEvents.clear(); for (const listener of this.listeners) listener(); }
   retainAcknowledgedRevision(fixtureId: string, capabilityRevision: number): boolean {
     const accepted = this.commissionAcknowledgements.get(fixtureId);
     if (!accepted || accepted.proof.capabilityRevision !== capabilityRevision || !this.acknowledgedCommissionProof(fixtureId)) return false;
     this.pinnedEvents.add(accepted.row.delivery.report.eventId); return true;
   }
-  releaseSnapshotPins() { this.pinnedEvents.clear(); }
+  releaseSnapshotPins(fixtureId?: string) {
+    if (!fixtureId) this.pinnedEvents.clear();
+    else for (const row of this.state.records) if (row.proof.command.fixtureId === fixtureId) this.pinnedEvents.delete(row.delivery.report.eventId);
+  }
   acknowledgedCommissionProof(fixtureId: string): AcknowledgedBioCommissionProof | null {
     const accepted = this.commissionAcknowledgements.get(fixtureId);
     if (!accepted || !this.current(accepted.row.proof, this.connectionRevision)) return null;
@@ -181,7 +184,7 @@ export class BioCapabilityDeliveryController {
         capabilityRevision: row.delivery.report.capabilityRevision, healthEpoch: row.proof.live.healthEpoch,
         reportEventId: row.proof.live.reportEventId } });
       // First accepted live checkpoint unlocks pins; repeat health reports leave existing pins untouched.
-      if (!old || old.proof.healthEpoch !== row.proof.live.healthEpoch) for (const listener of this.listeners) listener();
+      if (!old || old.proof.healthEpoch !== row.proof.live.healthEpoch) for (const listener of this.listeners) listener(row.proof.command.fixtureId);
     }
     return ack.status === "rejected" ? "rejected" : "terminal";
   }); }

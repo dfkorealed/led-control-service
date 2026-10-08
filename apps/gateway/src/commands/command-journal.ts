@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { writeJsonAtomic } from "../mesh/mesh-store-file";
-import { bioSensorPreparationAckV1Schema, matchesBioSensorPreparationAckV1 } from "@led-control/shared";
+import { bioSensorPreparationAckV1Schema, bioSensorPreparationCommandV1Schema, bioSensorPreparationReportV1Schema, matchesBioSensorPreparationAckV1, matchesBioSensorPreparationReportV1 } from "@led-control/shared";
 import { bioEnvelopeHash } from "../bio/bio-sensor-profile-catalog";
 import { isDeepStrictEqual } from "node:util";
 
@@ -312,6 +312,23 @@ export class CommandJournal {
 
   async pendingBioSensorPreparations() {
     return Object.values((await this.readData()).records).filter(record => isPreparation(record.command) && !record.preparationAck);
+  }
+
+  /** Durable attribution only. Historical ACKs must never restore live commissions. */
+  async acknowledgedBioRestorationIdentities() {
+    const identities = [];
+    for (const record of Object.values((await this.readData()).records)) {
+      if (!isPreparation(record.command) || record.state !== "completed") continue;
+      const command = bioSensorPreparationCommandV1Schema.safeParse((record.command as { command: unknown }).command);
+      const report = bioSensorPreparationReportV1Schema.safeParse(record.result);
+      const ack = bioSensorPreparationAckV1Schema.safeParse(record.preparationAck);
+      if (!command.success || !report.success || !ack.success || report.data.status !== "ready"
+        || (ack.data.status !== "applied" && ack.data.status !== "duplicate")
+        || !matchesBioSensorPreparationReportV1(command.data, report.data, bioEnvelopeHash(command.data))
+        || !matchesBioSensorPreparationAckV1(report.data, ack.data, bioEnvelopeHash(report.data))) continue;
+      identities.push(command.data);
+    }
+    return identities;
   }
 
   async acknowledgeBioSensorPreparation(raw: unknown): Promise<boolean> {

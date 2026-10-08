@@ -10,13 +10,15 @@ import type { GatewayAdapters } from "../adapters/adapter-factory";
 export async function createBioSensorRuntime(hardware: NonNullable<GatewayAdapters["bioSensorHardware"]>,
   delivery: BioCapabilityDeliveryController, scope: BioSensorScope, path: string, clockTrusted: () => Promise<boolean>) {
   const catalog = new FileBioSensorProfileCatalog(`${path}.catalog`, scope); await catalog.initialize();
-  const monitor = new BioNodeLinkMonitor({ ...hardware, catalog, onProbe: async proof => {
+  const monitor = new BioNodeLinkMonitor({ ...hardware, catalog, scope, onProbe: async proof => {
     await delivery.recordLiveProof(proof); await delivery.wake();
   } });
+  const journal = new CommandJournal(`${path}.preparations`);
+  for (const identity of await journal.acknowledgedBioRestorationIdentities()) monitor.retainRestorationIdentity(identity);
   delivery.setLiveProofReader(id => monitor.snapshot(id));
   const authority = new CommissionedBioPulseAuthorityProvider({ scope, catalog, monitor, delivery });
   hardware.source.configure(catalog, authority);
-  const preparation = new BioSensorPreparationHandler({ ...hardware, scope, catalog, journal: new CommandJournal(`${path}.preparations`), clockTrusted,
+  const preparation = new BioSensorPreparationHandler({ ...hardware, scope, catalog, journal, clockTrusted,
     onCommission: proof => { monitor.commission(proof); void monitor.probe(proof.command.fixtureId); },
     onInvalidate: id => monitor.invalidate(id) });
   monitor.start();

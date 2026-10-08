@@ -16,8 +16,9 @@ import { AutomationRuntime } from "../automation/automation-runtime";
 import { automationSnapshot } from "../automation/automation-test-fixtures";
 import type { AutomationSnapshotV2 } from "@led-control/shared";
 import { FileAutomationStateStore } from "../automation/automation-state-store";
-import { createGatewayAutomationServices } from "../index";
+import { createGatewayAutomationServices, connectBioPulseSource } from "../index";
 import { createBioSensorRuntime } from "./bio-sensor-runtime";
+import type { BioSensorPulseCandidate } from "./bio-command-codec";
 
 const scope = { siteId: "10000000-0000-4000-8000-000000000001", gatewayId: "10000000-0000-4000-8000-000000000002", assignmentVersion: 2 };
 const fixtureId = "10000000-0000-4000-8000-000000000003", nodeId = "10000000-0000-4000-8000-000000000004";
@@ -40,14 +41,15 @@ async function harness() {
   let generation = 1, mono = 10, fail = false, mode = "sensor"; const writes: string[] = [];
   const changes = new Set<() => void>(); const events = new Set<(v: { kind: string }) => void>();
   const device = { nativeUuid: "001122334455", deviceUuid: "bio:001122334455", logicalAddress: 256, networkId: 0, firmwareVersion: "legacy", rssi: -40, fingerprint };
+  const pulses = new Set<(value: BioSensorPulseCandidate) => void>();
   const client = {
-    onSensorPulseCandidate: () => () => undefined,
+    onSensorPulseCandidate: (listener: (value: BioSensorPulseCandidate) => void) => { pulses.add(listener); return () => { pulses.delete(listener); }; },
     sensorSourceSnapshot: () => ({ generation, ready: true, protocolReady: true, transportConnected: true }),
     onSensorSourceState: (fn: () => void) => { changes.add(fn); return () => { changes.delete(fn); }; },
     onEvent: (fn: (v: { kind: string }) => void) => { events.add(fn); return () => { events.delete(fn); }; },
     scanObservations: async () => { writes.push("SCAN"); return [structuredClone(device)]; },
     restoreSensorMode: async () => { writes.push("SET_MODE"); mode = "sensor"; },
-    readDeviceInfo: async () => { writes.push("GET_MODE"); if (fail) throw new Error("timeout"); return { ...device, mode, kind: "control-mode-report" }; }
+    readDeviceInfo: async (_target?: { logicalAddress: number }) => { writes.push("GET_MODE"); if (fail) throw new Error("timeout"); return { ...device, mode, kind: "control-mode-report" }; }
   };
   const handler = new BioSensorPreparationHandler({ scope, catalog, mappings, client: client as never,
     journal: new CommandJournal(join(dir, "commands.json")), clockTrusted: async () => true });
@@ -55,7 +57,7 @@ async function harness() {
   const command = () => ({ schemaVersion: 1 as const, ...scope, fixtureId, nodeId, commandId: randomUUID(),
     deviceIdentityHash: createHash("sha256").update(device.deviceUuid).digest("hex"), meshAddress: "0x0100", operation: "query" as const,
     catalogRevision: 1, requestedAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 60000).toISOString() });
-  return { dir, catalog, mappings, client, handler, command, device, writes, changes, events,
+  return { dir, catalog, mappings, client, handler, command, device, writes, changes, events, pulses,
     advance: (n: number) => { mono += n; }, monotonic: () => mono, fail: () => { fail = true; },
     mode: (v: string) => { mode = v; }, reconnect: () => { generation++; for (const fn of changes) fn(); } };
 }
@@ -69,6 +71,93 @@ it("starts OFF/empty, durably applies exact scope and rejects catalog rollback/c
   const restored = new FileBioSensorProfileCatalog(join(f.dir, "catalog.json"), scope); await restored.initialize();
   expect(restored.snapshot()?.catalogRevision).toBe(2); const copy = restored.snapshot()!; copy.profiles.length = 0;
   expect(restored.snapshot()?.profiles).toHaveLength(1);
+});
+
+async function liveControllerHarness() {
+  const f = await harness(); const fixture2 = "10000000-0000-4000-8000-000000000022";
+  const device2 = { ...f.device, nativeUuid: "001122334466", deviceUuid: "bio:001122334466", logicalAddress: 257 };
+  await f.mappings.reserve({ fixtureId: fixture2, nodeId: fixture2, deviceUuid: device2.deviceUuid, nativeUuid: device2.nativeUuid,
+    logicalAddress: 257, observedLogicalAddressBeforeAssignment: 5, commandId: "registration-two", firmware: "legacy", protocol: "crc16" });
+  await f.mappings.confirm(device2.deviceUuid, 257);
+  let badSecond = false, wrongFirstNetwork = false;
+  f.client.scanObservations = async () => [ { ...f.device, networkId: wrongFirstNetwork ? 9 : 0 }, device2 ];
+  f.client.readDeviceInfo = async target => ({ ...(target?.logicalAddress === 257 ? device2 : f.device),
+    mode: target?.logicalAddress === 257 && badSecond ? "force-off" : "sensor", kind: "control-mode-report" });
+  const approved = catalogValue(); approved.profiles[0] = { ...profile, linkPolicy: { ...profile.linkPolicy, maxAgeMs: 20000 } };
+  approved.executionPolicy = { enabled: true, ownerUserId: fixtureId, maximumResponseSeconds: 30, escalationAction: "operator" };
+  await f.catalog.apply(approved);
+  const c1 = f.command(), r1 = await f.handler.handle(c1);
+  const c2 = { ...f.command(), fixtureId: fixture2, nodeId: fixture2, meshAddress: "0x0101", deviceIdentityHash: createHash("sha256").update(device2.deviceUuid).digest("hex") };
+  const r2 = await f.handler.handle(c2);
+  const monitor = new BioNodeLinkMonitor({ client: f.client as never, mappings: f.mappings, catalog: f.catalog, monotonic: f.monotonic });
+  const delivery = new BioCapabilityDeliveryController(join(f.dir, "live.json"), { scope: () => scope, clockTrusted: async () => true,
+    identity: { findByFixtureId: id => f.mappings.findByFixtureId(id), snapshot: () => f.client.sensorSourceSnapshot() } });
+  await delivery.initialize(); delivery.setLiveProofReader(id => monitor.snapshot(id));
+  const provider = new CommissionedBioPulseAuthorityProvider({ scope, catalog: f.catalog, monitor, delivery });
+  const source = new BioSensorPulseSource({ client: f.client as never, mappings: f.mappings }); source.configure(f.catalog, provider);
+  stops.push(async () => { source.stop(); provider.stop(); await monitor.stopAndDrain(); await delivery.stopAndDrain(); });
+  const accept = async (id = fixtureId) => {
+    await monitor.probe(id); await delivery.recordLiveProof(monitor.snapshot(id)!);
+    const row = (await delivery.pending()).filter(row => row.proof.command.fixtureId === id).at(-1)!;
+    await delivery.acknowledge({ schemaVersion: 2, ...scope, meshNodeId: row.delivery.report.meshNodeId, eventId: row.delivery.report.eventId,
+      capabilityRevision: row.delivery.report.capabilityRevision, deliveryPayloadHash: row.deliveryPayloadHash,
+      status: "applied", errorCode: null, ingestedAt: new Date().toISOString() });
+  };
+  monitor.commission({ command: c1, report: r1, mapping: (await f.mappings.findByFixtureId(fixtureId))!, networkId: 0 }); await accept();
+  let configuration = { configuredHighBrightnessPercent: 30, bioMode: "sensor" as "sensor" | "force-on" | "force-off" };
+  const targetWrites: unknown[] = [];
+  const services = createGatewayAutomationServices({ scope, adapterKind: "bio-usb", clockTrust: { isTrusted: async () => true },
+    wallClock: () => new Date(Date.UTC(2026, 9, 8) + f.monotonic()), monotonicClock: f.monotonic,
+    stateStore: new FileAutomationStateStore(join(f.dir, "controller.json")), configStore: { load: async () => null, apply: async () => {}, restore: async () => {} },
+    execute: async actions => actions.map(action => ({ fixtureId: action.fixtureId, status: "succeeded" as const, brightnessPercent: action.brightnessPercent,
+      faultCode: null, errorCode: null, occurredAt: new Date().toISOString() })), bioSnapshotLifecycle: provider,
+    bioProductPulse: { scope, source, targetPort: {
+      readBioState: async () => ({ target: { kind: "unicast", nativeUuid: "001122334499", logicalAddress: 300, networkId: 0 }, configuration: { ...configuration } }),
+      restoreBioState: async (_id, _target, value) => { configuration = { ...value }; targetWrites.push({ ...value }); return value; }
+    } } });
+  await services.scheduleRuntime.initialize(); await services.automationRuntime.initialize();
+  const snapshot = automationSnapshot(4, { siteId: scope.siteId, gatewayId: scope.gatewayId, schemaVersion: 2, vehicleEventRules: [{
+    id: nodeId, name: "F1 rule", sensorProtocol: "bio-usb-pulse", status: "enabled", sourceFixtureIds: [fixtureId], targetFixtureIds: [scope.gatewayId],
+    holdSeconds: 10, action: { dimmingEnabled: true, brightnessPercent: 80 }
+  }] } as never);
+  await services.automationRuntime.hotReload(snapshot);
+  const intake = connectBioPulseSource(source, services.scheduleRuntime); stops.push(() => intake.stopAndDrain());
+  const pulse = (sequence = 1) => { for (const listener of f.pulses) listener({ kind: "sensor-status-candidate", innerOpcode: 9, innerBody: Buffer.from(profile.bodyHexes[0], "hex"),
+    generation: f.client.sensorSourceSnapshot().generation, receivedMonotonicMs: f.monotonic(), deviceUuid: f.device.deviceUuid, logicalAddress: 256,
+    networkId: 0, sequence, destination: 0, rssiDbm: -40, ttl: 1, control: false }); };
+  return { ...f, ...services, source, monitor, delivery, accept, pulse, targetWrites, configuration: () => configuration,
+    second: async () => { monitor.commission({ command: c2, report: r2, mapping: (await f.mappings.findByFixtureId(fixture2))!, networkId: 0 }); await accept(fixture2); },
+    failSecond: async () => { badSecond = true; await monitor.probe(fixture2); }, wrongNetwork: () => { wrongFirstNetwork = true; } };
+}
+
+it("keeps F1 pin, queued receipt and full hold restoration across F2 commissioning and failure", async () => {
+  const f = await liveControllerHarness(); const original = f.source.sourceAuthority(fixtureId)!;
+  f.advance(100); await f.accept(); expect(f.delivery.acknowledgedCommissionProof(fixtureId)?.capabilityRevision).toBe(2);
+  let release!: () => void; let entered!: () => void;
+  const started = new Promise<void>(r => { entered = r; }), gate = new Promise<void>(r => { release = r; });
+  const lookup = f.mappings.findByNativeUuid.bind(f.mappings); let once = true;
+  f.mappings.findByNativeUuid = async id => { if (once) { once = false; entered(); await gate; } return lookup(id); };
+  const revoked: string[] = []; f.source.onRevoked(id => revoked.push(id)); f.pulse(); await started;
+  try { await f.second(); await f.failSecond(); } finally { release(); }
+  expect(f.source.sourceAuthority(fixtureId)).toEqual(original); expect(revoked).not.toContain(fixtureId);
+  await vi.waitFor(() => expect(f.targetWrites).toHaveLength(1));
+  f.advance(11000); await f.accept(); await f.scheduleRuntime.tick();
+  expect(f.configuration()).toEqual({ configuredHighBrightnessPercent: 30, bioMode: "sensor" });
+  expect(f.targetWrites).toHaveLength(2);
+});
+
+it("restores a revoked-profile activation by fresh identity only and keeps mismatched identity pending", async () => {
+  const f = await liveControllerHarness(); f.pulse(); await vi.waitFor(() => expect(f.targetWrites).toHaveLength(1));
+  await f.catalog.apply({ ...catalogValue(2), profiles: [] });
+  f.advance(11000); f.pulse(2); await f.scheduleRuntime.tick(); expect(f.targetWrites).toHaveLength(1);
+  expect(f.source.sourceAuthority(fixtureId)).toBeNull(); expect(f.monitor.snapshot(fixtureId)).toBeNull();
+  await f.scheduleRuntime.releaseBioEvent(nodeId);
+  expect(f.configuration()).toEqual({ configuredHighBrightnessPercent: 30, bioMode: "sensor" });
+  expect(f.source.sourceAuthority(fixtureId)).toBeNull(); expect(f.monitor.snapshot(fixtureId)).toBeNull();
+  const mismatch = await liveControllerHarness(); mismatch.pulse(); await vi.waitFor(() => expect(mismatch.targetWrites).toHaveLength(1));
+  await mismatch.catalog.apply({ ...catalogValue(2), profiles: [] }); mismatch.wrongNetwork();
+  await mismatch.scheduleRuntime.releaseBioEvent(nodeId);
+  expect(mismatch.targetWrites).toHaveLength(1); expect(mismatch.scheduleRuntime.state().bioActivationsByRule[nodeId]?.completed).toBe(false);
 });
 it("queries with SET0, gates ensure by full fresh fingerprint, and journals exact ACK", async () => {
   const f = await harness(); await f.catalog.apply(catalogValue()); const c = f.command();
@@ -200,9 +289,11 @@ it("keeps degraded release identity separate from health and rejects fresh wrong
   const beforeGuard = f.writes.length;
   expect(await monitor.preflightRelease(binding, false)).toBe(true); expect(f.writes).toHaveLength(beforeGuard);
   expect(monitor.snapshot(fixtureId)).toBeNull();
-  f.reconnect(); expect(monitor.releaseIdentityCurrent(binding)).toBe(false); expect(await monitor.preflightRelease(binding)).toBe(false);
-  monitor.commission({ command, report: { ...report, connectionGeneration: 2 }, mapping: (await f.mappings.findByFixtureId(fixtureId))!, networkId: 0 });
+  f.reconnect(); expect(monitor.releaseIdentityCurrent(binding)).toBe(false);
+  expect(await monitor.preflightRelease(binding, false)).toBe(false);
+  // Reconnection requires fresh identity, never a re-approved profile or historical healthy ACK.
   expect(await monitor.preflightRelease(binding)).toBe(true);
+  expect(monitor.snapshot(fixtureId)).toBeNull();
   f.device.networkId = 9; expect(await monitor.preflightRelease(binding)).toBe(false); expect(monitor.releaseIdentityCurrent(binding)).toBe(false);
 });
 it("boots real scheduler with an enabled retained snapshot and no recovered health or RF", async () => {
@@ -249,4 +340,23 @@ it("wires production preparation ACK to fresh GET and durable live capability wi
   expect(runtime.monitor.snapshot(fixtureId)).toBeNull(); expect(delivery.acknowledgedCommissionProof(fixtureId)).toBeNull();
   const restarted = new BioCapabilityDeliveryController(deliveryPath, deliveryOptions); await restarted.initialize();
   stops.push(() => restarted.stopAndDrain()); expect(restarted.acknowledgedCommissionProof(fixtureId)).toBeNull();
+  await runtime.catalog.apply({ ...catalogValue(2), profiles: [] });
+  await runtime.stopAndDrain();
+  const restoredSource = new BioSensorPulseSource({ client: f.client as never, mappings: f.mappings });
+  const writesBeforeRestart = f.writes.length;
+  const restored = await createBioSensorRuntime({ client: f.client as never, mappings: f.mappings, source: restoredSource },
+    restarted, scope, join(f.dir, "production"), async () => true);
+  stops.push(async () => { await restored.stopAndDrain(); restoredSource.stop(); });
+  expect(f.writes).toHaveLength(writesBeforeRestart);
+  const binding = { sourceFixtureId: fixtureId, nativeUuid: f.device.nativeUuid, logicalAddress: 256, networkId: 0,
+    capabilityRevision: 1, snapshotRevision: 4, profileId: `${profile.profileId}@1`, firmwareFingerprint: "saved", sensorFingerprint: "saved" };
+  f.mode("force-off");
+  expect(await restored.monitor.preflightRelease(binding, false)).toBe(false);
+  expect(await restored.monitor.preflightRelease(binding)).toBe(true);
+  expect(f.writes.slice(writesBeforeRestart)).toEqual(["SCAN", "GET_MODE"]);
+  expect(restored.monitor.snapshot(fixtureId)).toBeNull();
+  expect(restoredSource.sourceAuthority(fixtureId)).toBeNull();
+  expect(restarted.acknowledgedCommissionProof(fixtureId)).toBeNull();
+  f.fail(); expect(await restored.monitor.preflightRelease(binding)).toBe(false);
+  expect(restored.monitor.releaseIdentityCurrent(binding)).toBe(false);
 });

@@ -22,13 +22,18 @@ export class CommissionedBioPulseAuthorityProvider implements BioPulseAuthorityP
   private readonly executable = new Set<number>();
   private readonly pins = new Map<string, { capabilityRevision: number; healthEpoch: string; reportEventId: string }>();
   private currentRevision?: number;
-  private readonly listeners = new Set<() => void>();
+  private readonly listeners = new Set<(fixtureId?: string) => void>();
   private readonly releases: (() => void)[];
   constructor(private readonly options: { scope: BioSensorScope; catalog: BioPulseCatalogPort; monitor: BioNodeLinkMonitor; delivery: BioCapabilityDeliveryController }) {
-    const changed = () => { this.pins.clear(); options.delivery.releaseSnapshotPins(); for (const fn of this.listeners) fn(); };
+    const changed = (fixtureId?: string) => {
+      if (fixtureId) { for (const key of this.pins.keys()) if (key.endsWith(`:${fixtureId}`)) this.pins.delete(key); }
+      else this.pins.clear();
+      options.delivery.releaseSnapshotPins(fixtureId);
+      for (const fn of this.listeners) fn(fixtureId);
+    };
     this.releases = [options.catalog.onChange(changed), options.monitor.onChange(changed), options.delivery.onChange(changed)];
   }
-  onChange(listener: () => void) { this.listeners.add(listener); return () => { this.listeners.delete(listener); }; }
+  onChange(listener: (fixtureId?: string) => void) { this.listeners.add(listener); return () => { this.listeners.delete(listener); }; }
   stage(raw: AutomationSnapshot) {
     const snapshot = parseAutomationSnapshot(raw, this.options.scope);
     const existing = this.contexts.get(snapshot.revision);

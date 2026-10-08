@@ -19,7 +19,7 @@ export interface BioPulseAuthorityProvider {
    * must also notify onChange, including changes while identity lookup is pending. */
   read(sourceFixtureId: string, connection: { epoch: string; generation: number },
     request?: { snapshotRevision: number; requireHealthy: boolean }): BioSourceAuthority | null;
-  onChange(listener: () => void): () => void;
+  onChange(listener: (fixtureId?: string) => void): () => void;
 }
 export interface BioPulseSourcePort {
   preflightRelease?(binding: BioSourceBinding, refresh?: boolean): Promise<boolean>;
@@ -42,6 +42,7 @@ export class BioSensorPulseSource implements BioPulseSourcePort {
   private readonly epoch = randomUUID();
   private revision = 0;
   private readonly nativeRevisions = new Map<string, number>();
+  private readonly fixtureRevisions = new Map<string, number>();
   private stopped = false;
   private decoderFaultGeneration: number | null = null;
   private readonly intake = new BioSensorPulseIntake();
@@ -79,7 +80,7 @@ export class BioSensorPulseSource implements BioPulseSourcePort {
         }
       }));
       this.unsubscribers.push(options.mappings.onChange(() => this.revoke("mapping_changed")));
-      if (options.authority) this.unsubscribers.push(options.authority.onChange(() => this.revoke("authority_changed")));
+      if (options.authority) this.unsubscribers.push(options.authority.onChange(id => this.revokeAuthority(id)));
     } catch (error) {
       this.stop();
       throw error;
@@ -98,7 +99,7 @@ export class BioSensorPulseSource implements BioPulseSourcePort {
     this.revoke("catalog_changed"); this.authority = authority; this.profiles = pulseProfiles(catalog.snapshot());
     this.unsubscribers.push(catalog.onChange(() => {
       this.revoke("catalog_changed"); this.profiles = pulseProfiles(catalog.snapshot());
-    }), authority.onChange(() => this.revoke("authority_changed")));
+    }), authority.onChange(id => this.revokeAuthority(id)));
   }
 
   onRevoked(listener: (sourceFixtureId: string, reason: string) => void): () => void {
@@ -114,7 +115,7 @@ export class BioSensorPulseSource implements BioPulseSourcePort {
       const current = this.readAuthority(sourceFixtureId, cached.connection.generation, false, cached.binding.snapshotRevision);
       if (current && isDeepStrictEqual(current, cached)) return structuredClone(current);
     } catch { /* A throwing provider is never authority. */ }
-    this.revoke("authority_changed");
+    this.revoke("authority_changed", cached.binding.nativeUuid);
     return null;
   }
 
@@ -137,6 +138,7 @@ export class BioSensorPulseSource implements BioPulseSourcePort {
     const requireHealthy = options.requireHealthy;
     if (!requireHealthy && !("nativeUuid" in request)) return null;
     const revision = this.revision;
+    const fixtureRevision = this.fixtureRevisions.get(request.sourceFixtureId) ?? 0;
     const generation = this.options.client.sensorSourceSnapshot().generation;
     let nativeUuid: string | undefined;
     try {
@@ -146,6 +148,7 @@ export class BioSensorPulseSource implements BioPulseSourcePort {
       nativeUuid = initial.binding.nativeUuid;
       const nativeRevision = this.nativeRevisions.get(nativeUuid) ?? 0;
       const current = () => this.current(revision, generation, requireHealthy)
+        && (this.fixtureRevisions.get(request.sourceFixtureId) ?? 0) === fixtureRevision
         && (this.nativeRevisions.get(nativeUuid!) ?? 0) === nativeRevision;
       const first = await this.options.mappings.findByFixtureId(request.sourceFixtureId);
       if (!current()) return null;
@@ -175,6 +178,15 @@ export class BioSensorPulseSource implements BioPulseSourcePort {
     }
     this.listeners.clear();
     this.revocations.clear();
+  }
+
+  private revokeAuthority(fixtureId?: string): void {
+    if (fixtureId === undefined) this.revoke("authority_changed");
+    else {
+      this.fixtureRevisions.set(fixtureId, (this.fixtureRevisions.get(fixtureId) ?? 0) + 1);
+      const nativeUuid = this.authorities.get(fixtureId)?.binding.nativeUuid;
+      if (nativeUuid) this.revoke("authority_changed", nativeUuid);
+    }
   }
 
   private revoke(reason: string, nativeUuid?: string): void {
@@ -241,10 +253,16 @@ export class BioSensorPulseSource implements BioPulseSourcePort {
 
   private async consume(candidate: BioSensorPulseCandidate, revision: number, nativeRevision: number): Promise<void> {
     const nativeUuid = candidate.deviceUuid.replace(/^bio:/, "");
+    // Capture before identity lookup so an uncached source's revoke/requalify
+    // cannot admit an older receipt, while unrelated sources remain unaffected.
+    const fixtureRevisions = new Map(this.fixtureRevisions);
+    let fixtureId: string | undefined;
     const current = () => this.current(revision, candidate.generation)
+      && (fixtureId === undefined || (this.fixtureRevisions.get(fixtureId) ?? 0) === (fixtureRevisions.get(fixtureId) ?? 0))
       && (this.nativeRevisions.get(nativeUuid) ?? 0) === nativeRevision;
     if (!current()) return;
     const suppliedMapping = await this.options.mappings.findByNativeUuid(nativeUuid);
+    fixtureId = suppliedMapping?.fixtureId;
     if (!current()) return;
     const known = [...this.authorities.values()].filter(value => value.binding.nativeUuid === nativeUuid);
     if (!suppliedMapping || known.some(({ binding }) => suppliedMapping.status !== "confirmed"
