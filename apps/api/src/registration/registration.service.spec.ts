@@ -34,6 +34,7 @@ describe("RegistrationService", () => {
 
   function createModule(prismaOverrides = {}, mqttOverrides = {}, meshGroupOverrides = {}) {
     const prisma: any = {
+      bioSensorProfileRevision: { findMany: jest.fn().mockResolvedValue([]) },
       site: { findUnique: jest.fn().mockResolvedValue({ id: ids.siteId }) },
       floor: { findFirst: jest.fn().mockResolvedValue({ id: ids.floorId, siteId: ids.siteId, status: "active" }) },
       gateway: { findFirst: jest.fn().mockResolvedValue({ id: ids.gatewayId, siteId: ids.siteId }) },
@@ -444,6 +445,7 @@ describe("RegistrationService", () => {
     });
 
     await expect(service.excludeNode(admin, ids.sessionId, ids.nodeId)).resolves.toEqual({
+      bioSensorCatalogMatch: { status: "unverified", profileKey: null },
       ...updated,
       identifyOperationId: null,
       identifyOperationStartedAt: null,
@@ -1620,6 +1622,7 @@ describe("RegistrationService", () => {
       fixture: null,
       discoveredNode: {
         ...provisioningNode,
+        bioSensorCatalogMatch: { status: "unverified", profileKey: null },
         identifyOperationId: null,
         identifyOperationStartedAt: null,
         registrationEligibility: "available",

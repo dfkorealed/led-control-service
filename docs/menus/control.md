@@ -1,5 +1,14 @@
 # 제어 메뉴 기능 현황
 
+## 2026-10-08 공통 BIO current 준비와 조건부 규칙 admission (Task 4 API)
+
+- 구현 완료(소프트웨어): 고정 제품 OFF 거절 대신 단일 DB predicate를 capability 수신·규칙 저장·dashboard와 직접 SQL enabled source guard가 함께 사용한다. 현재 유일 승인 full fingerprint/profile, accepted 준비·catalog ACK, 현재 귀속·유효 MQTT 권한·V2 선언, 활성 담당자 정책과 profile maxAge 안의 별도 live 관측이 모두 필요하다. 첫 live ready도 인증된 제안값으로 판정한다.
+- 구현 완료(안전 경계): BIO source 1개·같은 Gateway·source/target 분리·10초 하한은 유지한다. fresh ready→ready와 동일 V2 지원 재선언은 snapshot revision/hash를 바꾸지 않는다. 철회·담당자/귀속 변경·live 만료는 enabled rule을 disable하고 내구 작업으로 snapshot을 수렴하며, 완료 전 옛 enabled snapshot 재전달/새 publish permit은 보류한다. disable/delete·명시 복원 경로와 과거 target attribution은 보존한다.
+- 미구현: Web 준비/정책 흐름의 소비, 전체 소프트웨어 통합, 운영 migration·배포 및 실제 RF/HIL 검증. 초기 profile은 빈 목록·정책 OFF이며 이번 작업은 제품 ON이나 실제 장비 제어가 아니다.
+- 부족하거나 개선이 필요한 기능: mode GET은 링크 응답이지 PIR 회로·광학·전력 증거가 아니다. 이미 발급된 network publish permit의 물리 race를 제거했다고 주장하지 않는다. 자연 시간만료는 eligibility 즉시 차단 후 bounded worker에서 실제 disable/snapshot으로 수렴한다.
+- 관련 파일: `apps/api/src/automation/{bio-sensor-eligibility.ts,vehicle-sensor-capability.service.ts,vehicle-event-rules.service.ts,bio-sensor-profiles.service.ts,automation-outbox-publisher.service.ts}`, `apps/api/prisma/migrations/20261008060000_bio_sensor_current_eligibility/migration.sql`.
+- 갱신 규칙: 아래 과거 제품 OFF·시험 기록과 현재 조건부 소프트웨어 admission을 구분하고 실제 운영 승인·적용 증거 없이 완료/ON으로 기록하지 않는다.
+
 ## 2026-10-08 A/B 센서 pilot — 제한된 실장비 기능 시험 통과
 
 - 구현 완료(시험 경로 확인): 브라우저 없는 단1회에서 A의 accepted 시험 알림5건으로 B60% 적용1회·hold60초4회 연장·정상 만료 원복 및300초 종료/A 원복을 확인했다. 사용자도 B 밝아짐과 기존 상태 복귀를 보고했고 native closed/pending0·launcher0·원본 서비스/MQTT/heartbeat·DB 대기8종0을 확인했다.

@@ -1515,6 +1515,9 @@ model MeshNode {
   bioPulseReadiness                  BioPulseReadiness             @default(off)
   bioPulseProfileId                  String?
   bioPulseVerifiedAt                 DateTime?
+  /// Initial commission mode GET instant, separate from refreshed link health.
+  /// No historical backfill; must exactly match current accepted preparation.
+  bioPulseSensorModeVerifiedAt       DateTime?
   bioPulseCapabilityRevision        BigInt                        @default(0)
   vehicleSensorCapabilityStatus     VehicleSensorCapabilityStatus @default(unknown)
   vehicleSensorCapabilityVerifiedAt DateTime?
@@ -1685,6 +1688,20 @@ model BioSensorProfileRevision {
 model BioSensorCatalogState {
   id       Int    @id @default(1)
   revision BigInt @default(1)
+}
+
+/// Durable serializer-owned convergence. No FK so deleted/old assignment work
+/// retains attribution; retiredAt is distinct from successful materialization.
+model BioSensorConvergenceWork {
+  siteId String
+  gatewayId String
+  assignmentVersion Int
+  catalogRevision BigInt
+  requestedAt DateTime @default(now())
+  nextAttemptAt DateTime @default(now())
+  completedAt DateTime?
+  retiredAt DateTime?
+  @@id([siteId, gatewayId, assignmentVersion, catalogRevision])
 }
 
 model BioSensorSitePolicy {

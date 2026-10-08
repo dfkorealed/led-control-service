@@ -7,6 +7,11 @@ const request = { schemaVersion: 2 as const, requestId: "00000000-0000-4000-8000
   requestedAt: "2026-09-30T00:00:00.000Z" };
 
 describe("Gateway automation protocol support authority", () => {
+  it("treats newer same support as exact snapshot resync, not a support transition", async () => {
+    const h = harness(); await recordAutomationProtocolSupport(h.tx as never, request);
+    expect(await recordAutomationProtocolSupport(h.tx as never, { ...request, requestId: "00000000-0000-4000-8000-000000000006", declarationRevision: 2 })).toBe("refreshed");
+    expect(h.rows).toHaveLength(2); expect(await loadAutomationProtocolSupport(h.tx as never, request)).toBe(2);
+  });
   it("persists explicit support independently of snapshot ACK and accepts only exact replay", async () => {
     const h = harness();
     expect(await loadAutomationProtocolSupport(h.tx as never, request)).toBe(1);

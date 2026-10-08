@@ -3,6 +3,7 @@ import { Prisma } from "@prisma/client";
 import { randomUUID } from "node:crypto";
 import { MqttService } from "../mqtt/mqtt.service";
 import { PrismaService } from "../prisma/prisma.service";
+import { hasPendingBioSensorConvergence } from "./bio-sensor-eligibility";
 
 const LEASE_MS = 30_000;
 const MQTT_PUBLISH_TIMEOUT_MS = 10_000;
@@ -119,7 +120,12 @@ export class AutomationOutboxPublisherService implements OnModuleInit {
     if (renewed.count !== 1) return;
 
     const fencedAt = this.clock();
-    const publishable = await this.prisma.mqttOutbox.count({
+    const publishable = await this.prisma.$transaction(async tx => {
+      if (variant === "config") {
+        await tx.$executeRaw`SELECT "lock_automation_membership_mutation"()`;
+        if (await hasPendingBioSensorConvergence(tx, record.gatewayId!)) return 0;
+      }
+      return tx.mqttOutbox.count({
       where: {
         ...this.ownedPublishableWhere(record, variant, fencedAt),
         leaseExpiresAt: { gt: new Date(fencedAt.getTime() + MQTT_PUBLISH_TIMEOUT_MS) },
@@ -127,6 +133,7 @@ export class AutomationOutboxPublisherService implements OnModuleInit {
           ? { gateway: { automationConfiguration: { desiredRevision: record.revision! } } }
           : {})
       }
+      });
     });
     if (publishable !== 1) return;
 
@@ -189,6 +196,9 @@ export class AutomationOutboxPublisherService implements OnModuleInit {
       WHERE "dispatchId" IS NULL
         AND "gatewayId" IS NOT NULL
         AND ${variantPredicate}
+        AND ${variant === "config" ? Prisma.sql`NOT EXISTS (SELECT 1 FROM "BioSensorConvergenceWork" work
+          JOIN "Gateway" g ON g."id"=work."gatewayId" AND g."siteId"=work."siteId" AND g."assignmentVersion"=work."assignmentVersion"
+          WHERE work."gatewayId"="MqttOutbox"."gatewayId" AND work."completedAt" IS NULL AND work."retiredAt" IS NULL)` : Prisma.sql`true`}
         AND "publishedAt" IS NULL
         AND "deadLetteredAt" IS NULL
         AND "supersededAt" IS NULL

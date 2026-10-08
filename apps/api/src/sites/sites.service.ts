@@ -5,6 +5,7 @@ import { AuthenticatedUser } from "../auth/auth.types";
 import { PrismaService } from "../prisma/prisma.service";
 import { fixtureStatusWithHealth, toFixtureHealthSnapshot } from "../fixtures/fixture-health";
 import { vehicleEventSourceView } from "./vehicle-event-source-view";
+import { loadBioSensorEligibility } from "../automation/bio-sensor-eligibility";
 import { loadBioPulseTelemetryViews } from "./bio-pulse-telemetry-view";
 import { DEFAULT_MONITORING_POLICY, isMonitoringGatewayOnline, monitoringFixtureState, type MonitoringPolicy } from "../monitoring-incidents/monitoring-conditions";
 
@@ -128,6 +129,7 @@ export class SitesService {
     const bioPulseTelemetry = await loadBioPulseTelemetryViews(this.prisma, siteId,
       fixtures.filter(fixture => fixture.meshNode?.vehicleSensorProtocol === "bio_usb_pulse"));
     const now = new Date();
+    const bioPreparation = await loadBioSensorEligibility(this.prisma, fixtures.map(fixture => fixture.id), now);
     const monitoringPolicy = {
       gatewayOfflineAfterSeconds: site.gatewayOfflineAfterSeconds,
       fixtureStaleAfterSeconds: site.fixtureStaleAfterSeconds
@@ -252,7 +254,8 @@ export class SitesService {
             : null,
           vehicleSensorCapabilityStatus: fixture.meshNode?.vehicleSensorCapabilityStatus ?? "unknown",
           vehicleSensorCapabilityVerifiedAt: fixture.meshNode?.vehicleSensorCapabilityVerifiedAt?.toISOString() ?? null,
-          vehicleEventSource: vehicleEventSourceView(fixture, now),
+          vehicleEventSource: vehicleEventSourceView(fixture, now, bioPreparation.get(fixture.id)),
+          bioSensorPreparation: bioPreparation.get(fixture.id) ?? null,
           bioPulseTelemetry: bioPulseTelemetry.get(fixture.id) ?? null,
           controllable: controlBlockReason === null,
           controlBlockReason

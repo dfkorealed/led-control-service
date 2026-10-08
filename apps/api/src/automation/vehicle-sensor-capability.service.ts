@@ -17,6 +17,7 @@ import { compareAndAdvanceGatewayEvent } from "../retention/gateway-event-waterm
 import { AutomationClock } from "./automation-clock";
 import { canonicalPayloadHash } from "./automation-payload-hash";
 import { AutomationSnapshotService, compareAutomationIds } from "./automation-snapshot.service";
+import { loadBioSensorEligibility } from "./bio-sensor-eligibility";
 
 export const VEHICLE_SENSOR_CAPABILITY_EVENT_TYPE = "vehicle_sensor_capability";
 const BIO_CAPABILITY_EVENT_TYPE = "bio_pulse_capability";
@@ -34,6 +35,7 @@ interface LockedCapabilityNode {
   bioPulseCapabilityRevision: bigint;
   bioPulseProfileId: string | null;
   bioPulseVerifiedAt: Date | null;
+  bioPulseSensorModeVerifiedAt: Date | null;
 }
 
 interface CapabilityLedgerRow {
@@ -255,6 +257,16 @@ export class VehicleSensorCapabilityService {
       await this.createLedger(tx, node, report, payloadHash, BIO_CAPABILITY_EVENT_TYPE);
       return result("duplicate");
     }
+    // Proposed values are broker-authenticated and exact delivery/current scope
+    // checked above. Qualification does not depend on an already-ready node.
+    if (report.readiness === "ready") {
+      const evidence = node.fixtureId ? await loadBioSensorEligibility(tx, [node.fixtureId], this.clock.now(), report) : null;
+      const view = node.fixtureId ? evidence?.get(node.fixtureId) : null;
+      if (!view || view.blockedReasons.length) {
+        await this.disableAffectedRules(tx, node, report.gatewayId);
+        return result("rejected", "bio_current_evidence_unverified");
+      }
+    }
     if (report.readiness !== "ready" || (node.bioPulseReadiness === "ready"
       && node.bioPulseProfileId !== report.verifiedFingerprintId)) {
       // The DB rejects downgrading an enabled source. Disable and enqueue the
@@ -263,7 +275,8 @@ export class VehicleSensorCapabilityService {
     }
     await tx.meshNode.update({ where: { id: node.id }, data: {
       bioPulseReadiness: report.readiness, bioPulseCapabilityRevision: revision,
-      bioPulseProfileId: report.verifiedFingerprintId, bioPulseVerifiedAt: new Date(report.verifiedAt)
+      bioPulseProfileId: report.verifiedFingerprintId, bioPulseVerifiedAt: new Date(report.verifiedAt),
+      bioPulseSensorModeVerifiedAt: report.sensorModeVerifiedAt ? new Date(report.sensorModeVerifiedAt) : null
     } });
     await this.createLedger(tx, node, report, payloadHash, BIO_CAPABILITY_EVENT_TYPE);
     return result("applied");
@@ -327,6 +340,7 @@ export class VehicleSensorCapabilityService {
         node."bioPulseCapabilityRevision",
         node."bioPulseProfileId",
         node."bioPulseVerifiedAt",
+        node."bioPulseSensorModeVerifiedAt",
         node."vehicleSensorCapabilityStatus",
         node."vehicleSensorCapabilityVerifiedAt",
         node."vehicleSensorCapabilityRevision",
@@ -477,7 +491,8 @@ function sameCapabilityLedger(
 function sameBioCapabilityState(node: LockedCapabilityNode, report: VehicleSensorCapabilityReportV2) {
   return node.bioPulseReadiness === report.readiness
     && node.bioPulseProfileId === report.verifiedFingerprintId
-    && node.bioPulseVerifiedAt?.getTime() === new Date(report.verifiedAt).getTime();
+    && node.bioPulseVerifiedAt?.getTime() === new Date(report.verifiedAt).getTime()
+    && (node.bioPulseSensorModeVerifiedAt?.getTime() ?? null) === (report.sensorModeVerifiedAt ? new Date(report.sensorModeVerifiedAt).getTime() : null);
 }
 
 function sameCapabilityState(node: LockedCapabilityNode, report: VehicleSensorCapabilityReportV1) {

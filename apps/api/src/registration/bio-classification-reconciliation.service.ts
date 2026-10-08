@@ -34,8 +34,12 @@ export class BioClassificationReconciliationService {
   async reconcile(actor: AuthenticatedUser, rawInput: unknown) {
     const parsed = reconcileBioClassificationInputSchema.safeParse(rawInput);
     if (!parsed.success) throw new BadRequestException("invalid BIO classification request");
-    const input = parsed.data;
-    return this.prisma.$transaction(async tx => {
+    return this.prisma.$transaction(tx => this.reconcileInTransaction(tx, actor, parsed.data), { timeout: 10_000 });
+  }
+
+  /** Internal atomic preparation entry. Public reconciliation uses exactly this
+   * proof/authorization/lock/audit path; this is not a protocol guard bypass. */
+  async reconcileInTransaction(tx: Prisma.TransactionClient, actor: AuthenticatedUser, input: Input) {
       // Match automation writes: membership first, then Site authorization and
       // registration Floor/Gateway locks. Protocol UPDATE triggers keep this lock.
       await tx.$executeRaw`SELECT "lock_automation_membership_mutation"()`;
@@ -104,7 +108,6 @@ export class BioClassificationReconciliationService {
         changedFixtureIds.push(fixtureId);
       }
       return { changedFixtureIds, unchangedFixtureIds };
-    }, { timeout: 10_000 });
   }
 
   private fixtures(tx: Prisma.TransactionClient, input: Input) {
@@ -178,5 +181,5 @@ function defaultQualification() {
   return { vehicleSensorProtocol: "bluez_stateful" as const, vehicleSensorCapabilityStatus: "unknown" as const,
     vehicleSensorCapabilityRevision: 0n, vehicleSensorCapabilityVerifiedAt: null, vehicleSensorServerBound: false,
     vehicleVendorEventModelBound: false, bioPulseReadiness: "off" as const, bioPulseCapabilityRevision: 0n,
-    bioPulseProfileId: null, bioPulseVerifiedAt: null };
+    bioPulseProfileId: null, bioPulseVerifiedAt: null, bioPulseSensorModeVerifiedAt: null };
 }

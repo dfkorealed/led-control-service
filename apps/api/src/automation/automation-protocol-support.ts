@@ -36,7 +36,7 @@ export async function loadAutomationProtocolSupport(tx: Prisma.TransactionClient
 
 export async function recordAutomationProtocolSupport(
   tx: Prisma.TransactionClient, value: AutomationCurrentConfigRequestV2
-): Promise<"accepted" | "duplicate" | "stale" | "unverified"> {
+): Promise<"accepted" | "refreshed" | "duplicate" | "stale" | "unverified"> {
   const request = automationCurrentConfigRequestV2Schema.parse(value);
   const scope = { siteId: request.siteId, gatewayId: request.gatewayId };
   const identity = await lockAutomationProtocolIdentity(tx, scope);
@@ -56,5 +56,7 @@ export async function recordAutomationProtocolSupport(
     declarationId: request.requestId, maxSnapshotVersion: request.maxSnapshotVersion,
     payloadHash, declaredAt: new Date(request.requestedAt)
   } });
-  return "accepted";
+  // A new request identity announcing unchanged support is an exact snapshot
+  // resync, not a policy transition. Preserve desiredRevision/hash and hold.
+  return latest?.maxSnapshotVersion === request.maxSnapshotVersion ? "refreshed" : "accepted";
 }

@@ -7,10 +7,13 @@ import { AutomationClock } from "./automation-clock";
 import { AutomationMqttConsumerService } from "./automation-mqtt-consumer.service";
 import { AutomationSnapshotService } from "./automation-snapshot.service";
 import { VehicleSensorCapabilityService } from "./vehicle-sensor-capability.service";
+import { AuditModule } from "../audit/audit.module";
+import { BioClassificationReconciliationService } from "../registration/bio-classification-reconciliation.service";
 
 @Module({
-  imports: [PrismaModule, AccessModule],
+  imports: [PrismaModule, AccessModule, AuditModule],
   providers: [
+    BioClassificationReconciliationService,
     BioSensorProfilesService,
     BioSensorPreparationService,
     AutomationClock,

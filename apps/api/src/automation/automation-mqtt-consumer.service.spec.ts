@@ -146,6 +146,14 @@ describe("AutomationMqttConsumerService", () => {
       lastError: null
     });
   });
+  it("does not redeliver old enabled snapshot before committed current-scope convergence settles", async () => {
+    const h = createHarness(); const latest = h.state.configOutboxes.at(-1)!; latest.publishedAt = NOW;
+    const original = h.prisma.$queryRaw.getMockImplementation()!;
+    h.prisma.$queryRaw.mockImplementation(async (query: { strings?: readonly string[] }) => query.strings?.join(" ").includes('"BioSensorConvergenceWork"')
+      ? [{ pending: true }] : original(query));
+    await h.service.onCurrentConfigRequest({ siteId: SITE_ID, gatewayId: GATEWAY_ID }, currentConfigRequest());
+    expect(latest.publishedAt).toEqual(NOW);
+  });
 
   it("creates a durable exact config-applied receipt on first ingest and revives it on replay", async () => {
     const harness = createHarness();

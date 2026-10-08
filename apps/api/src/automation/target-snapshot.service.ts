@@ -1,6 +1,7 @@
 import { BadRequestException, ConflictException, Injectable } from "@nestjs/common";
 import type { DimmingTarget } from "@led-control/shared";
 import type { Prisma, VehicleSensorProtocol, BioPulseReadiness } from "@prisma/client";
+import { loadBioSensorEligibility } from "./bio-sensor-eligibility";
 
 type TargetFixture = {
   id: string;
@@ -61,11 +62,12 @@ export class TargetSnapshotService {
     if (!sensorProtocol || protocols.size !== 1 || (sensorProtocol === "bio_usb_pulse" && fixtures.length !== 1)) {
       throw new BadRequestException("vehicle event requires one protocol and exactly one BIO source");
     }
-    if (!allowUnavailable && fixtures.some(({ meshNode: node }) => !node || (sensorProtocol === "bio_usb_pulse"
-      ? node.bioPulseReadiness !== "ready" || node.bioPulseCapabilityRevision <= 0n
-        || !node.bioPulseProfileId?.trim() || node.bioPulseVerifiedAt === null
+    const bio = !allowUnavailable && sensorProtocol === "bio_usb_pulse"
+      ? await loadBioSensorEligibility(tx, fixtures.map(fixture => fixture.id)) : null;
+    if (!allowUnavailable && fixtures.some(({ id, meshNode: node }) => !node || (sensorProtocol === "bio_usb_pulse"
+      ? bio?.get(id)?.status !== "ready" || bio.get(id)!.blockedReasons.length !== 0
       : node.vehicleSensorCapabilityStatus !== "supported" || node.vehicleSensorCapabilityVerifiedAt === null))) {
-      throw new BadRequestException("vehicle event source is unavailable");
+      throw new BadRequestException({ message: "vehicle event source is unavailable", blockedReasons: bio ? [...bio.values()].flatMap(view => view.blockedReasons) : ["capability_unverified"] });
     }
     return { fixtureIds: [...new Set(fixtures.map((fixture) => fixture.id))].sort(compareIds), sensorProtocol };
   }

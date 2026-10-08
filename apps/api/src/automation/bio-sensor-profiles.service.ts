@@ -9,12 +9,16 @@ import { AuthenticatedUser } from "../auth/auth.types";
 import { PrismaService } from "../prisma/prisma.service";
 import { canonicalPayloadHash } from "./automation-payload-hash";
 import { lockBioSensorCatalog, lockBioSensorGateway } from "./bio-sensor-catalog-locks";
+import { AutomationSnapshotService } from "./automation-snapshot.service";
+import { AutomationClock } from "./automation-clock";
+import { loadCurrentBioSensorProfiles } from "./bio-sensor-preparation-evidence";
 
 const policySchema = bioSensorCatalogV1Schema.shape.executionPolicy;
 
 @Injectable()
 export class BioSensorProfilesService {
-  constructor(private readonly prisma: PrismaService, private readonly access: SiteAccessService) {}
+  constructor(private readonly prisma: PrismaService, private readonly access: SiteAccessService,
+    private readonly snapshots: AutomationSnapshotService = new AutomationSnapshotService(new AutomationClock())) {}
 
   async list(actor: AuthenticatedUser) {
     return this.prisma.$transaction(async tx => {
@@ -54,7 +58,7 @@ export class BioSensorProfilesService {
   async getSitePolicy(actor: AuthenticatedUser, siteId: string) {
     return this.prisma.$transaction(async tx => {
       await lockBioSensorCatalog(tx); await this.access.assertManageInTransaction(tx, actor, siteId);
-      const policy = await tx.bioSensorSitePolicy.findUnique({ where: { siteId } });
+      const policy = await this.currentPolicy(tx, siteId);
       return { ...policyView(policy), revision: Number(policy?.revision ?? 1n) };
     });
   }
@@ -70,22 +74,23 @@ export class BioSensorProfilesService {
       if (policy.enabled && policy.ownerUserId !== site.adminUserId) throw new BadRequestException("BIO policy owner must be current assigned administrator");
       const state = await this.advance(tx);
       await tx.bioSensorSitePolicy.upsert({ where: { siteId }, create: { siteId, ...policy, revision: state.revision }, update: { ...policy, revision: state.revision } });
+      await this.settleOwnedChanges(tx, siteId);
       return { ...policy, revision: Number(state.revision) };
     });
   }
 
   async currentProfiles(tx: Prisma.TransactionClient): Promise<BioSensorProfileV1[]> {
-    const rows = await tx.bioSensorProfileRevision.findMany({ orderBy: [{ profileId: "asc" }, { revision: "desc" }] });
-    const selected = new Set<string>();
-    return rows.filter(row => { if (selected.has(row.profileId)) return false; selected.add(row.profileId); return true; })
-      .map(({ actorId: _a, createdAt: _c, ...row }) => bioSensorProfileV1Schema.parse({ ...row, revision: Number(row.revision) }));
+    return loadCurrentBioSensorProfiles(tx);
   }
 
   async buildCurrentCatalog(siteId: string, gatewayId: string): Promise<BioSensorCatalogV1> {
     return this.prisma.$transaction(async tx => {
       const revision = await lockBioSensorCatalog(tx); const now = new Date();
       const assignmentVersion = await lockBioSensorGateway(tx, { siteId, gatewayId }, now);
-      return this.catalogInTransaction(tx, { siteId, gatewayId, assignmentVersion }, revision, now);
+      const scope = { siteId, gatewayId, assignmentVersion };
+      const catalog = await this.catalogInTransaction(tx, scope, revision, now);
+      await this.materializeConvergence(tx, scope, revision, now);
+      return catalog;
     });
   }
 
@@ -95,7 +100,7 @@ export class BioSensorProfilesService {
     const identity = { ...owner, catalogRevision: revision };
     const prior = await tx.bioSensorCatalogDelivery.findUnique({ where: { siteId_gatewayId_assignmentVersion_catalogRevision: identity } });
     if (prior) return bioSensorCatalogV1Schema.parse(prior.payload);
-    const policy = await tx.bioSensorSitePolicy.findUnique({ where: { siteId: scope.siteId } });
+    const policy = await this.currentPolicy(tx, scope.siteId);
     const catalog = bioSensorCatalogV1Schema.parse({ schemaVersion: 1, ...owner, eventId: randomUUID(), catalogRevision: Number(revision),
       issuedAt: now.toISOString(), profiles: await this.currentProfiles(tx), executionPolicy: policyView(policy) });
     await tx.bioSensorCatalogDelivery.updateMany({ where: { siteId: scope.siteId, gatewayId: scope.gatewayId, supersededAt: null }, data: { supersededAt: now } });
@@ -139,6 +144,90 @@ export class BioSensorProfilesService {
     if (profile.revision !== Number(previous?.revision ?? 0n) + 1) throw new ConflictException("BIO profile revision must append sequentially");
     await tx.bioSensorProfileRevision.create({ data: { ...profile, revision: BigInt(profile.revision), actorId } });
     await this.advance(tx);
+    await this.settleOwnedChanges(tx);
+  }
+
+  private async currentPolicy(tx: Prisma.TransactionClient, siteId: string) {
+    const policy = await tx.bioSensorSitePolicy.findUnique({ where: { siteId } });
+    if (!policy?.enabled) return policy;
+    const site = await tx.site.findUnique({ where: { id: siteId }, include: { admin: { include: { organization: true } } } });
+    const owner = site?.admin;
+    return owner?.id === policy.ownerUserId && owner.status === "active" && owner.role === "admin"
+      && owner.organizationId === site?.organizationId && owner.organization.type === "customer" ? policy : { ...policy, enabled: false };
+  }
+
+  /** Bounded synchronous settlement for owned mutations. Remaining global work
+   * is durable and completed by the existing catalog worker, never memory-only. */
+  private async settleOwnedChanges(tx: Prisma.TransactionClient, siteId?: string) {
+    const revision = (await tx.bioSensorCatalogState.findUniqueOrThrow({ where: { id: 1 } })).revision;
+    const gateways = await tx.gateway.findMany({ where: { ...(siteId ? { siteId } : {}), claimedAt: { not: null }, assignmentVersion: { gt: 0 } }, orderBy: { id: "asc" }, take: 10 });
+    for (const gateway of gateways) {
+      const scope = { siteId: gateway.siteId, gatewayId: gateway.id, assignmentVersion: gateway.assignmentVersion };
+      try { await lockBioSensorGateway(tx, scope, new Date()); } catch (error) { if (error instanceof ConflictException) continue; throw error; }
+      await this.catalogInTransaction(tx, scope, revision, new Date());
+      await this.materializeConvergence(tx, scope, revision, new Date());
+    }
+  }
+
+  async materializeConvergence(tx: Prisma.TransactionClient, scope: { siteId: string; gatewayId: string; assignmentVersion: number }, revision: bigint, now: Date) {
+    const pending = await tx.bioSensorConvergenceWork.findMany({ where: { siteId: scope.siteId, gatewayId: scope.gatewayId,
+      assignmentVersion: scope.assignmentVersion, completedAt: null, retiredAt: null } });
+    const invalid = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`SELECT r."id" FROM "VehicleEventRule" r
+      WHERE r."gatewayId"=${scope.gatewayId} AND r."status"='enabled' AND r."sensorProtocol"='bio_usb_pulse'
+        AND EXISTS(SELECT 1 FROM "VehicleEventSource" s WHERE s."ruleId"=r."id" AND cardinality(bio_sensor_blocked_reasons(s."fixtureId",(${now}::timestamptz AT TIME ZONE 'UTC')))<>0)`);
+    if (invalid.length) await tx.vehicleEventRule.updateMany({ where: { id: { in: invalid.map(row => row.id) } }, data: { status: "disabled" } });
+    const current = pending.filter(work => work.catalogRevision === revision);
+    if (current.length || invalid.length) await this.snapshots.incrementDesiredRevision(tx, scope.gatewayId);
+    // Serializer/outbox and settlement commit together. Old revisions are
+    // explicitly retired, not mislabeled completed, with attribution retained.
+    for (const work of pending) await tx.bioSensorConvergenceWork.update({ where: { siteId_gatewayId_assignmentVersion_catalogRevision: {
+      siteId: work.siteId, gatewayId: work.gatewayId, assignmentVersion: work.assignmentVersion, catalogRevision: work.catalogRevision } },
+      data: work.catalogRevision === revision ? { completedAt: now } : { retiredAt: now } });
+  }
+
+  async processConvergenceWork(work: { siteId: string; gatewayId: string; assignmentVersion: number; catalogRevision: bigint }) {
+    await this.prisma.$transaction(async tx => {
+      const revision = await lockBioSensorCatalog(tx); const now = new Date();
+      const key = { siteId_gatewayId_assignmentVersion_catalogRevision: work };
+      await tx.$queryRaw`SELECT "gatewayId" FROM "BioSensorConvergenceWork" WHERE "siteId"=${work.siteId}
+        AND "gatewayId"=${work.gatewayId} AND "assignmentVersion"=${work.assignmentVersion} AND "catalogRevision"=${work.catalogRevision} FOR UPDATE`;
+      const row = await tx.bioSensorConvergenceWork.findUnique({ where: key });
+      if (!row || row.completedAt || row.retiredAt || row.nextAttemptAt>now) return;
+      const gateway = await tx.gateway.findUnique({ where: { id: work.gatewayId } });
+      if (!gateway || gateway.siteId!==work.siteId || gateway.assignmentVersion!==work.assignmentVersion || revision!==work.catalogRevision) {
+        await tx.bioSensorConvergenceWork.update({ where: key, data: { retiredAt: now } }); return;
+      }
+      try { await lockBioSensorGateway(tx, work, now); } catch (error) {
+        if (!(error instanceof ConflictException)) throw error;
+        // A temporary certificate failure is retriable, never successful or
+        // obsolete. Defer this row so a bad prefix cannot starve healthy work.
+        await tx.bioSensorConvergenceWork.update({ where: key, data: { nextAttemptAt: new Date(now.getTime()+1_000) } }); return;
+      }
+      await this.catalogInTransaction(tx, work, revision, now);
+      await this.materializeConvergence(tx, work, revision, now);
+    }, { timeout: 10_000 });
+  }
+
+  async sweepUnavailableRules() {
+    await this.prisma.$transaction(async tx => {
+      const revision = await lockBioSensorCatalog(tx); const now = new Date();
+      const invalid = await tx.$queryRaw<Array<{ id: string; gatewayId: string }>>(Prisma.sql`
+        SELECT r."id",r."gatewayId" FROM "VehicleEventRule" r WHERE r."status"='enabled' AND r."sensorProtocol"='bio_usb_pulse'
+          AND EXISTS(SELECT 1 FROM "VehicleEventSource" s WHERE s."ruleId"=r."id"
+            AND cardinality(bio_sensor_blocked_reasons(s."fixtureId",(${now}::timestamptz AT TIME ZONE 'UTC')))<>0)
+        ORDER BY r."id" LIMIT 10 FOR UPDATE OF r`);
+      if (!invalid.length) return;
+      await tx.vehicleEventRule.updateMany({ where: { id: { in: invalid.map(row => row.id) } }, data: { status: "disabled" } });
+      for (const gatewayId of new Set(invalid.map(row => row.gatewayId))) {
+        const gateway = await tx.gateway.findUniqueOrThrow({ where: { id: gatewayId } });
+        const key = { siteId: gateway.siteId, gatewayId, assignmentVersion: gateway.assignmentVersion, catalogRevision: revision };
+        // The row is current work state for this scope/revision, not an event
+        // history. Natural live expiry can reopen it without changing policy or
+        // inventing a new catalog approval. Old scope/revision rows stay intact.
+        await tx.bioSensorConvergenceWork.upsert({ where: { siteId_gatewayId_assignmentVersion_catalogRevision: key },
+          create: { ...key, requestedAt: now, nextAttemptAt: now }, update: { requestedAt: now, nextAttemptAt: now, completedAt: null, retiredAt: null } });
+      }
+    });
   }
 
   private advance(tx: Prisma.TransactionClient) {

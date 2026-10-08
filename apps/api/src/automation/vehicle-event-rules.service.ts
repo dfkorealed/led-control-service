@@ -281,11 +281,8 @@ export class VehicleEventRulesService {
   private assertQualifiedRule(input: Pick<CreateVehicleEventRuleInput, "status" | "holdSeconds">,
     sensorProtocol: VehicleSensorProtocol) {
     assertVehicleEventRuleHoldSeconds(input.holdSeconds, sensorProtocol);
-    // Task 5c owns authenticated V2 support and deployment. A ready source alone
-    // cannot authorize execution through the currently V1-only publisher.
-    if (sensorProtocol === "bio_usb_pulse" && input.status === "enabled") {
-      throw new ConflictException({ code: "v2_support_unverified" });
-    }
+    // Source resolution uses the same current preparation/V2 predicate as DB
+    // admission. Disabled audit edits and release workflows do not require ready.
   }
 
   private async findResponse(tx: Prisma.TransactionClient, siteId: string, ruleId: string) {

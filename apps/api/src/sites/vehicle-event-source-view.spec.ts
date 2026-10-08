@@ -10,6 +10,12 @@ const fixture = {
 };
 
 describe("vehicle event source read model", () => {
+  it("uses current common eligibility instead of an unconditional BIO product gate", () => {
+    const current = { status: "ready", commandId: "command", profileKey: "profile@1", observedAt: now.toISOString(), blockedReasons: [] };
+    expect((vehicleEventSourceView as any)(fixture, now, current)).toMatchObject({ readiness: "ready", sourceEligible: true, blockReasons: [] });
+    expect((vehicleEventSourceView as any)(fixture, now, { ...current, status: "unverified", blockedReasons: ["link_unverified"] }))
+      .toMatchObject({ readiness: "off", sourceEligible: false, blockReasons: ["link_unverified"] });
+  });
   const id = "11111111-1111-4111-8111-111111111111";
   const verifiedFixture = {
     ...fixture, id, siteId: id, gatewayId: id, meshNodeId: id,
@@ -33,10 +39,10 @@ describe("vehicle event source read model", () => {
     expect(vehicleEventSourceView({ ...verifiedFixture, sensorModeOperations: [{ ...row, supersededAt: now }] }, now).modeVerification.modeVerified).toBe(false);
     expect(vehicleEventSourceView({ ...verifiedFixture, sensorModeOperations: [{ ...row, status: "pending" }] }, now).modeVerification).toMatchObject({ status: "timed_out", modeVerified: false });
   });
-  it.each(["off", "shadow", "ready", "degraded"])("never promotes %s BIO evidence while product gate is OFF", evidence => {
+  it.each(["off", "shadow", "ready", "degraded"])("never promotes bare %s BIO evidence without current preparation", evidence => {
     const result = vehicleEventSourceView({ ...fixture, meshNode: { ...fixture.meshNode, bioPulseReadiness: evidence } }, now);
     expect(result).toMatchObject({ sensorProtocol: "bio-usb-pulse", readiness: "off", capabilityEvidence: evidence,
-      sourceEligible: false, targetEligible: true, blockReasons: expect.arrayContaining(["product_gate_off"]),
+      sourceEligible: false, targetEligible: true, blockReasons: expect.arrayContaining(["profile_unverified"]),
       modeVerification: { modeVerified: false, verifiedAt: null } });
   });
   it("protects an enabled BIO source without forbidding an ordinary BIO B target", () => {

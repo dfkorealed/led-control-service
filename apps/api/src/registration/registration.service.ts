@@ -16,6 +16,8 @@ import { MqttService } from "../mqtt/mqtt.service";
 import { PrismaService } from "../prisma/prisma.service";
 import { RegistrationAllocationService } from "./registration-allocation.service";
 import { lockRegistrationDeviceUuids, lockRegistrationDomain } from "./registration-domain-locks";
+import { bioSensorDiscoveryCatalogMatch, loadCurrentBioSensorProfiles } from "../automation/bio-sensor-preparation-evidence";
+import type { BioSensorProfileV1 } from "@led-control/shared";
 
 interface RegisterNodeInput {
   fixtureName: string;
@@ -777,6 +779,7 @@ type RegistrationNodeResponse<TNode extends RegistrationNodeSource> = Omit<TNode
   identifyOperationStartedAt: Date | null;
   registrationEligibility: RegistrationEligibility;
   existingRegistration: ExistingRegistrationResponse | null;
+  bioSensorCatalogMatch: ReturnType<typeof bioSensorDiscoveryCatalogMatch>;
 };
 
 type RegistrationSessionResponse<TSession extends RegistrationSessionSource> =
@@ -798,7 +801,8 @@ async function toRegistrationSessionResponses<TSession extends RegistrationSessi
 ): Promise<Array<RegistrationSessionResponse<TSession>>> {
   const nodes = sessions.flatMap((session) => session.discoveredNodes);
   const registrationsByDeviceUuid = await findRegistrationResponses(tx, nodes.map((node) => node.deviceUuid));
-  return sessions.map((session) => presentRegistrationSession(session, registrationsByDeviceUuid));
+  const profiles = await loadCurrentBioSensorProfiles(tx);
+  return sessions.map((session) => presentRegistrationSession(session, registrationsByDeviceUuid, profiles));
 }
 
 async function toRegistrationNodeResponse<TNode extends RegistrationNodeSource>(
@@ -808,7 +812,7 @@ async function toRegistrationNodeResponse<TNode extends RegistrationNodeSource>(
   operation?: IdentifyOperationMetadata
 ): Promise<RegistrationNodeResponse<TNode>> {
   const registrationsByDeviceUuid = await findRegistrationResponses(tx, [node.deviceUuid]);
-  return presentRegistrationNode(siteId, node, registrationsByDeviceUuid.get(node.deviceUuid), operation);
+  return presentRegistrationNode(siteId, node, registrationsByDeviceUuid.get(node.deviceUuid), operation, await loadCurrentBioSensorProfiles(tx));
 }
 
 async function findRegistrationResponses(
@@ -828,7 +832,7 @@ async function findRegistrationResponses(
 
 function presentRegistrationSession<TSession extends RegistrationSessionSource>(
   session: TSession,
-  registrationsByDeviceUuid: Map<string, RegistrationResponseRecord>
+  registrationsByDeviceUuid: Map<string, RegistrationResponseRecord>, profiles: BioSensorProfileV1[]
 ): RegistrationSessionResponse<TSession> {
   const {
     scanTerminalEventId: _scanTerminalEventId,
@@ -844,7 +848,7 @@ function presentRegistrationSession<TSession extends RegistrationSessionSource>(
     discoveredNodes: discoveredNodes.map((node) => presentRegistrationNode(
       session.siteId,
       node,
-      registrationsByDeviceUuid.get(node.deviceUuid)
+      registrationsByDeviceUuid.get(node.deviceUuid), undefined, profiles
     ))
   };
 }
@@ -853,7 +857,7 @@ function presentRegistrationNode<TNode extends RegistrationNodeSource>(
   siteId: string,
   node: TNode,
   registration?: RegistrationResponseRecord,
-  operation?: IdentifyOperationMetadata
+  operation?: IdentifyOperationMetadata, profiles: BioSensorProfileV1[] = []
 ): RegistrationNodeResponse<TNode> {
   const { deviceOutbox, bioDiscoveryFingerprint: _bioDiscoveryFingerprint, ...publicNode } = node;
   const latest = operation ?? deviceOutbox?.[0];
@@ -875,6 +879,7 @@ function presentRegistrationNode<TNode extends RegistrationNodeSource>(
     identifyOperationId: latest?.id ?? null,
     identifyOperationStartedAt: latest?.createdAt ?? null,
     registrationEligibility,
+    bioSensorCatalogMatch: bioSensorDiscoveryCatalogMatch(node.bioDiscoveryFingerprint, profiles),
     existingRegistration
   };
 }

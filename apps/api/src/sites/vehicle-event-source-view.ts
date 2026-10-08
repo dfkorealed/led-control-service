@@ -1,5 +1,6 @@
 import { bioSensorModeResultSchema } from "@led-control/shared";
 import { createHash } from "node:crypto";
+import type { BioSensorPreparationView } from "../automation/bio-sensor-eligibility";
 
 interface SourceFixture {
   id: string; siteId: string; gatewayId: string | null; meshNodeId: string | null;
@@ -16,22 +17,21 @@ interface SourceFixture {
   }>;
 }
 
-type SourceBlockReason = "product_gate_off" | "mode_unverified" | "capability_unverified";
-
-export function vehicleEventSourceView(fixture: SourceFixture, now: Date) {
+export function vehicleEventSourceView(fixture: SourceFixture, now: Date, preparation?: BioSensorPreparationView) {
   const node = fixture.meshNode;
   const bio = node?.vehicleSensorProtocol === "bio_usb_pulse";
   const bluezReady = !bio && node?.vehicleSensorCapabilityStatus === "supported" && Boolean(node.vehicleSensorCapabilityVerifiedAt);
   const modeVerification = modeEvidence(fixture, now);
-  const blockReasons: SourceBlockReason[] = bio ? ["product_gate_off", ...(!modeVerification.modeVerified ? ["mode_unverified" as const] : [])]
+  const bioReady = bio && preparation?.status === "ready" && preparation.blockedReasons.length === 0;
+  const blockReasons = bio ? preparation?.blockedReasons ?? ["mode_unverified", "link_unverified", "profile_unverified"]
     : bluezReady ? [] : ["capability_unverified"];
-  // Product readiness is intentionally OFF until HIL, profile, independent health
-  // and rollout gates are approved. A stored ready report or mode GET cannot lift it.
+  // Historical mode GET remains informational; only the current common predicate
+  // combines accepted preparation, authorized policy and independent live health.
   return {
     sensorProtocol: bio ? "bio-usb-pulse" as const : "bluez-stateful" as const,
-    readiness: bluezReady ? "ready" as const : "off" as const,
+    readiness: bluezReady || bioReady ? "ready" as const : "off" as const,
     capabilityEvidence: bio ? node.bioPulseReadiness : null,
-    sourceEligible: bluezReady,
+    sourceEligible: Boolean(bluezReady || bioReady),
     targetEligible: !(fixture.vehicleEventSources ?? []).some(({ rule }) => rule.status === "enabled" && rule.sensorProtocol === "bio_usb_pulse"),
     blockReasons,
     modeVerification

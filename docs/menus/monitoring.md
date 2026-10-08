@@ -1,5 +1,14 @@
 # 모니터링 메뉴 기능 현황
 
+## 2026-10-08 BIO current 준비 projection (Task 4 API)
+
+- 구현 완료(소프트웨어): 상세 fixture 집합을 한 번의 batched SQL 판정으로 읽어 `bioSensorPreparation:{status,commandId,profileKey,observedAt,blockedReasons,preparationCandidate}`를 제공한다. commandId/profileKey/observedAt는 증거가 없으면 NULL이며 candidate는 confirmed canonical BIO 준비 진입 후보일 뿐 source 권한이 아니다. 일반 응답에는 raw fingerprint/body/native/hash를 내보내지 않는다.
+- 구현 완료(판정): 기존 mode GET은 과거 참고 정보로 남기고 sourceEligible은 current 준비·정책·catalog ACK·인증 V2·별도 live freshness가 모두 맞을 때만 true다. 정책 담당자 해제·철회·재배정·identity 교체·만료 시 같은 predicate가 즉시 차단 사유를 반환한다. 과거 준비 observedAt와 120초 최초 TTL을 상시 건강으로 쓰지 않는다.
+- 미구현: Web DTO/준비 상태 소비 및 전체 통합·운영 적용·실장비 검증.
+- 부족하거나 개선이 필요한 기능: `profile_unverified|fingerprint_unverified|mode_unverified|link_unverified|catalog_pending|operating_policy_required|gateway_protocol_unverified|binding_changed|unsupported`만 사유로 제공한다. 관측·전달 ACK·classification·센서 회로 건강·광학 출력은 서로 다른 증거다.
+- 관련 파일: `apps/api/src/sites/{sites.service.ts,vehicle-event-source-view.ts}`, `apps/api/src/automation/bio-sensor-eligibility.ts`, `apps/api/test/bio-sensor-catalog-preparation.integration.spec.ts`.
+- 갱신 규칙: 새 dashboard 무효화 결과로 이전 ready를 제거하며, candidate/matched를 ready로 표시하지 않는다. 아래 과거 기록은 당시 범위로 보존한다.
+
 ## 2026-10-08 등록 BIO discovery 관측 보존 경계
 
 - 구현 완료(Task 2A 소프트웨어): registration scan의 종류·firmware/build·sensor/infrared/ambient/hardware fingerprint를 nullable 내부 관측으로 보존한다. 기존 현재 session/correlation/attempt/site/gateway·lifecycle·event 원장/sequence 경계를 재사용하며 등록 완료 뒤 보존한다. 일반 polling 응답과 수신 오류 로그에는 raw 관측을 노출하지 않는다.

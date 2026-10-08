@@ -5,6 +5,13 @@ const SITE_ID = "00000000-0000-4000-8000-000000000001";
 const GATEWAY_ID = "00000000-0000-4000-8000-000000000002";
 
 describe("AutomationOutboxPublisherService", () => {
+  it("does not issue a fresh config publish permit while committed BIO convergence is pending", async () => {
+    const prisma = publishPrisma(); prisma.$queryRaw.mockResolvedValue([{ pending: true }]);
+    const mqtt = { publishTopic: jest.fn() };
+    await new AutomationOutboxPublisherService(prisma as never, mqtt as never, { clock: () => NOW }).publishClaimed(configRecord() as never);
+    expect(mqtt.publishTopic).not.toHaveBeenCalled();
+    expect(prisma.$executeRaw).toHaveBeenCalled();
+  });
   it("claims config and application ACK variants with disjoint SKIP LOCKED leases", async () => {
     const configTx = claimTx(configRecord());
     const ackTx = claimTx(ackRecord());
@@ -303,8 +310,10 @@ function publishPrisma(options: { renewCount?: number; supersededCount?: number 
   };
   const prisma: any = {
     mqttOutbox,
+    $queryRaw: jest.fn().mockResolvedValue([{ pending: false }]),
     $executeRaw: jest.fn().mockResolvedValue(options.supersededCount ?? 0)
   };
+  prisma.$transaction = jest.fn((callback: any) => callback(prisma));
   return prisma;
 }
 

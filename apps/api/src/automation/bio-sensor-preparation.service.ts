@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, ConflictException, Injectable, NotFoundException, Optional } from "@nestjs/common";
 import { bioSensorPreparationRequestV1Schema, bioSensorPreparationCommandV1Schema, bioSensorPreparationReportV1Schema,
   bioSensorPreparationAckV1Schema, matchesBioSensorPreparationReportV1 } from "@led-control/shared";
 import { Prisma, type BioSensorPreparationOperation } from "@prisma/client";
@@ -11,11 +11,12 @@ import { canonicalPayloadHash } from "./automation-payload-hash";
 import { lockBioSensorCatalog, loadBioSensorBinding } from "./bio-sensor-catalog-locks";
 import { hasCurrentBioPreparationEvidence } from "./bio-sensor-preparation-evidence";
 import { BioSensorProfilesService } from "./bio-sensor-profiles.service";
+import { BioClassificationReconciliationService } from "../registration/bio-classification-reconciliation.service";
 
 @Injectable()
 export class BioSensorPreparationService {
   constructor(private readonly prisma: PrismaService, private readonly access: SiteAccessService,
-    private readonly profiles: BioSensorProfilesService) {}
+    private readonly profiles: BioSensorProfilesService, @Optional() private readonly classifier?: BioClassificationReconciliationService) {}
 
   async create(actor: AuthenticatedUser, value: unknown) {
     const parsed = bioSensorPreparationRequestV1Schema.safeParse(value);
@@ -24,6 +25,12 @@ export class BioSensorPreparationService {
     return this.prisma.$transaction(async tx => {
       const revision = await lockBioSensorCatalog(tx);
       await this.access.assertCommissionInTransaction(tx, actor, request.siteId);
+      const candidate = await tx.fixture.findFirst({ where: { id: request.fixtureId, siteId: request.siteId }, include: { meshNode: { include: { gateway: true } } } });
+      if (candidate?.meshNode?.vehicleSensorProtocol !== "bio_usb_pulse") {
+        if (!candidate?.meshNode?.gateway || !this.classifier) throw new ConflictException("confirmed BIO registration preparation required");
+        await this.classifier.reconcileInTransaction(tx, actor, { siteId: request.siteId, gatewayId: candidate.meshNode.gateway.id,
+          expectedAssignmentVersion: candidate.meshNode.gateway.assignmentVersion, fixtureIds: [request.fixtureId], requestId: request.clientRequestId });
+      }
       const now = new Date(); const binding = await loadBioSensorBinding(tx, request, now);
       const prior = await tx.bioSensorPreparationOperation.findUnique({ where: {
         siteId_actorId_clientRequestId: { siteId: request.siteId, actorId: actor.id, clientRequestId: request.clientRequestId } } });
@@ -43,6 +50,10 @@ export class BioSensorPreparationService {
       const row = await tx.bioSensorPreparationOperation.create({ data: { ...binding, commandId: command.commandId,
         actorId: actor.id, clientRequestId: request.clientRequestId, operation: request.operation, catalogRevision: revision,
         payload: command, payloadHash: canonicalPayloadHash(command), requestedAt: now, expiresAt: new Date(command.expiresAt), nextAttemptAt: now } });
+      // New preparation invalidates the previous live context immediately. Any
+      // enabled source and its snapshot converge in this same commit; targets'
+      // restoration/execution attribution is never removed.
+      await this.profiles.materializeConvergence(tx, binding, revision, now);
       return preparationView(row, true);
     }, { timeout: 10_000 });
   }

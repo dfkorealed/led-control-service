@@ -32,6 +32,11 @@ export class BioSensorCatalogOutboxService implements OnModuleInit {
   async stopAndDrain() { this.stopped = true; clearInterval(this.timer); await this.active; }
 
   async processBatch() {
+    await this.profiles.sweepUnavailableRules();
+    const pendingWork = await this.prisma.bioSensorConvergenceWork.findMany({ where: { completedAt: null, retiredAt: null,
+      nextAttemptAt: { lte: new Date() } }, orderBy: [{ nextAttemptAt: "asc" }, { gatewayId: "asc" }], take: 10 });
+    for (const work of pendingWork) { if (this.stopped) return; await this.profiles.processConvergenceWork({
+      siteId: work.siteId, gatewayId: work.gatewayId, assignmentVersion: work.assignmentVersion, catalogRevision: work.catalogRevision }); }
     const gateways = await this.prisma.gateway.findMany({ where: { id: { gt: this.gatewayCursor }, assignmentVersion: { gt: 0 }, claimedAt: { not: null } }, orderBy: { id: "asc" }, take: 50 });
     this.gatewayCursor = gateways.length === 50 ? gateways[49].id : "";
     for (const gateway of gateways) {

@@ -24,6 +24,7 @@ import { VehicleSensorCapabilityService } from "./vehicle-sensor-capability.serv
 import { AutomationSnapshotService } from "./automation-snapshot.service";
 import { loadAutomationProtocolSupport, recordAutomationProtocolSupport } from "./automation-protocol-support";
 import { ingestBioPulseTelemetry } from "./bio-pulse-telemetry";
+import { hasPendingBioSensorConvergence } from "./bio-sensor-eligibility";
 
 const CONFIG_APPLIED_CHANNEL = "events/automation/config-applied";
 const CURRENT_CONFIG_REQUEST_CHANNEL = "events/automation/current-config-request";
@@ -115,12 +116,15 @@ export class AutomationMqttConsumerService {
     ) return;
 
     return this.prisma.$transaction(async (tx) => {
+      await this.snapshots.lockMutation(tx);
       if (parsed.data.schemaVersion === 2) {
-        await this.snapshots.lockMutation(tx);
         const outcome = await recordAutomationProtocolSupport(tx, parsed.data);
         if (outcome === "stale" || outcome === "unverified") return;
         if (outcome === "accepted") await this.snapshots.incrementDesiredRevision(tx, scope.gatewayId);
       }
+      // Do not revive an old enabled envelope while invalidation is committed
+      // but serializer-owned convergence work has not settled yet.
+      if (await hasPendingBioSensorConvergence(tx, scope.gatewayId)) return;
       const configuration = await this.lockCurrentConfiguration(tx, scope);
       if (!configuration?.payloadHash) return;
       const stored = await this.loadStoredSnapshot(
