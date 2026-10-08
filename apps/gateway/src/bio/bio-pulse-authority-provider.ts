@@ -19,6 +19,7 @@ export interface BioSnapshotLifecycle {
 export class CommissionedBioPulseAuthorityProvider implements BioPulseAuthorityProvider, BioSnapshotLifecycle {
   private readonly contexts = new Map<number, ValidatedBioSnapshotContext>();
   private readonly committed = new Set<number>();
+  private readonly retained = new Set<number>();
   private readonly executable = new Set<number>();
   private readonly pins = new Map<string, { capabilityRevision: number; healthEpoch: string; reportEventId: string }>();
   private currentRevision?: number;
@@ -41,11 +42,13 @@ export class CommissionedBioPulseAuthorityProvider implements BioPulseAuthorityP
     if (!existing) this.contexts.set(snapshot.revision, { snapshot: structuredClone(snapshot) });
     this.executable.add(snapshot.revision);
   }
-  retain(raw: AutomationSnapshot) { const snapshot = parseAutomationSnapshot(raw, this.options.scope); this.contexts.set(snapshot.revision, { snapshot }); this.executable.delete(snapshot.revision); }
+  retain(raw: AutomationSnapshot) { const snapshot = parseAutomationSnapshot(raw, this.options.scope); this.contexts.set(snapshot.revision, { snapshot }); this.retained.add(snapshot.revision); this.executable.delete(snapshot.revision); }
   commit(snapshot: AutomationSnapshot) { if (!this.contexts.has(snapshot.revision)) throw new Error("BIO_SNAPSHOT_UNSTAGED"); this.committed.add(snapshot.revision); this.currentRevision = snapshot.revision; }
   rollback(snapshot: AutomationSnapshot) {
     if (this.committed.has(snapshot.revision)) return;
-    this.contexts.delete(snapshot.revision);
+    // Failed requalification may still have original-bound pending restoration.
+    // Remove executable staging, never the pre-existing restoration-only context.
+    if (!this.retained.has(snapshot.revision)) this.contexts.delete(snapshot.revision);
     this.executable.delete(snapshot.revision);
     for (const key of this.pins.keys()) if (key.startsWith(`${snapshot.revision}:`)) this.pins.delete(key);
     // Earlier committed contexts remain available for already-persisted restoration.
