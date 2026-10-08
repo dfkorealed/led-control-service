@@ -2,7 +2,13 @@
 
 기준일: 2026-10-08
 
-## 2026-10-08 공통 센서 등록·UI 설정 — 방향 확정, 설계 문서 검토 대기
+## 2026-10-08 공통 센서 등록·UI 설정 — 설계 승인·실행 계획 작성, 구현 진행
+
+- 사용자는 설계 문서 제시 후 `구현 계획 작성 후 바로 진행해줘`로 계획 작성과 코드 구현의 연속 실행을 요청했다. 재승인 질문 없이 `docs/superpowers/plans/2026-10-08-common-bio-sensor-configuration.md` Tasks1~6을 Shared→API→Gateway→API판정→Web→최소통합 순서로 진행한다.
+- 기존 isolated `codex/bio-pulse-event-integration`·HEAD10384a8e clean을 확인했다. 작업량이 큰 역할별 구현은 서브에이전트에 순차 배정하고 총괄은 계약/검토/체크리스트를 동기화한다. 초기 승인profile/현장정책은 OFF로 유지하며 코드 완료와 실제 지원/운영 적용을 분리한다.
+- 현재 Tasks1~6은 미완료이고 Shared 계약부터 시작한다. 실장비 SET/배포/사용자DB migration/PKI/새 현장 시험은 이번 코드 작업에 포함하지 않는다.
+
+## 2026-10-08 공통 센서 등록·UI 설정 — 당시 설계 문서 작성·펌웨어 검토
 
 - 사용자는 A/B 한정 임시 연결 대신 모든 조명에 재사용 가능한 센서 설정 UI를 요구했다. 기존 A/B-only 대안은 채택하지 않고 공통 프로파일 재사용·개별 장비 자동 준비 확인·지도 기반 규칙 설정으로 방향을 변경했다.
 - 기존 Gateway 담당의 읽기 전용 확인: mapping의 firmware/protocol만으로는 센서 식별이 부족하며 현재 discovery의 deviceType·firmware/build·sensor/infrared/ambient/hardware 조합을 사용해야 한다. ensure/query와 인증 capability 전달·scheduler·원복은 재사용 가능하고 실제 profile/authority 공급이 남아 있다.
