@@ -742,7 +742,7 @@
             {
               "id": "00000000-0000-4000-8000-000000007002",
               "name": "Synthetic source two",
-              "status": "enabled",
+              "status": "disabled",
               "sourceFixtureIds": [
                 "00000000-0000-4000-8000-000000000102"
               ],
@@ -758,7 +758,7 @@
             }
           ],
           "generatedAt": "2026-10-08T00:00:00.400Z",
-          "payloadHash": "sha256:95325f8492a1280033f2b1c19ebfcfcd8f3652161eef5a3b5fd9f79737449127"
+          "payloadHash": "sha256:afa182b8d0f4c7590adcf5cb9e2d7f76494f2cb61c92334ecc8d79577a480b1b"
         },
         "configAppliedDelivery": {
           "schemaVersion": 2,
@@ -769,7 +769,7 @@
             "schemaVersion": 2,
             "gatewayId": "00000000-0000-4000-8000-000000000004",
             "revision": 5,
-            "payloadHash": "sha256:95325f8492a1280033f2b1c19ebfcfcd8f3652161eef5a3b5fd9f79737449127",
+            "payloadHash": "sha256:afa182b8d0f4c7590adcf5cb9e2d7f76494f2cb61c92334ecc8d79577a480b1b",
             "status": "applied",
             "errorCode": null,
             "appliedAt": "2026-10-08T00:00:00.450Z"
@@ -806,7 +806,7 @@
             {
               "id": "00000000-0000-4000-8000-000000007002",
               "name": "Synthetic source two",
-              "status": "enabled",
+              "status": "disabled",
               "sourceFixtureIds": [
                 "00000000-0000-4000-8000-000000000102"
               ],
@@ -822,7 +822,7 @@
             }
           ],
           "generatedAt": "2026-10-08T00:00:00.600Z",
-          "payloadHash": "sha256:f23a19c3e20b4a15f270c2cb4e61afb93fec8ad9dc0ed9c5293a3f8bb5f84cc4"
+          "payloadHash": "sha256:772f96d0a1ca5d2a2e1ed065172338e12466ea58781a3acb02b6344b0ced5105"
         }
       },
       {
@@ -855,7 +855,7 @@
             {
               "id": "00000000-0000-4000-8000-000000007002",
               "name": "Synthetic source two",
-              "status": "enabled",
+              "status": "disabled",
               "sourceFixtureIds": [
                 "00000000-0000-4000-8000-000000000102"
               ],
@@ -871,7 +871,7 @@
             }
           ],
           "generatedAt": "2026-10-08T00:00:00.800Z",
-          "payloadHash": "sha256:f6dac7d3beae628a2580dd00fb911b7cf697227cd4667becee02cd626936b67c"
+          "payloadHash": "sha256:cdaad9d3d4c286f0482ecaf600c1f73fc1af6f06331d65703677dbe42e498626"
         }
       },
       {

@@ -1,4 +1,4 @@
-import { Injectable, InternalServerErrorException, NotFoundException } from "@nestjs/common";
+import { BadRequestException, Injectable, InternalServerErrorException, NotFoundException } from "@nestjs/common";
 import {
   automationSnapshotSchema,
   type LightingScheduleSnapshotV1,
@@ -87,6 +87,23 @@ export class AutomationSnapshotService {
       },
       orderBy: { id: "asc" }
     });
+    // Targets are the canonical resolved memberships, read under the caller's
+    // automation mutation lock. Match product Gateway active-only reservations:
+    // disabled drafts reserve nothing, and legacy BlueZ/BlueZ remains unchanged.
+    // Throw before configuration/outbox writes so the caller rolls back the
+    // proposed rule and revision too; never publish an un-installable snapshot.
+    const enabledTargetBio = new Map<string, boolean>();
+    for (const rule of eventRules) {
+      if (rule.status !== "enabled") continue;
+      const isBio = rule.sensorProtocol === "bio_usb_pulse";
+      for (const { fixtureId } of rule.targets) {
+        if (enabledTargetBio.has(fixtureId) && (isBio || enabledTargetBio.get(fixtureId))) {
+          throw new BadRequestException({ code: "bio_target_activation_conflict",
+            message: "An enabled BIO rule cannot share targets with another enabled event rule. Disable the other rule or select different targets." });
+        }
+        enabledTargetBio.set(fixtureId, isBio);
+      }
+    }
     const snapshotWithoutHash = {
       schemaVersion: version,
       siteId: gateway.siteId,

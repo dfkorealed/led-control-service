@@ -214,11 +214,28 @@ const profileInput = () => ({ profileId: randomUUID(), revision: 1, status: "app
       const views = await loadBioSensorEligibility(prisma as never, commonAsset.fixtures.map((f: any) => f.fixtureId), new Date());
       expect(commonAsset.fixtures.map((fixture: any) => views.get(fixture.fixtureId)?.status)).toEqual(["ready", "ready", "ready"]);
       jest.setSystemTime(at("snapshot"));
-      for (const index of [0, 1]) await once(7001 + index, () => rules.create(siteId, actor, { name: commonAsset.fixtures[index].label,
-        status: "enabled", sourceFixtureIds: [commonAsset.fixtures[index].fixtureId], targetFixtureIds: [commonAsset.fixtures[2].fixtureId],
-        action: { dimmingEnabled: true, brightnessPercent: 75 }, holdSeconds: 10 }));
+      const ruleInput = (index: number, status: "enabled" | "disabled") => ({ name: commonAsset.fixtures[index].label,
+        status, sourceFixtureIds: [commonAsset.fixtures[index].fixtureId], targetFixtureIds: [commonAsset.fixtures[2].fixtureId],
+        action: { dimmingEnabled: true, brightnessPercent: 75 }, holdSeconds: 10 });
+      const configurationState = async () => ({
+        rules: await prisma.vehicleEventRule.findMany({ where: { gatewayId }, include: { sources: true, targets: true }, orderBy: { id: "asc" } }),
+        configuration: await prisma.gatewayAutomationConfiguration.findUnique({ where: { gatewayId } }),
+        outbox: await prisma.mqttOutbox.findMany({ where: { gatewayId, revision: { not: null } }, orderBy: { id: "asc" } })
+      });
+      await once(7001, () => rules.create(siteId, actor, ruleInput(0, "enabled")));
+      const beforeCreateConflict = await configurationState();
+      await expect(once(7002, () => rules.create(siteId, actor, ruleInput(1, "enabled")))).rejects.toMatchObject({
+        response: { code: "bio_target_activation_conflict", message: expect.any(String) }
+      });
+      expect(await configurationState()).toEqual(beforeCreateConflict);
+      await once(7002, () => rules.create(siteId, actor, ruleInput(1, "disabled")));
+      const beforeEnableConflict = await configurationState();
+      await expect(rules.update(siteId, uuid(7002), actor, { status: "enabled" })).rejects.toMatchObject({
+        response: { code: "bio_target_activation_conflict", message: expect.any(String) }
+      });
+      expect(await configurationState()).toEqual(beforeEnableConflict);
       const enabled = await captureSnapshot("enabled");
-      expect(enabled.payload.vehicleEventRules.map((rule: any) => rule.status)).toEqual(["enabled", "enabled"]);
+      expect(enabled.payload.vehicleEventRules.map((rule: any) => rule.status)).toEqual(["enabled", "disabled"]);
       jest.setSystemTime(at("configAck"));
       enabled.configAppliedDelivery = automationConfigAppliedDeliverySchema.parse({ schemaVersion: 2, acknowledgementId: uuid(8001), siteId, gatewayId,
         acknowledgement: { schemaVersion: 2, gatewayId, revision: enabled.payload.revision, payloadHash: enabled.payload.payloadHash,
@@ -239,7 +256,7 @@ const profileInput = () => ({ profileId: randomUUID(), revision: 1, status: "app
       expect((await live(0, 3, 4, first.observedAt, "rejectedLive", "rejected")).errorCode).toBe("bio_current_evidence_unverified");
       expect(await prisma.meshNode.findUnique({ where: { id: commonAsset.fixtures[0].nodeId } })).toEqual(beforeRejected);
       await captureSnapshot("new_preparation_disables_only_first");
-      expect((await prisma.vehicleEventRule.findUniqueOrThrow({ where: { id: uuid(7002) } })).status).toBe("enabled");
+      expect((await prisma.vehicleEventRule.findUniqueOrThrow({ where: { id: uuid(7002) } })).status).toBe("disabled");
       await live(0, 4, 5, renewed.observedAt, "recoveredLive", "applied");
       jest.setSystemTime(at("reenabledSnapshot")); await rules.update(siteId, uuid(7001), actor, { status: "enabled" });
       await captureSnapshot("explicit_reenabled_after_current_proof");
@@ -251,7 +268,7 @@ const profileInput = () => ({ profileId: randomUUID(), revision: 1, status: "app
       expect(thirdUnavailable).toMatchObject({ status: "unverified" });
       expect(thirdUnavailable.blockedReasons).toContain("profile_unverified");
       expect(await prisma.meshNode.findUniqueOrThrow({ where: { id: commonAsset.fixtures[2].nodeId } })).toMatchObject({ bioPulseReadiness: "off", bioPulseCapabilityRevision: 2n });
-      expect((await prisma.vehicleEventRule.findMany({ where: { gatewayId }, orderBy: { id: "asc" } })).map(rule => rule.status)).toEqual(["enabled", "enabled"]);
+      expect((await prisma.vehicleEventRule.findMany({ where: { gatewayId }, orderBy: { id: "asc" } })).map(rule => rule.status)).toEqual(["enabled", "disabled"]);
       jest.setSystemTime(at("revoked")); await ownedProfiles.revoke(operator, commonAsset.profile.profileId);
       const revoked = await captureSnapshot("profile_revoked_disabled");
       expect(revoked.payload.vehicleEventRules.map((rule: any) => rule.status)).toEqual(["disabled", "disabled"]);

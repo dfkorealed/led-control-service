@@ -20,6 +20,45 @@ describe("AutomationSnapshotService", () => {
     expect(tx.$executeRaw).toHaveBeenCalledTimes(1);
   });
 
+  it.each([
+    ["bio_usb_pulse", "enabled", "bio_usb_pulse", "enabled", false],
+    ["bio_usb_pulse", "enabled", "bluez_stateful", "enabled", false],
+    ["bluez_stateful", "enabled", "bio_usb_pulse", "enabled", false],
+    ["bio_usb_pulse", "enabled", "bio_usb_pulse", "disabled", true],
+    ["bio_usb_pulse", "enabled", "bluez_stateful", "disabled", true],
+    ["bio_usb_pulse", "disabled", "bluez_stateful", "enabled", true],
+    ["bluez_stateful", "enabled", "bluez_stateful", "enabled", true]
+  ])("Task6: target reservation %s/%s against %s/%s (allowed=%s)", async (leftProtocol, leftStatus, rightProtocol, rightStatus, allowed) => {
+    // Catch active BIO overlap in either rule order, without reserving disabled
+    // drafts or changing legacy BlueZ/BlueZ arbitration. Resolve IDs upstream.
+    const rows = [
+      { id: SCHEDULE_A, sensorProtocol: leftProtocol, status: leftStatus, targets: [{ fixtureId: FIXTURE_A }, { fixtureId: FIXTURE_B }] },
+      { id: SCHEDULE_B, sensorProtocol: rightProtocol, status: rightStatus, targets: [{ fixtureId: FIXTURE_B }] }
+    ].map(row => ({ ...row, name: "Synthetic rule", dimmingEnabled: true, brightnessPercent: 75, holdSeconds: 10,
+      sources: [{ fixtureId: FIXTURE_A, fixture: { meshNodeId: FIXTURE_A } }] }));
+    const payloads: any[] = []; let configurationWritten = false;
+    const tx = {
+      gateway: { findUnique: async () => ({ id: GATEWAY_ID, siteId: SITE_ID, assignmentVersion: 1,
+        site: { timeZone: "Asia/Seoul" }, automationConfiguration: null,
+        inventory: { id: "synthetic", claimedAt: generatedAt, disabledAt: null },
+        certificates: [{ inventoryId: "synthetic" }],
+        automationProtocolDeclarations: [{ assignmentVersion: 1, maxSnapshotVersion: 2 }] }) },
+      lightingSchedule: { updateMany: async () => ({}), findMany: async () => [] },
+      vehicleEventRule: { updateMany: async () => ({}), findMany: async () => rows },
+      gatewayAutomationConfiguration: { upsert: async () => { configurationWritten = true; return {}; } },
+      mqttOutbox: { create: async ({ data }: any) => { payloads.push(data.payload); } }
+    };
+    if (allowed) {
+      await service.incrementDesiredRevision(tx as never, GATEWAY_ID);
+      expect(payloads[0].vehicleEventRules.map((rule: any) => rule.status)).toEqual([leftStatus, rightStatus]);
+    } else {
+      await expect(service.incrementDesiredRevision(tx as never, GATEWAY_ID)).rejects.toMatchObject({
+        response: { code: "bio_target_activation_conflict", message: expect.any(String) }
+      });
+      expect(configurationWritten).toBe(false); expect(payloads).toEqual([]);
+    }
+  });
+
   it("excludes BIO drafts from V1 even when a Gateway has BlueZ rules", async () => {
     const tx = {
       gateway: { findUnique: async () => ({ id: GATEWAY_ID, siteId: SITE_ID,
