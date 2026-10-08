@@ -1,5 +1,11 @@
 # 프로젝트 오답 노트 (Lessons Learned)
 
+## 2026-10-08 / 이동한 개발 서버 주소와 현재 DNS를 먼저 대조한다
+
+- **발생한 문제**: Mac 네트워크 주소가 바뀌어 Pi host와 실행 중인 Gateway container의 hosts가 이전 서버를 가리켰다. Gateway는 재시작되지 않았지만 MQTT/heartbeat가 끊겼다.
+- **예방**: 과거 주소/healthy 증거를 재사용하지 않고 현재 서버 주소와 host/container 실제 DNS·TCP·strict TLS/API를 대조한다. 인증서 문제가 아니라 주소 불일치로 증명되면 보호백업·원본 identity guard 뒤 해당 hosts 주소만 inode를 보존해 수정한다. 인증 검증을 끄거나 CRL/키를 불필요하게 갱신하지 않는다.
+- **검증 한계**: live 수정 후 MQTT/새 DB heartbeat가 회복돼도 재시작 후 DNS 유지와 센서 동작이 증명된 것은 아니다. 실제 시험 관문과 원본 재시작 후 postflight를 별도로 유지한다.
+
 ## 2026-10-08 / 호스트 실행환경과 원격 작업 완료를 별도로 확인한다
 
 - **발생한 문제**: Gateway 컨테이너에는 Node가 있었지만 Pi 호스트에는 없어 현장 START 후 launcher 준비가 차단됐다. 별도 실행환경 준비에서도 다운로드 파일 권한 검사와 로컬 SSH 대기 시간이 각각 실패로 보고됐다.

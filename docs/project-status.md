@@ -2,6 +2,15 @@
 
 기준일: 2026-10-08
 
+## 2026-10-08 MQTT 연결 복구·센서 시험 직전 준비 — 완료, 실제 시험 미실행
+
+- 사용자가 `진행해줘. 테스트 직전까지 진행해`로 기존 MQTT 연결 복구와 최소 시험 도구 준비를 승인했다. 담당 Gateway 한 명이 현재 원본·DNS/주소·TCP/TLS/MQTT·공개 CRL·API/DB 대기 상태를 읽어 원인을 좁히고, 증명된 환경 원인만 최소 수정한다. 과거 복구 스크립트나 오래된 상태/승인/phase를 그대로 재사용하지 않는다.
+- 준비 범위는 private operator helper의 절대 Node 실행 경로 반영·focused 소프트웨어 검증과 최소 브라우저 대기 화면까지다. 실제 센서 run/START.used·Gateway STOP/재시작·USB/RF GET·SET·인증서 발급/폐기·DB/schema·제품 활성화는 실행하지 않는다. PKI 변경이나 broker reload가 필요하면 진단 근거와 범위를 먼저 확인한다. 새 현장 상태/중단 가능·명시 START와 직전 TTL120초 receipt는 후속 관문이다.
+- 연결 원인은 현재 Mac 주소172.30.1.74와 Pi host/원본 container DNS의 이전172.30.1.17 불일치다. old8883 TCP timeout, current8883/4000 TCP 성공·API200/strict MQTT TLS authorized로 원인을 좁혔다. 보호백업 `/var/tmp/led-network-recovery-20261008-8b32abf1c8690c16` 뒤 두 hosts 파일의 해당 주소만 inode 보존 변경했다. 00:53:52Z 실제 원본 healthy/MQTT·heartbeatFresh true, 같은 ID/image/StartedAt/PID67313/restart0·mapping hash/identity hash·단독 USB 소유와 lock inode 불변을 총괄도 대조했다. 서비스 재시작·PKI/직접 DB·조명 명령은0이며 정상 서비스의 heartbeat/presence 수신은 재개됐다.
+- 00:53:51Z DB 실제 대기8종0·같은 A/B/assignment1·config12APPLIED·heartbeat 증가를 확인했다. private operator의 Node 호출2곳은 전용 절대 실행 경로로 수정해 synthetic RED2→GREEN3/3·syntax0, helper SHA256 `04e89f1434fe358aa003eb57e2d184aefad356a610123f5ae3cfe7e7b07ac2cf`다. 총괄이 private `mqtt-ready-20261008/evidence-IKLUqF/summary.json` SHA256 `3e0ceff07378646fa08f50b4af67e71660355b37d994d85883985ff798a9ae9d`와 원본 final/DB final/소스 hash를 대조했다. 이 focused 검증은 실제 prepare/run이 아니다.
+- 최소 화면은 새 보호 UI root `/private/tmp/bio-browser-20261007-qFhHqt`·server71316·인증 TTL30분으로 준비했다. 이전 exact owned 서버만 TERM/exit0하고 자료는 보존했다. HTTP page/status/cookie reload200·unauth403/waiting/null run 확인 뒤 총괄이 실제 IAB tab7(loopback8089)의 시작 대기·기록4버튼 비활성과 bare 새로고침 후 정상 인증을 확인하고 deliverable로 유지했다. 앞선 app open queued 기록은 당시 상태이며 최종 UI 확인은 별도 `root-ui-verification.json`과 `ui-waiting.png`(SHA256 `7760ab8cf355e94ca5c01eee05bfd2434a030b3512209ce667154c048758c20b`)로 보존한다.
+- **여기서 멈춤:** receipt/phase/bridge/START.used·pilot run·Gateway STOP/USB/RF0이다. 실제 시험은 새 현장 상태/6~8분 중단 가능·명시 START 뒤 fresh 상태 확인→TTL120초 receipt→새 phase prepare→passive bridge 대기 선관찰→run 순서다. 현재 주소 복구의 재시작 후 DNS 유지와 제품 센서 qualification은 미검증이며, MQTT CRL의 오늘14:56:46 KST 만료 및 UI TTL은 실행 직전에 다시 확인한다. 현재 준비를 실제 A→B 점등·유지·원복 완료로 표시하지 않는다.
+
 ## 2026-10-08 센서 시험용 호스트 Node 환경 — 격리 준비 완료, 실제 시험 미실행
 
 - 사용자가 승인한 시험 전용 Node v22.23.2 Linux ARM64를 Pi UID1000·0700 별도 경로에 준비했다. 정확한 실행 파일은 `/var/tmp/bio-trial-node-v22.23.2-20261008-fcd9537b28815640338be086/node-v22.23.2-linux-arm64/bin/node`다. 공식 HTTPS SHASUMS와 archive SHA256 `fff4078c5def658577f92c88db7db3bc0072924bfb93fe52c1e744a54e94abb8` 일치, binary SHA256 `1a638b0fe2b68da0489276aca95526c5122fc61ba54d6a2d0d00c1c92ab7b876`·AArch64 ELF·전체5866 member 추출 전 검사를 확인했다. PGP 서명 검증을 주장하지 않는다.
