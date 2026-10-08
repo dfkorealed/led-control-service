@@ -29,7 +29,7 @@ const profile = { profileId: "10000000-0000-4000-8000-000000000009", revision: 1
 const catalogValue = (revision = 1): BioSensorCatalogV1 => ({ schemaVersion: 1, ...scope, eventId: randomUUID(), catalogRevision: revision,
   issuedAt: new Date().toISOString(), profiles: [profile], executionPolicy: { enabled: false, ownerUserId: null, maximumResponseSeconds: null, escalationAction: null } });
 const dirs: string[] = []; const stops: (() => Promise<void>)[] = [];
-afterEach(async () => { for (const stop of stops.splice(0)) await stop(); for (const dir of dirs.splice(0)) await rm(dir, { recursive: true, force: true }); });
+afterEach(async () => { for (const stop of stops.splice(0)) await stop(); for (const dir of dirs.splice(0)) await rm(dir, { recursive: true, force: true }); vi.useRealTimers(); });
 const hash = (v: unknown) => `sha256:${createHash("sha256").update(bioSensorCatalogCanonicalJson(v)).digest("hex")}`;
 async function harness() {
   const dir = await mkdtemp(join(tmpdir(), "bio-config-")); dirs.push(dir);
@@ -158,6 +158,81 @@ it("restores a revoked-profile activation by fresh identity only and keeps misma
   await mismatch.catalog.apply({ ...catalogValue(2), profiles: [] }); mismatch.wrongNetwork();
   await mismatch.scheduleRuntime.releaseBioEvent(nodeId);
   expect(mismatch.targetWrites).toHaveLength(1); expect(mismatch.scheduleRuntime.state().bioActivationsByRule[nodeId]?.completed).toBe(false);
+});
+
+it("Task6: rejected current live ACK fences cached and queued execution until post-rejection GET and exact newer ACK", async () => {
+  const f = await liveControllerHarness(); await f.second();
+  const secondId = "10000000-0000-4000-8000-000000000022";
+  const second = f.delivery.acknowledgedCommissionProof(secondId);
+  const original = f.source.sourceAuthority(fixtureId)!;
+  f.pulse(); await vi.waitFor(() => expect(f.targetWrites).toHaveLength(1));
+  const report = async () => {
+    f.advance(100); await f.monitor.probe(fixtureId); await f.delivery.recordLiveProof(f.monitor.snapshot(fixtureId)!);
+    return (await f.delivery.pending()).filter(row => row.proof.command.fixtureId === fixtureId).at(-1)!;
+  };
+  const ack = (row: Awaited<ReturnType<typeof report>>, status: "applied" | "rejected") => ({ schemaVersion: 2, ...scope,
+    meshNodeId: row.delivery.report.meshNodeId, eventId: row.delivery.report.eventId, capabilityRevision: row.delivery.report.capabilityRevision,
+    deliveryPayloadHash: row.deliveryPayloadHash, status, errorCode: status === "rejected" ? "bio_current_evidence_unverified" : null,
+    ingestedAt: new Date().toISOString() });
+  const rejected = await report();
+  // The sole outbox coalesces unacknowledged reports, but a newer GET can already
+  // have completed before rejection. Queue that captured proof behind the ACK.
+  f.advance(100); await f.monitor.probe(fixtureId); const beforeRejection = f.monitor.snapshot(fixtureId)!;
+  let release!: () => void, entered!: () => void;
+  const started = new Promise<void>(r => { entered = r; }), gate = new Promise<void>(r => { release = r; });
+  const lookup = f.mappings.findByNativeUuid.bind(f.mappings); let once = true;
+  f.mappings.findByNativeUuid = async id => { if (once) { once = false; entered(); await gate; } return lookup(id); };
+  f.pulse(2); await started;
+  try {
+    const rejection = f.delivery.acknowledge(ack(rejected, "rejected"));
+    const pendingProof = f.delivery.recordLiveProof(beforeRejection);
+    await rejection; await pendingProof;
+    expect(f.delivery.acknowledgedCommissionProof(fixtureId)).toBeNull();
+    expect(f.source.sourceAuthority(fixtureId)).toBeNull();
+  } finally { release(); }
+  const premature = (await f.delivery.pending()).filter(row => row.proof.command.fixtureId === fixtureId).at(-1)!;
+  expect(premature.delivery.report.capabilityRevision).toBe(3);
+  await f.delivery.acknowledge(ack(premature, "applied"));
+  expect(f.delivery.acknowledgedCommissionProof(fixtureId)).toBeNull();
+  expect(await f.source.preflight({ sourceFixtureId: fixtureId, snapshotRevision: 4 }, { requireHealthy: true })).toBeNull();
+  f.advance(11000); f.pulse(3); await f.scheduleRuntime.tick(); expect(f.targetWrites).toHaveLength(1);
+  expect(f.delivery.acknowledgedCommissionProof(secondId)).toEqual(second);
+  // Identity-only operator restoration is available while execution stays fenced.
+  await f.scheduleRuntime.releaseBioEvent(nodeId); expect(f.configuration()).toEqual({ configuredHighBrightnessPercent: 30, bioMode: "sensor" });
+  const recovered = await report();
+  expect(f.delivery.acknowledgedCommissionProof(fixtureId)).toBeNull();
+  await f.delivery.acknowledge(ack(recovered, "applied"));
+  expect((await f.source.preflight({ sourceFixtureId: fixtureId, snapshotRevision: 4 }, { requireHealthy: true }))?.binding.capabilityRevision).toBe(4);
+  expect(original.binding.capabilityRevision).toBe(1);
+  // Immutable late receipts cannot revoke a newer accepted revision or restore
+  // a superseded pre-rejection proof, even with the original exact payload hash.
+  await f.delivery.acknowledge(ack(rejected, "rejected"));
+  expect(await f.delivery.acknowledge(ack(premature, "rejected"))).toBe("ignored");
+  expect(f.source.sourceAuthority(fixtureId)?.binding.capabilityRevision).toBe(4);
+});
+
+it("Task6: delayed rejection from a previous commission cannot revoke current source pins", async () => {
+  const f = await liveControllerHarness(); f.advance(100); await f.monitor.probe(fixtureId);
+  await f.delivery.recordLiveProof(f.monitor.snapshot(fixtureId)!); const old = (await f.delivery.pending()).at(-1)!;
+  const commission = f.monitor.snapshot(fixtureId)!.commission;
+  const command = { ...commission.command, commandId: randomUUID() };
+  const report = { ...commission.report, commandId: command.commandId, commandPayloadHash: hash(command) as `sha256:${string}`, eventId: randomUUID() };
+  f.monitor.commission({ ...commission, command, report }); f.advance(100); await f.accept();
+  const current = await f.source.preflight({ sourceFixtureId: fixtureId, snapshotRevision: 4 }, { requireHealthy: true });
+  expect(current?.binding.capabilityRevision).toBe(3);
+  expect(await f.delivery.acknowledge({ schemaVersion: 2, ...scope, meshNodeId: old.delivery.report.meshNodeId,
+    eventId: old.delivery.report.eventId, capabilityRevision: old.delivery.report.capabilityRevision, deliveryPayloadHash: old.deliveryPayloadHash,
+    status: "rejected", errorCode: "bio_current_evidence_unverified", ingestedAt: new Date().toISOString() })).toBe("ignored");
+  expect(f.source.sourceAuthority(fixtureId)).toEqual(current);
+});
+
+it("Task6: ongoing GET advances only link verifiedAt, never the commission mode instant", async () => {
+  vi.useFakeTimers({ toFake: ["Date"] }); vi.setSystemTime(new Date("2026-10-08T00:00:00.200Z"));
+  const f = await liveControllerHarness();
+  vi.setSystemTime(new Date("2026-10-08T00:00:00.500Z")); f.advance(100); await f.monitor.probe(fixtureId);
+  await f.delivery.recordLiveProof(f.monitor.snapshot(fixtureId)!);
+  const row = (await f.delivery.pending()).at(-1)!;
+  expect(row.delivery.report).toMatchObject({ sensorModeVerifiedAt: "2026-10-08T00:00:00.200Z", verifiedAt: "2026-10-08T00:00:00.500Z" });
 });
 it("queries with SET0, gates ensure by full fresh fingerprint, and journals exact ACK", async () => {
   const f = await harness(); await f.catalog.apply(catalogValue()); const c = f.command();

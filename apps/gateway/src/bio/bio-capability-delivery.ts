@@ -17,7 +17,7 @@ export interface BioCapabilityIdentityPort {
 type Scope = { siteId: string; gatewayId: string; assignmentVersion: number };
 type MappingIdentity = Pick<BioDeviceMapping, "fixtureId" | "nativeUuid" | "deviceUuid" | "logicalAddress">;
 interface IdentityProof { command: BioSensorModeCommand | BioSensorPreparationCommandV1; mapping: MappingIdentity; connectionEpoch: string; generation: number; recordedAt: string;
-  live?: { healthEpoch: string; reportEventId: string; connectionRevision: number; profileKey: string } }
+  live?: { healthEpoch: string; reportEventId: string; connectionRevision: number; profileKey: string; verifiedMonotonicMs?: number } }
 export interface AcknowledgedBioCommissionProof { capabilityRevision: number; healthEpoch: string; reportEventId: string }
 interface DeliveryRecord { delivery: VehicleSensorCapabilityDeliveryV2; deliveryPayloadHash: `sha256:${string}`;
   proof: IdentityProof; receipt: VehicleSensorCapabilityIngestedAckV2 | null }
@@ -41,6 +41,7 @@ export class BioCapabilityDeliveryController {
   private readonly stopMappingIntake?: () => void;
   private liveProof?: (fixtureId: string) => BioNodeLinkProof | null;
   private readonly commissionAcknowledgements = new Map<string, { row: DeliveryRecord; proof: AcknowledgedBioCommissionProof }>();
+  private readonly rejections = new Map<string, { healthEpoch: string; reportEventId: string; capabilityRevision: number; observedThrough: number }>();
   private readonly listeners = new Set<(fixtureId?: string) => void>();
   private readonly pinnedEvents = new Set<string>();
 
@@ -74,7 +75,7 @@ export class BioCapabilityDeliveryController {
   disconnect() { this.connectionRevision++; this.publishPermits.clear(); this.publisher.disconnect(); this.invalidateCommissionProofs(); }
   setLiveProofReader(reader: (fixtureId: string) => BioNodeLinkProof | null) { this.liveProof = reader; }
   onChange(listener: (fixtureId?: string) => void) { this.listeners.add(listener); return () => { this.listeners.delete(listener); }; }
-  invalidateCommissionProofs() { this.commissionAcknowledgements.clear(); this.pinnedEvents.clear(); for (const listener of this.listeners) listener(); }
+  invalidateCommissionProofs() { this.commissionAcknowledgements.clear(); this.rejections.clear(); this.pinnedEvents.clear(); for (const listener of this.listeners) listener(); }
   retainAcknowledgedRevision(fixtureId: string, capabilityRevision: number): boolean {
     const accepted = this.commissionAcknowledgements.get(fixtureId);
     if (!accepted || accepted.proof.capabilityRevision !== capabilityRevision || !this.acknowledgedCommissionProof(fixtureId)) return false;
@@ -95,7 +96,7 @@ export class BioCapabilityDeliveryController {
     const proof: IdentityProof = { command, mapping: mappingIdentity(live.commission.mapping), connectionEpoch: this.epoch,
       generation: live.commission.report.connectionGeneration, recordedAt: live.verifiedAt,
       live: { healthEpoch: live.healthEpoch, reportEventId: live.commission.report.eventId,
-        connectionRevision: this.connectionRevision, profileKey: live.commission.report.profileKey! } };
+        connectionRevision: this.connectionRevision, profileKey: live.commission.report.profileKey!, verifiedMonotonicMs: live.verifiedMonotonicMs } };
     if (!await this.validateProof(proof)) return;
     const next = structuredClone(this.state);
     // Coalesce while an exact current-epoch report awaits ACK. Never rewrite an
@@ -110,7 +111,7 @@ export class BioCapabilityDeliveryController {
     const delivery = vehicleSensorCapabilityDeliveryV2Schema.parse({ schemaVersion: 2, assignmentVersion: command.assignmentVersion,
       report: { schemaVersion: 2, eventId: randomUUID(), siteId: command.siteId, gatewayId: command.gatewayId, meshNodeId: command.nodeId,
         capabilityRevision: revision, sensorProtocol: "bio-usb-pulse", readiness: "ready", verifiedFingerprintId: proof.live!.profileKey,
-        sensorModeVerifiedAt: live.verifiedAt, verifiedAt: live.verifiedAt } });
+        sensorModeVerifiedAt: live.commission.report.observedAt, verifiedAt: live.verifiedAt } });
     next.records.push({ delivery, deliveryPayloadHash: canonicalHash(delivery), proof, receipt: null }); await this.commit(next);
   }); }
   wake() { return this.stopped ? Promise.resolve() : this.publisher.wake(); }
@@ -175,14 +176,32 @@ export class BioCapabilityDeliveryController {
     const row = this.state.records.find(record => matchesVehicleSensorCapabilityIngestedAckV2(record.delivery, ack, record.deliveryPayloadHash));
     if (!row || (!row.proof.live && !this.isCurrentRecord(row.delivery)) || !await this.validateProof(row.proof)) return "ignored";
     if (row.receipt) return isDeepStrictEqual(row.receipt, ack) ? (ack.status === "rejected" ? "rejected" : "terminal") : "ignored";
+    if (row.proof.live && ack.status === "rejected") {
+      const id = row.proof.command.fixtureId, old = this.commissionAcknowledgements.get(id), live = this.liveProof?.(id);
+      // A delayed older rejection cannot retire an already accepted newer report.
+      // Pending newer observations are NOT acceptance: fence through the latest
+      // completed GET, not just the rejected row, before awaiting durable receipt.
+      if (live && !(old?.proof.healthEpoch === row.proof.live.healthEpoch
+        && old.proof.reportEventId === row.proof.live.reportEventId && old.proof.capabilityRevision > row.delivery.report.capabilityRevision)) {
+        this.rejections.set(id, { healthEpoch: row.proof.live.healthEpoch, reportEventId: row.proof.live.reportEventId,
+          capabilityRevision: row.delivery.report.capabilityRevision, observedThrough: live.verifiedMonotonicMs });
+        this.commissionAcknowledgements.delete(id); this.releaseSnapshotPins(id);
+        for (const listener of this.listeners) listener(id);
+      }
+    }
     const next = structuredClone(this.state); next.records[this.state.records.indexOf(row)]!.receipt = ack;
     await this.commit(next);
     if (row.proof.live && (ack.status === "applied" || ack.status === "duplicate") && this.current(row.proof, this.connectionRevision)) {
+      const fence = this.rejections.get(row.proof.command.fixtureId);
+      if (fence?.healthEpoch === row.proof.live.healthEpoch && fence.reportEventId === row.proof.live.reportEventId
+        && (row.delivery.report.capabilityRevision <= fence.capabilityRevision
+          || row.proof.live.verifiedMonotonicMs === undefined || row.proof.live.verifiedMonotonicMs <= fence.observedThrough)) return "terminal";
       const old = this.commissionAcknowledgements.get(row.proof.command.fixtureId);
       if (old?.proof.healthEpoch === row.proof.live.healthEpoch && old.proof.capabilityRevision >= row.delivery.report.capabilityRevision) return "terminal";
       this.commissionAcknowledgements.set(row.proof.command.fixtureId, { row: structuredClone(row), proof: {
         capabilityRevision: row.delivery.report.capabilityRevision, healthEpoch: row.proof.live.healthEpoch,
         reportEventId: row.proof.live.reportEventId } });
+      this.rejections.delete(row.proof.command.fixtureId);
       // First accepted live checkpoint unlocks pins; repeat health reports leave existing pins untouched.
       if (!old || old.proof.healthEpoch !== row.proof.live.healthEpoch) for (const listener of this.listeners) listener(row.proof.command.fixtureId);
     }
@@ -264,7 +283,8 @@ export class BioCapabilityDeliveryController {
         || command.gatewayId !== this.state.scope.gatewayId || (!row.proof.live && (delivery.report.readiness !== "off"
         || delivery.report.verifiedFingerprintId !== null || delivery.report.sensorModeVerifiedAt !== null))
         || (row.proof.live && (delivery.report.readiness !== "ready" || delivery.report.verifiedFingerprintId !== row.proof.live.profileKey
-          || typeof row.proof.live.healthEpoch !== "string" || typeof row.proof.live.reportEventId !== "string" || !Number.isSafeInteger(row.proof.live.connectionRevision)))
+          || typeof row.proof.live.healthEpoch !== "string" || typeof row.proof.live.reportEventId !== "string" || !Number.isSafeInteger(row.proof.live.connectionRevision)
+          || (row.proof.live.verifiedMonotonicMs !== undefined && (!Number.isFinite(row.proof.live.verifiedMonotonicMs) || row.proof.live.verifiedMonotonicMs < 0))))
         || row.deliveryPayloadHash !== canonicalHash(delivery) || events.has(delivery.report.eventId)
         || !this.mappingMatchesCommand({ ...row.proof.mapping, status: "confirmed" } as BioDeviceMapping, command)) throw new Error("bio_capability_journal_invalid");
       if (row.receipt && !matchesVehicleSensorCapabilityIngestedAckV2(delivery, row.receipt, row.deliveryPayloadHash)) throw new Error("bio_capability_receipt_invalid");
