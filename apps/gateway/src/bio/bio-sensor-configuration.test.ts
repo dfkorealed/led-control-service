@@ -245,7 +245,7 @@ it("queries with SET0, gates ensure by full fresh fingerprint, and journals exac
   expect((await f.handler.handle(c)).eventId).toBe(report.eventId); expect(f.writes).toHaveLength(2);
   f.device.fingerprint = { ...fingerprint, hardwareType: 99 };
   const denied = await f.handler.handle({ ...f.command(), operation: "ensure_sensor" });
-  expect(denied.status).toBe("unsupported"); expect(f.writes.filter(w => w === "SET_MODE")).toHaveLength(0);
+  expect(denied.status).toBe("unverified"); expect(f.writes.filter(w => w === "SET_MODE")).toHaveLength(0);
   f.device.fingerprint = fingerprint; f.mode("force-on");
   expect((await f.handler.handle(f.command())).status).toBe("needs_setup");
   expect((await f.handler.handle({ ...f.command(), operation: "ensure_sensor" })).status).toBe("ready");
