@@ -1,5 +1,13 @@
 # 설정 메뉴 기능 현황 및 구현 설계
 
+## 2026-10-08 등록 BIO discovery 관측 보존 경계
+
+- 구현 완료(Task 2A 소프트웨어): 별도 strict `scan-found-v2` topic의 `schemaVersion:2`·필수 nullable fingerprint를 수신하고 현재 scan 귀속·순서·중복 경계 안에서 `DiscoveredMeshNode.bioDiscoveryFingerprint`에 저장한다. 등록 완료 뒤에도 관측은 보존하며 일반 등록 HTTP 응답에서 제거한다. firmware 문자열로 관측을 합성하지 않는다.
+- 미구현: Gateway BIO publisher의 새 topic 전환, 실제 준비 query의 fresh discovery 확인과 UI 준비 판정, 운영 migration·broker ACL 적용·RF 검증. Task 3 이후 소비 작업이 필요하다.
+- 부족하거나 개선이 필요한 기능: 관측은 profile 승인·장치 호환·ready 증거가 아니다. 더 새로운 null/legacy 발견은 이전 fingerprint를 비우고 잘못된 scope·이전 attempt·늦은 발견·중복은 저장 값을 변경하지 않는다. 실제 센서 준비/SET·classification을 자동 생성하지 않는다.
+- 관련 파일: `packages/shared/src/bio-discovery-contracts.ts`, `apps/api/src/mqtt/mqtt.service.ts`, `apps/api/src/registration/registration.service.ts`, `apps/api/prisma/migrations/20261008050000_bio_discovery_fingerprint/migration.sql`, `apps/api/test/bio-discovery.integration.spec.ts`, `scripts/dev-runtime.mjs`, `infra/mosquitto.acl.example`.
+- 갱신 규칙: API/ACL 소스 검증·일회용 DB와 실제 broker/Gateway/장비 적용을 구분한다. Subscriber ACL·API migration 적용이 새 Gateway publisher 전환보다 선행해야 하며 typed 관측만으로 준비 완료를 기록하지 않는다.
+
 ## 2026-10-08 공통 BIO 센서 profile·현장 정책·준비 API
 
 - 구현 완료(Task 2 소프트웨어): persisted active service_provider/operator 전용 profile 목록/순차 revision 승인/새 revoked revision, own-site assigned admin 전용 정책 GET/PUT과 준비 query/ensure_sensor POST/GET을 제공한다. 초기 approved profile은 없고 현장 실행은 OFF다.

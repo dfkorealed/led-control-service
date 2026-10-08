@@ -2135,6 +2135,7 @@ node별 `provision-device` command의 durable transactional outbox다. 등록 AP
 | `firmwareVersion` | `String` | 예 |  | 펌웨어 버전 |
 | `scanCorrelationId` | `String?` | 아니오 |  | API가 검증한 발견 이벤트의 scan correlation ID. legacy row는 `null` |
 | `scanAttempt` | `Int?` | 아니오 |  | API가 검증한 발견 이벤트의 scan 재시도 번호. legacy row는 `null` |
+| `bioDiscoveryFingerprint` | `Json?` | 아니오 | SQL `NULL` | 현재 scan에서 검증한 BIO 종류·firmware/build·sensor/infrared/ambient/hardware 관측. 승인·지원·준비 상태가 아님 |
 | `status` | `DiscoveredNodeStatus` | 예 | `discovered` | 발견 노드 상태 |
 | `identifyState` | `String` | 예 | `idle` | 점멸 확인 상태 |
 | `meshAddress` | `String?` | 아니오 |  | 할당 예정 또는 할당된 mesh address |
@@ -2153,6 +2154,9 @@ node별 `provision-device` command의 durable transactional outbox다. 등록 AP
 - 복합 Unique: `sessionId`, `deviceUuid`
 - `scanCorrelationId`, `scanAttempt`는 새 migration에서 nullable로 추가한다. 신뢰할 수 있는 attempt identity가 없는 기존 row는 backfill하지 않으며 Web 후보 판정에서 fail-closed로 제외한다.
 - 같은 세션의 동일 `deviceUuid`가 다음 scan attempt에서 다시 발견되면 upsert update가 두 identity 필드를 현재 검증된 event 값으로 덮어쓴다. `discoveredAt`은 gateway 발생 시각이며 attempt 경계 판정에 사용하지 않는다.
+- `20261008050000_bio_discovery_fingerprint`는 nullable JSONB 관측 필드만 추가하며 legacy firmware 문자열에서 backfill하지 않는다. 새 `scan-found-v2` topic의 strict `schemaVersion:2`·필수 nullable fingerprint를 기존 session/site/gateway/correlation/attempt/lifecycle·eventId/sequence/hash/원장 경계에서 검증한 뒤 같은 transaction으로 저장한다. 새 topic과 legacy scan-found는 동일 `provisioning_scan_found` 순서 원장을 사용하므로 topic 변경으로 중복·낮은 sequence를 우회하지 않는다.
+- 수용된 새 typed 관측은 기존 관측을 갱신하고, 새 null/legacy 관측은 이전 fingerprint를 SQL `NULL`로 지워 오래된 값이 새 scan identity에 귀속되지 않도록 한다. 잘못된 scope/이전 attempt/늦은 scan/중복은 현재 관측을 변경하지 않는다. 등록 완료는 저장 관측을 보존하지만 이후 실제 준비 query는 fresh discovery를 다시 확인해야 한다.
+- 일반 registration HTTP presenter는 `bioDiscoveryFingerprint`를 명시적으로 제거하며 수신 오류 로그는 고정 error 종류만 기록한다. 관측만으로 classification/readiness/profile 승인·센서 준비/SET 작업을 생성하지 않는다. 새 migration 전체 replay와 legacy row upgrade는 일회용 PostgreSQL에서만 검증했으며 사용자 DB에는 적용하지 않았다.
 
 등록 동시성 및 복구 계약:
 

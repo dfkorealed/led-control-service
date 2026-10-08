@@ -750,6 +750,7 @@ type IdentifyOperationMetadata = {
 type RegistrationNodeSource = {
   deviceUuid: string;
   deviceOutbox?: IdentifyOperationMetadata[];
+  bioDiscoveryFingerprint?: Prisma.JsonValue;
 };
 
 type RegistrationSessionSource<TNode extends RegistrationNodeSource = RegistrationNodeSource> = {
@@ -771,7 +772,7 @@ type ExistingRegistrationResponse = {
   floorName: string | null;
 };
 
-type RegistrationNodeResponse<TNode extends RegistrationNodeSource> = Omit<TNode, "deviceOutbox"> & {
+type RegistrationNodeResponse<TNode extends RegistrationNodeSource> = Omit<TNode, "deviceOutbox" | "bioDiscoveryFingerprint"> & {
   identifyOperationId: string | null;
   identifyOperationStartedAt: Date | null;
   registrationEligibility: RegistrationEligibility;
@@ -854,7 +855,7 @@ function presentRegistrationNode<TNode extends RegistrationNodeSource>(
   registration?: RegistrationResponseRecord,
   operation?: IdentifyOperationMetadata
 ): RegistrationNodeResponse<TNode> {
-  const { deviceOutbox, ...publicNode } = node;
+  const { deviceOutbox, bioDiscoveryFingerprint: _bioDiscoveryFingerprint, ...publicNode } = node;
   const latest = operation ?? deviceOutbox?.[0];
   const registrationEligibility = !registration
     ? "available" as const

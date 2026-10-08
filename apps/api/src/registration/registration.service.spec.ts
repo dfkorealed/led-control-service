@@ -226,6 +226,21 @@ describe("RegistrationService", () => {
     expect(prisma.meshNode.findMany).toHaveBeenCalledTimes(1);
   });
 
+  it("redacts discovery observation from session polling and active session lists", async () => {
+    const session = { ...registrationSession(), discoveredNodes: [{ ...discoveredNode(),
+      bioDiscoveryFingerprint: { deviceType: 1, firmware: { major: 2, minor: 3, revision: 4, build: 513 },
+        sensorType: 5, infraredType: 6, ambientLightType: 7, hardwareType: 8 } }] };
+    const { service } = await createModule({ provisioningSession: {
+      findUnique: jest.fn().mockResolvedValue(session), findMany: jest.fn().mockResolvedValue([session])
+    } });
+    const single = await service.getSession(admin, ids.sessionId);
+    const listed = await service.listActiveSessions(admin, ids.siteId);
+    for (const response of [single, ...listed]) {
+      expect(response.discoveredNodes[0]).not.toHaveProperty("bioDiscoveryFingerprint");
+      expect(JSON.stringify(response)).not.toContain('"sensorType"');
+    }
+  });
+
   it("returns a completed registration session as JSON without internal terminal replay identity", async () => {
     const terminalSession = {
       ...registrationSession(),

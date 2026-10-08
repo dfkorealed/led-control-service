@@ -5,6 +5,7 @@ import mqtt from "mqtt";
 import { disposableMosquitto } from "../../test/support/disposable-mosquitto";
 import { createMqttConnectionOptions, MqttService } from "./mqtt.service";
 import { mqttTopicsV2 } from "@led-control/shared";
+import { Prisma } from "@prisma/client";
 
 jest.mock("node:fs", () => ({ readFileSync: jest.fn(() => Buffer.from("test-certificate")) }));
 
@@ -96,6 +97,36 @@ describe("MqttService", () => {
       expect(client.stream.destroy).toHaveBeenCalledTimes(1); expect(done).not.toHaveBeenCalled(); expect(client.publish).not.toHaveBeenCalled();
     } finally { log.mockRestore(); }
   });
+  it("subscribes to separate typed discovery while retaining strict legacy subscription", () => {
+    const service = new MqttService({} as never, createMeshGroupsMock() as never);
+    const listeners: Record<string, (...args: any[]) => unknown> = {};
+    const client = { subscribe: jest.fn(), on: jest.fn((name, fn) => { listeners[name] = fn; }),
+      removeListener: jest.fn(), publish: jest.fn() };
+    (service as any).client = client;
+    service.onModuleInit();
+    listeners.connect();
+    expect(client.subscribe.mock.calls[0][0]).toEqual(expect.arrayContaining([
+      "sites/+/gateways/+/events/provisioning/scan-found-v2",
+      "sites/+/gateways/+/events/provisioning/scan-found"
+    ]));
+  });
+
+  it("redacts typed discovery validation details from inbound logs", async () => {
+    const service = new MqttService({} as never, createMeshGroupsMock() as never);
+    const client: any = new EventEmitter(); client.subscribe = jest.fn();
+    (service as any).client = client;
+    service.onModuleInit();
+    const log = jest.spyOn(Logger.prototype, "error").mockImplementation();
+    try {
+      client.emit("message", "sites/site/gateways/gateway/events/provisioning/scan-found-v2",
+        Buffer.from(JSON.stringify({ schemaVersion: 2, fingerprint: { secret: "private-discovery-marker" } })));
+      await new Promise(resolve => setImmediate(resolve));
+      expect(log).toHaveBeenCalledWith("mqtt inbound message handling failed (error=UNEXPECTED_ERROR)");
+      expect(JSON.stringify(log.mock.calls)).not.toContain("private-discovery-marker");
+      expect(JSON.stringify(log.mock.calls)).not.toContain("fingerprint");
+    } finally { log.mockRestore(); }
+  });
+
   const resyncRequest = {
     siteId: "22222222-2222-4222-8222-222222222222",
     gatewayId: "55555555-5555-4555-8555-555555555555",
@@ -2317,6 +2348,7 @@ describe("MqttService", () => {
         rssi: -54,
         oobCapability: "static-oob",
         firmwareVersion: "mock-node-0.1.0",
+        bioDiscoveryFingerprint: Prisma.DbNull,
         scanCorrelationId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
         scanAttempt: 2,
         discoveredAt: new Date("2026-06-30T23:59:01.000Z")
@@ -2326,6 +2358,7 @@ describe("MqttService", () => {
         rssi: -54,
         oobCapability: "static-oob",
         firmwareVersion: "mock-node-0.1.0",
+        bioDiscoveryFingerprint: Prisma.DbNull,
         scanCorrelationId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
         scanAttempt: 2,
         discoveredAt: new Date("2026-06-30T23:59:01.000Z"),

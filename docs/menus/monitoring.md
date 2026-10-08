@@ -1,5 +1,13 @@
 # 모니터링 메뉴 기능 현황
 
+## 2026-10-08 등록 BIO discovery 관측 보존 경계
+
+- 구현 완료(Task 2A 소프트웨어): registration scan의 종류·firmware/build·sensor/infrared/ambient/hardware fingerprint를 nullable 내부 관측으로 보존한다. 기존 현재 session/correlation/attempt/site/gateway·lifecycle·event 원장/sequence 경계를 재사용하며 등록 완료 뒤 보존한다. 일반 polling 응답과 수신 오류 로그에는 raw 관측을 노출하지 않는다.
+- 미구현: Gateway 새 typed discovery publisher, 후속 fresh query/live health와 UI 준비 projection, 운영 migration·ACL 적용·실장비 검증.
+- 부족하거나 개선이 필요한 기능: 관측은 현재 통신·센서 건강·readiness를 입증하지 않는다. 신규 null/legacy는 기존 관측을 비우고 늦거나 잘못 귀속된 scan은 저장하지 않는다. 기존 strict scan/terminal wire와 모니터링 상태·classification/SET는 유지한다.
+- 관련 파일: `packages/shared/src/bio-discovery-contracts.ts`, `apps/api/src/mqtt/mqtt.service.ts`, `apps/api/src/registration/registration.service.ts`, `apps/api/prisma/schema.prisma`, `apps/api/test/bio-discovery.integration.spec.ts`, `scripts/dev-mqtt-acl.integration.test.mjs`.
+- 갱신 규칙: 내부 관측 보존·일회용 PostgreSQL 검증과 실제 Gateway/RF 증거를 구분한다. 기존 발견 관측을 fresh query 또는 독립 qualification으로 승격하지 않는다.
+
 ## 2026-10-07 A/B pilot launcher 증거 — 실제 상태 보고 아님
 
 - 구현 완료(시험용 코드): host lifecycle·exact Docker 결과·pilot durable final journal을 보호 evidence에 보존하고 설정/close 불확실과 postflight 실패를 nonzero로 보고한다. CLI timeout만으로 diagnostic 수명을 판단하지 않고 exact no-such-object 오류와 독립 inventory 또는 exact terminal 상태를 확인한다.

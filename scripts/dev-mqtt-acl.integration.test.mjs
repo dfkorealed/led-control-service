@@ -143,7 +143,7 @@ const API_WRITE = [...BIO_COMMANDS, REVALIDATION_COMMAND, REVALIDATION_ACK, "com
   "acks/fixture-presence-check-completed", "acks/provisioning/scan-terminal-ingested", "acks/provisioning/device-terminal-ingested",
   "acks/automation/config-applied-ingested", "acks/automation/execution-ingested", "acks/automation/vehicle-sensor-capability-ingested"];
 const API_READ = [...BIO_EVENTS, REVALIDATION_RESULT, "events/bio-sensor-mode-result", "acks/acceptance", "acks/device-status", "state/fixtures", "state/fixture-presence", "state/heartbeat",
-  "events/provisioning/scan-found", "events/provisioning/scan-completed", "events/provisioning/scan-failed",
+  "events/provisioning/scan-found", "events/provisioning/scan-found-v2", "events/provisioning/scan-completed", "events/provisioning/scan-failed",
   "events/provisioning/device-terminal", "events/provisioning-completed", "events/provisioning-failed",
   "events/identify-result", "events/fixture-presence-check-completed", "events/fixture-unreachable",
   "events/mesh-group/resync-request", "events/mesh-group/subscription-result", "events/mesh-node-metrics",
@@ -165,6 +165,17 @@ function aclAllows(source, username, direction, topic) {
   }
   return false;
 }
+
+test("BIO typed discovery ACL grants exact API subscriber and scoped Gateway producer", () => {
+  const template = readFileSync(new URL("../infra/mosquitto.acl.example", import.meta.url), "utf8");
+  for (const source of [template, renderMosquittoAcl([ALLOWED_ID]), renderMosquittoAcl([ALLOWED_ID], { setGeneration: 8 })]) {
+    const topic = gateway => `sites/site/gateways/${gateway}/events/provisioning/scan-found-v2`;
+    assert.equal(aclAllows(source, "api-service", "read", topic(ALLOWED_ID)), true);
+    assert.equal(aclAllows(source, "api-service", "write", topic(ALLOWED_ID)), false);
+    assert.equal(aclAllows(source, ALLOWED_ID, "write", topic(ALLOWED_ID)), true);
+    assert.equal(aclAllows(source, ALLOWED_ID, "write", topic(REMOVED_ID)), false);
+  }
+});
 
 test("BIO catalog/preparation ACL grants exact producer directions and retains legacy producers", () => {
   const rendered = renderMosquittoAcl([ALLOWED_ID], { setGeneration: 8 });

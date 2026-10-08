@@ -324,7 +324,7 @@ const API_READ_SUFFIXES = [
   "events/bio-registration-revalidation-result",
   "events/bio-sensor-mode-result",
   "acks/acceptance", "acks/device-status", "state/fixtures", "state/fixture-presence", "state/heartbeat",
-  "events/provisioning/scan-found", "events/provisioning/scan-completed", "events/provisioning/scan-failed",
+  "events/provisioning/scan-found", "events/provisioning/scan-found-v2", "events/provisioning/scan-completed", "events/provisioning/scan-failed",
   "events/provisioning/device-terminal", "events/provisioning-completed", "events/provisioning-failed",
   "events/identify-result", "events/fixture-presence-check-completed", "events/fixture-unreachable",
   "events/mesh-group/resync-request", "events/mesh-group/subscription-result", "events/mesh-node-metrics",

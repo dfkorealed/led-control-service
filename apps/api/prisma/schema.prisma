@@ -2615,6 +2615,7 @@ model DiscoveredMeshNode {
   firmwareVersion    String
   scanCorrelationId  String?
   scanAttempt        Int?
+  bioDiscoveryFingerprint Json?
   status             DiscoveredNodeStatus       @default(discovered)
   identifyState      String                     @default("idle")
   meshAddress        String?

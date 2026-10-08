@@ -29,6 +29,8 @@ import {
   ProvisioningScanStartPayload,
   provisioningScanStartSchema,
   provisioningScanFoundSchema,
+  bioProvisioningScanFoundV2Schema,
+  bioDiscoveryTopics,
   provisioningScanCompletedSchema,
   provisioningScanFailedSchema,
   type ApplicationStateIngestedAckV2,
@@ -185,6 +187,7 @@ export class MqttService implements OnModuleInit {
       client.subscribe(
         [
           "sites/+/gateways/+/events/provisioning/scan-found",
+          bioDiscoveryTopics.scanFoundV2("+", "+"),
           "sites/+/gateways/+/events/identify-result",
           "sites/+/gateways/+/events/fixture-presence-check-completed",
           mqttTopicsV2.fixtureUnreachable("+", "+"),
@@ -863,10 +866,17 @@ export class MqttService implements OnModuleInit {
       return;
     }
 
-    if (topic.endsWith("/events/provisioning/scan-found")) {
-      const node = provisioningScanFoundSchema.parse(JSON.parse(payload.toString()));
+    if (topic.endsWith("/events/provisioning/scan-found") || topic.endsWith("/events/provisioning/scan-found-v2")) {
+      // Select a separate strict parser by wire version. Legacy firmware strings
+      // cannot supply typed discovery or promote sensor qualification.
+      const node = topic.endsWith("/scan-found-v2")
+        ? bioProvisioningScanFoundV2Schema.parse(JSON.parse(payload.toString()))
+        : provisioningScanFoundSchema.parse(JSON.parse(payload.toString()));
       const topicScope = parseGatewayScopedTopic(topic);
       if (!topicScope || topicScope.siteId !== node.siteId || topicScope.gatewayId !== node.gatewayId) return;
+      // A fresh null/legacy observation clears the old fingerprint alongside its
+      // scan identity, so stale data cannot appear to belong to this new scan.
+      const observation = "fingerprint" in node && node.fingerprint !== null ? node.fingerprint : Prisma.DbNull;
       try {
         await this.prisma.$transaction(async (tx) => {
           const session = await this.acceptCurrentScanEvent(tx, node, topicScope, "provisioning_scan_found");
@@ -892,6 +902,7 @@ export class MqttService implements OnModuleInit {
               rssi: node.rssi,
               oobCapability: node.oobCapability,
               firmwareVersion: node.firmwareVersion,
+              bioDiscoveryFingerprint: observation,
               scanCorrelationId: node.scanCorrelationId,
               scanAttempt: node.scanAttempt,
               discoveredAt: new Date(node.occurredAt)
@@ -901,6 +912,7 @@ export class MqttService implements OnModuleInit {
               rssi: node.rssi,
               oobCapability: node.oobCapability,
               firmwareVersion: node.firmwareVersion,
+              bioDiscoveryFingerprint: observation,
               scanCorrelationId: node.scanCorrelationId,
               scanAttempt: node.scanAttempt,
               discoveredAt: new Date(node.occurredAt)

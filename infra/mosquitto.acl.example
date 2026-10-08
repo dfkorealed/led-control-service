@@ -24,6 +24,7 @@ topic read sites/+/gateways/+/state/fixtures
 topic read sites/+/gateways/+/state/fixture-presence
 topic read sites/+/gateways/+/state/heartbeat
 topic read sites/+/gateways/+/events/provisioning/scan-found
+topic read sites/+/gateways/+/events/provisioning/scan-found-v2
 topic read sites/+/gateways/+/events/provisioning/scan-completed
 topic read sites/+/gateways/+/events/provisioning/scan-failed
 topic read sites/+/gateways/+/events/provisioning/device-terminal
@@ -92,6 +93,7 @@ pattern write sites/+/gateways/%u/events/bio-sensor-preparation-result
 pattern write sites/+/gateways/%u/events/bio-registration-revalidation-result
 pattern write sites/+/gateways/%u/events/bio-sensor-mode-result
 pattern write sites/+/gateways/%u/events/provisioning/scan-found
+pattern write sites/+/gateways/%u/events/provisioning/scan-found-v2
 pattern write sites/+/gateways/%u/events/provisioning/scan-completed
 pattern write sites/+/gateways/%u/events/provisioning/scan-failed
 pattern write sites/+/gateways/%u/events/provisioning/device-terminal
