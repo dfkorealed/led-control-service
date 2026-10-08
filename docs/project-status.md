@@ -2,6 +2,17 @@
 
 기준일: 2026-10-08
 
+## 2026-10-08 A/B 실제 시험 — 안내 전송 실패로 종료, 설정·서비스 복구 확인
+
+- 사용자가 `그럼 테스트 시작하자`로 시험 시작을 요청했다. 현재 A 범위 밖·타인/움직이는 물체 없음·시험/원복6~8분 제어 중단 가능을 다시 질문하고, Gateway 담당은 fresh 읽기 전용 사전 상태만 확인한다. 현장 응답 전 receipt/phase/bridge/START.used·STOP/USB/RF는 실행하지 않는다.
+- 실제 IAB 현재 tab6의 인증/연결 중단 표시는 기존 보호 인증 URL 재접속으로 정상 시작 대기·비활성4버튼으로 돌아왔다. 새 서버/테스트 run을 만들지 않았으며 기존 준비 시각·receipt를 fresh로 재표시하지 않는다.
+- 사용자 현재 응답은 `범위 밖, 다른 사람·움직이는 물체 없음, 68분 중단 가능`이다. 질문의6~8분 한도로 적용하며68분 시험으로 확대하지 않는다. 00:58:46Z fresh readonly healthy/MQTT/fresh heartbeat·API200/strict TLS·실제8counts0·동일A/B/mapping/identity/검토파일 및 단독USB 소유·기존 lock inode를 확인했다. 이번1회 START 요청과 현장 조건이 충족됐으며 현재 관찰 receipt/새 phase/passive bridge waiting 준비 후 실제 화면 관문을 확인한다. 실제 run 완료나 원복 성공으로 표시하지 않는다.
+- 00:59:48.531Z fresh prepare의 remoteRoot `/tmp/bio-event-pilot-ifK8Jw`·manifest SHA256 `9cd09489f9b21b2a5f5885bd9c23783e84ea6621ad505e3644c586a120b61cd6`와 같은 run의 passive bridge83078 waiting/HTTP200·START.used 부재를 확인했다. 총괄이 prepared.json와 실제 IABtab6 waiting/비활성4버튼을 대조하고01:00:57Z 이번1회 run GO를 전달했다. run session64253 단1회 실행 뒤 bridge는 fail-closed exit1·UI failed/elapsed null로 중단됐다. observing/실제 장비 진입·원복은 아직 확인 중이며 성공으로 표시하지 않는다. 사용자에게 범위 밖 유지/움직임 시험 금지를 즉시 알렸고 새 bridge/재zero/재시험은0이다. 현재 실제 화면도 종료/중단·비활성4버튼을 확인했다.
+
+- **최종 결과:** native는 observing까지 진입했지만 브리지는 waiting 전달52건 뒤53번째에서 `TRANSPORT_UNAVAILABLE`로 종료됐다. 안내 anchor/경과시간/사용자 기록은 생성되지 않았다. 실패 SSH status/stdout/stderr/RTT를 기존 브리지가 보존하지 않아 하위 원인은 미확정이며 시계나 센서 결함으로 단정하지 않는다. 정확한 host launcher PID315454/exe/root/start hash를 대조한 SIGTERM 조기 취소로 기존 독립 cleanup만 실행했다.
+- **원복 완료, 시험 성공 아님:** native final closed/pending[]·원본 A raw189/55%/force-off 및 B raw155/37%/force-off, occurrence0·notifications0/B activation0을 확인했다. 정확 diagnostic terminal/exit0, launcher 취소code1·01:03:43.767Z `failed-restored`다. 같은 원본 ID/image는01:03:35.969293038Z 정상 재시작/PID316250이므로 이전 StartedAt/PID 불변으로 표현하지 않는다. 총괄이01:08:27Z gateway healthy/MQTT/freshheartbeat·단독USB/mapping/identity/lock·DNS.74와 DB8counts0/config12APPLIED/heartbeat 증가를 actual파일로 대조했다. gateway SHA4420ae9c…0636/DB SHAe9565256…3dcb/nativejournal SHA63f44d55…213b다. 현장 대기는 해제했고 추가 trial/RF/GET·SET/코드/PKI/직접DB0이다.
+- **마감/후속:** private `bio-browser-minimal-20261007/live-evidence-Jjls9n/summary.json` SHA256 `422d95fcacd517fc1135eac9001b0f4f893632bb30e80b6c36faffe66006cacc`를 총괄이 대조했다. 실제 IABtab6 중단/비활성4버튼 screenshot `ui-stopped.png` SHA1487ece1…d963도 보존했다. 같은 ID의 이번 재시작에서 DNS 유지만 확인했으며 bootstrap/power-loss 지속성은 미검증이다. old operator-action의 hHYmA7 UIroot 문자열은 원문 보존하고 실제 qFhHqt attachment/binding과 구분한다. 유효 행동·B 반응/연장/만료 기록을 얻지 못해 실제 연동 검증/OFF는 미완료다. 브리지 실패 진단/원시 오류 로그 보존·최소 소프트웨어 보완 뒤 재시험은 fresh 현장/상태/별도 START가 필요하다.
+
 ## 2026-10-08 MQTT 연결 복구·센서 시험 직전 준비 — 완료, 실제 시험 미실행
 
 - 사용자가 `진행해줘. 테스트 직전까지 진행해`로 기존 MQTT 연결 복구와 최소 시험 도구 준비를 승인했다. 담당 Gateway 한 명이 현재 원본·DNS/주소·TCP/TLS/MQTT·공개 CRL·API/DB 대기 상태를 읽어 원인을 좁히고, 증명된 환경 원인만 최소 수정한다. 과거 복구 스크립트나 오래된 상태/승인/phase를 그대로 재사용하지 않는다.

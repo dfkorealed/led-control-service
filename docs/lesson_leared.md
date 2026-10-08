@@ -1,5 +1,11 @@
 # 프로젝트 오답 노트 (Lessons Learned)
 
+## 2026-10-08 / 시험 브리지 실패도 원시 진단 근거를 남긴다
+
+- **발생한 문제**: 실제 장비는 observing에 진입했지만 브리지는 waiting52회 뒤 `TRANSPORT_UNAVAILABLE`로 종료해 안내 타이머를 시작하지 못했다. 실패 SSH 종료 상태/stdout/stderr/RTT가 버려져 실패 종료·stderr·지연 상한 중 어느 원인인지 확정할 수 없었다.
+- **예방/후속**: 실패를 재시도하거나 fail-closed를 완화하지 않고, 비밀을 노출하지 않는 보호된 원시 실패 근거를 보존하도록 최소 진단을 보완한다. 과거 실패 원문은 소급 합성하지 않는다. 현장 재시험은 별도 START로 진행한다.
+- **복구 판정**: 장비 observing와 브라우저 observing/실제 사용자 행동은 다른 증거다. 이번 조기 취소의 native closed/pending0·diagnostic terminal·host failed-restored·현재 서비스/DB 건강 확인은 복구 완료일 뿐 센서 연동 성공이 아니다.
+
 ## 2026-10-08 / 이동한 개발 서버 주소와 현재 DNS를 먼저 대조한다
 
 - **발생한 문제**: Mac 네트워크 주소가 바뀌어 Pi host와 실행 중인 Gateway container의 hosts가 이전 서버를 가리켰다. Gateway는 재시작되지 않았지만 MQTT/heartbeat가 끊겼다.
