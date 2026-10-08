@@ -142,11 +142,11 @@
 
 **Interfaces:** `requestBioSensorPreparation/getBioSensorPreparation`은Task2 POST/GET; 카탈로그/현장정책은관리권한UI만호출한다. 일반사용자는ready경로에동의/확인만하고native/body를입력하지 않는다. 지도에등록전체상태·차단사유를제공하고미준비도행동버튼으로설정가능하게한다. source확정은서버eligible만사용한다.
 
-- [ ] **Step 1 RED:** 임의이름/ID의3조명표시·unready설정/ready선택·실패/재조회/중복클릭/늦은응답·profileunknown·samegateway/source배제·10/1800·PC잘림과모바일조작 회귀를 작성한다.
-- [ ] **Step 2 RED 확인:** 신규panel·source-status·eventdialog focused Vitest.
-- [ ] **Step 3 구현:** 기존 Button/Card/Text/지도selection을재사용해준비상태공통panel을연결하고 A/B전용문구를역할기반문구로바꾼다. polling은유한대기·manualretry로하며모드POST접수를ready로표시하지않는다.
-- [ ] **Step 4 GREEN/문서:** focused Web/typecheck/build/UI policy,PC·mobile실제component검증. 정책/프로파일관리화면은권한분리·approval없는기본OFF를명시한다.
-- [ ] **Step 5 검토·커밋:** 영향메뉴정리·독립spec/quality검토. browser시험도구를새로만들지않는다.
+- [x] **Step 1 RED:** 임의 조명의 미준비 marker inspection·새 operator route·POST 직후 dashboard invalidation을 behavioral RED로 재현했다. mode/checkpoint와 current source eligibility를 구분한 panel 회귀를 추가했다.
+- [x] **Step 2 RED 확인:** 신규panel/dialog/settings/operator/API 집중 검증과 실제 Vite·ESM packaging RED를 확인했다.
+- [x] **Step 3 구현:** `2873c826`의 공통 단일 bounded panel·finite polling/generation/중복 요청 보호, `/settings/site` 관리자 설정·`/operator/sensor-profiles` 보호 메뉴를 연결했다. 모드/POST/GET만으로 ready를 만들지 않고 server eligible로만 확정한다.
+- [x] **Step 4 GREEN/문서:** finalcore44/44·수정 adjacent3/3·실제Chromium11/11(PC/mobile4viewports/pinch)·SharedESM/browser/CJS1·Shared/Webbuild/types/UIpolicy/diff0. 현재 Vite chunk warning baseline 미확인·기존 launcher/env warnings를 숨기지 않았다.
+- [x] **Step 5 검토·커밋:** 독립 core spec/quality APPROVED C0/I0/M4. 역사 revision 철회 표시·monitoring 문서·잔존 역할 문구의 작은 follow-up은 같은 Web 소유자에게 배정했고 final review에 포함한다. 등록 cache prefix 미검증은 실제 consumer key 확인으로 해소 후 Task6로 넘긴다. 새 browser framework/실장비 조작0.
 
 ### Task 6: 최소 공통 경로 통합·최종 코드 검토
 
