@@ -7,6 +7,22 @@ import { automationScope, automationSnapshot } from "./automation-test-fixtures"
 import { handleAutomationConfigPayload } from "../gateway";
 
 describe("AutomationRuntime", () => {
+  it("retains an authenticated BIO snapshot degraded on restart without treating it as applied execution", async () => {
+    const snapshot = automationSnapshot(5, { schemaVersion: 2, vehicleEventRules: [{
+      id: "00000000-0000-4000-8000-000000000011", name: "BIO", sensorProtocol: "bio-usb-pulse", status: "enabled",
+      sourceFixtureIds: ["00000000-0000-4000-8000-000000000012"], targetFixtureIds: ["00000000-0000-4000-8000-000000000013"],
+      holdSeconds: 10, action: { dimmingEnabled: true, brightnessPercent: 80 }
+    }] } as never);
+    let healthy = false; const events: string[] = [];
+    const runtime = new AutomationRuntime({ scope: automationScope, store: memoryStore(snapshot),
+      bioSnapshotLifecycle: { stage: () => { events.push("stage"); }, commit: () => { events.push("commit"); },
+        rollback: () => { events.push("rollback"); }, retain: () => { events.push("retain"); } },
+      bioSnapshotPreflight: async () => { if (!healthy) throw new Error("no fresh health"); },
+      recoverDegradedBioSnapshot: async () => { events.push("degraded"); return {}; },
+      recompute: async () => { events.push("recompute"); return {}; }, applyDesiredState: async () => {} });
+    await expect(runtime.initialize()).resolves.toBeUndefined(); expect(events).toEqual(["stage", "rollback", "retain", "degraded"]);
+    healthy = true; await runtime.hotReload(snapshot); expect(events.slice(-3)).toEqual(["stage", "recompute", "commit"]);
+  });
   it("rejects a handcrafted enabled BIO V2 rule before storage, activation or RF", async () => {
     const store = memoryStore();
     const recompute = vi.fn(async () => ({}));

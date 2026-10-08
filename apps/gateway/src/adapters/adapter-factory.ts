@@ -35,6 +35,7 @@ export interface GatewayAdapters {
   bioPulseSource?: BioPulseSourcePort;
   bioTargetConfiguration?: BioTargetConfigurationPort;
   bioCapabilityIdentity?: BioCapabilityIdentityPort;
+  bioSensorHardware?: { client: BioDongleClient; mappings: BioDeviceMappingStore; source: BioSensorPulseSource };
   healthProbes: ApplianceHealthProbes;
   stop(): Promise<void>;
 }
@@ -150,8 +151,8 @@ async function createBioUsbAdapters(
       }
       unsubscribe = client.onEvent((event) => capture?.record(event));
     }
-    // No env or deployment dependency can supply qualification/profile evidence here.
-    // The actual client is subscribed once, but approved profiles/health remain OFF.
+    // Start with no authority. Index attaches only the scoped durable catalog and
+    // accepted preparation/live GET owner; environment flags cannot approve a profile.
     pulseSource = new BioSensorPulseSource({ client, mappings });
     adapter = (dependencies.createBioAdapter ?? ((ownedClient, ownedMappings) =>
       new BioUsbDongleAdapter(ownedClient, ownedMappings)))(client, mappings);
@@ -182,6 +183,7 @@ async function createBioUsbAdapters(
     vehicleSensors,
     vehicleSensorCloudSupported: false,
     bioPulseSource: pulseSource,
+    bioSensorHardware: { client, mappings, source: pulseSource! },
     bioCapabilityIdentity: {
       findByFixtureId: fixtureId => mappings.findByFixtureId(fixtureId),
       snapshot: () => client.sensorSourceSnapshot(),

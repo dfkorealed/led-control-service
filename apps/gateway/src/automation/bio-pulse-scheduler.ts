@@ -27,6 +27,8 @@ export interface BioPulseTestProfile {
 
 /** Local execution core, not a product qualification or configuration authority. */
 export interface BioPulseControlDependencies extends Omit<BioPulseTestProfile, "kind"> {
+  preflightRelease?: (binding: BioSourceBinding, refresh: boolean) => Promise<boolean>;
+  releaseIdentityCurrent?: (binding: BioSourceBinding) => boolean;
   preflight?: (binding: BioSourceBinding, requireHealthy: boolean) => Promise<boolean>;
   enabledRulesOnly?: boolean;
 }
@@ -95,6 +97,12 @@ export class BioPulseControlCore {
   private async preflightTransition(): Promise<void> {
     if (!this.profile.preflight) return;
     const operation = this.transition;
+    if (operation?.release && operation.activation.releaseReason === "operator_release" && this.profile.preflightRelease) {
+      // Already inside the target's serial RF guard: only recheck identity here.
+      // A nested scan/GET would deadlock the sole client queue.
+      if (!await this.profile.preflightRelease(operation.activation.binding, false) || !this.canTransition(operation.activation, true)) throw new Error("bio_release_identity_unverified");
+      return;
+    }
     if (!operation || !await this.profile.preflight(operation.activation.binding,
       !(operation.release && operation.activation.releaseReason === "operator_release"))
       || !this.canTransition(operation.activation, operation.release)) throw new Error("bio_source_authority_unverified");
@@ -318,8 +326,10 @@ export class BioPulseControlCore {
       if (ruleIds && !ruleIds.has(ruleId)) continue;
       if (activation.completed) continue;
       const release = activation.releaseReason !== null;
-      if (this.profile.preflight && !await this.profile.preflight(activation.binding,
-        !(release && activation.releaseReason === "operator_release"))) {
+      const explicitRelease = release && activation.releaseReason === "operator_release";
+      const verified = explicitRelease && this.profile.preflightRelease ? await this.profile.preflightRelease(activation.binding, true)
+        : !this.profile.preflight || await this.profile.preflight(activation.binding, !explicitRelease);
+      if (!verified) {
         await this.store.updateDurable(state => { this.refreshHealth(state, ruleId); return state; });
         continue;
       }
@@ -385,6 +395,13 @@ export class BioPulseControlCore {
 
   private canTransition(activation: PersistedBioActivation, release: boolean) {
     const explicitRelease = release && activation.releaseReason === "operator_release";
+    if (explicitRelease && this.profile.releaseIdentityCurrent) {
+      // Saved revisions attribute restoration only. The distinct proof cannot
+      // authorize pulses, extension, hold expiry, or a new activation.
+      const saved = Object.values(this.store.read().bioActivationsByRule).find(row => row.activationId === activation.activationId);
+      return !!saved && !saved.completed && saved.releaseReason === "operator_release" && isDeepStrictEqual(saved.binding, activation.binding)
+        && this.profile.releaseIdentityCurrent(activation.binding);
+    }
     if (!this.authorized(activation.binding, !explicitRelease)) return false;
     if (release && !explicitRelease && (!this.profile.enabledRulesOnly || activation.releaseReason === "hold_expired")) {
       if (this.automaticReleaseBlocked(activation.activationId)) return false;

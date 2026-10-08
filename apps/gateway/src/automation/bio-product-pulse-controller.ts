@@ -23,6 +23,10 @@ export class BioProductPulseController extends BioPulseControlCore {
     now: () => Date, monotonic: () => number, automaticReleaseBlocked: (id: string) => boolean) {
     let owner: BioProductPulseController;
     super({ bindings: [], targetPort: dependencies.targetPort, enabledRulesOnly: true,
+      ...(dependencies.source.preflightRelease && dependencies.source.releaseIdentityCurrent ? {
+        preflightRelease: (binding: BioSourceBinding, refresh: boolean) => dependencies.source.preflightRelease!(binding, refresh),
+        releaseIdentityCurrent: (binding: BioSourceBinding) => !owner?.stopped && dependencies.source.releaseIdentityCurrent!(binding)
+      } : {}),
       sourceAuthority: id => owner?.stopped ? null : dependencies.source.sourceAuthority(id),
       preflight: async (binding, requireHealthy) => {
         if (owner?.stopped) return false;
@@ -80,6 +84,22 @@ export class BioProductPulseController extends BioPulseControlCore {
   }
 
   checkpoint() { return { canonical: structuredClone(this.canonicalSnapshot), core: this.configurationCheckpoint() }; }
+
+  recoverDegraded(value: AutomationSnapshot): void {
+    const snapshot = parseAutomationSnapshot(value, this.dependencies.scope);
+    const saved = Object.values(this.store.read().bioActivationsByRule).filter(row => !row.completed);
+    const bindings = [...new Map(saved.map(row => [row.binding.sourceFixtureId, row.binding])).values()];
+    this.resetConfiguration(bindings);
+    // Restoration metadata only; source authority remains unavailable and no old
+    // healthy observation or receipt is rehydrated by installing this snapshot.
+    if (snapshot.schemaVersion === 2) this.snapshot = structuredClone(snapshot);
+    this.canonicalSnapshot = structuredClone(snapshot);
+  }
+
+  protectedSources() {
+    return [...new Set([...super.protectedSources(), ...(this.canonicalSnapshot?.schemaVersion === 2
+      ? this.canonicalSnapshot.vehicleEventRules.filter(rule => rule.sensorProtocol === "bio-usb-pulse" && rule.status === "enabled").flatMap(rule => rule.sourceFixtureIds) : [])])];
+  }
 
   rollback(checkpoint: ReturnType<BioProductPulseController["checkpoint"]>): void {
     // Metadata only. Persisted GET/RF outcome truth belongs to the state store, not

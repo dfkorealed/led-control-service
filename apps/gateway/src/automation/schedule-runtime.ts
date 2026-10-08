@@ -187,7 +187,7 @@ export class ScheduleRuntime {
     return this.options.bioPulseTestProfile && this.snapshot?.schemaVersion === 2 ? null : structuredClone(this.snapshot);
   }
 
-  recompute(snapshot: SchedulerSnapshot): Promise<DesiredLightingState> {
+  recompute(snapshot: SchedulerSnapshot, degradedBioRecovery = false): Promise<DesiredLightingState> {
     return this.enqueue(async () => {
       await this.ensureInitialized();
       if (this.options.bioPulseTestProfile && this.snapshot?.schemaVersion === 2) throw new Error("bio_test_snapshot_change_unavailable");
@@ -199,7 +199,8 @@ export class ScheduleRuntime {
       }
       if (this.activationCheckpoint) throw new Error("automation config activation is already pending");
       const bioCheckpoint = this.bioProduct?.checkpoint();
-      await this.bioProduct?.prepare(snapshot);
+      if (degradedBioRecovery) this.bioProduct?.recoverDegraded(snapshot);
+      else await this.bioProduct?.prepare(snapshot);
       this.beginActivation(bioCheckpoint);
       const computed = await this.reconcile(snapshot);
       this.pendingActivationLifecycle = computed.lifecycleEvents;

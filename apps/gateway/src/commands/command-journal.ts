@@ -1,5 +1,12 @@
 import { readFile } from "node:fs/promises";
 import { writeJsonAtomic } from "../mesh/mesh-store-file";
+import { bioSensorPreparationAckV1Schema, matchesBioSensorPreparationAckV1 } from "@led-control/shared";
+import { bioEnvelopeHash } from "../bio/bio-sensor-profile-catalog";
+import { isDeepStrictEqual } from "node:util";
+
+function isPreparation(value: unknown): boolean {
+  return !!value && typeof value === "object" && "kind" in value && value.kind === "bio_sensor_preparation";
+}
 
 function isSensorModeWrapper(value: unknown): value is { kind: "bio_sensor_mode"; command: { expiresAt: string } } {
   return !!value && typeof value === "object" && "kind" in value && value.kind === "bio_sensor_mode" &&
@@ -22,6 +29,7 @@ interface JournalRecord {
   executionPhase?: "pre_rf" | "may_have_written";
   sensorModeHandedOff?: boolean;
   bioRegistrationRevalidationHandedOff?: boolean;
+  preparationAck?: unknown;
   updatedAt: string;
 }
 
@@ -85,6 +93,7 @@ export class CommandJournal {
     return {
       state: record.state,
       command: record.command,
+      ...(record.preparationAck ? { preparationAck: record.preparationAck } : {}),
       ...(record.result === undefined ? {} : { result: record.result }),
       ...(record.executionPhase ? { executionPhase: record.executionPhase } : {}),
       ...(record.automationAbort ? { automationAbort: record.automationAbort } : {}),
@@ -101,7 +110,7 @@ export class CommandJournal {
       const data = await this.readData();
       this.prune(data);
       if (data.records[idempotencyKey]) return false;
-      if ((isSensorModeWrapper(command) || isBioRegistrationRevalidationWrapper(command)) && Object.values(data.records).filter((record) => this.retainModeOperation(record)).length >= this.maxRecords) {
+      if ((isPreparation(command) || isSensorModeWrapper(command) || isBioRegistrationRevalidationWrapper(command)) && Object.values(data.records).filter((record) => this.retainModeOperation(record)).length >= this.maxRecords) {
         throw new Error("mode operation journal capacity exceeded");
       }
       const terminal = options.terminalResult !== undefined;
@@ -301,7 +310,25 @@ export class CommandJournal {
     });
   }
 
+  async pendingBioSensorPreparations() {
+    return Object.values((await this.readData()).records).filter(record => isPreparation(record.command) && !record.preparationAck);
+  }
+
+  async acknowledgeBioSensorPreparation(raw: unknown): Promise<boolean> {
+    const ack = bioSensorPreparationAckV1Schema.parse(raw);
+    return this.enqueue(async () => {
+      const data = await this.readData(), record = data.records[ack.commandId];
+      if (!record || !isPreparation(record.command) || record.state !== "completed" || !record.result
+        || !matchesBioSensorPreparationAckV1(record.result, ack, bioEnvelopeHash(record.result))) return false;
+      if (record.preparationAck) return isDeepStrictEqual(record.preparationAck, ack);
+      record.preparationAck = ack; await this.writeData(data); return true;
+    });
+  }
+
   private retainModeOperation(record: JournalRecord) {
+    // Preparation's exact result/ACK is a commission audit, not a TTL RF permit.
+    // Keep both accepted/uncertain and acknowledged results; capacity fails closed.
+    if (isPreparation(record.command)) return true;
     if (isBioRegistrationRevalidationWrapper(record.command)) {
       return !record.bioRegistrationRevalidationHandedOff || Date.parse(record.command.command.expiresAt) >= this.now().getTime();
     }

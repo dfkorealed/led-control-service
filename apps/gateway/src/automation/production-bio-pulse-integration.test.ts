@@ -146,6 +146,19 @@ describe("production BIO local bootstrap/lifecycle (software qualification only)
     await f.scheduleRuntime.releaseBioEvent(rule); expect(f.configuration()).toEqual({ configuredHighBrightnessPercent: 30, bioMode: "sensor" });
     await f.connection.stopAndDrain(); f.source.stop();
   });
+  it("permits only persisted explicit release through a distinct fresh identity proof after live authority is gone", async () => {
+    const f = await fixture(); await f.automationRuntime.hotReload(f.snapshot()); f.pulse();
+    await vi.waitFor(() => expect(f.writes).toHaveLength(1));
+    f.revoke(); let identity = false;
+    f.source.preflightRelease = async () => identity;
+    f.source.releaseIdentityCurrent = () => identity;
+    f.advance(11000); await f.scheduleRuntime.tick(); expect(f.writes).toHaveLength(1);
+    await f.scheduleRuntime.releaseBioEvent(rule); expect(f.writes).toHaveLength(1);
+    identity = true; await f.scheduleRuntime.releaseBioEvent(rule);
+    expect(f.configuration()).toEqual({ configuredHighBrightnessPercent: 30, bioMode: "sensor" });
+    expect(f.source.sourceAuthority(a)).toBeNull();
+    await f.connection.stopAndDrain(); f.source.stop();
+  });
 
   it.each(["mapping", "authority"])("cannot restore an old activation using changed/lost %s", async kind => {
     const f = await fixture(); await f.automationRuntime.hotReload(f.snapshot());

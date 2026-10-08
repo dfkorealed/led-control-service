@@ -278,6 +278,9 @@
 
 ## 구현 완료
 
+- 2026-10-08 Gateway BIO 공통 준비 경로: discovery의 전체 종류/firmware fingerprint를 client·등록 mapping·별도 strict scan-found-v2 관측으로 보존한다. 과거 mapping/관측에 fingerprint가 없으면 unverified이며 문자열 firmware로 승인을 합성하지 않는다. 인증된 scoped catalog는 파일에 원자 저장한 뒤 applied/duplicate ACK를 반환하며 최초 프로필은 빈 목록, 실행 정책은 OFF다.
+- BIO 준비 query는 fresh discovery와 exact confirmed Fixture/native/address를 대조한 뒤 mode GET만 수행한다. ensure_sensor는 현재 catalog의 유일한 승인 fingerprint와 일치할 때만 mode SET 후 별도 GET을 수행한다. canonical MeshNode는 인증된 command에서 받아 local nodeId와 구분한다. 준비 결과·정확 ACK는 전용 command journal에 남으며 ACK 전 재전송한다. accepted ready ACK 이후에만 독립 주기 GET 감시를 시작한다.
+
 - 2026-09-29 로그인·계정 보안 경계는 단말 또는 Mac의 IP가 바뀌어도 exact IP/User-Agent 동일성을 요구하지 않는다. 비밀번호 단계와 MFA 완료 단계가 다른 네트워크여도 사용자 row version, 만료, 일회성 Redis challenge, TOTP replay·recovery code 규칙을 통과하면 완료 시점 IP/User-Agent로 session·rate limit·감사를 생성한다. nginx를 통한 browser IP는 기존 `LANDING_INGRESS_SECRET`과 `X-Web-Ingress-Secret`·`X-Web-Client-IP`가 함께 유효할 때만 신뢰하고, 전역 proxy trust와 장비 9443 header trust는 허용하지 않는다. 로컬 API/Web 전용 `DEV_LOCAL_APP_ONLY=1`은 내부 loopback 연결에서도 기존 Lab DNS로 TLS를 검증하며 Gateway/HIL 완료를 의미하지 않는다.
 
 - 2026-09-25 설정·초기 설치 UI 단위: 관리자 입력 2열/모바일 1열, viewer 대기 단계, 개요 설치 CTA, 층·구역 병렬 관리, 맵 목록의 실제 층 요약/빈 상태, 등록 제목 단일 표시 회귀, 유저 행 44px 관리 대상. 실장비 및 모바일 WebView 검증은 완료 범위에 포함하지 않는다.
@@ -656,6 +659,8 @@ DB 모델이 실제 변경되는 작업에서는 `docs/database-schema.md`를 �
 
 ## 부족하거나 개선이 필요한 기능
 
+- 위 공통 준비/카탈로그 Gateway 구현은 가짜 transport 자동 검증이다. 실제 센서 body/HIL 승인, API·nullable discovery migration/ACL 선행 적용, 화면 연결 및 현장 배포는 별도이며 실행 ON이나 제품 승인 완료를 뜻하지 않는다. 재시작·재연결 뒤 과거 ACK만으로 commission/건강을 복원하지 않으므로 새 준비와 fresh GET/현재 ACK가 필요하다. mode GET은 통신/모드 증거이며 PIR 회로 자체의 정상 동작 증거는 아니다.
+
 - IP 비종속 인증의 단위·통합·브라우저·운영 Compose 계약은 자동 검증했지만 실제 공인 DNS/TLS 전환, CDN/LB가 추가된 topology, 고객망 간 접속, Raspberry Pi/Gateway와 ESP32-H2 HIL은 아직 검증하지 않았다. 양산 전에는 canonical Host 정상 로그인, 잘못된 Host 로그인 POST의 redirect 없는 421, secret 동시 교체, DNS rollback과 장비 bootstrap을 staging에서 확인해야 한다.
 
 - dashboard의 표시 전용 `mapConfigured`는 현재 MapDocument revision snapshot의 경량 `elementCount > 0` 또는 기존 floor plan/CAD/맵 객체로 판정하며, generation의 기준 수나 `snapshotSha256` 검증 결과가 아니다. 편집기의 `currentRef`는 별도로 snapshot hash를 검증한다. 모든 요소가 숨김인 경우에도 설정 완료로 보일 수 있으므로 표시 가능한 요소 수를 별도로 확정하는 계약이 필요하다. 층의 `summary.totalFixtures`는 등록 조명 수이며 실제 맵에 배치된 핀 수가 아니다.
@@ -707,6 +712,9 @@ DB 모델이 실제 변경되는 작업에서는 `docs/database-schema.md`를 �
   - https://www.lutron.com/us/en/controls/systems/vive
 
 ## 관련 파일
+
+- `apps/gateway/src/bio/{bio-sensor-profile-catalog,bio-node-link-monitor,bio-sensor-runtime,bio-sensor-configuration.test}.ts`
+- `apps/gateway/src/commands/bio-sensor-preparation-handler.ts`
 
 - `apps/web/src/features/setup/SetupWizard.tsx`, `apps/web/src/features/settings/SettingsView.tsx`, `apps/web/src/features/settings/site/SiteOperationsView.tsx`, `apps/web/src/features/settings/floor-plans/FloorPlanSettingsView.tsx`, `apps/web/src/features/settings/users/SiteUsersView.tsx`
 

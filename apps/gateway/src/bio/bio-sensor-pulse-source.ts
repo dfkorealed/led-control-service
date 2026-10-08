@@ -9,9 +9,12 @@ import { randomUUID } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
 import { parseBioSourceBinding, type BioSourceBinding } from "../automation/automation-state-store";
 import type { BioDeviceMapping } from "./bio-device-mapping-store";
+import { pulseProfiles, type BioPulseCatalogPort } from "./bio-sensor-profile-catalog";
 
 export type BioPulseInput = Extract<VehicleSensorInput, { type: "pulse" }>;
 export interface BioPulseAuthorityProvider {
+  preflightRelease?(binding: BioSourceBinding, refresh?: boolean): Promise<boolean>;
+  releaseIdentityCurrent?(binding: BioSourceBinding): boolean;
   /** Trusted independent evidence. Every authority/health/profile/decoder revision change
    * must also notify onChange, including changes while identity lookup is pending. */
   read(sourceFixtureId: string, connection: { epoch: string; generation: number },
@@ -19,6 +22,8 @@ export interface BioPulseAuthorityProvider {
   onChange(listener: () => void): () => void;
 }
 export interface BioPulseSourcePort {
+  preflightRelease?(binding: BioSourceBinding, refresh?: boolean): Promise<boolean>;
+  releaseIdentityCurrent?(binding: BioSourceBinding): boolean;
   subscribe(listener: (pulse: BioPulseInput) => void): () => void;
   sourceAuthority(sourceFixtureId: string): BioSourceAuthority | null;
   onRevoked(listener: (sourceFixtureId: string, reason: string) => void): () => void;
@@ -40,13 +45,15 @@ export class BioSensorPulseSource implements BioPulseSourcePort {
   private stopped = false;
   private decoderFaultGeneration: number | null = null;
   private readonly intake = new BioSensorPulseIntake();
-  private readonly profiles: readonly BioSensorPulseProfile[];
+  private profiles: readonly BioSensorPulseProfile[];
+  private authority?: BioPulseAuthorityProvider;
   private readonly listeners = new Set<(pulse: BioPulseInput) => void>();
   private readonly revocations = new Set<(fixtureId: string, reason: string) => void>();
   private readonly authorities = new Map<string, BioSourceAuthority>();
   private readonly unsubscribers: Array<() => void> = [];
 
   constructor(private readonly options: BioPulseSourceOptions) {
+    this.authority = options.authority;
     this.profiles = Object.freeze((options.profiles ?? BIO_SENSOR_PULSE_PROFILES).map(profile => Object.freeze({ ...profile })));
     let previous = options.client.sensorSourceSnapshot();
     try {
@@ -85,6 +92,15 @@ export class BioSensorPulseSource implements BioPulseSourcePort {
     return () => { this.listeners.delete(listener); };
   }
 
+  /** One synchronous lifetime boundary changes body matching and authority together. */
+  configure(catalog: BioPulseCatalogPort, authority: BioPulseAuthorityProvider): void {
+    if (this.authority) throw new Error("BIO_SOURCE_ALREADY_CONFIGURED");
+    this.revoke("catalog_changed"); this.authority = authority; this.profiles = pulseProfiles(catalog.snapshot());
+    this.unsubscribers.push(catalog.onChange(() => {
+      this.revoke("catalog_changed"); this.profiles = pulseProfiles(catalog.snapshot());
+    }), authority.onChange(() => this.revoke("authority_changed")));
+  }
+
   onRevoked(listener: (sourceFixtureId: string, reason: string) => void): () => void {
     if (this.stopped) return () => {};
     this.revocations.add(listener);
@@ -100,6 +116,17 @@ export class BioSensorPulseSource implements BioPulseSourcePort {
     } catch { /* A throwing provider is never authority. */ }
     this.revoke("authority_changed");
     return null;
+  }
+
+  async preflightRelease(binding: BioSourceBinding, refresh = true): Promise<boolean> {
+    // Existing local providers predate the distinct production release port.
+    // Preserve their stricter full-binding preflight; production always uses its port.
+    if (!this.authority?.preflightRelease) return !!await this.preflight(binding, { requireHealthy: false });
+    return !this.stopped && !!await this.authority?.preflightRelease?.(parseBioSourceBinding(binding), refresh) && this.releaseIdentityCurrent(binding);
+  }
+  releaseIdentityCurrent(binding: BioSourceBinding): boolean {
+    if (!this.authority?.releaseIdentityCurrent) return isDeepStrictEqual(this.sourceAuthority(binding.sourceFixtureId)?.binding, binding);
+    return !this.stopped && !!this.authority?.releaseIdentityCurrent?.(binding);
   }
 
   /** Snapshot/transition qualification is independent of receiving a pulse. Unhealthy
@@ -175,7 +202,7 @@ export class BioSensorPulseSource implements BioPulseSourcePort {
   private readAuthority(fixtureId: string, generation: number, requireHealthy = true, snapshotRevision?: number): BioSourceAuthority | null {
     const revision = this.revision;
     if (!this.current(revision, generation, requireHealthy)) return null;
-    const supplied = this.options.authority?.read(fixtureId, { epoch: this.epoch, generation },
+    const supplied = this.authority?.read(fixtureId, { epoch: this.epoch, generation },
       snapshotRevision === undefined ? undefined : { snapshotRevision, requireHealthy });
     if (!this.current(revision, generation, requireHealthy) || !supplied || !supplied.independentlyQualified) return null;
     const value = structuredClone(supplied);

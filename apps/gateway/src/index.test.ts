@@ -252,6 +252,8 @@ describe("Gateway command clock MQTT runtime", () => {
 
 it("defers QoS1 PUBACK for commands whose durable journal must commit first", () => {
   expect(gatewayDeferredPubackTopics(scopedSiteId, scopedGatewayId)).toEqual([
+    `sites/${scopedSiteId}/gateways/${scopedGatewayId}/commands/bio-sensor-catalog`,
+    `sites/${scopedSiteId}/gateways/${scopedGatewayId}/commands/bio-sensor-preparation`,
     `sites/${scopedSiteId}/gateways/${scopedGatewayId}/commands/bio-registration-revalidation`,
     `sites/${scopedSiteId}/gateways/${scopedGatewayId}/commands/bio-sensor-mode`,
     `sites/${scopedSiteId}/gateways/${scopedGatewayId}/commands/dimming`,
@@ -2150,12 +2152,17 @@ describe("startGatewayRuntime", () => {
 
     expect(subscribe).toHaveBeenCalledTimes(2);
     expect(subscribe).toHaveBeenLastCalledWith([
+      "sites/site-27/gateways/gateway-27/commands/bio-sensor-catalog",
+      "sites/site-27/gateways/gateway-27/commands/bio-sensor-preparation",
+      "sites/site-27/gateways/gateway-27/events/bio-sensor-preparation-result-ack",
       "sites/site-27/gateways/gateway-27/commands/bio-sensor-mode",
       "sites/site-27/gateways/gateway-27/commands/bio-registration-revalidation",
       "sites/site-27/gateways/gateway-27/acks/bio-registration-revalidation-result"
     ], { qos: 1 }, expect.any(Function));
     expect(subscribe).toHaveBeenCalledWith(
       [
+        "sites/site-27/gateways/gateway-27/commands/bio-sensor-catalog",
+        "sites/site-27/gateways/gateway-27/commands/bio-sensor-preparation",
         "sites/site-27/gateways/gateway-27/commands/bio-registration-revalidation",
         "sites/site-27/gateways/gateway-27/commands/bio-sensor-mode",
         "sites/site-27/gateways/gateway-27/commands/identify",
@@ -2167,6 +2174,7 @@ describe("startGatewayRuntime", () => {
         "sites/site-27/gateways/gateway-27/commands/provisioning/provision-device",
         "sites/site-27/gateways/gateway-27/commands/automation/config-sync",
         "sites/site-27/gateways/gateway-27/commands/mesh-group/subscription-sync",
+        "sites/site-27/gateways/gateway-27/events/bio-sensor-preparation-result-ack",
         "sites/site-27/gateways/gateway-27/acks/bio-registration-revalidation-result",
         "sites/site-27/gateways/gateway-27/events/clock/response",
         "sites/site-27/gateways/gateway-27/commands/drain/request",
@@ -2192,6 +2200,7 @@ describe("startGatewayRuntime", () => {
 
     expect(subscribe).toHaveBeenCalledWith(
       [
+        "sites/site-27/gateways/gateway-27/events/bio-sensor-preparation-result-ack",
         "sites/site-27/gateways/gateway-27/acks/bio-registration-revalidation-result",
         "sites/site-27/gateways/gateway-27/events/clock/response",
         "sites/site-27/gateways/gateway-27/commands/drain/request",
@@ -2212,7 +2221,7 @@ describe("startGatewayRuntime", () => {
   it("keeps the new ACK subscribed on a resumed quiesced session and removes only its command intake", async () => {
     const subscribe = vi.fn((_topics, _options, callback?: (error?: Error) => void) => callback?.());
     await subscribeGatewayAcknowledgements({ subscribe } as never, assignment, true);
-    expect(subscribe).toHaveBeenCalledWith(["sites/site-27/gateways/gateway-27/acks/bio-registration-revalidation-result"], { qos: 1 }, expect.any(Function));
+    expect(subscribe).toHaveBeenCalledWith(["sites/site-27/gateways/gateway-27/events/bio-sensor-preparation-result-ack", "sites/site-27/gateways/gateway-27/acks/bio-registration-revalidation-result"], { qos: 1 }, expect.any(Function));
     expect(gatewayCommandTopics("site-27", "gateway-27")).toContain("sites/site-27/gateways/gateway-27/commands/bio-registration-revalidation");
     expect(gatewayCommandTopics("site-27", "gateway-27")).not.toContain("sites/site-27/gateways/gateway-27/acks/bio-registration-revalidation-result");
   });

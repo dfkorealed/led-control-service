@@ -181,6 +181,9 @@
 
 ## 구현 완료
 
+- 2026-10-08 BIO 실행 authority는 scoped 승인 catalog·명시 실행정책·accepted 준비 ACK·독립 fresh mode GET·exact live capability ACK를 함께 요구한다. 검증된 automation snapshot을 stage/commit/rollback하며 요청 revision 숫자만으로 pin을 만들지 않는다. 같은 건강 구간의 반복 GET은 live report의 revision/verifiedAt만 갱신하고 기존 snapshot pin과 healthySince는 유지한다. catalog/identity/connection/decoder/health age 변경은 queued/cached authority를 즉시 철회한다.
+- 저장된 enabled BIO snapshot은 재시작 시 건강을 복구하지 않고 원상태 복원용 degraded 문맥으로 보존할 수 있다. 이때 current 실행 revision을 확인한 것으로 보고하지 않으며 fresh 준비/GET/ACK와 인증된 snapshot 재수용 전 자동 실행을 막는다. 기존 pending 원상태는 삭제하지 않는다. durable explicit operator_release만 별도 fresh identity GET·현재 mapping/generation guard로 복원하며, 이 증거는 pulse/hold/자동 만료 또는 healthy pin에 사용하지 않는다. 각 target GET/SET guard는 이미 받은 fresh 증거를 대조하며 전역 RF queue 안에서 새 GET을 중첩하지 않는다.
+
 - 2026-09-30 공통 지도 카메라 계약 보완: `지도 화면 맞춤`은 기본 배율 100%와 지도 중앙을 함께 복원한다. 제어의 기존 선택·pan/zoom·조명 실행 권한은 유지하며, 모니터링 전용 resize 카메라 보존과 사용자별 시야 저장은 제어에서 활성화하지 않는다. 관련 파일은 `FloorMapViewport.tsx`, `map-camera.ts` 및 공통 카메라 회귀다.
 
 - 랜딩·Atlas 통합 검증에서 최근 이력의 `확인 필요한 명령`·`명령 이력 열기` 공통 버튼을 최소 높이 52px로 보정했다. 둥근 44px 외곽에서 실제 hit 영역이 부족했던 모바일 회귀를 수정하며, 전체 통합 검증 상태는 [통합 체크리스트](../superpowers/plans/2026-09-27-atlas-landing-integration.md)를 따른다.
@@ -500,6 +503,8 @@
 
 ## 부족하거나 개선이 필요한 기능
 
+- 공통 BIO catalog/preparation/live authority 및 degraded 복원 경로는 소프트웨어·가짜 transport 검증 범위다. 실제 RF/USB/HIL·현장 프로필 승인·API eligibility 전환·운영 배포는 완료하지 않았다. legacy mode command의 OFF/TTL 경로와 V1/V2 strict wire는 유지하며, 연결/identity를 새로 확인할 수 없는 explicit release는 기존 미확정 pending을 남긴다. 미확정 delivery/result는 자동 삭제하지 않아 장기 장애 누적 시 용량 관문이 닫힐 수 있다.
+
 - Set epoch 발행 경계는 활성 세대·등록 worker·동일 DB primary의 시각 증거를 claim/prepare/attempt/publish마다 재확인하고, MQTT 전 `CommandPublishAttempt`에 절대 만료를 기록한다. Quiesce의 member ACK는 로컬 중지만 뜻하며 응답 없는 member를 시간 경과로 안전 처리하지 않는다. 원본 Command의 UTC rolling 3개월 cutoff와 Set 전용 permit을 적용하며, legacy status-check Get은 quiesce와 분리한다.
 - 운영 DB-host attestor와 세대별 durable primary/step 연속성 제공자는 아직 없다. 새 API 프로세스는 이 증거 없이 ON Set을 발행할 수 없으며, 재시작을 가로지르는 시각 연속성은 아직 증명되지 않았다. Broker 구세대 admission 반롤백·Gateway/RF drain 및 parent-free recovery publisher의 전체 통합은 후속 게이트다. 운영 cutover, purge, recovery POST는 계속 OFF다.
 - 확인 필요 case의 미해결 Hold는 기간이 지나도 먼저 조회하고 유지한다. 해결된 최소 요약만 중앙 DB 시각의 최근 UTC 3 calendar months를 상세 GET에서 보여 주며, 정확한 경계 행은 남긴다. 요약의 물리 sweep은 독립된 `RESOLVED_COMMAND_RECOVERY_RETENTION_ENABLED` 기본 OFF·운영 ON 거부 상태로, 일회용 PG에서만 회당 최대 1,000행·남은 backlog 로그를 검증했다. 목록 `generatedAt`은 표시용 API 시각이며 보존 cutoff가 아니다. DB-host 시계/failover 운영 증거와 migration 적용은 아직 없어 실제 삭제가 활성화된 것은 아니다. 일반 Command 원본 purge·HISTORY/RECOVERY_ACTIONS·복구 POST는 계속 OFF다.
@@ -551,6 +556,9 @@
 - Task 20 Fix Round 4에서 temp directory는 fixed lock의 owner/coordination 상태가 아닌 publish 후보로 유지하되, cleanup은 원본 temp를 같은 parent의 unique quarantine path로 먼저 atomic rename해 소유권을 확보한 뒤 quarantine 내부만 정리한다. quarantine 내부가 empty directory이거나 exact regular `.owner.<token>` marker 하나만 가진 경우에만 삭제하고, publisher가 먼저 temp를 fixed lock으로 rename하면 cleaner는 원본 temp `ENOENT`로 중단한다. cleaner가 먼저 quarantine하면 publisher는 `ENOENT` 후 같은 token으로 새 temp를 만들어 retry한다. fixed lock directory 자체는 quarantine하지 않는다. temp/quarantine symlink·non-directory·marker symlink·multi-entry·외부 sentinel은 따라가거나 삭제하지 않고 fixed lock 획득을 막지 않는다. fixed lock은 계속 token/PID/`ps` process-start identity를 exact marker로 확인해 active owner wait, stale/PID reuse takeover, unknown identity fail-closed, exact release, successor ABA 보호와 same-output 직렬화를 유지한다. production `scripts/esp32-h2-build.sh`는 Bluetooth SIG 자사 Company ID와 signed manufacturing approval이 없는 현재 `unprovisioned` policy에서 의도적으로 fail-closed한다. 이는 HIL 실패나 HIL 완료 증거가 아니다.
 
 ## 관련 파일
+
+- `apps/gateway/src/bio/{bio-pulse-authority-provider,bio-node-link-monitor,bio-sensor-runtime,bio-sensor-profile-catalog}.ts`
+- `apps/gateway/src/commands/bio-sensor-preparation-handler.ts`
 
 - `apps/api/prisma/migrations/20260927150000_command_content_redaction/migration.sql`, `apps/api/src/commands/command-redacted-state.spec.ts`, `apps/api/src/commands/command-redacted-state.integration.spec.ts`
 

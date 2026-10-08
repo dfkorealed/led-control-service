@@ -13,6 +13,7 @@ import {
   type AutomationScope
 } from "./automation-config-store";
 import { AutomationStateCommitUncertainError } from "./automation-state-store";
+import type { BioSnapshotLifecycle } from "../bio/bio-pulse-authority-provider";
 
 export type DesiredLightingState = Readonly<Record<string, number>>;
 
@@ -53,6 +54,8 @@ interface AutomationRuntimeOptions {
   now?: () => Date;
   /** Trusted bootstrap-only preflight. Default unavailable; not an env capability. */
   bioSnapshotPreflight?: (snapshot: AutomationSnapshotV2) => Promise<void>;
+  bioSnapshotLifecycle?: BioSnapshotLifecycle;
+  recoverDegradedBioSnapshot?: (snapshot: AutomationSnapshotV2) => Promise<DesiredLightingState>;
 }
 
 export class AutomationRuntime {
@@ -61,13 +64,14 @@ export class AutomationRuntime {
   private snapshot: AutomationSnapshot | null = null;
   private desiredState: DesiredLightingState = {};
   private initialized = false;
+  private degradedRecovery = false;
 
   constructor(private readonly options: AutomationRuntimeOptions) {
     this.now = options.now ?? (() => new Date());
   }
 
   get currentRevision() {
-    return this.snapshot?.revision ?? null;
+    return this.degradedRecovery ? null : this.snapshot?.revision ?? null;
   }
 
   get gatewayId() {
@@ -84,10 +88,22 @@ export class AutomationRuntime {
       const recovered = await this.options.store.load();
       if (recovered) {
         this.parse(recovered);
-        await this.preflight(recovered);
+        this.options.bioSnapshotLifecycle?.stage(recovered);
         try {
+          await this.preflight(recovered);
           await this.activate(recovered, false);
+          this.options.bioSnapshotLifecycle?.commit(recovered);
         } catch (error) {
+          this.options.bioSnapshotLifecycle?.rollback(recovered);
+          if (error instanceof AutomationRuntimeError && error.code === "bio_pulse_control_unavailable" && recovered.schemaVersion === 2
+            && this.options.bioSnapshotLifecycle?.retain && this.options.recoverDegradedBioSnapshot) {
+            this.options.bioSnapshotLifecycle.retain(recovered);
+            const desired = normalizeDesiredState(await this.options.recoverDegradedBioSnapshot(recovered));
+            await this.options.applyDesiredState(desired, this.desiredState);
+            await this.options.onActivated?.(recovered);
+            this.desiredState = desired; this.snapshot = recovered; this.degradedRecovery = true; this.initialized = true;
+            return;
+          }
           await this.rollbackActivation(null, recovered, error, false);
           throw error;
         }
@@ -108,15 +124,18 @@ export class AutomationRuntime {
           if (snapshot.payloadHash !== current.payloadHash) {
             throw runtimeError("snapshot_revision_conflict", snapshot);
           }
-          return this.applied(snapshot);
+          if (!this.degradedRecovery) return this.applied(snapshot);
         }
       }
 
-      await this.preflight(snapshot);
+      this.options.bioSnapshotLifecycle?.stage(snapshot);
+      try { await this.preflight(snapshot); }
+      catch (error) { this.options.bioSnapshotLifecycle?.rollback(snapshot); throw error; }
 
       try {
         await this.options.store.apply(snapshot);
       } catch (error) {
+        this.options.bioSnapshotLifecycle?.rollback(snapshot);
         if (error instanceof AutomationConfigCommitUncertainError) {
           throw new AutomationRuntimeError(
             "snapshot_commit_uncertain",
@@ -137,11 +156,14 @@ export class AutomationRuntime {
       }
       try {
         await this.activate(snapshot, true);
+        this.options.bioSnapshotLifecycle?.commit(snapshot);
       } catch (error) {
+        this.options.bioSnapshotLifecycle?.rollback(snapshot);
         await this.rollbackActivation(current, snapshot, error, true);
         throw error;
       }
       this.initialized = true;
+      this.degradedRecovery = false;
       return this.applied(snapshot);
     });
   }
