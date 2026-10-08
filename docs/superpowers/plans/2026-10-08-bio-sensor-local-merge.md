@@ -52,10 +52,19 @@
 **Owner:** root orchestration.
 **Interfaces:** Task1 검토 완료 merge HEAD를 기본 `codex/mvp1-cloud-web`에 ff-only 반영; 기존 사용자 2문서 diff는 동일 내용으로 uncommitted 복원.
 
-- [ ] 기본/작업 HEAD와 dirty target2 경로를 다시 확인한다. 원격 동기화가 필요하면 fetch/ff-only만 허용하고 unrelated 원격 병합·push는 하지 않는다.
-- [ ] 두 문서만 필요시 exact stash로 보존한 뒤 승인 HEAD를 ff-only 반영한다. stash는 검증 전 삭제하지 않는다.
-- [ ] 사용자 문구·미커밋 상태 보존 및 기본 HEAD의 센서·최신 UI 포함을 확인한다. local workspace producer/대표 consumer smoke·diffcheck로 병합 후 상태를 확인한다.
-- [ ] 상태판/체크리스트 동기화 후 로컬 merge 결과와 필수 실장비/운영 과제 및 선택 확장을 분리해 보고한다. 임시 기존 보호 자료가 있는 센서 worktree는 보존한다.
+- [x] 기본/작업 HEAD와 dirty target2 경로를 다시 확인한다. 원격 동기화가 필요하면 fetch/ff-only만 허용하고 unrelated 원격 병합·push는 하지 않는다.
+- [x] 두 문서만 필요시 exact stash로 보존한 뒤 승인 HEAD를 ff-only 반영한다. stash는 검증 전 삭제하지 않는다.
+- [x] 사용자 문구·미커밋 상태 보존 및 기본 HEAD의 센서·최신 UI 포함을 확인한다. local workspace producer/대표 consumer smoke·diffcheck로 병합 후 상태를 확인한다.
+- [x] 상태판/체크리스트 동기화 후 로컬 merge 결과와 필수 실장비/운영 과제 및 선택 확장을 분리해 보고한다. 임시 기존 보호 자료가 있는 센서 worktree는 보존한다.
+
+**Task2 완료:** 기본 `codex/mvp1-cloud-web`을 검토 코드 `943c2ab8`+`cd41dfc9` 및 승인 기록 `825b9c1a`로 ff-only 반영했다. main에서 workspace:prepare·Web 타입·공통 action3/3·diffcheck를 확인했다. 사용자 목업2문서의 추가23/22줄 내용은 정확히 동일하며 uncommitted/index-empty 상태로 보존한다. exact backup stash `71a8a17d59e5bad64ab710529c9c81bd1b9966ff`와 기존5stash·보호 증거를 가진 센서 worktree는 보존한다. remote push/운영 migration·배포·실장비 변경은0이다.
+
+## 병합 판단 기록
+
+- 기본 checkout의 사용자 변경 보호를 위해 격리 worktree에서 최신 main을 먼저 합성했다. 잘못된 합성이면 원 parent에서 재통합하며 사용자 변경은 버리지 않는다.
+- 반복 전체 suite 대신 충돌·자동 합성 접점에 집중했다. 빠진 위험이 확인되면 해당 경계의 회귀를 추가하며 전체/HIL 통과로 확대하지 않는다.
+- BIO 활성화만 별도 optional toggleDisabled로 제한했다. 판단이 잘못되면 해당 private Web prop/panel만 재조정하고 기존 편집/삭제·일반 소비자는 보존한다.
+- BIO compact action만 기존52px로 복원했다. 잘못된 배치라면 private class prop/caller를 수정하며 PC·일반 메뉴 크기는 바꾸지 않는다.
 
 ## 병합 이후 남은 이벤트 제품 과제
 
