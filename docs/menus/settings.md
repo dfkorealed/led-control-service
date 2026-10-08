@@ -1,5 +1,14 @@
 # 설정 메뉴 기능 현황 및 구현 설계
 
+## 2026-10-08 공통 BIO 센서 profile·현장 정책·준비 API
+
+- 구현 완료(Task 2 소프트웨어): persisted active service_provider/operator 전용 profile 목록/순차 revision 승인/새 revoked revision, own-site assigned admin 전용 정책 GET/PUT과 준비 query/ensure_sensor POST/GET을 제공한다. 초기 approved profile은 없고 현장 실행은 OFF다.
+- 구현 완료(Task 2 전달): 전용 catalog delivery와 초기 preparation journal/result/ACK를 저장한다. 첫 준비는 exact catalog applied/duplicate ACK 뒤 발행하며 MQTT publish는 lease transaction 밖에서 실행한다. 현재 claim·UTC 인증서·assignment·Fixture/node/native binding과 exact hash/revision/profile을 재검증한다. 새 실패 요청은 과거 ready를 supersede하고 동일 결과는 최초 durable ACK를 재전송한다.
+- 미구현: 설정 화면의 준비/정책 UI와 운영자 profile 화면, 실제 hardware profile의 증거 승인, Gateway 반복 독립 GET live health와 API eligibility/rule admission, 운영 migration/배포 및 RF 검증. 이 단계는 public mode·기존 규칙·기존 capability 판정을 바꾸지 않는다.
+- 부족하거나 개선이 필요한 기능: 준비 ready는 초기 관측 checkpoint이며 live sensor 건강·자동화 허가를 뜻하지 않는다. 120초는 결과 수용 TTL이고 checkpoint 자체의 영구 건강 증거가 아니다. catalog/profile/binding이 바뀌면 GET에서 unverified를 표시하며 후속 live proof가 필요하다. raw/native/fingerprint/body는 일반 응답에 노출하지 않는다. 실제 MQTT broker/HIL 통과로 표현하지 않는다.
+- 관련 파일: `apps/api/src/automation/bio-sensor-profiles.{service,controller}.ts`, `bio-sensor-preparation.{service,controller}.ts`, `bio-sensor-preparation-evidence.ts`, `bio-sensor-catalog-{locks,outbox.service}.ts`, `apps/api/prisma/migrations/20261008030000_bio_sensor_catalog_preparation/migration.sql`, `apps/api/src/mqtt/mqtt.service.ts`, `infra/mosquitto.acl.example`, `scripts/dev-runtime.mjs`.
+- 갱신 규칙: Shared/API/Gateway/Web·임시 DB 검증·운영 적용·실제 증거/건강 승인을 구분하고 DB 변경과 함께 schema 문서를 갱신한다. 서버 초기 checkpoint를 mode-only 성공이나 영구 ready로 승격하지 않는다.
+
 ## 2026-10-07 A/B pilot 실행 준비 — 제품 설정/지원 상태 불변
 
 - 구현 완료(시험용 코드): 무인자/import/인자 오류는 host/Docker/USB/STOP0이다. 보호된 fresh operator receipt를 명시 prepare하여 새0700 runroot/0600 manifest·bootstrap·one-use START를 만든다. runtime code 한 파일은0444, evidence는999 소유0700으로 분리한다.

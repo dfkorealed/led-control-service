@@ -452,6 +452,7 @@ model Site {
   automationExecutions       AutomationExecution[]
   bioPulseTelemetryEvents    BioPulseTelemetryEvent[]
   bioPulseTelemetryProjections BioPulseTelemetryProjection[]
+  bioSensorPolicy            BioSensorSitePolicy?
   energyFixtureIdentities    EnergyFixtureIdentity[]
   energyGroupIdentities      EnergyGroupIdentity[]
   energyReportJobs           EnergyReportJob[]
@@ -1261,6 +1262,7 @@ model Fixture {
   processedStateEvents       ProcessedGatewayEvent[]
   commandResults             CommandFixtureResult[]
   sensorModeOperations       SensorModeOperation[]
+  bioSensorPreparations      BioSensorPreparationOperation[]
   bioRegistrationRevalidations BioRegistrationRevalidationOperation[]
   lightingScheduleTargets    LightingScheduleFixture[]
   vehicleEventSources        VehicleEventSource[]
@@ -1664,6 +1666,106 @@ model Command {
 
 // A failed protected sweep must not starve later eligible Commands. This row
 // exists only while its original Command still exists and cascades with it.
+model BioSensorProfileRevision {
+  profileId      String
+  revision       BigInt
+  status         String
+  fingerprint    Json
+  bodyHexes      Json
+  linkPolicy     Json
+  evidenceDigest String
+  reuseScope     String
+  actorId        String
+  createdAt      DateTime @default(now())
+
+  @@id([profileId, revision])
+  @@index([status])
+}
+
+model BioSensorCatalogState {
+  id       Int    @id @default(1)
+  revision BigInt @default(1)
+}
+
+model BioSensorSitePolicy {
+  siteId                 String  @id
+  enabled                Boolean @default(false)
+  ownerUserId            String?
+  maximumResponseSeconds Int?
+  escalationAction       String?
+  revision               BigInt
+  site                   Site    @relation(fields: [siteId], references: [id], onDelete: Cascade)
+}
+
+// Durable, immutable envelopes are independent of automation configuration.
+model BioSensorCatalogDelivery {
+  deliveryId        String   @id @default(uuid())
+  siteId            String
+  gatewayId         String
+  assignmentVersion Int
+  catalogRevision   BigInt
+  payload           Json
+  payloadHash       String
+  status            String   @default("pending")
+  publishedAt       DateTime?
+  appliedAt         DateTime?
+  ackPayload        Json?
+  ackHash           String?
+  attempts          Int      @default(0)
+  nextAttemptAt     DateTime @default(now())
+  lockedBy          String?
+  leaseExpiresAt    DateTime?
+  supersededAt      DateTime?
+  createdAt         DateTime @default(now())
+
+  @@unique([siteId, gatewayId, assignmentVersion, catalogRevision])
+  @@index([status, nextAttemptAt, leaseExpiresAt])
+}
+
+model BioSensorPreparationOperation {
+  commandId         String   @id @default(uuid())
+  siteId            String
+  gatewayId         String
+  fixtureId         String
+  nodeId            String
+  assignmentVersion Int
+  deviceIdentityHash String
+  meshAddress       String
+  bindingHash       String
+  clientRequestId   String
+  actorId           String
+  operation         String
+  catalogRevision   BigInt
+  payload           Json
+  payloadHash       String
+  status            String   @default("pending")
+  requestedAt       DateTime
+  expiresAt         DateTime
+  supersededAt      DateTime?
+  result            Json?
+  resultHash        String?
+  resultEventId     String?  @unique
+  ackPayload        Json?
+  ackHash           String?
+  ackPublishedAt    DateTime?
+  ackNextAttemptAt  DateTime @default(now())
+  ackAttempts       Int      @default(0)
+  ackLockedBy       String?
+  ackLeaseExpiresAt DateTime?
+  publishedAt       DateTime?
+  attempts          Int      @default(0)
+  nextAttemptAt     DateTime @default(now())
+  lockedBy          String?
+  leaseExpiresAt    DateTime?
+  createdAt         DateTime @default(now())
+  fixture           Fixture  @relation(fields: [fixtureId, siteId], references: [id, siteId], onDelete: Cascade, onUpdate: Restrict)
+
+  @@unique([siteId, actorId, clientRequestId])
+  @@index([fixtureId, supersededAt])
+  @@index([status, nextAttemptAt, leaseExpiresAt])
+  @@index([ackNextAttemptAt, ackLeaseExpiresAt])
+}
+
 model SensorModeOperation {
   commandId           String   @id @default(uuid())
   siteId              String

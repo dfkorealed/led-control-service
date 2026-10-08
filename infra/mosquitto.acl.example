@@ -12,6 +12,11 @@
 # Every node needs an external immutable minimum-generation admission and CA
 # revocation ledger before production retirement can ever be certified.
 user api-service
+topic read sites/+/gateways/+/events/bio-sensor-catalog-ack
+topic read sites/+/gateways/+/events/bio-sensor-preparation-result
+topic write sites/+/gateways/+/commands/bio-sensor-catalog
+topic write sites/+/gateways/+/commands/bio-sensor-preparation
+topic write sites/+/gateways/+/events/bio-sensor-preparation-result-ack
 topic write sites/health/production-probe
 topic read sites/+/gateways/+/acks/acceptance
 topic read sites/+/gateways/+/acks/device-status
@@ -68,6 +73,7 @@ topic write sites/+/commands/dimming
 # OFF-only Gateway scoped compatibility grants.
 pattern read sites/+/gateways/%u/commands/#
 pattern read sites/+/gateways/%u/events/clock/response
+pattern read sites/+/gateways/%u/events/bio-sensor-preparation-result-ack
 pattern write sites/+/gateways/%u/commands/clock/request
 pattern read sites/+/gateways/%u/acks/state-ingested
 pattern read sites/+/gateways/%u/acks/bio-registration-revalidation-result
@@ -80,4 +86,26 @@ pattern read sites/+/gateways/%u/acks/automation/vehicle-sensor-capability-inges
 pattern write sites/+/gateways/%u/acks/acceptance
 pattern write sites/+/gateways/%u/acks/device-status
 pattern write sites/+/gateways/%u/state/#
-pattern write sites/+/gateways/%u/events/#
+# Explicit producer inventory prevents Gateway forgery of API event receipts.
+pattern write sites/+/gateways/%u/events/bio-sensor-catalog-ack
+pattern write sites/+/gateways/%u/events/bio-sensor-preparation-result
+pattern write sites/+/gateways/%u/events/bio-registration-revalidation-result
+pattern write sites/+/gateways/%u/events/bio-sensor-mode-result
+pattern write sites/+/gateways/%u/events/provisioning/scan-found
+pattern write sites/+/gateways/%u/events/provisioning/scan-completed
+pattern write sites/+/gateways/%u/events/provisioning/scan-failed
+pattern write sites/+/gateways/%u/events/provisioning/device-terminal
+pattern write sites/+/gateways/%u/events/provisioning-completed
+pattern write sites/+/gateways/%u/events/provisioning-failed
+pattern write sites/+/gateways/%u/events/identify-result
+pattern write sites/+/gateways/%u/events/fixture-presence-check-completed
+pattern write sites/+/gateways/%u/events/fixture-unreachable
+pattern write sites/+/gateways/%u/events/mesh-group/resync-request
+pattern write sites/+/gateways/%u/events/mesh-group/subscription-result
+pattern write sites/+/gateways/%u/events/mesh-node-metrics
+pattern write sites/+/gateways/%u/events/provisioning-progress
+pattern write sites/+/gateways/%u/events/automation/config-applied
+pattern write sites/+/gateways/%u/events/automation/current-config-request
+pattern write sites/+/gateways/%u/events/automation/execution
+pattern write sites/+/gateways/%u/events/automation/vehicle-sensor-capability
+pattern write sites/+/gateways/%u/events/drain/response

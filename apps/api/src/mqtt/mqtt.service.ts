@@ -62,6 +62,9 @@ import { mqttTlsServernameOption } from "./mqtt-tls-identity";
 import { bioSensorModeTopics, bioRegistrationRevalidationTopics, type BioRegistrationRevalidationAck } from "@led-control/shared";
 import { SensorModeOperationsService } from "../commands/sensor-mode-operations.service";
 import { BioRegistrationRevalidationService } from "../registration/bio-registration-revalidation.service";
+import { bioSensorCatalogTopics, bioSensorPreparationTopics } from "@led-control/shared";
+import { BioSensorProfilesService } from "../automation/bio-sensor-profiles.service";
+import { BioSensorPreparationService } from "../automation/bio-sensor-preparation.service";
 
 const MQTT_BACKGROUND_PUBLISH_TIMEOUT_MS = 10_000;
 const MQTT_CLOSE_TIMEOUT_MS = 5_000;
@@ -165,7 +168,9 @@ export class MqttService implements OnModuleInit {
     @Optional() private readonly legacyGetAcks?: CommandLegacyGetAckService,
     @Optional() private readonly commandClockResponder?: CommandClockResponderService,
     @Optional() private readonly sensorModeOperations?: SensorModeOperationsService,
-    @Optional() private readonly bioRegistrationRevalidations?: BioRegistrationRevalidationService
+    @Optional() private readonly bioRegistrationRevalidations?: BioRegistrationRevalidationService,
+    @Optional() private readonly bioSensorProfiles?: BioSensorProfilesService,
+    @Optional() private readonly bioSensorPreparations?: BioSensorPreparationService
   ) {
     this.fixtureStateIngestion = fixtureStateIngestion ?? new FixtureStateIngestionService(prisma);
     this.fixturePresenceIngestion = fixturePresenceIngestion ?? new FixturePresenceIngestionService(prisma);
@@ -185,6 +190,8 @@ export class MqttService implements OnModuleInit {
           mqttTopicsV2.fixtureUnreachable("+", "+"),
           bioSensorModeTopics.result("+", "+"),
           bioRegistrationRevalidationTopics.result("+", "+"),
+          bioSensorCatalogTopics.ack("+", "+"),
+          bioSensorPreparationTopics.result("+", "+"),
           "sites/+/gateways/+/events/provisioning/scan-completed",
           "sites/+/gateways/+/events/provisioning/scan-failed",
           "sites/+/gateways/+/events/provisioning/device-terminal",
@@ -771,6 +778,19 @@ export class MqttService implements OnModuleInit {
 
   async handleMessage(topic: string, payload: Buffer, receivedAt = new Date()) {
     const frozenReceivedAt = new Date(receivedAt.getTime());
+    const bioScope = parseGatewayTopic(topic);
+    if (bioScope && topic === bioSensorCatalogTopics.ack(bioScope.siteId, bioScope.gatewayId)) {
+      if (!this.bioSensorProfiles) throw new Error("BIO catalog consumer unavailable");
+      await this.bioSensorProfiles.ingestCatalogAck(JSON.parse(payload.toString()), bioScope);
+      return;
+    }
+    if (bioScope && topic === bioSensorPreparationTopics.result(bioScope.siteId, bioScope.gatewayId)) {
+      if (!this.bioSensorPreparations) throw new Error("BIO preparation consumer unavailable");
+      // Result and durable ACK commit before broker PUBACK. The dedicated worker
+      // publishes later, after MQTT.js releases the inbound parser.
+      await this.bioSensorPreparations.ingestAuthenticated(JSON.parse(payload.toString()), { ...bioScope, requireActiveClaim: true }, frozenReceivedAt);
+      return;
+    }
     if (parseGatewayTopic(topic)?.channel === "commands/clock/request") {
       const response = await this.prepareCommandClockResponse(topic, payload);
       if (response) await this.publishCommandClockResponse(response);

@@ -2,6 +2,24 @@
 
 작성일: 2026-09-28
 
+## 2026-10-08 공통 BIO 센서 카탈로그와 준비 checkpoint
+
+순방향 `20261008030000_bio_sensor_catalog_preparation`은 기존 registration/mode/automation ledger와 독립된 다섯 테이블을 추가한다. 운영 DB에는 적용하지 않았으며 승인 profile seed는 없다. singleton `BioSensorCatalogState(id=1, revision=1)`만 추가해 빈 catalog/현장 실행 OFF로 시작한다.
+
+| 테이블 | 저장 계약과 주요 제약 |
+| --- | --- |
+| `BioSensorProfileRevision` | `(profileId, revision)` 복합 PK, immutable approved/revoked revision, exact discovery fingerprint·8-byte body 목록·mode-get linkPolicy JSON, evidenceDigest/reuseScope, actorId/createdAt. UPDATE/DELETE 거부, 양수 JS-safe revision |
+| `BioSensorCatalogState` | id=1 CHECK, 독립 양수 catalog revision. profile append/revoke 또는 site policy 저장 시 증가 |
+| `BioSensorSitePolicy` | Site PK/FK(delete cascade), enabled 기본 false, ownerUserId/maximumResponseSeconds/escalationAction, 저장 당시 catalog revision. ON은 현재 assigned admin과 양수 응답 시간·대응 내용 필요 |
+| `BioSensorCatalogDelivery` | 서버 deliveryId와 당시 site/Gateway/assignment/catalog revision의 Unique, strict full payload/hash, pending/applied/duplicate/stale/rejected, immutable 첫 ACK/hash, publishedAt/appliedAt, attempts/nextAttemptAt/lease/supersededAt. 자동화 revision/applicationAckKey와 공유하지 않음 |
+| `BioSensorPreparationOperation` | 서버 commandId, site/Fixture/canonical node/Gateway/assignment, native identity hash/address와 bindingHash, actor/clientRequest Unique, query/ensure_sensor, catalog revision, immutable 요청 payload/hash, 120초 수용 TTL, status/supersededAt, immutable result/hash/event와 전용 ACK/hash. command/ACK에 각각 retry·lease·발행 시각. Fixture/site 복합 FK(delete cascade/update restrict), result event Unique, result+ACK 동시 존재 CHECK |
+
+현재 권한은 membership→catalog singleton→Site/commission→Floor→Gateway/inventory/유효 MQTT certificate(UTC)→native UUID advisory→MeshNode→Fixture→operation 순으로 검사한다. operator profile 쓰기는 transaction 안에서 현재 active service_provider/operator를 재인가하고, site policy/prepare는 현재 assigned customer admin의 기존 manage/commission 검사를 재사용한다. 카탈로그 worker는 current claim·certificate·assignment와 binding을 lease 거래에서 확인하고 MQTT publish를 거래 밖에서 수행하며 token/lease/state 조건으로 settlement한다. 준비 command는 동일 scope/revision의 exact catalog applied/duplicate ACK 이후에만 발행한다. PUBACK은 준비 성공이 아니다.
+
+결과는 strict full-command hash/scope, 현재 binding/catalog/approved profile fingerprint와 정확 revision, 요청 시각·수용 TTL·미래 시각 및 mode+독립 link를 대조한다. stale/rejected 원문도 immutable checkpoint와 ACK를 함께 보관하며 ready로 승격하지 않는다. 동일 report retry는 최초 ACK를 재전송한다. 새 실패 요청은 이전 ready checkpoint를 supersede한다. 수용 TTL은 최초 결과만 제한하며 이후 checkpoint의 commission 만료시간으로 쓰지 않는다. GET은 current binding/catalog/profile/supersession을 다시 확인하고 raw UUID/address/hash/body/fingerprint를 노출하지 않는다. 이 초기 checkpoint는 live health/현재 실행 허가가 아니며 MeshNode qualification·등록 ID·Fixture 밝기·그룹·전원·명령/에너지 이력을 수정하지 않는다. 실제 profile 증거 검증, Gateway 반복 독립 GET의 V2 live capability freshness, eligibility/rule admission과 RF 검증은 후속 단계다.
+
+검증은 self-owned 임시 PostgreSQL의 새 DB에서 전체 migration을 deploy하고 exact catalog/preparation ACK, 권한·재배정·기한·철회·binding·mode-only·빈/미일치 profile과 원본 Fixture/mode/Command 보존을 확인한다. 사용자 DB/실장비/PKI/배포·제품 ON은 실행하지 않는다. ACK/전달 원장은 별도 자동 retention 정책을 추가하지 않았으며 운영 적용 전 보존 규모를 검토해야 한다.
+
 ## 2026-10-06 BIO 등록 현재 재검증 요청 보관
 
 `20261006120000_bio_registration_revalidation`은 독립 `BioRegistrationRevalidationOperation`을 추가한다. 서버 소유 commandId, site/Gateway/floor/Fixture/canonical node, 등록 session·후보·원 provision command와 그 canonical hash, 요청자/clientRequestId, assignment·native identity hash·unicast 주소, binding snapshot/hash와 strict query payload/hash를 보존한다. native UUID 원문을 새 명령이나 관리자 조회에 노출하지 않는다. `requestedAt`은 기존 `CommandDbClockHealth`가 검증한 UTC DB 시각이고 TTL은 30초, apply 기한은 120초로 고정한다. production에 실제 clock attestor가 없으면 요청과 조회는 거부하며 합성 provider를 DI에 등록하지 않는다.

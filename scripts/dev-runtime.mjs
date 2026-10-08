@@ -320,6 +320,7 @@ function checksumOf(content) {
 // monitoring refresh, mesh sync and automation outbox producers. Never grant
 // api-service sites/#: cutover removes only the two legacy dimming writes.
 const API_READ_SUFFIXES = [
+  "events/bio-sensor-catalog-ack", "events/bio-sensor-preparation-result",
   "events/bio-registration-revalidation-result",
   "events/bio-sensor-mode-result",
   "acks/acceptance", "acks/device-status", "state/fixtures", "state/fixture-presence", "state/heartbeat",
@@ -331,6 +332,7 @@ const API_READ_SUFFIXES = [
   "events/automation/execution", "events/automation/vehicle-sensor-capability", "commands/clock/request", "events/drain/response"
 ];
 const API_WRITE_SUFFIXES = [
+  "commands/bio-sensor-catalog", "commands/bio-sensor-preparation", "events/bio-sensor-preparation-result-ack",
   "commands/bio-registration-revalidation", "acks/bio-registration-revalidation-result",
   "commands/bio-sensor-mode",
   "commands/status-check", "commands/identify", "commands/fixture-presence-check",
@@ -371,6 +373,7 @@ export function renderMosquittoAcl(gatewayIds, { setGeneration } = {}) {
       `user ${gatewayId}`,
       `topic read sites/+/gateways/${gatewayId}/commands/#`,
       `topic read sites/+/gateways/${gatewayId}/events/clock/response`,
+      `topic read sites/+/gateways/${gatewayId}/events/bio-sensor-preparation-result-ack`,
       `topic write sites/+/gateways/${gatewayId}/commands/clock/request`,
       `topic read sites/+/gateways/${gatewayId}/acks/state-ingested`,
       `topic read sites/+/gateways/${gatewayId}/acks/bio-registration-revalidation-result`,
@@ -383,7 +386,9 @@ export function renderMosquittoAcl(gatewayIds, { setGeneration } = {}) {
       `topic write sites/+/gateways/${gatewayId}/acks/acceptance`,
       `topic write sites/+/gateways/${gatewayId}/acks/device-status`,
       `topic write sites/+/gateways/${gatewayId}/state/#`,
-      `topic write sites/+/gateways/${gatewayId}/events/#`,
+      // Event ACKs can share the events namespace. Only known Gateway producer
+      // suffixes are writable; API preparation receipts never inherit a wildcard.
+      ...API_READ_SUFFIXES.filter(suffix => suffix.startsWith("events/")).map(suffix => `topic write sites/+/gateways/${gatewayId}/${suffix}`),
       ""
     ]),
     ""
