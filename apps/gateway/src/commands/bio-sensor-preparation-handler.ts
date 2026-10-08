@@ -77,7 +77,8 @@ export class BioSensorPreparationHandler {
         || exact.some(d => d.networkId !== device.networkId)) throw new Error("ambiguous_discovery");
       fingerprint = device.fingerprint ?? null;
       const profile = approvedBioProfile(currentCatalog, fingerprint);
-      if (!profile) { status = fingerprint ? "unsupported" : "unverified"; errorCode = "BIO_PROFILE_UNVERIFIED"; }
+      // Missing/ambiguous approval does not establish that the device is unsupported.
+      if (!profile) { status = "unverified"; errorCode = "BIO_PROFILE_UNVERIFIED"; }
       else {
         profileKey = bioProfileKey(profile); await guard();
         if (command.operation === "ensure_sensor") await client.restoreSensorMode(device, control);

@@ -151,7 +151,7 @@ it("Task6: actual three-source preparation/live producers match immutable API ha
   // supplies mode/link=true, while the Gateway correctly avoids an unapproved GET.
   f.devices[2].fingerprint.sensorType = 99; const reads = f.reads.length;
   const unknown = await f.prepare(4, false);
-  expect(unknown).toMatchObject({ status: "unsupported", profileKey: null, modeVerified: false, linkVerified: false, errorCode: "BIO_PROFILE_UNVERIFIED" });
+  expect(unknown).toMatchObject({ status: "unverified", profileKey: null, modeVerified: false, linkVerified: false, errorCode: "BIO_PROFILE_UNVERIFIED" });
   expect(f.reads).toHaveLength(reads); expect(f.monitor.snapshot(asset.fixtures[2].fixtureId)).toBeNull();
   expect(f.source.sourceAuthority(asset.fixtures[0].fixtureId)).toEqual(original);
   for (let i = 0; i < 4; i++) { f.advance(2500); await f.monitor.probe(asset.fixtures[0].fixtureId); await f.monitor.probe(asset.fixtures[1].fixtureId); }
