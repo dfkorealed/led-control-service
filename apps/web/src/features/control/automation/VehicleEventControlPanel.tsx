@@ -472,7 +472,7 @@ export function VehicleEventControlPanel({
         const degraded = sources.some(fixture => fixture.vehicleEventSource?.capabilityEvidence === "degraded" || fixture.vehicleEventSource?.readiness === "degraded");
         return <section key={rule.id} tabIndex={0} aria-label={`${rule.name} BIO 운영 상태`} className="grid min-w-0 gap-2 border-b border-border-default p-4 focus-visible:shadow-focus">
           <Text weight="semibold">{rule.name} · BIO 운영 상태</Text>
-          {degraded ? <Text role="alert" tone="danger">센서 장애 보고 · 재검증이 필요합니다. 신호가 없다는 이유만으로 B의 복원을 판단하지 않습니다.</Text> : null}
+          {degraded ? <Text role="alert" tone="danger">센서 장애 보고 · 재검증이 필요합니다. 신호가 없다는 이유만으로 실행 조명의 복원을 판단하지 않습니다.</Text> : null}
           <Text>제품 지원 OFF{sources.some(source => source.bioPulseTelemetry) ? " · 과거 운영 보고" : " · 실행·복원 상태 미확인"}</Text>
           <Text>이 규칙의 실행 조명: {rule.targetCount}개</Text>
           {(sources.length ? sources : [undefined]).map((source, index) => <BioPulseTelemetryStatus key={source?.id ?? index} source={source} fixtures={dashboard?.floors.flatMap(floor => floor.fixtures) ?? []} timeZone={dashboard?.site.timeZone ?? "UTC"} />)}

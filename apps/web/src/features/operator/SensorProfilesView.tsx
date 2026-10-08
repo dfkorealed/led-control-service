@@ -7,6 +7,10 @@ import { Button, Card, Checkbox, ConfirmDialog, PageHeader, Text, TextArea } fro
 export function SensorProfilesView() {
   const client = useQueryClient();
   const profiles = useQuery({ queryKey: ["bio-sensor-profiles"], queryFn: listBioSensorProfiles });
+  // The API lists immutable history but withdrawal targets current profile state,
+  // not the displayed revision. Never offer that action from a historical row.
+  const currentRevisions = new Map<string, number>();
+  for (const profile of profiles.data ?? []) currentRevisions.set(profile.profileId, Math.max(currentRevisions.get(profile.profileId) ?? 0, profile.revision));
   const [json, setJson] = useState(""); const [confirmed, setConfirmed] = useState(false); const [pending, setPending] = useState(false);
   const [revokeId, setRevokeId] = useState<string | null>(null); const [error, setError] = useState(""); const [notice, setNotice] = useState(""); const busy = useRef(false);
   async function changed(message: string) {
@@ -37,10 +41,11 @@ export function SensorProfilesView() {
     {profiles.error ? <><Text role="alert" tone="danger">프로파일 목록을 불러오지 못했습니다.</Text><Button type="button" variant="secondary" onClick={() => void profiles.refetch()}>목록 다시 조회</Button></> : null}
     {profiles.data?.length === 0 ? <Text>승인된 호환 프로파일이 없습니다. 미검증 조명은 호환 확인이 필요합니다.</Text> : null}
     <div className="grid max-h-80 gap-3 overflow-y-auto overscroll-contain" aria-label="프로파일 revision 목록">
-      {profiles.data?.map(profile => <Card key={`${profile.profileId}@${profile.revision}`} className="grid min-w-0 gap-2 p-4">
+      {profiles.data?.map(profile => <Card key={`${profile.profileId}@${profile.revision}`} role="group" aria-label={`${profile.profileId} revision ${profile.revision}`} className="grid min-w-0 gap-2 p-4">
         <Text className="break-all" weight="semibold">{profile.profileId} · revision {profile.revision} · {profile.status === "approved" ? "승인" : "철회"}</Text>
+        <Text variant="caption">{currentRevisions.get(profile.profileId) === profile.revision ? "현재 revision" : "이전 revision · 읽기 전용"}</Text>
         <Text>재사용 범위: {profile.reuseScope}</Text><Text variant="caption" className="break-all">검증 근거: {profile.evidenceDigest}</Text>
-        {profile.status === "approved" ? <Button type="button" variant="danger" disabled={pending} onClick={() => setRevokeId(profile.profileId)}>프로파일 철회</Button> : null}
+        {currentRevisions.get(profile.profileId) === profile.revision && profile.status === "approved" ? <Button type="button" variant="danger" disabled={pending} onClick={() => setRevokeId(profile.profileId)}>프로파일 철회</Button> : null}
       </Card>)}
     </div>
     <Card className="grid min-w-0 gap-3 p-4"><form className="grid min-w-0 gap-3" onSubmit={approve} noValidate>
