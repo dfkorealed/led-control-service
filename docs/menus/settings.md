@@ -14,25 +14,26 @@
 - 구현 완료(소프트웨어): 모든 현재 등록 BIO는 같은 query/ensure API를 사용한다. 안전한 기본 legacy BlueZ 오분류만 기존 classifier의 exact 등록 graph/command·현재 권한·잠금·감사를 transaction 안에서 재사용하여 분류와 준비 요청을 원자 저장한다. supported/ready/원장/활성 규칙 충돌·손상·still-discovered는 자동 변환/수복하지 않는다. A/B ID 하드코딩·밝기 변경·과거 완료 합성은 없다.
 - 구현 완료(관측 projection): 등록 polling의 `bioSensorCatalogMatch:{status:'matched'|'unverified',profileKey:string|null}`는 현재 유일 승인 full fingerprint만 matched로 표시한다. null/unknown/중복/철회는 unverified이며 숫자로 unsupported를 추정하지 않는다. 신규 typed discovery 저장은 SET/자동 classification을 만들지 않는다. dashboard의 required preparationCandidate boolean은 준비 후보 안내용이다.
 - 구현 완료(정책): 저장 담당자가 현재 assigned active customer admin인지 재검증하며 assignment/role 상실은 실제 정책 OFF·global catalog revision 무효화·affected rule disable·내구 수렴 작업으로 이어진다. 승인 기본값은 빈 profile/OFF다.
-- 미구현: 전체 소프트웨어 통합, 운영 migration·broker/PKI/장비 적용과 실제 RF/HIL 검증. Web query/setup·정책 소비는 위 Task 5 소프트웨어 구현을 따른다.
+- 구현 완료(후속 소프트웨어): Web query/setup·정책 소비는 위 Task 5, 공통 합성 fixture의 별도 API disposable DB·Gateway fake-transport 통합은 Task 6에서 확인했다. 최종 준비 큐 보완은 카탈로그 ACK 대기 요청을 원래 120초 기한 안에서 최대 2초 뒤로 미뤄 다른 정상 Gateway 준비가 진행되게 하며, 정확한 ACK 관문은 유지한다. 별도 최종 수정 검토는 남아 있다.
+- 미구현: 단일 프로세스·실제 MQTT/RF E2E, 운영 migration·broker/PKI/장비 적용과 실제 RF/HIL 검증.
 - 부족하거나 개선이 필요한 기능: 초기 준비 receipt와 최신 독립 live ACK는 다른 경계다. 후보/카탈로그 일치는 mode/link/ready/SET 허가가 아니다. 일반 HTTP에는 raw fingerprint/body/native/hash를 노출하지 않으며 public classification API의 guard는 유지한다.
 - 관련 파일: `apps/api/src/registration/{bio-classification-reconciliation.service.ts,registration.service.ts}`, `apps/api/src/automation/{bio-sensor-preparation.service.ts,bio-sensor-profiles.service.ts,bio-sensor-eligibility.ts}`, `docs/database-schema.md`.
 - 갱신 규칙: 아래 과거 등록 수복/분류 기록과 현재 generic 준비를 구분한다. 실제 배포/장비 성공 근거 없이 운영 완료로 승격하지 않는다.
 
-## 2026-10-08 등록 BIO discovery 관측 보존 경계
+## 2026-10-08 등록 BIO discovery 관측 보존 경계 — Task 2A 당시 기록
 
 - 구현 완료(Task 2A 소프트웨어): 별도 strict `scan-found-v2` topic의 `schemaVersion:2`·필수 nullable fingerprint를 수신하고 현재 scan 귀속·순서·중복 경계 안에서 `DiscoveredMeshNode.bioDiscoveryFingerprint`에 저장한다. 등록 완료 뒤에도 관측은 보존하며 일반 등록 HTTP 응답에서 제거한다. firmware 문자열로 관측을 합성하지 않는다.
-- 미구현: Gateway BIO publisher의 새 topic 전환, 실제 준비 query의 fresh discovery 확인과 UI 준비 판정, 운영 migration·broker ACL 적용·RF 검증. Task 3 이후 소비 작업이 필요하다.
+- 후속 구현: 당시 남았던 Gateway typed publisher·준비 query의 fresh discovery와 UI 판정 소비는 Tasks 3~6에서 구현·소프트웨어 검증했다. 운영 migration·broker ACL 적용·RF 검증은 여전히 미수행이다.
 - 부족하거나 개선이 필요한 기능: 관측은 profile 승인·장치 호환·ready 증거가 아니다. 더 새로운 null/legacy 발견은 이전 fingerprint를 비우고 잘못된 scope·이전 attempt·늦은 발견·중복은 저장 값을 변경하지 않는다. 실제 센서 준비/SET·classification을 자동 생성하지 않는다.
 - 관련 파일: `packages/shared/src/bio-discovery-contracts.ts`, `apps/api/src/mqtt/mqtt.service.ts`, `apps/api/src/registration/registration.service.ts`, `apps/api/prisma/migrations/20261008050000_bio_discovery_fingerprint/migration.sql`, `apps/api/test/bio-discovery.integration.spec.ts`, `scripts/dev-runtime.mjs`, `infra/mosquitto.acl.example`.
 - 갱신 규칙: API/ACL 소스 검증·일회용 DB와 실제 broker/Gateway/장비 적용을 구분한다. Subscriber ACL·API migration 적용이 새 Gateway publisher 전환보다 선행해야 하며 typed 관측만으로 준비 완료를 기록하지 않는다.
 
-## 2026-10-08 공통 BIO 센서 profile·현장 정책·준비 API
+## 2026-10-08 공통 BIO 센서 profile·현장 정책·준비 API — Task 2 당시 기록
 
 - 구현 완료(Task 2 소프트웨어): persisted active service_provider/operator 전용 profile 목록/순차 revision 승인/새 revoked revision, own-site assigned admin 전용 정책 GET/PUT과 준비 query/ensure_sensor POST/GET을 제공한다. 초기 approved profile은 없고 현장 실행은 OFF다.
 - 구현 완료(Task 2 전달): 전용 catalog delivery와 초기 preparation journal/result/ACK를 저장한다. 첫 준비는 exact catalog applied/duplicate ACK 뒤 발행하며 MQTT publish는 lease transaction 밖에서 실행한다. 현재 claim·UTC 인증서·assignment·Fixture/node/native binding과 exact hash/revision/profile을 재검증한다. 새 실패 요청은 과거 ready를 supersede하고 동일 결과는 최초 durable ACK를 재전송한다.
 - 검토 보완(Task 2 소프트웨어): 발행 후 관리자가 철회된 요청의 첫 결과는 현재 저장된 요청자를 재인가해 ready/applied로 수용하지 않는다. 폐기된 catalog/ACK scope는 전달만 종료하고, 현재 scope의 일시적 권한 실패는 due를 이동해 다른 현장 정상 전달을 막지 않는다. ACK 전달 종료는 checkpoint supersession과 구분하며 결과/ACK 원문은 보존한다.
-- 미구현: 설정 화면의 준비/정책 UI와 운영자 profile 화면, 실제 hardware profile의 증거 승인, Gateway 반복 독립 GET live health와 API eligibility/rule admission, 운영 migration/배포 및 RF 검증. 이 단계는 public mode·기존 규칙·기존 capability 판정을 바꾸지 않는다.
+- 후속 구현: 당시 남았던 설정 준비/정책 UI·운영자 profile 화면·Gateway 반복 독립 GET·API eligibility/rule admission은 Tasks 3~6에서 구현·소프트웨어 검증했다. 실제 hardware profile의 증거 승인·운영 migration/배포·RF 검증은 여전히 미수행이다. Task 2 자체는 public mode·기존 규칙·기존 capability 판정을 바꾸지 않은 단계였다.
 - 부족하거나 개선이 필요한 기능: 준비 ready는 초기 관측 checkpoint이며 live sensor 건강·자동화 허가를 뜻하지 않는다. 120초는 결과 수용 TTL이고 checkpoint 자체의 영구 건강 증거가 아니다. catalog/profile/binding이 바뀌면 GET에서 unverified를 표시하며 후속 live proof가 필요하다. raw/native/fingerprint/body는 일반 응답에 노출하지 않는다. 실제 MQTT broker/HIL 통과로 표현하지 않는다.
 - 관련 파일: `apps/api/src/automation/bio-sensor-profiles.{service,controller}.ts`, `bio-sensor-preparation.{service,controller}.ts`, `bio-sensor-preparation-evidence.ts`, `bio-sensor-catalog-{locks,outbox.service}.ts`, `apps/api/prisma/migrations/20261008030000_bio_sensor_catalog_preparation/migration.sql`, `apps/api/src/mqtt/mqtt.service.ts`, `infra/mosquitto.acl.example`, `scripts/dev-runtime.mjs`.
 - 갱신 규칙: Shared/API/Gateway/Web·임시 DB 검증·운영 적용·실제 증거/건강 승인을 구분하고 DB 변경과 함께 schema 문서를 갱신한다. 서버 초기 checkpoint를 mode-only 성공이나 영구 ready로 승격하지 않는다.

@@ -2,13 +2,13 @@
 
 기준일: 2026-10-08
 
-## 2026-10-08 공통 센서 등록·UI 설정 — 설계 승인·실행 계획 작성, 구현 진행
+## 2026-10-08 공통 센서 등록·UI 설정 — Tasks 1~6 소프트웨어 완료, 최종 수정 검토 대기
 
-- **공유 계약·서버·등록 관측·Gateway 완료/API 판정 진행:** Tasks1/2/2A의 strict 계약·내구 전달·typed 등록 저장을 독립 검토 승인했다. Task3 `a574e133`+`5c787f32`의 실제 index/factory/MQTT 준비·독립GET·authority 연결에서 발견한 다중 source 영향/철회 후 명시 복원 Important2를 `e379d159`에서 수정하고 재검토 newC0/I0/M0 승인했다. 당시 집중470/최종수명26, fix1 집중102/최종source36·Gatewaytypes/build/diff0이며 전체 old suite/HIL 반복0이다. API 준비 projection·Web·최소 통합 Tasks4–6은 아직 미완료다. 실제 승인 프로파일 seed·운영 DB/Pi/RF 변경0이다.
+- **소프트웨어 구현·개별 작업 검토 완료:** Tasks 1/2/2A의 strict 계약·내구 전달·typed 등록 관측, Task 3 Gateway 준비·독립 GET·실행/복원 수명, Task 4 공통 API 자격 판정·등록 연결·규칙 수렴, Task 5 공통 Web 준비/정책 UI, Task 6 공통 fixture 소프트웨어 통합의 개별 검토를 통과했다. 별도 API disposable DB와 Gateway fake-transport에서 정확한 양성 envelope/hash, snapshot/ACK, hold·read-back 복원·degraded 재시작을 확인했으며 단일 프로세스·실제 HTTP/MQTT/RF E2E 증거는 아니다.
 
-- 사용자는 설계 문서 제시 후 `구현 계획 작성 후 바로 진행해줘`로 계획 작성과 코드 구현의 연속 실행을 요청했다. 재승인 질문 없이 `docs/superpowers/plans/2026-10-08-common-bio-sensor-configuration.md` Tasks1~6과 신규 등록 보완 Task2A를 Shared→API→등록typed경계→Gateway→API판정→Web→최소통합 순서로 진행한다.
-- 기존 isolated `codex/bio-pulse-event-integration`·HEAD10384a8e clean을 확인했다. 작업량이 큰 역할별 구현은 서브에이전트에 순차 배정하고 총괄은 계약/검토/체크리스트를 동기화한다. 초기 승인profile/현장정책은 OFF로 유지하며 코드 완료와 실제 지원/운영 적용을 분리한다.
-- Tasks1/2/2A/3은 완료했고 Task4 공통 eligibility/등록 연결/규칙 수렴부터 진행한다. 실장비 SET/배포/사용자DB migration/PKI/새 현장 시험은 이번 코드 작업에 포함하지 않는다.
+- 최종 검토의 준비 명령 큐 정체(I1)는 카탈로그 ACK 대기 10건이 다른 Gateway의 준비 완료 요청을 가리는 문제였다. 기존 권한 잠금 안의 최대 2초 재시도 연기로 보완하며 exact ACK·원래 120초 TTL·불변 요청 identity는 유지한다. 현황 문서 불일치(M1)도 함께 동기화하고, 이 한정 수정의 집중 회귀·최종 재검토 뒤 총괄이 계획을 마감한다. 전체 계획의 최종 승인이나 운영 적용 완료로 표현하지 않는다.
+- 당시 실행 경위: 사용자 `구현 계획 작성 후 바로 진행해줘` 요청으로 기존 isolated `codex/bio-pulse-event-integration`의 기준 HEAD `10384a8e`에서 Shared→API→등록 typed 경계→Gateway→API 판정→Web→최소 통합 순서로 진행했다. 정본 계획은 `docs/superpowers/plans/2026-10-08-common-bio-sensor-configuration.md`이며 총괄이 계약·검토·체크리스트를 관리한다.
+- 초기 승인 profile은 빈 목록·현장 정책은 OFF다. 실제 hardware profile 최초 승인·운영 DB migration·API/Gateway 배포·broker/PKI 변경·실장비 SET·MQTT/RF/HIL은 이번 공통 소프트웨어 작업에서 수행하지 않았다. 아래 별도 과거 실장비 기록은 이번 검증이나 일반 장비 지원 근거로 합산하지 않는다.
 
 ## 2026-10-08 공통 센서 등록·UI 설정 — 당시 설계 문서 작성·펌웨어 검토
 

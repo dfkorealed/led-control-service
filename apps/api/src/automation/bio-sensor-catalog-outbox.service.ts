@@ -114,7 +114,14 @@ export class BioSensorCatalogOutboxService implements OnModuleInit {
         siteId: row.siteId, gatewayId: row.gatewayId, assignmentVersion: row.assignmentVersion, catalogRevision: revision } } });
       // First setup must observe a confirmed catalog before any preparation GET
       // or SET. A published PUBACK is not application-level catalog acceptance.
-      if (!catalog?.appliedAt || catalog.supersededAt || !["applied", "duplicate"].includes(catalog.status)) return null;
+      if (!catalog?.appliedAt || catalog.supersededAt || !["applied", "duplicate"].includes(catalog.status)) {
+        // Normal ACK waiting must yield the bounded global command batch just
+        // like a temporary claim failure. Defer under the same authority locks,
+        // without a publish attempt/lease or changing the original deadline.
+        await tx.bioSensorPreparationOperation.update({ where: { commandId: id }, data: {
+          nextAttemptAt: new Date(Math.min(now.getTime() + 2_000, row.expiresAt.getTime())) } });
+        return null;
+      }
       const command = bioSensorPreparationCommandV1Schema.parse(row.payload);
       if (canonicalPayloadHash(command) !== row.payloadHash) throw new ConflictException("BIO preparation command changed");
       await tx.bioSensorPreparationOperation.update({ where: { commandId: id }, data: { lockedBy: token,

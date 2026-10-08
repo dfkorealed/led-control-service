@@ -481,6 +481,7 @@ const profileInput = () => ({ profileId: randomUUID(), revision: 1, status: "app
     const catalogDelivery = await (prisma as any).bioSensorCatalogDelivery.findFirstOrThrow({ where: { siteId, gatewayId, supersededAt: null } });
     await profiles.ingestCatalogAck({ schemaVersion: 1, siteId, gatewayId, assignmentVersion: 1, eventId: catalogDelivery.deliveryId,
       catalogRevision: Number(catalogDelivery.catalogRevision), deliveryPayloadHash: catalogDelivery.payloadHash, status: "applied", occurredAt: new Date().toISOString() }, { siteId, gatewayId });
+    await waitForPreparationRetry([operation.commandId]);
     await worker.processBatch();
     const sent = delivered.find(value => value.topic === bioSensorPreparationTopics.command(siteId, gatewayId));
     expect(sent?.payload.operation).toBe("query");
@@ -496,6 +497,83 @@ const profileInput = () => ({ profileId: randomUUID(), revision: 1, status: "app
     await profiles.ingestCatalogAck({ schemaVersion: 1, siteId, gatewayId, assignmentVersion: catalog.assignmentVersion, eventId: row.deliveryId,
       catalogRevision: catalog.catalogRevision, deliveryPayloadHash: row.payloadHash, status: "applied", occurredAt: new Date().toISOString() }, { siteId, gatewayId });
   }
+  async function waitForPreparationRetry(commandIds: string[]) {
+    const rows = await prisma.bioSensorPreparationOperation.findMany({ where: { commandId: { in: commandIds } } });
+    const delay = Math.max(0, ...rows.map(row => row.nextAttemptAt.getTime() - Date.now()));
+    expect(delay).toBeLessThanOrEqual(2_000);
+    // Use the persisted due time and real clock; never extend/bypass the
+    // immutable request deadline or fake PostgreSQL's authorization time.
+    await new Promise(resolve => setTimeout(resolve, delay + 20));
+  }
+  it("preparation queue progresses past ten catalog-waiting commands before TTL and resumes only after exact ACK", async () => {
+    // Catches the normal catalog-wait branch keeping the same ten rows at
+    // the global queue head, starving another Gateway with an accepted catalog.
+    const fixture = await prisma.fixture.findUniqueOrThrow({ where: { id: fixtureId } });
+    const waitingFixtureIds = [fixtureId];
+    for (let index = 2; index <= 10; index++) {
+      const node = await prisma.meshNode.create({ data: { gatewayId, meshAddress: `0x${index.toString(16).padStart(4, "0")}`,
+        deviceUuid: `bio:${randomUUID().replaceAll("-", "").slice(0, 12)}`, firmwareVersion: "synthetic", vehicleSensorProtocol: "bio_usb_pulse" } });
+      waitingFixtureIds.push((await prisma.fixture.create({ data: { floorId: fixture.floorId, meshNodeId: node.id,
+        name: `waiting-${index}`, ratedWatt: 20, x: 0, y: 0 } })).id);
+    }
+    const serial = randomUUID();
+    const readyGateway = await prisma.gateway.create({ data: { siteId, name: serial, serialNumber: serial,
+      firmwareVersion: "synthetic", assignmentVersion: 1, claimedAt: new Date() } });
+    const inventory = await prisma.gatewayInventory.create({ data: { serialNumber: serial, claimedGatewayId: readyGateway.id, claimedAt: new Date() } });
+    await prisma.gatewayCertificate.create({ data: { inventoryId: inventory.id, gatewayId: readyGateway.id, purpose: "mqtt", status: "active",
+      certificateSerial: serial, fingerprint: serial, issuer: "synthetic", notBefore: new Date(Date.now() - 10_000), notAfter: new Date(Date.now() + 300_000) } });
+    const readyNode = await prisma.meshNode.create({ data: { gatewayId: readyGateway.id, meshAddress: "0x0001",
+      deviceUuid: `bio:${randomUUID().replaceAll("-", "").slice(0, 12)}`, firmwareVersion: "synthetic", vehicleSensorProtocol: "bio_usb_pulse" } });
+    const readyFixture = await prisma.fixture.create({ data: { floorId: fixture.floorId, meshNodeId: readyNode.id,
+      name: "ready", ratedWatt: 20, x: 0, y: 0 } });
+    const waitingIds: string[] = [];
+    for (const waitingFixtureId of waitingFixtureIds) {
+      waitingIds.push((await preparation.create(actor, { ...request(), fixtureId: waitingFixtureId })).commandId);
+    }
+    const ready = await preparation.create(actor, { ...request(), fixtureId: readyFixture.id });
+    const readyCatalog = await profiles.buildCurrentCatalog(siteId, readyGateway.id);
+    const readyDelivery = await prisma.bioSensorCatalogDelivery.findUniqueOrThrow({ where: { deliveryId: readyCatalog.eventId } });
+    await profiles.ingestCatalogAck({ schemaVersion: 1, siteId, gatewayId: readyGateway.id, assignmentVersion: 1,
+      eventId: readyDelivery.deliveryId, catalogRevision: readyCatalog.catalogRevision, deliveryPayloadHash: readyDelivery.payloadHash,
+      status: "applied", occurredAt: new Date().toISOString() }, { siteId, gatewayId: readyGateway.id });
+    // Only transport scheduling is arranged; all identities, payloads,
+    // authorization and the original 120-second TTL come from the real service.
+    await prisma.bioSensorPreparationOperation.updateMany({ where: { commandId: { in: waitingIds } }, data: { nextAttemptAt: new Date("2000-01-01") } });
+    await prisma.bioSensorPreparationOperation.update({ where: { commandId: ready.commandId }, data: { nextAttemptAt: new Date("2001-01-01") } });
+    const originals = await prisma.bioSensorPreparationOperation.findMany({ where: { commandId: { in: [...waitingIds, ready.commandId] } } });
+    await worker.processBatch();
+    expect(delivered.some(value => [...waitingIds, ready.commandId].includes(value.payload.commandId))).toBe(false);
+    await worker.processBatch();
+    const readySent = delivered.find(value => value.topic === bioSensorPreparationTopics.command(siteId, readyGateway.id));
+    expect(readySent?.payload.commandId).toBe(ready.commandId);
+    expect(Date.now()).toBeLessThan(originals.find(row => row.commandId === ready.commandId)!.expiresAt.getTime());
+    expect(delivered.some(value => waitingIds.includes(value.payload.commandId))).toBe(false);
+    const waitingCatalog = await profiles.buildCurrentCatalog(siteId, gatewayId);
+    const waitingDelivery = await prisma.bioSensorCatalogDelivery.findUniqueOrThrow({ where: { deliveryId: waitingCatalog.eventId } });
+    expect(waitingDelivery.publishedAt).toBeInstanceOf(Date); // PUBACK alone did not release the commands.
+    const exactAck = { schemaVersion: 1, siteId, gatewayId, assignmentVersion: 1, eventId: waitingDelivery.deliveryId,
+      catalogRevision: waitingCatalog.catalogRevision, deliveryPayloadHash: waitingDelivery.payloadHash, status: "applied", occurredAt: new Date().toISOString() };
+    await expect(profiles.ingestCatalogAck({ ...exactAck, deliveryPayloadHash: `sha256:${"f".repeat(64)}` }, { siteId, gatewayId })).rejects.toThrow();
+    await waitForPreparationRetry(waitingIds);
+    await worker.processBatch();
+    expect(delivered.some(value => waitingIds.includes(value.payload.commandId))).toBe(false);
+    const waiting = await prisma.bioSensorPreparationOperation.findMany({ where: { commandId: { in: waitingIds } } });
+    for (const row of waiting) expect(row).toMatchObject({ status: "pending", attempts: 0, lockedBy: null, leaseExpiresAt: null });
+    await profiles.ingestCatalogAck(exactAck, { siteId, gatewayId });
+    await waitForPreparationRetry(waitingIds);
+    await worker.processBatch();
+    // Other current commands from this shared integration harness may also be
+    // due; the next bounded batch must advance the remaining waiting commands.
+    await worker.processBatch();
+    expect(new Set(delivered.filter(value => waitingIds.includes(value.payload.commandId)).map(value => value.payload.commandId)).size).toBe(10);
+    for (const original of originals) {
+      const row = await prisma.bioSensorPreparationOperation.findUniqueOrThrow({ where: { commandId: original.commandId } });
+      expect(row).toMatchObject({ payload: original.payload, payloadHash: original.payloadHash, bindingHash: original.bindingHash,
+        expiresAt: original.expiresAt, requestedAt: original.requestedAt, actorId: original.actorId, catalogRevision: original.catalogRevision });
+      expect(row.expiresAt.getTime() - row.requestedAt.getTime()).toBe(120_000);
+      expect(row.publishedAt!.getTime()).toBeLessThan(row.expiresAt.getTime());
+    }
+  }, 15_000);
   it("first ready result reauthorizes saved actor after dispatch and admin removal", async () => {
     await profiles.createRevision(operator, profileInput());
     const created = await preparation.create(actor, request()); await acceptCatalog(); await worker.processBatch();
