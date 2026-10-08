@@ -2,11 +2,11 @@
 
 기준일: 2026-10-08
 
-## 2026-10-08 공통 센서 등록·UI 설정 — Tasks 1~6 소프트웨어 완료, 최종 수정 검토 대기
+## 2026-10-08 공통 센서 등록·UI 설정 — 소프트웨어 구현·최종 검토 완료, 운영 적용 전
 
 - **소프트웨어 구현·개별 작업 검토 완료:** Tasks 1/2/2A의 strict 계약·내구 전달·typed 등록 관측, Task 3 Gateway 준비·독립 GET·실행/복원 수명, Task 4 공통 API 자격 판정·등록 연결·규칙 수렴, Task 5 공통 Web 준비/정책 UI, Task 6 공통 fixture 소프트웨어 통합의 개별 검토를 통과했다. 별도 API disposable DB와 Gateway fake-transport에서 정확한 양성 envelope/hash, snapshot/ACK, hold·read-back 복원·degraded 재시작을 확인했으며 단일 프로세스·실제 HTTP/MQTT/RF E2E 증거는 아니다.
 
-- 최종 검토의 준비 명령 큐 정체(I1)는 카탈로그 ACK 대기 10건이 다른 Gateway의 준비 완료 요청을 가리는 문제였다. 기존 권한 잠금 안의 최대 2초 재시도 연기로 보완하며 exact ACK·원래 120초 TTL·불변 요청 identity는 유지한다. 현황 문서 불일치(M1)도 함께 동기화하고, 이 한정 수정의 집중 회귀·최종 재검토 뒤 총괄이 계획을 마감한다. 전체 계획의 최종 승인이나 운영 적용 완료로 표현하지 않는다.
+- 최종 전체 검토 `10384a8e..7d3ace19`의 준비 명령 큐 정체(I1)는 카탈로그 ACK 대기 10건이 다른 Gateway의 준비 완료 요청을 가리는 문제였다. `7223f54d`에서 기존 권한 잠금 안의 최대 2초 재시도 연기로 보완하고 exact ACK·원래 120초 TTL·불변 요청 identity를 유지했다. 문서 불일치(M1)도 동기화했으며 disposable 집중 회귀5/5(31 비선택)·API 타입/빌드·diff check 후 scoped 재검토 I1/M1 모두 ADDRESSED/new C0/I0/M0으로 소프트웨어 통합 승인을 받았다. 전체 suite·실제 transport E2E·운영 적용 완료를 의미하지 않으며, 머지/push/배포는 수행하지 않았다.
 - 당시 실행 경위: 사용자 `구현 계획 작성 후 바로 진행해줘` 요청으로 기존 isolated `codex/bio-pulse-event-integration`의 기준 HEAD `10384a8e`에서 Shared→API→등록 typed 경계→Gateway→API 판정→Web→최소 통합 순서로 진행했다. 정본 계획은 `docs/superpowers/plans/2026-10-08-common-bio-sensor-configuration.md`이며 총괄이 계약·검토·체크리스트를 관리한다.
 - 초기 승인 profile은 빈 목록·현장 정책은 OFF다. 실제 hardware profile 최초 승인·운영 DB migration·API/Gateway 배포·broker/PKI 변경·실장비 SET·MQTT/RF/HIL은 이번 공통 소프트웨어 작업에서 수행하지 않았다. 아래 별도 과거 실장비 기록은 이번 검증이나 일반 장비 지원 근거로 합산하지 않는다.
 
