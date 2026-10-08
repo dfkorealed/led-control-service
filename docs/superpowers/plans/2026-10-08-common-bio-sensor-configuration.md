@@ -127,11 +127,11 @@
 - `vehicleEventSourceView`는 preparation과 currentqualification으로 판정하고 고정 `product_gate_off`를 조건부사유로 바꾼다. source/target보호·BIO1개source·같은gateway/10초하한은 유지한다. enabled의무조건v2_support_unverified 대신 authenticated V2support/currentconditions검사를 사용한다. snapshot applied ACK는 sync에만 사용한다.
 - 새등록은 typeddiscovery를 보존·카탈로그대조만 하고 SET0. 기존등록은 공통 준비query로 갱신한다. 철회/재배정/식별교체는 준비증거무효화·affectedruledisable/snapshot수렴을 같은 경계에서 수행한다.
 
-- [ ] **Step 1 RED:** mode-only/과거ready/카탈로그미ACK/정책OFF/다른귀속/만료link 거부, current준비+V2지원만enable, profile철회→disable·부분rollback을 재현한다.
-- [ ] **Step 2 RED 확인:** source-view/rules/capability focused tests와Task2 temporaryDB통합.
-- [ ] **Step 3 구현:** 단일 eligibility정책을 server admission/dashboard/DB guard와연결하며 V1/old BIOOFF호환을 유지한다.
-- [ ] **Step 4 GREEN/문서:** 집중검증·APItypecheck/build·해당DB통합·메뉴문서. 승인기본값OFF·실제운영미적용을 명시한다.
-- [ ] **Step 5 검토·커밋:** Gate의falsepositive/저장→snapshotACK소프트웨어흐름을 확인해Web으로넘긴다.
+- [x] **Step 1 RED:** source-view 고정 gate 및 SQL authority 부재를 behavioral RED로 확인했다. final self-review는 proposed NULL mode의 OLD fallback을 실제 DB 실패로 재현·수정했다.
+- [x] **Step 2 RED 확인:** current mode lineage/최신 독립 링크/정책·catalog·귀속·철회·재시작·nullable 관측·convergence guard의 focused unit/disposable DB 검증을 수행했다.
+- [x] **Step 3 구현:** `4d854f41`의 단일 SQL eligibility를 dashboard batch/capability/rules/DBguard에 연결했다. 안전한 기본 legacy classification의 기존 검증을 preparation TX에서 재사용하고 durable convergence·expiry sweep·동일 V2 resync를 구현했다.
+- [x] **Step 4 GREEN/문서:** 관련9suites161/확장DB33 이후 final SQL 수정의 Task4 15 PASS(19 비선택)·APItypes/build/diff0. schema/control/monitoring/settings 갱신, 승인 empty/OFF·운영변경0 유지.
+- [x] **Step 5 검토·커밋:** 독립 Task4 spec/quality PASS C0/I0/M0. Gateway의 rejected live ACK 철회 및 initial mode instant 전달 누락은 Task6 필수 수정으로 명시했고 API gate를 약화하지 않는다. 최종 sanitized HTTP/DTO를 Web에 인계했다.
 
 ### Task 5: 전체 등록 조명의 공통 센서 준비 UI·이벤트 설정
 
