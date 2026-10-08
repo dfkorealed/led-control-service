@@ -4,7 +4,8 @@
 
 - 구현 완료(소프트웨어): 서버는 현재 자동화 잠금 트랜잭션의 canonical 대상 membership으로 snapshot을 만들기 전에 활성 이벤트 규칙의 대상 교집합을 검사한다. 쌍 중 하나가 BIO이면 다른 활성 BIO·BlueZ 규칙과 대상 공유를 `bio_target_activation_conflict`와 안전한 안내로 거절하며, 규칙·revision·구성 hash·outbox 변경은 함께 rollback한다.
 - 구현 완료(안전 경계): 비활성 규칙은 대상을 예약하지 않아 겹치는 초안을 보존할 수 있다. 기존 source/target 분리와 활성 BIO source 보호, BlueZ/BlueZ 정책은 유지한다. 새로운 다중 센서 arbitration이나 자동 삭제·재분배는 추가하지 않았다.
-- 미구현: 운영 API/Gateway 배포·실제 RF/HIL 검증. 공통 합성 fixture의 후속 Gateway snapshot/hold/재시작/명시 복원 통합은 별도 단계이며 이번 API 회귀만으로 완료라고 표현하지 않는다.
+- 구현 완료(소프트웨어 통합): 공통 합성 fixture를 사용하는 별도 API disposable DB·Gateway fake-transport 검증에서 exact snapshot/ACK, 전체 hold·read-back 복원, degraded 재시작과 명시 복원 경로를 확인했다. 단일 프로세스·실제 MQTT/RF E2E 증거는 아니다.
+- 미구현: 운영 API/Gateway 배포·실제 RF/HIL 검증은 수행하지 않았다.
 - 부족하거나 개선이 필요한 기능: 기존 충돌 구성을 자동 수복하지 않는다. 동일 대상의 여러 활성 센서 규칙을 지원하려면 별도 제품 arbitration 설계가 필요하다.
 - 관련 파일: `apps/api/src/automation/automation-snapshot.service.ts`, `apps/api/src/automation/automation-snapshot.service.spec.ts`, `apps/api/test/bio-sensor-catalog-preparation.integration.spec.ts`, `apps/gateway/src/automation/bio-pulse-scheduler.ts`, `test/fixtures/bio-sensor-common-path-v1.json`.
 - 갱신 규칙: API 저장 거부·내구 rollback, Gateway 실제 설치·실행, 운영 배포·장비 검증의 증거를 구분한다.
