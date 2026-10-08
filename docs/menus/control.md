@@ -1,5 +1,13 @@
 # 제어 메뉴 기능 현황
 
+## 2026-10-08 A/B 센서 pilot — 제한된 실장비 기능 시험 통과
+
+- 구현 완료(시험 경로 확인): 브라우저 없는 단1회에서 A의 accepted 시험 알림5건으로 B60% 적용1회·hold60초4회 연장·정상 만료 원복 및300초 종료/A 원복을 확인했다. 사용자도 B 밝아짐과 기존 상태 복귀를 보고했고 native closed/pending0·launcher0·원본 서비스/MQTT/heartbeat·DB 대기8종0을 확인했다.
+- 미구현: 이 결과의 정식 이벤트 제어 공급/제품 활성화·일반 조명 qualification. 기존 profile/readiness/factory/운영 DB는 변경하지 않았고 제품OFF를 유지한다.
+- 부족하거나 개선이 필요한 기능: accepted01 payload의 한정 시험이며05/motion·clear 의미/독립 PIR 건강/정확한 물리 시각은 미확정이다. GET은 링크 응답이지 센서 회로 건강이 아니다. 앞선 브라우저 전달 실패는 고치지 않았으며 이번에는 사용하지 않았다.
+- 관련 파일: `apps/gateway/scripts/bio-sensor-event-pilot.ts`, `bio-sensor-event-pilot-runtime.ts`, `bio-sensor-event-pilot-launcher.ts`, `docs/project-status.md`, `docs/superpowers/plans/2026-09-30-bio-sensor-pulse-event-control.md`.
+- 갱신 규칙: 보호 SM1fw4/ZXGJvD 증거(summary SHAd51412b6…fe63)와 정성 현장 보고를 제품 지원 판정과 분리한다. 자동 재시험/과거 START 재사용은 하지 않는다.
+
 ## 2026-10-07 A/B pilot 안전 host launcher — 로컬 코드/fixture만
 
 - 구현 완료(시험용 코드): 새 보호 runroot/phase·one-use START, fresh exact 원본 ID/image/StartedAt, mapping/source/artifact hash·A/B binding·assignment·8개 대기0 관문을 연결한다. UID999 no-device/network-none read/syntax probe가 STOP보다 먼저다. diagnostic은 create ownership label+full ID 뒤 start/TERM하며 수명 unknown/alive면 competing 원본 재시작을 금지한다.

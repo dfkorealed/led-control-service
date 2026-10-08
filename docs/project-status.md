@@ -2,6 +2,15 @@
 
 기준일: 2026-10-08
 
+## 2026-10-08 브라우저 없는 A/B 시험 — 제한된 1회 기능 시험·원복 통과, 제품 활성화 미완료
+
+- 사용자가 브라우저 없이 시험을 우선 진행하도록 요청하고 참여/시험·원복6~8분 제어 중단에 `오케이`로 답했다. 현재 `범위 밖, 다른 움직임 없음`도 확인했다. Gateway 담당 한 명이 fresh 상태/대기8종·현재원본/binding/hash/USB/locks를 확인한 뒤 새 receipt/phase로 기존 검토 launcher/native pilot만 준비한다. 지난 ifK8Jw/START와 브라우저 상태를 재사용하지 않는다.
+- 브라우저/HTTP/passive bridge를 시작 조건으로 사용하지 않는다. 실제 native observing 확인 후 채팅으로 움직임/퇴장/B 밝기 관찰을 안내하며 메시지 수신 시각은 대략의 정성 관찰로만 기록한다. 기본300초/B60%/hold60초·독립 원복/서비스 postflight·제품OFF는 그대로다. 실제 run과 검증 결과는 후속 증거로 구분하며 자동 재시험/PKI/직접DB/제품 변경은 하지 않는다.
+- 새 보호 wrapper h1S8lv는 기존 코드의 실제 원본 StartedAt 및 `guide:'chat'` metadata2곳만 바꿨고 역치환 exact 일치·syntax0(소스 SHAe495e338…b2ce)을 확인했다. 새 phase SM1fw4/manifest SHAa4ff6c5b…16c0·01:17:16.366Z prepare를 총괄이 대조하고01:17:39Z 단1회 GO했다. native observing01:18:17.259Z·B occurrence1 적용01:19:17.311Z·같은 occurrence 유지 deadline4회 연장·정상 B 만료 원복01:20:53.790Z를 관찰했다. 총괄도 `observing-proof.json` SHA6402c4af…f69f를 대조했다. 사용자 `퇴장, B 밝아짐` 및 `B 꺼짐/원래 밝기 복귀` 정성 관찰이 일치했으며 추가 움직임 지시는 하지 않았다. 현재 전체 관측창 종료/A 원복·서비스 postflight는 확인 대기다. packet body나 정확한 물리 시각·PIR 건강/제품 지원 증명으로 확대하지 않는다.
+
+- **최종 완료:** native300초 관측 후 final closed/pending[]·occurrence1, host `complete`01:23:23.411Z/launcher0·diagnostic terminal을 확인했다. 실제 원장은 accepted 알림5건(`0101000000000000`)·최초 B60% 적용1회·같은 발생 hold60초의4회 연장·독립 A GET/link guard 후 정상 B 만료 원복·종료 A 원복을 기록했다. 사용자 밝아짐/기존상태 복귀 보고와 일치한다. 총괄이 실제 journal SHA2bdc387a…960b·launcher 결과와01:24:03Z gateway/DB postflight를 대조했다. 같은 원본 ID/image를01:23:10.693365609Z 정상 재시작/PID319426, healthy/MQTT/freshheartbeat·mapping/identity/단독USB/기존lock inode·DNS.74·DB8counts0/config12APPLIED/새heartbeat를 확인했다(gateway SHAcc3b8297…94c7/DB1794a382…efb9).
+- **범위와 증거:** `bio-chat-pilot-20261008-h1S8lv/live-evidence-ZXGJvD/summary.json` SHA256 `d51412b6c7405a3a83f6c68d92a2be414c801bfcaa6c1ef8cfc3ce2f28b7fe63`와 별도 human-observations를 보호 보존했다. 총괄이 summary 원문/hash를 대조했다. observing-proof의 `packetBodiesCaptured:false`는 전체 raw transport 미캡처 의미이며 실제 accepted notification body/generation/sequence/monotonic은 원장에 존재한다는 정정을 summary에 추가하고 과거 proof는 그대로 유지했다. 이번 단1회 A→B 적용/연장/원복 경로는 통과했지만 전체 motion/clear 의미·PIR 회로건강·05 payload·일반 조명/제품 qualification은 증명하지 않는다. 현장 대기는 해제하며 추가trial/브라우저/bridge/PKI/직접DB/제품소스 변경0, 제품 profile/readiness/factory는 그대로 OFF다. 서비스 상시 이벤트 제어의 정식 공급/활성화는 후속이다.
+
 ## 2026-10-08 A/B 실제 시험 — 안내 전송 실패로 종료, 설정·서비스 복구 확인
 
 - 사용자가 `그럼 테스트 시작하자`로 시험 시작을 요청했다. 현재 A 범위 밖·타인/움직이는 물체 없음·시험/원복6~8분 제어 중단 가능을 다시 질문하고, Gateway 담당은 fresh 읽기 전용 사전 상태만 확인한다. 현장 응답 전 receipt/phase/bridge/START.used·STOP/USB/RF는 실행하지 않는다.
