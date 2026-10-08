@@ -50,16 +50,18 @@
 - `BioSensorPreparationReportV1`: command 공통 귀속·eventId·commandPayloadHash, catalogRevision·fingerprint nullable·profileKey nullable·connectionGeneration positive, observedAt, `status:ready|needs_setup|unverified|degraded|unsupported|failed`, `modeVerified`, `linkVerified`, `errorCode` nullable. ready에는 fingerprint/profileKey·mode/link true 필수, 다른 결과는 증거 부재를 nullable로 표현한다. 별도 `BioSensorPreparationAckV1`은 exact scope/command/event/reportPayloadHash와 applied|duplicate|stale|rejected/occurredAt. topic은 `commands/bio-sensor-preparation`, `events/bio-sensor-preparation-result`, `events/bio-sensor-preparation-result-ack`.
 - 기존 sensor-mode V2·capability V2·automation V1/V2 schema는 불변이다. 새로운 준비/카탈로그 계약으로 추가 증거를 전달한다.
 
-- [ ] **Step 1 RED:** strict 추가 필드·잘못된 byte/build·중복 profile·누락 approval근거·잘못된 TTL·ready에 mode/link누락·다른scope/hash ACK 거부, canonical key의 값/순서와8-byte exact body를 단언한다.
-- [ ] **Step 2 RED 확인:** `pnpm --filter @led-control/shared exec vitest run src/bio-sensor-profile-contracts.test.ts src/bio-sensor-preparation-contracts.test.ts`.
-- [ ] **Step 3 구현:** 위 타입/schema/helper/topics만 추가한다. 기존 wire는 확장하지 않는다.
-- [ ] **Step 4 GREEN:** 같은 focused command와 Shared typecheck/build; 기존 sensor-mode/capability 계약 회귀를 포함한다.
-- [ ] **Step 5 검토·커밋:** 담당 보고·독립 spec/quality 검토 후 shared 경계를 저장하고 다음 소비자로 넘긴다.
+- [x] **Step 1 RED:** strict 추가 필드·잘못된 byte/build·중복 profile·누락 approval근거·잘못된 TTL·ready에 mode/link누락·다른scope/hash ACK 거부, canonical key의 값/순서와8-byte exact body를 단언한다.
+- [x] **Step 2 RED 확인:** `pnpm --filter @led-control/shared exec vitest run src/bio-sensor-profile-contracts.test.ts src/bio-sensor-preparation-contracts.test.ts` — 신규14/14 RED(미존재 exports).
+- [x] **Step 3 구현:** 위 타입/schema/helper/topics만 추가한다. 기존 wire는 확장하지 않는다.
+- [x] **Step 4 GREEN:** 같은 focused command14/14 및 기존 sensor-mode/capability/등록 계약 포함102/102; Shared typecheck/build exit0.
+- [x] **Step 5 검토·커밋:** `358c5f1a`; 독립 spec compliant/quality Approved(Critical0/Important0), 기존 pnpm launcher 경고는 기능 회귀와 분리 기록.
 
 ### Task 2: 서버 카탈로그·준비 요청/결과·버전형 내구 전달
 
 **Owner:** backend.
 **Files:** Create `apps/api/src/automation/bio-sensor-profiles.{service,controller}.ts`, `bio-sensor-preparation.{service,controller}.ts`, `bio-sensor-catalog-outbox.service.ts`와 unit/integration specs; Modify Prisma schema/new migration, `automation.module.ts`, MQTT consumer/ACL 계약, `docs/database-schema.md`, `docs/menus/settings.md`.
+
+**Execution status:** Task1 검토 승인 후 서버 담당 구현 진행. MQTT ACL 소스 범위는 `infra/mosquitto.acl.example`, `scripts/dev-mqtt-acl.integration.test.mjs`이며 실제 broker reload는 수행하지 않는다.
 
 **Interfaces:**
 - Prisma: `BioSensorProfileRevision`(profileId/revision compound key, status, fingerprint/bodyHexes/linkPolicy Json, evidenceDigest/reuseScope, actorId/createdAt), `BioSensorCatalogState`(singleton id/revision), `BioSensorSitePolicy`(siteId key/enabled/ownerUserId/maximumResponseSeconds/escalationAction/revision), `BioSensorCatalogDelivery`(deliveryId,site/gateway/assignment/catalog revision,payload/hash,status,publishedAt/attempts/nextAttemptAt/lease/ACK), `BioSensorPreparationOperation`(commandId,scope/fixture/node/currentbinding hash,clientRequestId/actor,operation,catalogRevision,payload/hash,status,expiresAt/supersededAt,result/hash/event,publish/lease fields). Fixture relation과 indexes를 추가하고 native/raw는 외부 response에 노출하지 않는다. 기존 operation/ledger를 전용하지 않는다.
