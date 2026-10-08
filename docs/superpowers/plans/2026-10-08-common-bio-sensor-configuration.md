@@ -153,8 +153,8 @@
 **Owner:** backend/gateway중한명순차소유,qa read-only.
 **Files:** Create `apps/api/src/automation/bio-sensor-preparation.integration.spec.ts`와 Gateway `production-bio-pulse-integration.test.ts` 연계fixture(기존file수정허용), 필요최소Web계약회귀; docs/status/checklist.
 
-- [ ] **Step 1 RED:** syntheticapprovedprofile1개·서로다른조명3개로 등록/준비→catalogACK→currentcapability→UIrule저장→V2snapshot/ACK→pulsehold→readback복원을교차확인한다. unknown다른조합과철회/재시작negative를같은fixture로검증한다.
-- [ ] **Step 2 RED 확인:** 필요한 missinghandoff만재현하고 기존whole suite재실행을대체하지않는다.
-- [ ] **Step 3 구현:** 발견된연결누락만소유역할에수정배정한다. 실제profile승인seed/운영DB/장비조작은없다.
-- [ ] **Step 4 GREEN:** 신규cross-boundaryfocused통합·변경package타입/빌드·diffcheck. 통과한패키지full/기존HIL수치를이번통과로복사하지않는다.
+- [x] **Step 1 RED:** test-only canonical 등록 3개의 실제 API 준비/current eligibility·정확 ACK/V2 snapshot과 동일 fixture의 Gateway 준비/live/config ACK·pulse/full-hold/readback을 교차 확인했다. 초기 등록 프로토콜 또는 단일 프로세스/MQTT/RF E2E로 주장하지 않는다. unknown·철회·재시작도 실제 서비스/가짜 transport의 별도 harness에서 검증했다.
+- [x] **Step 2 RED 확인:** current rejected ACK 뒤 과거 GET 재승격, 초기 mode instant 누락, disabled 대상 예약, API 활성 overlap 허용, failed staging rollback의 retained 복원 context 삭제, unknown profile의 unsupported 오표시를 필요한 behavioral RED로 재현했다. 기존 whole suite를 반복하지 않았다.
+- [x] **Step 3 구현:** `13e786fd..b2a24978`의 소유자 순차 작업으로 누락만 수정했다. 승인 seed·운영 DB·실장비 변경0, 기존 strict V2 wire 유지. 활성 대상 충돌은 API 저장 전 거부하고 비활성 규칙은 product Gateway 대상을 점유하지 않는다.
+- [x] **Step 4 GREEN:** API snapshot unit11/선택 disposable 통합1(34 비선택), Gateway config/live41·production18 이후 변경된 shared 통합2/unknown expectation1·변경 package types/build/diff0. 독립 Task6 spec/quality Approved C0/I0; 겹치는 수치를 합산하지 않고 이전 HIL 결과도 이번 검증으로 복사하지 않는다. Gateway renewed/negative 중간 envelope 일부는 strict/hash 검사이며 실제 의미 검증은 별도 harness임을 기록했다.
 - [ ] **Step 5 최종검토·인계:** 전체변경diff한번독립검토,상태/메뉴/schema/checklist를동기화하고코드완료와실제초기profile·운영적용미완료를구분한다. 사용자에게실장비단계전에알리고새권한없이실행하지않는다.
