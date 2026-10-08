@@ -21,6 +21,7 @@ import {
   type SiteSettingsFloor
 } from "../../../api/site-settings";
 import { Button, Card, FeedbackState, ModalDialog, PageHeader, SelectBox, StatusBadge, StatusDetailButton, TextField } from "../../../components/ui";
+import { BioSensorSettingsPanel } from "./BioSensorSettingsPanel";
 
 interface RetryableError {
   title: string;
@@ -31,7 +32,7 @@ interface RetryableError {
 const TARIFF_RATE_RANGE = { min: 0, max: 99_999_999.99 } as const;
 const RATED_WATT_RANGE = { min: 0.01, max: 999_999.99 } as const;
 
-export function SiteOperationsView({ siteId }: { siteId?: string }) {
+export function SiteOperationsView({ siteId, ownerUserId, canPrepare = false }: { siteId?: string; ownerUserId?: string; canPrepare?: boolean }) {
   const queryClient = useQueryClient();
   const settingsQuery = useQuery({
     queryKey: siteSettingsQueryKey(siteId ?? "unselected"),
@@ -122,6 +123,7 @@ export function SiteOperationsView({ siteId }: { siteId?: string }) {
 
       {settingsQuery.data ? <>
         <SiteInformationForm siteId={siteId} site={settingsQuery.data.site} />
+        {ownerUserId ? <BioSensorSettingsPanel key={siteId} siteId={siteId} ownerUserId={ownerUserId} canPrepare={canPrepare} /> : null}
 
         <section className="grid min-w-0 items-start gap-5 tablet:grid-cols-2" aria-label="층·구역 관리">
         <section className="grid min-w-0 gap-4 border-t border-border-default pt-6" aria-label="층 관리">

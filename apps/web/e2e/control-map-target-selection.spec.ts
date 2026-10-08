@@ -91,19 +91,69 @@ for (const width of [320, 390, 1440]) {
   });
 }
 
-test("BIO OFF remains unavailable on the map while mode actions stay reachable", async ({ page }) => {
+test("BIO OFF remains inspectable on the map while preparation actions stay reachable", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await installControlMapRoutes(page, { bioReadiness: "off" });
   await page.goto(`/control?siteId=${ids.site}&mode=event`);
   await page.getByRole("button", { name: "이벤트 추가" }).click();
   await page.getByRole("button", { name: "감지 센서 선택", exact: true }).click();
   const dialog = page.getByRole("dialog");
-  await expect(marker(dialog, "B2-SENSOR-001")).toBeDisabled();
-  await expect(dialog.getByText(/제품 지원 OFF/)).toBeVisible();
-  await dialog.getByRole("button", { name: "상태 재조회", exact: true }).scrollIntoViewIfNeeded();
-  await expect(dialog.getByRole("button", { name: "상태 재조회", exact: true })).toBeEnabled();
+  await marker(dialog, "B2-SENSOR-001").click();
+  await expect(dialog.getByRole("button", { name: "감지 센서로 선택" })).toBeDisabled();
+  await expect(dialog.getByText(/호환 프로파일 확인 필요/)).toBeVisible();
+  await dialog.getByRole("button", { name: "준비 상태 확인", exact: true }).scrollIntoViewIfNeeded();
+  await expect(dialog.getByRole("button", { name: "준비 상태 확인", exact: true })).toBeEnabled();
   await expectNoHorizontalOverflow(page);
 });
+
+for (const viewport of [{ width: 1440, height: 900 }, { width: 1024, height: 768 }, { width: 390, height: 844 }, { width: 320, height: 740 }]) {
+  test(`common BIO preparation ${viewport.width}px keeps every marker inspectable and bounded`, async ({ page }) => {
+    await page.setViewportSize(viewport);
+    const requests: Record<string, unknown>[] = [];
+    await installControlMapRoutes(page, { commonPreparation: true });
+    const commandId = "99999999-9999-4999-8999-999999999950";
+    await page.route("**/api/bio-sensor-preparations**", route => {
+      if (route.request().method() === "POST") requests.push(route.request().postDataJSON());
+      return route.fulfill({ json: { commandId, siteId: ids.site, fixtureId: ids.fixture, operation: "ensure_sensor", catalogRevision: 1,
+        status: "ready", requestedAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 30_000).toISOString(), supersededAt: null,
+        observedAt: new Date().toISOString(), profileKey: "99999999-9999-4999-8999-999999999960@1", modeVerified: true, linkVerified: true, blockReason: null, errorCode: null } });
+    });
+    await page.goto(`/control?siteId=${ids.site}&mode=event`);
+    await page.getByRole("button", { name: "이벤트 추가" }).click();
+    await page.getByRole("button", { name: "감지 센서 선택", exact: true }).click();
+    const dialog = page.getByRole("dialog");
+    await expect(dialog.locator("[data-spatial-map-marker]")).toHaveCount(3);
+    await marker(dialog, "서쪽 출입등").click();
+    const panel = dialog.getByRole("region", { name: "서쪽 출입등 센서 준비" });
+    await panel.scrollIntoViewIfNeeded();
+    await expect(panel).toContainText("호환 프로파일 확인 필요");
+    await panel.getByRole("button", { name: "센서 사용 설정" }).click();
+    await expect(panel).toContainText("준비 작업 확인");
+    await expect(panel.getByRole("button", { name: "감지 센서로 선택" })).toBeDisabled();
+    expect(requests).toHaveLength(1);
+    expect(Object.keys(requests[0]).sort()).toEqual(["clientRequestId", "fixtureId", "operation", "siteId"]);
+    await expect(dialog.getByRole("button", { name: "선택 완료", exact: true })).toBeDisabled();
+    await expect(dialog.getByRole("region", { name: /센서 준비$/ })).toHaveCount(1);
+    await expectNoHorizontalOverflow(page);
+    const bounds = await dialog.boundingBox();
+    expect(bounds!.x).toBeGreaterThanOrEqual(0); expect(bounds!.y).toBeGreaterThanOrEqual(0);
+    expect(bounds!.y + bounds!.height).toBeLessThanOrEqual(viewport.height + 1);
+    if (viewport.width >= 1024) {
+      const metrics = await page.evaluate(() => ({ height: document.documentElement.clientHeight, scroll: document.documentElement.scrollHeight }));
+      expect(metrics.scroll).toBeLessThanOrEqual(metrics.height + 1);
+      const mapBounds = await dialog.getByTestId("target-selection-map-viewport").boundingBox();
+      expect(mapBounds!.height).toBeGreaterThan(200);
+    }
+    await marker(dialog, "동쪽 통로등").scrollIntoViewIfNeeded(); await marker(dialog, "동쪽 통로등").click();
+    await expect(dialog.getByRole("region", { name: "동쪽 통로등 센서 준비" })).toHaveCount(1);
+    await marker(dialog, "주차 안내등").scrollIntoViewIfNeeded(); await marker(dialog, "주차 안내등").click();
+    await dialog.getByRole("button", { name: "1개 조명 선택 완료" }).click();
+    await dialog.getByRole("button", { name: "실행할 조명 선택", exact: true }).click();
+    await expect(marker(dialog, "주차 안내등")).toBeDisabled();
+    await expect(marker(dialog, "동쪽 통로등")).toBeEnabled();
+    if (viewport.width < 1024) await expectMinimumTouchTargetsAfterScrolling(page, "[data-dialog-surface]");
+  });
+}
 
 for (const flow of ["schedule", "event", "group"] as const) {
   test(`final review: ${flow} dialog provides a usable desktop map and marker selection`, async ({ page }) => {
@@ -526,6 +576,7 @@ async function installControlMapRoutes(page: Page, options: {
   historyCount?: number;
   boundaryFixtures?: boolean;
   bioReadiness?: "ready" | "off";
+  commonPreparation?: boolean;
   bioTelemetry?: () => BioPulseTelemetryView | null;
 } = {}) {
   const fixtureData = options.fixtureCount
@@ -535,8 +586,14 @@ async function installControlMapRoutes(page: Page, options: {
       30 + (index % 10) * 100,
       30 + Math.floor(index / 10) * 80
     ))
-    : options.boundaryFixtures ? fixtures.map((item, index) => ({ ...item, x: index === 0 ? 0 : 1200, y: index === 0 ? 0 : 800 })) : fixtures.map(item => options.bioReadiness && item.id === ids.sensor ? {
+    : options.commonPreparation ? fixtures.map((item, index) => ({ ...item, name: ["서쪽 출입등", "동쪽 통로등", "주차 안내등"][index],
+      bioSensorPreparation: { preparationCandidate: true, status: index === 2 ? "ready" : "unverified", commandId: null, profileKey: null, observedAt: null,
+        blockedReasons: index === 2 ? [] : ["profile_unverified" as const, "mode_unverified" as const] },
+      vehicleEventSource: { sensorProtocol: "bio-usb-pulse" as const, readiness: index === 2 ? "ready" as const : "off" as const, capabilityEvidence: "off" as const,
+        sourceEligible: index === 2, targetEligible: true, blockReasons: [], modeVerification: { commandId: null, status: "unverified", modeVerified: false, verifiedAt: null } }
+    })) : options.boundaryFixtures ? fixtures.map((item, index) => ({ ...item, x: index === 0 ? 0 : 1200, y: index === 0 ? 0 : 800 })) : fixtures.map(item => options.bioReadiness && item.id === ids.sensor ? {
       ...item, vehicleSensorCapabilityStatus: "unknown" as const, vehicleSensorCapabilityVerifiedAt: null,
+      bioSensorPreparation: { preparationCandidate: true, status: "unverified", commandId: null, profileKey: null, observedAt: null, blockedReasons: options.bioReadiness === "off" ? ["profile_unverified" as const, "mode_unverified" as const] : [] },
       // Synthetic future-ready view exercises UI only; the product API remains OFF.
       vehicleEventSource: { sensorProtocol: "bio-usb-pulse" as const, readiness: options.bioReadiness, capabilityEvidence: options.bioReadiness,
         sourceEligible: options.bioReadiness === "ready", targetEligible: true,

@@ -317,7 +317,9 @@ describe("VehicleEventControlPanel", () => {
 
     fireEvent.click(within(dialog).getByRole("button", { name: "감지 센서 선택" }));
     expect(within(dialog).getByRole("button", { name: /B1-SENSOR-001/ })).toBeVisible();
-    expect(within(dialog).getByRole("button", { name: /B1-L001.*선택 불가/ })).toBeDisabled();
+    fireEvent.click(within(dialog).getByRole("button", { name: /B1-L001.*선택 불가/ }));
+    expect(within(dialog).getByRole("button", { name: "감지 센서로 선택" })).toBeDisabled();
+    expect(within(dialog).getByRole("button", { name: "선택 완료" })).toBeDisabled();
     fireEvent.click(within(dialog).getByRole("button", { name: /B1-SENSOR-001/ }));
     fireEvent.click(within(dialog).getByRole("button", { name: "1개 조명 선택 완료" }));
 
@@ -777,8 +779,11 @@ describe("VehicleEventControlPanel", () => {
     fireEvent.click(screen.getByRole("button", { name: "감지 센서 선택" }));
     const dialog = screen.getByRole("dialog", { name: "이벤트 추가" });
     expect(within(dialog).getByRole("button", { name: /B1-SENSOR-001/ })).toBeEnabled();
-    expect(within(dialog).getByRole("button", { name: /B1-L001.*선택 불가/ })).toBeDisabled();
-    expect(within(dialog).getByRole("button", { name: /B1-L002.*선택 불가/ })).toBeDisabled();
+    for (const name of [/B1-L001.*선택 불가/, /B1-L002.*선택 불가/]) {
+      fireEvent.click(within(dialog).getByRole("button", { name }));
+      expect(within(dialog).getByRole("button", { name: "감지 센서로 선택" })).toBeDisabled();
+      expect(within(dialog).getByRole("button", { name: "선택 완료" })).toBeDisabled();
+    }
   });
 
   it("fails closed for missing and invalid capability verification timestamps", async () => {
@@ -798,8 +803,11 @@ describe("VehicleEventControlPanel", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "감지 센서 선택" }));
     const dialog = screen.getByRole("dialog", { name: "이벤트 추가" });
-    expect(within(dialog).getByRole("button", { name: /B1-SENSOR-001.*선택 불가/ })).toBeDisabled();
-    expect(within(dialog).getByRole("button", { name: /B1-SENSOR-INVALID.*선택 불가/ })).toBeDisabled();
+    for (const name of [/B1-SENSOR-001.*선택 불가/, /B1-SENSOR-INVALID.*선택 불가/]) {
+      fireEvent.click(within(dialog).getByRole("button", { name }));
+      expect(within(dialog).getByRole("button", { name: "감지 센서로 선택" })).toBeDisabled();
+      expect(within(dialog).getByRole("button", { name: "선택 완료" })).toBeDisabled();
+    }
   });
 
   it("shows unresolved ids and rejects an event edit with a removed target fixture", async () => {

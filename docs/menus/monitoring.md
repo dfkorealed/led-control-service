@@ -1,5 +1,14 @@
 # 모니터링 메뉴 기능 현황
 
+## 2026-10-08 등록 조명의 공통 준비 상태 Web 소비 (Task 5)
+
+- 구현 완료(소프트웨어): Web dashboard 타입이 sanitized `bioSensorPreparation`의 `preparationCandidate/status/commandId/profileKey/observedAt/blockedReasons`를 소비한다. 제어의 기존 지도에는 전체 등록 조명을 유지하고 미준비 상태·다중 차단 사유와 관리자 준비 조치를 검사 패널에 연결한다.
+- 구현 완료(관찰 경계): 후보나 초기 GET ready로 현재 모니터링 정상·센서 건강·광학 출력·밝기·전력 값을 생성하지 않는다. 정책/준비 작업 뒤 dashboard를 갱신하고 공개 근거 변경 시 늦은 작업 결과를 폐기한다. 기존 실제 telemetry와 null 초기화 경로를 유지하며 감지 센서/실행 조명 문구를 사용한다.
+- 미구현: 모니터링 전용 준비 설정 패널·BIO incident/알림 신규 연동, 승인된 실제 장비군 공급과 RF·광학·native WebView 검증은 이번 작업에서 수행하지 않았다.
+- 부족하거나 개선이 필요한 기능: 브라우저의 상태는 서버 조회 시점의 관찰이며 원격 binding/catalog 전체 identity는 노출되지 않는다. 현재 귀속·실행 자격 검증은 서버에 있고 센서 모드·링크 GET을 감지 회로 건강으로 해석하지 않는다.
+- 관련 파일: `apps/web/src/api/{automation,queries}.ts`, `apps/web/src/features/control/automation/{BioSensorPreparationPanel,BioPulseTelemetryStatus,VehicleEventControlPanel}.tsx`, `apps/web/e2e/control-map-target-selection.spec.ts`.
+- 갱신 규칙: 준비 작업 checkpoint·현재 dashboard eligibility·실제 runtime 보고·광학 출력과 실장비 증거를 구분한다.
+
 ## 2026-10-08 BIO current 준비 projection (Task 4 API)
 
 - 구현 완료(소프트웨어): 상세 fixture 집합을 한 번의 batched SQL 판정으로 읽어 `bioSensorPreparation:{status,commandId,profileKey,observedAt,blockedReasons,preparationCandidate}`를 제공한다. commandId/profileKey/observedAt는 증거가 없으면 NULL이며 candidate는 confirmed canonical BIO 준비 진입 후보일 뿐 source 권한이 아니다. 일반 응답에는 raw fingerprint/body/native/hash를 내보내지 않는다.

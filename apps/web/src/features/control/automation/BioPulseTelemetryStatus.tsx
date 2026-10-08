@@ -23,13 +23,13 @@ export function BioPulseTelemetryStatus({ source, fixtures, timeZone }: {
   const readback = telemetry?.configurationReadback;
   const name = (id: string) => fixtures.find(fixture => fixture.id === id)?.name ?? "이름 미확인 조명";
   return <div className="grid min-w-0 gap-2 break-words">
-    <Text weight="semibold">{source?.name ?? "A 센서 미확인"} · 센서를 사용하는 전체 규칙의 운영 보고</Text>
+    <Text weight="semibold">{source?.name ?? "감지 센서 미확인"} · 센서를 사용하는 전체 규칙의 운영 보고</Text>
     <Text>현장 시간대: {timeZone} · 서버에 저장된 과거 보고이며 현재 상태를 보장하지 않습니다.</Text>
     <Text>마지막 유효 펄스: <EvidenceTime value={telemetry?.lastPulseAt} timeZone={timeZone} /></Text>
     <Text>센서 건강 보고: {telemetry?.health === "healthy" ? "정상 보고" : telemetry?.health === "degraded" ? "장애" : "미확인"} · 사유: {reasonLabel(telemetry?.healthReason)}</Text>
     <Text>장애 시작 시각: <EvidenceTime value={telemetry?.degradedSince} timeZone={timeZone} /></Text>
     {telemetry?.health === "degraded" || telemetry?.degradedSince ? <Text role="alert" tone="danger">센서 장애 보고 · 현장을 확인해 주세요. 신호가 없다는 이유만으로 B의 복원을 판단하지 않습니다.</Text> : null}
-    <Text>보고 대상 B: {telemetry?.targetFixtureIds.length ? telemetry.targetFixtureIds.map(name).join(", ") : "미확인"}</Text>
+    <Text>보고 대상 실행 조명: {telemetry?.targetFixtureIds.length ? telemetry.targetFixtureIds.map(name).join(", ") : "미확인"}</Text>
     <Text>복원 대기: {pendingLabel(telemetry?.restorationPending)} · 복원 사유: {reasonLabel(telemetry?.restorationReason)}</Text>
     <Text>마지막 운영 보고: <EvidenceTime value={telemetry?.lastEventAt} timeZone={timeZone} /> · 서버 수신: <EvidenceTime value={telemetry?.receivedAt} timeZone={timeZone} /></Text>
     {readback?.verification === "configuration_readback" ? <div className="grid min-w-0 gap-2" aria-label="BIO 설정 확인 기록">

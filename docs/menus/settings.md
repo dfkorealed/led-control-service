@@ -1,11 +1,20 @@
 # 설정 메뉴 기능 현황 및 구현 설계
 
+## 2026-10-08 공통 센서 준비·현장 운영 정책 UI (Task 5)
+
+- 구현 완료(소프트웨어): 기존 `/settings/site`의 `manage` 권한 경로에 현장 센서 정책과 한 조명씩 검사하는 공통 준비 영역을 결합했다. 기본 OFF와 승인 프로파일 부재를 설명하며 ON에는 현재 로그인한 현장 관리자 owner, 1~2,147,483,647초 대응 시간과 연결 이상 시 조치가 필요하다. OFF에서도 수정 가능한 입력 초안을 유지한다.
+- 구현 완료(소프트웨어): 등록 조명 전체를 공통 선택기에 제공하고 해당 조명의 복수 차단 사유를 표시한다. 준비 POST/GET은 별도 `commission` 권한으로 제한하며 raw packet·native 식별·fingerprint 입력을 요구하지 않는다. 정책 저장은 dashboard와 규칙 조회를 갱신하며 준비 완료로 표현하지 않는다.
+- 미구현: 실제 현장 정책 저장·장비 모드 변경·프로파일 승인·운영 migration·배포는 수행하지 않았다. 프로파일 관리는 일반 설정 화면이 아닌 서비스 운영자 전용 `/operator/sensor-profiles`에 있다.
+- 부족하거나 개선이 필요한 기능: OFF 입력 초안은 현재 화면의 입력 상태다. 서버가 정규화하거나 화면을 새로 열면 영속 정책 응답을 다시 사용하므로 미저장 초안의 세션 간 보존을 보장하지 않는다. 담당자 현재 권한과 정책 ON 가능 여부는 서버가 재검증한다.
+- 관련 파일: `apps/web/src/features/settings/site/{SiteOperationsView,BioSensorSettingsPanel}.tsx`, `apps/web/src/features/shells/CustomerShell.tsx`, `apps/web/src/features/control/automation/BioSensorPreparationPanel.tsx`, `apps/web/src/api/automation.ts`.
+- 갱신 규칙: 정책 입력·서버 저장·장비 준비·현재 사용 가능·실장비 검증을 분리하고 manager/commission 권한 회귀를 함께 확인한다.
+
 ## 2026-10-08 공통 BIO 등록 준비·정책 수렴 (Task 4 API)
 
 - 구현 완료(소프트웨어): 모든 현재 등록 BIO는 같은 query/ensure API를 사용한다. 안전한 기본 legacy BlueZ 오분류만 기존 classifier의 exact 등록 graph/command·현재 권한·잠금·감사를 transaction 안에서 재사용하여 분류와 준비 요청을 원자 저장한다. supported/ready/원장/활성 규칙 충돌·손상·still-discovered는 자동 변환/수복하지 않는다. A/B ID 하드코딩·밝기 변경·과거 완료 합성은 없다.
 - 구현 완료(관측 projection): 등록 polling의 `bioSensorCatalogMatch:{status:'matched'|'unverified',profileKey:string|null}`는 현재 유일 승인 full fingerprint만 matched로 표시한다. null/unknown/중복/철회는 unverified이며 숫자로 unsupported를 추정하지 않는다. 신규 typed discovery 저장은 SET/자동 classification을 만들지 않는다. dashboard의 required preparationCandidate boolean은 준비 후보 안내용이다.
 - 구현 완료(정책): 저장 담당자가 현재 assigned active customer admin인지 재검증하며 assignment/role 상실은 실제 정책 OFF·global catalog revision 무효화·affected rule disable·내구 수렴 작업으로 이어진다. 승인 기본값은 빈 profile/OFF다.
-- 미구현: Web query/setup·정책 UI 소비, 전체 소프트웨어 통합, 운영 migration·broker/PKI/장비 적용과 실제 RF/HIL 검증.
+- 미구현: 전체 소프트웨어 통합, 운영 migration·broker/PKI/장비 적용과 실제 RF/HIL 검증. Web query/setup·정책 소비는 위 Task 5 소프트웨어 구현을 따른다.
 - 부족하거나 개선이 필요한 기능: 초기 준비 receipt와 최신 독립 live ACK는 다른 경계다. 후보/카탈로그 일치는 mode/link/ready/SET 허가가 아니다. 일반 HTTP에는 raw fingerprint/body/native/hash를 노출하지 않으며 public classification API의 guard는 유지한다.
 - 관련 파일: `apps/api/src/registration/{bio-classification-reconciliation.service.ts,registration.service.ts}`, `apps/api/src/automation/{bio-sensor-preparation.service.ts,bio-sensor-profiles.service.ts,bio-sensor-eligibility.ts}`, `docs/database-schema.md`.
 - 갱신 규칙: 아래 과거 등록 수복/분류 기록과 현재 generic 준비를 구분한다. 실제 배포/장비 성공 근거 없이 운영 완료로 승격하지 않는다.

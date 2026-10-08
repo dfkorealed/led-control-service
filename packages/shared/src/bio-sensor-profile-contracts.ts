@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { bioRegistrationRevalidationCanonicalJson } from "./bio-registration-revalidation-contracts";
+import { bioRegistrationRevalidationCanonicalJson } from "./bio-registration-revalidation-contracts.js";
 
 const byteSchema = z.number().int().min(0).max(255);
 const positiveSafeIntegerSchema = z.number().int().positive().max(Number.MAX_SAFE_INTEGER);

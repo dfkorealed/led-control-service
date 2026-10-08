@@ -474,7 +474,7 @@ export function VehicleEventControlPanel({
           <Text weight="semibold">{rule.name} · BIO 운영 상태</Text>
           {degraded ? <Text role="alert" tone="danger">센서 장애 보고 · 재검증이 필요합니다. 신호가 없다는 이유만으로 B의 복원을 판단하지 않습니다.</Text> : null}
           <Text>제품 지원 OFF{sources.some(source => source.bioPulseTelemetry) ? " · 과거 운영 보고" : " · 실행·복원 상태 미확인"}</Text>
-          <Text>이 규칙의 대상 B: {rule.targetCount}개</Text>
+          <Text>이 규칙의 실행 조명: {rule.targetCount}개</Text>
           {(sources.length ? sources : [undefined]).map((source, index) => <BioPulseTelemetryStatus key={source?.id ?? index} source={source} fixtures={dashboard?.floors.flatMap(floor => floor.fixtures) ?? []} timeZone={dashboard?.site.timeZone ?? "UTC"} />)}
           <Text>운영자는 현장을 확인하고 규칙의 비활성화로 명시적 해제를 요청할 수 있습니다. 적용·복원 결과를 확인하기 전에는 해제 완료가 아닙니다.</Text>
         </section>;

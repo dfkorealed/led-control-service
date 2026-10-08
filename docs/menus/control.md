@@ -1,10 +1,20 @@
 # 제어 메뉴 기능 현황
 
+## 2026-10-08 공통 센서 준비·이벤트 설정 UI (Task 5)
+
+- 구현 완료(소프트웨어): 감지 센서 지도에 전체 등록 조명을 유지하고, 미준비 마커·목록도 검사할 수 있다. 현재 검사한 조명 한 개의 공통 준비 패널에서 복수 차단 사유와 다음 조치를 표시한다. `bioSensorPreparation.preparationCandidate`는 작업 가능 안내에만 사용하며 source 확정은 현재 서버 `vehicleEventSource.sourceEligible`로 제한한다.
+- 구현 완료(소프트웨어): 현장 관리자 `commission` 권한으로 센서 사용 설정·읽기 전용 준비 확인을 요청한다. POST 접수·GET 초기 ready를 현재 사용 가능으로 승격하지 않고 dashboard를 갱신한다. 자동 GET은 최대 5회·요청 만료 안에서 종료하고 수동 GET 재시도, 중복 요청 identity·늦은 응답·현장/조명/공개 근거 변경 방어를 제공한다. 일반 제어 사용자는 상태를 읽고 준비된 source를 선택하되 준비 작업은 관리자에게 요청한다.
+- 구현 완료(소프트웨어): 감지 센서/실행 조명 역할 문구, 동일 Gateway와 source·다른 활성 BIO source 대상 제외, 기본 60초·10~1,800초 수정 흐름을 유지한다. 기존 지도·버튼·카드·텍스트와 bounded 내부 상세 영역을 재사용한다.
+- 미구현: 실제 승인 프로파일 공급, 운영 DB migration·API/Gateway 배포, 실장비 센서 설정과 RF·광학 검증은 수행하지 않았다. 최초 BIO 규칙은 기존 비활성 초안 정책을 유지하며 활성화는 서버의 현재 자격 판정을 따른다.
+- 부족하거나 개선이 필요한 기능: 공개 DTO에는 raw binding/catalog identity가 없으므로 화면은 공개 command/profile/status/사유와 query 갱신 경계만 관찰한다. 최종 동일 장비·현재 권한 검증은 서버가 수행한다. 모드 GET·독립 연결 응답은 감지 회로 건강이나 자체 광학 출력이 아니다.
+- 관련 파일: `apps/web/src/features/control/automation/{BioSensorPreparationPanel,VehicleEventSourceStatus,VehicleEventDialog}.tsx`, `apps/web/src/features/control/target-selection/{SpatialTargetSelector,FixtureSelectionDrawer}.tsx`, `apps/web/src/features/floor-map/FloorScene.tsx`, `apps/web/src/api/{automation,queries}.ts`, `apps/web/e2e/control-map-target-selection.spec.ts`.
+- 갱신 규칙: 초기 준비 checkpoint, 현재 서버 eligibility, 실제 감지·광학·운영 적용을 분리한다. PC·모바일 browser fixture 결과를 실장비 HIL 또는 native WebView 검증으로 표현하지 않는다.
+
 ## 2026-10-08 공통 BIO current 준비와 조건부 규칙 admission (Task 4 API)
 
 - 구현 완료(소프트웨어): 고정 제품 OFF 거절 대신 단일 DB predicate를 capability 수신·규칙 저장·dashboard와 직접 SQL enabled source guard가 함께 사용한다. 현재 유일 승인 full fingerprint/profile, accepted 준비·catalog ACK, 현재 귀속·유효 MQTT 권한·V2 선언, 활성 담당자 정책과 profile maxAge 안의 별도 live 관측이 모두 필요하다. 첫 live ready도 인증된 제안값으로 판정한다.
 - 구현 완료(안전 경계): BIO source 1개·같은 Gateway·source/target 분리·10초 하한은 유지한다. fresh ready→ready와 동일 V2 지원 재선언은 snapshot revision/hash를 바꾸지 않는다. 철회·담당자/귀속 변경·live 만료는 enabled rule을 disable하고 내구 작업으로 snapshot을 수렴하며, 완료 전 옛 enabled snapshot 재전달/새 publish permit은 보류한다. disable/delete·명시 복원 경로와 과거 target attribution은 보존한다.
-- 미구현: Web 준비/정책 흐름의 소비, 전체 소프트웨어 통합, 운영 migration·배포 및 실제 RF/HIL 검증. 초기 profile은 빈 목록·정책 OFF이며 이번 작업은 제품 ON이나 실제 장비 제어가 아니다.
+- 미구현: 전체 소프트웨어 통합, 운영 migration·배포 및 실제 RF/HIL 검증. Web 준비/정책 소비는 위 Task 5 소프트웨어 구현을 따른다. 초기 profile은 빈 목록·정책 OFF이며 이번 작업은 제품 ON이나 실제 장비 제어가 아니다.
 - 부족하거나 개선이 필요한 기능: mode GET은 링크 응답이지 PIR 회로·광학·전력 증거가 아니다. 이미 발급된 network publish permit의 물리 race를 제거했다고 주장하지 않는다. 자연 시간만료는 eligibility 즉시 차단 후 bounded worker에서 실제 disable/snapshot으로 수렴한다.
 - 관련 파일: `apps/api/src/automation/{bio-sensor-eligibility.ts,vehicle-sensor-capability.service.ts,vehicle-event-rules.service.ts,bio-sensor-profiles.service.ts,automation-outbox-publisher.service.ts}`, `apps/api/prisma/migrations/20261008060000_bio_sensor_current_eligibility/migration.sql`.
 - 갱신 규칙: 아래 과거 제품 OFF·시험 기록과 현재 조건부 소프트웨어 admission을 구분하고 실제 운영 승인·적용 증거 없이 완료/ON으로 기록하지 않는다.

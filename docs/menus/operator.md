@@ -1,4 +1,14 @@
-# 운영자 상담 문의 메뉴 기능 현황
+# 운영자 메뉴 기능 현황
+
+## 2026-10-08 센서 호환 프로파일 관리 (Task 5)
+
+- 구현 완료(소프트웨어): 기존 `OperatorShell`·공통 UI·서비스 제공자 활성 operator 권한 경계를 재사용한 `/operator/sensor-profiles`를 추가했다. 현장 관리자 계정 목록과 분리하며 보호된 route 밖에서는 프로파일 API/승인 입력을 마운트하지 않는다.
+- 구현 완료(소프트웨어): 서버가 제공하는 profileId/revision/status/evidenceDigest/reuseScope 요약을 표시한다. 승인 폼만 Shared의 strict 전체 프로파일 형식을 검증하고 검증 근거·재사용 범위에 대한 명시적 확인 후 새 승인 revision을 POST한다. 기본 샘플이나 자동 승인/seed는 만들지 않는다. 철회는 공통 확인 dialog 후 서버의 immutable append 경로를 사용한다.
+- 구현 완료(소프트웨어): append/revoke 뒤 프로파일·dashboard·등록 session의 카탈로그 대조 조회를 무효화한다. 초기 승인 목록이 비어 있음을 명시하며 승인 등록만으로 개별 센서의 사용 가능/건강·현장 정책 ON을 보장하지 않는다.
+- 미구현: 실제 장비군 qualification과 최초 승인 근거 확보, 운영 승인 데이터 작성·배포·실장비 검증은 수행하지 않았다. 자동 profile 추정이나 일반 사용자 raw body/fingerprint 입력은 제공하지 않는다.
+- 부족하거나 개선이 필요한 기능: 보호된 운영자 폼은 기술 계약 전체를 JSON으로 입력하는 최소 인터페이스다. 새 통신 방식·decoder가 필요한 장비는 데이터 등록만으로 호환되지 않는다. API는 저장 시 현재 운영자 권한과 순차 revision을 재검증한다.
+- 관련 파일: `apps/web/src/features/operator/{OperatorShell,SensorProfilesView}.tsx`, `apps/web/src/api/automation.ts`, `apps/web/src/features/operator/{OperatorShell,SensorProfilesView}.test.tsx`.
+- 갱신 규칙: 화면 입력 검증·서비스 승인 기록·실제 장비 검증·현장 정책과 개별 준비 상태를 별도 증거로 유지한다. UI 시험용 프로파일 JSON을 운영 승인 데이터로 기록하지 않는다.
 
 기준일: 2026-09-27
 

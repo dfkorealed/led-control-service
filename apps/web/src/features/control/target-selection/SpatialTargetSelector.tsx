@@ -20,6 +20,9 @@ export interface SpatialTargetSelectorProps {
   allowedModes?: readonly ControlMode[];
   fixtureFilter?: (fixture: DashboardFixture) => boolean;
   fixtureFilterReason?: string;
+  fixtureBlockedReason?: (fixture: DashboardFixture) => string;
+  onInspectFixture?: (fixtureId: string) => void;
+  inspectionPanel?: ReactNode;
   /** A new boundary resets the displayed floor; users may still inspect other floors. */
   preferredFloorId?: string;
   requiredGatewayId?: string | null;
@@ -39,7 +42,7 @@ const defaultModes: readonly ControlMode[] = ["fixtures", "floor", "group"];
 export const spatialTargetDialogClassName = "grid! h-full! w-full! max-w-6xl grid-rows-[auto_minmax(0,1fr)] overflow-hidden! max-compact:max-h-full!";
 
 export function SpatialTargetSelector({
-  siteId, dashboard, selection, displaySelection, disabled, allowedModes = defaultModes, fixtureFilter, fixtureFilterReason, preferredFloorId, requiredGatewayId = null, modeLabels, modeSelectionSemantics,
+  siteId, dashboard, selection, displaySelection, disabled, allowedModes = defaultModes, fixtureFilter, fixtureFilterReason, fixtureBlockedReason, onInspectFixture, inspectionPanel, preferredFloorId, requiredGatewayId = null, modeLabels, modeSelectionSemantics,
   interactionMode: controlledInteractionMode, onInteractionModeChange, compactSummary, compactDetails, managementAction, hideEmbeddedSummary = false, onCompactSheetHeightChange, onChange
 }: SpatialTargetSelectorProps) {
   const resolvedSelection = displaySelection ?? selection;
@@ -63,9 +66,9 @@ export function SpatialTargetSelector({
     const reason = disabled ? "현재 선택을 변경할 수 없습니다."
       : selection.mode !== "fixtures" ? "구성원을 변경하려면 직접 선택으로 전환하세요."
       : selectedFixtureIds.has(fixture.id) ? null
-      : fixtureEligibilityReason(fixture, fixtureFilter, requiredGatewayId, directGatewayId, fixtureFilterReason);
+      : fixtureEligibilityReason(fixture, fixtureFilter, requiredGatewayId, directGatewayId, fixtureBlockedReason?.(fixture) ?? fixtureFilterReason);
     return reason ? [[fixture.id, reason] as const] : [];
-  })), [dashboard.floors, directGatewayId, disabled, fixtureFilter, fixtureFilterReason, requiredGatewayId, selectedFixtureIds, selection.mode]);
+  })), [dashboard.floors, directGatewayId, disabled, fixtureFilter, fixtureFilterReason, fixtureBlockedReason, requiredGatewayId, selectedFixtureIds, selection.mode]);
   const disabledFixtureIds = useMemo(() => new Set(disabledReasons.keys()), [disabledReasons]);
 
   useEffect(() => { if (preferredFloorId) setActiveFloorId(preferredFloorId); }, [preferredFloorId]);
@@ -99,6 +102,7 @@ export function SpatialTargetSelector({
 
   function toggleFixture(fixtureId: string) {
     if (disabled || selection.mode !== "fixtures") return;
+    onInspectFixture?.(fixtureId);
     const fixture = fixtureById(dashboard, fixtureId);
     const selected = selectedFixtureIds.has(fixtureId);
     if (!selected && (!fixture || !isFixtureEligible(fixture, fixtureFilter, requiredGatewayId, directGatewayId, false))) return;
@@ -132,7 +136,7 @@ export function SpatialTargetSelector({
     <div className={`grid min-h-0 min-w-0 flex-1 gap-3 overflow-y-auto overscroll-contain ${hideEmbeddedSummary ? "max-compact:flex-none max-compact:overflow-visible" : ""} ${hideEmbeddedSummary && selection.mode === "fixtures" ? "tablet:overflow-hidden" : "tablet:grid-cols-[minmax(0,1fr)_16rem] tablet:overflow-hidden"}`} data-target-selection-content="">
       <div className="relative h-64 min-h-64 min-w-0 overflow-hidden rounded-panel border border-border-default bg-surface-inset tablet:h-full tablet:min-h-0">
         {mapQuery.data && activeFloor ? <FloorMapViewport snapshot={mapQuery.data} ariaLabel={`${activeFloor.name} 도면`} mode={interactionMode} onAreaSelect={selectArea} viewportTestId="target-selection-map-viewport">
-          <FloorScene snapshot={mapQuery.data} fixtures={activeFloor.fixtures} interactive={false} floorName={activeFloor.name} selection={sceneSelection} coarsePointer onFixturePress={toggleFixture} />
+          <FloorScene snapshot={mapQuery.data} fixtures={activeFloor.fixtures} interactive={false} floorName={activeFloor.name} selection={sceneSelection} coarsePointer onFixturePress={toggleFixture} inspectDisabledFixtures={Boolean(onInspectFixture) && !disabled} />
         </FloorMapViewport> : <div className="grid h-full place-items-center p-4"><Text tone="secondary">등록된 도면이 없어 목록으로 선택합니다.</Text></div>}
         {mapQuery.data && mapQuery.error ? <Text className="absolute top-3 left-3 z-6 rounded-control border border-border-default bg-surface-panel px-2 py-1" role="alert" tone="danger">도면을 최신 상태로 갱신하지 못했습니다.</Text> : null}
         {group ? <Text className="pointer-events-none absolute top-3 right-3 z-6 rounded-control border border-border-default bg-surface-panel px-2 py-1" variant="caption">{group.name}</Text> : null}
@@ -144,12 +148,13 @@ export function SpatialTargetSelector({
         </div> : null}
       </div>
       <div className={hideEmbeddedSummary && selection.mode === "fixtures" ? "hidden" : "min-h-0 overflow-y-auto overscroll-contain"} data-target-selection-detail-panel="">{!hideEmbeddedSummary ? <SelectionSummaryPanel resolved={resolved} compactSummary={compactSummary} compactDetails={compactDetails} onCompactSheetHeightChange={onCompactSheetHeightChange} /> : null}
+        {inspectionPanel}
         {selection.mode === "floor" ? <SelectionChoices kind="floor" dashboard={dashboard} selection={selection} disabled={disabled} fixtureFilter={fixtureFilter} requiredGatewayId={requiredGatewayId} onChange={onChange} /> : null}
         {selection.mode === "group" ? <SelectionChoices kind="group" dashboard={dashboard} selection={selection} disabled={disabled} fixtureFilter={fixtureFilter} requiredGatewayId={requiredGatewayId} onChange={onChange} /> : null}
       </div>
     </div>
     <FixtureSelectionDrawer open={listOpen} dashboard={dashboard} selectedFixtureIds={selectedFixtureIds} disabledFixtureIds={disabledFixtureIds} disabledReasons={disabledReasons} readOnly={selection.mode !== "fixtures"} disabled={disabled} returnFocusRef={listOpenerRef}
-      onClose={() => setListOpen(false)} onToggleFixture={toggleFixture} />
+      onClose={() => setListOpen(false)} onToggleFixture={toggleFixture} onInspectFixture={onInspectFixture ? fixtureId => { onInspectFixture(fixtureId); setListOpen(false); } : undefined} />
     {requestedMode ? <ConfirmDialog isOpen title="선택 방식 변경" description="현재 선택을 버리고 다른 방식으로 변경할까요?" role="alertdialog"
       confirmLabel="변경" onCancel={() => setRequestedMode(null)} onConfirm={() => changeMode(requestedMode)}>{null}</ConfirmDialog> : null}
   </section>;

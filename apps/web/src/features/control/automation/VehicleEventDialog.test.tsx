@@ -60,13 +60,30 @@ describe("VehicleEventDialog spatial source and targets", () => {
 
   afterEach(cleanup);
 
+  it("allows inspecting every arbitrary registered light without selecting an unready source", () => {
+    const arbitrary = structuredClone(dashboard);
+    arbitrary.floors[0].fixtures = arbitrary.floors[0].fixtures.slice(0, 3).map((item, index) => ({ ...item,
+      id: `registered-${index + 40}`, name: ["서쪽 출입등", "동쪽 통로등", "주차 안내등"][index],
+      bioSensorPreparation: { preparationCandidate: true, status: "unverified", commandId: null, profileKey: null,
+        observedAt: null, blockedReasons: ["profile_unverified"] },
+      vehicleEventSource: { sensorProtocol: "bio-usb-pulse", sourceEligible: false, readiness: "off", capabilityEvidence: "off",
+        targetEligible: true, blockReasons: [], modeVerification: { commandId: null, status: "unverified", modeVerified: false, verifiedAt: null } }
+    }));
+    renderVehicleEventDialog({ dashboard: arbitrary }); openSourceView();
+    fireEvent.click(screen.getByRole("button", { name: /동쪽 통로등.*선택 불가/ }));
+    expect(screen.getByRole("region", { name: "동쪽 통로등 센서 준비" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "감지 센서로 선택" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "선택 완료" })).toBeDisabled();
+    expect(screen.getAllByRole("region", { name: /센서 준비$/ })).toHaveLength(1);
+  });
+
   it.each(["off", "shadow", "degraded"] as const)("blocks saving %s BIO sources and explains server readiness", (readiness) => {
     const onSubmit = vi.fn();
     renderVehicleEventDialog({ dashboard: bioDashboard(readiness), rule: existingRule({ sensorProtocol: "bio-usb-pulse" }), onSubmit });
     expect(screen.getByRole("button", { name: "저장" })).toBeDisabled();
     expect(screen.getByText(/자체 밝기 동작은 현장 검증 전/)).toBeVisible();
     expect(screen.getByText(/제품 지원 OFF/)).toBeVisible();
-    expect(screen.getByRole("button", { name: /센서 모드 설정/ })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "센서 사용 설정" })).toBeDisabled();
     fireEvent.click(screen.getByRole("button", { name: "저장" }));
     expect(onSubmit).not.toHaveBeenCalled();
   });
@@ -90,7 +107,17 @@ describe("VehicleEventDialog spatial source and targets", () => {
     renderVehicleEventDialog({ dashboard: bioDashboard("ready"), rule: existingRule({ sensorProtocol: "bio-usb-pulse", targetFixtureIds: [sourceFixtureId] }), onSubmit });
     fireEvent.click(screen.getByRole("button", { name: "저장" }));
     expect(onSubmit).not.toHaveBeenCalled();
-    expect(screen.getByRole("alert")).toHaveTextContent(/센서 전용/);
+    expect(screen.getByRole("alert")).toHaveTextContent(/감지 센서는 실행 조명/);
+  });
+
+  it("excludes another server-protected active sensor from execution targets", () => {
+    const protectedDashboard = bioDashboard("ready");
+    protectedDashboard.floors[0].fixtures = protectedDashboard.floors[0].fixtures.map(item => item.id === targetFixtureB
+      ? { ...item, vehicleEventSource: { ...protectedDashboard.floors[0].fixtures[0].vehicleEventSource!, targetEligible: false } } : item);
+    renderVehicleEventDialog({ dashboard: protectedDashboard, rule: existingRule({ sensorProtocol: "bio-usb-pulse" }) });
+    openTargetView();
+    expect(screen.getByRole("button", { name: /Gateway A 통로등.*선택 불가/ })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /Gateway A 입구등/ })).toBeEnabled();
   });
 
   it("uses the newly selected server protocol when a BIO draft source is replaced with BlueZ", () => {
@@ -199,7 +226,10 @@ describe("VehicleEventDialog spatial source and targets", () => {
     renderVehicleEventDialog();
 
     openSourceView();
-    expect(screen.getByRole("button", { name: /차량 감지 모델 미설정.*선택 불가/ })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: /차량 감지 모델 미설정.*선택 불가/ }));
+    expect(screen.getByRole("region", { name: "차량 감지 모델 미설정 센서 준비" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "감지 센서로 선택" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "선택 완료" })).toBeDisabled();
   });
 
   it("clears incompatible targets when the source gateway changes", () => {
