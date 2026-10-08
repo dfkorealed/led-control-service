@@ -26,3 +26,4 @@ export * from "./bio-sensor-mode-contracts";
 export * from "./bio-registration-revalidation-contracts";
 export * from "./bio-sensor-profile-contracts";
 export * from "./bio-sensor-preparation-contracts";
+export * from "./bio-discovery-contracts";
