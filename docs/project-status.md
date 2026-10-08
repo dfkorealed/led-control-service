@@ -4,11 +4,11 @@
 
 ## 2026-10-08 공통 센서 등록·UI 설정 — 설계 승인·실행 계획 작성, 구현 진행
 
-- **공유 계약 완료/서버 진행:** `358c5f1a`의 strict fingerprint·버전형 카탈로그·준비 요청/결과/정확 ACK 계약을 추가했다. 신규 RED14→GREEN14, 기존 sensor-mode/capability/등록 계약 포함102/102와 Shared typecheck/build0, 독립 spec/quality 검토 승인(C0/I0)을 확인했다. 현재 Task2 서버 카탈로그/장비별 준비 작업을 구현 중이며 Gateway·준비 projection·Web·최소 통합 Tasks3–6은 아직 미완료다. 실제 승인 프로파일 seed·운영 DB/Pi/RF 변경0이다.
+- **공유 계약·서버 완료/등록 관측 보완 진행:** `358c5f1a`의 strict fingerprint·버전형 카탈로그·준비 요청/결과/정확 ACK 계약(RED14→GREEN14·기존 계약102/102/typecheck/build0)을 독립 검토 승인했다. Task2 `d9835271`+`ebad730f`는 전용 준비/카탈로그 원장·권한·TTL·정확ACK·lease를 연결했고, 검토의 전달 정체/요청자 권한 해제 P1 두 건을 RED3→GREEN3으로 수정해 재검토 C0/I0 승인했다. 최신 disposable 통합19/19·133 migrations와 기존 Node/Fixture/Command/Energy 보존, API typecheck/build0이다. 신규 등록 typed 관측 경계 Task2A를 추가해 선행 보완하며 Gateway·준비 projection·Web·최소 통합 Tasks3–6은 아직 미완료다. 실제 승인 프로파일 seed·운영 DB/Pi/RF 변경0이다.
 
-- 사용자는 설계 문서 제시 후 `구현 계획 작성 후 바로 진행해줘`로 계획 작성과 코드 구현의 연속 실행을 요청했다. 재승인 질문 없이 `docs/superpowers/plans/2026-10-08-common-bio-sensor-configuration.md` Tasks1~6을 Shared→API→Gateway→API판정→Web→최소통합 순서로 진행한다.
+- 사용자는 설계 문서 제시 후 `구현 계획 작성 후 바로 진행해줘`로 계획 작성과 코드 구현의 연속 실행을 요청했다. 재승인 질문 없이 `docs/superpowers/plans/2026-10-08-common-bio-sensor-configuration.md` Tasks1~6과 신규 등록 보완 Task2A를 Shared→API→등록typed경계→Gateway→API판정→Web→최소통합 순서로 진행한다.
 - 기존 isolated `codex/bio-pulse-event-integration`·HEAD10384a8e clean을 확인했다. 작업량이 큰 역할별 구현은 서브에이전트에 순차 배정하고 총괄은 계약/검토/체크리스트를 동기화한다. 초기 승인profile/현장정책은 OFF로 유지하며 코드 완료와 실제 지원/운영 적용을 분리한다.
-- 현재 Tasks1~6은 미완료이고 Shared 계약부터 시작한다. 실장비 SET/배포/사용자DB migration/PKI/새 현장 시험은 이번 코드 작업에 포함하지 않는다.
+- Task1 공유 계약과 Task2 서버 경계는 완료했고 Task2A 신규 등록 typed 관측 보완부터 진행한다. 실장비 SET/배포/사용자DB migration/PKI/새 현장 시험은 이번 코드 작업에 포함하지 않는다.
 
 ## 2026-10-08 공통 센서 등록·UI 설정 — 당시 설계 문서 작성·펌웨어 검토
 

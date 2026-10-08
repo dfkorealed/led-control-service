@@ -61,7 +61,7 @@
 **Owner:** backend.
 **Files:** Create `apps/api/src/automation/bio-sensor-profiles.{service,controller}.ts`, `bio-sensor-preparation.{service,controller}.ts`, `bio-sensor-catalog-outbox.service.ts`와 unit/integration specs; Modify Prisma schema/new migration, `automation.module.ts`, MQTT consumer/ACL 계약, `docs/database-schema.md`, `docs/menus/settings.md`.
 
-**Execution status:** Task1 검토 승인 후 서버 담당 구현 진행. MQTT ACL 소스 범위는 `infra/mosquitto.acl.example`, `scripts/dev-mqtt-acl.integration.test.mjs`이며 실제 broker reload는 수행하지 않는다.
+**Execution status:** `d9835271` 구현과 `ebad730f` fix1을 독립 검토 승인했다. MQTT ACL 소스 범위는 `infra/mosquitto.acl.example`, `scripts/dev-mqtt-acl.integration.test.mjs`, `scripts/dev-runtime.mjs`이며 실제 broker reload는 수행하지 않는다. preparation ACK의 전용 전달 종료 필드 `ackRetiredAt`는 checkpoint supersession과 분리했다.
 
 **Interfaces:**
 - Prisma: `BioSensorProfileRevision`(profileId/revision compound key, status, fingerprint/bodyHexes/linkPolicy Json, evidenceDigest/reuseScope, actorId/createdAt), `BioSensorCatalogState`(singleton id/revision), `BioSensorSitePolicy`(siteId key/enabled/ownerUserId/maximumResponseSeconds/escalationAction/revision), `BioSensorCatalogDelivery`(deliveryId,site/gateway/assignment/catalog revision,payload/hash,status,publishedAt/attempts/nextAttemptAt/lease/ACK), `BioSensorPreparationOperation`(commandId,scope/fixture/node/currentbinding hash,clientRequestId/actor,operation,catalogRevision,payload/hash,status,expiresAt/supersededAt,result/hash/event,publish/lease fields). Fixture relation과 indexes를 추가하고 native/raw는 외부 response에 노출하지 않는다. 기존 operation/ledger를 전용하지 않는다.
@@ -70,16 +70,34 @@
 - 전용 catalog delivery worker는 lease/retry를 쓰지만 기존 automation revision/applicationAckKey를 유용하지 않는다. current claim/inventory/certificate/assignment를 lock 안에서 확인하고 publish는 transaction 밖에서 수행한다. exact ACK의 scope/hash/revision을 확인해 desired/applied를 저장한다.
 - prepared result는 현재 request/TTL/binding/catalog/profile/시간과 대조해 immutable 저장·ACK를 동일 transaction에 둔다. mode/GET만 성공하면 ready로 만들지 않는다. 재전송에는 동일 결과를 반환하고 새로운 failed 보고가 과거 ready를 유지하지 않게 한다.
 
-- [ ] **Step 1 RED:** 권한·재배정·기한·profile 철회·scope/hash 불일치·중복/replay, 빈 catalog·mode-only 거부·query SET0 계약을 재현한다.
-- [ ] **Step 2 RED 확인:** API focused unit과 일회용 PostgreSQL integration(사용자 DB에 연결하지 않는다).
-- [ ] **Step 3 구현:** immutable profile revisions, site policy OFF 기본값, 전용 worker, prepare request/result/ACK를 기존 lease/identity-lock 방식으로 구현한다. MQTT dispatch와 strict topic ACL을 연결한다.
-- [ ] **Step 4 GREEN/문서:** focused unit/temporary DB migrations와 API typecheck/build, database-schema/settings 갱신. 등록 ID/brightness/history 보존을 확인한다.
-- [ ] **Step 5 검토·커밋:** report에 exact migration/검증과 운영 미적용을 명시하고 검토 후 Gateway로 계약을 넘긴다.
+- [x] **Step 1 RED:** 권한·재배정·기한·profile 철회·scope/hash 불일치·중복/replay, 빈 catalog·mode-only 거부·query SET0 계약을 재현한다.
+- [x] **Step 2 RED 확인:** API focused unit과 일회용 PostgreSQL integration(사용자 DB에 연결하지 않는다). fix1의 선두10 stale 전달 정체·요청자 권한 해제 후 수용 결함도 RED3으로 재현했다.
+- [x] **Step 3 구현:** immutable profile revisions, site policy OFF 기본값, 전용 worker, prepare request/result/ACK를 기존 lease/identity-lock 방식으로 구현한다. MQTT dispatch와 strict topic ACL을 연결한다.
+- [x] **Step 4 GREEN/문서:** 최신 disposable 통합19/19·133 migrations/원본데이터 보존, API typecheck/build0; initial focused API21/21·ACL1/1·runtime68/68, database-schema/settings 갱신. fix후 같은 runtime suite를 반복했다고 기록하지 않는다.
+- [x] **Step 5 검토·커밋:** `d9835271..ebad730f` 독립 검토의 Important2를 수정·재검토 모두 ADDRESSED/new C0/I0. 실제 운영 변경0이며 신규 등록 typed 보존은 Task2A로 선행 보완 후 Gateway에 넘긴다.
+
+### Task 2A: 신규 등록의 typed discovery 보존 경계 보완
+
+**Owner:** backend(shared/API 단일 소유자), Task2 fix/re-review 승인 후 Task3 전에 수행.
+**Files:** Create `packages/shared/src/bio-discovery-contracts.ts`와 `.test.ts`; Modify shared index, API registration scan ingestion/storage·MQTT routing, Prisma nullable observation field/new forward migration, MQTT ACL source producer inventory 및 대응 focused tests, `docs/database-schema.md`, `docs/menus/{settings,monitoring}.md`. 기존 strict scan/terminal wire는 수정하지 않는다.
+
+**Interfaces:**
+- `bioProvisioningScanFoundV2Schema`: 기존 `provisioningScanFoundSchema`를 재사용해 동일 scan/장비 귀속 필드에 `schemaVersion:2`, required nullable `fingerprint:BioSensorFingerprintV1`만 추가한 strict 새 계약. `BioProvisioningScanFoundV2Payload` export. `bioDiscoveryTopics.scanFoundV2(siteId,gatewayId)`은 `sites/{siteId}/gateways/{gatewayId}/events/provisioning/scan-found-v2`다. legacy firmware 문자열에서 fingerprint를 합성하지 않는다.
+- `DiscoveredMeshNode.bioDiscoveryFingerprint Json?`는 관측 데이터이며 기본null다. 별도 version parser로 검증된 현재 scan의 fingerprint만 기존 session/correlation/attempt/scope/sequence/중복 경계 안에서 저장한다. legacy/null·잘못된 scope/늦은 scan으로 새 호환/ready 증거를 생성하지 않는다. confirmed 등록 후에도 observation을 보존하고 실제 준비 query는 fresh discovery를 다시 확인한다.
+- 새 API subscriber/producer ACL을 선행 적용하는 코드 경계를 제공한다. 일반 등록 HTTP 응답/로그에 raw fingerprint를 추가하지 않는다. Task3 BIO publisher만 새 topic을 사용하고 기존 다른 adapter/legacy strict 메시지는 유지한다. Gateway 소비 구현은 Task3 소유다.
+
+- [ ] **Step 1 RED:** strict fingerprint/version/byte·legacy unchanged/null·다른 scan/scope/late event 거부 및 accepted typed observation 저장/등록 후 보존을 재현한다.
+- [ ] **Step 2 RED 확인:** Shared 신규 계약 focused Vitest, API 일회용 DB 등록 ingestion focused integration과 ACL source contract; 사용자DB 미접속.
+- [ ] **Step 3 구현:** 새 Shared 계약을 검증·먼저 커밋한 뒤 API/forward migration/ACL source를 순차 연결한다. 모드 SET/자동 센서 준비·classification/승인 seed0을 유지한다.
+- [ ] **Step 4 GREEN/문서:** 신규 Shared 계약+기존 scan 계약 focused regression/typecheck/build, API focused disposable migrations/typecheck/build·DTO redaction; 해당 schema/menu 문서 갱신.
+- [ ] **Step 5 검토·커밋:** report·독립 spec/quality 검토 후 Task3로 실제 관측 보존 계약을 넘긴다.
 
 ### Task 3: Gateway discovery 보존·동적 카탈로그·실제 준비/authority 공급
 
 **Owner:** gateway.
 **Files:** Modify `bio-dongle-client.ts`, `bio-device-mapping-store.ts`, `adapters/adapter-factory.ts`, `bio-sensor-pulse-source.ts`, `index.ts`; Create `bio/bio-sensor-profile-catalog.ts`, `bio/bio-node-link-monitor.ts`, `bio/bio-pulse-authority-provider.ts`, `commands/bio-sensor-preparation-handler.ts` 및 대응 tests; 기존 registered observation·MQTT routing/ACK·health lifecycle 및 Gateway ACL 계약; `docs/menus/{settings,control}.md`.
+
+**Lifecycle ownership:** `command-journal`의 preparation 전용 result/ACK 수명, `bio-capability-delivery`의 별도 commission/live proof 경로와 `AutomationRuntime`의 실제 검증된 snapshot stage/commit/rollback 최소 확장을 포함한다. 기존 mode command의 OFF-only/TTL와 V2 wire는 변경하지 않는다.
 
 **Interfaces:**
 - `BioDiscoveredDevice.fingerprint?: BioSensorFingerprintV1`; fresh discovery에서 보존하며 legacy mapping은 fingerprint없음→unverified. 단순 firmware문자열에서 만들어내지 않는다.
@@ -87,6 +105,7 @@
 - `BioNodeLinkMonitor.start()/snapshot(fixtureId)/stopAndDrain()`: 승인 profile과 exact commission에만 기존 readDeviceInfo 전역 queue로 node mode GET, monotonic maxAge/generation 확인·연속healthySince 유지. pulse/alive로 health를 만들지 않는다. fresh probe가 health를 갱신해도 authority의 stable observation을 불필요하게 변경하지 않으며 실패/만료 시즉시철회한다.
 - `CommissionedBioPulseAuthorityProvider.read()/onChange()`는 승인 profile·현재 canonical command/binding·mode/link·카탈로그 실행정책·현재 적용/준비중 authenticated snapshot context를 합성한다. requested snapshot revision만으로 신뢰하지 않고 index/runtime에서 실제 검증된 snapshot context를 공급한다. capabilityRevision은 현재 node-local 전달 원장의 revision과 결속한다.
 - preparation handler는 exact authenticated command/mapping·fresh discovery와 approved profile matching 뒤에만 ensure_sensor를 수행한다. query는 SET0. ready/불가사유 결과를 내구 journal에 저장하고 정확 ACK까지 재전송한다. 단순 onIdentityProof는 mode전 호출이므로 실제 별도 GET 뒤 mode/link 증거를 생산한다. canonical MeshNode와 local nodeId를 합치지 않는다.
+- command TTL은 최초 준비 결과 수용에만 사용한다. 상시 commission은 현재 confirmed binding·승인 catalog·서버의 정확 preparation applied/duplicate ACK에 결속한다. 반복 fresh GET 건강은 별도 proof로 V2 node-local revision/verifiedAt를 갱신한다. 재시작 후 저장된 건강은 복구하지 않고 새 GET 전 OFF/degraded를 유지한다.
 - dynamiccatalog/source를 한 수명 경계에서 교체하고 queued/cached receipt·authority 철회를 즉시 수행한다. 확인된 원상태/미확정 pending을 삭제하거나 profile승인을 환경변수로 주입하지 않는다. 기존 source intake/target/controller를 재사용한다.
 
 - [ ] **Step 1 RED:** 서로 다른 Fixture/native3개 동일profile매칭, 다른hardware거부, legacyunknown, serialquery/lateGET, setupmode-only, catalog교체/await중revocation, reconnect/restart·decoderfailure·healthage를 재현한다.
@@ -101,7 +120,7 @@
 **Files:** Create `apps/api/src/automation/bio-sensor-eligibility.ts`와 대응 spec; Modify `sites/vehicle-event-source-view.ts`, `sites.service.ts`, `vehicle-sensor-capability.service.ts`, `vehicle-event-rules.service.ts`, 등록 terminal/discovered projection, Task2 services/tests, 필요한 forward migration 및 `docs/{database-schema,menus/control,menus/monitoring,menus/settings}.md`.
 
 **Interfaces:**
-- 준비report→profile/currentcatalog/assignment·mode·linkdeadline·sitepolicy/V2지원이 모두 맞을 때만 기존 capability V2 ready와 결합한다. 보고/ACK를 독립권한으로 사용하지 않는다. 기존 ready report만으로 우회하지 못하도록 profileKey/currentpreparation 대조를 capability·rule admission·DB guard에 일관되게 적용한다.
+- 준비report→profile/currentcatalog/assignment·mode·sitepolicy/V2지원이 모두 맞고 최신 별도 live capability 관측 verifiedAt가 profile의 maxAge 안일 때만 기존 capability V2 ready와 결합한다. 최초 준비 observedAt를 영구 링크 건강으로 사용하지 않으며 command TTL을 상시 commission TTL로 재사용하지 않는다. 보고/ACK를 독립권한으로 사용하지 않는다. 기존 ready report만으로 우회하지 못하도록 profileKey/currentpreparation 대조를 capability·rule admission·DB guard에 일관되게 적용한다.
 - dashboard에 `bioSensorPreparation:{status,commandId,profileKey,observedAt,blockedReasons}`를 반환한다. 이유는 `profile_unverified|fingerprint_unverified|mode_unverified|link_unverified|catalog_pending|operating_policy_required|gateway_protocol_unverified|binding_changed|unsupported`이다. raw fingerprint/body/native는 일반dashboard로 보내지 않는다.
 - `vehicleEventSourceView`는 preparation과 currentqualification으로 판정하고 고정 `product_gate_off`를 조건부사유로 바꾼다. source/target보호·BIO1개source·같은gateway/10초하한은 유지한다. enabled의무조건v2_support_unverified 대신 authenticated V2support/currentconditions검사를 사용한다. snapshot applied ACK는 sync에만 사용한다.
 - 새등록은 typeddiscovery를 보존·카탈로그대조만 하고 SET0. 기존등록은 공통 준비query로 갱신한다. 철회/재배정/식별교체는 준비증거무효화·affectedruledisable/snapshot수렴을 같은 경계에서 수행한다.
@@ -116,6 +135,8 @@
 
 **Owner:** web_frontend.
 **Files:** Modify `apps/web/src/api/{automation,queries}.ts`, `VehicleEventDialog.tsx`, `VehicleEventSourceStatus.tsx`와tests; Create `apps/web/src/features/control/automation/BioSensorPreparationPanel.tsx`와tests; 설정센서/현장정책UI는기존settings공통component에결합; `docs/menus/{control,settings,monitoring}.md`.
+
+**Route boundary:** 현장 정책과 관리자 준비 영역은 기존 `/settings/site`의 `SiteOperationsView`와 `capabilities.manage`를 재사용한다. 운영자 호환 프로파일은 `OperatorShell`/권한/공통UI를 따르는 작은 `/operator/sensor-profiles` 섹션으로 분리하고 `docs/menus/operator.md`를 함께 갱신한다. 관리자 계정 목록 화면에는 다른 책임의 프로파일 편집기를 끼우지 않는다. 새 디자인 토큰은 추가하지 않는다.
 
 **Interfaces:** `requestBioSensorPreparation/getBioSensorPreparation`은Task2 POST/GET; 카탈로그/현장정책은관리권한UI만호출한다. 일반사용자는ready경로에동의/확인만하고native/body를입력하지 않는다. 지도에등록전체상태·차단사유를제공하고미준비도행동버튼으로설정가능하게한다. source확정은서버eligible만사용한다.
 
