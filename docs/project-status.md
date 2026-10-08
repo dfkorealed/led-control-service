@@ -2,6 +2,11 @@
 
 기준일: 2026-10-08
 
+## 2026-10-08 BIO 센서 기능 로컬 병합 — 진행
+
+- 사용자가 기본 `codex/mvp1-cloud-web` 병합과 남은 이벤트 기능 과제 보고를 요청했다. 승인 센서 `247a837d`와 기본 `5e173fb4`는 Web·문서·Shared include 13개 충돌이 예상되므로 기존 격리 worktree에서 최신 모바일/모니터링과 센서 기능을 모두 보존해 합성한다.
+- `docs/superpowers/plans/2026-10-08-bio-sensor-local-merge.md` 체크리스트로 통합·집중 검증·독립 검토 후 기본 checkout에 ff-only 반영한다. 기본의 목업 문서 2개 미커밋 변경은 사용자 소유로 따로 보존·복원한다. push/실제 DB migration/배포·장비 제어는 하지 않는다.
+
 ## 2026-10-08 공통 센서 등록·UI 설정 — 소프트웨어 구현·최종 검토 완료, 운영 적용 전
 
 - **소프트웨어 구현·개별 작업 검토 완료:** Tasks 1/2/2A의 strict 계약·내구 전달·typed 등록 관측, Task 3 Gateway 준비·독립 GET·실행/복원 수명, Task 4 공통 API 자격 판정·등록 연결·규칙 수렴, Task 5 공통 Web 준비/정책 UI, Task 6 공통 fixture 소프트웨어 통합의 개별 검토를 통과했다. 별도 API disposable DB와 Gateway fake-transport에서 정확한 양성 envelope/hash, snapshot/ACK, hold·read-back 복원·degraded 재시작을 확인했으며 단일 프로세스·실제 HTTP/MQTT/RF E2E 증거는 아니다.
