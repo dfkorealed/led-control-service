@@ -1,4 +1,5 @@
 import { randomInt } from "node:crypto";
+import { bioSensorFingerprintV1Schema, type BioSensorFingerprintV1 } from "@led-control/shared";
 import { SerialTaskQueue } from "../runtime/serial-task-queue";
 import { bioRawToPercent, percentToBioRaw } from "./bio-brightness-table";
 import { BioUsbTransport, type BioTransportOptions, type BioTransportSnapshot } from "./bio-usb-transport";
@@ -34,6 +35,7 @@ export interface BioOperationControl extends Partial<CommandWriteControl> {
 }
 export interface BioCommandAcceptance { outcome: "dongle-accepted"; deviceApplied: false }
 export interface BioDiscoveredDevice {
+  fingerprint?: BioSensorFingerprintV1;
   nativeUuid: string;
   deviceUuid: string;
   logicalAddress: number;
@@ -850,6 +852,8 @@ export class BioDongleClient {
 
 function toDiscoveredDevice(response: Extract<BioResponse, { kind: "discovery" }>): BioDiscoveredDevice {
   return {
+    fingerprint: bioSensorFingerprintV1Schema.parse({ deviceType: response.deviceType, firmware: response.firmware,
+      sensorType: response.sensorType, infraredType: response.infraredType, ambientLightType: response.ambientLightType, hardwareType: response.hardwareType }),
     nativeUuid: parseBioDeviceUuid(response.deviceUuid),
     deviceUuid: response.deviceUuid,
     logicalAddress: response.logicalAddress,

@@ -1,8 +1,10 @@
 import { readJsonFile, writeJsonAtomic } from "../mesh/mesh-store-file";
 import { formatBioDeviceUuid, parseBioDeviceUuid } from "./bio-device-identity";
 import { BioUsbError } from "./bio-usb-error";
+import { bioSensorFingerprintV1Schema, type BioSensorFingerprintV1 } from "@led-control/shared";
 
 export interface BioDeviceMapping {
+  fingerprint?: BioSensorFingerprintV1;
   fixtureId: string;
   nodeId: string;
   deviceUuid: string;
@@ -17,6 +19,7 @@ export interface BioDeviceMapping {
 }
 
 export interface BioDeviceMappingInput {
+  fingerprint?: BioSensorFingerprintV1;
   fixtureId: string;
   nodeId: string;
   deviceUuid: string;
@@ -223,7 +226,7 @@ function normalizeInput(value: BioDeviceMappingInput): BioDeviceMappingInput {
   validateText(value.commandId);
   validateLogicalAddress(value.logicalAddress);
   validateLogicalAddress(value.observedLogicalAddressBeforeAssignment);
-  return { ...value, nativeUuid, deviceUuid: `bio:${nativeUuid}` };
+  return { ...value, ...(value.fingerprint ? { fingerprint: bioSensorFingerprintV1Schema.parse(value.fingerprint) } : {}), nativeUuid, deviceUuid: `bio:${nativeUuid}` };
 }
 
 function parseMapping(value: unknown, version: 1 | 2): BioDeviceMapping {
@@ -233,6 +236,7 @@ function parseMapping(value: unknown, version: 1 | 2): BioDeviceMapping {
     throw new Error("invalid mapping state");
   }
   const core = {
+    ...(row.fingerprint === undefined ? {} : { fingerprint: bioSensorFingerprintV1Schema.parse(row.fingerprint) }),
     fixtureId: expectString(row.fixtureId),
     nodeId: expectString(row.nodeId),
     deviceUuid: expectString(row.deviceUuid),

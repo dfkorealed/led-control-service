@@ -169,6 +169,7 @@ describe("BioUsbDongleAdapter", () => {
     f.client.scan.mockResolvedValue([discovered]);
 
     await expect(f.adapter.scan(scanCommand)).resolves.toEqual([{
+      fingerprint: null,
       deviceUuid: discovered.deviceUuid,
       serialNumber: discovered.deviceUuid,
       rssi: -41,

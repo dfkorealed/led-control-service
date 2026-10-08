@@ -11,6 +11,7 @@ import type {
   ProvisioningScanFoundDevice
 } from "@led-control/shared";
 import {
+  bioDiscoveryTopics, bioProvisioningScanFoundV2Schema, type BioSensorFingerprintV1,
   automationConfigAppliedSchema,
   mqttTopicsV2,
   provisioningScanCompletedSchema,
@@ -122,7 +123,7 @@ export interface BleMeshResyncReport {
 
 export interface ProvisioningScannerAdapter {
   acceptsDeviceUuid(deviceUuid: string): boolean;
-  scan(command: ProvisioningScanStartPayload): Promise<ProvisioningScanFoundDevice[]>;
+  scan(command: ProvisioningScanStartPayload): Promise<Array<ProvisioningScanFoundDevice & { fingerprint?: BioSensorFingerprintV1 | null }>>;
 }
 
 export interface ProvisioningAdapter {
@@ -374,16 +375,19 @@ export async function publishProvisioningScanLifecycle(input: {
   persistTerminal?: (terminal: ProvisioningScanTerminalEvent) => Promise<ProvisioningScanTerminalEvent>;
   onTerminalPersisted?: () => void;
 }) {
-  let nodes: ProvisioningScanFoundDevice[];
+  let nodes: Array<ProvisioningScanFoundDevice & { fingerprint?: BioSensorFingerprintV1 | null }>;
   try {
     // [확인됨] UUID namespace 소유권은 active adapter가 판정한다. BIO를 DFK UUID로
     // 위장하거나 전역 allowlist가 다른 adapter의 identity를 누락시키지 않는다.
     nodes = (await applyProvisioningScan(input.adapter, input.command))
       .filter((node) => input.adapter.acceptsDeviceUuid(node.deviceUuid));
     for (const node of nodes) {
+      const { fingerprint, ...legacy } = node;
+      const base = createProvisioningScanFoundPayload(input.command, legacy, await input.nextEnvelope());
       await input.publish(
-        mqttTopicsV2.provisioningScanFound(input.command.siteId, input.command.gatewayId),
-        createProvisioningScanFoundPayload(input.command, node, await input.nextEnvelope())
+        "fingerprint" in node ? bioDiscoveryTopics.scanFoundV2(input.command.siteId, input.command.gatewayId)
+          : mqttTopicsV2.provisioningScanFound(input.command.siteId, input.command.gatewayId),
+        "fingerprint" in node ? bioProvisioningScanFoundV2Schema.parse({ ...base, schemaVersion: 2, fingerprint: fingerprint ?? null }) : base
       );
     }
   } catch (error) {

@@ -193,7 +193,8 @@ export class BioUsbDongleAdapter implements BleMeshAdapter, ProvisioningScannerA
         serialNumber: device.deviceUuid,
         rssi: device.rssi,
         oobCapability: "none" as const,
-        firmwareVersion: device.firmwareVersion
+        firmwareVersion: device.firmwareVersion,
+        fingerprint: device.fingerprint ?? null
       }));
   }
 
@@ -244,6 +245,7 @@ export class BioUsbDongleAdapter implements BleMeshAdapter, ProvisioningScannerA
       observedLogicalAddressBeforeAssignment: identified.logicalAddress,
       commandId: durable.commandId,
       firmware: identified.firmwareVersion,
+      ...(identified.fingerprint ? { fingerprint: identified.fingerprint } : {}),
       protocol: "crc16"
     });
     // 주소는 장치의 지속 식별자이므로 ACK 유실이나 old-address 재관측만으로 같은 write를

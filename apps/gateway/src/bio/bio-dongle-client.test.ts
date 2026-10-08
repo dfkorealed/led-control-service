@@ -400,11 +400,13 @@ describe("BIO evidence-gated dongle client", () => {
     await expect(result).resolves.toEqual([
       {
         nativeUuid: "001122334455", deviceUuid: "bio:001122334455", logicalAddress: 0x1235,
-        networkId: 0, firmwareVersion: "5.5.8.12889", rssi: -41
+        networkId: 0, firmwareVersion: "5.5.8.12889", rssi: -41,
+        fingerprint: { deviceType: 1, firmware: { major: 5, minor: 5, revision: 8, build: 12889 }, sensorType: 2, infraredType: 1, ambientLightType: 0, hardwareType: 3 }
       },
       {
         nativeUuid: "aabbccddeeff", deviceUuid: "bio:aabbccddeeff", logicalAddress: 0x2222,
-        networkId: 0, firmwareVersion: "5.5.8.12889", rssi: -50
+        networkId: 0, firmwareVersion: "5.5.8.12889", rssi: -50,
+        fingerprint: { deviceType: 1, firmware: { major: 5, minor: 5, revision: 8, build: 12889 }, sensorType: 2, infraredType: 1, ambientLightType: 0, hardwareType: 3 }
       }
     ]);
     await h.client.close();

@@ -115,7 +115,7 @@ describe("gateway provisioning", () => {
       adapter: {
         acceptsDeviceUuid,
         scan: async () => [
-          { deviceUuid: "bio:a1b2c3d4e5f6", serialNumber: "bio:a1b2c3d4e5f6", rssi: -42, oobCapability: "none", firmwareVersion: "1.2.3.4" },
+          { deviceUuid: "bio:a1b2c3d4e5f6", serialNumber: "bio:a1b2c3d4e5f6", rssi: -42, oobCapability: "none", firmwareVersion: "1.2.3.4", fingerprint: null },
           { deviceUuid: "44464b4c454401010101aabbccddeeff", serialNumber: "dfk", rssi: -50, oobCapability: "none", firmwareVersion: "1.0.0" }
         ]
       },
@@ -127,6 +127,8 @@ describe("gateway provisioning", () => {
     expect(acceptsDeviceUuid).toHaveBeenCalledTimes(2);
     expect(publish).toHaveBeenCalledTimes(2);
     expect(publish.mock.calls[0][1]).toMatchObject({ deviceUuid: "bio:a1b2c3d4e5f6" });
+    expect(publish.mock.calls[0][0]).toBe(`sites/${command.siteId}/gateways/${command.gatewayId}/events/provisioning/scan-found-v2`);
+    expect(publish.mock.calls[0][1]).toMatchObject({ schemaVersion: 2, fingerprint: null });
     expect(publish.mock.calls[1][1]).toMatchObject({ acceptedNodeCount: 1 });
   });
 
