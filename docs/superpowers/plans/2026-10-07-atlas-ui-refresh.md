@@ -10,7 +10,7 @@
 
 **Spec:** [다크 포함 설계 명세](../specs/2026-10-07-atlas-ui-refresh-design.md)
 
-상태: **실행 승인·Tasks 1–10 구현·독립 검토 완료, Task 11 PC 스크롤 검증 재설계 방향 확인 대기·Task 12 병합 보류**. 2026-10-07 사용자가 페이지 및 기능 담당 에이전트 세션에 지시하여 진행하도록 승인했다. 사용자가 선택한 실행 방식은 **페이지별 에이전트 분담, 메인 오케스트레이션, 별도 브랜치 후 로컬 병합**이며 다시 선택을 요구하지 않는다. 완료 표시는 독립 검토와 실제 증거를 회수한 뒤 갱신한다. 역사적 웹 모듈 실패의 원인과 통합 브라우저 검증은 Task11 관문에 남아 있어 전체 완료·병합을 뜻하지 않는다.
+상태: **Tasks 1–10 구현·독립 검토 완료, 2026-10-08 사용자 재개 승인·Task 11 PC 검증 구조 보완 진행·Task 12 검증 후 로컬 병합 예정**. 사용자가 선택한 실행 방식은 **페이지별 에이전트 분담, 메인 오케스트레이션, 별도 브랜치 후 로컬 병합**이다. 완료 표시는 독립 검토와 실제 증거를 회수한 뒤 갱신한다. 역사적 웹 모듈 실패의 원인과 통합 브라우저 검증은 Task11 관문에 남아 있어 전체 완료·병합을 뜻하지 않는다.
 
 ## Global Constraints
 
@@ -21,7 +21,7 @@
 - 고객 theme 저장은 `led-control.customer-theme.v1`의 `light|dark`, 기본·잘못된 값·읽기 실패는 light다. 저장 실패는 현재 탭 전환을 막지 않는다. 시스템 테마 자동 연동은 범위 밖이다.
 - theme는 CustomerShell 활성 동안만 html `data-customer-theme`에 적용하고 cleanup한다. 페이지·QueryClient·명령·renderer·editor identity에 theme를 넣지 않는다. 원본 CAD/도형 색과 사용자 색상 draft는 보존한다.
 - 모바일 `<760px`, 경계 검증 `759.5/760/760.5px`. 현장 select 너비는 `<360px`에서 128px, `360px 이상`에서 144px, 최소 조작 hit 44px. sidebar 고객 geometry는 펼침 220px·rail 80px이다.
-- 도면 상태는 인라인 라벨 14px·수치 16px, ticker는 5초. PC 수동 제어 외부 세로 스크롤 0, 짧은 1024×600은 내부 workspace 스크롤과 실제 canvas 최소 240px을 보존한다. 모바일은 자연 세로 스크롤이다.
+- 도면 상태는 인라인 라벨 14px·수치 16px, ticker는 5초. PC 수동 제어 외부 세로 스크롤 0, 짧은 1024×600은 내부 workspace 스크롤과 실제 조작 viewport/client 최소 240px을 보존한다. 내부 CAD맞춤 canvas의 실제 표시·DOM/count/camera는 별도 보존하며 CAD비율이나 배율을 높이 기준에 맞춰 바꾸지 않는다. 모바일은 자연 세로 스크롤이다.
 - 기존 frozen UUID/payload/ACK·전체 선택 차단·권한·시간대·retention/cursor·null/0·설정 dirty/lease/MFA·PDF/CSV 수명을 보존한다. theme/선택/도구/필터/resize만으로 추가 dimming POST는 0건이다.
 - 각 제품 task는 해당 메뉴 문서와 검증 증거를 같이 갱신한다. 기본 checkout의 목업 이력 문서 변경 두 개와 다른 사용자 변경을 보존한다. 현재 63200/5173/4000 서비스는 임의 조작하지 않는다.
 - 실행자는 task 시작 전에 AGENTS와 명세를 읽는다. RED → 최소 구현 → GREEN → 선언 파일만 stage → fresh diff check → 명시된 메시지로 작은 커밋 → 독립 요구/품질 검토 순서를 지킨다. 실패/skip·이전 증거를 숨기지 않는다.
@@ -232,6 +232,8 @@ Lab3의 수동 성공문구는 Task7의 실제 기본접힘 상세 안에 보존
 
 - 최신 전체 실행과 후속 PC 검사(2026-10-08 KST): viewport 검사 대상 교정 뒤 동일899소스 전체149는82PASS/1FAIL/66미실행으로 멈췄다(R79). 첫 PC 안전 사례는 명령 이력 미도달이며, 원QA·root의 retention 소스 검토 뒤 기존 coherent clock tuple/원retentionfalse와 실제GET 관측만 교정했다. 이후 PC48 단일 실행은 R80 0/1/47, wheel witness 수리 R81 0/1/47, R82 16/1/31, R83 0/1/47이다. 서로 다른 source의 부분 PASS는 합산하지 않는다. 원 전체149/각 실패의 raw·source freeze·PNG와 미도달 범위를 보존한다.
 - 현재 HOLD(R83): 최종 atlas blob `a62d746564db66ec28aaf3a93305720dd657647d`의 PC48은 type/UI0·고유list48 뒤0PASS/1FAIL/47미실행이다. 실제 trusted wheel에서 같은 부모 scrollTop0→75·documentY0·zoom1→1은 기록됐지만, 이벤트가 부모 자체 대신 하위 toolbar DIV로 전달돼 `directOwnerDelivery` 단언에서 실패했다. 후속 자체 이동/배율 단언·UUID 선택/상세·정상 PNG·대비는 도달하지 않았다. Root는 완전 보고서·859/보호858 read-only verifier exit0·실제 raw terminal/JSON/실패 PNG를 독립 대조했다. 같은 PC witness 수리가 세 차례 실패했으므로 네 번째 수정 전 사용자에게 검증 구조 재설계 후 계속할지 물었고, 답변 전 원작성자·원QA의 수정/추가 실행을 중지했다. 제품/44px·UUID·배율 계약을 완화하지 않으며 전체149 재실행·관련17·RealLab·canonical·whole review·커밋/병합은 별도 승인과 실제 통과 전까지 보류한다. 아래 Task11/12 체크는 미완료로 유지한다.
+
+- 재개 승인(2026-10-08): 사용자가 검증 구조 보완·필요한 협업과 격리 브랜치 작업 후 병합을 지시했다. Ruling84는 local PC wheel helper의 직접 이벤트 대상 equality를 실제 hit/target-to-owner 경로의 비차단·원owner 연결 및 directional scroll 이동 증거로 교정한다. 기존 Task7 helper의 descendant 전달과 R83 실제 부모 이동을 근거로 삼되 원불일치 인과를 해결했다고 주장하지 않는다. 세 차례 실패한 원작성자 대신 새 검증 구현자에게 한 파일 local helper만 배정하고, PC48→독립 scoped 검토→새 전체149→기존QA의 관련17/분리Lab19/canonical→독립whole→사용자 변경 보존·병합 순서로 진행한다. 원44px action·UUID/noPOST·DOM/viewport240·문서Y0/배율·기본timeout/734/QA3를 유지하며 각 실제 신규 실패에서 후속 gate를 멈춰 원소유자에게 반환한다.
 
 - [ ] Step 1 — 각 Task 3–10 test의 보존 경계를 통합 E2E에 연결한다. 양 theme에서 `scrollWidth <= clientWidth`, 표준 PC manual `document.scrollingElement.scrollHeight <= window.innerHeight`, 짧은 PC 내부 scroll·모든 safety action reachable, mobile logo/select/hit44를 단언한다. theme 전환 중 same canvas/camera/UUID·draft/PDF/MFA·추가 mutation0도 단언한다.
 - [ ] Step 2 — 폭/높이 매트릭스 `320×740,390×844,562×1229,759.5/760/760.5×768,1024×600,1024×768,1304×1229,1440×900`에서 light/dark를 실제 CSS·renderer로 확인한다. phase 단위 정상 PNG·실패 원본·raw logs를 격리 산출물에 보존한다. 본문4.5:1·큰 글자/필수 UI3:1·focus/색 외 상태 라벨과 열린 portal를 대조한다.

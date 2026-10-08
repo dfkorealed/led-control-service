@@ -2,7 +2,7 @@
 
 기준일: 2026-10-08
 
-## 2026-10-07 ATLAS 라이트·다크 실제 서비스 UI 적용 — Tasks 1–10 검토 완료·PC 검증 재설계 방향 확인 대기
+## 2026-10-07 ATLAS 라이트·다크 실제 서비스 UI 적용 — Tasks 1–10 검토 완료·2026-10-08 승인 후 최종 검증 재개
 
 - 승인된 compact 목업과 모바일 헤더 로고·현장 선택 너비 의견을 실제 고객 서비스에 적용하는 [설계 명세](superpowers/specs/2026-10-07-atlas-ui-refresh-design.md)를 작성했다. 공통 디자인/컴포넌트 → 공유 지도 → 모니터링·제어·통계·설정 페이지 담당 → 독립 검증 → 로컬 병합 순서다.
 - `codex/atlas-ui-refresh-20261007`의 격리 worktree를 `codex/mvp1-cloud-web` `5e173fb4`에서 만들었다. 기존 공통·제어/지도·통계 세션과 별도 모니터링·설정 담당을 배정했다. task-owned Node 22.20.0과 pnpm 9.15.0으로 격리 frozen install·Prisma Client 생성 준비와 canonical baseline을 회수했다. cold 설치의 미생성 실패도 보존한다. 기존 서버 조작·로컬 병합은 미착수다.
@@ -36,6 +36,8 @@
 - Task11 최신 전체149는 동일884소스에서70PASS/1FAIL/78미실행이다. firstRAF2·세 메뉴 정수20조합60·모바일제어8은 통과했지만760PC 원child canvas142<240에서 멈췄다. 기존 Task7의240 실측은 실제 `target-selection-map-viewport`였으므로 승인 최소240은 실제 조작 viewport/client 영역에서 유지하고, 내부 CAD비율 맞춤 canvas의 표시·DOM/count/camera/zoom은 별도로 검사한다. 이전26/1/122·62/1/86/ghost1:1과 모든 원실패는 별도 보존한다. Ghost 입력은 실제 값13.892617/키보드 focus8.009080·같은30/선택/canvas/쓰기0로 원320 focused1PASS를 회수했다. Root는 제품/기준 변경 없이 검사대상·명세 용어만 교정하고 원760→새149·동일hash 관련17/분리Lab19·canonical4/UI·독립whole를 이어간다. Task11 전체·Task12 병합은 아직 완료되지 않았다.
 
 - 위70/1/78은 이전884소스의 전체 실행이다. 이후899소스 최신 전체149는82PASS/1FAIL/66미실행(R79)이며 원PC 명령 이력 미도달·coherent clock 검토와 모든 실패를 보존한다. 후속 별도 PC48은 R80 0/1/47, R81 0/1/47, R82 16/1/31, 최종 R83 0/1/47이다. 부분 PASS를 합산하지 않는다. 현재 atlas blob `a62d746564db66ec28aaf3a93305720dd657647d`에서 type/UI0·고유list48 뒤 실제 이벤트의 부모 직접 전달 단언이 실패했고, 기록상 부모0→75/documentY0/zoom1→1과 후속 단언 미도달을 구분했다. Root가 완전 보고서·859/보호858 verifier exit0·raw/JSON/실패 PNG를 독립 확인했다. 같은 PC witness 수리 세 차례 실패 뒤 검증 구조 재설계 방향을 사용자에게 질문했으며 답변 전 추가 수정·실행은 중지한다. Task11 통합 QA·최종 검토와 Task12 로컬 병합은 HOLD이고 제품/44px·명령 UUID·배율/기존 서버는 변경하지 않았다.
+
+- 2026-10-08 사용자가 필요한 에이전트 협업·격리 브랜치 작업 후 병합을 재승인했다. 원3회 실패 기록과 안전 기준을 유지하고, 새 PC 검증 구현자가 local wheel helper의 직접 이벤트 대상 equality 대신 실제 비차단 전달 경로·같은 부모 directional scroll을 검증한다(Ruling84). 실제44px action/UUID/noPOST·DOM/viewport240·문서Y0/zoom과 기본timeout·734/QA3는 유지한다. PC48와 scoped 검토 뒤 최종 전체149, 원QA 관련17/분리RealLab19/canonical4/UI, 독립whole와 사용자 변경 보존·로컬 병합을 순서대로 수행한다. 재개 승인은 검사 통과·병합 완료를 뜻하지 않으며 기존 서비스/DB/장비는 조작하지 않는다.
 
 ## 2026-10-06 모니터링 Popover·Grid 정렬 — 완료·로컬 병합
 
