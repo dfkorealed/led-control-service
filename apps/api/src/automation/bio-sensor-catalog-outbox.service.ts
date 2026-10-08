@@ -43,9 +43,11 @@ export class BioSensorCatalogOutboxService implements OnModuleInit {
     }
     const now = new Date();
     await this.prisma.bioSensorPreparationOperation.updateMany({ where: { status: "pending", expiresAt: { lte: now } }, data: { status: "timed_out", lockedBy: null, leaseExpiresAt: null } });
-    const catalogs = await this.prisma.bioSensorCatalogDelivery.findMany({ where: { status: "pending", supersededAt: null, nextAttemptAt: { lte: now } }, orderBy: { nextAttemptAt: "asc" }, take: 10 });
-    const commands = await this.prisma.bioSensorPreparationOperation.findMany({ where: { status: "pending", supersededAt: null, expiresAt: { gt: now }, nextAttemptAt: { lte: now } }, orderBy: { nextAttemptAt: "asc" }, take: 10 });
-    const acknowledgements = await this.prisma.bioSensorPreparationOperation.findMany({ where: { ackHash: { not: null }, ackPublishedAt: null, ackNextAttemptAt: { lte: now } }, orderBy: { ackNextAttemptAt: "asc" }, take: 10 });
+    const availableLease = [{ leaseExpiresAt: null }, { leaseExpiresAt: { lte: now } }];
+    const catalogs = await this.prisma.bioSensorCatalogDelivery.findMany({ where: { status: "pending", supersededAt: null, nextAttemptAt: { lte: now }, OR: availableLease }, orderBy: [{ nextAttemptAt: "asc" }, { deliveryId: "asc" }], take: 10 });
+    const commands = await this.prisma.bioSensorPreparationOperation.findMany({ where: { status: "pending", supersededAt: null, expiresAt: { gt: now }, nextAttemptAt: { lte: now }, OR: availableLease }, orderBy: [{ nextAttemptAt: "asc" }, { commandId: "asc" }], take: 10 });
+    const acknowledgements = await this.prisma.bioSensorPreparationOperation.findMany({ where: { ackHash: { not: null }, ackPublishedAt: null, ackRetiredAt: null,
+      ackNextAttemptAt: { lte: now }, OR: [{ ackLeaseExpiresAt: null }, { ackLeaseExpiresAt: { lte: now } }] }, orderBy: [{ ackNextAttemptAt: "asc" }, { commandId: "asc" }], take: 10 });
     for (const [kind, rows] of [["catalog", catalogs], ["command", commands], ["ack", acknowledgements]] as const) {
       for (const row of rows) {
         if (this.stopped) return;
@@ -53,6 +55,7 @@ export class BioSensorCatalogOutboxService implements OnModuleInit {
         let permit: Permit | null;
         try { permit = await this.claim(kind, id); } catch (error) {
           if (!(error instanceof ConflictException)) throw error;
+          await this.deferUnclaimable(kind, id);
           continue;
         }
         if (permit) await this.publish(permit);
@@ -66,8 +69,11 @@ export class BioSensorCatalogOutboxService implements OnModuleInit {
       if (kind === "catalog") {
         const row = await tx.bioSensorCatalogDelivery.findUnique({ where: { deliveryId: id } });
         if (!row || row.status !== "pending" || row.supersededAt || row.nextAttemptAt > now || row.leaseExpiresAt && row.leaseExpiresAt > now) return null;
-        const assignment = await lockBioSensorGateway(tx, row, now);
-        if (assignment !== row.assignmentVersion || revision !== row.catalogRevision) return null;
+        if (revision !== row.catalogRevision || await this.obsoleteScope(tx, row)) {
+          await tx.bioSensorCatalogDelivery.update({ where: { deliveryId: id }, data: { supersededAt: now } });
+          return null;
+        }
+        await lockBioSensorGateway(tx, row, now);
         const payload = bioSensorCatalogV1Schema.parse(row.payload);
         if (canonicalPayloadHash(payload) !== row.payloadHash) throw new ConflictException("BIO catalog envelope changed");
         await tx.bioSensorCatalogDelivery.update({ where: { deliveryId: id }, data: { lockedBy: token, leaseExpiresAt: new Date(now.getTime() + 10_000), attempts: { increment: 1 } } });
@@ -76,9 +82,12 @@ export class BioSensorCatalogOutboxService implements OnModuleInit {
       const row = await tx.bioSensorPreparationOperation.findUnique({ where: { commandId: id } });
       if (!row) return null;
       if (kind === "ack") {
-        if (!row.ackHash || row.ackPublishedAt || row.ackNextAttemptAt > now || row.ackLeaseExpiresAt && row.ackLeaseExpiresAt > now) return null;
-        const assignment = await lockBioSensorGateway(tx, row, now);
-        if (assignment !== row.assignmentVersion) return null;
+        if (!row.ackHash || row.ackPublishedAt || row.ackRetiredAt || row.ackNextAttemptAt > now || row.ackLeaseExpiresAt && row.ackLeaseExpiresAt > now) return null;
+        if (await this.obsoleteScope(tx, row)) {
+          await tx.bioSensorPreparationOperation.update({ where: { commandId: id }, data: { ackRetiredAt: now } });
+          return null;
+        }
+        await lockBioSensorGateway(tx, row, now);
         const payload = bioSensorPreparationAckV1Schema.parse(row.ackPayload);
         if (canonicalPayloadHash(payload) !== row.ackHash) throw new ConflictException("BIO preparation ACK changed");
         await tx.bioSensorPreparationOperation.update({ where: { commandId: id }, data: { ackLockedBy: token,
@@ -109,6 +118,29 @@ export class BioSensorCatalogOutboxService implements OnModuleInit {
     });
   }
 
+  private async obsoleteScope(tx: Prisma.TransactionClient, scope: { siteId: string; gatewayId: string; assignmentVersion: number }) {
+    await tx.$queryRaw`SELECT "id" FROM "Site" WHERE "id"=${scope.siteId} FOR UPDATE`;
+    await tx.$queryRaw`SELECT "id" FROM "Gateway" WHERE "id"=${scope.gatewayId} FOR UPDATE`;
+    const gateway = await tx.gateway.findUnique({ where: { id: scope.gatewayId }, select: { siteId: true, assignmentVersion: true, claimedAt: true } });
+    return !gateway || gateway.siteId !== scope.siteId || gateway.assignmentVersion !== scope.assignmentVersion || !gateway.claimedAt;
+  }
+
+  private async deferUnclaimable(kind: Kind, id: string) {
+    const now = new Date(); const retry = new Date(now.getTime() + 2_000);
+    // Current scopes with temporary certificate/claim metadata failure stay
+    // retryable, but move behind other due rows. Never steal an active lease.
+    if (kind === "catalog") {
+      await this.prisma.bioSensorCatalogDelivery.updateMany({ where: { deliveryId: id, status: "pending", supersededAt: null,
+        OR: [{ leaseExpiresAt: null }, { leaseExpiresAt: { lte: now } }] }, data: { nextAttemptAt: retry } });
+    } else if (kind === "ack") {
+      await this.prisma.bioSensorPreparationOperation.updateMany({ where: { commandId: id, ackPublishedAt: null, ackRetiredAt: null,
+        OR: [{ ackLeaseExpiresAt: null }, { ackLeaseExpiresAt: { lte: now } }] }, data: { ackNextAttemptAt: retry } });
+    } else {
+      await this.prisma.bioSensorPreparationOperation.updateMany({ where: { commandId: id, status: "pending", supersededAt: null,
+        OR: [{ leaseExpiresAt: null }, { leaseExpiresAt: { lte: now } }] }, data: { nextAttemptAt: retry } });
+    }
+  }
+
   private async publish(permit: Permit) {
     const remaining = permit.expiresAt ? permit.expiresAt.getTime() - Date.now() : 2_000;
     let success = false;
@@ -133,7 +165,7 @@ export class BioSensorCatalogOutboxService implements OnModuleInit {
         ...(success ? { publishedAt: now } : {}), nextAttemptAt: new Date(now.getTime() + 2_000), lockedBy: null, leaseExpiresAt: null } });
     } else {
       await this.prisma.bioSensorPreparationOperation.updateMany({ where: { commandId: permit.id, ackLockedBy: permit.token,
-        ackLeaseExpiresAt: { gt: now }, ackPublishedAt: null }, data: {
+        ackLeaseExpiresAt: { gt: now }, ackPublishedAt: null, ackRetiredAt: null }, data: {
         ...(success ? { ackPublishedAt: now } : {}), ackNextAttemptAt: new Date(now.getTime() + 2_000), ackLockedBy: null, ackLeaseExpiresAt: null } });
     }
   }

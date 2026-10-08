@@ -4,6 +4,8 @@
 
 ## 2026-10-08 공통 BIO 센서 카탈로그와 준비 checkpoint
 
+Task 2 검토 보완의 새 순방향 `20261008040000_bio_preparation_ack_retirement`은 preparation journal에 nullable `ackRetiredAt`만 추가한다. 당시 Gateway 삭제·현장 이동·assignment 변경·claim 철회로 전달 scope가 영구 폐기되면 ACK 전달만 종료하고 immutable 결과/ACK/hash·checkpoint `supersededAt`는 수정하지 않는다. 현재 scope의 인증서 만료 등 일시적 권한 실패는 catalog/ACK due를 2초 뒤로 옮겨 재시도하며, active lease와 retired ACK를 후보에서 제외해 뒤의 정상 전달을 계속 처리한다. Catalog의 폐기 scope/revision은 기존 delivery `supersededAt`로 종료한다. 첫 준비 결과 수용 시 저장된 `actorId`의 현재 active customer admin/assigned Site 권한을 기존 commission 검사로 재인가하며, 철회된 요청은 unverified 결과+rejected 내구 ACK로만 보관한다. 두 migration은 일회용 PostgreSQL에서만 적용했으며 운영 DB에는 적용하지 않았다.
+
 순방향 `20261008030000_bio_sensor_catalog_preparation`은 기존 registration/mode/automation ledger와 독립된 다섯 테이블을 추가한다. 운영 DB에는 적용하지 않았으며 승인 profile seed는 없다. singleton `BioSensorCatalogState(id=1, revision=1)`만 추가해 빈 catalog/현장 실행 OFF로 시작한다.
 
 | 테이블 | 저장 계약과 주요 제약 |

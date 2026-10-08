@@ -8,6 +8,7 @@ import { bioSensorCatalogTopics, bioSensorPreparationTopics } from "@led-control
 import { BioSensorProfilesService } from "../src/automation/bio-sensor-profiles.service";
 import { BioSensorPreparationService } from "../src/automation/bio-sensor-preparation.service";
 import { BioSensorCatalogOutboxService } from "../src/automation/bio-sensor-catalog-outbox.service";
+import { canonicalPayloadHash } from "../src/automation/automation-payload-hash";
 
 const fingerprint = { deviceType: 1, firmware: { major: 1, minor: 2, revision: 3, build: 4 }, sensorType: 1,
   infraredType: 0, ambientLightType: 0, hardwareType: 2 };
@@ -86,6 +87,114 @@ const profileInput = () => ({ profileId: randomUUID(), revision: 1, status: "app
     expect(await prisma.sensorModeOperation.count({ where: { fixtureId } })).toBe(0);
     expect(await prisma.command.count()).toBe(0);
     expect(JSON.stringify(operation)).not.toMatch(/deviceIdentityHash|meshAddress|bodyHexes|deviceUuid/);
+  });
+  async function acceptCatalog() {
+    const catalog = await profiles.buildCurrentCatalog(siteId, gatewayId);
+    const row = await prisma.bioSensorCatalogDelivery.findUniqueOrThrow({ where: { deliveryId: catalog.eventId } });
+    await profiles.ingestCatalogAck({ schemaVersion: 1, siteId, gatewayId, assignmentVersion: catalog.assignmentVersion, eventId: row.deliveryId,
+      catalogRevision: catalog.catalogRevision, deliveryPayloadHash: row.payloadHash, status: "applied", occurredAt: new Date().toISOString() }, { siteId, gatewayId });
+  }
+  it("first ready result reauthorizes saved actor after dispatch and admin removal", async () => {
+    await profiles.createRevision(operator, profileInput());
+    const created = await preparation.create(actor, request()); await acceptCatalog(); await worker.processBatch();
+    expect(delivered.some(value => value.payload.commandId === created.commandId && value.topic === bioSensorPreparationTopics.command(siteId, gatewayId))).toBe(true);
+    const value = await report(created.commandId);
+    await prisma.site.update({ where: { id: siteId }, data: { adminUserId: null } });
+    const ack = await ingest(value);
+    expect(ack.status).toBe("rejected");
+    const stored = await prisma.bioSensorPreparationOperation.findUniqueOrThrow({ where: { commandId: created.commandId } });
+    expect(stored.status).toBe("unverified"); expect(stored.result).toEqual(value);
+    expect(stored.ackPayload).toEqual(ack); expect(await ingest(value)).toEqual(ack);
+  });
+  it("catalog queue progresses past ten deleted scopes while retrying current expired certificate", async () => {
+    const catalog = await profiles.buildCurrentCatalog(siteId, gatewayId);
+    const valid = await prisma.bioSensorCatalogDelivery.findUniqueOrThrow({ where: { deliveryId: catalog.eventId } });
+    await prisma.bioSensorCatalogDelivery.update({ where: { deliveryId: valid.deliveryId }, data: { nextAttemptAt: new Date("2002-01-01") } });
+    const obsoleteIds: string[] = [];
+    for (let index = 0; index < 10; index++) {
+      const payload = { ...catalog, eventId: randomUUID(), gatewayId: randomUUID() };
+      obsoleteIds.push(payload.eventId);
+      await prisma.bioSensorCatalogDelivery.create({ data: { deliveryId: payload.eventId, siteId, gatewayId: payload.gatewayId,
+        assignmentVersion: 1, catalogRevision: BigInt(payload.catalogRevision), payload, payloadHash: canonicalPayloadHash(payload), nextAttemptAt: new Date("2000-01-01") } });
+    }
+    const leasedIds: string[] = [];
+    for (let index = 0; index < 10; index++) {
+      const payload = { ...catalog, eventId: randomUUID(), gatewayId: randomUUID() }; leasedIds.push(payload.eventId);
+      await prisma.bioSensorCatalogDelivery.create({ data: { deliveryId: payload.eventId, siteId, gatewayId: payload.gatewayId,
+        assignmentVersion: 1, catalogRevision: BigInt(payload.catalogRevision), payload, payloadHash: canonicalPayloadHash(payload),
+        nextAttemptAt: new Date("1999-01-01"), lockedBy: "another-worker", leaseExpiresAt: new Date(Date.now() + 300_000) } });
+    }
+    const serial = randomUUID(); const retryGateway = await prisma.gateway.create({ data: { siteId, name: serial, serialNumber: serial, firmwareVersion: "synthetic", assignmentVersion: 1, claimedAt: new Date() } });
+    const inventory = await prisma.gatewayInventory.create({ data: { serialNumber: serial, claimedGatewayId: retryGateway.id, claimedAt: new Date() } });
+    const certificate = await prisma.gatewayCertificate.create({ data: { inventoryId: inventory.id, gatewayId: retryGateway.id, purpose: "mqtt", status: "active", certificateSerial: serial,
+      fingerprint: serial, issuer: "synthetic", notBefore: new Date(Date.now() - 10_000), notAfter: new Date(Date.now() + 300_000) } });
+    const retryCatalog = await profiles.buildCurrentCatalog(siteId, retryGateway.id);
+    await prisma.bioSensorCatalogDelivery.update({ where: { deliveryId: retryCatalog.eventId }, data: { nextAttemptAt: new Date("2001-01-01") } });
+    await prisma.gatewayCertificate.update({ where: { id: certificate.id }, data: { notAfter: new Date(Date.now() - 1_000) } });
+    await worker.processBatch(); await worker.processBatch();
+    expect(delivered.some(value => value.topic === bioSensorCatalogTopics.command(siteId, gatewayId))).toBe(true);
+    expect(delivered.some(value => value.topic === bioSensorCatalogTopics.command(siteId, retryGateway.id))).toBe(false);
+    expect(await prisma.bioSensorCatalogDelivery.count({ where: { deliveryId: { in: obsoleteIds }, supersededAt: { not: null } } })).toBe(10);
+    expect(await prisma.bioSensorCatalogDelivery.count({ where: { deliveryId: { in: leasedIds }, lockedBy: "another-worker", supersededAt: null } })).toBe(10);
+    const deferred = await prisma.bioSensorCatalogDelivery.findUniqueOrThrow({ where: { deliveryId: retryCatalog.eventId } });
+    expect(deferred.status).toBe("pending"); expect(deferred.supersededAt).toBeNull(); expect(deferred.nextAttemptAt.getTime()).toBeGreaterThan(Date.parse("2001-01-01"));
+    await prisma.gatewayCertificate.update({ where: { id: certificate.id }, data: { notAfter: new Date(Date.now() + 300_000) } });
+    await prisma.bioSensorCatalogDelivery.update({ where: { deliveryId: retryCatalog.eventId }, data: { nextAttemptAt: new Date("2001-01-01") } });
+    await worker.processBatch();
+    expect(delivered.some(value => value.payload.eventId === retryCatalog.eventId)).toBe(true);
+  });
+  it("ACK queue progresses past ten old-assignment results and preserves their immutable receipt", async () => {
+    await profiles.createRevision(operator, profileInput());
+    const old = await preparation.create(actor, request()); await ingest(await report(old.commandId));
+    const source = await prisma.bioSensorPreparationOperation.findUniqueOrThrow({ where: { commandId: old.commandId } });
+    const obsoleteIds: string[] = [];
+    for (let index = 0; index < 10; index++) {
+      const commandId = randomUUID(); const eventId = randomUUID(); const payload = { ...(source.payload as any), commandId };
+      const result = { ...(source.result as any), commandId, eventId, commandPayloadHash: canonicalPayloadHash(payload) };
+      const ackPayload = { ...(source.ackPayload as any), commandId, eventId, reportPayloadHash: canonicalPayloadHash(result) };
+      obsoleteIds.push(commandId);
+      await prisma.bioSensorPreparationOperation.create({ data: { ...source, commandId, clientRequestId: randomUUID(), payload, payloadHash: canonicalPayloadHash(payload),
+        result, resultHash: canonicalPayloadHash(result), resultEventId: eventId, ackPayload, ackHash: canonicalPayloadHash(ackPayload), ackNextAttemptAt: new Date("2000-01-01") } });
+    }
+    await prisma.gateway.update({ where: { id: gatewayId }, data: { assignmentVersion: 2 } });
+    const current = await preparation.create(actor, request()); await ingest(await report(current.commandId));
+    await prisma.bioSensorPreparationOperation.update({ where: { commandId: current.commandId }, data: { ackNextAttemptAt: new Date("2001-01-01") } });
+    const currentSource = await prisma.bioSensorPreparationOperation.findUniqueOrThrow({ where: { commandId: current.commandId } });
+    const leasedIds: string[] = [];
+    for (let index = 0; index < 10; index++) {
+      const commandId = randomUUID(); const eventId = randomUUID(); const payload = { ...(currentSource.payload as any), commandId };
+      const result = { ...(currentSource.result as any), commandId, eventId, commandPayloadHash: canonicalPayloadHash(payload) };
+      const ackPayload = { ...(currentSource.ackPayload as any), commandId, eventId, reportPayloadHash: canonicalPayloadHash(result) };
+      leasedIds.push(commandId);
+      await prisma.bioSensorPreparationOperation.create({ data: { ...currentSource, commandId, clientRequestId: randomUUID(), payload, payloadHash: canonicalPayloadHash(payload),
+        result, resultHash: canonicalPayloadHash(result), resultEventId: eventId, ackPayload, ackHash: canonicalPayloadHash(ackPayload),
+        ackNextAttemptAt: new Date("1999-01-01"), ackLockedBy: "another-worker", ackLeaseExpiresAt: new Date(Date.now() + 300_000) } });
+    }
+    // Checkpoint supersession is not transport retirement: this current-scope
+    // original receipt still needs delivery after another request is created.
+    await preparation.create(actor, request());
+    await worker.processBatch(); await worker.processBatch();
+    expect(delivered.some(value => value.topic === bioSensorPreparationTopics.ack(siteId, gatewayId) && value.payload.commandId === current.commandId)).toBe(true);
+    expect(delivered.some(value => obsoleteIds.includes(value.payload.commandId))).toBe(false);
+    expect(delivered.some(value => leasedIds.includes(value.payload.commandId))).toBe(false);
+    expect(await prisma.bioSensorPreparationOperation.count({ where: { commandId: { in: leasedIds }, ackLockedBy: "another-worker", ackRetiredAt: null, ackPublishedAt: null } })).toBe(10);
+    const obsolete = await prisma.bioSensorPreparationOperation.findMany({ where: { commandId: { in: obsoleteIds } } });
+    expect(obsolete.every((row: any) => row.ackRetiredAt instanceof Date && row.ackPublishedAt === null)).toBe(true);
+    for (const row of obsolete) expect(row.ackHash).toBe(canonicalPayloadHash(row.ackPayload));
+    const receipt = await prisma.bioSensorPreparationOperation.findUniqueOrThrow({ where: { commandId: current.commandId } });
+    expect(receipt.supersededAt).toBeInstanceOf(Date); expect(receipt.ackRetiredAt).toBeNull();
+    delivered = [];
+    await prisma.bioSensorPreparationOperation.update({ where: { commandId: current.commandId }, data: { ackPublishedAt: null, ackNextAttemptAt: new Date("2000-01-01") } });
+    await prisma.gatewayCertificate.updateMany({ where: { gatewayId }, data: { notAfter: new Date(Date.now() - 1_000) } });
+    await worker.processBatch();
+    expect(delivered.some(value => value.payload.commandId === current.commandId)).toBe(false);
+    const retry = await prisma.bioSensorPreparationOperation.findUniqueOrThrow({ where: { commandId: current.commandId } });
+    expect(retry.ackNextAttemptAt.getTime()).toBeGreaterThan(Date.parse("2000-01-01")); expect(retry.ackRetiredAt).toBeNull(); expect(retry.ackPublishedAt).toBeNull();
+    expect(retry.ackPayload).toEqual(receipt.ackPayload); expect(retry.resultHash).toBe(receipt.resultHash);
+    await prisma.gatewayCertificate.updateMany({ where: { gatewayId }, data: { notAfter: new Date(Date.now() + 300_000) } });
+    await prisma.bioSensorPreparationOperation.update({ where: { commandId: current.commandId }, data: { ackNextAttemptAt: new Date("2000-01-01") } });
+    await worker.processBatch();
+    expect(delivered.some(value => value.payload.commandId === current.commandId && value.topic === bioSensorPreparationTopics.ack(siteId, gatewayId))).toBe(true);
   });
   it("separates provider profile permissions and assigned admin policy/preparation, rechecking persisted disabled roles", async () => {
     await expect(profiles.createRevision(actor, profileInput())).rejects.toThrow();

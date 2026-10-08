@@ -1748,6 +1748,7 @@ model BioSensorPreparationOperation {
   ackPayload        Json?
   ackHash           String?
   ackPublishedAt    DateTime?
+  ackRetiredAt      DateTime?
   ackNextAttemptAt  DateTime @default(now())
   ackAttempts       Int      @default(0)
   ackLockedBy       String?

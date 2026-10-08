@@ -84,15 +84,31 @@ export class BioSensorPreparationService {
         await tx.bioSensorPreparationOperation.update({ where: { commandId: row.commandId }, data: { ackNextAttemptAt: receivedAt, ackPublishedAt: null } });
         return bioSensorPreparationAckV1Schema.parse(row.ackPayload);
       }
+      const actor = await tx.user.findUnique({ where: { id: row.actorId }, select: { id: true, organizationId: true,
+        loginId: true, name: true, role: true, status: true, mustChangePassword: true, organization: { select: { type: true } } } });
+      let authorized = false;
+      if (actor) {
+        try {
+          // First-result admission uses the persisted requester, not the inbound
+          // Gateway or the principal that originally authorized dispatch. Site
+          // and membership locks already held here serialize assignment/status.
+          await this.access.assertCommissionInTransaction(tx, { ...actor, organizationType: actor.organization.type }, row.siteId);
+          authorized = true;
+        } catch (error) {
+          if (!(error instanceof NotFoundException)) throw error;
+          // Revoked requests keep an immutable audit result and rejected receipt,
+          // never an accepted ready checkpoint after their owner loses authority.
+        }
+      }
       const observedAt = Date.parse(report.observedAt);
       const fresh = !row.supersededAt && row.bindingHash === binding.bindingHash && row.catalogRevision === revision &&
         report.catalogRevision === Number(revision) && receivedAt < row.expiresAt && observedAt >= row.requestedAt.getTime() &&
         observedAt <= row.expiresAt.getTime() && observedAt <= receivedAt.getTime() + 1_000;
       const evidence = hasCurrentBioPreparationEvidence(report, await this.profiles.currentProfiles(tx));
-      const accepted = fresh && evidence;
+      const accepted = authorized && fresh && evidence;
       const ack = bioSensorPreparationAckV1Schema.parse({ schemaVersion: 1, commandId: report.commandId, siteId: report.siteId,
         gatewayId: report.gatewayId, fixtureId: report.fixtureId, nodeId: report.nodeId, assignmentVersion: report.assignmentVersion,
-        eventId: report.eventId, reportPayloadHash: hash, status: accepted ? "applied" : fresh ? "rejected" : "stale", occurredAt: receivedAt.toISOString() });
+        eventId: report.eventId, reportPayloadHash: hash, status: accepted ? "applied" : !authorized || fresh ? "rejected" : "stale", occurredAt: receivedAt.toISOString() });
       await tx.bioSensorPreparationOperation.update({ where: { commandId: row.commandId }, data: {
         result: report, resultHash: hash, resultEventId: report.eventId, status: accepted ? report.status : "unverified",
         ackPayload: ack, ackHash: canonicalPayloadHash(ack), ackNextAttemptAt: receivedAt, lockedBy: null, leaseExpiresAt: null } });
