@@ -109,11 +109,11 @@
 - command TTL은 최초 준비 결과 수용에만 사용한다. 상시 commission은 현재 confirmed binding·승인 catalog·서버의 정확 preparation applied/duplicate ACK에 결속한다. 반복 fresh GET 건강은 별도 proof로 V2 node-local revision/verifiedAt를 갱신한다. 재시작 후 저장된 건강은 복구하지 않고 새 GET 전 OFF/degraded를 유지한다.
 - dynamiccatalog/source를 한 수명 경계에서 교체하고 queued/cached receipt·authority 철회를 즉시 수행한다. 확인된 원상태/미확정 pending을 삭제하거나 profile승인을 환경변수로 주입하지 않는다. 기존 source intake/target/controller를 재사용한다.
 
-- [ ] **Step 1 RED:** 서로 다른 Fixture/native3개 동일profile매칭, 다른hardware거부, legacyunknown, serialquery/lateGET, setupmode-only, catalog교체/await중revocation, reconnect/restart·decoderfailure·healthage를 재현한다. 반복 healthy probe 중 exact snapshot pin/receipt 유지, unknownrev 거부·stage 실패 rollback·degraded/reconnect 뒤 역사 ACK 부활 거부도 확인한다.
-- [ ] **Step 2 RED 확인:** 신규 Gateway tests + 기존 source/production integration focused Vitest.
-- [ ] **Step 3 구현:** discovery→mapping/준비 관측 보존, catalog/handler/monitor/provider·실제 MQTT/ACK/index wiring을 연결한다. approved 기본catalog빈상태와 BlueZ 없는 BIO경로를 유지한다.
-- [ ] **Step 4 GREEN/문서:** 집중 Gateway unit/integration·typecheck/build, control/settings 갱신. 실제 RF/장비 배포 없이 가짜 transport만 사용한다.
-- [ ] **Step 5 검토·커밋:** report·독립 spec/quality 검토와 기존 unresolved/state 수명 확인 후 서버 준비 projection으로 넘긴다.
+- [x] **Step 1 RED:** discovery 누락·live API 부재·degraded startup을 재현했다. 신규 catalog의 최초 RED는 import failure였으며, 일부 통합 assertions은 구현 후 보강했다. 이를 순수 behavioral test-first로 과장하지 않는다. fix1은 실제 source/controller에서 F2 변화가 F1 pin/receipt를 끊는 경우와 profile 철회 후 명시 복원 차단을 behavioral RED2로 확인했다.
+- [x] **Step 2 RED 확인:** 신규 Gateway configuration/source/production integration 집중 검증. 3 distinct Fixture/native·다른 hardware/legacy·late GET·철회·stable pin·unknown context·rollback·재시작/decoder/fresh identity를 포함한다.
+- [x] **Step 3 구현:** `a574e133`+`5c787f32`의 discovery→mapping·카탈로그·준비/정확ACK·독립GET·authority·index/factory/MQTT와 `e379d159`의 source별 철회·복원 전용 journal identity를 연결했다. 승인 기본빈/OFF, 기존 mode TTL/OFF 및 strict V2 wire를 보존한다.
+- [x] **Step 4 GREEN/문서:** initial 집중13파일470/마지막수명26, fix1 집중5파일102/최종source36·Gatewaytypes/build/diff0; control/settings 갱신. 실제 RF/장비/broker/배포0이며 기존 pnpm warning은 후속 도구 사항이다.
+- [x] **Step 5 검토·커밋:** 독립 검토 Important2를 fix1에서 모두 ADDRESS하고 scoped re-review newC0/I0/M0으로 승인했다. degraded startup currentRevision=null·retained context release-only, 현재 same revision/hash snapshot 재전달은 Task4/6에서 수렴한다.
 
 ### Task 4: API 준비 projection·조건부 이벤트 활성화·등록 연결
 
