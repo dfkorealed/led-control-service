@@ -2159,14 +2159,12 @@ export class RealBackendLab {
     const socket = encodeURIComponent(this.postgresSocketDir);
     if (this.isolatedCadStorage && !this.storagePort) throw new Error("Owned CAD storage must start before API configuration");
     return {
-      // Explicitly override parent env and later dotenv without relaxing the
-      // production local-app TLS guard for the developer's separate endpoint.
+      // Own the lab's separate mTLS profile by overriding parent env and later
+      // dotenv: the local-app flag must not impose reserved loopback/8883
+      // identity or relax the developer endpoint's production TLS guard.
       DEV_LOCAL_APP_ONLY: "0",
       DATABASE_URL: `postgresql://led:led@localhost:${this.ports.postgres}/led_control?host=${socket}&schema=public`,
       REDIS_URL: `redis://127.0.0.1:${this.ports.redis}`,
-      // Own the lab's separate mTLS profile: an inherited local-app flag or
-      // later dotenv load must not impose the reserved loopback/8883 identity.
-      DEV_LOCAL_APP_ONLY: "0",
       MQTT_URL: `mqtts://localhost:${this.ports.mqtt}`,
       MQTT_PUBLIC_URL: `mqtts://localhost:${this.ports.mqtt}`,
       MQTT_CA_PATH: join(this.pkiDir, "ca.crt"), MQTT_CLIENT_CERT_PATH: join(this.pkiDir, "api.crt"),
