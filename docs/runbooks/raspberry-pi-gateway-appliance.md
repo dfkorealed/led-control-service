@@ -8,6 +8,12 @@
 
 `apps/gateway/scripts/bio-sensor-event-pilot-launcher.ts`는 기존 Task9 host handover의 bounded 후속이다. 이번 작업에서 SSH/staging/Docker/USB/RF/Gateway/DB/broker/START는 실행하지 않았다. 제품 profile·qualification·OFF와 기존 유지시간 UI는 변경하지 않는다. 아래는 **별도 실제 실행 승인 이후** 절차이며 지금 실행 지시가 아니다.
 
+### 2026-10-08 후속 운영 기록: 시험 전용 Node만 준비 완료
+
+사용자 별도 승인으로 공식 Node v22.23.2 Linux ARM64를 UID1000·0700 전용 경로에 설치했다. 호스트 실행 파일은 `/var/tmp/bio-trial-node-v22.23.2-20261008-fcd9537b28815640338be086/node-v22.23.2-linux-arm64/bin/node`다. 공식 HTTPS SHASUMS와 archive SHA256 `fff4078c5def658577f92c88db7db3bc0072924bfb93fe52c1e744a54e94abb8` 일치, binary SHA256 `1a638b0fe2b68da0489276aca95526c5122fc61ba54d6a2d0d00c1c92ab7b876`를 확인했다. PGP 검증은 하지 않았다. 버전 출력·staged launcher/pilot syntax·no-args 무동작·불완전 `--run` 거부만 확인했으며 실제 prepare/run·서비스 STOP/재시작·USB/RF 명령은 실행하지 않았다.
+
+시스템 Node/PATH가 생긴 것은 아니다. 후속 호스트 launcher 호출은 위 **절대 실행 파일**을 사용하며 private operator helper의 bare `node` 호출2곳도 실제 준비 전에 반영/검증해야 한다. 새 phase/receipt/인증 UI·현장 상태·중단 가능·별도 START 관문은 그대로 적용한다. 기존 approval/토큰은 재사용하지 않는다. 현재 원본은 설치 전후 unhealthy/MQTT 미연결 상태이므로 연결 복구 승인/진단이 먼저다. 자세한 software-only proof와 초기 권한 거부/로컬 SSH timeout 후 원격 완료 대조는 `docs/project-status.md`의 같은 날짜 기록을 따른다. 기존 서비스·global 설정·mapping·lock은 변경하지 않았다.
+
 1. 현재 원본의 full container ID·image config digest·실제 관찰 StartedAt과 fresh exact A/B Fixture/native/address256·259/net0/node/site/gateway/assignment를 운영자가 읽기 전용으로 확인한다. event/schedule/command/MQTT/scan/provision/refresh/recovery 순서8개 대기 count는 모두0이어야 한다. 이 결과를 `Approval` 타입의 `version:1`, `observedAt`, `expiresAt`(최대120초), `original`, `bindings`, `waiting`에 넣는 **trusted operator receipt**가 입력이다. launcher는 API/DB 확인을 대신하지 않는다.
 2. 같은 receipt의 `mapping`은 원본 `/data/mesh` mount의 canonical mapping 파일과 현재 SHA256, `sources`는 검토한 pilot/main·runtime source2개 경로/hash, `artifact`는 최신 self-contained pilot bundle 경로/hash다. `usb`는 fresh device·physical sysfs·ch341 driver·descriptor hash·GID, `usbPreflight`는 검토한 기존 `scripts/gateway-bio-usb-preflight.sh`의 경로/hash다. 수정 전 bundle이나10월6일 original StartedAt/phase/token을 fresh 근거로 쓰지 않는다. receipt는 operator 소유 canonical regular0600 파일로 보관한다.
 3. 로컬 prepare는 `pnpm exec tsx apps/gateway/scripts/bio-sensor-event-pilot-launcher.ts --prepare --approval=/절대/보호/receipt.json`이다. USB/Docker 없이 source/artifact를 검증하고 새 canonical `/tmp/bio-event-pilot-*`0700·불변0600 manifest/bootstrap·빈0700 evidence·nonsecret code0444를 만든다. 출력은 보호 bootstrap **경로만**이며 token은 그0600 파일 안에서만 읽는다. TTL이 지난 준비는 새 현재 receipt·새 phase로 다시 준비하며 기존 evidence/START.used를 삭제하거나 재사용하지 않는다.

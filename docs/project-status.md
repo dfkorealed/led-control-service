@@ -1,6 +1,13 @@
 # 메뉴 완성 작업 상태판
 
-기준일: 2026-10-07
+기준일: 2026-10-08
+
+## 2026-10-08 센서 시험용 호스트 Node 환경 — 격리 준비 완료, 실제 시험 미실행
+
+- 사용자가 승인한 시험 전용 Node v22.23.2 Linux ARM64를 Pi UID1000·0700 별도 경로에 준비했다. 정확한 실행 파일은 `/var/tmp/bio-trial-node-v22.23.2-20261008-fcd9537b28815640338be086/node-v22.23.2-linux-arm64/bin/node`다. 공식 HTTPS SHASUMS와 archive SHA256 `fff4078c5def658577f92c88db7db3bc0072924bfb93fe52c1e744a54e94abb8` 일치, binary SHA256 `1a638b0fe2b68da0489276aca95526c5122fc61ba54d6a2d0d00c1c92ab7b876`·AArch64 ELF·전체5866 member 추출 전 검사를 확인했다. PGP 서명 검증을 주장하지 않는다.
+- 실제 호스트에서 버전 출력, launcher/pilot syntax2건, 인자 없는 launcher의 무동작 기본 경로, 불완전 `--run`의 보호 입력 거부 등5건이 예상 결과였다. 마지막 거부는 exit1이 정상이며 실제 시험 실행이 아니다. 최초 다운로드 권한 거부와 후속 로컬 SSH60초 timeout 증거는 보존했다. 설치를 반복하지 않고 원격 완료 파일 및 정확한 helper PID309368의 `/proc` 부재로 완료를 대조했으며 소프트웨어 명령도 재실행하지 않았다.
+- 총괄이 private `trial-node-runtime-20261008/evidence-HTQhVB/summary.json`(SHA256 `bffd9a38681fa4e8dd9551cbaed806a03c53cc94fa85cdf628c87e7023dfc46c`)과 `remote-software-proof.json`(SHA256 `90fe00bd30ee837b9fe5878f03622689760b0f502e221bfa30eea6238a1ce5ae`)·원본 after를 대조했다. 원본 container ID/image/StartedAt/PID/restart0·mapping hash·기존 lock inode·검토 artifact는 불변이다. apt/global PATH·프로필·서비스·Docker 설정·DB/schema·PKI 변경과 START/STOP/USB/RF GET·SET·새 phase/approval/bootstrap·브라우저 서버 생성은0이다.
+- 연결은 별도 미완료다. 설치 전후 원본은 unhealthy/MQTT 미연결·heartbeat stale이며 after reason은 `mqtt_error`다. 원인은 아직 진단하지 않았고 DNS/PKI 복구·재시작은 하지 않았다. 오전 읽기 시 MQTT CRL은 유효하며 만료 예정은 오늘14:56:46 KST다. 후속 연결 복구 승인과 실제 실행 helper의 절대 Node 경로 반영, fresh 상태/현장 준비/중단 범위·새 START 확인이 필요하다. 어제 승인과 receipt는 재사용하지 않는다.
 
 ## 2026-10-07 A/B 센서 시험 — START 승인 후 호스트 실행환경 부재로 시작 전 중단
 
