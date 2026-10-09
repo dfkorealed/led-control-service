@@ -1,5 +1,5 @@
 import { installFirstScreenStatisticsFixtures, browserReport } from "./support/first-screen-statistics";
-import { expect, test } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "@playwright/test";
 import { installSettingsApiRoutes } from "./support/settings-api";
 import { expectNoHorizontalOverflow } from "./support/layout-assertions";
 
@@ -100,14 +100,15 @@ for (const [width, compact] of [[759, true], [760, false], [761, false]] as cons
 for (const width of [760, 760.5]) test(`records Chromium normalized iframe viewport requested ${width}`, async ({ page, baseURL }) => {
   await installSettingsApiRoutes(page, "viewer", { readyMapDocument: true });
   await page.goto("/settings?siteId=site-1");
-  // Playwright viewport sizes are integers; a real iframe provides a fractional
-  // CSS viewport while keeping the same application/React/media-query owner.
+  // Playwright's layout viewport is integer-normalized. The iframe preserves the
+  // requested CSS width for observation, but this test records observed integer
+  // behavior and is not evidence of physical fractional viewport support.
   await page.evaluate(({ width, url }) => {
     const frame = document.createElement("iframe"); frame.title = "fractional customer viewport";
     frame.style.width = `${width}px`; frame.style.height = "900px"; frame.style.border = "0"; frame.src = url; document.body.append(frame);
   }, { width, url: `${baseURL}/settings?siteId=site-1` });
   const frame = page.frameLocator('iframe[title="fractional customer viewport"]');
-  await expect(frame.getByRole("heading", { name: "설정 개요", exact: true })).toBeVisible();
+  await expect(frame.getByRole("heading", { name: "설정", level: 2, exact: true })).toBeVisible();
   const actual = await frame.locator("html").evaluate(() => ({ innerWidth, clientWidth: document.documentElement.clientWidth, compact: matchMedia("(width < 760px)").matches }));
   console.log(JSON.stringify({ requested: width, actual }));
   expect(actual.innerWidth).toBeGreaterThanOrEqual(760); expect(actual.compact).toBe(false);
@@ -115,8 +116,122 @@ for (const width of [760, 760.5]) test(`records Chromium normalized iframe viewp
   await expect(frame.locator('[data-shell-navigation="compact"]')).toHaveCount(0);
 });
 
+type CompactMapGeometry = {
+  documentY: number; mapClientHeight: number; zoom: string | null; viewport: { x: number; y: number; width: number; height: number; top: number; right: number; bottom: number; left: number };
+  surface: { x: number; y: number; width: number; height: number; top: number; right: number; bottom: number; left: number };
+  mapScroll: { left: number; top: number }; surfaceCamera: { left: number; top: number; width: number; height: number; scaleX: number; scaleY: number };
+  header: { x: number; y: number; width: number; height: number; top: number; right: number; bottom: number; left: number } | null;
+  nav: { x: number; y: number; width: number; height: number; top: number; right: number; bottom: number; left: number } | null;
+  clip: { left: number; top: number; right: number; bottom: number }; visible: number; surfaceVisible: number; viewportHit: boolean;
+};
+
+async function compactMapGeometry(map: Locator): Promise<CompactMapGeometry> {
+  return map.evaluate(node => {
+    const rect = (element: Element) => {
+      const box = element.getBoundingClientRect();
+      return { x: box.x, y: box.y, width: box.width, height: box.height, top: box.top, right: box.right, bottom: box.bottom, left: box.left };
+    };
+    const viewport = rect(node), surfaceNode = node.querySelector("[data-floor-map-surface]");
+    if (!surfaceNode) throw Error("Missing floor-map surface");
+    const surface = rect(surfaceNode), headerNode = document.querySelector("[data-shell-topbar]"), navNode = document.querySelector("[data-shell-navigation=compact]");
+    const header = headerNode ? rect(headerNode) : null, nav = navNode ? rect(navNode) : null;
+    const clip = { left: 0, top: header?.bottom ?? 0, right: innerWidth, bottom: nav?.top ?? innerHeight };
+    for (let parent = node.parentElement; parent; parent = parent.parentElement) {
+      const style = getComputedStyle(parent), bounds = rect(parent);
+      if (/auto|scroll|hidden|clip/.test(style.overflowY)) { clip.top = Math.max(clip.top, bounds.top); clip.bottom = Math.min(clip.bottom, bounds.bottom); }
+      if (/auto|scroll|hidden|clip/.test(style.overflowX)) { clip.left = Math.max(clip.left, bounds.left); clip.right = Math.min(clip.right, bounds.right); }
+    }
+    const visible = (box: typeof viewport) => Math.max(0, Math.min(box.right, clip.right) - Math.max(box.left, clip.left)) > 0
+      ? Math.max(0, Math.min(box.bottom, clip.bottom) - Math.max(box.top, clip.top)) : 0;
+    const center = { x: viewport.x + viewport.width / 2, y: viewport.y + viewport.height / 2 }, hit = document.elementFromPoint(center.x, center.y);
+    return { documentY: scrollY, mapClientHeight: (node as HTMLElement).clientHeight, zoom: node.getAttribute("data-zoom"), mapScroll: { left: (node as HTMLElement).scrollLeft, top: (node as HTMLElement).scrollTop },
+      surfaceCamera: { left: surface.left - viewport.left, top: surface.top - viewport.top, width: surface.width, height: surface.height, scaleX: surface.width / viewport.width, scaleY: surface.height / viewport.height }, viewport, surface, header, nav, clip,
+      visible: visible(viewport), surfaceVisible: visible(surface), viewportHit: hit === node || node.contains(hit) };
+  });
+}
+
+async function nativeDocumentWheel(page: Page, map: Locator, direction: 1 | -1) {
+  const before = await compactMapGeometry(map);
+  const header = page.locator("[data-shell-topbar]");
+  await expect(header).toBeVisible();
+  const packet = await header.evaluate(headerNode => {
+    const rect = (element: Element) => {
+      const box = element.getBoundingClientRect();
+      return { x: box.x, y: box.y, width: box.width, height: box.height, top: box.top, right: box.right, bottom: box.bottom, left: box.left };
+    };
+    const header = rect(headerNode), canvas = rect(document.querySelector("[data-testid=target-selection-map-viewport]")!);
+    const point = { x: header.left + 4, y: header.top + 12 }, hit = document.elementFromPoint(point.x, point.y), owner = document.scrollingElement;
+    return { point, header, canvas, documentY: scrollY, hitHeader: hit === headerNode || headerNode.contains(hit), outsideCanvas: point.x < canvas.left || point.x > canvas.right || point.y < canvas.top || point.y > canvas.bottom,
+      documentOwner: owner === document.documentElement || owner === document.body };
+  });
+  expect(packet.hitHeader).toBe(true); expect(packet.outsideCanvas).toBe(true); expect(packet.documentOwner).toBe(true);
+  const zoom = await map.getAttribute("data-zoom");
+  expect(zoom).not.toBeNull();
+  await page.evaluate(() => {
+    (window as typeof window & { compactManualWheel?: { trusted: boolean }[] }).compactManualWheel = [];
+    window.addEventListener("wheel", event => (window as typeof window & { compactManualWheel: { trusted: boolean }[] }).compactManualWheel!.push({ trusted: event.isTrusted }), { once: true, capture: true, passive: true });
+  });
+  await page.mouse.move(packet.point.x, packet.point.y); await page.mouse.wheel(0, 180 * direction);
+  if (direction > 0) await expect.poll(() => page.evaluate(() => scrollY)).toBeGreaterThan(packet.documentY);
+  else await expect.poll(() => page.evaluate(() => scrollY)).toBeLessThan(packet.documentY);
+  await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+  const wheel = await page.evaluate(() => (window as typeof window & { compactManualWheel: { trusted: boolean }[] }).compactManualWheel);
+  expect(wheel.length).toBeGreaterThan(0); expect(wheel.every(event => event.trusted)).toBe(true);
+  await expect(map).toHaveAttribute("data-zoom", zoom!);
+  const after = await compactMapGeometry(map);
+  expect(after.mapScroll).toEqual(before.mapScroll); expect(after.surfaceCamera).toEqual(before.surfaceCamera);
+}
+
+async function acquireCompactManualMap(page: Page, map: Locator, minimum: number) {
+  for (let attempt = 0; attempt < 12; attempt++) {
+    const geometry = await compactMapGeometry(map);
+    if (geometry.visible >= minimum && geometry.surfaceVisible > 0 && geometry.viewportHit) return geometry;
+    // Compact manual control is document flow: only trusted input on visible
+    // non-map header chrome may acquire the below-fold workspace.
+    await nativeDocumentWheel(page, map, 1);
+  }
+  throw Error(`Compact manual map did not reach its ${minimum}px safe intersection`);
+}
+
+async function compactNativePoint(page: Page, target: Locator, map: Locator) {
+  for (let attempt = 0; attempt < 12; attempt++) {
+    const point = await target.evaluate(node => {
+      const rect = (element: Element) => {
+        const box = element.getBoundingClientRect();
+        return { x: box.x, y: box.y, width: box.width, height: box.height, top: box.top, right: box.right, bottom: box.bottom, left: box.left };
+      };
+      const box = rect(node), header = document.querySelector("[data-shell-topbar]"), nav = document.querySelector("[data-shell-navigation=compact]"), modal = node.closest('[role="dialog"], [aria-modal="true"]');
+      const clip = { left: 0, top: modal ? 0 : Math.max(header ? rect(header).bottom : 0, 0), right: innerWidth, bottom: modal ? innerHeight : Math.min(nav ? rect(nav).top : innerHeight, innerHeight) };
+      for (let parent = node.parentElement; parent; parent = parent.parentElement) {
+        const style = getComputedStyle(parent), bounds = rect(parent);
+        if (/auto|scroll|hidden|clip/.test(style.overflowY)) { clip.top = Math.max(clip.top, bounds.top); clip.bottom = Math.min(clip.bottom, bounds.bottom); }
+        if (/auto|scroll|hidden|clip/.test(style.overflowX)) { clip.left = Math.max(clip.left, bounds.left); clip.right = Math.min(clip.right, bounds.right); }
+      }
+      const visible = { left: Math.max(box.left, clip.left), top: Math.max(box.top, clip.top), right: Math.min(box.right, clip.right), bottom: Math.min(box.bottom, clip.bottom) };
+      const width = Math.max(0, visible.right - visible.left), height = Math.max(0, visible.bottom - visible.top);
+      const hitRegion = width >= 44 && height >= 44 ? { left: visible.left + (width - 44) / 2, top: visible.top + (height - 44) / 2 } : null;
+      const points = hitRegion ? [[hitRegion.left + 1, hitRegion.top + 1], [hitRegion.left + 43, hitRegion.top + 1], [hitRegion.left + 1, hitRegion.top + 43], [hitRegion.left + 43, hitRegion.top + 43], [hitRegion.left + 22, hitRegion.top + 22]] : [];
+      const hits = points.map(([x, y]) => document.elementFromPoint(x, y)), hitSelf = hits.length === 5 && hits.every(hit => hit === node || node.contains(hit));
+      const mapHit = hits.some(hit => Boolean(hit?.closest('[data-testid="target-selection-map-viewport"]'))), modalHit = !modal || hits.every(hit => Boolean(hit && modal.contains(hit)));
+      const center = hitRegion ? { x: hitRegion.left + 22, y: hitRegion.top + 22 } : { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+      const direction: 1 | -1 = box.top >= clip.bottom ? 1 : box.bottom <= clip.top ? -1 : box.y + box.height / 2 >= (clip.top + clip.bottom) / 2 ? 1 : -1;
+      return { center, width, height, hitSelf, mapHit, modal: Boolean(modal), modalHit, direction };
+    });
+    if (point.width >= 44 && point.height >= 44 && point.hitSelf && point.modalHit && !point.mapHit) return point.center;
+    if (point.modal) throw Error("Modal target is not reachable inside its foreground layer");
+    await nativeDocumentWheel(page, map, point.direction);
+  }
+  throw Error("Compact direct control did not reach a safe 44px native target");
+}
+
+async function compactNativeClick(page: Page, target: Locator, map: Locator) {
+  const point = await compactNativePoint(page, target, map); await page.mouse.click(point.x, point.y);
+}
+
 for (const [width, height] of [[320, 568], [390, 844], [430, 932], [1280, 900]]) {
-  for (const menu of ["monitoring", "control"]) test(`${menu} actual map first screen at ${width}px`, async ({ page }) => {
+  for (const menu of ["monitoring", "control"]) {
+    if (menu === "control" && width < 760) continue;
+    test(`${menu} actual map first screen at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height });
     await installSettingsApiRoutes(page, "admin", { readyMapDocument: true });
     await page.goto(`/${menu}?siteId=site-1`);
@@ -143,11 +258,41 @@ for (const [width, height] of [[320, 568], [390, 844], [430, 932], [1280, 900]])
     expect(await page.evaluate(() => window.scrollY)).toBe(0);
     await expectNoHorizontalOverflow(page);
     await page.screenshot({ path: `../../.superpowers/sdd/2026-10-06-mobile-first-screen/task-2-${menu}-${width}.png` });
-  });
+    });
+  }
 }
 
+for (const [width, height] of [[320, 568], [390, 844], [430, 932]]) test(`control compact manual map acquired after trusted document reach at ${width}px`, async ({ page }) => {
+  await page.setViewportSize({ width, height });
+  await installSettingsApiRoutes(page, "admin", { readyMapDocument: true });
+  await page.goto("/control?siteId=site-1");
+  const map = page.getByTestId("target-selection-map-viewport");
+  await expect(map).toBeVisible(); await expect(map.locator("[data-floor-map-surface]")).toBeVisible();
+  expect(await map.count()).toBe(1); expect(await map.locator("[data-floor-map-surface]").count()).toBe(1);
+  const originalMap = await map.elementHandle(), originalSurface = await map.locator("[data-floor-map-surface]").elementHandle();
+  if (!originalMap || !originalSurface) throw Error("Missing original compact map identity");
+  const initial = await compactMapGeometry(map);
+  console.log(JSON.stringify({ phase: "initial", menu: "control", width, height, ...initial }));
+  expect(initial.documentY).toBe(0);
+  expect((await page.getByRole("button", { name: /^알람센터/ }).boundingBox())!.height).toBeGreaterThanOrEqual(52);
+  const marker = map.locator("[data-spatial-map-marker]").first();
+  expect((await marker.boundingBox())!.height).toBeGreaterThanOrEqual(48);
+  const tab = page.getByRole("tab", { name: "수동 제어" });
+  expect((await tab.boundingBox())!.height).toBeGreaterThanOrEqual(44); expect((await tab.boundingBox())!.width).toBeGreaterThanOrEqual(112);
+  const geometry = await acquireCompactManualMap(page, map, width === 320 ? 120 : 240);
+  expect(await map.count()).toBe(1); expect(await map.locator("[data-floor-map-surface]").count()).toBe(1);
+  expect(await map.evaluate((node, original) => node === original, originalMap)).toBe(true);
+  expect(await map.locator("[data-floor-map-surface]").evaluate((node, original) => node === original, originalSurface)).toBe(true);
+  expect(geometry.zoom).toBe(initial.zoom); expect(geometry.mapScroll).toEqual(initial.mapScroll); expect(geometry.surfaceCamera).toEqual(initial.surfaceCamera);
+  expect(geometry.mapClientHeight).toBeGreaterThanOrEqual(240); expect(geometry.viewport.height).toBeGreaterThanOrEqual(240);
+  expect(geometry.visible).toBeGreaterThanOrEqual(width === 320 ? 120 : 240);
+  console.log(JSON.stringify({ phase: "compact-manual-acquired", menu: "control", width, height, ...geometry }));
+  await expectNoHorizontalOverflow(page);
+  await page.screenshot({ path: `../../.superpowers/sdd/2026-10-06-mobile-first-screen/task-2-control-${width}.png` });
+});
 
-test("compact selection/execution disclosure and resize preserve pending command UUID without replay", async ({ page }) => {
+
+test("compact direct controls and resize preserve pending command UUID without replay", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   const posts: string[] = [];
   page.on("request", request => { if (request.method() === "POST") posts.push(new URL(request.url()).pathname); });
@@ -158,27 +303,38 @@ test("compact selection/execution disclosure and resize preserve pending command
       lastSeenAt: "2026-10-06T00:00:00.000Z", gateway: { id: "99999999-9999-4999-8999-999999999903", name: "Gateway", connectionStatus: "online" },
       controllable: true, controlBlockReason: null }] });
   await page.goto("/control?siteId=99999999-9999-4999-8999-999999999901");
-  await page.getByRole("button", { name: "선택 도구 열기" }).click();
-  await page.getByRole("button", { name: "조명 목록 열기" }).click();
+  const map = page.getByTestId("target-selection-map-viewport");
+  const tools = page.getByRole("group", { name: "지도 선택 도구", exact: true }), listOpen = page.getByRole("button", { name: "조명 목록 열기", exact: true });
+  await expect(tools).toBeVisible(); await expect(page.getByRole("textbox", { name: "밝기 수치", exact: true })).toBeVisible(); await expect(page.locator("[data-control-submit]")).toBeVisible();
+  for (const name of ["선택 도구 열기", "선택 도구 접기", "밝기 실행 설정 열기", "밝기 실행 설정 접기"]) await expect(page.getByRole("button", { name, exact: true })).toHaveCount(0);
+  await compactNativeClick(page, listOpen, map);
   const drawer = page.getByRole("dialog", { name: "조명 목록" });
   const choice = drawer.getByRole("checkbox").first();
-  await choice.locator("xpath=ancestor::label[1]").click();
+  const choiceLabel = choice.locator("xpath=ancestor::label[1]");
+  await compactNativeClick(page, choiceLabel, map);
   await expect(choice).toBeChecked();
-  await drawer.getByRole("button", { name: "조명 목록 닫기" }).click();
-  await expect(page.getByRole("button", { name: "조명 목록 열기" })).toBeFocused();
-  await page.getByRole("button", { name: "선택 도구 접기" }).click();
-  await page.getByRole("button", { name: "밝기 실행 설정 열기" }).click();
-  await page.locator("[data-control-submit]").click();
+  expect(api.dimmingRequests).toHaveLength(0);
+  await compactNativeClick(page, drawer.getByRole("button", { name: "조명 목록 닫기" }), map);
+  await expect(listOpen).toBeFocused();
+  const brightness = page.getByRole("textbox", { name: "밝기 수치", exact: true });
+  await compactNativePoint(page, brightness, map); await brightness.fill("70"); await brightness.press("Enter");
+  await expect(brightness).toHaveValue("70");
+  expect(api.dimmingRequests).toHaveLength(0);
+  const apply = page.locator("[data-control-submit]"); await expect(apply).toBeEnabled(); await compactNativeClick(page, apply, map);
   await expect.poll(() => api.dimmingRequests.length).toBe(1);
-  const uuid = api.dimmingRequests[0].clientRequestId;
-  await page.getByRole("button", { name: "밝기 실행 설정 접기" }).click();
+  const originalPayload = structuredClone(api.dimmingRequests[0]), uuid = originalPayload.clientRequestId;
+  expect(originalPayload).toMatchObject({ siteId: "99999999-9999-4999-8999-999999999901", brightness: 70,
+    target: { type: "fixtures", fixtureIds: ["99999999-9999-4999-8999-999999999904"] } });
   await expect(page.getByRole("status", { name: "명령 진행 상태" })).toBeVisible();
+  await expect(brightness).toBeDisabled(); await expect(apply).toBeDisabled();
   await page.setViewportSize({ width: 1280, height: 900 });
-  await expect(page.getByRole("textbox", { name: "밝기 수치" })).toBeVisible();
+  await expect(brightness).toBeVisible(); await expect(brightness).toBeDisabled(); await expect(apply).toBeDisabled();
+  expect(api.dimmingRequests[0]).toEqual(originalPayload);
   await page.setViewportSize({ width: 390, height: 844 });
-  await expect(page.getByRole("button", { name: "밝기 실행 설정 열기" })).toHaveAttribute("aria-expanded", "false");
+  await expect(tools).toBeVisible(); await expect(brightness).toBeVisible(); await expect(brightness).toBeDisabled(); await expect(apply).toBeDisabled();
+  for (const name of ["선택 도구 열기", "선택 도구 접기", "밝기 실행 설정 열기", "밝기 실행 설정 접기"]) await expect(page.getByRole("button", { name, exact: true })).toHaveCount(0);
   expect(api.dimmingRequests).toHaveLength(1);
-  expect(api.dimmingRequests[0].clientRequestId).toBe(uuid);
+  expect(api.dimmingRequests[0]).toEqual(originalPayload); expect(api.dimmingRequests[0].clientRequestId).toBe(uuid);
   expect(posts).toEqual(["/api/commands/dimming"]);
 });
 

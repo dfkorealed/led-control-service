@@ -18,6 +18,15 @@ async function setup(page: Page, fixtures = [row(1), row(2)]) {
   await page.goto(`/monitoring?siteId=${ids.siteId}`);
   await expect(page.locator("[data-spatial-map-marker]").first()).toBeVisible();
 }
+async function openFinderWithStatus(page: Page, status: "점검 필요" | "오프라인") {
+  await page.getByRole("button", { name: "조명 검색·상세", exact: true }).click();
+  const inspector = page.getByRole("dialog", { name: "조명 검색·상세", exact: true });
+  const filter = inspector.getByRole("button", { name: "상태 필터", exact: true });
+  await filter.click();
+  await page.getByRole("option", { name: status, exact: true }).click();
+  await inspector.getByRole("button", { name: "조명 목록 보기", exact: true }).click();
+  return inspector;
+}
 async function geometry(page: Page) {
   return page.getByTestId("monitoring-map-viewport").evaluate(viewport => {
     const shell = viewport.closest("[data-monitoring-map-shell]")!;
@@ -71,8 +80,7 @@ for (const width of [1440, 1024, 390, 320]) {
     await expect(full).toBeVisible();
     await expect(full).toBeFocused();
     await expect(page.getByTestId("monitoring-map-viewport")).toHaveAttribute("data-zoom", "1.1");
-    await page.getByRole("button", { name: "점검 필요", exact: true }).click();
-    const drawer = page.getByRole("dialog", { name: "조명 검색·상세", exact: true });
+    const drawer = await openFinderWithStatus(page, "점검 필요");
     await expect(drawer.getByRole("list", { name: "조명 목록" }).getByRole("button", { name: /B2-L2/ })).toBeVisible();
     await expect(drawer.getByRole("list", { name: "조명 목록" }).getByRole("button", { name: /B2-L1/ })).toHaveCount(0);
     await drawer.getByRole("list", { name: "조명 목록" }).getByRole("button", { name: /B2-L2/ }).click();
@@ -146,8 +154,7 @@ test("맵 안의 일반 휠은 포인터 기준으로 확대하고 수평 휠 �
 });
 test("0개 상태 KPI는 이전 조명의 선택·상세를 보여주지 않는다", async ({ page }) => {
   await setup(page);
-  await page.getByRole("button", { name: "오프라인", exact: true }).click();
-  const drawer = page.getByRole("dialog", { name: "조명 검색·상세", exact: true });
+  const drawer = await openFinderWithStatus(page, "오프라인");
   await expect(drawer.getByText("오프라인 조명이 없습니다.")).toBeVisible();
   await expect(drawer.getByRole("button", { name: "상세 조명 선택" })).toHaveCount(0);
   await expect(drawer.getByRole("complementary", { name: "선택 조명 상세" })).toHaveCount(0);
@@ -196,8 +203,8 @@ test("a fault on the last cursor page can be located from its KPI", async ({ pag
   const fixtures = Array.from({ length: 1000 }, (_, index) => ({ ...row(index + 1), status: index === 999 ? "fault" as const : "online" as const, statusReason: "reported" as const }));
   await setup(page, fixtures);
   await expect(page.locator("[data-spatial-map-marker]")).toHaveCount(1000);
-  await page.getByRole("button", { name: "점검 필요", exact: true }).click();
-  const list = page.getByRole("list", { name: "조명 목록" });
+  const drawer = await openFinderWithStatus(page, "점검 필요");
+  const list = drawer.getByRole("list", { name: "조명 목록" });
   await expect(list.getByRole("button")).toHaveCount(1);
   await list.getByRole("button", { name: /B2-L1000/ }).click();
   await expect(page.getByRole("dialog", { name: "B2-L1000 조명 정보", exact: true })).toBeVisible();
@@ -213,7 +220,7 @@ test("next-page failure stops automatic loops, preserves the KPI, and offers man
     return route.fallback();
   });
   await page.goto(`/monitoring?siteId=${ids.siteId}`);
-  await page.getByRole("button", { name: "점검 필요", exact: true }).click();
+  await openFinderWithStatus(page, "점검 필요");
   await expect(page.getByText("일부 조명만 표시 중입니다. 다음 조명 보기를 눌러 다시 시도해 주세요.")).toBeVisible();
   await expect(page.getByText("검색 결과가 없습니다.")).toHaveCount(0);
   await expect(page.getByRole("button", { name: "점검 필요", exact: true })).toContainText("1");

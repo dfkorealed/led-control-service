@@ -55,6 +55,78 @@ async function expectRecovery(page: Page, title: string) {
   await expectMinimumTouchTargets(page, "[data-recovery-actions]");
 }
 
+type AuthTraceEvent = {
+  order: number;
+  type: "request" | "response" | "failed" | "route";
+  requestIndex: number;
+  method: string;
+  path: string;
+  status?: number;
+  errorText?: string;
+  routeCallback?: number;
+};
+
+type AuthTrace = { routeCallbacks: number; events: AuthTraceEvent[] };
+
+function authResult(event: AuthTraceEvent) {
+  return event.type === "response" ? `status:${event.status}` : `failed:${event.errorText}`;
+}
+
+function expectStrictModeBoot(trace: AuthTrace, expected: { results: string[]; additionalRetries: number }) {
+  const starts = trace.events.filter(event => event.type === "request");
+  const routes = trace.events.filter(event => event.type === "route");
+  const aborts = trace.events.filter(event => event.type === "failed" && event.errorText === "net::ERR_ABORTED");
+  const results = trace.events.filter(event => event.type === "response" || (event.type === "failed" && event.errorText !== "net::ERR_ABORTED"));
+  expect(starts).toHaveLength(trace.routeCallbacks);
+  expect(starts.map(event => event.requestIndex)).toEqual(routes.map(event => event.requestIndex));
+  expect(routes.map(event => event.routeCallback)).toEqual(starts.map((_, index) => index + 1));
+  expect(trace.events.every(event => event.method === "GET")).toBe(true);
+  expect(aborts).toHaveLength(1);
+  expect(aborts[0]!.requestIndex).toBe(starts[0]!.requestIndex);
+  expect(aborts[0]!.order).toBeLessThan(results[0]!.order);
+  expect(results).toHaveLength(1 + expected.additionalRetries);
+  expect(results.map(authResult)).toEqual(expected.results);
+  return results;
+}
+
+function observeAuthTraffic(page: Page, matches: (request: Request) => boolean) {
+  const events: AuthTraceEvent[] = [];
+  const requestIndexes = new WeakMap<Request, number>();
+  let eventOrder = 0;
+  let nextRequestIndex = 0;
+  let routeCallbacks = 0;
+  const requestIndex = (request: Request) => {
+    const existing = requestIndexes.get(request);
+    if (existing !== undefined) return existing;
+    const index = nextRequestIndex++;
+    requestIndexes.set(request, index);
+    return index;
+  };
+  const record = (type: AuthTraceEvent["type"], request: Request, extra: Partial<AuthTraceEvent> = {}) => {
+    events.push({ order: eventOrder++, type, requestIndex: requestIndex(request), method: request.method(), path: new URL(request.url()).pathname, ...extra });
+  };
+  page.on("request", request => { if (matches(request)) record("request", request); });
+  page.on("response", response => { if (matches(response.request())) record("response", response.request(), { status: response.status() }); });
+  page.on("requestfailed", request => {
+    if (matches(request)) record("failed", request, { errorText: request.failure()?.errorText ?? "unknown" });
+  });
+  return {
+    routeCallback(request: Request) {
+      if (!matches(request)) return;
+      routeCallbacks++;
+      record("route", request, { routeCallback: routeCallbacks });
+    },
+    snapshot(): AuthTrace {
+      return { routeCallbacks, events: [...events] };
+    },
+    async preserve(label: string, trace: AuthTrace = { routeCallbacks, events }) {
+      const evidence = { label, ...trace };
+      console.log(`TASK11_CAUSAL_AUTH_JSON ${JSON.stringify(evidence)}`);
+      await test.info().attach(label, { body: JSON.stringify(evidence), contentType: "application/json" });
+    }
+  };
+}
+
 for (const width of [1440, 1024, 390, 320]) {
   test(`503 exhausts two retries and keyboard manual retry restores the real customer shell at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 900 });
@@ -109,39 +181,60 @@ for (const width of [1440, 1024, 390, 320]) {
   });
 }
 
-test("network exhaustion recovers without reloading the document", async ({ page }) => {
+test("network exhaustion recovers without reloading the document", { tag: "@task11-causal-auth" }, async ({ page }) => {
   await installSettingsApiRoutes(page, "admin");
   let available = false;
   let requests = 0;
+  const causal = observeAuthTraffic(page, request => request.url().endsWith("/api/auth/me"));
   await page.route("**/api/auth/me", (route) => {
+    causal.routeCallback(route.request());
     requests++;
     return available ? route.fallback() : route.abort("connectionrefused");
   });
   await page.goto("/monitoring?siteId=site-1");
   await expectRecovery(page, "서비스에 연결할 수 없습니다");
-  expect(requests).toBe(3);
+  const initialTrace = causal.snapshot();
+  await causal.preserve("network-exhaustion-auth-initial-trace", initialTrace);
+  expectStrictModeBoot(initialTrace, {
+    results: ["failed:net::ERR_CONNECTION_REFUSED", "failed:net::ERR_CONNECTION_REFUSED", "failed:net::ERR_CONNECTION_REFUSED"],
+    additionalRetries: 2
+  });
   await page.evaluate(() => { (window as Window & { recoverySentinel?: string }).recoverySentinel = "same-document"; });
   available = true;
   await page.getByRole("button", { name: "다시 시도" }).click();
   await expect(page.getByRole("button", { name: "맵 선택" })).toBeVisible();
+  const retriedTrace = causal.snapshot();
+  await causal.preserve("network-exhaustion-auth-manual-retry-trace", retriedTrace);
   expect(await page.evaluate(() => (window as Window & { recoverySentinel?: string }).recoverySentinel)).toBe("same-document");
-  expect(requests).toBe(4);
+  const retryResults = expectStrictModeBoot(retriedTrace, {
+    results: ["failed:net::ERR_CONNECTION_REFUSED", "failed:net::ERR_CONNECTION_REFUSED", "failed:net::ERR_CONNECTION_REFUSED", "status:200"],
+    additionalRetries: 3
+  });
+  expect(retryResults[3]!.requestIndex).toBe(4);
+  expect(requests).toBe(retriedTrace.routeCallbacks);
 });
 
-test("401 uses the existing login without retry", async ({ page }) => {
+test("401 uses the existing login without retry", { tag: "@task11-causal-auth" }, async ({ page }) => {
   let requests = 0;
+  const causal = observeAuthTraffic(page, request => request.url().endsWith("/api/auth/me"));
   await page.route("**/api/auth/me", (route) => {
+    causal.routeCallback(route.request());
     requests++;
     return route.fulfill({ status: 401, json: { message: secret } });
   });
-  await page.goto("/");
+  await page.goto("/login");
   await expect(page.getByRole("heading", { name: "킨다 로그인" })).toBeVisible();
-  expect(requests).toBe(1);
+  const trace = causal.snapshot();
+  await causal.preserve("login-401-auth-trace", trace);
+  const results = expectStrictModeBoot(trace, { results: ["status:401"], additionalRetries: 0 });
+  expect(results[0]!.requestIndex).toBe(1);
+  expect(requests).toBe(trace.routeCallbacks);
   await expect(page.getByRole("alert")).toHaveCount(0);
 });
 
-test("403 relogin clears only tenant drafts and reaches login even when logout fails", async ({ page }) => {
+test("403 relogin clears only tenant drafts and reaches login even when logout fails", { tag: "@task11-causal-auth" }, async ({ page }) => {
   const requests: string[] = [];
+  const causal = observeAuthTraffic(page, request => ["/api/auth/me", "/api/auth/logout"].includes(new URL(request.url()).pathname));
   await page.addInitScript(() => {
     localStorage.setItem("led-floor-draft:v1:old-tenant", "private draft");
     localStorage.setItem("unrelated-preference", "keep");
@@ -150,18 +243,29 @@ test("403 relogin clears only tenant drafts and reaches login even when logout f
     const path = new URL(route.request().url()).pathname;
     // Vite의 /src/api/*.ts 모듈도 glob에 맞으므로 실제 same-origin API 경로만 대체한다.
     if (!path.startsWith("/api/")) return route.continue();
+    causal.routeCallback(route.request());
     requests.push(path);
     return route.fulfill({ status: route.request().url().endsWith("/auth/me") ? 403 : 503, json: { message: secret } });
   });
   await page.goto("/settings");
   await expectRecovery(page, "다시 로그인이 필요합니다");
-  expect(requests).toEqual(["/api/auth/me"]);
+  const initialTrace = causal.snapshot();
+  await causal.preserve("forbidden-relogin-auth-initial-trace", initialTrace);
+  const initialResults = expectStrictModeBoot(initialTrace, { results: ["status:403"], additionalRetries: 0 });
+  expect(initialResults[0]!.requestIndex).toBe(1);
+  expect(requests.filter(path => path === "/api/auth/me")).toHaveLength(initialTrace.routeCallbacks);
   expect(await page.evaluate(() => localStorage.getItem("led-floor-draft:v1:old-tenant"))).toBeNull();
   await page.keyboard.press("Tab");
   await expect(page.getByRole("button", { name: "다시 로그인" })).toBeFocused();
   await page.keyboard.press("Enter");
   await expect(page.getByRole("heading", { name: "킨다 로그인" })).toBeVisible();
-  expect(requests).toEqual(["/api/auth/me", "/api/auth/logout"]);
+  const reloginTrace = causal.snapshot();
+  await causal.preserve("forbidden-relogin-auth-relogin-trace", reloginTrace);
+  expect(reloginTrace.events.filter(event => event.type === "request" && event.path === "/api/auth/me")).toHaveLength(2);
+  expect(reloginTrace.events.filter(event => event.type === "request" && event.path === "/api/auth/logout" && event.method === "POST")).toHaveLength(1);
+  expect(reloginTrace.events.filter(event => event.type === "response" && event.path === "/api/auth/logout" && event.status === 503)).toHaveLength(1);
+  expect(requests.filter(path => path === "/api/auth/me")).toHaveLength(2);
+  expect(requests.filter(path => path === "/api/auth/logout")).toHaveLength(1);
   expect(await page.evaluate(() => localStorage.getItem("unrelated-preference"))).toBe("keep");
 });
 

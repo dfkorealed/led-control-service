@@ -478,6 +478,10 @@ test("Task6 native mouse direct selection is additive, honors the 8px threshold 
   await first.click();
   await expect(first).toHaveAttribute("aria-pressed", "false");
   await first.click();
+  // Manual workspaces require the public explicit tool; both following blank drags are additive areas.
+  const areaTool = page.getByRole("button", { name: "영역 선택", exact: true });
+  await areaTool.click();
+  await expect(areaTool).toHaveAttribute("aria-pressed", "true");
   const bounds = (await viewport.locator("[data-floor-map-surface]").boundingBox())!;
   const blank = { x: bounds.x + bounds.width * .2, y: bounds.y + bounds.height * .7 };
   await viewport.focus();
@@ -544,6 +548,10 @@ test("Task6 synthetic touch hold cancels on a second pointer without a residual 
   const api = await installControlMapRoutes(page);
   await page.goto(`/control?siteId=${ids.site}`);
   const viewport = page.getByTestId("target-selection-map-viewport");
+  // Synthetic touch still consumes the public explicit area tool.
+  const areaTool = page.getByRole("button", { name: "영역 선택", exact: true });
+  await areaTool.click();
+  await expect(areaTool).toHaveAttribute("aria-pressed", "true");
   const surface = (await viewport.locator("[data-floor-map-surface]").boundingBox())!;
   const point = { x: surface.x + surface.width * .25, y: surface.y + surface.height * .7 };
   await dispatchTouchPointer(page, viewport, "pointerdown", { pointerId: 11, pointerType: "touch", button: 0, buttons: 1, clientX: point.x, clientY: point.y });
@@ -554,6 +562,10 @@ test("Task6 synthetic touch hold cancels on a second pointer without a residual 
   await dispatchTouchPointer(page, viewport, "pointermove", { pointerId: 11, pointerType: "touch", button: -1, buttons: 1, clientX: point.x + 40, clientY: point.y + 20 });
   await dispatchTouchPointer(page, viewport, "pointerup", { pointerId: 11, pointerType: "touch", button: 0, buttons: 0, clientX: point.x + 40, clientY: point.y + 20 });
   await expect(page.getByTestId("map-area-selection")).toHaveCount(0);
+  // Restore select only for the original real-pin ghost-click contract after cancellation.
+  const selectTool = page.getByRole("button", { name: "개별 선택", exact: true });
+  await selectTool.click();
+  await expect(selectTool).toHaveAttribute("aria-pressed", "true");
   const pin = marker(page, "B2-L001");
   await pin.evaluate(element => (element as HTMLButtonElement).click());
   await expect(pin).toHaveAttribute("aria-pressed", "false");
@@ -569,6 +581,9 @@ test("Task6 native pointer capture loss and keyboard blur cancel an area without
   const viewport = page.getByTestId("target-selection-map-viewport");
   await expect(viewport).toBeVisible();
   await marker(page, "B2-L001").click();
+  const areaTool = page.getByRole("button", { name: "영역 선택", exact: true });
+  await areaTool.click();
+  await expect(areaTool).toHaveAttribute("aria-pressed", "true");
   for (const cancel of ["capture", "keyboard-blur"] as const) {
     await viewport.focus();
     const point = await viewport.evaluate(element => {

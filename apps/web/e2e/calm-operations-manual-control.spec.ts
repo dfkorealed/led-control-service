@@ -29,6 +29,37 @@ async function clickRecentCommand(target: Locator) {
   await target.click();
 }
 
+// Native End and chrome hover can leave browser-owned workspace motion pending.
+// These two rAF snapshots only observe a stable valid workspace state; they never drive scrolling or change polling defaults.
+async function waitForShortWorkspaceEnd(workspace: Locator) {
+  await expect.poll(() => workspace.evaluate(async element => {
+    const snapshot = () => ({ top: element.scrollTop, range: element.scrollHeight - element.clientHeight, height: element.clientHeight, content: element.scrollHeight });
+    const before = snapshot();
+    await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+    const after = snapshot();
+    return before.range > 0 && after.range > 0 && before.top >= 0 && after.top >= 0
+      && before.top === after.top && before.range === after.range && before.height === after.height && before.content === after.content;
+  })).toBe(true);
+}
+
+async function waitForSettledShortWorkspaceChrome(chrome: Locator) {
+  await expect.poll(() => chrome.evaluate(async element => {
+    const workspace = element.closest<HTMLElement>("[data-control-layout]");
+    if (!workspace) return false;
+    const snapshot = () => {
+      const bounds = element.getBoundingClientRect();
+      const hit = document.elementFromPoint(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2);
+      return { top: workspace.scrollTop, range: workspace.scrollHeight - workspace.clientHeight, workspaceHeight: workspace.clientHeight, content: workspace.scrollHeight, x: bounds.x, y: bounds.y, width: bounds.width, chromeHeight: bounds.height, nativeHit: hit === element || element.contains(hit) };
+    };
+    const before = snapshot();
+    await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+    const after = snapshot();
+    return before.nativeHit && after.nativeHit && before.top === after.top && before.range === after.range
+      && before.workspaceHeight === after.workspaceHeight && before.content === after.content && before.x === after.x && before.y === after.y
+      && before.width === after.width && before.chromeHeight === after.chromeHeight;
+  })).toBe(true);
+}
+
 const ids = {
   site: "77777777-7777-4777-8777-777777777701",
   floor: "77777777-7777-4777-8777-777777777702",
@@ -205,9 +236,13 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
       await expect.poll(() => workspace.evaluate(element => element.scrollTop)).toBe(0);
       await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(0);
       await chrome.click();
+      await expect(chrome).toBeFocused();
       await page.keyboard.press("End");
+      await waitForShortWorkspaceEnd(workspace);
       const wheelChrome = page.getByRole("button", { name: "구역 관리", exact: true });
       await wheelChrome.hover();
+      // Preserve the original native wheel; wait only for End/hover-owned motion to settle first.
+      await waitForSettledShortWorkspaceChrome(wheelChrome);
       const cameraBeforeWheel = await page.getByTestId("target-selection-map-viewport").getAttribute("data-zoom");
       expect(await wheelChrome.evaluate(element => {
         const bounds = element.getBoundingClientRect();

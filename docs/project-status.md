@@ -1,6 +1,13 @@
 # 메뉴 완성 작업 상태판
 
-기준일: 2026-10-08
+기준일: 2026-10-09
+
+## 2026-10-09 ATLAS 현재 상태 — QA 보존 체크포인트·고정 업스트림 통합 준비, 최종 관문 미완료
+
+- Tasks1–10의 실제 구현·독립 검토는 보존한다. R84 이후 PC 비차단 전달 경로/실제 owner directional scroll 방향과 현재6 QA 소비 소스의 검토를 확보했다. 최초 수동 이력/휠 미도달·과거 전체149 부분 결과와 후속 국소 관측은 단계별 기록이며 서로 합산하지 않는다. 아래 R83의 ‘현재 HOLD’는 당시 기록이다.
+- R130에서 기존18 실제 LIST573/18·모바일38 identity를 확인했지만 mock/browser·ONE default-constructor Lab·canonical은 미착수다. 기본 HEAD가 `aee641d76cf7d0e52a2ad5fa563ae9908e625bcb`로 이동해 기존 source 관문을 중지했고, root는9 overlap 평가와27 body SHA를 대조했다. 옛859/4501 source·receipt·raw/PNG/실패/backup은 불변이며 최신 통합 검증으로 확대하지 않는다.
+- R135는 검토된6 QA와 계획/상태판의 정확한 보존 commit 후 동일 격리 branch에서 고정 upstream을 normal merge하는 범위만 승인했다. ATLAS logo/compact select/양테마/직접 지도 도구·명령 owner와 이미 커밋된 BIO 검사·서버 자격/owner+commission·복원 안전을 함께 보존한다. 이 체크포인트는 최종 QA PASS가 아니며 새 통합 focused/static/support 검사·root 검토·fresh full18/ONE Lab/canonical/whole review와 기본 checkout ff-only는 아직이다.
+- 사용자 목업2문서·기존 서비스·운영 DB/장비/remote는 변경하지 않는다. catalogempty/policyOFF·실물 WebView/RF/광학 HIL 및 운영 승인 한계와 양쪽 역사 원문을 유지한다. 실제 완료 후에만 Task11/12 체크와 병합 상태를 갱신한다.
 
 ## 2026-10-07 ATLAS 라이트·다크 실제 서비스 UI 적용 — Tasks 1–10 검토 완료·2026-10-08 승인 후 최종 검증 재개
 

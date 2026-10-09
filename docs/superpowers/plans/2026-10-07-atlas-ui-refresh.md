@@ -10,7 +10,13 @@
 
 **Spec:** [다크 포함 설계 명세](../specs/2026-10-07-atlas-ui-refresh-design.md)
 
-상태: **Tasks 1–10 구현·독립 검토 완료, 2026-10-08 사용자 재개 승인·Task 11 PC 검증 구조 보완 진행·Task 12 검증 후 로컬 병합 예정**. 사용자가 선택한 실행 방식은 **페이지별 에이전트 분담, 메인 오케스트레이션, 별도 브랜치 후 로컬 병합**이다. 완료 표시는 독립 검토와 실제 증거를 회수한 뒤 갱신한다. 역사적 웹 모듈 실패의 원인과 통합 브라우저 검증은 Task11 관문에 남아 있어 전체 완료·병합을 뜻하지 않는다.
+상태: **2026-10-09 Tasks 1–10 구현·독립 검토 완료, 검토된 QA 6파일 보존 체크포인트·고정 업스트림 통합 준비, Task 11 새 통합 소스 전체 관문과 Task 12 기본 checkout 병합 미완료**. 사용자가 선택한 실행 방식은 **페이지별 에이전트 분담, 메인 오케스트레이션, 별도 브랜치 후 로컬 병합**이다. 아래 R83 HOLD·과거 수치/실패는 당시 기록이며 현재 진행 상태는 이 요약과 최신 기록을 따른다. 체크포인트는 최종 QA PASS가 아니고, 완료 표시는 독립 검토와 실제 증거를 회수한 뒤 갱신한다.
+
+### 2026-10-09 현재 통합 준비 (R84–R135)
+
+- R84의 비차단 target-to-owner 경로·실제 directional scroll 검증 방향 뒤, 기존 명령/48·44px hit/viewport240·문서Y0·카메라·UUID/추가 POST0 기준을 보존한 현재 QA 소비 6파일의 소스 검토를 확보했다. 최초 PC 이력/휠 단언 미도달과 후속 실제 owner 이동 관측·국소 회귀는 서로 다른 단계다. 기존 전체149의 부분 PASS/FAIL과 처음부터 도달하지 못한 명령/대비/정상 PNG 범위를 지우거나 합산하지 않는다.
+- R130은 기존 mock18의 실제 LIST573/18(모바일38 identity)을 회수했지만 browser/mock 실행·ONE RealBackendLab·canonical은 시작하지 않았다. 기본 branch가 `aee641d76cf7d0e52a2ad5fa563ae9908e625bcb`로 이동해 후속 관문을 HOLD했다. 기존859 freeze/4501 binding·raw/PNG/실패/backup은 불변이며 새 통합 source의 PASS로 재사용하지 않는다.
+- R131–R133의 9개 overlap·양쪽 보존 의미/문서 whole-byte 평가를 root가 검토했다. R135는 정확6 QA+계획/상태판 보존 commit과 같은 격리 branch의 고정 upstream normal merge만 승인한다. 이미 승인·커밋된 BIO 검사/current eligibility/owner+commission/hold·restore/V1V2 계약을 ATLAS 테마·직접 도구와 함께 보존하며 신규 API/DB/장비 동작을 설계하지 않는다. 준비 생성·지정 unit/static·별도 support-contract 확인 뒤 root 독립 검토와 새 full18→ONE Lab→canonical→whole 관문을 따로 수행한다. 기본 checkout/사용자 목업2문서·기존 서비스/DB/장비/remote는 아직 변경하지 않는다.
 
 ## Global Constraints
 
