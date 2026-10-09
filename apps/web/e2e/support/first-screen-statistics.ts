@@ -270,4 +270,3 @@ function ranking(dimension: string, metric: string, sort: string, from: string, 
     unranked: []
   };
 }
-

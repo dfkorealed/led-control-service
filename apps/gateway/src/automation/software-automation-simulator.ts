@@ -6,6 +6,57 @@ import type {
   BleMeshResyncReport,
 } from "../gateway";
 import type { ClockTrustProvider } from "./clock-trust-provider";
+import { BioFrameCodec } from "../bio/bio-frame-codec";
+import { decodeBioResponse } from "../bio/bio-command-codec";
+import { BioSensorPulseIntake, type BioSensorPulseHealth, type BioSensorPulseMapping,
+  type BioSensorPulseProfile } from "../bio/bio-sensor-pulse-intake";
+import type { VehicleSensorInput } from "./vehicle-event-runtime";
+
+/** In-process synthetic seam only: no environment/IPC/bootstrap path supplies this
+ * authority. A profile and independent healthy connection must be injected by a test.
+ * The product allowlist and cloud capability remain unchanged. */
+export function createSoftwareBioPulseInput(options: {
+  nodeEnv: string | undefined;
+  enabled: boolean;
+  kind: "synthetic-test-only";
+  sourceFixtureId: string;
+  mapping: BioSensorPulseMapping;
+  profiles: readonly BioSensorPulseProfile[];
+  monotonicClock(): number;
+  health(): BioSensorPulseHealth;
+  connection(): { epoch: string; generation: number };
+  onPulse(input: Extract<VehicleSensorInput, { type: "pulse" }>): Promise<unknown>;
+}) {
+  if (options.nodeEnv === "production" && options.enabled) {
+    throw new Error("software automation simulator is forbidden in production");
+  }
+  if (options.nodeEnv !== "test" || !options.enabled || options.kind !== "synthetic-test-only") return null;
+  const intake = new BioSensorPulseIntake();
+  return {
+    async injectFrame(bytes: Uint8Array): Promise<{ accepted: boolean; reason: string }> {
+      // Each injection is one complete test notification. Never carry a malformed or
+      // partial synthetic frame into a later connection's receipt generation.
+      const frames = new BioFrameCodec().push(bytes);
+      if (frames.length !== 1 || frames[0]?.type !== "frame" || frames[0].frame.protocol !== "crc16" ||
+        bytes.length !== frames[0].frame.payload.length + 6) return { accepted: false, reason: "FRAME_INVALID" };
+      let response;
+      try { response = decodeBioResponse(frames[0].frame); }
+      catch { return { accepted: false, reason: "FRAME_INVALID" }; }
+      if (response.kind !== "sensor-status-candidate") return { accepted: false, reason: "NOT_PULSE_CANDIDATE" };
+      const connection = { ...options.connection() };
+      const candidate = { ...response, receivedMonotonicMs: options.monotonicClock(), generation: connection.generation };
+      const result = intake.accept(candidate, options.mapping, options.profiles, options.health());
+      if (!result.accepted) return { accepted: false, reason: result.reason };
+      await options.onPulse({ type: "pulse", sourceFixtureId: options.sourceFixtureId,
+        receivedMonotonicMs: result.receivedMonotonicMs!, receipt: {
+          nativeUuid: options.mapping.nativeUuid!, logicalAddress: candidate.logicalAddress,
+          networkId: candidate.networkId, sequence: candidate.sequence,
+          connectionEpoch: connection.epoch, connectionGeneration: connection.generation
+        } });
+      return { accepted: true, reason: "ACCEPTED" };
+    }
+  };
+}
 
 export type SoftwareAutomationSensorEdge = "detected" | "cleared";
 

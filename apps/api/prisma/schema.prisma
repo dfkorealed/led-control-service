@@ -349,6 +349,18 @@ enum VehicleSensorCapabilityStatus {
   unsupported
 }
 
+enum VehicleSensorProtocol {
+  bluez_stateful
+  bio_usb_pulse
+}
+
+enum BioPulseReadiness {
+  off
+  shadow
+  ready
+  degraded
+}
+
 enum EnergyReportStatus {
   queued
   processing
@@ -441,6 +453,9 @@ model Site {
   vehicleEventRules          VehicleEventRule[]
   manualOverrides            ManualOverride[]
   automationExecutions       AutomationExecution[]
+  bioPulseTelemetryEvents    BioPulseTelemetryEvent[]
+  bioPulseTelemetryProjections BioPulseTelemetryProjection[]
+  bioSensorPolicy            BioSensorSitePolicy?
   energyFixtureIdentities    EnergyFixtureIdentity[]
   energyGroupIdentities      EnergyGroupIdentity[]
   energyReportJobs           EnergyReportJob[]
@@ -556,6 +571,7 @@ model AuditLog {
   ipAddress      String?
   userAgent      String?
   createdAt      DateTime @default(now())
+  bioRegistrationRevalidations BioRegistrationRevalidationOperation[]
 
   @@index([siteId, createdAt])
   @@index([actorId, createdAt])
@@ -1288,6 +1304,9 @@ model Fixture {
   energyStateCursor          FixtureEnergyStateCursor?
   processedStateEvents       ProcessedGatewayEvent[]
   commandResults             CommandFixtureResult[]
+  sensorModeOperations       SensorModeOperation[]
+  bioSensorPreparations      BioSensorPreparationOperation[]
+  bioRegistrationRevalidations BioRegistrationRevalidationOperation[]
   lightingScheduleTargets    LightingScheduleFixture[]
   vehicleEventSources        VehicleEventSource[]
   vehicleEventTargets        VehicleEventTarget[]
@@ -1384,10 +1403,13 @@ model Gateway {
   eventWatermarks         GatewayEventWatermark[]
   certificates            GatewayCertificate[]
   automationConfiguration GatewayAutomationConfiguration?
+  automationProtocolDeclarations GatewayAutomationProtocolSupport[]
   lightingSchedules       LightingSchedule[]
   vehicleEventRules       VehicleEventRule[]
   manualOverrides         ManualOverride[]
   automationExecutions    AutomationExecution[]
+  bioPulseTelemetryEvents BioPulseTelemetryEvent[]
+  bioPulseTelemetryProjections BioPulseTelemetryProjection[]
   automationOutboxEntries MqttOutbox[]                    @relation("AutomationConfigOutboxGateway")
   monitoringIncidents     MonitoringIncident[]
   monitoringRefreshBatches MonitoringRefreshBatch[]
@@ -1532,6 +1554,14 @@ model MeshNode {
   serialNumber                      String?
   meshAddress                       String
   firmwareVersion                   String
+  vehicleSensorProtocol             VehicleSensorProtocol         @default(bluez_stateful)
+  bioPulseReadiness                  BioPulseReadiness             @default(off)
+  bioPulseProfileId                  String?
+  bioPulseVerifiedAt                 DateTime?
+  /// Initial commission mode GET instant, separate from refreshed link health.
+  /// No historical backfill; must exactly match current accepted preparation.
+  bioPulseSensorModeVerifiedAt       DateTime?
+  bioPulseCapabilityRevision        BigInt                        @default(0)
   vehicleSensorCapabilityStatus     VehicleSensorCapabilityStatus @default(unknown)
   vehicleSensorCapabilityVerifiedAt DateTime?
   vehicleSensorCapabilityRevision   BigInt                        @default(0)
@@ -1682,6 +1712,204 @@ model Command {
 
 // A failed protected sweep must not starve later eligible Commands. This row
 // exists only while its original Command still exists and cascades with it.
+model BioSensorProfileRevision {
+  profileId      String
+  revision       BigInt
+  status         String
+  fingerprint    Json
+  bodyHexes      Json
+  linkPolicy     Json
+  evidenceDigest String
+  reuseScope     String
+  actorId        String
+  createdAt      DateTime @default(now())
+
+  @@id([profileId, revision])
+  @@index([status])
+}
+
+model BioSensorCatalogState {
+  id       Int    @id @default(1)
+  revision BigInt @default(1)
+}
+
+/// Durable serializer-owned convergence. No FK so deleted/old assignment work
+/// retains attribution; retiredAt is distinct from successful materialization.
+model BioSensorConvergenceWork {
+  siteId String
+  gatewayId String
+  assignmentVersion Int
+  catalogRevision BigInt
+  requestedAt DateTime @default(now())
+  nextAttemptAt DateTime @default(now())
+  completedAt DateTime?
+  retiredAt DateTime?
+  @@id([siteId, gatewayId, assignmentVersion, catalogRevision])
+}
+
+model BioSensorSitePolicy {
+  siteId                 String  @id
+  enabled                Boolean @default(false)
+  ownerUserId            String?
+  maximumResponseSeconds Int?
+  escalationAction       String?
+  revision               BigInt
+  site                   Site    @relation(fields: [siteId], references: [id], onDelete: Cascade)
+}
+
+// Durable, immutable envelopes are independent of automation configuration.
+model BioSensorCatalogDelivery {
+  deliveryId        String   @id @default(uuid())
+  siteId            String
+  gatewayId         String
+  assignmentVersion Int
+  catalogRevision   BigInt
+  payload           Json
+  payloadHash       String
+  status            String   @default("pending")
+  publishedAt       DateTime?
+  appliedAt         DateTime?
+  ackPayload        Json?
+  ackHash           String?
+  attempts          Int      @default(0)
+  nextAttemptAt     DateTime @default(now())
+  lockedBy          String?
+  leaseExpiresAt    DateTime?
+  supersededAt      DateTime?
+  createdAt         DateTime @default(now())
+
+  @@unique([siteId, gatewayId, assignmentVersion, catalogRevision])
+  @@index([status, nextAttemptAt, leaseExpiresAt])
+}
+
+model BioSensorPreparationOperation {
+  commandId         String   @id @default(uuid())
+  siteId            String
+  gatewayId         String
+  fixtureId         String
+  nodeId            String
+  assignmentVersion Int
+  deviceIdentityHash String
+  meshAddress       String
+  bindingHash       String
+  clientRequestId   String
+  actorId           String
+  operation         String
+  catalogRevision   BigInt
+  payload           Json
+  payloadHash       String
+  status            String   @default("pending")
+  requestedAt       DateTime
+  expiresAt         DateTime
+  supersededAt      DateTime?
+  result            Json?
+  resultHash        String?
+  resultEventId     String?  @unique
+  ackPayload        Json?
+  ackHash           String?
+  ackPublishedAt    DateTime?
+  ackRetiredAt      DateTime?
+  ackNextAttemptAt  DateTime @default(now())
+  ackAttempts       Int      @default(0)
+  ackLockedBy       String?
+  ackLeaseExpiresAt DateTime?
+  publishedAt       DateTime?
+  attempts          Int      @default(0)
+  nextAttemptAt     DateTime @default(now())
+  lockedBy          String?
+  leaseExpiresAt    DateTime?
+  createdAt         DateTime @default(now())
+  fixture           Fixture  @relation(fields: [fixtureId, siteId], references: [id, siteId], onDelete: Cascade, onUpdate: Restrict)
+
+  @@unique([siteId, actorId, clientRequestId])
+  @@index([fixtureId, supersededAt])
+  @@index([status, nextAttemptAt, leaseExpiresAt])
+  @@index([ackNextAttemptAt, ackLeaseExpiresAt])
+}
+
+model SensorModeOperation {
+  commandId           String   @id @default(uuid())
+  siteId              String
+  gatewayId           String
+  fixtureId           String
+  nodeId              String
+  meshAddress         String
+  assignmentVersion   Int
+  requestedById       String
+  clientRequestId     String
+  operation           String
+  requeryOfCommandId   String?
+  requestedAt         DateTime
+  expiresAt           DateTime
+  status              String   @default("pending")
+  supersededAt        DateTime?
+  result              Json?
+  resultHash          String?
+  resultEventId       String?  @unique
+  payload             Json
+  publishedAt         DateTime?
+  attempts            Int      @default(0)
+  nextAttemptAt       DateTime @default(now())
+  lockedBy            String?
+  leaseExpiresAt      DateTime?
+  fixture             Fixture  @relation(fields: [fixtureId, siteId], references: [id, siteId], onDelete: Cascade, onUpdate: Restrict)
+  requeryOf           SensorModeOperation? @relation("SensorModeRequery", fields: [requeryOfCommandId], references: [commandId], onDelete: Restrict)
+  requeries           SensorModeOperation[] @relation("SensorModeRequery")
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@unique([siteId, requestedById, clientRequestId])
+  @@index([status, nextAttemptAt, leaseExpiresAt])
+  @@index([fixtureId, supersededAt])
+}
+
+// Current-device proof is independent of historical registration completion.
+model BioRegistrationRevalidationOperation {
+  commandId                    String   @id @default(uuid())
+  siteId                       String
+  gatewayId                    String
+  floorId                      String
+  fixtureId                    String
+  nodeId                       String
+  sessionId                    String
+  discoveredNodeId             String
+  originalProvisionCommandId   String
+  originalProvisionPayloadHash String
+  requestedById                String
+  clientRequestId              String
+  assignmentVersion            Int
+  deviceIdentityHash           String
+  meshAddress                  String
+  bindingSnapshot              Json
+  bindingHash                  String
+  payload                      Json
+  payloadHash                  String
+  requestedAt                  DateTime
+  expiresAt                    DateTime
+  applyDeadlineAt              DateTime
+  status                       String   @default("pending")
+  result                       Json?
+  resultHash                   String?
+  resultEventId                String?  @unique
+  proofAcceptedAt              DateTime?
+  supersededAt                 DateTime?
+  appliedAt                    DateTime?
+  auditId                      String?  @unique
+  publishedAt                  DateTime?
+  attempts                     Int      @default(0)
+  nextAttemptAt                DateTime @default(now())
+  lockedBy                     String?
+  leaseExpiresAt               DateTime?
+  fixture                      Fixture  @relation(fields: [fixtureId, siteId], references: [id, siteId], onDelete: Cascade, onUpdate: Restrict)
+  audit                        AuditLog? @relation(fields: [auditId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  createdAt                    DateTime @default(now())
+  updatedAt                    DateTime @updatedAt
+
+  @@unique([siteId, requestedById, clientRequestId])
+  @@index([status, nextAttemptAt, leaseExpiresAt])
+  @@index([fixtureId, supersededAt])
+}
+
 model CommandRetentionAttempt {
   commandId     String   @id
   reasonCode    String
@@ -1941,6 +2169,10 @@ model MqttOutbox {
   monitoringRefreshBatchId String?     @unique
   gatewayId           String?
   applicationAckKey   String?          @unique
+  /// Server-recorded assignment at snapshot creation; legacy NULL never qualifies V2 telemetry.
+  automationAssignmentVersion Int?
+  /// Snapshot-time BIO source Fixture -> MeshNode mapping, never reconstructed from current membership.
+  automationSourceBindings Json?
   revision            Int?
   payloadHash         String?
   topic               String
@@ -1981,6 +2213,22 @@ model GatewayAutomationConfiguration {
 
   @@unique([gatewayId, siteId])
   @@index([siteId, syncStatus])
+}
+
+/// Retained protocol declaration history. Never infer support from config ACKs.
+model GatewayAutomationProtocolSupport {
+  gatewayId            String
+  siteId               String
+  assignmentVersion    Int
+  declarationRevision  BigInt
+  declarationId        String @unique
+  maxSnapshotVersion   Int
+  payloadHash          String
+  declaredAt           DateTime
+  receivedAt           DateTime @default(now())
+  gateway              Gateway @relation(fields: [gatewayId, siteId], references: [id, siteId], onDelete: Cascade, onUpdate: Restrict)
+
+  @@id([gatewayId, assignmentVersion, declarationRevision])
 }
 
 model LightingSchedule {
@@ -2040,6 +2288,7 @@ model VehicleEventRule {
   gatewayId         String
   name              String
   status            AutomationRuleStatus  @default(enabled)
+  sensorProtocol    VehicleSensorProtocol @default(bluez_stateful)
   dimmingEnabled    Boolean
   brightnessPercent Int
   holdSeconds       Int                   @default(60)
@@ -2137,6 +2386,60 @@ model ManualOverrideFixture {
   @@id([manualOverrideId, fixtureId])
   @@index([fixtureId])
   @@index([siteId, gatewayId])
+}
+
+model BioPulseTelemetryEvent {
+  id                String @id @default(uuid())
+  siteId            String
+  gatewayId         String
+  assignmentVersion Int
+  eventId           String
+  sequence          BigInt
+  revision          Int
+  ruleId            String
+  occurrenceKey     String
+  sourceFixtureId   String
+  targetFixtureIds  String[]
+  kind              String
+  occurredAt        DateTime
+  payload           Json
+  payloadHash       String
+  disposition       String
+  receivedAt        DateTime @default(now())
+  site              Site @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  gateway           Gateway @relation(fields: [gatewayId, siteId], references: [id, siteId], onDelete: Cascade, onUpdate: Restrict)
+
+  @@unique([gatewayId, eventId])
+  @@unique([gatewayId, assignmentVersion, sequence])
+  @@index([siteId, sourceFixtureId, receivedAt])
+}
+
+model BioPulseTelemetryProjection {
+  gatewayId         String
+  siteId            String
+  assignmentVersion Int
+  ruleId            String
+  occurrenceKey     String
+  revision          Int
+  sourceFixtureId   String
+  sourceMeshNodeId   String
+  targetFixtureIds  String[]
+  sequence          BigInt
+  lastPulseAt       DateTime?
+  lastPulseSequence BigInt?
+  health            String @default("unverified")
+  healthReason      String?
+  degradedSince     DateTime?
+  restorationPending Boolean?
+  restorationReason String?
+  configurationReadback Json?
+  lastEventAt       DateTime
+  receivedAt        DateTime @default(now())
+  site              Site @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  gateway           Gateway @relation(fields: [gatewayId, siteId], references: [id, siteId], onDelete: Cascade, onUpdate: Restrict)
+
+  @@id([gatewayId, assignmentVersion, ruleId, occurrenceKey])
+  @@index([siteId, sourceFixtureId, sequence(sort: Desc)])
 }
 
 model AutomationExecution {
@@ -2372,6 +2675,7 @@ model DiscoveredMeshNode {
   firmwareVersion    String
   scanCorrelationId  String?
   scanAttempt        Int?
+  bioDiscoveryFingerprint Json?
   status             DiscoveredNodeStatus       @default(discovered)
   identifyState      String                     @default("idle")
   meshAddress        String?

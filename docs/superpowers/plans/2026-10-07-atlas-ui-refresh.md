@@ -10,13 +10,15 @@
 
 **Spec:** [다크 포함 설계 명세](../specs/2026-10-07-atlas-ui-refresh-design.md)
 
-상태: **2026-10-09 Tasks 1–10 구현·독립 검토 완료, 검토된 QA 6파일 보존 체크포인트·고정 업스트림 통합 준비, Task 11 새 통합 소스 전체 관문과 Task 12 기본 checkout 병합 미완료**. 사용자가 선택한 실행 방식은 **페이지별 에이전트 분담, 메인 오케스트레이션, 별도 브랜치 후 로컬 병합**이다. 아래 R83 HOLD·과거 수치/실패는 당시 기록이며 현재 진행 상태는 이 요약과 최신 기록을 따른다. 체크포인트는 최종 QA PASS가 아니고, 완료 표시는 독립 검토와 실제 증거를 회수한 뒤 갱신한다.
+상태: **2026-10-09 Tasks 1–10 구현·독립 검토 완료, 검토된 QA 6파일 보존·고정 업스트림 합성·국소 검증 회수, Task 11 새 통합 소스 전체 관문과 Task 12 기본 checkout 병합 미완료**. 사용자가 선택한 실행 방식은 **페이지별 에이전트 분담, 메인 오케스트레이션, 별도 브랜치 후 로컬 병합**이다. 아래 R83 HOLD·과거 수치/실패는 당시 기록이며 현재 진행 상태는 이 요약과 최신 기록을 따른다. 체크포인트는 최종 QA PASS가 아니고, 완료 표시는 독립 검토와 실제 증거를 회수한 뒤 갱신한다.
 
-### 2026-10-09 현재 통합 준비 (R84–R135)
+### 2026-10-09 현재 통합 준비·국소 검증 회수 (R84–R137)
 
 - R84의 비차단 target-to-owner 경로·실제 directional scroll 검증 방향 뒤, 기존 명령/48·44px hit/viewport240·문서Y0·카메라·UUID/추가 POST0 기준을 보존한 현재 QA 소비 6파일의 소스 검토를 확보했다. 최초 PC 이력/휠 단언 미도달과 후속 실제 owner 이동 관측·국소 회귀는 서로 다른 단계다. 기존 전체149의 부분 PASS/FAIL과 처음부터 도달하지 못한 명령/대비/정상 PNG 범위를 지우거나 합산하지 않는다.
 - R130은 기존 mock18의 실제 LIST573/18(모바일38 identity)을 회수했지만 browser/mock 실행·ONE RealBackendLab·canonical은 시작하지 않았다. 기본 branch가 `aee641d76cf7d0e52a2ad5fa563ae9908e625bcb`로 이동해 후속 관문을 HOLD했다. 기존859 freeze/4501 binding·raw/PNG/실패/backup은 불변이며 새 통합 source의 PASS로 재사용하지 않는다.
 - R131–R133의 9개 overlap·양쪽 보존 의미/문서 whole-byte 평가를 root가 검토했다. R135는 정확6 QA+계획/상태판 보존 commit과 같은 격리 branch의 고정 upstream normal merge만 승인한다. 이미 승인·커밋된 BIO 검사/current eligibility/owner+commission/hold·restore/V1V2 계약을 ATLAS 테마·직접 도구와 함께 보존하며 신규 API/DB/장비 동작을 설계하지 않는다. 준비 생성·지정 unit/static·별도 support-contract 확인 뒤 root 독립 검토와 새 full18→ONE Lab→canonical→whole 관문을 따로 수행한다. 기본 checkout/사용자 목업2문서·기존 서비스/DB/장비/remote는 아직 변경하지 않는다.
+- 실제 보존 checkpoint `f4ac9e81d267b990c64282d45304fc421ed3d320` 뒤 normal merge의6충돌은 승인9 overlap 안에만 있었다. 지정11 unit288/288·Web type/UI/build0(부채0)을 각각1회 회수했고 새 전체18/native/ONE Lab/canonical을 중복 실행하지 않았다. 별도 support는 실제LIST26과JSON identity가 일치하며24PASS/기존 opt-in2SKIP·retry0/workers1/maxFailures1/원30초를 유지한다. 실제 transport·Gateway ACL2는 미실행이다.
+- R136 원 fresh-build 내부 준비는 manual prerequisite1회 외에 허용된 원 테스트 동작이다. DB/PKI/infrastructure 전 injected stop, owned generated 원복·동일 keyset/body SHA·15174 해제·잔여 Lab/socket/backup/관측 PID 없음이 확인됐다. 실행 전 read-only inline 진단의 CommonJS/top-level-await 오류는 command/output을 보존하고 R137 호출-only async IIFE 수정1회로 해소했다. 테스트/source/config/skip/fixture를 변경하거나 gate를 재실행하지 않았다. 이 결과는 독립 통합 검토·새 full18/ONE Lab/canonical/whole 및 기본 checkout 병합을 대신하지 않으며 Task11/12 완료 체크는 남겨 둔다.
 
 ## Global Constraints
 

@@ -1,7 +1,7 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
 import type { FixtureGroupMetadata } from "@led-control/shared";
 import type { CommandStatusResponse } from "../src/api/commands";
-import { expectNoHorizontalOverflow } from "./support/layout-assertions";
+import { expectMinimumTouchTargetsAfterScrolling, expectNoHorizontalOverflow } from "./support/layout-assertions";
 import { installSettingsApiRoutes, type SettingsFixture } from "./support/settings-api";
 import { installMockApiBoundary } from "./support/mock-api-boundary";
 
@@ -60,6 +60,10 @@ async function waitForSettledShortWorkspaceChrome(chrome: Locator) {
   })).toBe(true);
 }
 
+// History and detail reads require matching server retention anchors. Missing
+// anchors intentionally hide records, even when their createdAt looks recent.
+const retentionAnchor = { generatedAt: "2026-09-25T00:00:00.000Z", retainedFrom: "2026-06-25T00:00:00.000Z", retentionEnabled: false };
+
 const ids = {
   site: "77777777-7777-4777-8777-777777777701",
   floor: "77777777-7777-4777-8777-777777777702",
@@ -116,6 +120,9 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
     // Mobile wraps the actions into a second row with 52px touch targets.
     // Include the 44px summary row, 16px vertical padding and 2px border.
     expect(historyBox!.height).toBeLessThanOrEqual(viewport.width >= 760 ? 72 : 44 + 52 + 16 + 2);
+    if (viewport.width < 760) {
+      await expectMinimumTouchTargetsAfterScrolling(page, "[data-command-history-panel]");
+    }
     await history.getByRole("button", { name: "전체 보기" }).click();
     await expect(page.getByRole("dialog", { name: "명령 이력" })).toContainText("최근 3개월");
     await expectNoHorizontalOverflow(page);
@@ -142,7 +149,7 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
       if (url.pathname === "/api/commands") {
         historyRequests.push(url);
         const limit = Number(url.searchParams.get("limit") ?? 20);
-        return route.fulfill({ json: { items: Array.from({ length: limit }, (_, index) => ({ ...original, id: index === 0 && !url.searchParams.has("cursor") ? commandId : `77777777-7777-4777-8777-${String((url.searchParams.has("cursor") ? 50 : 10) + index).padStart(12, "0")}` })), nextCursor: limit === 1 || url.searchParams.has("cursor") ? null : "next-page", generatedAt: "2026-09-25T00:00:00.000Z", retainedFrom: "2026-06-25T00:00:00.000Z" } });
+        return route.fulfill({ json: { items: Array.from({ length: limit }, (_, index) => ({ ...original, id: index === 0 && !url.searchParams.has("cursor") ? commandId : `77777777-7777-4777-8777-${String((url.searchParams.has("cursor") ? 50 : 10) + index).padStart(12, "0")}` })), nextCursor: limit === 1 || url.searchParams.has("cursor") ? null : "next-page", ...retentionAnchor } });
       }
       if (url.pathname === `/api/commands/${commandId}/status-checks`) {
         checkRequests.push(route.request().postDataJSON());

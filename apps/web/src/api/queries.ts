@@ -110,6 +110,11 @@ export interface Dashboard {
       commandSuccessRate: number | null;
       lastSeenAt: string | null;
       gateway: { id: string; name: string; connectionStatus: "online" | "offline" } | null;
+      vehicleEventSource?: import("./automation").VehicleEventSourceView;
+      // Nullable only for a concurrently removed projection; absent in older API fixtures.
+      bioSensorPreparation?: import("./automation").BioSensorPreparationView | null;
+      // Omitted by older API versions; null means there is no current server evidence.
+      bioPulseTelemetry?: import("./automation").BioPulseTelemetryView | null;
       vehicleSensorCapabilityStatus?: "unknown" | "supported" | "unsupported";
       vehicleSensorCapabilityVerifiedAt?: string | null;
       controllable: boolean;

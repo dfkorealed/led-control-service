@@ -1,6 +1,15 @@
 import { EventEmitter } from "node:events";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { GatewayMqttRuntime, type GatewayMqttClient } from "./gateway-mqtt-runtime";
+import { createHash } from "node:crypto";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { bioRegistrationRevalidationCanonicalJson, bioRegistrationRevalidationResultSchema, bioRegistrationRevalidationTopics, type BioRegistrationRevalidationCommand } from "@led-control/shared";
+import { CommandJournal } from "../commands/command-journal";
+import { handleBioRegistrationRevalidation } from "../commands/bio-registration-revalidation-handler";
+import { StateEventOutbox } from "../state/state-event-outbox";
+import { gatewayCommandTopics, gatewayDeferredPubackTopics } from "../index";
 
 class FakeMqttClient extends EventEmitter {
   connected = false;
@@ -20,6 +29,60 @@ const topicHandlers = {
 };
 
 describe("GatewayMqttRuntime", () => {
+  it("drains registration revalidation duplicates after durable PUBACK and keeps its exact ACK live during shutdown", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "revalidation-runtime-"));
+    const command: BioRegistrationRevalidationCommand = { version: 2, purpose: "bio_registration_revalidation", operation: "query",
+      commandId: "10000000-0000-4000-8000-000000000001", siteId: "10000000-0000-4000-8000-000000000002",
+      gatewayId: "10000000-0000-4000-8000-000000000003", fixtureId: "10000000-0000-4000-8000-000000000004",
+      nodeId: "10000000-0000-4000-8000-000000000005", assignmentVersion: 1, meshAddress: "0x0001", deviceIdentityHash: "a".repeat(64),
+      requestedAt: "2026-10-06T00:00:00Z", expiresAt: "2026-10-06T00:00:30Z" };
+    const journal = new CommandJournal(join(directory, "journal.json")), outbox = new StateEventOutbox(join(directory, "outbox.json"), command);
+    await outbox.initialize();
+    const client = new FakeMqttClient(), controller = new AbortController(), active: Promise<void>[] = [];
+    const adapter = { sensorModeOperation: vi.fn(async () => new Promise<"sensor">(() => {})) };
+    const commandTopic = bioRegistrationRevalidationTopics.command(command.siteId, command.gatewayId);
+    const ackTopic = bioRegistrationRevalidationTopics.ack(command.siteId, command.gatewayId), puback = vi.fn();
+    let releaseDrain!: () => void;
+    const drain = new Promise<void>(resolve => { releaseDrain = resolve; });
+    const drained = vi.fn();
+    const runtime = new GatewayMqttRuntime({ client: client as never, heartbeatMs: 10_000, subscribe: vi.fn(), publishHeartbeat: vi.fn(),
+      commandTopics: gatewayCommandTopics(command.siteId, command.gatewayId), deferredPubackTopics: gatewayDeferredPubackTopics(command.siteId, command.gatewayId),
+      onMessageError: vi.fn(), topicHandlers: {
+        [commandTopic]: (payload, _source, _packet, control) => {
+          const work = handleBioRegistrationRevalidation(adapter, JSON.parse(payload.toString()), { journal, outbox, scope: command,
+            nextSequence: async () => 1, clockTrusted: async () => true, now: () => new Date("2026-10-06T00:00:01Z"),
+            signal: controller.signal, onDurableReceipt: () => control?.acknowledgeDurable() });
+          active.push(work); return work;
+        },
+        [ackTopic]: payload => outbox.acknowledge(JSON.parse(payload.toString())),
+        "acks/state-ingested": payload => outbox.acknowledge(JSON.parse(payload.toString()))
+      },
+      onBeforeStop: async () => { controller.abort(); await Promise.all(active); drained(); await drain; }
+    });
+    try {
+      runtime.start();
+      for (let i = 0; i < 2; i++) {
+        const packet = { qos: 1, messageId: i + 1 } as never;
+        client.emit("message", commandTopic, Buffer.from(JSON.stringify(command)), packet); client.handleMessage(packet, puback);
+      }
+      await vi.waitFor(() => expect(puback).toHaveBeenCalledTimes(2));
+      expect(adapter.sensorModeOperation).toHaveBeenCalledTimes(1);
+      expect((await journal.get(command.commandId))?.state).toBe("accepted");
+      const stopping = runtime.stop(); await vi.waitFor(() => expect(drained).toHaveBeenCalledTimes(1));
+      const result = bioRegistrationRevalidationResultSchema.parse((await outbox.pending())[0].payload);
+      expect(result).toMatchObject({ status: "unknown", errorCode: "GATEWAY_SHUTDOWN" });
+      client.emit("message", "acks/state-ingested", Buffer.from(JSON.stringify({ eventId: result.eventId, fixtureId: result.fixtureId,
+        sequence: result.sequence, status: "ingested", ingestedAt: result.occurredAt })));
+      await Promise.resolve(); expect(await outbox.pending()).toHaveLength(1);
+      if (result.status !== "unknown") throw new Error("shutdown must not produce observed proof");
+      const { status: _status, occurredAt: _time, errorCode: _error, ...identity } = result;
+      client.emit("message", ackTopic, Buffer.from(JSON.stringify({ ...identity, status: "ingested", ingestedAt: result.occurredAt,
+        payloadHash: `sha256:${createHash("sha256").update(bioRegistrationRevalidationCanonicalJson(result)).digest("hex")}` })));
+      await vi.waitFor(async () => expect(await outbox.pending()).toEqual([]));
+      expect(client.end).not.toHaveBeenCalled(); expect(await journal.latestFixtureSnapshots()).toEqual([]);
+      releaseDrain(); await stopping;
+    } finally { releaseDrain(); await runtime.stop(); await rm(directory, { recursive: true, force: true }); }
+  });
   afterEach(() => {
     vi.useRealTimers();
   });

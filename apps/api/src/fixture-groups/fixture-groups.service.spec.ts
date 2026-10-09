@@ -54,6 +54,15 @@ const input = {
 };
 
 describe("FixtureGroupsService", () => {
+  it.each(["create", "update"] as const)("rejects active BIO source membership during %s", async operation => {
+    const h = createHarness();
+    h.prisma.vehicleEventSource.findFirst.mockResolvedValue({ fixtureId: ids.fixtureA });
+    await expect(operation === "create" ? h.service.create(admin, ids.site, input) : h.service.update(admin, ids.site, ids.group, input))
+      .rejects.toMatchObject({ response: { code: "bio_source_target_forbidden" } });
+    expect(h.prisma.groupFixture.createMany).not.toHaveBeenCalled();
+    expect(h.prisma.$executeRaw.mock.invocationCallOrder[0]).toBeLessThan(h.siteAccess.assertManageInTransaction.mock.invocationCallOrder[0]);
+    expect(h.siteAccess.assertManageInTransaction.mock.invocationCallOrder[0]).toBeLessThan(h.prisma.vehicleEventSource.findFirst.mock.invocationCallOrder[0]);
+  });
   it("requires the energy dimension history dependency", async () => {
     await expect(Test.createTestingModule({
       providers: [
@@ -319,6 +328,8 @@ function createHarness(options: {
   meshGroup?: { id: string; gatewayId: string; configurationVersion: number; status: string } | null;
 } = {}) {
   const prisma: any = {
+    $executeRaw: jest.fn(),
+    vehicleEventSource: { findFirst: jest.fn().mockResolvedValue(null) },
     $queryRaw: jest.fn(async (query: TemplateStringsArray | { strings?: string[] }) => {
       const sql = renderSql(query);
       if (sql.includes('FROM "FixtureGroup"')) return options.existingGroup === null ? [] : [options.existingGroup ?? activeGroup()];

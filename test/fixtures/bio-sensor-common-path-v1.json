@@ -1,0 +1,938 @@
+{
+  "version": 1,
+  "testOnly": true,
+  "exemplarBaseInstant": "2026-10-08T00:00:00.000Z",
+  "timeOffsetsMs": {
+    "registered": 0,
+    "catalog": 50,
+    "requested": 100,
+    "commission": 200,
+    "live": 300,
+    "snapshot": 400,
+    "configAck": 450,
+    "resync": 500,
+    "renewedRequested": 600,
+    "renewedCommission": 650,
+    "rejectedLive": 700,
+    "recoveredLive": 750,
+    "reenabledSnapshot": 800,
+    "unknownRequested": 825,
+    "unknownCommission": 850,
+    "unknownLive": 875,
+    "revoked": 900
+  },
+  "scope": {
+    "siteId": "00000000-0000-4000-8000-000000000002",
+    "gatewayId": "00000000-0000-4000-8000-000000000004",
+    "assignmentVersion": 1,
+    "adminUserId": "00000000-0000-4000-8000-000000000011"
+  },
+  "profile": {
+    "profileId": "00000000-0000-4000-8000-000000000005",
+    "revision": 1,
+    "status": "approved",
+    "fingerprint": {
+      "deviceType": 1,
+      "firmware": {
+        "major": 1,
+        "minor": 2,
+        "revision": 3,
+        "build": 100
+      },
+      "sensorType": 1,
+      "infraredType": 0,
+      "ambientLightType": 0,
+      "hardwareType": 2
+    },
+    "bodyHexes": [
+      "0001020304050607"
+    ],
+    "linkPolicy": {
+      "kind": "mode-get",
+      "probeIntervalMs": 1000,
+      "maxAgeMs": 5000
+    },
+    "evidenceDigest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "reuseScope": "synthetic-test-only-no-hardware-approval"
+  },
+  "fixtures": [
+    {
+      "fixtureId": "00000000-0000-4000-8000-000000000101",
+      "nodeId": "00000000-0000-4000-8000-000000000201",
+      "nativeUuid": "001122334455",
+      "meshAddress": "0x0100",
+      "label": "Synthetic source one",
+      "knownFingerprint": true
+    },
+    {
+      "fixtureId": "00000000-0000-4000-8000-000000000102",
+      "nodeId": "00000000-0000-4000-8000-000000000202",
+      "nativeUuid": "001122334466",
+      "meshAddress": "0x0101",
+      "label": "Synthetic source two",
+      "knownFingerprint": true
+    },
+    {
+      "fixtureId": "00000000-0000-4000-8000-000000000103",
+      "nodeId": "00000000-0000-4000-8000-000000000203",
+      "nativeUuid": "001122334477",
+      "meshAddress": "0x0102",
+      "label": "Synthetic common target",
+      "knownFingerprint": true
+    }
+  ],
+  "handoff": {
+    "catalog": {
+      "payload": {
+        "schemaVersion": 1,
+        "siteId": "00000000-0000-4000-8000-000000000002",
+        "gatewayId": "00000000-0000-4000-8000-000000000004",
+        "eventId": "00000000-0000-4000-8000-000000001002",
+        "assignmentVersion": 1,
+        "catalogRevision": 5,
+        "issuedAt": "2026-10-08T00:00:00.050Z",
+        "profiles": [
+          {
+            "profileId": "00000000-0000-4000-8000-000000000005",
+            "revision": 1,
+            "status": "approved",
+            "fingerprint": {
+              "deviceType": 1,
+              "firmware": {
+                "major": 1,
+                "minor": 2,
+                "revision": 3,
+                "build": 100
+              },
+              "sensorType": 1,
+              "infraredType": 0,
+              "ambientLightType": 0,
+              "hardwareType": 2
+            },
+            "bodyHexes": [
+              "0001020304050607"
+            ],
+            "linkPolicy": {
+              "kind": "mode-get",
+              "probeIntervalMs": 1000,
+              "maxAgeMs": 5000
+            },
+            "evidenceDigest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "reuseScope": "synthetic-test-only-no-hardware-approval"
+          }
+        ],
+        "executionPolicy": {
+          "enabled": true,
+          "ownerUserId": "00000000-0000-4000-8000-000000000011",
+          "maximumResponseSeconds": 30,
+          "escalationAction": "operator-call"
+        }
+      },
+      "payloadHash": "sha256:966e138d999d649117cc82ccdc130109b44c1c09cef60c5999dfdbcbec342a8e",
+      "ack": {
+        "schemaVersion": 1,
+        "siteId": "00000000-0000-4000-8000-000000000002",
+        "gatewayId": "00000000-0000-4000-8000-000000000004",
+        "assignmentVersion": 1,
+        "eventId": "00000000-0000-4000-8000-000000001002",
+        "catalogRevision": 5,
+        "deliveryPayloadHash": "sha256:966e138d999d649117cc82ccdc130109b44c1c09cef60c5999dfdbcbec342a8e",
+        "status": "applied",
+        "occurredAt": "2026-10-08T00:00:00.050Z"
+      }
+    },
+    "preparations": [
+      {
+        "command": {
+          "schemaVersion": 1,
+          "commandId": "00000000-0000-4000-8000-000000003001",
+          "siteId": "00000000-0000-4000-8000-000000000002",
+          "gatewayId": "00000000-0000-4000-8000-000000000004",
+          "fixtureId": "00000000-0000-4000-8000-000000000101",
+          "nodeId": "00000000-0000-4000-8000-000000000201",
+          "assignmentVersion": 1,
+          "deviceIdentityHash": "228962006a469e85f88a3a2a9a1953a7fa547a89b7e575d5413808d929043941",
+          "meshAddress": "0x0100",
+          "operation": "query",
+          "catalogRevision": 5,
+          "requestedAt": "2026-10-08T00:00:00.100Z",
+          "expiresAt": "2026-10-08T00:02:00.100Z"
+        },
+        "commandPayloadHash": "sha256:fcabab492be12b177b3c00f36e6a1896aa490c416c66cdcff43802d4b1bd6dcc",
+        "report": {
+          "schemaVersion": 1,
+          "commandId": "00000000-0000-4000-8000-000000003001",
+          "siteId": "00000000-0000-4000-8000-000000000002",
+          "gatewayId": "00000000-0000-4000-8000-000000000004",
+          "fixtureId": "00000000-0000-4000-8000-000000000101",
+          "nodeId": "00000000-0000-4000-8000-000000000201",
+          "assignmentVersion": 1,
+          "deviceIdentityHash": "228962006a469e85f88a3a2a9a1953a7fa547a89b7e575d5413808d929043941",
+          "meshAddress": "0x0100",
+          "operation": "query",
+          "catalogRevision": 5,
+          "eventId": "00000000-0000-4000-8000-000000004001",
+          "commandPayloadHash": "sha256:fcabab492be12b177b3c00f36e6a1896aa490c416c66cdcff43802d4b1bd6dcc",
+          "fingerprint": {
+            "deviceType": 1,
+            "firmware": {
+              "major": 1,
+              "minor": 2,
+              "revision": 3,
+              "build": 100
+            },
+            "sensorType": 1,
+            "infraredType": 0,
+            "ambientLightType": 0,
+            "hardwareType": 2
+          },
+          "profileKey": "00000000-0000-4000-8000-000000000005@1",
+          "connectionGeneration": 1,
+          "observedAt": "2026-10-08T00:00:00.200Z",
+          "status": "ready",
+          "modeVerified": true,
+          "linkVerified": true,
+          "errorCode": null
+        },
+        "reportPayloadHash": "sha256:9bbbaf5ca1a146e751c63ee3a753b64738db37b3a70b412155b00aae8497de73",
+        "ack": {
+          "schemaVersion": 1,
+          "commandId": "00000000-0000-4000-8000-000000003001",
+          "siteId": "00000000-0000-4000-8000-000000000002",
+          "gatewayId": "00000000-0000-4000-8000-000000000004",
+          "fixtureId": "00000000-0000-4000-8000-000000000101",
+          "nodeId": "00000000-0000-4000-8000-000000000201",
+          "assignmentVersion": 1,
+          "eventId": "00000000-0000-4000-8000-000000004001",
+          "reportPayloadHash": "sha256:9bbbaf5ca1a146e751c63ee3a753b64738db37b3a70b412155b00aae8497de73",
+          "status": "applied",
+          "occurredAt": "2026-10-08T00:00:00.200Z"
+        }
+      },
+      {
+        "command": {
+          "schemaVersion": 1,
+          "commandId": "00000000-0000-4000-8000-000000003002",
+          "siteId": "00000000-0000-4000-8000-000000000002",
+          "gatewayId": "00000000-0000-4000-8000-000000000004",
+          "fixtureId": "00000000-0000-4000-8000-000000000102",
+          "nodeId": "00000000-0000-4000-8000-000000000202",
+          "assignmentVersion": 1,
+          "deviceIdentityHash": "61cb693089a646f220d0a9bbef49815dfbdadae36850bbb3993764c45ce6da15",
+          "meshAddress": "0x0101",
+          "operation": "query",
+          "catalogRevision": 5,
+          "requestedAt": "2026-10-08T00:00:00.100Z",
+          "expiresAt": "2026-10-08T00:02:00.100Z"
+        },
+        "commandPayloadHash": "sha256:3cf027ddc0b2a603a31d0a05a5dbbd7ab4e2a135ec03923a19020201e8d58b1e",
+        "report": {
+          "schemaVersion": 1,
+          "commandId": "00000000-0000-4000-8000-000000003002",
+          "siteId": "00000000-0000-4000-8000-000000000002",
+          "gatewayId": "00000000-0000-4000-8000-000000000004",
+          "fixtureId": "00000000-0000-4000-8000-000000000102",
+          "nodeId": "00000000-0000-4000-8000-000000000202",
+          "assignmentVersion": 1,
+          "deviceIdentityHash": "61cb693089a646f220d0a9bbef49815dfbdadae36850bbb3993764c45ce6da15",
+          "meshAddress": "0x0101",
+          "operation": "query",
+          "catalogRevision": 5,
+          "eventId": "00000000-0000-4000-8000-000000004002",
+          "commandPayloadHash": "sha256:3cf027ddc0b2a603a31d0a05a5dbbd7ab4e2a135ec03923a19020201e8d58b1e",
+          "fingerprint": {
+            "deviceType": 1,
+            "firmware": {
+              "major": 1,
+              "minor": 2,
+              "revision": 3,
+              "build": 100
+            },
+            "sensorType": 1,
+            "infraredType": 0,
+            "ambientLightType": 0,
+            "hardwareType": 2
+          },
+          "profileKey": "00000000-0000-4000-8000-000000000005@1",
+          "connectionGeneration": 1,
+          "observedAt": "2026-10-08T00:00:00.200Z",
+          "status": "ready",
+          "modeVerified": true,
+          "linkVerified": true,
+          "errorCode": null
+        },
+        "reportPayloadHash": "sha256:f53692a16faa5f729f25ccf51f74408d6acc17663603dbcdb9f85beb7188c552",
+        "ack": {
+          "schemaVersion": 1,
+          "commandId": "00000000-0000-4000-8000-000000003002",
+          "siteId": "00000000-0000-4000-8000-000000000002",
+          "gatewayId": "00000000-0000-4000-8000-000000000004",
+          "fixtureId": "00000000-0000-4000-8000-000000000102",
+          "nodeId": "00000000-0000-4000-8000-000000000202",
+          "assignmentVersion": 1,
+          "eventId": "00000000-0000-4000-8000-000000004002",
+          "reportPayloadHash": "sha256:f53692a16faa5f729f25ccf51f74408d6acc17663603dbcdb9f85beb7188c552",
+          "status": "applied",
+          "occurredAt": "2026-10-08T00:00:00.200Z"
+        }
+      },
+      {
+        "command": {
+          "schemaVersion": 1,
+          "commandId": "00000000-0000-4000-8000-000000003003",
+          "siteId": "00000000-0000-4000-8000-000000000002",
+          "gatewayId": "00000000-0000-4000-8000-000000000004",
+          "fixtureId": "00000000-0000-4000-8000-000000000103",
+          "nodeId": "00000000-0000-4000-8000-000000000203",
+          "assignmentVersion": 1,
+          "deviceIdentityHash": "dc06920444f50fc7d3b65a1b4b9a0944c5ba39daf5147291987e72f494f5b4c7",
+          "meshAddress": "0x0102",
+          "operation": "query",
+          "catalogRevision": 5,
+          "requestedAt": "2026-10-08T00:00:00.100Z",
+          "expiresAt": "2026-10-08T00:02:00.100Z"
+        },
+        "commandPayloadHash": "sha256:8042e71af811304abdacb59364ac3b1ca4b1b30ad3685e94d2f9dcc75c0bd02d",
+        "report": {
+          "schemaVersion": 1,
+          "commandId": "00000000-0000-4000-8000-000000003003",
+          "siteId": "00000000-0000-4000-8000-000000000002",
+          "gatewayId": "00000000-0000-4000-8000-000000000004",
+          "fixtureId": "00000000-0000-4000-8000-000000000103",
+          "nodeId": "00000000-0000-4000-8000-000000000203",
+          "assignmentVersion": 1,
+          "deviceIdentityHash": "dc06920444f50fc7d3b65a1b4b9a0944c5ba39daf5147291987e72f494f5b4c7",
+          "meshAddress": "0x0102",
+          "operation": "query",
+          "catalogRevision": 5,
+          "eventId": "00000000-0000-4000-8000-000000004003",
+          "commandPayloadHash": "sha256:8042e71af811304abdacb59364ac3b1ca4b1b30ad3685e94d2f9dcc75c0bd02d",
+          "fingerprint": {
+            "deviceType": 1,
+            "firmware": {
+              "major": 1,
+              "minor": 2,
+              "revision": 3,
+              "build": 100
+            },
+            "sensorType": 1,
+            "infraredType": 0,
+            "ambientLightType": 0,
+            "hardwareType": 2
+          },
+          "profileKey": "00000000-0000-4000-8000-000000000005@1",
+          "connectionGeneration": 1,
+          "observedAt": "2026-10-08T00:00:00.200Z",
+          "status": "ready",
+          "modeVerified": true,
+          "linkVerified": true,
+          "errorCode": null
+        },
+        "reportPayloadHash": "sha256:7936ef9dfaddf435edffb3ee05affc217a6e2ff891c72c81409e38873b86aed4",
+        "ack": {
+          "schemaVersion": 1,
+          "commandId": "00000000-0000-4000-8000-000000003003",
+          "siteId": "00000000-0000-4000-8000-000000000002",
+          "gatewayId": "00000000-0000-4000-8000-000000000004",
+          "fixtureId": "00000000-0000-4000-8000-000000000103",
+          "nodeId": "00000000-0000-4000-8000-000000000203",
+          "assignmentVersion": 1,
+          "eventId": "00000000-0000-4000-8000-000000004003",
+          "reportPayloadHash": "sha256:7936ef9dfaddf435edffb3ee05affc217a6e2ff891c72c81409e38873b86aed4",
+          "status": "applied",
+          "occurredAt": "2026-10-08T00:00:00.200Z"
+        }
+      },
+      {
+        "command": {
+          "schemaVersion": 1,
+          "commandId": "00000000-0000-4000-8000-000000003004",
+          "siteId": "00000000-0000-4000-8000-000000000002",
+          "gatewayId": "00000000-0000-4000-8000-000000000004",
+          "fixtureId": "00000000-0000-4000-8000-000000000101",
+          "nodeId": "00000000-0000-4000-8000-000000000201",
+          "assignmentVersion": 1,
+          "deviceIdentityHash": "228962006a469e85f88a3a2a9a1953a7fa547a89b7e575d5413808d929043941",
+          "meshAddress": "0x0100",
+          "operation": "query",
+          "catalogRevision": 5,
+          "requestedAt": "2026-10-08T00:00:00.600Z",
+          "expiresAt": "2026-10-08T00:02:00.600Z"
+        },
+        "commandPayloadHash": "sha256:2ed8f291e4220901bf98cd179354a5df757f66cce41561d5753ca428d3608e07",
+        "report": {
+          "schemaVersion": 1,
+          "commandId": "00000000-0000-4000-8000-000000003004",
+          "siteId": "00000000-0000-4000-8000-000000000002",
+          "gatewayId": "00000000-0000-4000-8000-000000000004",
+          "fixtureId": "00000000-0000-4000-8000-000000000101",
+          "nodeId": "00000000-0000-4000-8000-000000000201",
+          "assignmentVersion": 1,
+          "deviceIdentityHash": "228962006a469e85f88a3a2a9a1953a7fa547a89b7e575d5413808d929043941",
+          "meshAddress": "0x0100",
+          "operation": "query",
+          "catalogRevision": 5,
+          "eventId": "00000000-0000-4000-8000-000000004004",
+          "commandPayloadHash": "sha256:2ed8f291e4220901bf98cd179354a5df757f66cce41561d5753ca428d3608e07",
+          "fingerprint": {
+            "deviceType": 1,
+            "firmware": {
+              "major": 1,
+              "minor": 2,
+              "revision": 3,
+              "build": 100
+            },
+            "sensorType": 1,
+            "infraredType": 0,
+            "ambientLightType": 0,
+            "hardwareType": 2
+          },
+          "profileKey": "00000000-0000-4000-8000-000000000005@1",
+          "connectionGeneration": 1,
+          "observedAt": "2026-10-08T00:00:00.650Z",
+          "status": "ready",
+          "modeVerified": true,
+          "linkVerified": true,
+          "errorCode": null
+        },
+        "reportPayloadHash": "sha256:9fd9b358afcd77444654d56e9aa95f47906e6a6c3a7a3c53342f0b0146c70494",
+        "ack": {
+          "schemaVersion": 1,
+          "commandId": "00000000-0000-4000-8000-000000003004",
+          "siteId": "00000000-0000-4000-8000-000000000002",
+          "gatewayId": "00000000-0000-4000-8000-000000000004",
+          "fixtureId": "00000000-0000-4000-8000-000000000101",
+          "nodeId": "00000000-0000-4000-8000-000000000201",
+          "assignmentVersion": 1,
+          "eventId": "00000000-0000-4000-8000-000000004004",
+          "reportPayloadHash": "sha256:9fd9b358afcd77444654d56e9aa95f47906e6a6c3a7a3c53342f0b0146c70494",
+          "status": "applied",
+          "occurredAt": "2026-10-08T00:00:00.650Z"
+        }
+      },
+      {
+        "command": {
+          "schemaVersion": 1,
+          "commandId": "00000000-0000-4000-8000-000000003005",
+          "siteId": "00000000-0000-4000-8000-000000000002",
+          "gatewayId": "00000000-0000-4000-8000-000000000004",
+          "fixtureId": "00000000-0000-4000-8000-000000000103",
+          "nodeId": "00000000-0000-4000-8000-000000000203",
+          "assignmentVersion": 1,
+          "deviceIdentityHash": "dc06920444f50fc7d3b65a1b4b9a0944c5ba39daf5147291987e72f494f5b4c7",
+          "meshAddress": "0x0102",
+          "operation": "query",
+          "catalogRevision": 5,
+          "requestedAt": "2026-10-08T00:00:00.825Z",
+          "expiresAt": "2026-10-08T00:02:00.825Z"
+        },
+        "commandPayloadHash": "sha256:c4f6e9f8abb57e3ecedb2f4fd0f0dbeba6e6e6837594f15eb035b899fd84bf8f",
+        "report": {
+          "schemaVersion": 1,
+          "commandId": "00000000-0000-4000-8000-000000003005",
+          "siteId": "00000000-0000-4000-8000-000000000002",
+          "gatewayId": "00000000-0000-4000-8000-000000000004",
+          "fixtureId": "00000000-0000-4000-8000-000000000103",
+          "nodeId": "00000000-0000-4000-8000-000000000203",
+          "assignmentVersion": 1,
+          "deviceIdentityHash": "dc06920444f50fc7d3b65a1b4b9a0944c5ba39daf5147291987e72f494f5b4c7",
+          "meshAddress": "0x0102",
+          "operation": "query",
+          "catalogRevision": 5,
+          "eventId": "00000000-0000-4000-8000-000000004005",
+          "commandPayloadHash": "sha256:c4f6e9f8abb57e3ecedb2f4fd0f0dbeba6e6e6837594f15eb035b899fd84bf8f",
+          "fingerprint": {
+            "deviceType": 1,
+            "firmware": {
+              "major": 1,
+              "minor": 2,
+              "revision": 3,
+              "build": 100
+            },
+            "sensorType": 99,
+            "infraredType": 0,
+            "ambientLightType": 0,
+            "hardwareType": 2
+          },
+          "profileKey": null,
+          "connectionGeneration": 1,
+          "observedAt": "2026-10-08T00:00:00.850Z",
+          "status": "unverified",
+          "modeVerified": true,
+          "linkVerified": true,
+          "errorCode": null
+        },
+        "reportPayloadHash": "sha256:0947380cde6e4e69a5bed73f4b589b64c446433cfec1d2197929e5eb48c4f98f",
+        "ack": {
+          "schemaVersion": 1,
+          "commandId": "00000000-0000-4000-8000-000000003005",
+          "siteId": "00000000-0000-4000-8000-000000000002",
+          "gatewayId": "00000000-0000-4000-8000-000000000004",
+          "fixtureId": "00000000-0000-4000-8000-000000000103",
+          "nodeId": "00000000-0000-4000-8000-000000000203",
+          "assignmentVersion": 1,
+          "eventId": "00000000-0000-4000-8000-000000004005",
+          "reportPayloadHash": "sha256:0947380cde6e4e69a5bed73f4b589b64c446433cfec1d2197929e5eb48c4f98f",
+          "status": "applied",
+          "occurredAt": "2026-10-08T00:00:00.850Z"
+        }
+      }
+    ],
+    "live": [
+      {
+        "delivery": {
+          "schemaVersion": 2,
+          "assignmentVersion": 1,
+          "report": {
+            "schemaVersion": 2,
+            "eventId": "00000000-0000-4000-8000-000000005001",
+            "siteId": "00000000-0000-4000-8000-000000000002",
+            "gatewayId": "00000000-0000-4000-8000-000000000004",
+            "meshNodeId": "00000000-0000-4000-8000-000000000201",
+            "capabilityRevision": 1,
+            "sensorProtocol": "bio-usb-pulse",
+            "readiness": "ready",
+            "verifiedFingerprintId": "00000000-0000-4000-8000-000000000005@1",
+            "sensorModeVerifiedAt": "2026-10-08T00:00:00.200Z",
+            "verifiedAt": "2026-10-08T00:00:00.300Z"
+          }
+        },
+        "deliveryPayloadHash": "sha256:15302065d789d91beadace675557bc88ad489c8876d85640a840d63436fbe944",
+        "ack": {
+          "schemaVersion": 2,
+          "siteId": "00000000-0000-4000-8000-000000000002",
+          "gatewayId": "00000000-0000-4000-8000-000000000004",
+          "assignmentVersion": 1,
+          "eventId": "00000000-0000-4000-8000-000000005001",
+          "meshNodeId": "00000000-0000-4000-8000-000000000201",
+          "capabilityRevision": 1,
+          "deliveryPayloadHash": "sha256:15302065d789d91beadace675557bc88ad489c8876d85640a840d63436fbe944",
+          "status": "applied",
+          "errorCode": null,
+          "ingestedAt": "2026-10-08T00:00:00.300Z"
+        }
+      },
+      {
+        "delivery": {
+          "schemaVersion": 2,
+          "assignmentVersion": 1,
+          "report": {
+            "schemaVersion": 2,
+            "eventId": "00000000-0000-4000-8000-000000005002",
+            "siteId": "00000000-0000-4000-8000-000000000002",
+            "gatewayId": "00000000-0000-4000-8000-000000000004",
+            "meshNodeId": "00000000-0000-4000-8000-000000000202",
+            "capabilityRevision": 1,
+            "sensorProtocol": "bio-usb-pulse",
+            "readiness": "ready",
+            "verifiedFingerprintId": "00000000-0000-4000-8000-000000000005@1",
+            "sensorModeVerifiedAt": "2026-10-08T00:00:00.200Z",
+            "verifiedAt": "2026-10-08T00:00:00.300Z"
+          }
+        },
+        "deliveryPayloadHash": "sha256:b07aed354af5f086872b85e4fc7e426d9c9451e9cd488e2fb17be45fb9f60265",
+        "ack": {
+          "schemaVersion": 2,
+          "siteId": "00000000-0000-4000-8000-000000000002",
+          "gatewayId": "00000000-0000-4000-8000-000000000004",
+          "assignmentVersion": 1,
+          "eventId": "00000000-0000-4000-8000-000000005002",
+          "meshNodeId": "00000000-0000-4000-8000-000000000202",
+          "capabilityRevision": 1,
+          "deliveryPayloadHash": "sha256:b07aed354af5f086872b85e4fc7e426d9c9451e9cd488e2fb17be45fb9f60265",
+          "status": "applied",
+          "errorCode": null,
+          "ingestedAt": "2026-10-08T00:00:00.300Z"
+        }
+      },
+      {
+        "delivery": {
+          "schemaVersion": 2,
+          "assignmentVersion": 1,
+          "report": {
+            "schemaVersion": 2,
+            "eventId": "00000000-0000-4000-8000-000000005003",
+            "siteId": "00000000-0000-4000-8000-000000000002",
+            "gatewayId": "00000000-0000-4000-8000-000000000004",
+            "meshNodeId": "00000000-0000-4000-8000-000000000201",
+            "capabilityRevision": 2,
+            "sensorProtocol": "bio-usb-pulse",
+            "readiness": "ready",
+            "verifiedFingerprintId": "00000000-0000-4000-8000-000000000005@1",
+            "sensorModeVerifiedAt": "2026-10-08T00:00:00.200Z",
+            "verifiedAt": "2026-10-08T00:00:00.500Z"
+          }
+        },
+        "deliveryPayloadHash": "sha256:742e00e06b81974ededbdae9407864e2b9e99adc786ad532f0aefc5a4037c8af",
+        "ack": {
+          "schemaVersion": 2,
+          "siteId": "00000000-0000-4000-8000-000000000002",
+          "gatewayId": "00000000-0000-4000-8000-000000000004",
+          "assignmentVersion": 1,
+          "eventId": "00000000-0000-4000-8000-000000005003",
+          "meshNodeId": "00000000-0000-4000-8000-000000000201",
+          "capabilityRevision": 2,
+          "deliveryPayloadHash": "sha256:742e00e06b81974ededbdae9407864e2b9e99adc786ad532f0aefc5a4037c8af",
+          "status": "applied",
+          "errorCode": null,
+          "ingestedAt": "2026-10-08T00:00:00.500Z"
+        }
+      },
+      {
+        "delivery": {
+          "schemaVersion": 2,
+          "assignmentVersion": 1,
+          "report": {
+            "schemaVersion": 2,
+            "eventId": "00000000-0000-4000-8000-000000005004",
+            "siteId": "00000000-0000-4000-8000-000000000002",
+            "gatewayId": "00000000-0000-4000-8000-000000000004",
+            "meshNodeId": "00000000-0000-4000-8000-000000000201",
+            "capabilityRevision": 3,
+            "sensorProtocol": "bio-usb-pulse",
+            "readiness": "ready",
+            "verifiedFingerprintId": "00000000-0000-4000-8000-000000000005@1",
+            "sensorModeVerifiedAt": "2026-10-08T00:00:00.200Z",
+            "verifiedAt": "2026-10-08T00:00:00.700Z"
+          }
+        },
+        "deliveryPayloadHash": "sha256:bc403550686a9968cc4b9ec38f63e0de219fd6877a4a71cee059992251df14f3",
+        "ack": {
+          "schemaVersion": 2,
+          "siteId": "00000000-0000-4000-8000-000000000002",
+          "gatewayId": "00000000-0000-4000-8000-000000000004",
+          "assignmentVersion": 1,
+          "eventId": "00000000-0000-4000-8000-000000005004",
+          "meshNodeId": "00000000-0000-4000-8000-000000000201",
+          "capabilityRevision": 3,
+          "deliveryPayloadHash": "sha256:bc403550686a9968cc4b9ec38f63e0de219fd6877a4a71cee059992251df14f3",
+          "status": "rejected",
+          "errorCode": "bio_current_evidence_unverified",
+          "ingestedAt": "2026-10-08T00:00:00.700Z"
+        }
+      },
+      {
+        "delivery": {
+          "schemaVersion": 2,
+          "assignmentVersion": 1,
+          "report": {
+            "schemaVersion": 2,
+            "eventId": "00000000-0000-4000-8000-000000005005",
+            "siteId": "00000000-0000-4000-8000-000000000002",
+            "gatewayId": "00000000-0000-4000-8000-000000000004",
+            "meshNodeId": "00000000-0000-4000-8000-000000000201",
+            "capabilityRevision": 4,
+            "sensorProtocol": "bio-usb-pulse",
+            "readiness": "ready",
+            "verifiedFingerprintId": "00000000-0000-4000-8000-000000000005@1",
+            "sensorModeVerifiedAt": "2026-10-08T00:00:00.650Z",
+            "verifiedAt": "2026-10-08T00:00:00.750Z"
+          }
+        },
+        "deliveryPayloadHash": "sha256:8ae3a103165e7a15dd1c07646c4d6acbafe542c53865393b1a5a0aeacce03ef9",
+        "ack": {
+          "schemaVersion": 2,
+          "siteId": "00000000-0000-4000-8000-000000000002",
+          "gatewayId": "00000000-0000-4000-8000-000000000004",
+          "assignmentVersion": 1,
+          "eventId": "00000000-0000-4000-8000-000000005005",
+          "meshNodeId": "00000000-0000-4000-8000-000000000201",
+          "capabilityRevision": 4,
+          "deliveryPayloadHash": "sha256:8ae3a103165e7a15dd1c07646c4d6acbafe542c53865393b1a5a0aeacce03ef9",
+          "status": "applied",
+          "errorCode": null,
+          "ingestedAt": "2026-10-08T00:00:00.750Z"
+        }
+      },
+      {
+        "delivery": {
+          "schemaVersion": 2,
+          "assignmentVersion": 1,
+          "report": {
+            "schemaVersion": 2,
+            "eventId": "00000000-0000-4000-8000-000000005006",
+            "siteId": "00000000-0000-4000-8000-000000000002",
+            "gatewayId": "00000000-0000-4000-8000-000000000004",
+            "meshNodeId": "00000000-0000-4000-8000-000000000203",
+            "capabilityRevision": 1,
+            "sensorProtocol": "bio-usb-pulse",
+            "readiness": "ready",
+            "verifiedFingerprintId": "00000000-0000-4000-8000-000000000005@1",
+            "sensorModeVerifiedAt": "2026-10-08T00:00:00.200Z",
+            "verifiedAt": "2026-10-08T00:00:00.300Z"
+          }
+        },
+        "deliveryPayloadHash": "sha256:5023ef681e06af2e6c1a66b91fbcb8b96b2b51b4d52d19087dae940c30c04ce5",
+        "ack": {
+          "schemaVersion": 2,
+          "siteId": "00000000-0000-4000-8000-000000000002",
+          "gatewayId": "00000000-0000-4000-8000-000000000004",
+          "assignmentVersion": 1,
+          "eventId": "00000000-0000-4000-8000-000000005006",
+          "meshNodeId": "00000000-0000-4000-8000-000000000203",
+          "capabilityRevision": 1,
+          "deliveryPayloadHash": "sha256:5023ef681e06af2e6c1a66b91fbcb8b96b2b51b4d52d19087dae940c30c04ce5",
+          "status": "applied",
+          "errorCode": null,
+          "ingestedAt": "2026-10-08T00:00:00.300Z"
+        }
+      },
+      {
+        "delivery": {
+          "schemaVersion": 2,
+          "assignmentVersion": 1,
+          "report": {
+            "schemaVersion": 2,
+            "eventId": "00000000-0000-4000-8000-000000005007",
+            "siteId": "00000000-0000-4000-8000-000000000002",
+            "gatewayId": "00000000-0000-4000-8000-000000000004",
+            "meshNodeId": "00000000-0000-4000-8000-000000000203",
+            "capabilityRevision": 2,
+            "sensorProtocol": "bio-usb-pulse",
+            "readiness": "off",
+            "verifiedFingerprintId": null,
+            "sensorModeVerifiedAt": null,
+            "verifiedAt": "2026-10-08T00:00:00.875Z"
+          }
+        },
+        "deliveryPayloadHash": "sha256:905d9fc62494dbf492237e36eb1f87226c4594ee1dda3cad623acfe199d674fc",
+        "ack": {
+          "schemaVersion": 2,
+          "siteId": "00000000-0000-4000-8000-000000000002",
+          "gatewayId": "00000000-0000-4000-8000-000000000004",
+          "assignmentVersion": 1,
+          "eventId": "00000000-0000-4000-8000-000000005007",
+          "meshNodeId": "00000000-0000-4000-8000-000000000203",
+          "capabilityRevision": 2,
+          "deliveryPayloadHash": "sha256:905d9fc62494dbf492237e36eb1f87226c4594ee1dda3cad623acfe199d674fc",
+          "status": "applied",
+          "errorCode": null,
+          "ingestedAt": "2026-10-08T00:00:00.875Z"
+        }
+      }
+    ],
+    "snapshots": [
+      {
+        "stage": "enabled",
+        "payload": {
+          "schemaVersion": 2,
+          "siteId": "00000000-0000-4000-8000-000000000002",
+          "gatewayId": "00000000-0000-4000-8000-000000000004",
+          "revision": 5,
+          "timeZone": "Asia/Seoul",
+          "schedules": [],
+          "vehicleEventRules": [
+            {
+              "id": "00000000-0000-4000-8000-000000007001",
+              "name": "Synthetic source one",
+              "status": "enabled",
+              "sourceFixtureIds": [
+                "00000000-0000-4000-8000-000000000101"
+              ],
+              "targetFixtureIds": [
+                "00000000-0000-4000-8000-000000000103"
+              ],
+              "action": {
+                "dimmingEnabled": true,
+                "brightnessPercent": 75
+              },
+              "holdSeconds": 10,
+              "sensorProtocol": "bio-usb-pulse"
+            },
+            {
+              "id": "00000000-0000-4000-8000-000000007002",
+              "name": "Synthetic source two",
+              "status": "disabled",
+              "sourceFixtureIds": [
+                "00000000-0000-4000-8000-000000000102"
+              ],
+              "targetFixtureIds": [
+                "00000000-0000-4000-8000-000000000103"
+              ],
+              "action": {
+                "dimmingEnabled": true,
+                "brightnessPercent": 75
+              },
+              "holdSeconds": 10,
+              "sensorProtocol": "bio-usb-pulse"
+            }
+          ],
+          "generatedAt": "2026-10-08T00:00:00.400Z",
+          "payloadHash": "sha256:afa182b8d0f4c7590adcf5cb9e2d7f76494f2cb61c92334ecc8d79577a480b1b"
+        },
+        "configAppliedDelivery": {
+          "schemaVersion": 2,
+          "acknowledgementId": "00000000-0000-4000-8000-000000008001",
+          "siteId": "00000000-0000-4000-8000-000000000002",
+          "gatewayId": "00000000-0000-4000-8000-000000000004",
+          "acknowledgement": {
+            "schemaVersion": 2,
+            "gatewayId": "00000000-0000-4000-8000-000000000004",
+            "revision": 5,
+            "payloadHash": "sha256:afa182b8d0f4c7590adcf5cb9e2d7f76494f2cb61c92334ecc8d79577a480b1b",
+            "status": "applied",
+            "errorCode": null,
+            "appliedAt": "2026-10-08T00:00:00.450Z"
+          }
+        }
+      },
+      {
+        "stage": "new_preparation_disables_only_first",
+        "payload": {
+          "schemaVersion": 2,
+          "siteId": "00000000-0000-4000-8000-000000000002",
+          "gatewayId": "00000000-0000-4000-8000-000000000004",
+          "revision": 6,
+          "timeZone": "Asia/Seoul",
+          "schedules": [],
+          "vehicleEventRules": [
+            {
+              "id": "00000000-0000-4000-8000-000000007001",
+              "name": "Synthetic source one",
+              "status": "disabled",
+              "sourceFixtureIds": [
+                "00000000-0000-4000-8000-000000000101"
+              ],
+              "targetFixtureIds": [
+                "00000000-0000-4000-8000-000000000103"
+              ],
+              "action": {
+                "dimmingEnabled": true,
+                "brightnessPercent": 75
+              },
+              "holdSeconds": 10,
+              "sensorProtocol": "bio-usb-pulse"
+            },
+            {
+              "id": "00000000-0000-4000-8000-000000007002",
+              "name": "Synthetic source two",
+              "status": "disabled",
+              "sourceFixtureIds": [
+                "00000000-0000-4000-8000-000000000102"
+              ],
+              "targetFixtureIds": [
+                "00000000-0000-4000-8000-000000000103"
+              ],
+              "action": {
+                "dimmingEnabled": true,
+                "brightnessPercent": 75
+              },
+              "holdSeconds": 10,
+              "sensorProtocol": "bio-usb-pulse"
+            }
+          ],
+          "generatedAt": "2026-10-08T00:00:00.600Z",
+          "payloadHash": "sha256:772f96d0a1ca5d2a2e1ed065172338e12466ea58781a3acb02b6344b0ced5105"
+        }
+      },
+      {
+        "stage": "explicit_reenabled_after_current_proof",
+        "payload": {
+          "schemaVersion": 2,
+          "siteId": "00000000-0000-4000-8000-000000000002",
+          "gatewayId": "00000000-0000-4000-8000-000000000004",
+          "revision": 7,
+          "timeZone": "Asia/Seoul",
+          "schedules": [],
+          "vehicleEventRules": [
+            {
+              "id": "00000000-0000-4000-8000-000000007001",
+              "name": "Synthetic source one",
+              "status": "enabled",
+              "sourceFixtureIds": [
+                "00000000-0000-4000-8000-000000000101"
+              ],
+              "targetFixtureIds": [
+                "00000000-0000-4000-8000-000000000103"
+              ],
+              "action": {
+                "dimmingEnabled": true,
+                "brightnessPercent": 75
+              },
+              "holdSeconds": 10,
+              "sensorProtocol": "bio-usb-pulse"
+            },
+            {
+              "id": "00000000-0000-4000-8000-000000007002",
+              "name": "Synthetic source two",
+              "status": "disabled",
+              "sourceFixtureIds": [
+                "00000000-0000-4000-8000-000000000102"
+              ],
+              "targetFixtureIds": [
+                "00000000-0000-4000-8000-000000000103"
+              ],
+              "action": {
+                "dimmingEnabled": true,
+                "brightnessPercent": 75
+              },
+              "holdSeconds": 10,
+              "sensorProtocol": "bio-usb-pulse"
+            }
+          ],
+          "generatedAt": "2026-10-08T00:00:00.800Z",
+          "payloadHash": "sha256:cdaad9d3d4c286f0482ecaf600c1f73fc1af6f06331d65703677dbe42e498626"
+        }
+      },
+      {
+        "stage": "profile_revoked_disabled",
+        "payload": {
+          "schemaVersion": 2,
+          "siteId": "00000000-0000-4000-8000-000000000002",
+          "gatewayId": "00000000-0000-4000-8000-000000000004",
+          "revision": 8,
+          "timeZone": "Asia/Seoul",
+          "schedules": [],
+          "vehicleEventRules": [
+            {
+              "id": "00000000-0000-4000-8000-000000007001",
+              "name": "Synthetic source one",
+              "status": "disabled",
+              "sourceFixtureIds": [
+                "00000000-0000-4000-8000-000000000101"
+              ],
+              "targetFixtureIds": [
+                "00000000-0000-4000-8000-000000000103"
+              ],
+              "action": {
+                "dimmingEnabled": true,
+                "brightnessPercent": 75
+              },
+              "holdSeconds": 10,
+              "sensorProtocol": "bio-usb-pulse"
+            },
+            {
+              "id": "00000000-0000-4000-8000-000000007002",
+              "name": "Synthetic source two",
+              "status": "disabled",
+              "sourceFixtureIds": [
+                "00000000-0000-4000-8000-000000000102"
+              ],
+              "targetFixtureIds": [
+                "00000000-0000-4000-8000-000000000103"
+              ],
+              "action": {
+                "dimmingEnabled": true,
+                "brightnessPercent": 75
+              },
+              "holdSeconds": 10,
+              "sensorProtocol": "bio-usb-pulse"
+            }
+          ],
+          "generatedAt": "2026-10-08T00:00:00.900Z",
+          "payloadHash": "sha256:565e2fc5c912e4dc800ed946c7f2652bdbd45d8aa30caaa5726b1470679231a1"
+        }
+      }
+    ],
+    "currentConfigRequest": {
+      "schemaVersion": 2,
+      "requestId": "00000000-0000-4000-8000-000000006002",
+      "siteId": "00000000-0000-4000-8000-000000000002",
+      "gatewayId": "00000000-0000-4000-8000-000000000004",
+      "requestedAt": "2026-10-08T00:00:00.500Z",
+      "assignmentVersion": 1,
+      "declarationRevision": 2,
+      "maxSnapshotVersion": 2
+    }
+  }
+}

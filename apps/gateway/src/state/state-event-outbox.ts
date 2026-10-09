@@ -1,7 +1,10 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { mkdir, stat } from "node:fs/promises";
 import { dirname } from "node:path";
 import {
+  bioSensorModeResultSchema, bioSensorModeTopics, type BioSensorModeResult,
+  bioRegistrationRevalidationResultSchema, bioRegistrationRevalidationAckSchema, bioRegistrationRevalidationTopics,
+  bioRegistrationRevalidationCanonicalJson, matchesBioRegistrationRevalidationAck, type BioRegistrationRevalidationResult,
   applicationStateIngestedAckV2Schema,
   fixturePresenceV2Schema,
   fixtureUnreachableV1Schema,
@@ -32,7 +35,7 @@ export interface StoredStateEvent {
   enqueuedAt: string;
 }
 
-export type GatewayStateEvent = FixtureStateV2 | FixturePresenceV2 | FixtureUnreachableV1;
+export type GatewayStateEvent = FixtureStateV2 | FixturePresenceV2 | FixtureUnreachableV1 | BioSensorModeResult | BioRegistrationRevalidationResult;
 
 interface StoredOutbox {
   version: 1;
@@ -168,9 +171,18 @@ export class StateEventOutbox {
 
   acknowledge(value: unknown): Promise<boolean> {
     return this.exclusive(async () => {
-      const acknowledgement = applicationStateIngestedAckV2Schema.parse(value);
+      const registration = isRecord(value) && "purpose" in value;
+      const registrationAck = registration ? bioRegistrationRevalidationAckSchema.parse(value) : undefined;
+      const legacyAck = registration ? undefined : applicationStateIngestedAckV2Schema.parse(value);
       const state = await this.load();
-      const index = state.records.findIndex((record) => sameAcknowledgement(record.payload, acknowledgement));
+      const index = state.records.findIndex((record) => {
+        if ("purpose" in record.payload) {
+          if (!registrationAck) return false;
+          const hash = `sha256:${createHash("sha256").update(bioRegistrationRevalidationCanonicalJson(record.payload)).digest("hex")}`;
+          return matchesBioRegistrationRevalidationAck(record.payload, registrationAck, hash);
+        }
+        return !!legacyAck && sameAcknowledgement(record.payload, legacyAck);
+      });
       if (index < 0) return false;
       const [removed] = state.records.splice(index, 1);
       state.totalPayloadBytes -= removed.payloadBytes;
@@ -642,6 +654,8 @@ function sameAcknowledgement(payload: GatewayStateEvent, acknowledgement: Applic
 }
 
 function parseGatewayStateEvent(value: unknown): GatewayStateEvent {
+  if (isRecord(value) && "purpose" in value) return bioRegistrationRevalidationResultSchema.parse(value);
+  if (isRecord(value) && "modeVerified" in value) return bioSensorModeResultSchema.parse(value);
   if (isRecord(value) && "reason" in value) return fixtureUnreachableV1Schema.parse(value);
   const fixtureState = fixtureStateV2Schema.safeParse(value);
   if (fixtureState.success) return fixtureState.data;
@@ -653,6 +667,13 @@ function parseStoredGatewayStateEvent(
   value: unknown,
   scope: StateEventOutboxScope
 ): GatewayStateEvent {
+  // Purpose is discriminated before legacy payload markers, but the stored
+  // topic must also agree; a legacy ACK/topic cannot adopt a new purpose.
+  if (isRecord(value) && "purpose" in value) {
+    if (topic !== bioRegistrationRevalidationTopics.result(scope.siteId, scope.gatewayId)) throw new Error("invalid registration result topic");
+    return bioRegistrationRevalidationResultSchema.parse(value);
+  }
+  if (topic === bioSensorModeTopics.result(scope.siteId, scope.gatewayId)) return bioSensorModeResultSchema.parse(value);
   if (topic === mqttTopicsV2.fixtureState(scope.siteId, scope.gatewayId)) {
     return fixtureStateV2Schema.parse(value);
   }
@@ -666,6 +687,8 @@ function parseStoredGatewayStateEvent(
 }
 
 function gatewayStateEventTopic(event: GatewayStateEvent) {
+  if ("purpose" in event) return bioRegistrationRevalidationTopics.result(event.siteId, event.gatewayId);
+  if ("modeVerified" in event) return bioSensorModeTopics.result(event.siteId, event.gatewayId);
   if ("reason" in event) return mqttTopicsV2.fixtureUnreachable(event.siteId, event.gatewayId);
   return "brightness" in event
     ? mqttTopicsV2.fixtureState(event.siteId, event.gatewayId)

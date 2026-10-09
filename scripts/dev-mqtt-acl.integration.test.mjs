@@ -7,7 +7,7 @@ import { join } from "node:path";
 import test from "node:test";
 import { createRequire } from "node:module";
 import { publishNativeBrokerIdentity, reloadExistingDevelopmentBroker } from "./dev-broker.mjs";
-import { publishMosquittoAcl } from "./dev-runtime.mjs";
+import { publishMosquittoAcl, renderMosquittoAcl } from "./dev-runtime.mjs";
 
 const ALLOWED_ID = "11111111-1111-4111-8111-111111111111";
 const REMOVED_ID = "22222222-2222-4222-8222-222222222222";
@@ -131,19 +131,74 @@ test("stock broker restart with restored ACL/CRL revives retired publish and pre
 });
 
 // Independent inventory from API publish producers and MqttService subscriptions.
-const API_WRITE = ["commands/status-check", "commands/identify", "commands/fixture-presence-check",
+const REVALIDATION_COMMAND = "commands/bio-registration-revalidation";
+const REVALIDATION_RESULT = "events/bio-registration-revalidation-result";
+const REVALIDATION_ACK = "acks/bio-registration-revalidation-result";
+const BIO_COMMANDS = ["commands/bio-sensor-catalog", "commands/bio-sensor-preparation", "events/bio-sensor-preparation-result-ack"];
+const BIO_EVENTS = ["events/bio-sensor-catalog-ack", "events/bio-sensor-preparation-result"];
+const API_WRITE = [...BIO_COMMANDS, REVALIDATION_COMMAND, REVALIDATION_ACK, "commands/bio-sensor-mode", "commands/status-check", "commands/identify", "commands/fixture-presence-check",
   "commands/provisioning/scan-start", "commands/provisioning/scan-stop", "commands/provisioning/identify-device",
   "commands/provisioning/provision-device", "commands/mesh-group/subscription-sync", "commands/mesh-group/resync-ack",
   "commands/automation/config-sync", "events/clock/response", "commands/drain/request", "acks/state-ingested",
   "acks/fixture-presence-check-completed", "acks/provisioning/scan-terminal-ingested", "acks/provisioning/device-terminal-ingested",
   "acks/automation/config-applied-ingested", "acks/automation/execution-ingested", "acks/automation/vehicle-sensor-capability-ingested"];
-const API_READ = ["acks/acceptance", "acks/device-status", "state/fixtures", "state/fixture-presence", "state/heartbeat",
-  "events/provisioning/scan-found", "events/provisioning/scan-completed", "events/provisioning/scan-failed",
+const API_READ = [...BIO_EVENTS, REVALIDATION_RESULT, "events/bio-sensor-mode-result", "acks/acceptance", "acks/device-status", "state/fixtures", "state/fixture-presence", "state/heartbeat",
+  "events/provisioning/scan-found", "events/provisioning/scan-found-v2", "events/provisioning/scan-completed", "events/provisioning/scan-failed",
   "events/provisioning/device-terminal", "events/provisioning-completed", "events/provisioning-failed",
   "events/identify-result", "events/fixture-presence-check-completed", "events/fixture-unreachable",
   "events/mesh-group/resync-request", "events/mesh-group/subscription-result", "events/mesh-node-metrics",
   "events/provisioning-progress", "events/automation/config-applied", "events/automation/current-config-request",
   "events/automation/execution", "events/automation/vehicle-sensor-capability", "commands/clock/request", "events/drain/response"];
+
+// Evaluate the generated/template grant semantics using an independent matcher.
+// This source-contract check does not reload any broker or create credentials.
+function aclAllows(source, username, direction, topic) {
+  let currentUser = null;
+  for (const line of source.split("\n")) {
+    const parts = line.trim().split(/\s+/);
+    if (parts[0] === "user") { currentUser = parts[1]; continue; }
+    if (!["topic", "pattern"].includes(parts[0]) || parts[1] !== direction) continue;
+    if (parts[0] === "topic" && currentUser !== username) continue;
+    const pattern = parts[2].replaceAll("%u", username).split("/"); const value = topic.split("/");
+    if (pattern.every((part, index) => part === "#" || part === "+" && value[index] !== undefined || part === value[index]) &&
+      (pattern.at(-1) === "#" || pattern.length === value.length)) return true;
+  }
+  return false;
+}
+
+test("BIO typed discovery ACL grants exact API subscriber and scoped Gateway producer", () => {
+  const template = readFileSync(new URL("../infra/mosquitto.acl.example", import.meta.url), "utf8");
+  for (const source of [template, renderMosquittoAcl([ALLOWED_ID]), renderMosquittoAcl([ALLOWED_ID], { setGeneration: 8 })]) {
+    const topic = gateway => `sites/site/gateways/${gateway}/events/provisioning/scan-found-v2`;
+    assert.equal(aclAllows(source, "api-service", "read", topic(ALLOWED_ID)), true);
+    assert.equal(aclAllows(source, "api-service", "write", topic(ALLOWED_ID)), false);
+    assert.equal(aclAllows(source, ALLOWED_ID, "write", topic(ALLOWED_ID)), true);
+    assert.equal(aclAllows(source, ALLOWED_ID, "write", topic(REMOVED_ID)), false);
+  }
+});
+
+test("BIO catalog/preparation ACL grants exact producer directions and retains legacy producers", () => {
+  const rendered = renderMosquittoAcl([ALLOWED_ID], { setGeneration: 8 });
+  const template = readFileSync(new URL("../infra/mosquitto.acl.example", import.meta.url), "utf8");
+  const topic = (suffix, gateway = ALLOWED_ID) => `sites/site/gateways/${gateway}/${suffix}`;
+  for (const source of [rendered, template]) {
+    for (const suffix of BIO_COMMANDS) {
+      assert.equal(aclAllows(source, "api-service", "write", topic(suffix)), true, `API writes ${suffix}`);
+      assert.equal(aclAllows(source, ALLOWED_ID, "read", topic(suffix)), true, `Gateway reads ${suffix}`);
+      assert.equal(aclAllows(source, ALLOWED_ID, "write", topic(suffix)), false, `Gateway cannot forge ${suffix}`);
+      assert.equal(aclAllows(source, ALLOWED_ID, "read", topic(suffix, REMOVED_ID)), false);
+    }
+    for (const suffix of API_READ) {
+      assert.equal(aclAllows(source, ALLOWED_ID, "write", topic(suffix)), true, `legacy/new Gateway producer ${suffix}`);
+      assert.equal(aclAllows(source, "api-service", "read", topic(suffix)), true);
+    }
+    for (const suffix of BIO_EVENTS) {
+      assert.equal(aclAllows(source, "api-service", "write", topic(suffix)), false);
+      assert.equal(aclAllows(source, ALLOWED_ID, "write", topic(suffix, REMOVED_ID)), false);
+    }
+    assert.equal(aclAllows(source, ALLOWED_ID, "write", topic("events/clock/response")), false);
+  }
+});
 
 test("Set cutover denies legacy/retired identities including deferred QoS1 after timeout; non-Set remains live", {
   skip: process.env.DEV_MQTT_ACL_INTEGRATION === "1" ? false : "set DEV_MQTT_ACL_INTEGRATION=1 for disposable mTLS broker"
@@ -189,15 +244,27 @@ test("Set cutover denies legacy/retired identities including deferred QoS1 after
     await assert.rejects(send(active, "sites/health/production-probe"), /not authorized/i);
     await assert.rejects(send(active, scoped("commands/status-check")), /not authorized/i);
     await assert.rejects(send(api, scoped("commands/unknown")), /not authorized/i);
-    for (const suffix of API_WRITE) await send(api, scoped(suffix));
     const unlisted = client("removed"); await connected(unlisted);
     await assert.rejects(send(unlisted, `sites/site/gateways/${REMOVED_ID}/state/heartbeat`), /not authorized/i);
     const received = new Set(); api.on("message", (topic) => received.add(topic));
-    await api.subscribeAsync(API_READ.map(scoped), { qos: 1 });
+    const gatewayReceived = new Set(), otherReceived = new Set();
+    gateway.on("message", topic => gatewayReceived.add(topic));
+    unlisted.on("message", topic => otherReceived.add(topic));
+    // Mosquitto can grant SUBACK without read permission. Assert actual delivery
+    // alongside PUBACK denial, rather than treating SUBACK as read authority.
+    await api.subscribeAsync([...API_READ, REVALIDATION_COMMAND, REVALIDATION_ACK].map(scoped), { qos: 1 });
+    await gateway.subscribeAsync([REVALIDATION_COMMAND, REVALIDATION_ACK, REVALIDATION_RESULT].map(scoped), { qos: 1 });
+    await unlisted.subscribeAsync([REVALIDATION_COMMAND, REVALIDATION_ACK, REVALIDATION_RESULT].map(scoped), { qos: 1 });
+    await assert.rejects(send(api, scoped(REVALIDATION_RESULT)), /not authorized/i);
+    for (const suffix of [REVALIDATION_COMMAND, REVALIDATION_ACK]) await assert.rejects(send(gateway, scoped(suffix)), /not authorized/i);
+    for (const suffix of [REVALIDATION_COMMAND, REVALIDATION_ACK, REVALIDATION_RESULT]) await assert.rejects(send(unlisted, scoped(suffix)), /not authorized/i);
+    for (const suffix of API_WRITE) await send(api, scoped(suffix));
     for (const suffix of API_READ) await send(gateway, scoped(suffix));
     const deadline = Date.now() + 3000;
-    while (received.size < API_READ.length && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 20));
+    while ((received.size < API_READ.length || gatewayReceived.size < 2) && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 20));
     assert.deepEqual([...received].sort(), API_READ.map(scoped).sort());
+    assert.deepEqual([...gatewayReceived].sort(), [REVALIDATION_COMMAND, REVALIDATION_ACK].map(scoped).sort());
+    assert.deepEqual([...otherReceived], []);
     const deferred = client("set7", true);
     const packet = send(deferred, scoped("commands/dimming"));
     // The application timeout has already elapsed. The actual QoS1 packet stays

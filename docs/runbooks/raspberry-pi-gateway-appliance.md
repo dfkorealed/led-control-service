@@ -4,6 +4,30 @@
 
 ## 1. 적용 범위
 
+## A/B sensor-event pilot host launcher — 코드 준비 전용, 운영 실행 전 별도 안내
+
+`apps/gateway/scripts/bio-sensor-event-pilot-launcher.ts`는 기존 Task9 host handover의 bounded 후속이다. 이번 작업에서 SSH/staging/Docker/USB/RF/Gateway/DB/broker/START는 실행하지 않았다. 제품 profile·qualification·OFF와 기존 유지시간 UI는 변경하지 않는다. 아래는 **별도 실제 실행 승인 이후** 절차이며 지금 실행 지시가 아니다.
+
+### 2026-10-08 후속 운영 기록: 시험 전용 Node만 준비 완료
+
+사용자 별도 승인으로 공식 Node v22.23.2 Linux ARM64를 UID1000·0700 전용 경로에 설치했다. 호스트 실행 파일은 `/var/tmp/bio-trial-node-v22.23.2-20261008-fcd9537b28815640338be086/node-v22.23.2-linux-arm64/bin/node`다. 공식 HTTPS SHASUMS와 archive SHA256 `fff4078c5def658577f92c88db7db3bc0072924bfb93fe52c1e744a54e94abb8` 일치, binary SHA256 `1a638b0fe2b68da0489276aca95526c5122fc61ba54d6a2d0d00c1c92ab7b876`를 확인했다. PGP 검증은 하지 않았다. 버전 출력·staged launcher/pilot syntax·no-args 무동작·불완전 `--run` 거부만 확인했으며 실제 prepare/run·서비스 STOP/재시작·USB/RF 명령은 실행하지 않았다.
+
+시스템 Node/PATH가 생긴 것은 아니다. 후속 호스트 launcher 호출은 위 **절대 실행 파일**을 사용한다. 같은 날 후속 승인에서 private operator helper의 bare `node` 호출2곳을 이 경로로 반영해 synthetic focused3/3·syntax를 확인했다. 새 phase/receipt/인증 UI·현장 상태·중단 가능·별도 START 관문은 그대로 적용하며 기존 approval/토큰은 재사용하지 않는다. 자세한 software-only proof와 초기 권한 거부/로컬 SSH timeout 후 원격 완료 대조는 `docs/project-status.md`의 같은 날짜 기록을 따른다.
+
+연결 후속은 Pi host와 원본 container가 이전 Mac 주소를 가리키는 문제로 확인됐다. 현재 주소의 TCP/API200/strict TLS를 선검사하고 보호백업 뒤 두 hosts 파일의 inode를 유지해 해당 주소만 바꿨다. 재시작·PKI 변경 없이 원본 healthy/MQTT·DB heartbeat/대기8종0·identity/mapping/lock 불변을 확인했다. 재시작 후 DNS 유지까지 검증한 것은 아니다. 최소 브라우저의 실제 대기/비활성4버튼·bare reload도 확인했지만 receipt/phase/bridge/START.used·pilot/USB/RF는 미실행이다. 다음 시험은 **현재 현장/중단 가능·새 START→fresh 관찰 기반 TTL120초 receipt→새 phase prepare→passive bridge waiting/captured 선관찰→run**으로 진행한다. 브라우저 TTL30분과 MQTT CRL의10월8일14:56:46 KST 만료 예정은 실행 직전 다시 확인한다. 준비를 실제 점등·원복 검증으로 기록하지 않는다.
+
+1. 현재 원본의 full container ID·image config digest·실제 관찰 StartedAt과 fresh exact A/B Fixture/native/address256·259/net0/node/site/gateway/assignment를 운영자가 읽기 전용으로 확인한다. event/schedule/command/MQTT/scan/provision/refresh/recovery 순서8개 대기 count는 모두0이어야 한다. 이 결과를 `Approval` 타입의 `version:1`, `observedAt`, `expiresAt`(최대120초), `original`, `bindings`, `waiting`에 넣는 **trusted operator receipt**가 입력이다. launcher는 API/DB 확인을 대신하지 않는다.
+2. 같은 receipt의 `mapping`은 원본 `/data/mesh` mount의 canonical mapping 파일과 현재 SHA256, `sources`는 검토한 pilot/main·runtime source2개 경로/hash, `artifact`는 최신 self-contained pilot bundle 경로/hash다. `usb`는 fresh device·physical sysfs·ch341 driver·descriptor hash·GID, `usbPreflight`는 검토한 기존 `scripts/gateway-bio-usb-preflight.sh`의 경로/hash다. 수정 전 bundle이나10월6일 original StartedAt/phase/token을 fresh 근거로 쓰지 않는다. receipt는 operator 소유 canonical regular0600 파일로 보관한다.
+3. 로컬 prepare는 `pnpm exec tsx apps/gateway/scripts/bio-sensor-event-pilot-launcher.ts --prepare --approval=/절대/보호/receipt.json`이다. USB/Docker 없이 source/artifact를 검증하고 새 canonical `/tmp/bio-event-pilot-*`0700·불변0600 manifest/bootstrap·빈0700 evidence·nonsecret code0444를 만든다. 출력은 보호 bootstrap **경로만**이며 token은 그0600 파일 안에서만 읽는다. TTL이 지난 준비는 새 현재 receipt·새 phase로 다시 준비하며 기존 evidence/START.used를 삭제하거나 재사용하지 않는다.
+4. 사용자에게 실장비 전임을 알리고 별도 START를 받은 운영자만 `--run --root=/tmp/bio-event-pilot-... --start=<bootstrap의 one-use 값>`을 명시한다. protected START.used를 fsync한 뒤 fresh 원본/hash를 다시 확인한다. `.appliance-operation.lock` inode의 flock와 기존 `.bio-runtime-deploy.lock` 원자 mkdir를 함께 소유하며 기존 activation/state journal·stale/경합 lock은 자동 삭제하지 않는다.
+5. 새 빈 evidence만 UID/GID999·0700으로 준비한다. STOP 전에 exact image·UID999·code 한 파일 RO bind·network-none/no-device의 fs.access+`node --check`를 통과해야 한다. **실제 image probe는 이번 코드 작업에서 fixture로만 검증했으며 미실행**이다. 그 뒤 exact 원본 ID에 SIGTERM만 보내고 최대25초 terminal inspect를 확인한다. `docker stop`의 자동 SIGKILL이나 컨테이너 forcekill은 원본/diagnostic 모두 금지한다. Running=false terminal·Linux `/proc` character-device FD owner0·exact VID/PID/descriptor/physical/driver가 필요하며 원본 still-live/unknown이면 trial과 competing restart를 하지 않고 lock/evidence를 보존한다.
+6. diagnostic은 fresh ownership phase label로 create하고 full ID/image/label을 대조한 뒤 exact ID로만 start/TERM한다. 같은 이름의 교체·created 상태·daemon/CLI 오류는 terminal로 해석하지 않는다. no-such-object는 exact 오류와 독립 successful inventory에서 이름 부재가 모두 확인돼야 한다. CLI wait deadline은 lifetime 증거가 아니다. TERM은 별도30초 복구와 retirement를 위해45초 확인창을 보장하며 forcekill/USB reset/자동 retry/자동 container 삭제는 없다.
+7. terminal/absence·USB FD 해제·driver/physical 복귀 후 원본 exact ID/image를 재시작하고 fresh healthy/MQTT/heartbeat/USB/protocol/mapping/hash postflight를 확인한다. durable `pilot-journal.jsonl` final closed/pending0과 diagnostic exit0이 아니면 성공으로 표시하지 않는다. settings/fsync/close 불확실이면 서비스가 안전하게 복구돼도 nonzero·bio lock/evidence를 보존하여 다음 phase의 baseline 재캡처를 차단한다. alive/unknown/USB 미해제이면 competing 원본 재시작도 금지한다. 보존된 lock은 승인된 운영자가 exact evidence/daemon lifetime/기존 pending을 해결한 뒤에만 inode를 확인해 수동 해제한다.
+
+공유 flock은 살아 있는 launcher/cleanup 동안만 보유한다. 실패 종료 뒤 자동으로 kernel lease가 풀려도 bio mkdir lock과 evidence는 보존된다. 기존 state/deployment 작업과의 배제 범위를 이를 넘어 영구 보장한다고 주장하지 않으며 새 운영 작업보다 보존된 시험 상태의 수동 검토가 먼저다.
+
+모든 외부 host CLI는 기본15초·diagnostic wait400초의 bounded budget과 정상 작업 취소를 적용한다. 소유 CLI process group의 TERM→KILL 회수는 컨테이너 kill API와 구분한다. 회수 불확실/late create·start는 exact inspect가 순간 부재여도 unknown으로 보존한다. Cleanup은 정상 취소와 독립된120초 예산을 쓰며 recovery/postflight 각45초와 매 command의 잔여 monotonic 예산으로 제한한다. create/start와 원본 TERM 직전의 동기 취소 fence, await 후 재검사를 통과하지 못하면 새 USB/RF client를 시작하지 않는다. local mapping의 등록 ID는 canonical server MeshNode alias가 아니며 exact Fixture/native/address/deviceUuid/status와 전체 mapping SHA만 대조한다. UUID 조인·rename·backfill은 하지 않는다.
+
 ## 독립 BIO runtime 배포
 
 BIO에는 아래 독립 절차를 사용한다. 기존 BlueZ base+BIO overlay의 배열 병합은 NET_ADMIN/NET_RAW·BlueZ seccomp/mesh mount를 남긴다. 구형 `gateway-appliance-deploy.sh --adapter bio-usb`는 SSH 전에 차단되며 아래 파일에 임의 overlay를 추가하지 않는다.

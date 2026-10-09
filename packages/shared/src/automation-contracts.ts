@@ -58,6 +58,12 @@ export interface VehicleEventRuleSnapshotV1 {
   holdSeconds: number;
 }
 
+export type VehicleSensorProtocol = "bluez-stateful" | "bio-usb-pulse";
+
+export interface VehicleEventRuleSnapshotV2 extends VehicleEventRuleSnapshotV1 {
+  sensorProtocol: VehicleSensorProtocol;
+}
+
 export interface AutomationSnapshotV1 {
   schemaVersion: 1;
   siteId: string;
@@ -70,6 +76,11 @@ export interface AutomationSnapshotV1 {
   payloadHash: `sha256:${string}`;
 }
 
+export interface AutomationSnapshotV2 extends Omit<AutomationSnapshotV1, "schemaVersion" | "vehicleEventRules"> {
+  schemaVersion: 2;
+  vehicleEventRules: VehicleEventRuleSnapshotV2[];
+}
+
 export interface AutomationConfigAppliedV1 {
   schemaVersion: 1;
   gatewayId: string;
@@ -78,6 +89,10 @@ export interface AutomationConfigAppliedV1 {
   status: "applied" | "rejected";
   errorCode: string | null;
   appliedAt: string;
+}
+
+export interface AutomationConfigAppliedV2 extends Omit<AutomationConfigAppliedV1, "schemaVersion"> {
+  schemaVersion: 2;
 }
 
 export interface AutomationCurrentConfigRequestV1 {
@@ -99,6 +114,29 @@ export interface AutomationConfigAppliedDeliveryV1 {
 export interface AutomationConfigAppliedReceiptV1 extends AutomationConfigAppliedDeliveryV1 {
   ingestedAt: string;
 }
+
+/** A protocol declaration is configuration transport ability, never sensor readiness. */
+export interface AutomationCurrentConfigRequestV2 extends Omit<AutomationCurrentConfigRequestV1, "schemaVersion"> {
+  schemaVersion: 2;
+  assignmentVersion: number;
+  declarationRevision: number;
+  maxSnapshotVersion: 1 | 2;
+}
+
+export interface AutomationConfigAppliedDeliveryV2 extends Omit<AutomationConfigAppliedDeliveryV1, "schemaVersion" | "acknowledgement"> {
+  schemaVersion: 2;
+  acknowledgement: AutomationConfigAppliedV2;
+}
+
+export interface AutomationConfigAppliedReceiptV2 extends AutomationConfigAppliedDeliveryV2 {
+  ingestedAt: string;
+}
+
+export type AutomationSnapshot = AutomationSnapshotV1 | AutomationSnapshotV2;
+export type AutomationConfigApplied = AutomationConfigAppliedV1 | AutomationConfigAppliedV2;
+export type AutomationConfigAppliedDelivery = AutomationConfigAppliedDeliveryV1 | AutomationConfigAppliedDeliveryV2;
+export type AutomationConfigAppliedReceipt = AutomationConfigAppliedReceiptV1 | AutomationConfigAppliedReceiptV2;
+export type AutomationCurrentConfigRequest = AutomationCurrentConfigRequestV1 | AutomationCurrentConfigRequestV2;
 
 export interface AutomationExecutionEventV1 {
   schemaVersion: 1;
@@ -135,6 +173,20 @@ export interface VehicleSensorCapabilityReportV1 {
   vendorVehicleEventModelBound: boolean;
 }
 
+export interface VehicleSensorCapabilityReportV2 {
+  schemaVersion: 2;
+  eventId: string;
+  siteId: string;
+  gatewayId: string;
+  meshNodeId: string;
+  capabilityRevision: number;
+  sensorProtocol: "bio-usb-pulse";
+  readiness: "off" | "shadow" | "ready" | "degraded";
+  verifiedFingerprintId: string | null;
+  sensorModeVerifiedAt: string | null;
+  verifiedAt: string;
+}
+
 export interface VehicleSensorCapabilityIngestedAckV1 {
   schemaVersion: 1;
   eventId: string;
@@ -142,6 +194,28 @@ export interface VehicleSensorCapabilityIngestedAckV1 {
   meshNodeId: string;
   capabilityRevision: number;
   reportPayloadHash: string;
+  status: "applied" | "stale" | "duplicate" | "rejected";
+  errorCode: string | null;
+  ingestedAt: string;
+}
+
+/** Assignment-bound transport for existing BIO qualification evidence, not live health or enablement. */
+export interface VehicleSensorCapabilityDeliveryV2 {
+  schemaVersion: 2;
+  assignmentVersion: number;
+  report: VehicleSensorCapabilityReportV2;
+}
+
+export interface VehicleSensorCapabilityIngestedAckV2 {
+  schemaVersion: 2;
+  siteId: string;
+  gatewayId: string;
+  assignmentVersion: number;
+  eventId: string;
+  meshNodeId: string;
+  capabilityRevision: number;
+  /** Canonical hash of the complete delivery envelope, including assignmentVersion. */
+  deliveryPayloadHash: `sha256:${string}`;
   status: "applied" | "stale" | "duplicate" | "rejected";
   errorCode: string | null;
   ingestedAt: string;
@@ -246,6 +320,22 @@ export const vehicleEventRuleSnapshotV1Schema = z.object({
   holdSeconds: z.number().int().min(5).max(1_800)
 }).strict();
 
+export const vehicleEventRuleSnapshotV2Schema = z.object({
+  id: identifierSchema,
+  name: z.string().trim().min(1),
+  status: z.enum(["enabled", "disabled"]),
+  sourceFixtureIds: fixtureIdsSchema,
+  targetFixtureIds: fixtureIdsSchema,
+  action: automationActionV1Schema,
+  holdSeconds: z.number().int().min(5).max(1_800),
+  sensorProtocol: z.enum(["bluez-stateful", "bio-usb-pulse"])
+}).strict().superRefine((rule, context) => {
+  // BlueZ stateful rules retain the V1 five-second floor; BIO pulses need at least ten seconds.
+  if (rule.sensorProtocol === "bio-usb-pulse" && rule.holdSeconds < 10) {
+    addIssue(context, "holdSeconds", "BIO pulse holdSeconds must be at least 10");
+  }
+});
+
 export const automationSnapshotV1Schema = z.object({
   schemaVersion: z.literal(1),
   siteId: identifierSchema,
@@ -258,22 +348,48 @@ export const automationSnapshotV1Schema = z.object({
   payloadHash: payloadHashSchema
 }).strict();
 
-export const automationConfigAppliedV1Schema = z.object({
-  schemaVersion: z.literal(1),
+export const automationSnapshotV2Schema = z.object({
+  schemaVersion: z.literal(2),
+  siteId: identifierSchema,
+  gatewayId: identifierSchema,
+  revision: z.number().int().nonnegative(),
+  timeZone: z.string().min(1).refine(isIanaTimeZone, "timeZone must be a valid IANA time zone"),
+  schedules: z.array(lightingScheduleSnapshotV1Schema),
+  vehicleEventRules: z.array(vehicleEventRuleSnapshotV2Schema),
+  generatedAt: timestampSchema,
+  payloadHash: payloadHashSchema
+}).strict();
+
+const automationConfigAppliedFields = {
   gatewayId: identifierSchema,
   revision: z.number().int().nonnegative(),
   payloadHash: payloadHashSchema,
   status: z.enum(["applied", "rejected"]),
   errorCode: z.string().trim().min(1).nullable(),
   appliedAt: timestampSchema
-}).strict().superRefine((configuration, context) => {
+};
+
+function validateAutomationConfigApplied(
+  configuration: { status: "applied" | "rejected"; errorCode: string | null },
+  context: z.RefinementCtx
+) {
   if (configuration.status === "applied" && configuration.errorCode !== null) {
     addIssue(context, "errorCode", "applied configuration cannot include an errorCode");
   }
   if (configuration.status === "rejected" && configuration.errorCode === null) {
     addIssue(context, "errorCode", "rejected configuration requires an errorCode");
   }
-});
+}
+
+export const automationConfigAppliedV1Schema = z.object({
+  schemaVersion: z.literal(1),
+  ...automationConfigAppliedFields
+}).strict().superRefine(validateAutomationConfigApplied);
+
+export const automationConfigAppliedV2Schema = z.object({
+  schemaVersion: z.literal(2),
+  ...automationConfigAppliedFields
+}).strict().superRefine(validateAutomationConfigApplied);
 
 export const automationCurrentConfigRequestV1Schema = z.object({
   schemaVersion: z.literal(1),
@@ -281,6 +397,13 @@ export const automationCurrentConfigRequestV1Schema = z.object({
   siteId: identifierSchema,
   gatewayId: identifierSchema,
   requestedAt: timestampSchema
+}).strict();
+
+export const automationCurrentConfigRequestV2Schema = automationCurrentConfigRequestV1Schema.extend({
+  schemaVersion: z.literal(2),
+  assignmentVersion: z.number().int().nonnegative().safe(),
+  declarationRevision: z.number().int().positive().safe(),
+  maxSnapshotVersion: z.union([z.literal(1), z.literal(2)])
 }).strict();
 
 const automationConfigAppliedDeliveryShape = {
@@ -307,6 +430,32 @@ export const automationConfigAppliedReceiptV1Schema = z.object({
     addIssue(context, "gatewayId", "config acknowledgement Gateway scope must match its receipt");
   }
 });
+
+const automationConfigAppliedDeliveryV2Shape = {
+  ...automationConfigAppliedDeliveryShape,
+  schemaVersion: z.literal(2),
+  acknowledgement: automationConfigAppliedV2Schema
+};
+
+function validateConfigDeliveryScope(
+  delivery: { gatewayId: string; acknowledgement: { gatewayId: string } },
+  context: z.RefinementCtx
+) {
+  if (delivery.gatewayId !== delivery.acknowledgement.gatewayId) {
+    addIssue(context, "gatewayId", "config acknowledgement Gateway scope must match its delivery");
+  }
+}
+
+export const automationConfigAppliedDeliveryV2Schema = z.object(automationConfigAppliedDeliveryV2Shape)
+  .strict().superRefine(validateConfigDeliveryScope);
+export const automationConfigAppliedReceiptV2Schema = z.object({
+  ...automationConfigAppliedDeliveryV2Shape, ingestedAt: timestampSchema
+}).strict().superRefine(validateConfigDeliveryScope);
+export const automationSnapshotSchema = z.union([automationSnapshotV1Schema, automationSnapshotV2Schema]);
+export const automationConfigAppliedSchema = z.union([automationConfigAppliedV1Schema, automationConfigAppliedV2Schema]);
+export const automationConfigAppliedDeliverySchema = z.union([automationConfigAppliedDeliveryV1Schema, automationConfigAppliedDeliveryV2Schema]);
+export const automationConfigAppliedReceiptSchema = z.union([automationConfigAppliedReceiptV1Schema, automationConfigAppliedReceiptV2Schema]);
+export const automationCurrentConfigRequestSchema = z.union([automationCurrentConfigRequestV1Schema, automationCurrentConfigRequestV2Schema]);
 
 export const automationExecutionEventV1Schema = z.object({
   schemaVersion: z.literal(1),
@@ -379,6 +528,29 @@ export const vehicleSensorCapabilityReportV1Schema = z.object({
   }
 });
 
+export const vehicleSensorCapabilityReportV2Schema = z.object({
+  schemaVersion: z.literal(2),
+  eventId: identifierSchema,
+  siteId: identifierSchema,
+  gatewayId: identifierSchema,
+  meshNodeId: identifierSchema,
+  capabilityRevision: positiveSafeIntegerSchema,
+  sensorProtocol: z.literal("bio-usb-pulse"),
+  readiness: z.enum(["off", "shadow", "ready", "degraded"]),
+  verifiedFingerprintId: z.string().trim().min(1).nullable(),
+  sensorModeVerifiedAt: z.string().datetime({ offset: true }).nullable(),
+  verifiedAt: z.string().datetime({ offset: true })
+}).strict().superRefine((report, context) => {
+  // Structural readiness is not product support; live health and approved profiles are checked by consumers.
+  if (report.readiness !== "ready") return;
+  if (report.verifiedFingerprintId === null) {
+    addIssue(context, "verifiedFingerprintId", "ready BIO capability requires a verified fingerprint profile");
+  }
+  if (report.sensorModeVerifiedAt === null) {
+    addIssue(context, "sensorModeVerifiedAt", "ready BIO capability requires sensor-mode verification");
+  }
+});
+
 export const vehicleSensorCapabilityIngestedAckV1Schema = z.object({
   schemaVersion: z.literal(1),
   eventId: identifierSchema,
@@ -390,3 +562,46 @@ export const vehicleSensorCapabilityIngestedAckV1Schema = z.object({
   errorCode: z.string().trim().min(1).nullable(),
   ingestedAt: z.string().datetime({ offset: true })
 }).strict();
+
+export const vehicleSensorCapabilityDeliveryV2Schema = z.object({
+  schemaVersion: z.literal(2),
+  assignmentVersion: positiveSafeIntegerSchema,
+  report: vehicleSensorCapabilityReportV2Schema
+}).strict();
+
+export const vehicleSensorCapabilityIngestedAckV2Schema = z.object({
+  schemaVersion: z.literal(2),
+  siteId: identifierSchema,
+  gatewayId: identifierSchema,
+  assignmentVersion: positiveSafeIntegerSchema,
+  eventId: identifierSchema,
+  meshNodeId: identifierSchema,
+  capabilityRevision: positiveSafeIntegerSchema,
+  deliveryPayloadHash: payloadHashSchema,
+  status: z.enum(["applied", "stale", "duplicate", "rejected"]),
+  errorCode: z.string().trim().min(1).max(128).nullable(),
+  ingestedAt: z.string().datetime({ offset: true })
+}).strict();
+
+/**
+ * The consumer computes expectedDeliveryPayloadHash with its existing canonical hash
+ * helper over the current complete envelope, not the nested report alone. This pure
+ * check verifies ACK attribution only: true also covers rejected receipts and never
+ * proves applied qualification, live readiness, authenticated transport or enablement.
+ */
+export function matchesVehicleSensorCapabilityIngestedAckV2(
+  delivery: unknown,
+  acknowledgement: unknown,
+  expectedDeliveryPayloadHash: string
+): boolean {
+  const parsedDelivery = vehicleSensorCapabilityDeliveryV2Schema.safeParse(delivery);
+  const parsedAck = vehicleSensorCapabilityIngestedAckV2Schema.safeParse(acknowledgement);
+  if (!parsedDelivery.success || !parsedAck.success
+    || !payloadHashSchema.safeParse(expectedDeliveryPayloadHash).success) return false;
+  const { report, assignmentVersion } = parsedDelivery.data;
+  const ack = parsedAck.data;
+  return ack.siteId === report.siteId && ack.gatewayId === report.gatewayId
+    && ack.assignmentVersion === assignmentVersion && ack.eventId === report.eventId
+    && ack.meshNodeId === report.meshNodeId && ack.capabilityRevision === report.capabilityRevision
+    && ack.deliveryPayloadHash === expectedDeliveryPayloadHash;
+}

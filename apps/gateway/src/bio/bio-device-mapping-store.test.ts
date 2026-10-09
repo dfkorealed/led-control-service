@@ -21,6 +21,22 @@ async function mappingPath() {
 }
 
 describe("BioDeviceMappingStore", () => {
+  it("notifies only durable changes and isolates failing observers from provisioning", async () => {
+    const store = new BioDeviceMappingStore(await mappingPath());
+    const changes: string[] = [];
+    store.onChange(() => { throw new Error("observer failure"); });
+    const unsubscribe = store.onChange(() => { changes.push("changed"); });
+    await store.reserve(firstMapping);
+    await store.reserve(firstMapping);
+    await store.confirm(firstMapping.deviceUuid, firstMapping.logicalAddress);
+    await store.confirm(firstMapping.deviceUuid, firstMapping.logicalAddress);
+    expect(changes).toEqual(["changed", "changed"]);
+    unsubscribe();
+    await store.reserve({ ...firstMapping, fixtureId: "second", nodeId: "second", nativeUuid: "112233445566",
+      deviceUuid: "bio:112233445566", logicalAddress: 0x102, commandId: "second" });
+    expect(changes).toHaveLength(2);
+    expect((await store.findByFixtureId("fixture-1"))?.status).toBe("confirmed");
+  });
   it("persists a confirmed mapping and recovers its canonical identity after restart", async () => {
     const file = await mappingPath();
     const store = new BioDeviceMappingStore(file, () => new Date("2026-09-12T00:00:00.000Z"));

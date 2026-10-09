@@ -269,11 +269,16 @@ export class VehicleSensorCapabilityJournal {
   }
 }
 
-export class VehicleSensorCapabilityPublisher {
+export interface CapabilityDeliveryJournalPort<Report> {
+  pending(): Promise<Array<{ report: Report }>>;
+  acknowledge(value: unknown): Promise<"ignored" | "terminal" | "rejected">;
+}
+
+export class VehicleSensorCapabilityPublisher<Report = VehicleSensorCapabilityReportV1> {
   private connected = false;
   private stopped = false;
   private generation = 0;
-  private publish: ((topic: string, payload: VehicleSensorCapabilityReportV1) => Promise<void>) | undefined;
+  private publish: ((topic: string, payload: Report) => Promise<void>) | undefined;
   private retryTimer: ReturnType<typeof setTimeout> | undefined;
   private retryDelayMs: number;
   private readonly activeDrains = new Map<number, Promise<void>>();
@@ -282,13 +287,16 @@ export class VehicleSensorCapabilityPublisher {
   private readonly publishTimeoutMs: number;
 
   constructor(
-    private readonly journal: VehicleSensorCapabilityJournal,
+    private readonly journal: CapabilityDeliveryJournalPort<Report>,
     private readonly scope: { siteId: string; gatewayId: string },
     private readonly options: {
       retryInitialDelayMs?: number;
       retryMaxDelayMs?: number;
       publishTimeoutMs?: number;
       onError?: (error: unknown) => void;
+      /** V2 identity proof gate only. Absence preserves the existing V1 path. */
+      beforePublish?: (report: Report) => Promise<boolean>;
+      mayPublish?: (report: Report) => boolean;
     } = {}
   ) {
     this.retryInitialMs = options.retryInitialDelayMs ?? 1_000;
@@ -302,7 +310,7 @@ export class VehicleSensorCapabilityPublisher {
     this.retryDelayMs = this.retryInitialMs;
   }
 
-  connect(publish: (topic: string, payload: VehicleSensorCapabilityReportV1) => Promise<void>) {
+  connect(publish: (topic: string, payload: Report) => Promise<void>) {
     if (this.connected) return this.activeDrains.get(this.generation) ?? Promise.resolve();
     this.connected = true; this.stopped = false; this.publish = publish; this.retryDelayMs = this.retryInitialMs;
     const generation = ++this.generation;
@@ -346,6 +354,10 @@ export class VehicleSensorCapabilityPublisher {
       for (const record of await this.journal.pending()) {
         hasPending = true;
         try {
+          if (!this.isCurrent(generation)) return;
+          if (this.options.beforePublish && !await this.options.beforePublish(record.report)) continue;
+          if (!this.isCurrent(generation)) return;
+          if (this.options.mayPublish && !this.options.mayPublish(record.report)) continue;
           await withTimeout(
             publish(mqttTopics.vehicleSensorCapabilityReport(this.scope.siteId, this.scope.gatewayId), record.report),
             this.publishTimeoutMs

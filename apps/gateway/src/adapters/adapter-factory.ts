@@ -19,6 +19,9 @@ import { BioDeviceMappingStore } from "../bio/bio-device-mapping-store";
 import { BioDirectUsbConnection } from "../bio/bio-direct-usb-connection";
 import type { BioByteConnection } from "../bio/bio-byte-connection";
 import { BioSensorShadowCapture } from "../bio/bio-sensor-shadow-capture";
+import { BioSensorPulseSource, type BioPulseSourcePort } from "../bio/bio-sensor-pulse-source";
+import type { BioTargetConfigurationPort } from "../automation/bio-target-configuration";
+import type { BioCapabilityIdentityPort } from "../bio/bio-capability-delivery";
 
 export type GatewayAdapterKind = "bluez" | "bio-usb";
 
@@ -29,6 +32,10 @@ export interface GatewayAdapters {
   provisioning: ProvisioningAdapter;
   vehicleSensors: VehicleSensorMeshPort;
   vehicleSensorCloudSupported: boolean;
+  bioPulseSource?: BioPulseSourcePort;
+  bioTargetConfiguration?: BioTargetConfigurationPort;
+  bioCapabilityIdentity?: BioCapabilityIdentityPort;
+  bioSensorHardware?: { client: BioDongleClient; mappings: BioDeviceMappingStore; source: BioSensorPulseSource };
   healthProbes: ApplianceHealthProbes;
   stop(): Promise<void>;
 }
@@ -96,6 +103,9 @@ async function createBioUsbAdapters(
 
   let capture: BioSensorShadowCapture | undefined;
   let unsubscribe: (() => void) | undefined;
+  let pulseSource: BioSensorPulseSource | undefined;
+  let adapter: BioUsbDongleAdapter;
+  let vehicleSensors: VehicleSensorMeshPort;
   try {
     // [확인됨] BIO 시작은 exact direct-USB descriptor/claim/Android-equivalent probe와
     // durable mapping parse를 모두 통과해야 한다. [추정] 이 boolean readiness가 실제 RF
@@ -141,17 +151,21 @@ async function createBioUsbAdapters(
       }
       unsubscribe = client.onEvent((event) => capture?.record(event));
     }
+    // Start with no authority. Index attaches only the scoped durable catalog and
+    // accepted preparation/live GET owner; environment flags cannot approve a profile.
+    pulseSource = new BioSensorPulseSource({ client, mappings });
+    adapter = (dependencies.createBioAdapter ?? ((ownedClient, ownedMappings) =>
+      new BioUsbDongleAdapter(ownedClient, ownedMappings)))(client, mappings);
+    vehicleSensors = (dependencies.createBioVehicleSensors ?? (() =>
+      new BioSensorCapabilityUnavailablePort()))();
   } catch (error) {
+    pulseSource?.stop();
     unsubscribe?.();
     await capture?.close().catch(() => undefined);
     await client.close().catch(() => undefined);
     throw error;
   }
 
-  const adapter = (dependencies.createBioAdapter ?? ((ownedClient, ownedMappings) =>
-    new BioUsbDongleAdapter(ownedClient, ownedMappings)))(client, mappings);
-  const vehicleSensors = (dependencies.createBioVehicleSensors ?? (() =>
-    new BioSensorCapabilityUnavailablePort()))();
   const healthProbes: ApplianceHealthProbes = {
     adapterKind: "bio-usb",
     transportConnected: async () => client.transportSnapshot().transportConnected,
@@ -168,8 +182,20 @@ async function createBioUsbAdapters(
     provisioning: adapter,
     vehicleSensors,
     vehicleSensorCloudSupported: false,
+    bioPulseSource: pulseSource,
+    bioSensorHardware: { client, mappings, source: pulseSource! },
+    bioCapabilityIdentity: {
+      findByFixtureId: fixtureId => mappings.findByFixtureId(fixtureId),
+      snapshot: () => client.sensorSourceSnapshot(),
+      onChange: listener => mappings.onChange(listener)
+    },
+    bioTargetConfiguration: {
+      readBioState: (fixtureId, control) => adapter.readBioState(fixtureId, control),
+      restoreBioState: (fixtureId, target, configuration, control) => adapter.restoreBioState(fixtureId, target, configuration, control)
+    },
     healthProbes,
     stop: async () => {
+      pulseSource?.stop();
       unsubscribe?.();
       let captureFailure: unknown;
       try { await capture?.close(); } catch {

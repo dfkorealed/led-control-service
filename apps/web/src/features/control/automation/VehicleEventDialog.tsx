@@ -3,6 +3,8 @@ import { ArrowDown } from "lucide-react";
 import { useEffect, useRef, useState, type RefObject } from "react";
 import type { CreateVehicleEventRuleInput, VehicleEventRuleResponse } from "../../../api/automation";
 import type { Dashboard } from "../../../api/queries";
+import { VehicleEventSourceStatus } from "./VehicleEventSourceStatus";
+import { BioSensorPreparationPanel, bioSensorBlockSummary } from "./BioSensorPreparationPanel";
 import { Button, Checkbox, Heading, ModalDialog, Slider, Text, TextField } from "../../../components/ui";
 import { resolveControlSelection, type ControlSelection } from "../control-selection";
 import { SpatialTargetSelector, spatialTargetDialogClassName } from "../target-selection/SpatialTargetSelector";
@@ -48,6 +50,7 @@ export function VehicleEventDialog({
   serverError,
   returnFocusRef,
   onClose,
+  onRefreshSource,
   onSubmit
 }: {
   open: boolean;
@@ -57,6 +60,7 @@ export function VehicleEventDialog({
   serverError: string;
   returnFocusRef?: RefObject<HTMLElement | null>;
   onClose: () => void;
+  onRefreshSource?: () => Promise<unknown>;
   onSubmit: (input: CreateVehicleEventRuleInput) => void;
 }) {
   const sourceFieldRef = useRef<HTMLFieldSetElement>(null);
@@ -73,6 +77,7 @@ export function VehicleEventDialog({
   const [targetSelection, setTargetSelection] = useState<ControlSelection>(() => ({ mode: "fixtures", fixtureIds: [] }));
   const [errors, setErrors] = useState<VehicleEventFormErrors>({});
   const [view, setView] = useState<EventDialogView>("main");
+  const [inspectedFixtureId, setInspectedFixtureId] = useState<string | null>(null);
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [customHoldOpen, setCustomHoldOpen] = useState(false);
   const [pendingFocus, setPendingFocus] = useState<keyof VehicleEventFormErrors | null>(null);
@@ -87,6 +92,7 @@ export function VehicleEventDialog({
     setTargetSelection({ mode: "fixtures", fixtureIds: nextValues.targetFixtureIds });
     setErrors({});
     setView("main");
+    setInspectedFixtureId(null);
     setAdvancedOpen(false);
     setCustomHoldOpen(!holdPresets.some((preset) => preset.value === nextValues.holdSeconds));
     setPendingFocus(null);
@@ -101,6 +107,18 @@ export function VehicleEventDialog({
   }, [advancedOpen, customHoldOpen, pendingFocus, view]);
 
   const sourceResolution = resolveControlSelection(dashboard, sourceSelection);
+  const selectedSources = sourceResolution.fixtures;
+  const inspectedFixture = dashboard.floors.flatMap(floor => floor.fixtures).find(fixture => fixture.id === inspectedFixtureId);
+  const canPrepare = dashboard.capabilities?.commission === true;
+  // The selected server capability takes precedence after a source replacement.
+  // Retain the saved protocol only when its source is missing or not selected yet.
+  const isBio = selectedSources.length > 0
+    ? selectedSources.some(fixture => fixture.vehicleEventSource?.sensorProtocol === "bio-usb-pulse")
+    : rule?.sensorProtocol === "bio-usb-pulse";
+  const sourceProtocol = isBio ? "bio-usb-pulse" : "bluez-stateful";
+  const bioSourceBlocked = isBio && (selectedSources.length !== 1 || !selectedSources.every(isVehicleEventSource));
+  const targetEligible = (fixture: Dashboard["floors"][number]["fixtures"][number]) => fixture.vehicleEventSource?.targetEligible !== false
+    && !(isBio && values.sourceFixtureIds.includes(fixture.id));
   const sourceGatewayId = sourceResolution.gatewayIds.length === 1 ? sourceResolution.gatewayIds[0] : null;
   const sourceAvailability = fixtureIdsAvailability(values.sourceFixtureIds, dashboard, isVehicleEventSource);
   const sourceReadyForTarget = sourceAvailability.resolvedCount > 0
@@ -144,14 +162,16 @@ export function VehicleEventDialog({
 
   function submit(event: React.FormEvent) {
     event.preventDefault();
-    const nextErrors = validateVehicleEventForm(values);
+    const nextErrors = validateVehicleEventForm(values, sourceProtocol);
     if (sourceAvailability.invalidFixtureIds.length > 0) {
       nextErrors.sourceFixtureIds = "현재 현장에서 확인되지 않거나 차량 감지 기능이 해제된 센서가 포함되어 있습니다. 다시 선택해 주세요.";
     }
+    if (bioSourceBlocked) nextErrors.sourceFixtureIds = "서버가 사용 가능으로 확인한 감지 센서 한 개만 선택할 수 있습니다.";
     const targetAvailability = fixtureIdsAvailability(values.targetFixtureIds, dashboard);
     if (targetAvailability.invalidFixtureIds.length > 0) {
       nextErrors.targetFixtureIds = "현재 현장에서 확인되지 않는 제어 조명이 포함되어 있습니다. 다시 선택해 주세요.";
     }
+    if (targetResolution.fixtures.some(fixture => !targetEligible(fixture))) nextErrors.targetFixtureIds = "감지 센서는 실행 조명으로 선택할 수 없습니다. 다른 실행 조명을 선택하세요.";
     if (values.sourceFixtureIds.length > 0 && !sourceResolution.available) {
       nextErrors.sourceFixtureIds = sourceResolution.unavailableReason ?? "현재 사용할 수 없는 감지 센서입니다.";
     }
@@ -173,21 +193,22 @@ export function VehicleEventDialog({
       setPendingFocus(firstError);
       return;
     }
-    const status: AutomationRuleStatus = rule?.status ?? "enabled";
-    onSubmit(vehicleEventFormToInput(values, status));
+    // BIO authoring remains a disabled draft; server rollout policy is authoritative.
+    const status: AutomationRuleStatus = isBio ? "disabled" : rule?.status ?? "enabled";
+    onSubmit(vehicleEventFormToInput(values, status, sourceProtocol));
   }
 
   const pickerView = view === "source" || view === "target" ? (
     <AutomationTargetPickerView
       title={view === "source" ? "감지 센서 선택" : "실행할 조명 선택"}
       description={view === "source"
-        ? "차량 감지 기능이 확인된 센서만 표시됩니다."
+        ? "등록된 모든 조명의 상태를 확인하고, 서버가 사용 가능으로 확인한 감지 센서를 선택하세요."
         : "차량 감지 시 함께 제어할 조명을 선택하세요."}
       disabled={isPending}
       doneLabel={view === "source"
         ? (sourceResolution.fixtureIds.length > 0 ? `${sourceResolution.fixtureIds.length}개 조명 선택 완료` : "선택 완료")
         : (targetResolution.fixtureIds.length > 0 ? `${targetResolution.fixtureIds.length}개 조명 선택 완료` : "선택 완료")}
-      doneDisabled={view === "source" ? !sourceResolution.available : !targetResolution.available || !sourceGatewayId || targetResolution.gatewayIds[0] !== sourceGatewayId || (targetSelection.mode !== "fixtures" && !targetSourceResolution.available)}
+      doneDisabled={view === "source" ? !sourceResolution.available || bioSourceBlocked : !targetResolution.available || targetResolution.fixtures.some(fixture => !targetEligible(fixture)) || !sourceGatewayId || targetResolution.gatewayIds[0] !== sourceGatewayId || (targetSelection.mode !== "fixtures" && !targetSourceResolution.available)}
       className="grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)] gap-4"
       onDone={() => {
         const completedView = view;
@@ -215,8 +236,12 @@ export function VehicleEventDialog({
           selection={view === "source" ? sourceSelection : targetSelection}
           displaySelection={view === "target" ? { mode: "fixtures", fixtureIds: values.targetFixtureIds } : undefined}
           allowedModes={view === "source" ? ["fixtures"] : undefined}
-          fixtureFilter={view === "source" ? isVehicleEventSource : undefined}
-          fixtureFilterReason="차량 감지 기능이 확인된 센서만 선택할 수 있습니다."
+          fixtureFilter={view === "source" ? isVehicleEventSource : targetEligible}
+          fixtureFilterReason={view === "source" ? "서버가 사용 가능으로 확인한 센서만 선택할 수 있습니다." : "감지 센서는 실행 대상에서 제외됩니다. 다른 실행 조명을 선택하세요."}
+          fixtureBlockedReason={view === "source" ? bioSensorBlockSummary : undefined}
+          onInspectFixture={view === "source" ? setInspectedFixtureId : undefined}
+          inspectionPanel={view === "source" && inspectedFixture ? <BioSensorPreparationPanel siteId={dashboard.site.id} fixture={inspectedFixture} disabled={isPending} canPrepare={canPrepare} onRefreshSource={onRefreshSource}
+            onSelectSource={fixtureId => { const fixture = dashboard.floors.flatMap(floor => floor.fixtures).find(item => item.id === fixtureId); if (fixture?.vehicleEventSource?.sourceEligible === true) changeSource({ mode: "fixtures", fixtureIds: [fixtureId] }); }} /> : undefined}
           requiredGatewayId={view === "target" ? sourceGatewayId : null}
           disabled={isPending}
           modeLabels={{ fixtures: "직접 선택" }}
@@ -247,7 +272,7 @@ export function VehicleEventDialog({
                 triggerRef={sourceTriggerRef}
                 label="감지 센서"
                 title={sourceSummary.count > 0 ? sourceSummary.title : "감지 센서를 선택해 주세요."}
-                description={sourceSummary.count > 0 ? sourceSummary.description : "차량 감지 기능이 확인된 센서만 표시됩니다."}
+                description={sourceSummary.count > 0 ? sourceSummary.description : "등록 조명의 준비 상태를 확인하고 감지 센서를 선택하세요."}
                 empty={sourceSummary.count === 0}
                 disabled={isPending}
                 error={errors.sourceFixtureIds}
@@ -255,6 +280,7 @@ export function VehicleEventDialog({
                 kind="sensor"
                 onOpen={() => setView("source")}
               />
+              {selectedSources.slice(0, 1).map(fixture => <VehicleEventSourceStatus key={fixture.id} siteId={dashboard.site.id} fixture={fixture} disabled={isPending} canPrepare={canPrepare} onRefreshSource={onRefreshSource} />)}
               <ArrowDown className="justify-self-center text-content-secondary" size={20} aria-hidden="true" />
               <Heading as="h3" variant="card-title">02 실행 조명</Heading>
               <AutomationSelectionCard
@@ -309,8 +335,10 @@ export function VehicleEventDialog({
                   }}
                 />
                 {customHoldOpen ? (
-                  <TextField ref={holdSecondsInputRef} label="유지 시간" description="초 단위로 입력하세요." inputMode="numeric" isInvalid={Boolean(errors.holdSeconds)} errorMessage={errors.holdSeconds} value={values.holdSeconds} onChange={(value) => change({ holdSeconds: value })} />
+                  <TextField ref={holdSecondsInputRef} label="유지 시간" description={`${isBio ? "10" : "5"}~1,800초, 기본 60초. 초 단위로 입력하세요.`} inputMode="numeric" isInvalid={Boolean(errors.holdSeconds)} errorMessage={errors.holdSeconds} value={values.holdSeconds} onChange={(value) => change({ holdSeconds: value })} />
                 ) : null}
+                {isBio ? <Text tone="secondary">마지막 유효 펄스부터 유지 시간을 계산합니다. BIO 규칙은 비활성 초안으로 저장되며 서버의 활성화 정책을 따릅니다.</Text> : null}
+                {isBio && Number(values.holdSeconds) === 10 ? <Text role="note" tone="warning">10초 설정에서는 움직임이 이어져도 신호 간격이 길면 B가 꺼졌다 다시 켜질 수 있습니다.</Text> : null}
               </fieldset>
             </section>
 
@@ -326,7 +354,7 @@ export function VehicleEventDialog({
             {serverError ? <Text tone="danger" role="alert">{serverError}</Text> : null}
             <footer className="flex justify-end gap-2">
               <Button variant="secondary" type="button" onClick={onClose} disabled={isPending}>취소</Button>
-              <Button variant="primary" type="submit" isLoading={isPending} loadingLabel="저장 중">저장</Button>
+              <Button variant="primary" type="submit" disabled={bioSourceBlocked} isLoading={isPending} loadingLabel="저장 중">저장</Button>
             </footer>
           </form>
         )}

@@ -1,5 +1,40 @@
 # 프로젝트 오답 노트 (Lessons Learned)
 
+## 2026-10-08 / 시험 브리지 실패도 원시 진단 근거를 남긴다
+
+- **발생한 문제**: 실제 장비는 observing에 진입했지만 브리지는 waiting52회 뒤 `TRANSPORT_UNAVAILABLE`로 종료해 안내 타이머를 시작하지 못했다. 실패 SSH 종료 상태/stdout/stderr/RTT가 버려져 실패 종료·stderr·지연 상한 중 어느 원인인지 확정할 수 없었다.
+- **예방/후속**: 실패를 재시도하거나 fail-closed를 완화하지 않고, 비밀을 노출하지 않는 보호된 원시 실패 근거를 보존하도록 최소 진단을 보완한다. 과거 실패 원문은 소급 합성하지 않는다. 현장 재시험은 별도 START로 진행한다.
+- **복구 판정**: 장비 observing와 브라우저 observing/실제 사용자 행동은 다른 증거다. 이번 조기 취소의 native closed/pending0·diagnostic terminal·host failed-restored·현재 서비스/DB 건강 확인은 복구 완료일 뿐 센서 연동 성공이 아니다.
+
+## 2026-10-08 / 이동한 개발 서버 주소와 현재 DNS를 먼저 대조한다
+
+- **발생한 문제**: Mac 네트워크 주소가 바뀌어 Pi host와 실행 중인 Gateway container의 hosts가 이전 서버를 가리켰다. Gateway는 재시작되지 않았지만 MQTT/heartbeat가 끊겼다.
+- **예방**: 과거 주소/healthy 증거를 재사용하지 않고 현재 서버 주소와 host/container 실제 DNS·TCP·strict TLS/API를 대조한다. 인증서 문제가 아니라 주소 불일치로 증명되면 보호백업·원본 identity guard 뒤 해당 hosts 주소만 inode를 보존해 수정한다. 인증 검증을 끄거나 CRL/키를 불필요하게 갱신하지 않는다.
+- **검증 한계**: live 수정 후 MQTT/새 DB heartbeat가 회복돼도 재시작 후 DNS 유지와 센서 동작이 증명된 것은 아니다. 실제 시험 관문과 원본 재시작 후 postflight를 별도로 유지한다.
+
+## 2026-10-08 / 호스트 실행환경과 원격 작업 완료를 별도로 확인한다
+
+- **발생한 문제**: Gateway 컨테이너에는 Node가 있었지만 Pi 호스트에는 없어 현장 START 후 launcher 준비가 차단됐다. 별도 실행환경 준비에서도 다운로드 파일 권한 검사와 로컬 SSH 대기 시간이 각각 실패로 보고됐다.
+- **예방**: 현장 START 전에 실제 실행 위치별 의존성을 확인한다. 승인된 시험 전용 runtime은 공식 고정 버전·HTTPS checksum·archive member 검증 후 보호된 별도 경로에 두고 절대 실행 파일로 호출한다. global PATH/서비스 설정을 바꾸거나 기존 lock/증거 권한을 자동 보정하지 않는다.
+- **완료 판정**: 로컬 timeout은 원격 작업 실패나 종료의 증거가 아니다. 동일 대상의 보호된 durable 결과와 정확한 PID의 종료/부재를 확인하기 전에는 설치·시험을 반복하지 않는다. 소프트웨어 실행 확인과 기존 서비스 건강·실제 센서 시험은 서로 다른 완료 조건이다.
+
+## 2026-10-02 / 재검색 메타데이터가 등록 완료 상태를 덮지 않게 한다
+
+- **발생한 문제**: 완료된 BIO 조명의 재검색 수신이 기존 발견 행을 무조건 `discovered`로 바꿨다. 실제 B의 저장 검색 필드와 accepted ledger의 canonical hash가 일치했고, 완료 상태를 요구하는 후속 분류 보완이 차단됐다.
+- **예방**: 기존 session 직렬화 경계에서 현재 완료 상태를 확인하고 검색 UPDATE는 RSSI·펌웨어·검색 시각 등 검색 소유 필드만 갱신한다. 등록 완료·확인·주소·조명 설정은 등록 경로가 소유한다. 완료 행 보존과 신규/일반 발견·중복 수신을 함께 검증한다.
+- **복구 한계**: 예방 수정은 이미 퇴행한 운영 데이터를 복구하지 않는다. ACK/hash의 귀속과 terminal 완료 원문을 구분하며, 감사 근거 없이 과거 상태를 완료로 만들어서는 안 된다.
+
+## 2026-10-01 / 로컬 기록 서버 응답을 원격 상태 전송의 최신성으로 간주하지 않는다
+
+- **발생한 문제**: Pi의 관측 상태를 Mac에 복사한 뒤 전송이 끊겨도 마지막 사본이 남았다. 기록 서버는 GET마다 새 로컬 시각을 반환하고 화면은 그 응답 시각만 확인해, 사본이4.830초 불변인 실제 handler/HTML 재현에서도 타이머와 행동 버튼을 계속 활성화했다. 현장 시험 실행 전에 발견해 START를 보류했고 원본 Gateway와 조명은 바뀌지 않았다.
+- **예방**: 성공한 원격 전송의 유효시간을 로컬 HTTP 연결 상태와 분리한다. 서버 조회와 기록 저장 직전 모두 검사하고, 화면에는 남은 유효시간을 전달해 GET·새로고침·서버 재시작이 만료를 연장하지 않게 한다. 기존 원시 상태는 보존하고 작은 별도 전송 확인만 추가하며 전송 정상 여부를 장비 프로세스 생존·센서 의미·실제 광학 출력의 증거로 확대하지 않는다.
+- **회귀 기준**: 원격 전송만 멈추고 로컬 HTTP는 정상인 경로, 저장 직전 만료, 시계 변화와 이전 전송의 재사용을 실제 기록 handler 및 제공 HTML로 확인한다. 화면 자체의 HTTP 실패만 테스트하면 이 결함을 놓친다.
+
+## 2026-10-01 / 임시 시험 화면 교체도 실제 실행 경로와 준비 실패 전파를 확인한다
+
+- **발생한 문제**: 타이머 화면을 새 scratch에 복사했지만 standalone 서버의 고정 root가 이전 auth scratch여서 보호된 bootstrap 파일과 충돌했다. root를 분리한 뒤 실제 실행 준비에서는 `markers/evidence` 폴더가 없었고, 묶음 명령의 첫 검사 실패가 다음 명령을 막지 못해 bootstrap 파일을 생성한 뒤 서버가 종료됐다. 기존 화면 서버와 조명은 변경되지 않았다.
+- **예방**: export의 실제 CLI root·포트·필수 폴더·권한을 배포 소비자 관점에서 검증한다. 새 폴더와 보존된 상태의 별도 사본을 준비하고, 각 검사 exit code를 호출자가 확인한 뒤에만 기존 서버 종료와 새 서버 실행을 허용한다. 셸 기본 동작이나 단순 명령 나열을 fail-fast로 간주하지 않는다. 생성된 미사용 bootstrap도 임의 삭제·덮어쓰기하지 않고 정확한 소유 파일을 보호된 실패 기록으로 옮겨 보존한다. 키·URL을 일반 로그에 출력하지 않으며 화면 준비 실패를 하드웨어 재시험으로 해결하지 않는다.
+
 ## 2026-10-01 / 격리 검증은 실행 경로를 매번 강제 확인한다
 
 - **발생한 문제**: deeply nested ignored 준비 스크립트에서 저장소 경로를 상대 부모 수로 계산해 기본 checkout의 검증을 격리 worktree의 baseline처럼 보고했다. 통과 수와 로그가 있어도 대상 경로가 틀리면 해당 브랜치 증거가 아니다.
@@ -554,6 +589,7 @@
 - **원인**: Mock Vault가 한 가지 JSON shape만 반환했고, certificate 재발급과 CRL 회전을 같은 lifecycle로 다루지 않았다. 브라우저 endpoint와 장비 mTLS endpoint가 listener를 공유한다는 조건도 TLS transport 설정에 반영하지 않았다.
 - **해결 및 예방책**: PEM 문자열과 배열 CA chain을 모두 엄격 검증하고, bootstrap마다 목적별 CRL 자동 재생성과 즉시 회전을 설정한다. API listener는 client certificate를 요청하되 일반 TLS 연결은 허용하며 제조·Gateway route의 전용 Guard가 `socket.authorized`와 issuer를 fail-closed 검증한다.
 - **반복 방지 체크**: Lab 재개 시험에는 실제 Vault 버전의 JSON shape, `openssl verify -crl_check_all`, CRL `nextUpdate`, 인증서 없는 `/auth/me`의 HTTP 401 도달, 잘못된 제조·장비 인증서의 전용 route 401을 함께 확인한다.
+- **후속 교훈(2026-10-01)**: BIO Lab에서는 기존 leaf와 CA가 유효하고 chain-only 검증도 통과했지만, broker가 로드한 intermediate CRL의 `nextUpdate`가 지난 상태여서 TLS가 `certificate expired` alert를 반환했다. 시계·leaf·CA·intermediate/Root CRL 수명을 각각 확인하며, 이 사례의 정확한 실패는 `openssl verify -crl_check_all`의 `error 12: CRL has expired`였다. 이미 Vault가 서명한 fresh 공개 CRL의 서명·issuer·전체 폐기 entry(시리얼·폐기 시각·사유) 동일성과 기존 Root CRL 보존을 확인한 뒤, 공개 원본만 보호 백업하고 기존 `publishCrlAtomically`로 게시했다. 정확한 broker에 SIGHUP을 보내고 mounted hash·Gateway의 device/MQTT chain CRL 검증·기존 identity의 mTLS를 재확인했다. 새 인증서 발급·폐기·키 변경은 없었다. 갱신본의 `nextUpdate`는 **2026-10-02 05:38:08 UTC(14:38:08 KST)**로 약 25시간만 남았고 Root CRL은 **2026-10-27 05:37:20 UTC**까지 유효하므로, 두 수명을 구분하고 이 복구를 지속 운영의 CRL freshness 보장으로 기록하지 않는다.
 
 ## 2026-09-01 / Gateway 컨테이너는 clean build에서 전이 workspace 입력을 검증한다
 
@@ -645,6 +681,9 @@
 - **원인**: 현재 인터페이스 IP, Lab 서비스 인증서 SAN, Mac에서 이미 export된 `MQTT_URL`, Pi의 `/etc/hosts`와 실행 중 container의 이름 해석을 각각 독립 상태로 두고 일부만 갱신했다.
 - **해결 및 예방책**: `route -n get default`와 `ipconfig getifaddr`로 현재 LAN을 확인하고, 같은 IP로 `lab:pki:bootstrap`을 재실행한 뒤 새 `lab.env`를 source한다. Pi의 `api.led.lan`/`mqtt.led.lan` 매핑을 교체하고 container를 재생성해 `/etc/hosts` 반영을 확인한다. DB의 site/gateway ID, claim과 장비 client certificate는 그대로 유지한다.
 - **반복 방지 체크**: 장소 이동 뒤에는 API process socket destination, `openssl x509` SAN, Pi/container `getent hosts`, 4000/8883 TCP, API·Gateway mTLS client 연결, Gateway health와 heartbeat를 순서대로 확인한 다음 HIL을 시작한다.
+- **후속 교훈(2026-10-01)**: 반복 DHCP 변경 때 유효한 기존 DNS SAN이 있으면 이전 절차를 그대로 재실행해 인증서를 발급하거나 container를 재생성하기 전에, 현재 IP와 Pi/container DNS를 대조하고 assignment의 MQTT endpoint를 검증 가능한 DNS hostname으로 맞출 수 있는지 확인한다. 이번 BIO Lab은 사전 DB 조회에서 현재 배정·동일 snapshot·미처리 RF 작업 없음과 만료된 스케줄을 확인한 뒤, 보호된 hosts/assignment 원본과 mode·owner·inode·digest를 확보하고 같은 container를 잠시 정지해 최소 수정했다. 재개 뒤 DNS→TCP→TLS/mTLS→MQTT 연결→서버가 수용한 신규 heartbeat 3건 및 identity·mapping·USB 불변을 확인했다. Container의 immutable bootstrap 환경은 이전 IP로 남아 있으며, 현재 저장된 assignment와 유효한 기존 identity가 bootstrap 조회·발급을 건너뛰는 동안만 사용되지 않는다. 향후 bootstrap·갱신 전에는 이 환경을 별도 운영 범위에서 복구해야 하며, 현재 MQTT 정상 상태로 그 제약이 해소됐다고 판단하지 않는다.
+
+- **후속 교훈(2026-10-07)**: DHCP 주소가 다시 바뀌면 Pi host와 실행 중 container hosts가 모두 같은 이전IP를 가리켜 TCP EHOSTUNREACH·MQTT offline이 재발할 수 있다. 현재 주소의 TCP→기존 DNS SAN mTLS와 공개 CRL 만료를 별도로 확인하고, 백업·exact identity/inode/lock 보호 뒤 live hosts만 수정하면 재시작 없이 복구할 수 있다. 만료된 device CRL은 이미 발행된 fresh sameissuer/samerevocations 후보와 기존 root를 검증해 atomic publish하고 정상 MQTT CRL은 바꾸지 않는다. identifyState가confirmed인 장치와 만료 없는 저장 수동설정은 queued 명령과 같지 않으므로 실제 dispatch/outbox/session 및 Gateway pending을 대조한다. DHCP·bootstrap·재시작 뒤 이름 해석의 지속성은 live 복구와 별도 검증이며 정상 MQTT만으로 해결됐다고 표시하지 않는다.
 
 ## 2026-09-04 / 실제 fsync 비동기 테스트에 수십 ms wall-clock race를 두지 않는다
 
@@ -1039,6 +1078,12 @@
 - **원인**: 디자이너 시안에서 선택 여부로 지도 높이를 바꾸면 문서 scroll clamp와 ResizeObserver의 카메라 재계산이 겹쳐 닫기 떨림이 생기는 것을 재현했다. 이 결과만으로 기존 제품의 동일 원인을 단정하지 않고 제품의 안정 geometry 계약을 검증한다. 실제 제품에서는 목록 Drawer의 지연 초점 복귀와 지도 이동 scroll이 새 핀 팝업을 바로 닫을 수 있었다. 좁은 화면의 좌/우 팝업 배치는 핀 양쪽의 공간이 부족하면 주축 방향으로 내용이 잘린다.
 - **예방**: 지도 높이는 선택 전후 동일하게 유지하고 닫을 때 카메라·scroll을 바꾸지 않는다. 연결된 마커 초점은 preventScroll로 복귀한다. 목록 위치 이동은 scroll 적용과 Drawer teardown 이후 팝업을 열고 프레임을 취소 가능하게 관리한다. 상/하 배치의 가로 경계 보정을 사용한다.
 - **검증**: 1440/1024/390/320px에서 닫기 전후 지도 높이·문서/지도 scroll·배율·중심을 비교한다. 초기 핀, KPI 위치 이동, 상세 닫기 후 복귀의 팝업 x/right 경계를 모두 검사한다. 전체 보기 전후 같은 지도/renderer 수명, 저장 카메라의 사용자·현장·맵 범위, StrictMode cleanup 후 복원 재시도도 검증한다. fixture 브라우저 검증은 실제 조명/HIL 증거와 구분한다.
+
+## 2026-10-06 / 장비 시험 코드의 읽기 권한은 실제 컨테이너 UID로 검증한다
+
+- **문제**: source 해시와 host-side preflight는 맞았지만 A 센서 시험 native bundle을 host UID1000/0600으로 stage해 container UID999가 읽지 못했다. Gateway를 중단한 뒤 Node entry import 전 EACCES로 시험이 종료됐다. 해당 진단의 USB/GET/SET 및 센서 관측은 실행되지 않았으며 원본 Gateway는 정상 재시작됐다.
+- **원인**: 비밀·증거 파일의 보호 권한을 nonsecret 실행 코드에도 일괄 적용했다. 호스트 root의 파일 존재·checksum 검사는 실행 사용자에게 읽기 권한이 있는지를 증명하지 않는다.
+- **예방**: credentials·bootstrap·evidence는 기존0700/0600을 유지하고, 명시적인 nonsecret native 코드 한 파일만 read-only 전달에 맞는 권한으로 stage한다. 원본 Gateway 중단 전에 exact image·같은 UID/GID·같은 파일 bind mount를 사용한 network-none/no-device/no-secret software-only `fs.access(R_OK)` 및 `node --check`를 확인한다. 전체 source 디렉터리 권한을 넓히거나 root/privileged로 실행해 우회하지 않는다. 실패 phase·원복 로그는 보존하고 새 시험에는 현재 원본 수명과 새 시작 신호를 사용한다.
 
 ## 2026-09-27 / 실연동 여정의 화면 selector와 MQTT ACL probe를 제품 계약에 맞춘다
 

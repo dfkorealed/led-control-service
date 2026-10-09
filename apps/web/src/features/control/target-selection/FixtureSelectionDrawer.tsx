@@ -17,9 +17,10 @@ interface FixtureSelectionDrawerProps {
   returnFocusRef?: RefObject<HTMLButtonElement | null>;
   onClose: () => void;
   onToggleFixture: (fixtureId: string) => void;
+  onInspectFixture?: (fixtureId: string) => void;
 }
 
-export function FixtureSelectionDrawer({ open, dashboard, selectedFixtureIds, disabledFixtureIds, disabledReasons, readOnly, disabled, returnFocusRef, onClose, onToggleFixture }: FixtureSelectionDrawerProps) {
+export function FixtureSelectionDrawer({ open, dashboard, selectedFixtureIds, disabledFixtureIds, disabledReasons, readOnly, disabled, returnFocusRef, onClose, onToggleFixture, onInspectFixture }: FixtureSelectionDrawerProps) {
   const searchRef = useRef<HTMLInputElement>(null);
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState<StatusFilter>("all");
@@ -57,7 +58,8 @@ export function FixtureSelectionDrawer({ open, dashboard, selectedFixtureIds, di
         return <div key={fixture.id} className="grid min-h-11 grid-cols-[minmax(0,1fr)_auto] items-center gap-2 border-b border-border-subtle px-3 py-2 last:border-b-0">
           <Checkbox size="lg" label={<span className="min-w-0"><strong>{fixture.name}</strong><span className="sr-only"> 선택</span></span>}
             description={detail} isSelected={selected} isDisabled={unavailable} onChange={() => onToggleFixture(fixture.id)} />
-          <Text as="span" variant="caption" tone="secondary">{fixture.placementStatus === "unplaced" ? "미배치" : floor.name}</Text>
+          <div className="grid gap-1"><Text as="span" variant="caption" tone="secondary">{fixture.placementStatus === "unplaced" ? "미배치" : floor.name}</Text>
+            {onInspectFixture ? <Button type="button" variant="secondary" disabled={disabled} aria-label={`${fixture.name} 준비 상태 보기`} onClick={() => onInspectFixture(fixture.id)}>상태 보기</Button> : null}</div>
         </div>;
       })}
       {filtered.length === 0 ? <Text className="p-4 text-center" tone="secondary">조건에 맞는 조명이 없습니다.</Text> : null}

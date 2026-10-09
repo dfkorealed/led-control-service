@@ -4,12 +4,22 @@ import {
   automationConfigAppliedDeliveryV1Schema,
   automationConfigAppliedReceiptV1Schema,
   automationConfigAppliedV1Schema,
+  automationConfigAppliedV2Schema,
+  automationConfigAppliedDeliveryV2Schema,
+  automationConfigAppliedReceiptV2Schema,
+  automationCurrentConfigRequestV2Schema,
   automationCurrentConfigRequestV1Schema,
   automationExecutionEventV1Schema,
   automationExecutionIngestedAckV1Schema,
   automationSnapshotV1Schema,
+  automationSnapshotV2Schema,
+  vehicleEventRuleSnapshotV2Schema,
   vehicleSensorCapabilityIngestedAckV1Schema,
-  vehicleSensorCapabilityReportV1Schema
+  vehicleSensorCapabilityIngestedAckV2Schema,
+  vehicleSensorCapabilityDeliveryV2Schema,
+  matchesVehicleSensorCapabilityIngestedAckV2,
+  vehicleSensorCapabilityReportV1Schema,
+  vehicleSensorCapabilityReportV2Schema
 } from "./automation-contracts";
 import {
   BLUETOOTH_COMPANY_ID_CONFIG,
@@ -66,6 +76,33 @@ const snapshot = {
 };
 
 describe("automation shared contracts", () => {
+  it("requires explicit ordered assignment-bound support independently of snapshot ACK", () => {
+    const request = { schemaVersion: 2, requestId, siteId, gatewayId, requestedAt: occurredAt,
+      assignmentVersion: 1, declarationRevision: 1, maxSnapshotVersion: 2 };
+    expect(automationCurrentConfigRequestV2Schema.safeParse(request).success).toBe(true);
+    expect(automationCurrentConfigRequestV2Schema.safeParse({ ...request, maxSnapshotVersion: 1 }).success).toBe(true);
+    for (const patch of [{ declarationRevision: 0 }, { declarationRevision: 1.5 },
+      { declarationRevision: Number.MAX_SAFE_INTEGER + 1 }, { assignmentVersion: -1 },
+      { maxSnapshotVersion: 3 }, { maxSnapshotVersion: undefined }, { readiness: "ready" }]) {
+      expect(automationCurrentConfigRequestV2Schema.safeParse({ ...request, ...patch }).success).toBe(false);
+    }
+    expect(automationCurrentConfigRequestV1Schema.safeParse(request).success).toBe(false);
+  });
+
+  it("binds V2 ACK delivery and receipt to the same wire version and Gateway", () => {
+    const acknowledgement = { schemaVersion: 2, gatewayId, revision: 3, payloadHash,
+      status: "applied", errorCode: null, appliedAt: occurredAt };
+    const delivery = { schemaVersion: 2, acknowledgementId, siteId, gatewayId, acknowledgement };
+    expect(automationConfigAppliedDeliveryV2Schema.safeParse(delivery).success).toBe(true);
+    expect(automationConfigAppliedReceiptV2Schema.safeParse({ ...delivery, ingestedAt: occurredAt }).success).toBe(true);
+    expect(automationConfigAppliedDeliveryV1Schema.safeParse(delivery).success).toBe(false);
+    for (const patch of [{ schemaVersion: 1 }, { gatewayId: siteId }, { status: "applied", errorCode: "failed" }]) {
+      expect(automationConfigAppliedDeliveryV2Schema.safeParse({ ...delivery,
+        acknowledgement: { ...acknowledgement, ...patch } }).success).toBe(false);
+    }
+    expect(automationConfigAppliedReceiptV2Schema.safeParse({ ...delivery, ingestedAt: occurredAt,
+      readiness: "ready" }).success).toBe(false);
+  });
   it("requires one deployment-owned Bluetooth Company Identifier for Gateway and firmware builds", () => {
     expect(BLUETOOTH_COMPANY_ID_CONFIG).toEqual({
       gatewayEnvironment: "GATEWAY_BLUETOOTH_COMPANY_ID",
@@ -87,6 +124,112 @@ describe("automation shared contracts", () => {
   it("strictly validates a complete automation snapshot", () => {
     expect(automationSnapshotV1Schema.parse(snapshot)).toEqual(snapshot);
     expect(() => automationSnapshotV1Schema.parse({ ...snapshot, extra: true })).toThrow();
+  });
+
+  it("keeps V1 snapshots strict when V2 protocol fields are introduced", () => {
+    expect(automationSnapshotV1Schema.parse(snapshot)).toEqual(snapshot);
+    const v2Rule = { ...snapshot.vehicleEventRules[0], sensorProtocol: "bluez-stateful" };
+    expect(automationSnapshotV1Schema.safeParse({
+      ...snapshot,
+      vehicleEventRules: [v2Rule]
+    }).success).toBe(false);
+  });
+
+  it.each([
+    ["bluez-stateful", 5],
+    ["bluez-stateful", 1_800],
+    ["bio-usb-pulse", 10],
+    ["bio-usb-pulse", 60],
+    ["bio-usb-pulse", 1_800]
+  ] as const)("accepts %s V2 vehicle rule with %s-second hold", (sensorProtocol, holdSeconds) => {
+    const rule = { ...snapshot.vehicleEventRules[0], sensorProtocol, holdSeconds };
+    expect(vehicleEventRuleSnapshotV2Schema.parse(rule)).toEqual(rule);
+    const v2Snapshot = {
+      ...snapshot,
+      schemaVersion: 2,
+      vehicleEventRules: [rule]
+    };
+    expect(automationSnapshotV2Schema.parse(v2Snapshot)).toEqual(v2Snapshot);
+    expect(automationSnapshotV1Schema.safeParse(v2Snapshot).success).toBe(false);
+  });
+
+  it.each([
+    ["bio-usb-pulse", 9],
+    ["bio-usb-pulse", 1_801],
+    ["bio-usb-pulse", 10.5],
+    ["bluez-stateful", 4],
+    ["bluez-stateful", 1_801],
+    ["unknown", 60]
+  ])("rejects %s V2 vehicle rule with %s-second hold", (sensorProtocol, holdSeconds) => {
+    expect(vehicleEventRuleSnapshotV2Schema.safeParse({
+      ...snapshot.vehicleEventRules[0],
+      sensorProtocol,
+      holdSeconds
+    }).success).toBe(false);
+  });
+
+  it("rejects extra V2 fields at both rule and snapshot boundaries", () => {
+    const rule = { ...snapshot.vehicleEventRules[0], sensorProtocol: "bio-usb-pulse" };
+    expect(vehicleEventRuleSnapshotV2Schema.safeParse({ ...rule, extra: true }).success).toBe(false);
+    expect(automationSnapshotV2Schema.safeParse({
+      ...snapshot,
+      schemaVersion: 2,
+      vehicleEventRules: [rule],
+      extra: true
+    }).success).toBe(false);
+  });
+
+  it("requires a V2 config applied acknowledgement for a V2 snapshot", () => {
+    const acknowledgement = {
+      schemaVersion: 2,
+      gatewayId,
+      revision: 3,
+      payloadHash,
+      status: "applied",
+      errorCode: null,
+      appliedAt: occurredAt
+    };
+    expect(automationConfigAppliedV2Schema.parse(acknowledgement)).toEqual(acknowledgement);
+    expect(automationConfigAppliedV1Schema.safeParse(acknowledgement).success).toBe(false);
+    expect(automationConfigAppliedV2Schema.safeParse({ ...acknowledgement, schemaVersion: 1 }).success).toBe(false);
+    expect(automationConfigAppliedV2Schema.safeParse({ ...acknowledgement, extra: true }).success).toBe(false);
+  });
+
+  it.each([
+    [1, automationConfigAppliedV1Schema],
+    [2, automationConfigAppliedV2Schema]
+  ] as const)("enforces V%i config ACK error-code semantics", (schemaVersion, schema) => {
+    const acknowledgement = {
+      schemaVersion,
+      gatewayId,
+      revision: 3,
+      payloadHash,
+      status: "applied" as const,
+      errorCode: null,
+      appliedAt: occurredAt
+    };
+    expect(schema.parse(acknowledgement)).toEqual(acknowledgement);
+    expect(schema.parse({ ...acknowledgement, status: "rejected", errorCode: "snapshot_invalid" }))
+      .toMatchObject({ status: "rejected", errorCode: "snapshot_invalid" });
+
+    const appliedWithError = schema.safeParse({ ...acknowledgement, errorCode: "snapshot_invalid" });
+    expect(appliedWithError.success).toBe(false);
+    if (!appliedWithError.success) {
+      expect(appliedWithError.error.issues).toContainEqual(expect.objectContaining({
+        path: ["errorCode"],
+        message: "applied configuration cannot include an errorCode"
+      }));
+    }
+    const rejectedWithoutError = schema.safeParse({ ...acknowledgement, status: "rejected" });
+    expect(rejectedWithoutError.success).toBe(false);
+    if (!rejectedWithoutError.success) {
+      expect(rejectedWithoutError.error.issues).toContainEqual(expect.objectContaining({
+        path: ["errorCode"],
+        message: "rejected configuration requires an errorCode"
+      }));
+    }
+    expect(schema.safeParse({ ...acknowledgement, status: "rejected", errorCode: "" }).success).toBe(false);
+    expect(schema.safeParse({ ...acknowledgement, extra: true }).success).toBe(false);
   });
 
   it.each([
@@ -307,6 +450,156 @@ describe("automation shared contracts", () => {
       capabilityRevision: Number.MAX_SAFE_INTEGER + 1
     })).toThrow();
     expect(() => vehicleSensorCapabilityReportV1Schema.parse({ ...report, extra: true })).toThrow();
+  });
+
+  it("keeps BIO V2 capability separate from the BlueZ V1 binding report", () => {
+    const bioReport = {
+      schemaVersion: 2,
+      eventId,
+      siteId,
+      gatewayId,
+      meshNodeId: fixtureId,
+      capabilityRevision: 7,
+      sensorProtocol: "bio-usb-pulse",
+      readiness: "off",
+      verifiedFingerprintId: null,
+      sensorModeVerifiedAt: null,
+      verifiedAt: occurredAt
+    };
+    expect(vehicleSensorCapabilityReportV2Schema.parse(bioReport)).toEqual(bioReport);
+    expect(vehicleSensorCapabilityReportV1Schema.safeParse(bioReport).success).toBe(false);
+    expect(vehicleSensorCapabilityReportV2Schema.safeParse({
+      ...bioReport,
+      schemaVersion: 1,
+      sensorProtocol: "bluez-stateful"
+    }).success).toBe(false);
+    expect(vehicleSensorCapabilityReportV2Schema.safeParse({
+      ...bioReport,
+      sensorServerBound: true
+    }).success).toBe(false);
+  });
+
+  it("requires an approved fingerprint and sensor-mode verification before BIO readiness is ready", () => {
+    const report = {
+      schemaVersion: 2,
+      eventId,
+      siteId,
+      gatewayId,
+      meshNodeId: fixtureId,
+      capabilityRevision: 7,
+      sensorProtocol: "bio-usb-pulse",
+      readiness: "ready",
+      verifiedFingerprintId: "approved-profile-2026-09",
+      sensorModeVerifiedAt: occurredAt,
+      verifiedAt: occurredAt
+    };
+    expect(vehicleSensorCapabilityReportV2Schema.parse(report)).toEqual(report);
+    expect(vehicleSensorCapabilityReportV2Schema.safeParse({ ...report, verifiedFingerprintId: null }).success).toBe(false);
+    expect(vehicleSensorCapabilityReportV2Schema.safeParse({ ...report, sensorModeVerifiedAt: null }).success).toBe(false);
+    expect(vehicleSensorCapabilityReportV2Schema.safeParse({ ...report, verifiedFingerprintId: "" }).success).toBe(false);
+    expect(vehicleSensorCapabilityReportV2Schema.safeParse({ ...report, readiness: "unknown" }).success).toBe(false);
+    expect(vehicleSensorCapabilityReportV2Schema.safeParse({ ...report, extra: true }).success).toBe(false);
+    for (const readiness of ["shadow", "degraded", "off"]) {
+      expect(vehicleSensorCapabilityReportV2Schema.parse({ ...report, readiness })).toMatchObject({ readiness });
+    }
+  });
+
+  describe("BIO capability V2 delivery and receipt", () => {
+    const delivery = {
+      schemaVersion: 2 as const,
+      assignmentVersion: 3,
+      report: {
+        schemaVersion: 2 as const, eventId, siteId, gatewayId, meshNodeId: fixtureId,
+        capabilityRevision: 7, sensorProtocol: "bio-usb-pulse" as const,
+        readiness: "shadow" as const, verifiedFingerprintId: null,
+        sensorModeVerifiedAt: null, verifiedAt: occurredAt
+      }
+    };
+    const receipt = {
+      schemaVersion: 2 as const, siteId, gatewayId, assignmentVersion: 3,
+      eventId, meshNodeId: fixtureId, capabilityRevision: 7,
+      deliveryPayloadHash: payloadHash, status: "applied" as const,
+      errorCode: null, ingestedAt: occurredAt
+    };
+
+    it("accepts an assignment-bound envelope without promoting shadow evidence", () => {
+      expect(vehicleSensorCapabilityDeliveryV2Schema).toBeDefined();
+      expect(vehicleSensorCapabilityDeliveryV2Schema.parse(delivery)).toEqual(delivery);
+      expect(vehicleSensorCapabilityReportV2Schema.safeParse(delivery).success).toBe(false);
+      expect(vehicleSensorCapabilityReportV1Schema.safeParse(delivery).success).toBe(false);
+    });
+
+    it.each([0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1, undefined])(
+      "rejects an invalid delivery assignment %s", assignmentVersion => {
+        expect(vehicleSensorCapabilityDeliveryV2Schema.safeParse({ ...delivery, assignmentVersion }).success).toBe(false);
+      }
+    );
+
+    it("rejects unknown delivery fields and raw sensor material at both nesting levels", () => {
+      for (const extra of [{ unknown: true }, { nativeUuid: "001122334455" }, { innerBodyHex: "0101" }]) {
+        expect(vehicleSensorCapabilityDeliveryV2Schema.safeParse({ ...delivery, ...extra }).success).toBe(false);
+        expect(vehicleSensorCapabilityDeliveryV2Schema.safeParse({
+          ...delivery, report: { ...delivery.report, ...extra }
+        }).success).toBe(false);
+      }
+      expect(vehicleSensorCapabilityDeliveryV2Schema.safeParse({ ...delivery, schemaVersion: 1 }).success).toBe(false);
+      expect(vehicleSensorCapabilityDeliveryV2Schema.safeParse({
+        ...delivery, report: { ...delivery.report, schemaVersion: 1 }
+      }).success).toBe(false);
+      expect(vehicleSensorCapabilityDeliveryV2Schema.safeParse({
+        ...delivery, report: { ...delivery.report, readiness: "ready" }
+      }).success).toBe(false);
+    });
+
+    it.each(["applied", "duplicate", "stale", "rejected"] as const)(
+      "accepts the separate V2 %s receipt without producing a V1 acknowledgement", status => {
+        const value = { ...receipt, status, errorCode: status === "rejected" ? "capability_event_conflict" : null };
+        expect(vehicleSensorCapabilityIngestedAckV2Schema).toBeDefined();
+        expect(vehicleSensorCapabilityIngestedAckV2Schema.parse(value)).toEqual(value);
+        expect(vehicleSensorCapabilityIngestedAckV1Schema.safeParse(value).success).toBe(false);
+      }
+    );
+
+    it("rejects missing receipt identity, unbounded errors and old report-only hashes", () => {
+      for (const key of ["siteId", "gatewayId", "assignmentVersion", "eventId", "meshNodeId", "capabilityRevision", "deliveryPayloadHash"]) {
+        expect(vehicleSensorCapabilityIngestedAckV2Schema.safeParse({ ...receipt, [key]: undefined }).success).toBe(false);
+      }
+      for (const patch of [
+        { assignmentVersion: 0 }, { capabilityRevision: 0 }, { siteId: "not-a-uuid" },
+        { deliveryPayloadHash: `sha256:${"A".repeat(64)}` }, { deliveryPayloadHash: "sha256:invalid" },
+        { schemaVersion: 1 }, { status: "unknown" }, { ingestedAt: "invalid" },
+        { errorCode: "" }, { errorCode: "x".repeat(129) }, { unexpected: true },
+        { reportPayloadHash: payloadHash }, { nativeUuid: "001122334455" }, { innerBodyHex: "0101" }
+      ]) {
+        expect(vehicleSensorCapabilityIngestedAckV2Schema.safeParse({ ...receipt, ...patch }).success).toBe(false);
+      }
+      expect(vehicleSensorCapabilityIngestedAckV2Schema.parse({ ...receipt, errorCode: "x".repeat(128) }).errorCode).toHaveLength(128);
+    });
+
+    it("matches receipt attribution only, including rejected and shadow receipts", () => {
+      expect(matchesVehicleSensorCapabilityIngestedAckV2).toBeDefined();
+      expect(matchesVehicleSensorCapabilityIngestedAckV2(delivery, receipt, payloadHash)).toBe(true);
+      expect(matchesVehicleSensorCapabilityIngestedAckV2(delivery, {
+        ...receipt, status: "rejected", errorCode: "capability_event_conflict"
+      }, payloadHash)).toBe(true);
+    });
+
+    it("rejects receipt replay across any delivery identity or assignment", () => {
+      for (const patch of [
+        { siteId: fixtureId2 }, { gatewayId: fixtureId2 }, { eventId: requestId },
+        { meshNodeId: fixtureId2 }, { capabilityRevision: 8 }, { assignmentVersion: 4 },
+        { deliveryPayloadHash: `sha256:${"b".repeat(64)}` }
+      ]) {
+        expect(matchesVehicleSensorCapabilityIngestedAckV2(delivery, { ...receipt, ...patch }, payloadHash)).toBe(false);
+      }
+      expect(matchesVehicleSensorCapabilityIngestedAckV2({ ...delivery, assignmentVersion: 4 }, receipt, payloadHash)).toBe(false);
+      for (const expectedHash of ["", "sha256:invalid", `sha256:${"A".repeat(64)}`]) {
+        expect(matchesVehicleSensorCapabilityIngestedAckV2(delivery, { ...receipt, deliveryPayloadHash: expectedHash }, expectedHash)).toBe(false);
+      }
+      expect(matchesVehicleSensorCapabilityIngestedAckV2(delivery, { ...receipt, extra: true }, payloadHash)).toBe(false);
+      expect(matchesVehicleSensorCapabilityIngestedAckV2({ ...delivery, extra: true }, receipt, payloadHash)).toBe(false);
+      expect(matchesVehicleSensorCapabilityIngestedAckV2(null, null, payloadHash)).toBe(false);
+    });
   });
 
   it("strictly validates vehicle sensor capability ingested acknowledgements", () => {

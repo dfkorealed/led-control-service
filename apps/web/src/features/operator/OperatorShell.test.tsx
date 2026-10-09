@@ -49,6 +49,20 @@ describe("operator shell route boundary", () => {
   });
   afterEach(cleanup);
 
+  it("exposes the protected sensor profile route without mounting the site admin editor", async () => {
+    renderShell("/operator/sensor-profiles");
+    expect(await screen.findByRole("heading", { name: "센서 호환 프로파일" })).toBeVisible();
+    expect(screen.getByRole("link", { name: "센서 프로파일" })).toHaveAttribute("aria-current", "page");
+    expect(screen.queryByRole("heading", { name: "현장 관리자 계정" })).not.toBeInTheDocument();
+  });
+
+  it("rejects a customer administrator from the operator sensor catalog route", async () => {
+    renderShell("/operator/sensor-profiles", { ...operator, role: "admin", organizationType: "customer" });
+    await waitFor(() => expect(screen.getByLabelText("현재 경로")).toHaveTextContent("/monitoring"));
+    expect(screen.queryByRole("textbox", { name: "승인 프로파일 JSON" })).not.toBeInTheDocument();
+    expect(apiGet).not.toHaveBeenCalledWith("/bio-sensor-profiles");
+  });
+
   it("keeps the operator header usable during route loading and renders the real management view", async () => {
     renderShell("/operator/site-admins?source=direct#accounts");
 

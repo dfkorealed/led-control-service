@@ -7,6 +7,7 @@ import type {
   ProvisioningScanFoundDevice,
   ProvisioningScanStartPayload
 } from "@led-control/shared";
+import type { BioSourceTargetGuard } from "../automation/bio-source-target-guard";
 import type {
   BleMeshAdapter,
   BleMeshCommandReport,
@@ -21,8 +22,10 @@ import type {
 } from "../gateway";
 import type {
   BioAddressAssignmentResult,
+  BioConfigurationState,
   BioDiscoveredDevice,
   BioDongleClient,
+  BioOperationControl,
   BioVerifiedLampTarget
 } from "../bio/bio-dongle-client";
 import type {
@@ -32,6 +35,7 @@ import type {
 } from "../bio/bio-device-mapping-store";
 import { BioDeviceReadTimeoutError, BioUsbError } from "../bio/bio-usb-error";
 import { SerialTaskQueue } from "../runtime/serial-task-queue";
+import { createHash } from "node:crypto";
 import { CommandWriteVetoError, trackCommandWrites, type CommandWriteControl } from "../commands/command-rf-drain";
 
 const BIO_DEVICE_UUID = /^bio:[0-9a-f]{12}$/;
@@ -40,7 +44,7 @@ const BIO_GROUP_UNICAST_CONCURRENCY = 4;
 type BioClientPort = Pick<BioDongleClient,
   "scan" | "startIdentify" | "stopIdentify" | "restoreSensorMode" | "assignAddressOnce" |
   "reconcileAddress" | "setOutput"> &
-  Partial<Pick<BioDongleClient, "readBrightness" | "readDeviceInfo">>;
+  Partial<Pick<BioDongleClient, "readBrightness" | "readDeviceInfo" | "readConfiguration" | "restoreConfiguration" | "sensorSourceSnapshot">>;
 type BioMappingPort = Pick<BioDeviceMappingStore,
   "findByDeviceUuidIncludingReserved" | "reserve" | "confirm" | "findByFixtureId" |
   "findByLogicalAddress" | "listConfirmed">;
@@ -65,6 +69,7 @@ type DurableProvisioningCommand = ProvisionDevicePayload & { commandId: string }
 export class BioUsbDongleAdapter implements BleMeshAdapter, ProvisioningScannerAdapter, ProvisioningAdapter {
   readonly vehicleSensorCloudSupported = false;
   private readonly now: () => Date;
+  private sourceTargetGuard?: BioSourceTargetGuard;
   private readonly discoveredByUuid = new Map<string, BioDiscoveredDevice>();
   private readonly virtualGroups = new Map<number, Set<string>>();
   private readonly discoveryQueue = new SerialTaskQueue();
@@ -83,6 +88,102 @@ export class BioUsbDongleAdapter implements BleMeshAdapter, ProvisioningScannerA
     return BIO_DEVICE_UUID.test(deviceUuid);
   }
 
+  setBioSourceTargetGuard(guard: BioSourceTargetGuard) { this.sourceTargetGuard = guard; }
+
+  private guardedWriteControl(fixtureId: string, control?: Partial<CommandWriteControl>): CommandWriteControl | undefined {
+    if (!this.sourceTargetGuard && !control?.mayStartWrite && !control?.onWriteStarted) return undefined;
+    // Let the command coordinator latch its durable refusal before the adapter
+    // applies its own guard; short-circuiting it would lose the source reason.
+    return { mayStartWrite: () => control?.mayStartWrite?.() !== false && !this.sourceTargetGuard?.([fixtureId]),
+      onWriteStarted: () => control?.onWriteStarted?.() };
+  }
+
+  private async identifyWriteControl(deviceUuid: string) {
+    const mapping = await this.mappings.findByDeviceUuidIncludingReserved(deviceUuid);
+    // An absent mapping is a normal, not-yet-registered discovery. An existing
+    // ambiguous mapping cannot be treated as that absence to bypass A protection.
+    if (!mapping) return undefined;
+    if (mapping.status !== "confirmed" || mapping.deviceUuid !== deviceUuid || !mapping.fixtureId) {
+      throw new Error("bio_mapping_not_confirmed");
+    }
+    if (this.sourceTargetGuard?.([mapping.fixtureId])) throw new Error("bio_source_target_forbidden");
+    return this.guardedWriteControl(mapping.fixtureId);
+  }
+
+  async sensorModeOperation(command: { fixtureId: string; nodeId: string; meshAddress: string; deviceIdentityHash: string; operation: "ensure_sensor" | "query" }, control: BioOperationControl) {
+    // This separately authenticated, identity-checked ensure_sensor operation is
+    // the sole source-mode write exception; ordinary identify/restore is guarded.
+    throwIfExpired(control);
+    const identity = { ...command };
+    const initialTransport = this.client.sensorSourceSnapshot?.();
+    const found = await this.mappings.findByFixtureId(identity.fixtureId);
+    // The authenticated command owns the canonical MeshNode ID. Registration's
+    // mapping.nodeId is the DiscoveredMeshNode/Fixture ID, not a canonical alias.
+    // Resolve only its exact Fixture/native/address binding; never invent a join.
+    if (!found || found.status !== "confirmed" || found.fixtureId !== identity.fixtureId ||
+        !this.acceptsDeviceUuid(found.deviceUuid) || found.deviceUuid !== `bio:${found.nativeUuid}` ||
+        found.logicalAddress !== parseBioMeshAddress(identity.meshAddress) ||
+        createHash("sha256").update(found.deviceUuid).digest("hex") !== identity.deviceIdentityHash) throw new Error("BIO sensor mode identity mismatch");
+    const mapping = { ...found };
+    let generation = initialTransport?.generation;
+    const assertTransport = () => {
+      throwIfExpired(control);
+      const current = this.client.sensorSourceSnapshot?.();
+      if (current && (!current.ready || current.generation !== generation)) {
+        throw new Error("BIO sensor mode transport changed");
+      }
+    };
+    const assertMapping = async () => {
+      const current = await this.mappings.findByFixtureId(identity.fixtureId);
+      assertTransport();
+      if (!current || current.status !== "confirmed" || current.fixtureId !== mapping.fixtureId ||
+          current.nodeId !== mapping.nodeId || current.deviceUuid !== mapping.deviceUuid ||
+          current.nativeUuid !== mapping.nativeUuid || current.logicalAddress !== mapping.logicalAddress ||
+          current.firmware !== mapping.firmware || current.protocol !== mapping.protocol ||
+          current.updatedAt !== mapping.updatedAt) throw new Error("BIO sensor mode mapping changed");
+    };
+    await this.refreshDiscovery(control);
+    // A client without a prior ready generation may establish it during scan;
+    // a previously ready owner must not silently move this command to a new one.
+    if (!initialTransport?.ready) generation = this.client.sensorSourceSnapshot?.().generation;
+    await assertMapping();
+    const device = this.requireExactDiscoveredMapping(mapping);
+    const verified = target(device, mapping.logicalAddress);
+    const client = this.requireReadOnlyClient();
+    const fencedControl: BioOperationControl = {
+      ...control,
+      beforeWrite: async () => {
+        await assertMapping();
+        await control.beforeWrite?.();
+        // Caller preflight can await filesystem/authority work. Recheck the
+        // same captured binding and generation after it, before serialization.
+        await assertMapping();
+      },
+      mayStartWrite: () => {
+        assertTransport();
+        const allowed = control.mayStartWrite?.() !== false;
+        // The synchronous permit can itself revoke/abort this owner.
+        assertTransport();
+        return allowed;
+      }
+    };
+    assertTransport();
+    if (identity.operation === "ensure_sensor") {
+      // Consume the SET's own report before opening the GET response slot. An
+      // accepted SET alone can still have a delayed mode report in this protocol.
+      await this.client.restoreSensorMode(device, fencedControl);
+      await assertMapping();
+    }
+    // SET acceptance (or its unsolicited report) is never verification. Issue a
+    // separate GET through the existing identity-checked serial USB client.
+    await assertMapping();
+    const mode = await client.readDeviceInfo(verified, fencedControl);
+    await assertMapping();
+    assertExactReadbackIdentity(mapping, device, mode);
+    throwIfExpired(control);
+    return mode.mode;
+  }
+
   async scan(_command: ProvisioningScanStartPayload): Promise<ProvisioningScanFoundDevice[]> {
     const devices = await this.refreshDiscovery();
     return devices
@@ -92,13 +193,15 @@ export class BioUsbDongleAdapter implements BleMeshAdapter, ProvisioningScannerA
         serialNumber: device.deviceUuid,
         rssi: device.rssi,
         oobCapability: "none" as const,
-        firmwareVersion: device.firmwareVersion
+        firmwareVersion: device.firmwareVersion,
+        fingerprint: device.fingerprint ?? null
       }));
   }
 
   async identify(command: IdentifyDevicePayload) {
     requireBioUuid(command.deviceUuid);
-    await this.client.startIdentify(command.deviceUuid);
+    const control = await this.identifyWriteControl(command.deviceUuid);
+    await this.client.startIdentify(command.deviceUuid, ...(control ? [control] : []));
   }
 
   /**
@@ -117,10 +220,11 @@ export class BioUsbDongleAdapter implements BleMeshAdapter, ProvisioningScannerA
    */
   async recoverIdentifySafety(command: IdentifyDevicePayload): Promise<void> {
     requireBioUuid(command.deviceUuid);
+    const control = await this.identifyWriteControl(command.deviceUuid);
     await this.refreshDiscovery();
     const device = this.discoveredByUuid.get(command.deviceUuid);
     if (!device) throw new BioUsbError("BIO_DEVICE_NOT_FOUND", "BIO identify recovery UUID was not rediscovered");
-    await this.client.restoreSensorMode({ ...device });
+    await this.client.restoreSensorMode({ ...device }, ...(control ? [control] : []));
   }
 
   async provision(command: ProvisionDevicePayload): Promise<ProvisioningCompletedPayload> {
@@ -141,6 +245,7 @@ export class BioUsbDongleAdapter implements BleMeshAdapter, ProvisioningScannerA
       observedLogicalAddressBeforeAssignment: identified.logicalAddress,
       commandId: durable.commandId,
       firmware: identified.firmwareVersion,
+      ...(identified.fingerprint ? { fingerprint: identified.fingerprint } : {}),
       protocol: "crc16"
     });
     // 주소는 장치의 지속 식별자이므로 ACK 유실이나 old-address 재관측만으로 같은 write를
@@ -184,21 +289,61 @@ export class BioUsbDongleAdapter implements BleMeshAdapter, ProvisioningScannerA
     return completed(command, confirmed.firmwareVersion, confirmed.rssi, this.now());
   }
 
-  async setAttention(fixtureId: string, expiresAt: number, action: "start" | "stop", signal?: AbortSignal) {
-    const control = { signal, deadlineAt: expiresAt };
+  async setAttention(fixtureId: string, expiresAt: number, action: "start" | "stop", signal?: AbortSignal, writeControl?: CommandWriteControl) {
+    writeControl = this.guardedWriteControl(fixtureId, writeControl);
+    const control = { signal, deadlineAt: expiresAt, ...writeControl };
     throwIfExpired(control);
     const mapping = await this.mappings.findByFixtureId(fixtureId);
     throwIfExpired(control);
     if (!mapping) throw new Error("fixture_not_registered");
     await this.requireDiscovered(mapping, control);
     throwIfExpired(control);
-    if (action === "start") await this.client.startIdentify(mapping.deviceUuid, { signal, deadlineAt: expiresAt });
-    else await this.client.stopIdentify(mapping.deviceUuid);
+    if (action === "start") await this.client.startIdentify(mapping.deviceUuid, control);
+    else await this.client.stopIdentify(mapping.deviceUuid, writeControl);
     return action === "start" ? 2 : 0;
   }
 
   async setBrightness(fixtureIds: string[], brightness: number, writeControl?: CommandWriteControl) {
     return mapWithConcurrency(fixtureIds, 1, (fixtureId) => this.applyUnicast(fixtureId, brightness, undefined, undefined, writeControl));
+  }
+
+  /** Reads configuration, never infers sensor optical output or power from high brightness. */
+  async readBioState(fixtureId: string, control: BioOperationControl = {}) {
+    if (!this.client.readConfiguration) throw new BioUsbError("NOT_READY", "BIO configuration read unavailable");
+    const verified = await this.bioConfigurationTarget(fixtureId, control);
+    return { target: verified, configuration: await this.client.readConfiguration(verified, control) };
+  }
+
+  async restoreBioState(
+    fixtureId: string,
+    expected: BioVerifiedLampTarget,
+    configuration: BioConfigurationState,
+    control: BioOperationControl = {}
+  ): Promise<BioConfigurationState> {
+    control = { ...control, ...this.guardedWriteControl(fixtureId, control) };
+    if (!this.client.restoreConfiguration || !this.client.readConfiguration) {
+      throw new BioUsbError("NOT_READY", "BIO configuration restore unavailable");
+    }
+    const verified = await this.bioConfigurationTarget(fixtureId, control);
+    if (verified.nativeUuid !== expected.nativeUuid || verified.logicalAddress !== expected.logicalAddress ||
+      verified.networkId !== expected.networkId || expected.kind !== "unicast") {
+      throw new BioUsbError("BIO_CONFIGURATION_UNVERIFIED", "BIO target identity changed");
+    }
+    // Cached discovery/mapping is not fresh proof that this lamp still occupies the
+    // address. Matched GETs must succeed before any configuration write is submitted.
+    await this.client.readConfiguration(verified, control);
+    throwIfExpired(control);
+    return this.client.restoreConfiguration(verified, configuration, control);
+  }
+
+  private async bioConfigurationTarget(fixtureId: string, control: BioOperationControl) {
+    throwIfExpired(control);
+    const mapping = await this.mappings.findByFixtureId(fixtureId);
+    if (!mapping || mapping.status !== "confirmed") throw new BioUsbError("BIO_DEVICE_NOT_FOUND", "BIO target not confirmed");
+    await this.requireDiscovered(mapping, control);
+    const device = this.requireExactDiscoveredMapping(mapping);
+    throwIfExpired(control);
+    return target(device, mapping.logicalAddress);
   }
 
   async applyUnicast(
@@ -208,6 +353,7 @@ export class BioUsbDongleAdapter implements BleMeshAdapter, ProvisioningScannerA
     deadlineAt?: number,
     writeControl?: CommandWriteControl
   ): Promise<BleMeshCommandReport> {
+    writeControl = this.guardedWriteControl(fixtureId, writeControl);
     if (expired(signal, deadlineAt)) return failed(fixtureId, undefined, "command_expired", "timed_out");
     const mapping = await this.mappings.findByFixtureId(fixtureId);
     if (!mapping) return failed(fixtureId, undefined, "fixture_not_registered");

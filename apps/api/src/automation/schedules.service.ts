@@ -1,3 +1,4 @@
+import { assertNoActiveBioSourceTarget } from "./bio-source-target-policy";
 import {
   BadRequestException,
   ConflictException,
@@ -130,6 +131,7 @@ export class SchedulesService {
       const site = await this.requireSiteTimeZone(tx, siteId);
       const fixtureIds = await this.targetSnapshot.resolve(tx, siteId, input.target);
       const gatewayId = await this.targetSnapshot.assertSingleGateway(tx, fixtureIds);
+      await assertNoActiveBioSourceTarget(tx, siteId, fixtureIds, "schedule");
       const scheduleId = randomUUID();
       const candidate = toCandidate(scheduleId, input, fixtureIds);
       await this.assertNoOverlap(tx, siteId, gatewayId, fixtureIds, candidate);
@@ -177,6 +179,7 @@ export class SchedulesService {
         ? await this.targetSnapshot.assertSingleGateway(tx, fixtureIds)
         : existing.gatewayId;
       const candidate = validateCandidate(mergeCandidate(existing, input, fixtureIds));
+      await assertNoActiveBioSourceTarget(tx, siteId, fixtureIds, "schedule");
       await this.assertNoOverlap(tx, siteId, gatewayId, fixtureIds, candidate, scheduleId);
 
       if (input.target) {

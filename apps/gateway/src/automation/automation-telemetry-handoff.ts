@@ -3,6 +3,7 @@ import type {
   AutomationExecutionKind,
   AutomationExecutionFixtureResultV1
 } from "@led-control/shared";
+import { bioPulseTelemetryRecordV2Schema } from "@led-control/shared";
 import type {
   AutomationLifecycleEvent,
   AutomationLifecycleHandoff,
@@ -31,6 +32,11 @@ export function createAutomationTelemetryHandoff(
 ): PersistedAutomationTelemetryHandoff | null {
   if (records.length === 0) return null;
   const exactRecords = structuredClone(records);
+  // Refuse malformed BIO payloads before the occurrence transaction journals them.
+  // Otherwise a poison record would permanently block all later FIFO handoffs.
+  for (const record of exactRecords) {
+    if (record.payload.sensorProtocol === "bio-usb-pulse") bioPulseTelemetryRecordV2Schema.parse(record);
+  }
   return {
     handoffId: createHandoffId(),
     recordsHash: automationTelemetryRecordsHash(exactRecords),

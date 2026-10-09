@@ -1,8 +1,9 @@
 import { randomUUID } from "node:crypto";
 import {
   automationCurrentConfigRequestV1Schema,
+  automationCurrentConfigRequestV2Schema,
   mqttTopics,
-  type AutomationCurrentConfigRequestV1,
+  type AutomationCurrentConfigRequest,
   type AutomationSnapshotV1
 } from "@led-control/shared";
 import type { AutomationScope } from "./automation-config-store";
@@ -11,11 +12,12 @@ const DEFAULT_RETRY_INITIAL_DELAY_MS = 1_000;
 const DEFAULT_RETRY_MAX_DELAY_MS = 30_000;
 const DEFAULT_PUBLISH_TIMEOUT_MS = 10_000;
 
-type RequestPublish = (topic: string, request: AutomationCurrentConfigRequestV1) => Promise<void>;
+type RequestPublish = (topic: string, request: AutomationCurrentConfigRequest) => Promise<void>;
 
 export class AutomationCurrentConfigRequester {
   private publish: RequestPublish | undefined;
-  private request: AutomationCurrentConfigRequestV1 | undefined;
+  private request: AutomationCurrentConfigRequest | undefined;
+  private readonly protocolSupport?: { assignmentVersion: number; maxSnapshotVersion: 1 | 2; nextRevision: () => Promise<number> };
   private timer: ReturnType<typeof setTimeout> | undefined;
   private generation = 0;
   private retryDelayMs: number;
@@ -37,6 +39,7 @@ export class AutomationCurrentConfigRequester {
       now?: () => Date;
       random?: () => number;
       onError?: (error: unknown) => void;
+      protocolSupport?: { assignmentVersion: number; maxSnapshotVersion: 1 | 2; nextRevision: () => Promise<number> };
     } = {}
   ) {
     this.retryInitialDelayMs = options.retryInitialDelayMs ?? DEFAULT_RETRY_INITIAL_DELAY_MS;
@@ -47,19 +50,27 @@ export class AutomationCurrentConfigRequester {
     this.random = options.random ?? Math.random;
     this.onError = options.onError ?? (() => undefined);
     this.retryDelayMs = this.retryInitialDelayMs;
+    this.protocolSupport = options.protocolSupport;
   }
 
-  connect(publish: RequestPublish) {
+  async connect(publish: RequestPublish) {
     const generation = ++this.generation;
     this.publish = publish;
+    this.request = undefined;
     this.retryDelayMs = this.retryInitialDelayMs;
     this.clearTimer();
-    this.request = automationCurrentConfigRequestV1Schema.parse({
+    const declarationRevision = this.protocolSupport ? await this.protocolSupport.nextRevision() : undefined;
+    if (generation !== this.generation) return;
+    const request = {
       schemaVersion: 1,
       requestId: this.createRequestId(),
       ...this.scope,
       requestedAt: this.now().toISOString()
-    }) as AutomationCurrentConfigRequestV1;
+    };
+    this.request = this.protocolSupport ? automationCurrentConfigRequestV2Schema.parse({ ...request,
+      schemaVersion: 2, assignmentVersion: this.protocolSupport.assignmentVersion,
+      maxSnapshotVersion: this.protocolSupport.maxSnapshotVersion, declarationRevision
+    }) : automationCurrentConfigRequestV1Schema.parse(request);
     return this.publishOnce(generation);
   }
 
@@ -70,8 +81,13 @@ export class AutomationCurrentConfigRequester {
     this.clearTimer();
   }
 
-  confirm(snapshot: Pick<AutomationSnapshotV1, "siteId" | "gatewayId">) {
+  confirm(snapshot: Pick<AutomationSnapshotV1, "siteId" | "gatewayId"> & { schemaVersion?: number }) {
     if (snapshot.siteId !== this.scope.siteId || snapshot.gatewayId !== this.scope.gatewayId || !this.request) return false;
+    // A snapshot (including a retained same-version one) cannot acknowledge
+    // this connection's protocol declaration. Until a declaration-correlated
+    // receipt exists, replay its exact identity at the bounded retry rate for
+    // the connection lifetime; the API deduplicates it without new history rows.
+    if (this.protocolSupport) return false;
     this.request = undefined;
     this.clearTimer();
     return true;
@@ -107,7 +123,7 @@ export class AutomationCurrentConfigRequester {
   private isCurrent(
     generation: number,
     publish: RequestPublish,
-    request: AutomationCurrentConfigRequestV1
+    request: AutomationCurrentConfigRequest
   ) {
     return generation === this.generation && publish === this.publish && request === this.request;
   }

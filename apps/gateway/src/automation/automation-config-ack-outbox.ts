@@ -1,12 +1,14 @@
 import { randomUUID } from "node:crypto";
 import {
-  automationConfigAppliedDeliveryV1Schema,
-  automationConfigAppliedReceiptV1Schema,
-  automationConfigAppliedV1Schema,
+  automationConfigAppliedDeliverySchema,
+  automationConfigAppliedReceiptSchema,
+  automationConfigAppliedSchema,
   mqttTopics,
-  type AutomationConfigAppliedDeliveryV1,
-  type AutomationConfigAppliedReceiptV1,
-  type AutomationConfigAppliedV1
+  type AutomationConfigAppliedDelivery,
+  type AutomationConfigAppliedReceipt,
+  type AutomationConfigApplied,
+  type AutomationConfigAppliedV1, type AutomationConfigAppliedV2,
+  type AutomationConfigAppliedDeliveryV1, type AutomationConfigAppliedDeliveryV2
 } from "@led-control/shared";
 import { readJsonFile, writeJsonAtomic } from "../mesh/mesh-store-file";
 import { SerialTaskQueue } from "../runtime/serial-task-queue";
@@ -19,7 +21,7 @@ const DEFAULT_PUBLISH_TIMEOUT_MS = 10_000;
 interface StoredAutomationConfigAcks {
   version: 2;
   scope: AutomationScope;
-  records: AutomationConfigAppliedDeliveryV1[];
+  records: AutomationConfigAppliedDelivery[];
 }
 
 type AtomicJsonWriter = (path: string, value: unknown) => Promise<void>;
@@ -43,18 +45,21 @@ export class AutomationConfigAckOutbox {
     return this.queue.run(async () => structuredClone((await this.load()).records));
   }
 
-  enqueue(value: AutomationConfigAppliedV1) {
+  enqueue(value: AutomationConfigAppliedV1): Promise<AutomationConfigAppliedDeliveryV1>;
+  enqueue(value: AutomationConfigAppliedV2): Promise<AutomationConfigAppliedDeliveryV2>;
+  enqueue(value: AutomationConfigApplied): Promise<AutomationConfigAppliedDelivery>;
+  enqueue(value: AutomationConfigApplied) {
     return this.queue.run(async () => {
       const acknowledgement = this.parseAcknowledgement(value);
       const state = await this.load();
       const existing = state.records.find((record) => sameResult(record.acknowledgement, acknowledgement));
       if (existing) return structuredClone(existing);
-      const delivery = automationConfigAppliedDeliveryV1Schema.parse({
-        schemaVersion: 1,
+      const delivery = automationConfigAppliedDeliverySchema.parse({
+        schemaVersion: acknowledgement.schemaVersion,
         acknowledgementId: this.createAcknowledgementId(),
         ...this.scope,
         acknowledgement
-      }) as AutomationConfigAppliedDeliveryV1;
+      }) as AutomationConfigAppliedDelivery;
       state.records.push(delivery);
       try {
         await this.persist(state);
@@ -66,9 +71,9 @@ export class AutomationConfigAckOutbox {
     });
   }
 
-  acknowledge(value: AutomationConfigAppliedReceiptV1) {
+  acknowledge(value: unknown) {
     return this.queue.run(async (): Promise<"deleted" | "missing" | "conflict"> => {
-      const receipt = automationConfigAppliedReceiptV1Schema.parse(value) as AutomationConfigAppliedReceiptV1;
+      const receipt = automationConfigAppliedReceiptSchema.parse(value) as AutomationConfigAppliedReceipt;
       if (receipt.siteId !== this.scope.siteId || receipt.gatewayId !== this.scope.gatewayId) {
         throw new Error("automation config receipt scope mismatch");
       }
@@ -110,10 +115,10 @@ export class AutomationConfigAckOutbox {
     return this.state;
   }
 
-  private parseAcknowledgement(value: AutomationConfigAppliedV1) {
-    const parsed = automationConfigAppliedV1Schema.parse(value);
+  private parseAcknowledgement(value: AutomationConfigApplied) {
+    const parsed = automationConfigAppliedSchema.parse(value);
     if (parsed.gatewayId !== this.scope.gatewayId) throw new Error("automation config ACK scope mismatch");
-    return parsed as AutomationConfigAppliedV1;
+    return parsed as AutomationConfigApplied;
   }
 
   private persist(state: StoredAutomationConfigAcks) {
@@ -127,7 +132,7 @@ export class AutomationConfigAckOutbox {
 }
 
 export class AutomationConfigAckPublisher {
-  private publish: ((topic: string, payload: AutomationConfigAppliedDeliveryV1) => Promise<void>) | undefined;
+  private publish: ((topic: string, payload: AutomationConfigAppliedDelivery) => Promise<void>) | undefined;
   private drainPromise: Promise<void> | undefined;
   private drainGeneration: number | undefined;
   private timer: ReturnType<typeof setTimeout> | undefined;
@@ -155,7 +160,7 @@ export class AutomationConfigAckPublisher {
     this.retryDelayMs = this.retryInitialDelayMs;
   }
 
-  connect(publish: (topic: string, payload: AutomationConfigAppliedDeliveryV1) => Promise<void>) {
+  connect(publish: (topic: string, payload: AutomationConfigAppliedDelivery) => Promise<void>) {
     this.generation += 1;
     this.publish = publish;
     this.retryDelayMs = this.retryInitialDelayMs;
@@ -236,16 +241,16 @@ function parseStoredOutbox(
     throw new Error("invalid automation config ACK outbox");
   }
   if (value.version === 1) {
-    const records = value.records.map((record) => automationConfigAppliedDeliveryV1Schema.parse({
+    const records = value.records.map((record) => automationConfigAppliedDeliverySchema.parse({
       schemaVersion: 1,
       acknowledgementId: createAcknowledgementId(),
       ...scope,
-      acknowledgement: automationConfigAppliedV1Schema.parse(record)
-    }) as AutomationConfigAppliedDeliveryV1);
+      acknowledgement: automationConfigAppliedSchema.parse(record)
+    }) as AutomationConfigAppliedDelivery);
     return { state: { version: 2, scope: { ...scope }, records }, migrated: true };
   }
   if (value.version !== 2) throw new Error("invalid automation config ACK outbox");
-  const records = value.records.map((record) => automationConfigAppliedDeliveryV1Schema.parse(record) as AutomationConfigAppliedDeliveryV1);
+  const records = value.records.map((record) => automationConfigAppliedDeliverySchema.parse(record) as AutomationConfigAppliedDelivery);
   if (records.some((record) => record.siteId !== scope.siteId || record.gatewayId !== scope.gatewayId)) {
     throw new Error("invalid automation config ACK outbox");
   }
@@ -255,12 +260,12 @@ function parseStoredOutbox(
   return { state: { version: 2, scope: { ...scope }, records }, migrated: false };
 }
 
-function sameResult(left: AutomationConfigAppliedV1, right: AutomationConfigAppliedV1) {
-  return left.gatewayId === right.gatewayId && left.revision === right.revision &&
+function sameResult(left: AutomationConfigApplied, right: AutomationConfigApplied) {
+  return left.schemaVersion === right.schemaVersion && left.gatewayId === right.gatewayId && left.revision === right.revision &&
     left.payloadHash === right.payloadHash && left.status === right.status && left.errorCode === right.errorCode;
 }
 
-function sameAck(left: AutomationConfigAppliedV1, right: AutomationConfigAppliedV1) {
+function sameAck(left: AutomationConfigApplied, right: AutomationConfigApplied) {
   return sameResult(left, right) && left.appliedAt === right.appliedAt;
 }
 

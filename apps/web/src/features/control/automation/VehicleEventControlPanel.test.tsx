@@ -73,6 +73,86 @@ describe("VehicleEventControlPanel", () => {
     vi.unstubAllEnvs();
   });
 
+  it("keeps BIO operational uncertainty accessible and blocks activation", async () => {
+    mocks.listVehicleEventRules.mockResolvedValue({ items: [rule({ sensorProtocol: "bio-usb-pulse", status: "disabled" })], total: 1, nextCursor: null });
+    renderPanel("admin");
+    const detail = await screen.findByRole("region", { name: /BIO 운영 상태/ });
+    detail.focus();
+    expect(detail).toHaveFocus();
+    expect(detail).toHaveTextContent("마지막 유효 펄스: 미확인");
+    expect(detail).toHaveTextContent("장애 시작 시각: 미확인");
+    expect(detail).toHaveTextContent(/운영자.*비활성화/);
+    expect(screen.getByRole("button", { name: /활성화$/ })).toBeDisabled();
+    expect(detail).toHaveTextContent(/실행·복원 상태 미확인/);
+  });
+
+  it("keeps a degraded source warning visible and permits an explicit operator disable request", async () => {
+    mocks.listVehicleEventRules.mockResolvedValue({ items: [rule({ sensorProtocol: "bio-usb-pulse", status: "enabled" })], total: 1, nextCursor: null });
+    const degraded: Dashboard = { ...dashboard, floors: dashboard.floors.map(floor => ({ ...floor, fixtures: floor.fixtures.map(item => item.id !== sensorFixtureId ? item : {
+      ...item, vehicleEventSource: { sensorProtocol: "bio-usb-pulse", readiness: "off", capabilityEvidence: "degraded", sourceEligible: false, targetEligible: false,
+        blockReasons: ["product_gate_off"], modeVerification: { commandId: null, status: "unverified", modeVerified: false, verifiedAt: null } }
+    }) })) };
+    renderPanel("admin", { dashboard: degraded });
+    const detail = await screen.findByRole("region", { name: /BIO 운영 상태/ });
+    expect(within(detail).getByRole("alert")).toHaveTextContent("센서 장애 보고");
+    fireEvent.click(screen.getByRole("button", { name: /비활성화$/ }));
+    await waitFor(() => expect(mocks.updateVehicleEventRule).toHaveBeenCalledWith(siteId, rule().id, { status: "disabled" }));
+    expect(detail).toHaveTextContent(/해제 완료가 아닙니다/);
+  });
+
+  it("renders server pulse, health and pending restoration as historical evidence without enabling BIO", async () => {
+    mocks.listVehicleEventRules.mockResolvedValue({ items: [rule({ sensorProtocol: "bio-usb-pulse", status: "disabled" })], total: 1, nextCursor: null });
+    renderPanel("admin", { dashboard: telemetryDashboard() });
+    const detail = await screen.findByRole("region", { name: /BIO 운영 상태/ });
+    expect(detail).toHaveTextContent("마지막 유효 펄스: 2026. 10. 1. 오후 12:04:05");
+    expect(detail).toHaveTextContent("센서 건강 보고: 장애");
+    expect(detail).toHaveTextContent("장애 시작 시각: 2026. 10. 1. 오후 12:05:00");
+    expect(detail).toHaveTextContent("복원 대기: 대기 중");
+    expect(detail).toHaveTextContent("복원 사유: USB 연결 끊김");
+    expect(detail).toHaveTextContent("센서를 사용하는 전체 규칙의 운영 보고");
+    expect(detail).toHaveTextContent("Asia/Seoul");
+    expect(detail.querySelector('time[datetime="2026-10-01T03:04:05.000Z"]')).not.toBeNull();
+    expect(screen.getByRole("button", { name: /활성화$/ })).toBeDisabled();
+  });
+
+  it("labels read-back as configured values and retains pending restoration even after a successful restore read-back", async () => {
+    mocks.listVehicleEventRules.mockResolvedValue({ items: [rule({ sensorProtocol: "bio-usb-pulse" })], total: 1, nextCursor: null });
+    renderPanel("viewer", { dashboard: telemetryDashboard() });
+    const detail = await screen.findByRole("region", { name: /BIO 운영 상태/ });
+    expect(detail).toHaveTextContent("B1-L001 · 복원 설정 확인: 성공");
+    expect(detail).toHaveTextContent("설정 밝기: 35% · 설정 모드: 센서");
+    expect(detail).toHaveTextContent("현재 광학 출력·전력·에너지 또는 센서 준비 상태의 증거가 아닙니다");
+    expect(detail).toHaveTextContent("복원 대기: 대기 중");
+    expect(screen.queryByRole("button", { name: /비활성화$/ })).not.toBeInTheDocument();
+  });
+
+  it("uses new dashboard evidence on recovery and clears old source evidence on server remap", async () => {
+    mocks.listVehicleEventRules.mockResolvedValue({ items: [rule({ sensorProtocol: "bio-usb-pulse", status: "disabled" })], total: 1, nextCursor: null });
+    const { rerender, queryClient } = renderPanel("admin", { dashboard: telemetryDashboard() });
+    const detail = await screen.findByRole("region", { name: /BIO 운영 상태/ });
+    rerender(panelElement("admin", queryClient, siteId, siteId, telemetryDashboard({ health: "healthy", degradedSince: null, healthReason: "qualified" })));
+    expect(detail).toHaveTextContent("센서 건강 보고: 정상 보고");
+    expect(detail).toHaveTextContent("복원 대기: 대기 중");
+    expect(detail).toHaveTextContent("장애 시작 시각: 미확인");
+    rerender(panelElement("admin", queryClient, siteId, siteId, telemetryDashboard(null)));
+    expect(detail).toHaveTextContent("마지막 유효 펄스: 미확인");
+    expect(detail).toHaveTextContent("복원 대기: 미확인");
+    expect(detail).not.toHaveTextContent("35%");
+    expect(detail.querySelector("time")).toBeNull();
+  });
+
+  it("does not infer healthy or release completion from a pulse or a server false pending flag", async () => {
+    mocks.listVehicleEventRules.mockResolvedValue({ items: [rule({ sensorProtocol: "bio-usb-pulse" })], total: 1, nextCursor: null });
+    renderPanel("admin", { dashboard: telemetryDashboard({ health: "unverified", healthReason: null, degradedSince: null,
+      restorationPending: false, restorationReason: null, configurationReadback: null }) });
+    const detail = await screen.findByRole("region", { name: /BIO 운영 상태/ });
+    expect(detail).toHaveTextContent("센서 건강 보고: 미확인");
+    expect(detail).toHaveTextContent("복원 대기: 대기 없음 보고");
+    expect(detail).toHaveTextContent("복원 사유: 미확인");
+    expect(detail).toHaveTextContent("설정 확인: 미확인");
+    expect(within(detail).queryByText("복원 성공", { exact: true })).not.toBeInTheDocument();
+  });
+
   it("preserves event brightness and synchronization states in table and cards", async () => {
     renderPanel("admin");
     await screen.findByText("입구 차량 감지");
@@ -247,7 +327,9 @@ describe("VehicleEventControlPanel", () => {
 
     fireEvent.click(within(dialog).getByRole("button", { name: "감지 센서 선택" }));
     expect(within(dialog).getByRole("button", { name: /B1-SENSOR-001/ })).toBeVisible();
-    expect(within(dialog).getByRole("button", { name: /B1-L001.*선택 불가/ })).toBeDisabled();
+    fireEvent.click(within(dialog).getByRole("button", { name: /B1-L001.*선택 불가/ }));
+    expect(within(dialog).getByRole("button", { name: "감지 센서로 선택" })).toBeDisabled();
+    expect(within(dialog).getByRole("button", { name: "선택 완료" })).toBeDisabled();
     fireEvent.click(within(dialog).getByRole("button", { name: /B1-SENSOR-001/ }));
     fireEvent.click(within(dialog).getByRole("button", { name: "1개 조명 선택 완료" }));
 
@@ -719,8 +801,11 @@ describe("VehicleEventControlPanel", () => {
     fireEvent.click(screen.getByRole("button", { name: "감지 센서 선택" }));
     const dialog = screen.getByRole("dialog", { name: "이벤트 추가" });
     expect(within(dialog).getByRole("button", { name: /B1-SENSOR-001/ })).toBeEnabled();
-    expect(within(dialog).getByRole("button", { name: /B1-L001.*선택 불가/ })).toBeDisabled();
-    expect(within(dialog).getByRole("button", { name: /B1-L002.*선택 불가/ })).toBeDisabled();
+    for (const name of [/B1-L001.*선택 불가/, /B1-L002.*선택 불가/]) {
+      fireEvent.click(within(dialog).getByRole("button", { name }));
+      expect(within(dialog).getByRole("button", { name: "감지 센서로 선택" })).toBeDisabled();
+      expect(within(dialog).getByRole("button", { name: "선택 완료" })).toBeDisabled();
+    }
   });
 
   it("fails closed for missing and invalid capability verification timestamps", async () => {
@@ -740,8 +825,11 @@ describe("VehicleEventControlPanel", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "감지 센서 선택" }));
     const dialog = screen.getByRole("dialog", { name: "이벤트 추가" });
-    expect(within(dialog).getByRole("button", { name: /B1-SENSOR-001.*선택 불가/ })).toBeDisabled();
-    expect(within(dialog).getByRole("button", { name: /B1-SENSOR-INVALID.*선택 불가/ })).toBeDisabled();
+    for (const name of [/B1-SENSOR-001.*선택 불가/, /B1-SENSOR-INVALID.*선택 불가/]) {
+      fireEvent.click(within(dialog).getByRole("button", { name }));
+      expect(within(dialog).getByRole("button", { name: "감지 센서로 선택" })).toBeDisabled();
+      expect(within(dialog).getByRole("button", { name: "선택 완료" })).toBeDisabled();
+    }
   });
 
   it("shows unresolved ids and rejects an event edit with a removed target fixture", async () => {
@@ -1104,6 +1192,22 @@ function renderPanel(
 
 function testQueryClient() {
   return new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+}
+
+function telemetryDashboard(overrides: Record<string, unknown> | null = {}): Dashboard {
+  const telemetry = overrides === null ? null : {
+    evidence: "gateway_runtime_telemetry", gatewayId: "gateway-1", assignmentVersion: 1, revision: 3,
+    lastPulseAt: "2026-10-01T03:04:05.000Z", health: "degraded", healthReason: "usb_disconnected",
+    degradedSince: "2026-10-01T03:05:00.000Z", restorationPending: true, restorationReason: "usb_disconnected",
+    targetFixtureIds: [targetFixtureId], lastEventAt: "2026-10-01T03:06:00.000Z", receivedAt: "2026-10-01T03:06:01.000Z",
+    occurrences: [{ ruleId: rule().id, occurrenceKey: "first", targetFixtureIds: [targetFixtureId], health: "degraded",
+      degradedSince: "2026-10-01T03:05:00.000Z", restorationPending: true, restorationReason: "usb_disconnected" }],
+    configurationReadback: { sensorProtocol: "bio-usb-pulse", verification: "configuration_readback", phase: "restore", sequence: 5,
+      occurredAt: "2026-10-01T03:06:00.000Z", results: [{ fixtureId: targetFixtureId, status: "succeeded",
+        configuration: { configuredHighBrightnessPercent: 35, bioMode: "sensor" } }] }, ...overrides
+  };
+  return { ...dashboard, floors: dashboard.floors.map(floor => ({ ...floor, fixtures: floor.fixtures.map(item => item.id === sensorFixtureId
+    ? { ...item, bioPulseTelemetry: telemetry } : item) })) } as Dashboard;
 }
 
 async function submitValidCreate() {

@@ -1,5 +1,28 @@
 # 모니터링 메뉴 기능 현황
 
+## 2026-10-09 ATLAS·BIO 고정 업스트림 합성 — 관찰 의미 보존, 최종 검증 전
+
+### 구현 완료
+
+- ATLAS의 실제 모바일 브랜드/compact select·stable 양테마·서버 floor 집계/null0·공통 활동과 upstream BIO의 sanitized 준비 projection/실제 runtime 관찰 경계를 함께 보존했다. 공유 지도 선택 stroke만 reactive palette를 사용하며 원본 CAD 색·camera·renderer identity는 유지한다.
+- 합성된 shell/map/기존 BIO 소비를 포함한 지정11 unit288PASS와 Web type/UI/build0(부채0)을 회수했다. 별도 support26은24PASS/기존 opt-in2SKIP로 실제 transport/ACL2를 검증하지 않았다. 생성 output 원복·owned cleanup은 확인했으나 새 전체 브라우저 검증은 아니다.
+
+### 미구현
+
+- 새 통합 source의 전체18/ONE Lab/canonical·독립 whole review와 기본 checkout ff-only 병합은 아직이다. 모니터링 전용 BIO 준비 패널·incident/알림 신규 연동·운영 적용/장비 검증을 추가하지 않는다.
+
+### 부족하거나 개선이 필요한 기능
+
+- candidate/matched/과거 GET/준비 응답을 모니터링 정상·sensor 건강·광학 밝기/전력으로 합성하지 않는다. catalogempty/policyOFF·실제 WebView/RF/광학 HIL 및 양쪽 역사 실패의 한계를 유지하며 옛 LIST/부분 PASS는 새 source 증거가 아니다.
+
+### 관련 파일
+
+- `apps/web/src/features/floor-map/FloorScene.tsx`, `apps/web/src/features/shells/CustomerShell.tsx`, 기존 monitoring adapter/query, `.superpowers/sdd/2026-10-07-atlas-ui-refresh/task-12-upstream-integration-implementation.md`.
+
+### 갱신 규칙
+
+- 서버 현장/층 집계·loaded pin·준비/자격/runtime/광학 증거를 구분한다. 목업과 양쪽 과거 기록의 원문을 보존하며 actual source의 새로운 통합 관문을 회수한 뒤에만 완료 상태를 갱신한다.
+
 ## 2026-10-07 고객 공통 키보드 포커스 합성 보완 (Task 11)
 
 ### 구현 완료
@@ -170,6 +193,118 @@
 
 - 테마 경계 변경 시 저장 읽기/쓰기 실패·cross-tab clear·root cleanup·열린 portal·draft와 route/query identity 및 추가 명령0 회귀를 함께 확인한다. 공유 palette 소비자의 후속 적용과 실장비 한계는 실제 검증 범위에 맞춰 별도로 기록한다.
 
+## 2026-10-08 등록 조명의 공통 준비 상태 Web 소비 (Task 5)
+
+- 구현 완료(소프트웨어): Web dashboard 타입이 sanitized `bioSensorPreparation`의 `preparationCandidate/status/commandId/profileKey/observedAt/blockedReasons`를 소비한다. 제어의 기존 지도에는 전체 등록 조명을 유지하고 미준비 상태·다중 차단 사유와 관리자 준비 조치를 검사 패널에 연결한다.
+- 구현 완료(관찰 경계): 후보나 초기 GET ready로 현재 모니터링 정상·센서 건강·광학 출력·밝기·전력 값을 생성하지 않는다. 정책/준비 작업 뒤 dashboard를 갱신하고 공개 근거 변경 시 늦은 작업 결과를 폐기한다. 기존 실제 telemetry와 null 초기화 경로를 유지하며 감지 센서/실행 조명 문구를 사용한다.
+- 미구현: 모니터링 전용 준비 설정 패널·BIO incident/알림 신규 연동, 승인된 실제 장비군 공급과 RF·광학·native WebView 검증은 이번 작업에서 수행하지 않았다.
+- 부족하거나 개선이 필요한 기능: 브라우저의 상태는 서버 조회 시점의 관찰이며 원격 binding/catalog 전체 identity는 노출되지 않는다. 현재 귀속·실행 자격 검증은 서버에 있고 센서 모드·링크 GET을 감지 회로 건강으로 해석하지 않는다.
+- 관련 파일: `apps/web/src/api/{automation,queries}.ts`, `apps/web/src/features/control/automation/{BioSensorPreparationPanel,BioPulseTelemetryStatus,VehicleEventControlPanel}.tsx`, `apps/web/e2e/control-map-target-selection.spec.ts`.
+- 갱신 규칙: 준비 작업 checkpoint·현재 dashboard eligibility·실제 runtime 보고·광학 출력과 실장비 증거를 구분한다.
+
+## 2026-10-08 BIO current 준비 projection (Task 4 API)
+
+- 구현 완료(소프트웨어): 상세 fixture 집합을 한 번의 batched SQL 판정으로 읽어 `bioSensorPreparation:{status,commandId,profileKey,observedAt,blockedReasons,preparationCandidate}`를 제공한다. commandId/profileKey/observedAt는 증거가 없으면 NULL이며 candidate는 confirmed canonical BIO 준비 진입 후보일 뿐 source 권한이 아니다. 일반 응답에는 raw fingerprint/body/native/hash를 내보내지 않는다.
+- 구현 완료(판정): 기존 mode GET은 과거 참고 정보로 남기고 sourceEligible은 current 준비·정책·catalog ACK·인증 V2·별도 live freshness가 모두 맞을 때만 true다. 정책 담당자 해제·철회·재배정·identity 교체·만료 시 같은 predicate가 즉시 차단 사유를 반환한다. 과거 준비 observedAt와 120초 최초 TTL을 상시 건강으로 쓰지 않는다.
+- 구현 완료(후속 소프트웨어): Web DTO/준비 상태 소비는 위 Task 5, 공통 합성 fixture의 별도 API disposable DB·Gateway fake-transport 통합은 Task 6에서 확인했다. 최종 준비 큐 보완과 별도 수정 검토를 실제 운영 검증과 구분한다.
+- 미구현: 단일 프로세스·실제 MQTT/RF E2E, 운영 적용·실제 승인 장비군 공급·실장비 검증.
+- 부족하거나 개선이 필요한 기능: `profile_unverified|fingerprint_unverified|mode_unverified|link_unverified|catalog_pending|operating_policy_required|gateway_protocol_unverified|binding_changed|unsupported`만 사유로 제공한다. 관측·전달 ACK·classification·센서 회로 건강·광학 출력은 서로 다른 증거다.
+- 관련 파일: `apps/api/src/sites/{sites.service.ts,vehicle-event-source-view.ts}`, `apps/api/src/automation/bio-sensor-eligibility.ts`, `apps/api/test/bio-sensor-catalog-preparation.integration.spec.ts`.
+- 갱신 규칙: 새 dashboard 무효화 결과로 이전 ready를 제거하며, candidate/matched를 ready로 표시하지 않는다. 아래 과거 기록은 당시 범위로 보존한다.
+
+## 2026-10-08 등록 BIO discovery 관측 보존 경계 — Task 2A 당시 기록
+
+- 구현 완료(Task 2A 소프트웨어): registration scan의 종류·firmware/build·sensor/infrared/ambient/hardware fingerprint를 nullable 내부 관측으로 보존한다. 기존 현재 session/correlation/attempt/site/gateway·lifecycle·event 원장/sequence 경계를 재사용하며 등록 완료 뒤 보존한다. 일반 polling 응답과 수신 오류 로그에는 raw 관측을 노출하지 않는다.
+- 후속 구현: 당시 남았던 Gateway typed publisher·fresh query/live health·UI 준비 projection 소비는 Tasks 3~6에서 구현·소프트웨어 검증했다. 운영 migration·ACL 적용·실장비 검증은 여전히 미수행이다.
+- 부족하거나 개선이 필요한 기능: 관측은 현재 통신·센서 건강·readiness를 입증하지 않는다. 신규 null/legacy는 기존 관측을 비우고 늦거나 잘못 귀속된 scan은 저장하지 않는다. 기존 strict scan/terminal wire와 모니터링 상태·classification/SET는 유지한다.
+- 관련 파일: `packages/shared/src/bio-discovery-contracts.ts`, `apps/api/src/mqtt/mqtt.service.ts`, `apps/api/src/registration/registration.service.ts`, `apps/api/prisma/schema.prisma`, `apps/api/test/bio-discovery.integration.spec.ts`, `scripts/dev-mqtt-acl.integration.test.mjs`.
+- 갱신 규칙: 내부 관측 보존·일회용 PostgreSQL 검증과 실제 Gateway/RF 증거를 구분한다. 기존 발견 관측을 fresh query 또는 독립 qualification으로 승격하지 않는다.
+
+## 2026-10-07 A/B pilot launcher 증거 — 실제 상태 보고 아님
+
+- 구현 완료(시험용 코드): host lifecycle·exact Docker 결과·pilot durable final journal을 보호 evidence에 보존하고 설정/close 불확실과 postflight 실패를 nonzero로 보고한다. CLI timeout만으로 diagnostic 수명을 판단하지 않고 exact no-such-object 오류와 독립 inventory 또는 exact terminal 상태를 확인한다.
+- 미구현: 실제 Pi/image/USB/driver/MQTT postflight 실행·브라우저 기록 UI·제품 모니터링/건강 공급자 연동.
+- 검토 보완(코드): timeout/취소 CLI를 TERM/KILL로 회수하는 것은 소유한 CLI 프로세스 경계이며 컨테이너 forcekill이 아니다. late create/start·CLI 회수 불확실을 부재로 축약하지 않고 lifetime unknown·보호 lock/evidence를 유지한다. recovery/postflight inspect도 잔여 monotonic 예산을 사용한다.
+- 부족하거나 개선이 필요한 기능: 원본 healthy/MQTT/USB/mapping postflight는 서비스 복구 관문이며 PIR 감지 회로 건강이나 시험 알림 의미를 증명하지 않는다. settings 불확실이면 terminal/freeUSB 뒤 서비스 복구는 가능하지만 성공 표시/새 base 재캡처를 위해 lock을 해제하지 않는다.
+- 관련 파일: `apps/gateway/scripts/bio-sensor-event-pilot-launcher.ts`, `bio-sensor-event-pilot-launcher-host.ts`, `bio-sensor-event-pilot-launcher.test.ts`.
+- 갱신 규칙: fixture와 실제 장비 증거를 분리하고 보호 로그의 원시 identity/body/token을 일반 로그·Git에 내보내지 않는다.
+
+## 2026-10-06 A/B 시험용 센서 알림 연동 — 모니터링 상태 승격 없음
+
+- 구현 완료(시험 스크립트): 기존 단일 CRC BIO client의 시험 후보 구독을 B 적용/유지/원복에 연결한다. raw body/native identity/원복 원장은 opt-in 보호 파일에만 보관하고 일반 출력은 고정 redacted 상태 코드다.
+- 미구현: 이번 pilot의 실장비·광학 검증, 브라우저 기록 UI·MQTT 공급자/대시보드 연동. 제품 지원/건강 표시는 변경하지 않았다.
+- 검토 보완(코드): 원복 불확실·fsync/닫기 실패를 성공 종료로 표시하지 않고 pending/실패 결과를 남긴다. session 생성이나 transport 닫기 실패도 보호 원장 닫기를 건너뛰지 않는다.
+- 부족하거나 개선이 필요한 기능: exact A GET은 node-link와 sensor mode 설정만 확인한다. PIR 회로 건강·감지 능력·motion/clear를 증명하지 않으며 alive 후보/다른 node·network·generation·unknown body·replay/짧은 중복으로 B 쓰기/hold를 갱신하지 않는다.
+- 관련 파일: `apps/gateway/scripts/bio-sensor-event-pilot.ts`, `bio-sensor-event-pilot-runtime.ts`, `bio-sensor-event-pilot.test.ts`.
+- 갱신 규칙: 보호된 시험 증거와 제품 telemetry를 구분한다. 실제 장비 검증 전에는 코드 검증만 완료로 기록한다.
+
+## 2026-10-06 기존 BIO 등록 현재 재검증 — 소프트웨어 완료·운영 미적용
+
+- 구현 완료(Task 2 소프트웨어): 현재 commission/requester·binding을 재검증하는 최소 작업 상태 GET과 독립 operation 보관을 추가했다. dashboard/telemetry/운영 데이터 변경은 없다.
+- 구현 완료(Task 3 소프트웨어): 세 설정 mode의 동일 시간 경계를 적용한 결과 수용·immutable 감사 보관·내구 ACK와 shutdown drain을 추가했다. stale/unknown/만료 결과는 observedMode를 공개하지 않으며 Fixture 출력·센서 qualification·heartbeat를 갱신하지 않는다. 생산 DB 시계 attestor가 없으면 query/proof를 거부한다.
+- 구현 완료(Task 4 소프트웨어): 현재 장치 proof의 명시적 수복 완료 시각과 감사 연결을 보관한다. 후보 status 수복과 별도 BIO/OFF 분류에서도 Fixture 출력·이름/좌표·그룹·기존 센서 qualification·heartbeat를 보존한다. 감사 실패와 등록/scan 경합은 DB 원자성 검증으로 확인했으며 모니터링 정상·실장비 성공 근거로 사용하지 않는다.
+- 계약 완료(Shared만): registration 전용 query/result/전체 hash ACK `e902a393`, 관련38PASS·독립 검토 승인. 상태 조회·readiness·실장비 확인으로 승격하지 않는다.
+- 관련 조회 파일: `apps/api/src/registration/bio-registration-revalidation.service.ts`, `registration.controller.ts`.
+- 구현 완료(Task 5 Gateway 소프트웨어): 기존 단일 adapter의 query만 사용하는 별도 handler/journal/result/전체 hash ACK와 runtime/ACL 계약을 추가했다. 재시작은 새 GET 없이 unknown으로 처리하고 최초 terminal을 재전송한다. rename 뒤 fsync 불확실 재수신은 원장 내구 barrier 성공 전 receipt를 거부한다. 관련 집중 검증·독립 수정 재검토를 통과했으며 실제 broker matrix는 opt-in1SKIP다.
+- 검증 완료(Task 6 소프트웨어): API 요청→Gateway GET-only→immutable 결과/정확 ACK→명시 apply→별도 A/B 분류, ACK 유실·재시작·구 Gateway 무응답을 연결했다. 최종 신규 일회용 DB108/108·직접 API5/5·API/Gatewaytypecheck/build0, 독립 통합 및 전체 요청 최종 검토 Approved·새C0/I0/M0·기존 pnpm 경고M1을 확인했다. 가짜 USB/MQTT 경계이며 실제 RF/TLS/broker 성공은 아니다.
+- 미구현: 실제 B 현재 조회·감사 수복·운영 적용과 실제 감지 profile/독립 건강 공급. 현재 운영 데이터·조명은 변경하지 않았다.
+- 부족하거나 개선이 필요한 기능: 새 mode GET은 현재 identity/address의 설정 관찰이며 광학 출력·전력·센서 건강이 아니다. 이를 heartbeat·readiness·모니터링 정상 상태로 승격하지 않는 설계다.
+- 관련 파일: `docs/superpowers/specs/2026-10-06-bio-registration-revalidation-design.md`, `docs/superpowers/plans/2026-10-06-bio-registration-revalidation.md`, `docs/superpowers/plans/2026-09-30-bio-sensor-pulse-event-control.md`.
+- 갱신 규칙: 등록 수복·BIO/OFF 분류·실제 감지/건강·대시보드 표시의 완료 조건을 분리한다.
+
+## 2026-10-02 재검색과 등록 상태 보존
+
+- 구현 완료(소프트웨어·독립 검토): 완료된 등록을 재검색 수신이 미등록 상태로 낮추지 않도록 보완했다. Consumer120pass/기존opt-in1skip·타입 검사와 독립 검토 지적0을 확인했다. 검색 메타데이터 갱신을 센서 건강이나 조명 출력 증거로 해석하지 않는다.
+- 확인 완료(현재 설정, 미배포): 17:51:17 KST 별도 격리 A GET-only로 raw140/force-off를 확인했고 driver 복귀·USB 소유0·원본 정지와 mapping/assignment/descriptor 불변을 확인했다. 원본 서비스의 현재 healthy를 확인한 것이 아니며 dashboard projection에 결과를 쓰지 않았다. B GET·모든 SET0, 기존 복원 pending1 유지다.
+- 미구현: 실제 랩 배포·과거 B 기록 수복·기존 A/B BIO 적용과 실제 독립 센서 건강 공급.
+- 부족하거나 개선이 필요한 기능: 현재 Pi Gateway는 정지 상태이고 공개 intermediate CRL이 만료됐다. 과거 healthy/heartbeat와 오늘 오전 A GET을 현재 연결·밝기 확인으로 재사용하지 않는다. 원본 복원 보류 기록은 유지한다.
+- 관련 파일: `apps/api/src/mqtt/mqtt.service.ts`, `mqtt.service.spec.ts`, `docs/superpowers/plans/2026-09-30-bio-sensor-pulse-event-control.md`.
+- 갱신 규칙: 등록 완료, 최신 연결 확인, 설정 조회와 실제 광학 관찰을 분리해 갱신한다.
+
+## 2026-10-02 BIO 상태 보고 전달 계약
+
+- 구현 완료(Shared 소프트웨어·독립 검토): BIO V2 report의 배정 버전 포함 전달 envelope와 exact 귀속 ACK 계약을 추가했다. 기존 V1 보고·표시는 변경하지 않았다.
+- 구현 완료(Gateway 수신·독립 검토): candidate와 검증된 pulse 출구를 분리하고 연결·decoder·mapping·독립 권한 변경/종료에 따라 권한을 철회한다. 실제 관찰 건강이나 지원 상태를 새로 생성하지 않는다.
+- 구현 완료(API 소프트웨어·독립 검토): current 인증·배정/정확 node 근거로 BIO qualification·ledger·V2 수용 ACK를 같은 거래에 저장하고 과거/변조/재배정 보고를 상태 근거로 승격하지 않는다.
+- 구현 완료(Gateway 실행 연결 소프트웨어·독립 검토): 실제 source→scheduler 소비와 권한 철회·정지/종료·만료 복원을 연결한다. 규칙 교체 실패/rollback은 이미 기록된 적용·복원 결과와 불확실 원장을 지우지 않는다. 제품 OFF이므로 실제 센서 건강·광학 관찰의 새 증거를 만든 작업은 아니다.
+- 구현 완료(신규 등록 소프트웨어·독립 검토): 신뢰된 V2 완료의 새 BIO node는 검증 전 OFF로 분류한다. 기존 node·밝기·qualification/legacy는 유지하고 등록 완료를 live health로 표시하지 않는다.
+- 구현 완료(Gateway OFF 전달 소프트웨어·독립 검토): 현재 인증 명령의 canonical ID와 confirmed mapping을 대조해 OFF/null 보고만 전송하고 exact V2 ACK를 저장한다. 교체/만료/재시작/정지 뒤 과거 보고 전송은 막고 pending 원본은 유지한다. 실제 센서 사용 가능·건강 상태를 새로 승인하지 않는다.
+- 구현 완료(센서 모드 확인 소프트웨어·독립 검토): Fixture/canonical node ID가 다른 실제 command 경로도 exact native/hash/주소·fresh mapping/discovery로 GET한다. GET 뒤 연결 대상이 바뀌면 긍정 결과도 거부하며 모드 조회는 밝기 쓰기를 하지 않는다. 모의 통신 검증으로 현재 광학/건강 상태를 승인하지 않는다.
+- 구현 완료(기존 등록 분류 보완 소프트웨어·독립 검토): 현재 등록 완료와 소유·배정이 일치하는 오분류의 BIO/OFF 전환 API를 추가했다. 밝기·전원·ID·그룹·이력을 유지하고 이미 BIO인 ready/degraded 상태를 초기화하지 않는다. DB30/30·등록115/115·타입/빌드·독립 검토 지적0을 확인했으며 실제 A/B 데이터는 변경하지 않았다. 검증 대기는 실제 감지 지원·건강·사용 가능 상태를 뜻하지 않는다.
+- 미구현: 독립 qualification/건강 provider·사용 가능 상태 발행·실제 운영 적용과 broker/HIL 검증.
+- 부족하거나 개선이 필요한 기능: 보고 수용 ACK는 live health·LED 광학 출력·이벤트 동작 성공을 의미하지 않는다. 현재 제품 gate/profile은 OFF다.
+- 관련 파일: `packages/shared/src/automation-contracts.ts`, `automation-contracts.test.ts`.
+- 관련 Gateway 파일: `apps/gateway/src/bio/bio-sensor-pulse-source.ts`, `bio-dongle-client.ts`, `bio-device-mapping-store.ts`, `apps/gateway/src/adapters/adapter-factory.ts`.
+- 관련 실행 연결: `apps/gateway/src/automation/bio-product-pulse-controller.ts`, `bio-pulse-scheduler.ts`, `schedule-runtime.ts`, `apps/gateway/src/index.ts`.
+- 관련 보고 연결: `apps/gateway/src/bio/bio-capability-delivery.ts`, `apps/gateway/src/mesh/vehicle-sensor-capability.ts`, `apps/gateway/src/commands/bio-sensor-mode-handler.ts`.
+- 관련 센서 모드 어댑터: `apps/gateway/src/adapters/bio-usb-dongle-adapter.ts`, `bio-usb-dongle-adapter.test.ts`.
+- 관련 API 파일: `apps/api/src/automation/vehicle-sensor-capability.service.ts`, `automation-mqtt-consumer.service.ts`, `bio-capability-delivery.integration.spec.ts`.
+- 관련 등록 파일: `apps/api/src/mqtt/provisioning-device-terminal.service.ts`, `new-bio-registration.integration.spec.ts`.
+- 관련 기존 분류 보완: `apps/api/src/registration/bio-classification-reconciliation.service.ts`, 대응 unit/integration 테스트, `registration.controller.ts`, `registration.module.ts`, `docs/database-schema.md`.
+- 갱신 규칙: 보고 계약, 저장된 관찰 상태, 실제 하드웨어 검증을 별도로 기록한다.
+
+## 2026-10-01 BIO telemetry 소프트웨어 전달 경계
+
+- 구현 완료: 지연 수신된 첫 펄스도 snapshot 생성 당시 source node와 현재 연결을 비교해 교체 센서의 관측으로 잘못 표시하지 않는다. 이미 저장된 exact 기록은 같은 현장 재배정 뒤에도 현재 인증 근거 아래 ACK만 재발행하고 projection은 변경하지 않는다. snapshot binding은 기대 구성 근거이며 광학/센서 송신 증명은 아니다.
+- 구현 완료: Gateway 합성 시험의 펄스·연장·장애·복구·B 설정 적용/복원 결과를 strict V2 outbox로 전달한다. 설정 결과에 `verification=configuration_readback`, `configuredHighBrightnessPercent`, `bioMode`를 쓰며 raw body·native UUID·임의 오류 문자열은 허용하지 않는다. 장애/복구 이력을 합치지 않고 파일 재시작·재전송의 순서·identity·해시를 보존한다.
+- 구현 완료: API는 현재 claim·유효 MQTT 인증서·배정·V2 선언·저장된 snapshot topic/hash/source/target를 검증한 V2 이력과 별도 projection을 한 거래로 저장한다. DB commit 뒤 exact V2 assignment/event/sequence/hash ACK를 발행하며 실제 Gateway 파일 기록 삭제를 일회용 DB·in-process transport로 검증한다. 알려진 과거 설정/sequence와 출처가 정확한 시계 오류는 감사 격리+ACK만 하고 현재 상태를 바꾸지 않는다.
+- 구현 완료: 상세 dashboard의 `bioPulseTelemetry`는 최신 펄스·명시적 장애 시작·복원 대기·구성 read-back을 실제 저장 기록에서만 읽는다. 현재 배정/설정과 맞지 않는 이력은 숨기고 미관측은 NULL이다. `0x0c`, 침묵, 새 펄스나 단순 경과 시간으로 건강/clear/복원 성공을 만들지 않는다.
+- 구현 완료: 제어 화면은 이 nullable projection만 소비해 마지막 펄스·건강·장애 시작·복원 대기/사유·설정 read-back을 현장 시간대의 과거 보고로 표시한다. 센서의 전체 규칙/occurrence 집계로 명시하며 교체 후 NULL 응답은 이전 값을 즉시 제거한다. 미관측 필드는 계속 미확인이다.
+- 미구현: 실제 broker/mTLS/장비 검증, 모니터링 BIO incident·알림, 이력 보존·대규모 조회 부하 검증은 별도다.
+- 부족하거나 개선이 필요한 기능: 설정 read-back을 현재 LED 광학 출력·전력/에너지 또는 A 자율 밝기로 투영하지 않는다. 제품 capability·allowlist는 OFF이고 실제 MQTT·Pi/RF/HIL 결과는 이번 통합 시험에 포함되지 않는다.
+- 관련 파일: `packages/shared/src/bio-pulse-telemetry-contracts.ts`, `apps/api/src/automation/bio-pulse-telemetry.ts`, `apps/api/src/sites/bio-pulse-telemetry-view.ts`, `apps/api/test/bio-pulse-telemetry.integration.spec.ts`, `apps/gateway/src/automation/automation-telemetry-handoff.ts`, `automation-telemetry-outbox.ts`, `software-bio-pulse-integration.test.ts`.
+- 갱신 규칙: Gateway 영속 전달, API 영속 수신, 화면 조회와 실제 광학 관찰을 별도 근거로 기록한다.
+
+## 2026-10-01 BIO 관찰 증거와 제어 준비 상태 구분
+
+- 구현 완료: 상세 dashboard Fixture에 서버 소유 `vehicleEventSource`를 제공해 BIO protocol, 유효 readiness와 capability 관찰 증거, 차단 사유, 활성 A의 대상 보호를 제어 화면에서 소비한다. BIO 제품 OFF 동안 stored ready 보고를 사용 가능으로 승격하지 않는다.
+- 구현 완료: 최신 sensor-mode 작업은 현재 할당·물리 identity·주소·Fixture와 일치하는 GET 결과의 과거 확인 시점만 표시한다. 이 값은 실시간 밝기·에너지·자율 광학 출력 또는 현재 source readiness의 증거가 아니다.
+- 구현 완료: 제어 화면의 로컬 GET 결과는 dashboard 최신 증거를 덮어쓰지 않는다. GET 후 서버 projection을 다시 조회하고, 새 작업이나 identity 무효화는 이전 확인 표시를 제거한다. 서버 갱신 실패 시 확인 중/재조회 안내를 유지하며 이전 verified를 임시 현재 증거로 복원하지 않는다.
+- 구현 완료: 제어 화면의 지속 운영 안내가 서버 runtime projection을 표시한다. 대상별 설정 확인은 설정 밝기·mode로 표시하며 현재 밝기·전력·에너지와 분리한다. 성공한 설정 GET이나 건강 회복 보고도 서버의 복원 대기를 지우지 않고, 준비 상태나 제품 지원을 승격하지 않는다.
+- 미구현: 모니터링 incident/알림의 BIO 전용 실시간 연동. 임의 시각이나 광학 복원 완료는 만들지 않는다.
+- 부족하거나 개선이 필요한 기능: 화면 검증은 synthetic 응답으로 진행했다. 독립 센서 건강, A 자체 밝기 및 B 적용·복원 광학 HIL은 미완료이고 제품 gate·allowlist는 OFF다.
+- 관련 파일: `apps/api/src/sites/vehicle-event-source-view.ts`, `apps/api/src/sites/sites.service.ts`, `apps/web/src/api/queries.ts`, `apps/web/src/features/control/automation/{VehicleEventControlPanel,BioPulseTelemetryStatus}.tsx`, `apps/web/e2e/control-map-target-selection.spec.ts`.
+- 갱신 규칙: 관찰 보고·과거 mode GET·현재 준비·실제 LED 출력을 서로 대체하지 않는다. runtime projection이 구현되면 실제 영속 증거와 화면 문서를 함께 갱신한다.
 ## 2026-10-06 단일 조명 검색 Popover·헤더 집계 보완
 
 ### 구현 완료

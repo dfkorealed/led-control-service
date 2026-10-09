@@ -290,6 +290,21 @@ const mapRequireSmoke = mapImportSmoke.replace('import assert from "node:assert/
   .replaceAll("await import(", "require(");
 
 describe("shared package exports", () => {
+  it("loads the BIO profile schema through browser ESM and CommonJS with identical strict validation", async () => {
+    const smoke = `
+      const { bioSensorProfileV1Schema: schema } = await import("@led-control/shared/bio-sensor-profile-contracts");
+      globalThis.Buffer = undefined;
+      const profile = { profileId: "10000000-0000-4000-8000-000000000004", revision: 1, status: "approved",
+        fingerprint: { deviceType: 1, firmware: { major: 2, minor: 3, revision: 4, build: 513 }, sensorType: 5, infraredType: 6, ambientLightType: 7, hardwareType: 8 },
+        bodyHexes: ["0101000000000000"], linkPolicy: { kind: "mode-get", probeIntervalMs: 1000, maxAgeMs: 5000 },
+        evidenceDigest: "sha256:" + "a".repeat(64), reuseScope: "Verified hardware variant" };
+      if (!schema.safeParse(profile).success || schema.safeParse({ ...profile, bodyHexes: ["05"] }).success || schema.safeParse({ ...profile, nativeUuid: "hidden" }).success) throw new Error("BIO runtime validation missing");
+    `;
+    for (const args of [["--input-type=module", "--eval", smoke], ["--conditions=browser", "--input-type=module", "--eval", smoke],
+      ["--eval", smoke.replace('await import("@led-control/shared/bio-sensor-profile-contracts")', 'require("@led-control/shared/bio-sensor-profile-contracts")')]]) {
+      await expect(execFile(process.execPath, args, { cwd: packageRoot })).resolves.toMatchObject({ stderr: "" });
+    }
+  });
   it("loads common map contracts and geometry through ESM, browser condition and CommonJS", async () => {
     for (const args of [
       ["--input-type=module", "--eval", mapImportSmoke],

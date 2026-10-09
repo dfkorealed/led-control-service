@@ -41,6 +41,8 @@ export interface SettingsFixture {
   gateway: { id: string; name: string; connectionStatus: "online" | "offline" } | null;
   vehicleSensorCapabilityStatus?: "unknown" | "supported" | "unsupported";
   vehicleSensorCapabilityVerifiedAt?: string | null;
+  vehicleEventSource?: import("../../src/api/automation").VehicleEventSourceView;
+  bioSensorPreparation?: import("../../src/api/automation").BioSensorPreparationView | null;
   controllable: boolean;
   controlBlockReason: "fixture_unmapped" | "gateway_offline" | "fixture_fault" | "fixture_offline" | null;
 }

@@ -4,6 +4,9 @@ import { SiteAccessService } from "../access/site-access.service";
 import { AuthenticatedUser } from "../auth/auth.types";
 import { PrismaService } from "../prisma/prisma.service";
 import { fixtureStatusWithHealth, toFixtureHealthSnapshot } from "../fixtures/fixture-health";
+import { vehicleEventSourceView } from "./vehicle-event-source-view";
+import { loadBioSensorEligibility } from "../automation/bio-sensor-eligibility";
+import { loadBioPulseTelemetryViews } from "./bio-pulse-telemetry-view";
 import { DEFAULT_MONITORING_POLICY, isMonitoringGatewayOnline, monitoringFixtureState, type MonitoringPolicy } from "../monitoring-incidents/monitoring-conditions";
 
 @Injectable()
@@ -115,11 +118,18 @@ export class SitesService {
       ? await this.prisma.fixture.findMany({
           where: { floor: { siteId: site.id, status: "active" } },
           orderBy: { name: "asc" },
-          include: { meshNode: { include: { gateway: true } } }
+          include: {
+            meshNode: { include: { gateway: true } },
+            vehicleEventSources: { where: { rule: { status: "enabled", sensorProtocol: "bio_usb_pulse" } }, select: { rule: { select: { status: true, sensorProtocol: true } } } },
+            sensorModeOperations: { orderBy: [{ requestedAt: "desc" }, { commandId: "desc" }], take: 1 }
+          }
         })
       : [];
     const fixturesByFloor = new Map(site.floors.map((floor) => [floor.id, fixtures.filter((fixture) => fixture.floorId === floor.id)]));
+    const bioPulseTelemetry = await loadBioPulseTelemetryViews(this.prisma, siteId,
+      fixtures.filter(fixture => fixture.meshNode?.vehicleSensorProtocol === "bio_usb_pulse"));
     const now = new Date();
+    const bioPreparation = await loadBioSensorEligibility(this.prisma, fixtures.map(fixture => fixture.id), now);
     const monitoringPolicy = {
       gatewayOfflineAfterSeconds: site.gatewayOfflineAfterSeconds,
       fixtureStaleAfterSeconds: site.fixtureStaleAfterSeconds
@@ -244,6 +254,9 @@ export class SitesService {
             : null,
           vehicleSensorCapabilityStatus: fixture.meshNode?.vehicleSensorCapabilityStatus ?? "unknown",
           vehicleSensorCapabilityVerifiedAt: fixture.meshNode?.vehicleSensorCapabilityVerifiedAt?.toISOString() ?? null,
+          vehicleEventSource: vehicleEventSourceView(fixture, now, bioPreparation.get(fixture.id)),
+          bioSensorPreparation: bioPreparation.get(fixture.id) ?? null,
+          bioPulseTelemetry: bioPulseTelemetry.get(fixture.id) ?? null,
           controllable: controlBlockReason === null,
           controlBlockReason
           };

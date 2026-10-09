@@ -7,6 +7,7 @@ import type {
 import { BioUsbDongleAdapter } from "./bio-usb-dongle-adapter";
 import { BioDeviceReadTimeoutError, BioUsbError } from "../bio/bio-usb-error";
 import { EventEmitter } from "node:events";
+import { createHash } from "node:crypto";
 import { BioDongleClient } from "../bio/bio-dongle-client";
 import { encodeCrcFrame } from "../bio/bio-frame-codec";
 import type { BleMeshFixturePresence } from "../gateway";
@@ -42,6 +43,89 @@ const discovered = {
 };
 
 describe("BioUsbDongleAdapter", () => {
+  it("keeps unregistered discovery identify available with source protection installed", async () => {
+    const f = createFixture();
+    f.mappings.findByDeviceUuidIncludingReserved.mockResolvedValue(null);
+    f.adapter.setBioSourceTargetGuard(() => true);
+    await expect(f.adapter.identify({ ...provisioningCommand, deviceUuid: discovered.deviceUuid })).resolves.toBeUndefined();
+    expect(f.client.startIdentify).toHaveBeenCalledWith(discovered.deviceUuid);
+  });
+  it.each(["unicast", "parallel", "group", "identify", "recovery"] as const)("emits no native brightness/mode frame for protected A via %s", async mode => {
+    const f = createPhysicalControlFixture();
+    try {
+      await f.client.probe(); await f.adapter.scan(scanCommand);
+      await f.adapter.hydrateGroupSubscriptions([{ groupId: "group", groupAddress: "0xc000", version: 1,
+        members: [{ meshNodeId: provisioningCommand.nodeId, meshAddress: "0x0101" }] }]);
+      f.adapter.setBioSourceTargetGuard(ids => ids.includes(provisioningCommand.nodeId));
+      if (mode === "identify" || mode === "recovery") {
+        await expect(f.adapter.setAttention(provisioningCommand.nodeId, Date.now() + 1000, mode === "identify" ? "start" : "stop"))
+          .rejects.toThrow();
+      } else {
+        const results = mode === "unicast" ? [await f.adapter.applyUnicast(provisioningCommand.nodeId, 60)]
+          : mode === "parallel" ? await f.adapter.applyParallelUnicast([provisioningCommand.nodeId], 60)
+          : await f.adapter.applyMeshGroup(0xc000, [provisioningCommand.nodeId], 60);
+        expect(results[0]?.acknowledged).toBe(false);
+      }
+      expect(f.bodies.filter(body => body.startsWith("cd") || body.startsWith("cc"))).toEqual([]);
+    } finally { await f.client.close(); }
+  });
+  it.each(["identify", "recoverIdentifySafety"] as const)("blocks mapped active A through provisioning %s", async operation => {
+    const f = createFixture();
+    f.mappings.findByDeviceUuidIncludingReserved.mockResolvedValue(confirmedMapping());
+    f.adapter.setBioSourceTargetGuard((ids: readonly string[]) => ids.includes(provisioningCommand.nodeId));
+    await expect(f.adapter[operation]({ ...provisioningCommand, deviceUuid: discovered.deviceUuid }))
+      .rejects.toThrow("bio_source_target_forbidden");
+    expect(f.client.startIdentify).not.toHaveBeenCalled();
+    expect(f.client.restoreSensorMode).not.toHaveBeenCalled();
+  });
+  it.each(["reserved", "unknown"] as const)("rejects ambiguous %s mapping during provisioning identify", async status => {
+    const f = createFixture();
+    f.mappings.findByDeviceUuidIncludingReserved.mockResolvedValue(confirmedMapping({ status }));
+    f.adapter.setBioSourceTargetGuard(() => false);
+    await expect(f.adapter.identify({ ...provisioningCommand, deviceUuid: discovered.deviceUuid }))
+      .rejects.toThrow("bio_mapping_not_confirmed");
+    expect(f.client.startIdentify).not.toHaveBeenCalled();
+  });
+  it("captures explicit BIO configuration and binds restore to the same physical target", async () => {
+    const f = createFixture();
+    const device = { ...discovered, logicalAddress: 0x0101 };
+    const configuration = { configuredHighBrightnessPercent: 60, bioMode: "sensor" as const };
+    f.client.scan.mockResolvedValue([device]);
+    f.mappings.findByFixtureId.mockResolvedValue(confirmedMapping());
+    f.client.readConfiguration.mockResolvedValue(configuration);
+    f.client.restoreConfiguration.mockResolvedValue(configuration);
+    const captured = await f.adapter.readBioState(provisioningCommand.nodeId);
+    expect(captured).toEqual({ configuration, target: {
+      kind: "unicast", nativeUuid: discovered.nativeUuid, logicalAddress: 0x0101, networkId: discovered.networkId
+    } });
+    await expect(f.adapter.restoreBioState(provisioningCommand.nodeId, captured.target, configuration)).resolves.toEqual(configuration);
+    expect(f.client.restoreConfiguration).toHaveBeenCalledWith(captured.target, configuration, {});
+    expect(f.client.setOutput).not.toHaveBeenCalled();
+    await expect(f.adapter.restoreBioState(provisioningCommand.nodeId, { ...captured.target, networkId: 1 }, configuration))
+      .rejects.toThrow("BIO target identity changed");
+    expect(f.client.restoreConfiguration).toHaveBeenCalledOnce();
+  });
+
+  it("does not restore when a fixture mapping points to another lamp", async () => {
+    const f = createFixture();
+    f.client.scan.mockResolvedValue([{ ...discovered, logicalAddress: 0x0101 }]);
+    f.mappings.findByFixtureId.mockResolvedValue(confirmedMapping());
+    await expect(f.adapter.restoreBioState(provisioningCommand.nodeId, {
+      kind: "unicast", nativeUuid: "001122334455", logicalAddress: 0x0101, networkId: discovered.networkId
+    }, { configuredHighBrightnessPercent: 60, bioMode: "sensor" })).rejects.toThrow("BIO target identity changed");
+    expect(f.client.restoreConfiguration).not.toHaveBeenCalled();
+  });
+
+  it("requires fresh verified GET before restore even when the discovery cache still matches", async () => {
+    const f = createFixture();
+    f.client.scan.mockResolvedValue([{ ...discovered, logicalAddress: 0x0101 }]);
+    f.mappings.findByFixtureId.mockResolvedValue(confirmedMapping());
+    f.client.readConfiguration.mockResolvedValue({ configuredHighBrightnessPercent: 60, bioMode: "sensor" });
+    const captured = await f.adapter.readBioState(provisioningCommand.nodeId);
+    f.client.readConfiguration.mockRejectedValue(new BioDeviceReadTimeoutError());
+    await expect(f.adapter.restoreBioState(provisioningCommand.nodeId, captured.target, captured.configuration)).rejects.toThrow();
+    expect(f.client.restoreConfiguration).not.toHaveBeenCalled();
+  });
   it("keeps native write rejection unknown after brightness submission", async () => {
     const f = createPhysicalControlFixture({ failOutput: true });
     try {
@@ -85,6 +169,7 @@ describe("BioUsbDongleAdapter", () => {
     f.client.scan.mockResolvedValue([discovered]);
 
     await expect(f.adapter.scan(scanCommand)).resolves.toEqual([{
+      fingerprint: null,
       deviceUuid: discovered.deviceUuid,
       serialNumber: discovered.deviceUuid,
       rssi: -41,
@@ -973,6 +1058,155 @@ describe("BioUsbDongleAdapter", () => {
   });
 });
 
+describe("sensor-mode operation fresh GET authority", () => {
+  it.each(["generation", "identity", "malformed"])("query rejects a positive GET after transport/readback %s changes without any SET", async change => {
+    const f = readyForOnePresence(); let generation = 1;
+    Object.assign(f.client, { sensorSourceSnapshot: () => ({ state: "ready", generation, ready: true, transportConnected: true, protocolReady: true }) });
+    f.mappings.findByFixtureId.mockResolvedValue(confirmedMapping());
+    f.client.readDeviceInfo.mockImplementation(async () => {
+      if (change === "generation") generation = 2;
+      return { ...modeReport("sensor"), ...(change === "identity" ? { nativeUuid: "001122334455", deviceUuid: "bio:001122334455" } : {}),
+        ...(change === "malformed" ? { logicalAddress: 0x0102 } : {}) };
+    });
+    await expect(f.adapter.sensorModeOperation(sensorModeInput("query", "99999999-9999-4999-8999-999999999999"), {})).rejects.toThrow();
+    expect(f.client.scan).toHaveBeenCalledTimes(1);
+    expect(f.client.readDeviceInfo).toHaveBeenCalledTimes(1);
+    expect(f.client.restoreSensorMode).not.toHaveBeenCalled(); expect(f.client.setOutput).not.toHaveBeenCalled();
+  });
+  it("does a separate mode GET after sensor SET, with no brightness IO", async () => {
+    const f = readyForOnePresence();
+    f.adapter.setBioSourceTargetGuard(() => true);
+    f.mappings.findByFixtureId.mockResolvedValue(confirmedMapping());
+    f.client.restoreSensorMode.mockResolvedValue(undefined);
+    f.client.readDeviceInfo.mockResolvedValue(modeReport("force-on"));
+    const value = await f.adapter.sensorModeOperation({ fixtureId: provisioningCommand.nodeId, nodeId: provisioningCommand.nodeId,
+      meshAddress: "0x0101", deviceIdentityHash: createHash("sha256").update(discovered.deviceUuid).digest("hex"), operation: "ensure_sensor" }, {});
+    expect(value).toBe("force-on");
+    expect(f.client.restoreSensorMode).toHaveBeenCalledTimes(1);
+    expect(f.client.readDeviceInfo).toHaveBeenCalledTimes(1);
+    expect(f.client.readBrightness).not.toHaveBeenCalled();
+    expect(f.client.setOutput).not.toHaveBeenCalled();
+  });
+  it("query reads a fresh mode without any SET and rejects a wrong fixture/hash", async () => {
+    const f = readyForOnePresence();
+    f.mappings.findByFixtureId.mockResolvedValue(confirmedMapping());
+    f.client.readDeviceInfo.mockResolvedValue(modeReport("sensor"));
+    const input = { fixtureId: provisioningCommand.nodeId, nodeId: provisioningCommand.nodeId, meshAddress: "0x0101",
+      deviceIdentityHash: createHash("sha256").update(discovered.deviceUuid).digest("hex"), operation: "query" as const };
+    expect(await f.adapter.sensorModeOperation(input, {})).toBe("sensor");
+    await expect(f.adapter.sensorModeOperation({ ...input, fixtureId: "other" }, {})).rejects.toThrow();
+    await expect(f.adapter.sensorModeOperation({ ...input, deviceIdentityHash: "a".repeat(64) }, {})).rejects.toThrow();
+    expect(f.client.restoreSensorMode).not.toHaveBeenCalled();
+    expect(f.client.setOutput).not.toHaveBeenCalled();
+  });
+
+  it.each(["query", "ensure_sensor"] as const)("uses the authenticated Fixture binding, not the registration node ID, for %s", async operation => {
+    const f = createPhysicalControlFixture({ sensorModeReports: true });
+    try {
+      await f.client.probe();
+      f.adapter.setBioSourceTargetGuard(() => true);
+      await expect(f.adapter.sensorModeOperation(sensorModeInput(operation, "99999999-9999-4999-8999-999999999999"), {})).resolves.toBe("sensor");
+      expect(f.bodies.filter(body => body.startsWith("cc") || body.startsWith("cd")))
+        .toEqual(operation === "ensure_sensor" ? ["cc1200"] : []);
+      expect(f.bodies.filter(body => body === "4e12")).toEqual(["4e12"]);
+    } finally { await f.client.close(); }
+  });
+
+  it.each([
+    { fixtureId: "other" }, { deviceIdentityHash: "a".repeat(64) }, { meshAddress: "0x0102" }
+  ])("rejects an authenticated command with wrong target %j before SET", async mismatch => {
+    const f = createPhysicalControlFixture({ sensorModeReports: true });
+    try {
+      await f.client.probe();
+      await expect(f.adapter.sensorModeOperation({ ...sensorModeInput("ensure_sensor"), ...mismatch }, {})).rejects.toThrow();
+      expect(f.bodies).toEqual([]);
+    } finally { await f.client.close(); }
+  });
+
+  it("rejects unconfirmed mapping before SET", async () => {
+    const f = createPhysicalControlFixture({ sensorModeReports: true });
+    f.mappings.findByFixtureId.mockResolvedValue(reservedMapping());
+    try {
+      await f.client.probe();
+      await expect(f.adapter.sensorModeOperation(sensorModeInput("ensure_sensor"), {})).rejects.toThrow();
+      expect(f.bodies).toEqual([]);
+    } finally { await f.client.close(); }
+  });
+
+  it("rejects a mapping mutated during fresh discovery before sensor SET", async () => {
+    const f = readyForOnePresence();
+    const mapping = confirmedMapping();
+    f.mappings.findByFixtureId.mockResolvedValue(mapping);
+    f.client.scan.mockImplementation(async () => {
+      mapping.logicalAddress = 0x0102;
+      return [{ ...discovered, logicalAddress: 0x0102 }];
+    });
+    f.client.restoreSensorMode.mockResolvedValue(undefined);
+    f.client.readDeviceInfo.mockResolvedValue({ ...modeReport("sensor"), logicalAddress: 0x0102 });
+    await expect(f.adapter.sensorModeOperation(sensorModeInput("ensure_sensor"), {})).rejects.toThrow();
+    expect(f.client.restoreSensorMode).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { nativeUuid: "001122334455", deviceUuid: "bio:001122334455" }, { logicalAddress: 0x0102 }
+  ])("requires a fresh exact discovery before sensor SET: %j", async mismatch => {
+    const f = readyForOnePresence();
+    f.mappings.findByFixtureId.mockResolvedValue(confirmedMapping());
+    f.client.scan.mockResolvedValue([{ ...discovered, logicalAddress: 0x0101, ...mismatch }]);
+    await expect(f.adapter.sensorModeOperation(sensorModeInput("ensure_sensor"), {})).rejects.toThrow();
+    expect(f.client.restoreSensorMode).not.toHaveBeenCalled();
+  });
+
+  it("rechecks cancellation after a synchronous permit callback before native SET", async () => {
+    const f = createPhysicalControlFixture({ sensorModeReports: true });
+    const controller = new AbortController();
+    try {
+      await f.client.probe();
+      await expect(f.adapter.sensorModeOperation(sensorModeInput("ensure_sensor"), {
+        signal: controller.signal, mayStartWrite: () => {
+          if (f.bodies.includes("85")) controller.abort();
+          return true;
+        }
+      })).rejects.toThrow();
+      expect(f.bodies.filter(body => body.startsWith("cc") || body.startsWith("cd"))).toEqual([]);
+    } finally { await f.client.close(); }
+  });
+
+  it.each(["mapping", "abort", "deadline", "stop", "permit"] as const)("rechecks %s after caller beforeWrite at the actual native SET boundary", async change => {
+    const f = createPhysicalControlFixture({ sensorModeReports: true });
+    const controller = new AbortController();
+    const control = { signal: controller.signal, deadlineAt: Date.now() + 10_000,
+      mayStartWrite: () => change !== "permit", beforeWrite: async () => {
+        if (!f.bodies.includes("85")) return;
+        if (change === "mapping") f.mappings.findByFixtureId.mockResolvedValue(confirmedMapping({ nativeUuid: "001122334455", deviceUuid: "bio:001122334455" }));
+        if (change === "abort") controller.abort();
+        if (change === "deadline") vi.spyOn(Date, "now").mockReturnValue(control.deadlineAt + 1);
+        if (change === "stop") await f.client.close();
+      } };
+    try {
+      await f.client.probe();
+      await expect(f.adapter.sensorModeOperation(sensorModeInput("ensure_sensor"), control)).rejects.toThrow();
+      expect(f.bodies.filter(body => body.startsWith("cc") || body.startsWith("cd"))).toEqual([]);
+    } finally { vi.restoreAllMocks(); await f.client.close(); }
+  });
+
+  it("does not accept a positive GET after its mapping changes", async () => {
+    const f = readyForOnePresence();
+    f.mappings.findByFixtureId.mockResolvedValue(confirmedMapping());
+    f.client.readDeviceInfo.mockImplementation(async () => {
+      f.mappings.findByFixtureId.mockResolvedValue(confirmedMapping({ logicalAddress: 0x0102 }));
+      return modeReport("sensor");
+    });
+    await expect(f.adapter.sensorModeOperation(sensorModeInput("query"), {})).rejects.toThrow();
+    expect(f.client.restoreSensorMode).not.toHaveBeenCalled();
+  });
+});
+
+function sensorModeInput(operation: "query" | "ensure_sensor", nodeId = provisioningCommand.nodeId) {
+  return { fixtureId: provisioningCommand.nodeId, nodeId, meshAddress: "0x0101",
+    deviceIdentityHash: createHash("sha256").update(discovered.deviceUuid).digest("hex"), operation };
+}
+
 function createFixture(events: string[] = []) {
   const client = {
     scan: vi.fn(),
@@ -984,7 +1218,9 @@ function createFixture(events: string[] = []) {
     setOutput: vi.fn(),
     restoreSensorMode: vi.fn(),
     readBrightness: vi.fn(),
-    readDeviceInfo: vi.fn()
+    readDeviceInfo: vi.fn(),
+    readConfiguration: vi.fn(),
+    restoreConfiguration: vi.fn()
   };
   const mappings = {
     findByDeviceUuidIncludingReserved: vi.fn(async (): Promise<any> => { events.push("lookup-mapping"); return null; }),
@@ -1001,7 +1237,7 @@ function createFixture(events: string[] = []) {
   };
 }
 
-function createPhysicalControlFixture(options: { failOutput?: boolean } = {}) {
+function createPhysicalControlFixture(options: { failOutput?: boolean; sensorModeReports?: boolean } = {}) {
   const events = new EventEmitter();
   const bodies: string[] = [];
   let allowed = true;
@@ -1028,6 +1264,15 @@ function createPhysicalControlFixture(options: { failOutput?: boolean } = {}) {
             Buffer.from(discovered.nativeUuid, "hex").copy(payload, 1);
             events.emit("data", encodeCrcFrame(0x12, payload));
           }
+          if (options.sensorModeReports && (body === "cc1200" || body === "4e12")) {
+            const payload = Buffer.alloc(18);
+            payload.writeInt8(-42, 0);
+            Buffer.from(discovered.nativeUuid, "hex").copy(payload, 1);
+            payload[7] = 0x83; payload[8] = 120;
+            payload.writeUInt16BE(0x0101, 9); payload.writeUInt16BE(0xc000, 11);
+            payload.set([0x4f, 0x12, 0], 15);
+            events.emit("data", encodeCrcFrame(0x12, payload));
+          }
         }
       });
     }
@@ -1036,7 +1281,7 @@ function createPhysicalControlFixture(options: { failOutput?: boolean } = {}) {
   const f = createFixture();
   f.mappings.findByFixtureId.mockResolvedValue(confirmedMapping());
   f.mappings.findByLogicalAddress.mockResolvedValue(confirmedMapping());
-  return { client, adapter: new BioUsbDongleAdapter(client, f.mappings), bodies, allowed: () => allowed };
+  return { client, adapter: new BioUsbDongleAdapter(client, f.mappings), mappings: f.mappings, bodies, allowed: () => allowed };
 }
 
 function readyForOnePresence() {

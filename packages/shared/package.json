@@ -29,6 +29,13 @@
       "import": "./dist/esm/automation-action-result-contracts.js",
       "default": "./dist/automation-action-result-contracts.js"
     },
+    "./bio-sensor-profile-contracts": {
+      "types": "./dist/esm/bio-sensor-profile-contracts.d.ts",
+      "browser": "./dist/esm/bio-sensor-profile-contracts.js",
+      "require": "./dist/bio-sensor-profile-contracts.js",
+      "import": "./dist/esm/bio-sensor-profile-contracts.js",
+      "default": "./dist/bio-sensor-profile-contracts.js"
+    },
     "./dimming-command": {
       "types": "./dist/esm/dimming-command.d.ts",
       "browser": "./dist/esm/dimming-command.js",

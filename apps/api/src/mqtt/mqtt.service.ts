@@ -29,6 +29,8 @@ import {
   ProvisioningScanStartPayload,
   provisioningScanStartSchema,
   provisioningScanFoundSchema,
+  bioProvisioningScanFoundV2Schema,
+  bioDiscoveryTopics,
   provisioningScanCompletedSchema,
   provisioningScanFailedSchema,
   type ApplicationStateIngestedAckV2,
@@ -59,6 +61,12 @@ import { CommandLateSetAckService } from "../commands/command-late-set-ack.servi
 import { CommandLegacyGetAckService } from "../commands/command-legacy-get-ack.service";
 import { CommandClockResponderService } from "./command-clock-responder.service";
 import { mqttTlsServernameOption } from "./mqtt-tls-identity";
+import { bioSensorModeTopics, bioRegistrationRevalidationTopics, type BioRegistrationRevalidationAck } from "@led-control/shared";
+import { SensorModeOperationsService } from "../commands/sensor-mode-operations.service";
+import { BioRegistrationRevalidationService } from "../registration/bio-registration-revalidation.service";
+import { bioSensorCatalogTopics, bioSensorPreparationTopics } from "@led-control/shared";
+import { BioSensorProfilesService } from "../automation/bio-sensor-profiles.service";
+import { BioSensorPreparationService } from "../automation/bio-sensor-preparation.service";
 
 const MQTT_BACKGROUND_PUBLISH_TIMEOUT_MS = 10_000;
 const MQTT_CLOSE_TIMEOUT_MS = 5_000;
@@ -68,6 +76,8 @@ const MQTT_GATEWAY_INBOUND_QUEUE_CAPACITY = 256;
 function isDurableFixtureObservationTopic(topic: string) {
   const scope = parseGatewayTopic(topic);
   return topic.endsWith("/state/fixtures") || topic.endsWith("/state/fixture-presence") ||
+    Boolean(scope && topic === bioSensorModeTopics.result(scope.siteId, scope.gatewayId)) ||
+    Boolean(scope && topic === bioRegistrationRevalidationTopics.result(scope.siteId, scope.gatewayId)) ||
     Boolean(scope && topic === mqttTopicsV2.fixtureUnreachable(scope.siteId, scope.gatewayId));
 }
 
@@ -158,7 +168,11 @@ export class MqttService implements OnModuleInit {
     @Optional() private readonly recoveryAcks?: CommandRecoveryAckService,
     @Optional() private readonly lateSetAcks?: CommandLateSetAckService,
     @Optional() private readonly legacyGetAcks?: CommandLegacyGetAckService,
-    @Optional() private readonly commandClockResponder?: CommandClockResponderService
+    @Optional() private readonly commandClockResponder?: CommandClockResponderService,
+    @Optional() private readonly sensorModeOperations?: SensorModeOperationsService,
+    @Optional() private readonly bioRegistrationRevalidations?: BioRegistrationRevalidationService,
+    @Optional() private readonly bioSensorProfiles?: BioSensorProfilesService,
+    @Optional() private readonly bioSensorPreparations?: BioSensorPreparationService
   ) {
     this.fixtureStateIngestion = fixtureStateIngestion ?? new FixtureStateIngestionService(prisma);
     this.fixturePresenceIngestion = fixturePresenceIngestion ?? new FixturePresenceIngestionService(prisma);
@@ -173,9 +187,14 @@ export class MqttService implements OnModuleInit {
       client.subscribe(
         [
           "sites/+/gateways/+/events/provisioning/scan-found",
+          bioDiscoveryTopics.scanFoundV2("+", "+"),
           "sites/+/gateways/+/events/identify-result",
           "sites/+/gateways/+/events/fixture-presence-check-completed",
           mqttTopicsV2.fixtureUnreachable("+", "+"),
+          bioSensorModeTopics.result("+", "+"),
+          bioRegistrationRevalidationTopics.result("+", "+"),
+          bioSensorCatalogTopics.ack("+", "+"),
+          bioSensorPreparationTopics.result("+", "+"),
           "sites/+/gateways/+/events/provisioning/scan-completed",
           "sites/+/gateways/+/events/provisioning/scan-failed",
           "sites/+/gateways/+/events/provisioning/device-terminal",
@@ -533,7 +552,7 @@ export class MqttService implements OnModuleInit {
   private async handleMessageBeforeAck(topic: string, payload: Buffer, receivedAt: Date): Promise<(() => Promise<void>) | undefined> {
     if (parseGatewayTopic(topic)?.channel === "events/automation/execution") {
       const result = await this.automationConsumer?.handleMessage(topic, payload);
-      if (result?.publishAfterAck) {
+      if (result && typeof result === "object" && "publishAfterAck" in result && result.publishAfterAck) {
         const intent = result.publishAfterAck;
         // Only redacted exact replay uses this transient ACK. Its incoming
         // transaction has committed; customHandleAcks must call done(0) before
@@ -728,6 +747,16 @@ export class MqttService implements OnModuleInit {
 
   private async ingestFixtureObservationPacket(topic: string, payload: Buffer, receivedAt: Date) {
     const scope = parseGatewayTopic(topic);
+    if (scope && topic === bioRegistrationRevalidationTopics.result(scope.siteId, scope.gatewayId)) {
+      if (!this.bioRegistrationRevalidations) throw new Error("BIO registration result consumer unavailable");
+      const acknowledgement = await this.bioRegistrationRevalidations.ingest(topic, JSON.parse(payload.toString()), receivedAt);
+      return { scope, acknowledgement };
+    }
+    if (scope && topic === bioSensorModeTopics.result(scope.siteId, scope.gatewayId)) {
+      if (!this.sensorModeOperations) throw new Error("sensor mode result consumer unavailable");
+      const result = await this.sensorModeOperations.ingest(topic, JSON.parse(payload.toString()), receivedAt);
+      return { scope, acknowledgement: applicationStateIngestedAckV2Schema.parse({ ...result, ingestedAt: new Date().toISOString() }) };
+    }
     if (scope?.channel === "state/fixtures") return this.ingestFixtureStatePacket(topic, payload, receivedAt);
     if (scope?.channel === "state/fixture-presence") return this.ingestFixturePresencePacket(topic, payload, receivedAt);
     if (scope && topic === mqttTopicsV2.fixtureUnreachable(scope.siteId, scope.gatewayId)) {
@@ -740,10 +769,11 @@ export class MqttService implements OnModuleInit {
   private publishFixtureStateAcknowledgement(
     siteId: string,
     gatewayId: string,
-    acknowledgement: ApplicationStateIngestedAckV2
+    acknowledgement: ApplicationStateIngestedAckV2 | BioRegistrationRevalidationAck
   ) {
     return this.publishTopic(
-      mqttTopicsV2.stateIngestedAck(siteId, gatewayId),
+      "purpose" in acknowledgement && acknowledgement.purpose === "bio_registration_revalidation"
+        ? bioRegistrationRevalidationTopics.ack(siteId, gatewayId) : mqttTopicsV2.stateIngestedAck(siteId, gatewayId),
       acknowledgement,
       { timeoutMs: MQTT_BACKGROUND_PUBLISH_TIMEOUT_MS }
     );
@@ -751,6 +781,19 @@ export class MqttService implements OnModuleInit {
 
   async handleMessage(topic: string, payload: Buffer, receivedAt = new Date()) {
     const frozenReceivedAt = new Date(receivedAt.getTime());
+    const bioScope = parseGatewayTopic(topic);
+    if (bioScope && topic === bioSensorCatalogTopics.ack(bioScope.siteId, bioScope.gatewayId)) {
+      if (!this.bioSensorProfiles) throw new Error("BIO catalog consumer unavailable");
+      await this.bioSensorProfiles.ingestCatalogAck(JSON.parse(payload.toString()), bioScope);
+      return;
+    }
+    if (bioScope && topic === bioSensorPreparationTopics.result(bioScope.siteId, bioScope.gatewayId)) {
+      if (!this.bioSensorPreparations) throw new Error("BIO preparation consumer unavailable");
+      // Result and durable ACK commit before broker PUBACK. The dedicated worker
+      // publishes later, after MQTT.js releases the inbound parser.
+      await this.bioSensorPreparations.ingestAuthenticated(JSON.parse(payload.toString()), { ...bioScope, requireActiveClaim: true }, frozenReceivedAt);
+      return;
+    }
     if (parseGatewayTopic(topic)?.channel === "commands/clock/request") {
       const response = await this.prepareCommandClockResponse(topic, payload);
       if (response) await this.publishCommandClockResponse(response);
@@ -823,14 +866,28 @@ export class MqttService implements OnModuleInit {
       return;
     }
 
-    if (topic.endsWith("/events/provisioning/scan-found")) {
-      const node = provisioningScanFoundSchema.parse(JSON.parse(payload.toString()));
+    if (topic.endsWith("/events/provisioning/scan-found") || topic.endsWith("/events/provisioning/scan-found-v2")) {
+      // Select a separate strict parser by wire version. Legacy firmware strings
+      // cannot supply typed discovery or promote sensor qualification.
+      const node = topic.endsWith("/scan-found-v2")
+        ? bioProvisioningScanFoundV2Schema.parse(JSON.parse(payload.toString()))
+        : provisioningScanFoundSchema.parse(JSON.parse(payload.toString()));
       const topicScope = parseGatewayScopedTopic(topic);
       if (!topicScope || topicScope.siteId !== node.siteId || topicScope.gatewayId !== node.gatewayId) return;
+      // A fresh null/legacy observation clears the old fingerprint alongside its
+      // scan identity, so stale data cannot appear to belong to this new scan.
+      const observation = "fingerprint" in node && node.fingerprint !== null ? node.fingerprint : Prisma.DbNull;
       try {
         await this.prisma.$transaction(async (tx) => {
           const session = await this.acceptCurrentScanEvent(tx, node, topicScope, "provisioning_scan_found");
           if (!session) return;
+          // acceptCurrentScanEvent holds the session lock shared with terminal
+          // completion. A later scan may refresh discovery metadata, but cannot
+          // undo server-owned provisioned/confirmed registration evidence.
+          const existing = await tx.discoveredMeshNode.findUnique({
+            where: { sessionId_deviceUuid: { sessionId: node.sessionId, deviceUuid: node.deviceUuid } },
+            select: { status: true }
+          });
           await tx.discoveredMeshNode.upsert({
             where: {
               sessionId_deviceUuid: {
@@ -845,19 +902,20 @@ export class MqttService implements OnModuleInit {
               rssi: node.rssi,
               oobCapability: node.oobCapability,
               firmwareVersion: node.firmwareVersion,
+              bioDiscoveryFingerprint: observation,
               scanCorrelationId: node.scanCorrelationId,
               scanAttempt: node.scanAttempt,
               discoveredAt: new Date(node.occurredAt)
             },
             update: {
-              status: "discovered",
+              ...(existing?.status === "provisioned" ? {} : { status: "discovered" as const, errorMessage: null }),
               rssi: node.rssi,
               oobCapability: node.oobCapability,
               firmwareVersion: node.firmwareVersion,
+              bioDiscoveryFingerprint: observation,
               scanCorrelationId: node.scanCorrelationId,
               scanAttempt: node.scanAttempt,
-              discoveredAt: new Date(node.occurredAt),
-              errorMessage: null
+              discoveredAt: new Date(node.occurredAt)
             }
           });
         });

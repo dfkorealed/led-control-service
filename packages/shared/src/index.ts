@@ -1,5 +1,6 @@
 export * from "./command-delivery";
 export * from "./automation-contracts";
+export * from "./bio-pulse-telemetry-contracts";
 export * from "./cad-import-contracts";
 export * from "./cad-scene-contracts";
 export * from "./map-document-contracts";
@@ -21,3 +22,8 @@ export * from "./product-identity";
 export * from "./schemas";
 export * from "./vehicle-sensor-protocol";
 export * from "./fixture-identify-contracts";
+export * from "./bio-sensor-mode-contracts";
+export * from "./bio-registration-revalidation-contracts";
+export * from "./bio-sensor-profile-contracts";
+export * from "./bio-sensor-preparation-contracts";
+export * from "./bio-discovery-contracts";

@@ -22,6 +22,7 @@ import type { Dashboard } from "../../../api/queries";
 import { Button, ConfirmDialog, FeedbackState, PageHeader, StatusBadge, Text, useSessionStatus, useSessionToast, type SessionStatusItem } from "../../../components/ui";
 import { formatControlTimestamp } from "../control-time";
 import { VehicleEventDialog } from "./VehicleEventDialog";
+import { BioPulseTelemetryStatus } from "./BioPulseTelemetryStatus";
 import { AutomationRuleControls } from "./components/AutomationRuleControls";
 import { AutomationRuleWorkspace } from "./components/AutomationWorkspaceSurface";
 import { automationListRequest, useAutomationListState } from "./components/useAutomationListState";
@@ -381,6 +382,7 @@ export function VehicleEventControlPanel({
 
   function toggle(rule: VehicleEventRuleResponse) {
     if (authBlockedRef.current) return;
+    if (rule.sensorProtocol === "bio-usb-pulse" && rule.status !== "enabled") return;
     const operationScope = operationScopeKey;
     const operationGeneration = scopeGeneration;
     const status = rule.status === "enabled" ? "disabled" : "enabled";
@@ -429,7 +431,8 @@ export function VehicleEventControlPanel({
 
   function renderActions(rule: VehicleEventRuleResponse) {
     if (!canManage) return null;
-    return <AutomationRuleActions name={rule.name} enabled={rule.status === "enabled"} disabled={isMutating || isAuthBlocked}
+    return <AutomationRuleActions name={rule.name} enabled={rule.status === "enabled"} disabled={isMutating || isAuthBlocked} toggleDisabled={rule.sensorProtocol === "bio-usb-pulse" && rule.status !== "enabled"}
+      touchClassName={rule.sensorProtocol === "bio-usb-pulse" ? "max-compact:size-13" : undefined}
       onToggle={() => toggle(rule)} onEdit={opener => beginEdit(rule, opener)}
       onDelete={opener => { deleteReturnFocusRef.current = opener; setDeleteCandidate(rule); setMutationError(""); }} />;
   }
@@ -464,13 +467,25 @@ export function VehicleEventControlPanel({
       {rulesQuery.isLoading ? <FeedbackState icon={Clock3} title="이벤트 규칙을 불러오는 중입니다." /> : null}
       {isSearchPending ? <FeedbackState icon={Clock3} title="검색 조건을 적용 중입니다." /> : null}
       {queryFailure && !isNonBlockingQueryFailure ? <QueryError message={queryFailure.message} onRetry={() => void queryFailure.retry()} label={queryFailure.retryLabel} buttonRef={authRetryRef} /> : null}
+      {!isAuthBlocked && !rulesQuery.isLoadingError && !isSearchPending ? rules.filter(rule => rule.sensorProtocol === "bio-usb-pulse").map(rule => {
+        const sources = dashboard?.floors.flatMap(floor => floor.fixtures).filter(fixture => rule.sourceFixtureIds.includes(fixture.id)) ?? [];
+        const degraded = sources.some(fixture => fixture.vehicleEventSource?.capabilityEvidence === "degraded" || fixture.vehicleEventSource?.readiness === "degraded");
+        return <section key={rule.id} tabIndex={0} aria-label={`${rule.name} BIO 운영 상태`} className="grid min-w-0 gap-2 border-b border-border-default p-4 focus-visible:shadow-focus">
+          <Text weight="semibold">{rule.name} · BIO 운영 상태</Text>
+          {degraded ? <Text role="alert" tone="danger">센서 장애 보고 · 재검증이 필요합니다. 신호가 없다는 이유만으로 실행 조명의 복원을 판단하지 않습니다.</Text> : null}
+          <Text>제품 지원 OFF{sources.some(source => source.bioPulseTelemetry) ? " · 과거 운영 보고" : " · 실행·복원 상태 미확인"}</Text>
+          <Text>이 규칙의 실행 조명: {rule.targetCount}개</Text>
+          {(sources.length ? sources : [undefined]).map((source, index) => <BioPulseTelemetryStatus key={source?.id ?? index} source={source} fixtures={dashboard?.floors.flatMap(floor => floor.fixtures) ?? []} timeZone={dashboard?.site.timeZone ?? "UTC"} />)}
+          <Text>운영자는 현장을 확인하고 규칙의 비활성화로 명시적 해제를 요청할 수 있습니다. 적용·복원 결과를 확인하기 전에는 해제 완료가 아닙니다.</Text>
+        </section>;
+      }) : null}
       {!rulesQuery.isLoading && !rulesQuery.isLoadingError && !isAuthBlocked && !isSearchPending ? (
         rules.length > 0 ? <AutomationRuleTable caption="차량 이벤트 목록" rows={rules} columns={columns} getRowKey={row => row.id} /> : <FeedbackState icon={CarFront}
           title={hasGlobalContract && firstPage?.total !== 0 ? "조건에 맞는 이벤트 규칙이 없습니다." : "등록된 이벤트 규칙이 없습니다."}
           description={hasGlobalContract && firstPage?.total !== 0 ? "검색이나 필터 조건을 바꿔 다시 확인해 주세요." : "감지 센서와 제어 조명을 연결해 차량 이벤트 대응을 시작할 수 있습니다."} />
       ) : null}
       </AutomationRuleWorkspace>
-      {dashboard ? <VehicleEventDialog open={dialogOpen && !isAuthBlocked} rule={editingRule} dashboard={dashboard} isPending={saveMutation.isPending} serverError={mutationError} returnFocusRef={dialogReturnFocusRef} onClose={() => { if (!saveMutation.isPending) setDialogOpen(false); }} onSubmit={save} /> : null}
+      {dashboard ? <VehicleEventDialog open={dialogOpen && !isAuthBlocked} rule={editingRule} dashboard={dashboard} isPending={saveMutation.isPending} serverError={mutationError} returnFocusRef={dialogReturnFocusRef} onClose={() => { if (!saveMutation.isPending) setDialogOpen(false); }} onRefreshSource={() => queryClient.invalidateQueries({ queryKey: ["dashboard"] }, { throwOnError: true })} onSubmit={save} /> : null}
       <ConfirmDialog isOpen={Boolean(deleteCandidate) && !isAuthBlocked} title="이벤트 규칙 삭제" description={deleteCandidate ? `${deleteCandidate.name} 규칙을 삭제합니다.` : undefined} confirmLabel="삭제" tone="danger" isPending={removeMutation.isPending} returnFocusRef={deleteReturnFocusRef} fallbackFocusRef={addButtonRef} onCancel={() => { if (!removeMutation.isPending) setDeleteCandidate(null); }} onConfirm={remove}>
         {mutationError ? <Text tone="danger" role="alert">{mutationError}</Text> : null}
       </ConfirmDialog>

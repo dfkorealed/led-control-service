@@ -37,6 +37,102 @@ PUT `/sites/:siteId/monitoring-incidents/:incidentId/read`는 서버 인증 acto
 
 실제 검증은 `disposable-postgres.ts`가 initdb/pg_ctl로 직접 생성한 임시 cluster의 loopback·임시 DB 이름·data_directory를 확인하고 빈 public schema에 전체 125개 migration을 적용했다. 실제 receipt의 계정 격리·멱등·권한 회수/부모 삭제 경쟁·cascade와 Task 1 SQL 날짜/1,000건 동시 시각 cursor를 검증하고 cluster를 종료·임시 디렉터리를 제거했다. 기존 CI DB URL opt-in은 유지하며 이번 실행은 별도의 자기 소유 모드로 ambient URL을 무시했다. 사용자/운영 DB 적용, 기본 서버 재시작, 실제 장비·배포는 하지 않았다. 기존 incident의 raw 커서는 UTC DB session 계약에서 검증했으며 non-UTC receipt 기본값 검증과 구분한다. 최종 실행 결과·정리 경로는 Task 2 보고서에 기록한다.
 
+## 2026-10-08 BIO current eligibility와 durable convergence (Task 4)
+
+순방향 `20261008060000_bio_sensor_current_eligibility`는 `bio_sensor_blocked_reasons`를 TS batch projection/capability proposed observation/rule admission 및 DB enabled source guard의 단일 authority로 사용한다. 유일 current approved exact JSON fingerprint/profile, immutable accepted preparation/ACK/request attribution, current catalog applied ACK·정책 metadata, 현재 binding·assignment·claimed inventory·UTC 유효 MQTT certificate·authenticated V2 선언, current assigned active customer admin 정책/준비 actor, 별도 accepted node live ledger와 profile maxAge freshness를 확인한다. 120초 command TTL은 최초 수용만 제한한다. BlueZ guard는 유지하며 disabled BIO의 감사 membership/disable/delete를 live-ready와 혼동하지 않는다. 새 migration은 기존 BIO checkpoint를 무효화하고 enabled BIO를 disable할 뿐 profile/장비 지원을 backfill하지 않는다.
+
+`BioSensorConvergenceWork`는 immutable audit가 아닌 현재 durable queue state다. 복합 PK는 `(siteId,gatewayId,assignmentVersion,catalogRevision)`이며 old/deleted scope attribution 보존을 위해 FK를 두지 않는다. assignmentVersion은 Int, catalogRevision은 양수 JS-safe BigInt(기존 catalog wire와 동일 상한), requestedAt/nextAttemptAt은 UTC timestamp 기본 now, completedAt/retiredAt은 nullable이다. 둘을 동시에 설정할 수 없으며 pending partial index는 nextAttemptAt/gatewayId 순이다. historical profile/result/ACK/ProcessedGatewayEvent/AuditLog는 변경하지 않는다. 같은 scope/revision의 자연 live 만료는 requestedAt/nextAttemptAt을 갱신하고 terminal 시각을 NULL로 재개할 수 있다. membership/catalog/queue row 잠금으로 worker settlement와 직렬화한다.
+
+Global catalog revision 변경은 모든 site의 준비를 supersede하고 enabled BIO rule disable 및 각 현재 Gateway scope의 work를 같은 TX에 기록한다. 담당자 assignment/role/status/type 상실은 실제 site policy OFF로 수렴한다. Gateway assignment/native/address/fixture mapping, persisted certificate/inventory/floor authority 변경도 membership statement lock→현재 변경/무효화 경계를 거친다. API owned profile/policy 변경은 최대 10 scope를 같은 TX에서 기존 serializer/outbox로 materialize하며 잔여 작업은 기존 worker가 처리한다. worker는 bounded sweep·fair nextAttemptAt·현재 revision/scope/certificate를 재검증하고 네트워크 없이 snapshot/catalog+completedAt을 같은 TX에 commit한다. deleted/다른 assignment/old catalog는 retiredAt이고 일시 certificate 만료는 defer이며 성공/retire로 숨기지 않는다. 복원/target pending 원장은 지우지 않는다.
+
+Current-scope work 미완료 중 current-config request 및 새로운 config publish permit은 과거 enabled envelope를 보내지 않는다. 동일 V2 지원 재선언은 exact 현재 snapshot revision/hash를 재전달하고 desiredRevision을 증가시키지 않는다. ordinary ready→ready freshness도 snapshot churn이 없다. initial approval/policy는 빈 목록/OFF이며 migration은 self-owned 임시 PostgreSQL에서만 검증했다. 운영 DB·장비·배포는 미적용이다.
+
+상세 dashboard는 required preparationCandidate와 status/nullable commandId/profileKey/observedAt 및 bounded blockedReasons만 제공한다. candidate는 canonical confirmed 등록 graph/transport provenance 또는 이미 BIO인 current binding 안내이며 준비 요청은 실제 classifier guard를 다시 검증한다. discovery polling은 sanitized bioSensorCatalogMatch만 추가한다. full fingerprint/raw body/native/hash는 일반 DTO에 없다. legacy default classifier 내부 TX 추출은 기존 authorization·registration proof·CAS·audit를 그대로 재사용하여 preparation 생성과 함께 rollback한다.
+
+추가 순방향 `20261008070000_bio_sensor_commission_mode_instant`는 MeshNode의 nullable `bioPulseSensorModeVerifiedAt DateTime?`(TIMESTAMP(3), 기본 NULL)를 추가한다. 과거 backfill은 없다. 인증 V2 report의 initial commission `sensorModeVerifiedAt`를 live readiness/revision/profile/verifiedAt와 같은 TX에 저장한다. 공통 predicate와 node UPDATE guard는 이 시각을 현재 accepted preparation.result.observedAt와 normalized UTC instant로 정확히 대조한다. fresh link verifiedAt만 최신인 이전 commission은 거절하며 이전 capability/ACK history로 새 commission을 복원하지 않는다. link verifiedAt는 profile maxAge와 preparation 이후 조건을 별도로 만족해야 한다. migration은 historical 준비를 무효화하고 serializer-owned 수렴 작업을 남긴다.
+
+Proposed live revision은 완전한 NEW observation을 선택한다. nullable mode/profile/verifiedAt를 지우는 UPDATE는 기존 OLD 값으로 대체하지 않으며 enabled source가 있으면 거부한다. predicate의 기본 현재 시각은 transaction 시작 시각이 아니라 UTC wall clock이므로 긴 거래가 이미 만료된 링크/인증서를 새 admission에 사용하지 않는다.
+
+## 2026-10-08 공통 BIO 센서 카탈로그와 준비 checkpoint (Task 2 초기 기반 기록; 현재 판정은 위 Task 4)
+
+Task 2 검토 보완의 새 순방향 `20261008040000_bio_preparation_ack_retirement`은 preparation journal에 nullable `ackRetiredAt`만 추가한다. 당시 Gateway 삭제·현장 이동·assignment 변경·claim 철회로 전달 scope가 영구 폐기되면 ACK 전달만 종료하고 immutable 결과/ACK/hash·checkpoint `supersededAt`는 수정하지 않는다. 현재 scope의 인증서 만료 등 일시적 권한 실패는 catalog/ACK due를 2초 뒤로 옮겨 재시도하며, active lease와 retired ACK를 후보에서 제외해 뒤의 정상 전달을 계속 처리한다. Catalog의 폐기 scope/revision은 기존 delivery `supersededAt`로 종료한다. 첫 준비 결과 수용 시 저장된 `actorId`의 현재 active customer admin/assigned Site 권한을 기존 commission 검사로 재인가하며, 철회된 요청은 unverified 결과+rejected 내구 ACK로만 보관한다. 두 migration은 일회용 PostgreSQL에서만 적용했으며 운영 DB에는 적용하지 않았다.
+
+순방향 `20261008030000_bio_sensor_catalog_preparation`은 기존 registration/mode/automation ledger와 독립된 다섯 테이블을 추가한다. 운영 DB에는 적용하지 않았으며 승인 profile seed는 없다. singleton `BioSensorCatalogState(id=1, revision=1)`만 추가해 빈 catalog/현장 실행 OFF로 시작한다.
+
+| 테이블 | 저장 계약과 주요 제약 |
+| --- | --- |
+| `BioSensorProfileRevision` | `(profileId, revision)` 복합 PK, immutable approved/revoked revision, exact discovery fingerprint·8-byte body 목록·mode-get linkPolicy JSON, evidenceDigest/reuseScope, actorId/createdAt. UPDATE/DELETE 거부, 양수 JS-safe revision |
+| `BioSensorCatalogState` | id=1 CHECK, 독립 양수 catalog revision. profile append/revoke 또는 site policy 저장 시 증가 |
+| `BioSensorSitePolicy` | Site PK/FK(delete cascade), enabled 기본 false, ownerUserId/maximumResponseSeconds/escalationAction, 저장 당시 catalog revision. ON은 현재 assigned admin과 양수 응답 시간·대응 내용 필요 |
+| `BioSensorCatalogDelivery` | 서버 deliveryId와 당시 site/Gateway/assignment/catalog revision의 Unique, strict full payload/hash, pending/applied/duplicate/stale/rejected, immutable 첫 ACK/hash, publishedAt/appliedAt, attempts/nextAttemptAt/lease/supersededAt. 자동화 revision/applicationAckKey와 공유하지 않음 |
+| `BioSensorPreparationOperation` | 서버 commandId, site/Fixture/canonical node/Gateway/assignment, native identity hash/address와 bindingHash, actor/clientRequest Unique, query/ensure_sensor, catalog revision, immutable 요청 payload/hash, 120초 수용 TTL, status/supersededAt, immutable result/hash/event와 전용 ACK/hash. command/ACK에 각각 retry·lease·발행 시각. Fixture/site 복합 FK(delete cascade/update restrict), result event Unique, result+ACK 동시 존재 CHECK |
+
+현재 권한은 membership→catalog singleton→Site/commission→Floor→Gateway/inventory/유효 MQTT certificate(UTC)→native UUID advisory→MeshNode→Fixture→operation 순으로 검사한다. operator profile 쓰기는 transaction 안에서 현재 active service_provider/operator를 재인가하고, site policy/prepare는 현재 assigned customer admin의 기존 manage/commission 검사를 재사용한다. 카탈로그 worker는 current claim·certificate·assignment와 binding을 lease 거래에서 확인하고 MQTT publish를 거래 밖에서 수행하며 token/lease/state 조건으로 settlement한다. 준비 command는 동일 scope/revision의 exact catalog applied/duplicate ACK 이후에만 발행한다. PUBACK은 준비 성공이 아니다.
+
+결과는 strict full-command hash/scope, 현재 binding/catalog/approved profile fingerprint와 정확 revision, 요청 시각·수용 TTL·미래 시각 및 mode+독립 link를 대조한다. stale/rejected 원문도 immutable checkpoint와 ACK를 함께 보관하며 ready로 승격하지 않는다. 동일 report retry는 최초 ACK를 재전송한다. 새 실패 요청은 이전 ready checkpoint를 supersede한다. 수용 TTL은 최초 결과만 제한하며 이후 checkpoint의 commission 만료시간으로 쓰지 않는다. GET은 current binding/catalog/profile/supersession을 다시 확인하고 raw UUID/address/hash/body/fingerprint를 노출하지 않는다. 이 초기 checkpoint는 live health/현재 실행 허가가 아니며 MeshNode qualification·등록 ID·Fixture 밝기·그룹·전원·명령/에너지 이력을 수정하지 않는다. 실제 profile 증거 검증, Gateway 반복 독립 GET의 V2 live capability freshness, eligibility/rule admission과 RF 검증은 후속 단계다.
+
+검증은 self-owned 임시 PostgreSQL의 새 DB에서 전체 migration을 deploy하고 exact catalog/preparation ACK, 권한·재배정·기한·철회·binding·mode-only·빈/미일치 profile과 원본 Fixture/mode/Command 보존을 확인한다. 사용자 DB/실장비/PKI/배포·제품 ON은 실행하지 않는다. ACK/전달 원장은 별도 자동 retention 정책을 추가하지 않았으며 운영 적용 전 보존 규모를 검토해야 한다.
+
+## 2026-10-06 BIO 등록 현재 재검증 요청 보관
+
+`20261006120000_bio_registration_revalidation`은 독립 `BioRegistrationRevalidationOperation`을 추가한다. 서버 소유 commandId, site/Gateway/floor/Fixture/canonical node, 등록 session·후보·원 provision command와 그 canonical hash, 요청자/clientRequestId, assignment·native identity hash·unicast 주소, binding snapshot/hash와 strict query payload/hash를 보존한다. native UUID 원문을 새 명령이나 관리자 조회에 노출하지 않는다. `requestedAt`은 기존 `CommandDbClockHealth`가 검증한 UTC DB 시각이고 TTL은 30초, apply 기한은 120초로 고정한다. production에 실제 clock attestor가 없으면 요청과 조회는 거부하며 합성 provider를 DI에 등록하지 않는다.
+
+상태는 `pending | observed | unknown | timed_out`이며 immutable result/hash/event, `proofAcceptedAt`, `supersededAt`, `appliedAt`/`auditId`, publisher lease·시도 수를 갖는다. SQL CHECK는 결과/hash/event의 동시 존재, observed의 mode GET·시간·identity 일치, applied/audit 동시 존재, 양수 assignment·hash/주소 형식·고정 기한을 강제한다. `(siteId,requestedById,clientRequestId)`, resultEventId, auditId는 고유하다. 명령/binding/기한·이미 저장한 결과/proof·소비 감사/시각·supersede 시각은 UPDATE trigger로 불변이다. Fixture/site 복합 FK는 기존 SensorModeOperation처럼 삭제 cascade/갱신 restrict이며 AuditLog 참조는 삭제/갱신 restrict다. operation 삭제가 기존 감사 삭제를 유발하지 않는다. Gateway·원 provision ID는 당시 binding 이력 값으로 보관해 과거 row가 정상 재배정을 막지 않는다.
+
+현재 commission→Floor/Gateway/session/후보/outbox→native advisory→MeshNode/Fixture→operation 순으로 잠근 뒤 정확 graph·confirmed·canonical BIO UUID·주소·저장 provision command·현재 claim/inventory/assignment·유효 MQTT 인증서를 검사한다. 과거 receipt가 있으면 topic/identity/hash/ledger를 대조하지만 completed plaintext를 추론하지 않는다. 현 프로토콜이 BlueZ 기본인 기존 BIO graph도 요청 대상이다. 동일 요청 retry는 현재 권한과 binding을 다시 검증하고 원래 command/기한을 반환한다. 신규 요청은 같은 Fixture의 미소비 row만 supersede한다. create/get은 기존 Fixture 출력·node qualification·등록 후보/session/명령/이력을 쓰지 않는다.
+
+결과 ingest와 publisher는 strict 신규 목적·전체 identity/hash·현재 권한을 재검증하고 immutable result와 전용 ACK outbox를 같은 transaction에 저장한다. stale 원문은 보관만 하며 `proofAcceptedAt` 없이 성공 proof가 되지 않는다. explicit apply는 현재 귀속·120초 미소비 proof를 다시 검증하고 후보 status와 필수 `bio_registration_current_revalidated` 감사·operation 소비를 함께 기록한다. 적용된 작업의 retry는 원 감사/기한을 보존하며 분류 evidence는 `current_device_revalidation`으로 구분한다. Fixture 출력·ID·그룹·등록 session/terminal/이력은 변경하지 않는다.
+
+새 schema와 migration은 opt-in 일회용 PostgreSQL에서만 deploy·검증했다. 최종 신규 DB108/108·직접 API 회귀5/5·API/Gateway typecheck/build0이며 Gateway 소비도 소프트웨어로 구현했다. 독립 최종 검토는 새C0/I0/M0로 승인됐고 기존 도구 경고는 보존한다. actual DB clock 공급·운영 migration·실제 B 조회/수복/분류는 별도 미완료다.
+
+## 2026-10-02 기존 confirmed BIO 오분류의 감사 보완
+
+현장 assigned-admin/session/commission 권한의 명시 API는 같은 floor의 선택 Fixture 1..10개를 하나의 transaction에서 처리한다. Membership lock을 먼저 획득하고 현재 site/Gateway claim·inventory·assignment·유효 MQTT 인증서와 기존 등록 잠금 순서를 재사용해 canonical Fixture↔MeshNode↔완료된 discovered graph↔stored provision command의 UUID/address 귀속을 대조한다. Legacy의 server-owned provisioned/confirmed graph도 정확한 command가 남은 경우에만 감사 근거로 허용한다. V2 receipt가 있으면 strict topic/identity/hash와 terminal ledger를 추가 대조하되 ACK/hash만으로 completed 원문이나 과거 assignment를 재구성하지 않는다.
+
+BlueZ의 unknown/0/NULL/false와 기본 BIO OFF metadata만 `vehicleSensorProtocol=bio_usb_pulse`로 조건부 전환하며 AuditLog를 같은 거래에서 필수 저장한다. 감사 실패 또는 어느 선택 행의 충돌도 모두 rollback한다. 이미 BIO ready/degraded/shadow/off인 행은 현재 권한·소유 재검사 후 변경·중복 감사 없이 보존한다. Supported/기존 capability 원장·watermark 불일치/활성 event source 또는 target/완료 근거 부재는 거부하며 지원 증거나 규칙을 자동 삭제·비활성화하지 않는다. Fixture ID·밝기·전원·위치·group 및 기존 이력은 쓰지 않는다. MeshNode의 일반 `updatedAt`만 ORM의 정상 갱신 시각으로 바뀐다. 새 schema/migration/retention·제품 gate 변경은 없고 운영 DB에는 적용하지 않았다.
+
+## 2026-10-02 신규 V2 BIO 등록의 분류 초기화
+
+V2 provision completed terminal이 기존 command/session/node/UUID/address 귀속 검사를 통과한 뒤, canonical `bio:<12 lowercase hex>` 장치의 **새 MeshNode CREATE만** 서버 소유 `vehicleSensorProtocol=bio_usb_pulse`로 초기화한다. BIO readiness는 OFF, revision은 0, profile/검증 시각은 NULL이며 V1 capability는 unknown/0/NULL/false를 유지한다. Identify confirmed는 완료 근거의 대체물도 등록 필수 조건도 아니다. 기존 node·qualification·밝기·정확 terminal 재전송과 legacy 등록의 BlueZ default/online 동작은 변경하지 않는다. 기존 BIO 분류 누락 행은 이 경로로 backfill하지 않으며 별도 승인된 audited 전환이 필요하다. DB schema/migration·제품 gate는 변경하지 않고, 검증은 일회용 DB에서만 수행한다.
+
+## 2026-10-02 BIO capability 인증 수신·별도 V2 receipt
+
+기존 capability MQTT topic에서 strict V1 report와 strict V2 delivery를 분기한다. V2 delivery는 `assignmentVersion`과 report 전체의 canonical hash를 결속한다. 자동화 membership lock 아래 현재 site/Gateway claim, inventory 소유·활성 상태, 해당 Gateway/inventory의 활성·미폐기 MQTT 인증서 유효기간, assignment와 BIO node 소유를 검사한 뒤 qualification, node-local 원장·watermark, 별도 V2 ACK outbox를 같은 transaction에 저장한다. 인증서 UTC `timestamp`와 입력 시각은 SQL session 시간대에 영향받지 않도록 명시적으로 UTC 비교한다. 인증 근거는 broker mTLS/topic ACL과 DB metadata이며 구독자가 peer certificate serial을 직접 확인했다는 의미가 아니다.
+
+정확한 재전송도 현재 인증·배정을 먼저 확인한다. 최초 V2 ACK identity/hash/status/`ingestedAt`은 불변이고 발행 lifecycle만 재개한다. 같은 event/revision의 다른 envelope, identity 또는 재배정 hash는 충돌로 처리하며 과거 배정 receipt로 새 배정 지원을 승격하지 않는다. 기존 내부 report-only hash 이력도 덮어쓰지 않는다. V1 ACK·V2 support/config ACK·publisher wire는 변경하지 않는다. `ready` 저장이나 `applied` receipt는 qualification 근거일 뿐 live health·실장비 광학 성공·rule enabled가 아니며 제품 gate는 OFF다.
+
+`20261002110000_bio_capability_node_ledger`는 기존 `ProcessedGatewayEvent` 행을 보존하면서 V1 `vehicle_sensor_capability`와 BIO `bio_pulse_capability` 모두에 required-node CHECK와 `(gatewayId,meshNodeId,sequence,eventType)` partial unique를 적용한다. 그 외 event는 기존 `(gatewayId,sequence,eventType)` partial unique를 유지한다. 새 영속 테이블·컬럼과 retention 변경은 없다. node 귀속이 없는 기존 capability 행은 명시적 operator-remediation 진단으로 migration 전체를 rollback하며 현재 Fixture 연결을 과거 귀속으로 추론하거나 자동 보완하지 않는다. 일회용 PostgreSQL에서만 검증하며 운영 DB에는 적용하지 않는다.
+
+실제 Prisma deploy에서도 오류 ID를 보존하도록 기존 BIO migration과 같은 session-local 임시 preflight/deferred trigger로 COMMIT에서 실패한다. 진단은 첫 invalid event의 내부 서비스 ID를 최대 128자로 제한하며 device UUID·원문 packet·자격 증명을 포함하지 않는다. SQL rollback과 실패 migration 시도 원장은 별개이므로 감사 정리 후 표준 `migrate resolve --rolled-back` 절차로 재시도한다. BIO capability는 기존 retention의 알려진 V1 삭제 대상으로 추가하지 않아 현재 보존 정책을 그대로 유지한다.
+
+## 2026-10-01 BIO V2 telemetry 영속 수신과 조회
+
+`20261001010000_bio_pulse_telemetry`는 `BioPulseTelemetryEvent` 감사 이력과 `BioPulseTelemetryProjection` 조회 상태를 추가한다. 이력은 site/Gateway/원래 assignment, event ID, sequence, snapshot revision, rule/occurrence, source/target Fixture ID, strict redacted payload와 canonical SHA-256을 보존한다. `(gatewayId,eventId)`와 `(gatewayId,assignmentVersion,sequence)`는 각각 고유하며 같은 identity의 다른 내용은 거절한다. Site/Gateway 복합 FK는 현장 경계를 유지하고 삭제 시 cascade한다. Fixture ID는 과거 snapshot 값이며 Fixture 밝기·mode·power/energy 결과 테이블의 FK나 측정값으로 승격하지 않는다.
+
+`MqttOutbox.automationAssignmentVersion`은 API가 snapshot을 만들 때 기록한 nullable 서버 메타데이터다. V2 snapshot/config ACK wire는 바꾸지 않는다. 신규 V2 execution/ingested ACK는 required `assignmentVersion`을 가지며 신규 이벤트·현재 Gateway 배정·서버 snapshot metadata가 같아야 한다. 이전 NULL snapshot은 BIO telemetry를 수용하지 않고 V1 소비에는 영향이 없다. Broker mTLS/topic ACL 인증에 더해 현재 claim, 활성·유효기간 내 MQTT 인증서, 최신 V2 선언과 strict snapshot topic/hash/source/target를 검사한다. 구독자는 송신 peer certificate를 받지 않으므로 메시지별 인증서 fingerprint 바인딩을 주장하지 않는다.
+
+`20261001020000_bio_snapshot_source_bindings`는 nullable JSON object `MqttOutbox.automationSourceBindings`를 추가한다. snapshot 생성 시 같은 membership-lock 거래에서 BIO source Fixture ID→당시 MeshNode ID(NULL 허용 draft)를 고정한다. 수신 시 UUID map을 strict parse하고 snapshot의 모든 BIO source ID 집합과 canonical 비교한다. 과거 NULL metadata를 현재 연결로 backfill하지 않으며 누락·불일치·선택 source의 NULL node는 신규 telemetry를 수용하지 않는다. map은 기대 구성의 귀속 근거이지 실제 센서 광학/송신 증명이 아니다. 현재 Fixture가 다른 node로 교체되었다면 첫 이벤트나 새 occurrence라도 `stale_configuration` 이력+ACK만 남기고 새 node의 projection을 만들지 않는다.
+
+이미 commit한 exact event 재전송은 현재 same-site/Gateway claim·유효 MQTT 인증서를 먼저 확인한 뒤 ledger의 site/event ID/원래 assignment/sequence/hash 전체 일치에 한해 원래 ACK를 재발행한다. 같은 현장 assignment가 회전해도 저장된 receipt를 소비할 수 있지만 새 과거 assignment 이벤트는 거절한다. claim/인증 근거 상실, 다른 현장 topic, identity 충돌에는 ACK하지 않으며 replay로 이력이나 projection을 다시 쓰지 않는다.
+
+Disposition은 `accepted | stale_configuration | stale_sequence | untrusted_time`다. 알려진 같은 배정의 과거 설정/순서 기록과 출처는 정확하지만 미래 또는 snapshot 생성 전 시각의 기록은 감사 이력과 exact ACK만 남겨 FIFO를 진행시키고 현재 조회 상태는 바꾸지 않는다. 미확인 snapshot·배정·변조 identity는 ACK하지 않는다. 최신 수신 sequence는 assignment별 ledger에서 확인하며 자동화 membership과 Gateway/inventory/certificate 행 잠금 안에서 중복을 직렬화한다. 같은 거래에서 이력·projection·ACK outbox를 저장하고 기존 publisher가 commit 이후 발행한다. 실패하면 모두 rollback한다.
+
+Projection 키는 `(gatewayId,assignmentVersion,ruleId,occurrenceKey)`다. source node ID, 마지막 펄스·pulse sequence, 명시적 건강 상태/장애 시작 시각, nullable 복원 대기·사유, sequence를 포함한 `configuration_readback` JSON, 마지막 관측·서버 수신 시각을 보존한다. 펄스나 wall clock만으로 건강/해제/복원 완료를 만들지 않는다. Dashboard는 현재 배정·source node mapping·설정 revision의 저장된 projection만 반환하며 증거가 없으면 NULL이다. 여러 occurrence의 최신 펄스/설정 결과는 각각 원래 evidence sequence로 선택하고 남아 있는 복원 대기를 최신 펄스로 가리지 않는다. 별도 운영 보존/압축 정책과 대규모 이력·조회 부하 검증은 제품 ON 전 후속이다.
+
+Migration은 일회용 PostgreSQL에서만 검증하며 운영 DB에는 적용하지 않았다. 제품 enabled BIO와 profile allowlist는 OFF다. 과거 assignment가 없는 시험용 V2 Gateway 파일은 재서명하지 않고 fail-closed하므로 수동 격리/복구가 필요하다.
+
+## 2026-09-30 BIO 센서 모드 별도 작업
+
+`20260930170000_bio_sensor_mode_operation`은 `SensorModeOperation`을 추가한다. `commandId`가 기본 키이며 `(siteId, requestedById, clientRequestId)`는 요청 중복 방지 키다. 현장·Gateway·Fixture·node·주소·assignment, 요청 시각/최대 30초 만료, `ensure_sensor | query`, 원본 재조회 ID와 strict V2 payload를 보존한다. Payload의 장치 식별값은 BIO UUID 원문 대신 SHA-256이며 실제 Gateway mapping과 재대조한다. Fixture 현장 복합 FK와 자기 참조 재조회 FK를 유지하고, 과거 이력이 정상 Gateway 재할당을 막지 않도록 Gateway는 이력 값으로 보존한다.
+
+같은 행의 발행 시각·시도 수·다음 시도·lease가 요청 outbox다. API는 동일 ID/만료로 재전송하고 접수 PUBACK으로 `pending`을 성공으로 바꾸지 않는다. 결과는 `verified | mismatch | unknown | timed_out`, JSON·hash·고유 event ID로 저장한다. `verified` CHECK는 mode GET 근거와 `observedMode=sensor`, `modeVerified=true`가 모두 있어야 통과한다. 이 검사는 값의 일관성 제약이며 실장비 증명은 Gateway의 별도 GET에서 나온다.
+
+결과 수용은 현재 claim/active MQTT 인증서·assignment·Fixture/node/장치 identity와 원본 command를 다시 확인한다. 원본 command에 정확히 귀속되지만 현재 assignment/장치가 바뀐 결과는 성공으로 올리지 않고 `stale_checkpoint` ACK로 소비한다. 동일 결과 hash는 duplicate ACK, 같은 작업의 상충 결과는 거절한다. 타임아웃·새 요청으로 대체된 작업은 늦은 성공 결과로 승격하지 않는다. 재조회는 새 ID의 `query`이며 이전 결과를 상속하지 않는다. DB commit 뒤 기존 state-ingested ACK를 사용한다.
+
+비성공 `mismatch | unknown | timed_out`의 원본 JSON `occurredAt`은 시계 오류가 가능한 Gateway 제공 감사 값으로 그대로 보존하며 신뢰된 검증 시각이 아니다. 정확한 command/identity/hash 검증 후 ACK해 공유 outbox 정체를 피하되 서버 만료·대체 상태는 유지한다. `verified` 성공만 요청 이후·만료 이전·서버 수신 시각 허용 범위의 시간 증명을 요구한다. 이 보완은 스키마 변경 없이 결과 수용 정책만 수정한다.
+
+이 테이블은 `Fixture.brightness/powerOn`, 에너지 기록 또는 `MeshNode.bioPulseReadiness`를 갱신하지 않는다. 모드 검증 시각은 해당 GET 당시의 근거이고 자율 점등·펄스 전달·현재 광학 출력의 근거가 아니다. migration 검증은 일회용 PostgreSQL만 사용하며 운영 DB에는 적용하지 않았다.
+
 ## 2026-09-27 기본 OFF의 명령 상세 정리 worker
 
 운영 `StructuredLoggerService`는 고정 context `CommandDetailRetentionService`와 event `command_detail_retention_batch`, `completed`/`failed` 상태만 상세 지표로 허용한다. 후보/처리/이번 보류 사유별 수는 0~1,000 정수, 전체 지연/보류 수는 음수가 아닌 safe integer, 최고 경과 초는 유한한 음수 아닌 수로 검증한다. helper의 허용 목록에 있는 사유만 로그에 남기며 알 수 없는 사유·원문 오류·ID·SQL은 버린다. 실제 production JSON writer까지 연결한 worker 회귀로 이 계약을 검증한다.
@@ -287,6 +383,8 @@ SiteDeletionCleanup (삭제된 Site ID와 외부 정리 대상을 독립 보존)
 | `ScheduleRecurrenceKind` | `once`, `daily`, `weekly`, `monthly`, `yearly` | 현장 timezone 기준 반복 방식 |
 | `AutomationExecutionKind` | `schedule_started`, `schedule_ended`, `vehicle_detected`, `event_started`, `event_extended`, `event_ended`, `action_result`, `telemetry_gap` | Gateway가 전달한 lifecycle 원장 종류 |
 | `VehicleSensorCapabilityStatus` | `unknown`, `supported`, `unsupported` | MeshNode의 검증된 차량 센서 source capability |
+| `VehicleSensorProtocol` | `bluez_stateful`, `bio_usb_pulse` | MeshNode capability 및 차량 이벤트 규칙의 입력 protocol |
+| `BioPulseReadiness` | `off`, `shadow`, `ready`, `degraded` | BIO 자격 준비 상태; 기본 OFF, mode/광학 확인과 별개 |
 
 ### MeshControlTargetType / MeshControlGroupStatus
 
@@ -1392,6 +1490,11 @@ ESP32-H2 BLE Mesh 노드다. 한 노드는 최대 하나의 `Fixture`와 매핑�
 | `serialNumber` | `String?` | 아니오 |  | 장비 시리얼 |
 | `meshAddress` | `String` | 예 | Unique with `gatewayId` | BLE Mesh unicast address |
 | `firmwareVersion` | `String` | 예 |  | 노드 펌웨어 버전 |
+| `vehicleSensorProtocol` | `VehicleSensorProtocol` | 예 | `bluez_stateful` | `bluez_stateful` 또는 `bio_usb_pulse`; 서버가 저장한 capability 프로토콜 |
+| `bioPulseReadiness` | `BioPulseReadiness` | 예 | `off` | `off`, `shadow`, `ready`, `degraded`; BIO는 기본 OFF |
+| `bioPulseProfileId` | `String?` | 아니오 | `NULL`, nonblank CHECK | 검증된 BIO profile 식별자; 현장 allowlist를 자동 생성하지 않음 |
+| `bioPulseVerifiedAt` | `DateTime?` | 아니오 | `NULL`, ready에서 필수 | BIO 자격 검증 근거 시각; sensor-mode GET 확인이나 광학 출력 증거가 아님 |
+| `bioPulseCapabilityRevision` | `BigInt` | 예 | `0`, nonnegative CHECK | V1과 분리된 BIO revision; shadow/ready/degraded는 양수 |
 | `vehicleSensorCapabilityStatus` | `VehicleSensorCapabilityStatus` | 예 | `unknown` | 차량 감지 source capability 상태 |
 | `vehicleSensorCapabilityVerifiedAt` | `DateTime?` | 아니오 | capability coherence DB CHECK | 모델 capability 검증 시각 |
 | `vehicleSensorCapabilityRevision` | `BigInt` | 예 | `0`, capability coherence DB CHECK | Gateway가 영속 관리하는 capability 단조 revision |
@@ -1405,7 +1508,8 @@ ESP32-H2 BLE Mesh 노드다. 한 노드는 최대 하나의 `Fixture`와 매핑�
 - Unique: `deviceUuid`
 - 복합 Unique: `id`, `gatewayId`
 - 복합 Unique: `gatewayId`, `meshAddress`
-- `unknown`은 revision `0`, 검증 시각 `NULL`, 두 model flag `false`인 초기 상태로만 존재한다. `supported`는 양수 revision, 검증 시각, 두 model flag `true`를 모두 요구한다. `unsupported`는 양수 revision과 model flag 하나 이상 `false`를 항상 요구하며 검증 시각 유무로 이 조건을 우회할 수 없다.
+- BlueZ의 `unknown`은 revision `0`, 검증 시각 `NULL`, 두 model flag `false`인 초기 상태로만 존재한다. `supported`는 양수 revision, 검증 시각, 두 model flag `true`를 모두 요구한다. `unsupported`는 양수 revision과 model flag 하나 이상 `false`를 항상 요구하며 검증 시각 유무로 이 조건을 우회할 수 없다.
+- BIO 노드는 V1 capability를 `unknown`/revision `0`/검증 시각 `NULL`/두 model flag `false`로 유지한다. Sensor Server나 vendor model 바인딩을 BIO 지원 근거로 위조하지 않는다. BlueZ 노드의 BIO 열은 `off`/revision `0`/profile·verifiedAt `NULL`만 허용하므로 두 protocol의 지원 상태를 동시에 저장할 수 없다. BIO `off`는 revision `0` 이상, `shadow`/`ready`/`degraded`는 양수 revision이며 `ready`는 nonblank profile과 verifiedAt을 모두 요구한다. DB는 revision의 범위를 강제하고 stale/duplicate 및 단조 증가 report 판정은 후속 API 적용 경계에서 수행한다.
 - 최초 capability migration은 모든 기존 노드를 fail-closed `unknown`/`NULL`로 만들었다. ordering migration은 그 뒤 운영자가 검증한 기존 `supported`/`unsupported`를 baseline revision `1`로, 기존 `unknown`을 revision `0`으로 backfill한다. 차량 이벤트 CRUD source resolver는 `supported`이면서 검증 시각과 두 model flag가 모두 유효한 등록 Fixture만 허용한다.
 - capability 변경은 strict `VehicleSensorCapabilityReportV1`만 API service 경계에서 받는다. report topic은 `sites/{siteId}/gateways/{gatewayId}/events/automation/vehicle-sensor-capability`이고 payload는 `schemaVersion=1`, UUID `eventId/siteId/gatewayId/meshNodeId`, positive safe integer `capabilityRevision`, `supported|unsupported` status, offset 포함 ISO instant `verifiedAt`, `sensorServerBound`, `vendorVehicleEventModelBound`를 가진다. `supported`는 두 model flag가 모두 true일 때만 유효하고 `unsupported`는 하나 이상 false여야 한다.
 - `VehicleSensorCapabilityService.applyReport`는 complete report를 canonical JSON으로 직렬화해 `sha256:<64 lowercase hex>`를 만들고 공통 automation global lock을 첫 DB 작업으로 획득한 뒤 Gateway와 MeshNode를 `FOR UPDATE`로 잠그며 Site/Gateway/MeshNode owner scope를 식별자 비노출 오류로 검증한다. 전역 PK `eventId`와 node-local `(gatewayId, meshNodeId, capabilityRevision, vehicle_sensor_capability)`를 함께 dedupe한다. 동일 key/hash는 `duplicate`, 낮은 새 revision은 원장만 남기고 `stale`, 동일 revision의 state/hash 불일치와 동일 key의 다른 hash는 mutation 없이 `rejected`, 높은 revision만 `applied`다. 같은 Gateway의 서로 다른 두 node는 revision `1`을 순차 또는 동시에 각각 저장할 수 있다.
@@ -1657,6 +1761,24 @@ Exact desired reject 뒤 lower revision의 applied ACK가 늦게 도착하면 `a
 
 구성 row는 감사 이력이 아니라 현재 동기화 상태이므로 Site 또는 Gateway가 삭제되면 cascade한다. Snapshot publish 이력은 같은 Gateway에 연결된 `MqttOutbox` config row가 담당한다. `(gatewayId, siteId)`와 `siteId` FK는 owner key 갱신을 `RESTRICT`한다.
 
+### GatewayAutomationProtocolSupport
+
+순방향 migration `20260930160000_gateway_automation_protocol_support`가 추가하는 명시적 구성 프로토콜 지원 선언 이력이다. 구성 적용 ACK와 센서 준비 상태는 이 표의 근거가 아니다. 기존 Gateway에는 row를 backfill하지 않으며, 선언이 없거나 현재 assignment와 맞지 않으면 V1만 사용하고 BIO 초안은 제외한다.
+
+| 컬럼 | 타입 | 제약 및 의미 |
+| --- | --- | --- |
+| `gatewayId`, `siteId` | `String` | `Gateway(id, siteId)` FK, 삭제 cascade·변경 restrict |
+| `assignmentVersion` | `Int` | 0 이상, 현재 Gateway assignment와 일치해야 유효 |
+| `declarationRevision` | `BigInt` | 1..9007199254740991; Gateway·assignment 안에서 단조 증가 |
+| `declarationId` | `String` | 전역 unique; V2 current-config request의 `requestId` |
+| `maxSnapshotVersion` | `Int` | 1 또는 2; 최신 명시적 선언만 권한이며 1은 지원 하향 |
+| `payloadHash` | `String` | 선언 전체의 canonical SHA-256; 동일 ID의 내용 변경 거절 |
+| `declaredAt`, `receivedAt` | `DateTime` | Gateway 선언 시각과 서버 수신 시각; 순서는 시각 대신 revision으로 판정 |
+
+PK는 `(gatewayId, assignmentVersion, declarationRevision)`이다. API는 MQTT broker의 인증/topic ACL로 전달된 site/Gateway 범위를 현재 claimed·활성 inventory 및 active/non-revoked MQTT certificate와 대조하고 membership lock → Gateway/inventory row lock 순으로 직렬화한다. 소비자가 실제 peer certificate fingerprint를 받는 것은 아니므로 개별 메시지의 인증서 암호학적 결합을 주장하지 않는다. 인증서 회전은 별도 protocol epoch를 만들지 않으며, 현재 활성 인증서가 없는 경우 지원을 사용하지 않는다.
+
+이력은 추가만 하며 자동 보존 삭제 대상에 넣지 않는다. 이전 ID 재사용과 하향 후 replay를 계속 거절하기 위해 outbox 정리와 독립적으로 남기므로, 재연결마다 저장 공간이 증가한다. 향후 정리 시 단조 watermark와 ID 충돌 증거를 보존하는 별도 정책이 필요하다. API는 지원 선언과 새 versioned snapshot을 같은 transaction에서 저장하고 실패 시 함께 rollback한다. 최신 V2 선언이 있어도 BIO 제품 실행·mode GET·readiness·광학 출력이 확인되는 것은 아니다.
+
 ### LightingSchedule / LightingScheduleFixture
 
 `LightingSchedule`은 현장 날짜 범위, 현지 시각 구간, 반복 방식과 action을 저장하고 `LightingScheduleFixture`는 저장 시 확정된 Fixture ID snapshot이다.
@@ -1698,9 +1820,10 @@ Exact desired reject 뒤 lower revision의 applied ACK가 늦게 도착하면 `a
 | `gatewayId` | `String` | 예 | `siteId`와 복합 FK -> `Gateway(id, siteId)`, delete cascade; index `(gatewayId, status)` |
 | `name` | `String` | 예 | DB check `btrim(name) <> ''` |
 | `status` | `AutomationRuleStatus` | 예 | `enabled` |
+| `sensorProtocol` | `VehicleSensorProtocol` | 예 | `bluez_stateful`; source MeshNode protocol과 일치해야 함 |
 | `dimmingEnabled` | `Boolean` | 예 | 감지 action 디밍 여부 |
 | `brightnessPercent` | `Int` | 예 | DB check `0..100` |
-| `holdSeconds` | `Int` | 예 | `60`, DB check `5..1800` |
+| `holdSeconds` | `Int` | 예 | `60`, BlueZ DB check `5..1800`, BIO `10..1800` |
 | `desiredRevision`, `appliedRevision` | `Int` | 예 | `0`; DB check `0 <= appliedRevision <= desiredRevision` |
 | `sourceCount`, `targetCount` | `Int` | 예 | `0`; 각각 DB check `>= 0`, child trigger 유지 | 현재 source/target row 수 |
 | `createdById`, `updatedById` | `String` | 예 | named FK -> `User.id`, delete restrict |
@@ -1708,7 +1831,13 @@ Exact desired reject 뒤 lower revision의 applied ACK가 늦게 도착하면 `a
 
 `VehicleEventRule`은 child owner FK 기준인 `(id, siteId, gatewayId)` Unique를 가진다. `VehicleEventSource`와 `VehicleEventTarget`은 각각 `ruleId`, `fixtureId`, `siteId`, `gatewayId`, `createdAt`을 저장하고 `(ruleId, fixtureId)` 복합 PK로 source/target 중복을 차단한다. `(ruleId, siteId, gatewayId)`는 부모 owner를 delete cascade/update restrict로, `(fixtureId, siteId, gatewayId)`는 투영된 Fixture owner를 delete cascade/update restrict로 참조한다. 두 테이블 모두 `(fixtureId)`, `(siteId, gatewayId)` index가 있다.
 
-`VehicleEventSource` INSERT와 `fixtureId` 변경은 연결 Fixture의 MeshNode row를 잠그고 capability가 `supported`이며 verified timestamp가 있는지 검사한다. MeshNode capability UPDATE의 `BEFORE ROW` guard는 status/timestamp 조합을 재검증하고 enabled rule source로 참조되는 node의 downgrade/unknown 전환을 거부한다. Rule status UPDATE도 invalid source를 가진 disabled rule의 re-enable을 거부한다. Fixture의 `meshNodeId` 변경은 enabled source를 미지원 node로 옮기지 못하게 한다. Disabled rule의 기존 source는 감사 목적으로 남길 수 있지만 지원 report 적용 전에는 API와 direct SQL 모두 re-enable할 수 없다. 이 제약은 Prisma를 우회한 direct SQL에도 동일하다.
+`VehicleEventSource` INSERT와 `fixtureId`/`ruleId` 변경은 새 parent protocol에 맞는 source만 받는다. BlueZ는 기존 supported·양수 revision·verifiedAt·두 model binding 조건을 disabled rule에도 유지한다. enabled BIO는 위 Task 4의 단일 current 준비/profile/catalog/policy/인증 V2/live/mode instant predicate를 적용한다. Disabled BIO 감사 source membership은 live-ready 상실 후에도 보존/편집할 수 있으나 direct SQL re-enable은 현재 판정을 다시 통과해야 한다. MeshNode qualification UPDATE는 enabled source의 무근거 downgrade를 거부한다. 명시 귀속/identity 변경은 먼저 BIO rule disable·evidence 무효화·durable work를 남기며 과거 target 복원 attribution을 보존한다. admission의 기본 UTC 시각은 transaction-start가 아닌 실제 DB clock_timestamp다.
+
+Source admission과 re-enable은 Fixture 및 MeshNode에 `updatedAt = updatedAt` 갱신으로 실제 MVCC row version을 남긴다. Source Fixture의 node 변경도 새 MeshNode에 같은 fence를 쓴다. 모든 논리 값과 timestamp를 보존하며 capability/owner trigger 대상 열을 갱신하지 않아 재귀 검증을 일으키지 않는다. `SELECT FOR UPDATE`만으로는 오래된 REPEATABLE READ/SERIALIZABLE snapshot이 새로 생성된 rule을 못 보는 경우를 막지 못하므로 이 쓰기가 필요하다. 기존 공통 advisory lock과 parent lock에 더해, 반대 순서의 downgrade/reassignment/admission은 검증 오류 또는 serialization failure로 종료한다. 비용은 구성 쓰기마다 추가 row version 및 WAL이며, 펄스 수신마다 실행하는 경로가 아니다.
+
+BIO migration은 공통 membership advisory lock과 source/rule/Fixture/MeshNode table lock을 잡고 기존 enabled rule의 모든 source를 동일한 protocol별 readiness 함수로 사전 검사한다. 구버전의 `ruleId`만 바꾸는 경로 등으로 미지원 source가 활성 rule에 남아 있으면 `23514` operator-remediation 오류에 rule/Fixture/node ID, protocol, V1 status, BIO readiness 및 수동 정리 지침을 담아 실패한다. 진단은 최대 20개 source와 ID별 최대 128자로 제한하며 native 장비 신원·payload·자격 증명을 포함하지 않는다. Prisma가 transaction 중간 오류를 가리지 않도록 사전 검사 결과를 세션 임시 테이블에 기록하고 deferred constraint trigger가 COMMIT에서 오류를 낸다. 전체 SQL transaction이 rollback되어 새 enum/열/제약/함수와 원래 row 변경이 남지 않는다. 운영자가 해당 rule을 비활성화하거나 잘못된 source를 정리한 뒤에만 재시도하며 자동 수정·지원 승격은 없다. Disabled rule의 미지원 source는 감사 이력으로 허용한다. Prisma의 실패한 migration 시도 원장은 SQL rollback과 별개이므로, 정리 후 표준 `migrate resolve --rolled-back` 절차로 시도를 해소한 뒤 재적용한다.
+
+순방향 migration `20260930120000_bio_pulse_event_contract`는 새 열의 기본값으로 기존 rule/node를 BlueZ로 유지하고 기존 5초 hold, model evidence, membership을 수정하지 않는다. 기존 데이터와 새 node의 BIO readiness는 모두 OFF이며, profile·검증 시각·양수 BIO revision을 backfill하지 않는다. CHECK와 guard를 단일 transaction에서 교체한다. 운영 DB에는 실행하지 않았으며, 자체 생성한 임시 PostgreSQL에서 이전 migration 데이터의 업그레이드와 전체 migration 신규 적용을 검증한다. Rollback은 enum/열 삭제만으로 수행할 수 없다. BIO rule을 비활성화하고 source 참조 및 BIO metadata를 보존·정리한 뒤 기존 BlueZ 제약을 만족시키는 별도 승인된 역방향 migration이 필요하며, BIO를 BlueZ supported로 자동 변환해서는 안 된다. 이 DB 단계는 API V2 report 수용·Gateway V2 협상/ACK·durable sensor-mode GET operation·현장 HIL·제품 ON을 구현하거나 증명하지 않는다. BIO source 정확히 1개와 A/B target 보호의 서비스 경계는 후속 작업이다.
 
 `VehicleEventRule_membership_statement_lock`, `VehicleEventSource_membership_statement_lock`, `VehicleEventTarget_membership_statement_lock`은 top-level statement가 parent 또는 child tuple을 잠그기 전에 공통 advisory lock을 획득한다. Row maintenance는 INSERT/DELETE/`ruleId` UPDATE에 맞춰 `sourceCount` 또는 `targetCount`를 원자 갱신하고 부모 이동 시 두 rule row를 ID 오름차순으로 잠근다. Counter가 만든 nested rule UPDATE는 depth guard로 parent statement 작업을 생략하고, nested parent cascade는 이미 사라진 rule의 counter와 deferred 검증을 건너뛴다. Direct DML의 deferred 검증은 두 counter가 각각 1 이상이고 실제 source/target row 수와 정확히 같은지 확인한다. 같은 parent row version을 쓰는 방식이 READ COMMITTED, REPEATABLE READ, SERIALIZABLE의 동시 마지막-child 삭제를 직렬화하거나 serialization failure로 종료한다.
 
@@ -1806,7 +1935,7 @@ DB check는 live `fixtureId`가 `NULL`이거나 `fixtureSnapshotId`와 정확히
 
 ### ProcessedGatewayEvent
 
-MQTT QoS 1 중복 및 순서 역전을 차단하는 이벤트 원장이다. `eventId`는 모든 event type에서 전역 PK다. Non-capability event는 partial unique `(gatewayId, sequence, eventType)`을 유지하고, `vehicle_sensor_capability`는 node-local partial unique `(gatewayId, meshNodeId, sequence, eventType)`을 사용하며 `meshNodeId`가 반드시 있어야 한다. 이벤트를 Fixture/Gateway snapshot에 반영하기 전에 이 테이블과 마지막 sequence를 확인한다.
+MQTT QoS 1 중복 및 순서 역전을 차단하는 이벤트 원장이다. `eventId`는 모든 event type에서 전역 PK다. Non-capability event는 partial unique `(gatewayId, sequence, eventType)`을 유지하고, `vehicle_sensor_capability`와 `bio_pulse_capability`는 node-local partial unique `(gatewayId, meshNodeId, sequence, eventType)`을 사용하며 `meshNodeId`가 반드시 있어야 한다. 이벤트를 Fixture/Gateway snapshot에 반영하기 전에 이 테이블과 마지막 sequence를 확인한다.
 
 | 컬럼 | 타입 | 필수 | 기본값/제약 | 설명 |
 | --- | --- | --- | --- | --- |
@@ -2067,6 +2196,7 @@ node별 `provision-device` command의 durable transactional outbox다. 등록 AP
 | `firmwareVersion` | `String` | 예 |  | 펌웨어 버전 |
 | `scanCorrelationId` | `String?` | 아니오 |  | API가 검증한 발견 이벤트의 scan correlation ID. legacy row는 `null` |
 | `scanAttempt` | `Int?` | 아니오 |  | API가 검증한 발견 이벤트의 scan 재시도 번호. legacy row는 `null` |
+| `bioDiscoveryFingerprint` | `Json?` | 아니오 | SQL `NULL` | 현재 scan에서 검증한 BIO 종류·firmware/build·sensor/infrared/ambient/hardware 관측. 승인·지원·준비 상태가 아님 |
 | `status` | `DiscoveredNodeStatus` | 예 | `discovered` | 발견 노드 상태 |
 | `identifyState` | `String` | 예 | `idle` | 점멸 확인 상태 |
 | `meshAddress` | `String?` | 아니오 |  | 할당 예정 또는 할당된 mesh address |
@@ -2085,6 +2215,9 @@ node별 `provision-device` command의 durable transactional outbox다. 등록 AP
 - 복합 Unique: `sessionId`, `deviceUuid`
 - `scanCorrelationId`, `scanAttempt`는 새 migration에서 nullable로 추가한다. 신뢰할 수 있는 attempt identity가 없는 기존 row는 backfill하지 않으며 Web 후보 판정에서 fail-closed로 제외한다.
 - 같은 세션의 동일 `deviceUuid`가 다음 scan attempt에서 다시 발견되면 upsert update가 두 identity 필드를 현재 검증된 event 값으로 덮어쓴다. `discoveredAt`은 gateway 발생 시각이며 attempt 경계 판정에 사용하지 않는다.
+- `20261008050000_bio_discovery_fingerprint`는 nullable JSONB 관측 필드만 추가하며 legacy firmware 문자열에서 backfill하지 않는다. 새 `scan-found-v2` topic의 strict `schemaVersion:2`·필수 nullable fingerprint를 기존 session/site/gateway/correlation/attempt/lifecycle·eventId/sequence/hash/원장 경계에서 검증한 뒤 같은 transaction으로 저장한다. 새 topic과 legacy scan-found는 동일 `provisioning_scan_found` 순서 원장을 사용하므로 topic 변경으로 중복·낮은 sequence를 우회하지 않는다.
+- 수용된 새 typed 관측은 기존 관측을 갱신하고, 새 null/legacy 관측은 이전 fingerprint를 SQL `NULL`로 지워 오래된 값이 새 scan identity에 귀속되지 않도록 한다. 잘못된 scope/이전 attempt/늦은 scan/중복은 현재 관측을 변경하지 않는다. 등록 완료는 저장 관측을 보존하지만 이후 실제 준비 query는 fresh discovery를 다시 확인해야 한다.
+- 일반 registration HTTP presenter는 `bioDiscoveryFingerprint`를 명시적으로 제거하며 수신 오류 로그는 고정 error 종류만 기록한다. 관측만으로 classification/readiness/profile 승인·센서 준비/SET 작업을 생성하지 않는다. 새 migration 전체 replay와 legacy row upgrade는 일회용 PostgreSQL에서만 검증했으며 사용자 DB에는 적용하지 않았다.
 
 등록 동시성 및 복구 계약:
 
@@ -2279,8 +2412,8 @@ Migration: `20260925130000_landing_mail_oauth`, `20260925150000_landing_oauth_ge
 | `GatewayAutomationConfiguration` | PK `gatewayId`, Unique/FK `gatewayId + siteId`, ordered revisions, state-dependent check | Gateway별 단일 full snapshot 적용 상태와 PENDING/APPLIED/REJECTED coherence |
 | `LightingSchedule` | active/time/distinct local times/unique recurrence/brightness/revision checks, non-negative `targetCount`, Unique `id + siteId + gatewayId` | 반복 스케줄 범위, 암묵적 full-day 차단, child owner 기준, 실제 target 수 reconciliation 강제 |
 | `LightingScheduleFixture` | PK `scheduleId + fixtureId`, parent/Fixture owner composite FK, counter maintenance + deferred nonempty/reconciliation trigger | 스케줄 대상 snapshot 중복·tenant/Gateway·isolation-safe 최소 1개 강제 |
-| `VehicleEventRule` | brightness `0..100`, hold `5..1800`, ordered revisions, non-negative source/target counters, Unique `id + siteId + gatewayId` | 차량 감지 action 범위와 실제 source/target 수 reconciliation 강제 |
-| `VehicleEventSource`, `VehicleEventTarget` | PK `ruleId + fixtureId`, parent/Fixture owner composite FK, counter maintenance + deferred nonempty/reconciliation trigger; source는 verified-supported MeshNode trigger | source/target 중복·tenant/Gateway·isolation-safe 각 최소 1개와 source capability 강제 |
+| `VehicleEventRule` | brightness `0..100`, hold BlueZ `5..1800` / BIO `10..1800`, ordered revisions, non-negative source/target counters, Unique `id + siteId + gatewayId` | protocol별 action 범위와 실제 source/target 수 reconciliation 강제 |
+| `VehicleEventSource`, `VehicleEventTarget` | PK `ruleId + fixtureId`, parent/Fixture owner composite FK, counter maintenance + deferred nonempty/reconciliation trigger; source protocol/readiness guard + MVCC fence | source/target 중복·tenant/Gateway·isolation-safe 각 최소 1개와 source capability 강제 |
 | `ManualOverride` | Unique `commandId`, direct Command FK delete cascade, nullable requester/legacy `overrideUntil`, brightness/time checks, non-negative `targetCount` | command별 수동 기본 밝기 감사, timed history 호환, 사용자 삭제 뒤 이력 익명화, 실제 target 수 reconciliation 강제 |
 | `ManualOverrideFixture` | PK `manualOverrideId + fixtureId`, parent/Fixture owner composite FK, counter maintenance + deferred nonempty/reconciliation trigger | 수동 대상 중복·tenant/Gateway·isolation-safe 최소 1개 강제 |
 | `MqttOutbox` | command/config/application-ACK row-shape check, Unique `gatewayId + revision + payloadHash`, Unique `applicationAckKey`, non-superseded automation delivery partial index | requester 없는 command payload와 과거 row scrub, 최신 config snapshot만 발행, durable application ACK dedupe |

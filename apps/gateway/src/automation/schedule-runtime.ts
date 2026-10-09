@@ -2,6 +2,7 @@ import { getActiveOccurrence } from "@led-control/automation-engine";
 import {
   type AutomationExecutionFixtureResultV1,
   type AutomationSnapshotV1,
+  type AutomationSnapshotV2,
   type LightingScheduleSnapshotV1,
   type VehicleEventRuleSnapshotV1
 } from "@led-control/shared";
@@ -24,6 +25,10 @@ import {
   type VehicleLifecycleEvent,
   type VehicleSensorInput
 } from "./vehicle-event-runtime";
+import type { BioSourceHealth } from "./vehicle-event-runtime";
+import { isActiveBioSourceTarget } from "./bio-source-target-guard";
+import { BioPulseScheduler, type BioPulseTestProfile, type BioPulseControlCore } from "./bio-pulse-scheduler";
+import { BioProductPulseController, type BioProductPulseDependencies } from "./bio-product-pulse-controller";
 import {
   lifecycleTelemetryRecords,
   terminalTelemetryRecords
@@ -81,7 +86,11 @@ export interface ScheduleRuntimeOptions {
   onDiagnostic?: (diagnostic: ManualOverridePrepareDiagnostic) => void;
   manualOverrideSlowThresholdMs?: number;
   tickIntervalMs?: number;
+  bioPulseTestProfile?: BioPulseTestProfile;
+  bioProductPulse?: BioProductPulseDependencies;
 }
+
+type SchedulerSnapshot = AutomationSnapshotV1 | AutomationSnapshotV2;
 
 export interface ManualOverridePrepareDiagnostic {
   event: "manual_override_prepare_slow";
@@ -98,9 +107,10 @@ interface ComputedDesiredState {
 }
 
 interface ActivationCheckpoint {
-  snapshot: AutomationSnapshotV1 | null;
+  snapshot: SchedulerSnapshot | null;
   state: PersistedAutomationStateV4;
   vehicleHoldDeadlines: Array<[string, number]>;
+  bioProduct?: ReturnType<BioProductPulseController["checkpoint"]>;
 }
 
 const DEFAULT_TICK_INTERVAL_MS = 1_000;
@@ -110,7 +120,11 @@ export class ScheduleRuntime {
   private readonly wallClock: () => Date;
   private readonly monotonicClock: () => number;
   private readonly vehicleRuntime: VehicleEventRuntime;
-  private snapshot: AutomationSnapshotV1 | null = null;
+  private readonly bio: BioPulseControlCore | null;
+  private readonly bioProduct: BioProductPulseController | null;
+  private readonly bioArrivals = new Set<{ input: Extract<VehicleSensorInput, { type: "pulse" }>;
+    activations: Map<string, number> }>();
+  private snapshot: SchedulerSnapshot | null = null;
   private initialized = false;
   private timer: NodeJS.Timeout | null = null;
   private readonly pendingObservationFixtures = new Set<string>();
@@ -125,9 +139,17 @@ export class ScheduleRuntime {
   constructor(private readonly options: ScheduleRuntimeOptions) {
     this.wallClock = options.wallClock ?? (() => new Date());
     this.monotonicClock = options.monotonicClock ?? (() => performance.now());
+    if (options.bioPulseTestProfile && options.bioProductPulse) throw new Error("bio_pulse_dependency_conflict");
+    this.bioProduct = options.bioProductPulse ? new BioProductPulseController(options.bioProductPulse, options.store,
+      this.wallClock, this.monotonicClock, activationId => this.bioArrivalBlocksRelease(activationId)) : null;
+    this.bio = this.bioProduct ?? (options.bioPulseTestProfile
+      ? new BioPulseScheduler(options.bioPulseTestProfile, options.store, this.wallClock, this.monotonicClock,
+        activationId => this.bioArrivalBlocksRelease(activationId)) : null);
     this.vehicleRuntime = new VehicleEventRuntime({
       wallClock: this.wallClock,
-      monotonicClock: this.monotonicClock
+      monotonicClock: this.monotonicClock,
+      bioConnection: () => this.bio?.connection() ?? null,
+      bioSourceHealth: source => this.bio?.health(source) ?? null
     });
   }
 
@@ -151,23 +173,95 @@ export class ScheduleRuntime {
     return this.options.store.read();
   }
 
+  isBioSourceTarget(fixtureIds: readonly string[]): boolean {
+    return isActiveBioSourceTarget(this.snapshot, fixtureIds);
+  }
+
   pendingObservationFixtureIds() {
     return [...this.pendingObservationFixtures];
   }
 
   get currentSnapshot() {
-    return this.snapshot ? structuredClone(this.snapshot) : null;
+    // The synthetic seam must not masquerade as an authenticated configuration.
+    // Product V2 retains its version so BlueZ peers still receive source refresh.
+    return this.options.bioPulseTestProfile && this.snapshot?.schemaVersion === 2 ? null : structuredClone(this.snapshot);
   }
 
-  recompute(snapshot: AutomationSnapshotV1): Promise<DesiredLightingState> {
+  recompute(snapshot: SchedulerSnapshot, degradedBioRecovery = false): Promise<DesiredLightingState> {
     return this.enqueue(async () => {
       await this.ensureInitialized();
+      if (this.options.bioPulseTestProfile && this.snapshot?.schemaVersion === 2) throw new Error("bio_test_snapshot_change_unavailable");
+      // Protocol support is configuration ability only. Product BIO pulse
+      // activation still needs the later independent authority/HIL integration.
+      if (!this.bioProduct && snapshot.schemaVersion === 2 && snapshot.vehicleEventRules.some(rule =>
+        rule.sensorProtocol === "bio-usb-pulse" && rule.status === "enabled")) {
+        throw new Error("bio_pulse_control_unavailable");
+      }
       if (this.activationCheckpoint) throw new Error("automation config activation is already pending");
-      this.beginActivation();
+      const bioCheckpoint = this.bioProduct?.checkpoint();
+      if (degradedBioRecovery) this.bioProduct?.recoverDegraded(snapshot);
+      else await this.bioProduct?.prepare(snapshot);
+      this.beginActivation(bioCheckpoint);
       const computed = await this.reconcile(snapshot);
       this.pendingActivationLifecycle = computed.lifecycleEvents;
       this.snapshot = snapshot;
       return computed.desired;
+    });
+  }
+
+  async preflightBioSnapshot(snapshot: SchedulerSnapshot): Promise<void> {
+    if (!this.bioProduct || this.stopping) throw new Error("bio_pulse_control_unavailable");
+    await this.bioProduct.validate(snapshot);
+  }
+
+  recordQualifiedBioPulse(input: Extract<VehicleSensorInput, { type: "pulse" }>): Promise<void> {
+    if (!this.bioProduct || this.stopping) return Promise.reject(new Error("bio_pulse_control_unavailable"));
+    const authority = this.options.bioProductPulse!.source.sourceAuthority(input.sourceFixtureId);
+    if (!authority?.independentlyQualified || authority.observation.health !== "healthy"
+      || authority.connection.epoch !== input.receipt.connectionEpoch || authority.connection.generation !== input.receipt.connectionGeneration) {
+      return Promise.reject(new Error("bio_source_authority_unverified"));
+    }
+    // Reset the fault interval only from independently qualified source evidence,
+    // then register the original receipt before any asynchronous reconciliation.
+    this.bioProduct.setHealth(input.sourceFixtureId, "healthy", "qualified");
+    return this.recordVehicleSensorInput(input);
+  }
+
+  /** Local synthetic seam only. Does not accept or emit a config/ACK wire message. */
+  activateBioPulseTestSnapshot(snapshot: AutomationSnapshotV2): Promise<void> {
+    return this.runExternal(async () => {
+      await this.ensureInitialized();
+      if (!this.bio) throw new Error("bio_pulse_control_unavailable");
+      this.snapshot = this.bio.install(snapshot);
+      await this.applyComputed(await this.reconcile(this.snapshot));
+    });
+  }
+
+  setBioSourceHealth(sourceFixtureId: string, health: BioSourceHealth, reason: string): Promise<void> {
+    // Revoke immediately, before waiting behind an asynchronous RF/GET operation.
+    // A healthy hint cannot replace the independently qualified authority callback.
+    if (!this.bio) return Promise.reject(new Error("bio_pulse_control_unavailable"));
+    this.bio.setHealth(sourceFixtureId, health, reason);
+    return this.runExternal(async () => {
+      await this.ensureInitialized();
+      if (this.snapshot) await this.applyComputed(await this.reconcile(this.snapshot));
+    });
+  }
+
+  releaseBioEvent(ruleId: string): Promise<void> {
+    return this.runExternal(async () => {
+      await this.ensureInitialized();
+      if (!this.bio || this.snapshot?.schemaVersion !== 2) throw new Error("bio_pulse_control_unavailable");
+      let deadlines: Array<[string, number]> = [];
+      await this.options.store.updateDurable(state => {
+        const planned = this.vehicleRuntime.planRelease(state, ruleId);
+        deadlines = planned.holdDeadlines;
+        const events = this.bio!.requestRelease(state, ruleId, planned.events);
+        this.appendTelemetryHandoff(state, lifecycleTelemetryRecords({ revision: this.snapshot!.revision, events }));
+        return state;
+      });
+      this.vehicleRuntime.restore(deadlines);
+      await this.applyComputed(this.computeDesired(this.snapshot, this.state()));
     });
   }
 
@@ -183,7 +277,19 @@ export class ScheduleRuntime {
       const checkpoint = this.activationCheckpoint;
       if (!checkpoint) return;
       try {
-        await this.options.store.updateControlState(() => structuredClone(checkpoint.state));
+        await this.options.store.updateControlState(current => {
+          const restored = structuredClone(checkpoint.state);
+          if (this.bioProduct) {
+            restored.bioActivationsByRule = current.bioActivationsByRule;
+            restored.bioTargetsByFixture = current.bioTargetsByFixture;
+            restored.bioPulseInbox = current.bioPulseInbox;
+            restored.pendingTelemetryHandoffs = current.pendingTelemetryHandoffs;
+            for (const [id, rule] of Object.entries(restored.vehicleRules)) if (rule.sensorProtocol === "bio-usb-pulse") delete restored.vehicleRules[id];
+            for (const [id, rule] of Object.entries(current.vehicleRules)) if (rule.sensorProtocol === "bio-usb-pulse") restored.vehicleRules[id] = rule;
+          }
+          return restored;
+        });
+        if (checkpoint.bioProduct) this.bioProduct?.rollback(checkpoint.bioProduct);
         this.snapshot = checkpoint.snapshot ? structuredClone(checkpoint.snapshot) : null;
         this.vehicleRuntime.restore(checkpoint.vehicleHoldDeadlines);
       } finally {
@@ -229,6 +335,7 @@ export class ScheduleRuntime {
   stopAndDrain() {
     if (this.stopPromise) return this.stopPromise;
     this.stopping = true;
+    this.bioProduct?.stop();
     if (this.timer) {
       clearInterval(this.timer);
       this.timer = null;
@@ -249,7 +356,7 @@ export class ScheduleRuntime {
       validateBrightness(brightness);
       let recoveredAction: DesiredLightingAction | null = null;
       let recoveredResult: AutomationExecutionFixtureResultV1 | null = null;
-      await this.options.store.updateControlState((state) => {
+      await this.updateState((state) => {
         state.currentByFixture[fixtureId] = brightness;
         const transition = state.transitionsByFixture[fixtureId];
         const legacyDesired = state.unverifiedDesiredByFixture[fixtureId];
@@ -307,6 +414,9 @@ export class ScheduleRuntime {
         if (manual && recoveredResult) {
           // This is a fresh observation, even when the pending request survived a restart.
           settleManualControl(state, fixtureId, manual.sourceId, recoveredResult, "live");
+          if (recoveredResult.status === "succeeded" && recoveredResult.brightnessPercent !== null) {
+            this.bio?.retireManualTargets(state, fixtureId);
+          }
         }
         return state;
       });
@@ -338,12 +448,15 @@ export class ScheduleRuntime {
     return this.runExternal(async () => {
       await this.ensureInitialized();
       validateManualControl(input);
+      if (this.isBioSourceTarget(input.fixtureIds)) {
+        throw new Error("bio_source_target_forbidden");
+      }
       stage = "persisting_state";
-      await this.options.store.updateControlState((state) => {
+      await this.updateState((state) => {
         for (const fixtureId of input.fixtureIds) {
           const base = state.baseBrightnessByFixture[fixtureId] ??
             state.currentByFixture[fixtureId] ?? state.lastDesiredByFixture[fixtureId] ?? null;
-          if (base === null && !this.options.allowManualStateInitialization) {
+          if (base === null && !this.options.allowManualStateInitialization && !this.bio?.hasTarget(fixtureId)) {
             throw new ScheduleRuntimeError("automation_current_state_unavailable");
           }
           state.pendingManualControls[fixtureId] = {
@@ -418,7 +531,7 @@ export class ScheduleRuntime {
       const actions: DesiredLightingAction[] = [];
       const settledFixtures: string[] = [];
       const settledResults: AutomationExecutionFixtureResultV1[] = [];
-      await this.options.store.updateControlState((state) => {
+      await this.updateState((state) => {
         for (const result of results) {
           const manual = state.pendingManualControls[result.fixtureId];
           if (manual?.sourceId !== sourceId) continue;
@@ -427,6 +540,9 @@ export class ScheduleRuntime {
             sourceType: "manual_override", sourceId, occurrenceKey: null
           });
           settleManualControl(state, result.fixtureId, sourceId, result, context);
+          if (result.status === "succeeded" && result.brightnessPercent !== null) {
+            this.bio?.retireManualTargets(state, result.fixtureId);
+          }
           settledFixtures.push(result.fixtureId);
           settledResults.push(result);
         }
@@ -453,12 +569,15 @@ export class ScheduleRuntime {
   }
 
   recordVehicleSensorInput(input: VehicleSensorInput): Promise<void> {
+    // BIO RF execution remains closed until independent source health and target
+    // mode restoration are integrated. Candidate intake alone is not readiness.
+    if (input.type === "pulse") return this.recordBioPulse(input).then(() => undefined);
     return this.runExternal(async () => {
       await this.ensureInitialized();
       if (!this.snapshot) return;
       let lifecycleEvents: VehicleLifecycleEvent[] = [];
       let holdDeadlines: Array<[string, number]> | undefined;
-      await this.options.store.updateControlState((state) => {
+      await this.updateState((state) => {
         const planned = this.vehicleRuntime.planRecordInput(state, this.snapshot!, input);
         lifecycleEvents = planned.events;
         holdDeadlines = planned.holdDeadlines;
@@ -479,6 +598,7 @@ export class ScheduleRuntime {
     input: Exclude<VehicleSensorInput, { type: "current-state" }>,
     identity: VehicleSensorEventIdentity
   ): Promise<boolean> {
+    if (input.type === "pulse") return this.recordBioPulse(input);
     return this.runExternal(async () => {
       await this.ensureInitialized();
       if (!this.snapshot) return false;
@@ -503,16 +623,122 @@ export class ScheduleRuntime {
     });
   }
 
-  private async reconcile(snapshot: AutomationSnapshotV1): Promise<ComputedDesiredState> {
+  private recordBioPulse(input: Extract<VehicleSensorInput, { type: "pulse" }>): Promise<boolean> {
+    if (!this.bio) return Promise.reject(new Error("bio_pulse_control_unavailable"));
+    const exact = structuredClone(input);
+    let arrival: ReturnType<ScheduleRuntime["registerBioArrival"]>;
+    try { arrival = this.registerBioArrival(exact); } catch (error) { return Promise.reject(error); }
+    const pendingArrivalActivations = new Set(arrival?.activations.keys());
+    return this.runExternal(async () => {
+      await this.ensureInitialized();
+      this.bio!.assertPulse(exact);
+      // Classify against receipt time before reconciling the later processing
+      // clock. A queued, on-time pulse still belongs to its original activation
+      // (and manual suppression), even when the old deadline passed in the queue.
+      const previewState = this.state();
+      this.bio!.resumeAutomaticReleases(previewState, exact, pendingArrivalActivations);
+      const preview = this.vehicleRuntime.planRecordInput(previewState, this.snapshot!, exact);
+      if (!preview.events.some(event => event.kind === "vehicle_detected")) return false;
+      const expired = new Set(preview.events.filter(event => event.kind === "event_ended" &&
+        event.payload.reason === "hold_expired").map(event => event.ruleId));
+      if (expired.size) {
+        const remainingDeadlines = this.vehicleRuntime.checkpoint().filter(([ruleId]) => !expired.has(ruleId));
+        await this.options.store.updateDurable(state => {
+          const releases = [...expired].flatMap(ruleId => this.vehicleRuntime.planRelease(state, ruleId).events)
+            .map(event => ({ ...event, payload: { ...event.payload, reason: "hold_expired" } }));
+          const projected = this.bio!.stage(state, releases);
+          this.appendTelemetryHandoff(state, lifecycleTelemetryRecords({ revision: this.snapshot!.revision, events: projected }));
+          return state;
+        });
+        this.vehicleRuntime.restore(remainingDeadlines);
+        // Only close rules whose own deadline expired before this receipt.
+        // Another rule on this source may instead be renewing a pending release;
+        // it must not restore/reapply before that renewal is durably committed.
+        await this.bio!.apply(expired);
+        await this.flushTelemetryHandoffs();
+        if ([...expired].some(ruleId => !this.state().bioActivationsByRule[ruleId]?.completed)) {
+          throw new Error("bio_release_pending");
+        }
+      }
+      this.bio!.assertPulse(exact);
+      let events: VehicleLifecycleEvent[] = [];
+      let deadlines: Array<[string, number]> = [];
+      await this.options.store.updateDurable(state => {
+        this.bio!.assertPulse(exact);
+        const previous = structuredClone(state);
+        const resumed = this.bio!.resumeAutomaticReleases(state, exact, pendingArrivalActivations);
+        const planned = this.vehicleRuntime.planRecordInput(state, this.snapshot!, exact);
+        if (!planned.events.some(event => event.kind === "vehicle_detected")) {
+          deadlines = this.vehicleRuntime.checkpoint();
+          return previous;
+        }
+        deadlines = planned.holdDeadlines;
+        events = this.bio!.stage(state, [...resumed, ...planned.events]);
+        pruneManualSuppressions(state, this.snapshot!);
+        this.appendTelemetryHandoff(state, lifecycleTelemetryRecords({ revision: this.snapshot!.revision, events }));
+        return state;
+      });
+      this.vehicleRuntime.restore(deadlines);
+      if (events.length) await this.applyComputed(this.computeDesired(this.snapshot!, this.state(), events));
+      return events.some(event => event.kind === "vehicle_detected");
+    }).finally(() => { if (arrival) this.bioArrivals.delete(arrival); });
+  }
+
+  private registerBioArrival(input: Extract<VehicleSensorInput, { type: "pulse" }>) {
+    if (!this.initialized || !this.snapshot) return null;
+    this.bio!.assertPulse(input);
+    const state = this.state();
+    this.bio!.resumeAutomaticReleases(state, input);
+    const preview = this.vehicleRuntime.planRecordInput(state, this.snapshot, input);
+    const activations = new Map<string, number>();
+    for (const event of preview.events) {
+      if (event.kind !== "vehicle_detected") continue;
+      const activation = this.state().bioActivationsByRule[event.ruleId];
+      const rule = this.snapshot.vehicleEventRules.find(rule => rule.id === event.ruleId);
+      if (rule && activation && !activation.completed && event.occurrenceKey === activation.activationId) {
+        activations.set(activation.activationId, input.receivedMonotonicMs + rule.holdSeconds * 1000);
+      }
+    }
+    if (!activations.size) return null;
+    // Arrival is only a bounded expiry veto, never an accepted receipt, durable
+    // occurrence or RF authority. An in-flight async tick may have started before
+    // this on-time pulse; the serialized worker must still validate+commit it.
+    if (this.bioArrivals.size >= 256) throw new Error("bio_pulse_arrival_capacity");
+    const arrival = { input, activations };
+    this.bioArrivals.add(arrival);
+    return arrival;
+  }
+
+  private bioArrivalBlocksRelease(activationId: string) {
+    for (const arrival of this.bioArrivals) {
+      if ((arrival.activations.get(activationId) ?? -Infinity) <= this.monotonicClock()) continue;
+      try { this.bio!.assertPulse(arrival.input); } catch { continue; }
+      const connection = this.bio!.connection();
+      const health = this.bio!.health(arrival.input.sourceFixtureId);
+      if (arrival.input.receipt.connectionEpoch !== connection?.epoch ||
+        arrival.input.receipt.connectionGeneration !== connection?.generation || !health ||
+        arrival.input.receivedMonotonicMs < health.healthySinceMonotonicMs) continue;
+      return true;
+    }
+    return false;
+  }
+
+  private updateState(mutation: (state: PersistedAutomationStateV4) => PersistedAutomationStateV4) {
+    // BIO receipt/status/manual retirement must never enter the V1 ENOSPC memory fallback.
+    return this.snapshot?.schemaVersion === 2 ? this.options.store.updateDurable(mutation)
+      : this.options.store.updateControlState(mutation);
+  }
+
+  private async reconcile(snapshot: SchedulerSnapshot): Promise<ComputedDesiredState> {
     const previousSnapshot = this.snapshot;
     const now = this.wallClock();
     const trusted = await this.options.clockTrust.isTrusted(now);
     const lifecycleEvents: AutomationLifecycleEvent[] = [];
     let vehicleHoldDeadlines: Array<[string, number]> | undefined;
-    await this.options.store.updateControlState((state) => {
+    await this.updateState((state) => {
       const vehicle = this.vehicleRuntime.planReconcile(state, snapshot, trusted);
       vehicleHoldDeadlines = vehicle.holdDeadlines;
-      lifecycleEvents.push(...vehicle.events);
+      lifecycleEvents.push(...(this.bio?.stage(state, vehicle.events) ?? vehicle.events));
       lifecycleEvents.push(...reconcileSchedules(state, snapshot, now, trusted));
       pruneManualSuppressions(state, snapshot);
       const tagged = lifecycleEvents.map((event) => tagLifecycleRevision(event, snapshot, previousSnapshot));
@@ -528,8 +754,8 @@ export class ScheduleRuntime {
     );
   }
 
-  private async captureMissingBases(snapshot: AutomationSnapshotV1) {
-    await this.options.store.updateControlState((state) => {
+  private async captureMissingBases(snapshot: SchedulerSnapshot) {
+    await this.updateState((state) => {
       for (const [scheduleId, occurrence] of Object.entries(state.activeOccurrences)) {
         const schedule = snapshot.schedules.find((candidate) => candidate.id === scheduleId);
         if (!schedule) continue;
@@ -539,6 +765,7 @@ export class ScheduleRuntime {
         }
       }
       for (const vehicle of Object.values(state.vehicleRules)) {
+        if (vehicle.sensorProtocol === "bio-usb-pulse") continue;
         for (const fixtureId of vehicle.targetFixtureIds) {
           const base = captureBase(state, fixtureId);
           if (base !== null) vehicle.preBrightness[fixtureId] = base;
@@ -549,7 +776,7 @@ export class ScheduleRuntime {
   }
 
   private computeDesired(
-    snapshot: AutomationSnapshotV1,
+    snapshot: SchedulerSnapshot,
     state: PersistedAutomationStateV4,
     lifecycleEvents: AutomationLifecycleEvent[] = []
   ): ComputedDesiredState {
@@ -558,13 +785,21 @@ export class ScheduleRuntime {
     const fixtures = relevantFixtures(snapshot, state);
 
     for (const fixtureId of fixtures) {
+      if (this.bio?.ownsFixture(state, fixtureId)) continue;
       const events = Object.entries(state.vehicleRules)
-        .filter(([, vehicle]) => vehicle.targetFixtureIds.includes(fixtureId))
+        .filter(([ruleId, vehicle]) => vehicle.targetFixtureIds.includes(fixtureId) &&
+          // Retirement is the durable suppression authority even when a pending
+          // automatic release temporarily removed the occurrence from the arbiter.
+          !state.bioActivationsByRule[ruleId]?.retiredFixtureIds.includes(fixtureId))
         .map(([ruleId, vehicle]) => ({
           sourceId: ruleId, startedAt: vehicle.startedAt, brightness: vehicle.brightnessPercent
         }));
       const schedules = activeScheduleCandidates(snapshot, state, fixtureId);
       const hasSource = events.length > 0 || schedules.length > 0;
+      // A verified BIO configuration restore does not settle later schedule/base
+      // changes. Reapply an independently known baseline when arbitration needs
+      // it, but never invent optical brightness from a sensor configuration GET.
+      if (!hasSource && this.bio?.hasTarget(fixtureId) && state.baseBrightnessByFixture[fixtureId] === undefined) continue;
       if (hasSource && state.baseBrightnessByFixture[fixtureId] === undefined) continue;
       const current = state.baseBrightnessByFixture[fixtureId]
         ?? state.currentByFixture[fixtureId] ?? state.lastDesiredByFixture[fixtureId] ?? null;
@@ -583,8 +818,27 @@ export class ScheduleRuntime {
   }
 
   private async applyComputed(computed: ComputedDesiredState) {
+    const alreadyCompleted = new Set(Object.values(this.state().bioActivationsByRule)
+      .filter(activation => activation.completed).map(activation => activation.activationId));
+    await this.bio?.apply();
+    if (this.bio && this.snapshot) computed = this.computeDesired(this.snapshot, this.state(), computed.lifecycleEvents);
+    const terminalCauses = [...(this.bio?.completedRestorationCauses(alreadyCompleted) ?? []), ...computed.lifecycleEvents];
     const state = this.state();
-    const changed = [...computed.actions.values()].filter((action) =>
+    const changed = [...computed.actions.values()].map(action => {
+      if (!this.bio || (action.sourceType !== "current" && action.sourceType !== "default")) return action;
+      const cause = [...terminalCauses].reverse().find(event =>
+        (event.kind === "event_ended" || event.kind === "schedule_ended") &&
+        Array.isArray(event.payload.targetFixtureIds) && event.payload.targetFixtureIds.includes(action.fixtureId));
+      if (cause) return { ...action, sourceType: cause.kind === "event_ended" ? "vehicle_event_rule" as const : "schedule" as const,
+        sourceId: cause.ruleId, occurrenceKey: cause.occurrenceKey };
+      const previous = state.transitionsByFixture[action.fixtureId];
+      // Carry the exact failed/pending restoration cause through durable retries,
+      // including restart. An arbitrary historical completed BIO event is not it.
+      if (previous && previous.status !== "succeeded" && previous.brightnessPercent === action.brightnessPercent) {
+        return { ...action, sourceType: previous.sourceType, sourceId: previous.sourceId, occurrenceKey: previous.occurrenceKey };
+      }
+      return action;
+    }).filter((action) =>
       state.lastDesiredByFixture[action.fixtureId] !== action.brightnessPercent &&
       !this.pendingObservationFixtures.has(action.fixtureId) &&
       !state.pendingManualControls[action.fixtureId]
@@ -595,7 +849,7 @@ export class ScheduleRuntime {
       return;
     }
     const pendingAt = this.wallClock().toISOString();
-    await this.options.store.updateControlState((next) => {
+    await this.updateState((next) => {
       for (const action of changed) {
         const previous = next.transitionsByFixture[action.fixtureId];
         next.transitionsByFixture[action.fixtureId] = {
@@ -614,13 +868,14 @@ export class ScheduleRuntime {
     });
     let results: AutomationExecutionFixtureResultV1[];
     try {
+      if (this.isBioSourceTarget(changed.map(action => action.fixtureId))) throw new Error("bio_source_target_forbidden");
       results = validateTerminalResults(changed, await this.options.execute(changed));
     } catch (error) {
       results = failedResults(changed, this.wallClock(), error);
     }
 
     try {
-      await this.options.store.updateControlState((next) => {
+      await this.updateState((next) => {
         for (const [index, result] of results.entries()) {
           const action = changed[index]!;
           const pending = next.transitionsByFixture[result.fixtureId];
@@ -647,7 +902,7 @@ export class ScheduleRuntime {
           revision: this.snapshot!.revision,
           actions: changed,
           results,
-          causes: computed.lifecycleEvents
+          causes: terminalCauses
         }));
         return next;
       });
@@ -670,7 +925,7 @@ export class ScheduleRuntime {
     }
     await this.flushTelemetryHandoffs();
     await this.handoffLifecycle(computed.lifecycleEvents);
-    await this.handoff(changed, results, computed.lifecycleEvents);
+    await this.handoff(changed, results, terminalCauses);
   }
 
   private async handoffLifecycle(events: AutomationLifecycleEvent[]) {
@@ -717,11 +972,12 @@ export class ScheduleRuntime {
     this.initialized = true;
   }
 
-  private beginActivation() {
+  private beginActivation(bioProduct?: ReturnType<BioProductPulseController["checkpoint"]>) {
     this.activationCheckpoint = {
       snapshot: this.snapshot ? structuredClone(this.snapshot) : null,
       state: this.state(),
-      vehicleHoldDeadlines: this.vehicleRuntime.checkpoint()
+      vehicleHoldDeadlines: this.vehicleRuntime.checkpoint(),
+      ...(bioProduct ? { bioProduct } : {})
     };
     this.activationSettled = new Promise<void>((resolve) => { this.settleActivation = resolve; });
   }
@@ -773,7 +1029,7 @@ export class ScheduleRuntimeError extends Error {
 
 function reconcileSchedules(
   state: PersistedAutomationStateV4,
-  snapshot: AutomationSnapshotV1,
+  snapshot: SchedulerSnapshot,
   now: Date,
   trusted: boolean
 ) {
@@ -878,10 +1134,20 @@ function manualSuppressionAtTerminal(
         (vehicle.holdUntil === null || appliedAtMs < Date.parse(vehicle.holdUntil)))))
     .sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0)
     .map(([ruleId, vehicle]) => ({ ruleId, startedAt: vehicle.startedAt }));
+  // Manual commands can own a target when expiry requests restoration. Preserve
+  // the exact pending activation until durable release finishes, including replay.
+  for (const [ruleId, activation] of Object.entries(state.bioActivationsByRule)) {
+    if (!activation.completed && activation.targetFixtureIds.includes(fixtureId) &&
+      (context === "live" || Date.parse(activation.startedAt) <= appliedAtMs) &&
+      !vehicleEvents.some(identity => identity.ruleId === ruleId && identity.startedAt === activation.startedAt)) {
+      vehicleEvents.push({ ruleId, startedAt: activation.startedAt });
+    }
+  }
+  vehicleEvents.sort((a, b) => a.ruleId < b.ruleId ? -1 : a.ruleId > b.ruleId ? 1 : a.startedAt.localeCompare(b.startedAt));
   return { sourceId, appliedAt, schedules, vehicleEvents };
 }
 
-function pruneManualSuppressions(state: PersistedAutomationStateV4, snapshot: AutomationSnapshotV1) {
+function pruneManualSuppressions(state: PersistedAutomationStateV4, snapshot: SchedulerSnapshot) {
   for (const [fixtureId, suppression] of Object.entries(state.manualAutomationSuppressions)) {
     suppression.schedules = suppression.schedules.filter((identity) =>
       state.activeOccurrences[identity.scheduleId]?.key === identity.occurrenceKey &&
@@ -920,8 +1186,8 @@ function scheduleLifecycle(
 
 function tagLifecycleRevision(
   event: AutomationLifecycleEvent,
-  snapshot: AutomationSnapshotV1,
-  previousSnapshot: AutomationSnapshotV1 | null
+  snapshot: SchedulerSnapshot,
+  previousSnapshot: SchedulerSnapshot | null
 ): AutomationLifecycleEvent {
   const configurationEnded = (event.kind === "event_ended" || event.kind === "schedule_ended") &&
     event.payload.reason === "configuration_changed";
@@ -932,7 +1198,7 @@ function tagLifecycleRevision(
 }
 
 function activeScheduleCandidates(
-  snapshot: AutomationSnapshotV1,
+  snapshot: SchedulerSnapshot,
   state: PersistedAutomationStateV4,
   fixtureId: string
 ) {
@@ -965,7 +1231,7 @@ function captureBase(state: PersistedAutomationStateV4, fixtureId: string): numb
   return current;
 }
 
-function relevantFixtures(snapshot: AutomationSnapshotV1, state: PersistedAutomationStateV4) {
+function relevantFixtures(snapshot: SchedulerSnapshot, state: PersistedAutomationStateV4) {
   const fixtures = new Set([
     ...Object.keys(state.currentByFixture),
     ...Object.keys(state.baseBrightnessByFixture),

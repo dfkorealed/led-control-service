@@ -107,6 +107,8 @@ export interface FloorSceneProps {
   coarsePointer?: boolean;
   markerTitle?: (fixture: SceneFixture) => string;
   onFixturePress?: (fixtureId: string, anchor: HTMLButtonElement) => void;
+  /** Inspection remains available for blocked source markers; selection is still guarded by the caller. */
+  inspectDisabledFixtures?: boolean;
   onFixtureAnchorChange?: (fixtureId: string, anchor: HTMLButtonElement | null) => void;
   emphasizedFixtureIds?: ReadonlySet<string>;
   unobservedFixtureIds?: ReadonlySet<string>;
@@ -128,6 +130,7 @@ export function FloorScene({
   coarsePointer = false,
   markerTitle,
   onFixturePress,
+  inspectDisabledFixtures = false,
   onFixtureAnchorChange,
   emphasizedFixtureIds,
   unobservedFixtureIds
@@ -370,7 +373,7 @@ export function FloorScene({
             aria-label={`${fixture.name} ${statusLabel}${unobserved ? "" : ` ${fixture.brightness}%`}${accessibleState ? ` ${accessibleState}` : ""}`}
             aria-current={selection.kind === "single" && selected ? "true" : undefined}
             aria-pressed={selection.kind === "multiple" ? selected : undefined}
-            disabled={disabled}
+            disabled={disabled && !inspectDisabledFixtures}
             data-selected={selected ? "true" : "false"}
             data-disabled={disabled ? "true" : "false"}
             data-disabled-reason={disabledReason}

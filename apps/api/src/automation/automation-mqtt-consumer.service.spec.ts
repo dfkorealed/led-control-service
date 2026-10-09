@@ -17,6 +17,28 @@ const REQUEST_ID = "00000000-0000-4000-8000-000000000012";
 const NOW = new Date("2026-08-30T01:00:00.000Z");
 
 describe("AutomationMqttConsumerService", () => {
+  it("acknowledges the exact V2 snapshot only after independent support, without capability promotion", async () => {
+    const h = createHarness();
+    const row = h.state.configOutboxes.at(-1)!;
+    const { payloadHash: _oldHash, ...v1 } = row.payload;
+    const body = { ...v1, schemaVersion: 2, vehicleEventRules: v1.vehicleEventRules.map((rule: any) => ({
+      ...rule, sensorProtocol: "bio-usb-pulse", status: "disabled" })) };
+    row.payload = { ...body, payloadHash: canonicalPayloadHash(body) };
+    row.payloadHash = row.payload.payloadHash;
+    h.state.configuration.payloadHash = row.payloadHash;
+    const old = configAck(5, "applied", row.payloadHash);
+    const delivery = { ...old, schemaVersion: 2, acknowledgement: { ...old.acknowledgement, schemaVersion: 2 } };
+    await h.service.onConfigApplied({ siteId: SITE_ID, gatewayId: GATEWAY_ID }, delivery);
+    expect(h.state.configuration.appliedRevision).toBe(2);
+    h.state.protocolVersion = 2;
+    await h.service.onConfigApplied({ siteId: SITE_ID, gatewayId: GATEWAY_ID }, old);
+    expect(h.state.configuration.appliedRevision).toBe(2);
+    const receipt = await h.service.onConfigApplied({ siteId: SITE_ID, gatewayId: GATEWAY_ID }, delivery);
+    expect(receipt).toMatchObject({ schemaVersion: 2, acknowledgement: { schemaVersion: 2, status: "applied" } });
+    expect(h.state.configuration.appliedRevision).toBe(5);
+    expect(h.capability.applyReport).not.toHaveBeenCalled();
+    expect(h.state.applicationAcks).toHaveLength(1);
+  });
   it("routes only exact automation topics and binds capability topic IDs to the strict payload", async () => {
     const harness = createHarness();
     const report = capabilityReport();
@@ -61,6 +83,29 @@ describe("AutomationMqttConsumerService", () => {
     expect(harness.state.configuration).toMatchObject({ appliedRevision: 2, syncStatus: "PENDING" });
   });
 
+  it("routes only strict assignment-bound BIO capability deliveries on the existing topic", async () => {
+    const h = createHarness();
+    const report = { schemaVersion: 2, eventId: EVENT_ID, siteId: SITE_ID, gatewayId: GATEWAY_ID,
+      meshNodeId: MESH_NODE_ID, capabilityRevision: 1, sensorProtocol: "bio-usb-pulse",
+      readiness: "shadow", verifiedFingerprintId: null, sensorModeVerifiedAt: null, verifiedAt: NOW.toISOString() };
+    const delivery = { schemaVersion: 2, assignmentVersion: 1, report };
+    const topic = mqttTopics.vehicleSensorCapabilityReport(SITE_ID, GATEWAY_ID);
+    await h.service.handleMessage(topic, Buffer.from(JSON.stringify(delivery)));
+    expect(h.capability.applyBioDelivery).toHaveBeenCalledWith(delivery, {
+      siteId: SITE_ID, gatewayId: GATEWAY_ID, requireActiveClaim: true
+    });
+    expect(h.capability.applyReport).not.toHaveBeenCalled();
+    h.capability.applyBioDelivery.mockClear();
+    for (const invalid of [report, { ...delivery, extra: true }, { ...delivery, assignmentVersion: 0 },
+      { ...delivery, report: { ...report, siteId: OTHER_SITE_ID } },
+      { ...delivery, report: { ...report, gatewayId: OTHER_GATEWAY_ID } },
+      { ...delivery, report: { ...report, innerBodyHex: "0101" } }]) {
+      await h.service.handleMessage(topic, Buffer.from(JSON.stringify(invalid)));
+    }
+    expect(h.capability.applyBioDelivery).not.toHaveBeenCalled();
+    expect(h.capability.applyReport).not.toHaveBeenCalled();
+  });
+
   it("authenticates a current-config request and revives the exact latest full snapshot without changing APPLIED state", async () => {
     const harness = createHarness();
     const latest = harness.state.configOutboxes.at(-1)!;
@@ -100,6 +145,14 @@ describe("AutomationMqttConsumerService", () => {
       supersededAt: null,
       lastError: null
     });
+  });
+  it("does not redeliver old enabled snapshot before committed current-scope convergence settles", async () => {
+    const h = createHarness(); const latest = h.state.configOutboxes.at(-1)!; latest.publishedAt = NOW;
+    const original = h.prisma.$queryRaw.getMockImplementation()!;
+    h.prisma.$queryRaw.mockImplementation(async (query: { strings?: readonly string[] }) => query.strings?.join(" ").includes('"BioSensorConvergenceWork"')
+      ? [{ pending: true }] : original(query));
+    await h.service.onCurrentConfigRequest({ siteId: SITE_ID, gatewayId: GATEWAY_ID }, currentConfigRequest());
+    expect(latest.publishedAt).toEqual(NOW);
   });
 
   it("creates a durable exact config-applied receipt on first ingest and revives it on replay", async () => {
@@ -427,6 +480,7 @@ describe("AutomationMqttConsumerService", () => {
 
 function createHarness() {
   const state: State = {
+    protocolVersion: 1,
     identityActive: true,
     failAckCreate: false,
     configuration: {
@@ -469,7 +523,7 @@ function createHarness() {
     applicationAcks: []
   };
   const prisma = createPrisma(state);
-  const capability = { applyReport: jest.fn().mockResolvedValue({}) };
+  const capability = { applyReport: jest.fn().mockResolvedValue({}), applyBioDelivery: jest.fn().mockResolvedValue({}) };
   const service = new AutomationMqttConsumerService(
     prisma as never,
     capability as never,
@@ -480,14 +534,16 @@ function createHarness() {
 
 function createPrisma(state: State) {
   const tx: any = {
+    $executeRaw: jest.fn(async () => 1),
     $queryRaw: jest.fn(async (query: { strings?: readonly string[] }) => {
       const sql = query.strings?.join(" ") ?? "";
       if (sql.includes('FROM "GatewayAutomationConfiguration"')) {
         return state.identityActive ? [structuredClone(state.configuration)] : [];
       }
-      if (sql.includes('FROM "Gateway"')) return state.identityActive ? [{ id: GATEWAY_ID }] : [];
+      if (sql.includes('FROM "Gateway"')) return state.identityActive ? [{ id: GATEWAY_ID, assignmentVersion: 1 }] : [];
       return [];
     }),
+    gatewayAutomationProtocolSupport: { findFirst: async () => ({ maxSnapshotVersion: state.protocolVersion }) },
     mqttOutbox: {
       findFirst: jest.fn(async ({ where }: any) => state.configOutboxes.find((row) =>
         row.gatewayId === where.gatewayId && row.revision === where.revision &&
@@ -699,6 +755,7 @@ function restoreState(state: State, before: State) {
 }
 
 interface State {
+  protocolVersion: number;
   identityActive: boolean;
   failAckCreate: boolean;
   configuration: any;

@@ -174,6 +174,11 @@ describe("SitesService", () => {
 
     expect(siteAccess.capabilities).toHaveBeenCalledWith(user, "site-1");
     expect(dashboard.capabilities).toEqual({ read: true, control: true, manage: true, commission: true });
+    expect(dashboard.floors[0].fixtures[0].vehicleEventSource).toMatchObject({ sensorProtocol: "bluez-stateful", sourceEligible: true, readiness: "ready" });
+    expect(prisma.fixture.findMany).toHaveBeenCalledWith(expect.objectContaining({ include: expect.objectContaining({
+      sensorModeOperations: { orderBy: [{ requestedAt: "desc" }, { commandId: "desc" }], take: 1 },
+      vehicleEventSources: expect.objectContaining({ where: { rule: { status: "enabled", sensorProtocol: "bio_usb_pulse" } } })
+    }) }));
     expect(dashboard.site).toEqual({
       id: "site-1",
       name: "Demo Site",

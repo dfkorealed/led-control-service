@@ -23,6 +23,19 @@ function validForm(overrides: Partial<VehicleEventFormValues> = {}): VehicleEven
 }
 
 describe("vehicle event form", () => {
+  it.each([["9", false], ["10", true], ["60", true], ["1800", true], ["1801", false]] as const)("validates BIO hold %s without changing BlueZ bounds", (holdSeconds, valid) => {
+    expect(Boolean(validateVehicleEventForm(validForm({ holdSeconds }), "bio-usb-pulse").holdSeconds)).toBe(!valid);
+    expect(validateVehicleEventForm(validForm({ holdSeconds: "5" }), "bluez-stateful")).toEqual({});
+  });
+
+  it("preserves an edited BIO hold and never submits server capability fields", () => {
+    expect(createEmptyVehicleEventForm().holdSeconds).toBe("60");
+    const input = vehicleEventFormToInput(validForm({ holdSeconds: "10" }), "disabled", "bio-usb-pulse");
+    expect(vehicleEventRuleToFormValues(input).holdSeconds).toBe("10");
+    expect(input).not.toHaveProperty("sensorProtocol");
+    expect(input).not.toHaveProperty("readiness");
+    expect(() => vehicleEventFormToInput(validForm({ holdSeconds: "9" }), "disabled", "bio-usb-pulse")).toThrow();
+  });
   it("requires source sensors, target lights, valid brightness, and a bounded hold", () => {
     expect(validateVehicleEventForm(validForm({ sourceFixtureIds: [], targetFixtureIds: [] }))).toMatchObject({
       sourceFixtureIds: "감지 센서를 한 개 이상 선택하세요.",

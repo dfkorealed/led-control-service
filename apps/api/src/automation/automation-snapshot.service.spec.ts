@@ -20,6 +20,95 @@ describe("AutomationSnapshotService", () => {
     expect(tx.$executeRaw).toHaveBeenCalledTimes(1);
   });
 
+  it.each([
+    ["bio_usb_pulse", "enabled", "bio_usb_pulse", "enabled", false],
+    ["bio_usb_pulse", "enabled", "bluez_stateful", "enabled", false],
+    ["bluez_stateful", "enabled", "bio_usb_pulse", "enabled", false],
+    ["bio_usb_pulse", "enabled", "bio_usb_pulse", "disabled", true],
+    ["bio_usb_pulse", "enabled", "bluez_stateful", "disabled", true],
+    ["bio_usb_pulse", "disabled", "bluez_stateful", "enabled", true],
+    ["bluez_stateful", "enabled", "bluez_stateful", "enabled", true]
+  ])("Task6: target reservation %s/%s against %s/%s (allowed=%s)", async (leftProtocol, leftStatus, rightProtocol, rightStatus, allowed) => {
+    // Catch active BIO overlap in either rule order, without reserving disabled
+    // drafts or changing legacy BlueZ/BlueZ arbitration. Resolve IDs upstream.
+    const rows = [
+      { id: SCHEDULE_A, sensorProtocol: leftProtocol, status: leftStatus, targets: [{ fixtureId: FIXTURE_A }, { fixtureId: FIXTURE_B }] },
+      { id: SCHEDULE_B, sensorProtocol: rightProtocol, status: rightStatus, targets: [{ fixtureId: FIXTURE_B }] }
+    ].map(row => ({ ...row, name: "Synthetic rule", dimmingEnabled: true, brightnessPercent: 75, holdSeconds: 10,
+      sources: [{ fixtureId: FIXTURE_A, fixture: { meshNodeId: FIXTURE_A } }] }));
+    const payloads: any[] = []; let configurationWritten = false;
+    const tx = {
+      gateway: { findUnique: async () => ({ id: GATEWAY_ID, siteId: SITE_ID, assignmentVersion: 1,
+        site: { timeZone: "Asia/Seoul" }, automationConfiguration: null,
+        inventory: { id: "synthetic", claimedAt: generatedAt, disabledAt: null },
+        certificates: [{ inventoryId: "synthetic" }],
+        automationProtocolDeclarations: [{ assignmentVersion: 1, maxSnapshotVersion: 2 }] }) },
+      lightingSchedule: { updateMany: async () => ({}), findMany: async () => [] },
+      vehicleEventRule: { updateMany: async () => ({}), findMany: async () => rows },
+      gatewayAutomationConfiguration: { upsert: async () => { configurationWritten = true; return {}; } },
+      mqttOutbox: { create: async ({ data }: any) => { payloads.push(data.payload); } }
+    };
+    if (allowed) {
+      await service.incrementDesiredRevision(tx as never, GATEWAY_ID);
+      expect(payloads[0].vehicleEventRules.map((rule: any) => rule.status)).toEqual([leftStatus, rightStatus]);
+    } else {
+      await expect(service.incrementDesiredRevision(tx as never, GATEWAY_ID)).rejects.toMatchObject({
+        response: { code: "bio_target_activation_conflict", message: expect.any(String) }
+      });
+      expect(configurationWritten).toBe(false); expect(payloads).toEqual([]);
+    }
+  });
+
+  it("excludes BIO drafts from V1 even when a Gateway has BlueZ rules", async () => {
+    const tx = {
+      gateway: { findUnique: async () => ({ id: GATEWAY_ID, siteId: SITE_ID,
+        site: { timeZone: "Asia/Seoul" }, automationConfiguration: null }) },
+      lightingSchedule: { updateMany: async () => ({}), findMany: async () => [] },
+      vehicleEventRule: { updateMany: async () => ({}), findMany: async () => [{
+        id: SCHEDULE_A, name: "BIO", sensorProtocol: "bio_usb_pulse", status: "disabled",
+        dimmingEnabled: true, brightnessPercent: 70, holdSeconds: 60,
+        sources: [{ fixtureId: FIXTURE_A }], targets: [{ fixtureId: FIXTURE_B }]
+      }] },
+      gatewayAutomationConfiguration: { upsert: async () => ({}) },
+      mqttOutbox: { create: jest.fn(async () => ({})) }
+    };
+    await service.incrementDesiredRevision(tx as never, GATEWAY_ID);
+    expect((tx.mqttOutbox.create.mock.calls as unknown as Array<[{ data: { payload: unknown } }]>)[0][0].data.payload)
+      .toMatchObject({ schemaVersion: 1, vehicleEventRules: [] });
+  });
+
+  it("publishes BIO only as V2 after a current authenticated explicit declaration", async () => {
+    const gateway = { id: GATEWAY_ID, siteId: SITE_ID, assignmentVersion: 2,
+      site: { timeZone: "Asia/Seoul" }, automationConfiguration: null,
+      inventory: { id: "claimed-inventory", claimedAt: generatedAt, disabledAt: null },
+      certificates: [{ id: "active", inventoryId: "claimed-inventory" }],
+      automationProtocolDeclarations: [{ assignmentVersion: 2, maxSnapshotVersion: 2 }] };
+    const payloads: any[] = [];
+    const tx = {
+      gateway: { findUnique: async () => gateway },
+      lightingSchedule: { updateMany: async () => ({}), findMany: async () => [] },
+      vehicleEventRule: { updateMany: async () => ({}), findMany: async () => [{
+        id: SCHEDULE_A, name: "BIO", sensorProtocol: "bio_usb_pulse", status: "disabled",
+        dimmingEnabled: true, brightnessPercent: 70, holdSeconds: 10,
+        sources: [{ fixtureId: FIXTURE_A, fixture: { meshNodeId: "00000000-0000-4000-8000-000000000009" } }], targets: [{ fixtureId: FIXTURE_B }]
+      }] },
+      gatewayAutomationConfiguration: { upsert: async () => ({}) },
+      mqttOutbox: { create: async ({ data }: any) => { payloads.push(data.payload); } }
+    };
+    await service.incrementDesiredRevision(tx as never, GATEWAY_ID);
+    expect(payloads[0]).toMatchObject({ schemaVersion: 2,
+      vehicleEventRules: [{ sensorProtocol: "bio-usb-pulse", holdSeconds: 10, status: "disabled" }] });
+    const { payloadHash, ...body } = payloads[0];
+    expect(payloadHash).toBe(`sha256:${createHash("sha256").update(independentCanonicalJson(body)).digest("hex")}`);
+    gateway.assignmentVersion = 3;
+    await service.incrementDesiredRevision(tx as never, GATEWAY_ID);
+    expect(payloads[1]).toMatchObject({ schemaVersion: 1, vehicleEventRules: [] });
+    gateway.assignmentVersion = 2;
+    gateway.certificates[0].inventoryId = "unrelated-inventory";
+    await service.incrementDesiredRevision(tx as never, GATEWAY_ID);
+    expect(payloads[2]).toMatchObject({ schemaVersion: 1, vehicleEventRules: [] });
+  });
+
   it("writes a stable normalized full snapshot and independently verifiable dedup identity", async () => {
     const mqttOutboxCreate = jest.fn().mockResolvedValue({ id: "outbox" });
     const tx = {

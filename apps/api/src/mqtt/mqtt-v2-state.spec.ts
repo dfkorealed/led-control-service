@@ -17,6 +17,30 @@ const scope = {
 };
 
 describe("MqttService v2 ordered state", () => {
+  it("commits the sensor mode result before PUBACK and application ACK without fixture state ingestion", async () => {
+    const commit = deferred<void>();
+    const event = fixtureEvent(1);
+    const consumer = { ingest: jest.fn(async () => {
+      await commit.promise;
+      return { eventId: event.eventId, sequence: event.sequence, fixtureId: event.fixtureId, status: "ingested" };
+    }) };
+    const service = new MqttService({} as never, {} as never, undefined, undefined, undefined, undefined, undefined,
+      undefined, undefined, undefined, undefined, undefined, undefined, consumer as never);
+    const client = mqttClientHarness(service);
+    const publish = jest.spyOn(service, "publishTopic").mockResolvedValue();
+    const done = jest.fn();
+    mqttInternals(service).createCustomHandleAcks()(`sites/${scope.siteId}/gateways/${scope.gatewayId}/events/bio-sensor-mode-result`,
+      Buffer.from(JSON.stringify(event)), { qos: 1, messageId: 108 }, done);
+    await flushPromises();
+    expect(done).not.toHaveBeenCalled(); expect(publish).not.toHaveBeenCalled();
+    commit.resolve();
+    await waitFor(() => done.mock.calls.length === 1);
+    await service.stopInboundAndDrain();
+    expect(done).toHaveBeenCalledWith(0);
+    expect(publish).toHaveBeenCalledWith(`sites/${scope.siteId}/gateways/${scope.gatewayId}/acks/state-ingested`,
+      expect.objectContaining({ eventId: event.eventId, status: "ingested" }), expect.anything());
+    expect(client.stream.destroy).not.toHaveBeenCalled();
+  });
   it("reconciles a legacy heartbeat only after the owning gateway lock without refreshing the gateway", async () => {
     const { service, gateway, tx, ledger } = heartbeatHarness();
     const event = heartbeatEvent();

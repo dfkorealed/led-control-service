@@ -17,6 +17,7 @@ import { createManualControlCoordinator } from "../index";
 import { AutomationTelemetryGapJournal } from "../automation/automation-telemetry-gap-journal";
 import { StorageHeadroomManager } from "../storage/storage-headroom-manager";
 import { writeJsonAtomic } from "../mesh/mesh-store-file";
+import type { BleMeshAdapter } from "../gateway";
 
 const command = {
   commandId: "11111111-1111-4111-8111-111111111111",
@@ -35,6 +36,53 @@ const command = {
 };
 
 describe("handleGatewayDimmingCommand", () => {
+  it.each([false, true])("protects an automation target at adapter entry and native write (late=%s)", async late => {
+    let protectedSource = !late;
+    const nativeWrite = vi.fn();
+    const adapter: BleMeshAdapter = new StubBleMeshAdapter();
+    adapter.applyUnicast = async (fixtureId, _brightness, _signal, _deadline, control) => {
+      await Promise.resolve(); protectedSource = true;
+      if (control?.mayStartWrite() !== false) nativeWrite();
+      return { fixtureId, acknowledged: false, outcome: "failed", rssi: null, hopCount: null } as never;
+    };
+    const results = await executeAutomationDimmingActions(adapter, [{ fixtureId: command.targetId, brightnessPercent: 75 }],
+      { isBioSourceTarget: () => protectedSource });
+    expect(results).toMatchObject([{ fixtureId: command.targetId, status: "failed", brightnessPercent: null }]);
+    expect(nativeWrite).not.toHaveBeenCalled();
+  });
+  it.each(["unicast", "parallel_unicast", "mesh_group"] as const)("rejects direct and replayed %s commands to a protected BIO source without RF", async deliveryMode => {
+    const directory = await mkdtemp(join(tmpdir(), "bio-source-command-"));
+    try {
+      const adapter = new StubBleMeshAdapter();
+      const write = vi.spyOn(adapter, "setBrightness");
+      const journal = new CommandJournal(join(directory, "journal.json"));
+      const input = { ...command, deliveryMode, ...(deliveryMode === "mesh_group" ? {
+        meshControlGroupId: command.targetId, meshControlGroupVersion: 1, destinationAddress: "0xc001"
+      } : {}) };
+      const options = { isBioSourceTarget: (ids: readonly string[]) => ids.includes(command.targetId) };
+      const result = await handleGatewayDimmingCommand(adapter, journal, input, undefined, options as never);
+      expect(result.acceptance).toMatchObject({ status: "rejected", errorCode: "BIO_SOURCE_TARGET_FORBIDDEN" });
+      expect(await handleGatewayDimmingCommand(adapter, journal, input, undefined, options as never)).toEqual(result);
+      expect(write).not.toHaveBeenCalled();
+    } finally { await rm(directory, { recursive: true, force: true }); }
+  });
+  it("checks source protection after a native adapter await, before any brightness/mode write", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "bio-source-native-"));
+    try {
+      let protectedSource = false;
+      const nativeWrite = vi.fn();
+      const adapter: BleMeshAdapter = new StubBleMeshAdapter();
+      adapter.applyUnicast = async (fixtureId, brightness, _signal, _deadline, control) => {
+        await Promise.resolve(); protectedSource = true;
+        if (control?.mayStartWrite() !== false) nativeWrite();
+        return { fixtureId, brightness, acknowledged: false, outcome: "failed", rssi: null, hopCount: null } as never;
+      };
+      const result = await handleGatewayDimmingCommand(adapter, new CommandJournal(join(directory, "journal.json")), command,
+        undefined, { isBioSourceTarget: () => protectedSource } as never);
+      expect(result.acceptance).toMatchObject({ status: "rejected", errorCode: "BIO_SOURCE_TARGET_FORBIDDEN" });
+      expect(nativeWrite).not.toHaveBeenCalled();
+    } finally { await rm(directory, { recursive: true, force: true }); }
+  });
   it("retains durable abort intent when production gap-journal fallback cannot persist an ENOSPC abort", async () => {
     const directory = await mkdtemp(join(tmpdir(), "abort-enospc-restart-"));
     try {

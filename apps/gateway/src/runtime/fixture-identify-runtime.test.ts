@@ -12,6 +12,31 @@ const command = (patch: Partial<FixtureIdentifyCommand> = {}): FixtureIdentifyCo
   });
 };
 afterEach(() => vi.useRealTimers());
+it("rejects direct identify for a protected BIO source", async () => {
+  vi.useFakeTimers();
+  const attention = vi.fn(async () => 9);
+  const runtime = new FixtureIdentifyRuntime({ siteId, gatewayId, setAttention: attention,
+    isBioSourceTarget: () => true } as never);
+  await vi.advanceTimersByTimeAsync(10_001);
+  expect(await runtime.handle(command())).toMatchObject({ status: "rejected", reason: "bio_source_target_forbidden" });
+  expect(attention).not.toHaveBeenCalled();
+  await runtime.stop();
+});
+it("rechecks after attention waits and reports protection instead of confirmed identify", async () => {
+  vi.useFakeTimers();
+  let protectedSource = false;
+  const nativeWrites: string[] = [];
+  const runtime = new FixtureIdentifyRuntime({ siteId, gatewayId, isBioSourceTarget: () => protectedSource,
+    setAttention: async (_id, _expires, _action, _signal, control) => {
+      await Promise.resolve(); protectedSource = true;
+      if (control?.mayStartWrite() !== false) nativeWrites.push("force-on");
+      throw new Error("native_write_refused");
+    } });
+  await vi.advanceTimersByTimeAsync(10_001);
+  expect(await runtime.handle(command())).toMatchObject({ status: "rejected", reason: "bio_source_target_forbidden" });
+  expect(nativeWrites).toEqual([]);
+  await runtime.stop();
+});
 function setup() {
   const attention = vi.fn(async (_fixture: string, _expires: number, action: string): Promise<number> => action === "start" ? 9 : 0);
   const runtime = new FixtureIdentifyRuntime({ siteId, gatewayId, setAttention: attention });

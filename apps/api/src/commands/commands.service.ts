@@ -1,4 +1,5 @@
 import { BadRequestException, ConflictException, Injectable } from "@nestjs/common";
+import { assertNoActiveBioSourceTarget } from "../automation/bio-source-target-policy";
 import {
   CreateDimmingCommandInput,
   DimmingTarget,
@@ -105,6 +106,7 @@ export class CommandsService {
           throw new BadRequestException("control target not found in the user's site");
         }
         for (const mapping of mappings) this.assertControllable(mapping, input.target.type);
+        await assertNoActiveBioSourceTarget(tx, input.siteId, mappings.map(mapping => mapping.fixtureId), "manual");
         await this.assertNoUncertainOverlap(tx, input.siteId, mappings.map((mapping) => mapping.fixtureId));
 
         const dispatchTarget = this.dispatchService.resolveSingleGateway(mappings);

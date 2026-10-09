@@ -5,10 +5,38 @@ import mqtt from "mqtt";
 import { disposableMosquitto } from "../../test/support/disposable-mosquitto";
 import { createMqttConnectionOptions, MqttService } from "./mqtt.service";
 import { mqttTopicsV2 } from "@led-control/shared";
+import { Prisma } from "@prisma/client";
 
 jest.mock("node:fs", () => ({ readFileSync: jest.fn(() => Buffer.from("test-certificate")) }));
 
 describe("MqttService", () => {
+  it.each([true, false])("BIO revalidation ack commits before PUBACK with exact new routing; commit success=%s", async succeeds => {
+    const siteId = "11111111-1111-4111-8111-111111111111", gatewayId = "22222222-2222-4222-8222-222222222222";
+    const ack = { version: 2, purpose: "bio_registration_revalidation", operation: "query", siteId, gatewayId,
+      commandId: "33333333-3333-4333-8333-333333333333", fixtureId: "44444444-4444-4444-8444-444444444444",
+      nodeId: "55555555-5555-4555-8555-555555555555", eventId: "66666666-6666-4666-8666-666666666666", sequence: 7,
+      assignmentVersion: 2, deviceIdentityHash: "a".repeat(64), meshAddress: "0x0100", payloadHash: `sha256:${"b".repeat(64)}`,
+      ingestedAt: "2026-10-06T01:00:00.100Z", status: "ingested" }; const order: string[] = [];
+    let complete!: () => void;
+    const service = new MqttService({} as never, createMeshGroupsMock() as never);
+    (service as any).bioRegistrationRevalidations = { ingest: async () => new Promise((resolve, reject) => {
+      complete = () => { if (succeeds) { order.push("commit"); resolve(ack); } else reject(new Error("durable write failed")); };
+    }) };
+    const client: any = new EventEmitter(); client.subscribe = jest.fn(); client.stream = { destroy: jest.fn() };
+    client.publish = jest.fn((topic, _payload, _options, callback) => { order.push(topic); callback(); });
+    (service as any).client = client; service.onModuleInit(); client.emit("connect");
+    expect(client.subscribe.mock.calls.flatMap((call: any[]) => call[0])).toContain("sites/+/gateways/+/events/bio-registration-revalidation-result");
+    const topic = `sites/${siteId}/gateways/${gatewayId}/events/bio-registration-revalidation-result`, payload = Buffer.from("{}"), packet = { qos: 1, topic, payload };
+    const done = jest.fn(() => { order.push("puback"); client.emit("message", topic, payload, packet); });
+    const log = jest.spyOn(Logger.prototype, "error").mockImplementation();
+    try {
+      (service as any).createCustomHandleAcks()(topic, payload, packet, done);
+      await new Promise(resolve => setImmediate(resolve)); expect(done).not.toHaveBeenCalled(); complete();
+      await new Promise(resolve => setImmediate(resolve));
+      if (succeeds) expect(order).toEqual(["commit", "puback", `sites/${siteId}/gateways/${gatewayId}/acks/bio-registration-revalidation-result`]);
+      else { expect(done).not.toHaveBeenCalled(); expect(client.publish).not.toHaveBeenCalled(); expect(client.stream.destroy).toHaveBeenCalled(); }
+    } finally { log.mockRestore(); }
+  });
   it.each(["unreachable", "completion"])("commits %s before PUBACK and publishes the correctly owned application ACK afterward", async (kind) => {
     const siteId = "11111111-1111-4111-8111-111111111111", gatewayId = "22222222-2222-4222-8222-222222222222";
     const ack = kind === "unreachable"
@@ -69,6 +97,36 @@ describe("MqttService", () => {
       expect(client.stream.destroy).toHaveBeenCalledTimes(1); expect(done).not.toHaveBeenCalled(); expect(client.publish).not.toHaveBeenCalled();
     } finally { log.mockRestore(); }
   });
+  it("subscribes to separate typed discovery while retaining strict legacy subscription", () => {
+    const service = new MqttService({} as never, createMeshGroupsMock() as never);
+    const listeners: Record<string, (...args: any[]) => unknown> = {};
+    const client = { subscribe: jest.fn(), on: jest.fn((name, fn) => { listeners[name] = fn; }),
+      removeListener: jest.fn(), publish: jest.fn() };
+    (service as any).client = client;
+    service.onModuleInit();
+    listeners.connect();
+    expect(client.subscribe.mock.calls[0][0]).toEqual(expect.arrayContaining([
+      "sites/+/gateways/+/events/provisioning/scan-found-v2",
+      "sites/+/gateways/+/events/provisioning/scan-found"
+    ]));
+  });
+
+  it("redacts typed discovery validation details from inbound logs", async () => {
+    const service = new MqttService({} as never, createMeshGroupsMock() as never);
+    const client: any = new EventEmitter(); client.subscribe = jest.fn();
+    (service as any).client = client;
+    service.onModuleInit();
+    const log = jest.spyOn(Logger.prototype, "error").mockImplementation();
+    try {
+      client.emit("message", "sites/site/gateways/gateway/events/provisioning/scan-found-v2",
+        Buffer.from(JSON.stringify({ schemaVersion: 2, fingerprint: { secret: "private-discovery-marker" } })));
+      await new Promise(resolve => setImmediate(resolve));
+      expect(log).toHaveBeenCalledWith("mqtt inbound message handling failed (error=UNEXPECTED_ERROR)");
+      expect(JSON.stringify(log.mock.calls)).not.toContain("private-discovery-marker");
+      expect(JSON.stringify(log.mock.calls)).not.toContain("fingerprint");
+    } finally { log.mockRestore(); }
+  });
+
   const resyncRequest = {
     siteId: "22222222-2222-4222-8222-222222222222",
     gatewayId: "55555555-5555-4555-8555-555555555555",
@@ -581,7 +639,7 @@ describe("MqttService", () => {
         findFirst: jest.fn().mockResolvedValue(null),
         create: jest.fn(async ({ data }) => { markers.push(data.eventId); })
       },
-      discoveredMeshNode: { upsert: jest.fn().mockRejectedValue(new Error("database write failed")) }
+      discoveredMeshNode: { findUnique: jest.fn().mockResolvedValue(null), upsert: jest.fn().mockRejectedValue(new Error("database write failed")) }
     };
     prisma.$queryRaw = jest.fn().mockResolvedValue([]);
     prisma.$transaction = jest.fn(async (callback: (tx: any) => Promise<unknown>) => {
@@ -2190,6 +2248,45 @@ describe("MqttService", () => {
     expect(prisma.fixture.updateMany).not.toHaveBeenCalled();
   });
 
+  it.each(["provisioned", "discovered", "failed", null])("preserves completed registration while refreshing scan metadata for %s", async status => {
+    const sessionId = "11111111-1111-4111-8111-111111111111";
+    const siteId = "00000000-0000-4000-8000-000000000003";
+    const gatewayId = "00000000-0000-4000-8000-000000000004";
+    let stored: any = status === null ? null : { id: "scan-node", sessionId, deviceUuid: "device-1", status,
+      identifyState: "confirmed", meshAddress: "0x0100", pendingFixtureName: "Existing light", pendingFixtureX: 2,
+      pendingFixtureY: 3, errorMessage: status === "failed" ? "old failure" : null };
+    const before = stored && { ...stored };
+    let marker: any = null;
+    const prisma: any = {
+      provisioningSession: { findUnique: jest.fn().mockResolvedValue({ id: sessionId, siteId, gatewayId,
+        status: "active", scanStatus: "scanning", scanCorrelationId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", scanAttempt: 2 }) },
+      ...gatewayEventWatermarkMock(),
+      processedGatewayEvent: { findFirst: async () => marker, create: async ({ data }: any) => { marker = data; } },
+      discoveredMeshNode: {
+        findUnique: async () => stored,
+        upsert: async ({ create, update }: any) => { stored = stored ? { ...stored, ...update } : { status: "discovered", ...create }; }
+      },
+      $queryRaw: jest.fn().mockResolvedValue([])
+    };
+    prisma.$transaction = async (callback: (tx: any) => Promise<unknown>) => callback(prisma);
+    const service = new MqttService(prisma, createMeshGroupsMock() as never);
+    const event = { sessionId, siteId, gatewayId, scanCorrelationId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      scanAttempt: 2, eventId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", sequence: 1,
+      occurredAt: "2026-10-02T00:00:01.000Z", deviceUuid: "device-1", serialNumber: "serial-1",
+      rssi: -54, oobCapability: "static-oob", firmwareVersion: "new-firmware" };
+    const topic = `sites/${siteId}/gateways/${gatewayId}/events/provisioning/scan-found`;
+    await service.handleMessage(topic, Buffer.from(JSON.stringify(event)));
+    expect(stored).toMatchObject({ status: status === "provisioned" ? "provisioned" : "discovered", rssi: -54,
+      oobCapability: "static-oob", firmwareVersion: "new-firmware", scanCorrelationId: event.scanCorrelationId,
+      scanAttempt: 2, discoveredAt: new Date("2026-10-02T00:00:01.000Z") });
+    if (before) expect(stored).toMatchObject({ identifyState: "confirmed", meshAddress: "0x0100",
+      pendingFixtureName: "Existing light", pendingFixtureX: 2, pendingFixtureY: 3, errorMessage: null });
+    expect(marker).toMatchObject({ eventId: event.eventId, eventType: "provisioning_scan_found", scopeKey: sessionId });
+    const after = { ...stored };
+    await service.handleMessage(topic, Buffer.from(JSON.stringify({ ...event, rssi: -10 })));
+    expect(stored).toEqual(after);
+  });
+
   it("stores current scan identity for create and same-device update despite gateway clock skew", async () => {
     const prisma = {
       fixture: { update: jest.fn() },
@@ -2208,6 +2305,7 @@ describe("MqttService", () => {
       ...gatewayEventWatermarkMock(),
       processedGatewayEvent: { findFirst: jest.fn().mockResolvedValue(null), create: jest.fn() },
       discoveredMeshNode: {
+        findUnique: jest.fn().mockResolvedValue(null),
         upsert: jest.fn().mockResolvedValue(undefined)
       }
     };
@@ -2250,6 +2348,7 @@ describe("MqttService", () => {
         rssi: -54,
         oobCapability: "static-oob",
         firmwareVersion: "mock-node-0.1.0",
+        bioDiscoveryFingerprint: Prisma.DbNull,
         scanCorrelationId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
         scanAttempt: 2,
         discoveredAt: new Date("2026-06-30T23:59:01.000Z")
@@ -2259,6 +2358,7 @@ describe("MqttService", () => {
         rssi: -54,
         oobCapability: "static-oob",
         firmwareVersion: "mock-node-0.1.0",
+        bioDiscoveryFingerprint: Prisma.DbNull,
         scanCorrelationId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
         scanAttempt: 2,
         discoveredAt: new Date("2026-06-30T23:59:01.000Z"),

@@ -13,6 +13,7 @@ import { UnderlineNavigation, UnderlineNavigationLabel } from "../../components/
 
 const SiteAdminManagementView = lazy(() => import("./site-admins/SiteAdminManagementView").then((module) => ({ default: module.SiteAdminManagementView })));
 const LandingInquiriesView = lazy(() => import("./LandingInquiriesView").then((module) => ({ default: module.LandingInquiriesView })));
+const SensorProfilesView = lazy(() => import("./SensorProfilesView").then(module => ({ default: module.SensorProfilesView })));
 const AccountSecurityView = lazy(() => import("../settings/security/AccountSecurityView").then((module) => ({ default: module.AccountSecurityView })));
 const operatorNavigationItemClass = (isActive: boolean) => `inline-flex min-h-11 shrink-0 items-center border-b-2 px-3 text-body-sm font-bold whitespace-nowrap no-underline outline-none focus-visible:shadow-focus ${isActive
   ? "border-action-primary text-action-primary"
@@ -38,7 +39,7 @@ export function OperatorShell({ user }: { user: AuthUser }) {
     }
   }
 
-  if (user.role !== "operator") return <Navigate to="/monitoring" replace />;
+  if (user.role !== "operator" || user.organizationType !== "service_provider" || user.status !== "active") return <Navigate to="/monitoring" replace />;
 
   return (
     <div className="min-h-screen bg-surface-canvas">
@@ -64,6 +65,7 @@ export function OperatorShell({ user }: { user: AuthUser }) {
       <main className="mx-auto grid w-full max-w-operator content-start gap-5 px-6 py-8 max-compact:px-3.5 max-compact:py-6">
         {logoutError ? <FeedbackState tone="danger" icon={CircleAlert} title={logoutError} /> : null}
         <UnderlineNavigation aria-label="운영자 메뉴">
+          <NavLink to="/operator/sensor-profiles" className={({ isActive }) => operatorNavigationItemClass(isActive)}><UnderlineNavigationLabel>센서 프로파일</UnderlineNavigationLabel></NavLink>
           <NavLink
             to={{ pathname: "/operator/site-admins", search: location.search, hash: location.hash }}
             className={({ isActive }) => operatorNavigationItemClass(isActive)}
@@ -86,6 +88,7 @@ export function OperatorShell({ user }: { user: AuthUser }) {
         <Suspense fallback={<RouteLoadingState />}>
           <Routes>
             <Route path="/operator/site-admins" element={<SiteAdminManagementView />} />
+            <Route path="/operator/sensor-profiles" element={<SensorProfilesView />} />
             <Route path="/operator/landing-inquiries" element={<LandingInquiriesView />} />
             <Route path="/operator/security" element={<AccountSecurityView user={user} />} />
             <Route path="*" element={<Navigate to="/operator/site-admins" replace />} />

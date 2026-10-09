@@ -1,5 +1,24 @@
 import { readFile } from "node:fs/promises";
 import { writeJsonAtomic } from "../mesh/mesh-store-file";
+import { bioSensorPreparationAckV1Schema, bioSensorPreparationCommandV1Schema, bioSensorPreparationReportV1Schema, matchesBioSensorPreparationAckV1, matchesBioSensorPreparationReportV1 } from "@led-control/shared";
+import { bioEnvelopeHash } from "../bio/bio-sensor-profile-catalog";
+import { isDeepStrictEqual } from "node:util";
+
+function isPreparation(value: unknown): boolean {
+  return !!value && typeof value === "object" && "kind" in value && value.kind === "bio_sensor_preparation";
+}
+
+function isSensorModeWrapper(value: unknown): value is { kind: "bio_sensor_mode"; command: { expiresAt: string } } {
+  return !!value && typeof value === "object" && "kind" in value && value.kind === "bio_sensor_mode" &&
+    "command" in value && !!value.command && typeof value.command === "object" &&
+    "expiresAt" in value.command && typeof value.command.expiresAt === "string";
+}
+
+function isBioRegistrationRevalidationWrapper(value: unknown): value is { kind: "bio_registration_revalidation"; command: { expiresAt: string } } {
+  return !!value && typeof value === "object" && "kind" in value && value.kind === "bio_registration_revalidation" &&
+    "command" in value && !!value.command && typeof value.command === "object" &&
+    "expiresAt" in value.command && typeof value.command.expiresAt === "string";
+}
 
 interface JournalRecord {
   state: "accepted" | "completed";
@@ -8,6 +27,9 @@ interface JournalRecord {
   automationHandoff: "not_required" | "pending" | "completed";
   automationAbort?: "pending" | "completed";
   executionPhase?: "pre_rf" | "may_have_written";
+  sensorModeHandedOff?: boolean;
+  bioRegistrationRevalidationHandedOff?: boolean;
+  preparationAck?: unknown;
   updatedAt: string;
 }
 
@@ -67,10 +89,11 @@ export class CommandJournal {
   async get(idempotencyKey: string) {
     const data = await this.readData();
     const record = data.records[idempotencyKey];
-    if (!record || (!isPendingAutomationRecovery(record) && this.isExpired(record))) return null;
+    if (!record || (!isPendingAutomationRecovery(record) && !this.retainModeOperation(record) && this.isExpired(record))) return null;
     return {
       state: record.state,
       command: record.command,
+      ...(record.preparationAck ? { preparationAck: record.preparationAck } : {}),
       ...(record.result === undefined ? {} : { result: record.result }),
       ...(record.executionPhase ? { executionPhase: record.executionPhase } : {}),
       ...(record.automationAbort ? { automationAbort: record.automationAbort } : {}),
@@ -87,6 +110,9 @@ export class CommandJournal {
       const data = await this.readData();
       this.prune(data);
       if (data.records[idempotencyKey]) return false;
+      if ((isPreparation(command) || isSensorModeWrapper(command) || isBioRegistrationRevalidationWrapper(command)) && Object.values(data.records).filter((record) => this.retainModeOperation(record)).length >= this.maxRecords) {
+        throw new Error("mode operation journal capacity exceeded");
+      }
       const terminal = options.terminalResult !== undefined;
       if (!terminal && isManualCommandWrapper(command)) this.assertAutomationCapacity(data);
       // Refusals have never acquired RF ownership. Persist their full result in
@@ -226,10 +252,10 @@ export class CommandJournal {
 
   private prune(data: JournalData) {
     for (const [key, record] of Object.entries(data.records)) {
-      if (!isPendingAutomationRecovery(record) && this.isExpired(record)) delete data.records[key];
+      if (!isPendingAutomationRecovery(record) && !this.retainModeOperation(record) && this.isExpired(record)) delete data.records[key];
     }
     const overflow = Object.entries(data.records)
-      .filter(([, record]) => !isPendingAutomationRecovery(record))
+      .filter(([, record]) => !isPendingAutomationRecovery(record) && !this.retainModeOperation(record))
       .sort(([, left], [, right]) => left.updatedAt.localeCompare(right.updatedAt));
     while (overflow.length > this.maxRecords) {
       const oldest = overflow.shift();
@@ -239,6 +265,94 @@ export class CommandJournal {
 
   private isExpired(record: JournalRecord) {
     return this.now().getTime() - new Date(record.updatedAt).getTime() > this.ttlMs;
+  }
+
+  async pendingSensorModeOperations() {
+    return Object.values((await this.readData()).records).filter((record) => isSensorModeWrapper(record.command) && !record.sensorModeHandedOff);
+  }
+
+  async markSensorModeHandedOff(commandId: string) {
+    await this.enqueue(async () => {
+      const data = await this.readData();
+      const record = data.records[commandId];
+      if (!record || record.state !== "completed" || !isSensorModeWrapper(record.command)) throw new Error("sensor mode terminal missing");
+      record.sensorModeHandedOff = true;
+      await this.writeData(data);
+    });
+  }
+
+  async pendingBioRegistrationRevalidations() {
+    return Object.values((await this.readData()).records).filter((record) =>
+      isBioRegistrationRevalidationWrapper(record.command) && !record.bioRegistrationRevalidationHandedOff);
+  }
+
+  async ensureBioRegistrationRevalidationDurable(commandId: string) {
+    await this.enqueue(async () => {
+      const data = await this.readData();
+      const record = data.records[commandId];
+      if (!record || !isBioRegistrationRevalidationWrapper(record.command)) throw new Error("registration revalidation record missing");
+      // A rename-visible record may come from an uncertain parent fsync, even
+      // after restarting this journal object. Re-persist the exact data before
+      // acknowledging a replay; keep the original record and error on failure.
+      await this.writeData(data);
+    });
+  }
+
+  async markBioRegistrationRevalidationHandedOff(commandId: string) {
+    await this.enqueue(async () => {
+      const data = await this.readData();
+      const record = data.records[commandId];
+      if (!record || record.state !== "completed" || !isBioRegistrationRevalidationWrapper(record.command)) {
+        throw new Error("registration revalidation terminal missing");
+      }
+      record.bioRegistrationRevalidationHandedOff = true;
+      await this.writeData(data);
+    });
+  }
+
+  async pendingBioSensorPreparations() {
+    return Object.values((await this.readData()).records).filter(record => isPreparation(record.command) && !record.preparationAck);
+  }
+
+  /** Durable attribution only. Historical ACKs must never restore live commissions. */
+  async acknowledgedBioRestorationIdentities() {
+    const identities = [];
+    for (const record of Object.values((await this.readData()).records)) {
+      if (!isPreparation(record.command) || record.state !== "completed") continue;
+      const command = bioSensorPreparationCommandV1Schema.safeParse((record.command as { command: unknown }).command);
+      const report = bioSensorPreparationReportV1Schema.safeParse(record.result);
+      const ack = bioSensorPreparationAckV1Schema.safeParse(record.preparationAck);
+      if (!command.success || !report.success || !ack.success || report.data.status !== "ready"
+        || (ack.data.status !== "applied" && ack.data.status !== "duplicate")
+        || !matchesBioSensorPreparationReportV1(command.data, report.data, bioEnvelopeHash(command.data))
+        || !matchesBioSensorPreparationAckV1(report.data, ack.data, bioEnvelopeHash(report.data))) continue;
+      identities.push(command.data);
+    }
+    return identities;
+  }
+
+  async acknowledgeBioSensorPreparation(raw: unknown): Promise<boolean> {
+    const ack = bioSensorPreparationAckV1Schema.parse(raw);
+    return this.enqueue(async () => {
+      const data = await this.readData(), record = data.records[ack.commandId];
+      if (!record || !isPreparation(record.command) || record.state !== "completed" || !record.result
+        || !matchesBioSensorPreparationAckV1(record.result, ack, bioEnvelopeHash(record.result))) return false;
+      if (record.preparationAck) return isDeepStrictEqual(record.preparationAck, ack);
+      record.preparationAck = ack; await this.writeData(data); return true;
+    });
+  }
+
+  private retainModeOperation(record: JournalRecord) {
+    // Preparation's exact result/ACK is a commission audit, not a TTL RF permit.
+    // Keep both accepted/uncertain and acknowledged results; capacity fails closed.
+    if (isPreparation(record.command)) return true;
+    if (isBioRegistrationRevalidationWrapper(record.command)) {
+      return !record.bioRegistrationRevalidationHandedOff || Date.parse(record.command.command.expiresAt) >= this.now().getTime();
+    }
+    if (!isSensorModeWrapper(record.command)) return false;
+    // Preserve a pending outbox handoff indefinitely; preserve the SET identity
+    // through its delivery window even under capacity pressure to prevent replay.
+    return !record.sensorModeHandedOff || Date.parse(record.command.command.expiresAt) >= this.now().getTime();
   }
 
   private assertAutomationCapacity(data: JournalData) {

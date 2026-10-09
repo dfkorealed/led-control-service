@@ -18,6 +18,7 @@ import {
   createDurableAutomationTerminalHandoff,
   executeAutomationWithBestEffortTelemetry,
   gatewayDeferredPubackTopics,
+  gatewayCommandTopics,
   enqueueAutomationFixtureStates,
   createManualControlCoordinator,
   enqueueFixturePresence,
@@ -74,6 +75,30 @@ const scopedGatewayId = "00000000-0000-4000-8000-000000000004";
 const scopedFixtureId = "00000000-0000-4000-8000-000000000005";
 
 describe("Gateway command drain MQTT routing", () => {
+  it("loads source protection before startup identify recovery can write", async () => {
+    const stages: string[] = [];
+    let snapshotLoaded = false;
+    let rfWrites = 0;
+    await initializeAutomationBeforeManualRecovery({ initialize: async () => {
+      snapshotLoaded = true;
+      stages.push("snapshot");
+    } }, async () => { stages.push("manual"); }, async () => {
+      stages.push("identify");
+      if (!snapshotLoaded) rfWrites += 1;
+    });
+    expect(stages).toEqual(["snapshot", "manual", "identify"]);
+    expect(rfWrites).toBe(0);
+  });
+
+  it("does not recover any commands when the protection snapshot fails to load", async () => {
+    let recoveryCalls = 0;
+    await expect(initializeAutomationBeforeManualRecovery({ initialize: async () => {
+      throw new Error("snapshot unreadable");
+    } }, async () => { recoveryCalls += 1; }, async () => { recoveryCalls += 1; }))
+      .rejects.toThrow("snapshot unreadable");
+    expect(recoveryCalls).toBe(0);
+  });
+
   it("echoes only a valid scoped nonce/epoch with conservative submission counts", async () => {
     const { CommandRfDrain } = await import("./commands/command-rf-drain");
     const drain = new CommandRfDrain();
@@ -227,6 +252,10 @@ describe("Gateway command clock MQTT runtime", () => {
 
 it("defers QoS1 PUBACK for commands whose durable journal must commit first", () => {
   expect(gatewayDeferredPubackTopics(scopedSiteId, scopedGatewayId)).toEqual([
+    `sites/${scopedSiteId}/gateways/${scopedGatewayId}/commands/bio-sensor-catalog`,
+    `sites/${scopedSiteId}/gateways/${scopedGatewayId}/commands/bio-sensor-preparation`,
+    `sites/${scopedSiteId}/gateways/${scopedGatewayId}/commands/bio-registration-revalidation`,
+    `sites/${scopedSiteId}/gateways/${scopedGatewayId}/commands/bio-sensor-mode`,
     `sites/${scopedSiteId}/gateways/${scopedGatewayId}/commands/dimming`,
     `sites/${scopedSiteId}/gateways/${scopedGatewayId}/commands/status-check`,
     `sites/${scopedSiteId}/gateways/${scopedGatewayId}/commands/fixture-presence-check`,
@@ -909,10 +938,10 @@ describe("startGatewayRuntime", () => {
     }
   });
 
-  it("connects Task 11 hot reload to the durable scheduler and executor", async () => {
+  it.each([1, 2])("connects V%s hot reload to the durable scheduler and executor", async (schemaVersion) => {
     const directory = await mkdtemp(join(tmpdir(), "gateway-automation-wiring-"));
     try {
-      let stored = null as ReturnType<typeof automationSnapshot> | null;
+      let stored = null as import("@led-control/shared").AutomationSnapshot | null;
       const execute = vi.fn(async (actions: Array<{ fixtureId: string; brightnessPercent: number }>) => actions.map((action) => ({
         fixtureId: action.fixtureId,
         status: "succeeded" as const,
@@ -938,6 +967,7 @@ describe("startGatewayRuntime", () => {
       await services.scheduleRuntime.recordFixtureState(scopedFixtureId, 20);
 
       await services.automationRuntime.hotReload(automationSnapshot(1, {
+        schemaVersion: schemaVersion as 1,
         timeZone: "UTC",
         schedules: [{
           id: "00000000-0000-4000-8000-000000000103",
@@ -957,6 +987,7 @@ describe("startGatewayRuntime", () => {
         expect.objectContaining({ fixtureId: scopedFixtureId, brightnessPercent: 40, sourceType: "schedule" })
       ]);
       expect(services.scheduleRuntime.state().lastDesiredByFixture[scopedFixtureId]).toBe(40);
+      expect(services.scheduleRuntime.currentSnapshot?.schemaVersion).toBe(schemaVersion);
     } finally {
       await rm(directory, { recursive: true, force: true });
     }
@@ -2112,16 +2143,28 @@ describe("startGatewayRuntime", () => {
     expect(() => parseGatewayHeartbeatInterval("0")).toThrow("positive finite integer");
   });
 
-  it("subscribes command topics only when MQTT reports a new session", () => {
+  it("subscribes existing topics and adds registration revalidation command/ACK to a resumed session", () => {
     const subscribe = vi.fn((_topics, _options, callback?: (error?: Error) => void) => callback?.());
     const client = { subscribe };
 
     subscribeGatewayCommands(client as never, assignment, false);
     subscribeGatewayCommands(client as never, assignment, true);
 
-    expect(subscribe).toHaveBeenCalledTimes(1);
+    expect(subscribe).toHaveBeenCalledTimes(2);
+    expect(subscribe).toHaveBeenLastCalledWith([
+      "sites/site-27/gateways/gateway-27/commands/bio-sensor-catalog",
+      "sites/site-27/gateways/gateway-27/commands/bio-sensor-preparation",
+      "sites/site-27/gateways/gateway-27/events/bio-sensor-preparation-result-ack",
+      "sites/site-27/gateways/gateway-27/commands/bio-sensor-mode",
+      "sites/site-27/gateways/gateway-27/commands/bio-registration-revalidation",
+      "sites/site-27/gateways/gateway-27/acks/bio-registration-revalidation-result"
+    ], { qos: 1 }, expect.any(Function));
     expect(subscribe).toHaveBeenCalledWith(
       [
+        "sites/site-27/gateways/gateway-27/commands/bio-sensor-catalog",
+        "sites/site-27/gateways/gateway-27/commands/bio-sensor-preparation",
+        "sites/site-27/gateways/gateway-27/commands/bio-registration-revalidation",
+        "sites/site-27/gateways/gateway-27/commands/bio-sensor-mode",
         "sites/site-27/gateways/gateway-27/commands/identify",
         "sites/site-27/gateways/gateway-27/commands/dimming",
         "sites/site-27/gateways/gateway-27/commands/status-check",
@@ -2131,6 +2174,8 @@ describe("startGatewayRuntime", () => {
         "sites/site-27/gateways/gateway-27/commands/provisioning/provision-device",
         "sites/site-27/gateways/gateway-27/commands/automation/config-sync",
         "sites/site-27/gateways/gateway-27/commands/mesh-group/subscription-sync",
+        "sites/site-27/gateways/gateway-27/events/bio-sensor-preparation-result-ack",
+        "sites/site-27/gateways/gateway-27/acks/bio-registration-revalidation-result",
         "sites/site-27/gateways/gateway-27/events/clock/response",
         "sites/site-27/gateways/gateway-27/commands/drain/request",
         "sites/site-27/gateways/gateway-27/commands/mesh-group/resync-ack",
@@ -2155,6 +2200,8 @@ describe("startGatewayRuntime", () => {
 
     expect(subscribe).toHaveBeenCalledWith(
       [
+        "sites/site-27/gateways/gateway-27/events/bio-sensor-preparation-result-ack",
+        "sites/site-27/gateways/gateway-27/acks/bio-registration-revalidation-result",
         "sites/site-27/gateways/gateway-27/events/clock/response",
         "sites/site-27/gateways/gateway-27/commands/drain/request",
         "sites/site-27/gateways/gateway-27/commands/mesh-group/resync-ack",
@@ -2169,6 +2216,14 @@ describe("startGatewayRuntime", () => {
       { qos: 1 },
       expect.any(Function)
     );
+  });
+
+  it("keeps the new ACK subscribed on a resumed quiesced session and removes only its command intake", async () => {
+    const subscribe = vi.fn((_topics, _options, callback?: (error?: Error) => void) => callback?.());
+    await subscribeGatewayAcknowledgements({ subscribe } as never, assignment, true);
+    expect(subscribe).toHaveBeenCalledWith(["sites/site-27/gateways/gateway-27/events/bio-sensor-preparation-result-ack", "sites/site-27/gateways/gateway-27/acks/bio-registration-revalidation-result"], { qos: 1 }, expect.any(Function));
+    expect(gatewayCommandTopics("site-27", "gateway-27")).toContain("sites/site-27/gateways/gateway-27/commands/bio-registration-revalidation");
+    expect(gatewayCommandTopics("site-27", "gateway-27")).not.toContain("sites/site-27/gateways/gateway-27/acks/bio-registration-revalidation-result");
   });
 
   it("does not publish fixture-state for a command result without fixture observation", () => {

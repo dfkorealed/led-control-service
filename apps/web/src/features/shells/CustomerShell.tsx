@@ -395,7 +395,7 @@ function CustomerShellContent({ user }: { user: AuthUser }) {
               <Route
                 path="site"
                 element={capabilities.manage
-                  ? <SiteOperationsView siteId={selectedSiteId} />
+                  ? <SiteOperationsView siteId={selectedSiteId} ownerUserId={user.id} canPrepare={capabilities.commission} />
                   : <Navigate to={`/settings${location.search}`} replace />}
               />
               <Route

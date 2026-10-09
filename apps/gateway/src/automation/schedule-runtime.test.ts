@@ -36,6 +36,22 @@ afterEach(async () => {
 });
 
 describe("ScheduleRuntime", () => {
+  it.each(["input", "vendor"])("rejects pulse %s before any state or RF mutation while BIO lifecycle gates are unavailable", async entry => {
+    const test = await runtimeFixture("2026-09-30T01:00:00.000Z");
+    await activate(test.runtime, snapshot({ vehicleEventRules: [vehicleRule(80, 60)] }));
+    const before = test.runtime.state();
+    test.execute.mockClear();
+    const pulse = {
+      type: "pulse" as const, sourceFixtureId, receivedMonotonicMs: 1000,
+      receipt: { nativeUuid: "aabbccddeeff", logicalAddress: 1, networkId: 2, sequence: 1,
+        connectionEpoch: "process-one", connectionGeneration: 1 }
+    };
+    await expect(entry === "input" ? test.runtime.recordVehicleSensorInput(pulse) :
+      test.runtime.recordVehicleSensorEvent(pulse, { sourceUnicast: 1, bootId: 1, sequence: 1 }))
+      .rejects.toThrow("bio_pulse_control_unavailable");
+    expect(test.runtime.state()).toEqual(before);
+    expect(test.execute).not.toHaveBeenCalled();
+  });
   it.each([0, 40])("preserves the independent observation fence for unverified %s%% during manual abort", async (brightness) => {
     const test = await runtimeFixture("2026-08-30T01:00:00.000Z");
     await test.runtime.recordFixtureState(fixtureId, 20);

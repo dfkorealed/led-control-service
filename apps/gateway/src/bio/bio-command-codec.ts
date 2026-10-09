@@ -75,6 +75,11 @@ export type BioSensorStatusCandidate = BioLampObservation & {
   innerOpcode: 0x09;
   innerBody: Buffer;
 };
+/** Receipt metadata is attached by the existing CRC-checked USB notification path. */
+export type BioSensorPulseCandidate = BioSensorStatusCandidate & {
+  receivedMonotonicMs: number;
+  generation: number;
+};
 export type BioAliveStatus = BioLampObservation & {
   kind: "alive-status";
   innerOpcode: 0x0c;

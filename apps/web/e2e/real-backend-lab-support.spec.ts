@@ -2,7 +2,7 @@ import { expect, test } from "@playwright/test";
 import {
   fixturePresenceCheckCommandV1Schema, fixturePresenceCheckCompletedV1Schema,
   fixturePresenceCheckCompletedAckV1Schema, fixturePresenceV2Schema, fixtureUnreachableV1Schema,
-  mqttTopicsV2, type FixturePresenceCheckCompletedAckV1
+  mqttTopics, mqttTopicsV2, type FixturePresenceCheckCompletedAckV1
 } from "@led-control/shared";
 import { randomUUID } from "node:crypto";
 import { spawn, type ChildProcess } from "node:child_process";
@@ -178,6 +178,19 @@ function countMonitoringCompletionAcknowledgements(
 }
 
 for (const source of ["parent process", "dotenv"] as const) {
+  test(`disposable MQTT lab ignores ${source} local-app endpoint restrictions`, async () => {
+    const lab = new RealBackendLab();
+    const internal = lab as unknown as { apiEnv: () => NodeJS.ProcessEnv };
+    const inherited = { DEV_LOCAL_APP_ONLY: "1", LAB_MQTT_DNS: "external.example.test" };
+    const env = { ...(source === "parent process" ? inherited : {}), ...internal.apiEnv() };
+    const { populate } = createRequire(join(ROOT, "apps/api/package.json"))("dotenv");
+    if (source === "dotenv") populate(env, inherited);
+    const { mqttTlsServernameOption } = await import("../../api/src/mqtt/mqtt-tls-identity");
+    // The real guard must accept the lab's owned localhost endpoint without
+    // inheriting a different deployment's endpoint or TLS server identity.
+    expect(mqttTlsServernameOption(env, env.MQTT_URL!)).toEqual({});
+  });
+
   test(`HTTP lab API는 ${source}의 TLS 설정을 사용하지 않는다`, () => {
     const lab = new RealBackendLab();
     const internal = lab as unknown as { apiEnv: () => NodeJS.ProcessEnv };
@@ -537,6 +550,59 @@ test("production Gateway handoff는 publisher background 오류와 MQTT close ti
   timedOut.mqtt = { end: () => undefined };
   await expect(timedOut.detachGatewayPublisher()).rejects.toThrow("publisher MQTT close timed out");
 });
+
+for (const version of [1, 2] as const) {
+  test(`automation config oracle accepts strict V${version} and rejects mismatched snapshot receipts`, () => {
+    const lab = new RealBackendLab();
+    const siteId = randomUUID(), gatewayId = randomUUID();
+    const internal = lab as unknown as {
+      installation: { siteId: string; floorId: string; timeZone: string };
+      gateway: { id: string };
+      mqttEvidence: Array<Record<string, unknown>>;
+      readAutomationProtocolEvidence: (cursor: number, expected: { revision: number; payloadHash: string }) => unknown;
+    };
+    internal.installation = { siteId, floorId: "floor", timeZone: "UTC" };
+    Object.assign(internal.gateway, { id: gatewayId });
+    const occurredAt = "2026-10-01T00:00:00.000Z";
+    const snapshot = { schemaVersion: version, siteId, gatewayId, revision: 7, timeZone: "UTC", schedules: [], vehicleEventRules: [], generatedAt: occurredAt, payloadHash: `sha256:${"a".repeat(64)}` };
+    const request = { schemaVersion: version, requestId: randomUUID(), siteId, gatewayId, requestedAt: occurredAt,
+      ...(version === 2 ? { assignmentVersion: 1, declarationRevision: 1, maxSnapshotVersion: 2 } : {}) };
+    const acknowledgement = { schemaVersion: version, gatewayId, revision: 7, payloadHash: snapshot.payloadHash, status: "applied", errorCode: null, appliedAt: occurredAt };
+    const delivery = { schemaVersion: version, acknowledgementId: randomUUID(), siteId, gatewayId, acknowledgement };
+    const receipt = { ...delivery, ingestedAt: occurredAt };
+    internal.mqttEvidence = [
+      { topic: mqttTopics.automationCurrentConfigRequest(siteId, gatewayId), payload: request },
+      { topic: mqttTopics.automationConfig(siteId, gatewayId), payload: snapshot },
+      { topic: mqttTopics.automationConfigApplied(siteId, gatewayId), payload: delivery },
+      { topic: mqttTopics.automationConfigAppliedReceipt(siteId, gatewayId), payload: receipt }
+    ];
+    const expected = { revision: 7, payloadHash: snapshot.payloadHash };
+    expect(internal.readAutomationProtocolEvidence(0, expected)).toMatchObject({ responseRevision: 7, receiptRevision: 7 });
+    expect(() => internal.readAutomationProtocolEvidence(0, { ...expected, revision: 8 })).toThrow();
+    expect(() => internal.readAutomationProtocolEvidence(0, { ...expected, payloadHash: `sha256:${"b".repeat(64)}` })).toThrow();
+    for (const mismatch of [{ payloadHash: `sha256:${"b".repeat(64)}` }, { revision: 8 }, { schemaVersion: version === 1 ? 2 : 1 }]) {
+      internal.mqttEvidence[1].payload = { ...snapshot, ...mismatch };
+      expect(() => internal.readAutomationProtocolEvidence(0, expected)).toThrow();
+    }
+    internal.mqttEvidence[1].payload = snapshot;
+    if (version === 2) {
+      internal.mqttEvidence[0].payload = { ...request, assignmentVersion: 2 };
+      expect(() => internal.readAutomationProtocolEvidence(0, expected)).toThrow();
+      for (const unsupportedRequest of [
+        { schemaVersion: 1, requestId: request.requestId, siteId, gatewayId, requestedAt: occurredAt },
+        { ...request, maxSnapshotVersion: 1 }
+      ]) {
+        internal.mqttEvidence[0].payload = unsupportedRequest;
+        expect.soft(() => internal.readAutomationProtocolEvidence(0, expected),
+          `request ${JSON.stringify(unsupportedRequest)} must not authorize a V2 snapshot`).toThrow();
+      }
+    } else {
+      internal.mqttEvidence[0].payload = { ...request, schemaVersion: 2,
+        assignmentVersion: 1, declarationRevision: 1, maxSnapshotVersion: 1 };
+      expect(internal.readAutomationProtocolEvidence(0, expected)).toMatchObject({ responseRevision: 7, receiptRevision: 7 });
+    }
+  });
+}
 
 test("automation readiness heartbeat는 production Gateway child와 exact identity payload에 결속한다", async () => {
   const lab = new RealBackendLab();

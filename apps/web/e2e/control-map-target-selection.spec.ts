@@ -2,6 +2,7 @@ import { expect, test, type Page } from "@playwright/test";
 import { expectMinimumTouchTargetsAfterScrolling, expectNoHorizontalOverflow } from "./support/layout-assertions";
 import { installSettingsApiRoutes, type SettingsFixture, type SettingsRole } from "./support/settings-api";
 import { installMockApiBoundary } from "./support/mock-api-boundary";
+import type { BioPulseTelemetryView } from "../src/api/automation";
 
 const ids = {
   site: "99999999-9999-4999-8999-999999999901",
@@ -52,6 +53,135 @@ test("Task6 unmodified wheel zoom preserves the pointer anchor without a control
   await expect(marker(page, "B2-L001")).toHaveAttribute("aria-pressed", "false");
   expect(api.postRequests).toEqual([]);
 });
+for (const viewport of [{ width: 320, height: 740 }, { width: 390, height: 844 }]) {
+  test(`BIO server telemetry ${viewport.width}px stays accessible and clears on source remap without promoting readiness`, async ({ page }) => {
+    await page.setViewportSize(viewport);
+    let telemetry: BioPulseTelemetryView | null = {
+      evidence: "gateway_runtime_telemetry", gatewayId: ids.gateway, assignmentVersion: 1, revision: 1,
+      lastPulseAt: "2026-10-01T03:04:05.000Z", health: "degraded", healthReason: "usb_disconnected",
+      degradedSince: "2026-10-01T03:05:00.000Z", restorationPending: true, restorationReason: "usb_disconnected",
+      targetFixtureIds: [ids.fixture, ids.fixtureTwo], lastEventAt: "2026-10-01T03:06:00.000Z", receivedAt: "2026-10-01T03:06:01.000Z",
+      occurrences: [{ ruleId: "99999999-9999-4999-8999-999999999911", occurrenceKey: "old", targetFixtureIds: [ids.fixture],
+        health: "degraded", degradedSince: "2026-10-01T03:05:00.000Z", restorationPending: true, restorationReason: "usb_disconnected" },
+        { ruleId: "99999999-9999-4999-8999-999999999912", occurrenceKey: "new", targetFixtureIds: [ids.fixtureTwo],
+          health: "unverified", degradedSince: null, restorationPending: null, restorationReason: null }],
+      configurationReadback: { sensorProtocol: "bio-usb-pulse", verification: "configuration_readback", phase: "restore", sequence: 5,
+        occurredAt: "2026-10-01T03:06:00.000Z", results: [{ fixtureId: ids.fixture, status: "succeeded",
+          configuration: { configuredHighBrightnessPercent: 35, bioMode: "sensor" } },
+          { fixtureId: ids.fixtureTwo, status: "failed", configuration: null }] }
+    };
+    await installControlMapRoutes(page, { bioReadiness: "off", bioTelemetry: () => telemetry });
+    await page.goto(`/control?siteId=${ids.site}&mode=event`);
+    const region = page.getByRole("region", { name: "BIO 시험 규칙 BIO 운영 상태" });
+    await expect(region).toContainText("센서를 사용하는 전체 규칙의 운영 보고");
+    await expect(region).toContainText("마지막 유효 펄스: 2026. 10. 1. 오후 12:04:05");
+    await expect(region).toContainText("복원 대기: 대기 중");
+    await expect(region).toContainText("복원 사유: USB 연결 끊김");
+    await expect(region).toContainText("B2-L002 · 복원 설정 확인: 실패");
+    await expect(region).toContainText("설정 밝기: 35% · 설정 모드: 센서");
+    await expect(region).toContainText("현재 광학 출력·전력·에너지 또는 센서 준비 상태의 증거가 아닙니다");
+    await region.focus();
+    await expect(region).toBeFocused();
+    await expect(page.getByRole("button", { name: "BIO 시험 규칙 활성화", exact: true })).toBeDisabled();
+    await expectMinimumTouchTargetsAfterScrolling(page, "[data-control-screen]");
+    await expectNoHorizontalOverflow(page);
+    // API null after physical source remapping must erase all previous evidence.
+    telemetry = null;
+    await expect(region).toContainText("마지막 유효 펄스: 미확인", { timeout: 10_000 });
+    await expect(region).toContainText("복원 대기: 미확인");
+    await expect(region).not.toContainText("35%");
+    await expect(region.locator("time")).toHaveCount(0);
+    await expectNoHorizontalOverflow(page);
+  });
+}
+
+for (const width of [320, 390, 1440]) {
+  test(`BIO authoring ${width}px preserves source-only selection, hold warning and touch layout`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 844 });
+    await installControlMapRoutes(page, { bioReadiness: "ready" });
+    await page.goto(`/control?siteId=${ids.site}&mode=event`);
+    await page.getByRole("button", { name: "이벤트 추가" }).click();
+    await page.getByRole("button", { name: "감지 센서 선택", exact: true }).click();
+    const dialog = page.getByRole("dialog");
+    await marker(dialog, "B2-SENSOR-001").click();
+    await dialog.getByRole("button", { name: "1개 조명 선택 완료" }).click();
+    await dialog.getByRole("button", { name: "실행할 조명 선택", exact: true }).click();
+    await expect(marker(dialog, "B2-SENSOR-001")).toBeDisabled();
+    await marker(dialog, "B2-L001").click();
+    await dialog.getByRole("button", { name: "1개 조명 선택 완료" }).click();
+    await dialog.getByRole("button", { name: "직접 입력", exact: true }).click();
+    await dialog.getByRole("textbox", { name: "유지 시간", exact: true }).fill("10");
+    await expect(dialog.getByText(/꺼졌다 다시 켜질 수/)).toBeVisible();
+    await expectMinimumTouchTargetsAfterScrolling(page, "[data-dialog-surface]");
+    await expectNoHorizontalOverflow(page);
+    await expect(dialog.getByRole("textbox", { name: "유지 시간", exact: true })).toHaveValue("10");
+    await expect(dialog.getByText(/자체 밝기 동작은 현장 검증 전/)).toBeVisible();
+  });
+}
+
+test("BIO OFF remains inspectable on the map while preparation actions stay reachable", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await installControlMapRoutes(page, { bioReadiness: "off" });
+  await page.goto(`/control?siteId=${ids.site}&mode=event`);
+  await page.getByRole("button", { name: "이벤트 추가" }).click();
+  await page.getByRole("button", { name: "감지 센서 선택", exact: true }).click();
+  const dialog = page.getByRole("dialog");
+  await marker(dialog, "B2-SENSOR-001").click();
+  await expect(dialog.getByRole("button", { name: "감지 센서로 선택" })).toBeDisabled();
+  await expect(dialog.getByText(/호환 프로파일 확인 필요/)).toBeVisible();
+  await dialog.getByRole("button", { name: "준비 상태 확인", exact: true }).scrollIntoViewIfNeeded();
+  await expect(dialog.getByRole("button", { name: "준비 상태 확인", exact: true })).toBeEnabled();
+  await expectNoHorizontalOverflow(page);
+});
+
+for (const viewport of [{ width: 1440, height: 900 }, { width: 1024, height: 768 }, { width: 390, height: 844 }, { width: 320, height: 740 }]) {
+  test(`common BIO preparation ${viewport.width}px keeps every marker inspectable and bounded`, async ({ page }) => {
+    await page.setViewportSize(viewport);
+    const requests: Record<string, unknown>[] = [];
+    await installControlMapRoutes(page, { commonPreparation: true });
+    const commandId = "99999999-9999-4999-8999-999999999950";
+    await page.route("**/api/bio-sensor-preparations**", route => {
+      if (route.request().method() === "POST") requests.push(route.request().postDataJSON());
+      return route.fulfill({ json: { commandId, siteId: ids.site, fixtureId: ids.fixture, operation: "ensure_sensor", catalogRevision: 1,
+        status: "ready", requestedAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 30_000).toISOString(), supersededAt: null,
+        observedAt: new Date().toISOString(), profileKey: "99999999-9999-4999-8999-999999999960@1", modeVerified: true, linkVerified: true, blockReason: null, errorCode: null } });
+    });
+    await page.goto(`/control?siteId=${ids.site}&mode=event`);
+    await page.getByRole("button", { name: "이벤트 추가" }).click();
+    await page.getByRole("button", { name: "감지 센서 선택", exact: true }).click();
+    const dialog = page.getByRole("dialog");
+    await expect(dialog.locator("[data-spatial-map-marker]")).toHaveCount(3);
+    await marker(dialog, "서쪽 출입등").click();
+    const panel = dialog.getByRole("region", { name: "서쪽 출입등 센서 준비" });
+    await panel.scrollIntoViewIfNeeded();
+    await expect(panel).toContainText("호환 프로파일 확인 필요");
+    await panel.getByRole("button", { name: "센서 사용 설정" }).click();
+    await expect(panel).toContainText("준비 작업 확인");
+    await expect(panel.getByRole("button", { name: "감지 센서로 선택" })).toBeDisabled();
+    expect(requests).toHaveLength(1);
+    expect(Object.keys(requests[0]).sort()).toEqual(["clientRequestId", "fixtureId", "operation", "siteId"]);
+    await expect(dialog.getByRole("button", { name: "선택 완료", exact: true })).toBeDisabled();
+    await expect(dialog.getByRole("region", { name: /센서 준비$/ })).toHaveCount(1);
+    await expectNoHorizontalOverflow(page);
+    const bounds = await dialog.boundingBox();
+    expect(bounds!.x).toBeGreaterThanOrEqual(0); expect(bounds!.y).toBeGreaterThanOrEqual(0);
+    expect(bounds!.y + bounds!.height).toBeLessThanOrEqual(viewport.height + 1);
+    if (viewport.width >= 1024) {
+      const metrics = await page.evaluate(() => ({ height: document.documentElement.clientHeight, scroll: document.documentElement.scrollHeight }));
+      expect(metrics.scroll).toBeLessThanOrEqual(metrics.height + 1);
+      const mapBounds = await dialog.getByTestId("target-selection-map-viewport").boundingBox();
+      expect(mapBounds!.height).toBeGreaterThan(200);
+    }
+    await marker(dialog, "동쪽 통로등").scrollIntoViewIfNeeded(); await marker(dialog, "동쪽 통로등").click();
+    await expect(dialog.getByRole("region", { name: "동쪽 통로등 센서 준비" })).toHaveCount(1);
+    await marker(dialog, "주차 안내등").scrollIntoViewIfNeeded(); await marker(dialog, "주차 안내등").click();
+    await dialog.getByRole("button", { name: "1개 조명 선택 완료" }).click();
+    await dialog.getByRole("button", { name: "실행할 조명 선택", exact: true }).click();
+    await expect(marker(dialog, "주차 안내등")).toBeDisabled();
+    await expect(marker(dialog, "동쪽 통로등")).toBeEnabled();
+    if (viewport.width < 1024) await expectMinimumTouchTargetsAfterScrolling(page, "[data-dialog-surface]");
+  });
+}
 
 for (const flow of ["schedule", "event", "group"] as const) {
   test(`final review: ${flow} dialog provides a usable desktop map and marker selection`, async ({ page }) => {
@@ -722,6 +852,9 @@ async function installControlMapRoutes(page: Page, options: {
   groupMemberCount?: number;
   historyCount?: number;
   boundaryFixtures?: boolean;
+  bioReadiness?: "ready" | "off";
+  commonPreparation?: boolean;
+  bioTelemetry?: () => BioPulseTelemetryView | null;
 } = {}) {
   const fixtureData = options.fixtureCount
     ? Array.from({ length: options.fixtureCount }, (_, index) => fixture(
@@ -730,7 +863,20 @@ async function installControlMapRoutes(page: Page, options: {
       30 + (index % 10) * 100,
       30 + Math.floor(index / 10) * 80
     ))
-    : options.boundaryFixtures ? fixtures.map((item, index) => ({ ...item, x: index === 0 ? 0 : 1200, y: index === 0 ? 0 : 800 })) : fixtures;
+    : options.commonPreparation ? fixtures.map((item, index) => ({ ...item, name: ["서쪽 출입등", "동쪽 통로등", "주차 안내등"][index],
+      bioSensorPreparation: { preparationCandidate: true, status: index === 2 ? "ready" : "unverified", commandId: null, profileKey: null, observedAt: null,
+        blockedReasons: index === 2 ? [] : ["profile_unverified" as const, "mode_unverified" as const] },
+      vehicleEventSource: { sensorProtocol: "bio-usb-pulse" as const, readiness: index === 2 ? "ready" as const : "off" as const, capabilityEvidence: "off" as const,
+        sourceEligible: index === 2, targetEligible: true, blockReasons: [], modeVerification: { commandId: null, status: "unverified", modeVerified: false, verifiedAt: null } }
+    })) : options.boundaryFixtures ? fixtures.map((item, index) => ({ ...item, x: index === 0 ? 0 : 1200, y: index === 0 ? 0 : 800 })) : fixtures.map(item => options.bioReadiness && item.id === ids.sensor ? {
+      ...item, vehicleSensorCapabilityStatus: "unknown" as const, vehicleSensorCapabilityVerifiedAt: null,
+      bioSensorPreparation: { preparationCandidate: true, status: "unverified", commandId: null, profileKey: null, observedAt: null, blockedReasons: options.bioReadiness === "off" ? ["profile_unverified" as const, "mode_unverified" as const] : [] },
+      // Synthetic future-ready view exercises UI only; the product API remains OFF.
+      vehicleEventSource: { sensorProtocol: "bio-usb-pulse" as const, readiness: options.bioReadiness, capabilityEvidence: options.bioReadiness,
+        sourceEligible: options.bioReadiness === "ready", targetEligible: true,
+        blockReasons: options.bioReadiness === "off" ? ["product_gate_off" as const, "mode_unverified" as const] : [],
+        modeVerification: { commandId: null, status: "unverified", modeVerified: false, verifiedAt: null } }
+    } : item);
   const api = await installSettingsApiRoutes(page, options.role ?? "admin", {
     fixtures: fixtureData,
     ids: { siteId: ids.site, floorId: ids.floor, gatewayId: ids.gateway }
@@ -765,7 +911,8 @@ async function installControlMapRoutes(page: Page, options: {
     const historicalCommand = history.find((command) => path === `/api/commands/${command.id}`);
     if (historicalCommand) return route.fulfill({ json: { ...historicalCommand, generatedAt: "2026-09-01T00:00:00Z", retainedFrom: "2026-06-01T00:00:00Z", retentionEnabled: false } });
     if (path === `/api/sites/${ids.site}/dashboard`) {
-      return route.fulfill({ json: dashboardResponse(fixtureData, groups, options.role ?? "admin") });
+      return route.fulfill({ json: dashboardResponse(fixtureData.map(item => item.id === ids.sensor && options.bioTelemetry
+        ? { ...item, bioPulseTelemetry: options.bioTelemetry() } : item), groups, options.role ?? "admin") });
     }
     if (path === `/api/sites/${ids.site}/floors/${ids.floor}/map-snapshot` && options.mapStatus) {
       return route.fulfill({ status: options.mapStatus, json: { message: "map unavailable" } });
@@ -789,7 +936,9 @@ async function installControlMapRoutes(page: Page, options: {
       }
     }
     if (path === `/api/sites/${ids.site}/automation/vehicle-event-rules`) {
-      if (request.method() === "GET") return route.fulfill({ json: { items: [], total: 0, nextCursor: null } });
+      if (request.method() === "GET") return route.fulfill({ json: { items: options.bioTelemetry ? [eventResponse({ name: "BIO 시험 규칙", sensorProtocol: "bio-usb-pulse",
+        status: "disabled", sourceFixtureIds: [ids.sensor], targetFixtureIds: [ids.fixture], holdSeconds: 60,
+        action: { dimmingEnabled: true, brightnessPercent: 80 } })] : [], total: options.bioTelemetry ? 1 : 0, nextCursor: null } });
       if (request.method() === "POST") {
         const input = request.postDataJSON() as Record<string, unknown>;
         state.eventRequests.push(input);

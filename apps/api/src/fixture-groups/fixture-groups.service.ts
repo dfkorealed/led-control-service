@@ -1,4 +1,5 @@
 import { BadRequestException, Injectable, InternalServerErrorException, NotFoundException } from "@nestjs/common";
+import { assertNoActiveBioSourceTarget } from "../automation/bio-source-target-policy";
 import { createFixtureGroupSchema, FixtureGroupMetadata, UpdateFixtureGroupInput } from "@led-control/shared";
 import { MeshControlGroupStatus, Prisma } from "@prisma/client";
 import { SiteAccessService } from "../access/site-access.service";
@@ -79,8 +80,10 @@ export class FixtureGroupsService {
     const input = this.parseInput(rawInput);
 
     return this.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw(Prisma.sql`SELECT "lock_automation_membership_mutation"()`);
       await this.siteAccess.assertManageInTransaction(tx, user, siteId);
       const fixtures = await this.lockAndValidateBoundary(tx, siteId, input);
+      await assertNoActiveBioSourceTarget(tx, siteId, fixtures.map(fixture => fixture.id), "group");
       await this.assertFixtureCapacity(tx, input.fixtureIds);
 
       const group = await tx.fixtureGroup.create({
@@ -125,10 +128,12 @@ export class FixtureGroupsService {
     const input = this.parseInput(rawInput);
 
     return this.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw(Prisma.sql`SELECT "lock_automation_membership_mutation"()`);
       await this.siteAccess.assertManageInTransaction(tx, user, siteId);
       const group = await this.lockFixtureGroup(tx, siteId, groupId);
       this.assertActive(group);
       const fixtures = await this.lockAndValidateBoundary(tx, siteId, input, group.gatewayId ?? undefined);
+      await assertNoActiveBioSourceTarget(tx, siteId, fixtures.map(fixture => fixture.id), "group");
       await this.assertFixtureCapacity(tx, input.fixtureIds, group.id);
 
       let meshGroup: LockedMeshControlGroup;

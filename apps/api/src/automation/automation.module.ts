@@ -7,10 +7,12 @@ import { AutomationRuntimeModule } from "./automation-runtime.module";
 import { SchedulesService } from "./schedules.service";
 import { TargetSnapshotService } from "./target-snapshot.service";
 import { VehicleEventRulesService } from "./vehicle-event-rules.service";
+import { BioSensorProfilesController, BioSensorSitePolicyController } from "./bio-sensor-profiles.controller";
+import { BioSensorPreparationController } from "./bio-sensor-preparation.controller";
 
 @Module({
   imports: [PrismaModule, AuthModule, AccessModule, AutomationRuntimeModule],
-  controllers: [AutomationController, VehicleEventRulesController],
+  controllers: [AutomationController, VehicleEventRulesController, BioSensorProfilesController, BioSensorSitePolicyController, BioSensorPreparationController],
   providers: [
     SchedulesService,
     TargetSnapshotService,

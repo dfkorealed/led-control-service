@@ -1,6 +1,6 @@
 import type {
-  AutomationSnapshotV1,
-  AutomationConfigAppliedV1,
+  AutomationSnapshot,
+  AutomationConfigApplied,
   IdentifyDevicePayload,
   MeshGroupSubscriptionResultPayload,
   MeshGroupSubscriptionSyncPayload,
@@ -11,7 +11,8 @@ import type {
   ProvisioningScanFoundDevice
 } from "@led-control/shared";
 import {
-  automationConfigAppliedV1Schema,
+  bioDiscoveryTopics, bioProvisioningScanFoundV2Schema, type BioSensorFingerprintV1,
+  automationConfigAppliedSchema,
   mqttTopicsV2,
   provisioningScanCompletedSchema,
   provisioningScanFailedSchema,
@@ -20,10 +21,14 @@ import {
 import { ProvisioningScanJournal, type ProvisioningScanTerminalEvent } from "./state/provisioning-scan-journal";
 import { AutomationRuntimeError, type AutomationRuntime } from "./automation/automation-runtime";
 import type { CommandWriteControl } from "./commands/command-rf-drain";
+import type { BioSourceTargetGuard } from "./automation/bio-source-target-guard";
 
 export interface BleMeshAdapter {
+  setBioSourceTargetGuard?(guard: BioSourceTargetGuard): void;
+  sensorModeOperation?(command: { fixtureId: string; nodeId: string; meshAddress: string; deviceIdentityHash: string; operation: "ensure_sensor" | "query" },
+    control: { signal?: AbortSignal; deadlineAt?: number }): Promise<"sensor" | "force-on" | "force-off">;
   probeFixturePresence?(fixtureIds: string[], signal?: AbortSignal): Promise<BleMeshFixtureProbeResult[]>;
-  setAttention?(fixtureId: string, expiresAt: number, action: "start" | "stop", signal?: AbortSignal): Promise<number>;
+  setAttention?(fixtureId: string, expiresAt: number, action: "start" | "stop", signal?: AbortSignal, writeControl?: CommandWriteControl): Promise<number>;
   setBrightness(fixtureIds: string[], brightness: number, writeControl?: CommandWriteControl): Promise<BleMeshCommandReport[]>;
   applyUnicast?(fixtureId: string, brightness: number, signal?: AbortSignal, deadlineAt?: number, writeControl?: CommandWriteControl): Promise<BleMeshCommandReport>;
   applyParallelUnicast?(
@@ -59,7 +64,7 @@ export interface BleMeshGroupSnapshot {
   members: Array<{ meshNodeId: string; meshAddress: string }>;
 }
 
-export function configuredVehicleSensorSourceFixtureIds(snapshot: AutomationSnapshotV1 | null) {
+export function configuredVehicleSensorSourceFixtureIds(snapshot: AutomationSnapshot | null) {
   if (!snapshot) return [];
   return [...new Set(snapshot.vehicleEventRules
     .filter(({ status }) => status === "enabled")
@@ -118,7 +123,7 @@ export interface BleMeshResyncReport {
 
 export interface ProvisioningScannerAdapter {
   acceptsDeviceUuid(deviceUuid: string): boolean;
-  scan(command: ProvisioningScanStartPayload): Promise<ProvisioningScanFoundDevice[]>;
+  scan(command: ProvisioningScanStartPayload): Promise<Array<ProvisioningScanFoundDevice & { fingerprint?: BioSensorFingerprintV1 | null }>>;
 }
 
 export interface ProvisioningAdapter {
@@ -164,7 +169,7 @@ export async function applyProvisioningScan(adapter: ProvisioningScannerAdapter,
 export async function handleAutomationConfigPayload(
   payload: Buffer,
   runtime: Pick<AutomationRuntime, "gatewayId" | "hotReload">,
-  recordAcknowledgement: (acknowledgement: AutomationConfigAppliedV1) => Promise<unknown>,
+  recordAcknowledgement: (acknowledgement: AutomationConfigApplied) => Promise<unknown>,
   now: () => Date = () => new Date()
 ) {
   let value: unknown;
@@ -174,7 +179,7 @@ export async function handleAutomationConfigPayload(
     throw new AutomationRuntimeError("snapshot_invalid", "snapshot_invalid", undefined, undefined, { cause: error });
   }
 
-  let acknowledgement: AutomationConfigAppliedV1;
+  let acknowledgement: AutomationConfigApplied;
   try {
     acknowledgement = await runtime.hotReload(value);
   } catch (error) {
@@ -182,15 +187,15 @@ export async function handleAutomationConfigPayload(
       error.revision === undefined || error.payloadHash === undefined) {
       throw error;
     }
-    acknowledgement = automationConfigAppliedV1Schema.parse({
-      schemaVersion: 1,
+    acknowledgement = automationConfigAppliedSchema.parse({
+      schemaVersion: value && typeof value === "object" && "schemaVersion" in value && value.schemaVersion === 2 ? 2 : 1,
       gatewayId: runtime.gatewayId,
       revision: error.revision,
       payloadHash: error.payloadHash,
       status: "rejected",
       errorCode: error.code,
       appliedAt: now().toISOString()
-    }) as AutomationConfigAppliedV1;
+    }) as AutomationConfigApplied;
   }
   await recordAcknowledgement(acknowledgement);
   return acknowledgement;
@@ -370,16 +375,19 @@ export async function publishProvisioningScanLifecycle(input: {
   persistTerminal?: (terminal: ProvisioningScanTerminalEvent) => Promise<ProvisioningScanTerminalEvent>;
   onTerminalPersisted?: () => void;
 }) {
-  let nodes: ProvisioningScanFoundDevice[];
+  let nodes: Array<ProvisioningScanFoundDevice & { fingerprint?: BioSensorFingerprintV1 | null }>;
   try {
     // [확인됨] UUID namespace 소유권은 active adapter가 판정한다. BIO를 DFK UUID로
     // 위장하거나 전역 allowlist가 다른 adapter의 identity를 누락시키지 않는다.
     nodes = (await applyProvisioningScan(input.adapter, input.command))
       .filter((node) => input.adapter.acceptsDeviceUuid(node.deviceUuid));
     for (const node of nodes) {
+      const { fingerprint, ...legacy } = node;
+      const base = createProvisioningScanFoundPayload(input.command, legacy, await input.nextEnvelope());
       await input.publish(
-        mqttTopicsV2.provisioningScanFound(input.command.siteId, input.command.gatewayId),
-        createProvisioningScanFoundPayload(input.command, node, await input.nextEnvelope())
+        "fingerprint" in node ? bioDiscoveryTopics.scanFoundV2(input.command.siteId, input.command.gatewayId)
+          : mqttTopicsV2.provisioningScanFound(input.command.siteId, input.command.gatewayId),
+        "fingerprint" in node ? bioProvisioningScanFoundV2Schema.parse({ ...base, schemaVersion: 2, fingerprint: fingerprint ?? null }) : base
       );
     }
   } catch (error) {

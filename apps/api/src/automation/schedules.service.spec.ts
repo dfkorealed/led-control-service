@@ -174,7 +174,40 @@ describe("TargetSnapshotService", () => {
   });
 });
 
+it.each(["fixture", "fixtures", "floor", "group"] as const)("rejects a schedule whose expanded %s target contains an active BIO source", async type => {
+  const fixture = { id: FIXTURE_1, siteId: SITE_ID, meshNodeId: "node", gatewayId: GATEWAY_ID };
+  const tx = { site: { findUnique: jest.fn().mockResolvedValue({ timeZone: "Asia/Seoul" }) },
+    fixture: { findMany: jest.fn().mockResolvedValue([fixture]) },
+    gateway: { findUnique: jest.fn().mockResolvedValue({ siteId: SITE_ID }) },
+    floor: { findFirst: jest.fn().mockResolvedValue({ fixtures: [fixture] }) },
+    fixtureGroup: { findFirst: jest.fn().mockResolvedValue({ groupFixtures: [{ fixture }] }) },
+    vehicleEventSource: { findFirst: jest.fn().mockResolvedValue({ fixtureId: FIXTURE_1 }) },
+    lightingSchedule: { findMany: jest.fn().mockResolvedValue([]), create: jest.fn() } };
+  const service = new SchedulesService({ $transaction: (fn: any) => fn(tx) } as never,
+    { assert: async () => {}, assertManageInTransaction: async () => {} } as never, new TargetSnapshotService(),
+    { now: () => new Date("2026-08-31T00:00:00Z") } as never, { lockMutation: async () => {} } as never);
+  const target = type === "fixture" ? { type, fixtureId: FIXTURE_1 } : type === "fixtures" ? { type, fixtureIds: [FIXTURE_1] }
+    : type === "floor" ? { type, floorId: SCHEDULE_ID } : { type, groupId: SCHEDULE_ID };
+  await expect(service.create(SITE_ID, admin, scheduleInput({ target }))).rejects.toMatchObject({ response: { code: "bio_source_target_forbidden" } });
+  expect(tx.lightingSchedule.create).not.toHaveBeenCalled();
+});
+
 describe("SchedulesService", () => {
+  it("rechecks saved fixture targets on PATCH without a new target selection", async () => {
+    const existing = { id: SCHEDULE_ID, siteId: SITE_ID, gatewayId: GATEWAY_ID, name: "Saved", status: "enabled",
+      activeFrom: new Date("2026-09-01T00:00:00Z"), activeUntil: new Date("2026-09-30T00:00:00Z"),
+      localStartTime: "09:00", localEndTime: "10:00", recurrenceKind: "daily", weeklyDays: [],
+      monthlyDay: null, yearlyMonth: null, yearlyDay: null, dimmingEnabled: true, brightnessPercent: 60,
+      fixtures: [{ fixtureId: FIXTURE_1 }] };
+    const tx = { site: { findUnique: async () => ({ timeZone: "Asia/Seoul" }) },
+      vehicleEventSource: { findFirst: jest.fn().mockResolvedValue({ fixtureId: FIXTURE_1 }) },
+      lightingSchedule: { findFirst: async () => existing, findMany: async () => [], update: jest.fn() } };
+    const service = new SchedulesService({ $transaction: (fn: any) => fn(tx) } as never,
+      { assert: async () => {}, assertManageInTransaction: async () => {} } as never, new TargetSnapshotService(),
+      { now: () => new Date("2026-08-31T00:00:00Z") } as never, { lockMutation: async () => {} } as never);
+    await expect(service.update(SITE_ID, SCHEDULE_ID, admin, { name: "Updated" })).rejects.toMatchObject({ response: { code: "bio_source_target_forbidden" } });
+    expect(tx.lightingSchedule.update).not.toHaveBeenCalled();
+  });
   it("lists one deterministic bounded page and returns total plus next cursor", async () => {
     const createdAt = new Date("2026-08-30T01:02:03.456Z");
     const tx = {
@@ -242,6 +275,7 @@ describe("SchedulesService", () => {
   it("rejects an enabled exact overlap with the stable schedule_overlap code", async () => {
     const transactionCalls: string[] = [];
     const tx = {
+      vehicleEventSource: { findFirst: jest.fn().mockResolvedValue(null) },
       $queryRaw: jest.fn().mockImplementation(() => {
         transactionCalls.push("automation-lock");
         return Promise.resolve([{ lock_automation_membership_mutation: null }]);

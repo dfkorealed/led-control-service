@@ -60,6 +60,80 @@ describe("VehicleEventDialog spatial source and targets", () => {
 
   afterEach(cleanup);
 
+  it("allows inspecting every arbitrary registered light without selecting an unready source", () => {
+    const arbitrary = structuredClone(dashboard);
+    arbitrary.floors[0].fixtures = arbitrary.floors[0].fixtures.slice(0, 3).map((item, index) => ({ ...item,
+      id: `registered-${index + 40}`, name: ["서쪽 출입등", "동쪽 통로등", "주차 안내등"][index],
+      bioSensorPreparation: { preparationCandidate: true, status: "unverified", commandId: null, profileKey: null,
+        observedAt: null, blockedReasons: ["profile_unverified"] },
+      vehicleEventSource: { sensorProtocol: "bio-usb-pulse", sourceEligible: false, readiness: "off", capabilityEvidence: "off",
+        targetEligible: true, blockReasons: [], modeVerification: { commandId: null, status: "unverified", modeVerified: false, verifiedAt: null } }
+    }));
+    renderVehicleEventDialog({ dashboard: arbitrary }); openSourceView();
+    fireEvent.click(screen.getByRole("button", { name: /동쪽 통로등.*선택 불가/ }));
+    expect(screen.getByRole("region", { name: "동쪽 통로등 센서 준비" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "감지 센서로 선택" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "선택 완료" })).toBeDisabled();
+    expect(screen.getAllByRole("region", { name: /센서 준비$/ })).toHaveLength(1);
+  });
+
+  it.each(["off", "shadow", "degraded"] as const)("blocks saving %s BIO sources and explains server readiness", (readiness) => {
+    const onSubmit = vi.fn();
+    renderVehicleEventDialog({ dashboard: bioDashboard(readiness), rule: existingRule({ sensorProtocol: "bio-usb-pulse" }), onSubmit });
+    expect(screen.getByRole("button", { name: "저장" })).toBeDisabled();
+    expect(screen.getByText(/자체 밝기 동작은 현장 검증 전/)).toBeVisible();
+    expect(screen.getByText(/제품 지원 OFF/)).toBeVisible();
+    expect(screen.getByRole("button", { name: "센서 사용 설정" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "저장" }));
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+
+  it("keeps a server-ready A source-only and saves edited BIO hold as a disabled draft", () => {
+    const onSubmit = vi.fn();
+    renderVehicleEventDialog({ dashboard: bioDashboard("ready"), rule: existingRule({ sensorProtocol: "bio-usb-pulse", status: "disabled", holdSeconds: 10 }), onSubmit });
+    expect(screen.getByRole("textbox", { name: "유지 시간" })).toHaveValue("10");
+    expect(screen.getByText(/꺼졌다 다시 켜질 수/)).toBeVisible();
+    openTargetView();
+    expect(screen.getByRole("button", { name: /Gateway A 감지 조명.*선택 불가/ })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /Gateway A 통로등/ })).toBeEnabled();
+    fireEvent.click(screen.getByRole("button", { name: "1개 조명 선택 완료" }));
+    fireEvent.click(screen.getByRole("button", { name: "저장" }));
+    expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ status: "disabled", holdSeconds: 10 }));
+    expect(onSubmit.mock.calls[0][0]).not.toHaveProperty("sensorProtocol");
+  });
+
+  it("rejects a stale selected A target even when restored from a saved rule", () => {
+    const onSubmit = vi.fn();
+    renderVehicleEventDialog({ dashboard: bioDashboard("ready"), rule: existingRule({ sensorProtocol: "bio-usb-pulse", targetFixtureIds: [sourceFixtureId] }), onSubmit });
+    fireEvent.click(screen.getByRole("button", { name: "저장" }));
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(screen.getByRole("alert")).toHaveTextContent(/감지 센서는 실행 조명/);
+  });
+
+  it("excludes another server-protected active sensor from execution targets", () => {
+    const protectedDashboard = bioDashboard("ready");
+    protectedDashboard.floors[0].fixtures = protectedDashboard.floors[0].fixtures.map(item => item.id === targetFixtureB
+      ? { ...item, vehicleEventSource: { ...protectedDashboard.floors[0].fixtures[0].vehicleEventSource!, targetEligible: false } } : item);
+    renderVehicleEventDialog({ dashboard: protectedDashboard, rule: existingRule({ sensorProtocol: "bio-usb-pulse" }) });
+    openTargetView();
+    expect(screen.getByRole("button", { name: /Gateway A 통로등.*선택 불가/ })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /Gateway A 입구등/ })).toBeEnabled();
+  });
+
+  it("uses the newly selected server protocol when a BIO draft source is replaced with BlueZ", () => {
+    const onSubmit = vi.fn();
+    renderVehicleEventDialog({ dashboard: bioDashboard("ready"), rule: existingRule({ sensorProtocol: "bio-usb-pulse", status: "disabled", holdSeconds: 5 }), onSubmit });
+    openSourceView();
+    fireEvent.click(screen.getByRole("button", { name: "선택 비우기" }));
+    fireEvent.click(screen.getByRole("button", { name: /Gateway B 감지 조명/ }));
+    fireEvent.click(screen.getByRole("button", { name: "1개 조명 선택 완료" }));
+    openTargetView();
+    fireEvent.click(screen.getByRole("button", { name: /Gateway B 감지 조명/ }));
+    fireEvent.click(screen.getByRole("button", { name: "1개 조명 선택 완료" }));
+    fireEvent.click(screen.getByRole("button", { name: "저장" }));
+    expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ holdSeconds: 5, status: "disabled" }));
+  });
+
   it("reads as sensor, execution lights, then brightness and hold action", () => {
     renderVehicleEventDialog();
 
@@ -152,7 +226,10 @@ describe("VehicleEventDialog spatial source and targets", () => {
     renderVehicleEventDialog();
 
     openSourceView();
-    expect(screen.getByRole("button", { name: /차량 감지 모델 미설정.*선택 불가/ })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: /차량 감지 모델 미설정.*선택 불가/ }));
+    expect(screen.getByRole("region", { name: "차량 감지 모델 미설정 센서 준비" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "감지 센서로 선택" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "선택 완료" })).toBeDisabled();
   });
 
   it("clears incompatible targets when the source gateway changes", () => {
@@ -204,6 +281,15 @@ describe("VehicleEventDialog spatial source and targets", () => {
     expect(screen.getByRole("group", { name: "실행할 조명" })).toHaveTextContent("2개 조명 스냅샷");
   });
 });
+
+function bioDashboard(readiness: "off" | "shadow" | "ready" | "degraded"): Dashboard {
+  return { ...dashboard, floors: dashboard.floors.map(floor => ({ ...floor, fixtures: floor.fixtures.map(item => item.id !== sourceFixtureId ? item : {
+    ...item, vehicleSensorCapabilityStatus: "unknown", vehicleSensorCapabilityVerifiedAt: null,
+    vehicleEventSource: { sensorProtocol: "bio-usb-pulse", readiness, capabilityEvidence: readiness, sourceEligible: readiness === "ready",
+      targetEligible: true, blockReasons: readiness === "ready" ? [] : ["product_gate_off", "mode_unverified"],
+      modeVerification: { commandId: null, status: "unverified", modeVerified: readiness === "ready", verifiedAt: null } }
+  }) })) };
+}
 
 function renderVehicleEventDialog(overrides: Partial<React.ComponentProps<typeof VehicleEventDialog>> = {}) {
   return render(<VehicleEventDialog open rule={null} dashboard={dashboard} isPending={false} serverError="" onClose={vi.fn()} onSubmit={vi.fn()} {...overrides} />);

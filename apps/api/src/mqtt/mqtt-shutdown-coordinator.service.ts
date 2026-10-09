@@ -7,6 +7,9 @@ import { LegacyStatusCheckPublisherService } from "./legacy-status-check-publish
 import { RecoveryOutboxPublisherService } from "./recovery-outbox-publisher.service";
 import { ProvisioningScanOutboxPublisherService } from "./provisioning-scan-outbox-publisher.service";
 import { ProvisioningDeviceOutboxPublisherService } from "./provisioning-device-outbox-publisher.service";
+import { SensorModePublisherService } from "./sensor-mode-publisher.service";
+import { BioRegistrationRevalidationPublisherService } from "./bio-registration-revalidation-publisher.service";
+import { BioSensorCatalogOutboxService } from "../automation/bio-sensor-catalog-outbox.service";
 
 @Injectable()
 export class MqttShutdownCoordinator implements OnModuleDestroy {
@@ -20,7 +23,10 @@ export class MqttShutdownCoordinator implements OnModuleDestroy {
     private readonly automationOutbox: AutomationOutboxPublisherService,
     private readonly meshGroupSync: MeshGroupSyncWorker,
     private readonly mqtt: MqttService,
-    @Optional() private readonly recoveryOutbox?: RecoveryOutboxPublisherService
+    @Optional() private readonly recoveryOutbox?: RecoveryOutboxPublisherService,
+    @Optional() private readonly sensorModeOutbox?: SensorModePublisherService,
+    @Optional() private readonly bioRegistrationOutbox?: BioRegistrationRevalidationPublisherService,
+    @Optional() private readonly bioSensorCatalogOutbox?: BioSensorCatalogOutboxService
   ) {}
 
   onModuleDestroy() {
@@ -34,6 +40,9 @@ export class MqttShutdownCoordinator implements OnModuleDestroy {
       const inboundDrain = this.mqtt.stopInboundAndDrain();
       this.shutdownPromise = Promise.all([
         commandDrain,
+        this.sensorModeOutbox?.stopAndDrain(),
+        this.bioRegistrationOutbox?.stopAndDrain(),
+        this.bioSensorCatalogOutbox?.stopAndDrain(),
         legacyStatusCheckDrain,
         this.recoveryOutbox?.stopAndDrain(),
         scanDrain,

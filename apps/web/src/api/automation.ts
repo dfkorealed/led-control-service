@@ -5,9 +5,41 @@ import type {
   DimmingTarget,
   LightingScheduleSnapshotV1,
   ScheduleRecurrenceV1,
-  VehicleEventRuleSnapshotV1
+  VehicleEventRuleSnapshotV1,
+  VehicleSensorProtocol,
+  BioSensorModeRequest
 } from "@led-control/shared";
-import { ApiError, apiDelete, apiGet, apiPatch, apiPost } from "./client";
+import { ApiError, apiDelete, apiGet, apiPatch, apiPost, apiPut } from "./client";
+import type { BioSensorProfileV1 } from "@led-control/shared";
+
+export type BioSensorBlockedReason = "profile_unverified" | "fingerprint_unverified" | "mode_unverified" | "link_unverified" | "catalog_pending" | "operating_policy_required" | "gateway_protocol_unverified" | "binding_changed" | "unsupported";
+export interface BioSensorPreparationView {
+  preparationCandidate: boolean;
+  status: string;
+  commandId: string | null;
+  profileKey: string | null;
+  observedAt: string | null;
+  blockedReasons: BioSensorBlockedReason[];
+}
+export interface BioSensorPreparationOperation {
+  commandId: string; siteId: string; fixtureId: string; operation: "query" | "ensure_sensor"; catalogRevision: number;
+  status: "pending" | "ready" | "needs_setup" | "unverified" | "degraded" | "unsupported" | "failed" | "timed_out";
+  requestedAt: string; expiresAt: string; supersededAt: string | null; observedAt: string | null; profileKey: string | null;
+  modeVerified: boolean; linkVerified: boolean; blockReason: string | null; errorCode: string | null;
+}
+export function requestBioSensorPreparation(input: { siteId: string; fixtureId: string; clientRequestId: string; operation: "query" | "ensure_sensor" }) {
+  return apiPost<BioSensorPreparationOperation>("/bio-sensor-preparations", input, { timeoutMs: 8_000 });
+}
+export function getBioSensorPreparation(commandId: string) {
+  return apiGet<BioSensorPreparationOperation>(`/bio-sensor-preparations/${encodeURIComponent(commandId)}`, { timeoutMs: 8_000 });
+}
+export interface BioSensorPolicy { enabled: boolean; ownerUserId: string | null; maximumResponseSeconds: number | null; escalationAction: string | null; }
+export function getBioSensorPolicy(siteId: string) { return apiGet<BioSensorPolicy & { revision: number }>(`/sites/${encodeURIComponent(siteId)}/bio-sensor-policy`); }
+export function saveBioSensorPolicy(siteId: string, input: BioSensorPolicy) { return apiPut<BioSensorPolicy & { revision: number }>(`/sites/${encodeURIComponent(siteId)}/bio-sensor-policy`, input); }
+export interface BioSensorProfileSummary { profileId: string; revision: number; status: "approved" | "revoked"; evidenceDigest: string; reuseScope: string; actorId: string; createdAt: string; }
+export function listBioSensorProfiles() { return apiGet<BioSensorProfileSummary[]>("/bio-sensor-profiles"); }
+export function createBioSensorProfile(input: BioSensorProfileV1) { return apiPost<Pick<BioSensorProfileSummary, "profileId" | "revision" | "status">>("/bio-sensor-profiles", input); }
+export function revokeBioSensorProfile(profileId: string) { return apiPost<Pick<BioSensorProfileSummary, "profileId" | "revision" | "status">>(`/bio-sensor-profiles/${encodeURIComponent(profileId)}/revoke`, undefined); }
 
 export type AutomationSyncStatus = "PENDING" | "APPLIED" | "REJECTED";
 
@@ -82,6 +114,7 @@ export type CreateVehicleEventRuleInput = Omit<VehicleEventRuleSnapshotV1, "id">
 export type UpdateVehicleEventRuleInput = Partial<CreateVehicleEventRuleInput>;
 
 export interface VehicleEventRuleResponse extends VehicleEventRuleSnapshotV1 {
+  sensorProtocol?: VehicleSensorProtocol;
   gatewayId: string;
   sources: Array<{ fixtureId: string }>;
   targets: Array<{ fixtureId: string }>;
@@ -96,6 +129,82 @@ export interface VehicleEventRuleResponse extends VehicleEventRuleSnapshotV1 {
   updatedById: string;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface SensorModeVerification {
+  commandId: string | null;
+  status: string;
+  modeVerified: boolean;
+  verifiedAt: string | null;
+}
+
+export interface SensorModeOperationResponse extends SensorModeVerification {
+  commandId: string;
+  siteId: string;
+  fixtureId: string;
+  operation: "ensure_sensor" | "query";
+  requeryOfCommandId: string | null;
+  requestedAt: string;
+  expiresAt: string;
+  supersededAt: string | null;
+  observedMode: "sensor" | "force-on" | "force-off" | null;
+}
+
+export type VehicleEventSourceBlockReason = "product_gate_off" | "capability_unverified" | BioSensorBlockedReason;
+export interface VehicleEventSourceView {
+  sensorProtocol: VehicleSensorProtocol;
+  readiness: "off" | "shadow" | "ready" | "degraded";
+  capabilityEvidence: "off" | "shadow" | "ready" | "degraded" | null;
+  sourceEligible: boolean;
+  targetEligible: boolean;
+  blockReasons: VehicleEventSourceBlockReason[];
+  modeVerification: SensorModeVerification;
+}
+
+/** Server-owned historical runtime evidence; never source readiness or optical output. */
+export interface BioPulseTelemetryView {
+  evidence: "gateway_runtime_telemetry";
+  gatewayId: string;
+  assignmentVersion: number;
+  revision: number;
+  lastPulseAt: string | null;
+  health: "healthy" | "degraded" | "unverified";
+  healthReason: string | null;
+  degradedSince: string | null;
+  restorationPending: boolean | null;
+  restorationReason: string | null;
+  targetFixtureIds: string[];
+  lastEventAt: string;
+  receivedAt: string;
+  occurrences: Array<{
+    ruleId: string;
+    occurrenceKey: string;
+    targetFixtureIds: string[];
+    health: "healthy" | "degraded" | "unverified";
+    degradedSince: string | null;
+    restorationPending: boolean | null;
+    restorationReason: string | null;
+  }>;
+  configurationReadback: {
+    sensorProtocol: "bio-usb-pulse";
+    verification: "configuration_readback";
+    phase: "apply" | "restore";
+    occurredAt: string;
+    sequence: number;
+    results: Array<{
+      fixtureId: string;
+      status: "pending" | "succeeded" | "failed" | "timed_out" | "superseded";
+      configuration: { configuredHighBrightnessPercent: number; bioMode: "sensor" | "force-on" | "force-off" } | null;
+    }>;
+  } | null;
+}
+
+export function requestSensorMode(input: BioSensorModeRequest) {
+  return apiPost<SensorModeOperationResponse>("/sensor-mode-operations", input);
+}
+
+export function getSensorModeOperation(commandId: string) {
+  return apiGet<SensorModeOperationResponse>(`/sensor-mode-operations/${encodeURIComponent(commandId)}`);
 }
 
 interface AutomationExecutionResponse {

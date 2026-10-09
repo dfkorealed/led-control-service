@@ -1,7 +1,8 @@
 import { randomInt } from "node:crypto";
+import { bioSensorFingerprintV1Schema, type BioSensorFingerprintV1 } from "@led-control/shared";
 import { SerialTaskQueue } from "../runtime/serial-task-queue";
 import { bioRawToPercent, percentToBioRaw } from "./bio-brightness-table";
-import { BioUsbTransport, type BioTransportOptions } from "./bio-usb-transport";
+import { BioUsbTransport, type BioTransportOptions, type BioTransportSnapshot } from "./bio-usb-transport";
 import { BioDirectUsbConnection } from "./bio-direct-usb-connection";
 import {
   decodeBioResponse,
@@ -9,13 +10,15 @@ import {
   type BioControlMode,
   type BioLampTarget,
   type BioOperation,
-  type BioResponse
+  type BioResponse,
+  type BioSensorPulseCandidate
 } from "./bio-command-codec";
 import { formatBioDeviceUuid, parseBioDeviceUuid } from "./bio-device-identity";
 import { BioDeviceReadTimeoutError, BioUsbError } from "./bio-usb-error";
 import type { CommandWriteControl } from "../commands/command-rf-drain";
 
-export type BioClientEvent = Exclude<BioResponse, { kind: "probe" | "outer-ack" }> | { kind: "invalid-notification" };
+export type BioClientEvent = Exclude<BioResponse, { kind: "probe" | "outer-ack" }>
+  | { kind: "invalid-notification"; reason?: "BIO_PULSE_SUBSCRIBER_FAILED" };
 export type BioDongleClientOptions = Pick<BioTransportOptions, "timeoutMs" | "retirementTimeoutMs"> & {
   connectionFactory?: BioTransportOptions["connectionFactory"];
   initialSequence?: number;
@@ -24,12 +27,15 @@ export type BioDongleClientOptions = Pick<BioTransportOptions, "timeoutMs" | "re
   reconnectReadyTimeoutMs?: number;
 };
 export interface BioOperationControl extends Partial<CommandWriteControl> {
+  /** Trusted local product guard, inside the owned operation immediately before RF. */
+  beforeWrite?: () => Promise<void>;
   signal?: AbortSignal;
   deadlineAt?: number;
   onWriteStarted?: () => void;
 }
 export interface BioCommandAcceptance { outcome: "dongle-accepted"; deviceApplied: false }
 export interface BioDiscoveredDevice {
+  fingerprint?: BioSensorFingerprintV1;
   nativeUuid: string;
   deviceUuid: string;
   logicalAddress: number;
@@ -57,6 +63,12 @@ export class BioAddressConflictError extends BioUsbError {
 }
 export type BioVerifiedLampTarget = Extract<BioLampTarget, { kind: "unicast" }> & { nativeUuid: string };
 
+/** Configuration only: in sensor mode this is never an observation of optical/current output. */
+export interface BioConfigurationState {
+  configuredHighBrightnessPercent: number;
+  bioMode: BioControlMode;
+}
+
 type ReadbackEvent = Extract<BioResponse, { kind: "high-brightness-report" | "control-mode-report" }>;
 type BioReadbackOperation = Extract<BioOperation,
   { kind: "readHighBrightness" | "readControlMode" | "setControlMode" }>;
@@ -75,6 +87,7 @@ type BioReadbackOperation = Extract<BioOperation,
 export class BioDongleClient {
   private readonly transport: BioUsbTransport;
   private readonly listeners = new Set<(event: BioClientEvent) => void>();
+  private readonly pulseCandidateListeners = new Set<(candidate: BioSensorPulseCandidate) => void>();
   private readonly scanDurationMs: number;
   private readonly observationTimeoutMs: number;
   private readonly reconnectReadyTimeoutMs: number;
@@ -105,6 +118,8 @@ export class BioDongleClient {
       }
     });
     this.transport.onNotification((frame) => {
+      const receivedMonotonicMs = performance.now();
+      const generation = this.transport.snapshot().generation;
       let event: BioClientEvent;
       try {
         const parsed = decodeBioResponse(frame);
@@ -121,7 +136,31 @@ export class BioDongleClient {
         // 않되 무관한 request를 성공시키지도 않고 redacted invalid event로 격리한다.
         event = { kind: "invalid-notification" };
       }
+      let pulseSubscriberFailed = false;
+      if (event.kind === "sensor-status-candidate") {
+        // Reuse the sole CRC-checked USB listener. Candidates remain separate from
+        // command/read-back ownership and cannot prove movement or independent liveness.
+        for (const listener of this.pulseCandidateListeners) {
+          try {
+            listener({ ...event, innerBody: Buffer.from(event.innerBody), receivedMonotonicMs, generation });
+          } catch {
+            // A shadow consumer does not own USB receive. Preserve later subscribers and
+            // coalesced command replies; never expose thrown messages, body or identity.
+            pulseSubscriberFailed = true;
+          }
+        }
+      }
       for (const listener of this.listeners) listener(event);
+      if (pulseSubscriberFailed) {
+        for (const listener of this.listeners) {
+          try {
+            listener({ kind: "invalid-notification", reason: "BIO_PULSE_SUBSCRIBER_FAILED" });
+          } catch {
+            // Diagnostic failure is terminal for this observer only. Do not recursively
+            // report it or let it interrupt the transport's remaining decoded frames.
+          }
+        }
+      }
     });
   }
 
@@ -136,6 +175,18 @@ export class BioDongleClient {
   transportSnapshot() {
     const { transportConnected, protocolReady } = this.transport.snapshot();
     return { transportConnected, protocolReady };
+  }
+
+  /** Read-only metadata from the existing owner, not independent sensor health. */
+  sensorSourceSnapshot(): BioTransportSnapshot {
+    return { ...this.transport.snapshot() };
+  }
+
+  onSensorSourceState(listener: (state: BioTransportSnapshot) => void): () => void {
+    return this.transport.onState(state => {
+      // Never propagate a consumer fault into reconnect or the normal command queue.
+      try { listener({ ...state }); } catch { /* Observer-only failure. */ }
+    });
   }
 
   async close(): Promise<void> {
@@ -253,11 +304,11 @@ export class BioDongleClient {
     }
   }
 
-  async stopIdentify(nativeId: string): Promise<void> {
+  async stopIdentify(nativeId: string, control: BioOperationControl = {}): Promise<void> {
     const device = this.resolveCachedDevice(nativeId);
     const session = this.identifySessions.get(device.nativeUuid);
     if (!session) {
-      await this.restoreSensorMode(device);
+      await this.restoreSensorMode(device, control);
       return;
     }
     session.controller.abort();
@@ -366,6 +417,50 @@ export class BioDongleClient {
     return report;
   }
 
+  async readConfiguration(target: BioVerifiedLampTarget, control: BioOperationControl = {}): Promise<BioConfigurationState> {
+    const brightness = await this.readBrightness(target, control);
+    throwIfOperationStopped(control);
+    const mode = await this.readDeviceInfo(target, control);
+    throwIfOperationStopped(control);
+    if (brightness.networkId !== target.networkId || mode.networkId !== target.networkId) {
+      throw new BioUsbError("BIO_CONFIGURATION_UNVERIFIED", "BIO configuration GET identity mismatch");
+    }
+    const configuredHighBrightnessPercent = bioRawToPercent(brightness.rawHighBrightness);
+    if (configuredHighBrightnessPercent === null) {
+      throw new BioUsbError("BIO_CONFIGURATION_UNVERIFIED", "BIO configured brightness has no exact percent");
+    }
+    return { configuredHighBrightnessPercent, bioMode: mode.mode };
+  }
+
+  /**
+   * Restore the stored high-brightness setting even for force-off. setOutput(0) only
+   * changes mode and therefore cannot restore that setting. Sensor mode does not
+   * imply an optical output value; independent GETs verify configuration only.
+   */
+  async restoreConfiguration(
+    target: BioVerifiedLampTarget,
+    state: BioConfigurationState,
+    control: BioOperationControl = {}
+  ): Promise<BioConfigurationState> {
+    throwIfOperationStopped(control);
+    const rawHighBrightness = percentToBioRaw(state.configuredHighBrightnessPercent);
+    if (!["sensor", "force-on", "force-off"].includes(state.bioMode)) {
+      throw new BioUsbError("BIO_CONFIGURATION_UNVERIFIED", "BIO configuration mode is invalid");
+    }
+    const expected = this.resolveReadbackTarget(target);
+    await this.setBrightness(expected.target, { rawHighBrightness }, control);
+    throwIfOperationStopped(control);
+    await this.setControlMode(expected.target, state.bioMode, control);
+    throwIfOperationStopped(control);
+    const observed = await this.readConfiguration(target, control);
+    if (observed.configuredHighBrightnessPercent !== state.configuredHighBrightnessPercent || observed.bioMode !== state.bioMode) {
+      throw Object.assign(new BioUsbError("BIO_CONFIGURATION_STATE_MISMATCH", "BIO configuration GET did not match"), {
+        observedConfiguration: observed
+      });
+    }
+    return observed;
+  }
+
   /**
    * [확인됨] 1..100은 APK exact table raw → force-on → high read → mode read 순서이며
    * 두 read-back이 모두 일치해야 applied 결과를 만든다. 0은 force-off와 mode read만 한다.
@@ -443,6 +538,12 @@ export class BioDongleClient {
     return () => { this.listeners.delete(listener); };
   }
 
+  /** Candidate subscription only; creates neither another USB owner nor RF commands. */
+  onSensorPulseCandidate(listener: (candidate: BioSensorPulseCandidate) => void): () => void {
+    this.pulseCandidateListeners.add(listener);
+    return () => { this.pulseCandidateListeners.delete(listener); };
+  }
+
   private async runIdentify(device: BioDiscoveredDevice, control: BioOperationControl): Promise<BioDiscoveredDevice> {
     let primaryFailure: unknown;
     try {
@@ -455,7 +556,11 @@ export class BioDongleClient {
       // [확인됨] identify가 force-on을 시작했거나 queue에서 취소됐더라도 sensor 복귀는
       // 안전 상태를 위한 유일한 post-expiry physical write 예외다. 이 restore 자체는 새
       // caller deadline을 상속하지 않으며 UUID/address mode report까지 best-effort로 확인한다.
-      await this.restoreSensorMode(device);
+      // Cleanup may outlive the identify deadline, but never its source guard.
+      // Newly protected A must receive neither force-on nor sensor-mode writes.
+      await this.restoreSensorMode(device, {
+        mayStartWrite: control.mayStartWrite, onWriteStarted: control.onWriteStarted
+      });
     } catch (cause) {
       throw new BioUsbError(
         "BIO_IDENTIFY_RESTORE_UNCONFIRMED",
@@ -721,6 +826,8 @@ export class BioDongleClient {
     onAccepted?: () => void
   ): Promise<BioCommandAcceptance> {
     throwIfOperationStopped(control);
+    if (control.beforeWrite) await control.beforeWrite();
+    throwIfOperationStopped(control);
     const request = encodeBioCommand(operation, this.sequence);
     this.sequence = (this.sequence + 1) & 0xff;
     // Get remains usable after Set proof loss, including the read-back of a
@@ -745,6 +852,8 @@ export class BioDongleClient {
 
 function toDiscoveredDevice(response: Extract<BioResponse, { kind: "discovery" }>): BioDiscoveredDevice {
   return {
+    fingerprint: bioSensorFingerprintV1Schema.parse({ deviceType: response.deviceType, firmware: response.firmware,
+      sensorType: response.sensorType, infraredType: response.infraredType, ambientLightType: response.ambientLightType, hardwareType: response.hardwareType }),
     nativeUuid: parseBioDeviceUuid(response.deviceUuid),
     deviceUuid: response.deviceUuid,
     logicalAddress: response.logicalAddress,

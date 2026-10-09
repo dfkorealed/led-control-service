@@ -1,8 +1,10 @@
 import { readJsonFile, writeJsonAtomic } from "../mesh/mesh-store-file";
 import { formatBioDeviceUuid, parseBioDeviceUuid } from "./bio-device-identity";
 import { BioUsbError } from "./bio-usb-error";
+import { bioSensorFingerprintV1Schema, type BioSensorFingerprintV1 } from "@led-control/shared";
 
 export interface BioDeviceMapping {
+  fingerprint?: BioSensorFingerprintV1;
   fixtureId: string;
   nodeId: string;
   deviceUuid: string;
@@ -17,6 +19,7 @@ export interface BioDeviceMapping {
 }
 
 export interface BioDeviceMappingInput {
+  fingerprint?: BioSensorFingerprintV1;
   fixtureId: string;
   nodeId: string;
   deviceUuid: string;
@@ -56,11 +59,25 @@ type BioMappingKeys = Pick<BioDeviceMappingInput,
  */
 export class BioDeviceMappingStore {
   private queue: Promise<unknown> = Promise.resolve();
+  private readonly changeListeners = new Set<() => void>();
 
   constructor(
     private readonly path: string,
     private readonly now: () => Date = () => new Date()
   ) {}
+
+  /** Local durable mutations only; external file changes are re-read by pulse intake. */
+  onChange(listener: () => void): () => void {
+    this.changeListeners.add(listener);
+    return () => { this.changeListeners.delete(listener); };
+  }
+
+  private notifyChange(): void {
+    for (const listener of this.changeListeners) {
+      // Observers cannot turn an already durable provisioning write into a failure.
+      try { listener(); } catch { /* Failures are confined to the observer. */ }
+    }
+  }
 
   reserve(input: BioDeviceMappingInput) {
     return this.exclusive(async () => {
@@ -84,6 +101,7 @@ export class BioDeviceMappingStore {
       };
       state.mappings.push(reserved);
       await writeJsonAtomic(this.path, state);
+      this.notifyChange();
       return { ...reserved };
     });
   }
@@ -101,6 +119,7 @@ export class BioDeviceMappingStore {
       mapping.status = "confirmed";
       mapping.updatedAt = this.now().toISOString();
       await writeJsonAtomic(this.path, state);
+      this.notifyChange();
       return { ...mapping };
     });
   }
@@ -207,7 +226,7 @@ function normalizeInput(value: BioDeviceMappingInput): BioDeviceMappingInput {
   validateText(value.commandId);
   validateLogicalAddress(value.logicalAddress);
   validateLogicalAddress(value.observedLogicalAddressBeforeAssignment);
-  return { ...value, nativeUuid, deviceUuid: `bio:${nativeUuid}` };
+  return { ...value, ...(value.fingerprint ? { fingerprint: bioSensorFingerprintV1Schema.parse(value.fingerprint) } : {}), nativeUuid, deviceUuid: `bio:${nativeUuid}` };
 }
 
 function parseMapping(value: unknown, version: 1 | 2): BioDeviceMapping {
@@ -217,6 +236,7 @@ function parseMapping(value: unknown, version: 1 | 2): BioDeviceMapping {
     throw new Error("invalid mapping state");
   }
   const core = {
+    ...(row.fingerprint === undefined ? {} : { fingerprint: bioSensorFingerprintV1Schema.parse(row.fingerprint) }),
     fixtureId: expectString(row.fixtureId),
     nodeId: expectString(row.nodeId),
     deviceUuid: expectString(row.deviceUuid),

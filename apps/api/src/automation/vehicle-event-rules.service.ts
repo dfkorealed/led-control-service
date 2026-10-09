@@ -1,9 +1,10 @@
-import { Injectable, NotFoundException } from "@nestjs/common";
-import { Prisma, type AutomationExecutionKind } from "@prisma/client";
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from "@nestjs/common";
+import { Prisma, type AutomationExecutionKind, type VehicleSensorProtocol } from "@prisma/client";
 import { randomUUID } from "node:crypto";
 import { SiteAccessService } from "../access/site-access.service";
 import type { AuthenticatedUser } from "../auth/auth.types";
 import { PrismaService } from "../prisma/prisma.service";
+import { assertNoActiveBioSourceTarget } from "./bio-source-target-policy";
 import {
   AutomationSnapshotService,
   compareAutomationIds,
@@ -16,6 +17,7 @@ import {
 } from "./dto/automation-list.dto";
 import {
   type CreateVehicleEventRuleInput,
+  assertVehicleEventRuleHoldSeconds,
   parseCreateVehicleEventRuleInput,
   parseUpdateVehicleEventRuleInput,
   type UpdateVehicleEventRuleInput
@@ -76,7 +78,7 @@ export class VehicleEventRulesService {
       const filteredWhere: Prisma.VehicleEventRuleWhereInput = { siteId,
         ...(query.query ? { name: literalAutomationName(query.query) } : {}),
         ...(query.status ? { status: query.status } : {}),
-        ...(query.syncStatus ? automationSyncWhere(query.syncStatus) : {}) };
+        ...(query.syncStatus ? vehicleRuleSyncWhere(query.syncStatus) : {}) };
       const anchorWhere: Prisma.VehicleEventRuleWhereInput | null = query.cursor
         ? {
           OR: [
@@ -91,7 +93,7 @@ export class VehicleEventRulesService {
       const total = await tx.vehicleEventRule.count({ where: { siteId } });
       const filteredTotal = query.hasFilters ? await tx.vehicleEventRule.count({ where: filteredWhere }) : total;
       const [applied, pending, rejected] = await Promise.all(["APPLIED", "PENDING", "REJECTED"].map(syncStatus =>
-        tx.vehicleEventRule.count({ where: { siteId, ...automationSyncWhere(syncStatus as "APPLIED" | "PENDING" | "REJECTED") } })));
+        tx.vehicleEventRule.count({ where: { siteId, ...vehicleRuleSyncWhere(syncStatus as "APPLIED" | "PENDING" | "REJECTED") } })));
       const rows = await tx.vehicleEventRule.findMany({
         where: pageWhere,
         orderBy: [{ createdAt: "desc" }, { id: "asc" }],
@@ -125,12 +127,14 @@ export class VehicleEventRulesService {
       await this.automationSnapshot.lockMutation(tx);
       await this.siteAccess.assertManageInTransaction(tx, actor, siteId);
       const membership = await this.resolveMembership(tx, siteId, input);
+      this.assertQualifiedRule(input, membership.sensorProtocol);
       const ruleId = randomUUID();
       await tx.vehicleEventRule.create({
         data: {
           id: ruleId,
           siteId,
           gatewayId: membership.gatewayId,
+          sensorProtocol: membership.sensorProtocol,
           ...vehicleEventRuleData(input),
           desiredRevision: 0,
           appliedRevision: 0,
@@ -176,8 +180,13 @@ export class VehicleEventRulesService {
         ?? existing.sources.map(({ fixtureId }) => fixtureId).sort(compareAutomationIds);
       const targetFixtureIds = input.targetFixtureIds
         ?? existing.targets.map(({ fixtureId }) => fixtureId).sort(compareAutomationIds);
-      const membership = await this.resolveMembership(tx, siteId, { sourceFixtureIds, targetFixtureIds });
       const replacesMembership = input.sourceFixtureIds !== undefined || input.targetFixtureIds !== undefined;
+      const status = input.status ?? existing.status;
+      // A degraded source may remain in an existing disabled audit rule. New
+      // memberships still require readiness, matching the DB admission trigger.
+      const membership = await this.resolveMembership(tx, siteId, { sourceFixtureIds, targetFixtureIds },
+        existing.sensorProtocol === "bio_usb_pulse" && !replacesMembership && status === "disabled");
+      this.assertQualifiedRule({ status, holdSeconds: input.holdSeconds ?? existing.holdSeconds }, membership.sensorProtocol);
       if (replacesMembership) {
         await tx.vehicleEventSource.deleteMany({ where: { ruleId } });
         await tx.vehicleEventTarget.deleteMany({ where: { ruleId } });
@@ -186,6 +195,7 @@ export class VehicleEventRulesService {
         where: { id: ruleId },
         data: {
           gatewayId: membership.gatewayId,
+          sensorProtocol: membership.sensorProtocol,
           ...(input.name === undefined ? {} : { name: input.name }),
           ...(input.status === undefined ? {} : { status: input.status }),
           ...(input.action === undefined ? {} : {
@@ -193,7 +203,8 @@ export class VehicleEventRulesService {
             brightnessPercent: input.action.brightnessPercent
           }),
           ...(input.holdSeconds === undefined ? {} : { holdSeconds: input.holdSeconds }),
-          ...(membership.gatewayId === existing.gatewayId ? {} : { appliedRevision: 0 }),
+          ...(membership.gatewayId === existing.gatewayId && membership.sensorProtocol === existing.sensorProtocol
+            ? {} : { appliedRevision: 0 }),
           updatedById: actor.id
         }
       });
@@ -244,20 +255,34 @@ export class VehicleEventRulesService {
   private async resolveMembership(
     tx: Prisma.TransactionClient,
     siteId: string,
-    input: Pick<CreateVehicleEventRuleInput, "sourceFixtureIds" | "targetFixtureIds">
+    input: Pick<CreateVehicleEventRuleInput, "sourceFixtureIds" | "targetFixtureIds">,
+    allowUnavailable = false
   ) {
-    const sourceFixtureIds = await this.targetSnapshot.resolveVehicleSources(
+    const qualification = await this.targetSnapshot.resolveVehicleSources(
       tx,
       siteId,
-      input.sourceFixtureIds
+      input.sourceFixtureIds,
+      allowUnavailable
     );
+    const sourceFixtureIds = qualification.fixtureIds;
     const targetFixtureIds = await this.targetSnapshot.resolve(tx, siteId, {
       type: "fixtures",
       fixtureIds: input.targetFixtureIds
     });
     const allFixtureIds = [...new Set([...sourceFixtureIds, ...targetFixtureIds])].sort(compareAutomationIds);
     const gatewayId = await this.targetSnapshot.assertSingleGateway(tx, allFixtureIds);
-    return { sourceFixtureIds, targetFixtureIds, gatewayId };
+    await assertNoActiveBioSourceTarget(tx, siteId, targetFixtureIds, "event");
+    if (qualification.sensorProtocol === "bio_usb_pulse" && targetFixtureIds.some(id => sourceFixtureIds.includes(id))) {
+      throw new BadRequestException("BIO source must be distinct from event targets");
+    }
+    return { sourceFixtureIds, targetFixtureIds, gatewayId, sensorProtocol: qualification.sensorProtocol };
+  }
+
+  private assertQualifiedRule(input: Pick<CreateVehicleEventRuleInput, "status" | "holdSeconds">,
+    sensorProtocol: VehicleSensorProtocol) {
+    assertVehicleEventRuleHoldSeconds(input.holdSeconds, sensorProtocol);
+    // Source resolution uses the same current preparation/V2 predicate as DB
+    // admission. Disabled audit edits and release workflows do not require ready.
   }
 
   private async findResponse(tx: Prisma.TransactionClient, siteId: string, ruleId: string) {
@@ -306,6 +331,7 @@ export class VehicleEventRulesService {
     const configuration = rule.gateway.automationConfiguration;
     return {
       ...snapshot,
+      sensorProtocol: rule.sensorProtocol === "bio_usb_pulse" ? "bio-usb-pulse" : "bluez-stateful",
       gatewayId: rule.gatewayId,
       sources: rule.sources.map(({ fixtureId }) => ({ fixtureId })),
       targets: rule.targets.map(({ fixtureId }) => ({ fixtureId })),
@@ -313,7 +339,7 @@ export class VehicleEventRulesService {
       targetCount: rule.targets.length,
       desiredRevision: rule.desiredRevision,
       appliedRevision: rule.appliedRevision,
-      syncStatus: configuration?.syncStatus ?? "PENDING",
+      syncStatus: rule.sensorProtocol === "bio_usb_pulse" ? "PENDING" : configuration?.syncStatus ?? "PENDING",
       lastDetection: toExecutionResponse(executions.detectionByRuleId.get(rule.id)),
       lastExecution: toExecutionResponse(executions.latestByRuleId.get(rule.id)),
       createdById: rule.createdById,
@@ -326,6 +352,13 @@ export class VehicleEventRulesService {
 
 function normalizeCreateInput(input: CreateVehicleEventRuleInput): CreateVehicleEventRuleInput {
   return { ...input, action: normalizeAutomationAction(input.action) };
+}
+
+function vehicleRuleSyncWhere(syncStatus: "APPLIED" | "PENDING" | "REJECTED"): Prisma.VehicleEventRuleWhereInput {
+  const bluez = { sensorProtocol: "bluez_stateful" as const, ...automationSyncWhere(syncStatus) };
+  // BIO drafts are absent from V1 snapshots. Gateway-wide V1 ACK state must not
+  // leak into their rows, filters, or site-wide counts while V2 is unavailable.
+  return syncStatus === "PENDING" ? { OR: [{ sensorProtocol: "bio_usb_pulse" }, bluez] } : bluez;
 }
 
 function normalizeUpdateInput(input: UpdateVehicleEventRuleInput): UpdateVehicleEventRuleInput {

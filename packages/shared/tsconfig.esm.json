@@ -6,6 +6,7 @@
     "outDir": "dist/esm"
   },
   "include": [
+    "src/bio-sensor-profile-contracts.ts",
     "src/mobile-webview-contracts.ts",
     "src/map-display-contracts.ts",
     "src/map-document-contracts.ts",

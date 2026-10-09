@@ -4,7 +4,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { BioByteConnection } from "./bio-byte-connection";
 import { BioDongleClient, type BioClientEvent } from "./bio-dongle-client";
 import { encodeCrcFrame } from "./bio-frame-codec";
-import type { BioOperation } from "./bio-command-codec";
+import type { BioOperation, BioSensorPulseCandidate } from "./bio-command-codec";
+import { BioSensorPulseSource } from "./bio-sensor-pulse-source";
 
 const fixture = JSON.parse(readFileSync(new URL("../../test/fixtures/bio-protocol-v1.json", import.meta.url), "utf8")) as {
   requests: { name: string; operation: BioOperation; sequence: number; hex: string }[];
@@ -14,6 +15,21 @@ const capturedControls = fixture.requests.filter((vector) => vector.operation.ki
 const target = { kind: "unicast", logicalAddress: 0x1234, networkId: 0 } as const;
 const verifiedTarget = { ...target, nativeUuid: "001122334455" } as const;
 const flush = async () => { for (let index = 0; index < 40; index++) await Promise.resolve(); };
+
+it("isolates source-state observers and never exposes a mutable transport snapshot", async () => {
+  const { client, device } = harness();
+  const states: string[] = [];
+  client.onSensorSourceState(() => { throw new Error("consumer failure"); });
+  const unsubscribe = client.onSensorSourceState(state => { states.push(state.state); state.generation = 999; });
+  const probe = client.probe(); void probe.catch(() => {});
+  await flush();
+  expect(device.isOpen).toBe(true);
+  expect(client.sensorSourceSnapshot().generation).toBe(1);
+  await client.close();
+  await expect(probe).rejects.toThrow();
+  expect(states).toContain("closing");
+  unsubscribe();
+});
 class Device extends EventEmitter implements BioByteConnection {
   isOpen = false;
   writes: Buffer[] = [];
@@ -153,6 +169,163 @@ describe("BIO evidence-gated dongle client", () => {
   beforeEach(() => vi.useFakeTimers());
   afterEach(() => vi.useRealTimers());
 
+  it("does not let an asynchronous production source lookup block coalesced ACK/readback", async () => {
+    const h = harness(); await ready(h);
+    let release!: (value: null) => void;
+    const pending = new Promise<null>(resolve => { release = resolve; });
+    const source = new BioSensorPulseSource({ client: h.client,
+      mappings: { findByNativeUuid: () => pending, findByFixtureId: () => pending, onChange: () => () => undefined } });
+    const reading = h.client.readDeviceInfo(verifiedTarget); await flush();
+    h.device.receive(Buffer.concat([encodeCrcFrame(0x12, Buffer.from("d300112233445583ff123401fe000009aabb", "hex")),
+      Buffer.from("55aa1101002055", "hex"), Buffer.from(modeReportHex("001122334455", 0x1234, 0), "hex")]).toString("hex"));
+    await expect(reading).resolves.toMatchObject({ kind: "control-mode-report", deviceUuid: "bio:001122334455" });
+    source.stop(); release(null); await h.client.close();
+  });
+
+  it("awaits the local independent source guard before RF and rechecks a revoked SET permit afterward", async () => {
+    const h = harness(); await ready(h); const before = h.device.writes.length;
+    let release!: () => void; let allowed = true;
+    const pending = new Promise<void>(resolve => { release = resolve; });
+    const setting = h.client.setBrightness(verifiedTarget, { rawHighBrightness: 140 }, {
+      beforeWrite: () => pending, mayStartWrite: () => allowed
+    });
+    void setting.catch(() => {}); await flush(); expect(h.device.writes).toHaveLength(before);
+    allowed = false; release(); await expect(setting).rejects.toThrow();
+    expect(h.device.writes).toHaveLength(before); await h.client.close();
+  });
+
+  it.each([
+    ["sensor", 0, "cc1200"], ["force-on", 3, "cc1203"], ["force-off", 1, "cc1201"]
+  ] as const)("restores configured high brightness and %s only after independent GETs", async (bioMode, rawMode, modeBody) => {
+    const h = harness(); await ready(h);
+    const requested = { configuredHighBrightnessPercent: 60, bioMode };
+    const restoring = h.client.restoreConfiguration(verifiedTarget, requested);
+    let settled = false;
+    void restoring.then(() => { settled = true; });
+    await flush();
+    expect(commandBodies(h.device)).toEqual(["cd13c6"]);
+    h.device.receive("55aa1101002055"); await flush();
+    expect(commandBodies(h.device).at(-1)).toBe(modeBody);
+    h.device.receive("55aa1101002055"); await flush();
+    expect(commandBodies(h.device).at(-1)).toBe("4e13");
+    expect(settled).toBe(false);
+    h.device.receive("55aa1101002055");
+    h.device.receive(brightnessReportHex("001122334455", 0x1234, 198)); await flush();
+    expect(commandBodies(h.device).at(-1)).toBe("4e12");
+    h.device.receive("55aa1101002055"); await flush();
+    expect(settled).toBe(false);
+    h.device.receive(modeReportHex("001122334455", 0x1234, rawMode));
+    await expect(restoring).resolves.toEqual(requested);
+    await h.client.close();
+  });
+
+  it.each([[199, 0], [198, 3]] as const)("rejects restoration when GET configuration differs (%i, %i)", async (rawBrightness, rawMode) => {
+    const h = harness(); await ready(h);
+    const restoring = h.client.restoreConfiguration(verifiedTarget, { configuredHighBrightnessPercent: 60, bioMode: "sensor" });
+    const outcome = restoring.catch(error => error);
+    await flush(); h.device.receive("55aa1101002055"); await flush();
+    h.device.receive("55aa1101002055"); await flush();
+    h.device.receive("55aa1101002055");
+    h.device.receive(brightnessReportHex("001122334455", 0x1234, rawBrightness)); await flush();
+    h.device.receive("55aa1101002055");
+    h.device.receive(modeReportHex("001122334455", 0x1234, rawMode));
+    expect(await outcome).toMatchObject({ code: "BIO_CONFIGURATION_STATE_MISMATCH" });
+    await h.client.close();
+  });
+
+  it("refuses a configuration base whose high brightness has no exact percent", async () => {
+    const h = harness(); await ready(h);
+    const reading = h.client.readConfiguration(verifiedTarget).catch(error => error);
+    await flush(); h.device.receive("55aa1101002055");
+    h.device.receive(brightnessReportHex("001122334455", 0x1234, 1)); await flush();
+    h.device.receive("55aa1101002055");
+    h.device.receive(modeReportHex("001122334455", 0x1234, 0));
+    expect(await reading).toMatchObject({ code: "BIO_CONFIGURATION_UNVERIFIED" });
+    expect(commandBodies(h.device)).toEqual(["4e13", "4e12"]);
+    await h.client.close();
+  });
+
+  it("refuses configuration GET reports from another network even when UUID and address match", async () => {
+    const h = harness(); await ready(h);
+    const reading = h.client.readConfiguration({ ...verifiedTarget, networkId: 2 }).catch(error => error);
+    await flush(); h.device.receive("55aa1101002055");
+    h.device.receive(brightnessReportHex("001122334455", 0x1234, 198)); await flush();
+    h.device.receive("55aa1101002055");
+    h.device.receive(modeReportHex("001122334455", 0x1234, 0));
+    expect(await reading).toMatchObject({ code: "BIO_CONFIGURATION_UNVERIFIED" });
+    await h.client.close();
+  });
+
+  it("isolates a throwing pulse subscriber so coalesced ACK and read-back still complete", async () => {
+    const h = harness(); await ready(h);
+    const candidates: BioSensorPulseCandidate[] = [];
+    const events: BioClientEvent[] = [];
+    h.client.onSensorPulseCandidate(() => { throw new Error("private subscriber detail"); });
+    h.client.onSensorPulseCandidate((candidate) => candidates.push(candidate));
+    // A diagnostic consumer can fail too; reporting must not rethrow or recurse.
+    h.client.onEvent((event) => { if (event.kind === "invalid-notification") throw new Error("private diagnostic detail"); });
+    h.client.onEvent((event) => events.push(event));
+    const reading = h.client.readDeviceInfo(verifiedTarget);
+    const outcome = reading.then((value) => ({ ok: true, value }), () => ({ ok: false }));
+    await flush();
+    try {
+      const candidate = encodeCrcFrame(0x12, Buffer.from("d300112233445583ff123401fe000009aabb", "hex"));
+      const coalesced = Buffer.concat([candidate, Buffer.from("55aa1101002055", "hex"), Buffer.from(modeReportHex("001122334455", 0x1234, 0), "hex")]);
+      expect(() => h.device.receive(coalesced.toString("hex"))).not.toThrow();
+      await flush();
+      expect(candidates).toHaveLength(1);
+      expect(events.filter((event) => event.kind === "sensor-status-candidate")).toHaveLength(1);
+      expect(events.filter((event) => event.kind === "invalid-notification")).toEqual([
+        { kind: "invalid-notification", reason: "BIO_PULSE_SUBSCRIBER_FAILED" }
+      ]);
+      expect(await outcome).toMatchObject({ ok: true, value: { kind: "control-mode-report", mode: "sensor" } });
+    } finally {
+      await h.client.close();
+      await outcome;
+    }
+  });
+
+  it("routes CRC-checked pulse candidates with receipt metadata without consuming ACK or GET read-back", async () => {
+    const h = harness(); await ready(h);
+    const candidates: BioSensorPulseCandidate[] = [];
+    const events: BioClientEvent[] = [];
+    h.client.onSensorPulseCandidate((candidate) => candidates.push(candidate));
+    h.client.onEvent((event) => events.push(event));
+    const reading = h.client.readDeviceInfo(verifiedTarget);
+    let settled = false;
+    void reading.then(() => { settled = true; });
+    await flush();
+    const payload = Buffer.from("d300112233445583ff123401fe000009aabb", "hex");
+    h.device.receive(encodeCrcFrame(0x12, payload).toString("hex"));
+    await flush();
+    expect(candidates).toHaveLength(1);
+    expect(candidates[0]).toMatchObject({ kind: "sensor-status-candidate", sequence: 255, generation: expect.any(Number), receivedMonotonicMs: expect.any(Number) });
+    expect(candidates[0].receivedMonotonicMs).toBeGreaterThanOrEqual(0);
+    expect(settled).toBe(false);
+    h.device.receive("55aa1101002055"); await flush();
+    expect(settled).toBe(false);
+    payload[15] = 0x0c;
+    h.device.receive(encodeCrcFrame(0x12, payload).toString("hex")); await flush();
+    expect(candidates).toHaveLength(1);
+    expect(events.at(-1)?.kind).toBe("alive-status");
+    expect(settled).toBe(false);
+    h.device.receive(modeReportHex("001122334455", 0x1234, 0));
+    await expect(reading).resolves.toMatchObject({ mode: "sensor" });
+    await h.client.close();
+  });
+
+  it.each(["truncated", "crc"])("does not emit a pulse candidate for a %s frame", async (damage) => {
+    const h = harness(); await ready(h);
+    const candidates: BioSensorPulseCandidate[] = [];
+    h.client.onSensorPulseCandidate((candidate) => candidates.push(candidate));
+    const frame = encodeCrcFrame(0x12, Buffer.from("d300112233445583ff123401fe000009aabb", "hex"));
+    if (damage === "crc") frame[frame.length - 1] ^= 0xff;
+    h.device.receive((damage === "truncated" ? frame.subarray(0, -1) : frame).toString("hex"));
+    await flush();
+    expect(candidates).toEqual([]);
+    await h.client.close();
+  });
+
   it("opens using the observed read-only network query and returns no network secret", async () => {
     const h = harness();
     expect(await ready(h)).toEqual({ kind: "probe", protocol: "crc16", responseCommand: 11, payloadBytes: 13 });
@@ -227,11 +400,13 @@ describe("BIO evidence-gated dongle client", () => {
     await expect(result).resolves.toEqual([
       {
         nativeUuid: "001122334455", deviceUuid: "bio:001122334455", logicalAddress: 0x1235,
-        networkId: 0, firmwareVersion: "5.5.8.12889", rssi: -41
+        networkId: 0, firmwareVersion: "5.5.8.12889", rssi: -41,
+        fingerprint: { deviceType: 1, firmware: { major: 5, minor: 5, revision: 8, build: 12889 }, sensorType: 2, infraredType: 1, ambientLightType: 0, hardwareType: 3 }
       },
       {
         nativeUuid: "aabbccddeeff", deviceUuid: "bio:aabbccddeeff", logicalAddress: 0x2222,
-        networkId: 0, firmwareVersion: "5.5.8.12889", rssi: -50
+        networkId: 0, firmwareVersion: "5.5.8.12889", rssi: -50,
+        fingerprint: { deviceType: 1, firmware: { major: 5, minor: 5, revision: 8, build: 12889 }, sensorType: 2, infraredType: 1, ambientLightType: 0, hardwareType: 3 }
       }
     ]);
     await h.client.close();
@@ -462,6 +637,34 @@ describe("BIO evidence-gated dongle client", () => {
       deviceUuid: "bio:001122334455",
       logicalAddress: 0x1234
     });
+    await h.client.close();
+  });
+
+  it.each(["start", "stop"] as const)("sends zero mode writes for protected-source identify %s including cleanup", async action => {
+    const h = harness(75, { scanDurationMs: 100, observationTimeoutMs: 100 }); await ready(h);
+    await finishScan(h, [discoveryHex("001122334455", 0x1234)]);
+    const before = h.device.writes.length;
+    const control = { mayStartWrite: () => false, onWriteStarted: () => {} };
+    const operation = action === "start" ? h.client.startIdentify("001122334455", control) : h.client.stopIdentify("001122334455", control);
+    const result = operation.catch(error => error);
+    await vi.advanceTimersByTimeAsync(1_000);
+    await result;
+    expect(h.device.writes.length).toBe(before);
+    await h.client.close();
+  });
+
+  it("does not restore an old identify mode after the fixture becomes an active source", async () => {
+    const h = harness(75, { scanDurationMs: 100, observationTimeoutMs: 100 }); await ready(h);
+    await finishScan(h, [discoveryHex("001122334455", 0x1234)]);
+    let allowed = true;
+    const operation = h.client.startIdentify("001122334455", { mayStartWrite: () => allowed, onWriteStarted: () => {} });
+    const result = operation.catch(error => error);
+    await flush(); h.device.receive("55aa1101002055");
+    const before = h.device.writes.length;
+    allowed = false;
+    await vi.advanceTimersByTimeAsync(3_000);
+    expect(await result).toMatchObject({ code: "BIO_IDENTIFY_RESTORE_UNCONFIRMED" });
+    expect(h.device.writes.length).toBe(before);
     await h.client.close();
   });
 

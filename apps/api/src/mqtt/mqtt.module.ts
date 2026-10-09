@@ -1,4 +1,7 @@
 import { Module } from "@nestjs/common";
+import { AccessModule } from "../access/access.module";
+import { SensorModeOperationsService } from "../commands/sensor-mode-operations.service";
+import { SensorModePublisherService } from "./sensor-mode-publisher.service";
 import { AutomationOutboxPublisherService } from "../automation/automation-outbox-publisher.service";
 import { AutomationRuntimeModule } from "../automation/automation-runtime.module";
 import { MeshControlGroupModule } from "../mesh-control-groups/mesh-control-group.module";
@@ -28,11 +31,19 @@ import { CommandClockResponderService } from "./command-clock-responder.service"
 import { CommandDbClockHealth } from "./command-db-clock-health.service";
 import { CommandPublishEpochService } from "./command-publish-epoch.service";
 import { CommandPublishQuiesceService } from "./command-publish-quiesce.service";
+import { BioRegistrationRevalidationService } from "../registration/bio-registration-revalidation.service";
+import { BioRegistrationRevalidationPublisherService } from "./bio-registration-revalidation-publisher.service";
+import { BioSensorCatalogOutboxService } from "../automation/bio-sensor-catalog-outbox.service";
 
 @Module({
-  imports: [PrismaModule, MeshControlGroupModule, AutomationRuntimeModule, MonitoringIncidentsModule],
+  imports: [PrismaModule, AccessModule, MeshControlGroupModule, AutomationRuntimeModule, MonitoringIncidentsModule],
   providers: [
     MqttService,
+    BioSensorCatalogOutboxService,
+    SensorModeOperationsService,
+    BioRegistrationRevalidationService,
+    BioRegistrationRevalidationPublisherService,
+    SensorModePublisherService,
     CommandSetMqttService,
     FixtureStateIngestionService,
     FixturePresenceIngestionService,
@@ -58,6 +69,6 @@ import { CommandPublishQuiesceService } from "./command-publish-quiesce.service"
     CommandClockResponderService,
     MeshGroupSyncWorker
   ],
-  exports: [MqttService]
+  exports: [MqttService, SensorModeOperationsService, BioRegistrationRevalidationService]
 })
 export class MqttModule {}
