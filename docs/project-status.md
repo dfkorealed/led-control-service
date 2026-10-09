@@ -2,7 +2,14 @@
 
 기준일: 2026-10-09
 
-## 2026-10-09 ATLAS 현재 상태 — QA 보존·고정 업스트림 합성·국소 검증 회수, 최종 관문 미완료
+## 2026-10-09 ATLAS LEAN 최종화
+
+- 고객 공통 UI·라이트/다크·모바일 레이아웃·수동 제어 맵의 ATLAS 적용을 구현했다. 기존 API·권한·명령 수명·CAD 색상과 BIO 동작 경계를 보존한다.
+- 이번 실제 최종 검증은 관련 `monitoring-navigation-confidence.spec.ts` ONE 실행 11 PASS/0 FAIL(26.3초, exit0), Web 타입 검사 `tsc --noEmit` exit0, Web 빌드 7.81초/exit0이다. 테스트 정합 보완 커밋 `8f0cb8fd`는 해당 테스트 1파일의 2삽입/2삭제다.
+- 사용자 합의로 관련 테스트·타입 검사/빌드·최종 리뷰 1회 후 FF 병합하는 LEAN 절차를 적용한다. 전체 583개·Lab·canonical은 이번 축소 범위 밖/미실행이며 기존 결과를 전체 통과로 확대하지 않는다. 최종 리뷰·병합 상태는 [계획 체크리스트](superpowers/plans/2026-10-07-atlas-ui-refresh.md)를 정본으로 확인한다.
+- 아래 mock·하드웨어 한계·사용자 목업 기록·BIO·과거 실패/미실행 기록은 당시 증거로 보존하며 현재 결과에 합산하지 않는다.
+
+## 2026-10-09 ATLAS 이전 합성·검증 기록 — QA 보존·고정 업스트림 합성·국소 검증 회수
 
 - Tasks1–10의 실제 구현·독립 검토는 보존한다. R84 이후 PC 비차단 전달 경로/실제 owner directional scroll 방향과 현재6 QA 소비 소스의 검토를 확보했다. 최초 수동 이력/휠 미도달·과거 전체149 부분 결과와 후속 국소 관측은 단계별 기록이며 서로 합산하지 않는다. 아래 R83의 ‘현재 HOLD’는 당시 기록이다.
 - R130에서 기존18 실제 LIST573/18·모바일38 identity를 확인했지만 mock/browser·ONE default-constructor Lab·canonical은 미착수다. 기본 HEAD가 `aee641d76cf7d0e52a2ad5fa563ae9908e625bcb`로 이동해 기존 source 관문을 중지했고, root는9 overlap 평가와27 body SHA를 대조했다. 옛859/4501 source·receipt·raw/PNG/실패/backup은 불변이며 최신 통합 검증으로 확대하지 않는다.
