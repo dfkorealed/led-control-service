@@ -323,8 +323,9 @@ test("compact direct controls and resize preserve pending command UUID without r
   const apply = page.locator("[data-control-submit]"); await expect(apply).toBeEnabled(); await compactNativeClick(page, apply, map);
   await expect.poll(() => api.dimmingRequests.length).toBe(1);
   const originalPayload = structuredClone(api.dimmingRequests[0]), uuid = originalPayload.clientRequestId;
+  // 단일 조명 선택은 배열 대상이 아닌 기존 fixture/unicast 계약을 사용한다.
   expect(originalPayload).toMatchObject({ siteId: "99999999-9999-4999-8999-999999999901", brightness: 70,
-    target: { type: "fixtures", fixtureIds: ["99999999-9999-4999-8999-999999999904"] } });
+    target: { type: "fixture", fixtureId: "99999999-9999-4999-8999-999999999904" } });
   await expect(page.getByRole("status", { name: "명령 진행 상태" })).toBeVisible();
   await expect(brightness).toBeDisabled(); await expect(apply).toBeDisabled();
   await page.setViewportSize({ width: 1280, height: 900 });
