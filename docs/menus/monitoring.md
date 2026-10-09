@@ -3,6 +3,7 @@
 ## 2026-10-09 ATLAS LEAN 마무리
 
 - 고객 공통 UI·라이트/다크·모바일 레이아웃과 모니터링 현장/층 표시·탐색의 ATLAS 적용을 구현했다.
+- 후속 개선: `MonitoringLogTicker.tsx:23`의 rows 배열 identity 기반 memo와 `useMonitoringActivity.ts:52`의 렌더마다 새 배열 생성으로 선택·테마 등 무관한 부모 렌더에서 티커 첫 항목·5초 타이머가 초기화된다. 표시 내용 기준 identity 안정화는 후속 작업이며 지금 제품 변경·테스트 추가는 하지 않는다.
 - 이번 최종 검증의 실제 범위·결과는 [상태판](../project-status.md#2026-10-09-atlas-lean-최종화)을 따른다. 전체 583개·Lab·canonical은 축소 범위 밖/미실행이며 기존 mock·실장비·BIO·과거 실패 기록은 보존한다.
 - 최종화 절차의 상태는 [계획 체크리스트](../superpowers/plans/2026-10-07-atlas-ui-refresh.md)를 정본으로 확인한다.
 

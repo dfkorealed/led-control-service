@@ -10,7 +10,14 @@
 
 **Spec:** [다크 포함 설계 명세](../specs/2026-10-07-atlas-ui-refresh-design.md)
 
-상태: **2026-10-09 Tasks 1–10 구현·독립 검토 완료, 사용자 승인 축소 검증 완료(관련 E2E 11개·Web 타입 검사·빌드), 최종 브랜치 리뷰 1회와 로컬 병합 대기**. 사용자가 선택한 실행 방식은 **페이지별 에이전트 분담, 메인 오케스트레이션, 별도 브랜치 후 로컬 병합**이다. 검증 시간·토큰을 줄여 달라는 요청과 “그래 그렇게 하자” 승인에 따라 Task 11–12의 남은 절차를 아래와 같이 축소했다. 과거 실패와 증거는 보존하지만 전수 기록 재검사·추가 전체 suite/Lab/canonical·병합 후 반복 테스트는 수행하지 않는다. 전체 테스트 통과를 주장하지 않는다.
+상태: **2026-10-09 Tasks 1–12 완료(사용자 승인 축소 범위), 관련 E2E 11개·Web 타입 검사·빌드 통과, 최종 리뷰 차단 결함 0, 로컬 fast-forward 병합 완료**. 사용자가 선택한 실행 방식은 **페이지별 에이전트 분담, 메인 오케스트레이션, 별도 브랜치 후 로컬 병합**이다. 검증 시간·토큰을 줄여 달라는 요청과 “그래 그렇게 하자” 승인에 따라 Task 11–12의 남은 절차를 아래와 같이 축소했다. 과거 실패와 증거는 보존하지만 전수 기록 재검사·추가 전체 suite/Lab/canonical·병합 후 반복 테스트는 수행하지 않는다. 전체 테스트 통과를 주장하지 않는다.
+
+### 2026-10-09 최종 검토·병합 결과
+
+- 독립 리뷰 1회는 `aee641d7 → 5147ac86`의 주요 제품 소스·정책·관련 테스트 표본·최신 navigation 수정과 문서 구성을 확인했다. Critical/Important 0, 승인된 축소 범위에서 병합 가능 판정이다. 전 테스트 소스·과거 증거 전수 또는 실제 대비/viewport/HIL 성공을 보증하는 리뷰는 아니다.
+- Minor 후속 개선: 모니터링 rows의 배열 identity가 부모 렌더마다 바뀌어 ticker가 첫 항목과 5초 타이머를 초기화할 수 있다. 표시 내용 기준 identity 안정화는 후속 작업으로 남기며 이번 제품 소스를 추가 변경하지 않았다.
+- 기본 `codex/mvp1-cloud-web`의 알려진 두 목업 문서 블록이 작업 브랜치에 정확히 한 번 포함됨을 확인하고 경로 제한 stash `eecf13ef3883b9d80b321f6e4b7a32f70bcc774c`로 복구 사본을 보존했다. stash pop/drop은 하지 않았다.
+- 기본 checkout의 `aee641d7 → 5147ac86` fast-forward가 성공했고 HEAD·clean 상태를 확인했다. 테스트된 `8f0cb8fd` 이후 Web 제품·테스트 차이는 없으며 이후 변경은 문서뿐이다. 종료 문서 기록도 같은 작업 브랜치에서 정상 커밋 후 fast-forward한다. 기존 서비스 재시작·push·배포·실장비 조작은 하지 않았다.
 
 ### 2026-10-09 현재 통합 준비·국소 검증 회수 (R84–R137)
 
@@ -249,7 +256,7 @@ Lab3의 수동 성공문구는 Task7의 실제 기본접힘 상세 안에 보존
 - [x] Step 2 — finder가 필터 변경 시 목록을 여는 기존 동작과 읽기 전용 인라인 집계에 맞춰 navigation 테스트만 교정한다. 기존 재시도 3회·수동 복구·쓰기 차단 단언은 유지한다. `8f0cb8fd`는 해당 파일만 2행 추가·2행 삭제한 커밋이다.
 - [x] Step 3 — 기존 15174 격리 설정으로 `monitoring-navigation-confidence.spec.ts` 전체를 workers 1/retries 0/max-failures 1로 1회 실행한다. 실제 11 PASS/0 FAIL, exit 0(26.3초). 산출물은 `.superpowers/sdd/2026-10-07-atlas-ui-refresh/artifacts/task-11-lean-navigation-1791545075898`에 보존한다.
 - [x] Step 4 — 같은 제품·테스트 소스의 Web `typecheck`와 `build`를 각각 1회 실행하여 exit 0을 확인한다. 기존 pnpm 경고·500kB 이상 bundle 경고는 남아 있다. 전체 unit/UI 정책·Lab/canonical 및 실기기/HIL·외부 frame은 이번 최종 검증 범위 밖이다.
-- [ ] Step 5 — 독립 최종 브랜치 리뷰 1회에서 Critical/Important 차단 여부와 요구·문서 일치를 확인한다. 차단 결함은 수정하고 필요한 국소 검증만 수행한다.
+- [x] Step 5 — 독립 최종 브랜치 리뷰 1회에서 Critical/Important 차단 0과 요구·문서 일치를 확인했다. Minor ticker 초기화는 후속 개선으로 기록했다.
 
 ### Task 12: 사용자 변경 보존·로컬 병합·핸드오프
 
@@ -257,11 +264,11 @@ Lab3의 수동 성공문구는 Task7의 실제 기본접힘 상세 안에 보존
 
 **Interfaces:** 기본 checkout `/Users/kim-jh/Documents/led-control-service`, 목적 branch `codex/mvp1-cloud-web`. 기본 두 메뉴 문서의 목업 이력과 작업 branch의 대응 기록을 diff로 대조하며 다른 변경은 소유자를 확인한다. 원격은 건드리지 않는다.
 
-- [ ] Step 1 — `git status --short`, 두 branch log/diff·merge-base로 기본 branch 이동과 두 dirty 메뉴 문서의 일치를 확인한다. 동일한 기존 목업 이력은 이미 구현 branch에 보존돼 있어야 한다. 두 파일에 본 작업의 알려진 목업 이력만 남았음을 확인했을 때만 `git stash push -m "atlas-ui-refresh-preserve-mock-notes" -- docs/menus/monitoring.md docs/menus/control.md`로 경로 제한 복구 snapshot을 만들고 실제 stash commit ID를 기록한다. 사용자 변경이 섞였으면 자동 치우기 없이 방향을 받는다. reset·광범위 stash는 하지 않는다.
-- [ ] Step 2 — 현재 기본 branch가 검토된 작업 HEAD의 조상인지 확인한다. 추가 이동·충돌·알려지지 않은 dirty 변경이 있으면 자동 reset/치우기 없이 정확한 파일·이유를 보고 방향을 받는다.
-- [ ] Step 3 — 독립 검토 승인 후 기본 checkout에서 `git merge --ff-only codex/atlas-ui-refresh-20261007`을 실행한다. ff 불가를 force/reset으로 우회하지 않는다. 완료 기록의 커밋도 정상 로컬 병합한다.
-- [ ] Step 4 — fast-forward 결과가 검토된 작업 HEAD와 같고 메뉴 문서·원 dirty 이력이 보존됐는지 확인한다. 사용자 승인대로 병합 후 테스트를 반복하지 않는다. 기존 Web/API 재시작·원격 push·배포는 하지 않는다.
-- [ ] Step 5 — 자기 검증 자원만 정리하고 산출물/작업 branch와 문서 복구 snapshot을 보존한다. 이미 병합 문서에 포함된 목업 이력을 자동 stash pop/drop으로 중복 적용/삭제하지 않고 복구 ID를 핸드오프한다. 모든 체크는 실제 완료 후에만 표시한다. `docs: finalize ATLAS UI refresh verification and merge` 기록과 상태판을 동기화한다.
+- [x] Step 1 — 기본 branch/head와 dirty 두 문서의 알려진 추가 블록만 확인했다. 작업 HEAD에 각 블록이 정확히 한 번 보존됐으며 경로 제한 stash `eecf13ef`로 복구 사본을 남겼다. reset·광범위 stash는 하지 않았다.
+- [x] Step 2 — 기본 `aee641d7`가 검토된 작업 HEAD `5147ac86`의 조상이고 추가 이동·충돌·알려지지 않은 dirty 변경이 없음을 확인했다.
+- [x] Step 3 — 독립 검토 승인 후 기본 checkout에서 `git merge --ff-only codex/atlas-ui-refresh-20261007`을 실행하여 `5147ac86`으로 fast-forward했다. force/reset은 사용하지 않았다.
+- [x] Step 4 — 병합 HEAD가 검토된 HEAD와 같고 기본 checkout이 clean임을 확인했다. 테스트 소스 이후 Web diff도 없다. 승인대로 테스트 반복·기존 Web/API 재시작·push·배포는 하지 않았다.
+- [x] Step 5 — 15174 테스트 실행은 종료됐고 원 서비스·산출물·작업 branch/worktree·문서 복구 stash를 보존했다. 종료 문서 기록은 같은 격리 브랜치의 `docs: finalize ATLAS UI refresh verification and merge` 커밋으로 동기화한다.
 
 ## 현재 준비 검증과 실행 승인
 
@@ -269,6 +276,6 @@ Lab3의 수동 성공문구는 Task7의 실제 기본접힘 상세 안에 보존
 - [x] 사용자 요청대로 명세의 라이트 우선 조건을 다크 실제 구현 포함으로 변경하고 이 실행 계획을 작성했다.
 - [x] 메인이 spec coverage·단계/인터페이스 일치·Review Focus·과도한 범위를 self-review했다. 제품 테스트와 구현 task는 아직 실행하지 않았다.
 - [x] 사용자가 최종 계획을 검토하고 페이지·기능 담당 에이전트 실행을 승인했다.
-- [ ] Task 1–12의 구현·독립 검토·통합 검증·로컬 병합을 실제로 완료했다.
+- [x] Task 1–12의 구현·독립 검토·사용자 승인 범위의 통합 검증·로컬 병합을 완료했다. 전체 회귀·Lab·실장비 검증과 Minor 후속 개선은 포함하지 않는다.
 
 요청한 페이지별 에이전트 방식으로 공통 기반부터 순차 진행한다. 수정 요청은 명세/계획에 함께 반영한다.
