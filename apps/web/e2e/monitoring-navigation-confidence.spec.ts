@@ -22,9 +22,9 @@ async function openFinderWithStatus(page: Page, status: "점검 필요" | "오�
   await page.getByRole("button", { name: "조명 검색·상세", exact: true }).click();
   const inspector = page.getByRole("dialog", { name: "조명 검색·상세", exact: true });
   const filter = inspector.getByRole("button", { name: "상태 필터", exact: true });
+  await inspector.getByRole("button", { name: "조명 목록 보기", exact: true }).click();
   await filter.click();
   await page.getByRole("option", { name: status, exact: true }).click();
-  await inspector.getByRole("button", { name: "조명 목록 보기", exact: true }).click();
   return inspector;
 }
 async function geometry(page: Page) {
@@ -223,7 +223,7 @@ test("next-page failure stops automatic loops, preserves the KPI, and offers man
   await openFinderWithStatus(page, "점검 필요");
   await expect(page.getByText("일부 조명만 표시 중입니다. 다음 조명 보기를 눌러 다시 시도해 주세요.")).toBeVisible();
   await expect(page.getByText("검색 결과가 없습니다.")).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "점검 필요", exact: true })).toContainText("1");
+  await expect(page.getByRole("region", { name: "선택 층 조명 현황", exact: true }).getByText("점검 필요", { exact: true }).locator("..")).toContainText("1");
   expect(failures).toBe(3); // Existing query policy retries twice, then pagination must stop.
   blocked = false;
   await page.getByRole("button", { name: "다음 조명 보기", exact: true }).click();
