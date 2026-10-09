@@ -8,7 +8,7 @@ for (const width of [320, 390, 430, 1280]) test(`common header and eager account
   await installSettingsApiRoutes(page, "viewer", { readyMapDocument: true });
   await page.goto("/settings?siteId=site-1");
   const header = page.locator("[data-shell-topbar]");
-  const site = header.locator("[data-shell-context] button");
+  const site = header.getByRole("button", { name: /현장 선택/ });
   const bell = header.getByRole("button", { name: /^알람센터/ });
   await expect(site).toBeVisible(); await expect(bell).toBeVisible();
   if (width < 760) {
