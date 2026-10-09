@@ -10,7 +10,7 @@
 
 **Spec:** [다크 포함 설계 명세](../specs/2026-10-07-atlas-ui-refresh-design.md)
 
-상태: **2026-10-09 Tasks 1–10 구현·독립 검토 완료, 검토된 QA 6파일 보존·고정 업스트림 합성·국소 검증 회수, Task 11 새 통합 소스 전체 관문과 Task 12 기본 checkout 병합 미완료**. 사용자가 선택한 실행 방식은 **페이지별 에이전트 분담, 메인 오케스트레이션, 별도 브랜치 후 로컬 병합**이다. 아래 R83 HOLD·과거 수치/실패는 당시 기록이며 현재 진행 상태는 이 요약과 최신 기록을 따른다. 체크포인트는 최종 QA PASS가 아니고, 완료 표시는 독립 검토와 실제 증거를 회수한 뒤 갱신한다.
+상태: **2026-10-09 Tasks 1–10 구현·독립 검토 완료, 사용자 승인 축소 검증 완료(관련 E2E 11개·Web 타입 검사·빌드), 최종 브랜치 리뷰 1회와 로컬 병합 대기**. 사용자가 선택한 실행 방식은 **페이지별 에이전트 분담, 메인 오케스트레이션, 별도 브랜치 후 로컬 병합**이다. 검증 시간·토큰을 줄여 달라는 요청과 “그래 그렇게 하자” 승인에 따라 Task 11–12의 남은 절차를 아래와 같이 축소했다. 과거 실패와 증거는 보존하지만 전수 기록 재검사·추가 전체 suite/Lab/canonical·병합 후 반복 테스트는 수행하지 않는다. 전체 테스트 통과를 주장하지 않는다.
 
 ### 2026-10-09 현재 통합 준비·국소 검증 회수 (R84–R137)
 
@@ -218,7 +218,9 @@ Lab3의 수동 성공문구는 Task7의 실제 기본접힘 상세 안에 보존
 
 - Task10 trueBASE `368fa37c` 이후 공통 `54398e16`·설정 `7ff7ad9f`의25파일을 독립 Spec✅/Quality Approved C0/I0/M0로 검토했다. capability/설치 완료 users 조회·count null0/mapConfigured·첫 Gateway 정보·단일 mobile Link/search/hash·미저장 확인/MFA·원편집 수명을 보존했다. Audit5는 BASE 불변이며 이미 공통화된 소비 회귀로 검수했다. 공통 정렬 header radius만0, 로그인 fixture 진입 한 줄, native tall-card 이름+초기화 준비만 실제 입력으로 보완했다. final browser30PASS·focused native1PASS(비합산)·전체Web3423PASS/기존opt-in3SKIP·fresh타입/UI/build0·source848 불변을 확인했다. 원17/2/11·25/1/4·collection0·관찰경계 위반/원경고·native4원본의한계는 보존하고 Task11 전체 화면/portal/firstpaint/44hit/canonical 관문을 이어간다. 병합 완료는 아니다.
 
-### Task 11: 통합 시각·행동·접근성 검증과 전체 브랜치 검토
+### Task 11: 사용자 승인 축소 검증과 최종 브랜치 검토
+
+**최신 실행 기준(2026-10-09):** 아래 긴 실행 이력은 역사 기록이다. 남은 절차는 관련 테스트·타입 검사·빌드·독립 최종 리뷰 1회로 대체하며, 미실행 범위는 그대로 명시한다.
 
 **Files:** Create `e2e/atlas-ui-refresh.spec.ts`; Modify 필요한 기존 E2E의 해당 요구 단언, 네 메뉴 문서, `docs/ui-spacing.md`, `docs/project-status.md`, 이 계획. 제품 결함은 원 소유자의 지정 task로 반환한다.
 
@@ -243,11 +245,11 @@ Lab3의 수동 성공문구는 Task7의 실제 기본접힘 상세 안에 보존
 
 - 재개 승인(2026-10-08): 사용자가 검증 구조 보완·필요한 협업과 격리 브랜치 작업 후 병합을 지시했다. Ruling84는 local PC wheel helper의 직접 이벤트 대상 equality를 실제 hit/target-to-owner 경로의 비차단·원owner 연결 및 directional scroll 이동 증거로 교정한다. 기존 Task7 helper의 descendant 전달과 R83 실제 부모 이동을 근거로 삼되 원불일치 인과를 해결했다고 주장하지 않는다. 세 차례 실패한 원작성자 대신 새 검증 구현자에게 한 파일 local helper만 배정하고, PC48→독립 scoped 검토→새 전체149→기존QA의 관련17/분리Lab19/canonical→독립whole→사용자 변경 보존·병합 순서로 진행한다. 원44px action·UUID/noPOST·DOM/viewport240·문서Y0/배율·기본timeout/734/QA3를 유지하며 각 실제 신규 실패에서 후속 gate를 멈춰 원소유자에게 반환한다.
 
-- [ ] Step 1 — 각 Task 3–10 test의 보존 경계를 통합 E2E에 연결한다. 양 theme에서 `scrollWidth <= clientWidth`, 표준 PC manual `document.scrollingElement.scrollHeight <= window.innerHeight`, 짧은 PC 내부 scroll·모든 safety action reachable, mobile logo/select/hit44를 단언한다. theme 전환 중 same canvas/camera/UUID·draft/PDF/MFA·추가 mutation0도 단언한다.
-- [ ] Step 2 — 폭/높이 매트릭스 `320×740,390×844,562×1229,759.5/760/760.5×768,1024×600,1024×768,1304×1229,1440×900`에서 light/dark를 실제 CSS·renderer로 확인한다. phase 단위 정상 PNG·실패 원본·raw logs를 격리 산출물에 보존한다. 본문4.5:1·큰 글자/필수 UI3:1·focus/색 외 상태 라벨과 열린 portal를 대조한다.
-- [ ] Step 3 — `pnpm --filter @led-control/web exec playwright test e2e/atlas-ui-refresh.spec.ts --project=chromium --workers=1`과 Tasks 4–10의 정확한 관련 suite, 기존 `e2e/monitoring-1000.spec.ts`를 실행한다. E2E는 기존15174 격리 설정을 사용하고 listener 충돌 시 소유 없는 서버를 재사용/종료하지 않는다.
-- [ ] Step 4 — 같은 최종 소스에서 canonical `pnpm lint`, `pnpm typecheck`, `pnpm test`, `pnpm build`를 순차 실행한다. UI 정책도 fresh로 확인한다. 실패는 원인/소스와 함께 보존하며 전체 PASS로 바꾸지 않는다. native 실기기/HIL·외부 frame은 미검증으로 남긴다.
-- [ ] Step 5 — 독립 요구/품질·UI/UX 전체 브랜치 검토와 원 소유자의 수정/재검증을 완료한다. Critical/Important 차단0과 문서·증거 일치를 확인하고 `test(ui): verify ATLAS themes and preserved workflows`로 커밋한다. 한 task의 GREEN을 다른 task/전체 PASS로 확대하지 않는다.
+- [x] Step 1 — 사용자 승인대로 최종 검증 범위를 축소하고 기존 실행·실패 기록을 보존한다. 전체 583개 E2E/Lab/canonical 재실행과 긴 증거 수집은 생략하며 미실행을 통과로 표시하지 않는다.
+- [x] Step 2 — finder가 필터 변경 시 목록을 여는 기존 동작과 읽기 전용 인라인 집계에 맞춰 navigation 테스트만 교정한다. 기존 재시도 3회·수동 복구·쓰기 차단 단언은 유지한다. `8f0cb8fd`는 해당 파일만 2행 추가·2행 삭제한 커밋이다.
+- [x] Step 3 — 기존 15174 격리 설정으로 `monitoring-navigation-confidence.spec.ts` 전체를 workers 1/retries 0/max-failures 1로 1회 실행한다. 실제 11 PASS/0 FAIL, exit 0(26.3초). 산출물은 `.superpowers/sdd/2026-10-07-atlas-ui-refresh/artifacts/task-11-lean-navigation-1791545075898`에 보존한다.
+- [x] Step 4 — 같은 제품·테스트 소스의 Web `typecheck`와 `build`를 각각 1회 실행하여 exit 0을 확인한다. 기존 pnpm 경고·500kB 이상 bundle 경고는 남아 있다. 전체 unit/UI 정책·Lab/canonical 및 실기기/HIL·외부 frame은 이번 최종 검증 범위 밖이다.
+- [ ] Step 5 — 독립 최종 브랜치 리뷰 1회에서 Critical/Important 차단 여부와 요구·문서 일치를 확인한다. 차단 결함은 수정하고 필요한 국소 검증만 수행한다.
 
 ### Task 12: 사용자 변경 보존·로컬 병합·핸드오프
 
@@ -256,9 +258,9 @@ Lab3의 수동 성공문구는 Task7의 실제 기본접힘 상세 안에 보존
 **Interfaces:** 기본 checkout `/Users/kim-jh/Documents/led-control-service`, 목적 branch `codex/mvp1-cloud-web`. 기본 두 메뉴 문서의 목업 이력과 작업 branch의 대응 기록을 diff로 대조하며 다른 변경은 소유자를 확인한다. 원격은 건드리지 않는다.
 
 - [ ] Step 1 — `git status --short`, 두 branch log/diff·merge-base로 기본 branch 이동과 두 dirty 메뉴 문서의 일치를 확인한다. 동일한 기존 목업 이력은 이미 구현 branch에 보존돼 있어야 한다. 두 파일에 본 작업의 알려진 목업 이력만 남았음을 확인했을 때만 `git stash push -m "atlas-ui-refresh-preserve-mock-notes" -- docs/menus/monitoring.md docs/menus/control.md`로 경로 제한 복구 snapshot을 만들고 실제 stash commit ID를 기록한다. 사용자 변경이 섞였으면 자동 치우기 없이 방향을 받는다. reset·광범위 stash는 하지 않는다.
-- [ ] Step 2 — 기본 branch가 이동했으면 해당 변경을 작업 branch에 보존 통합하고 충돌을 원 소유자에게 배정한다. 영향 검사와 Task 11 final gate를 새 통합 소스에서 다시 수행한다. 기본 dirty 변경 때문에 안전한 병합이 불가능하면 정확한 파일·이유를 보고 사용자 방향을 받는다.
+- [ ] Step 2 — 현재 기본 branch가 검토된 작업 HEAD의 조상인지 확인한다. 추가 이동·충돌·알려지지 않은 dirty 변경이 있으면 자동 reset/치우기 없이 정확한 파일·이유를 보고 방향을 받는다.
 - [ ] Step 3 — 독립 검토 승인 후 기본 checkout에서 `git merge --ff-only codex/atlas-ui-refresh-20261007`을 실행한다. ff 불가를 force/reset으로 우회하지 않는다. 완료 기록의 커밋도 정상 로컬 병합한다.
-- [ ] Step 4 — 병합 제품 소스와 검증 소스 일치, 메뉴/정책 기록·원 dirty 이력 보존, fresh 웹 typecheck·전체 unit/UI 정책·build 및 핵심 shell/theme/manual 회귀를 확인한다. 기존 Web/API 재시작은 하지 않는다. 사용자에게 새 브랜치/커밋·병합/검증/미검증 범위를 전달하고 필요한 서비스 반영은 별도 안내한다.
+- [ ] Step 4 — fast-forward 결과가 검토된 작업 HEAD와 같고 메뉴 문서·원 dirty 이력이 보존됐는지 확인한다. 사용자 승인대로 병합 후 테스트를 반복하지 않는다. 기존 Web/API 재시작·원격 push·배포는 하지 않는다.
 - [ ] Step 5 — 자기 검증 자원만 정리하고 산출물/작업 branch와 문서 복구 snapshot을 보존한다. 이미 병합 문서에 포함된 목업 이력을 자동 stash pop/drop으로 중복 적용/삭제하지 않고 복구 ID를 핸드오프한다. 모든 체크는 실제 완료 후에만 표시한다. `docs: finalize ATLAS UI refresh verification and merge` 기록과 상태판을 동기화한다.
 
 ## 현재 준비 검증과 실행 승인
