@@ -53,7 +53,7 @@ describe("typed typography and token adapters", () => {
   });
 
   it("keeps variants and color names closed at the public type boundary", () => {
-    expectTypeOf<ButtonProps["variant"]>().toEqualTypeOf<"primary" | "secondary" | "ghost" | "danger" | "link" | "landingCta" | "landingHeaderContact" | "landingHeroContact" | "landingPlanPrimary" | "landingPlanSecondary" | "landingReplay" | "landingFixture" | "landingReportFormat" | "landingMapTool" | "landingMapCancel" | "landingMapMarker" | "landingConceptDismiss" | "landingConceptSubmit" | "landingConceptHeaderContact" | "landingConceptHeroContact" | "landingConceptReplay" | undefined>();
+    expectTypeOf<ButtonProps["variant"]>().toEqualTypeOf<"primary" | "secondary" | "ghost" | "danger" | "link" | "landingCta" | "landingHeaderContact" | "landingHeroContact" | "landingPlanPrimary" | "landingPlanSecondary" | "landingReplay" | "landingFixture" | "landingReportFormat" | "landingMapTool" | "landingMapCancel" | "landingMapMarker" | "landingHeader" | "landingConceptDismiss" | "landingConceptSubmit" | "landingConceptHeaderContact" | "landingConceptHeroContact" | "landingConceptReplay" | undefined>();
     expectTypeOf<ButtonProps["size"]>().toEqualTypeOf<"sm" | "md" | "lg" | undefined>();
     expectTypeOf<string>().not.toExtend<ThemeColorToken>();
     expectTypeOf<string>().not.toExtend<TypographyVariant>();

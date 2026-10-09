@@ -51,9 +51,10 @@ describe("public field-day landing narrative", () => {
     expect(map.getByText(/자동 등록이나 실제 저장은 수행하지 않습니다/)).toBeVisible();
   });
 
-  it("keeps direct login navigation and a skip link", () => {
+  it("keeps an accessible disabled preparation button and a skip link", () => {
     render(<LandingPage />);
-    expect(screen.getByRole("link", { name: /로그인/ })).toHaveAttribute("href", "/login");
+    expect(screen.getByRole("button", { name: "준비 중" })).toBeDisabled();
+    expect(screen.queryByRole("link", { name: /로그인/ })).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: "본문으로 이동" })).toHaveAttribute("href", "#main");
     expect(document.getElementById("main")).toBeInTheDocument();
   });
@@ -109,7 +110,7 @@ describe("public field-day landing narrative", () => {
     expect(footer.getByText("(주)디에프코리아")).toBeVisible();
     expect(footer.getByRole("link", { name: "032-528-2953" })).toHaveAttribute("href", "tel:0325282953");
     expect(footer.getByText("032-551-2954")).toBeVisible();
-    expect(footer.getByRole("link", { name: "kjukym@dfkorealed.com" })).toHaveAttribute("href", "mailto:kjukym@dfkorealed.com");
+    expect(footer.getByRole("link", { name: "kymkjh2002@dfkorealed.com" })).toHaveAttribute("href", "mailto:kymkjh2002@dfkorealed.com");
     expect(footer.getByText("인천광역시 부평구 평천로 199번길 53 A동 2층")).toBeVisible();
     expect(footer.getByRole("link", { name: "회사 소개" })).toHaveAttribute("href", "https://dfkorealed.com/about");
     expect(footer.getByRole("link", { name: "제품 소개" })).toHaveAttribute("href", "https://dfkorealed.com/products");

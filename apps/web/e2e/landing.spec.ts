@@ -26,7 +26,7 @@ for (const width of [1440, 1024, 390, 320]) {
     await expect(page.locator(".hero-contact")).toHaveCSS("line-height", "22px");
     await expect(page.locator(".header-contact")).toHaveCSS("line-height", "22px");
     await expect(page.locator(".hero h1")).toHaveCSS("font-size", width <= 430 ? "46px" : width === 1024 ? "55px" : "76.32px");
-    await expect(page.getByRole("link", { name: /로그인/ })).toHaveAttribute("href", "/login");
+    await expect(page.getByRole("button", { name: "준비 중", exact: true })).toBeDisabled();
     for (const id of ["monitoring", "control", "statistics", "report", "map-editor"]) {
       await expect(page.locator(`#${id}`)).toBeVisible();
     }
@@ -36,7 +36,7 @@ for (const width of [1440, 1024, 390, 320]) {
     await page.getByRole("button", { name: "도입 상담", exact: true }).first().click();
     const dialog = page.getByRole("dialog", { name: "도입 상담" });
     await expect(dialog).toBeVisible();
-    await expect(dialog.getByText(/90일간 보관/)).toBeVisible();
+    await expect(dialog.getByRole("link", { name: "kymkjh2002@dfkorealed.com" })).toHaveAttribute("href", "mailto:kymkjh2002@dfkorealed.com");
     const viewport = page.viewportSize()!;
     const box = await dialog.boundingBox();
     expect(box).not.toBeNull();
@@ -44,7 +44,7 @@ for (const width of [1440, 1024, 390, 320]) {
     expect(box!.height).toBeLessThanOrEqual(viewport.height);
     await expect(dialog).toHaveCSS("border-radius", "14px");
     await expect(dialog).toHaveCSS("overflow-y", "auto");
-    const submit = dialog.getByRole("button", { name: "상담 문의 보내기" });
+    const submit = dialog.getByRole("link", { name: "032-528-2953" });
     await submit.focus();
     await expect(submit).toBeFocused();
     await expect(submit).toBeInViewport();
@@ -84,84 +84,6 @@ test("reduced motion keeps examples complete and keyboard can open the inquiry",
   await expect(page.getByRole("dialog", { name: "도입 상담" })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "도입 상담", exact: true }).first()).toBeFocused();
   await expect(page.locator("#statistics .chart-line")).toHaveCSS("stroke-dashoffset", "0px");
-});
-
-async function fillInquiry(page: import("@playwright/test").Page) {
-  await page.goto("/");
-  await page.getByRole("button", { name: "도입 상담", exact: true }).first().click();
-  await expect(page.getByRole("dialog", { name: "도입 상담" })).toBeVisible();
-  await expect(page.getByRole("button", { name: /고객 유형/ })).toContainText("선택해 주세요");
-  await page.getByRole("textbox", { name: "회사명" }).fill("  킨다 시설  ");
-  await page.getByRole("textbox", { name: "담당자 이름" }).fill("홍길동");
-  await page.getByRole("textbox", { name: "회신 이메일" }).fill("owner@example.com");
-  await page.getByRole("textbox", { name: "문의 내용" }).fill("B2 주차장 조명 상담");
-  await page.getByRole("checkbox", { name: /개인정보 수집·이용에 동의/ }).press("Space");
-}
-
-test("consultation submits exact public payload and shows server reference", async ({ page }) => {
-  const posted: Record<string, unknown>[] = [];
-  await page.route("**/api/landing/inquiries", async (route) => {
-    posted.push(route.request().postDataJSON());
-    await route.fulfill({ status: 201, contentType: "application/json", body: JSON.stringify({ reference: "KI-120", status: "received" }) });
-  });
-  await fillInquiry(page);
-  await page.getByRole("button", { name: "상담 문의 보내기" }).click();
-  await expect(page.getByText(/접수번호: KI-120/)).toBeVisible();
-  expect(posted).toHaveLength(1);
-  expect(posted[0]).toEqual({
-    idempotencyKey: expect.stringMatching(/^[0-9a-f-]{36}$/i), companyName: "킨다 시설", contactName: "홍길동",
-    email: "owner@example.com", phone: "", audience: null, message: "B2 주차장 조명 상담",
-    consent: true, consentVersion: "landing-2026-09-v1-90d", website: ""
-  });
-  await expect(page.getByRole("button", { name: "상담 문의 보내기" })).toHaveAttribute("aria-disabled", "true");
-});
-
-for (const [status, heading, offersMail] of [
-  [429, "요청이 많습니다.", false],
-  [503, "현재 온라인 상담을 접수할 수 없습니다.", true]
-] as const) {
-  test(`consultation ${status} preserves content with distinct recovery`, async ({ page }) => {
-    await page.route("**/api/landing/inquiries", (route) => route.fulfill({ status, contentType: "application/json", body: "{}" }));
-    await fillInquiry(page);
-    await page.getByRole("button", { name: "상담 문의 보내기" }).click();
-    await expect(page.getByRole("alert")).toContainText(heading);
-    await expect(page.getByRole("textbox", { name: "회사명" })).toHaveValue("  킨다 시설  ");
-    const mail = page.getByRole("link", { name: "이메일로 직접 문의하기" });
-    if (offersMail) await expect(mail).toHaveAttribute("href", "mailto:kymkjh2002@dfkorealed.com");
-    else await expect(mail).toHaveCount(0);
-  });
-}
-
-test("consultation timeout retains key for retry and changes it after an edit", async ({ page }) => {
-  const posted: Record<string, unknown>[] = [];
-  let attempt = 0;
-  await page.route("**/api/landing/inquiries", async (route) => {
-    posted.push(route.request().postDataJSON());
-    attempt += 1;
-    if (attempt === 1) {
-      // Keep the first response unresolved beyond the form's deadline to model a lost response.
-      await new Promise((resolve) => setTimeout(resolve, 16_000));
-      await route.fulfill({ status: 201, contentType: "application/json", body: JSON.stringify({ reference: "KI-LATE", status: "received" }) }).catch(() => undefined);
-      return;
-    }
-    if (attempt === 2) {
-      await route.fulfill({ status: 500, contentType: "application/json", body: "{}" });
-      return;
-    }
-    await route.fulfill({ status: 201, contentType: "application/json", body: JSON.stringify({ reference: "KI-NEW", status: "received" }) });
-  });
-  await fillInquiry(page);
-  await page.getByRole("button", { name: "상담 문의 보내기" }).click();
-  await expect(page.getByRole("button", { name: "접수 중" })).toHaveAttribute("aria-disabled", "true");
-  await expect(page.getByRole("alert")).toContainText("접수 결과를 확인하지 못했습니다.", { timeout: 20_000 });
-  await expect(page.getByRole("textbox", { name: "문의 내용" })).toHaveValue("B2 주차장 조명 상담");
-  await page.getByRole("button", { name: "상담 문의 보내기" }).click();
-  await expect(page.getByRole("alert")).toContainText("접수 결과를 확인하지 못했습니다.");
-  expect(posted[1].idempotencyKey).toBe(posted[0].idempotencyKey);
-  await page.getByRole("textbox", { name: "문의 내용" }).fill("변경한 상담 내용");
-  await page.getByRole("button", { name: "상담 문의 보내기" }).click();
-  await expect(page.getByText(/접수번호: KI-NEW/)).toBeVisible();
-  expect(posted[2].idempotencyKey).not.toBe(posted[0].idempotencyKey);
 });
 
 test("authenticated operator can inspect inquiry delivery without starting OAuth or resending", async ({ page }) => {
@@ -250,7 +172,7 @@ for (const width of [320, 390, 1024, 1440]) {
     await page.setViewportSize({ width, height: 900 });
     await page.route("**/api/auth/me", route => route.fulfill({ status: 401, json: { message: "unauthorized" } }));
     await page.goto("/");
-    await page.getByRole("link", { name: /로그인/ }).click();
+    await page.goto("/login");
     const login = page.getByRole("button", { name: "로그인", exact: true });
     await expect(login).toBeVisible();
     await expect(login).toHaveCSS("font-size", "14px");

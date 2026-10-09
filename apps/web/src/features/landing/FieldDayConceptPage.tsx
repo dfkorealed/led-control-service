@@ -1,6 +1,6 @@
 import { useLayoutEffect } from "react";
 import { LandingStory } from "./LandingPage";
-import { PublicSiteLayout } from "./PublicSiteLayout";
+import { ConceptSiteLayout } from "./ConceptSiteLayout";
 
 export function FieldDayConceptPage(): JSX.Element {
   useLayoutEffect(() => {
@@ -10,5 +10,5 @@ export function FieldDayConceptPage(): JSX.Element {
     document.documentElement.classList.add(...classes);
     return () => document.documentElement.classList.remove(...classes);
   }, []);
-  return <PublicSiteLayout page="concept">{onInquiry => <LandingStory onInquiry={onInquiry} visualVariant="concept" />}</PublicSiteLayout>;
+  return <ConceptSiteLayout>{onInquiry => <LandingStory onInquiry={onInquiry} visualVariant="concept" />}</ConceptSiteLayout>;
 }
