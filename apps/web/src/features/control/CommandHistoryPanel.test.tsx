@@ -416,12 +416,18 @@ describe("CommandHistoryPanel", () => {
     const onOpenVerificationCases = vi.fn();
     const { onSelect } = renderHistory(vi.fn(), true, onOpenVerificationCases);
     const recent = await screen.findByRole("region", { name: "최근 명령 이력" });
-    expect(await within(recent).findByRole("button", { name: /최근 명령 상세/ })).toHaveTextContent("2개");
-    expect(within(recent).getByRole("button", { name: /최근 명령 상세/ })).toHaveTextContent("70%");
-    expect(within(recent).getByRole("button", { name: /최근 명령 상세/ })).toHaveAccessibleName(/실제 상태 확인 필요/);
+    const detail = await within(recent).findByRole("button", { name: /최근 명령 상세/ });
+    // JSDOM checks the mobile hit-shape declaration, not painted geometry.
+    // The unchanged compact-history Chromium cases prove continuous44 reach.
+    expect(detail).toHaveClass("max-compact:rounded-none", "min-h-11!", "min-w-11", "rounded-control");
+    expect(detail).not.toHaveClass("rounded-none");
+    expect(detail).toHaveAttribute("type", "button");
+    expect(detail).toHaveTextContent("2개");
+    expect(detail).toHaveTextContent("70%");
+    expect(detail).toHaveAccessibleName(/최근 명령 상세: newest-command .*실제 상태 확인 필요/);
     expect(recent).toHaveTextContent("실제 상태 확인 필요");
     expect(within(recent).queryByText(/최근 3개월/)).not.toBeInTheDocument();
-    fireEvent.click(within(recent).getByRole("button", { name: /최근 명령 상세/ }));
+    fireEvent.click(detail);
     expect(onSelect).toHaveBeenCalledWith("newest-command");
     fireEvent.click(within(recent).getByRole("button", { name: "확인 필요한 명령" }));
     expect(onOpenVerificationCases).toHaveBeenCalledOnce();

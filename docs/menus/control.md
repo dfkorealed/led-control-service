@@ -1,5 +1,28 @@
 # 제어 메뉴 기능 현황
 
+## 2026-10-09 모바일 최근 명령 연속 조작 영역 국소 보완 (Task 11)
+
+### 구현 완료
+
+- 기존 최근 명령 native 버튼에만 모바일 `<760px` square 모서리 표현을 적용했다. 기존 최소44px 프레임·PC 모서리와 compact 배치·공통 ticker 외곽/버튼 기본값은 변경하지 않는다. UUID·상태 접근 이름, 선택/callback·disabled handler, 복구/전체보기와5초 순환·retention 소유를 유지한다.
+- 수정 전 대응 DOM 회귀는 mobile class 누락으로1FAIL/28PASS였으며 원320px Chromium의 연속44 실패도 별도 보존한다. 같은 수정 source에서 지정3 unit 파일200/200·Web type/UI0(정책 부채0), 원 제어 E2E 전체43/43을 확인했다. 실제 LIST/JSON43 identity 일치·retry/skip/flaky/미실행0이며 compact1440/390/320의 원 높이/연속44/전체보기/넘침 검사를 유지한다.
+
+### 미구현
+
+- 이 국소 보완은 Task11 전체18/ONE Lab/canonical·독립 검토·기본 checkout 병합 완료가 아니다. 운영 서비스·실장비/HIL·추가 제어 기능은 구현하거나 실행하지 않았다.
+
+### 부족하거나 개선이 필요한 기능
+
+- 원usable46×44의 독립 가로/세로 최대값은 연속44×44 증명이 아니며 strict native helper를 유지한다. 실제 corner miss/외부 가림 부재의 인과를 별도 point evidence 없이 확정하지 않는다. 52px 프레임 강제나 ticker 행 재설계·기준 완화로 우회하지 않는다.
+
+### 관련 파일
+
+- `apps/web/src/features/control/CommandHistoryPanel.tsx`, 기존 `.test.tsx`, unchanged `apps/web/src/components/ui/operations/RecentActivityTicker.tsx`, `apps/web/e2e/calm-operations-manual-control.spec.ts`, `apps/web/e2e/support/layout-assertions.ts`와 `.superpowers/sdd/2026-10-07-atlas-ui-refresh/task-11-recent-command-hit-fix-request.md`.
+
+### 갱신 규칙
+
+- 실제 동일 source의 DOM/native 검증과 source별 원실패·미실행 범위를 구분한다. 기존 목업/BIO/과거 기록을 보존하며 전체 검증·수명/명령 안전·실장비 완료로 국소 결과를 확대하지 않는다.
+
 ## 2026-10-09 ATLAS·BIO 고정 업스트림 합성 — 소스 보존, 최종 검증 전
 
 ### 구현 완료

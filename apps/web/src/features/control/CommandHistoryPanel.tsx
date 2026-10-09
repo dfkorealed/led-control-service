@@ -35,7 +35,10 @@ type RecentCommandPresentation = { id: string; timestampLabel: string; content: 
 
 function RecentCommandButton({ row }: { row: RecentCommandPresentation }) {
   const interaction = useContext(RecentCommandInteraction);
-  return <Button variant="ghost" type="button" className="min-h-11! min-w-11 max-w-full justify-start! overflow-hidden px-0! text-left! font-normal!"
+  // A narrow mobile summary keeps its 44px frame: rounded corners can remove
+  // part of a continuous pointer square. Square only this inline action's hit
+  // shape; retain the desktop/generic corners and ticker/interaction ownership.
+  return <Button variant="ghost" type="button" className="min-h-11! min-w-11 max-w-full max-compact:rounded-none justify-start! overflow-hidden px-0! text-left! font-normal!"
     disabled={interaction?.disabled} aria-pressed={interaction?.selectedCommandId === row.id}
     aria-label={`최근 명령 상세: ${row.id} · ${row.timestampLabel} · ${row.content} · ${row.status}`}
     onClick={() => { if (interaction && !interaction.disabled) interaction.onSelect(row.id); }}>
