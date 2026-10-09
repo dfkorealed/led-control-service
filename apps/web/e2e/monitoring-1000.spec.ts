@@ -118,6 +118,30 @@ test("1,000대 편집기는 실제 프레임 시계에서 8초 안에 준비되�
     return latestLease?.type === "lease-acquire" && latestLease.result.editable;
   }, { timeout: remainingEditorBudget(editorStartedAt) }).toBe(true);
   const canvas = page.getByTestId("floor-editor-canvas");
+  // mouse.click은 locator처럼 자동 스크롤하지 않는다. 공통 헤더가 늘어난
+  // 문서 흐름에서는 full canvas의 안정된 크기만으로 조명이 화면 안에 있지 않다.
+  // 캔버스 휠은 카메라를 확대하므로 실제 문서 소유 헤더에서 한 번만 도달한다.
+  const documentReach = await canvas.evaluate(node => {
+    const bounds = node.getBoundingClientRect();
+    const header = document.querySelector<HTMLElement>("[data-shell-topbar]");
+    if (!header) return null;
+    const headerBounds = header.getBoundingClientRect();
+    const point = { x: headerBounds.left + 4, y: headerBounds.top + 12 };
+    const hit = document.elementFromPoint(point.x, point.y);
+    const owner = document.scrollingElement;
+    const outsideCanvas = point.x < bounds.left || point.x >= bounds.right || point.y < bounds.top || point.y >= bounds.bottom;
+    const documentOwned = owner === document.documentElement || owner === document.body;
+    const hitHeader = hit === header || Boolean(hit && header.contains(hit));
+    return { point, outsideCanvas, documentOwned, hitHeader, documentY: scrollY, deltaY: Math.max(0, bounds.top) };
+  });
+  expect(documentReach).not.toBeNull();
+  expect(documentReach!.outsideCanvas && documentReach!.documentOwned && documentReach!.hitHeader).toBe(true);
+  expect(Number.isFinite(documentReach!.deltaY)).toBe(true);
+  if (documentReach!.deltaY > 0) {
+    await page.mouse.move(documentReach!.point.x, documentReach!.point.y);
+    await page.mouse.wheel(0, documentReach!.deltaY);
+    await expect.poll(() => page.evaluate(() => scrollY), { timeout: remainingEditorBudget(editorStartedAt) }).toBeGreaterThan(documentReach!.documentY);
+  }
   // 편집기는 최초 화면 맞춤을 수행하므로 지도 좌표를 실제 카메라 좌표로 변환한다.
   // 고정 (20,20) 픽셀은 조명이 아니라 화면 맞춤으로 생긴 빈 여백을 검사한다.
   // Lease 응답은 ResizeObserver와 맞춤 카메라의 commit 완료를 뜻하지 않는다.
@@ -159,10 +183,28 @@ test("1,000대 편집기는 실제 프레임 시계에서 8초 안에 준비되�
   }, undefined, { polling: "raf", timeout: remainingEditorBudget(editorStartedAt) });
   const markerPoint = await markerPointHandle.jsonValue() as { x: number; y: number };
   await markerPointHandle.dispose();
+  const acquiredTarget = await canvas.evaluate((node, point) => {
+    const bounds = node.getBoundingClientRect(), hit = document.elementFromPoint(point.x, point.y);
+    return { point, documentY: scrollY, zoom: (node as HTMLElement).dataset.zoom,
+      inViewport: point.x >= 0 && point.x < innerWidth && point.y >= 0 && point.y < innerHeight,
+      inHost: point.x >= bounds.left && point.x < bounds.right && point.y >= bounds.top && point.y < bounds.bottom,
+      hitHost: hit === node || Boolean(hit && node.contains(hit)) };
+  }, markerPoint);
+  expect(acquiredTarget.inViewport && acquiredTarget.inHost && acquiredTarget.hitHost).toBe(true);
+  console.log("MONITORING_1000_NATIVE_DOCUMENT_REACH", JSON.stringify({ documentReach, acquiredTarget }));
   await page.mouse.click(markerPoint.x, markerPoint.y);
   const properties = page.getByRole("complementary", { name: "속성 패널" });
   await expect(properties.getByRole("heading", { name: "B2-L0001" })).toBeVisible({ timeout: remainingEditorBudget(editorStartedAt) });
   expect(Date.now() - editorStartedAt).toBeLessThan(editorReadinessBudgetMs);
+  // 기본 연결 색은 #159f81로 유지되지만 고객 shell은 승인된 상태 역할을 alias한다.
+  // 캔버스에서 기대값을 만들지 않고 실제 root 역할과 고정 고객 RGBA를 각각 검증한다.
+  const customerConnectedRole = await page.evaluate(() => ({
+    theme: document.documentElement.getAttribute("data-customer-theme"),
+    role: getComputedStyle(document.documentElement).getPropertyValue("--color-fixture-editor-connected").trim()
+  }));
+  expect(customerConnectedRole.theme).toBe("light");
+  expect(customerConnectedRole.role.toLowerCase()).toBe("#187445");
+  console.log("MONITORING_1000_CUSTOMER_CONNECTED_ROLE", JSON.stringify({ ...customerConnectedRole, approvedRgba: [24, 116, 69, 255] }));
   // 8초 내 실제 선택 가능 여부를 먼저 검사하고 별도로 렌더링 픽셀을 확인한다.
   const pixels = await canvas.locator(".konvajs-content canvas").evaluateAll(nodes => nodes.map(node => {
     const element = node as HTMLCanvasElement;
@@ -172,7 +214,7 @@ test("1,000대 편집기는 실제 프레임 시계에서 8초 안에 준비되�
     const context = element.getContext("2d");
     return context ? Array.from(context.getImageData(Math.round(point.x), Math.round(point.y), 1, 1).data) : [];
   }));
-  expect(pixels).toContainEqual([21, 159, 129, 255]);
+  expect(pixels).toContainEqual([24, 116, 69, 255]);
   await properties.getByLabel("X").fill("50");
   await properties.getByLabel("X").press("Tab");
   await expect(page.getByRole("button", { name: "저장", exact: true })).toBeEnabled();
