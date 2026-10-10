@@ -1,5 +1,30 @@
 # 설정 메뉴 기능 현황 및 구현 설계
 
+## 2026-10-10 ATLAS 충실도 교정 — 설정 홈·현장·등록 (Task 8)
+
+### 구현 완료
+
+- 홈의 capability 기반 5개 이동을 공통 NavigationCard 전체 링크로 표시한다. 실제 사용자 수/미조회·맵 상태 unknown·첫 Gateway 이름/시리얼/오프라인·설치 이어가기·개발 도구를 유지한다. 단일 제목/탭/계정 영역은 이미 적용된 공통 SettingsShell이 소유한다.
+- 현장 기본 정보와 운영/보관 층·전체 층의 서버 fixtureCount 합계를 읽기 정보로 표시한다. 현장/층 생성·수정은 공통 dialog에서 열며 기존 draft/mutation owner는 계속 mounted다. 이름·주소·시간대·KRW·단가 0/두 소수 자리·층의 음수 레벨/표시 순서·expectedUpdatedAt·실패 초안·충돌 갱신을 유지한다.
+- 층은 공통 compact DataGrid로 표시하며 조명/활성 구역 차단·보관 확인/409·복구를 유지한다. 조명 메타데이터/cursor, 구역 lifecycle, BIO 정책/실제 owner/prepare는 그대로다. 등록은 optional embedded header를 소비하고 Setup은 기존 default header/등록 owner를 유지한다.
+- 직접 소비자 8 suite 138 PASS/0 FAIL(exit0)을 확인했다. 새 계약 RED 3 FAIL/filtered87 후 구현했으며 중간 missing badge icon의 19 FAIL/19 errors는 수정 후 동일 site suite 및 최종 소비자 run에서 해소했다.
+
+### 미구현
+
+- Task 9 실제 도면 gallery/editor entry·Task 10 보안 배치는 후속이다. 이번 검증은 browser/type/UI/build/전체583/Lab/canonical/native/HIL 완료가 아니다.
+
+### 부족하거나 개선이 필요한 기능
+
+- 실등록/정책 저장/사용자 CRUD·장비 동작은 시험하지 않았다. 표시 변경의 실제 라이트/다크·dialog focus·responsive 시각 증거는 최종 LEAN 통합에서 확인한다. 미지원 mock 이메일/관리자 옵션·층 면적·가상 등록 성공은 추가하지 않았다.
+
+### 관련 파일
+
+- `apps/web/src/features/settings/SettingsView.tsx`, `site/{SiteOperationsView,SiteInformationEditDialog,FloorEditDialog}.tsx`, `registration/RegistrationSettingsView.tsx`, `apps/web/src/features/registration/RegistrationPanel.tsx` 및 직접 테스트.
+
+### 갱신 규칙
+
+- 설정 감사 01–30행의 실제 기능/권한/등록 상태 보존을 유지하며, 표시 변경·fixture 단위 검증·browser·실장비 증거를 구분한다. 최종 통합 결과만 이후에 추가한다.
+
 ## 2026-10-10 고객 shell·제목·탭 소유 (Task 3)
 
 ### 구현 완료

@@ -53,6 +53,13 @@ const statusLabelsForTest = {
 } as const;
 
 describe("RegistrationPanel", () => {
+  it("embedded registration retains scan controls and omits the Setup-owned heading", () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(<QueryClientProvider client={queryClient}><RegistrationPanel dashboard={mockDashboard} headerPresentation="embedded" /></QueryClientProvider>);
+    expect(screen.queryByRole("heading", { name: "조명 등록" })).not.toBeInTheDocument();
+    expect(screen.queryByText("BLE Mesh Provisioning")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "조명 검색 시작" })).toBeInTheDocument();
+  });
   beforeEach(() => {
     vi.clearAllMocks();
     activeSessionsMock.mockResolvedValue([]);

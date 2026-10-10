@@ -41,6 +41,7 @@ interface RegistrationPanelProps {
   dashboard: Dashboard | undefined;
   dashboardQuerySiteId?: string;
   headingLevel?: 2 | 3;
+  headerPresentation?: "default" | "embedded";
   onRefreshGatewayStatus?: () => void;
   isRefreshingGatewayStatus?: boolean;
 }
@@ -79,7 +80,7 @@ const initialIndividualDefaults: FixtureIndividualDefaults = {
   digits: "3"
 };
 
-export function RegistrationPanel({ dashboard, dashboardQuerySiteId, headingLevel = 3, onRefreshGatewayStatus, isRefreshingGatewayStatus = false }: RegistrationPanelProps) {
+export function RegistrationPanel({ dashboard, dashboardQuerySiteId, headingLevel = 3, headerPresentation = "default", onRefreshGatewayStatus, isRefreshingGatewayStatus = false }: RegistrationPanelProps) {
   const queryClient = useQueryClient();
   const [session, setSession] = useState<RegistrationSession | null>(null);
   const [localNodes, setLocalNodes] = useState<DiscoveredRegistrationNode[]>([]);
@@ -488,10 +489,10 @@ export function RegistrationPanel({ dashboard, dashboardQuerySiteId, headingLeve
       data-testid="commissioning-registration"
     >
       <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
+        {headerPresentation === "default" ? <div className="min-w-0">
           <span className="text-overline text-content-secondary">BLE Mesh Provisioning</span>
           <Heading className="m-0 text-card-title text-content-primary">조명 등록</Heading>
-        </div>
+        </div> : null}
         {sessionSnapshot ? (
           <span role="status" aria-label="조명 검색 상태">
             <StatusBadge tone={scanStatusTone(sessionSnapshot)} icon={scanStatusIcon(sessionSnapshot)}>{scanStatusLabel(sessionSnapshot)}</StatusBadge>

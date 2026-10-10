@@ -124,6 +124,27 @@ describe("SiteOperationsView", () => {
 
   afterEach(cleanup);
 
+  it("shows readonly site and floor information until explicit edit, retaining cancelled drafts", async () => {
+    renderView();
+    const edit = await screen.findByRole("button", { name: "현장 정보 수정" });
+    expect(screen.queryByLabelText("현장명")).not.toBeInTheDocument();
+    expect(screen.queryByRole("form", { name: "층 추가" })).not.toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "현장 구성" })).toHaveTextContent("운영 층 2개");
+    expect(screen.getByRole("region", { name: "현장 구성" })).toHaveTextContent("등록 조명 1개");
+    fireEvent.click(edit);
+    const dialog = screen.getByRole("dialog", { name: "현장 정보 수정" });
+    fireEvent.change(within(dialog).getByLabelText("현장명"), { target: { value: "미저장 현장" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "취소" }));
+    expect(siteApi.updateSiteSettings).not.toHaveBeenCalled();
+    await waitFor(() => expect(edit).toHaveFocus());
+    fireEvent.click(edit);
+    expect(screen.getByLabelText("현장명")).toHaveValue("미저장 현장");
+    fireEvent.click(screen.getByRole("button", { name: "취소" }));
+    fireEvent.click(screen.getByRole("button", { name: "B1 수정" }));
+    expect(screen.getByRole("dialog", { name: "B1 층 수정" })).toBeVisible();
+    expect(screen.getByLabelText("B1 레벨")).toHaveValue("-1");
+  });
+
   it("층과 구역을 한 작업 구역에 두고 조명 관리를 분리한다", async () => {
     renderView();
     const layout = await screen.findByRole("region", { name: "층·구역 관리" });
@@ -152,12 +173,12 @@ describe("SiteOperationsView", () => {
 
   it("keeps cached site settings visible and exposes refresh failure from a compact header status", async () => {
     const queryClient = renderView();
-    expect(await screen.findByDisplayValue("본사 주차장")).toBeVisible();
+    expect(await screen.findByText("본사 주차장")).toBeVisible();
     siteApi.getSiteSettings.mockRejectedValueOnce(new Error("network"));
     await queryClient.invalidateQueries({ queryKey: siteSettingsQueryKey("site-1") });
 
     const status = await screen.findByRole("button", { name: "운영 정보 갱신 실패 안내" });
-    expect(screen.getByDisplayValue("본사 주차장")).toBeVisible();
+    expect(screen.getByText("본사 주차장")).toBeVisible();
     expect(screen.queryByRole("alert", { name: /최신 운영 정보를/ })).not.toBeInTheDocument();
     fireEvent.click(status);
     fireEvent.click(within(screen.getByRole("dialog", { name: "운영 정보 갱신 실패 안내" })).getByRole("button", { name: "다시 시도" }));
@@ -182,8 +203,8 @@ describe("SiteOperationsView", () => {
   it("renders editable operations without exposing fixture placement controls", async () => {
     renderView();
 
-    expect(await screen.findByDisplayValue("본사 주차장")).toBeVisible();
-    expect(screen.getByRole("form", { name: "층 추가" })).toBeVisible();
+    expect(await screen.findByText("본사 주차장")).toBeVisible();
+    expect(screen.getByRole("button", { name: "층 추가" })).toBeVisible();
     expect(screen.getByRole("button", { name: "B2 보관" })).toBeDisabled();
     expect(screen.getByText("조명 1개와 활성 구역 1개가 있어 보관할 수 없습니다.")).toBeVisible();
     expect(await screen.findByText("LC-2026-0001")).toBeVisible();
@@ -198,6 +219,7 @@ describe("SiteOperationsView", () => {
 
   it("requires installed-site billing fields and keeps currency fixed to KRW", async () => {
     renderView();
+    fireEvent.click(await screen.findByRole("button", { name: "현장 정보 수정" }));
 
     expect(await screen.findByLabelText("주소")).toBeRequired();
     expect(screen.getByLabelText("kWh 단가")).toBeRequired();
@@ -206,11 +228,33 @@ describe("SiteOperationsView", () => {
     expect(currency).toHaveAttribute("readonly");
   });
 
+  it("retains site draft on failure and refreshes a conflicting signed-floor edit instead of replaying", async () => {
+    siteApi.updateSiteSettings.mockRejectedValueOnce(new Error("network"));
+    siteApi.updateFloor.mockRejectedValueOnce(new ApiError("conflict", 409, { code: "settings_version_conflict" }));
+    renderView();
+    fireEvent.click(await screen.findByRole("button", { name: "현장 정보 수정" }));
+    fireEvent.change(screen.getByLabelText("현장명"), { target: { value: "실패 후 초안" } });
+    fireEvent.click(screen.getByRole("button", { name: "현장 정보 저장" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("입력값을 유지합니다");
+    expect(screen.getByLabelText("현장명")).toHaveValue("실패 후 초안");
+    fireEvent.click(screen.getByRole("button", { name: "취소" }));
+    fireEvent.click(screen.getByRole("button", { name: "B1 수정" }));
+    fireEvent.change(screen.getByLabelText("B1 레벨"), { target: { value: "-3" } });
+    fireEvent.change(screen.getByLabelText("B1 표시 순서"), { target: { value: "0" } });
+    fireEvent.click(screen.getByRole("button", { name: "B1 층 정보 저장" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("다른 작업에서 변경되었습니다");
+    expect(siteApi.updateFloor).toHaveBeenCalledWith("site-1", "floor-empty", expect.objectContaining({ level: -3, displayOrder: 0, expectedUpdatedAt: settings.floors[1].updatedAt }));
+    fireEvent.click(screen.getByRole("button", { name: "최신 정보 불러오기" }));
+    await waitFor(() => expect(siteApi.getSiteSettings).toHaveBeenCalledTimes(2));
+    expect(siteApi.updateFloor).toHaveBeenCalledOnce();
+  });
+
   it("rejects blank, malformed, and out-of-range tariff values before calling the API", async () => {
     renderView();
+    fireEvent.click(await screen.findByRole("button", { name: "현장 정보 수정" }));
     const form = await screen.findByRole("form", { name: "현장 정보" });
     const tariff = within(form).getByLabelText("kWh 단가");
-    const save = within(form).getByRole("button", { name: "현장 정보 저장" });
+    const save = screen.getByRole("button", { name: "현장 정보 저장" });
 
     fireEvent.change(tariff, { target: { value: "" } });
     fireEvent.click(save);
@@ -231,10 +275,11 @@ describe("SiteOperationsView", () => {
     ["99999999.99", 99_999_999.99]
   ])("submits the tariff boundary %s as a number", async (draft, expected) => {
     renderView();
+    fireEvent.click(await screen.findByRole("button", { name: "현장 정보 수정" }));
     const form = await screen.findByRole("form", { name: "현장 정보" });
 
     fireEvent.change(within(form).getByLabelText("kWh 단가"), { target: { value: draft } });
-    fireEvent.click(within(form).getByRole("button", { name: "현장 정보 저장" }));
+    fireEvent.click(screen.getByRole("button", { name: "현장 정보 저장" }));
 
     await waitFor(() => expect(siteApi.updateSiteSettings).toHaveBeenCalledWith("site-1", expect.objectContaining({
       tariffKwhRate: expected
@@ -245,10 +290,11 @@ describe("SiteOperationsView", () => {
     const queryClient = renderView();
     queryClient.setQueryData(["dashboard", "site-2"], { untouched: true });
     const invalidate = vi.spyOn(queryClient, "invalidateQueries");
+    fireEvent.click(await screen.findByRole("button", { name: "현장 정보 수정" }));
     const siteForm = await screen.findByRole("form", { name: "현장 정보" });
 
     fireEvent.change(within(siteForm).getByLabelText("현장명"), { target: { value: "서울 본사" } });
-    fireEvent.click(within(siteForm).getByRole("button", { name: "현장 정보 저장" }));
+    fireEvent.click(screen.getByRole("button", { name: "현장 정보 저장" }));
     await waitFor(() => expect(siteApi.updateSiteSettings).toHaveBeenCalledWith("site-1", {
       expectedUpdatedAt: "2026-09-12T00:00:00.000Z",
       name: "서울 본사",
@@ -263,16 +309,20 @@ describe("SiteOperationsView", () => {
     expect(invalidate).toHaveBeenCalledWith({ queryKey: fixtureGroupQueryKey("site-1") });
     expect(invalidate).not.toHaveBeenCalledWith({ queryKey: ["dashboard", "site-2"] });
 
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "현장 정보 수정" })).not.toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "층 추가" }));
     const createForm = screen.getByRole("form", { name: "층 추가" });
     fireEvent.change(within(createForm).getByLabelText("새 층 이름"), { target: { value: "2층" } });
     fireEvent.change(within(createForm).getByLabelText("새 층 레벨"), { target: { value: "2" } });
     fireEvent.change(within(createForm).getByLabelText("새 층 표시 순서"), { target: { value: "4" } });
-    fireEvent.click(within(createForm).getByRole("button", { name: "층 추가" }));
+    fireEvent.click(within(screen.getByRole("dialog", { name: "층 추가" })).getByRole("button", { name: "층 추가" }));
     await waitFor(() => expect(siteApi.createFloor).toHaveBeenCalledWith("site-1", { name: "2층", level: 2, displayOrder: 4 }));
 
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "층 추가" })).not.toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "B1 수정" }));
     const floorForm = screen.getByRole("form", { name: "B1 층 정보 수정" });
     fireEvent.change(within(floorForm).getByLabelText("B1 이름"), { target: { value: "지하 1층" } });
-    fireEvent.click(within(floorForm).getByRole("button", { name: "B1 층 정보 저장" }));
+    fireEvent.click(screen.getByRole("button", { name: "B1 층 정보 저장" }));
     await waitFor(() => expect(siteApi.updateFloor).toHaveBeenCalledWith("site-1", "floor-empty", {
       expectedUpdatedAt: "2026-09-12T00:00:00.000Z",
       name: "지하 1층",
@@ -280,6 +330,7 @@ describe("SiteOperationsView", () => {
       displayOrder: 2
     }));
 
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "B1 층 수정" })).not.toBeInTheDocument());
     fireEvent.click(screen.getByRole("button", { name: "구 1층 복구" }));
     await waitFor(() => expect(siteApi.restoreFloor).toHaveBeenCalledWith("site-1", "floor-archived", "2026-09-12T00:00:00.000Z"));
   });
@@ -295,7 +346,7 @@ describe("SiteOperationsView", () => {
     fireEvent.click(within(dialog).getByRole("button", { name: "층 보관" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent("층 상태가 변경되어 보관하지 못했습니다.");
-    expect(screen.getByRole("form", { name: "B1 층 정보 수정" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "B1 수정" })).toBeVisible();
     fireEvent.click(screen.getByRole("button", { name: "최신 정보 불러오기" }));
     await waitFor(() => expect(siteApi.getSiteSettings).toHaveBeenCalledTimes(2));
     expect(siteApi.archiveFloor).toHaveBeenCalledTimes(1);
