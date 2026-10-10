@@ -5,7 +5,7 @@ import { Activity, ArrowDownAZ, ArrowUpAZ, BarChart3, TriangleAlert } from "luci
 import { useEffect, useState } from "react";
 import { useOutletContext } from "react-router-dom";
 import { useEnergyObservedMeanHeatmap, useEnergyRankings, useEnergySummary } from "../../../api/energy";
-import { Button, Card, DatePicker, FeedbackState, FilterPanel, MetricCard, PageHeader, SelectBox, StatusBadge, StatusDetailButton, Text, useDateDraft } from "../../../components/ui";
+import { Button, DatePicker, FeedbackState, FilterPanel, MetricCard, PageHeader, SelectBox, StatusBadge, StatusDetailButton, Text, useDateDraft } from "../../../components/ui";
 import { draftToDate } from "../../../components/ui/date/useDateDraft";
 import type { StatisticsOutletContext } from "../StatisticsShell";
 import { completedDateBounds } from "../completed-date-bounds";
@@ -76,8 +76,7 @@ export function StatisticsAnalysisPage() {
   return (
     <section className="grid min-w-0 gap-5 max-compact:gap-2" aria-label="사용량 분석 결과">
       <PageHeader variant="customer" headingLevel={1} title="사용량 분석" />
-      <Card className="min-w-0 p-4">
-      <FilterPanel label="사용량 분석 조건" mode="popover" variant="compact" className="max-compact:flex-row max-compact:items-center max-compact:[&>div:first-child]:shrink-0 max-compact:[&>div:nth-child(2)]:flex-1"
+      <FilterPanel label="사용량 분석 조건" mode="popover" variant="compact" className="flex-row-reverse flex-wrap items-center justify-between [&>div:first-child]:shrink-0 [&>div:nth-child(2)]:flex-1"
         activeFilterCount={Number(dimension !== "floor") + Number(metric !== "usage") + Number(sort !== "desc") + Number(from !== defaults.from || to !== defaults.to)}
         summary={<Text variant="body-sm"><span className="compact:hidden">상태 기반 추정 · </span>{dimensions.find(item => item.value === dimension)?.label} · {metricItems.find(item => item.id === metric)?.label} · {from || "시작일 미완성"} ~ {to || "종료일 미완성"} · {sort === "desc" ? "높은 순" : "낮은 순"}</Text>}
         >
@@ -102,7 +101,6 @@ export function StatisticsAnalysisPage() {
           {sort === "desc" ? <ArrowDownAZ size={16} /> : <ArrowUpAZ size={16} />}{sort === "desc" ? "높은 순" : "낮은 순"}
         </Button>
       </FilterPanel>
-      </Card>
       {!validRange ? <FeedbackState tone="danger" icon={TriangleAlert} title="완료된 기간을 선택해 주세요."
         description={`시작일과 종료일을 1~400일 범위로 선택하고 종료일은 ${defaults.to} 이전이어야 합니다.`} /> : null}
       {validRange && !query.data && !query.isError ? <FeedbackState icon={Activity} title="사용량 순위를 계산하는 중" /> : null}

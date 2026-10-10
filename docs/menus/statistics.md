@@ -1,5 +1,35 @@
 # 통계 메뉴 기능 현황
 
+## 2026-10-10 ATLAS 통계 표현 충실도 보완 (Task 7)
+
+### 구현 완료
+
+- 고객 공통 PageHeader를 소비해 `사용량 개요`와 보고서 이동을 제공한다. 이동은 현재 siteId/query/hash를 유지하고 보고서 job을 생성하지 않는다. 비교·분석 조건을 카드 밖 toolbar로 정리하며 각 조회 기간과 일별/월별 선택은 독립적으로 유지한다.
+- 완료 기간 비교 차트를 전폭으로 배치하고 실제 기준값은 중립 선, 완료 기간 추정값은 옅은 영역과 선, 예상값은 점선으로 표시한다. null·산정 불가 구간은 연결하지 않으며 기존 툴팁·스크린리더 데이터·테마 수명을 유지한다. 직전/전년 동기간 비교와 양 기간 수집률·구성 변화 미보정은 차트 아래 압축 패널로 제공한다.
+- 추이 아래 이번 달 비용 비교와 운영 인사이트를 desktop 1:1, 모바일 단일 열로 배치한다. 실제 full-month 기준/월전망 비용만 공통 비율의 두 막대로 표시하고 기준 초과도 사실대로 표시한다. 저장 비용과 현재 단가, 음수 절감, nullable 집계 시각, 오늘/월/년의 알려진 상태시간과 수집 공백을 구분한다.
+- 순위는 중립 기본 행과 선택 강조를 사용한다. 수집된 0의 막대는 0%, null 지표는 막대 없음이며 작은 실제 수치도 목록의 같은 최대값 기준으로 비교한다. 선택 상세는 사용량·저장 비용 두 KPI와 실제 현장 기여도·이전 동기간 증감·수집률을 제공하고 일별 차트·조명 구성은 유지한다. 증감 null/0은 중립, 증가/감소는 각각 위험/성공 의미다.
+- 보고서는 검색·필터·CSV 진입과 실제 이력을 flat 영역으로 정리한다. CSV 진입은 기존 기간·대상 생성 dialog를 열며 진입만으로 생성이나 다운로드를 실행하지 않는다. 실제 polling, 다섯 job 상태, PDF 서명 URL, 실패/만료 재생성, CSV 원본 bytes, 날짜 raw draft·cursor·취소·문서/현장 수명을 유지한다.
+
+### 미구현
+
+- API/DTO·계량기·시간별 개요 조회·목업 표본/수집 시각/절감 기여도·샘플 PDF preview·가짜 job 완료를 추가하지 않았다. 공통 eyebrow slot과 통계 소비는 총괄의 공통 후속에서 처리한다.
+- 실 브라우저 시각 비교·44px/viewport 최종 행렬·운영 저장소/native OS/HIL은 이번 담당 작업에서 실행하지 않았다.
+
+### 부족하거나 개선이 필요한 기능
+
+- Node 22.20.0/pnpm 9.15.0에서 새 계약 focused RED 8실패/1통과(142 비선택) → GREEN 9통과(142 비선택), 작은 수치 막대 RED 1실패(5 비선택), 최종 직접 소비자 8파일·171통과/0실패/0skip를 확인했다. 중간 consumer의 과거 카드/세로배치 단언·숨겨진 trigger 조회·기간줄 표시 실패는 기록을 보존하고 최종 결과와 구분한다.
+- strict 잘못된 보고서 URL 세 사례의 예상 ZodError stderr는 기존 거부 경계이며 최종 테스트 실패는 없다. 승인 LEAN 범위에 따라 전체 Web·canonical·Lab·E2E·type/UI/build는 담당 작업에서 미실행이다. 소스 표현 교정과 단위 검증을 최종 화면 승인으로 확대하지 않는다. 이전 문단의 막대 기준선은 당시 구현 기록이며 현재 비교 차트는 위 중립 기준선을 따른다.
+
+### 관련 파일
+
+- `apps/web/src/features/statistics/{StatisticsOverviewPage,EnergyComparisonChart,PeriodComparisonPanel,StatisticsOperationalInfo}.tsx`
+- `apps/web/src/features/statistics/analysis/{StatisticsAnalysisPage,EnergyRankingList,EnergyRankingDetailPanel}.tsx`
+- `apps/web/src/features/statistics/reports/StatisticsReportsPage.tsx` 및 직접 소비자 테스트, 새 `analysis/EnergyRankingList.test.tsx`.
+
+### 갱신 규칙
+
+- 기간/조회/파일 owner 불변과 0/null·수집률·저장 비용·월전망 의미를 표현 변경과 함께 검증한다. 공통 후속과 실제 통합 화면 결과는 총괄이 회수한 증거로 추가하며 과거 실패·목업/native/HIL 한계를 삭제하지 않는다.
+
 ## 2026-10-10 고객 shell·제목·탭 소유 (Task 3)
 
 ### 구현 완료

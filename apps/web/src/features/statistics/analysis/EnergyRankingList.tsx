@@ -21,11 +21,11 @@ export function EnergyRankingList({
   selectedId: string | null;
   onSelect: (item: EnergyRankingItem) => void;
 }) {
-  const max = Math.max(...items.map((item) => item.metricValue ?? 0), 1);
+  const max = Math.max(...items.map((item) => item.metricValue ?? 0), 0);
   return (
     <Card className="grid min-w-0 gap-3 p-4 compact:p-5" aria-label="사용량 순위">
       <header className="flex items-start justify-between gap-3">
-        <div className="grid gap-1"><Text variant="overline" tone="muted">순위</Text><Heading as="h3" variant="card-title">에너지 사용 비교</Heading></div>
+        <Heading as="h2" variant="customer-section-title">에너지 사용 비교</Heading>
         <Text as="span" variant="caption" tone="muted">{items.length}개 항목</Text>
       </header>
       {metric === "cost" ? <Text variant="body-sm" tone="muted">당시 적용 단가의 저장 비용</Text> : null}
@@ -36,16 +36,17 @@ export function EnergyRankingList({
               <Button
                 type="button"
                 variant="ghost"
-                className={`grid w-full grid-cols-[2rem_minmax(0,1fr)_auto] items-center gap-2 rounded-control border p-2.5 text-left ${selectedId === item.identityId ? "border-action-primary bg-action-primary-soft" : "border-border-default bg-surface-panel"}`}
+                className={`grid w-full grid-cols-[2rem_minmax(0,1fr)_auto] items-center gap-4 rounded-control border p-3 text-left ${selectedId === item.identityId ? "border-action-primary bg-action-primary-soft" : "border-transparent bg-transparent"}`}
                 aria-pressed={selectedId === item.identityId}
                 onClick={() => onSelect(item)}
               >
-                <Text as="span" variant="body-lg" weight="bold" tone="primary" className="text-center">{item.rank}</Text>
+                <Text as="span" variant="caption" tone="muted" className="text-center">{String(item.rank).padStart(2, "0")}</Text>
                 <span className="grid min-w-0 gap-1">
                   <Text as="strong" weight="bold" className="truncate">{item.name}</Text>
                   <Text as="small" variant="caption" tone="muted">{item.fixtureCount}개 조명 · 수집률 {formatPercent(item.coverageRate)}</Text>
                   <span className="h-1.5 overflow-hidden rounded-control bg-chart-grid" aria-hidden="true">
-                    <span className="block h-full rounded-control bg-chart-ranking" style={{ width: `${Math.max(4, ((item.metricValue ?? 0) / max) * 100)}%` }} />
+                    {/* Collected zero has zero width; unknown values have no magnitude to draw. */}
+                    {item.metricValue !== null ? <span className="block h-full rounded-control bg-chart-ranking" style={{ width: `${max === 0 ? 0 : item.metricValue / max * 100}%` }} /> : null}
                   </span>
                 </span>
                 <span className="flex items-baseline gap-1 font-bold tabular-nums">{formatMetric(item.metricValue, metric)}<Text as="small" variant="caption" tone="muted" weight="bold">{metricLabels[metric]}</Text></span>

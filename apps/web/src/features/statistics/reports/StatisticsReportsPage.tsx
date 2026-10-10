@@ -1,9 +1,9 @@
 import { energyReportListQuerySchema, type EnergyReportJob, type EnergyReportListResponse, type EnergyReportRequest } from "@led-control/shared/energy-p2-contracts";
-import { FileText } from "lucide-react";
+import { Download, FileText } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { createEnergyFileOperation, createEnergyReport, downloadEnergyCsv, downloadEnergyReport, energyReportRequestErrorMessage, useEnergyReports, useEnergyReportTargets } from "../../../api/energy";
-import { Button, Card, Heading, PageHeader, PaginationBar, Text } from "../../../components/ui";
+import { Button, PageHeader, PaginationBar, Text } from "../../../components/ui";
 import { useLocation, useOutletContext, useSearchParams } from "react-router-dom";
 import type { StatisticsOutletContext } from "../StatisticsShell";
 import { ReportCreateDialog } from "./ReportCreateDialog";
@@ -302,11 +302,11 @@ export function StatisticsReportsPage() {
   return <section className="grid min-w-0 gap-6 max-compact:gap-2" aria-label="에너지 보고서">
     <PageHeader variant="customer" headingLevel={1} title="보고서" status={undefined} className="max-compact:flex-row max-compact:items-center max-compact:[&>div:last-child]:w-auto"
       actions={<Button variant="primary" onClick={() => setIsDialogOpen(true)}><FileText size={16} />보고서 만들기</Button>} />
-    <Card className="min-w-0 p-4 compact:p-5 max-compact:order-1">
-      <ReportHistoryFilters scopeKey={draftScope} value={filters} invalidRequestedRange={invalidRequestedRange} onChange={changeFilters} onInvalidDraftChange={onInvalidDraftChange} />
-    </Card>
-    <Card className="grid min-w-0 gap-4 p-4 compact:p-5" aria-label="보고서 이력">
-      <Heading as="h3" variant="card-title">요청한 보고서</Heading>
+    <div className="flex min-w-0 flex-wrap items-start gap-3 max-compact:order-1">
+      <ReportHistoryFilters className="flex-1" scopeKey={draftScope} value={filters} invalidRequestedRange={invalidRequestedRange} onChange={changeFilters} onInvalidDraftChange={onInvalidDraftChange} />
+      <Button variant="secondary" onClick={() => setIsDialogOpen(true)}><Download size={16} />CSV 내보내기</Button>
+    </div>
+    <section className="grid min-w-0 gap-4" aria-label="보고서 이력">
       {invalidRequestedRange ? <Text role="alert" tone="danger">URL의 요청 기간을 직접 수정하거나 필터를 초기화해 주세요.</Text> : <>
       {localInvalid ? <Text role="alert" tone="danger">요청 기간을 완성하거나 필터를 초기화한 뒤 이력을 조회하세요.</Text> : null}
       <fieldset disabled={localInvalid} className="contents">
@@ -333,7 +333,7 @@ export function StatisticsReportsPage() {
       />
       </fieldset>
       </>}
-    </Card>
+    </section>
     {downloadingReportId ? <Button variant="secondary" onClick={() => downloadOperationRef.current?.abort()}>파일 준비 취소</Button> : null}
     {fileNotice ? <Text role="status">{fileNotice}</Text> : null}
     {downloadError ? <Text tone="danger" role="alert">{downloadError}</Text> : null}

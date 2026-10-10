@@ -8,6 +8,17 @@ import { ThemeToggle } from "../../components/ui/theme/ThemeToggle";
 describe("EnergyComparisonChart", () => {
   afterEach(cleanup);
 
+  it("renders the real baseline as a line and the observed usage as an area without losing gap descriptions", () => {
+    vi.stubGlobal("matchMedia", () => ({ matches: true, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {} }));
+    try {
+      const { container } = render(<EnergyComparisonChart comparison={makeEnergyComparison()} />);
+      expect(container.querySelectorAll(".recharts-line")).toHaveLength(3);
+      expect(container.querySelector(".recharts-area")).not.toBeNull();
+      expect(container.querySelector(".recharts-bar")).toBeNull();
+      expect(screen.getByText("2026년 9월 4일: 기준 100 kWh, 사용량 산정 불가, 수집률 산정 불가")).toBeInTheDocument();
+    } finally { vi.unstubAllGlobals(); }
+  });
+
   it("repaints chart axes, grid and series without replacing the chart or gap data", async () => {
     localStorage.removeItem("led-control.customer-theme.v1");
     // Isolate palette repaint from Recharts' animated dash clipping using a real supported system preference.

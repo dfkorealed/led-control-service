@@ -2,7 +2,7 @@ import type { EnergyComparisonPreset, EnergySeriesPoint, EnergySummary } from "@
 import { energyRangeComparisonQuerySchema } from "@led-control/shared/energy-range-contracts";
 import { Activity, CircleCheck, CircleOff, TriangleAlert, TrendingDown, TrendingUp } from "lucide-react";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { useOutletContext } from "react-router-dom";
+import { useLocation, useNavigate, useOutletContext } from "react-router-dom";
 import {
   CartesianGrid,
   Line,
@@ -41,6 +41,10 @@ const statusPresentation = {
 
 export function StatisticsOverviewPage() {
   const { siteId } = useOutletContext<StatisticsOutletContext>();
+  const location = useLocation();
+  const navigate = useNavigate();
+  const pageHeader = <PageHeader variant="customer" headingLevel={1} title="사용량 개요"
+    actions={<Button variant="primary" onClick={() => navigate(`/statistics/reports${location.search}${location.hash}`)}>보고서 생성</Button>} />;
   const [granularity, setGranularity] = useState<Granularity>("day");
   const [comparisonPreset, setComparisonPreset] = useState<EnergyComparisonPreset>("current_month");
   const [customRange, setCustomRange] = useState<{ siteId: string; from: string; to: string } | null>(null);
@@ -77,7 +81,7 @@ export function StatisticsOverviewPage() {
   if (!siteId || summaryQuery.isLoading) {
     return (
       <section className="grid min-w-0 gap-6">
-        <PageHeader variant="customer" headingLevel={1} title="통계 개요" />
+        {pageHeader}
         <FeedbackState
           icon={Activity}
           title="전력 통계를 불러오는 중"
@@ -89,7 +93,7 @@ export function StatisticsOverviewPage() {
   if (summaryQuery.isError || !summaryQuery.data) {
     return (
       <section className="grid min-w-0 gap-6">
-        <PageHeader variant="customer" headingLevel={1} title="통계 개요" />
+        {pageHeader}
         <FeedbackState
           tone="danger"
           icon={TriangleAlert}
@@ -174,24 +178,25 @@ export function StatisticsOverviewPage() {
   const unavailableMessage = summary.monthForecast.reason === "no_registered_fixture"
     ? "등록된 조명이 없어 예상 비용과 절감액을 계산할 수 없습니다."
     : "상태 수집 시간이 부족하여 예상 비용과 절감액을 계산할 수 없습니다.";
+  // One common scale preserves overuse: forecasts above baseline must not be clipped to a false 100% ratio.
+  const costScale = Math.max(summary.baseline24Hours.estimatedCost, summary.monthForecast.estimatedCost ?? 0);
   const costRows = summary.monthForecast.reason === "available"
     && summary.monthForecast.estimatedKwh !== null
     && summary.monthForecast.estimatedCost !== null
     && summary.estimatedSavings.kwh !== null
     && summary.estimatedSavings.cost !== null ? (
       <dl className="grid gap-3">
-        <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-x-3 gap-y-1 rounded-control bg-surface-inset p-3">
-          <dt className="text-body-sm font-bold text-content-secondary">이번 달 예상 비용</dt>
-          <dd className="m-0 text-card-title font-bold text-content-primary tabular-nums">{formatWon(summary.monthForecast.estimatedCost)}</dd>
-          <small className="col-span-full text-caption text-content-muted tabular-nums">{formatKwh(summary.monthForecast.estimatedKwh)}</small>
-        </div>
-        <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-x-3 gap-y-1 rounded-control bg-surface-inset p-3">
-          <dt className="text-body-sm font-bold text-content-secondary">24시간 100% 기준 비용</dt>
-          <dd className="m-0 text-card-title font-bold text-content-primary tabular-nums">{formatWon(summary.baseline24Hours.estimatedCost)}</dd>
-          <small className="col-span-full text-caption text-content-muted tabular-nums">{formatKwh(summary.baseline24Hours.estimatedKwh)}</small>
-        </div>
+        {[
+          { label: "24시간 100% 기준 비용", ...summary.baseline24Hours, fill: "bg-chart-baseline" },
+          { label: "이번 달 예상 비용", estimatedCost: summary.monthForecast.estimatedCost, estimatedKwh: summary.monthForecast.estimatedKwh, fill: "bg-chart-usage" }
+        ].map(row => <div key={row.label} className="grid grid-cols-[minmax(0,1fr)_auto] gap-x-3 gap-y-2">
+          <dt className="text-body-sm font-bold text-content-secondary">{row.label}</dt>
+          <dd className="m-0 text-card-title font-bold text-content-primary tabular-nums">{formatWon(row.estimatedCost)}</dd>
+          <small className="col-span-full text-caption text-content-muted tabular-nums">{formatKwh(row.estimatedKwh)}</small>
+          <span className="col-span-full h-3 overflow-hidden rounded-control bg-surface-inset" aria-hidden="true"><span className={`block h-full rounded-control ${row.fill}`} style={{ width: `${costScale === 0 ? 0 : row.estimatedCost / costScale * 100}%` }} /></span>
+        </div>)}
         <div
-          className="grid grid-cols-[minmax(0,1fr)_auto] gap-x-3 gap-y-1 rounded-control bg-surface-inset p-3 data-[tone=danger]:text-status-danger-foreground"
+          className="grid grid-cols-[minmax(0,1fr)_auto] gap-x-3 gap-y-1 border-t border-border-default pt-3 data-[tone=danger]:text-status-danger-foreground"
           data-tone={summary.estimatedSavings.cost < 0 ? "danger" : "neutral"}
         >
           <dt className="text-body-sm font-bold text-content-secondary">예상 절감</dt>
@@ -203,7 +208,7 @@ export function StatisticsOverviewPage() {
 
   return (
     <section className="grid min-w-0 gap-5" aria-label="에너지 통계">
-      <PageHeader variant="customer" headingLevel={1} title="통계 개요" />
+      {pageHeader}
       <ComparisonSection
         preset={comparisonPreset}
         onPresetChange={(preset) => { setComparisonPreset(preset); setCustomActive(false); setShowCustomPicker(false); }}
@@ -242,11 +247,11 @@ export function StatisticsOverviewPage() {
           </div>
           <Text variant="body-sm" tone="muted">누적·일별·월별 비용은 당시 적용 단가의 저장 비용입니다.</Text>
 
-          <div className="grid min-w-0 grid-cols-[minmax(0,2fr)_minmax(16rem,1fr)] gap-4 max-compact:grid-cols-1" role="group" aria-label="사용량 및 비용">
+          <div className="grid min-w-0 gap-4" role="group" aria-label="사용량 및 비용">
             <Card className="grid min-w-0 gap-4 p-4 compact:p-6" aria-label="상태 기반 추정 사용량">
-              <div className="flex items-start justify-between gap-4 max-compact:flex-col max-compact:items-stretch">
+              <div className="flex flex-wrap items-start justify-between gap-4">
                 <div className="grid gap-1">
-                  <Text variant="overline" tone="muted">사용량 추이</Text>
+                  <Text variant="overline" tone="muted">{granularity === "day" ? "일별 사용량 추이" : "월별 사용량 추이"}</Text>
                   <div className="flex min-w-0 flex-wrap items-center gap-2">
                     <Heading as="h3" variant="card-title">상태 기반 추정 사용량</Heading>
                     {seriesGapLabel && !activeSeries.isLoading && !activeSeries.isError ? (
@@ -260,7 +265,6 @@ export function StatisticsOverviewPage() {
                   </Text>
                 </div>
                 <FilterPanel label="사용량 조회 단위" mode="popover" activeFilterCount={Number(granularity !== "day")}
-                  summary={<Text variant="caption">{granularity === "day" ? "일별" : "월별"}</Text>}
                   filterReset={<Button size="sm" variant="secondary" onClick={() => setGranularity("day")}>필터 초기화</Button>}>
                 <div className="flex gap-2" aria-label="사용량 조회 단위 선택">
                   {(["day", "month"] as const).map((value) => (
@@ -281,23 +285,19 @@ export function StatisticsOverviewPage() {
               </div>
               {chart}
             </Card>
-
-            <SidePanel className="grid min-w-0 gap-4 p-4 compact:p-6" aria-label="비용 비교">
-              <div className="grid gap-1">
-                <Text variant="overline" tone="muted">예상 요금</Text>
-                <Heading as="h3" variant="card-title">이번 달 비용 비교</Heading>
-              </div>
-              {costRows}
-              <Text variant="body-sm" tone="muted">예상·기준·절감 비용은 현재 설정 단가 기준입니다.</Text>
-              <Text variant="caption" tone="muted">
-                현재 등록 조명 {summary.baseline24Hours.fixtureCount}개 · 해당 월 {summary.baseline24Hours.daysInMonth}일 전체 · 24시간 · 100% 밝기 · 현재 단가 기준
-              </Text>
-            </SidePanel>
           </div>
         </>
       )}
       </section>
-      <StatisticsOperationalInfo summary={summary} />
+      <div className="grid min-w-0 gap-5 tablet:grid-cols-2">
+        {!hasNoKnownData ? <SidePanel className="grid min-w-0 content-start gap-4 p-4 compact:p-6" aria-label="비용 비교">
+          <Heading as="h2" variant="customer-section-title">이번 달 비용 비교</Heading>
+          {costRows}
+          <Text variant="body-sm" tone="muted">예상·기준·절감 비용은 현재 설정 단가 기준입니다.</Text>
+          <Text variant="caption" tone="muted">현재 등록 조명 {summary.baseline24Hours.fixtureCount}개 · 해당 월 {summary.baseline24Hours.daysInMonth}일 전체 · 24시간 · 100% 밝기 · 현재 단가 기준</Text>
+        </SidePanel> : null}
+        <StatisticsOperationalInfo summary={summary} />
+      </div>
     </section>
   );
 }
@@ -409,11 +409,10 @@ function ComparisonSection({
             <FeedbackState icon={CircleOff} title="절감률 산정 대기" description={presentation.description} />
           </div>
         )}
-        <div className="grid min-w-0 grid-cols-[minmax(0,2fr)_minmax(16rem,1fr)] gap-4 max-compact:grid-cols-1" role="group" aria-label="기준 및 동기간 비교">
+        <div className="grid min-w-0 gap-4" role="group" aria-label="기준 및 동기간 비교">
           <Card className="grid min-w-0 gap-4 p-4 compact:p-6" aria-label="기준 대비 사용량 비교">
             <div className="grid gap-1">
-              <Text variant="overline" tone="muted" className="max-compact:hidden">기준 대비 추세</Text>
-              <Heading as="h3" variant="card-title">완료 기간 추정·예상 사용량 비교</Heading>
+              <Heading as="h2" variant="customer-section-title">완료 기간 추정·예상 사용량 비교</Heading>
             </div>
             <EnergyComparisonChart comparison={query.data} />
           </Card>
@@ -425,14 +424,11 @@ function ComparisonSection({
 
   return (
     <section className="grid min-w-0 gap-4 max-compact:gap-2" aria-labelledby="statistics-comparison-title">
-      <div className="flex min-w-0 items-start justify-between gap-4">
+      <div className="grid min-w-0 gap-3">
         <div className="grid gap-1 max-compact:sr-only">
           <Heading as="h3" variant="section-title" id="statistics-comparison-title">기준 대비 에너지 절감</Heading>
-          {query.data && !query.isError ? <Text variant="caption" tone="secondary">
-            {query.data.range.from} ~ {query.data.range.to}
-          </Text> : null}
         </div>
-        <FilterPanel label="절감 비교 기간" mode="popover" className="max-compact:w-full max-compact:flex-row max-compact:items-center max-compact:[&>div:first-child]:shrink-0 max-compact:[&>div:nth-child(2)]:flex-1" isOpen={isOpen} onOpenChange={onOpenChange}
+        <FilterPanel label="절감 비교 기간" mode="popover" className="flex-row-reverse flex-wrap items-center justify-between [&>div:first-child]:shrink-0 [&>div:nth-child(2)]:flex-1" isOpen={isOpen} onOpenChange={onOpenChange}
           activeFilterCount={Number(customActive || preset !== "current_month")} summary={<Text variant="caption">{currentRangeLabel}</Text>}
           >
         <div className="flex flex-wrap gap-2" role="group" aria-label="절감 비교 프리셋">
