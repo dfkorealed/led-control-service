@@ -1,5 +1,29 @@
 # 설정 메뉴 기능 현황 및 구현 설계
 
+## 2026-10-10 실제 도면 gallery·변경 기록 (Task 9)
+
+### 구현 완료
+
+- 설정된 실제 층만 readonly map-snapshot으로 조회해 FloorMapViewport/FloorScene에서 176px 미리보기를 표시한다. IntersectionObserver가 보이는 카드 중 최대 2개만 활성화하며 화면 밖은 query disabled/scene unmount다. snapshot에 없는 telemetry는 모든 placed fixture를 중립 미조회 상태로 표시한다. 그림은 inert/aria-hidden이며 외부 층별 label/retry를 제공한다. 관리 권한 없는 사용자도 read capability/site scope가 맞으면 미리보기만 조회하며 editor-state/lease는 목록에서 얻지 않는다.
+- 변경 기록은 기존 editor URL의 editorPanel=details 최초 의도로 자료 탭/정보 패널/맵 버전 focus·scroll만 연다. 일반 편집은 해당 query만 제거하며 다른 search/hash는 유지한다. query 변경은 기존 view key·initialize·dirty owner를 재설정하지 않는다.
+- editor 단일 h1과 보이는 돌아가기/저장 label·primary foreground를 적용했다. lease/dirty guard/sentinel/restore/save·stage ACK owner는 유지하며 직접 6 suite 139 PASS/0 FAIL(exit0) 확인했다.
+
+### 미구현
+
+- 서버 raster thumbnail 계약은 없으며 새 계약을 추가하지 않았다. Task 10 보안 배치는 후속이다. browser/전체Web/type/UI/build/native/HIL 검증은 이번 작업에 포함하지 않았다.
+
+### 부족하거나 개선이 필요한 기능
+
+- 실제 scene 재사용이라 대형 CAD decode/worker/GPU 비용이 남는다. 2개 활성 제한은 성능 완료 증거가 아니다. IntersectionObserver 미지원 host는 안전하게 미리보기를 자동 조회하지 않는다. scene 내부 asset 실패는 시각적으로 표시되며 외부 다시 불러오기 버튼으로 재조회/remount할 수 있다.
+
+### 관련 파일
+
+- `settings/floor-plans/{FloorPlanSettingsView,FloorPlanPreview,FloorEditorRoute}.tsx`, `floor-editor/FloorEditorView.tsx` 및 직접 gallery/preview/route/editor/save-ACK/stage-ACK tests.
+
+### 갱신 규칙
+
+- 감사 31–38/F7a·F7b–F9의 표시 교정과 기존 데이터/수명/권한 보존을 구분한다. 대형 CAD와 최종 시각 검증의 결과는 실제 별도 증거가 있을 때만 추가한다.
+
 ## 2026-10-10 ATLAS 충실도 교정 — 설정 홈·현장·등록 (Task 8)
 
 ### 구현 완료

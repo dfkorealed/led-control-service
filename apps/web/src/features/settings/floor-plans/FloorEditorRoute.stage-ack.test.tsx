@@ -68,7 +68,7 @@ it.each(["save", "cancel receipt"])("keeps leave/unload guards after stage %s wh
   const unload = new Event("beforeunload", { cancelable: true });
   act(() => window.dispatchEvent(unload));
   expect(unload.defaultPrevented).toBe(true);
-  fireEvent.click(screen.getByRole("button", { name: "취소" }));
+  fireEvent.click(screen.getByRole("button", { name: "맵으로 돌아가기" }));
   const dialog = await screen.findByRole("alertdialog", { name: "맵 편집 종료" });
   expect(screen.queryByText("Left editor")).not.toBeInTheDocument();
   fireEvent.click(within(dialog).getByRole("button", { name: "취소" }));
@@ -80,6 +80,6 @@ it.each(["save", "cancel receipt"])("keeps leave/unload guards after stage %s wh
   await waitFor(() => expect(store().isDirty).toBe(false));
   const cleanUnload = new Event("beforeunload", { cancelable: true });
   act(() => window.dispatchEvent(cleanUnload)); expect(cleanUnload.defaultPrevented).toBe(false);
-  fireEvent.click(screen.getByRole("button", { name: "취소" }));
+  fireEvent.click(screen.getByRole("button", { name: "맵으로 돌아가기" }));
   await screen.findByText("Left editor");
 });

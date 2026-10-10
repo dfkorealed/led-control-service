@@ -25,7 +25,8 @@ const { getFloorEditorState, acquireFloorEditorLease, releaseFloorEditorLease } 
 
 vi.mock("../../../api/floor-editor", () => floorEditorApi);
 vi.mock("../../floor-editor/FloorEditorView", () => ({
-  FloorEditorView: ({ initialState, floors, onFloorChange, onCancel, onSaved, onDirtyChange, onNativeBack, readOnly = false }: {
+  FloorEditorView: ({ initialState, floors, onFloorChange, onCancel, onSaved, onDirtyChange, onNativeBack, readOnly = false, initialPanelTab }: {
+    initialPanelTab?: "properties" | "details";
     initialState: FloorEditorState;
     floors: Array<{ id: string; name: string }>;
     onFloorChange: (floorId: string) => void;
@@ -38,6 +39,7 @@ vi.mock("../../floor-editor/FloorEditorView", () => ({
     <section>
       <h2>{initialState.floor.name} 맵 편집</h2>
       <output data-testid="lease-read-only">{String(readOnly)}</output>
+      <output aria-label="최초 편집 패널">{initialPanelTab}</output>
       <LocationProbe />
       <button onClick={() => onDirtyChange(true)}>수정</button>
       <button onClick={() => onDirtyChange(false)}>변경 되돌리기</button>
@@ -150,6 +152,13 @@ function FloorTransitionControl() {
 }
 
 describe("FloorEditorRoute", () => {
+  it.each([['details', 'details'], ['invalid', 'properties']])("normalizes initial history intent %s and preserves hash on return", async (query, expected) => {
+    getFloorEditorState.mockResolvedValue(editorState);
+    renderRoute("admin", `/settings/floor-plans/floor-b2/edit?siteId=site-2&keep=value&editorPanel=${query}#draft`);
+    await waitFor(() => expect(screen.getByLabelText("최초 편집 패널")).toHaveTextContent(expected));
+    fireEvent.click(screen.getByRole("button", { name: "취소" }));
+    expect(screen.getByTestId("location")).toHaveTextContent(`/settings/floor-plans?siteId=site-2&keep=value&editorPanel=${query}#draft`);
+  });
   beforeEach(() => {
     acquireFloorEditorLease.mockResolvedValue({ editable: true, token: "test-lease-token", holderName: "김관리" });
     releaseFloorEditorLease.mockResolvedValue({ released: true });

@@ -186,6 +186,21 @@ describe("FloorEditorView", () => {
     await waitFor(() => expect(screen.queryByText("CAD 도면을 표시하지 못했습니다.")).not.toBeInTheDocument());
   });
 
+  it("opens history once without resetting later panel intent or the editor draft", () => {
+    const { rerenderWithProps } = renderEditor(editorState, { initialPanelTab: "details" });
+    expect(screen.getByRole("tab", { name: "자료" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("region", { name: "맵 버전" })).toHaveFocus();
+    fireEvent.click(screen.getByRole("tab", { name: "속성" }));
+    act(() => useFloorEditorStore.getState().selectFixture("fixture-1"));
+    const before = useFloorEditorStore.getState().state;
+    rerenderWithProps({ initialPanelTab: "details" });
+    expect(screen.getByRole("tab", { name: "속성" })).toHaveAttribute("aria-selected", "true");
+    expect(useFloorEditorStore.getState().state).toBe(before);
+    expect(screen.getByRole("heading", { level: 1, name: "B2 맵 편집" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "맵으로 돌아가기" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "저장" })).toHaveTextContent("저장");
+  });
+
   it("culls offscreen canvas nodes, keeps selected fixtures mounted, and reduces low-zoom detail", () => {
     const large = structuredClone(editorState);
     large.floor.floorPlan = { ...large.floor.floorPlan!, width: 5_000, height: 5_000 };
@@ -486,7 +501,7 @@ describe("FloorEditorView", () => {
     expect(screen.getByRole("button", { name: "축소" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "100%" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "저장" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "취소" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "맵으로 돌아가기" })).toBeInTheDocument();
     expect(screen.getByRole("group", { name: "맵 편집 도구" })).toBeInTheDocument();
     expect(screen.getByLabelText("B2 편집 캔버스")).toBeInTheDocument();
     expect(screen.getByRole("complementary", { name: "속성 패널" })).toBeInTheDocument();
@@ -919,7 +934,7 @@ describe("FloorEditorView", () => {
     const onCancel = vi.fn();
     renderEditor(editorState, { onCancel });
 
-    fireEvent.click(screen.getByRole("button", { name: "취소" }));
+    fireEvent.click(screen.getByRole("button", { name: "맵으로 돌아가기" }));
 
     expect(onCancel).toHaveBeenCalledOnce();
   });
