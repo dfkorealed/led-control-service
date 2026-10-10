@@ -74,7 +74,7 @@ export function FloorEditorView({
   readOnly ||= userRole !== "admin" || !leaseToken || !leaseFence;
   const queryClient = useQueryClient();
   const { initialState: baseline, state, isDirty, activeTool, zoom, initialize, adoptBaseline, setActiveTool, setZoom, resetZoom, past, future, snap, selection, cadSelection, selectedFixtureIds } = useFloorEditorStore(useShallow((s) => ({ initialState: s.initialState, state: s.state, isDirty: s.isDirty, activeTool: s.activeTool, zoom: s.zoom, initialize: s.initialize, adoptBaseline: s.adoptBaseline, setActiveTool: s.setActiveTool, setZoom: s.setZoom, resetZoom: s.resetZoom, past: s.past, future: s.future, snap: s.snap, selection: s.selection, cadSelection: s.cadSelection, selectedFixtureIds: s.selectedFixtureIds })));
-  const [panelTab, setPanelTab] = useState(initialPanelTab);
+  const [panelTab, setPanelTab] = useState<string>(initialPanelTab);
   const [isNarrowLayout, setIsNarrowLayout] = useState(() => window.matchMedia?.("(max-width: 1279px)").matches ?? false);
   const [openPanel, setOpenPanel] = useState<"tools" | "information" | null>(() => initialPanelTab === "details" ? "information" : null);
   const [placementDraft, setPlacementDraft] = useState<{ floorId: string; siteId: string; fixtureId: string; point: Point | null } | null>(null);
