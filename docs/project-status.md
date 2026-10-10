@@ -13,6 +13,8 @@
 - 네 페이지 담당 준비를 확인하고 공통API 고정 뒤 각각 .worktrees/atlas-fidelity-{monitoring,control,statistics,settings}-20261010의 격리 branch로 전달한다. 같은checkout 단독writer/공통파일수정금지/최대3페이지병렬을 지키며 root가 교정브랜치에 순서대로 통합한다. 설정Tasks8–10은 한 담당이 내부순차 진행한다. 원본목업63200만 다시 열었고 제품5173/API4000은 조작하지 않았다. 부분 결과를 전체 UI 완료로 해석하지 않는다.
 - 페이지 진행: 모니터링 `5ba6fb1a`(직접8파일161 PASS)·제어 `0e3f2080`(신규5 PASS, 직접실행3FAIL은관련2파일192 PASS로교정/미변경9파일이전231 PASS구분)의 소유범위와 감사34/30행처리표를 취합했다. 설정8–10 시작·통계7 진행 중이다. PageHeader optionaleyebrow 누락은 페이지별복제없이 공통후속으로 보완하며 현재 미완료다. 최종통합 타입/정책/빌드/제한화면/독립리뷰·기본branch병합은 아직이다.
 - 후속 취합: 통계 `4d3cda30`(직접8파일171 PASS)와 감사34행표를 확인했고, 모니터링/제어/통계 세 결과를 소유파일 겹침 없이 교정branch에 로컬통합했다. 설정8–10은 별도branch 진행 중이며 공통eyebrow 보완을 통합branch에서 이어간다. 타입/정책/빌드/화면/독립리뷰 및 기본branch병합은 미완료다.
+- 설정 홈·현장/층·등록(Task8) `ec2eb023`의 소유11파일과 직접8 suites138 PASS를 취합했다. 실제 폼 owner/권한/BIO·보관/복원·등록 session을 유지한 표현 교정이며 설정 Task9·10과 공통 eyebrow는 진행 중이다. 최대12개 controlled browser case는 작성·목록 확인까지만 완료했고 실제 실행은 최종 source 통합 뒤 진행한다.
+- 공통 eyebrow `121cd277`(공통33 PASS·집중소비10 PASS)와 설정8 `ec2eb023`, 신규12case E2E 준비 `2a42c3eb`를 교정branch에 통합했다. 설정9/10 진행 중, 실제browser와 최종타입/정책/빌드·한 번의통합리뷰는 미완료다. 기존 overline11px·자간 상속의 근사 한계를 숨기지 않는다.
 
 ## 2026-10-09 ATLAS LEAN 최종화
 

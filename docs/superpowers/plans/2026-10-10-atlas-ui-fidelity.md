@@ -80,7 +80,7 @@
 
 실행 증거: `2782a942` 공통API와 네 메뉴문서. focused13 PASS/195 filtered 제외, 변경기존3suite35 PASS. API 소비·geometry/dark 실제 확인은 후속Task3–11이며 전체suite PASS가 아니다.
 
-후속 공통 보완(페이지 통합 후·Task11 검증 전): 모니터링 감사1–2의 원본 eyebrow 표현이 현재 PageHeader API에서 누락된 점을 페이지 담당이 확인했다. optional `eyebrow?: ReactNode`를 공통 PageHeader의 title 위에 추가하고 monitoring/control/statistics 실제 원본 문자열만 소비한다. 설정은 명세의 단순 제목을 유지한다. 기본/default/ref/ARIA/단일 h1 불변의 focused RED→GREEN만 확인하며 페이지별 wrapper를 복제하지 않는다. 보완 전 해당 eyebrow는 미완료로 구분한다.
+후속 공통 보완 완료(`121cd277`): optional `eyebrow?: ReactNode`를 PageHeader title 위에 추가했고 운영 ATLAS / OPERATIONS·통계 ENERGY INTELLIGENCE 원문을 모든 해당 main/loading/error 분기에 소비한다. 설정은 단순 제목을 유지한다. 공통 RED1→최종33 PASS, 소비자 RED8→집중10 PASS(396비선택). 초기금지 tracking utility는 정책확장 없이 제거했다. 기존11px overline/상속자간을 사용하며 exact10px/원문자간 일치로 과장하지 않는다. 기본/ref/ARIA/단일h1 보존, 새token·페이지별wrapper0. 실제 geometry는Task11.
 
 ### Task 3: 고객 shell·제목·탭 소유
 
@@ -158,12 +158,14 @@
 
 **Interfaces:** site/floor dialog는 현재 field schema·mutation callback·expectedUpdatedAt·draft owner 재사용. `RegistrationPanelProps.headerPresentation?: "default" | "embedded"` default 기존 Setup header, embedded settings 중복 overline/header만 제거.
 
-- [ ] **Step 1:** RED: 홈 whole-link 단일 interactive, site/floor read정보→edit/create dialog 진입·취소 focus·version conflict/invalid 보존, registration embedded/default 동일 session/scan owner.
-- [ ] **Step 2:** SettingsView/SiteOperationsView/RegistrationSettingsView의 새 case RED 실행.
-- [ ] **Step 3:** F1–F6 구현: 가로 NavigationCard5개, readonly 현장정보+수정, 실제 authoritative 구성집계, compact 층표+편집/생성 dialog. 주소/시간대/KRW단가·층level/order/archive/restore/blocker·BIO 설정을 삭제하지 않는다.
-- [ ] **Step 4:** 사용자 목록/CRUD와 등록 wrapper에 공통 표현 적용. exact loginId 삭제확인/100limit·serial/claim/discovery/provision/reconcile/correlation·설치 continuation·dev tools 보호 유지.
-- [ ] **Step 5:** 변경된 settings home/site/users/registration 직접 tests 및 변경 shared RegistrationPanel의 Setup 직접 consumer tests GREEN. UI 검증용 실제 계정/등록/test-data 쓰기는 하지 않는다.
-- [ ] **Step 6:** 설정 감사 해당 행·메뉴 문서 갱신하고 commit.
+- [x] **Step 1:** RED: 홈 whole-link 단일 interactive, site/floor read정보→edit/create dialog 진입·취소 focus·version conflict/invalid 보존, registration embedded/default 동일 session/scan owner.
+- [x] **Step 2:** SettingsView/SiteOperationsView/RegistrationSettingsView의 새 case RED 실행.
+- [x] **Step 3:** F1–F6 구현: 가로 NavigationCard5개, readonly 현장정보+수정, 실제 authoritative 구성집계, compact 층표+편집/생성 dialog. 주소/시간대/KRW단가·층level/order/archive/restore/blocker·BIO 설정을 삭제하지 않는다.
+- [x] **Step 4:** 사용자 목록/CRUD와 등록 wrapper에 공통 표현 적용. exact loginId 삭제확인/100limit·serial/claim/discovery/provision/reconcile/correlation·설치 continuation·dev tools 보호 유지.
+- [x] **Step 5:** 변경된 settings home/site/users/registration 직접 tests 및 변경 shared RegistrationPanel의 Setup 직접 consumer tests GREEN. UI 검증용 실제 계정/등록/test-data 쓰기는 하지 않는다.
+- [x] **Step 6:** 설정 감사 해당 행·메뉴 문서 갱신하고 commit.
+
+실행 증거: `ec2eb023`(설정 격리 branch), 소유11파일/F1–F6·감사01–30행 처리·보존. focused RED3 FAIL/87비선택 → 직접8 suites138 PASS/0FAIL·SKIP. 중간 badge icon19실패는 수리·최종 직접 실행으로 해소했다. 공통writer 완료 뒤 교정branch에 통합했고 실제browser는Task11.
 
 ### Task 9: 실제 도면 gallery·이력 진입·editor chrome
 
@@ -193,6 +195,8 @@
 **Files:** 생성 `apps/web/e2e/atlas-ui-fidelity.spec.ts`; 기존 `e2e/support/{mock-api-boundary,settings-api,first-screen-statistics,layout-assertions}` fixture 재사용, 필요 최소 변경만. 감사 보고서, 네 메뉴 문서, `docs/project-status.md`, 이 체크리스트 갱신.
 
 **Interfaces:** 기존 controlled API 경계·실제 schema fixture를 사용하며 real Lab/DB/장비 요청 금지. `E2E_WEB_PORT`는 사전 점유 확인한 task-owned 빈 포트, 사용자63200/5173/4000 재사용/종료 없음.
+
+준비 증거: `2a42c3eb` 신규spec만255행/Chromium목록12개(exit0), 실제browser/type/UI/build 미실행. 설정9/10과 최종 source 통합 뒤 selector를 대조하고 1회실행한다. gallery configured층1개 fixture는 최대2 ceiling/DOM cleanup까지만, 3개 이상offscreen/GPU는직접unit증거로구분한다.
 
 - [ ] **Step 1:** 최종 diff에서 변경된 동작·공통 소비자 목록을 고정하고 unit 증거 중복/미실행을 구분한다. 전역 formatting/새 dependency 추가 없음 확인.
 - [ ] **Step 2:** 최대12개 focused browser case 작성: PC4root+하위nav, mobile로고/select/긴값, 759/760경계, manual1024×600긴복구, dark4menu/대표portal, finder focus, 설정edit/security owner, stats0/gap, gallery 실제 readonly source/cleanup. 지도 도구·선택·draft/theme/resize/filter는 추가 write0.
