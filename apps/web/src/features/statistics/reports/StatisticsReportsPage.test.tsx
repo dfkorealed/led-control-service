@@ -54,6 +54,16 @@ const reports = [
 ];
 
 describe("StatisticsReportsPage", () => {
+  it("opens the existing target and period dialog from CSV entry without generating or downloading on entry", async () => {
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "CSV 내보내기" }));
+    const dialog = await screen.findByRole("dialog", { name: "에너지 사용량 보고서 만들기" });
+    expect(within(dialog).getByRole("group", { name: "기간 시작" })).toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: "CSV 내보내기" })).toBeEnabled();
+    expect(reportsApi.create).not.toHaveBeenCalled();
+    expect(reportsApi.csv).not.toHaveBeenCalled();
+    expect(reportsApi.download).not.toHaveBeenCalled();
+  });
   it("theme does not abort or duplicate in-flight PDF and preserves its fresh URL", async () => {
     localStorage.removeItem("led-control.customer-theme.v1");
     const pending = deferred<{ downloadUrl: string }>();
@@ -244,11 +254,10 @@ describe("StatisticsReportsPage", () => {
     expect(screen.getByRole("button", { name: "보고서 만들기" })).toBeEnabled();
   });
 
-  it("frames external search and the PDF condition popover as one panel", () => {
+  it("keeps external search and the PDF condition popover in the same filter region", () => {
     renderPage();
 
     const filters = screen.getByRole("search", { name: "보고서 이력 필터" });
-    expect(filters.closest('[data-variant="default"]')).toBeInTheDocument();
     expect(within(filters).getByRole("searchbox", { name: "보고서 검색" })).toBeVisible();
     expect(within(filters).queryByRole("button", { name: "파일 형식" })).not.toBeInTheDocument();
     expect(within(filters).getByRole("button", { name: /보고서 조건 상세 필터/ })).toBeVisible();
@@ -256,7 +265,7 @@ describe("StatisticsReportsPage", () => {
     expect(screen.getByRole("dialog", { name: "보고서 조건" })).toHaveTextContent("범위");
   });
 
-  it("keeps the job list and paging in one history card with cost context in the request dialog", () => {
+  it("keeps the job list and paging in one history region with cost context in the request dialog", () => {
     renderPage();
 
     const history = screen.getByRole("region", { name: "보고서 이력" });

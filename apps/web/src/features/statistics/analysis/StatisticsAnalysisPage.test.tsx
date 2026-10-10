@@ -59,7 +59,7 @@ describe("StatisticsAnalysisPage", () => {
   it("shows ranked usage and opens a dimension detail", () => {
     renderPage();
 
-    expect(screen.queryByRole("heading", { name: "사용량 분석" })).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "사용량 분석", level: 1 })).toBeInTheDocument();
     expect(screen.queryByText("분석 기준")).not.toBeInTheDocument();
     expect(screen.getByRole("region", { name: "사용량 순위" })).toHaveTextContent("B1 주차장");
     expect(screen.getByRole("complementary", { name: "B1 주차장 상세" })).toHaveTextContent("12.5 kWh");
@@ -199,8 +199,7 @@ describe("StatisticsAnalysisPage", () => {
     expect(analysisDate("시작일")).toBeInTheDocument();
     expect(analysisDate("종료일")).toBeInTheDocument();
     const panel = screen.getByRole("region", { name: "사용량 분석 조건", hidden: true });
-    expect(panel).toHaveClass("flex", "flex-col");
-    expect(panel.firstElementChild).toHaveClass("flex-wrap", "items-end");
+    expect(within(panel).getByRole("button", { name: /사용량 분석 조건 상세 필터/, hidden: true })).toHaveAttribute("aria-expanded", "true");
     expect(screen.getByRole("button", { name: "필터 초기화" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "필터 닫기" }));
     expect(screen.getByText("상태 기반 추정", { exact: true })).toBeInTheDocument();

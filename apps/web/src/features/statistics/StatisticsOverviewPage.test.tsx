@@ -82,6 +82,7 @@ function renderView(themed = false) {
         <Routes>
           <Route path="/statistics" element={<OutletContext siteId={summary.siteId} />}>
             <Route path="overview" element={<StatisticsOverviewPage />} />
+            <Route path="reports" element={<p>보고서 페이지</p>} />
           </Route>
         </Routes>
       </MemoryRouter>
@@ -95,6 +96,12 @@ function OutletContext({ siteId }: { siteId: string }) {
 }
 
 describe("StatisticsOverviewPage", () => {
+  it("offers report navigation from a single overview page heading", () => {
+    renderView();
+    expect(screen.getByRole("heading", { name: "사용량 개요", level: 1 })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "보고서 생성" }));
+    expect(screen.getByText("보고서 페이지")).toBeInTheDocument();
+  });
   it("quality info preserves unknown aggregate time and collected zero", () => {
     mocks.summary = queryResult({ ...summary, lastAggregatedAt: null,
       today: { ...summary.today, estimatedKwh: 0, estimatedCost: 0, knownSeconds: 0, unknownSeconds: 0 },

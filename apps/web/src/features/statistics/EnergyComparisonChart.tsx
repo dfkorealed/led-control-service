@@ -1,7 +1,7 @@
 import type { EnergyComparisonPoint, EnergyComparisonResponse } from "@led-control/shared";
 import type { EnergyRangeComparisonResponse } from "@led-control/shared/energy-range-contracts";
 import {
-  Bar,
+  Area,
   CartesianGrid,
   ComposedChart,
   Line,
@@ -45,11 +45,6 @@ export function EnergyComparisonChart({ comparison }: { comparison: EnergyCompar
 
   return (
     <>
-      <div className="flex flex-wrap gap-3 text-caption font-bold text-content-secondary" aria-hidden="true">
-        <span className="flex items-center gap-1.5 before:h-2 before:w-2 before:rounded-control before:bg-chart-baseline">기준 사용량</span>
-        <span className="flex items-center gap-1.5 before:h-2 before:w-2 before:rounded-control before:bg-chart-usage">완료 기간 추정 사용량</span>
-        <span className="flex items-center gap-1.5 before:h-2 before:w-2 before:rounded-control before:bg-chart-forecast">예상 사용량</span>
-      </div>
       <div className="h-80 min-w-0 max-compact:h-64" role="img" aria-label="기준 대비 에너지 사용량 비교 차트">
         <ResponsiveContainer width="100%" height="100%" minWidth={0} initialDimension={{ width: 760, height: 320 }}>
           <ComposedChart data={data} margin={{ top: 12, right: 12, left: 0, bottom: 8 }} accessibilityLayer>
@@ -66,7 +61,11 @@ export function EnergyComparisonChart({ comparison }: { comparison: EnergyCompar
                 />
               )}
             />
-            <Bar dataKey="baselineKwh" name="기준 사용량" fill={palette["chart-baseline"]} radius={[5, 5, 0, 0]} />
+            <Line type="monotone" dataKey="baselineKwh" name="기준 사용량" stroke={palette["chart-baseline"]}
+              strokeWidth={2} dot={false} connectNulls={false} />
+            {/* The area shares observed phase values; never bridge a null or forecast period. */}
+            <Area type="monotone" dataKey="observedKwh" name="완료 기간 추정 사용량" fill={palette["chart-usage"]}
+              fillOpacity={0.08} stroke="none" connectNulls={false} tooltipType="none" />
             <Line
               type="monotone"
               dataKey="observedKwh"
@@ -89,6 +88,11 @@ export function EnergyComparisonChart({ comparison }: { comparison: EnergyCompar
             />
           </ComposedChart>
         </ResponsiveContainer>
+      </div>
+      <div className="flex flex-wrap gap-5 text-caption text-content-secondary" aria-hidden="true">
+        <span className="flex items-center gap-1.5 before:h-2 before:w-2 before:rounded-control before:bg-chart-usage">완료 기간 추정 사용량</span>
+        <span className="flex items-center gap-1.5 before:h-2 before:w-2 before:rounded-control before:bg-chart-baseline">기준 사용량</span>
+        <span className="flex items-center gap-1.5 before:h-2 before:w-2 before:rounded-control before:bg-chart-forecast">예상 사용량</span>
       </div>
       <div className="flex min-w-0 flex-wrap items-center gap-2">
         <Text variant="caption" tone="muted">24시간 100% · 현재 등록 조명 기준</Text>

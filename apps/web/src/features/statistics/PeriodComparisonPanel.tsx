@@ -12,12 +12,11 @@ const comparisonKinds = [
 
 export function PeriodComparisonPanel({ comparisons }: { comparisons: EnergyComparisonResponse["priorComparisons"] }) {
   return (
-    <SidePanel className="grid min-w-0 gap-4 p-4 compact:p-6" aria-label="동기간 비교">
+    <SidePanel className="grid min-w-0 gap-3 p-4 compact:p-5" aria-label="동기간 비교">
       <div className="grid gap-1">
-        <Text variant="overline" tone="muted">동일 조건 추세</Text>
-        <Heading as="h3" variant="card-title">이전 기간과 비교</Heading>
+        <Heading as="h2" variant="customer-section-title">이전 기간과 비교</Heading>
       </div>
-      <div className="grid gap-3">
+      <div className="grid gap-3 compact:grid-cols-2">
         {comparisonKinds.map(({ kind, label }) => (
           <ComparisonRow
             key={kind}
@@ -34,7 +33,7 @@ export function PeriodComparisonPanel({ comparisons }: { comparisons: EnergyComp
 function ComparisonRow({ label, comparison }: { label: string; comparison?: PriorComparison }) {
   if (!comparison || comparison.changeRatePercent === null) {
     return (
-      <section className="grid gap-2 rounded-control border border-border-default bg-surface-inset p-3" role="group" aria-label={label}>
+      <section className="grid gap-2 border-t border-border-default pt-3" role="group" aria-label={label}>
         <Text as="strong" variant="label">{label}</Text>
         <StatusBadge tone="neutral" icon={CircleOff}>비교 불가</StatusBadge>
         <Text variant="body-sm" tone="secondary">비교 가능한 사용량 데이터가 없습니다.</Text>
@@ -49,7 +48,7 @@ function ComparisonRow({ label, comparison }: { label: string; comparison?: Prio
   const direction = rate < 0 ? "감소" : rate > 0 ? "증가" : "동일";
 
   return (
-    <section className="grid gap-2 rounded-control border border-border-default bg-surface-inset p-3" role="group" aria-label={label}>
+    <section className="grid gap-2 border-t border-border-default pt-3" role="group" aria-label={label}>
       <Text as="strong" variant="label">{label}</Text>
       <StatusBadge tone={tone} icon={Icon}>
         {rate === 0 ? direction : `${formatPercent(Math.abs(rate))} ${direction}`}
@@ -62,7 +61,7 @@ function ComparisonRow({ label, comparison }: { label: string; comparison?: Prio
 
 function Coverage({ comparison }: { comparison: PriorComparison }) {
   return (
-    <div className="grid gap-1 text-caption text-content-muted">
+    <div className="flex flex-wrap gap-x-3 gap-y-1 text-caption text-content-muted">
       <span>현재 수집률 {formatCoverage(comparison.currentCoverageRate)}</span>
       <span>비교 기간 수집률 {formatCoverage(comparison.comparisonCoverageRate)}</span>
     </div>
