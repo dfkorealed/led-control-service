@@ -1,11 +1,11 @@
-import { useId, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { Link } from "react-router-dom";
 import type { DashboardFixture } from "../../api/queries";
 import { Button, SearchField, SelectBox, Text } from "../../components/ui";
-import { presentFixtureStatus } from "./fixture-status-presentation";
 import type { FloorMapSnapshot } from "@led-control/shared";
 import { resolveFixtureMapPosition } from "../floor-map/fixture-map-position";
 import { matchesMonitoringFixture, matchesMonitoringFixtureSearch, type MonitoringFixtureFilter } from "./monitoring-fixture-filter";
+import { FixtureStatusBadge } from "./FixtureStatusBadge";
 
 type FixtureFilter = MonitoringFixtureFilter;
 
@@ -38,19 +38,21 @@ export interface MonitoringFixtureFinderProps {
   search?: string;
   onSearchChange?: (search: string) => void;
   defaultOpen?: boolean;
+  initialView?: "search" | "list";
   nextPageError?: boolean;
   expectedTotal?: number | null;
 }
 
 export function MonitoringFixtureFinder({
   fixtures, selectedFixtureId, onSelectFixture, hasNextPage, isFetchingNextPage, onLoadMore,
-  userRole, siteId, floorId, placedFixtureIds, snapshot, filter: controlledFilter, onFilterChange, search: controlledSearch, onSearchChange, defaultOpen = false, nextPageError = false, expectedTotal
+  userRole, siteId, floorId, placedFixtureIds, snapshot, filter: controlledFilter, onFilterChange, search: controlledSearch, onSearchChange, defaultOpen = false, initialView = "search", nextPageError = false, expectedTotal
 }: MonitoringFixtureFinderProps) {
   const [localSearch, setLocalSearch] = useState("");
   const search = controlledSearch ?? localSearch;
   const [localFilter, setLocalFilter] = useState<FixtureFilter>("all");
   const filter = controlledFilter ?? localFilter;
-  const [isOpen, setIsOpen] = useState(defaultOpen);
+  const [isOpen, setIsOpen] = useState(defaultOpen || initialView === "list");
+  useEffect(() => { if (initialView === "list") setIsOpen(true); }, [initialView]);
   const listId = useId();
   const normalizedSearch = search.trim().toLocaleLowerCase("ko-KR");
   const isUnplaced = (fixture: DashboardFixture) =>
@@ -60,7 +62,7 @@ export function MonitoringFixtureFinder({
     return matchesMonitoringFixture(fixture, filter, snapshot ? resolveFixtureMapPosition(snapshot, fixture) : isUnplaced(fixture) ? { kind: "unplaced" } : { kind: "unknown" });
   });
 
-  return <section className="grid min-w-0 gap-2 rounded-panel border border-border-default bg-surface-panel p-3" aria-label="조명 검색 및 목록" data-monitoring-fixture-finder="">
+  return <section className="grid min-w-0 gap-3" aria-label="조명 검색 및 목록" data-monitoring-fixture-finder="">
     <SearchField label="조명 이름 또는 번호 검색" value={search} onChange={(value) => {
       setLocalSearch(value);
       onSearchChange?.(value);
@@ -82,7 +84,7 @@ export function MonitoringFixtureFinder({
             setIsOpen(false);
           }}>
             <span className="min-w-0 truncate">{fixture.name}</span>
-            <span className="shrink-0 text-label">{isUnplaced(fixture) ? "미배치" : presentFixtureStatus(fixture).label}</span>
+            <span className="shrink-0">{isUnplaced(fixture) ? <Text variant="caption" tone="secondary">미배치</Text> : <FixtureStatusBadge fixture={fixture} />}</span>
           </Button>
         </li>)}
       </ul>

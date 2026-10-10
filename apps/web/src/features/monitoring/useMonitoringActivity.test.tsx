@@ -23,6 +23,16 @@ function wrapperFor(client: QueryClient) {
 describe("useMonitoringActivity", () => {
   afterEach(() => { apiGet.mockReset(); });
 
+  it("keeps retained items stable on an unrelated consumer render", async () => {
+    apiGet.mockResolvedValue(response);
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const { result, rerender } = renderHook(() => useMonitoringActivity({ principal: "user-1", siteId: "site-1", floorId: "floor-1" }), { wrapper: wrapperFor(client) });
+    await waitFor(() => expect(result.current.data?.items).toHaveLength(1));
+    const previous = result.current.data?.items;
+    rerender();
+    expect(result.current.data?.items).toBe(previous);
+  });
+
   it("scopes a paired inclusive local-date period and page size in the request and cache", async () => {
     apiGet.mockResolvedValue(response);
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });

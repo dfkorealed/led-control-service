@@ -102,7 +102,26 @@ describe("MonitoringView refresh", () => {
   const refetchFixtures = vi.fn();
   const refetchMap = vi.fn();
 
-  it.each([false, true])("keeps the real shell's single h1 and a compact-only visible page heading (%s)", async compact => {
+  it("shares search and list entry state while returning focus to the actual opener", async () => {
+    render(<MemoryRouter><MonitoringView siteId="site-1" /></MemoryRouter>);
+    const searchTrigger = screen.getByRole("button", { name: "조명 검색·상세" });
+    searchTrigger.focus();
+    const inspector = openInspector();
+    fireEvent.change(within(inspector).getByRole("searchbox", { name: "조명 이름 또는 번호 검색" }), { target: { value: "L001" } });
+    closeInspector();
+    await waitFor(() => expect(searchTrigger).toHaveFocus());
+    const listTrigger = screen.getByRole("button", { name: "조명 목록" });
+    listTrigger.focus();
+    fireEvent.click(listTrigger);
+    const listDialog = screen.getByRole("dialog", { name: "조명 검색·상세" });
+    expect(within(listDialog).getByRole("searchbox", { name: "조명 이름 또는 번호 검색" })).toHaveValue("L001");
+    expect(within(listDialog).getByRole("list", { name: "조명 목록" })).toHaveTextContent("B1-L001");
+    closeInspector();
+    await waitFor(() => expect(listTrigger).toHaveFocus());
+    expect(refreshApi.waitForMonitoringRefresh).not.toHaveBeenCalled();
+  });
+
+  it.each([false, true])("keeps the real shell's single monitoring h1 in the page header (%s)", async compact => {
     vi.stubGlobal("matchMedia", vi.fn((query: string) => ({ matches: query === "(width < 760px)" ? compact : query === "(min-width: 1024px)" && !compact, addEventListener: vi.fn(), removeEventListener: vi.fn() })));
     queryMocks.useDashboard.mockReturnValue({ ...queryMocks.useDashboard(), data: { ...dashboard,
       site: { ...dashboard.site, installationStatus: "installed" }, capabilities: { read: true, control: true, manage: true, commission: true } } });
@@ -112,20 +131,22 @@ describe("MonitoringView refresh", () => {
       await screen.findByRole("region", { name: "선택 층 조명 현황" });
       expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
       expect(screen.getByTestId("shell-current-menu")).toHaveTextContent("모니터링");
-      expect(within(screen.getByRole("group", { name: "모니터링 도구" })).getByRole("heading", { level: 2, name: "모니터링" })).toHaveClass("hidden", "max-compact:block");
+      expect(screen.getByRole("heading", { level: 1, name: "모니터링" }).closest("header")).toContainElement(screen.getByRole("button", { name: "새로고침" }));
     } finally { read.mockRestore(); }
   });
 
-  it("reserves compact navigation space after the final refresh action", () => {
+  it("keeps one screen safe-space owner after moving refresh above the map", () => {
     render(<MonitoringView siteId="site-1" />);
     const refresh = screen.getByRole("button", { name: "새로고침" });
-    expect(refresh.parentElement).toHaveClass("max-compact:pb-shell-navigation-safe");
+    expect(document.querySelector("[data-monitoring-screen]")).toHaveClass("max-compact:pb-shell-navigation-safe");
+    expect(refresh.parentElement).not.toHaveClass("max-compact:pb-shell-navigation-safe");
     expect(document.querySelector("[data-monitoring-map-panel]")).not.toHaveClass("max-compact:pb-shell-navigation-safe");
   });
 
-  it("keeps the compact map and ticker in natural flow before refresh", () => {
+  it("keeps the compact map and ticker in natural flow after the refresh header", () => {
     render(<MonitoringView siteId="site-1" />);
     expect(document.querySelector("[data-monitoring-layout]")).toHaveClass("max-compact:min-h-min", "max-compact:flex-none");
+    expect(screen.getByRole("button", { name: "새로고침" }).compareDocumentPosition(document.querySelector("[data-monitoring-layout]")!)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
   });
 
   it.each(["light", "dark"])("uses server floor counts rather than loaded pins in both themes (%s)", theme => {
@@ -797,7 +818,7 @@ describe("MonitoringView refresh", () => {
     const offlineMetric = floorMetric("오프라인");
     expect(offlineMetric).toHaveTextContent("1");
     expect(offlineMetric).not.toHaveTextContent("상태 확인 대기 포함");
-    expect(Array.from(offlineMetric.parentElement!.children).map(metric => metric.firstElementChild?.textContent)).toEqual([
+    expect(Array.from(offlineMetric.parentElement!.children).map(metric => metric.querySelector("span:not([aria-hidden])")?.textContent)).toEqual([
       "전체 조명",
       "정상",
       "점검 필요",

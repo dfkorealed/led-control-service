@@ -1,9 +1,10 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import { FocusScope, useFocusManager } from "react-aria";
 import { isApiStatus } from "../../api/client";
-import { Button, DateRangePicker, DrawerDialog, FilterPanel, LogView, PageSizeSelect, PaginationBar, Text, useDateRangeDraft, type DateRangeValue } from "../../components/ui";
+import { Button, DataGrid, DateRangePicker, DrawerDialog, FilterPanel, LogView, PageSizeSelect, PaginationBar, StatusBadge, Text, useDateRangeDraft, type DateRangeValue, type DataGridColumn } from "../../components/ui";
 import { draftToDate, isEmptyDateDraft } from "../../components/ui/date/useDateDraft";
-import { formatMonitoringActivity } from "./monitoring-activity-presentation";
+import { monitoringActivityContent, monitoringActivityStatus } from "./monitoring-activity-presentation";
+import type { MonitoringActivityItem } from "@led-control/shared";
 import { formatMonitoringTimestamp } from "./monitoring-time";
 import { useMonitoringActivity } from "./useMonitoringActivity";
 
@@ -37,6 +38,13 @@ export function MonitoringLogDrawer({ isOpen, onClose, returnFocusRef, fallbackF
   const pending = !invalidDates && (query.isPending || query.isFetching || query.isPaused);
   const success = !invalidDates && datesCommitted && !pending && !query.error && Boolean(query.data);
   const options = [50, 100, 500, 1000] as const;
+  // These cells project existing events only. Sorting/search/actor fields are
+  // not part of this cursor API and must not be fabricated from the mockup.
+  const columns: DataGridColumn<MonitoringActivityItem>[] = [
+    { id: "time", header: "시간", minWidth: 180, renderCell: item => <time dateTime={item.recordedAt}>{formatMonitoringTimestamp(item.recordedAt, timeZone)}</time> },
+    { id: "status", header: "상태", minWidth: 120, renderCell: item => { const status = monitoringActivityStatus(item); return status ? <StatusBadge tone={status.tone} icon={status.icon}>{status.label}</StatusBadge> : "—"; } },
+    { id: "content", header: "내용", minWidth: 240, align: "left", renderCell: item => monitoringActivityContent(item) }
+  ];
 
   // The derived first-render guard prevents a stale cursor request, while this
   // discards the old stack so returning to that scope cannot revive page two.
@@ -95,9 +103,7 @@ export function MonitoringLogDrawer({ isOpen, onClose, returnFocusRef, fallbackF
           <Button variant="secondary" onClick={() => void query.refetch()}>다시 시도</Button>
         </section> : success && query.data?.items.length === 0 ? <Text>최근 3개월의 운영 활동 기록이 없습니다.</Text> : null}
     </>}>
-          {success && query.data?.items.length ? <ol className="m-0 grid list-none gap-2 p-0">
-            {query.data.items.map((item) => <li key={item.id} className="rounded-control border border-border-default bg-surface-elevated p-3 text-body-sm">{formatMonitoringActivity(item, timeZone)}</li>)}
-          </ol> : null}
+          {success && query.data?.items.length ? <DataGrid variant="compact" caption="선택 층 운영 활동" rows={query.data.items} columns={columns} getRowKey={item => item.id} /> : null}
     </LogView>
   </DrawerDialog>;
 }

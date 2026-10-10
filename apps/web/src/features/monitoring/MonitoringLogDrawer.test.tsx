@@ -24,6 +24,18 @@ function drawer() {
 describe("MonitoringLogDrawer", () => {
   afterEach(() => { cleanup(); useMonitoringActivity.mockReset(); });
 
+  it("separates the recorded timestamp, status and activity without inventing operator fields", () => {
+    useMonitoringActivity.mockReturnValue({ data: { ...firstPage, items: [{ ...firstItems[0], kind: "monitoring_refresh_result", refreshStatus: "partial" }] }, error: null, isPending: false, isFetching: false, refetch: vi.fn() });
+    render(drawer());
+    const body = screen.getByRole("region", { name: "운영 로그 본문" });
+    expect(body).toHaveTextContent("시간");
+    expect(body).toHaveTextContent("상태");
+    expect(body).toHaveTextContent("내용");
+    expect(body).toHaveTextContent("2026-09-25 09:00:00");
+    expect(body).toHaveTextContent("일부 완료");
+    expect(body).not.toHaveTextContent("김운영");
+  });
+
   it("log filter close preserves partial dates and scoped cursor without applying a query", async () => {
     useMonitoringActivity.mockReturnValue({ data: firstPage, error: null, isPending: false, isFetching: false, isPaused: false, refetch: vi.fn() });
     render(drawer());
