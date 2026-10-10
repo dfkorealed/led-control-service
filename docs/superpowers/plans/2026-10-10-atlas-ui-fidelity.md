@@ -188,9 +188,11 @@
 
 **Interfaces:** 실제 재사용 owner인 `PasswordChangeCardProps.presentation?: "card" | "embedded"`를 추가한다(default card). 별도 `PasswordSettingsView`는 기존 card form을 유지하고, AccountSecurityView에서는 password 요약+공통 Dialog의 embedded form을 사용한다. MFA enrollment owner는 기존 위치/수명 유지. PC password/MFA2cols→sessions fullwidth, mobile stack.
 
-- [ ] **Step 1:** RED: edit dialog dismiss/focus, password8–1024/invalid/pending/principal late response, MFA secret/recovery draft와 session owner가 theme·dialog 닫기로 remount되지 않음.
-- [ ] **Step 2:** 두 기존 suite 새 case RED 후 F10 표현 구현. eager logout/현재 session revoke·실패 상태와 독립 PasswordSettingsView export의 default form 불변. 현재 없는 password route는 신설하지 않는다.
-- [ ] **Step 3:** 두 직접 security suites GREEN, F10 및 설정40행의 최종 처리/보존표·메뉴 문서 갱신하고 commit.
+- [x] **Step 1:** RED: edit dialog dismiss/focus, password8–1024/invalid/pending/principal late response, MFA secret/recovery draft와 session owner가 theme·dialog 닫기로 remount되지 않음.
+- [x] **Step 2:** 두 기존 suite 새 case RED 후 F10 표현 구현. eager logout/현재 session revoke·실패 상태와 독립 PasswordSettingsView export의 default form 불변. 현재 없는 password route는 신설하지 않는다.
+- [x] **Step 3:** 두 직접 security suites GREEN, F10 및 설정40행의 최종 처리/보존표·메뉴 문서 갱신하고 commit.
+
+실행 증거: `6c53b330`, 직접security2 suites35 PASS/0FAIL·SKIP·설정40행 최종mapping 및 메뉴문서. Task9후속 `224f1446`은 내부tab string 계약 한 줄 보완(집중2 PASS/74비선택), 이력 재작성0. 두 결과 교정branch 통합 완료. browser/type/UI/build·최종리뷰는Task11.
 
 ### Task 11: LEAN 통합 확인·한 번의 최종 리뷰
 
@@ -200,8 +202,8 @@
 
 준비 증거: `2a42c3eb` 신규spec만255행/Chromium목록12개(exit0), 실제browser/type/UI/build 미실행. 설정9/10과 최종 source 통합 뒤 selector를 대조하고 1회실행한다. gallery configured층1개 fixture는 최대2 ceiling/DOM cleanup까지만, 3개 이상offscreen/GPU는직접unit증거로구분한다.
 
-- [ ] **Step 1:** 최종 diff에서 변경된 동작·공통 소비자 목록을 고정하고 unit 증거 중복/미실행을 구분한다. 전역 formatting/새 dependency 추가 없음 확인.
-- [ ] **Step 2:** 최대12개 focused browser case 작성: PC4root+하위nav, mobile로고/select/긴값, 759/760경계, manual1024×600긴복구, dark4menu/대표portal, finder focus, 설정edit/security owner, stats0/gap, gallery 실제 readonly source/cleanup. 지도 도구·선택·draft/theme/resize/filter는 추가 write0.
+- [x] **Step 1:** 최종 diff에서 변경된 동작·공통 소비자 목록을 고정하고 unit 증거 중복/미실행을 구분한다. 전역 formatting/새 dependency 추가 없음 확인.
+- [x] **Step 2:** 최대12개 focused browser case 작성: PC4root+하위nav, mobile로고/select/긴값, 759/760경계, manual1024×600긴복구, dark4menu/대표portal, finder focus, 설정edit/security owner, stats0/gap, gallery 실제 readonly source/cleanup. 지도 도구·선택·draft/theme/resize/filter는 추가 write0.
 - [ ] **Step 3:** `pnpm --filter @led-control/web exec playwright test e2e/atlas-ui-fidelity.spec.ts --project=chromium --workers=1` 한 번. 기존 전체 atlas matrix·583개·Lab/canonical 미실행; 실패한 원 case/관련 수리만 재실행하고 timeout/skip/기준을 완화하지 않는다.
 - [ ] **Step 4:** `pnpm --filter @led-control/web typecheck`, `test:ui-policy`, `ui:check`, `build` 최종 source에서 한 번씩. build의 자체 typecheck 외 별도 반복 없음.
 - [ ] **Step 5:** 동일 fixture browser에서 목업/실제 대표 screenshot 비교를 UI/UX 담당과 한 번 종합 검토하고 독립 최종 code review 한 번. 새로 열린 source-only 상세는 확인한 것만 실제 검증으로 표시.
