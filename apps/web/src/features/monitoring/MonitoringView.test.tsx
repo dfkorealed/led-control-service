@@ -102,6 +102,16 @@ describe("MonitoringView refresh", () => {
   const refetchFixtures = vi.fn();
   const refetchMap = vi.fn();
 
+  it.each([true, false])("keeps the monitoring eyebrow and sole h1 before loading/error feedback (%s)", isLoading => {
+    queryMocks.useDashboard.mockReturnValue({ ...queryMocks.useDashboard(), data: undefined, isLoading });
+    render(<MonitoringView siteId="site-1" />);
+    const heading = screen.getByRole("heading", { name: "모니터링", level: 1 });
+    const eyebrow = screen.getByText("ATLAS / OPERATIONS");
+    expect(eyebrow.compareDocumentPosition(heading) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
+    expect(screen.getByText(isLoading ? "모니터링 현황을 불러오는 중" : "현황 데이터를 불러오지 못했습니다.")).toBeInTheDocument();
+  });
+
   it("shares search and list entry state while returning focus to the actual opener", async () => {
     render(<MemoryRouter><MonitoringView siteId="site-1" /></MemoryRouter>);
     const searchTrigger = screen.getByRole("button", { name: "조명 검색·상세" });
@@ -130,6 +140,7 @@ describe("MonitoringView refresh", () => {
       render(<MemoryRouter initialEntries={["/monitoring?siteId=site-1"]}><CustomerShell user={{ id: "user-1", organizationId: "org-1", organizationType: "customer", loginId: "admin", name: "관리자", role: "admin", status: "active", mustChangePassword: false }} /></MemoryRouter>);
       await screen.findByRole("region", { name: "선택 층 조명 현황" });
       expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
+      expect(screen.getByRole("heading", { level: 1, name: "모니터링" }).closest("header")).toContainElement(screen.getByText("ATLAS / OPERATIONS"));
       expect(screen.getByTestId("shell-current-menu")).toHaveTextContent("모니터링");
       expect(screen.getByRole("heading", { level: 1, name: "모니터링" }).closest("header")).toContainElement(screen.getByRole("button", { name: "새로고침" }));
     } finally { read.mockRestore(); }

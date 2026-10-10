@@ -24,6 +24,7 @@ const metricItems: Array<{ id: EnergyRankingMetric; label: string }> = [
 ];
 
 export function StatisticsAnalysisPage() {
+  const pageHeader = <PageHeader variant="customer" headingLevel={1} title="사용량 분석" eyebrow={<span className="text-action-primary">ENERGY INTELLIGENCE</span>} />;
   const { siteId } = useOutletContext<StatisticsOutletContext>();
   const summary = useEnergySummary(siteId);
   const defaults = summary.data ? completedSiteMonth(summary.data.generatedAt, summary.data.timeZone) : null;
@@ -67,15 +68,15 @@ export function StatisticsAnalysisPage() {
   useEffect(() => { setSelectedId(null); }, [siteId]);
 
   if (summary.isError) {
-    return <section className="grid min-w-0 gap-6"><PageHeader variant="customer" headingLevel={1} title="사용량 분석" /><FeedbackState tone="danger" icon={TriangleAlert}
+    return <section className="grid min-w-0 gap-6">{pageHeader}<FeedbackState tone="danger" icon={TriangleAlert}
       title="현장 기간 기준을 불러오지 못했습니다." action={<Button variant="secondary" onClick={() => summary.refetch()}>다시 시도</Button>} /></section>;
   }
   if (!siteId || summary.isLoading || !defaults) {
-    return <section className="grid min-w-0 gap-6"><PageHeader variant="customer" headingLevel={1} title="사용량 분석" /><FeedbackState icon={Activity} title="사용량 순위를 계산하는 중" /></section>;
+    return <section className="grid min-w-0 gap-6">{pageHeader}<FeedbackState icon={Activity} title="사용량 순위를 계산하는 중" /></section>;
   }
   return (
     <section className="grid min-w-0 gap-5 max-compact:gap-2" aria-label="사용량 분석 결과">
-      <PageHeader variant="customer" headingLevel={1} title="사용량 분석" />
+      {pageHeader}
       <FilterPanel label="사용량 분석 조건" mode="popover" variant="compact" className="flex-row-reverse flex-wrap items-center justify-between [&>div:first-child]:shrink-0 [&>div:nth-child(2)]:flex-1"
         activeFilterCount={Number(dimension !== "floor") + Number(metric !== "usage") + Number(sort !== "desc") + Number(from !== defaults.from || to !== defaults.to)}
         summary={<Text variant="body-sm"><span className="compact:hidden">상태 기반 추정 · </span>{dimensions.find(item => item.value === dimension)?.label} · {metricItems.find(item => item.id === metric)?.label} · {from || "시작일 미완성"} ~ {to || "종료일 미완성"} · {sort === "desc" ? "높은 순" : "낮은 순"}</Text>}

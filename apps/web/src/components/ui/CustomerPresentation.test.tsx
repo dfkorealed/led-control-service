@@ -31,6 +31,29 @@ it("opts PageHeader into the customer title while retaining heading level, slots
   expect(screen.getByRole("heading", { level: 2 })).toHaveClass("text-section-title");
 });
 
+it("renders the optional eyebrow before the sole title without changing header slots or default semantics", () => {
+  const ref = createRef<HTMLElement>();
+  const view = render(<UI.PageHeader ref={ref} variant="customer" headingLevel={1} title="모니터링"
+    aria-label="본문 제목" eyebrow={<span>ATLAS / OPERATIONS</span>} description="실제 상태"
+    status={<span>갱신 전</span>} actions={<UI.Button>새로고침</UI.Button>} />);
+  const heading = screen.getByRole("heading", { level: 1, name: "모니터링" });
+  const eyebrow = screen.getByText("ATLAS / OPERATIONS");
+  expect(eyebrow).toBeVisible();
+  expect(eyebrow.compareDocumentPosition(heading) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(eyebrow.parentElement).toHaveClass("text-overline", "font-bold", "text-content-secondary");
+  expect(screen.getAllByRole("heading")).toHaveLength(1);
+  expect(ref.current).toBe(screen.getByRole("banner", { name: "본문 제목" }));
+  expect(ref.current).not.toHaveAttribute("eyebrow");
+  expect(within(ref.current!).getByText("실제 상태")).toBeVisible();
+  expect(within(ref.current!).getByText("갱신 전")).toBeVisible();
+  expect(within(ref.current!).getByRole("button", { name: "새로고침" })).toBeEnabled();
+  view.rerender(<UI.PageHeader title="기본" />);
+  expect(screen.queryByText("ATLAS / OPERATIONS")).not.toBeInTheDocument();
+  expect(screen.getByRole("heading", { level: 2, name: "기본" })).toHaveClass("text-section-title");
+  view.rerender(<UI.PageHeader title="숫자 slot" eyebrow={0} />);
+  expect(screen.getByText("0")).toBeVisible();
+});
+
 it("retains caller children and ref for opt-in card inset and plain embedded side panels", () => {
   const ref = createRef<HTMLElement>();
   const view = render(<UI.Card ref={ref} padding="customer" aria-label="내용"><UI.Text>원본</UI.Text></UI.Card>);

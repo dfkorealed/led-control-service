@@ -43,7 +43,7 @@ export function StatisticsOverviewPage() {
   const { siteId } = useOutletContext<StatisticsOutletContext>();
   const location = useLocation();
   const navigate = useNavigate();
-  const pageHeader = <PageHeader variant="customer" headingLevel={1} title="사용량 개요"
+  const pageHeader = <PageHeader variant="customer" headingLevel={1} title="사용량 개요" eyebrow={<span className="text-action-primary">ENERGY INTELLIGENCE</span>}
     actions={<Button variant="primary" onClick={() => navigate(`/statistics/reports${location.search}${location.hash}`)}>보고서 생성</Button>} />;
   const [granularity, setGranularity] = useState<Granularity>("day");
   const [comparisonPreset, setComparisonPreset] = useState<EnergyComparisonPreset>("current_month");

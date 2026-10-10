@@ -399,7 +399,11 @@ describe("ControlView 대상 선택", () => {
   });
 
   it("exposes the calm operations hierarchy for manual control", () => {
+    // The original operations eyebrow belongs to the common page header,
+    // not a second page title or a duplicated manual workspace heading.
     renderControl();
+
+    expect(screen.getByRole("heading", { name: "조명 제어", level: 1 }).closest("header")).toContainElement(screen.getByText("ATLAS / OPERATIONS"));
 
     expect(screen.queryByRole("heading", { name: "조명 제어", level: 2 })).not.toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "조명 밝기 제어", level: 3 })).not.toBeInTheDocument();

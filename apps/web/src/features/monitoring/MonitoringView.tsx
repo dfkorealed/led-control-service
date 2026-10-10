@@ -42,8 +42,9 @@ export function MonitoringView({ userRole = "admin", siteId }: { userRole?: "ope
   const dashboardQuery = useDashboard(siteId);
   const { data, isLoading } = dashboardQuery;
 
-  if (isLoading && !data) return <FeedbackState icon={Clock3} title="모니터링 현황을 불러오는 중" />;
-  if (!data) return <FeedbackState tone="danger" icon={TriangleAlert} title="현황 데이터를 불러오지 못했습니다." action={<Button variant="secondary" onClick={() => void dashboardQuery.refetch()}>다시 시도</Button>} />;
+  const pageHeader = <PageHeader variant="customer" headingLevel={1} title="모니터링" eyebrow="ATLAS / OPERATIONS" />;
+  if (isLoading && !data) return <section className="grid min-w-0 gap-5">{pageHeader}<FeedbackState icon={Clock3} title="모니터링 현황을 불러오는 중" /></section>;
+  if (!data) return <section className="grid min-w-0 gap-5">{pageHeader}<FeedbackState tone="danger" icon={TriangleAlert} title="현황 데이터를 불러오지 못했습니다." action={<Button variant="secondary" onClick={() => void dashboardQuery.refetch()}>다시 시도</Button>} /></section>;
 
   return (
     <MonitoringDashboard
@@ -257,6 +258,7 @@ function MonitoringDashboard({ data, userRole, siteId, refreshDashboard }: Monit
   if (!data.site.id) {
     return (
       <section className="grid min-w-0 gap-4" data-monitoring-screen="">
+        <PageHeader variant="customer" headingLevel={1} title="모니터링" eyebrow="ATLAS / OPERATIONS" />
         <InstallationPending />
       </section>
     );
@@ -352,7 +354,7 @@ function MonitoringDashboard({ data, userRole, siteId, refreshDashboard }: Monit
       if (event.key !== "Escape" || event.defaultPrevented || isPinOpen || isInspectorOpen || isDetailOpen || isLogDrawerOpen || !workspaceFocus.active) return;
       event.preventDefault(); workspaceFocus.exit();
     }}>
-      <PageHeader variant="customer" headingLevel={1} title="모니터링" className="max-compact:order-0" actions={<>
+      <PageHeader variant="customer" headingLevel={1} title="모니터링" eyebrow="ATLAS / OPERATIONS" className="max-compact:order-0" actions={<>
         <Text as="small" variant="caption" tone="secondary" className="min-w-0 max-w-full break-words text-right">
           {formatSnapshotUpdatedAt(snapshotFreshness, data.site.timeZone ?? "Asia/Seoul")}
         </Text>

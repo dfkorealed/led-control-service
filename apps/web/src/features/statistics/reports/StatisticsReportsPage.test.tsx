@@ -56,6 +56,7 @@ const reports = [
 describe("StatisticsReportsPage", () => {
   it("opens the existing target and period dialog from CSV entry without generating or downloading on entry", async () => {
     renderPage();
+    expect(screen.getByRole("heading", { name: "보고서", level: 1 }).closest("header")).toContainElement(screen.getByText("ENERGY INTELLIGENCE"));
     fireEvent.click(screen.getByRole("button", { name: "CSV 내보내기" }));
     const dialog = await screen.findByRole("dialog", { name: "에너지 사용량 보고서 만들기" });
     expect(within(dialog).getByRole("group", { name: "기간 시작" })).toBeInTheDocument();

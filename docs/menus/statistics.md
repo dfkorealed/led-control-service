@@ -1,5 +1,28 @@
 # 통계 메뉴 기능 현황
 
+## 2026-10-10 공통 eyebrow 후속
+
+### 구현 완료
+
+- 공통 PageHeader의 선택적 `eyebrow?: ReactNode`를 소비해 단일 h1 위에 목업 원문의 ENERGY INTELLIGENCE를 기존 action-primary 색상으로 표시한다. title/ref/ARIA/설명/status/actions를 유지하고 같은 헤더가 main/loading/error 분기를 계속 소유한다. 설정 제목은 단순형을 유지한다.
+- 기존 overline11px/bold·8px 내부 gap을 재사용하고 자간은 기존 상속을 유지한다. 목업10/11px·.14/.16em 자간을 위한 신규 token/registry/policy는 추가하지 않으며 실제 pixel 일치는 최종 화면 검증 범위다.
+
+### 미구현
+
+- 실제 responsive/dark 화면 및 통합 type/UI/build 검증은 Task11에 남는다. 전체 Web/E2E/Lab/canonical/HIL은 이 후속에서 실행하지 않았다.
+
+### 부족하거나 개선이 필요한 기능
+
+- 공통 CustomerPresentation/Typography33개와 직접 소비자 focused10개가 통과했다. 소비자396개는 필터 비선택이며 전체 suite 통과로 확대하지 않는다. 하드웨어 상태/통계 값/보고서 결과를 목업 값으로 변경하지 않는다.
+
+### 관련 파일
+
+- `apps/web/src/components/ui/{PageHeader.tsx,CustomerPresentation.test.tsx}`, `features/monitoring/MonitoringView.tsx`, `features/control/ControlView.tsx`, `features/statistics/{StatisticsOverviewPage,analysis/StatisticsAnalysisPage,reports/StatisticsReportsPage}.tsx` 및 직접 제목/진입 focused tests.
+
+### 갱신 규칙
+
+- eyebrow는 공통 PageHeader 표현 slot만 사용하며 별도 header wrapper/제목 owner/query를 복제하지 않는다. 실제 검증 범위·비선택/미실행·pixel 근사를 함께 기록한다.
+
 ## 2026-10-10 ATLAS 통계 표현 충실도 보완 (Task 7)
 
 ### 구현 완료
@@ -12,7 +35,7 @@
 
 ### 미구현
 
-- API/DTO·계량기·시간별 개요 조회·목업 표본/수집 시각/절감 기여도·샘플 PDF preview·가짜 job 완료를 추가하지 않았다. 공통 eyebrow slot과 통계 소비는 총괄의 공통 후속에서 처리한다.
+- API/DTO·계량기·시간별 개요 조회·목업 표본/수집 시각/절감 기여도·샘플 PDF preview·가짜 job 완료를 추가하지 않았다. Task7 당시 남은 공통 eyebrow slot과 통계 소비는 위 공통 후속에서 해결했다.
 - 실 브라우저 시각 비교·44px/viewport 최종 행렬·운영 저장소/native OS/HIL은 이번 담당 작업에서 실행하지 않았다.
 
 ### 부족하거나 개선이 필요한 기능

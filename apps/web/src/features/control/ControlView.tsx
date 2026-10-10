@@ -565,7 +565,7 @@ export function ControlView({
     void navigate({ pathname: location.pathname, search: `?${search.toString()}`, hash: location.hash });
   }
 
-  const modeTabs = <><PageHeader variant="customer" headingLevel={1} title="조명 제어" /><ControlModeTabs mode={mode} onChange={selectMode} allowAutomation={canManage} allowGroups={canControl} /></>;
+  const modeTabs = <><PageHeader variant="customer" headingLevel={1} title="조명 제어" eyebrow="ATLAS / OPERATIONS" /><ControlModeTabs mode={mode} onChange={selectMode} allowAutomation={canManage} allowGroups={canControl} /></>;
   const groupMutationsBlocked = isSubmitting || restorePending || commandInProgress || commandSessionBlocked || Boolean(storageError);
 
   if (capabilities && mode === "event") {

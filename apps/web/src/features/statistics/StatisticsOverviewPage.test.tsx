@@ -99,6 +99,7 @@ describe("StatisticsOverviewPage", () => {
   it("offers report navigation from a single overview page heading", () => {
     renderView();
     expect(screen.getByRole("heading", { name: "사용량 개요", level: 1 })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "사용량 개요", level: 1 }).closest("header")).toContainElement(screen.getByText("ENERGY INTELLIGENCE"));
     fireEvent.click(screen.getByRole("button", { name: "보고서 생성" }));
     expect(screen.getByText("보고서 페이지")).toBeInTheDocument();
   });
