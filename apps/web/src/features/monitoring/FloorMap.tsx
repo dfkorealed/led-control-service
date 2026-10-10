@@ -155,6 +155,9 @@ export function FloorMap({ floor, snapshot, selectedFixtureId, onSelectFixture, 
         ref={viewportRef}
         maintainCameraOnResize
         controlsPlacement="footer"
+        footerStart={legend.length ? <ul className="pointer-events-none m-0 flex list-none flex-wrap gap-x-3 gap-y-1.5" aria-label="조명 상태 범례">
+          {legend.map(({ state, label, Icon, color }) => <li key={state} className={cn("inline-flex items-center gap-1", color)}><Icon size={14} aria-hidden="true" /><Text as="span" variant="overline" className={color}>{label}</Text></li>)}
+        </ul> : undefined}
         wheelZoomWithoutModifier
         showFitControl={false}
         resetControlFits
@@ -195,9 +198,6 @@ export function FloorMap({ floor, snapshot, selectedFixtureId, onSelectFixture, 
         }}
         timeZone={timeZone}
       />
-      {legend.length ? <ul className="pointer-events-none m-0 flex shrink-0 list-none flex-wrap gap-x-3 gap-y-1.5 border-t border-border-default bg-surface-panel px-3 py-2" aria-label="조명 상태 범례">
-        {legend.map(({ state, label, Icon, color }) => <li key={state} className={cn("inline-flex items-center gap-1", color)}><Icon size={14} aria-hidden="true" /><Text as="span" variant="overline" className={color}>{label}</Text></li>)}
-      </ul> : null}
     </div>
   );
 }

@@ -347,7 +347,11 @@ describe("FloorMap", () => {
     const map = screen.getByRole("region", { name: "층 도면" });
     expect(screen.queryByText("드래그로 이동 · 휠로 확대/축소")).not.toBeInTheDocument();
     expect(map.querySelector(".floor-map-label")).not.toBeInTheDocument();
-    expect(legend.parentElement).toBe(map);
+    const footer = legend.closest("[data-floor-map-footer]");
+    expect(footer).not.toBeNull();
+    expect(map).toContainElement(footer);
+    expect(footer).toContainElement(screen.getByRole("button", { name: "지도 확대" }));
+    expect(screen.getAllByRole("list", { name: "조명 상태 범례" })).toHaveLength(1);
     const legendItems = within(legend).getAllByRole("listitem");
     expect(legendItems).toHaveLength(3);
     for (const label of ["장애", "오프라인", "상태 확인 대기"]) {

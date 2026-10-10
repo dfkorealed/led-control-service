@@ -1,5 +1,28 @@
 # 모니터링 메뉴 기능 현황
 
+## 2026-10-10 공유 지도 chrome (Task 4)
+
+### 구현 완료
+
+- 공유 OperationMapPanel의 title/tools-left·실제 summary-right와 inset16/12를 적용했다. 현재 존재하는 상태의 아이콘/라벨 범례를 FloorMapViewport.footerStart에 전달하여 camera-right와 같은 wrapping static footer bar로 표시한다. 별도 중복 범례 strip은 제거했다.
+- viewport/renderer identity·카메라/zoom/fit·선택/gesture·전체보기 owner와 기존44px 및 더 큰52px hit를 유지한다. footerStart 없는 소비자의 기존 footer 및 기본 overlay 배치는 불변이다.
+
+### 미구현
+
+- 실제 mobile/short desktop/footer wrap·dark geometry 최종 확인은 Task11 범위다.
+
+### 부족하거나 개선이 필요한 기능
+
+- 두 공유 map suite와 selector 계약, monitoring 범례/zoom focused 검증이다. 실제 브라우저 시각 일치·CAD 성능·게이트웨이/조명 HIL 완료 증거는 아니다.
+
+### 관련 파일
+
+- `apps/web/src/components/ui/maps/OperationMapPanel.tsx`, `features/floor-map/FloorMapViewport.tsx`, `features/monitoring/FloorMap.tsx`, `features/control/target-selection/SpatialTargetSelector.tsx` 및 관련 focused tests.
+
+### 갱신 규칙
+
+- footer slot opt-in/default 경계·실제 상태·카메라 lifetime·최소 viewport240/사용성 hit와 추후 browser/HIL 한계를 함께 기록한다.
+
 ## 2026-10-10 고객 shell·제목·탭 소유 (Task 3)
 
 ### 구현 완료

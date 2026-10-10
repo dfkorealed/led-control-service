@@ -159,6 +159,32 @@ describe("FloorMapViewport", () => {
     expect(screen.getByRole("group", { name: "지도 확대 축소" })).toHaveClass("absolute");
   });
 
+  it("combines footerStart and camera in one flow bar without remounting viewport children", () => {
+    const mounted = vi.fn(), unmounted = vi.fn();
+    function Canvas() {
+      useEffect(() => { mounted(); return unmounted; }, []);
+      return <canvas data-testid="stable-renderer" />;
+    }
+    const view = render(<FloorMapViewport snapshot={snapshot} ariaLabel="combined" controlsPlacement="footer" footerStart={<span>정상 0</span>}><Canvas /></FloorMapViewport>);
+    const viewport = screen.getByRole("region", { name: "combined" });
+    const canvas = screen.getByTestId("stable-renderer");
+    const footer = screen.getByText("정상 0").closest("[data-floor-map-footer]");
+    expect(footer).not.toBeNull();
+    expect(footer).toContainElement(screen.getByRole("group", { name: "지도 확대 축소" }));
+    expect(footer).toHaveClass("flex", "flex-wrap", "px-3.5", "py-2.5");
+    expect(footer).not.toHaveClass("absolute");
+    fireEvent.click(screen.getByRole("button", { name: "지도 확대" }));
+    expect(viewport).toHaveAttribute("data-zoom", "1.1");
+    view.rerender(<FloorMapViewport snapshot={snapshot} ariaLabel="combined" footerStart={<span>ignored overlay slot</span>}><Canvas /></FloorMapViewport>);
+    expect(screen.queryByText("ignored overlay slot")).not.toBeInTheDocument();
+    expect(screen.getByRole("group", { name: "지도 확대 축소" })).toHaveClass("absolute");
+    expect(screen.getByRole("region", { name: "combined" })).toBe(viewport);
+    expect(screen.getByTestId("stable-renderer")).toBe(canvas);
+    expect(viewport).toHaveAttribute("data-zoom", "1.1");
+    expect(mounted).toHaveBeenCalledOnce();
+    expect(unmounted).not.toHaveBeenCalled();
+  });
+
   it("exposes a camera handle without requiring measured geometry", () => {
     const ref = createRef<import("./FloorMapViewport").FloorMapViewportHandle>();
     render(<FloorMapViewport ref={ref} snapshot={snapshot} ariaLabel="camera"><span /></FloorMapViewport>);

@@ -122,6 +122,12 @@ export function SpatialTargetSelector({
 
   const sceneSelection = useMemo(() => ({ kind: "multiple" as const, selectedFixtureIds, disabledFixtureIds, disabledReasons }), [disabledFixtureIds, disabledReasons, selectedFixtureIds]);
   const group = selection.mode === "group" ? dashboard.groups.find((item) => item.id === selection.groupId) : undefined;
+  const legend = <div className={manualWorkspace ? "pointer-events-none flex flex-wrap gap-2 text-label" : "pointer-events-none flex shrink-0 flex-wrap gap-2 border-t border-border-default bg-surface-panel px-2 py-1 text-label"} aria-label="지도 조명 상태 범례">
+    <span className="inline-flex items-center gap-1"><span aria-hidden="true" className="size-2 rounded-fixture-marker bg-fixture-connected" />정상</span>
+    <span className="inline-flex items-center gap-1"><span aria-hidden="true" className="size-2 rounded-fixture-marker bg-fixture-fault" />장애</span>
+    <span className="inline-flex items-center gap-1"><span aria-hidden="true" className="size-2 rounded-fixture-marker bg-fixture-offline" />오프라인</span>
+    <span className="inline-flex items-center gap-1"><span aria-hidden="true" className="size-2 rounded-fixture-marker bg-fixture-selected" />선택</span>
+  </div>;
 
   return <section className={`flex ${hideEmbeddedSummary ? "min-h-min" : "min-h-0"} min-w-0 flex-1 flex-col gap-3 overflow-hidden ${hideEmbeddedSummary ? "max-compact:flex-none max-compact:overflow-visible" : ""}`} aria-label="공간 대상 선택" data-spatial-target-selector="">
     <TargetSelectionToolbar allowedModes={allowedModes} selection={selection} activeFloorId={activeFloor?.id ?? ""} floors={dashboard.floors} modeLabels={modeLabels}
@@ -136,8 +142,8 @@ export function SpatialTargetSelector({
       {/* The transparent coarse hit box stays rectangular; the shared inner
           20px marker dot retains its circular appearance. Rounded hit boxes
           lose their corners and cannot provide the required 48×48 target. */}
-      {/* Footer controls preserve the actual 240px map minimum. The legend has
-          its own flow row so neither can cover the other on short screens. */}
+      {/* Manual legend and camera share one wrapping flow footer, preserving
+          the 240px canvas minimum; embedded consumers keep their old strip. */}
       <OperationMapPanel className="[&_[data-spatial-map-marker]]:rounded-none! min-h-min"
         status={manualWorkspace ? <InlineStatusSummary label={`${activeFloor?.name ?? "현재"} 도면 조명 상태`} items={[
           { id: "total", label: "전체", value: activeFloor?.summary?.totalFixtures ?? null, tone: "neutral" },
@@ -148,17 +154,12 @@ export function SpatialTargetSelector({
         tools={manualWorkspace ? <TargetMapTools mode={activeTool} selectionDisabled={selectionDisabled} onModeChange={setTool} /> : undefined}>
         {mapQuery.data && activeFloor ? <div className="min-h-min min-w-0 flex-1"><FloorMapViewport snapshot={mapQuery.data} ariaLabel={`${activeFloor.name} 도면`} interactionPolicy={selection.mode === "fixtures" && !disabled ? "direct-selection" : "pan"}
           mode={manualWorkspace ? activeTool : "pan"} toolModePolicy={manualWorkspace ? "explicit" : "interaction-default"}
-          onAreaSelect={selectArea} wheelZoomWithoutModifier controlsPlacement="footer" maintainCameraOnResize viewportTestId="target-selection-map-viewport">
+          onAreaSelect={selectArea} wheelZoomWithoutModifier controlsPlacement="footer" footerStart={manualWorkspace ? legend : undefined} maintainCameraOnResize viewportTestId="target-selection-map-viewport">
           <FloorScene snapshot={mapQuery.data} fixtures={activeFloor.fixtures} interactive={false} floorName={activeFloor.name} selection={sceneSelection} coarsePointer onFixturePress={toggleFixture} inspectDisabledFixtures={Boolean(onInspectFixture) && !disabled} />
         </FloorMapViewport></div> : <div className="grid h-full place-items-center p-4"><Text tone="secondary">등록된 도면이 없어 목록으로 선택합니다.</Text></div>}
         {mapQuery.data && mapQuery.error ? <Text className="absolute top-3 left-3 z-6 rounded-control border border-border-default bg-surface-panel px-2 py-1" role="alert" tone="danger">도면을 최신 상태로 갱신하지 못했습니다.</Text> : null}
         {group ? <Text className="pointer-events-none absolute top-3 right-3 z-6 rounded-control border border-border-default bg-surface-panel px-2 py-1" variant="caption">{group.name}</Text> : null}
-        {mapQuery.data ? <div className="pointer-events-none flex shrink-0 flex-wrap gap-2 border-t border-border-default bg-surface-panel px-2 py-1 text-label" aria-label="지도 조명 상태 범례">
-          <span className="inline-flex items-center gap-1"><span aria-hidden="true" className="size-2 rounded-fixture-marker bg-fixture-connected" />정상</span>
-          <span className="inline-flex items-center gap-1"><span aria-hidden="true" className="size-2 rounded-fixture-marker bg-fixture-fault" />장애</span>
-          <span className="inline-flex items-center gap-1"><span aria-hidden="true" className="size-2 rounded-fixture-marker bg-fixture-offline" />오프라인</span>
-          <span className="inline-flex items-center gap-1"><span aria-hidden="true" className="size-2 rounded-fixture-marker bg-fixture-selected" />선택</span>
-        </div> : null}
+        {mapQuery.data && !manualWorkspace ? legend : null}
       </OperationMapPanel>
       {/* On desktop, long choice lists must scroll within the map row rather
           than contribute their intrinsic height to that auto-sized grid row.

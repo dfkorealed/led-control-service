@@ -56,6 +56,19 @@ describe("SpatialTargetSelector", () => {
 
   afterEach(cleanup);
 
+  it("manual legend shares the camera footer while embedded placement remains unchanged", () => {
+    const view = renderSelector({ presentation: "manual-workspace", selection: { mode: "fixtures", fixtureIds: [] } });
+    const legend = screen.getByLabelText("지도 조명 상태 범례");
+    const footer = legend.closest("[data-floor-map-footer]");
+    expect(footer).not.toBeNull();
+    expect(footer).toContainElement(screen.getByRole("button", { name: "지도 확대" }));
+    expect(screen.getAllByLabelText("지도 조명 상태 범례")).toHaveLength(1);
+    view.unmount();
+    renderSelector({ selection: { mode: "fixtures", fixtureIds: [] } });
+    expect(screen.getByLabelText("지도 조명 상태 범례").closest("[data-floor-map-footer]")).toBeNull();
+    expect(screen.getByRole("group", { name: "지도 확대 축소" })).toHaveClass("m-2", "self-end");
+  });
+
   it("manual map uses displayed server floor counts independently of selection and loaded fixtures", () => {
     const data: Dashboard = { ...dashboard, summary: { ...dashboard.summary, totalFixtures: 999 }, floors: [
       { ...dashboard.floors[0], fixtures: dashboard.floors[0].fixtures.slice(0, 2), summary: { totalFixtures: 24, onlineFixtures: 18, faultFixtures: 2, offlineFixtures: 4 } },
