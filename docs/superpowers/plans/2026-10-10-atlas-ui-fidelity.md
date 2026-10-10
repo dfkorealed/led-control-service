@@ -216,10 +216,12 @@
 
 **Files:** 코드 신규 수정 없음. `docs/project-status.md`, 이 계획의 실제 통합 상태만 갱신.
 
-- [ ] **Step 1:** `git diff --check`, 두 checkout status/head를 확인한다. 사용자 dirty 파일/옛 stash/다른 worktree·서버는 보존한다.
-- [ ] **Step 2:** 기본 branch가 기준 HEAD면 `git merge --ff-only codex/atlas-ui-fidelity-20261010`으로 사용자가 이미 요청한 로컬 병합. moved HEAD면 겹침을 읽고 안전하게 통합하며 의미가 충돌하면 사용자 결정 전 강제 진행하지 않는다.
-- [ ] **Step 3:** 최종 HEAD 일치/clean·commit·실제 병합 결과 확인. 검증한 동일 commit이면 전체 검증을 다시 실행하지 않는다.
-- [ ] **Step 4:** 목업과 실제 결과·주요 교정·남는 실제 계약 차이·한정 검증·branch/merge SHA를 사용자에게 전달. 원격/배포/실장비 완료로 확대하지 않는다.
+- [x] **Step 1:** `git diff --check`, 두 checkout clean/status/head를 새로 확인했다. 사용자 dirty 파일/옛 stash/다른 worktree·서버를 보존했다.
+- [x] **Step 2:** 기본 branch가 기준 `b1dd36ee`임을 확인하고 `git merge --ff-only codex/atlas-ui-fidelity-20261010`으로 사용자 승인 로컬 병합 완료(exit0, 첫FF `b8c54516`). 강제/원격 통합0.
+- [x] **Step 3:** 첫FF HEAD 일치/clean·실제 병합 결과 확인. 검증 제품source와 동일, 이후 문서 전용 closeout이라 전체 검증을 다시 실행하지 않는다. closeout도 동일 correction branch에서 commit한 뒤 기본 branch에 FF하고 HEAD/clean을 마지막 확인한다.
+- [x] **Step 4:** [보존 화면·처리표·한정 검증·실제 통합 기록](../../assets/atlas-ui-refresh-2026-10-07/audit-2026-10-10/implementation/README.md)을 handoff 정본으로 확정했다. 최종 응답에서 최종SHA와 함께 전달하며 원격/배포/실장비 완료로 확대하지 않는다.
+
+통합 증거: 기준 `b1dd36eed1e9dd41663d17cdf94379360e539fb4`→첫FF `b8c545168be5e66ae3cb249cfe6dd6b4a5bc2e53`, 두 checkout clean. `git diff 0bba6fe1 HEAD -- apps/web/src packages` 출력0. 사용자 기존stash `eecf13ef` 포함 전부 유지. 페이지4 worktree/merged branch 정리, ignored scratch5묶음과 monitoring test-results는 `.superpowers/sdd/atlas-fidelity-backup-20261010.GvemD0/` 보존. 통합 worktree는 최종 문서FF 확인 후 정리하며 무관 checkout/서버는 건드리지 않는다.
 
 ## 계획 자체 점검
 
@@ -228,4 +230,4 @@
 - [x] Review Focus 다섯 가지를 해당 task와 최종 focused 확인에 연결했다. 이전 전체 검증 결과를 이번 성공 증거로 사용하지 않는다.
 - [x] 구현 방법은 이미 요청한 에이전트 협업으로 보존한다. 사용자 계획 검토 후 실행하며, 작업마다 새로운 계획 승인·실행 방식 질문을 반복하지 않는다.
 - [x] 사용자 계획 검토 완료(2026-10-10).
-- [ ] 구현 완료·필요 검증 완료·최종 리뷰 완료·로컬 병합 완료.
+- [x] 구현 완료·필요 검증 완료·최종 리뷰 완료·로컬 병합 완료.

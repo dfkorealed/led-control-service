@@ -19,6 +19,12 @@
 - [UI/UX review](task-11-uiux-review.md): 원본과 대표 실제16장 및 최종 설정 수리 source에 대해 APPROVED, 새 P2 이상0. 전체138 상호작용·모든 pixel/권한/기기의 승인은 아니다.
 - 원본의 가상 parking/CAD/숫자/명령 시나리오 대신 실제 renderer·query·UUID·권한·명시 Apply·draft·복구·null/0·MFA/lease owner를 유지했다. 신규 기능의 API를 목업에 맞추어 조작하지 않는다.
 
+## 로컬 통합
+
+- 기본 `codex/mvp1-cloud-web`이 clean/기준 `b1dd36ee`인 것을 새로 확인하고 `git merge --ff-only codex/atlas-ui-fidelity-20261010`을 실행했다. exit0, 실제 첫 FF HEAD `b8c545168be5e66ae3cb249cfe6dd6b4a5bc2e53`, 기본/correction HEAD 일치·clean을 확인했다. `0bba6fe1` 이후 제품 `apps/web/src`/`packages` diff0이므로 전체 검증을 반복하지 않는다. 이후 closeout commit은 문서만 변경한다.
+- 기존 stash `eecf13ef` 등과 다른 worktree/실서비스5173·4000은 유지했다. 원목업63200도 열어 두었다. 원격 push/PR/배포/실장비 변경은 하지 않았다.
+- 이번 페이지용4 worktree/merged branch는 정리했다. 통합 worktree도 최종 완료 기록 FF 확인 후 정리한다. 필요한 ignored `.superpowers`5묶음과 monitoring `test-results`는 기본 checkout의 `.superpowers/sdd/atlas-fidelity-backup-20261010.GvemD0/`에 복사 보존했다. tracked 구현·원문 보고·최종 이미지/압축 로그는 Git에서 복구할 수 있다. unrelated worktree 정리·force 삭제·전체 prune는 하지 않았다.
+
 ## 보존 화면
 
 모든 실제 PNG는 재가공하지 않은 Playwright 화면이며 같은 이름의 `-metrics.json`에 URL/viewport가 있다. 아래16장만 최종 UI/UX 승인 자료다.

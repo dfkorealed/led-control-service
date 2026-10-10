@@ -2,13 +2,14 @@
 
 기준일: 2026-10-10
 
-## 2026-10-10 ATLAS UI 충실도 교정 — 구현·한정 검증·최종 리뷰 완료, 로컬 병합 대기
+## 2026-10-10 ATLAS UI 충실도 교정 — 구현·한정 검증·최종 리뷰·로컬 FF 완료
 
 - 공통 customer recipe/제목·pill 탭·버튼·지도 chrome·인라인 집계·ticker·모바일 DataGrid를 먼저 고정하고, 네 페이지 담당이 각 격리 branch에서 모니터링/제어/통계/설정 및 하위 표현을 소비하도록 교정했다. 라이트/다크·모바일 로고/128·144px select·짧은 manual 내부 scroll을 포함한다. 기존 API/권한/UUID/명시 Apply/복구/null·0/MFA/lease/draft owner를 유지했고 API/DB/schema/Gateway/펌웨어 변경은 없다.
 - [감사 정본](assets/atlas-ui-refresh-2026-10-07/audit-2026-10-10/README.md)에 공통13건과138 inventory(34/30/34/40)의 처리·보존 task/commit을 연결했다. 138은 버그 수나 전체 runtime 통과 수가 아니다. [영구 구현·검증 증거](assets/atlas-ui-refresh-2026-10-07/audit-2026-10-10/implementation/README.md)에 담당 원문·원 실패/최종 로그·대표 실제16장과 원본6장을 보존했다.
 - 최종 제품 source `0bba6fe1`의 타입/UI정책79 PASS·0 FAIL·SKIP/UI위반0·0/빌드 모두 exit0. 기존 큰 번들 경고1은 남는다. 이후 `eef83fa3`는 E2E spec만 변경했다. Browser12 고유사례를 source별 취합했고 원 실패/증거 수리만 국소 확인했다(6회27 case 실행, 최종국소3 PASS). 최종HEAD전체12 일괄PASS·전체138 runtime·전체583/Lab/canonical/HIL 승인이 아니다.
 - 독립 code reviewer의 두 P2(비밀번호 요청 중 Dialog owner·잘못된 typography utility)는 `da9edfee`로 해결, 같은 seat 최종 재검토에서 신규 중요 문제0/ready to merge YES. UI/UX 담당은 대표light/dark/mobile/portal/열린Dialog와 최종 수리에 한정 APPROVED/P2+0. 대형CAD/GPU·전 브라우저/대비·미촬영 상세 상태·fixture 미제공 정상 집계/범례/ticker 한계를 유지한다.
-- 현재 correction branch `codex/atlas-ui-fidelity-20261010`의 구현·검증·리뷰 완료. 기본 `codex/mvp1-cloud-web`의 clean/head를 새로 확인하고 사용자 승인 로컬FF를 진행한다. 기존 stash/다른worktree/5173·4000 보존, 원목업63200은 다시 열어 유지했다. 원격 push/PR/배포/실장비 완료는 아니다. 아래 ‘미완료’ 문장은 당시 실행 이력이며 현재 상태를 대신하지 않는다.
+- 기본 `codex/mvp1-cloud-web`의 clean/기준head를 새로 확인하고 사용자 승인 `git merge --ff-only codex/atlas-ui-fidelity-20261010`을 완료했다(exit0, 실제첫FF `b1dd36ee`→`b8c545168be5e66ae3cb249cfe6dd6b4a5bc2e53`, 두HEAD일치/clean). 이후 완료 기록은 문서 전용이다. 검증된 제품source가 동일해 전체 검증은 반복하지 않는다. 기존 stash/다른worktree/5173·4000 보존, 원목업63200은 다시 열어 유지했다. 원격 push/PR/배포/실장비 완료는 아니다. 아래 ‘미완료’ 문장은 당시 실행 이력이며 현재 상태를 대신하지 않는다.
+- 이번 페이지별4 worktree/merged branch를 정리했다. ignored자료5묶음/monitoring test-results는 `.superpowers/sdd/atlas-fidelity-backup-20261010.GvemD0/`에 보존했고, 통합 worktree는 마지막 완료 기록FF 확인 뒤 정리한다. tracked자료는 Git에 보존하며 다른 worktree/옛stash·서비스는 건드리지 않는다.
 
 ## 2026-10-10 ATLAS 전체 UI 충실도 교정 — 실행 이력
 
