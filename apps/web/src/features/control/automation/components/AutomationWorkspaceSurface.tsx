@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import type { AutomationSiteSummary } from "../../../../api/automation";
-import { Card, Heading, Text } from "../../../../components/ui";
+import { Card, Text } from "../../../../components/ui";
 
 type SyncState = "APPLIED" | "PENDING" | "REJECTED";
 
@@ -34,8 +34,7 @@ function SummaryCell({ label, value, className = "" }: { label: string; value: s
 }
 
 export function AutomationRuleWorkspace({ children, footer }: { children: ReactNode; footer?: ReactNode }) {
-  return <section role="region" aria-label="자동화 목록" className="grid min-h-0 min-w-0 grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden rounded-panel border border-border-default bg-surface-panel max-compact:grid-rows-none max-compact:overflow-visible tablet:flex-1" data-automation-list-surface="">
-    <div className="border-b border-border-default px-4 py-3"><Heading as="h4" variant="card-title">자동화 목록</Heading></div>
+  return <section role="region" aria-label="자동화 목록" className="grid min-h-0 min-w-0 grid-rows-[minmax(0,1fr)_auto] overflow-hidden max-compact:grid-rows-none max-compact:overflow-visible tablet:flex-1" data-automation-list-surface="">
     <div className="min-h-0 min-w-0 overflow-y-auto overscroll-contain max-compact:overflow-visible" data-automation-list-scroll="">{children}</div>
     {footer ? <div className="flex justify-center border-t border-border-default p-2">{footer}</div> : null}
   </section>;

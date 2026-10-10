@@ -63,6 +63,25 @@ describe("FixtureGroupsPanel", () => {
     const view = render(<QueryClientProvider client={client}><FixtureGroupsPanel {...props} /></QueryClientProvider>);
     return { ...view, client, props };
   }
+  it("fidelity exposes the actual group fields through the shared grid and keeps row mutations locked", async () => {
+    mount(true, true, true);
+    const list = await screen.findByRole("list", { name: "저장 구역 목록" });
+    const row = within(list).getByRole("listitem");
+    expect(row).toHaveTextContent("B2 입구");
+    expect(row).toHaveTextContent("B2");
+    expect(row).toHaveTextContent("Gateway B2");
+    expect(row).toHaveTextContent("1개");
+    expect(row).toHaveTextContent("Mesh 설정 실패");
+    expect(row).toHaveTextContent("Mesh 구성 v2");
+    for (const action of ["수정", "재동기화", "삭제"]) {
+      const button = within(row).getByRole("button", { name: `B2 입구 ${action}` });
+      expect(button).toBeDisabled();
+      fireEvent.click(button);
+    }
+    expect(mocks.updateFixtureGroup).not.toHaveBeenCalled();
+    expect(mocks.resyncFixtureGroup).not.toHaveBeenCalled();
+    expect(mocks.deleteFixtureGroup).not.toHaveBeenCalled();
+  });
   it("keeps the approved common surface inset around list and the same active editor", async () => {
     mount();
     await screen.findByText("B2 입구");

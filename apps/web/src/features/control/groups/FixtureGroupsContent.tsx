@@ -2,7 +2,7 @@ import type { CreateFixtureGroupInput, FixtureGroupMetadata } from "@led-control
 import { ArrowLeft, CircleCheck, Clock3, Pencil, Plus, RefreshCw, Trash2 } from "lucide-react";
 import { useState } from "react";
 import type { Dashboard } from "../../../api/queries";
-import { Button, ConfirmDialog, Heading, StatusBadge, Text, TextField } from "../../../components/ui";
+import { Button, ConfirmDialog, DataGrid, Heading, StatusBadge, Text, TextField, type DataGridColumn } from "../../../components/ui";
 import { humanizeDeviceResponseMessage } from "../control-copy";
 import { FixtureGroupMapEditor, fixtureGroupMembershipError, type FixtureGroupEditorValue } from "../target-selection/FixtureGroupMapEditor";
 import type { useFixtureGroupsWorkspace } from "./useFixtureGroupsWorkspace";
@@ -14,6 +14,36 @@ export function FixtureGroupsContent({ siteId, dashboard, workspace }: {
   const { form, groups, groupsQuery, canManage, mutationDisabled, isSaving, isDeleting,
     deleteCandidate, deleteButtonRef, message, error, beginCreate, beginEdit, changeForm,
     save, requestDelete, confirmDelete, resync, cancelForm, cancelDelete } = workspace;
+  // This adapter renders only the real group metadata. Query, membership,
+  // lifecycle and latest-handler permission/lock checks stay in the workspace.
+  const columns: DataGridColumn<FixtureGroupMetadata>[] = [
+    { id: "name", header: "이름", minWidth: 130, renderCell: group => <Text as="strong" weight="semibold">{group.name}</Text> },
+    { id: "floor", header: "도면", minWidth: 80, renderCell: group => dashboard.floors.find(floor => floor.id === group.floorId)?.name ?? "층 미지정" },
+    { id: "gateway", header: "게이트웨이", minWidth: 110, renderCell: group => dashboard.gateways.find(gateway => gateway.id === group.gatewayId)?.name ?? "게이트웨이 미지정" },
+    { id: "targets", header: "대상", minWidth: 70, align: "right", renderCell: group => `${group.fixtureCount}개` },
+    { id: "sync", header: "동기화", minWidth: 180, renderCell: group => {
+      const status = fixtureGroupStatus(group);
+      return <div className="grid gap-1">
+        <StatusBadge tone={group.meshControlGroup?.status === "ready" ? "success" : "warning"} icon={group.meshControlGroup?.status === "ready" ? CircleCheck : Clock3}>
+          {group.meshControlGroup?.status === "ready" ? "준비됨" : "확인 필요"}
+        </StatusBadge>
+        <Text variant="caption" tone={status.tone === "failed" ? "danger" : "secondary"}>{status.label}</Text>
+        <Text as="small" variant="caption" tone="secondary">{group.meshControlGroup ? `Mesh 구성 v${group.meshControlGroup.version} · 주소 정보 없음` : "Mesh 주소 정보 없음"}</Text>
+        {group.meshControlGroup?.error ? <Text tone="danger">{humanizeDeviceResponseMessage(group.meshControlGroup.error)}</Text> : null}
+      </div>;
+    } }
+  ];
+  if (canManage) columns.push({ id: "actions", header: "작업", minWidth: 230, align: "center", renderCell: group => group.lifecycleStatus === "active" ? <div className="flex flex-wrap justify-center gap-1">
+    <Button variant="ghost" type="button" aria-label={`${group.name} 수정`} onClick={() => beginEdit(group)} disabled={mutationDisabled}>
+      <Pencil size={15} aria-hidden="true" /> 수정
+    </Button>
+    {group.meshControlGroup?.status === "failed" ? <Button variant="ghost" type="button" aria-label={`${group.name} 재동기화`} onClick={() => resync(group)} disabled={mutationDisabled}>
+      <RefreshCw size={15} aria-hidden="true" /> 재동기화
+    </Button> : null}
+    <Button variant="danger" type="button" aria-label={`${group.name} 삭제`} onClick={event => requestDelete(group, event.currentTarget)} disabled={mutationDisabled}>
+      <Trash2 size={15} aria-hidden="true" /> 삭제
+    </Button>
+  </div> : <Text variant="caption" tone="secondary">{fixtureGroupStatus(group).label}</Text> });
   return <>        {form ? (
           <FixtureGroupForm
             form={form}
@@ -47,51 +77,12 @@ export function FixtureGroupsContent({ siteId, dashboard, workspace }: {
               <section className="grid gap-3" aria-labelledby="fixture-group-list-heading">
                 <div className="flex items-end justify-between gap-3">
                   <div className="grid gap-1">
-                    <Text as="span" variant="overline" tone="muted">현재 구성</Text>
                     <Heading as="h4" id="fixture-group-list-heading" variant="card-title">현재 저장 구역</Heading>
                   </div>
                   <span>{groups.length}개</span>
                 </div>
-              <div className="grid gap-2" aria-label="저장 구역 목록">
-                {groups.map((group) => {
-                  const status = fixtureGroupStatus(group);
-                  const floorName = dashboard.floors.find((floor) => floor.id === group.floorId)?.name ?? "층 미지정";
-                  const gatewayName = dashboard.gateways.find((gateway) => gateway.id === group.gatewayId)?.name ?? "게이트웨이 미지정";
-                  const editable = canManage && group.lifecycleStatus === "active";
-                  return (
-                    <article className="grid gap-3 rounded-panel border border-border-default bg-surface-panel p-3" key={group.id}>
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="grid gap-1">
-                          <Text as="strong" weight="semibold">{group.name}</Text>
-                          <Text as="span" variant="caption">{floorName} · {gatewayName} · {group.fixtureCount}개</Text>
-                          <Text as="small" variant="caption" tone="secondary">{group.meshControlGroup ? `Mesh 구성 v${group.meshControlGroup.version} · 주소 정보 없음` : "Mesh 주소 정보 없음"}</Text>
-                        </div>
-                        <StatusBadge tone={group.meshControlGroup?.status === "ready" ? "success" : "warning"} icon={group.meshControlGroup?.status === "ready" ? CircleCheck : Clock3}>
-                          {group.meshControlGroup?.status === "ready" ? "준비됨" : "확인 필요"}
-                        </StatusBadge>
-                      </div>
-                      <Text variant="caption" tone={status.tone === "failed" ? "danger" : "secondary"}>{status.label}</Text>
-                      {group.meshControlGroup?.error ? <Text tone="danger">{humanizeDeviceResponseMessage(group.meshControlGroup.error)}</Text> : null}
-                      {editable ? (
-                        <div className="flex flex-wrap gap-2">
-                          <Button variant="secondary" type="button" aria-label={`${group.name} 수정`} onClick={() => beginEdit(group)} disabled={mutationDisabled}>
-                            <Pencil size={15} aria-hidden="true" /> 수정
-                          </Button>
-                          {group.meshControlGroup?.status === "failed" ? (
-                            <Button variant="secondary" type="button" aria-label={`${group.name} 재동기화`} onClick={() => resync(group)} disabled={mutationDisabled}>
-                              <RefreshCw size={15} aria-hidden="true" /> 재동기화
-                            </Button>
-                          ) : null}
-                          <Button variant="danger" type="button" aria-label={`${group.name} 삭제`} onClick={(event) => requestDelete(group, event.currentTarget)} disabled={mutationDisabled}>
-                            <Trash2 size={15} aria-hidden="true" /> 삭제
-                          </Button>
-                        </div>
-                      ) : null}
-                    </article>
-                  );
-                })}
-                {groups.length === 0 ? <Text className="p-4 text-center" tone="secondary">저장된 구역이 없습니다.</Text> : null}
-              </div>
+              <DataGrid caption="저장 구역 목록" rows={groups} columns={columns} getRowKey={group => group.id} variant="compact"
+                emptyState={<Text tone="secondary">저장된 구역이 없습니다.</Text>} />
               </section>
             ) : null}
           </>

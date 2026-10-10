@@ -670,10 +670,20 @@ export function ControlView({
         </Card>
 
         <SidePanel className="flex min-h-0 w-full flex-col gap-3 p-3 compact:col-start-2 compact:row-start-2 compact:overflow-hidden" aria-label="밝기 실행" data-control-panel="">
-          <div className="flex flex-none items-start justify-between gap-3">
-            <Text as="strong" variant="label" aria-live="polite" aria-atomic="true">{selectedFixtures.length}개 선택</Text>
-            <ManualControlBadge readOnly={readOnly} canSubmit={canSubmit} blocked={Boolean(blockMessage)} />
-          </div>
+          <section aria-label="제어 대상" className="grid flex-none gap-3">
+            <div className="flex items-center justify-between gap-2">
+              <Heading as="h3" variant="customer-card-title">제어 대상</Heading>
+              <Button type="button" variant="ghost" disabled={controlsLocked || selectedFixtures.length === 0}
+                onClick={() => { setSelection({ mode: "fixtures", fixtureIds: [] }); setMessage(""); }}>선택 해제</Button>
+            </div>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <Text as="strong" variant="customer-metric" aria-live="polite" aria-atomic="true">{selectedFixtures.length}개 선택</Text>
+              <ManualControlBadge readOnly={readOnly} canSubmit={canSubmit} blocked={Boolean(blockMessage)} />
+            </div>
+            {selectedFixtures.length ? <ul aria-label="선택 조명" className="m-0 flex max-h-24 list-none flex-wrap gap-1 overflow-y-auto overscroll-contain p-0">
+              {selectedFixtures.map(fixture => <li key={fixture.id} className="max-w-full rounded-control bg-surface-inset px-2 py-1 text-body-sm wrap-anywhere" title={fixture.id}>{fixture.name}</li>)}
+            </ul> : <Text variant="caption" tone="secondary">도면에서 조명을 선택하세요.</Text>}
+          </section>
           <ManualExecutionPanel brightness={brightness} controlsLocked={controlsLocked} canSubmit={canSubmit}
                 applyLabel={storageError ? "복구 정보 확인 필요" : manualApplyLabel(commandSessionBlocked, controlsLocked, readOnly, selectedFixtures.length)}
                 onBrightnessChange={setBrightness} onSubmit={submitCommand} />

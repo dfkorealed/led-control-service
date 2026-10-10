@@ -1,5 +1,32 @@
 # 제어 메뉴 기능 현황
 
+## 2026-10-10 ATLAS 충실도 교정 — Task 6
+
+### 구현 완료
+
+- 공통 Tasks 1–4의 고정 API 위에서 수동 toolbar를 층→대상 방식→목록/관리 순서의 wrap 행으로 정리했다. manual-workspace만 이 표현을 사용하며 embedded 스케줄/이벤트/구역 선택의 disclosure·선택 정책은 유지한다. 지도 도구는 공통 버튼의 active 상태와 아이콘을 소비한다.
+- 우측 제어 대상의 제목·큰 선택 수·높이가 제한된 선택 조명 목록·선택 해제를 추가하고, 밝기를 단일 초안 패널과 bare slider로 표현했다. slider 접근 이름·native thumb와 NumberField raw 입력, 빈 값/소수/범위 오류·blur/Enter 복귀·같은 클릭 Apply 차단, draft-only 0/30/70/100과 명시 Apply handler를 유지한다.
+- 제어 이력은 공통 ticker의 `제어 이력` 제목과 plain UUID 버튼을 사용한다. native 버튼/ref·잠금·5초 순환/hover/focus·전체 이력/기간/cursor·확인 필요 사례 연결을 유지한다. 자동화 filter 외곽 카드와 목록의 중복 제목을 정리하고, 그룹은 실제 이름/층/Gateway/대상 수/Mesh 상태·버전/오류/작업을 공통 DataGrid로 표시한다. 기존 query/workspace·membership editor·CRUD/resync·삭제 확인·최신 권한/잠금 handler는 바꾸지 않는다.
+- Node 22.20.0/pnpm 9.15.0에서 새 직접 계약 5개를 RED 5FAIL→GREEN 5PASS로 확인했다(`-t fidelity`의 제외 203개는 필터 제외). 직접 소비자 11파일의 첫 실행은 420PASS/3FAIL/skip0이고, 실패는 이력 ticker의 이전 접근 이름 2개와 hit-shape 클래스 기대 1개였다. 이름만 새 표현으로 연결하고 원 모바일 square/PC 모서리 선언을 보존한 최종 두 파일(ControlView·CommandHistoryPanel) 실행은 192PASS/0FAIL/skip0이다. 나머지 9파일 231PASS 소스는 첫 실행 후 변경하지 않았으며 두 실행의 겹친 결과를 합산하지 않는다.
+
+### 미구현
+
+- Task 11 실제 짧은 PC·모바일·dark 화면/연속 hit·추가 POST0 확인과 root의 공통 PageHeader eyebrow 보완, 통합 타입/UI 정책/빌드·최종 리뷰·병합은 이 과제에서 실행하지 않았다. 전체 Web/583개/E2E/Lab/canonical·실장비/HIL도 실행하지 않았다.
+
+### 부족하거나 개선이 필요한 기능
+
+- 단위 DOM의 읽기 순서/선택·잠금 증거는 실제 geometry 증명이 아니다. 짧은 PC의 외부 document scroll0·지도 viewport 240px·workspace/안전 결과 내부 scroll·모든 CTA 접근, mobile 자연 scroll·52px 기존 지도 touch 유지 여부는 Task 11에서 확인해야 한다.
+- 실제 차량/BIO source/hold/준비·동기화, frozen UUID/canonical payload/ACK 원대상·generation·복구/보관/storage 잠금, whole-selection 차단과 CAD 고유색의 기존 한계를 보존한다. 목업의 오프라인 제외 부분 실행·가상 synced/센서 이벤트·polygon 저장은 추가하지 않는다.
+
+### 관련 파일
+
+- `apps/web/src/features/control/{ControlView,ManualExecutionPanel,CommandHistoryPanel}.tsx`와 직접 테스트, `target-selection/{TargetSelectionToolbar,SpatialTargetSelector}.tsx`와 직접 테스트, `automation/components/{AutomationRuleControls,AutomationWorkspaceSurface}.tsx`, `groups/FixtureGroupsContent.tsx`, `groups/FixtureGroupsPanel.test.tsx`.
+- 보존된 30항목 감사: [제어 감사](../assets/atlas-ui-refresh-2026-10-07/audit-2026-10-10/control.md). 현재 실행 순서와 후속 실제 확인은 [충실도 교정 계획](../superpowers/plans/2026-10-10-atlas-ui-fidelity.md)의 Task 6/11을 따른다.
+
+### 갱신 규칙
+
+- 공통/제어 표현 변경과 실제 command/automation/group 계약 변경을 구분한다. 기존 목업·BIO·실장비·실패 이력은 삭제하거나 새 PASS에 합산하지 않는다. 실제 화면·통합 결과와 로컬 병합은 총괄이 확인한 뒤 별도 갱신한다.
+
 ## 2026-10-10 공유 지도 chrome (Task 4)
 
 ### 구현 완료
