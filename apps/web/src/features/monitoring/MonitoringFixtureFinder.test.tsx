@@ -26,6 +26,12 @@ function renderFinder(options: Partial<ComponentProps<typeof MonitoringFixtureFi
 }
 
 describe("MonitoringFixtureFinder", () => {
+  it("opens the existing fixture list immediately for the list entry", () => {
+    renderFinder({ initialView: "list", search: "002" });
+    const list = screen.getByRole("list", { name: "조명 목록" });
+    expect(within(list).getAllByRole("listitem")).toHaveLength(1);
+    expect(within(list).getByRole("button", { name: /B2-L002/ })).toBeVisible();
+  });
   it("reports a complete-list count mismatch without treating search results as the total", () => {
     renderFinder({ defaultOpen: true, expectedTotal: 3 });
     expect(screen.getByText("목록과 집계의 확인 시점이 다릅니다. 새로고침해 주세요.")).toBeVisible();

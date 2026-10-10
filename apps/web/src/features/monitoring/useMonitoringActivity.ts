@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { isRetainedByClock, useDetailRetentionClock, withRetentionClock } from "../../api/detail-retention";
 import { useQuery } from "@tanstack/react-query";
 import { monitoringActivityResponseSchema } from "@led-control/shared/monitoring-activity-contracts";
@@ -49,5 +49,10 @@ export function useMonitoringActivity(scope: MonitoringActivityScope) {
     if (!expirationRead.current) { expirationRead.current = true; void query.refetch(); }
   }, [expired, query.refetch]);
   const data = !query.error && !query.isFetching && !query.isPaused ? query.data : undefined;
-  return { ...query, data: data ? { ...data, items: data.items.filter((item) => isRetainedByClock(item.recordedAt, data.retentionClock)) } : undefined };
+  // Re-evaluate retention on every clock wake, but only publish a new list when
+  // the source or its retained membership changes. Selection/theme renders must
+  // not restart the presentation ticker; expiry still removes rows immediately.
+  const retainedMembership = data?.items.map(item => isRetainedByClock(item.recordedAt, data.retentionClock) ? "1" : "0").join("") ?? "";
+  const retainedData = useMemo(() => data ? { ...data, items: data.items.filter((_item, index) => retainedMembership[index] === "1") } : undefined, [data, retainedMembership]);
+  return { ...query, data: retainedData };
 }

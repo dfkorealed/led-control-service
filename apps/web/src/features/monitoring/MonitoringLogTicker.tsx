@@ -20,7 +20,15 @@ interface MonitoringLogTickerProps {
 
 export function MonitoringLogTicker({ scopeKey = "", items, generatedAt, isPending, error, isRefetchError, timeZone, onOpen, onRetry, triggerRef }: MonitoringLogTickerProps) {
   // The activity query owns the server-clock retention deadline for these items.
-  const rows = useMemo(() => monitoringActivityRows(error ? [] : items, timeZone), [items, timeZone, error]);
+  // Validated activity DTOs contain only serializable values. Equivalent query
+  // snapshots share a presentation identity; changed event fields, expiry and
+  // errors still reset the shared ticker rather than retaining stale content.
+  const itemContent = JSON.stringify(error ? [] : items);
+  const rows = useMemo(() => monitoringActivityRows(JSON.parse(itemContent) as MonitoringActivityItem[], timeZone).map(row => ({
+    ...row,
+    timestampLabel: row.timestampLabel.slice(-8),
+    content: <><Text as="span" variant="caption" className="sr-only">{row.timestampLabel} · </Text>{row.content}</>
+  })), [itemContent, timeZone]);
   const stale = isRefetchError && Boolean(error);
   const copy = isPending ? "운영 활동을 불러오는 중"
       : error ? "운영 활동을 불러오지 못했습니다."
@@ -32,8 +40,8 @@ export function MonitoringLogTicker({ scopeKey = "", items, generatedAt, isPendi
     className="min-w-0"
     data-monitoring-log-ticker=""
   >
-    <RecentActivityTicker scopeKey={scopeKey} items={rows} emptyContent={<Text variant="body-sm" className="min-w-0 break-words">{copy}</Text>}
-      onOpen={onOpen} onRetry={error ? onRetry : undefined} triggerRef={triggerRef} />
+    <RecentActivityTicker title="최근 활동" scopeKey={scopeKey} items={rows} emptyContent={<Text variant="body-sm" className="min-w-0 break-words">{copy}</Text>}
+      onOpen={onOpen} onRetry={error ? onRetry : undefined} triggerRef={triggerRef} triggerHasPopup="dialog" />
     {stale ? <Text variant="caption" tone="secondary">활동 갱신에 실패했습니다. 마지막 조회: {generatedAt ? formatMonitoringTimestamp(generatedAt, timeZone) : "확인 불가"}</Text> : null}
   </section>;
 }

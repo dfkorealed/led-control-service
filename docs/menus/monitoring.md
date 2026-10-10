@@ -1,5 +1,33 @@
 # 모니터링 메뉴 기능 현황
 
+## 2026-10-10 ATLAS 충실도 교정 — Task 5 메뉴 소비
+
+### 구현 완료
+
+- 본문 공통 고객 PageHeader의 제목과 실제 마지막 갱신·새로고침을 함께 배치한다. 모바일도 지도 위에서 자연 줄바꿈하며 하단 메뉴 안전 여백은 화면이 한 번만 소유한다. 층 선택은 PC에서 불필요한 가용 폭 확장을 없애고 모바일의 유연한 폭은 유지한다.
+- `조명 검색·상세`와 별도 `조명 목록` 버튼은 같은 fixture query·검색·상태·목록 owner를 재사용한다. 목록 진입은 기존 목록을 즉시 열고 각 실제 opener를 Popover anchor·닫기/상세 종료 후 반환 대상으로 기억한다. 별도 서버 검색·필터 API나 중복 fixture query를 추가하지 않는다.
+- 검색/상태 필드를 선택 selector보다 먼저 놓고 내부 finder 카드 경계를 제거했다. 목록의 실제 상태는 공통 StatusBadge, 선택 상세는 공통 plain SidePanel과 평면 정보 행을 사용한다. 역사 밝기·마지막 관찰·상태 조치·배치 여부와 미조회/미배치 안내는 유지한다.
+- 최근 활동은 공통 `최근 활동` 제목·전체 보기 arrow와 실제 상태/outcome badge를 소비한다. 눈에 보이는 시각은 현장 시간의 시·분·초이며 전체 날짜·시각은 화면 읽기용 텍스트와 전체 로그에 남긴다. unknown은 성공으로 표시하지 않는다. 같은 이벤트 내용의 새 배열이나 무관한 렌더는 현재 row/5초 타이머를 초기화하지 않고 실제 내용·scope 변경은 초기화한다.
+- retained query 목록은 source/보존 membership이 같을 때 identity를 유지한다. 매 clock wake에서 만료 여부를 계속 판단하고 오류·fetch/paused 동안 기존 활동을 숨기는 계약을 유지한다. 전체 로그는 실제 time/status/content만 공통 DataGrid에 연결하며 50/100/500/1000·날짜 초안·cursor·401/400/410·보존 기간·초점/안전 영역을 유지한다.
+
+### 미구현
+
+- optional eyebrow는 공통 PageHeader slot이 없어 총괄의 공통 후속으로 남는다. 이 메뉴 작업이 공통 소스나 다른 메뉴를 수정하지 않았다.
+- 이번 작업은 집중 단위 검증 범위이며 최종 통합 타입/UI 정책/빌드·fixture 화면 검증은 Task 11에 남는다. 실제 서비스·장비 refresh 클릭, WebView/Gateway/LED HIL은 수행하지 않는다.
+
+### 부족하거나 개선이 필요한 기능
+
+- DOM/타이머 단위 검증은 320/390/562px·양테마 실제 bounds·대비·native scroll/터치 완료 근거가 아니다. 특히 두 opener의 portal 반환·DataGrid 긴 내용·짧은 화면 안전 영역은 최종 fixture 화면 확인이 필요하다.
+- 실제 CAD/조명 수/상태와 목업 데이터 차이는 교정 대상이 아니다. 운영 알람 정책·BIO 관찰/건강·오프라인 안전 기준 및 서버/API 한계는 기존 기록을 유지한다.
+
+### 관련 파일
+
+- `apps/web/src/features/monitoring/{MonitoringView,MonitoringFixtureFinder,FixtureDetailPanel,MonitoringLogTicker,MonitoringLogDrawer}.tsx`, `useMonitoringActivity.ts`, `monitoring-activity-presentation.ts`와 직접 관련 시험. pin Popover·지도 renderer/camera·갱신 job·알람센터 API는 기존 구현을 소비한다.
+
+### 갱신 규칙
+
+- 실제 opener/scope/보존·query·갱신 의미와 시각 배치를 구분한다. 후속 공통 eyebrow와 Task 11의 실제 실행 결과를 회수한 뒤에만 해당 검증 완료 상태를 기록한다. 과거 단일 Popover·하단 refresh 설명은 당시 구현 이력으로 보존한다.
+
 ## 2026-10-10 공유 지도 chrome (Task 4)
 
 ### 구현 완료
