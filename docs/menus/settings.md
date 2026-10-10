@@ -1,12 +1,37 @@
 # 설정 메뉴 기능 현황 및 구현 설계
 
+## 2026-10-10 최종 리뷰 설정 수리 (Task 11)
+
+### 구현 완료
+
+- 비밀번호 POST부터 principal/session refresh 완료까지 optional onPendingChange로 공통 dialog의 isPending을 유지한다. 닫기/Escape/바깥 클릭을 차단해 실제 서버 변경의 성공 응답을 처리하는 form owner와 중복 요청 guard를 보존한다. 성공 또는 실패가 끝나면 닫기를 다시 허용한다. 독립 default card의 API/검증·외부 principal 변경/unmount 늦은 응답 보호는 불변이다.
+- 기존 pending 중 닫아 성공 응답을 무시하던 테스트 기대를 교정했다. 새 RED4 FAIL 후 보안 두 suite38 PASS, 성공 cache/user·세션 재조회 및 실패 후 닫기/MFA code 유지 확인이다.
+- 맵 버전 focus는 RevisionPanel의 실제 section ref, gallery IO 대상은 configured Card callback ref map을 사용한다. DOM query 없이 최초 focus/scroll 의도·최대2/offscreen cleanup을 유지한다. 현장 구성은 공통 Heading customer-section-title variant로 표시한다. IO 테스트는 전체 IntersectionObserverEntry 필드와 실제 observer interface를 갖춘 fixture다.
+- refs/현장/갤러리/editor/save·stage ACK 직접6 suite117 PASS. 세 정책 파일 inspectUiSource 단일 검사에서 findings[]/exit0을 확인했다. 정책/anchor/baseline을 완화하지 않았다.
+
+### 미구현
+
+- 최종 전체 type/UI/build/browser 검증은 root의 통합 회수에 남아 있다. 직접155 PASS가 제품 build/실장비 성공 증거는 아니다.
+
+### 부족하거나 개선이 필요한 기능
+
+- 이미 보낸 비밀번호 요청을 서버에서 취소할 계약은 없다. pending 중에는 화면을 유지하고 결과를 처리한다. 다른 principal 전환이나 전체 owner unmount의 늦은 응답은 기존대로 차단한다. 대형 CAD resource/성능 한계는 유지된다.
+
+### 관련 파일
+
+- `FloorEditorView.tsx`, `settings/floor-plans/FloorPlanSettingsView{,.test}.tsx`, `settings/site/SiteOperationsView.tsx`, `settings/security/{AccountSecurityView,PasswordSettingsView}.tsx`, `AccountSecurityView.test.tsx`.
+
+### 갱신 규칙
+
+- 아래 Task10의 pending-dismiss 실험 기록은 이 수리의 진행 중 닫기 차단 계약으로 대체한다. 최초 실패/수리 직접 증거/최종 통합 검증을 별도로 기록한다.
+
 ## 2026-10-10 보안 요약·비밀번호 편집·MFA/session 배치 (Task 10)
 
 ### 구현 완료
 
 - 계정 보안의 비밀번호는 정책을 안내하는 요약 카드와 명시 변경 dialog로 표시한다. 실제 PasswordChangeCard의 optional presentation=embedded는 중복 카드/제목만 생략하며 default card 및 독립 PasswordSettingsView export는 그대로다. 새 password route는 만들지 않았다.
 - desktop 비밀번호/MFA 2열·활성 세션 전폭, mobile stack이다. viewer는 기존대로 MFA 조회/표시가 없고 비밀번호/세션만 제공한다. MFA owner는 dialog 밖에서 상시 mounted로 secret/enrollment/code/recovery 초안을 유지한다.
-- 실제 current/new/confirmation·8–1024 검증·pending 중복 차단·principal late response·세션 회전 갱신·현재 세션 강한 확인/revoke/실패 처리를 유지한다. 비밀번호 dialog 닫기는 focus를 trigger로 돌리고 plaintext form을 unmount한다. 이후 늦은 응답은 이전 owner가 cache/principal을 복원하지 않는다. 공통 eager 계정/로그아웃은 복제하지 않았다.
+- 실제 current/new/confirmation·8–1024 검증·pending 중복 차단·principal late response·세션 회전 갱신·현재 세션 강한 확인/revoke/실패 처리를 유지한다. 비밀번호 dialog는 진행 중 닫기를 차단한다(Task11 수리). 요청 종료 후 닫기는 focus를 trigger로 돌리고 plaintext form을 unmount한다. 외부 principal 전환/unmount 이후 늦은 응답은 이전 owner가 cache/principal을 복원하지 않는다. 공통 eager 계정/로그아웃은 복제하지 않았다.
 - 두 직접 security suite 35 PASS/0 FAIL/0 SKIP(exit0). 새 dialog/embedded 계약 RED2 FAIL/filtered32 후 GREEN이며 MFA/theme/dialog/recovery/session 수명과 password pending-dismiss/reopen 늦은 응답을 확인했다.
 
 ### 미구현

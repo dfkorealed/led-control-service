@@ -20,9 +20,10 @@ export function PasswordSettingsView() {
 
 interface PasswordChangeCardProps {
   presentation?: "card" | "embedded";
+  onPendingChange?: (pending: boolean) => void;
 }
 
-export function PasswordChangeCard({ presentation = "card" }: PasswordChangeCardProps = {}) {
+export function PasswordChangeCard({ presentation = "card", onPendingChange }: PasswordChangeCardProps = {}) {
   const queryClient = useQueryClient();
   const requestInFlight = useRef(false);
   const mountedRef = useRef(false);
@@ -74,6 +75,8 @@ export function PasswordChangeCard({ presentation = "card" }: PasswordChangeCard
       && lifecycleGenerationRef.current === operation.lifecycle
       && operationGenerationRef.current === operation.id;
     setIsPending(true);
+    // The embedding dialog must keep this owner mounted until principal/session refresh finishes.
+    onPendingChange?.(true);
     setErrorMessage("");
     setSuccessMessage("");
     try {
@@ -94,6 +97,7 @@ export function PasswordChangeCard({ presentation = "card" }: PasswordChangeCard
       if (isCurrentOperation()) {
         requestInFlight.current = false;
         setIsPending(false);
+        onPendingChange?.(false);
       }
     }
   }
