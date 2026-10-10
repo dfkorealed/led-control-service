@@ -15,6 +15,7 @@
 - 후속 취합: 통계 `4d3cda30`(직접8파일171 PASS)와 감사34행표를 확인했고, 모니터링/제어/통계 세 결과를 소유파일 겹침 없이 교정branch에 로컬통합했다. 설정8–10은 별도branch 진행 중이며 공통eyebrow 보완을 통합branch에서 이어간다. 타입/정책/빌드/화면/독립리뷰 및 기본branch병합은 미완료다.
 - 설정 홈·현장/층·등록(Task8) `ec2eb023`의 소유11파일과 직접8 suites138 PASS를 취합했다. 실제 폼 owner/권한/BIO·보관/복원·등록 session을 유지한 표현 교정이며 설정 Task9·10과 공통 eyebrow는 진행 중이다. 최대12개 controlled browser case는 작성·목록 확인까지만 완료했고 실제 실행은 최종 source 통합 뒤 진행한다.
 - 공통 eyebrow `121cd277`(공통33 PASS·집중소비10 PASS)와 설정8 `ec2eb023`, 신규12case E2E 준비 `2a42c3eb`를 교정branch에 통합했다. 설정9/10 진행 중, 실제browser와 최종타입/정책/빌드·한 번의통합리뷰는 미완료다. 기존 overline11px·자간 상속의 근사 한계를 숨기지 않는다.
+- 도면gallery·기존이력진입·편집기chrome(Task9) `3000d17c`(직접6 suites139 PASS) 소유10파일을 교정branch에 통합했다. scoped snapshot/최대2 readonly renderer와 실제lease·draft·restore·save ACK를 보존한다. 보안Task10 및 실제browser/최종검증은 미완료며 대형CAD/GPU성능·서버raster는 미검증이다.
 
 ## 2026-10-09 ATLAS LEAN 최종화
 

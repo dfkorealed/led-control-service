@@ -173,12 +173,14 @@
 
 **Interfaces:** `FloorPlanPreviewProps = {floorId:string; siteId:string; floorName:string; active:boolean}`. 기존 `useFloorMapSnapshot(floorId,siteId)`를 active인 경우만 사용하고 `FloorMapViewport(showControls=false)`+`FloorScene(interactive=false)` readonly로 그림. telemetry 미조회 placed fixture는 `unobservedFixtureIds`로 중립 표시. list IntersectionObserver가 보이는 configured 카드 중 최대2개만 active로 선택.
 
-- [ ] **Step 1:** RED: false/unknown/error/권한·site scope, offscreen query disabled/최대2renderer/cleanup, 실제0·unknown 표시, history URL search/hash 보존.
-- [ ] **Step 2:** FloorPlanSettingsView focused tests RED 후 176px(`h-44`) 실제 readonly preview 구현. inert 그림과 층 preview accessible label, 실제 retry/error, cache 유지; eager editor-state/lease/GPU fan-out 금지.
-- [ ] **Step 3:** 버전 이력 Link는 기존 editor URL에 `editorPanel=details`, 일반 편집 Link는 해당 query 삭제. `FloorEditorViewProps.initialPanelTab?: "properties" | "details"` 추가, invalid/default properties; initial details는 기존 desktop정보/narrow정보 panel을 열고 버전 영역 focus/scroll intent만 전달.
-- [ ] **Step 4:** 실제 이력/restore/lease/dirty/sentinel owner 유지. editor singleh1·back/save visible labels, primary save 전경은 `text-action-primary-foreground`로 수정한다.
-- [ ] **Step 5:** 변경된 gallery/route/editor tests GREEN: 최초 intent 후 theme/query 변화에 initialize/release/restore 추가0, 기존 stage/save ACK/dirty guard 유지. readonly renderer 자체를 수정한 경우만 해당 renderer tests 추가.
-- [ ] **Step 6:** F7a/b–F9 처리·실제 scene thumbnail의 자원/대형 CAD 한계를 기록, 메뉴 문서·commit. 서버 raster thumbnail/대형 CAD 성능 PASS라고 주장하지 않는다.
+- [x] **Step 1:** RED: false/unknown/error/권한·site scope, offscreen query disabled/최대2renderer/cleanup, 실제0·unknown 표시, history URL search/hash 보존.
+- [x] **Step 2:** FloorPlanSettingsView focused tests RED 후 176px(`h-44`) 실제 readonly preview 구현. inert 그림과 층 preview accessible label, 실제 retry/error, cache 유지; eager editor-state/lease/GPU fan-out 금지.
+- [x] **Step 3:** 버전 이력 Link는 기존 editor URL에 `editorPanel=details`, 일반 편집 Link는 해당 query 삭제. `FloorEditorViewProps.initialPanelTab?: "properties" | "details"` 추가, invalid/default properties; initial details는 기존 desktop정보/narrow정보 panel을 열고 버전 영역 focus/scroll intent만 전달.
+- [x] **Step 4:** 실제 이력/restore/lease/dirty/sentinel owner 유지. editor singleh1·back/save visible labels, primary save 전경은 `text-action-primary-foreground`로 수정한다.
+- [x] **Step 5:** 변경된 gallery/route/editor tests GREEN: 최초 intent 후 theme/query 변화에 initialize/release/restore 추가0, 기존 stage/save ACK/dirty guard 유지. readonly renderer 자체를 수정한 경우만 해당 renderer tests 추가.
+- [x] **Step 6:** F7a/b–F9 처리·실제 scene thumbnail의 자원/대형 CAD 한계를 기록, 메뉴 문서·commit. 서버 raster thumbnail/대형 CAD 성능 PASS라고 주장하지 않는다.
+
+실행 증거: `3000d17c`, 소유10파일/F7–F9·감사31–38행. focused RED5 FAIL/119비선택 → 최종직접6 suites139 PASS/0FAIL·SKIP. 과거backlabel·focus순서·image cache fixture 중간실패와 수리는 보고서에 구분. 교정branch 통합 완료. 실제largeCAD/GPU성능·raster·browser는 완료증거가 아니다.
 
 ### Task 10: 보안 편집·MFA·session 배치
 
