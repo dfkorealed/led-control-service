@@ -347,7 +347,7 @@ describe("FloorMap", () => {
     const map = screen.getByRole("region", { name: "층 도면" });
     expect(screen.queryByText("드래그로 이동 · 휠로 확대/축소")).not.toBeInTheDocument();
     expect(map.querySelector(".floor-map-label")).not.toBeInTheDocument();
-    const footer = legend.closest("[data-floor-map-footer]");
+    const footer = legend.closest<HTMLElement>("[data-floor-map-footer]");
     expect(footer).not.toBeNull();
     expect(map).toContainElement(footer);
     expect(footer).toContainElement(screen.getByRole("button", { name: "지도 확대" }));
