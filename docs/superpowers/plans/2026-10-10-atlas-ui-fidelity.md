@@ -80,6 +80,8 @@
 
 실행 증거: `2782a942` 공통API와 네 메뉴문서. focused13 PASS/195 filtered 제외, 변경기존3suite35 PASS. API 소비·geometry/dark 실제 확인은 후속Task3–11이며 전체suite PASS가 아니다.
 
+후속 공통 보완(페이지 통합 후·Task11 검증 전): 모니터링 감사1–2의 원본 eyebrow 표현이 현재 PageHeader API에서 누락된 점을 페이지 담당이 확인했다. optional `eyebrow?: ReactNode`를 공통 PageHeader의 title 위에 추가하고 monitoring/control/statistics 실제 원본 문자열만 소비한다. 설정은 명세의 단순 제목을 유지한다. 기본/default/ref/ARIA/단일 h1 불변의 focused RED→GREEN만 확인하며 페이지별 wrapper를 복제하지 않는다. 보완 전 해당 eyebrow는 미완료로 구분한다.
+
 ### Task 3: 고객 shell·제목·탭 소유
 
 **Files:** `features/shells/{CustomerShell,CustomerHeaderSummarySlot,CustomerAccountPanel}.tsx`, `features/sites/SiteSwitcher.tsx`(필요한 표현만), `features/control/automation/ControlModeTabs.tsx`, `features/statistics/StatisticsSubnavigation.tsx`, `features/settings/{SettingsShell,SettingsSubnavigation}.tsx`, `features/settings/settings-sections.ts`, 네 메뉴 root 및 설정6개 child의 제목 소비 부분(`SettingsView`, `site/SiteOperationsView`, `users/SiteUsersView`, `registration/RegistrationSettingsView`, `floor-plans/FloorPlanSettingsView`, `security/AccountSecurityView`).
@@ -114,11 +116,13 @@
 
 **Interfaces:** finder `initialView?: "search" | "list"`는 같은 query/list/filter state의 표현 entry만 선택. 열 때 실제 initiator ref로 닫기 focus 복귀. 갱신은 모바일에서도 지도 위. ticker title=최근 활동, 실제 item/scope만 reset 기준.
 
-- [ ] **Step 1:** RED: 두 CTA가 같은 실제 목록을 열고 각각 focus 복귀; unrelated theme/selection rerender 뒤 ticker의 현재 index/5초 timer 유지, 실제 items/scope 변경은 reset.
-- [ ] **Step 2:** 해당 finder/activity/ticker tests RED 실행 후 query/filter 결과 identity 안정화와 CTA 구현.
-- [ ] **Step 3:** intrinsic floor selector, 조명 검색·상세/별도 조명 목록, nested popover/detail Card→공통 plain surface, timestamp/refresh/ticker/log 계층 교정.
-- [ ] **Step 4:** 수정된 MonitoringView/finder/detail/activity/ticker/log 직접 consumer tests GREEN. 50/100/500/1000/cursor·stale/error/no-floor·등록 안내·권한 보존.
-- [ ] **Step 5:** monitoring 34행의 처리/보존을 작업 묶음별 기록, 메뉴 문서 갱신·commit. 실제 장비 refresh/명령 버튼은 검증 목적으로 클릭하지 않는다.
+- [x] **Step 1:** RED: 두 CTA가 같은 실제 목록을 열고 각각 focus 복귀; unrelated theme/selection rerender 뒤 ticker의 현재 index/5초 timer 유지, 실제 items/scope 변경은 reset.
+- [x] **Step 2:** 해당 finder/activity/ticker tests RED 실행 후 query/filter 결과 identity 안정화와 CTA 구현.
+- [x] **Step 3:** intrinsic floor selector, 조명 검색·상세/별도 조명 목록, nested popover/detail Card→공통 plain surface, timestamp/refresh/ticker/log 계층 교정.
+- [x] **Step 4:** 수정된 MonitoringView/finder/detail/activity/ticker/log 직접 consumer tests GREEN. 50/100/500/1000/cursor·stale/error/no-floor·등록 안내·권한 보존.
+- [x] **Step 5:** monitoring 34행의 처리/보존을 작업 묶음별 기록, 메뉴 문서 갱신·commit. 실제 장비 refresh/명령 버튼은 검증 목적으로 클릭하지 않는다.
+
+실행 증거: `5ba6fb1a`와 모니터링문서/34행처리표. 최종직접8파일161 PASS/0FAIL·SKIP, 중간실패24와focused제외는 보고서에 별도보존했다. eyebrow만공통후속queue, 실제geometry/추가POST0는Task11.
 
 ### Task 6: 수동 제어·자동화·그룹 목록
 
@@ -126,11 +130,13 @@
 
 **Interfaces:** target selection/store/command/automation/group handler 계약 불변. 그룹은 실제 owner→공통 DataGrid adapter(이름·층·대상수·실제 동기화·작업), 지원하지 않는 cell은 만들지 않음.
 
-- [ ] **Step 1:** 기존 tests의 변경 UI entry와 새 계약 RED: target count/list+clear, bare slider 입력 label·draft invalid Apply 차단, group row edit/delete/locked 상태 동일.
-- [ ] **Step 2:** 해당 case RED 실행 후 floor/target modes/actions toolbar, 제어 대상 큰 count·bounded목록, 단일 밝기 패널·draft-only presets·명시 Apply, plain history rows 구현.
-- [ ] **Step 3:** 자동화 중첩 카드/중복 heading을 제거하고 그룹 DataGrid 전환. schedule 모든 주기/시간대·BIO source/hold/동기화 필드와 create/edit/recovery owner 유지.
-- [ ] **Step 4:** 변경된 ControlView/ManualExecutionPanel/CommandHistoryPanel/automation/groups 직접 tests GREEN. frozen UUID/payload·same-click invalid input·전체 offline 차단·복구 CTA assertions는 줄이지 않는다.
-- [ ] **Step 5:** control 30행의 처리/필수 차이/동등 상태 기록, 메뉴 문서·commit. 짧은 PC·추가 POST0는 Task11에서 확인한다.
+- [x] **Step 1:** 기존 tests의 변경 UI entry와 새 계약 RED: target count/list+clear, bare slider 입력 label·draft invalid Apply 차단, group row edit/delete/locked 상태 동일.
+- [x] **Step 2:** 해당 case RED 실행 후 floor/target modes/actions toolbar, 제어 대상 큰 count·bounded목록, 단일 밝기 패널·draft-only presets·명시 Apply, plain history rows 구현.
+- [x] **Step 3:** 자동화 중첩 카드/중복 heading을 제거하고 그룹 DataGrid 전환. schedule 모든 주기/시간대·BIO source/hold/동기화 필드와 create/edit/recovery owner 유지.
+- [x] **Step 4:** 변경된 ControlView/ManualExecutionPanel/CommandHistoryPanel/automation/groups 직접 tests GREEN. frozen UUID/payload·same-click invalid input·전체 offline 차단·복구 CTA assertions는 줄이지 않는다.
+- [x] **Step 5:** control 30행의 처리/필수 차이/동등 상태 기록, 메뉴 문서·commit. 짧은 PC·추가 POST0는 Task11에서 확인한다.
+
+실행 증거: `0e3f2080`와 제어문서/30행처리표. 신규5 PASS; 직접11파일 최초420 PASS/3 FAIL→해당2파일192 PASS, 소스가 그대로인나머지9파일231 PASS는 이전실행증거로구분한다. 같은suite재실행수치는합산하지않는다. eyebrow·실제shortPC geometry는후속queue/Task11.
 
 ### Task 7: 통계 개요·분석·보고서
 
