@@ -26,13 +26,16 @@ test.beforeEach(async ({ context, baseURL }) => {
   await installMockApiBoundary(context, baseURL);
 });
 
-async function customer(page: Page, role: "admin" | "viewer" = "admin") {
+async function customer(page: Page, role: "admin" | "viewer" = "admin", statistics = false) {
   const writes: Array<{ method: string; path: string; body: string | null }> = [];
   page.on("request", request => {
     const url = new URL(request.url());
     if (url.pathname.startsWith("/api/") && !["GET", "HEAD"].includes(request.method()))
       writes.push({ method: request.method(), path: url.pathname, body: request.postData() });
   });
+  // Statistics helpers also register a floorless dashboard. Install them first
+  // so the shared customer dashboard remains authoritative for the four roots.
+  if (statistics) await installFirstScreenStatisticsFixtures(page);
   const api = await installSettingsApiRoutes(page, role, {
     ids: { siteId, floorId, gatewayId }, fixtures, readyMapDocument: true, commandId
   });
@@ -54,6 +57,8 @@ async function customer(page: Page, role: "admin" | "viewer" = "admin") {
   };
   await page.route(`**/api/sites/${siteId}/settings`, route => route.request().method() === "GET"
     ? route.fulfill({ json: operatingSettings }) : route.fallback());
+  await page.route(`**/api/sites/${siteId}/users`, route => route.request().method() === "GET"
+    ? route.fulfill({ json: { users: [], count: 0, limit: 100 } }) : route.fallback());
   await page.route(`**/api/sites/${siteId}/floors/${floorId}/fixtures/settings?**`, route => route.request().method() === "GET"
     ? route.fulfill({ json: { items: [], nextCursor: null } }) : route.fallback());
   await page.route("**/api/commands?**", route => route.request().method() === "GET"
@@ -99,13 +104,31 @@ async function documentFits(page: Page, fixed = false) {
     viewport: innerHeight, y: scrollY }))).toEqual({ height: 600, viewport: 600, y: 0 });
 }
 
+async function rootReady(page: Page, menu: typeof roots[number]) {
+  await expect(page.getByRole("region", { name: "현장 전체", exact: true }).getByText("16대", { exact: true })).toBeVisible();
+  if (menu === "monitoring" || menu === "control") {
+    const map = page.getByTestId(menu === "monitoring" ? "monitoring-map-viewport" : "target-selection-map-viewport");
+    await expect(map.locator("canvas").first()).toBeVisible();
+    await expect(page.getByRole("button", { name: menu === "monitoring" ? /맵 선택/ : /표시 층/ })).toContainText("B2");
+  } else if (menu === "statistics") {
+    await expect(page.getByRole("group", { name: "에너지 요약", exact: true })).toContainText("4.25");
+    await expect(page.getByRole("img", { name: "일별 상태 기반 추정 전력 사용량 꺾은선 차트", exact: true }).locator("svg").first()).toBeVisible();
+    await expect(page.getByRole("list", { name: "차트 데이터 및 수집 상태", exact: true })).toContainText("2026-08-25");
+  } else {
+    for (const label of ["현장 관리", "유저 관리", "조명 등록", "맵 관리", "계정 보안"])
+      await expect(page.getByRole("link", { name: label, exact: true }).last()).toBeVisible();
+    await expect(page.getByRole("link", { name: "유저 관리", exact: true }).last()).toContainText("사용자 0명");
+  }
+}
+
 test("PC four roots own one visible h1 and settings/statistics subnav retain URL scope", async ({ page }, info) => {
   await page.setViewportSize({ width: 1440, height: 900 }); await theme(page, "light");
-  const { writes } = await customer(page); await installFirstScreenStatisticsFixtures(page);
+  const { writes } = await customer(page, "admin", true);
   for (const menu of roots) {
     await page.goto(`/${menu}?siteId=${siteId}&keep=value#fidelity`);
     await expect(page.locator("[data-shell-navigation=desktop]")).toBeVisible();
     await expect(page.locator("h1:visible")).toHaveCount(1);
+    await rootReady(page, menu);
     await documentFits(page); await evidence(page, info, `pc-${menu}`);
     if (menu === "control") {
       const tabs = page.getByRole("tablist", { name: "제어 방식", exact: true });
@@ -193,10 +216,10 @@ test("short manual recovery keeps map viewport 240, CTA reachable and draft/tool
 });
 
 test("dark four roots and real site/alarm portals inherit the customer palette", async ({ page }, info) => {
-  await page.setViewportSize({ width: 1440, height: 900 }); await theme(page, "dark"); const { writes } = await customer(page);
-  await installFirstScreenStatisticsFixtures(page);
+  await page.setViewportSize({ width: 1440, height: 900 }); await theme(page, "dark"); const { writes } = await customer(page, "admin", true);
   for (const menu of roots) {
     await page.goto(`/${menu}?siteId=${siteId}`); await expect(page.locator("html")).toHaveAttribute("data-customer-theme", "dark");
+    await rootReady(page, menu);
     const topbar = page.locator("[data-shell-topbar]"); await expect(topbar).toHaveCSS("background-color", "rgb(24, 35, 52)");
     await expect(page.locator("[data-app-shell]")).toHaveCSS("background-color", "rgb(15, 23, 36)");
     await evidence(page, info, `dark-${menu}`);
