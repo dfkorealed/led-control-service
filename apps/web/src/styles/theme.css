@@ -319,6 +319,8 @@
   --text-display--line-height: 2.5rem;
   --text-page-title: 1.75rem;
   --text-page-title--line-height: 2.25rem;
+  --text-customer-page-title: 1.625rem;
+  --text-customer-page-title--line-height: 1.35;
   --text-section-title: 1.5rem;
   --text-section-title--line-height: 2rem;
   --text-card-title: 1.25rem;
@@ -337,6 +339,8 @@
   --text-overline--line-height: 1rem;
   --text-metric: 1.75rem;
   --text-metric--line-height: 2.125rem;
+  --text-customer-metric: 1.875rem;
+  --text-customer-metric--line-height: 1.3;
   --radius-control: 0.625rem;
   --radius-panel: 0.875rem;
   --radius-popover: 0.875rem;
