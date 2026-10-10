@@ -6,7 +6,7 @@ import { execFileSync } from "node:child_process";
 import { createRequire } from "node:module";
 
 // Updating this reviewed trust anchor is a policy change, never a baseline edit.
-const approvedSourceRef = "fac0d214653c03cc277993887c0e0c40e440b20d";
+const approvedSourceRef = "e841c57b11321a5ae35d15920031020089f06ee2";
 const webRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 function approvedSource(path) {
   return execFileSync("git", ["show", `${approvedSourceRef}:apps/web/${path}`], { cwd: webRoot, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
@@ -447,6 +447,9 @@ export function inspectUiSource(path, source) {
     if (!approvedLandingVariants.has(name) && !themeTokens.has(`--breakpoint-${name}`)) add("unapproved-breakpoint", m[0], m.index);
   });
   scan(/(?<![\w-])(?:bg|text|border(?:-[trblxyse])?|ring(?:-offset)?|outline|fill|stroke|decoration|accent|caret|from|via|to)-((?:brand|surface|content|border|action|status|chart|fixture|map|customer)-[\w-]+)/g, m => {
+    // Approved customer text tokens share the palette prefix, but only their
+    // text utilities may cross this classifier; unknown names remain closed.
+    if (m[0].startsWith("text-") && themeTokens.has(`--text-${m[1]}`)) return;
     if (!themeTokens.has(`--color-${m[1]}`)) add("unapproved-color", m[0], m.index);
   });
   scan(/(?<![\w-])text-([a-z][\w-]*)(?![\w-]|\s*:)/g, m => {
@@ -478,7 +481,7 @@ export function inspectUiSource(path, source) {
   scan(/(?<![\w-])(?:leading|tracking)-(?:\[[^\]\n]+\]|\([^\)\n]+\))/g, m => add("arbitrary-typography", m[0], m.index));
   // Each semantic text size owns its paired line height; no slash override is
   // approved. Color opacity modifiers such as text-content-primary/70 differ.
-  scan(/(?<![\w-])text-(?:display|page-title|section-title|card-title|body-lg|body-sm|body|label|caption|overline|metric)\/(?:\[[^\]\n]+\]|\([^\)\n]+\)|[^\s"'<>}]+)/g, m => add("unapproved-typography", m[0], m.index));
+  scan(/(?<![\w-])text-(?:display|page-title|section-title|card-title|body-lg|body-sm|body|label|caption|overline|metric|customer-page-title|customer-metric)\/(?:\[[^\]\n]+\]|\([^\)\n]+\)|[^\s"'<>}]+)/g, m => add("unapproved-typography", m[0], m.index));
   scan(/(?<![\w-])(?:bg|text|border|ring|outline|fill|stroke|decoration|accent|caret|from|via|to)-(?:[a-z]+-\d{2,3}|black|white)(?![\w-])/g, m => add("unapproved-color", m[0], m.index));
   const queries = path.endsWith(".css") ? [] : queryFingerprints(text, path);
   for (const query of queries) add("query-selector", query.match, query.index);

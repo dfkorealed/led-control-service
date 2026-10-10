@@ -1,6 +1,14 @@
 # UI 간격 규칙
 
-기준일: 2026-10-09
+기준일: 2026-10-10
+
+## 2026-10-10 고객 compact typography·spacing 계약
+
+- 독립 승인된 token-only commit `e841c57b11321a5ae35d15920031020089f06ee2`를 현재 정책 anchor로 사용한다. 실제 PostCSS AST는 738선언이며 이전 승인734개 이름·값을 전수 보존하고 고객 page title/metric의 네 선언만 추가했다. `ui-policy-baseline.json`은 동일 exact ref와 빈 `files: {}`를 유지한다.
+- 고객 page title은 `--text-customer-page-title: 1.625rem` / 행간 `1.35`, metric은 `--text-customer-metric: 1.875rem` / 행간 `1.3`이다. 기존 page/section/card/metric, palette·font·weight·tracking은 변경하지 않는다.
+- 고객 compact 표현은 desktop page26px/metric30px, 모바일 기존 section24px/32px와 metric28px/34px를 사용한다. 목업의 모바일23px/27px는 각각 가장 가까운 기존 scale로 근사하며 별도 토큰을 추가하지 않는다. 고객 section title은 기존 card20px/28px, 작은 카드 제목은 기존 body-lg16px/24px를 사용한다.
+- 고객 화면의 직계 section gap은 기존 기본24px 규칙의 명시적 예외인20px(`gap-5`), card grid18px(`gap-4.5`), panel inset desktop20px/mobile16px(`p-5 max-compact:p-4`)다. main body는 `px-7 py-6 max-compact:px-3.5 max-compact:py-4.5`로, 목업 desktop 세로26px를 승인24px로 근사한다. header gap20/12px, tab track `gap-2 pb-2`, 지도 chrome16/12px 및 footer14/10px를 기존 spacing scale로 소비한다.
+- 고객 opt-in 표현에만 적용하며 기존 비고객/default typography·간격과760px 경계·44px 및 더 큰 기존 지도 hit를 유지한다. token 승인과 전체 정책 검증은 소비 화면의 시각 검증이나 HIL 완료를 뜻하지 않는다.
 
 ## 2026-10-09 ATLAS LEAN 마무리
 

@@ -782,6 +782,15 @@ test("I8 requires one complete canonical theme declaration inventory", async () 
   assert.deepEqual(cases.map(([source, rule]) => inspectUiSource(path, source).some(v => v.rule === rule)), Array(9).fill(true));
 });
 
+test("accepts reviewed customer typography utilities while rejecting unknown customer scale names", () => {
+  assert.deepEqual(inspectUiSource("src/Probe.tsx", 'const c = "text-customer-page-title max-compact:text-section-title text-customer-metric max-compact:text-metric";'), []);
+  assert.ok(inspectUiSource("src/Probe.tsx", 'const c = "text-customer-rogue";').some(v => v.rule === "unapproved-color"));
+  assert.ok(inspectUiSource("src/Probe.tsx", 'const c = "bg-customer-page-title";').some(v => v.rule === "unapproved-color"));
+  for (const utility of ["text-customer-page-title/7", "text-customer-metric/[17px]"]) {
+    assert.ok(inspectUiSource("src/Probe.tsx", `const c = "${utility}";`).some(v => v.rule === "unapproved-typography"));
+  }
+});
+
 test("rejects unknown theme names, semantic typos and arbitrary responsive breakpoints", () => {
   assert.ok(inspectUiSource("src/styles/theme.css", '@theme static { --text-rogue: 1rem; --breakpoint-rogue: 777px; }').some(v => v.rule === "unapproved-theme-token"));
   assert.deepEqual(inspectUiSource("src/New.tsx", '"max-[777px]:p-4 tablet:bg-surface-pannel text-rogue rounded-rogue shadow-rogue"').map(v => v.rule), ["unapproved-breakpoint", "unapproved-color", "unapproved-typography", "unapproved-theme-utility", "unapproved-theme-utility"]);
@@ -1035,7 +1044,7 @@ test("I4 CLI rejects every production DOM query with a zero baseline", async () 
     await mkdir(join(root, "scripts"));
     await writeFile(join(root, "src/App.tsx"), 'import "./styles.css";');
     await writeFile(join(root, "src/styles.css"), canonicalStyles);
-    await writeFile(join(root, "scripts/ui-policy-baseline.json"), JSON.stringify({ version: 1, sourceRef: "fac0d214653c03cc277993887c0e0c40e440b20d", files: {} }));
+    await writeFile(join(root, "scripts/ui-policy-baseline.json"), JSON.stringify({ version: 1, sourceRef: "e841c57b11321a5ae35d15920031020089f06ee2", files: {} }));
     await writeFile(join(root, "src/components/ConfirmDialog.tsx"), 'dialogElement.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR);');
     assert.equal(run().status, 1);
     await writeFile(join(root, "src/components/ConfirmDialog.tsx"), 'const unused = 1;\ndialogElement.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR);');
@@ -1059,7 +1068,7 @@ test("CLI inventories only production src and rejects any policy debt", async ()
     await writeFile(join(root, "src/App.tsx"), 'import "./styles.css";');
     await writeFile(join(root, "src/styles.css"), canonicalStyles);
     await writeFile(join(root, "src/ignored.test.tsx"), '"p-[15px]"');
-    await writeFile(join(root, "scripts/ui-policy-baseline.json"), JSON.stringify({ version: 1, sourceRef: "fac0d214653c03cc277993887c0e0c40e440b20d", files: {} }));
+    await writeFile(join(root, "scripts/ui-policy-baseline.json"), JSON.stringify({ version: 1, sourceRef: "e841c57b11321a5ae35d15920031020089f06ee2", files: {} }));
     assert.equal(run().status, 0);
     await writeFile(join(root, "src/App.tsx"), 'import "./new.css";');
     assert.equal(run().status, 1);
@@ -1223,7 +1232,7 @@ test("baseline must preserve the approved Git anchor and an empty violation map"
     await writeFile(join(root, "scripts/ui-policy-baseline.json"), JSON.stringify({ version: 1, sourceRef: "0000000000000000000000000000000000000000", files: {} }));
     assert.equal(run().status, 1, "an edited sourceRef must fail even without current violations");
     await writeFile(join(root, "src/App.tsx"), 'const clean = true;');
-    await writeFile(join(root, "scripts/ui-policy-baseline.json"), JSON.stringify({ version: 1, sourceRef: "fac0d214653c03cc277993887c0e0c40e440b20d", files: { "src/App.tsx": { "css-import": { count: 2, matches: { "./styles.css": 2 } } } } }));
+    await writeFile(join(root, "scripts/ui-policy-baseline.json"), JSON.stringify({ version: 1, sourceRef: "e841c57b11321a5ae35d15920031020089f06ee2", files: { "src/App.tsx": { "css-import": { count: 2, matches: { "./styles.css": 2 } } } } }));
     assert.equal(run().status, 1, "non-empty debt allowances must fail even with clean source");
   } finally {
     await rm(root, { recursive: true, force: true });
@@ -1296,7 +1305,7 @@ test("approved landing policy rejects mutated variant or anchor", async () => {
     await mkdir(join(root, "scripts"));
     await writeFile(join(root, "src/App.tsx"), 'import "./styles.css";');
     await writeFile(join(root, "src/styles.css"), canonical);
-    await writeFile(join(root, "scripts/ui-policy-baseline.json"), JSON.stringify({ version: 1, sourceRef: "fac0d214653c03cc277993887c0e0c40e440b20d", files: {} }));
+    await writeFile(join(root, "scripts/ui-policy-baseline.json"), JSON.stringify({ version: 1, sourceRef: "e841c57b11321a5ae35d15920031020089f06ee2", files: {} }));
     assert.equal(run().status, 0, "reviewed immutable ref and empty baseline");
     for (const width of [430, 720, 1050]) {
       await writeFile(join(root, "src/styles.css"), canonical.replace(new RegExp(`@custom-variant [^;]+${width}px[^;]+;`), ""));
