@@ -23,6 +23,7 @@
 - API·DB·공유 schema·Gateway·펌웨어·실장비·배포·remote push/PR 변경 없음. fake 도면/수치/필터/보고서/센서 기능을 이식하지 않는다.
 - 기존 palette와 canonical token 값 보존. typography 신규4선언만 검토 후 추가하고 정확한 token commit으로 policy anchor를 회전한다. baseline/native/literal/selector 예외는 늘리지 않는다.
 - 총괄은 보고서 취합·계획/상태 갱신·통합에 집중한다. 공통 완료 뒤 페이지 담당에 전달하며 공유 파일의 동시 구현은 금지한다. 메뉴 현황 문서는 코드와 같은 작업에서 5개 기존 구성을 유지한다.
+- 실행 속도 보완(범위·검증량 불변): 공통Tasks1–4를 고정한 후 파일 집합이 분리된 네 메뉴 owner는 각각 별도 worktree/branch로 실행할 수 있다(모니터링Task5, 제어Task6, 통계Task7, 설정Tasks8–10은 내부 순차). 같은 checkout에는 writer 한 명, 공통/API/타 메뉴/계획 파일 수정은 금지한다. 동시 세 페이지까지 실행하고 먼저 끝나는 slot에 설정을 이어가며 총괄이 파일 범위·보고서·commit을 대조해 교정 브랜치에 순서대로 통합한다. 설정의 계획된 RegistrationPanel/편집기 소비자 수정은 설정 owner만 소유한다. 공유 계약 변경이 필요하면 페이지 writer가 멈추고 총괄에게 반환한다.
 - 사용자 LEAN 요구: 새 동작/계약은 focused RED→GREEN, 순수 스타일 mirror test 금지. 변경 관련 unit과 마지막 Web 정책/타입/빌드·제한 브라우저 확인만 실행. 토큰 승인 외에는 최종 통합 리뷰 한 번으로 묶고 전체 583/Lab/canonical/HIL은 실행하지 않는다.
 
 ## Review Focus
@@ -45,16 +46,20 @@
 
 **Interfaces:** 신규 `--text-customer-page-title: 1.625rem`, `--text-customer-page-title--line-height: 1.35`, `--text-customer-metric: 1.875rem`, `--text-customer-metric--line-height: 1.3`. 기존 이름→값 전수 불변, palette 추가 없음.
 
-- [ ] **Step 1:** 격리 dependency 준비(`pnpm install --frozen-lockfile`, `pnpm workspace:prepare`), 기존 서버/다른 worktree 출력은 수정하지 않는다.
-- [ ] **Step 2:** token 계약 RED: 신규4 값 정확 일치, 기존 승인 AST의 각 이름/값 불변, 고객 shadow/alias 경계 유지를 assert한다.
-- [ ] **Step 3:** 해당 테스트만 실행하여 신규 token 부재로 실패함을 확인한다.
-- [ ] **Step 4:** 네 선언만 추가한 token-only commit을 만든다. 실제 AST 개수를 기록하며 과거734+4를 무조건 현재 개수로 쓰지 않는다.
-- [ ] **Step 5:** UI/UX 담당의 token-only 독립 검토 뒤 그 exact commit으로 anchor를 회전하고 policy test·spacing 문서에 의도/고객 compact 예외를 기록한다.
-- [ ] **Step 6:** token test와 `pnpm --filter @led-control/web test:ui-policy`, `ui:check` GREEN을 확인하고 정책/doc commit. 중간 stale-anchor 실패는 최종 정책 PASS로 기록하지 않는다.
+- [x] **Step 1:** 격리 dependency 준비(`pnpm install --frozen-lockfile`, `pnpm workspace:prepare`), 기존 서버/다른 worktree 출력은 수정하지 않는다.
+- [x] **Step 2:** token 계약 RED: 신규4 값 정확 일치, 기존 승인 AST의 각 이름/값 불변, 고객 shadow/alias 경계 유지를 assert한다.
+- [x] **Step 3:** 해당 테스트만 실행하여 신규 token 부재로 실패함을 확인한다.
+- [x] **Step 4:** 네 선언만 추가한 token-only commit을 만든다. 실제 AST 개수를 기록하며 과거734+4를 무조건 현재 개수로 쓰지 않는다.
+- [x] **Step 5:** UI/UX 담당의 token-only 독립 검토 뒤 그 exact commit으로 anchor를 회전하고 policy test·spacing 문서에 의도/고객 compact 예외를 기록한다.
+- [x] **Step 6:** token test와 `pnpm --filter @led-control/web test:ui-policy`, `ui:check` GREEN을 확인하고 정책/doc commit. 중간 stale-anchor 실패는 최종 정책 PASS로 기록하지 않는다.
+
+실행 증거: token `e841c57b` 독립 승인, 정책/doc `ef9b52c9`. 신규6 PASS/정책79 PASS/UI0·0, baseline debt 추가0·삭제0. 최초 classifier 충돌1 FAIL은 승인 typography 분류 교정 뒤 동일 범위에서 해소했으며 신규 계약과 구분해 기록했다.
 
 ### Task 2: 공통 고객 표현 컴포넌트
 
 **Files:** 수정 `components/ui/{Typography,PageHeader,Card,Button,UnderlineNavigation,FilterPanel,DataGrid,SidePanel}.tsx`, `components/ui/index.ts`, `components/ui/operations/{InlineStatusSummary,RecentActivityTicker}.tsx`, `components/ui/fields/Slider.tsx`; 생성 `components/ui/NavigationCard.tsx`, `components/ui/navigation-item-recipe.ts`, `components/ui/CustomerPresentation.test.tsx`. 모든 경로는 `apps/web/src/` 상대다.
+
+실행 중 확인한 필수 소비자 확장: `components/ui/utils/{cn.ts,cn.test.ts}`에서 승인된 `customer-page-title`/`customer-metric` 두 semantic text 이름만 additive 등록한다. 등록이 없으면 클래스 병합기가 크기를 색상으로 오인한다. 기존 entries/merge 정책은 불변이며 크기+foreground 조합·responsive size 교체를 focused 검증한다. Task1 token-only의 cn 불변과 별도다.
 
 **Interfaces:**
 
@@ -67,11 +72,13 @@
 - `SidePanelProps.surface?: "card" | "plain"` default card, embedded plain은 중복 경계 제거. `SliderProps.presentation?: "field" | "bare"` default field, bare는 외곽 input 경계 없이 실제 label/설명/오류/ARIA·큰 thumb hit 유지.
 - Button과 DataGrid는 기존 고객 theme scope에서만 soft/neutral 표현을 적용한다. 기본 비고객 표현은 불변.
 
-- [ ] **Step 1:** 새 opt-in/default 계약 테스트를 작성: 단일 link, caller children/ARIA/ref 유지, default 불변, 필터0 badge 없음/양수 count 표시, bare slider label·keyboard 유지.
-- [ ] **Step 2:** `CustomerPresentation.test.tsx`와 변경된 기존 FilterPanel/RecentActivityTicker/Slider 계약의 해당 case만 RED 확인.
-- [ ] **Step 3:** 공통 recipe/variant 구현. 본문 desktop `px-7 py-6`, mobile `px-3.5 py-4.5`, 직계 section gap20px, card grid18px, inset20/16px를 공통 소유한다.
-- [ ] **Step 4:** 동일 targeted 계약 GREEN; 변경한 Typography/DataGrid/InlineStatusSummary 기존 suite를 한 번 실행한다.
-- [ ] **Step 5:** S3–S6/S9–S12 처리·기본 소비자 보존 근거를 공통 보고서에 기록하고 commit.
+- [x] **Step 1:** 새 opt-in/default 계약 테스트를 작성: 단일 link, caller children/ARIA/ref 유지, default 불변, 필터0 badge 없음/양수 count 표시, bare slider label·keyboard 유지.
+- [x] **Step 2:** `CustomerPresentation.test.tsx`와 변경된 기존 FilterPanel/RecentActivityTicker/Slider 계약의 해당 case만 RED 확인.
+- [x] **Step 3:** 공통 recipe/variant 구현. 본문 desktop `px-7 py-6`, mobile `px-3.5 py-4.5`, 직계 section gap20px, card grid18px, inset20/16px를 공통 소유한다.
+- [x] **Step 4:** 동일 targeted 계약 GREEN; 변경한 Typography/DataGrid/InlineStatusSummary 기존 suite를 한 번 실행한다.
+- [x] **Step 5:** S3–S6/S9–S12 처리·기본 소비자 보존 근거를 공통 보고서에 기록하고 commit.
+
+실행 증거: `2782a942` 공통API와 네 메뉴문서. focused13 PASS/195 filtered 제외, 변경기존3suite35 PASS. API 소비·geometry/dark 실제 확인은 후속Task3–11이며 전체suite PASS가 아니다.
 
 ### Task 3: 고객 shell·제목·탭 소유
 
@@ -79,11 +86,13 @@
 
 **Interfaces:** CustomerShell은 visible route h1을 제거하며 본문 PageHeader가 단일 h1/actions를 소유. `shell-current-menu` hook은 필요시 sr-only span 유지. PC site-left/실제4summary-center/alarm-theme-account-right 한 행; 모바일 기존 logo/select 첫 행+summary 둘째 행. account Link는 기존 settings/security를 사용하며 새 query/duplicate panel 없음. 설정은 `SettingsSection.pageTitle: string`을 추가하고 capability-filtered6목록의 trailing-slash 정규화 pathname을 정확히 매칭해 SettingsShell이 h1을 tabs 위에 소유한다. 제목은 설정/현장 관리/사용자 관리/조명 등록/도면 관리/계정 및 보안이다. child는 중복 제목만 제거하고 기존 description/actions를 한 본문 toolbar에 유지한다. editor 같은 상세 경로는 Shell header 없이 실제 child가 h1을 소유한다. 새 title context나 query는 없다.
 
-- [ ] **Step 1:** CustomerShell/summary/settings shell focused RED: body 단일h1, header grid 배치, 긴 현장명/summary0·unknown/capability, 기존 eager logout 실패/차단 유지를 assert.
-- [ ] **Step 2:** 해당 case RED 실행 후 shell/summary의 값 위 caption·neutral/statustone, sidebar inset/softactive, compact account strip 구현.
-- [ ] **Step 3:** 공통 customer 탭을 control/statistics/settings에 적용. monitoring 본문 제목+갱신, control 조명 제어 제목→tabs, settings6목록은 Shell h1→desktop tabs→child toolbar, statistics tabs→route h1. 모바일 설정 tabs 숨김·return/search/hash 보존, 중복 제목 제거.
-- [ ] **Step 4:** shell·summary·mode tabs·settings shell 기존 targeted tests GREEN. 320/390/562·759/760 및 dark 실제 geometry는 Task11 한 번에서 확인한다.
-- [ ] **Step 5:** 공통 S1–S4/S13 처리와 영향받은 네 메뉴 문서를 갱신하고 commit.
+- [x] **Step 1:** CustomerShell/summary/settings shell focused RED: body 단일h1, header grid 배치, 긴 현장명/summary0·unknown/capability, 기존 eager logout 실패/차단 유지를 assert.
+- [x] **Step 2:** 해당 case RED 실행 후 shell/summary의 값 위 caption·neutral/statustone, sidebar inset/softactive, compact account strip 구현.
+- [x] **Step 3:** 공통 customer 탭을 control/statistics/settings에 적용. monitoring 본문 제목+갱신, control 조명 제어 제목→tabs, settings6목록은 Shell h1→desktop tabs→child toolbar, statistics tabs→route h1. 모바일 설정 tabs 숨김·return/search/hash 보존, 중복 제목 제거.
+- [x] **Step 4:** shell·summary·mode tabs·settings shell 기존 targeted tests GREEN. 320/390/562·759/760 및 dark 실제 geometry는 Task11 한 번에서 확인한다.
+- [x] **Step 5:** 공통 S1–S4/S13 처리와 영향받은 네 메뉴 문서를 갱신하고 commit.
+
+실행 증거: `de336545`와 네 메뉴문서. 신규RED8 FAIL/1 PASS/77filtered제외→최종4suite88 PASS. 중간 index fixture 누락1 FAIL은 fixture만 교정했다. 필요한 좁은 sidebar 소비자 `SettingsNavigationItem.tsx`도 포함했다. 실제 responsive/dark geometry는 Task11이며 source 계약 결과와 구분한다.
 
 ### Task 4: 공유 지도 상·하단 chrome
 
@@ -91,11 +100,13 @@
 
 **Interfaces:** `FloorMapViewportProps.footerStart?: ReactNode` 추가. `controlsPlacement="footer"`+footerStart opt-in 때 legend-left/camera-right 한 static bar, default/overlay 소비자 불변. OperationMapPanel title/tools-left+inline summary-right, chrome inset16/12px.
 
-- [ ] **Step 1:** RED: footerStart와 camera가 동일 flow footer에 있고 viewport/children identity가 동일하며 기본 소비자 placement 불변.
-- [ ] **Step 2:** 두 공유 map test의 새 case를 실패 확인하고 인터페이스 구현.
-- [ ] **Step 3:** monitoring/manual 소비자가 기존 legend를 footerStart로 전달하고 중복 legend strip 제거. manual 도구 gesture·zoom/fit/전체보기 owner는 그대로 사용.
-- [ ] **Step 4:** 동일 map suites와 SpatialTargetSelector 변경 관련 case GREEN. readonly/등록/그룹 등 미변경 소비자의 선택 정책은 바꾸지 않는다.
-- [ ] **Step 5:** 공통 S7/S8 및 모니터링/제어 현황을 갱신하고 commit.
+- [x] **Step 1:** RED: footerStart와 camera가 동일 flow footer에 있고 viewport/children identity가 동일하며 기본 소비자 placement 불변.
+- [x] **Step 2:** 두 공유 map test의 새 case를 실패 확인하고 인터페이스 구현.
+- [x] **Step 3:** monitoring/manual 소비자가 기존 legend를 footerStart로 전달하고 중복 legend strip 제거. manual 도구 gesture·zoom/fit/전체보기 owner는 그대로 사용.
+- [x] **Step 4:** 동일 map suites와 SpatialTargetSelector 변경 관련 case GREEN. readonly/등록/그룹 등 미변경 소비자의 선택 정책은 바꾸지 않는다.
+- [x] **Step 5:** 공통 S7/S8 및 모니터링/제어 현황을 갱신하고 commit.
+
+실행 증거: `e27fd510`, shared/map selector3suite69 PASS·monitoring관련3 PASS/12filtered제외. default/embedded와 viewport identity를 확인했다. 마지막 test-only assertion 후 chrome3 PASS는 같은 suite의 재확인이므로 합산하지 않는다. PC 최소높이·실제footer wrap·dark geometry는 Task11.
 
 ### Task 5: 모니터링 toolbar·상세·이력
 

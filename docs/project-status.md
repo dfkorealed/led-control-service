@@ -9,6 +9,8 @@
 - 헤더·pill 탭·지도 footer·대상/밝기 패널·그룹 표·통계 표현·설정 편집을 공통 고객 표현으로 교정한다. 실제 데이터·권한·명령/복구·null/0·등록/편집/MFA 수명과 기존 라이트/다크 팔레트는 유지한다.
 - `b1dd36eed1e9dd41663d17cdf94379360e539fb4`에서 `codex/atlas-ui-fidelity-20261010` / `.worktrees/atlas-ui-fidelity-20261010`을 만들었다. 사용자가 [교정 실행 계획](superpowers/plans/2026-10-10-atlas-ui-fidelity.md)을 검토하고 진행을 요청했다. Task1 공통 토큰부터 시작하며 공통 계약 뒤 각 페이지 담당과 순차 협업한다. 최종 검증·리뷰·이번 교정 병합은 아직이다. 원격/DB/실장비/기존 서비스 조작은 없다.
 - 사용자가 요청한 LEAN 방식을 유지한다. changed unit·Web 타입/UI 정책/빌드·제한 fixture 화면·최종 통합 리뷰만 수행하며 전체583/Lab/canonical/HIL을 반복하지 않는다. 아래 이전 구현/검증/실패 기록은 당시 이력으로 보존하고 이번 UI 충실도 완료 증거로 합산하지 않는다.
+- 공통Tasks1–4 구현 완료: typography token-only `e841c57b`(기존734보존/신규4선언), 독립승인 anchor/policy `ef9b52c9`(계약6/정책79 PASS/UI0·0/debt0), customer컴포넌트 `2782a942`(focused13/기존35 PASS), shell·단일제목·탭 `de336545`(88 PASS), 지도chrome `e27fd510`(shared69/monitoring관련3 PASS). filtered제외·중간실패는 계획/보고서에 구분했다. 본문별 소비와 실제 responsive/dark·최종 type/build 확인은 남았다.
+- 네 페이지 담당 준비를 확인하고 공통API 고정 뒤 각각 .worktrees/atlas-fidelity-{monitoring,control,statistics,settings}-20261010의 격리 branch로 전달한다. 같은checkout 단독writer/공통파일수정금지/최대3페이지병렬을 지키며 root가 교정브랜치에 순서대로 통합한다. 설정Tasks8–10은 한 담당이 내부순차 진행한다. 원본목업63200만 다시 열었고 제품5173/API4000은 조작하지 않았다. 부분 결과를 전체 UI 완료로 해석하지 않는다.
 
 ## 2026-10-09 ATLAS LEAN 최종화
 
