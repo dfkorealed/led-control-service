@@ -1,7 +1,7 @@
 import { Link, useLocation } from "react-router-dom";
 import { useDashboard, type SiteCapabilities } from "../../api/queries";
 import { useSiteUsers } from "../../api/site-users";
-import { Card, PageHeader } from "../../components/ui";
+import { Card } from "../../components/ui";
 import { InstallationPending, SetupWizard } from "../setup/SetupWizard";
 import { TestDataToolsPanel } from "./TestDataToolsPanel";
 import { settingsActionLinkClass } from "./settings-action-link";
@@ -35,7 +35,6 @@ export function SettingsView({ userRole, siteId, capabilities }: { userRole: "op
       : { title: "조명 위치 배치", description: "등록한 조명의 위치를 층별 맵에서 확인하고 배치합니다.", label: "조명 위치 배치하기", path: "/settings/floor-plans" };
 
   return <section className="grid min-w-0 gap-5">
-    <PageHeader title="설정" />
     {capabilities.manage ? <section className="flex flex-wrap items-center justify-between gap-3 rounded-panel border border-border-default bg-action-secondary p-4" aria-label="설치 이어가기">
       <div className="grid gap-1">
         <span className="text-overline font-bold text-content-secondary">설치 이어가기</span>

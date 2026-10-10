@@ -110,6 +110,17 @@ function prepareRealManualConsumer() {
 }
 
 describe("customer shell site context", () => {
+  it("keeps desktop context and summary in one header while the settings body owns the sole h1", async () => {
+    renderShell("/settings?siteId=site");
+    const title = await screen.findByRole("heading", { name: "설정", level: 1 });
+    const header = document.querySelector("[data-shell-topbar]") as HTMLElement;
+    expect(header.querySelector("h1")).toBeNull();
+    expect(document.querySelector("[data-shell-content]")).toContainElement(title);
+    expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
+    expect(within(header).getByRole("region", { name: "현장 전체" })).not.toHaveClass("col-span-full");
+    expect(within(header).getByRole("link", { name: "내 계정 및 보안" })).toHaveAttribute("href", "/settings/security?siteId=site");
+    expect(screen.getByRole("region", { name: "내 계정" })).toContainElement(screen.getByRole("button", { name: "로그아웃" }));
+  });
   it.each([[759.5, true], [760, false], [760.5, false]] as const)("publishes the strict CSS media contract at controlled width %s", (_width, compact) => {
     // Chromium rounds CSS iframe viewports to integer pixels. This controlled
     // media owner covers the requested fractional API boundary separately from
@@ -408,7 +419,7 @@ describe("customer shell site context", () => {
     expect(within(screen.getByRole("main")).getByRole("status")).toHaveAttribute("aria-live", "polite");
     expect(screen.getByRole("navigation", { name: "주 메뉴" })).toBeVisible();
     expect(screen.getByRole("button", { name: "로그아웃" })).toBeEnabled();
-    expect(await screen.findByRole("heading", { name: "계정 보안" })).toBeVisible();
+    expect(await screen.findByRole("heading", { name: "계정 및 보안" })).toBeVisible();
     expect(within(screen.getByRole("main")).queryByText("화면을 불러오는 중입니다.")).not.toBeInTheDocument();
     expect(screen.getByTestId("location")).toHaveTextContent("/settings/security?siteId=site&source=account#password");
   });
@@ -513,7 +524,7 @@ describe("customer shell site context", () => {
     dashboardState.current = { data: dashboardFor({ read: true, control: false, manage: false, commission: false }), isLoading: false, error: null, refetch: vi.fn() };
     renderShell("/settings/security?siteId=site", { ...adminUser, id: "reader", loginId: "reader", role: "viewer" });
 
-    expect(await screen.findByRole("heading", { name: "계정 보안" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "계정 및 보안" })).toBeInTheDocument();
 
     cleanup();
     renderShell("/settings/registration?siteId=site", { ...adminUser, id: "reader", loginId: "reader", role: "viewer" });

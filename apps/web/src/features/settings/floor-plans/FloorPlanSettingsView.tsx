@@ -1,7 +1,7 @@
 import { FileImage, LoaderCircle, LockKeyhole, TriangleAlert } from "lucide-react";
 import { Link, useLocation } from "react-router-dom";
 import { useDashboard, type SiteCapabilities } from "../../../api/queries";
-import { Card, FeedbackState, PageHeader, StatusBadge } from "../../../components/ui";
+import { Card, FeedbackState, Text, StatusBadge } from "../../../components/ui";
 import { settingsActionLinkClass } from "../settings-action-link";
 
 interface FloorPlanSettingsViewProps {
@@ -16,10 +16,7 @@ export function FloorPlanSettingsView({ siteId, capabilities }: FloorPlanSetting
 
   return (
     <section className="grid min-w-0 gap-4">
-      <PageHeader
-        title="맵 관리"
-        description={canEdit ? "층별 맵을 확인하고 편집합니다." : "층별 맵 설정 상태를 조회합니다."}
-      />
+      <Text tone="secondary">{canEdit ? "층별 맵을 확인하고 편집합니다." : "층별 맵 설정 상태를 조회합니다."}</Text>
       {isLoading && <FeedbackState icon={LoaderCircle} title="도면 목록을 불러오는 중" />}
       {error && <FeedbackState tone="danger" icon={TriangleAlert} title="도면 목록을 불러오지 못했습니다." />}
       {data && (data.floors.length === 0

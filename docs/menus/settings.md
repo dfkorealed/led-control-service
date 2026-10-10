@@ -1,5 +1,28 @@
 # 설정 메뉴 기능 현황 및 구현 설계
 
+## 2026-10-10 고객 shell·제목·탭 소유 (Task 3)
+
+### 구현 완료
+
+- 권한으로 허용된 정확 여섯 목록 경로만 Shell이 설정/현장 관리/사용자 관리/조명 등록/도면 관리/계정 및 보안의 단일 h1을 tabs 위에 소유한다. trailing slash를 정규화하며 child 설명·동작·상세 편집기 제목은 유지한다.
+- desktop header의 현장 선택/실제 네 집계/상태·테마·기존 계정 링크를 한 행에 배치하며 mobile logo/select·집계 둘째 행을 유지한다. sidebar soft active와 compact 계정 strip을 연결하고 eager 계정·로그아웃 실패/작업 차단·mobile return/search/hash owner를 보존한다.
+
+### 미구현
+
+- 설정 상세 표현과 최종 통합 browser 시각 검증은 후속 태스크에 남아 있다.
+
+### 부족하거나 개선이 필요한 기능
+
+- 지정 shell/summary/control tabs/settings shell 계약 검증이며 실제 pixel geometry·dark 대비·실장비 완료 증거는 아니다.
+
+### 관련 파일
+
+- `apps/web/src/features/shells/{CustomerShell,CustomerHeaderSummarySlot,CustomerAccountPanel,SettingsNavigationItem}.tsx`, `settings/{SettingsShell,SettingsSubnavigation,settings-sections}.tsx` 및 여섯 목록 child 제목 소비자.
+
+### 갱신 규칙
+
+- capability-filtered exact title·단일 h1·원본 작업 잠금/라우트/모바일 접근성을 함께 유지하며 mock·실장비 한계는 별도로 기록한다.
+
 ## 2026-10-10 공통 고객 표현 기반 (Task 2)
 
 ### 구현 완료

@@ -1,7 +1,7 @@
 import { forwardRef, lazy, Suspense, useEffect, useId, useMemo, useRef, useState, type RefObject } from "react";
-import { Activity, Bell, BarChart3, CircleAlert, LoaderCircle, PanelLeftClose, PanelLeftOpen, SlidersHorizontal } from "lucide-react";
+import { Activity, Bell, BarChart3, CircleAlert, LoaderCircle, PanelLeftClose, PanelLeftOpen, SlidersHorizontal, UserRound } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
-import { matchPath, Navigate, Route, Routes, useLocation } from "react-router-dom";
+import { Link, matchPath, Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { logout, type AuthUser } from "../../api/auth";
 import { authMeQueryKey, clearTenantCache, principalKey } from "../../api/principal-cache";
 import { useDashboard, useSites, type SiteCapabilities } from "../../api/queries";
@@ -13,7 +13,6 @@ import {
   CustomerThemeProvider,
   ThemeToggle,
   FeedbackState,
-  Heading,
   SessionStatusCenter,
   SessionStatusProvider,
   WorkspaceFocusProvider,
@@ -303,8 +302,8 @@ function CustomerShellContent({ user }: { user: AuthUser }) {
           <PrimaryNavigation capabilities={capabilities} search={location.search} />
         </nav>
       ) : (
-        <aside hidden={focus.active} className={focus.active ? "hidden" : `sticky top-0 z-20 ${isEditorRoute ? "h-full" : "h-screen"} ${isSidebarExpanded ? "w-customer-sidebar" : "w-customer-rail"} shrink-0 border-r border-border-default bg-surface-panel px-2 py-4`} data-shell-navigation="desktop">
-          <div className={`mb-4 flex min-w-0 items-center gap-1 px-1 ${isSidebarExpanded ? "justify-between" : "flex-col justify-center"}`}>
+        <aside hidden={focus.active} className={focus.active ? "hidden" : `sticky top-0 z-20 ${isEditorRoute ? "h-full" : "h-screen"} ${isSidebarExpanded ? "w-customer-sidebar px-4.5" : "w-customer-rail px-2"} shrink-0 border-r border-border-default bg-surface-panel py-4`} data-shell-navigation="desktop">
+          <div className={`mb-7 flex min-w-0 items-center gap-1 px-1 ${isSidebarExpanded ? "justify-between" : "flex-col justify-center"}`}>
             <KindaLogo presentation="workspace" context="관제 센터" compact={!isSidebarExpanded} />
             {isWideNavigation ? <IconTooltipButton size="sm" icon={isSidebarExpanded ? PanelLeftClose : PanelLeftOpen} label={isSidebarExpanded ? "사이드바 접기" : "사이드바 펼치기"} aria-expanded={isSidebarExpanded} aria-controls={desktopNavigationId} onClick={() => setIsSidebarCollapsed(value => !value)} /> : null}
           </div>
@@ -314,11 +313,9 @@ function CustomerShellContent({ user }: { user: AuthUser }) {
         </aside>
       ) : null}
       <main className={`flex min-w-0 flex-1 flex-col ${isMonitoringRoute ? "min-h-0" : focus.active ? "min-h-0 overflow-hidden" : isManualDesktopWorkspace ? "min-h-0" : isEditorRoute ? "min-h-min" : ""}`}>
-        <header hidden={focus.active} className={focus.active ? "hidden" : "sticky top-0 z-10 grid min-h-16 min-w-0 shrink-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-1 gap-y-1 border-b border-border-default bg-surface-panel px-2 py-1 compact:grid-cols-[minmax(0,1fr)_minmax(0,auto)_auto] compact:gap-x-4 compact:px-7 compact:py-2"} data-shell-topbar>
-          <div className="sr-only compact:not-sr-only compact:col-start-1 compact:row-start-1 compact:min-w-0">
-            <Heading as="h1" variant="page-title" className="truncate" data-testid="shell-current-menu">{titleForPath(location.pathname)}</Heading>
-          </div>
-          <div className="col-start-1 row-start-1 flex min-w-0 items-center gap-1 compact:col-span-1 compact:col-start-2 compact:row-start-1" aria-label="현장 정보" data-shell-context>
+        <header hidden={focus.active} className={focus.active ? "hidden" : "sticky top-0 z-10 grid min-h-16 min-w-0 shrink-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-1 gap-y-1 border-b border-border-default bg-surface-panel px-2 py-1 compact:grid-cols-[minmax(0,auto)_minmax(0,1fr)_auto] compact:gap-x-4 compact:px-7 compact:py-2"} data-shell-topbar>
+          <span className="sr-only" data-testid="shell-current-menu">{titleForPath(location.pathname)}</span>
+          <div className="col-start-1 row-start-1 flex min-w-0 items-center gap-1" aria-label="현장 정보" data-shell-context>
             {isCompactNavigation ? <KindaLogo presentation="header" /> : null}
             <SiteContextControl
               ref={siteSwitcherRef}
@@ -341,8 +338,10 @@ function CustomerShellContent({ user }: { user: AuthUser }) {
               contextItems={gatewayContextItems}
             />
             <ThemeToggle />
+            {!isCompactNavigation ? <Link to={`/settings/security${location.search}${location.hash}`} aria-label="내 계정 및 보안"
+              className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-control text-content-secondary outline-none focus-visible:shadow-focus hover:bg-surface-inset"><UserRound size={20} aria-hidden="true" /></Link> : null}
           </div>
-          {summaryScope ? <CustomerHeaderSummarySlot currentScope={summaryScope} value={summaryValue} compact={isCompactNavigation} className="col-span-full" /> : null}
+          {summaryScope ? <CustomerHeaderSummarySlot currentScope={summaryScope} value={summaryValue} compact={isCompactNavigation} className={isCompactNavigation ? "col-span-full" : "col-start-2 row-start-1"} /> : null}
         </header>
         {focus.active ? <div className="shrink-0 self-start px-2 pt-2"><Button type="button" variant="secondary" onClick={event => statusCenterRef.current?.open(event.currentTarget)}><Bell size={18} aria-hidden="true" />알람센터</Button></div> : null}
         <ToastRegion placement="flow" suppressVisual={isCompactNavigation} />
@@ -361,7 +360,7 @@ function CustomerShellContent({ user }: { user: AuthUser }) {
         {/* Manual desktop consumes remaining space below the dynamic header
             and flow notices. Overflow remains reachable inside this workspace,
             rather than clipping a short-screen map or command recovery action. */}
-        <div data-shell-content className={`m-0! min-w-0 flex-1 ${focus.active ? `min-h-0 ${isMonitoringRoute ? "" : "overflow-hidden"} p-2 compact:p-3` : isManualDesktopWorkspace ? "grid min-h-0 grid-rows-[minmax(0,1fr)] overflow-auto gap-5 p-6" : isEditorRoute ? "grid min-h-min grid-rows-[auto_minmax(min-content,1fr)] gap-2 p-2 compact:p-3 [&>section:last-child]:h-full [&>section:last-child]:min-h-min [&>section:last-child]:grid-rows-[auto_minmax(min-content,1fr)] [&>section:last-child]:gap-2 [&>section:last-child>div]:min-h-min" : isMonitoringRoute ? "flex min-h-0 flex-col p-6 max-compact:p-3.5" : isControlWorkspace ? "grid grid-rows-[minmax(min-content,1fr)] gap-5 p-6 max-compact:p-3.5" : "grid content-start gap-5 p-6 max-compact:p-3.5"}`}>
+        <div data-shell-content className={`m-0! min-w-0 flex-1 ${focus.active ? `min-h-0 ${isMonitoringRoute ? "" : "overflow-hidden"} p-2 compact:p-3` : isManualDesktopWorkspace ? "grid min-h-0 grid-rows-[minmax(0,1fr)] overflow-auto gap-5 px-7 py-6" : isEditorRoute ? "grid min-h-min grid-rows-[auto_minmax(min-content,1fr)] gap-2 p-2 compact:p-3 [&>section:last-child]:h-full [&>section:last-child]:min-h-min [&>section:last-child]:grid-rows-[auto_minmax(min-content,1fr)] [&>section:last-child]:gap-2 [&>section:last-child>div]:min-h-min" : isMonitoringRoute ? "flex min-h-0 flex-col px-7 py-6 max-compact:px-3.5 max-compact:py-4.5" : isControlWorkspace ? "grid grid-rows-[minmax(min-content,1fr)] gap-5 px-7 py-6 max-compact:px-3.5 max-compact:py-4.5" : "grid content-start gap-5 px-7 py-6 max-compact:px-3.5 max-compact:py-4.5"}`}>
           {/* The eager account region stays outside the lazy route boundary so
               failed settings chunks and installation/permission gates retain
               the same logout controller, confirmation and initiating ref. */}

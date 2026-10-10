@@ -1,5 +1,28 @@
 # 모니터링 메뉴 기능 현황
 
+## 2026-10-10 고객 shell·제목·탭 소유 (Task 3)
+
+### 구현 완료
+
+- 고객 desktop header는 현장 선택/실제 네 집계/기존 상태·테마·계정 링크를 한 행으로 배치하며 mobile logo/select 및 집계 둘째 행을 유지한다. shell의 route h1을 본문으로 옮기고 공통 customer 탭·sidebar soft active 및 compact account strip을 연결했다.
+- 본문 모니터링 h1과 갱신 도구가 지도 위에 표시된다. 지도 카메라·선택·활동 owner와 고정 내비게이션 여유는 유지한다.
+
+### 미구현
+
+- 메뉴 상세 표현·지도 chrome의 후속 교정과 최종 통합 시각 검증은 남아 있다.
+
+### 부족하거나 개선이 필요한 기능
+
+- shell/summary/control tabs/settings shell targeted 계약 검증이며 실제 320–desktop geometry·dark 대비·실장비 완료 증거는 아니다.
+
+### 관련 파일
+
+- `apps/web/src/features/shells/{CustomerShell,CustomerHeaderSummarySlot,CustomerAccountPanel,SettingsNavigationItem}.tsx`, `settings/{SettingsShell,SettingsSubnavigation,settings-sections}.tsx`, `control/automation/ControlModeTabs.tsx`, `statistics/StatisticsSubnavigation.tsx` 및 메뉴 본문 제목 소비자.
+
+### 갱신 규칙
+
+- 단일 h1·실제 capability/summary0·unknown·라우트와 작업 잠금 계약을 유지하며 최종 browser 확인 및 mock/하드웨어 한계를 별도 기록한다.
+
 ## 2026-10-10 공통 고객 표현 기반 (Task 2)
 
 ### 구현 완료

@@ -6,7 +6,7 @@ import { useDashboard, useFloorFixtures, useFloorMapSnapshot, type Dashboard } f
 import { useCurrentUser } from "../../api/auth";
 import { principalKey } from "../../api/principal-cache";
 import { waitForMonitoringRefresh, type MonitoringRefreshResult } from "../../api/monitoring-refresh";
-import { Button, DetailSheet, Popover, FeedbackState, Heading, OperationMapPanel, SelectBox, Text, cn, useWorkspaceFocus, useSessionStatus, type SessionStatusItem } from "../../components/ui";
+import { Button, DetailSheet, Popover, FeedbackState, Heading, PageHeader, OperationMapPanel, SelectBox, Text, cn, useWorkspaceFocus, useSessionStatus, type SessionStatusItem } from "../../components/ui";
 import { InstallationPending } from "../setup/SetupWizard";
 import { FloorMap } from "./FloorMap";
 import { MonitoringFixtureFinder } from "./MonitoringFixtureFinder";
@@ -337,10 +337,11 @@ function MonitoringDashboard({ data, userRole, siteId, refreshDashboard }: Monit
   }
 
   return (
-    <section className={cn("flex h-full min-h-0 min-w-0 flex-1 flex-col gap-4", workspaceFocus.active && "h-full! gap-2!")} data-monitoring-screen="" onKeyDown={event => {
+    <section className={cn("flex h-full min-h-0 min-w-0 flex-1 flex-col gap-4", !workspaceFocus.active && "max-compact:pb-shell-navigation-safe", workspaceFocus.active && "h-full! gap-2!")} data-monitoring-screen="" onKeyDown={event => {
       if (event.key !== "Escape" || event.defaultPrevented || isPinOpen || isInspectorOpen || isDetailOpen || isLogDrawerOpen || !workspaceFocus.active) return;
       event.preventDefault(); workspaceFocus.exit();
     }}>
+      <PageHeader variant="customer" headingLevel={1} title="모니터링" className="max-compact:order-0" />
       <MonitoringSessionStatuses
         timeZone={data.site.timeZone ?? "Asia/Seoul"}
         siteId={siteId ?? data.site.id}
@@ -356,9 +357,7 @@ function MonitoringDashboard({ data, userRole, siteId, refreshDashboard }: Monit
         onMapRetry={() => void handleMapRetry()}
       />
       <div className="flex items-center justify-between gap-4 max-compact:contents" role="group" aria-label="모니터링 도구">
-        <Heading as="h2" variant="page-title" className="hidden max-compact:block max-compact:order-0">모니터링</Heading>
-        {/* Keep the one search action beside map selection while compact order
-            puts read-only status and the actual map before refresh. Wrapping
+        {/* Keep the one search action beside map selection. Wrapping
             preserves existing control sizes when text is enlarged. */}
         <div className="flex min-w-0 flex-wrap items-center gap-2 max-compact:w-full max-compact:order-1">
           <SelectBox
@@ -371,9 +370,8 @@ function MonitoringDashboard({ data, userRole, siteId, refreshDashboard }: Monit
           />
           <Button ref={inspectorTriggerRef} variant="secondary" className="shrink-0" aria-haspopup="dialog" aria-expanded={isInspectorOpen} onClick={() => setIsInspectorOpen(true)}>조명 검색·상세</Button>
         </div>
-        {/* Compact refresh is the final flow row, so it—not the earlier map—
-            owns clearance from the fixed navigation. Full view hides the nav. */}
-        <div className={cn("ml-auto flex flex-wrap items-center justify-end gap-2 text-content-secondary max-compact:ml-0 max-compact:w-full max-compact:order-4", !workspaceFocus.active && "max-compact:pb-shell-navigation-safe")}>
+        {/* Refresh now precedes the map; the screen owns compact nav clearance. */}
+        <div className="ml-auto flex flex-wrap items-center justify-end gap-2 text-content-secondary max-compact:ml-0 max-compact:w-full max-compact:order-2">
           <Text as="small" variant="caption" tone="secondary" className="min-w-0 max-w-full break-words text-right">
             {formatSnapshotUpdatedAt(snapshotFreshness, data.site.timeZone ?? "Asia/Seoul")}
           </Text>

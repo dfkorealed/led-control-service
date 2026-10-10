@@ -109,10 +109,12 @@ export function SiteOperationsView({ siteId, ownerUserId, canPrepare = false }: 
 
   return (
     <section className="grid min-w-0 content-start gap-6" aria-label="현장 관리">
-      <PageHeader title="현장 관리" description="설치 후 운영에 필요한 현장, 층, 조명, 구역 정보를 관리합니다."
-        actions={settingsQuery.error && settingsQuery.data ? <StatusDetailButton label="운영 정보 갱신 실패"
+      <div role="group" aria-label="현장 관리 도구" className="flex min-w-0 flex-wrap items-center justify-between gap-3">
+        <p className="m-0 text-body text-content-secondary">설치 후 운영에 필요한 현장, 층, 조명, 구역 정보를 관리합니다.</p>
+        {settingsQuery.error && settingsQuery.data ? <StatusDetailButton label="운영 정보 갱신 실패"
           description="최신 운영 정보를 불러오지 못했습니다. 기존 정보를 표시합니다."
-          action={{ label: "다시 시도", onClick: () => { void settingsQuery.refetch(); } }} /> : null} />
+          action={{ label: "다시 시도", onClick: () => { void settingsQuery.refetch(); } }} /> : null}
+      </div>
 
       {settingsQuery.isPending && !settingsQuery.data
         ? <FeedbackState tone="neutral" icon={Clock3} title="현장 운영 정보를 불러오는 중입니다." />

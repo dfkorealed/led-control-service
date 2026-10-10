@@ -4,6 +4,14 @@ import { CustomerHeaderSummarySlot, type CustomerShellScope, type CustomerSiteSu
 const scope: CustomerShellScope = { principalKey: "account-a", siteId: "site-a", pathname: "/monitoring" };
 const ready: CustomerSiteSummary = { scope, siteName: "긴 현장 이름", state: "ready", counts: { totalFixtures: 17, onlineFixtures: 0, faultFixtures: null, offlineFixtures: null } };
 afterEach(cleanup);
+it("keeps four captioned cells while hiding the duplicated summary heading", () => {
+  render(<CustomerHeaderSummarySlot currentScope={scope} value={ready} />);
+  expect(screen.getByRole("heading", { name: "현장 전체" })).toHaveClass("sr-only");
+  expect(screen.getAllByRole("term")).toHaveLength(4);
+  expect(screen.getByText("온라인")).toBeInTheDocument();
+  expect(screen.getByText("0대")).toBeInTheDocument();
+  expect(screen.getAllByText("—")).toHaveLength(2);
+});
 it("rejects summary values from a different principal or site", () => {
   const { rerender } = render(<CustomerHeaderSummarySlot currentScope={{ ...scope, principalKey: "account-b" }} value={ready} />);
   expect(screen.queryByRole("region", { name: "현장 전체" })).not.toBeInTheDocument();

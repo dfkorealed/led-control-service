@@ -33,7 +33,7 @@ describe("ControlModeTabs", () => {
 
     expect(manualTab).toHaveAttribute("aria-selected", "true");
     expect(manualTab).toHaveAttribute("tabindex", "0");
-    expect(manualTab).toHaveClass("border-action-primary", "text-action-primary");
+    expect(manualTab).toHaveClass("bg-action-primary-soft", "text-action-primary");
     expect(scheduleTab).toHaveAttribute("aria-selected", "false");
     expect(scheduleTab).toHaveAttribute("tabindex", "-1");
     expect(scheduleTab).toHaveClass("border-transparent", "text-content-secondary");
@@ -43,6 +43,6 @@ describe("ControlModeTabs", () => {
     expect(manualTab).toHaveAttribute("aria-selected", "false");
     expect(manualTab).toHaveClass("border-transparent", "text-content-secondary");
     expect(scheduleTab).toHaveAttribute("aria-selected", "true");
-    expect(scheduleTab).toHaveClass("border-action-primary", "text-action-primary");
+    expect(scheduleTab).toHaveClass("bg-action-primary-soft", "text-action-primary");
   });
 });

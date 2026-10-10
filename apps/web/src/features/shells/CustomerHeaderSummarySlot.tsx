@@ -8,12 +8,12 @@ export type CustomerSiteSummary = { scope: CustomerShellScope; siteName: string;
 
 export function CustomerHeaderSummarySlot({ currentScope, value, className, compact = false }: { compact?: boolean; currentScope: CustomerShellScope; value: CustomerSiteSummary | null; className?: string }): ReactElement | null {
   if (!value || value.scope.principalKey !== currentScope.principalKey || value.scope.siteId !== currentScope.siteId || value.scope.pathname !== currentScope.pathname) return null;
-  return <section aria-label="현장 전체" className={cn("flex min-w-0 flex-wrap items-baseline gap-x-4 gap-y-1 border-t border-border-default", compact ? "py-0" : "py-1", className)}>
-    <Heading as="h2" variant="card-title" className={compact ? "sr-only" : undefined}>현장 전체</Heading>
+  return <section aria-label="현장 전체" className={cn("flex min-w-0 items-center justify-center", compact ? "border-t border-border-default py-1" : "py-0", className)}>
+    <Heading as="h2" variant="customer-card-title" className="sr-only">현장 전체</Heading>
     <Text className="sr-only">{value.siteName}</Text>
-    {value.state === "ready" ? <dl className="m-0 flex min-w-0 flex-wrap gap-x-3 gap-y-1">
-      {([ ["totalFixtures", "전체"], ["onlineFixtures", "온라인"], ["faultFixtures", "장애"], ["offlineFixtures", "오프라인"] ] as const).map(([key, label]) => <div key={key} className="flex min-w-0 flex-wrap items-baseline gap-x-1 gap-y-1">
-        <dt className="text-body text-content-secondary">{label}</dt><dd className="m-0 wrap-anywhere text-body-lg font-bold">{value.counts[key] === null ? "—" : `${value.counts[key]}대`}</dd>
+    {value.state === "ready" ? <dl className="m-0 grid min-w-0 w-full grid-cols-4 gap-x-3">
+      {([ ["totalFixtures", "전체"], ["onlineFixtures", "온라인"], ["faultFixtures", "장애"], ["offlineFixtures", "오프라인"] ] as const).map(([key, label]) => <div key={key} className="grid min-w-0 justify-items-center gap-0.5">
+        <dt className="row-start-2 text-caption text-content-secondary">{label}</dt><dd className={cn("m-0 row-start-1 wrap-anywhere text-body-lg font-bold tabular-nums", key === "onlineFixtures" ? "text-status-success-foreground" : key === "faultFixtures" ? "text-status-danger-foreground" : "text-content-primary")}>{value.counts[key] === null ? "—" : `${value.counts[key]}대`}</dd>
       </div>)}
     </dl> : <Text role="status" variant="body-sm" tone="secondary">{value.state === "loading" ? "현장 집계 확인 중" : "현장 집계 확인 불가"}</Text>}
   </section>;

@@ -31,6 +31,35 @@ vi.mock("../setup/GatewayClaimPanel", () => ({ GatewayClaimPanel: () => null }))
 vi.mock("../../api/site-users", () => ({ useSiteUsers: () => ({ data: { users: [], count: 0, limit: 100 } }) }));
 
 describe("SettingsShell", () => {
+  it.each([
+    ["/settings", "설정"], ["/settings/site/", "현장 관리"], ["/settings/users", "사용자 관리"],
+    ["/settings/registration", "조명 등록"], ["/settings/floor-plans", "도면 관리"], ["/settings/security", "계정 및 보안"],
+  ])("owns one h1 before tabs and leaves the child toolbar on exact route %s", (path, title) => {
+    render(<MemoryRouter initialEntries={[`${path}?siteId=site-1#draft`]}><Routes>
+      <Route path="/settings" element={<SettingsShell capabilities={manageCapabilities} />}>
+        <Route index element={<div role="group" aria-label="본문 도구"><button>원본 동작</button></div>} />
+        <Route path="*" element={<div role="group" aria-label="본문 도구"><button>원본 동작</button></div>} />
+      </Route>
+    </Routes></MemoryRouter>);
+    const heading = screen.getByRole("heading", { name: title, level: 1 });
+    expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
+    expect(heading.compareDocumentPosition(screen.getByRole("navigation", { name: "설정 메뉴" })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getByRole("button", { name: "원본 동작" })).toBeEnabled();
+  });
+  it("does not claim a heading for a detailed editor route or a capability-filtered exact route", () => {
+    const capabilities = { read: true, control: false, manage: false, commission: false };
+    const view = render(<MemoryRouter initialEntries={["/settings/floor-plans/floor-1/edit"]}><Routes>
+      <Route path="/settings" element={<SettingsShell capabilities={capabilities} />}>
+        <Route path="*" element={<h1>편집기 원본 제목</h1>} />
+      </Route>
+    </Routes></MemoryRouter>);
+    expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
+    view.unmount();
+    render(<MemoryRouter initialEntries={["/settings/users"]}><Routes>
+      <Route path="/settings" element={<SettingsShell capabilities={capabilities} />}><Route path="*" element={<p>차단 처리</p>} /></Route>
+    </Routes></MemoryRouter>);
+    expect(screen.queryByRole("heading", { level: 1 })).not.toBeInTheDocument();
+  });
   afterEach(() => {
     cleanup();
     vi.restoreAllMocks();

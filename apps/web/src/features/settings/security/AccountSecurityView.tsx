@@ -14,7 +14,7 @@ import {
   type MfaEnrollment
 } from "../../../api/auth";
 import { authSessionsQueryKey, clearPrincipalCache, hasPrincipal, principalKey } from "../../../api/principal-cache";
-import { Button, Card, ConfirmDialog, FeedbackState, PageHeader, PasswordField, StatusBadge, TextField, formatTimestamp } from "../../../components/ui";
+import { Button, Card, ConfirmDialog, FeedbackState, Text, PasswordField, StatusBadge, TextField, formatTimestamp } from "../../../components/ui";
 import { PasswordChangeCard } from "./PasswordSettingsView";
 
 type MfaQueryKey = readonly ["auth", "mfa", string];
@@ -28,12 +28,9 @@ export function AccountSecurityView({ user }: { user: AuthUser }) {
 
   return (
     <section className="grid gap-5">
-      <PageHeader
-        title="계정 보안"
-        description={canManageMfa
+      <Text tone="secondary">{canManageMfa
           ? "비밀번호, 2단계 인증과 로그인된 기기를 관리합니다."
-          : "비밀번호와 로그인된 기기를 관리합니다."}
-      />
+          : "비밀번호와 로그인된 기기를 관리합니다."}</Text>
       <div key={principal} data-testid="account-security-layout" className="grid gap-3 compact:grid-cols-2">
         <div data-testid="password-security-cell" className="min-w-0 compact:col-span-2">
           <PasswordChangeCard />

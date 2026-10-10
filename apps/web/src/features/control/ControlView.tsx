@@ -4,7 +4,7 @@ import type { CreateDimmingCommandInput } from "@led-control/shared";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation, useNavigate } from "react-router-dom";
 import type { AuthUser } from "../../api/auth";
-import { Button, Card, Heading, ProgressSteps, SidePanel, StatusBadge, Text, useSessionStatus, type ProgressStep, type ProgressStepState, type SessionStatusItem } from "../../components/ui";
+import { Button, Card, Heading, PageHeader, ProgressSteps, SidePanel, StatusBadge, Text, useSessionStatus, type ProgressStep, type ProgressStepState, type SessionStatusItem } from "../../components/ui";
 import {
   commandReadRevalidation,
   canonicalizeDimmingCommandInput,
@@ -565,7 +565,7 @@ export function ControlView({
     void navigate({ pathname: location.pathname, search: `?${search.toString()}`, hash: location.hash });
   }
 
-  const modeTabs = <ControlModeTabs mode={mode} onChange={selectMode} allowAutomation={canManage} allowGroups={canControl} />;
+  const modeTabs = <><PageHeader variant="customer" headingLevel={1} title="조명 제어" /><ControlModeTabs mode={mode} onChange={selectMode} allowAutomation={canManage} allowGroups={canControl} /></>;
   const groupMutationsBlocked = isSubmitting || restorePending || commandInProgress || commandSessionBlocked || Boolean(storageError);
 
   if (capabilities && mode === "event") {

@@ -4,7 +4,7 @@ import { useNavigate } from "react-router-dom";
 import { CircleAlert, CircleCheck, Clock3, Plus, Search, UserCheck } from "lucide-react";
 import { ApiError } from "../../../api/client";
 import { siteUsersQueryKey, updateSiteUser, useSiteUsers, type SiteUserAccessLevel, type SiteUserStatus, type SiteUserSummary, type SiteUsersResponse } from "../../../api/site-users";
-import { Button, DataGrid, FeedbackState, FilterPanel, PageHeader, RowActions, SearchField, SelectBox, StatusBadge, StatusDetailButton, formatTimestamp, type DataGridColumn } from "../../../components/ui";
+import { Button, DataGrid, FeedbackState, FilterPanel, RowActions, SearchField, SelectBox, StatusBadge, StatusDetailButton, formatTimestamp, type DataGridColumn } from "../../../components/ui";
 import { DeleteSiteUserDialog } from "./DeleteSiteUserDialog";
 import { ResetSiteUserPasswordDialog } from "./ResetSiteUserPasswordDialog";
 import { SiteUserFormDialog } from "./SiteUserFormDialog";
@@ -191,10 +191,9 @@ function SiteUsersWorkspace({ siteId }: { siteId?: string }) {
   if (!siteId) return <FeedbackState tone="neutral" icon={CircleAlert} title="유저를 관리할 현장을 선택하세요." />;
 
   return <section className="grid min-w-0 content-start gap-4" aria-label="유저 관리">
-    <PageHeader
-      title="유저 관리"
-      description="현장을 조회하거나 조명을 제어할 사용자를 관리합니다."
-      actions={<div className="flex flex-wrap items-center gap-2">
+    <div role="group" aria-label="사용자 관리 도구" className="flex min-w-0 flex-wrap items-center justify-between gap-3">
+      <p className="m-0 text-body text-content-secondary">현장을 조회하거나 조명을 제어할 사용자를 관리합니다.</p>
+      <div className="flex flex-wrap items-center gap-2">
         {atLimit ? <StatusDetailButton label="사용자 등록 한도" description="현장 사용자는 최대 100명까지 등록할 수 있습니다." /> : null}
         {refreshError && data ? <StatusDetailButton label="사용자 목록 갱신 실패" description={refreshError}
           action={{ label: "목록 다시 시도", onClick: () => { setRefreshError(""); void usersQuery.refetch(); } }} /> : null}
@@ -202,8 +201,8 @@ function SiteUsersWorkspace({ siteId }: { siteId?: string }) {
           description="최신 사용자 목록을 불러오지 못했습니다. 기존 목록을 표시합니다."
           action={{ label: "목록 다시 시도", onClick: () => { void usersQuery.refetch(); } }} /> : null}
         <Button ref={addButtonRef} type="button" variant="primary" disabled={atLimit || busyUserId !== null} onClick={(event) => openDialog({ type: "create" }, event.currentTarget)}><Plus size={16} aria-hidden="true" /> 사용자 추가</Button>
-      </div>}
-    />
+      </div>
+    </div>
 
     {notice ? <FeedbackState tone="success" icon={CircleCheck} title={notice} /> : null}
     {actionError ? <FeedbackState tone="danger" icon={CircleAlert} title={actionError} /> : null}

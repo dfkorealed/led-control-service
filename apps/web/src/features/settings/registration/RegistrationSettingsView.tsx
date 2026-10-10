@@ -1,6 +1,6 @@
 import { Link, useLocation } from "react-router-dom";
 import { useDashboard } from "../../../api/queries";
-import { PageHeader } from "../../../components/ui";
+import { Text } from "../../../components/ui";
 import { RegistrationPanel } from "../../registration/RegistrationPanel";
 import { GatewayClaimPanel } from "../../setup/GatewayClaimPanel";
 import { InstallationPending } from "../../setup/SetupWizard";
@@ -17,7 +17,7 @@ export function RegistrationSettingsView({ siteId }: { siteId?: string }) {
   if (data.gateways.length === 0) {
     return (
       <section className="grid min-w-0 gap-4">
-        <PageHeader title="조명 등록" description="조명을 검색하기 전에 현장에서 사용할 게이트웨이를 연결합니다." />
+        <Text tone="secondary">조명을 검색하기 전에 현장에서 사용할 게이트웨이를 연결합니다.</Text>
         <GatewayClaimPanel siteId={data.site.id} />
       </section>
     );

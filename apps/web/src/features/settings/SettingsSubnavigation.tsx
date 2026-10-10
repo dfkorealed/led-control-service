@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef } from "react";
 import { NavLink, useLocation } from "react-router-dom";
 import type { SiteCapabilities } from "../../api/queries";
-import { UnderlineNavigation, UnderlineNavigationLabel } from "../../components/ui";
+import { UnderlineNavigation, UnderlineNavigationLabel, navigationItemClass } from "../../components/ui";
 import { settingsSectionsFor } from "./settings-sections";
 
 export function SettingsSubnavigation({ capabilities }: { capabilities: SiteCapabilities }) {
@@ -21,6 +21,7 @@ export function SettingsSubnavigation({ capabilities }: { capabilities: SiteCapa
 
   return (
     <UnderlineNavigation
+      variant="customer"
       className="w-full max-compact:hidden"
       trackClassName="min-w-max"
       aria-label="설정 메뉴"
@@ -34,9 +35,7 @@ export function SettingsSubnavigation({ capabilities }: { capabilities: SiteCapa
           end={section.path === "/settings"}
           key={section.path}
           to={{ pathname: section.path, search: location.search, hash: location.hash }}
-          className={({ isActive }) => `inline-flex min-h-11 shrink-0 items-center border-b-2 px-3 text-body-sm font-bold no-underline outline-none focus-visible:shadow-focus ${isActive
-            ? "border-action-primary text-action-primary"
-            : "border-transparent text-content-secondary hover:border-border-strong hover:text-content-primary"}`}
+          className={({ isActive }) => `${navigationItemClass({ active: isActive, variant: "customer" })} shrink-0 no-underline`}
         >
           <UnderlineNavigationLabel>{section.label}</UnderlineNavigationLabel>
         </NavLink>

@@ -11,9 +11,9 @@ export interface SettingsNavigationItemProps {
 export type NavigationLayout = "mobile" | "rail" | "expanded";
 
 export function primaryNavigationClass(isActive: boolean, layout: NavigationLayout = "mobile") {
-  const base = `flex w-full items-center rounded-control border text-body-sm font-bold no-underline focus-visible:outline-none focus-visible:shadow-focus ${layout === "expanded" ? "min-h-11 justify-start gap-3 px-3 py-2" : "min-h-12 flex-col justify-center gap-1 p-1 text-center"}`;
+  const base = `flex w-full items-center rounded-control border border-transparent text-body-sm font-bold no-underline focus-visible:outline-none focus-visible:shadow-focus ${layout === "expanded" ? "min-h-12 justify-start gap-3 px-3 py-2" : "min-h-12 flex-col justify-center gap-1 p-1 text-center"}`;
   return isActive
-    ? `${base} border-action-primary bg-action-primary-soft text-action-primary`
+    ? `${base} bg-action-primary-soft text-action-primary`
     : `${base} border-transparent bg-transparent text-content-muted hover:bg-action-primary-soft hover:text-action-primary`;
 }
 

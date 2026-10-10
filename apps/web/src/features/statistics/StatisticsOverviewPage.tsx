@@ -13,7 +13,7 @@ import {
   YAxis
 } from "recharts";
 import { useEnergyComparison, useEnergyRangeComparison, useEnergySeries, useEnergySummary } from "../../api/energy";
-import { Button, Card, DateRangePicker, FeedbackState, FilterPanel, formatTimestamp, Heading, MetricCard, SidePanel, StatusBadge, Text, useThemeColors, useDateRangeDraft } from "../../components/ui";
+import { Button, Card, DateRangePicker, FeedbackState, FilterPanel, formatTimestamp, Heading, PageHeader, MetricCard, SidePanel, StatusBadge, Text, useThemeColors, useDateRangeDraft } from "../../components/ui";
 import { StatisticsOperationalInfo } from "./StatisticsOperationalInfo";
 import { draftToDate } from "../../components/ui/date/useDateDraft";
 import { EnergyComparisonChart } from "./EnergyComparisonChart";
@@ -77,6 +77,7 @@ export function StatisticsOverviewPage() {
   if (!siteId || summaryQuery.isLoading) {
     return (
       <section className="grid min-w-0 gap-6">
+        <PageHeader variant="customer" headingLevel={1} title="통계 개요" />
         <FeedbackState
           icon={Activity}
           title="전력 통계를 불러오는 중"
@@ -88,6 +89,7 @@ export function StatisticsOverviewPage() {
   if (summaryQuery.isError || !summaryQuery.data) {
     return (
       <section className="grid min-w-0 gap-6">
+        <PageHeader variant="customer" headingLevel={1} title="통계 개요" />
         <FeedbackState
           tone="danger"
           icon={TriangleAlert}
@@ -201,6 +203,7 @@ export function StatisticsOverviewPage() {
 
   return (
     <section className="grid min-w-0 gap-5" aria-label="에너지 통계">
+      <PageHeader variant="customer" headingLevel={1} title="통계 개요" />
       <ComparisonSection
         preset={comparisonPreset}
         onPresetChange={(preset) => { setComparisonPreset(preset); setCustomActive(false); setShowCustomPicker(false); }}

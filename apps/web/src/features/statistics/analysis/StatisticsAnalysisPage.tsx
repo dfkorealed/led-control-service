@@ -5,7 +5,7 @@ import { Activity, ArrowDownAZ, ArrowUpAZ, BarChart3, TriangleAlert } from "luci
 import { useEffect, useState } from "react";
 import { useOutletContext } from "react-router-dom";
 import { useEnergyObservedMeanHeatmap, useEnergyRankings, useEnergySummary } from "../../../api/energy";
-import { Button, Card, DatePicker, FeedbackState, FilterPanel, MetricCard, SelectBox, StatusBadge, StatusDetailButton, Text, useDateDraft } from "../../../components/ui";
+import { Button, Card, DatePicker, FeedbackState, FilterPanel, MetricCard, PageHeader, SelectBox, StatusBadge, StatusDetailButton, Text, useDateDraft } from "../../../components/ui";
 import { draftToDate } from "../../../components/ui/date/useDateDraft";
 import type { StatisticsOutletContext } from "../StatisticsShell";
 import { completedDateBounds } from "../completed-date-bounds";
@@ -67,14 +67,15 @@ export function StatisticsAnalysisPage() {
   useEffect(() => { setSelectedId(null); }, [siteId]);
 
   if (summary.isError) {
-    return <section className="grid min-w-0 gap-6"><FeedbackState tone="danger" icon={TriangleAlert}
+    return <section className="grid min-w-0 gap-6"><PageHeader variant="customer" headingLevel={1} title="사용량 분석" /><FeedbackState tone="danger" icon={TriangleAlert}
       title="현장 기간 기준을 불러오지 못했습니다." action={<Button variant="secondary" onClick={() => summary.refetch()}>다시 시도</Button>} /></section>;
   }
   if (!siteId || summary.isLoading || !defaults) {
-    return <section className="grid min-w-0 gap-6"><FeedbackState icon={Activity} title="사용량 순위를 계산하는 중" /></section>;
+    return <section className="grid min-w-0 gap-6"><PageHeader variant="customer" headingLevel={1} title="사용량 분석" /><FeedbackState icon={Activity} title="사용량 순위를 계산하는 중" /></section>;
   }
   return (
     <section className="grid min-w-0 gap-5 max-compact:gap-2" aria-label="사용량 분석 결과">
+      <PageHeader variant="customer" headingLevel={1} title="사용량 분석" />
       <Card className="min-w-0 p-4">
       <FilterPanel label="사용량 분석 조건" mode="popover" variant="compact" className="max-compact:flex-row max-compact:items-center max-compact:[&>div:first-child]:shrink-0 max-compact:[&>div:nth-child(2)]:flex-1"
         activeFilterCount={Number(dimension !== "floor") + Number(metric !== "usage") + Number(sort !== "desc") + Number(from !== defaults.from || to !== defaults.to)}

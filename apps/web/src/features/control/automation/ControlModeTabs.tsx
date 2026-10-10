@@ -1,6 +1,6 @@
 import { CalendarClock, CarFront, Layers3, SlidersHorizontal } from "lucide-react";
 import { useRef, type KeyboardEvent } from "react";
-import { Button, UnderlineNavigation, UnderlineNavigationLabel } from "../../../components/ui";
+import { Button, UnderlineNavigation, UnderlineNavigationLabel, navigationItemClass } from "../../../components/ui";
 
 export type ControlPageMode = "manual" | "schedule" | "event" | "group";
 
@@ -11,9 +11,7 @@ const allModes = [
   { value: "group", label: "그룹/구역", icon: Layers3 }
 ] as const;
 
-const controlModeTabClassName = (isActive: boolean) => `min-w-28 shrink-0 rounded-none border-x-0 border-t-0 border-b-2 bg-transparent px-3 text-body-sm whitespace-nowrap ${isActive
-  ? "border-action-primary text-action-primary"
-  : "border-transparent text-content-secondary hover:border-border-strong hover:text-content-primary"}`;
+const controlModeTabClassName = (isActive: boolean) => `${navigationItemClass({ active: isActive, variant: "customer" })} min-w-28 shrink-0 whitespace-nowrap`;
 
 export function ControlModeTabs({
   mode,
@@ -44,7 +42,7 @@ export function ControlModeTabs({
   }
 
   return (
-    <UnderlineNavigation as="div" role="tablist" aria-label="제어 방식">
+    <UnderlineNavigation variant="customer" as="div" role="tablist" aria-label="제어 방식">
       {modes.map((item, index) => {
         const Icon = item.icon;
         return (
