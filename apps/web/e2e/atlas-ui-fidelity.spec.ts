@@ -33,12 +33,12 @@ async function customer(page: Page, role: "admin" | "viewer" = "admin", statisti
     if (url.pathname.startsWith("/api/") && !["GET", "HEAD"].includes(request.method()))
       writes.push({ method: request.method(), path: url.pathname, body: request.postData() });
   });
-  // Statistics helpers also register a floorless dashboard. Install them first
-  // so the shared customer dashboard remains authoritative for the four roots.
-  if (statistics) await installFirstScreenStatisticsFixtures(page);
   const api = await installSettingsApiRoutes(page, role, {
     ids: { siteId, floorId, gatewayId }, fixtures, readyMapDocument: true, commandId
   });
+  // Statistics owns energy-specific routes after settings' general API route,
+  // but precedes our authoritative dashboard: its helper is otherwise floorless.
+  if (statistics) await installFirstScreenStatisticsFixtures(page);
   const dashboard = structuredClone(mockDashboard);
   dashboard.capabilities = { read: true, control: true, manage: role === "admin", commission: role === "admin" };
   dashboard.floors = [{ ...dashboard.floors[0], mapRevision: 7, mapConfigured: true }];
@@ -113,7 +113,7 @@ async function rootReady(page: Page, menu: typeof roots[number]) {
   } else if (menu === "statistics") {
     await expect(page.getByRole("group", { name: "에너지 요약", exact: true })).toContainText("4.25");
     await expect(page.getByRole("img", { name: "일별 상태 기반 추정 전력 사용량 꺾은선 차트", exact: true }).locator("svg").first()).toBeVisible();
-    await expect(page.getByRole("list", { name: "차트 데이터 및 수집 상태", exact: true })).toContainText("2026-08-25");
+    await expect(page.getByRole("list", { name: "차트 데이터 및 수집 상태", exact: true })).toContainText("2026년 8월 25일: 4.1 kWh");
   } else {
     for (const label of ["현장 관리", "유저 관리", "조명 등록", "맵 관리", "계정 보안"])
       await expect(page.getByRole("link", { name: label, exact: true }).last()).toBeVisible();
@@ -264,6 +264,7 @@ test("settings edit/password dialogs cancel to opener while independent MFA draf
   // native storage event. No force click, synthetic event or HTML theme write.
   await toggleFromCustomerTab(page);
   await expect(dialog.getByRole("textbox", { name: "현장명", exact: true })).toHaveValue("변경하지 않는 draft");
+  await evidence(page, info, "settings-site-edit-open");
   await dialog.getByRole("button", { name: "취소", exact: true }).click(); await expect(edit).toBeFocused();
   expect(writes).toEqual([]);
   await page.route("**/api/auth/mfa", route => route.fulfill({ json: { enabled: false, enabledAt: null } }));
@@ -278,6 +279,7 @@ test("settings edit/password dialogs cancel to opener while independent MFA draf
   await passwordDialog.getByLabel("현재 비밀번호", { exact: true }).fill("fixture-current");
   await toggleFromCustomerTab(page);
   await expect(passwordDialog.getByLabel("현재 비밀번호", { exact: true })).toHaveValue("fixture-current");
+  await evidence(page, info, "settings-password-dialog-open");
   await page.keyboard.press("Escape"); await expect(password).toBeFocused();
   expect(await code.evaluate((node, original) => node === original, codeNode)).toBe(true); await expect(code).toHaveValue("654321");
   expect(writes).toEqual(before); expect(await page.evaluate(() => JSON.stringify({ ...localStorage, ...sessionStorage }))).not.toContain("FIDELITYFIXTURESECRET");
