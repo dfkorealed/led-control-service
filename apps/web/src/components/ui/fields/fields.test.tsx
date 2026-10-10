@@ -333,6 +333,22 @@ describe("domain and keyboard contracts", () => {
     expect(onChange.mock.calls).toEqual([["two"]]);
     expect(screen.getByRole("radio", { name: "2층" })).toBeChecked();
   });
+  it("bare Slider retains label, descriptions, input ref and keyboard behavior without the field frame", () => {
+    const ref = createRef<HTMLInputElement>();
+    const changed = vi.fn();
+    render(<UI.Slider ref={ref} id="bare-brightness" presentation="bare" label="밝기" description="조정 안내"
+      errorMessage="다시 확인" isInvalid defaultValue={20} step={10} onChange={changed} />);
+    const slider = screen.getByRole("slider", { name: "밝기" });
+    expect(ref.current).toBe(slider);
+    expect(slider).toHaveAttribute("id", "bare-brightness");
+    expect(slider).toHaveAccessibleDescription(/조정 안내/);
+    expect(slider).toHaveAccessibleDescription(/다시 확인/);
+    expect(slider.closest("[data-field]")?.querySelector(".rounded-control.border")).toBeNull();
+    act(() => slider.focus());
+    fireEvent.keyDown(slider, { key: "ArrowRight" });
+    expect(slider).toHaveValue("30");
+    expect(changed.mock.calls).toEqual([[30]]);
+  });
   it("Slider emits a number once on arrow and respects limits and step", () => {
     const onChange = vi.fn();
     render(<UI.Slider label="밝기" defaultValue={90} minValue={0} maxValue={100} step={10} onChange={onChange} />);

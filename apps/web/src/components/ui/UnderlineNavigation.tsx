@@ -4,11 +4,11 @@ import { cn } from "./utils/cn";
 
 export interface UnderlineNavigationProps extends HTMLAttributes<HTMLElement> {
   as?: "div" | "nav";
-  variant?: "default";
+  variant?: "default" | "customer";
   trackClassName?: string;
 }
 
-const navigation = cva("w-full min-w-0 max-w-full self-start overflow-x-auto border-b border-border-default", { variants: { variant: { default: "" } } });
+const navigation = cva("w-full min-w-0 max-w-full self-start overflow-x-auto", { variants: { variant: { default: "border-b border-border-default", customer: "" } } });
 const navigationLabel = cva("inline-flex items-center justify-center gap-2", { variants: { variant: { default: "" } } });
 
 export const UnderlineNavigation = forwardRef<HTMLElement, UnderlineNavigationProps>(function UnderlineNavigation({
@@ -22,7 +22,7 @@ export const UnderlineNavigation = forwardRef<HTMLElement, UnderlineNavigationPr
   return createElement(
     as,
     { ...props, ref, className: cn(navigation({ variant }), className) },
-    <div data-navigation-track className={cn("flex w-max min-w-full gap-2", trackClassName)}>{children}</div>
+    <div data-navigation-track className={cn("flex w-max min-w-full gap-2", variant === "customer" && "pb-2", trackClassName)}>{children}</div>
   );
 });
 

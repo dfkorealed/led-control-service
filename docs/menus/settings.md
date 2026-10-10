@@ -1,5 +1,27 @@
 # 설정 메뉴 기능 현황 및 구현 설계
 
+## 2026-10-10 공통 고객 표현 기반 (Task 2)
+
+### 구현 완료
+
+- 고객 title/metric·card inset·soft pill navigation의 opt-in API와 단일 NavigationCard를 추가했다. 고객 theme 안 보조 버튼을 중립/transparent 표현으로 바꾸고 compact DataGrid는 label/value 두 열 카드로 표시한다. 필터는 라벨과 양수 count, ticker는 desktop 제목/mobile 접근성 제목, 지도 인라인 집계는 상태 dot과 중립 수치를 사용한다.
+
+### 미구현
+
+- 메뉴별 신규 API 소비·전체 상세 화면 교정은 후속 태스크에서 적용한다.
+
+### 부족하거나 개선이 필요한 기능
+
+- 공통 계약의 focused 검증만 수행했다. 메뉴의 실제 시각 일치·브라우저 geometry·실장비 연동 완료 증거는 아니다.
+
+### 관련 파일
+
+- `apps/web/src/components/ui/{Typography,PageHeader,Card,NavigationCard,UnderlineNavigation,Button,DataGrid,FilterPanel,SidePanel}.tsx`, `operations/{InlineStatusSummary,RecentActivityTicker}.tsx`, `fields/Slider.tsx`.
+
+### 갱신 규칙
+
+- 메뉴별 소비와 검증은 해당 후속 구현에서 갱신하며 기본 variant·실제 데이터/권한/작업 owner·44px hit의 한계를 함께 기록한다.
+
 ## 2026-10-09 ATLAS LEAN 마무리
 
 - 고객 공통 UI·라이트/다크·모바일 레이아웃과 권한 기반 설정 카드·모바일 이동의 ATLAS 적용을 구현했다. dirty/MFA 및 기존 BIO 경계는 보존한다.

@@ -8,7 +8,7 @@ const merge = extendTailwindMerge({
       text: [
         "landing-hero", "display", "page-title", "section-title",
         "card-title", "body-lg", "body", "body-sm",
-        "label", "caption", "overline", "metric",
+        "label", "caption", "overline", "metric", "customer-page-title", "customer-metric",
         "landing-button", "landing-eyebrow", "landing-brand", "landing-navigation",
         "landing-hero-fluid", "landing-hero-description", "landing-hero-footer", "landing-hero-art-label",
         "landing-hero-art-metric", "landing-scene-watermark", "landing-scene-number", "landing-scene-heading",

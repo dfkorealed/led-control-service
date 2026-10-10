@@ -1,4 +1,7 @@
 export { Button } from "./Button";
+export { NavigationCard } from "./NavigationCard";
+export type { NavigationCardProps } from "./NavigationCard";
+export { navigationItemClass } from "./navigation-item-recipe";
 export { InlineStatusSummary } from "./operations/InlineStatusSummary";
 export type { InlineStatusSummaryProps } from "./operations/InlineStatusSummary";
 export { RecentActivityTicker } from "./operations/RecentActivityTicker";

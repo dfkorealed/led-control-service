@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { cn } from "./cn";
 
+it("composes approved customer typography with foreground and replaces only the same breakpoint size", () => {
+  expect(cn("text-body text-customer-page-title", "text-content-primary")).toBe("text-customer-page-title text-content-primary");
+  expect(cn("text-customer-metric max-compact:text-metric max-compact:text-content-secondary", "max-compact:text-customer-page-title"))
+    .toBe("text-customer-metric max-compact:text-content-secondary max-compact:text-customer-page-title");
+});
+
 it("replaces default width with approved customer geometry without losing responsive widths", () => {
   expect(cn("w-full", "w-customer-site-small phone-wide:w-customer-site compact:w-64")).toBe("w-customer-site-small phone-wide:w-customer-site compact:w-64");
   expect(cn("w-customer-sidebar", "w-customer-rail")).toBe("w-customer-rail");

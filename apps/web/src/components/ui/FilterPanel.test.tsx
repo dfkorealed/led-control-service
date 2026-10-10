@@ -12,6 +12,16 @@ function panel() {
 afterEach(cleanup);
 
 describe("FilterPanel", () => {
+  it("shows the trigger label and only a positive active count without changing the accessible count", () => {
+    const view = render(<UI.FilterPanel label="조건" mode="popover"><span>내용</span></UI.FilterPanel>);
+    const trigger = screen.getByRole("button", { name: "조건 상세 필터, 활성 조건 0개" });
+    expect(trigger).toHaveTextContent("필터");
+    expect(within(trigger).queryByText("0")).not.toBeInTheDocument();
+    view.rerender(<UI.FilterPanel label="조건" mode="popover" triggerLabel="조건 선택" activeFilterCount={2}><span>내용</span></UI.FilterPanel>);
+    expect(trigger).toHaveAccessibleName("조건 상세 필터, 활성 조건 2개");
+    expect(trigger).toHaveTextContent("조건 선택");
+    expect(within(trigger).getByText("2")).toBeInTheDocument();
+  });
   it("reserves a 64px-wide trigger while keeping the 44px height for its rounded continuous hit area", () => {
     render(<UI.FilterPanel label="실제 hit" mode="popover"><UI.TextField label="조건" /></UI.FilterPanel>);
     const trigger = screen.getByRole("button", { name: "실제 hit 상세 필터, 활성 조건 0개" });

@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState, type ReactElement, type ReactNode } from "react";
+import { useContext, useEffect, useLayoutEffect, useRef, useState, type ReactElement, type ReactNode } from "react";
 import { ArrowDown, ArrowUp, ArrowUpDown } from "lucide-react";
 import { Button } from "./Button";
 import { SelectBox } from "./fields/SelectBox";
@@ -6,6 +6,7 @@ import { Card } from "./Card";
 import { DataTableShell } from "./DataTableShell";
 import { DataTableHeaderCell } from "./DataTableHeaderCell";
 import { cn } from "./utils/cn";
+import { CustomerThemeContext } from "./theme/CustomerThemeProvider";
 
 export type DataGridAlign = "left" | "center" | "right";
 export type DataGridSurface = "table" | "card";
@@ -47,6 +48,7 @@ function sortedRows<T>(rows: readonly T[], accessor: NonNullable<DataGridColumn<
 
 /** Sorting covers supplied rows only. Query, pagination, row actions and filters stay with callers. */
 export function DataGrid<T>({ caption, rows, columns, getRowKey, isBusy = false, emptyState, variant = "default", className }: DataGridProps<T>): ReactElement {
+  const customerTheme = useContext(CustomerThemeContext);
   const container = useRef<HTMLElement>(null);
   const [width, setWidth] = useState(0);
   const [sort, setSort] = useState<Sort | null>(null);
@@ -68,13 +70,14 @@ export function DataGrid<T>({ caption, rows, columns, getRowKey, isBusy = false,
   const minimumWidth = columns.reduce((total, column) => total + column.minWidth, 0);
   const table = width > 0 && width >= minimumWidth;
   const compactCards = variant === "compact" && !table;
+  const customerCards = Boolean(customerTheme) && compactCards;
   const cellClass = cn("min-w-0 wrap-anywhere whitespace-normal", variant === "compact" ? "px-3 py-2" : "px-4 py-3");
   const empty = emptyState ?? (isBusy ? "불러오는 중" : "항목이 없습니다.");
   const rowKey = (row: T) => { const key = getRowKey(row); return `${typeof key}:${key}`; };
   const displayedRows = sort && sortColumn?.sortValue ? sortedRows(rows, sortColumn.sortValue, sort.direction) : rows;
   const sortableColumns = columns.filter(column => column.sortValue);
   const toggleSort = (columnId: string) => setSort(current => ({ columnId, direction: current?.columnId === columnId && current.direction === "ascending" ? "descending" : "ascending" }));
-  return <Card ref={container} className={cn("min-w-0", className)} aria-busy={isBusy || undefined}>
+  return <Card ref={container} className={cn("min-w-0", customerCards && "border-0 bg-transparent", className)} aria-busy={isBusy || undefined}>
     {sortableColumns.length ? <div className={cn("grid min-w-0 gap-2 border-b border-border-default", compactCards ? "p-2" : "p-3")}>
       {/* Compact cards keep the same controls in one row so their first action remains reachable. */}
       <p className={cn("m-0 text-caption text-content-secondary", compactCards && "sr-only")}>현재 목록 안에서 정렬</p>
@@ -102,11 +105,11 @@ export function DataGrid<T>({ caption, rows, columns, getRowKey, isBusy = false,
       </DataTableHeaderCell>)}</tr></thead>
       <tbody>{displayedRows.length ? displayedRows.map(row => <tr key={rowKey(row)}>{columns.map(column => <td key={column.id} className={cn(cellClass, "border-t border-border-default", alignments[column.align ?? "left"])}>{column.renderCell(row, "table")}</td>)}</tr>)
         : <tr><td colSpan={columns.length} className={cellClass}>{empty}</td></tr>}</tbody>
-    </DataTableShell> : <ul aria-label={caption} className="m-0 grid min-w-0 list-none divide-y divide-border-default p-0">
-      {displayedRows.length ? displayedRows.map(row => <li key={rowKey(row)} className={variant === "compact" ? "min-w-0 p-3" : "min-w-0 p-4"}>
-        <dl className="m-0 grid min-w-0 gap-3">{columns.map(column => <div key={column.id} className="grid min-w-0 gap-1">
-          <dt className="wrap-anywhere text-label font-semibold text-content-secondary">{column.header}</dt>
-          <dd className={cn("m-0 min-w-0 wrap-anywhere whitespace-normal text-body-sm", alignments[column.align ?? "left"])}>{column.renderCell(row, "card")}</dd>
+    </DataTableShell> : <ul aria-label={caption} className={cn("m-0 grid min-w-0 list-none p-0", customerCards ? "gap-3" : "divide-y divide-border-default")}>
+      {displayedRows.length ? displayedRows.map(row => <li key={rowKey(row)} className={cn(variant === "compact" ? "min-w-0 p-3" : "min-w-0 p-4", customerCards && "rounded-panel border border-border-default bg-surface-panel")}>
+        <dl className="m-0 grid min-w-0 gap-3">{columns.map(column => <div key={column.id} className={cn("grid min-w-0 gap-1", customerCards && "grid-cols-[minmax(0,1fr)_minmax(0,2fr)] items-start gap-3")}>
+          <dt className={cn("wrap-anywhere text-label font-semibold text-content-secondary", customerCards && "text-body-sm")}>{column.header}</dt>
+          <dd className={cn("m-0 min-w-0 wrap-anywhere whitespace-normal text-body-sm", alignments[column.align ?? "left"], customerCards && "text-right")}>{column.renderCell(row, "card")}</dd>
         </div>)}</dl>
       </li>) : <li className="min-w-0 p-4">{empty}</li>}
     </ul>}

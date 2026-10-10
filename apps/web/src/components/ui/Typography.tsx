@@ -9,7 +9,11 @@ const typography = cva("m-0", {
       "section-title": "text-section-title font-bold", "card-title": "text-card-title font-bold",
       "body-lg": "text-body-lg font-normal", body: "text-body font-normal", "body-sm": "text-body-sm font-normal",
       label: "text-label font-semibold", caption: "text-caption font-normal", overline: "text-overline font-bold",
-      metric: "text-metric font-bold tabular-nums"
+      metric: "text-metric font-bold tabular-nums",
+      "customer-page-title": "text-customer-page-title font-bold max-compact:text-section-title",
+      "customer-section-title": "text-card-title font-bold",
+      "customer-card-title": "text-body-lg font-bold",
+      "customer-metric": "text-customer-metric font-bold tabular-nums max-compact:text-metric"
     },
     tone: {
       primary: "text-content-primary", secondary: "text-content-secondary", muted: "text-content-muted",

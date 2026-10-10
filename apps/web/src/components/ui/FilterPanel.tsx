@@ -15,6 +15,7 @@ export interface FilterPanelProps {
   variant?: "default" | "compact";
   search?: ReactNode;
   activeFilterCount?: number;
+  triggerLabel?: string;
   summary?: ReactNode;
   filterReset?: ReactNode;
   isOpen?: boolean;
@@ -24,7 +25,7 @@ export interface FilterPanelProps {
 }
 
 /** Presentation only: callers retain query, validation and reset policies. */
-export function FilterPanel({ label, children, chips, actions, className, mode = "inline", variant = "default", search, activeFilterCount = 0,
+export function FilterPanel({ label, children, chips, actions, className, mode = "inline", variant = "default", search, activeFilterCount = 0, triggerLabel = "필터",
   summary, filterReset, isOpen, onOpenChange, isDisabled = false, isDismissDisabled = false }: FilterPanelProps) {
   const trigger = useRef<HTMLButtonElement>(null);
   const [localOpen, setLocalOpen] = useState(false);
@@ -41,8 +42,9 @@ export function FilterPanel({ label, children, chips, actions, className, mode =
       <DialogTrigger isOpen={open} onOpenChange={changeOpen}>
         <AriaButton ref={trigger} isDisabled={isDisabled} aria-label={`${label} 상세 필터, 활성 조건 ${activeFilterCount}개`}
           // Rounded corners need extra width to retain a continuous 44×44 pointer area.
-          className="inline-flex min-h-11 min-w-16 shrink-0 items-center justify-center gap-1 rounded-control border border-border-default bg-surface-panel px-2 text-action-primary outline-none data-focus-visible:shadow-focus data-disabled:opacity-60">
-          <SlidersHorizontal size={18} aria-hidden="true" /><span aria-hidden="true">{activeFilterCount}</span>
+          className="inline-flex min-h-11 min-w-16 shrink-0 items-center justify-center gap-1 rounded-control border border-border-default bg-surface-panel px-2 text-content-primary outline-none data-focus-visible:shadow-focus data-disabled:opacity-60">
+          <SlidersHorizontal size={18} aria-hidden="true" /><span aria-hidden="true">{triggerLabel}</span>
+          {activeFilterCount > 0 ? <span aria-hidden="true" className="rounded-pill bg-action-primary-soft px-1.5 text-label text-action-primary">{activeFilterCount}</span> : null}
         </AriaButton>
         <Popover label={label} triggerRef={trigger} placement="bottom end" className="w-96 min-w-0" isKeyboardDismissDisabled={isDismissDisabled}
           shouldCloseOnInteractOutside={() => !isDismissDisabled}>

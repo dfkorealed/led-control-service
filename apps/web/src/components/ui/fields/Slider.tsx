@@ -7,6 +7,7 @@ import { fieldControl, type SelectionVisualProps } from "./field-types";
 
 export interface SliderProps extends SelectionVisualProps, Pick<AriaAttributes, "aria-controls">, Omit<AriaSliderProps<number>, keyof SelectionVisualProps | "children" | "style" | "render" | "orientation"> {
   isInvalid?: boolean;
+  presentation?: "field" | "bare";
 }
 
 function SliderField(props: FormFieldProps) {
@@ -32,13 +33,13 @@ function SliderInputThumb({ inputRef, id, ...props }: Pick<SliderProps, "id" | "
   </div>;
 }
 export const Slider = forwardRef<HTMLInputElement, SliderProps>(function Slider(
-  { label, description, errorMessage, variant, size, className, id, isInvalid, ...props }, ref
+  { label, description, errorMessage, variant, size, className, id, isInvalid, presentation = "field", ...props }, ref
 ) {
   const inputRef = useRef<HTMLInputElement>(null);
   useImperativeHandle(ref, () => inputRef.current!);
   return <AriaSlider {...props} className="contents">
     <SliderField {...{ label, description, errorMessage, variant, size, className, id, isInvalid }} labelMode="aria" isDisabled={props.isDisabled}>
-    {(attributes) => <div aria-invalid={isInvalid || undefined} className={cn(fieldControl({ variant, size }), "flex items-center")}>
+    {(attributes) => <div aria-invalid={isInvalid || undefined} className={cn(presentation === "field" ? fieldControl({ variant, size }) : "min-h-11 w-full", "flex items-center")}>
       <SliderTrack className="relative flex min-h-11 w-full items-center">
         <div aria-hidden="true" className="absolute h-1 w-full rounded-pill bg-border-strong"><SliderFill className="absolute h-full rounded-pill bg-action-primary" /></div>
         <SliderInputThumb id={attributes.id} inputRef={inputRef} aria-controls={props["aria-controls"]} aria-describedby={attributes["aria-describedby"]} isInvalid={isInvalid} />

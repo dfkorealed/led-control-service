@@ -7,6 +7,16 @@ const items = [{ id: "a", timestampLabel: "10:00", content: "첫 명령", status
   { id: "b", timestampLabel: "10:01", content: "다음 명령", status: "일부 성공" }];
 const props = { scopeKey: "site-a", items, emptyContent: "최근 이력 없음", onOpen: vi.fn() };
 beforeEach(() => { vi.useFakeTimers(); Object.defineProperty(document, "visibilityState", { configurable: true, value: "visible" }); });
+it("changes the visible title without resetting current row or the existing timer", () => {
+  const view = render(<Ticker {...props} title="최근 활동" />);
+  expect(screen.getByRole("region", { name: "최근 활동" })).toBeInTheDocument();
+  expect(screen.getByText("최근 활동")).toBeInTheDocument();
+  act(() => vi.advanceTimersByTime(5000));
+  view.rerender(<Ticker {...props} title="제어 이력" />);
+  expect(screen.getByRole("region", { name: "제어 이력" })).toBeInTheDocument();
+  expect(screen.getByText("다음 명령")).toBeInTheDocument();
+  expect(vi.getTimerCount()).toBe(1);
+});
 afterEach(() => { cleanup(); vi.useRealTimers(); vi.restoreAllMocks(); });
 it("rotates only at five seconds and releases the timer on unmount", () => {
   const view = render(<Ticker {...props} />);

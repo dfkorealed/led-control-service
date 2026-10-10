@@ -56,9 +56,13 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
   // observes the browser click origin and never synthesizes a second action.
   // Public landing variants own their exact frame independently of app control density.
   const classes = button({ variant, size: variant.startsWith("landing") ? null : size });
+  const customerAppearance = customerTheme && (variant === "secondary" || variant === "ghost")
+    ? cn("text-content-primary hover:enabled:bg-surface-inset aria-pressed:bg-action-primary-soft aria-pressed:text-action-primary",
+      variant === "ghost" && "border-transparent bg-transparent")
+    : null;
   // The customer palette has an independent primary foreground. Public/auth
   // controls keep their existing inverse foreground and landing variants.
-  return <button ref={ref} {...props} disabled={disabled || isDisabled || isLoading} aria-busy={isLoading || props["aria-busy"]} data-variant={variant} className={cn(classes, customerTheme && variant === "primary" && "text-action-primary-foreground", className)}
+  return <button ref={ref} {...props} disabled={disabled || isDisabled || isLoading} aria-busy={isLoading || props["aria-busy"]} data-variant={variant} className={cn(classes, customerTheme && variant === "primary" && "text-action-primary-foreground", customerAppearance, className)}
     onKeyDown={(event) => {
       onKeyDown?.(event);
       if (!event.defaultPrevented && (event.key === "Enter" || event.key === " ")) activation.current = { key: event.key };
