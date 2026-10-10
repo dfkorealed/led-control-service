@@ -17,18 +17,32 @@ describe("FloorPlanSettingsView", () => {
 
   it("only activates two visible configured previews and disables them offscreen", () => {
     let notify: IntersectionObserverCallback;
+    let observer: IntersectionObserver;
     const disconnect = vi.fn();
-    vi.stubGlobal("IntersectionObserver", class { constructor(callback: IntersectionObserverCallback) { notify = callback; } observe() {} disconnect = disconnect; });
+    vi.stubGlobal("IntersectionObserver", class implements IntersectionObserver {
+      root = null;
+      rootMargin = "0px";
+      thresholds = [0];
+      constructor(callback: IntersectionObserverCallback) { notify = callback; observer = this; }
+      observe() {}
+      unobserve() {}
+      takeRecords() { return []; }
+      disconnect = disconnect;
+    });
+    function entry(target: Element, isIntersecting: boolean): IntersectionObserverEntry {
+      const rect = target.getBoundingClientRect();
+      return { target, isIntersecting, time: 0, rootBounds: null, boundingClientRect: rect, intersectionRect: rect, intersectionRatio: isIntersecting ? 1 : 0 };
+    }
     const floor = mockDashboard.floors[0];
     const dashboard = { ...mockDashboard, floors: [0, 1, 2].map(index => ({ ...floor, id: `floor-${index}`, name: `층 ${index}`, mapConfigured: true })) };
     useDashboard.mockReturnValue({ data: dashboard, isLoading: false, error: null });
     const { unmount } = render(<MemoryRouter><FloorPlanSettingsView siteId={dashboard.site.id} capabilities={{ read: true, control: false, manage: false, commission: false }} /></MemoryRouter>);
     const cards = screen.getAllByTestId("floor-plan-item");
-    act(() => notify!(cards.map(target => ({ target, isIntersecting: true })) as IntersectionObserverEntry[], {} as IntersectionObserver));
+    act(() => notify!(cards.map(target => entry(target, true)), observer));
     expect(screen.getAllByRole("img", { name: /도면 미리보기$/ })).toHaveLength(2);
     expect(useFloorMapSnapshot).toHaveBeenCalledWith("floor-0", dashboard.site.id);
     expect(useFloorMapSnapshot).not.toHaveBeenCalledWith("floor-2", dashboard.site.id);
-    act(() => notify!([{ target: cards[0], isIntersecting: false }] as IntersectionObserverEntry[], {} as IntersectionObserver));
+    act(() => notify!([entry(cards[0], false)], observer));
     expect(screen.queryByRole("img", { name: "층 0 도면 미리보기" })).not.toBeInTheDocument();
     expect(screen.getByRole("img", { name: "층 2 도면 미리보기" })).toBeInTheDocument();
     unmount();

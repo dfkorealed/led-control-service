@@ -48,6 +48,7 @@ export function AccountSecurityView({ user }: { user: AuthUser }) {
 
 function PasswordSecuritySummary() {
   const [isOpen, setIsOpen] = useState(false);
+  const [isPending, setIsPending] = useState(false);
   const trigger = useRef<HTMLButtonElement>(null);
   return <>
     <Card className="grid gap-4 p-5">
@@ -56,8 +57,8 @@ function PasswordSecuritySummary() {
       <Text variant="body-sm" tone="secondary">새 비밀번호는 8자 이상 1024자 이하로 입력해 주세요.</Text>
       <Button ref={trigger} className="justify-self-start" onClick={() => setIsOpen(true)}>비밀번호 변경</Button>
     </Card>
-    <ModalDialog title="비밀번호 변경" description="현재 비밀번호를 확인한 뒤 새 비밀번호를 적용합니다." isOpen={isOpen} onClose={() => setIsOpen(false)} returnFocusRef={trigger}>
-      <PasswordChangeCard presentation="embedded" />
+    <ModalDialog title="비밀번호 변경" description="현재 비밀번호를 확인한 뒤 새 비밀번호를 적용합니다." isOpen={isOpen} isPending={isPending} onClose={() => setIsOpen(false)} returnFocusRef={trigger}>
+      <PasswordChangeCard presentation="embedded" onPendingChange={setIsPending} />
     </ModalDialog>
   </>;
 }

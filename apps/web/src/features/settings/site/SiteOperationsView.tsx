@@ -20,7 +20,7 @@ import {
   type SiteSettings,
   type SiteSettingsFloor
 } from "../../../api/site-settings";
-import { Button, Card, DataGrid, FeedbackState, ModalDialog, PageHeader, SelectBox, StatusBadge, StatusDetailButton, TextField, type DataGridColumn } from "../../../components/ui";
+import { Button, Card, DataGrid, FeedbackState, Heading, ModalDialog, PageHeader, SelectBox, StatusBadge, StatusDetailButton, TextField, type DataGridColumn } from "../../../components/ui";
 import { BioSensorSettingsPanel } from "./BioSensorSettingsPanel";
 import { SiteInformationEditDialog } from "./SiteInformationEditDialog";
 import { FloorEditDialog } from "./FloorEditDialog";
@@ -130,7 +130,7 @@ export function SiteOperationsView({ siteId, ownerUserId, canPrepare = false }: 
         <div className="grid min-w-0 gap-5 tablet:grid-cols-2">
           <SiteInformationForm siteId={siteId} site={settingsQuery.data.site} />
           <Card className="grid content-start gap-4 p-5" role="region" aria-label="현장 구성">
-            <h2 className="m-0 text-customer-section-title font-bold">현장 구성</h2>
+            <Heading as="h2" variant="customer-section-title">현장 구성</Heading>
             <dl className="grid grid-cols-2 gap-4">
               <div><dt className="text-body-sm text-content-secondary">운영 층</dt><dd className="m-0 text-customer-metric font-bold">{activeFloors.length}개</dd></div>
               <div><dt className="text-body-sm text-content-secondary">등록 조명</dt><dd className="m-0 text-customer-metric font-bold">{settingsQuery.data.floors.reduce((count, floor) => count + floor.fixtureCount, 0)}개</dd></div>

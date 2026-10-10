@@ -58,7 +58,7 @@ function renderView(user: AuthUser = admin) {
 }
 
 describe("AccountSecurityView", () => {
-  it("does not apply a pending password response after dialog dismissal and reopening", async () => {
+  it.each(["close", "escape", "outside"])("blocks pending password dismissal via %s until session refresh completes", async (method) => {
     let resolveRequest: ((result: { ok: true; user: AuthUser }) => void) | undefined;
     vi.mocked(changePassword).mockImplementation(() => new Promise(resolve => { resolveRequest = resolve; }));
     const client = renderView();
@@ -69,15 +69,51 @@ describe("AccountSecurityView", () => {
     fireEvent.change(screen.getByLabelText("새 비밀번호 확인"), { target: { value: "new-secret" } });
     fireEvent.click(screen.getByRole("button", { name: "비밀번호 변경" }));
     expect(screen.getByRole("button", { name: "변경 중" })).toBeDisabled();
-    fireEvent.click(within(screen.getByRole("dialog", { name: "비밀번호 변경" })).getByRole("button", { name: "닫기" }));
+    const dialog = screen.getByRole("dialog", { name: "비밀번호 변경" });
+    const close = within(dialog).getByRole("button", { name: "닫기" });
+    if (method === "close") fireEvent.click(close);
+    if (method === "escape") fireEvent.keyDown(dialog, { key: "Escape" });
+    if (method === "outside") fireEvent.mouseDown(screen.getByTestId("modal-backdrop"));
+    expect(screen.getByRole("dialog", { name: "비밀번호 변경" })).toBe(dialog);
+    expect(close).toBeDisabled();
+    expect(screen.getByLabelText("현재 비밀번호")).toHaveValue("current-secret");
+    fireEvent.submit(within(dialog).getByRole("form", { name: "비밀번호 변경" }));
+    expect(changePassword).toHaveBeenCalledOnce();
+    await act(async () => resolveRequest?.({ ok: true, user: { ...admin, name: "updated-user" } }));
+    await waitFor(() => expect(listAuthSessions).toHaveBeenCalledTimes(2));
+    expect(client.getQueryData(authMeQueryKey)).toEqual({ user: { ...admin, name: "updated-user" } });
+    expect(screen.getByText("비밀번호를 변경했습니다.")).toBeVisible();
+    expect(close).toBeEnabled();
+    fireEvent.click(close);
     fireEvent.click(screen.getByRole("button", { name: "비밀번호 변경" }));
     expect(screen.getByLabelText("현재 비밀번호")).toHaveValue("");
-    await act(async () => resolveRequest?.({ ok: true, user: { ...admin, name: "stale-response" } }));
-    expect(client.getQueryData(authMeQueryKey)).toEqual({ user: admin });
-    expect(screen.queryByText("비밀번호를 변경했습니다.")).not.toBeInTheDocument();
     expect(changePassword).toHaveBeenCalledOnce();
-    expect(listAuthSessions).toHaveBeenCalledOnce();
     expect(JSON.stringify(client.getQueryCache().getAll())).not.toContain("current-secret");
+  });
+  it("allows dismissal again after password failure without clearing MFA enrollment", async () => {
+    let rejectRequest: ((error: Error) => void) | undefined;
+    vi.mocked(changePassword).mockImplementation(() => new Promise((_resolve, reject) => { rejectRequest = reject; }));
+    vi.mocked(startMfaEnrollment).mockResolvedValue({ enrollmentToken: "failure-enrollment", secret: "FAILURESECRET", otpauthUri: "otpauth://failure", expiresAt: "2026-10-10T12:10:00.000Z" });
+    renderView();
+    fireEvent.click(await screen.findByRole("button", { name: "2단계 인증 설정" }));
+    await screen.findByText("FAILURESECRET");
+    fireEvent.change(screen.getByLabelText("인증 앱 코드"), { target: { value: "123456" } });
+    const trigger = screen.getByRole("button", { name: "비밀번호 변경" });
+    fireEvent.click(trigger);
+    fireEvent.change(screen.getByLabelText("현재 비밀번호"), { target: { value: "current-secret" } });
+    fireEvent.change(screen.getByLabelText("새 비밀번호"), { target: { value: "new-secret" } });
+    fireEvent.change(screen.getByLabelText("새 비밀번호 확인"), { target: { value: "new-secret" } });
+    fireEvent.click(screen.getByRole("button", { name: "비밀번호 변경" }));
+    expect(screen.getByRole("button", { name: "닫기" })).toBeDisabled();
+    await act(async () => rejectRequest?.(new Error("failed")));
+    expect(screen.getByRole("alert")).toHaveTextContent("비밀번호를 변경하지 못했습니다.");
+    expect(screen.getByRole("button", { name: "닫기" })).toBeEnabled();
+    fireEvent.click(screen.getByRole("button", { name: "닫기" }));
+    await waitFor(() => expect(trigger).toHaveFocus());
+    expect(screen.getByLabelText("인증 앱 코드")).toHaveValue("123456");
+    expect(screen.getByText("FAILURESECRET")).toBeVisible();
+    expect(startMfaEnrollment).toHaveBeenCalledOnce();
+    expect(listAuthSessions).toHaveBeenCalledOnce();
   });
   it("dismisses the password dialog with focus return without resetting MFA or session owners", async () => {
     vi.mocked(startMfaEnrollment).mockResolvedValue({ enrollmentToken: "dialog-enrollment", secret: "DIALOGSECRET", otpauthUri: "otpauth://dialog", expiresAt: "2026-10-10T12:10:00.000Z" });
