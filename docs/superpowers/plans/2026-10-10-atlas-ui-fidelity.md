@@ -144,11 +144,13 @@
 
 **Interfaces:** 모든 Query/DTO/기간/metric/sort/download owner 불변. baseline-muted line/observed area+line/forecast dashed, null gap 연결 금지. ranking 실제0 bar width0, null bar 없음; 변화 null/0 neutral·증가 danger·감소 success.
 
-- [ ] **Step 1:** RED: ranking0/unknown·증감tone, chart phase/gap/동일 데이터·accessible table, 보고서 CSV action이 기존 실제 create dialog를 열고 query/polling 유지.
-- [ ] **Step 2:** ranking/chart/overview/reports 관련 case RED 실행 후 10개 V 항목(T01/03/05/06/11/12/15/18/20/25) 구현.
-- [ ] **Step 3:** chart fullwidth, 실제 이전/전년 비교 compact 아래 배치; 실제 월 baseline/forecast bars; 비용/품질 desktop1:1·mobile stack; 분석2KPIs+실제 상세, 보고서 flat toolbar/grid 구현.
-- [ ] **Step 4:** 변경된 overview/chart/analysis/reports targeted suites GREEN. 수집부족/음수절감/null·0/기간독립·CSV/PDFjob/취소/서명만료·168 heatmap 원 assertions 보존.
-- [ ] **Step 5:** 34행 보존/교정 및 source-only와 실제 확인을 구분해 기록, 메뉴 문서·commit.
+- [x] **Step 1:** RED: ranking0/unknown·증감tone, chart phase/gap/동일 데이터·accessible table, 보고서 CSV action이 기존 실제 create dialog를 열고 query/polling 유지.
+- [x] **Step 2:** ranking/chart/overview/reports 관련 case RED 실행 후 10개 V 항목(T01/03/05/06/11/12/15/18/20/25) 구현.
+- [x] **Step 3:** chart fullwidth, 실제 이전/전년 비교 compact 아래 배치; 실제 월 baseline/forecast bars; 비용/품질 desktop1:1·mobile stack; 분석2KPIs+실제 상세, 보고서 flat toolbar/grid 구현.
+- [x] **Step 4:** 변경된 overview/chart/analysis/reports targeted suites GREEN. 수집부족/음수절감/null·0/기간독립·CSV/PDFjob/취소/서명만료·168 heatmap 원 assertions 보존.
+- [x] **Step 5:** 34행 보존/교정 및 source-only와 실제 확인을 구분해 기록, 메뉴 문서·commit.
+
+실행 증거: `4d3cda30`, 통계문서/34행처리표. 신규RED8 FAIL/1 PASS→9 PASS, 직접8파일최종171 PASS/0FAIL·SKIP. 중간class단언실패와비선택을보고서에구분했다. 실제period/DTO/job/0-null 의미보존, eyebrowroot후속과geometryTask11은아직.
 
 ### Task 8: 설정 홈·현장/사용자·등록 표현
 
