@@ -58,6 +58,19 @@ async function toggleTheme(page: Page) {
   await expect(page.locator("html")).toHaveAttribute("data-customer-theme", dark ? "light" : "dark");
 }
 
+async function toggleFromCustomerTab(page: Page) {
+  const original = await page.locator("html").getAttribute("data-customer-theme");
+  const other = await page.context().newPage();
+  try {
+    const { writes } = await customer(other);
+    await other.goto(`${new URL(page.url()).origin}/settings?siteId=${siteId}`);
+    await expect(other.locator("html")).toHaveAttribute("data-customer-theme", original!);
+    await toggleTheme(other);
+    await expect(page.locator("html")).toHaveAttribute("data-customer-theme", original === "dark" ? "light" : "dark");
+    expect(writes).toEqual([]);
+  } finally { await other.close(); }
+}
+
 async function evidence(page: Page, info: TestInfo, name: string, metrics: unknown = {}) {
   await info.attach(name, { body: await page.screenshot(), contentType: "image/png" });
   await info.attach(`${name}-metrics`, { body: JSON.stringify({ url: page.url(), viewport: page.viewportSize(), metrics }), contentType: "application/json" });
@@ -113,7 +126,8 @@ for (const width of [320, 390, 562, 759, 760]) test(`responsive ${width}: brandi
   await evidence(page, info, `responsive-${width}-options`); await page.keyboard.press("Escape"); await expect(site).toBeFocused();
   const map = page.getByTestId("monitoring-map-viewport"); await expect(map.locator("canvas").first()).toBeVisible();
   const refresh = page.getByRole("button", { name: "새로고침", exact: true });
-  expect((await refresh.boundingBox())!.bottom).toBeLessThanOrEqual((await map.boundingBox())!.top);
+  const refreshBox = (await refresh.boundingBox())!, mapBox = (await map.boundingBox())!;
+  expect(refreshBox.y + refreshBox.height).toBeLessThanOrEqual(mapBox.y);
   await expectMinimumTouchTargets(page, "[data-shell-topbar] button"); await documentFits(page);
   await evidence(page, info, `responsive-${width}-monitoring`); expect(writes).toEqual([]);
 });
@@ -200,7 +214,11 @@ test("settings edit/password dialogs cancel to opener while independent MFA draf
   await page.goto(`/settings/site?siteId=${siteId}`);
   const edit = page.getByRole("button", { name: "현장 정보 수정", exact: true }); await edit.click();
   const dialog = page.getByRole("dialog", { name: "현장 정보 수정", exact: true }); await dialog.getByRole("textbox", { name: "현장명", exact: true }).fill("변경하지 않는 draft");
-  await toggleTheme(page); await expect(dialog.getByRole("textbox", { name: "현장명", exact: true })).toHaveValue("변경하지 않는 draft");
+  // The modal makes this tab's header inert. A second controlled customer tab
+  // uses its real theme button; CustomerThemeProvider receives the browser's
+  // native storage event. No force click, synthetic event or HTML theme write.
+  await toggleFromCustomerTab(page);
+  await expect(dialog.getByRole("textbox", { name: "현장명", exact: true })).toHaveValue("변경하지 않는 draft");
   await dialog.getByRole("button", { name: "취소", exact: true }).click(); await expect(edit).toBeFocused();
   expect(writes).toEqual([]);
   await page.route("**/api/auth/mfa", route => route.fulfill({ json: { enabled: false, enabledAt: null } }));
@@ -212,7 +230,8 @@ test("settings edit/password dialogs cancel to opener while independent MFA draf
   const before = structuredClone(writes); expect(before).toHaveLength(1); expect(before[0].path).toBe("/api/auth/mfa/enrollment");
   const password = page.getByRole("button", { name: "비밀번호 변경", exact: true }); await password.click();
   const passwordDialog = page.getByRole("dialog", { name: "비밀번호 변경", exact: true });
-  await passwordDialog.getByLabel("현재 비밀번호", { exact: true }).fill("fixture-current"); await toggleTheme(page);
+  await passwordDialog.getByLabel("현재 비밀번호", { exact: true }).fill("fixture-current");
+  await toggleFromCustomerTab(page);
   await expect(passwordDialog.getByLabel("현재 비밀번호", { exact: true })).toHaveValue("fixture-current");
   await page.keyboard.press("Escape"); await expect(password).toBeFocused();
   expect(await code.evaluate((node, original) => node === original, codeNode)).toBe(true); await expect(code).toHaveValue("654321");
@@ -238,15 +257,19 @@ test("gallery draws bounded readonly snapshots and disposes canvas on navigation
   await page.setViewportSize({ width: 1440, height: 900 }); const { api, writes } = await customer(page);
   await page.goto(`/settings/floor-plans?siteId=${siteId}&keep=value#gallery`);
   const cards = page.getByTestId("floor-plan-item"); await expect(cards.first()).toBeVisible();
-  const preview = cards.first().locator("canvas"); await expect(preview.first()).toBeVisible();
-  expect(await cards.evaluateAll(nodes => nodes.filter(node => node.querySelector("canvas")).length)).toBeLessThanOrEqual(2);
-  const node = await preview.first().elementHandle();
+  const preview = cards.first().getByRole("img", { name: `${mockDashboard.floors[0].name} 도면 미리보기`, exact: true });
+  await expect(preview).toBeVisible(); await expect(preview.locator("canvas").first()).toBeVisible();
+  expect((await preview.boundingBox())!.height).toBe(176);
+  await expect(preview.locator("[inert][aria-hidden=true]")).toHaveCount(1);
+  await expect(preview.getByRole("button", { includeHidden: true })).toHaveCount(0);
+  expect(await cards.getByRole("img").count()).toBeLessThanOrEqual(2);
+  const node = await preview.locator("canvas").first().elementHandle();
   const snapshots = api.mapSnapshotRequests; expect(snapshots).toBeGreaterThan(0); expect(api.editorRequests).toEqual([]);
   await toggleTheme(page); await page.setViewportSize({ width: 1024, height: 768 });
   expect(api.mapSnapshotRequests).toBe(snapshots);
   expect(api.editorRequests).toEqual([]); expect(writes).toEqual([]);
   await evidence(page, info, "gallery-real-snapshot", { snapshots: api.mapSnapshotRequests });
-  const history = cards.first().getByRole("link", { name: /버전 이력/ });
+  const history = cards.first().getByRole("link", { name: `${mockDashboard.floors[0].name} 변경 기록`, exact: true });
   const href = new URL((await history.getAttribute("href"))!, page.url());
   expect(href.searchParams.get("editorPanel")).toBe("details"); expect(href.searchParams.get("keep")).toBe("value"); expect(href.hash).toBe("#gallery");
   // Leave through the existing navigation: no lease initialization or restore intent.
