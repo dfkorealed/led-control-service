@@ -1,10 +1,12 @@
 import { expect, test, type Page, type TestInfo } from "@playwright/test";
+import { writeFile } from "node:fs/promises";
 import { createDimmingCommandSchema } from "@led-control/shared";
 import { mockDashboard } from "../src/test/fixtures";
+import type { SiteSettingsResponse } from "../src/api/site-settings";
 import { commandDetailClockFixture, installSettingsApiRoutes } from "./support/settings-api";
 import { installMockApiBoundary } from "./support/mock-api-boundary";
 import { installFirstScreenStatisticsFixtures } from "./support/first-screen-statistics";
-import { expectMinimumTouchTargets, expectNoHorizontalOverflow } from "./support/layout-assertions";
+import { expectMinimumTouchTargets, expectMinimumTouchTargetsAfterScrolling, expectNoHorizontalOverflow } from "./support/layout-assertions";
 
 const siteId = mockDashboard.site.id;
 const floorId = mockDashboard.floors[0].id;
@@ -42,6 +44,18 @@ async function customer(page: Page, role: "admin" | "viewer" = "admin") {
     ? route.fulfill({ json: dashboard }) : route.fallback());
   await page.route("**/api/sites", route => route.request().method() === "GET"
     ? route.fulfill({ json: [{ id: siteId, name: longSite, customerName: "고객사" }] }) : route.fallback());
+  // The general settings fixture owns editor/auth routes, not operating metadata.
+  // Complete read-only DTO mirrors the existing settings-operations fixture.
+  const operatingSettings: SiteSettingsResponse = {
+    site: { id: siteId, name: "본사 주차장", address: "서울시 중구 세종대로 1", timeZone: "Asia/Seoul",
+      currency: "KRW", tariffKwhRate: 158.75, updatedAt: "2026-09-12T00:00:00.000Z" },
+    floors: [{ id: floorId, name: mockDashboard.floors[0].name, level: -2, displayOrder: 1,
+      status: "active", fixtureCount: fixtures.length, activeGroupCount: 0, updatedAt: "2026-09-12T00:00:00.000Z" }]
+  };
+  await page.route(`**/api/sites/${siteId}/settings`, route => route.request().method() === "GET"
+    ? route.fulfill({ json: operatingSettings }) : route.fallback());
+  await page.route(`**/api/sites/${siteId}/floors/${floorId}/fixtures/settings?**`, route => route.request().method() === "GET"
+    ? route.fulfill({ json: { items: [], nextCursor: null } }) : route.fallback());
   await page.route("**/api/commands?**", route => route.request().method() === "GET"
     ? route.fulfill({ json: { items: [], nextCursor: null, generatedAt: commandDetailClockFixture.generatedAt,
       retainedFrom: commandDetailClockFixture.retainedFrom, retentionEnabled: false } }) : route.fallback());
@@ -72,8 +86,11 @@ async function toggleFromCustomerTab(page: Page) {
 }
 
 async function evidence(page: Page, info: TestInfo, name: string, metrics: unknown = {}) {
-  await info.attach(name, { body: await page.screenshot(), contentType: "image/png" });
-  await info.attach(`${name}-metrics`, { body: JSON.stringify({ url: page.url(), viewport: page.viewportSize(), metrics }), contentType: "application/json" });
+  const imagePath = info.outputPath(`${name}.png`), metricsPath = info.outputPath(`${name}-metrics.json`);
+  await page.screenshot({ path: imagePath });
+  await writeFile(metricsPath, JSON.stringify({ url: page.url(), viewport: page.viewportSize(), metrics }, null, 2));
+  await info.attach(name, { path: imagePath, contentType: "image/png" });
+  await info.attach(`${name}-metrics`, { path: metricsPath, contentType: "application/json" });
 }
 
 async function documentFits(page: Page, fixed = false) {
@@ -151,7 +168,10 @@ test("short manual recovery keeps map viewport 240, CTA reachable and draft/tool
   await page.goto(`/control?siteId=${siteId}`);
   await page.getByRole("button", { name: "조명 목록 열기", exact: true }).click();
   const drawer = page.getByRole("dialog", { name: "조명 목록", exact: true });
-  await drawer.getByRole("checkbox", { name: `${fixtures[0].name} 선택`, exact: true }).check();
+  const choice = drawer.getByRole("checkbox", { name: `${fixtures[0].name} 선택`, exact: true });
+  // The native input is visually covered by its real React Aria label/indicator.
+  // Activate that associated label, then assert the same input's selection.
+  await choice.locator("xpath=ancestor::label").click(); await expect(choice).toBeChecked();
   await drawer.getByRole("button", { name: "선택 완료", exact: true }).click();
   const input = page.getByRole("textbox", { name: "밝기 수치", exact: true }); await input.fill("30"); await input.press("Enter");
   expect(writes).toEqual([]);
@@ -166,7 +186,9 @@ test("short manual recovery keeps map viewport 240, CTA reachable and draft/tool
   await expect(map).toHaveAttribute("data-zoom", "1.1");
   await expect(input).toHaveValue("30");
   expect((await map.boundingBox())!.height).toBeGreaterThanOrEqual(240);
-  await retry.scrollIntoViewIfNeeded(); await expectMinimumTouchTargets(page, "[data-command-status-region] button");
+  // Long recovery content intentionally owns an internal scroll pane. Inspect
+  // every action after bringing that action into view, not a clipped neighbour.
+  await retry.scrollIntoViewIfNeeded(); await expectMinimumTouchTargetsAfterScrolling(page, "[data-command-status-region]");
   await documentFits(page, true); await evidence(page, info, "short-manual-recovery", { writes }); expect(writes).toEqual(original);
 });
 
@@ -205,7 +227,7 @@ test("both monitoring finder entries share query/filter and restore the actual o
   await list.click(); await expect(popover.getByRole("searchbox")).toHaveValue(fixtures[0].name);
   await expect(popover.getByRole("list", { name: "조명 목록", exact: true })).toBeVisible();
   await expect(popover.getByRole("button", { name: /상태 필터/ })).toContainText("정상");
-  await toggleTheme(page); await evidence(page, info, "finder-shared-state");
+  await toggleFromCustomerTab(page); await evidence(page, info, "finder-shared-state");
   await popover.getByRole("button", { name: "조명 검색·상세 닫기", exact: true }).click(); await expect(list).toBeFocused(); expect(writes).toEqual([]);
 });
 
@@ -274,5 +296,7 @@ test("gallery draws bounded readonly snapshots and disposes canvas on navigation
   expect(href.searchParams.get("editorPanel")).toBe("details"); expect(href.searchParams.get("keep")).toBe("value"); expect(href.hash).toBe("#gallery");
   // Leave through the existing navigation: no lease initialization or restore intent.
   await page.getByRole("navigation", { name: "설정 메뉴" }).getByRole("link", { name: "현장 관리", exact: true }).click();
-  expect(await node!.evaluate(element => element.isConnected)).toBe(false); expect(api.editorRequests).toEqual([]); expect(writes).toEqual([]);
+  await expect(page).toHaveURL(new RegExp(`/settings/site\\?siteId=${siteId}`));
+  await expect.poll(() => node!.evaluate(element => element.isConnected)).toBe(false);
+  expect(api.editorRequests).toEqual([]); expect(writes).toEqual([]);
 });
