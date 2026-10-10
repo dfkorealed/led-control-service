@@ -1,5 +1,28 @@
 # 통계 메뉴 기능 현황
 
+## 2026-10-10 충실도 교정 최종 확인
+
+### 구현 완료
+
+- 공통 제목/toolbar, 실제 기준선·관측 영역/선·예측 점선·null gap, 비용 두 막대/인사이트1:1, 실제 순위/두 상세KPI·flat 보고서 진입을 교정했다. 실제값/기간/수집률/저장 비용/파일 owner를 보존했다. 감사34행은 [담당 결과](../assets/atlas-ui-refresh-2026-10-07/audit-2026-10-10/implementation/task-7-report.md)를 따른다.
+- 실제 query settled PC/dark 대표 화면·통계0/gap focused 사례와 최종 타입·정책79/79·UI위반0/0·빌드 exit0·code/UI·UX 리뷰를 회수했다. 아래 담당 작업의 browser/통합 대기는 당시 기록이며 [최종 증거](../assets/atlas-ui-refresh-2026-10-07/audit-2026-10-10/implementation/README.md)가 현재 범위다.
+
+### 미구현
+
+- 전체 파일 생성/다운로드·운영 저장소/native/HIL·전체 runtime 행렬을 재실행하지 않았다. 목업 예시 곡선/절감값/순간 job 완료·가짜 preview는 추가하지 않았다.
+
+### 부족하거나 개선이 필요한 기능
+
+- fixture 한 점 그래프는 풍부한 실데이터 시각 분포나 숨겨진 전체 하단 검증이 아니다. 0/gap 최초 통과의 임시PNG는 남지 않아 단언 로그와 source 증거로 구분한다. 기존 큰 번들·계량/기간·구성 미보정 한계를 유지한다.
+
+### 관련 파일
+
+- 위 Task7·eyebrow 보고서, `apps/web/e2e/atlas-ui-fidelity.spec.ts`, [보존 화면/로그](../assets/atlas-ui-refresh-2026-10-07/audit-2026-10-10/implementation/README.md).
+
+### 갱신 규칙
+
+- null/0 및 기간/비용/보고서 계약을 시각 변경과 함께 유지한다. source별 focused 근거를 전체 최종HEAD 일괄PASS로 확대하지 않고 로컬 통합은 계획/상태판을 따른다.
+
 ## 2026-10-10 공통 eyebrow 후속
 
 ### 구현 완료

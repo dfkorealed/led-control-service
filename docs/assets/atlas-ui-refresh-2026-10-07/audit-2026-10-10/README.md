@@ -1,6 +1,6 @@
 # ATLAS 전체 UI 충실도 대조 — 2026-10-10
 
-상태: 대조·교정 계획 작성 완료. 제품 구현·제품 테스트·이번 교정의 병합은 아직 시작하지 않았다.
+상태: 공통·네 메뉴 교정, 필요한 검증, 최종 코드/UI·UX 리뷰 완료. 로컬 기준 브랜치 병합만 남았다. 아래 최초 감사의 source 행 번호와 차이 설명은 출발점 `b1dd36ee`의 이력이며, 현재 처리 결과는 [구현·검증 기록](implementation/README.md)을 따른다.
 
 ## 기준과 조사 범위
 
@@ -35,4 +35,33 @@
 
 [교정 실행 계획](../../../superpowers/plans/2026-10-10-atlas-ui-fidelity.md)이 구현 체크리스트 정본이다. 격리 브랜치는 `codex/atlas-ui-fidelity-20261010`, checkout은 `.worktrees/atlas-ui-fidelity-20261010`이다. 공통 계약 → 페이지 소비자 → 필요한 검증 → 최종 리뷰 → `codex/mvp1-cloud-web` 로컬 FF 병합 순서다.
 
-검증은 변경 관련 unit, Web 타입/UI 정책/빌드, 제한된 fixture 브라우저 확인만 실시한다. 기존 전체 583개·Lab·canonical·실장비 시험은 반복하지 않는다. 구현 후 각 감사 행에 처리/보존 근거와 실제 증거를 기록하며, source 검토를 브라우저 전체 통과로 표현하지 않는다.
+검증은 변경 관련 unit, Web 타입/UI 정책/빌드, 제한된 fixture 브라우저 확인만 실시했다. 기존 전체 583개·Lab·canonical·실장비 시험은 반복하지 않았다. source 검토를 브라우저 전체 통과로 표현하지 않는다.
+
+## 최종 처리 대응표
+
+| 공통 감사 | 처리 task / 주요 commit | 담당 근거 |
+| --- | --- | --- |
+| S1 헤더 배치 | Task3 / `de336545` | [shell 보고](implementation/task-3-report.md), 대표 PC·mobile |
+| S2 현장 집계 | Task3 / `de336545` | 실제 값·null 유지, 4셀 계층 |
+| S3 sidebar | Task2–3 / `2782a942`, `de336545` | customer recipe·soft active |
+| S4 하위 탭 | Task2–3 / `2782a942`, `de336545` | 공통 pill, 기존 URL·키보드 보존 |
+| S5 보조 버튼 | Task2 / `2782a942` | [공통 보고](implementation/task-2-report.md), 기존 primary/danger/default 보존 |
+| S6 typography·간격 | Task1–3 / `e841c57b`, `2782a942`, `de336545`; 후속 `121cd277` | [토큰 보고](implementation/task-1-report.md), [eyebrow](implementation/task-2-eyebrow-report.md); 기존734 보존/신규4 |
+| S7 지도 상단 | Task4 / `e27fd510` | [지도 보고](implementation/task-4-report.md); manual 실제 화면 |
+| S8 지도 하단 | Task4 / `e27fd510` | footerStart opt-in; manual 범례+camera 실제, monitoring 범례 있는 상태는 source/unit |
+| S9 인라인 집계 | Task4 / `e27fd510` | dot·중립 값, 0/unknown/실제 상태 의미 보존 |
+| S10 최근 이력 | Task2·5–6 / `2782a942`, `5ba6fb1a`, `0e3f2080` | 공통 ticker, 실제 UUID·scope·순환 owner |
+| S11 필터 trigger | Task2·페이지 소비 / `2782a942` | visible label·0 badge 생략; 기존 잠금 보존 |
+| S12 모바일 DataGrid | Task2·6·8 / `2782a942`, `0e3f2080`, `ec2eb023` | 분리된 label/value 카드, 실제 column/정렬 범위 |
+| S13 계정·설정 제목 | Task3·8–10 / `de336545`, `ec2eb023`, `6c53b330` | eager owner/로그아웃 유지, 단일 제목·정확 여섯 settings route |
+
+| 메뉴 inventory | 전체 행의 처리·보존 mapping | 구현 commit |
+| --- | --- | --- |
+| 모니터링 34행 | [Task5 행별 결과](implementation/task-5-report.md) | `5ba6fb1a` |
+| 제어 30행 | [Task6 행별 결과](implementation/task-6-report.md) | `0e3f2080` |
+| 통계 34행 | [Task7 행별 결과](implementation/task-7-report.md) | `4d3cda30` |
+| 설정 40행 | [Task8: 01–30](implementation/task-8-report.md), [Task9: 31–38](implementation/task-9-report.md), [Task10: 39–40](implementation/task-10-report.md), [최종 수리](implementation/task-11-settings-fix-report.md) | `ec2eb023`, `3000d17c`, `224f1446`, `6c53b330`, `da9edfee` |
+
+페이지 보고서의 초기 ‘Task11 대기’ 등은 당시 기록이다. 최종 source 검증은 `0bba6fe1`, 이후 제품 변경 없는 E2E spec 최종 HEAD는 `eef83fa3`이다. 최초 실패·국소 수리·최종 결과를 삭제하거나 합산하지 않았다. [정적 결과](implementation/task-11-static-validation-report.md), [브라우저 실행별 결과](implementation/task-11-browser-report.md), [코드 리뷰](implementation/task-11-code-review.md), [UI/UX 한정 승인](implementation/task-11-uiux-review.md)을 함께 읽는다.
+
+타입·UI 정책79/79·UI 위반0/0·빌드 exit0. 집중 브라우저 12개 고유 사례의 source별 증거를 취합했고, 실패/증거 harness 수리만 국소 재실행했다(6회, 총27 case 실행). 최종 HEAD의 전체12 일괄 PASS나 138행 전체 runtime 승인이라는 뜻은 아니다. 대표 실제 화면16장과 정확 viewport는 [영구 증거 목록](implementation/README.md)에 보존했다. 기존 큰 번들 경고와 실제 장비·대형 CAD/GPU·전체 대비/브라우저 행렬·미촬영 상세 상태 한계는 남는다.

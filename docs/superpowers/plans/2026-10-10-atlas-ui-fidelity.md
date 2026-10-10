@@ -204,11 +204,13 @@
 
 - [x] **Step 1:** 최종 diff에서 변경된 동작·공통 소비자 목록을 고정하고 unit 증거 중복/미실행을 구분한다. 전역 formatting/새 dependency 추가 없음 확인.
 - [x] **Step 2:** 최대12개 focused browser case 작성: PC4root+하위nav, mobile로고/select/긴값, 759/760경계, manual1024×600긴복구, dark4menu/대표portal, finder focus, 설정edit/security owner, stats0/gap, gallery 실제 readonly source/cleanup. 지도 도구·선택·draft/theme/resize/filter는 추가 write0.
-- [ ] **Step 3:** `pnpm --filter @led-control/web exec playwright test e2e/atlas-ui-fidelity.spec.ts --project=chromium --workers=1` 한 번. 기존 전체 atlas matrix·583개·Lab/canonical 미실행; 실패한 원 case/관련 수리만 재실행하고 timeout/skip/기준을 완화하지 않는다.
-- [ ] **Step 4:** `pnpm --filter @led-control/web typecheck`, `test:ui-policy`, `ui:check`, `build` 최종 source에서 한 번씩. build의 자체 typecheck 외 별도 반복 없음.
-- [ ] **Step 5:** 동일 fixture browser에서 목업/실제 대표 screenshot 비교를 UI/UX 담당과 한 번 종합 검토하고 독립 최종 code review 한 번. 새로 열린 source-only 상세는 확인한 것만 실제 검증으로 표시.
-- [ ] **Step 6:** 13공통 결함·138inventory 각 처리/보존이 task/commit과 대응하는지 대조. 모든 시각 수정은 screenshot 또는 명시적 실제 확인, 데이터/API필수 차이는 source 근거를 기록. 전 상태 runtime 통과라고 쓰지 않는다.
-- [ ] **Step 7:** 필요한 문제만 수리·해당 case 재확인; 메뉴5개 구성/한계·검증 command/exit/failure/skip·screenshots·수정 완료 상태를 기록하고 docs commit.
+- [x] **Step 3:** `pnpm --filter @led-control/web exec playwright test e2e/atlas-ui-fidelity.spec.ts --project=chromium --workers=1` 최초12 한 번. 실패한 원 case/증거 harness만 국소 재실행; 전체 atlas matrix·583개·Lab/canonical 미실행, timeout/skip/기준 완화0.
+- [x] **Step 4:** `pnpm --filter @led-control/web typecheck`, `test:ui-policy`, `ui:check`, `build` 최초 각1회와 실제 수리 후 실패 관문 각1회. 최종 source `0bba6fe1` 모두 exit0; build 자체 typecheck 외 임의 반복 없음.
+- [x] **Step 5:** 대표 실제16장과 원본의 UI/UX 종합 검토 APPROVED, 독립 최종 code review 같은 seat 재검토까지 ready to merge YES. source-only 상세와 실제 runtime 증거를 구분했다.
+- [x] **Step 6:** 13공통·138inventory 처리/보존을 [감사 대응표](../../assets/atlas-ui-refresh-2026-10-07/audit-2026-10-10/README.md)와 담당 Task 보고서의 행별 mapping에 연결했다. 모든 행의 runtime 통과로 확대하지 않는다.
+- [x] **Step 7:** P2 두 건 및 정적 오류만 수리·직접 재확인, 메뉴5개 구성/한계·원 실패와 최종 command/exit/skip·screenshots·review를 [구현 증거](../../assets/atlas-ui-refresh-2026-10-07/audit-2026-10-10/implementation/README.md)와 docs commit에 보존한다.
+
+최종 증거: 공통 타입 test `1c4943a6`, 설정 `da9edfee`(보안38/refs117 PASS), 정책79 PASS/0 FAIL·SKIP/UI0·0/타입0/빌드0(기존500KB초과 경고1). CSS AST738/unique738·기존734보존/신규4·anchor e841/baseline files{} 유지. Browser 최초8PASS/4FAIL, 실패/증거 최소 수리 포함 총6회27 case 실행; 마지막 국소PC/dark/열린Dialog3 PASS, gallery/manual/finder 및 기존mobile/0-gap source 증거별 취합. 최종HEAD전체12 일괄PASS가 아니다. 최종spec `eef83fa3` 이후 제품 변경0; 전체/HIL·대형CAD/GPU·모든138runtime 미실행 한계를 유지한다.
 
 ### Task 12: 로컬 통합·handoff
 

@@ -2,7 +2,15 @@
 
 기준일: 2026-10-10
 
-## 2026-10-10 ATLAS 전체 UI 충실도 교정 — 계획 승인·공통 구현 시작
+## 2026-10-10 ATLAS UI 충실도 교정 — 구현·한정 검증·최종 리뷰 완료, 로컬 병합 대기
+
+- 공통 customer recipe/제목·pill 탭·버튼·지도 chrome·인라인 집계·ticker·모바일 DataGrid를 먼저 고정하고, 네 페이지 담당이 각 격리 branch에서 모니터링/제어/통계/설정 및 하위 표현을 소비하도록 교정했다. 라이트/다크·모바일 로고/128·144px select·짧은 manual 내부 scroll을 포함한다. 기존 API/권한/UUID/명시 Apply/복구/null·0/MFA/lease/draft owner를 유지했고 API/DB/schema/Gateway/펌웨어 변경은 없다.
+- [감사 정본](assets/atlas-ui-refresh-2026-10-07/audit-2026-10-10/README.md)에 공통13건과138 inventory(34/30/34/40)의 처리·보존 task/commit을 연결했다. 138은 버그 수나 전체 runtime 통과 수가 아니다. [영구 구현·검증 증거](assets/atlas-ui-refresh-2026-10-07/audit-2026-10-10/implementation/README.md)에 담당 원문·원 실패/최종 로그·대표 실제16장과 원본6장을 보존했다.
+- 최종 제품 source `0bba6fe1`의 타입/UI정책79 PASS·0 FAIL·SKIP/UI위반0·0/빌드 모두 exit0. 기존 큰 번들 경고1은 남는다. 이후 `eef83fa3`는 E2E spec만 변경했다. Browser12 고유사례를 source별 취합했고 원 실패/증거 수리만 국소 확인했다(6회27 case 실행, 최종국소3 PASS). 최종HEAD전체12 일괄PASS·전체138 runtime·전체583/Lab/canonical/HIL 승인이 아니다.
+- 독립 code reviewer의 두 P2(비밀번호 요청 중 Dialog owner·잘못된 typography utility)는 `da9edfee`로 해결, 같은 seat 최종 재검토에서 신규 중요 문제0/ready to merge YES. UI/UX 담당은 대표light/dark/mobile/portal/열린Dialog와 최종 수리에 한정 APPROVED/P2+0. 대형CAD/GPU·전 브라우저/대비·미촬영 상세 상태·fixture 미제공 정상 집계/범례/ticker 한계를 유지한다.
+- 현재 correction branch `codex/atlas-ui-fidelity-20261010`의 구현·검증·리뷰 완료. 기본 `codex/mvp1-cloud-web`의 clean/head를 새로 확인하고 사용자 승인 로컬FF를 진행한다. 기존 stash/다른worktree/5173·4000 보존, 원목업63200은 다시 열어 유지했다. 원격 push/PR/배포/실장비 완료는 아니다. 아래 ‘미완료’ 문장은 당시 실행 이력이며 현재 상태를 대신하지 않는다.
+
+## 2026-10-10 ATLAS 전체 UI 충실도 교정 — 실행 이력
 
 - 사용자가 이전 목업과 실제 UI의 모든 페이지·상세 기능 차이를 정리하고, UI/UX·페이지 담당 협업으로 수정한 뒤 격리 브랜치에서 필요한 검증만 하고 병합하도록 요청했다.
 - UI/UX와 네 메뉴 담당이 source 대조를 완료했다. 공통 시각 차이13건·메뉴 inventory138행(모니터링34/제어30/통계34/설정40)을 [감사 정본](assets/atlas-ui-refresh-2026-10-07/audit-2026-10-10/README.md)에 기록했다. 138은 결함 수가 아니라 수정·보존·제품 전용·동등 상태를 포함한 목록이다. 대표 화면을 확인했지만 모든 상세 상태의 browser 검증은 아니다.

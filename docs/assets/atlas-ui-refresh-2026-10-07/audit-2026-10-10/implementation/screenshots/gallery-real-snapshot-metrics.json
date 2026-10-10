@@ -1,0 +1,10 @@
+{
+  "url": "http://127.0.0.1:15185/settings/floor-plans?siteId=00000000-0000-4000-8000-000000000003&keep=value#gallery",
+  "viewport": {
+    "width": 1024,
+    "height": 768
+  },
+  "metrics": {
+    "snapshots": 1
+  }
+}

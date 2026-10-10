@@ -1,5 +1,28 @@
 # 모니터링 메뉴 기능 현황
 
+## 2026-10-10 충실도 교정 최종 확인
+
+### 구현 완료
+
+- 단일 제목/eyebrow·갱신·compact 층 선택, 두 검색/목록 진입의 공유 상태와 실제 opener 복귀, plain 상세·이력·ticker owner를 공통 customer 표현으로 교정했다. 모바일 로고/select, PC·dark 대표 화면과 finder를 확인했다. 감사34행은 [담당 결과](../assets/atlas-ui-refresh-2026-10-07/audit-2026-10-10/implementation/task-5-report.md)의 처리/보존 mapping을 따른다.
+- 최종 타입·UI 정책79/79·UI위반0/0·빌드 exit0 및 code/UI·UX 최종 리뷰를 회수했다. 아래 Task5/eyebrow의 ‘Task11 대기’는 당시 기록이며 [최종 증거](../assets/atlas-ui-refresh-2026-10-07/audit-2026-10-10/implementation/README.md)가 현재 검증 범위다.
+
+### 미구현
+
+- 전체138 runtime/583/Lab/canonical/HIL·전 브라우저/대비 행렬은 미실행. 실제 장비 refresh나 운영 데이터 쓰기를 이번 교정의 완료로 주장하지 않는다.
+
+### 부족하거나 개선이 필요한 기능
+
+- 캡처의 unknown 집계/ticker 오류는 미제공 fixture 상태다. 정상 집계/범례 있는 footer/정상 ticker 모두의 pixel 증거가 아니며 source/unit 근거와 구분한다. 실제562×844와 원목업562×1229는 같은 높이 검증이 아니다. 기존 큰 번들 경고와 실제 CAD/권한/알람/BIO 한계는 남는다.
+
+### 관련 파일
+
+- 위 Task5·공통 보고서, `apps/web/e2e/atlas-ui-fidelity.spec.ts`, [최종 화면/로그 목록](../assets/atlas-ui-refresh-2026-10-07/audit-2026-10-10/implementation/README.md).
+
+### 갱신 규칙
+
+- source별 focused 통과와 전체 최종HEAD 일괄 통과를 구분한다. 최초 실패/근사 typography/운영 및 장비 한계를 지우지 않으며 로컬 통합 상태는 계획/상태판에 기록한다.
+
 ## 2026-10-10 공통 eyebrow 후속
 
 ### 구현 완료

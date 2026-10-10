@@ -1,5 +1,28 @@
 # 제어 메뉴 기능 현황
 
+## 2026-10-10 충실도 교정 최종 확인
+
+### 구현 완료
+
+- 층→대상 방식→목록/관리 toolbar, 맵 상단 내부 도구·인라인 집계, 큰 대상 수/제한 목록/단일 밝기 초안·bare slider, 한 footer·이력·자동화 밀도·실제 그룹 DataGrid를 교정했다. 감사30행은 [담당 결과](../assets/atlas-ui-refresh-2026-10-07/audit-2026-10-10/implementation/task-6-report.md)를 따른다.
+- Controlled1024×600 긴 recovery에서 document600/scrollY0·map viewport≥240·내부 scroll 후 모든 action44px·theme/resize/draft 추가 write0을 확인했다. PC/dark 대표 화면, 최종 타입·정책79/79·UI위반0/0·빌드 exit0·code/UI·UX 리뷰도 회수했다. 아래 Task6의 대기 상태는 당시 기록이다.
+
+### 미구현
+
+- 실제 command/장비/HIL·whole583/Lab/canonical·전체 runtime 행렬 미실행. CAD/whole-selection/offline 정책을 목업의 가상 부분 실행으로 바꾸지 않았다.
+
+### 부족하거나 개선이 필요한 기능
+
+- Browser12 고유사례는 최초 실행과 국소 수리의 source별 결과이며 최종HEAD전체12 일괄PASS가 아니다. 실제 map/status fixture 및 실차/BIO/canonical payload/ACK/복구 한계·큰 번들 경고를 유지한다.
+
+### 관련 파일
+
+- 위 Task6·공통 지도 보고서, `apps/web/e2e/atlas-ui-fidelity.spec.ts`, [화면/실측/로그](../assets/atlas-ui-refresh-2026-10-07/audit-2026-10-10/implementation/README.md).
+
+### 갱신 규칙
+
+- raw draft·명시 Apply·UUID·잠금 owner와 시각 표현을 분리해 기록한다. 실패와 targeted retry를 합산하지 않으며 로컬 통합 상태는 계획/상태판을 따른다.
+
 ## 2026-10-10 공통 eyebrow 후속
 
 ### 구현 완료

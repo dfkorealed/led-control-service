@@ -1,5 +1,28 @@
 # 설정 메뉴 기능 현황 및 구현 설계
 
+## 2026-10-10 충실도 교정 최종 확인
+
+### 구현 완료
+
+- 공통 단일 제목/탭·전체 링크5카드, readonly 현장 요약과 실제 수정Dialog·층DataGrid/편집, registration embedded wrapper, readonly 실제 snapshot gallery/기존 이력 진입/editor chrome, 비밀번호 summary/Dialog·MFA/session 배치를 교정했다. 감사40행은 [Tasks8–10 및 최종 수리](../assets/atlas-ui-refresh-2026-10-07/audit-2026-10-10/README.md#최종-처리-대응표)를 따른다.
+- 최종 실제PC/dark·열린 현장/비밀번호Dialog·gallery를 확인했다. 비밀번호 요청부터 principal/session refresh까지 dismiss를 차단하는 최종 보안38 unit과 refs/site/gallery/editor117 unit, 타입·정책79/79·UI위반0/0·빌드 exit0·최종code/UI·UX 리뷰를 회수했다. 아래 ‘root 통합 대기’는 당시 기록이다.
+
+### 미구현
+
+- 실제 계정/credential/MFA/운영 현장/장비 변경 및 전체583/Lab/canonical/HIL 미실행. Browser 비밀번호 사례는 form 열기/owner 보존 확인이며 credential을 제출하지 않았다.
+
+### 부족하거나 개선이 필요한 기능
+
+- gallery browser fixture는 configured1층의 revision7 snapshot이다. 최대2 ceiling/DOM disconnect는 실제,3개 이상 offscreen/fanout은 unit 근거이며 대형 CAD/GPU/raster 성능 증거는 아니다. 기존 권한/lease/dirty/ACK/registration session/100명 limit·큰 번들 한계를 유지한다.
+
+### 관련 파일
+
+- 위 Tasks8–10/최종 수리 파일, `apps/web/e2e/atlas-ui-fidelity.spec.ts`, [최종 화면/로그/리뷰](../assets/atlas-ui-refresh-2026-10-07/audit-2026-10-10/implementation/README.md).
+
+### 갱신 규칙
+
+- API/인증·request/MFA/editor owner를 표현 변경과 구분한다. 실제 source별 통과/수리·실패와 미검증 범위를 보존하며 로컬 통합 상태는 계획/상태판을 따른다.
+
 ## 2026-10-10 최종 리뷰 설정 수리 (Task 11)
 
 ### 구현 완료
@@ -32,7 +55,7 @@
 - 계정 보안의 비밀번호는 정책을 안내하는 요약 카드와 명시 변경 dialog로 표시한다. 실제 PasswordChangeCard의 optional presentation=embedded는 중복 카드/제목만 생략하며 default card 및 독립 PasswordSettingsView export는 그대로다. 새 password route는 만들지 않았다.
 - desktop 비밀번호/MFA 2열·활성 세션 전폭, mobile stack이다. viewer는 기존대로 MFA 조회/표시가 없고 비밀번호/세션만 제공한다. MFA owner는 dialog 밖에서 상시 mounted로 secret/enrollment/code/recovery 초안을 유지한다.
 - 실제 current/new/confirmation·8–1024 검증·pending 중복 차단·principal late response·세션 회전 갱신·현재 세션 강한 확인/revoke/실패 처리를 유지한다. 비밀번호 dialog는 진행 중 닫기를 차단한다(Task11 수리). 요청 종료 후 닫기는 focus를 trigger로 돌리고 plaintext form을 unmount한다. 외부 principal 전환/unmount 이후 늦은 응답은 이전 owner가 cache/principal을 복원하지 않는다. 공통 eager 계정/로그아웃은 복제하지 않았다.
-- 두 직접 security suite 35 PASS/0 FAIL/0 SKIP(exit0). 새 dialog/embedded 계약 RED2 FAIL/filtered32 후 GREEN이며 MFA/theme/dialog/recovery/session 수명과 password pending-dismiss/reopen 늦은 응답을 확인했다.
+- Task10 당시 두 직접 security suite35 PASS/0 FAIL/0 SKIP(exit0), 새 dialog/embedded 계약 RED2 FAIL/filtered32 후 GREEN이었다. 당시 pending-dismiss/reopen 실험의 기대는 최종 리뷰에서 부적합으로 판정해 Task11의 요청 중 닫기 차단 및38 PASS 회귀로 대체했다. 과거35 PASS를 현재 pending 계약의 증거로 사용하지 않는다.
 
 ### 미구현
 
@@ -40,7 +63,7 @@
 
 ### 부족하거나 개선이 필요한 기능
 
-- dismiss는 이미 보낸 비밀번호 API의 서버 작업을 취소하지 않는다. 비밀번호 입력은 다시 열면 초기화되며 늦은 응답의 client owner만 무효화한다. fixture 기반 검증으로 실제 MFA enrollment/계정/세션/장비 조작은 수행하지 않았다.
+- 이미 보낸 비밀번호 API를 서버에서 취소할 계약은 없다. 요청/세션 refresh가 끝난 뒤에만 닫기를 허용하고 다시 열면 plaintext 입력은 초기화된다. 외부 principal 변경이나 전체 owner unmount의 늦은 응답 guard는 유지한다. fixture 기반 검증이며 실제 MFA enrollment/계정/세션/장비 조작은 수행하지 않았다.
 
 ### 관련 파일
 

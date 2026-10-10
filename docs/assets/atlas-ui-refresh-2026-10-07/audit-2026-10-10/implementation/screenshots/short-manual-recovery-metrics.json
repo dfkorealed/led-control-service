@@ -1,0 +1,16 @@
+{
+  "url": "http://127.0.0.1:15185/control?siteId=00000000-0000-4000-8000-000000000003&mode=manual",
+  "viewport": {
+    "width": 1024,
+    "height": 600
+  },
+  "metrics": {
+    "writes": [
+      {
+        "method": "POST",
+        "path": "/api/commands/dimming",
+        "body": "{\"siteId\":\"00000000-0000-4000-8000-000000000003\",\"clientRequestId\":\"602db057-d25b-492b-bf13-498bc96a83ad\",\"target\":{\"type\":\"fixture\",\"fixtureId\":\"00000000-0000-4000-8000-000000002001\"},\"brightness\":30}"
+      }
+    ]
+  }
+}
