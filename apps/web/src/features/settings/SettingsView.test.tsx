@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { apiGet } from "../../api/client";
@@ -29,6 +29,16 @@ function renderSettings(gatewayCount: number, fixtureCount: number, role: "admin
 describe("SettingsView 설치 이어가기", () => {
   beforeEach(() => { vi.mocked(apiGet).mockResolvedValue({ users: [], count: 7, limit: 100 }); });
   afterEach(() => { cleanup(); vi.clearAllMocks(); });
+
+  it("provides one whole-card link per capability without nested actions", () => {
+    const siteId = renderSettings(1, 4, "admin", `/settings?siteId=${mockDashboard.site.id}&mode=detail#card`);
+    for (const [label, path] of [["현장 관리", "site"], ["유저 관리", "users"], ["조명 등록", "registration"], ["맵 관리", "floor-plans"], ["계정 보안", "security"]]) {
+      const link = screen.getByRole("link", { name: label });
+      expect(link).toHaveAttribute("href", `/settings/${path}?siteId=${siteId}&mode=detail#card`);
+      expect(within(link).queryByRole("button")).not.toBeInTheDocument();
+      expect(within(link).getByRole("heading", { name: label })).toBeInTheDocument();
+    }
+  });
 
   it("게이트웨이가 없으면 기존 등록 경로로 연결한다", () => {
     const siteId = renderSettings(0, 0);
@@ -64,8 +74,8 @@ describe("SettingsView 설치 이어가기", () => {
     ];
     vi.mocked(useDashboard).mockReturnValue({ data: dashboard } as ReturnType<typeof useDashboard>);
     render(withQueries(<MemoryRouter><SettingsView userRole="admin" siteId={dashboard.site.id} capabilities={{ read: true, control: true, manage: true, commission: true }} /></MemoryRouter>));
-    expect(screen.getByRole("group", { name: "맵 관리" })).toHaveTextContent("2개 층");
-    expect(screen.getByRole("group", { name: "맵 관리" })).toHaveTextContent("맵 설정 1개");
+    expect(screen.getByRole("link", { name: "맵 관리" })).toHaveTextContent("2개 층");
+    expect(screen.getByRole("link", { name: "맵 관리" })).toHaveTextContent("맵 설정 1개");
   });
 
   it.each([
@@ -79,7 +89,7 @@ describe("SettingsView 설치 이어가기", () => {
     render(<QueryClientProvider client={client}><MemoryRouter><SettingsView userRole="viewer" siteId={dashboard.site.id} capabilities={{ read: true, control: false, manage, commission: false }} /></MemoryRouter></QueryClientProvider>);
     await waitFor(() => expect(client.isFetching()).toBe(0));
     expect(apiGet).not.toHaveBeenCalled();
-    expect(screen.queryByRole("group", { name: "유저 관리" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "유저 관리" })).not.toBeInTheDocument();
   });
 
   it("reads the installed manager's actual site count and retains query/hash in all five card links", async () => {
@@ -87,9 +97,10 @@ describe("SettingsView 설치 이어가기", () => {
     expect(await screen.findByText("사용자 7명")).toBeInTheDocument();
     expect(apiGet).toHaveBeenCalledOnce();
     expect(apiGet).toHaveBeenCalledWith(`/sites/${siteId}/users`);
-    expect(screen.getByRole("heading", { name: "설정" })).toBeInTheDocument();
+    // The stable SettingsShell owns the single page heading.
+    expect(screen.queryByRole("heading", { name: "설정" })).not.toBeInTheDocument();
     for (const [label, path] of [["현장 관리", "site"], ["유저 관리", "users"], ["조명 등록", "registration"], ["맵 관리", "floor-plans"], ["계정 보안", "security"]]) {
-      expect(screen.getByRole("link", { name: `${label} 열기` })).toHaveAttribute("href", `/settings/${path}?siteId=${siteId}&mode=detail#card`);
+      expect(screen.getByRole("link", { name: label })).toHaveAttribute("href", `/settings/${path}?siteId=${siteId}&mode=detail#card`);
     }
     expect(screen.queryByText(/MFA.*(?:꺼짐|OFF)/)).not.toBeInTheDocument();
   });

@@ -32,6 +32,7 @@ export function RegistrationSettingsView({ siteId }: { siteId?: string }) {
         dashboard={data}
         dashboardQuerySiteId={siteId}
         headingLevel={2}
+        headerPresentation="embedded"
         onRefreshGatewayStatus={() => void refetch()}
         isRefreshingGatewayStatus={isFetching}
       />

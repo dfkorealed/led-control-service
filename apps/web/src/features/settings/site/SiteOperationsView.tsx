@@ -20,8 +20,10 @@ import {
   type SiteSettings,
   type SiteSettingsFloor
 } from "../../../api/site-settings";
-import { Button, Card, FeedbackState, ModalDialog, PageHeader, SelectBox, StatusBadge, StatusDetailButton, TextField } from "../../../components/ui";
+import { Button, Card, DataGrid, FeedbackState, ModalDialog, PageHeader, SelectBox, StatusBadge, StatusDetailButton, TextField, type DataGridColumn } from "../../../components/ui";
 import { BioSensorSettingsPanel } from "./BioSensorSettingsPanel";
+import { SiteInformationEditDialog } from "./SiteInformationEditDialog";
+import { FloorEditDialog } from "./FloorEditDialog";
 
 interface RetryableError {
   title: string;
@@ -42,6 +44,7 @@ export function SiteOperationsView({ siteId, ownerUserId, canPrepare = false }: 
   const [selectedFloorId, setSelectedFloorId] = useState("");
   const [floorToArchive, setFloorToArchive] = useState<SiteSettingsFloor | null>(null);
   const [floorActionError, setFloorActionError] = useState<RetryableError | null>(null);
+  const [floorEditor, setFloorEditor] = useState<{ id: string; trigger: HTMLElement } | null>(null);
   const activeFloors = useMemo(
     () => settingsQuery.data?.floors.filter((floor) => floor.status === "active") ?? [],
     [settingsQuery.data?.floors]
@@ -124,34 +127,40 @@ export function SiteOperationsView({ siteId, ownerUserId, canPrepare = false }: 
       ) : null}
 
       {settingsQuery.data ? <>
-        <SiteInformationForm siteId={siteId} site={settingsQuery.data.site} />
+        <div className="grid min-w-0 gap-5 tablet:grid-cols-2">
+          <SiteInformationForm siteId={siteId} site={settingsQuery.data.site} />
+          <Card className="grid content-start gap-4 p-5" role="region" aria-label="현장 구성">
+            <h2 className="m-0 text-customer-section-title font-bold">현장 구성</h2>
+            <dl className="grid grid-cols-2 gap-4">
+              <div><dt className="text-body-sm text-content-secondary">운영 층</dt><dd className="m-0 text-customer-metric font-bold">{activeFloors.length}개</dd></div>
+              <div><dt className="text-body-sm text-content-secondary">등록 조명</dt><dd className="m-0 text-customer-metric font-bold">{settingsQuery.data.floors.reduce((count, floor) => count + floor.fixtureCount, 0)}개</dd></div>
+            </dl>
+            <p className="m-0 text-body-sm text-content-secondary">운영 층 {activeFloors.length}개 · 보관 층 {settingsQuery.data.floors.length - activeFloors.length}개 · 등록 조명 {settingsQuery.data.floors.reduce((count, floor) => count + floor.fixtureCount, 0)}개</p>
+          </Card>
+        </div>
         {ownerUserId ? <BioSensorSettingsPanel key={siteId} siteId={siteId} ownerUserId={ownerUserId} canPrepare={canPrepare} /> : null}
 
         <section className="grid min-w-0 items-start gap-5 tablet:grid-cols-2" aria-label="층·구역 관리">
         <section className="grid min-w-0 gap-4 border-t border-border-default pt-6" aria-label="층 관리">
-          <PageHeader title="층 관리" headingLevel={3} description="층의 운영 표시 정보와 보관 상태를 관리합니다." />
+          <PageHeader variant="customer" title="층 관리" headingLevel={3} description="층의 운영 표시 정보와 보관 상태를 관리합니다."
+            actions={<Button variant="primary" onClick={event => setFloorEditor({ id: "create", trigger: event.currentTarget })}><Plus size={16} aria-hidden="true" />층 추가</Button>} />
           {floorActionError ? (
             <FeedbackState tone="danger" icon={CircleAlert} title={floorActionError.title} action={<Button type="button" onClick={floorActionError.retry}>{floorActionError.retryLabel}</Button>} />
           ) : null}
-          <CreateFloorForm siteId={siteId} nextDisplayOrder={settingsQuery.data.floors.length} />
-          <div className="grid gap-3" aria-label="층 목록">
+          <CreateFloorForm siteId={siteId} nextDisplayOrder={settingsQuery.data.floors.length} isOpen={floorEditor?.id === "create"} trigger={floorEditor?.trigger ?? null} onClose={() => setFloorEditor(null)} />
+          <DataGrid caption="층 목록" rows={settingsQuery.data.floors} getRowKey={floor => floor.id} variant="compact"
+            columns={floorColumns(floor => setFloorEditor(floor), archiveMutation.isPending || restoreMutation.isPending,
+              floor => { setFloorActionError(null); setFloorToArchive(floor); }, floor => { setFloorActionError(null); restoreMutation.mutate(floor); })} />
             {settingsQuery.data.floors.map((floor) => (
               <FloorRow
                 key={floor.id}
                 siteId={siteId}
                 floor={floor}
-                busy={archiveMutation.isPending || restoreMutation.isPending}
-                onArchive={() => {
-                  setFloorActionError(null);
-                  setFloorToArchive(floor);
-                }}
-                onRestore={() => {
-                  setFloorActionError(null);
-                  restoreMutation.mutate(floor);
-                }}
+                isOpen={floorEditor?.id === floor.id}
+                trigger={floorEditor?.trigger ?? null}
+                onClose={() => setFloorEditor(null)}
               />
             ))}
-          </div>
         </section>
 
         <FixtureGroupSection siteId={siteId} floors={settingsQuery.data.floors} />
@@ -195,6 +204,8 @@ function SiteInformationForm({ siteId, site }: { siteId: string; site: SiteSetti
   const [tariffKwhRateError, setTariffKwhRateError] = useState("");
   const [notice, setNotice] = useState("");
   const [actionError, setActionError] = useState<RetryableError | null>(null);
+  const [editTrigger, setEditTrigger] = useState<HTMLElement | null>(null);
+  const [isOpen, setIsOpen] = useState(false);
 
   useEffect(() => {
     setName(site.name);
@@ -216,6 +227,7 @@ function SiteInformationForm({ siteId, site }: { siteId: string; site: SiteSetti
     onSuccess: async () => {
       setActionError(null);
       setNotice("현장 정보를 저장했습니다.");
+      setIsOpen(false);
       await invalidateSiteOperations(queryClient, siteId);
     },
     onError: (error, validatedTariffKwhRate) => {
@@ -249,39 +261,31 @@ function SiteInformationForm({ siteId, site }: { siteId: string; site: SiteSetti
   }
 
   return (
-    <section className="grid gap-4" aria-label="현장 정보">
-      <PageHeader title="현장 정보" headingLevel={3} description="요금 계산과 현장 시간 기준에 사용하는 기본 정보입니다." />
+    <section className="grid min-w-0 gap-4" aria-label="현장 정보">
       {notice ? <FeedbackState tone="success" icon={CheckCircle2} title={notice} /> : null}
-      {actionError ? <FeedbackState tone="danger" icon={CircleAlert} title={actionError.title} action={<Button type="button" onClick={actionError.retry}>{actionError.retryLabel}</Button>} /> : null}
       <Card className="p-5">
-        <form aria-label="현장 정보" className="grid gap-4 compact:grid-cols-2" onSubmit={submit}>
-          <TextField label="현장명" isRequired maxLength={120} value={name} onChange={setName} />
-          <TextField label="주소" className="compact:col-span-2" isRequired maxLength={500} value={address} onChange={setAddress} />
-          <TextField label="시간대" isRequired maxLength={100} value={timeZone} onChange={setTimeZone} />
-          <TextField label="통화" isReadOnly value="KRW" />
-          <TextField
-            label="kWh 단가"
-            isRequired
-            inputMode="decimal"
-            validationBehavior="aria"
-            isInvalid={Boolean(tariffKwhRateError)}
-            errorMessage={tariffKwhRateError}
-            value={tariffKwhRate}
-            onChange={(value) => {
-              setTariffKwhRate(value);
-              if (tariffKwhRateError) setTariffKwhRateError("");
-            }}
-          />
-          <div className="flex items-end compact:justify-end">
-            <Button type="submit" variant="primary" isLoading={mutation.isPending} loadingLabel="저장 중"><Save size={16} aria-hidden="true" /> 현장 정보 저장</Button>
-          </div>
-        </form>
+        <PageHeader variant="customer" title="현장 정보" headingLevel={2}
+          actions={<Button onClick={event => { setEditTrigger(event.currentTarget); setIsOpen(true); }}>현장 정보 수정</Button>} />
+        <dl className="m-0 grid gap-3 pt-4 text-body-sm">
+          {[["현장 이름", site.name], ["주소", site.address ?? "미등록"], ["시간대", site.timeZone], ["통화", site.currency], ["kWh 단가", site.tariffKwhRate === null ? "미설정" : `${site.tariffKwhRate.toLocaleString("ko-KR")}원`]].map(([label, value]) =>
+            <div key={label} className="flex min-w-0 justify-between gap-4 border-b border-border-default pb-3"><dt className="shrink-0 text-content-secondary">{label}</dt><dd className="m-0 break-words text-right">{value}</dd></div>)}
+        </dl>
       </Card>
+      <SiteInformationEditDialog isOpen={isOpen} pending={mutation.isPending} onClose={() => setIsOpen(false)} returnFocusElement={editTrigger}
+        onSubmit={submit} values={{ name, address, timeZone, tariffKwhRate }} tariffError={tariffKwhRateError}
+        onChange={(field, value) => {
+          if (field === "name") setName(value);
+          else if (field === "address") setAddress(value);
+          else if (field === "timeZone") setTimeZone(value);
+          else { setTariffKwhRate(value); setTariffKwhRateError(""); }
+        }}>
+        {actionError ? <FeedbackState tone="danger" icon={CircleAlert} title={actionError.title} action={<Button type="button" onClick={actionError.retry}>{actionError.retryLabel}</Button>} /> : null}
+      </SiteInformationEditDialog>
     </section>
   );
 }
 
-function CreateFloorForm({ siteId, nextDisplayOrder }: { siteId: string; nextDisplayOrder: number }) {
+function CreateFloorForm({ siteId, nextDisplayOrder, isOpen, trigger, onClose }: { siteId: string; nextDisplayOrder: number; isOpen: boolean; trigger: HTMLElement | null; onClose: () => void }) {
   const queryClient = useQueryClient();
   const [name, setName] = useState("");
   const [level, setLevel] = useState("0");
@@ -294,6 +298,7 @@ function CreateFloorForm({ siteId, nextDisplayOrder }: { siteId: string; nextDis
       setLevel("0");
       setDisplayOrder(String(nextDisplayOrder + 1));
       setActionError(null);
+      onClose();
       await invalidateSiteOperations(queryClient, siteId);
     },
     onError: () => setActionError({
@@ -304,26 +309,20 @@ function CreateFloorForm({ siteId, nextDisplayOrder }: { siteId: string; nextDis
   });
 
   return (
-    <Card className="grid gap-4 p-5">
+    <FloorEditDialog isOpen={isOpen} pending={mutation.isPending} onClose={onClose} returnFocusElement={trigger}
+      values={{ name, level, displayOrder }} onChange={(field, value) => { if (field === "name") setName(value); else if (field === "level") setLevel(value); else setDisplayOrder(value); }}
+      onSubmit={event => { event.preventDefault(); setActionError(null); mutation.mutate(); }}>
       {actionError ? <FeedbackState tone="danger" icon={CircleAlert} title={actionError.title} action={<Button type="button" onClick={actionError.retry}>{actionError.retryLabel}</Button>} /> : null}
-      <form aria-label="층 추가" className="grid gap-4 tablet:grid-cols-[2fr_1fr_1fr_auto] tablet:items-end" onSubmit={(event) => { event.preventDefault(); setActionError(null); mutation.mutate(); }}>
-        <TextField label="새 층 이름" isRequired maxLength={120} value={name} onChange={setName} />
-        <TextField label="새 층 레벨" isRequired inputMode="numeric" pattern="-?[0-9]+" value={level} onChange={setLevel} />
-        <TextField label="새 층 표시 순서" isRequired inputMode="numeric" pattern="[0-9]+" value={displayOrder} onChange={setDisplayOrder} />
-        <div className="flex items-end">
-          <Button type="submit" variant="primary" isLoading={mutation.isPending} loadingLabel="추가 중"><Plus size={16} aria-hidden="true" /> 층 추가</Button>
-        </div>
-      </form>
-    </Card>
+    </FloorEditDialog>
   );
 }
 
-function FloorRow({ siteId, floor, busy, onArchive, onRestore }: {
+function FloorRow({ siteId, floor, isOpen, trigger, onClose }: {
   siteId: string;
   floor: SiteSettingsFloor;
-  busy: boolean;
-  onArchive: () => void;
-  onRestore: () => void;
+  isOpen: boolean;
+  trigger: HTMLElement | null;
+  onClose: () => void;
 }) {
   const queryClient = useQueryClient();
   const [name, setName] = useState(floor.name);
@@ -339,6 +338,7 @@ function FloorRow({ siteId, floor, busy, onArchive, onRestore }: {
     }),
     onSuccess: async () => {
       setActionError(null);
+      onClose();
       await invalidateSiteOperations(queryClient, siteId);
     },
     onError: (error) => setActionError(isVersionConflict(error)
@@ -349,7 +349,6 @@ function FloorRow({ siteId, floor, busy, onArchive, onRestore }: {
           retry: () => mutation.mutate()
         })
   });
-  const archiveBlocked = floor.fixtureCount > 0 || floor.activeGroupCount > 0;
 
   useEffect(() => {
     setName(floor.name);
@@ -358,34 +357,28 @@ function FloorRow({ siteId, floor, busy, onArchive, onRestore }: {
   }, [floor]);
 
   return (
-    <Card className="grid gap-4 p-5" data-status={floor.status}>
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <strong>{floor.name}</strong>
-        <StatusBadge tone={floor.status === "active" ? "success" : "neutral"} icon={floor.status === "active" ? CheckCircle2 : Archive}>
-          {floor.status === "active" ? "운영 중" : "보관됨"}
-        </StatusBadge>
-      </div>
+    <FloorEditDialog isOpen={isOpen && floor.status === "active"} floorName={floor.name} pending={mutation.isPending} onClose={onClose} returnFocusElement={trigger}
+      values={{ name, level, displayOrder }} onChange={(field, value) => { if (field === "name") setName(value); else if (field === "level") setLevel(value); else setDisplayOrder(value); }}
+      onSubmit={event => { event.preventDefault(); setActionError(null); mutation.mutate(); }}>
       {actionError ? <FeedbackState tone="danger" icon={CircleAlert} title={actionError.title} action={<Button type="button" onClick={actionError.retry}>{actionError.retryLabel}</Button>} /> : null}
-      <form aria-label={`${floor.name} 층 정보 수정`} className="grid gap-4 tablet:grid-cols-[2fr_1fr_1fr_auto] tablet:items-end" onSubmit={(event) => { event.preventDefault(); setActionError(null); mutation.mutate(); }}>
-        <TextField aria-label={`${floor.name} 이름`} label="이름" isRequired maxLength={120} isDisabled={floor.status === "archived"} value={name} onChange={setName} />
-        <TextField aria-label={`${floor.name} 레벨`} label="레벨" isRequired inputMode="numeric" pattern="-?[0-9]+" isDisabled={floor.status === "archived"} value={level} onChange={setLevel} />
-        <TextField aria-label={`${floor.name} 표시 순서`} label="표시 순서" isRequired inputMode="numeric" pattern="[0-9]+" isDisabled={floor.status === "archived"} value={displayOrder} onChange={setDisplayOrder} />
-        <div className="flex flex-wrap items-end gap-2">
-          {floor.status === "active" ? <>
-            <Button type="submit" isLoading={mutation.isPending} loadingLabel="저장 중" disabled={busy}><Save size={16} aria-hidden="true" /> {floor.name} 층 정보 저장</Button>
-            <Button type="button" variant="danger" aria-label={`${floor.name} 보관`} disabled={archiveBlocked || busy || mutation.isPending} onClick={onArchive}><Archive size={16} aria-hidden="true" /> 보관</Button>
-          </> : (
-            <Button type="button" aria-label={`${floor.name} 복구`} disabled={busy} onClick={onRestore}><RotateCcw size={16} aria-hidden="true" /> 복구</Button>
-          )}
-        </div>
-      </form>
-      <p className={archiveBlocked ? "m-0 text-caption text-status-danger-foreground" : "m-0 text-caption text-content-secondary"}>
-        {archiveBlocked
-          ? `조명 ${floor.fixtureCount}개와 활성 구역 ${floor.activeGroupCount}개가 있어 보관할 수 없습니다.`
-          : `조명 ${floor.fixtureCount}개 · 활성 구역 ${floor.activeGroupCount}개`}
-      </p>
-    </Card>
+    </FloorEditDialog>
   );
+}
+
+function floorColumns(onEdit: (editor: { id: string; trigger: HTMLElement }) => void, busy: boolean,
+  onArchive: (floor: SiteSettingsFloor) => void, onRestore: (floor: SiteSettingsFloor) => void): DataGridColumn<SiteSettingsFloor>[] {
+  return [
+    { id: "name", header: "층 이름", minWidth: 100, renderCell: floor => <strong>{floor.name}</strong> },
+    { id: "level", header: "레벨 / 순서", minWidth: 100, renderCell: floor => `${floor.level} / ${floor.displayOrder}` },
+    { id: "status", header: "상태", minWidth: 90, renderCell: floor => <StatusBadge tone={floor.status === "active" ? "success" : "neutral"} icon={floor.status === "active" ? CheckCircle2 : Archive}>{floor.status === "active" ? "운영 중" : "보관됨"}</StatusBadge> },
+    { id: "count", header: "구성", minWidth: 160, renderCell: floor => <span>{floor.fixtureCount > 0 || floor.activeGroupCount > 0
+      ? `조명 ${floor.fixtureCount}개와 활성 구역 ${floor.activeGroupCount}개가 있어 보관할 수 없습니다.`
+      : `조명 ${floor.fixtureCount}개 · 활성 구역 ${floor.activeGroupCount}개`}</span> },
+    { id: "actions", header: "작업", minWidth: 120, renderCell: floor => <div className="flex flex-wrap gap-2">{floor.status === "active" ? <>
+      <Button aria-label={`${floor.name} 수정`} disabled={busy} variant="ghost" onClick={event => onEdit({ id: floor.id, trigger: event.currentTarget })}>수정</Button>
+      <Button aria-label={`${floor.name} 보관`} disabled={busy || floor.fixtureCount > 0 || floor.activeGroupCount > 0} variant="danger" onClick={() => onArchive(floor)}>보관</Button>
+    </> : <Button aria-label={`${floor.name} 복구`} disabled={busy} onClick={() => onRestore(floor)}><RotateCcw size={16} aria-hidden="true" />복구</Button>}</div> }
+  ];
 }
 
 function FixtureSection({ siteId, floors, selectedFloorId, onSelectedFloorIdChange }: {

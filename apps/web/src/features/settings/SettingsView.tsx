@@ -1,7 +1,7 @@
 import { Link, useLocation } from "react-router-dom";
 import { useDashboard, type SiteCapabilities } from "../../api/queries";
 import { useSiteUsers } from "../../api/site-users";
-import { Card } from "../../components/ui";
+import { NavigationCard } from "../../components/ui";
 import { InstallationPending, SetupWizard } from "../setup/SetupWizard";
 import { TestDataToolsPanel } from "./TestDataToolsPanel";
 import { settingsActionLinkClass } from "./settings-action-link";
@@ -44,14 +44,10 @@ export function SettingsView({ userRole, siteId, capabilities }: { userRole: "op
       <Link className={settingsActionLinkClass} to={{ pathname: nextStep.path, search: nextStepSearch.toString(), hash: location.hash }}>{nextStep.label}</Link>
     </section> : null}
     <div className="grid min-w-0 gap-4 compact:grid-cols-2 tablet:grid-cols-3">
-      {cards.map(({ id, label, path, icon: Icon, summary }) => <Card key={id} role="group" aria-label={label} className="flex min-w-0 flex-col gap-4 p-5">
-        <div className="flex min-w-0 items-center gap-3">
-          <Icon size={20} className="shrink-0 text-action-primary" aria-hidden="true" />
-          <h3 className="m-0 text-card-title font-bold text-content-primary">{label}</h3>
-        </div>
-        <p className="m-0 break-words text-body-sm text-content-secondary">{summary}</p>
-        <Link className={settingsActionLinkClass} to={{ pathname: path, search: location.search, hash: location.hash }}>{label} 열기</Link>
-      </Card>)}
+      {cards.map(({ id, label, path, icon: Icon, summary }) => <NavigationCard key={id}
+        aria-label={label} title={label} icon={<Icon size={24} />} className="min-h-32"
+        summary={<span className="break-words">{summary}</span>}
+        to={{ pathname: path, search: location.search, hash: location.hash }} />)}
     </div>
     <TestDataToolsPanel userRole={userRole} dashboard={data} />
   </section>;
