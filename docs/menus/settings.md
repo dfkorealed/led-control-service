@@ -1,5 +1,30 @@
 # 설정 메뉴 기능 현황 및 구현 설계
 
+## 2026-10-10 보안 요약·비밀번호 편집·MFA/session 배치 (Task 10)
+
+### 구현 완료
+
+- 계정 보안의 비밀번호는 정책을 안내하는 요약 카드와 명시 변경 dialog로 표시한다. 실제 PasswordChangeCard의 optional presentation=embedded는 중복 카드/제목만 생략하며 default card 및 독립 PasswordSettingsView export는 그대로다. 새 password route는 만들지 않았다.
+- desktop 비밀번호/MFA 2열·활성 세션 전폭, mobile stack이다. viewer는 기존대로 MFA 조회/표시가 없고 비밀번호/세션만 제공한다. MFA owner는 dialog 밖에서 상시 mounted로 secret/enrollment/code/recovery 초안을 유지한다.
+- 실제 current/new/confirmation·8–1024 검증·pending 중복 차단·principal late response·세션 회전 갱신·현재 세션 강한 확인/revoke/실패 처리를 유지한다. 비밀번호 dialog 닫기는 focus를 trigger로 돌리고 plaintext form을 unmount한다. 이후 늦은 응답은 이전 owner가 cache/principal을 복원하지 않는다. 공통 eager 계정/로그아웃은 복제하지 않았다.
+- 두 직접 security suite 35 PASS/0 FAIL/0 SKIP(exit0). 새 dialog/embedded 계약 RED2 FAIL/filtered32 후 GREEN이며 MFA/theme/dialog/recovery/session 수명과 password pending-dismiss/reopen 늦은 응답을 확인했다.
+
+### 미구현
+
+- 서버 raster thumbnail·대형 CAD 성능 및 최종 browser/type/UI/build/native/HIL 결과는 이 단위 검증으로 완료하지 않았다. 감사40행의 표시 교정 F1–F10은 Tasks1–4 공통 소비와 Tasks8–10에서 처리하되 실제 추가 제품 기능은 계속 유지한다.
+
+### 부족하거나 개선이 필요한 기능
+
+- dismiss는 이미 보낸 비밀번호 API의 서버 작업을 취소하지 않는다. 비밀번호 입력은 다시 열면 초기화되며 늦은 응답의 client owner만 무효화한다. fixture 기반 검증으로 실제 MFA enrollment/계정/세션/장비 조작은 수행하지 않았다.
+
+### 관련 파일
+
+- `settings/security/{AccountSecurityView,PasswordSettingsView}.tsx` 및 두 직접 tests; eager 로그아웃은 기존 `CustomerAccountPanel` owner다(이 작업에서 수정하지 않음).
+
+### 갱신 규칙
+
+- 감사39/F10과40/MFA/session 안전 기능 보존을 구분한다. 표시 layout과 실제 인증·서버 부작용·browser/native/HIL 증거를 서로 대체하지 않는다.
+
 ## 2026-10-10 실제 도면 gallery·변경 기록 (Task 9)
 
 ### 구현 완료
@@ -10,7 +35,7 @@
 
 ### 미구현
 
-- 서버 raster thumbnail 계약은 없으며 새 계약을 추가하지 않았다. Task 10 보안 배치는 후속이다. browser/전체Web/type/UI/build/native/HIL 검증은 이번 작업에 포함하지 않았다.
+- 서버 raster thumbnail 계약은 없으며 새 계약을 추가하지 않았다. 보안 배치는 위 Task 10에 기록한다. browser/전체Web/type/UI/build/native/HIL 검증은 이번 작업에 포함하지 않았다.
 
 ### 부족하거나 개선이 필요한 기능
 
@@ -35,7 +60,7 @@
 
 ### 미구현
 
-- Task 9 실제 도면 gallery/editor entry·Task 10 보안 배치는 후속이다. 이번 검증은 browser/type/UI/build/전체583/Lab/canonical/native/HIL 완료가 아니다.
+- 실제 도면 gallery/editor entry·보안 배치는 위 Tasks9–10에 기록한다. 이번 검증은 browser/type/UI/build/전체583/Lab/canonical/native/HIL 완료가 아니다.
 
 ### 부족하거나 개선이 필요한 기능
 

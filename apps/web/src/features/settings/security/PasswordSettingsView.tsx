@@ -18,7 +18,11 @@ export function PasswordSettingsView() {
   );
 }
 
-export function PasswordChangeCard() {
+interface PasswordChangeCardProps {
+  presentation?: "card" | "embedded";
+}
+
+export function PasswordChangeCard({ presentation = "card" }: PasswordChangeCardProps = {}) {
   const queryClient = useQueryClient();
   const requestInFlight = useRef(false);
   const mountedRef = useRef(false);
@@ -94,16 +98,17 @@ export function PasswordChangeCard() {
     }
   }
 
+  const Container = presentation === "embedded" ? "div" : Card;
   return (
     <form className="grid gap-4" aria-label="비밀번호 변경" onSubmit={handleSubmit}>
-        <Card className="grid gap-5 p-5">
-          <div className="flex items-start justify-between gap-4">
+        <Container className={presentation === "embedded" ? "grid gap-5" : "grid gap-5 p-5"}>
+          {presentation === "card" ? <div className="flex items-start justify-between gap-4">
             <div>
               <h2 className="m-0 text-card-title font-bold text-content-primary">비밀번호</h2>
               <p className="mt-1 text-body text-content-secondary">현재 비밀번호를 확인한 뒤 새 비밀번호로 변경합니다.</p>
             </div>
-          </div>
-          <div className="grid gap-4 compact:grid-cols-3">
+          </div> : null}
+          <div className={presentation === "embedded" ? "grid gap-4" : "grid gap-4 compact:grid-cols-3"}>
             <PasswordField label="현재 비밀번호" autoComplete="current-password" value={currentPassword} onChange={setCurrentPassword} />
             <PasswordField label="새 비밀번호" autoComplete="new-password" minLength={8} maxLength={1024} value={newPassword} onChange={setNewPassword} />
             <PasswordField label="새 비밀번호 확인" autoComplete="new-password" minLength={8} maxLength={1024} value={newPasswordConfirmation} onChange={setNewPasswordConfirmation} />
@@ -117,7 +122,7 @@ export function PasswordChangeCard() {
           <Button className="justify-self-start max-compact:w-full" variant="primary" type="submit" isLoading={isPending} loadingLabel="변경 중">
             비밀번호 변경
           </Button>
-        </Card>
+        </Container>
       </form>
   );
 }

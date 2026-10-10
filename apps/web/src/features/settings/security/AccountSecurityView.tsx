@@ -14,7 +14,7 @@ import {
   type MfaEnrollment
 } from "../../../api/auth";
 import { authSessionsQueryKey, clearPrincipalCache, hasPrincipal, principalKey } from "../../../api/principal-cache";
-import { Button, Card, ConfirmDialog, FeedbackState, Text, PasswordField, StatusBadge, TextField, formatTimestamp } from "../../../components/ui";
+import { Button, Card, ConfirmDialog, FeedbackState, ModalDialog, Text, PasswordField, StatusBadge, TextField, formatTimestamp } from "../../../components/ui";
 import { PasswordChangeCard } from "./PasswordSettingsView";
 
 type MfaQueryKey = readonly ["auth", "mfa", string];
@@ -32,18 +32,34 @@ export function AccountSecurityView({ user }: { user: AuthUser }) {
           ? "비밀번호, 2단계 인증과 로그인된 기기를 관리합니다."
           : "비밀번호와 로그인된 기기를 관리합니다."}</Text>
       <div key={principal} data-testid="account-security-layout" className="grid gap-3 compact:grid-cols-2">
-        <div data-testid="password-security-cell" className="min-w-0 compact:col-span-2">
-          <PasswordChangeCard />
+        <div data-testid="password-security-cell" className={canManageMfa ? "min-w-0" : "min-w-0 compact:col-span-2"}>
+          <PasswordSecuritySummary />
         </div>
         {canManageMfa ? (
           <MfaCard principal={principal} mfaQueryKey={mfaQueryKey} sessionsQueryKey={sessionsQueryKey} />
         ) : null}
-        <div data-testid="sessions-security-cell" className={canManageMfa ? "min-w-0" : "min-w-0 compact:col-span-2"}>
+        <div data-testid="sessions-security-cell" className="min-w-0 compact:col-span-2">
           <SessionsCard principal={principal} sessionsQueryKey={sessionsQueryKey} />
         </div>
       </div>
     </section>
   );
+}
+
+function PasswordSecuritySummary() {
+  const [isOpen, setIsOpen] = useState(false);
+  const trigger = useRef<HTMLButtonElement>(null);
+  return <>
+    <Card className="grid gap-4 p-5">
+      <h2 className="m-0 text-card-title font-bold text-content-primary">비밀번호</h2>
+      <Text tone="secondary">현재 비밀번호를 확인한 뒤 새 비밀번호로 변경합니다.</Text>
+      <Text variant="body-sm" tone="secondary">새 비밀번호는 8자 이상 1024자 이하로 입력해 주세요.</Text>
+      <Button ref={trigger} className="justify-self-start" onClick={() => setIsOpen(true)}>비밀번호 변경</Button>
+    </Card>
+    <ModalDialog title="비밀번호 변경" description="현재 비밀번호를 확인한 뒤 새 비밀번호를 적용합니다." isOpen={isOpen} onClose={() => setIsOpen(false)} returnFocusRef={trigger}>
+      <PasswordChangeCard presentation="embedded" />
+    </ModalDialog>
+  </>;
 }
 
 function MfaCard({

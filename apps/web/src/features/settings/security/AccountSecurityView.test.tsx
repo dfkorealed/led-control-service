@@ -58,6 +58,48 @@ function renderView(user: AuthUser = admin) {
 }
 
 describe("AccountSecurityView", () => {
+  it("does not apply a pending password response after dialog dismissal and reopening", async () => {
+    let resolveRequest: ((result: { ok: true; user: AuthUser }) => void) | undefined;
+    vi.mocked(changePassword).mockImplementation(() => new Promise(resolve => { resolveRequest = resolve; }));
+    const client = renderView();
+    await screen.findByRole("list", { name: "활성 세션" });
+    fireEvent.click(screen.getByRole("button", { name: "비밀번호 변경" }));
+    fireEvent.change(screen.getByLabelText("현재 비밀번호"), { target: { value: "current-secret" } });
+    fireEvent.change(screen.getByLabelText("새 비밀번호"), { target: { value: "new-secret" } });
+    fireEvent.change(screen.getByLabelText("새 비밀번호 확인"), { target: { value: "new-secret" } });
+    fireEvent.click(screen.getByRole("button", { name: "비밀번호 변경" }));
+    expect(screen.getByRole("button", { name: "변경 중" })).toBeDisabled();
+    fireEvent.click(within(screen.getByRole("dialog", { name: "비밀번호 변경" })).getByRole("button", { name: "닫기" }));
+    fireEvent.click(screen.getByRole("button", { name: "비밀번호 변경" }));
+    expect(screen.getByLabelText("현재 비밀번호")).toHaveValue("");
+    await act(async () => resolveRequest?.({ ok: true, user: { ...admin, name: "stale-response" } }));
+    expect(client.getQueryData(authMeQueryKey)).toEqual({ user: admin });
+    expect(screen.queryByText("비밀번호를 변경했습니다.")).not.toBeInTheDocument();
+    expect(changePassword).toHaveBeenCalledOnce();
+    expect(listAuthSessions).toHaveBeenCalledOnce();
+    expect(JSON.stringify(client.getQueryCache().getAll())).not.toContain("current-secret");
+  });
+  it("dismisses the password dialog with focus return without resetting MFA or session owners", async () => {
+    vi.mocked(startMfaEnrollment).mockResolvedValue({ enrollmentToken: "dialog-enrollment", secret: "DIALOGSECRET", otpauthUri: "otpauth://dialog", expiresAt: "2026-10-10T12:10:00.000Z" });
+    renderView();
+    fireEvent.click(await screen.findByRole("button", { name: "2단계 인증 설정" }));
+    expect(await screen.findByText("DIALOGSECRET")).toBeVisible();
+    fireEvent.change(screen.getByLabelText("인증 앱 코드"), { target: { value: "123456" } });
+    const trigger = screen.getByRole("button", { name: "비밀번호 변경" });
+    fireEvent.click(trigger);
+    const dialog = screen.getByRole("dialog", { name: "비밀번호 변경" });
+    expect(within(dialog).getByRole("form", { name: "비밀번호 변경" })).toBeVisible();
+    expect(within(dialog).getByLabelText("새 비밀번호")).toHaveAttribute("minlength", "8");
+    expect(within(dialog).getByLabelText("새 비밀번호")).toHaveAttribute("maxlength", "1024");
+    fireEvent.click(within(dialog).getByRole("button", { name: "닫기" }));
+    await waitFor(() => expect(trigger).toHaveFocus());
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("인증 앱 코드")).toHaveValue("123456");
+    expect(screen.getByText("DIALOGSECRET")).toBeVisible();
+    expect(startMfaEnrollment).toHaveBeenCalledOnce();
+    expect(getMfaStatus).toHaveBeenCalledOnce();
+    expect(listAuthSessions).toHaveBeenCalledOnce();
+  });
   beforeEach(() => {
     vi.mocked(getMfaStatus).mockResolvedValue({ enabled: false, enabledAt: null });
     vi.mocked(listAuthSessions).mockResolvedValue({ sessions });
@@ -77,15 +119,18 @@ describe("AccountSecurityView", () => {
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     client.setQueryData(authMeQueryKey, { user: admin });
     render(<QueryClientProvider client={client}><CustomerThemeProvider><ThemeToggle /><AccountSecurityView user={admin} /></CustomerThemeProvider></QueryClientProvider>);
+    fireEvent.click(screen.getByRole("button", { name: "비밀번호 변경" }));
     fireEvent.change(screen.getByLabelText("현재 비밀번호"), { target: { value: "unsaved-password" } });
+    act(() => window.dispatchEvent(new StorageEvent("storage", { key: "led-control.customer-theme.v1", newValue: "dark" })));
+    expect(screen.getByLabelText("현재 비밀번호")).toHaveValue("unsaved-password");
+    fireEvent.click(within(screen.getByRole("dialog", { name: "비밀번호 변경" })).getByRole("button", { name: "닫기" }));
     fireEvent.click(await screen.findByRole("button", { name: "2단계 인증 설정" }));
     expect(await screen.findByText("THEMESECRET")).toBeVisible();
     fireEvent.change(screen.getByLabelText("인증 앱 코드"), { target: { value: "123456" } });
-    fireEvent.click(screen.getByRole("button", { name: "다크 모드로 변경" }));
-    expect(document.documentElement).toHaveAttribute("data-customer-theme", "dark");
+    fireEvent.click(screen.getByRole("button", { name: "라이트 모드로 변경" }));
+    expect(document.documentElement).toHaveAttribute("data-customer-theme", "light");
     expect(screen.getByLabelText("인증 앱 코드")).toHaveValue("123456");
     expect(screen.getByText("THEMESECRET")).toBeVisible();
-    expect(screen.getByLabelText("현재 비밀번호")).toHaveValue("unsaved-password");
     expect(startMfaEnrollment).toHaveBeenCalledOnce();
     expect(confirmMfaEnrollment).not.toHaveBeenCalled();
     expect(listAuthSessions).toHaveBeenCalledOnce();
@@ -105,6 +150,11 @@ describe("AccountSecurityView", () => {
     for (const write of [disableMfa, revokeAuthSession, revokeOtherAuthSessions, changePassword]) expect(write).not.toHaveBeenCalled();
     expect(JSON.stringify(client.getQueryCache().getAll())).not.toContain("THEMESECRET");
     expect(JSON.stringify(client.getMutationCache().getAll())).not.toContain("theme-recovery");
+    fireEvent.click(screen.getByRole("button", { name: "비밀번호 변경" }));
+    fireEvent.click(within(screen.getByRole("dialog", { name: "비밀번호 변경" })).getByRole("button", { name: "닫기" }));
+    expect(screen.getByText("theme-recovery")).toBeVisible();
+    expect(getMfaStatus).toHaveBeenCalledOnce();
+    expect(listAuthSessions).toHaveBeenCalledTimes(2);
   });
 
   it.each([
@@ -126,8 +176,9 @@ describe("AccountSecurityView", () => {
   it("비밀번호 변경을 유지하고 MFA·활성 세션 상태를 실제 API로 불러온다", async () => {
     renderView();
 
-    expect(screen.getByRole("heading", { name: "계정 보안" })).toBeInTheDocument();
-    expect(screen.getByLabelText("현재 비밀번호")).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "계정 보안" })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("현재 비밀번호")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "비밀번호 변경" })).toBeVisible();
     expect(await screen.findByText("2단계 인증이 꺼져 있습니다.")).toBeInTheDocument();
     const list = await screen.findByRole("list", { name: "활성 세션" });
     expect(within(list).getByText("현재 세션")).toBeInTheDocument();
@@ -146,6 +197,7 @@ describe("AccountSecurityView", () => {
     renderView();
     expect(await screen.findByText("Chrome on macOS")).toBeInTheDocument();
 
+    fireEvent.click(screen.getByRole("button", { name: "비밀번호 변경" }));
     fireEvent.change(screen.getByLabelText("현재 비밀번호"), { target: { value: "current-password" } });
     fireEvent.change(screen.getByLabelText("새 비밀번호"), { target: { value: "new-password" } });
     fireEvent.change(screen.getByLabelText("새 비밀번호 확인"), { target: { value: "new-password" } });
@@ -228,7 +280,8 @@ describe("AccountSecurityView", () => {
 
     const layout = screen.getByTestId("account-security-layout");
     expect(layout).toHaveClass("gap-3", "compact:grid-cols-2");
-    expect(screen.getByTestId("password-security-cell")).toHaveClass("compact:col-span-2");
+    expect(screen.getByTestId("password-security-cell")).not.toHaveClass("compact:col-span-2");
+    expect(screen.getByTestId("sessions-security-cell")).toHaveClass("compact:col-span-2");
     expect(await screen.findByText("2단계 인증이 꺼져 있습니다.")).toBeVisible();
     expect(screen.getByRole("heading", { name: "활성 세션" })).toBeVisible();
   });

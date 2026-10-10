@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "../../../api/client";
 import { changePassword, type AuthUser } from "../../../api/auth";
 import { authMeQueryKey } from "../../../api/principal-cache";
-import { PasswordSettingsView } from "./PasswordSettingsView";
+import { PasswordChangeCard, PasswordSettingsView } from "./PasswordSettingsView";
 
 vi.mock("../../../api/auth", () => ({ changePassword: vi.fn() }));
 
@@ -39,6 +39,17 @@ function fillPasswords(currentPassword = "current-password", newPassword = "new-
 }
 
 describe("PasswordSettingsView", () => {
+  it("embedded presentation retains the real form without another card or heading", () => {
+    const client = new QueryClient();
+    client.setQueryData(authMeQueryKey, { user: changedUser });
+    render(<QueryClientProvider client={client}><PasswordChangeCard presentation="embedded" /></QueryClientProvider>);
+    expect(screen.getByRole("form", { name: "비밀번호 변경" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "비밀번호" })).not.toBeInTheDocument();
+    fillPasswords("current-password", "short");
+    fireEvent.click(screen.getByRole("button", { name: "비밀번호 변경" }));
+    expect(screen.getByRole("alert")).toHaveTextContent("8자 이상 1024자 이하");
+    expect(changePasswordMock).not.toHaveBeenCalled();
+  });
   afterEach(() => {
     cleanup();
     vi.clearAllMocks();
