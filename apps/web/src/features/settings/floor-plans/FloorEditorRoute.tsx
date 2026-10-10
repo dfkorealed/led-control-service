@@ -55,7 +55,7 @@ export function FloorEditorRoute({ capabilities }: FloorEditorRouteProps) {
     queryFn: () => getFloorEditorState(floorId ?? ""),
     enabled: canEdit && Boolean(floorId)
   });
-  const listPath = `/settings/floor-plans${location.search}`;
+  const listPath = `/settings/floor-plans${location.search}${location.hash}`;
   const leaseState = useFloorEditorLease(canEdit, floorId);
 
   useEffect(() => {
@@ -64,8 +64,8 @@ export function FloorEditorRoute({ capabilities }: FloorEditorRouteProps) {
     queryClient.setQueryData(["floor-editor", canonicalSiteId, floorId], editorQuery.data);
     const search = new URLSearchParams(location.search);
     search.set("siteId", canonicalSiteId);
-    navigate({ pathname: location.pathname, search: search.toString() }, { replace: true });
-  }, [editorQuery.data, floorId, location.pathname, location.search, navigate, queryClient, selectedSiteId]);
+    navigate({ pathname: location.pathname, search: search.toString(), hash: location.hash }, { replace: true });
+  }, [editorQuery.data, floorId, location.pathname, location.search, location.hash, navigate, queryClient, selectedSiteId]);
 
   const confirmEditorLeave = useCallback(() => {
     discardEditorChanges();
@@ -128,6 +128,7 @@ export function FloorEditorRoute({ capabilities }: FloorEditorRouteProps) {
       <FloorEditorView
         key={`${selectedSiteId}:${floorId}`}
         initialState={editorQuery.data}
+        initialPanelTab={new URLSearchParams(location.search).get("editorPanel") === "details" ? "details" : "properties"}
         userRole="admin"
         readOnly={!activeLease.editable}
         leaseToken={activeLease.token}
@@ -136,7 +137,7 @@ export function FloorEditorRoute({ capabilities }: FloorEditorRouteProps) {
         onFloorChange={(nextFloorId) => {
           if (nextFloorId === floorId || !dashboard.data?.floors.some((floor) => floor.id === nextFloorId)) return;
           requestEditorLeave({
-            onConfirm: () => navigateFromEditor(`/settings/floor-plans/${encodeURIComponent(nextFloorId)}/edit${location.search}`)
+            onConfirm: () => navigateFromEditor(`/settings/floor-plans/${encodeURIComponent(nextFloorId)}/edit${location.search}${location.hash}`)
           });
         }}
         onDirtyChange={setIsDirty}

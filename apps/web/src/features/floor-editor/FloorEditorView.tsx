@@ -1,6 +1,6 @@
 import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { Bell, CircleCheck, PanelLeft, PanelRight, RotateCcw, Save, TriangleAlert, Undo2, Redo2, X } from "lucide-react";
+import { Bell, CircleCheck, PanelLeft, PanelRight, RotateCcw, TriangleAlert, Undo2, Redo2 } from "lucide-react";
 import { type DragEvent, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import type { AuthUser } from "../../api/auth";
@@ -51,6 +51,7 @@ interface FloorEditorViewProps {
   onNativeBack?: () => boolean;
   floors?: Array<{ id: string; name: string }>;
   onFloorChange?: (floorId: string) => void;
+  initialPanelTab?: "properties" | "details";
 }
 
 const TOOL_DRAG_DATA_TYPE = "application/x-floor-editor-tool";
@@ -67,14 +68,15 @@ export function FloorEditorView({
   onDirtyChange,
   onNativeBack,
   floors,
-  onFloorChange
+  onFloorChange,
+  initialPanelTab = "properties"
 }: FloorEditorViewProps) {
   readOnly ||= userRole !== "admin" || !leaseToken || !leaseFence;
   const queryClient = useQueryClient();
   const { initialState: baseline, state, isDirty, activeTool, zoom, initialize, adoptBaseline, setActiveTool, setZoom, resetZoom, past, future, snap, selection, cadSelection, selectedFixtureIds } = useFloorEditorStore(useShallow((s) => ({ initialState: s.initialState, state: s.state, isDirty: s.isDirty, activeTool: s.activeTool, zoom: s.zoom, initialize: s.initialize, adoptBaseline: s.adoptBaseline, setActiveTool: s.setActiveTool, setZoom: s.setZoom, resetZoom: s.resetZoom, past: s.past, future: s.future, snap: s.snap, selection: s.selection, cadSelection: s.cadSelection, selectedFixtureIds: s.selectedFixtureIds })));
-  const [panelTab, setPanelTab] = useState("properties");
+  const [panelTab, setPanelTab] = useState(initialPanelTab);
   const [isNarrowLayout, setIsNarrowLayout] = useState(() => window.matchMedia?.("(max-width: 1279px)").matches ?? false);
-  const [openPanel, setOpenPanel] = useState<"tools" | "information" | null>(null);
+  const [openPanel, setOpenPanel] = useState<"tools" | "information" | null>(() => initialPanelTab === "details" ? "information" : null);
   const [placementDraft, setPlacementDraft] = useState<{ floorId: string; siteId: string; fixtureId: string; point: Point | null } | null>(null);
   const [isToolPanelDragging, setIsToolPanelDragging] = useState(false);
   const panelDragSource = useRef<HTMLElement | null>(null);
@@ -83,6 +85,8 @@ export function FloorEditorView({
   const informationToggle = useRef<HTMLButtonElement>(null);
   const toolsPanel = useRef<HTMLDivElement>(null);
   const informationPanel = useRef<HTMLElement>(null);
+  const historyEntry = useRef<HTMLDivElement>(null);
+  const historyIntent = useRef(initialPanelTab === "details");
   useEffect(() => {
     // Non-visual hosts have no media queries; keep the complete panel layout.
     const media = window.matchMedia?.("(max-width: 1279px)");
@@ -138,6 +142,14 @@ export function FloorEditorView({
   useEffect(() => {
     if (openPanel) (openPanel === "tools" ? toolsPanel : informationPanel).current?.focus();
   }, [openPanel]);
+  useEffect(() => {
+    if (!historyIntent.current || !historyEntry.current) return;
+    const region = historyEntry.current.querySelector<HTMLElement>('[aria-label="맵 버전"]');
+    if (!region) return;
+    historyIntent.current = false;
+    region.focus();
+    region.scrollIntoView?.({ block: "nearest" });
+  });
   const [recovery, setRecovery] = useState<ReturnType<typeof loadEditorDraft>>(null);
   const [draftError, setDraftError] = useState(false);
   const userId = queryClient.getQueryData<{ user: AuthUser }>(authMeQueryKey)?.user.id;
@@ -479,13 +491,13 @@ export function FloorEditorView({
       <header className="shrink-0 [&_[role=tooltip]]:pointer-events-none" data-testid="editor-toolbar">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="min-w-0">
-            <Heading as="h2" variant="card-title" className="truncate">{initialState.floor.name} 맵 편집</Heading>
+            <Heading as="h1" variant="customer-page-title" className="truncate">{initialState.floor.name} 맵 편집</Heading>
             <Text variant="caption" tone="secondary">리비전 {baseline?.floor.mapRevision ?? initialState.floor.mapRevision}{isDirty ? " · 저장하지 않은 변경사항" : " · 저장됨"}</Text>
           </div>
           <div className="flex min-w-0 items-center gap-1">
             {floors && onFloorChange && <SelectBox label="층 선택" className="w-32 min-w-0 [&>label]:sr-only" items={floors.map((floor) => ({ id: floor.id, label: floor.name }))} selectedKey={floorId} isDisabled={isMutationPending} onSelectionChange={(key) => { if (key && !mutationLock.current) onFloorChange(key); }} />}
-            <IconTooltipButton size="sm" icon={X} label="취소" onClick={onCancel} />
-            <IconTooltipButton size="sm" className="bg-action-primary text-content-inverse hover:bg-action-primary-hover" icon={Save} label="저장" disabled={!isDirty || isSaveOrRestoreBlocked} isLoading={saveStatus === "saving"} loadingLabel="저장 중" onClick={handleSave} />
+            <Button size="sm" onClick={onCancel}>맵으로 돌아가기</Button>
+            <Button size="sm" variant="primary" className="text-action-primary-foreground" disabled={!isDirty || isSaveOrRestoreBlocked} isLoading={saveStatus === "saving"} loadingLabel="저장 중" onClick={handleSave}>저장</Button>
           </div>
         </div>
         <div className="flex flex-nowrap items-center gap-1 overflow-x-auto overscroll-x-contain border-b border-border-default py-1" role="toolbar" aria-label="맵 보기 도구">
@@ -606,7 +618,7 @@ export function FloorEditorView({
           {panelTab === "placement" && <EditorBatchPlacementPanel readOnly={readOnly || isMutationPending} />}
           {panelTab === "properties" && <MapPolygonControls editor={map} readOnly={readOnly || isMutationPending} onBegin={() => { if (isNarrowLayout) closePanel("information"); }} />}
           {panelTab === "layers" && <EditorLayersPanel readOnly={readOnly || isMutationPending} mapEditor={map} />}
-          <div className={panelTab === "details" ? "grid gap-3" : "hidden"} aria-hidden={panelTab !== "details"}>
+          <div ref={historyEntry} className={panelTab === "details" ? "grid gap-3" : "hidden"} aria-hidden={panelTab !== "details"}>
           <CadImportPanel
             floorId={floorId}
             expectedRevision={baseline?.floor.mapRevision ?? initialState.floor.mapRevision}
@@ -691,7 +703,7 @@ function RevisionPanel({
   onRestore: (revision: number) => void;
 }) {
   return (
-    <section className="grid gap-3 border-t border-border-subtle p-3" aria-label="맵 버전">
+    <section tabIndex={-1} className="grid gap-3 border-t border-border-subtle p-3" aria-label="맵 버전">
       <div className="grid gap-1">
         <Text variant="overline" tone="secondary">버전</Text>
         <Heading as="h3" variant="card-title">변경 기록</Heading>
