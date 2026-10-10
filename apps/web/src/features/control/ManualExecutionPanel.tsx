@@ -56,7 +56,7 @@ export function ManualExecutionPanel({ brightness, controlsLocked, canSubmit, ap
     onPointerDownCapture={event => {
       if (event.target instanceof Element && event.target.closest("[data-control-submit]")) invalidApplyAttempt.current = !rawValid.current || restoring.current;
     }}>
-    <div className="grid gap-2 rounded-panel border border-border-default bg-surface-panel p-3" data-control-brightness-card="">
+    <div className="grid gap-2 border-t border-border-default pt-3" data-control-brightness-card="">
       <div className="flex items-baseline justify-between gap-3" onInputCapture={captureDraft} onChangeCapture={captureDraft}
         onBlurCapture={event => {
           if (event.target instanceof HTMLInputElement) {
@@ -67,18 +67,18 @@ export function ManualExecutionPanel({ brightness, controlsLocked, canSubmit, ap
         onKeyDownCapture={event => {
           if (event.target instanceof HTMLInputElement && event.key === "Enter") { event.preventDefault(); event.stopPropagation(); restoreDraft(); }
         }}>
-        <Text as="span" variant="label">밝기</Text>
+        <Text as="span" variant="label">밝기 <Text as="span" variant="caption" tone="secondary">초안</Text></Text>
         <div className="flex min-w-0 items-baseline gap-1">
           <NumberField key={inputRevision} aria-label="밝기 수치" variant="ghost" size="lg"
-            className="w-24" inputClassName="px-1 text-metric font-bold text-right"
+            className="w-20" inputClassName="px-1 text-body text-right"
             minValue={0} maxValue={100} step={1} value={brightness} isDisabled={controlsLocked} isInvalid={invalidDraft}
             onChange={value => { if (rawValid.current && !restoring.current && value !== null && Number.isInteger(value) && value >= 0 && value <= 100) onBrightnessChange(value); }} />
-          <Text as="span" variant="metric" aria-hidden="true">%</Text>
+          <Text as="span" variant="body" aria-hidden="true">%</Text>
         </div>
       </div>
       {invalidDraft ? <Text role="alert" tone="danger">0~100 사이 정수를 입력해 주세요.</Text> : null}
       {restored ? <Text role="status" variant="caption">{restored}</Text> : null}
-      <Slider label="밝기" minValue={0} maxValue={100} step={1} value={brightness} isDisabled={controlsLocked} onChange={changeDraft} />
+      <Slider aria-label="밝기" presentation="bare" minValue={0} maxValue={100} step={1} value={brightness} isDisabled={controlsLocked} onChange={changeDraft} />
       <div role="group" aria-label="빠른 밝기 값" className="grid grid-cols-4 gap-1">
         {[0, 30, 70, 100].map(value => <Button key={value} type="button" variant="ghost" className="whitespace-nowrap px-2" aria-pressed={brightness === value && !invalidDraft}
           disabled={controlsLocked} onClick={() => changeDraft(value)}>{value}%</Button>)}

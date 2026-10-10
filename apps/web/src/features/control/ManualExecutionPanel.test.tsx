@@ -14,6 +14,13 @@ function setup(locked = false, eligible = true) {
   render(<Draft />); return submit;
 }
 describe("ManualExecutionPanel", () => {
+  it("fidelity exposes one visible brightness label while the bare slider keeps its accessible input", () => {
+    setup();
+    expect(screen.getAllByText("밝기")).toHaveLength(1);
+    expect(screen.getByRole("slider", { name: "밝기" })).toHaveValue("70");
+    fireEvent.change(screen.getByRole("slider", { name: "밝기" }), { target: { value: "30" } });
+    expect(screen.getByRole("textbox", { name: "밝기 수치" })).toHaveValue("30");
+  });
   it("keeps presets, slider and number immediate and draft-only until explicit Apply", () => {
     const submit = setup();
     for (const value of [0, 30, 70, 100]) {

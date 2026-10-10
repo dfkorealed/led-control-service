@@ -16,6 +16,18 @@ function command(id: string) {
 }
 
 describe("CommandHistoryPanel", () => {
+  it("fidelity labels the control history ticker while keeping UUID detail selection", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: async () => ({
+      generatedAt: "2026-09-25T00:00:00Z", retainedFrom: "2026-06-25T00:00:00Z", retentionEnabled: false,
+      items: [command("actual-uuid")], nextCursor: null
+    }) }));
+    const { onSelect, client } = renderHistory();
+    const ticker = screen.getByRole("region", { name: "제어 이력" });
+    const detail = await within(ticker).findByRole("button", { name: /최근 명령 상세: actual-uuid/ });
+    fireEvent.click(detail);
+    expect(onSelect).toHaveBeenCalledWith("actual-uuid");
+    client.clear();
+  });
   it("keeps failed recent-history text in its own flow while retry, full history and verification remain separate read-only actions", async () => {
     let failRecent = true;
     const fetch = vi.fn().mockImplementation(async (url: string) => {
@@ -131,7 +143,7 @@ describe("CommandHistoryPanel", () => {
     const tree = () => <QueryClientProvider client={client}><CommandHistoryPanel userId="user" siteId="site" onSelect={() => undefined} /></QueryClientProvider>;
     const view = render(tree()); await screen.findByRole("button", { name: /최근 명령 상세: first-uuid/ });
     act(() => vi.advanceTimersByTime(5000));
-    const ticker = screen.getByRole("region", { name: "최근 이력" });
+    const ticker = screen.getByRole("region", { name: "제어 이력" });
     fireEvent.mouseEnter(ticker); view.rerender(tree());
     act(() => vi.advanceTimersByTime(10000));
     expect(screen.getByRole("button", { name: /최근 명령 상세: second-uuid/ })).toBeInTheDocument();
@@ -210,7 +222,7 @@ describe("CommandHistoryPanel", () => {
     act(() => { vi.advanceTimersByTime(1); });
     const second = screen.getByRole("button", { name: /최근 명령 상세: second-uuid/ });
     expect(second).toHaveTextContent("0개"); expect(second).toHaveTextContent("0%");
-    expect(screen.getByRole("region", { name: "최근 이력" })).toHaveTextContent("일부 조명 적용 실패");
+    expect(screen.getByRole("region", { name: "제어 이력" })).toHaveTextContent("일부 조명 적용 실패");
     fireEvent.click(second); expect(onSelect).toHaveBeenCalledWith("second-uuid");
     fireEvent.click(screen.getByRole("button", { name: "전체 보기" }));
     const drawer = screen.getByRole("dialog", { name: "명령 이력" });

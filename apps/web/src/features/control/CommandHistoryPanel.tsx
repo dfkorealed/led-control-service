@@ -4,7 +4,7 @@ import { FocusScope, useFocusManager } from "react-aria";
 import { useQueryClient } from "@tanstack/react-query";
 import { useCommandHistory, type CommandStage, type CommandStatusResponse } from "../../api/commands";
 import { ApiError } from "../../api/client";
-import { Button, Card, DateRangePicker, DrawerDialog, FilterPanel, LogView, PageSizeSelect, PaginationBar, RecentActivityTicker, SearchField, SelectBox, StatusBadge, Text, cn, useDateRangeDraft, type DateRangeValue } from "../../components/ui";
+import { Button, DateRangePicker, DrawerDialog, FilterPanel, LogView, PageSizeSelect, PaginationBar, RecentActivityTicker, SearchField, SelectBox, StatusBadge, Text, cn, useDateRangeDraft, type DateRangeValue } from "../../components/ui";
 import { draftToDate, isEmptyDateDraft } from "../../components/ui/date/useDateDraft";
 import { formatControlTimestamp } from "./control-time";
 
@@ -35,10 +35,9 @@ type RecentCommandPresentation = { id: string; timestampLabel: string; content: 
 
 function RecentCommandButton({ row }: { row: RecentCommandPresentation }) {
   const interaction = useContext(RecentCommandInteraction);
-  // A narrow mobile summary keeps its 44px frame: rounded corners can remove
-  // part of a continuous pointer square. Square only this inline action's hit
-  // shape; retain the desktop/generic corners and ticker/interaction ownership.
-  return <Button variant="ghost" type="button" className="min-h-11! min-w-11 max-w-full max-compact:rounded-none justify-start! overflow-hidden px-0! text-left! font-normal!"
+  // Keep the native UUID action and continuous compact hit area while using
+  // the common plain ghost appearance rather than a second boxed row.
+  return <Button variant="ghost" type="button" className="min-h-11! min-w-11 max-w-full max-compact:rounded-none border-transparent bg-transparent justify-start! overflow-hidden px-0! text-left! font-normal!"
     disabled={interaction?.disabled} aria-pressed={interaction?.selectedCommandId === row.id}
     aria-label={`최근 명령 상세: ${row.id} · ${row.timestampLabel} · ${row.content} · ${row.status}`}
     onClick={() => { if (interaction && !interaction.disabled) interaction.onSelect(row.id); }}>
@@ -46,7 +45,7 @@ function RecentCommandButton({ row }: { row: RecentCommandPresentation }) {
   </Button>;
 }
 
-export function CommandHistoryPanel({ userId, siteId, onSelect, disabled = false, selectedCommandId, compactDisclosure = false, className, onOpenVerificationCases, verificationCasesOpenerRef, verificationCaseCount, timeZone = "UTC" }: CommandHistoryPanelProps) {
+export function CommandHistoryPanel({ userId, siteId, onSelect, disabled = false, selectedCommandId, className, onOpenVerificationCases, verificationCasesOpenerRef, verificationCaseCount, timeZone = "UTC" }: CommandHistoryPanelProps) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [query, setQuery] = useState("");
@@ -127,10 +126,10 @@ export function CommandHistoryPanel({ userId, siteId, onSelect, disabled = false
   }, [cursorExpired, queryClient, scopeKey]);
 
   return <>
-    <Card className={cn("flex min-h-13 min-w-0 shrink-0 items-center gap-1", compactDisclosure ? "border-0! bg-transparent! p-0!" : "p-3", className)} aria-label="최근 명령 이력" data-command-history-panel="">
+    <div className={cn("flex min-h-13 min-w-0 shrink-0 items-center gap-1", className)} role="region" aria-label="최근 명령 이력" data-command-history-panel="">
       <div className="min-w-0 flex-1">
         <RecentCommandInteraction.Provider value={{ onSelect, disabled, selectedCommandId }}>
-          <RecentActivityTicker scopeKey={JSON.stringify([userId, siteId])} items={tickerRows}
+          <RecentActivityTicker title="제어 이력" scopeKey={JSON.stringify([userId, siteId])} items={tickerRows}
             emptyContent={latest.isPending ? <Text role="status">최근 명령을 불러오는 중입니다.</Text>
               : latest.error ? <Text role="alert" tone="danger">최근 명령을 불러오지 못했습니다.</Text>
               : <Text>명령 이력이 없습니다.</Text>}
@@ -140,7 +139,7 @@ export function CommandHistoryPanel({ userId, siteId, onSelect, disabled = false
       </div>
       {/* Keep uncertain-case recovery reachable independently of history fetching or dimming locks. */}
       {onOpenVerificationCases ? <Button ref={verificationCasesOpenerRef} type="button" variant="ghost" className="min-h-13! min-w-13! px-2!" aria-label="확인 필요한 명령" onClick={onOpenVerificationCases}><TriangleAlert size={16} aria-hidden="true" />{verificationCaseCount ? <span aria-hidden="true">{verificationCaseCount}</span> : null}</Button> : null}
-    </Card>
+    </div>
     <DrawerDialog isOpen={open} safeArea title="명령 이력" description="현장의 최근 명령을 조회합니다." closeLabel="명령 이력 닫기" onClose={() => setOpen(false)} returnFocusRef={openerRef}
       className="flex min-h-0 max-w-status-drawer flex-col overflow-hidden" bodyClassName="min-h-0 flex-1 overflow-hidden">
       <LogView label="명령 이력" filters={<FilterPanel label="명령 이력 필터" mode="popover"

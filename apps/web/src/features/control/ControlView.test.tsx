@@ -496,6 +496,22 @@ describe("ControlView 대상 선택", () => {
     expect(countAnnouncements).toHaveLength(1);
   });
 
+  it("fidelity names the actual selected lights in the target summary and clears them without sending", () => {
+    renderControl();
+    selectFixture("B2-L001");
+    selectFixture("B2-L002");
+    const summary = screen.getByRole("region", { name: "제어 대상" });
+    expect(within(summary).getByText("2개 선택")).toBeInTheDocument();
+    const lights = within(summary).getByRole("list", { name: "선택 조명" });
+    expect(within(lights).getAllByRole("listitem")).toHaveLength(2);
+    expect(lights).toHaveTextContent("B2-L001");
+    expect(lights).toHaveTextContent("B2-L002");
+    fireEvent.click(within(summary).getByRole("button", { name: "선택 해제" }));
+    expect(within(summary).getByText("0개 선택")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "밝기 적용" })).toBeDisabled();
+    expect(mocks.apiPost).not.toHaveBeenCalled();
+  });
+
   it("keeps brightness, apply, and recent result in natural mobile reading order", () => {
     renderControl();
     const execution = screen.getByRole("complementary", { name: "밝기 실행" });

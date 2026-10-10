@@ -37,7 +37,7 @@ export interface AutomationRuleControlsProps {
 export function AutomationRuleControls({ label, filter, filteredTotal, pageIndex, currentPageCount,
   hasNextPage, isFetchingNextPage = false, onFilterChange, onPrevious, onNext }: AutomationRuleControlsProps) {
   const canMove = filteredTotal !== undefined;
-  return <section aria-label={`${label} 목록 조건`} className="grid min-w-0 gap-3 rounded-panel border border-border-default bg-surface-panel p-3">
+  return <section aria-label={`${label} 목록 조건`} className="grid min-w-0 gap-3">
     <FilterPanel label={`${label} 필터`} mode="popover"
       search={<SearchField label={`${label} 검색`} value={filter.query} maxLength={100} placeholder="규칙 이름 검색"
         onChange={(query) => onFilterChange({ ...filter, query })} />}
