@@ -326,23 +326,45 @@ test("gallery draws bounded readonly snapshots and disposes canvas on navigation
 // Each case owns controlled fixture reads and checks that pure UI emits no writes.
 async function visibleAction(page: Page, target: Locator) {
   await target.scrollIntoViewIfNeeded(); await expect(target).toBeVisible();
-  const bounds = await target.evaluate(element => {
+  const measure = () => target.evaluate(element => {
     const rect = element.getBoundingClientRect();
     const nav = document.querySelector<HTMLElement>("[data-shell-navigation=compact]");
     const header = document.querySelector<HTMLElement>("[data-shell-topbar]");
     const navTop = nav?.getBoundingClientRect().top ?? innerHeight;
     const headerBottom = header?.getBoundingClientRect().bottom ?? 0;
     const hit = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
+    const scrollContainers = [];
+    for (let ancestor = element.parentElement; ancestor; ancestor = ancestor.parentElement) {
+      const overflowY = getComputedStyle(ancestor).overflowY;
+      if (["auto", "scroll"].includes(overflowY) || ancestor.scrollHeight > ancestor.clientHeight)
+        scrollContainers.push({ tag: ancestor.tagName, label: ancestor.getAttribute("aria-label"), overflowY,
+          scrollHeight: ancestor.scrollHeight, clientHeight: ancestor.clientHeight, scrollTop: ancestor.scrollTop,
+          maximum: ancestor.scrollHeight - ancestor.clientHeight });
+    }
     return { x: rect.left, y: rect.top, width: rect.width, height: rect.height,
       bottom: rect.bottom, right: rect.right, navTop, headerBottom, viewportWidth: innerWidth,
+      scrollY, documentHeight: document.scrollingElement!.scrollHeight, scrollContainers,
       reachable: Boolean(hit && element.contains(hit)) };
   });
+  let bounds = await measure(); const scrolls = [bounds];
+  // Browser auto-scroll only considers the viewport, not the sticky header or
+  // fixed mobile navigation. Use real document wheel input to expose the whole
+  // action, then keep exactly the same full visibility and 44px requirements.
+  for (let attempt = 0; attempt < 3 && (bounds.bottom > bounds.navTop || bounds.y < bounds.headerBottom); attempt += 1) {
+    const delta = bounds.bottom > bounds.navTop ? bounds.bottom - bounds.navTop + 24 : bounds.y - bounds.headerBottom - 24;
+    await page.mouse.move(2, Math.max(bounds.headerBottom + 1, Math.min(bounds.navTop - 1, page.viewportSize()!.height / 2)));
+    await page.mouse.wheel(0, delta);
+    await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+    const next = await measure(); scrolls.push(next);
+    if (next.scrollY === bounds.scrollY) { bounds = next; break; }
+    bounds = next;
+  }
   expect(bounds.y).toBeGreaterThanOrEqual(bounds.headerBottom);
-  expect(bounds.bottom).toBeLessThanOrEqual(bounds.navTop);
+  expect(bounds.bottom, JSON.stringify({ bounds, scrolls })).toBeLessThanOrEqual(bounds.navTop);
   expect(bounds.x).toBeGreaterThanOrEqual(0); expect(bounds.right).toBeLessThanOrEqual(bounds.viewportWidth);
   expect(bounds.height).toBeGreaterThanOrEqual(44); expect(bounds.width).toBeGreaterThanOrEqual(44);
   expect(bounds.reachable).toBe(true);
-  return bounds;
+  return { ...bounds, scrolls };
 }
 
 async function centeredColumns(table: Locator) {
@@ -472,6 +494,12 @@ test("browser comments dark mobile reports: common search reset CSV and filters 
   const job = { ...browserReport("completed", { from: "2026-09-01", to: "2026-09-07", scope: "site", identityId: siteId, format: "pdf" }), siteId };
   await page.route(`**/api/energy/sites/${siteId}/reports?**`, route => route.request().method() === "GET" ? route.fulfill({ json: { reports: [job], nextCursor: null, totalCount: 1 } }) : route.fallback());
   await page.route(`**/api/energy/sites/${siteId}/report-targets`, route => route.fulfill({ json: { siteId, timeZone: "Asia/Seoul", lastCompletedDate: "2026-09-11", targets: [{ scope: "site", identityId: siteId, label: "보고서 현장" }] } }));
+  await page.goto(`/statistics?siteId=${siteId}`); await rootReady(page, "statistics");
+  const overviewHeading = page.getByRole("heading", { level: 1, name: "사용량 개요", exact: true });
+  await expect(overviewHeading).toHaveClass(/sr-only/); await expect(page.locator("h1")).toHaveCount(1);
+  expect((await overviewHeading.boundingBox())!.height).toBeLessThanOrEqual(1);
+  await expect(page.getByRole("button", { name: "보고서 생성", exact: true })).toHaveCount(0);
+  await expect(page.getByText("ENERGY INTELLIGENCE", { exact: true })).toHaveCount(0);
   await page.goto(`/statistics/reports?siteId=${siteId}&query=parking`);
   await expect(page.getByRole("region", { name: "현장 전체", exact: true })).toContainText("16대");
   await expect(page.getByRole("list", { name: "보고서 생성 이력", exact: true })).toContainText("보고서 현장");
