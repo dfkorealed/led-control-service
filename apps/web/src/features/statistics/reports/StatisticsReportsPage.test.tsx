@@ -56,14 +56,23 @@ const reports = [
 describe("StatisticsReportsPage", () => {
   it("opens the existing target and period dialog from CSV entry without generating or downloading on entry", async () => {
     renderPage();
-    expect(screen.getByRole("heading", { name: "보고서", level: 1 }).closest("header")).toContainElement(screen.getByText("ENERGY INTELLIGENCE"));
-    fireEvent.click(screen.getByRole("button", { name: "CSV 내보내기" }));
+    expect(screen.getByRole("heading", { name: "보고서", level: 1 })).toBeInTheDocument();
+    expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
+    expect(screen.queryByText("ENERGY INTELLIGENCE")).not.toBeInTheDocument();
+    fireEvent.click(within(screen.getByRole("search", { name: "보고서 이력 필터" })).getByRole("button", { name: "CSV 내보내기" }));
     const dialog = await screen.findByRole("dialog", { name: "에너지 사용량 보고서 만들기" });
     expect(within(dialog).getByRole("group", { name: "기간 시작" })).toBeInTheDocument();
     expect(within(dialog).getByRole("button", { name: "CSV 내보내기" })).toBeEnabled();
     expect(reportsApi.create).not.toHaveBeenCalled();
     expect(reportsApi.csv).not.toHaveBeenCalled();
     expect(reportsApi.download).not.toHaveBeenCalled();
+  });
+
+  it("groups CSV entry with the report search and filter controls", () => {
+    renderPage();
+    const filters = screen.getByRole("search", { name: "보고서 이력 필터" });
+    expect(within(filters).getByRole("searchbox", { name: "보고서 검색" })).toBeVisible();
+    expect(within(filters).getByRole("button", { name: "CSV 내보내기" })).toBeVisible();
   });
   it("theme does not abort or duplicate in-flight PDF and preserves its fresh URL", async () => {
     localStorage.removeItem("led-control.customer-theme.v1");
@@ -935,13 +944,13 @@ describe("StatisticsReportsPage", () => {
     }
   });
 
-  it("identifies the site's timezone for report request and expiry metadata", () => {
+  it("preserves the site's timezone for report metadata without a visible timezone caption", () => {
     targetState.data = { ...targets, timeZone: "America/Los_Angeles" };
     renderPage();
 
     const list = screen.getByRole("list", { name: "보고서 생성 이력" });
     const completed = within(list).getByText("대상 completed", { exact: true }).closest("li")!;
-    expect(screen.getByText("시각: 현장 시간대 America/Los_Angeles")).toBeInTheDocument();
+    expect(screen.queryByText(/시각: .*시간대/)).not.toBeInTheDocument();
     expect(within(completed).getByTitle("2026-09-17T00:00:04.000Z")).toHaveTextContent("2026-09-16 17:00:04");
   });
 

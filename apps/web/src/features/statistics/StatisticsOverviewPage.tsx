@@ -2,7 +2,7 @@ import type { EnergyComparisonPreset, EnergySeriesPoint, EnergySummary } from "@
 import { energyRangeComparisonQuerySchema } from "@led-control/shared/energy-range-contracts";
 import { Activity, CircleCheck, CircleOff, TriangleAlert, TrendingDown, TrendingUp } from "lucide-react";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { useLocation, useNavigate, useOutletContext } from "react-router-dom";
+import { useOutletContext } from "react-router-dom";
 import {
   CartesianGrid,
   Line,
@@ -13,7 +13,7 @@ import {
   YAxis
 } from "recharts";
 import { useEnergyComparison, useEnergyRangeComparison, useEnergySeries, useEnergySummary } from "../../api/energy";
-import { Button, Card, DateRangePicker, FeedbackState, FilterPanel, formatTimestamp, Heading, PageHeader, MetricCard, SidePanel, StatusBadge, Text, useThemeColors, useDateRangeDraft } from "../../components/ui";
+import { Button, Card, DateRangePicker, FeedbackState, FilterPanel, formatTimestamp, Heading, MetricCard, SidePanel, StatusBadge, Text, useThemeColors, useDateRangeDraft } from "../../components/ui";
 import { StatisticsOperationalInfo } from "./StatisticsOperationalInfo";
 import { draftToDate } from "../../components/ui/date/useDateDraft";
 import { EnergyComparisonChart } from "./EnergyComparisonChart";
@@ -41,10 +41,7 @@ const statusPresentation = {
 
 export function StatisticsOverviewPage() {
   const { siteId } = useOutletContext<StatisticsOutletContext>();
-  const location = useLocation();
-  const navigate = useNavigate();
-  const pageHeader = <PageHeader variant="customer" headingLevel={1} title="사용량 개요" eyebrow={<span className="text-action-primary">ENERGY INTELLIGENCE</span>}
-    actions={<Button variant="primary" onClick={() => navigate(`/statistics/reports${location.search}${location.hash}`)}>보고서 생성</Button>} />;
+  const pageHeader = <h1 className="sr-only">사용량 개요</h1>;
   const [granularity, setGranularity] = useState<Granularity>("day");
   const [comparisonPreset, setComparisonPreset] = useState<EnergyComparisonPreset>("current_month");
   const [customRange, setCustomRange] = useState<{ siteId: string; from: string; to: string } | null>(null);

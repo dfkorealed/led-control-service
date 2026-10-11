@@ -96,12 +96,13 @@ function OutletContext({ siteId }: { siteId: string }) {
 }
 
 describe("StatisticsOverviewPage", () => {
-  it("offers report navigation from a single overview page heading", () => {
+  it("keeps a single accessible overview heading without the visible header or report shortcut", () => {
     renderView();
     expect(screen.getByRole("heading", { name: "사용량 개요", level: 1 })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "사용량 개요", level: 1 }).closest("header")).toContainElement(screen.getByText("ENERGY INTELLIGENCE"));
-    fireEvent.click(screen.getByRole("button", { name: "보고서 생성" }));
-    expect(screen.getByText("보고서 페이지")).toBeInTheDocument();
+    expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
+    expect(screen.getByRole("heading", { name: "사용량 개요", level: 1 })).toHaveClass("sr-only");
+    expect(screen.queryByText("ENERGY INTELLIGENCE")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "보고서 생성" })).not.toBeInTheDocument();
   });
   it("quality info preserves unknown aggregate time and collected zero", () => {
     mocks.summary = queryResult({ ...summary, lastAggregatedAt: null,

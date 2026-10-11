@@ -60,7 +60,8 @@ describe("StatisticsAnalysisPage", () => {
     renderPage();
 
     expect(screen.getByRole("heading", { name: "사용량 분석", level: 1 })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "사용량 분석", level: 1 }).closest("header")).toContainElement(screen.getByText("ENERGY INTELLIGENCE"));
+    expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
+    expect(screen.queryByText("ENERGY INTELLIGENCE")).not.toBeInTheDocument();
     expect(screen.queryByText("분석 기준")).not.toBeInTheDocument();
     expect(screen.getByRole("region", { name: "사용량 순위" })).toHaveTextContent("B1 주차장");
     expect(screen.getByRole("complementary", { name: "B1 주차장 상세" })).toHaveTextContent("12.5 kWh");

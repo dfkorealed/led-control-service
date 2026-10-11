@@ -24,7 +24,7 @@ const metricItems: Array<{ id: EnergyRankingMetric; label: string }> = [
 ];
 
 export function StatisticsAnalysisPage() {
-  const pageHeader = <PageHeader variant="customer" headingLevel={1} title="사용량 분석" eyebrow={<span className="text-action-primary">ENERGY INTELLIGENCE</span>} />;
+  const pageHeader = <PageHeader variant="customer" headingLevel={1} title="사용량 분석" />;
   const { siteId } = useOutletContext<StatisticsOutletContext>();
   const summary = useEnergySummary(siteId);
   const defaults = summary.data ? completedSiteMonth(summary.data.generatedAt, summary.data.timeZone) : null;

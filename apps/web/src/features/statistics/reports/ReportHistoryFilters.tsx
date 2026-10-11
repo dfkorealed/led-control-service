@@ -3,8 +3,8 @@ import {
   type EnergyReportStatus,
   type EnergyScope
 } from "@led-control/shared/energy-p2-contracts";
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { Button, DateRangePicker, FilterPanel, SelectBox, Text, TextField, cn, useDateRangeDraft, type DateRangeValue } from "../../../components/ui";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { Button, DateRangePicker, FilterPanel, SearchField, SelectBox, Text, cn, useDateRangeDraft, type DateRangeValue } from "../../../components/ui";
 import type { ReportHistoryFilterState } from "./report-history-filters";
 import { draftToDate, isEmptyDateDraft, type DateSegmentDraft } from "../../../components/ui/date/useDateDraft";
 
@@ -15,6 +15,7 @@ export interface ReportHistoryFiltersProps {
   value: ReportHistoryFilterState;
   onChange: (value: ReportHistoryFilterState, intent?: ReportFilterIntent) => void;
   className?: string;
+  actions?: ReactNode;
   scopeKey?: string;
   invalidRequestedRange?: InvalidRequestedRange;
   onInvalidDraftChange?: (invalid: boolean) => void;
@@ -36,7 +37,7 @@ const scopeItems: ReadonlyArray<{ id: EnergyScope | ""; label: string }> = [
   { id: "group", label: "그룹" }
 ];
 
-export function ReportHistoryFilters({ value, onChange, className, scopeKey = "reports", invalidRequestedRange, onInvalidDraftChange }: ReportHistoryFiltersProps) {
+export function ReportHistoryFilters({ value, onChange, className, actions, scopeKey = "reports", invalidRequestedRange, onInvalidDraftChange }: ReportHistoryFiltersProps) {
   const [searchInput, setSearchInput] = useState(value.query ?? "");
   const [dateDraft, setDateDraft] = useState<DateRangeValue | null>(() => reportDateRange(value));
   const [dateError, setDateError] = useState<string | null>(null);
@@ -108,7 +109,7 @@ export function ReportHistoryFilters({ value, onChange, className, scopeKey = "r
     </Button>)}
   </div> : undefined;
   const resetAction = chips.length ? <Button type="button" size="sm" variant="secondary"
-    className="min-h-11 w-full compact:ml-auto compact:w-auto" onClick={() => {
+    onClick={() => {
       if (!isCurrentScope()) return;
       setSearchInput("");
       setDateDraft(null);
@@ -119,7 +120,8 @@ export function ReportHistoryFilters({ value, onChange, className, scopeKey = "r
 
   return (
     <section role="search" aria-label="보고서 이력 필터" className={cn("min-w-0", className)}>
-      <FilterPanel label="보고서 조건" mode="popover" chips={activeConditions} actions={resetAction}
+      <FilterPanel label="보고서 조건" mode="popover" variant="compact" chips={activeConditions}
+        actions={resetAction || actions ? <>{resetAction}{actions}</> : undefined}
         activeFilterCount={Number(Boolean(value.status)) + Number(Boolean(value.scope)) + Number(Boolean(dateRange || invalidRequestedRange)) + Number(value.limit !== 20)}
         filterReset={<Button size="sm" variant="secondary" onClick={() => {
           if (!isCurrentScope()) return;
@@ -127,14 +129,13 @@ export function ReportHistoryFilters({ value, onChange, className, scopeKey = "r
           publish(energyReportListQuerySchema.parse({ limit: 20, ...(value.query ? { query: value.query } : {}) }), "reset");
         }}>필터 초기화</Button>}
         search={
-        <TextField
-          type="search"
+        <SearchField
           label="보고서 검색"
           placeholder="대상명, 범위 또는 식별자"
           maxLength={100}
           value={searchInput}
           onChange={setSearchInput}
-          className="min-w-0 w-full compact:w-56"
+          className="min-w-0 w-full"
         />}>
         <SelectBox
           label="상태"

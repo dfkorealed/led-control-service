@@ -93,8 +93,7 @@ export function ReportJobList({
     {!isLoading && !isError && !items.length ? <FeedbackState icon={FileWarning} title="요청한 보고서가 없습니다."
       aria-label="보고서 빈 목록" description="기간과 범위를 선택해 표준 에너지 사용량 보고서를 요청하세요."
       action={refreshNotice} /> : null}
-    {items.length ? <div className="flex min-w-0 flex-wrap items-center gap-2">
-      <Text variant="caption" tone="secondary">시각: {timeZone ? "현장" : "기기"} 시간대 {timeZone ?? Intl.DateTimeFormat().resolvedOptions().timeZone}</Text>
+    {items.length && refreshNotice ? <div className="flex min-w-0 flex-wrap items-center gap-2">
       {refreshNotice}
     </div> : null}
     {/* Compact cards prioritize target/file action before status to keep downloads in the first screen; all original fields remain accessible. */}

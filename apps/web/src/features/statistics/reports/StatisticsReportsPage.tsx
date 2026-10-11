@@ -300,12 +300,10 @@ export function StatisticsReportsPage() {
   }
 
   return <section className="grid min-w-0 gap-6 max-compact:gap-2" aria-label="에너지 보고서">
-    <PageHeader variant="customer" headingLevel={1} title="보고서" eyebrow={<span className="text-action-primary">ENERGY INTELLIGENCE</span>} status={undefined} className="max-compact:flex-row max-compact:items-center max-compact:[&>div:last-child]:w-auto"
+    <PageHeader variant="customer" headingLevel={1} title="보고서" status={undefined} className="max-compact:flex-row max-compact:items-center max-compact:[&>div:last-child]:w-auto"
       actions={<Button variant="primary" onClick={() => setIsDialogOpen(true)}><FileText size={16} />보고서 만들기</Button>} />
-    <div className="flex min-w-0 flex-wrap items-start gap-3 max-compact:order-1">
-      <ReportHistoryFilters className="flex-1" scopeKey={draftScope} value={filters} invalidRequestedRange={invalidRequestedRange} onChange={changeFilters} onInvalidDraftChange={onInvalidDraftChange} />
-      <Button variant="secondary" onClick={() => setIsDialogOpen(true)}><Download size={16} />CSV 내보내기</Button>
-    </div>
+    <ReportHistoryFilters className="max-compact:order-1" scopeKey={draftScope} value={filters} invalidRequestedRange={invalidRequestedRange} onChange={changeFilters} onInvalidDraftChange={onInvalidDraftChange}
+      actions={<Button variant="secondary" onClick={() => setIsDialogOpen(true)}><Download size={16} />CSV 내보내기</Button>} />
     <section className="grid min-w-0 gap-4" aria-label="보고서 이력">
       {invalidRequestedRange ? <Text role="alert" tone="danger">URL의 요청 기간을 직접 수정하거나 필터를 초기화해 주세요.</Text> : <>
       {localInvalid ? <Text role="alert" tone="danger">요청 기간을 완성하거나 필터를 초기화한 뒤 이력을 조회하세요.</Text> : null}
