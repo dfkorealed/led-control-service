@@ -67,7 +67,7 @@ const navigationFloor = {
 describe("FloorMap", () => {
   afterEach(() => cleanup());
 
-  it("renders only present statuses and no count overlay while retaining saved pins", () => {
+  it("renders all canonical statuses and no count overlay while retaining saved pins", () => {
     const { rerender } = render(<FloorMap floor={{ ...navigationFloor, fixtures: [
       { ...navigationFloor.fixtures[0]!, placementStatus: "unplaced" },
       { ...navigationFloor.fixtures[0]!, id: "runtime-unplaced", name: "미배치 목록 조명", placementStatus: "unplaced" }
@@ -76,17 +76,19 @@ describe("FloorMap", () => {
     ] }} selectedFixtureId={null} onSelectFixture={vi.fn()} />);
     expect(screen.queryByText(/지도 표시|지도 배치 정보 확인 불가/)).not.toBeInTheDocument();
     expect(screen.getByRole("list", { name: "조명 상태 범례" })).toHaveTextContent("조명 정보 확인 전");
-    expect(screen.getByRole("list", { name: "조명 상태 범례" })).not.toHaveTextContent("정상");
+    expect(screen.getByRole("list", { name: "조명 상태 범례" })).toHaveTextContent("정상");
     rerender(<FloorMap floor={navigationFloor} snapshot={{ ...mapSnapshot, fixtures: [
       { id: "saved-only", name: "지도에 저장된 조명", x: 200, y: 300, size: 20 }
     ] }} selectedFixtureId={null} onSelectFixture={vi.fn()} />);
     expect(screen.getByRole("list", { name: "조명 상태 범례" })).toHaveTextContent("정상");
     rerender(<FloorMap floor={{ ...navigationFloor, fixtures: [] }} snapshot={{ ...mapSnapshot, fixtures: [] }} selectedFixtureId={null} onSelectFixture={vi.fn()} />);
-    expect(screen.queryByRole("list", { name: "조명 상태 범례" })).not.toBeInTheDocument();
+    expect(within(screen.getByRole("list", { name: "조명 상태 범례" })).getAllByRole("listitem")).toHaveLength(5);
     rerender(<FloorMap floor={navigationFloor} snapshot={mapSnapshot} selectedFixtureId={null} onSelectFixture={vi.fn()} />);
     const legend = screen.getByRole("list", { name: "조명 상태 범례" });
-    expect(within(legend).getAllByRole("listitem")).toHaveLength(1);
+    expect(within(legend).getAllByRole("listitem")).toHaveLength(5);
     expect(legend).toHaveTextContent("정상");
+    rerender(<FloorMap floor={{ ...navigationFloor, fixtures: [{ ...navigationFloor.fixtures[0]!, status: "offline" }] }} snapshot={mapSnapshot} selectedFixtureId={null} onSelectFixture={vi.fn()} />);
+    expect(within(screen.getByRole("list", { name: "조명 상태 범례" })).getAllByRole("listitem").map(item => item.textContent)).toEqual(["정상", "장애", "오프라인", "상태 확인 대기", "조명 정보 확인 전"]);
     expect(screen.queryByText("드래그로 이동 · 휠로 확대/축소")).not.toBeInTheDocument();
   });
 
@@ -353,7 +355,7 @@ describe("FloorMap", () => {
     expect(footer).toContainElement(screen.getByRole("button", { name: "지도 확대" }));
     expect(screen.getAllByRole("list", { name: "조명 상태 범례" })).toHaveLength(1);
     const legendItems = within(legend).getAllByRole("listitem");
-    expect(legendItems).toHaveLength(3);
+    expect(legendItems).toHaveLength(5);
     for (const label of ["장애", "오프라인", "상태 확인 대기"]) {
       const item = within(legend).getByText(label).closest("li");
       expect(item).not.toBeNull();

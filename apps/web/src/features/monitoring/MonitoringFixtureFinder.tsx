@@ -1,4 +1,4 @@
-import { useEffect, useId, useState } from "react";
+import { useState } from "react";
 import { Link } from "react-router-dom";
 import type { DashboardFixture } from "../../api/queries";
 import { Button, SearchField, SelectBox, Text } from "../../components/ui";
@@ -37,23 +37,18 @@ export interface MonitoringFixtureFinderProps {
   onFilterChange?: (filter: FixtureFilter) => void;
   search?: string;
   onSearchChange?: (search: string) => void;
-  defaultOpen?: boolean;
-  initialView?: "search" | "list";
   nextPageError?: boolean;
   expectedTotal?: number | null;
 }
 
 export function MonitoringFixtureFinder({
   fixtures, selectedFixtureId, onSelectFixture, hasNextPage, isFetchingNextPage, onLoadMore,
-  userRole, siteId, floorId, placedFixtureIds, snapshot, filter: controlledFilter, onFilterChange, search: controlledSearch, onSearchChange, defaultOpen = false, initialView = "search", nextPageError = false, expectedTotal
+  userRole, siteId, floorId, placedFixtureIds, snapshot, filter: controlledFilter, onFilterChange, search: controlledSearch, onSearchChange, nextPageError = false, expectedTotal
 }: MonitoringFixtureFinderProps) {
   const [localSearch, setLocalSearch] = useState("");
   const search = controlledSearch ?? localSearch;
   const [localFilter, setLocalFilter] = useState<FixtureFilter>("all");
   const filter = controlledFilter ?? localFilter;
-  const [isOpen, setIsOpen] = useState(defaultOpen || initialView === "list");
-  useEffect(() => { if (initialView === "list") setIsOpen(true); }, [initialView]);
-  const listId = useId();
   const normalizedSearch = search.trim().toLocaleLowerCase("ko-KR");
   const isUnplaced = (fixture: DashboardFixture) =>
     snapshot ? resolveFixtureMapPosition(snapshot, fixture).kind === "unplaced" : !placedFixtureIds?.has(fixture.id) && fixture.placementStatus === "unplaced";
@@ -66,22 +61,16 @@ export function MonitoringFixtureFinder({
     <SearchField label="조명 이름 또는 번호 검색" value={search} onChange={(value) => {
       setLocalSearch(value);
       onSearchChange?.(value);
-      setIsOpen(true);
     }} placeholder="조명 이름 또는 번호" className="min-w-0" />
     <SelectBox label="상태 필터" items={filterOptions} selectedKey={filter} onSelectionChange={(key) => {
         setLocalFilter(key ?? "all");
         onFilterChange?.(key ?? "all");
-        setIsOpen(true);
       }} />
-    <Button variant="ghost" aria-controls={listId} aria-expanded={isOpen} onClick={() => setIsOpen((current) => !current)}>
-      {isOpen ? "조명 목록 닫기" : "조명 목록 보기"}
-    </Button>
-    {isOpen ? <div id={listId} className="grid min-w-0 gap-2">
+    <div className="grid min-w-0 gap-2">
       <ul className="m-0 grid max-h-48 min-w-0 list-none gap-1 overflow-y-auto p-0" aria-label="조명 목록">
         {visibleFixtures.map((fixture) => <li key={fixture.id} className="min-w-0">
           <Button variant="ghost" className="w-full min-w-0 justify-between text-left" aria-pressed={fixture.id === selectedFixtureId} onClick={() => {
             onSelectFixture(fixture.id);
-            setIsOpen(false);
           }}>
             <span className="min-w-0 truncate">{fixture.name}</span>
             <span className="shrink-0">{isUnplaced(fixture) ? <Text variant="caption" tone="secondary">미배치</Text> : <FixtureStatusBadge fixture={fixture} />}</span>
@@ -101,6 +90,6 @@ export function MonitoringFixtureFinder({
           설정에서 조명 배치
         </Link>
       ) : null}
-    </div> : null}
+    </div>
   </section>;
 }

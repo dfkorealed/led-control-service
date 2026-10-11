@@ -53,12 +53,12 @@ function mount() {
 }
 
 async function openFixtureInspector() {
-  fireEvent.click(await screen.findByRole("button", { name: "조명 검색·상세" }));
-  const finder = await screen.findByRole("dialog", { name: "조명 검색·상세" });
+  fireEvent.click(await screen.findByRole("button", { name: "조명 검색/목록" }));
+  const finder = await screen.findByRole("dialog", { name: "조명 검색/목록" });
   expect(within(finder).queryByRole("complementary", { name: "선택 조명 상세" })).not.toBeInTheDocument();
-  fireEvent.click(within(finder).getByRole("button", { name: "상세 조명 선택" }));
-  fireEvent.click(await screen.findByRole("option", { name: /입구 조명/ }));
-  fireEvent.click(within(finder).getByRole("button", { name: "상세 보기" }));
+  fireEvent.click(within(finder).getByRole("button", { name: /입구 조명/ }));
+  const pin = await screen.findByRole("dialog", { name: "입구 조명 조명 정보" });
+  fireEvent.click(within(pin).getByRole("button", { name: "상세 보기" }));
   return screen.findByRole("complementary", { name: "조명 상세" });
 }
 

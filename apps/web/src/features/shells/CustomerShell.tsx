@@ -116,7 +116,7 @@ function CustomerShellContent({ user }: { user: AuthUser }) {
     ? selectedSiteId
     : undefined;
   const currentSite = sitesQuery.data?.find(site => site.id === authorizedSelectedSiteId);
-  const currentSiteLabel = currentSite ? currentSite.customerName ? `${currentSite.customerName} · ${currentSite.name}` : currentSite.name : "접근 가능한 현장 없음";
+  const currentSiteLabel = currentSite ? currentSite.name : "접근 가능한 현장 없음";
   const gatewayAggregate = deriveGatewayAggregate({ gateways: dashboard?.gateways, error: dashboardError });
   const gatewayContextItems = useMemo<readonly SessionStatusContextItem[]>(() => [{
     id: `gateway-summary:${selectedSiteId ?? "default"}`,

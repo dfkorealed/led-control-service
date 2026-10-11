@@ -140,9 +140,9 @@ describe("customer shell site context", () => {
     expect(within(header).getByRole("img", { name: "킨다" })).toBeVisible();
     expect(within(header).getByRole("button", { name: "다크 모드로 변경" })).toBeEnabled();
     expect(within(header).getByRole("button", { name: /^알람센터/ })).toBeEnabled();
-    const siteName = state === "ready" ? "고객사 · 현장" : state === "loading" ? "현장 목록 확인 중" : state === "error" ? "현장 목록 확인 불가" : "접근 가능한 현장 없음";
+    const siteName = state === "ready" ? "현장" : state === "loading" ? "현장 목록 확인 중" : state === "error" ? "현장 목록 확인 불가" : "접근 가능한 현장 없음";
     expect(within(header).queryByRole("button", { name: /현장 선택|현장 목록|접근 가능한 현장/ })).not.toBeInTheDocument();
-    expect(within(header).getByText(siteName)).toBeVisible();
+    expect(header.querySelector("[data-shell-context] p")).toHaveTextContent(siteName);
   });
   it.each(["/monitoring", "/control", "/statistics/overview", "/settings"])("keeps server aggregate always visible on %s", async path => {
     renderShell(`${path}?siteId=site`);
@@ -338,7 +338,7 @@ describe("customer shell site context", () => {
     ];
     renderShell("/statistics/overview?siteId=site&source=summary#energy");
 
-    expect(screen.getByText("고객사 A · 본사")).toBeVisible();
+    expect(document.querySelector("[data-shell-context] p")).toHaveTextContent("본사");
     expect(screen.queryByRole("button", { name: /현장 선택/ })).not.toBeInTheDocument();
     expect(screen.queryByRole("dialog", { name: "현장 변경" })).not.toBeInTheDocument();
     expect(screen.getByTestId("location")).toHaveTextContent("/statistics/overview?siteId=site&source=summary#energy");

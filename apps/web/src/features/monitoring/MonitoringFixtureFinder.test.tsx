@@ -27,19 +27,19 @@ function renderFinder(options: Partial<ComponentProps<typeof MonitoringFixtureFi
 
 describe("MonitoringFixtureFinder", () => {
   it("opens the existing fixture list immediately for the list entry", () => {
-    renderFinder({ initialView: "list", search: "002" });
+    renderFinder({ search: "002" });
     const list = screen.getByRole("list", { name: "조명 목록" });
     expect(within(list).getAllByRole("listitem")).toHaveLength(1);
     expect(within(list).getByRole("button", { name: /B2-L002/ })).toBeVisible();
   });
   it("reports a complete-list count mismatch without treating search results as the total", () => {
-    renderFinder({ defaultOpen: true, expectedTotal: 3 });
+    renderFinder({ expectedTotal: 3 });
     expect(screen.getByText("목록과 집계의 확인 시점이 다릅니다. 새로고침해 주세요.")).toBeVisible();
     fireEvent.change(screen.getByRole("searchbox", { name: "조명 이름 또는 번호 검색" }), { target: { value: "001" } });
     expect(screen.getByText("목록과 집계의 확인 시점이 다릅니다. 새로고침해 주세요.")).toBeVisible();
   });
   it("does not report a count mismatch while another page remains", () => {
-    renderFinder({ defaultOpen: true, expectedTotal: 3, hasNextPage: true });
+    renderFinder({ expectedTotal: 3, hasNextPage: true });
     expect(screen.queryByText("목록과 집계의 확인 시점이 다릅니다. 새로고침해 주세요.")).not.toBeInTheDocument();
   });
   it("finds a fixture by its numeric name fragment and selects the same fixture as the map", () => {
@@ -54,7 +54,6 @@ describe("MonitoringFixtureFinder", () => {
 
   it("exposes an unplaced fixture and admin-only placement route without inventing a marker", async () => {
     renderFinder();
-    fireEvent.click(screen.getByRole("button", { name: "조명 목록 보기" }));
     fireEvent.click(screen.getByRole("button", { name: "상태 필터" }));
     fireEvent.click(await screen.findByRole("option", { name: "미배치" }));
 
@@ -73,7 +72,6 @@ describe("MonitoringFixtureFinder", () => {
 
   it("does not offer an admin placement route to viewers", async () => {
     renderFinder({ userRole: "viewer" });
-    fireEvent.click(screen.getByRole("button", { name: "조명 목록 보기" }));
     fireEvent.click(screen.getByRole("button", { name: "상태 필터" }));
     fireEvent.click(await screen.findByRole("option", { name: "미배치" }));
     expect(screen.queryByRole("link", { name: "설정에서 조명 배치" })).not.toBeInTheDocument();
@@ -81,7 +79,6 @@ describe("MonitoringFixtureFinder", () => {
 
   it("matches the server KPI category even when cause presentation has higher priority", async () => {
     renderFinder({ fixtures: [{ ...baseFixture, status: "fault", statusReason: "command_failed", health: { faultCodes: [4], observedAt: "2026-09-24T01:00:00.000Z" } }] });
-    fireEvent.click(screen.getByRole("button", { name: "조명 목록 보기" }));
     fireEvent.click(screen.getByRole("button", { name: "상태 필터" }));
     fireEvent.click(await screen.findByRole("option", { name: "점검 필요" }));
     expect(within(screen.getByRole("list", { name: "조명 목록" })).getByRole("button", { name: /B2-L001/ })).toBeVisible();

@@ -134,17 +134,13 @@ export function FloorMap({ floor, snapshot, selectedFixtureId, onSelectFixture, 
   }));
   const observedFixtureIds = new Set(floor.fixtures.map(fixture => fixture.id));
   const unobservedFixtureIds = new Set(snapshot.fixtures?.filter(pin => !observedFixtureIds.has(pin.id)).map(pin => pin.id));
-  const savedIds = new Set(snapshot.fixtures?.map(pin => pin.id));
-  const displayed = sceneFixtures.filter(fixture => savedIds.has(fixture.id) || (!snapshot.mapDocument && fixture.placementStatus !== "unplaced"));
-  const presentStates = new Set<string>(displayed.map(fixture => fixture.statusPresentation.mapState));
-  if (unobservedFixtureIds.size) presentStates.add("unknown");
   const legend = [
     { state: "online", label: "정상", Icon: CircleCheck, color: "text-fixture-connected" },
     { state: "fault", label: "장애", Icon: TriangleAlert, color: "text-fixture-fault" },
     { state: "offline", label: "오프라인", Icon: CircleX, color: "text-fixture-offline" },
     { state: "waiting", label: "상태 확인 대기", Icon: Clock3, color: "text-fixture-inspection" },
     { state: "unknown", label: "조명 정보 확인 전", Icon: Clock3, color: "text-fixture-inspection" }
-  ].filter(item => presentStates.has(item.state));
+  ];
 
   return (
     <div ref={shellRef} className="relative flex h-full min-h-min w-full min-w-0 flex-1 flex-col overflow-hidden bg-surface-inset" role="region" aria-label="층 도면" data-monitoring-map-shell="" data-zoom={zoom}>

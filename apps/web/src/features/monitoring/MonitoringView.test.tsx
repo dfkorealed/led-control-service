@@ -16,17 +16,17 @@ function render(ui: ReactElement) {
 }
 
 function openInspector() {
-  fireEvent.click(screen.getByRole("button", { name: "조명 검색·상세" }));
-  return screen.getByRole("dialog", { name: "조명 검색·상세" });
+  fireEvent.click(screen.getByRole("button", { name: "조명 검색/목록" }));
+  return screen.getByRole("dialog", { name: "조명 검색/목록" });
 }
 
 async function selectStatusFilter(name: string) {
-  if (!screen.queryByRole("dialog", { name: "조명 검색·상세" })) openInspector();
+  if (!screen.queryByRole("dialog", { name: "조명 검색/목록" })) openInspector();
   await chooseSelect("상태 필터", name === "전체 조명" ? "전체" : name);
 }
 
 function closeInspector() {
-  fireEvent.click(screen.getByRole("button", { name: screen.queryByRole("dialog", { name: "조명 상세" }) ? "조명 상세 닫기" : "조명 검색·상세 닫기" }));
+  fireEvent.click(screen.getByRole("button", { name: screen.queryByRole("dialog", { name: "조명 상세" }) ? "조명 상세 닫기" : "조명 검색/목록 닫기" }));
 }
 
 // Detail regressions explicitly choose a pin; finder-opening tests use
@@ -102,6 +102,25 @@ describe("MonitoringView refresh", () => {
   const refetchFixtures = vi.fn();
   const refetchMap = vi.fn();
 
+  it("exposes a single unified search/list opener", () => {
+    render(<MonitoringView siteId="site-1" />);
+    expect(screen.getByRole("button", { name: "조명 검색/목록" })).toBeVisible();
+    expect(screen.queryByRole("button", { name: "조명 목록" })).not.toBeInTheDocument();
+  });
+
+  it("selects a matched row and focuses its map pin without a separate selector", async () => {
+    render(<MonitoringView siteId="site-1" />);
+    const finder = openInspector();
+    expect(within(finder).queryByRole("button", { name: "상세 조명 선택" })).not.toBeInTheDocument();
+    const list = within(finder).getByRole("list", { name: "조명 목록" });
+    expect(list).toHaveClass("overflow-y-auto");
+    fireEvent.change(within(finder).getByRole("searchbox", { name: "조명 이름 또는 번호 검색" }), { target: { value: "001" } });
+    fireEvent.click(within(list).getByRole("button", { name: /B1-L001/ }));
+    await screen.findByRole("dialog", { name: "B1-L001 조명 정보" });
+    expect(screen.queryByRole("dialog", { name: "조명 검색/목록" })).not.toBeInTheDocument();
+    expect(document.querySelector('[data-spatial-map-marker][data-selected="true"]')).toHaveAttribute("aria-label", "B1-L001 장애 70%");
+  });
+
   it.each([true, false])("keeps the sole monitoring h1 without an eyebrow before loading/error feedback (%s)", isLoading => {
     queryMocks.useDashboard.mockReturnValue({ ...queryMocks.useDashboard(), data: undefined, isLoading });
     render(<MonitoringView siteId="site-1" />);
@@ -114,16 +133,17 @@ describe("MonitoringView refresh", () => {
 
   it("shares search and list entry state while returning focus to the actual opener", async () => {
     render(<MemoryRouter><MonitoringView siteId="site-1" /></MemoryRouter>);
-    const searchTrigger = screen.getByRole("button", { name: "조명 검색·상세" });
+    const searchTrigger = screen.getByRole("button", { name: "조명 검색/목록" });
     searchTrigger.focus();
     const inspector = openInspector();
     fireEvent.change(within(inspector).getByRole("searchbox", { name: "조명 이름 또는 번호 검색" }), { target: { value: "L001" } });
     closeInspector();
     await waitFor(() => expect(searchTrigger).toHaveFocus());
-    const listTrigger = screen.getByRole("button", { name: "조명 목록" });
+    expect(screen.queryByRole("button", { name: "조명 목록" })).not.toBeInTheDocument();
+    const listTrigger = searchTrigger;
     listTrigger.focus();
     fireEvent.click(listTrigger);
-    const listDialog = screen.getByRole("dialog", { name: "조명 검색·상세" });
+    const listDialog = screen.getByRole("dialog", { name: "조명 검색/목록" });
     expect(within(listDialog).getByRole("searchbox", { name: "조명 이름 또는 번호 검색" })).toHaveValue("L001");
     expect(within(listDialog).getByRole("list", { name: "조명 목록" })).toHaveTextContent("B1-L001");
     closeInspector();
@@ -265,14 +285,12 @@ describe("MonitoringView refresh", () => {
     const finder = openInspector();
     if (condition === "search") fireEvent.change(within(finder).getByRole("searchbox", { name: "조명 이름 또는 번호 검색" }), { target: { value: fixture.name } });
     else if (condition !== "deletion") {
-      fireEvent.click(within(finder).getByRole("button", { name: "조명 목록 보기" }));
       await chooseSelect("상태 필터", condition === "fault" ? "점검 필요" : "미배치");
     }
-    fireEvent.click(within(finder).getByRole("button", { name: "상세 조명 선택" }));
-    fireEvent.click(await screen.findByRole("option", { name: /B1-L001/ }));
-    const opener = within(finder).getByRole("button", { name: "상세 보기" });
+    await chooseFixture("B1-L001");
+    const opener = (screen.queryByRole("dialog", { name: "조명 상세" }) || screen.queryByRole("complementary", { name: "조명 상세" })) ? screen.getByRole("button", { name: "조명 검색/목록" }) : screen.getByRole("button", { name: "상세 보기" });
     if (focusOpener) opener.focus();
-    fireEvent.click(opener);
+    if (!screen.queryByRole("dialog", { name: "조명 상세" }) && !screen.queryByRole("complementary", { name: "조명 상세" })) fireEvent.click(opener);
     const detail = screen.getByRole("complementary", { name: "조명 상세" });
     // Let the old finder portal's return lifecycle finish before focusing the
     // desktop detail; its late return is not automatic-removal evidence.
@@ -280,7 +298,7 @@ describe("MonitoringView refresh", () => {
     const close = within(detail).getByRole("button", { name: "조명 상세 닫기" });
     close.focus();
     expect(close).toHaveFocus();
-    expect(opener.isConnected).toBe(false);
+    expect(opener.isConnected).toBe(condition === "placement");
     return { view, detail };
   }
 
@@ -293,7 +311,7 @@ describe("MonitoringView refresh", () => {
     exitDesktopCondition(condition);
     view.rerender(<MonitoringView siteId="site-1" userRole="viewer" />);
     expect(screen.queryByRole("complementary", { name: "조명 상세" })).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "조명 검색·상세" })).toHaveFocus();
+    expect(screen.getByRole("button", { name: "조명 검색/목록" })).toHaveFocus();
     expect(document.querySelector('[data-spatial-map-marker][data-selected="true"]')).not.toBeInTheDocument();
     expect(refreshApi.waitForMonitoringRefresh).not.toHaveBeenCalled();
   });
@@ -314,7 +332,7 @@ describe("MonitoringView refresh", () => {
     const { view } = await openDesktopCondition("fault", false);
     exitDesktopCondition("fault");
     view.rerender(<MonitoringView siteId="site-1" userRole="viewer" />);
-    expect(screen.getByRole("button", { name: "조명 검색·상세" })).toHaveFocus();
+    expect(screen.getByRole("button", { name: "조명 검색/목록" })).toHaveFocus();
   });
 
   it.each(["principal", "site", "floor", "unmount"] as const)("N1 never schedules stale focus after %s scope exit", async scope => {
@@ -328,7 +346,7 @@ describe("MonitoringView refresh", () => {
         authApi.useCurrentUser.mockReturnValue({ data: { user: { id: "user-2", organizationId: "org-1" } } });
         exitDesktopCondition("fault");
         view.rerender(<MonitoringView siteId="site-1" userRole="viewer" />);
-        expect(screen.getByRole("button", { name: "조명 검색·상세" })).not.toHaveFocus();
+        expect(screen.getByRole("button", { name: "조명 검색/목록" })).not.toHaveFocus();
       } else if (scope === "site") view.rerender(<MonitoringView siteId="site-2" userRole="viewer" />);
       else if (scope === "floor") {
         outside.focus();
@@ -346,7 +364,7 @@ describe("MonitoringView refresh", () => {
     expect(document.querySelector('[data-spatial-map-marker]')).toHaveAttribute("data-selected", "false");
     const finder = openInspector();
     expect(within(finder).queryByRole("complementary", { name: "선택 조명 상세" })).not.toBeInTheDocument();
-    expect(within(finder).getByRole("button", { name: "상세 조명 선택" })).not.toHaveTextContent("B1-L001");
+    expect(within(finder).getByRole("button", { name: /B1-L001/ })).toHaveAttribute("aria-pressed", "false");
   });
 
   it("clears explicit selection on a status filter instead of selecting the first result", async () => {
@@ -366,13 +384,13 @@ describe("MonitoringView refresh", () => {
     expect(document.querySelector('[data-spatial-map-marker]')).toHaveAttribute("data-selected", "true");
     const finder = openInspector();
     expect(within(finder).getByRole("button", { name: "상태 필터" })).toHaveTextContent("전체");
-    expect(within(finder).getByRole("button", { name: "상세 조명 선택" })).toHaveTextContent("B1-L001");
+    expect(within(finder).getByRole("button", { name: /B1-L001/ })).toHaveAttribute("aria-pressed", "true");
   });
 
   it("map status reset preserves a nonempty finder search across close and reopen", async () => {
     render(<MonitoringView siteId="site-1" />);
     await selectStatusFilter("정상");
-    const finder = screen.getByRole("dialog", { name: "조명 검색·상세" });
+    const finder = screen.getByRole("dialog", { name: "조명 검색/목록" });
     fireEvent.change(within(finder).getByRole("searchbox", { name: "조명 이름 또는 번호 검색" }), { target: { value: "B1-L001" } });
     closeInspector();
     const reopened = openInspector();
@@ -417,13 +435,11 @@ describe("MonitoringView refresh", () => {
     const finder = openInspector();
     if (condition === "search") fireEvent.change(within(finder).getByRole("searchbox", { name: "조명 이름 또는 번호 검색" }), { target: { value: "B1-L001" } });
     else {
-      fireEvent.click(within(finder).getByRole("button", { name: "조명 목록 보기" }));
       fireEvent.click(within(finder).getByRole("button", { name: "상태 필터" }));
       fireEvent.click(await screen.findByRole("option", { name: condition === "fault" ? /^점검 필요$/ : /^미배치$/ }));
     }
-    fireEvent.click(within(finder).getByRole("button", { name: "상세 조명 선택" }));
-    fireEvent.click(await screen.findByRole("option", { name: /B1-L001/ }));
-    fireEvent.click(within(finder).getByRole("button", { name: "상세 보기" }));
+    await chooseFixture( "B1-L001");
+    if (!screen.queryByRole("dialog", { name: "조명 상세" }) && !screen.queryByRole("complementary", { name: "조명 상세" })) fireEvent.click(screen.getByRole("button", { name: "상세 보기" }));
     expect(screen.getByRole("dialog", { name: "조명 상세" })).toBeVisible();
     const updated = { ...fixture, status: "online", health: null, name: condition === "search" ? "다른 이름" : fixture.name, placementStatus: "placed" };
     queryMocks.useFloorFixtures().data.pages[0].items = [updated];
@@ -777,13 +793,13 @@ describe("MonitoringView refresh", () => {
     queryMocks.useFloorFixtures.mockReturnValue({ ...queryMocks.useFloorFixtures(), data: { pages: [{ items: [fixture, { ...fixture, id: "fixture-2", name: "B1-L002" }], nextCursor: null, generatedAt: new Date().toISOString() }] } });
     const view = render(<MonitoringView siteId="site-1" userRole="admin" />);
     openInspector();
-    await chooseSelect("상세 조명 선택", "B1-L002 · 장애");
+    await chooseFixture( "B1-L002 · 장애");
     closeInspector();
     fireEvent.click(screen.getByRole("button", { name: "지도 확대" }));
     queryMocks.useDashboard.mockReturnValue({ data: dashboard, isLoading: false, error: new Error("offline"), refetch: refetchDashboard });
     view.rerender(<MonitoringView siteId="site-1" userRole="admin" />);
     openInspector();
-    expect(screen.getByRole("button", { name: "상세 조명 선택" })).toHaveTextContent("B1-L002 · 장애");
+    expect(within(screen.getByRole("list", { name: "조명 목록" })).getByRole("button", { name: /B1-L002/ })).toHaveAttribute("aria-pressed", "true");
     fireEvent.click(screen.getByRole("button", { name: "상세 보기" }));
     expect(screen.getByRole("region", { name: "선택 조명 정보" })).toBeVisible();
     closeInspector();
@@ -878,7 +894,7 @@ describe("MonitoringView refresh", () => {
     expect(within(drawer).getByRole("complementary", { name: "선택 조명 상세" })).toHaveTextContent("현재 밝기");
   });
 
-  it("keeps the mobile fixture selector and map marker selection in sync", async () => {
+  it("keeps finder list selection and map marker selection in sync", async () => {
     const faultFixture = {
       ...fixture,
       id: "fixture-2",
@@ -903,22 +919,22 @@ describe("MonitoringView refresh", () => {
 
     openInspector();
 
-    const selector = await screen.findByRole("button", { name: "상세 조명 선택" });
-    expect(selector).not.toHaveTextContent("B1-L002 · 장애");
-    await chooseSelect("상세 조명 선택", "B1-L002 · 장애");
+    const list = screen.getByRole("list", { name: "조명 목록" });
+    expect(within(list).getByRole("button", { name: /B1-L002/ })).toHaveAttribute("aria-pressed", "false");
+    await chooseFixture( "B1-L002 · 장애");
     fireEvent.click(screen.getByRole("button", { name: "상세 보기" }));
     expect(within(screen.getByRole("complementary", { name: "선택 조명 상세" })).getByRole("heading", { name: "B1-L002" })).toBeVisible();
     closeInspector();
-    await waitFor(() => expect(screen.getByRole("button", { name: "조명 검색·상세" })).toHaveFocus());
+    await waitFor(() => expect(screen.getByRole("button", { name: "조명 검색/목록" })).toHaveFocus());
     openInspector();
-    await chooseSelect("상세 조명 선택", "B1-L001 · 장애");
+    await chooseFixture( "B1-L001 · 장애");
     fireEvent.click(screen.getByRole("button", { name: "상세 보기" }));
     expect(within(screen.getByRole("complementary", { name: "선택 조명 상세" })).getByRole("heading", { name: "B1-L001" })).toBeVisible();
 
     closeInspector();
     fireEvent.click(screen.getByRole("button", { name: "B1-L002 장애 42%" }));
     openInspector();
-    expect(screen.getByRole("button", { name: "상세 조명 선택" })).toHaveTextContent("B1-L002 · 장애");
+    expect(within(screen.getByRole("list", { name: "조명 목록" })).getByRole("button", { name: /B1-L002/ })).toHaveAttribute("aria-pressed", "true");
   });
 
   it("opens an unplaced fixture from search without creating a map marker", () => {
@@ -952,7 +968,7 @@ describe("MonitoringView refresh", () => {
     await chooseSelect("맵 선택", "B2");
     openInspector();
     expect(screen.getByRole("searchbox", { name: "조명 이름 또는 번호 검색" })).toHaveValue("");
-    expect(screen.getByRole("button", { name: "조명 목록 보기" })).toHaveAttribute("aria-expanded", "false");
+    expect(screen.getByRole("list", { name: "조명 목록" })).toBeVisible();
   });
 
   it("locks the refresh action until both requests settle", async () => {
@@ -1486,7 +1502,7 @@ describe("MonitoringView refresh", () => {
     expect(mapSelector).toHaveAttribute("aria-labelledby", mapSelectorLabel.id);
     const refreshButton = screen.getByRole("button", { name: "새로고침" });
     expect(refreshButton.parentElement?.lastElementChild).toBe(refreshButton);
-    expect(mapSelectorField?.parentElement).toContainElement(screen.getByRole("button", { name: "조명 검색·상세" }));
+    expect(mapSelectorField?.parentElement).toContainElement(screen.getByRole("button", { name: "조명 검색/목록" }));
     expect(screen.getByRole("group", { name: "지도 조작" })).toContainElement(screen.getByRole("button", { name: "지도 전체 보기" }));
     expect(screen.queryByRole("button", { name: "지도 화면 맞춤" })).not.toBeInTheDocument();
   });
@@ -1507,11 +1523,12 @@ describe("MonitoringView refresh", () => {
     expect(screen.getByRole("button", { name: "맵 선택" })).toHaveTextContent(longName);
     const inspector = openInspector();
     fireEvent.change(within(inspector).getByRole("searchbox", { name: "조명 이름 또는 번호 검색" }), { target: { value: "동측" } });
-    expect(within(inspector).getByRole("button", { name: "상세 조명 선택" })).toHaveTextContent("Select an item");
-    await chooseSelect("상세 조명 선택", `${nextFixture.name} · 장애`);
-    expect(within(inspector).getByRole("button", { name: "상세 조명 선택" })).toHaveTextContent(nextFixture.name);
+    expect(within(inspector).getByRole("button", { name: new RegExp(nextFixture.name) })).toHaveAttribute("aria-pressed", "false");
+    await chooseFixture( `${nextFixture.name} · 장애`);
+    const selectedFinder = screen.getByRole("dialog", { name: "조명 검색/목록" });
+    expect(within(selectedFinder).getByRole("button", { name: new RegExp(nextFixture.name) })).toHaveAttribute("aria-pressed", "true");
     expect(within(inspector).queryByRole("complementary", { name: "선택 조명 상세" })).not.toBeInTheDocument();
-    fireEvent.click(within(inspector).getByRole("button", { name: "상세 보기" }));
+    fireEvent.click(screen.getByRole("button", { name: "상세 보기" }));
     const detail = screen.getByRole("dialog", { name: "조명 상세" });
     expect(within(detail).getByRole("complementary", { name: "선택 조명 상세" })).toHaveTextContent(nextFixture.name);
     expect(within(detail).queryByText(fixture.name)).not.toBeInTheDocument();
@@ -1523,12 +1540,12 @@ describe("MonitoringView refresh", () => {
   it("0개 상태 필터에서 다른 조명의 상세를 숨기고 전체 목록으로 돌아간다", async () => {
     render(<MonitoringView siteId="site-1" />);
     await selectStatusFilter("오프라인");
-    const inspector = screen.getByRole("dialog", { name: "조명 검색·상세" });
+    const inspector = screen.getByRole("dialog", { name: "조명 검색/목록" });
     expect(within(inspector).getByText("오프라인 조명이 없습니다.")).toBeVisible();
     expect(within(inspector).queryByRole("button", { name: "상세 조명 선택" })).not.toBeInTheDocument();
     expect(within(inspector).queryByRole("complementary", { name: "선택 조명 상세" })).not.toBeInTheDocument();
     fireEvent.click(within(inspector).getByRole("button", { name: "전체 조명 보기" }));
-    expect(within(inspector).getByRole("button", { name: "상세 조명 선택" })).not.toHaveTextContent("B1-L001");
+    expect(within(inspector).getByRole("button", { name: /B1-L001/ })).toHaveAttribute("aria-pressed", "false");
     expect(document.querySelector('[data-spatial-map-marker]')).toHaveAttribute("data-selected", "false");
   });
 
@@ -1603,7 +1620,7 @@ describe("MonitoringView refresh", () => {
     expect(screen.queryByText("일부 현황 데이터를 새로고침하지 못했습니다.")).not.toBeInTheDocument();
     expect(screen.getByRole("region", { name: "층 도면" })).toHaveAttribute("data-zoom", "1.1");
     openInspector();
-    expect(screen.getByRole("button", { name: "상세 조명 선택" })).not.toHaveTextContent("B1-L001 · 장애");
+    expect(within(screen.getByRole("list", { name: "조명 목록" })).getByRole("button", { name: /B1-L001/ })).toHaveAttribute("aria-pressed", "false");
   });
 
   it("지도 자동 복구는 함께 실패한 dashboard의 toolbar 오류를 지우지 않는다", async () => {
@@ -1700,6 +1717,15 @@ function deferred<T>() {
     reject = rejectPromise;
   });
   return { promise, resolve, reject };
+}
+
+async function chooseFixture(option: string) {
+  const list = screen.getByRole("list", { name: "조명 목록" });
+  fireEvent.click(within(list).getByRole("button", { name: new RegExp(option.split(" · ")[0]) }));
+  if (!screen.queryByRole("dialog", { name: "조명 상세" }) && !screen.queryByRole("complementary", { name: "조명 상세" })) {
+    await screen.findByRole("dialog", { name: `${option.split(" · ")[0]} 조명 정보` });
+    openInspector();
+  }
 }
 
 async function chooseSelect(label: string, option: string) {

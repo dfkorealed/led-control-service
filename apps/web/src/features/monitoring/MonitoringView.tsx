@@ -1,4 +1,4 @@
-import { Clock3, Filter, List, RefreshCw, TriangleAlert } from "lucide-react";
+import { Clock3, Filter, RefreshCw, TriangleAlert } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
@@ -17,7 +17,6 @@ import { monitoringActivityScopeKey, useMonitoringActivity } from "./useMonitori
 import { FixtureDetailPanel } from "./FixtureDetailPanel";
 import { resolveFixtureMapPosition } from "../floor-map/fixture-map-position";
 import { matchesMonitoringFixture, matchesMonitoringFixtureSearch, type MonitoringFixtureFilter } from "./monitoring-fixture-filter";
-import { presentFixtureStatus } from "./fixture-status-presentation";
 import { formatMonitoringTimestamp } from "./monitoring-time";
 
 const STALE_SNAPSHOT_AFTER_MS = 60_000;
@@ -97,9 +96,7 @@ function MonitoringDashboard({ data, userRole, siteId, refreshDashboard }: Monit
   const pinDetailsFixtureRef = useRef<string | null>(null);
   const logTriggerRef = useRef<HTMLButtonElement>(null);
   const inspectorTriggerRef = useRef<HTMLButtonElement>(null);
-  const listTriggerRef = useRef<HTMLButtonElement>(null);
   const finderOpenerRef = useRef<HTMLButtonElement | null>(null);
-  const [finderInitialView, setFinderInitialView] = useState<"search" | "list">("search");
   const refreshButtonRef = useRef<HTMLButtonElement>(null);
   const floor = data.floors.find((item) => item.id === selectedFloorId) ?? data.floors[0];
   const detailScope = JSON.stringify([principal, siteId ?? data.site.id, floor?.id]);
@@ -199,11 +196,10 @@ function MonitoringDashboard({ data, userRole, siteId, refreshDashboard }: Monit
     requestAnimationFrame(() => (detailReturnRef.current?.isConnected ? detailReturnRef.current : finderOpenerRef.current ?? inspectorTriggerRef.current)?.focus({ preventScroll: true }));
   }
 
-  function openInspector(view: "search" | "list", opener: HTMLButtonElement) {
-    // Both entries use the same data/filter owner. Keep the initiating anchor
+  function openInspector(opener: HTMLButtonElement) {
+    // The unified finder keeps the existing data/filter owner. Keep the initiating anchor
     // outside the transient portal so dismissal and detail return target it.
     finderOpenerRef.current = opener;
-    setFinderInitialView(view);
     setIsInspectorOpen(true);
   }
 
@@ -386,10 +382,9 @@ function MonitoringDashboard({ data, userRole, siteId, refreshDashboard }: Monit
             selectedKey={floor?.id ?? null}
             isDisabled={data.floors.length === 0}
             onSelectionChange={(floorId) => floorId !== null && handleSelectFloor(floorId)}
-            className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] items-center gap-2 max-compact:flex-1"
+            className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] items-center gap-2 compact:w-64 max-compact:flex-1"
           />
-          <Button ref={inspectorTriggerRef} variant="secondary" className="shrink-0" aria-haspopup="dialog" aria-expanded={isInspectorOpen && finderInitialView === "search"} onClick={event => openInspector("search", event.currentTarget)}><Filter size={16} aria-hidden="true" />조명 검색·상세</Button>
-          <Button ref={listTriggerRef} variant="secondary" className="ml-auto shrink-0 max-compact:ml-0" aria-haspopup="dialog" aria-expanded={isInspectorOpen && finderInitialView === "list"} onClick={event => openInspector("list", event.currentTarget)}><List size={16} aria-hidden="true" />조명 목록</Button>
+          <Button ref={inspectorTriggerRef} variant="secondary" className="shrink-0" aria-haspopup="dialog" aria-expanded={isInspectorOpen} onClick={event => openInspector(event.currentTarget)}><Filter size={16} aria-hidden="true" />조명 검색/목록</Button>
       </div>
 
       <FixtureQueryFeedback
@@ -423,7 +418,7 @@ function MonitoringDashboard({ data, userRole, siteId, refreshDashboard }: Monit
                 onPinOpenChange={setIsPinOpen}
                 detailOpen={isDetailOpen}
                 onShowDetails={(id, trigger) => openDetail(id, trigger)}
-                onFocusResult={(_id, result) => { if (result !== "focused" && inspectorTriggerRef.current) openInspector("search", inspectorTriggerRef.current); }}
+                onFocusResult={(_id, result) => { if (result !== "focused" && inspectorTriggerRef.current) openInspector(inspectorTriggerRef.current); }}
               />
               {fixtures.length > 0 && !hasPlacedFixtures && <FeedbackState icon={Clock3} title="배치된 조명이 없습니다" description={`등록된 조명 ${fixtures.length}개는 목록에서 조회하고 제어할 수 있습니다.`} action={userRole === "admin" ? <Link to={`/settings/floor-plans/${encodeURIComponent(floor.id)}/edit?siteId=${encodeURIComponent(data.site.id)}`}>설정에서 조명 배치</Link> : undefined} />}
             </>
@@ -465,19 +460,19 @@ function MonitoringDashboard({ data, userRole, siteId, refreshDashboard }: Monit
         isOpen={isInspectorOpen}
         onOpenChange={open => { if (!open) closeInspector(); }}
         triggerRef={finderOpenerRef.current ? finderOpenerRef : inspectorTriggerRef}
-        label="조명 검색·상세"
+        mobilePresentation="bottom-sheet"
+        label="조명 검색/목록"
         placement="bottom end"
         className="w-96 min-w-0 max-h-[min(36rem,var(--available-height))]"
       >
         <div className="grid min-w-0 gap-4">
         <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
-          <Heading as="h2" variant="customer-card-title">조명 검색·상세</Heading>
-          <Button variant="ghost" onClick={closeInspector} aria-label="조명 검색·상세 닫기">닫기</Button>
+          <Heading as="h2" variant="customer-card-title">조명 검색/목록</Heading>
+          <Button variant="ghost" onClick={closeInspector} aria-label="조명 검색/목록 닫기">닫기</Button>
         </div>
         {floor && hasFixtureData ? <div className="min-w-0">
           <MonitoringFixtureFinder
             key={floor.id}
-            initialView={finderInitialView}
             fixtures={fixtures}
             selectedFixtureId={selectedFixture?.id ?? null}
             onSelectFixture={id => {
@@ -504,13 +499,6 @@ function MonitoringDashboard({ data, userRole, siteId, refreshDashboard }: Monit
             nextPageError={fixtureQuery.isFetchNextPageError}
             expectedTotal={floor.summary?.totalFixtures}
           />
-        </div> : null}
-        {hasFixtureData && filteredFixtures.length > 0 ? <div data-monitoring-fixture-selector="">
-          <SelectBox label="상세 조명 선택"
-            items={filteredFixtures.map((fixture) => ({ id: fixture.id, label: `${fixture.name} · ${presentFixtureStatus(fixture).label}` }))}
-            selectedKey={selectedFixture?.id ?? null}
-            onSelectionChange={(fixtureId) => { pinDetailsFixtureRef.current = null; setSelectedFixtureId(fixtureId); }}
-            className="w-full" />
         </div> : null}
         {fixtureFilter !== "all" ? <Button variant="secondary" onClick={() => { clearSelection(); setFixtureFilter("all"); }}>필터 초기화</Button> : null}
         {selectedFixtureId ? <Button variant="secondary" onClick={() => openDetail(selectedFixtureId)}>상세 보기</Button> : null}
