@@ -242,11 +242,13 @@
 
 **Owner / Files:** monitoring_header 담당. `features/shells/CustomerShell*`, `CustomerHeaderSummarySlot*`, 현장 전환 전용 `SiteSwitcher`/`useGuardedSiteSelection` 및 해당 테스트, `features/monitoring/MonitoringView*`, `components/ui/DataGrid*`. 삭제 source 목록을 참조하는 `SettingsShell.test.tsx`만 설정 소유 예외. 영향 받는 `docs/menus` 네 문서도 공통 변경을 기록한다. 다른 제어/통계 제품 파일·계획/상태판 수정 금지.
 
-- [ ] 주석 2/19의 현장 selector·전환 guard/dialog·전용 코드 제거. `useSites` 권한 검증/현재 현장·dashboard/URL scope/로그아웃 dirty guard는 보존하고 현재 현장은 비대화형 정보로 표시.
-- [ ] 주석 4의 PC header 집계는 intrinsic 폭과 균일한 compact gap, 모바일은 네 동일 폭 셀을 유지. 모바일 로고·44px hit 보존.
-- [ ] DataGrid의 명시 align을 header·정렬 버튼·body·모바일 card에 일관 적용. undefined header는 기존 center, body는 기존 left, customer card는 기존 right를 보존.
-- [ ] 주석 1/27의 tall mobile 지도는 shell 남은 공간을 flex로 채우고 짧은 화면은 자연 scroll 가능. 공통 canvas 240px 최저값/contain:size/renderer/camera를 변경하지 않음.
-- [ ] 주석 3/28/29의 monitoring ATLAS와 visible map title 제거, 접근 가능한 scope/heading 보존. 변경 동작 focused RED→GREEN 및 기존 직접 영향 회귀만 확인하고 메뉴 문서와 commit/report 전달.
+- [x] 주석 2/19의 현장 selector·전환 guard/dialog·전용 코드 제거. `useSites` 권한 검증/현재 현장·dashboard/URL scope/로그아웃 dirty guard는 보존하고 현재 현장은 비대화형 정보로 표시.
+- [x] 주석 4의 PC header 집계는 intrinsic 폭과 균일한 compact gap, 모바일은 네 동일 폭 셀을 유지. 모바일 로고·44px hit 보존.
+- [x] DataGrid의 명시 align을 header·정렬 버튼·body·모바일 card에 일관 적용. undefined header는 기존 center, body는 기존 left, customer card는 기존 right를 보존.
+- [x] 주석 1/27의 tall mobile 지도는 shell 남은 공간을 flex로 채우고 짧은 화면은 자연 scroll 가능. 공통 canvas 240px 최저값/contain:size/renderer/camera를 변경하지 않음.
+- [x] 주석 3/28/29의 monitoring ATLAS와 visible map title 제거, 접근 가능한 scope/heading 보존. 변경 동작 focused RED→GREEN 및 기존 직접 영향 회귀만 확인하고 메뉴 문서와 commit/report 전달.
+
+증거: `aba951f7`, focused RED10→직접5 suites190 PASS·diff-check0. 최초6 suites206PASS/4FAIL 중 새 기대3을 수리했다. SettingsShell 현장 관리 group 실패1은 기본 `d8dbfcd1`의 정확1건에서도 동일 fingerprint로 재현되어 변경 없는 기존 실패로 분리 보존한다. 브라우저/최종 통합 관문은 아직이다.
 
 ### Task 14: 제어 선택 목록·툴바·표 간소화
 
