@@ -231,3 +231,52 @@
 - [x] 구현 방법은 이미 요청한 에이전트 협업으로 보존한다. 사용자 계획 검토 후 실행하며, 작업마다 새로운 계획 승인·실행 방식 질문을 반복하지 않는다.
 - [x] 사용자 계획 검토 완료(2026-10-10).
 - [x] 구현 완료·필요 검증 완료·최종 리뷰 완료·로컬 병합 완료.
+
+## 2026-10-11 브라우저 주석 교정 (Tasks 13–17)
+
+이번 29개 주석과 사용자 승인(스케줄 추가는 목록 툴바로 이동)이 이전 현장 선택/eyebrow 디자인보다 우선한다. Tasks 1–12는 완료된 이력이며 다시 실행하지 않는다. 기준 `d8dbfcd10a6b5a00bafbfca65cb8652d0bb08508`, 격리 branch `codex/atlas-browser-comments-20261011`, checkout `.worktrees/atlas-browser-comments-20261011`, 병합 대상 `codex/mvp1-cloud-web`이다. 현재 customer admin/viewer는 DB unique·실제 접근 권한 경로상 최대 한 현장이므로 selector 제거에 API/DB 변경은 필요 없다. 현재 현장 조회/권한/URL scope는 보존한다.
+
+공통 계약부터 고정하고 세 페이지 담당을 같은 격리 checkout의 단독 writer로 순차 실행한다. 총괄은 계획/상태/증거 취합·통합만 담당한다. 새 디자인 시스템·상세 drawer·toolbar primitive를 만들지 않고 기존 optional title, DataGrid align, FilterPanel actions를 소비한다. 실제 시간대·DTO·권한·선택/명령 UUID·초안/명시 Apply·복구·MFA/lease 수명은 불변이다. 사용자 LEAN 지시에 따라 직접 관련 unit, 한 차례 최종 Web 타입/정책/UI/빌드, 제한 모바일/PC 화면, 최종 통합 리뷰 한 번만 진행한다. 실패만 국소 재확인하며 전체 Web/E2E/Lab/HIL·remote/배포는 하지 않는다.
+
+### Task 13: 공통 헤더·표 정렬과 모바일 모니터링
+
+**Owner / Files:** monitoring_header 담당. `features/shells/CustomerShell*`, `CustomerHeaderSummarySlot*`, 현장 전환 전용 `SiteSwitcher`/`useGuardedSiteSelection` 및 해당 테스트, `features/monitoring/MonitoringView*`, `components/ui/DataGrid*`. 삭제 source 목록을 참조하는 `SettingsShell.test.tsx`만 설정 소유 예외. 영향 받는 `docs/menus` 네 문서도 공통 변경을 기록한다. 다른 제어/통계 제품 파일·계획/상태판 수정 금지.
+
+- [ ] 주석 2/19의 현장 selector·전환 guard/dialog·전용 코드 제거. `useSites` 권한 검증/현재 현장·dashboard/URL scope/로그아웃 dirty guard는 보존하고 현재 현장은 비대화형 정보로 표시.
+- [ ] 주석 4의 PC header 집계는 intrinsic 폭과 균일한 compact gap, 모바일은 네 동일 폭 셀을 유지. 모바일 로고·44px hit 보존.
+- [ ] DataGrid의 명시 align을 header·정렬 버튼·body·모바일 card에 일관 적용. undefined header는 기존 center, body는 기존 left, customer card는 기존 right를 보존.
+- [ ] 주석 1/27의 tall mobile 지도는 shell 남은 공간을 flex로 채우고 짧은 화면은 자연 scroll 가능. 공통 canvas 240px 최저값/contain:size/renderer/camera를 변경하지 않음.
+- [ ] 주석 3/28/29의 monitoring ATLAS와 visible map title 제거, 접근 가능한 scope/heading 보존. 변경 동작 focused RED→GREEN 및 기존 직접 영향 회귀만 확인하고 메뉴 문서와 commit/report 전달.
+
+### Task 14: 제어 선택 목록·툴바·표 간소화
+
+**Owner / Files:** control 담당. `features/control` 관련 제품·직접 테스트, `docs/menus/control.md`. 필요하면 기존 `AutomationRuleControls`에 optional actions를 추가하되 공통 UI/다른 메뉴 수정 금지.
+
+- [ ] 주석 5–8: 기존 중앙 inspection slot을 개별 선택에도 고정해 실제 선택 목록 표시. 오른쪽 chips 제거, 선택 해제는 중앙 목록 우상단, 밝기 표시의 초안만 제거. 전체 선택 오류/불가 대상·live announcement·실행/초안 owner 보존.
+- [ ] 주석 9–12: schedule 기간의 시간대 caption 제거(실제 변환 보존), 활성 열은 enabled만 표시·정렬, 이름 외 열 center. 제목줄 제거하고 유일한 스케줄 추가 CTA/ref를 기존 목록 툴바로 이동; global-contract 부재에도 생성 진입/삭제 후 fallback focus 유지.
+- [ ] 주석 13/18: event 소제목과 control ATLAS 제거, 기존 생성/readonly 동작은 compact toolbar에 유지.
+- [ ] 주석 14–17: group Gateway 열 제거, ready 상태는 badge만 표시, 이름 외 center. 숨긴 ready metadata를 위한 신규 상세 UI는 추가하지 않음. 기존 비정상 오류/이유·상태 action·실제 readiness 계약 보존.
+- [ ] 새 표현/선택·focus 계약 focused RED→GREEN, 직접 영향 회귀만 확인하고 메뉴 문서와 commit/report 전달.
+
+### Task 15: 통계 헤더·보고서 공통 필터
+
+**Owner / Files:** statistics 담당. `features/statistics/{StatisticsOverviewPage,analysis/StatisticsAnalysisPage,reports/StatisticsReportsPage,reports/ReportHistoryFilters,reports/ReportJobList}` 및 직접 테스트, `docs/menus/statistics.md`.
+
+- [ ] 주석 20–22/25–26: ENERGY eyebrow 모두 제거, overview visible 제목/상단 생성 CTA 제거(단일 sr-only h1 유지). reports의 기존 생성 진입 유지.
+- [ ] 주석 23: 기존 SearchField·FilterPanel actions/reset 슬롯을 사용하여 검색/필터/초기화/CSV 간격 통일. 기존 wrapping 레시피를 사용하며 한 행 강제/새 슬롯 없이 정리.
+- [ ] 주석 24: 목록 시간대 caption 제거하되 현장 시간 변환·원 ISO·null/0·jobs·CSV/PDF/취소·raw draft/debounce/cursor/epoch 불변.
+- [ ] focused RED→GREEN와 직접 영향 회귀만 확인하고 메뉴 문서와 commit/report 전달.
+
+### Task 16: 필요한 모바일·PC UI 검증
+
+**Files:** `apps/web/e2e`의 이번 주석 전용 focused spec/기존 잘못된 selector 시나리오 기대값, 증거 보고서. 제품 수정이 필요하면 해당 owner에게 반환.
+
+- [ ] tall mobile 578×1227/681×1227 지도 공간, short mobile 자연 scroll/도구 접근, PC compact 집계/표 center, manual 개별 선택 목록/clear/초안 보존, schedule CTA 이동, dark mobile 보고서 필터·touch target/overflow를 6–8개 controlled case로 확인. 실제 data/지도 로딩을 기다리고 screenshot은 outputPath 파일로 보존.
+- [ ] 테스트 API fixture만 사용해 추가 쓰기0/기존 고객 서버5173/API4000 보존. 전체 이전 matrix·timeout/skip/기준 완화 금지.
+- [ ] 최종 Web `typecheck`, `test:ui-policy`, `ui:check`, `build` 각 한 번. 실패 관문만 최소 재실행; 원 실패와 최종 결과를 별도 기록.
+
+### Task 17: 최종 리뷰·로컬 병합
+
+- [ ] 독립 최종 통합 리뷰 한 번(29주석/spec+코드), 중요 문제는 해당 owner 한 번 수리·국소 재확인. 최종 source·한계·모바일 증거와 메뉴 문서 최신화 확인.
+- [ ] base/correction clean·HEAD를 새로 확인하고 사용자 요청대로 `git merge --ff-only codex/atlas-browser-comments-20261011`. base가 변경되면 무조건 덮어쓰지 않음. 원격 push/PR/배포 없음.
+- [ ] 실제 merge 결과/HEAD·checklist/상태판을 기록하고 완료 handoff. 검증된 source 불변인 문서 closeout에는 전체 검증 반복 없음.
