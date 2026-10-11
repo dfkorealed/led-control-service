@@ -51,7 +51,10 @@ export const Popover = /* @__PURE__ */ forwardRef<HTMLElement, PopoverProps>(fun
       <RegisteredPopoverContent onBack={close} isActive={controlledOpen ?? triggerState?.isOpen ?? localOpen} disabled={props.isKeyboardDismissDisabled}>
         <Dialog ref={ref} id={props.id} aria-label={ariaLabel ?? label} aria-labelledby={labelledBy}
           render={domProps => <section {...domProps} aria-modal="true" />}
-          className="max-h-[calc(100dvh-24px)] min-w-0 overflow-y-auto rounded-t-panel border border-border-default bg-surface-panel p-4 pb-safe-area-bottom text-body text-content-primary shadow-popover outline-none">
+          // The approved panel token owns top corners; zero bottom corners keep
+          // this full-width surface flush with the viewport edge.
+          style={{ borderBottomLeftRadius: 0, borderBottomRightRadius: 0 }}
+          className="max-h-[calc(100dvh-24px)] min-w-0 overflow-y-auto rounded-panel border border-border-default bg-surface-panel p-4 pb-safe-area-bottom text-body text-content-primary shadow-popover outline-none">
           {children}
         </Dialog>
       </RegisteredPopoverContent>
