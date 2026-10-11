@@ -140,8 +140,9 @@ describe("customer shell site context", () => {
     expect(within(header).getByRole("img", { name: "킨다" })).toBeVisible();
     expect(within(header).getByRole("button", { name: "다크 모드로 변경" })).toBeEnabled();
     expect(within(header).getByRole("button", { name: /^알람센터/ })).toBeEnabled();
-    const siteName = state === "ready" ? /현장 선택/ : state === "loading" ? "현장 목록 확인 중" : state === "error" ? "현장 목록 확인 불가" : "접근 가능한 현장 없음";
-    expect(within(header).getByRole("button", { name: siteName })).toBeVisible();
+    const siteName = state === "ready" ? "고객사 · 현장" : state === "loading" ? "현장 목록 확인 중" : state === "error" ? "현장 목록 확인 불가" : "접근 가능한 현장 없음";
+    expect(within(header).queryByRole("button", { name: /현장 선택|현장 목록|접근 가능한 현장/ })).not.toBeInTheDocument();
+    expect(within(header).getByText(siteName)).toBeVisible();
   });
   it.each(["/monitoring", "/control", "/statistics/overview", "/settings"])("keeps server aggregate always visible on %s", async path => {
     renderShell(`${path}?siteId=site`);
@@ -274,18 +275,14 @@ describe("customer shell site context", () => {
     expect(apiPost).not.toHaveBeenCalled();
   });
 
-  it("stale summary is rejected across scope transition", async () => {
-    sitesState.current.data.push({ id: "site-2", name: "새 현장", customerName: "고객사" });
+  it("keeps the current site summary and URL scope without a switching action", () => {
     dashboardState.current.data!.summary = { totalFixtures: 17, onlineFixtures: 12, faultFixtures: 2, averageBrightness: 50 };
     renderShell("/monitoring?siteId=site");
     const band = screen.getByRole("region", { name: "현장 전체" });
     expect(band).toHaveTextContent("17");
     expect(band).toHaveTextContent("—");
-    fireEvent.click(screen.getByRole("button", { name: /현장 선택/ }));
-    fireEvent.click(screen.getByRole("option", { name: "고객사 · 새 현장" }));
-    await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent("siteId=site-2"));
-    expect(screen.getByRole("region", { name: "현장 전체" })).not.toHaveTextContent("17");
-    expect(screen.getByRole("region", { name: "현장 전체" })).toHaveTextContent("새 현장");
+    expect(screen.queryByRole("button", { name: /현장 선택/ })).not.toBeInTheDocument();
+    expect(screen.getByTestId("location")).toHaveTextContent("/monitoring?siteId=site");
   });
 
   it.each(["viewer", "admin", "no-site", "pending", "loading", "error"])("account escape remains available for %s", async state => {
@@ -335,33 +332,31 @@ describe("customer shell site context", () => {
     expect(content).not.toHaveClass("flex", "min-h-0", "overflow-hidden");
   });
 
-  it("shows authorized sites globally and switches only the siteId in the current route", async () => {
+  it("shows only the authorized current site as plain information and preserves query/hash", () => {
     sitesState.current.data = [
-      { id: "site", name: "본사", customerName: "고객사 A" },
-      { id: "site-2", name: "물류센터", customerName: "고객사 B" }
+      { id: "site", name: "본사", customerName: "고객사 A" }
     ];
     renderShell("/statistics/overview?siteId=site&source=summary#energy");
 
-    fireEvent.click(screen.getByRole("button", { name: /현장 선택/ }));
-    fireEvent.click(screen.getByRole("option", { name: "고객사 B · 물류센터" }));
-
+    expect(screen.getByText("고객사 A · 본사")).toBeVisible();
+    expect(screen.queryByRole("button", { name: /현장 선택/ })).not.toBeInTheDocument();
     expect(screen.queryByRole("dialog", { name: "현장 변경" })).not.toBeInTheDocument();
-    await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent("/statistics/overview?siteId=site-2&source=summary#energy"));
+    expect(screen.getByTestId("location")).toHaveTextContent("/statistics/overview?siteId=site&source=summary#energy");
   });
 
-  it("does not present an out-of-contract URL site as the selected option", () => {
+  it("does not present an out-of-contract URL site as current site information", () => {
     sitesState.current.data = [{ id: "site", name: "본사", customerName: "고객사 A" }];
     renderShell("/monitoring?siteId=outside");
 
-    expect(screen.getByRole("button", { name: /현장 선택/ })).toHaveTextContent("현장 선택");
-    expect(screen.getByRole("button", { name: /현장 선택/ })).not.toHaveTextContent("outside");
+    expect(screen.getByText("접근 가능한 현장 없음")).toBeVisible();
+    expect(document.querySelector("[data-shell-context]")).not.toHaveTextContent("outside");
   });
 
   it("exposes a site-list failure through the status center without enabling a false selector", async () => {
     sitesState.current = { data: [], isLoading: false, error: new Error("private"), refetch: vi.fn() };
     renderShell("/monitoring?siteId=site");
 
-    expect(screen.getByRole("button", { name: "현장 목록 확인 불가" })).toBeDisabled();
+    expect(screen.getByText("현장 목록 확인 불가")).toBeVisible();
     const statusTrigger = await screen.findByRole("button", { name: "알람센터, 현장 미선택" });
     fireEvent.click(statusTrigger);
     expect(await screen.findByRole("dialog", { name: "알람센터" })).toHaveTextContent("현장 목록을 확인하지 못했습니다.");

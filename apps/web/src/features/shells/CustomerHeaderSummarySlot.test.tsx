@@ -8,6 +8,7 @@ it("keeps four captioned cells while hiding the duplicated summary heading", () 
   render(<CustomerHeaderSummarySlot currentScope={scope} value={ready} />);
   expect(screen.getByRole("heading", { name: "현장 전체" })).toHaveClass("sr-only");
   expect(screen.getAllByRole("term")).toHaveLength(4);
+  expect(screen.getByText("전체").closest("dl")).not.toHaveClass("w-full");
   expect(screen.getByText("온라인")).toBeInTheDocument();
   expect(screen.getByText("0대")).toBeInTheDocument();
   expect(screen.getAllByText("—")).toHaveLength(2);
@@ -32,6 +33,7 @@ it("preserves unknown counts separately from actual zero, loading and errors", (
 
 it("keeps compact aggregate visible without a disclosure and preserves zero and unknown", () => {
   render(<CustomerHeaderSummarySlot compact currentScope={scope} value={ready} />);
+  expect(screen.getByText("전체").closest("dl")).toHaveClass("w-full", "grid-cols-4");
   expect(screen.getByText("0대")).toBeVisible();
   expect(screen.getAllByText("—").every(item => !item.closest("[hidden]"))).toBe(true);
   expect(screen.queryByRole("button", { name: /현장 전체/ })).not.toBeInTheDocument();

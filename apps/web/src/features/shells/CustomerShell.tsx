@@ -1,4 +1,4 @@
-import { forwardRef, lazy, Suspense, useEffect, useId, useMemo, useRef, useState, type RefObject } from "react";
+import { lazy, Suspense, useEffect, useId, useMemo, useRef, useState, type RefObject } from "react";
 import { Activity, Bell, BarChart3, CircleAlert, LoaderCircle, PanelLeftClose, PanelLeftOpen, SlidersHorizontal, UserRound } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Link, matchPath, Navigate, Route, Routes, useLocation } from "react-router-dom";
@@ -31,8 +31,6 @@ import {
 import { clearActiveCommandsForUser } from "../control/active-command-store";
 import { hasDirtyEditorSentinel } from "../floor-editor/dirty-editor-history";
 import { useFloorEditorStore } from "../floor-editor/editor-store";
-import { SiteSwitcher } from "../sites/SiteSwitcher";
-import { useGuardedSiteSelection } from "../sites/useGuardedSiteSelection";
 import { deriveGatewayAggregate } from "./gateway-status";
 import { PrimaryNavigationLink, SettingsNavigationItem, type NavigationLayout } from "./SettingsNavigationItem";
 import { CustomerAccountContext } from "./CustomerAccountContext";
@@ -104,7 +102,6 @@ function CustomerShellContent({ user }: { user: AuthUser }) {
   const logoutButtonRef = useRef<RefObject<HTMLButtonElement | null>>({ current: null });
   const logoutInFlightRef = useRef(false);
   const statusCenterRef = useRef<SessionStatusCenterHandle>(null);
-  const siteSwitcherRef = useRef<HTMLButtonElement>(null);
   const restoreLogoutFocusAfterFailureRef = useRef(false);
   const siteId = new URLSearchParams(location.search).get("siteId") ?? undefined;
   const sitesQuery = useSites();
@@ -118,7 +115,8 @@ function CustomerShellContent({ user }: { user: AuthUser }) {
   const authorizedSelectedSiteId = sitesQuery.data?.some((site) => site.id === selectedSiteId)
     ? selectedSiteId
     : undefined;
-  const siteSelection = useGuardedSiteSelection(authorizedSelectedSiteId);
+  const currentSite = sitesQuery.data?.find(site => site.id === authorizedSelectedSiteId);
+  const currentSiteLabel = currentSite ? currentSite.customerName ? `${currentSite.customerName} · ${currentSite.name}` : currentSite.name : "접근 가능한 현장 없음";
   const gatewayAggregate = deriveGatewayAggregate({ gateways: dashboard?.gateways, error: dashboardError });
   const gatewayContextItems = useMemo<readonly SessionStatusContextItem[]>(() => [{
     id: `gateway-summary:${selectedSiteId ?? "default"}`,
@@ -317,14 +315,9 @@ function CustomerShellContent({ user }: { user: AuthUser }) {
           <span className="sr-only" data-testid="shell-current-menu">{titleForPath(location.pathname)}</span>
           <div className="col-start-1 row-start-1 flex min-w-0 items-center gap-1" aria-label="현장 정보" data-shell-context>
             {isCompactNavigation ? <KindaLogo presentation="header" /> : null}
-            <SiteContextControl
-              ref={siteSwitcherRef}
-              sites={sitesQuery.data}
-              selectedSiteId={authorizedSelectedSiteId}
-              isLoading={sitesQuery.isLoading}
-              hasError={Boolean(sitesQuery.error)}
-              onSelectionChange={siteSelection.requestSiteChange}
-            />
+            <Text variant="body-sm" className="min-w-0 truncate" title={currentSiteLabel}>
+              {sitesQuery.isLoading ? "현장 목록 확인 중" : sitesQuery.error ? "현장 목록 확인 불가" : currentSiteLabel}
+            </Text>
             <span className="sr-only" data-testid="active-site-badge">{dashboard?.site.name || "현장 미등록"}</span>
           </div>
           <div className="col-start-2 row-start-1 flex min-w-0 items-center justify-end gap-2 compact:col-start-3" data-shell-actions>
@@ -427,16 +420,6 @@ function CustomerShellContent({ user }: { user: AuthUser }) {
         </div>
       </main>
       <ConfirmDialog
-        isOpen={siteSelection.pendingSiteId !== null}
-        title="현장 변경"
-        confirmLabel="변경"
-        returnFocusRef={siteSwitcherRef}
-        onCancel={siteSelection.cancelSiteChange}
-        onConfirm={siteSelection.confirmSiteChange}
-      >
-        저장하지 않은 변경사항을 버리고 다른 현장으로 이동하시겠습니까?
-      </ConfirmDialog>
-      <ConfirmDialog
         isOpen={isLogoutConfirmationOpen}
         role="alertdialog"
         title="로그아웃 확인"
@@ -464,39 +447,6 @@ function ShellStatusRegistration({ items }: { items: readonly SessionStatusItem[
   useSessionStatus("customer-shell", items);
   return null;
 }
-
-interface SiteContextControlProps {
-  sites: ReturnType<typeof useSites>["data"];
-  selectedSiteId?: string;
-  isLoading: boolean;
-  hasError: boolean;
-  onSelectionChange(siteId: string): void;
-}
-const siteControlClass = "min-w-0 w-customer-site-small shrink-0 phone-wide:w-customer-site compact:w-64";
-
-const SiteContextControl = forwardRef<HTMLButtonElement, SiteContextControlProps>(function SiteContextControl(
-  { sites, selectedSiteId, isLoading, hasError, onSelectionChange },
-  ref
-) {
-  if (isLoading) {
-    return <Button ref={ref} type="button" className={siteControlClass} isDisabled><span className="truncate">현장 목록 확인 중</span></Button>;
-  }
-  if (hasError) {
-    return <Button ref={ref} type="button" className={siteControlClass} isDisabled><span className="truncate">현장 목록 확인 불가</span></Button>;
-  }
-  if (!sites?.length) {
-    return <Button ref={ref} type="button" className={siteControlClass} isDisabled><span className="truncate">접근 가능한 현장 없음</span></Button>;
-  }
-  return (
-    <SiteSwitcher
-      ref={ref}
-      sites={sites}
-      selectedSiteId={selectedSiteId}
-      onSelectionChange={onSelectionChange}
-      className={siteControlClass}
-    />
-  );
-});
 
 function titleForPath(pathname: string) {
   if (pathname.startsWith("/control")) return "제어";

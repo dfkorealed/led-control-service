@@ -29,6 +29,7 @@ export interface DataGridProps<T> {
   className?: string;
 }
 const alignments = { left: "text-left", center: "text-center", right: "text-right" };
+const justifications = { left: "justify-start", center: "justify-center", right: "justify-end" };
 type Sort = { columnId: string; direction: "ascending" | "descending" };
 const collator = new Intl.Collator("ko", { numeric: true, sensitivity: "base" });
 function comparable(value: string | number | boolean | Date | null | undefined): string | number | null {
@@ -95,9 +96,9 @@ export function DataGrid<T>({ caption, rows, columns, getRowKey, isBusy = false,
     {table ? <DataTableShell caption={caption} isBusy={isBusy} layout="fluid" className="rounded-none border-0">
       {/* Percent widths are runtime column geometry, not spacing/design tokens. */}
       <colgroup>{columns.map(column => <col key={column.id} style={{ width: `${column.minWidth / minimumWidth * 100}%` }} />)}</colgroup>
-      <thead><tr>{columns.map(column => <DataTableHeaderCell key={column.id} aria-sort={sortColumn?.id === column.id ? sort?.direction : undefined} className={variant === "compact" ? "px-3 py-2" : undefined}>
+      <thead><tr>{columns.map(column => <DataTableHeaderCell key={column.id} align={column.align} aria-sort={sortColumn?.id === column.id ? sort?.direction : undefined} className={variant === "compact" ? "px-3 py-2" : undefined}>
         {/* Content-width headers need square corners to retain a continuous44px hit area at44px height. */}
-        {column.sortValue ? <Button type="button" variant="ghost" size="sm" className="rounded-none min-w-11 max-w-full border-transparent bg-transparent px-0 font-semibold text-content-secondary whitespace-normal"
+        {column.sortValue ? <Button type="button" variant="ghost" size="sm" className={cn("rounded-none min-w-11 max-w-full border-transparent bg-transparent px-0 font-semibold text-content-secondary whitespace-normal", alignments[column.align ?? "center"], justifications[column.align ?? "center"])}
           aria-label={`${column.header} ${sortColumn?.id === column.id && sort?.direction === "ascending" ? "내림차순" : "오름차순"} 정렬`} onClick={() => toggleSort(column.id)}>
           <span className="min-w-0 wrap-anywhere">{column.header}</span>
           {sortColumn?.id === column.id ? sort?.direction === "ascending" ? <ArrowUp size={16} className="shrink-0" aria-hidden="true" /> : <ArrowDown size={16} className="shrink-0" aria-hidden="true" /> : <ArrowUpDown size={16} className="shrink-0" aria-hidden="true" />}
@@ -109,7 +110,7 @@ export function DataGrid<T>({ caption, rows, columns, getRowKey, isBusy = false,
       {displayedRows.length ? displayedRows.map(row => <li key={rowKey(row)} className={cn(variant === "compact" ? "min-w-0 p-3" : "min-w-0 p-4", customerCards && "rounded-panel border border-border-default bg-surface-panel")}>
         <dl className="m-0 grid min-w-0 gap-3">{columns.map(column => <div key={column.id} className={cn("grid min-w-0 gap-1", customerCards && "grid-cols-[minmax(0,1fr)_minmax(0,2fr)] items-start gap-3")}>
           <dt className={cn("wrap-anywhere text-label font-semibold text-content-secondary", customerCards && "text-body-sm")}>{column.header}</dt>
-          <dd className={cn("m-0 min-w-0 wrap-anywhere whitespace-normal text-body-sm", alignments[column.align ?? "left"], customerCards && "text-right")}>{column.renderCell(row, "card")}</dd>
+          <dd className={cn("m-0 min-w-0 wrap-anywhere whitespace-normal text-body-sm", alignments[column.align ?? (customerCards ? "right" : "left")])}>{column.renderCell(row, "card")}</dd>
         </div>)}</dl>
       </li>) : <li className="min-w-0 p-4">{empty}</li>}
     </ul>}

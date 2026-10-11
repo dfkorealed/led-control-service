@@ -42,7 +42,7 @@ export function MonitoringView({ userRole = "admin", siteId }: { userRole?: "ope
   const dashboardQuery = useDashboard(siteId);
   const { data, isLoading } = dashboardQuery;
 
-  const pageHeader = <PageHeader variant="customer" headingLevel={1} title="모니터링" eyebrow="ATLAS / OPERATIONS" />;
+  const pageHeader = <PageHeader variant="customer" headingLevel={1} title="모니터링" />;
   if (isLoading && !data) return <section className="grid min-w-0 gap-5">{pageHeader}<FeedbackState icon={Clock3} title="모니터링 현황을 불러오는 중" /></section>;
   if (!data) return <section className="grid min-w-0 gap-5">{pageHeader}<FeedbackState tone="danger" icon={TriangleAlert} title="현황 데이터를 불러오지 못했습니다." action={<Button variant="secondary" onClick={() => void dashboardQuery.refetch()}>다시 시도</Button>} /></section>;
 
@@ -258,7 +258,7 @@ function MonitoringDashboard({ data, userRole, siteId, refreshDashboard }: Monit
   if (!data.site.id) {
     return (
       <section className="grid min-w-0 gap-4" data-monitoring-screen="">
-        <PageHeader variant="customer" headingLevel={1} title="모니터링" eyebrow="ATLAS / OPERATIONS" />
+        <PageHeader variant="customer" headingLevel={1} title="모니터링" />
         <InstallationPending />
       </section>
     );
@@ -354,7 +354,7 @@ function MonitoringDashboard({ data, userRole, siteId, refreshDashboard }: Monit
       if (event.key !== "Escape" || event.defaultPrevented || isPinOpen || isInspectorOpen || isDetailOpen || isLogDrawerOpen || !workspaceFocus.active) return;
       event.preventDefault(); workspaceFocus.exit();
     }}>
-      <PageHeader variant="customer" headingLevel={1} title="모니터링" eyebrow="ATLAS / OPERATIONS" className="max-compact:order-0" actions={<>
+      <PageHeader variant="customer" headingLevel={1} title="모니터링" className="max-compact:order-0" actions={<>
         <Text as="small" variant="caption" tone="secondary" className="min-w-0 max-w-full break-words text-right">
           {formatSnapshotUpdatedAt(snapshotFreshness, data.site.timeZone ?? "Asia/Seoul")}
         </Text>
@@ -400,11 +400,11 @@ function MonitoringDashboard({ data, userRole, siteId, refreshDashboard }: Monit
 
       {/* Keep the desktop detail's reading region as tall as the map's natural
           minimum; short screens scroll the page instead of shrinking the row. */}
-      {/* Natural compact flow must include the map's real minimum canvas and
-          ticker; shrinking this row lets its children overlap following flow. */}
-      <div className={cn("grid min-h-0 min-w-0 flex-1 gap-4 tablet:min-h-min max-compact:order-3", !workspaceFocus.active && "max-compact:min-h-min max-compact:flex-none", isDesktop && isDetailOpen && selectedFixtureId && "tablet:grid-cols-[minmax(0,1fr)_minmax(0,22rem)]")} data-monitoring-layout="">
+      {/* Compact maps consume remaining viewport space; the natural minimum
+          keeps the canvas and ticker reachable through document scroll on short screens. */}
+      <div className={cn("grid min-h-0 min-w-0 flex-1 gap-4 tablet:min-h-min max-compact:order-3", !workspaceFocus.active && "max-compact:min-h-min", isDesktop && isDetailOpen && selectedFixtureId && "tablet:grid-cols-[minmax(0,1fr)_minmax(0,22rem)]")} data-monitoring-layout="">
         <div className="flex h-full min-h-min min-w-0 flex-col gap-5" data-monitoring-map-panel="">
-          <OperationMapPanel className="min-h-min" title={<Heading as="h2" variant="customer-card-title" className="break-words">{floor ? `${floor.name} · 조명 현황` : "층 도면"}</Heading>}
+          <OperationMapPanel className="min-h-min"
             status={floor ? <MonitoringSummary scope="floor" mapName={floor.name}
               total={floor.summary?.totalFixtures ?? null} online={floor.summary?.onlineFixtures ?? null}
               fault={floor.summary?.faultFixtures ?? null} offline={floor.summary?.offlineFixtures ?? null} /> : undefined}>

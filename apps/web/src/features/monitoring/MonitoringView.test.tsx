@@ -102,12 +102,12 @@ describe("MonitoringView refresh", () => {
   const refetchFixtures = vi.fn();
   const refetchMap = vi.fn();
 
-  it.each([true, false])("keeps the monitoring eyebrow and sole h1 before loading/error feedback (%s)", isLoading => {
+  it.each([true, false])("keeps the sole monitoring h1 without an eyebrow before loading/error feedback (%s)", isLoading => {
     queryMocks.useDashboard.mockReturnValue({ ...queryMocks.useDashboard(), data: undefined, isLoading });
     render(<MonitoringView siteId="site-1" />);
     const heading = screen.getByRole("heading", { name: "모니터링", level: 1 });
-    const eyebrow = screen.getByText("ATLAS / OPERATIONS");
-    expect(eyebrow.compareDocumentPosition(heading) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(heading).toBeVisible();
+    expect(screen.queryByText("ATLAS / OPERATIONS")).not.toBeInTheDocument();
     expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
     expect(screen.getByText(isLoading ? "모니터링 현황을 불러오는 중" : "현황 데이터를 불러오지 못했습니다.")).toBeInTheDocument();
   });
@@ -140,7 +140,7 @@ describe("MonitoringView refresh", () => {
       render(<MemoryRouter initialEntries={["/monitoring?siteId=site-1"]}><CustomerShell user={{ id: "user-1", organizationId: "org-1", organizationType: "customer", loginId: "admin", name: "관리자", role: "admin", status: "active", mustChangePassword: false }} /></MemoryRouter>);
       await screen.findByRole("region", { name: "선택 층 조명 현황" });
       expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
-      expect(screen.getByRole("heading", { level: 1, name: "모니터링" }).closest("header")).toContainElement(screen.getByText("ATLAS / OPERATIONS"));
+      expect(screen.queryByText("ATLAS / OPERATIONS")).not.toBeInTheDocument();
       expect(screen.getByTestId("shell-current-menu")).toHaveTextContent("모니터링");
       expect(screen.getByRole("heading", { level: 1, name: "모니터링" }).closest("header")).toContainElement(screen.getByRole("button", { name: "새로고침" }));
     } finally { read.mockRestore(); }
@@ -156,7 +156,8 @@ describe("MonitoringView refresh", () => {
 
   it("keeps the compact map and ticker in natural flow after the refresh header", () => {
     render(<MonitoringView siteId="site-1" />);
-    expect(document.querySelector("[data-monitoring-layout]")).toHaveClass("max-compact:min-h-min", "max-compact:flex-none");
+    expect(document.querySelector("[data-monitoring-layout]")).toHaveClass("max-compact:min-h-min", "flex-1");
+    expect(document.querySelector("[data-monitoring-layout]")).not.toHaveClass("max-compact:flex-none");
     expect(screen.getByRole("button", { name: "새로고침" }).compareDocumentPosition(document.querySelector("[data-monitoring-layout]")!)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
   });
 
@@ -474,7 +475,9 @@ describe("MonitoringView refresh", () => {
     render(<MonitoringView siteId="site-1" />);
 
     expect(screen.queryByRole("region", { name: "현장 전체 조명 현황" })).not.toBeInTheDocument();
-    expect(screen.getByText("B1 · 조명 현황")).toBeVisible();
+    expect(screen.queryByRole("heading", { name: "B1 · 조명 현황" })).not.toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "선택 층 조명 현황" })).toBeInTheDocument();
+    expect(document.querySelector("[data-monitoring-layout]")).not.toHaveClass("max-compact:flex-none");
     expect(floorMetric("전체 조명")).toHaveTextContent("62");
     expect(screen.getByRole("button", { name: /B1-L001/ })).toBeInTheDocument();
   });

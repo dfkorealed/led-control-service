@@ -170,7 +170,6 @@ describe("SettingsShell", () => {
 
   it("uses the shared form controls across general settings", () => {
     const files = [
-      "src/features/sites/SiteSwitcher.tsx",
       "src/features/settings/security/AccountSecurityView.tsx",
       "src/features/settings/security/PasswordSettingsView.tsx",
       "src/features/settings/site/SiteOperationsView.tsx",

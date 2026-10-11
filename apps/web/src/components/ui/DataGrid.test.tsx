@@ -23,6 +23,17 @@ const columns = [
   { id: "action", header: "작업", minWidth: 100, align: "center" as const, renderCell: () => <button>상세</button> }
 ];
 describe("DataGrid", () => {
+  it.each(["left", "center", "right"] as const)("honors explicit %s alignment on sortable headers, cells and customer cards", align => {
+    render(<UI.CustomerThemeProvider><UI.DataGrid variant="compact" caption="정렬 위치" rows={[{ id: "one" }]} columns={[
+      { id: "value", header: "값", minWidth: 100, align, sortValue: row => row.id, renderCell: row => row.id }
+    ]} getRowKey={row => row.id} /></UI.CustomerThemeProvider>);
+    expect(screen.getByRole("definition")).toHaveClass(`text-${align}`);
+    if (align !== "right") expect(screen.getByRole("definition")).not.toHaveClass("text-right");
+    measure(100);
+    expect(screen.getByRole("columnheader")).toHaveClass(`text-${align}`);
+    expect(screen.getByRole("cell")).toHaveClass(`text-${align}`);
+    expect(screen.getByRole("button", { name: "값 오름차순 정렬" })).toHaveClass(`text-${align}`, align === "left" ? "justify-start" : align === "right" ? "justify-end" : "justify-center");
+  });
   it("keeps table sort headers rectangular without changing ordinary or card buttons", () => {
     render(<><UI.Button>일반 버튼</UI.Button><UI.DataGrid caption="조작 영역" rows={[{ id: "one", value: 1 }]} columns={[
       { id: "value", header: "값", minWidth: 100, sortValue: row => row.value, renderCell: row => row.id }
@@ -114,7 +125,9 @@ describe("DataGrid", () => {
     measure(400);
     const table = screen.getByRole("table", { name: "조명 목록" });
     expect(screen.queryByRole("grid")).not.toBeInTheDocument();
-    expect(within(table).getAllByRole("columnheader").every(node => node.classList.contains("text-center"))).toBe(true);
+    expect(within(table).getByRole("columnheader", { name: "이름" })).toHaveClass("text-center");
+    expect(within(table).getByRole("columnheader", { name: "수량" })).toHaveClass("text-right");
+    expect(within(table).getByRole("columnheader", { name: "작업" })).toHaveClass("text-center");
     expect(within(table).getByText("1000")).toHaveClass("text-right");
     expect(table).not.toHaveClass("min-w-5xl");
     measure(399);

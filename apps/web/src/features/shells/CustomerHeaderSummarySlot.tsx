@@ -11,7 +11,7 @@ export function CustomerHeaderSummarySlot({ currentScope, value, className, comp
   return <section aria-label="현장 전체" className={cn("flex min-w-0 items-center justify-center", compact ? "border-t border-border-default py-1" : "py-0", className)}>
     <Heading as="h2" variant="customer-card-title" className="sr-only">현장 전체</Heading>
     <Text className="sr-only">{value.siteName}</Text>
-    {value.state === "ready" ? <dl className="m-0 grid min-w-0 w-full grid-cols-4 gap-x-3">
+    {value.state === "ready" ? <dl className={cn("m-0 grid min-w-0 gap-x-3", compact ? "w-full grid-cols-4" : "grid-cols-[repeat(4,max-content)]")}>
       {([ ["totalFixtures", "전체"], ["onlineFixtures", "온라인"], ["faultFixtures", "장애"], ["offlineFixtures", "오프라인"] ] as const).map(([key, label]) => <div key={key} className="grid min-w-0 justify-items-center gap-0.5">
         <dt className="row-start-2 text-caption text-content-secondary">{label}</dt><dd className={cn("m-0 row-start-1 wrap-anywhere text-body-lg font-bold tabular-nums", key === "onlineFixtures" ? "text-status-success-foreground" : key === "faultFixtures" ? "text-status-danger-foreground" : "text-content-primary")}>{value.counts[key] === null ? "—" : `${value.counts[key]}대`}</dd>
       </div>)}

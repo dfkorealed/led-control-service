@@ -1,5 +1,29 @@
 # 통계 메뉴 기능 현황
 
+## 2026-10-11 브라우저 의견 반영 — 공통 헤더·표 정렬
+
+### 구현 완료
+
+- 현재 customer admin/viewer의 단일 현장 계약에 맞춰 고객 헤더의 현장 선택과 전환 전용 dialog/hook/component를 제거하고, 권한 목록에서 확인한 현재 현장을 일반 텍스트로 표시한다. 현장 목록 권한 확인·dashboard·URL siteId·알람 scope와 로그아웃 dirty guard를 보존한다.
+- PC 헤더 네 집계는 내용 폭과 균일한 간격으로 표시하며 모바일 네 동일 폭 셀은 유지한다. DataGrid의 명시 align은 헤더·정렬 버튼·본문·모바일 값에 적용한다. align이 없으면 기존 헤더 center/본문 left/customer compact card right 기본값을 유지한다.
+
+### 미구현
+
+- 이번 단계에서 전체 Web·타입·UI 정책·빌드·브라우저 검증은 실행하지 않았다. 최종 묶음 검증은 총괄 후속 범위다. API/DB 계약·운영·실장비/HIL 변경은 없다.
+
+### 부족하거나 개선이 필요한 기능
+
+- 공통/모니터링 직접 5 suites 190개가 통과했다. 설정 suite 첫 실행의 별도 홈 카드 group 조회 실패는 기본 d8dbfcd1의 정확 동일 테스트에서도 재현되어 이번 변경과 분리한다. 기존 실패를 전체 통과로 숨기지 않는다.
+- 새 현장 정보 표시와 PC 집계 간격의 실제 긴 이름/양 테마/viewport 화면 검증은 최종 브라우저 단계에 남아 있다.
+
+### 관련 파일
+
+- `apps/web/src/features/shells/{CustomerShell,CustomerHeaderSummarySlot}.tsx`, `apps/web/src/components/ui/DataGrid.tsx` 및 직접 테스트. 전환 전용 `features/sites/{SiteSwitcher,useGuardedSiteSelection}`와 전용 테스트는 삭제했다.
+
+### 갱신 규칙
+
+- 현장 표시 제거와 서버 권한 조회 제거를 혼동하지 않는다. 공통 헤더·DataGrid 소비 변경 시 네 메뉴 문서를 같이 갱신하고, focused 검증과 최종 화면/전체 검증을 구분한다.
+
 ## 2026-10-10 충실도 교정 최종 확인
 
 ### 구현 완료
