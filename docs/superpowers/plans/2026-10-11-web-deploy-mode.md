@@ -27,13 +27,13 @@
 
 ## Task1 — 단일 writer, 연결된 배포 모드 전체 구현
 
-- [ ] Step1: 최신 `cc6b9a7a`에 기존 AWS/Web 준비 `78fab117`/`1b10cd95` 통합. 최근 UI와 기본 entry를 보존하고 충돌은 소유 범위의 양쪽 의미를 유지한다. 과거 상태판은 덮어쓰지 않는다.
-- [ ] Step2: 공통 배포 모드 parser·route/artifact 계약, `build:public` 및 production-only service entry/config 구현. 실패 테스트→최소 구현→양 모드 build/graph/HTTP와 서비스 로그인/일반 auth 회귀. 파일: `apps/web/**`, 필요 `scripts/landing` 공통 계약.
-- [ ] Step3: 기존 `infra/landing/**`, `scripts/landing/**` 배포 흐름을 양 모드로 확장. 같은 deploy 명령으로 edge/API 설정과 산출물 조율, service preflight, mode-bound release/rollback, 최소 IAM·runbook·공개 메뉴 문서. fake AWS 왕복/부분 실패/틀린 모드/쿠키·캐시 계약으로 검증.
+- [x] Step1: 최신 `cc6b9a7a`에 기존 AWS/Web 준비를 `7f132751`/`1f78274c`로 통합했다. 충돌 없이 최신 UI·기본 main entry를 유지하고 과거 상태판은 가져오지 않았다.
+- [x] Step2: 공통 배포 모드 parser·route/artifact 계약, `build:public` 및 production-only service entry/config 구현. 실패 테스트→최소 구현→양 모드 build/graph/HTTP와 서비스 로그인/일반 auth 회귀. 파일: `apps/web/**`, 필요 `scripts/landing` 공통 계약. 구현 `a549fb16`, 양 모드 실제 빌드·landing2PASS/서비스전용2SKIP·service4PASS와 관련 unit45/타입/UI 관문을 확인했다. 독립 리뷰는 Task2에서 진행한다.
+- [x] Step3: 기존 `infra/landing/**`, `scripts/landing/**` 배포 흐름을 양 모드로 확장. 같은 deploy 명령으로 edge/API 설정과 산출물 조율, service preflight, mode-bound release/rollback, 최소 IAM·runbook·공개 메뉴 문서. fake AWS 왕복/부분 실패/틀린 모드/쿠키·캐시 계약으로 검증. 통합 구현 `a549fb16`과 보고서를 고정했고 독립 task/전체 branch 검토를 시작했다.
 
 ## Task2 — 최종 검증·독립 리뷰
 
-- [ ] 한정 최종 타입/UI/양 모드 build·생산 browser, 독립 spec/quality 전체 리뷰 및 필요한 국소 수리. 기본 UI 기존 실패/전체 CI·remote 미실행을 구분한다.
+- [x] 한정 최종 타입/UI/양 모드 build·생산 browser, 독립 spec/quality 전체 리뷰 및 필요한 국소 수리. 기본 UI 기존 실패/전체 CI·remote 미실행을 구분한다. `577e7cfa` 재검토 specYES/qualityApproved/전체 source통합YES, Critical0/Important0. 영구 증거는 `docs/assets/web-deploy-mode-2026-10-11`에 보존했다.
 
 ## Task3 — 결과 통합
 
@@ -44,3 +44,5 @@
 긴밀한 공유 계약이므로 한 implementer에게 `apps/web/**`, `infra/landing/**`, `scripts/landing/**`, 필요 root package script, 공개 메뉴3문서와 기존 AWS runbook을 승인한다. 서버/공유 MQTT/DB/인증서/기존 production Compose/CI 변경은 제외한다. 총괄만 이 계획·spec·project-status를 갱신한다.
 
 검토는 baseline부터 task commit까지의 고정 diff package와 담당 보고서를 사용한다. 불필요한 전체 suite 재실행 없이 changed unit/actual build/실제 접속과 제한적인 auth browser로 완료 기준을 확인한다.
+
+릴리스 구현 계약: HTML/brand는 불변 `published/<release>/`, assets는 모드 namespace로 게시한다. edge가 정확한 릴리스와 모드를 선택하고 CloudFormation 완료를 기다린다. CloudFront 전파는 전 세계 단일 시점 교체가 아니므로 부분 실패 lock·명시 retry/rollback 복구와 이미 내려받은 JS의 한계를 실행서에 기록한다.

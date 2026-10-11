@@ -1,0 +1,1046 @@
+Listing tests:
+  [chromium] › account-security.spec.ts:15:1 › MFA 로그인 후 계정 보안에서 MFA 등록과 세션 종료를 완료한다
+  [chromium] › app-shell-recovery.spec.ts:16:1 › lazy settings failure keeps eager account escape and the single logout owner
+  [chromium] › app-shell-recovery.spec.ts:30:1 › browser offline at boot shows recovery and resumes the real shell when connectivity returns
+  [chromium] › app-shell-recovery.spec.ts:131:3 › 503 exhausts two retries and keyboard manual retry restores the real customer shell at 1440px
+  [chromium] › app-shell-recovery.spec.ts:131:3 › 503 exhausts two retries and keyboard manual retry restores the real customer shell at 1024px
+  [chromium] › app-shell-recovery.spec.ts:131:3 › 503 exhausts two retries and keyboard manual retry restores the real customer shell at 390px
+  [chromium] › app-shell-recovery.spec.ts:131:3 › 503 exhausts two retries and keyboard manual retry restores the real customer shell at 320px
+  [chromium] › app-shell-recovery.spec.ts:184:1 › network exhaustion recovers without reloading the document
+  [chromium] › app-shell-recovery.spec.ts:217:1 › 401 uses the existing login without retry
+  [chromium] › app-shell-recovery.spec.ts:235:1 › 403 relogin clears only tenant drafts and reaches login even when logout fails
+  [chromium] › app-shell-recovery.spec.ts:273:3 › real lazy customer shell rejection has accessible reload recovery
+  [chromium] › app-shell-recovery.spec.ts:273:3 › real lazy customer shell rejection has accessible relogin recovery
+  [chromium] › atlas-ui-fidelity.spec.ts:128:1 › PC four roots own one visible h1 and settings/statistics subnav retain URL scope
+  [chromium] › atlas-ui-fidelity.spec.ts:158:48 › responsive 320: branding plain current site and monitoring refresh precede map
+  [chromium] › atlas-ui-fidelity.spec.ts:158:48 › responsive 390: branding plain current site and monitoring refresh precede map
+  [chromium] › atlas-ui-fidelity.spec.ts:158:48 › responsive 562: branding plain current site and monitoring refresh precede map
+  [chromium] › atlas-ui-fidelity.spec.ts:158:48 › responsive 759: branding plain current site and monitoring refresh precede map
+  [chromium] › atlas-ui-fidelity.spec.ts:158:48 › responsive 760: branding plain current site and monitoring refresh precede map
+  [chromium] › atlas-ui-fidelity.spec.ts:178:1 › short manual recovery keeps map viewport 240, CTA reachable and draft/tools/theme/resize write-free
+  [chromium] › atlas-ui-fidelity.spec.ts:221:1 › dark four roots plain site information and real alarm portal inherit the customer palette
+  [chromium] › atlas-ui-fidelity.spec.ts:238:1 › both monitoring finder entries share query/filter and restore the actual opener
+  [chromium] › atlas-ui-fidelity.spec.ts:253:1 › settings edit/password dialogs cancel to opener while independent MFA draft survives theme
+  [chromium] › atlas-ui-fidelity.spec.ts:285:1 › statistics actual zero and missing heatmap remain distinct through selection and theme
+  [chromium] › atlas-ui-fidelity.spec.ts:299:1 › gallery draws bounded readonly snapshots and disposes canvas on navigation without editor writes
+  [chromium] › atlas-ui-fidelity.spec.ts:383:33 › browser comments tall mobile 578: settled map fills remaining shell height
+  [chromium] › atlas-ui-fidelity.spec.ts:383:33 › browser comments tall mobile 681: settled map fills remaining shell height
+  [chromium] › atlas-ui-fidelity.spec.ts:402:1 › browser comments short mobile: natural scroll exposes monitoring and manual actions
+  [chromium] › atlas-ui-fidelity.spec.ts:423:1 › browser comments PC: current site is plain information and header metrics stay compact
+  [chromium] › atlas-ui-fidelity.spec.ts:469:1 › browser comments manual: individual list owns central clear while brightness draft survives
+  [chromium] › atlas-ui-fidelity.spec.ts:494:1 › browser comments PC tables: schedule toolbar CTA and center alignment preserve read-only UI
+  [chromium] › atlas-ui-fidelity.spec.ts:521:1 › browser comments dark mobile reports: common search reset CSV and filters remain reachable
+  [chromium] › atlas-ui-refresh.spec.ts:343:29 › ATLAS acceptance first visible light 390x844
+  [chromium] › atlas-ui-refresh.spec.ts:343:29 › ATLAS acceptance first visible dark 390x844
+  [chromium] › atlas-ui-refresh.spec.ts:354:3 › ATLAS acceptance settings light 320x740
+  [chromium] › atlas-ui-refresh.spec.ts:354:3 › ATLAS acceptance monitoring light 320x740
+  [chromium] › atlas-ui-refresh.spec.ts:354:3 › ATLAS acceptance statistics light 320x740
+  [chromium] › atlas-ui-refresh.spec.ts:354:3 › ATLAS acceptance settings dark 320x740
+  [chromium] › atlas-ui-refresh.spec.ts:354:3 › ATLAS acceptance monitoring dark 320x740
+  [chromium] › atlas-ui-refresh.spec.ts:354:3 › ATLAS acceptance statistics dark 320x740
+  [chromium] › atlas-ui-refresh.spec.ts:354:3 › ATLAS acceptance settings light 390x844
+  [chromium] › atlas-ui-refresh.spec.ts:354:3 › ATLAS acceptance monitoring light 390x844
+  [chromium] › atlas-ui-refresh.spec.ts:354:3 › ATLAS acceptance statistics light 390x844
+  [chromium] › atlas-ui-refresh.spec.ts:354:3 › ATLAS acceptance settings dark 390x844
+  [chromium] › atlas-ui-refresh.spec.ts:354:3 › ATLAS acceptance monitoring dark 390x844
+  [chromium] › atlas-ui-refresh.spec.ts:354:3 › ATLAS acceptance statistics dark 390x844
+  [chromium] › atlas-ui-refresh.spec.ts:354:3 › ATLAS acceptance settings light 562x1229
+  [chromium] › atlas-ui-refresh.spec.ts:354:3 › ATLAS acceptance monitoring light 562x1229
+  [chromium] › atlas-ui-refresh.spec.ts:354:3 › ATLAS acceptance statistics light 562x1229
+  [chromium] › atlas-ui-refresh.spec.ts:354:3 › ATLAS acceptance settings dark 562x1229
+  [chromium] › atlas-ui-refresh.spec.ts:354:3 › ATLAS acceptance monitoring dark 562x1229
+  [chromium] › atlas-ui-refresh.spec.ts:354:3 › ATLAS acceptance statistics dark 562x1229
+  [chromium] › atlas-ui-refresh.spec.ts:354:3 › ATLAS acceptance settings light 759x768
+  [chromium] › atlas-ui-refresh.spec.ts:354:3 › ATLAS acceptance monitoring light 759x768
+  [chromium] › atlas-ui-refresh.spec.ts:354:3 › ATLAS acceptance statistics light 759x768
+  [chromium] › atlas-ui-refresh.spec.ts:354:3 › ATLAS acceptance settings dark 759x768
+  [chromium] › atlas-ui-refresh.spec.ts:354:3 › ATLAS acceptance monitoring dark 759x768
+  [chromium] › atlas-ui-refresh.spec.ts:354:3 › ATLAS acceptance statistics dark 759x768
+  [chromium] › atlas-ui-refresh.spec.ts:354:3 › ATLAS acceptance settings light 760x768
+  [chromium] › atlas-ui-refresh.spec.ts:354:3 › ATLAS acceptance monitoring light 760x768
+  [chromium] › atlas-ui-refresh.spec.ts:354:3 › ATLAS acceptance statistics light 760x768
+  [chromium] › atlas-ui-refresh.spec.ts:354:3 › ATLAS acceptance settings dark 760x768
+  [chromium] › atlas-ui-refresh.spec.ts:354:3 › ATLAS acceptance monitoring dark 760x768
+  [chromium] › atlas-ui-refresh.spec.ts:354:3 › ATLAS acceptance statistics dark 760x768
+  [chromium] › atlas-ui-refresh.spec.ts:354:3 › ATLAS acceptance settings light 761x768
+  [chromium] › atlas-ui-refresh.spec.ts:354:3 › ATLAS acceptance monitoring light 761x768
+  [chromium] › atlas-ui-refresh.spec.ts:354:3 › ATLAS acceptance statistics light 761x768
+  [chromium] › atlas-ui-refresh.spec.ts:354:3 › ATLAS acceptance settings dark 761x768
+  [chromium] › atlas-ui-refresh.spec.ts:354:3 › ATLAS acceptance monitoring dark 761x768
+  [chromium] › atlas-ui-refresh.spec.ts:354:3 › ATLAS acceptance statistics dark 761x768
+  [chromium] › atlas-ui-refresh.spec.ts:354:3 › ATLAS acceptance settings light 1024x600
+  [chromium] › atlas-ui-refresh.spec.ts:354:3 › ATLAS acceptance monitoring light 1024x600
+  [chromium] › atlas-ui-refresh.spec.ts:354:3 › ATLAS acceptance statistics light 1024x600
+  [chromium] › atlas-ui-refresh.spec.ts:354:3 › ATLAS acceptance settings dark 1024x600
+  [chromium] › atlas-ui-refresh.spec.ts:354:3 › ATLAS acceptance monitoring dark 1024x600
+  [chromium] › atlas-ui-refresh.spec.ts:354:3 › ATLAS acceptance statistics dark 1024x600
+  [chromium] › atlas-ui-refresh.spec.ts:354:3 › ATLAS acceptance settings light 1024x768
+  [chromium] › atlas-ui-refresh.spec.ts:354:3 › ATLAS acceptance monitoring light 1024x768
+  [chromium] › atlas-ui-refresh.spec.ts:354:3 › ATLAS acceptance statistics light 1024x768
+  [chromium] › atlas-ui-refresh.spec.ts:354:3 › ATLAS acceptance settings dark 1024x768
+  [chromium] › atlas-ui-refresh.spec.ts:354:3 › ATLAS acceptance monitoring dark 1024x768
+  [chromium] › atlas-ui-refresh.spec.ts:354:3 › ATLAS acceptance statistics dark 1024x768
+  [chromium] › atlas-ui-refresh.spec.ts:354:3 › ATLAS acceptance settings light 1304x1229
+  [chromium] › atlas-ui-refresh.spec.ts:354:3 › ATLAS acceptance monitoring light 1304x1229
+  [chromium] › atlas-ui-refresh.spec.ts:354:3 › ATLAS acceptance statistics light 1304x1229
+  [chromium] › atlas-ui-refresh.spec.ts:354:3 › ATLAS acceptance settings dark 1304x1229
+  [chromium] › atlas-ui-refresh.spec.ts:354:3 › ATLAS acceptance monitoring dark 1304x1229
+  [chromium] › atlas-ui-refresh.spec.ts:354:3 › ATLAS acceptance statistics dark 1304x1229
+  [chromium] › atlas-ui-refresh.spec.ts:354:3 › ATLAS acceptance settings light 1440x900
+  [chromium] › atlas-ui-refresh.spec.ts:354:3 › ATLAS acceptance monitoring light 1440x900
+  [chromium] › atlas-ui-refresh.spec.ts:354:3 › ATLAS acceptance statistics light 1440x900
+  [chromium] › atlas-ui-refresh.spec.ts:354:3 › ATLAS acceptance settings dark 1440x900
+  [chromium] › atlas-ui-refresh.spec.ts:354:3 › ATLAS acceptance monitoring dark 1440x900
+  [chromium] › atlas-ui-refresh.spec.ts:354:3 › ATLAS acceptance statistics dark 1440x900
+  [chromium] › atlas-ui-refresh.spec.ts:651:55 › ATLAS acceptance manual control-only light 320x740
+  [chromium] › atlas-ui-refresh.spec.ts:651:55 › ATLAS acceptance manual control-only dark 320x740
+  [chromium] › atlas-ui-refresh.spec.ts:651:55 › ATLAS acceptance manual control-only light 390x844
+  [chromium] › atlas-ui-refresh.spec.ts:651:55 › ATLAS acceptance manual control-only dark 390x844
+  [chromium] › atlas-ui-refresh.spec.ts:651:55 › ATLAS acceptance manual control-only light 562x1229
+  [chromium] › atlas-ui-refresh.spec.ts:651:55 › ATLAS acceptance manual control-only dark 562x1229
+  [chromium] › atlas-ui-refresh.spec.ts:651:55 › ATLAS acceptance manual control-only light 759x768
+  [chromium] › atlas-ui-refresh.spec.ts:651:55 › ATLAS acceptance manual control-only dark 759x768
+  [chromium] › atlas-ui-refresh.spec.ts:651:55 › ATLAS acceptance manual control-only light 760x768
+  [chromium] › atlas-ui-refresh.spec.ts:651:55 › ATLAS acceptance manual control-only dark 760x768
+  [chromium] › atlas-ui-refresh.spec.ts:651:55 › ATLAS acceptance manual control-only light 761x768
+  [chromium] › atlas-ui-refresh.spec.ts:651:55 › ATLAS acceptance manual control-only dark 761x768
+  [chromium] › atlas-ui-refresh.spec.ts:651:55 › ATLAS acceptance manual control-only light 1024x600
+  [chromium] › atlas-ui-refresh.spec.ts:651:55 › ATLAS acceptance manual control-only dark 1024x600
+  [chromium] › atlas-ui-refresh.spec.ts:651:55 › ATLAS acceptance manual control-only light 1024x768
+  [chromium] › atlas-ui-refresh.spec.ts:651:55 › ATLAS acceptance manual control-only dark 1024x768
+  [chromium] › atlas-ui-refresh.spec.ts:651:55 › ATLAS acceptance manual control-only light 1304x1229
+  [chromium] › atlas-ui-refresh.spec.ts:651:55 › ATLAS acceptance manual control-only dark 1304x1229
+  [chromium] › atlas-ui-refresh.spec.ts:651:55 › ATLAS acceptance manual control-only light 1440x900
+  [chromium] › atlas-ui-refresh.spec.ts:651:55 › ATLAS acceptance manual control-only dark 1440x900
+  [chromium] › atlas-ui-refresh.spec.ts:710:3 › ATLAS acceptance PC safety accepted light 760x768
+  [chromium] › atlas-ui-refresh.spec.ts:710:3 › ATLAS acceptance PC safety completed light 760x768
+  [chromium] › atlas-ui-refresh.spec.ts:710:3 › ATLAS acceptance PC safety failed light 760x768
+  [chromium] › atlas-ui-refresh.spec.ts:710:3 › ATLAS acceptance PC safety verification_required light 760x768
+  [chromium] › atlas-ui-refresh.spec.ts:710:3 › ATLAS acceptance PC safety accepted dark 760x768
+  [chromium] › atlas-ui-refresh.spec.ts:710:3 › ATLAS acceptance PC safety completed dark 760x768
+  [chromium] › atlas-ui-refresh.spec.ts:710:3 › ATLAS acceptance PC safety failed dark 760x768
+  [chromium] › atlas-ui-refresh.spec.ts:710:3 › ATLAS acceptance PC safety verification_required dark 760x768
+  [chromium] › atlas-ui-refresh.spec.ts:710:3 › ATLAS acceptance PC safety accepted light 761x768
+  [chromium] › atlas-ui-refresh.spec.ts:710:3 › ATLAS acceptance PC safety completed light 761x768
+  [chromium] › atlas-ui-refresh.spec.ts:710:3 › ATLAS acceptance PC safety failed light 761x768
+  [chromium] › atlas-ui-refresh.spec.ts:710:3 › ATLAS acceptance PC safety verification_required light 761x768
+  [chromium] › atlas-ui-refresh.spec.ts:710:3 › ATLAS acceptance PC safety accepted dark 761x768
+  [chromium] › atlas-ui-refresh.spec.ts:710:3 › ATLAS acceptance PC safety completed dark 761x768
+  [chromium] › atlas-ui-refresh.spec.ts:710:3 › ATLAS acceptance PC safety failed dark 761x768
+  [chromium] › atlas-ui-refresh.spec.ts:710:3 › ATLAS acceptance PC safety verification_required dark 761x768
+  [chromium] › atlas-ui-refresh.spec.ts:710:3 › ATLAS acceptance PC safety accepted light 1024x600
+  [chromium] › atlas-ui-refresh.spec.ts:710:3 › ATLAS acceptance PC safety completed light 1024x600
+  [chromium] › atlas-ui-refresh.spec.ts:710:3 › ATLAS acceptance PC safety failed light 1024x600
+  [chromium] › atlas-ui-refresh.spec.ts:710:3 › ATLAS acceptance PC safety verification_required light 1024x600
+  [chromium] › atlas-ui-refresh.spec.ts:710:3 › ATLAS acceptance PC safety accepted dark 1024x600
+  [chromium] › atlas-ui-refresh.spec.ts:710:3 › ATLAS acceptance PC safety completed dark 1024x600
+  [chromium] › atlas-ui-refresh.spec.ts:710:3 › ATLAS acceptance PC safety failed dark 1024x600
+  [chromium] › atlas-ui-refresh.spec.ts:710:3 › ATLAS acceptance PC safety verification_required dark 1024x600
+  [chromium] › atlas-ui-refresh.spec.ts:710:3 › ATLAS acceptance PC safety accepted light 1024x768
+  [chromium] › atlas-ui-refresh.spec.ts:710:3 › ATLAS acceptance PC safety completed light 1024x768
+  [chromium] › atlas-ui-refresh.spec.ts:710:3 › ATLAS acceptance PC safety failed light 1024x768
+  [chromium] › atlas-ui-refresh.spec.ts:710:3 › ATLAS acceptance PC safety verification_required light 1024x768
+  [chromium] › atlas-ui-refresh.spec.ts:710:3 › ATLAS acceptance PC safety accepted dark 1024x768
+  [chromium] › atlas-ui-refresh.spec.ts:710:3 › ATLAS acceptance PC safety completed dark 1024x768
+  [chromium] › atlas-ui-refresh.spec.ts:710:3 › ATLAS acceptance PC safety failed dark 1024x768
+  [chromium] › atlas-ui-refresh.spec.ts:710:3 › ATLAS acceptance PC safety verification_required dark 1024x768
+  [chromium] › atlas-ui-refresh.spec.ts:710:3 › ATLAS acceptance PC safety accepted light 1304x1229
+  [chromium] › atlas-ui-refresh.spec.ts:710:3 › ATLAS acceptance PC safety completed light 1304x1229
+  [chromium] › atlas-ui-refresh.spec.ts:710:3 › ATLAS acceptance PC safety failed light 1304x1229
+  [chromium] › atlas-ui-refresh.spec.ts:710:3 › ATLAS acceptance PC safety verification_required light 1304x1229
+  [chromium] › atlas-ui-refresh.spec.ts:710:3 › ATLAS acceptance PC safety accepted dark 1304x1229
+  [chromium] › atlas-ui-refresh.spec.ts:710:3 › ATLAS acceptance PC safety completed dark 1304x1229
+  [chromium] › atlas-ui-refresh.spec.ts:710:3 › ATLAS acceptance PC safety failed dark 1304x1229
+  [chromium] › atlas-ui-refresh.spec.ts:710:3 › ATLAS acceptance PC safety verification_required dark 1304x1229
+  [chromium] › atlas-ui-refresh.spec.ts:710:3 › ATLAS acceptance PC safety accepted light 1440x900
+  [chromium] › atlas-ui-refresh.spec.ts:710:3 › ATLAS acceptance PC safety completed light 1440x900
+  [chromium] › atlas-ui-refresh.spec.ts:710:3 › ATLAS acceptance PC safety failed light 1440x900
+  [chromium] › atlas-ui-refresh.spec.ts:710:3 › ATLAS acceptance PC safety verification_required light 1440x900
+  [chromium] › atlas-ui-refresh.spec.ts:710:3 › ATLAS acceptance PC safety accepted dark 1440x900
+  [chromium] › atlas-ui-refresh.spec.ts:710:3 › ATLAS acceptance PC safety completed dark 1440x900
+  [chromium] › atlas-ui-refresh.spec.ts:710:3 › ATLAS acceptance PC safety failed dark 1440x900
+  [chromium] › atlas-ui-refresh.spec.ts:710:3 › ATLAS acceptance PC safety verification_required dark 1440x900
+  [chromium] › atlas-ui-refresh.spec.ts:763:29 › ATLAS acceptance short NONMANAGER frozen UNCERTAIN recovery light
+  [chromium] › atlas-ui-refresh.spec.ts:763:29 › ATLAS acceptance short NONMANAGER frozen UNCERTAIN recovery dark
+  [chromium] › atlas-ui-refresh.spec.ts:854:74 › ATLAS acceptance requested fractional 759.5 light
+  [chromium] › atlas-ui-refresh.spec.ts:854:74 › ATLAS acceptance requested fractional 760 light
+  [chromium] › atlas-ui-refresh.spec.ts:854:74 › ATLAS acceptance requested fractional 760.5 light
+  [chromium] › atlas-ui-refresh.spec.ts:854:74 › ATLAS acceptance requested fractional 759.5 dark
+  [chromium] › atlas-ui-refresh.spec.ts:854:74 › ATLAS acceptance requested fractional 760 dark
+  [chromium] › atlas-ui-refresh.spec.ts:854:74 › ATLAS acceptance requested fractional 760.5 dark
+  [chromium] › atlas-ui-refresh.spec.ts:870:89 › ATLAS acceptance site loading light 320x740
+  [chromium] › atlas-ui-refresh.spec.ts:870:89 › ATLAS acceptance site error light 320x740
+  [chromium] › atlas-ui-refresh.spec.ts:870:89 › ATLAS acceptance site empty light 320x740
+  [chromium] › atlas-ui-refresh.spec.ts:870:89 › ATLAS acceptance site loading dark 320x740
+  [chromium] › atlas-ui-refresh.spec.ts:870:89 › ATLAS acceptance site error dark 320x740
+  [chromium] › atlas-ui-refresh.spec.ts:870:89 › ATLAS acceptance site empty dark 320x740
+  [chromium] › atlas-ui-refresh.spec.ts:959:1 › ATLAS acceptance stored preference reload cross-tab failure and customer cleanup
+  [chromium] › atlas-ui-refresh.spec.ts:976:29 › ATLAS acceptance MFA enrollment draft survives theme light
+  [chromium] › atlas-ui-refresh.spec.ts:976:29 › ATLAS acceptance MFA enrollment draft survives theme dark
+  [chromium] › atlas-ui-refresh.spec.ts:1069:29 › ATLAS acceptance PDF pending job and CSV draft survive theme light
+  [chromium] › atlas-ui-refresh.spec.ts:1069:29 › ATLAS acceptance PDF pending job and CSV draft survive theme dark
+  [chromium] › auth-real.spec.ts:20:1 › real backend rejects wrong credentials and accepts the bootstrapped operator
+  [chromium] › auth-real.spec.ts:38:1 › real MFA login survives a trusted ingress client-IP change
+  [chromium] › automation-control-flow.spec.ts:29:1 › admin creates and executes schedule and vehicle event rules
+  [chromium] › cad-import-journey.spec.ts:32:3 › Legacy SVG: 기존 적용 맵부터 슬롯 배치, 저장, 새로고침, 모니터링까지 (route fixture)
+  [chromium] › cad-import-journey.spec.ts:32:3 › Native WebGL: region 선택부터 슬롯 배치, 저장, 새로고침, 모니터링까지 (route fixture)
+  [chromium] › cad-import-journey.spec.ts:246:3 › native CAD + 1,000 fixture browser benchmark 1440x900 (no backend/HIL)
+  [chromium] › cad-import-journey.spec.ts:246:3 › native CAD + 1,000 fixture browser benchmark 390x844 (no backend/HIL)
+  [chromium] › cad-import-journey.spec.ts:308:3 › U13 prepared common import recovery and zero-candidate replacement 1440 (route fixture)
+  [chromium] › cad-import-journey.spec.ts:308:3 › U13 prepared common import recovery and zero-candidate replacement 390 (route fixture)
+  [chromium] › cad-import-journey.spec.ts:399:3 › U13 R1 import UI manifest completion hook-first and retry (route fixture)
+  [chromium] › cad-import-journey.spec.ts:399:3 › U13 R1 import UI manifest completion renderer-first and retry (route fixture)
+  [chromium] › cad-provided-artifacts.spec.ts:23:5 › provided CAD 1 editor and monitor 1440
+  [chromium] › cad-provided-artifacts.spec.ts:23:5 › provided CAD 1 editor and monitor 390
+  [chromium] › cad-provided-artifacts.spec.ts:172:5 › provided CAD 1 performance baseline cold warm pair 1 of 5
+  [chromium] › cad-provided-artifacts.spec.ts:172:5 › provided CAD 1 performance baseline cold warm pair 2 of 5
+  [chromium] › cad-provided-artifacts.spec.ts:172:5 › provided CAD 1 performance baseline cold warm pair 3 of 5
+  [chromium] › cad-provided-artifacts.spec.ts:172:5 › provided CAD 1 performance baseline cold warm pair 4 of 5
+  [chromium] › cad-provided-artifacts.spec.ts:172:5 › provided CAD 1 performance baseline cold warm pair 5 of 5
+  [chromium] › cad-provided-artifacts.spec.ts:340:1 › provided CAD native line edit persists through route-fixture reload
+  [chromium] › calm-operations-auth-operator.spec.ts:44:3 › calm operations auth and operator surfaces remain responsive at 1440px
+  [chromium] › calm-operations-auth-operator.spec.ts:44:3 › calm operations auth and operator surfaces remain responsive at 1378px
+  [chromium] › calm-operations-auth-operator.spec.ts:44:3 › calm operations auth and operator surfaces remain responsive at 1024px
+  [chromium] › calm-operations-auth-operator.spec.ts:44:3 › calm operations auth and operator surfaces remain responsive at 390px
+  [chromium] › calm-operations-auth-operator.spec.ts:44:3 › calm operations auth and operator surfaces remain responsive at 320px
+  [chromium] › calm-operations-automation.spec.ts:37:3 › schedule 현재 목록 정렬은 키보드와 좁은 카드에서도 같은 순서를 유지한다
+  [chromium] › calm-operations-automation.spec.ts:37:3 › event 현재 목록 정렬은 키보드와 좁은 카드에서도 같은 순서를 유지한다
+  [chromium] › calm-operations-automation.spec.ts:90:1 › Task6 shared mock boundary keeps later fixture precedence, unknown API 404 and external abort
+  [chromium] › calm-operations-automation.spec.ts:120:3 › 1440px 자동화 목록과 편집기는 상태와 스크롤 계약을 유지한다
+  [chromium] › calm-operations-automation.spec.ts:120:3 › 1024px 자동화 목록과 편집기는 상태와 스크롤 계약을 유지한다
+  [chromium] › calm-operations-automation.spec.ts:120:3 › 390px 자동화 목록과 편집기는 상태와 스크롤 계약을 유지한다
+  [chromium] › calm-operations-automation.spec.ts:120:3 › 320px 자동화 목록과 편집기는 상태와 스크롤 계약을 유지한다
+  [chromium] › calm-operations-automation.spec.ts:226:1 › 1024px 대상 선택기는 긴 조명 목록과 더 보기를 dialog 내부에서 끝까지 제공한다
+  [chromium] › calm-operations-automation.spec.ts:275:1 › 자동화 빈 목록과 조회 실패는 실제 추가와 재시도 동작을 제공한다
+  [chromium] › calm-operations-automation.spec.ts:294:1 › 자동화 전역 목록은 현장 요약과 조건별 페이지를 분리한다
+  [chromium] › calm-operations-automation.spec.ts:336:1 › Task6 measured automation containers retain complete rows, 44px actions and delete focus across boundary and short viewports
+  [chromium] › calm-operations-commissioning.spec.ts:80:3 › commissioning states stay responsive at 1440px
+  [chromium] › calm-operations-commissioning.spec.ts:80:3 › commissioning states stay responsive at 1024px
+  [chromium] › calm-operations-commissioning.spec.ts:80:3 › commissioning states stay responsive at 390px
+  [chromium] › calm-operations-commissioning.spec.ts:80:3 › commissioning states stay responsive at 320px
+  [chromium] › calm-operations-commissioning.spec.ts:202:1 › registration separates available and existing devices and submits only the available node
+  [chromium] › calm-operations-commissioning.spec.ts:295:1 › accepted identify retry ignores a delayed earlier terminal and keeps polling its own operation
+  [chromium] › calm-operations-commissioning.spec.ts:328:1 › registration progress exposes provisioning, completed, and failed semantics
+  [chromium] › calm-operations-manual-control.spec.ts:101:3 › 1440px 최근 이력은 실행 패널 아래 compact bar로 남는다
+  [chromium] › calm-operations-manual-control.spec.ts:101:3 › 390px 최근 이력은 실행 패널 아래 compact bar로 남는다
+  [chromium] › calm-operations-manual-control.spec.ts:101:3 › 320px 최근 이력은 실행 패널 아래 compact bar로 남는다
+  [chromium] › calm-operations-manual-control.spec.ts:133:3 › 1440x900px 명령 이력 상태 확인과 원래 대상 안전 재적용
+  [chromium] › calm-operations-manual-control.spec.ts:133:3 › 390x844px 명령 이력 상태 확인과 원래 대상 안전 재적용
+  [chromium] › calm-operations-manual-control.spec.ts:133:3 › 760x768px 명령 이력 상태 확인과 원래 대상 안전 재적용
+  [chromium] › calm-operations-manual-control.spec.ts:133:3 › 768x768px 명령 이력 상태 확인과 원래 대상 안전 재적용
+  [chromium] › calm-operations-manual-control.spec.ts:133:3 › 1023x768px 명령 이력 상태 확인과 원래 대상 안전 재적용
+  [chromium] › calm-operations-manual-control.spec.ts:133:3 › 1024x768px 명령 이력 상태 확인과 원래 대상 안전 재적용
+  [chromium] › calm-operations-manual-control.spec.ts:133:3 › 390x320px 명령 이력 상태 확인과 원래 대상 안전 재적용
+  [chromium] › calm-operations-manual-control.spec.ts:133:3 › 1440x600px 명령 이력 상태 확인과 원래 대상 안전 재적용
+  [chromium] › calm-operations-manual-control.spec.ts:320:3 › 1440px 수동 제어는 대상·명령 결과·저장 구역 계약을 유지한다
+  [chromium] › calm-operations-manual-control.spec.ts:392:3 › 1440px Mesh 준비 전 floor와 저장 구역은 제어 대상으로 차단한다
+  [chromium] › calm-operations-manual-control.spec.ts:417:3 › 1440px read-only viewer는 수동 제어 route에 접근할 수 없다
+  [chromium] › calm-operations-manual-control.spec.ts:429:3 › 1440px 수동 명령은 success와 timeout terminal을 복구한다
+  [chromium] › calm-operations-manual-control.spec.ts:320:3 › 1366px 수동 제어는 대상·명령 결과·저장 구역 계약을 유지한다
+  [chromium] › calm-operations-manual-control.spec.ts:392:3 › 1366px Mesh 준비 전 floor와 저장 구역은 제어 대상으로 차단한다
+  [chromium] › calm-operations-manual-control.spec.ts:417:3 › 1366px read-only viewer는 수동 제어 route에 접근할 수 없다
+  [chromium] › calm-operations-manual-control.spec.ts:429:3 › 1366px 수동 명령은 success와 timeout terminal을 복구한다
+  [chromium] › calm-operations-manual-control.spec.ts:320:3 › 390px 수동 제어는 대상·명령 결과·저장 구역 계약을 유지한다
+  [chromium] › calm-operations-manual-control.spec.ts:392:3 › 390px Mesh 준비 전 floor와 저장 구역은 제어 대상으로 차단한다
+  [chromium] › calm-operations-manual-control.spec.ts:417:3 › 390px read-only viewer는 수동 제어 route에 접근할 수 없다
+  [chromium] › calm-operations-manual-control.spec.ts:429:3 › 390px 수동 명령은 success와 timeout terminal을 복구한다
+  [chromium] › calm-operations-manual-control.spec.ts:320:3 › 320px 수동 제어는 대상·명령 결과·저장 구역 계약을 유지한다
+  [chromium] › calm-operations-manual-control.spec.ts:392:3 › 320px Mesh 준비 전 floor와 저장 구역은 제어 대상으로 차단한다
+  [chromium] › calm-operations-manual-control.spec.ts:417:3 › 320px read-only viewer는 수동 제어 route에 접근할 수 없다
+  [chromium] › calm-operations-manual-control.spec.ts:429:3 › 320px 수동 명령은 success와 timeout terminal을 복구한다
+  [chromium] › calm-operations-manual-control.spec.ts:462:3 › 1440px PC 수동 제어 카드는 선택 피드백이 추가되어도 핵심 UI를 고정한다
+  [chromium] › calm-operations-manual-control.spec.ts:462:3 › 1121px PC 수동 제어 카드는 선택 피드백이 추가되어도 핵심 UI를 고정한다
+  [chromium] › calm-operations-manual-control.spec.ts:462:3 › 1366px PC 수동 제어 카드는 선택 피드백이 추가되어도 핵심 UI를 고정한다
+  [chromium] › calm-operations-manual-control.spec.ts:509:3 › 390px 선택 후 추가된 제어 차단 경고가 접근 가능하다
+  [chromium] › calm-operations-manual-control.spec.ts:509:3 › 320px 선택 후 추가된 제어 차단 경고가 접근 가능하다
+  [chromium] › calm-operations-manual-control.spec.ts:692:1 › Task7 immediate manual tools and draft-only brightness retain command history contract
+  [chromium] › calm-operations-manual-control.spec.ts:723:3 › Task6 320x740 inline result scroll reaches the final failed fixture without a new command
+  [chromium] › calm-operations-manual-control.spec.ts:723:3 › Task6 390x844 inline result scroll reaches the final failed fixture without a new command
+  [chromium] › calm-operations-manual-control.spec.ts:723:3 › Task6 760x768 inline result scroll reaches the final failed fixture without a new command
+  [chromium] › calm-operations-manual-control.spec.ts:723:3 › Task6 768x768 inline result scroll reaches the final failed fixture without a new command
+  [chromium] › calm-operations-manual-control.spec.ts:723:3 › Task6 1023x768 inline result scroll reaches the final failed fixture without a new command
+  [chromium] › calm-operations-manual-control.spec.ts:723:3 › Task6 1024x768 inline result scroll reaches the final failed fixture without a new command
+  [chromium] › calm-operations-manual-control.spec.ts:723:3 › Task6 1440x900 inline result scroll reaches the final failed fixture without a new command
+  [chromium] › calm-operations-manual-control.spec.ts:723:3 › Task6 390x320 inline result scroll reaches the final failed fixture without a new command
+  [chromium] › calm-operations-manual-control.spec.ts:723:3 › Task6 1440x600 inline result scroll reaches the final failed fixture without a new command
+  [chromium] › calm-operations-manual-control.spec.ts:778:1 › Task7 in-flight inline/filter/theme/resize/tools keeps the original UUID, targets and lock without another POST
+  [chromium] › calm-operations-monitoring.spec.ts:144:5 › 1440px 수동 장치 확인 completed 결과는 KPI·마커·선택 상세에 반영된다
+  [chromium] › calm-operations-monitoring.spec.ts:144:5 › 1440px 수동 장치 확인 partial 결과는 KPI·마커·선택 상세에 반영된다
+  [chromium] › calm-operations-monitoring.spec.ts:144:5 › 1378px 수동 장치 확인 completed 결과는 KPI·마커·선택 상세에 반영된다
+  [chromium] › calm-operations-monitoring.spec.ts:144:5 › 1378px 수동 장치 확인 partial 결과는 KPI·마커·선택 상세에 반영된다
+  [chromium] › calm-operations-monitoring.spec.ts:144:5 › 1024px 수동 장치 확인 completed 결과는 KPI·마커·선택 상세에 반영된다
+  [chromium] › calm-operations-monitoring.spec.ts:144:5 › 1024px 수동 장치 확인 partial 결과는 KPI·마커·선택 상세에 반영된다
+  [chromium] › calm-operations-monitoring.spec.ts:144:5 › 390px 수동 장치 확인 completed 결과는 KPI·마커·선택 상세에 반영된다
+  [chromium] › calm-operations-monitoring.spec.ts:144:5 › 390px 수동 장치 확인 partial 결과는 KPI·마커·선택 상세에 반영된다
+  [chromium] › calm-operations-monitoring.spec.ts:144:5 › 320px 수동 장치 확인 completed 결과는 KPI·마커·선택 상세에 반영된다
+  [chromium] › calm-operations-monitoring.spec.ts:144:5 › 320px 수동 장치 확인 partial 결과는 KPI·마커·선택 상세에 반영된다
+  [chromium] › calm-operations-monitoring.spec.ts:200:3 › 1440px 모니터링은 KPI와 지도/상세 반응형 계약을 지킨다
+  [chromium] › calm-operations-monitoring.spec.ts:200:3 › 1378px 모니터링은 KPI와 지도/상세 반응형 계약을 지킨다
+  [chromium] › calm-operations-monitoring.spec.ts:200:3 › 1024px 모니터링은 KPI와 지도/상세 반응형 계약을 지킨다
+  [chromium] › calm-operations-monitoring.spec.ts:200:3 › 390px 모니터링은 KPI와 지도/상세 반응형 계약을 지킨다
+  [chromium] › calm-operations-monitoring.spec.ts:200:3 › 320px 모니터링은 KPI와 지도/상세 반응형 계약을 지킨다
+  [chromium] › calm-operations-monitoring.spec.ts:294:1 › 1440px 모니터링 지도는 전폭에 가깝고 검색·상세는 드로어에서 사용한다
+  [chromium] › calm-operations-monitoring.spec.ts:331:1 › 등록 조명 0대여도 실제 운영 활동은 320px 우측 전체 보기와 drawer로 이어진다
+  [chromium] › calm-operations-monitoring.spec.ts:369:1 › 320px 긴 실제 로그에서도 범례 간격과 우측 전체 보기 위치를 유지한다
+  [chromium] › calm-operations-monitoring.spec.ts:389:1 › 운영 로그는 기본 50건 server cursor를 따라가며 만료 페이지에서 최신으로 돌아간다
+  [chromium] › calm-operations-monitoring.spec.ts:439:1 › 미배치 조명을 번호로 찾아 상세를 열고 지도에는 마커를 만들지 않는다
+  [chromium] › calm-operations-monitoring.spec.ts:456:1 › 데스크톱 지도는 내부에서 확대·스크롤되고 상세 정보는 패널 폭 안에 유지된다
+  [chromium] › calm-operations-monitoring.spec.ts:560:1 › 320px 가장자리 핀 정보는 화면 안에 머물고 실제 상태·좌표·초점 복귀를 보존한다
+  [chromium] › calm-operations-monitoring.spec.ts:586:1 › 조명 마커는 48px hit target 안에 원형 20px dot과 상태 ring을 유지하고 online 밝기를 10단계로 표시한다
+  [chromium] › calm-operations-monitoring.spec.ts:731:1 › 모니터링 예외 상태는 등록과 지도 실패를 정상 화면과 분리한다
+  [chromium] › calm-operations-monitoring.spec.ts:783:1 › 등록된 조명이 있는 관리자도 모니터링에서 등록 UI를 열 수 없다
+  [chromium] › calm-operations-monitoring.spec.ts:797:1 › 게이트웨이만 있는 현장의 관리자는 설정 이동 안내만 본다
+  [chromium] › calm-operations-monitoring.spec.ts:824:1 › 게이트웨이만 있는 현장의 조회 사용자는 설치 대기 안내만 본다
+  [chromium] › calm-operations-monitoring.spec.ts:835:1 › 층이 없는 현장의 관리자는 floor 조회 경고 없이 empty 안내를 사용한다
+  [chromium] › calm-operations-monitoring.spec.ts:853:1 › 층이 없는 현장의 조회 사용자는 floor 조회 경고 없이 empty 안내를 본다
+  [chromium] › calm-operations-monitoring.spec.ts:869:1 › fixture 최초 조회 실패에도 인시던트 UI를 노출하지 않는다
+  [chromium] › calm-operations-monitoring.spec.ts:880:3 › 2400x600 도면은 데스크톱 지도 영역 안에 비율을 유지해 맞춘다
+  [chromium] › calm-operations-monitoring.spec.ts:880:3 › 600x2400 도면은 데스크톱 지도 영역 안에 비율을 유지해 맞춘다
+  [chromium] › calm-operations-monitoring.spec.ts:899:1 › dashboard/map과 fixture의 부분 갱신 실패에도 cached 화면과 지도·조명 선택을 유지한다
+  [chromium] › calm-operations-monitoring.spec.ts:946:1 › 서버 snapshot 시각이 60초를 초과하면 stale 경고를 표시한다
+  [chromium] › calm-operations-monitoring.spec.ts:970:1 › 네 monitoring 장애 원인은 selector·marker·badge·상세 설명에서 같은 presenter를 사용한다
+  [chromium] › calm-operations-monitoring.spec.ts:1000:3 › 1440px 상세 패널은 조명 정보만 표시하고 page/panel 경계를 벗어나지 않는다
+  [chromium] › calm-operations-monitoring.spec.ts:1000:3 › 1378px 상세 패널은 조명 정보만 표시하고 page/panel 경계를 벗어나지 않는다
+  [chromium] › calm-operations-monitoring.spec.ts:1000:3 › 1024px 상세 패널은 조명 정보만 표시하고 page/panel 경계를 벗어나지 않는다
+  [chromium] › calm-operations-monitoring.spec.ts:1000:3 › 390px 상세 패널은 조명 정보만 표시하고 page/panel 경계를 벗어나지 않는다
+  [chromium] › calm-operations-monitoring.spec.ts:1000:3 › 320px 상세 패널은 조명 정보만 표시하고 page/panel 경계를 벗어나지 않는다
+  [chromium] › calm-operations-monitoring.spec.ts:1020:1 › 부분 지도 갱신 실패에도 이전 지도와 선택 상세를 유지한다
+  [chromium] › calm-operations-monitoring.spec.ts:1034:1 › 지도 갱신 실패 뒤 새 legacy revision은 경고를 지우고 선택을 유지하며 카메라를 초기화한다
+  [chromium] › calm-operations-shell.spec.ts:27:3 › calm operations shell keeps its rail and navigation contract at 1440px
+  [chromium] › calm-operations-shell.spec.ts:27:3 › calm operations shell keeps its rail and navigation contract at 1378px
+  [chromium] › calm-operations-shell.spec.ts:27:3 › calm operations shell keeps its rail and navigation contract at 1024px
+  [chromium] › calm-operations-shell.spec.ts:27:3 › calm operations shell keeps its rail and navigation contract at 760px
+  [chromium] › calm-operations-shell.spec.ts:27:3 › calm operations shell keeps its rail and navigation contract at 390px
+  [chromium] › calm-operations-shell.spec.ts:27:3 › calm operations shell keeps its rail and navigation contract at 320px
+  [chromium] › calm-operations-shell.spec.ts:113:1 › shell navigation updates when the viewport crosses the compact breakpoint
+  [chromium] › calm-operations-shell.spec.ts:131:1 › editor revision timestamp retains device timezone, seconds and source ISO (HTTP fixture)
+  [chromium] › calm-operations-shell.spec.ts:149:1 › shell titles follow the current customer route
+  [chromium] › calm-operations-shell.spec.ts:165:1 › sticky topbar does not cover settings content at desktop atlas widths
+  [chromium] › calm-operations-shell.spec.ts:197:1 › 320px content can scroll above the fixed bottom navigation
+  [chromium] › command-retention.spec.ts:17:3 › opened terminal detail hides stale content on 404 without any POST
+  [chromium] › command-retention.spec.ts:17:3 › opened terminal detail hides stale content on 410 without any POST
+  [chromium] › command-retention.spec.ts:53:1 › an open terminal result from 2026-05-31T12:00:00Z disappears at its first calendar cutoff with browser skew -60000
+  [chromium] › command-retention.spec.ts:53:1 › an open terminal result from 2026-02-28T23:00:00Z disappears at its first calendar cutoff with browser skew -60000
+  [chromium] › command-retention.spec.ts:53:1 › an open terminal result from 2024-02-29T23:30:00Z disappears at its first calendar cutoff with browser skew -60000
+  [chromium] › command-retention.spec.ts:53:1 › an open terminal result from 2026-05-31T12:00:00Z disappears at its first calendar cutoff with browser skew 60000
+  [chromium] › command-retention.spec.ts:53:1 › an open terminal result from 2026-02-28T23:00:00Z disappears at its first calendar cutoff with browser skew 60000
+  [chromium] › command-retention.spec.ts:53:1 › an open terminal result from 2024-02-29T23:30:00Z disappears at its first calendar cutoff with browser skew 60000
+  [chromium] › common-map-lab-support.spec.ts:13:1 › CAD Lab opt-in은 기존 기본 환경을 변경하지 않는다
+  [chromium] › common-map-lab-support.spec.ts:21:1 › CAD Lab은 소유 storage가 없으면 거부하고 완전한 전용 환경을 생성한다
+  [chromium] › common-map-lab-support.spec.ts:45:1 › identify 교환은 provision-device 완료 개수에 포함하지 않는다
+  [chromium] › common-map-lab-support.spec.ts:62:1 › 부분 시작 실패에서도 소유 mc helper를 먼저 정리하고 타 소유 container는 거부한다
+  [chromium] › common-map-real.spec.ts:36:1 › 실백엔드: 일반 도형과 DXF 정본을 저장·삭제·복구하고 stage 확정 뒤 모니터링에 표시한다
+  [chromium] › control-map-target-selection.spec.ts:33:1 › Task6 unmodified wheel zoom preserves the pointer anchor without a control POST
+  [chromium] › control-map-target-selection.spec.ts:57:3 › BIO server telemetry 320px stays accessible and clears on source remap without promoting readiness
+  [chromium] › control-map-target-selection.spec.ts:57:3 › BIO server telemetry 390px stays accessible and clears on source remap without promoting readiness
+  [chromium] › control-map-target-selection.spec.ts:99:3 › BIO authoring 320px preserves source-only selection, hold warning and touch layout
+  [chromium] › control-map-target-selection.spec.ts:99:3 › BIO authoring 390px preserves source-only selection, hold warning and touch layout
+  [chromium] › control-map-target-selection.spec.ts:99:3 › BIO authoring 1440px preserves source-only selection, hold warning and touch layout
+  [chromium] › control-map-target-selection.spec.ts:122:1 › BIO OFF remains inspectable on the map while preparation actions stay reachable
+  [chromium] › control-map-target-selection.spec.ts:138:3 › common BIO preparation 1440px keeps every marker inspectable and bounded
+  [chromium] › control-map-target-selection.spec.ts:138:3 › common BIO preparation 1024px keeps every marker inspectable and bounded
+  [chromium] › control-map-target-selection.spec.ts:138:3 › common BIO preparation 390px keeps every marker inspectable and bounded
+  [chromium] › control-map-target-selection.spec.ts:138:3 › common BIO preparation 320px keeps every marker inspectable and bounded
+  [chromium] › control-map-target-selection.spec.ts:187:3 › final review: schedule dialog provides a usable desktop map and marker selection
+  [chromium] › control-map-target-selection.spec.ts:187:3 › final review: event dialog provides a usable desktop map and marker selection
+  [chromium] › control-map-target-selection.spec.ts:187:3 › final review: group dialog provides a usable desktop map and marker selection
+  [chromium] › control-map-target-selection.spec.ts:220:1 › final review: compact manual controls follow the map and remain reachable at reduced height
+  [chromium] › control-map-target-selection.spec.ts:242:1 › final review: compact group name uses 16px text
+  [chromium] › control-map-target-selection.spec.ts:254:3 › group creation at 390x660 keeps a usable map and selectable marker
+  [chromium] › control-map-target-selection.spec.ts:254:3 › group creation at 320x740 keeps a usable map and selectable marker
+  [chromium] › control-map-target-selection.spec.ts:275:3 › clearing a 100-member group at 1440x900 keeps the selector usable while changes scroll separately
+  [chromium] › control-map-target-selection.spec.ts:275:3 › clearing a 100-member group at 1366x768 keeps the selector usable while changes scroll separately
+  [chromium] › control-map-target-selection.spec.ts:315:1 › final review: boundary markers keep their whole coarse hit target inside the map
+  [chromium] › control-map-target-selection.spec.ts:333:1 › manual map selection stays synchronized with the list and command payload
+  [chromium] › control-map-target-selection.spec.ts:351:1 › schedule group authoring stores the current group fixture snapshot in its request
+  [chromium] › control-map-target-selection.spec.ts:369:1 › event group target authoring sends sorted current target fixture IDs
+  [chromium] › control-map-target-selection.spec.ts:393:1 › creating a group renders its configuring Mesh lifecycle
+  [chromium] › control-map-target-selection.spec.ts:413:1 › a 404 floor map opens the list fallback
+  [chromium] › control-map-target-selection.spec.ts:423:1 › viewer control redirect issues no mutating request
+  [chromium] › control-map-target-selection.spec.ts:432:3 › desktop control at 1440x900 keeps page fixed with internal map/detail scroll and paged history drawer
+  [chromium] › control-map-target-selection.spec.ts:432:3 › desktop control at 1024x768 keeps page fixed with internal map/detail scroll and paged history drawer
+  [chromium] › control-map-target-selection.spec.ts:479:3 › mobile control fits 390x844 with map marker touch targets and action above compact navigation
+  [chromium] › control-map-target-selection.spec.ts:479:3 › mobile control fits 320x740 with map marker touch targets and action above compact navigation
+  [chromium] › control-map-target-selection.spec.ts:555:3 › synthetic browser two-pointer pinch for fixtures targets zooms without an area rectangle or post-lift jump (not native WebView HIL)
+  [chromium] › control-map-target-selection.spec.ts:555:3 › synthetic browser two-pointer pinch for floor targets zooms without an area rectangle or post-lift jump (not native WebView HIL)
+  [chromium] › control-map-target-selection.spec.ts:555:3 › synthetic browser two-pointer pinch for group targets zooms without an area rectangle or post-lift jump (not native WebView HIL)
+  [chromium] › control-map-target-selection.spec.ts:599:1 › Task6 native mouse direct selection is additive, honors the 8px threshold and cancels with Escape
+  [chromium] › control-map-target-selection.spec.ts:643:1 › Task6 native Space and middle-button drags pan without changing fixture selection
+  [chromium] › control-map-target-selection.spec.ts:676:1 › Task6 synthetic touch hold cancels on a second pointer without a residual area or ghost click (not native WebView HIL)
+  [chromium] › control-map-target-selection.spec.ts:707:1 › Task6 native pointer capture loss and keyboard blur cancel an area without selecting or posting
+  [chromium] › field-day-inquiry.spec.ts:5:1 › 공개 시안의 보고서 미리보기는 PDF만 표시하고 재생해도 형식 선택을 노출하지 않는다
+  [chromium] › field-day-inquiry.spec.ts:31:1 › 세 상담 버튼은 현재 시안의 팝업을 열고 닫으면 포커스가 돌아온다
+  [chromium] › field-day-inquiry.spec.ts:46:1 › 상담 폼은 정규화된 계약으로 제출하고 접수번호를 표시한다
+  [chromium] › field-day-inquiry.spec.ts:70:1 › 실패한 동일 문의는 키를 유지하고 503에서 직접 메일을 안내한다
+  [chromium] › field-day-inquiry.spec.ts:96:1 › 390px 화면에서 팝업을 끝까지 스크롤할 수 있다
+  [chromium] › field-day-inquiry.spec.ts:110:1 › UTF-8 본문이 4KB를 넘으면 전송하지 않는다
+  [chromium] › field-day-inquiry.spec.ts:125:1 › 접수 중에는 세 닫기 경로를 막고 응답 후 닫기와 포커스 복귀를 허용한다
+  [chromium] › field-day-inquiry.spec.ts:160:1 › concept uses the shared Vite entry without public styles
+  [chromium] › field-day-inquiry.spec.ts:182:1 › 시안 문의는 닫고 다시 열어도 입력 내용과 실패한 문의 키를 유지한다
+  [chromium] › field-day-inquiry.spec.ts:204:1 › 시안 성공 상태와 네이티브 필드 계약은 팝업 재진입에도 유지된다
+  [chromium] › field-day-inquiry.spec.ts:226:1 › 시안 PDF 미리보기와 공개 페이지의 인증 조회 부재를 보존한다
+  [chromium] › field-day-inquiry.spec.ts:241:1 › 시안 맵 도구는 원래 드롭 시점의 확대 이동과 취소·재생 흐름을 보존한다
+  [chromium] › field-day-inquiry.spec.ts:287:5 › 시안 PDF 보고서는 재생·재진입 후에도 형식 선택 없이 유지된다 (replay, no-preference)
+  [chromium] › field-day-inquiry.spec.ts:287:5 › 시안 PDF 보고서는 재생·재진입 후에도 형식 선택 없이 유지된다 (reenter, no-preference)
+  [chromium] › field-day-inquiry.spec.ts:287:5 › 시안 PDF 보고서는 재생·재진입 후에도 형식 선택 없이 유지된다 (replay, reduce)
+  [chromium] › field-day-inquiry.spec.ts:287:5 › 시안 PDF 보고서는 재생·재진입 후에도 형식 선택 없이 유지된다 (reenter, reduce)
+  [chromium] › floor-editor-hit-targets.spec.ts:40:1 › dense editor uses actual bodies, nearest padding and Shift without changing the camera
+  [chromium] › floor-editor-hit-targets.spec.ts:73:1 › dense editor drags and saves the same fixture whose visible centre was pressed
+  [chromium] › floor-editor-hit-targets.spec.ts:90:1 › dense editor touch tap selects the visible body rather than its padded neighbour
+  [chromium] › floor-editor-layout.spec.ts:46:1 › performance harness samples actual camera movement without editing map data
+  [chromium] › floor-editor-layout.spec.ts:75:3 › floor editor remains usable on desktop
+  [chromium] › floor-editor-layout.spec.ts:75:3 › floor editor remains usable on tablet
+  [chromium] › floor-editor-layout.spec.ts:75:3 › floor editor remains usable on mobile
+  [chromium] › floor-editor-layout.spec.ts:75:3 › floor editor remains usable on compact
+  [chromium] › floor-editor-layout.spec.ts:144:1 › map settings drive absolute grid snapping and contextual shape properties
+  [chromium] › floor-editor-layout.spec.ts:193:1 › wheel always zooms while the move tool pans the map
+  [chromium] › floor-editor-layout.spec.ts:222:1 › legacy object movement shows presentation-style alignment guides
+  [chromium] › floor-placement-real.spec.ts:33:1 › software E2E: floor placement, unplace confirmation/undo, persistence and operational isolation
+  [chromium] › floor-placement.spec.ts:120:1 › mobile placement waits until the map document is ready
+  [chromium] › floor-placement.spec.ts:133:3 › mobile tap placement stays within 320px and saves only after confirmation
+  [chromium] › floor-placement.spec.ts:133:3 › mobile tap placement stays within 390px and saves only after confirmation
+  [chromium] › floor-placement.spec.ts:165:1 › a normalized CAD map fits once and preserves subsequent user zoom
+  [chromium] › floor-placement.spec.ts:227:1 › 1000 fixtures, 2000 slots and 2000 objects become canvas-ready within 3s p95 across 20 warm reloads
+  [chromium] › floor-placement.spec.ts:308:1 › 1000 fixtures, 2000 slots and 2000 objects keep list-to-slot drag/drop within p95 bounds
+  [chromium] › floor-placement.spec.ts:421:3 › pointer drop uses pan and button zoom near 0.5x, Escape restores the rendered transform
+  [chromium] › floor-placement.spec.ts:421:3 › pointer drop uses pan and button zoom near 1x, Escape restores the rendered transform
+  [chromium] › floor-placement.spec.ts:421:3 › pointer drop uses pan and button zoom near 2x, Escape restores the rendered transform
+  [chromium] › floor-placement.spec.ts:489:3 › CAD slot hit radius uses screen distance and exact world snap near 0.5x with pan
+  [chromium] › floor-placement.spec.ts:489:3 › CAD slot hit radius uses screen distance and exact world snap near 2x with pan
+  [chromium] › floor-placement.spec.ts:516:1 › real pointer list drop, cancel/unplace, undo, save and floor isolation
+  [chromium] › floor-placement.spec.ts:564:1 › 1000 fixtures, 2000 slots and 2000 objects cull, pan, zoom and pointer-commit within p95 bounds
+  [chromium] › installation-customer-journey.spec.ts:24:1 › operator가 발급한 admin이 설치부터 운영하고 viewer는 읽기 전용으로 접근한다
+  [chromium] › installation-customer-journey.spec.ts:344:1 › 테스트 랩 지원 코드는 production Web bundle에 포함되지 않는다
+  [chromium] › landing-field-day.spec.ts:6:1 › public landing follows the approved five scenes without auth
+  [chromium] › landing-field-day.spec.ts:20:1 › hero contact is borderless and header opens separate public pages
+  [chromium] › landing-field-day.spec.ts:32:1 › features and pricing are public on direct load, reload, and browser history
+  [chromium] › landing-field-day.spec.ts:56:3 › new public pages remain readable at 320px
+  [chromium] › landing-field-day.spec.ts:56:3 › new public pages remain readable at 390px
+  [chromium] › landing-field-day.spec.ts:70:1 › features and pricing have no serious accessibility violations
+  [chromium] › landing-field-day.spec.ts:86:1 › feature and pricing sections each fill at least one viewport
+  [chromium] › landing-field-day.spec.ts:95:1 › scene examples respond to controls and replay on return
+  [chromium] › landing-field-day.spec.ts:121:1 › consultation opens in a modal on the same URL
+  [chromium] › landing-field-day.spec.ts:140:1 › pricing cards open consultation and return focus to the selected plan
+  [chromium] › landing-field-day.spec.ts:154:1 › plan consultation retains context and offers direct contact without submission
+  [chromium] › landing-field-day.spec.ts:169:1 › a scene replays on return and reduced motion settles to its final state
+  [chromium] › landing-field-day.spec.ts:187:1 › map tool drops a fixture and the placed fixture moves
+  [chromium] › landing-field-day.spec.ts:206:1 › map replay animates the placed fixture through an intermediate position
+  [chromium] › landing-field-day.spec.ts:238:1 › a touch gesture can reposition a placed map fixture
+  [chromium] › landing-field-day.spec.ts:267:1 › legacy contact bookmark opens the modal and clears the old fragment
+  [chromium] › landing-field-day.spec.ts:273:1 › legacy contact fragment clears a previously selected plan
+  [chromium] › landing-field-day.spec.ts:286:1 › hero animation restarts on return and reduced motion leaves the complete artwork
+  [chromium] › landing-field-day.spec.ts:306:1 › public shell and hero preserve all three inclusive layout boundaries
+  [chromium] › landing-field-day.spec.ts:321:1 › landing button hover keeps its original transform transition
+  [chromium] › landing-field-day.spec.ts:332:1 › hero keyboard re-entry preserves inquiry and CTA nodes and focus
+  [chromium] › landing-field-day.spec.ts:367:1 › feature and pricing preserve preview geometry and inclusive page boundaries
+  [chromium] › landing-field-day.spec.ts:398:1 › pricing buttons retain transform transition and plan selection during hover
+  [chromium] › landing-field-day.spec.ts:414:1 › monitoring and control replay preserve keyboard focus and native control identity
+  [chromium] › landing-field-day.spec.ts:429:1 › monitoring selection cancels its timeline and keeps native keyboard selection
+  [chromium] › landing-field-day.spec.ts:448:1 › control brightness has intermediate frames, cancels on keyboard adjustment and settles at 70 with reduced motion
+  [chromium] › landing-field-day.spec.ts:479:1 › monitoring fixture hover preserves transform interpolation
+  [chromium] › landing-field-day.spec.ts:500:1 › touch selects a monitoring fixture and adjusts the native brightness slider
+  [chromium] › landing-field-day.spec.ts:519:1 › monitoring cursor preserves its path, duration, replay and cancellation
+  [chromium] › landing-field-day.spec.ts:565:1 › native demo controls retain keyboard focus presentation
+  [chromium] › landing-field-day.spec.ts:585:1 › statistics report and map replay keep mounted native controls and keyboard focus
+  [chromium] › landing-field-day.spec.ts:601:1 › graph drawing and report reveal preserve original timeline and full transforms
+  [chromium] › landing-field-day.spec.ts:657:1 › map ghost preserves WAAPI composition and cancels on manual action and scene exit
+  [chromium] › landing-field-day.spec.ts:681:1 › PDF report replay and map reduced motion reset preserve controls
+  [chromium] › landing-field-day.spec.ts:697:1 › statistics report and map retain exact narrow geometry and authored anchor offsets
+  [chromium] › landing-field-day.spec.ts:716:1 › public reduced motion accessibility defaults preserve descendant pseudos and portal isolation
+  [chromium] › landing-field-day.spec.ts:734:1 › touch can drop the map tool and an outside drop preserves the existing placement
+  [chromium] › landing-field-day.spec.ts:763:1 › hero owned delays retain their original values through replay and reduced motion
+  [chromium] › landing-field-day.spec.ts:776:1 › compact map tools preserve full transform interpolation and native preview focus
+  [chromium] › landing.spec.ts:13:3 › public landing remains usable at 1440px
+  [chromium] › landing.spec.ts:13:3 › public landing remains usable at 1024px
+  [chromium] › landing.spec.ts:13:3 › public landing remains usable at 390px
+  [chromium] › landing.spec.ts:13:3 › public landing remains usable at 320px
+  [chromium] › landing.spec.ts:73:1 › reduced motion keeps examples complete and keyboard can open the inquiry
+  [chromium] › landing.spec.ts:89:1 › authenticated operator can inspect inquiry delivery without starting OAuth or resending
+  [chromium] › landing.spec.ts:123:1 › connected operator can reconnect and return after a later inquiry page fails
+  [chromium] › landing.spec.ts:156:3 › admin deep link never mounts the operator inquiry route
+  [chromium] › landing.spec.ts:156:3 › viewer deep link never mounts the operator inquiry route
+  [chromium] › landing.spec.ts:171:3 › public styles keep the real signed-out login unchanged at 320px
+  [chromium] › landing.spec.ts:171:3 › public styles keep the real signed-out login unchanged at 390px
+  [chromium] › landing.spec.ts:171:3 › public styles keep the real signed-out login unchanged at 1024px
+  [chromium] › landing.spec.ts:171:3 › public styles keep the real signed-out login unchanged at 1440px
+  [chromium] › landing.spec.ts:195:3 › incidental classification rejects changed decoration at 1024px
+  [chromium] › landing.spec.ts:195:3 › incidental classification rejects changed decoration at 320px
+  [chromium] › landing.spec.ts:250:1 › decorative JSX owners and their owned ancestors reject delegated event props and spreads
+  [chromium] › landing.spec.ts:270:1 › readable contrast violations remain blocking when their exact DOM targets exist
+  [chromium] › layout-assertions.spec.ts:10:3 › horizontal overflow gate covers the 1440px target viewport
+  [chromium] › layout-assertions.spec.ts:10:3 › horizontal overflow gate covers the 1024px target viewport
+  [chromium] › layout-assertions.spec.ts:10:3 › horizontal overflow gate covers the 390px target viewport
+  [chromium] › layout-assertions.spec.ts:10:3 › horizontal overflow gate covers the 320px target viewport
+  [chromium] › layout-assertions.spec.ts:20:1 › touch target helper inspects every visible enabled interactive descendant
+  [chromium] › layout-assertions.spec.ts:33:1 › touch target helper fails when a root contains no eligible target
+  [chromium] › layout-assertions.spec.ts:39:1 › touch target helper can exclude compact spatial markers while retaining the alternate selector
+  [chromium] › layout-assertions.spec.ts:53:1 › touch target helper measures spatial markers unless an explicit exclusion is requested
+  [chromium] › layout-assertions.spec.ts:63:1 › transparent radio uses its 44px implicit label as the effective hit target
+  [chromium] › layout-assertions.spec.ts:76:1 › transparent checkbox fails when its explicit label is undersized
+  [chromium] › layout-assertions.spec.ts:87:1 › controls fully clipped by an overflow ancestor are not eligible targets
+  [chromium] › layout-assertions.spec.ts:97:1 › controls hidden by an ancestor are not eligible targets
+  [chromium] › layout-assertions.spec.ts:107:1 › fully offscreen controls are not eligible targets
+  [chromium] › layout-assertions.spec.ts:117:1 › partially clipped controls use the reachable viewport intersection
+  [chromium] › layout-assertions.spec.ts:127:1 › controls covered by another pointer target fail their reachable-area contract
+  [chromium] › layout-assertions.spec.ts:138:1 › normal visible reachable controls remain eligible
+  [chromium] › layout-assertions.spec.ts:148:1 › a 44px target at a fractional CSS position keeps its full reachable area
+  [chromium] › layout-assertions.spec.ts:158:1 › a 42px overlay leaves only a 2x44 strip and fails the reachable-area contract
+  [chromium] › layout-assertions.spec.ts:169:1 › a fixed bottom navigation covering half a target leaves only 44x22 and fails
+  [chromium] › layout-assertions.spec.ts:180:1 › a fully covered target still fails when a normal peer is present
+  [chromium] › layout-assertions.spec.ts:192:1 › a native choice can use a visible second associated label when the first is hidden
+  [chromium] › layout-assertions.spec.ts:204:1 › a native choice falls back to its visible input when its only label is hidden
+  [chromium] › layout-assertions.spec.ts:215:1 › a native choice fails when every associated label and the input are undersized
+  [chromium] › layout-assertions.spec.ts:227:1 › a viewport-fixed target escapes an overflow ancestor without a fixed containing block
+  [chromium] › layout-assertions.spec.ts:237:1 › a transformed overflow ancestor clips its fixed descendant
+  [chromium] › layout-assertions.spec.ts:247:1 › a control inside a viewport-fixed overlay escapes scrolled document clipping
+  [chromium] › layout-assertions.spec.ts:258:1 › an absolute popover retains real viewport hit area after document root scroll lock
+  [chromium] › layout-assertions.spec.ts:273:1 › scrolling touch target helper inspects an undersized target below the viewport
+  [chromium] › layout-assertions.spec.ts:285:1 › scrolling touch target helper tries every associated label for a native choice
+  [chromium] › layout-assertions.spec.ts:297:1 › touch target helpers measure a range input through its visible slider thumb
+  [chromium] › layout-assertions.spec.ts:310:1 › scrolling touch target helper fails when a root has no eligible target
+  [chromium] › map-editor-bounded-extension.spec.ts:30:1 › mixed click/marquee/style/delete is atomic, undoable, saved and reloaded without shifting canvas
+  [chromium] › map-editor-bounded-extension.spec.ts:68:1 › compact rows select complete queries, show partial lights, rename hidden layers and persist undo
+  [chromium] › map-editor-bounded-extension.spec.ts:102:1 › actual pointer move/resize snaps only at release, inspector and warnings keep canvas stable
+  [chromium] › map-editor-bounded-extension.spec.ts:122:1 › mobile toolbar retains reachable 44px controls
+  [chromium] › map-editor-viewport.spec.ts:83:3 › editor viewport 1440 confines long panels and preserves camera gestures
+  [chromium] › map-editor-viewport.spec.ts:83:3 › editor viewport 1024 confines long panels and preserves camera gestures
+  [chromium] › map-editor-viewport.spec.ts:83:3 › editor viewport 390 confines long panels and preserves camera gestures
+  [chromium] › map-editor-viewport.spec.ts:83:3 › editor viewport 320 confines long panels and preserves camera gestures
+  [chromium] › map-editor-viewport.spec.ts:136:1 › compact text focus and panel toggles preserve unsaved edits and the leave guard
+  [chromium] › map-editor-viewport.spec.ts:176:3 › mobile 390 toolbar has continuous reachable touch targets
+  [chromium] › map-editor-viewport.spec.ts:212:5 › mobile 390 fixture drag reaches canvas center and restores tools after drop and cancel
+  [chromium] › map-editor-viewport.spec.ts:212:5 › mobile 390 shape drag reaches canvas center and restores tools after drop and cancel
+  [chromium] › map-editor-viewport.spec.ts:176:3 › mobile 320 toolbar has continuous reachable touch targets
+  [chromium] › map-editor-viewport.spec.ts:212:5 › mobile 320 fixture drag reaches canvas center and restores tools after drop and cancel
+  [chromium] › map-editor-viewport.spec.ts:212:5 › mobile 320 shape drag reaches canvas center and restores tools after drop and cancel
+  [chromium] › map-editor-viewport.spec.ts:266:1 › resizing the editor and leaving it restores normal settings scrolling
+  [chromium] › mobile-first-screen.spec.ts:6:44 › common header and eager account at 320px
+  [chromium] › mobile-first-screen.spec.ts:6:44 › common header and eager account at 390px
+  [chromium] › mobile-first-screen.spec.ts:6:44 › common header and eager account at 430px
+  [chromium] › mobile-first-screen.spec.ts:6:44 › common header and eager account at 1280px
+  [chromium] › mobile-first-screen.spec.ts:27:1 › monitoring always-visible aggregate and single center during full view
+  [chromium] › mobile-first-screen.spec.ts:44:77 › keeps real header branding and bounded site control in both themes: 320/light
+  [chromium] › mobile-first-screen.spec.ts:44:77 › keeps real header branding and bounded site control in both themes: 320/dark
+  [chromium] › mobile-first-screen.spec.ts:44:77 › keeps real header branding and bounded site control in both themes: 390/light
+  [chromium] › mobile-first-screen.spec.ts:44:77 › keeps real header branding and bounded site control in both themes: 390/dark
+  [chromium] › mobile-first-screen.spec.ts:44:77 › keeps real header branding and bounded site control in both themes: 562/light
+  [chromium] › mobile-first-screen.spec.ts:44:77 › keeps real header branding and bounded site control in both themes: 562/dark
+  [chromium] › mobile-first-screen.spec.ts:67:1 › wide customer rail preserves keyboard labels and actual dark primary foreground
+  [chromium] › mobile-first-screen.spec.ts:91:84 › customer navigation uses the real integer viewport 759
+  [chromium] › mobile-first-screen.spec.ts:91:84 › customer navigation uses the real integer viewport 760
+  [chromium] › mobile-first-screen.spec.ts:91:84 › customer navigation uses the real integer viewport 761
+  [chromium] › mobile-first-screen.spec.ts:100:35 › records Chromium normalized iframe viewport requested 760
+  [chromium] › mobile-first-screen.spec.ts:100:35 › records Chromium normalized iframe viewport requested 760.5
+  [chromium] › mobile-first-screen.spec.ts:234:5 › monitoring actual map first screen at 320px
+  [chromium] › mobile-first-screen.spec.ts:234:5 › monitoring actual map first screen at 390px
+  [chromium] › mobile-first-screen.spec.ts:234:5 › monitoring actual map first screen at 430px
+  [chromium] › mobile-first-screen.spec.ts:234:5 › monitoring actual map first screen at 1280px
+  [chromium] › mobile-first-screen.spec.ts:234:5 › control actual map first screen at 1280px
+  [chromium] › mobile-first-screen.spec.ts:265:69 › control compact manual map acquired after trusted document reach at 320px
+  [chromium] › mobile-first-screen.spec.ts:265:69 › control compact manual map acquired after trusted document reach at 390px
+  [chromium] › mobile-first-screen.spec.ts:265:69 › control compact manual map acquired after trusted document reach at 430px
+  [chromium] › mobile-first-screen.spec.ts:295:1 › compact direct controls and resize preserve pending command UUID without replay
+  [chromium] › mobile-first-screen.spec.ts:343:59 › statistics overview first screen at 320px
+  [chromium] › mobile-first-screen.spec.ts:343:59 › statistics analysis first screen at 320px
+  [chromium] › mobile-first-screen.spec.ts:343:59 › statistics reports first screen at 320px
+  [chromium] › mobile-first-screen.spec.ts:343:59 › statistics overview first screen at 390px
+  [chromium] › mobile-first-screen.spec.ts:343:59 › statistics analysis first screen at 390px
+  [chromium] › mobile-first-screen.spec.ts:343:59 › statistics reports first screen at 390px
+  [chromium] › mobile-first-screen.spec.ts:343:59 › statistics overview first screen at 430px
+  [chromium] › mobile-first-screen.spec.ts:343:59 › statistics analysis first screen at 430px
+  [chromium] › mobile-first-screen.spec.ts:343:59 › statistics reports first screen at 430px
+  [chromium] › mobile-first-screen.spec.ts:343:59 › statistics overview first screen at 1280px
+  [chromium] › mobile-first-screen.spec.ts:343:59 › statistics analysis first screen at 1280px
+  [chromium] › mobile-first-screen.spec.ts:343:59 › statistics reports first screen at 1280px
+  [chromium] › mobile-monitoring-touch.spec.ts:106:5 › 320px map choice and search remain readable at 100% text
+  [chromium] › mobile-monitoring-touch.spec.ts:154:7 › 320px snapshot site time Asia/Seoul at 100% text
+  [chromium] › mobile-monitoring-touch.spec.ts:154:7 › 320px snapshot site time America/Los_Angeles at 100% text
+  [chromium] › mobile-monitoring-touch.spec.ts:106:5 › 320px map choice and search remain readable at 200% text
+  [chromium] › mobile-monitoring-touch.spec.ts:154:7 › 320px snapshot site time Asia/Seoul at 200% text
+  [chromium] › mobile-monitoring-touch.spec.ts:154:7 › 320px snapshot site time America/Los_Angeles at 200% text
+  [chromium] › mobile-monitoring-touch.spec.ts:181:3 › 320px touch inspector scroll reaches final fixture information
+  [chromium] › mobile-monitoring-touch.spec.ts:217:3 › 320px touch log reaches last row and cursor controls
+  [chromium] › mobile-monitoring-touch.spec.ts:243:3 › 320px native touch marker and pinch keep camera inside map
+  [chromium] › mobile-monitoring-touch.spec.ts:106:5 › 390px map choice and search remain readable at 100% text
+  [chromium] › mobile-monitoring-touch.spec.ts:154:7 › 390px snapshot site time Asia/Seoul at 100% text
+  [chromium] › mobile-monitoring-touch.spec.ts:154:7 › 390px snapshot site time America/Los_Angeles at 100% text
+  [chromium] › mobile-monitoring-touch.spec.ts:106:5 › 390px map choice and search remain readable at 200% text
+  [chromium] › mobile-monitoring-touch.spec.ts:154:7 › 390px snapshot site time Asia/Seoul at 200% text
+  [chromium] › mobile-monitoring-touch.spec.ts:154:7 › 390px snapshot site time America/Los_Angeles at 200% text
+  [chromium] › mobile-monitoring-touch.spec.ts:181:3 › 390px touch inspector scroll reaches final fixture information
+  [chromium] › mobile-monitoring-touch.spec.ts:217:3 › 390px touch log reaches last row and cursor controls
+  [chromium] › mobile-monitoring-touch.spec.ts:243:3 › 390px native touch marker and pinch keep camera inside map
+  [chromium] › mobile-shell-bootstrap.spec.ts:4:33 › native late bootstrap does not block window load or mount before handshake at320px
+  [chromium] › mobile-shell-bootstrap.spec.ts:4:33 › native late bootstrap does not block window load or mount before handshake at390px
+  [chromium] › mobile-shell-bootstrap.spec.ts:33:1 › native preparation timeout offers reload without mounting an authenticated app
+  [chromium] › monitoring-1000.spec.ts:55:1 › 브라우저 fixture로 1,000개 조명과 지도 객체를 렌더링하고 10분 갱신 경계를 지킨다 (실제 하드웨어 E2E 아님)
+  [chromium] › monitoring-1000.spec.ts:107:1 › 1,000대 편집기는 실제 프레임 시계에서 8초 안에 준비되고 위치 변경을 저장한다
+  [chromium] › monitoring-alarm-dismissals-real.spec.ts:14:1 › real alarm persistence, frozen bulk targets, replay and account/site isolation
+  [chromium] › monitoring-control-flow.spec.ts:143:3 › 모니터링-제어 브라우저 route fixture 계약 (실제 하드웨어 E2E 아님) › 수동 새로고침으로 현황 API를 다시 조회하고 마지막 갱신을 표시한다
+  [chromium] › monitoring-control-flow.spec.ts:178:3 › 모니터링-제어 브라우저 route fixture 계약 (실제 하드웨어 E2E 아님) › 최초 지도 오류를 빈 지도 대신 표시하고 재시도로 복구한다
+  [chromium] › monitoring-control-flow.spec.ts:194:3 › 모니터링-제어 브라우저 route fixture 계약 (실제 하드웨어 E2E 아님) › 0건 완료 후 relation 없는 응답에서도 polling으로 다시 검색을 완료한다
+  [chromium] › monitoring-control-flow.spec.ts:245:3 › 모니터링-제어 브라우저 route fixture 계약 (실제 하드웨어 E2E 아님) › 페이지 재진입 시 진행 중인 등록 세션과 대상을 자동 복구한다
+  [chromium] › monitoring-control-flow.spec.ts:267:3 › 모니터링-제어 브라우저 route fixture 계약 (실제 하드웨어 E2E 아님) › mobile touch contract measures the visible registration method radio labels
+  [chromium] › monitoring-control-flow.spec.ts:290:3 › 모니터링-제어 브라우저 route fixture 계약 (실제 하드웨어 E2E 아님) › 390px pending setup and gateway claim expose enabled 44px actions
+  [chromium] › monitoring-control-flow.spec.ts:327:5 › 모니터링-제어 브라우저 route fixture 계약 (실제 하드웨어 E2E 아님) › 390px enabled search and failure retry actions meet the 44px commissioning contract
+  [chromium] › monitoring-control-flow.spec.ts:327:5 › 모니터링-제어 브라우저 route fixture 계약 (실제 하드웨어 E2E 아님) › 320px enabled search and failure retry actions meet the 44px commissioning contract
+  [chromium] › monitoring-control-flow.spec.ts:349:3 › 모니터링-제어 브라우저 route fixture 계약 (실제 하드웨어 E2E 아님) › 390px enabled registration and reconciliation actions meet the 44px commissioning contract
+  [chromium] › monitoring-control-flow.spec.ts:404:3 › 모니터링-제어 브라우저 route fixture 계약 (실제 하드웨어 E2E 아님) › 검색 실패 원인은 정제된 메시지만 표시한다
+  [chromium] › monitoring-control-flow.spec.ts:419:3 › 모니터링-제어 브라우저 route fixture 계약 (실제 하드웨어 E2E 아님) › 개별 조명 명령은 terminal 전까지 입력을 잠그고 장비별 실패를 표시한다
+  [chromium] › monitoring-control-flow.spec.ts:456:3 › 모니터링-제어 브라우저 route fixture 계약 (실제 하드웨어 E2E 아님) › 다중 조명 부분 실패에서 성공과 timeout 결과를 장비별로 표시한다
+  [chromium] › monitoring-control-flow.spec.ts:498:3 › 모니터링-제어 브라우저 route fixture 계약 (실제 하드웨어 E2E 아님) › 브라우저 새로고침 후 진행 중 명령을 복구하고 terminal 결과까지 추적한다
+  [chromium] › monitoring-control-flow.spec.ts:530:3 › 모니터링-제어 브라우저 route fixture 계약 (실제 하드웨어 E2E 아님) › 관리자가 저장 구역을 생성·수정·삭제하고 실패한 Mesh 설정을 재동기화한다
+  [chromium] › monitoring-control-flow.spec.ts:586:3 › 모니터링-제어 브라우저 route fixture 계약 (실제 하드웨어 E2E 아님) › 저장 구역 dialog는 키보드 포커스를 가두고 Escape 후 opener로 복귀한다
+  [chromium] › monitoring-control-flow.spec.ts:618:3 › 모니터링-제어 브라우저 route fixture 계약 (실제 하드웨어 E2E 아님) › read-only viewer는 제어 route와 저장 구역 동작에 접근할 수 없다
+  [chromium] › monitoring-control-flow.spec.ts:639:3 › 모니터링-제어 브라우저 route fixture 계약 (실제 하드웨어 E2E 아님) › 준비 완료된 층과 저장 구역을 BLE Mesh 대상으로 동기 제어한다
+  [chromium] › monitoring-control-flow.spec.ts:659:5 › 모니터링-제어 브라우저 route fixture 계약 (실제 하드웨어 E2E 아님) › 1440px에서 모니터링과 제어 작업 패널이 반응형 계약을 지킨다
+  [chromium] › monitoring-control-flow.spec.ts:659:5 › 모니터링-제어 브라우저 route fixture 계약 (실제 하드웨어 E2E 아님) › 1024px에서 모니터링과 제어 작업 패널이 반응형 계약을 지킨다
+  [chromium] › monitoring-control-flow.spec.ts:659:5 › 모니터링-제어 브라우저 route fixture 계약 (실제 하드웨어 E2E 아님) › 390px에서 모니터링과 제어 작업 패널이 반응형 계약을 지킨다
+  [chromium] › monitoring-control-flow.spec.ts:659:5 › 모니터링-제어 브라우저 route fixture 계약 (실제 하드웨어 E2E 아님) › 320px에서 모니터링과 제어 작업 패널이 반응형 계약을 지킨다
+  [chromium] › monitoring-control-flow.spec.ts:727:5 › 모니터링-제어 브라우저 route fixture 계약 (실제 하드웨어 E2E 아님) › 1440px 수동 제어는 문서 스크롤 없이 조명 목록만 스크롤한다
+  [chromium] › monitoring-control-flow.spec.ts:727:5 › 모니터링-제어 브라우저 route fixture 계약 (실제 하드웨어 E2E 아님) › 1280px 수동 제어는 문서 스크롤 없이 조명 목록만 스크롤한다
+  [chromium] › monitoring-control-flow.spec.ts:727:5 › 모니터링-제어 브라우저 route fixture 계약 (실제 하드웨어 E2E 아님) › 1121px 수동 제어는 문서 스크롤 없이 조명 목록만 스크롤한다
+  [chromium] › monitoring-control-flow.spec.ts:767:5 › 모니터링-제어 브라우저 route fixture 계약 (실제 하드웨어 E2E 아님) › 1440px 제어 모드 탭은 화면을 전환해도 크기를 유지한다
+  [chromium] › monitoring-control-flow.spec.ts:767:5 › 모니터링-제어 브라우저 route fixture 계약 (실제 하드웨어 E2E 아님) › 1024px 제어 모드 탭은 화면을 전환해도 크기를 유지한다
+  [chromium] › monitoring-control-flow.spec.ts:767:5 › 모니터링-제어 브라우저 route fixture 계약 (실제 하드웨어 E2E 아님) › 761px 제어 모드 탭은 화면을 전환해도 크기를 유지한다
+  [chromium] › monitoring-control-flow.spec.ts:788:5 › 모니터링-제어 브라우저 route fixture 계약 (실제 하드웨어 E2E 아님) › 390px에서 스케줄·이벤트 목록과 핵심 dialog가 전체 touch target 계약을 지킨다
+  [chromium] › monitoring-control-flow.spec.ts:788:5 › 모니터링-제어 브라우저 route fixture 계약 (실제 하드웨어 E2E 아님) › 320px에서 스케줄·이벤트 목록과 핵심 dialog가 전체 touch target 계약을 지킨다
+  [chromium] › monitoring-control-flow.spec.ts:830:3 › 모니터링-제어 브라우저 route fixture 계약 (실제 하드웨어 E2E 아님) › keyboard focus remains visible on shared controls
+  [chromium] › monitoring-control-flow.spec.ts:840:3 › 모니터링-제어 브라우저 route fixture 계약 (실제 하드웨어 E2E 아님) › reduced motion preference shortens interface transitions
+  [chromium] › monitoring-navigation-confidence.spec.ts:41:3 › 1440px 사용자 정보·닫기 안정성·아이콘 전체 보기
+  [chromium] › monitoring-navigation-confidence.spec.ts:41:3 › 1024px 사용자 정보·닫기 안정성·아이콘 전체 보기
+  [chromium] › monitoring-navigation-confidence.spec.ts:41:3 › 390px 사용자 정보·닫기 안정성·아이콘 전체 보기
+  [chromium] › monitoring-navigation-confidence.spec.ts:41:3 › 320px 사용자 정보·닫기 안정성·아이콘 전체 보기
+  [chromium] › monitoring-navigation-confidence.spec.ts:128:1 › 맵 안의 일반 휠은 포인터 기준으로 확대하고 수평 휠 이동은 무시한다
+  [chromium] › monitoring-navigation-confidence.spec.ts:155:1 › 0개 상태 KPI는 이전 조명의 선택·상세를 보여주지 않는다
+  [chromium] › monitoring-navigation-confidence.spec.ts:164:1 › 상세에서 다른 조명을 선택하면 원래 핀 정보로 돌아가지 않는다
+  [chromium] › monitoring-navigation-confidence.spec.ts:177:1 › camera restores on reload without saving fixture or selection data
+  [chromium] › monitoring-navigation-confidence.spec.ts:185:1 › common map full view retains the native renderer canvas and zoom
+  [chromium] › monitoring-navigation-confidence.spec.ts:202:1 › a fault on the last cursor page can be located from its KPI
+  [chromium] › monitoring-navigation-confidence.spec.ts:212:1 › next-page failure stops automatic loops, preserves the KPI, and offers manual retry
+  [chromium] › monitoring-surface-access.spec.ts:38:42 › ATLAS monitoring server24 loaded2 theme camera light 320px
+  [chromium] › monitoring-surface-access.spec.ts:38:42 › ATLAS monitoring server24 loaded2 theme camera dark 320px
+  [chromium] › monitoring-surface-access.spec.ts:38:42 › ATLAS monitoring server24 loaded2 theme camera light 562px
+  [chromium] › monitoring-surface-access.spec.ts:38:42 › ATLAS monitoring server24 loaded2 theme camera dark 562px
+  [chromium] › monitoring-surface-access.spec.ts:38:42 › ATLAS monitoring server24 loaded2 theme camera light 1304px
+  [chromium] › monitoring-surface-access.spec.ts:38:42 › ATLAS monitoring server24 loaded2 theme camera dark 1304px
+  [chromium] › monitoring-surface-access.spec.ts:90:3 › monitoring unified search popover 1706x1226
+  [chromium] › monitoring-surface-access.spec.ts:90:3 › monitoring unified search popover 390x844
+  [chromium] › monitoring-surface-access.spec.ts:90:3 › monitoring unified search popover 390x480
+  [chromium] › monitoring-surface-access.spec.ts:182:3 › monitoring header CSS 200 percent glyph bounds 1706x1226
+  [chromium] › monitoring-surface-access.spec.ts:182:3 › monitoring header CSS 200 percent glyph bounds 390x844
+  [chromium] › monitoring-surface-access.spec.ts:315:1 › task5 live toast never covers map footer at 390x320 without dismissal
+  [chromium] › monitoring-surface-access.spec.ts:339:1 › task5 long multiple live notices preserve natural scroll fullview camera and footer hits
+  [chromium] › monitoring-surface-access.spec.ts:380:1 › task5 map reset preserves typed search and camera without automatic selection or controls
+  [chromium] › monitoring-surface-access.spec.ts:399:3 › task5 original map bounds 1287x1226
+  [chromium] › monitoring-surface-access.spec.ts:399:3 › task5 original map bounds 390x320
+  [chromium] › monitoring-surface-access.spec.ts:399:3 › task5 original map bounds 1440x600
+  [chromium] › monitoring-surface-access.spec.ts:415:3 › task5 map footer remains reachable without resetting camera after header relocation 1287x1226
+  [chromium] › monitoring-surface-access.spec.ts:415:3 › task5 map footer remains reachable without resetting camera after header relocation 390x320
+  [chromium] › monitoring-surface-access.spec.ts:415:3 › task5 map footer remains reachable without resetting camera after header relocation 1440x600
+  [chromium] › monitoring-surface-access.spec.ts:483:1 › task5 log filter close preserves partial dates and scoped cursor without a request
+  [chromium] › monitoring-surface-access.spec.ts:513:1 › monitoring detail native wheel keyboard last information and nonzero breakpoint restoration
+  [chromium] › monitoring-surface-access.spec.ts:616:1 › monitoring log positive env24/34 owns insets and native list controls stay reachable
+  [chromium] › monitoring-surface-access.spec.ts:699:1 › task5 invalid date input makes no request and cursor400 recovers only the visited page
+  [chromium] › monitoring-surface-access.spec.ts:736:1 › task5 late prior floor log response never replaces the current floor
+  [chromium] › monitoring-surface-access.spec.ts:780:3 › task5 map filter and visible search preserve context at 320px
+  [chromium] › monitoring-surface-access.spec.ts:780:3 › task5 map filter and visible search preserve context at 390px
+  [chromium] › monitoring-surface-access.spec.ts:780:3 › task5 map filter and visible search preserve context at 768px
+  [chromium] › monitoring-surface-access.spec.ts:780:3 › task5 map filter and visible search preserve context at 1023px
+  [chromium] › monitoring-surface-access.spec.ts:780:3 › task5 map filter and visible search preserve context at 1024px
+  [chromium] › monitoring-surface-access.spec.ts:780:3 › task5 map filter and visible search preserve context at 1287px
+  [chromium] › monitoring-surface-access.spec.ts:780:3 › task5 map filter and visible search preserve context at 1440px
+  [chromium] › monitoring-surface-access.spec.ts:810:3 › task5 actual touch › map pinch and log swipe retain precise selection and last record
+  [chromium] › monitoring-surface-access.spec.ts:845:1 › task5 genuine browser 200 percent retains map and log filters
+  [chromium] › mvp1.spec.ts:174:1 › customer admin can view monitoring dashboard and navigate primary sections
+  [chromium] › operational-marker-control-height.spec.ts:127:61 › Operational ordinary pointer › monitoring dense five true centers preserve exact IDs, anchors and disabled keyboard behavior
+  [chromium] › operational-marker-control-height.spec.ts:127:61 › Operational ordinary pointer › control dense five true centers preserve exact IDs, anchors and disabled keyboard behavior
+  [chromium] › operational-marker-control-height.spec.ts:127:61 › Operational touch-capable pointer › monitoring dense five true centers preserve exact IDs, anchors and disabled keyboard behavior
+  [chromium] › operational-marker-control-height.spec.ts:127:61 › Operational touch-capable pointer › control dense five true centers preserve exact IDs, anchors and disabled keyboard behavior
+  [chromium] › operational-marker-control-height.spec.ts:185:3 › Control actual map and controls stay usable at 1024x480
+  [chromium] › operational-marker-control-height.spec.ts:185:3 › Control actual map and controls stay usable at 390x320
+  [chromium] › operational-marker-control-height.spec.ts:185:3 › Control actual map and controls stay usable at 1440x900
+  [chromium] › operational-marker-control-height.spec.ts:244:61 › Software touch delivery › monitoring real browser taps resolve dense centers and 48px padding without hover
+  [chromium] › operational-marker-control-height.spec.ts:244:61 › Software touch delivery › control real browser taps resolve dense centers and 48px padding without hover
+  [chromium] › operational-marker-control-height.spec.ts:268:3 › Software touch delivery › control moved/cancelled and two-finger browser touches never synthesize a selection
+  [chromium] › operational-marker-control-height.spec.ts:304:1 › control selected neighbours, live zoom/pan and additive area retain exact target semantics
+  [chromium] › operational-marker-control-height.spec.ts:350:3 › Software touch hold › control native blank-touch hold selects an area after 400ms and pre-hold cancel stays inert
+  [chromium] › operational-marker-control-height.spec.ts:395:4 › Task7 light manual real remaining height and immediate controls at 1440x900
+  [chromium] › operational-marker-control-height.spec.ts:395:4 › Task7 light manual real remaining height and immediate controls at 1024x600
+  [chromium] › operational-marker-control-height.spec.ts:395:4 › Task7 light manual real remaining height and immediate controls at 390x844
+  [chromium] › operational-marker-control-height.spec.ts:395:4 › Task7 dark manual real remaining height and immediate controls at 1440x900
+  [chromium] › operational-marker-control-height.spec.ts:395:4 › Task7 dark manual real remaining height and immediate controls at 1024x600
+  [chromium] › operational-marker-control-height.spec.ts:395:4 › Task7 dark manual real remaining height and immediate controls at 390x844
+  [chromium] › operational-marker-control-height.spec.ts:454:1 › Control sufficient desktop height grows the actual map and preserves a live camera on resize
+  [chromium] › operational-marker-control-height.spec.ts:482:1 › Operational fixture accepts its configured origin and fails closed for external and unknown routes
+  [chromium] › operations-ui-comments.spec.ts:6:3 › Task7 report filters preserve lengthy URL conditions, keyboard dates and reset at 320px
+  [chromium] › operations-ui-comments.spec.ts:6:3 › Task7 report filters preserve lengthy URL conditions, keyboard dates and reset at 390px
+  [chromium] › operations-ui-comments.spec.ts:6:3 › Task7 report filters preserve lengthy URL conditions, keyboard dates and reset at 962px
+  [chromium] › operations-ui-comments.spec.ts:6:3 › Task7 report filters preserve lengthy URL conditions, keyboard dates and reset at 1440px
+  [chromium] › operations-ui-comments.spec.ts:132:3 › monitoring fix2 settled automatic detail removal preserves inside focus and camera
+  [chromium] › operations-ui-comments.spec.ts:132:3 › monitoring fix2 settled automatic detail removal preserves outside focus and camera
+  [chromium] › operations-ui-comments.spec.ts:132:3 › monitoring fix2 settled automatic detail removal preserves compact focus and camera
+  [chromium] › operations-ui-comments.spec.ts:178:1 › monitoring fix1 confirmed runtime filter exclusion clears detail and pin without replacement
+  [chromium] › operations-ui-comments.spec.ts:205:1 › monitoring fix1 closing and reopening discards the visited log cursor
+  [chromium] › operations-ui-comments.spec.ts:228:1 › monitoring fix1 actual floor A2 to B1 to A1 ignores a late old-floor response
+  [chromium] › operations-ui-comments.spec.ts:291:5 › monitoring fix1 stable focused 다음 페이지 pending to HTTP 200
+  [chromium] › operations-ui-comments.spec.ts:291:5 › monitoring fix1 stable focused 다음 페이지 pending to HTTP 500
+  [chromium] › operations-ui-comments.spec.ts:291:5 › monitoring fix1 stable focused 다음 페이지 pending to HTTP 410
+  [chromium] › operations-ui-comments.spec.ts:291:5 › monitoring fix1 stable focused 이전 페이지 pending to HTTP 200
+  [chromium] › operations-ui-comments.spec.ts:291:5 › monitoring fix1 stable focused 이전 페이지 pending to HTTP 500
+  [chromium] › operations-ui-comments.spec.ts:291:5 › monitoring fix1 stable focused 이전 페이지 pending to HTTP 410
+  [chromium] › operations-ui-comments.spec.ts:291:5 › monitoring fix1 stable focused 페이지당 항목 수 pending to HTTP 200
+  [chromium] › operations-ui-comments.spec.ts:291:5 › monitoring fix1 stable focused 페이지당 항목 수 pending to HTTP 500
+  [chromium] › operations-ui-comments.spec.ts:291:5 › monitoring fix1 stable focused 페이지당 항목 수 pending to HTTP 410
+  [chromium] › operations-ui-comments.spec.ts:358:3 › monitoring fix1 background and pending focus lease respects pager
+  [chromium] › operations-ui-comments.spec.ts:358:3 › monitoring fix1 background and pending focus lease respects period
+  [chromium] › operations-ui-comments.spec.ts:358:3 › monitoring fix1 background and pending focus lease respects close
+  [chromium] › operations-ui-comments.spec.ts:358:3 › monitoring fix1 background and pending focus lease respects keyboard
+  [chromium] › operations-ui-comments.spec.ts:358:3 › monitoring fix1 background and pending focus lease respects terminal
+  [chromium] › operations-ui-comments.spec.ts:436:1 › monitoring tall desktop allocates remaining height without pushing ticker below the viewport
+  [chromium] › operations-ui-comments.spec.ts:458:3 › monitoring explicit selection and responsive detail at 320px
+  [chromium] › operations-ui-comments.spec.ts:458:3 › monitoring explicit selection and responsive detail at 390px
+  [chromium] › operations-ui-comments.spec.ts:458:3 › monitoring explicit selection and responsive detail at 768px
+  [chromium] › operations-ui-comments.spec.ts:458:3 › monitoring explicit selection and responsive detail at 962px
+  [chromium] › operations-ui-comments.spec.ts:458:3 › monitoring explicit selection and responsive detail at 1017px
+  [chromium] › operations-ui-comments.spec.ts:458:3 › monitoring explicit selection and responsive detail at 1023px
+  [chromium] › operations-ui-comments.spec.ts:458:3 › monitoring explicit selection and responsive detail at 1024px
+  [chromium] › operations-ui-comments.spec.ts:458:3 › monitoring explicit selection and responsive detail at 1025px
+  [chromium] › operations-ui-comments.spec.ts:458:3 › monitoring explicit selection and responsive detail at 1440px
+  [chromium] › operations-ui-comments.spec.ts:487:1 › monitoring short height keeps the minimum map and ticker reachable through page scroll
+  [chromium] › operations-ui-comments.spec.ts:508:1 › monitoring open detail crosses 1023/1024 without losing selection camera scroll or valid focus
+  [chromium] › operations-ui-comments.spec.ts:568:3 › monitoring full log 1000 rows has bounded body and reachable footer at 320px
+  [chromium] › operations-ui-comments.spec.ts:568:3 › monitoring full log 1000 rows has bounded body and reachable footer at 390px
+  [chromium] › operations-ui-comments.spec.ts:568:3 › monitoring full log 1000 rows has bounded body and reachable footer at 768px
+  [chromium] › operations-ui-comments.spec.ts:568:3 › monitoring full log 1000 rows has bounded body and reachable footer at 962px
+  [chromium] › operations-ui-comments.spec.ts:568:3 › monitoring full log 1000 rows has bounded body and reachable footer at 1017px
+  [chromium] › operations-ui-comments.spec.ts:568:3 › monitoring full log 1000 rows has bounded body and reachable footer at 1023px
+  [chromium] › operations-ui-comments.spec.ts:568:3 › monitoring full log 1000 rows has bounded body and reachable footer at 1024px
+  [chromium] › operations-ui-comments.spec.ts:568:3 › monitoring full log 1000 rows has bounded body and reachable footer at 1025px
+  [chromium] › operations-ui-comments.spec.ts:568:3 › monitoring full log 1000 rows has bounded body and reachable footer at 1440px
+  [chromium] › operations-ui-comments.spec.ts:627:1 › operations alarm center keyboard opening reads only visible rows and scrolling preserves next-page unread state
+  [chromium] › operations-ui-comments.spec.ts:669:1 › operations alarm center failed reads preserve badge and successful retry uses canonical GET with stale refresh feedback
+  [chromium] › operations-ui-comments.spec.ts:702:3 › operations alarm center physical body scroll and visible controls 320x844
+  [chromium] › operations-ui-comments.spec.ts:702:3 › operations alarm center physical body scroll and visible controls 390x844
+  [chromium] › operations-ui-comments.spec.ts:702:3 › operations alarm center physical body scroll and visible controls 768x900
+  [chromium] › operations-ui-comments.spec.ts:702:3 › operations alarm center physical body scroll and visible controls 962x900
+  [chromium] › operations-ui-comments.spec.ts:702:3 › operations alarm center physical body scroll and visible controls 1017x900
+  [chromium] › operations-ui-comments.spec.ts:702:3 › operations alarm center physical body scroll and visible controls 1023x900
+  [chromium] › operations-ui-comments.spec.ts:702:3 › operations alarm center physical body scroll and visible controls 1024x900
+  [chromium] › operations-ui-comments.spec.ts:702:3 › operations alarm center physical body scroll and visible controls 1025x900
+  [chromium] › operations-ui-comments.spec.ts:702:3 › operations alarm center physical body scroll and visible controls 1440x900
+  [chromium] › operations-ui-comments.spec.ts:702:3 › operations alarm center physical body scroll and visible controls 390x320
+  [chromium] › operations-ui-comments.spec.ts:702:3 › operations alarm center physical body scroll and visible controls 768x390
+  [chromium] › operations-ui-comments.spec.ts:702:3 › operations alarm center physical body scroll and visible controls 1024x480
+  [chromium] › operations-ui-comments.spec.ts:749:3 › operations alarm center physical short-height loading keeps both close paths
+  [chromium] › operations-ui-comments.spec.ts:749:3 › operations alarm center physical short-height failure keeps both close paths
+  [chromium] › operations-ui-comments.spec.ts:749:3 › operations alarm center physical short-height empty keeps both close paths
+  [chromium] › operations-ui-comments.spec.ts:749:3 › operations alarm center physical short-height read-failure keeps both close paths
+  [chromium] › operations-ui-comments.spec.ts:769:1 › operations alarm center physical positive safe area protects header and footer
+  [chromium] › operations-ui-comments.spec.ts:795:1 › operations alarm center physical native browser 200 percent keeps finite body and close paths
+  [chromium] › operations-ui-comments.spec.ts:866:3 › Task6 invalid brightness empty blur and keyboard do not send; a separate Apply does
+  [chromium] › operations-ui-comments.spec.ts:866:3 › Task6 invalid brightness 42.5 blur and keyboard do not send; a separate Apply does
+  [chromium] › operations-ui-comments.spec.ts:866:3 › Task6 invalid brightness 101 blur and keyboard do not send; a separate Apply does
+  [chromium] › operations-ui-comments.spec.ts:893:5 › Task6 command pager pending success respects pager focus
+  [chromium] › operations-ui-comments.spec.ts:893:5 › Task6 command pager pending success respects period focus
+  [chromium] › operations-ui-comments.spec.ts:893:5 › Task6 command pager pending success respects close focus
+  [chromium] › operations-ui-comments.spec.ts:893:5 › Task6 command pager pending success respects keyboard focus
+  [chromium] › operations-ui-comments.spec.ts:893:5 › Task6 command pager pending error respects pager focus
+  [chromium] › operations-ui-comments.spec.ts:893:5 › Task6 command pager pending error respects period focus
+  [chromium] › operations-ui-comments.spec.ts:893:5 › Task6 command pager pending error respects close focus
+  [chromium] › operations-ui-comments.spec.ts:893:5 › Task6 command pager pending error respects keyboard focus
+  [chromium] › operations-ui-comments.spec.ts:893:5 › Task6 command pager pending expiry respects pager focus
+  [chromium] › operations-ui-comments.spec.ts:893:5 › Task6 command pager pending expiry respects period focus
+  [chromium] › operations-ui-comments.spec.ts:893:5 › Task6 command pager pending expiry respects close focus
+  [chromium] › operations-ui-comments.spec.ts:893:5 › Task6 command pager pending expiry respects keyboard focus
+  [chromium] › operations-ui-comments.spec.ts:893:5 › Task6 command pager pending end respects pager focus
+  [chromium] › operations-ui-comments.spec.ts:893:5 › Task6 command pager pending end respects period focus
+  [chromium] › operations-ui-comments.spec.ts:893:5 › Task6 command pager pending end respects close focus
+  [chromium] › operations-ui-comments.spec.ts:893:5 › Task6 command pager pending end respects keyboard focus
+  [chromium] › operations-ui-comments.spec.ts:933:3 › Task6 command history 1000 rows and calendar dates remain bounded at 320x600
+  [chromium] › operations-ui-comments.spec.ts:933:3 › Task6 command history 1000 rows and calendar dates remain bounded at 390x320
+  [chromium] › operations-ui-comments.spec.ts:933:3 › Task6 command history 1000 rows and calendar dates remain bounded at 1024x480
+  [chromium] › operations-ui-comments.spec.ts:933:3 › Task6 command history 1000 rows and calendar dates remain bounded at 1440x900
+  [chromium] › operations-ui-comments.spec.ts:974:1 › Task6 command history positive safe area protects header and pager
+  [chromium] › operations-ui-comments.spec.ts:991:3 › Task6 schedule full names, period, activation status and timestamp remain readable at 320px
+  [chromium] › operations-ui-comments.spec.ts:991:3 › Task6 schedule full names, period, activation status and timestamp remain readable at 1024px
+  [chromium] › operations-ui-comments.spec.ts:991:3 › Task6 schedule full names, period, activation status and timestamp remain readable at 1440px
+  [chromium] › operations-ui-comments.spec.ts:1040:1 › Task6 fixture drawer positive safe area keeps close and completion bounded without selecting the first fixture
+  [chromium] › operations-ui-comments.spec.ts:1059:1 › Task6 public NumberField metric typography and editable hit target
+  [chromium] › operations-ui-refinement.spec.ts:26:32 › Task9 integration surfaces 320x740
+  [chromium] › operations-ui-refinement.spec.ts:26:32 › Task9 integration surfaces 390x844
+  [chromium] › operations-ui-refinement.spec.ts:26:32 › Task9 integration surfaces 768x900
+  [chromium] › operations-ui-refinement.spec.ts:26:32 › Task9 integration surfaces 1023x900
+  [chromium] › operations-ui-refinement.spec.ts:26:32 › Task9 integration surfaces 1024x900
+  [chromium] › operations-ui-refinement.spec.ts:26:32 › Task9 integration surfaces 1287x900
+  [chromium] › operations-ui-refinement.spec.ts:26:32 › Task9 integration surfaces 1440x900
+  [chromium] › operations-ui-refinement.spec.ts:26:32 › Task9 integration surfaces 390x320
+  [chromium] › operations-ui-refinement.spec.ts:26:32 › Task9 integration surfaces 1440x600
+  [chromium] › operations-ui-refinement.spec.ts:51:81 › Task9 completed applied inline final row and command filter
+  [chromium] › operations-ui-refinement.spec.ts:51:81 › Task9 completed partially_applied inline final row and command filter
+  [chromium] › operations-ui-refinement.spec.ts:51:81 › Task9 completed not_applied inline final row and command filter
+  [chromium] › operations-ui-refinement.spec.ts:64:61 › Task9 automation empty remains readable and emits no write
+  [chromium] › operations-ui-refinement.spec.ts:64:61 › Task9 automation loading remains readable and emits no write
+  [chromium] › operations-ui-refinement.spec.ts:64:61 › Task9 automation error remains readable and emits no write
+  [chromium] › operations-ui-refinement.spec.ts:90:1 › owned native originals › Task9 own native 200 original map, grid, inline end and account
+  [chromium] › provisioning-real-backend.spec.ts:47:1 › real-backend provisioning evidence requires an exact V2 terminal and application ACK
+  [chromium] › provisioning-real-backend.spec.ts:68:1 › a legacy provisioning-completed event cannot establish real-backend completion
+  [chromium] › real-backend-lab-support.spec.ts:25:1 › alarm fixtures reject unopened labs before accessing any database
+  [chromium] › real-backend-lab-support.spec.ts:36:1 › software transport: manual refresh converges, deduplicates and recovers through real API/MQTT
+  [chromium] › real-backend-lab-support.spec.ts:153:1 › completion ACK oracle rejects malformed payloads and mismatched request identities
+  [chromium] › real-backend-lab-support.spec.ts:181:3 › disposable MQTT lab ignores parent process local-app endpoint restrictions
+  [chromium] › real-backend-lab-support.spec.ts:194:3 › HTTP lab API는 parent process의 TLS 설정을 사용하지 않는다
+  [chromium] › real-backend-lab-support.spec.ts:215:3 › 격리 MQTT lab API는 parent process의 local-app profile을 사용하지 않는다
+  [chromium] › real-backend-lab-support.spec.ts:181:3 › disposable MQTT lab ignores dotenv local-app endpoint restrictions
+  [chromium] › real-backend-lab-support.spec.ts:194:3 › HTTP lab API는 dotenv의 TLS 설정을 사용하지 않는다
+  [chromium] › real-backend-lab-support.spec.ts:215:3 › 격리 MQTT lab API는 dotenv의 local-app profile을 사용하지 않는다
+  [chromium] › real-backend-lab-support.spec.ts:235:1 › scan simulator는 shared DFK identity parser로 타사 UUID를 제외한다
+  [chromium] › real-backend-lab-support.spec.ts:245:1 › 최초 MQTT 연결 오류는 ownership 전달 전에 reconnect와 client를 정리한다
+  [chromium] › real-backend-lab-support.spec.ts:279:1 › lab Mosquitto ACL은 infrastructure 정본과 정확히 일치한다
+  [chromium] › real-backend-lab-support.spec.ts:296:1 › lab Gateway ACL은 자기 status·automation command/ACK read만 허용하고 다른 Gateway read와 금지 write를 막는다
+  [chromium] › real-backend-lab-support.spec.ts:328:1 › 선점된 lab 포트는 build나 외부 fixture mutation 전에 실패하고 정리한다
+  [chromium] › real-backend-lab-support.spec.ts:350:1 › fresh lab build는 graph-pure API build 전에 automation output을 준비한다
+  [chromium] › real-backend-lab-support.spec.ts:379:1 › operator의 응답 없는 customer request도 request 시점에 기록한다
+  [chromium] › real-backend-lab-support.spec.ts:404:1 › operator network isolation은 auth와 operator API만 허용한다
+  [chromium] › real-backend-lab-support.spec.ts:424:1 › start 중간 실패는 TERM을 무시하는 descendant까지 종료하고 labDir을 지운다
+  [chromium] › real-backend-lab-support.spec.ts:468:1 › MQTT close가 hang되어도 stop은 timeout 뒤 나머지 cleanup을 완료한다
+  [chromium] › real-backend-lab-support.spec.ts:500:1 › production Gateway handoff는 publisher background 작업과 MQTT close 완료를 순서대로 기다린다
+  [chromium] › real-backend-lab-support.spec.ts:534:1 › production Gateway handoff는 publisher background 오류와 MQTT close timeout을 허용하지 않는다
+  [chromium] › real-backend-lab-support.spec.ts:555:3 › automation config oracle accepts strict V1 and rejects mismatched snapshot receipts
+  [chromium] › real-backend-lab-support.spec.ts:555:3 › automation config oracle accepts strict V2 and rejects mismatched snapshot receipts
+  [chromium] › real-backend-lab-support.spec.ts:607:1 › automation readiness heartbeat는 production Gateway child와 exact identity payload에 결속한다
+  [chromium] › real-backend-lab-support.spec.ts:665:1 › automation oracle은 lab 자기 발행을 제외하고 production event의 exact ACK와 DB row를 요구한다
+  [chromium] › real-backend-lab-support.spec.ts:774:1 › automation oracle은 production Gateway durable telemetry outbox의 scope와 drain을 직접 검증한다
+  [chromium] › settings-floor-editor.spec.ts:121:4 › Task8 CAD primary region and searchless page size at 320x740
+  [chromium] › settings-floor-editor.spec.ts:121:4 › Task8 CAD primary region and searchless page size at 390x844
+  [chromium] › settings-floor-editor.spec.ts:121:4 › Task8 CAD primary region and searchless page size at 768x900
+  [chromium] › settings-floor-editor.spec.ts:121:4 › Task8 CAD primary region and searchless page size at 1023x900
+  [chromium] › settings-floor-editor.spec.ts:121:4 › Task8 CAD primary region and searchless page size at 1024x900
+  [chromium] › settings-floor-editor.spec.ts:121:4 › Task8 CAD primary region and searchless page size at 1287x900
+  [chromium] › settings-floor-editor.spec.ts:121:4 › Task8 CAD primary region and searchless page size at 1440x900
+  [chromium] › settings-floor-editor.spec.ts:121:4 › Task8 CAD primary region and searchless page size at 390x320
+  [chromium] › settings-floor-editor.spec.ts:121:4 › Task8 CAD primary region and searchless page size at 1440x600
+  [chromium] › settings-floor-editor.spec.ts:147:1 › Task8 native 200 CAD page size keeps primary region selection
+  [chromium] › settings-floor-editor.spec.ts:210:34 › U13 common monitoring saved revision reload at 1024px (HTTP fixture)
+  [chromium] › settings-floor-editor.spec.ts:210:34 › U13 common monitoring saved revision reload at 390px (HTTP fixture)
+  [chromium] › settings-floor-editor.spec.ts:324:1 › operator customer routes are blocked and admin floor changes are reflected in monitoring
+  [chromium] › settings-floor-editor.spec.ts:391:1 › common map elements saved in settings render immediately in monitoring
+  [chromium] › settings-floor-editor.spec.ts:490:1 › viewer is redirected before editor state and lease requests while mutation fixtures reject changes
+  [chromium] › settings-floor-editor.spec.ts:511:1 › browser lease fixture preserves active tokens across conflict, renewal, and stale release
+  [chromium] › settings-floor-editor.spec.ts:560:1 › settings browser fixture isolates unknown tenant route data
+  [chromium] › settings-floor-editor.spec.ts:571:1 › dirty editor logout keeps the draft on cancel and logs out only after confirmation
+  [chromium] › settings-floor-editor.spec.ts:602:3 › dirty editor keeps the coarse 390px settings tabs on cancel and clears its sentinel on confirm
+  [chromium] › settings-floor-editor.spec.ts:602:3 › dirty editor keeps the coarse 320px settings tabs on cancel and clears its sentinel on confirm
+  [chromium] › settings-floor-editor.spec.ts:663:1 › desktop settings link opens capability-filtered top tabs and preserves site scope
+  [chromium] › settings-floor-editor.spec.ts:692:1 › desktop viewer settings tabs follow natural keyboard order and hide manage routes
+  [chromium] › settings-floor-editor.spec.ts:719:3 › coarse 390px settings navigation uses the same top tabs
+  [chromium] › settings-floor-editor.spec.ts:719:3 › coarse 320px settings navigation uses the same top tabs
+  [chromium] › settings-floor-editor.spec.ts:754:1 › Task8 editor resize across 1023 and 1024 keeps renderer and draft identity
+  [chromium] › settings-floor-editor.spec.ts:776:3 › floor editor keeps its workspace contract at 1440px
+  [chromium] › settings-floor-editor.spec.ts:776:3 › floor editor keeps its workspace contract at 1024px
+  [chromium] › settings-floor-editor.spec.ts:776:3 › floor editor keeps its workspace contract at 390px
+  [chromium] › settings-floor-editor.spec.ts:776:3 › floor editor keeps its workspace contract at 320px
+  [chromium] › settings-floor-editor.spec.ts:818:3 › settings routes keep their interactive contract at 1440px
+  [chromium] › settings-floor-editor.spec.ts:818:3 › settings routes keep their interactive contract at 1024px
+  [chromium] › settings-floor-editor.spec.ts:818:3 › settings routes keep their interactive contract at 390px
+  [chromium] › settings-floor-editor.spec.ts:818:3 › settings routes keep their interactive contract at 320px
+  [chromium] › settings-floor-editor.spec.ts:856:1 › viewer can enter personal password settings
+  [chromium] › settings-mobile-lifecycle.spec.ts:24:3 › ATLAS settings home and mobile return at 320px light
+  [chromium] › settings-mobile-lifecycle.spec.ts:24:3 › ATLAS settings home and mobile return at 320px dark
+  [chromium] › settings-mobile-lifecycle.spec.ts:24:3 › ATLAS settings home and mobile return at 390px light
+  [chromium] › settings-mobile-lifecycle.spec.ts:24:3 › ATLAS settings home and mobile return at 390px dark
+  [chromium] › settings-mobile-lifecycle.spec.ts:83:33 › settings real touch pan and background draft/lease at 320px (HTTP fixture)
+  [chromium] › settings-mobile-lifecycle.spec.ts:83:33 › settings real touch pan and background draft/lease at 390px (HTTP fixture)
+  [chromium] › settings-mobile-lifecycle.spec.ts:186:3 › settings CAD retry remains readable at 320px text 100%
+  [chromium] › settings-mobile-lifecycle.spec.ts:186:3 › settings CAD retry remains readable at 320px text 200%
+  [chromium] › settings-mobile-lifecycle.spec.ts:186:3 › settings CAD retry remains readable at 390px text 100%
+  [chromium] › settings-mobile-lifecycle.spec.ts:186:3 › settings CAD retry remains readable at 390px text 200%
+  [chromium] › settings-operations.spec.ts:12:1 › admin이 현장, 층, 조명, 구역 운영 흐름을 완료한다
+  [chromium] › settings-operations.spec.ts:59:3 › 1440px에서 운영 설정이 흐름과 overflow 계약을 지킨다
+  [chromium] › settings-operations.spec.ts:59:3 › 390px에서 운영 설정이 흐름과 overflow 계약을 지킨다
+  [chromium] › settings-operations.spec.ts:59:3 › 320px에서 운영 설정이 흐름과 overflow 계약을 지킨다
+  [chromium] › site-user-management-real.spec.ts:20:1 › 비활성화된 일반 유저의 현재 세션과 재로그인을 실제 API가 차단한다
+  [chromium] › site-user-management.spec.ts:26:4 › Task8 user list detail reset and row controls at 320x740
+  [chromium] › site-user-management.spec.ts:26:4 › Task8 user list detail reset and row controls at 390x844
+  [chromium] › site-user-management.spec.ts:26:4 › Task8 user list detail reset and row controls at 768x900
+  [chromium] › site-user-management.spec.ts:26:4 › Task8 user list detail reset and row controls at 1023x900
+  [chromium] › site-user-management.spec.ts:26:4 › Task8 user list detail reset and row controls at 1024x900
+  [chromium] › site-user-management.spec.ts:26:4 › Task8 user list detail reset and row controls at 1287x900
+  [chromium] › site-user-management.spec.ts:26:4 › Task8 user list detail reset and row controls at 1440x900
+  [chromium] › site-user-management.spec.ts:26:4 › Task8 user list detail reset and row controls at 390x320
+  [chromium] › site-user-management.spec.ts:26:4 › Task8 user list detail reset and row controls at 1440x600
+  [chromium] › site-user-management.spec.ts:68:1 › Task8 user grid responds to container width and not window width
+  [chromium] › site-user-management.spec.ts:82:1 › Task8 native 200 user long names and row menu remain reachable
+  [chromium] › site-user-management.spec.ts:202:1 › admin이 일반 유저의 전체 관리 여정을 완료하고 평문 비밀번호를 남기지 않는다
+  [chromium] › site-user-management.spec.ts:270:1 › 신규 일반 유저가 최초 로그인 비밀번호를 변경한 뒤 모니터링에 진입한다
+  [chromium] › site-user-management.spec.ts:300:1 › mock API가 중복 로그인 아이디와 100명 상한 초과 생성을 거절한다
+  [chromium] › site-user-management.spec.ts:342:1 › read, control, admin의 메뉴와 직접 경로 및 수동 제어 API 권한이 일치한다
+  [chromium] › statistics-flow.spec.ts:44:4 › native PNG validator rejects malformed base64
+  [chromium] › statistics-flow.spec.ts:44:4 › native PNG validator rejects non PNG bytes
+  [chromium] › statistics-flow.spec.ts:44:4 › native PNG validator rejects truncated IHDR
+  [chromium] › statistics-flow.spec.ts:44:4 › native PNG validator rejects blank original
+  [chromium] › statistics-flow.spec.ts:44:4 › native PNG validator rejects full viewport mismatch
+  [chromium] › statistics-flow.spec.ts:47:1 › native PNG validator accepts a fresh full viewport original PNG
+  [chromium] › statistics-flow.spec.ts:73:1 › native source guard public create observes real Git and batches every ordered entry
+  [chromium] › statistics-flow.spec.ts:112:3 › native source guard preserves ordered reference for empty
+  [chromium] › statistics-flow.spec.ts:112:3 › native source guard preserves ordered reference for all null
+  [chromium] › statistics-flow.spec.ts:112:3 › native source guard preserves ordered reference for first drift
+  [chromium] › statistics-flow.spec.ts:112:3 › native source guard preserves ordered reference for middle drift
+  [chromium] › statistics-flow.spec.ts:112:3 › native source guard preserves ordered reference for last drift
+  [chromium] › statistics-flow.spec.ts:112:3 › native source guard preserves ordered reference for deleted
+  [chromium] › statistics-flow.spec.ts:112:3 › native source guard preserves ordered reference for expected null created
+  [chromium] › statistics-flow.spec.ts:112:3 › native source guard preserves ordered reference for multiple drift
+  [chromium] › statistics-flow.spec.ts:112:3 › native source guard preserves ordered reference for earlier drift before later read error
+  [chromium] › statistics-flow.spec.ts:112:3 › native source guard preserves ordered reference for actual read error
+  [chromium] › statistics-flow.spec.ts:112:3 › native source guard preserves ordered reference for malformed batch
+  [chromium] › statistics-flow.spec.ts:112:3 › native source guard preserves ordered reference for truncated batch
+  [chromium] › statistics-flow.spec.ts:112:3 › native source guard preserves ordered reference for reordered batch
+  [chromium] › statistics-flow.spec.ts:112:3 › native source guard preserves ordered reference for batch process limit
+  [chromium] › statistics-flow.spec.ts:205:3 › native PNG snapshot ordered single pending candidate
+  [chromium] › statistics-flow.spec.ts:205:3 › native PNG snapshot wrong pixels remain unapproved
+  [chromium] › statistics-flow.spec.ts:205:3 › native PNG snapshot focus restored dialog open
+  [chromium] › statistics-flow.spec.ts:205:3 › native PNG snapshot draft value changed
+  [chromium] › statistics-flow.spec.ts:205:3 › native PNG snapshot draft dialog closed
+  [chromium] › statistics-flow.spec.ts:205:3 › native PNG snapshot draft request emitted
+  [chromium] › statistics-flow.spec.ts:205:3 › native PNG snapshot malformed response retained
+  [chromium] › statistics-flow.spec.ts:205:3 › native PNG snapshot blank response retained
+  [chromium] › statistics-flow.spec.ts:205:3 › native PNG snapshot wrong size response retained
+  [chromium] › statistics-flow.spec.ts:205:3 › native PNG snapshot state drift retained
+  [chromium] › statistics-flow.spec.ts:205:3 › native PNG snapshot target drift retained
+  [chromium] › statistics-flow.spec.ts:205:3 › native PNG snapshot loader drift retained
+  [chromium] › statistics-flow.spec.ts:205:3 › native PNG snapshot URL drift retained
+  [chromium] › statistics-flow.spec.ts:205:3 › native PNG snapshot geometry drift retained
+  [chromium] › statistics-flow.spec.ts:205:3 › native PNG snapshot source drift retained
+  [chromium] › statistics-flow.spec.ts:205:3 › native PNG snapshot persistence failure detaches
+  [chromium] › statistics-flow.spec.ts:205:3 › native PNG snapshot command error detaches
+  [chromium] › statistics-flow.spec.ts:205:3 › native PNG snapshot timeout late response retained
+  [chromium] › statistics-flow.spec.ts:205:3 › native PNG snapshot timeout late rejection handled
+  [chromium] › statistics-flow.spec.ts:374:3 › native create IO initial persistence failure preserves original failure and independent cleanup
+  [chromium] › statistics-flow.spec.ts:374:3 › native create IO error-record persistence failure preserves original failure and independent cleanup
+  [chromium] › statistics-flow.spec.ts:374:3 › native create IO error-record persistence and detach failure preserves original failure and independent cleanup
+  [chromium] › statistics-flow.spec.ts:424:3 › native preflight preserves staged evidence for actual command string
+  [chromium] › statistics-flow.spec.ts:424:3 › native preflight preserves staged evidence for unsupported
+  [chromium] › statistics-flow.spec.ts:424:3 › native preflight preserves staged evidence for empty command
+  [chromium] › statistics-flow.spec.ts:424:3 › native preflight preserves staged evidence for ambiguous profile
+  [chromium] › statistics-flow.spec.ts:618:1 › creates a PDF report, polls state, downloads actual renderer bytes, and retries
+  [chromium] › statistics-flow.spec.ts:708:13 › Task7 reversed initial report date URL preserves raw input and query silence until manual repair
+  [chromium] › statistics-flow.spec.ts:708:13 › Task7 impossible initial report date URL preserves raw input and query silence until manual repair
+  [chromium] › statistics-flow.spec.ts:708:13 › Task7 partial initial report date URL preserves raw input and query silence until manual repair
+  [chromium] › statistics-flow.spec.ts:762:1 › Task7 valid history preserves a physically blurred partial request range without URL or query publication
+  [chromium] › statistics-flow.spec.ts:784:56 › Task7 invalid partial history recovers only after deliberate full-clear
+  [chromium] › statistics-flow.spec.ts:784:56 › Task7 invalid partial history recovers only after deliberate reset
+  [chromium] › statistics-flow.spec.ts:812:1 › Task7 independent report creation stays usable under invalid history without querying or normalizing its URL
+  [chromium] › statistics-flow.spec.ts:836:1 › searches and paginates 101 server records, restores filters, and returns to page one after creation
+  [chromium] › statistics-flow.spec.ts:982:3 › report history uses the accessible responsive surface at 1440x900
+  [chromium] › statistics-flow.spec.ts:982:3 › report history uses the accessible responsive surface at 1024x768
+  [chromium] › statistics-flow.spec.ts:982:3 › report history uses the accessible responsive surface at 390x844
+  [chromium] › statistics-flow.spec.ts:982:3 › report history uses the accessible responsive surface at 320x740
+  [chromium] › statistics-flow.spec.ts:1046:1 › Atlas desktop statistics surfaces keep filter rows compact and all heatmap hours visible
+  [chromium] › statistics-flow.spec.ts:1108:1 › selects analytics fixture/group history and bounds dates to the site's completed day
+  [chromium] › statistics-flow.spec.ts:1146:3 › heatmap and report controls remain usable without document overflow at 1440px
+  [chromium] › statistics-flow.spec.ts:1146:3 › heatmap and report controls remain usable without document overflow at 1024px
+  [chromium] › statistics-flow.spec.ts:1146:3 › heatmap and report controls remain usable without document overflow at 390px
+  [chromium] › statistics-flow.spec.ts:1146:3 › heatmap and report controls remain usable without document overflow at 320px
+  [chromium] › statistics-flow.spec.ts:1259:35 › Task7 physical filter hit and overlay lifecycle › 320px filter triggers retain real 44px hit, nested focus and query silence
+  [chromium] › statistics-flow.spec.ts:1259:35 › Task7 physical filter hit and overlay lifecycle › 390px filter triggers retain real 44px hit, nested focus and query silence
+  [chromium] › statistics-flow.spec.ts:1304:1 › Task7 heatmap metric loading retains its live filter and focus
+  [chromium] › statistics-flow.spec.ts:1329:1 › navigates to usage analysis and drills into fixture, floor, and group rankings
+  [chromium] › statistics-flow.spec.ts:1350:1 › returns focus to a retained report warning after its retry action
+  [chromium] › statistics-flow.spec.ts:1380:1 › moves focus to the report list after a successful warning retry
+  [chromium] › statistics-flow.spec.ts:1399:1 › keeps search focus when a pending warning retry later succeeds
+  [chromium] › statistics-flow.spec.ts:1425:1 › shows energy cards, daily and monthly lines, partial coverage and savings
+  [chromium] › statistics-flow.spec.ts:1470:3 › completed comparison picker and analysis range stay coherent at 1440px
+  [chromium] › statistics-flow.spec.ts:1470:3 › completed comparison picker and analysis range stay coherent at 1024px
+  [chromium] › statistics-flow.spec.ts:1470:3 › completed comparison picker and analysis range stay coherent at 390px
+  [chromium] › statistics-flow.spec.ts:1470:3 › completed comparison picker and analysis range stay coherent at 320px
+  [chromium] › statistics-flow.spec.ts:1527:1 › changing the analysis period clears old results while the new request is pending and after failure
+  [chromium] › statistics-flow.spec.ts:1568:1 › hides a cached analysis after same-period refetch fails and restores it on retry
+  [chromium] › statistics-flow.spec.ts:1607:3 › rejects a custom comparison response for another site
+  [chromium] › statistics-flow.spec.ts:1607:3 › rejects a custom comparison response for another range
+  [chromium] › statistics-flow.spec.ts:1635:3 › 390px control modes use the statistics underline navigation visual with optional icons
+  [chromium] › statistics-flow.spec.ts:1635:3 › 320px control modes use the statistics underline navigation visual with optional icons
+  [chromium] › statistics-flow.spec.ts:1635:3 › 760px control modes use the statistics underline navigation visual with optional icons
+  [chromium] › statistics-flow.spec.ts:1715:1 › underline navigation keeps keyboard focus visible inside its overflow edge
+  [chromium] › statistics-flow.spec.ts:1731:1 › shows negative savings as overuse without clamping
+  [chromium] › statistics-flow.spec.ts:1739:1 › retries comparison failures without hiding existing usage cards
+  [chromium] › statistics-flow.spec.ts:1755:1 › shows the no-data state without zero usage cards
+  [chromium] › statistics-flow.spec.ts:1772:1 › retries a summary failure and keeps cards during a series failure
+  [chromium] › statistics-flow.spec.ts:1803:1 › packs the statistics report from the top in a tall viewport
+  [chromium] › statistics-flow.spec.ts:1828:1 › Task7 native Chromium 200 percent keeps statistic filters, periods and keyboard reachable
+  [chromium] › statistics-flow.spec.ts:1893:1 › Task7 quick periods remain independent while zero, missing and isolated chart points stay truthful
+  [chromium] › statistics-flow.spec.ts:1937:1 › keeps KPI helper ranges readable without oversized cards at 320px
+  [chromium] › statistics-flow.spec.ts:1980:3 › keeps the statistics report responsive at 1440px
+  [chromium] › statistics-flow.spec.ts:1980:3 › keeps the statistics report responsive at 1024px
+  [chromium] › statistics-flow.spec.ts:1980:3 › keeps the statistics report responsive at 390px
+  [chromium] › statistics-flow.spec.ts:1980:3 › keeps the statistics report responsive at 320px
+  [chromium] › statistics-flow.spec.ts:2145:1 › opens a legacy XLSX history URL on the first PDF page
+  [chromium] › statistics-flow.spec.ts:2155:1 › exports the selected range as raw CSV without a report format
+  [chromium] › statistics-mobile-files.spec.ts:86:3 › 320px report dates remain whole with long names and 200 percent text
+  [chromium] › statistics-mobile-files.spec.ts:119:3 › 320px PDF native bytes stay pending until handoff without browser download
+  [chromium] › statistics-mobile-files.spec.ts:139:3 › 320px CSV cancellation preserves period and target for retry
+  [chromium] › statistics-mobile-files.spec.ts:86:3 › 390px report dates remain whole with long names and 200 percent text
+  [chromium] › statistics-mobile-files.spec.ts:119:3 › 390px PDF native bytes stay pending until handoff without browser download
+  [chromium] › statistics-mobile-files.spec.ts:139:3 › 390px CSV cancellation preserves period and target for retry
+  [chromium] › statistics-mobile-files.spec.ts:181:1 › signed PDF expiry remains distinguishable from native write errors
+  [chromium] › statistics-mobile-files.spec.ts:190:1 › native PDF network failure and size overflow never silently download in a browser
+  [chromium] › statistics-mobile-files.spec.ts:200:1 › ordinary browsers still download PDF and CSV bytes through their original paths
+  [chromium] › statistics-surface-regression.spec.ts:20:3 › native Surface setup recognizes literal 사용량 분석 조건
+  [chromium] › statistics-surface-regression.spec.ts:20:3 › native Surface setup recognizes literal 에너지 사용량 보고서 만들기
+  [chromium] › statistics-surface-regression.spec.ts:20:3 › native Surface setup recognizes title 사용량 분석 조건
+  [chromium] › statistics-surface-regression.spec.ts:20:3 › native Surface setup recognizes title 에너지 사용량 보고서 만들기
+  [chromium] › statistics-surface-regression.spec.ts:37:71 › native Surface setup rejects unexpected dialogs
+  [chromium] › statistics-surface-regression.spec.ts:37:71 › native Surface setup rejects duplicate dialogs
+  [chromium] › statistics-surface-regression.spec.ts:37:71 › native Surface setup rejects mixed dialogs
+  [chromium] › statistics-surface-regression.spec.ts:48:1 › native Surface setup centers original trigger after broader sticky-header controls
+  [chromium] › statistics-surface-regression.spec.ts:111:1 › local invalid report history blocks retry and repairs without blocking independent creation
+  [chromium] › statistics-surface-regression.spec.ts:319:114 › unchanged long statistics names fit 320x844
+  [chromium] › statistics-surface-regression.spec.ts:319:114 › unchanged long statistics names fit 390x320
+  [chromium] › statistics-surface-regression.spec.ts:319:114 › unchanged long statistics names fit 1440x900
+  [chromium] › statistics-surface-regression.spec.ts:324:3 › analysis native future draft and recovery
+  [chromium] › statistics-surface-regression.spec.ts:325:3 › report native future draft and recovery
+  [chromium] › statistics-surface-regression.spec.ts:324:3 › analysis native clear-start draft and recovery
+  [chromium] › statistics-surface-regression.spec.ts:325:3 › report native clear-start draft and recovery
+  [chromium] › statistics-surface-regression.spec.ts:324:3 › analysis native clear-end draft and recovery
+  [chromium] › statistics-surface-regression.spec.ts:325:3 › report native clear-end draft and recovery
+  [chromium] › statistics-surface-regression.spec.ts:324:3 › analysis native reversed draft and recovery
+  [chromium] › statistics-surface-regression.spec.ts:325:3 › report native reversed draft and recovery
+  [chromium] › statistics-surface-regression.spec.ts:327:1 › analysis inclusive 400 days remains valid but 401 emits no query
+  [chromium] › statistics-surface-regression.spec.ts:344:1 › genuine native browser200 keeps long names and both future drafts safe
+  [chromium] › ui-cascade.spec.ts:111:6 › production primitive CSS cascade › applies sm size from the production utilities
+  [chromium] › ui-cascade.spec.ts:111:6 › production primitive CSS cascade › applies md size from the production utilities
+  [chromium] › ui-cascade.spec.ts:111:6 › production primitive CSS cascade › applies lg size from the production utilities
+  [chromium] › ui-cascade.spec.ts:115:3 › production primitive CSS cascade › lets caller padding override the large button padding
+  [chromium] › ui-cascade.spec.ts:119:3 › production primitive CSS cascade › lets callers size and pad the tooltip's actual button
+  [chromium] › ui-cascade.spec.ts:123:3 › production primitive CSS cascade › preserves the default tooltip touch area and final shell utility layout
+  [chromium] › ui-cascade.spec.ts:129:41 › production primitive CSS cascade › uses element-center coordinates for a real Enter activation
+  [chromium] › ui-cascade.spec.ts:129:41 › production primitive CSS cascade › uses element-center coordinates for a real Space activation
+  [chromium] › ui-dates.spec.ts:77:3 › production date and time contracts › applies sizes and variants to the actual control with visible segment focus
+  [chromium] › ui-dates.spec.ts:105:3 › production date and time contracts › preserves root IDs, handles, caller ARIA and non-editable states
+  [chromium] › ui-dates.spec.ts:120:3 › production date and time contracts › opens by keyboard, closes on Escape and returns focus; pointer selection emits once
+  [chromium] › ui-dates.spec.ts:133:3 › production date and time contracts › prevents out-of-bounds selection and navigates across the leap-day month boundary
+  [chromium] › ui-dates.spec.ts:143:3 › production date and time contracts › selects an ordered range and emits only its completed string pair
+  [chromium] › ui-dates.spec.ts:159:3 › production date and time contracts › selects the next day across leap-day with calendar arrow keys and Enter
+  [chromium] › ui-dates.spec.ts:166:3 › production date and time contracts › edits 24-hour time and clears every family with Backspace and Delete exactly once
+  [chromium] › ui-dates.spec.ts:182:3 › production date and time contracts › preserves default/native/aria form validation semantics
+  [chromium] › ui-dates.spec.ts:202:3 › production date and time contracts › fits 320px and provides 44px calendar, trigger and segment touch targets
+  [chromium] › ui-dates.spec.ts:220:3 › production date and time contracts › has zero serious/critical axe violations in fields and open date/range calendars
+  [chromium] › ui-fields.spec.ts:92:3 › production field browser contracts › applies real size, variant, invalid and caller layout utilities
+  [chromium] › ui-fields.spec.ts:107:3 › production field browser contracts › keyboard focus lands on the actual ref and displays the focus ring
+  [chromium] › ui-fields.spec.ts:114:3 › production field browser contracts › shows empty, selected and mixed checkbox marks as distinct non-color cues
+  [chromium] › ui-fields.spec.ts:123:3 › production field browser contracts › caller IDs resolve to actual inputs and external labels activate them
+  [chromium] › ui-fields.spec.ts:142:3 › production field browser contracts › inline checkbox and switch labels compute distinct size typography
+  [chromium] › ui-fields.spec.ts:149:3 › production field browser contracts › native required constraints block form submission unless aria validation is requested
+  [chromium] › ui-fields.spec.ts:160:3 › production field browser contracts › native Space toggles checkbox and switch once each
+  [chromium] › ui-fields.spec.ts:172:3 › production field browser contracts › popup keyboard selection skips disabled keys and restores the exact control focus
+  [chromium] › ui-fields.spec.ts:193:3 › production field browser contracts › number, radio and slider keyboard changes preserve numeric/string contracts
+  [chromium] › ui-fields.spec.ts:211:3 › production field browser contracts › centers slider thumbs on the track at every size and endpoint without changing drag
+  [chromium] › ui-fields.spec.ts:241:3 › production field browser contracts › delivers the real FileList unchanged and allows reset then same-file selection
+  [chromium] › ui-fields.spec.ts:253:3 › production field browser contracts › has no serious or critical axe violations with production CSS and an open popup
+  [chromium] › ui-overlays.spec.ts:86:3 › production overlay contracts › preserves default, compatibility and public CSS widths without narrow viewport overflow
+  [chromium] › ui-overlays.spec.ts:107:3 › production overlay contracts › portals, contains focus and restores nested child then parent focus
+  [chromium] › ui-overlays.spec.ts:144:3 › production overlay contracts › dismisses outside once, handles removed openers and preserves shared dialog appearance
+  [chromium] › ui-overlays.spec.ts:163:3 › production overlay contracts › locks pending Escape, outside, close, cancel and confirmation
+  [chromium] › ui-overlays.spec.ts:173:3 › production overlay contracts › supports Enter/Space, Arrow/Home/End, disabled skip and exact typed menu actions
+  [chromium] › ui-overlays.spec.ts:194:3 › production overlay contracts › forwards popover root and returns focus on Escape
+  [chromium] › ui-overlays.spec.ts:213:3 › production overlay contracts › keeps 44px targets, no 320px overflow and zero serious/critical axe violations
+Total: 1044 tests in 55 files

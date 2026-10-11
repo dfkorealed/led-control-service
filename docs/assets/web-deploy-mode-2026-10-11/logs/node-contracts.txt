@@ -1,0 +1,25 @@
+✔ strict deployment mode defaults only when unset (1.298375ms)
+✔ service exact routes cover shell nested routes but never arbitrary internal paths (0.506166ms)
+✔ artifact metadata binds mode to all emitted bytes and rejects stale metadata (22.2345ms)
+✔ real Rollup build refuses a tree-shaken inquiry API dependency (4075.807833ms)
+✔ landing has a standalone build contract independent of shared (3.916ms)
+✔ actual module graph rejects internal, concept, and inquiry imports even when tree-shaken (2.708125ms)
+✔ emitted output audit rejects unapproved files and bundled API code (1.007ms)
+✔ backend-free HTTP server returns exact public routes, allowlisted assets and real 404 (95.0885ms)
+✔ emitted public JS rejects archived concept presentation markers (0.26825ms)
+✔ CLI/config fail closed and offline plans never call AWS (1.575834ms)
+✔ private retained S3 and scoped OAC read policy survive mode templates (0.974042ms)
+✔ landing to service to landing and cross-mode rollback publish matching archives and retain old assets (106.632542ms)
+✔ wrong mode or stale bytes fail before all remote calls (12.027333ms)
+✔ activation failure retains lock and exact conditional recovery can roll back to prior mode (28.884375ms)
+✔ service preflight requires a configured API before any remote call (1.458167ms)
+✔ mode template preserves API errors and forwards cookies, authorization, query and all methods uncached (1.268292ms)
+✔ edge binds exact HTML release, gates mode assets and returns real 404 without remapping API failures (2.070583ms)
+ℹ tests 17
+ℹ suites 0
+ℹ pass 17
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 4392.505833

@@ -1,0 +1,80 @@
+TAP version 13
+# Subtest: service preflight requires a configured API before any remote call
+ok 1 - service preflight requires a configured API before any remote call
+  ---
+  duration_ms: 1.942333
+  type: 'test'
+  ...
+# Subtest: mode template preserves API errors and forwards cookies, authorization, query and all methods uncached
+not ok 2 - mode template preserves API errors and forwards cookies, authorization, query and all methods uncached
+  ---
+  duration_ms: 1.765375
+  type: 'test'
+  location: '/Users/kim-jh/Documents/led-control-service/.worktrees/web-deploy-mode-20261011/scripts/landing/public-mode.test.mjs:12:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    + actual - expected
+    
+    + '413f160e-6fd1-4d3a-9df3-4b5a84be39ad'
+    - '4135ea2d-6df8-44a3-9df3-4b5a84be39ad'
+          ^
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: '4135ea2d-6df8-44a3-9df3-4b5a84be39ad'
+  actual: '413f160e-6fd1-4d3a-9df3-4b5a84be39ad'
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///Users/kim-jh/Documents/led-control-service/.worktrees/web-deploy-mode-20261011/scripts/landing/public-mode.test.mjs:22:12)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+  ...
+# Subtest: edge binds exact HTML release, gates mode assets and returns real 404 without remapping API failures
+ok 3 - edge binds exact HTML release, gates mode assets and returns real 404 without remapping API failures
+  ---
+  duration_ms: 2.639917
+  type: 'test'
+  ...
+# Subtest: both modes use the documented AWS CachingDisabled ID for default HTML behavior
+not ok 4 - both modes use the documented AWS CachingDisabled ID for default HTML behavior
+  ---
+  duration_ms: 0.312125
+  type: 'test'
+  location: '/Users/kim-jh/Documents/led-control-service/.worktrees/web-deploy-mode-20261011/scripts/landing/public-mode.test.mjs:48:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    + actual - expected
+    
+    + '413f160e-6fd1-4d3a-9df3-4b5a84be39ad'
+    - '4135ea2d-6df8-44a3-9df3-4b5a84be39ad'
+          ^
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: '4135ea2d-6df8-44a3-9df3-4b5a84be39ad'
+  actual: '413f160e-6fd1-4d3a-9df3-4b5a84be39ad'
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///Users/kim-jh/Documents/led-control-service/.worktrees/web-deploy-mode-20261011/scripts/landing/public-mode.test.mjs:51:12)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+1..4
+# tests 4
+# suites 0
+# pass 2
+# fail 2
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 80.096291

@@ -2,10 +2,12 @@
 
 기준일: 2026-10-11
 
-## 2026-10-11 공개 Web 배포 모드 — 진행 중
+## 2026-10-11 공개 Web 배포 모드 — 구현·독립 검토 완료, 로컬 통합 준비
 
-- 사용자 요청으로 `WEB_DEPLOY_MODE=landing|service` 하나가 재배포 시 빌드/공개 경로/API 연결을 함께 선택하도록 구현한다. 최신 `cc6b9a7a`에서 `codex/web-deploy-mode-20261011`을 격리했고 [실행 계획](superpowers/plans/2026-10-11-web-deploy-mode.md)에 따라 기존 랜딩 준비 통합→공통 모드 계약→Web/AWS 구현→한정 검증/독립 리뷰를 순차 진행한다.
-- 기본 landing/실제 내부404·연락처 상담·준비 중을 유지하고 service에서 기존 `/login`·관제·same-origin `/api`를 연다. API origin/계정/도메인은 최초 환경 설정에서 명시한다. 기존 ATLAS UI·세션/역할/tenant 경계를 보존하며 실제 AWS·DB·장비 변경은 아직 수행하지 않는다.
+- 사용자 요청의 `WEB_DEPLOY_MODE=landing|service` 하나로 동일 명령의 빌드·edge/API 공개 범위를 함께 선택한다. 미설정은 landing, 잘못된 값/모드 불일치·변조 산출물은 배포 전에 거절한다. service의 `/login`·기존 관제·same-origin `/api`와 최신 ATLAS/일반 dev/mobile 진입을 유지하며 시안은 운영 산출물에서 제외한다.
+- 기존 준비 `7f132751`/`1f78274c`를 최신 `cc6b9a7a`에 통합한 뒤 `a549fb16`으로 구현, 독립 Important2건(AWS 정책 ID·일반 E2E 계약/discovery)을 `577e7cfa`에서 수리했다. 최종 독립 specYES/qualityApproved/source integrationYES, 새 Critical0/Important0이다. 빌드 집계 중복도 해결했고 기존 번들/pnpm 경고는 비차단 한계로 남긴다.
+- 관련 unit45·Node초기17/수정12·UI정책79 및0/0·타입·양 모드 실제빌드·production landing2PASS/2service-onlySKIP·service4PASS·일반로그인2PASS를 확인했다. 총괄의 최종78파일 해시/알려진 경로HTTP200/미지·시안404 검증도 exit0이다. [영구 증거](assets/web-deploy-mode-2026-10-11/README.md)와 [계획](superpowers/plans/2026-10-11-web-deploy-mode.md)에 수리·한계를 보존한다.
+- 기존 ‘바로 반영’ 지시에 따라 clean/기준HEAD 확인 후 로컬 FF를 진행한다. 실제 AWS 생성/배포·운영 API/DB·장비 변경·원격 push는 수행하지 않았다. 최초 계정/도메인/API/TLS/권한 설정 및 정확한 커밋의 canonical CI·실제 AWS 검증은 공개 전 관문이다. flag는 재빌드·재배포에 적용되며 런타임 토글이 아니다.
 
 ## 2026-10-11 브라우저 주석 29건 교정 — 구현·한정 검증·최종 리뷰·로컬 FF 완료
 
