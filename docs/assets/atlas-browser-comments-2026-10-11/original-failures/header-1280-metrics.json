@@ -1,0 +1,96 @@
+{
+  "url": "http://127.0.0.1:15186/monitoring?siteId=00000000-0000-4000-8000-000000000003&keep=value#comments",
+  "viewport": {
+    "width": 1280,
+    "height": 900
+  },
+  "metrics": {
+    "metrics": {
+      "width": 1280,
+      "context": {
+        "x": 248,
+        "y": 24,
+        "right": 990.078125,
+        "bottom": 44,
+        "width": 742.078125,
+        "height": 20
+      },
+      "summary": {
+        "x": 1006.078125,
+        "y": 12,
+        "right": 1072,
+        "bottom": 56,
+        "width": 65.921875,
+        "height": 44
+      },
+      "actions": {
+        "x": 1088,
+        "y": 8,
+        "right": 1252,
+        "bottom": 60,
+        "width": 164,
+        "height": 52
+      },
+      "buttons": [
+        {
+          "label": "알람센터, 확인 불가",
+          "x": 1088,
+          "y": 8,
+          "right": 1140,
+          "bottom": 60,
+          "width": 52,
+          "height": 52,
+          "reachable": true
+        },
+        {
+          "label": "라이트 모드로 변경",
+          "x": 1148,
+          "y": 8,
+          "right": 1200,
+          "bottom": 60,
+          "width": 52,
+          "height": 52,
+          "reachable": false
+        }
+      ],
+      "children": [
+        {
+          "x": 1006.078125,
+          "y": 12,
+          "right": 1040.78125,
+          "bottom": 56,
+          "width": 34.703125,
+          "height": 44
+        },
+        {
+          "x": 1052.78125,
+          "y": 12,
+          "right": 1087.484375,
+          "bottom": 56,
+          "width": 34.703125,
+          "height": 44
+        },
+        {
+          "x": 1099.484375,
+          "y": 12,
+          "right": 1123.765625,
+          "bottom": 56,
+          "width": 24.28125,
+          "height": 44
+        },
+        {
+          "x": 1135.765625,
+          "y": 12,
+          "right": 1177.296875,
+          "bottom": 56,
+          "width": 41.53125,
+          "height": 44
+        }
+      ],
+      "gap": "12px",
+      "clientWidth": 1280,
+      "scrollWidth": 1280
+    },
+    "writes": []
+  }
+}

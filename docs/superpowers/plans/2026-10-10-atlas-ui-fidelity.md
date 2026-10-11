@@ -277,14 +277,16 @@
 
 **Files:** `apps/web/e2e`의 이번 주석 전용 focused spec/기존 잘못된 selector 시나리오 기대값, 증거 보고서. 제품 수정이 필요하면 해당 owner에게 반환.
 
-- [ ] tall mobile 578×1227/681×1227 지도 공간, short mobile 자연 scroll/도구 접근, PC compact 집계/표 center, manual 개별 선택 목록/clear/초안 보존, schedule CTA 이동, dark mobile 보고서 필터·touch target/overflow를 6–8개 controlled case로 확인. 실제 data/지도 로딩을 기다리고 screenshot은 outputPath 파일로 보존.
-- [ ] 테스트 API fixture만 사용해 추가 쓰기0/기존 고객 서버5173/API4000 보존. 전체 이전 matrix·timeout/skip/기준 완화 금지.
+- [x] tall mobile 578×1227/681×1227 지도 공간, short mobile 자연 scroll/도구 접근, PC compact 집계/표 center, manual 개별 선택 목록/clear/초안 보존, schedule CTA 이동, dark mobile 보고서 필터·touch target/overflow를 6–8개 controlled case로 확인. 실제 data/지도 로딩을 기다리고 screenshot은 outputPath 파일로 보존.
+- [x] 테스트 API fixture만 사용해 추가 쓰기0/기존 고객 서버5173/API4000 보존. 전체 이전 matrix·timeout/skip/기준 완화 금지.
 - [x] 최종 Web `typecheck`, `test:ui-policy`, `ui:check`, `build` 각 한 번. 실패 관문만 최소 재실행; 원 실패와 최종 결과를 별도 기록.
 
 최초 정적 묶음: 제품 `e9d72b91`과 전/후 동일 source fingerprint `824d09ad…`에서 타입exit0/정책79PASS·0FAIL·SKIP/UI0·0/buildexit0(기존main930.29KB 큰chunk 경고1). 최초Browser7=5PASS/2FAIL, 국소2=darkreportPASS/shortmonitorFAIL. darkreport는 실제 wheel 후 fixednav 위 완전노출/44px 원 기준을 통과했다. short390×600은 document779/scrollY179=max에서도 tickerbottom591>navtop532라 실제 제품 결함으로 담당에 반환했다. 수리/그 관련3높이사례·UI/build만 후속 확인, 전체7/정책/unit 묶음 반복 없음. 최종브라우저 완료·리뷰·병합은 아직이다.
 
 ### Task 17: 최종 리뷰·로컬 병합
 
-- [ ] 독립 최종 통합 리뷰 한 번(29주석/spec+코드), 중요 문제는 해당 owner 한 번 수리·국소 재확인. 최종 source·한계·모바일 증거와 메뉴 문서 최신화 확인.
+- [x] 독립 최종 통합 리뷰 한 번(29주석/spec+코드), 중요 문제는 해당 owner 한 번 수리·국소 재확인. 최종 source·한계·모바일 증거와 메뉴 문서 최신화 확인.
 - [ ] base/correction clean·HEAD를 새로 확인하고 사용자 요청대로 `git merge --ff-only codex/atlas-browser-comments-20261011`. base가 변경되면 무조건 덮어쓰지 않음. 원격 push/PR/배포 없음.
 - [ ] 실제 merge 결과/HEAD·checklist/상태판을 기록하고 완료 handoff. 검증된 source 불변인 문서 closeout에는 전체 검증 반복 없음.
+
+최종 증거: 모바일 높이 `4802b641`/헤더 폭 `45b22fce`/기존 계정 히트 최소교정 `b70f037f`, QA 최종spec `18f5a0eb`. 실제PC 캡처에서 뒤늦게 확인한 in-scope 헤더 회귀에는 같은 owner/같은 review seat만 국소 연장했다. Browser7unique/6runs15exec(7+2+3+1+1+1) source별 통과이며 최종전체7 batchPASS는 아니다. 최종제품 UI0·0/build(tsc)exit0, 초기정책79/타입0은 변경 없는 계약의 별도증거, 기존bigchunkwarn1/SettingsShellbaselineFAIL1 유지. 독립최종 C/I/M0·0·0/mergeYES. [영구 교정·검증 자료](../../assets/atlas-browser-comments-2026-10-11/README.md)에29건mapping·원실패·실제좌표/대표PNG/담당·리뷰·한계를 보존했다. 병합만 남았으며 새로운 검증은 계획하지 않는다.

@@ -1,0 +1,100 @@
+{
+  "url": "http://127.0.0.1:15186/monitoring?siteId=00000000-0000-4000-8000-000000000003",
+  "viewport": {
+    "width": 681,
+    "height": 1227
+  },
+  "metrics": {
+    "map": {
+      "x": 15,
+      "y": 350,
+      "width": 651,
+      "height": 630
+    },
+    "panel": {
+      "x": 14,
+      "y": 300,
+      "width": 653,
+      "height": 841
+    },
+    "nav": {
+      "x": 0,
+      "y": 1159,
+      "width": 681,
+      "height": 68
+    },
+    "cells": [
+      157.25,
+      157.25,
+      157.25,
+      157.25
+    ],
+    "actions": {
+      "zoom": {
+        "x": 545,
+        "y": 993,
+        "width": 52,
+        "height": 52,
+        "bottom": 1045,
+        "right": 597,
+        "navTop": 1159,
+        "headerBottom": 118,
+        "viewportWidth": 681,
+        "scrollY": 0,
+        "documentHeight": 1227,
+        "scrollContainers": [],
+        "reachable": true,
+        "scrolls": [
+          {
+            "x": 545,
+            "y": 993,
+            "width": 52,
+            "height": 52,
+            "bottom": 1045,
+            "right": 597,
+            "navTop": 1159,
+            "headerBottom": 118,
+            "viewportWidth": 681,
+            "scrollY": 0,
+            "documentHeight": 1227,
+            "scrollContainers": [],
+            "reachable": true
+          }
+        ]
+      },
+      "logs": {
+        "x": 542.09375,
+        "y": 1088,
+        "width": 109.90625,
+        "height": 44,
+        "bottom": 1132,
+        "right": 652,
+        "navTop": 1159,
+        "headerBottom": 118,
+        "viewportWidth": 681,
+        "scrollY": 0,
+        "documentHeight": 1227,
+        "scrollContainers": [],
+        "reachable": true,
+        "scrolls": [
+          {
+            "x": 542.09375,
+            "y": 1088,
+            "width": 109.90625,
+            "height": 44,
+            "bottom": 1132,
+            "right": 652,
+            "navTop": 1159,
+            "headerBottom": 118,
+            "viewportWidth": 681,
+            "scrollY": 0,
+            "documentHeight": 1227,
+            "scrollContainers": [],
+            "reachable": true
+          }
+        ]
+      }
+    },
+    "writes": []
+  }
+}

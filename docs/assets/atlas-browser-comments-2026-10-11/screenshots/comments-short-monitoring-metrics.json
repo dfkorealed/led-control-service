@@ -1,0 +1,152 @@
+{
+  "url": "http://127.0.0.1:15186/monitoring?siteId=00000000-0000-4000-8000-000000000003",
+  "viewport": {
+    "width": 390,
+    "height": 600
+  },
+  "metrics": {
+    "logs": {
+      "x": 251.09375,
+      "y": 479,
+      "width": 109.90625,
+      "height": 44,
+      "bottom": 523,
+      "right": 361,
+      "navTop": 532,
+      "headerBottom": 118,
+      "viewportWidth": 390,
+      "scrollY": 247,
+      "documentHeight": 847,
+      "scrollContainers": [
+        {
+          "tag": "DIV",
+          "label": null,
+          "overflowY": "visible",
+          "scrollHeight": 729,
+          "clientHeight": 482,
+          "scrollTop": 0,
+          "maximum": 247
+        },
+        {
+          "tag": "MAIN",
+          "label": null,
+          "overflowY": "visible",
+          "scrollHeight": 847,
+          "clientHeight": 600,
+          "scrollTop": 0,
+          "maximum": 247
+        },
+        {
+          "tag": "DIV",
+          "label": null,
+          "overflowY": "visible",
+          "scrollHeight": 847,
+          "clientHeight": 600,
+          "scrollTop": 0,
+          "maximum": 247
+        },
+        {
+          "tag": "DIV",
+          "label": null,
+          "overflowY": "visible",
+          "scrollHeight": 847,
+          "clientHeight": 600,
+          "scrollTop": 0,
+          "maximum": 247
+        },
+        {
+          "tag": "BODY",
+          "label": null,
+          "overflowY": "visible",
+          "scrollHeight": 847,
+          "clientHeight": 600,
+          "scrollTop": 0,
+          "maximum": 247
+        },
+        {
+          "tag": "HTML",
+          "label": null,
+          "overflowY": "visible",
+          "scrollHeight": 847,
+          "clientHeight": 600,
+          "scrollTop": 247,
+          "maximum": 247
+        }
+      ],
+      "reachable": true,
+      "scrolls": [
+        {
+          "x": 251.09375,
+          "y": 479,
+          "width": 109.90625,
+          "height": 44,
+          "bottom": 523,
+          "right": 361,
+          "navTop": 532,
+          "headerBottom": 118,
+          "viewportWidth": 390,
+          "scrollY": 247,
+          "documentHeight": 847,
+          "scrollContainers": [
+            {
+              "tag": "DIV",
+              "label": null,
+              "overflowY": "visible",
+              "scrollHeight": 729,
+              "clientHeight": 482,
+              "scrollTop": 0,
+              "maximum": 247
+            },
+            {
+              "tag": "MAIN",
+              "label": null,
+              "overflowY": "visible",
+              "scrollHeight": 847,
+              "clientHeight": 600,
+              "scrollTop": 0,
+              "maximum": 247
+            },
+            {
+              "tag": "DIV",
+              "label": null,
+              "overflowY": "visible",
+              "scrollHeight": 847,
+              "clientHeight": 600,
+              "scrollTop": 0,
+              "maximum": 247
+            },
+            {
+              "tag": "DIV",
+              "label": null,
+              "overflowY": "visible",
+              "scrollHeight": 847,
+              "clientHeight": 600,
+              "scrollTop": 0,
+              "maximum": 247
+            },
+            {
+              "tag": "BODY",
+              "label": null,
+              "overflowY": "visible",
+              "scrollHeight": 847,
+              "clientHeight": 600,
+              "scrollTop": 0,
+              "maximum": 247
+            },
+            {
+              "tag": "HTML",
+              "label": null,
+              "overflowY": "visible",
+              "scrollHeight": 847,
+              "clientHeight": 600,
+              "scrollTop": 247,
+              "maximum": 247
+            }
+          ],
+          "reachable": true
+        }
+      ]
+    },
+    "writes": []
+  }
+}

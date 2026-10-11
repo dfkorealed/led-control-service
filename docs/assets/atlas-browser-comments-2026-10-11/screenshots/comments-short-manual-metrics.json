@@ -1,0 +1,272 @@
+{
+  "url": "http://127.0.0.1:15186/control?siteId=00000000-0000-4000-8000-000000000003&mode=manual",
+  "viewport": {
+    "width": 390,
+    "height": 600
+  },
+  "metrics": {
+    "actions": {
+      "조명 목록 열기": {
+        "x": 27,
+        "y": 278,
+        "width": 113.578125,
+        "height": 44,
+        "bottom": 322,
+        "right": 140.578125,
+        "navTop": 532,
+        "headerBottom": 118,
+        "viewportWidth": 390,
+        "scrollY": 99,
+        "documentHeight": 1607,
+        "scrollContainers": [
+          {
+            "tag": "HTML",
+            "label": null,
+            "overflowY": "visible",
+            "scrollHeight": 1607,
+            "clientHeight": 600,
+            "scrollTop": 99,
+            "maximum": 1007
+          }
+        ],
+        "reachable": true,
+        "scrolls": [
+          {
+            "x": 27,
+            "y": 278,
+            "width": 113.578125,
+            "height": 44,
+            "bottom": 322,
+            "right": 140.578125,
+            "navTop": 532,
+            "headerBottom": 118,
+            "viewportWidth": 390,
+            "scrollY": 99,
+            "documentHeight": 1607,
+            "scrollContainers": [
+              {
+                "tag": "HTML",
+                "label": null,
+                "overflowY": "visible",
+                "scrollHeight": 1607,
+                "clientHeight": 600,
+                "scrollTop": 99,
+                "maximum": 1007
+              }
+            ],
+            "reachable": true
+          }
+        ]
+      },
+      "이동": {
+        "x": 40,
+        "y": 347,
+        "width": 82.234375,
+        "height": 44,
+        "bottom": 391,
+        "right": 122.234375,
+        "navTop": 532,
+        "headerBottom": 118,
+        "viewportWidth": 390,
+        "scrollY": 99,
+        "documentHeight": 1607,
+        "scrollContainers": [
+          {
+            "tag": "HTML",
+            "label": null,
+            "overflowY": "visible",
+            "scrollHeight": 1607,
+            "clientHeight": 600,
+            "scrollTop": 99,
+            "maximum": 1007
+          }
+        ],
+        "reachable": true,
+        "scrolls": [
+          {
+            "x": 40,
+            "y": 347,
+            "width": 82.234375,
+            "height": 44,
+            "bottom": 391,
+            "right": 122.234375,
+            "navTop": 532,
+            "headerBottom": 118,
+            "viewportWidth": 390,
+            "scrollY": 99,
+            "documentHeight": 1607,
+            "scrollContainers": [
+              {
+                "tag": "HTML",
+                "label": null,
+                "overflowY": "visible",
+                "scrollHeight": 1607,
+                "clientHeight": 600,
+                "scrollTop": 99,
+                "maximum": 1007
+              }
+            ],
+            "reachable": true
+          }
+        ]
+      },
+      "개별 선택": {
+        "x": 126.234375,
+        "y": 347,
+        "width": 109.90625,
+        "height": 44,
+        "bottom": 391,
+        "right": 236.140625,
+        "navTop": 532,
+        "headerBottom": 118,
+        "viewportWidth": 390,
+        "scrollY": 99,
+        "documentHeight": 1607,
+        "scrollContainers": [
+          {
+            "tag": "HTML",
+            "label": null,
+            "overflowY": "visible",
+            "scrollHeight": 1607,
+            "clientHeight": 600,
+            "scrollTop": 99,
+            "maximum": 1007
+          }
+        ],
+        "reachable": true,
+        "scrolls": [
+          {
+            "x": 126.234375,
+            "y": 347,
+            "width": 109.90625,
+            "height": 44,
+            "bottom": 391,
+            "right": 236.140625,
+            "navTop": 532,
+            "headerBottom": 118,
+            "viewportWidth": 390,
+            "scrollY": 99,
+            "documentHeight": 1607,
+            "scrollContainers": [
+              {
+                "tag": "HTML",
+                "label": null,
+                "overflowY": "visible",
+                "scrollHeight": 1607,
+                "clientHeight": 600,
+                "scrollTop": 99,
+                "maximum": 1007
+              }
+            ],
+            "reachable": true
+          }
+        ]
+      },
+      "영역 선택": {
+        "x": 40,
+        "y": 395,
+        "width": 109.90625,
+        "height": 44,
+        "bottom": 439,
+        "right": 149.90625,
+        "navTop": 532,
+        "headerBottom": 118,
+        "viewportWidth": 390,
+        "scrollY": 99,
+        "documentHeight": 1607,
+        "scrollContainers": [
+          {
+            "tag": "HTML",
+            "label": null,
+            "overflowY": "visible",
+            "scrollHeight": 1607,
+            "clientHeight": 600,
+            "scrollTop": 99,
+            "maximum": 1007
+          }
+        ],
+        "reachable": true,
+        "scrolls": [
+          {
+            "x": 40,
+            "y": 395,
+            "width": 109.90625,
+            "height": 44,
+            "bottom": 439,
+            "right": 149.90625,
+            "navTop": 532,
+            "headerBottom": 118,
+            "viewportWidth": 390,
+            "scrollY": 99,
+            "documentHeight": 1607,
+            "scrollContainers": [
+              {
+                "tag": "HTML",
+                "label": null,
+                "overflowY": "visible",
+                "scrollHeight": 1607,
+                "clientHeight": 600,
+                "scrollTop": 99,
+                "maximum": 1007
+              }
+            ],
+            "reachable": true
+          }
+        ]
+      },
+      "지도 확대": {
+        "x": 240,
+        "y": 274,
+        "width": 52,
+        "height": 52,
+        "bottom": 326,
+        "right": 292,
+        "navTop": 532,
+        "headerBottom": 118,
+        "viewportWidth": 390,
+        "scrollY": 586,
+        "documentHeight": 1607,
+        "scrollContainers": [
+          {
+            "tag": "HTML",
+            "label": null,
+            "overflowY": "visible",
+            "scrollHeight": 1607,
+            "clientHeight": 600,
+            "scrollTop": 586,
+            "maximum": 1007
+          }
+        ],
+        "reachable": true,
+        "scrolls": [
+          {
+            "x": 240,
+            "y": 274,
+            "width": 52,
+            "height": 52,
+            "bottom": 326,
+            "right": 292,
+            "navTop": 532,
+            "headerBottom": 118,
+            "viewportWidth": 390,
+            "scrollY": 586,
+            "documentHeight": 1607,
+            "scrollContainers": [
+              {
+                "tag": "HTML",
+                "label": null,
+                "overflowY": "visible",
+                "scrollHeight": 1607,
+                "clientHeight": 600,
+                "scrollTop": 586,
+                "maximum": 1007
+              }
+            ],
+            "reachable": true
+          }
+        ]
+      }
+    },
+    "writes": []
+  }
+}

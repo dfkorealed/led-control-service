@@ -1,0 +1,40 @@
+{
+  "url": "http://127.0.0.1:15186/control?siteId=00000000-0000-4000-8000-000000000003&mode=manual",
+  "viewport": {
+    "width": 1280,
+    "height": 900
+  },
+  "metrics": {
+    "centralBounds": {
+      "x": 790,
+      "y": 280.09375,
+      "width": 256,
+      "height": 517.90625
+    },
+    "mapBounds": {
+      "x": 249,
+      "y": 382.09375,
+      "width": 528,
+      "height": 349.90625
+    },
+    "executionBounds": {
+      "x": 1062,
+      "y": 280.09375,
+      "width": 350,
+      "height": 517.90625
+    },
+    "clearBounds": {
+      "x": 960.09375,
+      "y": 280.09375,
+      "width": 85.90625,
+      "height": 44,
+      "bottom": 324.09375,
+      "right": 1046,
+      "navTop": 900,
+      "headerBottom": 69,
+      "viewportWidth": 1440,
+      "reachable": true
+    },
+    "writes": []
+  }
+}

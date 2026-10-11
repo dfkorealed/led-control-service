@@ -1,0 +1,106 @@
+{
+  "url": "http://127.0.0.1:15186/monitoring?siteId=00000000-0000-4000-8000-000000000003&keep=value#comments",
+  "viewport": {
+    "width": 760,
+    "height": 900
+  },
+  "metrics": {
+    "metrics": {
+      "width": 760,
+      "context": {
+        "x": 108,
+        "y": 24,
+        "right": 356.78125,
+        "bottom": 44,
+        "width": 248.78125,
+        "height": 20
+      },
+      "summary": {
+        "x": 372.78125,
+        "y": 12,
+        "right": 544,
+        "bottom": 56,
+        "width": 171.21875,
+        "height": 44
+      },
+      "actions": {
+        "x": 560,
+        "y": 8,
+        "right": 732,
+        "bottom": 60,
+        "width": 172,
+        "height": 52
+      },
+      "buttons": [
+        {
+          "label": "알람센터, 확인 불가",
+          "x": 560,
+          "y": 8,
+          "right": 612,
+          "bottom": 60,
+          "width": 52,
+          "height": 52,
+          "reachable": true
+        },
+        {
+          "label": "라이트 모드로 변경",
+          "x": 620,
+          "y": 8,
+          "right": 672,
+          "bottom": 60,
+          "width": 52,
+          "height": 52,
+          "reachable": true
+        },
+        {
+          "label": "내 계정 및 보안",
+          "x": 680,
+          "y": 8,
+          "right": 732,
+          "bottom": 60,
+          "width": 52,
+          "height": 52,
+          "reachable": true
+        }
+      ],
+      "children": [
+        {
+          "x": 372.78125,
+          "y": 12,
+          "right": 407.484375,
+          "bottom": 56,
+          "width": 34.703125,
+          "height": 44
+        },
+        {
+          "x": 419.484375,
+          "y": 12,
+          "right": 454.1875,
+          "bottom": 56,
+          "width": 34.703125,
+          "height": 44
+        },
+        {
+          "x": 466.1875,
+          "y": 12,
+          "right": 490.46875,
+          "bottom": 56,
+          "width": 24.28125,
+          "height": 44
+        },
+        {
+          "x": 502.46875,
+          "y": 12,
+          "right": 544,
+          "bottom": 56,
+          "width": 41.53125,
+          "height": 44
+        }
+      ],
+      "gap": "12px",
+      "clientWidth": 760,
+      "scrollWidth": 760
+    },
+    "writes": []
+  }
+}

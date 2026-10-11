@@ -1,0 +1,114 @@
+{
+  "url": "http://127.0.0.1:15186/statistics/reports?limit=20&siteId=00000000-0000-4000-8000-000000000003",
+  "viewport": {
+    "width": 390,
+    "height": 844
+  },
+  "metrics": {
+    "resetBounds": {
+      "x": 107.515625,
+      "y": 714,
+      "width": 85.515625,
+      "height": 44,
+      "bottom": 758,
+      "right": 193.03125,
+      "navTop": 776,
+      "headerBottom": 118,
+      "viewportWidth": 390,
+      "scrollY": 91,
+      "documentHeight": 935,
+      "reachable": true,
+      "scrolls": [
+        {
+          "x": 107.515625,
+          "y": 800,
+          "width": 85.515625,
+          "height": 44,
+          "bottom": 844,
+          "right": 193.03125,
+          "navTop": 776,
+          "headerBottom": 118,
+          "viewportWidth": 390,
+          "scrollY": 5,
+          "documentHeight": 935,
+          "reachable": false
+        },
+        {
+          "x": 107.515625,
+          "y": 714,
+          "width": 85.515625,
+          "height": 44,
+          "bottom": 758,
+          "right": 193.03125,
+          "navTop": 776,
+          "headerBottom": 118,
+          "viewportWidth": 390,
+          "scrollY": 91,
+          "documentHeight": 935,
+          "reachable": true
+        }
+      ]
+    },
+    "csvBounds": {
+      "x": 107.515625,
+      "y": 727,
+      "width": 139.21875,
+      "height": 44,
+      "bottom": 771,
+      "right": 246.734375,
+      "navTop": 776,
+      "headerBottom": 118,
+      "viewportWidth": 390,
+      "scrollY": 0,
+      "documentHeight": 857,
+      "reachable": true,
+      "scrolls": [
+        {
+          "x": 107.515625,
+          "y": 727,
+          "width": 139.21875,
+          "height": 44,
+          "bottom": 771,
+          "right": 246.734375,
+          "navTop": 776,
+          "headerBottom": 118,
+          "viewportWidth": 390,
+          "scrollY": 0,
+          "documentHeight": 857,
+          "reachable": true
+        }
+      ]
+    },
+    "filterBounds": {
+      "x": 308.3125,
+      "y": 675,
+      "width": 67.6875,
+      "height": 44,
+      "bottom": 719,
+      "right": 376,
+      "navTop": 776,
+      "headerBottom": 118,
+      "viewportWidth": 390,
+      "scrollY": 0,
+      "documentHeight": 857,
+      "reachable": true,
+      "scrolls": [
+        {
+          "x": 308.3125,
+          "y": 675,
+          "width": 67.6875,
+          "height": 44,
+          "bottom": 719,
+          "right": 376,
+          "navTop": 776,
+          "headerBottom": 118,
+          "viewportWidth": 390,
+          "scrollY": 0,
+          "documentHeight": 857,
+          "reachable": true
+        }
+      ]
+    },
+    "writes": []
+  }
+}

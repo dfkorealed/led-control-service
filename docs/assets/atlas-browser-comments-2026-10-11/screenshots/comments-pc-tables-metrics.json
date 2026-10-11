@@ -1,0 +1,191 @@
+{
+  "url": "http://127.0.0.1:15186/control?siteId=00000000-0000-4000-8000-000000000003&mode=group",
+  "viewport": {
+    "width": 1440,
+    "height": 900
+  },
+  "metrics": {
+    "addBounds": {
+      "x": 248,
+      "y": 380.09375,
+      "width": 122.015625,
+      "height": 44,
+      "bottom": 424.09375,
+      "right": 370.015625,
+      "navTop": 900,
+      "headerBottom": 69,
+      "viewportWidth": 1440,
+      "reachable": true
+    },
+    "scheduleAlignments": [
+      {
+        "header": "활성",
+        "headerBounds": {
+          "x": 422.25,
+          "y": 484.09375,
+          "width": 103.953125,
+          "height": 68
+        },
+        "cellBounds": {
+          "x": 422.25,
+          "y": 552.59375,
+          "width": 103.953125,
+          "height": 68.5
+        }
+      },
+      {
+        "header": "적용 기간",
+        "headerBounds": {
+          "x": 526.203125,
+          "y": 484.09375,
+          "width": 184.796875,
+          "height": 68
+        },
+        "cellBounds": {
+          "x": 526.203125,
+          "y": 552.59375,
+          "width": 184.796875,
+          "height": 68.5
+        }
+      },
+      {
+        "header": "다음 실행",
+        "headerBounds": {
+          "x": 711,
+          "y": 484.09375,
+          "width": 161.703125,
+          "height": 68
+        },
+        "cellBounds": {
+          "x": 711,
+          "y": 552.59375,
+          "width": 161.703125,
+          "height": 68.5
+        }
+      },
+      {
+        "header": "반복 · 시간",
+        "headerBounds": {
+          "x": 872.703125,
+          "y": 484.09375,
+          "width": 150.15625,
+          "height": 68
+        },
+        "cellBounds": {
+          "x": 872.703125,
+          "y": 552.59375,
+          "width": 150.15625,
+          "height": 68.5
+        }
+      },
+      {
+        "header": "대상",
+        "headerBounds": {
+          "x": 1022.859375,
+          "y": 484.09375,
+          "width": 80.84375,
+          "height": 68
+        },
+        "cellBounds": {
+          "x": 1022.859375,
+          "y": 552.59375,
+          "width": 80.84375,
+          "height": 68.5
+        }
+      },
+      {
+        "header": "최근 결과",
+        "headerBounds": {
+          "x": 1103.703125,
+          "y": 484.09375,
+          "width": 173.25,
+          "height": 68
+        },
+        "cellBounds": {
+          "x": 1103.703125,
+          "y": 552.59375,
+          "width": 173.25,
+          "height": 68.5
+        }
+      },
+      {
+        "header": "관리",
+        "headerBounds": {
+          "x": 1276.953125,
+          "y": 484.09375,
+          "width": 134.046875,
+          "height": 68
+        },
+        "cellBounds": {
+          "x": 1276.953125,
+          "y": 552.59375,
+          "width": 134.046875,
+          "height": 68.5
+        }
+      }
+    ],
+    "groupAlignments": [
+      {
+        "header": "도면",
+        "headerBounds": {
+          "x": 478.515625,
+          "y": 326.09375,
+          "width": 130.78125,
+          "height": 36
+        },
+        "cellBounds": {
+          "x": 478.515625,
+          "y": 362.59375,
+          "width": 130.78125,
+          "height": 60.5
+        }
+      },
+      {
+        "header": "대상",
+        "headerBounds": {
+          "x": 609.296875,
+          "y": 326.09375,
+          "width": 114.421875,
+          "height": 36
+        },
+        "cellBounds": {
+          "x": 609.296875,
+          "y": 362.59375,
+          "width": 114.421875,
+          "height": 60.5
+        }
+      },
+      {
+        "header": "동기화",
+        "headerBounds": {
+          "x": 723.71875,
+          "y": 326.09375,
+          "width": 294.25,
+          "height": 36
+        },
+        "cellBounds": {
+          "x": 723.71875,
+          "y": 362.59375,
+          "width": 294.25,
+          "height": 60.5
+        }
+      },
+      {
+        "header": "작업",
+        "headerBounds": {
+          "x": 1017.96875,
+          "y": 326.09375,
+          "width": 376.03125,
+          "height": 36
+        },
+        "cellBounds": {
+          "x": 1017.96875,
+          "y": 362.59375,
+          "width": 376.03125,
+          "height": 60.5
+        }
+      }
+    ],
+    "writes": []
+  }
+}
