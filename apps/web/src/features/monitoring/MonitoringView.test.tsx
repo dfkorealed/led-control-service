@@ -149,7 +149,9 @@ describe("MonitoringView refresh", () => {
   it("keeps one screen safe-space owner after moving refresh above the map", () => {
     render(<MonitoringView siteId="site-1" />);
     const refresh = screen.getByRole("button", { name: "새로고침" });
-    expect(document.querySelector("[data-monitoring-screen]")).toHaveClass("max-compact:pb-shell-navigation-safe");
+    // The screen minimum includes trailing safe-space when child minima exceed
+    // the available height. Real geometry is covered by the short-mobile browser case.
+    expect(document.querySelector("[data-monitoring-screen]")).toHaveClass("max-compact:min-h-min", "max-compact:pb-shell-navigation-safe");
     expect(refresh.parentElement).not.toHaveClass("max-compact:pb-shell-navigation-safe");
     expect(document.querySelector("[data-monitoring-map-panel]")).not.toHaveClass("max-compact:pb-shell-navigation-safe");
   });

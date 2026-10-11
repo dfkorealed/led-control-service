@@ -26,6 +26,7 @@
 
 ## 2026-10-11 모니터링 지도·제목 교정
 
+- 짧은 모바일 후속: 일반 compact screen 자체도 내용 최소 높이를 유지해 하단 메뉴 safe-space가 ticker 뒤 실제 문서 스크롤 범위에 포함되도록 보완했다. 원390×600 실패는 최대scroll179에서 ticker bottom591/navTop532로59px 가렸던 실제 제품 결함이다. tall 지도 성장/flex1·canvas240/전체보기 수명은 유지한다. 직접 unit은 선언 경계만 검증하며 실제 short case 후속 결과는 최종 검증 보고서로 구분한다.
 - 구현 완료: 일반 모바일 지도 행도 남은 viewport 높이를 flex로 채우며 짧은 화면에서는 자연 최소 높이와 문서 스크롤을 유지한다. 공통 canvas 240px 하한·contain:size·renderer·camera는 그대로다. 모니터링 main/loading/error의 ATLAS / OPERATIONS와 지도 패널의 중복 보이는 제목을 제거했고 단일 h1·선택 층 집계의 접근 가능한 scope·층 도면 region은 보존한다.
 - 미구현/한계: 578/681×1227 실제 높이·짧은 화면 ticker/도구 접근성의 브라우저 검증은 최종 단계 대기이며 unit 클래스 선언 검증을 실제 layout 증거로 확대하지 않는다.
 - 관련 파일: `apps/web/src/features/monitoring/MonitoringView.tsx`와 직접 테스트. 갱신 규칙: mobile/short/desktop 지도 높이와 camera owner 보존을 함께 확인한다.

@@ -350,7 +350,9 @@ function MonitoringDashboard({ data, userRole, siteId, refreshDashboard }: Monit
   }
 
   return (
-    <section className={cn("flex h-full min-h-0 min-w-0 flex-1 flex-col gap-4", !workspaceFocus.active && "max-compact:pb-shell-navigation-safe", workspaceFocus.active && "h-full! gap-2!")} data-monitoring-screen="" onKeyDown={event => {
+    // The compact minimum must include bottom-navigation padding after the
+    // ticker; overflowing a fixed-height section loses that trailing scroll space.
+    <section className={cn("flex h-full min-h-0 min-w-0 flex-1 flex-col gap-4", !workspaceFocus.active && "max-compact:min-h-min max-compact:pb-shell-navigation-safe", workspaceFocus.active && "h-full! gap-2!")} data-monitoring-screen="" onKeyDown={event => {
       if (event.key !== "Escape" || event.defaultPrevented || isPinOpen || isInspectorOpen || isDetailOpen || isLogDrawerOpen || !workspaceFocus.active) return;
       event.preventDefault(); workspaceFocus.exit();
     }}>
