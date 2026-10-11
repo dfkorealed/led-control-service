@@ -1,0 +1,14 @@
+
+ RUN  v2.1.9 /Users/kim-jh/Documents/led-control-service/.worktrees/atlas-interactions-comments-20261011/apps/web
+
+ ✓ src/components/ui/public-site/PublicLogin.test.tsx (3 tests) 108ms
+ ✓ src/components/ui/ui-primitives.test.tsx (58 tests) 449ms
+ ✓ src/components/ui/DataGrid.test.tsx (13 tests) 861ms
+ ✓ src/components/ui/FilterPanel.test.tsx (13 tests) 911ms
+   ✓ FilterPanel > uses a modal bottom sheet on mobile while retaining nested calendar dismissal and focus 367ms
+
+ Test Files  4 passed (4)
+      Tests  87 passed (87)
+   Start at  08:08:27
+   Duration  4.53s (transform 710ms, setup 534ms, collect 5.92s, tests 2.33s, environment 2.63s, prepare 1.18s)
+

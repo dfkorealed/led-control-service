@@ -1,0 +1,87 @@
+
+> @led-control/web@0.1.0 build /Users/kim-jh/Documents/led-control-service/.worktrees/atlas-interactions-comments-20261011/apps/web
+> tsc --noEmit && vite build
+
+vite v5.4.21 building for production...
+transforming...
+✓ 4701 modules transformed.
+rendering chunks...
+computing gzip size...
+dist/concepts/field-day.html                          0.53 kB │ gzip:   0.41 kB
+dist/index.html                                       1.03 kB │ gzip:   0.64 kB
+dist/assets/cad-scene-worker-D30NuR2n.js             93.50 kB
+dist/assets/main-C10o7R3L.css                       202.15 kB │ gzip:  30.69 kB
+dist/assets/completed-date-bounds-BfAsD1Xc.js         0.14 kB │ gzip:   0.13 kB
+dist/assets/settings-action-link-BCvLVE1u.js          0.28 kB │ gzip:   0.20 kB
+dist/assets/transport-copy-zIhAOMHs.js                0.30 kB │ gzip:   0.28 kB
+dist/assets/plus-Dd1KC_QB.js                          0.32 kB │ gzip:   0.25 kB
+dist/assets/search-zi6I5UHJ.js                        0.34 kB │ gzip:   0.27 kB
+dist/assets/rotate-ccw-DWYdIGU-.js                    0.37 kB │ gzip:   0.28 kB
+dist/assets/useThemeColors-BPc6GXCC.js                0.38 kB │ gzip:   0.30 kB
+dist/assets/RowActions-C2L9lug0.js                    0.40 kB │ gzip:   0.31 kB
+dist/assets/eye-DAxP6mi5.js                           0.42 kB │ gzip:   0.30 kB
+dist/assets/triangle-alert-D4F28TzX.js                0.43 kB │ gzip:   0.31 kB
+dist/assets/pencil-BLAILe5N.js                        0.44 kB │ gzip:   0.33 kB
+dist/assets/lightbulb-STu0nVNr.js                     0.45 kB │ gzip:   0.32 kB
+dist/assets/shield-check-D-B-PNbu.js                  0.49 kB │ gzip:   0.35 kB
+dist/assets/refresh-cw-WL0CwZGy.js                    0.49 kB │ gzip:   0.32 kB
+dist/assets/trash-2-CV2cRha1.js                       0.53 kB │ gzip:   0.35 kB
+dist/assets/navigation-item-recipe-D72BdyKo.js        0.54 kB │ gzip:   0.32 kB
+dist/assets/site-users-CCfn1qdA.js                    0.59 kB │ gzip:   0.33 kB
+dist/assets/settings-sections-lL3ydJQi.js             0.68 kB │ gzip:   0.34 kB
+dist/assets/fixture-groups-B7Flu9US.js                0.71 kB │ gzip:   0.30 kB
+dist/assets/StatisticsShell-ZdH98L7E.js               0.96 kB │ gzip:   0.57 kB
+dist/assets/StatusDetailButton-Cfbu4-BR.js            1.53 kB │ gzip:   0.76 kB
+dist/assets/SettingsShell-COwqsenM.js                 1.63 kB │ gzip:   0.89 kB
+dist/assets/PaginationBar-Dh9si9mi.js                 2.07 kB │ gzip:   1.08 kB
+dist/assets/DropdownMenu-z_9qgS0l.js                  2.31 kB │ gzip:   1.08 kB
+dist/assets/Popover-CJMj4-cM.js                       2.36 kB │ gzip:   1.03 kB
+dist/assets/FilterPanel-3cxFhDnk.js                   2.65 kB │ gzip:   1.11 kB
+dist/assets/index-BESvFQa6.js                         2.85 kB │ gzip:   1.10 kB
+dist/assets/automation-CIP2K1QO.js                    2.94 kB │ gzip:   1.24 kB
+dist/assets/useMutation-CxHITIXB.js                   3.10 kB │ gzip:   1.27 kB
+dist/assets/useDateRangeDraft-DXLrRuxo.js             3.21 kB │ gzip:   1.38 kB
+dist/assets/OperatorShell-B-5RT10S.js                 3.89 kB │ gzip:   1.79 kB
+dist/assets/LogView-IGBk3riA.js                       4.01 kB │ gzip:   1.60 kB
+dist/assets/LandingInquiriesView-DycKkvWj.js          4.18 kB │ gzip:   2.10 kB
+dist/assets/SettingsView-C18v1DsE.js                  4.83 kB │ gzip:   2.27 kB
+dist/assets/cad-scene-readonly-runtime-KvYKyF2u.js    5.15 kB │ gzip:   2.15 kB
+dist/assets/BioSensorPreparationPanel-C0W5h5cF.js     5.28 kB │ gzip:   2.71 kB
+dist/assets/FloorPlanSettingsView-DWkv67rQ.js         5.35 kB │ gzip:   2.59 kB
+dist/assets/SensorProfilesView-BWRXz6uO.js            7.16 kB │ gzip:   3.47 kB
+dist/assets/SetupWizard-B7Usiy3O.js                   7.67 kB │ gzip:   3.30 kB
+dist/assets/DataGrid-CDE5wTG8.js                      7.81 kB │ gzip:   3.12 kB
+dist/assets/cad-editor-runtime-C7kfmnx9.js           10.16 kB │ gzip:   3.68 kB
+dist/assets/AccountSecurityView-CqbdyRoJ.js          12.74 kB │ gzip:   4.90 kB
+dist/assets/SiteAdminManagementView-B9Nsq96d.js      13.31 kB │ gzip:   4.93 kB
+dist/assets/AutomationRuleTable-Cz_CRaJO.js          14.05 kB │ gzip:   5.29 kB
+dist/assets/init-CZ2D42Z4.js                         15.37 kB │ gzip:   4.01 kB
+dist/assets/SiteUsersView-DiIrJWKo.js                16.00 kB │ gzip:   6.27 kB
+dist/assets/StatisticsAnalysisPage-BhzCHw2b.js       20.84 kB │ gzip:   7.37 kB
+dist/assets/webworkerAll-QUfAMNgu.js                 22.13 kB │ gzip:   6.81 kB
+dist/assets/StatisticsReportsPage-BTTLVy4Z.js        25.54 kB │ gzip:   9.65 kB
+dist/assets/SiteOperationsView-O3R_YVy_.js           26.34 kB │ gzip:   8.61 kB
+dist/assets/CustomerShell-CjMf6gNu.js                28.89 kB │ gzip:  10.13 kB
+dist/assets/RegistrationSettingsView-DVdZHKZ4.js     29.96 kB │ gzip:   9.28 kB
+dist/assets/VehicleEventControlPanel-B3LxQVk8.js     30.71 kB │ gzip:  11.73 kB
+dist/assets/cad-scene-worker--HqSC3w0.js             31.62 kB │ gzip:  11.61 kB
+dist/assets/ScheduleControlPanel-DT-77To1.js         31.80 kB │ gzip:  12.24 kB
+dist/assets/energy-Ci249RDM.js                       32.58 kB │ gzip:  10.48 kB
+dist/assets/StatisticsOverviewPage-ozcftK8Y.js       40.80 kB │ gzip:  13.45 kB
+dist/assets/browserAll-5Corso1I.js                   43.60 kB │ gzip:  11.53 kB
+dist/assets/MonitoringView-DczOuPNP.js               46.36 kB │ gzip:  16.76 kB
+dist/assets/MapSceneCanvas-DQFPTEXz.js               49.86 kB │ gzip:  15.90 kB
+dist/assets/ControlView-DIqfyjDC.js                  84.48 kB │ gzip:  27.78 kB
+dist/assets/GlUniformGroupSystem-7SHutqoR.js        115.83 kB │ gzip:  33.08 kB
+dist/assets/DatePicker-D5k4XX-v.js                  149.62 kB │ gzip:  48.20 kB
+dist/assets/FloorEditorRoute-D03SKvLD.js            214.40 kB │ gzip:  71.14 kB
+dist/assets/CadSceneRenderer-BANwKvYm.js            224.01 kB │ gzip:  63.62 kB
+dist/assets/FloorScene-BcnZ9JLs.js                  335.56 kB │ gzip: 104.93 kB
+dist/assets/statistics-format-DI6RMWLQ.js           358.20 kB │ gzip: 105.29 kB
+dist/assets/main-Cfb5sgs0.js                        932.48 kB │ gzip: 280.65 kB
+
+(!) Some chunks are larger than 500 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rollupOptions.output.manualChunks to improve chunking: https://rollupjs.org/configuration-options/#output-manualchunks
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+✓ built in 9.99s

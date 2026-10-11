@@ -1,0 +1,248 @@
+{
+  "source": "113f6db24cf6f707393b1994810cf55a04e2670e",
+  "viewport": {
+    "width": 390,
+    "height": 600
+  },
+  "url": "http://127.0.0.1:15187/control?siteId=00000000-0000-4000-8000-000000000003&mode=manual",
+  "metrics": {
+    "markerBounds": {
+      "x": 80.265625,
+      "y": 445.703125,
+      "width": 48,
+      "height": 48
+    },
+    "before": {
+      "x": 0,
+      "y": 0,
+      "zoom": "1.8"
+    },
+    "after": {
+      "x": 8,
+      "y": 8,
+      "zoom": "1.8"
+    },
+    "selectionBefore": [
+      {
+        "name": "B2-L01 정상 70% 선택됨",
+        "selected": "true"
+      },
+      {
+        "name": "B2-L02 정상 65%",
+        "selected": "false"
+      },
+      {
+        "name": "B2-L03 정상 40%",
+        "selected": "false"
+      }
+    ],
+    "geometry": [
+      {
+        "phase": "body-scroll-before-marker",
+        "metrics": {
+          "scrollY": 388,
+          "document": {
+            "height": 1413,
+            "clientHeight": 600
+          },
+          "map": {
+            "x": 28,
+            "y": -3,
+            "width": 334,
+            "height": 240,
+            "bottom": 237,
+            "right": 362
+          },
+          "topbar": {
+            "x": 0,
+            "y": 0,
+            "width": 390,
+            "height": 118,
+            "bottom": 118,
+            "right": 390
+          },
+          "nav": {
+            "x": 0,
+            "y": 532,
+            "width": 390,
+            "height": 68,
+            "bottom": 600,
+            "right": 390
+          },
+          "marker": {
+            "x": -17.734375,
+            "y": -11.296875,
+            "width": 48,
+            "height": 48,
+            "bottom": 36.703125,
+            "right": 30.265625
+          },
+          "camera": {
+            "x": 98,
+            "y": 69,
+            "zoom": "1.8"
+          },
+          "hit": {
+            "tag": "HEADER",
+            "label": null,
+            "isMarker": false
+          }
+        }
+      },
+      {
+        "phase": "body-restored",
+        "metrics": {
+          "scrollY": 0,
+          "document": {
+            "height": 1413,
+            "clientHeight": 600
+          },
+          "map": {
+            "x": 28,
+            "y": 385,
+            "width": 334,
+            "height": 240,
+            "bottom": 625,
+            "right": 362
+          },
+          "topbar": {
+            "x": 0,
+            "y": 0,
+            "width": 390,
+            "height": 118,
+            "bottom": 118,
+            "right": 390
+          },
+          "nav": {
+            "x": 0,
+            "y": 532,
+            "width": 390,
+            "height": 68,
+            "bottom": 600,
+            "right": 390
+          },
+          "marker": {
+            "x": -31.734375,
+            "y": 366.703125,
+            "width": 48,
+            "height": 48,
+            "bottom": 414.703125,
+            "right": 16.265625
+          },
+          "camera": {
+            "x": 112,
+            "y": 79,
+            "zoom": "1.8"
+          },
+          "hit": null
+        }
+      },
+      {
+        "phase": "marker-hit-before-native-swipe",
+        "metrics": {
+          "scrollY": 0,
+          "document": {
+            "height": 1413,
+            "clientHeight": 600
+          },
+          "map": {
+            "x": 28,
+            "y": 385,
+            "width": 334,
+            "height": 240,
+            "bottom": 625,
+            "right": 362
+          },
+          "topbar": {
+            "x": 0,
+            "y": 0,
+            "width": 390,
+            "height": 118,
+            "bottom": 118,
+            "right": 390
+          },
+          "nav": {
+            "x": 0,
+            "y": 532,
+            "width": 390,
+            "height": 68,
+            "bottom": 600,
+            "right": 390
+          },
+          "marker": {
+            "x": 80.265625,
+            "y": 445.703125,
+            "width": 48,
+            "height": 48,
+            "bottom": 493.703125,
+            "right": 128.265625
+          },
+          "camera": {
+            "x": 0,
+            "y": 0,
+            "zoom": "1.8"
+          },
+          "hit": {
+            "tag": "BUTTON",
+            "label": "B2-L01 정상 70% 선택됨",
+            "closestButton": "B2-L01 정상 70% 선택됨",
+            "isMarker": true
+          }
+        }
+      },
+      {
+        "phase": "marker-swipe-and-tap-complete",
+        "metrics": {
+          "scrollY": 0,
+          "document": {
+            "height": 1413,
+            "clientHeight": 600
+          },
+          "map": {
+            "x": 28,
+            "y": 385,
+            "width": 334,
+            "height": 240,
+            "bottom": 625,
+            "right": 362
+          },
+          "topbar": {
+            "x": 0,
+            "y": 0,
+            "width": 390,
+            "height": 118,
+            "bottom": 118,
+            "right": 390
+          },
+          "nav": {
+            "x": 0,
+            "y": 532,
+            "width": 390,
+            "height": 68,
+            "bottom": 600,
+            "right": 390
+          },
+          "marker": {
+            "x": 72.265625,
+            "y": 437.703125,
+            "width": 48,
+            "height": 48,
+            "bottom": 485.703125,
+            "right": 120.265625
+          },
+          "camera": {
+            "x": 8,
+            "y": 8,
+            "zoom": "1.8"
+          },
+          "hit": {
+            "tag": "BUTTON",
+            "label": "B2-L01 정상 70% 선택됨",
+            "closestButton": "B2-L01 정상 70% 선택됨",
+            "isMarker": true
+          }
+        }
+      }
+    ]
+  }
+}

@@ -41,7 +41,7 @@ async function customer(page: Page, statistics = false, dark = false) {
 async function evidence(page: Page, info: TestInfo, name: string, metrics: unknown) {
   const png = info.outputPath(`${name}.png`), json = info.outputPath(`${name}.json`);
   await page.screenshot({ path: png });
-  await writeFile(json, JSON.stringify({ source: "437ebc39", viewport: page.viewportSize(), url: page.url(), metrics }, null, 2));
+  await writeFile(json, JSON.stringify({ source: process.env.E2E_EVIDENCE_SOURCE ?? "437ebc39", viewport: page.viewportSize(), url: page.url(), metrics }, null, 2));
   await info.attach(name, { path: png, contentType: "image/png" });
   await info.attach(`${name}-metrics`, { path: json, contentType: "application/json" });
 }

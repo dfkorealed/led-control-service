@@ -1,0 +1,52 @@
+TAP version 13
+# Subtest: strict deployment mode defaults only when unset
+ok 1 - strict deployment mode defaults only when unset
+  ---
+  duration_ms: 1.026334
+  type: 'test'
+  ...
+# Subtest: service exact routes cover shell nested routes but never arbitrary internal paths
+ok 2 - service exact routes cover shell nested routes but never arbitrary internal paths
+  ---
+  duration_ms: 0.463667
+  type: 'test'
+  ...
+# Subtest: artifact metadata binds mode to all emitted bytes and rejects stale metadata
+ok 3 - artifact metadata binds mode to all emitted bytes and rejects stale metadata
+  ---
+  duration_ms: 27.193083
+  type: 'test'
+  ...
+# Subtest: service preflight requires a configured API before any remote call
+ok 4 - service preflight requires a configured API before any remote call
+  ---
+  duration_ms: 1.28225
+  type: 'test'
+  ...
+# Subtest: mode template preserves API errors and forwards cookies, authorization, query and all methods uncached
+ok 5 - mode template preserves API errors and forwards cookies, authorization, query and all methods uncached
+  ---
+  duration_ms: 2.046
+  type: 'test'
+  ...
+# Subtest: edge binds exact HTML release, gates mode assets and returns real 404 without remapping API failures
+ok 6 - edge binds exact HTML release, gates mode assets and returns real 404 without remapping API failures
+  ---
+  duration_ms: 3.97975
+  type: 'test'
+  ...
+# Subtest: both modes use the documented AWS CachingDisabled ID for default HTML behavior
+ok 7 - both modes use the documented AWS CachingDisabled ID for default HTML behavior
+  ---
+  duration_ms: 0.290708
+  type: 'test'
+  ...
+1..7
+# tests 7
+# suites 0
+# pass 7
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 166.639334
