@@ -1,6 +1,6 @@
 # 2026-10-11 브라우저 주석 교정·한정 검증
 
-기준 `d8dbfcd1`, 격리 `codex/atlas-browser-comments-20261011`, 병합 대상 `codex/mvp1-cloud-web`. 모니터링/공통·제어·통계 담당이 구현하고 UI 검증 담당과 독립 최종 리뷰 담당이 협업했다. 최종 제품 source `b70f037f`, 최종 테스트 source `18f5a0eb`. 로컬 병합은 다음 단계이며 원격 push/PR/배포는 없다.
+기준 `d8dbfcd1`, 격리 `codex/atlas-browser-comments-20261011`, 병합 대상 `codex/mvp1-cloud-web`. 모니터링/공통·제어·통계 담당이 구현하고 UI 검증 담당과 독립 최종 리뷰 담당이 협업했다. 최종 제품 source `b70f037f`, 최종 테스트 source `18f5a0eb`. 사용자 요청 로컬 FF를 완료했고 원격 push/PR/배포는 없다.
 
 ## 29개 주석 대응
 
@@ -38,4 +38,6 @@
 
 ## 통합
 
-최종 리뷰·한정 검증 완료. 기본 checkout의 clean/기준 HEAD를 새로 확인하고 요청한 로컬 FF를 진행한 뒤 실제 결과를 기록한다.
+기본 `codex/mvp1-cloud-web`과 격리 branch가 clean임을 새로 확인하고 `git merge --ff-only codex/atlas-browser-comments-20261011`로 첫 FF를 완료했다(exit0): `d8dbfcd10a6b5a00bafbfca65cb8652d0bb08508` → `28bdcae1ec5eedf770d100f07033cd12db38aa22`. merge 뒤 clean/실제 HEAD와 `git diff --exit-code b70f037f HEAD -- apps/web/src packages apps/web/package.json pnpm-lock.yaml` exit0를 확인했다. 검증 제품source와 같으므로 전체 검증은 반복하지 않는다. 이 완료기록은 같은 격리 branch의 문서 전용 후속이며 같은 FF 방식으로 반영한다.
+
+Ignored 원 보고서/계획 ledger/전체 browser 결과와 Web test-results를 기본 repo `.superpowers/sdd/atlas-browser-comments-backup-20261011.1bJzXB/`에 복사해 보존했다. 이번에 만든 worktree/merged branch만 정리하며 원 Git commits·tracked 증거·기존 stash/다른 checkout/5173·4000·63200은 유지한다.

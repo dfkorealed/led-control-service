@@ -286,7 +286,9 @@
 ### Task 17: 최종 리뷰·로컬 병합
 
 - [x] 독립 최종 통합 리뷰 한 번(29주석/spec+코드), 중요 문제는 해당 owner 한 번 수리·국소 재확인. 최종 source·한계·모바일 증거와 메뉴 문서 최신화 확인.
-- [ ] base/correction clean·HEAD를 새로 확인하고 사용자 요청대로 `git merge --ff-only codex/atlas-browser-comments-20261011`. base가 변경되면 무조건 덮어쓰지 않음. 원격 push/PR/배포 없음.
-- [ ] 실제 merge 결과/HEAD·checklist/상태판을 기록하고 완료 handoff. 검증된 source 불변인 문서 closeout에는 전체 검증 반복 없음.
+- [x] base/correction clean·HEAD를 새로 확인하고 사용자 요청대로 `git merge --ff-only codex/atlas-browser-comments-20261011`. base가 변경되면 무조건 덮어쓰지 않음. 원격 push/PR/배포 없음.
+- [x] 실제 merge 결과/HEAD·checklist/상태판을 기록하고 완료 handoff. 검증된 source 불변인 문서 closeout에는 전체 검증 반복 없음.
 
-최종 증거: 모바일 높이 `4802b641`/헤더 폭 `45b22fce`/기존 계정 히트 최소교정 `b70f037f`, QA 최종spec `18f5a0eb`. 실제PC 캡처에서 뒤늦게 확인한 in-scope 헤더 회귀에는 같은 owner/같은 review seat만 국소 연장했다. Browser7unique/6runs15exec(7+2+3+1+1+1) source별 통과이며 최종전체7 batchPASS는 아니다. 최종제품 UI0·0/build(tsc)exit0, 초기정책79/타입0은 변경 없는 계약의 별도증거, 기존bigchunkwarn1/SettingsShellbaselineFAIL1 유지. 독립최종 C/I/M0·0·0/mergeYES. [영구 교정·검증 자료](../../assets/atlas-browser-comments-2026-10-11/README.md)에29건mapping·원실패·실제좌표/대표PNG/담당·리뷰·한계를 보존했다. 병합만 남았으며 새로운 검증은 계획하지 않는다.
+최종 증거: 모바일 높이 `4802b641`/헤더 폭 `45b22fce`/기존 계정 히트 최소교정 `b70f037f`, QA 최종spec `18f5a0eb`. 실제PC 캡처에서 뒤늦게 확인한 in-scope 헤더 회귀에는 같은 owner/같은 review seat만 국소 연장했다. Browser7unique/6runs15exec(7+2+3+1+1+1) source별 통과이며 최종전체7 batchPASS는 아니다. 최종제품 UI0·0/build(tsc)exit0, 초기정책79/타입0은 변경 없는 계약의 별도증거, 기존bigchunkwarn1/SettingsShellbaselineFAIL1 유지. 독립최종 C/I/M0·0·0/mergeYES. [영구 교정·검증 자료](../../assets/atlas-browser-comments-2026-10-11/README.md)에29건mapping·원실패·실제좌표/대표PNG/담당·리뷰·한계를 보존했다.
+
+통합 증거: 사용자 승인 실제 첫FF(exit0) `d8dbfcd1`→`28bdcae1ec5eedf770d100f07033cd12db38aa22`, base/correction clean/HEAD동일. 검증제품source `b70f037f`과 제품/shared/lock/package diff0(exit0). 완료기록만 같은branch에서 문서전용commit후FF하며 code검증 반복 없음. ignored원자료+Web test-results는 `.superpowers/sdd/atlas-browser-comments-backup-20261011.1bJzXB/` 보존, 이번worktree/mergedbranch만정리한다. 다른checkout/옛stash/기존서버/remote는조작하지않는다.
