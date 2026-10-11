@@ -421,20 +421,49 @@ test("browser comments short mobile: natural scroll exposes monitoring and manua
 });
 
 test("browser comments PC: current site is plain information and header metrics stay compact", async ({ page }, info) => {
-  await page.setViewportSize({ width: 1440, height: 900 }); const { writes } = await customer(page);
+  await page.setViewportSize({ width: 1440, height: 900 }); await theme(page, "dark"); const { writes } = await customer(page);
   await page.goto(`/monitoring?siteId=${siteId}&keep=value#comments`); await rootReady(page, "monitoring");
   await expect(page.getByRole("button", { name: /현장 선택/ })).toHaveCount(0); await expect(page.getByRole("listbox")).toHaveCount(0);
   await expect(page.locator("[data-shell-context]")).toContainText(`고객사 · ${longSite}`);
   await expect(page.getByText("ATLAS / OPERATIONS", { exact: true })).toHaveCount(0);
   await expect(page.getByRole("heading", { name: "모니터링", exact: true })).toBeVisible();
   await expect(page.locator("[data-operation-map-chrome]").getByRole("heading")).toHaveCount(0);
-  const metrics = await page.getByRole("region", { name: "현장 전체", exact: true }).locator("dl").evaluate(element => {
-    const rect = element.getBoundingClientRect(); const children = [...element.children].map(child => { const bounds = child.getBoundingClientRect(); return { x: bounds.x, width: bounds.width }; });
-    return { width: rect.width, children, gap: getComputedStyle(element).columnGap };
-  });
-  expect(metrics.width).toBeLessThan(260); expect(metrics.gap).toBe("12px");
+  const measurements = [];
+  for (const width of [1440, 1280, 760]) {
+    await page.setViewportSize({ width, height: 900 }); await rootReady(page, "monitoring");
+    await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+    const metrics = await page.locator("[data-shell-topbar]").evaluate(header => {
+      const rect = (element: Element) => { const box = element.getBoundingClientRect(); return { x: box.x, y: box.y, right: box.right, bottom: box.bottom, width: box.width, height: box.height }; };
+      const context = header.querySelector("[data-shell-context]")!, summary = header.querySelector("[aria-label='현장 전체'] dl")!, actions = header.querySelector("[data-shell-actions]")!;
+      const buttons = [...actions.querySelectorAll("button,a[href]")].map(button => {
+        const box = rect(button), hit = document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2);
+        return { label: button.getAttribute("aria-label"), ...box, reachable: Boolean(hit && button.contains(hit)) };
+      });
+      return { width: innerWidth, context: rect(context), summary: rect(summary), actions: rect(actions), buttons,
+        children: [...summary.children].map(rect), gap: getComputedStyle(summary).columnGap,
+        clientWidth: document.documentElement.clientWidth, scrollWidth: document.documentElement.scrollWidth };
+    });
+    measurements.push(metrics); await evidence(page, info, `comments-pc-header-${width}`, { metrics, writes });
+  }
+  // Capture every requested width before asserting so a first-width failure
+  // preserves the original1280px overlap and exact760px boundary evidence too.
+  for (const metrics of measurements) {
+    expect(metrics.summary.width).toBeLessThan(260); expect(metrics.gap).toBe("12px");
+    expect(metrics.context.right, JSON.stringify(metrics)).toBeLessThanOrEqual(metrics.summary.x);
+    expect(metrics.summary.right, JSON.stringify(metrics)).toBeLessThanOrEqual(metrics.actions.x);
+    expect(metrics.scrollWidth).toBeLessThanOrEqual(metrics.clientWidth + 1);
+    for (const cell of metrics.children) {
+      expect(cell.x).toBeGreaterThanOrEqual(metrics.context.right); expect(cell.right).toBeLessThanOrEqual(metrics.actions.x);
+    }
+    expect(metrics.buttons).toHaveLength(3);
+    for (const button of metrics.buttons) {
+      expect(button.width).toBeGreaterThanOrEqual(44); expect(button.height).toBeGreaterThanOrEqual(44);
+      expect(button.reachable, JSON.stringify(button)).toBe(true);
+    }
+  }
   const scope = new URL(page.url()); expect(scope.searchParams.get("keep")).toBe("value"); expect(scope.hash).toBe("#comments");
-  await documentFits(page); await evidence(page, info, "comments-pc-monitoring", { metrics, writes }); expect(writes).toEqual([]);
+  await expectMinimumTouchTargets(page, "[data-shell-actions]");
+  await documentFits(page); expect(writes).toEqual([]);
 });
 
 test("browser comments manual: individual list owns central clear while brightness draft survives", async ({ page }, info) => {
