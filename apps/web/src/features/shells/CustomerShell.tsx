@@ -334,7 +334,7 @@ function CustomerShellContent({ user }: { user: AuthUser }) {
             />
             <ThemeToggle />
             {!isCompactNavigation ? <Link to={`/settings/security${location.search}${location.hash}`} aria-label="내 계정 및 보안"
-              className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-control text-content-secondary outline-none focus-visible:shadow-focus hover:bg-surface-inset"><UserRound size={20} aria-hidden="true" /></Link> : null}
+              className="inline-flex min-h-13 min-w-13 items-center justify-center rounded-control text-content-secondary outline-none focus-visible:shadow-focus hover:bg-surface-inset"><UserRound size={20} aria-hidden="true" /></Link> : null}
           </div>
           {summaryScope ? <CustomerHeaderSummarySlot currentScope={summaryScope} value={summaryValue} compact={isCompactNavigation} className={isCompactNavigation ? "col-span-full" : "col-start-2 row-start-1"} /> : null}
         </header>
