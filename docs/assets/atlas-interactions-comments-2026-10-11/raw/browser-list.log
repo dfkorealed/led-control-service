@@ -1,0 +1,8 @@
+Listing tests:
+  [chromium] › atlas-interactions-comments.spec.ts:85:1 › interactions 1 PC manual native CAD gestures preserve selection and raw draft
+  [chromium] › atlas-interactions-comments.spec.ts:115:1 › interactions 2 native touch manual pans without hold-area and short dark actions remain reachable
+  [chromium] › atlas-interactions-comments.spec.ts:141:1 › interactions 3 monitoring merged finder searches numbers filters and keeps five legends
+  [chromium] › atlas-interactions-comments.spec.ts:156:1 › interactions 4 mobile sheet nested calendar focus dates stay one line at 390 and 320
+  [chromium] › atlas-interactions-comments.spec.ts:178:1 › interactions 5 dark reports 577 summary expands below stable row and preserves actions
+  [chromium] › atlas-interactions-comments.spec.ts:194:1 › interactions 6 overview title chart ticks and unchanged C8 content at PC and mobile
+Total: 6 tests in 1 file

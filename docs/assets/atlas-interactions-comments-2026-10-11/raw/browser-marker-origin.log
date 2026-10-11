@@ -1,0 +1,57 @@
+
+[WebServer] (node:63202) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+[WebServer] (node:63217) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+[WebServer] (node:63242) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+[WebServer] (node:63320) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+Running 1 test using 1 worker
+
+
+(node:63328) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+[1/1] [chromium] › e2e/atlas-interactions-comments.spec.ts:118:1 › interactions 2 native touch manual pans without hold-area and short dark actions remain reachable
+  1) [chromium] › e2e/atlas-interactions-comments.spec.ts:118:1 › interactions 2 native touch manual pans without hold-area and short dark actions remain reachable 
+
+    Error: expect(received).toBe(expected) // Object.is equality
+
+    Expected: true
+    Received: false
+
+      67 |   await expect(target).toBeVisible();
+      68 |   const bounds = await target.boundingBox(); expect(bounds).not.toBeNull();
+    > 69 |   expect(await target.evaluate(el => { const r = el.getBoundingClientRect(); return el.contains(document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2)); })).toBe(true);
+         |                                                                                                                                                                        ^
+      70 |   expect(bounds!.y).toBeGreaterThanOrEqual(0); expect(bounds!.y + bounds!.height).toBeLessThanOrEqual(page.viewportSize()!.height + 1);
+      71 |   return bounds;
+      72 | }
+        at hit (/Users/kim-jh/Documents/led-control-service/.worktrees/atlas-interactions-comments-20261011/apps/web/e2e/atlas-interactions-comments.spec.ts:69:168)
+        at /Users/kim-jh/Documents/led-control-service/.worktrees/atlas-interactions-comments-20261011/apps/web/e2e/atlas-interactions-comments.spec.ts:145:27
+
+    attachment #1: manual-touch-original-failure (image/png) ───────────────────────────────────────
+    test-results/atlas-interactions-marker-origin/atlas-interactions-comment-416c4-rk-actions-remain-reachable-chromium/attachments/manual-touch-original-failure-ecc8426a593731eae69f7a35943b07de92255101.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #2: manual-touch-original-failure-metrics (application/json) ────────────────────────
+    test-results/atlas-interactions-marker-origin/atlas-interactions-comment-416c4-rk-actions-remain-reachable-chromium/attachments/manual-touch-original-failure-metrics-c37af143d48e50e1f5b58e739b5fc7fd62950590.json
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #3: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/atlas-interactions-marker-origin/atlas-interactions-comment-416c4-rk-actions-remain-reachable-chromium/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/atlas-interactions-marker-origin/atlas-interactions-comment-416c4-rk-actions-remain-reachable-chromium/error-context.md
+
+
+  1 failed
+    [chromium] › e2e/atlas-interactions-comments.spec.ts:118:1 › interactions 2 native touch manual pans without hold-area and short dark actions remain reachable 
+undefined
+/Users/kim-jh/Documents/led-control-service/.worktrees/atlas-interactions-comments-20261011/apps/web:
+ ERR_PNPM_RECURSIVE_EXEC_FIRST_FAIL  Command failed with exit code 1: playwright test e2e/atlas-interactions-comments.spec.ts --grep interactions 2  --workers=1 --retries=0 --output=test-results/atlas-interactions-marker-origin --reporter=line

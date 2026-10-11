@@ -1,0 +1,28 @@
+{
+  "source": "437ebc39",
+  "viewport": {
+    "width": 577,
+    "height": 900
+  },
+  "url": "http://127.0.0.1:15187/statistics/reports?limit=20&siteId=00000000-0000-4000-8000-000000000003",
+  "metrics": {
+    "toggleBounds": {
+      "x": 27,
+      "y": 704,
+      "width": 74.265625,
+      "height": 44
+    },
+    "detailBounds": {
+      "x": 27,
+      "y": 748,
+      "width": 523,
+      "height": 155
+    },
+    "download": {
+      "x": 323.65625,
+      "y": 660,
+      "width": 112,
+      "height": 44
+    }
+  }
+}

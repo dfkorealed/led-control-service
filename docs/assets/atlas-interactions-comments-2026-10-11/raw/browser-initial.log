@@ -1,0 +1,240 @@
+
+[WebServer] (node:61851) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+[WebServer] (node:61866) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+[WebServer] (node:61884) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+[WebServer] (node:61948) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+Running 6 tests using 1 worker
+
+
+(node:61958) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+[1/6] [chromium] › e2e/atlas-interactions-comments.spec.ts:85:1 › interactions 1 PC manual native CAD gestures preserve selection and raw draft
+  1) [chromium] › e2e/atlas-interactions-comments.spec.ts:85:1 › interactions 1 PC manual native CAD gestures preserve selection and raw draft 
+
+    Error: expect(locator).toBeVisible() failed
+
+    Locator: getByTestId('target-selection-map-viewport').locator('canvas').first()
+    Expected: visible
+    Timeout: 5000ms
+    Error: element(s) not found
+
+    Call log:
+      - Expect "toBeVisible" with timeout 5000ms
+      - waiting for getByTestId('target-selection-map-viewport').locator('canvas').first()
+
+
+      57 | async function mapReady(page: Page, manual = true) {
+      58 |   const map = page.getByTestId(manual ? "target-selection-map-viewport" : "monitoring-map-viewport");
+    > 59 |   await expect(map.locator("canvas").first()).toBeVisible();
+         |                                               ^
+      60 |   await expect(marker(page)).toBeVisible();
+      61 |   return map;
+      62 | }
+        at mapReady (/Users/kim-jh/Documents/led-control-service/.worktrees/atlas-interactions-comments-20261011/apps/web/e2e/atlas-interactions-comments.spec.ts:59:47)
+        at /Users/kim-jh/Documents/led-control-service/.worktrees/atlas-interactions-comments-20261011/apps/web/e2e/atlas-interactions-comments.spec.ts:87:67
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/atlas-interactions-initial/atlas-interactions-comment-ee699-rve-selection-and-raw-draft-chromium/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/atlas-interactions-initial/atlas-interactions-comment-ee699-rve-selection-and-raw-draft-chromium/error-context.md
+
+
+
+(node:61981) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+[2/6] [chromium] › e2e/atlas-interactions-comments.spec.ts:115:1 › interactions 2 native touch manual pans without hold-area and short dark actions remain reachable
+  2) [chromium] › e2e/atlas-interactions-comments.spec.ts:115:1 › interactions 2 native touch manual pans without hold-area and short dark actions remain reachable 
+
+    Error: expect(locator).toBeVisible() failed
+
+    Locator: getByTestId('target-selection-map-viewport').locator('canvas').first()
+    Expected: visible
+    Timeout: 5000ms
+    Error: element(s) not found
+
+    Call log:
+      - Expect "toBeVisible" with timeout 5000ms
+      - waiting for getByTestId('target-selection-map-viewport').locator('canvas').first()
+
+
+      57 | async function mapReady(page: Page, manual = true) {
+      58 |   const map = page.getByTestId(manual ? "target-selection-map-viewport" : "monitoring-map-viewport");
+    > 59 |   await expect(map.locator("canvas").first()).toBeVisible();
+         |                                               ^
+      60 |   await expect(marker(page)).toBeVisible();
+      61 |   return map;
+      62 | }
+        at mapReady (/Users/kim-jh/Documents/led-control-service/.worktrees/atlas-interactions-comments-20261011/apps/web/e2e/atlas-interactions-comments.spec.ts:59:47)
+        at /Users/kim-jh/Documents/led-control-service/.worktrees/atlas-interactions-comments-20261011/apps/web/e2e/atlas-interactions-comments.spec.ts:119:119
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/atlas-interactions-initial/atlas-interactions-comment-416c4-rk-actions-remain-reachable-chromium/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/atlas-interactions-initial/atlas-interactions-comment-416c4-rk-actions-remain-reachable-chromium/error-context.md
+
+
+
+(node:62000) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+[3/6] [chromium] › e2e/atlas-interactions-comments.spec.ts:141:1 › interactions 3 monitoring merged finder searches numbers filters and keeps five legends
+  3) [chromium] › e2e/atlas-interactions-comments.spec.ts:141:1 › interactions 3 monitoring merged finder searches numbers filters and keeps five legends 
+
+    Error: expect(locator).toBeVisible() failed
+
+    Locator: getByTestId('monitoring-map-viewport').locator('canvas').first()
+    Expected: visible
+    Timeout: 5000ms
+    Error: element(s) not found
+
+    Call log:
+      - Expect "toBeVisible" with timeout 5000ms
+      - waiting for getByTestId('monitoring-map-viewport').locator('canvas').first()
+
+
+      57 | async function mapReady(page: Page, manual = true) {
+      58 |   const map = page.getByTestId(manual ? "target-selection-map-viewport" : "monitoring-map-viewport");
+    > 59 |   await expect(map.locator("canvas").first()).toBeVisible();
+         |                                               ^
+      60 |   await expect(marker(page)).toBeVisible();
+      61 |   return map;
+      62 | }
+        at mapReady (/Users/kim-jh/Documents/led-control-service/.worktrees/atlas-interactions-comments-20261011/apps/web/e2e/atlas-interactions-comments.spec.ts:59:47)
+        at /Users/kim-jh/Documents/led-control-service/.worktrees/atlas-interactions-comments-20261011/apps/web/e2e/atlas-interactions-comments.spec.ts:143:21
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/atlas-interactions-initial/atlas-interactions-comment-2a31b-ters-and-keeps-five-legends-chromium/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/atlas-interactions-initial/atlas-interactions-comment-2a31b-ters-and-keeps-five-legends-chromium/error-context.md
+
+
+
+(node:62039) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+[4/6] [chromium] › e2e/atlas-interactions-comments.spec.ts:156:1 › interactions 4 mobile sheet nested calendar focus dates stay one line at 390 and 320
+  4) [chromium] › e2e/atlas-interactions-comments.spec.ts:156:1 › interactions 4 mobile sheet nested calendar focus dates stay one line at 390 and 320 
+
+    Error: expect(locator).toContainText(expected) failed
+
+    Locator: getByRole('group', { name: '에너지 요약', exact: true })
+    Expected substring: "4.25"
+    Timeout: 5000ms
+    Error: element(s) not found
+
+    Call log:
+      - Expect "toContainText" with timeout 5000ms
+      - waiting for getByRole('group', { name: '에너지 요약', exact: true })
+
+
+      78 | }
+      79 | async function statsReady(page: Page) {
+    > 80 |   await expect(page.getByRole("group", { name: "에너지 요약", exact: true })).toContainText("4.25");
+         |                                                                          ^
+      81 |   await expect(page.getByRole("img", { name: "일별 상태 기반 추정 전력 사용량 꺾은선 차트", exact: true }).locator("svg")).toBeVisible();
+      82 |   await expect(page.getByText("사용량 추이를 불러오는 중", { exact: true })).toHaveCount(0);
+      83 | }
+        at statsReady (/Users/kim-jh/Documents/led-control-service/.worktrees/atlas-interactions-comments-20261011/apps/web/e2e/atlas-interactions-comments.spec.ts:80:74)
+        at /Users/kim-jh/Documents/led-control-service/.worktrees/atlas-interactions-comments-20261011/apps/web/e2e/atlas-interactions-comments.spec.ts:157:158
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/atlas-interactions-initial/atlas-interactions-comment-83a5a-tay-one-line-at-390-and-320-chromium/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/atlas-interactions-initial/atlas-interactions-comment-83a5a-tay-one-line-at-390-and-320-chromium/error-context.md
+
+
+
+(node:62052) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+[5/6] [chromium] › e2e/atlas-interactions-comments.spec.ts:178:1 › interactions 5 dark reports 577 summary expands below stable row and preserves actions
+  5) [chromium] › e2e/atlas-interactions-comments.spec.ts:178:1 › interactions 5 dark reports 577 summary expands below stable row and preserves actions 
+
+    Error: expect(locator).toContainText(expected) failed
+
+    Locator: getByRole('region', { name: '요청한 보고서', exact: true })
+    Expected substring: "완료 현장"
+    Timeout: 5000ms
+    Error: element(s) not found
+
+    Call log:
+      - Expect "toContainText" with timeout 5000ms
+      - waiting for getByRole('region', { name: '요청한 보고서', exact: true })
+
+
+      181 |   const failed = { ...browserReport("failed"), reportId: "30000000-0000-4000-8000-000000000042", siteId, target: { scope: "site" as const, identityId: siteId, label: "실패 현장" } };
+      182 |   await page.route("**/energy/sites/*/reports*", route => route.fulfill({ json: { reports: [complete, failed], nextCursor: null, totalCount: 2 } }));
+    > 183 |   await page.goto(`/statistics/reports?siteId=${siteId}`); const jobs = page.getByRole("region", { name: "요청한 보고서", exact: true }); await expect(jobs).toContainText("완료 현장"); await expect(jobs).not.toHaveAttribute("aria-busy", "true");
+          |                                                                                                                                                        ^
+      184 |   const toggle = jobs.getByRole("button", { name: "완료 현장 보고서 상세보기", exact: true }); await expect(toggle).toHaveAttribute("aria-expanded", "false");
+      185 |   await expect(jobs.getByText("요청 시각", { exact: true })).toHaveCount(0); await expect(jobs.getByText("파일 만료 시각", { exact: true })).toHaveCount(0);
+      186 |   await expect(jobs.getByRole("button", { name: "완료 현장 보고서 다운로드", exact: true })).toBeEnabled(); await expect(jobs.getByRole("button", { name: "실패 현장 보고서 다시 생성", exact: true })).toBeEnabled();
+        at /Users/kim-jh/Documents/led-control-service/.worktrees/atlas-interactions-comments-20261011/apps/web/e2e/atlas-interactions-comments.spec.ts:183:152
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/atlas-interactions-initial/atlas-interactions-comment-ffb5d-e-row-and-preserves-actions-chromium/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/atlas-interactions-initial/atlas-interactions-comment-ffb5d-e-row-and-preserves-actions-chromium/error-context.md
+
+
+
+(node:62077) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+[6/6] [chromium] › e2e/atlas-interactions-comments.spec.ts:194:1 › interactions 6 overview title chart ticks and unchanged C8 content at PC and mobile
+  6) [chromium] › e2e/atlas-interactions-comments.spec.ts:194:1 › interactions 6 overview title chart ticks and unchanged C8 content at PC and mobile 
+
+    Error: expect(locator).toContainText(expected) failed
+
+    Locator: getByRole('group', { name: '에너지 요약', exact: true })
+    Expected substring: "4.25"
+    Timeout: 5000ms
+    Error: element(s) not found
+
+    Call log:
+      - Expect "toContainText" with timeout 5000ms
+      - waiting for getByRole('group', { name: '에너지 요약', exact: true })
+
+
+      78 | }
+      79 | async function statsReady(page: Page) {
+    > 80 |   await expect(page.getByRole("group", { name: "에너지 요약", exact: true })).toContainText("4.25");
+         |                                                                          ^
+      81 |   await expect(page.getByRole("img", { name: "일별 상태 기반 추정 전력 사용량 꺾은선 차트", exact: true }).locator("svg")).toBeVisible();
+      82 |   await expect(page.getByText("사용량 추이를 불러오는 중", { exact: true })).toHaveCount(0);
+      83 | }
+        at statsReady (/Users/kim-jh/Documents/led-control-service/.worktrees/atlas-interactions-comments-20261011/apps/web/e2e/atlas-interactions-comments.spec.ts:80:74)
+        at /Users/kim-jh/Documents/led-control-service/.worktrees/atlas-interactions-comments-20261011/apps/web/e2e/atlas-interactions-comments.spec.ts:195:159
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/atlas-interactions-initial/atlas-interactions-comment-0d65e-C8-content-at-PC-and-mobile-chromium/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/atlas-interactions-initial/atlas-interactions-comment-0d65e-C8-content-at-PC-and-mobile-chromium/error-context.md
+
+
+  6 failed
+    [chromium] › e2e/atlas-interactions-comments.spec.ts:85:1 › interactions 1 PC manual native CAD gestures preserve selection and raw draft 
+    [chromium] › e2e/atlas-interactions-comments.spec.ts:115:1 › interactions 2 native touch manual pans without hold-area and short dark actions remain reachable 
+    [chromium] › e2e/atlas-interactions-comments.spec.ts:141:1 › interactions 3 monitoring merged finder searches numbers filters and keeps five legends 
+    [chromium] › e2e/atlas-interactions-comments.spec.ts:156:1 › interactions 4 mobile sheet nested calendar focus dates stay one line at 390 and 320 
+    [chromium] › e2e/atlas-interactions-comments.spec.ts:178:1 › interactions 5 dark reports 577 summary expands below stable row and preserves actions 
+    [chromium] › e2e/atlas-interactions-comments.spec.ts:194:1 › interactions 6 overview title chart ticks and unchanged C8 content at PC and mobile 
+undefined
+/Users/kim-jh/Documents/led-control-service/.worktrees/atlas-interactions-comments-20261011/apps/web:
+ ERR_PNPM_RECURSIVE_EXEC_FIRST_FAIL  Command failed with exit code 1: playwright test e2e/atlas-interactions-comments.spec.ts --workers=1 --retries=0 --output=test-results/atlas-interactions-initial --reporter=line

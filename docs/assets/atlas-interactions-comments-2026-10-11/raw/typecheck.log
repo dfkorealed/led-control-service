@@ -1,0 +1,4 @@
+
+> @led-control/web@0.1.0 typecheck /Users/kim-jh/Documents/led-control-service/.worktrees/atlas-interactions-comments-20261011/apps/web
+> tsc --noEmit
+

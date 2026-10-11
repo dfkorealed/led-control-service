@@ -1,0 +1,23 @@
+
+[WebServer] (node:62822) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+[WebServer] (node:62837) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+[WebServer] (node:62854) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+[WebServer] (node:62917) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+Running 3 tests using 1 worker
+
+
+(node:62924) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+[1/3] [chromium] › e2e/atlas-interactions-comments.spec.ts:147:1 › interactions 3 monitoring merged finder searches numbers filters and keeps five legends
+[2/3] [chromium] › e2e/atlas-interactions-comments.spec.ts:184:1 › interactions 5 dark reports 577 summary expands below stable row and preserves actions
+[3/3] [chromium] › e2e/atlas-interactions-comments.spec.ts:207:1 › interactions 6 overview title chart ticks and unchanged C8 content at PC and mobile
+  3 passed (11.1s)

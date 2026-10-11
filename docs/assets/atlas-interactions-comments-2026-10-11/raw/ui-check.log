@@ -1,0 +1,9 @@
+
+> @led-control/web@0.1.0 ui:check /Users/kim-jh/Documents/led-control-service/.worktrees/atlas-interactions-comments-20261011/apps/web
+> node scripts/ui-policy.mjs
+
+src/components/ui/overlays/Popover.tsx: unapproved-theme-utility: rounded-t-panel
+UI policy: 1 existing violations; 1 new/increased violations.
+/Users/kim-jh/Documents/led-control-service/.worktrees/atlas-interactions-comments-20261011/apps/web:
+ ERR_PNPM_RECURSIVE_RUN_FIRST_FAIL  @led-control/web@0.1.0 ui:check: `node scripts/ui-policy.mjs`
+Exit status 1

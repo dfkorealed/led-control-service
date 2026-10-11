@@ -1,0 +1,124 @@
+
+[WebServer] (node:62517) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+[WebServer] (node:62535) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+[WebServer] (node:62552) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+[WebServer] (node:62619) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+Running 3 tests using 1 worker
+
+
+(node:62627) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+[1/3] [chromium] › e2e/atlas-interactions-comments.spec.ts:147:1 › interactions 3 monitoring merged finder searches numbers filters and keeps five legends
+  1) [chromium] › e2e/atlas-interactions-comments.spec.ts:147:1 › interactions 3 monitoring merged finder searches numbers filters and keeps five legends 
+
+    Error: expect(locator).toHaveAttribute(expected) failed
+
+    Locator:  locator('[data-spatial-map-marker="true"][aria-label^="B2-L02"]')
+    Expected: "true"
+    Received: ""
+    Timeout:  5000ms
+
+    Call log:
+      - Expect "toHaveAttribute" with timeout 5000ms
+      - waiting for locator('[data-spatial-map-marker="true"][aria-label^="B2-L02"]')
+        14 × locator resolved to <button type="button" title="B2-L02" aria-current="true" data-selected="true" data-variant="ghost" data-disabled="false" data-brightness-level="7" aria-label="B2-L02 정상 65%" data-spatial-map-marker="true" class="inline-flex min-h-11 items-center justify-center gap-2 rounded-control border font-bold focus-visible:outline-none focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60 px-3 py-0 text-body-sm text-content-primary hover:enabled:bg-surface-inset aria-pressed:bg-action-primar…>…</button>
+           - unexpected value "null"
+
+
+      152 |   await opener.click(); const finder = page.getByRole("region", { name: "조명 검색 및 목록", exact: true });
+      153 |   await finder.getByRole("searchbox", { name: "조명 이름 또는 번호 검색" }).fill("02"); await expect(finder.getByRole("list", { name: "조명 목록" }).getByRole("button")).toHaveCount(1);
+    > 154 |   await finder.getByRole("button", { name: /B2-L02/ }).click(); await expect(finder).toHaveCount(0); await expect(marker(page, 1)).toHaveAttribute("aria-pressed", "true");
+          |                                                                                                                                    ^
+      155 |   await opener.click(); await finder.getByRole("searchbox").fill(""); await finder.getByRole("button", { name: /상태 필터/ }).click(); await page.getByRole("option", { name: "오프라인", exact: true }).click();
+      156 |   await expect(finder.getByText("오프라인 조명이 없습니다.", { exact: true })).toBeVisible(); await finder.getByRole("button", { name: "전체 조명 보기", exact: true }).click();
+      157 |   await expect(finder.getByRole("list", { name: "조명 목록" }).getByRole("button")).toHaveCount(3);
+        at /Users/kim-jh/Documents/led-control-service/.worktrees/atlas-interactions-comments-20261011/apps/web/e2e/atlas-interactions-comments.spec.ts:154:132
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/atlas-interactions-locators-fixed/atlas-interactions-comment-2a31b-ters-and-keeps-five-legends-chromium/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/atlas-interactions-locators-fixed/atlas-interactions-comment-2a31b-ters-and-keeps-five-legends-chromium/error-context.md
+
+
+
+(node:62655) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+[2/3] [chromium] › e2e/atlas-interactions-comments.spec.ts:184:1 › interactions 5 dark reports 577 summary expands below stable row and preserves actions
+  2) [chromium] › e2e/atlas-interactions-comments.spec.ts:184:1 › interactions 5 dark reports 577 summary expands below stable row and preserves actions 
+
+    Error: expect(locator).toHaveCount(expected) failed
+
+    Locator:  getByRole('region', { name: '요청한 보고서', exact: true }).getByText('요청 시각', { exact: true })
+    Expected: 0
+    Received: 1
+    Timeout:  5000ms
+
+    Call log:
+      - Expect "toHaveCount" with timeout 5000ms
+      - waiting for getByRole('region', { name: '요청한 보고서', exact: true }).getByText('요청 시각', { exact: true })
+        14 × locator resolved to 1 element
+           - unexpected value "1"
+
+
+      191 |   await page.goto(`/statistics/reports?siteId=${siteId}`); const jobs = page.getByRole("region", { name: "요청한 보고서", exact: true }); await expect(jobs).toContainText("완료 현장"); await expect(jobs).not.toHaveAttribute("aria-busy", "true");
+      192 |   const toggle = jobs.getByRole("button", { name: "완료 현장 보고서 상세보기", exact: true }); await expect(toggle).toHaveAttribute("aria-expanded", "false");
+    > 193 |   await expect(jobs.getByText("요청 시각", { exact: true })).toHaveCount(0); await expect(jobs.getByText("파일 만료 시각", { exact: true })).toHaveCount(0);
+          |                                                          ^
+      194 |   await expect(jobs.getByRole("button", { name: "완료 현장 보고서 다운로드", exact: true })).toBeEnabled(); await expect(jobs.getByRole("button", { name: "실패 현장 보고서 다시 생성", exact: true })).toBeEnabled();
+      195 |   await toggle.click(); const detail = jobs.getByRole("region", { name: "완료 현장 보고서 상세보기", exact: true }); await expect(detail).toContainText("요청 시각"); await expect(detail).toContainText("파일 만료 시각");
+      196 |   const detailId = await toggle.getAttribute("aria-controls");
+        at /Users/kim-jh/Documents/led-control-service/.worktrees/atlas-interactions-comments-20261011/apps/web/e2e/atlas-interactions-comments.spec.ts:193:58
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/atlas-interactions-locators-fixed/atlas-interactions-comment-ffb5d-e-row-and-preserves-actions-chromium/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/atlas-interactions-locators-fixed/atlas-interactions-comment-ffb5d-e-row-and-preserves-actions-chromium/error-context.md
+
+
+
+(node:62673) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+[3/3] [chromium] › e2e/atlas-interactions-comments.spec.ts:205:1 › interactions 6 overview title chart ticks and unchanged C8 content at PC and mobile
+  3) [chromium] › e2e/atlas-interactions-comments.spec.ts:205:1 › interactions 6 overview title chart ticks and unchanged C8 content at PC and mobile 
+
+    Error: expect(received).toBeGreaterThan(expected)
+
+    Expected: > 2
+    Received:   0
+
+      212 |     await page.setViewportSize({ width, height: 900 }); await statsReady(page); await expect(card).toHaveText(original);
+      213 |     const chart = page.getByRole("img", { name: "일별 상태 기반 추정 전력 사용량 꺾은선 차트", exact: true }); await chart.scrollIntoViewIfNeeded();
+    > 214 |     const ticks = await chart.locator(".recharts-cartesian-axis-tick text").evaluateAll(els => els.map(el => { const r = el.getBoundingClientRect(); return { text: el.textContent, x: r.x, y: r.y, right: r.right, bottom: r.bottom }; })); expect(ticks.length).toBeGreaterThan(2);
+          |                                                                                                                                                                                                                                                                   ^
+      215 |     const bounds = (await chart.boundingBox())!;
+      216 |     for (const tick of ticks) { expect(tick.x).toBeGreaterThanOrEqual(bounds.x); expect(tick.right).toBeLessThanOrEqual(bounds.x + bounds.width); }
+      217 |     for (let a = 0; a < ticks.length; a++) for (let b = a + 1; b < ticks.length; b++) expect(ticks[a].right <= ticks[b].x || ticks[b].right <= ticks[a].x || ticks[a].bottom <= ticks[b].y || ticks[b].bottom <= ticks[a].y).toBe(true);
+        at /Users/kim-jh/Documents/led-control-service/.worktrees/atlas-interactions-comments-20261011/apps/web/e2e/atlas-interactions-comments.spec.ts:214:259
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/atlas-interactions-locators-fixed/atlas-interactions-comment-0d65e-C8-content-at-PC-and-mobile-chromium/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/atlas-interactions-locators-fixed/atlas-interactions-comment-0d65e-C8-content-at-PC-and-mobile-chromium/error-context.md
+
+
+  3 failed
+    [chromium] › e2e/atlas-interactions-comments.spec.ts:147:1 › interactions 3 monitoring merged finder searches numbers filters and keeps five legends 
+    [chromium] › e2e/atlas-interactions-comments.spec.ts:184:1 › interactions 5 dark reports 577 summary expands below stable row and preserves actions 
+    [chromium] › e2e/atlas-interactions-comments.spec.ts:205:1 › interactions 6 overview title chart ticks and unchanged C8 content at PC and mobile 
+undefined
+/Users/kim-jh/Documents/led-control-service/.worktrees/atlas-interactions-comments-20261011/apps/web:
+ ERR_PNPM_RECURSIVE_EXEC_FIRST_FAIL  Command failed with exit code 1: playwright test e2e/atlas-interactions-comments.spec.ts --grep interactions (3|5|6)  --workers=1 --retries=0 --output=test-results/atlas-interactions-locators-fixed --reporter=line

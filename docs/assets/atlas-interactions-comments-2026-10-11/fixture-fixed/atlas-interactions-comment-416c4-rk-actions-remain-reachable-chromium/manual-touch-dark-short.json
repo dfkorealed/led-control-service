@@ -1,0 +1,21 @@
+{
+  "source": "437ebc39",
+  "viewport": {
+    "width": 390,
+    "height": 600
+  },
+  "url": "http://127.0.0.1:15187/control?siteId=00000000-0000-4000-8000-000000000003&mode=manual",
+  "metrics": {
+    "camera": {
+      "x": 152,
+      "y": 119,
+      "zoom": "1.8"
+    },
+    "clearBounds": {
+      "x": 264.09375,
+      "y": 332,
+      "width": 85.90625,
+      "height": 44
+    }
+  }
+}
