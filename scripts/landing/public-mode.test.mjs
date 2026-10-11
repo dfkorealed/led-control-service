@@ -19,7 +19,7 @@ test('mode template preserves API errors and forwards cookies, authorization, qu
   assert.deepEqual(api.map(b=>b.PathPattern), ['/api','/api/*']);
   for (const behavior of api) {
     assert.deepEqual(behavior.AllowedMethods,['GET','HEAD','OPTIONS','PUT','PATCH','POST','DELETE']);
-    assert.equal(behavior.CachePolicyId,'413f160e-6fd1-4d3a-9df3-4b5a84be39ad');
+    assert.equal(behavior.CachePolicyId,'4135ea2d-6df8-44a3-9df3-4b5a84be39ad');
     assert.equal(behavior.OriginRequestPolicyId,'b689b0a8-53d0-40ab-baf2-68738e2966ac');
     assert.equal(behavior.FunctionAssociations,undefined);
   }
@@ -39,5 +39,15 @@ test('edge binds exact HTML release, gates mode assets and returns real 404 with
     for (const path of ['/published/release-1/index.html','/releases/release-1/manifest.json','/unknown','/concepts/field-day.html','/settings/nope']) assert.equal(request(path).statusCode,404,path);
     if (mode === 'service') assert.equal(request('/settings/floor-plans/floor-1/edit').uri,'/published/release-1/index.html');
     else { assert.equal(request('/login').statusCode,404); assert.equal(request('/api/auth/me').statusCode,404); }
+  }
+});
+
+// Independent oracle: AWS Developer Guide, CachingDisabled, verified 2026-10-11.
+// https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/using-managed-cache-policies.html#managed-cache-policy-caching-disabled
+// Do not import the production constant here: a typo must fail this contract.
+test('both modes use the documented AWS CachingDisabled ID for default HTML behavior', () => {
+  for (const mode of ['landing', 'service']) {
+    const behavior = templates.createTemplate(mode, 'r1').Resources.LandingDistribution.Properties.DistributionConfig.DefaultCacheBehavior;
+    assert.equal(behavior.CachePolicyId, '4135ea2d-6df8-44a3-9df3-4b5a84be39ad');
   }
 });

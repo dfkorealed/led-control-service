@@ -26,7 +26,7 @@ for (const width of [1440, 1024, 390, 320]) {
     await expect(page.locator(".hero-contact")).toHaveCSS("line-height", "22px");
     await expect(page.locator(".header-contact")).toHaveCSS("line-height", "22px");
     await expect(page.locator(".hero h1")).toHaveCSS("font-size", width <= 430 ? "46px" : width === 1024 ? "55px" : "76.32px");
-    await expect(page.getByRole("button", { name: "준비 중", exact: true })).toBeDisabled();
+    await expect(page.getByRole("link", { name: /로그인/ })).toHaveAttribute("href", "/login");
     for (const id of ["monitoring", "control", "statistics", "report", "map-editor"]) {
       await expect(page.locator(`#${id}`)).toBeVisible();
     }
@@ -172,7 +172,8 @@ for (const width of [320, 390, 1024, 1440]) {
     await page.setViewportSize({ width, height: 900 });
     await page.route("**/api/auth/me", route => route.fulfill({ status: 401, json: { message: "unauthorized" } }));
     await page.goto("/");
-    await page.goto("/login");
+    await page.getByRole("link", { name: /로그인/ }).click();
+    await expect(page).toHaveURL(/\/login$/);
     const login = page.getByRole("button", { name: "로그인", exact: true });
     await expect(login).toBeVisible();
     await expect(login).toHaveCSS("font-size", "14px");

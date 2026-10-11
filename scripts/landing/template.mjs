@@ -2,6 +2,9 @@ import { readFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { parseDeployMode, serviceRoutes, floorEditorPattern, brandAssets } from '../../apps/web/scripts/public-deploy-contract.mjs';
 import { publicRoutes } from '../../apps/web/scripts/static-landing-contract.mjs';
+// AWS managed CachingDisabled: verified against the Developer Guide.
+// https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/using-managed-cache-policies.html#managed-cache-policy-caching-disabled
+const cachingDisabledPolicyId = '4135ea2d-6df8-44a3-9df3-4b5a84be39ad';
 const ref = (name) => ({ Ref: name });
 const attr = (name, key) => ({ 'Fn::GetAtt': [name, key] });
 const sub = (value) => ({ 'Fn::Sub': value });
@@ -81,14 +84,14 @@ export function createTemplate(mode = 'landing', release = 'unpublished') {
   // Zero error TTL preserves origin JSON/status and avoids caching API 403/404/5xx.
   d.CustomErrorResponses = [400,403,404,405,414,416,500,501,502,503,504].map(ErrorCode => ({ErrorCode,ErrorCachingMinTTL:0}));
   d.Comment = `Kinda Web ${mode} release ${release}`;
-  d.DefaultCacheBehavior.CachePolicyId = '413f160e-6fd1-4d3a-9df3-4b5a84be39ad';
+  d.DefaultCacheBehavior.CachePolicyId = cachingDisabledPolicyId;
   result.Resources.LandingBucketPolicy.Properties.PolicyDocument.Statement[0].Resource.push(sub('${LandingBucket.Arn}/published/*'));
   if (mode === 'service') {
     d.Origins.push({Id:'service-api',DomainName:ref('ApiOriginDomain'),CustomOriginConfig:{HTTPSPort:443,OriginProtocolPolicy:'https-only',OriginSSLProtocols:['TLSv1.2']}});
     d.CacheBehaviors.unshift(...['/api','/api/*'].map(PathPattern => ({
       PathPattern,TargetOriginId:'service-api',ViewerProtocolPolicy:'https-only',
       AllowedMethods:['GET','HEAD','OPTIONS','PUT','PATCH','POST','DELETE'],CachedMethods:['GET','HEAD'],
-      CachePolicyId:'413f160e-6fd1-4d3a-9df3-4b5a84be39ad',
+      CachePolicyId:cachingDisabledPolicyId,
       // Managed AllViewerExceptHostHeader forwards cookies, query and Authorization;
       // origin Host remains the API TLS hostname, preventing certificate mismatch.
       OriginRequestPolicyId:'b689b0a8-53d0-40ab-baf2-68738e2966ac',Compress:true

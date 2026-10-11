@@ -13,7 +13,7 @@ test("public landing follows the approved five scenes without auth", async ({ pa
     ["statistics", /운영의 흐름을.*그래프로 보다/], ["report", /정리한 기록을.*보고서로/],
     ["map-editor", /도면도 조명도.*직접, 쉽게 배치/]
   ] as const) await expect(page.locator(`#${id}`).getByRole("heading", { name })).toBeVisible();
-  await expect(page.getByRole("button", { name: "준비 중", exact: true })).toBeDisabled();
+  await expect(page.getByRole("link", { name: /로그인/ })).toHaveAttribute("href", "/login");
   expect(auth).toEqual([]);
 });
 

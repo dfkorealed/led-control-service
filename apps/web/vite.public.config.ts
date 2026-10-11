@@ -24,7 +24,7 @@ export default defineConfig({
       const modules = assertPublicModules([...this.getModuleIds()], root, mode);
       assertPublicOutput(bundle, mode);
       await mkdir(resolve(root, ".local"), { recursive: true });
-      await writeFile(resolve(root, `.local/public-${mode}-build-audit.json`), JSON.stringify({ mode, modules, output: [...Object.keys(bundle), ...brandAssets] }, null, 2));
+      await writeFile(resolve(root, `.local/public-${mode}-build-audit.json`), JSON.stringify({ mode, modules, output: [...new Set([...Object.keys(bundle), ...brandAssets])] }, null, 2));
     },
     async closeBundle() {
       const directory = resolve(root, "dist-public");
