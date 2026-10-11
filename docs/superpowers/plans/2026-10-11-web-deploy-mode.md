@@ -25,13 +25,19 @@
 - 직접 접속·새로고침 또는 정상 nested route를 잘못404로 처리하는 경우: 실제 route 계약+production browser.
 - 실패한 전환/rollback이 다른 모드의 archive를 게시하는 경우: manifest mismatch/identity/no-write·복구 검사.
 
-## Tasks — 단일 writer 순차 구현
+## Task1 — 단일 writer, 연결된 배포 모드 전체 구현
 
-- [ ] Task1: 최신 `cc6b9a7a`에 기존 AWS/Web 준비 `78fab117`/`1b10cd95` 통합. 최근 UI와 기본 entry를 보존하고 충돌은 소유 범위의 양쪽 의미를 유지한다. 과거 상태판은 덮어쓰지 않는다.
-- [ ] Task2: 공통 배포 모드 parser·route/artifact 계약, `build:public` 및 production-only service entry/config 구현. 실패 테스트→최소 구현→양 모드 build/graph/HTTP와 서비스 로그인/일반 auth 회귀. 파일: `apps/web/**`, 필요 `scripts/landing` 공통 계약.
-- [ ] Task3: 기존 `infra/landing/**`, `scripts/landing/**` 배포 흐름을 양 모드로 확장. 같은 deploy 명령으로 edge/API 설정과 산출물 조율, service preflight, mode-bound release/rollback, 최소 IAM·runbook·공개 메뉴 문서. fake AWS 왕복/부분 실패/틀린 모드/쿠키·캐시 계약으로 검증.
-- [ ] Task4: 한정 최종 타입/UI/양 모드 build·생산 browser, 독립 spec/quality 전체 리뷰 및 필요한 국소 수리. 기본 UI 기존 실패/전체 CI·remote 미실행을 구분한다.
-- [ ] Task5: 총괄이 체크리스트·상태판 최신화, 검토된 커밋·미리보기/정확한 사용 명령·최초 환경 입력·실제 공개 상태 보고. 기존 root 서비스/다른 worktree는 보존한다.
+- [ ] Step1: 최신 `cc6b9a7a`에 기존 AWS/Web 준비 `78fab117`/`1b10cd95` 통합. 최근 UI와 기본 entry를 보존하고 충돌은 소유 범위의 양쪽 의미를 유지한다. 과거 상태판은 덮어쓰지 않는다.
+- [ ] Step2: 공통 배포 모드 parser·route/artifact 계약, `build:public` 및 production-only service entry/config 구현. 실패 테스트→최소 구현→양 모드 build/graph/HTTP와 서비스 로그인/일반 auth 회귀. 파일: `apps/web/**`, 필요 `scripts/landing` 공통 계약.
+- [ ] Step3: 기존 `infra/landing/**`, `scripts/landing/**` 배포 흐름을 양 모드로 확장. 같은 deploy 명령으로 edge/API 설정과 산출물 조율, service preflight, mode-bound release/rollback, 최소 IAM·runbook·공개 메뉴 문서. fake AWS 왕복/부분 실패/틀린 모드/쿠키·캐시 계약으로 검증.
+
+## Task2 — 최종 검증·독립 리뷰
+
+- [ ] 한정 최종 타입/UI/양 모드 build·생산 browser, 독립 spec/quality 전체 리뷰 및 필요한 국소 수리. 기본 UI 기존 실패/전체 CI·remote 미실행을 구분한다.
+
+## Task3 — 결과 통합
+
+- [ ] 총괄이 체크리스트·상태판 최신화, 검토된 커밋·미리보기/정확한 사용 명령·최초 환경 입력·실제 공개 상태 보고. 기존 root 서비스/다른 worktree는 보존한다.
 
 ## Ownership
 
