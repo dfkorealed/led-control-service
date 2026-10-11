@@ -2,10 +2,14 @@
 
 기준일: 2026-10-11
 
-## 2026-10-11 신규 브라우저 조작·필터 주석 — 운영 인사이트 제외·구현 준비
+## 2026-10-11 신규 브라우저 조작·필터 주석 — 운영 인사이트 제외·구현 진행
 
 - 새 21건 중 C8 운영 인사이트는 사용자 요청으로 그대로 두고 나머지 20건을 반영한다. 세 페이지 담당의 읽기 전용 감사와 대화 설계를 확인했으며 [실행 체크리스트](superpowers/plans/2026-10-11-atlas-interactions-comments.md)에 공통/통계→수동 지도→헤더/모니터링→한정 browser/최종 review 순서를 기록했다.
 - 기준 `cc6b9a7a`에서 `.worktrees/atlas-interactions-comments-20261011` / `codex/atlas-interactions-comments-20261011`을 만들고 frozen offline install/workspace prepare를 완료했다. 제품 구현·새 테스트·최종 검증·병합은 아직이다. 이전 29건 완료 증거와 합산하지 않으며 기존 서비스/다른 worktree/DB/장비/원격은 보존한다.
+- 공통 checkpoint `fe1a17c5`의 optional bottom-sheet/Grid 행상세·날짜한줄 API와 소유13파일을 확인했다. 직접4suites116PASS 보고를 받았으며 통계 소비자는 같은 담당의 단독 writer로 진행 중이다. 전체 제품·브라우저·최종 review/병합 완료는 아직 아니다. 날짜 숫자 segment의 개별44px 폭은 한줄320px 요구와 상충하여 텍스트 폭 예외로 기록하고, group 높이/달력·일반버튼44px는 유지한다.
+- Task1 공통/통계 구현 `fe1a17c5`+`16b6c032` 취합 완료: 공통 최종고유118·통계 실제7suite169=고유287PASS(단일HEAD 일괄 전체PASS 아님), 원 RED/소비자 assertion 수리·의도된 Zod stderr를 보고서에 보존했다. C8 source/test diff0과 소유24파일/diffcheck0을 직접 대조했다. Task2 수동지도 담당에게 단독 writer로 전달했으며 실제 browser/최종 정적 관문·독립review/병합은 아직이다.
+- Task2 `195974a7` 소유10파일과 원 실패/최종source를 대조했다. manual-cad opt-in/마커 threshold 후capture/Space·touch·cancel, tool 제거·panel·제목·층+목록 행 구현과 최종5suite295PASS/diffcheck0을 취합했다. FloorScene 제품/default지도/API 변경0이다. Task3 헤더/모니터링 담당에게 단독writer를 전달했고 최종 browser/정적관문/review·병합은 미완료다.
+- Task3 `9ba48ee7` 소유13파일·보고서·원 단계별 실패/국소GREEN을 확인했다. site-only/층desktop폭/단일검색목록/mobile sheet/5상태 범례를 구현했고 snapshot-only 미관측 식별을 보존했다. 기존 selector/helper 정합 수리와 sidebar 실패의 원인 미확정·국소PASS를 별도 기록한다. 원로그7개를 task-owned workspace에 복사했다. 제품 Task1–3 취합 후 Task4에 타입/UI/빌드 및 최대6실제browser만 전달한다. 최종review/병합은 아직이다.
 
 ## 2026-10-11 브라우저 주석 29건 교정 — 구현·한정 검증·최종 리뷰·로컬 FF 완료
 

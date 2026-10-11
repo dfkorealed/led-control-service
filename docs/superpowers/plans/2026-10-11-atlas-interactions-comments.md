@@ -16,6 +16,7 @@
 - 현재 API/DB/shared/권한/dispatch UUID/ACK/보고서 job 계약은 변경하지 않는다. 실제 0/null/음수 절감과 수집 공백을 숨기지 않는다.
 - 기존 light/dark 토큰과 공통 UI를 사용한다. 새 제품 dependency는 추가하지 않는다.
 - 최소 연속 44×44px 조작 영역과 키보드 focus/닫기 복귀/overlay dismiss lock을 유지한다. 모바일 safe-area와 fixed bottom navigation을 고려한다.
+- 날짜 숫자 segment는 C3 한 줄 요구 때문에 고정52px 폭 대신 텍스트 폭을 사용한다. 날짜 group 높이와 달력/일반 버튼44px 영역은 유지하며, 숫자 segment 개별44px 폭은 문서화된 예외다.
 - 수동 지도 새 제스처는 manual-only opt-in이다. 편집기·모니터링·embedded 지도 기본 동작은 보존한다.
 - PC middle drag pan / left click toggle / left drag area, touch swipe pan / tap toggle / touch area 없음. 휠 회전 zoom과 pinch를 유지한다.
 - 이름/번호 검색은 현재 이름 문자열에 포함된 번호와 실제 불러온 목록 대상이다. 기존 다음 페이지/부분 오류 안내를 유지하고 전체 서버 검색으로 표현하지 않는다.
@@ -35,9 +36,9 @@
 
 - [x] 읽기 전용 페이지별 감사 및 인사이트 제외 승인.
 - [x] 격리 worktree/frozen offline install/workspace prepare.
-- [ ] Task 1 공통 UI + 통계 페이지.
-- [ ] Task 2 수동 제어 지도·툴바.
-- [ ] Task 3 헤더·모니터링 통합 검색.
+- [x] Task 1 공통 UI + 통계 페이지 (`fe1a17c5`, `16b6c032`, 직접 고유287PASS; browser/최종 review 별도).
+- [x] Task 2 수동 제어 지도·툴바 (`195974a7`, 최종 직접5suite295PASS; 실제 입력/geometry browser 후속).
+- [x] Task 3 헤더·모니터링 통합 검색 (`9ba48ee7`, 직접 scope 마지막 실패 case까지 국소GREEN; 한 번의 전체최종batch PASS 아님).
 - [ ] Task 4 한정 검증·실제 browser.
 - [ ] Task 5 최종 통합 검토·필요 수리.
 - [ ] Task 6 로컬 통합·증거 보존·정리.
