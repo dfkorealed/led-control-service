@@ -6,6 +6,7 @@
 
 - 사용자 주석의 현장 전환 제거·모바일 지도 확대·선택 목록 통합·불필요 문구/열 제거·표 정렬/공통 필터를 세 페이지 담당과 교정한다. 스케줄 제목줄 제거 후 생성 버튼은 목록 툴바로 이동하도록 사용자 승인했다. 현재 단일 현장 DB/권한 계약을 확인했으며 API/DB 변경 없이 조회·권한 scope는 유지한다.
 - 기준 `d8dbfcd1`에서 `.worktrees/atlas-browser-comments-20261011` / `codex/atlas-browser-comments-20261011`을 만들었다. [기존 계획의 Tasks13–17](superpowers/plans/2026-10-10-atlas-ui-fidelity.md)에 이번 작업을 추가했다. 공통→제어→통계 단독 writer 순서, 직접 unit·최종 정적 관문·필요 모바일/PC 화면·통합 리뷰만 수행한다. 구현/검증/이번 병합은 아직이며 이전 완료 증거와 합산하지 않는다.
+- 구현 취합: 공통/모니터링 `aba951f7`(직접190PASS), 제어 `d3010fc7`(373PASS), 통계 `e9d72b91`(155PASS), 네 메뉴 문서 최신화. 타입/정책79/UI0·0/빌드exit0를 한 번 확인했다. Browser최초7 중5PASS, 국소2 중darkreportPASS/shortmonitorFAIL. 짧은390×600의 최하단ticker가 최대스크롤에도 fixednav에 가리는 실제결함을 모니터링 담당이 최소수리 중이다. 원 SettingsShell 카드test1FAIL은 기준d8dbfcd1에도동일(제품/해당test불변)인 기존실패로 별도보존한다. 최종검증/리뷰·병합 완료로 확대하지 않는다.
 
 ## 2026-10-10 ATLAS UI 충실도 교정 — 구현·한정 검증·최종 리뷰·로컬 FF 완료
 

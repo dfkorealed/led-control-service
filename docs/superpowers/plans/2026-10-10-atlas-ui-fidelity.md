@@ -266,10 +266,12 @@
 
 **Owner / Files:** statistics 담당. `features/statistics/{StatisticsOverviewPage,analysis/StatisticsAnalysisPage,reports/StatisticsReportsPage,reports/ReportHistoryFilters,reports/ReportJobList}` 및 직접 테스트, `docs/menus/statistics.md`.
 
-- [ ] 주석 20–22/25–26: ENERGY eyebrow 모두 제거, overview visible 제목/상단 생성 CTA 제거(단일 sr-only h1 유지). reports의 기존 생성 진입 유지.
-- [ ] 주석 23: 기존 SearchField·FilterPanel actions/reset 슬롯을 사용하여 검색/필터/초기화/CSV 간격 통일. 기존 wrapping 레시피를 사용하며 한 행 강제/새 슬롯 없이 정리.
-- [ ] 주석 24: 목록 시간대 caption 제거하되 현장 시간 변환·원 ISO·null/0·jobs·CSV/PDF/취소·raw draft/debounce/cursor/epoch 불변.
-- [ ] focused RED→GREEN와 직접 영향 회귀만 확인하고 메뉴 문서와 commit/report 전달.
+- [x] 주석 20–22/25–26: ENERGY eyebrow 모두 제거, overview visible 제목/상단 생성 CTA 제거(단일 sr-only h1 유지). reports의 기존 생성 진입 유지.
+- [x] 주석 23: 기존 SearchField·FilterPanel actions/reset 슬롯을 사용하여 검색/필터/초기화/CSV 간격 통일. 기존 wrapping 레시피를 사용하며 한 행 강제/새 슬롯 없이 정리.
+- [x] 주석 24: 목록 시간대 caption 제거하되 현장 시간 변환·원 ISO·null/0·jobs·CSV/PDF/취소·raw draft/debounce/cursor/epoch 불변.
+- [x] focused RED→GREEN와 직접 영향 회귀만 확인하고 메뉴 문서와 commit/report 전달.
+
+증거: `e9d72b91`, focused RED5→GREEN5、직접4 suites155/155PASS(10.86초)·diff-check0. 기존 invalid URL validation stderr는 실패가 아니다. 공통 계약·실제 formatter/생성/파일 수명 변경0.
 
 ### Task 16: 필요한 모바일·PC UI 검증
 
@@ -277,7 +279,9 @@
 
 - [ ] tall mobile 578×1227/681×1227 지도 공간, short mobile 자연 scroll/도구 접근, PC compact 집계/표 center, manual 개별 선택 목록/clear/초안 보존, schedule CTA 이동, dark mobile 보고서 필터·touch target/overflow를 6–8개 controlled case로 확인. 실제 data/지도 로딩을 기다리고 screenshot은 outputPath 파일로 보존.
 - [ ] 테스트 API fixture만 사용해 추가 쓰기0/기존 고객 서버5173/API4000 보존. 전체 이전 matrix·timeout/skip/기준 완화 금지.
-- [ ] 최종 Web `typecheck`, `test:ui-policy`, `ui:check`, `build` 각 한 번. 실패 관문만 최소 재실행; 원 실패와 최종 결과를 별도 기록.
+- [x] 최종 Web `typecheck`, `test:ui-policy`, `ui:check`, `build` 각 한 번. 실패 관문만 최소 재실행; 원 실패와 최종 결과를 별도 기록.
+
+최초 정적 묶음: 제품 `e9d72b91`과 전/후 동일 source fingerprint `824d09ad…`에서 타입exit0/정책79PASS·0FAIL·SKIP/UI0·0/buildexit0(기존main930.29KB 큰chunk 경고1). 최초Browser7=5PASS/2FAIL, 국소2=darkreportPASS/shortmonitorFAIL. darkreport는 실제 wheel 후 fixednav 위 완전노출/44px 원 기준을 통과했다. short390×600은 document779/scrollY179=max에서도 tickerbottom591>navtop532라 실제 제품 결함으로 담당에 반환했다. 수리/그 관련3높이사례·UI/build만 후속 확인, 전체7/정책/unit 묶음 반복 없음. 최종브라우저 완료·리뷰·병합은 아직이다.
 
 ### Task 17: 최종 리뷰·로컬 병합
 
