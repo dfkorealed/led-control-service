@@ -254,11 +254,13 @@
 
 **Owner / Files:** control 담당. `features/control` 관련 제품·직접 테스트, `docs/menus/control.md`. 필요하면 기존 `AutomationRuleControls`에 optional actions를 추가하되 공통 UI/다른 메뉴 수정 금지.
 
-- [ ] 주석 5–8: 기존 중앙 inspection slot을 개별 선택에도 고정해 실제 선택 목록 표시. 오른쪽 chips 제거, 선택 해제는 중앙 목록 우상단, 밝기 표시의 초안만 제거. 전체 선택 오류/불가 대상·live announcement·실행/초안 owner 보존.
-- [ ] 주석 9–12: schedule 기간의 시간대 caption 제거(실제 변환 보존), 활성 열은 enabled만 표시·정렬, 이름 외 열 center. 제목줄 제거하고 유일한 스케줄 추가 CTA/ref를 기존 목록 툴바로 이동; global-contract 부재에도 생성 진입/삭제 후 fallback focus 유지.
-- [ ] 주석 13/18: event 소제목과 control ATLAS 제거, 기존 생성/readonly 동작은 compact toolbar에 유지.
-- [ ] 주석 14–17: group Gateway 열 제거, ready 상태는 badge만 표시, 이름 외 center. 숨긴 ready metadata를 위한 신규 상세 UI는 추가하지 않음. 기존 비정상 오류/이유·상태 action·실제 readiness 계약 보존.
-- [ ] 새 표현/선택·focus 계약 focused RED→GREEN, 직접 영향 회귀만 확인하고 메뉴 문서와 commit/report 전달.
+- [x] 주석 5–8: 기존 중앙 inspection slot을 개별 선택에도 고정해 실제 선택 목록 표시. 오른쪽 chips 제거, 선택 해제는 중앙 목록 우상단, 밝기 표시의 초안만 제거. 전체 선택 오류/불가 대상·live announcement·실행/초안 owner 보존.
+- [x] 주석 9–12: schedule 기간의 시간대 caption 제거(실제 변환 보존), 활성 열은 enabled만 표시·정렬, 이름 외 열 center. 제목줄 제거하고 유일한 스케줄 추가 CTA/ref를 기존 목록 툴바로 이동; global-contract 부재에도 생성 진입/삭제 후 fallback focus 유지.
+- [x] 주석 13/18: event 소제목과 control ATLAS 제거, 기존 생성/readonly 동작은 compact toolbar에 유지.
+- [x] 주석 14–17: group Gateway 열 제거, ready 상태는 badge만 표시, 이름 외 center. 숨긴 ready metadata를 위한 신규 상세 UI는 추가하지 않음. 기존 비정상 오류/이유·상태 action·실제 readiness 계약 보존.
+- [x] 새 표현/선택·focus 계약 focused RED→GREEN, 직접 영향 회귀만 확인하고 메뉴 문서와 commit/report 전달.
+
+증거: `d3010fc7`, RED 직접5 suites329PASS/9FAIL→직접7 suites373/373PASS(43.14초), diff-check0. 공통 계약 외 optional AutomationRuleControls.actions만 추가했으며 중앙 목록 label은 ‘선택 대상 목록’/‘선택 조명’이다. 모바일/최종 통합 관문은 아직이다.
 
 ### Task 15: 통계 헤더·보고서 공통 필터
 
