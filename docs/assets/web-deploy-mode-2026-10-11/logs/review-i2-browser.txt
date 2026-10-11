@@ -1,0 +1,8 @@
+[WebServer] [WARN] The "pnpm" field in package.json is no longer read by pnpm. The following keys were ignored: "pnpm.overrides". See https://pnpm.io/settings for the new home of each setting.
+
+Running 2 tests using 1 worker
+
+  ✓  1 [chromium] › e2e/landing-field-day.spec.ts:6:1 › public landing follows the approved five scenes without auth (992ms)
+  ✓  2 [chromium] › e2e/landing.spec.ts:171:3 › public styles keep the real signed-out login unchanged at 390px (2.0s)
+
+  2 passed (14.1s)

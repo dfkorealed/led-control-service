@@ -1,0 +1,6 @@
+Listing tests:
+  public-deploy.spec.ts:4:1 › production public pages use the selected login mode, preserve contact, and make no API requests
+  public-deploy.spec.ts:22:1 › unknown, concept, opposite-mode assets and private archive URLs remain real 404
+  public-deploy.spec.ts:29:1 › service direct nested reload enforces session and shows authorization failure without exposing shell
+  public-deploy.spec.ts:47:1 › service login preserves same-origin credentials and operator role on direct reload at mobile width
+Total: 4 tests in 1 file

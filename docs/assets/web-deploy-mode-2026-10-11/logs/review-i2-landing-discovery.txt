@@ -1,0 +1,7 @@
+Listing tests:
+  static-landing.spec.ts:7:3 › standalone production / direct load, reload and all contact actions
+  static-landing.spec.ts:7:3 › standalone production /features direct load, reload and all contact actions
+  static-landing.spec.ts:7:3 › standalone production /pricing direct load, reload and all contact actions
+  static-landing.spec.ts:32:1 › production unknown/internal/concept routes are true 404 public not-found
+  static-landing.spec.ts:40:1 › 375px public pages and contact modal support touch, keyboard and axe
+Total: 5 tests in 1 file

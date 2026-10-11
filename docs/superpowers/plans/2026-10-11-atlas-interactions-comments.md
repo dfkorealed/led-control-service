@@ -43,7 +43,7 @@
 - [x] Task 5 최종 통합 검토·필요 수리 (단일 reviewer C/I/M0, marker-origin/native nav bounds 필수 증거 gate 완료).
 - [ ] Task 6 로컬 통합·증거 보존·정리.
 
-**2026-10-12 통합 대기:** MAIN은 별도 공개 웹 배포 작업으로 `34d5a375`까지 진행했다. 기존 변경을 보존하는 일반 로컬 merge 또는 검증된 UI 브랜치 유지 중 사용자 선택을 요청했다. 기존 계획의 FF는 불가능하며 승인 전 MAIN/다른 작업을 변경하거나 이번 worktree를 제거하지 않는다. 현재 제품/QA 승인은 작업 브랜치에 한정된다. [보고서·원 증거](../../assets/atlas-interactions-comments-2026-10-11/README.md).
+**2026-10-12 통합 진행:** 사용자가 “기존 변경 보존 후 로컬 merge”를 승인했다. MAIN `34d5a375`의 공개 웹 배포 변경을 기존 UI worktree에 일반 merge로 조합했고 충돌0, 겹친 파일은 상태판1개뿐이다. 두 작업 기록을 모두 보존한다. 통합 source에서 공통 Button/필터/Grid·공개 배포 계약·정책/build(타입 포함)를 한정 확인하고 실제 모바일2case 및 같은 reviewer의 교집합 검토 뒤 MAIN에 적용한다. 이전 전체suite/6case 전체 반복·원격 pull/push/배포는 하지 않는다. [보고서·원 증거](../../assets/atlas-interactions-comments-2026-10-11/README.md).
 
 ### Task 1: 공통 UI와 통계 소비자 (C1–7, C9–11, C17–18)
 
@@ -101,7 +101,7 @@
 
 ### Task 6: 로컬 통합·보존
 
-- [ ] 기본/작업 branch의 fresh HEAD/clean/소유 diff 확인 후 사용자 기존 요청 범위 로컬 FF; upstream 변경이면 충돌·권한부터 보고.
+- [ ] 기본/작업 branch의 fresh HEAD/clean/소유 diff 확인 후 승인된 일반 로컬 merge를 통합 worktree에서 검증하고 MAIN에 적용한다. 새로운 upstream 변경이면 fresh diff와 권한부터 확인한다.
 - [ ] 완료 체크리스트와 project-status를 동시에 갱신한다. source 검증과 docs-only 후속은 구분한다.
 - [ ] task-owned ignored ledger/raw/test-results를 exact backup에 보존한 뒤 이번 merged worktree/branch만 정리한다. 삭제는 recoverable Git/backup 경로 기록.
 

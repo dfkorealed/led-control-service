@@ -1,0 +1,20 @@
+[WARN] The "pnpm" field in package.json is no longer read by pnpm. The following keys were ignored: "pnpm.overrides". See https://pnpm.io/settings for the new home of each setting.
+
+> @led-control/web@0.1.0 build:public /Users/kim-jh/Documents/led-control-service/.worktrees/web-deploy-mode-20261011/apps/web
+> vite build --config vite.public.config.ts
+
+vite v5.4.21 building for production...
+transforming...
+✓ 2931 modules transformed.
+rendering chunks...
+computing gzip size...
+dist-public/brand/kinda-mark.svg                  0.62 kB │ gzip:   0.39 kB
+dist-public/brand/kinda-mark-reversed.svg         0.64 kB │ gzip:   0.39 kB
+dist-public/brand/kinda-mark-monochrome.svg       0.64 kB │ gzip:   0.38 kB
+dist-public/404.html                              0.87 kB │ gzip:   0.63 kB
+dist-public/brand/favicon-32.png                  0.94 kB
+dist-public/index.html                            1.05 kB │ gzip:   0.66 kB
+dist-public/brand/kinda-mark-512.png             13.74 kB
+dist-public/assets/landing/public-YUduL5_T.css  201.20 kB │ gzip:  30.61 kB
+dist-public/assets/landing/public-BAfUexFh.js   328.05 kB │ gzip: 100.14 kB
+✓ built in 1.79s

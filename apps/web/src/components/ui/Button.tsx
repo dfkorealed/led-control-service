@@ -5,7 +5,7 @@ import { cn } from "./utils/cn";
 import { CustomerThemeContext } from "./theme/CustomerThemeProvider";
 
 export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement>, Pick<AriaButtonProps, "isDisabled" | "onPress"> {
-  variant?: "landingConceptDismiss" | "landingConceptSubmit" | "landingConceptHeaderContact" | "landingConceptHeroContact" | "landingConceptReplay" | "landingReportFormat" | "landingMapTool" | "landingMapCancel" | "landingMapMarker" | "landingReplay" | "landingFixture" | "primary" | "secondary" | "ghost" | "danger" | "link" | "landingCta" | "landingHeaderContact" | "landingHeroContact" | "landingPlanPrimary" | "landingPlanSecondary";
+  variant?: "landingHeader" | "landingConceptDismiss" | "landingConceptSubmit" | "landingConceptHeaderContact" | "landingConceptHeroContact" | "landingConceptReplay" | "landingReportFormat" | "landingMapTool" | "landingMapCancel" | "landingMapMarker" | "landingReplay" | "landingFixture" | "primary" | "secondary" | "ghost" | "danger" | "link" | "landingCta" | "landingHeaderContact" | "landingHeroContact" | "landingPlanPrimary" | "landingPlanSecondary";
   size?: "sm" | "md" | "lg";
   isLoading?: boolean;
   loadingLabel?: string;
@@ -19,6 +19,7 @@ const landingMapToolFrame = "min-h-[34px] gap-3 rounded-landing-map-tool border-
 const button = cva("inline-flex min-h-11 items-center justify-center gap-2 rounded-control border font-bold cursor-pointer focus-visible:outline-none focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60", {
   variants: {
     variant: {
+      landingHeader: "min-h-[39px] gap-3 rounded-landing-button border-surface-panel/42 bg-transparent p-landing-button-inset text-landing-button font-extrabold text-surface-panel landing-wide:landing-stack:min-h-[35px] landing-wide:landing-stack:px-landing-navigation-login-stacked-inline-inset landing-wide:landing-stack:text-landing-navigation-stacked landing-wide:landing-stack:landing-narrow:px-landing-navigation-login-narrow-inline-inset landing-wide:landing-stack:landing-narrow:text-landing-navigation-narrow",
       landingConceptDismiss: "inquiry-dialog__close grid size-9 min-h-0 flex-none place-items-center gap-0 rounded-landing-compact-control border-border-subtle bg-surface-panel p-0 text-landing-concept-inquiry-dismiss font-normal leading-landing-concept-document text-brand-navy hover:enabled:bg-brand-paper aria-disabled:opacity-45 aria-disabled:cursor-wait",
       landingConceptSubmit: "w-full min-h-[50px] gap-3 rounded-landing-button border-transparent bg-brand-blue p-landing-button-inset text-landing-button font-extrabold text-surface-panel transition-[transform,background,border-color] duration-200 ease-[ease] hover:transform-[translateY(-2px)] hover:enabled:bg-action-primary-hover aria-disabled:opacity-60 aria-disabled:cursor-wait aria-disabled:transform-none",
       landingConceptHeaderContact: "block min-h-0 gap-0 rounded-none border-0 bg-transparent px-0 py-2 text-landing-navigation font-[750] leading-landing-concept-document text-surface-panel hover:enabled:text-brand-coral landing-stack:text-landing-navigation-stacked",

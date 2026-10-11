@@ -129,7 +129,7 @@ test("consultation opens in a modal on the same URL", async ({ page }) => {
   for (const trigger of triggers) {
     await trigger.click();
     await expect(page.getByRole("dialog", { name: "도입 상담" })).toBeVisible();
-    await expect(page.getByRole("textbox", { name: "회사명" })).toBeVisible();
+    await expect(page.getByRole("dialog").getByRole("link", { name: "032-528-2953" })).toBeVisible();
     expect(page.url()).toBe(initialUrl);
     await page.getByRole("button", { name: "상담 팝업 닫기" }).click();
     await expect(page.getByRole("dialog", { name: "도입 상담" })).toHaveCount(0);
@@ -151,35 +151,19 @@ test("pricing cards open consultation and return focus to the selected plan", as
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });
 
-test("plan inquiry keeps the selected plan in editable copy and the submitted message", async ({ page }) => {
-  const posted: Record<string, unknown>[] = [];
-  await page.route("**/api/landing/inquiries", async route => {
-    posted.push(route.request().postDataJSON());
-    await route.fulfill({ status: 201, contentType: "application/json", body: JSON.stringify({ reference: "KI-PLAN", status: "received" }) });
-  });
+test("plan consultation retains context and offers direct contact without submission", async ({ page }) => {
+  const api: string[] = [];
+  page.on("request", request => { if (new URL(request.url()).pathname.startsWith("/api/")) api.push(request.url()); });
   await page.goto("/pricing");
-  await page.getByRole("button", { name: "Basic 도입 상담" }).click();
-  const dialog = page.getByRole("dialog", { name: "도입 상담" });
-  await expect(dialog.getByText("선택한 요금제: Basic")).toBeVisible();
-  const message = dialog.getByRole("textbox", { name: "문의 내용" });
-  await expect(message).toHaveValue("Basic 요금제 도입 상담을 받고 싶습니다.");
-  await dialog.getByRole("button", { name: "상담 팝업 닫기" }).click();
-  await page.getByRole("button", { name: "Plus 도입 상담" }).click();
-  await expect(dialog.getByText("선택한 요금제: Plus")).toBeVisible();
-  await expect(message).toHaveValue("Plus 요금제 도입 상담을 받고 싶습니다.");
-  await message.fill("설치 규모를 상담받고 싶습니다.");
-  await dialog.getByRole("textbox", { name: "회사명" }).fill("설비 주식회사");
-  await dialog.getByRole("textbox", { name: "담당자 이름" }).fill("김담당");
-  await dialog.getByRole("textbox", { name: "회신 이메일" }).fill("manager@example.com");
-  await dialog.getByRole("checkbox", { name: /개인정보 수집·이용에 동의/ }).press("Space");
-  await dialog.getByRole("button", { name: "상담 문의 보내기" }).click();
-  await expect(dialog.getByText(/KI-PLAN/)).toBeVisible();
-  expect(posted).toHaveLength(1);
-  expect(posted[0].message).toBe("선택한 요금제: Plus\n설치 규모를 상담받고 싶습니다.");
-  await dialog.getByRole("button", { name: "상담 팝업 닫기" }).click();
-  await page.getByRole("button", { name: "도입 상담", exact: true }).first().click();
-  await expect(dialog.getByRole("textbox", { name: "문의 내용" })).toBeEmpty();
-  await expect(dialog.getByText(/선택한 요금제:/)).toHaveCount(0);
+  for (const plan of ["Basic", "Plus"]) {
+    await page.getByRole("button", { name: `${plan} 도입 상담` }).click();
+    const dialog = page.getByRole("dialog", { name: "도입 상담" });
+    await expect(dialog.getByText(`선택한 요금제: ${plan}`)).toBeVisible();
+    await expect(dialog.getByRole("textbox")).toHaveCount(0);
+    await expect(dialog.getByRole("link", { name: "kymkjh2002@dfkorealed.com" })).toHaveAttribute("href", "mailto:kymkjh2002@dfkorealed.com");
+    await page.keyboard.press("Escape");
+  }
+  expect(api).toEqual([]);
 });
 
 test("a scene replays on return and reduced motion settles to its final state", async ({ page }) => {
@@ -280,36 +264,6 @@ test("a touch gesture can reposition a placed map fixture", async ({ browser }) 
   }
 });
 
-test("pending consultation keeps focus and blocks dismissal until the response", async ({ page }) => {
-  let accept!: () => void;
-  const release = new Promise<void>(resolve => { accept = resolve; });
-  const posted: unknown[] = [];
-  await page.route("**/api/landing/inquiries", async route => {
-    posted.push(route.request().postDataJSON());
-    await release;
-    await route.fulfill({ status: 201, json: { reference: "KI-FOCUS", status: "received" } });
-  });
-  await page.goto("/");
-  await page.getByRole("button", { name: "도입 상담", exact: true }).first().click();
-  const dialog = page.getByRole("dialog", { name: "도입 상담" });
-  await dialog.getByRole("textbox", { name: "회사명" }).fill("시설 관리사");
-  await dialog.getByRole("textbox", { name: "담당자 이름" }).fill("홍길동");
-  await dialog.getByRole("textbox", { name: "회신 이메일" }).fill("buyer@example.com");
-  await dialog.getByRole("textbox", { name: "문의 내용" }).fill("조명 관제 도입 상담");
-  await dialog.getByRole("checkbox", { name: /개인정보 수집·이용에 동의/ }).press("Space");
-  const submit = dialog.getByRole("button", { name: "상담 문의 보내기" });
-  await submit.click();
-  await expect(dialog.getByRole("status")).toContainText("접수하고 있습니다");
-  await expect(dialog.getByRole("button", { name: "접수 중" })).toBeFocused();
-  await page.keyboard.press("Escape");
-  await expect(dialog).toBeVisible();
-  await page.keyboard.press("Enter");
-  expect(posted).toHaveLength(1);
-  accept();
-  await expect(dialog.getByText(/KI-FOCUS/)).toBeVisible();
-  await expect(dialog.getByRole("link", { name: "이메일로 직접 문의하기" })).toHaveCount(0);
-});
-
 test("legacy contact bookmark opens the modal and clears the old fragment", async ({ page }) => {
   await page.goto("/#contact");
   await expect(page.getByRole("dialog", { name: "도입 상담" })).toBeVisible();
@@ -325,7 +279,7 @@ test("legacy contact fragment clears a previously selected plan", async ({ page 
   await page.evaluate(() => { window.location.hash = "contact"; });
   await expect(dialog).toBeVisible();
   await expect(dialog.getByText(/선택한 요금제:/)).toHaveCount(0);
-  await expect(dialog.getByRole("textbox", { name: "문의 내용" })).toBeEmpty();
+  await expect(dialog.getByRole("textbox")).toHaveCount(0);
 });
 
 

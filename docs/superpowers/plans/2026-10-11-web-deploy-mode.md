@@ -1,0 +1,48 @@
+# Public Web Deployment Mode Implementation Plan
+
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement the coupled tasks sequentially.
+
+**Goal:** `WEB_DEPLOY_MODE` 하나로 동일 배포 명령의 랜딩/전체 서비스 빌드와 AWS 공개 범위를 전환한다.
+
+**Architecture:** 최신 UI 기준에 승인된 정적 랜딩 준비를 통합한다. 모드 parser/route/artifact 계약을 빌드와 배포가 공유하고, 서비스 모드만 인증된 기존 앱과 same-origin API origin을 제공한다.
+
+**Tech Stack:** Node22/pnpm9.15/Vite/React/CloudFormation/S3/OAC/CloudFront.
+
+**Spec:** `docs/superpowers/specs/2026-10-11-web-deploy-mode-design.md`
+
+## Global Constraints
+
+- 단일 모드 `WEB_DEPLOY_MODE=landing|service`; 기본 landing, invalid fail before writes.
+- landing graph/output 내부 제외, service 최신 UI/인증 보존, 시안/test 자료 제외.
+- service 로그인 같은 origin `/login`, API `/api` 계약 유지. 운영 API origin은 최초 한 번 명시 입력.
+- 계정/소유권·lock/hash/archive/과거 assets 보존·canonical CI gate 유지. 운영 AWS/DB/장비 조작 없음.
+
+## Review Focus
+
+- 플래그는 service인데 landing 산출물/edge가 남은 경우: 모드·바이트 연계 gate 및 fake deploy assertion.
+- landing으로 돌아왔는데 API/로그인/내부 JS 접근이 열린 경우: 왕복 전환 HTTP/edge/API 계약.
+- API 401/403을 HTML404로 바꾸거나 쿠키가 캐시되는 경우: API behavior/cache/error 정책 검사.
+- 직접 접속·새로고침 또는 정상 nested route를 잘못404로 처리하는 경우: 실제 route 계약+production browser.
+- 실패한 전환/rollback이 다른 모드의 archive를 게시하는 경우: manifest mismatch/identity/no-write·복구 검사.
+
+## Task1 — 단일 writer, 연결된 배포 모드 전체 구현
+
+- [x] Step1: 최신 `cc6b9a7a`에 기존 AWS/Web 준비를 `7f132751`/`1f78274c`로 통합했다. 충돌 없이 최신 UI·기본 main entry를 유지하고 과거 상태판은 가져오지 않았다.
+- [x] Step2: 공통 배포 모드 parser·route/artifact 계약, `build:public` 및 production-only service entry/config 구현. 실패 테스트→최소 구현→양 모드 build/graph/HTTP와 서비스 로그인/일반 auth 회귀. 파일: `apps/web/**`, 필요 `scripts/landing` 공통 계약. 구현 `a549fb16`, 양 모드 실제 빌드·landing2PASS/서비스전용2SKIP·service4PASS와 관련 unit45/타입/UI 관문을 확인했다. 독립 리뷰는 Task2에서 진행한다.
+- [x] Step3: 기존 `infra/landing/**`, `scripts/landing/**` 배포 흐름을 양 모드로 확장. 같은 deploy 명령으로 edge/API 설정과 산출물 조율, service preflight, mode-bound release/rollback, 최소 IAM·runbook·공개 메뉴 문서. fake AWS 왕복/부분 실패/틀린 모드/쿠키·캐시 계약으로 검증. 통합 구현 `a549fb16`과 보고서를 고정했고 독립 task/전체 branch 검토를 시작했다.
+
+## Task2 — 최종 검증·독립 리뷰
+
+- [x] 한정 최종 타입/UI/양 모드 build·생산 browser, 독립 spec/quality 전체 리뷰 및 필요한 국소 수리. 기본 UI 기존 실패/전체 CI·remote 미실행을 구분한다. `577e7cfa` 재검토 specYES/qualityApproved/전체 source통합YES, Critical0/Important0. 영구 증거는 `docs/assets/web-deploy-mode-2026-10-11`에 보존했다.
+
+## Task3 — 결과 통합
+
+- [x] 총괄이 체크리스트·상태판 최신화, 검토된 커밋·미리보기/정확한 사용 명령·최초 환경 입력·실제 공개 상태 보고. 기존 root 서비스/다른 worktree는 보존한다. 첫 로컬FF `cc6b9a7a`→`d95f0a96` exit0·clean·제품diff0와 기존5173의 공개세경로/login200을 확인했다. 운영 AWS·fullCI·remote push는 수행하지 않았다. 영구 증거를 보존하고 이번 임시 preview/worktree만 정리한다.
+
+## Ownership
+
+긴밀한 공유 계약이므로 한 implementer에게 `apps/web/**`, `infra/landing/**`, `scripts/landing/**`, 필요 root package script, 공개 메뉴3문서와 기존 AWS runbook을 승인한다. 서버/공유 MQTT/DB/인증서/기존 production Compose/CI 변경은 제외한다. 총괄만 이 계획·spec·project-status를 갱신한다.
+
+검토는 baseline부터 task commit까지의 고정 diff package와 담당 보고서를 사용한다. 불필요한 전체 suite 재실행 없이 changed unit/actual build/실제 접속과 제한적인 auth browser로 완료 기준을 확인한다.
+
+릴리스 구현 계약: HTML/brand는 불변 `published/<release>/`, assets는 모드 namespace로 게시한다. edge가 정확한 릴리스와 모드를 선택하고 CloudFormation 완료를 기다린다. CloudFront 전파는 전 세계 단일 시점 교체가 아니므로 부분 실패 lock·명시 retry/rollback 복구와 이미 내려받은 JS의 한계를 실행서에 기록한다.

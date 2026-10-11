@@ -1,0 +1,3 @@
+{"mode":"landing","sourceModules":33,"publicFiles":14,"conceptModules":[],"authModules":[]}
+{"mode":"service","sourceModules":324,"publicFiles":82,"conceptModules":[],"authModules":["src/AppRoot.tsx","src/features/auth/AuthView.tsx","src/features/auth/RequiredPasswordChangeView.tsx","src/features/auth/password-form.ts"]}
+{"mode":"service","files":78,"sha256Verified":true}

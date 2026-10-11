@@ -1,0 +1,17 @@
+[WARN] The "pnpm" field in package.json is no longer read by pnpm. The following keys were ignored: "pnpm.overrides". See https://pnpm.io/settings for the new home of each setting.
+
+ RUN  v2.1.9 /Users/kim-jh/Documents/led-control-service/.worktrees/web-deploy-mode-20261011/apps/web
+
+ ✓ src/features/landing/public-service-url.test.ts (23 tests) 9ms
+ ✓ src/components/ui/public-site/PublicLogin.test.tsx (3 tests) 67ms
+ ✓ src/features/mobile/mobile-bootstrap.test.ts (2 tests) 5ms
+ ✓ src/features/landing/PublicContact.test.tsx (4 tests) 355ms
+ ✓ src/features/landing/LandingPage.content.test.tsx (9 tests) 418ms
+ ✓ src/features/landing/LandingPage.test.tsx (4 tests) 372ms
+   ✓ browser entry route > shows the public field-day landing without requesting auth 303ms
+
+ Test Files  6 passed (6)
+      Tests  45 passed (45)
+   Start at  23:22:39
+   Duration  3.68s (transform 1.24s, setup 678ms, collect 4.97s, tests 1.23s, environment 3.55s, prepare 1.99s)
+

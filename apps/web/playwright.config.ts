@@ -8,6 +8,8 @@ const baseURL = `http://127.0.0.1:${webPort}`;
 
 export default defineConfig({
   testDir: "./e2e",
+  // These specs require built artifacts and strict HTTP routing, not the dev SPA fallback.
+  testIgnore: ["**/static-landing.spec.ts", "**/public-deploy.spec.ts"],
   workers: realBackendLab ? 1 : undefined,
   timeout: realBackendLab ? 240_000 : 30_000,
   expect: { timeout: realBackendLab ? 15_000 : 5_000 },
