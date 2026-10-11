@@ -25,6 +25,8 @@ raw/에 명령별 로그 보존. canonical 상세 보고서는 ignored `.superpo
 
 `task-1-report.md`(공통/통계), `task-2-report.md`(수동 제어), `task-3-report.md`(헤더/모니터링), `task-4-report.md`(QA), `task-5-report.md`(단일 독립 최종 검토), `execution-ledger.md`(판단·원 실패·소스별 체크포인트)를 함께 보존했다. Task3 원 단계별 로그7개는 `task3-raw/`에 있다. 공통118+통계169는 source별 고유287이며 단일 최종batch가 아니다. 제어는 같은 제품5suite295PASS이고 모니터링은 국소GREEN 경계만 주장한다.
 
+원 Task3 로그7개는 SHA256이 canonical copy와 모두 일치한다. 원 로그의 trailing whitespace/EOF 빈 줄 때문에 artifact를 포함한 전체 diff-check는 exit2이며, 원 증거를 편집하지 않았다. 제품/E2E/메뉴/계획·상태·보고서 Markdown 범위 diff-check는 exit0이다.
+
 20건 UI branch는 제품437/QA673에서 준비 완료이며 최종 reviewer C/I/M0이다. 운영 인사이트는 사용자 요청으로 그대로다. 숫자 날짜 segment의 개별44px 폭과 모바일 전체 제목·기간 한 행은 물리적 폭 예외로 기록했고 일반44px/전체 날짜/desktop 한 행은 유지한다. 번호 검색은 불러온 조명 이름 문자열/기존 cursor 범위이며 서버 전체 검색·실장비를 구현했다고 표현하지 않는다.
 
 기본 브랜치는 별도 공개 웹 배포 작업으로 `34d5a375`까지 진행하여 예정 FF가 불가능해졌다. 기존 변경을 보존하는 일반 로컬 merge 또는 검증된 UI branch 유지 중 사용자 선택을 요청했고 아직 답변은 없다. MAIN 변경·병합·worktree/branch 제거는 하지 않았다. 이 README의 준비 완료는 작업 브랜치에 한정되며 MAIN 통합 승인을 대신하지 않는다.
