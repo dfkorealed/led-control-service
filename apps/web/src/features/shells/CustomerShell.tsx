@@ -311,7 +311,9 @@ function CustomerShellContent({ user }: { user: AuthUser }) {
         </aside>
       ) : null}
       <main className={`flex min-w-0 flex-1 flex-col ${isMonitoringRoute ? "min-h-0" : focus.active ? "min-h-0 overflow-hidden" : isManualDesktopWorkspace ? "min-h-0" : isEditorRoute ? "min-h-min" : ""}`}>
-        <header hidden={focus.active} className={focus.active ? "hidden" : "sticky top-0 z-10 grid min-h-16 min-w-0 shrink-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-1 gap-y-1 border-b border-border-default bg-surface-panel px-2 py-1 compact:grid-cols-[minmax(0,auto)_minmax(0,1fr)_auto] compact:gap-x-4 compact:px-7 compact:py-2"} data-shell-topbar>
+        {/* Reserve intrinsic summary/action widths before giving the site label
+            remaining space; otherwise a long label collapses the summary track. */}
+        <header hidden={focus.active} className={focus.active ? "hidden" : "sticky top-0 z-10 grid min-h-16 min-w-0 shrink-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-1 gap-y-1 border-b border-border-default bg-surface-panel px-2 py-1 compact:grid-cols-[minmax(0,1fr)_auto_auto] compact:gap-x-4 compact:px-7 compact:py-2"} data-shell-topbar>
           <span className="sr-only" data-testid="shell-current-menu">{titleForPath(location.pathname)}</span>
           <div className="col-start-1 row-start-1 flex min-w-0 items-center gap-1" aria-label="현장 정보" data-shell-context>
             {isCompactNavigation ? <KindaLogo presentation="header" /> : null}
