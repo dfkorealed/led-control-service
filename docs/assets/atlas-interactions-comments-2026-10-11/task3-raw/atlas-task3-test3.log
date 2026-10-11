@@ -1,0 +1,1028 @@
+
+ RUN  v2.1.9 /Users/kim-jh/Documents/led-control-service/.worktrees/atlas-interactions-comments-20261011/apps/web
+
+ ✓ src/features/shells/CustomerShell.test.tsx (62 tests | 61 skipped) 346ms
+   ✓ customer shell site context > collapses the wide sidebar without remounting its route 346ms
+ ❯ src/features/monitoring/MonitoringView.test.tsx (106 tests | 4 failed | 98 skipped) 4404ms
+   × MonitoringView refresh > N1 preserves intentional outside focus during automatic desktop removal 927ms
+     → expect(element).not.toBeInTheDocument()
+
+expected document not to contain element, found <aside
+  aria-label="조명 상세"
+  class="flex h-0 min-h-full min-w-0 flex-col rounded-panel border border-border-default bg-surface-panel p-4"
+  tabindex="-1"
+>
+  <div
+    class="flex shrink-0 items-start justify-between gap-3"
+  >
+    <h2
+      class="text-card-title font-bold text-content-primary m-0"
+    >
+      조명 상세
+    </h2>
+    <button
+      aria-label="조명 상세 닫기"
+      class="inline-flex items-center justify-center gap-2 rounded-control border font-bold cursor-pointer focus-visible:outline-none focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60 border-border-default bg-surface-panel text-action-primary px-4 py-0 text-body min-h-13"
+      data-variant="ghost"
+    >
+      닫기
+    </button>
+  </div>
+  <div
+    class="min-h-0 flex-1 overflow-y-auto"
+    data-monitoring-detail-scroll=""
+  >
+    <aside
+      aria-label="선택 조명 상세"
+      class="max-w-full wrap-anywhere [&>*]:min-w-0 [&>*]:max-w-full grid min-w-0 gap-4 overflow-visible overscroll-auto"
+      data-monitoring-detail-panel=""
+      data-variant="default"
+    >
+      <div
+        class="flex min-w-0 flex-wrap items-start justify-between gap-3"
+      >
+        <h3
+          class="text-body-lg font-bold text-content-primary min-w-0 break-words m-0"
+        >
+          B1-L001
+        </h3>
+        <span
+          class="inline-flex min-h-7 items-center gap-1.5 rounded-pill px-2 py-1 text-label font-bold whitespace-nowrap bg-status-success-background text-status-success-foreground"
+          data-tone="success"
+        >
+          <svg
+            aria-hidden="true"
+            class="lucide lucide-circle-check"
+            fill="none"
+            height="14"
+            stroke="currentColor"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            stroke-width="2"
+            viewBox="0 0 24 24"
+            width="14"
+            xmlns="http://www.w3.org/2000/svg"
+          >
+            <circle
+              cx="12"
+              cy="12"
+              r="10"
+            />
+            <path
+              d="m9 12 2 2 4-4"
+            />
+          </svg>
+          <span>
+            정상
+          </span>
+        </span>
+      </div>
+      <section
+        aria-label="선택 조명 정보"
+        class="grid min-w-0 gap-3"
+      >
+        <div
+          class="grid gap-2 border-b border-border-default pb-3"
+        >
+          <span
+            class="text-body-sm font-normal text-content-secondary m-0"
+          >
+            현재 밝기
+          </span>
+          <strong
+            class="text-body-lg text-content-primary font-bold m-0"
+          >
+            70%
+          </strong>
+          <p
+            class="text-caption font-normal text-content-secondary m-0"
+          >
+            마지막 확인: 
+            <time
+              datetime="2026-08-19T01:00:00.000Z"
+            >
+              2026-08-19 10:00:00
+            </time>
+          </p>
+        </div>
+        <dl
+          class="m-0 grid gap-3"
+        >
+          <div
+            class="grid min-w-0 gap-1 border-b border-border-default pb-3"
+          >
+            <dt
+              class="text-body-sm text-content-secondary"
+            >
+              상태 안내
+            </dt>
+            <dd
+              class="m-0 min-w-0 break-words text-body-sm"
+            >
+              조명이 최신 상태를 정상적으로 보고했습니다.
+            </dd>
+          </div>
+          <div
+            class="grid min-w-0 gap-1 border-b border-border-default pb-3"
+          >
+            <dt
+              class="text-body-sm text-content-secondary"
+            >
+              권장 조치
+            </dt>
+            <dd
+              class="m-0 min-w-0 break-words text-body-sm"
+            >
+              조치 불필요
+            </dd>
+          </div>
+          <div
+            class="grid min-w-0 gap-1 border-b border-border-default pb-3"
+          >
+            <dt
+              class="text-body-sm text-content-secondary"
+            >
+              지도 배치
+            </dt>
+            <dd
+              class="m-0 min-w-0 break-words text-body-sm"
+            >
+              배치됨
+            </dd>
+          </div>
+        </dl>
+      </section>
+    </aside>
+  </div>
+</aside> instead
+   × MonitoringView refresh > N1 never schedules stale focus after principal scope exit 691ms
+     → expect(element).toHaveFocus()
+
+Expected element with focus:
+  <button>
+  다른 화면의 작업
+</button>
+Received element with focus:
+  <button
+  aria-label="B1-L001 정상 70%"
+  class="inline-flex min-h-11 items-center justify-center gap-2 rounded-control border font-bold focus-visible:outline-none focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60 border-border-default bg-surface-panel text-action-primary px-3 py-0 text-body-sm absolute z-2 block! -translate-x-1/2 -translate-y-1/2 cursor-pointer rounded-pill! border-0! bg-transparent! p-0! transition-[background-color,box-shadow] duration-150 motion-reduce:duration-[0.01ms] hover:z-4 focus-visible:z-4 focus-visible:outline-3 focus-visible:outline-offset-4 focus-visible:outline-fixture-selected size-12! min-h-12!"
+  data-brightness-level="8"
+  data-disabled="false"
+  data-selected="false"
+  data-spatial-map-marker="true"
+  data-variant="ghost"
+  style="--fixture-left: 8.333333333333332%; --fixture-top: 12.5%; left: clamp(1.5rem, var(--fixture-left), calc(100% - 1.5rem)); top: clamp(1.5rem, var(--fixture-top), calc(100% - 1.5rem));"
+  title="B1-L001"
+  type="button"
+>
+  <span
+    class="pointer-events-none absolute left-1/2 top-1/2 grid size-5 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-pill! transition-[background-color,box-shadow] duration-150 motion-reduce:duration-[0.01ms] bg-fixture-brightness-8 shadow-fixture-brightness-8 border-2! border-fixture-connected!"
+    data-spatial-map-marker-dot="true"
+  />
+</button>
+   ✓ MonitoringView refresh > N1 never schedules stale focus after site scope exit 687ms
+   × MonitoringView refresh > N1 never schedules stale focus after floor scope exit 690ms
+     → expect(element).toHaveFocus()
+
+Expected element with focus:
+  <button>
+  다른 화면의 작업
+</button>
+Received element with focus:
+  <button
+  aria-label="B1-L001 장애 70%"
+  class="inline-flex min-h-11 items-center justify-center gap-2 rounded-control border font-bold focus-visible:outline-none focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60 border-border-default bg-surface-panel text-action-primary px-3 py-0 text-body-sm absolute z-2 block! -translate-x-1/2 -translate-y-1/2 cursor-pointer rounded-pill! border-0! bg-transparent! p-0! transition-[background-color,box-shadow] duration-150 motion-reduce:duration-[0.01ms] hover:z-4 focus-visible:z-4 focus-visible:outline-3 focus-visible:outline-offset-4 focus-visible:outline-fixture-selected size-12! min-h-12!"
+  data-brightness-level="8"
+  data-disabled="false"
+  data-selected="false"
+  data-spatial-map-marker="true"
+  data-variant="ghost"
+  style="--fixture-left: 8.333333333333332%; --fixture-top: 12.5%; left: clamp(1.5rem, var(--fixture-left), calc(100% - 1.5rem)); top: clamp(1.5rem, var(--fixture-top), calc(100% - 1.5rem));"
+  title="B1-L001"
+  type="button"
+>
+  <span
+    class="pointer-events-none absolute left-1/2 top-1/2 grid size-5 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-pill! transition-[background-color,box-shadow] duration-150 motion-reduce:duration-[0.01ms] bg-fixture-brightness-8 shadow-fixture-brightness-8 border-2! border-fixture-fault!"
+    data-spatial-map-marker-dot="true"
+  >
+    <svg
+      aria-hidden="true"
+      class="lucide lucide-triangle-alert text-content-primary"
+      fill="none"
+      height="12"
+      stroke="currentColor"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+      stroke-width="2"
+      viewBox="0 0 24 24"
+      width="12"
+      xmlns="http://www.w3.org/2000/svg"
+    >
+      <path
+        d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"
+      />
+      <path
+        d="M12 9v4"
+      />
+      <path
+        d="M12 17h.01"
+      />
+    </svg>
+  </span>
+</button>
+   ✓ MonitoringView refresh > N1 never schedules stale focus after unmount scope exit 663ms
+   ✓ MonitoringView refresh > keeps the mobile fixture selector and map marker selection in sync 390ms
+   × MonitoringView refresh > clears a prior floor search when the selected map changes 176ms
+     → Unable to find an accessible element with the role "button" and name "조명 목록 보기"
+
+Here are the accessible roles:
+
+  button:
+
+  Name "Dismiss":
+  [36m<button[39m
+    [33maria-label[39m=[32m"Dismiss"[39m
+    [33mid[39m=[32m"react-aria-:riq:"[39m
+    [33mstyle[39m=[32m"width: 1px; height: 1px;"[39m
+    [33mtabindex[39m=[32m"-1"[39m
+  [36m/>[39m
+
+  Name "조명 검색/목록 닫기":
+  [36m<button[39m
+    [33maria-label[39m=[32m"조명 검색/목록 닫기"[39m
+    [33mclass[39m=[32m"inline-flex min-h-11 items-center justify-center gap-2 rounded-control border font-bold cursor-pointer focus-visible:outline-none focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60 border-border-default bg-surface-panel text-action-primary px-4 py-0 text-body"[39m
+    [33mdata-variant[39m=[32m"ghost"[39m
+  [36m/>[39m
+
+  Name "상태 필터":
+  [36m<button[39m
+    [33maria-expanded[39m=[32m"false"[39m
+    [33maria-haspopup[39m=[32m"listbox"[39m
+    [33maria-labelledby[39m=[32m":rj3:-label"[39m
+    [33mclass[39m=[32m"min-h-11 w-full rounded-control border text-content-primary outline-none pointer-coarse:text-body-lg focus-visible:shadow-focus data-focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60 data-disabled:cursor-not-allowed data-disabled:opacity-60 aria-invalid:border-status-danger-foreground data-invalid:border-status-danger-foreground border-border-strong bg-surface-panel px-3 py-2.5 text-body flex items-center justify-between gap-2 text-left"[39m
+    [33mdata-rac[39m=[32m""[39m
+    [33mdata-react-aria-pressable[39m=[32m"true"[39m
+    [33mid[39m=[32m":rj3:"[39m
+    [33mtabindex[39m=[32m"0"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "B1-L001 장애":
+  [36m<button[39m
+    [33maria-pressed[39m=[32m"false"[39m
+    [33mclass[39m=[32m"inline-flex min-h-11 items-center gap-2 rounded-control border font-bold cursor-pointer focus-visible:outline-none focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60 border-border-default bg-surface-panel text-action-primary px-4 py-0 text-body w-full min-w-0 justify-between text-left"[39m
+    [33mdata-variant[39m=[32m"ghost"[39m
+  [36m/>[39m
+
+  Name "Dismiss":
+  [36m<button[39m
+    [33maria-label[39m=[32m"Dismiss"[39m
+    [33mid[39m=[32m"react-aria-:rje:"[39m
+    [33mstyle[39m=[32m"width: 1px; height: 1px;"[39m
+    [33mtabindex[39m=[32m"-1"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  dialog:
+
+  Name "조명 검색/목록":
+  [36m<section[39m
+    [33maria-label[39m=[32m"조명 검색/목록"[39m
+    [33mclass[39m=[32m"outline-none"[39m
+    [33mdata-rac[39m=[32m""[39m
+    [33mrole[39m=[32m"dialog"[39m
+    [33mtabindex[39m=[32m"-1"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  heading:
+
+  Name "조명 검색/목록":
+  [36m<h2[39m
+    [33mclass[39m=[32m"text-body-lg font-bold text-content-primary m-0"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  region:
+
+  Name "조명 검색 및 목록":
+  [36m<section[39m
+    [33maria-label[39m=[32m"조명 검색 및 목록"[39m
+    [33mclass[39m=[32m"grid min-w-0 gap-3"[39m
+    [33mdata-monitoring-fixture-finder[39m=[32m""[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  searchbox:
+
+  Name "조명 이름 또는 번호 검색":
+  [36m<input[39m
+    [33maria-labelledby[39m=[32m":rit:-label"[39m
+    [33mclass[39m=[32m"min-h-11 w-full rounded-control border text-content-primary outline-none pointer-coarse:text-body-lg focus-visible:shadow-focus data-focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60 data-disabled:cursor-not-allowed data-disabled:opacity-60 aria-invalid:border-status-danger-foreground data-invalid:border-status-danger-foreground border-border-strong bg-surface-panel px-3 py-2.5 text-body"[39m
+    [33mdata-rac[39m=[32m""[39m
+    [33mid[39m=[32m":rit:"[39m
+    [33mplaceholder[39m=[32m"조명 이름 또는 번호"[39m
+    [33mtabindex[39m=[32m"0"[39m
+    [33mtitle[39m=[32m""[39m
+    [33mtype[39m=[32m"search"[39m
+    [33mvalue[39m=[32m""[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  list:
+
+  Name "조명 목록":
+  [36m<ul[39m
+    [33maria-label[39m=[32m"조명 목록"[39m
+    [33mclass[39m=[32m"m-0 grid max-h-48 min-w-0 list-none gap-1 overflow-y-auto p-0"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  listitem:
+
+  Name "":
+  [36m<li[39m
+    [33mclass[39m=[32m"min-w-0"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div[39m
+    [33maria-hidden[39m=[32m"true"[39m
+  [36m>[39m
+    [36m<section[39m
+      [33mclass[39m=[32m"flex h-full min-h-0 min-w-0 flex-1 flex-col gap-4 max-compact:min-h-min max-compact:pb-shell-navigation-safe"[39m
+      [33mdata-monitoring-screen[39m=[32m""[39m
+    [36m>[39m
+      [36m<header[39m
+        [33mclass[39m=[32m"flex items-start justify-between max-compact:flex-col max-compact:items-stretch gap-5 max-compact:gap-3 max-compact:order-0"[39m
+      [36m>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"grid min-w-0 gap-2"[39m
+        [36m>[39m
+          [36m<h1[39m
+            [33mclass[39m=[32m"text-customer-page-title font-bold max-compact:text-section-title text-content-primary m-0"[39m
+          [36m>[39m
+            [0m모니터링[0m
+          [36m</h1>[39m
+        [36m</div>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"flex flex-wrap items-center gap-2 max-compact:w-full"[39m
+        [36m>[39m
+          [36m<small[39m
+            [33mclass[39m=[32m"text-caption font-normal text-content-secondary min-w-0 max-w-full break-words text-right m-0"[39m
+          [36m>[39m
+            [0m마지막 갱신: [0m
+            [36m<time[39m
+              [33mdatetime[39m=[32m"2026-10-11T14:45:36.219Z"[39m
+            [36m>[39m
+              [0m2026-10-11 23:45:36[0m
+              [0m (현장 시간)[0m
+            [36m</time>[39m
+          [36m</small>[39m
+          [36m<button[39m
+            [33maria-busy[39m=[32m"false"[39m
+            [33mclass[39m=[32m"inline-flex min-h-11 items-center justify-center gap-2 rounded-control border font-bold cursor-pointer focus-visible:outline-none focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60 border-border-default bg-action-secondary text-action-primary px-4 py-0 text-body"[39m
+            [33mdata-variant[39m=[32m"secondary"[39m
+          [36m>[39m
+            [36m<svg[39m
+              [33maria-hidden[39m=[32m"true"[39m
+              [33mclass[39m=[32m"lucide lucide-refresh-cw"[39m
+              [33mfill[39m=[32m"none"[39m
+              [33mheight[39m=[32m"16"[39m
+              [33mstroke[39m=[32m"currentColor"[39m
+              [33mstroke-linecap[39m=[32m"round"[39m
+              [33mstroke-linejoin[39m=[32m"round"[39m
+              [33mstroke-width[39m=[32m"2"[39m
+              [33mviewBox[39m=[32m"0 0 24 24"[39m
+              [33mwidth[39m=[32m"16"[39m
+              [33mxmlns[39m=[32m"http://www.w3.org/2000/svg"[39m
+            [36m>[39m
+              [36m<path[39m
+                [33md[39m=[32m"M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"[39m
+              [36m/>[39m
+              [36m<path[39m
+                [33md[39m=[32m"M21 3v5h-5"[39m
+              [36m/>[39m
+              [36m<path[39m
+                [33md[39m=[32m"M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"[39m
+              [36m/>[39m
+              [36m<path[39m
+                [33md[39m=[32m"M8 16H3v5"[39m
+              [36m/>[39m
+            [36m</svg>[39m
+            [0m새로고침[0m
+          [36m</button>[39m
+        [36m</div>[39m
+      [36m</header>[39m
+      [36m<div[39m
+        [33maria-label[39m=[32m"모니터링 도구"[39m
+        [33mclass[39m=[32m"flex min-w-0 flex-wrap items-center gap-2 max-compact:order-1"[39m
+        [33mrole[39m=[32m"group"[39m
+      [36m>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"flex-col grid min-w-0 grid-cols-[auto_minmax(0,1fr)] items-center gap-2 compact:w-64 max-compact:flex-1"[39m
+          [33mdata-field[39m=[32m""[39m
+          [33mdata-size[39m=[32m"md"[39m
+          [33mdata-variant[39m=[32m"outline"[39m
+        [36m>[39m
+          [36m<label[39m
+            [33mclass[39m=[32m"text-label font-semibold text-content-primary m-0"[39m
+            [33mfor[39m=[32m":rha:"[39m
+            [33mid[39m=[32m":rha:-label"[39m
+          [36m>[39m
+            [0m맵 선택[0m
+          [36m</label>[39m
+          [36m<template />[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"contents"[39m
+            [33mdata-focused[39m=[32m"true"[39m
+            [33mdata-rac[39m=[32m""[39m
+          [36m>[39m
+            [36m<button[39m
+              [33maria-expanded[39m=[32m"false"[39m
+              [33maria-haspopup[39m=[32m"listbox"[39m
+              [33maria-labelledby[39m=[32m":rha:-label"[39m
+              [33mclass[39m=[32m"min-h-11 w-full rounded-control border text-content-primary outline-none pointer-coarse:text-body-lg focus-visible:shadow-focus data-focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60 data-disabled:cursor-not-allowed data-disabled:opacity-60 aria-invalid:border-status-danger-foreground data-invalid:border-status-danger-foreground border-border-strong bg-surface-panel px-3 py-2.5 text-body flex items-center justify-between gap-2 text-left"[39m
+              [33mdata-rac[39m=[32m""[39m
+              [33mdata-react-aria-pressable[39m=[32m"true"[39m
+              [33mid[39m=[32m":rha:"[39m
+              [33mtabindex[39m=[32m"0"[39m
+              [33mtype[39m=[32m"button"[39m
+            [36m>[39m
+              [36m<span[39m
+                [33mclass[39m=[32m"min-w-0 flex-1 truncate"[39m
+                [33mdata-rac[39m=[32m""[39m
+                [33mid[39m=[32m"react-aria-:rhi:"[39m
+              [36m>[39m
+                [36m<span[39m
+                  [33mclass[39m=[32m"react-aria-Text"[39m
+                  [33mslot[39m=[32m"label"[39m
+                [36m>[39m
+                  [0mB2[0m
+                [36m</span>[39m
+              [36m</span>[39m
+              [36m<span[39m
+                [33maria-hidden[39m=[32m"true"[39m
+                [33mclass[39m=[32m"shrink-0"[39m
+              [36m>[39m
+                [0m▾[0m
+              [36m</span>[39m
+            [36m</button>[39m
+            [36m<div[39m
+              [33maria-hidden[39m=[32m"true"[39m
+              [33mdata-a11y-ignore[39m=[32m"aria-hidden-focus"[39m
+              [33mdata-react-aria-prevent-focus[39m=[32m"true"[39m
+              [33mdata-testid[39m=[32m"hidden-select-container"[39m
+              [33mstyle[39m=[32m"border: 0px; clip-path: inset(50%); height: 1px; margin: -1px; overflow: hidden; padding: 0px; position: fixed; width: 1px; white-space: nowrap; top: 0px; left: 0px;"[39m
+            [36m>[39m
+              [36m<label>[39m
+                [36m<select[39m
+                  [33mtabindex[39m=[32m"-1"[39m
+                  [33mtitle[39m=[32m""[39m
+                [36m>[39m
+                  [36m<option[39m
+                    [33mlabel[39m=[32m" "[39m
+                    [33mvalue[39m=[32m""[39m
+                  [36m>[39m
+                    [0m [0m
+            ...
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 4 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/features/monitoring/MonitoringView.test.tsx > MonitoringView refresh > N1 preserves intentional outside focus during automatic desktop removal
+Error: expect(element).not.toBeInTheDocument()
+
+expected document not to contain element, found <aside
+  aria-label="조명 상세"
+  class="flex h-0 min-h-full min-w-0 flex-col rounded-panel border border-border-default bg-surface-panel p-4"
+  tabindex="-1"
+>
+  <div
+    class="flex shrink-0 items-start justify-between gap-3"
+  >
+    <h2
+      class="text-card-title font-bold text-content-primary m-0"
+    >
+      조명 상세
+    </h2>
+    <button
+      aria-label="조명 상세 닫기"
+      class="inline-flex items-center justify-center gap-2 rounded-control border font-bold cursor-pointer focus-visible:outline-none focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60 border-border-default bg-surface-panel text-action-primary px-4 py-0 text-body min-h-13"
+      data-variant="ghost"
+    >
+      닫기
+    </button>
+  </div>
+  <div
+    class="min-h-0 flex-1 overflow-y-auto"
+    data-monitoring-detail-scroll=""
+  >
+    <aside
+      aria-label="선택 조명 상세"
+      class="max-w-full wrap-anywhere [&>*]:min-w-0 [&>*]:max-w-full grid min-w-0 gap-4 overflow-visible overscroll-auto"
+      data-monitoring-detail-panel=""
+      data-variant="default"
+    >
+      <div
+        class="flex min-w-0 flex-wrap items-start justify-between gap-3"
+      >
+        <h3
+          class="text-body-lg font-bold text-content-primary min-w-0 break-words m-0"
+        >
+          B1-L001
+        </h3>
+        <span
+          class="inline-flex min-h-7 items-center gap-1.5 rounded-pill px-2 py-1 text-label font-bold whitespace-nowrap bg-status-success-background text-status-success-foreground"
+          data-tone="success"
+        >
+          <svg
+            aria-hidden="true"
+            class="lucide lucide-circle-check"
+            fill="none"
+            height="14"
+            stroke="currentColor"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            stroke-width="2"
+            viewBox="0 0 24 24"
+            width="14"
+            xmlns="http://www.w3.org/2000/svg"
+          >
+            <circle
+              cx="12"
+              cy="12"
+              r="10"
+            />
+            <path
+              d="m9 12 2 2 4-4"
+            />
+          </svg>
+          <span>
+            정상
+          </span>
+        </span>
+      </div>
+      <section
+        aria-label="선택 조명 정보"
+        class="grid min-w-0 gap-3"
+      >
+        <div
+          class="grid gap-2 border-b border-border-default pb-3"
+        >
+          <span
+            class="text-body-sm font-normal text-content-secondary m-0"
+          >
+            현재 밝기
+          </span>
+          <strong
+            class="text-body-lg text-content-primary font-bold m-0"
+          >
+            70%
+          </strong>
+          <p
+            class="text-caption font-normal text-content-secondary m-0"
+          >
+            마지막 확인: 
+            <time
+              datetime="2026-08-19T01:00:00.000Z"
+            >
+              2026-08-19 10:00:00
+            </time>
+          </p>
+        </div>
+        <dl
+          class="m-0 grid gap-3"
+        >
+          <div
+            class="grid min-w-0 gap-1 border-b border-border-default pb-3"
+          >
+            <dt
+              class="text-body-sm text-content-secondary"
+            >
+              상태 안내
+            </dt>
+            <dd
+              class="m-0 min-w-0 break-words text-body-sm"
+            >
+              조명이 최신 상태를 정상적으로 보고했습니다.
+            </dd>
+          </div>
+          <div
+            class="grid min-w-0 gap-1 border-b border-border-default pb-3"
+          >
+            <dt
+              class="text-body-sm text-content-secondary"
+            >
+              권장 조치
+            </dt>
+            <dd
+              class="m-0 min-w-0 break-words text-body-sm"
+            >
+              조치 불필요
+            </dd>
+          </div>
+          <div
+            class="grid min-w-0 gap-1 border-b border-border-default pb-3"
+          >
+            <dt
+              class="text-body-sm text-content-secondary"
+            >
+              지도 배치
+            </dt>
+            <dd
+              class="m-0 min-w-0 break-words text-body-sm"
+            >
+              배치됨
+            </dd>
+          </div>
+        </dl>
+      </section>
+    </aside>
+  </div>
+</aside> instead
+ ❯ src/features/monitoring/MonitoringView.test.tsx:317:72
+    315|     exitDesktopCondition("fault");
+    316|     view.rerender(<MonitoringView siteId="site-1" userRole="viewer" />…
+    317|     expect(screen.queryByRole("complementary", { name: "조명 상세" }))…
+       |                                                                        ^
+    318|     expect(outside).toHaveFocus();
+    319|     await act(async () => { await new Promise(resolve => requestAnimat…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/4]⎯
+
+ FAIL  src/features/monitoring/MonitoringView.test.tsx > MonitoringView refresh > N1 never schedules stale focus after principal scope exit
+Error: expect(element).toHaveFocus()
+
+Expected element with focus:
+  <button>
+  다른 화면의 작업
+</button>
+Received element with focus:
+  <button
+  aria-label="B1-L001 정상 70%"
+  class="inline-flex min-h-11 items-center justify-center gap-2 rounded-control border font-bold focus-visible:outline-none focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60 border-border-default bg-surface-panel text-action-primary px-3 py-0 text-body-sm absolute z-2 block! -translate-x-1/2 -translate-y-1/2 cursor-pointer rounded-pill! border-0! bg-transparent! p-0! transition-[background-color,box-shadow] duration-150 motion-reduce:duration-[0.01ms] hover:z-4 focus-visible:z-4 focus-visible:outline-3 focus-visible:outline-offset-4 focus-visible:outline-fixture-selected size-12! min-h-12!"
+  data-brightness-level="8"
+  data-disabled="false"
+  data-selected="false"
+  data-spatial-map-marker="true"
+  data-variant="ghost"
+  style="--fixture-left: 8.333333333333332%; --fixture-top: 12.5%; left: clamp(1.5rem, var(--fixture-left), calc(100% - 1.5rem)); top: clamp(1.5rem, var(--fixture-top), calc(100% - 1.5rem));"
+  title="B1-L001"
+  type="button"
+>
+  <span
+    class="pointer-events-none absolute left-1/2 top-1/2 grid size-5 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-pill! transition-[background-color,box-shadow] duration-150 motion-reduce:duration-[0.01ms] bg-fixture-brightness-8 shadow-fixture-brightness-8 border-2! border-fixture-connected!"
+    data-spatial-map-marker-dot="true"
+  />
+</button>
+ ❯ src/features/monitoring/MonitoringView.test.tsx:349:23
+    347|       outside.focus();
+    348|       await act(async () => { await new Promise(resolve => requestAnim…
+    349|       expect(outside).toHaveFocus();
+       |                       ^
+    350|       expect(refreshApi.waitForMonitoringRefresh).not.toHaveBeenCalled…
+    351|     } finally { outside.remove(); }
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/4]⎯
+
+ FAIL  src/features/monitoring/MonitoringView.test.tsx > MonitoringView refresh > N1 never schedules stale focus after floor scope exit
+Error: expect(element).toHaveFocus()
+
+Expected element with focus:
+  <button>
+  다른 화면의 작업
+</button>
+Received element with focus:
+  <button
+  aria-label="B1-L001 장애 70%"
+  class="inline-flex min-h-11 items-center justify-center gap-2 rounded-control border font-bold focus-visible:outline-none focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60 border-border-default bg-surface-panel text-action-primary px-3 py-0 text-body-sm absolute z-2 block! -translate-x-1/2 -translate-y-1/2 cursor-pointer rounded-pill! border-0! bg-transparent! p-0! transition-[background-color,box-shadow] duration-150 motion-reduce:duration-[0.01ms] hover:z-4 focus-visible:z-4 focus-visible:outline-3 focus-visible:outline-offset-4 focus-visible:outline-fixture-selected size-12! min-h-12!"
+  data-brightness-level="8"
+  data-disabled="false"
+  data-selected="false"
+  data-spatial-map-marker="true"
+  data-variant="ghost"
+  style="--fixture-left: 8.333333333333332%; --fixture-top: 12.5%; left: clamp(1.5rem, var(--fixture-left), calc(100% - 1.5rem)); top: clamp(1.5rem, var(--fixture-top), calc(100% - 1.5rem));"
+  title="B1-L001"
+  type="button"
+>
+  <span
+    class="pointer-events-none absolute left-1/2 top-1/2 grid size-5 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-pill! transition-[background-color,box-shadow] duration-150 motion-reduce:duration-[0.01ms] bg-fixture-brightness-8 shadow-fixture-brightness-8 border-2! border-fixture-fault!"
+    data-spatial-map-marker-dot="true"
+  >
+    <svg
+      aria-hidden="true"
+      class="lucide lucide-triangle-alert text-content-primary"
+      fill="none"
+      height="12"
+      stroke="currentColor"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+      stroke-width="2"
+      viewBox="0 0 24 24"
+      width="12"
+      xmlns="http://www.w3.org/2000/svg"
+    >
+      <path
+        d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"
+      />
+      <path
+        d="M12 9v4"
+      />
+      <path
+        d="M12 17h.01"
+      />
+    </svg>
+  </span>
+</button>
+ ❯ src/features/monitoring/MonitoringView.test.tsx:349:23
+    347|       outside.focus();
+    348|       await act(async () => { await new Promise(resolve => requestAnim…
+    349|       expect(outside).toHaveFocus();
+       |                       ^
+    350|       expect(refreshApi.waitForMonitoringRefresh).not.toHaveBeenCalled…
+    351|     } finally { outside.remove(); }
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/4]⎯
+
+ FAIL  src/features/monitoring/MonitoringView.test.tsx > MonitoringView refresh > clears a prior floor search when the selected map changes
+TestingLibraryElementError: Unable to find an accessible element with the role "button" and name "조명 목록 보기"
+
+Here are the accessible roles:
+
+  button:
+
+  Name "Dismiss":
+  [36m<button[39m
+    [33maria-label[39m=[32m"Dismiss"[39m
+    [33mid[39m=[32m"react-aria-:riq:"[39m
+    [33mstyle[39m=[32m"width: 1px; height: 1px;"[39m
+    [33mtabindex[39m=[32m"-1"[39m
+  [36m/>[39m
+
+  Name "조명 검색/목록 닫기":
+  [36m<button[39m
+    [33maria-label[39m=[32m"조명 검색/목록 닫기"[39m
+    [33mclass[39m=[32m"inline-flex min-h-11 items-center justify-center gap-2 rounded-control border font-bold cursor-pointer focus-visible:outline-none focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60 border-border-default bg-surface-panel text-action-primary px-4 py-0 text-body"[39m
+    [33mdata-variant[39m=[32m"ghost"[39m
+  [36m/>[39m
+
+  Name "상태 필터":
+  [36m<button[39m
+    [33maria-expanded[39m=[32m"false"[39m
+    [33maria-haspopup[39m=[32m"listbox"[39m
+    [33maria-labelledby[39m=[32m":rj3:-label"[39m
+    [33mclass[39m=[32m"min-h-11 w-full rounded-control border text-content-primary outline-none pointer-coarse:text-body-lg focus-visible:shadow-focus data-focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60 data-disabled:cursor-not-allowed data-disabled:opacity-60 aria-invalid:border-status-danger-foreground data-invalid:border-status-danger-foreground border-border-strong bg-surface-panel px-3 py-2.5 text-body flex items-center justify-between gap-2 text-left"[39m
+    [33mdata-rac[39m=[32m""[39m
+    [33mdata-react-aria-pressable[39m=[32m"true"[39m
+    [33mid[39m=[32m":rj3:"[39m
+    [33mtabindex[39m=[32m"0"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "B1-L001 장애":
+  [36m<button[39m
+    [33maria-pressed[39m=[32m"false"[39m
+    [33mclass[39m=[32m"inline-flex min-h-11 items-center gap-2 rounded-control border font-bold cursor-pointer focus-visible:outline-none focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60 border-border-default bg-surface-panel text-action-primary px-4 py-0 text-body w-full min-w-0 justify-between text-left"[39m
+    [33mdata-variant[39m=[32m"ghost"[39m
+  [36m/>[39m
+
+  Name "Dismiss":
+  [36m<button[39m
+    [33maria-label[39m=[32m"Dismiss"[39m
+    [33mid[39m=[32m"react-aria-:rje:"[39m
+    [33mstyle[39m=[32m"width: 1px; height: 1px;"[39m
+    [33mtabindex[39m=[32m"-1"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  dialog:
+
+  Name "조명 검색/목록":
+  [36m<section[39m
+    [33maria-label[39m=[32m"조명 검색/목록"[39m
+    [33mclass[39m=[32m"outline-none"[39m
+    [33mdata-rac[39m=[32m""[39m
+    [33mrole[39m=[32m"dialog"[39m
+    [33mtabindex[39m=[32m"-1"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  heading:
+
+  Name "조명 검색/목록":
+  [36m<h2[39m
+    [33mclass[39m=[32m"text-body-lg font-bold text-content-primary m-0"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  region:
+
+  Name "조명 검색 및 목록":
+  [36m<section[39m
+    [33maria-label[39m=[32m"조명 검색 및 목록"[39m
+    [33mclass[39m=[32m"grid min-w-0 gap-3"[39m
+    [33mdata-monitoring-fixture-finder[39m=[32m""[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  searchbox:
+
+  Name "조명 이름 또는 번호 검색":
+  [36m<input[39m
+    [33maria-labelledby[39m=[32m":rit:-label"[39m
+    [33mclass[39m=[32m"min-h-11 w-full rounded-control border text-content-primary outline-none pointer-coarse:text-body-lg focus-visible:shadow-focus data-focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60 data-disabled:cursor-not-allowed data-disabled:opacity-60 aria-invalid:border-status-danger-foreground data-invalid:border-status-danger-foreground border-border-strong bg-surface-panel px-3 py-2.5 text-body"[39m
+    [33mdata-rac[39m=[32m""[39m
+    [33mid[39m=[32m":rit:"[39m
+    [33mplaceholder[39m=[32m"조명 이름 또는 번호"[39m
+    [33mtabindex[39m=[32m"0"[39m
+    [33mtitle[39m=[32m""[39m
+    [33mtype[39m=[32m"search"[39m
+    [33mvalue[39m=[32m""[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  list:
+
+  Name "조명 목록":
+  [36m<ul[39m
+    [33maria-label[39m=[32m"조명 목록"[39m
+    [33mclass[39m=[32m"m-0 grid max-h-48 min-w-0 list-none gap-1 overflow-y-auto p-0"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  listitem:
+
+  Name "":
+  [36m<li[39m
+    [33mclass[39m=[32m"min-w-0"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div[39m
+    [33maria-hidden[39m=[32m"true"[39m
+  [36m>[39m
+    [36m<section[39m
+      [33mclass[39m=[32m"flex h-full min-h-0 min-w-0 flex-1 flex-col gap-4 max-compact:min-h-min max-compact:pb-shell-navigation-safe"[39m
+      [33mdata-monitoring-screen[39m=[32m""[39m
+    [36m>[39m
+      [36m<header[39m
+        [33mclass[39m=[32m"flex items-start justify-between max-compact:flex-col max-compact:items-stretch gap-5 max-compact:gap-3 max-compact:order-0"[39m
+      [36m>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"grid min-w-0 gap-2"[39m
+        [36m>[39m
+          [36m<h1[39m
+            [33mclass[39m=[32m"text-customer-page-title font-bold max-compact:text-section-title text-content-primary m-0"[39m
+          [36m>[39m
+            [0m모니터링[0m
+          [36m</h1>[39m
+        [36m</div>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"flex flex-wrap items-center gap-2 max-compact:w-full"[39m
+        [36m>[39m
+          [36m<small[39m
+            [33mclass[39m=[32m"text-caption font-normal text-content-secondary min-w-0 max-w-full break-words text-right m-0"[39m
+          [36m>[39m
+            [0m마지막 갱신: [0m
+            [36m<time[39m
+              [33mdatetime[39m=[32m"2026-10-11T14:45:36.219Z"[39m
+            [36m>[39m
+              [0m2026-10-11 23:45:36[0m
+              [0m (현장 시간)[0m
+            [36m</time>[39m
+          [36m</small>[39m
+          [36m<button[39m
+            [33maria-busy[39m=[32m"false"[39m
+            [33mclass[39m=[32m"inline-flex min-h-11 items-center justify-center gap-2 rounded-control border font-bold cursor-pointer focus-visible:outline-none focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60 border-border-default bg-action-secondary text-action-primary px-4 py-0 text-body"[39m
+            [33mdata-variant[39m=[32m"secondary"[39m
+          [36m>[39m
+            [36m<svg[39m
+              [33maria-hidden[39m=[32m"true"[39m
+              [33mclass[39m=[32m"lucide lucide-refresh-cw"[39m
+              [33mfill[39m=[32m"none"[39m
+              [33mheight[39m=[32m"16"[39m
+              [33mstroke[39m=[32m"currentColor"[39m
+              [33mstroke-linecap[39m=[32m"round"[39m
+              [33mstroke-linejoin[39m=[32m"round"[39m
+              [33mstroke-width[39m=[32m"2"[39m
+              [33mviewBox[39m=[32m"0 0 24 24"[39m
+              [33mwidth[39m=[32m"16"[39m
+              [33mxmlns[39m=[32m"http://www.w3.org/2000/svg"[39m
+            [36m>[39m
+              [36m<path[39m
+                [33md[39m=[32m"M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"[39m
+              [36m/>[39m
+              [36m<path[39m
+                [33md[39m=[32m"M21 3v5h-5"[39m
+              [36m/>[39m
+              [36m<path[39m
+                [33md[39m=[32m"M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"[39m
+              [36m/>[39m
+              [36m<path[39m
+                [33md[39m=[32m"M8 16H3v5"[39m
+              [36m/>[39m
+            [36m</svg>[39m
+            [0m새로고침[0m
+          [36m</button>[39m
+        [36m</div>[39m
+      [36m</header>[39m
+      [36m<div[39m
+        [33maria-label[39m=[32m"모니터링 도구"[39m
+        [33mclass[39m=[32m"flex min-w-0 flex-wrap items-center gap-2 max-compact:order-1"[39m
+        [33mrole[39m=[32m"group"[39m
+      [36m>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"flex-col grid min-w-0 grid-cols-[auto_minmax(0,1fr)] items-center gap-2 compact:w-64 max-compact:flex-1"[39m
+          [33mdata-field[39m=[32m""[39m
+          [33mdata-size[39m=[32m"md"[39m
+          [33mdata-variant[39m=[32m"outline"[39m
+        [36m>[39m
+          [36m<label[39m
+            [33mclass[39m=[32m"text-label font-semibold text-content-primary m-0"[39m
+            [33mfor[39m=[32m":rha:"[39m
+            [33mid[39m=[32m":rha:-label"[39m
+          [36m>[39m
+            [0m맵 선택[0m
+          [36m</label>[39m
+          [36m<template />[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"contents"[39m
+            [33mdata-focused[39m=[32m"true"[39m
+            [33mdata-rac[39m=[32m""[39m
+          [36m>[39m
+            [36m<button[39m
+              [33maria-expanded[39m=[32m"false"[39m
+              [33maria-haspopup[39m=[32m"listbox"[39m
+              [33maria-labelledby[39m=[32m":rha:-label"[39m
+              [33mclass[39m=[32m"min-h-11 w-full rounded-control border text-content-primary outline-none pointer-coarse:text-body-lg focus-visible:shadow-focus data-focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60 data-disabled:cursor-not-allowed data-disabled:opacity-60 aria-invalid:border-status-danger-foreground data-invalid:border-status-danger-foreground border-border-strong bg-surface-panel px-3 py-2.5 text-body flex items-center justify-between gap-2 text-left"[39m
+              [33mdata-rac[39m=[32m""[39m
+              [33mdata-react-aria-pressable[39m=[32m"true"[39m
+              [33mid[39m=[32m":rha:"[39m
+              [33mtabindex[39m=[32m"0"[39m
+              [33mtype[39m=[32m"button"[39m
+            [36m>[39m
+              [36m<span[39m
+                [33mclass[39m=[32m"min-w-0 flex-1 truncate"[39m
+                [33mdata-rac[39m=[32m""[39m
+                [33mid[39m=[32m"react-aria-:rhi:"[39m
+              [36m>[39m
+                [36m<span[39m
+                  [33mclass[39m=[32m"react-aria-Text"[39m
+                  [33mslot[39m=[32m"label"[39m
+                [36m>[39m
+                  [0mB2[0m
+                [36m</span>[39m
+              [36m</span>[39m
+              [36m<span[39m
+                [33maria-hidden[39m=[32m"true"[39m
+                [33mclass[39m=[32m"shrink-0"[39m
+              [36m>[39m
+                [0m▾[0m
+              [36m</span>[39m
+            [36m</button>[39m
+            [36m<div[39m
+              [33maria-hidden[39m=[32m"true"[39m
+              [33mdata-a11y-ignore[39m=[32m"aria-hidden-focus"[39m
+              [33mdata-react-aria-prevent-focus[39m=[32m"true"[39m
+              [33mdata-testid[39m=[32m"hidden-select-container"[39m
+              [33mstyle[39m=[32m"border: 0px; clip-path: inset(50%); height: 1px; margin: -1px; overflow: hidden; padding: 0px; position: fixed; width: 1px; white-space: nowrap; top: 0px; left: 0px;"[39m
+            [36m>[39m
+              [36m<label>[39m
+                [36m<select[39m
+                  [33mtabindex[39m=[32m"-1"[39m
+                  [33mtitle[39m=[32m""[39m
+                [36m>[39m
+                  [36m<option[39m
+                    [33mlabel[39m=[32m" "[39m
+                    [33mvalue[39m=[32m""[39m
+                  [36m>[39m
+                    [0m [0m
+            ...
+ ❯ Object.getElementError ../../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/config.js:37:19
+ ❯ ../../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:76:38
+ ❯ ../../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:52:17
+ ❯ ../../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:95:19
+ ❯ src/features/monitoring/MonitoringView.test.tsx:963:19
+    961|     openInspector();
+    962|     expect(screen.getByRole("searchbox", { name: "조명 이름 또는 번호 …
+    963|     expect(screen.getByRole("button", { name: "조명 목록 보기" })).toH…
+       |                   ^
+    964|   });
+    965| 
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/4]⎯
+
+ Test Files  1 failed | 1 passed (2)
+      Tests  4 failed | 5 passed | 159 skipped (168)
+   Start at  23:45:29
+   Duration  7.06s (transform 928ms, setup 173ms, collect 2.74s, tests 4.75s, environment 802ms, prepare 602ms)
+
+undefined
+/Users/kim-jh/Documents/led-control-service/.worktrees/atlas-interactions-comments-20261011/apps/web:
+ ERR_PNPM_RECURSIVE_EXEC_FIRST_FAIL  Command failed with exit code 1: vitest run src/features/shells/CustomerShell.test.tsx src/features/monitoring/MonitoringView.test.tsx -t collapses the wide sidebar|N1 preserves intentional|N1 never schedules stale focus|mobile fixture selector|prior floor search|long map name --reporter=dot

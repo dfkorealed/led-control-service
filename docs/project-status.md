@@ -1,8 +1,8 @@
 # 메뉴 완성 작업 상태판
 
-기준일: 2026-10-11
+기준일: 2026-10-12
 
-## 2026-10-11 신규 브라우저 조작·필터 주석 — 운영 인사이트 제외·구현 진행
+## 2026-10-11 신규 브라우저 조작·필터 주석 — 20건 구현·한정 검증 완료, 로컬 통합 대기
 
 - 새 21건 중 C8 운영 인사이트는 사용자 요청으로 그대로 두고 나머지 20건을 반영한다. 세 페이지 담당의 읽기 전용 감사와 대화 설계를 확인했으며 [실행 체크리스트](superpowers/plans/2026-10-11-atlas-interactions-comments.md)에 공통/통계→수동 지도→헤더/모니터링→한정 browser/최종 review 순서를 기록했다.
 - 기준 `cc6b9a7a`에서 `.worktrees/atlas-interactions-comments-20261011` / `codex/atlas-interactions-comments-20261011`을 만들고 frozen offline install/workspace prepare를 완료했다. 제품 구현·새 테스트·최종 검증·병합은 아직이다. 이전 29건 완료 증거와 합산하지 않으며 기존 서비스/다른 worktree/DB/장비/원격은 보존한다.
@@ -10,6 +10,9 @@
 - Task1 공통/통계 구현 `fe1a17c5`+`16b6c032` 취합 완료: 공통 최종고유118·통계 실제7suite169=고유287PASS(단일HEAD 일괄 전체PASS 아님), 원 RED/소비자 assertion 수리·의도된 Zod stderr를 보고서에 보존했다. C8 source/test diff0과 소유24파일/diffcheck0을 직접 대조했다. Task2 수동지도 담당에게 단독 writer로 전달했으며 실제 browser/최종 정적 관문·독립review/병합은 아직이다.
 - Task2 `195974a7` 소유10파일과 원 실패/최종source를 대조했다. manual-cad opt-in/마커 threshold 후capture/Space·touch·cancel, tool 제거·panel·제목·층+목록 행 구현과 최종5suite295PASS/diffcheck0을 취합했다. FloorScene 제품/default지도/API 변경0이다. Task3 헤더/모니터링 담당에게 단독writer를 전달했고 최종 browser/정적관문/review·병합은 미완료다.
 - Task3 `9ba48ee7` 소유13파일·보고서·원 단계별 실패/국소GREEN을 확인했다. site-only/층desktop폭/단일검색목록/mobile sheet/5상태 범례를 구현했고 snapshot-only 미관측 식별을 보존했다. 기존 selector/helper 정합 수리와 sidebar 실패의 원인 미확정·국소PASS를 별도 기록한다. 원로그7개를 task-owned workspace에 복사했다. 제품 Task1–3 취합 후 Task4에 타입/UI/빌드 및 최대6실제browser만 전달한다. 최종review/병합은 아직이다.
+- 정적 checkpoint: `77f8608f` 타입/빌드exit0이나 UI 정책78PASS/1FAIL·ui-check1에서 sheet의 미승인 radius utility를 발견했다. 원 로그를 보존하고 `437ebc39` Popover 한 파일만 승인 token+하단 flush geometry로 수리했다. 소유자47PASS, 새 source 정책79PASS/UI0·0/빌드exit0를 확인했으며 타입은 이전 제품 cohort로 구분한다. 실제6-case browser와 단일 read-only 통합review를 진행 중이고 병합은 아직이다.
+- 위 준비/진행 문장은 실행 당시 이력이다. 현재 제품 `437ebc39`와 QA `67364847`의 20건 구현·한정 검증·단일 최종 리뷰는 완료했다. 6고유 browser case가 7runs21exec에 걸쳐 분리PASS했고 최종6 일괄 재실행은 아니다. 원 harness 실패와 marker 준비 실패를 보존하며 실제 marker-origin CDP pan/선택 불변/다음 tap, 실제 nav 위 전체44px hit까지 확인했다. reviewer C/I/M0; C8 source/test 및 API/DB 변경0이다. [원 증거·소스별 보고서](assets/atlas-interactions-comments-2026-10-11/README.md)에 실제 PNG/좌표/누락범위·기존 SettingsShell failure/큰 chunk 경고를 남겼다.
+- 통합 전 fresh 확인에서 MAIN `codex/mvp1-cloud-web`은 별도 공개 웹 배포 작업의 `34d5a375`로 진행됐으며 clean이다. 예정 FF는 불가능해 사용자에게 기존 변경을 보존하는 일반 로컬 merge 또는 UI 브랜치 유지 선택을 요청했다. 아직 답변이 없어 MAIN/배포 변경/다른 worktree를 수정하지 않았고 이번 작업 브랜치와 원 증거를 유지한다. 최종 UI branch readiness를 MAIN 통합 검증으로 확대하지 않는다.
 
 ## 2026-10-11 브라우저 주석 29건 교정 — 구현·한정 검증·최종 리뷰·로컬 FF 완료
 

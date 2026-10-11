@@ -1,0 +1,15 @@
+
+ RUN  v2.1.9 /Users/kim-jh/Documents/led-control-service/.worktrees/atlas-interactions-comments-20261011/apps/web
+
+ ✓ src/features/monitoring/MonitoringView.test.tsx (106 tests | 100 skipped) 3962ms
+   ✓ MonitoringView refresh > N1 preserves intentional outside focus during automatic desktop removal 923ms
+   ✓ MonitoringView refresh > N1 never schedules stale focus after principal scope exit 744ms
+   ✓ MonitoringView refresh > N1 never schedules stale focus after site scope exit 742ms
+   ✓ MonitoringView refresh > N1 never schedules stale focus after floor scope exit 729ms
+   ✓ MonitoringView refresh > N1 never schedules stale focus after unmount scope exit 715ms
+
+ Test Files  1 passed (1)
+      Tests  6 passed | 100 skipped (106)
+   Start at  23:46:33
+   Duration  6.67s (transform 631ms, setup 67ms, collect 1.61s, tests 3.96s, environment 329ms, prepare 129ms)
+

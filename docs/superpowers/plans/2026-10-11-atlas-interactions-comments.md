@@ -39,9 +39,11 @@
 - [x] Task 1 공통 UI + 통계 페이지 (`fe1a17c5`, `16b6c032`, 직접 고유287PASS; browser/최종 review 별도).
 - [x] Task 2 수동 제어 지도·툴바 (`195974a7`, 최종 직접5suite295PASS; 실제 입력/geometry browser 후속).
 - [x] Task 3 헤더·모니터링 통합 검색 (`9ba48ee7`, 직접 scope 마지막 실패 case까지 국소GREEN; 한 번의 전체최종batch PASS 아님).
-- [ ] Task 4 한정 검증·실제 browser.
-- [ ] Task 5 최종 통합 검토·필요 수리.
+- [x] Task 4 한정 검증·실제 browser (`67364847`; 제품437, 6고유/7runs21exec 분리PASS; 일괄최종6PASS 아님).
+- [x] Task 5 최종 통합 검토·필요 수리 (단일 reviewer C/I/M0, marker-origin/native nav bounds 필수 증거 gate 완료).
 - [ ] Task 6 로컬 통합·증거 보존·정리.
+
+**2026-10-12 통합 대기:** MAIN은 별도 공개 웹 배포 작업으로 `34d5a375`까지 진행했다. 기존 변경을 보존하는 일반 로컬 merge 또는 검증된 UI 브랜치 유지 중 사용자 선택을 요청했다. 기존 계획의 FF는 불가능하며 승인 전 MAIN/다른 작업을 변경하거나 이번 worktree를 제거하지 않는다. 현재 제품/QA 승인은 작업 브랜치에 한정된다. [보고서·원 증거](../../assets/atlas-interactions-comments-2026-10-11/README.md).
 
 ### Task 1: 공통 UI와 통계 소비자 (C1–7, C9–11, C17–18)
 
@@ -49,14 +51,14 @@
 
 **Interfaces:** `PopoverProps.mobilePresentation?: "popover" | "bottom-sheet"` (기본 popover); FilterPanel popover는 bottom-sheet 소비. `DataGridProps<T>.compactColumnIds?: readonly string[]`, `renderRowDetails?(row: T, surface: DataGridSurface): ReactNode`, `getRowDetailsLabel?(row: T): string`. 미지정 소비자는 현재 동작 그대로, 상세 toggle state는 stable getRowKey 기반 내부 소유.
 
-- [ ] RED: 필터 모바일/desktop overlay 및 focus/lock, 날짜 한 줄/segment inset/icon, optional Grid 요약열·아래 상세·정렬 후 key를 검증하는 focused test를 먼저 실행한다.
-- [ ] 구현: bottom-sheet는 모바일 viewport 하단 붙임/slide-up(감소된 motion 고려), safe-area/overflow 내 닫기 도달. 실제 React Aria modal/portal/등록 owner를 유지하고 중첩 달력 dismiss가 부모를 닫지 않는다.
-- [ ] 구현: 날짜 range flex-wrap 제거, segment inset과 실제 Calendar 아이콘/작은 시각 trigger. 공통 44px hit와 date validation/controller 수명 유지.
-- [ ] 구현: DataGrid 카드에서 compactColumnIds만 표시, 모든 row의 “상세보기” 아래 detail 확장. table에서도 같은 action으로 colspan detail row; 펼침 label/aria-expanded/aria-controls/고유 ID 제공.
-- [ ] 구현: 보고서 요약은 대상·상태·기간·작업; detail은 범위·요청/만료 시각·실패 안내. 기존 job actions/loading/poll/download/retry/expiry/viewer는 보존.
-- [ ] 구현: 개요 빠른 기간/helper/절감 badge/긴 caption 제거, 제목+기간+필터 한 row; 분석 summary는 기간만. 개요 운영 인사이트는 원문 그대로.
-- [ ] 구현: 실제 3곳 chart axis의 공통 tick/간격 규칙을 적용하여 작은 화면의 x/y 충돌 방지; data/tooltip/null gaps를 바꾸지 않는다.
-- [ ] GREEN: 변경 직접 unit 실행, 날짜/표/filters의 소비 회귀, 네 메뉴 docs 갱신, diff check, 소유 파일만 commit. command/RED/GREEN/실제 source/한계 기록.
+- [x] RED: 필터 모바일/desktop overlay 및 focus/lock, 날짜 한 줄/segment inset/icon, optional Grid 요약열·아래 상세·정렬 후 key를 검증하는 focused test를 먼저 실행한다.
+- [x] 구현: bottom-sheet는 모바일 viewport 하단 붙임/slide-up(감소된 motion 고려), safe-area/overflow 내 닫기 도달. 실제 React Aria modal/portal/등록 owner를 유지하고 중첩 달력 dismiss가 부모를 닫지 않는다.
+- [x] 구현: 날짜 range flex-wrap 제거, segment inset과 실제 Calendar 아이콘/작은 시각 trigger. 공통 44px hit와 date validation/controller 수명 유지.
+- [x] 구현: DataGrid 카드에서 compactColumnIds만 표시, 모든 row의 “상세보기” 아래 detail 확장. table에서도 같은 action으로 colspan detail row; 펼침 label/aria-expanded/aria-controls/고유 ID 제공.
+- [x] 구현: 보고서 요약은 대상·상태·기간·작업; detail은 범위·요청/만료 시각·실패 안내. 기존 job actions/loading/poll/download/retry/expiry/viewer는 보존.
+- [x] 구현: 개요 빠른 기간/helper/절감 badge/긴 caption 제거, 제목+기간+필터 한 row; 분석 summary는 기간만. 개요 운영 인사이트는 원문 그대로.
+- [x] 구현: 실제 3곳 chart axis의 공통 tick/간격 규칙을 적용하여 작은 화면의 x/y 충돌 방지; data/tooltip/null gaps를 바꾸지 않는다. 실제 browser tick bounds는 개요1곳만, 나머지2곳은 공통 source/unit 근거다.
+- [x] GREEN: 변경 직접 unit 실행, 날짜/표/filters의 소비 회귀, 네 메뉴 docs 갱신, diff check, 소유 파일만 commit. command/RED/GREEN/실제 source/한계 기록.
 
 ### Task 2: 수동 지도·툴바 (C13–16)
 
@@ -64,11 +66,11 @@
 
 **Interfaces:** `FloorMapViewportProps.toolModePolicy`의 기존 union에 `"manual-cad"` 추가, manual-workspace만 사용. 기존 `interactionPolicy`/area callbacks/좌표 변환/카메라 소유자는 유지.
 
-- [ ] RED: manual mouse middle/left routing, 7/8px 임계, marker 시작 swipe→pan/no-toggle, touch long hold area 없음, cancel/Escape/lostcapture/pinch/lock, 기본 지도 정책 불변을 테스트한다.
-- [ ] 구현: manual-cad policy로 PC middle/Space pan, left marquee, touch pan. pointerup marker 직접선택과 capture click 억제를 일관되게 연결하고 keyboard/detail=0 선택은 보존한다.
-- [ ] 구현: 이동/개별/영역 tool UI와 state 제거, 중앙 inspection은 themed bg-surface-panel/rounded-panel/border. 층 select+“조명 목록” 한 행, scope tabs 유지, 구역 관리 button/dialog 전용 state 제거.
-- [ ] 구현: visible 조명 제어 heading 제거, 단일 sr-only h1 유지. raw31 밝기 초안/선택 해제/명시 적용/권한·명령 수명은 보존.
-- [ ] GREEN: 직접 unit 및 docs/diff check, 소유 파일 commit, source와 RED/GREEN 기록.
+- [x] RED: manual mouse middle/left routing, 7/8px 임계, marker 시작 swipe→pan/no-toggle, touch long hold area 없음, cancel/Escape/lostcapture/pinch/lock, 기본 지도 정책 불변을 테스트한다.
+- [x] 구현: manual-cad policy로 PC middle/Space pan, left marquee, touch pan. pointerup marker 직접선택과 capture click 억제를 일관되게 연결하고 keyboard/detail=0 선택은 보존한다.
+- [x] 구현: 이동/개별/영역 tool UI와 state 제거, 중앙 inspection은 themed bg-surface-panel/rounded-panel/border. 층 select+“조명 목록” 한 행, scope tabs 유지, 구역 관리 button/dialog 전용 state 제거.
+- [x] 구현: visible 조명 제어 heading 제거, 단일 sr-only h1 유지. raw31 밝기 초안/선택 해제/명시 적용/권한·명령 수명은 보존.
+- [x] GREEN: 직접 unit 및 docs/diff check, 소유 파일 commit, source와 RED/GREEN 기록.
 
 ### Task 3: 공통 헤더·모니터링 (C12, C19–21)
 
@@ -76,26 +78,26 @@
 
 **Interfaces:** Task1 `Popover.mobilePresentation`를 통합 finder에서 소비; selection callback 및 useFloorFixtures cursor query 그대로.
 
-- [ ] RED: site-only context, single opener/focus, 항상 보이는 이름 검색·필터·scroll 목록, filtered/paginated selection·미배치 예외, 모든 지도 상태 범례를 테스트한다.
-- [ ] 구현: CustomerShell site label은 site.name만, 기존 truncate/grid/52px account hit/권한 scope 유지. monitoring select desktop만 넓힘.
-- [ ] 구현: 단일 “조명 검색/목록” opener와 Finder. 내부 목록 펼침/local state 및 중복 상세select 제거. 기존 filter 조건/다음 page/부분 error, row 클릭→map center/pin/detail 유지.
-- [ ] 구현: 기존 renderer vocabulary 5종(정상/장애/오프라인/상태 확인 대기/조명 정보 확인 전)을 presence 필터 없이 항상 표시한다.
-- [ ] GREEN: 직접 unit·관련 docs/diff check·소유 commit, source와 RED/GREEN 기록.
+- [x] RED: site-only context, single opener/focus, 항상 보이는 이름 검색·필터·scroll 목록, filtered/paginated selection·미배치 예외, 모든 지도 상태 범례를 테스트한다.
+- [x] 구현: CustomerShell site label은 site.name만, 기존 truncate/grid/52px account hit/권한 scope 유지. monitoring select desktop만 넓힘.
+- [x] 구현: 단일 “조명 검색/목록” opener와 Finder. 내부 목록 펼침/local state 및 중복 상세select 제거. 기존 filter 조건/다음 page/부분 error, row 클릭→map center/pin/detail 유지.
+- [x] 구현: 기존 renderer vocabulary 5종(정상/장애/오프라인/상태 확인 대기/조명 정보 확인 전)을 presence 필터 없이 항상 표시한다.
+- [x] GREEN: 직접 unit·관련 docs/diff check·소유 commit, source와 RED/GREEN 기록.
 
 ### Task 4: 한정 자동·시각 검증
 
 **Files:** apps/web/e2e/atlas-interactions-comments.spec.ts(신규), 필요한 기존 fixture helper 소비, docs/assets/atlas-interactions-comments-2026-10-11/README.md 및 증거.
 
-- [ ] Task1–3 결과를 확인하고 Web typecheck/UI 정책/build를 한 번 실행한다. 기존 SettingsShell 카드 테스트1 baseline 실패와 큰 chunk 경고는 별도 기록하고 미수리.
-- [ ] 실제 browser 최대6 고유 cases: (1) PC manual middle/wheel/toggle/marquee/cancel, (2) touch manual swipe/tap/no-hold-area/짧은 viewport/dark, (3) monitoring single search/filters/camera/5legend/site header, (4) mobile filter bottom anchoring/nested date focus·calendar·날짜 한 줄/lastaction, (5) reports 577px summary/row details+dark/actions, (6) overview desktop+mobile title/ticks/no overlaps/C8 원문 유지.
-- [ ] source HEAD/필요 hashes와 command 기록. 실제 bounds/visible hit/수평 overflow/fixednav 겹침, 필요한 screenshot만 보존. 실패면 원 증거 보존 후 원인 담당 수리 및 해당 case만 재실행.
-- [ ] 모의API·headless browser 한계/미실행 상태를 명시하고 tracked 증거/QA commit.
+- [x] Task1–3 결과를 확인하고 Web typecheck/UI 정책/build를 한 번 실행한다. 기존 SettingsShell 카드 테스트1 baseline 실패와 큰 chunk 경고는 별도 기록하고 미수리. 정책 실패는 Popover 스타일만 국소 수리 후 UI/build 재검증했다.
+- [x] 실제 browser 최대6 고유 cases: (1) PC manual middle/wheel/toggle/marquee/cancel, (2) touch manual swipe/tap/no-hold-area/짧은 viewport/dark, (3) monitoring single search/filters/camera/5legend/site header, (4) mobile filter bottom anchoring/nested date focus·calendar·날짜 한 줄/lastaction, (5) reports 577px summary/row details+dark/actions, (6) overview desktop+mobile title/ticks/no overlaps/C8 원문 유지. 상세 runtime 한계는 Task4 보고서에 명시했다.
+- [x] source HEAD/필요 hashes와 command 기록. 실제 bounds/visible hit/수평 overflow/fixednav 겹침, 필요한 screenshot만 보존. 실패면 원 증거 보존 후 원인 담당 수리 및 해당 case만 재실행.
+- [x] 모의API·headless browser 한계/미실행 상태를 명시하고 tracked 증거/QA commit.
 
 ### Task 5: 최종 통합 검토
 
-- [ ] MERGE_BASE cc6b9a7a부터 review package 생성; 한 번의 독립 통합 reviewer에게 변경·요구·증거 전달. 전체 test 반복 금지.
-- [ ] C8 변경0, 공통 UI/a11y/gesture·report state·범례·모바일 간격/겹침·문서 근거 일치 확인.
-- [ ] 필요한 수리는 기존 담당에게 한 번 취합 배정하고 해당 tests만 재실행, 같은 review seat에서 fix diff 재확인.
+- [x] MERGE_BASE cc6b9a7a부터 review package 생성; 한 번의 독립 통합 reviewer에게 변경·요구·증거 전달. 전체 test 반복 금지.
+- [x] C8 변경0, 공통 UI/a11y/gesture·report state·범례·모바일 간격/겹침·문서 근거 일치 확인.
+- [x] 필요한 수리는 기존 담당에게 한 번 취합 배정하고 해당 tests만 재실행, 같은 review seat에서 fix diff 재확인. 제품 결함0, marker/native nav 증거 gap만 기존 QA case2에서 보강했다.
 
 ### Task 6: 로컬 통합·보존
 

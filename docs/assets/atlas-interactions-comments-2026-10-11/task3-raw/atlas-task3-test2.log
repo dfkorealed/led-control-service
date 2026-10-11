@@ -1,0 +1,2580 @@
+
+ RUN  v2.1.9 /Users/kim-jh/Documents/led-control-service/.worktrees/atlas-interactions-comments-20261011/apps/web
+
+ ✓ src/features/monitoring/MonitoringFixtureFinder.test.tsx (8 tests) 415ms
+ ✓ src/features/monitoring/FloorMap.test.tsx (15 tests) 1964ms
+   ✓ FloorMap > changes the fitted map zoom with controls and resets it to 100% 366ms
+ ❯ src/features/shells/CustomerShell.test.tsx (62 tests | 1 failed) 3422ms
+   × customer shell site context > collapses the wide sidebar without remounting its route 1139ms
+     → Unable to find an element with the text: 제어 화면. This could be because the text is broken up by multiple elements. In this case, you can provide a function for your text matcher to make your matcher more flexible.
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div>[39m
+    [36m<div[39m
+      [33mclass[39m=[32m"bg-surface-canvas min-h-screen flex"[39m
+      [33mdata-app-shell[39m=[32m"true"[39m
+      [33mdata-workspace-full-view[39m=[32m"false"[39m
+    [36m>[39m
+      [36m<aside[39m
+        [33mclass[39m=[32m"sticky top-0 z-20 h-screen w-customer-sidebar px-4.5 shrink-0 border-r border-border-default bg-surface-panel py-4"[39m
+        [33mdata-shell-navigation[39m=[32m"desktop"[39m
+      [36m>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"mb-7 flex min-w-0 items-center gap-1 px-1 justify-between"[39m
+        [36m>[39m
+          [36m<div[39m
+            [33maria-label[39m=[32m"킨다 관제 센터"[39m
+            [33mclass[39m=[32m"inline-flex shrink-0 items-center gap-2 text-content-primary"[39m
+            [33mdata-kinda-logo[39m=[32m"true"[39m
+            [33mrole[39m=[32m"img"[39m
+          [36m>[39m
+            [36m<img[39m
+              [33malt[39m=[32m""[39m
+              [33maria-hidden[39m=[32m"true"[39m
+              [33mclass[39m=[32m"block size-8 shrink-0"[39m
+              [33mdata-kinda-logo-mark[39m=[32m"true"[39m
+              [33mheight[39m=[32m"32"[39m
+              [33msrc[39m=[32m"/brand/kinda-mark.svg"[39m
+              [33mwidth[39m=[32m"32"[39m
+            [36m/>[39m
+            [36m<strong[39m
+              [33maria-hidden[39m=[32m"true"[39m
+              [33mclass[39m=[32m"text-card-title font-black text-content-primary"[39m
+            [36m>[39m
+              [0m킨다[0m
+            [36m</strong>[39m
+            [36m<span[39m
+              [33maria-hidden[39m=[32m"true"[39m
+              [33mclass[39m=[32m"sr-only"[39m
+            [36m>[39m
+              [0m관제 센터[0m
+            [36m</span>[39m
+          [36m</div>[39m
+          [36m<span[39m
+            [33mclass[39m=[32m"relative inline-flex shrink-0"[39m
+          [36m>[39m
+            [36m<button[39m
+              [33maria-controls[39m=[32m":r2k:"[39m
+              [33maria-expanded[39m=[32m"true"[39m
+              [33maria-label[39m=[32m"사이드바 접기"[39m
+              [33mclass[39m=[32m"min-h-11 gap-2 font-bold border-border-default text-body-sm hover:enabled:bg-surface-inset aria-pressed:bg-action-primary-soft aria-pressed:text-action-primary aspect-square min-w-11 inline-flex items-center justify-center border-0 bg-transparent p-0 text-action-primary cursor-pointer hover:bg-action-primary-soft focus-visible:bg-action-primary-soft focus-visible:outline-none focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60 size-11 rounded-none"[39m
+              [33mdata-variant[39m=[32m"secondary"[39m
+              [33mtype[39m=[32m"button"[39m
+            [36m>[39m
+              [36m<svg[39m
+                [33maria-hidden[39m=[32m"true"[39m
+                [33mclass[39m=[32m"lucide lucide-panel-left-close"[39m
+                [33mfill[39m=[32m"none"[39m
+                [33mheight[39m=[32m"18"[39m
+                [33mstroke[39m=[32m"currentColor"[39m
+                [33mstroke-linecap[39m=[32m"round"[39m
+                [33mstroke-linejoin[39m=[32m"round"[39m
+                [33mstroke-width[39m=[32m"2"[39m
+                [33mviewBox[39m=[32m"0 0 24 24"[39m
+                [33mwidth[39m=[32m"18"[39m
+                [33mxmlns[39m=[32m"http://www.w3.org/2000/svg"[39m
+              [36m>[39m
+                [36m<rect[39m
+                  [33mheight[39m=[32m"18"[39m
+                  [33mrx[39m=[32m"2"[39m
+                  [33mwidth[39m=[32m"18"[39m
+                  [33mx[39m=[32m"3"[39m
+                  [33my[39m=[32m"3"[39m
+                [36m/>[39m
+                [36m<path[39m
+                  [33md[39m=[32m"M9 3v18"[39m
+                [36m/>[39m
+                [36m<path[39m
+                  [33md[39m=[32m"m16 15-3-3 3-3"[39m
+                [36m/>[39m
+              [36m</svg>[39m
+            [36m</button>[39m
+          [36m</span>[39m
+        [36m</div>[39m
+        [36m<nav[39m
+          [33maria-label[39m=[32m"주 메뉴"[39m
+          [33mclass[39m=[32m"grid w-full gap-2"[39m
+          [33mid[39m=[32m":r2k:"[39m
+        [36m>[39m
+          [36m<span[39m
+            [33mclass[39m=[32m"relative block min-w-0"[39m
+          [36m>[39m
+            [36m<a[39m
+              [33maria-label[39m=[32m"모니터링"[39m
+              [33mclass[39m=[32m"flex w-full items-center rounded-control border border-transparent text-body-sm font-bold no-underline focus-visible:outline-none focus-visible:shadow-focus min-h-12 justify-start gap-3 px-3 py-2 border-transparent bg-transparent text-content-muted hover:bg-action-primary-soft hover:text-action-primary"[39m
+              [33mdata-discover[39m=[32m"true"[39m
+              [33mdata-shell-navigation-item[39m=[32m"true"[39m
+              [33mhref[39m=[32m"/monitoring?siteId=site"[39m
+            [36m>[39m
+              [36m<svg[39m
+                [33maria-hidden[39m=[32m"true"[39m
+                [33mclass[39m=[32m"lucide lucide-activity"[39m
+                [33mfill[39m=[32m"none"[39m
+                [33mheight[39m=[32m"20"[39m
+                [33mstroke[39m=[32m"currentColor"[39m
+                [33mstroke-linecap[39m=[32m"round"[39m
+                [33mstroke-linejoin[39m=[32m"round"[39m
+                [33mstroke-width[39m=[32m"2"[39m
+                [33mviewBox[39m=[32m"0 0 24 24"[39m
+                [33mwidth[39m=[32m"20"[39m
+                [33mxmlns[39m=[32m"http://www.w3.org/2000/svg"[39m
+              [36m>[39m
+                [36m<path[39m
+                  [33md[39m=[32m"M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2"[39m
+                [36m/>[39m
+              [36m</svg>[39m
+              [36m<span>[39m
+                [0m모니터링[0m
+              [36m</span>[39m
+            [36m</a>[39m
+          [36m</span>[39m
+          [36m<span[39m
+            [33mclass[39m=[32m"relative block min-w-0"[39m
+          [36m>[39m
+            [36m<a[39m
+              [33maria-current[39m=[32m"page"[39m
+              [33maria-label[39m=[32m"제어"[39m
+              [33mclass[39m=[32m"flex w-full items-center rounded-control border border-transparent text-body-sm font-bold no-underline focus-visible:outline-none focus-visible:shadow-focus min-h-12 justify-start gap-3 px-3 py-2 bg-action-primary-soft text-action-primary"[39m
+              [33mdata-discover[39m=[32m"true"[39m
+              [33mdata-shell-navigation-item[39m=[32m"true"[39m
+              [33mhref[39m=[32m"/control?siteId=site"[39m
+            [36m>[39m
+              [36m<svg[39m
+                [33maria-hidden[39m=[32m"true"[39m
+                [33mclass[3...
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div>[39m
+    [36m<div[39m
+      [33mclass[39m=[32m"bg-surface-canvas min-h-screen flex"[39m
+      [33mdata-app-shell[39m=[32m"true"[39m
+      [33mdata-workspace-full-view[39m=[32m"false"[39m
+    [36m>[39m
+      [36m<aside[39m
+        [33mclass[39m=[32m"sticky top-0 z-20 h-screen w-customer-sidebar px-4.5 shrink-0 border-r border-border-default bg-surface-panel py-4"[39m
+        [33mdata-shell-navigation[39m=[32m"desktop"[39m
+      [36m>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"mb-7 flex min-w-0 items-center gap-1 px-1 justify-between"[39m
+        [36m>[39m
+          [36m<div[39m
+            [33maria-label[39m=[32m"킨다 관제 센터"[39m
+            [33mclass[39m=[32m"inline-flex shrink-0 items-center gap-2 text-content-primary"[39m
+            [33mdata-kinda-logo[39m=[32m"true"[39m
+            [33mrole[39m=[32m"img"[39m
+          [36m>[39m
+            [36m<img[39m
+              [33malt[39m=[32m""[39m
+              [33maria-hidden[39m=[32m"true"[39m
+              [33mclass[39m=[32m"block size-8 shrink-0"[39m
+              [33mdata-kinda-logo-mark[39m=[32m"true"[39m
+              [33mheight[39m=[32m"32"[39m
+              [33msrc[39m=[32m"/brand/kinda-mark.svg"[39m
+              [33mwidth[39m=[32m"32"[39m
+            [36m/>[39m
+            [36m<strong[39m
+              [33maria-hidden[39m=[32m"true"[39m
+              [33mclass[39m=[32m"text-card-title font-black text-content-primary"[39m
+            [36m>[39m
+              [0m킨다[0m
+            [36m</strong>[39m
+            [36m<span[39m
+              [33maria-hidden[39m=[32m"true"[39m
+              [33mclass[39m=[32m"sr-only"[39m
+            [36m>[39m
+              [0m관제 센터[0m
+            [36m</span>[39m
+          [36m</div>[39m
+          [36m<span[39m
+            [33mclass[39m=[32m"relative inline-flex shrink-0"[39m
+          [36m>[39m
+            [36m<button[39m
+              [33maria-controls[39m=[32m":r2k:"[39m
+              [33maria-expanded[39m=[32m"true"[39m
+              [33maria-label[39m=[32m"사이드바 접기"[39m
+              [33mclass[39m=[32m"min-h-11 gap-2 font-bold border-border-default text-body-sm hover:enabled:bg-surface-inset aria-pressed:bg-action-primary-soft aria-pressed:text-action-primary aspect-square min-w-11 inline-flex items-center justify-center border-0 bg-transparent p-0 text-action-primary cursor-pointer hover:bg-action-primary-soft focus-visible:bg-action-primary-soft focus-visible:outline-none focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60 size-11 rounded-none"[39m
+              [33mdata-variant[39m=[32m"secondary"[39m
+              [33mtype[39m=[32m"button"[39m
+            [36m>[39m
+              [36m<svg[39m
+                [33maria-hidden[39m=[32m"true"[39m
+                [33mclass[39m=[32m"lucide lucide-panel-left-close"[39m
+                [33mfill[39m=[32m"none"[39m
+                [33mheight[39m=[32m"18"[39m
+                [33mstroke[39m=[32m"currentColor"[39m
+                [33mstroke-linecap[39m=[32m"round"[39m
+                [33mstroke-linejoin[39m=[32m"round"[39m
+                [33mstroke-width[39m=[32m"2"[39m
+                [33mviewBox[39m=[32m"0 0 24 24"[39m
+                [33mwidth[39m=[32m"18"[39m
+                [33mxmlns[39m=[32m"http://www.w3.org/2000/svg"[39m
+              [36m>[39m
+                [36m<rect[39m
+                  [33mheight[39m=[32m"18"[39m
+                  [33mrx[39m=[32m"2"[39m
+                  [33mwidth[39m=[32m"18"[39m
+                  [33mx[39m=[32m"3"[39m
+                  [33my[39m=[32m"3"[39m
+                [36m/>[39m
+                [36m<path[39m
+                  [33md[39m=[32m"M9 3v18"[39m
+                [36m/>[39m
+                [36m<path[39m
+                  [33md[39m=[32m"m16 15-3-3 3-3"[39m
+                [36m/>[39m
+              [36m</svg>[39m
+            [36m</button>[39m
+          [36m</span>[39m
+        [36m</div>[39m
+        [36m<nav[39m
+          [33maria-label[39m=[32m"주 메뉴"[39m
+          [33mclass[39m=[32m"grid w-full gap-2"[39m
+          [33mid[39m=[32m":r2k:"[39m
+        [36m>[39m
+          [36m<span[39m
+            [33mclass[39m=[32m"relative block min-w-0"[39m
+          [36m>[39m
+            [36m<a[39m
+              [33maria-label[39m=[32m"모니터링"[39m
+              [33mclass[39m=[32m"flex w-full items-center rounded-control border border-transparent text-body-sm font-bold no-underline focus-visible:outline-none focus-visible:shadow-focus min-h-12 justify-start gap-3 px-3 py-2 border-transparent bg-transparent text-content-muted hover:bg-action-primary-soft hover:text-action-primary"[39m
+              [33mdata-discover[39m=[32m"true"[39m
+              [33mdata-shell-navigation-item[39m=[32m"true"[39m
+              [33mhref[39m=[32m"/monitoring?siteId=site"[39m
+            [36m>[39m
+              [36m<svg[39m
+                [33maria-hidden[39m=[32m"true"[39m
+                [33mclass[39m=[32m"lucide lucide-activity"[39m
+                [33mfill[39m=[32m"none"[39m
+                [33mheight[39m=[32m"20"[39m
+                [33mstroke[39m=[32m"currentColor"[39m
+                [33mstroke-linecap[39m=[32m"round"[39m
+                [33mstroke-linejoin[39m=[32m"round"[39m
+                [33mstroke-width[39m=[32m"2"[39m
+                [33mviewBox[39m=[32m"0 0 24 24"[39m
+                [33mwidth[39m=[32m"20"[39m
+                [33mxmlns[39m=[32m"http://www.w3.org/2000/svg"[39m
+              [36m>[39m
+                [36m<path[39m
+                  [33md[39m=[32m"M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2"[39m
+                [36m/>[39m
+              [36m</svg>[39m
+              [36m<span>[39m
+                [0m모니터링[0m
+              [36m</span>[39m
+            [36m</a>[39m
+          [36m</span>[39m
+          [36m<span[39m
+            [33mclass[39m=[32m"relative block min-w-0"[39m
+          [36m>[39m
+            [36m<a[39m
+              [33maria-current[39m=[32m"page"[39m
+              [33maria-label[39m=[32m"제어"[39m
+              [33mclass[39m=[32m"flex w-full items-center rounded-control border border-transparent text-body-sm font-bold no-underline focus-visible:outline-none focus-visible:shadow-focus min-h-12 justify-start gap-3 px-3 py-2 bg-action-primary-soft text-action-primary"[39m
+              [33mdata-discover[39m=[32m"true"[39m
+              [33mdata-shell-navigation-item[39m=[32m"true"[39m
+              [33mhref[39m=[32m"/control?siteId=site"[39m
+            [36m>[39m
+              [36m<svg[39m
+                [33maria-hidden[39m=[32m"true"[39m
+                [33mclass[3...
+   ✓ customer shell site context > forwards the existing navigation breakpoint to the real Control close action without resetting details 638ms
+ ❯ src/features/monitoring/MonitoringView.test.tsx (106 tests | 6 failed) 14498ms
+   ✓ MonitoringView refresh > shares search and list entry state while returning focus to the actual opener 405ms
+   ✓ MonitoringView refresh > keeps the real shell's single monitoring h1 in the page header (false) 311ms
+   ✓ MonitoringView refresh > N1 restores monitoring fallback when focused desktop detail is automatically removed by fault 835ms
+   ✓ MonitoringView refresh > N1 restores monitoring fallback when focused desktop detail is automatically removed by search 664ms
+   ✓ MonitoringView refresh > N1 restores monitoring fallback when focused desktop detail is automatically removed by placement 680ms
+   ✓ MonitoringView refresh > N1 restores monitoring fallback when focused desktop detail is automatically removed by deletion 636ms
+   × MonitoringView refresh > N1 preserves intentional outside focus during automatic desktop removal 722ms
+     → expect(element).toHaveFocus()
+
+Expected element with focus:
+  <button
+  aria-busy="false"
+  class="inline-flex min-h-11 items-center justify-center gap-2 rounded-control border font-bold cursor-pointer focus-visible:outline-none focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60 border-border-default bg-action-secondary text-action-primary px-4 py-0 text-body"
+  data-variant="secondary"
+>
+  <svg
+    aria-hidden="true"
+    class="lucide lucide-refresh-cw"
+    fill="none"
+    height="16"
+    stroke="currentColor"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+    stroke-width="2"
+    viewBox="0 0 24 24"
+    width="16"
+    xmlns="http://www.w3.org/2000/svg"
+  >
+    <path
+      d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"
+    />
+    <path
+      d="M21 3v5h-5"
+    />
+    <path
+      d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"
+    />
+    <path
+      d="M8 16H3v5"
+    />
+  </svg>
+  새로고침
+</button>
+Received element with focus:
+  <button
+  aria-label="B1-L001 정상 70%"
+  class="inline-flex min-h-11 items-center justify-center gap-2 rounded-control border font-bold focus-visible:outline-none focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60 border-border-default bg-surface-panel text-action-primary px-3 py-0 text-body-sm absolute z-2 block! -translate-x-1/2 -translate-y-1/2 cursor-pointer rounded-pill! border-0! bg-transparent! p-0! transition-[background-color,box-shadow] duration-150 motion-reduce:duration-[0.01ms] hover:z-4 focus-visible:z-4 focus-visible:outline-3 focus-visible:outline-offset-4 focus-visible:outline-fixture-selected size-12! min-h-12! opacity-30"
+  data-brightness-level="8"
+  data-disabled="false"
+  data-selected="false"
+  data-spatial-map-marker="true"
+  data-variant="ghost"
+  style="--fixture-left: 8.333333333333332%; --fixture-top: 12.5%; left: clamp(1.5rem, var(--fixture-left), calc(100% - 1.5rem)); top: clamp(1.5rem, var(--fixture-top), calc(100% - 1.5rem));"
+  title="B1-L001"
+  type="button"
+>
+  <span
+    class="pointer-events-none absolute left-1/2 top-1/2 grid size-5 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-pill! transition-[background-color,box-shadow] duration-150 motion-reduce:duration-[0.01ms] bg-fixture-brightness-8 shadow-fixture-brightness-8 border-2! border-fixture-connected!"
+    data-spatial-map-marker-dot="true"
+  />
+</button>
+   ✓ MonitoringView refresh > N1 rejects a connected noninteractive original focus target 1140ms
+   × MonitoringView refresh > N1 never schedules stale focus after principal scope exit 717ms
+     → expect(element).toHaveFocus()
+
+Expected element with focus:
+  <button>
+  다른 화면의 작업
+</button>
+Received element with focus:
+  <button
+  aria-label="B1-L001 정상 70%"
+  class="inline-flex min-h-11 items-center justify-center gap-2 rounded-control border font-bold focus-visible:outline-none focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60 border-border-default bg-surface-panel text-action-primary px-3 py-0 text-body-sm absolute z-2 block! -translate-x-1/2 -translate-y-1/2 cursor-pointer rounded-pill! border-0! bg-transparent! p-0! transition-[background-color,box-shadow] duration-150 motion-reduce:duration-[0.01ms] hover:z-4 focus-visible:z-4 focus-visible:outline-3 focus-visible:outline-offset-4 focus-visible:outline-fixture-selected size-12! min-h-12!"
+  data-brightness-level="8"
+  data-disabled="false"
+  data-selected="false"
+  data-spatial-map-marker="true"
+  data-variant="ghost"
+  style="--fixture-left: 8.333333333333332%; --fixture-top: 12.5%; left: clamp(1.5rem, var(--fixture-left), calc(100% - 1.5rem)); top: clamp(1.5rem, var(--fixture-top), calc(100% - 1.5rem));"
+  title="B1-L001"
+  type="button"
+>
+  <span
+    class="pointer-events-none absolute left-1/2 top-1/2 grid size-5 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-pill! transition-[background-color,box-shadow] duration-150 motion-reduce:duration-[0.01ms] bg-fixture-brightness-8 shadow-fixture-brightness-8 border-2! border-fixture-connected!"
+    data-spatial-map-marker-dot="true"
+  />
+</button>
+   ✓ MonitoringView refresh > N1 never schedules stale focus after site scope exit 670ms
+   × MonitoringView refresh > N1 never schedules stale focus after floor scope exit 730ms
+     → expect(element).toHaveFocus()
+
+Expected element with focus:
+  <button>
+  다른 화면의 작업
+</button>
+Received element with focus:
+  <button
+  aria-label="B1-L001 장애 70%"
+  class="inline-flex min-h-11 items-center justify-center gap-2 rounded-control border font-bold focus-visible:outline-none focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60 border-border-default bg-surface-panel text-action-primary px-3 py-0 text-body-sm absolute z-2 block! -translate-x-1/2 -translate-y-1/2 cursor-pointer rounded-pill! border-0! bg-transparent! p-0! transition-[background-color,box-shadow] duration-150 motion-reduce:duration-[0.01ms] hover:z-4 focus-visible:z-4 focus-visible:outline-3 focus-visible:outline-offset-4 focus-visible:outline-fixture-selected size-12! min-h-12!"
+  data-brightness-level="8"
+  data-disabled="false"
+  data-selected="false"
+  data-spatial-map-marker="true"
+  data-variant="ghost"
+  style="--fixture-left: 8.333333333333332%; --fixture-top: 12.5%; left: clamp(1.5rem, var(--fixture-left), calc(100% - 1.5rem)); top: clamp(1.5rem, var(--fixture-top), calc(100% - 1.5rem));"
+  title="B1-L001"
+  type="button"
+>
+  <span
+    class="pointer-events-none absolute left-1/2 top-1/2 grid size-5 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-pill! transition-[background-color,box-shadow] duration-150 motion-reduce:duration-[0.01ms] bg-fixture-brightness-8 shadow-fixture-brightness-8 border-2! border-fixture-fault!"
+    data-spatial-map-marker-dot="true"
+  >
+    <svg
+      aria-hidden="true"
+      class="lucide lucide-triangle-alert text-content-primary"
+      fill="none"
+      height="12"
+      stroke="currentColor"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+      stroke-width="2"
+      viewBox="0 0 24 24"
+      width="12"
+      xmlns="http://www.w3.org/2000/svg"
+    >
+      <path
+        d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"
+      />
+      <path
+        d="M12 9v4"
+      />
+      <path
+        d="M12 17h.01"
+      />
+    </svg>
+  </span>
+</button>
+   ✓ MonitoringView refresh > N1 never schedules stale focus after unmount scope exit 687ms
+   × MonitoringView refresh > keeps the mobile fixture selector and map marker selection in sync 1112ms
+     → expect(element).toHaveFocus()
+
+Expected element with focus:
+  <button
+  aria-expanded="false"
+  aria-haspopup="dialog"
+  class="inline-flex min-h-11 items-center justify-center gap-2 rounded-control border font-bold cursor-pointer focus-visible:outline-none focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60 border-border-default bg-action-secondary text-action-primary px-4 py-0 text-body shrink-0"
+  data-variant="secondary"
+>
+  <svg
+    aria-hidden="true"
+    class="lucide lucide-filter"
+    fill="none"
+    height="16"
+    stroke="currentColor"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+    stroke-width="2"
+    viewBox="0 0 24 24"
+    width="16"
+    xmlns="http://www.w3.org/2000/svg"
+  >
+    <polygon
+      points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"
+    />
+  </svg>
+  조명 검색/목록
+</button>
+Received element with focus:
+  <section
+  aria-label="B1-L002 조명 정보"
+  class="outline-none"
+  data-rac=""
+  role="dialog"
+  tabindex="-1"
+>
+  <div
+    class="grid gap-3"
+    data-monitoring-pin-popover=""
+  >
+    <strong
+      class="text-body text-content-primary font-bold min-w-0 break-words m-0"
+    >
+      B1-L002
+    </strong>
+    <span
+      class="inline-flex min-h-7 items-center gap-1.5 rounded-pill px-2 py-1 text-label font-bold whitespace-nowrap bg-status-danger-background text-status-danger-badge"
+      data-tone="danger"
+    >
+      <svg
+        aria-hidden="true"
+        class="lucide lucide-triangle-alert"
+        fill="none"
+        height="14"
+        stroke="currentColor"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        stroke-width="2"
+        viewBox="0 0 24 24"
+        width="14"
+        xmlns="http://www.w3.org/2000/svg"
+      >
+        <path
+          d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"
+        />
+        <path
+          d="M12 9v4"
+        />
+        <path
+          d="M12 17h.01"
+        />
+      </svg>
+      <span>
+        장애
+      </span>
+    </span>
+    <dl
+      class="m-0 grid gap-2 text-body-sm"
+    >
+      <div
+        class="grid gap-0.5"
+      >
+        <dt
+          class="text-content-secondary"
+        >
+          현재 밝기
+        </dt>
+        <dd
+          class="m-0 font-bold"
+        >
+          42%
+        </dd>
+      </div>
+      <div
+        class="grid gap-0.5"
+      >
+        <dt
+          class="text-content-secondary"
+        >
+          마지막 확인
+        </dt>
+        <dd
+          class="m-0"
+        >
+          <time
+            datetime="2026-08-19T01:00:00.000Z"
+          >
+            2026-08-19 10:00:00
+          </time>
+        </dd>
+      </div>
+    </dl>
+    <p
+      class="text-body-sm font-normal text-content-secondary m-0"
+    >
+      조명 상태와 연결 확인
+    </p>
+    <button
+      class="inline-flex min-h-11 items-center justify-center gap-2 rounded-control border font-bold cursor-pointer focus-visible:outline-none focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60 border-border-default bg-action-secondary text-action-primary px-4 py-0 text-body"
+      data-variant="secondary"
+    >
+      상세 보기
+    </button>
+  </div>
+</section>
+
+Ignored nodes: comments, script, style
+[36m<html[39m
+  [33mstyle[39m=[32m""[39m
+[36m>[39m
+  [36m<head />[39m
+  [36m<body>[39m
+    [36m<div>[39m
+      [36m<section[39m
+        [33mclass[39m=[32m"flex h-full min-h-0 min-w-0 flex-1 flex-col gap-4 max-compact:min-h-min max-compact:pb-shell-navigation-safe"[39m
+        [33mdata-monitoring-screen[39m=[32m""[39m
+      [36m>[39m
+        [36m<header[39m
+          [33mclass[39m=[32m"flex items-start justify-between max-compact:flex-col max-compact:items-stretch gap-5 max-compact:gap-3 max-compact:order-0"[39m
+        [36m>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"grid min-w-0 gap-2"[39m
+          [36m>[39m
+            [36m<h1[39m
+              [33mclass[39m=[32m"text-customer-page-title font-bold max-compact:text-section-title text-content-primary m-0"[39m
+            [36m>[39m
+              [0m모니터링[0m
+            [36m</h1>[39m
+          [36m</div>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"flex flex-wrap items-center gap-2 max-compact:w-full"[39m
+          [36m>[39m
+            [36m<small[39m
+              [33mclass[39m=[32m"text-caption font-normal text-content-secondary min-w-0 max-w-full break-words text-right m-0"[39m
+            [36m>[39m
+              [0m마지막 갱신: 서버 snapshot 시각 확인 필요[0m
+            [36m</small>[39m
+            [36m<button[39m
+              [33maria-busy[39m=[32m"false"[39m
+              [33mclass[39m=[32m"inline-flex min-h-11 items-center justify-center gap-2 rounded-control border font-bold cursor-pointer focus-visible:outline-none focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60 border-border-default bg-action-secondary text-action-primary px-4 py-0 text-body"[39m
+              [33mdata-variant[39m=[32m"secondary"[39m
+            [36m>[39m
+              [36m<svg[39m
+                [33maria-hidden[39m=[32m"true"[39m
+                [33mclass[39m=[32m"lucide lucide-refresh-cw"[39m
+                [33mfill[39m=[32m"none"[39m
+                [33mheight[39m=[32m"16"[39m
+                [33mstroke[39m=[32m"currentColor"[39m
+                [33mstroke-linecap[39m=[32m"round"[39m
+                [33mstroke-linejoin[39m=[32m"round"[39m
+                [33mstroke-width[39m=[32m"2"[39m
+                [33mviewBox[39m=[32m"0 0 24 24"[39m
+                [33mwidth[39m=[32m"16"[39m
+                [33mxmlns[39m=[32m"http://www.w3.org/2000/svg"[39m
+              [36m>[39m
+                [36m<path[39m
+                  [33md[39m=[32m"M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"[39m
+                [36m/>[39m
+                [36m<path[39m
+                  [33md[39m=[32m"M21 3v5h-5"[39m
+                [36m/>[39m
+                [36m<path[39m
+                  [33md[39m=[32m"M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"[39m
+                [36m/>[39m
+                [36m<path[39m
+                  [33md[39m=[32m"M8 16H3v5"[39m
+                [36m/>[39m
+              [36m</svg>[39m
+              [0m새로고침[0m
+            [36m</button>[39m
+          [36m</div>[39m
+        [36m</header>[39m
+        [36m<div[39m
+          [33maria-label[39m=[32m"모니터링 도구"[39m
+          [33mclass[39m=[32m"flex min-w-0 flex-wrap items-center gap-2 max-compact:order-1"[39m
+          [33mrole[39m=[32m"group"[39m
+        [36m>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"flex-col grid min-w-0 grid-cols-[auto_minmax(0,1fr)] items-center gap-2 compact:w-64 max-compact:flex-1"[39m
+            [33mdata-field[39m=[32m""[39m
+            [33mdata-size[39m=[32m"md"[39m
+            [33mdata-variant[39m=[32m"outline"[39m
+          [36m>[39m
+            [36m<label[39m
+              [33mclass[39m=[32m"text-label font-semibold text-content-primary m-0"[39m
+              [33mfor[39m=[32m":r292:"[39m
+              [33mid[39m=[32m":r292:-label"[39m
+            [36m>[39m
+              [0m맵 선택[0m
+            [36m</label>[39m
+            [36m<template />[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"contents"[39m
+              [33mdata-rac[39m=[32m""[39m
+            [36m>[39m
+              [36m<button[39m
+                [33maria-expanded[39m=[32m"false"[39m
+                [33maria-haspopup[39m=[32m"listbox"[39m
+                [33maria-labelledby[39m=[32m":r292:-label"[39m
+                [33mclass[39m=[32m"min-h-11 w-full rounded-control border text-content-primary outline-none pointer-coarse:text-body-lg focus-visible:shadow-focus data-focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60 data-disabled:cursor-not-allowed data-disabled:opacity-60 aria-invalid:border-status-danger-foreground data-invalid:border-status-danger-foreground border-border-strong bg-surface-panel px-3 py-2.5 text-body flex items-center justify-between gap-2 text-left"[39m
+                [33mdata-rac[39m=[32m""[39m
+                [33mdata-react-aria-pressable[39m=[32m"true"[39m
+                [33mid[39m=[32m":r292:"[39m
+                [33mtabindex[39m=[32m"0"[39m
+                [33mtype[39m=[32m"button"[39m
+              [36m>[39m
+                [36m<span[39m
+                  [33mclass[39m=[32m"min-w-0 flex-1 truncate"[39m
+                  [33mdata-rac[39m=[32m""[39m
+                  [33mid[39m=[32m"react-aria-:r29a:"[39m
+                [36m>[39m
+                  [36m<span[39m
+                    [33mclass[39m=[32m"react-aria-Text"[39m
+                    [33mslot[39m=[32m"label"[39m
+                  [36m>[39m
+                    [0mB1[0m
+                  [36m</span>[39m
+                [36m</span>[39m
+                [36m<span[39m
+                  [33maria-hidden[39m=[32m"true"[39m
+                  [33mclass[39m=[32m"shrink-0"[39m
+                [36m>[39m
+                  [0m▾[0m
+                [36m</span>[39m
+              [36m</button>[39m
+              [36m<div[39m
+                [33maria-hidden[39m=[32m"true"[39m
+                [33mdata-a11y-ignore[39m=[32m"aria-hidden-focus"[39m
+                [33mdata-react-aria-prevent-focus[39m=[32m"true"[39m
+                [33mdata-testid[39m=[32m"hidden-select-container"[39m
+                [33mstyle[39m=[32m"border: 0px; clip-path: inset(50%); height: 1px; margin: -1px; overflow: hidden; padding: 0px; position: fixed; width: 1px; white-space: nowrap; top: 0px; left: 0px;"[39m
+              [36m>[39m
+                [36m<label>[39m
+                  [36m<select[39m
+                    [33mtabindex[39m=[32m"-1"[39m
+                    [33mtitle[39m=[32m""[39m
+                  [36m>[39m
+                    [36m<option[39m
+                      [33mlabel[39m=[32m" "[39m
+                      [33mvalue[39m=[32m""[39m
+                    [36m>[39m
+          ...
+   × MonitoringView refresh > clears a prior floor search when the selected map changes 178ms
+     → Unable to find an accessible element with the role "button" and name "조명 목록 보기"
+
+Here are the accessible roles:
+
+  button:
+
+  Name "Dismiss":
+  [36m<button[39m
+    [33maria-label[39m=[32m"Dismiss"[39m
+    [33mid[39m=[32m"react-aria-:r2do:"[39m
+    [33mstyle[39m=[32m"width: 1px; height: 1px;"[39m
+    [33mtabindex[39m=[32m"-1"[39m
+  [36m/>[39m
+
+  Name "조명 검색/목록 닫기":
+  [36m<button[39m
+    [33maria-label[39m=[32m"조명 검색/목록 닫기"[39m
+    [33mclass[39m=[32m"inline-flex min-h-11 items-center justify-center gap-2 rounded-control border font-bold cursor-pointer focus-visible:outline-none focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60 border-border-default bg-surface-panel text-action-primary px-4 py-0 text-body"[39m
+    [33mdata-variant[39m=[32m"ghost"[39m
+  [36m/>[39m
+
+  Name "상태 필터":
+  [36m<button[39m
+    [33maria-expanded[39m=[32m"false"[39m
+    [33maria-haspopup[39m=[32m"listbox"[39m
+    [33maria-labelledby[39m=[32m":r2e1:-label"[39m
+    [33mclass[39m=[32m"min-h-11 w-full rounded-control border text-content-primary outline-none pointer-coarse:text-body-lg focus-visible:shadow-focus data-focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60 data-disabled:cursor-not-allowed data-disabled:opacity-60 aria-invalid:border-status-danger-foreground data-invalid:border-status-danger-foreground border-border-strong bg-surface-panel px-3 py-2.5 text-body flex items-center justify-between gap-2 text-left"[39m
+    [33mdata-rac[39m=[32m""[39m
+    [33mdata-react-aria-pressable[39m=[32m"true"[39m
+    [33mid[39m=[32m":r2e1:"[39m
+    [33mtabindex[39m=[32m"0"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "B1-L001 장애":
+  [36m<button[39m
+    [33maria-pressed[39m=[32m"false"[39m
+    [33mclass[39m=[32m"inline-flex min-h-11 items-center gap-2 rounded-control border font-bold cursor-pointer focus-visible:outline-none focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60 border-border-default bg-surface-panel text-action-primary px-4 py-0 text-body w-full min-w-0 justify-between text-left"[39m
+    [33mdata-variant[39m=[32m"ghost"[39m
+  [36m/>[39m
+
+  Name "Dismiss":
+  [36m<button[39m
+    [33maria-label[39m=[32m"Dismiss"[39m
+    [33mid[39m=[32m"react-aria-:r2ec:"[39m
+    [33mstyle[39m=[32m"width: 1px; height: 1px;"[39m
+    [33mtabindex[39m=[32m"-1"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  dialog:
+
+  Name "조명 검색/목록":
+  [36m<section[39m
+    [33maria-label[39m=[32m"조명 검색/목록"[39m
+    [33mclass[39m=[32m"outline-none"[39m
+    [33mdata-rac[39m=[32m""[39m
+    [33mrole[39m=[32m"dialog"[39m
+    [33mtabindex[39m=[32m"-1"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  heading:
+
+  Name "조명 검색/목록":
+  [36m<h2[39m
+    [33mclass[39m=[32m"text-body-lg font-bold text-content-primary m-0"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  region:
+
+  Name "조명 검색 및 목록":
+  [36m<section[39m
+    [33maria-label[39m=[32m"조명 검색 및 목록"[39m
+    [33mclass[39m=[32m"grid min-w-0 gap-3"[39m
+    [33mdata-monitoring-fixture-finder[39m=[32m""[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  searchbox:
+
+  Name "조명 이름 또는 번호 검색":
+  [36m<input[39m
+    [33maria-labelledby[39m=[32m":r2dr:-label"[39m
+    [33mclass[39m=[32m"min-h-11 w-full rounded-control border text-content-primary outline-none pointer-coarse:text-body-lg focus-visible:shadow-focus data-focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60 data-disabled:cursor-not-allowed data-disabled:opacity-60 aria-invalid:border-status-danger-foreground data-invalid:border-status-danger-foreground border-border-strong bg-surface-panel px-3 py-2.5 text-body"[39m
+    [33mdata-rac[39m=[32m""[39m
+    [33mid[39m=[32m":r2dr:"[39m
+    [33mplaceholder[39m=[32m"조명 이름 또는 번호"[39m
+    [33mtabindex[39m=[32m"0"[39m
+    [33mtitle[39m=[32m""[39m
+    [33mtype[39m=[32m"search"[39m
+    [33mvalue[39m=[32m""[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  list:
+
+  Name "조명 목록":
+  [36m<ul[39m
+    [33maria-label[39m=[32m"조명 목록"[39m
+    [33mclass[39m=[32m"m-0 grid max-h-48 min-w-0 list-none gap-1 overflow-y-auto p-0"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  listitem:
+
+  Name "":
+  [36m<li[39m
+    [33mclass[39m=[32m"min-w-0"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div[39m
+    [33maria-hidden[39m=[32m"true"[39m
+  [36m>[39m
+    [36m<section[39m
+      [33mclass[39m=[32m"flex h-full min-h-0 min-w-0 flex-1 flex-col gap-4 max-compact:min-h-min max-compact:pb-shell-navigation-safe"[39m
+      [33mdata-monitoring-screen[39m=[32m""[39m
+    [36m>[39m
+      [36m<header[39m
+        [33mclass[39m=[32m"flex items-start justify-between max-compact:flex-col max-compact:items-stretch gap-5 max-compact:gap-3 max-compact:order-0"[39m
+      [36m>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"grid min-w-0 gap-2"[39m
+        [36m>[39m
+          [36m<h1[39m
+            [33mclass[39m=[32m"text-customer-page-title font-bold max-compact:text-section-title text-content-primary m-0"[39m
+          [36m>[39m
+            [0m모니터링[0m
+          [36m</h1>[39m
+        [36m</div>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"flex flex-wrap items-center gap-2 max-compact:w-full"[39m
+        [36m>[39m
+          [36m<small[39m
+            [33mclass[39m=[32m"text-caption font-normal text-content-secondary min-w-0 max-w-full break-words text-right m-0"[39m
+          [36m>[39m
+            [0m마지막 갱신: [0m
+            [36m<time[39m
+              [33mdatetime[39m=[32m"2026-10-11T14:44:12.930Z"[39m
+            [36m>[39m
+              [0m2026-10-11 23:44:12[0m
+              [0m (현장 시간)[0m
+            [36m</time>[39m
+          [36m</small>[39m
+          [36m<button[39m
+            [33maria-busy[39m=[32m"false"[39m
+            [33mclass[39m=[32m"inline-flex min-h-11 items-center justify-center gap-2 rounded-control border font-bold cursor-pointer focus-visible:outline-none focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60 border-border-default bg-action-secondary text-action-primary px-4 py-0 text-body"[39m
+            [33mdata-variant[39m=[32m"secondary"[39m
+          [36m>[39m
+            [36m<svg[39m
+              [33maria-hidden[39m=[32m"true"[39m
+              [33mclass[39m=[32m"lucide lucide-refresh-cw"[39m
+              [33mfill[39m=[32m"none"[39m
+              [33mheight[39m=[32m"16"[39m
+              [33mstroke[39m=[32m"currentColor"[39m
+              [33mstroke-linecap[39m=[32m"round"[39m
+              [33mstroke-linejoin[39m=[32m"round"[39m
+              [33mstroke-width[39m=[32m"2"[39m
+              [33mviewBox[39m=[32m"0 0 24 24"[39m
+              [33mwidth[39m=[32m"16"[39m
+              [33mxmlns[39m=[32m"http://www.w3.org/2000/svg"[39m
+            [36m>[39m
+              [36m<path[39m
+                [33md[39m=[32m"M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"[39m
+              [36m/>[39m
+              [36m<path[39m
+                [33md[39m=[32m"M21 3v5h-5"[39m
+              [36m/>[39m
+              [36m<path[39m
+                [33md[39m=[32m"M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"[39m
+              [36m/>[39m
+              [36m<path[39m
+                [33md[39m=[32m"M8 16H3v5"[39m
+              [36m/>[39m
+            [36m</svg>[39m
+            [0m새로고침[0m
+          [36m</button>[39m
+        [36m</div>[39m
+      [36m</header>[39m
+      [36m<div[39m
+        [33maria-label[39m=[32m"모니터링 도구"[39m
+        [33mclass[39m=[32m"flex min-w-0 flex-wrap items-center gap-2 max-compact:order-1"[39m
+        [33mrole[39m=[32m"group"[39m
+      [36m>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"flex-col grid min-w-0 grid-cols-[auto_minmax(0,1fr)] items-center gap-2 compact:w-64 max-compact:flex-1"[39m
+          [33mdata-field[39m=[32m""[39m
+          [33mdata-size[39m=[32m"md"[39m
+          [33mdata-variant[39m=[32m"outline"[39m
+        [36m>[39m
+          [36m<label[39m
+            [33mclass[39m=[32m"text-label font-semibold text-content-primary m-0"[39m
+            [33mfor[39m=[32m":r2c8:"[39m
+            [33mid[39m=[32m":r2c8:-label"[39m
+          [36m>[39m
+            [0m맵 선택[0m
+          [36m</label>[39m
+          [36m<template />[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"contents"[39m
+            [33mdata-focused[39m=[32m"true"[39m
+            [33mdata-rac[39m=[32m""[39m
+          [36m>[39m
+            [36m<button[39m
+              [33maria-expanded[39m=[32m"false"[39m
+              [33maria-haspopup[39m=[32m"listbox"[39m
+              [33maria-labelledby[39m=[32m":r2c8:-label"[39m
+              [33mclass[39m=[32m"min-h-11 w-full rounded-control border text-content-primary outline-none pointer-coarse:text-body-lg focus-visible:shadow-focus data-focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60 data-disabled:cursor-not-allowed data-disabled:opacity-60 aria-invalid:border-status-danger-foreground data-invalid:border-status-danger-foreground border-border-strong bg-surface-panel px-3 py-2.5 text-body flex items-center justify-between gap-2 text-left"[39m
+              [33mdata-rac[39m=[32m""[39m
+              [33mdata-react-aria-pressable[39m=[32m"true"[39m
+              [33mid[39m=[32m":r2c8:"[39m
+              [33mtabindex[39m=[32m"0"[39m
+              [33mtype[39m=[32m"button"[39m
+            [36m>[39m
+              [36m<span[39m
+                [33mclass[39m=[32m"min-w-0 flex-1 truncate"[39m
+                [33mdata-rac[39m=[32m""[39m
+                [33mid[39m=[32m"react-aria-:r2cg:"[39m
+              [36m>[39m
+                [36m<span[39m
+                  [33mclass[39m=[32m"react-aria-Text"[39m
+                  [33mslot[39m=[32m"label"[39m
+                [36m>[39m
+                  [0mB2[0m
+                [36m</span>[39m
+              [36m</span>[39m
+              [36m<span[39m
+                [33maria-hidden[39m=[32m"true"[39m
+                [33mclass[39m=[32m"shrink-0"[39m
+              [36m>[39m
+                [0m▾[0m
+              [36m</span>[39m
+            [36m</button>[39m
+            [36m<div[39m
+              [33maria-hidden[39m=[32m"true"[39m
+              [33mdata-a11y-ignore[39m=[32m"aria-hidden-focus"[39m
+              [33mdata-react-aria-prevent-focus[39m=[32m"true"[39m
+              [33mdata-testid[39m=[32m"hidden-select-container"[39m
+              [33mstyle[39m=[32m"border: 0px; clip-path: inset(50%); height: 1px; margin: -1px; overflow: hidden; padding: 0px; position: fixed; width: 1px; white-space: nowrap; top: 0px; left: 0px;"[39m
+            [36m>[39m
+              [36m<label>[39m
+                [36m<select[39m
+                  [33mtabindex[39m=[32m"-1"[39m
+                  [33mtitle[39m=[32m""[39m
+                [36m>[39m
+                  [36m<option[39m
+                    [33mlabel[39m=[32m" "[39m
+                    [33mvalue[39m=[32m""[39m
+                  [36m>[39m
+                    [0m [0m
+       ...
+   × MonitoringView refresh > keeps a long map name and its fixture identity through search without sending a device command 94ms
+     → Unable to find an accessible element with the role "button" and name "상세 조명 선택"
+
+Here are the accessible roles:
+
+  heading:
+
+  Name "조명 검색/목록":
+  [36m<h2[39m
+    [33mclass[39m=[32m"text-body-lg font-bold text-content-primary m-0"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  button:
+
+  Name "조명 검색/목록 닫기":
+  [36m<button[39m
+    [33maria-label[39m=[32m"조명 검색/목록 닫기"[39m
+    [33mclass[39m=[32m"inline-flex min-h-11 items-center justify-center gap-2 rounded-control border font-bold cursor-pointer focus-visible:outline-none focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60 border-border-default bg-surface-panel text-action-primary px-4 py-0 text-body"[39m
+    [33mdata-variant[39m=[32m"ghost"[39m
+  [36m/>[39m
+
+  Name "상태 필터":
+  [36m<button[39m
+    [33maria-expanded[39m=[32m"false"[39m
+    [33maria-haspopup[39m=[32m"listbox"[39m
+    [33maria-labelledby[39m=[32m":r30d:-label"[39m
+    [33mclass[39m=[32m"min-h-11 w-full rounded-control border text-content-primary outline-none pointer-coarse:text-body-lg focus-visible:shadow-focus data-focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60 data-disabled:cursor-not-allowed data-disabled:opacity-60 aria-invalid:border-status-danger-foreground data-invalid:border-status-danger-foreground border-border-strong bg-surface-panel px-3 py-2.5 text-body flex items-center justify-between gap-2 text-left"[39m
+    [33mdata-rac[39m=[32m""[39m
+    [33mdata-react-aria-pressable[39m=[32m"true"[39m
+    [33mid[39m=[32m":r30d:"[39m
+    [33mtabindex[39m=[32m"0"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "동측 출입구 조명 장애":
+  [36m<button[39m
+    [33maria-pressed[39m=[32m"false"[39m
+    [33mclass[39m=[32m"inline-flex min-h-11 items-center gap-2 rounded-control border font-bold cursor-pointer focus-visible:outline-none focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60 border-border-default bg-surface-panel text-action-primary px-4 py-0 text-body w-full min-w-0 justify-between text-left"[39m
+    [33mdata-variant[39m=[32m"ghost"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  region:
+
+  Name "조명 검색 및 목록":
+  [36m<section[39m
+    [33maria-label[39m=[32m"조명 검색 및 목록"[39m
+    [33mclass[39m=[32m"grid min-w-0 gap-3"[39m
+    [33mdata-monitoring-fixture-finder[39m=[32m""[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  searchbox:
+
+  Name "조명 이름 또는 번호 검색":
+  [36m<input[39m
+    [33maria-labelledby[39m=[32m":r307:-label"[39m
+    [33mclass[39m=[32m"min-h-11 w-full rounded-control border text-content-primary outline-none pointer-coarse:text-body-lg focus-visible:shadow-focus data-focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60 data-disabled:cursor-not-allowed data-disabled:opacity-60 aria-invalid:border-status-danger-foreground data-invalid:border-status-danger-foreground border-border-strong bg-surface-panel px-3 py-2.5 text-body"[39m
+    [33mdata-rac[39m=[32m""[39m
+    [33mid[39m=[32m":r307:"[39m
+    [33mplaceholder[39m=[32m"조명 이름 또는 번호"[39m
+    [33mtabindex[39m=[32m"0"[39m
+    [33mtitle[39m=[32m""[39m
+    [33mtype[39m=[32m"search"[39m
+    [33mvalue[39m=[32m"동측"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  list:
+
+  Name "조명 목록":
+  [36m<ul[39m
+    [33maria-label[39m=[32m"조명 목록"[39m
+    [33mclass[39m=[32m"m-0 grid max-h-48 min-w-0 list-none gap-1 overflow-y-auto p-0"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  listitem:
+
+  Name "":
+  [36m<li[39m
+    [33mclass[39m=[32m"min-w-0"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+
+Ignored nodes: comments, script, style
+[36m<section[39m
+  [33maria-label[39m=[32m"조명 검색/목록"[39m
+  [33mclass[39m=[32m"outline-none"[39m
+  [33mdata-rac[39m=[32m""[39m
+  [33mrole[39m=[32m"dialog"[39m
+  [33mtabindex[39m=[32m"-1"[39m
+[36m>[39m
+  [36m<div[39m
+    [33mclass[39m=[32m"grid min-w-0 gap-4"[39m
+  [36m>[39m
+    [36m<div[39m
+      [33mclass[39m=[32m"flex min-w-0 flex-wrap items-center justify-between gap-2"[39m
+    [36m>[39m
+      [36m<h2[39m
+        [33mclass[39m=[32m"text-body-lg font-bold text-content-primary m-0"[39m
+      [36m>[39m
+        [0m조명 검색/목록[0m
+      [36m</h2>[39m
+      [36m<button[39m
+        [33maria-label[39m=[32m"조명 검색/목록 닫기"[39m
+        [33mclass[39m=[32m"inline-flex min-h-11 items-center justify-center gap-2 rounded-control border font-bold cursor-pointer focus-visible:outline-none focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60 border-border-default bg-surface-panel text-action-primary px-4 py-0 text-body"[39m
+        [33mdata-variant[39m=[32m"ghost"[39m
+      [36m>[39m
+        [0m닫기[0m
+      [36m</button>[39m
+    [36m</div>[39m
+    [36m<div[39m
+      [33mclass[39m=[32m"min-w-0"[39m
+    [36m>[39m
+      [36m<section[39m
+        [33maria-label[39m=[32m"조명 검색 및 목록"[39m
+        [33mclass[39m=[32m"grid min-w-0 gap-3"[39m
+        [33mdata-monitoring-fixture-finder[39m=[32m""[39m
+      [36m>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"flex flex-col gap-2 min-w-0"[39m
+          [33mdata-field[39m=[32m""[39m
+          [33mdata-size[39m=[32m"md"[39m
+          [33mdata-variant[39m=[32m"outline"[39m
+        [36m>[39m
+          [36m<label[39m
+            [33mclass[39m=[32m"text-label font-semibold text-content-primary m-0"[39m
+            [33mfor[39m=[32m":r307:"[39m
+            [33mid[39m=[32m":r307:-label"[39m
+          [36m>[39m
+            [0m조명 이름 또는 번호 검색[0m
+          [36m</label>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"contents"[39m
+            [33mdata-rac[39m=[32m""[39m
+          [36m>[39m
+            [36m<input[39m
+              [33maria-labelledby[39m=[32m":r307:-label"[39m
+              [33mclass[39m=[32m"min-h-11 w-full rounded-control border text-content-primary outline-none pointer-coarse:text-body-lg focus-visible:shadow-focus data-focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60 data-disabled:cursor-not-allowed data-disabled:opacity-60 aria-invalid:border-status-danger-foreground data-invalid:border-status-danger-foreground border-border-strong bg-surface-panel px-3 py-2.5 text-body"[39m
+              [33mdata-rac[39m=[32m""[39m
+              [33mid[39m=[32m":r307:"[39m
+              [33mplaceholder[39m=[32m"조명 이름 또는 번호"[39m
+              [33mtabindex[39m=[32m"0"[39m
+              [33mtitle[39m=[32m""[39m
+              [33mtype[39m=[32m"search"[39m
+              [33mvalue[39m=[32m"동측"[39m
+            [36m/>[39m
+          [36m</div>[39m
+        [36m</div>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"flex min-w-0 flex-col gap-2"[39m
+          [33mdata-field[39m=[32m""[39m
+          [33mdata-size[39m=[32m"md"[39m
+          [33mdata-variant[39m=[32m"outline"[39m
+        [36m>[39m
+          [36m<label[39m
+            [33mclass[39m=[32m"text-label font-semibold text-content-primary m-0"[39m
+            [33mfor[39m=[32m":r30d:"[39m
+            [33mid[39m=[32m":r30d:-label"[39m
+          [36m>[39m
+            [0m상태 필터[0m
+          [36m</label>[39m
+          [36m<template />[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"contents"[39m
+            [33mdata-rac[39m=[32m""[39m
+          [36m>[39m
+            [36m<button[39m
+              [33maria-expanded[39m=[32m"false"[39m
+              [33maria-haspopup[39m=[32m"listbox"[39m
+              [33maria-labelledby[39m=[32m":r30d:-label"[39m
+              [33mclass[39m=[32m"min-h-11 w-full rounded-control border text-content-primary outline-none pointer-coarse:text-body-lg focus-visible:shadow-focus data-focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60 data-disabled:cursor-not-allowed data-disabled:opacity-60 aria-invalid:border-status-danger-foreground data-invalid:border-status-danger-foreground border-border-strong bg-surface-panel px-3 py-2.5 text-body flex items-center justify-between gap-2 text-left"[39m
+              [33mdata-rac[39m=[32m""[39m
+              [33mdata-react-aria-pressable[39m=[32m"true"[39m
+              [33mid[39m=[32m":r30d:"[39m
+              [33mtabindex[39m=[32m"0"[39m
+              [33mtype[39m=[32m"button"[39m
+            [36m>[39m
+              [36m<span[39m
+                [33mclass[39m=[32m"min-w-0 flex-1 truncate"[39m
+                [33mdata-rac[39m=[32m""[39m
+                [33mid[39m=[32m"react-aria-:r30l:"[39m
+              [36m>[39m
+                [36m<span[39m
+                  [33mclass[39m=[32m"react-aria-Text"[39m
+                  [33mslot[39m=[32m"label"[39m
+                [36m>[39m
+                  [0m전체[0m
+                [36m</span>[39m
+              [36m</span>[39m
+              [36m<span[39m
+                [33maria-hidden[39m=[32m"true"[39m
+                [33mclass[39m=[32m"shrink-0"[39m
+              [36m>[39m
+                [0m▾[0m
+              [36m</span>[39m
+            [36m</button>[39m
+            [36m<div[39m
+              [33maria-hidden[39m=[32m"true"[39m
+              [33mdata-a11y-ignore[39m=[32m"aria-hidden-focus"[39m
+              [33mdata-react-aria-prevent-focus[39m=[32m"true"[39m
+              [33mdata-testid[39m=[32m"hidden-select-container"[39m
+              [33mstyle[39m=[32m"border: 0px; clip-path: inset(50%); height: 1px; margin: -1px; overflow: hidden; padding: 0px; position: fixed; width: 1px; white-space: nowrap; top: 0px; left: 0px;"[39m
+            [36m>[39m
+              [36m<label>[39m
+                [36m<select[39m
+                  [33mtabindex[39m=[32m"-1"[39m
+                  [33mtitle[39m=[32m""[39m
+                [36m>[39m
+                  [36m<option[39m
+                    [33mlabel[39m=[32m" "[39m
+                    [33mvalue[39m=[32m""[39m
+                  [36m>[39m
+                    [0m [0m
+                  [36m</option>[39m
+                  [36m<option[39m
+                    [33mvalue[39m=[32m"all"[39m
+                  [36m>[39m
+                    [0m전체[0m
+                  [36m</option>[39m
+                  [36m<option[39m
+                    [33mvalue[39m=[32m"online"[39m
+                  [36m>[39m
+                    [0m정상[0m
+                  [36m</option>[39m
+                  [36m<option[39m
+                    [33mvalue[39m=[32m"fault"[39m
+                  [36m>[39m
+                    [0m점검 필요[0m
+                  [36m</option>[39m
+                  [36m<option[39m
+                    [33mvalue[39m=[32m"offline"[39m
+                  [36m>[39m
+                    [0m오프라인[0m
+                  [36m</option>[39m
+                  [36m<option[39m
+                    [33mvalue[39m=[32m"unplaced"[39m
+                  [36m>[39m
+                    [0m미배치[0m
+                  [36m</option>[39m
+                [36m</select>[39m
+              [36m</label>[39m
+            [36m</div>[39m
+          [36m</div>[39m
+        [36m</div>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"grid min-w-0 gap-2"[39m
+        [36m>[39m
+          [36m<ul[39m
+            [33maria-label[39m=[32m"조명 목록"[39m
+            [33mclass[39m=[32m"m-0 grid max-h-48 min-w-0 list-none gap-1 overflow-y-auto p-0"[39m
+          [36m>[39m
+            [36m<li[39m
+              [33mclass[39m=[32m"min-w-0"[39m
+            [36m>[39m
+              [36m<button[39m
+                [33maria-pressed[39m=[32m"false"[39m
+                [33mclass[39m=[32m"inline-flex min-h-11 items-center gap-2 rounded-control border font-bold cursor-pointer focus-visible:outline-none focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60 border-border-default bg-surface-panel text-action-primary px-4 py-0 text-body w-full min-w-0 justify-between text-left"[39m
+                [33mdata-variant[39m=[32m"ghost"[39m
+              [36m>[39m
+                [36m<span[39m
+                  [33mclass[39m=[32m"min-w-0 truncate"[39m
+                [36m>[39m
+                  [0m동측 출입구 조명[0m
+                [36m</span>[39m
+                [36m<span[39m
+                  [33mclass[39m=[32m"shrink-0"[39m
+                [36m>[39m
+                  [36m<span[39m
+                    [33mclass[39m=[32m"inline-flex min-h-7 items-center gap-1.5 rounded-pill px-2 py-1 text-label font-bold whitespace-nowrap bg-status-danger-background text-status-danger-badge"[39m
+                    [33mdata-tone[39m=[32m"danger"[39m
+                  [36m>[39m
+                    [36m<svg[39m
+                      [33maria-hidden[39m=[32m"true"[39m
+                      [33mclass[39m=[32m"lucide lucide-triangle-alert"[39m
+                      [33mfill[39m=[32m"none"[39m
+                      [33mheight[39m=[32m"14"[39m
+                      [33mstroke[39m=[32m"currentColor"[39m
+                      [33mstroke-linecap[39m=[32m"round"[39m
+                      [33mstroke-linejoin[39m=[32m"round"[39m
+                      [33mstroke-width[39m=[32m"2"[39m
+                      [33mviewBox[39m=[32m"0 0 24 24"[39m
+                      [33mwidth[39m=[32m"14"[39m
+                      [33mxmlns[39m=[32m"http://www.w3.org/2000/svg"[39m
+                    [36m>[39m
+                      [36m<path[39m
+                        [33md[39m=[32m"m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"[39m
+                      [36m/>[39m
+                      [36m<path[39m
+                        [33md[39m=[32m"M12 9v4"[39m
+                      [36m/>[39m
+                      [36m<path[39m
+                        [33md[39m=[32m"M12 17h.01"[39m
+                      [36m/>[39m
+                    [36m</svg>[39m
+                    [36m<span>[39m
+                      [0m장애[0m
+                    [36m</span>[39m
+                  [36m</span>[39m
+                [36m</span>[39m
+              [36m</button>[39m
+            [36m</li>[39m
+          [36m</ul>[39m
+        [36m</div>[39m
+      [36m</section>[39m
+    [36m</div>[39m
+  [36m</div>[39m
+[36m</section>[39m
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 7 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/features/shells/CustomerShell.test.tsx > customer shell site context > collapses the wide sidebar without remounting its route
+TestingLibraryElementError: Unable to find an element with the text: 제어 화면. This could be because the text is broken up by multiple elements. In this case, you can provide a function for your text matcher to make your matcher more flexible.
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div>[39m
+    [36m<div[39m
+      [33mclass[39m=[32m"bg-surface-canvas min-h-screen flex"[39m
+      [33mdata-app-shell[39m=[32m"true"[39m
+      [33mdata-workspace-full-view[39m=[32m"false"[39m
+    [36m>[39m
+      [36m<aside[39m
+        [33mclass[39m=[32m"sticky top-0 z-20 h-screen w-customer-sidebar px-4.5 shrink-0 border-r border-border-default bg-surface-panel py-4"[39m
+        [33mdata-shell-navigation[39m=[32m"desktop"[39m
+      [36m>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"mb-7 flex min-w-0 items-center gap-1 px-1 justify-between"[39m
+        [36m>[39m
+          [36m<div[39m
+            [33maria-label[39m=[32m"킨다 관제 센터"[39m
+            [33mclass[39m=[32m"inline-flex shrink-0 items-center gap-2 text-content-primary"[39m
+            [33mdata-kinda-logo[39m=[32m"true"[39m
+            [33mrole[39m=[32m"img"[39m
+          [36m>[39m
+            [36m<img[39m
+              [33malt[39m=[32m""[39m
+              [33maria-hidden[39m=[32m"true"[39m
+              [33mclass[39m=[32m"block size-8 shrink-0"[39m
+              [33mdata-kinda-logo-mark[39m=[32m"true"[39m
+              [33mheight[39m=[32m"32"[39m
+              [33msrc[39m=[32m"/brand/kinda-mark.svg"[39m
+              [33mwidth[39m=[32m"32"[39m
+            [36m/>[39m
+            [36m<strong[39m
+              [33maria-hidden[39m=[32m"true"[39m
+              [33mclass[39m=[32m"text-card-title font-black text-content-primary"[39m
+            [36m>[39m
+              [0m킨다[0m
+            [36m</strong>[39m
+            [36m<span[39m
+              [33maria-hidden[39m=[32m"true"[39m
+              [33mclass[39m=[32m"sr-only"[39m
+            [36m>[39m
+              [0m관제 센터[0m
+            [36m</span>[39m
+          [36m</div>[39m
+          [36m<span[39m
+            [33mclass[39m=[32m"relative inline-flex shrink-0"[39m
+          [36m>[39m
+            [36m<button[39m
+              [33maria-controls[39m=[32m":r2k:"[39m
+              [33maria-expanded[39m=[32m"true"[39m
+              [33maria-label[39m=[32m"사이드바 접기"[39m
+              [33mclass[39m=[32m"min-h-11 gap-2 font-bold border-border-default text-body-sm hover:enabled:bg-surface-inset aria-pressed:bg-action-primary-soft aria-pressed:text-action-primary aspect-square min-w-11 inline-flex items-center justify-center border-0 bg-transparent p-0 text-action-primary cursor-pointer hover:bg-action-primary-soft focus-visible:bg-action-primary-soft focus-visible:outline-none focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60 size-11 rounded-none"[39m
+              [33mdata-variant[39m=[32m"secondary"[39m
+              [33mtype[39m=[32m"button"[39m
+            [36m>[39m
+              [36m<svg[39m
+                [33maria-hidden[39m=[32m"true"[39m
+                [33mclass[39m=[32m"lucide lucide-panel-left-close"[39m
+                [33mfill[39m=[32m"none"[39m
+                [33mheight[39m=[32m"18"[39m
+                [33mstroke[39m=[32m"currentColor"[39m
+                [33mstroke-linecap[39m=[32m"round"[39m
+                [33mstroke-linejoin[39m=[32m"round"[39m
+                [33mstroke-width[39m=[32m"2"[39m
+                [33mviewBox[39m=[32m"0 0 24 24"[39m
+                [33mwidth[39m=[32m"18"[39m
+                [33mxmlns[39m=[32m"http://www.w3.org/2000/svg"[39m
+              [36m>[39m
+                [36m<rect[39m
+                  [33mheight[39m=[32m"18"[39m
+                  [33mrx[39m=[32m"2"[39m
+                  [33mwidth[39m=[32m"18"[39m
+                  [33mx[39m=[32m"3"[39m
+                  [33my[39m=[32m"3"[39m
+                [36m/>[39m
+                [36m<path[39m
+                  [33md[39m=[32m"M9 3v18"[39m
+                [36m/>[39m
+                [36m<path[39m
+                  [33md[39m=[32m"m16 15-3-3 3-3"[39m
+                [36m/>[39m
+              [36m</svg>[39m
+            [36m</button>[39m
+          [36m</span>[39m
+        [36m</div>[39m
+        [36m<nav[39m
+          [33maria-label[39m=[32m"주 메뉴"[39m
+          [33mclass[39m=[32m"grid w-full gap-2"[39m
+          [33mid[39m=[32m":r2k:"[39m
+        [36m>[39m
+          [36m<span[39m
+            [33mclass[39m=[32m"relative block min-w-0"[39m
+          [36m>[39m
+            [36m<a[39m
+              [33maria-label[39m=[32m"모니터링"[39m
+              [33mclass[39m=[32m"flex w-full items-center rounded-control border border-transparent text-body-sm font-bold no-underline focus-visible:outline-none focus-visible:shadow-focus min-h-12 justify-start gap-3 px-3 py-2 border-transparent bg-transparent text-content-muted hover:bg-action-primary-soft hover:text-action-primary"[39m
+              [33mdata-discover[39m=[32m"true"[39m
+              [33mdata-shell-navigation-item[39m=[32m"true"[39m
+              [33mhref[39m=[32m"/monitoring?siteId=site"[39m
+            [36m>[39m
+              [36m<svg[39m
+                [33maria-hidden[39m=[32m"true"[39m
+                [33mclass[39m=[32m"lucide lucide-activity"[39m
+                [33mfill[39m=[32m"none"[39m
+                [33mheight[39m=[32m"20"[39m
+                [33mstroke[39m=[32m"currentColor"[39m
+                [33mstroke-linecap[39m=[32m"round"[39m
+                [33mstroke-linejoin[39m=[32m"round"[39m
+                [33mstroke-width[39m=[32m"2"[39m
+                [33mviewBox[39m=[32m"0 0 24 24"[39m
+                [33mwidth[39m=[32m"20"[39m
+                [33mxmlns[39m=[32m"http://www.w3.org/2000/svg"[39m
+              [36m>[39m
+                [36m<path[39m
+                  [33md[39m=[32m"M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2"[39m
+                [36m/>[39m
+              [36m</svg>[39m
+              [36m<span>[39m
+                [0m모니터링[0m
+              [36m</span>[39m
+            [36m</a>[39m
+          [36m</span>[39m
+          [36m<span[39m
+            [33mclass[39m=[32m"relative block min-w-0"[39m
+          [36m>[39m
+            [36m<a[39m
+              [33maria-current[39m=[32m"page"[39m
+              [33maria-label[39m=[32m"제어"[39m
+              [33mclass[39m=[32m"flex w-full items-center rounded-control border border-transparent text-body-sm font-bold no-underline focus-visible:outline-none focus-visible:shadow-focus min-h-12 justify-start gap-3 px-3 py-2 bg-action-primary-soft text-action-primary"[39m
+              [33mdata-discover[39m=[32m"true"[39m
+              [33mdata-shell-navigation-item[39m=[32m"true"[39m
+              [33mhref[39m=[32m"/control?siteId=site"[39m
+            [36m>[39m
+              [36m<svg[39m
+                [33maria-hidden[39m=[32m"true"[39m
+                [33mclass[3...
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div>[39m
+    [36m<div[39m
+      [33mclass[39m=[32m"bg-surface-canvas min-h-screen flex"[39m
+      [33mdata-app-shell[39m=[32m"true"[39m
+      [33mdata-workspace-full-view[39m=[32m"false"[39m
+    [36m>[39m
+      [36m<aside[39m
+        [33mclass[39m=[32m"sticky top-0 z-20 h-screen w-customer-sidebar px-4.5 shrink-0 border-r border-border-default bg-surface-panel py-4"[39m
+        [33mdata-shell-navigation[39m=[32m"desktop"[39m
+      [36m>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"mb-7 flex min-w-0 items-center gap-1 px-1 justify-between"[39m
+        [36m>[39m
+          [36m<div[39m
+            [33maria-label[39m=[32m"킨다 관제 센터"[39m
+            [33mclass[39m=[32m"inline-flex shrink-0 items-center gap-2 text-content-primary"[39m
+            [33mdata-kinda-logo[39m=[32m"true"[39m
+            [33mrole[39m=[32m"img"[39m
+          [36m>[39m
+            [36m<img[39m
+              [33malt[39m=[32m""[39m
+              [33maria-hidden[39m=[32m"true"[39m
+              [33mclass[39m=[32m"block size-8 shrink-0"[39m
+              [33mdata-kinda-logo-mark[39m=[32m"true"[39m
+              [33mheight[39m=[32m"32"[39m
+              [33msrc[39m=[32m"/brand/kinda-mark.svg"[39m
+              [33mwidth[39m=[32m"32"[39m
+            [36m/>[39m
+            [36m<strong[39m
+              [33maria-hidden[39m=[32m"true"[39m
+              [33mclass[39m=[32m"text-card-title font-black text-content-primary"[39m
+            [36m>[39m
+              [0m킨다[0m
+            [36m</strong>[39m
+            [36m<span[39m
+              [33maria-hidden[39m=[32m"true"[39m
+              [33mclass[39m=[32m"sr-only"[39m
+            [36m>[39m
+              [0m관제 센터[0m
+            [36m</span>[39m
+          [36m</div>[39m
+          [36m<span[39m
+            [33mclass[39m=[32m"relative inline-flex shrink-0"[39m
+          [36m>[39m
+            [36m<button[39m
+              [33maria-controls[39m=[32m":r2k:"[39m
+              [33maria-expanded[39m=[32m"true"[39m
+              [33maria-label[39m=[32m"사이드바 접기"[39m
+              [33mclass[39m=[32m"min-h-11 gap-2 font-bold border-border-default text-body-sm hover:enabled:bg-surface-inset aria-pressed:bg-action-primary-soft aria-pressed:text-action-primary aspect-square min-w-11 inline-flex items-center justify-center border-0 bg-transparent p-0 text-action-primary cursor-pointer hover:bg-action-primary-soft focus-visible:bg-action-primary-soft focus-visible:outline-none focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60 size-11 rounded-none"[39m
+              [33mdata-variant[39m=[32m"secondary"[39m
+              [33mtype[39m=[32m"button"[39m
+            [36m>[39m
+              [36m<svg[39m
+                [33maria-hidden[39m=[32m"true"[39m
+                [33mclass[39m=[32m"lucide lucide-panel-left-close"[39m
+                [33mfill[39m=[32m"none"[39m
+                [33mheight[39m=[32m"18"[39m
+                [33mstroke[39m=[32m"currentColor"[39m
+                [33mstroke-linecap[39m=[32m"round"[39m
+                [33mstroke-linejoin[39m=[32m"round"[39m
+                [33mstroke-width[39m=[32m"2"[39m
+                [33mviewBox[39m=[32m"0 0 24 24"[39m
+                [33mwidth[39m=[32m"18"[39m
+                [33mxmlns[39m=[32m"http://www.w3.org/2000/svg"[39m
+              [36m>[39m
+                [36m<rect[39m
+                  [33mheight[39m=[32m"18"[39m
+                  [33mrx[39m=[32m"2"[39m
+                  [33mwidth[39m=[32m"18"[39m
+                  [33mx[39m=[32m"3"[39m
+                  [33my[39m=[32m"3"[39m
+                [36m/>[39m
+                [36m<path[39m
+                  [33md[39m=[32m"M9 3v18"[39m
+                [36m/>[39m
+                [36m<path[39m
+                  [33md[39m=[32m"m16 15-3-3 3-3"[39m
+                [36m/>[39m
+              [36m</svg>[39m
+            [36m</button>[39m
+          [36m</span>[39m
+        [36m</div>[39m
+        [36m<nav[39m
+          [33maria-label[39m=[32m"주 메뉴"[39m
+          [33mclass[39m=[32m"grid w-full gap-2"[39m
+          [33mid[39m=[32m":r2k:"[39m
+        [36m>[39m
+          [36m<span[39m
+            [33mclass[39m=[32m"relative block min-w-0"[39m
+          [36m>[39m
+            [36m<a[39m
+              [33maria-label[39m=[32m"모니터링"[39m
+              [33mclass[39m=[32m"flex w-full items-center rounded-control border border-transparent text-body-sm font-bold no-underline focus-visible:outline-none focus-visible:shadow-focus min-h-12 justify-start gap-3 px-3 py-2 border-transparent bg-transparent text-content-muted hover:bg-action-primary-soft hover:text-action-primary"[39m
+              [33mdata-discover[39m=[32m"true"[39m
+              [33mdata-shell-navigation-item[39m=[32m"true"[39m
+              [33mhref[39m=[32m"/monitoring?siteId=site"[39m
+            [36m>[39m
+              [36m<svg[39m
+                [33maria-hidden[39m=[32m"true"[39m
+                [33mclass[39m=[32m"lucide lucide-activity"[39m
+                [33mfill[39m=[32m"none"[39m
+                [33mheight[39m=[32m"20"[39m
+                [33mstroke[39m=[32m"currentColor"[39m
+                [33mstroke-linecap[39m=[32m"round"[39m
+                [33mstroke-linejoin[39m=[32m"round"[39m
+                [33mstroke-width[39m=[32m"2"[39m
+                [33mviewBox[39m=[32m"0 0 24 24"[39m
+                [33mwidth[39m=[32m"20"[39m
+                [33mxmlns[39m=[32m"http://www.w3.org/2000/svg"[39m
+              [36m>[39m
+                [36m<path[39m
+                  [33md[39m=[32m"M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2"[39m
+                [36m/>[39m
+              [36m</svg>[39m
+              [36m<span>[39m
+                [0m모니터링[0m
+              [36m</span>[39m
+            [36m</a>[39m
+          [36m</span>[39m
+          [36m<span[39m
+            [33mclass[39m=[32m"relative block min-w-0"[39m
+          [36m>[39m
+            [36m<a[39m
+              [33maria-current[39m=[32m"page"[39m
+              [33maria-label[39m=[32m"제어"[39m
+              [33mclass[39m=[32m"flex w-full items-center rounded-control border border-transparent text-body-sm font-bold no-underline focus-visible:outline-none focus-visible:shadow-focus min-h-12 justify-start gap-3 px-3 py-2 bg-action-primary-soft text-action-primary"[39m
+              [33mdata-discover[39m=[32m"true"[39m
+              [33mdata-shell-navigation-item[39m=[32m"true"[39m
+              [33mhref[39m=[32m"/control?siteId=site"[39m
+            [36m>[39m
+              [36m<svg[39m
+                [33maria-hidden[39m=[32m"true"[39m
+                [33mclass[3...
+ ❯ waitForWrapper ../../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/wait-for.js:163:27
+ ❯ ../../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:86:33
+ ❯ src/features/shells/CustomerShell.test.tsx:156:32
+    154|     vi.stubGlobal("matchMedia", vi.fn((query: string) => ({ matches: q…
+    155|     renderShell("/control?siteId=site");
+    156|     const route = await screen.findByText("제어 화면");
+       |                                ^
+    157|     fireEvent.click(screen.getByRole("button", { name: "사이드바 접기"…
+    158|     expect(screen.getByRole("button", { name: "사이드바 펼치기" })).to…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/7]⎯
+
+ FAIL  src/features/monitoring/MonitoringView.test.tsx > MonitoringView refresh > N1 preserves intentional outside focus during automatic desktop removal
+Error: expect(element).toHaveFocus()
+
+Expected element with focus:
+  <button
+  aria-busy="false"
+  class="inline-flex min-h-11 items-center justify-center gap-2 rounded-control border font-bold cursor-pointer focus-visible:outline-none focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60 border-border-default bg-action-secondary text-action-primary px-4 py-0 text-body"
+  data-variant="secondary"
+>
+  <svg
+    aria-hidden="true"
+    class="lucide lucide-refresh-cw"
+    fill="none"
+    height="16"
+    stroke="currentColor"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+    stroke-width="2"
+    viewBox="0 0 24 24"
+    width="16"
+    xmlns="http://www.w3.org/2000/svg"
+  >
+    <path
+      d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"
+    />
+    <path
+      d="M21 3v5h-5"
+    />
+    <path
+      d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"
+    />
+    <path
+      d="M8 16H3v5"
+    />
+  </svg>
+  새로고침
+</button>
+Received element with focus:
+  <button
+  aria-label="B1-L001 정상 70%"
+  class="inline-flex min-h-11 items-center justify-center gap-2 rounded-control border font-bold focus-visible:outline-none focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60 border-border-default bg-surface-panel text-action-primary px-3 py-0 text-body-sm absolute z-2 block! -translate-x-1/2 -translate-y-1/2 cursor-pointer rounded-pill! border-0! bg-transparent! p-0! transition-[background-color,box-shadow] duration-150 motion-reduce:duration-[0.01ms] hover:z-4 focus-visible:z-4 focus-visible:outline-3 focus-visible:outline-offset-4 focus-visible:outline-fixture-selected size-12! min-h-12! opacity-30"
+  data-brightness-level="8"
+  data-disabled="false"
+  data-selected="false"
+  data-spatial-map-marker="true"
+  data-variant="ghost"
+  style="--fixture-left: 8.333333333333332%; --fixture-top: 12.5%; left: clamp(1.5rem, var(--fixture-left), calc(100% - 1.5rem)); top: clamp(1.5rem, var(--fixture-top), calc(100% - 1.5rem));"
+  title="B1-L001"
+  type="button"
+>
+  <span
+    class="pointer-events-none absolute left-1/2 top-1/2 grid size-5 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-pill! transition-[background-color,box-shadow] duration-150 motion-reduce:duration-[0.01ms] bg-fixture-brightness-8 shadow-fixture-brightness-8 border-2! border-fixture-connected!"
+    data-spatial-map-marker-dot="true"
+  />
+</button>
+ ❯ src/features/monitoring/MonitoringView.test.tsx:315:21
+    313|     expect(outside).toHaveFocus();
+    314|     await act(async () => { await new Promise(resolve => requestAnimat…
+    315|     expect(outside).toHaveFocus();
+       |                     ^
+    316|   });
+    317| 
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/7]⎯
+
+ FAIL  src/features/monitoring/MonitoringView.test.tsx > MonitoringView refresh > N1 never schedules stale focus after principal scope exit
+Error: expect(element).toHaveFocus()
+
+Expected element with focus:
+  <button>
+  다른 화면의 작업
+</button>
+Received element with focus:
+  <button
+  aria-label="B1-L001 정상 70%"
+  class="inline-flex min-h-11 items-center justify-center gap-2 rounded-control border font-bold focus-visible:outline-none focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60 border-border-default bg-surface-panel text-action-primary px-3 py-0 text-body-sm absolute z-2 block! -translate-x-1/2 -translate-y-1/2 cursor-pointer rounded-pill! border-0! bg-transparent! p-0! transition-[background-color,box-shadow] duration-150 motion-reduce:duration-[0.01ms] hover:z-4 focus-visible:z-4 focus-visible:outline-3 focus-visible:outline-offset-4 focus-visible:outline-fixture-selected size-12! min-h-12!"
+  data-brightness-level="8"
+  data-disabled="false"
+  data-selected="false"
+  data-spatial-map-marker="true"
+  data-variant="ghost"
+  style="--fixture-left: 8.333333333333332%; --fixture-top: 12.5%; left: clamp(1.5rem, var(--fixture-left), calc(100% - 1.5rem)); top: clamp(1.5rem, var(--fixture-top), calc(100% - 1.5rem));"
+  title="B1-L001"
+  type="button"
+>
+  <span
+    class="pointer-events-none absolute left-1/2 top-1/2 grid size-5 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-pill! transition-[background-color,box-shadow] duration-150 motion-reduce:duration-[0.01ms] bg-fixture-brightness-8 shadow-fixture-brightness-8 border-2! border-fixture-connected!"
+    data-spatial-map-marker-dot="true"
+  />
+</button>
+ ❯ src/features/monitoring/MonitoringView.test.tsx:344:23
+    342|       outside.focus();
+    343|       await act(async () => { await new Promise(resolve => requestAnim…
+    344|       expect(outside).toHaveFocus();
+       |                       ^
+    345|       expect(refreshApi.waitForMonitoringRefresh).not.toHaveBeenCalled…
+    346|     } finally { outside.remove(); }
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/7]⎯
+
+ FAIL  src/features/monitoring/MonitoringView.test.tsx > MonitoringView refresh > N1 never schedules stale focus after floor scope exit
+Error: expect(element).toHaveFocus()
+
+Expected element with focus:
+  <button>
+  다른 화면의 작업
+</button>
+Received element with focus:
+  <button
+  aria-label="B1-L001 장애 70%"
+  class="inline-flex min-h-11 items-center justify-center gap-2 rounded-control border font-bold focus-visible:outline-none focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60 border-border-default bg-surface-panel text-action-primary px-3 py-0 text-body-sm absolute z-2 block! -translate-x-1/2 -translate-y-1/2 cursor-pointer rounded-pill! border-0! bg-transparent! p-0! transition-[background-color,box-shadow] duration-150 motion-reduce:duration-[0.01ms] hover:z-4 focus-visible:z-4 focus-visible:outline-3 focus-visible:outline-offset-4 focus-visible:outline-fixture-selected size-12! min-h-12!"
+  data-brightness-level="8"
+  data-disabled="false"
+  data-selected="false"
+  data-spatial-map-marker="true"
+  data-variant="ghost"
+  style="--fixture-left: 8.333333333333332%; --fixture-top: 12.5%; left: clamp(1.5rem, var(--fixture-left), calc(100% - 1.5rem)); top: clamp(1.5rem, var(--fixture-top), calc(100% - 1.5rem));"
+  title="B1-L001"
+  type="button"
+>
+  <span
+    class="pointer-events-none absolute left-1/2 top-1/2 grid size-5 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-pill! transition-[background-color,box-shadow] duration-150 motion-reduce:duration-[0.01ms] bg-fixture-brightness-8 shadow-fixture-brightness-8 border-2! border-fixture-fault!"
+    data-spatial-map-marker-dot="true"
+  >
+    <svg
+      aria-hidden="true"
+      class="lucide lucide-triangle-alert text-content-primary"
+      fill="none"
+      height="12"
+      stroke="currentColor"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+      stroke-width="2"
+      viewBox="0 0 24 24"
+      width="12"
+      xmlns="http://www.w3.org/2000/svg"
+    >
+      <path
+        d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"
+      />
+      <path
+        d="M12 9v4"
+      />
+      <path
+        d="M12 17h.01"
+      />
+    </svg>
+  </span>
+</button>
+ ❯ src/features/monitoring/MonitoringView.test.tsx:344:23
+    342|       outside.focus();
+    343|       await act(async () => { await new Promise(resolve => requestAnim…
+    344|       expect(outside).toHaveFocus();
+       |                       ^
+    345|       expect(refreshApi.waitForMonitoringRefresh).not.toHaveBeenCalled…
+    346|     } finally { outside.remove(); }
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/7]⎯
+
+ FAIL  src/features/monitoring/MonitoringView.test.tsx > MonitoringView refresh > keeps the mobile fixture selector and map marker selection in sync
+Error: expect(element).toHaveFocus()
+
+Expected element with focus:
+  <button
+  aria-expanded="false"
+  aria-haspopup="dialog"
+  class="inline-flex min-h-11 items-center justify-center gap-2 rounded-control border font-bold cursor-pointer focus-visible:outline-none focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60 border-border-default bg-action-secondary text-action-primary px-4 py-0 text-body shrink-0"
+  data-variant="secondary"
+>
+  <svg
+    aria-hidden="true"
+    class="lucide lucide-filter"
+    fill="none"
+    height="16"
+    stroke="currentColor"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+    stroke-width="2"
+    viewBox="0 0 24 24"
+    width="16"
+    xmlns="http://www.w3.org/2000/svg"
+  >
+    <polygon
+      points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"
+    />
+  </svg>
+  조명 검색/목록
+</button>
+Received element with focus:
+  <section
+  aria-label="B1-L002 조명 정보"
+  class="outline-none"
+  data-rac=""
+  role="dialog"
+  tabindex="-1"
+>
+  <div
+    class="grid gap-3"
+    data-monitoring-pin-popover=""
+  >
+    <strong
+      class="text-body text-content-primary font-bold min-w-0 break-words m-0"
+    >
+      B1-L002
+    </strong>
+    <span
+      class="inline-flex min-h-7 items-center gap-1.5 rounded-pill px-2 py-1 text-label font-bold whitespace-nowrap bg-status-danger-background text-status-danger-badge"
+      data-tone="danger"
+    >
+      <svg
+        aria-hidden="true"
+        class="lucide lucide-triangle-alert"
+        fill="none"
+        height="14"
+        stroke="currentColor"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        stroke-width="2"
+        viewBox="0 0 24 24"
+        width="14"
+        xmlns="http://www.w3.org/2000/svg"
+      >
+        <path
+          d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"
+        />
+        <path
+          d="M12 9v4"
+        />
+        <path
+          d="M12 17h.01"
+        />
+      </svg>
+      <span>
+        장애
+      </span>
+    </span>
+    <dl
+      class="m-0 grid gap-2 text-body-sm"
+    >
+      <div
+        class="grid gap-0.5"
+      >
+        <dt
+          class="text-content-secondary"
+        >
+          현재 밝기
+        </dt>
+        <dd
+          class="m-0 font-bold"
+        >
+          42%
+        </dd>
+      </div>
+      <div
+        class="grid gap-0.5"
+      >
+        <dt
+          class="text-content-secondary"
+        >
+          마지막 확인
+        </dt>
+        <dd
+          class="m-0"
+        >
+          <time
+            datetime="2026-08-19T01:00:00.000Z"
+          >
+            2026-08-19 10:00:00
+          </time>
+        </dd>
+      </div>
+    </dl>
+    <p
+      class="text-body-sm font-normal text-content-secondary m-0"
+    >
+      조명 상태와 연결 확인
+    </p>
+    <button
+      class="inline-flex min-h-11 items-center justify-center gap-2 rounded-control border font-bold cursor-pointer focus-visible:outline-none focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60 border-border-default bg-action-secondary text-action-primary px-4 py-0 text-body"
+      data-variant="secondary"
+    >
+      상세 보기
+    </button>
+  </div>
+</section>
+
+Ignored nodes: comments, script, style
+[36m<html[39m
+  [33mstyle[39m=[32m""[39m
+[36m>[39m
+  [36m<head />[39m
+  [36m<body>[39m
+    [36m<div>[39m
+      [36m<section[39m
+        [33mclass[39m=[32m"flex h-full min-h-0 min-w-0 flex-1 flex-col gap-4 max-compact:min-h-min max-compact:pb-shell-navigation-safe"[39m
+        [33mdata-monitoring-screen[39m=[32m""[39m
+      [36m>[39m
+        [36m<header[39m
+          [33mclass[39m=[32m"flex items-start justify-between max-compact:flex-col max-compact:items-stretch gap-5 max-compact:gap-3 max-compact:order-0"[39m
+        [36m>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"grid min-w-0 gap-2"[39m
+          [36m>[39m
+            [36m<h1[39m
+              [33mclass[39m=[32m"text-customer-page-title font-bold max-compact:text-section-title text-content-primary m-0"[39m
+            [36m>[39m
+              [0m모니터링[0m
+            [36m</h1>[39m
+          [36m</div>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"flex flex-wrap items-center gap-2 max-compact:w-full"[39m
+          [36m>[39m
+            [36m<small[39m
+              [33mclass[39m=[32m"text-caption font-normal text-content-secondary min-w-0 max-w-full break-words text-right m-0"[39m
+            [36m>[39m
+              [0m마지막 갱신: 서버 snapshot 시각 확인 필요[0m
+            [36m</small>[39m
+            [36m<button[39m
+              [33maria-busy[39m=[32m"false"[39m
+              [33mclass[39m=[32m"inline-flex min-h-11 items-center justify-center gap-2 rounded-control border font-bold cursor-pointer focus-visible:outline-none focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60 border-border-default bg-action-secondary text-action-primary px-4 py-0 text-body"[39m
+              [33mdata-variant[39m=[32m"secondary"[39m
+            [36m>[39m
+              [36m<svg[39m
+                [33maria-hidden[39m=[32m"true"[39m
+                [33mclass[39m=[32m"lucide lucide-refresh-cw"[39m
+                [33mfill[39m=[32m"none"[39m
+                [33mheight[39m=[32m"16"[39m
+                [33mstroke[39m=[32m"currentColor"[39m
+                [33mstroke-linecap[39m=[32m"round"[39m
+                [33mstroke-linejoin[39m=[32m"round"[39m
+                [33mstroke-width[39m=[32m"2"[39m
+                [33mviewBox[39m=[32m"0 0 24 24"[39m
+                [33mwidth[39m=[32m"16"[39m
+                [33mxmlns[39m=[32m"http://www.w3.org/2000/svg"[39m
+              [36m>[39m
+                [36m<path[39m
+                  [33md[39m=[32m"M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"[39m
+                [36m/>[39m
+                [36m<path[39m
+                  [33md[39m=[32m"M21 3v5h-5"[39m
+                [36m/>[39m
+                [36m<path[39m
+                  [33md[39m=[32m"M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"[39m
+                [36m/>[39m
+                [36m<path[39m
+                  [33md[39m=[32m"M8 16H3v5"[39m
+                [36m/>[39m
+              [36m</svg>[39m
+              [0m새로고침[0m
+            [36m</button>[39m
+          [36m</div>[39m
+        [36m</header>[39m
+        [36m<div[39m
+          [33maria-label[39m=[32m"모니터링 도구"[39m
+          [33mclass[39m=[32m"flex min-w-0 flex-wrap items-center gap-2 max-compact:order-1"[39m
+          [33mrole[39m=[32m"group"[39m
+        [36m>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"flex-col grid min-w-0 grid-cols-[auto_minmax(0,1fr)] items-center gap-2 compact:w-64 max-compact:flex-1"[39m
+            [33mdata-field[39m=[32m""[39m
+            [33mdata-size[39m=[32m"md"[39m
+            [33mdata-variant[39m=[32m"outline"[39m
+          [36m>[39m
+            [36m<label[39m
+              [33mclass[39m=[32m"text-label font-semibold text-content-primary m-0"[39m
+              [33mfor[39m=[32m":r292:"[39m
+              [33mid[39m=[32m":r292:-label"[39m
+            [36m>[39m
+              [0m맵 선택[0m
+            [36m</label>[39m
+            [36m<template />[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"contents"[39m
+              [33mdata-rac[39m=[32m""[39m
+            [36m>[39m
+              [36m<button[39m
+                [33maria-expanded[39m=[32m"false"[39m
+                [33maria-haspopup[39m=[32m"listbox"[39m
+                [33maria-labelledby[39m=[32m":r292:-label"[39m
+                [33mclass[39m=[32m"min-h-11 w-full rounded-control border text-content-primary outline-none pointer-coarse:text-body-lg focus-visible:shadow-focus data-focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60 data-disabled:cursor-not-allowed data-disabled:opacity-60 aria-invalid:border-status-danger-foreground data-invalid:border-status-danger-foreground border-border-strong bg-surface-panel px-3 py-2.5 text-body flex items-center justify-between gap-2 text-left"[39m
+                [33mdata-rac[39m=[32m""[39m
+                [33mdata-react-aria-pressable[39m=[32m"true"[39m
+                [33mid[39m=[32m":r292:"[39m
+                [33mtabindex[39m=[32m"0"[39m
+                [33mtype[39m=[32m"button"[39m
+              [36m>[39m
+                [36m<span[39m
+                  [33mclass[39m=[32m"min-w-0 flex-1 truncate"[39m
+                  [33mdata-rac[39m=[32m""[39m
+                  [33mid[39m=[32m"react-aria-:r29a:"[39m
+                [36m>[39m
+                  [36m<span[39m
+                    [33mclass[39m=[32m"react-aria-Text"[39m
+                    [33mslot[39m=[32m"label"[39m
+                  [36m>[39m
+                    [0mB1[0m
+                  [36m</span>[39m
+                [36m</span>[39m
+                [36m<span[39m
+                  [33maria-hidden[39m=[32m"true"[39m
+                  [33mclass[39m=[32m"shrink-0"[39m
+                [36m>[39m
+                  [0m▾[0m
+                [36m</span>[39m
+              [36m</button>[39m
+              [36m<div[39m
+                [33maria-hidden[39m=[32m"true"[39m
+                [33mdata-a11y-ignore[39m=[32m"aria-hidden-focus"[39m
+                [33mdata-react-aria-prevent-focus[39m=[32m"true"[39m
+                [33mdata-testid[39m=[32m"hidden-select-container"[39m
+                [33mstyle[39m=[32m"border: 0px; clip-path: inset(50%); height: 1px; margin: -1px; overflow: hidden; padding: 0px; position: fixed; width: 1px; white-space: nowrap; top: 0px; left: 0px;"[39m
+              [36m>[39m
+                [36m<label>[39m
+                  [36m<select[39m
+                    [33mtabindex[39m=[32m"-1"[39m
+                    [33mtitle[39m=[32m""[39m
+                  [36m>[39m
+                    [36m<option[39m
+                      [33mlabel[39m=[32m" "[39m
+                      [33mvalue[39m=[32m""[39m
+                    [36m>[39m
+          ...
+ ❯ src/features/monitoring/MonitoringView.test.tsx:915:82
+    913|     expect(within(screen.getByRole("complementary", { name: "선택 조명…
+    914|     closeInspector();
+    915|     await waitFor(() => expect(screen.getByRole("button", { name: "조…
+       |                                                                                  ^
+    916|     openInspector();
+    917|     await chooseSelect("상세 조명 선택", "B1-L001 · 장애");
+ ❯ runWithExpensiveErrorDiagnosticsDisabled ../../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/config.js:47:12
+ ❯ checkCallback ../../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/wait-for.js:124:77
+ ❯ Timeout.checkRealTimersCallback ../../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/wait-for.js:118:16
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/7]⎯
+
+ FAIL  src/features/monitoring/MonitoringView.test.tsx > MonitoringView refresh > clears a prior floor search when the selected map changes
+TestingLibraryElementError: Unable to find an accessible element with the role "button" and name "조명 목록 보기"
+
+Here are the accessible roles:
+
+  button:
+
+  Name "Dismiss":
+  [36m<button[39m
+    [33maria-label[39m=[32m"Dismiss"[39m
+    [33mid[39m=[32m"react-aria-:r2do:"[39m
+    [33mstyle[39m=[32m"width: 1px; height: 1px;"[39m
+    [33mtabindex[39m=[32m"-1"[39m
+  [36m/>[39m
+
+  Name "조명 검색/목록 닫기":
+  [36m<button[39m
+    [33maria-label[39m=[32m"조명 검색/목록 닫기"[39m
+    [33mclass[39m=[32m"inline-flex min-h-11 items-center justify-center gap-2 rounded-control border font-bold cursor-pointer focus-visible:outline-none focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60 border-border-default bg-surface-panel text-action-primary px-4 py-0 text-body"[39m
+    [33mdata-variant[39m=[32m"ghost"[39m
+  [36m/>[39m
+
+  Name "상태 필터":
+  [36m<button[39m
+    [33maria-expanded[39m=[32m"false"[39m
+    [33maria-haspopup[39m=[32m"listbox"[39m
+    [33maria-labelledby[39m=[32m":r2e1:-label"[39m
+    [33mclass[39m=[32m"min-h-11 w-full rounded-control border text-content-primary outline-none pointer-coarse:text-body-lg focus-visible:shadow-focus data-focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60 data-disabled:cursor-not-allowed data-disabled:opacity-60 aria-invalid:border-status-danger-foreground data-invalid:border-status-danger-foreground border-border-strong bg-surface-panel px-3 py-2.5 text-body flex items-center justify-between gap-2 text-left"[39m
+    [33mdata-rac[39m=[32m""[39m
+    [33mdata-react-aria-pressable[39m=[32m"true"[39m
+    [33mid[39m=[32m":r2e1:"[39m
+    [33mtabindex[39m=[32m"0"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "B1-L001 장애":
+  [36m<button[39m
+    [33maria-pressed[39m=[32m"false"[39m
+    [33mclass[39m=[32m"inline-flex min-h-11 items-center gap-2 rounded-control border font-bold cursor-pointer focus-visible:outline-none focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60 border-border-default bg-surface-panel text-action-primary px-4 py-0 text-body w-full min-w-0 justify-between text-left"[39m
+    [33mdata-variant[39m=[32m"ghost"[39m
+  [36m/>[39m
+
+  Name "Dismiss":
+  [36m<button[39m
+    [33maria-label[39m=[32m"Dismiss"[39m
+    [33mid[39m=[32m"react-aria-:r2ec:"[39m
+    [33mstyle[39m=[32m"width: 1px; height: 1px;"[39m
+    [33mtabindex[39m=[32m"-1"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  dialog:
+
+  Name "조명 검색/목록":
+  [36m<section[39m
+    [33maria-label[39m=[32m"조명 검색/목록"[39m
+    [33mclass[39m=[32m"outline-none"[39m
+    [33mdata-rac[39m=[32m""[39m
+    [33mrole[39m=[32m"dialog"[39m
+    [33mtabindex[39m=[32m"-1"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  heading:
+
+  Name "조명 검색/목록":
+  [36m<h2[39m
+    [33mclass[39m=[32m"text-body-lg font-bold text-content-primary m-0"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  region:
+
+  Name "조명 검색 및 목록":
+  [36m<section[39m
+    [33maria-label[39m=[32m"조명 검색 및 목록"[39m
+    [33mclass[39m=[32m"grid min-w-0 gap-3"[39m
+    [33mdata-monitoring-fixture-finder[39m=[32m""[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  searchbox:
+
+  Name "조명 이름 또는 번호 검색":
+  [36m<input[39m
+    [33maria-labelledby[39m=[32m":r2dr:-label"[39m
+    [33mclass[39m=[32m"min-h-11 w-full rounded-control border text-content-primary outline-none pointer-coarse:text-body-lg focus-visible:shadow-focus data-focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60 data-disabled:cursor-not-allowed data-disabled:opacity-60 aria-invalid:border-status-danger-foreground data-invalid:border-status-danger-foreground border-border-strong bg-surface-panel px-3 py-2.5 text-body"[39m
+    [33mdata-rac[39m=[32m""[39m
+    [33mid[39m=[32m":r2dr:"[39m
+    [33mplaceholder[39m=[32m"조명 이름 또는 번호"[39m
+    [33mtabindex[39m=[32m"0"[39m
+    [33mtitle[39m=[32m""[39m
+    [33mtype[39m=[32m"search"[39m
+    [33mvalue[39m=[32m""[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  list:
+
+  Name "조명 목록":
+  [36m<ul[39m
+    [33maria-label[39m=[32m"조명 목록"[39m
+    [33mclass[39m=[32m"m-0 grid max-h-48 min-w-0 list-none gap-1 overflow-y-auto p-0"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  listitem:
+
+  Name "":
+  [36m<li[39m
+    [33mclass[39m=[32m"min-w-0"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div[39m
+    [33maria-hidden[39m=[32m"true"[39m
+  [36m>[39m
+    [36m<section[39m
+      [33mclass[39m=[32m"flex h-full min-h-0 min-w-0 flex-1 flex-col gap-4 max-compact:min-h-min max-compact:pb-shell-navigation-safe"[39m
+      [33mdata-monitoring-screen[39m=[32m""[39m
+    [36m>[39m
+      [36m<header[39m
+        [33mclass[39m=[32m"flex items-start justify-between max-compact:flex-col max-compact:items-stretch gap-5 max-compact:gap-3 max-compact:order-0"[39m
+      [36m>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"grid min-w-0 gap-2"[39m
+        [36m>[39m
+          [36m<h1[39m
+            [33mclass[39m=[32m"text-customer-page-title font-bold max-compact:text-section-title text-content-primary m-0"[39m
+          [36m>[39m
+            [0m모니터링[0m
+          [36m</h1>[39m
+        [36m</div>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"flex flex-wrap items-center gap-2 max-compact:w-full"[39m
+        [36m>[39m
+          [36m<small[39m
+            [33mclass[39m=[32m"text-caption font-normal text-content-secondary min-w-0 max-w-full break-words text-right m-0"[39m
+          [36m>[39m
+            [0m마지막 갱신: [0m
+            [36m<time[39m
+              [33mdatetime[39m=[32m"2026-10-11T14:44:12.930Z"[39m
+            [36m>[39m
+              [0m2026-10-11 23:44:12[0m
+              [0m (현장 시간)[0m
+            [36m</time>[39m
+          [36m</small>[39m
+          [36m<button[39m
+            [33maria-busy[39m=[32m"false"[39m
+            [33mclass[39m=[32m"inline-flex min-h-11 items-center justify-center gap-2 rounded-control border font-bold cursor-pointer focus-visible:outline-none focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60 border-border-default bg-action-secondary text-action-primary px-4 py-0 text-body"[39m
+            [33mdata-variant[39m=[32m"secondary"[39m
+          [36m>[39m
+            [36m<svg[39m
+              [33maria-hidden[39m=[32m"true"[39m
+              [33mclass[39m=[32m"lucide lucide-refresh-cw"[39m
+              [33mfill[39m=[32m"none"[39m
+              [33mheight[39m=[32m"16"[39m
+              [33mstroke[39m=[32m"currentColor"[39m
+              [33mstroke-linecap[39m=[32m"round"[39m
+              [33mstroke-linejoin[39m=[32m"round"[39m
+              [33mstroke-width[39m=[32m"2"[39m
+              [33mviewBox[39m=[32m"0 0 24 24"[39m
+              [33mwidth[39m=[32m"16"[39m
+              [33mxmlns[39m=[32m"http://www.w3.org/2000/svg"[39m
+            [36m>[39m
+              [36m<path[39m
+                [33md[39m=[32m"M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"[39m
+              [36m/>[39m
+              [36m<path[39m
+                [33md[39m=[32m"M21 3v5h-5"[39m
+              [36m/>[39m
+              [36m<path[39m
+                [33md[39m=[32m"M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"[39m
+              [36m/>[39m
+              [36m<path[39m
+                [33md[39m=[32m"M8 16H3v5"[39m
+              [36m/>[39m
+            [36m</svg>[39m
+            [0m새로고침[0m
+          [36m</button>[39m
+        [36m</div>[39m
+      [36m</header>[39m
+      [36m<div[39m
+        [33maria-label[39m=[32m"모니터링 도구"[39m
+        [33mclass[39m=[32m"flex min-w-0 flex-wrap items-center gap-2 max-compact:order-1"[39m
+        [33mrole[39m=[32m"group"[39m
+      [36m>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"flex-col grid min-w-0 grid-cols-[auto_minmax(0,1fr)] items-center gap-2 compact:w-64 max-compact:flex-1"[39m
+          [33mdata-field[39m=[32m""[39m
+          [33mdata-size[39m=[32m"md"[39m
+          [33mdata-variant[39m=[32m"outline"[39m
+        [36m>[39m
+          [36m<label[39m
+            [33mclass[39m=[32m"text-label font-semibold text-content-primary m-0"[39m
+            [33mfor[39m=[32m":r2c8:"[39m
+            [33mid[39m=[32m":r2c8:-label"[39m
+          [36m>[39m
+            [0m맵 선택[0m
+          [36m</label>[39m
+          [36m<template />[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"contents"[39m
+            [33mdata-focused[39m=[32m"true"[39m
+            [33mdata-rac[39m=[32m""[39m
+          [36m>[39m
+            [36m<button[39m
+              [33maria-expanded[39m=[32m"false"[39m
+              [33maria-haspopup[39m=[32m"listbox"[39m
+              [33maria-labelledby[39m=[32m":r2c8:-label"[39m
+              [33mclass[39m=[32m"min-h-11 w-full rounded-control border text-content-primary outline-none pointer-coarse:text-body-lg focus-visible:shadow-focus data-focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60 data-disabled:cursor-not-allowed data-disabled:opacity-60 aria-invalid:border-status-danger-foreground data-invalid:border-status-danger-foreground border-border-strong bg-surface-panel px-3 py-2.5 text-body flex items-center justify-between gap-2 text-left"[39m
+              [33mdata-rac[39m=[32m""[39m
+              [33mdata-react-aria-pressable[39m=[32m"true"[39m
+              [33mid[39m=[32m":r2c8:"[39m
+              [33mtabindex[39m=[32m"0"[39m
+              [33mtype[39m=[32m"button"[39m
+            [36m>[39m
+              [36m<span[39m
+                [33mclass[39m=[32m"min-w-0 flex-1 truncate"[39m
+                [33mdata-rac[39m=[32m""[39m
+                [33mid[39m=[32m"react-aria-:r2cg:"[39m
+              [36m>[39m
+                [36m<span[39m
+                  [33mclass[39m=[32m"react-aria-Text"[39m
+                  [33mslot[39m=[32m"label"[39m
+                [36m>[39m
+                  [0mB2[0m
+                [36m</span>[39m
+              [36m</span>[39m
+              [36m<span[39m
+                [33maria-hidden[39m=[32m"true"[39m
+                [33mclass[39m=[32m"shrink-0"[39m
+              [36m>[39m
+                [0m▾[0m
+              [36m</span>[39m
+            [36m</button>[39m
+            [36m<div[39m
+              [33maria-hidden[39m=[32m"true"[39m
+              [33mdata-a11y-ignore[39m=[32m"aria-hidden-focus"[39m
+              [33mdata-react-aria-prevent-focus[39m=[32m"true"[39m
+              [33mdata-testid[39m=[32m"hidden-select-container"[39m
+              [33mstyle[39m=[32m"border: 0px; clip-path: inset(50%); height: 1px; margin: -1px; overflow: hidden; padding: 0px; position: fixed; width: 1px; white-space: nowrap; top: 0px; left: 0px;"[39m
+            [36m>[39m
+              [36m<label>[39m
+                [36m<select[39m
+                  [33mtabindex[39m=[32m"-1"[39m
+                  [33mtitle[39m=[32m""[39m
+                [36m>[39m
+                  [36m<option[39m
+                    [33mlabel[39m=[32m" "[39m
+                    [33mvalue[39m=[32m""[39m
+                  [36m>[39m
+                    [0m [0m
+       ...
+ ❯ Object.getElementError ../../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/config.js:37:19
+ ❯ ../../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:76:38
+ ❯ ../../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:52:17
+ ❯ ../../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:95:19
+ ❯ src/features/monitoring/MonitoringView.test.tsx:958:19
+    956|     openInspector();
+    957|     expect(screen.getByRole("searchbox", { name: "조명 이름 또는 번호 …
+    958|     expect(screen.getByRole("button", { name: "조명 목록 보기" })).toH…
+       |                   ^
+    959|   });
+    960| 
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/7]⎯
+
+ FAIL  src/features/monitoring/MonitoringView.test.tsx > MonitoringView refresh > keeps a long map name and its fixture identity through search without sending a device command
+TestingLibraryElementError: Unable to find an accessible element with the role "button" and name "상세 조명 선택"
+
+Here are the accessible roles:
+
+  heading:
+
+  Name "조명 검색/목록":
+  [36m<h2[39m
+    [33mclass[39m=[32m"text-body-lg font-bold text-content-primary m-0"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  button:
+
+  Name "조명 검색/목록 닫기":
+  [36m<button[39m
+    [33maria-label[39m=[32m"조명 검색/목록 닫기"[39m
+    [33mclass[39m=[32m"inline-flex min-h-11 items-center justify-center gap-2 rounded-control border font-bold cursor-pointer focus-visible:outline-none focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60 border-border-default bg-surface-panel text-action-primary px-4 py-0 text-body"[39m
+    [33mdata-variant[39m=[32m"ghost"[39m
+  [36m/>[39m
+
+  Name "상태 필터":
+  [36m<button[39m
+    [33maria-expanded[39m=[32m"false"[39m
+    [33maria-haspopup[39m=[32m"listbox"[39m
+    [33maria-labelledby[39m=[32m":r30d:-label"[39m
+    [33mclass[39m=[32m"min-h-11 w-full rounded-control border text-content-primary outline-none pointer-coarse:text-body-lg focus-visible:shadow-focus data-focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60 data-disabled:cursor-not-allowed data-disabled:opacity-60 aria-invalid:border-status-danger-foreground data-invalid:border-status-danger-foreground border-border-strong bg-surface-panel px-3 py-2.5 text-body flex items-center justify-between gap-2 text-left"[39m
+    [33mdata-rac[39m=[32m""[39m
+    [33mdata-react-aria-pressable[39m=[32m"true"[39m
+    [33mid[39m=[32m":r30d:"[39m
+    [33mtabindex[39m=[32m"0"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "동측 출입구 조명 장애":
+  [36m<button[39m
+    [33maria-pressed[39m=[32m"false"[39m
+    [33mclass[39m=[32m"inline-flex min-h-11 items-center gap-2 rounded-control border font-bold cursor-pointer focus-visible:outline-none focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60 border-border-default bg-surface-panel text-action-primary px-4 py-0 text-body w-full min-w-0 justify-between text-left"[39m
+    [33mdata-variant[39m=[32m"ghost"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  region:
+
+  Name "조명 검색 및 목록":
+  [36m<section[39m
+    [33maria-label[39m=[32m"조명 검색 및 목록"[39m
+    [33mclass[39m=[32m"grid min-w-0 gap-3"[39m
+    [33mdata-monitoring-fixture-finder[39m=[32m""[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  searchbox:
+
+  Name "조명 이름 또는 번호 검색":
+  [36m<input[39m
+    [33maria-labelledby[39m=[32m":r307:-label"[39m
+    [33mclass[39m=[32m"min-h-11 w-full rounded-control border text-content-primary outline-none pointer-coarse:text-body-lg focus-visible:shadow-focus data-focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60 data-disabled:cursor-not-allowed data-disabled:opacity-60 aria-invalid:border-status-danger-foreground data-invalid:border-status-danger-foreground border-border-strong bg-surface-panel px-3 py-2.5 text-body"[39m
+    [33mdata-rac[39m=[32m""[39m
+    [33mid[39m=[32m":r307:"[39m
+    [33mplaceholder[39m=[32m"조명 이름 또는 번호"[39m
+    [33mtabindex[39m=[32m"0"[39m
+    [33mtitle[39m=[32m""[39m
+    [33mtype[39m=[32m"search"[39m
+    [33mvalue[39m=[32m"동측"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  list:
+
+  Name "조명 목록":
+  [36m<ul[39m
+    [33maria-label[39m=[32m"조명 목록"[39m
+    [33mclass[39m=[32m"m-0 grid max-h-48 min-w-0 list-none gap-1 overflow-y-auto p-0"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  listitem:
+
+  Name "":
+  [36m<li[39m
+    [33mclass[39m=[32m"min-w-0"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+
+Ignored nodes: comments, script, style
+[36m<section[39m
+  [33maria-label[39m=[32m"조명 검색/목록"[39m
+  [33mclass[39m=[32m"outline-none"[39m
+  [33mdata-rac[39m=[32m""[39m
+  [33mrole[39m=[32m"dialog"[39m
+  [33mtabindex[39m=[32m"-1"[39m
+[36m>[39m
+  [36m<div[39m
+    [33mclass[39m=[32m"grid min-w-0 gap-4"[39m
+  [36m>[39m
+    [36m<div[39m
+      [33mclass[39m=[32m"flex min-w-0 flex-wrap items-center justify-between gap-2"[39m
+    [36m>[39m
+      [36m<h2[39m
+        [33mclass[39m=[32m"text-body-lg font-bold text-content-primary m-0"[39m
+      [36m>[39m
+        [0m조명 검색/목록[0m
+      [36m</h2>[39m
+      [36m<button[39m
+        [33maria-label[39m=[32m"조명 검색/목록 닫기"[39m
+        [33mclass[39m=[32m"inline-flex min-h-11 items-center justify-center gap-2 rounded-control border font-bold cursor-pointer focus-visible:outline-none focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60 border-border-default bg-surface-panel text-action-primary px-4 py-0 text-body"[39m
+        [33mdata-variant[39m=[32m"ghost"[39m
+      [36m>[39m
+        [0m닫기[0m
+      [36m</button>[39m
+    [36m</div>[39m
+    [36m<div[39m
+      [33mclass[39m=[32m"min-w-0"[39m
+    [36m>[39m
+      [36m<section[39m
+        [33maria-label[39m=[32m"조명 검색 및 목록"[39m
+        [33mclass[39m=[32m"grid min-w-0 gap-3"[39m
+        [33mdata-monitoring-fixture-finder[39m=[32m""[39m
+      [36m>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"flex flex-col gap-2 min-w-0"[39m
+          [33mdata-field[39m=[32m""[39m
+          [33mdata-size[39m=[32m"md"[39m
+          [33mdata-variant[39m=[32m"outline"[39m
+        [36m>[39m
+          [36m<label[39m
+            [33mclass[39m=[32m"text-label font-semibold text-content-primary m-0"[39m
+            [33mfor[39m=[32m":r307:"[39m
+            [33mid[39m=[32m":r307:-label"[39m
+          [36m>[39m
+            [0m조명 이름 또는 번호 검색[0m
+          [36m</label>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"contents"[39m
+            [33mdata-rac[39m=[32m""[39m
+          [36m>[39m
+            [36m<input[39m
+              [33maria-labelledby[39m=[32m":r307:-label"[39m
+              [33mclass[39m=[32m"min-h-11 w-full rounded-control border text-content-primary outline-none pointer-coarse:text-body-lg focus-visible:shadow-focus data-focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60 data-disabled:cursor-not-allowed data-disabled:opacity-60 aria-invalid:border-status-danger-foreground data-invalid:border-status-danger-foreground border-border-strong bg-surface-panel px-3 py-2.5 text-body"[39m
+              [33mdata-rac[39m=[32m""[39m
+              [33mid[39m=[32m":r307:"[39m
+              [33mplaceholder[39m=[32m"조명 이름 또는 번호"[39m
+              [33mtabindex[39m=[32m"0"[39m
+              [33mtitle[39m=[32m""[39m
+              [33mtype[39m=[32m"search"[39m
+              [33mvalue[39m=[32m"동측"[39m
+            [36m/>[39m
+          [36m</div>[39m
+        [36m</div>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"flex min-w-0 flex-col gap-2"[39m
+          [33mdata-field[39m=[32m""[39m
+          [33mdata-size[39m=[32m"md"[39m
+          [33mdata-variant[39m=[32m"outline"[39m
+        [36m>[39m
+          [36m<label[39m
+            [33mclass[39m=[32m"text-label font-semibold text-content-primary m-0"[39m
+            [33mfor[39m=[32m":r30d:"[39m
+            [33mid[39m=[32m":r30d:-label"[39m
+          [36m>[39m
+            [0m상태 필터[0m
+          [36m</label>[39m
+          [36m<template />[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"contents"[39m
+            [33mdata-rac[39m=[32m""[39m
+          [36m>[39m
+            [36m<button[39m
+              [33maria-expanded[39m=[32m"false"[39m
+              [33maria-haspopup[39m=[32m"listbox"[39m
+              [33maria-labelledby[39m=[32m":r30d:-label"[39m
+              [33mclass[39m=[32m"min-h-11 w-full rounded-control border text-content-primary outline-none pointer-coarse:text-body-lg focus-visible:shadow-focus data-focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60 data-disabled:cursor-not-allowed data-disabled:opacity-60 aria-invalid:border-status-danger-foreground data-invalid:border-status-danger-foreground border-border-strong bg-surface-panel px-3 py-2.5 text-body flex items-center justify-between gap-2 text-left"[39m
+              [33mdata-rac[39m=[32m""[39m
+              [33mdata-react-aria-pressable[39m=[32m"true"[39m
+              [33mid[39m=[32m":r30d:"[39m
+              [33mtabindex[39m=[32m"0"[39m
+              [33mtype[39m=[32m"button"[39m
+            [36m>[39m
+              [36m<span[39m
+                [33mclass[39m=[32m"min-w-0 flex-1 truncate"[39m
+                [33mdata-rac[39m=[32m""[39m
+                [33mid[39m=[32m"react-aria-:r30l:"[39m
+              [36m>[39m
+                [36m<span[39m
+                  [33mclass[39m=[32m"react-aria-Text"[39m
+                  [33mslot[39m=[32m"label"[39m
+                [36m>[39m
+                  [0m전체[0m
+                [36m</span>[39m
+              [36m</span>[39m
+              [36m<span[39m
+                [33maria-hidden[39m=[32m"true"[39m
+                [33mclass[39m=[32m"shrink-0"[39m
+              [36m>[39m
+                [0m▾[0m
+              [36m</span>[39m
+            [36m</button>[39m
+            [36m<div[39m
+              [33maria-hidden[39m=[32m"true"[39m
+              [33mdata-a11y-ignore[39m=[32m"aria-hidden-focus"[39m
+              [33mdata-react-aria-prevent-focus[39m=[32m"true"[39m
+              [33mdata-testid[39m=[32m"hidden-select-container"[39m
+              [33mstyle[39m=[32m"border: 0px; clip-path: inset(50%); height: 1px; margin: -1px; overflow: hidden; padding: 0px; position: fixed; width: 1px; white-space: nowrap; top: 0px; left: 0px;"[39m
+            [36m>[39m
+              [36m<label>[39m
+                [36m<select[39m
+                  [33mtabindex[39m=[32m"-1"[39m
+                  [33mtitle[39m=[32m""[39m
+                [36m>[39m
+                  [36m<option[39m
+                    [33mlabel[39m=[32m" "[39m
+                    [33mvalue[39m=[32m""[39m
+                  [36m>[39m
+                    [0m [0m
+                  [36m</option>[39m
+                  [36m<option[39m
+                    [33mvalue[39m=[32m"all"[39m
+                  [36m>[39m
+                    [0m전체[0m
+                  [36m</option>[39m
+                  [36m<option[39m
+                    [33mvalue[39m=[32m"online"[39m
+                  [36m>[39m
+                    [0m정상[0m
+                  [36m</option>[39m
+                  [36m<option[39m
+                    [33mvalue[39m=[32m"fault"[39m
+                  [36m>[39m
+                    [0m점검 필요[0m
+                  [36m</option>[39m
+                  [36m<option[39m
+                    [33mvalue[39m=[32m"offline"[39m
+                  [36m>[39m
+                    [0m오프라인[0m
+                  [36m</option>[39m
+                  [36m<option[39m
+                    [33mvalue[39m=[32m"unplaced"[39m
+                  [36m>[39m
+                    [0m미배치[0m
+                  [36m</option>[39m
+                [36m</select>[39m
+              [36m</label>[39m
+            [36m</div>[39m
+          [36m</div>[39m
+        [36m</div>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"grid min-w-0 gap-2"[39m
+        [36m>[39m
+          [36m<ul[39m
+            [33maria-label[39m=[32m"조명 목록"[39m
+            [33mclass[39m=[32m"m-0 grid max-h-48 min-w-0 list-none gap-1 overflow-y-auto p-0"[39m
+          [36m>[39m
+            [36m<li[39m
+              [33mclass[39m=[32m"min-w-0"[39m
+            [36m>[39m
+              [36m<button[39m
+                [33maria-pressed[39m=[32m"false"[39m
+                [33mclass[39m=[32m"inline-flex min-h-11 items-center gap-2 rounded-control border font-bold cursor-pointer focus-visible:outline-none focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60 border-border-default bg-surface-panel text-action-primary px-4 py-0 text-body w-full min-w-0 justify-between text-left"[39m
+                [33mdata-variant[39m=[32m"ghost"[39m
+              [36m>[39m
+                [36m<span[39m
+                  [33mclass[39m=[32m"min-w-0 truncate"[39m
+                [36m>[39m
+                  [0m동측 출입구 조명[0m
+                [36m</span>[39m
+                [36m<span[39m
+                  [33mclass[39m=[32m"shrink-0"[39m
+                [36m>[39m
+                  [36m<span[39m
+                    [33mclass[39m=[32m"inline-flex min-h-7 items-center gap-1.5 rounded-pill px-2 py-1 text-label font-bold whitespace-nowrap bg-status-danger-background text-status-danger-badge"[39m
+                    [33mdata-tone[39m=[32m"danger"[39m
+                  [36m>[39m
+                    [36m<svg[39m
+                      [33maria-hidden[39m=[32m"true"[39m
+                      [33mclass[39m=[32m"lucide lucide-triangle-alert"[39m
+                      [33mfill[39m=[32m"none"[39m
+                      [33mheight[39m=[32m"14"[39m
+                      [33mstroke[39m=[32m"currentColor"[39m
+                      [33mstroke-linecap[39m=[32m"round"[39m
+                      [33mstroke-linejoin[39m=[32m"round"[39m
+                      [33mstroke-width[39m=[32m"2"[39m
+                      [33mviewBox[39m=[32m"0 0 24 24"[39m
+                      [33mwidth[39m=[32m"14"[39m
+                      [33mxmlns[39m=[32m"http://www.w3.org/2000/svg"[39m
+                    [36m>[39m
+                      [36m<path[39m
+                        [33md[39m=[32m"m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"[39m
+                      [36m/>[39m
+                      [36m<path[39m
+                        [33md[39m=[32m"M12 9v4"[39m
+                      [36m/>[39m
+                      [36m<path[39m
+                        [33md[39m=[32m"M12 17h.01"[39m
+                      [36m/>[39m
+                    [36m</svg>[39m
+                    [36m<span>[39m
+                      [0m장애[0m
+                    [36m</span>[39m
+                  [36m</span>[39m
+                [36m</span>[39m
+              [36m</button>[39m
+            [36m</li>[39m
+          [36m</ul>[39m
+        [36m</div>[39m
+      [36m</section>[39m
+    [36m</div>[39m
+  [36m</div>[39m
+[36m</section>[39m
+ ❯ Object.getElementError ../../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/config.js:37:19
+ ❯ ../../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:76:38
+ ❯ ../../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:52:17
+ ❯ ../../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:95:19
+ ❯ src/features/monitoring/MonitoringView.test.tsx:1513:30
+    1511|     const inspector = openInspector();
+    1512|     fireEvent.change(within(inspector).getByRole("searchbox", { name: …
+    1513|     expect(within(inspector).getByRole("button", { name: "상세 조명 선…
+       |                              ^
+    1514|     await chooseSelect("상세 조명 선택", `${nextFixture.name} · 장애`);
+    1515|     expect(within(inspector).getByRole("button", { name: "상세 조명 선…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/7]⎯
+
+ Test Files  2 failed | 2 passed (4)
+      Tests  7 failed | 184 passed (191)
+   Start at  23:43:57
+   Duration  17.38s (transform 1.97s, setup 318ms, collect 6.01s, tests 20.30s, environment 1.97s, prepare 1.01s)
+
+undefined
+/Users/kim-jh/Documents/led-control-service/.worktrees/atlas-interactions-comments-20261011/apps/web:
+ ERR_PNPM_RECURSIVE_EXEC_FIRST_FAIL  Command failed with exit code 1: vitest run src/features/shells/CustomerShell.test.tsx src/features/monitoring/MonitoringFixtureFinder.test.tsx src/features/monitoring/MonitoringView.test.tsx src/features/monitoring/FloorMap.test.tsx --reporter=dot

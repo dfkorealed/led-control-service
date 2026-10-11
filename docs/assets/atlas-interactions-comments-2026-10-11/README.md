@@ -13,10 +13,18 @@
 - [320 bottom sheet/date](/Users/kim-jh/Documents/led-control-service/.worktrees/atlas-interactions-comments-20261011/docs/assets/atlas-interactions-comments-2026-10-11/fixture-fixed/atlas-interactions-comment-83a5a-tay-one-line-at-390-and-320-chromium/filter-sheet-320.png),390도 같은 폴더. 실제 nested calendar Escape→calendar focus→sheet close→opener focus 검증.
 - [577 dark reports](/Users/kim-jh/Documents/led-control-service/.worktrees/atlas-interactions-comments-20261011/docs/assets/atlas-interactions-comments-2026-10-11/contract-fixed/atlas-interactions-comment-ffb5d-e-row-and-preserves-actions-chromium/reports-dark-577-details.png), 같은 폴더 JSON.
 - [390 chart](/Users/kim-jh/Documents/led-control-service/.worktrees/atlas-interactions-comments-20261011/docs/assets/atlas-interactions-comments-2026-10-11/contract-fixed/atlas-interactions-comment-0d65e-C8-content-at-PC-and-mobile-chromium/overview-390.png),1440도 같은 폴더. JSON에 tick bounds/C8 원문.
-- [마지막 미완료 marker gate 원 실패](/Users/kim-jh/Documents/led-control-service/.worktrees/atlas-interactions-comments-20261011/docs/assets/atlas-interactions-comments-2026-10-11/marker-reachable/atlas-interactions-comment-416c4-rk-actions-remain-reachable-chromium/manual-touch-original-failure.png).
+- [추가 marker gate 준비 단계의 원 실패](/Users/kim-jh/Documents/led-control-service/.worktrees/atlas-interactions-comments-20261011/docs/assets/atlas-interactions-comments-2026-10-11/marker-reachable/atlas-interactions-comment-416c4-rk-actions-remain-reachable-chromium/manual-touch-original-failure.png).
 - [최종 marker-origin 실제 native touch](/Users/kim-jh/Documents/led-control-service/.worktrees/atlas-interactions-comments-20261011/docs/assets/atlas-interactions-comments-2026-10-11/body-restored/atlas-interactions-comment-416c4-rk-actions-remain-reachable-chromium/manual-marker-origin-touch.png), 같은 폴더 JSON에 모든 phase camera/rect/hit와selection array. body scrollY388→0, marker48×48/bottom493.70<nav532, camera(0,0)→(8,8), selection불변/다음tap정상.
 - [최종 short clear/nav bounds](/Users/kim-jh/Documents/led-control-service/.worktrees/atlas-interactions-comments-20261011/docs/assets/atlas-interactions-comments-2026-10-11/body-restored/atlas-interactions-comment-416c4-rk-actions-remain-reachable-chromium/manual-touch-dark-short.png), 같은 폴더 JSON. clear y332,h44,bottom376<=실제nav top532.
 
 raw/에 명령별 로그 보존. canonical 상세 보고서는 ignored `.superpowers/sdd/2026-10-11-atlas-interactions-comments/task-4-report.md`.
 
 한계: headless Chromium controlled mocks이며 모든 관측 API 쓰기0. 장비/HIL/실제 DB·다운로드 transport 미실행. 미배치/pageerror/viewer 다운로드/중첩select 직접 browser assertion은 수행하지 않았다. 원 marker setup 실패 catch에는 상세 camera/rect/hit chain이 없었으며 원 자료는 그대로 남겼다. 최종 catch 및 입력전에는 실제 phase metrics를 추가했고 marker-origin/native pointerup와fixednav 전체44 visible assertion까지 최종case2에서통과했다. Owned15187 종료 확인, 사용자 서비스 untouched.
+
+## 구현·검토 기록과 통합 상태
+
+`task-1-report.md`(공통/통계), `task-2-report.md`(수동 제어), `task-3-report.md`(헤더/모니터링), `task-4-report.md`(QA), `task-5-report.md`(단일 독립 최종 검토), `execution-ledger.md`(판단·원 실패·소스별 체크포인트)를 함께 보존했다. Task3 원 단계별 로그7개는 `task3-raw/`에 있다. 공통118+통계169는 source별 고유287이며 단일 최종batch가 아니다. 제어는 같은 제품5suite295PASS이고 모니터링은 국소GREEN 경계만 주장한다.
+
+20건 UI branch는 제품437/QA673에서 준비 완료이며 최종 reviewer C/I/M0이다. 운영 인사이트는 사용자 요청으로 그대로다. 숫자 날짜 segment의 개별44px 폭과 모바일 전체 제목·기간 한 행은 물리적 폭 예외로 기록했고 일반44px/전체 날짜/desktop 한 행은 유지한다. 번호 검색은 불러온 조명 이름 문자열/기존 cursor 범위이며 서버 전체 검색·실장비를 구현했다고 표현하지 않는다.
+
+기본 브랜치는 별도 공개 웹 배포 작업으로 `34d5a375`까지 진행하여 예정 FF가 불가능해졌다. 기존 변경을 보존하는 일반 로컬 merge 또는 검증된 UI branch 유지 중 사용자 선택을 요청했고 아직 답변은 없다. MAIN 변경·병합·worktree/branch 제거는 하지 않았다. 이 README의 준비 완료는 작업 브랜치에 한정되며 MAIN 통합 승인을 대신하지 않는다.

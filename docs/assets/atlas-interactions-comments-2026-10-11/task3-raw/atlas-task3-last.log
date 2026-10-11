@@ -1,0 +1,39 @@
+
+ RUN  v2.1.9 /Users/kim-jh/Documents/led-control-service/.worktrees/atlas-interactions-comments-20261011/apps/web
+
+ ✓ src/features/shells/CustomerShell.monitoring.test.tsx (7 tests) 1101ms
+   ✓ customer shell monitoring details > reserves a single flow notice band outside the sticky header and keeps monitoring fullview naturally scrollable 376ms
+ ❯ src/features/monitoring/MonitoringView.test.tsx (107 tests | 1 failed | 105 skipped) 905ms
+   × MonitoringView refresh > N1 restores monitoring fallback when focused desktop detail is automatically removed by placement 634ms
+     → expected true to be false // Object.is equality
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/features/monitoring/MonitoringView.test.tsx > MonitoringView refresh > N1 restores monitoring fallback when focused desktop detail is automatically removed by placement
+AssertionError: expected true to be false // Object.is equality
+
+- Expected
++ Received
+
+- false
++ true
+
+ ❯ openDesktopCondition src/features/monitoring/MonitoringView.test.tsx:301:32
+    299|     close.focus();
+    300|     expect(close).toHaveFocus();
+    301|     expect(opener.isConnected).toBe(false);
+       |                                ^
+    302|     return { view, detail };
+    303|   }
+ ❯ src/features/monitoring/MonitoringView.test.tsx:310:22
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+ Test Files  1 failed | 1 passed (2)
+      Tests  1 failed | 8 passed | 105 skipped (114)
+   Start at  23:48:15
+   Duration  3.44s (transform 746ms, setup 150ms, collect 2.71s, tests 2.01s, environment 789ms, prepare 325ms)
+
+undefined
+/Users/kim-jh/Documents/led-control-service/.worktrees/atlas-interactions-comments-20261011/apps/web:
+ ERR_PNPM_RECURSIVE_EXEC_FIRST_FAIL  Command failed with exit code 1: vitest run src/features/shells/CustomerShell.monitoring.test.tsx src/features/monitoring/MonitoringView.test.tsx -t customer shell monitoring details|automatically removed by placement|selects a matched row --reporter=dot

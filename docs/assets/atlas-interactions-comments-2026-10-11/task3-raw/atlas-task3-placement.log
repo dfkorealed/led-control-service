@@ -1,0 +1,11 @@
+
+ RUN  v2.1.9 /Users/kim-jh/Documents/led-control-service/.worktrees/atlas-interactions-comments-20261011/apps/web
+
+ ✓ src/features/monitoring/MonitoringView.test.tsx (107 tests | 106 skipped) 773ms
+   ✓ MonitoringView refresh > N1 restores monitoring fallback when focused desktop detail is automatically removed by placement 772ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed | 106 skipped (107)
+   Start at  23:50:15
+   Duration  3.10s (transform 569ms, setup 71ms, collect 1.41s, tests 773ms, environment 318ms, prepare 158ms)
+
