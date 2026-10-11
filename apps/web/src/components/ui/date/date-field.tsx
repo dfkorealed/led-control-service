@@ -136,6 +136,10 @@ const editableSegmentClass = "inline-flex min-h-13 min-w-13 items-center justify
 function RegisteredSegment({ segment, firstSegment, binding, blurRevision, handleKey }: { segment: DateSegmentProps["segment"]; firstSegment?: Ref<HTMLDivElement>; binding?: DateDraftBinding; blurRevision: number; handleKey(event: KeyboardEvent<HTMLSpanElement>, handler?: KeyboardEventHandler<HTMLSpanElement>): void }) {
   const dateState = useContext(DateFieldStateContext);
   const timeState = useContext(TimeFieldStateContext);
+  // Six date segments plus a calendar cannot each be 44px wide in a 320px
+  // single-line range. Date digits use text width; the group and calendar keep
+  // a 44px height/target. Time fields retain their established segment geometry.
+  const segmentClass = dateState ? "inline-flex min-h-11 shrink-0 items-center justify-center rounded-control px-0.5 tabular-nums text-content-primary outline-none focus:bg-action-primary-soft focus:ring-2 focus:ring-inset focus:ring-border-focus data-disabled:opacity-60" : editableSegmentClass;
   // Derive registration from React Aria's locale segment order on every render.
   // A closure counter would lose the ref when DateInput rerenders independently.
   const firstType = (dateState ?? timeState)?.segments.find((item) => item.isEditable)?.type;
@@ -149,11 +153,11 @@ function RegisteredSegment({ segment, firstSegment, binding, blurRevision, handl
         has no editable DOM or handlers. Never fake an editable upstream state. */}
     {presentRaw ? <span data-type={segment.type} data-disabled={dateState?.isDisabled || undefined}
       data-readonly={dateState?.isReadOnly || undefined} data-invalid={dateState?.isInvalid || undefined}
-      data-placeholder={raw === null || undefined} className={editableSegmentClass}>
+      data-placeholder={raw === null || undefined} className={segmentClass}>
       {raw !== null && <span className="sr-only">{segment.placeholder} </span>}{raw ?? segment.placeholder}
     </span> : <DateSegment segment={segment} ref={segment.type === firstType ? firstSegment : undefined}
       render={binding?.rangeEdit && part ? domProps => <span {...domProps} onKeyDown={event => handleKey(event, domProps.onKeyDown)} /> : undefined}
-      className={segment.type === "literal" ? "text-content-primary" : editableSegmentClass} />}</>;
+      className={segment.type === "literal" ? "shrink-0 text-content-primary" : segmentClass} />}</>;
 }
 export const SegmentedInput = /* @__PURE__ */ forwardRef<HTMLDivElement, Omit<DateInputProps, "children"> & { firstSegment?: Ref<HTMLDivElement>; draftBinding?: DateDraftBinding }>(function SegmentedInput({ firstSegment, draftBinding, ...props }, ref) {
   const [blurRevision, setBlurRevision] = useState(0);

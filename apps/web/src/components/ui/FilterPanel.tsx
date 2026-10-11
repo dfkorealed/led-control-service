@@ -46,7 +46,7 @@ export function FilterPanel({ label, children, chips, actions, className, mode =
           <SlidersHorizontal size={18} aria-hidden="true" /><span aria-hidden="true">{triggerLabel}</span>
           {activeFilterCount > 0 ? <span aria-hidden="true" className="rounded-pill bg-action-primary-soft px-1.5 text-label text-action-primary">{activeFilterCount}</span> : null}
         </AriaButton>
-        <Popover label={label} triggerRef={trigger} placement="bottom end" className="w-96 min-w-0" isKeyboardDismissDisabled={isDismissDisabled}
+        <Popover label={label} triggerRef={trigger} placement="bottom end" mobilePresentation="bottom-sheet" className="w-96 min-w-0" isKeyboardDismissDisabled={isDismissDisabled}
           shouldCloseOnInteractOutside={() => !isDismissDisabled}>
           <div className={cn("grid min-w-0 gap-4 *:min-w-0 *:max-w-full", variant === "compact" && "gap-3")}>
             {children}

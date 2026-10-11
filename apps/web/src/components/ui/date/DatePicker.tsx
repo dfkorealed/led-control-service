@@ -1,4 +1,5 @@
 import { forwardRef, useRef } from "react";
+import { CalendarDays } from "lucide-react";
 import { Button, Calendar, DatePicker as AriaDatePicker, Dialog, Group, I18nProvider, Popover } from "react-aria-components";
 import { FormField, fieldAria } from "../fields/FormField";
 import { RegisteredPopoverContent } from "../overlays/RegisteredPopoverContent";
@@ -16,7 +17,7 @@ export interface DatePickerProps extends DateFieldOptions {
   draftController?: DateDraftController;
 }
 export const datePopoverClass = "max-w-full rounded-popover border border-border-strong bg-surface-panel shadow-popover";
-export const calendarTriggerClass = "inline-flex min-h-13 min-w-13 shrink-0 items-center justify-center rounded-control border border-border-strong bg-surface-panel p-0 text-content-primary outline-none data-focus-visible:shadow-focus data-disabled:opacity-60";
+export const calendarTriggerClass = "inline-flex min-h-11 min-w-11 shrink-0 items-center justify-center rounded-none border border-border-strong bg-surface-panel p-0 text-content-primary outline-none data-focus-visible:shadow-focus data-disabled:opacity-60";
 
 export const DatePicker = /* @__PURE__ */ forwardRef<FocusableFieldHandle, DatePickerProps>(function DatePicker(
   { value, onChange, draftController, minValue, maxValue, label, description, errorMessage, variant, size, className, id, ...props }, ref
@@ -44,7 +45,7 @@ export const DatePicker = /* @__PURE__ */ forwardRef<FocusableFieldHandle, DateP
       {({ isOpen, state }) => <><Group id={attributes.id} ref={focus.element} aria-controls={props["aria-controls"]} className={cn(attributes.className, "flex min-w-0 items-center justify-between gap-1 px-1 py-0")}>
         <SegmentedInput firstSegment={focus.firstSegment} className="flex min-w-0 items-center"
           draftBinding={draftController && { draft: draftController.draft, onDraftChange: changeDraft, restoring, valueKey: canonical ?? "empty" }} />
-        <Button className={calendarTriggerClass}><span aria-hidden="true">▦</span></Button>
+        <Button className={calendarTriggerClass}><CalendarDays size={18} aria-hidden="true" /></Button>
       </Group>
       {/* Seven 44px cells plus borders need 310px. The default 12px viewport
           inset would push the calendar beyond 320px; use the approved 4px inset. */}

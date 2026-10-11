@@ -1,5 +1,28 @@
 # 통계 메뉴 기능 현황
 
+## 2026-10-11 공통 필터·날짜·행 상세 교정
+
+### 구현 완료
+
+- 공통 FilterPanel은 모바일에서 하단 modal sheet, desktop에서 기존 popover를 사용한다. 중첩 달력/select와 닫기 잠금·포커스 복귀 계약을 유지한다.
+- 날짜는 실제 달력 아이콘과 square 44px trigger, 안쪽 segment focus를 사용한다. 범위는 한 줄이며 raw draft·검증을 유지한다. DataGrid는 선택적 카드 요약 열과 stable row key에 연결된 인라인 상세를 제공한다.
+
+### 미구현
+
+- 실제 짧은 320/390px 화면·양 테마의 geometry와 최종 통합 검증은 후속 QA 범위다.
+
+### 부족하거나 개선이 필요한 기능
+
+- 날짜 숫자 segment는 텍스트 폭이다. 6개 segment와 달력을 320px 한 줄에 넣기 위해 segment 개별 44px 폭은 적용하지 않으며 전체 입력 높이와 달력/버튼 hit는 유지한다. 단위 테스트는 실제 화면의 겹침·터치 검증을 대신하지 않는다.
+
+### 관련 파일
+
+- apps/web/src/components/ui/{FilterPanel,DataGrid}.tsx, overlays/Popover.tsx, date/{DatePicker,DateRangePicker,date-field}.tsx 및 직접 테스트.
+
+### 갱신 규칙
+
+- 공통 소비 변경 시 네 메뉴 문서를 함께 갱신하고 실제 browser 증거를 단위 검증과 구분한다. API/권한·데이터·작업 수명은 유지한다.
+
 ## 2026-10-11 브라우저 의견 반영 — 통계 헤더·보고서 필터
 
 ### 구현 완료

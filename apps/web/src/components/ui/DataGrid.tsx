@@ -1,4 +1,4 @@
-import { useContext, useEffect, useLayoutEffect, useRef, useState, type ReactElement, type ReactNode } from "react";
+import { Fragment, useContext, useEffect, useId, useLayoutEffect, useRef, useState, type ReactElement, type ReactNode } from "react";
 import { ArrowDown, ArrowUp, ArrowUpDown } from "lucide-react";
 import { Button } from "./Button";
 import { SelectBox } from "./fields/SelectBox";
@@ -27,6 +27,9 @@ export interface DataGridProps<T> {
   emptyState?: ReactNode;
   variant?: "default" | "compact";
   className?: string;
+  compactColumnIds?: readonly string[];
+  renderRowDetails?(row: T, surface: DataGridSurface): ReactNode;
+  getRowDetailsLabel?(row: T): string;
 }
 const alignments = { left: "text-left", center: "text-center", right: "text-right" };
 const justifications = { left: "justify-start", center: "justify-center", right: "justify-end" };
@@ -48,7 +51,9 @@ function sortedRows<T>(rows: readonly T[], accessor: NonNullable<DataGridColumn<
 }
 
 /** Sorting covers supplied rows only. Query, pagination, row actions and filters stay with callers. */
-export function DataGrid<T>({ caption, rows, columns, getRowKey, isBusy = false, emptyState, variant = "default", className }: DataGridProps<T>): ReactElement {
+export function DataGrid<T>({ caption, rows, columns, getRowKey, isBusy = false, emptyState, variant = "default", className, compactColumnIds, renderRowDetails, getRowDetailsLabel }: DataGridProps<T>): ReactElement {
+  const detailsId = useId();
+  const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
   const customerTheme = useContext(CustomerThemeContext);
   const container = useRef<HTMLElement>(null);
   const [width, setWidth] = useState(0);
@@ -75,6 +80,13 @@ export function DataGrid<T>({ caption, rows, columns, getRowKey, isBusy = false,
   const cellClass = cn("min-w-0 wrap-anywhere whitespace-normal", variant === "compact" ? "px-3 py-2" : "px-4 py-3");
   const empty = emptyState ?? (isBusy ? "불러오는 중" : "항목이 없습니다.");
   const rowKey = (row: T) => { const key = getRowKey(row); return `${typeof key}:${key}`; };
+  const cardColumns = compactColumnIds ? compactColumnIds.map(id => columns.find(column => column.id === id)).filter((column): column is DataGridColumn<T> => Boolean(column)) : columns;
+  const detailId = (row: T) => `${detailsId}-${encodeURIComponent(rowKey(row))}`;
+  const detailsLabel = (row: T) => getRowDetailsLabel?.(row) ?? "상세보기";
+  const detailsToggle = (row: T) => renderRowDetails ? <Button type="button" size="sm" variant="ghost" aria-label={detailsLabel(row)} aria-expanded={expanded.has(rowKey(row))} aria-controls={detailId(row)} onClick={() => setExpanded(current => {
+    const next = new Set(current); const key = rowKey(row); if (next.has(key)) next.delete(key); else next.add(key); return next;
+  })}>{expanded.has(rowKey(row)) ? "상세 닫기" : "상세보기"}</Button> : null;
+  const details = (row: T, surface: DataGridSurface) => renderRowDetails && expanded.has(rowKey(row)) ? <div id={detailId(row)} role="region" aria-label={detailsLabel(row)} className="min-w-0 border-t border-border-default pt-3">{renderRowDetails(row, surface)}</div> : null;
   const displayedRows = sort && sortColumn?.sortValue ? sortedRows(rows, sortColumn.sortValue, sort.direction) : rows;
   const sortableColumns = columns.filter(column => column.sortValue);
   const toggleSort = (columnId: string) => setSort(current => ({ columnId, direction: current?.columnId === columnId && current.direction === "ascending" ? "descending" : "ascending" }));
@@ -104,14 +116,15 @@ export function DataGrid<T>({ caption, rows, columns, getRowKey, isBusy = false,
           {sortColumn?.id === column.id ? sort?.direction === "ascending" ? <ArrowUp size={16} className="shrink-0" aria-hidden="true" /> : <ArrowDown size={16} className="shrink-0" aria-hidden="true" /> : <ArrowUpDown size={16} className="shrink-0" aria-hidden="true" />}
         </Button> : column.header}
       </DataTableHeaderCell>)}</tr></thead>
-      <tbody>{displayedRows.length ? displayedRows.map(row => <tr key={rowKey(row)}>{columns.map(column => <td key={column.id} className={cn(cellClass, "border-t border-border-default", alignments[column.align ?? "left"])}>{column.renderCell(row, "table")}</td>)}</tr>)
+      <tbody>{displayedRows.length ? displayedRows.map(row => <Fragment key={rowKey(row)}><tr>{columns.map((column, index) => <td key={column.id} className={cn(cellClass, "border-t border-border-default", alignments[column.align ?? "left"])}>{column.renderCell(row, "table")}{index === columns.length - 1 ? detailsToggle(row) : null}</td>)}</tr>{renderRowDetails && expanded.has(rowKey(row)) ? <tr><td colSpan={columns.length} className={cellClass}>{details(row, "table")}</td></tr> : null}</Fragment>)
         : <tr><td colSpan={columns.length} className={cellClass}>{empty}</td></tr>}</tbody>
     </DataTableShell> : <ul aria-label={caption} className={cn("m-0 grid min-w-0 list-none p-0", customerCards ? "gap-3" : "divide-y divide-border-default")}>
       {displayedRows.length ? displayedRows.map(row => <li key={rowKey(row)} className={cn(variant === "compact" ? "min-w-0 p-3" : "min-w-0 p-4", customerCards && "rounded-panel border border-border-default bg-surface-panel")}>
-        <dl className="m-0 grid min-w-0 gap-3">{columns.map(column => <div key={column.id} className={cn("grid min-w-0 gap-1", customerCards && "grid-cols-[minmax(0,1fr)_minmax(0,2fr)] items-start gap-3")}>
+        <dl className="m-0 grid min-w-0 gap-3">{cardColumns.map(column => <div key={column.id} className={cn("grid min-w-0 gap-1", customerCards && "grid-cols-[minmax(0,1fr)_minmax(0,2fr)] items-start gap-3")}>
           <dt className={cn("wrap-anywhere text-label font-semibold text-content-secondary", customerCards && "text-body-sm")}>{column.header}</dt>
           <dd className={cn("m-0 min-w-0 wrap-anywhere whitespace-normal text-body-sm", alignments[column.align ?? (customerCards ? "right" : "left")])}>{column.renderCell(row, "card")}</dd>
         </div>)}</dl>
+        {detailsToggle(row)}{details(row, "card")}
       </li>) : <li className="min-w-0 p-4">{empty}</li>}
     </ul>}
   </Card>;

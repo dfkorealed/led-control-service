@@ -4,6 +4,17 @@ import { afterEach, expect, it, vi } from "vitest";
 import * as UI from "../index";
 afterEach(cleanup);
 
+it("provides a real calendar icon and contained segment focus in a single range row", () => {
+  render(<UI.DateRangePicker label="기간" value={{ start: "2026-01-01", end: "2026-12-31" }} onChange={() => {}} />);
+  const calendar = screen.getByRole("button", { name: /달력/ });
+  expect(calendar.querySelector("svg")).not.toBeNull();
+  expect(calendar).toHaveClass("min-h-11", "min-w-11", "rounded-none");
+  const segment = screen.getAllByRole("spinbutton")[0];
+  expect(segment).not.toHaveClass("focus:shadow-focus");
+  expect(segment).toHaveClass("focus:ring-inset");
+  expect(segment.parentElement?.parentElement).not.toHaveClass("flex-wrap");
+});
+
 it.each(["A→B", "A→B→A"])("rejects an origin input across equal-empty same-mounted scope %s and accepts later current-owner edits", transition => {
   const change = vi.fn(); const committedScopes: string[] = [];
   function Editing() {

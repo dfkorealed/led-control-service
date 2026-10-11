@@ -12,6 +12,22 @@ function panel() {
 afterEach(cleanup);
 
 describe("FilterPanel", () => {
+  it("uses a modal bottom sheet on mobile while retaining nested calendar dismissal and focus", async () => {
+    vi.stubGlobal("matchMedia", () => ({ matches: true, addEventListener() {}, removeEventListener() {} }));
+    try {
+      render(<UI.FilterPanel label="하단 조건" mode="popover"><UI.DatePicker label="기간" value="2026-02-28" onChange={() => {}} /></UI.FilterPanel>);
+      const trigger = screen.getByRole("button", { name: /하단 조건 상세 필터/ });
+      trigger.focus(); fireEvent.click(trigger);
+      const dialog = await screen.findByRole("dialog", { name: "하단 조건" });
+      expect(dialog).toHaveAttribute("aria-modal", "true");
+      fireEvent.click(screen.getByRole("button", { name: /달력/ }));
+      fireEvent.keyDown(await screen.findByRole("grid"), { key: "Escape" });
+      await waitFor(() => expect(screen.queryByRole("grid")).not.toBeInTheDocument());
+      expect(dialog).toBeInTheDocument();
+      fireEvent.click(screen.getByRole("button", { name: "필터 닫기" }));
+      await waitFor(() => expect(trigger).toHaveFocus());
+    } finally { cleanup(); vi.unstubAllGlobals(); }
+  });
   it("shows the trigger label and only a positive active count without changing the accessible count", () => {
     const view = render(<UI.FilterPanel label="조건" mode="popover"><span>내용</span></UI.FilterPanel>);
     const trigger = screen.getByRole("button", { name: "조건 상세 필터, 활성 조건 0개" });

@@ -1,4 +1,5 @@
 import { forwardRef, useLayoutEffect, useRef, useState } from "react";
+import { CalendarDays } from "lucide-react";
 import { Button, DateRangePicker as AriaDateRangePicker, Dialog, Group, I18nProvider, Popover, RangeCalendar } from "react-aria-components";
 import { FormField, fieldAria } from "../fields/FormField";
 import { RegisteredPopoverContent } from "../overlays/RegisteredPopoverContent";
@@ -91,14 +92,14 @@ export const DateRangePicker = /* @__PURE__ */ forwardRef<FocusableFieldHandle, 
       }}
       {...parseBounds(minValue, maxValue, parseIsoDate)}>
       {({ isOpen, state }) => <><Group id={attributes.id} ref={focus.element} aria-controls={props["aria-controls"]} className={cn(attributes.className, "flex min-w-0 items-center justify-between gap-1 px-1 py-0")}>
-        <div className="flex min-w-0 flex-wrap items-center gap-1">
+        <div className="flex min-w-0 items-center gap-1 whitespace-nowrap text-body-sm">
           <SegmentedInput slot="start" firstSegment={focus.firstSegment} className="flex min-w-0 items-center"
             draftBinding={draftController && { draft: draftController.draft.start, onDraftChange: draft => changeEndpoint("start", draft), restoring: startRestoring, valueKey, preserveUnedited: true, rangeEdit: startEdit }} />
           <span aria-hidden="true">–</span>
           <SegmentedInput slot="end" className="flex min-w-0 items-center"
             draftBinding={draftController && { draft: draftController.draft.end, onDraftChange: draft => changeEndpoint("end", draft), restoring: endRestoring, valueKey, preserveUnedited: true, rangeEdit: endEdit }} />
         </div>
-        <Button className={calendarTriggerClass}><span aria-hidden="true">▦</span></Button>
+        <Button className={calendarTriggerClass}><CalendarDays size={18} aria-hidden="true" /></Button>
       </Group>
       {/* Match DatePicker's 4px viewport inset so seven 44px cells fit at 320px. */}
       <Popover containerPadding={4} className={datePopoverClass}><RegisteredPopoverContent isActive={isOpen} onBack={() => state.close()}><Dialog className="outline-none"><RangeCalendar className="flex flex-col gap-2"><CalendarContent /></RangeCalendar></Dialog></RegisteredPopoverContent></Popover></>}
