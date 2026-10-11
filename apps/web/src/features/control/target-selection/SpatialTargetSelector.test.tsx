@@ -79,10 +79,8 @@ describe("SpatialTargetSelector", () => {
     expect(status).toHaveTextContent("전체24정상18장애2오프라인4");
     expect(status).not.toHaveTextContent("999");
     const viewport = screen.getByTestId("target-selection-map-viewport");
-    fireEvent.click(screen.getByRole("button", { name: "이동" }));
     fireEvent.click(screen.getByRole("button", { name: "표시 층" })); fireEvent.click(screen.getByRole("option", { name: "B1" }));
     expect(screen.getByRole("group", { name: "B1 도면 조명 상태" })).toHaveTextContent("전체0정상0장애0오프라인0");
-    expect(screen.getByRole("button", { name: "이동" })).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByTestId("target-selection-map-viewport")).toBe(viewport);
     expect(onChange).not.toHaveBeenCalled();
   });
@@ -95,17 +93,13 @@ describe("SpatialTargetSelector", () => {
     expect(screen.queryByRole("group", { name: /도면 조명 상태/ })).not.toBeInTheDocument();
   });
 
-  it("opts manual workspace into always-visible chrome tools without changing the embedded default", () => {
+  it("manual fixture selection works without a tool switch and embedded disclosure stays unchanged", () => {
     const view = renderSelector({ presentation: "manual-workspace", hideEmbeddedSummary: true });
     expect(document.querySelector("[data-target-selection-content]")).toHaveClass("overscroll-contain", "compact:overscroll-auto");
-    const tools = screen.getByRole("group", { name: "지도 선택 도구" });
-    expect(tools).toContainElement(screen.getByRole("button", { name: "이동" }));
-    expect(screen.getByRole("button", { name: "개별 선택" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.queryByRole("group", { name: "지도 선택 도구" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /선택 도구 열기/ })).not.toBeInTheDocument();
     const pin = screen.getByRole("button", { name: /B2-L001 정상/ });
-    fireEvent.click(screen.getByRole("button", { name: "이동" })); fireEvent.click(pin);
-    expect(onChange).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole("button", { name: "개별 선택" })); fireEvent.click(pin);
+    fireEvent.click(pin);
     expect(onChange).toHaveBeenCalledWith({ mode: "fixtures", fixtureIds: [fixtureA] });
     view.rerender(<SelectorHarness />);
     expect(screen.queryByRole("group", { name: "지도 선택 도구" })).not.toBeInTheDocument();
@@ -114,10 +108,7 @@ describe("SpatialTargetSelector", () => {
   });
   it("keeps manual navigation available while aggregate selection remains immutable", () => {
     renderSelector({ presentation: "manual-workspace", selection: { mode: "floor", floorId: "floor-b2" } });
-    expect(screen.getByRole("button", { name: "이동" })).toHaveAttribute("aria-pressed", "true");
-    expect(screen.getByRole("button", { name: "이동" })).not.toBeDisabled();
-    expect(screen.getByRole("button", { name: "개별 선택" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "영역 선택" })).toBeDisabled();
+    expect(screen.queryByRole("group", { name: "지도 선택 도구" })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /B2-L001 정상/ }));
     expect(onChange).not.toHaveBeenCalled();
   });

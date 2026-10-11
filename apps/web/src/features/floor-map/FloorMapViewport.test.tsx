@@ -17,6 +17,88 @@ const snapshot: FloorMapSnapshot = {
 describe("FloorMapViewport", () => {
   afterEach(() => cleanup());
 
+  it.each(["touch", "mouse"])("manual-cad pans from a marker with %s navigation without a ghost click", pointerType => {
+    const toggle = vi.fn(), select = vi.fn();
+    render(<FloorMapViewport snapshot={snapshot} ariaLabel="manual" interactionPolicy="direct-selection" toolModePolicy="manual-cad" onAreaSelect={select}><button data-spatial-map-marker onClick={toggle}>pin</button></FloorMapViewport>);
+    const viewport = screen.getByRole("region", { name: "manual" });
+    const pin = screen.getByText("pin");
+    dispatchPointer(pin, "pointerdown", { pointerId: 1, pointerType, button: pointerType === "mouse" ? 1 : 0, clientX: 100, clientY: 100 });
+    dispatchPointer(pin, "pointermove", { pointerId: 1, pointerType, clientX: 93, clientY: 100 });
+    expect(viewport.scrollLeft).toBe(0);
+    dispatchPointer(pin, "pointermove", { pointerId: 1, pointerType, clientX: 80, clientY: 90 });
+    dispatchPointer(pin, "pointerup", { pointerId: 1, pointerType, clientX: 80, clientY: 90 });
+    fireEvent.click(pin, { detail: 1 });
+    expect(viewport.scrollLeft).toBe(20); expect(viewport.scrollTop).toBe(10);
+    expect(select).not.toHaveBeenCalled(); expect(toggle).not.toHaveBeenCalled();
+    fireEvent.click(pin, { detail: 0 }); expect(toggle).toHaveBeenCalledOnce();
+  });
+
+  it("manual-cad touch hold never creates an area and swipe still pans", () => {
+    vi.useFakeTimers();
+    try {
+      const select = vi.fn();
+      render(<FloorMapViewport snapshot={snapshot} ariaLabel="manual" interactionPolicy="direct-selection" toolModePolicy="manual-cad" onAreaSelect={select}><span /></FloorMapViewport>);
+      const viewport = screen.getByRole("region", { name: "manual" });
+      dispatchPointer(viewport, "pointerdown", { pointerId: 1, pointerType: "touch", button: 0, clientX: 100, clientY: 100 });
+      act(() => vi.advanceTimersByTime(700));
+      expect(screen.queryByTestId("map-area-selection")).not.toBeInTheDocument();
+      dispatchPointer(viewport, "pointermove", { pointerId: 1, pointerType: "touch", clientX: 80, clientY: 100 });
+      dispatchPointer(viewport, "pointerup", { pointerId: 1, pointerType: "touch", clientX: 80, clientY: 100 });
+      expect(viewport.scrollLeft).toBe(20); expect(select).not.toHaveBeenCalled();
+    } finally { cleanup(); vi.useRealTimers(); }
+  });
+
+  it("manual-cad left marker drag starts area at 8px and uses world coordinates", () => {
+    const select = vi.fn();
+    render(<FloorMapViewport snapshot={snapshot} ariaLabel="manual" interactionPolicy="direct-selection" toolModePolicy="manual-cad" onAreaSelect={select}><button data-spatial-map-marker>pin</button></FloorMapViewport>);
+    const pin = screen.getByText("pin");
+    vi.spyOn(document.querySelector<HTMLElement>("[data-floor-map-surface]")!, "getBoundingClientRect").mockReturnValue(rect(20, 40, 300, 200));
+    dispatchPointer(pin, "pointerdown", { pointerId: 1, pointerType: "mouse", button: 0, clientX: 70, clientY: 90 });
+    dispatchPointer(pin, "pointermove", { pointerId: 1, pointerType: "mouse", clientX: 77, clientY: 90 });
+    expect(screen.queryByTestId("map-area-selection")).not.toBeInTheDocument();
+    dispatchPointer(pin, "pointermove", { pointerId: 1, pointerType: "mouse", clientX: 78, clientY: 90 });
+    expect(screen.getByTestId("map-area-selection")).toBeInTheDocument();
+    dispatchPointer(pin, "pointerup", { pointerId: 1, pointerType: "mouse", clientX: 170, clientY: 140 });
+    expect(select).toHaveBeenCalledWith({ left: 100, top: 100, right: 300, bottom: 200 });
+  });
+
+  it.each(["pointercancel", "lostpointercapture", "blur", "Escape"])("manual-cad cancels marquee on %s without a commit", cancel => {
+    const select = vi.fn();
+    render(<FloorMapViewport snapshot={snapshot} ariaLabel="manual" interactionPolicy="direct-selection" toolModePolicy="manual-cad" onAreaSelect={select}><span /></FloorMapViewport>);
+    const viewport = screen.getByRole("region", { name: "manual" });
+    dispatchPointer(viewport, "pointerdown", { pointerId: 1, pointerType: "mouse", button: 0, clientX: 100, clientY: 100 });
+    dispatchPointer(viewport, "pointermove", { pointerId: 1, pointerType: "mouse", clientX: 120, clientY: 100 });
+    expect(screen.getByTestId("map-area-selection")).toBeInTheDocument();
+    if (cancel === "Escape") fireEvent.keyDown(viewport, { key: "Escape" });
+    else if (cancel === "blur") fireEvent(window, new Event("blur"));
+    else dispatchPointer(viewport, cancel, { pointerId: 1, pointerType: "mouse" });
+    dispatchPointer(viewport, "pointerup", { pointerId: 1, pointerType: "mouse", clientX: 120, clientY: 100 });
+    expect(select).not.toHaveBeenCalled(); expect(screen.queryByTestId("map-area-selection")).not.toBeInTheDocument();
+  });
+
+  it("manual-cad gives pinch precedence and keeps locked left drag immutable while permitting navigation", () => {
+    const select = vi.fn();
+    const view = render(<FloorMapViewport snapshot={snapshot} ariaLabel="manual" interactionPolicy="direct-selection" toolModePolicy="manual-cad" onAreaSelect={select}><span /></FloorMapViewport>);
+    const viewport = screen.getByRole("region", { name: "manual" });
+    dispatchPointer(viewport, "pointerdown", { pointerId: 1, pointerType: "touch", button: 0, clientX: 100, clientY: 100 });
+    dispatchPointer(viewport, "pointerdown", { pointerId: 2, pointerType: "touch", button: 0, clientX: 200, clientY: 100 });
+    dispatchPointer(viewport, "pointermove", { pointerId: 2, pointerType: "touch", clientX: 300, clientY: 100 });
+    dispatchPointer(viewport, "pointerup", { pointerId: 2, pointerType: "touch", clientX: 300, clientY: 100 });
+    dispatchPointer(viewport, "pointerup", { pointerId: 1, pointerType: "touch", clientX: 100, clientY: 100 });
+    expect(viewport).toHaveAttribute("data-zoom", "2"); expect(select).not.toHaveBeenCalled();
+    view.rerender(<FloorMapViewport snapshot={snapshot} ariaLabel="manual" interactionPolicy="pan" toolModePolicy="manual-cad" onAreaSelect={select}><span /></FloorMapViewport>);
+    dispatchPointer(viewport, "pointerdown", { pointerId: 3, pointerType: "mouse", button: 0, clientX: 100, clientY: 100 });
+    dispatchPointer(viewport, "pointermove", { pointerId: 3, pointerType: "mouse", clientX: 80, clientY: 100 });
+    dispatchPointer(viewport, "pointerup", { pointerId: 3, pointerType: "mouse", clientX: 80, clientY: 100 });
+    expect(viewport.scrollLeft).toBe(0); expect(select).not.toHaveBeenCalled();
+    fireEvent.keyDown(viewport, { key: " " });
+    dispatchPointer(viewport, "pointerdown", { pointerId: 4, pointerType: "mouse", button: 0, clientX: 100, clientY: 100 });
+    dispatchPointer(viewport, "pointermove", { pointerId: 4, pointerType: "mouse", clientX: 80, clientY: 100 });
+    dispatchPointer(viewport, "pointerup", { pointerId: 4, pointerType: "mouse", clientX: 80, clientY: 100 });
+    fireEvent.keyUp(viewport, { key: " " });
+    expect(viewport.scrollLeft).toBe(20); expect(select).not.toHaveBeenCalled();
+  });
+
   it("explicit pan suppresses pin selection while retaining drag and middle-button navigation", () => {
     const toggle = vi.fn(), select = vi.fn();
     const view = render(<FloorMapViewport snapshot={snapshot} ariaLabel="explicit" interactionPolicy="direct-selection" toolModePolicy="explicit" mode="pan" onAreaSelect={select}><button data-spatial-map-marker onClick={toggle}>pin</button></FloorMapViewport>);

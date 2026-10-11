@@ -8,7 +8,7 @@ import { resolveControlSelection, toggleFixtureSelection, type ControlMode, type
 import { humanizeDeviceResponseMessage } from "../control-copy";
 import { FixtureSelectionDrawer } from "./FixtureSelectionDrawer";
 import { SelectionSummaryPanel } from "./SelectionSummaryPanel";
-import { TargetMapTools, TargetSelectionToolbar } from "./TargetSelectionToolbar";
+import { TargetSelectionToolbar } from "./TargetSelectionToolbar";
 
 export interface SpatialTargetSelectorProps {
   siteId: string;
@@ -51,10 +51,7 @@ export function SpatialTargetSelector({
   const [listOpen, setListOpen] = useState(false);
   const listOpenerRef = useRef<HTMLButtonElement>(null);
   const [requestedMode, setRequestedMode] = useState<ControlMode | null>(null);
-  const [tool, setTool] = useState<"pan" | "select" | "area">("select");
   const manualWorkspace = presentation === "manual-workspace";
-  const selectionDisabled = disabled || selection.mode !== "fixtures";
-  const activeTool = selectionDisabled ? "pan" : tool;
   const activeFloor = dashboard.floors.find((floor) => floor.id === activeFloorId) ?? dashboard.floors[0];
   const mapQuery = useFloorMapSnapshot(activeFloor?.id, siteId);
   const resolved = useMemo(() => selectionWithConstraints(resolveControlSelection(dashboard, resolvedSelection), fixtureFilter, requiredGatewayId), [dashboard, fixtureFilter, requiredGatewayId, resolvedSelection]);
@@ -151,10 +148,9 @@ export function SpatialTargetSelector({
           { id: "online", label: "정상", value: activeFloor?.summary?.onlineFixtures ?? null, tone: "success" },
           { id: "fault", label: "장애", value: activeFloor?.summary?.faultFixtures ?? null, tone: "danger" },
           { id: "offline", label: "오프라인", value: activeFloor?.summary?.offlineFixtures ?? null, tone: "warning" }
-        ]} /> : undefined}
-        tools={manualWorkspace ? <TargetMapTools mode={activeTool} selectionDisabled={selectionDisabled} onModeChange={setTool} /> : undefined}>
+        ]} /> : undefined}>
         {mapQuery.data && activeFloor ? <div className="min-h-min min-w-0 flex-1"><FloorMapViewport snapshot={mapQuery.data} ariaLabel={`${activeFloor.name} 도면`} interactionPolicy={selection.mode === "fixtures" && !disabled ? "direct-selection" : "pan"}
-          mode={manualWorkspace ? activeTool : "pan"} toolModePolicy={manualWorkspace ? "explicit" : "interaction-default"}
+          mode="pan" toolModePolicy={manualWorkspace ? "manual-cad" : "interaction-default"}
           onAreaSelect={selectArea} wheelZoomWithoutModifier controlsPlacement="footer" footerStart={manualWorkspace ? legend : undefined} maintainCameraOnResize viewportTestId="target-selection-map-viewport">
           <FloorScene snapshot={mapQuery.data} fixtures={activeFloor.fixtures} interactive={false} floorName={activeFloor.name} selection={sceneSelection} coarsePointer onFixturePress={toggleFixture} inspectDisabledFixtures={Boolean(onInspectFixture) && !disabled} />
         </FloorMapViewport></div> : <div className="grid h-full place-items-center p-4"><Text tone="secondary">등록된 도면이 없어 목록으로 선택합니다.</Text></div>}

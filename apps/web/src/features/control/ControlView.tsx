@@ -1,10 +1,10 @@
-import { CircleCheck, Clock3, Eye, Layers3, TriangleAlert } from "lucide-react";
+import { CircleCheck, Clock3, Eye, TriangleAlert } from "lucide-react";
 import { lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import type { CreateDimmingCommandInput } from "@led-control/shared";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation, useNavigate } from "react-router-dom";
 import type { AuthUser } from "../../api/auth";
-import { Button, Card, Heading, PageHeader, ProgressSteps, SidePanel, StatusBadge, Text, useSessionStatus, type ProgressStep, type ProgressStepState, type SessionStatusItem } from "../../components/ui";
+import { Button, Card, Heading, ProgressSteps, SidePanel, StatusBadge, Text, useSessionStatus, type ProgressStep, type ProgressStepState, type SessionStatusItem } from "../../components/ui";
 import {
   commandReadRevalidation,
   canonicalizeDimmingCommandInput,
@@ -43,7 +43,6 @@ import {
 } from "./active-command-store";
 import { controlSelectionToDimmingTarget, resolveControlSelection, type ControlSelection } from "./control-selection";
 import { humanizeDeviceResponseMessage } from "./control-copy";
-import { FixtureGroupDialog } from "./FixtureGroupDialog";
 import { FixtureGroupsPanel } from "./groups/FixtureGroupsPanel";
 import { ControlModeTabs, type ControlPageMode } from "./automation/ControlModeTabs";
 import { CommandHistoryPanel, COMMAND_STAGE_LABELS, isClockRefusal } from "./CommandHistoryPanel";
@@ -117,8 +116,6 @@ export function ControlView({
   const [verificationRequest, setVerificationRequest] = useState<{
     commandId: string; clientRequestId: string; dispatchIds?: string[]; responseLost?: boolean;
   } | null>(null);
-  const [groupDialogOpen, setGroupDialogOpen] = useState(false);
-  const groupDialogOpenerRef = useRef<HTMLButtonElement>(null);
   const [verificationCasesOpen, setVerificationCasesOpen] = useState(false);
   const verificationCasesOpenerRef = useRef<HTMLButtonElement>(null);
   const [knownVerificationCase, setKnownVerificationCase] = useState<{ siteId: string; userId: string; originalCommandId: string; caseId: string } | null>(null);
@@ -247,7 +244,6 @@ export function ControlView({
 
   useEffect(() => {
     if (mode !== "manual") {
-      setGroupDialogOpen(false);
       setVerificationCasesOpen(false);
     }
   }, [mode]);
@@ -263,7 +259,6 @@ export function ControlView({
     setVerificationError("");
     setTerminalResult(null);
     setVerificationRequest(null);
-    setGroupDialogOpen(false);
     setVerificationCasesOpen(false);
     setCommandUserId(userId);
     setCommandSiteId(activeSiteId);
@@ -565,7 +560,7 @@ export function ControlView({
     void navigate({ pathname: location.pathname, search: `?${search.toString()}`, hash: location.hash });
   }
 
-  const modeTabs = <><PageHeader variant="customer" headingLevel={1} title="조명 제어" /><ControlModeTabs mode={mode} onChange={selectMode} allowAutomation={canManage} allowGroups={canControl} /></>;
+  const modeTabs = <><Heading as="h1" className="sr-only">조명 제어</Heading><ControlModeTabs mode={mode} onChange={selectMode} allowAutomation={canManage} allowGroups={canControl} /></>;
   const groupMutationsBlocked = isSubmitting || restorePending || commandInProgress || commandSessionBlocked || Boolean(storageError);
 
   if (capabilities && mode === "event") {
@@ -653,7 +648,7 @@ export function ControlView({
             disabled={controlsLocked}
             hideEmbeddedSummary
             presentation="manual-workspace"
-            inspectionPanel={<section aria-label="선택 대상 목록" className="grid min-h-0 gap-3">
+            inspectionPanel={<section aria-label="선택 대상 목록" className="grid min-h-0 gap-3 rounded-panel border border-border-default bg-surface-panel p-3">
               <div className="flex items-center justify-between gap-2">
                 <Heading as="h3" variant="customer-card-title">선택 조명</Heading>
                 <Button type="button" variant="ghost" disabled={controlsLocked || selectedFixtures.length === 0}
@@ -663,10 +658,6 @@ export function ControlView({
                 {selectedFixtures.map(fixture => <li key={fixture.id} className="rounded-control bg-surface-inset px-2 py-1 text-body-sm wrap-anywhere" title={fixture.id}>{fixture.name}</li>)}
               </ul> : <Text variant="caption" tone="secondary">도면에서 조명을 선택하세요.</Text>}
             </section>}
-            managementAction={<Button ref={groupDialogOpenerRef} variant="secondary" type="button" onClick={() => setGroupDialogOpen(true)}
-              disabled={groupMutationsBlocked}>
-              <Layers3 size={16} aria-hidden="true" /> {canManage ? "구역 관리" : "구역 현황"}
-            </Button>}
             onChange={(nextSelection) => {
               setSelection(nextSelection);
               const nextResolved = resolveControlSelection(data, nextSelection);
@@ -717,15 +708,6 @@ export function ControlView({
           verificationCaseCount={missingCommand ? exactVerificationCases.data?.items.length : undefined}
           compactDisclosure className="compact:col-span-full compact:row-start-3" />
       </div>
-      <FixtureGroupDialog
-        open={groupDialogOpen}
-        siteId={data.site.id}
-        dashboard={data}
-        canManage={canManage}
-        mutationsBlocked={groupMutationsBlocked}
-        returnFocusRef={groupDialogOpenerRef}
-        onClose={() => setGroupDialogOpen(false)}
-      />
       <CommandVerificationCases key={`${userId}:${data.site.id}`} open={verificationCasesOpen} siteId={data.site.id} userId={userId}
         canControl={canControl} canManage={canManage} originalCommandId={missingCommand ? scopedCommandId ?? undefined : undefined}
         onReconciled={handleCaseReconciled}

@@ -1,5 +1,31 @@
 # 제어 메뉴 기능 현황
 
+## 2026-10-11 추가 브라우저 의견 — 수동 지도 입력·툴바 (C13–16)
+
+### 구현 완료
+
+- 수동 제어에만 `manual-cad` 입력 정책을 적용했다. PC 중간 버튼/Space 드래그는 지도 이동, 왼쪽 드래그는 영역 선택, 마커 클릭은 개별 선택이다. 터치는 스와이프로 이동하고 마커 탭으로 선택하며 길게 누르기 영역 선택을 만들지 않는다. 일반 wheel 확대·축소와 pinch는 유지한다.
+- 마커 입력은 8px 임계값 이후 capture하여 실제 pointerup 탭 선택을 보존한다. 드래그·취소·두 손가락 입력의 잘못된 선택을 차단하고 키보드/보조기기 선택은 유지한다. 잠금·층 전체·구역 선택에서는 대상 변경을 차단한 채 이동을 허용한다.
+- 이동/개별/영역 도구와 전용 state를 제거했다. 층 선택과 `조명 목록`을 같은 행에 표시하고 대상 방식 탭을 유지한다. 수동 구역 관리/현황 버튼과 전용 Dialog state를 제거했으며 저장 구역 메뉴·대상 선택은 유지한다.
+- 중앙 선택 목록에 테마 panel 배경·둥근 테두리를 적용하고 보이는 `조명 제어` 제목을 단일 sr-only h1으로 바꿨다. 선택 해제·raw31 밝기 초안·명시 적용·권한·명령 수명은 유지한다.
+
+### 미구현
+
+- 담당 단계에서 전체 Web·타입·UI 정책·빌드·브라우저·실장비/HIL 검증은 실행하지 않았다. 최종 한정 화면·정적 검증은 총괄 QA 단계다. API/DB/schema/Gateway/펌웨어 변경은 없다.
+
+### 부족하거나 개선이 필요한 기능
+
+- 최종 직접 5 suites 295/295 통과. 최초 지도 RED 4 FAIL/34 PASS, UI focused RED 5 FAIL/1 PASS/189 비선택은 별도 증거다. 중간 Dialog setter 잔여 참조의 162 FAIL/128 PASS와 이전 tool 기대 2 FAIL/293 PASS를 수정했으며 최종 통과에 합산하지 않는다.
+- 단위 DOM의 pointer 경로는 실제 브라우저 capture·mobile/dark·짧은 viewport geometry의 증명이 아니다. 기존 240px 지도 최소 높이·내부 스크롤·명령 잠금 owner를 보존했으며 실제 사용성은 최종 화면 검증 대상이다.
+
+### 관련 파일
+
+- `apps/web/src/features/floor-map/FloorMapViewport.tsx`와 viewport/실제 `FloorScene` 조합 tests, `features/control/ControlView.tsx`, `target-selection/{SpatialTargetSelector,TargetSelectionToolbar}.tsx` 및 직접 tests. `FloorScene.tsx` 제품·monitoring/editor/embedded 기본 입력 정책은 변경하지 않았다.
+
+### 갱신 규칙
+
+- 수동 전용 입력과 공통 지도 기본 정책을 구분한다. pointerup·임계값·취소·Space/pinch·잠금·keyboard와 초안/명령 수명 근거를 유지하고 unit·browser·실장비 결과를 서로 확대하지 않는다.
+
 ## 2026-10-11 공통 필터·날짜·행 상세 교정
 
 ### 구현 완료

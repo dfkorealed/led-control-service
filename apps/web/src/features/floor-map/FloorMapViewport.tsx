@@ -67,7 +67,7 @@ export interface FloorMapViewportProps {
   ariaLabel: string;
   mode?: MapInteractionMode;
   interactionPolicy?: MapInteractionPolicy;
-  toolModePolicy?: "interaction-default" | "explicit";
+  toolModePolicy?: "interaction-default" | "explicit" | "manual-cad";
   children: ReactNode;
   onAreaSelect?: (rect: MapSelectionRect) => void;
   showControls?: boolean;
@@ -533,7 +533,7 @@ export const FloorMapViewport = forwardRef<FloorMapViewportHandle, FloorMapViewp
   }
 
   function handlePointerDown(event: ReactPointerEvent<HTMLDivElement>) {
-    if (event.button > 0 && !(interactionPolicy === "direct-selection" && event.button === 1)) return;
+    if (event.button > 0 && !((interactionPolicy === "direct-selection" || toolModePolicy === "manual-cad") && event.button === 1)) return;
     if (activePointers.current.size === 0) suppressNextClick.current = false;
     activePointers.current.set(event.pointerId, { x: event.clientX, y: event.clientY });
 
@@ -543,6 +543,17 @@ export const FloorMapViewport = forwardRef<FloorMapViewportHandle, FloorMapViewp
       return;
     }
 
+    if (toolModePolicy === "manual-cad") {
+      const kind = event.pointerType === "touch" || spacePressed.current || event.button === 1 ? "pan"
+        : interactionPolicy === "direct-selection" ? "area" : "marker";
+      if (event.button === 1) event.preventDefault();
+      candidate.current = { pointerId: event.pointerId, start: { x: event.clientX, y: event.clientY }, mapStart: mapPoint(event),
+        scroll: { x: event.currentTarget.scrollLeft, y: event.currentTarget.scrollTop }, kind, moved: false };
+      // Early capture would retarget pointerup and lose native FloorScene taps.
+      // Marker gestures capture only after crossing the drag threshold.
+      if (!(event.target as Element).closest("[data-spatial-map-marker]")) capturePointer(event);
+      return;
+    }
     // Marker buttons keep their click interaction; single-pointer gestures begin on empty map space.
     if ((event.target as Element).closest("button") && !(toolModePolicy === "explicit" && mode === "pan")) {
       // A moved touch that began on a pin is no longer a tap. It cannot become
@@ -618,6 +629,7 @@ export const FloorMapViewport = forwardRef<FloorMapViewportHandle, FloorMapViewp
     const current = candidate.current;
     if (current?.pointerId === event.pointerId && !current.moved && pointerDistance(current.start, { x: event.clientX, y: event.clientY }) >= MAP_DRAG_THRESHOLD_PX) {
       current.moved = true; clearHold(); suppressNextClick.current = true;
+      if (toolModePolicy === "manual-cad") capturePointer(event);
       if (current.kind === "hold") current.kind = "pan";
       if (current.kind === "pan") pan.current = { pointerId: event.pointerId, point: current.start, scroll: current.scroll };
       else if (current.kind === "area") area.current = { pointerId: event.pointerId, start: current.mapStart };
@@ -679,6 +691,8 @@ export const FloorMapViewport = forwardRef<FloorMapViewportHandle, FloorMapViewp
   }
 
   function handleClickCapture(event: React.MouseEvent<HTMLDivElement>) {
+    // Keyboard/assistive activation must not consume stale pointer suppression.
+    if (toolModePolicy === "manual-cad" && event.detail === 0) return;
     if (toolModePolicy === "explicit" && mode !== "select" && (event.target as Element).closest("[data-spatial-map-marker]")) {
       event.preventDefault(); event.stopPropagation(); return;
     }
@@ -713,7 +727,7 @@ export const FloorMapViewport = forwardRef<FloorMapViewportHandle, FloorMapViewp
         onKeyDown={event => {
           if (event.target === event.currentTarget) {
             if (event.key === "Escape") cancelGesture();
-            if (interactionPolicy === "direct-selection" && event.key === " ") { spacePressed.current = true; event.preventDefault(); }
+            if ((interactionPolicy === "direct-selection" || toolModePolicy === "manual-cad") && event.key === " ") { spacePressed.current = true; event.preventDefault(); }
           }
           onViewportKeyDown?.(event);
         }}
@@ -725,6 +739,14 @@ export const FloorMapViewport = forwardRef<FloorMapViewportHandle, FloorMapViewp
         data-zoom={zoomRef.current}
         tabIndex={0}
         onClickCapture={handleClickCapture}
+        onPointerDownCapture={event => {
+          // Space navigation begins before FloorScene's physical marker owner.
+          // It must not leave that owner with an unfinished selectable press.
+          if (toolModePolicy === "manual-cad" && spacePressed.current && event.pointerType !== "touch") {
+            handlePointerDown(event);
+            event.stopPropagation();
+          }
+        }}
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
         onPointerUp={finishPointer}

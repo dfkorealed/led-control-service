@@ -2,24 +2,6 @@ import { useState, type ReactNode, type RefObject } from "react";
 import type { Dashboard } from "../../../api/queries";
 import { Button, SelectBox } from "../../../components/ui";
 import type { ControlMode, ControlSelection } from "../control-selection";
-import type { MapInteractionMode } from "../../floor-map/map-gestures";
-import { Move, MousePointer2, Scan } from "lucide-react";
-
-/** Explicit manual tools remain in map chrome even on narrow screens. */
-export function TargetMapTools({ mode, selectionDisabled, onModeChange }: {
-  mode: MapInteractionMode;
-  selectionDisabled: boolean;
-  onModeChange: (mode: MapInteractionMode) => void;
-}) {
-  const tools = { pan: { label: "이동", icon: Move }, select: { label: "개별 선택", icon: MousePointer2 }, area: { label: "영역 선택", icon: Scan } };
-  return <div role="group" aria-label="지도 선택 도구" className="flex flex-wrap gap-1">
-    {(["pan", "select", "area"] as const).map(tool => {
-      const Icon = tools[tool].icon;
-      return <Button key={tool} type="button" variant="secondary" aria-pressed={mode === tool}
-        disabled={tool !== "pan" && selectionDisabled} onClick={() => onModeChange(tool)}><Icon size={16} aria-hidden="true" />{tools[tool].label}</Button>;
-    })}
-  </div>;
-}
 
 interface TargetSelectionToolbarProps {
   allowedModes: readonly ControlMode[];
@@ -56,18 +38,18 @@ export function TargetSelectionToolbar({
         disabled={disabled} onClick={() => onModeChange(mode)}>{modeLabels?.[mode] ?? defaultModeLabels[mode]}</Button>)}
       {onClear ? <Button type="button" variant="ghost" disabled={disabled} onClick={onClear}>선택 비우기</Button> : null}
     </div> : null;
-  const floor = <SelectBox label={<span className="sr-only">표시 층</span>} className={manual ? "w-full compact:w-48 compact:shrink-0" : undefined}
+  const floor = <SelectBox label={<span className="sr-only">표시 층</span>} className={manual ? "min-w-0 flex-1 compact:w-48 compact:flex-none" : undefined}
     items={floors.map((item) => ({ id: item.id, label: item.name }))}
     selectedKey={activeFloorId} isDisabled={disabled || floors.length === 0} onSelectionChange={(floorId) => floorId && onFloorChange(floorId)} />;
   const actions = <>
-    <Button ref={listOpenerRef} type="button" variant="secondary" disabled={disabled} onClick={onOpenList}>조명 목록 열기</Button>
+    <Button ref={listOpenerRef} type="button" variant="secondary" disabled={disabled} onClick={onOpenList}>{manual ? "조명 목록" : "조명 목록 열기"}</Button>
     {managementAction}
     {allowedModes.length === 1 && onClear ? <Button type="button" variant="ghost" disabled={disabled} onClick={onClear}>선택 비우기</Button> : null}
   </>;
   // Only the manual workspace changes reading/layout order. Embedded schedule,
   // sensor preparation and group editors keep their existing disclosure policy.
-  return <div className={manual ? "flex min-w-0 shrink-0 flex-wrap items-end gap-2" : "grid min-w-0 shrink-0 gap-3"} data-target-selection-toolbar="">
-    {manual ? <>{floor}{modes}<div className="flex flex-wrap gap-2 compact:ml-auto">{actions}</div></> : <>{modes}
+  return <div className={`grid min-w-0 shrink-0 ${manual ? "gap-2" : "gap-3"}`} data-target-selection-toolbar="">
+    {manual ? <><div className="flex min-w-0 items-end gap-2">{floor}{actions}</div>{modes}</> : <>{modes}
     <div className={`grid min-w-0 gap-2 ${compactDisclosure ? "max-compact:grid-cols-[minmax(0,1fr)_auto]" : ""} compact:grid-cols-[minmax(0,1fr)_auto_auto_auto]`}>
       {floor}
       {compactDisclosure ? <Button type="button" variant="secondary" className="compact:hidden" aria-expanded={toolsOpen} onClick={() => setToolsOpen(!toolsOpen)}>선택 도구 {toolsOpen ? "접기" : "열기"}</Button> : null}

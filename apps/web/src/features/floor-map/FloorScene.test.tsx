@@ -102,6 +102,34 @@ describe("FloorScene", () => {
     expect(center).toHaveFocus();
   });
 
+  it.each(["touch", "mouse"])("manual-cad %s navigation from a real marker pans without pointerup selection and permits the next tap", pointerType => {
+    const { center, disabled, onPress } = renderOverlappingMarkers(true);
+    const viewport = screen.getByRole("region", { name: "manual integration" });
+    dispatchScenePointer(center, "pointerdown", { pointerId: 1, pointerType, button: pointerType === "mouse" ? 1 : 0, clientX: 100, clientY: 100 });
+    dispatchScenePointer(center, "pointermove", { pointerId: 1, pointerType, clientX: 80, clientY: 100 });
+    dispatchScenePointer(center, "pointerup", { pointerId: 1, pointerType, clientX: 80, clientY: 100 });
+    fireEvent.click(center, { detail: 1 });
+    expect(viewport.scrollLeft).toBe(20); expect(onPress).not.toHaveBeenCalled();
+    dispatchScenePointer(disabled, "pointerdown", { pointerId: 2, pointerType: "touch", button: 0, clientX: 100, clientY: 100 });
+    dispatchScenePointer(disabled, "pointerup", { pointerId: 2, pointerType: "touch", button: 0, clientX: 100, clientY: 100 });
+    expect(onPress).toHaveBeenCalledWith("center", center);
+  });
+
+  it("manual-cad stationary Space navigation does not select a real marker or poison the next tap", () => {
+    const { center, disabled, onPress } = renderOverlappingMarkers(true);
+    const viewport = screen.getByRole("region", { name: "manual integration" });
+    fireEvent.keyDown(viewport, { key: " " });
+    dispatchScenePointer(center, "pointerdown", { pointerId: 1, pointerType: "mouse", button: 0, clientX: 100, clientY: 100 });
+    dispatchScenePointer(center, "pointerup", { pointerId: 1, pointerType: "mouse", button: 0, clientX: 100, clientY: 100 });
+    fireEvent.keyUp(viewport, { key: " " });
+    expect(onPress).not.toHaveBeenCalled();
+    dispatchScenePointer(disabled, "pointerdown", { pointerId: 2, pointerType: "touch", button: 0, clientX: 100, clientY: 100 });
+    dispatchScenePointer(disabled, "pointerup", { pointerId: 2, pointerType: "touch", button: 0, clientX: 100, clientY: 100 });
+    expect(onPress).toHaveBeenCalledWith("center", center);
+    onPress.mockClear();
+    fireEvent.click(center, { detail: 0 }); expect(onPress).toHaveBeenCalledWith("center", center);
+  });
+
   it.each(["pointercancel", "lostpointercapture", "blur", "Escape", "second-pointer", "drag8"])("cancels an overlapping operational press on %s and consumes its physical ghost click", (reason) => {
     const { center, disabled, onPress } = renderOverlappingMarkers();
     dispatchScenePointer(disabled, "pointerdown", { pointerId: 1, pointerType: "touch", button: 0, clientX: 100, clientY: 100 });
@@ -764,14 +792,15 @@ function dispatchScenePointer(target: HTMLElement, type: string, init: Record<st
   fireEvent(target, event);
 }
 
-function renderOverlappingMarkers() {
+function renderOverlappingMarkers(manual = false) {
   const fixtures = [
     { id: "center", name: "중앙", x: 600, y: 400, brightness: 70, status: "online" as const },
     { id: "disabled", name: "장애", x: 600, y: 418, brightness: 70, status: "fault" as const }
   ];
   const sceneSelection = { kind: "multiple" as const, selectedFixtureIds: new Set<string>(), disabledFixtureIds: new Set(["disabled"]) };
   const onPress = vi.fn();
-  const result = render(<FloorScene snapshot={snapshot} fixtures={fixtures} selection={sceneSelection} interactive={false} coarsePointer onFixturePress={onPress} />);
+  const scene = <FloorScene snapshot={snapshot} fixtures={fixtures} selection={sceneSelection} interactive={false} coarsePointer onFixturePress={onPress} />;
+  const result = render(manual ? <FloorMapViewport snapshot={snapshot} ariaLabel="manual integration" interactionPolicy="direct-selection" toolModePolicy="manual-cad">{scene}</FloorMapViewport> : scene);
   const center = screen.getByRole("button", { name: "중앙 정상 70%" });
   const disabled = screen.getByRole("button", { name: /장애 장애 70% 선택 불가/ });
   vi.spyOn(center, "getBoundingClientRect").mockReturnValue(new DOMRect(76, 76, 48, 48));

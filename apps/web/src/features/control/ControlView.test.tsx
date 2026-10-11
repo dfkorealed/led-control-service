@@ -361,7 +361,9 @@ describe("ControlView 대상 선택", () => {
     renderControl();
     const toolbar = document.querySelector<HTMLElement>("[data-target-selection-toolbar]");
     const execution = screen.getByRole("complementary", { name: "밝기 실행" });
-    expect(toolbar).toContainElement(screen.getByRole("button", { name: "구역 관리" }));
+    expect(toolbar).toContainElement(screen.getByRole("button", { name: "조명 목록" }));
+    expect(screen.queryByRole("button", { name: "구역 관리" })).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "조명 제어", level: 1 })).toHaveClass("sr-only");
     expect(screen.queryByRole("heading", { name: "조명 밝기 제어" })).not.toBeInTheDocument();
     expect(screen.queryByText("01 / 제어 대상")).not.toBeInTheDocument();
     expect(screen.queryByText("02 / 밝기 실행")).not.toBeInTheDocument();
@@ -412,7 +414,7 @@ describe("ControlView 대상 선택", () => {
     expect(screen.getByRole("tab", { name: "수동 제어" })).toHaveAttribute("aria-selected", "true");
     expect(screen.getByRole("tabpanel", { name: "수동 제어" })).toHaveAttribute("data-control-manual-panel");
     expect(screen.getByRole("region", { name: "제어 대상 지도" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "조명 목록 열기" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "조명 목록" })).toBeInTheDocument();
     expect(screen.getByRole("region", { name: "최근 명령 이력" })).toHaveAttribute("data-command-history-panel");
     expect(screen.getByRole("complementary", { name: "밝기 실행" })).toHaveAttribute("data-control-panel");
     expect(screen.getByRole("status", { name: "명령 진행 상태" })).toHaveAttribute("data-command-status-region");
@@ -422,14 +424,14 @@ describe("ControlView 대상 선택", () => {
     renderControl();
 
     expect(screen.getByRole("region", { name: "제어 대상 지도" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "조명 목록 열기" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "조명 목록" })).toBeInTheDocument();
     expect(screen.getByRole("complementary", { name: "밝기 실행" })).toBeInTheDocument();
   });
 
-  it("exposes manual workspace tools and brightness immediately without an empty result", () => {
+  it("exposes manual brightness immediately without a tool switch or empty result", () => {
     renderControl();
-    expect(screen.getByRole("group", { name: "지도 선택 도구" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "개별 선택" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.queryByRole("group", { name: "지도 선택 도구" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "개별 조명" })).toHaveAttribute("aria-current", "true");
     expect(screen.getByRole("group", { name: "B2 도면 조명 상태" })).toHaveTextContent("오프라인");
     expect(screen.queryByRole("button", { name: /밝기 실행 설정|선택 도구 열기/ })).not.toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "최근 결과" })).not.toBeInTheDocument();
@@ -442,7 +444,7 @@ describe("ControlView 대상 선택", () => {
     expect(mocks.apiPost).not.toHaveBeenCalled();
   });
 
-  it("theme resize and tool changes preserve the frozen uncertain command without another POST", async () => {
+  it("theme resize and manual navigation preserve the frozen uncertain command without another POST", async () => {
     commandStore.configureActiveCommandPersistence(true);
     mocks.apiPost.mockRejectedValueOnce(new TypeError("response lost"));
     const client = new QueryClient();
@@ -461,7 +463,13 @@ describe("ControlView 대상 선택", () => {
     const input = screen.getByRole("textbox", { name: "밝기 수치" });
     fireEvent.click(screen.getByRole("button", { name: "테스트 다크 전환" }));
     fireEvent(window, new Event("resize"));
-    fireEvent.click(screen.getByRole("button", { name: "이동" }));
+    const viewport = screen.getByTestId("target-selection-map-viewport");
+    for (const [type, clientX] of [["pointerdown", 100], ["pointermove", 80], ["pointerup", 80]] as const) {
+      const event = new Event(type, { bubbles: true });
+      Object.assign(event, { pointerId: 1, pointerType: "mouse", button: 1, clientX, clientY: 100 });
+      fireEvent(viewport, event);
+    }
+    expect(viewport.scrollLeft).toBe(20);
     expect(screen.getByRole("textbox", { name: "밝기 수치" })).toBe(input);
     expect(commandStore.loadActiveCommandRequest(USER_A, dashboard.site.id)).toEqual(frozen);
     expect(mocks.apiPost).toHaveBeenCalledTimes(1);
@@ -506,6 +514,9 @@ describe("ControlView 대상 선택", () => {
     selectFixture("B2-L001");
     selectFixture("B2-L002");
     const summary = screen.getByRole("region", { name: "선택 대상 목록" });
+    const draft = screen.getByRole("textbox", { name: "밝기 수치" });
+    fireEvent.input(draft, { target: { value: "31" } });
+    expect(draft).toHaveValue("31");
     expect(summary.closest("[data-target-selection-detail-panel]")).not.toHaveClass("hidden");
     expect(screen.getByText("2개 선택")).toBeInTheDocument();
     const lights = within(summary).getByRole("list", { name: "선택 조명" });
@@ -514,6 +525,7 @@ describe("ControlView 대상 선택", () => {
     expect(lights).toHaveTextContent("B2-L002");
     expect(within(screen.getByRole("complementary", { name: "밝기 실행" })).queryByRole("list", { name: "선택 조명" })).not.toBeInTheDocument();
     fireEvent.click(within(summary).getByRole("button", { name: "선택 해제" }));
+    expect(draft).toHaveValue("31");
     expect(screen.getByText("0개 선택")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "밝기 적용" })).toBeDisabled();
     expect(mocks.apiPost).not.toHaveBeenCalled();
@@ -649,7 +661,7 @@ describe("ControlView 대상 선택", () => {
     renderControl("admin", multiGatewayDashboard.site.id);
 
     fireEvent.click(await screen.findByRole("button", { name: /B2-L001/ }));
-    fireEvent.click(screen.getByRole("button", { name: "조명 목록 열기" }));
+    fireEvent.click(screen.getByRole("button", { name: "조명 목록" }));
     expect(screen.getByRole("checkbox", { name: /B2-L002.*선택/ })).toBeDisabled();
   });
 
@@ -1292,9 +1304,10 @@ describe("ControlView 대상 선택", () => {
     expect(mocks.apiPost).not.toHaveBeenCalled();
   });
 
-  it("opens saved-zone management for admin and read-only status for general users", () => {
+  it("keeps saved-zone scope available without a manual management shortcut", () => {
     const { rerender } = renderControl("admin");
-    expect(screen.getByRole("button", { name: "구역 관리" })).toBeEnabled();
+    expect(screen.queryByRole("button", { name: "구역 관리" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "저장된 구역" })).toBeEnabled();
 
     mocks.useControlDashboard.mockReturnValue({
       data: { ...dashboard, capabilities: { read: true, control: true, manage: false, commission: false } },
@@ -1302,7 +1315,8 @@ describe("ControlView 대상 선택", () => {
       error: null
     });
     rerender(controlElement(dashboard.site.id, "viewer"));
-    expect(screen.getByRole("button", { name: "구역 현황" })).toBeEnabled();
+    expect(screen.queryByRole("button", { name: "구역 현황" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "저장된 구역" })).toBeEnabled();
   });
 
   it("filters the fixture drawer by search, state, and floor", () => {
@@ -1606,7 +1620,7 @@ describe("ControlView 대상 선택", () => {
     expect(screen.getByRole("slider", { name: "밝기" })).toBeDisabled();
     expect(screen.getByRole("textbox", { name: "밝기 수치" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "층 전체" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "조명 목록 열기" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "조명 목록" })).toBeDisabled();
     expect(fixtureMarker("B2-L001")).toBeDisabled();
 
     resolveCommand({ id: commandIds.locked });
@@ -2045,7 +2059,7 @@ describe("ControlView 대상 선택", () => {
     renderControl("admin", largeDashboard.site.id);
 
     await waitFor(() => expect(mocks.useCommandStatus).toHaveBeenLastCalledWith(commandIds.large));
-    expect(screen.getByRole("button", { name: "조명 목록 열기" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "조명 목록" })).toBeDisabled();
     expect(fixtureMarker("대규모 조명 0001")).toBeDisabled();
   });
 
@@ -2463,7 +2477,7 @@ function selectFixture(name: string) {
 }
 
 function openFixtureList() {
-  fireEvent.click(screen.getByRole("button", { name: "조명 목록 열기" }));
+    fireEvent.click(screen.getByRole("button", { name: "조명 목록" }));
   return screen.getByRole("dialog", { name: "조명 목록" });
 }
 
