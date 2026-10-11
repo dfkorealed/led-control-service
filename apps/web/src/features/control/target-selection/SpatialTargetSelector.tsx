@@ -139,7 +139,7 @@ export function SpatialTargetSelector({
     {hideEmbeddedSummary && !manualWorkspace ? <Text className="compact:hidden" variant="caption">{resolved.fixtureIds.length}개 선택 · {selection.mode === "fixtures" ? "개별 조명" : selection.mode === "floor" ? "층 전체" : "저장된 구역"}</Text> : null}
     {/* Manual desktop's outer workspace owns short-window scrolling. Let chrome
         wheels chain to it; embedded/mobile panes retain their containment. */}
-    <div className={`grid ${hideEmbeddedSummary ? "min-h-min" : "min-h-0"} min-w-0 flex-1 gap-3 overflow-y-auto overscroll-contain ${manualWorkspace ? "compact:overscroll-auto" : ""} ${hideEmbeddedSummary ? "max-compact:flex-none max-compact:overflow-visible" : ""} ${hideEmbeddedSummary && selection.mode === "fixtures" ? "tablet:overflow-hidden" : "tablet:grid-cols-[minmax(0,1fr)_16rem] tablet:overflow-hidden"}`} data-target-selection-content="">
+    <div className={`grid ${hideEmbeddedSummary ? "min-h-min" : "min-h-0"} min-w-0 flex-1 gap-3 overflow-y-auto overscroll-contain ${manualWorkspace ? "compact:overscroll-auto" : ""} ${hideEmbeddedSummary ? "max-compact:flex-none max-compact:overflow-visible" : ""} ${hideEmbeddedSummary && selection.mode === "fixtures" && !manualWorkspace ? "tablet:overflow-hidden" : "tablet:grid-cols-[minmax(0,1fr)_16rem] tablet:overflow-hidden"}`} data-target-selection-content="">
       {/* The transparent coarse hit box stays rectangular; the shared inner
           20px marker dot retains its circular appearance. Rounded hit boxes
           lose their corners and cannot provide the required 48×48 target. */}
@@ -167,7 +167,7 @@ export function SpatialTargetSelector({
           Compact inspection must reserve its intrinsic height: a zero-height
           second grid row lets preparation buttons sit behind the map. The
           outer content scrolls both map and inspection on those screens. */}
-      <div className={hideEmbeddedSummary && selection.mode === "fixtures" ? "hidden" : `min-h-0 overflow-y-auto overscroll-contain tablet:[contain:size] ${inspectionPanel ? "max-tablet:min-h-min max-tablet:overflow-visible" : ""}`} data-target-selection-detail-panel="">{!hideEmbeddedSummary ? <SelectionSummaryPanel resolved={resolved} compactSummary={compactSummary} compactDetails={compactDetails} onCompactSheetHeightChange={onCompactSheetHeightChange} /> : null}
+      <div className={hideEmbeddedSummary && selection.mode === "fixtures" && !manualWorkspace ? "hidden" : `min-h-0 overflow-y-auto overscroll-contain tablet:[contain:size] ${inspectionPanel ? "max-tablet:min-h-min max-tablet:overflow-visible" : ""}`} data-target-selection-detail-panel="">{!hideEmbeddedSummary ? <SelectionSummaryPanel resolved={resolved} compactSummary={compactSummary} compactDetails={compactDetails} onCompactSheetHeightChange={onCompactSheetHeightChange} /> : null}
         {inspectionPanel}
         {selection.mode === "floor" ? <SelectionChoices kind="floor" dashboard={dashboard} selection={selection} disabled={disabled} fixtureFilter={fixtureFilter} requiredGatewayId={requiredGatewayId} onChange={onChange} /> : null}
         {selection.mode === "group" ? <SelectionChoices kind="group" dashboard={dashboard} selection={selection} disabled={disabled} fixtureFilter={fixtureFilter} requiredGatewayId={requiredGatewayId} onChange={onChange} /> : null}

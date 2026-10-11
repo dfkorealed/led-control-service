@@ -403,7 +403,8 @@ describe("ControlView 대상 선택", () => {
     // not a second page title or a duplicated manual workspace heading.
     renderControl();
 
-    expect(screen.getByRole("heading", { name: "조명 제어", level: 1 }).closest("header")).toContainElement(screen.getByText("ATLAS / OPERATIONS"));
+    expect(screen.getByRole("heading", { name: "조명 제어", level: 1 })).toBeInTheDocument();
+    expect(screen.queryByText("ATLAS / OPERATIONS")).not.toBeInTheDocument();
 
     expect(screen.queryByRole("heading", { name: "조명 제어", level: 2 })).not.toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "조명 밝기 제어", level: 3 })).not.toBeInTheDocument();
@@ -504,14 +505,16 @@ describe("ControlView 대상 선택", () => {
     renderControl();
     selectFixture("B2-L001");
     selectFixture("B2-L002");
-    const summary = screen.getByRole("region", { name: "제어 대상" });
-    expect(within(summary).getByText("2개 선택")).toBeInTheDocument();
+    const summary = screen.getByRole("region", { name: "선택 대상 목록" });
+    expect(summary.closest("[data-target-selection-detail-panel]")).not.toHaveClass("hidden");
+    expect(screen.getByText("2개 선택")).toBeInTheDocument();
     const lights = within(summary).getByRole("list", { name: "선택 조명" });
     expect(within(lights).getAllByRole("listitem")).toHaveLength(2);
     expect(lights).toHaveTextContent("B2-L001");
     expect(lights).toHaveTextContent("B2-L002");
+    expect(within(screen.getByRole("complementary", { name: "밝기 실행" })).queryByRole("list", { name: "선택 조명" })).not.toBeInTheDocument();
     fireEvent.click(within(summary).getByRole("button", { name: "선택 해제" }));
-    expect(within(summary).getByText("0개 선택")).toBeInTheDocument();
+    expect(screen.getByText("0개 선택")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "밝기 적용" })).toBeDisabled();
     expect(mocks.apiPost).not.toHaveBeenCalled();
   });

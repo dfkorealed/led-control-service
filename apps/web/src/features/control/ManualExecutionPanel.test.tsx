@@ -17,6 +17,7 @@ describe("ManualExecutionPanel", () => {
   it("fidelity exposes one visible brightness label while the bare slider keeps its accessible input", () => {
     setup();
     expect(screen.getAllByText("밝기")).toHaveLength(1);
+    expect(screen.queryByText("초안")).not.toBeInTheDocument();
     expect(screen.getByRole("slider", { name: "밝기" })).toHaveValue("70");
     fireEvent.change(screen.getByRole("slider", { name: "밝기" }), { target: { value: "30" } });
     expect(screen.getByRole("textbox", { name: "밝기 수치" })).toHaveValue("30");

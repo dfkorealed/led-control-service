@@ -565,7 +565,7 @@ export function ControlView({
     void navigate({ pathname: location.pathname, search: `?${search.toString()}`, hash: location.hash });
   }
 
-  const modeTabs = <><PageHeader variant="customer" headingLevel={1} title="조명 제어" eyebrow="ATLAS / OPERATIONS" /><ControlModeTabs mode={mode} onChange={selectMode} allowAutomation={canManage} allowGroups={canControl} /></>;
+  const modeTabs = <><PageHeader variant="customer" headingLevel={1} title="조명 제어" /><ControlModeTabs mode={mode} onChange={selectMode} allowAutomation={canManage} allowGroups={canControl} /></>;
   const groupMutationsBlocked = isSubmitting || restorePending || commandInProgress || commandSessionBlocked || Boolean(storageError);
 
   if (capabilities && mode === "event") {
@@ -653,6 +653,16 @@ export function ControlView({
             disabled={controlsLocked}
             hideEmbeddedSummary
             presentation="manual-workspace"
+            inspectionPanel={<section aria-label="선택 대상 목록" className="grid min-h-0 gap-3">
+              <div className="flex items-center justify-between gap-2">
+                <Heading as="h3" variant="customer-card-title">선택 조명</Heading>
+                <Button type="button" variant="ghost" disabled={controlsLocked || selectedFixtures.length === 0}
+                  onClick={() => { setSelection({ mode: "fixtures", fixtureIds: [] }); setMessage(""); }}>선택 해제</Button>
+              </div>
+              {selectedFixtures.length ? <ul aria-label="선택 조명" className="m-0 grid min-h-0 list-none gap-1 p-0">
+                {selectedFixtures.map(fixture => <li key={fixture.id} className="rounded-control bg-surface-inset px-2 py-1 text-body-sm wrap-anywhere" title={fixture.id}>{fixture.name}</li>)}
+              </ul> : <Text variant="caption" tone="secondary">도면에서 조명을 선택하세요.</Text>}
+            </section>}
             managementAction={<Button ref={groupDialogOpenerRef} variant="secondary" type="button" onClick={() => setGroupDialogOpen(true)}
               disabled={groupMutationsBlocked}>
               <Layers3 size={16} aria-hidden="true" /> {canManage ? "구역 관리" : "구역 현황"}
@@ -673,16 +683,11 @@ export function ControlView({
           <section aria-label="제어 대상" className="grid flex-none gap-3">
             <div className="flex items-center justify-between gap-2">
               <Heading as="h3" variant="customer-card-title">제어 대상</Heading>
-              <Button type="button" variant="ghost" disabled={controlsLocked || selectedFixtures.length === 0}
-                onClick={() => { setSelection({ mode: "fixtures", fixtureIds: [] }); setMessage(""); }}>선택 해제</Button>
             </div>
             <div className="flex flex-wrap items-center justify-between gap-2">
               <Text as="strong" variant="customer-metric" aria-live="polite" aria-atomic="true">{selectedFixtures.length}개 선택</Text>
               <ManualControlBadge readOnly={readOnly} canSubmit={canSubmit} blocked={Boolean(blockMessage)} />
             </div>
-            {selectedFixtures.length ? <ul aria-label="선택 조명" className="m-0 flex max-h-24 list-none flex-wrap gap-1 overflow-y-auto overscroll-contain p-0">
-              {selectedFixtures.map(fixture => <li key={fixture.id} className="max-w-full rounded-control bg-surface-inset px-2 py-1 text-body-sm wrap-anywhere" title={fixture.id}>{fixture.name}</li>)}
-            </ul> : <Text variant="caption" tone="secondary">도면에서 조명을 선택하세요.</Text>}
           </section>
           <ManualExecutionPanel brightness={brightness} controlsLocked={controlsLocked} canSubmit={canSubmit}
                 applyLabel={storageError ? "복구 정보 확인 필요" : manualApplyLabel(commandSessionBlocked, controlsLocked, readOnly, selectedFixtures.length)}

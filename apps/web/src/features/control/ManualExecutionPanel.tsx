@@ -67,7 +67,7 @@ export function ManualExecutionPanel({ brightness, controlsLocked, canSubmit, ap
         onKeyDownCapture={event => {
           if (event.target instanceof HTMLInputElement && event.key === "Enter") { event.preventDefault(); event.stopPropagation(); restoreDraft(); }
         }}>
-        <Text as="span" variant="label">밝기 <Text as="span" variant="caption" tone="secondary">초안</Text></Text>
+        <Text as="span" variant="label">밝기</Text>
         <div className="flex min-w-0 items-baseline gap-1">
           <NumberField key={inputRevision} aria-label="밝기 수치" variant="ghost" size="lg"
             className="w-20" inputClassName="px-1 text-body text-right"

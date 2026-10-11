@@ -17,18 +17,17 @@ export function FixtureGroupsContent({ siteId, dashboard, workspace }: {
   // This adapter renders only the real group metadata. Query, membership,
   // lifecycle and latest-handler permission/lock checks stay in the workspace.
   const columns: DataGridColumn<FixtureGroupMetadata>[] = [
-    { id: "name", header: "이름", minWidth: 130, renderCell: group => <Text as="strong" weight="semibold">{group.name}</Text> },
-    { id: "floor", header: "도면", minWidth: 80, renderCell: group => dashboard.floors.find(floor => floor.id === group.floorId)?.name ?? "층 미지정" },
-    { id: "gateway", header: "게이트웨이", minWidth: 110, renderCell: group => dashboard.gateways.find(gateway => gateway.id === group.gatewayId)?.name ?? "게이트웨이 미지정" },
-    { id: "targets", header: "대상", minWidth: 70, align: "right", renderCell: group => `${group.fixtureCount}개` },
-    { id: "sync", header: "동기화", minWidth: 180, renderCell: group => {
+    { id: "name", header: "이름", minWidth: 130, align: "left", renderCell: group => <Text as="strong" weight="semibold">{group.name}</Text> },
+    { id: "floor", header: "도면", minWidth: 80, align: "center", renderCell: group => dashboard.floors.find(floor => floor.id === group.floorId)?.name ?? "층 미지정" },
+    { id: "targets", header: "대상", minWidth: 70, align: "center", renderCell: group => `${group.fixtureCount}개` },
+    { id: "sync", header: "동기화", minWidth: 180, align: "center", renderCell: group => {
       const status = fixtureGroupStatus(group);
-      return <div className="grid gap-1">
+      const ready = status.tone === "ready";
+      return <div className="grid justify-items-center gap-1">
         <StatusBadge tone={group.meshControlGroup?.status === "ready" ? "success" : "warning"} icon={group.meshControlGroup?.status === "ready" ? CircleCheck : Clock3}>
           {group.meshControlGroup?.status === "ready" ? "준비됨" : "확인 필요"}
         </StatusBadge>
-        <Text variant="caption" tone={status.tone === "failed" ? "danger" : "secondary"}>{status.label}</Text>
-        <Text as="small" variant="caption" tone="secondary">{group.meshControlGroup ? `Mesh 구성 v${group.meshControlGroup.version} · 주소 정보 없음` : "Mesh 주소 정보 없음"}</Text>
+        {!ready ? <Text variant="caption" tone={status.tone === "failed" ? "danger" : "secondary"}>{status.label}</Text> : null}
         {group.meshControlGroup?.error ? <Text tone="danger">{humanizeDeviceResponseMessage(group.meshControlGroup.error)}</Text> : null}
       </div>;
     } }

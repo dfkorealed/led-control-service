@@ -1,6 +1,6 @@
 import { useInfiniteQuery, useMutation, useQueryClient, type InfiniteData } from "@tanstack/react-query";
 import { automationExecutionActionResultPayloadV1Schema } from "@led-control/shared/automation-contracts";
-import { CalendarPlus, CircleCheck, Clock3, Eye, Power, PowerOff, TriangleAlert } from "lucide-react";
+import { CalendarPlus, Clock3, Eye, Power, PowerOff, TriangleAlert } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   automationListAccessErrorMessage,
@@ -21,7 +21,7 @@ import type { AuthUser } from "../../../api/auth";
 import { isApiStatus } from "../../../api/client";
 import { authMeQueryKey, principalKey } from "../../../api/principal-cache";
 import type { Dashboard } from "../../../api/queries";
-import { Button, ConfirmDialog, FeedbackState, PageHeader, StatusBadge, Text, useSessionStatus, useSessionToast, type SessionStatusItem } from "../../../components/ui";
+import { Button, ConfirmDialog, FeedbackState, StatusBadge, Text, useSessionStatus, useSessionToast, type SessionStatusItem } from "../../../components/ui";
 import { formatControlTimestamp } from "../control-time";
 import { ScheduleDialog } from "./ScheduleDialog";
 import { AutomationRuleControls } from "./components/AutomationRuleControls";
@@ -449,15 +449,21 @@ export function ScheduleControlPanel({
   }
 
   const columns: DataGridColumn<ScheduleResponse>[] = [
-    { id: "name", header: "이름", minWidth: 150, sortValue: row => row.name, renderCell: row => <strong className="wrap-anywhere">{row.name}</strong> },
-    { id: "activation", header: "활성 · Gateway 동기화", minWidth: 150, align: "center", sortValue: row => `${row.status === "enabled" ? "활성" : "비활성"} ${row.syncStatus}`, renderCell: row => <ScheduleActivation schedule={row} /> },
-    { id: "period", header: "적용 기간", minWidth: 160, sortValue: row => new Date(row.activeFrom), renderCell: row => <>{formatActivePeriod(row, dashboard?.site.timeZone ?? "UTC")}<Text variant="caption" tone="secondary">{dashboard?.site.timeZone ?? "UTC"}</Text></> },
-    { id: "next", header: "다음 실행", minWidth: 140, sortValue: row => row.nextOccurrence ? new Date(row.nextOccurrence.startsAt) : null, renderCell: row => formatNextOccurrence(row, dashboard?.site.timeZone ?? "UTC") },
-    { id: "recurrence", header: "반복 · 시간", minWidth: 130, sortValue: row => formatRecurrence(row), renderCell: row => formatRecurrence(row) },
-    { id: "targets", header: "대상", minWidth: 70, align: "right", sortValue: row => row.targetCount, renderCell: row => `${row.targetCount}개` },
-    { id: "result", header: "최근 결과", minWidth: 150, sortValue: row => row.lastExecution ? new Date(row.lastExecution.occurredAt) : null, renderCell: row => <LastExecutionBadge schedule={row} timeZone={dashboard?.site.timeZone ?? "UTC"} wrap /> }
+    { id: "name", header: "이름", minWidth: 150, align: "left", sortValue: row => row.name, renderCell: row => <strong className="wrap-anywhere">{row.name}</strong> },
+    { id: "activation", header: "활성", minWidth: 90, align: "center", sortValue: row => row.status === "enabled" ? "활성" : "비활성", renderCell: row => <EnabledBadge enabled={row.status === "enabled"} /> },
+    { id: "period", header: "적용 기간", minWidth: 160, align: "center", sortValue: row => new Date(row.activeFrom), renderCell: row => formatActivePeriod(row, dashboard?.site.timeZone ?? "UTC") },
+    { id: "next", header: "다음 실행", minWidth: 140, align: "center", sortValue: row => row.nextOccurrence ? new Date(row.nextOccurrence.startsAt) : null, renderCell: row => formatNextOccurrence(row, dashboard?.site.timeZone ?? "UTC") },
+    { id: "recurrence", header: "반복 · 시간", minWidth: 130, align: "center", sortValue: row => formatRecurrence(row), renderCell: row => formatRecurrence(row) },
+    { id: "targets", header: "대상", minWidth: 70, align: "center", sortValue: row => row.targetCount, renderCell: row => `${row.targetCount}개` },
+    { id: "result", header: "최근 결과", minWidth: 150, align: "center", sortValue: row => row.lastExecution ? new Date(row.lastExecution.occurredAt) : null, renderCell: row => <LastExecutionBadge schedule={row} timeZone={dashboard?.site.timeZone ?? "UTC"} wrap /> }
   ];
   if (canManage) columns.push({ id: "actions", header: "관리", minWidth: 116, align: "center", renderCell: renderActions });
+  const toolbarActions = !canManage ? <StatusBadge tone="neutral" icon={Eye}>조회 전용</StatusBadge> : !isAuthBlocked ? (
+    <Button ref={addButtonRef} variant="primary" type="button" onClick={beginAdd} disabled={isMutating || !dashboard}
+      title={dashboard ? "새 스케줄 추가" : "제어 대상 정보를 불러오는 중입니다"}>
+      <CalendarPlus size={16} aria-hidden="true" /> 스케줄 추가
+    </Button>
+  ) : undefined;
 
   return (
     <div
@@ -467,30 +473,16 @@ export function ScheduleControlPanel({
       aria-labelledby="control-mode-schedule"
       data-control-automation-panel="schedule"
     >
-      <PageHeader
-        title="스케줄 제어"
-        headingLevel={3}
-        status={!canManage ? <StatusBadge tone="neutral" icon={Eye}>조회 전용</StatusBadge> : undefined}
-        actions={canManage && !isAuthBlocked ? (
-          <Button
-            ref={addButtonRef}
-            variant="primary"
-            type="button"
-            onClick={beginAdd}
-            disabled={isMutating || !dashboard}
-            title={dashboard ? "새 스케줄 추가" : "제어 대상 정보를 불러오는 중입니다"}
-          >
-            <CalendarPlus size={16} aria-hidden="true" /> 스케줄 추가
-          </Button>
-        ) : undefined}
-      />
-
       {hasGlobalContract && !isAuthBlocked ? <AutomationRuleControls label="스케줄" filter={filter}
+        actions={toolbarActions}
         filteredTotal={isSearchPending ? undefined : firstPage?.filteredTotal}
         pageIndex={currentPageIndex} currentPageCount={isSearchPending ? 0 : schedules.length}
         hasNextPage={!isSearchPending && (currentPageIndex < (schedulesQuery.data?.pages.length ?? 0) - 1 || Boolean(currentPage?.nextCursor))}
         isFetchingNextPage={schedulesQuery.isFetchingNextPage}
-        onFilterChange={changeFilter} onPrevious={() => changePage(currentPageIndex - 1)} onNext={() => void loadNextPage()} /> : null}
+        onFilterChange={changeFilter} onPrevious={() => changePage(currentPageIndex - 1)} onNext={() => void loadNextPage()} /> : toolbarActions ? (
+          // Legacy list responses still expose the sole creation/focus target.
+          <section aria-label="스케줄 목록 조건" className="flex min-w-0 flex-wrap items-center justify-end gap-2">{toolbarActions}</section>
+        ) : null}
 
       <AutomationRuleWorkspace footer={!hasGlobalContract && schedulesQuery.hasNextPage && !schedulesQuery.isFetchNextPageError && !isAuthBlocked ? (
         <Button variant="secondary" type="button" disabled={schedulesQuery.isFetchingNextPage} onClick={() => void loadNextPage()}>
@@ -556,22 +548,6 @@ export function ScheduleControlPanel({
       </ConfirmDialog>
     </div>
   );
-}
-
-function ScheduleActivation({ schedule }: { schedule: ScheduleResponse }) {
-  return <div className="flex flex-wrap items-center gap-1">
-    <EnabledBadge enabled={schedule.status === "enabled"} />
-    <SyncBadge status={schedule.syncStatus} />
-  </div>;
-}
-
-function SyncBadge({ status }: { status: ScheduleResponse["syncStatus"] }) {
-  const presentation = status === "APPLIED"
-    ? { label: "적용됨", tone: "success" as const, icon: CircleCheck }
-    : status === "REJECTED"
-      ? { label: "적용 실패", tone: "danger" as const, icon: TriangleAlert }
-      : { label: "적용 대기", tone: "warning" as const, icon: Clock3 };
-  return <StatusBadge tone={presentation.tone} icon={presentation.icon}>{presentation.label}</StatusBadge>;
 }
 
 function EnabledBadge({ enabled }: { enabled: boolean }) {

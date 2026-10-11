@@ -297,10 +297,11 @@ describe("VehicleEventControlPanel", () => {
     expect(screen.queryByRole("button", { name: "이벤트 추가" })).not.toBeInTheDocument();
   });
 
-  it("opens vehicle event creation from the level-three panel heading", async () => {
+  it("opens vehicle event creation without a duplicate panel heading", async () => {
     renderPanel("admin");
 
-    expect(await screen.findByRole("heading", { name: "이벤트 제어", level: 3 })).toBeInTheDocument();
+    await screen.findByText("입구 차량 감지");
+    expect(screen.queryByRole("heading", { name: "이벤트 제어" })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "이벤트 추가" }));
     expect(screen.getByRole("dialog", { name: "이벤트 추가" })).toBeInTheDocument();
   });

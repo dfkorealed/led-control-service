@@ -1,5 +1,6 @@
 import { Button, FilterPanel, PageSizeSelect, SearchField, SelectBox, Text } from "../../../../components/ui";
 import type { AutomationSyncStatus } from "../../../../api/automation";
+import type { ReactNode } from "react";
 
 export type AutomationListPageSize = 10 | 20 | 50 | 100;
 
@@ -29,13 +30,14 @@ export interface AutomationRuleControlsProps {
   currentPageCount: number;
   hasNextPage: boolean;
   isFetchingNextPage?: boolean;
+  actions?: ReactNode;
   onFilterChange: (filter: AutomationListFilter) => void;
   onPrevious: () => void;
   onNext: () => void;
 }
 
 export function AutomationRuleControls({ label, filter, filteredTotal, pageIndex, currentPageCount,
-  hasNextPage, isFetchingNextPage = false, onFilterChange, onPrevious, onNext }: AutomationRuleControlsProps) {
+  hasNextPage, isFetchingNextPage = false, actions, onFilterChange, onPrevious, onNext }: AutomationRuleControlsProps) {
   const canMove = filteredTotal !== undefined;
   return <section aria-label={`${label} 목록 조건`} className="grid min-w-0 gap-3">
     <FilterPanel label={`${label} 필터`} mode="popover"
@@ -51,6 +53,7 @@ export function AutomationRuleControls({ label, filter, filteredTotal, pageIndex
       <PageSizeSelect value={filter.limit} options={[10, 20, 50, 100] as const} onChange={limit => onFilterChange({ ...filter, limit })} />
     </FilterPanel>
     <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
+      {actions}
       <Text as="output" role="status" aria-live="polite" variant="caption" tone="secondary">
         {filteredTotal === undefined ? "조건 결과 확인 중" : `조건에 맞는 규칙 ${filteredTotal}건`}
 

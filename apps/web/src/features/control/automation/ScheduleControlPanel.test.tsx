@@ -280,8 +280,11 @@ describe("ScheduleControlPanel", () => {
     const cells = within(row).getAllByRole("cell");
     expect(cells[0]).toHaveTextContent(name);
     expect(within(cells[0]).getByText(name)).not.toHaveClass("truncate");
-    expect(cells[1]).toHaveTextContent("적용 실패");
+    expect(cells[1]).toHaveTextContent("활성");
+    expect(cells[1]).not.toHaveTextContent("적용 실패");
     expect(cells[2]).toHaveTextContent(/2026.*09.*01/);
+    expect(cells[2]).not.toHaveTextContent("Asia/Seoul");
+    for (const cell of cells.slice(1)) expect(cell).toHaveClass("text-center");
   });
 
   it("shows every schedule operation field and working management actions in the compact card", async () => {
@@ -300,7 +303,7 @@ describe("ScheduleControlPanel", () => {
     expect(card).toHaveTextContent("매일 · 18:00~23:00");
     expect(card).not.toHaveTextContent("70%");
     expect(card).toHaveTextContent("1개");
-    expect(card).toHaveTextContent("적용 대기");
+    expect(card).not.toHaveTextContent("적용 대기");
     expect(card).toHaveTextContent("모두 성공 · 성공 1개");
     expect(within(card).getAllByText(/2026.*09.*01/)[0]).toBeInTheDocument();
     expect(within(card).getByText(/2026.*09.*30/)).toBeInTheDocument();
@@ -344,10 +347,12 @@ describe("ScheduleControlPanel", () => {
     expect(screen.getByRole("dialog", { name: "스케줄 추가" })).toBeInTheDocument();
   });
 
-  it("opens schedule creation from the level-three panel heading", async () => {
+  it("opens schedule creation from the list toolbar without a duplicate panel heading", async () => {
     renderPanel("admin");
 
-    expect(await screen.findByRole("heading", { name: "스케줄 제어", level: 3 })).toBeInTheDocument();
+    await screen.findByText("야간 운영");
+    expect(screen.queryByRole("heading", { name: "스케줄 제어" })).not.toBeInTheDocument();
+    expect(within(screen.getByRole("region", { name: "스케줄 목록 조건" })).getByRole("button", { name: "스케줄 추가" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "스케줄 추가" }));
     expect(screen.getByRole("dialog", { name: "스케줄 추가" })).toBeInTheDocument();
   });
@@ -434,11 +439,8 @@ describe("ScheduleControlPanel", () => {
 
     renderPanel("viewer");
 
-    expect((await screen.findAllByText("적용 대기"))[0].closest("[data-tone]")).toHaveAttribute("data-tone", "warning");
-    expect(screen.getByText("적용됨")).toBeInTheDocument();
+    await screen.findByText("동기화 대기");
     expect(screen.getAllByText("활성").some(element => element.closest("[data-tone=success]"))).toBe(true);
-    expect(screen.getAllByText("적용 실패").find((element) => element.closest("[data-tone]"))?.closest("[data-tone]"))
-      .toHaveAttribute("data-tone", "danger");
     expect(screen.getByText(/모두 성공 · 성공 2개/)).toBeInTheDocument();
     expect(screen.getByText(/일부 실패 · 성공 1개 · 실패 1개 · 시간 초과 1개/)).toBeInTheDocument();
     expect(screen.getByText(/실패 · 실패 1개 · 시간 초과 1개/)).toBeInTheDocument();
@@ -449,20 +451,21 @@ describe("ScheduleControlPanel", () => {
     expect(screen.queryByRole("button", { name: /비활성화/ })).not.toBeInTheDocument();
   });
 
-  it("스케줄 목록은 적용 상태를 공통 badge로 구분한다", async () => {
+  it("스케줄 목록은 동기화와 무관하게 활성 상태만 표시한다", async () => {
     mocks.listSchedules.mockResolvedValue(page([
       schedule({ name: "대기 스케줄", syncStatus: "PENDING" }),
       schedule({ id: "00000000-0000-4000-8000-000000000012", name: "적용 스케줄", syncStatus: "APPLIED" }),
-      schedule({ id: "00000000-0000-4000-8000-000000000013", name: "실패 스케줄", syncStatus: "REJECTED" })
+      schedule({ id: "00000000-0000-4000-8000-000000000013", name: "실패 스케줄", syncStatus: "REJECTED", status: "disabled" })
     ]));
     renderPanel("viewer");
 
     const table = await screen.findByRole("table", { name: "스케줄 목록" });
     expect(table).toHaveClass("table-fixed");
-    expect(screen.getByText("적용됨")).toBeInTheDocument();
+    expect(within(table).queryByText("적용됨")).not.toBeInTheDocument();
     expect(screen.getAllByText("활성").some(element => element.closest("[data-tone=success]"))).toBe(true);
-    expect(screen.getByText("적용 대기").closest("[data-tone]")).toHaveAttribute("data-tone", "warning");
-    expect(screen.getByText("적용 실패").closest("[data-tone]")).toHaveAttribute("data-tone", "danger");
+    expect(within(table).queryByText("적용 대기")).not.toBeInTheDocument();
+    expect(within(table).queryByText("적용 실패")).not.toBeInTheDocument();
+    expect(within(table).getByText("비활성")).toBeInTheDocument();
   });
 
   it("스케줄 dialog는 빠른 설정을 먼저 보여주고 세부 입력은 요청할 때 펼친다", async () => {
@@ -847,13 +850,13 @@ describe("ScheduleControlPanel", () => {
     });
 
     await expectScreenStatusCount(1);
-    expect(screen.getByText("적용됨")).toBeInTheDocument();
+    expect(screen.getByText("야간 운영")).toBeInTheDocument();
     expect(screen.getAllByText("활성").length).toBeGreaterThan(0);
     fireEvent.click(screen.getByRole("button", { name: "알람센터, 현장 미선택" }));
     expect(screen.getByRole("dialog", { name: "알람센터" })).toHaveTextContent("Gateway 적용 상태를 새로고침하지 못했습니다.");
-    mocks.listSchedules.mockResolvedValueOnce(page([schedule({ syncStatus: "PENDING" })]));
+    mocks.listSchedules.mockResolvedValueOnce(page([schedule({ syncStatus: "PENDING", name: "갱신된 운영" })]));
     fireEvent.click(screen.getByRole("button", { name: "상태 다시 조회" }));
-    expect(await screen.findByText("적용 대기")).toBeInTheDocument();
+    expect(await screen.findByText("갱신된 운영")).toBeInTheDocument();
     await waitFor(() => expect(screen.getByRole("dialog", { name: "알람센터" })).toHaveTextContent("현재 확인할 상태가 없습니다."));
   });
 

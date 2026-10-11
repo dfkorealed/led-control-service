@@ -19,7 +19,7 @@ import type { AuthUser } from "../../../api/auth";
 import { isApiStatus } from "../../../api/client";
 import { authMeQueryKey, principalKey } from "../../../api/principal-cache";
 import type { Dashboard } from "../../../api/queries";
-import { Button, ConfirmDialog, FeedbackState, PageHeader, StatusBadge, Text, useSessionStatus, useSessionToast, type SessionStatusItem } from "../../../components/ui";
+import { Button, ConfirmDialog, FeedbackState, StatusBadge, Text, useSessionStatus, useSessionToast, type SessionStatusItem } from "../../../components/ui";
 import { formatControlTimestamp } from "../control-time";
 import { VehicleEventDialog } from "./VehicleEventDialog";
 import { BioPulseTelemetryStatus } from "./BioPulseTelemetryStatus";
@@ -451,12 +451,10 @@ export function VehicleEventControlPanel({
 
   return (
     <div id="control-mode-panel-event" className="grid min-w-0 content-start gap-4 tablet:flex tablet:min-h-0 tablet:flex-1 tablet:flex-col tablet:overflow-hidden" role="tabpanel" aria-labelledby="control-mode-event" data-control-automation-panel="event">
-      <PageHeader
-        title="이벤트 제어"
-        headingLevel={3}
-        status={!canManage ? <StatusBadge tone="neutral" icon={Eye}>조회 전용</StatusBadge> : undefined}
-        actions={canManage && !isAuthBlocked ? <Button ref={addButtonRef} variant="primary" type="button" onClick={beginAdd} disabled={isMutating || !dashboard}><CarFront size={16} aria-hidden="true" /> 이벤트 추가</Button> : undefined}
-      />
+      <div className="flex min-w-0 flex-wrap items-center justify-end gap-2">
+        {!canManage ? <StatusBadge tone="neutral" icon={Eye}>조회 전용</StatusBadge> : null}
+        {canManage && !isAuthBlocked ? <Button ref={addButtonRef} variant="primary" type="button" onClick={beginAdd} disabled={isMutating || !dashboard}><CarFront size={16} aria-hidden="true" /> 이벤트 추가</Button> : null}
+      </div>
       {hasGlobalContract && !isAuthBlocked ? <AutomationRuleControls label="이벤트" filter={filter}
         filteredTotal={isSearchPending ? undefined : firstPage?.filteredTotal}
         pageIndex={currentPageIndex} currentPageCount={isSearchPending ? 0 : rules.length}

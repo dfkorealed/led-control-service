@@ -69,10 +69,10 @@ describe("FixtureGroupsPanel", () => {
     const row = within(list).getByRole("listitem");
     expect(row).toHaveTextContent("B2 입구");
     expect(row).toHaveTextContent("B2");
-    expect(row).toHaveTextContent("Gateway B2");
+    expect(row).not.toHaveTextContent("Gateway B2");
     expect(row).toHaveTextContent("1개");
     expect(row).toHaveTextContent("Mesh 설정 실패");
-    expect(row).toHaveTextContent("Mesh 구성 v2");
+    expect(row).not.toHaveTextContent("Mesh 구성 v2");
     for (const action of ["수정", "재동기화", "삭제"]) {
       const button = within(row).getByRole("button", { name: `B2 입구 ${action}` });
       expect(button).toBeDisabled();
@@ -81,6 +81,13 @@ describe("FixtureGroupsPanel", () => {
     expect(mocks.updateFixtureGroup).not.toHaveBeenCalled();
     expect(mocks.resyncFixtureGroup).not.toHaveBeenCalled();
     expect(mocks.deleteFixtureGroup).not.toHaveBeenCalled();
+  });
+  it("shows only the ready badge for ready groups", async () => {
+    mocks.listFixtureGroups.mockResolvedValue([{ ...failedGroup, meshControlGroup: { status: "ready", version: 2, error: null } }]);
+    mount();
+    const list = await screen.findByRole("list", { name: "저장 구역 목록" });
+    expect(within(list).getByText("준비됨")).toBeInTheDocument();
+    expect(list).not.toHaveTextContent(/제어 준비 완료|Mesh 구성|주소 정보 없음|Gateway B2/);
   });
   it("keeps the approved common surface inset around list and the same active editor", async () => {
     mount();
