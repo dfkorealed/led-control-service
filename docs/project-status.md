@@ -2,7 +2,7 @@
 
 기준일: 2026-10-12
 
-## 2026-10-11 신규 브라우저 조작·필터 주석 — 20건 구현·한정 검증 완료, 승인된 로컬 통합 진행
+## 2026-10-11 신규 브라우저 조작·필터 주석 — 20건 구현·한정 검증·승인된 로컬 통합 완료
 
 - 새 21건 중 C8 운영 인사이트는 사용자 요청으로 그대로 두고 나머지 20건을 반영한다. 세 페이지 담당의 읽기 전용 감사와 대화 설계를 확인했으며 [실행 체크리스트](superpowers/plans/2026-10-11-atlas-interactions-comments.md)에 공통/통계→수동 지도→헤더/모니터링→한정 browser/최종 review 순서를 기록했다.
 - 기준 `cc6b9a7a`에서 `.worktrees/atlas-interactions-comments-20261011` / `codex/atlas-interactions-comments-20261011`을 만들고 frozen offline install/workspace prepare를 완료했다. 제품 구현·새 테스트·최종 검증·병합은 아직이다. 이전 29건 완료 증거와 합산하지 않으며 기존 서비스/다른 worktree/DB/장비/원격은 보존한다.
@@ -14,6 +14,7 @@
 - 위 준비/진행 문장은 실행 당시 이력이다. 현재 제품 `437ebc39`와 QA `67364847`의 20건 구현·한정 검증·단일 최종 리뷰는 완료했다. 6고유 browser case가 7runs21exec에 걸쳐 분리PASS했고 최종6 일괄 재실행은 아니다. 원 harness 실패와 marker 준비 실패를 보존하며 실제 marker-origin CDP pan/선택 불변/다음 tap, 실제 nav 위 전체44px hit까지 확인했다. reviewer C/I/M0; C8 source/test 및 API/DB 변경0이다. [원 증거·소스별 보고서](assets/atlas-interactions-comments-2026-10-11/README.md)에 실제 PNG/좌표/누락범위·기존 SettingsShell failure/큰 chunk 경고를 남겼다.
 - 통합 전 fresh 확인에서 MAIN `codex/mvp1-cloud-web`은 별도 공개 웹 배포 작업의 `34d5a375`로 진행됐으며 clean이다. 예정 FF는 불가능해 사용자에게 기존 변경을 보존하는 일반 로컬 merge 또는 UI 브랜치 유지 선택을 요청했다. 아직 답변이 없어 MAIN/배포 변경/다른 worktree를 수정하지 않았고 이번 작업 브랜치와 원 증거를 유지한다. 최종 UI branch readiness를 MAIN 통합 검증으로 확대하지 않는다.
 - 사용자가 2026-10-12 일반 로컬 merge를 승인하여 기존 worktree에 `34d5a375`를 조합했다(충돌0/두 상태판 기록 유지). 현재 통합 결과의 한정 unit/배포 계약/정책/build·모바일2case와 기존 reviewer 교집합을 확인하며 MAIN에는 아직 적용하지 않았다. 이전 whole suite·HIL·원격·배포 검증을 반복하거나 완료로 확대하지 않는다.
+- 실제 통합 완료: 일반 two-parent merge `113f6db2`의 동일 tree에서 fresh 공통87/배포계약7/정책79=173PASS·UI0/0·타입 포함 build0, actual merge 모바일 case2/4 각1회2PASS(16.5s), 같은 reviewer C/I/M0·ReadyYes를 확인했다. freshclean/예상HEAD 확인 뒤 MAIN `34d5a375`→`b933b28ace1c150522a723d24516f63d5c24a2f3`로 검증된 merge+QA/리뷰 전용 후속을 적용(exit0/clean/제품·메뉴diff0/C8diff0). 이후 완료 기록은 문서 전용이며 위 미완료 문장은 실행 당시 이력이다. [새 통합 증거](assets/atlas-interactions-comments-2026-10-11/integration/task-6-integration-qa.md)는 기존6-case source cohort와 구분한다. ignored SDD/raw/test-results를 `.superpowers/sdd/atlas-interactions-comments-backup-20261011.xDuwBW/`에 보존하고 재귀 diff0을 확인한 뒤 이번 worktree/merged branch만 제거했다. 다른 worktree/stash/5173·4000·63200/원격/장비는 그대로이며 baseline Settings1FAIL·chunk경고·전체/HIL미실행 한계도 유지한다.
 
 ## 2026-10-11 공개 Web 배포 모드 — 구현·독립 검토·로컬 FF 완료
 

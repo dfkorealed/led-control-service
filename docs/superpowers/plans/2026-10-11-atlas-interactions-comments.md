@@ -41,9 +41,9 @@
 - [x] Task 3 헤더·모니터링 통합 검색 (`9ba48ee7`, 직접 scope 마지막 실패 case까지 국소GREEN; 한 번의 전체최종batch PASS 아님).
 - [x] Task 4 한정 검증·실제 browser (`67364847`; 제품437, 6고유/7runs21exec 분리PASS; 일괄최종6PASS 아님).
 - [x] Task 5 최종 통합 검토·필요 수리 (단일 reviewer C/I/M0, marker-origin/native nav bounds 필수 증거 gate 완료).
-- [ ] Task 6 로컬 통합·증거 보존·정리.
+- [x] Task 6 로컬 통합·증거 보존·정리.
 
-**2026-10-12 통합 진행:** 사용자가 “기존 변경 보존 후 로컬 merge”를 승인했다. MAIN `34d5a375`의 공개 웹 배포 변경을 기존 UI worktree에 일반 merge로 조합했고 충돌0, 겹친 파일은 상태판1개뿐이다. 두 작업 기록을 모두 보존한다. 통합 source에서 공통 Button/필터/Grid·공개 배포 계약·정책/build(타입 포함)를 한정 확인하고 실제 모바일2case 및 같은 reviewer의 교집합 검토 뒤 MAIN에 적용한다. 이전 전체suite/6case 전체 반복·원격 pull/push/배포는 하지 않는다. [보고서·원 증거](../../assets/atlas-interactions-comments-2026-10-11/README.md).
+**2026-10-12 통합 완료:** 사용자가 “기존 변경 보존 후 로컬 merge”를 승인했다. MAIN `34d5a375`의 공개 웹 배포 변경을 기존 UI worktree에 일반 merge `113f6db2`로 조합했고 충돌0, 겹친 파일은 상태판1개뿐이다. 두 작업 기록을 모두 보존했다. 동일 tree에서 fresh 공통/공개계약/정책173PASS·UI0/0·타입 포함 build0, 실제 merge source 모바일2case 각1회2PASS, 같은 reviewer C/I/M0·ReadyYes를 확인했다. freshclean/HEAD guard 뒤 MAIN34→b933b28a로 검증된 merge와 QA/리뷰 전용 후속을 정확히 적용(exit0), 제품·메뉴 diff0과 C8 diff0을 확인했다. 이후 이 완료 기록은 문서 전용이다. ignored SDD/test-results를 `.superpowers/sdd/atlas-interactions-comments-backup-20261011.xDuwBW/`에 보존하고 원본과 재귀 diff0 확인 뒤 이번 clean merged worktree/branch만 제거했다. 이전 전체suite/6case 전체 반복·원격 pull/push/배포는 하지 않았다. [보고서·원 증거](../../assets/atlas-interactions-comments-2026-10-11/README.md).
 
 ### Task 1: 공통 UI와 통계 소비자 (C1–7, C9–11, C17–18)
 
@@ -101,9 +101,9 @@
 
 ### Task 6: 로컬 통합·보존
 
-- [ ] 기본/작업 branch의 fresh HEAD/clean/소유 diff 확인 후 승인된 일반 로컬 merge를 통합 worktree에서 검증하고 MAIN에 적용한다. 새로운 upstream 변경이면 fresh diff와 권한부터 확인한다.
-- [ ] 완료 체크리스트와 project-status를 동시에 갱신한다. source 검증과 docs-only 후속은 구분한다.
-- [ ] task-owned ignored ledger/raw/test-results를 exact backup에 보존한 뒤 이번 merged worktree/branch만 정리한다. 삭제는 recoverable Git/backup 경로 기록.
+- [x] 기본/작업 branch의 fresh HEAD/clean/소유 diff 확인 후 승인된 일반 로컬 merge를 통합 worktree에서 검증하고 MAIN에 적용한다. 새로운 upstream 변경이면 fresh diff와 권한부터 확인한다.
+- [x] 완료 체크리스트와 project-status를 동시에 갱신한다. source 검증과 docs-only 후속은 구분한다.
+- [x] task-owned ignored ledger/raw/test-results를 exact backup에 보존한 뒤 이번 merged worktree/branch만 정리한다. 삭제는 recoverable Git/backup 경로 기록.
 
 ## 실행 판단
 
