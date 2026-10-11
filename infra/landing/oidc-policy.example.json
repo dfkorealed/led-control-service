@@ -2,25 +2,127 @@
   "description": "Replace all uppercase placeholders with exact approved identifiers. This is a review template, not an automatically created role. Use a protected GitHub Environment and require canonical Software CI success for the exact commit.",
   "trustPolicy": {
     "Version": "2012-10-17",
-    "Statement": [{
-      "Effect": "Allow",
-      "Principal": { "Federated": "arn:aws:iam::ACCOUNT_ID:oidc-provider/token.actions.githubusercontent.com" },
-      "Action": "sts:AssumeRoleWithWebIdentity",
-      "Condition": { "StringEquals": {
-        "token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
-        "token.actions.githubusercontent.com:sub": "repo:df-kjh/led-control-service:environment:EXACT_PROTECTED_ENVIRONMENT"
-      } }
-    }]
+    "Statement": [
+      {
+        "Effect": "Allow",
+        "Principal": {
+          "Federated": "arn:aws:iam::ACCOUNT_ID:oidc-provider/token.actions.githubusercontent.com"
+        },
+        "Action": "sts:AssumeRoleWithWebIdentity",
+        "Condition": {
+          "StringEquals": {
+            "token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
+            "token.actions.githubusercontent.com:sub": "repo:df-kjh/led-control-service:environment:EXACT_PROTECTED_ENVIRONMENT"
+          }
+        }
+      }
+    ]
   },
   "permissionsPolicy": {
     "Version": "2012-10-17",
     "Statement": [
-      { "Effect": "Allow", "Action": ["cloudformation:DescribeStacks"], "Resource": "arn:aws:cloudformation:REGION:ACCOUNT_ID:stack/EXACT_STACK_NAME/*" },
-      { "Effect": "Allow", "Action": ["s3:ListBucket", "s3:GetBucketPublicAccessBlock", "s3:GetBucketOwnershipControls"], "Resource": "arn:aws:s3:::EXACT_BUCKET", "Condition": {"StringEquals":{"s3:ResourceAccount":"ACCOUNT_ID"}} },
-      { "Effect": "Allow", "Action": ["s3:GetObject", "s3:PutObject"], "Resource": ["arn:aws:s3:::EXACT_BUCKET/index.html", "arn:aws:s3:::EXACT_BUCKET/404.html", "arn:aws:s3:::EXACT_BUCKET/assets/*", "arn:aws:s3:::EXACT_BUCKET/brand/*", "arn:aws:s3:::EXACT_BUCKET/releases/*"], "Condition": {"StringEquals":{"s3:ResourceAccount":"ACCOUNT_ID"}} },
-      { "Effect": "Allow", "Action": ["s3:DeleteObject"], "Resource": "arn:aws:s3:::EXACT_BUCKET/releases/deployment.lock", "Condition": {"StringEquals":{"s3:ResourceAccount":"ACCOUNT_ID"}} },
-      { "Effect": "Allow", "Action": ["cloudfront:GetDistribution", "cloudfront:CreateInvalidation", "cloudfront:GetInvalidation"], "Resource": "arn:aws:cloudfront::ACCOUNT_ID:distribution/EXACT_DISTRIBUTION_ID" },
-      { "Effect": "Allow", "Action": ["cloudfront:GetOriginAccessControl"], "Resource": "arn:aws:cloudfront::ACCOUNT_ID:origin-access-control/EXACT_OAC_ID" }
+      {
+        "Effect": "Allow",
+        "Action": [
+          "cloudformation:DescribeStacks",
+          "cloudformation:UpdateStack"
+        ],
+        "Resource": "arn:aws:cloudformation:REGION:ACCOUNT_ID:stack/EXACT_STACK_NAME/*"
+      },
+      {
+        "Effect": "Allow",
+        "Action": [
+          "s3:ListBucket",
+          "s3:GetBucketPublicAccessBlock",
+          "s3:GetBucketOwnershipControls"
+        ],
+        "Resource": "arn:aws:s3:::EXACT_BUCKET",
+        "Condition": {
+          "StringEquals": {
+            "s3:ResourceAccount": "ACCOUNT_ID"
+          }
+        }
+      },
+      {
+        "Effect": "Allow",
+        "Action": [
+          "s3:GetObject",
+          "s3:PutObject"
+        ],
+        "Resource": [
+          "arn:aws:s3:::EXACT_BUCKET/index.html",
+          "arn:aws:s3:::EXACT_BUCKET/404.html",
+          "arn:aws:s3:::EXACT_BUCKET/assets/*",
+          "arn:aws:s3:::EXACT_BUCKET/brand/*",
+          "arn:aws:s3:::EXACT_BUCKET/releases/*",
+          "arn:aws:s3:::EXACT_BUCKET/published/*"
+        ],
+        "Condition": {
+          "StringEquals": {
+            "s3:ResourceAccount": "ACCOUNT_ID"
+          }
+        }
+      },
+      {
+        "Effect": "Allow",
+        "Action": [
+          "s3:DeleteObject"
+        ],
+        "Resource": "arn:aws:s3:::EXACT_BUCKET/releases/deployment.lock",
+        "Condition": {
+          "StringEquals": {
+            "s3:ResourceAccount": "ACCOUNT_ID"
+          }
+        }
+      },
+      {
+        "Effect": "Allow",
+        "Action": [
+          "cloudfront:GetDistribution",
+          "cloudfront:CreateInvalidation",
+          "cloudfront:GetInvalidation",
+          "cloudfront:GetDistributionConfig",
+          "cloudfront:UpdateDistribution"
+        ],
+        "Resource": "arn:aws:cloudfront::ACCOUNT_ID:distribution/EXACT_DISTRIBUTION_ID"
+      },
+      {
+        "Effect": "Allow",
+        "Action": [
+          "cloudfront:GetOriginAccessControl"
+        ],
+        "Resource": "arn:aws:cloudfront::ACCOUNT_ID:origin-access-control/EXACT_OAC_ID"
+      },
+      {
+        "Effect": "Allow",
+        "Action": [
+          "cloudformation:ValidateTemplate"
+        ],
+        "Resource": "*"
+      },
+      {
+        "Effect": "Allow",
+        "Action": [
+          "cloudfront:DescribeFunction",
+          "cloudfront:GetFunction",
+          "cloudfront:UpdateFunction",
+          "cloudfront:PublishFunction"
+        ],
+        "Resource": "arn:aws:cloudfront::ACCOUNT_ID:function/EXACT_STACK_NAME-routes"
+      },
+      {
+        "Effect": "Allow",
+        "Action": [
+          "s3:GetBucketPolicy",
+          "s3:PutBucketPolicy"
+        ],
+        "Resource": "arn:aws:s3:::EXACT_BUCKET",
+        "Condition": {
+          "StringEquals": {
+            "s3:ResourceAccount": "ACCOUNT_ID"
+          }
+        }
+      }
     ]
   }
 }

@@ -6,5 +6,6 @@
   "distributionId": "",
   "domainName": "",
   "certificateArn": "",
-  "hostedZoneId": ""
+  "hostedZoneId": "",
+  "apiOriginDomain": ""
 }

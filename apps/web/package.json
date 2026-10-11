@@ -25,7 +25,10 @@
     "build:landing": "vite build --config vite.landing.config.ts",
     "preview:landing": "node scripts/serve-static-landing.mjs",
     "test:landing-contract": "node --test scripts/static-landing*.test.mjs",
-    "e2e:landing": "playwright test --config playwright.landing.config.ts"
+    "e2e:landing": "playwright test --config playwright.landing.config.ts",
+    "build:public": "vite build --config vite.public.config.ts",
+    "preview:public": "node scripts/serve-public.mjs",
+    "test:public-contract": "node --test scripts/public-deploy-contract.test.mjs"
   },
   "dependencies": {
     "@internationalized/date": "3.12.4",

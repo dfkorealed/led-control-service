@@ -15,7 +15,7 @@ export default defineConfig({
   // No workspace .env or API configuration participates in this deployment.
   envDir: false,
   envPrefix: "LANDING_UNUSED_",
-  define: { "import.meta.env.VITE_LANDING_SERVICE_URL": JSON.stringify(process.env.VITE_LANDING_SERVICE_URL ?? "") },
+  define: { "import.meta.env.VITE_PUBLIC_DEPLOY_MODE": JSON.stringify("landing"), "import.meta.env.VITE_LANDING_SERVICE_URL": JSON.stringify(process.env.VITE_LANDING_SERVICE_URL ?? "") },
   plugins: [tailwindcss(), react(), {
     name: "static-landing-boundary",
     enforce: "post",

@@ -1,11 +1,11 @@
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { LandingPage } from "./LandingPage";
 import { FeaturesPage } from "./FeaturesPage";
 import { PricingPage } from "./PricingPage";
 import { FieldDayConceptPage } from "./FieldDayConceptPage";
 
-afterEach(cleanup);
+afterEach(() => { cleanup(); vi.unstubAllEnvs(); });
 
 describe("public field-day landing narrative", () => {
   it.each([LandingPage, FieldDayConceptPage])("keeps the merged public and concept report PDF-only across replay (%#)", (Page) => {
@@ -52,6 +52,7 @@ describe("public field-day landing narrative", () => {
   });
 
   it("keeps an accessible disabled preparation button and a skip link", () => {
+    vi.stubEnv("VITE_PUBLIC_DEPLOY_MODE", "landing");
     render(<LandingPage />);
     expect(screen.getByRole("button", { name: "준비 중" })).toBeDisabled();
     expect(screen.queryByRole("link", { name: /로그인/ })).not.toBeInTheDocument();
