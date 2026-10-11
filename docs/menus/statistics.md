@@ -1,5 +1,30 @@
 # 통계 메뉴 기능 현황
 
+## 2026-10-11 통계 표현·보고서 인라인 상세
+
+### 구현 완료
+
+- 개요의 중복 빠른 기간·상시 기간 helper·절감 배지·장문 추정/기준 caption을 제거했다. 기간 검증과 산정 불가·0/null·기준 초과 표현은 유지한다. 개요의 제목·기간·필터는 공통 한 행이며 좁은 화면의 제목/전체 기간은 공간에 따라 줄바꿈한다. 분석 필터 요약은 기간만 표시한다.
+- 세 사용량 차트는 공통 caption tick 크기와 최소 간격을 사용한다. 기존 palette·실제 데이터·툴팁·null gap은 유지한다.
+- 보고서는 기존 공통 DataGrid를 소비하며 좁은 tablet/mobile 카드에 대상·상태·기간·작업을 표시한다. 모든 행은 인라인 상세로 범위·요청/만료 시각·실패 안내를 제공하며 정렬/반응형 전환 뒤에도 job key에 붙어 있다. 기존 생성 CTA·polling·파일/권한·재생성·viewer 수명은 보존한다.
+- C8 운영 인사이트의 원문·초 단위·계산·표시와 해당 테스트는 변경하지 않았다.
+
+### 미구현
+
+- 실제 차트 축 충돌·320/390 날짜 geometry·보고서 577px 화면·최종 통합 관문은 후속 QA가 확인한다. 실계량기·새 DTO·live/firmware 데이터를 추가하지 않았다.
+
+### 부족하거나 개선이 필요한 기능
+
+- 직접 단위 검증은 API/하드웨어·native 저장/공유 성공이나 전체 browser 행렬 승인이 아니다. 긴 기간/제목의 모바일 줄바꿈은 날짜 생략·가로 넘침을 피하기 위한 반응형 예외다.
+
+### 관련 파일
+
+- apps/web/src/features/statistics/{StatisticsOverviewPage,EnergyComparisonChart,statistics-chart-axis}.tsx/ts, analysis/{StatisticsAnalysisPage,EnergyRankingDetailPanel}.tsx, reports/ReportJobList.tsx 및 직접 소비자 테스트.
+
+### 갱신 규칙
+
+- 운영 인사이트 보존과 실제 기간/요금/0/null/파일 owner를 확인하고 QA의 실제 source별 근거를 추가한다. 과거 전체 검증을 이번 변경 완료 근거로 확대하지 않는다.
+
 ## 2026-10-11 공통 필터·날짜·행 상세 교정
 
 ### 구현 완료

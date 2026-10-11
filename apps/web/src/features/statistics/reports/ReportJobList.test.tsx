@@ -30,8 +30,9 @@ describe("ReportJobList", () => {
     measure(400);
     expect(screen.queryByRole("table")).not.toBeInTheDocument();
     const cards = screen.getByRole("list", { name: "보고서 생성 이력" });
-    expect(within(cards).getAllByRole("term").slice(0, 7).map(node => node.textContent)).toEqual(["대상", "범위", "기간", "상태", "요청 시각", "파일 만료 시각", "작업"]);
-    fireEvent.click(within(cards).getByRole("button", { name: "failed 긴 대상명 실패 상세 보기" }));
+    expect(within(cards).getAllByRole("term").slice(0, 4).map(node => node.textContent)).toEqual(["대상", "상태", "기간", "작업"]);
+    expect(within(cards).queryByText("범위")).not.toBeInTheDocument();
+    fireEvent.click(within(cards).getByRole("button", { name: "failed 긴 대상명 보고서 상세보기" }));
     expect(within(cards).getByRole("region", { name: "failed 긴 대상명 실패 안내" })).toHaveTextContent("잠시 후 다시 생성해 주세요.");
     measure(1440);
     expect(screen.queryByRole("list", { name: "보고서 생성 이력" })).not.toBeInTheDocument();

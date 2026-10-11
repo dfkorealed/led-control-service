@@ -11,6 +11,7 @@ import {
   YAxis
 } from "recharts";
 import { useMemo } from "react";
+import { statisticsAxisTick, statisticsXAxisSpacing, statisticsYAxisSpacing } from "./statistics-chart-axis";
 import { StatusDetailButton, Text, useThemeColors } from "../../components/ui";
 import {
   formatComparisonPeriod,
@@ -49,9 +50,9 @@ export function EnergyComparisonChart({ comparison }: { comparison: EnergyCompar
         <ResponsiveContainer width="100%" height="100%" minWidth={0} initialDimension={{ width: 760, height: 320 }}>
           <ComposedChart data={data} margin={{ top: 12, right: 12, left: 0, bottom: 8 }} accessibilityLayer>
             <CartesianGrid stroke={palette["chart-grid"]} strokeDasharray="4 4" vertical={false} />
-            <XAxis dataKey="period" tickFormatter={formatAxisPeriod} tickLine={false}
-              tick={{ fill: palette["content-secondary"] }} axisLine={{ stroke: palette["border-strong"] }} />
-            <YAxis unit=" kWh" width={74} tickLine={false} axisLine={false} tick={{ fill: palette["content-secondary"] }} />
+            <XAxis {...statisticsXAxisSpacing} dataKey="period" tickFormatter={formatAxisPeriod} tickLine={false}
+              tick={{ ...statisticsAxisTick, fill: palette["content-secondary"] }} axisLine={{ stroke: palette["border-strong"] }} />
+            <YAxis {...statisticsYAxisSpacing} unit=" kWh" width={74} tickLine={false} axisLine={false} tick={{ ...statisticsAxisTick, fill: palette["content-secondary"] }} />
             <Tooltip
               cursor={{ fill: palette["surface-inset"], stroke: palette["border-strong"] }}
               content={({ active, payload }) => (

@@ -79,7 +79,7 @@ export function StatisticsAnalysisPage() {
       {pageHeader}
       <FilterPanel label="사용량 분석 조건" mode="popover" variant="compact" className="flex-row-reverse flex-wrap items-center justify-between [&>div:first-child]:shrink-0 [&>div:nth-child(2)]:flex-1"
         activeFilterCount={Number(dimension !== "floor") + Number(metric !== "usage") + Number(sort !== "desc") + Number(from !== defaults.from || to !== defaults.to)}
-        summary={<Text variant="body-sm"><span className="compact:hidden">상태 기반 추정 · </span>{dimensions.find(item => item.value === dimension)?.label} · {metricItems.find(item => item.id === metric)?.label} · {from || "시작일 미완성"} ~ {to || "종료일 미완성"} · {sort === "desc" ? "높은 순" : "낮은 순"}</Text>}
+        summary={<Text variant="body-sm">{from || "시작일 미완성"} ~ {to || "종료일 미완성"}</Text>}
         >
         <Button size="sm" variant="secondary" onClick={() => {
           setDimension("floor"); setMetric("usage"); setSort("desc");

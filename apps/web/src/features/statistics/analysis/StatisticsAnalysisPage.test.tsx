@@ -13,6 +13,13 @@ vi.mock("../../../api/energy", () => ({
 }));
 
 describe("StatisticsAnalysisPage", () => {
+  it("summarizes only the selected period outside the filters", () => {
+    renderPage();
+    const conditions = screen.getByRole("region", { name: "사용량 분석 조건" });
+    expect(conditions).toHaveTextContent("2026-09-01 ~ 2026-09-08");
+    expect(conditions).not.toHaveTextContent("높은 순");
+    expect(conditions).not.toHaveTextContent("상태 기반 추정");
+  });
   afterEach(cleanup);
   beforeEach(() => {
     mocks.hook.mockReset();

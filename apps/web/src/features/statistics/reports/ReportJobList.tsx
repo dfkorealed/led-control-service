@@ -1,6 +1,6 @@
 import type { EnergyReportJob } from "@led-control/shared/energy-p2-contracts";
 import { CircleAlert, FileWarning, LoaderCircle } from "lucide-react";
-import { useState, type Ref } from "react";
+import { type Ref } from "react";
 import { Button, DataGrid, FeedbackState, StatusDetailButton, Text, type DataGridColumn } from "../../../components/ui";
 import { ReportJobStatus } from "./ReportJobStatus";
 import { reportJobViewModel, type ReportJobRenderItem } from "./report-job-view-model";
@@ -32,7 +32,6 @@ export function ReportJobList({
   onRegenerate: (job: EnergyReportJob) => void;
   onDownload: (job: EnergyReportJob) => void;
 }) {
-  const [expandedFailures, setExpandedFailures] = useState<Record<string, boolean>>({});
   const items: ReportJobRenderItem[] = reports?.map((job) => ({ job, view: reportJobViewModel(job, timeZone) })) ?? [];
   const refreshNotice = hasRefreshError ? <StatusDetailButton label="목록 갱신 실패"
     description="보고서 목록을 새로 불러오지 못했습니다. 기존 결과를 표시합니다." variant="danger"
@@ -49,30 +48,17 @@ export function ReportJobList({
     }
     return null;
   };
-  const renderFailure = (item: ReportJobRenderItem, surface: "table" | "card") => {
-    if (!item.view.failure) return null;
-    const key = `${surface}-${item.view.id}`;
-    const panelId = `report-failure-${key}`;
-    const isExpanded = Boolean(expandedFailures[key]);
-    return <div className="grid min-w-0 gap-2">
-      <Button
-        type="button"
-        size="sm"
-        variant="ghost"
-        className="w-full justify-start text-left"
-        aria-expanded={isExpanded}
-        aria-controls={panelId}
-        aria-label={`${item.view.targetLabel} 실패 상세 ${isExpanded ? "닫기" : "보기"}`}
-        onClick={() => setExpandedFailures((current) => ({ ...current, [key]: !isExpanded }))}
-      >
-        실패 상세 {isExpanded ? "닫기" : "보기"}
-      </Button>
-      {isExpanded ? <div id={panelId} role="region" aria-label={`${item.view.targetLabel} 실패 안내`} className="grid min-w-0 gap-1 rounded-control bg-status-danger-background p-3 text-status-danger-foreground wrap-anywhere">
-        <Text as="strong" variant="body-sm" weight="bold" tone="danger">{item.view.failure.message}</Text>
-        <Text as="span" variant="body-sm" tone="danger">{item.view.failure.action}</Text>
-      </div> : null}
-    </div>;
-  };
+  const renderDetails = (item: ReportJobRenderItem) => <div className="grid min-w-0 gap-3">
+    <dl className="m-0 grid min-w-0 gap-2">
+      <div><dt className="text-label text-content-secondary">범위</dt><dd className="m-0">{item.view.scopeLabel}</dd></div>
+      <div><dt className="text-label text-content-secondary">요청 시각</dt><dd className="m-0"><ReportTime instant={item.view.requestedAt} /></dd></div>
+      <div><dt className="text-label text-content-secondary">파일 만료 시각</dt><dd className="m-0">{item.view.expiresAt ? <ReportTime instant={item.view.expiresAt} /> : "—"}</dd></div>
+    </dl>
+    {item.view.failure ? <div role="region" aria-label={`${item.view.targetLabel} 실패 안내`} className="grid min-w-0 gap-1 rounded-control bg-status-danger-background p-3 text-status-danger-foreground wrap-anywhere">
+      <Text as="strong" variant="body-sm" weight="bold" tone="danger">{item.view.failure.message}</Text>
+      <Text as="span" variant="body-sm" tone="danger">{item.view.failure.action}</Text>
+    </div> : null}
+  </div>;
   const columns: DataGridColumn<ReportJobRenderItem>[] = [
     { id: "target", header: "대상", minWidth: 180, sortValue: item => item.view.targetLabel, renderCell: item => <Text weight="bold" className="wrap-anywhere">{item.view.targetLabel}</Text> },
     { id: "scope", header: "범위", minWidth: 70, align: "center", sortValue: item => item.view.scopeLabel, renderCell: item => item.view.scopeLabel },
@@ -81,7 +67,7 @@ export function ReportJobList({
       <time dateTime={item.job.request.from} className="tabular-nums">{item.job.request.from}</time><span>~</span>
       <time dateTime={item.job.request.to} className="tabular-nums">{item.job.request.to}</time>
     </span> },
-    { id: "status", header: "상태", minWidth: 150, align: "center", sortValue: item => item.view.status.label, renderCell: (item, surface) => <div className="grid min-w-0 justify-items-center gap-2"><ReportJobStatus item={item} />{renderFailure(item, surface)}</div> },
+    { id: "status", header: "상태", minWidth: 150, align: "center", sortValue: item => item.view.status.label, renderCell: item => <ReportJobStatus item={item} /> },
     { id: "requested", header: "요청 시각", minWidth: 140, sortValue: item => new Date(item.job.requestedAt), renderCell: item => <ReportTime instant={item.view.requestedAt} /> },
     { id: "expires", header: "파일 만료 시각", minWidth: 140, sortValue: item => item.job.expiresAt ? new Date(item.job.expiresAt) : null, renderCell: item => item.view.expiresAt ? <ReportTime instant={item.view.expiresAt} /> : "—" },
     { id: "actions", header: "작업", minWidth: 140, align: "center", renderCell: renderAction }
@@ -96,8 +82,8 @@ export function ReportJobList({
     {items.length && refreshNotice ? <div className="flex min-w-0 flex-wrap items-center gap-2">
       {refreshNotice}
     </div> : null}
-    {/* Compact cards prioritize target/file action before status to keep downloads in the first screen; all original fields remain accessible. */}
-    {items.length ? <DataGrid caption="보고서 생성 이력" rows={items} columns={columns} getRowKey={item => item.view.id} isBusy={isBusy} variant="compact" className="max-compact:[&_dl>div:first-child]:-order-3 max-compact:[&_dl>div:last-child]:-order-2 max-compact:[&_dl>div:nth-child(4)]:-order-1" /> : null}
+    {items.length ? <DataGrid caption="보고서 생성 이력" rows={items} columns={columns} getRowKey={item => item.view.id} isBusy={isBusy} variant="compact"
+      compactColumnIds={["target", "status", "range", "actions"]} renderRowDetails={renderDetails} getRowDetailsLabel={item => `${item.view.targetLabel} 보고서 상세보기`} /> : null}
   </section>;
 }
 

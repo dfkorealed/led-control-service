@@ -37,6 +37,7 @@ describe("EnergyComparisonChart", () => {
       expect(container.querySelector("svg.recharts-surface")).toBe(chart);
       await waitFor(() => expect(container.querySelector("text.recharts-cartesian-axis-tick-value")).toHaveAttribute("fill", "#B0BDCE"));
       expect(container.querySelector(".recharts-cartesian-grid-horizontal line")).toHaveAttribute("stroke", "#33465D");
+      expect(container.querySelector("text.recharts-cartesian-axis-tick-value")).toHaveAttribute("font-size", "var(--text-caption)");
       expect(container.querySelector('path.recharts-line-curve[stroke="#94B9FF"]')).not.toBeNull();
       expect(container.querySelector('path.recharts-line-curve[stroke="#F2C46D"]')).toHaveAttribute("stroke-dasharray", "4 4");
       expect(screen.getByText(/2026년 9월 4일: 기준 100 kWh, 사용량 산정 불가/)).toBeInTheDocument();

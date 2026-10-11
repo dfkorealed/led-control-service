@@ -154,12 +154,12 @@ describe("StatisticsOverviewPage", () => {
 
   afterEach(cleanup);
 
-  it("explains the full-output baseline in the compact estimate before the actual comparison graphic", () => {
+  it("keeps comparison data without the long estimation caption or savings badge", () => {
     renderView();
-    const context = screen.getByText(/상태 기반 추정.*24시간 100% 출력 기준/);
-    expect(context).toHaveTextContent("24시간 100% 출력 기준 100 kWh");
+    expect(screen.queryByText(/상태 기반 추정.*24시간 100% 출력 기준/)).not.toBeInTheDocument();
+    expect(screen.queryByText("절감 중")).not.toBeInTheDocument();
     const chart = screen.getByRole("img", { name: "기준 대비 에너지 사용량 비교 차트" });
-    expect(context.compareDocumentPosition(chart) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(chart).toBeInTheDocument();
   });
 
   it("separates comparison and trend popover scopes without invented search", async () => {
@@ -318,10 +318,10 @@ describe("StatisticsOverviewPage", () => {
     opener.focus();
     fireEvent.click(opener);
     const picker = screen.getByRole("dialog", { name: "절감 비교 기간" });
-    expect(picker).toHaveTextContent("오늘 진행 중인 집계와 이번 달 비용 전망은 아래 별도 영역에 유지됩니다.");
-    expect(within(picker).getByRole("group", { name: "빠른 기간 선택" })).toBeInTheDocument();
+    expect(within(picker).queryByRole("group", { name: "빠른 기간 선택" })).not.toBeInTheDocument();
+    expect(picker).not.toHaveTextContent("마지막 완료일");
     await waitFor(() => expect(picker).toContainElement(document.activeElement as HTMLElement));
-    fireEvent.click(within(within(picker).getByRole("group", { name: "빠른 기간 선택" })).getByRole("button", { name: "최근 7일" }));
+    for (let day = 1; day < 19; day++) fireEvent.keyDown(within(picker).getAllByRole("spinbutton")[2], { key: "ArrowUp" });
     fireEvent.click(within(picker).getByRole("button", { name: "선택 기간 적용" }));
 
     expect(screen.queryByRole("dialog", { name: "절감 비교 기간" })).not.toBeInTheDocument();
@@ -344,7 +344,7 @@ describe("StatisticsOverviewPage", () => {
     renderView();
     fireEvent.click(screen.getByRole("button", { name: /절감 비교 기간 상세 필터/ }));
     const picker = screen.getByRole("dialog", { name: "절감 비교 기간" });
-    fireEvent.click(within(within(picker).getByRole("group", { name: "빠른 기간 선택" })).getByRole("button", { name: "최근 7일" }));
+    for (let day = 1; day < 19; day++) fireEvent.keyDown(within(picker).getAllByRole("spinbutton")[2], { key: "ArrowUp" });
     fireEvent.click(within(picker).getByRole("button", { name: "선택 기간 적용" }));
 
     expect(screen.getByText("절감 비교를 불러오지 못했습니다.")).toBeInTheDocument();
@@ -470,7 +470,7 @@ describe("StatisticsOverviewPage", () => {
     const savingsRow = screen.getByText("예상 절감").parentElement;
     expect(savingsRow).toHaveAttribute("data-tone", "danger");
     expect(savingsRow).not.toHaveAttribute("data-tone", "success");
-    expect(screen.getByText(/현재 등록 조명 10개 · 해당 월 31일 전체 · 24시간 · 100% 밝기 · 현재 단가 기준/)).toBeInTheDocument();
+    expect(screen.queryByText(/현재 등록 조명 10개 · 해당 월 31일 전체/)).not.toBeInTheDocument();
     expect(screen.getByText("누적·일별·월별 비용은 당시 적용 단가의 저장 비용입니다.")).toBeInTheDocument();
     expect(screen.getByRole("complementary", { name: "비용 비교" })).toHaveTextContent(
       "예상·기준·절감 비용은 현재 설정 단가 기준입니다."

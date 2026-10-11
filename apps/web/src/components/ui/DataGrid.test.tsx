@@ -25,17 +25,21 @@ const columns = [
 describe("DataGrid", () => {
   it("keeps optional row details attached to their key across ordering and card/table changes", () => {
     const rows = [{ id: "A", name: "조명 A" }, { id: "B", name: "조명 B" }];
-    const view = render(<UI.DataGrid caption="상세 목록" rows={rows} columns={columns} getRowKey={row => row.id}
+    const detailColumns = columns.map(column => column.id === "name" ? { ...column, sortValue: (row: typeof rows[number]) => row.name } : column);
+    const view = render(<UI.DataGrid caption="상세 목록" rows={rows} columns={detailColumns} getRowKey={row => row.id}
       compactColumnIds={["name", "action"]} renderRowDetails={row => <span>{row.id} 추가 정보</span>} getRowDetailsLabel={row => `${row.name} 상세보기`} />);
     expect(screen.queryAllByText("수량")).toHaveLength(0);
     const trigger = screen.getByRole("button", { name: "조명 A 상세보기" });
     expect(trigger).toHaveAttribute("aria-expanded", "false");
     fireEvent.click(trigger);
     expect(screen.getByRole("region", { name: "조명 A 상세보기" })).toHaveTextContent("A 추가 정보");
-    view.rerender(<UI.DataGrid caption="상세 목록" rows={[...rows].reverse()} columns={columns} getRowKey={row => row.id}
+    view.rerender(<UI.DataGrid caption="상세 목록" rows={[...rows].reverse()} columns={detailColumns} getRowKey={row => row.id}
       compactColumnIds={["name", "action"]} renderRowDetails={row => <span>{row.id} 추가 정보</span>} getRowDetailsLabel={row => `${row.name} 상세보기`} />);
     measure(500);
+    fireEvent.click(screen.getByRole("button", { name: "이름 오름차순 정렬" }));
+    fireEvent.click(screen.getByRole("button", { name: "이름 내림차순 정렬" }));
     const detail = screen.getByRole("region", { name: "조명 A 상세보기" });
+    expect(detail.closest("tr")?.previousElementSibling).toHaveTextContent("조명 A");
     expect(detail.closest("td")).toHaveAttribute("colspan", "3");
     expect(screen.getByRole("button", { name: "조명 A 상세보기" })).toHaveAttribute("aria-controls", detail.id);
     expect(screen.queryByText("B 추가 정보")).not.toBeInTheDocument();

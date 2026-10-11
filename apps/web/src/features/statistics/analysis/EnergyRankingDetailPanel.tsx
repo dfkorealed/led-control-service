@@ -3,6 +3,7 @@ import { ArrowDownRight, ArrowUpRight, Minus } from "lucide-react";
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { Card, Heading, MetricCard, Text, useThemeColors } from "../../../components/ui";
 import { formatKwh, formatWon } from "../statistics-format";
+import { statisticsAxisTick, statisticsXAxisSpacing, statisticsYAxisSpacing } from "../statistics-chart-axis";
 
 export function EnergyRankingDetailPanel({ item }: { item: EnergyRankingItem | null }) {
   const palette = useThemeColors();
@@ -37,10 +38,10 @@ export function EnergyRankingDetailPanel({ item }: { item: EnergyRankingItem | n
         <ResponsiveContainer width="100%" height="100%">
           <LineChart data={item.dailyPoints} margin={{ top: 8, right: 10, bottom: 0, left: 0 }}>
             <CartesianGrid stroke={palette["chart-grid"]} strokeDasharray="3 3" vertical={false} />
-            <XAxis dataKey="period" tickFormatter={(value) => value.slice(5)} tick={{ fill: palette["content-secondary"] }}
+            <XAxis {...statisticsXAxisSpacing} dataKey="period" tickFormatter={(value) => value.slice(5)} tick={{ ...statisticsAxisTick, fill: palette["content-secondary"] }}
               tickLine={false} axisLine={{ stroke: palette["border-strong"] }} />
-            <YAxis width={96} tickMargin={8} tickFormatter={(value: number) => Number(value).toLocaleString("ko-KR")}
-              tick={{ fill: palette["content-secondary"] }} tickLine={false} axisLine={false} />
+            <YAxis {...statisticsYAxisSpacing} width={96} tickFormatter={(value: number) => Number(value).toLocaleString("ko-KR")}
+              tick={{ ...statisticsAxisTick, fill: palette["content-secondary"] }} tickLine={false} axisLine={false} />
             <Tooltip formatter={(value) => [`${Number(value).toLocaleString("ko-KR")} kWh`, "사용량"]}
               cursor={{ stroke: palette["border-strong"] }}
               contentStyle={{ backgroundColor: palette["surface-elevated"], borderColor: palette["border-strong"], color: palette["content-primary"] }}

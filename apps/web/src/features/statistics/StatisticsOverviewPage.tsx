@@ -1,6 +1,6 @@
 import type { EnergyComparisonPreset, EnergySeriesPoint, EnergySummary } from "@led-control/shared";
 import { energyRangeComparisonQuerySchema } from "@led-control/shared/energy-range-contracts";
-import { Activity, CircleCheck, CircleOff, TriangleAlert, TrendingDown, TrendingUp } from "lucide-react";
+import { Activity, CircleCheck, CircleOff, TriangleAlert } from "lucide-react";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useOutletContext } from "react-router-dom";
 import {
@@ -21,6 +21,7 @@ import { PeriodComparisonPanel } from "./PeriodComparisonPanel";
 import { comparisonPresentation } from "./statistics-comparison";
 import { formatKwh, formatKwhValue, formatWon } from "./statistics-format";
 import { getEnergySeriesRanges } from "./statistics-periods";
+import { statisticsAxisTick, statisticsXAxisSpacing, statisticsYAxisSpacing } from "./statistics-chart-axis";
 import type { StatisticsOutletContext } from "./StatisticsShell";
 
 type Granularity = "day" | "month";
@@ -116,19 +117,9 @@ export function StatisticsOverviewPage() {
           setCustomActive(true);
           setShowCustomPicker(false);
         }}>선택 기간 적용</Button>
-        <Text variant="body-sm" tone="secondary">완료된 날짜만 절감 비교에 포함합니다. 오늘 진행 중인 집계와 이번 달 비용 전망은 아래 별도 영역에 유지됩니다.</Text>
-        <div className="flex flex-wrap gap-2" role="group" aria-label="빠른 기간 선택">
-          {comparisonPresetOptions.map((option) => {
-            const range = draftForPreset(option.value, lastCompletedDate);
-            return <Button key={option.value} size="sm" variant="secondary"
-              aria-pressed={draftRange.from === range.from && draftRange.to === range.to}
-              onClick={() => rangeDraft.reset({ start: range.from, end: range.to })}>{option.label}</Button>;
-          })}
-        </div>
         <DateRangePicker label="완료 기간 시작일과 종료일" draftController={rangeDraft} autoFocus
           value={draftRange.from && draftRange.to ? { start: draftRange.from, end: draftRange.to } : null}
           maxValue={lastCompletedDate} onChange={() => {}} />
-        <Text variant="caption" tone="secondary">현장 시간대 {summary.timeZone} · 마지막 완료일 {lastCompletedDate} · 1~400일</Text>
         {!validDraftRange ? <p role="alert" className="m-0 text-body-sm text-status-danger-foreground">시작일과 종료일을 완료된 1~400일 범위로 선택해 주세요.</p> : null}
       </div>
   );
@@ -291,7 +282,6 @@ export function StatisticsOverviewPage() {
           <Heading as="h2" variant="customer-section-title">이번 달 비용 비교</Heading>
           {costRows}
           <Text variant="body-sm" tone="muted">예상·기준·절감 비용은 현재 설정 단가 기준입니다.</Text>
-          <Text variant="caption" tone="muted">현재 등록 조명 {summary.baseline24Hours.fixtureCount}개 · 해당 월 {summary.baseline24Hours.daysInMonth}일 전체 · 24시간 · 100% 밝기 · 현재 단가 기준</Text>
         </SidePanel> : null}
         <StatisticsOperationalInfo summary={summary} />
       </div>
@@ -344,12 +334,10 @@ function ComparisonSection({
       && presentation.savingsKwh !== null
       && presentation.savingsCost !== null
       && query.data.summary.estimatedKwh !== null;
-    const SavingsIcon = presentation.tone === "danger" ? TrendingUp : TrendingDown;
     const savingsPrefix = presentation.tone === "danger" ? "기준 초과" : "예상 절감";
 
     content = (
       <div className="grid min-w-0 gap-4 max-compact:gap-2">
-        <Text variant="caption" tone="secondary" className="compact:hidden">상태 기반 추정 {query.data.summary.estimatedKwh === null ? "산정 대기" : formatKwh(query.data.summary.estimatedKwh)} · 24시간 100% 출력 기준 {formatKwh(query.data.summary.baselineKwh)} · {presentation.label}{query.data.points.some(point => point.dataStatus === "partial") ? " · 수집 공백 있음" : query.data.points.some(point => point.dataStatus === "no_data") ? " · 수집 데이터 없음" : ""}</Text>
         {isAvailable ? (
           <div className="grid grid-cols-4 gap-3 tablet:grid-cols-4 max-compact:grid-cols-1 max-compact:order-2">
             <div className="min-w-0">
@@ -359,11 +347,6 @@ function ComparisonSection({
                 unit="%"
                 helper={presentation.description}
                 tone={presentation.tone}
-                status={(
-                  <StatusBadge tone={presentation.tone} icon={SavingsIcon}>
-                    {presentation.tone === "danger" ? "초과 사용" : "절감 중"}
-                  </StatusBadge>
-                )}
               />
             </div>
             <div className="min-w-0">
@@ -422,11 +405,8 @@ function ComparisonSection({
   return (
     <section className="grid min-w-0 gap-4 max-compact:gap-2" aria-labelledby="statistics-comparison-title">
       <div className="grid min-w-0 gap-3">
-        <div className="grid gap-1 max-compact:sr-only">
-          <Heading as="h3" variant="section-title" id="statistics-comparison-title">기준 대비 에너지 절감</Heading>
-        </div>
-        <FilterPanel label="절감 비교 기간" mode="popover" className="flex-row-reverse flex-wrap items-center justify-between [&>div:first-child]:shrink-0 [&>div:nth-child(2)]:flex-1" isOpen={isOpen} onOpenChange={onOpenChange}
-          activeFilterCount={Number(customActive || preset !== "current_month")} summary={<Text variant="caption">{currentRangeLabel}</Text>}
+        <FilterPanel label="절감 비교 기간" mode="popover" className="flex-row-reverse flex-nowrap items-center justify-between [&>div:first-child]:shrink-0 [&>div:nth-child(2)]:flex-1" isOpen={isOpen} onOpenChange={onOpenChange}
+          activeFilterCount={Number(customActive || preset !== "current_month")} summary={<><Heading as="h3" variant="section-title" id="statistics-comparison-title">기준 대비 에너지 절감</Heading><Text variant="caption">{currentRangeLabel}</Text></>}
           >
         <div className="flex flex-wrap gap-2" role="group" aria-label="절감 비교 프리셋">
           {comparisonPresetOptions.map((option) => (
@@ -496,9 +476,9 @@ function EnergyChart({
         <ResponsiveContainer width="100%" height="100%" minWidth={0} initialDimension={{ width: 760, height: 300 }}>
           <LineChart data={chartPoints} margin={{ top: 12, right: 12, left: 0, bottom: 8 }} accessibilityLayer>
             <CartesianGrid stroke={palette["chart-grid"]} strokeDasharray="4 4" vertical={false} />
-            <XAxis dataKey="period" tickFormatter={(value: string) => formatAxisPeriod(value, granularity)} tickLine={false}
-              tick={{ fill: palette["content-secondary"] }} axisLine={{ stroke: palette["border-strong"] }} />
-            <YAxis unit=" kWh" width={74} tickLine={false} axisLine={false} tick={{ fill: palette["content-secondary"] }} />
+            <XAxis {...statisticsXAxisSpacing} dataKey="period" tickFormatter={(value: string) => formatAxisPeriod(value, granularity)} tickLine={false}
+              tick={{ ...statisticsAxisTick, fill: palette["content-secondary"] }} axisLine={{ stroke: palette["border-strong"] }} />
+            <YAxis {...statisticsYAxisSpacing} unit=" kWh" width={74} tickLine={false} axisLine={false} tick={{ ...statisticsAxisTick, fill: palette["content-secondary"] }} />
             <Tooltip
               cursor={{ stroke: palette["border-strong"] }}
               content={({ active, payload }) => (

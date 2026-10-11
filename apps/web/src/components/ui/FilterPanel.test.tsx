@@ -9,7 +9,7 @@ function panel() {
   expect(component, "public filter wrapper is exported").toBeDefined();
   return component;
 }
-afterEach(cleanup);
+afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
 describe("FilterPanel", () => {
   it("uses a modal bottom sheet on mobile while retaining nested calendar dismissal and focus", async () => {
@@ -80,7 +80,8 @@ describe("FilterPanel", () => {
     await waitFor(() => expect(trigger).toHaveFocus());
     expect(closeTopOverlay()).toBe(false);
   });
-  it("nested select back closes topmost first and leaves closed collections unregistered", async () => {
+  it.each([false, true])("nested select back closes topmost first and leaves closed collections unregistered (mobile=%s)", async mobile => {
+    vi.stubGlobal("matchMedia", () => ({ matches: mobile, addEventListener() {}, removeEventListener() {} }));
     render(<UI.FilterPanel label="중첩" mode="popover"><UI.SelectBox label="상태" items={[{ id: "all", label: "전체" }]} selectedKey="all" /></UI.FilterPanel>);
     expect(closeTopOverlay()).toBe(false);
     const trigger = screen.getByRole("button", { name: /중첩 상세 필터/ }); trigger.focus(); fireEvent.click(trigger);
@@ -93,7 +94,8 @@ describe("FilterPanel", () => {
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     expect(closeTopOverlay()).toBe(false);
   });
-  it("retains controlled open state and pending dismissal locks", () => {
+  it.each([false, true])("retains controlled open state and pending dismissal locks (mobile=%s)", mobile => {
+    vi.stubGlobal("matchMedia", () => ({ matches: mobile, addEventListener() {}, removeEventListener() {} }));
     const change = vi.fn();
     render(<UI.FilterPanel label="잠금" mode="popover" isOpen isDismissDisabled onOpenChange={change}><UI.TextField label="입력" /></UI.FilterPanel>);
     const dialog = screen.getByRole("dialog", { name: "잠금" });
