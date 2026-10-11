@@ -1,11 +1,11 @@
-import { expect, test, type Page, type TestInfo } from "@playwright/test";
+import { expect, test, type Locator, type Page, type TestInfo } from "@playwright/test";
 import { writeFile } from "node:fs/promises";
 import { createDimmingCommandSchema } from "@led-control/shared";
 import { mockDashboard } from "../src/test/fixtures";
 import type { SiteSettingsResponse } from "../src/api/site-settings";
 import { commandDetailClockFixture, installSettingsApiRoutes } from "./support/settings-api";
 import { installMockApiBoundary } from "./support/mock-api-boundary";
-import { installFirstScreenStatisticsFixtures } from "./support/first-screen-statistics";
+import { browserReport, installFirstScreenStatisticsFixtures } from "./support/first-screen-statistics";
 import { expectMinimumTouchTargets, expectMinimumTouchTargetsAfterScrolling, expectNoHorizontalOverflow } from "./support/layout-assertions";
 
 const siteId = mockDashboard.site.id;
@@ -64,6 +64,10 @@ async function customer(page: Page, role: "admin" | "viewer" = "admin", statisti
   await page.route("**/api/commands?**", route => route.request().method() === "GET"
     ? route.fulfill({ json: { items: [], nextCursor: null, generatedAt: commandDetailClockFixture.generatedAt,
       retainedFrom: commandDetailClockFixture.retainedFrom, retentionEnabled: false } }) : route.fallback());
+  await page.route(`**/api/sites/${siteId}/floors/${floorId}/monitoring-activity?**`, route => route.request().method() === "GET"
+    ? route.fulfill({ json: { items: [{ id: commandId, kind: "fixture_online", fixtureId: fixtures[0].id, displayName: fixtures[0].name,
+      recordedAt: commandDetailClockFixture.generatedAt }], nextCursor: null, generatedAt: commandDetailClockFixture.generatedAt,
+      retainedFrom: commandDetailClockFixture.retainedFrom } }) : route.fallback());
   return { api, writes };
 }
 
@@ -151,7 +155,7 @@ test("PC four roots own one visible h1 and settings/statistics subnav retain URL
   expect(writes).toEqual([]);
 });
 
-for (const width of [320, 390, 562, 759, 760]) test(`responsive ${width}: branding long site option and monitoring refresh precede map`, async ({ page }, info) => {
+for (const width of [320, 390, 562, 759, 760]) test(`responsive ${width}: branding plain current site and monitoring refresh precede map`, async ({ page }, info) => {
   await page.setViewportSize({ width, height: 844 }); await theme(page, "light"); const { writes } = await customer(page);
   await page.goto(`/monitoring?siteId=${siteId}`);
   const compact = width < 760;
@@ -160,10 +164,9 @@ for (const width of [320, 390, 562, 759, 760]) test(`responsive ${width}: brandi
   const topbar = page.locator("[data-shell-topbar]");
   const logo = (compact ? topbar : page.locator("[data-shell-navigation=desktop]")).locator("[data-kinda-logo-mark]");
   await expect(logo).toBeVisible(); await expect(logo).toHaveAttribute("src", "/brand/kinda-mark.svg");
-  const site = topbar.getByRole("button", { name: /현장 선택/ }); await site.click();
-  await expect(page.getByRole("option", { name: `고객사 · ${longSite}`, exact: true })).toBeVisible();
-  await expectMinimumTouchTargets(page, "[role=listbox]"); await documentFits(page);
-  await evidence(page, info, `responsive-${width}-options`); await page.keyboard.press("Escape"); await expect(site).toBeFocused();
+  await expect(topbar.locator("[data-shell-context]")).toContainText(`고객사 · ${longSite}`);
+  await expect(topbar.getByRole("button", { name: /현장 선택/ })).toHaveCount(0);
+  await expect(page.getByRole("listbox")).toHaveCount(0); await documentFits(page);
   const map = page.getByTestId("monitoring-map-viewport"); await expect(map.locator("canvas").first()).toBeVisible();
   const refresh = page.getByRole("button", { name: "새로고침", exact: true });
   const refreshBox = (await refresh.boundingBox())!, mapBox = (await map.boundingBox())!;
@@ -215,7 +218,7 @@ test("short manual recovery keeps map viewport 240, CTA reachable and draft/tool
   await documentFits(page, true); await evidence(page, info, "short-manual-recovery", { writes }); expect(writes).toEqual(original);
 });
 
-test("dark four roots and real site/alarm portals inherit the customer palette", async ({ page }, info) => {
+test("dark four roots plain site information and real alarm portal inherit the customer palette", async ({ page }, info) => {
   await page.setViewportSize({ width: 1440, height: 900 }); await theme(page, "dark"); const { writes } = await customer(page, "admin", true);
   for (const menu of roots) {
     await page.goto(`/${menu}?siteId=${siteId}`); await expect(page.locator("html")).toHaveAttribute("data-customer-theme", "dark");
@@ -224,16 +227,9 @@ test("dark four roots and real site/alarm portals inherit the customer palette",
     await expect(page.locator("[data-app-shell]")).toHaveCSS("background-color", "rgb(15, 23, 36)");
     await evidence(page, info, `dark-${menu}`);
   }
-  await page.locator("[data-shell-topbar]").getByRole("button", { name: /현장 선택/ }).click();
-  await expect(page.getByRole("listbox")).toBeVisible();
-  expect(await page.getByRole("listbox").evaluate(node => {
-    for (let owner: Element | null = node; owner; owner = owner.parentElement) {
-      const color = getComputedStyle(owner).backgroundColor;
-      if (color !== "rgba(0, 0, 0, 0)" && color !== "transparent") return color;
-    }
-    return null;
-  })).toBe("rgb(24, 35, 52)");
-  await evidence(page, info, "dark-site-portal"); await page.keyboard.press("Escape");
+  await expect(page.locator("[data-shell-context]")).toContainText(`고객사 · ${longSite}`);
+  await expect(page.getByRole("button", { name: /현장 선택/ })).toHaveCount(0);
+  await expect(page.getByRole("listbox")).toHaveCount(0);
   await page.getByRole("button", { name: /^알람센터/ }).click();
   const alarm = page.getByRole("dialog", { name: "알람센터", exact: true }); await expect(alarm).toBeVisible();
   await evidence(page, info, "dark-alarm-portal"); expect(writes).toEqual([]);
@@ -324,4 +320,173 @@ test("gallery draws bounded readonly snapshots and disposes canvas on navigation
   await expect(page).toHaveURL(new RegExp(`/settings/site\\?siteId=${siteId}`));
   await expect.poll(() => node!.evaluate(element => element.isConnected)).toBe(false);
   expect(api.editorRequests).toEqual([]); expect(writes).toEqual([]);
+});
+
+// This seven-case correction suite intentionally does not replay Tasks 1–12.
+// Each case owns controlled fixture reads and checks that pure UI emits no writes.
+async function visibleAction(page: Page, target: Locator) {
+  await target.scrollIntoViewIfNeeded(); await expect(target).toBeVisible();
+  const bounds = await target.evaluate(element => {
+    const rect = element.getBoundingClientRect();
+    const nav = document.querySelector<HTMLElement>("[data-shell-navigation=compact]");
+    const header = document.querySelector<HTMLElement>("[data-shell-topbar]");
+    const navTop = nav?.getBoundingClientRect().top ?? innerHeight;
+    const headerBottom = header?.getBoundingClientRect().bottom ?? 0;
+    const hit = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
+    return { x: rect.left, y: rect.top, width: rect.width, height: rect.height,
+      bottom: rect.bottom, right: rect.right, navTop, headerBottom, viewportWidth: innerWidth,
+      reachable: Boolean(hit && element.contains(hit)) };
+  });
+  expect(bounds.y).toBeGreaterThanOrEqual(bounds.headerBottom);
+  expect(bounds.bottom).toBeLessThanOrEqual(bounds.navTop);
+  expect(bounds.x).toBeGreaterThanOrEqual(0); expect(bounds.right).toBeLessThanOrEqual(bounds.viewportWidth);
+  expect(bounds.height).toBeGreaterThanOrEqual(44); expect(bounds.width).toBeGreaterThanOrEqual(44);
+  expect(bounds.reachable).toBe(true);
+  return bounds;
+}
+
+async function centeredColumns(table: Locator) {
+  const headers = table.locator("thead th"), cells = table.locator("tbody tr").first().locator("td");
+  const alignments = [];
+  for (let index = 1; index < await headers.count(); index += 1) {
+    await expect(headers.nth(index)).toHaveCSS("text-align", "center");
+    await expect(cells.nth(index)).toHaveCSS("text-align", "center");
+    const sort = headers.nth(index).getByRole("button");
+    if (await sort.count()) await expect(sort).toHaveCSS("justify-content", "center");
+    alignments.push({ header: await headers.nth(index).innerText(), headerBounds: await headers.nth(index).boundingBox(), cellBounds: await cells.nth(index).boundingBox() });
+  }
+  return alignments;
+}
+
+for (const width of [578, 681]) test(`browser comments tall mobile ${width}: settled map fills remaining shell height`, async ({ page }, info) => {
+  await page.setViewportSize({ width, height: 1227 }); await theme(page, "light"); const { writes } = await customer(page);
+  await page.goto(`/monitoring?siteId=${siteId}`); await rootReady(page, "monitoring");
+  const ticker = page.getByRole("region", { name: "최근 운영 로그", exact: true });
+  await expect(ticker).not.toContainText("불러오는 중");
+  const map = (await page.getByTestId("monitoring-map-viewport").boundingBox())!;
+  const panel = (await page.locator("[data-monitoring-map-panel]").boundingBox())!;
+  const nav = (await page.locator("[data-shell-navigation=compact]").boundingBox())!;
+  expect(map.height).toBeGreaterThan(500); expect(panel.y + panel.height).toBeLessThanOrEqual(nav.y);
+  expect(nav.y - (panel.y + panel.height)).toBeLessThanOrEqual(24);
+  const cells = await page.getByRole("region", { name: "현장 전체", exact: true }).locator("dl > div").evaluateAll(elements => elements.map(element => element.getBoundingClientRect().width));
+  expect(Math.max(...cells) - Math.min(...cells)).toBeLessThanOrEqual(1);
+  await expect(page.getByText("ATLAS / OPERATIONS", { exact: true })).toHaveCount(0);
+  const actions = { zoom: await visibleAction(page, page.getByRole("button", { name: "지도 확대", exact: true })),
+    logs: await visibleAction(page, ticker.getByRole("button").first()) };
+  await expectMinimumTouchTargets(page, "[data-shell-navigation=compact]"); await documentFits(page);
+  await evidence(page, info, `comments-tall-${width}`, { map, panel, nav, cells, actions, writes }); expect(writes).toEqual([]);
+});
+
+test("browser comments short mobile: natural scroll exposes monitoring and manual actions", async ({ page }, info) => {
+  await page.setViewportSize({ width: 390, height: 600 }); await theme(page, "light"); const { writes } = await customer(page);
+  await page.goto(`/monitoring?siteId=${siteId}`); await rootReady(page, "monitoring");
+  const map = page.getByTestId("monitoring-map-viewport"); expect((await map.boundingBox())!.height).toBeGreaterThanOrEqual(240);
+  expect(await page.evaluate(() => document.scrollingElement!.scrollHeight)).toBeGreaterThan(600);
+  const zoomBefore = await map.getAttribute("data-zoom");
+  await page.mouse.move(2, 400); await page.mouse.wheel(0, 450);
+  await expect.poll(() => page.evaluate(() => scrollY)).toBeGreaterThan(0);
+  await expect(map).toHaveAttribute("data-zoom", zoomBefore!);
+  const ticker = page.getByRole("region", { name: "최근 운영 로그", exact: true }); await expect(ticker).not.toContainText("불러오는 중");
+  const logs = await visibleAction(page, ticker.getByRole("button").first());
+  await documentFits(page); await evidence(page, info, "comments-short-monitoring", { logs, writes });
+  await page.goto(`/control?siteId=${siteId}`); await rootReady(page, "control");
+  const input = page.getByRole("textbox", { name: "밝기 수치", exact: true }); await input.fill("31"); await input.press("Enter");
+  const actions = {} as Record<string, unknown>;
+  for (const name of ["조명 목록 열기", "이동", "개별 선택", "영역 선택", "지도 확대"])
+    actions[name] = await visibleAction(page, page.getByRole("button", { name, exact: true }));
+  await expect(input).toHaveValue("31"); expect((await page.getByTestId("target-selection-map-viewport").boundingBox())!.height).toBeGreaterThanOrEqual(240);
+  await input.scrollIntoViewIfNeeded(); await documentFits(page); await evidence(page, info, "comments-short-manual", { actions, writes }); expect(writes).toEqual([]);
+});
+
+test("browser comments PC: current site is plain information and header metrics stay compact", async ({ page }, info) => {
+  await page.setViewportSize({ width: 1440, height: 900 }); const { writes } = await customer(page);
+  await page.goto(`/monitoring?siteId=${siteId}&keep=value#comments`); await rootReady(page, "monitoring");
+  await expect(page.getByRole("button", { name: /현장 선택/ })).toHaveCount(0); await expect(page.getByRole("listbox")).toHaveCount(0);
+  await expect(page.locator("[data-shell-context]")).toContainText(`고객사 · ${longSite}`);
+  await expect(page.getByText("ATLAS / OPERATIONS", { exact: true })).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "모니터링", exact: true })).toBeVisible();
+  await expect(page.locator("[data-operation-map-chrome]").getByRole("heading")).toHaveCount(0);
+  const metrics = await page.getByRole("region", { name: "현장 전체", exact: true }).locator("dl").evaluate(element => {
+    const rect = element.getBoundingClientRect(); const children = [...element.children].map(child => { const bounds = child.getBoundingClientRect(); return { x: bounds.x, width: bounds.width }; });
+    return { width: rect.width, children, gap: getComputedStyle(element).columnGap };
+  });
+  expect(metrics.width).toBeLessThan(260); expect(metrics.gap).toBe("12px");
+  const scope = new URL(page.url()); expect(scope.searchParams.get("keep")).toBe("value"); expect(scope.hash).toBe("#comments");
+  await documentFits(page); await evidence(page, info, "comments-pc-monitoring", { metrics, writes }); expect(writes).toEqual([]);
+});
+
+test("browser comments manual: individual list owns central clear while brightness draft survives", async ({ page }, info) => {
+  await page.setViewportSize({ width: 1440, height: 900 }); const { writes } = await customer(page);
+  await page.goto(`/control?siteId=${siteId}`); await rootReady(page, "control");
+  await page.getByRole("button", { name: "조명 목록 열기", exact: true }).click();
+  const drawer = page.getByRole("dialog", { name: "조명 목록", exact: true });
+  const choice = drawer.getByRole("checkbox", { name: `${fixtures[0].name} 선택`, exact: true });
+  await choice.locator("xpath=ancestor::label").click(); await expect(choice).toBeChecked();
+  await drawer.getByRole("button", { name: "선택 완료", exact: true }).click();
+  const central = page.locator("[data-target-selection-detail-panel]"); await expect(central).toBeVisible();
+  const selected = central.getByRole("list", { name: "선택 조명", exact: true }); await expect(selected).toContainText(fixtures[0].name);
+  const execution = page.getByRole("complementary", { name: "밝기 실행", exact: true }); await expect(execution.getByRole("list", { name: "선택 조명", exact: true })).toHaveCount(0);
+  await expect(execution.getByText("초안", { exact: true })).toHaveCount(0);
+  const clear = central.getByRole("button", { name: "선택 해제", exact: true }); const clearBounds = await visibleAction(page, clear);
+  const centralBounds = (await central.boundingBox())!; const mapBounds = (await page.getByTestId("target-selection-map-viewport").boundingBox())!;
+  const executionBounds = (await execution.boundingBox())!;
+  expect(clearBounds.x + clearBounds.width).toBeGreaterThan(centralBounds.x + centralBounds.width / 2);
+  expect(clearBounds.y - centralBounds.y).toBeLessThanOrEqual(24);
+  expect(centralBounds.x).toBeGreaterThanOrEqual(mapBounds.x + mapBounds.width); expect(centralBounds.x + centralBounds.width).toBeLessThanOrEqual(executionBounds.x);
+  const input = page.getByRole("textbox", { name: "밝기 수치", exact: true }); await input.fill("31"); await input.press("Enter"); const owner = await input.elementHandle();
+  await toggleTheme(page); await page.setViewportSize({ width: 1280, height: 900 });
+  expect(await input.evaluate((node, original) => node === original, owner)).toBe(true); await expect(input).toHaveValue("31");
+  await clear.click(); await expect(central.getByRole("list", { name: "선택 조명", exact: true })).toHaveCount(0); await expect(input).toHaveValue("31");
+  await documentFits(page); await evidence(page, info, "comments-manual-central-clear", { centralBounds, mapBounds, executionBounds, clearBounds, writes }); expect(writes).toEqual([]);
+});
+
+test("browser comments PC tables: schedule toolbar CTA and center alignment preserve read-only UI", async ({ page }, info) => {
+  await page.setViewportSize({ width: 1440, height: 900 }); const { writes } = await customer(page);
+  const instant = "2026-10-01T00:00:00.000Z";
+  const schedule = { id: commandId, name: "야간 스케줄", status: "enabled", activeFrom: instant, activeUntil: "2026-10-31T00:00:00.000Z", localStartTime: "18:00", localEndTime: "23:00",
+    recurrence: { kind: "daily", weeklyDays: [], monthlyDay: null, yearlyMonth: null, yearlyDay: null }, action: { dimmingEnabled: true, brightnessPercent: 70 },
+    fixtureIds: [fixtures[0].id], gatewayId, targets: [{ fixtureId: fixtures[0].id }], targetCount: 1, desiredRevision: 2, appliedRevision: 2, syncStatus: "APPLIED", nextOccurrence: null,
+    lastExecution: null, createdById: "user-1", updatedById: "user-1", createdAt: instant, updatedAt: instant };
+  await page.route(`**/api/sites/${siteId}/automation/schedules**`, route => route.request().method() === "GET" ? route.fulfill({ json: { items: [schedule], total: 1, filteredTotal: 1,
+    siteSummary: { ruleCount: 1, syncRuleCounts: { APPLIED: 1, PENDING: 0, REJECTED: 0 } }, nextCursor: null } }) : route.fallback());
+  await page.route(`**/api/sites/${siteId}/fixture-groups**`, route => route.request().method() === "GET" ? route.fulfill({ json: [{ id: commandId, name: "주차장 구역", floorId, gatewayId,
+    lifecycleStatus: "active", fixtureCount: 1, meshControlGroup: { status: "ready", version: 2, error: null } }] }) : route.fallback());
+  await page.goto(`/control?siteId=${siteId}&mode=schedule`); await expect(page.getByRole("region", { name: "현장 전체", exact: true })).toContainText("16대");
+  const table = page.getByRole("table", { name: "스케줄 목록", exact: true }); await expect(table).toContainText(schedule.name);
+  await expect(table.getByRole("columnheader", { name: /활성/ })).toContainText("활성"); await expect(table).not.toContainText("Gateway 동기화"); await expect(table).not.toContainText("Asia/Seoul");
+  const scheduleAlignments = await centeredColumns(table);
+  const add = page.getByRole("button", { name: "스케줄 추가", exact: true }); await expect(add).toHaveCount(1);
+  const toolbar = add.locator("xpath=ancestor::*[@aria-label='스케줄 목록 조건']"); await expect(toolbar).toHaveCount(1);
+  const addBounds = await visibleAction(page, add); await add.click(); const dialog = page.getByRole("dialog", { name: "스케줄 추가", exact: true }); await expect(dialog).toBeVisible();
+  await dialog.getByRole("button", { name: "취소", exact: true }).click(); await expect(add).toBeFocused();
+  await page.getByRole("tab", { name: "그룹/구역", exact: true }).click();
+  const groups = page.getByRole("table", { name: "저장 구역 목록", exact: true }); await expect(groups).toContainText("주차장 구역");
+  await expect(groups.getByRole("columnheader", { name: "게이트웨이", exact: true })).toHaveCount(0);
+  const sync = groups.locator("tbody tr").first().getByRole("cell").filter({ has: page.getByText("준비됨", { exact: true }) }); await expect(sync).toHaveText("준비됨");
+  const groupAlignments = await centeredColumns(groups); await documentFits(page);
+  await evidence(page, info, "comments-pc-tables", { addBounds, scheduleAlignments, groupAlignments, writes }); expect(writes).toEqual([]);
+});
+
+test("browser comments dark mobile reports: common search reset CSV and filters remain reachable", async ({ page }, info) => {
+  await page.setViewportSize({ width: 390, height: 844 }); await theme(page, "dark"); const { writes } = await customer(page, "admin", true);
+  const job = { ...browserReport("completed", { from: "2026-09-01", to: "2026-09-07", scope: "site", identityId: siteId, format: "pdf" }), siteId };
+  await page.route(`**/api/energy/sites/${siteId}/reports?**`, route => route.request().method() === "GET" ? route.fulfill({ json: { reports: [job], nextCursor: null, totalCount: 1 } }) : route.fallback());
+  await page.route(`**/api/energy/sites/${siteId}/report-targets`, route => route.fulfill({ json: { siteId, timeZone: "Asia/Seoul", lastCompletedDate: "2026-09-11", targets: [{ scope: "site", identityId: siteId, label: "보고서 현장" }] } }));
+  await page.goto(`/statistics/reports?siteId=${siteId}&query=parking`);
+  await expect(page.getByRole("region", { name: "현장 전체", exact: true })).toContainText("16대");
+  await expect(page.getByRole("list", { name: "보고서 생성 이력", exact: true })).toContainText("보고서 현장");
+  const search = page.getByRole("searchbox", { name: "보고서 검색", exact: true }); await expect(search).toHaveValue("parking");
+  await expect(search.locator("xpath=ancestor::*[@data-field]")).toHaveCount(1);
+  await expect(page.getByText("ENERGY INTELLIGENCE", { exact: true })).toHaveCount(0); await expect(page.getByText(/시각: 현장 시간대/)).toHaveCount(0);
+  const reset = page.getByRole("button", { name: "전체 초기화", exact: true }); const resetBounds = await visibleAction(page, reset); await reset.click();
+  await expect(search).toHaveValue(""); await expect.poll(() => new URL(page.url()).searchParams.has("query")).toBe(false);
+  const csv = page.getByRole("button", { name: "CSV 내보내기", exact: true }); const csvBounds = await visibleAction(page, csv); await csv.click();
+  await expect(page.getByRole("dialog", { name: "에너지 사용량 보고서 만들기", exact: true })).toBeVisible(); await page.keyboard.press("Escape");
+  const filter = page.getByRole("button", { name: /보고서 조건 상세 필터/ }); const filterBounds = await visibleAction(page, filter); await filter.click();
+  const popover = page.getByRole("dialog", { name: "보고서 조건", exact: true }); await expect(popover).toBeVisible();
+  await expectMinimumTouchTargetsAfterScrolling(page, "[role=dialog]"); await documentFits(page);
+  await evidence(page, info, "comments-dark-reports-filters", { resetBounds, csvBounds, filterBounds, writes });
+  await popover.getByRole("button", { name: "필터 닫기", exact: true }).click();
+  await expect(page.locator("html")).toHaveAttribute("data-customer-theme", "dark"); await documentFits(page);
+  await evidence(page, info, "comments-dark-reports", { resetBounds, csvBounds, filterBounds, writes }); expect(writes).toEqual([]);
 });
