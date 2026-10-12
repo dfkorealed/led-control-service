@@ -46,7 +46,7 @@
 - [x] Step1: 단일 담당이 `scripts/landing/deploy.mjs`, `template.mjs`, 관련 테스트와 `infra/landing/config.example.json`, 기존 AWS runbook을 수정한다. `domainName`+같은 계정 `us-east-1` 인증서가 있으면 `hostedZoneId` 빈 값은 수동 외부 DNS, 유효한 Z ID는 기존 Route 53 자동 연결로 판별한다. 도메인 없음은 CloudFront 기본 주소를 유지한다. 별도 환경 플래그는 추가하지 않는다.
 - [x] Step2: 실패 테스트→구현→전체 Node 배포 계약을 검증했다(`9a13a444`, RED6→22/22PASS, Node24; Node22/fullCI/liveAWS는 미검증). 외부 DNS에는 Route 53 조회/쓰기/리소스 생성이 없으며 CF 도메인/인증서는 유지한다. Route 53 호환, 잘못된 인증서/zone 거절, domain 없이 cert/zone 거절, 미발급·미일치 cert 원격 쓰기 전 거절, landing/service 모드 보존과 check/deploy/rollback DNS 안내를 검증한다.
 - [x] Step3: 독립 QA가 고정 diff·증거·초보자 수동 절차를 검토했다. ACM 읽기 권한 예시 누락 I1을 ffbd8b09로 수정하고 재검토 I1 ADDRESSED/new C0/I0/M0·specYES/qualityAPPROVED/source통합YES를 받았다. 소유권/비공개 S3/OAC/hash/lock/rollback/CI 관문과 기존 backend/UI를 보존한다.
-- [ ] Step4: 검토된 소스를 로컬 기본 브랜치에 반영하고 체크리스트·상태판을 함께 갱신한다. 코드 검증과 실제 AWS/DNS/TLS 성공을 구분해 정확한 명령과 호스팅케이알 입력값을 보고한다.
+- [x] Step4: 검토된 소스를 로컬 기본 브랜치에 반영하고 체크리스트·상태판을 함께 갱신한다. 코드 검증과 실제 AWS/DNS/TLS 성공을 구분해 정확한 명령과 호스팅케이알 입력값을 보고한다. f31e56fa→2b3d9aae FF 이후 기본 checkout에서 Node계약23/23·diffcheck0을 재확인했다. 실제 AWS/DNS/배포는 사용자 수동 관문으로 남는다.
 
 검토 초점: empty hostedZoneId와 malformed ID 구분, custom domain 인증서 안전 검증, CFN의 CustomDomain과 DNS 생성 조건 분리, 기존 관리 DNS에서 외부 DNS로 의도치 않게 전환하여 레코드가 삭제되는 경우, 실제 DistributionDomain과 CNAME 안내 일치. 기존 managed DNS stack의 설정 전환은 자동 허용하지 않고 명확한 실패로 보호한다.
 
