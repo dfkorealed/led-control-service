@@ -1,5 +1,5 @@
 import { lazy, Suspense } from "react";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { AppErrorBoundary } from "./AppErrorBoundary";
 
@@ -21,7 +21,10 @@ it("catches rejected lazy promises without repeatedly remounting the failed chil
   const BrokenLazy = lazy(load);
   const relogin = vi.fn();
   const { rerender } = render(<AppErrorBoundary onRelogin={relogin} resetKey={0}><Suspense fallback="loading"><BrokenLazy /></Suspense></AppErrorBoundary>);
-  expect(await screen.findByRole("heading", { name: "화면을 불러오지 못했습니다" })).toHaveFocus();
+  const heading = await screen.findByRole("heading", { name: "화면을 불러오지 못했습니다" });
+  // 비동기 lazy 실패에서는 복구 DOM 출현과 passive focus effect 완료가 별개다.
+  // 기본 대기 제한 안에서 실제 포커스까지 확인해 접근성 계약을 유지한다.
+  await waitFor(() => expect(heading).toHaveFocus());
   fireEvent.click(screen.getByRole("button", { name: "다시 로그인" }));
   expect(relogin).toHaveBeenCalledOnce();
   expect(load).toHaveBeenCalledOnce();
