@@ -42,7 +42,7 @@ Ruling: 사용자 요청의 필요한 검증만 수행하는 방침에 따라 �
 - [x] 기존 앱의 모니터링·UI/UX 세션에 직접 인계. 내부 writer 종료 및 checkpoint 원 자료 보존.
 - [x] 사용자 지정 `제어 UI 개선 담당자`의 정확 링크 확인·Task2 단독 writer 인계(기존 제어 페이지 UI 요청만 취소 전달).
 - [x] Task1 모니터링 C1–5 제품ac323a3d 인수·자체검토, 원 페이지 세션 직접2suite127PASS 및 메뉴문서87f658ef. 실제geometry는후속QA.
-- [ ] Task2 제어 C6–8 + 직접 RED/GREEN + 메뉴 문서.
+- [x] Task2 지정 앱세션 제어 C6–8 제품9f3e25d7/소유13파일, 최종선택41PASS·identity2국소PASS(중복합산0)·타입/UI0. 실제기하는후속QA.
 - [ ] Task3 한정 browser·정적 관문·실제 UI/UX 리뷰, 발견 문제 owner 수리.
 - [ ] Task4 독립 통합 리뷰·fresh MAIN 확인·로컬 머지·회복 가능한 정리.
 
@@ -80,7 +80,7 @@ Ruling: 사용자 요청의 필요한 검증만 수행하는 방침에 따라 �
 
 ### Task 3: 한정 QA와 실제 UI/UX 점검
 
-**소유:** QA는 새 bounded Playwright spec/helpers 및 영구 docs/assets/map-workspace-comments-2026-10-12 evidence/report. UX는 실제 source/PNG/geometry 읽기 전용. 제품 수리는 원 페이지 owner로 되돌린다.
+**소유:** 기존 앱 `UI/UX 디자이너` 세션이 이번 ignored SDD 안에 최소 Playwright 측정 harness를 준비하고 Task2 최종 SHA 인계 후 최대6 actual case·PNG/geometry와 UI/UX 검토를 수행한다. 제품/기존 test는 읽기 전용이고 source selector 미확정 동안 common 수집부만 준비한다. 증거는 총괄이 영구 docs/assets/map-workspace-comments-2026-10-12로 취합한다. 제품 수리는 원 페이지 owner로 되돌린다.
 
 - 실제 renderer·pointer로 PC1194×1227 monitoring middle drag/left click/no area, same-row toolbar, detail 전후 rect/camera 동일·overlay ~half/body scroll/wheel isolation/closefocus.
 - 320×600·390×600·390×844 control light/dark 중 필요한 대표조합, 717×1227 mapdominant/PCemptyfull, mobile marker-origin swipe선택불변/다음tap, 내부selectedlonglist끝, overlay/More닫기/focus·invalid31/Apply 안전·오류/복구접근, document scroll0/nav가림0/44px 모두 실측한다.
