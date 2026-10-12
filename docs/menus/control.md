@@ -9,11 +9,12 @@
 
 ### 미구현
 
-- 새 source의 실제 toolbar 목록 continuous44와 이후 aux/invalid 첫 Apply stage 재판정은 총괄 source freeze 뒤 UX case3 한정 관문이다. 본 담당 browser 실행0.
+- e35c0c20의 320×600 light fake-API Chromium case3는 실제1PASS/0FAIL, exit0, 20.149886s로 완료됐으며 toolbar44·0/100 양끝8개 hit·raw31·상호배타 보조 패널·More 마지막 action/끝 스크롤·Escape 포커스·invalid101 첫 Apply 후31 복원/0POST·finite 최종 지도247px≥240을 확인했다([영구 결과 모음](../assets/map-workspace-comments-2026-10-12/README.md)).
+- 실제 OS keyboard·pointer Slider drag·live API·장비/HIL은 미검증이며, 다른 case1/2/4는2290·case5는f28·case6는4093 PC와 source carry 근거로 별도 유지하므로 e35에서 새로 six-case PASS한 것으로 해석하지 않는다.
 
 ### 부족하거나 개선이 필요한 기능
 
-- f2926e92 actual에서는0/100 각각 input/thumb/Apply/More 네 target continuous44=true까지 완료했다. 이후 toolbar 전체 검사에서 조명 목록48×44 hasMinimumArea=false로 새 중단됐다. 입력 실패로 기록하지 않으며 원fail·미도달aux/invalid 단계를 보존한다.
+- f2926e92 actual에서는0/100 각각 input/thumb/Apply/More 네 target continuous44=true까지 완료했다. 이후 toolbar 전체 검사에서 조명 목록48×44 hasMinimumArea=false로 새 중단됐다. 입력 실패로 기록하지 않으며 원fail·미도달aux/invalid 단계를 보존한다. 이는 당시 실패·미도달 이력이며, e35 case3 후속 검증에서는 해당 aux/invalid 단계까지 모두 도달해 통과했다.
 - 원PNG·toolbar x8/y87/304×44 및 list48×44·source flush 배치가 같은 부모 clipping을 가리킨다. 개별 list 좌표는 source/toolbar로 유도한 것이며 새 browser 측정이 아니다. 소스 감사·직접81개 회귀를 실제 후속 hit GREEN으로 해석하지 않는다.
 
 ### 관련 파일
