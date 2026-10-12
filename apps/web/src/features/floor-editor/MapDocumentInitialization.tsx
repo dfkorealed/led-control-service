@@ -47,6 +47,7 @@ export function MapDocumentInitialization({ state, readOnly, leaseToken, leaseFe
   const empty = canInitializeEmptyFloor(state);
   return <>
     <FeedbackState icon={TriangleAlert} tone={status === "error" ? "danger" : "warning"}
+      className="shrink-0 p-2 [&>div]:flex [&>div]:min-w-0 [&>div]:flex-1 [&>div]:items-center [&>div]:justify-between [&>div]:gap-2 [&>svg]:hidden compact:[&>svg]:block"
       title={status === "pending" ? "새 맵을 준비하고 있습니다." : status === "error" ? "맵을 준비하지 못했습니다." : "편집할 맵을 준비해주세요."}
       action={<Button disabled={readOnly || !leaseToken || !leaseFence || status === "pending"} onClick={() => { if (empty) void initialize(); else setConfirm(true); }}>{empty ? "다시 시도" : "맵 초기화"}</Button>} />
     <ConfirmDialog isOpen={confirm} onCancel={() => setConfirm(false)} isPending={status === "pending"} destructive title="이 층의 맵을 초기화할까요?"

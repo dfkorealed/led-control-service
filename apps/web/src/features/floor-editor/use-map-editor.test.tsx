@@ -126,4 +126,51 @@ describe("map editor View integration controller", () => {
     await act(async () => result.current.pick({ x: 40, y: 40 }, true, false));
     expect(store().mapSelection).toEqual({ elementIds: ["child"], groupIds: [] });
   });
+  it.each([1, 2, 3])("resolves %s fresh asynchronous click intents without a renderer busy miss", async clicks => {
+    const element = { ...createMapElementFromDrag("rectangle", { x: 20, y: 20 }, { x: 100, y: 100 }, "child")!, groupId: "g" };
+    store().loadMapStructures(store().mapScope!, { groups: [{ id: "g", parentId: null, name: "Group", locked: false, visible: true }], layers: [layer] });
+    source.getElements.mockResolvedValue([element]);
+    source.getSelection.mockResolvedValue({ generationId: "gen", revision: 1, ids: [element.id], nextCursor: null });
+    let release!: (value: { element: MapElement }) => void;
+    const pending = new Promise<{ element: MapElement }>(resolve => { release = resolve; });
+    let busy = false;
+    const pick = vi.fn(() => {
+      if (busy) return Promise.resolve(null);
+      busy = true;
+      return pending.then(value => { busy = false; return value; });
+    });
+    const { result } = renderHook(() => useMapEditor({ floorId: "floor", authScope: "user", readOnly: false }));
+    act(() => result.current.onReady({ pick, setDraftChanges: vi.fn() } as unknown as Parameters<typeof result.current.onReady>[0]));
+    const requests: Promise<void>[] = [];
+    act(() => {
+      requests.push(result.current.pick({ x: 40, y: 40 }, false, false));
+      if (clicks > 1) requests.push(result.current.pick({ x: 40, y: 40 }, true, false));
+      if (clicks > 2) requests.push(result.current.pick({ x: 45, y: 45 }, true, false));
+    });
+    try {
+      expect(pick).toHaveBeenCalledOnce();
+      await act(async () => { release({ element }); await Promise.all(requests); });
+      expect(store().mapSelection).toEqual(clicks > 1
+        ? { elementIds: ["child"], groupIds: [] }
+        : { elementIds: [], groupIds: ["g"] });
+      if (clicks > 1) expect(pick).toHaveBeenNthCalledWith(2, clicks === 3 ? { x: 45, y: 45 } : { x: 40, y: 40 });
+      await waitFor(() => expect(result.current.selection).toEqual([element]));
+    } finally { release({ element }); }
+  });
+  it("discards a queued fresh drill when the floor scope changes during the first pick", async () => {
+    let release!: (value: null) => void;
+    const pick = vi.fn(() => new Promise<null>(resolve => { release = resolve; }));
+    const { result } = renderHook(() => useMapEditor({ floorId: "floor", authScope: "user", readOnly: false }));
+    act(() => result.current.onReady({ pick, setDraftChanges: vi.fn() } as unknown as Parameters<typeof result.current.onReady>[0]));
+    let first!: Promise<void>, second!: Promise<void>;
+    act(() => {
+      first = result.current.pick({ x: 40, y: 40 }, false, false);
+      second = result.current.pick({ x: 40, y: 40 }, true, false);
+      store().initialize({ ...base, floor: { ...base.floor, id: "other" } }, "user");
+    });
+    await act(async () => { release(null); await first; await second; });
+    expect(pick).toHaveBeenCalledOnce();
+    expect(store().mapSelection).toEqual({ elementIds: [], groupIds: [] });
+    expect(store().state?.floor.id).toBe("other");
+  });
 });

@@ -1,4 +1,4 @@
-import { ChevronLeft, ChevronRight, CircleCheck, FileCog, RotateCw, TriangleAlert, X } from "lucide-react";
+import { CircleCheck, FileCog, RotateCw, TriangleAlert, X } from "lucide-react";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import {
   type CadImportMimeType,
@@ -19,7 +19,8 @@ import {
 } from "../../api/floor-editor";
 import { listFloorImportRegions, selectFloorImportRegion } from "../../api/queries";
 import { ApiError } from "../../api/client";
-import { Button, Checkbox, ConfirmDialog, FeedbackState, FileField, FilterPanel, Heading, IconButton, PageSizeSelect, PaginationBar, Popover, Text, type DefaultPaginationPageSize } from "../../components/ui";
+import { Button, ConfirmDialog, FeedbackState, FileField, Heading, IconButton, ModalDialog, Popover, SelectBox, Text } from "../../components/ui";
+import { CadImportPreview } from "./CadImportPreview";
 import type {
   CadImportReviewState,
   CadMapResetSummary,
@@ -63,9 +64,7 @@ interface CadImportPanelProps {
   isDirty?: boolean;
   resetSummary: CadMapResetSummary;
   review: CadImportReviewState | null;
-  focusedCandidateId?: string | null;
   onReviewChange: (review: CadImportReviewState | null) => void;
-  onFocusedCandidateChange?: (candidateId: string | null) => void;
   onBusyChange: (busy: boolean) => void;
   onApplied: (result: FloorImportApplyResult | null) => void | Promise<void>;
   onConflict?: () => void;
@@ -80,28 +79,25 @@ export function CadImportPanel({
   isDirty = false,
   resetSummary,
   review,
-  focusedCandidateId,
   onReviewChange,
-  onFocusedCandidateChange,
   onBusyChange,
   onApplied,
   onConflict
 }: CadImportPanelProps) {
+  const [modalOpen, setModalOpen] = useState(Boolean(review));
+  const importTrigger = useRef<HTMLButtonElement>(null);
+  const [displayedReviewKey, setDisplayedReviewKey] = useState<string | null>(null);
   const [file, setFile] = useState<File | null>(null);
   const [job, setJob] = useState<FloorImportJob | null>(null);
   const [action, setAction] = useState<"idle" | "starting" | "selecting" | "applying" | "cancelling" | "checking">("idle");
   const [error, setErrorState] = useState<{ title: string; description?: string; kind: "field" | "status" | "blocking" } | null>(null);
   const [noticeOpen, setNoticeOpen] = useState(false);
   const [regionRecoveryError, setRegionRecoveryError] = useState<string | null>(null);
-  const [reviewCursor, setReviewCursor] = useState(0);
   const [suppressedReviewJobId, setSuppressedReviewJobId] = useState<string | null>(null);
   const [refreshRecoveryJob, setRefreshRecoveryJob] = useState<FloorImportJob | null>(null);
   const [confirmApply, setConfirmApply] = useState(false);
   const [regions, setRegions] = useState<FloorImportRegionListResponse | null>(null);
-  const [regionPage, setRegionPage] = useState(1);
-  const [regionPageSize, setRegionPageSize] = useState<DefaultPaginationPageSize>(20);
   const [selectedRegionId, setSelectedRegionId] = useState<string | null>(null);
-  const [activePreviewRegionId, setActivePreviewRegionId] = useState<string | null>(null);
   const [progressHighWater, setProgressHighWater] = useState(0);
   const loadedReviewJobId = useRef<string | null>(null);
   const loadedRegionJobId = useRef<string | null>(null);
@@ -114,29 +110,15 @@ export function CadImportPanel({
   const requestLock = useRef(false);
   const busy = useRef(false);
   const reviewChange = useRef(onReviewChange);
-  const focusedCandidateChange = useRef(onFocusedCandidateChange);
   reviewChange.current = onReviewChange;
-  focusedCandidateChange.current = onFocusedCandidateChange;
   const activeReview = review?.job.jobId === suppressedReviewJobId ? null : review;
   const activeJob = activeReview?.job ?? job;
   const isReviewLoading = activeJob?.status === "review_required" && !activeReview && !error;
-  const focusedIndex = useMemo(() => {
-    if (!activeReview?.candidates.length) return 0;
-    const index = focusedCandidateId
-      ? activeReview.candidates.findIndex((candidate) => candidate.id === focusedCandidateId)
-      : -1;
-    return index >= 0 ? index : Math.min(reviewCursor, activeReview.candidates.length - 1);
-  }, [focusedCandidateId, activeReview?.candidates, reviewCursor]);
-  const focusedCandidate = activeReview?.candidates[focusedIndex] ?? null;
+  const reviewKey = activeReview ? JSON.stringify([activeReview.job.jobId, activeReview.scene, activeReview.job.updatedAt]) : null;
+  const previewReady = Boolean(reviewKey && displayedReviewKey === reviewKey);
   const selectedRegion = regions?.regions.find((region) => region.regionId === selectedRegionId) ?? null;
   const rankedRegions = useMemo(() => [...(regions?.regions ?? [])].sort((a, b) =>
     b.lightCandidateCount - a.lightCandidateCount || b.primitiveCount - a.primitiveCount), [regions]);
-  const currentRegionPage = Math.min(regionPage, Math.max(1, Math.ceil(rankedRegions.length / regionPageSize)));
-  const regionOffset = (currentRegionPage - 1) * regionPageSize;
-  const pageRegions = rankedRegions.slice(regionOffset, regionOffset + regionPageSize);
-  const pagePreviewId = pageRegions.some(region => region.regionId === activePreviewRegionId)
-    ? activePreviewRegionId : pageRegions[0]?.regionId;
-  useEffect(() => { setRegionPage(1); }, [regions?.jobId]);
   const regionMetrics = regions && selectedRegion ? summarizeRegion(regions, selectedRegion) : null;
   const isPostSelectionHydrating = Boolean(
     activeJob && regions === null && activeJob.parserVersion !== null && POLLING_STATUSES.has(activeJob.status)
@@ -197,7 +179,6 @@ export function CadImportPanel({
   function clearRegionContext() {
     setRegions(null);
     setSelectedRegionId(null);
-    setActivePreviewRegionId(null);
     setProgressHighWater(0);
     setRegionRecoveryError(null);
     loadedRegionJobId.current = null;
@@ -206,6 +187,8 @@ export function CadImportPanel({
 
   useEffect(() => {
     setFile(null);
+    setModalOpen(Boolean(review));
+    setDisplayedReviewKey(null);
     setJob(null);
     setError(null);
     setRegionRecoveryError(null);
@@ -214,7 +197,6 @@ export function CadImportPanel({
     setConfirmApply(false);
     setRegions(null);
     setSelectedRegionId(null);
-    setActivePreviewRegionId(null);
     setProgressHighWater(0);
     loadedReviewJobId.current = null;
     loadedRegionJobId.current = null;
@@ -229,6 +211,7 @@ export function CadImportPanel({
         return;
       }
       setJob(durableJob);
+      setModalOpen(true);
     }).catch(() => {
       if (active) setError(ACTIVE_LOOKUP_ERROR, undefined, "status");
     });
@@ -253,8 +236,7 @@ export function CadImportPanel({
     void listFloorImportRegionsBounded(floorId, activeJob.jobId).then((response) => {
       if (!active) return;
       setRegions(response);
-      setSelectedRegionId(response.selectedRegionId);
-      setActivePreviewRegionId(response.selectedRegionId ?? response.regions[0]?.regionId ?? null);
+      setSelectedRegionId(defaultRegionId(response));
       setRegionRecoveryError(null);
     }).catch(() => {
       if (!active) return;
@@ -316,8 +298,6 @@ export function CadImportPanel({
         acceptedCandidateIds: response.candidates.map((candidate) => candidate.id)
       });
       setSuppressedReviewJobId(null);
-      setReviewCursor(0);
-      focusedCandidateChange.current?.(response.candidates[0]?.id ?? null);
     }).catch(() => {
       if (!active) return;
       loadedReviewJobId.current = null;
@@ -328,6 +308,7 @@ export function CadImportPanel({
 
   useEffect(() => {
     if (!activeReview || !regions?.selectedRegionId || regions.jobId !== activeReview.job.jobId) return;
+    if (activeReview.scene?.kind === "legacy") return;
     if (activeReview.scene?.kind === "native" && activeReview.scene.regionId === regions.selectedRegionId) return;
     reviewChange.current({ ...activeReview, scene: { kind: "native", regionId: regions.selectedRegionId } });
   }, [activeReview, regions]);
@@ -378,7 +359,7 @@ export function CadImportPanel({
   }
 
   async function handleApply() {
-    if (!activeReview || disabled || isDirty || requestLock.current || !leaseToken || !leaseFence) return;
+    if (!activeReview || !previewReady || disabled || isDirty || requestLock.current || !leaseToken || !leaseFence) return;
     requestLock.current = true;
     setAction("applying");
     setError(null);
@@ -388,7 +369,7 @@ export function CadImportPanel({
         leaseToken,
         leaseFence,
         confirmMapReset: true,
-        candidateIds: activeReview.acceptedCandidateIds
+        candidateIds: activeReview.candidates.map(candidate => candidate.id)
       });
       await onApplied(result);
       setSuppressedReviewJobId(activeReview.job.jobId);
@@ -396,6 +377,7 @@ export function CadImportPanel({
       clearRegionContext();
       onReviewChange(null);
       setBusy(false);
+      setModalOpen(false);
     } catch (caught) {
       const isConflict = caught instanceof ApiError && caught.status === 409;
       if (isConflict && JSON.stringify(caught.body).includes("re-import required")) {
@@ -426,7 +408,6 @@ export function CadImportPanel({
       focusProgressAfterRegionSelection.current = true;
       setRegions(response);
       setSelectedRegionId(response.selectedRegionId);
-      setActivePreviewRegionId(response.selectedRegionId);
       setProgressHighWater((current) => Math.max(current, 72));
       setJob({
         ...activeJob,
@@ -506,8 +487,7 @@ export function CadImportPanel({
 
   function applyRegionResponse(response: FloorImportRegionListResponse) {
     setRegions(response);
-    setSelectedRegionId(response.selectedRegionId);
-    setActivePreviewRegionId(response.selectedRegionId ?? response.regions[0]?.regionId ?? null);
+    setSelectedRegionId(defaultRegionId(response));
     if (response.selectedRegionId) setProgressHighWater((current) => Math.max(current, 72));
   }
 
@@ -620,21 +600,6 @@ export function CadImportPanel({
     }
   }
 
-  function moveCandidate(delta: number) {
-    if (!activeReview?.candidates.length) return;
-    const next = Math.max(0, Math.min(activeReview.candidates.length - 1, focusedIndex + delta));
-    setReviewCursor(next);
-    onFocusedCandidateChange?.(activeReview.candidates[next].id);
-  }
-
-  function toggleFocusedCandidate() {
-    if (!activeReview || !focusedCandidate) return;
-    const accepted = new Set(activeReview.acceptedCandidateIds);
-    if (accepted.has(focusedCandidate.id)) accepted.delete(focusedCandidate.id);
-    else accepted.add(focusedCandidate.id);
-    onReviewChange({ ...activeReview, acceptedCandidateIds: [...accepted] });
-  }
-
   const status = activeJob
     ? isReviewLoading
       ? `${cadImportStageLabel(activeJob.stage)} · 조명 위치 후보를 불러오는 중`
@@ -643,7 +608,14 @@ export function CadImportPanel({
         : sceneBuildStatus(activeJob, selectedRegionPhase)
     : null;
   return (
-    <section ref={applyFocusFallback} tabIndex={-1} className="grid gap-3 border-t border-border-subtle p-3" aria-label="CAD 가져오기">
+    <>
+    <Button ref={importTrigger} size="sm" variant="secondary" aria-label="CAD 가져오기" title="CAD 가져오기"
+      className="max-compact:min-h-13 max-compact:min-w-13 max-compact:px-0" aria-haspopup="dialog" aria-expanded={modalOpen}
+      onClick={() => setModalOpen(true)}><FileCog size={16} aria-hidden="true" /><span className="max-compact:sr-only">CAD 가져오기</span></Button>
+    <ModalDialog isOpen={modalOpen} title="CAD 가져오기" placement="center" returnFocusRef={importTrigger}
+      isPending={action !== "idle"} onClose={() => { setConfirmApply(false); setModalOpen(false); setDisplayedReviewKey(null); }}
+      className="w-[min(1120px,100%)]" bodyClassName="grid min-h-0 gap-3">
+    <section ref={applyFocusFallback} tabIndex={-1} className="grid min-h-0 gap-3" aria-label="CAD 가져오기 작업">
       <div className="flex min-w-0 items-start justify-between gap-2">
         <div className="grid min-w-0 gap-1">
           <Text variant="overline" tone="secondary">CAD</Text>
@@ -712,7 +684,7 @@ export function CadImportPanel({
           onClick={() => void handleStart()}
         >
           <FileCog size={16} aria-hidden="true" />
-          CAD 가져오기
+          파일 업로드
         </Button>
       </> : null}
 
@@ -734,61 +706,16 @@ export function CadImportPanel({
       </div> : null}
 
       {needsRegionSelection ? <>
-        <FilterPanel label="도면 영역 목록" mode="popover" variant="compact" activeFilterCount={Number(regionPageSize !== 20)}
-          summary={<Text variant="caption">페이지당 {regionPageSize}개</Text>}
-          filterReset={<Button type="button" variant="ghost" size="sm"
-            onClick={() => { setRegionPageSize(20); setRegionPage(1); }}>필터 초기화</Button>}>
-          <PageSizeSelect value={regionPageSize} options={[10, 20, 50, 100]} isDisabled={disabled || isDirty || action !== "idle"}
-            onChange={size => { setRegionPageSize(size); setRegionPage(1); }} />
-        </FilterPanel>
-        <div className="grid max-h-[28rem] gap-2 overflow-y-auto pr-1" role="radiogroup" aria-label="가져올 도면 영역">
-          {pageRegions.map((region, pageIndex) => {
-            const index = regionOffset + pageIndex;
-            const checked = selectedRegionId === region.regionId;
-            const previewActive = pagePreviewId === region.regionId;
-            return <div
-              key={region.regionId}
-              className={`grid gap-2 border p-2 ${checked ? "border-action-primary bg-action-primary-soft" : "border-border-subtle bg-surface-panel"}`}
-            >
-              <label className="grid cursor-pointer gap-1">
-                <input
-                  type="radio"
-                  name={`cad-region-${activeJob.jobId}`}
-                  checked={checked}
-                  disabled={disabled || isDirty || action !== "idle"}
-                  onChange={() => {
-                    setSelectedRegionId(region.regionId);
-                    setActivePreviewRegionId(region.regionId);
-                  }}
-                  aria-label={`도면 영역 ${index + 1} · 도형 ${region.primitiveCount.toLocaleString("ko-KR")}개`}
-                />
-                <Text variant="body-sm" weight="semibold">도면 영역 {index + 1}</Text>
-                <Text variant="caption" tone="secondary">
-                  도형 {region.primitiveCount.toLocaleString("ko-KR")}개 · 문자 {region.textCount.toLocaleString("ko-KR")}개 · 조명 후보 {region.lightCandidateCount.toLocaleString("ko-KR")}개
-                </Text>
-              </label>
-              {previewActive ? <img
-                className="h-32 w-full border border-border-subtle bg-surface-canvas object-contain"
-                src={regionPreviewPath(floorId, region.preview.assetId)}
-                alt={`도면 영역 ${index + 1} 미리보기`}
-                width={region.preview.width}
-                height={region.preview.height}
-                loading="lazy"
-                decoding="async"
-              /> : <Button
-                size="sm"
-                variant="ghost"
-                onClick={() => setActivePreviewRegionId(region.regionId)}
-              >도면 영역 {index + 1} 미리보기 보기</Button>}
-            </div>;
-          })}
-        </div>
-        {rankedRegions.length > 10 ? <PaginationBar page={currentRegionPage} pageSize={regionPageSize} showPageSizeSelector={false}
-          className="[&_button]:min-h-13 [&_button]:min-w-13"
-          totalCount={rankedRegions.length} hasPrevious={currentRegionPage > 1}
-          hasNext={regionOffset + regionPageSize < rankedRegions.length}
-          onPrevious={() => setRegionPage(currentRegionPage - 1)} onNext={() => setRegionPage(currentRegionPage + 1)}
-          onPageSizeChange={size => { setRegionPageSize(size); setRegionPage(1); }} /> : null}
+        {selectedRegion ? <div role="region" aria-label="CAD 도면 미리보기" className="h-[min(48dvh,480px)] min-h-48 overflow-hidden border border-border-default bg-surface-canvas">
+          <img className="h-full w-full object-contain" src={regionPreviewPath(floorId, selectedRegion.preview.assetId)}
+            alt={`도면 영역 ${rankedRegions.findIndex(region => region.regionId === selectedRegionId) + 1} 미리보기`}
+            width={selectedRegion.preview.width} height={selectedRegion.preview.height} loading="lazy" decoding="async" />
+        </div> : null}
+        <SelectBox<string> label="가져올 도면 영역" selectedKey={selectedRegionId}
+          isDisabled={disabled || isDirty || action !== "idle"}
+          items={rankedRegions.map((region, index) => ({ id: region.regionId, label: `도면 영역 ${index + 1}`,
+            description: `도형 ${region.primitiveCount.toLocaleString("ko-KR")}개 · 조명 후보 ${region.lightCandidateCount.toLocaleString("ko-KR")}개` }))}
+          onSelectionChange={setSelectedRegionId} />
         {regionMetrics ? <RegionStatistics metrics={regionMetrics} /> : null}
         <Button
           variant="primary"
@@ -821,69 +748,25 @@ export function CadImportPanel({
               ? "도면 영역 1개를 자동 선택했습니다."
               : "선택한 도면 영역의 장면 생성이 완료되었습니다."}
           />
-          <img
-            className="h-40 w-full border border-border-subtle bg-surface-canvas object-contain"
-            src={regionPreviewPath(floorId, selectedRegion.preview.assetId)}
-            alt="선택한 도면 영역 미리보기"
-            width={selectedRegion.preview.width}
-            height={selectedRegion.preview.height}
-          />
           <RegionStatistics metrics={regionMetrics} />
         </div> : null}
         <FeedbackState
           tone="success"
           icon={CircleCheck}
           title={`조명 위치 후보 ${activeReview.candidates.length.toLocaleString("ko-KR")}개를 찾았습니다.`}
-          description={`적용 후보 ${activeReview.acceptedCandidateIds.length.toLocaleString("ko-KR")}개 · 후보는 실제 조명으로 자동 등록되지 않습니다.`}
+          description={`전체 슬롯 후보 ${activeReview.candidates.length.toLocaleString("ko-KR")}개 · 실제 조명은 자동 등록되지 않습니다.`}
         />
-        <div className="grid grid-cols-2 gap-2">
-          <Button
-            size="sm"
-            variant="ghost"
-            disabled={disabled || activeReview.acceptedCandidateIds.length === activeReview.candidates.length}
-            onClick={() => onReviewChange({ ...activeReview, acceptedCandidateIds: activeReview.candidates.map((candidate) => candidate.id) })}
-          >전체 선택</Button>
-          <Button
-            size="sm"
-            variant="ghost"
-            disabled={disabled || activeReview.acceptedCandidateIds.length === 0}
-            onClick={() => onReviewChange({ ...activeReview, acceptedCandidateIds: [] })}
-          >선택 해제</Button>
-        </div>
-        {focusedCandidate ? <div className="grid gap-2 border-t border-border-subtle pt-2" aria-label="개별 후보 검토">
-          <div className="flex items-center justify-between gap-2">
-            <IconButton
-              size="sm"
-              variant="ghost"
-              aria-label="이전 후보"
-              disabled={focusedIndex === 0}
-              onClick={() => moveCandidate(-1)}
-            ><ChevronLeft size={16} aria-hidden="true" /></IconButton>
-            <Text variant="caption" tone="secondary">{focusedIndex + 1} / {activeReview.candidates.length.toLocaleString("ko-KR")}</Text>
-            <IconButton
-              size="sm"
-              variant="ghost"
-              aria-label="다음 후보"
-              disabled={focusedIndex >= activeReview.candidates.length - 1}
-              onClick={() => moveCandidate(1)}
-            ><ChevronRight size={16} aria-hidden="true" /></IconButton>
-          </div>
-          <Checkbox
-            label={`후보 ${focusedIndex + 1}/${activeReview.candidates.length.toLocaleString("ko-KR")} · ${focusedCandidate.layerName} · ${focusedCandidate.blockName ?? "블록 없음"} · 신뢰도 ${Math.round(focusedCandidate.confidence * 100)}%`}
-            isSelected={activeReview.acceptedCandidateIds.includes(focusedCandidate.id)}
-            isDisabled={disabled || isDirty}
-            onChange={() => toggleFocusedCandidate()}
-          />
-        </div> : null}
+        <CadImportPreview key={reviewKey} floorId={floorId} review={activeReview}
+          onReadyChange={ready => setDisplayedReviewKey(ready ? reviewKey : null)} />
         <Button
           variant="primary"
-          disabled={disabled || isDirty || !leaseToken || !leaseFence}
+          disabled={!previewReady || disabled || isDirty || !leaseToken || !leaseFence}
           isLoading={action === "applying"}
           loadingLabel="맵에 적용 중"
           onClick={() => setConfirmApply(true)}
         >
           <CircleCheck size={16} aria-hidden="true" />
-          선택한 후보와 배경 적용
+          확인 및 적용
         </Button>
       </> : null}
 
@@ -909,6 +792,7 @@ export function CadImportPanel({
         confirmLabel="교체 후 적용"
         destructive
         isPending={action === "applying"}
+        confirmDisabled={!previewReady || disabled || isDirty || !leaseToken || !leaseFence}
         fallbackFocusRef={applyFocusFallback}
         onCancel={() => setConfirmApply(false)}
         onConfirm={() => void handleApply()}
@@ -917,11 +801,20 @@ export function CadImportPanel({
           <Text>조명 {resetSummary.fixtureCount.toLocaleString("ko-KR")}개가 미배치 상태로 변경됩니다.</Text>
           <Text>수동 도형 {resetSummary.objectCount.toLocaleString("ko-KR")}개가 삭제됩니다.</Text>
           <Text>기존 CAD 슬롯 {resetSummary.slotCount.toLocaleString("ko-KR")}개가 삭제됩니다.</Text>
-          <Text>선택한 조명 위치 슬롯 {activeReview.acceptedCandidateIds.length.toLocaleString("ko-KR")}개가 생성됩니다.</Text>
+          <Text>조명 위치 슬롯 {activeReview.candidates.length.toLocaleString("ko-KR")}개가 생성됩니다.</Text>
         </div>
       </ConfirmDialog> : null}
     </section>
+    </ModalDialog>
+    </>
   );
+}
+
+function defaultRegionId(response: FloorImportRegionListResponse) {
+  // A local default is only a review choice. The server selection still requires
+  // the explicit scene-build action; never commit the ranked region on mount.
+  return response.selectedRegionId ?? [...response.regions].sort((a, b) =>
+    b.lightCandidateCount - a.lightCandidateCount || b.primitiveCount - a.primitiveCount)[0]?.regionId ?? null;
 }
 
 function extensionOf(name: string): CadImportSourceFormat | null {

@@ -461,19 +461,17 @@ describe("customer shell site context", () => {
 
     const settingsShell = (await screen.findByRole("navigation", { name: "설정 메뉴" })).closest("section");
     expect(settingsShell).not.toBeNull();
-    expect(settingsShell?.parentElement).toHaveClass("[&>section:last-child]:grid-rows-[auto_minmax(min-content,1fr)]");
+    expect(settingsShell).toHaveClass("min-h-0", "flex", "flex-col");
     expect(settingsShell?.parentElement).not.toHaveClass("[&>section]:grid-rows-[auto_auto_minmax(0,1fr)]");
   });
 
-  it("lets only the editor intrinsic minimum extend the document on short screens", async () => {
+  it("bounds the editor shell to the viewport while preserving account access", async () => {
     renderShell("/settings/floor-plans/floor-b2/edit?siteId=site");
     const settingsShell = (await screen.findByRole("navigation", { name: "설정 메뉴" })).closest("section");
     const content = settingsShell?.parentElement;
-    expect(content).toHaveClass("min-h-min", "grid-rows-[auto_minmax(min-content,1fr)]");
-    expect(content).not.toHaveClass("overflow-hidden");
-    expect(content?.closest("main")).not.toHaveClass("overflow-hidden");
-    expect(content?.closest("[data-app-shell]")).toHaveClass("min-h-dvh");
-    expect(content?.closest("[data-app-shell]")).not.toHaveClass("h-dvh", "overflow-hidden");
+    expect(content).toHaveClass("min-h-0", "grid-rows-[auto_minmax(0,1fr)]", "overflow-hidden");
+    expect(content?.closest("main")).toHaveClass("min-h-0", "overflow-hidden");
+    expect(content?.closest("[data-app-shell]")).toHaveClass("h-dvh", "min-h-0", "overflow-hidden");
     expect(screen.getByRole("region", { name: "내 계정" })).toBeVisible();
   });
 

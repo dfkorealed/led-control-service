@@ -18,13 +18,14 @@ export function SettingsShell({ capabilities, accountSlot }: SettingsShellProps)
   const pathname = location.pathname.replace(/\/+$/, "") || "/";
   const section = settingsSectionsFor(capabilities).find(item => item.path === pathname);
   const isSubpage = location.pathname !== "/settings" && location.pathname !== "/settings/";
+  const isEditor = /^\/settings\/floor-plans\/[^/]+\/edit\/?$/.test(location.pathname);
   return (
-    <section className="grid min-w-0 content-start gap-5">
+    <section className={isEditor ? "flex h-full min-h-0 min-w-0 flex-col gap-2 overflow-hidden [&>nav]:shrink-0 [&>a]:shrink-0" : "grid min-w-0 content-start gap-5"}>
       {section ? <PageHeader variant="customer" headingLevel={1} title={section.pageTitle} /> : null}
       <SettingsSubnavigation capabilities={capabilities} />
       {accountSlot}
       {isSubpage ? <Link className={`${settingsActionLinkClass} compact:hidden`} to={{ pathname: "/settings", search: location.search, hash: location.hash }}>설정으로 돌아가기</Link> : null}
-      <div className="min-w-0">
+      <div className={isEditor ? "min-h-0 min-w-0 flex-1 overflow-hidden" : "min-w-0"}>
         <Outlet />
       </div>
     </section>

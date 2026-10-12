@@ -12,6 +12,9 @@ import { CustomerThemeContext } from "../../components/ui/theme/CustomerThemePro
 import { readThemePalette } from "../../components/ui/theme/customer-theme";
 import { CadElementPropertiesPanel } from "./CadElementPropertiesPanel";
 import { EditorMinimap } from "./EditorMinimap";
+import * as mapDocumentApi from "../../api/map-document";
+import { createMapElementFromDrag } from "./map-element-tools";
+import type { MapElement } from "@led-control/shared/map-document-contracts";
 
 vi.mock("../map-scene/MapSceneCanvas", () => ({ MapSceneCanvas: () => <canvas data-testid="map-scene" /> }));
 vi.mock("../../api/map-document", () => ({ createMapDocumentSource: () => ({ scopeKey: "test",
@@ -24,6 +27,105 @@ function Canvas({ readOnly = false }: { readOnly?: boolean } = {}) { const map =
   return <><input aria-label="Outside text" /><FloorEditorCanvas rowRegistry={createFixturePlacementRowRegistry()} mapEditor={map} readOnly={readOnly} />
     <ConfirmDialog isOpen={map.removeRequested} title="선택 전체 삭제" confirmLabel="전체 삭제" onClose={map.cancelRemove} onConfirm={() => { void map.confirmRemove(); }} /></>; }
 describe("actual common editor Canvas", () => {
+  it.each([false, true])("commits the final aligned legacy position after a frame already ran: %s", (frameAlreadyRan) => {
+    const object = (id: string, x: number) => ({ id, floorId: "floor", type: "rectangle" as const,
+      x, y: 100, width: 100, height: 80, rotation: 0, points: null, text: "", fontSize: null,
+      strokeColor: "#2563eb", fillColor: "#dbeafe", strokeWidth: 2, zIndex: 0, visible: true, locked: false });
+    store().initialize({ ...structuredClone(base), floor: { ...base.floor, mapDocument: null,
+      floorPlan: { imageUrl: "", sourceType: "none", width: 1200, height: 800, gridSize: 10, version: 1 } },
+      objects: [object("moving", 100), object("target", 300)] }, "user");
+    render(<FloorEditorCanvas rowRegistry={createFixturePlacementRowRegistry()} readOnly={false} />);
+    act(() => { store().setZoom(1); store().setPan({ x: 0, y: 0 }); });
+    const node = Konva.stages.at(-1)!.findOne<Konva.Node>(".map-object-moving")!;
+    let frame: FrameRequestCallback | undefined;
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation(callback => { frame = callback; return 42; });
+    act(() => node.fire("dragstart", { evt: new MouseEvent("mousedown") }));
+    act(() => { node.position({ x: 197, y: 145 }); node.fire("dragmove", { evt: new MouseEvent("mousemove") }); });
+    if (frameAlreadyRan) {
+      act(() => frame?.(0));
+      // Konva can publish its last raw pointer position again before dragend.
+      node.position({ x: 197, y: 145 });
+    }
+    act(() => node.fire("dragend", { evt: new MouseEvent("mouseup") }));
+    expect(store().state!.objects[0]).toMatchObject({ x: 200, y: 140 });
+    expect(store().past).toHaveLength(1);
+  });
+
+  it("dispatches overlay child drill once and retains current geometry during child hydration", async () => {
+    let release!: (elements: readonly MapElement[]) => void;
+    const pending = new Promise<readonly MapElement[]>(resolve => { release = resolve; });
+    const source = mapDocumentApi.createMapDocumentSource({ floorId: "floor", authScope: "user" });
+    vi.spyOn(source, "getElements").mockReturnValue(pending);
+    vi.spyOn(mapDocumentApi, "createMapDocumentSource").mockReturnValue(source);
+    const group = { id: "group", parentId: null, name: "Group", visible: true, locked: false };
+    const elements = Array.from({ length: 3 }, (_, index) => ({
+      ...createMapElementFromDrag("rectangle", { x: 100 + index * 300, y: 100 }, { x: 200 + index * 300, y: 200 }, `child-${index}`)!,
+      layerId: "map", groupId: group.id,
+      style: { fillColor: "#ffaa00", strokeColor: null, strokeWidth: 0, opacity: 1 },
+      // The visible selection has moved; canonical origins must not be used
+      // to drill the promoted overlay or restored by clearing its paint mask.
+      transform: { x: 300, y: 0, scaleX: 1, scaleY: 1, rotation: 0 }
+    }));
+    store().applyMapTransaction({ scope: store().mapScope!, operations: [
+      { kind: "group.put", group }, ...elements.map(element => ({ kind: "add" as const, element }))
+    ] });
+    store().selectMapGroups([group.id]);
+    let currentPick!: ReturnType<typeof useMapEditor>["pick"];
+    const dispatch = vi.fn<ReturnType<typeof useMapEditor>["pick"]>((...args) => currentPick(...args));
+    function SelectionCanvas() {
+      const map = useMapEditor({ floorId: "floor", authScope: "user", readOnly: false });
+      currentPick = map.pick;
+      return <FloorEditorCanvas rowRegistry={createFixturePlacementRowRegistry()} mapEditor={{ ...map, pick: dispatch }} readOnly={false} />;
+    }
+    render(<SelectionCanvas />);
+    const canvas = screen.getByTestId("floor-editor-canvas");
+    try {
+      await waitFor(() => expect(canvas).toHaveAttribute("data-promoted-count", "3"));
+      act(() => { store().setZoom(1); store().setPan({ x: 0, y: 0 }); });
+      const stage = Konva.stages.at(-1)!;
+      Object.defineProperties(stage.content, { clientWidth: { value: 900 }, clientHeight: { value: 600 } });
+      stage.setPointersPositions(new MouseEvent("mousemove", { clientX: 450, clientY: 150 }));
+      const overlay = stage.findOne<Konva.Group>(".map-element-overlay")!;
+      act(() => overlay.fire("click", { evt: new MouseEvent("click", { detail: 2 }) }, true));
+      expect(store().mapSelection.elementIds).toEqual(["child-0"]);
+      expect(source.getElements).toHaveBeenCalledOnce();
+      expect(canvas).toHaveAttribute("data-map-selection-count", "0");
+      fireEvent.doubleClick(stage.content, { clientX: 450, clientY: 150, detail: 2 });
+      await act(async () => { await Promise.resolve(); });
+      expect(store().mapSelection.elementIds).toEqual(["child-0"]);
+      expect(dispatch).toHaveBeenCalledOnce();
+      release([]);
+      await waitFor(() => expect(canvas).toHaveAttribute("data-map-selection-count", "1"));
+      expect(store().mapElements.get("child-0")).toEqual(elements[0]);
+    } finally { release([]); }
+  });
+
+  it("keeps background mouseup detail-two drilling without a duplicate DOM pick", () => {
+    const dispatch = vi.fn<ReturnType<typeof useMapEditor>["pick"]>(async () => undefined);
+    function BackgroundCanvas() {
+      const map = useMapEditor({ floorId: "floor", authScope: "user", readOnly: false });
+      return <FloorEditorCanvas rowRegistry={createFixturePlacementRowRegistry()} mapEditor={{ ...map, pick: dispatch }} readOnly={false} />;
+    }
+    render(<BackgroundCanvas />);
+    const canvas = screen.getByTestId("floor-editor-canvas"), stage = Konva.stages.at(-1)!;
+    vi.spyOn(stage, "getIntersection").mockReturnValue(null);
+    fireEvent.mouseDown(canvas, { clientX: 450, clientY: 150, button: 0, detail: 2, shiftKey: true });
+    fireEvent.mouseUp(canvas, { clientX: 450, clientY: 150, button: 0, detail: 2, shiftKey: true });
+    fireEvent.doubleClick(canvas, { clientX: 450, clientY: 150, detail: 2, shiftKey: true });
+    expect(dispatch).toHaveBeenCalledOnce();
+    expect(dispatch).toHaveBeenCalledWith({ x: 450, y: 150 }, true, true);
+  });
+
+  it("still completes a drafted path on DOM double-click", () => {
+    render(<Canvas />);
+    act(() => { store().resetZoom(); store().setPan({ x: 0, y: 0 }); store().setActiveTool("polyline"); });
+    const canvas = screen.getByTestId("floor-editor-canvas");
+    fireEvent.mouseDown(canvas, { clientX: 100, clientY: 100, button: 0 });
+    fireEvent.mouseDown(canvas, { clientX: 200, clientY: 100, button: 0 });
+    fireEvent.doubleClick(canvas, { clientX: 200, clientY: 100, detail: 2 });
+    expect([...store().mapElements.values()]).toMatchObject([{ type: "polyline",
+      geometry: { points: [{ x: 100, y: 100 }, { x: 200, y: 100 }] } }]);
+  });
   it("repaints editor guides while retaining the actual canvas, camera, selection and undo history", () => {
     const child = <Canvas />;
     const value = { theme: "light" as const, setTheme() {}, persistence: "available" as const,
@@ -228,6 +330,35 @@ describe("actual common editor Canvas", () => {
       await act(async () => { await vi.advanceTimersByTimeAsync(120); });
       expect(store().zoom).toBeGreaterThan(before);
     } finally { vi.clearAllTimers(); vi.useRealTimers(); }
+  });
+
+  it("paints only viewport grid lines using the live imperative camera", () => {
+    render(<Canvas />);
+    act(() => store().resetZoom());
+    const stage = Konva.stages.at(-1)!;
+    const grid = stage.findOne<Konva.Shape>(".map-grid")!;
+    const context = { beginPath: vi.fn(), moveTo: vi.fn(), lineTo: vi.fn(), strokeShape: vi.fn() };
+    stage.getLayers()[0].setAttrs({ x: -1000, y: -2000, scaleX: 1, scaleY: 1 });
+    grid.sceneFunc()!(context as unknown as Konva.Context, grid);
+    expect(context.lineTo.mock.calls.length).toBeLessThan(200);
+    expect(context.moveTo.mock.calls.every(([x, y]) => x >= 1000 && y >= 2000)).toBe(true);
+    expect(context.lineTo.mock.calls.every(([x, y]) => x <= 1900 && y <= 2600)).toBe(true);
+    expect(grid.strokeScaleEnabled()).toBe(false);
+  });
+
+  it("reuses React overlay culling during small pans and refreshes beyond overscan", async () => {
+    render(<Canvas />);
+    act(() => { store().resetZoom(); store().setActiveTool("pan"); });
+    const canvas = screen.getByTestId("floor-editor-canvas");
+    const version = canvas.dataset.cameraRenderVersion;
+    fireEvent.mouseDown(canvas, { clientX: 100, clientY: 100, button: 0 });
+    fireEvent.mouseMove(canvas, { clientX: 120, clientY: 100 });
+    await waitFor(() => expect(Number(canvas.dataset.panX)).toBe(20));
+    expect(canvas.dataset.cameraRenderVersion).toBe(version);
+    fireEvent.mouseMove(canvas, { clientX: 190, clientY: 100 });
+    await waitFor(() => expect(Number(canvas.dataset.panX)).toBe(90));
+    expect(Number(canvas.dataset.cameraRenderVersion)).toBeGreaterThan(Number(version));
+    fireEvent.mouseUp(canvas, { clientX: 190, clientY: 100 });
   });
 
   it("keeps an external 100% reset when a wheel gesture is still pending", async () => {

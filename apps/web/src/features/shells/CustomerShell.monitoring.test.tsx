@@ -68,9 +68,13 @@ describe("customer shell monitoring details", () => {
     fetchMock.mockImplementation(async (path: string) => {
       const response = await normalFetch(path);
       if (!String(path).includes('/fixtures?')) return response;
-      return Response.json({ ...await response.json(), generatedAt: new Date(Date.now() - 120_000).toISOString() });
+      // A pure stale snapshot is silent by contract. Clock anomalies announce
+      // a transient notice and exercise the shell's flow band instead.
+      return Response.json({ ...await response.json(), generatedAt: new Date(Date.now() + 120_000).toISOString() });
     });
     mount();
+    // Wait for the lazy domain route before checking its published notices.
+    await screen.findByRole("region", { name: "선택 층 조명 현황" }, { timeout: 5_000 });
     const notice = await screen.findByRole("region", { name: "알림" });
     expect(await within(notice).findByRole("status")).toHaveTextContent("현황 갱신이 지연");
     const main = screen.getByRole("main"), header = main.querySelector('[data-shell-topbar]')!, content = main.querySelector('[data-shell-content]')!;
@@ -82,6 +86,22 @@ describe("customer shell monitoring details", () => {
     expect(main.parentElement).not.toHaveClass("overflow-hidden"); expect(main).not.toHaveClass("overflow-hidden"); expect(content).not.toHaveClass("overflow-hidden");
     expect(screen.getAllByRole("region", { name: "알림" })).toHaveLength(1);
     expect(fetchMock.mock.calls.filter(([path]) => String(path).includes('monitoring-refreshes'))).toHaveLength(0);
+  });
+
+  it("keeps pure snapshot delay in current-screen status without a transient flow band", async () => {
+    const normalFetch = fetchMock.getMockImplementation()!;
+    fetchMock.mockImplementation(async (path: string) => {
+      const response = await normalFetch(path);
+      if (!String(path).includes("/fixtures?")) return response;
+      return Response.json({ ...await response.json(), generatedAt: new Date(Date.now() - 120_000).toISOString() });
+    });
+    mount();
+    await screen.findByRole("region", { name: "선택 층 조명 현황" });
+    fireEvent.click(screen.getByRole("button", { name: /^알람센터/ }));
+    const current = await screen.findByRole("region", { name: "현재 화면 상태" });
+    expect(await within(current).findByText("현황 갱신이 지연되고 있습니다.")).toBeVisible();
+    expect(screen.queryByRole("region", { name: "알림" })).not.toBeInTheDocument();
+    expect(fetchMock.mock.calls.filter(([path]) => String(path).includes("monitoring-refreshes"))).toHaveLength(0);
   });
 
   it.each([false, true])("gives monitoring a definite flex height without clipping short-height page overflow (compact %s)", async (compact) => {

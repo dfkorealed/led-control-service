@@ -19,9 +19,19 @@ const cadRegionApi = vi.hoisted(() => ({
   listFloorImportRegions: vi.fn(),
   selectFloorImportRegion: vi.fn()
 }));
+const previewDisplay = vi.hoisted(() => ({ onReadyChange: null as ((ready: boolean) => void) | null }));
 
 vi.mock("../../api/floor-editor", () => floorEditorApi);
 vi.mock("../../api/queries", () => cadRegionApi);
+vi.mock("./CadImportPreview", async () => {
+  const { useEffect, useState } = await import("react");
+  return { CadImportPreview: ({ onReadyChange }: { onReadyChange: (ready: boolean) => void }) => {
+    const [ready, setReady] = useState(true);
+    previewDisplay.onReadyChange = setReady;
+    useEffect(() => onReadyChange(ready), [ready, onReadyChange]);
+    return <div role="region" aria-label="CAD 도면 미리보기" />;
+  } };
+});
 
 const asset: FloorAsset = {
   id: "00000000-0000-4000-8000-000000000010",
@@ -133,6 +143,7 @@ function renderPanel(options: {
   onConflict?: () => void;
   onApplied?: (result: import("./editor-types").FloorImportApplyResult | null) => void | Promise<void>;
   onRender?: () => void;
+  open?: boolean;
 } = {}) {
   const onReviewChange = options.onReviewChange ?? vi.fn();
   const onBusyChange = vi.fn();
@@ -155,13 +166,19 @@ function renderPanel(options: {
   const result = render(options.onRender
     ? <Profiler id="cad-import-panel" onRender={options.onRender}>{panel}</Profiler>
     : panel);
+  if (options.open !== false && !screen.queryByRole("dialog", { name: "CAD 가져오기" })) fireEvent.click(screen.getByRole("button", { name: "CAD 가져오기" }));
   return { ...result, onReviewChange, onBusyChange, onApplied };
 }
 
 function openAndConfirmApply() {
-  fireEvent.click(screen.getByRole("button", { name: "선택한 후보와 배경 적용" }));
+  fireEvent.click(screen.getByRole("button", { name: "확인 및 적용" }));
   const dialog = screen.getByRole("dialog", { name: "새 CAD 도면으로 맵을 교체할까요?" });
   fireEvent.click(within(dialog).getByRole("button", { name: "교체 후 적용" }));
+}
+
+async function chooseRegion(index: number) {
+  fireEvent.click(await screen.findByRole("button", { name: "가져올 도면 영역" }));
+  fireEvent.click(screen.getByRole("option", { name: `도면 영역 ${index}` }));
 }
 
 function selectCad(name = "parking.dxf", type = "application/dxf") {
@@ -171,6 +188,72 @@ function selectCad(name = "parking.dxf", type = "application/dxf") {
 }
 
 describe("CadImportPanel", () => {
+  it("opens upload in one modal and restores the trigger after closing", async () => {
+    renderPanel({ open: false });
+    expect(screen.queryByLabelText("CAD 파일")).not.toBeInTheDocument();
+    const trigger = screen.getByRole("button", { name: "CAD 가져오기" });
+    expect(trigger).toHaveClass("max-compact:min-w-13", "max-compact:min-h-13");
+    expect(within(trigger).getByText("CAD 가져오기")).toHaveClass("max-compact:sr-only");
+    fireEvent.click(trigger);
+    const modal = screen.getByRole("dialog", { name: "CAD 가져오기" });
+    expect(within(modal).getByLabelText("CAD 파일")).toBeVisible();
+    fireEvent.click(within(modal).getByRole("button", { name: "닫기" }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "CAD 가져오기" })).not.toBeInTheDocument());
+    await waitFor(() => expect(trigger).toHaveFocus());
+  });
+
+  it("defaults to the highest-ranked region without committing and replaces one large preview", async () => {
+    floorEditorApi.getActiveFloorImportJob.mockResolvedValueOnce({ job: {
+      ...queuedJob, status: "region_selection_required", parserVersion: "cad-core/1"
+    } });
+    cadRegionApi.listFloorImportRegions.mockResolvedValueOnce({ ...multipleRegions, regions: [secondRegion, firstRegion] });
+    renderPanel();
+    const modal = await screen.findByRole("dialog", { name: "CAD 가져오기" });
+    const select = await within(modal).findByRole("button", { name: "가져올 도면 영역" });
+    expect(select).toHaveTextContent("도면 영역 1");
+    const preview = within(modal).getByRole("region", { name: "CAD 도면 미리보기" });
+    expect(within(preview).getByRole("img")).toHaveAttribute("src", `/api/floors/floor-1/assets/${firstRegion.preview.assetId}/content`);
+    expect(cadRegionApi.selectFloorImportRegion).not.toHaveBeenCalled();
+    await chooseRegion(2);
+    expect(within(preview).getAllByRole("img")).toHaveLength(1);
+    expect(within(preview).getByRole("img")).toHaveAttribute("src", `/api/floors/floor-1/assets/${secondRegion.preview.assetId}/content`);
+    expect(screen.queryByRole("radiogroup")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "다음 페이지" })).not.toBeInTheDocument();
+  });
+
+  it("applies all slot candidates only after reset confirmation even for a partial recovered selection", async () => {
+    const candidates = [candidate, { ...candidate, id: "candidate-2" }];
+    floorEditorApi.applyFloorImportJob.mockResolvedValueOnce({});
+    renderPanel({ review: { job: { ...queuedJob, status: "review_required" }, candidates, acceptedCandidateIds: [candidate.id] } });
+    const modal = screen.getByRole("dialog", { name: "CAD 가져오기" });
+    expect(within(modal).getByRole("region", { name: "CAD 도면 미리보기" })).toBeVisible();
+    expect(within(modal).queryByRole("checkbox")).not.toBeInTheDocument();
+    fireEvent.click(within(modal).getByRole("button", { name: "확인 및 적용" }));
+    expect(floorEditorApi.applyFloorImportJob).not.toHaveBeenCalled();
+    const confirm = screen.getByRole("dialog", { name: "새 CAD 도면으로 맵을 교체할까요?" });
+    expect(within(confirm).getByText("조명 위치 슬롯 2개가 생성됩니다.")).toBeVisible();
+    fireEvent.click(within(confirm).getByRole("button", { name: "교체 후 적용" }));
+    await waitFor(() => expect(floorEditorApi.applyFloorImportJob).toHaveBeenCalledWith("floor-1", queuedJob.jobId, {
+      expectedRevision: 7, leaseToken: "lease-token", leaseFence: 9, confirmMapReset: true,
+      candidateIds: candidates.map(item => item.id)
+    }));
+  });
+
+  it("blocks a late preview failure even after reset confirmation opens, then allows explicit retry", () => {
+    renderPanel({ review: { job: { ...queuedJob, status: "review_required" }, candidates: [candidate], acceptedCandidateIds: [candidate.id] } });
+    const apply = screen.getByRole("button", { name: "확인 및 적용" });
+    fireEvent.click(apply);
+    const confirm = screen.getByRole("dialog", { name: "새 CAD 도면으로 맵을 교체할까요?" });
+    act(() => previewDisplay.onReadyChange?.(false));
+    const confirmButton = within(confirm).getByRole("button", { name: "교체 후 적용" });
+    expect(confirmButton).toBeDisabled();
+    fireEvent.click(confirmButton);
+    expect(floorEditorApi.applyFloorImportJob).not.toHaveBeenCalled();
+    act(() => previewDisplay.onReadyChange?.(true));
+    expect(confirmButton).toBeEnabled();
+    fireEvent.click(within(confirm).getByRole("button", { name: "취소" }));
+    expect(screen.getByRole("button", { name: "확인 및 적용" })).toBeEnabled();
+  });
   beforeEach(() => {
     vi.useRealTimers();
     floorEditorApi.getActiveFloorImportJob.mockResolvedValue({ job: null });
@@ -211,7 +294,7 @@ describe("CadImportPanel", () => {
     renderPanel();
     selectCad(name, type);
 
-    fireEvent.click(screen.getByRole("button", { name: "CAD 가져오기" }));
+    fireEvent.click(screen.getByRole("button", { name: "파일 업로드" }));
 
     await waitFor(() => expect(floorEditorApi.createFloorImportJob).toHaveBeenCalledWith("floor-1", {
       sourceAssetId: asset.id,
@@ -231,7 +314,7 @@ describe("CadImportPanel", () => {
     renderPanel();
     selectCad(name, "");
 
-    fireEvent.click(screen.getByRole("button", { name: "CAD 가져오기" }));
+    fireEvent.click(screen.getByRole("button", { name: "파일 업로드" }));
 
     await waitFor(() => expect(floorEditorApi.uploadFloorAsset).toHaveBeenCalledOnce());
     const uploaded = floorEditorApi.uploadFloorAsset.mock.calls[0][1] as File;
@@ -249,7 +332,7 @@ describe("CadImportPanel", () => {
     expect(fileInput).toHaveAttribute("aria-invalid", "true");
     expect(fileInput.getAttribute("aria-describedby")?.split(" ")).toContain(fieldError.id);
     expect(screen.getByRole("button", { name: /파일 형식과 확장자가 일치하지 않습니다/ })).toHaveTextContent("파일 오류");
-    expect(screen.getByRole("button", { name: "CAD 가져오기" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "파일 업로드" })).toBeDisabled();
   });
 
   it("rejects PDF before upload", () => {
@@ -257,7 +340,7 @@ describe("CadImportPanel", () => {
     selectCad("parking.pdf", "application/pdf");
 
     expect(screen.getByRole("alert")).toHaveTextContent("DWG, DXF");
-    expect(screen.getByRole("button", { name: "CAD 가져오기" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "파일 업로드" })).toBeDisabled();
     expect(floorEditorApi.uploadFloorAsset).not.toHaveBeenCalled();
   });
 
@@ -287,7 +370,7 @@ describe("CadImportPanel", () => {
       }
     });
     selectCad();
-    fireEvent.click(screen.getByRole("button", { name: "CAD 가져오기" }));
+    fireEvent.click(screen.getByRole("button", { name: "파일 업로드" }));
     await flushPromises();
     expect(floorEditorApi.createFloorImportJob).toHaveBeenCalledOnce();
 
@@ -330,15 +413,16 @@ describe("CadImportPanel", () => {
     });
     renderPanel();
 
-    expect(await screen.findByRole("radiogroup", { name: "가져올 도면 영역" })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "가져올 도면 영역" })).toBeInTheDocument();
     expect(screen.getByRole("img", { name: "도면 영역 1 미리보기" })).toHaveAttribute(
       "src",
       `/api/floors/floor-1/assets/${firstRegion.preview.assetId}/content`
     );
     expect(screen.queryByRole("img", { name: "도면 영역 2 미리보기" })).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "선택 영역으로 장면 만들기" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "선택 영역으로 장면 만들기" })).toBeEnabled();
+    expect(cadRegionApi.selectFloorImportRegion).not.toHaveBeenCalled();
 
-    fireEvent.click(screen.getByRole("radio", { name: /도면 영역 1/ }));
+    await chooseRegion(1);
 
     expect(screen.getByText("도형 1,200개")).toBeInTheDocument();
     expect(screen.getByText("조명 후보 12개")).toBeInTheDocument();
@@ -352,13 +436,13 @@ describe("CadImportPanel", () => {
       queuedJob.jobId,
       firstRegion.regionId
     ));
-    expect(screen.queryByRole("radiogroup", { name: "가져올 도면 영역" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "가져올 도면 영역" })).not.toBeInTheDocument();
     expect(screen.getByRole("progressbar", { name: "CAD 가져오기 진행률" })).toHaveValue(72);
     expect(screen.getByText("선택 영역의 CAD 장면을 준비하는 중")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "DWG/DXF 가져오기" })).toHaveFocus();
   });
 
-  it("pages a large region list without dropping later regions and decodes only one preview", async () => {
+  it("keeps every region in one select without dropping later regions and decodes only one preview", async () => {
     const regionJob = {
       ...queuedJob,
       status: "region_selection_required" as const,
@@ -381,25 +465,17 @@ describe("CadImportPanel", () => {
     });
     renderPanel();
 
-    expect(await screen.findByRole("radiogroup", { name: "가져올 도면 영역" })).toBeInTheDocument();
-    expect(screen.getAllByRole("radio")).toHaveLength(20);
-    expect(screen.getByText("1~20 / 1817건")).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "가져올 도면 영역" })).toBeInTheDocument();
     expect(screen.getAllByRole("img", { name: /도면 영역 .* 미리보기/ })).toHaveLength(1);
-    expect(screen.getByRole("img", { name: "도면 영역 1 미리보기" })).toHaveAttribute("loading", "lazy");
-    expect(screen.getByRole("img", { name: "도면 영역 1 미리보기" })).toHaveAttribute("decoding", "async");
-
-    fireEvent.click(screen.getByRole("button", { name: "다음 페이지" }));
-    expect(screen.getByText("21~40 / 1817건")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("radio", { name: /^도면 영역 21 ·/ }));
-
+    await chooseRegion(1817);
+    expect(screen.getByRole("img", { name: "도면 영역 1817 미리보기" })).toBeInTheDocument();
     expect(screen.getAllByRole("img", { name: /도면 영역 .* 미리보기/ })).toHaveLength(1);
-    expect(screen.getByRole("img", { name: "도면 영역 21 미리보기" })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "이전 페이지" }));
-    fireEvent.click(screen.getByRole("button", { name: "다음 페이지" }));
-    expect(screen.getByRole("radio", { name: /^도면 영역 21 ·/ })).toBeChecked();
+    fireEvent.click(screen.getByRole("button", { name: "가져올 도면 영역" }));
+    expect(screen.getByRole("option", { name: "도면 영역 1817" })).toHaveAttribute("aria-selected", "true");
+    fireEvent.keyDown(screen.getByRole("listbox"), { key: "Escape" });
   });
 
-  it("keeps region selection primary while changing page size only resets pagination", async () => {
+  it("keeps region selection local until explicit scene-build confirmation", async () => {
     floorEditorApi.getActiveFloorImportJob.mockResolvedValueOnce({ job: {
       ...queuedJob, status: "region_selection_required", stage: "region_selection_required", parserVersion: "cad-core/1"
     } });
@@ -407,22 +483,13 @@ describe("CadImportPanel", () => {
       regions: Array.from({ length: 65 }, (_, index) => ({ ...firstRegion, regionId: `region-${index + 1}` }))
     });
     renderPanel();
-    expect(await screen.findByRole("radiogroup", { name: "가져올 도면 영역" })).toBeVisible();
-    fireEvent.click(screen.getByRole("button", { name: "다음 페이지" }));
-    fireEvent.click(screen.getByRole("radio", { name: /^도면 영역 21 ·/ }));
-    const trigger = screen.getByRole("button", { name: "도면 영역 목록 상세 필터, 활성 조건 0개" });
-    expect(screen.queryByRole("button", { name: /페이지당 항목 수/ })).not.toBeInTheDocument();
-    fireEvent.click(trigger);
-    expect(screen.getByRole("radiogroup", { hidden: true })).toHaveAttribute("aria-label", "가져올 도면 영역");
-    fireEvent.click(screen.getByRole("button", { name: /페이지당 항목 수/ }));
-    fireEvent.click(screen.getByRole("option", { name: "50개" }));
-    fireEvent.keyDown(screen.getByRole("dialog", { name: "도면 영역 목록" }), { key: "Escape" });
-    expect(screen.getByText("1~50 / 65건")).toBeVisible();
-    expect(screen.getAllByRole("radio")).toHaveLength(50);
-    expect(screen.getByRole("radio", { name: /^도면 영역 21 ·/ })).toBeChecked();
+    expect(await screen.findByRole("button", { name: "가져올 도면 영역" })).toBeVisible();
+    await chooseRegion(21);
+    expect(screen.getByRole("button", { name: "가져올 도면 영역" })).toHaveTextContent("도면 영역 21");
+    expect(screen.queryByRole("radio")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "다음 페이지" })).not.toBeInTheDocument();
     expect(cadRegionApi.selectFloorImportRegion).not.toHaveBeenCalled();
     expect(floorEditorApi.applyFloorImportJob).not.toHaveBeenCalled();
-    expect(screen.queryByRole("searchbox")).not.toBeInTheDocument();
   });
 
   it.each([
@@ -455,13 +522,13 @@ describe("CadImportPanel", () => {
     });
     renderPanel();
 
-    await screen.findByRole("radiogroup", { name: "가져올 도면 영역" });
-    fireEvent.click(screen.getByRole("radio", { name: /도면 영역 1/ }));
+    await screen.findByRole("button", { name: "가져올 도면 영역" });
+    await chooseRegion(1);
     fireEvent.click(screen.getByRole("button", { name: "선택 영역으로 장면 만들기" }));
 
     await waitFor(() => expect(floorEditorApi.getFloorImportJob).toHaveBeenCalledWith("floor-1", queuedJob.jobId));
     expect(cadRegionApi.listFloorImportRegions).toHaveBeenCalledTimes(2);
-    expect(screen.queryByRole("radiogroup", { name: "가져올 도면 영역" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "가져올 도면 영역" })).not.toBeInTheDocument();
     expect(screen.getByRole("progressbar", { name: "CAD 가져오기 진행률" })).toHaveValue(81);
     expect(screen.queryByText("도면 영역을 선택하지 못했습니다. 다시 시도하세요.")).not.toBeInTheDocument();
   });
@@ -499,12 +566,12 @@ describe("CadImportPanel", () => {
     }
     renderPanel();
 
-    await screen.findByRole("radiogroup", { name: "가져올 도면 영역" });
-    fireEvent.click(screen.getByRole("radio", { name: /도면 영역 1/ }));
+    await screen.findByRole("button", { name: "가져올 도면 영역" });
+    await chooseRegion(1);
     fireEvent.click(screen.getByRole("button", { name: "선택 영역으로 장면 만들기" }));
 
     await waitFor(() => expect(screen.getByRole("progressbar", { name: "CAD 가져오기 진행률" })).toHaveValue(expectedProgress));
-    expect(screen.queryByRole("radiogroup", { name: "가져올 도면 영역" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "가져올 도면 영역" })).not.toBeInTheDocument();
   });
 
   it.each([
@@ -529,7 +596,7 @@ describe("CadImportPanel", () => {
     });
     renderPanel();
 
-    await screen.findByRole("radiogroup", { name: "가져올 도면 영역" });
+    await screen.findByRole("button", { name: "가져올 도면 영역" });
     fireEvent.click(screen.getByRole("button", { name: "가져오기 취소" }));
 
     await waitFor(() => expect(floorEditorApi.getFloorImportJob).toHaveBeenCalledWith("floor-1", queuedJob.jobId));
@@ -634,11 +701,11 @@ describe("CadImportPanel", () => {
     renderPanel();
 
     await act(async () => { await flushPromises(); });
-    fireEvent.click(screen.getByRole("radio", { name: /도면 영역 1/ }));
+    expect(screen.getByRole("button", { name: "가져올 도면 영역" })).toHaveTextContent("도면 영역 1");
     fireEvent.click(screen.getByRole("button", { name: "선택 영역으로 장면 만들기" }));
     await act(async () => { await flushPromises(); });
 
-    expect(screen.queryByRole("radiogroup", { name: "가져올 도면 영역" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "가져올 도면 영역" })).not.toBeInTheDocument();
     expect(screen.getByRole("progressbar", { name: "CAD 가져오기 진행률" })).toHaveValue(81);
     const recoveryCall = cadRegionApi.listFloorImportRegions.mock.calls[1];
     expect(recoveryCall?.[2]?.signal.aborted).toBe(false);
@@ -686,10 +753,7 @@ describe("CadImportPanel", () => {
     expect(screen.getByText("조명 후보 12개")).toBeInTheDocument();
     expect(screen.getByText("제외 요소 3개")).toBeInTheDocument();
     expect(screen.getByText("새 맵 16,384 × 8,192")).toBeInTheDocument();
-    expect(screen.getByRole("img", { name: "선택한 도면 영역 미리보기" })).toHaveAttribute(
-      "src",
-      `/api/floors/floor-1/assets/${firstRegion.preview.assetId}/content`
-    );
+    expect(screen.getByRole("region", { name: "CAD 도면 미리보기" })).toBeVisible();
   });
 
   it("keeps progress monotonic after region selection and restores the selected build stage after refresh", async () => {
@@ -763,7 +827,7 @@ describe("CadImportPanel", () => {
     fireEvent.click(screen.getByRole("button", { name: "도면 영역을 불러오지 못했습니다." }));
     fireEvent.click(within(screen.getByRole("dialog", { name: "CAD 가져오기 안내" })).getByRole("button", { name: "다시 확인" }));
 
-    expect(await screen.findByRole("radiogroup", { name: "가져올 도면 영역" })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "가져올 도면 영역" })).toBeInTheDocument();
     expect(cadRegionApi.listFloorImportRegions).toHaveBeenCalledTimes(2);
   });
 
@@ -787,8 +851,8 @@ describe("CadImportPanel", () => {
     });
     renderPanel();
 
-    await screen.findByRole("radiogroup", { name: "가져올 도면 영역" });
-    fireEvent.click(screen.getByRole("radio", { name: /도면 영역 1/ }));
+    await screen.findByRole("button", { name: "가져올 도면 영역" });
+    await chooseRegion(1);
 
     expect(screen.getByText("지원 맵 비율을 초과했습니다.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "선택 영역으로 장면 만들기" })).toBeDisabled();
@@ -839,7 +903,7 @@ describe("CadImportPanel", () => {
     });
     const panel = renderPanel();
     selectCad();
-    fireEvent.click(screen.getByRole("button", { name: "CAD 가져오기" }));
+    fireEvent.click(screen.getByRole("button", { name: "파일 업로드" }));
     await flushPromises();
 
     await act(async () => { await vi.advanceTimersByTimeAsync(3_000); });
@@ -858,7 +922,7 @@ describe("CadImportPanel", () => {
       .mockResolvedValueOnce({ ...processingJob, stage: "rendering", progressPercent: 70 });
     renderPanel();
     selectCad();
-    fireEvent.click(screen.getByRole("button", { name: "CAD 가져오기" }));
+    fireEvent.click(screen.getByRole("button", { name: "파일 업로드" }));
     await flushPromises();
 
     await act(async () => { await vi.advanceTimersByTimeAsync(1_000); });
@@ -880,7 +944,7 @@ describe("CadImportPanel", () => {
     floorEditorApi.createFloorImportJob.mockResolvedValueOnce(queuedJob);
     const { unmount } = renderPanel();
     selectCad();
-    fireEvent.click(screen.getByRole("button", { name: "CAD 가져오기" }));
+    fireEvent.click(screen.getByRole("button", { name: "파일 업로드" }));
     await flushPromises();
     expect(floorEditorApi.createFloorImportJob).toHaveBeenCalledOnce();
 
@@ -890,7 +954,7 @@ describe("CadImportPanel", () => {
     expect(floorEditorApi.getFloorImportJob).not.toHaveBeenCalled();
   });
 
-  it("hydrates a durable review job on mount and exposes one bounded semantic candidate control", async () => {
+  it("hydrates a durable review job on mount with every slot candidate and no individual selection UI", async () => {
     const reviewJob = {
       ...queuedJob,
       status: "review_required" as const,
@@ -919,10 +983,10 @@ describe("CadImportPanel", () => {
     expect(screen.queryByRole("progressbar", { name: "CAD 가져오기 진행률" })).not.toBeInTheDocument();
     expect(screen.queryByText("분석 완료 · 조명 위치 후보를 불러오는 중")).not.toBeInTheDocument();
     expect(screen.getByText("조명 위치 후보 2,000개를 찾았습니다.")).toBeInTheDocument();
-    expect(screen.getAllByRole("checkbox", { name: /후보 1\/2,000/ })).toHaveLength(1);
-    expect(screen.getAllByRole("checkbox")).toHaveLength(1);
-    fireEvent.click(screen.getByRole("button", { name: "다음 후보" }));
-    expect(screen.getByRole("checkbox", { name: /후보 2\/2,000/ })).toBeInTheDocument();
+    expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "다음 후보" })).not.toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "CAD 도면 미리보기" })).toBeVisible();
+    expect(hydrated?.acceptedCandidateIds).toHaveLength(2000);
   });
 
   it("finishes review hydration when the parent callback changes during the candidate request", async () => {
@@ -989,7 +1053,7 @@ describe("CadImportPanel", () => {
       .mockResolvedValueOnce({ job: queuedJob });
     renderPanel();
     selectCad();
-    fireEvent.click(screen.getByRole("button", { name: "CAD 가져오기" }));
+    fireEvent.click(screen.getByRole("button", { name: "파일 업로드" }));
 
     await screen.findByText("가져오기 대기 중");
     expect(screen.queryByText("CAD 가져오기를 시작하지 못했습니다.")).not.toBeInTheDocument();
@@ -1121,7 +1185,7 @@ describe("CadImportPanel", () => {
       ...queuedJob, status: "failed", stage: "failed", failureCode: "CAD_IMPORT_RENDER_FAILED"
     });
     renderPanel();
-    fireEvent.click(await screen.findByRole("radio", { name: /도면 영역 1/ }));
+    await chooseRegion(1);
     fireEvent.click(screen.getByRole("button", { name: "선택 영역으로 장면 만들기" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent(/도면 미리보기나 장면을 만드는 단계/);
@@ -1140,7 +1204,7 @@ describe("CadImportPanel", () => {
     });
     renderPanel();
     selectCad();
-    fireEvent.click(screen.getByRole("button", { name: "CAD 가져오기" }));
+    fireEvent.click(screen.getByRole("button", { name: "파일 업로드" }));
     await flushPromises();
 
     await act(async () => { await vi.advanceTimersByTimeAsync(1_000); });
@@ -1158,7 +1222,7 @@ describe("CadImportPanel", () => {
       acceptedCandidateIds: [candidate.id]
     };
     renderPanel({ review, resetSummary: { fixtureCount: 4, objectCount: 2, slotCount: 3 } });
-    const trigger = screen.getByRole("button", { name: "선택한 후보와 배경 적용" });
+    const trigger = screen.getByRole("button", { name: "확인 및 적용" });
 
     trigger.focus();
     fireEvent.click(trigger);
@@ -1167,7 +1231,7 @@ describe("CadImportPanel", () => {
     expect(dialog).toHaveTextContent("조명 4개가 미배치 상태로 변경");
     expect(dialog).toHaveTextContent("수동 도형 2개가 삭제");
     expect(dialog).toHaveTextContent("기존 CAD 슬롯 3개가 삭제");
-    expect(dialog).toHaveTextContent("선택한 조명 위치 슬롯 1개가 생성");
+    expect(dialog).toHaveTextContent("조명 위치 슬롯 1개가 생성");
     expect(within(dialog).getByRole("button", { name: "취소" })).toHaveFocus();
 
     fireEvent.click(within(dialog).getByRole("button", { name: "취소" }));
@@ -1183,7 +1247,7 @@ describe("CadImportPanel", () => {
       acceptedCandidateIds: [candidate.id]
     };
     renderPanel({ review });
-    const trigger = screen.getByRole("button", { name: "선택한 후보와 배경 적용" });
+    const trigger = screen.getByRole("button", { name: "확인 및 적용" });
     trigger.focus();
     fireEvent.click(trigger);
 
@@ -1238,6 +1302,16 @@ describe("CadImportPanel", () => {
     expect(onApplied).toHaveBeenCalledWith(expect.objectContaining({ revision: 8 }));
   });
 
+  it("preserves an explicit legacy preview when region recovery returns native metadata", async () => {
+    cadRegionApi.listFloorImportRegions.mockResolvedValueOnce(autoSelectedRegion);
+    const { onReviewChange } = renderPanel({ review: {
+      job: { ...queuedJob, status: "review_required", renderedAssetPath: "/legacy.png", renderedViewport: { width: 640, height: 480 } },
+      scene: { kind: "legacy" }, candidates: [candidate], acceptedCandidateIds: [candidate.id]
+    } });
+    await waitFor(() => expect(cadRegionApi.listFloorImportRegions).toHaveBeenCalled());
+    expect(onReviewChange).not.toHaveBeenCalledWith(expect.objectContaining({ scene: expect.objectContaining({ kind: "native" }) }));
+  });
+
   it("confirms and applies a zero-candidate prepared review without legacy display assets", async () => {
     const review: CadImportReviewState = {
       job: { ...queuedJob, status: "review_required", stage: "review_required", progressPercent: 100 },
@@ -1253,9 +1327,9 @@ describe("CadImportPanel", () => {
     } satisfies FloorImportApplyResult);
     const { onApplied } = renderPanel({ review });
     expect(screen.getByText("조명 위치 후보 0개를 찾았습니다.")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "선택한 후보와 배경 적용" }));
+    fireEvent.click(screen.getByRole("button", { name: "확인 및 적용" }));
     const dialog = screen.getByRole("dialog", { name: "새 CAD 도면으로 맵을 교체할까요?" });
-    expect(dialog).toHaveTextContent("선택한 조명 위치 슬롯 0개가 생성됩니다.");
+    expect(dialog).toHaveTextContent("조명 위치 슬롯 0개가 생성됩니다.");
     expect(floorEditorApi.applyFloorImportJob).not.toHaveBeenCalled();
     fireEvent.click(within(dialog).getByRole("button", { name: "교체 후 적용" }));
     await waitFor(() => expect(floorEditorApi.applyFloorImportJob).toHaveBeenCalledWith("floor-1", queuedJob.jobId,
@@ -1290,11 +1364,11 @@ describe("CadImportPanel", () => {
       }
     } satisfies FloorImportApplyResult);
     renderPanel({ review });
-    const region = screen.getByRole("region", { name: "CAD 가져오기" });
+    const region = screen.getByRole("button", { name: "CAD 가져오기", hidden: true });
 
     openAndConfirmApply();
 
-    await waitFor(() => expect(screen.queryByRole("button", { name: "선택한 후보와 배경 적용" })).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByRole("button", { name: "확인 및 적용" })).not.toBeInTheDocument());
     await waitFor(() => expect(region).toHaveFocus());
   });
 
@@ -1307,11 +1381,11 @@ describe("CadImportPanel", () => {
     const first = renderPanel({ isDirty: true });
     selectCad();
     expect(screen.getByText(/먼저 저장하거나 취소해 변경사항을 폐기/)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "CAD 가져오기" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "파일 업로드" })).toBeDisabled();
     first.unmount();
 
     renderPanel({ review, isDirty: true });
-    expect(screen.getByRole("button", { name: "선택한 후보와 배경 적용" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "확인 및 적용" })).toBeDisabled();
   });
 
   it("reconciles apply 409 before routing a still-reviewable job to the editor conflict flow", async () => {

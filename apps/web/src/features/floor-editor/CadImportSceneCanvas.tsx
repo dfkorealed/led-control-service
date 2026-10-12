@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { TriangleAlert } from "lucide-react";
 import type { MapDocumentRef } from "@led-control/shared/map-document-contracts";
 import { createMapDocumentSource, type MapDocumentSource } from "../../api/map-document";
@@ -55,29 +55,51 @@ interface CadImportSceneCanvasProps {
   pan: Point;
   zoom: number;
   viewport: { width: number; height: number };
+  onDisplayStateChange?: (state: "loading" | "ready" | "error") => void;
 }
 
 // Prepared geometry and candidate markers already share logical map coordinates.
 // Never fetch the active floor document or apply CAD normalization a second time.
-export function CadImportSceneCanvas({ floorId, jobId, manifest, pan, zoom, viewport }: CadImportSceneCanvasProps) {
+export function CadImportSceneCanvas({ floorId, jobId, manifest, pan, zoom, viewport, onDisplayStateChange }: CadImportSceneCanvasProps) {
   const queryClient = useQueryClient();
   const scope = useMapDocumentReadScope(floorId);
   const authScope = scope?.authScope;
   const expectedSource = useMemo(() => authScope ? createMapDocumentSource({ floorId, jobId, authScope }) : null,
     [floorId, jobId, authScope]);
   const [failedKey, setFailedKey] = useState<string | null>(null);
+  const [readyKey, setReadyKey] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
   const { source, ...documentRef } = manifest;
   const key = JSON.stringify([source.scopeKey, manifest.generationId, manifest.revision, attempt]);
+  const currentKey = useRef(key); currentKey.current = key;
+  const viewKey = JSON.stringify([key, pan.x, pan.y, zoom, viewport.width, viewport.height]);
+  const currentViewKey = useRef(viewKey); currentViewKey.current = viewKey;
   const authorized = expectedSource?.scopeKey === source.scopeKey;
   const failed = failedKey === key;
   const measured = viewport.width > 0 && viewport.height > 0 && Number.isFinite(zoom) && zoom > 0;
+  const displayState = !authorized || failed ? "error" : measured && readyKey === viewKey ? "ready" : "loading";
+  // Readiness updates must not resend an unchanged camera and reset visible paint.
+  const camera = useMemo(() => ({
+    centerX: (viewport.width / 2 - pan.x) / zoom,
+    centerY: (viewport.height / 2 - pan.y) / zoom,
+    zoom, viewportWidth: viewport.width, viewportHeight: viewport.height
+  }), [pan.x, pan.y, zoom, viewport.width, viewport.height]);
+  useEffect(() => { onDisplayStateChange?.(displayState); }, [displayState, onDisplayStateChange]);
   return <>
     {authorized && measured && !failed ? <MapSceneCanvas key={key}
       source={source} documentRef={documentRef} readOnly platform="mobile"
-      camera={{ centerX: (viewport.width / 2 - pan.x) / zoom, centerY: (viewport.height / 2 - pan.y) / zoom,
-        zoom, viewportWidth: viewport.width, viewportHeight: viewport.height }}
-      onError={() => setFailedKey(key)} style={{ position: "absolute", inset: 0 }} /> : null}
+      camera={camera}
+      onReady={handle => {
+        // Document adoption is not visible paint. Only disposal can clear the
+        // gate here; successful adoption must wait for coverage below.
+        if (!handle && currentKey.current === key) setReadyKey(null);
+      }}
+      onPaintReady={ready => {
+        // Fence replaced generations, retries and viewports independently.
+        if (currentViewKey.current === viewKey) setReadyKey(ready ? viewKey : null);
+      }}
+      onError={() => { if (currentKey.current === key) { setReadyKey(null); setFailedKey(key); } }}
+      style={{ position: "absolute", inset: 0 }} /> : null}
     {failed || !authorized ? <div className="absolute inset-x-3 top-3 z-20">
       <FeedbackState tone="danger" icon={TriangleAlert} title="선택한 CAD 도면을 표시하지 못했습니다."
         // The host disables editing during review; this read-only retry remains available.

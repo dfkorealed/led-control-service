@@ -21,6 +21,8 @@ export interface ModalDialogProps {
   closeLabel?: string;
   className?: string;
   bodyClassName?: string;
+  /** Center at every viewport size; omitted preserves the mobile bottom placement. */
+  placement?: "center";
   /** Opt in to one top/bottom inset owner; does not change the default scroll layout. */
   safeArea?: boolean;
 }
