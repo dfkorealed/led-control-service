@@ -1,0 +1,38 @@
+name: Public Landing Release
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  landing-release:
+    runs-on: ubuntu-latest
+    env:
+      WEB_DEPLOY_MODE: landing
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: "9.15.0"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @led-control/web exec playwright install --with-deps chromium
+      - name: Frozen public landing build, scoped security and Chromium gate
+        run: node scripts/landing/release.mjs
+      - uses: actions/upload-artifact@v4
+        with:
+          name: public-landing-${{ github.sha }}
+          include-hidden-files: true
+          if-no-files-found: error
+          path: |
+            apps/web/dist-public/
+            apps/web/.local/public-landing-packages.json
+            apps/web/.local/landing-release-unit.json
+            apps/web/.local/landing-release-browser.json
+            .local/landing-release/

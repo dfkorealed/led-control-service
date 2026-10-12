@@ -6,8 +6,12 @@ import tailwindcss from "@tailwindcss/vite";
 import { defineConfig } from "vite";
 // @ts-expect-error Node deployment contracts are exercised directly outside browser tsconfig.
 import { parseDeployMode, assertPublicModules, assertPublicOutput, brandAssets, createArtifact, artifactName } from "./scripts/public-deploy-contract.mjs";
+// @ts-expect-error Release evidence runs in Node, outside the browser tsconfig.
+import { createBuildEvidence, digest } from "../../scripts/landing/release-evidence.mjs";
 const root = resolve(fileURLToPath(new URL(".", import.meta.url)));
 const mode = parseDeployMode(process.env.WEB_DEPLOY_MODE);
+let rawModules: string[] = [];
+let emittedModules: Record<string, string[]> = {};
 export default defineConfig({
   root, publicDir: false, envDir: false, envPrefix: "PUBLIC_UNUSED_",
   define: {
@@ -22,6 +26,8 @@ export default defineConfig({
       if (html) { delete bundle[entry]; html.fileName = "index.html"; bundle["index.html"] = html; }
       for (const asset of brandAssets as string[]) this.emitFile({ type: "asset", fileName: asset, source: await readFile(resolve(root, "public", asset)) });
       const modules = assertPublicModules([...this.getModuleIds()], root, mode);
+      rawModules = [...this.getModuleIds()];
+      emittedModules = Object.fromEntries(Object.entries(bundle).filter(([, item]) => item.type === "chunk").map(([name, item]) => [name, item.type === "chunk" ? Object.keys(item.modules) : []]));
       assertPublicOutput(bundle, mode);
       await mkdir(resolve(root, ".local"), { recursive: true });
       await writeFile(resolve(root, `.local/public-${mode}-build-audit.json`), JSON.stringify({ mode, modules, output: [...new Set([...Object.keys(bundle), ...brandAssets])] }, null, 2));
@@ -37,7 +43,12 @@ export default defineConfig({
         }
       }
       await walk();
-      await writeFile(resolve(directory, artifactName), JSON.stringify(createArtifact(mode, files), null, 2));
+      const artifactBytes = JSON.stringify(createArtifact(mode, files), null, 2);
+      await writeFile(resolve(directory, artifactName), artifactBytes);
+      if (mode === "landing") {
+        const evidence = await createBuildEvidence(resolve(root, "../.."), rawModules, emittedModules, digest(artifactBytes));
+        await writeFile(resolve(root, ".local/public-landing-packages.json"), JSON.stringify(evidence, null, 2));
+      }
     }
   }],
   worker: { rollupOptions: { output: { entryFileNames: `assets/${mode}/[name]-[hash].js`, chunkFileNames: `assets/${mode}/[name]-[hash].js`, assetFileNames: `assets/${mode}/[name]-[hash][extname]` } } },

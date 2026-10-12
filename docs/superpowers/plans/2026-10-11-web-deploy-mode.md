@@ -101,3 +101,41 @@
 검토는 baseline부터 task commit까지의 고정 diff package와 담당 보고서를 사용한다. 불필요한 전체 suite 재실행 없이 changed unit/actual build/실제 접속과 제한적인 auth browser로 완료 기준을 확인한다.
 
 릴리스 구현 계약: HTML/brand는 불변 `published/<release>/`, assets는 모드 namespace로 게시한다. edge가 정확한 릴리스와 모드를 선택하고 CloudFormation 완료를 기다린다. CloudFront 전파는 전 세계 단일 시점 교체가 아니므로 부분 실패 lock·명시 retry/rollback 복구와 이미 내려받은 JS의 한계를 실행서에 기록한다.
+
+## 2026-10-12 사용자 승인: landing 전용 공개 관문
+
+사용자는 mobile/백엔드의 미수정 advisory와 분리하여 landing 전용 보안·기능·접근 차단 검사 통과 후 배포하도록 명시 선택했다. 기존 Software CI 여섯 단계와 전체 서비스 감사 정책/예외는 유지한다. 새 관문은 `WEB_DEPLOY_MODE=landing`에만 적용하고 service mode 공개를 승인하지 않는다. 기존 public build/manifest/routes/smoke 구현을 확장하며 production converter 제한·API/모바일 기능은 변경하지 않는다.
+
+- [x] 보완 후보 `7dd2191f9c92828fe36721f53a39c54d3f2f9fe7`를 clean commit으로 고정했다. MAIN 외부 AGENTS/문서 수정은 보존하며 섞지 않는다.
+- [x] 단일 writer가 landing release 감사/관문·별도 CI workflow·기존 public Vite evidence·Chromium 접속 검사를 구현한다. Root는 문서와 Git/AWS 운영을 담당한다.
+  - writer 소유: `scripts/landing/release*.mjs`, 기존 `apps/web/vite.public.config.ts`의 evidence 연결, landing-only Playwright config/spec, `.github/workflows/landing-release.yml`. 루트 package scripts는 추가하지 않고 `node scripts/landing/release.mjs`로 실행한다. 설치된 Web deps/devDeps·shared workspace와 gate tool dependencies의 정확 metadata/lock closure를 기록하며 fresh audit는 dev를 포함한다. 기존 Software CI·전체 audit policy·API/mobile·root docs는 writer가 수정하지 않는다.
+  - 추가 소유: gate writer가 `scripts/landing/deploy.mjs`의 landing-only fresh-build/proof 결속을 맡는다. dependency writer는 Web dev `vite ^6.4.3`, `vitest ^4.1.11`와 필수 lock만 갱신한다. plugin-react4.7.0/Tailwind4.3.3 및 Node22 peer 호환을 읽기 전용 확인했다.
+  - [x] 실제 dev 포함 감사에서 Web 실행 도구9 advisory(esbuild1/Vite3/Vitest2/mocker1/tinypool2)를 확인했다. 기존 prod2와 검사 범위가 다르며 whole all-deps critical5/high10/moderate8이다. 예외 없이 도구 fixed floor와 consumer 호환을 보완하며 다른 workspace 구버전 finding은 숨기지 않는다.
+  - [x] Vite6.4.3/Vitest4.1.11 targeted frozen install·lock scope·public actual assertions/수집 수·fresh scoped finding0을 확인한다. 다른 workspace/API/mobile production graph와 기존 보안 floor는 유지한다.
+    - [x] dependency writer의 실제 frozen install exit0, floor RED2FAIL→GREEN2PASS를 회수했다. Web Vite6.4.3/esbuild0.25.12, Vitest/mocker4.1.11이며 Web tinypool 의존은 없어졌다. Vite6 요구를 수용하는 기존 Rollup4.62.2를 재사용하고 다른 workspace importer/기존 lock key 수정0·missing snapshot0·root override 불변이다. 공개37unit·fresh build/audit/browser는 gate writer가 한 번 묶어 실제 실행하며 아직 결과 전이다.
+    - [x] Web manifest/lock 두 frozen hash를 root·reviewer가 검토 전후 확인했다. 독립 YAML 비교와 실제 installed tool metadata를 확인했고 C/I/M0/0/0·source scoped integrationYES다. 새 버전의 public37/typecheck/build/browser/security final 결과는 다음 gate cohort에서 확인한다.
+- [x] Frozen dependency, frontend typecheck 및 public 기능/계약 검증, fresh raw/emitted package/version graph와 산출물 SHA를 결속하고 적용 범위 보안 감사를 fail-closed한다. 모바일 finding 제외는 숨기지 않고 해당 패키지가 공개 및 public build tool scope 밖임을 증거로 기록한다.
+- [x] 실제 public dist Chromium에서 `/`, `/features`, `/pricing`와 header/consultation fallback 동작, login/internal/API/unknown/concept/archive 차단을 검증한다.
+- [ ] 고정 소스·실제 검사 로그의 독립 최종 검토를 통과하고 정확한 SHA의 새 landing CI 성공을 확인한다. 기존 whole CI의 실패는 별도 상태로 유지한다.
+- [ ] 통과한 exact landing 후보를 Sydney 전용 private S3/OAC/CloudFront stack으로 provision하고 실제 ID를 구성한다. ACM은 ISSUED, 회사 DNS 기존 5개 record는 보존한다.
+- [ ] fresh mode-bound deploy·edge 전파·기본 주소 smoke 성공 후 HostingKR `kinda` CNAME을 연결한다. 최종 custom HTTPS public/blocked routes와 headers를 확인하고 실제 release/hash/resources 증거를 기록한다.
+
+### Landing 전용 관문 실제 첫 실행
+
+- [x] 최초 새 gate는 unit 단계에서 실패했다: 37 cases 중23PASS/14FAIL, 기존 jest-dom side-effect가 hoisted Vitest2 expect를 확장해 Web Vitest4 expect에 DOM matchers가 없었다. raw `apps/web/.local/landing-release-unit.json`·`landing-release-actual-gate.log`를 보존하며 build/audit/browser 미실행으로 기록한다.
+- [x] gate writer는 기존 Web 공통 setup에 Web가 직접 import한 expect + 공식 matchers explicit extend의 최소 호환 연결을 검토·구현한다. public만 우회해 일반 Web 테스트 회귀를 남기지 않는다. 기존 assertion/cleanup/skip/deadline은 유지한다.
+- [x] reviewer의 malformed audit finding.version semver guard도 TDD로 보완하고 실제 오류 자료를 배포 통과로 처리하지 않는다.
+- [x] 새 setup의 공개37 및 의미 있는 기존 일반 Web 집중 검증과 정확한 source freeze·독립 검토 후 실제 fresh gate를 통과한다.
+
+- [x] 공통 Web expect adapter 뒤 공개37/37PASS·0SKIP, 일반 Web의 기존 DOM matcher2파일5/5PASS를 회수했다. 초기 matcher14FAIL은 보존하며 새 결과로 해결 범위를 구분한다.
+- [x] 다음 gate는 build evidence에서 Vite6 CommonJS `?commonjs-es-import` 새 virtual suffix를 unknown으로 거부했다. audit/browser는 아직 미실행이다.
+- [x] 해당 실제 형식만 real package로 unwrap하는 TDD 보완 후 기존 unit/shared/typecheck 증거를 반복하지 않고 fresh public build·미실행 감사/Chromium을 확인한다. 최종 exact GitSHA landing CI에서 전체 gate를 새로 실행해 proof를 결속한다.
+
+- [x] 전체 Web typecheck의 실제 exit2 원인을 확인했다: 4,532 matcher 타입 오류는 jest-dom 선언이 hoisted Vitest2 모듈에 연결된 문제이며 공통 setup에서 실제 Web Vitest 모듈에 공식 TestingLibraryMatchers를 augmentation 한다. 나머지10건은 세 기존 test의 Vitest4 unknown mock/async 반환 추론 차이로 확인했다.
+- [x] 승인된 세 test 파일의 fetch mock 두 선언을 입력/반환 타입으로 명시하고 ControlledImage.decode 반환을 Promise<void>로 명시한다. product/assertion/cleanup/deadline은 유지하며 기존 세 test 실제 검증과 전체 Web typecheck 성공을 확인한다. 새로운 타입/검증 호환성을 ts-ignore·skip으로 숨기지 않는다.
+
+- [x] 공통 matcher 선언과 mock 타입만 보완한 최종 전체 Web typecheck exit0을 회수했다. 공개37PASS/0SKIP·일반5PASS·기존3file41PASS를 보존했고 source/digest cohort를 구분한다. Mock 반환 union은 fixture 실제 Response|Promise<Response>를 표현하며 POST filter로 보장된 init 타입만 명시했다.
+- [x] Vite6 실제 CommonJS es-import wrapper와 malformed-audit-version guard를 포함한 계약29/29PASS를 회수했다.
+- [x] 최종 source hash에 결속된 fresh build 증명, dev 포함 audit와 served-dist Chromium6 결과를 회수한다. 앞선 wrapper 실패 cohort와 성공 새 증명을 혼동하지 않는다.
+
+- [x] 최종 source/file freeze 해시를 root가 독립 대조했다(17/17 일치). Fresh build raw2,928/emitted164/published15, scoped audit closure419/installed324 적용0·차단0/범위 밖23, served-dist Chromium6/6·0skip/0retry를 회수했다. 앞선 실패와 sequential local cohort를 구분하며 exact committed-SHA CI proof는 다음 단계다.

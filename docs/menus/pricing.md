@@ -1,6 +1,6 @@
 # 요금제 페이지 기능 현황
 
-기준일: 2026-10-11
+기준일: 2026-10-12
 
 ## 구현 완료
 
@@ -26,6 +26,8 @@
 - Plus의 AI 기능 실제 제공 상태와 일정은 확인되지 않았다. 이 페이지의 문구는 AI가 현재 사용 가능하다는 보증이 아니다.
 
 ## 부족하거나 개선이 필요한 기능
+
+- 2026-10-12 사용자가 static landing 공개의 별도 보안·기능·접근 차단 관문을 승인했다. Web 빌드/검증 도구까지 fresh 감사하며 Vite6.4.3/Vitest4.1.11 최소 업데이트와 source/산출물 SHA 검증을 완료했다. 공개37unit·실제 Chromium6·계약29 및 scoped finding0의 local cohort를 보존하며 exact final commit CI를 확인해야 한다. 기존 전체 서비스 CI·production audit 기준은 유지한다. 현재 ACM 인증서·DNS 검증은 완료했지만 사이트 콘텐츠·`kinda` 연결 CNAME·최종 HTTPS는 아직 공개 검증 전이다. 실제 접수 API와 로그인/관제 앱은 이번 landing 배포 대상이 아니다.
 
 - 2026-10-11 한정 검증: 공개 모드/배포 Node 계약 17/17, 공개·일반 entry·mobile bootstrap 단위 45/45, Web typecheck, UI 정책 0/0·정책 테스트 79/79, 양 모드 실제 production build가 통과했다. production Chromium은 landing 2/2(서비스 전용 2개 제외), service 4/4로 직접 경로·새로고침·401/403·390px 운영자 로그인/쿠키 mock을 확인했다. 전체 canonical CI·실제 AWS/API·native 앱·HIL 검증 결과는 아니다.
 

@@ -9,7 +9,8 @@ import { CustomerShell } from "./CustomerShell";
 const admin: AuthUser = { id: "admin-1", name: "현재 관리자", loginId: "site-admin", status: "active", role: "admin", organizationId: "org-1", organizationType: "customer", mustChangePassword: false };
 const fixture: FixtureSnapshot = { id: "fixture-1", name: "입구 조명", x: 100, y: 100, ratedWatt: 40, brightness: 70, status: "online", statusReason: "reported", health: null, rssi: null, hopCount: null, commandSuccessRate: null, lastSeenAt: null, gateway: null, controllable: false, controlBlockReason: "fixture_unmapped" };
 let client: QueryClient;
-let fetchMock: ReturnType<typeof vi.fn>;
+// Keep this fixture callable when Vitest's generic mock type includes constructors.
+let fetchMock: ReturnType<typeof vi.fn<(path: string) => Promise<Response>>>;
 let canManage: boolean;
 let refreshed: boolean;
 

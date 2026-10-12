@@ -5,6 +5,7 @@ import { resolve, join, dirname } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createTemplate } from './template.mjs';
+import { verifyLandingRelease } from './release.mjs';
 import { parseDeployMode, assertPublicOutput, brandAssets, artifactName, verifyArtifact } from '../../apps/web/scripts/public-deploy-contract.mjs';
 const root=resolve(dirname(fileURLToPath(import.meta.url)),'../..');
 const releasePattern=/^[A-Za-z0-9][A-Za-z0-9_-]{0,79}$/;
@@ -260,6 +261,9 @@ if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href) {
       const build=spawnSync('pnpm',['--filter','@led-control/web','build:public'],{cwd:root,stdio:'inherit',env:{...process.env,WEB_DEPLOY_MODE:options.deployMode}});
       if(build.error)throw build.error;
       if(build.status!==0)fail('Public build failed; no AWS calls performed');
+      // The publication CLI always rebuilds. Match that exact fresh artifact to
+      // the reviewed landing gate before entering the AWS publication engine.
+      if(options.deployMode==='landing') await verifyLandingRelease(root);
     }
     console.log(JSON.stringify(await runRelease(options,c),null,2));
   } catch(error){console.error(error.message);process.exitCode=1;}

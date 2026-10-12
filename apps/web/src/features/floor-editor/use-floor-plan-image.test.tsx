@@ -7,7 +7,8 @@ class ControlledImage extends EventTarget {
   onload: ((event: Event) => void) | null = null;
   onerror: ((event: Event) => void) | null = null;
   src = "";
-  decode = vi.fn(async () => undefined);
+  // Image.decode resolves without a value, including controlled delayed decodes.
+  decode = vi.fn(async (): Promise<void> => undefined);
 
   constructor() {
     super();

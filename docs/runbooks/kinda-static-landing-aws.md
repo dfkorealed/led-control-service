@@ -2,9 +2,9 @@
 
 기준일: 2026-10-12. AWS 계정 연결, ACM 인증서 발급과 호스팅케이알 인증서 검증 CNAME 저장은 완료했다. 사이트용 stack·S3·CloudFront와 `kinda` 연결 CNAME은 아직 생성하지 않았다. 전용 private S3·CloudFront 배포에서 `WEB_DEPLOY_MODE` 하나로 공개 범위를 선택한다. 기존 관제 API·DB·장비를 생성하거나 변경하는 도구가 아니다. 아래 `kinda.dfkorealed.com` 절차는 호스팅케이알에서 DNS를 관리하는 경우의 수동 절차다.
 
-현재 계정의 무료 플랜을 유지하기로 선택했으므로 첫 사이트 배포 리전은 **Sydney `ap-southeast-2`**다. CloudFront용 ACM만 `us-east-1`에 둔다. 아래 Seoul 리전 예시는 일반 입력 형식 설명이며 현재 계정에 그대로 적용하지 않는다. 추후 Seoul 이전은 새 리소스 생성·검증·DNS 전환이 필요하다. 정확한 배포 후보의 canonical CI 여섯 단계가 통과하기 전에는 사이트 리소스를 생성하거나 콘텐츠를 게시하지 않는다. 최신 진행 상태는 [실행 계획](../superpowers/plans/2026-10-11-web-deploy-mode.md)을 참조한다.
+현재 계정의 무료 플랜을 유지하기로 선택했으므로 첫 사이트 배포 리전은 **Sydney `ap-southeast-2`**다. CloudFront용 ACM만 `us-east-1`에 둔다. 아래 Seoul 리전 예시는 일반 입력 형식 설명이며 현재 계정에 그대로 적용하지 않는다. 추후 Seoul 이전은 새 리소스 생성·검증·DNS 전환이 필요하다. 전체 서비스는 정확한 배포 후보의 canonical CI 여섯 단계 통과를 요구한다. 사용자가 승인한 landing-only 공개는 아래의 별도 landing 관문 통과를 요구한다. 관문 통과 전 사이트 리소스 생성·콘텐츠 게시를 하지 않는다. 최신 진행 상태는 [실행 계획](../superpowers/plans/2026-10-11-web-deploy-mode.md)을 참조한다.
 
-현재 공개 후보의 네 보안 업데이트와 CI launcher 보완은 독립 검토를 통과했다. 그러나 전체 저장소 감사는 수정 릴리스가 없는 모바일 도구 `node-forge`·`braces` High 두 건으로 실패한다. 실제 landing 빌드의 unfiltered module graph에는 두 패키지가 없고 manifest 파일 검증도 통과했지만, 이 증거는 기존 전체 CI 통과 요구를 대신하지 않는다. Landing 전용 release 관문 분리는 아직 제안 단계이며 사용자 결정 전 이 문서의 관문을 변경하거나 사이트를 게시하지 않는다.
+현재 공개 후보의 네 보안 업데이트와 CI launcher 보완은 독립 검토를 통과했다. 그러나 전체 저장소 감사는 수정 릴리스가 없는 모바일 도구 `node-forge`·`braces` High 두 건으로 실패한다. 실제 landing 빌드의 unfiltered module graph에는 두 패키지가 없고 manifest 파일 검증도 통과했지만, 이 증거는 기존 전체 CI 통과 요구를 대신하지 않는다. 2026-10-12 사용자가 landing 전용 release 관문 추가와 통과 후 배포를 명시 승인했다. 별도 frozen dependencies/공개 기능/산출물 security graph/HTTP 차단 검증을 구현·독립 검토하고 exact 후보의 landing CI가 실제 성공한 뒤에만 공개한다. 전체 서비스 CI·감사 정책은 유지하며 현재 두 High findings의 해결을 주장하지 않는다.
 
 ## 한 번 설정할 항목
 
@@ -25,6 +25,16 @@
 3. ACM 인증서 상태가 **ISSUED**로 바뀌고 SAN에 `kinda.dfkorealed.com`이 있는지 확인한다. 검증 CNAME은 ACM 자동 갱신에 필요하므로 유지한다. 인증서 ARN만 `certificateArn`에 복사하고 인증서 개인 키나 AWS 자격 증명은 설정 파일·로그에 적지 않는다.
 
 `kinda.dfkorealed.com`은 서브도메인이므로 이후 CloudFront 연결에 일반 CNAME을 사용한다. `dfkorealed.com` 네임서버를 Route 53으로 변경하거나 NS 위임 레코드를 만들 필요가 없다. 기존 `kinda` A/AAAA/CNAME 레코드가 있으면 목적지를 먼저 확인한다. 도구는 호스팅케이알 DNS를 조회하거나 수정하지 않는다.
+
+## Landing 전용 공개 관문
+
+Node22/pnpm9.15.0에서 `WEB_DEPLOY_MODE=landing node scripts/landing/release.mjs`를 실행한다. `.github/workflows/landing-release.yml`의 **Public Landing Release**가 정확한 공개 후보 커밋에서 성공해야 한다. Frozen install → shared build → public typecheck/unit/계약 → 실제 public build → dev 포함 fresh scoped audit → served-dist Chromium 순서다. 기존 Software CI는 그대로 실행되며 service 공개에는 그 여섯 단계 전체 성공이 필요하다.
+
+범위는 실제 Web/shared 의존성 및 빌드·검증 도구의 lock 이름/버전 closure다. Raw/emitted Rollup module을 실제 package metadata에 연결하고 전체 감사의 적용/범위 밖 finding을 모두 기록한다. Moderate 이상 적용 finding, 잘못된 감사 자료, unknown module, 누락된 검사, skip·flaky browser 또는 변경된 source/artifact는 실패다. Advisory의 dependency-path 문자열만으로 제외하지 않는다.
+
+성공 증명은 `.local/landing-release/proof.json`이며 CI artifact `public-landing-<전체 Git SHA>`에서 받는다. 증명은 Git HEAD, source/config/workflow/lock 및 배포 manifest SHA와 실제 검사 결과를 묶는다. Landing `deploy --execute`는 항상 다시 빌드한 뒤 증명의 같은 HEAD/source/artifact 및 24시간 이내 보안 감사 여부를 검증하고, 불일치하면 첫 AWS 호출 전에 실패한다. 실패한 새 관문은 이전 proof를 삭제한다. `.local` 자료와 proof는 공개 자산에 포함하지 않는다.
+
+2026-10-12 로컬 보존 cohort는 public unit37/37, 계약29/29, Chromium6/6(0skip/0retry), 일반 Web5/5, 타입 fixture41/41 및 전체 Web typecheck 성공이다. 최신 public build는 raw2,928/emitted164 modules, 실제 published15 packages이며 closure419/installed324에 해당 advisory0이다. 전체 dev 포함 감사의 Critical5/High10/Moderate8(23건)은 범위 밖으로 명시 보존한다. 이는 최종 커밋 CI와 AWS 공개 성공을 대신하지 않는다.
 
 ## 동일 명령으로 모드 선택
 
@@ -97,7 +107,7 @@ aws cloudformation describe-stacks --stack-name 실제-stackName --region ap-nor
 node scripts/landing/deploy.mjs check --config .local/landing-aws.json --execute
 ```
 
-`check` 응답의 `dns`에는 `mode: external`, `recordType: CNAME`, `name: kinda.dfkorealed.com`, 실제 `target: d...cloudfront.net`이 표시된다. 이 시점에는 아직 빈 배포이므로 먼저 첫 `deploy`를 실행한다. 같은 검토 커밋의 canonical CI가 **quality → unit → postgres-redis-integration → playwright-real-core → build → production-audit** 전체를 통과했는지 확인한다. 도구는 CI를 조회하거나 대신 실행하지 않는다. 로컬 Node 22 / pnpm 9.15.0과 frozen lockfile로 준비한다. 실제 생성에는 별도의 승인된 provisioning 권한이 필요하며 예시 OIDC 배포 정책은 신규 stack/인증서/DNS 생성 권한을 포함하지 않는다.
+`check` 응답의 `dns`에는 `mode: external`, `recordType: CNAME`, `name: kinda.dfkorealed.com`, 실제 `target: d...cloudfront.net`이 표시된다. 이 시점에는 아직 빈 배포이므로 먼저 첫 `deploy`를 실행한다. 같은 검토 커밋의 `landing` 공개는 **Public Landing Release** 성공과 내려받은 proof를 확인한다. `service` 공개는 canonical CI **quality → unit → postgres-redis-integration → playwright-real-core → build → production-audit** 전체 성공을 확인한다. 도구는 원격 CI를 조회하거나 대신 실행하지 않으며 landing proof/source/artifact는 원격 쓰기 전에 검증한다. 로컬 Node 22 / pnpm 9.15.0과 frozen lockfile로 준비한다. 실제 생성에는 별도의 승인된 provisioning 권한이 필요하며 예시 OIDC 배포 정책은 신규 stack/인증서/DNS 생성 권한을 포함하지 않는다.
 
 ```sh
 WEB_DEPLOY_MODE=landing node scripts/landing/deploy.mjs deploy --config .local/landing-aws.json --release 20261012-landing-r1 --execute
@@ -160,7 +170,7 @@ WEB_DEPLOY_MODE=service node scripts/landing/deploy.mjs rollback --config .local
 
 `infra/landing/oidc-policy.example.json`은 정확한 계정·stack·bucket·distribution·OAC·Function과 protected GitHub Environment를 넣는 검토 템플릿이다. trust의 aud/sub를 고정한다. 배포 역할은 해당 stack 갱신, 해당 distribution/Function 갱신·게시·invalidation, 해당 S3 경로 읽기/쓰기와 lock 하나 삭제, 기존 bucket policy 갱신을 포함한다. 사용자 도메인을 쓰면 외부 DNS/Route 53 방식 모두 `check`·`deploy`·`rollback`에서 ACM 인증서를 다시 확인하므로, `EXACT_CERTIFICATE_ID`를 config의 `certificateArn`에 있는 ID로 바꿔 **같은 계정의 해당 `us-east-1` 인증서 하나에 대한 `acm:DescribeCertificate` 읽기 권한**을 배포 역할에 부여해야 한다. 기본 CloudFront 도메인만 쓰는 역할에는 이 ACM 권한 항목이 필요 없다. [AWS ACM API 권한 표](https://docs.aws.amazon.com/acm/latest/userguide/authen-apipermissions.html). ValidateTemplate은 AWS가 resource scoping을 지원하지 않아 Resource `*`가 필요하다. 새 stack/인증서/DNS/역할 생성 권한은 제공하지 않는다. 최초 `provision`은 별도 승인된 생성 권한으로 수행한다. OIDC workflow나 권한을 실제 생성하지 않았다.
 
-기존 canonical CI **quality → unit → postgres-redis-integration → playwright-real-core → build → production-audit**와 동일 검토 커밋을 배포 전 필수 확인한다. 이 도구는 CI 성공을 자동 조회하지 않으며 좁은 로컬 테스트가 전체 CI 성공을 대체하지 않는다. 새 workflow를 연결할 때 protected environment·동일 SHA의 CI 성공 확인·frozen toolchain·직렬화를 유지한다.
+전체 `service` 공개는 기존 canonical CI **quality → unit → postgres-redis-integration → playwright-real-core → build → production-audit**와 동일 검토 커밋을 배포 전 필수 확인한다. 사용자 승인 범위인 `landing` 공개는 별도 **Public Landing Release**의 동일 SHA 성공과 source/artifact-bound proof를 필수 확인한다. 도구는 원격 CI 성공을 자동 조회하지 않으며 좁은 로컬 결과만으로 어느 모드의 CI도 성공으로 표시하지 않는다. 새 배포 workflow를 연결할 때 protected environment·동일 SHA의 해당 CI 성공 확인·frozen toolchain·직렬화를 유지한다.
 
 ```sh
 node --test scripts/landing/*.test.mjs apps/web/scripts/public-deploy-contract.test.mjs

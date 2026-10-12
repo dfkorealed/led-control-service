@@ -22,7 +22,9 @@ function incident(id: string, site = siteId, isRead = false) {
     isDismissed: false, dismissedAt: null };
 }
 let client: QueryClient;
-let fetchSpy: ReturnType<typeof vi.fn>;
+// Vitest 4's unparameterized mock also admits constructors; this fixture is
+// specifically the callable fetch adapter used by the incident API.
+let fetchSpy: ReturnType<typeof vi.fn<(path: string, init?: RequestInit) => Response | Promise<Response>>>;
 let unread: number;
 let receipts: Set<string>;
 let failRead: boolean;
@@ -212,7 +214,8 @@ describe("persistent alarm center", () => {
     await screen.findByText(/전체 지우기 결과를 확인하지 못했습니다/);
     const posts = () => fetchSpy.mock.calls.filter(([, init]) => init?.method === "POST");
     expect(posts()).toHaveLength(1);
-    const key = JSON.parse(posts()[0][1].body as string).clientRequestId;
+    // The POST predicate above guarantees RequestInit for these typed accesses.
+    const key = JSON.parse(posts()[0][1]!.body as string).clientRequestId;
     first.unmount(); client.clear();
     render(<SessionStatusProvider><SessionStatusCenter userId={user} siteId={siteId} /></SessionStatusProvider>, { wrapper });
     fireEvent.click(await screen.findByRole("button", { name: "알람센터, 미읽음 3건" }));
@@ -220,7 +223,7 @@ describe("persistent alarm center", () => {
     expect(posts()).toHaveLength(1);
     fireEvent.click(screen.getByRole("button", { name: /결과 확인.*다시 시도/ }));
     await waitFor(() => expect(posts()).toHaveLength(2));
-    expect(JSON.parse(posts()[1][1].body as string)).toEqual({ clientRequestId: key });
+    expect(JSON.parse(posts()[1][1]!.body as string)).toEqual({ clientRequestId: key });
     expect(receipts.size).toBe(0);
   });
   it("closed_hidden_next_page_alarms_are_not_read", async () => {
