@@ -357,8 +357,8 @@ async function openSelectedMonitoringDetail() {
   const inspector = await openMonitoringInspector();
   fireEvent.click(within(inspector).getByRole("button", { name: "상세 보기" }));
   // Monitoring uses the same nonmodal map-bottom detail on compact and desktop.
-  const detail = await screen.findByRole("complementary", { name: "조명 상세", exact: true });
-  return within(detail).getByRole("complementary", { name: "선택 조명 상세", exact: true });
+  const detail = await screen.findByRole("complementary", { name: "조명 상세" });
+  return within(detail).getByRole("complementary", { name: "선택 조명 상세" });
 }
 
 async function selectMapFixture(name: string) {
@@ -925,7 +925,7 @@ describe("App", () => {
     expect(within(inspector).queryByRole("button", { name: "상세 보기" })).not.toBeInTheDocument();
     fireEvent.click(within(inspector).getByRole("button", { name: "B2-L01 정상" }));
     await openSelectedMonitoringDetail();
-    const detailOverlay = await screen.findByRole("complementary", { name: "조명 상세", exact: true });
+    const detailOverlay = await screen.findByRole("complementary", { name: "조명 상세" });
     expect(within(detailOverlay).getByRole("complementary", { name: "선택 조명 상세" })).toHaveTextContent("B2-L01");
     expect(screen.getAllByText("관제 센터").length).toBeGreaterThan(0);
   });
@@ -1180,7 +1180,7 @@ describe("App", () => {
     const inspector = await openMonitoringInspector();
     fireEvent.click(within(inspector).getByRole("button", { name: "B2-L-OFFLINE 오프라인" }));
     await openSelectedMonitoringDetail();
-    const detailOverlay = await screen.findByRole("complementary", { name: "조명 상세", exact: true });
+    const detailOverlay = await screen.findByRole("complementary", { name: "조명 상세" });
     expect(within(detailOverlay).getByRole("heading", { name: "B2-L-OFFLINE" })).toBeInTheDocument();
   });
 
