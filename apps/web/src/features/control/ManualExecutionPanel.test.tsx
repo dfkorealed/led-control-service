@@ -35,6 +35,35 @@ describe("ManualExecutionPanel", () => {
     fireEvent.click(screen.getByRole("button", { name: "적용 대상" })); expect(submit).toHaveBeenCalledOnce();
   });
 
+  it.each([false, true])("native Home/End retain slider focus and update only the draft (compact=%s)", compact => {
+    const submit = vi.fn();
+    function Draft() {
+      const [brightness, setBrightness] = useState(70);
+      return <ManualExecutionPanel brightness={brightness} controlsLocked={false} canSubmit applyLabel="적용 대상"
+        compact={compact} onBrightnessChange={setBrightness} onSubmit={submit} />;
+    }
+    render(<Draft />);
+    const slider = screen.getByRole("slider", { name: "밝기" });
+    act(() => { slider.focus(); });
+    for (const [key, value] of [["Home", "0"], ["End", "100"]]) {
+      fireEvent.keyDown(slider, { key });
+      expect(screen.getByRole("slider", { name: "밝기" })).toBe(slider);
+      expect(slider).toHaveFocus();
+      expect(slider).toHaveValue(value);
+      expect(screen.getByRole("textbox", { name: "밝기 수치" })).toHaveValue(value);
+      expect(submit).not.toHaveBeenCalled();
+    }
+    if (compact) {
+      const more = screen.getByRole("button", { name: "더보기" });
+      fireEvent.click(more); fireEvent.click(more);
+      expect(screen.getByRole("slider", { name: "밝기" })).toBe(slider);
+      expect(slider).toHaveValue("100");
+      expect(submit).not.toHaveBeenCalled();
+    }
+    fireEvent.click(screen.getByRole("button", { name: "적용 대상" }));
+    expect(submit).toHaveBeenCalledOnce();
+  });
+
   it("fidelity exposes one visible brightness label while the bare slider keeps its accessible input", () => {
     setup();
     expect(screen.getAllByText("밝기")).toHaveLength(1);

@@ -93,13 +93,16 @@ export function ManualExecutionPanel({ brightness, controlsLocked, canSubmit, ap
         <Text as="span" variant="label" className={compact ? "sr-only" : undefined}>밝기</Text>
         <div className="flex min-w-0 items-baseline gap-1">
           <NumberField key={inputRevision} aria-label="밝기 수치" variant="ghost" size={compact ? "sm" : "lg"}
-            className={compact ? "w-12" : "w-20"} inputClassName="px-1 text-body text-right"
+            className={compact ? "w-12" : "w-20"} inputClassName={`px-1 text-body text-right${compact ? " rounded-none!" : ""}`}
             minValue={0} maxValue={100} step={1} value={brightness} isDisabled={controlsLocked} isInvalid={invalidDraft}
             onChange={value => { if (rawValid.current && !restoring.current && value !== null && Number.isInteger(value) && value >= 0 && value <= 100) onBrightnessChange(value); }} />
           <Text as="span" variant="caption" aria-hidden="true">%</Text>
         </div>
       </div>
-      <Slider aria-label="밝기" presentation="bare" className="min-w-0" minValue={0} maxValue={100} step={1} value={brightness} isDisabled={controlsLocked} onChange={changeDraft} />
+      {/* The shared 52px thumb extends 26px past either track endpoint.
+          Compact-only 28px gutters keep its hit area inside its own column;
+          the numeric input's square corners preserve the full 44px hit height. */}
+      <Slider aria-label="밝기" presentation="bare" className={compact ? "min-w-0 px-7" : "min-w-0"} minValue={0} maxValue={100} step={1} value={brightness} isDisabled={controlsLocked} onChange={changeDraft} />
       {apply}
       <Button ref={moreRef} hidden={!compact} type="button" variant="secondary" className={compact ? `${manualCompactButtonHitClassName} px-2 text-caption` : "hidden"}
         aria-expanded={moreOpen} aria-controls={auxiliary?.panelId ?? moreId} onClick={event => auxiliary ? auxiliary.toggle("more", event.currentTarget) : setMoreOpen(value => !value)}>더보기</Button>

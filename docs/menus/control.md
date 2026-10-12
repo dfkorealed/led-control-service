@@ -1,5 +1,31 @@
 # 제어 메뉴 기능 현황
 
+## 2026-10-12 실제 Home→0 실패 후 수동 compact 슬라이더 양끝 보완
+
+### 구현 완료
+
+- 수동 compact 실행 행의 Slider caller에만 좌우28px 여백을 둔다. 기존52px thumb가 트랙0/100%에서26px씩 바깥으로 나오는 범위를 자기 열 안에 확보해 숫자 입력/적용 버튼의 조작 영역을 침범하지 않도록 한다. 실행 행44px·지도 finite 높이 배치는 유지한다.
+- 같은 compact 숫자 입력48×44는 사각 모서리를 사용해 연속44px 입력 영역의 모서리 손실을 피한다. 공통 Slider/NumberField와 기본·PC caller는 변경하지 않았다. 기존 native Home/End·draft/ref·invalid 복원/첫 Apply 차단·명령 UUID/handler는 유지한다.
+
+### 미구현
+
+- 변경 소스의 실제320×600/390×600 숫자 입력·thumb0/100·적용·더보기 continuous44 및 지도240+ 재판정은 총괄 source freeze 뒤 UX 후속 관문이다. 본 담당 actual browser 실행0.
+
+### 부족하거나 개선이 필요한 기능
+
+- 2290a877 actual case3는 Home→0 뒤48×44 target의 continuous44=false로 실패했다. 당시 지도269px·문서overflow0이었으며 실패 screenshot에는 thumb와 숫자 입력 오른쪽의 겹침이 보인다. 원본 RED는 보존한다.
+- native Home/End 직접 소비자 테스트는 양끝 draft 동기화·slider DOM/focus·명시 적용 계약의 회귀 근거다. 기존 구현에서도 통과하는 동작 회귀이며, CSS 여백/모서리 선언이나 JSDOM 결과를 실제 hit GREEN으로 해석하지 않는다. 실제 OS touch/keyboard·장비/HIL 검증은 수행하지 않았다.
+
+### 관련 파일
+
+- `apps/web/src/features/control/ManualExecutionPanel.tsx`와 `ManualExecutionPanel.test.tsx`.
+- 실제 Control/Shell/Spatial/Viewport 소비자 회귀 및 무변경 공통 `components/ui/fields/{Slider,NumberField}.tsx`.
+
+### 갱신 규칙
+
+- 슬라이더 끝값은0/100 모두에서 숫자 입력·thumb·적용·더보기의 독립 continuous44와 실행 행/지도 높이를 함께 확인한다. 원 actual RED·직접 동작 회귀·후속 actual geometry 판정을 구분한다.
+- compact caller 이외의 공통/default/PC 스타일 및 draft/명령 경로 변경을 동반하지 않는다. source/hash/raw cohort와 후속 UX freeze 결과를 각각 기록한다.
+
 ## 2026-10-12 실제 continuous44 실패 후 수동 compact 버튼 보완
 
 ### 구현 완료
