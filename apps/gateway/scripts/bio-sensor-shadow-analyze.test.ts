@@ -140,7 +140,10 @@ describe("BIO shadow evidence gate", () => {
 
 describe("BIO shadow analyzer CLI", () => {
   async function run(args: string[]) {
-    return execFileAsync("pnpm", ["exec", "tsx", join(import.meta.dirname, "bio-sensor-shadow-analyze.ts"), ...args], { cwd: join(import.meta.dirname, "..") });
+    // Each executable validation checks the real CLI entry point directly.
+    // Avoid repeated pnpm launcher startup; the package-script smoke below
+    // independently preserves pnpm's documented leading-separator contract.
+    return execFileAsync(process.execPath, ["--import", "tsx", join(import.meta.dirname, "bio-sensor-shadow-analyze.ts"), ...args], { cwd: join(import.meta.dirname, "..") });
   }
 
   async function runPackageScript(args: string[]) {

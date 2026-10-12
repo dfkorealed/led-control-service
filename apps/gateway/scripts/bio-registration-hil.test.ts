@@ -618,15 +618,27 @@ describe("guarded BIO registration HIL CLI", () => {
     let parentHadToKill = false;
     child.stdout.setEncoding("utf8");
     child.stderr.setEncoding("utf8");
-    child.stdout.on("data", (chunk) => { stdout += chunk; });
     child.stderr.on("data", (chunk) => { stderr += chunk; });
     const result = await new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolveResult) => {
-      const timeout = setTimeout(() => {
+      const killChild = () => {
         parentHadToKill = true;
         child.kill("SIGKILL");
-      }, 750);
+      };
+      // Cold Node/tsx imports are startup work, not the diagnostic-to-exit
+      // contract. Reserve the unchanged 750 ms exit budget inside this test's
+      // existing 5 s overall bound, and kill only this owned child on either miss.
+      const startupTimeout = setTimeout(killChild, 5_000 - 750);
+      let exitTimeout: ReturnType<typeof setTimeout> | undefined;
+      child.stdout.on("data", (chunk) => {
+        stdout += chunk;
+        if (!exitTimeout && stdout.includes('{"status":"INVALID_ARGUMENTS"}\n')) {
+          clearTimeout(startupTimeout);
+          exitTimeout = setTimeout(killChild, 750);
+        }
+      });
       child.once("close", (code, signal) => {
-        clearTimeout(timeout);
+        clearTimeout(startupTimeout);
+        clearTimeout(exitTimeout);
         resolveResult({ code, signal });
       });
     });
