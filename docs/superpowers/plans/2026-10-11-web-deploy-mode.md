@@ -59,7 +59,7 @@
 - [x] 읽기 전용 리전/인증서/DNS 사전 확인. 서울 ListStacks는 조직 SCP explicit deny, Sydney ListStacks는 성공/빈 목록. AWS Settings는 신규 경험 Free Plan 및 Sydney 지정, us-east-1 ACM 목록 없음, 권한 NS 호스팅케이알, kinda CNAME 조회 없음.
 - [x] 사용자 계정 변경 선택: 현재 무료 플랜 유지·기존 Sydney 리전 공개 배포, 서울 이전은 크레딧 소진 뒤 별도 진행. 자동 전환/예약하지 않는다.
 - [x] Node22.23.3 공식 archive checksum 확인·pnpm9.15 frozen install, fresh landing build와 공개 계약23/23. 새 canonical 원격 branch에 source3540ea41 push 완료.
-- [ ] 정확한 reviewed source의 canonical CI 전체 성공. run38194736652는 quality 성공/unit 실패/후속4 skipped. isolated Ubuntu 원RED0/2→승인381aa7d6 세 파일의 focusedGREEN2/2·Mac root152PASS/기존환경4SKIP를 회수했다. Compose 생략 출력·OpenSSL stdout·GNU/BSD stat 오염 최소수정의 독립 review/Linux root 결과 뒤 통합하고 새 exactSHA CI를 확인한다. workflow/skip/production policy 완화는 금지한다.
+- [ ] 정확한 reviewed source의 canonical CI 전체 성공. run38194736652는 quality 성공/unit 실패/후속4 skipped. isolated Ubuntu 원RED0/2→승인381aa7d6 세 파일의 focusedGREEN2/2·Mac root152PASS/기존환경4SKIP를 회수했다. Compose 생략 출력·OpenSSL stdout·GNU/BSD stat 오염 최소수정은 독립 C/I/M0·spec/qualityPASS·통합YES 승인 뒤 clean root에 d270c3a9로 통합했다. 추가Linux root의 환경 차이 실패는 전체GREEN으로 주장하지 않으며 실제 nonroot/init runner의 새 exactSHA CI를 확인한다. workflow/skip/production policy 완화는 금지한다.
 - [x] 실제 같은 계정 ACM DNS 인증서 발급·호스팅케이알 검증 CNAME 저장, 권한 DNS 응답과 ISSUED 확인. 기존 회사 DNS 보존, 갱신용 CNAME 유지.
 - [ ] Sydney 전용 stack provision 및 실제 DistributionId 구성. private ignored config와 AWS validate-template은 준비됐으며 CI green 전 실제 provision은 보류한다.
 - [ ] mode-bound release build/deploy 완료 뒤 호스팅케이알 kinda CNAME 연결, HTTPS 공개 경로/차단 경로 smoke, 실제 결과 기록.
